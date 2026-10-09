@@ -63,10 +63,6 @@ h-entry:
   premises_go: true
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -166,10 +162,6 @@ h-judge:
   premises_go: false
   purpose_go: true
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -210,10 +202,6 @@ h-mat:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: board/out/r1/p0.purpose.json
   mat_go: true
   structure_units_file: ''
   ripple_file: ''
@@ -538,40 +526,6 @@ provenance-accept:
 gathering__collect:
   ok: true
   reason: ''
-  ran:
-  - p0.prior_decisions
-  - p1.local_review
-  - p1.consistency_bypass
-  - p1.hygiene
-  - p1.external_standards
-  - p1.procedure_trace
-  - p1.gate_efficacy
-  - p1.test_double_fidelity
-  - p1.main_path_observation
-  - p1.provenance
-  skipped:
-  - node: p0.purpose_review
-    why: 目的の文と一緒に入る（absent）
-  materials:
-    prior_decisions: clean
-    local_review: clean
-    consistency_bypass: clean
-    hygiene: clean
-    external_standards: clean
-    procedure_trace: clean
-    gate_efficacy: clean
-    test_double_fidelity: clean
-    main_path_observation: clean
-    provenance: clean
-  snapshot:
-    rev: 0123456789abcdef0123456789abcdef01234567
-    diff_file: board/diff-r1.patch
-    changed_files:
-    - stats.py
-    changed_files_file: board/changed-r1.txt
-    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
-    request_wheres: []
-  exit_file: board/r1/material-exit.json
 judging__intake:
   ok: true
   reason: ''
@@ -678,10 +632,6 @@ h-plan:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: board/r1/structure-units.json
   ripple_file: ''
@@ -904,10 +854,6 @@ h-gate:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -930,10 +876,6 @@ h-fix:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1415,10 +1357,6 @@ h-replan:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1465,10 +1403,6 @@ h-regate:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1491,10 +1425,6 @@ h-refit:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1581,10 +1511,6 @@ h-rejudge:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1621,34 +1547,6 @@ rejudge-accept:
   reason: ok p2.rejudge を受け付けた
   node: p2.rejudge
   verdict: 採る
-rejudging__rj-route2:
-  next: ''
-  node: ''
-  why: '再審の節が ready に無い（p2.rejudge: done・p2.rejudge_third: cond rejudge_exhausted: 今の周の異議に往復 1 回（上限 3））'
-  stopped: false
-rejudge-third-prep:
-  prompt_file: board/prompts/r1/p2.rejudge_third.md
-  attempt: 1
-  out_path: board/out/r1/p2.rejudge_third.json
-  node: p2.rejudge_third
-  already: false
-rejudge-third:
-  verdict: 退ける
-  new_facts: 往復を読み、争点を g からの直の呼び出しの有無に絞った。g の 12 行目は上限を通る共通経路を呼んでおり、直の呼び出しは無かった
-  reason: 回す側の根拠は現物で確かめられなかったので退ける
-  units:
-  - key: src/a.py:f — 上限が効かない経路がある
-    label: block
-  - key: src/b.py:g — 定数の重複
-    label: suggest
-    disposition: do-now
-rejudge-third-accept:
-  ok: true
-  done: true
-  give_up: false
-  reason: ok p2.rejudge_third を受け付けた
-  node: p2.rejudge_third
-  verdict: 退ける
 rejudging__collect:
   ok: true
   reason: ''
@@ -1664,32 +1562,6 @@ rejudging__collect:
   unnamed_changed: []
   diff_file: board/r1/rejudge-diff.json
   reads_file: ''
-h-mid:
-  ok: true
-  stop: false
-  go: true
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: '中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）'
-  purpose_file: ''
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
 h-review:
   ok: true
   stop: false
@@ -1708,10 +1580,6 @@ h-review:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1784,10 +1652,6 @@ h-refix:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1897,10 +1761,6 @@ h-tests:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1933,10 +1793,6 @@ h-look:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1959,10 +1815,6 @@ h-final:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1985,10 +1837,6 @@ h-eyes:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -2163,29 +2011,6 @@ r4-scope-accept:
 eyeing__eyes-collect:
   ok: true
   reason: ''
-  complete: true
-  asking: false
-  stopped: false
-  eyes:
-    r1-comments: done
-    r1-minimality: done
-    r2-compare: done
-    r3-coherence: done
-    r4-scope: done
-    premise-check: na
-  gave_up: []
-  after_fix:
-    rev: acc5e6c2327b89f81356f7b71020f3347cdded0c
-    diff_file: board/diff-r1-after-fix.patch
-    changed_files:
-    - src/a.py
-    - src/b.py
-    diff_lines: 9
-  open_units: 0
-  r1_refire: true
-  r2_refire: true
-  purpose_known: true
-  purpose_unusable: ''
   reviews:
     R1:
       status: pass
@@ -2199,8 +2024,6 @@ eyeing__eyes-collect:
     R4:
       status: pass
       reason: 導入・露呈した横断リスクなし
-  premise:
-    facts_to_add: []
   premise_inputs:
     design: null
     compare:
@@ -2208,8 +2031,6 @@ eyeing__eyes-collect:
       given: []
       withheld: []
     claims: []
-  retaken_for_reviews: board/diff-r1-after-fix.patch
-  exit_file: board/r1/eyes-exit.json
 report:
   ok: true
   outcome: fixed

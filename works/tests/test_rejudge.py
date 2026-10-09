@@ -227,23 +227,15 @@ class RouteCase(_Case):
         got = rejudge.route(self.bd, self.repo)
         self.assertEqual((got["next"], got["stopped"]), ("", True), got)
 
-    def test_third_runs_when_board_says(self):
-        """規則が第三の目を出した盤面（往復を今の周の 3 にした盤面）では、会話を確かめずに rejudge-third を回す"""
+    def test_third_is_absent_in_the_line(self):
+        """規則が第三の目を出した盤面（往復を今の周の 3 にした盤面）でも、ラインの表で p2.rejudge_third は absent なので盤面が
+        省き、rejudge-third を回さない（段はブロックに無い。2026-10-09 の整理）。止めもしない"""
         self.board("exhausted", session=False)
         got = rejudge.route(self.bd, self.repo)
-        self.assertEqual((got["next"], got["stopped"]), ("rejudge-third", False), got)
+        self.assertEqual((got["next"], got["stopped"]), ("", False), got)
         self.assertNotIn("stop", kit.state(self.bd))
-        self.assertFalse(self.work(rejudge.SESSION_NAME).exists())
-        rejudge.snap(self.bd, self.repo)
-        got = rejudge.prep(self.bd, "rejudge-third", self.repo)
-        self.assertIn("第三の目", pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"))
-        self.assertTrue(rejudge.take(self.bd, "p2.rejudge_third", load("rejudge_third_ok"), self.repo)["ok"])
-        self.assertIs(json.loads((pathlib.Path(self.bd) / "accept-last.json").read_text(encoding="utf-8"))
-                      ["rejudge_p2_rejudge_third"]["ok"], True)
-        rows = json.loads(self.work(rejudge.DIFF_NAME).read_text(encoding="utf-8"))
-        self.assertEqual([(r["pass"], r["verdict"]) for r in rows], [("rejudge-third", "退ける")])
-        out = rejudge.collect(self.bd)
-        self.assertEqual((out["ok"], out["passes"], out["verdicts"]), (True, 1, ["退ける"]), out)
+        import entry
+        self.assertEqual(entry.open_board(pathlib.Path(self.bd)).node_state("p2.rejudge_third"), "skipped")
 
 
 class RenderPrepCase(_Case):
@@ -257,8 +249,11 @@ class RenderPrepCase(_Case):
         ctx["node"] = {"skills": []}
         snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
         # 指示書の本文は試験の側で組む（写しの graph の prompt_file・prompt_append を gl-prompts の置き場で引いて改行でつなぐ。
-        # engine の node_prompt と同じつなぎ方。rejudge の置き場の選び方は通さない）
-        parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
+        # engine の node_prompt と同じつなぎ方。rejudge の置き場の選び方は通さない）。engine と違うのは 1 つだけ: 方針の文書が無い
+        # run は方針の段落（rolekit.POLICY_PARTS）を貼らない
+        import rolekit
+        self.assertFalse((ctx.get("inputs") or {}).get("policy_md"), "この盤面は方針の文書の無い run")
+        parts = [n["prompt_file"], *(p for p in n.get("prompt_append") or [] if p.rsplit("/", 1)[-1] not in rolekit.POLICY_PARTS)]
         self.assertTrue(all(p.startswith("../prompts/") for p in parts), parts)
         tpl = "\n".join((kit.CORE / "gl-prompts" / "prompts" / p.removeprefix("../prompts/")).read_text(encoding="utf-8")
                         for p in parts)
@@ -269,8 +264,8 @@ class RenderPrepCase(_Case):
         got = path.read_text(encoding="utf-8")
         self.assertEqual(got, want)
         self.assertEqual(path, self.bd / "prompts" / f"r{b.round}" / (safe_name("p2.rejudge") + ".md"))
-        self.assertIn("## 人の方針", got)              # policy-paste.md
-        self.assertIn("方針が在るなら", got)            # policy.md
+        self.assertNotIn("## 人の方針", got)           # policy-paste.md（方針の文書の無い run には貼らない）
+        self.assertNotIn("方針が在るなら", got)         # policy.md（同じ）
         self.assertIn("判定の単位 src/a.py:f", got)     # 異議の文（loop.rejudge_requested）
         self.assertIn(UNIT_B, got)
 

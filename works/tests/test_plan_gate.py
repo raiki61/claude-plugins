@@ -21,7 +21,6 @@ import converge  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
-import plan  # noqa: E402
 import report  # noqa: E402
 from engine.rules import registry  # noqa: E402
 
@@ -139,11 +138,11 @@ class LedgerAsksCase(GateBase):
         row = got["ask"]["items"][0]
         for needle in (FORK["key"], "例外・0 を返す", "推し: 例外", FORK_UNIT):
             self.assertIn(needle, row)
-        text = plan.gate_text({"node": "p2.human_gate", **got["ask"]})
+        text = line_edge.gate_text({"node": "p2.human_gate", **got["ask"]})
         self.assertIn(gatemarks.ASK_GATE_HEAD, text)
         self.assertIn("問いの理由の推しで直す", text)
         self.assertIn("保留: <問いの key>", text)
-        self.assertNotIn(gatemarks.ASK_GATE_HEAD, plan.gate_text({"node": "p2.human_gate", "kinds": ["regression"],
+        self.assertNotIn(gatemarks.ASK_GATE_HEAD, line_edge.gate_text({"node": "p2.human_gate", "kinds": ["regression"],
                                                                   "items": ["x"], "question": "q"}))
 
     def test_recommendation_missing_is_said(self):
@@ -529,7 +528,7 @@ class PlainSubjectCase(GateBase):
     """関所の文と報告の頭は平易な名を主語にし、盤面の内部の名（節の名・記録の欄・目の名・状態の語）は括弧に回す"""
 
     def test_plan_gate_text_subjects_are_plain(self):
-        text = plan.gate_text({"node": "p2.human_gate", "kinds": ["regression"], "question": "狭まる能力を代償に採るか",
+        text = line_edge.gate_text({"node": "p2.human_gate", "kinds": ["regression"], "question": "狭まる能力を代償に採るか",
                                "items": ["項目 A"]}, run_id="run-1")
         self.assertEqual(internal_subjects(text), [])
 
@@ -603,8 +602,8 @@ class QuotedQuestionCase(GateBase):
         self.assertEqual(text.count(continue_line), 1, "答え方の continue は 1 通りだけ")
 
     def test_plan_gate_quotes_mainline_question(self):
-        self.check_gate(plan.gate_text(self.asking(), run_id="run-1"),
-                        plan.answer.line("run-1", "continue", "<通す範囲と条件>"))
+        self.check_gate(line_edge.gate_text(self.asking(), run_id="run-1"),
+                        line_edge.answer.line("run-1", "continue", "<通す範囲と条件>"))
 
     def test_final_gate_quotes_board_question(self):
         _, b = self.gate()

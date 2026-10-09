@@ -531,7 +531,7 @@ class StopsKeepWorkCase(ReplanCase):
 
     def test_reply_level_rows_hand_the_machine_empty_reply(self):
         """run 222f の型: 修正案の事前審査への応答（plan_faces）を 3 回とも欠いた返答。最後の回は義務の全部を止め、
-        機械の空の返答を盤面に渡す。h-mid は役の修正と数えない"""
+        機械の空の返答を盤面に渡す（trace に空の返答の印）"""
         accept_mod = accept_module("blk_fix_accept_stops")
         state, reply = self.reddening_fixer(faces=True)
         reply["plan_faces"] = []
@@ -550,7 +550,7 @@ class StopsKeepWorkCase(ReplanCase):
     def test_second_pass_reply_level_rows_keep_first_pass_rows(self):
         """2 回目の修正の段（ruled）で返答の欄の誤りを 3 回とも出す。最後の回は義務の MEAN を止め、機械の空の返答に 1 回目に
         受けた CLAMP の行を合わせて盤面に渡す（写しの fix_covers_open_units は 1 回目の単位を引かない）。CLAMP の行が残るので
-        h-mid は役の修正と数え、差分の審査を飛ばさない"""
+        空の返答の印を付けない"""
         state, reply = self.second_pass()
         reply["changes"][0]["files"] = ["stats.py"]
         reply["fix_closure"] = {"status": "nonsense"}
@@ -601,8 +601,8 @@ class StopsKeepWorkCase(ReplanCase):
         for it in ("1", "2", "3"):
             self.run_it(reply, INPUTS_ITERATION=it, INPUTS_TDD_STATE=state)
         line_edge, report = self.edge_modules()
-        mid = line_edge.edge(self.board, "mid", self.repo, run_id="run-12", adapter_mode="optional", final_gate="when_needed")
-        self.assertEqual((mid["stop"], mid["go"]), (False, True), "差分の審査へ進む")
+        review = line_edge.edge(self.board, "review", self.repo, run_id="run-12", adapter_mode="optional", final_gate="when_needed")
+        self.assertEqual((review["stop"], review["go"]), (False, True), "差分の審査へ進む")
         b = entry.open_board(self.board, allow_halted=True)
         self.assertEqual(report.fix_split(b)["kept"], [MEAN])
         self.assertEqual([p["unit_key"] for p in report.fix_split(b)["parked"]], [CLAMP])

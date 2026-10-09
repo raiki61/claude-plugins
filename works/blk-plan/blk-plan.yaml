@@ -28,18 +28,6 @@ description: |
   ripple_file に返す。
 
 inputs:
-  judgment_file:
-    required: true
-    description: 受け付けた判定の置き場（ラインの口を他のブロックと揃える。スクリプトは読まない——判定は盤面が持ち、指示書に描かれる）
-  base_rev:
-    default: ""
-    description: 周の頭で固めた版（ラインの口を揃える。スクリプトは読まない——読む版は盤面の inputs.review_rev）
-  policy_paste:
-    default: ""
-    description: 人の方針の本文（ラインの口を揃える。読まない——方針は盤面の inputs.policy_md から指示書に描かれる）
-  policy_path:
-    default: ""
-    description: 人の方針の文書の置き場（ラインの口を揃える。読まない——盤面の inputs.policy_md が正本）
   excluded_file:
     default: ""
     description: 並行 PR の外した範囲のファイル（無ければ空か文字列 null）。在れば 2 つの役の指示書の頭にパスを名指す

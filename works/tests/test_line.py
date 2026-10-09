@@ -343,8 +343,8 @@ class LineShapeCase(unittest.TestCase):
         # 直す道で、根の切り方は 1 度目に読んだ）
         self.assertEqual(node("planning")["with"]["verify_file"], "$h-plan.output.verify_file")
         self.assertNotIn("verify_file", re_["with"])
-        self.assertEqual({k: v for k, v in re_["with"].items() if k not in ("replan", "judgment_file")},
-                         {k: v for k, v in node("planning")["with"].items() if k not in ("judgment_file", "verify_file")})
+        self.assertEqual({k: v for k, v in re_["with"].items() if k != "replan"},
+                         {k: v for k, v in node("planning")["with"].items() if k != "verify_file"})
         gate = node("replan-gate")
         self.assertNotIn("loop_group", gate)
         self.assertEqual((gate["depends_on"], gate["when"]), (["h-regate"], "$h-regate.output.ask == true"))
@@ -414,7 +414,7 @@ class LensWiringCase(unittest.TestCase):
 
 class DepthWiringCase(unittest.TestCase):
     """単位ごとの深さ（計画 2026-10-06-variable-depth の決め 8）: h-depth は h-fix の後・修正の前で決め、修正は h-depth を待つ。
-    h-redepth は h-mid の後・h-review の前で上げ、レンズと独立の目に省く理由（平の入力）を、機械の報告に行を渡す"""
+    h-redepth は再審（h-rejudge・rejudging）の後・h-review の前で上げ、レンズと独立の目に省く理由（平の入力）を、機械の報告に行を渡す"""
 
     def test_depth_nodes_wired(self):
         ids = [n["id"] for n in line()["nodes"]]
@@ -424,10 +424,10 @@ class DepthWiringCase(unittest.TestCase):
         self.assertEqual(node("fixing")["with"]["unit_depths"], "$h-depth.output.unit_depths")
         # 2 回目の修正は案の直しの後だけ走り、案の直しは全部の単位を標準へ上げる信号なので、深さを渡さない（全部が今どおり）
         self.assertNotIn("unit_depths", node("refitting")["with"])
-        self.assertLess(ids.index("h-mid"), ids.index("h-redepth"))
+        self.assertLess(ids.index("rejudging"), ids.index("h-redepth"))
         self.assertLess(ids.index("h-redepth"), ids.index("h-review"))
         self.assertIn("h-redepth", node("h-review")["depends_on"])
-        self.assertEqual(node("lensing")["with"]["skip"], "$h-redepth.output.skip")
+        self.assertNotIn("with", node("lensing"))   # レンズは h-review が回す時だけ走るので、省く理由を渡さない
         self.assertEqual(node("eyeing")["with"]["skip_optional"], "$h-redepth.output.skip")
         self.assertEqual(node("report")["with"]["depth"], {"from": "$h-redepth.output", "if_skipped": None})
         import depth

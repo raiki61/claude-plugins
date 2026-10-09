@@ -35,6 +35,8 @@ import linekit  # noqa: E402
 
 # 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}（減らす方向にだけ変える）
 OPTIONAL_INPUTS = {}
+# 読まない入力を残してよいブロック（理由つき）
+UNREAD_INPUTS = {"blk-spec": {"base_rev"}}   # blk-spec を残すかは持ち主の決め待ち（2026-10-09）。触らない
 # 定数 INPUTS をまだ持たないスクリプト（裁定 TA16 の縛りの外。減らす方向にだけ変える。持ったら消す）
 NO_INPUTS_CONSTANT = frozenset({
     "blk-fix/scripts/assert_changed.py",
@@ -116,6 +118,28 @@ class InputNamesCase(unittest.TestCase):
         used = set(re.findall(r"\$INPUTS\.([A-Za-z_]\w*)", yaml.safe_dump(doc["nodes"], allow_unicode=True)))
         self.assertEqual(used, set(doc["inputs"]) - SHELL_ONLY)
         self.assertLessEqual(SHELL_ONLY, set(doc["inputs"]))
+
+    def test_block_inputs_are_all_referenced(self):
+        """ブロックの宣言した入力はどれも、そのブロックの YAML か指示書（commands/）のどこかで $INPUTS.<名> として使われる
+        （読まない入力をラインが渡し続けない。2026-10-09 の整理で、読まない base_rev・policy_paste などを消した）"""
+        for path in sorted(ROOT.glob("blk-*/blk-*.yaml")):
+            folder = path.parent
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            texts = [path.read_text(encoding="utf-8")] + [p.read_text(encoding="utf-8") for p in sorted((folder / "commands").glob("*.md"))]
+            used = {m for t in texts for m in re.findall(r"\$INPUTS\.([A-Za-z_]\w*)", t)}
+            unread = set(doc.get("inputs") or {}) - used - UNREAD_INPUTS.get(folder.name, set())
+            with self.subTest(folder.name):
+                self.assertEqual(unread, set(), "宣言したが読まない入力（ラインの渡す口ごと消す）")
+
+    def test_fixture_inputs_are_declared(self):
+        """ブロックとラインの筋書き（fixtures/*.stubs.yaml）の fixture.inputs は、その工程が宣言した入力だけ（Archon の workflow test は
+        宣言の無い入力の筋書きを回さずに落とす。dev/check.sh でしか分からなかった）"""
+        for path in sorted(ROOT.glob("*/fixtures/*.stubs.yaml")):
+            wf = path.parent.parent
+            doc = yaml.safe_load((wf / f"{wf.name}.yaml").read_text(encoding="utf-8"))
+            given = set(((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("fixture") or {}).get("inputs") or {})
+            with self.subTest(str(path.relative_to(ROOT))):
+                self.assertEqual(given - set(doc.get("inputs") or {}), set())
 
     def test_script_inputs_match_with(self):
         """線とブロックの全部の script の節で、with: の鍵を INPUTS_<大文字> にした集合 == スクリプトの定数 INPUTS（TA16）"""

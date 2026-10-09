@@ -283,7 +283,7 @@ LINE_ORDER = [
               "features_on": "$INPUTS.features_on"}},
     {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
      "when": "$start.output.ci_role_go == true",
-     "with": {"node": "p0.local_checks", "base_rev": "$start.output.base_rev"}},
+     "with": {"node": "p0.local_checks"}},
     _edge("h-entry", "entry", ["start", "ci-checking"]),
     {"id": "pr-checking", "kind": "include", "block": "blk-pr", "depends_on": ["h-entry"],
      "when": "$h-entry.output.pr_go == true", "with": {}},
@@ -298,8 +298,7 @@ LINE_ORDER = [
     _edge("h-mat", "mat", ["start", "h-judge", "purposing"]),
     {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat"],
      "when": "$h-mat.output.mat_go == true",
-     "with": {"base_rev": "$start.output.base_rev", "adapter": "$start.output.adapter",
-              "purpose_file": "$h-mat.output.purpose_file"}},
+     "with": {"adapter": "$start.output.adapter"}},
     {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering"], "trigger_rule": NFMOS,
      "when": "$h-mat.output.go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
@@ -315,9 +314,7 @@ LINE_ORDER = [
               "plan_go": {"from": "$h-plan.output.go", "if_skipped": False}}},
     {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan", "h-structure"],
      "when": "$h-plan.output.go == true",
-     "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
-              "verify_file": "$h-plan.output.verify_file", "review_tree": "$start.output.review_tree"}},
+     "with": {"verify_file": "$h-plan.output.verify_file", "review_tree": "$start.output.review_tree"}},
     _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -336,9 +333,7 @@ LINE_ORDER = [
     _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
      "when": "$h-replan.output.go == true",
-     "with": {"judgment_file": "$h-replan.output.judgment_file", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path", "replan": "true",
-              "review_tree": "$start.output.review_tree"}},
+     "with": {"replan": "true", "review_tree": "$start.output.review_tree"}},
     _edge("h-regate", "regate", ["start", "h-replan", "replanning"]),
     {"id": "replan-gate", "kind": "approval", "depends_on": ["h-regate"], "when": "$h-regate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -354,14 +349,13 @@ LINE_ORDER = [
     _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
-     "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste"}},
-    _edge("h-mid", "mid", ["start", "h-rejudge", "rejudging"]),
-    _depth("h-redepth", "raise", ["start", "h-mid", "h-depth"],
+     "with": {}},
+    _depth("h-redepth", "raise", ["start", "h-rejudge", "rejudging", "h-depth"],
            replanned={"from": "$h-replan.output.go", "if_skipped": False},
            rejudged={"from": "$h-rejudge.output.go", "if_skipped": False}),
-    _edge("h-review", "review", ["start", "h-mid", "h-redepth"]),
+    _edge("h-review", "review", ["start", "h-rejudge", "rejudging", "h-redepth"]),
     {"id": "lensing", "kind": "include", "block": "blk-lens", "depends_on": ["h-review"],
-     "when": "$h-review.output.go == true", "with": {"skip": "$h-redepth.output.skip"}},
+     "when": "$h-review.output.go == true", "with": {}},
     {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review", "lensing"], "trigger_rule": NFMOS,
      "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}},
     _edge("h-refix", "refix", ["start", "h-review", "reviewing"]),
@@ -371,10 +365,10 @@ LINE_ORDER = [
               "policy_path": "$start.output.policy_path"}},
     _edge("h-tests", "tests", ["start", "h-refix", "refixing"]),
     {"id": "testing", "kind": "include", "block": "blk-tests", "depends_on": ["h-tests"],
-     "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd", "mode": "final"}},
+     "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd"}},
     _edge("h-look", "look", ["start", "h-tests", "testing"]),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
-     "with": {"base_rev": "$start.output.base_rev", "skip_optional": "$h-redepth.output.skip"}},
+     "with": {"skip_optional": "$h-redepth.output.skip"}},
     _edge("h-final", "final", ["start", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
     {"id": "final-gate", "kind": "approval", "depends_on": ["h-final"], "when": "$h-final.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -383,7 +377,7 @@ LINE_ORDER = [
     {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"],
      "trigger_rule": ALL_DONE,
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
-              "start": {"from": "$start.output"}, "mid": _skippable("$h-mid.output"),
+              "start": {"from": "$start.output"},
               "ci": _skippable("$ci-checking.output"), "eyes": _skippable("$h-eyes.output"),
               "eyeing": _skippable("$eyeing.output"), "cleaned_runs": "$INPUTS.cleaned_runs",
               "depth": _skippable("$h-redepth.output")}},
@@ -541,7 +535,7 @@ class LineRun:
         for role, nid in material.ROLES.items():
             if not r.get(material.route_key(role)):
                 continue
-            material.prep(self.board, role, self.repo, self.out["h-mat"]["purpose_file"])
+            material.prep(self.board, role, self.repo)
             default = reply("purpose_review_ok") if nid == "p0.purpose_review" else TM.good_reply(nid)
             got = material.take(self.board, role, self.replies.get(nid, default),
                                 self.repo, adapter)
@@ -664,15 +658,13 @@ class LineRun:
         return {"ok": True, "files": ["stats.py"], "changes_file": "", "removed": {"count": 0, "file": ""}}
 
     def blk_rejudge(self):
-        """blk-rejudge の中の節の順（rj-snap → 段ごとに経路 rj-route<k> → 支度・役・受け付けの輪 → 出口 collect）を本物の口で回す。
+        """blk-rejudge の中の節の順（rj-snap → 経路 rj-route1 → 支度・役・受け付けの輪 → 出口 collect）を本物の口で回す。
         役の返答は replies[<役>]（無ければ盤面の今の単位をそのまま返して異議を退ける見本）。輪は受け付けの done で抜ける（R50）"""
         import entry
         import rejudge
         rejudge.snap(self.board, self.repo)
-        for _ in rejudge.passes():
-            r = rejudge.route(self.board, self.repo)
-            if not r["next"]:
-                continue
+        r = rejudge.route(self.board, self.repo)   # 段は 1 つ（第三の目の段はブロックに無い）
+        if r["next"]:
             for _ in range(rejudge.GIVE_UP_AFTER):
                 rejudge.prep(self.board, r["next"], self.repo)
                 units = entry.open_board(self.board).record.get("units") or []
@@ -693,7 +685,7 @@ class LineRun:
             sys.path.insert(0, str(ROOT / "blk-lens" / "lib"))
         import lenses
         with mock.patch.dict(os.environ, lens_plugin(self.tmp)):
-            r = lenses.route(self.board, skip=(self.out.get("h-redepth") or {}).get("skip") or "")
+            r = lenses.route(self.board)
         env = {}
         for row in lenses.LENSES:
             node = f"lens-{row['lens']}"
@@ -827,7 +819,7 @@ class LineRun:
             elif nid == "report":
                 w = row["with"]
                 self.out[nid] = report.build(self.board.resolve(), judged=self._src(w["judged"]), tests=self._src(w["tests"]),
-                                             start=self._src(w["start"]), mid=self._src(w["mid"]), ci=self._src(w["ci"]),
+                                             start=self._src(w["start"]), ci=self._src(w["ci"]),
                                              run_id=RUN_ID, events=[],
                                              depth_lines=(self._src(w["depth"]) or {}).get("lines") or ())
                 self.trail.append(nid)

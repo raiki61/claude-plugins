@@ -12,7 +12,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
-- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None, cleaned_runs="")（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
+- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, cleaned_runs="")（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
@@ -30,7 +30,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
   （検証器の外の残りの数えの正本。最後の関所と冒頭 1・次の依頼が同じ口を読む。NOT_RUN_GATE_NOTE が not_run の例外の理由）
 - always_rows(b, left=None, *, rest=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
   走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False, found_only=False)（仕組みの異常。報告の「仕組みの異常」の節）
-- build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
+- build(board_dir, *, judged, tests, start, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
@@ -1115,10 +1115,9 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
     return [{k: r[k] for k in DOWNGRADE_KEYS} for r in doc]
 
 
-def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: str = "", depth_lines=()) -> list:
+def head_entry(b, start: dict | None, *, cleaned_runs: str = "", depth_lines=()) -> list:
     """冒頭 2: 入口・段・gates・最後の関所の形・包み・機能の on でない物（入力 features_off・features_on と既定）・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
-    線が渡した深さの行（depth_lines。単位ごとの深さと、軽量で省いた物。渡されなければ出さない）・
-    中の検査の枠の行（境の節の mid_note）・起動の前に
+    線が渡した深さの行（depth_lines。単位ごとの深さと、軽量で省いた物。渡されなければ出さない）・起動の前に
     片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
     s = _start_doc(b, start)
     # 入口の文は start が控えに書く（渡された出口には無い。控えにも無いのは start が控えを書く前に落ちた run）
@@ -1144,10 +1143,6 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     lines.append(f"下げている所: {len(downs)} 個")
     lines += [f"  - {r['node']}: {r['what']}（{r['versus']}）" for r in downs]
     lines += [str(x) for x in depth_lines or () if isinstance(x, str) and x]
-    if isinstance(mid, dict) and mid.get("mid_note"):
-        lines.append(f"中の検査の枠: {mid['mid_note']}")
-    else:
-        lines.append("中の検査の枠: 境の節の出口が届いていない（中の検査を回さなかった run）")
     if cleaned_runs:
         lines.append(f"{CLEANED_HEAD}: {cleaned_runs}")
     return lines
@@ -1659,7 +1654,7 @@ def _finish_fields(b, judged, outcome) -> dict:
     return out
 
 
-def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
+def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
           failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "",
           depth_lines=()) -> dict:
@@ -1697,7 +1692,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, mid=mid, cleaned_runs=cleaned_runs, depth_lines=depth_lines), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_entry(b, start, cleaned_runs=cleaned_runs, depth_lines=depth_lines), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]

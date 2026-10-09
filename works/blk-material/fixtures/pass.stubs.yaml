@@ -305,40 +305,6 @@ provenance-accept:
 collect:
   ok: true
   reason: ''
-  ran:
-  - p0.prior_decisions
-  - p1.local_review
-  - p1.consistency_bypass
-  - p1.hygiene
-  - p1.external_standards
-  - p1.procedure_trace
-  - p1.gate_efficacy
-  - p1.test_double_fidelity
-  - p1.main_path_observation
-  - p1.provenance
-  skipped:
-  - node: p0.purpose_review
-    why: 目的の文と一緒に入る（absent）
-  materials:
-    prior_decisions: clean
-    local_review: clean
-    consistency_bypass: clean
-    hygiene: clean
-    external_standards: clean
-    procedure_trace: clean
-    gate_efficacy: clean
-    test_double_fidelity: clean
-    main_path_observation: clean
-    provenance: clean
-  snapshot:
-    rev: 0123456789abcdef0123456789abcdef01234567
-    diff_file: board/diff-r1.patch
-    changed_files:
-    - stats.py
-    changed_files_file: board/changed-r1.txt
-    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
-    request_wheres: []
-  exit_file: board/r1/material-exit.json
 fixture:
   expect: completed
   reached:

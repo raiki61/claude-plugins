@@ -5,9 +5,8 @@
  "required": [
   "ok",
   "reason",
-  "complete",
-  "eyes",
-  "exit_file"
+  "reviews",
+  "premise_inputs"
  ],
  "properties": {
   "ok": {
@@ -16,14 +15,8 @@
   "reason": {
    "type": "string"
   },
-  "complete": {
-   "type": "boolean"
-  },
-  "eyes": {
+  "reviews": {
    "type": "object"
-  },
-  "exit_file": {
-   "type": "string"
   },
   "premise_inputs": {
    "type": "object"

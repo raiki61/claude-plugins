@@ -238,11 +238,11 @@ works 自身の直しをライン `darkfactory` に回す殻が [dev/dogfood.sh]
 
 ## 足りない所
 
-- 周の輪（直ったと言えるまで 2 周目以降を回す）が無い。今のラインは 1 周の run で（`entry.start` の `stop_after_round=1`）、残りが在れば結末は round_limit のまま報告で終わる。続きは人が次の run の依頼に書く（報告の `next-request.json` の下書き）。周の輪は線 B（下の「仕様」）で、main には入っていない。
+- 周の輪（直ったと言えるまで 2 周目以降を回す）が無い。今のラインは 1 周の run で（`entry.start` の `stop_after_round=1`）、残りが在れば結末は round_limit のまま報告で終わる。続きは人が次の run の依頼に書く（報告の `next-request.json` の下書き）。周の輪は線 B（下の「仕様」）で、棚上げ（2026-10-09）。main には入っていない。
 
 ## 仕様
 
 設計の正本は [`docs/specs/2026-09-26-darkfactory-design.md`](docs/specs/2026-09-26-darkfactory-design.md)。実装計画は [`docs/plans/2026-09-26-darkfactory-v1.md`](docs/plans/2026-09-26-darkfactory-v1.md)。どちらも盤面の層 [`docs/specs/2026-09-26-board-layer-design.md`](docs/specs/2026-09-26-board-layer-design.md) の上に載る。各計画の今の状態は [docs/plans/](docs/plans/) の各ファイルの頭の「状態:」の行に在る。
 
 - 線 A（1 回の run を review-graph と同じ工程に強くする）: 入れた。今のライン `darkfactory` がこれ（修正の後の機械の数え直し `.shared/core/recount.py`・修正案の事前審査と往復 `.shared/core/converge.py` を含む）。設計 [`docs/specs/2026-09-27-darkfactory-single-run-design.md`](docs/specs/2026-09-27-darkfactory-single-run-design.md)・計画 [`docs/plans/2026-09-27-darkfactory-single-run.md`](docs/plans/2026-09-27-darkfactory-single-run.md)
-- 線 B（直ったと言えるまで何周も回す入口 `darkfactory-rounds`）: 合流させずに置いた。作りかけは枝 `wip/works-trackB` にだけ在り、2026-09-27 から止まっている（main には無い）。設計 [`docs/specs/2026-09-27-darkfactory-rounds-design.md`](docs/specs/2026-09-27-darkfactory-rounds-design.md)・計画 [`docs/plans/2026-09-27-darkfactory-rounds.md`](docs/plans/2026-09-27-darkfactory-rounds.md)
+- 線 B（直ったと言えるまで何周も回す入口 `darkfactory-rounds`）と線 C（変異の検算 mutgate）: 棚上げ（2026-10-09）。作るかは別に決める。線 B の作りかけは枝 `wip/works-trackB` にだけ在り、2026-09-27 から止まっている（main には無い）。線 B の設計 [`docs/specs/2026-09-27-darkfactory-rounds-design.md`](docs/specs/2026-09-27-darkfactory-rounds-design.md)・計画 [`docs/plans/2026-09-27-darkfactory-rounds.md`](docs/plans/2026-09-27-darkfactory-rounds.md) は残す

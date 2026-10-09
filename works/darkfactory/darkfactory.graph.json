@@ -1,23 +1,23 @@
 {
  "entry": "darkfactory",
  "sources": {
-  "blk-ci/blk-ci.yaml": "54be4671fc8ba18244c16e27a1da429abce8df6c2463598188347006237a99a7",
+  "blk-ci/blk-ci.yaml": "d9373d46a87951d989565235822641b8a7667c69fc6c67011085e36b109d2ddd",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
-  "blk-eyes/blk-eyes.yaml": "f696e307d4666bc8446d0525b94639eb79030a35c8c00ab0866307c3e4af88cc",
+  "blk-eyes/blk-eyes.yaml": "277d25144f14bee888c2e1720c6b17ee518c4295646539b20cfea2346336024b",
   "blk-fix/blk-fix.yaml": "45bb00e85fd339f393f94205affe67c558ecaf0a3e3a5d5134cdfaf2e442d645",
   "blk-judge/blk-judge.yaml": "8e4e7a2fe79d6d6c8c7771379da6ffe42d284e7d991ba1986f78f7bd88fe4e6f",
-  "blk-lens/blk-lens.yaml": "7ccf607bc1c0067e0628221ded92a715cb1f1568da802b11bb4df2c2326a167a",
-  "blk-material/blk-material.yaml": "040fa977ff762ece754d50ed38ea9dee5d741771551d759b88005c5991f5b0e1",
-  "blk-plan/blk-plan.yaml": "2b7e9d87c7e966241ef40cbbe2725b087dfa96322335b218962fcaf0be307f62",
+  "blk-lens/blk-lens.yaml": "fe7f42c097083bd466fde0c424a3a77b778419b2fb026950f34df6d31f88f466",
+  "blk-material/blk-material.yaml": "1683a4e544086d9d203e3d5a644e5abb9b55be2036db8d912a688e1e8ffa532c",
+  "blk-plan/blk-plan.yaml": "1839184e2614ca5b61b86332d868d431712db5689e25798084008aba8d0060d9",
   "blk-pr/blk-pr.yaml": "db7f159e61da185091e653d014aed1a7fd3f63855c6daafc9b1eff064c3b7d56",
   "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
-  "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
+  "blk-purpose/blk-purpose.yaml": "cd10f26594712b1fc6358bf9b401a0c980903c936d2ea07d5b441cab654f3c7a",
   "blk-refix/blk-refix.yaml": "c6a1ded23be9c036b9cb816e164b274370171bebb4e35e94643b9afeb6a7698d",
-  "blk-rejudge/blk-rejudge.yaml": "539f1e4a310584d17bb3cf67a4e4f285911969a073637ab9ca9d1e9ac3c88b07",
+  "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
-  "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "f47dc64997bb13a612b780c6130ef4d43215dc9ca8499796371c6b915cbdbf50"
+  "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
+  "darkfactory/darkfactory.yaml": "b779c8732192e0dc7cab7774e409dd0b50b7b6af6b7cf41544e9442fadf3e5b3"
  },
  "version": 1,
  "workflows": {
@@ -2101,45 +2101,6 @@
       "rj-route1",
       "rejudge-loop"
      ],
-     "id": "rj-route2",
-     "kind": "script"
-    },
-    {
-     "body": [
-      {
-       "deps": [],
-       "id": "rejudge-third-prep",
-       "kind": "script"
-      },
-      {
-       "deps": [
-        "rejudge-third-prep"
-       ],
-       "id": "rejudge-third",
-       "kind": "ai",
-       "marker": "rejudge-third"
-      },
-      {
-       "deps": [
-        "rejudge-third"
-       ],
-       "id": "rejudge-third-accept",
-       "kind": "script"
-      }
-     ],
-     "deps": [
-      "rj-route2"
-     ],
-     "id": "rejudge-third-loop",
-     "kind": "loop",
-     "max": 3,
-     "when": "$rj-route2.output.next == 'rejudge-third'"
-    },
-    {
-     "deps": [
-      "rj-route2",
-      "rejudge-third-loop"
-     ],
      "id": "collect",
      "kind": "script"
     }
@@ -2299,7 +2260,6 @@
      "purpose": "宣言の CI を機械で走らせられない run で、CI を任せ先の役が回す",
      "when": "$start.output.ci_role_go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
       "node": "p0.local_checks"
      }
     },
@@ -2380,9 +2340,7 @@
      "purpose": "判定の前に、差分を P1 の目と先行議論に見せて素材を集める",
      "when": "$h-mat.output.mat_go == true",
      "with": {
-      "adapter": "$start.output.adapter",
-      "base_rev": "$start.output.base_rev",
-      "purpose_file": "$h-mat.output.purpose_file"
+      "adapter": "$start.output.adapter"
      }
     },
     {
@@ -2445,10 +2403,6 @@
      "purpose": "独立設計・修正案（項目ごとの範囲とテスト）・事前審査の壁打ち",
      "when": "$h-plan.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "judgment_file": "$h-plan.output.judgment_file",
-      "policy_paste": "$start.output.policy_paste",
-      "policy_path": "$start.output.policy_path",
       "review_tree": "$start.output.review_tree",
       "verify_file": "$h-plan.output.verify_file"
      }
@@ -2534,10 +2488,6 @@
      "purpose": "案の直し（修正の段の裁定が案の項目の誤りとした時だけ）",
      "when": "$h-replan.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "judgment_file": "$h-replan.output.judgment_file",
-      "policy_paste": "$start.output.policy_paste",
-      "policy_path": "$start.output.policy_path",
       "replan": "true",
       "review_tree": "$start.output.review_tree"
      }
@@ -2613,24 +2563,13 @@
      "kind": "call",
      "purpose": "修正役が判定に異議を出した時の再審",
      "when": "$h-rejudge.output.go == true",
-     "with": {
-      "base_rev": "$start.output.base_rev",
-      "policy_paste": "$start.output.policy_paste"
-     }
+     "with": {}
     },
     {
      "deps": [
       "start",
       "h-rejudge",
-      "rejudging"
-     ],
-     "id": "h-mid",
-     "kind": "script"
-    },
-    {
-     "deps": [
-      "start",
-      "h-mid",
+      "rejudging",
       "h-depth"
      ],
      "id": "h-redepth",
@@ -2639,7 +2578,8 @@
     {
      "deps": [
       "start",
-      "h-mid",
+      "h-rejudge",
+      "rejudging",
       "h-redepth"
      ],
      "id": "h-review",
@@ -2654,9 +2594,7 @@
      "kind": "call",
      "purpose": "修正の後の局所レビュー（レンズ）",
      "when": "$h-review.output.go == true",
-     "with": {
-      "skip": "$h-redepth.output.skip"
-     }
+     "with": {}
     },
     {
      "call": "blk-delta",
@@ -2715,8 +2653,7 @@
      "purpose": "最後のテスト（木の全部で 1 回）",
      "when": "$h-tests.output.go == true",
      "with": {
-      "cmd": "$start.output.test_cmd",
-      "mode": "final"
+      "cmd": "$start.output.test_cmd"
      }
     },
     {
@@ -2738,7 +2675,6 @@
      "purpose": "独立の目（冗長と最小性・独立設計との比較・整合・範囲）",
      "when": "$h-look.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
       "skip_optional": "$h-redepth.output.skip"
      }
     },

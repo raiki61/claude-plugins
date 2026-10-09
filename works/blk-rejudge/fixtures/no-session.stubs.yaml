@@ -8,11 +8,6 @@ rj-route1:
   node: p2.rejudge
   why: 判定役の会話の id のファイル <包みの家>/sessions/<cwd>/judge.id が無い（包みを通らない run か、判定役に印が無い）
   stopped: true
-rj-route2:
-  next: ''
-  node: ''
-  why: 盤面は止まっている（works:rejudge-session）
-  stopped: true
 collect:
   ok: true
   reason: ''
@@ -32,5 +27,4 @@ fixture:
   reached:
   - rj-snap
   - rj-route1
-  - rj-route2
   - collect

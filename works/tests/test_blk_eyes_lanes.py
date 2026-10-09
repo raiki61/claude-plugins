@@ -127,7 +127,8 @@ class R4AfterR1R2Case(TB._Case):
         self.assertIsNotNone(run.seen, "r4.human_gate が聞いた（この試験の前提）")
         self.assertIn(run.seen["r1-minimality"], ("done", "na", "skipped", "stopped"), run.seen)
         out = run.out["eyes-collect"]
-        self.assertTrue(out["asking"], out)
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(entry.open_board(self.bd, allow_halted=True).state.get("pending_human"), "止めずに人に聞いている")
         self.assertIsInstance(out["reviews"]["R1"], dict, out["reviews"])
         rows = line_edge()._eyes(entry.open_board(self.bd, allow_halted=True)).rows
         self.assertFalse([r for r in rows if "（R1）" in r and "結果が無い" in r], rows)

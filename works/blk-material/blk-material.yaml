@@ -11,12 +11,9 @@ description: |
   （輪を落とさず collect まで届き、collect が止めた理由を返す）。
   機械の節 p1.worktree_before・p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle・start）が回す。
   ラインから include で使う。前に p0.local_checks・p0.parallel_pr・p0.premises を済ませておく（P1 の目の依存）。
-  出口 collect: {ok, reason, ran, skipped, materials, snapshot, exit_file}（本線の R3 の出口 snapshot・materials を含む）。
+  出口 collect: {ok, reason}（本線の R3 の出口 snapshot・materials は読み手が無いので出さない）。
 
 inputs:
-  base_rev:
-    default: ""
-    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
   adapter:
     default: ""
     description: |
@@ -25,7 +22,8 @@ inputs:
   purpose_file:
     default: ""
     description: |
-      目的の文のファイル（blk-purpose の出口 purpose_file）。盤面に p0.purpose が無いラインで、指示書の目的の欄を埋める。
+      目的の文のファイル（{purpose_text, source, known_weaknesses, source_files} の JSON。graph の p0.purpose の返答の形）。
+      盤面に p0.purpose が無いラインで、指示書の目的の欄を埋める（p0.purpose が在るラインは盤面の物を使い、これを読まない）。
       空なら「目的の文はこの run に無い」と書く（目的を作らない）
 
 returns: collect
@@ -1978,61 +1976,8 @@ nodes:
       required:
       - ok
       - reason
-      - ran
-      - skipped
-      - materials
-      - snapshot
-      - exit_file
       properties:
         ok:
           type: boolean
         reason:
-          type: string
-        ran:
-          type: array
-          items:
-            type: string
-        skipped:
-          type: array
-          items:
-            type: object
-            required:
-            - node
-            - why
-            properties:
-              node:
-                type: string
-              why:
-                type: string
-        materials:
-          type: object
-          additionalProperties:
-            type: string
-        snapshot:
-          type: object
-          required:
-          - rev
-          - diff_file
-          - changed_files
-          - changed_files_file
-          - diff_stat
-          - request_wheres
-          properties:
-            rev:
-              type: string
-            diff_file:
-              type: string
-            changed_files:
-              type: array
-              items:
-                type: string
-            changed_files_file:
-              type: string
-            diff_stat:
-              type: string
-            request_wheres:
-              type: array
-              items:
-                type: string
-        exit_file:
           type: string

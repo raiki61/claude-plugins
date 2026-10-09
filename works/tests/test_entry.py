@@ -2,7 +2,7 @@
 
 表は手で書き、ここで写しの graph と突き合わせる（盤面の層の縛り 1〜5 と、線 A の行の決まり）。行の決まりは線 A の仕様 4 節と
 持ち主の答え（2026-09-27）: p0.premises は役（blk-premises）、p0.parallel_pr は engine_run で任せ先は読むだけの役（blk-pr）、
-p2.rejudge・p2.rejudge_third は役（blk-rejudge。包みが判定役の会話を継ぐ）、p0.purpose は線 B が足すので absent、手厚さは標準だけ。
+p2.rejudge は役（blk-rejudge。包みが判定役の会話を継ぐ）、p2.rejudge_third は absent（0.21.0 の規則で ready にならない）、p0.purpose は役（blk-purpose）、手厚さは標準だけ。
 盤面を作る試験は linekit の種（dev/target-seed/）を使い捨ての家（linekit.work_home()）の下に置いて回す。
 """
 import contextlib
@@ -34,7 +34,7 @@ import scopes  # noqa: E402
 GRAPH = graph_expanded()
 TABLE_PATH = ROOT / "darkfactory" / "nodes.json"
 ROLES = {"p0.premises", "p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review", "p3.delta_fix",
-         "p3.delta_review2", "p3.delta_fix2", "p2.rejudge", "p2.rejudge_third", "p0.purpose"}
+         "p3.delta_review2", "p3.delta_fix2", "p2.rejudge", "p0.purpose"}
 # 独立の目（blk-eyes。計画 P1 Task 33）の行（tests/boards/tables/eyes-rows.json の案をそのまま当てた）
 EYES = {"r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", "r4.hidden_scope",
         "stop.premise_check"}
@@ -88,12 +88,10 @@ class TableCase(unittest.TestCase):
         self.assertIn("blk-pr", pr.reason)
         self.assertIn("投稿しない", pr.reason)
         self.assertIn("スコープから外す", pr.reason)   # review-graph の 6 段と同じく、衝突した hunk はこのループで触らない（Task 21）
-        for nid in ("p2.rejudge", "p2.rejudge_third"):
-            with self.subTest(nid):
-                self.assertEqual(self.nodes[nid].by, "role")
-                self.assertEqual(self.nodes[nid].where, "blk-rejudge")
+        self.assertEqual((self.nodes["p2.rejudge"].by, self.nodes["p2.rejudge"].where), ("role", "blk-rejudge"))
         self.assertIn("会話を継ぐ", self.nodes["p2.rejudge"].reason)
-        self.assertIn("新しい会話", self.nodes["p2.rejudge_third"].reason)
+        self.assertEqual(self.nodes["p2.rejudge_third"].by, "absent")
+        self.assertIn("ready にならない", self.nodes["p2.rejudge_third"].reason)
 
     def test_where_is_a_plain_block_name(self):
         """where はブロックの名か start だけ（線 B の表と合流の時に比べる。説明の文は reason に置く）。absent と builtin は書かない"""
@@ -177,8 +175,8 @@ class TableCase(unittest.TestCase):
         self.assertEqual({n for n, g in GRAPH["nodes"].items() if g.get("pre") == "finalize"}, {"report"})
 
     def test_later_lines_name_their_line(self):
-        """線 B・線 C・R 系・別の入口の行は comes_with にその名"""
-        want = {"p2.history": "線 B", "p3.delta_gates": "線 C", "p4.final_gates": "線 C",
+        """周を重ねる入口・変異の検算・別の入口の行は comes_with にその名（線 B・線 C は棚上げと書く。2026-10-09）"""
+        want = {"p2.history": "棚上げ 2026-10-09", "p3.delta_gates": "棚上げ 2026-10-09", "p4.final_gates": "棚上げ 2026-10-09",
                 "spec.write": "darkfactory-spec"}
         for nid, name in want.items():
             with self.subTest(nid):
@@ -357,7 +355,7 @@ class BoardCase(unittest.TestCase):
         self.assertEqual(st["stop"]["by"], scopes.SCOPE_CHECK_BY)
         self.assertIn("refitting/r1/x.json", st["stop"]["reason"])
         self.assertEqual(self.window(d)["scope"], "")   # 窓は開いた節へ移る（後の開きが同じ誤りで落ち続けない）
-        with self.line("h-mid"):
+        with self.line("h-review"):
             entry.open_board(d)
         with self.scoped("reporting__report-write", block="blk-report"):   # 報告の節は止めた盤面を allow_halted で開ける
             self.assertTrue(entry.open_board(d, allow_halted=True).allow_halted)

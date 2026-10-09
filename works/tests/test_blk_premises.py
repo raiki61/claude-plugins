@@ -130,23 +130,15 @@ class YamlCase(unittest.TestCase):
         self.assertEqual((coll["depends_on"], coll["trigger_rule"]), (["intake", "premises-loop"], "none_failed_min_one_success"))
 
     def test_prompt_measures_request_claims(self):
-        """依頼の measured の測り直しの段落（where をそのまま text に・測れなければ仮説）と、本線 a1202d0 の指示書の本文を全部含む。
-        拒んだ理由はファイルのパスで届く（R44。$LOOP_PREV で本文を貼らない）"""
+        """依頼の measured の測り直しの段落（where をそのまま text に・測れなければ仮説）。本線 a1202d0 の指示書の本文は手順 3・5 に
+        書き下してあり、字のままの引用は重ねない（2026-10-09 の整理）。拒んだ理由はファイルのパスで届く（R44。$LOOP_PREV で本文を貼らない）"""
         text = (BLK / "commands" / "premises.md").read_text(encoding="utf-8")
         for needle in ("`measured`", "`where` をそのまま", "`kind: 仮説`", "$LOOP_PREV.premises-accept.output.reason_file"):
             with self.subTest(needle):
                 self.assertIn(needle, text)
         self.assertNotIn("$LOOP_PREV.premises-accept.output.reason\n", text + "\n")
         self.assertNotRegex(text, r"\$LOOP_PREV\.premises-accept\.output\.reason(?!_file)")
-        src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/prompts/review-loop/p0.premises.md"],
-                             capture_output=True, text=True, encoding="utf-8")
-        if src.returncode != 0:
-            self.skipTest("SKIP git-history: このリポジトリから a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）")
-        body = [ln for ln in src.stdout.splitlines() if ln.strip() and "{{" not in ln]
-        self.assertTrue(body)
-        for ln in body:
-            with self.subTest(ln[:30]):
-                self.assertIn(ln, text)
+        self.assertNotIn("## 本線の指示書", text)
 
     def test_prompt_wires_request_retry_and_incidents(self):
         text = (BLK / "commands" / "premises.md").read_text(encoding="utf-8")

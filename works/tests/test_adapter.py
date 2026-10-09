@@ -1414,11 +1414,20 @@ class IsolatedCase(unittest.TestCase):
         self.e.run(sdk_argv("works-node: r2-design isolated", tools=""))
         self.assertEqual(pathlib.Path(self.e.child()["cwd"]).resolve(), want)
 
-    def test_isolated_with_tools_refused(self):
-        r = self.e.run(sdk_argv("works-node: r2-design isolated", tools="Read"))
-        self.assertEqual(r.returncode, 3, r.stderr)
-        self.assertIsNone(self.e.child(), "道具を持つ役を Git の外で起こさない（道具ゼロの役だけの旗）")
-        self.assertIn("isolated", r.stderr)
+    def test_isolated_with_read_only_runs_outside_git(self):
+        """累積差分をファイルで受ける比べる役（r2-compare）は Read だけを持って Git の外の置き場で起きる（run d7b7a712）"""
+        r = self.e.run(sdk_argv("works-node: r2-compare isolated", tools="Read"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        want = pathlib.Path(tempfile.gettempdir()).resolve() / f"works-isolated-{adapter.cwd_key(self.e.cwd)}"
+        self.assertEqual(pathlib.Path(self.e.child()["cwd"]).resolve(), want)
+
+    def test_isolated_with_other_tools_refused(self):
+        for tools in ("Read,Bash", "Grep", "Read,Glob"):
+            with self.subTest(tools=tools):
+                r = self.e.run(sdk_argv("works-node: r2-design isolated", tools=tools))
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIsNone(self.e.child(), "Read のほかの道具を持つ役を Git の外で起こさない")
+                self.assertIn("isolated", r.stderr)
 
     def test_isolated_place_inside_git_refused(self):
         repo = self.e.tmp / "tmp-in-git"

@@ -65,7 +65,6 @@ ROLE_NODES = {
     "p2.fix_plan": ("blk-plan", "plan"),
     "p2.plan_review": ("blk-plan", "plan-review"),
     "p2.rejudge": ("blk-rejudge", "rejudge"),
-    "p2.rejudge_third": ("blk-rejudge", "rejudge-third"),
     "p3.fix": ("blk-fix", "fix"),
     "p3.tdd_tests": ("blk-fix", "tdd"),
     "p3.delta_review": ("blk-delta", "review"),

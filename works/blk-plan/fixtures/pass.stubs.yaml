@@ -130,8 +130,6 @@ collect:
   reason_file: ''
   ripple_file: board/r1/ripple.json
 fixture:
-  inputs:
-    judgment_file: board/judgment.json
   expect: completed
   reached:
   - r2-design-snap

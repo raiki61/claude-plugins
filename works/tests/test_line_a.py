@@ -312,7 +312,7 @@ class EyesPurposeCase(LineBase):
     """目的の文（blk-purpose）と独立の目（blk-eyes）の配線（計画 P1 Task 33。目的の文は目の R1・R2 が読むので先に入れた）"""
 
     def test_purpose_before_judge(self):
-        """前提 → h-judge → 目的の文 → h-mat → 判定。h-mat の purpose_file は盤面の p0.purpose の出力（目的の文を盤面へ渡した）"""
+        """前提 → h-judge → 目的の文 → h-mat → 判定。目的の文は盤面の p0.purpose に渡った"""
         got = self.run_line()
         t = got["trail"]
         self.assertLess(t.index("h-judge"), t.index("purposing"))
@@ -320,7 +320,6 @@ class EyesPurposeCase(LineBase):
         self.assertLess(t.index("h-mat"), t.index("judging"))
         b = entry.open_board(got["board_dir"], allow_halted=True)
         self.assertEqual(b.node_state("p0.purpose"), "done")
-        self.assertEqual(got["out"]["h-mat"]["purpose_file"], str(b.dir / b.state["outputs"]["p0.purpose"]["file"]))
 
     def test_eyes_before_final_gate(self):
         """最後のテストの後・最後の関所の前に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。関所の文に目の判定が載る。周は目の後に
@@ -363,7 +362,7 @@ class EyesPurposeCase(LineBase):
         r["r4-scope"] = {**TB.SCOPE_OK, "policy_conflicts": [conflict]}
         got = self.run_line(replies=r, edits={})
         self.assertIn("r4-scope", got["eyes_roles"])
-        self.assertIs(got["out"]["eyeing"]["asking"], True)
+        self.assertIs(got["out"]["eyeing"]["ok"], True)   # 人に聞いている間は止めずに抜ける（問いは下の関所の文と報告に載る）
         self.assertIn(conflict, got["out"]["h-final"]["gate_text"])
         self.assertEqual(got["outcome"], "needs_human")
         text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
@@ -717,8 +716,8 @@ class RefixToTestsCase(LineBase):
         got = self.run_line(replies=r, edits={"fix": fix_tree, "refix": refix_tree}, inputs={"test_cmd": TEST_CMD},
                             sessions=True)
         ids = got["trail"]
-        self.assertEqual(ids[ids.index("fixing"):ids.index("h-mid") + 1],
-                         ["fixing", "h-replan", "h-regate", "h-refit", "h-rejudge", "rejudging", "h-mid"])   # 案の直しは無い周
+        self.assertEqual(ids[ids.index("fixing"):ids.index("rejudging") + 2],
+                         ["fixing", "h-replan", "h-regate", "h-refit", "h-rejudge", "rejudging", "h-redepth"])   # 案の直しは無い周
         self.assertIs(got["out"]["h-rejudge"]["go"], True)
         self.assertEqual((got["out"]["rejudging"]["ok"], got["out"]["rejudging"]["passes"]), (True, 1), got["out"]["rejudging"])
         b = self.reached_tests(got)

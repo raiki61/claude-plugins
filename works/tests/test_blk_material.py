@@ -293,7 +293,7 @@ class ShapeCase(unittest.TestCase):
         doc = yaml.safe_load(YAML_PATH.read_text(encoding="utf-8"))
         self.assertEqual(doc["name"], "blk-material")
         self.assertEqual((doc["returns"], doc["outcome_field"]), ("collect", "ok"))
-        self.assertEqual(set(doc["inputs"]), {"base_rev", "adapter", "purpose_file"})
+        self.assertEqual(set(doc["inputs"]), {"adapter", "purpose_file"})
         nodes = {n["id"]: n for n in doc["nodes"]}
         route = nodes["mat-route"]
         self.assertEqual((route["script"], route["timeout"]), ("route", 1728000000))
@@ -557,15 +557,11 @@ class TakeCase(_Case):
         out = material.collect(bd)
         self.assertEqual(set(out), set(material.EXIT_KEYS))
         self.assertTrue(out["ok"], out)
-        self.assertEqual(set(out["ran"]), {material.ROLES[x] for x in run})
-        self.assertIn("p0.purpose_review", {s["node"] for s in out["skipped"]})
         b = entry.open_board(bd)
+        self.assertEqual({n for n in material.ROLES.values() if n in b.rd["done"]}, {material.ROLES[x] for x in run})
+        self.assertNotIn("p0.purpose_review", b.rd["done"])
         self.assertEqual(b.node_state("p1.worktree_after"), "done")
-        self.assertEqual(out["materials"]["local_review"], "clean")
-        self.assertEqual(out["snapshot"]["diff_file"], b.loop_state["diff_file"])
-        self.assertEqual(set(out["snapshot"]), {"rev", "diff_file", "changed_files", "changed_files_file", "diff_stat",
-                                                "request_wheres"})
-        self.assertTrue(pathlib.Path(out["exit_file"]).is_file())
+        self.assertEqual(b.record["materials"]["local_review"]["status"], "clean")
 
     def test_rejected_reply_retries_then_gives_up(self):
         bd, repo = self.board("normal")
@@ -640,8 +636,9 @@ class TakeCase(_Case):
         self.assertTrue(got["ok"], got)
         out = material.collect(bd)
         self.assertTrue(out["ok"], out)
-        self.assertEqual(out["ran"], ["p0.prior_decisions"])
-        self.assertTrue({material.ROLES[r] for r in LENSES} <= {s["node"] for s in out["skipped"]})
+        b = entry.open_board(bd)
+        self.assertEqual([n for n in material.ROLES.values() if n in b.rd["done"]], ["p0.prior_decisions"])
+        self.assertFalse({material.ROLES[r] for r in LENSES} & set(b.rd["done"]))
 
     def test_concurrent_takes_do_not_lose_updates(self):
         """並んで走る受け付け（Archon は同じ層の輪を同時に回す）は盤面の錠で 1 本ずつ書く——どれも受かり、どれも盤面に残る"""

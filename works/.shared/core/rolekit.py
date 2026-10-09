@@ -90,6 +90,11 @@ def prompt_graph_path(b, n, prompts_dir: pathlib.Path = PROMPTS_COPY) -> pathlib
     return alt
 
 
+# graph の prompt_append の方針の段落（写しの prompts/ の名）。方針の文書が無い run（盤面の inputs.policy_md が空）には貼らない——
+# 貼ると見出しと決まりの文だけが中身「（この周には無い）」と並ぶ（実測: 131 本の指示書のどれも空だった。2026-10-09 の整理）
+POLICY_PARTS = frozenset({"policy-paste.md", "policy-path.md", "policy.md"})
+
+
 def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_only: bool = True,
                 template: str | None = None, ctx_hook=None, schema_note: bool = True, schema_of: str = "",
                 ahead: bool = False, lang: bool = True) -> tuple:
@@ -101,14 +106,22 @@ def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_
     schema_of は足す schema を別の節の物にする（待っている節の輪の中で、別の節の指示書を描く時）。
     ahead が真なら節がまだ待っていなくても描く（graph の依存より前に先に役を起こす時。skills は空）。
     lang が真なら本文の末尾（schema の前）に言語の 1 行（lang_line）を置く（指示書が自分で inputs.lang を描く役は偽）。
+    方針の文書が無い run（盤面の inputs.policy_md が空）は、graph の prompt_append の方針の段落（POLICY_PARTS）を貼らない。
     この周に待っている instance が無い（ahead でない時）・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
     n = b.nodes[nid]
     inst = b.rd["instances"].get(nid)
     pending = bool(inst) and inst.get("status") == "pending"
     if not (pending or ahead):
         raise BoardGap(f"この周に節 {nid} の待っている instance が無い")
-    tpl = node_prompt(prompt_graph_path(b, n, prompts_dir), n) if template is None else template
     ctx = b.ctx()
+    if template is None:
+        inputs = ctx.get("inputs")
+        if not (isinstance(inputs, dict) and inputs.get("policy_md")):   # 方針の文書が無い run は方針の段落を貼らない（engine と違う）
+            n = {**n, "prompt_append": [p for p in n.get("prompt_append") or []
+                                        if pathlib.PurePosixPath(p).name not in POLICY_PARTS]}
+        tpl = node_prompt(prompt_graph_path(b, n, prompts_dir), n)
+    else:
+        tpl = template
     ctx["node"] = {"skills": (inst.get("skills") if pending else None) or []}   # engine と同じく、出した時点の applies を持つ写し（settle が置いた物）
     if ctx_hook is not None:
         ctx_hook(ctx)

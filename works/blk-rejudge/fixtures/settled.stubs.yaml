@@ -1,4 +1,4 @@
-# 筋書き settled: 判定役の会話の続きで再審し、1 回で「採る」と決着する。第三の目の段は rj-route2 が回す物を返さないので飛ぶ。
+# 筋書き settled: 判定役の会話の続きで再審し、1 回で「採る」と決着する。
 # 役の返答は tests/replies/rejudge_settled.json と同じ中身（tests/test_blk_rejudge.py が一致を見る）。スクリプトの節は全部 stub
 # （盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_rejudge.py が子のプロセスで回す）。
 rj-snap:
@@ -33,11 +33,6 @@ rejudge-accept:
   reason: ok p2.rejudge を受け付けた
   node: p2.rejudge
   verdict: 採る
-rj-route2:
-  next: ''
-  node: ''
-  why: '再審の節が ready に無い（p2.rejudge: done・p2.rejudge_third: cond rejudge_exhausted: 今の周の異議に往復 1 回（上限 3））'
-  stopped: false
 collect:
   ok: true
   reason: ''
@@ -61,5 +56,4 @@ fixture:
   - rejudge-prep
   - rejudge
   - rejudge-accept
-  - rj-route2
   - collect

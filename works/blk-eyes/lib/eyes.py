@@ -17,7 +17,7 @@ R2 の設計の半分（r2.design）はここで起こさない: 修正の前に
 - accept:  返答を盤面に渡す（entry.take。入口の写しと今の作業ツリーを比べる）。拒否は数え、GIVE_UP_AFTER 回で諦めの印（done）。
            表で skippable の目（r1.comment_candidates）は諦めたら省いて（board.skip）後ろの目を出す
 - collect: 出口。入口の周の箱だけを見る（最後の目の受け付けの settle が p4.record・converge を回して周を進めても読み違えない）。
-           人に聞いている（r4.human_gate の ask）なら止めずに asking（答えた後にブロックへ入り直すと残りの目が回る）。
+           人に聞いている（r4.human_gate の ask）なら止めずに ok（答えた後にブロックへ入り直すと残りの目が回る）。
            聞いていないのに目が待ちのまま残れば（3 回とも拒まれた）盤面を止めて ok: false。premise_inputs に、R2 の 2 つの役へ
            渡した前提の入力の控え（design-premises.json・eyes-premises.json。後者の after_design に独立設計の後に来た人の答え）と、
            r2.compare の返答の『渡されていない』の文と、そのうち r2.compare の given に当たる物（compare の claims_given。
@@ -26,10 +26,10 @@ R2 の設計の半分（r2.design）はここで起こさない: 修正の前に
 並び: 目は Archon の同じ層の輪で並んで走る。盤面（state.json・record.json）は版の突き合わせで守られているが、並んだ受け付けは
 BoardConflict（SystemExit）で落ちるので、このブロックの盤面の読み書きは全部、盤面の置き場の錠（LOCK_NAME。fcntl.flock）の中で行う。
 
-作業ファイルは入口の周の r<N>/ に置く: eyes-snapshot.json（入口の作業ツリーの写し）・eyes-enter.json（p4.assemble が数えた値の控え）・
+作業ファイルは入口の周の r<N>/ に置く: eyes-snapshot.json（入口の作業ツリーの写し）・
 eyes-rejects.json（拒否の文）・eyes-premises.json（r2.compare に渡した前提の入力の控え）・eyes-exit.json（出口）。最後の目の受け付けの settle が周を進めると、次の周の頭が loop の差分の欄を
-撮り直し、記録の reviews を空にし、facts_to_add を制約へ移す（写しの RL の on_new_round・p1.worktree_before）ので、出口は
-p4.assemble の値を入口の控えから、reviews を周の記録 rounds/round-<N>.json から、facts_to_add を stop.premise_check の出力から読む。
+撮り直し、記録の reviews を空にする（写しの RL の on_new_round・p1.worktree_before）ので、出口は reviews を周の記録
+rounds/round-<N>.json から読む。
 """
 import contextlib
 import fcntl
@@ -73,6 +73,8 @@ LANE_AFTER = {"r4.hidden_scope": (LANES[0], LANES[1])}
 # shell を除いた Read・Grep・Glob・WebSearch・WebFetch（tests/test_tool_parity.py の NARROWED）
 TOOLS = {"judge": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "inspector": ["Read", "Grep", "Glob"],
          "blind-judge": [], "comment-analyzer": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]}
+# 節ごとに足す道具（役の道具に足す）。r2.compare は累積差分をファイルで受け、Read だけで全体を読む（DIFF_HEAD）
+NODE_TOOLS = {"r2.compare": ["Read"]}
 # 道具ゼロの役（graphloops は Git の外の一時の置き場で起こす。commands._isolated_cwd）。包みの旗 isolated が同じことをする
 ISOLATED_RUN_BY = frozenset({"blind-judge"})
 ISOLATED_FLAG = "isolated"
@@ -89,13 +91,25 @@ PREMISE_ASK = ("独立設計はこの run の修正の前に、目的と実測�
                "今の記録の制約のどれかが、設計の置いた前提を崩していれば、構造の突き合わせに進まず status を redesign-needed にし、"
                f"reason を『{PREMISE_CHANGED}: 』で始めて、どの前提が何で崩れたかを書け（古い前提の設計と差分を黙って比べない）。"
                "崩していなければ、下の指示書のとおり構造で突き合わせよ。")
+# r2.compare に累積差分を本文で貼らず、ファイルで渡す（run d7b7a712: 1,061KB の差分を貼った 1.1MB の指示書で役が何も返さず、R2 が
+# 落ちた）。量の上限は置かない——役が Read で全体を読む。指示書の『累積差分』の囲みには、本文の代わりに置き場を名指す 1 行
+# （DIFF_POINTER）を描く
+DIFF_NODE = "r2.compare"
+DIFF_HEAD = "## 累積差分の渡し方（機械が貼った）"
+DIFF_POINTER_NAME = "r2-compare-diff.txt"   # 囲みに描く 1 行の置き場（入口の周の作業ファイル）
+DIFF_POINTER = "（累積差分の本文はここに貼らない。全体はファイル {path}。この指示書の頭の「累積差分の渡し方」のとおり Read で読む）"
+DIFF_ASK = ("累積差分は、大きさに依らず本文を貼らない（大きな差分を貼ると指示書が読める量を超える）。全体は次のファイルに在る: "
+            "`{path}`（{lines} 行・変わったファイル {files} 本）。\n\n"
+            "- Read でこのファイルの全体を読め。長ければ offset と limit で区切り、最後の行まで読み切れ（読み残した所で食い違いを判断しない）。\n"
+            "- お前の道具は Read だけで、開いてよいのはこのファイルだけ。リポジトリや盤面のほかのファイルは開くな（独立設計と差分だけで"
+            "突き合わせる。調査の経緯を読むと独立が崩れる）。\n"
+            "- 読めなかったら（ファイルが無い・途中までしか読めない）、推し量って埋めずに reason にそう書け。")
 LATE_HEAD = "### 独立設計の後に来た人の答え（独立設計は見ていない）"
 LATE_ASK = ("上の人の関所の答えのうち、次の物は独立設計を作った後に来た。設計がこれを置いていないことを設計の漏れに数えず、"
             "答えに照らした目的で突き合わせよ。")
 LOCK_NAME = "board.lock"
 SNAPSHOT_NAME = "eyes-snapshot.json"
 REJECTS_NAME = "eyes-rejects.json"
-ENTER_NAME = "eyes-enter.json"
 EXIT_NAME = "eyes-exit.json"
 PREMISES_NAME = "eyes-premises.json"   # r2.compare に渡した前提の入力の控え（入口の周の作業ファイル）
 # route が起きた目と go（入口の周の作業ファイル）。Archon の節が落ちた筋を、盤面の順のずれ・設計待ちと見分ける
@@ -113,10 +127,10 @@ GIT_SHOW_SENTENCE = ("**読むのは、この周に固定したリビジョン**
 FROZEN_READ = ("**読むのは、この周に固定したリビジョン**。お前の cwd の作業ツリーは、その版のまま止めてある（お前を起こす前に"
                "撮った姿と、受け付けが今の姿を比べる）。Read・Grep・Glob で cwd のファイルをそのまま読め——git や shell は"
                "道具に無く、要らない。engine が根拠を数え直すときも同じ版を数える。")
-# 出口の欄（BLOCKS.md 3.3 の R11 の出口に、ブロックの回り方の欄を足した物。並びも固定）
-EXIT_FIELDS = ("ok", "reason", "complete", "asking", "stopped", "eyes", "gave_up", "after_fix", "open_units", "r1_refire",
-               "r2_refire", "purpose_known", "purpose_unusable", "reviews", "premise", "premise_inputs", "retaken_for_reviews",
-               "exit_file")
+# 出口の欄（並びも固定）。読み手が在る物だけ: ok・reason・reviews は線の機械の報告（report の残りの数え）、premise_inputs は
+# 最後の関所の文（line_edge が eyes-exit.json から読む）。BLOCKS.md 3.3 の R11 の出口に在った読み手の無い欄（目ごとの状態・
+# p4.assemble が数えた値・facts_to_add など）は 2026-10-09 の整理で外した
+EXIT_FIELDS = ("ok", "reason", "reviews", "premise_inputs")
 
 
 # ---------------------------------------------------------------- 写しの形
@@ -145,7 +159,7 @@ def allowed_tools(nid: str) -> list:
     key = n["run_by"] if n["run_by"] in TOOLS else (n.get("agent_type") or "").rpartition(":")[2]
     if key not in TOOLS:
         raise BoardGap(f"{nid} の役 {n['run_by']}（{n.get('agent_type')}）の道具が決まっていない")
-    return list(TOOLS[key])
+    return [*TOOLS[key], *(t for t in NODE_TOOLS.get(nid, ()) if t not in TOOLS[key])]
 
 
 def output_format(nid: str) -> dict:
@@ -228,17 +242,6 @@ def _round_of(raw) -> int:
 
 
 # ---------------------------------------------------------------- 入口・分かれ道
-def assembled(b) -> dict:
-    """p4.assemble が数えた値（出口の after_fix・open_units・再発火・目的の出典・撮り直しの痕跡）。目は書き換えない"""
-    ls = b.loop_state
-    return {"after_fix": {"rev": ls.get("reviewed_revision") or "", "diff_file": ls.get("diff_file") or "",
-                          "changed_files": list(ls.get("changed_files") or []), "diff_lines": ls.get("diff_lines") or 0},
-            "open_units": ls.get("open_units") or 0, "r1_refire": bool(ls.get("r1_refire")),
-            "r2_refire": bool(ls.get("r2_refire")), "purpose_known": bool(ls.get("purpose_known")),
-            "purpose_unusable": ls.get("purpose_unusable") or "",
-            "retaken_for_reviews": (ls.get("retaken_for_reviews") or {}).get("file") or ""}
-
-
 def enter(board_dir, repo) -> dict:
     """入口。返り {ok, round, stopped, asking, ready: [役], snapshot_file, why}。止まった盤面は stopped（目を起こさない）。
     p4.assemble が今の周に済んでいなければ BoardGap（配線の誤り。修正の後の撮り直しの前に目を起こさない）"""
@@ -254,7 +257,6 @@ def enter(board_dir, repo) -> dict:
                            "目を起こさない（ラインの配線か、機械の節が止まった。盤面の trace を見る）")
         snap = entry.snapshot(board_dir, SNAPSHOT_NAME, repo)
         out["snapshot_file"] = str(snap)
-        _write_json(_work(b, b.round, ENTER_NAME), assembled(b))
         out["ready"] = [ROLE_OF[n] for n in ROLE_OF if _pending(b, n)]
         return out
 
@@ -324,14 +326,37 @@ def route(board_dir, role, rnd, skip: str = "") -> dict:
 
 
 # ---------------------------------------------------------------- 描く
-def render(b, nid) -> str:
+def render(b, nid, ctx_hook=None) -> str:
     """engine の emit_instance と同じ描き方（rolekit.render_body。reads に無い穴は描けない・cap なし）。schema の断りは貼らない
     （目の役に旗 text-reply は無く、返答の型は役の output_format で Archon が強いる）。
     指示書は写しの graph、無ければ同じ commit から写した gl-prompts/。番号で指す一覧（pointers）を持つ節は描かない。
-    版を git で読めという写しの文（GIT_SHOW_SENTENCE）は、止めた cwd を Read で読めという文（FROZEN_READ）に替える"""
+    版を git で読めという写しの文（GIT_SHOW_SENTENCE）は、止めた cwd を Read で読めという文（FROZEN_READ）に替える。
+    ctx_hook は描く前に ctx を替える口（r2.compare の累積差分をファイルの名指しに替える。diff_section）"""
     if b.nodes[nid].get("pointers"):
         raise BoardGap(f"{nid} は番号で指す一覧（pointers）を持つ——独立の目の描き方は持たない（写しを見直す）")
-    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, schema_note=False)[0].replace(GIT_SHOW_SENTENCE, FROZEN_READ)
+    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, schema_note=False, ctx_hook=ctx_hook)[0].replace(GIT_SHOW_SENTENCE, FROZEN_READ)
+
+
+def diff_section(b, rnd) -> tuple:
+    """(r2.compare の頭に貼る節, 描く前の ctx の口)。累積差分（loop.diff_file）の本文は貼らず、置き場と行の数を名指して Read で
+    全体を読ませる。指示書の『累積差分』の囲み（写しの {{file:loop.diff_file}}）には、本文の代わりに DIFF_POINTER の 1 行を描く
+    （入口の周の作業ファイル DIFF_POINTER_NAME を指させる）。累積差分が盤面に無ければ ("", None)（今どおり描き、描けなければ BoardGap）"""
+    ls = b.loop_state
+    path = ls.get("diff_file")
+    if not path:
+        return "", None
+    try:
+        with open(path, "rb") as f:
+            lines = sum(1 for _ in f)
+    except OSError:
+        lines = "?"
+    pointer = _work(b, rnd, DIFF_POINTER_NAME)
+    pointer.write_text(DIFF_POINTER.format(path=path) + "\n", encoding="utf-8")
+
+    def hook(ctx):
+        ctx["loop"] = {**(ctx.get("loop") or {}), "diff_file": str(pointer)}
+    head = f"{DIFF_HEAD}\n\n" + DIFF_ASK.format(path=path, lines=lines, files=len(ls.get("changed_files") or []))
+    return head, hook
 
 
 def _lines(rows) -> str:
@@ -376,11 +401,14 @@ def prep(board_dir, role, rnd, repo) -> dict:
         inst = _pending(b, nid)
         if inst is None:
             raise BoardGap(f"この周に {nid} の待っている instance が無い（route が go の目だけを起こす）")
-        prompt = render(b, nid)
+        diff_head, hook = diff_section(b, rnd) if nid == DIFF_NODE else ("", None)
+        prompt = render(b, nid, hook)
         if nid == PREMISE_NODE:
             head, ledger = premise_section(b, repo)
             _write_json(_work(b, rnd, PREMISES_NAME), ledger)
             prompt = f"{head}\n\n---\n\n{prompt}"
+        if diff_head:
+            prompt = f"{diff_head}\n\n---\n\n{prompt}"
         elif nid == R4_NODE and (carried := gatemarks.carried_section(b)):
             prompt = f"{carried}\n\n---\n\n{prompt}"
         prompt, def_file, missing = rolekit.with_role_definition(b, nid, prompt)
@@ -468,28 +496,16 @@ def collect(board_dir, rnd) -> dict:
             if stop:
                 ok = False
                 b.stop(reason, by=STOP_BY)
-        at = _read_json(_work(b, rnd, ENTER_NAME), None)
-        if at is None:
-            raise BoardGap(f"入口の控え r{rnd}/{ENTER_NAME} が無い（eyes-enter が先に走る）")
         rounded = _read_json(b.dir / "rounds" / f"round-{rnd}.json", None)
         reviews = (rounded if rounded is not None else b.record).get("reviews") or {}
-        pc = b.output_of_round("stop.premise_check", rnd) or {}
         compare = _read_json(_work(b, rnd, PREMISES_NAME), None)
         claims = design.claims_unpassed(b.output_of_round(PREMISE_NODE, rnd))
         if isinstance(compare, dict):   # 『渡されていない』は r2.compare の文なので、r2.compare に渡した given と突き合わせる
             compare["claims_given"] = design.claims_given(claims, compare.get("given"))
-        out = {"ok": ok, "reason": reason, "complete": not left, "asking": asking, "stopped": _stopped(b), "eyes": states,
-               "gave_up": gave_up, "after_fix": at["after_fix"], "open_units": at["open_units"],
-               "r1_refire": at["r1_refire"], "r2_refire": at["r2_refire"], "purpose_known": at["purpose_known"],
-               "purpose_unusable": at["purpose_unusable"],
-               "reviews": {k: reviews.get(k) for k in ("R1", "R2", "R3", "R4")},
-               "premise": {"facts_to_add": list(pc.get("facts_to_add") or []) if pc.get("verdict") == "resolved" else []},
+        out = {"ok": ok, "reason": reason, "reviews": {k: reviews.get(k) for k in ("R1", "R2", "R3", "R4")},
                "premise_inputs": {"design": _read_json(b.dir / design.PREMISES_FILE, None),
-                                  "compare": compare, "claims": claims},
-               "retaken_for_reviews": at["retaken_for_reviews"]}
-        path = _work(b, rnd, EXIT_NAME)
-        out["exit_file"] = str(path)
-        _write_json(path, out)
+                                  "compare": compare, "claims": claims}}
+        _write_json(_work(b, rnd, EXIT_NAME), out)
         return out
 
 

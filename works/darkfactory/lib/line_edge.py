@@ -3,6 +3,7 @@
 .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
+- gate_text(asking, *, run_id): 盤面の問いを修正の前の関所 policy-gate の文にする（h-gate。組み立ては gatemarks.gate_text）
 - judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
 - mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
 - rejudge_edge(board_dir, repo): h-rejudge の固有の仕事（修正役の異議の再審を回すか。判定役の会話が無ければ止める。計画 P1 Task 31）
@@ -17,10 +18,11 @@
   独立設計（design.due）のどちらかを blk-plan で起こす周
 - structure_edge(board_dir, structured): h-structure（構造の境の節。darkfactory/scripts/structure.py の中身）。構造のブロックの出口を
   確かめ、盤面の根の控え（core の structmark）を書く。planning はこの節を待つ
-- trace_empty_fix(b): 機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける。entry.trace_empty_fix の別名）
+- trace_empty_fix(b): 機械が p3.fix の空の返答を渡した印（trace の記録。entry.trace_empty_fix の別名）
 - 固定材料（core の fixture。計画 220 Task 5）: h-fix は go の後、1 周目なら盤面を $ARTIFACTS_DIR/fix-fixture へ写す
   （固定材料から始めた盤面は capture が写さない。写せなくても run は止めない）。包みの確かめは「この run で役が 1 つ起きた
-  後の最初の境の節で止める」（_adapter_guard）: 通常の盤面は h-judge、固定材料から始めた盤面（fixture.adopted）は h-mid。
+  後の最初の境の節で止める」（_adapter_guard）: 通常の盤面は h-judge、固定材料から始めた盤面（fixture.adopted）は h-review
+  （修正のブロックと再審の後）。
   h-mat は今の周の判定が済んでいれば go を偽にする（判定のブロックを回さない）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
   state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
@@ -55,7 +57,6 @@ import fixture  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import impact  # noqa: E402
-import plan  # noqa: E402
 import premises  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
@@ -73,7 +74,7 @@ import structmark  # noqa: E402
 # rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。look は最後のテストの後に独立の目を回すかを決め、eyes は
 # 独立の目と最後の関所の後に関所の答えを受ける（人は目の結果を見てから答える。本線の r4.human_gate と同じ順。名 h-eyes は前の並びのまま）
 # replan・regate・refit は修正の段の後・再審の前の案の直し（依頼 226。1 run に 1 回）
-AT = ("entry", "judge", "mat", "plan", "gate", "fix", "replan", "regate", "refit", "rejudge", "mid", "review", "refix", "tests",
+AT = ("entry", "judge", "mat", "plan", "gate", "fix", "replan", "regate", "refit", "rejudge", "review", "refix", "tests",
       "look", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "refit", "eyes")   # 関所の答えを受ける境の節（fix は policy-gate、refit は replan-gate、eyes は final-gate）
@@ -95,7 +96,6 @@ PROTECTED_BY = "works:protected"              # 守りのファイルの行の n
 PROTECTED_KIND = "protected_files"            # その行の kinds
 PROTECTED_HEAD = "守りのファイルを触った"      # 最後の関所の冒頭 3 行の直後の節の見出し（1 行目でも名指す）
 PROTECTED_UNKNOWN = "守りのファイルを確かめられなかった"   # 一覧か git が読めない時の見出し（黙って空にしない）
-MID_NOTE = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）"
 FLAG_BY_PREFIX = "request:"                  # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
 FLAG_SEEN_OP = "stop_flag_seen"              # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 AFTER_HALT_OP = "stop_flag_after_halt"       # 止まった後に見た止め札の trace の行（b.stop は呼ばない。M3）
@@ -113,10 +113,11 @@ EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が�
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
                 "包み無しで回すなら入力 adapter に optional を渡す（works/README.md の包みの節）")
 FIXTURE_FAILED_OP = "fixture_capture_failed"  # h-fix が固定材料を写せなかった trace の行（run は止めない）
-ADAPTER_FIXTURE_OP = "adapter_check_after_fixture"   # 固定材料から始めた盤面で h-judge が包みの確かめを h-mid に回した trace の行
+ADAPTER_FIXTURE_OP = "adapter_check_after_fixture"   # 固定材料から始めた盤面で h-judge が包みの確かめを h-review に回した trace の行
 DIAGNOSE_NODE = "p2.diagnose"                # 判定の節（h-mat・h-plan が今の周に済んだかを見る）
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
+RUN_ID_HOLE = "<id>"                         # run の id を知らない呼び手の関所の文に入れる穴（gate_text）
 NOTES_FILE = "human-notes.md"                # 今の周の人の一言（h-fix が書き、修正役がパスで読む。R44: with: に文を貼らない）
 # 判定の単位を blk-structure の入力の契約 {id, paths, summary} に写したファイル（b.work。h-plan が書き、include の with: units が読む。
 # 写すのは線の側のここ 1 か所で、ブロックは判定役の返答の形を読まない。設計書 structure-block-design 8 節）
@@ -124,14 +125,23 @@ STRUCTURE_UNITS_FILE = "structure-units.json"
 STRUCTURE_UNITS_OP = "structure_units_dropped"   # 対象の根からの相対のパスが 1 本も取れず写さなかった単位・捨てたパスの trace の行
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
-         "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
-         "runtime_go": False, "holdout_go": False, "mid_note": "", "purpose_file": "", "mat_go": False,
+         "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False, "mat_go": False,
          "structure_units_file": "", "ripple_file": "", "verify_file": ""}
 # 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
 RIPPLE_FILE = "ripple.json"
 RIPPLE_REPLAN_FILE = "ripple/replan.json"   # 同じブロックの 2 度目の include（案の直し）が直した項目で作り直した一覧（同じ produces ripple/**）
 # 判定のブロックが今の周に置く単位の裏取りの申し送り（その manifest の produces。h-plan が修正案のブロックへパスで渡す。線の木の段 3）
 VERIFY_FILE = "judge-verify.json"
+
+
+def gate_text(asking: dict, *, run_id: str = RUN_ID_HOLE) -> str:
+    """盤面の問い {node, kinds, question, items, options, in_round}（state.pending_human。写しの RL の human_gate が立てる周の途中の
+    問い。項目には gatemarks が足す問いの台帳の問いも載る）を、人が Archon の関所 policy-gate で読む文にする（冒頭 3 行と答え方の行
+    つき。組み立ては gatemarks.gate_text）。h-gate が返りの gate_text と r<N>/gate.md に使う。答え方は起動の殻の答えの行
+    （answer.line）で continue "<通す範囲と条件>"（一言は run の記録に残り、修正役に届く）と stop "<理由>"。人が決める関所なので、
+    答えるのは依頼者（/works を回す Claude は聞いて写す）"""
+    return gatemarks.gate_text(asking, run_id=run_id or RUN_ID_HOLE, node=gatemarks.GATE_NODE,
+                               record_name="process.human_items")
 
 
 def _gap(msg):
@@ -403,13 +413,6 @@ def structure_edge(board_dir, structured, plan_go=True) -> dict:
     except OSError as e:
         status, why = "failed", (why + "。" if why else "") + f"構造のブロックの控えを書けない: {e}"
     return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall}
-
-
-def _fixed_by_role(b) -> bool:
-    """今の周の p3.fix を役が出した（done で、今の周の出力が在り、機械の空の返答の印が無い）"""
-    info = b.state["outputs"].get("p3.fix")
-    return (b.node_state("p3.fix") == "done" and bool(info) and info.get("round") == b.round
-            and not _traced(b, EMPTY_FIX_OP, by=EMPTY_FIX_BY, round=b.round))
 
 
 def _faces(b, nid: str) -> int:
@@ -829,7 +832,7 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
     1. 包みの確かめ: reads.adapter_seen（この run の worktree の包みの起動の記録。盤面を作った後の行）が偽で adapter_mode が
        optional でなければ b.stop("包みが通っていない: …", by=ADAPTER_BY) で stop（_adapter_guard）。決まりは「包みの確かめは、
        この run で役が 1 つ起きた後の最初の境の節で止める」。固定材料から始めた盤面（fixture.adopted）はここまでに起きた役が
-       無いので確かめず、trace に ADAPTER_FIXTURE_OP の 1 行を残して h-mid（修正のブロックの後）に回す
+       無いので確かめず、trace に ADAPTER_FIXTURE_OP の 1 行を残して h-review（修正のブロックと再審の後）に回す
     2. 表で p0.premises が role なのに盤面で今の周に済んでいなければ、前提のブロックの出口 premised の constraints_file を読んで
        entry.take(p0.premises)（起こした印を置いてから。盤面の写しの schema・measured_needs_output・writes が当たる）。
        出口が届かない・読めない・盤面が受けないなら b.stop("前提の実測が盤面に無い: …", by=PREMISES_BY) で stop。
@@ -838,7 +841,7 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
        purpose_go は目的の文（p0.purpose）が盤面で待っているか（前提を渡した後の ready。purposing の when:）"""
     board_dir = pathlib.Path(board_dir)
     if adapter_mode != "optional" and fixture.adopted(board_dir) is not None:
-        # 固定材料から始めた run は修正役が最初の役で、ここまでに起きた役が無い。確かめは h-mid で
+        # 固定材料から始めた run は修正役が最初の役で、ここまでに起きた役が無い。確かめは h-review で
         b.trace(ADAPTER_FIXTURE_OP, at="judge")
     else:
         stopped = _adapter_guard(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode)
@@ -861,7 +864,7 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
 def _adapter_guard(b, board_dir, repo, *, run_id: str, adapter_mode: str) -> dict | None:
     """包みの確かめ: adapter_mode が optional でなく、reads.adapter_seen（この run の worktree の包みの起動の記録）が偽なら
     b.stop("包みが通っていない: …", by=ADAPTER_BY) をして stop の返りを返す。通れば None。呼ぶのは、この run で役が 1 つ
-    起きた後の最初の境の節（通常の盤面は h-judge、固定材料から始めた盤面は h-mid）"""
+    起きた後の最初の境の節（通常の盤面は h-judge、固定材料から始めた盤面は h-review）"""
     if adapter_mode == "optional":
         return None
     seen = reads.adapter_seen(pathlib.Path(board_dir), run_id, repo=repo)
@@ -897,8 +900,8 @@ def mat_edge(b, board_dir, repo) -> dict:
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
     2. 依頼と変更の両方で始めた run の依頼がまだ積まれていなければ entry.add_pending_request で積む（CI の役の後の run でも、
        判定の前に必ず届ける）。版がまだ固まっていない（積むと入口の印が立つ）なら b.stop(…, by=PENDING_REQUEST_BY) で stop
-    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか・
-       purpose_file は盤面の state.outputs["p0.purpose"] の置き場（無ければ空）。今の周の判定（p2.diagnose）が既に済んだ盤面
+    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
+       今の周の判定（p2.diagnose）が既に済んだ盤面
        （固定材料から始めた run）は go 偽（判定の支度は待っていない p2.diagnose を線の順の誤りとして拒む）"""
     board_dir = pathlib.Path(board_dir)
     row = b.table.nodes.get(PURPOSE_NODE) if b.table is not None else None
@@ -920,8 +923,7 @@ def mat_edge(b, board_dir, repo) -> dict:
         reason = f"依頼を判定の前に積めない: {entry.PENDING_WAIT_NODE} がまだ済んでいない（今積むと入口の印が立ち P1 の目が外れる）"
         b.stop(reason, by=PENDING_REQUEST_BY)
         return {"stop": True, "go": False, "why": reason}
-    return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK)),
-            "purpose_file": _out_file(b, PURPOSE_NODE)}
+    return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK))}
 
 
 def rejudge_edge(board_dir, repo) -> dict:
@@ -1023,7 +1025,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
-       gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
+       gate: 盤面の問い（pending_human）が在れば ask と gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言と、関所で答えた問いで直す義務に戻った単位の行
        （gatemarks.returned_lines。notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
        go なら _capture_fixture（1 周目の盤面を固定材料に写す。写せなくても止めない）。
@@ -1032,8 +1034,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。replan: go は replan.material の go（案の直しを
        待つ行が在り、今の周の p3.fix をまだ受けていない）。regate: replan.gate の ask・gate_text・gate_file（今の周の replan.json が
        無ければ何もせず ask 偽）。refit: refit_edge（関所が開かなかった周も答え None で当てる）。
-       mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
-       見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
+       review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。review は先に、固定材料から始めた盤面
+       （fixture.adopted）なら包みの確かめ（_adapter_guard。通らなければ止める）。
        final: final_edge（final_gate と最後のテストの出口 tests と独立の目の判定から ask と文）。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
     配線の誤り（知らない at・場違いの入力・形の崩れ・知らない final_gate・adapter）は BoardGap"""
@@ -1092,7 +1094,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         asking = b.state.get("pending_human")
         if not asking:
             return out
-        text = plan.gate_text(asking, run_id=run_id)
+        text = gate_text(asking, run_id=run_id)
         _write_text(b.work(GATE_FILE), text)
         return {**out, "ask": True, "gate_text": text, "gate_file": str(b.work(GATE_FILE))}
     if at == "fix":
@@ -1121,12 +1123,10 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     if at in ("look", "eyes"):
         return {**out, **eyes_edge(b)}
-    if at == "mid":
-        if fixture.adopted(board_dir) is not None:   # 固定材料の盤面で役が 1 つ起きた後の最初の境の節（h-judge は回した）
-            stopped = _adapter_guard(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode)
-            if stopped:
-                return {**out, **stopped}
-        return {**out, "go": _fixed_by_role(b), "mid_note": MID_NOTE}
+    if at == "review" and fixture.adopted(board_dir) is not None:   # 固定材料の盤面で役が起きた後の境の節（h-judge は回した）
+        stopped = _adapter_guard(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode)
+        if stopped:
+            return {**out, **stopped}
     if at == "final":
         got = final_edge(b, repo, run_id=run_id, mode=mode, tests=tests)
         if _stopped(b) and not _ended(b):   # final_edge の確かめ（_guard）が盤面を止めた: 関所を開かず、その理由で止まる

@@ -71,7 +71,7 @@ class YamlCase(unittest.TestCase):
         return [n for n in self.y["nodes"] if "loop_group" in n]
 
     def test_inputs_and_exit(self):
-        self.assertEqual(set(self.y["inputs"]), {"base_rev", "policy_paste"})
+        self.assertNotIn("inputs", self.y)   # 段のスクリプトは盤面だけを読む（版も方針も盤面が持つ）
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
 
     def test_yaml_output_formats_match(self):
@@ -83,7 +83,8 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(validate_schema(load("rejudge_settled"), ai[0]["output_format"]), [])
 
     def test_stages_follow_copied_passes(self):
-        """段 k（rj-route<k> → 輪）の役が passes() の k 番目。段の並び＝写しの依存の並び"""
+        """段 k（rj-route<k> → 輪）の役が passes() の k 番目。段の並び＝写しの依存の並び。段は 1 つ（p2.rejudge）だけで、
+        0.21.0 の規則が ready にしない第三の目（p2.rejudge_third）の段は持たない"""
         roles = [p["role"] for p in rejudge.passes()]
         got = []
         for k, grp in enumerate(self.loops(), 1):
@@ -94,7 +95,8 @@ class YamlCase(unittest.TestCase):
             got.append(m.group(2))
             ai = [x for x in grp["loop_group"]["nodes"] if "command" in x]
             self.assertEqual(ai[0]["id"], m.group(2))
-        self.assertEqual(got, roles)
+        self.assertEqual(got, roles[:1])
+        self.assertEqual(rejudge.node_of(roles[1]), "p2.rejudge_third")
 
     def test_yaml_when_reads_only_routes(self):
         routes = {nid for nid, n in self.top.items() if n.get("script") == "route"}
@@ -168,12 +170,10 @@ class YamlCase(unittest.TestCase):
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
-        self.assertEqual(set(fx), {"settled.stubs.yaml", "no-session.stubs.yaml", "rejected-thrice.stubs.yaml",
-                                   "third.stubs.yaml"})
+        self.assertEqual(set(fx), {"settled.stubs.yaml", "no-session.stubs.yaml", "rejected-thrice.stubs.yaml"})
         s = fx["settled.stubs.yaml"]
         self.assertEqual(s["fixture"]["expect"], "completed")
         self.assertIn("rejudge", s["fixture"]["reached"])
-        self.assertNotIn("rejudge-third", s["fixture"]["reached"])
         self.assertEqual(s["rejudge"], load("rejudge_settled"))
         self.assertIs(s["collect"]["ok"], True)
         n = fx["no-session.stubs.yaml"]
@@ -186,13 +186,9 @@ class YamlCase(unittest.TestCase):
         head = (BLK / "fixtures" / "rejected-thrice.stubs.yaml").read_text(encoding="utf-8")
         self.assertIn("dry-run は until_bash を回さず", head, "筋書きは輪の抜け方を見ていないと書く")
         self.assertIs(r["collect"]["ok"], False)
-        t = fx["third.stubs.yaml"]
-        self.assertEqual(t["rj-route2"]["next"], "rejudge-third")
-        self.assertIn("rejudge-third", t["fixture"]["reached"])
-        self.assertEqual(t["rejudge-third"], load("rejudge_third_ok"))
         for name, f in fx.items():
             for nid, out in f.items():
-                if nid in ("rejudge", "rejudge-third"):
+                if nid == "rejudge":
                     with self.subTest(f"{name}:{nid}"):
                         self.assertEqual(validate_schema(out, rejudge.output_format(rejudge.node_of(nid))), [])
 
@@ -234,7 +230,7 @@ class ScriptCase(unittest.TestCase):
     def run_loop(self, role, reply):
         """Archon の輪と同じ順に回す: 周ごとに prep → 役（返答は reply）→ accept → until_bash の式を sh で評価（式の中の
         $<役>-accept.output.<欄> は accept の出口の値を JSON で置く）。抜けた周の番号と各周の (prep, accept) を返す。
-        max_iterations 回で抜けなければ番号は None——Archon は輪を failed にし、後ろの節（rj-route2・collect）は走らない"""
+        max_iterations 回で抜けなければ番号は None——Archon は輪を failed にし、後ろの節（collect）は走らない"""
         g = next(n for n in workflow()["nodes"] if n.get("id") == f"{role}-loop")["loop_group"]
         rounds = []
         for i in range(1, g["max_iterations"] + 1):
@@ -280,8 +276,8 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(kit.state(self.bd)["stop"]["by"], rejudge.STOP_BY_SESSION)
 
     def test_loop_gives_up_after_three_rejections(self):
-        """3 回とも拒まれても輪は max_iterations で落ちず（3 回目の受け付けが done を出し until_bash が抜ける）、rj-route2 と
-        collect が走って、collect が最後の拒否の文で盤面を止める（設計 9.3。裁定 R50）"""
+        """3 回とも拒まれても輪は max_iterations で落ちず（3 回目の受け付けが done を出し until_bash が抜ける）、collect が
+        走って、最後の拒否の文で盤面を止める（設計 9.3。裁定 R50）"""
         self.board()
         self.ok("snap")
         self.assertEqual(self.ok("route")["next"], "rejudge")
@@ -294,7 +290,6 @@ class ScriptCase(unittest.TestCase):
         second = pathlib.Path(rounds[1][0]["prompt_file"]).read_text(encoding="utf-8")
         self.assertTrue(second.startswith(rejudge.REJECT_HEADING))
         self.assertIn(rounds[0][1]["reason"], second)
-        self.assertNotEqual(self.ok("route")["next"], "rejudge-third")   # rj-route2: 第三の目の輪は飛ぶ
         out = self.ok("collect")
         self.assertFalse(out["ok"])
         self.assertIn("3 回とも", out["reason"])

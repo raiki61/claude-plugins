@@ -118,12 +118,10 @@ class YamlCase(unittest.TestCase):
         return {n["id"]: n for n, _ in walk(self.y["nodes"])}
 
     def test_inputs_and_exit(self):
-        self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "replan", "verify_file", "review_tree"})
+        self.assertEqual(set(self.y["inputs"]), {"excluded_file", "replan", "verify_file", "review_tree"})
         self.assertEqual(self.y["inputs"]["review_tree"]["default"], "")   # 事前審査の木の切り替え（空は on＝今どおり）
         self.assertEqual(self.y["inputs"]["verify_file"]["default"], "")   # 判定の単位の裏取りの申し送り（線の木の段 3）   # include の名は入力に持たない（core が引く。依頼 239）
         self.assertEqual(self.y["inputs"]["replan"]["default"], "")
-        self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertEqual(set(self.top["collect"]["output_format"]["required"]),
                          {"ok", "plan_file", "review_file", "asks_human", "gate_kinds", "reads_file", "gave_up", "reason_file",
@@ -1966,8 +1964,9 @@ class TreeReviewCase(unittest.TestCase):
         folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
         one, two = ((folder / f"item-{n}.md").read_text(encoding="utf-8") for n in (1, 2))
         self.assertNotIn(prep["prompt_file"], one)
-        for part in ("## 見ること", "## 返し方", "## 人の方針", planblk.DESIGN_HEAD, "リポジトリ: "):
+        for part in ("## 見ること", "## 返し方", planblk.DESIGN_HEAD, "リポジトリ: "):
             self.assertIn(part, one)
+        self.assertNotIn("## 人の方針", one)   # 方針の文書の無い run は方針の段落を貼らない（rolekit.POLICY_PARTS）
         self.assertIn("sum(xs) / (len(xs) - 1)", one)            # 項目 1 の単位の判定の理由
         self.assertNotIn("x > hi の枝で lo を返す", one)          # 項目 2 の単位の判定の理由は載せない
         self.assertNotIn("test_clamp_above_range", one)           # 項目 2 の波及の当たりも載せない

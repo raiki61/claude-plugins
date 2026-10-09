@@ -61,12 +61,6 @@ class LensYamlCase(unittest.TestCase):
         self.assertEqual(node("lens-exit")["trigger_rule"], "all_done")
         self.assertEqual(node("lens-exit")["with"], {"collected": {"from": "$lens-collect.output", "if_skipped": None}})
 
-    def test_skip_input_reaches_route(self):
-        """入力 skip（省く理由の文。空は今どおり）を振り分けが受ける"""
-        y = flow()
-        self.assertEqual(y["inputs"]["skip"]["default"], "")
-        self.assertEqual(node("lens-route")["with"], {"skip": "$INPUTS.skip"})
-
     def test_lens_node_is_the_lens_itself(self):
         """レンズの節は定義を貼った節そのもの: 道具は Read・Grep・Glob だけ（子を起こす Agent・Skill を持たない。持ち主 2026-10-01）"""
         for row in lenses.LENSES:
@@ -128,7 +122,7 @@ class LensBoardCase(RF.DeltaBoardCase):
     def test_route_pastes_definition_and_writes_rows(self):
         """定義が引ければ go。指示書は定義の本文と修正の差分のパス・変わったファイルを持つ。lens.json に pending の行"""
         repo = self.fixed()
-        out = self.script("route", repo, skip="")
+        out = self.script("route", repo)
         d = refix.fix_delta(self.board_obj())
         self.assertIs(out["silent_failure_hunter_go"], True)
         self.assertIn(linekit.LENS_DEF_BODY, out["prompt_silent_failure_hunter"])
@@ -159,22 +153,10 @@ class LensBoardCase(RF.DeltaBoardCase):
         self.assertEqual(lens.read(b)[0]["reason"], "変わったファイルに例外の扱いが無い")
         self.assertIn("silent-failure-hunter: 起こさなかった（変わったファイルに例外の扱いが無い）", lens.report_lines(b))
 
-    def test_route_skip_reason_routes_no_lens(self):
-        """入力 skip に理由の文が在れば、どのレンズも起こさず（go 偽・指示書は空）、lens.json の行と報告の未確認のレンズに理由が残る"""
-        repo = self.fixed()
-        why = "軽量で省いた（試し）"
-        out = self.script("route", repo, skip=why)
-        self.assertEqual((out["silent_failure_hunter_go"], out["prompt_silent_failure_hunter"]), (False, ""))
-        self.assertIn(why, out["why"])
-        b = self.board_obj()
-        row = lens.read(b)[0]
-        self.assertEqual((row["state"], row["go"], row["reason"]), ("not_routed", False, why))
-        self.assertIn(f"silent-failure-hunter: 起こさなかった（{why}）", lens.report_lines(b))
-
     def test_route_needs_fix_delta(self):
         """今の周の修正の差分が無い盤面では振り分けは 2（配線の誤り）。控えは残さない"""
         repo, _ = self.judged()
-        p = self.run_script("blk-lens", "route", repo, skip="")
+        p = self.run_script("blk-lens", "route", repo)
         self.assertEqual((p.returncode, p.stdout), (2, ""))
         self.assertIsNone(lens.read(self.board_obj()))
 
@@ -182,7 +164,7 @@ class LensBoardCase(RF.DeltaBoardCase):
     def test_collect_marks_findings_with_lens_name(self):
         """走ったレンズの指摘は出どころ（レンズの名）つきで ran"""
         repo = self.fixed()
-        self.script("route", repo, skip="")
+        self.script("route", repo)
         out = self.script("collect", repo, silent_failure_hunter=json.dumps({"findings": [FINDING]}, ensure_ascii=False))
         self.assertEqual((out["ok"], out["ran"], out["failed"], out["not_routed"]), (True, 1, 0, 0))
         row = lens.read(self.board_obj())[0]
@@ -193,7 +175,7 @@ class LensBoardCase(RF.DeltaBoardCase):
         repo = self.fixed()
         for given, why in (("null", "出口が無い"), ('{"findings": "x"}', "形が違う")):
             with self.subTest(given):
-                self.script("route", repo, skip="")
+                self.script("route", repo)
                 out = self.script("collect", repo, silent_failure_hunter=given)
                 self.assertEqual((out["ok"], out["failed"]), (True, 1))
                 row = lens.read(self.board_obj())[0]
@@ -229,7 +211,7 @@ class LensBoardCase(RF.DeltaBoardCase):
 
     def test_exit_passes_ok_collector(self):
         repo = self.fixed()
-        self.script("route", repo, skip="")
+        self.script("route", repo)
         got = self.script("collect", repo, silent_failure_hunter=json.dumps(linekit.LENS_REPLY, ensure_ascii=False))
         out = self.script("exit", repo, collected=json.dumps(got, ensure_ascii=False))
         self.assertEqual((out["ok"], out["lens_file"]), (True, got["lens_file"]))

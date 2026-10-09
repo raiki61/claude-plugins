@@ -1,4 +1,4 @@
-"""境の節の芯（darkfactory/lib/line_edge.py の edge・darkfactory/lib/plan.py の gate_text・darkfactory/scripts/edge.py）の検査（線 A の仕様 2 節・
+"""境の節の芯（darkfactory/lib/line_edge.py の edge・gate_text・darkfactory/scripts/edge.py）の検査（線 A の仕様 2 節・
 計画 Task 10a・裁定 TA1・TA4）。止め札の置き方そのもの（halt.place・seen・over・dev/stop.sh）は test_halt.py。
 
 盤面は linekit の種で start → 見本の返答を entry.take で進めて作る（役の返答の前に起こした印を置く。盤面の決まり 2）。
@@ -42,16 +42,15 @@ import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
-import plan  # noqa: E402
 import protect  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
-            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go",
+            "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go",
             "structure_units_file", "ripple_file", "verify_file"}
-BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mat_go"}
+BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -232,7 +231,7 @@ class GateCase(EdgeBase):
         self.assertNotIn("archon workflow", text)   # PATH に無い archon を直に打つ行は書かない
         b = entry.open_board(self.board)
         self.assertEqual(b.work(line_edge.GATE_FILE).read_text(encoding="utf-8"), text)
-        self.assertEqual(text, plan.gate_text(b.state["pending_human"], run_id=RUN_ID))
+        self.assertEqual(text, line_edge.gate_text(b.state["pending_human"], run_id=RUN_ID))
         # 関所の文言は短い定型とこのパスだけを載せる（文そのものは Archon の置き換えに通さない。P1 Task 29 の持ち越し 2）
         self.assertEqual(got["gate_file"], str(b.work(line_edge.GATE_FILE)))
 
@@ -246,18 +245,18 @@ class GateCase(EdgeBase):
     def test_gate_text_without_run_id(self):
         asking = {"node": "p2.human_gate", "kinds": ["policy"], "question": "問い", "items": ["一"]}
         with mock.patch.dict(os.environ, {"WORKS_ANSWER_CMD": ""}):
-            text = plan.gate_text(asking)   # 殻の外で回した run: 打つ前に置き換える穴で書く
+            text = line_edge.gate_text(asking)   # 殻の外で回した run: 打つ前に置き換える穴で書く
         self.assertIn(f'{line_edge.answer.HOLE} <id> continue "<通す範囲と条件>"', text)
         self.assertIn(f'{line_edge.answer.HOLE} <id> stop "<理由>"', text)
         self.assertNotIn("archon workflow", text)
         with mock.patch.dict(os.environ, {"WORKS_ANSWER_CMD": "sh /plug/dev/use.sh answer /repo"}):
-            text = plan.gate_text(asking, run_id=RUN_ID)   # 起動の殻が置いた頭で、そのまま打てる行
+            text = line_edge.gate_text(asking, run_id=RUN_ID)   # 起動の殻が置いた頭で、そのまま打てる行
         self.assertIn(f'sh /plug/dev/use.sh answer /repo {RUN_ID} continue "<通す範囲と条件>"', text)
         self.assertIn(f'sh /plug/dev/use.sh answer /repo {RUN_ID} stop "<理由>"', text)
         self.assertNotIn("archon workflow", text)
         self.assertIn("- 一", text)
         with self.assertRaises(TypeError):
-            plan.gate_text("問い")
+            line_edge.gate_text("問い")
 
     def test_gate_null_means_not_opened(self):
         """at fix・gate None → answer を呼ばない。go は p3.fix の ready で決まる（問いの無い盤面は True、問いが残る盤面は False）"""
@@ -713,13 +712,6 @@ class EntryMidCase(EdgeBase):
         got = self.edge("entry")
         self.assertEqual((got["pr_go"], got["premises_go"]), (False, False))
 
-    def test_mid_is_slot(self):
-        """役が修正した盤面 → go True、runtime_go・holdout_go False、mid_note"""
-        self.fixed()
-        got = self.edge("mid")
-        self.assertEqual((got["go"], got["runtime_go"], got["holdout_go"]), (True, False, False))
-        self.assertEqual(got["mid_note"], line_edge.MID_NOTE)
-
     def test_slots_do_not_go(self):
         """異議の無い修正の直後: rejudge は再審の節が待っていないので go False。eyes は目が待っていないので go False"""
         self.fixed()
@@ -973,29 +965,28 @@ class GoCase(EdgeBase):
 
     def test_go_follows_board_ready(self):
         """線の順に進めた盤面で、各 at の go が盤面の ready の節で決まる（review → p3.delta_review、refix → p3.delta_fix、
-        tests → p4.ci、mid → 今の周の p3.fix を役が出した）"""
+        tests → p4.ci）"""
         self.planned()
         accept.write_board(self.board, design.DESIGN_FILE, linekit.reply("design_ok"))   # 修正案のブロックが独立設計も作った後
-        self.assertEqual([self.edge(at)["go"] for at in ("plan", "fix", "mid", "review", "refix", "tests")], [False] * 6)
+        self.assertEqual([self.edge(at)["go"] for at in ("plan", "fix", "review", "refix", "tests")], [False] * 5)
         self.fix_after_plan("")
-        self.assertEqual({at: self.edge(at)["go"] for at in ("fix", "mid", "review", "refix", "tests")},
-                         {"fix": False, "mid": True, "review": True, "refix": False, "tests": False})
+        self.assertEqual({at: self.edge(at)["go"] for at in ("fix", "review", "refix", "tests")},
+                         {"fix": False, "review": True, "refix": False, "tests": False})
         self.take("p3.delta_review", DELTA_REVIEW)
         self.assertEqual({at: self.edge(at)["go"] for at in ("review", "refix", "tests")},
                          {"review": False, "refix": True, "tests": False})
         self.take("p3.delta_fix", DELTA_FIX)
-        self.assertEqual({at: self.edge(at)["go"] for at in ("mid", "review", "refix", "tests")},
-                         {"mid": True, "review": False, "refix": False, "tests": True})
+        self.assertEqual({at: self.edge(at)["go"] for at in ("review", "refix", "tests")},
+                         {"review": False, "refix": False, "tests": True})
 
-    def test_mid_not_go_after_empty_fix(self):
-        """直す物の無い周で機械が空の返答を渡した（trace の by works:empty-fix）→ mid の go は False（p3.fix は done でも）"""
+    def test_review_not_go_after_empty_fix(self):
+        """直す物の無い周で機械が空の返答を渡した（trace の by works:empty-fix）→ 差分の審査は回さず、最後のテストへ"""
         self.judged("judge_no_fix")
-        self.assertFalse(self.edge("mid")["go"])
         self.take("p3.fix", entry.empty_fix_reply())
         b = entry.open_board(self.board)
         line_edge.trace_empty_fix(b)
         self.assertEqual(b.node_state("p3.fix"), "done")
-        self.assertFalse(self.edge("mid")["go"])
+        self.assertFalse(self.edge("review")["go"])
         self.assertTrue(self.edge("tests")["go"])
         rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
@@ -1098,7 +1089,6 @@ class PlanEdgeCase(EdgeBase):
         self.assertIn("p4.ci", b.ready())
         rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
-        self.assertFalse(self.edge("mid")["go"])
         again = self.edge("plan", judged=self.judge_exit("judge_no_fix"))   # Archon の再開で呼び直しても 2 度渡さない
         self.assertEqual((again["go"], again["stop"]), (True, False))
         self.assertEqual(len(self.done_rows("p3.fix")), 1)
@@ -1197,7 +1187,7 @@ class MatEyesEdgeCase(EdgeBase):
         self.assertIn("p0.purpose", entry.open_board(self.board).ready())
 
     def test_mat_bridges_purpose(self):
-        """目的の文のブロックが盤面の根に置いた purpose.json → 盤面の p0.purpose に渡し、go True・purpose_file は盤面の出力。
+        """目的の文のブロックが盤面の根に置いた purpose.json → 盤面の p0.purpose に渡し、go True。
         呼び直しても 2 度渡さない。P1 の目の役が表に無い版では mat_go False"""
         import purpose
         self.before_purpose()
@@ -1208,7 +1198,6 @@ class MatEyesEdgeCase(EdgeBase):
             self.assertEqual((got["go"], got["stop"]), (True, False), got)
         b = entry.open_board(self.board)
         self.assertEqual(b.node_state("p0.purpose"), "done")
-        self.assertEqual(got["purpose_file"], str(self.board / b.state["outputs"]["p0.purpose"]["file"]))
         self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.purpose"]), 1)
         self.assertEqual(got["mat_go"], any(b.table.nodes[n].where == "blk-material" for n in b.ready()))
 

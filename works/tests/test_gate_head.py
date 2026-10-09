@@ -1,6 +1,6 @@
 """人が読む関所の文と報告の冒頭 3 行（.shared/core/gatemarks.py の head3・gate_text・pushes）の検査（FAST: 盤面・git・子のプロセスなし）。
 
-- 直す前の関所（plan.gate_text）と仕様の関所（specblk.gate_text）は同じ組み立てで、1〜3 行目が 起きたこと・決めてほしいこと・推し
+- 直す前の関所（line_edge.gate_text）と仕様の関所（specblk.gate_text）は同じ組み立てで、1〜3 行目が 起きたこと・決めてほしいこと・推し
 - 最後の関所の冒頭（line_edge._final_head）は開けた理由を 1 行目に並べ、守りのファイルはそこで名指す
 - 報告の冒頭（report.head3）は結末を平易に言い、人が決める物が無ければ 2 行目に次の run に渡す物の件数
 - 推しは判定の役が問いの理由に書いた物だけ（機械は作らない）。3 行を足しても今の中身は 1 つも落ちない
@@ -21,7 +21,6 @@ sys.path.insert(0, str(ROOT / "tests"))
 import answer  # noqa: E402
 import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
-import plan  # noqa: E402
 import report  # noqa: E402
 from test_plan_gate import FORK, GateBase, internal_subjects  # noqa: E402
 
@@ -45,7 +44,7 @@ class AskGateCase(unittest.TestCase):
         return {"node": "p2.human_gate", "kinds": list(kinds), "question": "狭まる能力を代償に採るか", "items": list(items)}
 
     def test_plan_gate_starts_with_three_lines(self):
-        text = plan.gate_text(self.asking([NARROW_ITEM]), run_id="run-1")
+        text = line_edge.gate_text(self.asking([NARROW_ITEM]), run_id="run-1")
         self.assertEqual(heads(text), HEADS)
         first = text.splitlines()[0]
         self.assertIn("直す前の関所", first)
@@ -54,7 +53,7 @@ class AskGateCase(unittest.TestCase):
 
     def test_nothing_is_dropped_behind_the_head(self):
         """3 行の後ろに問いの文・項目・両方の答えの行が残る（依頼 4: 情報を 1 つも減らさない）"""
-        text = plan.gate_text(self.asking([NARROW_ITEM]), run_id="run-1")
+        text = line_edge.gate_text(self.asking([NARROW_ITEM]), run_id="run-1")
         rest = "\n".join(text.splitlines()[3:])
         for want in ("> 狭まる能力を代償に採るか", f"- {NARROW_ITEM}", answer.line("run-1", "continue", "<通す範囲と条件>"),
                      answer.line("run-1", "stop", "<理由>"), "記録の名 process.human_items"):
@@ -62,12 +61,12 @@ class AskGateCase(unittest.TestCase):
 
     def test_push_comes_only_from_the_record(self):
         """推しは項目（判定の問いの理由）に書かれた物だけ。無ければ NO_PUSH、推しの無い項目が混じればそう断る"""
-        none = plan.gate_text(self.asking([NARROW_ITEM]), run_id="run-1").splitlines()[2]
+        none = line_edge.gate_text(self.asking([NARROW_ITEM]), run_id="run-1").splitlines()[2]
         self.assertEqual(none, gatemarks.PUSH + gatemarks.NO_PUSH)
         ask = gatemarks.ask_text(FORK)
-        only = plan.gate_text(self.asking([ask], kinds=("fork",)), run_id="run-1").splitlines()[2]
+        only = line_edge.gate_text(self.asking([ask], kinds=("fork",)), run_id="run-1").splitlines()[2]
         self.assertEqual(only, gatemarks.PUSH + "例外——呼び手が既に例外を捕まえている")
-        mixed = plan.gate_text(self.asking([ask, NARROW_ITEM], kinds=("fork", "regression")), run_id="run-1").splitlines()[2]
+        mixed = line_edge.gate_text(self.asking([ask, NARROW_ITEM], kinds=("fork", "regression")), run_id="run-1").splitlines()[2]
         self.assertTrue(mixed.startswith(only), mixed)
         self.assertIn(gatemarks.NO_PUSH, mixed)
         unsaid = gatemarks.ask_text({**FORK, "reason": "空の列の意味が 2 つに割れる"})

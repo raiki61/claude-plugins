@@ -101,8 +101,6 @@ collect:
   reason_file: board/reject-take_p2_fix_plan-3.txt
   ripple_file: board/r1/ripple.json
 fixture:
-  inputs:
-    judgment_file: board/judgment.json
   expect: completed
   reached:
   - r2-design-snap
