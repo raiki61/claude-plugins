@@ -105,5 +105,16 @@ class CliCase(unittest.TestCase):
         self.assertEqual(len(bad.stderr.strip().splitlines()), 1)
 
 
+class OldEntryCase(unittest.TestCase):
+    def test_old_ghreads_entry_points_to_carry(self):
+        """前の打ち方 ghreads.py carry-ci は通さず、移った先 carry.py を 1 行で言って 2 で終わる"""
+        got = subprocess.run([sys.executable, "-I", str(CORE / "ghreads.py"), "carry-ci", "--request", "x"],
+                             capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(got.returncode, 2)
+        self.assertEqual(len(got.stderr.strip().splitlines()), 1)
+        self.assertIn("carry.py", got.stderr)
+        self.assertIn("carry-ci", got.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

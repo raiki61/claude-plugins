@@ -64,7 +64,7 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - answer_key(b, q): 依頼の answers でその問いに答える時の question（保留の行の尾 ANSWER_KEY_HEAD と下書きが使う）
 - answer_drafts(b)・draft_line(drafts, next_file): 無人の run が関所で止まった項目と、保留のままの台帳の問い・問いの無い測れていない素材への答えの下書き
   （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 carry.parts が拒む）と、報告の冒頭 1 の行
-標準ライブラリと core の answer（L1。答えの行）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）だけ。
+標準ライブラリと core の answer（L1。答えの行）・carry（L1。下書きの印の付け方）・marks（L1）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）・scopes（L3）だけ。
 """
 import json
 import pathlib

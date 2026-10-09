@@ -24,7 +24,7 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
 - is_draft(row)・draft(row, source, note="")・compose(findings, prior, drafts): 下書きの印の読みと付け方・次の依頼の下書きの中身
 - row_key(row): 行の鍵（where と、text の最初の「（」までを空白を詰めて \\t でつないだ物。理由の尾だけ違う行を同じ物と見る）
 - schema(name)・errors(doc, name): 約束の Schema（NEXT_SCHEMA・PRIOR_SCHEMA）と、それに照らした誤りの一覧
-- save_next(board_dir, doc)・save_prior(board_dir, rows)・place_prior(board_dir, rows)・prior_section(board_dir, gap=ValueError):
+- save(board_dir, doc, prior)・place_prior(board_dir, rows)・prior_section(board_dir, gap=ValueError):
   盤面の根に照らしてから書く口と、依頼の前の失敗を役の材料に貼る節（読めなければ呼び手が渡した例外の型 gap）
 """
 import argparse
@@ -44,7 +44,7 @@ from engine.schema import validate_schema  # noqa: E402
 # 依頼の容器の欄の名
 FINDINGS, PR, ISSUE, ANSWERS, PRIOR = "findings", "pr", "issue", "answers", "prior_failures"
 KEYS = (FINDINGS, PR, ISSUE, ANSWERS, PRIOR)
-ANSWER_KEYS = ("question", "text", "command", "output")
+ANSWER_KEYS = ("question", "text", "command", "output")   # 人が見直した答えの欄（Schema の answers は下書きの欄で、別の物）
 DRAFT, SOURCE, NOTE = "draft", "source", "note"
 DRAFT_KEYS = (DRAFT, SOURCE)   # 前の run の報告が next-request.json の answers・findings に置く下書きの印（人が見直して消すまで拒む）
 PRIOR_KEYS = ("where", "text")   # prior_failures の行の欄（前の run の報告が next-request.json に書いた形）
@@ -117,7 +117,8 @@ def without_prior(doc):
 
 def _prior_failures(rows) -> list:
     """依頼の prior_failures（前の run で最後まで通らなかった物。前の run の報告が書いた next-request.json の欄）を確かめて
-    そのまま返す。行は {where, text} で、どちらも空でない文字列。知らない欄は拒む。最後に約束の Schema で照らす（ValueError。1 行）"""
+    そのまま返す。行は {where, text} で、どちらも空でない文字列。知らない欄は拒む（ValueError。1 行）。最後に約束の Schema でも
+    照らす: 今の Schema は手の確かめより緩いので当たらないが、Schema を締めた時に読み手が同じ約束で拒むための見張り"""
     if not isinstance(rows, list):
         raise ValueError(f"prior_failures が配列でない（{type(rows).__name__}）")
     for i, r in enumerate(rows):
@@ -208,18 +209,16 @@ def _checked(doc, name: str, what: str):
     return doc
 
 
-def save_next(board_dir, doc: dict) -> pathlib.Path:
-    """次の run の依頼の下書きを盤面の根の NEXT_REQUEST_FILE に置く（NEXT_SCHEMA に照らし、合わなければ ValueError で置かない）"""
-    p = pathlib.Path(board_dir) / NEXT_REQUEST_FILE
-    write(p, _checked(doc, NEXT_SCHEMA, NEXT_REQUEST_FILE))
-    return p
-
-
-def save_prior(board_dir, rows: list) -> pathlib.Path:
-    """この run で最後まで通らなかった物を盤面の根の PRIOR_FAILURES_FILE に置く（PRIOR_SCHEMA に照らす）"""
-    p = pathlib.Path(board_dir) / PRIOR_FAILURES_FILE
-    write(p, _checked(rows, PRIOR_SCHEMA, PRIOR_FAILURES_FILE))
-    return p
+def save(board_dir, doc: dict, prior: list) -> tuple:
+    """報告が書く 2 つ: この run で最後まで通らなかった物 prior を PRIOR_FAILURES_FILE に、次の run の依頼の下書き doc を
+    NEXT_REQUEST_FILE に、この順で盤面の根に置き、(下書きのパス, 前の失敗のパス) を返す。先に両方を約束の Schema に照らし、
+    どちらかが合わなければ ValueError で 1 つも置かない（片方だけが残る盤面を作らない）"""
+    d = pathlib.Path(board_dir)
+    _checked(prior, PRIOR_SCHEMA, PRIOR_FAILURES_FILE)
+    _checked(doc, NEXT_SCHEMA, NEXT_REQUEST_FILE)
+    write(d / PRIOR_FAILURES_FILE, prior)
+    write(d / NEXT_REQUEST_FILE, doc)
+    return d / NEXT_REQUEST_FILE, d / PRIOR_FAILURES_FILE
 
 
 def place_prior(board_dir, rows: list) -> None:

@@ -359,8 +359,8 @@
    "status": "住処あり",
    "fences": [
     {
-     "what": "持ち越しのファイルの名・依頼の容器の前の失敗の欄の名の字・下書きの印の作りと読み・住処の名の定数を自分で持つ形（下書きの出どころの欄 source は別の考えの同じ名が多いので、印は作りの形 \"draft\": True と読みの形 .get(\"draft\") で見る）",
-     "pattern": "\"next-request\\.json\"|\"prior-failures(-in)?\\.json\"|\"prior_failures\"|\"draft\": True|\\.get\\(\"draft\"\\)|(?<!carry\\.)\\b(DRAFT_KEYS|PRIOR_KEYS|PRIOR_IN_FILE|NEXT_REQUEST_FILE|PRIOR_FAILURES_FILE)\\b",
+     "what": "持ち越しのファイルの名（引用符かパスの区切りで囲んだ字）・前の失敗の欄の名の字・下書きの印の作りと読み（\"draft\": True・draft=True・\"draft\" in・[\"draft\"]・.get(\"draft\")・(\"draft\", \"source\")）・住処の名の定数を自分で持つ形。下書きの出どころの欄 source と容器の欄 findings・answers・pr・issue は別の考えに同じ名が多いので柵に入れず、呼び手が住処の定数を引く決まりにする",
+     "pattern": "[\"'/]next-request\\.json[\"']|[\"'/]prior-failures(-in)?\\.json[\"']|[\"']prior_failures[\"']|[\"']draft[\"']\\s*(:\\s*True\\b|in\\b|\\])|\\.get\\([\"']draft[\"']\\)|\\bdraft=True\\b|\\([\"']draft[\"'], ?[\"']source[\"']\\)|(?<!carry\\.)\\b(DRAFT_KEYS|PRIOR_KEYS|PRIOR_IN_FILE|NEXT_REQUEST_FILE|PRIOR_FAILURES_FILE)\\b",
      "allowed": [
       ".shared/core/carry.py",
       ".shared/core/next-request.schema.json",

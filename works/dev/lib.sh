@@ -512,12 +512,12 @@ if os.environ.get("WORKS_USE_SH"):
 print("報告（report の節まで済んだ後）:", os.path.join(board, "report.md"))
 # 次の run の依頼の下書き（報告の節が書く）。無人の run が人の判断の所で止まると、answers に答えの下書き（draft の行）が載る
 # 名と下書きの印の決まりは持ち越しの住処 carry から引く（入口が拒む行と同じ決まり）。DEV_DIR を置かない呼び手は core を
-# 引けないので、その旨の 1 行だけにし、後ろの差分は今どおり書く
+# 引けないので、その旨の 1 行だけにし、後ろの差分は今どおり書く（読み込みのほかの誤りでも差分を書く所まで止めない）
 try:
     sys.path.insert(0, os.environ["CORE_DIR"])
     import carry
     nxt = os.path.join(board, carry.NEXT_REQUEST_FILE)
-except ImportError as err:
+except Exception as err:
     nxt = ""
     print("次の run の依頼の下書き: 置き場を引けない（core の carry を読めない: {}。DEV_DIR（works/dev）を置いた殻から呼ぶ）".format(err))
 if nxt and os.path.isfile(nxt):

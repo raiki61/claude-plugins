@@ -25,7 +25,7 @@ import sys
 
 sys.dont_write_bytecode = True
 _HERE = str(pathlib.Path(__file__).resolve().parent)
-if _HERE not in sys.path:   # 殻は python3 -I で起こす（-I は自分の置き場を sys.path に足さない）。同じ層の forge だけを読む
+if _HERE not in sys.path:   # 置き場を sys.path に持たない起こし方（python3 -I など）でも同じ層の forge だけを読む
     sys.path.append(_HERE)     # 末尾に足す（core の名が標準の模块の名を覆わない）
 
 import forge  # noqa: E402

@@ -1815,8 +1815,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     items = next_request(b, tests=tests, left=left)
     prior = prior_failures(b, left)
     rep_p = board_dir / REPORT_FILE
-    prior_p = carry.save_prior(board_dir, prior)
-    req_p = carry.save_next(board_dir, next_doc(b, items, prior))
+    req_p, prior_p = carry.save(board_dir, next_doc(b, items, prior), prior)
     dead = _no_turn_exits(b, (b.state.get("inputs") or {}).get("cwd") or ".")
     if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
         _write_json(board_dir / NO_TURN_FILE, dead)

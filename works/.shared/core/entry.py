@@ -560,7 +560,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
            "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
            "design_only": design_only, "fix_fixture": fx, FEATURES_KEY: off,
            FEATURES_ON_KEY: on,
-           "answers": answers, carry.PRIOR: prior}
+           carry.ANSWERS: answers, carry.PRIOR: prior}
     if change is not None:
         out.update(change)
     return out
@@ -629,7 +629,7 @@ def _read_request(rel: str, repo: pathlib.Path, rules):
         parts = carry.parts(doc)
     except ValueError as e:
         raise InputRefused(f"依頼のファイル {rel} の形: {e}") from None
-    items = parts["findings"]
+    items = parts[carry.FINDINGS]
     errs = validate_schema([{"round": 1, "origin": ORIGIN, "findings": items}], rules.REQUEST_SCHEMA)
     if errs:
         raise InputRefused(f"依頼のファイル {rel} の形: findings の配列か {{findings, pr, issue, answers}} の形で、findings は "
@@ -978,7 +978,7 @@ def add_pending_request(b) -> str:
         return "none"
     if b.node_state(PENDING_WAIT_NODE) == "pending":
         return "waiting"
-    b.add_request(carry.parts(json.loads(pathlib.Path(doc["request_file"]).read_text(encoding="utf-8")))["findings"], ORIGIN)
+    b.add_request(carry.parts(json.loads(pathlib.Path(doc["request_file"]).read_text(encoding="utf-8")))[carry.FINDINGS], ORIGIN)
     return "added"
 
 
@@ -1111,7 +1111,7 @@ def _named(raw: dict, repo: pathlib.Path):
             parts = carry.parts(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, UnicodeDecodeError, ValueError):
             return prs, issues
-        prs, issues = list(dict.fromkeys(parts["pr"] + prs)), list(parts["issue"])
+        prs, issues = list(dict.fromkeys(parts[carry.PR] + prs)), list(parts[carry.ISSUE])
     return prs, issues
 
 

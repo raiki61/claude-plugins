@@ -14,7 +14,7 @@
 ## 決め（親から変えた所と、その訳）
 
 1. Schema の置き場を core へ移す（`darkfactory/schemas/{next-request,prior-failures}.schema.json` → `.shared/core/`）。訳: core はラインの名を書けない（`tests/test_layers.py` の name）。core の Schema をラインの宣言から `../.shared/core/…` で指す形は `reads.schema.json` に先例が在る。中身は変えない（題の書き手の名だけ直す）
-2. 書き手は書く前に Schema で照らし、合わなければ ValueError（works の不具合。黙って約束の外の物を置かない）。読み手は今の手書きの確かめ（文の誤りの字は今のまま）に、`prior_failures` の行を同じ Schema で照らす 1 段を足す。欄の名の定数と Schema の欄が揃うことは試験が縛る
+2. 書き手は書く前に Schema で照らし、合わなければ ValueError（works の不具合。黙って約束の外の物を置かない）。報告の節では、照らしで落ちると report.md も書かれずに節が 2 で終わる（今の行の出どころは全部文字列なので今の run では起きない。審査で確かめた）。片方だけが残らないよう、`save` は 2 つを先に照らしてから書く。読み手は今の手書きの確かめ（文の誤りの字は今のまま）に、`prior_failures` の行を同じ Schema で照らす 1 段を足す（今の Schema は手の確かめより緩いので当たらない。Schema を締めた時の見張り）。欄の名の定数と Schema の欄が揃うことは試験が縛る
 3. `prior_section` は盤面の層を知らない（L1）ので、読めない時に投げる例外の型を呼び手が渡す（`gap=BoardGap`）
 4. 殻の口 `carry-ci` は `carry.py` へ移す。`ghreads.py` を口として起こした時は、移った先を 1 行で言って 2 で終わる（前の打ち方を黙って通さず、能力も減らさない）
 5. `dev/lib.sh` の下書きの数えは `carry.is_draft`（入口が拒む行と同じ決まり。`draft` か `source` の在る行）に揃える
@@ -30,7 +30,7 @@
 - `schema(name) -> dict`・`errors(doc, name) -> list[str]`（name は `NEXT_SCHEMA`・`PRIOR_SCHEMA`）
 - `parts(doc) -> dict`（今の `ghreads.request_parts`）・`without_prior(doc)`・`carry_ci(doc, ids) -> dict`
 - `is_draft(row) -> bool`・`draft(row, source, note="") -> dict`・`compose(findings, prior, drafts) -> dict`・`row_key(row) -> str`
-- `save_next(board_dir, doc) -> Path`・`save_prior(board_dir, rows) -> Path`・`place_prior(board_dir, rows) -> None`・`prior_section(board_dir, gap=ValueError) -> str`
+- `save(board_dir, doc, prior) -> (Path, Path)`（両方を照らしてから両方を置く）・`place_prior(board_dir, rows) -> None`・`prior_section(board_dir, gap=ValueError) -> str`
 
 - [x] 金型を取る: 変える前の木で、持ち越しのファイルを書く試験（test_report・test_entry・test_gate_drafts・test_out_of_purpose・test_carry_ci・test_blk_purpose・test_blk_judge・test_blk_premises・test_line_a・test_edge・test_use・test_dev）を、`os.replace` の先が 3 つの名の時に中身を写す sitecustomize を差して回し、写しを残す
 - [x] 赤: `tests/test_carry_home.py` に `test_carry_names_live_in_carry`（柵の表の `carry-over` が通る）・`test_compose_then_parts_roundtrip`・`test_row_key_ignores_reason_tail`・`test_ghreads_keeps_only_github_reads`・`test_constants_match_schemas`・`test_writer_refuses_off_contract`・`test_prior_section_raises_given_gap`
