@@ -352,7 +352,7 @@
    "fences": [
     {
      "what": "網の素の口（機械が web を取る所）",
-     "pattern": "\\burllib\\.request\\b|\\bHTTPRedirectHandler\\b",
+     "pattern": "\\burllib\\.request\\b|\\bfrom\\s+urllib\\s+import\\b[^\\n]*\\brequest\\b|\\bhttp\\.client\\b|\\bfrom\\s+http\\s+import\\b[^\\n]*\\bclient\\b|\\bHTTPRedirectHandler\\b|\\burlopen\\b",
      "allowed": [
       ".shared/core/webget.py"
      ],

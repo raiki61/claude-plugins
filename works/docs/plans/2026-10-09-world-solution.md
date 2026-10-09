@@ -162,7 +162,7 @@
 - 約束: `blk-world/world-row.schema.json`
 - 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（境の節 `h-world` と `structure_units`）
 - 柵の語の形（`docs/concepts.json`）: 行のファイルの名 `world.jsonl` と控えの名 `world-state.json`。知ってよい所の外で現れたら赤
-- web の取得と run をまたぐ控え（`.shared/core/webget.py`）は考えでなく部品なので行を足さない。`libdocs` と `blk-world` の 2 か所が使う（W1 で寄せる）
+- web の取得と run をまたぐ控え（`.shared/core/webget.py`）: `libdocs` と `blk-world` の 2 か所が使う（W1 で寄せる）。W1 を入れた時に、網の素の口が住処の外に出ない柵を持つ行 `web-get` として地図に足した（部品だが、柵で寄せた形を守れるため）
 
 ### 5.8 捨てた案
 

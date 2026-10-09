@@ -189,7 +189,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/webget.py`（層 L1。網に出してよい URL `safe_url`・転送の決まり `SafeRedirect`・取得 `http_get`（期限を持たない）・網に出ない切り替え `is_off`・run をまたぐ控えの置き場 `shared_root` と控え `Store`（名ごとの JSON。schema・状態・期限で選ぶ））
 - 約束: 口の形だけ（切り替えの名・控えの schema と期限・読む量の上限は呼ぶ側が持つ）
-- 知ってよい所: 住処だけが網の素の口（`urllib.request`）を使う。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）で、どちらも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
+- 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）で、どちらも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
 - 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。世界の解の段（同じ計画の W5）が 2 つめの使う所になる
 
 ---

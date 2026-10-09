@@ -193,7 +193,8 @@ def _web_inputs(events, node_path: str, tool: str, key: str) -> list:
 
 
 def web_fetches(events, node_path: str) -> list:
-    """節 node_path が WebFetch で取得した URL（出来事の順で重ねない。events が無ければ []）"""
+    """節 node_path が WebFetch で取得した URL（出来事の順で重ねない。events が無ければ []）。Archon は 500 字を超える値を切る
+    ことがある（_read_paths の注記）ので、とても長い URL は切れた字のまま並ぶ（照らす側では「取得していない」に倒れる）"""
     return _web_inputs(events, node_path, "WebFetch", "url")
 
 
