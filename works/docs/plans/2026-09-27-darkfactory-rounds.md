@@ -1,5 +1,7 @@
 # darkfactory 周の輪（線 B）Implementation Plan（盤面の層に載せ替え）
 
+状態: 合流させずに置いた（線 B の枝 wip/works-trackB は 2026-09-27 の 4ed5887b で止まり、main には無い）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 下請けは全部 opus（台帳 Ruling R22）。
 
 > この計画の `works/.shared/core/rounds.py` は線 B の枝（wip/works-trackB）にだけ在り、main にはまだ合流していない。

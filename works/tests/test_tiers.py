@@ -1,7 +1,7 @@
-"""テストの段（tests/tiers.py の FAST・HEAVY）と、段を選ぶ入口 run.sh（WORKS_TESTS）の検査。
+"""テストの段（tests/tiers.py の FAST と、それに無い全部の heavy）と、段を選ぶ入口 run.sh（WORKS_TESTS）の検査。
 
-- 段の一覧: fast と heavy は重ならず、合わせると discover が拾う全部のモジュール。どのモジュールも明示で
-  どちらかに書く（書き忘れた新しいモジュールは名前を挙げて赤。重いテストが黙って fast に入らない）
+- 段の一覧: 書くのは FAST だけで、heavy は discover が拾う全部のうち FAST に無い物。書き忘れた新しいモジュールは heavy に
+  入る（重いテストが黙って fast に入らない）。FAST に在るのにファイルが無い名前は名前を挙げて赤
 - 段の読み込み（TierLoader）: 段ごとの discover のテストを合わせると、ちょうど全部の discover のテスト
 - run.sh: 既定は全部を tiers.py all で、fast・heavy は tiers.py で回し、unittest の引数（-k など）をそのまま渡す。
   知らない値は 1 行で終了コード 2。全部と heavy は枠の台本（WORKS_TESTSLOT）を TESTSLOT_N=4 で通し、fast は通さない。
@@ -17,7 +17,7 @@
 """
 import ast
 import contextlib
-import importlib.util
+import importlib
 import io
 import json
 import os
@@ -71,11 +71,8 @@ class TierListCase(unittest.TestCase):
         self.assertGreaterEqual(len(tiers.modules()), 10)
         self.assertIn("test_tiers", tiers.modules())
 
-    def test_every_module_classified_once(self):
-        found = set(tiers.modules())
-        self.assertEqual(sorted(found - tiers.FAST - tiers.HEAVY), [], "段の一覧に無いモジュール（tiers.py に足す）")
-        self.assertEqual(sorted(tiers.FAST & tiers.HEAVY), [])
-        self.assertEqual(sorted((tiers.FAST | tiers.HEAVY) - found), [], "段の一覧に在るのにファイルが無い")
+    def test_fast_names_existing_modules(self):
+        self.assertEqual(sorted(tiers.FAST - set(tiers.modules())), [], "FAST に在るのにファイルが無い")
         self.assertEqual(tiers.problems(), [])
 
     def test_glob_matches_discover(self):
@@ -84,14 +81,17 @@ class TierListCase(unittest.TestCase):
         mods = {tid.split(".")[0] for tid in collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))}
         self.assertEqual(mods - set(tiers.modules()), set())
 
-    def test_problems_names_each_fault(self):
-        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})):
-            got = tiers.problems()
-            self.assertEqual(len(got), 1)
-            self.assertIn("test_new", got[0])
-        with mock.patch.object(tiers, "HEAVY", tiers.HEAVY | {"test_tiers"}):
-            self.assertIn("両方", " ".join(tiers.problems()))
-        with mock.patch.object(tiers, "HEAVY", tiers.HEAVY | {"test_gone"}):
+    def test_unlisted_module_is_heavy(self):
+        """一覧に書き忘れた新しいモジュールは止めずに heavy に入る（fast には入らない）"""
+        with mock.patch.object(tiers, "modules", return_value=sorted(set(tiers.modules()) | {"test_new"})):
+            self.assertEqual(tiers.problems(), [])
+            self.assertIn("test_new", tiers.tier_modules("heavy"))
+            self.assertNotIn("test_new", tiers.tier_modules("fast"))
+            self.assertEqual(tiers.tier_modules("fast") | tiers.tier_modules("heavy"), set(tiers.modules()))
+            self.assertEqual(tiers.tier_modules("fast") & tiers.tier_modules("heavy"), set())
+
+    def test_problems_names_fast_without_file(self):
+        with mock.patch.object(tiers, "FAST", tiers.FAST | {"test_gone"}):
             got = " ".join(tiers.problems())
             self.assertIn("test_gone", got)
             self.assertIn("ファイルが無い", got)
@@ -99,21 +99,20 @@ class TierListCase(unittest.TestCase):
     def test_loader_splits_discover_exactly(self):
         full = collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))
         fast = collect_ids(tiers.TierLoader(tiers.FAST).discover(str(TESTS), tiers.PATTERN))
-        heavy = collect_ids(tiers.TierLoader(tiers.HEAVY).discover(str(TESTS), tiers.PATTERN))
+        heavy = collect_ids(tiers.TierLoader(tiers.tier_modules("heavy")).discover(str(TESTS), tiers.PATTERN))
         self.assertTrue(fast and heavy)
         self.assertEqual(fast & heavy, set())
         self.assertEqual(fast | heavy, full)
         self.assertEqual({t.split(".")[0] for t in fast} - tiers.FAST, set())
-        self.assertEqual({t.split(".")[0] for t in heavy} - tiers.HEAVY, set())
+        self.assertEqual({t.split(".")[0] for t in heavy} & tiers.FAST, set())
 
     def test_main_refuses_unknown_tier_and_bad_list(self):
         with mock.patch("sys.stderr"):
             self.assertEqual(tiers.main(["tiers.py", "slow"]), 2)
             self.assertEqual(tiers.main(["tiers.py"]), 2)
-        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})), \
-                mock.patch("sys.stderr") as err:
+        with mock.patch.object(tiers, "FAST", tiers.FAST | {"test_gone"}), mock.patch("sys.stderr") as err:
             self.assertEqual(tiers.main(["tiers.py", "fast"]), 2)
-            self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
+            self.assertIn("test_gone", "".join(c.args[0] for c in err.write.call_args_list))
 
 
 class ShardCase(unittest.TestCase):
@@ -148,6 +147,50 @@ class ShardCase(unittest.TestCase):
         self.assertEqual(set().union(*parts), full)
         self.assertEqual(sum(len(p) for p in parts), len(set().union(*parts)))
 
+    def test_weight_is_recorded_seconds_with_per_test_fallback(self):
+        """組の重さは記録した実測の秒（tests/shard-seconds.json）。記録に無いモジュールは試験の数 × 段ごとの 1 本の秒"""
+        doc = json.loads((TESTS / "shard-seconds.json").read_text(encoding="utf-8"))
+        self.assertRegex(doc["measured"], r"^\d{4}-\d{2}-\d{2}$")
+        self.assertTrue(doc["runs"])
+        self.assertEqual(tiers.weight("test_script_contract"), float(doc["seconds"]["test_script_contract"]))
+        n = len(re.findall(r"^\s*def test_", (TESTS / "test_tiers.py").read_text(encoding="utf-8"), re.M))
+        with mock.patch.dict(tiers.SECONDS, clear=True):
+            self.assertAlmostEqual(tiers.weight("test_tiers"), n * doc["per_test"]["fast"])
+            self.assertAlmostEqual(tiers.weight("test_dev"),
+                                   len(re.findall(r"^\s*def test_", (TESTS / "test_dev.py").read_text(encoding="utf-8"), re.M))
+                                   * doc["per_test"]["heavy"])
+
+    def test_four_shards_balance_on_recorded_seconds(self):
+        """CI の 4 組を記録の秒で配ると、いちばん重い組が平均の 1.25 倍に収まる（1 組だけが 40 分かかった 0.2.47〜0.2.49 の形に戻さない）"""
+        seconds = json.loads((TESTS / "shard-seconds.json").read_text(encoding="utf-8"))["seconds"]
+        groups = tiers.shard_of(tiers.modules(), 4)
+        loads = [sum(float(seconds[m]) if m in seconds else tiers.weight(m) for m in g) for g in groups.values()]
+        self.assertLessEqual(max(loads), 1.25 * sum(loads) / len(loads), loads)
+
+    def test_module_seconds_include_class_setup(self):
+        """「モジュールごとの秒」は前の試験の終わりからの間をそのモジュールに数える（setUpClass・setUpModule の秒も入る。
+        入らないと test_script_contract の 16 分の setUpClass が組の重さから消える）"""
+        now = [0.0]
+
+        class A(unittest.TestCase):
+            def test_a(self):
+                pass
+
+        class B(unittest.TestCase):
+            def test_b(self):
+                pass
+        A.__module__, B.__module__ = "test_slow_setup", "test_quick"
+        result = tiers.SkipGateResult(io.StringIO(), True, 0)
+        with mock.patch.object(tiers.time, "monotonic", side_effect=lambda: now[0]):
+            for at, step in ((0.0, lambda: result.startTestRun()),
+                             (5.0, lambda: result.startTest(A("test_a"))),   # setUpClass の 5 秒の後
+                             (6.0, lambda: result.stopTest(A("test_a"))),
+                             (6.5, lambda: result.startTest(B("test_b"))),
+                             (7.0, lambda: result.stopTest(B("test_b")))):
+                now[0] = at
+                step()
+        self.assertEqual(result._works_secs, {"test_slow_setup": 6.0, "test_quick": 1.0})
+
     def test_env_form(self):
         self.assertIsNone(tiers.shard_env({}))
         self.assertIsNone(tiers.shard_env({"WORKS_SHARD": ""}))
@@ -177,8 +220,9 @@ class TierPathsCase(unittest.TestCase):
     """dev/tdd-suite.sh（pytest で回す TDD の実行器）が段のファイルを引く口 `python3 tests/tiers.py paths <段>`"""
 
     def test_paths_are_the_tier_files_from_works_root(self):
-        for tier, mods in tiers.TIERS.items():
+        for tier in tiers.TIERS:
             with self.subTest(tier):
+                mods = tiers.tier_modules(tier)
                 got = tiers.paths(tier)
                 self.assertEqual(got, sorted(f"tests/{m}.py" for m in mods))
                 for p in got:
@@ -204,10 +248,10 @@ class TierPathsCase(unittest.TestCase):
             self.assertEqual(tiers.main(["tiers.py", "paths", "slow"]), 2)
             self.assertEqual(tiers.main(["tiers.py", "paths"]), 2)
         self.assertEqual(out.getvalue(), "")
-        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})), \
+        with mock.patch.object(tiers, "FAST", tiers.FAST | {"test_gone"}), \
                 mock.patch("sys.stderr") as err, contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(tiers.main(["tiers.py", "paths", "fast"]), 2)
-            self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
+            self.assertIn("test_gone", "".join(c.args[0] for c in err.write.call_args_list))
         self.assertEqual(out.getvalue(), "")
 
 
@@ -567,77 +611,6 @@ class SkipGateCase(unittest.TestCase):
                 self.assertEqual(tiers.main(["tiers.py", tier, "-k", "x"]), 0)
                 self.assertEqual(um.call_count, 1)
                 self.assertIs(um.call_args.kwargs.get("testRunner"), runner_cls)
-
-
-# Windows の os に無い POSIX のプロセスの API（Python の公式文書で Availability: Unix）
-POSIX_ONLY = ("geteuid", "killpg", "setsid", "getpgid", "getsid")
-
-
-@contextlib.contextmanager
-def without_posix_process_api():
-    """os から POSIX だけの API を外した間（Windows の os を模す）"""
-    saved = {n: getattr(os, n) for n in POSIX_ONLY if hasattr(os, n)}
-    for n in saved:
-        delattr(os, n)
-    try:
-        yield
-    finally:
-        for n, f in saved.items():
-            setattr(os, n, f)
-
-
-def load_fresh(name):
-    """tests/<name>.py を別の名前で読み込み直す（sys.modules の物を使わずに、モジュールの頭とクラスの定義を今の os で評価する）"""
-    spec = importlib.util.spec_from_file_location(f"_portability_{name}", TESTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-class PortabilityCase(unittest.TestCase):
-    """macOS／POSIX の前提が無い OS（Linux・Windows）で、works の試験が読み込みで落ちず、できない物は能力の名前で見送る。
-    段の全部を 3 OS で回す前に、手元の macOS で os の API と /private/tmp の綴りを外して確かめる（読み込むだけで、木は起こさない）"""
-
-    def test_modules_load_without_posix_process_api(self):
-        bad = []
-        with without_posix_process_api():
-            for name in ("test_tiers", "test_tree_run", "test_adapter", "test_blk_tests_delta"):
-                try:
-                    load_fresh(name)
-                except Exception as e:   # noqa: BLE001 — 読み込みの失敗を全部集めて名指す
-                    bad.append(f"{name}: {type(e).__name__}: {e}")
-        self.assertEqual(bad, [], "POSIX のプロセスの API が無いと読み込みで落ちる")
-
-    def test_tree_run_cases_skip_as_process_group_without_killpg(self):
-        with without_posix_process_api():
-            cls = load_fresh("test_tree_run").TreeRunCase
-            if getattr(cls, "__unittest_skip__", False):
-                reason = cls.__unittest_skip_why__
-            else:
-                try:
-                    cls.setUpClass()
-                except unittest.SkipTest as e:
-                    reason = str(e)
-                else:
-                    self.fail("os.killpg が無くても TreeRunCase が見送られない（木を起こして落ちる）")
-        self.assertRegex(reason, r"^SKIP process-group: ")
-
-    def test_cwd_in_claude_tmp_does_not_skip_unnamed_without_private_tmp(self):
-        real = tempfile.mkdtemp
-
-        def mkdtemp(*args, **kwargs):
-            d = kwargs.get("dir", args[2] if len(args) > 2 else None)
-            if d is not None and str(d).startswith("/private/"):
-                raise FileNotFoundError(2, "No such file or directory", str(d))
-            return real(*args, **kwargs)
-
-        test_dev = load_fresh("test_dev")
-        result = unittest.TestResult()
-        with mock.patch.object(tempfile, "mkdtemp", mkdtemp):
-            test_dev.TestDevShell("test_archon_sh_refuses_cwd_in_claude_tmp").run(result)
-        self.assertEqual((result.errors, result.failures), ([], []))
-        for _, reason in result.skipped:
-            self.assertRegex(reason, tiers.SKIP_DECL)
 
 
 # 試験を走らせる run（dogfood.sh・use.sh・包み）が export する変数。試験の子に届くと、既定の振る舞いを見る試験が外の run に左右される

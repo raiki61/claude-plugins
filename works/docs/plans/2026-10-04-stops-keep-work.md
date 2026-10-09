@@ -1,5 +1,7 @@
 # 修正の輪の最後の回は単位を止めるだけで、盤面を止めない（依頼 242「止まった run も仕事を捨てない」）Implementation Plan
 
+状態: 入れた（works 0.2.25。`blk-fix/lib/parking.py`）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** works（このリポジトリの `works/` に在るプラグイン。外の道具 Archon の上で、人の修正依頼を AI の役に直させる工程 darkfactory を回す）の修正の段（AI の修正役が返した直しを、機械が確かめてから受ける段）で、修正役の 3 回目の返答も拒む時に、拒否の行を直す単位（判定役が切った 1 つの欠陥）に結んで、その単位だけを止めて持ち越す。受けた単位は残し、工程は差分の審査・最後の人の関所・報告まで進む。

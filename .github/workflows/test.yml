@@ -171,7 +171,7 @@ jobs:
       - name: install works test deps
         shell: bash
         run: python -m pip install pyyaml==6.0.3 pytest==9.1.1
-      # uv の版は mutation.yml の setup_uv と同じ値（tests/run.sh の CI_LINT_OK が一致を見る）
+      # uv の版は mutation.yml の setup_uv と同じ値にそろえる
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.11.29"

@@ -250,30 +250,25 @@ class FeaturesOffCase(unittest.TestCase):
             self.assertIn("hole_labels", str(cm.exception))
             self.assertIn("judge_verify", str(cm.exception))   # 名指せる語を並べる
 
-    def test_resume_old_board_keeps_all_on(self):
-        """features_on の欄の無い前の版の控え（その版の既定は全部 on）を呼び直すと、既定で off・auto の機能は on のまま続く
-        （腕を黙って替えない）。入力の features_on は空か、前の版の全部 on と同じ語だけを受ける"""
+    def test_features_on_of_reads_any_board(self):
+        """features_on_of（canary_check がどの版の盤面も読む口）: features_on の欄の無い前の版の控えは、その版の既定（全部 on）で
+        読む"""
         old = {"features_off": ["tdd_lanes"]}
         self.assertEqual(entry.features_on_of(old), ["judge_verify", "review_tree"])
         self.assertEqual(entry.features_on_of({"features_off": ["judge_verify"]}), ["review_tree"])
         self.assertEqual(entry.features_on_of({"features_off": [], "features_on": []}), [])
-        self.assertEqual(entry._resumed_features(old, ["tdd_lanes"], []), ["judge_verify", "review_tree"])
-        self.assertEqual(entry._resumed_features(old, ["tdd_lanes"], ["judge_verify", "review_tree"]),
-                         ["judge_verify", "review_tree"])
-        with self.assertRaises(entry.InputRefused):
-            entry._resumed_features(old, ["tdd_lanes"], ["judge_verify"])
         self.assertEqual(entry.features_cut([], []), ["judge_verify"])
         self.assertEqual(entry.features_cut(["tdd_lanes"], ["judge_verify"]), ["tdd_lanes"])
 
     def test_resume_with_other_features_is_refused(self):
-        """呼び直しで切る機能・入れる機能を替えない（features_on の欄の無い前の版の控えは features_on が空の run）"""
-        entry._resumed_features({"features_off": ["tdd_lanes"]}, ["tdd_lanes"], [])
-        entry._resumed_features({}, [], [])
+        """呼び直しで切る機能・入れる機能を替えない"""
+        self.assertEqual(entry._resumed_features({"features_off": ["tdd_lanes"], "features_on": []}, ["tdd_lanes"], []), [])
+        entry._resumed_features({"features_off": [], "features_on": []}, [], [])
         entry._resumed_features({"features_off": [], "features_on": ["judge_verify"]}, [], ["judge_verify"])
-        for prev, off, on in (({"features_off": ["tdd_lanes"]}, [], []), ({}, ["fix_lanes"], []),
+        for prev, off, on in (({"features_off": ["tdd_lanes"], "features_on": []}, [], []),
+                              ({"features_off": [], "features_on": []}, ["fix_lanes"], []),
                               ({"features_off": [], "features_on": ["judge_verify"]}, [], []),
-                              ({"features_off": [], "features_on": []}, [], ["review_tree"]),
-                              ({"features_off": []}, [], ["review_tree"])):
+                              ({"features_off": [], "features_on": []}, [], ["review_tree"])):
             with self.subTest(prev=prev, off=off, on=on), self.assertRaises(entry.InputRefused) as cm:
                 entry._resumed_features(prev, off, on)
             self.assertIn("features_o", str(cm.exception))

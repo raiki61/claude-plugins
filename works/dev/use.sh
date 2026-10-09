@@ -113,12 +113,7 @@ DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 WORKS_USE_SH="$DEV_DIR/use.sh"
-# 文書が名指す窓口は代入の行で持つ（名指しの柵 doc-symbols が定義として見る。除外表で黙らせない）
-WORKS_USE_GATES="${WORKS_USE_GATES:-}"
-WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
-WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
-WORKS_USE_FEATURES_OFF="${WORKS_USE_FEATURES_OFF:-}"
-WORKS_USE_FEATURES_ON="${WORKS_USE_FEATURES_ON:-}"
+# 下で素のまま読む窓口の既定（set -u）
 WORKS_USE_FIX_FIXTURE="${WORKS_USE_FIX_FIXTURE:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
 WORKS_USE_ALLOW_STOPPED="${WORKS_USE_ALLOW_STOPPED:-}"
@@ -292,7 +287,7 @@ run_row() {
 
 # run の控え <家>/runs/<run-id>.json: start で選んだ模型（明示しなければ start の時の既定）・claude の実行ファイル・keychain の項目の名（値でなく名）・包みを残し、
 # 別の殻で打つ answer・stop がそれで Archon を起こし、show が出す進める・続きの行もそれで組む（無ければ今の殻の値のまま）。
-# 書くのは起動の後に run を結ぶ lib.sh works_dev_ledger_bind（dogfood.sh・real-run.sh と同じ口）、読むのは load_ledger。形は launch.py ledger
+# 書くのは起動の後に run を結ぶ lib.sh works_dev_ledger_bind（dogfood.sh と同じ口）、読むのは load_ledger。形は launch.py ledger
 # herdr_sync [<run-id>=<状態>…]: この家と既定の家の全部の控え（lib.sh works_dev_ledger_dirs）から、run を起こした herdr の枠ごとの
 # 集計を出す（lib.sh works_dev_herdr_sync）
 herdr_sync() {

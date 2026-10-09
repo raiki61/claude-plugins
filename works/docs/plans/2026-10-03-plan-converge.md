@@ -1,5 +1,7 @@
 # 事前審査の block を修正案の役に返して固める（依頼 231・依頼 230 を含む）Implementation Plan
 
+状態: 入れた（works 0.2.20。blk-plan の壁打ちの輪 `converge-loop`・役 `plan-revise`）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## この文書の読み方（初めて読む人向け。本文の語はここで全部定める）

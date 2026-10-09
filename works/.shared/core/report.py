@@ -1102,19 +1102,14 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     中の検査の枠の行（境の節の mid_note）・起動の前に
     片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
     s = _start_doc(b, start)
-    reqs = s.get("requests")
-    if reqs is None:
-        reqs = sum(len(x.get("findings") or []) for x in (b.record.get("process") or {}).get("request_findings") or []
-                   if isinstance(x, dict))
-    # 入口の文は start が控えに書く（渡された出口には無い。控えにも無いのは入口が判定の 1 本だった版の run）
-    words = s.get("entry_words") or _start_doc(b, None).get("entry_words") or f"判定から（依頼 {reqs} 件）"
+    # 入口の文は start が控えに書く（渡された出口には無い。控えにも無いのは start が控えを書く前に落ちた run）
+    words = s.get("entry_words") or _start_doc(b, None).get("entry_words") or "（控えが無い）"
     parts = [f"入口: {words}", f"段: {s.get('thickness') or '（控えが無い）'}", f"gates: {s.get('gates') or '空'}"]
     if s.get("final_gate"):
         parts.append(f"最後の関所: {s['final_gate']}")
     parts.append(f"包み: {'optional（包み無し）' if s.get('adapter') == 'optional' else '通す'}")
     # 機能（入力 features_off・features_on）は start の控えの欄（start の出口は機能ごとの on・off・auto だけを持つ）。
-    # features_off の欄の無い控えはそれより前の版の run で、語を出さない（features_on の欄だけ無い控えは前の版の全部 on の既定。
-    # entry.features_on_of）
+    # 控えが無い（start が控えを書く前に落ちた）run は語を出さない
     feats = s if entry.FEATURES_KEY in s else _start_doc(b, None)
     if entry.FEATURES_KEY in feats:
         parts.append(entry.features_part(feats.get(entry.FEATURES_KEY) or [], entry.features_on_of(feats)))

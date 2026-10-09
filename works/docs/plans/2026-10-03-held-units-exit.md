@@ -1,5 +1,7 @@
 # 裁定で外れた単位の直しを、裁定の後の修正の段で戻さない（依頼 241）Implementation Plan
 
+状態: 入れた（works 0.2.22）。最後の回の扱い（`drop_excused_units`・`park_bound_units`）は依頼 242 で替えた（works/docs/plans/2026-10-04-stops-keep-work.md）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## この文書の読み方（初めて読む人向け。本文の語はここで全部定める）

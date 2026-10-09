@@ -3,7 +3,7 @@
 - ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない、fix-accept は変えた返答を拒む。
                       決まりはここの 1 本。自分食いの run では pack の写し .archon/workflows/works/** が在る——protected.json の copies の pack-copy）
 - archon_digests・archon_changes: .archon/ の下の姿（パスと中身の sha256）と、修正役の前の控えからの違い（fix-accept が拒む）
-- git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable・GIT_TIMEOUT と合わせて、blk-fix の正本はここの 1 本）
+- git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable と合わせて、blk-fix の正本はここの 1 本。期限は付けない）
 - snapshot:           作業ツリーの今の姿（未追跡の新しいファイルも）を一時の index で固めた木の sha（本物の index は触らない）
 - record_ignored:     修正役の前の git が無視するファイル・丸ごと無視されるフォルダと未追跡のフォルダと、段の頭の木（snapshot）を
                       盤面の fix-ignored-before.json に控える（節 ignored-before）
@@ -32,7 +32,6 @@ sys.dont_write_bytecode = True
 
 from script_io import scope_dir  # noqa: E402  （盤面の今の scope の根。層 L1・標準ライブラリと流れの道具の口だけ）
 
-GIT_TIMEOUT = 120
 ARCHON_PREFIX = ".archon/"   # Archon が run の作業ツリーに写す工程の置き場（自分食いでは線を動かしている pack の写しもここ）
 IGNORED_BEFORE_FILE = "fix-ignored-before.json"   # {"ignored": [str], "ignored_dirs": [str], "dirs": [str], "archon": {str: str},
                                                   #  "head_tree": str}
@@ -47,9 +46,8 @@ def git(repo, *args, text=True, env=None):
     """repo を cwd にして git <args> を呼び、標準出力を返す（text なら文字列、でなければ bytes）。呼べない・失敗は Unreadable。
     env は子の環境を丸ごと替える（一時の index を GIT_INDEX_FILE で渡すなど。None はこのプロセスの環境のまま）"""
     try:
-        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
-                           env=env)
-    except (OSError, subprocess.TimeoutExpired) as e:
+        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, env=env)
+    except OSError as e:
         raise Unreadable(f"git {' '.join(args)} を呼べない（{type(e).__name__}: {e}）")
     if r.returncode != 0:
         err = r.stderr.decode("utf-8", "replace").strip().replace("\n", " ")[-300:]

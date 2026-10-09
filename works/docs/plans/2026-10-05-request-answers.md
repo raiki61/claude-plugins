@@ -1,5 +1,7 @@
 # 依頼に答えの欄 answers を足し、依頼者の答えた問いを人に聞き直さない（依頼 240 の核）Implementation Plan
 
+状態: 入れた（works 0.2.27。依頼の欄 `answers` と `gatemarks.answered`）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** works（このリポジトリの `works/` に在るプラグイン。外の道具 Archon の上で、人の修正依頼を AI の役に直させる工程 darkfactory を回す）の依頼のファイルに欄 `answers`（問いの key か出どころ → 依頼者の答え。手元で測ったなら命令と出力つき）を足し、入口から盤面へ届け、問いの台帳の「答えたか」を 1 つの述語で読む。答えた問いは修正前の関所に載らず、保留の件数に数えず、報告と最後の関所には「依頼者の答え: …」と出どころつきで並ぶ。

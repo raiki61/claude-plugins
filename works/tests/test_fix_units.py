@@ -631,3 +631,31 @@ class GroundsCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GitWaitsWithoutDeadlineCase(unittest.TestCase):
+    """受け付けと修正の後始末の git・判定の問いの git grep は期限を付けずに待つ（台帳 R4: 新しい期限を足さない。止まった git は
+    ほかの所と同じく待ち、run の外の止め方で止める）"""
+
+    def test_accept_and_leftovers_git_have_no_timeout(self):
+        from unittest import mock
+        import subprocess
+        import accept
+        import leftovers
+        done = subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+        for mod, call in ((accept, lambda d: accept._git(d, "status")), (leftovers, lambda d: leftovers.git(d, "status"))):
+            with self.subTest(mod.__name__), tempfile.TemporaryDirectory() as d, \
+                    mock.patch.object(mod.subprocess, "run", return_value=done) as run:
+                call(d)
+                self.assertIsNone(run.call_args.kwargs.get("timeout"), run.call_args)
+
+    def test_query_greps_have_no_timeout(self):
+        from unittest import mock
+        with mock.patch.object(querytest._util, "count_argv", return_value=(["git", "grep", "-c", "-e", "x", "--"], "")), \
+                mock.patch.object(querytest._util, "_grep_run", return_value=(1, b"", "")) as grep_run:
+            querytest.run_examples({}, ["a x", "b"])
+        self.assertIsNone(grep_run.call_args.args[2], grep_run.call_args)
+        with mock.patch.object(unitrows._util, "count_argv", return_value=(["git", "grep", "-c", "-e", "x"], "")), \
+                mock.patch.object(unitrows._util, "_grep", return_value=("", "")) as grep:
+            unitrows.file_counts({}, ".")
+        self.assertIsNone(grep.call_args.args[2], grep.call_args)

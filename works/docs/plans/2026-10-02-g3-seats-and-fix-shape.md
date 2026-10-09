@@ -1,5 +1,7 @@
 # 借りたスキルの座と修正の形の切り替え（G3 の載せ口・fix_shape・測る関数）Implementation Plan
 
+状態: 入れた（works 0.2.20。`.shared/core/fixshape.py`・`seat.py`・`fixture.py`）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## この文書の読み方（初めて読む人向け。本文の語はここで全部定める）

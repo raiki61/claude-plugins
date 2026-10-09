@@ -354,7 +354,7 @@ class ScriptCase(unittest.TestCase):
 
     def test_fence_declared_adapter_ignores_launch_path(self):
         """包みを宣言した run（adapter が空）→ go。起こす claude の道（env の CLAUDE_BIN_PATH・Archon の設定）を script から
-        写して見ない（裁定 R58）: 写しの pack（dogfood・real-run・plugin install）の包み・包みでない claude・何も無い、の
+        写して見ない（裁定 R58）: 写しの pack（dogfood・use・plugin install）の包み・包みでない claude・何も無い、の
         どれでも同じ。柵が掛かったかは受け付けが包みの起動の記録で見る（test_accept_halts_without_fenced_launch）"""
         self.assertFalse(hasattr(adapter, "launch_path"), "Archon の claude の解決を写した確かめは消した（再審査 N4〜N6）")
         copied = self.tmp / "copied-pack" / ".shared" / "core" / "claude-adapter"   # 写しの pack の包み（N5）

@@ -1,5 +1,7 @@
 # 線 A: darkfactory の 1 回の run を強くする Implementation Plan
 
+状態: 入れた（works 0.2.0）。対応表 `.shared/core/gl_map.json` は 2026-10-09 に外した。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 下請けは実装・審査・再審査の全部を opus で回す（台帳 R22）。
 
 **Goal:** darkfactory の 1 回の run（人の依頼 → 判定 → 修正 → 審査 → テスト → 報告を 1 周だけ流す）に、graphloops 0.21.0 の review-graph と同じ工程を足す。判定の前に並行 PR の交差の検査（任せ先は読むだけの役）と前提の実測、修正の前に「修正案 → 事前審査 → 能力を減らす案なら人の関所」、修正の後に機械の数え直しと、修正役の異議を判定役の会話の続きで同じ周に再審する口、差分の審査と手直しの 2 往復、外からの止め札、起動の関所、Claude の包み（起動ごとの柵・読んだ記録・判定役の会話の継ぎ）、読んだ証拠、手厚さの入力（標準だけ）、機械が組む短い報告。盤面は盤面の層（`DiskBoard`）に置き、graphloops の engine と同じ記録を残す。

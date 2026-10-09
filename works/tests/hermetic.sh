@@ -1,6 +1,6 @@
 # shellcheck shell=sh
-# 試験の入口（tests/run.sh・dev/tdd-suite.sh）が . で読む。試験を走らせる run（dev の殻 dogfood.sh・use.sh・archon.sh・
-# real-run.sh と包み）が export する変数を、試験の子に継がせない（tox が既定で env を隔離するのと同じ考え）。
+# 試験の入口（tests/run.sh・dev/tdd-suite.sh）が . で読む。試験を走らせる run（dev の殻 dogfood.sh・use.sh・archon.sh と
+# 包み）が export する変数を、試験の子に継がせない（tox が既定で env を隔離するのと同じ考え）。
 # 継がせると、既定の振る舞いを見る試験が外の run の値（包みの札・ライブラリの文書の網の止め・claude の版など）で割れる。
 # 外す名の一覧はここ 1 か所。殻に export を足したらここにも足す。WORKS_DEV_HOME と WORKS_RUN_PLACE（包みが Bash を持つ役の子に立てる run ごとの置き場。adapter.RUN_PLACE_ENV）は試験の置き場なので残す。
 for _works_env in \

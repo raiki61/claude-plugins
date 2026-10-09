@@ -47,7 +47,6 @@ CLOSURE_FILE = "fix-unit-rows.json"              # 修正の受け付けが問�
 # 最後の関所の文の節の見出し・報告の行の頭。主語は平易に、記録の語（閉鎖の数え直し）は括弧に回す
 CLOSURE_HEAD = "機械が判定の問いで数え直すと、直したという申告と合わない・まだ閉じていない・問いの外に直しを並べた単位（閉鎖の数え直し）"
 STUCK_HEAD = "直したのに、機械が判定の問いで数えた欠陥の数が 1 件も減っていない単位"   # CLOSURE_HEAD の節から分けて先に出す
-TIMEOUT = 60
 _LINES = {"type": "array", "maxItems": 20, "items": _util._TEXT}
 _WHY = {"type": "string", "minLength": MIN_WHY}
 EXAMPLES_SCHEMA = {
@@ -96,7 +95,7 @@ def run_examples(how, lines) -> tuple:
         for i, line in enumerate(lines):
             (pathlib.Path(d) / str(i)).write_text(line + "\n", encoding="utf-8")
             names.append(str(i))
-        _, out, why = _util._grep_run(["git", "grep", "--no-index", *flags, "--", *names], d, TIMEOUT, _util.COUNT_CAP)
+        _, out, why = _util._grep_run(["git", "grep", "--no-index", *flags, "--", *names], d, None, _util.COUNT_CAP)
     if why:
         return None, why
     got = set()

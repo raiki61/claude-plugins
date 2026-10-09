@@ -1,5 +1,7 @@
 # darkfactory 1 本目 Implementation Plan
 
+状態: 入れた（works 0.1.0）。実走の殻 `dev/real-run.sh` は 2026-10-09 に外した。
+
 > **注（実装の後に足した）:** 実装は台帳の Ruling R1–R21 で変わった（`.superpowers/sdd/2026-09-26-darkfactory-v1/progress.md` は作業用で git の外）。下の本文は書き換えていない。今の形は設計書と YAML が正本。主な変更:
 > - R1: 筋書きの依頼 `request_ok.json` を種（`dev/target-seed/`）に置く。
 > - R2: ブロックの `base_rev` は `default: ""`（空はその場の HEAD）。ラインはいつも `$base.output.rev` を渡す。

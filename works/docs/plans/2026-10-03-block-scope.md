@@ -1,5 +1,7 @@
 # 部品の置き場を include の単位で分け、宣言した物だけを外に出す（依頼 239）Implementation Plan
 
+状態: 入れた（works 0.2.23。`.shared/core/scopes.py`・`flow_adapter.py`・部品ごとの `manifest.json`）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## この文書の読み方（初めて読む人向け。本文の語はここで全部定める）

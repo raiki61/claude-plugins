@@ -1,10 +1,10 @@
 """起動の殻の共通の口 works/dev/launch.py の動詞 env・ledger と、殻が受ける口（guard.sh works_dev_launch_env・works_dev_launch_eval）の柵
 （設計書 2.2・2.3・3 節）。
 
-- 家の既定・claude の解決・包みの既定と入力 adapter の値は部品の 1 つの表が持ち、殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）に写しを戻したら赤
+- 家の既定・claude の解決・包みの既定と入力 adapter の値は部品の 1 つの表が持ち、殻 3 本（use.sh・dogfood.sh・archon.sh）に写しを戻したら赤
 - run の控えの形（版の欄 schema・欄の無い古い控え）と起動の後の結び方（盤面の依頼がこの起動の写しと一致する run がちょうど 1 本の時だけ）は
-  ledger が持ち、3 本の殻は lib.sh の同じ 1 つの関数を通す
-- 殻 4 本と lib.sh の埋め込みの Python（python3 に -c を渡す行）の数が今の上限を超えたら赤
+  ledger が持ち、2 本の殻（use.sh・dogfood.sh）は lib.sh の同じ 1 つの関数を通す
+- 殻 3 本と lib.sh の埋め込みの Python（python3 に -c を渡す行）の数が今の上限を超えたら赤
 - 部品は env の dict を渡して直に呼ぶ（子のプロセスを起こさない）。受け方だけは偽の部品を置いて sh で起こす
 - 期待の字は殻の今の ${X:-…} の字から写す（空は未設定と同じ・TMPDIR の末尾の / を残して連ねる）
 """
@@ -28,7 +28,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
 DEV = ROOT / "dev"
 LAUNCH = DEV / "launch.py"
-SHELLS = ("use.sh", "dogfood.sh", "real-run.sh", "archon.sh")
+SHELLS = ("use.sh", "dogfood.sh", "archon.sh")
 ADAPTER = ROOT / ".shared" / "core" / "claude-adapter"
 NAME = re.compile(r"[A-Z_][A-Z0-9_]*\Z")
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
@@ -74,13 +74,13 @@ def fake_claude(folder):
 
 class HomeDefaults(unittest.TestCase):
     def test_dev_home_joins_tmpdir_as_text_keeping_trailing_slash(self):
-        for shell in ("dogfood.sh", "real-run.sh", "archon.sh"):
+        for shell in ("dogfood.sh", "archon.sh"):
             with self.subTest(shell=shell):
                 got = assigned(self, [f"--for={shell}"], {"HOME": "/h", "TMPDIR": "/var/x/T/"})
                 self.assertEqual(got["WORKS_DEV_HOME"], "/var/x/T//works-dev")
 
     def test_empty_values_count_as_unset_like_sh(self):
-        for shell in ("dogfood.sh", "real-run.sh", "archon.sh"):
+        for shell in ("dogfood.sh", "archon.sh"):
             with self.subTest(shell=shell):
                 got = assigned(self, [f"--for={shell}"], {"HOME": "/h", "TMPDIR": "", "WORKS_DEV_HOME": ""})
                 self.assertEqual(got["WORKS_DEV_HOME"], "/tmp/works-dev")
@@ -110,8 +110,7 @@ class HomeDefaults(unittest.TestCase):
 
 class AdapterDefaults(unittest.TestCase):
     """包みの既定: 期待の字は殻の前の ${WORKS_DEV_ADAPTER-1}（空の明示は残す）と ${WORKS_DEV_ADAPTER:-} = 1 から写す"""
-    ARGS = {"use.sh": ["--for=use.sh", "--target", "/t"], "dogfood.sh": ["--for=dogfood.sh"],
-            "real-run.sh": ["--for=real-run.sh"], "archon.sh": ["--for=archon.sh"]}
+    ARGS = {"use.sh": ["--for=use.sh", "--target", "/t"], "dogfood.sh": ["--for=dogfood.sh"], "archon.sh": ["--for=archon.sh"]}
 
     def adapter(self, args, **named):
         got = assigned(self, args, {"HOME": "/h", **named})
@@ -132,17 +131,13 @@ class AdapterDefaults(unittest.TestCase):
         self.assertEqual(self.adapter(args), ("", "optional"))
         self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="1"), ("1", ""))
 
-    def test_real_run_only_reads_and_archon_emits_nothing(self):
-        args = self.ARGS["real-run.sh"]
-        self.assertEqual(self.adapter(args), (None, "optional"))
-        self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="1"), (None, ""))
-        self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="0"), (None, "optional"))
+    def test_archon_emits_nothing(self):
         for value in (None, "1", "0"):
             named = {} if value is None else {"WORKS_DEV_ADAPTER": value}
             self.assertEqual(self.adapter(self.ARGS["archon.sh"], **named), (None, None))
 
     def test_show_is_refused_for_other_shells(self):
-        for shell in ("use.sh", "real-run.sh", "archon.sh"):
+        for shell in ("use.sh", "archon.sh"):
             with self.subTest(shell=shell):
                 rc, out, err = run_env(self, [*self.ARGS[shell], "--show"], {"HOME": "/h"})
                 self.assertEqual((rc, out), (2, ""))
@@ -153,14 +148,14 @@ class ClaudeResolution(unittest.TestCase):
     def test_not_resolved_without_claude_flag(self):
         with tempfile.TemporaryDirectory() as d:
             fake_claude(d)
-            for shell in ("dogfood.sh", "real-run.sh", "archon.sh"):
+            for shell in ("dogfood.sh", "archon.sh"):
                 got = assigned(self, [f"--for={shell}"], {"HOME": "/h", "PATH": d})
                 self.assertNotIn("WORKS_LAUNCH_CLAUDE", got)
 
     def test_explicit_then_path_then_empty(self):
         with tempfile.TemporaryDirectory() as d:
             claude = fake_claude(d)
-            for shell, extra in (("dogfood.sh", []), ("real-run.sh", []), ("use.sh", ["--target", "/t"])):
+            for shell, extra in (("dogfood.sh", []), ("use.sh", ["--target", "/t"])):
                 with self.subTest(shell=shell):
                     args = [f"--for={shell}", "--claude", *extra]
                     got = assigned(self, args, {"HOME": "/h", "PATH": d, "CLAUDE_BIN_PATH": "/named/claude"})
@@ -241,7 +236,7 @@ class CopiesFence(unittest.TestCase):
 
     # 設計書 3 節: 殻に埋めた Python は部品へ移す途中なので、数が増えたら赤（減っても赤にしない）
     INLINE_PYTHON = re.compile(r"\bpython3(\s+-[A-Za-z]+)*\s+-[A-Za-z]*c\b")
-    INLINE_PYTHON_CAPS = {"use.sh": 5, "dogfood.sh": 0, "real-run.sh": 0, "archon.sh": 0, "lib.sh": 7, "continue.sh": 0}
+    INLINE_PYTHON_CAPS = {"use.sh": 5, "dogfood.sh": 0, "archon.sh": 0, "lib.sh": 7, "continue.sh": 0}
 
     def test_inline_python_in_shells_does_not_grow(self):
         for name, cap in self.INLINE_PYTHON_CAPS.items():
@@ -296,7 +291,7 @@ class BindFence(unittest.TestCase):
         return found[0]
 
     def test_launchers_pass_a_per_launch_request_path_not_a_relative_file(self):
-        for name in ("dogfood.sh", "real-run.sh", "use.sh"):
+        for name in ("dogfood.sh", "use.sh"):
             with self.subTest(shell=name):
                 self.assertRegex(self.request_token(name), r'^"\$[A-Z_]+"$')
 
@@ -307,7 +302,7 @@ class BindFence(unittest.TestCase):
 
     def test_post_start_binding_names_the_request_and_shares_one_function(self):
         funcs = set()
-        for name in ("dogfood.sh", "real-run.sh"):
+        for name in ("dogfood.sh",):
             with self.subTest(shell=name):
                 line = self.bind_call(name)
                 self.assertIn(self.request_token(name), line)

@@ -1,6 +1,6 @@
 """works/dev の殻の全体の模型（WORKS_DEV_MODEL）が、明示された指定と既定を見分けたまま archon.sh まで届くかの検査。
 
-- 入口の殻（use.sh・dogfood.sh・real-run.sh）は既定を埋めない。既定を解くのは archon.sh の 1 か所だけ。
+- 入口の殻（use.sh・dogfood.sh）は既定を埋めない。既定を解くのは archon.sh の 1 か所だけ。
 - archon.sh は、既定を埋めた時と利用者が既定と同じ値を明示した時とで、出どころ（WORKS_MODEL_FROM）を違えて下へ渡す。
 - use.sh は、模型を明示せずに start した run を Archon へ未設定のまま渡し、控えの model を空に残す。別の殻の show が組む続きの
   行も、その殻の WORKS_DEV_MODEL や既定を明示として書かない。
@@ -56,7 +56,7 @@ def tearDownModule():
 class EntryShells(unittest.TestCase):
     def test_entry_shells_do_not_fill_model_default(self):
         """埋めると archon.sh で明示と既定が見分けられない"""
-        for name in ("use.sh", "dogfood.sh", "real-run.sh"):
+        for name in ("use.sh", "dogfood.sh"):
             with self.subTest(name):
                 body = (DEV / name).read_text(encoding="utf-8")
                 self.assertEqual(re.findall(r"^\s*WORKS_DEV_MODEL=.*$", body, re.M), [])

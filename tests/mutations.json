@@ -125,6 +125,17 @@
     "GM3"
    ],
    "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
+  },
+  {
+   "ids": [
+    "CW4",
+    "CW5",
+    "CW6",
+    "CW7",
+    "CW9",
+    "CW10"
+   ],
+   "why": "柵の外になった（2026-10-09 の掃除）: CI_LINT_OK は works の job の段の並びを丸ごと写して見るのをやめ、要の 3 つ（全履歴・FAIL_ON_SKIP=1・組の数と WORKS_SHARD の「/N」）だけを見る。許しの一覧の出どころ・uv と python と依存の版・os の一覧は見ない"
   }
  ],
  "arms": [
@@ -6672,66 +6683,12 @@
    "expect": "CI の設定が shellcheck を回す"
   },
   {
-   "id": "CW4",
-   "title": "CI の突合: works の job が共有の許しの一覧を引けば赤",
-   "file": ".github/workflows/test.yml",
-   "suite": "root",
-   "old": "        os: [macos-latest]\n",
-   "new": "        os: [macos-latest]\n        include: *skip_allow\n",
-   "expect": "CI の設定が shellcheck を回す"
-  },
-  {
-   "id": "CW5",
-   "title": "CI の突合: works の job が uv の版を固定しなければ赤",
-   "file": ".github/workflows/test.yml",
-   "suite": "root",
-   "old": "      - uses: astral-sh/setup-uv@v10.2.0\n        with:\n          version: \"0.11.29\"\n",
-   "new": "      - uses: astral-sh/setup-uv@v10.2.0\n",
-   "expect": "CI の設定が shellcheck を回す"
-  },
-  {
-   "id": "CW6",
-   "title": "CI の突合: works の job の uv が起こす python を決めなければ赤",
-   "file": ".github/workflows/test.yml",
-   "suite": "root",
-   "old": "          UV_PYTHON: ${{ steps.python.outputs.python-path }}\n",
-   "new": "",
-   "expect": "CI の設定が shellcheck を回す"
-  },
-  {
-   "id": "CW7",
-   "title": "CI の突合: works の依存の pytest が pytest の job と割れれば赤",
-   "file": ".github/workflows/test.yml",
-   "suite": "root",
-   "old": "pyyaml==6.0.3 pytest==9.1.1",
-   "new": "pyyaml==6.0.3 pytest==9.0.0",
-   "expect": "CI の設定が shellcheck を回す"
-  },
-  {
    "id": "CW8",
    "title": "CI の突合: works の job が段を絞れば赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
    "old": "        run: sh works/tests/run.sh",
    "new": "        run: WORKS_TESTS=fast sh works/tests/run.sh",
-   "expect": "CI の設定が shellcheck を回す"
-  },
-  {
-   "id": "CW9",
-   "title": "CI の突合: works の job の os が test の一覧の外なら赤",
-   "file": ".github/workflows/test.yml",
-   "suite": "root",
-   "old": "        os: [macos-latest]\n",
-   "new": "        os: [macos-13]\n",
-   "expect": "CI の設定が shellcheck を回す"
-  },
-  {
-   "id": "CW10",
-   "title": "CI の突合: works の job の uv の版が mutation.yml と割れれば赤",
-   "file": ".github/workflows/test.yml",
-   "suite": "root",
-   "old": "          version: \"0.11.29\"\n",
-   "new": "          version: \"0.11.28\"\n",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
