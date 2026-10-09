@@ -6,7 +6,7 @@ description: |
   独立設計（R2 の設計の半分。目的だけから）と修正案と事前審査（設計と突き合わせる）→ 修正の前の人の関所（要る時だけ）→
   単位ごとの深さ（h-depth）→ 修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 → 判定への異議の再審（異議が在る時だけ）→
   深さの上げ（h-redepth）→ 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
-  最後のテスト → 独立の目 → 最後の人の関所（目の結果を載せる）→ 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
+  最後のテスト（機械で走らせられなければ任せ先の CI の役）→ 独立の目 → 最後の人の関所（目の結果を載せる）→ 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
   仕様から入る道はこの版のラインに無い
@@ -987,12 +987,65 @@ nodes:
     with:
       cmd: $start.output.test_cmd
 
+  # 最後のテストが任せ先に落ちたか（test_cmd も宣言も無い run。blk-tests は by: role_needed で p4.ci を待たせたまま抜ける）。
+  # go は p4.ci が任せ先を待っている時だけ（entry.role_waits。start の ci_role_go と同じ口）
+  - id: h-ci
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-tests, testing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "ci"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        mat_go: {type: boolean}
+        structure_units_file: {type: string}
+        ripple_file: {type: string}
+        verify_file: {type: string}
+
+  # 最後のテストの任せ先の役（CI の任せ先の役のブロックの 2 度目の include。ci-checking と同じ形で節だけ p4.ci。裁定 R52）。
+  # 渡した素材を最後の関所と報告が読む（entry.role_ci_status）
+  - id: ci-final
+    description: '最後のテストを機械で走らせられない run で、任せ先の役が回す'
+    include: blk-ci
+    depends_on: [h-ci]
+    when: "$h-ci.output.go == true"
+    with:
+      node: "p4.ci"
+
   # 独立の目を回すか（最後のテストの後・最後の関所の前。目が盤面で待っていれば go）。先に、修正の前に作った独立設計を盤面へ渡す
   - id: h-look
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-tests, testing]
+    depends_on: [start, h-tests, testing, h-ci, ci-final]
     trigger_rule: none_failed_min_one_success
     with:
       at: "look"

@@ -899,7 +899,15 @@ def _is_ci(b, nid: str) -> bool:
     return ((b.nodes.get(nid) or {}).get("engine_run") or {}).get("builtin") == CI_BUILTIN
 
 
+def role_waits(b, nid: str) -> bool:
+    """CI の節 nid（p0.local_checks・p4.ci）が任せ先に落ちて待っている（instance が pending で engine_fallback を持つ）。
+    任せ先の CI の役を回すかの正本: start の ci_role_go（p0.local_checks）・線の境の節 h-ci の go（p4.ci）・任せ先の CI の役の
+    入口（ci_role）が同じこれを読む"""
+    return _is_ci(b, nid) and _fell_back(b, nid)
+
+
 def _fell_back(b, nid: str) -> bool:
+    """nid の instance が任せ先に落ちて待っている（CI の節かは見ない。run_ci は CI の節を受け取る口なので、これだけを見る）"""
     inst = b.rd["instances"].get(nid)
     return bool(inst and inst.get("status") == "pending" and inst.get("engine_fallback"))
 
@@ -923,7 +931,7 @@ def _drain(b, p, *, test_cmd: str, runner=None) -> dict:
     pr = None
     try:
         while True:
-            left = [n for n in p["ready"] if _is_ci(b, n) and _fell_back(b, n) and n not in ran] if test_cmd.strip() else []
+            left = [n for n in p["ready"] if role_waits(b, n) and n not in ran] if test_cmd.strip() else []
             if not p["run_engine"] and not left:
                 break
             if left:
@@ -948,7 +956,7 @@ def _drain(b, p, *, test_cmd: str, runner=None) -> dict:
     except prcheck.Refused as e:
         raise InputRefused(str(e)) from None
     add_pending_request(b)
-    return {"ci_role_go": any(_is_ci(b, n) and _fell_back(b, n) for n in p["ready"]), "pr_go": _pr_go(b, pr)}
+    return {"ci_role_go": any(role_waits(b, n) for n in p["ready"]), "pr_go": _pr_go(b, pr)}
 
 
 PENDING_WAIT_NODE = "p1.worktree_before"   # これが済む前の add は入口の印を立てる（写しの RL の entry_opens）

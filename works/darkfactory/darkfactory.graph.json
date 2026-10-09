@@ -1,7 +1,7 @@
 {
  "entry": "darkfactory",
  "sources": {
-  "blk-ci/blk-ci.yaml": "d9373d46a87951d989565235822641b8a7667c69fc6c67011085e36b109d2ddd",
+  "blk-ci/blk-ci.yaml": "270bfa0f6ab706eaff76881e57164c0ac6c2e2edcc9fa6ccbc5c71b2c68dc361",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
   "blk-eyes/blk-eyes.yaml": "277d25144f14bee888c2e1720c6b17ee518c4295646539b20cfea2346336024b",
   "blk-fix/blk-fix.yaml": "45bb00e85fd339f393f94205affe67c558ecaf0a3e3a5d5134cdfaf2e442d645",
@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "b779c8732192e0dc7cab7774e409dd0b50b7b6af6b7cf41544e9442fadf3e5b3"
+  "darkfactory/darkfactory.yaml": "86e97a6570405de91a48cc307ced3100f29a3a0f4bd82d925b9e90814ef50d83"
  },
  "version": 1,
  "workflows": {
@@ -2661,6 +2661,30 @@
       "start",
       "h-tests",
       "testing"
+     ],
+     "id": "h-ci",
+     "kind": "script"
+    },
+    {
+     "call": "blk-ci",
+     "deps": [
+      "h-ci"
+     ],
+     "id": "ci-final",
+     "kind": "call",
+     "purpose": "最後のテストを機械で走らせられない run で、任せ先の役が回す",
+     "when": "$h-ci.output.go == true",
+     "with": {
+      "node": "p4.ci"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-tests",
+      "testing",
+      "h-ci",
+      "ci-final"
      ],
      "id": "h-look",
      "kind": "script"

@@ -1789,6 +1789,46 @@ testing__run:
   - name: test_cmd
     exit: 0
   by: engine
+h-ci:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  mat_go: false
+  structure_units_file: ''
+  ripple_file: ''
+  verify_file: ''
+# 最後のテストの任せ先の役（ci-final。h-ci の go が偽なので飛ぶ。stub は節が走りうるので置く）
+ci-final__ci-fence:
+  go: true
+  reason: ''
+  note: ''
+  adapter: ''
+ci-final__ci-snap:
+  ok: true
+  snapshot_file: board/r1/ci-snapshot-p4.ci.json
+  copy_dir: /var/folders/ab/cd/T/works-ci-p4.ci-abcd1234/work
+ci-final__collect:
+  ok: true
+  reason: ''
+  node: p4.ci
+  status: found
+  green: false
+  pr_go: false
+  note: ''
 h-look:
   ok: true
   stop: false
@@ -2165,6 +2205,7 @@ fixture:
   - refixing__collect
   - h-tests
   - testing__run
+  - h-ci
   - h-look
   - eyeing__eyes-collect
   - h-final

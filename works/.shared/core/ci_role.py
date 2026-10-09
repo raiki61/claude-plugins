@@ -2,7 +2,8 @@
 
 graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engine が宣言（.review-checks.json）を走らせられない時、graph の役
 （run_by: writer。a1202d0 の指示書 p0.local_checks.md・p4.ci.md）に落ちる。works では test_cmd も空の run で、entry.run_ci が
-role_needed を返し（start の ci_role_go・blk-tests の final の by）、ラインがこのブロックを node: <節> で回す。役は段に書いた模型（sonnet・medium）で、
+role_needed を返し、節は任せ先に落ちて待つ（entry.role_waits）。ラインは start の ci_role_go（p0.local_checks）と境の節 h-ci の go
+（p4.ci。最後のテストの後）でこのブロックを node: <節> で回す。役は段に書いた模型（sonnet・medium）で、
 Read・Grep・Glob・WebSearch・WebFetch とテストを走らせる Bash を持ち、Edit・Write は持たない。
 
 走らせる場所は graphloops の任せ先と同じく作業ツリーの写し（写しの engine の util.copy_worktree。本物と同じ commit に未コミットの
@@ -104,12 +105,12 @@ def _open(board_dir, repo=None, *, allow_halted=False):
 
 
 def _waiting(b, node: str) -> dict:
-    """任せ先に落ちて待っている node の instance。無ければ BoardGap（blk-ci は start の ci_role_go・final の role_needed の時だけ開く）"""
-    inst = b.rd["instances"].get(_node(node))
-    if not (inst and inst.get("status") == "pending" and inst.get("engine_fallback")):
-        raise BoardGap(f"{node} は任せ先に落ちて待っていない——blk-ci は start の ci_role_go が真の時（p0.local_checks）と、"
-                       "blk-tests の final の by が role_needed の時（p4.ci）だけ開く")
-    return inst
+    """任せ先に落ちて待っている node の instance（entry.role_waits）。無ければ BoardGap（線は start の ci_role_go（p0.local_checks）と
+    境の節 h-ci の go（p4.ci）——どちらも entry.role_waits——が真の時だけ blk-ci を開く）"""
+    if not entry.role_waits(b, _node(node)):
+        raise BoardGap(f"{node} は任せ先に落ちて待っていない——線は start の ci_role_go が真の時（p0.local_checks）と、"
+                       "境の節 h-ci の go が真の時（p4.ci）だけ blk-ci を開く")
+    return b.rd["instances"][node]
 
 
 def _write_json(path: pathlib.Path, obj) -> pathlib.Path:
