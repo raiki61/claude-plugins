@@ -243,13 +243,13 @@
   },
   {
    "id": "ad1",
-   "title": "包み: 旗 isolated を道具を持つ役に付けたら起こさない",
+   "title": "包み: 旗 isolated を Read のほかの道具を持つ役に付けたら起こさない",
    "file": ".shared/core/adapter.py",
-   "old": "        if not tools_empty:\n            return _refuse(argv, node, cont, tools_empty, \"旗 isolated",
-   "new": "        if False:\n            return _refuse(argv, node, cont, tools_empty, \"旗 isolated",
+   "old": "        if not tools_empty and _tools(argv) != ISOLATED_TOOLS:\n",
+   "new": "        if False:\n",
    "tests": {
     "tests/test_adapter.py": [
-     "IsolatedCase.test_isolated_with_tools_refused"
+     "IsolatedCase.test_isolated_with_other_tools_refused"
     ]
    }
   },
