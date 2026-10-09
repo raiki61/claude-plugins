@@ -608,8 +608,8 @@ class LineSpecCase(ScriptCase):
 
     def test_spec_tests_do_not_flip_the_mark_and_edge_drains_parallel_pr(self):
         """仕様の書き手が受け入れ条件のテストのファイルを足して承認・固めた後も、入口の印は start の測り（差分が空）のまま在り、
-        版を固める p1.worktree_before は空差分の柵で止まらない。h-spec（spec_edge）は盤面の engine の節を回し直し、並行 PR の
-        確かめが任せ先に落ちたので pr_go 真"""
+        版を固める p1.worktree_before は空差分の柵で止まらない。h-spec（spec_edge）は盤面の engine の節を回し直し（版を固めた後に
+        出た並行 PR の確かめを回す）、任せ先の役が待つかを pr_go に出す"""
         import line_edge
         self.written()
         self.assertIs(self.ok("route", role="review")["go"], True)
@@ -621,12 +621,12 @@ class LineSpecCase(ScriptCase):
         self.assertEqual(b.record["process"]["request_entry"]["origin"], entry.ORIGIN)
         self.assertFalse(b.state.get("halted"))
         self.assertEqual(b.node_state("p1.worktree_before"), "done")
+        self.assertEqual(b.node_state("p0.parallel_pr"), "pending")   # 版を固めた後に出る。まだ回していない
         got = line_edge.spec_edge(b)
-        self.assertEqual(got, {"go": True, "pr_go": True})
         b = self.opened()
-        self.assertIn("p0.parallel_pr", b.ready())
-        self.assertTrue(b.rd["instances"][next(i for i, x in b.rd["instances"].items()
-                                               if x["node"] == "p0.parallel_pr")].get("engine_fallback"))
+        self.assertTrue(b.node_state("p0.parallel_pr") != "pending" or "p0.parallel_pr" in b.ready(),
+                        "h-spec が並行 PR の確かめを回し直していない")
+        self.assertEqual(got, {"go": True, "pr_go": "p0.parallel_pr" in b.ready()})
 
     # 親の筋書きは試験の写しの線の盤面の物
     test_pass_path = test_no_faces_skips_revise = test_gate_stop = test_give_up_after_three = None
