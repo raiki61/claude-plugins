@@ -157,7 +157,6 @@ nodes:
     when: "$start.output.ci_role_go == true"
     with:
       node: "p0.local_checks"
-      base_rev: $start.output.base_rev
 
   # 境の節（いつも走る）。盤面の ready から並行 PR・前提の実測を回すかを出す
   - id: h-entry
@@ -177,7 +176,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -196,7 +195,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -238,7 +236,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -257,7 +255,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -292,7 +289,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -311,7 +308,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -324,9 +320,7 @@ nodes:
     depends_on: [h-mat]
     when: "$h-mat.output.mat_go == true"
     with:
-      base_rev: $start.output.base_rev
       adapter: $start.output.adapter
-      purpose_file: $h-mat.output.purpose_file
 
   # 判定
   - id: judging
@@ -360,7 +354,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -379,7 +373,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -429,10 +422,6 @@ nodes:
     depends_on: [h-plan, h-structure]
     when: "$h-plan.output.go == true"
     with:
-      judgment_file: $h-plan.output.judgment_file
-      base_rev: $start.output.base_rev
-      policy_paste: $start.output.policy_paste
-      policy_path: $start.output.policy_path
       verify_file: $h-plan.output.verify_file   # 判定の単位の裏取りの申し送り（線の木の段 3。単位が 2 つ未満の周は空）
       review_tree: $start.output.review_tree   # 事前審査の項目ごとの木（既定で auto。入力 features_on・features_off の review_tree で on・off）
 
@@ -454,7 +443,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -473,7 +462,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -514,7 +502,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -533,7 +521,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -606,7 +593,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -625,7 +612,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -639,10 +625,6 @@ nodes:
     depends_on: [h-replan]
     when: "$h-replan.output.go == true"
     with:
-      judgment_file: $h-replan.output.judgment_file
-      base_rev: $start.output.base_rev
-      policy_paste: $start.output.policy_paste
-      policy_path: $start.output.policy_path
       replan: "true"
       review_tree: $start.output.review_tree
 
@@ -665,7 +647,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -684,7 +666,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -726,7 +707,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -745,7 +726,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -790,7 +770,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -809,7 +789,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -821,9 +800,6 @@ nodes:
     include: blk-rejudge
     depends_on: [h-rejudge]
     when: "$h-rejudge.output.go == true"
-    with:
-      base_rev: $start.output.base_rev
-      policy_paste: $start.output.policy_paste
 
   # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。食い違いの申し出・止めた単位・答えていない問い・案の直し・再審。
   # 全部の単位が軽量のままなら、待っている差分の審査（p3.delta_review）を盤面で省き（h-review が差分の審査・レンズ・手直しを回さない）、
@@ -871,7 +847,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -890,7 +866,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -932,7 +907,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -951,7 +926,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -986,7 +960,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1005,7 +979,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -1038,7 +1011,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1057,7 +1030,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -1071,7 +1043,6 @@ nodes:
     depends_on: [h-look]
     when: "$h-look.output.go == true"
     with:
-      base_rev: $start.output.base_rev
       skip_optional: $h-redepth.output.skip   # 全部の単位が軽量の run は表で skippable の目（コメントの削除候補と R1〜R4。持ち主の決定 2026-10-06）を省く
 
   # 最後の人の関所を開くか（final_gate: always か when_needed。C18・P1-R3。独立の目が阻害を返しても開く）
@@ -1092,7 +1063,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1111,7 +1082,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}
@@ -1153,7 +1123,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1172,7 +1142,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
         ripple_file: {type: string}

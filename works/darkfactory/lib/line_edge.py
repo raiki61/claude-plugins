@@ -124,7 +124,7 @@ STRUCTURE_UNITS_FILE = "structure-units.json"
 STRUCTURE_UNITS_OP = "structure_units_dropped"   # 対象の根からの相対のパスが 1 本も取れず写さなかった単位・捨てたパスの trace の行
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
-         "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False, "purpose_file": "", "mat_go": False,
+         "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False, "mat_go": False,
          "structure_units_file": "", "ripple_file": "", "verify_file": ""}
 # 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
 RIPPLE_FILE = "ripple.json"
@@ -889,8 +889,8 @@ def mat_edge(b, board_dir, repo) -> dict:
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
     2. 依頼と変更の両方で始めた run の依頼がまだ積まれていなければ entry.add_pending_request で積む（CI の役の後の run でも、
        判定の前に必ず届ける）。版がまだ固まっていない（積むと入口の印が立つ）なら b.stop(…, by=PENDING_REQUEST_BY) で stop
-    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか・
-       purpose_file は盤面の state.outputs["p0.purpose"] の置き場（無ければ空）。今の周の判定（p2.diagnose）が既に済んだ盤面
+    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
+       今の周の判定（p2.diagnose）が既に済んだ盤面
        （固定材料から始めた run）は go 偽（判定の支度は待っていない p2.diagnose を線の順の誤りとして拒む）"""
     board_dir = pathlib.Path(board_dir)
     row = b.table.nodes.get(PURPOSE_NODE) if b.table is not None else None
@@ -912,8 +912,7 @@ def mat_edge(b, board_dir, repo) -> dict:
         reason = f"依頼を判定の前に積めない: {entry.PENDING_WAIT_NODE} がまだ済んでいない（今積むと入口の印が立ち P1 の目が外れる）"
         b.stop(reason, by=PENDING_REQUEST_BY)
         return {"stop": True, "go": False, "why": reason}
-    return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK)),
-            "purpose_file": _out_file(b, PURPOSE_NODE)}
+    return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK))}
 
 
 def rejudge_edge(board_dir, repo) -> dict:

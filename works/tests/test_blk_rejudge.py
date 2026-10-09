@@ -71,7 +71,7 @@ class YamlCase(unittest.TestCase):
         return [n for n in self.y["nodes"] if "loop_group" in n]
 
     def test_inputs_and_exit(self):
-        self.assertEqual(set(self.y["inputs"]), {"base_rev", "policy_paste"})
+        self.assertNotIn("inputs", self.y)   # 段のスクリプトは盤面だけを読む（版も方針も盤面が持つ）
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
 
     def test_yaml_output_formats_match(self):

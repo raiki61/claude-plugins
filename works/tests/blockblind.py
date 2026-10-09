@@ -33,7 +33,6 @@ BLOCK_KNOWN = {
     "blk-delta/blk-delta.yaml:blk-refix": (1, "コメントが受け付けの欄を blk-refix と比べる。" + LATER),
     "blk-fix/blk-fix.yaml:blk-judge": (2, "inputs の description が入力を blk-judge の出口で述べる。" + LATER),
     "blk-judge/lib/judgebrief.py:blk-material": (1, "docstring が止めた節を blk-material で述べる。" + LATER),
-    "blk-material/blk-material.yaml:blk-purpose": (1, "inputs の description が入力を blk-purpose の出口で述べる。" + LATER),
     "blk-material/lib/material.py:blk-ci": (2, "docstring とコメントが止め札を blk-ci と比べる。" + LATER),
     "blk-material/lib/material.py:blk-purpose": (2, "docstring が入力を blk-purpose の出口で述べる。" + LATER),
     "blk-purpose/blk-purpose.yaml:blk-premises": (1, "inputs の description が入力を blk-premises の返答で述べる。" + LATER),

@@ -91,7 +91,7 @@ class YamlCase(unittest.TestCase):
         self.top = {n["id"]: n for n in self.y["nodes"]}
 
     def test_inputs_and_exit(self):
-        self.assertEqual(set(self.y["inputs"]), {"node", "base_rev"})
+        self.assertEqual(set(self.y["inputs"]), {"node"})
         self.assertTrue(self.y["inputs"]["node"].get("required"))
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertEqual(list(self.top), ["ci-fence", "ci-snap", "ci-loop", "collect"])

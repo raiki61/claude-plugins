@@ -80,7 +80,6 @@ h-entry:
   premises_go: true
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -180,7 +179,6 @@ h-judge:
   premises_go: false
   purpose_go: true
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -221,7 +219,6 @@ h-mat:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: board/out/r1/p0.purpose.json
   mat_go: true
   structure_units_file: ''
   ripple_file: ''
@@ -546,40 +543,6 @@ provenance-accept:
 gathering__collect:
   ok: true
   reason: ''
-  ran:
-  - p0.prior_decisions
-  - p1.local_review
-  - p1.consistency_bypass
-  - p1.hygiene
-  - p1.external_standards
-  - p1.procedure_trace
-  - p1.gate_efficacy
-  - p1.test_double_fidelity
-  - p1.main_path_observation
-  - p1.provenance
-  skipped:
-  - node: p0.purpose_review
-    why: 目的の文と一緒に入る（absent）
-  materials:
-    prior_decisions: clean
-    local_review: clean
-    consistency_bypass: clean
-    hygiene: clean
-    external_standards: clean
-    procedure_trace: clean
-    gate_efficacy: clean
-    test_double_fidelity: clean
-    main_path_observation: clean
-    provenance: clean
-  snapshot:
-    rev: 0123456789abcdef0123456789abcdef01234567
-    diff_file: board/diff-r1.patch
-    changed_files:
-    - stats.py
-    changed_files_file: board/changed-r1.txt
-    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
-    request_wheres: []
-  exit_file: board/r1/material-exit.json
 judging__intake:
   ok: true
   reason: ''
@@ -687,7 +650,6 @@ h-plan:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: board/r1/structure-units.json
   ripple_file: ''
@@ -910,7 +872,6 @@ h-gate:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -933,7 +894,6 @@ h-fix:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1415,7 +1375,6 @@ h-replan:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1462,7 +1421,6 @@ h-regate:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1485,7 +1443,6 @@ h-refit:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1572,7 +1529,6 @@ h-rejudge:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1642,7 +1598,6 @@ h-review:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1715,7 +1670,6 @@ h-refix:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1825,7 +1779,6 @@ h-tests:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1858,7 +1811,6 @@ h-look:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1881,7 +1833,6 @@ h-final:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1904,7 +1855,6 @@ h-eyes:
   premises_go: false
   purpose_go: false
   spec_go: false
-  purpose_file: ''
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -2079,29 +2029,6 @@ r4-scope-accept:
 eyeing__eyes-collect:
   ok: true
   reason: ''
-  complete: true
-  asking: false
-  stopped: false
-  eyes:
-    r1-comments: done
-    r1-minimality: done
-    r2-compare: done
-    r3-coherence: done
-    r4-scope: done
-    premise-check: na
-  gave_up: []
-  after_fix:
-    rev: acc5e6c2327b89f81356f7b71020f3347cdded0c
-    diff_file: board/diff-r1-after-fix.patch
-    changed_files:
-    - src/a.py
-    - src/b.py
-    diff_lines: 9
-  open_units: 0
-  r1_refire: true
-  r2_refire: true
-  purpose_known: true
-  purpose_unusable: ''
   reviews:
     R1:
       status: pass
@@ -2115,8 +2042,6 @@ eyeing__eyes-collect:
     R4:
       status: pass
       reason: 導入・露呈した横断リスクなし
-  premise:
-    facts_to_add: []
   premise_inputs:
     design: null
     compare:
@@ -2124,8 +2049,6 @@ eyeing__eyes-collect:
       given: []
       withheld: []
     claims: []
-  retaken_for_reviews: board/diff-r1-after-fix.patch
-  exit_file: board/r1/eyes-exit.json
 report:
   ok: true
   outcome: stopped_by_line

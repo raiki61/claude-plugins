@@ -17,7 +17,7 @@ R2 の設計の半分（r2.design）はここで起こさない: 修正の前に
 - accept:  返答を盤面に渡す（entry.take。入口の写しと今の作業ツリーを比べる）。拒否は数え、GIVE_UP_AFTER 回で諦めの印（done）。
            表で skippable の目（r1.comment_candidates）は諦めたら省いて（board.skip）後ろの目を出す
 - collect: 出口。入口の周の箱だけを見る（最後の目の受け付けの settle が p4.record・converge を回して周を進めても読み違えない）。
-           人に聞いている（r4.human_gate の ask）なら止めずに asking（答えた後にブロックへ入り直すと残りの目が回る）。
+           人に聞いている（r4.human_gate の ask）なら止めずに ok（答えた後にブロックへ入り直すと残りの目が回る）。
            聞いていないのに目が待ちのまま残れば（3 回とも拒まれた）盤面を止めて ok: false。premise_inputs に、R2 の 2 つの役へ
            渡した前提の入力の控え（design-premises.json・eyes-premises.json。後者の after_design に独立設計の後に来た人の答え）と、
            r2.compare の返答の『渡されていない』の文と、そのうち r2.compare の given に当たる物（compare の claims_given。
@@ -26,10 +26,10 @@ R2 の設計の半分（r2.design）はここで起こさない: 修正の前に
 並び: 目は Archon の同じ層の輪で並んで走る。盤面（state.json・record.json）は版の突き合わせで守られているが、並んだ受け付けは
 BoardConflict（SystemExit）で落ちるので、このブロックの盤面の読み書きは全部、盤面の置き場の錠（LOCK_NAME。fcntl.flock）の中で行う。
 
-作業ファイルは入口の周の r<N>/ に置く: eyes-snapshot.json（入口の作業ツリーの写し）・eyes-enter.json（p4.assemble が数えた値の控え）・
+作業ファイルは入口の周の r<N>/ に置く: eyes-snapshot.json（入口の作業ツリーの写し）・
 eyes-rejects.json（拒否の文）・eyes-premises.json（r2.compare に渡した前提の入力の控え）・eyes-exit.json（出口）。最後の目の受け付けの settle が周を進めると、次の周の頭が loop の差分の欄を
-撮り直し、記録の reviews を空にし、facts_to_add を制約へ移す（写しの RL の on_new_round・p1.worktree_before）ので、出口は
-p4.assemble の値を入口の控えから、reviews を周の記録 rounds/round-<N>.json から、facts_to_add を stop.premise_check の出力から読む。
+撮り直し、記録の reviews を空にする（写しの RL の on_new_round・p1.worktree_before）ので、出口は reviews を周の記録
+rounds/round-<N>.json から読む。
 """
 import contextlib
 import fcntl
@@ -95,7 +95,6 @@ LATE_ASK = ("上の人の関所の答えのうち、次の物は独立設計を�
 LOCK_NAME = "board.lock"
 SNAPSHOT_NAME = "eyes-snapshot.json"
 REJECTS_NAME = "eyes-rejects.json"
-ENTER_NAME = "eyes-enter.json"
 EXIT_NAME = "eyes-exit.json"
 PREMISES_NAME = "eyes-premises.json"   # r2.compare に渡した前提の入力の控え（入口の周の作業ファイル）
 # route が起きた目と go（入口の周の作業ファイル）。Archon の節が落ちた筋を、盤面の順のずれ・設計待ちと見分ける
@@ -113,10 +112,10 @@ GIT_SHOW_SENTENCE = ("**読むのは、この周に固定したリビジョン**
 FROZEN_READ = ("**読むのは、この周に固定したリビジョン**。お前の cwd の作業ツリーは、その版のまま止めてある（お前を起こす前に"
                "撮った姿と、受け付けが今の姿を比べる）。Read・Grep・Glob で cwd のファイルをそのまま読め——git や shell は"
                "道具に無く、要らない。engine が根拠を数え直すときも同じ版を数える。")
-# 出口の欄（BLOCKS.md 3.3 の R11 の出口に、ブロックの回り方の欄を足した物。並びも固定）
-EXIT_FIELDS = ("ok", "reason", "complete", "asking", "stopped", "eyes", "gave_up", "after_fix", "open_units", "r1_refire",
-               "r2_refire", "purpose_known", "purpose_unusable", "reviews", "premise", "premise_inputs", "retaken_for_reviews",
-               "exit_file")
+# 出口の欄（並びも固定）。読み手が在る物だけ: ok・reason・reviews は線の機械の報告（report の残りの数え）、premise_inputs は
+# 最後の関所の文（line_edge が eyes-exit.json から読む）。BLOCKS.md 3.3 の R11 の出口に在った読み手の無い欄（目ごとの状態・
+# p4.assemble が数えた値・facts_to_add など）は 2026-10-09 の整理で外した
+EXIT_FIELDS = ("ok", "reason", "reviews", "premise_inputs")
 
 
 # ---------------------------------------------------------------- 写しの形
@@ -228,17 +227,6 @@ def _round_of(raw) -> int:
 
 
 # ---------------------------------------------------------------- 入口・分かれ道
-def assembled(b) -> dict:
-    """p4.assemble が数えた値（出口の after_fix・open_units・再発火・目的の出典・撮り直しの痕跡）。目は書き換えない"""
-    ls = b.loop_state
-    return {"after_fix": {"rev": ls.get("reviewed_revision") or "", "diff_file": ls.get("diff_file") or "",
-                          "changed_files": list(ls.get("changed_files") or []), "diff_lines": ls.get("diff_lines") or 0},
-            "open_units": ls.get("open_units") or 0, "r1_refire": bool(ls.get("r1_refire")),
-            "r2_refire": bool(ls.get("r2_refire")), "purpose_known": bool(ls.get("purpose_known")),
-            "purpose_unusable": ls.get("purpose_unusable") or "",
-            "retaken_for_reviews": (ls.get("retaken_for_reviews") or {}).get("file") or ""}
-
-
 def enter(board_dir, repo) -> dict:
     """入口。返り {ok, round, stopped, asking, ready: [役], snapshot_file, why}。止まった盤面は stopped（目を起こさない）。
     p4.assemble が今の周に済んでいなければ BoardGap（配線の誤り。修正の後の撮り直しの前に目を起こさない）"""
@@ -254,7 +242,6 @@ def enter(board_dir, repo) -> dict:
                            "目を起こさない（ラインの配線か、機械の節が止まった。盤面の trace を見る）")
         snap = entry.snapshot(board_dir, SNAPSHOT_NAME, repo)
         out["snapshot_file"] = str(snap)
-        _write_json(_work(b, b.round, ENTER_NAME), assembled(b))
         out["ready"] = [ROLE_OF[n] for n in ROLE_OF if _pending(b, n)]
         return out
 
@@ -467,28 +454,16 @@ def collect(board_dir, rnd) -> dict:
             if stop:
                 ok = False
                 b.stop(reason, by=STOP_BY)
-        at = _read_json(_work(b, rnd, ENTER_NAME), None)
-        if at is None:
-            raise BoardGap(f"入口の控え r{rnd}/{ENTER_NAME} が無い（eyes-enter が先に走る）")
         rounded = _read_json(b.dir / "rounds" / f"round-{rnd}.json", None)
         reviews = (rounded if rounded is not None else b.record).get("reviews") or {}
-        pc = b.output_of_round("stop.premise_check", rnd) or {}
         compare = _read_json(_work(b, rnd, PREMISES_NAME), None)
         claims = design.claims_unpassed(b.output_of_round(PREMISE_NODE, rnd))
         if isinstance(compare, dict):   # 『渡されていない』は r2.compare の文なので、r2.compare に渡した given と突き合わせる
             compare["claims_given"] = design.claims_given(claims, compare.get("given"))
-        out = {"ok": ok, "reason": reason, "complete": not left, "asking": asking, "stopped": _stopped(b), "eyes": states,
-               "gave_up": gave_up, "after_fix": at["after_fix"], "open_units": at["open_units"],
-               "r1_refire": at["r1_refire"], "r2_refire": at["r2_refire"], "purpose_known": at["purpose_known"],
-               "purpose_unusable": at["purpose_unusable"],
-               "reviews": {k: reviews.get(k) for k in ("R1", "R2", "R3", "R4")},
-               "premise": {"facts_to_add": list(pc.get("facts_to_add") or []) if pc.get("verdict") == "resolved" else []},
+        out = {"ok": ok, "reason": reason, "reviews": {k: reviews.get(k) for k in ("R1", "R2", "R3", "R4")},
                "premise_inputs": {"design": _read_json(b.dir / design.PREMISES_FILE, None),
-                                  "compare": compare, "claims": claims},
-               "retaken_for_reviews": at["retaken_for_reviews"]}
-        path = _work(b, rnd, EXIT_NAME)
-        out["exit_file"] = str(path)
-        _write_json(path, out)
+                                  "compare": compare, "claims": claims}}
+        _write_json(_work(b, rnd, EXIT_NAME), out)
         return out
 
 

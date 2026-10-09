@@ -61,40 +61,6 @@ gate-efficacy-accept:
 collect:
   ok: false
   reason: '盤面は止まっている（works:adapter: 包みの柵が素材集めの役（provenance）の起動に掛かっていない）'
-  ran: []
-  skipped:
-  - node: p0.prior_decisions
-    why: cond ...
-  - node: p0.purpose_review
-    why: 目的の文と一緒に入る（absent）
-  - node: p1.local_review
-    why: cond ...
-  - node: p1.consistency_bypass
-    why: cond ...
-  - node: p1.hygiene
-    why: cond ...
-  - node: p1.external_standards
-    why: cond ...
-  - node: p1.procedure_trace
-    why: cond ...
-  - node: p1.gate_efficacy
-    why: cond ...
-  - node: p1.test_double_fidelity
-    why: cond ...
-  - node: p1.main_path_observation
-    why: cond ...
-  - node: p1.provenance
-    why: cond ...
-  materials: {}
-  snapshot:
-    rev: 0123456789abcdef0123456789abcdef01234567
-    diff_file: board/diff-r1.patch
-    changed_files:
-    - stats.py
-    changed_files_file: board/changed-r1.txt
-    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
-    request_wheres: []
-  exit_file: board/r1/material-exit.json
 fixture:
   expect: completed
   reached:

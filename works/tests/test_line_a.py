@@ -310,7 +310,7 @@ class EyesPurposeCase(LineBase):
     """目的の文（blk-purpose）と独立の目（blk-eyes）の配線（計画 P1 Task 33。目的の文は目の R1・R2 が読むので先に入れた）"""
 
     def test_purpose_before_judge(self):
-        """前提 → h-judge → 目的の文 → h-mat → 判定。h-mat の purpose_file は盤面の p0.purpose の出力（目的の文を盤面へ渡した）"""
+        """前提 → h-judge → 目的の文 → h-mat → 判定。目的の文は盤面の p0.purpose に渡った"""
         got = self.run_line()
         t = got["trail"]
         self.assertLess(t.index("h-judge"), t.index("purposing"))
@@ -318,7 +318,6 @@ class EyesPurposeCase(LineBase):
         self.assertLess(t.index("h-mat"), t.index("judging"))
         b = entry.open_board(got["board_dir"], allow_halted=True)
         self.assertEqual(b.node_state("p0.purpose"), "done")
-        self.assertEqual(got["out"]["h-mat"]["purpose_file"], str(b.dir / b.state["outputs"]["p0.purpose"]["file"]))
 
     def test_eyes_before_final_gate(self):
         """最後のテストの後・最後の関所の前に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。関所の文に目の判定が載る。周は目の後に

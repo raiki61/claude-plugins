@@ -343,8 +343,8 @@ class LineShapeCase(unittest.TestCase):
         # 直す道で、根の切り方は 1 度目に読んだ）
         self.assertEqual(node("planning")["with"]["verify_file"], "$h-plan.output.verify_file")
         self.assertNotIn("verify_file", re_["with"])
-        self.assertEqual({k: v for k, v in re_["with"].items() if k not in ("replan", "judgment_file")},
-                         {k: v for k, v in node("planning")["with"].items() if k not in ("judgment_file", "verify_file")})
+        self.assertEqual({k: v for k, v in re_["with"].items() if k != "replan"},
+                         {k: v for k, v in node("planning")["with"].items() if k != "verify_file"})
         gate = node("replan-gate")
         self.assertNotIn("loop_group", gate)
         self.assertEqual((gate["depends_on"], gate["when"]), (["h-regate"], "$h-regate.output.ask == true"))

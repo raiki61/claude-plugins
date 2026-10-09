@@ -1,23 +1,23 @@
 {
  "entry": "darkfactory",
  "sources": {
-  "blk-ci/blk-ci.yaml": "54be4671fc8ba18244c16e27a1da429abce8df6c2463598188347006237a99a7",
+  "blk-ci/blk-ci.yaml": "d9373d46a87951d989565235822641b8a7667c69fc6c67011085e36b109d2ddd",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
-  "blk-eyes/blk-eyes.yaml": "529421d1256ab4372571db47dc048931ea420c7298f42b516dbd3e0a7c7ae2b7",
+  "blk-eyes/blk-eyes.yaml": "06dc36eeaadc8acbf440f0aefe9b8cd6042c86a8043145502b51baa5bd6f8238",
   "blk-fix/blk-fix.yaml": "918442aaf7022fe28e7a130da1f53c226e03630b84ca343ec72effbd868bc8b9",
   "blk-judge/blk-judge.yaml": "91c976d0678cd85a73948ac00be67c07e46f84de698b09a19f8f4e9d8adae133",
   "blk-lens/blk-lens.yaml": "fe7f42c097083bd466fde0c424a3a77b778419b2fb026950f34df6d31f88f466",
-  "blk-material/blk-material.yaml": "0f64b8c19ee31353c01c19a622023e480b1e9755e422e36c74d93188cf89068e",
-  "blk-plan/blk-plan.yaml": "14c25cbebe25bd42d784565d405c5bed75dfafe5295f4cf290d8f352f32a50b7",
+  "blk-material/blk-material.yaml": "55bf08a31e82884c4aa6671591be131f7e3984bb118f231c8e16695d3f90ed27",
+  "blk-plan/blk-plan.yaml": "349462487d063b58180159b728a5846370b6f3eb2ea87120c4438d44b6068ff0",
   "blk-pr/blk-pr.yaml": "01ba32249cf73fbc37f900a5ede324c3f001a90d8886d6707899908da92dcdc2",
   "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
-  "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
+  "blk-purpose/blk-purpose.yaml": "cd10f26594712b1fc6358bf9b401a0c980903c936d2ea07d5b441cab654f3c7a",
   "blk-refix/blk-refix.yaml": "5f45883e108c4e625d03087412fd3ee4ba4344b8e64d09fa4148a8e7f0c703a1",
-  "blk-rejudge/blk-rejudge.yaml": "dab8195f4b309d6da8fd4ac5be6eedd4c68ab737ccde9f72be0ad9eefb446504",
+  "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
   "blk-report/blk-report.yaml": "c0f3f9dba14ef544bcb9ee795d4323c7a82827a24168931e2355d8adc8205924",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "b4e878fdce960716c1f05bc1df47238c69518b48b9237c263902c0b94cec25df"
+  "darkfactory/darkfactory.yaml": "c1f33499c34efb14419811d7a088c9d48baaf59de28da4e4abf92deb6acc2a8b"
  },
  "version": 1,
  "workflows": {
@@ -2349,7 +2349,6 @@
      "purpose": "宣言の CI を機械で走らせられない run で、CI を任せ先の役が回す",
      "when": "$start.output.ci_role_go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
       "node": "p0.local_checks"
      }
     },
@@ -2430,9 +2429,7 @@
      "purpose": "判定の前に、差分を P1 の目と先行議論に見せて素材を集める",
      "when": "$h-mat.output.mat_go == true",
      "with": {
-      "adapter": "$start.output.adapter",
-      "base_rev": "$start.output.base_rev",
-      "purpose_file": "$h-mat.output.purpose_file"
+      "adapter": "$start.output.adapter"
      }
     },
     {
@@ -2495,10 +2492,6 @@
      "purpose": "独立設計・修正案（項目ごとの範囲とテスト）・事前審査の壁打ち",
      "when": "$h-plan.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "judgment_file": "$h-plan.output.judgment_file",
-      "policy_paste": "$start.output.policy_paste",
-      "policy_path": "$start.output.policy_path",
       "review_tree": "$start.output.review_tree",
       "verify_file": "$h-plan.output.verify_file"
      }
@@ -2584,10 +2577,6 @@
      "purpose": "案の直し（修正の段の裁定が案の項目の誤りとした時だけ）",
      "when": "$h-replan.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "judgment_file": "$h-replan.output.judgment_file",
-      "policy_paste": "$start.output.policy_paste",
-      "policy_path": "$start.output.policy_path",
       "replan": "true",
       "review_tree": "$start.output.review_tree"
      }
@@ -2663,10 +2652,7 @@
      "kind": "call",
      "purpose": "修正役が判定に異議を出した時の再審",
      "when": "$h-rejudge.output.go == true",
-     "with": {
-      "base_rev": "$start.output.base_rev",
-      "policy_paste": "$start.output.policy_paste"
-     }
+     "with": {}
     },
     {
      "deps": [
@@ -2778,7 +2764,6 @@
      "purpose": "独立の目（冗長と最小性・独立設計との比較・整合・範囲）",
      "when": "$h-look.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
       "skip_optional": "$h-redepth.output.skip"
      }
     },

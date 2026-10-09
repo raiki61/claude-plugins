@@ -17,9 +17,6 @@ inputs:
   node:
     required: true
     description: CI の節の名前（p0.local_checks か p4.ci）。任せ先に落ちて待っている節だけを渡す（待っていなければ ci-snap が 2 で落ちる）
-  base_rev:
-    default: ""
-    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
 
 returns: collect
 outcome_field: ok

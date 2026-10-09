@@ -49,7 +49,7 @@ SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
-            "pr_go", "premises_go", "purpose_go", "spec_go", "purpose_file", "mat_go",
+            "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go",
             "structure_units_file", "ripple_file", "verify_file"}
 BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -1188,7 +1188,7 @@ class MatEyesEdgeCase(EdgeBase):
         self.assertIn("p0.purpose", entry.open_board(self.board).ready())
 
     def test_mat_bridges_purpose(self):
-        """目的の文のブロックが盤面の根に置いた purpose.json → 盤面の p0.purpose に渡し、go True・purpose_file は盤面の出力。
+        """目的の文のブロックが盤面の根に置いた purpose.json → 盤面の p0.purpose に渡し、go True。
         呼び直しても 2 度渡さない。P1 の目の役が表に無い版では mat_go False"""
         import purpose
         self.before_purpose()
@@ -1199,7 +1199,6 @@ class MatEyesEdgeCase(EdgeBase):
             self.assertEqual((got["go"], got["stop"]), (True, False), got)
         b = entry.open_board(self.board)
         self.assertEqual(b.node_state("p0.purpose"), "done")
-        self.assertEqual(got["purpose_file"], str(self.board / b.state["outputs"]["p0.purpose"]["file"]))
         self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.purpose"]), 1)
         self.assertEqual(got["mat_go"], any(b.table.nodes[n].where == "blk-material" for n in b.ready()))
 

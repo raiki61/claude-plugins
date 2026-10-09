@@ -19,7 +19,7 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
            writes・check_record・settle）。拒否は material-rejects.json に積み、GIVE_UP_AFTER 回目で done・give_up
            （輪を max_iterations で落とさない。R50）
 - collect: 出口。回した後も待っている節が在れば（3 回とも拒まれた）盤面を止めて ok: False（諦めた目は全部名指す）。
-           本線の R3 の出口（snapshot と materials）を組む
+           出口は ok と reason だけ（本線の R3 の出口の snapshot・materials は読み手が無いので組まない）
 - 止まった盤面: 同じ波の 1 本の目が盤面を止めた（包みの柵）後は、並んで走る他の目の prep・take・refuse は盤面を書かずに
            stopped: true を返す（prep は役を起こさせず、受け付けは done で輪を抜けさせ、拒否に数えない）。止めるのは
            stop_once（もう止まった盤面には何も足さない）。輪が落ちずに collect まで届き、collect が止めた理由を返す
@@ -152,13 +152,10 @@ READONLY_MOVED = "読むだけの役が作業ツリーを変えた: "
 PURPOSE_MISSING = "（目的の文はこの run に無い——目的の節 p0.purpose がこのラインに無く、目的のファイルも渡されていない。目的を推し量って補うな）"
 SNAPSHOT = "material-snapshot.json"
 REJECTS = "material-rejects.json"
-EXIT = "material-exit.json"
 LOCK = ".works-material.lock"
 PROMPTS_COPY = rolekit.PROMPTS_COPY
-EXIT_KEYS = ("ok", "reason", "ran", "skipped", "materials", "snapshot", "exit_file")
+EXIT_KEYS = ("ok", "reason")   # 出口の欄。回した節・素材の status・R3 の snapshot は読み手が無いので 2026-10-09 の整理で外した
 PREP_KEYS = ("prompt_file", "prompt_text", "attempt", "out_path", "node", "already", "stopped")   # prep の出口（YAML と突き合わせる）
-SNAPSHOT_KEYS = {"rev": "reviewed_revision", "diff_file": "diff_file", "changed_files": "changed_files",
-                 "changed_files_file": "changed_files_file", "diff_stat": "diff_stat", "request_wheres": "request_wheres"}
 
 
 def route_key(role: str) -> str:
@@ -509,11 +506,9 @@ def refuse(board_dir, role: str, reason: str) -> dict:
 
 # ---------------------------------------------------------------- collect
 def collect(board_dir) -> dict:
-    """出口 {ok, reason, ran, skipped, materials, snapshot, exit_file}。同じ物を material-exit.json に書く。
+    """出口 {ok, reason}。
     - 回した後も待っている素材集めの節が在れば（3 回とも拒まれた・route の後に ready が変わった）盤面を止めて ok: False
-    - 盤面が既に止まっている（包みの確かめ・前のブロック）なら ok: False で止めた理由
-    - ran はこの周に受けた節、skipped は回さなかった節と理由。materials は記録の素材の status（p1.worktree_after が埋めた
-      15 欄）、snapshot は本線の R3 の出口 snapshot の 6 欄（盤面の loop の値）"""
+    - 盤面が既に止まっている（包みの確かめ・前のブロック）なら ok: False で止めた理由"""
     with _locked(board_dir):
         b = _open(board_dir, allow_halted=True)
         ok, reason = True, ""
@@ -536,17 +531,7 @@ def collect(board_dir) -> dict:
                 reason = "／".join(parts)
                 ok = False
                 stop_once(b, reason, by=STOP_BY)
-        ran = [n for n in ROLES.values() if n in b.rd["done"]]
-        skipped = [{"node": n, "why": str(_why_not(b, n))} for n in ROLES.values() if n not in b.rd["done"]]
-        mats = {k: (v or {}).get("status", "") for k, v in (b.record.get("materials") or {}).items() if isinstance(v, dict)}
-        ls = b.loop_state
-        snap = {k: ls.get(src) if ls.get(src) is not None else ([] if k in ("changed_files", "request_wheres") else "")
-                for k, src in SNAPSHOT_KEYS.items()}
-        p = b.work(EXIT)
-        out = {"ok": ok, "reason": reason, "ran": ran, "skipped": skipped, "materials": mats, "snapshot": snap,
-               "exit_file": str(p)}
-        _write_json(p, out)
-    return out
+    return {"ok": ok, "reason": reason}
 
 
 # ---------------------------------------------------------------- スクリプトの入口

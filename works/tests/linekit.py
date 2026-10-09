@@ -284,7 +284,7 @@ LINE_ORDER = [
               "features_on": "$INPUTS.features_on"}},
     {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
      "when": "$start.output.ci_role_go == true",
-     "with": {"node": "p0.local_checks", "base_rev": "$start.output.base_rev"}},
+     "with": {"node": "p0.local_checks"}},
     _edge("h-entry", "entry", ["start", "ci-checking"]),
     {"id": "pr-checking", "kind": "include", "block": "blk-pr", "depends_on": ["h-entry"],
      "when": "$h-entry.output.pr_go == true", "with": {}},
@@ -299,8 +299,7 @@ LINE_ORDER = [
     _edge("h-mat", "mat", ["start", "h-judge", "purposing"]),
     {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat"],
      "when": "$h-mat.output.mat_go == true",
-     "with": {"base_rev": "$start.output.base_rev", "adapter": "$start.output.adapter",
-              "purpose_file": "$h-mat.output.purpose_file"}},
+     "with": {"adapter": "$start.output.adapter"}},
     {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering"], "trigger_rule": NFMOS,
      "when": "$h-mat.output.go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
@@ -316,9 +315,7 @@ LINE_ORDER = [
               "plan_go": {"from": "$h-plan.output.go", "if_skipped": False}}},
     {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan", "h-structure"],
      "when": "$h-plan.output.go == true",
-     "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
-              "verify_file": "$h-plan.output.verify_file", "review_tree": "$start.output.review_tree"}},
+     "with": {"verify_file": "$h-plan.output.verify_file", "review_tree": "$start.output.review_tree"}},
     _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -337,9 +334,7 @@ LINE_ORDER = [
     _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
      "when": "$h-replan.output.go == true",
-     "with": {"judgment_file": "$h-replan.output.judgment_file", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path", "replan": "true",
-              "review_tree": "$start.output.review_tree"}},
+     "with": {"replan": "true", "review_tree": "$start.output.review_tree"}},
     _edge("h-regate", "regate", ["start", "h-replan", "replanning"]),
     {"id": "replan-gate", "kind": "approval", "depends_on": ["h-regate"], "when": "$h-regate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -355,7 +350,7 @@ LINE_ORDER = [
     _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
-     "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste"}},
+     "with": {}},
     _depth("h-redepth", "raise", ["start", "h-rejudge", "rejudging", "h-depth"],
            replanned={"from": "$h-replan.output.go", "if_skipped": False},
            rejudged={"from": "$h-rejudge.output.go", "if_skipped": False}),
@@ -374,7 +369,7 @@ LINE_ORDER = [
      "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd"}},
     _edge("h-look", "look", ["start", "h-tests", "testing"]),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
-     "with": {"base_rev": "$start.output.base_rev", "skip_optional": "$h-redepth.output.skip"}},
+     "with": {"skip_optional": "$h-redepth.output.skip"}},
     _edge("h-final", "final", ["start", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
     {"id": "final-gate", "kind": "approval", "depends_on": ["h-final"], "when": "$h-final.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -540,7 +535,7 @@ class LineRun:
         for role, nid in material.ROLES.items():
             if not r.get(material.route_key(role)):
                 continue
-            material.prep(self.board, role, self.repo, self.out["h-mat"]["purpose_file"])
+            material.prep(self.board, role, self.repo)
             default = reply("purpose_review_ok") if nid == "p0.purpose_review" else TM.good_reply(nid)
             got = material.take(self.board, role, self.replies.get(nid, default),
                                 self.repo, adapter)

@@ -853,7 +853,8 @@ class AcceptCase(_Case):
         out = eyes.collect(self.bd, self.rnd)
         self.assertFalse(out["ok"])
         self.assertIn("3 回とも", out["reason"])
-        self.assertEqual(out["gave_up"], ["r2-compare"])
+        b = entry.open_board(self.bd, allow_halted=True)
+        self.assertEqual(eyes._gave_up(eyes._read_json(eyes._work(b, self.rnd, eyes.REJECTS_NAME), [])), ["r2-compare"])
         self.assertEqual(state(self.bd)["stop"]["by"], eyes.STOP_BY)
 
     def test_design_gave_up_before_fix_stops_at_eyes_with_reason(self):
@@ -876,7 +877,8 @@ class AcceptCase(_Case):
         self.assertTrue(out["reason"].startswith(f"独立の目 R2: {design.MISSING}"), out["reason"])
         self.assertIn("3 回とも受け付けで拒まれた", out["reason"])
         self.assertIn("question_stands", out["reason"], "設計の最後の拒否の文を運ぶ")
-        self.assertEqual(out["eyes"]["r2-compare"], "waiting")
+        self.assertEqual(eyes._node_state(entry.open_board(self.bd, allow_halted=True), self.rnd, "r2.compare"), "stopped",
+                         "比較の目は残ったまま盤面と一緒に止まる")
         self.assertEqual(state(self.bd)["stop"]["by"], eyes.STOP_BY)
 
     def _premise_reply(self, why):
@@ -1060,18 +1062,15 @@ class PathCase(_Case):
         self.assertFalse(eyes.route(self.bd, "premise-check", self.rnd)["go"])
         out = eyes.collect(self.bd, self.rnd)
         self.assertEqual(tuple(out), eyes.EXIT_FIELDS, "出口の欄は固定")
-        self.assertEqual((out["ok"], out["complete"], out["asking"], out["stopped"]), (True, True, False, False), out)
-        self.assertEqual(out["eyes"], {"r1-comments": "done", "r1-minimality": "done",
-                                       "r2-compare": "done", "r3-coherence": "na", "r4-scope": "na",
-                                       "premise-check": "na"})
+        self.assertTrue(out["ok"], out)
+        b = entry.open_board(self.bd, allow_halted=True)
+        self.assertEqual({eyes.ROLE_OF[n]: eyes._node_state(b, self.rnd, n) for n in eyes.ROLE_OF},
+                         {"r1-comments": "done", "r1-minimality": "done", "r2-compare": "done", "r3-coherence": "na",
+                          "r4-scope": "na", "premise-check": "na"})
         self.assertEqual(out["reviews"]["R1"]["status"], "pass")
         self.assertEqual(out["reviews"]["R2"]["status"], "pass")
-        self.assertTrue(pathlib.Path(out["after_fix"]["diff_file"]).is_file())
-        self.assertEqual(set(out["after_fix"]), {"rev", "diff_file", "changed_files", "diff_lines"})
-        self.assertTrue(out["after_fix"]["rev"])
-        self.assertIsInstance(out["open_units"], int)
-        self.assertEqual(out["retaken_for_reviews"], out["after_fix"]["diff_file"])
-        self.assertTrue(pathlib.Path(out["exit_file"]).is_file())
+        # 同じ物を入口の周の eyes-exit.json に書く（最後の関所の文が premise_inputs を読む）
+        self.assertEqual(eyes._read_json(eyes._work(b, self.rnd, eyes.EXIT_NAME), None), out)
 
     def test_four_eyes_in_parallel_processes(self):
         """同じ層の目 4 つの受け付けを別のプロセスで同時に走らせても、盤面は 4 つとも受ける（錠が書き込みを並べる）"""
@@ -1103,7 +1102,8 @@ class PathCase(_Case):
             self.assertTrue(a["ok"], a)
         self.assertFalse(eyes.route(self.bd, "r1-minimality", self.rnd)["go"])
         out = eyes.collect(self.bd, self.rnd)
-        self.assertEqual((out["ok"], out["complete"], out["asking"], out["stopped"]), (True, False, True, False), out)
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(state(self.bd).get("pending_human"))
         self.assertNotIn("stop", state(self.bd))
         # 人が continue で答えた後、入り直すと残りの目が出る
         b = entry.open_board(self.bd)
@@ -1165,7 +1165,8 @@ class ScriptCase(_Case):
             self.assertEqual(rounds[0][1]["reason_file"], "")
         self.assertFalse(self.ok("route", role="premise-check", round=rnd, skip="")["go"])
         out = self.ok("collect", round=rnd)
-        self.assertEqual((out["ok"], out["complete"]), (True, True), out)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual((out["reviews"]["R1"]["status"], out["reviews"]["R2"]["status"]), ("pass", "pass"))
 
     def test_loop_gives_up_after_three_rejections(self):
         self.board("r1r2")
@@ -1267,7 +1268,7 @@ class YamlCase(unittest.TestCase):
 
     def test_exit_and_inputs(self):
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("eyes-collect", "ok"))
-        self.assertEqual(set(self.y.get("inputs") or {}), {"base_rev", "skip_optional"})
+        self.assertEqual(set(self.y.get("inputs") or {}), {"skip_optional"})
         self.assertEqual(self.y["inputs"]["skip_optional"]["default"], "")
         of = self.top["eyes-collect"]["output_format"]
         self.assertEqual(of["required"], list(eyes.EXIT_FIELDS))
