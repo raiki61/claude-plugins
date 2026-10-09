@@ -153,7 +153,6 @@ def _overview_due_after_fix(rl):
 # 決めは run の初めに 1 度だけ機械がして盤面の loop に置き（on_init）、並行 PR の節の条件がそれを読んで条件外にし（役を起こさない）、
 # 素材は機械が not_applicable で埋める（fill_materials）。写しの graph は p0.parallel_pr に na_self_ok を持たない（走った役が
 # not_applicable を名乗れば拒む）ので、走らない節の素材を埋める側で書く。決めの無い盤面（前の版）と GitHub の remote は今どおり
-@board.rl_builder
 def on_init_forge(rl):
     """写しの RL の on_init の組み手: 写しの on_init の後に、対象（inputs.cwd）の forge の決め forge.detect を loop に置く"""
     base = rl.on_init
@@ -176,7 +175,6 @@ def parallel_pr_due_forge(rl):
     return parallel_pr_due
 
 
-@board.rl_builder
 def fill_materials_forge(rl):
     """写しの RL の fill_materials の組み手: forge の無い run で並行 PR の節が条件外（na）の周は、その素材を not_applicable
     （reason は no_forge: <種類>）で先に埋めてから写しを呼ぶ（写しは埋まった素材を飛ばす。走らせなかった節を not_run と書かない）"""
@@ -192,7 +190,6 @@ def fill_materials_forge(rl):
     return fill_materials
 
 
-@board.rl_builder
 def github_repo_redacted(rl):
     """写しの RL の _github_repo の組み手: 引けない理由の文から URL の userinfo（トークン）を落とす（写しは形の合わない remote の
     URL を理由に書き、それが盤面の engine_fallback と任せ先の役への渡し物に載る）"""
@@ -254,7 +251,6 @@ def role_judged_na_works(b, nid) -> bool:
     return not gate_signals(files, diff)
 
 
-@board.rl_builder
 def entry_opens_by_diff(rl):
     """写しの RL の entry_opens（いま add すれば入口の印が立つか）を包む組み手: 写しの条件（1 周目の P1 より前で印がまだ無い）が
     真で、かつ start が測った入口の差分が空（state.works.begin.diff_empty が真）の時だけ真。diff_empty が None（測りを渡さない
@@ -269,6 +265,9 @@ def entry_opens_by_diff(rl):
     return entry_opens
 
 
+# 組み手（写しの RL を受けて元の関数を包む差し替えを返す）の印は、下の差し替えの表の組み手をここ 1 か所で付ける
+for _builder in (on_init_forge, fill_materials_forge, github_repo_redacted, entry_opens_by_diff, gatemarks.r4_gate_items):
+    board.rl_builder(_builder)
 # 線 A の核が写しの RL に当てる差し替え（名前 → (関数, 理由)）。ラインの board_hook.py の overrides が同じ名前を持てば、そちらが勝つ
 CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
@@ -282,7 +281,7 @@ CORE_OVERRIDES = {
                          "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）。問いの台帳で人に聞く状態の fork・"
                          "escalate は、無人の run でなければ項目に載せる（持ち主 2026-09-29）。設計だけの run（入力 design_only）は"
                          "項目の有無に関わらず設計だけの行を載せて関所を開ける（持ち主 2026-09-30）"),
-    "_r4_gate_items": (board.rl_builder(gatemarks.r4_gate_items),
+    "_r4_gate_items": (gatemarks.r4_gate_items,
                        "写しの元は人が通した行を頭込みの文で照らし、修正前の関所の行（修正案 N が狭める能力: …）と R4 の行"
                        "（R4 が BASE から消えたと見た能力: …）は頭が違うので、人が continue で通した同じ狭めを聞き直す。頭を除いた本文と"
                        "種類で照らして外し、gate_passes に by human で残す（gatemarks.py）"),

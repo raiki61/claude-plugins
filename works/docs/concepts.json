@@ -832,8 +832,8 @@
        "散らばり（段 5 でまとめる）: 直す義務の差し替えが CORE_OVERRIDES で入ることを述べる"
       ],
       ".shared/core/entry.py": [
-       8,
-       "散らばり（段 5 でまとめる）: 差し替えの表 CORE_OVERRIDES が入口のモジュールに同居し、組み手に rl_builder の印を付ける"
+       5,
+       "散らばり（段 5 でまとめる）: 差し替えの表 CORE_OVERRIDES が入口のモジュールに同居し、表の組み手の rl_builder の印を表の前の 1 か所で付ける"
       ],
       ".shared/core/gatemarks.py": [
        2,
