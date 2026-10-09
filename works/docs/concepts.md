@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版。行のパスは全部、その版で在ることを確かめた（予定の物は「予定」と書く）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直した。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
@@ -81,14 +81,13 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 住処: `.shared/core/entry.py` の `FEATURES`（語 → 説明）と `features_off`・`features_on`
 - 約束: `darkfactory/darkfactory.yaml` の入力 `features_off`・`features_on` と、start の出口の同じ名の欄（ブロックへは on・off・auto の平の入力）
 - 知ってよい所: 住処・約束・殻（`dev/use.sh`・`dev/dogfood.sh`）
-- 既知の漏れ: `.shared/core/adapter.py` の `MAP_FEATURE`（包みが start の控えを読む。test_graphmap が縛る）・`dev/canary_check.py` の `LANE_FEATURES`・ブロックが自分の入力の語の名を誤りの文に使う所（`blk-fix/lib/fixlanes.py`・`blk-fix/lib/tddloop.py`・`blk-plan/lib/planblk.py`）
 
 ### `hinge` 境の節
 
 - 状態: 住処あり
 - 住処: `darkfactory/lib/line_edge.py`（中身）と `darkfactory/scripts/edge.py`（口）
 - 約束: `darkfactory/darkfactory.yaml` の `h-*` 節の `output_format`
-- 知ってよい所: ライン `darkfactory/` の中だけ。ブロックと core は境の節の名を書かない（`tests/test_layers.py` の決まり 3 と `tests/test_block_blind.py` が既に縛る）
+- 知ってよい所: ライン `darkfactory/` の中と測りの殻 `dev/`。ブロックと core は境の節の名を書かない。今ある名指し（docstring・コメント・YAML の説明・誤りの文）は柵の表の既知の漏れ
 
 ### `halt` 止め札
 
@@ -153,7 +152,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `start-record` 始めの記録 `r1/start.json`
 
 - 状態: 散らばり
-- 今: 置き場の名を 3 か所が定める（`.shared/core/entry.py` の `START_FILE`・`.shared/core/fixshape.py` の `START_REL`・`.shared/core/gatemarks.py` の `START_FILE`）。約束 `darkfactory/schemas/start.schema.json` は `{"type": "object"}` だけで何も縛らない。読み手は `gatemarks.start_doc` のほか、`.shared/core/adapter.py`・`.shared/core/fixture.py`・`.shared/core/entry.py` が直に読む
+- 今: 置き場の名を 3 か所が定める（`.shared/core/entry.py` の `START_FILE`・`.shared/core/adapter.py` の `START_REL`（`.shared/core/fixture.py` はこれを引く）・`.shared/core/gatemarks.py` の `START_FILE`）。約束 `darkfactory/schemas/start.schema.json` は `{"type": "object"}` だけで何も縛らない。読み手は `gatemarks.start_doc` のほか、`.shared/core/adapter.py`・`.shared/core/fixture.py`・`.shared/core/entry.py` と殻 `dev/canary_check.py`・`dev/launch.py` が直に読む
 - 予定の住処: 入口ブロック `blk-entry`（予定）。置き場の名と読む口を 1 つにし、約束を控えの全体に広げる
 - 計画: `docs/plans/2026-10-09-one-entry-shape.md` の 2.5 節（枝 `wip/one-entry-plan`）
 
@@ -219,5 +218,5 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 設計を始める時: 計画の「考えの棚卸し」の節（`docs/plans/2026-10-09-structure-viewpoint.md` の 4 節）で、触る考えの id をここから引く。無ければ新しい行を足す
 - 出荷の前: 触った考えの行（住処・知ってよい所・状態）を今の姿に直す
-- 散らばりを住処へまとめたら: 状態を `住処あり` にし、柵を表（予定 `docs/concepts.json`）に足す
-- 行のパスは試験が在ることを確かめる（予定。同じ計画の Task 1）
+- 散らばりを住処へまとめたら: 状態を `住処あり` にし、柵を表 `docs/concepts.json` に足す
+- 行のパスは試験 `tests/test_concept_fences.py` が在ることを確かめる。地図と表の id・状態の食い違いと、住処の外の漏れ（表の既知の漏れより増えた・減った・表に無い）も同じ試験が赤にする。既知の漏れの一覧と理由は表だけが持つ
