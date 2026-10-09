@@ -123,6 +123,21 @@ class DraftsCase(TP.GateBase):
         self.assertIn("no_narrow", second["source"])
         self.assertIn("world", second["source"])
 
+    def test_unattended_world_deviation_stops_with_draft(self):
+        """無人の run も世界の解の外れの項目で関所を開き（人がいる run と同じ決まり）、無人の殻が止めた項目には答えの下書きが残る。
+        下書きの材料は行の定石と依頼の解き方との比べ"""
+        wg = TP.WorldGateCase.put_world, TP.WorldGateCase.put_answers
+        self.unattended()
+        wg[0](self, TP.WORLD_ROW)
+        wg[1](self, {"world": "w-mean", "deviation": "呼び手の都合で 0 を返す形に寄せたい、と考えた"})
+        got, b = self.gate()
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.stopped(b, got)
+        drafts = [d for d in gatemarks.answer_drafts(b) if "w-mean" in d["question"]]
+        self.assertEqual(len(drafts), 1, gatemarks.answer_drafts(b))
+        self.assertIs(drafts[0]["draft"], True)
+        self.assertIn("WG-4410", drafts[0]["note"])
+
     def test_row_with_nothing_still_gets_a_draft_saying_so(self):
         self.unattended()
         got, b = self.gate(narrows=[dict(TP.NARROW)])

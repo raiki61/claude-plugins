@@ -66,13 +66,19 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 グラフの中で決めてよいか（持ち主 2026-10-09 の決め 1。計画 2026-10-09-clean-whole の Task 2.6）: 関所の行を聞かずに通すのは、4 つの軸が
 全部揃う時だけ（人がいる run も無人の run も同じ決まり。揃わない行は今どおり人に回し、無人なら止めて答えの下書きを残す）。
 自明（決め手の欄が揃い、decided_by の出どころ＝URL・パス:行・依頼の引用「…」・設計の決定の記録のパスが現物に在る。cite.sources_problem）・
-世界の解（world が在るか、決め手が URL）・汚くない（行の単位に構造の目が人に上げた行が無く、汚れる行には修正案の欄 structure の
-答えが在る）・やりすぎでない（柵の印が無く、行が修正案の単位の外を名指さない）。揃わない訳は人に回す行の尾「（人に聞く訳: …）」に載る。
+世界の解（盤面の根に世界の解の段の控え（worldmark）が在る run は、行の単位を持つ修正案の項目の世界の解の答えが全部 worldmark.world_ok
+で揃う＝答えの要る行が無い・定石に従う・依頼の外の出どころで訳の立つ外れ。控えが無い・段が落ちた run は今どおり world が在るか、
+決め手が URL）・汚くない（行の単位に構造の目が人に上げた行が無く、汚れる行には修正案の欄 structure の答えが在る）・やりすぎでない
+（柵の印が無く、行が修正案の単位の外を名指さない）。揃わない訳は人に回す行の尾「（人に聞く訳: …）」に載る。
 - axes(b, mark, units) -> [揃わない軸の訳]: 4 つの軸の確かめ（空ならグラフの中で決める）
+世界の解の外れ（計画 2026-10-09-world-solution の W9）: 修正案の欄 structure の世界の解の答えのうち外れ（deviation）は、worldmark.world_ok
+が揃わなければ修正前の関所の項目（種類 WORLD_KIND。文は worldmark.gate_line と人に聞く訳）になり、揃えば聞かずに通して通した行に残す。
+依頼そのもの（依頼のファイル・目的の文の出典）を出どころにした外れと、web で確かめていない行からの外れは人に回る。人がいる run も
+無人の run も同じ（無人なら止めて答えの下書きを残す）。関所の項目の世界の解の尾は、控えの在る run では役の world の文でなく行から埋める
 構造の目が人に上げた行（structmark の route が人に上げる行）は、修正前の関所の項目になる（種類 DESIGN_KIND。推し＝chosen、捨てた案と
 代償＝rejected。DESIGN_HEAD で始まる 1 行。人が continue で答えた同じ文の行は聞き直さない）。
 標準ライブラリと core の answer（L1。答えの行）・carry（L1。下書きの印の付け方）・cite（L1。出どころの照らし）・marks（L1）・
-converge（L3。事前審査の壁打ち。標準ライブラリだけ）・planmarks（L3）・scopes（L3）・structmark（L3）だけ。
+converge（L3。事前審査の壁打ち。標準ライブラリだけ）・planmarks（L3）・scopes（L3）・structmark（L3）・worldmark（L3。世界の解の行）だけ。
 """
 import json
 import pathlib
@@ -88,6 +94,7 @@ import planmarks   # 修正案の欄 structure（汚れる行への答え）
 import scopes
 import startrec   # 始めの記録（盤面の r1/start.json）の読み口
 import structmark  # 構造の目の行（汚れる・人に上げる）
+import worldmark   # 世界の解の行と、関所の軸「世界の解か」（world_ok）
 
 MARKS_FILE = marks.KINDS["gate"].file
 RECOMMEND = "recommend"   # 人に回す行の推し {answer, note, why}（実の利用者の run ac9e02ab。機械が読める推しが無かった）
@@ -126,7 +133,8 @@ _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ
          "undecided_because＝決め手を当たっても答えが 1 つに決まらない理由（書けないなら空にせよ——自明なので人に回さない）。"
          "fences＝当たる柵の印（external_write 外への書き込み・irreversible 取り消せない操作・policy_doc 方針の文書の変更・"
          "widen_protection 守り（資格・sandbox）を広げる・web_doubt web の結果が新しい疑いを出した）。decided_by が在り "
-         "undecided_because が空で fences が無く、出どころが現物に在り、world か URL の決め手が在り、構造の目が人に上げた単位に当たらず、"
+         "undecided_because が空で fences が無く、出どころが現物に在り、世界の解の軸が揃い（頭の『世界の解の行』の節が在る run は、その行の"
+         "単位を持つ項目が答えの要る行に従うか依頼の外の出どころで外れる。節の無い run は world か URL の決め手が在る）、構造の目が人に上げた単位に当たらず、"
          "修正案の単位の外を名指さない行は、修正前の関所で人に聞かずに通り、出どころつきで報告に並ぶ（最後の関所が開けばその文にも）。"
          "決め手が無い・決まらない・柵に当たる行は今までどおり人に聞く。"
          "人に回す前に、世の中が同じ問題をどう解いているかを当たれ——頭の『世界の解の行』の節が在れば、その行（依頼の行ごとの"
@@ -174,6 +182,7 @@ DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
 DESIGN_KIND = "design"                # 関所の項目の kinds（構造の目が決めきれなかった設計の問い）
 DESIGN_HEAD = "構造の目が決めきれない設計の問い"   # その行の頭
+WORLD_KIND = "world"                  # 関所の項目の kinds（世界の解から外れた修正案の項目。worldmark.ANSWER_KEY と同じ語）
 _NO_FIX = "修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は報告の見る所に並ぶ）"
 DESIGN_ONLY_ITEM = "設計だけの run: " + _NO_FIX
 STUCK_ITEM = "事前審査の壁打ちが止まった案: " + _NO_FIX   # 設計だけでない run の止まり（設計だけの run と名乗らない）
@@ -220,7 +229,7 @@ PUSH_TAIL = re.compile(r"／推し: [^／\n]*$")   # 関所の項目の末尾の
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
               ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "修正に進まない行",
-              DESIGN_KIND: "構造の目が決めきれなかった設計の問い",
+              DESIGN_KIND: "構造の目が決めきれなかった設計の問い", WORLD_KIND: "世界の解（定石）から外れる修正案の項目",
               "spec_approval": "仕様（要件と受け入れ条件）の承認", "spec_changed": "承認の後に受け入れ条件のテストが変わった"}
 
 
@@ -403,8 +412,11 @@ def decided(mark: dict) -> bool:
             and not mark.get("fences"))
 
 
-def _world(mark: dict) -> str:
-    """人に回す行の尾: 役が決め手の欄を書いた行だけに、世界の解を当たった結果を付ける（書いていなければそう出す）"""
+def _world(mark: dict, lines=None) -> str:
+    """人に回す行の尾: 世界の解の段の控えの在る run（lines が None でない）は、行の単位を持つ項目の世界の解の答えの行（無ければ
+    付けない）。無い run は、役が決め手の欄を書いた行だけに、世界の解を当たった結果を付ける（書いていなければそう出す）"""
+    if lines is not None:
+        return f"（世界の解: {'／'.join(lines)}）" if lines else ""
     if not any(k in mark for k in FIELDS if k != RECOMMEND):
         return ""
     got = str(mark.get("world") or "").strip()
@@ -451,10 +463,10 @@ def _gate_rows(b) -> list:
     return rows
 
 
-def _item(text: str, mark: dict, why=()) -> str:
-    """人に回す行の関所の項目の文（世界の解・狭めない案・人に聞く訳・推しの尾つき）"""
+def _item(text: str, mark: dict, why=(), world=None) -> str:
+    """人に回す行の関所の項目の文（世界の解・狭めない案・人に聞く訳・推しの尾つき）。world は世界の解の尾の行（_world）"""
     tail = f"（人に聞く訳: {' / '.join(why)}）" if why else ""
-    return text + _world(mark) + _no_narrow(mark) + tail + _push(mark)
+    return text + _world(mark, world) + _no_narrow(mark) + tail + _push(mark)
 
 
 def _plan_keys(b) -> set:
@@ -473,6 +485,86 @@ def _design_rows(b) -> list:
         return []
 
 
+def _world_rows(b) -> dict | None:
+    """{類の id: 世界の解の行}（段が行を出した run だけ。控えが無い・落ちた・読めない run は None＝今どおりの軸）"""
+    got = worldmark.stage_rows(b.dir)
+    return None if got is None else {r["class_id"]: r for r in got}
+
+
+def _world_answers(b) -> list:
+    """[(項目の番号（1 始まり）, 項目の単位の key の組, 答え)]: 修正案の欄 structure の世界の解の答え（控えが無い・読めない周は []）"""
+    try:
+        fields = planmarks.read(b)
+    except Exception:   # 控えの形の崩れは受け付けと brief が止める（ここは照らさない）
+        return []
+    plan = (b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or []
+    out = []
+    for n, f in enumerate(fields or [], 1):
+        keys = set(plan[n - 1].get("unit_keys") or []) if n - 1 < len(plan) and isinstance(plan[n - 1], dict) else set()
+        for a in (f.get("structure") if isinstance(f, dict) and isinstance(f.get("structure"), list) else []):
+            if isinstance(a, dict) and isinstance(a.get(worldmark.ANSWER_KEY), str):
+                out.append((n, keys, a))
+    return out
+
+
+def _cite_check(b):
+    """（決め手の文 → 出どころの誤りの 1 文（無ければ ""）の口, 依頼の出どころの組）。出どころの照らしは cite.sources_problem
+    （依頼の引用は依頼の文と照らす）。依頼の出どころは依頼のファイルと目的の文の出典（世界の解の外れの決め手にならない物）"""
+    req = startrec.read(b.dir).get("request_file") or ""
+    quoted = ""
+    try:
+        quoted = pathlib.Path(req).read_text(encoding="utf-8") if req else ""
+        quoted += "\n" + json.dumps(json.loads(quoted), ensure_ascii=False) if quoted else ""   # \u の逃がしを解いた字でも引ける
+    except (OSError, UnicodeDecodeError, ValueError):
+        pass
+    repo = (b.state.get("inputs") or {}).get("cwd") or "."
+    roots = [str(pathlib.Path(req).parent) if req else "", str(b.dir)]
+    latest = getattr(b, "latest_output", None)
+    purpose = latest("p0.purpose") if callable(latest) else None
+    own = {req} | {s for s in (purpose or {}).get("source_files") or [] if isinstance(s, str) and s}
+    return (lambda text: cite.sources_problem(text, repo, roots, quoted)), {s for s in own if s}
+
+
+def _world_axis(b, units, world: dict, check) -> list:
+    """世界の解の軸の揃わない訳（控えの在る run）: 行の単位を持つ修正案の項目の世界の解の答えが worldmark.world_ok で揃わない物"""
+    cite_ok, own = check
+    out = []
+    for n, keys, a in _world_answers(b):
+        if not keys & set(units):
+            continue
+        ok, why = worldmark.world_ok(a, world.get(a[worldmark.ANSWER_KEY]) or {}, own, cite_ok)
+        if not ok:
+            out.append(f"世界の解: 修正案 {n} の類 {a[worldmark.ANSWER_KEY]}——{why}")
+    return out
+
+
+def _world_lines(b, units, world) -> list | None:
+    """関所の項目の世界の解の尾の行（控えの無い run は None）"""
+    if world is None:
+        return None
+    return [worldmark.gate_line(world.get(a[worldmark.ANSWER_KEY]) or {"class_id": a[worldmark.ANSWER_KEY]}, a)
+            for _, keys, a in _world_answers(b) if keys & set(units)]
+
+
+def world_items(b) -> list:
+    """世界の解の外れの行 [(文, 決め手の欄の形, 揃わない訳の並び)]（控えの無い run・外れの無い案は []）。揃わない行は修正前の関所の
+    項目、揃う行は聞かずに通す行"""
+    world = _world_rows(b)
+    if world is None:
+        return []
+    cite_ok, own = _cite_check(b)
+    out = []
+    for n, _keys, a in _world_answers(b):
+        if a.get("follows") is True:
+            continue
+        row = world.get(a[worldmark.ANSWER_KEY]) or {"class_id": a[worldmark.ANSWER_KEY]}
+        ok, why = worldmark.world_ok(a, row, own, cite_ok)
+        text = f"修正案 {n} の{worldmark.gate_line(row, a)}"
+        out.append((text, {"decided_by": str(a.get("deviation") or ""), "world": worldmark.gate_line(row, a)},
+                    [] if ok else [why]))
+    return out
+
+
 def _answered_rows(b) -> set | None:
     """修正案の欄 structure に答えのある汚れる行の単位（控えが読めなければ None＝照らさない。受け付けが欠けを拒む）"""
     try:
@@ -489,20 +581,14 @@ def axes(b, mark: dict, units) -> list:
     out = []
     if not decided(mark):
         return ["決め手の欄が揃わない（decided_by が無いか、undecided_because か柵の印が在る）"]
-    start = startrec.read(b.dir)
-    req = start.get("request_file") or ""
-    quoted = ""
-    try:
-        quoted = pathlib.Path(req).read_text(encoding="utf-8") if req else ""
-        quoted += "\n" + json.dumps(json.loads(quoted), ensure_ascii=False) if quoted else ""   # \u の逃がしを解いた字でも引ける
-    except (OSError, UnicodeDecodeError, ValueError):
-        pass
-    repo = (b.state.get("inputs") or {}).get("cwd") or "."
-    got = cite.sources_problem(str(mark.get("decided_by") or ""), repo, [str(pathlib.Path(req).parent) if req else "",
-                                                                       str(b.dir)], quoted)
+    check = _cite_check(b)
+    got = check[0](str(mark.get("decided_by") or ""))
     if got:
         out.append(got)
-    if not str(mark.get("world") or "").strip() and not cite.URL.search(str(mark.get("decided_by") or "")):
+    world = _world_rows(b)
+    if world is not None:   # 世界の解の段の行の在る run は、役の world の文でなく行への答えで機械が決める
+        out += _world_axis(b, units, world, check)
+    elif not str(mark.get("world") or "").strip() and not cite.URL.search(str(mark.get("decided_by") or "")):
         out.append("世界の解を当たった結果（world）が無い")
     ups = {r.get("unit_id") for r in _design_rows(b) if r.get("route") == structmark.ROUTE_UP}
     hit = sorted(set(units) & ups)
@@ -545,8 +631,14 @@ def plan_gate_items(b) -> list:
     """写しの RL の _plan_gate_items の差し替え: 同じ行を組み、決め手の在る行は項目から外して state.works.gate_passes に残す"""
     rows = [(*r, axes(b, r[2], r[4])) for r in _gate_rows(b)]
     _record(b, [(text, m) for _, text, m, _, _, why in rows if not why])
-    items = [(kind, _item(text, m, why if decided(m) else ())) for kind, text, m, _, _, why in rows if why]
+    world = _world_rows(b)
+    items = [(kind, _item(text, m, why if decided(m) else (), _world_lines(b, units, world)))
+             for kind, text, m, _, units, why in rows if why]
     items += design_items(b)   # 構造の目が決めきれなかった設計の問い（人がいる run も無人の run も同じ）
+    devs = world_items(b)      # 世界の解の外れ（揃わない行は人がいる run も無人の run も同じく項目に。揃う行は聞かずに通す）
+    _record(b, [(text, m) for text, m, why in devs if not why and m["decided_by"]])
+    items += [(WORLD_KIND, item) for text, _, why in devs if why
+              for item in [f"{text}（人に聞く訳: {' / '.join(why)}）"] if not _continued(b, item)]
     if not gatepolicy.unattended(b.dir):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
     item = design_item(b)
@@ -767,8 +859,11 @@ def answer_drafts(b) -> list:
     stops = [h for h in (b.record.get("process") or {}).get("human_items") or []
              if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "stop" and h.get("round") == b.round
              ] if gatepolicy.unattended(b.dir) else []
-    rows = {_item(text, m, why if decided(m) else ()): (text, m, node)
+    world = _world_rows(b) if stops else None
+    rows = {_item(text, m, why if decided(m) else (), _world_lines(b, units, world)): (text, m, node)
             for _, text, m, node, units in _gate_rows(b) for why in [axes(b, m, units)]} if stops else {}
+    rows.update({f"{text}（人に聞く訳: {' / '.join(why)}）": (text, {"world": m["world"]}, planmarks.NODE)
+                 for text, m, why in world_items(b) if why} if stops else {})
     for a in (stops[-1].get("asked") or []) if stops else []:
         if not isinstance(a, str) or a.startswith(DESIGN_ONLY_ITEM):
             continue

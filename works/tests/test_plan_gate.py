@@ -206,6 +206,106 @@ class FourAxesCase(GateBase):
         self.assertEqual(got, {"ok": True})
 
 
+WORLD_ROW = {"finding": 1, "where": "stats.py", "class_id": "w-mean", "problem": "空の数の並びの平均をどう扱うか",
+             "activity": "統計の関数の直し", "practice": "空の並びの平均は定義されないので例外にする（見本の印 WG-4410）",
+             "sources": [{"id": "x1", "url": "https://example.org/stats/mean", "excerpt": "The mean of an empty sequence is undefined."}],
+             "applies": "空の並びの平均の扱い", "not_applies": "",
+             "versus": {"proposed": "空の並びは 0 を返す", "verdict": "differs",
+                        "challenge": "依頼は 0 を返す、定石は例外にする。呼び手が 0 を要る訳が無い限り定石を選ぶ"},
+             "basis": "web", "cached": False}
+REQUEST_LINE = "空の列の mean は 0 を返してほしい"
+
+
+class WorldGateCase(GateBase):
+    """関所の軸「世界の解か」は、役が書く world の文でなく、世界の解の行への修正案の答えで機械が決める（worldmark.world_ok）:
+    答えの要る行が無い・従う・依頼の外の出どころで訳の立つ外れなら揃う。依頼を出どころにした外れは修正前の関所の項目になる
+    （人がいる run も無人の run も同じ。計画 world-solution の W9・5.3 節の 6）"""
+
+    def put_world(self, *rows):
+        import worldmark
+        wf = self.tmp / "world-out" / worldmark.WORLD_FILE
+        wf.parent.mkdir(parents=True, exist_ok=True)
+        wf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        worldmark.write(self.tmp, status="ok", reason="", world_file=str(wf), classes=len(rows), cached=0, skipped=0,
+                        dropped=0)
+
+    def put_answers(self, *answers):
+        import planmarks
+        (self.tmp / planmarks.FIELDS_FILE).write_text(json.dumps({"round": 1, "fields": [{"structure": list(answers)}]},
+                                                                 ensure_ascii=False), encoding="utf-8")
+
+    def put_request(self):
+        req = self.tmp / "request.json"
+        req.write_text(json.dumps({"findings": [{"where": "stats.py", "text": REQUEST_LINE}]}, ensure_ascii=False),
+                       encoding="utf-8")
+        (self.tmp / startrec.REL).parent.mkdir(parents=True, exist_ok=True)
+        (self.tmp / startrec.REL).write_text(json.dumps({"request_file": str(req)}), encoding="utf-8")
+
+    def test_following_world_row_passes_without_asking(self):
+        """世界の解の行に従う案の行は、役が world の文を書かず URL の決め手も無くても、世界の解の軸が揃う（機械が決める）"""
+        (self.tmp / "keep.md").write_text("空の列は例外のまま\n", encoding="utf-8")
+        mark = {**DECIDED, "decided_by": "keep.md:1", "world": ""}
+        got, _ = self.gate(narrows=[{**NARROW, **mark}])
+        self.assertEqual(got.get("decision"), "ask", "世界の解の行が無い run は今どおり world か URL が要る")
+        self.put_world(WORLD_ROW)
+        self.put_answers({"world": "w-mean", "follows": True})
+        got, b = self.gate(narrows=[{**NARROW, **mark}])
+        self.assertEqual(got, {"ok": True})
+        self.assertEqual([p["by"] for p in b.state["works"].get("gate_passes") or []], ["decided"])
+
+    def test_world_deviation_becomes_gate_item(self):
+        """出どころの無い外れは修正前の関所の項目（種類 world）になり、行の定石と依頼の解き方との比べが載る"""
+        self.put_world(WORLD_ROW)
+        self.put_answers({"world": "w-mean", "deviation": "呼び手の都合で 0 を返す形に寄せたい、と考えた"})
+        got, _ = self.gate()
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertIn(gatemarks.WORLD_KIND, got["ask"]["kinds"])
+        item = next(x for x in got["ask"]["items"] if "w-mean" in x)
+        for want in ("WG-4410", "呼び手の都合で 0 を返す形に寄せたい", "人に聞く訳"):
+            self.assertIn(want, item)
+
+    def test_deviation_cited_to_request_goes_to_human(self):
+        """依頼を出どころにした外れは、引用が依頼に在っても人に回る。同じ項目の決め手の行も世界の解の軸で揃わない。依頼の外の
+        出どころ（現物に在るパス:行）で訳の立つ外れはグラフの中で通り、通した行に残る"""
+        self.put_request()
+        self.put_world(WORLD_ROW)
+        self.put_answers({"world": "w-mean", "deviation": f"依頼の本文「{REQUEST_LINE}」に従い、定石から外れる"})
+        got, _ = self.gate(narrows=[{**NARROW, **DECIDED}])
+        self.assertEqual(got.get("decision"), "ask", got)
+        items = got["ask"]["items"]
+        self.assertTrue(any("w-mean" in x and "依頼" in x for x in items), items)
+        self.assertTrue(any(NARROW["what"] in x and "世界の解" in x for x in items), items)
+        (self.tmp / "docs").mkdir()
+        (self.tmp / "docs" / "0007-zero.md").write_text("# 決め\n\n空の列は 0 を返す\n", encoding="utf-8")
+        self.put_answers({"world": "w-mean", "deviation": "人の前の決定 docs/0007-zero.md:3 が 0 を返すと決めた"})
+        got, b = self.gate(narrows=[{**NARROW, **DECIDED}])
+        self.assertEqual(got, {"ok": True})
+        self.assertTrue(any("w-mean" in p["item"] for p in b.state["works"].get("gate_passes") or []))
+
+    def test_world_item_the_human_continued_is_not_asked_again(self):
+        """人が continue で通した世界の解の外れの項目は聞き直さない（構造の目の設計の問いと同じ）"""
+        self.put_world(WORLD_ROW)
+        self.put_answers({"world": "w-mean", "deviation": "呼び手の都合で 0 を返す形に寄せたい、と考えた"})
+        got, _ = self.gate()
+        asked = [x for x in got["ask"]["items"] if "w-mean" in x]
+        self.assertEqual(len(asked), 1, got)
+        _, b = self.gate()
+        b.record["process"]["human_items"] = [{"node": gatemarks.GATE_NODE, "answer": "continue", "asked": asked, "round": 1}]
+        self.assertEqual([x for _, x in gatemarks.plan_gate_items(b) if "w-mean" in x], [])
+
+    def test_knowledge_row_named_in_gate_item(self):
+        """web で確かめていない（knowledge）行からの外れは、依頼の外の出どころが在っても人に回り、項目にそう名指す"""
+        import worldmark
+        (self.tmp / "docs").mkdir()
+        (self.tmp / "docs" / "0007-zero.md").write_text("# 決め\n\n空の列は 0 を返す\n", encoding="utf-8")
+        self.put_world({**WORLD_ROW, "basis": "knowledge", "sources": []})
+        self.put_answers({"world": "w-mean", "deviation": "人の前の決定 docs/0007-zero.md:3 が 0 を返すと決めた"})
+        got, _ = self.gate()
+        self.assertEqual(got.get("decision"), "ask", got)
+        item = next(x for x in got["ask"]["items"] if "w-mean" in x)
+        self.assertIn(worldmark.NOT_WEB, item)
+
+
 FORK_UNIT = "stats.py mean: 空の列の扱いが決まらない"
 OTHER_UNIT = "stats.py clamp: 上限を超えた値に lo を返す"
 FORK = {"key": "q-empty-mean", "kind": "fork", "status": "held", "origin": FORK_UNIT, "options": ["例外", "0 を返す"],

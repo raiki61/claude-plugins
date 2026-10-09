@@ -176,6 +176,16 @@ class Answers(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("ファイルが無い", why)
 
+    def test_world_ok_knowledge_deviation_goes_to_human(self):
+        """web で確かめていない行からの外れは、依頼の外の出どころが在っても人に回る（計画の 5.5 節: 知識だけの定石に従うのは
+        自明側、外れは人へ）。従う答えは web の行と同じに揃う"""
+        ans = {"world": "w1", "deviation": "人の前の決定が仮の実装を禁じる", "decided_by": "docs/decisions.md:40"}
+        ok, why = worldmark.world_ok(ans, row(basis="knowledge", sources=[]), set(), lambda text: "")
+        self.assertFalse(ok)
+        self.assertIn(worldmark.NOT_WEB, why)
+        self.assertTrue(worldmark.world_ok({"world": "w1", "follows": True}, row(basis="knowledge", sources=[]), set(),
+                                           lambda text: "")[0])
+
     def test_gate_line(self):
         follow = worldmark.gate_line(row(), {"world": "w1", "follows": True})
         self.assertIn("w1", follow)

@@ -15,8 +15,8 @@ knowledge の行は、頭の節・単位の要点・関所の行・報告に NOT
 落とした抜き書き）。段の時間は持たない（流れの道具の出来事から作れる値は控えに持ち直さない）。
 
 - rows(path)・read(board_dir): 行（読めない・形が違えば ValueError）と控え（無い・読めない・形が違えば None）
-- write(board_dir, …)・board_rows(board_dir): 控えを書く（線の境）・控えが指す行（無い・落ちた・読めない周は []。盤面の根から
-  読む判定の支度・修正案の頭・関所が使う）
+- write(board_dir, …)・stage_rows(board_dir)・board_rows(board_dir): 控えを書く（線の境）・控えが指す行（stage_rows は段が行を
+  出さなかった周を None で分ける＝関所の軸。board_rows は []。盤面の根から読む判定の支度・修正案の頭・関所が使う）
 - where_paths(where): 場所の字のパスの形の語（行の番号の尾を落とす）
 - section(world_file)・board_section(board_dir)・plan_section(board_dir): 判定・修正案・事前審査の頭に貼る節（行が無ければ ""）。
   board_* は盤面の根の控えが指す行で組み、plan_section は修正案の役に行ごとの答えを頼む文（PLAN_ASK）を足す
@@ -26,7 +26,8 @@ knowledge の行は、頭の節・単位の要点・関所の行・報告に NOT
 - needs(row)・answered(item)・required(rows, item, inside)・unanswered(rows, items): 答えの要る行（applies が空でない）と、修正案の
   項目の欄 structure の答え {world: <類の id>, follows: true} か {world, deviation}。inside(path, item) は項目の範囲の当て方
   （修正案の範囲の照らしの住処の口を呼び手が渡す。ここから import すると関所の決め手の住処との輪になる）
-- world_ok(answer, row, own_sources, cite_ok): 関所の軸「世界の解か」（答えの要らない行・従う・依頼の外の出どころで訳の立つ外れ）
+- world_ok(answer, row, own_sources, cite_ok): 関所の軸「世界の解か」（答えの要らない行・従う・依頼の外の出どころで訳の立つ外れ。
+  web で確かめていない行（knowledge）は従う答えだけが揃い、外れは人に聞く——計画の 5.5 節「知識だけの定石に従うのは自明側、外れは人へ」）
 - gate_line(row, answer)・report_lines(board_dir): 関所の項目と報告の行
 
 依頼の解き方（足し欄 means。計画の W6・5.3 節の 1）: 目的の役は目的の文に解き方を書かず、依頼が示した解き方（手段）を役の型の
@@ -121,15 +122,21 @@ def write(board_dir, *, status: str, reason: str, world_file: str, classes, cach
     return path
 
 
+def stage_rows(board_dir) -> list | None:
+    """盤面の根の控えが指す行。段が行を出した周（控えが ok。行の無い段は []）だけ並びで、控えが無い・落ちた・行が読めない周は
+    None（関所の軸が今どおりの決まりに戻る目印。拒まない）"""
+    st = read(board_dir)
+    if st is None or st["status"] != "ok":
+        return None
+    try:
+        return rows(st["world_file"]) if st.get("world_file") else []
+    except ValueError:
+        return None
+
+
 def board_rows(board_dir) -> list:
     """盤面の根の控えが指す行（控えが無い・落ちた周・行のファイルが空か読めない周は []。拒まない）"""
-    st = read(board_dir)
-    if st is None or st["status"] != "ok" or not st.get("world_file"):
-        return []
-    try:
-        return rows(st["world_file"])
-    except ValueError:
-        return []
+    return stage_rows(board_dir) or []
 
 
 def where_paths(where) -> list:
@@ -280,6 +287,8 @@ def world_ok(answer, row, own_sources, cite_ok) -> tuple:
     text = str(answer.get("decided_by") or answer.get("deviation") or "").strip()
     if not text:
         return False, "定石から外れる訳が無い"
+    if row.get("basis") != WEB:
+        return False, f"{NOT_WEB}定石からの外れ（定石を照らしていないので、外れてよいかを人に聞く）"
     bad = cite_ok(text)
     if bad:
         return False, bad
