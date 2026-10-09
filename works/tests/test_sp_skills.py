@@ -232,7 +232,7 @@ class OverlayDeliveryCase(unittest.TestCase):
         """借りたスキルを読める節は、素材集めの道具の表で Skill を持つ役か、座の表（seat.SEATS）の skill の節。前者は material.prep が、
         後者は修正の支度（fixrules・tddloop の prep）が読み替えを載せる。載せる道の無い節を足したら赤"""
         import yaml
-        import fixshape
+        import seat
         material = self._material()
 
         def walk(x):
@@ -249,7 +249,7 @@ class OverlayDeliveryCase(unittest.TestCase):
             for node in walk(yaml.safe_load(y.read_text(encoding="utf-8"))):
                 found.add((y.name, node.get("command") or node.get("id")))
         self.assertTrue(found)
-        self.assertEqual({c for _, c in found}, {r for r, t in material.TOOLS.items() if "Skill" in t} | fixshape.SKILL_NODES, found)
+        self.assertEqual({c for _, c in found}, {r for r, t in material.TOOLS.items() if "Skill" in t} | seat.SKILL_NODES, found)
 
 
 if __name__ == "__main__":

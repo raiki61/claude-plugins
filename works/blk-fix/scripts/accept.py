@@ -51,8 +51,8 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    裁定の limits にも勝つ（案が外したパスが要るのは範囲の相談で案を書いた役が考え直すか、案の項目の誤りで fix_plan_item の道。
    相談で許したパスは字のまま同じパスに限ってその項目の out_of_scope から外れる。planscope.with_agreed）。ほかの項目の out_of_scope は、行の単位の
    項目が明示に許したパスを拒まない（run 249b。単位に結べない変更は全部の項目の out_of_scope で照らす）。
-   控えに範囲の欄が無い・修正案の無い run・平の run（修正の形 current）は回さない。受けた時に trace に 1 行（SCOPE_OP）
-1e. 事後の関門の束（fixgates.problems。計画 220 Task 4）: 修正の形に依らず、base から今の木までを相手に、承認済みの修正案の
+   控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
+1e. 事後の関門の束（fixgates.problems。計画 220 Task 4）: base から今の木までを相手に、承認済みの修正案の
    受け入れのテストの赤→緑（INPUTS_TDD_SUITE の実行器。無い run は帳面に飛ばした理由だけ）と、名指しの外の既存のテストの
    本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
    （今の拒否の道。最後の回はほかの行と同じ決まりで単位に結ぶ）。盤面に done を書く 3 の前に置く
@@ -379,12 +379,12 @@ def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: 
     return got, out
 
 
-def revert_units(board, base_rev, repo, files: set) -> str:
-    """止めた単位の足跡 files を段の頭の木（leftovers.head_tree。欄の無い古い盤面は修正前の版の木）に戻す。先に、その木から
+def revert_units(board, repo, files: set) -> str:
+    """止めた単位の足跡 files を段の頭の木（leftovers.head_tree）に戻す。先に、その木から
     今の作業ツリー（未追跡の新しいファイルも。一時の index で固めた木）への files の差分を盤面の fix-parked-<n>.patch に控える
     （戻した木に当てれば戻す前の姿になる）。返りは控えのパス"""
     b = entry.open_board(board, allow_halted=True)
-    head = leftovers.head_tree(board) or f"{writes.base_rev(b, base_rev)}^{{tree}}"
+    head = leftovers.head_tree(board)
     files = sorted(files)
     n = 1
     while b.work(f"{PARKED_PATCH}-{n}.patch").exists():
@@ -410,7 +410,7 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
     ask_human の裁定つきの申し出を積み（conflict.park）、trace に PARKED_OP。止めた単位と義務の外の単位（out）の行と、戻した
     パスの bash_writes の申告を外した返答で受け付けを頭から通し直し、その返りを返す"""
     b = entry.open_board(board)
-    patch = revert_units(board, base_rev, repo, settled.files)
+    patch = revert_units(board, repo, settled.files)
     for key, texts in settled.park.items():
         why = " / ".join(texts)
         conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": conflict.UNKNOWN,

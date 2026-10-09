@@ -10,10 +10,7 @@
   赤・走らないなら off にして理由を test_cmd_note に残す（元から赤の test_cmd で毎単位を拒まない）。test_cmd は nice を付けて
   走らせ、既存のファイルを書き換えた回はいつも赤（書き換えた物は戻す。_cmd_run）。関門が on なら直し・整えの段の指示書に
   そのコマンドを書く。
-  平の run（修正の形 current。fixshape.plain）は比べの基準なので 219 の前の振る舞い: 約束を読まない・test_cmd の関門は
-  走らせずに off（理由 PLAIN_NOTE）・fix の段の後はいつも refactor の段へ（指示書の fix・refactor の段は 219 の前の文 PLAIN_DO）。
-  形は start が 1 回だけ読んで状態の plain に置く（控えが壊れていれば Broken）
-- tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
+- tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run・平の run は無し）→ 役 tdd（修正役。
   単位の中の段は同じ会話で、単位が替わると包みが新しい会話で起こす（支度が書く単位の鍵。依頼 243 の 2）。振り分け・テスト・直し・整えを返す）→
   tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix →（申告の在る単位だけ）refactor → 次の単位。
@@ -108,7 +105,6 @@ import board  # noqa: E402
 import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ・直す義務から外れた単位）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
-import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （.shared/core。修正案の項目の works の欄。単位の約束）
@@ -141,12 +137,6 @@ GATE_OFF = "off"
 LIGHT = "軽量"
 CMD_LIGHT = "light"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
-# 平の run（修正の形 current。fixshape.plain）: 比べの基準なので 219 の前の振る舞い（約束を読まない・整えはいつも・test_cmd の関門を切る）
-PLAIN_NOTE = "修正の形 current——test_cmd の関門は回さない（比べの基準）"
-# 修正の形 g1（seat.G1_SHAPE）: 輪を回さない（start は元の結末を取って状態を書いた後、輪の出口を go: false にする）
-G1_NO_LOOP = "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が事後に確かめる）"
-# test_cmd の関門を輪の頭で決めずに切る形と、状態の test_cmd_note に残す理由（g1 は輪が無いので関門を使わない。元の結末だけを取る）
-GATE_OFF_BY_SHAPE = {fixshape.PLAIN: PLAIN_NOTE, seat.G1_SHAPE: G1_NO_LOOP}
 
 
 class Broken(Exception):
@@ -363,13 +353,12 @@ def _duty(board_dir: pathlib.Path):
         raise Broken(f"盤面 {board_dir} の直す義務が読めない: {e}") from None
 
 
-def plan_contract(board_dir: pathlib.Path, keys: list[str], plain: bool | None = None) -> dict[str, dict]:
+def plan_contract(board_dir: pathlib.Path, keys: list[str]) -> dict[str, dict]:
     """単位 → 承認済みの修正案の約束（planmarks.unit_contract。約束の無い単位は載せない）。盤面の無い置き場（state.json が無い）・
     欄の控えが無い run は {}。盤面が在るのに開けない・欄の控えが凍結の印と食い違う（conflict.frozen_fields が盤面を止めて
-    BoardGap）なら、理由の文のまま Broken（約束を黙って空にしない）。平の run は欄を読まずに {}（plain は start が読んだ形。
-    None なら盤面から読む——_shape）"""
+    BoardGap）なら、理由の文のまま Broken（約束を黙って空にしない）"""
     board_dir = pathlib.Path(board_dir)
-    if not (board_dir / "state.json").exists() or (_shape(board_dir) == fixshape.PLAIN if plain is None else plain):
+    if not (board_dir / "state.json").exists():
         return {}
     try:
         b = entry.open_board(board_dir, allow_halted=True)
@@ -380,14 +369,6 @@ def plan_contract(board_dir: pathlib.Path, keys: list[str], plain: bool | None =
     except board.BoardGap as e:
         raise Broken(str(e)) from None
     return {k: c for k in keys if (c := planmarks.unit_contract(fields, k)) is not None}
-
-
-def _shape(board_dir: pathlib.Path) -> str:
-    """盤面の修正の形（fixshape.shape_at）。形の控えが壊れていれば理由の Broken（traceback にしない）"""
-    try:
-        return fixshape.shape_at(board_dir)
-    except ValueError as e:
-        raise Broken(f"盤面 {board_dir} の修正の形が読めない: {e}") from None
 
 
 def _owed(st) -> list:
@@ -429,10 +410,8 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit
     test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）。
     unit_depths は単位ごとの深さ（_light_units）。LIGHT の単位は関門が on でも緑の後の test_cmd を走らせない（状態の light）。
     ほかの単位と空は今どおり。
-    lanes は並べの周を使うかの切り替えの語（script_io.switch_on。空は on）。off なら形 g3 でも状態の lanes_on を偽にする（並べずに
-    tdd の単位を順に回す）。知らない語は Broken。
-    修正の形 g1 も元の結末を取って状態を書く（受け付けの選んで回す試験 1c が元で緑だった試験の赤を拒むのに要る。強み 6）。
-    違いは輪を回さないことだけで、出口は go: false・理由 G1_NO_LOOP・state_file は書いた状態・summary_file は空（輪の要約は無い）"""
+    lanes は並べの周を使うかの切り替えの語（script_io.switch_on。空は on）。off なら状態の lanes_on を偽にする（並べずに
+    tdd の単位を順に回す）。知らない語は Broken"""
     suite = (suite or "").strip()
     try:
         lanes_ok = script_io.switch_on(lanes, "tdd_lanes")
@@ -451,9 +430,7 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit
     if owed is not None:   # 振り分ける義務は受け付けと同じ fix_duty の owed（渡された is_open の並びに、関所で答えて戻った単位を足す）
         keys = [k for k in keys if k in owed or k in excused] + sorted(owed - set(keys))   # is_open の並び順を保つ
     excused = {k: why for k, why in excused.items() if k in keys}
-    shape = _shape(board_dir)   # 形は輪の頭で 1 回だけ読む（平の run は状態の plain に置き、段は状態から引く。g1 は出口だけ違う）
-    plain = shape == fixshape.PLAIN
-    contract = plan_contract(board_dir, keys, plain)   # 輪の頭で 1 回だけ（欄の控えの食い違いは conflict の 1 か所で止める）
+    contract = plan_contract(board_dir, keys)   # 輪の頭で 1 回だけ（欄の控えの食い違いは conflict の 1 か所で止める）
     board_dir.mkdir(parents=True, exist_ok=True)
     k = 1
     while (board_dir / f"tdd-{k}").exists():
@@ -464,22 +441,17 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
     test_cmd = (test_cmd or "").strip()
-    gate, note, made = ((GATE_OFF, GATE_OFF_BY_SHAPE[shape], []) if shape in GATE_OFF_BY_SHAPE
-                        else _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log"))
+    gate, note, made = _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
     st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
           "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
-          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract, "plain": plain,
+          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract,
           "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "light": light, "calls": [],
-          "lanes_on": shape == seat.SHAPE and lanes_ok,
-          "lanes_off": (None if shape == seat.SHAPE and lanes_ok else
-                        {"reason": "switch", "why": "入力 tdd_lanes が off（並べの周を切った run）"} if not lanes_ok else
-                        {"reason": "shape", "why": f"修正の形が {shape}（並べの周は形 {seat.SHAPE} だけ）"})}
+          "lanes_on": lanes_ok,
+          "lanes_off": None if lanes_ok else {"reason": "switch", "why": "入力 tdd_lanes が off（並べの周を切った run）"}}
     state_file = work / STATE
     _save(state_file, st)
-    if shape == seat.G1_SHAPE:
-        return {**off, "reason": G1_NO_LOOP, "state_file": str(state_file)}
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
 
 
@@ -582,15 +554,6 @@ DO = {
     "refactor": "この段は、fix の段で申告した単位か、brief で申告した単位だけに来る。申告した所を緑のまま整えよ（テストのファイルは"
                 "変えない）。整える物が無くなっていれば何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。",
 }
-# 平の run の fix・refactor の段（219 の前の文と、決まりの申告の行を読まない 1 文。形の名は役に渡さない）
-PLAIN_DO = {
-    "fix": "今の単位だけを直せ。テストのファイルは変えるな（凍っている。テストの誤りに気づいたら直さずに what に書け）。機械が一式を"
-           "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。この輪では緑の後に整えの段がいつも来る（refactor の"
-           "欄は書かなくてよい。決まりの「整えは fix で申告した時だけ」「申告が無ければ整えの段は来ない」は、この輪では読まない）。",
-    "refactor": "緑のまま、今の単位の差分を整えよ（重複・名前・不要になったコード。テストのファイルは変えない）。整える物が無ければ"
-                "何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。この輪ではこの段がどの単位にも来る（決まりの「申告した"
-                "単位だけに来る」は、この輪では読まない）。",
-}
 
 
 def _briefs(board_dir: pathlib.Path) -> list:
@@ -673,12 +636,11 @@ def _together_lines(st, k) -> list:
 
 def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
-    置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
+    置き場の next.md に書き、{prompt_file} を返す。
     values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
     題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief。行の
     「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
-    盤面の修正の形（fixshape.shape_at。盤面の無い置き場は記録の無い盤面と同じ af）が座を載せる形なら、借りたスキルの座
-    （seat.section）を載せる。形の控え・写しが壊れていれば Broken。
+    借りたスキルの座（seat.section）を載せる。写しが壊れていれば Broken。
     輪が済んでいる（状態の done）か段 lanes（並べの周。輪の外の枝の輪が回す）なら、何も書かずに {"prompt_file": "", "go": False}:
     確かめの節が状態にそれを保存した後、Archon が輪の済みを記録する前に止まった run を、Archon の resume は輪の 1 周目から回し直す
     （役の節は when: で飛び、確かめ step は返答 None で何も動かさずに輪を抜ける。並べの枝の輪の tddlanes.lane_prep と同じ形）。
@@ -691,7 +653,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     briefs = _briefs(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     phase = st["phase"]
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
-    lines = ["## この段ですること", "", PLAIN_DO.get(phase, DO[phase]) if st.get("plain") else DO[phase], ""]
+    lines = ["## この段ですること", "", DO[phase], ""]
     if phase in ("fix", "refactor") and st.get("test_cmd_gate") == GATE_ON and _cur(st)["unit_key"] not in st.get("light", []):
         lines += [f"緑の後に機械が run の test_cmd（`{st['test_cmd']}`）も走らせる。これも緑にせよ。", ""]
     if phase == "route":
@@ -723,17 +685,17 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     n = st["iterations"] + 1
     lang = fixrules.lang_at(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     try:
-        seat_text = seat.section("tdd", fixshape.shape_at(path.parent.parent))
+        seat_text = seat.section("tdd")
     except ValueError as e:
         raise Broken(f"TDD の輪の座を組めない: {e}") from None
 
-    def build(kinds, prior, rules_file):
+    def build(kinds):
         try:
             return fixrules.tdd_render(vals, phase, "\n".join(lines), title=title, reason=st["reason"], kinds=kinds,
-                                       prior=prior, iteration=n, brief=brief, seat=seat_text, rules_file=rules_file, lang=lang)
+                                       iteration=n, brief=brief, seat=seat_text, lang=lang)
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
-    fixrules.write_variants(path, repo, vals, build, n)
+    fixrules.write_prompt(path, repo, vals, build, n)
     key = f"{path.parent.name}:{phase if phase == 'route' else st['queue'][st['cur']]}"
     for node in UNIT_NODES:
         write_key(adapter.session_key_path(str(path.parent.parent), node), key)
@@ -1245,7 +1207,7 @@ def _declared(reply) -> tuple[str, list]:
 
 def _fix(st, reply, repo) -> list:
     """緑を確かめ、整えの申告（役の refactor.declared か、約束の refactor）の在る単位だけ refactor の段へ。無ければ skipped で
-    次の単位へ（緑の木が次の単位の頭）。平の run（状態の plain）は申告に依らず refactor の段へ（refactor_why は申告のまま）"""
+    次の単位へ（緑の木が次の単位の頭）"""
     u = _cur(st)
     files = reply.get("files")
     if not isinstance(files, list) or not all(isinstance(f, str) for f in files) or not isinstance(reply.get("what"), str) \
@@ -1260,7 +1222,7 @@ def _fix(st, reply, repo) -> list:
     why = "；".join(filter(None, [why, _plan_refactor_why(st, u["unit_key"])]))   # 空でない申告の理由を全部
     u.update(green="ok", files=files, what=reply["what"].strip(), refactor_why=why)
     st.update(tries=0, reason="", green_tree=snapshot(repo), green_run=st["last_run"])
-    if why or st.get("plain"):
+    if why:
         st["phase"] = "refactor"
         return []
     u["refactor"] = "skipped"
@@ -1370,7 +1332,7 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     輪を抜けた状態（済んだ・段 lanes）に返答 None（支度が go: false を返して役が飛ばされた周。resume）なら、何も動かさずに
     {ok: True, done: True, reason: "", phase}。返答が在れば今どおり Broken。
     lanes を渡されて振り分けを受けた周で枝を切らなければ、出口の lanes_skipped に {reason, why, loop}（理由の語は tddlanes の SKIP_*。
-    状態の lanes_off（入力・形）か lanes.plan の置いた lanes_skipped。loop は輪の盤面の置き場の名 tdd-<k>）を載せる（節が trace に積む）。
+    状態の lanes_off（入力）か lanes.plan の置いた lanes_skipped。loop は輪の盤面の置き場の名 tdd-<k>）を載せる（節が trace に積む）。
     log は書き込みの記録（既定は repo の writes.sink。並べの枝の確かめは単位の worktree を repo に、run の作業ツリーの記録を渡す）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""

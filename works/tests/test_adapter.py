@@ -1519,187 +1519,32 @@ def user_line(text):
 
 INIT_LINE = json.dumps({"request_id": "r0", "type": "control_request",
                         "request": {"subtype": "initialize", "systemPrompt": []}}) + "\n"
-FULL = "# 共有の規則\n規則の本文 1\n\n# 今の回\n全文版の今の回\n"
-DELTA = "# 今の回\n差分版の今の回\n"
 
 
-class PromptVariantCase(unittest.TestCase):
-    """全文版と差分版（トークンの節約。持ち主の承認）: 輪の中で同じ会話を継ぐ役に、共有の規則を毎回送り直さない。
-    支度のスクリプトが <stem>.full.md・<stem>.delta.md・<stem>.variants.json を書き、指示書（prompt_file）は全文版の写し。
-    包みは印のある起動の指示文（stdin の user の 1 行）から指示書のパスを読み、会話がこの規則（rules_sha）の全文版を
-    前に受け取って読み切った同じ会話（か、その fork）を継ぐ起動にだけ差分版を書く。疑いがあれば全文版"""
+class RelayCase(unittest.TestCase):
+    """印のある起動の stdin の中継: バイトを変えずに子へ渡し、最初の指示文（user の 1 行）で起動の記録を書く。指示書には触らない
+    （前の版の全文版・差分版の控え <stem>.variants.json が隣に在っても選ばない。2026-10-09 の掃除で差分版をやめた）"""
 
     def setUp(self):
         self.e = Env(self)
         self.board = self.e.tmp / "board" / "work"
         self.board.mkdir(parents=True)
-        self.config = self.e.tmp / "claude-config"
-        (self.config / "projects" / "-wt").mkdir(parents=True)
-
-    def prep(self, stem="prompt-judge", rules_sha="r1", iteration=1, full=FULL, delta=DELTA, relative=True):
-        """支度のスクリプトの代わり: 全文版・差分版・variants.json を書き、指示書に全文版を写す"""
-        prompt = self.board / f"{stem}.md"
-        (self.board / f"{stem}.full.md").write_text(full, encoding="utf-8")
-        (self.board / f"{stem}.delta.md").write_text(delta, encoding="utf-8")
-        names = (f"{stem}.full.md", f"{stem}.delta.md") if relative else \
-            (str(self.board / f"{stem}.full.md"), str(self.board / f"{stem}.delta.md"))
-        (self.board / f"{stem}.variants.json").write_text(json.dumps(
-            {"full": names[0], "delta": names[1], "rules_sha": rules_sha, "iteration": iteration,
-             "sections": ["rules", "turn"]}), encoding="utf-8")
-        prompt.write_text(full, encoding="utf-8")
-        return prompt
 
     def launch(self, desc, prompt, extra=(), text=None, **env):
         argv = sdk_argv(desc, extra=extra)
         stdin = INIT_LINE + user_line(text if text is not None else
                                       f"指示書 `{prompt}` を Read で読み、その指示に従え。返すのは JSON だけ。")
-        r = self.e.run(argv, stdin=stdin, FAKE_CLAUDE_READ=str(prompt), CLAUDE_CONFIG_DIR=str(self.config), **env)
+        r = self.e.run(argv, stdin=stdin, FAKE_CLAUDE_READ=str(prompt), **env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.e.child()["stdin"], stdin)   # 中継しても 1 バイトも変えない
         return self.e.child(), self.e.launches()[-1]
 
-    def read_evidence(self, sid, prompt, content=FULL, partial=False, agent=None):
-        """Read のフック（record-read.py）が書く 1 行の代わり: 会話 sid が prompt を content の sha で読んだ"""
-        sink = adapter.reads_dir(self.e.cwd, self.e.home)
-        sink.mkdir(parents=True, exist_ok=True)
-        with open(sink / "reads.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": "x", "session_id": sid, "agent_id": agent, "path": os.path.realpath(prompt),
-                                "file_sha": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                                "bytes": len(content.encode("utf-8")), "partial": partial,
-                                "partial_why": "range" if partial else None, "tool_use_id": "toolu_x"}) + "\n")
-
-    def transcript(self, sid, text='{"type":"user"}\n'):
-        (self.config / "projects" / "-wt" / f"{sid}.jsonl").write_text(text, encoding="utf-8")
-
-    def first(self, desc="works-node: judge", stem="prompt-judge", rules_sha="r1"):
-        """1 回目の起動（新しい会話）で全文版を受け取り、読み切った会話の id"""
-        prompt = self.prep(stem, rules_sha=rules_sha)
-        child, row = self.launch(desc, prompt)
-        sid = row["session"]["id"]
-        self.read_evidence(sid, prompt)
-        self.transcript(sid)
-        return prompt, sid
-
-    def expect(self, row, child, prompt, variant, reason, rules_sha="r1"):
-        self.assertEqual(row["prompt"]["variant"], variant, row["prompt"])
-        self.assertEqual(row["prompt"]["reason"], reason, row["prompt"])
-        self.assertEqual(row["prompt"]["rules_sha"], rules_sha)
-        self.assertEqual(row["prompt"]["file"], os.path.realpath(prompt))
-        want = FULL if variant == "full" else adapter.delta_text(DELTA, self.board / (prompt.stem + ".full.md"))
-        self.assertEqual(child["read"], want)                      # 役が起きた時の指示書の中身
-        self.assertEqual(prompt.read_text(encoding="utf-8"), want)
-
-    def test_first_launch_gets_full(self):
-        prompt = self.prep()
-        child, row = self.launch("works-node: judge", prompt)
-        self.expect(row, child, prompt, "full", "new-session")
-        self.assertEqual(row["prompt"]["iteration"], 1)
-        self.assertEqual(row["prompt"]["full_sha"], hashlib.sha256(FULL.encode("utf-8")).hexdigest())
-
-    def test_resume_of_same_session_gets_delta(self):
-        # Archon の輪（fresh_context: false）の 2 周目: --resume <前の会話> --fork-session。包みが新しい id を決める
-        prompt, sid = self.first()
-        self.prep()   # 支度は周ごとに指示書を全文版で書き直す
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-        self.assertEqual((row["session"]["mode"], row["session"]["from"]), ("sdk-fork", sid))
-        self.expect(row, child, prompt, "delta", "same-session")
-        # 3 周目: 2 周目の fork をさらに継ぐ（全文版を読んだのは 1 周目の会話。fork の鎖で辿る）
-        second = row["session"]["id"]
-        self.transcript(second)
-        self.prep()
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", second, "--fork-session"])
-        self.expect(row, child, prompt, "delta", "same-session")
-        # SDK が fork せずに同じ会話を再開する形も同じ
-        self.prep()
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid])
-        self.expect(row, child, prompt, "delta", "same-session")
-
-    def test_continue_of_session_with_same_rules_gets_delta(self):
-        # 再審（continue=judge）: 判定役の会話がこの規則の全文版を読んでいれば、再審の指示書も差分版でよい
-        _, sid = self.first()
-        prompt = self.prep("prompt-rejudge")
-        child, row = self.launch("works-node: rejudge continue=judge", prompt)
-        self.assertEqual(row["session"]["mode"], "continued")
-        self.expect(row, child, prompt, "delta", "same-session")
-
-    def test_resume_of_other_session_gets_full(self):
-        prompt, sid = self.first()
-        self.prep()
-        other = "dddddddd-0000-4000-8000-000000000001"
-        self.transcript(other)
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", other, "--fork-session"])
-        self.expect(row, child, prompt, "full", "no-full-record")
-
-    def test_rules_changed_gets_full(self):
-        prompt, sid = self.first()
-        self.prep(rules_sha="r2")
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-        self.expect(row, child, prompt, "full", "rules-changed", rules_sha="r2")
-
-    def test_full_not_read_gets_full(self):
-        prompt = self.prep()
-        _, row = self.launch("works-node: judge", prompt)
-        sid = row["session"]["id"]
-        self.transcript(sid)
-        cases = {"no-read": None, "partial": dict(partial=True), "subagent": dict(agent="a1"),
-                 "other-content": dict(content=DELTA), "other-session": dict(sid="eeeeeeee-0000-4000-8000-000000000001")}
-        for why, kw in cases.items():
-            with self.subTest(why):
-                if kw is not None:
-                    kw = dict(kw)
-                    self.read_evidence(kw.pop("sid", sid), prompt, **kw)
-                self.prep()
-                child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-                self.expect(row, child, prompt, "full", "full-not-read")
-
-    def test_record_missing_gets_full(self):
-        # 包みの記録が無い会話（前の起動が包みを通っていない・記録が消えた）は、読んだ跡が在っても全文版
-        prompt, sid = self.first()
-        adapter.launches_path(self.e.cwd, self.e.home).unlink()
-        self.prep()
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-        self.expect(row, child, prompt, "full", "no-full-record")
-
-    def test_compacted_or_unseen_transcript_gets_full(self):
-        # 会話が要約された・古い道具の結果が消された（Claude Code 2.1.283 の microcompact）・会話の記録が見えない時は全文版
-        prompt, sid = self.first()
-        marks = {"compacted": '{"type":"system","subtype":"compact_boundary"}\n',
-                 "microcompacted": '{"type":"system","subtype":"microcompact_boundary"}\n',
-                 "cleared": '{"type":"user","message":{"content":[{"type":"tool_result",'
-                            '"content":"[Old tool result content cleared]"}]}}\n'}
-        for why, text in marks.items():
-            with self.subTest(why):
-                self.transcript(sid, text)
-                self.prep()
-                child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-                self.expect(row, child, prompt, "full", "compacted")
-        (self.config / "projects" / "-wt" / f"{sid}.jsonl").unlink()
-        self.prep()
-        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-        self.expect(row, child, prompt, "full", "transcript-missing")
-
-    def test_retry_after_delta_rewrites_full(self):
-        # 差分版を書いた後に、支度を通らずに同じ指示書で新しい会話が起きたら（節の起こし直し）、全文版に戻す
-        prompt, sid = self.first()
-        self.prep()
-        self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-        child, row = self.launch("works-node: judge", prompt)
-        self.expect(row, child, prompt, "full", "new-session")
-
-    def test_unmarked_launch_untouched(self):
-        prompt, sid = self.first()
-        self.prep()
-        argv = sdk_argv(None, extra=["--resume", sid])
-        stdin = INIT_LINE + user_line(f"指示書 `{prompt}` を Read で読め")
-        r = self.e.run(argv, stdin=stdin, FAKE_CLAUDE_READ=str(prompt), CLAUDE_CONFIG_DIR=str(self.config))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.e.child()["stdin"], stdin)
-        self.assertEqual(prompt.read_text(encoding="utf-8"), FULL)
-        self.assertNotIn("prompt", self.e.launches()[-1])
-
-    def test_no_variants_untouched(self):
+    def test_marked_launch_leaves_prompt_alone(self):
         prompt = self.board / "prompt-plain.md"
         prompt.write_text("そのままの指示書\n", encoding="utf-8")
+        (self.board / "prompt-plain.variants.json").write_text(json.dumps(
+            {"full": "prompt-plain.full.md", "delta": "prompt-plain.delta.md", "rules_sha": "r1"}), encoding="utf-8")
+        (self.board / "prompt-plain.delta.md").write_text("差分版\n", encoding="utf-8")
         before = os.stat(prompt)
         child, row = self.launch("works-node: judge", prompt)
         self.assertNotIn("prompt", row)
@@ -1708,32 +1553,6 @@ class PromptVariantCase(unittest.TestCase):
         self.assertEqual(child["read"], "そのままの指示書\n")
         after = os.stat(prompt)
         self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))
-
-    def test_doubtful_shapes_leave_prompt_alone(self):
-        """variants.json が読めない・指示書が 2 つ・指示書が全文版とも差分版とも違う: 指示書に触らず、理由だけを残す"""
-        prompt, sid = self.first()
-        cases = {
-            "variants-bad": lambda: (self.board / "prompt-judge.variants.json").write_text("{", encoding="utf-8"),
-            "variants-bad-shape": lambda: (self.board / "prompt-judge.variants.json").write_text(
-                json.dumps({"full": "prompt-judge.full.md", "delta": "nope.md", "rules_sha": "r1"}), encoding="utf-8"),
-            "prompt-unexpected": lambda: prompt.write_text("手で書き換えた指示書\n", encoding="utf-8"),
-        }
-        for why, spoil in cases.items():
-            with self.subTest(why):
-                self.prep()
-                spoil()
-                before = prompt.read_text(encoding="utf-8")
-                child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
-                self.assertIsNone(row["prompt"]["variant"], row["prompt"])
-                self.assertTrue(row["prompt"]["reason"].startswith(why.split("-shape")[0]), row["prompt"])
-                self.assertEqual(prompt.read_text(encoding="utf-8"), before)
-        with self.subTest("several"):
-            self.prep()
-            other = self.prep("prompt-other")
-            child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"],
-                                     text=f"`{prompt}` と `{other}` を読め")
-            self.assertEqual((row["prompt"]["variant"], row["prompt"]["reason"]), (None, "several-prompts"))
-            self.assertEqual(prompt.read_text(encoding="utf-8"), FULL)
 
     def test_relay_forwards_bytes_and_handles_first_user_line_only(self):
         seen = []
@@ -1869,14 +1688,11 @@ class DevWiringCase(unittest.TestCase):
             self.assertNotIn("WORKS_DEV_ADAPTER", r.stdout)
 
 
-class ShapeFenceCase(unittest.TestCase):
-    """形ごとの道具の柵（計画 220 Task 3）: 切符の board の修正の形（fixshape.shape_at）を読み、g3 以外の座の節（tdd）は Skill を、
-    g1・g3 の外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
-    形の控えが壊れていれば起こさない（理由に fix_shape）。切符の無い起動は今どおり"""
+class NoShapeFenceCase(unittest.TestCase):
+    """形ごとの道具の柵は消した（修正の形が g3 だけになった。2026-10-09）: 切符が在り、start の控えに前の版の形の語が残っていても、
+    座の節（tdd）の Skill・修正役（fix）の Agent を permissions.deny に足さず、fence に shape_deny の鍵を持たない"""
 
     def setUp(self):
-        import fixshape
-        self.fixshape = fixshape
         self.e = Env(self)
         self.board = self.e.tmp / "board"
         self.board.mkdir()
@@ -1886,75 +1702,18 @@ class ShapeFenceCase(unittest.TestCase):
                                  "protected": [str(self.board)], "written_at": "2026-10-02T00:00:00+09:00"}),
                      encoding="utf-8")
 
-    def start(self, shape):
-        p = self.board / self.fixshape.START_REL
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({self.fixshape.KEY: shape}), encoding="utf-8")
-
-    def launch(self, node):
-        r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        deny = json.loads(opt(self.e.child()["argv"], "--settings")[0]).get("permissions", {}).get("deny", [])
-        return deny, self.e.launches()[-1]["fence"]
-
-    def test_fence_denies_by_shape(self):
-        self.start("af")
-        deny, fence = self.launch("tdd")
-        self.assertIn("Skill", deny)
-        self.assertNotIn("Agent", deny, "輪の役は Agent を持たない（並べは枝ごとの節。docs/plans/2026-10-07-lane-nodes.md）")
-        self.assertEqual(fence["shape_deny"], 1)
-        self.start("g3")
-        deny, fence = self.launch("tdd")
-        self.assertNotIn("Skill", deny)
-        self.assertNotIn("shape_deny", fence)
-        with self.subTest("g1・g3 の修正役は Agent を拒まない・af の修正役は拒む（依頼 243 の 2）"):
-            self.start("g1")
-            deny, _ = self.launch("fix-ruled")
-            self.assertNotIn("Agent", deny)
-            self.start("g3")
-            deny, fence = self.launch("fix")
-            self.assertNotIn("Agent", deny)
-            self.assertNotIn("Skill", deny)
-            self.assertNotIn("shape_deny", fence)
-            self.start("af")
-            deny, fence = self.launch("fix")
-            self.assertIn("Agent", deny)
-            self.assertEqual(fence["shape_deny"], 1)
-
-    def test_no_record_means_af(self):
-        deny, _ = self.launch("tdd")
-        self.assertIn("Skill", deny)
-        deny, _ = self.launch("fix")
-        self.assertIn("Agent", deny)
-
-    def test_choice_file_steers_fence(self):
-        self.start("af")
-        self.fixshape.choose(self.board, "g3", by="test", why="振り分けの控えが柵を動かすことの確かめ")
-        deny, fence = self.launch("tdd")
-        self.assertNotIn("Skill", deny)
-        self.assertNotIn("shape_deny", fence)
-        deny, _ = self.launch("fix")
-        self.assertNotIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を外す側にも効く")
-
-    def test_broken_shape_refuses_launch(self):
-        self.start("x")
-        for node in ("tdd", "judge"):   # 柵の表に無い節も、壊れた控えでは起こさない
+    def test_no_tool_is_denied_by_shape(self):
+        p = self.board / adapter.START_REL
+        p.parent.mkdir(parents=True)
+        p.write_text(json.dumps({"fix_shape": "af"}), encoding="utf-8")
+        for node in ("tdd", "fix", "fix-ruled"):
             with self.subTest(node):
                 r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
-                self.assertEqual(r.returncode, 3, r.stderr)
-                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
-                self.assertIn("fix_shape", r.stderr)
-                self.assertIsNone(self.e.child())
-                self.assertEqual(self.e.launches()[-1]["mode"], "refused")
-
-    def test_no_ticket_unchanged(self):
-        adapter.ticket_path(self.e.cwd, self.e.home).unlink()
-        for node in ("tdd", "fix"):
-            with self.subTest(node):
-                deny, fence = self.launch(node)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                deny = json.loads(opt(self.e.child()["argv"], "--settings")[0]).get("permissions", {}).get("deny", [])
                 self.assertNotIn("Skill", deny)
                 self.assertNotIn("Agent", deny)
-                self.assertNotIn("shape_deny", fence)
+                self.assertNotIn("shape_deny", self.e.launches()[-1]["fence"])
 
 
 class UnitSessionCase(unittest.TestCase):

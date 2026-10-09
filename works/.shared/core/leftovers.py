@@ -7,7 +7,7 @@
 - snapshot:           作業ツリーの今の姿（未追跡の新しいファイルも）を一時の index で固めた木の sha（本物の index は触らない）
 - record_ignored:     修正役の前の git が無視するファイル・丸ごと無視されるフォルダと未追跡のフォルダと、段の頭の木（snapshot）を
                       盤面の fix-ignored-before.json に控える（節 ignored-before）
-- head_tree:          控えた段の頭の木（修正の受け付けが最後の回に止めた単位の足跡を戻す先）。控えに無い古い盤面は None
+- head_tree:          控えた段の頭の木（修正の受け付けが最後の回に止めた単位の足跡を戻す先）
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す。前から在った丸ごと無視されるフォルダ（.venv など）の下は触らない。
                       消した全件は盤面の fix-removed.json に書き、件数とそのパスだけを返す（節 clean）
 - removed:            scope の環境の無い所（報告・最後の関所）から、盤面の根とその直下の scope の根の fix-removed.json を全部読み、
@@ -160,11 +160,12 @@ def _read_before(board, before_name: str = IGNORED_BEFORE_FILE) -> dict:
     return before
 
 
-def head_tree(board, before_name: str = IGNORED_BEFORE_FILE) -> str | None:
-    """record_ignored が控えた段の頭の木（欄 head_tree）。欄の無い古い控えは None（呼び手は修正前の版の木に倒す）。控えが無い・
-    読めなければ Unreadable"""
+def head_tree(board, before_name: str = IGNORED_BEFORE_FILE) -> str:
+    """record_ignored が控えた段の頭の木（欄 head_tree）。控えが無い・読めない・欄が空でない文字列でなければ Unreadable"""
     tree = _read_before(board, before_name).get("head_tree")
-    return tree if isinstance(tree, str) and tree else None
+    if not isinstance(tree, str) or not tree:
+        raise Unreadable(f"盤面の {before_name} に段の頭の木（head_tree）が無い")
+    return tree
 
 
 def archon_changes(board, repo, before_name: str = IGNORED_BEFORE_FILE) -> list:

@@ -183,7 +183,7 @@
 - 中立の置き換え: 機械は「消した行に名が在る・足した行に名が在る」の字の事実だけを見る（今の前半）。それが定義か使用かは、塊と名前を読むだけの役に判定させ、根拠の行を引用させて機械が実在を確かめる。
 
 ### 5-8 (A) 修正の差分から Python のバイトコードだけを除く — 束 D5、M
-- 場所: `.shared/core/accept.py:342`, `accept.py:443-455`（`_is_bytecode`・`_touched`）, `accept.py:458-`（`touched_files`・`cut_delta`）, `writerules/common.md:65`（「git が無視する生成物（`__pycache__` など）」）, `blk-fix/scripts/assert_changed.py:13`。
+- 場所: `.shared/core/accept.py:342`, `accept.py:443-455`（`_is_bytecode`・`_touched`）, `accept.py` の `touched_files`, `writerules/common.md:65`（「git が無視する生成物（`__pycache__` など）」）, `blk-fix/scripts/assert_changed.py:13`。
 - Go/TS/Rust/Java: `.gitignore` に無い生成物（`coverage/`・`*.tsbuildinfo`・tsc が隣に出す `.js` など）を修正役が試験を回して作ると、修正の差分（`fix.diff`）に載り、書き込みの出どころの突き合わせで「記録も申告も無い」と拒む／修正案の範囲の外と拒む。役が `bash_writes` に申告すれば通るが、差分の審査に紛れる。
 - 保つ強み: 5。
 - 中立の置き換え: 2-1 と同じ。言語の表を持たず「git が無視する物は数えない」＋「機械が走らせたコマンドの前後の差で出来た物は産物として控えて外す（`suite_made` の形）」。修正役が自分で走らせる分は、作業ツリーの外に出させる（JUnit の書き先と同じ決まり）か、産物を申告させる。Python の `.pyc` 除外を残すなら、それも「機械が走らせたコマンドの産物」の一例として同じ口に寄せる。

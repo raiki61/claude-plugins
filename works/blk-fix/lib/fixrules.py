@@ -13,23 +13,17 @@
 - rules/ruler.md・principles.md: 食い違いの申し出の裁定役（節 rule。読むだけ）の道と、持ち主の決まり（裁定の拠り所）。
   修正役と TDD の輪の役の両方に、正本の core-conflict（緑にするために曲げず、食い違いとして返す）をいつも載せる
 
-量を減らす 2 つの形（持ち主 2026-09-28）: 役は輪の周をまたいで 1 つの会話で起きる（fresh_context: false）。支度の節は毎回
-2 つの形を並べて書く（write_variants）:
-- <名>.full.md: 決まりを全部。<名>.md（役の節の 1 行が Read させるパス）はこの写し（包みが無い・会話の続きでない起動の既定）
-- <名>.delta.md: 変わった物だけ（拒否の理由・今の段・この輪でまだ渡していない節）と、渡した決まりの sha256 の 1 行（この会話で
-  まだ読んでいなければ決まりのファイル <名>.rules.md を Read せよ）。1 回目は full と同じ。どちらを渡すかは起動の時に包みが
-  決める（--resume の起動だけ delta に差し替える。別の線）
-- <名>.variants.json: {full, delta, rules_sha, iteration, sections}（機械が読む控え）
-どの節を載せたか・なぜかは、各形の 1 行目（HEADER）にも機械の事実として書く（役ごとの量を前後で測る）。この輪で渡した節は
-<名>.delivered.json に積む（どちらの形で起こしても、会話の続きはそれまでの回の決まりを全部読んでいる）。
+支度の節は毎回、決まりを全部載せた指示書 <名>.md（役の節の 1 行が Read させるパス）を書く（write_prompt）。どの節を載せたか・
+なぜかは 1 行目（HEADER）に機械の事実として書く（役ごとの量を前後で測る）。この輪で渡した証拠の種類と回の番号は
+<名>.delivered.json に積む（輪の中で証拠の種類を減らさない・次の回の番号を数える）。
 
 型の穴は <<名>>。run の値は `値`（空は EMPTY）。埋めた値はもう一度読まない（1 回の置き換え）。穴に値が無い時は Unfilled。
 同じ入力からはバイト単位で同じ指示書になる（時刻を書かない）。
 
-- fix_prompt / tdd_prompt: 2 つの道の指示書（純粋な関数。prior を渡せば delta の形）
+- fix_prompt / tdd_prompt: 2 つの道の指示書（純粋な関数）
 - prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う。
-  修正の形 g1 と既定の g3 では、借りたスキルの座の代わりに下請けを回す節（seat.g1_section。項目ごとのファイルは g1_values。
-  下請けを起こす単位は dispatched: g3 は TDD の輪が緑にした単位を除く。依頼 243 の 2）を載せる。
+  下請けを起こす単位（dispatched: TDD の輪が緑にした単位を除く。依頼 243 の 2）が在れば、借りたスキルの座の代わりに下請けを
+  回す節（seat.g1_section。項目ごとのファイルは g1_values）を載せる。
   項目の並べは修正役の外の Archon の節（修正役の並べの枝 fix-lane-loop-<n>。lib/fixlanes.py。依頼 243 の並べの 5 段目。
   docs/plans/2026-10-07-fix-lane-nodes.md）が持ち、修正役は締めの節 fix-join が書いた枝の結末（lanes_record・LANES_SUMMARY）を
   指示書の節 lanes で読む: 枝が直して当てた単位（lanes_merged）には下請けを起こさず、枝の返答の行を changes に写す。出し直しの周は、
@@ -38,10 +32,10 @@
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
 - reads_more: 節 fix-reads が読んだ証拠を集めるパスに足す物（今の周に組んだ指示書と brief のファイル）
-- 同じ周に修正役を 2 度起こす段（依頼 226 の 2 回目の修正の段。ブロックの 2 度目の include）の指示書（と隣の .full.md・.delta.md・
-  .variants.json・.delivered.json・.rules.md）・裁定の後の尾・拒否の理由・裁定の文・申し出の回の控えは、名を変えずに include の
+- 同じ周に修正役を 2 度起こす段（依頼 226 の 2 回目の修正の段。ブロックの 2 度目の include）の指示書（と隣の .delivered.json）・
+  裁定の後の尾・拒否の理由・裁定の文・申し出の回の控えは、名を変えずに include の
   名の置き場（scope。盤面の work と script_io.scope_dir）で 1 回目の物と分かれる。2 回目の段は自分の数えから始まり、3 回の諦めを
-  回ごとに数え、最初の指示書は新しい役が見ていない会話への差分（delta）にならない
+  回ごとに数える
 - 1 回目の修正の段で受け付けた返答の控え（conflict.held_reply）が在る時だけ、修正役の指示書の brief の節の後に HELD_HEAD の節
   （HELD_ASK）を置く（2 回目の修正の段）
 """
@@ -49,7 +43,6 @@ import json
 import pathlib
 import posixpath
 import re
-import shutil
 import sys
 
 sys.dont_write_bytecode = True
@@ -61,7 +54,6 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import conflict  # noqa: E402
 import entry  # noqa: E402
-import fixshape  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
 import consult  # noqa: E402  （同じブロックの lib。範囲の相談の控え・置き場・答え）
 import libdocs  # noqa: E402
@@ -70,7 +62,7 @@ import planmarks  # noqa: E402  （項目の範囲: allowed_paths と受け入�
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import rulebook  # noqa: E402
-from rulebook import EMPTY, MARK, RULES_SAME, WHY_DELTA, Unfilled, fill, join, render, shared  # noqa: E402,F401
+from rulebook import EMPTY, MARK, Unfilled, fill, join, render, shared  # noqa: E402,F401
 import script_io  # noqa: E402
 import seat as seatkit  # noqa: E402  （借りたスキルの座。引数の名 seat と分ける）
 import writes  # noqa: E402  （修正前の版。g1 の審査役の型の [BASE_SHA]）
@@ -112,11 +104,9 @@ PATH_TOKEN = re.compile(r"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]*")
 # 受け付け（scripts/accept.py の accept_fix を script_io.main が回す）が拒否の理由を書くファイル（script_io の名の決まり）
 REJECT_FN = "accept_fix"   # 受け付けの関数の名（拒否の理由のファイルの名。script_io.reject_name）
 REJECT_GLOB = script_io.reject_name(REJECT_FN, "*")
-# 並べて書く形の名の尾（<名>.md の隣）
-FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", ".variants.json", ".delivered.json"
-WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
+DELIVERED = ".delivered.json"   # この輪で渡した証拠の種類と回の番号の控え（<名>.md の隣）
 SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
-G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正の形 g1 の下請けのファイル（今の周の作業ファイル。n は項目の番号）
+G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正役が起こす下請けのファイル（今の周の作業ファイル。n は項目の番号）
 LANES_RECORD = "fix-lanes-out.json"   # 修正役の並べの枝の結末（今の scope の周の作業ファイル。締めの節 fix-join が書く。fixlanes）
 LANES_SUMMARY = "fix-lanes.md"         # 同じ結末の修正役が読む本文（指示書の節 lanes が名指す）
 LANES_WHY = "修正役の並べの枝の結末が在る（締めの節 fix-join が書いた。docs/plans/2026-10-07-fix-lane-nodes.md）"
@@ -224,15 +214,15 @@ def held_text(held_path) -> str:
     return f"{HELD_HEAD}\n\n{HELD_ASK.format(path=held_path)}" if held_path else ""
 
 
-def _seat(seat: str, shape: str = seatkit.SHAPE) -> list:
-    """座の節（seat.section か seat.g1_section の文。空なら載せない）。理由の文は形を名指す"""
-    return [("seat", seat, ALWAYS + f"（修正の形 {shape} の座）")] if seat else []
+def _seat(seat: str) -> list:
+    """座の節（seat.section か seat.g1_section の文。空なら載せない）"""
+    return [("seat", seat, ALWAYS + "（座）")] if seat else []
 
 
-def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "", shape: str = seatkit.SHAPE,
-              held: str = "", ask: str = "", lanes: str = "", lane: str = "") -> list:
+def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "", held: str = "", ask: str = "",
+              lanes: str = "", lane: str = "") -> list:
     """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの文書の節（libdocs.section。空なら載せない）。
-    seat は座（g3 は seat.section・g1 は seat.g1_section。空なら載せない）で、返答の欄の直前に置く。shape は座の形（理由の文）。
+    seat は座（seat.section か seat.g1_section。空なら載せない）で、返答の欄の直前に置く。
     held は 1 回目に受け付けた返答の控えの節（held_text。空なら載せない）で、brief の節の後に置く。
     ask は範囲の相談と事前の確かめの節（ask_text。空なら載せない）で、守ることの後に置く。
     lanes は修正役の並べの枝の結末の節（lanes_text。空なら載せない）で、held の後に置く。lane は並べの枝の役の節（lane_text。
@@ -248,7 +238,7 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: 
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
             *([("ask", ask, ASK_WHY)] if ask else []),
             *([("libdocs", libdocs, "機械が引いた（手元の版・公式。見つけた数と取れた数は節の頭）")] if libdocs else []),
-            *_seat(seat, shape), *([("fix-lane", lane, ALWAYS + "（修正役の並べの枝の役）")] if lane else []),
+            *_seat(seat), *([("fix-lane", lane, ALWAYS + "（修正役の並べの枝の役）")] if lane else []),
             ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
 
@@ -283,30 +273,27 @@ def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1, lan
     return render("rule", iteration, ruler_parts(values), reject_file=reject_file, lang=lang)["text"]
 
 
-def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", prior=None, iteration: int = 1,
-               rules_file: str = "", libdocs: str = "", seat: str = "") -> str:
-    """直す役の指示書の 1 つの形（純粋）"""
-    return render("fix", iteration, fix_parts(values, kinds, libdocs, seat), prior=prior, rules_file=rules_file,
-                  reject_file=reject_file)["text"]
+def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", iteration: int = 1, libdocs: str = "",
+               seat: str = "") -> str:
+    """直す役の指示書（純粋）"""
+    return render("fix", iteration, fix_parts(values, kinds, libdocs, seat), reject_file=reject_file)["text"]
 
 
 def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason: str = "", kinds: dict | None = None,
-               prior=None, iteration: int = 1, rules_file: str = "", brief: str = "", seat: str = "") -> str:
-    """TDD の輪の役の指示書の 1 つの形（純粋）"""
-    return tdd_render(values, phase, phase_text, title=title, reason=reason, kinds=kinds, prior=prior, iteration=iteration,
-                      rules_file=rules_file, brief=brief, seat=seat)["text"]
+               iteration: int = 1, brief: str = "", seat: str = "") -> str:
+    """TDD の輪の役の指示書（純粋）"""
+    return tdd_render(values, phase, phase_text, title=title, reason=reason, kinds=kinds, iteration=iteration, brief=brief,
+                      seat=seat)["text"]
 
 
-def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, prior=None, iteration=1, rules_file="",
-               lang="", brief="", seat="") -> dict:
-    """tdd_prompt の形 {text, delivered, rules_text, head}。並び: 題 → [brief の節（planbrief.head_text）] → [拒んだ理由] → 決まり
+def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, iteration=1, lang="", brief="", seat="") -> dict:
+    """tdd_prompt の {text, head}（rulebook.render）。並び: 題 → [brief の節（planbrief.head_text）] → [拒んだ理由] → 決まり
     → 今の段の約束 → 今の段（tddloop が書く）→ 結び → [言語の 1 行（lang_at）]"""
     before = [title, *([brief] if brief else [])]
     if reason:
         before.append("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）\n\n" + reason.rstrip("\n"))
     after = [tdd_phase_rules(phase), phase_text.rstrip("\n"), sections(TDD)["tdd-end"]]
-    return render("tdd", iteration, tdd_parts(values, kinds, seat), prior=prior, rules_file=rules_file, before=before, after=after,
-                  lang=lang)
+    return render("tdd", iteration, tdd_parts(values, kinds, seat), before=before, after=after, lang=lang)
 
 
 LANE_PHASES = ("test", "fix", "refactor")   # 並べの枝の役（tdd-lane-<n>）が 1 つの単位で回す段
@@ -322,7 +309,7 @@ def tdd_lane_render(values, lane_text, *, title, brief="", seat="", lang="", kin
                   after=[t["tdd-lane"], phases, lane_text.rstrip("\n")], lang=lang)["text"]
 
 
-# ---------------------------------------------------------------- 2 つの形を並べて書く（支度の節）
+# ---------------------------------------------------------------- 指示書を書く（支度の節）
 def _read_json(path: pathlib.Path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -358,30 +345,15 @@ def iteration_next(prompt: pathlib.Path) -> int:
     return len((_read_json(beside(prompt, DELIVERED)) or {}).get("iterations") or []) + 1
 
 
-def write_variants(prompt: pathlib.Path, repo, values: dict, build, iteration: int) -> dict:
-    """2 つの形を prompt の隣に書き、prompt は full の写しにする。build(kinds, prior, rules_file) -> render の返り。
-    この輪で前に渡した節（<名>.delivered.json）を prior にして delta を組み、渡した後の節・種類・回を積む。repo が None なら
-    差分を見ない。返り（<名>.variants.json と同じ）{full, delta, rules_sha, iteration, delta_is_full, why, sections}"""
+def write_prompt(prompt: pathlib.Path, repo, values: dict, build, iteration: int) -> None:
+    """指示書 prompt を書く。build(kinds) -> rulebook.render の返り。この輪で前に渡した証拠の種類（<名>.delivered.json）を
+    kinds_now に足して組み、渡した後の種類と回を積む。repo が None なら差分を見ない"""
     ledger = beside(prompt, DELIVERED)
     done = _read_json(ledger)
-    done = done if isinstance(done, dict) and isinstance(done.get("delivered"), dict) else {}
-    prior = done or None
+    done = done if isinstance(done, dict) else {}
     kinds = kinds_now(values, repo, done.get("kinds") or ())
-    rules = beside(prompt, RULES)
-    full = build(kinds, None, str(rules))
-    delta = full if prior is None else build(kinds, prior, str(rules))
-    paths = {"full": beside(prompt, FULL), "delta": beside(prompt, DELTA)}
-    paths["full"].write_text(full["text"], encoding="utf-8")
-    paths["delta"].write_text(delta["text"], encoding="utf-8")
-    shutil.copyfile(paths["full"], prompt)
-    rules.write_text(full["rules_text"] + "\n", encoding="utf-8")
-    got = {"full": str(paths["full"]), "delta": str(paths["delta"]), "rules_sha": full["head"]["rules_sha"],
-           "iteration": iteration, "delta_is_full": prior is None, "why": WHY_FIRST if prior is None else WHY_DELTA,
-           "sections": delta["head"]["sections"]}
-    _write_json(beside(prompt, VARIANTS), got)
-    _write_json(ledger, {**done, "delivered": {**(done.get("delivered") or {}), **full["delivered"]}, "kinds": sorted(kinds),
-                         "iterations": [*(done.get("iterations") or []), iteration]})
-    return got
+    prompt.write_text(build(kinds)["text"], encoding="utf-8")
+    _write_json(ledger, {"kinds": sorted(kinds), "iterations": [*(done.get("iterations") or []), iteration]})
 
 
 # ---------------------------------------------------------------- 節 fix-prep
@@ -530,21 +502,18 @@ def resume(b, path: pathlib.Path, got: dict, pass_: str) -> pathlib.Path:
     return out
 
 
-def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str = seatkit.G1_SHAPE,
-              ask: str = "") -> list[dict]:
-    """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
+def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, ask: str = "") -> list[dict]:
+    """修正役が起こす下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
     [{item, impl_file, review_file, base, patch}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
-    全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
-    implementer_values の題）。
+    全部）は、判定のファイルを [BRIEF_FILE] にした 1 単位 1 項目（番号は修正案の項目の後。題は G1_REST でその単位だけを名指す。
+    単位ごとに新しい会話の下請けにする。依頼 243 の 2）。
     - G1_IMPL: 216 の implementer の型。[BRIEF_FILE] はその項目の brief、[task name] はその項目の直す義務の単位、[REPORT_FILE] は
       seat.G1_IMPL_REPORT（下請けには返答の欄が無い）、ほかは implementer_values と同じ
     - G1_REVIEW: 216 の task-review の型。[BRIEF_FILE] は同じ brief、[GLOBAL_CONSTRAINTS] は人の方針の文書のパスか G1_NO_POLICY、
       [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（型の
       `git diff <版>..<HEAD_SHA>` は seat.g1_prompt が作業ツリーとの差分 `git diff <版>` に直す。Preflight F20）、[DIFF_FILE] は
       run ごとの置き場（盤面の隣。adapter.run_place_of。盤面は守る場所で役の Bash が書けない）の今の scope の下の G1_PATCH_FILE の絶対パス
-    shape が g1 でない（依頼 243 の 2 の g3）なら、どの項目にも無い単位は 1 単位 1 項目（題は G1_REST でその単位だけを名指す。
-    単位ごとに新しい会話の下請けにする）。g1 は前のとおり残りを 1 項目にまとめる（比べの腕を変えない）。
-    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊。決まりの見出しは shape を名指す）。3 つのファイルは今の scope の下に置く
+    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。3 つのファイルは今の scope の下に置く
     （同じブロックの 2 度目の include は 1 度目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError。
     項目の並べ（依頼 243 の並べ）は修正役の外の節（fixlanes の修正役の並べの枝）が持つ。ここの下請けはどれも run の作業ツリーで順に働く。
     ask（下請けの範囲の外の決まり。ask_sub_text）が空でなければ、実装役のファイルの終わりに足す（下請けは修正役の指示書を読まない。
@@ -556,10 +525,7 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
     covered = {k for r in briefs for k in r.get("unit_keys") or []}
     rest = [k for k in owed if k not in covered]
     n = max((r["item"] for r in cut), default=0) + 1
-    if rest and shape != seatkit.G1_SHAPE:   # 1 単位 1 項目（判定のファイルを brief に）
-        items += [(n + i, values.get("judgment_file") or "", G1_REST.format(keys=k)) for i, k in enumerate(rest)]
-    elif rest:   # どの項目にも無い直す義務の単位（brief の無い run は全部）: 判定のファイルを brief にした残りの 1 項目
-        items.append((n, values.get("judgment_file") or "", G1_REST.format(keys="、".join(rest)) if briefs else common["[task name]"]))
+    items += [(n + i, values.get("judgment_file") or "", G1_REST.format(keys=k)) for i, k in enumerate(rest)]   # 判定のファイルを brief に
     base = writes.base_rev(b, base_rev)
     run_place = pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))   # 盤面は守る場所で役の Bash が書けない。run ごとの置き場
     place = script_io.scope_dir(run_place)   # 同じブロックの 2 度目の include の差分は 1 度目の物を上書きしない（最上段なら置き場のまま）
@@ -570,9 +536,9 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
         impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
         patch = str(place / G1_PATCH_FILE.format(n=n))
         impl.write_text(seatkit.g1_prompt("implementer", {**common, "[task name]": task, "[BRIEF_FILE]": brief,
-                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}, shape)
+                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT})
                         + (f"\n\n{ask}\n" if ask else ""), encoding="utf-8")
-        review.write_text(review_text(brief, values, base, patch, shape), encoding="utf-8")
+        review.write_text(review_text(brief, values, base, patch), encoding="utf-8")
         rows.append({"item": n, "impl_file": str(impl), "review_file": str(review), "base": base, "patch": patch})
     return rows
 
@@ -581,14 +547,14 @@ REVIEW_EARLIER = ("差分には同じ枝の前の項目 {items} の直し（機�
                   "見て、前の項目の変更を範囲の外や余分と指摘しない")
 
 
-def review_text(brief: str, values: dict, base: str, patch: str, shape: str, tree: str | None = None, earlier=()) -> str:
+def review_text(brief: str, values: dict, base: str, patch: str, tree: str | None = None, earlier=()) -> str:
     """審査役の下請けのファイルの中身（216 の task-review の型。[BASE_SHA] は base、[DIFF_FILE] は patch。tree は修正役の並べの枝の
     単位の worktree で、決まりの最後に seat.G1_TREE_RULE_OF を足す。earlier は同じ枝の前の項目の番号（在れば REVIEW_EARLIER の 1 行を
     足す。差分は枝の base からなので前の項目の直しも入る）"""
     text = seatkit.g1_prompt("task-review", {
         "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
         "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
-        "[DIFF_FILE]": patch}, shape, tree)
+        "[DIFF_FILE]": patch}, tree)
     return text.rstrip("\n") + f"\n\n{REVIEW_EARLIER.format(items='・'.join(str(i) for i in earlier))}\n" if earlier else text
 
 
@@ -663,24 +629,19 @@ def lane_text(values: dict, later=(), earlier=()) -> str:
 
 
 def _g1_task(brief: dict, owed: list[str]) -> str:
-    """g1 の実装役の型の [task name]: 修正案の項目の番号と、その項目のうち今直す単位（ほかの単位は『今は直すな』）"""
+    """下請けの実装役の型の [task name]: 修正案の項目の番号と、その項目のうち今直す単位（ほかの単位は『今は直すな』）"""
     return f"修正案の項目 {brief['item']}（直す義務の単位 {planbrief.unit_note(brief.get('unit_keys'), owed)}）"
 
 
-def dispatched(shape: str, mark: str, owed: list[str], green=frozenset()) -> list[str]:
-    """修正役 mark が下請けを起こす単位（owed の順）。下請けを起こす形（fixshape.AGENT_SHAPES）の修正役（AGENT_NODES）だけ。g1 は
-    owed の全部、g3 は TDD の輪が緑にした単位 green（支度の script が tddloop.green_units で引く。tddloop が fixrules を import
-    するので、ここでは引かない）を除いた物（依頼 243 の 2）。ほかは []"""
-    if shape not in fixshape.AGENT_SHAPES or mark not in fixshape.AGENT_NODES:
-        return []
-    if shape == seatkit.G1_SHAPE:
-        return list(owed)
+def dispatched(owed: list[str], green=frozenset()) -> list[str]:
+    """修正役が下請けを起こす単位（owed の順）: TDD の輪が緑にした単位 green（支度の script が tddloop.green_units で引く。tddloop が
+    fixrules を import するので、ここでは引かない）を除いた物（依頼 243 の 2）"""
     return [k for k in owed if k not in green]
 
 
 def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset()) -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
-    返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
+    返り {prompt_file, attempt, out_path, node, already, iteration}（iteration はこの輪の何回目か。受け付けが
     3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで
     拒まれた）なら、受け付けが書いた一番新しい拒否の理由のファイルを見出しの次の 1 行で名指す（R44）。
     ruled は指示書を <名>-ruled.md に分け（輪の回を別に数える）、1 回目は裁定の文のファイル（conflict.RULINGS_FILE）を見出しの
@@ -697,12 +658,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     lanes（lanes_text）を置く。
     範囲の相談の答えがまだ渡っていない周（consult.take。前の周の返答が consult を持ち、確かめの節が答えを書いた）は、指示書を
     組み直さずに答えのファイルを名指す続きの指示書（resume）だけを書き、iteration は前の回のまま（相談の周は受け付けの回に数えない）。
-    variants_file は空（包みは差分版を選ばない）
-    修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
-    両方に載せる。修正役が下請けを起こす単位（dispatched。g1 は全部、g3 は輪が緑にした単位の外）が在れば、その代わりに下請けを
-    回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: g3 も単位
-    ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
-    置かない。支度の script は 2 で落ちる）"""
+    修正役が下請けを起こす単位（dispatched。輪が緑にした単位の外）が在れば、下請けを回す節（seat.g1_section。下請けのファイルは
+    g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: 単位ごとに新しい会話）。輪が全部を緑にした周は借りたスキルの
+    座（seat.section。型の穴は implementer_values）を載せる。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を
+    書かず、起こした印も置かない。支度の script は 2 で落ちる）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
     nid = recount.FIX_NODE
@@ -720,7 +679,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     if got is not None:   # 範囲の相談の答えの後の周: 同じ会話の続きに答えのファイルを名指すだけ（受け付けの回は数え直さない）
         m = b.mark_launched(nid, inst.get("attempts", 1))
         return {"prompt_file": str(resume(b, path, got, pass_)), "attempt": m["attempt"], "out_path": m["out_path"],
-                "node": nid, "already": m["already"], "variants_file": "", "iteration": max(1, iteration_next(path) - 1)}
+                "node": nid, "already": m["already"], "iteration": max(1, iteration_next(path) - 1)}
     n = iteration_next(path)
     reject = last_reject(board_dir) if inst.get("launched_at") else ""
     if pass_ == PASSES[0] and n > 1:   # 並べの枝の項目を機械が合わせていれば、拒否の元がその合わせのことがある
@@ -734,20 +693,20 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     owed = json.loads(values["open_units"])
     head = planbrief.head_text(planbrief.for_units(briefs, owed), owed)
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
-    mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
+    mark = "fix" if pass_ == PASSES[0] else "fix-ruled"
     seat = ""
     ask, ask_sub = ask_config(b, repo, values, pass_)
     # 並べの枝が直して当てた単位には、1 回目の修正役の 1 回目の周だけ下請けを起こさない（出し直し・裁定の後は、拒否が名指す項目の
     # 下請けを今どおり起こし直せる。枝が当てた単位も合わせた木の上で直し直す）
     merged = lanes_merged(b) if pass_ == PASSES[0] and n == 1 else set()
-    subs = dispatched(shape, mark, owed, set(green) | merged)
+    subs = dispatched(owed, set(green) | merged)
     if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みとライブラリの文書の引き（lib_section）より前に
-        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, ask=ask_sub)
-        seat = seatkit.g1_section(rows, shape)
-    elif seatkit.carries(mark, shape):
+        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", ask=ask_sub)
+        seat = seatkit.g1_section(rows)
+    elif seatkit.carries(mark):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みとライブラリの文書の引き（lib_section）より前に
-        seat = seatkit.section(mark, shape, implementer_values(b, values, repo, [k for k in owed if k not in merged]))
+        seat = seatkit.section(mark, implementer_values(b, values, repo, [k for k in owed if k not in merged]))
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
     held, held_path = conflict.held_reply(b)
@@ -755,13 +714,13 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
 
     lanes = lanes_text(b)
 
-    def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds, docs, seat, shape, held, ask, lanes), prior=prior, rules_file=rules_file,
-                      reject_file=reject, before=before, lang=lang)
-    write_variants(path, repo, values, build, n)
+    def build(kinds):
+        return render("fix", n, fix_parts(values, kinds, docs, seat, held, ask, lanes), reject_file=reject,
+                      before=before, lang=lang)
+    write_prompt(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid, "already": m["already"],
-            "variants_file": str(beside(path, VARIANTS)), "iteration": n}
+            "iteration": n}
 
 
 def lang_at(board_dir) -> str:

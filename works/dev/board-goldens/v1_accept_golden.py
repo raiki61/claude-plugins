@@ -4,8 +4,8 @@
 # ///
 """v1 の受け付け（works/.shared/core/accept.py の check_*）の返りの手本の作り手（仕様 7 節・9.4）。
 
-tests/replies/ の全部の返答と依頼を、test_accept.py の AcceptCase と同じ種（dev/target-seed を git に写した使い捨ての
-対象リポジトリと空の盤面）で、依頼 → 判定 → 修正 → 差分の審査の順に check_* に通し、返りを撮る。受け付けの入れ物を
+tests/replies/ の依頼と判定の返答を、test_accept.py の AcceptCase と同じ種（dev/target-seed を git に写した使い捨ての
+対象リポジトリと空の盤面）で、依頼 → 判定の順に check_* に通し、返りを撮る。受け付けの入れ物を
 偽の盤面（_Board）から DiskBoard.scratch に替える前に撮り、替えた後に tests/test_accept_v1_golden.py が同じ場面を
 回して比べる（場面の表 CASES と回し方 run_case はここが正本で、試験はこのファイルを読み込んで使う）。
 
@@ -19,7 +19,7 @@ tests/replies/ の全部の返答と依頼を、test_accept.py の AcceptCase �
 - before は前の手（BEFORE の名前。依頼・判定の受け付け、作業ツリーの変更、写しを置く）を順に
 - result は check_* の返りの全部の鍵。パスは <board>・<repo>・<tmp> に、種の commit の id は <base> に置き換える
 - files は最後の手の後の盤面の置き場の中のファイルの名前（入れ子は / で。名前の順）
-- written は受け付けが盤面に書く JSON（request.json・judgment.json・delta-review.json）の中身
+- written は受け付けが盤面に書く JSON（request.json・judgment.json）の中身
 終了コード: 0 = 撮れた / 2 = 失敗（作業場が一時フォルダの下・前の手が通らない）
 """
 import argparse
@@ -46,23 +46,7 @@ GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
 }
 GIT_ID = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
-WRITTEN = ("request.json", "judgment.json", "delta-review.json")
-# 修正の後の stats.py（test_accept.py の FIXED_STATS と同じ）
-FIXED_STATS = '''"""直した後の姿。"""
-
-
-def mean(xs):
-    return sum(xs) / len(xs)
-
-
-def clamp(x, lo, hi):
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
-'''
-HELPER = "def helper():\n    return 1\n"
+WRITTEN = ("request.json", "judgment.json")
 
 sys.dont_write_bytecode = True
 if str(CORE) not in sys.path:
@@ -78,25 +62,9 @@ def load(name):
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
-def _verdicts():
-    """穴の在る 1 回目の差分の審査の返答の 2 判定の欄（準拠は delta_ok の not_applicable、品質は穴が在るので delta_bad_cite の fail）"""
-    return {"compliance": load("delta_ok")["compliance"], "quality": load("delta_bad_cite")["quality"]}
-
-
-def _plan_only(kind):
-    return {"faces": [{"key": f"stats.py の {kind} の穴", "kind": kind, "where": "stats.py", "cite": "def clamp(x, lo, hi):",
-                       "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": [], **_verdicts()}
-
-
 def _without(name, key):
     r = load(name)
     del r[key]
-    return r
-
-
-def _unit_key_typo():
-    r = load("fix_ok")
-    r["changes"][0]["unit_key"] += "（写し違い）"
     return r
 
 
@@ -112,17 +80,6 @@ VARIANTS = {
     "judge_ok+no_units": lambda: _without("judge_ok", "units"),
     "judge_ok+not_object": lambda: "units",
     "judge_ok+carried_r1": _carried_r1,
-    "fix_ok+unit_key_typo": _unit_key_typo,
-    "fix_ok+not_object": lambda: ["changes"],
-    "delta_ok+helper_face": lambda: {"faces": [{"key": "helper.py 使われない関数", "kind": "dead_path", "where": "helper.py",
-                                                "cite": "def helper():", "why": "どこからも呼ばれない関数を修正が足している"}],
-                                     "checks": [], **_verdicts()},
-    "delta_ok+stray_check": lambda: {**load("delta_ok"), "checks": [{"key": "stats.py 塞いだと言われていない穴", "closed": True,
-                                                                      "why": "修正が塞いだと言っていない穴を審査役が検算している"}]},
-    "delta_ok+no_faces_none": lambda: _without("delta_ok", "faces_none"),
-    "delta_ok+regression": lambda: _plan_only("regression"),
-    "delta_ok+policy": lambda: _plan_only("policy"),
-    "delta_ok+precedent": lambda: _plan_only("precedent"),
 }
 
 
@@ -136,25 +93,14 @@ def _must(r, what):
         raise RuntimeError(f"前の手 {what} が通らない: {r.get('reason')}")
 
 
-def _append(path, text):
-    with path.open("a", encoding="utf-8") as f:
-        f.write(text)
-
-
 def _snapshot(board, repo, name):
-    (board / name).write_text(json.dumps(_accept().snapshot_tree(repo)), encoding="utf-8")
+    (board / name).write_text(json.dumps(_accept().tree_state(repo)), encoding="utf-8")
 
 
 BEFORE = {
     "request:request_ok": lambda b, r, base: _must(_accept().check_request(load("request_ok"), b, "持ち主"), "request_ok"),
-    "judge:judge_ok": lambda b, r, base: _must(_accept().check_judge(load("judge_ok"), b, base, r), "judge_ok"),
-    "judge:judge_no_fix": lambda b, r, base: _must(_accept().check_judge(load("judge_no_fix"), b, base, r), "judge_no_fix"),
-    "tree:fix_stats": lambda b, r, base: (r / "stats.py").write_text(FIXED_STATS, encoding="utf-8"),
-    "tree:add_helper": lambda b, r, base: (r / "helper.py").write_text(HELPER, encoding="utf-8"),
     "tree:dirty_extra": lambda b, r, base: (r / "extra.txt").write_text("読むだけの役が書いた\n", encoding="utf-8"),
-    "tree:append_stats": lambda b, r, base: _append(r / "stats.py", "# 審査役が書いた\n"),
     "snapshot:judge": lambda b, r, base: _snapshot(b, r, _accept().JUDGE_SNAPSHOT_FILE),
-    "snapshot:delta": lambda b, r, base: _snapshot(b, r, _accept().SNAPSHOT_FILE),
 }
 
 
@@ -162,7 +108,7 @@ def _case(name, fn, reply, before=(), base_rev="<base>"):
     return {"name": name, "fn": fn, "input": {"reply": reply, "base_rev": base_rev, "before": list(before)}}
 
 
-# 場面の表。test_accept.py の組（依頼 → 判定 → 修正 → 差分の審査）の順で、tests/replies/ の全部を 1 度以上通す
+# 場面の表。test_accept.py の組（依頼 → 判定）の順で、tests/replies/ の依頼と判定の返答を 1 度以上通す
 CASES = [
     _case("request_ok", "check_request", "request_ok"),
     _case("request_ok_twice", "check_request", "request_ok", ["request:request_ok"]),
@@ -179,26 +125,6 @@ CASES = [
     _case("judge_snapshot_changed", "check_judge", "judge_ok", ["request:request_ok", "snapshot:judge", "tree:dirty_extra"]),
     _case("judge_carried_r1_round1", "check_judge", "judge_ok+carried_r1", ["request:request_ok"]),
     _case("judge_not_object", "check_judge", "judge_ok+not_object"),
-    _case("fix_ok", "check_fix", "fix_ok", ["request:request_ok", "judge:judge_ok"]),
-    _case("fix_missing_unit", "check_fix", "fix_missing_unit", ["request:request_ok", "judge:judge_ok"]),
-    _case("fix_unit_key_typo", "check_fix", "fix_ok+unit_key_typo", ["request:request_ok", "judge:judge_ok"]),
-    _case("fix_without_judgment", "check_fix", "fix_ok"),
-    _case("fix_after_no_fix", "check_fix", "fix_ok", ["request:request_ok", "judge:judge_no_fix"]),
-    _case("fix_not_object", "check_fix", "fix_ok+not_object", ["request:request_ok", "judge:judge_ok"]),
-    _case("delta_ok", "check_delta", "delta_ok", ["tree:fix_stats"]),
-    _case("delta_ok_empty_base_rev", "check_delta", "delta_ok", ["tree:fix_stats"], base_rev=""),
-    _case("delta_ok_untouched", "check_delta", "delta_ok"),
-    _case("delta_bad_cite", "check_delta", "delta_bad_cite", ["tree:fix_stats"]),
-    _case("delta_stray_check", "check_delta", "delta_ok+stray_check", ["tree:fix_stats"]),   # 塞いだと言われた穴（p3.fix の出力）を読む道
-    _case("delta_no_faces_none", "check_delta", "delta_ok+no_faces_none", ["tree:fix_stats"]),
-    _case("delta_face_on_untracked", "check_delta", "delta_ok+helper_face", ["tree:fix_stats", "tree:add_helper"]),
-    _case("delta_snapshot_same", "check_delta", "delta_ok", ["tree:fix_stats", "snapshot:delta"]),
-    _case("delta_snapshot_changed", "check_delta", "delta_ok", ["tree:fix_stats", "snapshot:delta", "tree:append_stats"]),
-    _case("delta_plan_only_regression", "check_delta", "delta_ok+regression", ["tree:fix_stats"]),
-    _case("delta_plan_only_policy", "check_delta", "delta_ok+policy", ["tree:fix_stats"]),
-    _case("delta_plan_only_precedent", "check_delta", "delta_ok+precedent", ["tree:fix_stats"]),
-    _case("delta_after_full_run", "check_delta", "delta_ok",
-          ["request:request_ok", "judge:judge_ok", "tree:fix_stats"]),
 ]
 
 

@@ -28,7 +28,6 @@ import test_blk_fix_tdd as tbt  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import fixgates  # noqa: E402
-import fixshape  # noqa: E402
 import planmarks  # noqa: E402
 import report  # noqa: E402
 
@@ -213,23 +212,14 @@ class TestRedGreen(FixGatesCase):
         self.assertEqual([r for r in self.problems(suite="") if r["gate"] == "red_green"], [])
         self.assertEqual(self.ledger()["skipped"][0]["why"], fixgates.NO_SUITE)
 
-    def test_g1_board_gets_both_gates(self):
-        """修正の形 g1（TDD の輪を回さない。受け付けに輪の凍結の控えが無い）: 束が赤緑と既存テストの変更の両方を当てる
-        （輪の凍結の検査 1b は控えの無い run で何も見ないので、g1 の凍結はこの束だけが受け持つ。Preflight F13）"""
+    def test_board_without_loop_freeze_gets_both_gates(self):
+        """受け付けに輪の凍結の控えが無い盤面: 束が赤緑と既存テストの変更の両方を当てる（輪の凍結の検査 1b は控えの無い run で
+        何も見ないので、その凍結はこの束だけが受け持つ。Preflight F13）"""
         self.ready_with_fields()
-        fixshape.choose(self.board, "g1", by="試験", why="g1 の束を見る")
         self.add_test_that_passes_on_base("test_mean_of_two")
         self.edit_tests(*THREE_EDIT)
         rows = self.problems()
         self.assertEqual(sorted((r["gate"], r["id"]) for r in rows), [("red_green", MEAN_ID), ("test_edits", THREE_ID)])
-        self.assertEqual({r["shape"] for r in self.ledger()["rows"]}, {"g1"})
-
-    def test_plain_run_ignores_plan_fields(self):
-        """平の run（修正の形 current）は修正案の欄を見ない: base で緑のテストでも red_green の行が無い"""
-        self.ready_with_fields()
-        fixshape.choose(self.board, "current", by="試験", why="平の run の束を見る")
-        self.add_test_that_passes_on_base("test_mean_of_two")
-        self.assertEqual(self.problems(), [])
 
     def test_unit_out_of_duty_is_not_checked(self):
         """最後の回に止めた（ask_human に裁いた）単位だけを名指す項目は見ない（戻したテストを抜けに数えない）"""
@@ -393,9 +383,6 @@ class TestTestEdits(FixGatesCase):
             self.ready_with_fields(direct_fields(rewrite_tests=[REWRITE]))
             self.edit_tests(*THREE_EDIT)
             self.assertEqual(self.problems(), [])
-        with self.subTest("平の run では修正案の名指しを許しにしない"):
-            fixshape.choose(self.board, "current", by="試験", why="平の run の束を見る")
-            self.assertEqual([(r["gate"], r["id"]) for r in self.problems()], [("test_edits", THREE_ID)])
 
     def test_ruled_limit_passes_after_ruling(self):
         """裁定 fix_test_scope の範囲 test_stats.py:9（test_mean_of_three の本体の行）を含む関数は通す。1 回目（裁定の前）は通さない"""
@@ -457,8 +444,8 @@ class TestLedgerAndText(FixGatesCase):
         self.assertEqual(sorted(r["gate"] for r in first), ["red_green", "test_edits"], "どちらの関門の行も返す")
         rows = self.ledger()["rows"]
         self.assertEqual(len(rows), 2, rows)
-        self.assertEqual({(r["pass"], r["attempt"], r["shape"]) for r in rows}, {("first", 3, fixshape.DEFAULT)})
-        self.assertEqual(set(rows[0]), {"pass", "attempt", "shape", "gate", "id", "detail", "unit_keys"})
+        self.assertEqual({(r["pass"], r["attempt"]) for r in rows}, {("first", 3)})
+        self.assertEqual(set(rows[0]), {"pass", "attempt", "gate", "id", "detail", "unit_keys"})
         self.problems(attempt=1, pass_="ruled")
         self.assertEqual(len(self.ledger()["rows"]), 4, "裁定の後の 1 回目は別の回")
 
@@ -586,14 +573,13 @@ class TestAcceptWiring(FixGatesCase):
         self.assertIn("受け付け 1 回", lines[0])
         self.assertNotIn(fixgates.OUT_OF_DUTY, lines[0])
 
-    def test_g1_accept_rejects_new_red_in_selected_test(self):
-        """修正の形 g1: tdd-start は輪を回さないが元の結末は取る（強み 6: どの形も受け付けで変更に当たる試験を選んで回す）。
-        元で緑だった選んだ試験を赤にした直しは、受け付けの 1c（check_tests）が拒む"""
+    def test_accept_rejects_new_red_in_selected_test(self):
+        """tdd-start が取った元の結末で、受け付けは変更に当たる試験を選んで回す（強み 6）。元で緑だった選んだ試験を赤にした直しは、
+        受け付けの 1c（check_tests）が拒む"""
         import tddloop
         self.fix_ready()
-        fixshape.choose(self.board, "g1", by="試験", why="g1 の受け付けの 1c を見る")
         start = tddloop.start(self.board, self.repo, self.SUITE, tbt.OPEN)
-        self.assertEqual((start["go"], start["reason"], start["summary_file"]), (False, tddloop.G1_NO_LOOP, ""))
+        self.assertTrue(start["go"], start)
         self.edit_tree({**tbf.FIXED, "    return x\n": "    return lo\n"})   # 直した上で、元で緑の test_clamp_within_range を赤に
         mod = self.accept_mod()
         with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_STATE": start["state_file"]}):

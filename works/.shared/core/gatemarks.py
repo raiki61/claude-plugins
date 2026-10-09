@@ -39,8 +39,7 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - unread_holds(note, keys)・unread_hold_lines(b): key を拾えなかった「保留」の文と、拾えた文で並べた項の頭が台帳の key に
   当たらなかった並び（並べ書きの打ち間違い。key の後ろの言葉は並べない）と、報告の冒頭・最後の関所の文に並べる
   「読めなかった保留」の行（直す義務は変えない）
-- returned(b)・fixable(b): 答えで直す義務に戻る単位（今の周の units に在る物。約束・義務の数えが同じこの集合を
-  読む）・開いた単位と戻した単位（conflict.fix_duty が直す義務と外れた単位に分ける）
+- returned(b): 答えで直す義務に戻る単位（今の周の units に在る物。約束・義務の数えが同じこの集合を読む）
 - held_lines(b)・answered_lines(b)・returned_lines(b)・unreturned_lines(b): 最後の関所の文と報告に並べる、関所で答えていない
   聞いたままの問いと戻せなかった単位（保留の件数）・関所で答えた問い（件数に数えない）・修正役に渡す義務に戻った単位・答えたが
   今の周の units に無いので戻せなかった単位
@@ -777,15 +776,8 @@ def withheld(b) -> set:
 
 def returned(b) -> set:
     """関所で答えた asks の問い（fork も escalate も）の出どころ・depends のうち今の周の units に在る物（label・disposition を
-    問わない）。修正役への約束（returned_lines）・義務の数え（conflict.owed_units_but_asked）・fixable が読む 1 つの集合"""
+    問わない）。修正役への約束（returned_lines）・義務の数え（conflict.owed_units_but_asked）が読む 1 つの集合"""
     return {k for _, keep, _ in _answered_skips(b) for k in keep}
-
-
-def fixable(b) -> set:
-    """今の周に開いた単位（検証器の is_open）と、関所で答えて直す義務に戻した単位。conflict.fix_duty がこれを直す義務と、
-    そこから外れた単位に分ける（受け付けはその 2 つを読む）"""
-    V = b.rules.validator_module(b)
-    return {u["key"] for u in filter(V.is_open, b.record["units"])} | returned(b)
 
 
 def returned_lines(b) -> list:

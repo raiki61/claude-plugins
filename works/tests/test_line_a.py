@@ -872,18 +872,17 @@ class FixtureLineCase(LineBase):
     """固定材料（計画 220 Task 5）: 1 回目の線の h-fix が盤面を写し、2 回目の線が入力 fix_fixture で同じ所から始める"""
 
     def test_fixture_run_starts_at_fix(self):
-        """1 回目の線の h-fix が固定材料を写し、2 回目の線（fix_fixture・fix_shape=af）は判定・修正案の役を起こさずに修正へ進む"""
+        """1 回目の線の h-fix が固定材料を写し、2 回目の線（fix_fixture）は判定・修正案の役を起こさずに修正へ進む"""
         import fixture
         first = linekit.run_line(self.tmp / "one", replies=clean_replies(), edits={"fix": fix_tree})
         src = first["board_dir"].parent / fixture.DIR
         self.assertTrue((src / fixture.MANIFEST).is_file(), first["trail"])
         second = linekit.run_line(self.tmp / "two", replies=fix_only_replies(), edits={"fix": fix_tree},
-                                  inputs={"fix_fixture": str(src), "fix_shape": "af"})
+                                  inputs={"fix_fixture": str(src)})
         self.order_ok(second["trail"])
         for nid in ("judging", "planning", "premising", "purposing", "gathering"):
             self.assertNotIn(nid, second["trail"])
         self.assertIn("fixing", second["trail"])
-        self.assertEqual(second["out"]["start"]["fix_shape"], "af")
         self.assertFalse((second["board_dir"].parent / fixture.DIR).exists(), "固定材料から始めた run は写し直さない")
         self.assertEqual(second["outcome"], first["outcome"],
                          pathlib.Path(second["report"]["report_file"]).read_text(encoding="utf-8"))

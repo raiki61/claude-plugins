@@ -93,7 +93,7 @@ TDD の輪（道 B の 2〜4）:
 
 修正役（(b)）:
 
-- 包みの道具の柵: 修正役の Agent を許す形を g1 と g3 の 2 つにした（`works/.shared/core/fixshape.py` の `AGENT_SHAPES`）。af・current の修正役は今どおり拒む。
+- 包みの道具の柵: 修正役の Agent を許す形を g1 と g3 の 2 つにした（`works/.shared/core/fixshape.py` の AGENT_SHAPES）。af・current の修正役は今どおり拒む。
 - g3 の修正役の指示書は、g1 と同じ下請けの節（`seat.g1_section`）を形の名で載せる。見出し・読み替えの上書き・下請けの決まりの見出しが形を名指す。
 - g3 では TDD の輪が緑にした単位（輪の要約の隣の状態。`tddloop.green_units`）に下請けを起こさない（`fixrules.dispatched`）。その旨の 1 段落（`seat.G1_LOOP_NOTE`）を節に載せる。輪が直す単位を全部緑にした周は下請けを起こす項目が無いので、前と同じ座（implementer の型）のまま。輪の状態が読めない時は全部の単位に下請けを起こす（止めない）。
 - 項目は修正案の項目（brief）ごと。g3 では、どの項目にも無い単位を 1 単位 1 項目にする（単位ごとに新しい会話にするため）。g1 は比べの腕なので、前のとおり残りを 1 項目にまとめる。

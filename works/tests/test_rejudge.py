@@ -25,6 +25,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import rejudgekit as kit  # noqa: E402
 from rejudgekit import UNIT_A, UNIT_B, load  # noqa: E402
 
+import node_marker  # noqa: E402
 import rejudge  # noqa: E402
 from accept import role_schema, snapshot_tree  # noqa: E402
 from board import BoardGap, graph_expanded, rules_module  # noqa: E402
@@ -121,7 +122,7 @@ class ShapeCase(_Case):
         for p in rejudge.passes():
             with self.subTest(p["node"]):
                 of = rejudge.output_format(p["node"])
-                self.assertEqual(rejudge.strip_mark(of), role_schema(p["node"]))
+                self.assertEqual(node_marker.strip(of), role_schema(p["node"]))
                 want = f"works-node: {p['role']}" + (f" continue={p['cont']}" if p["cont"] else "")
                 self.assertEqual(of["description"], want)
         self.assertEqual(rejudge.output_format("p2.rejudge")["description"], "works-node: rejudge continue=judge")
@@ -733,63 +734,6 @@ class ShimCase(unittest.TestCase):
             self.assertEqual(S.launches_path("/w").parents[1], pathlib.Path("/h/.local/state/works/adapter"))
             os.environ[rejudge.ADAPTER_HOME_ENV] = "/a"
             self.assertEqual(S.launches_path("/w").parents[1], pathlib.Path("/a"))
-
-
-class CostCase(unittest.TestCase):
-    J = "aaaaaaaa-0000-4000-8000-000000000001"
-    F = "bbbbbbbb-0000-4000-8000-000000000002"
-
-    @staticmethod
-    def row(node, mode, sid, at, **kw):
-        return {"at": f"2026-09-27T10:00:{at:02d}.000000+09:00", "node": node, "session": {"mode": mode, "id": sid, **kw}}
-
-    def test_actual_costs_subtract(self):
-        launches = [self.row("judge", "new", self.J, 1), self.row("rejudge", "continued", self.J, 2, of="judge", **{"from": self.J})]
-        shown = [{"node": "judge", "cost_usd": 0.0284}, {"node": "rejudge", "cost_usd": 0.0615}]
-        got = rejudge.actual_costs(launches, shown)
-        self.assertEqual([r["node"] for r in got], ["judge", "rejudge"])
-        self.assertAlmostEqual(got[0]["actual"], 0.0284)
-        self.assertAlmostEqual(got[1]["actual"], 0.0331)
-        self.assertIn("引いた", got[1]["note"])
-        self.assertEqual(got[0]["note"], "")
-
-    def test_actual_costs_chain_and_fork(self):
-        launches = [self.row("rejudge2", "continued", self.J, 5, of="judge", **{"from": self.J}),   # 時刻の順に並べ直す
-                    self.row("judge", "new", self.J, 1),
-                    self.row("rejudge", "continued", self.J, 2, of="judge", **{"from": self.J}),
-                    self.row("fix", "sdk-fork", self.F, 3, **{"from": self.J}),
-                    self.row("rejudge-third", "new", "cccccccc-0000-4000-8000-000000000003", 4)]
-        shown = [{"node": "judge", "cost_usd": 0.0284}, {"node": "rejudge", "cost_usd": 0.0615},
-                 {"node": "fix", "cost_usd": 0.0952}, {"node": "rejudge-third", "cost_usd": 0.02},
-                 {"node": "rejudge2", "cost_usd": 0.0900}]
-        got = {r["node"]: r["actual"] for r in rejudge.actual_costs(launches, shown)}
-        self.assertAlmostEqual(got["rejudge"], 0.0331)
-        self.assertAlmostEqual(got["fix"], 0.0952 - 0.0615)
-        self.assertAlmostEqual(got["rejudge-third"], 0.02)
-        self.assertAlmostEqual(got["rejudge2"], 0.0900 - 0.0615)
-
-    def test_actual_costs_missing(self):
-        launches = [self.row("judge", "new", self.J, 1)]
-        for shown in ([], None, [{"node": "judge", "cost_usd": None}]):
-            with self.subTest(shown):
-                got = rejudge.actual_costs(launches, shown)
-                self.assertEqual(len(got), 1)
-                self.assertIsNone(got[0]["actual"])
-                self.assertIn("取れない", got[0]["note"])
-
-    def test_actual_costs_unknown_base(self):
-        """継いだ会話の元の費用が取れなければ、引けないので取れない（表示をそのまま実額にしない）"""
-        launches = [self.row("judge", "new", self.J, 1), self.row("rejudge", "continued", self.J, 2, of="judge", **{"from": self.J})]
-        got = rejudge.actual_costs(launches, [{"node": "rejudge", "cost_usd": 0.0615}])
-        self.assertEqual([r["actual"] for r in got], [None, None])
-
-    def test_refused_launch_has_no_cost(self):
-        launches = [self.row("judge", "new", self.J, 1),
-                    {"at": "2026-09-27T10:00:02.000000+09:00", "node": "rejudge", "session": {"mode": "refused", "id": None, "of": "judge"}},
-                    self.row("rejudge", "continued", self.J, 3, of="judge", **{"from": self.J})]
-        got = rejudge.actual_costs(launches, [{"node": "judge", "cost_usd": 0.0284}, {"node": "rejudge", "cost_usd": 0.0615}])
-        self.assertEqual([r["node"] for r in got], ["judge", "rejudge"])
-        self.assertAlmostEqual(got[1]["actual"], 0.0331)
 
 
 if __name__ == "__main__":

@@ -10,9 +10,9 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - 本物の claude: env の WORKS_REAL_CLAUDE（絶対パス）、無ければ PATH の実行ファイル `claude`（この包み自身は飛ばす）。
   見つからなければ 1 行を出して終了コード 127
 - 置き場: env の WORKS_ADAPTER_HOME（無ければ ${XDG_STATE_HOME:-~/.local/state}/works/adapter）。絶対パスでなければ 1 行を出して終了コード 2
-- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・盤面の修正の形の
-  控えが読めない・会話の id を記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
-- 印のある起動は stdin を中継し、最初の指示文で指示書の全文版か差分版を決めてから子へ渡す（adapter.py の頭の 9）
+- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・会話の id を
+  記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
+- 印のある起動は stdin を中継し、最初の指示文が来た時に起動の記録を書く（adapter.py の頭の 9）
 - stream-json の起動は stdout を同じバイトで写し（印のある起動の result の費用の累計だけ、Archon の引き算がその起動の費用に
   なる値に見せ直す。頭の 20）、1 手も進まずに終わった子は result を写さずに終了コード 75
   （adapter.NO_TURN_EXIT。Archon が transient として起こし直す）。result の全文は exits/<cwd の hash>.jsonl に残す（頭の 16）
@@ -183,8 +183,8 @@ def main():
         if p.warn:
             say(f"形が見分けられないので素通しする（{p.why}）")
         return run(home_dir, cwd, real, p)
-    # 印のある起動: stdin を中継し、最初の user の行（指示文）で指示書の版を決めてから子へ渡す（adapter.py の頭の 9）。
-    # 起動の記録は版を決めた時に 1 行で書く（指示文が来ないまま子が終われば、その後に書く）。時刻は起こす前の物
+    # 印のある起動: stdin を中継し、最初の user の行（指示文）が来た時に起動の記録を 1 行で書く（adapter.py の頭の 9。
+    # 指示文が来ないまま子が終われば、その後に書く）。時刻は起こす前の物
     row = adapter.launch_row(p, cwd, os.getpid(), adapter.now())
     lock, done = threading.Lock(), []
 
@@ -195,15 +195,9 @@ def main():
                 write_row(home_dir, cwd, row)
 
     def on_line(line):
-        text = adapter.user_text(line)
-        if text is None:
+        if adapter.user_text(line) is None:
             return True
-        try:
-            got = adapter.prompt_variant(text, p.session, cwd, home_dir)
-            if got is not None:
-                row["prompt"] = got
-        finally:
-            flush()
+        flush()
         return False
 
     try:

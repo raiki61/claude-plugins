@@ -15,7 +15,6 @@
 - diff_units:     前後の単位を key で比べ、異議に名指されていない変化（unnamed_changed）とラベルを下げた単位（lowered）を出す。柵は足さない
 - unsettled:      決着しなかった異議の文（段 1 は loop.rejudge_requested、段 2 は写しの _rejudge_trail）
 - collect:        出口（rejudge-exit.json。決着した結果 verdicts・objection・new_open_units・lowered を報告が名前で読む）。回した後も再審の節が ready のまま（輪が 3 回とも拒まれた・engine の順とずれた）なら盤面を止める（by works:rejudge）
-- actual_costs:   継いだ起動の表示の費用から、同じ会話のそれまでの実額を引く（再開した会話の total_cost_usd は累積）
 
 盤面は entry.open_board（Task 3）で開き、印は node_marker（Task 2）で付ける。まだこの枝に無い部品の代わり（入った時に差し替える）:
 - 包みの置き場: adapter.session_path・launches_path・read_launches（Task 5）が在ればそれ、無ければ _AdapterShim（同じ式。家の既定も
@@ -581,56 +580,3 @@ def refuse(board_dir, nid, reason) -> dict:
 
 
 parse_reply = rolekit.parse_reply   # 読めない返答は (None, 理由)。拒否は rejudge-rejects.json に積んで give_up を数える（refuse）
-
-
-# ---------------------------------------------------------------- 費用
-def actual_costs(launches, shown) -> list:
-    """起動ごとの実額。launches は包みの起動の行（{at, node, session: {mode, id, of?, from?}}。順は問わない。拒んだ起動
-    mode refused は子を起こしていないので除く）、shown は Archon の表示（{node: 印の名, cost_usd}。節ごとに時刻の順）。
-    同じ印の名の起動と表示を順に組む。会話 id ごとに「その会話のそれまでの実額の合計」を持ち:
-    - continued（包みが判定役の会話を継いだ）: 実額 ＝ 表示 − その会話の合計
-    - sdk-fork: 実額 ＝ 表示 − 元の会話（from）の合計。新しい会話の合計は表示
-    - それ以外（new・sdk-resume・sdk-session）: 実額 ＝ 表示（Archon が知っている再開は Archon が引く）
-    引けない（表示が無い・元の会話の合計が取れない）起動は actual None・note に「取れない」。表示が 1 つも無ければ 1 行だけ返す。
-    返り [{node, at, session, mode, shown, actual, note}]"""
-    vals = [s for s in (shown or []) if isinstance(s, dict) and isinstance(s.get("cost_usd"), (int, float))]
-    if not vals:
-        return [{"node": None, "at": None, "session": None, "mode": None, "shown": None, "actual": None,
-                 "note": "費用: 取れない（Archon の出来事に cost_usd が無い）"}]
-    queues = {}
-    for s in shown:
-        queues.setdefault(s.get("node"), []).append(s.get("cost_usd") if isinstance(s.get("cost_usd"), (int, float)) else None)
-    rows = [r for r in launches or [] if (r.get("session") or {}).get("mode") != "refused"]
-    rows.sort(key=lambda r: _parse_time(r.get("at")) or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc))
-    totals, out = {}, []
-    for r in rows:
-        s = r.get("session") or {}
-        mode, sid = s.get("mode"), s.get("id")
-        q = queues.get(r.get("node")) or []
-        v = q.pop(0) if q else None
-        actual, note = None, ""
-        if v is None:
-            note = "費用: 取れない（この起動の表示が無い）"
-            totals[sid] = None
-        elif mode in ("continued", "sdk-fork"):
-            base_id = sid if mode == "continued" else s.get("from")
-            base = totals.get(base_id)
-            if base is None:
-                note = f"費用: 取れない（元の会話 {base_id} の費用が分からず、累積を引けない）"
-                totals[sid] = None
-            else:
-                actual = round(v - base, 6)
-                note = f"会話の累積を引いた（表示 {v} − それまでの累積 {round(base, 6)}）"
-                totals[sid] = v
-        else:
-            actual = v
-            prev = totals.get(sid, 0)
-            totals[sid] = None if prev is None else prev + v
-        out.append({"node": r.get("node"), "at": r.get("at"), "session": sid, "mode": mode, "shown": v, "actual": actual,
-                    "note": note})
-    return out
-
-
-def strip_mark(schema):
-    """印の description を外した写し（node_marker.strip）"""
-    return node_marker.strip(schema)

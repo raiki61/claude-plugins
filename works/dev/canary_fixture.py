@@ -9,7 +9,7 @@
 - FIXTURE（fix-fixture/）: 元の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した物（.shared/core/fixture.py の固定材料。
   盤面の写し board/・盤面の外の写し outside/・控え fixture.json）。use.sh に WORKS_USE_FIX_FIXTURE で渡す
 取り込み（fixture.adopt）が見る物は、対象の HEAD^{tree} が控えの tree・依頼の文の sha256 が控えの物・start の控えの入力の欄が
-今の入力と同じ（fix_shape・run_id・request_file・fix_fixture・features_off・features_on を除く）・写しが控えのファイルの sha256 のとおり、と
+今の入力と同じ（run_id・request_file・fix_fixture・features_off・features_on を除く）・写しが控えのファイルの sha256 のとおり、と
 盤面を開く時の works の表・graph・置き場の版（entry.open_board）。種と依頼が元の run の物なので、今の canary-seed とは別に運ぶ。
 
 build: 置き場（canary.sh が作った物。home/archon-home/workspaces/*/*/artifacts/runs/<run-id>/fix-fixture と repo/）から 3 つを
@@ -44,7 +44,6 @@ for _p in (PACK / ".shared" / "core",):
 
 import board  # noqa: E402   表の graph の sha・置き場の版・盤面の層の版
 import entry  # noqa: E402   ラインの表（load_table）
-import fixshape  # noqa: E402  start の控えの置き場（START_REL）
 import fixture  # noqa: E402   固定材料の形（DIR・MANIFEST・COPY）と控えの照らし
 
 SEED, REQUEST, FIXTURE = "seed", "request.json", fixture.DIR
@@ -159,7 +158,7 @@ def build(place, run_id: str, out) -> dict:
         fixture._check_copy(src, man)
     except fixture.FixtureRefused as e:
         raise Refused(str(e)) from None
-    start = json.loads((src / fixture.COPY / fixshape.START_REL).read_text(encoding="utf-8"))
+    start = json.loads((src / fixture.COPY / fixture.START_REL).read_text(encoding="utf-8"))
     request = pathlib.Path(start.get("request_file") or "")
     if not request.is_file() or _sha(request.read_bytes()) != man["request_sha256"]:
         raise Refused(f"start の控えの依頼 {request} が無いか、sha256 が控えの依頼と違う")

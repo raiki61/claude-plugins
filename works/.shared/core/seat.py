@@ -3,29 +3,28 @@
 語:
 - 節（seam）: .shared/borrow/seams.json の 1 項目。use_as が skill（スキル 1 本を Skill の道具で読ませる）か prompt（部品の型の
   穴を埋めて指示書に置く）。
-- 座: 節を役に載せる口。SEATS（役の印の名 → 節の名）が表で持ち、修正の形が SHAPE（g3）の時だけ文が出る。
+- 座: 節を役に載せる口。SEATS（役の印の名 → 節の名）が表で持つ。
 - 読み替え: rolekit.skill_overlay()（.shared/borrow/unattended.md の頭の 1 行と全文）。座の末尾にいつも載る。
 
 口:
-- SEATS・SHAPE・carries(node, shape): どの節に、どの形で座が載るか
+- SEATS・carries(node): どの節に座が載るか。SKILL_NODES・AGENT_NODES: 座が skill の節と、Agent を持つ修正役の節
 - skill_of(seam): skill の節の files[0]（skills/<名>/…）の <名>
 - pinned(): 写しが固定と合うかを照らし、(item, 写しの置き場) を返す（合わなければ ValueError）
-- section(node, shape, values): 座の文。載らなければ空。HEAD → 節の種類ごとの本文 → 読み替え。勝つ物の段落は WINS（役の
+- section(node, values): 座の文。載らなければ空。HEAD → 節の種類ごとの本文 → 読み替え。勝つ物の段落は WINS（役の
   指示書に組み込まれる座）か、座のファイルを別に読む役では指示書を名指す WINS_OF の文。差分の審査役（review）の型
   VERDICT_SEAM は本文の後ろに words_table（型の判定の語がどの欄のどの値に当たるか。VERDICT_WORDS と NOTE_ROWS）を持つ
 - 申し出の種類の手引き DIVERGENCE_HINT: 型の状態の語 NEEDS_CONTEXT・BLOCKED（216 の works の語 conflict.WORD）に当たる時、
   食い違いの申し出をどの kind（conflict.DIV_KINDS。211）で返すかを 1 語に 1 行で言う。語に conflict.WORD を持つ節（implementer。
-  修正役の fix・fix-ruled）の座の本文の後ろと、g1 の修正役の節（下請けの実装役がそう返した時）に載る。各語の決まりの正本は
+  修正役の fix・fix-ruled）の座の本文の後ろと、下請けを回す修正役の節（下請けの実装役がそう返した時）に載る。各語の決まりの正本は
   指示書の『食い違いの申し出』の節（writerules/common.md）で、ここは場面の引き当てだけ
 - 座の節: TDD の役（tdd）と手直しの役（refix・refix2。receiving-review）は skill、修正役（fix・fix-ruled。implementer）と 1 回目の
   差分の審査役（review。task-review）は prompt。2 回目の審査役（review2）には座が無い（返答に判定の欄が無く、判定の語の表を
   持つ型とぶつかる）。手直しの役の座は手直しの支度（blk-refix/scripts/prep.py）が、審査役の座は審査の支度（refix.cut）が置く
-- 修正の形 G1_SHAPE（g1）: 修正役（fixshape.AGENT_NODES）が SDD の型で項目ごとに下請け（実装役・審査役）を Agent で回す。
-  g1_prompt(seam_id, values) は下請けに渡すファイルの中身（216 の型を埋めた物の後ろに、下請けへの works の決まり G1_SUB_HEAD と
-  検索語の規律の塊）、g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 項目ごとのファイル → 申し出の種類の手引き
-  DIVERGENCE_HINT → 読み替えの上書き G1_OVERRIDES → 読み替え）。依頼 243 の 2 で、既定の形 g3 の修正役も同じ節で輪の後に直す
-  単位ごとの下請けを新しい会話で起こす（g1_section・g1_prompt の shape。見出し・上書き・下請けの決まりの見出しが形を名指し、g3 は
-  輪で直した単位に下請けを起こさない旨 G1_LOOP_NOTE を持つ）。2 つ目からの項目の実装役には、修正役が前の項目の報告から書く
+- 下請けを回す修正役（依頼 243 の 2。名の G1_ は、修正役が SDD の型で項目ごとに下請けを回した前の形 g1 から来た）: 修正役
+  （fix・fix-ruled）が輪の後に直す単位ごとに、下請け（実装役・審査役）を Agent の新しい会話で起こす。g1_prompt(seam_id, values) は
+  下請けに渡すファイルの中身（216 の型を埋めた物の後ろに、下請けへの works の決まり G1_SUB_HEAD と検索語の規律の塊）、
+  g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 輪で直した単位に下請けを起こさない旨 G1_LOOP_NOTE → 項目ごとの
+  ファイル → 申し出の種類の手引き DIVERGENCE_HINT → 読み替えの上書き G1_OVERRIDES → 読み替え）。2 つ目からの項目の実装役には、修正役が前の項目の報告から書く
   引き継ぎの節（G1_HANDOFF_HEAD）を足させる（前の項目の会話の履歴は渡らない）。下請けは包みの起動でないので、包みが system prompt に
   足す検索語の規律（adapter.query_rule）が届かない。だから型の後ろに字のまま載せる（run 221 の R4 の 3）。下請けの
   Edit・Write は修正役と同じ記録に載る（PostToolUse のフックは subagent の呼び出しでも起きる。tests/test_writes.py）
@@ -50,16 +49,19 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-import adapter  # noqa: E402  （L2。検索語の規律の塊 query_rule を g1 の下請けのファイルに載せる）
+import adapter  # noqa: E402  （L2。検索語の規律の塊 query_rule を下請けのファイルに載せる）
 import conflict  # noqa: E402  （同じ L3。申し出の種類の語 DIV_KINDS と状態の語の読み替え WORD）
-import fixshape  # noqa: E402  （L2。形の語 SEAT_SHAPE・AGENT_SHAPE の正本）
 import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
-SHAPE = fixshape.SEAT_SHAPE   # 座が載る修正の形（g3）
 SEATS = {"tdd": "tdd", "tdd-rest": "tdd", "tdd-lane-1": "tdd", "tdd-lane-2": "tdd", "tdd-lane-3": "tdd",   # 役の印の名 → 節の名
          "fix": "implementer", "fix-ruled": "implementer",
          "review": "task-review", "refix": "receiving-review", "refix2": "receiving-review"}
+# 座が skill の節（借りたスキルを Skill の道具で読む役の印の名。SEATS のうち use_as が skill の物。試験が一致を縛る）と、修正役の節
+# （単位ごとの下請けを Agent で起こす役 fix・fix-ruled と、審査役の下請けを起こす修正役の並べの枝の役 fix-lane-<n>。blk-fix の
+# fixlanes.MAX_LANES と同じ数。YAML で Agent を持つ節はこれだけ）
+SKILL_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "refix", "refix2"})
+AGENT_NODES = frozenset({"fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3"})
 NONE = "（無し）"   # 型の穴に入れる物が無い時の値（人の方針の文書が無い run の [GLOBAL_CONSTRAINTS] など）
 # 差分の審査役の型（task-review）の出口の語（216 の works の語）→ 差分の審査の返答の 2 判定の欄（deltamarks.KEYS）と欄の語
 # （deltamarks.COMPLIANCE・QUALITY）。審査役の座の型の後ろに words_table の表で載り、役は型の語をこの欄に書く
@@ -88,7 +90,7 @@ DIVERGENCE_HINT = "\n".join([
     f"食い違いの申し出 conflicts の 1 件で返す。`{conflict.KIND_FIELD}` は起きた場面で次のどれか（欄の決まりは指示書の"
     "『食い違いの申し出』の節）:",
     *(f"- `{k}`: {DIVERGENCE_SCENES[k]}" for k in conflict.DIV_KINDS)])
-HEAD = "## 借りたスキルの座（修正の形 g3）"
+HEAD = "## 借りたスキルの座"
 SCENE = "works の修正の段。流れ・機械の関門・commit は線が持つ。TDD の輪で直した単位は輪の要約に在る"
 NO_REPORT_FILE = "ファイルに書かない。返答は指示書の『返答の欄』の JSON"
 WINS = "この指示書の段の約束（返す JSON・機械の関門・段の順）と下の読み替えは、借りた文に勝つ"   # どちらの種類の座も同じ 1 段落
@@ -100,14 +102,11 @@ APPLIES, NOT_APPLIES = "効く所:", "効かない所（従わない）:"
 PROMPT_HEAD = "### 下請けの型（superpowers の {file}。works の節で包んだ物）"
 ITEM = "superpowers"   # borrow.json の借りる物の名
 
-# 修正の形 g1（修正役が SDD の型で下請けを回す。TDD の輪は回さず、赤緑と凍結は修正の受け付けの束 fixgates が事後に確かめる）
-G1_SHAPE = fixshape.AGENT_SHAPE   # g1
-# 節の見出し・読み替えの上書き・下請けの決まりの見出しは形を名指す（g1 と、依頼 243 の 2 で同じ節を載せる既定の g3）。G1_HEAD などの定数は g1 の文
-G1_HEAD_OF = "## 下請けを回す（修正の形 {shape}）"
-G1_HEAD = G1_HEAD_OF.format(shape=G1_SHAPE)
+# 下請けを回す修正役の節（依頼 243 の 2）
+G1_HEAD = "## 下請けを回す"
 # 2 つ目からの項目の実装役の prompt の後ろに修正役が足す節の見出し（前の項目の会話の履歴の代わりの引き継ぎ。依頼 243 の 2）
 G1_HANDOFF_HEAD = "## 前の項目の引き継ぎ（修正役が前の項目の実装役の報告から書いた物）"
-# g3 の修正役の節だけに載る 1 段落（g3 は修正役の前に TDD の輪が単位を直す。輪で直した単位は項目に載らない。fixrules.prep）
+# 修正役の節に載る 1 段落（修正役の前に TDD の輪が単位を直す。輪で直した単位は項目に載らない。fixrules.prep）
 G1_LOOP_NOTE = ("TDD の輪で直した単位（輪の要約のファイルの「輪で直した単位」）は下の項目に載らない。その単位には下請けを"
                 "起こさず、指示書の『読む物』の TDD の輪の結果のとおり changes に 1 行を書く")
 G1_REPORT = "実装役の最後のメッセージを、この型の後ろに貼る"   # 審査役の型の [REPORT_FILE]
@@ -151,17 +150,15 @@ G1_TREE_RULE_OF = ("この項目は修正役の並べの枝の単位の worktree
                    "worktree の中で行い（Bash は最初に cd する）、run の作業ツリーとほかの枝の worktree は書かない。差分はこの worktree と "
                    "base の間で、同じ枝の前の項目の直しも入る。")
 G1_TOP = 'top="$(git rev-parse --show-toplevel)"'   # G1_PATCH の作業ツリーの根（単位の worktree の項目は tree に替える）
-G1_OVERRIDES_OF = ("下の読み替えの DISPATCH（下請けを起こさない・ほかの役の道具に Agent は無い）と DELEGATE の「役がほかの"
-                "エージェントに仕事を任せることは無い」は、修正の形 {shape} のこの修正役には効かない: この節の手順のとおり Agent で"
+G1_OVERRIDES = ("下の読み替えの DISPATCH（下請けを起こさない・ほかの役の道具に Agent は無い）と DELEGATE の「役がほかの"
+                "エージェントに仕事を任せることは無い」は、この修正役には効かない: この節の手順のとおり Agent で"
                 "下請けを起こす。下請けがさらに下請けを起こすことは無い（どちらの型も禁じる）。読み替えの頭の行の「その prompt に、"
-                "このファイル … を Read せよと書け」も {shape} の下請けには書かない: 下請けのファイルの末尾の works の決まりが、その代わりに"
+                "このファイル … を Read せよと書け」も下請けには書かない: 下請けのファイルの末尾の works の決まりが、その代わりに"
                 "下請けの読み替えを持つ")
-G1_OVERRIDES = G1_OVERRIDES_OF.format(shape=G1_SHAPE)
-G1_SUB_HEAD_OF = "## works の決まり（修正の形 {shape} の下請け。上の型の文にも、読み替え unattended.md にも勝つ）"
-G1_SUB_HEAD = G1_SUB_HEAD_OF.format(shape=G1_SHAPE)
+G1_SUB_HEAD = "## works の決まり（下請け。上の型の文にも、読み替え unattended.md にも勝つ）"
 G1_SUB_RULES = (
     "読み替え（.shared/borrow/unattended.md）を読んでも、ぶつかる所はこの決まりが勝つ。審査役も Bash で git の差分を読んでよい"
-    "（読み替えの GIT-RANGE の「審査役は Bash を持たない」は g1 の下請けに当たらない）。",
+    "（読み替えの GIT-RANGE の「審査役は Bash を持たない」はこの下請けに当たらない）。",
     "commit・stash・reset・checkout をしない。HEAD・index・枝を動かさず、差分は作業ツリーに残す（型の「Commit your work」は"
     "読み替える）。",
     "人に聞かない（聞いても答えは来ない）。分からない所は止まらずに、最後のメッセージに NEEDS_CONTEXT か BLOCKED と何が"
@@ -185,9 +182,9 @@ G1_EXTRA = {   # 節ごとに G1_SUB_RULES の後ろへ足す決まり（審査�
 G1_QUERY_LEAD = "外のサービスへ問い合わせる時の決まり（works の包みより。この決まりは型の文に勝つ）:"
 
 
-def carries(node: str, shape: str) -> bool:
-    """役 node に形 shape で座が載るか"""
-    return shape == SHAPE and node in SEATS
+def carries(node: str) -> bool:
+    """役 node に座が載るか"""
+    return node in SEATS
 
 
 def skill_of(seam: dict) -> str:
@@ -227,10 +224,10 @@ def words_table(seam_id: str) -> str:
     return "\n".join([WORDS_HEAD, "", "| 型の語 | works の語 | 欄の値 |", "| --- | --- | --- |", *rows, *notes])
 
 
-def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
+def section(node: str, values: dict[str, str] | None = None) -> str:
     """役 node の座の文。載らなければ（carries が偽）空。prompt の節は values で型の穴を埋め、values が None なら ValueError。
     写しが固定と違う・穴が埋まらなければ ValueError（名指す）"""
-    if not carries(node, shape):
+    if not carries(node):
         return ""
     seams = spseam.load_seams(spseam.BORROW_DIR)
     sid = SEATS[node]
@@ -251,13 +248,11 @@ def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
     return "\n\n".join([HEAD, *body, rolekit.skill_overlay().rstrip("\n")]) + "\n"
 
 
-def g1_prompt(seam_id: str, values: dict[str, str], shape: str = G1_SHAPE, tree: str | None = None) -> str:
-    """修正の形 g1 の下請けに渡すファイルの中身: 216 の部品の節 seam_id の型を values で埋めた本文、下請けへの works の決まり
+def g1_prompt(seam_id: str, values: dict[str, str], tree: str | None = None) -> str:
+    """修正役が起こす下請けに渡すファイルの中身: 216 の部品の節 seam_id の型を values で埋めた本文、下請けへの works の決まり
     （G1_SUB_HEAD・G1_SUB_RULES と G1_EXTRA の節の行）、検索語の規律の塊（adapter.query_rule を字のまま）。型の範囲
     `<[BASE_SHA]>..<[HEAD_SHA]>` は `<[BASE_SHA]>` に直す（作業ツリーとの差分。G1_HEAD_SHA）。写しが固定と違う・穴が埋まらない・
-    規律の正本が読めなければ ValueError（名指す）。shape は決まりの見出しが名指す形（G1_SUB_HEAD_OF。下請けを起こす形の外は ValueError）。
-    tree は修正役の並べの枝の単位の worktree（枝の役が起こす審査役。決まりの最後に G1_TREE_RULE_OF）"""
-    _agent_shape(shape)
+    規律の正本が読めなければ ValueError（名指す）。tree は修正役の並べの枝の単位の worktree（枝の役が起こす審査役。決まりの最後に G1_TREE_RULE_OF）"""
     item, src = pinned()
     filled = spseam.fill(seam_id, values, src, item)
     if "[BASE_SHA]" in values and "[HEAD_SHA]" in values:
@@ -268,25 +263,16 @@ def g1_prompt(seam_id: str, values: dict[str, str], shape: str = G1_SHAPE, tree:
         raise ValueError(f"下請けに渡す検索語の規律を引けない: {e}") from None
     tree_rule = (G1_TREE_RULE_OF.format(tree=tree),) if tree else ()
     rules = _bullets((*G1_SUB_RULES, *G1_EXTRA.get(seam_id, ()), *tree_rule))
-    return "\n\n".join([filled.rstrip("\n"), G1_SUB_HEAD_OF.format(shape=shape), rules, G1_QUERY_LEAD + "\n" + rule]) + "\n"
+    return "\n\n".join([filled.rstrip("\n"), G1_SUB_HEAD, rules, G1_QUERY_LEAD + "\n" + rule]) + "\n"
 
 
-def _agent_shape(shape: str) -> None:
-    """修正役が下請けを起こす形（fixshape.AGENT_SHAPES）でなければ ValueError（包みが Agent を拒む形に下請けの節を組まない）"""
-    if shape not in fixshape.AGENT_SHAPES:
-        raise ValueError(f"修正の形 {shape} の修正役は下請けを起こさない（{sorted(fixshape.AGENT_SHAPES)} の外）")
-
-
-def g1_section(rows: list[dict], shape: str = G1_SHAPE) -> str:
-    """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base, patch}（fixrules.g1_values）。
-    G1_HEAD → 手順（G1_STEPS）→ 項目ごとの実装役と審査役のファイル → 申し出の種類の手引き（DIVERGENCE_HINT）→ 読み替えの
-    上書き（G1_OVERRIDES_OF）→ 読み替え。shape は見出しと上書きが名指す形で、g3 は項目の前に G1_LOOP_NOTE を持つ（下請けを起こす形の
-    外は ValueError）"""
-    _agent_shape(shape)
+def g1_section(rows: list[dict]) -> str:
+    """下請けを回す修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base, patch}（fixrules.g1_values）。
+    G1_HEAD → 手順（G1_STEPS）→ G1_LOOP_NOTE → 項目ごとの実装役と審査役のファイル → 申し出の種類の手引き（DIVERGENCE_HINT）→
+    読み替えの上書き（G1_OVERRIDES）→ 読み替え"""
     steps = "\n".join(f"{n}. {t}" for n, t in enumerate(G1_STEPS, 1))
     files = _bullets(_g1_row(r) for r in rows)
-    loop = [G1_LOOP_NOTE] if shape == SHAPE else []
-    return "\n\n".join([G1_HEAD_OF.format(shape=shape), steps, *loop, files, DIVERGENCE_HINT, G1_OVERRIDES_OF.format(shape=shape),
+    return "\n\n".join([G1_HEAD, steps, G1_LOOP_NOTE, files, DIVERGENCE_HINT, G1_OVERRIDES,
                         rolekit.skill_overlay().rstrip("\n")]) + "\n"
 
 

@@ -3,10 +3,9 @@
 - 写し: changemap.py は attention の変更の地図の部品（attention/scripts/lib/changemap.py）のバイト単位の写しで、
   COPIED_FROM.changemap の 1 行目の commit と同じ（手直しは台帳の ! 行だけ）
 - 地図: 使い捨ての小さなリポジトリ（gitkit の型の写し）で、逆向きの import・テストの見分け・名前の言及・YAML の参照・
-  読めない物 → all_tests_required・盤面の置き場の使い回し（当たり・変わった file だけ読み直す）・予算つきの描画が決まって同じ
-- 選ぶ: select_tests が速い段と選んだテストの和を返し、分からない時は全部。miss が JUnit と地図から取りこぼしを出す
+  読めない物 → all_tests_required・盤面の置き場の使い回し（当たり・変わった file だけ読み直す。読み直した地図は同じ）
+- 選ぶ: select_tests が速い段と選んだテストの和を返し、分からない時は全部
 """
-import json
 import pathlib
 import shutil
 import subprocess
@@ -314,7 +313,7 @@ class CacheCase(RepoCase):
         m2 = self.map(["pkg/core.py"], cache_dir=self.cache)
         self.assertEqual(m2["stats"]["cache"], "hit")
         self.assertEqual(m2["key"], m1["key"])
-        self.assertEqual(impact.render(m2), impact.render(m1))
+        self.assertEqual({k: v for k, v in m2.items() if k != "stats"}, {k: v for k, v in m1.items() if k != "stats"})
         # 1 本だけ書き換える → 鍵が変わり、読み直すのはその 1 本だけ
         self.write("pkg/mid.py", "def use():\n    return 2\n")
         m3 = self.map(["pkg/core.py"], cache_dir=self.cache)
@@ -330,14 +329,11 @@ class CacheCase(RepoCase):
         self.assertEqual(m4["stats"]["scanned"], 1)
         self.assertIn("tests/test_new.py", m4["tests"])
 
-    def test_diff_seeds_and_frames(self):
+    def test_diff_seeds(self):
         self.write("pkg/core.py", PROJ["pkg/core.py"].replace("return x + 1", "return x + 2"))
         m = self.map(diff=True)
         self.assertEqual(m["seeds"]["from_diff"], ["pkg/core.py"])
         self.assertEqual(m["seeds"]["files"], ["pkg/core.py"])
-        blocks = m["frames"]["pkg/core.py"]["blocks"]
-        self.assertTrue(any("    return x + 2" in b for b in blocks), blocks)
-        self.assertTrue(any(ln.startswith("def compute_total") for b in blocks for ln in b))   # 関数まるごと
 
     def test_deleted_and_renamed_seeds_keep_their_importers(self):
         # 消した file も、import する側はまだ名を書いている（その側とテストを選ぶ）
@@ -356,51 +352,6 @@ class CacheCase(RepoCase):
         units = [{"key": "直す", "reason": "pkg/core.py の compute_total が 1 足りない。solo.py は無関係"},
                  {"key": "別", "reason": "無い file nothere.py", "prescriptions": ["pkg/mid.py を直す"]}]
         self.assertEqual(impact.seeds_from_units(self.repo, units), ["lonely/solo.py", "pkg/core.py", "pkg/mid.py"])
-
-
-class RenderCase(RepoCase):
-    def test_render_is_deterministic_and_within_budget(self):
-        self.write("pkg/core.py", PROJ["pkg/core.py"].replace("return x + 1", "return x + 2"))
-        m = self.map(["pkg/core.py"], diff=True)
-        a = impact.render(m, budget=4000)
-        self.assertEqual(a, impact.render(json.loads(json.dumps(m)), budget=4000))
-        self.assertLessEqual(len(a), 4000)
-        self.assertIn("tests/test_core.py", a)
-        self.assertIn("from pkg.core import compute_total", a)   # 当たりの行はそのまま
-        self.assertIn("┏", a)                                     # 変更の枠（関数まるごと）
-        self.assertIn("all_tests_required: false", a)
-        small = impact.render(m, budget=600)
-        self.assertLessEqual(len(small), 600)
-        self.assertIn("この描画で出していない", small)
-        self.assertNotIn("┏", small)   # 枠は丸ごと入らないなら出さない（途中で切らない）
-
-    def test_render_budget_too_small_for_header_still_says_so(self):
-        m = self.map(["pkg/core.py"])
-        out = impact.render(m, budget=50)
-        self.assertLessEqual(len(out), 50)
-
-
-class MissCase(RepoCase):
-    JUNIT = """<?xml version="1.0" encoding="utf-8"?>
-<testsuites><testsuite name="s">
-<testcase classname="tests.test_core.T" name="test_a"><failure message="x"/></testcase>
-<testcase classname="tests.test_other.T" name="test_b"><error message="y"/></testcase>
-<testcase classname="tests.test_mid.T" name="test_c"/>
-<testcase classname="" name="odd"><failure/></testcase>
-</testsuite></testsuites>
-"""
-
-    def test_miss_is_failed_but_not_selected(self):
-        m = self.map(["pkg/core.py"])
-        out = impact.miss(m, self.JUNIT)
-        self.assertEqual(out["schema"], "works-impact-miss/1")
-        self.assertEqual(out["key"], m["key"])
-        self.assertEqual(out["failed"], 3)
-        self.assertEqual([x["module"] for x in out["misses"]], ["test_other"])
-        self.assertEqual(out["caught"], ["tests.test_core.T::test_a"])
-        self.assertEqual(len(out["unmapped"]), 1)
-        # 速い段に入っていれば取りこぼしではない
-        self.assertEqual(impact.miss(m, self.JUNIT, fast=["test_other"])["misses"], [])
 
 
 if __name__ == "__main__":

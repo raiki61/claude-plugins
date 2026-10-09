@@ -17,7 +17,6 @@
   trace の行の並びで決める（時刻で比べない）。amend を通らない save し直しでは切り直さない（凍結のまま）
 - 呼ぶ時: cut・cut_at は今の周の承認済みの修正案（差し替えを重ねた物）を凍結する。事前審査（p2.plan_review）と人の関所（p2.human_gate）を
   抜けた後にだけ呼ぶ（前に呼ぶと、承認されていない案がその周の正本になる）
-- 平の run（修正の形 current。fixshape.plain）: 修正案の欄を修正の段に渡さないので、cut は切らずに []（控えを書かない）
 
 読む物（どれも盤面の物。entry・planmarks・structmark の口だけ）:
 - 承認済みの修正案: planmarks.plan_items(b)（今の周の p2.fix_plan の出力の plan に、差し替えた項目の核の欄を重ねた物）。
@@ -52,7 +51,6 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
-import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import planmarks  # noqa: E402
 import structmark  # noqa: E402
 
@@ -361,15 +359,7 @@ def _recut(b, rows: list, items: list[int]) -> list:
 def cut(b) -> list[dict]:
     """今の周の brief を返す。控えが無ければ、修正案（planmarks.plan_items）と planmarks.frozen(b) が両方在る時だけ項目ごとに
     render して書き、控えを書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば
-    作り直さず、最後の切った印の後に差し替えの印が在る時だけ差し替えた項目を切り直し（_recut）、控えと違うファイルを書き戻す。
-    平の run（修正の形 current。fixshape.plain）は修正案の欄を修正の段に渡さないので、いつも [] で何も書かない（形の控えが壊れて
-    いれば LedgerBroken）"""
-    try:
-        plain = fixshape.plain(b.dir)
-    except ValueError as e:
-        raise LedgerBroken(f"盤面の修正の形が読めない: {e}") from None
-    if plain:
-        return []
+    作り直さず、最後の切った印の後に差し替えの印が在る時だけ差し替えた項目を切り直し（_recut）、控えと違うファイルを書き戻す"""
     rows = _ledger(b)
     if rows is not None:
         items = _amended_since_cut(b)
@@ -422,7 +412,7 @@ def for_units(briefs: list, keys) -> list[dict]:
 
 def unit_note(keys: list, owed=None) -> str:
     """項目の単位の並び keys の書き方: owed（今直す単位の key）と重なる物を「、」で並べ（無ければ NONE）、ほかの単位は
-    「・今は直すな: …」と添える。owed が None なら keys を全部（head_text の行と fixrules の g1 の実装役の型の題が使う）"""
+    「・今は直すな: …」と添える。owed が None なら keys を全部（head_text の行と fixrules の下請けの実装役の型の題が使う）"""
     keys = list(keys or [])
     want = None if owed is None else set(owed)
     now = keys if want is None else [k for k in keys if k in want]

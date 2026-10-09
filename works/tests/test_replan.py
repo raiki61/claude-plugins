@@ -1026,8 +1026,6 @@ class TestSecondPass(TripCase):
         self.assertEqual(prompt, self.board / REFIT / "r1" / "prompt-p3.fix.md")
         self.assertNotEqual(got["prompt_file"], first["prompt_file"])
         self.assertEqual(got["iteration"], 1)
-        side = json.loads(pathlib.Path(got["variants_file"]).read_text(encoding="utf-8"))
-        self.assertTrue(side["delta_is_full"], "新しい役が見ていない会話への差分にしない")
         text = prompt.read_text(encoding="utf-8")
         self.assertNotIn(str(old_reject), text)
         self.assertNotIn("reject-accept_fix", text)

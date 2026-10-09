@@ -2,7 +2,6 @@
  "owner": "blk-fix",
  "consumes": [
   {"name": "structure-state.json"},
-  {"name": "fix-shape.json"},
   {"name": "judgment.json"}
  ],
  "produces": [

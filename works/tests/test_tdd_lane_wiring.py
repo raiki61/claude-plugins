@@ -25,7 +25,6 @@ sys.path.insert(0, str(BLK / "lib"))
 sys.path.insert(0, str(CORE))
 
 import fixrules  # noqa: E402
-import fixshape  # noqa: E402
 import scopes  # noqa: E402
 import seat  # noqa: E402
 import tddlanes  # noqa: E402
@@ -158,7 +157,7 @@ class TestWiring(unittest.TestCase):
         for n in names:
             self.assertEqual(models[f"blk-fix/{n}"], models["blk-fix/tdd"], n)
             self.assertEqual(seat.SEATS[n], seat.SEATS["tdd"], n)
-            self.assertIn(n, fixshape.SKILL_NODES)
+            self.assertIn(n, seat.SKILL_NODES)
         self.assertEqual(tddloop.UNIT_NODES, ("tdd", "tdd-rest"))
 
     def test_lane_files_are_shared_board_records(self):

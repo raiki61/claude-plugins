@@ -77,8 +77,6 @@ NO_ADAPTER_NOTE = ("包み無し（adapter: optional）: CI の任せ先の役�
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 COPY_PREFIX = "works-ci-"               # 写しの置き場（一時の置き場の直下の <COPY_PREFIX><節>-XXXX）の頭。出口はこの形の物だけ消す
 PROMPTS = PACK / "blk-ci" / "prompts"
-HOLES = ("node", "root", "copy", "tmp", "fallback")   # 2 つの指示書が両方持つ穴（<<名>>）
-P4_HOLES = ("base", "answers", "questions")          # p4.ci の指示書だけの穴
 REJECTS = "ci-rejects.json"
 
 

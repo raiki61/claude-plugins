@@ -98,17 +98,10 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    --settings が読めない・2 つ・sandbox や network や一覧の形が違う起動は、網を閉じられるかが決まらないので、印が無くても
    claude を起こさずに 1 行を出して止まる（fail closed）。WebFetch・WebSearch はこの鍵の外（Claude Code の説明文どおり）。
 
-9. **指示書の全文版と差分版**（トークンの節約。持ち主の承認。印のある起動だけ）: 輪（loop_group の fresh_context: false）の
-   役は 1 つの会話を周をまたいで継ぐので、共有の規則を毎周送り直すと会話に同じ規則が積み重なる。支度のスクリプトは指示書
-   （prompt_file。既定は全文版の写し）の隣に `<stem>.full.md`・`<stem>.delta.md`・`<stem>.variants.json`（{full, delta,
-   rules_sha, iteration, sections}）を書く。包みは印のある起動の stdin を子へ中継し（バイトは変えない。21 の旗 text-reply の起動だけ
-   initialize の行の jsonSchema を外し、出し直しの行を足す）、最初の user の 1 行
-   （SDK が initialize の後に書く指示文）から指示書のパスを読んで、その行を子へ渡す前に指示書へ全文版か差分版を書く。
-   差分版は、この起動が継ぐ会話（--resume の元。fork の鎖を包みの起動の記録で辿る）が同じ rules_sha の全文版をこの包みから
-   受け取り、Read のフックの記録で部分読みでなく読み切り、会話の記録（Claude Code の transcript）に要約・古い道具の結果の消去
-   （compact_boundary・microcompact_boundary）の跡が無い時だけ。ほかは全部全文版（疑いは全文版）。variants.json が無ければ
-   何もしない。読めない・指示書が 2 つ・指示書の中身が全文版とも包みの差分版とも違う時は指示書に触らない。選んだ版は
-   起動の記録の `prompt`（{file, variant, rules_sha, iteration, full_sha, reason}）に残す（variants.json の無い起動は欄を持たない）
+9. **印のある起動の stdin の中継**: 包みは印のある起動の stdin を子へ中継し（バイトは変えない。21 の旗 text-reply の起動だけ
+   initialize の行の jsonSchema を外し、出し直しの行を足す）、最初の user の 1 行（SDK が initialize の後に書く指示文）が来た時に
+   起動の記録を書く（指示文が来ないまま子が終われば、その後に書く）。指示書には触らない（全文版・差分版を選ぶ口だった。差分版を
+   選んだ起動がほとんど無く、単位ごとに新しい会話で起きるようになったので、2026-10-09 の掃除で消した）
 
 10. 欠番（借りる MCP を渡す口だった。持ち主 2026-10-09 に Context7 をやめ、借りる MCP が無くなったので消した。Archon の役の節は
    周りの MCP を読まない——SDK が `--strict-mcp-config` を付ける——ので、役は MCP を持たない。前の版の開発の殻が隔離した設定の
@@ -129,7 +122,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    - graph_map（required でない。印に旗 map を持つ起動だけ。持ち主 2026-10-07: 節ごとに選ぶ）: 工程の地図（同じ置き場の
      graphmap。全体のグラフと、この節の会話の席の ★ と、後の流れ）。地図の元は pack の入口（archon-plugin.json の entrypoints）の
      YAML の隣の <stem>.graph.json（作る時に開発の道具 dev/graphmap_build.py が書く。包みは YAML を読まない）。印を持つ元がちょうど 1 本で、元の
-     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（fixshape.START_REL）の実効で off の機能（features_cut。既定で
+     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（START_REL）の実効で off の機能（features_cut。既定で
      off の機能を含む。欄の無い前の版の控えは features_off）に graph_map が在る run は足さず、ほかの語は地図が切った物として
      描く。控えが無い・切符が無い起動は切り替えの分からない地図（[needs …] を残す）。設計 docs/plans/2026-10-07-graph-map.md
    経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code 2.1.283 は initialize が
@@ -168,12 +161,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    fence.run_place.skipped に理由を残し、作れなければ起こさない。TMPDIR は Claude Code が sandbox の中で書ける一時フォルダへ
    向けるので向けず、WORKS_DEV_HOME・XDG_CACHE_HOME は run をまたぐ共有の置き場なので向けない。allowWrite に `/` が在る
    起動（任せ先）・道具ゼロ・Bash の無い役・網を閉じた役・切符の無い起動は sandbox も env も変えない
-18. **形ごとの道具の柵**（印のある起動で、切符が在る時だけ。計画 220）: 切符の board の修正の形（fixshape.shape_at。形はいつも
-   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 と g3 の外の修正役
-   （AGENT_NODES）の `Agent`——を `permissions.deny` の後ろに足し、足した数を fence.shape_deny に残す（拒む物が無ければ鍵を
-   持たない）。形の控えが壊れている（読めない・語の外）なら、壊れた切符と同じく claude を起こさない（理由に fix_shape）。
-   deny は道具の呼びを拒むだけで、YAML の `skills:` が載せたスキルの一覧は system prompt に残る（拒まれた呼びが Archon の
-   events に tool_called として出うる。一覧を外すのは YAML の側）
+18. 欠番（形ごとの道具の柵だった。修正の形が g3 だけになり、座の節と修正役に拒む道具が無くなったので、2026-10-09 の掃除で消した）
 19. **run の明示の模型**（印のある起動だけ）: 段の YAML は AI の段の全部に `model:` を書く（持ち主 2026-10-06）ので、Archon の
    設定の模型（開発の殻 archon.sh が書く run の模型）は段に効かない。run の模型を明示した run（env の WORKS_DEV_MODEL が空で
    ない。archon.sh は既定を WORKS_DEV_MODEL に書き戻さないので、空でなければ利用者の明示。続き・答えの行は控えの値で同じ名を
@@ -255,7 +243,6 @@ import time
 import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-import fixshape
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
 import node_marker  # L1（印の文法の正本）
 import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
@@ -340,7 +327,7 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?, unit?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, query_rule?, repo_deny?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、5 の読むだけの gh の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
@@ -737,17 +724,6 @@ def board_of(ticket_doc: Optional[dict]) -> Optional[str]:
     return os.path.normpath(board)
 
 
-def shape_deny(board_dir: Optional[str], node: str) -> Tuple[str, ...]:
-    """18. 盤面 board_dir の修正の形で印 node の役に拒む道具。切符が無ければ ()。形の控えが壊れていれば Unrecognised
-    （理由に fix_shape。呼び手は起動を拒む）"""
-    if board_dir is None:
-        return ()
-    try:
-        return fixshape.denied_tools(fixshape.shape_at(board_dir), node)
-    except ValueError as e:
-        raise Unrecognised(f"盤面の修正の形（{fixshape.KEY}）が読めない（{e}）") from None
-
-
 def run_place_of(ticket_doc: Optional[dict]) -> Optional[str]:
     """17. 切符の board の隣の run ごとの置き場（<board の親>/run-place）。切符が無ければ None。切符の board が絶対パスの文字列でなければ
     BadTicket（壊れた切符の理由を「切符が無い」に化かさず、起動を拒ませる）"""
@@ -793,9 +769,8 @@ def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Op
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
                repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None,
-               tools_deny: Sequence[str] = (), lane: Sequence[str] = ()) -> Tuple[List[str], dict]:
+               lane: Sequence[str] = ()) -> Tuple[List[str], dict]:
     """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない。
-    tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）。
     lane は 6c の単位の worktree の全部の綴り（SDK が sandbox の塊を渡した起動だけ allowWrite の後ろに足す）"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
@@ -820,8 +795,6 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
             fence["run_place"] = {"skipped": skipped}
     if repo:
         fence["repo_deny"] = add_deny(doc, repo)
-    if tools_deny:
-        fence["shape_deny"] = add_deny(doc, tools_deny)
     if no_post is not None:
         fence["no_post"] = add_deny(doc, no_post_rules(no_post))
     return _put_settings(argv, found[0] if found else None, doc), fence
@@ -1152,11 +1125,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
          run_place: Optional[Callable[[], Optional[str]]] = None,
          board: Optional[Callable[[], Optional[str]]] = None) -> Plan:
-    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みと、18 の切符の board の修正の形の控えの
-    読み（fixshape.shape_at）だけ。書くのは旗 isolated と 17 の置き場の mkdir）。
+    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書くのは旗 isolated と 17 の置き場の
+    mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
-    board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。
+    board は切符の board（board_of の値。切符が無ければ None。単位の鍵と旗 lane の単位の worktree が読む）を返す関数。同じ切符の 1 回の読みを使う。
     write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
     env は起動の env（本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
     子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印と 5 の口）"""
@@ -1293,11 +1266,10 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
                 raise Unrecognised(f"役の cwd の worktree の根が git から引けない（{cwd}）")
             own = [x for x in [*spellings(top), *(y for o in others for y in spellings(o))] if x not in own] + own
         board_place = run_place() if run_place else None
-        tools_deny = shape_deny(board() if board else None, node)
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
                                 write_command, repo_deny(cwd),
                                 (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None,
-                                tools_deny, spellings(lane) if lane is not None else ())
+                                spellings(lane) if lane is not None else ())
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own and NO_TREE_WRITE in marker.flags:
@@ -1505,7 +1477,8 @@ def query_rule(path: pathlib.Path = QUERY_RULE_SOURCE) -> str:
 # prompt のキャッシュが切れる）。required の行は作れない時に claude を起こさない（fail closed）。そうでない行は
 # fence.<名> = {skipped: 理由} を残して塊を足さずに起こす（足す物なので）。塊を 1 つも作らない起動は argv を替えない
 MAP_FEATURE = "graph_map"      # 入力 features_off で工程の地図を切る語（entry.FEATURES と同じ。test_graphmap が縛る）
-FEATURES_KEY = "features_off"  # start の控え（fixshape.START_REL）の切った機能の欄（entry.FEATURES_KEY と同じ）
+START_REL = "r1/start.json"   # 盤面の start の控え（entry.START_FILE の 1 周目。L2 なので entry は import しない。fixture も読む）
+FEATURES_KEY = "features_off"  # start の控え（START_REL）の切った機能の欄（entry.FEATURES_KEY と同じ）
 FEATURES_CUT_KEY = "features_cut"  # 同じ控えの実効で off の機能の欄（既定で off の機能を含む。entry.FEATURES_CUT_KEY と同じ）
 PACK = pathlib.Path(__file__).resolve().parents[2]   # works/（.shared/core/adapter.py の 2 つ上）。地図の元は入口の YAML の隣
 
@@ -1552,7 +1525,7 @@ def query_rule_block(launch: Launch) -> Block:
 def features_off_at(board_dir: str) -> Optional[List[str]]:
     """盤面の start の控えの実効で off の機能の語（欄 FEATURES_CUT_KEY。既定で off の機能を含む。欄の無い前の版の控えは、
     その版の既定が全部 on なので切った機能の欄 FEATURES_KEY）。控えが無ければ None（start の前）。読めない・形が違えば ValueError"""
-    path = pathlib.Path(board_dir) / fixshape.START_REL
+    path = pathlib.Path(board_dir) / START_REL
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -1667,22 +1640,7 @@ def _refuse(argv, node, cont, tools_empty, why) -> Plan:
                 session, [])
 
 
-# --- 指示書の全文版と差分版（9） ------------------------------------------------------------------------------
-VARIANTS_SUFFIX = ".variants.json"
-_PROMPT_PATH_RE = re.compile(r"/[^\s`'\"<>|*?]+?\.md(?![A-Za-z0-9_.-])")
-# 会話の中身が減った跡（Claude Code 2.1.283 の transcript の system の subtype と、消された道具の結果の置き換えの文）
-COMPACT_MARKS = (b'"compact_boundary"', b'"microcompact_boundary"', b'"isCompactSummary":true',
-                 b"[Old tool result content cleared]")
-DELTA_HEAD = ("（works の包みより: この指示書は差分版。共有の規則は、この会話の前の回に読んだ全文版 `{full}` に在る。"
-              "会話の中に規則の本文が見えない時——要約された・古い道具の結果が消された・<persisted-output> に置き換わった時も——は、"
-              "先に `{full}` を Read で全部読め）\n\n")
-
-
-def delta_text(delta: str, full) -> str:
-    """包みが指示書に書く差分版（頭に全文版のパスを名指す 1 段を置く。会話から規則が消えていても役が読み直せるように）"""
-    return DELTA_HEAD.format(full=os.path.realpath(str(full))) + delta
-
-
+# --- 印のある起動の stdin の中継（9） ------------------------------------------------------------------------------
 def user_text(line: bytes) -> Optional[str]:
     """stream-json の 1 行が user の指示文なら、その文（text の塊をつないだ物）。ほかは None"""
     try:
@@ -1700,174 +1658,11 @@ def user_text(line: bytes) -> Optional[str]:
     return None
 
 
-class Doubt(Exception):
-    """版を決められない（指示書に触らず、理由を記録に残す）"""
-
-
-def _variants(text: str) -> Optional[Tuple[pathlib.Path, pathlib.Path]]:
-    """指示文に名指された .md のうち、隣に <stem>.variants.json が在る物 (指示書, variants.json)。無ければ None、2 つ以上は Doubt"""
-    found = {}
-    for m in _PROMPT_PATH_RE.finditer(text):
-        p = pathlib.Path(m.group(0))
-        v = p.with_name(p.name[:-len(".md")] + VARIANTS_SUFFIX)
-        if os.path.lexists(str(v)):
-            found[os.path.realpath(str(p))] = (p, v)
-    if len(found) > 1:
-        raise Doubt("several-prompts")
-    return next(iter(found.values())) if found else None
-
-
-def _load_variants(vpath: pathlib.Path) -> dict:
-    """variants.json を読む: {full, delta（中身の bytes）, full_path, rules_sha, iteration}。形が違えば Doubt"""
-    try:
-        doc = json.loads(vpath.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeDecodeError) as e:
-        raise Doubt(f"variants-bad: {vpath} が読めない（{e}）") from None
-    if not isinstance(doc, dict) or not isinstance(doc.get("rules_sha"), str) or not doc["rules_sha"] \
-            or not isinstance(doc.get("full"), str) or not isinstance(doc.get("delta"), str):
-        raise Doubt(f"variants-bad: {vpath} の形が違う（full・delta・rules_sha が文字列でない）")
-    out = {"rules_sha": doc["rules_sha"],
-           "iteration": doc.get("iteration") if isinstance(doc.get("iteration"), int) else None}
-    for key in ("full", "delta"):
-        path = vpath.parent / doc[key]          # 絶対パスならそのまま
-        try:
-            if not path.is_file():
-                raise OSError("通常のファイルでない")
-            data = path.read_bytes()
-            data.decode("utf-8")
-        except (OSError, UnicodeDecodeError) as e:
-            raise Doubt(f"variants-bad: {key} の {path} が読めない（{e}）") from None
-        out[key] = data
-        out[key + "_path"] = path
-    return out
-
-
-def read_reads(cwd, home_dir=None) -> List[dict]:
-    """Read のフックの記録（reads.jsonl）を古い順に。無い・読めない行は飛ばす"""
-    try:
-        text = (reads_dir(cwd, home_dir) / "reads.jsonl").read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return []
-    out = []
-    for ln in text.splitlines():
-        try:
-            row = json.loads(ln)
-        except ValueError:
-            continue
-        if isinstance(row, dict):
-            out.append(row)
-    return out
-
-
-def _read_whole(reads: Sequence[dict], sid: str, path: str, sha: str) -> bool:
-    """会話 sid の本人（subagent でない）が path を sha の中身で部分読みでなく読んだ跡が在るか"""
-    real = os.path.realpath(path)
-    return any(r.get("session_id") == sid and r.get("agent_id") is None and r.get("partial") is False
-               and r.get("file_sha") == sha and isinstance(r.get("path"), str) and os.path.realpath(r["path"]) == real
-               for r in reads)
-
-
-def _transcript_clean(config_dir: pathlib.Path, sid: str) -> Optional[str]:
-    """会話 sid の transcript（<設定>/projects/*/<sid>.jsonl）に中身が減った跡が無ければ None、あれば・見えなければ理由"""
-    paths = sorted(config_dir.glob(f"projects/*/{sid}.jsonl")) if _ID_RE.match(sid) else []
-    if not paths:
-        return "transcript-missing"
-    for p in paths:
-        try:
-            data = p.read_bytes()
-        except OSError:
-            return "transcript-missing"
-        if any(m in data for m in COMPACT_MARKS):
-            return "compacted"
-    return None
-
-
-def choose(session: Optional[dict], rules_sha: str, rows: Sequence[dict], reads: Sequence[dict],
-           config_dir: pathlib.Path) -> Tuple[str, str]:
-    """(版, 理由)。差分版は、継ぐ会話の鎖（fork の元を起動の記録で辿る）のどこかが同じ rules_sha の全文版をこの包みから
-    受け取って読み切り、鎖のどの会話の transcript にも中身が減った跡が無い時だけ。理由は same-session・new-session・
-    no-full-record・rules-changed・full-not-read・compacted・transcript-missing"""
-    mode = (session or {}).get("mode")
-    src = (session or {}).get("from")
-    if mode not in ("sdk-resume", "sdk-fork", "continued") or not isinstance(src, str) or not src:
-        return "full", "new-session"
-    chain, cur, holder, why = [], src, None, "no-full-record"
-    while cur and cur not in chain:
-        chain.append(cur)
-        mine = [r for r in rows if r.get("mode") == "merged" and isinstance(r.get("session"), dict)
-                and r["session"].get("id") == cur]
-        for r in reversed(mine):
-            got = r.get("prompt")
-            if not isinstance(got, dict) or got.get("variant") != "full":
-                continue
-            if got.get("rules_sha") != rules_sha:
-                why = "rules-changed" if why == "no-full-record" else why
-                continue
-            if _read_whole(reads, cur, str(got.get("file") or ""), str(got.get("full_sha") or "")):
-                holder = cur
-                break
-            why = "full-not-read"
-        if holder:
-            break
-        parents = {r["session"].get("from") for r in mine
-                   if r["session"].get("from") and r["session"].get("from") != cur}
-        if len(parents) != 1:        # 鎖の根（新しい会話）か、元が 2 つ（疑い）
-            break
-        cur = parents.pop()
-    if holder is None:
-        return "full", why
-    for sid in chain:
-        bad = _transcript_clean(config_dir, sid)
-        if bad:
-            return "full", bad
-    return "delta", "same-session"
-
-
 def _write_atomic(path: pathlib.Path, data: bytes) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     with open(tmp, "wb") as f:
         f.write(data)
     os.replace(tmp, path)
-
-
-def prompt_variant(text: str, session: Optional[dict], cwd, home_dir, env=None) -> Optional[dict]:
-    """指示文 text が名指す指示書に全文版か差分版を書き、起動の記録の `prompt` の欄を返す。variants.json が無ければ None
-    （何もしない）。例外は出さない（決められない時は指示書に触らず、variant: null と理由を返す）"""
-    env = os.environ if env is None else env
-    try:
-        found = _variants(text)
-    except Doubt as e:
-        return {"file": None, "variant": None, "rules_sha": None, "iteration": None, "full_sha": None, "reason": str(e)}
-    if found is None:
-        return None
-    prompt, vpath = found
-    info = {"file": os.path.realpath(str(prompt)), "variant": None, "rules_sha": None, "iteration": None,
-            "full_sha": None, "reason": ""}
-    try:
-        v = _load_variants(vpath)
-        info.update(rules_sha=v["rules_sha"], iteration=v["iteration"],
-                    full_sha=hashlib.sha256(v["full"]).hexdigest())
-        ours_delta = delta_text(v["delta"].decode("utf-8"), v["full_path"]).encode("utf-8")
-        try:
-            now_bytes = prompt.read_bytes()
-        except OSError as e:
-            raise Doubt(f"prompt-unreadable: {prompt}（{e}）") from None
-        if now_bytes not in (v["full"], ours_delta):
-            raise Doubt(f"prompt-unexpected: {prompt} の中身が全文版とも包みの差分版とも違う")
-        config = pathlib.Path(env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"))
-        variant, why = choose(session, v["rules_sha"], read_launches(cwd, home_dir), read_reads(cwd, home_dir), config)
-        want = v["full"] if variant == "full" else ours_delta
-        if now_bytes != want:
-            try:
-                _write_atomic(prompt, want)
-            except OSError as e:
-                raise Doubt(f"write-failed: {prompt}（{e}）") from None
-        info.update(variant=variant, reason=why)
-    except Doubt as e:
-        info["reason"] = str(e)
-    except Exception as e:  # noqa: BLE001  中継を止めない（決められない時は触らない）
-        info["reason"] = f"error: {type(e).__name__}: {e}"
-    return info
 
 
 class InGate:
@@ -1943,7 +1738,7 @@ def _relay_gated(src_fd: int, gate: InGate, on_line: Callable[[bytes], bool], ed
 
 def relay(src_fd: int, dst_fd, on_line: Callable[[bytes], bool], edit: Optional[Callable[[bytes], bytes]] = None) -> None:
     """src_fd を読み切るまで dst_fd へ写し、終わったら dst_fd を閉じる（バイトは変えない）。on_line(改行を除いた 1 行) が
-    偽を返すまで、行ごとに渡してから写す（1 行を写す前に指示書を書ける）。on_line の例外は偽と同じ（見るのをやめて写し続ける）。
+    偽を返すまで、行ごとに渡してから写す（1 行を写す前に起動の記録を書ける）。on_line の例外は偽と同じ（見るのをやめて写し続ける）。
     子が先に抜けた（EPIPE）・src が読めない時は写すのをやめる。dst_fd が InGate（21 の旗 text-reply）なら、終わりまで
     行ごとに edit を当てて口へ書き、終わりは口に知らせる（閉じるのは口が決める）"""
     if isinstance(dst_fd, InGate):

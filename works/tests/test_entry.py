@@ -27,7 +27,6 @@ from board import BoardGap, BoardMismatch, DiskBoard, graph_expanded  # noqa: E4
 import engine.declared as engine_declared  # noqa: E402  （board が写しの graphloops を sys.path に足す）
 import engine.util as engine_util  # noqa: E402
 import entry  # noqa: E402
-import fixshape  # noqa: E402
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scopes  # noqa: E402
@@ -315,7 +314,7 @@ class BoardCase(unittest.TestCase):
         self.assertEqual((b.scope, b.scope_root), ("fixing", d / "fixing"))
         self.assertEqual(b.work("rule-tree.json"), d / "fixing" / "r1" / "rule-tree.json")   # 私物は scope の根
         self.assertEqual(b.work("fix-held-reply.json"), d / "fixing" / "r1" / "fix-held-reply.json")   # per_include も
-        self.assertEqual(b.work("fix-shape.json"), d / "r1" / "fix-shape.json")    # 線の公開の名は周の置き場
+        self.assertEqual(b.work("start.json"), d / "r1" / "start.json")    # 線の公開の名は周の置き場
         self.assertEqual(b.work("conflicts.json"), d / "r1" / "conflicts.json")    # 共有の記録も周の置き場
         self.assertEqual(b.work("rejects-a/b.json"), d / "fixing" / "r1" / "rejects-a" / "b.json")   # * は段をまたがない
         reg = json.loads((d / "r1" / "scopes.json").read_text(encoding="utf-8"))
@@ -699,12 +698,12 @@ class CheckInputsCase(StartCaseBase):
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
-                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape",
+                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only",
                                     "fix_fixture", "features_off", "features_on", "answers", "prior_failures"})
         self.assertEqual((got["answers"], got["prior_failures"], got["features_off"], got["features_on"]), ([], [], [], []))
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
-                          got["lang"], got["unattended"], got["design_only"], got["fix_shape"]),
-                         ("自動", "", "always", "", "", "", "", "", "", "g3"))
+                          got["lang"], got["unattended"], got["design_only"]),
+                         ("自動", "", "always", "", "", "", "", "", ""))
         self.assertEqual(len(got["items"]), 2)
         self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
         self.assertIn("mean", got["request_text"])
@@ -1065,7 +1064,7 @@ class StartCase(StartCaseBase):
         got = self.start(repo)
         absent = len(entry.load_table("darkfactory").absent())
         line = got["head_line"]
-        for part in ("判定から", "依頼 2 件", "段: 自動（既定）", "gates: 空", "修正の形: g3（既定）", f"このラインに無い節: {absent} 個",
+        for part in ("判定から", "依頼 2 件", "段: 自動（既定）", "gates: 空", f"このラインに無い節: {absent} 個",
                      "下げている所: 2 個"):
             self.assertIn(part, line)
         self.assertNotIn("\n", line)
@@ -1073,7 +1072,7 @@ class StartCase(StartCaseBase):
     def test_start_head_line_named_words(self):
         """thickness を名指せば（既定）を付けない。gates=merge は語のまま"""
         repo = self.seed(declared=True)
-        got = self.start(repo, thickness="標準", gates="merge", fix_shape="g3")
+        got = self.start(repo, thickness="標準", gates="merge")
         self.assertIn("段: 標準・", got["head_line"])
         self.assertNotIn("（既定）", got["head_line"])
         self.assertIn("gates: merge", got["head_line"])
@@ -1361,21 +1360,14 @@ class ResumeCase(StartCaseBase):
                     entry.start(self.board, repo, self.raw(test_cmd=cmd), run_id="run-7")
                 self.assertIn("test_cmd", str(cm.exception))
 
-    def test_resume_with_other_fix_shape_refused(self):
-        """呼び直しで修正の形 fix_shape が最初の控えと違えば、盤面を作り直さずに拒む（腕を黙って替えない。test_cmd と同じ扱い）。
-        同じ形で呼び直せば通り、返りと控えと頭の行に形が載る"""
+    def test_start_has_no_fix_shape(self):
+        """修正の形は g3 だけ（2026-10-09）: 返り・控え・頭の行に修正の形を載せない"""
         repo = self.seed()
-        first = self.start(repo, test_cmd=SEED_CMD, fix_shape="af")
-        self.assertEqual(first["fix_shape"], "af")
-        self.assertIn("修正の形: af", first["head_line"])
-        self.assertNotIn("修正の形: af（既定）", first["head_line"])
-        with self.assertRaises(entry.InputRefused) as cm:
-            entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, fix_shape="g3"), run_id="run-7")
-        self.assertIn("fix_shape", str(cm.exception))
-        again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, fix_shape="af"), run_id="run-7")
-        self.assertEqual(again["fix_shape"], "af")
+        got = self.start(repo, test_cmd=SEED_CMD)
+        self.assertNotIn("fix_shape", got)
+        self.assertNotIn("修正の形", got["head_line"])
         doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
-        self.assertEqual(doc["fix_shape"], "af")
+        self.assertNotIn("fix_shape", doc)
 
     def test_features_off_reaches_exit_head_and_doc(self):
         """切る機能（入力 features_off）: 出口に機能ごとの on・off（線がブロックの切り替えの入力へ写す）、頭の行に切った機能、
@@ -1417,34 +1409,6 @@ class ResumeCase(StartCaseBase):
         again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, features_on="judge_verify review_tree"),
                             run_id="run-7")
         self.assertEqual(again["judge_verify"], "on")
-
-    def test_resume_old_board_without_fix_shape_stays_af(self):
-        """前の版で作った盤面（控えに fix_shape が無い）の呼び直し: 入力が空なら af のまま通り、控えに鍵を足さない。
-        af 以外を名指せば InputRefused、af を名指せば通り、鍵は無いまま"""
-        repo = self.seed()
-        self.start(repo, test_cmd=SEED_CMD)
-        work = entry.open_board(self.board).work(entry.START_FILE)
-        doc = json.loads(work.read_text(encoding="utf-8"))
-        doc.pop("fix_shape")
-        work.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
-
-        def key_absent():
-            self.assertNotIn("fix_shape", json.loads(work.read_text(encoding="utf-8")))
-
-        got = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
-        self.assertEqual(got["fix_shape"], "af")
-        self.assertIn("（前の版の盤面）", got["head_line"])
-        key_absent()
-        self.assertEqual(fixshape.shape_at(self.board), "af")
-        for other in ("g3", "current", "g1"):
-            with self.subTest(other):
-                with self.assertRaises(entry.InputRefused) as cm:
-                    entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, fix_shape=other), run_id="run-7")
-                self.assertIn("前の版の盤面", str(cm.exception))
-        got = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, fix_shape="af"), run_id="run-7")
-        self.assertEqual(got["fix_shape"], "af")
-        key_absent()
-        self.assertEqual(fixshape.shape_at(self.board), "af")
 
     def test_fallback_cmd_runs_from_git_top(self):
         """任せ先の test_cmd は engine と同じく git の根（--show-toplevel）で走らせる（入力の cwd が下のフォルダでも）"""

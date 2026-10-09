@@ -30,11 +30,10 @@ review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がそ
 つき）と直す裁定が広げたパス ruled_paths と直した側の報告 fix_report（今の周の修正の出力の changes・not_done。無ければ空）も、
 1 回目の手直しの役の brief には同じ plan_items・ruled_paths と、審査の 2 判定の控えの準拠の落ちた行 compliance
 （deltamarks.fail_rows）も載せる。2 回目の往復には載せない）・手直しの役の指示書
-prompt-<節>.md（呼び手のブロックが組む）・修正の形 g3 の審査役の座 review<n>-seat.md（brief の seat_file。座の在る審査役は 1 回目だけ（seat.SEATS）で、g3 でない・
+prompt-<節>.md（呼び手のブロックが組む）・審査役の座 review<n>-seat.md（brief の seat_file。座の在る審査役は 1 回目だけ（seat.SEATS）で、
 座の無い役は空）。
-支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json・1 本目の blk-delta が
-盤面の根に書いた delta-review.json・fix.diff・delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
-踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
+支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json）を先に消す——新しい
+審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
 """
 import functools
 import json
@@ -55,7 +54,6 @@ import accept  # noqa: E402
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402
-import fixshape  # noqa: E402
 import holeties  # noqa: E402
 import lens  # noqa: E402
 import node_marker  # noqa: E402
@@ -70,9 +68,6 @@ import writes  # noqa: E402
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
 REVIEW_ROLE = {1: "review", 2: "review2"}   # 審査役の名（印 works-node の名・reads-<役>.json）
 FIX_ROLE = {1: "refix", 2: "refix2"}        # 手直しの役の名
-# blk-refix の中の輪（T17 で YAML に書く。輪の中の id は全部の include をまたいで一意。台帳 R19）
-LOOPS = {"refix-loop": ("refix", "refix-accept"), "review2-loop": ("review2", "review2-accept"),
-         "refix2-loop": ("refix2", "refix2-accept")}
 # 読んだ証拠の節（reads.main_for の引数: 役・輪・節。Task 6 の reads.py の口。include の名は reads が今の scope から引く）
 READS = {"review": ("review", "delta-loop", "review"),
          "refix": ("refix", "refix-loop", "refix"),
@@ -84,8 +79,6 @@ DELTA_BY = "works:delta"
 # 手直しの段が盤面を止めた時の state.stop.by: 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた・手直しの支度が
 # 修正案の欄の控えの壊れを見た
 REFIX_BY = "works:refix"
-# 1 本目の blk-delta が盤面の scope の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
-V1_OUTPUTS = (accept.DELTA_REVIEW_FILE, accept.DIFF_FILE, accept.SNAPSHOT_FILE)
 
 
 @functools.lru_cache(maxsize=1)
@@ -180,9 +173,9 @@ def _write_json(path: pathlib.Path, doc) -> pathlib.Path:
     return _write_text(path, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
 
-def _drop_stale(b, *names, root=()):
-    """前の試みの自分の出力を消す（今の周の作業ファイルの names と、盤面の今の scope の根の root。accept.cut_delta の置き場）"""
-    for p in [b.work(x) for x in names] + [b.scope_root / x for x in root]:
+def _drop_stale(b, *names):
+    """前の試みの自分の出力を消す（今の周の作業ファイルの names）"""
+    for p in [b.work(x) for x in names]:
         p.unlink(missing_ok=True)
 
 
@@ -191,8 +184,8 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     """n 回目の差分の審査役を起こす前の支度。盤面の loop.<state_key> が今の周に無い・審査の節が待っていないなら
     {ok: False, reason}（配線の誤り。スクリプトは 2）。在れば、前の試みの自分の出力を消し、役に見せる材料を
     review<n>-brief.json に書き、作業ツリーの写し（review<n>-snapshot.json）を撮り、起こした印を置いて
-    {ok: True, files, diff_file, rev, brief_file, must} を返す。名前は盤面の値のまま（組み立てない）。盤面の修正の形
-    （fixshape.shape_at）で審査役の座が載る（seat.carries。g3 の 1 回目の審査役）なら、task-review の型を埋めた座（seat.section。穴は brief・人の方針の文書・
+    {ok: True, files, diff_file, rev, brief_file, must} を返す。名前は盤面の値のまま（組み立てない）。審査役の座が
+    載る（seat.carries。1 回目の審査役）なら、task-review の型を埋めた座（seat.section。穴は brief・人の方針の文書・
     直した側の出力・差分の起点と修正後の版・差分のファイル。無い物は seat.NONE）を review<n>-seat.md に書いて brief の
     seat_file と must に名指す（載らなければ seat_file は空。写しが固定と違えば何も書かずに ValueError）。1 回目は修正案の欄の
     控えが凍結の印と食い違えば、差分の審査の段の印 DELTA_BY で盤面を止めて控えを名指す BoardGap（conflict.fields_broken）"""
@@ -207,14 +200,13 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     role = REVIEW_ROLE[n]
     brief_name, seat_name = f"review{n}-brief.json", f"review{n}-seat.md"
     pol = policy.brief(b)
-    shape, seat_text = fixshape.shape_at(b.dir), ""
-    if seat.carries(role, shape):   # 座は 1 回目の審査役だけ（2 回目の review2 には座が無い。seat の頭）。穴の値も 1 回目の物
-        seat_text = seat.section(role, shape, {   # 写しの照合（pinned）を書き込みの前に
+    seat_text = ""
+    if seat.carries(role):   # 座は 1 回目の審査役だけ（2 回目の review2 には座が無い。seat の頭）。穴の値も 1 回目の物
+        seat_text = seat.section(role, {   # 写しの照合（pinned）を書き込みの前に
             "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
             "[REPORT_FILE]": _out_file(b, recount.FIX_NODE) or seat.NONE,
             "[BASE_SHA]": _cut_base(b) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
-    _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()),
-                root=V1_OUTPUTS if n == 1 else ())
+    _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()))
     seat_file = str(_write_text(b.work(seat_name), seat_text)) if seat_text else ""
     doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
            "reads": _brief(b, p["review"]), "policy": pol, "seat_file": seat_file}
@@ -332,15 +324,11 @@ def brief_ties(ties: list) -> list[dict]:
 
 # ---------------------------------------------------------------- 受け付け
 def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
-    """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空。平の run
-    （fixshape.plain。修正の形 current）も空: current の修正役は修正案の欄を見ないので、見ていない案への準拠で裁かず、審査の準拠は
-    not_applicable・手直しに準拠の行を渡さない。修正の受け付けの範囲の照らし planscope.check の NO_PLAIN と同じ）。全部の
+    """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空）。全部の
     項目を番号のまま返し、裁定で外れた項目（conflict.held_item）には held（外した裁定の理由）を、単位の一部だけが外れた項目には
     held_units（conflict.held_units の {単位: 理由}）を足す。控えが
     凍結の印と食い違えば conflict.fields_broken の道（呼んだ段の印 by で盤面を止めて控えを名指す BoardGap。差分の審査の支度と
     受け付けは DELTA_BY、手直しの支度は REFIX_BY）"""
-    if fixshape.plain(b.dir):
-        return []
     try:
         items = planmarks.scoped_items(b) or []
     except planmarks.FieldsBroken as e:

@@ -4,7 +4,7 @@
   "blk-ci/blk-ci.yaml": "54be4671fc8ba18244c16e27a1da429abce8df6c2463598188347006237a99a7",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
   "blk-eyes/blk-eyes.yaml": "f696e307d4666bc8446d0525b94639eb79030a35c8c00ab0866307c3e4af88cc",
-  "blk-fix/blk-fix.yaml": "918442aaf7022fe28e7a130da1f53c226e03630b84ca343ec72effbd868bc8b9",
+  "blk-fix/blk-fix.yaml": "45bb00e85fd339f393f94205affe67c558ecaf0a3e3a5d5134cdfaf2e442d645",
   "blk-judge/blk-judge.yaml": "8e4e7a2fe79d6d6c8c7771379da6ffe42d284e7d991ba1986f78f7bd88fe4e6f",
   "blk-lens/blk-lens.yaml": "7ccf607bc1c0067e0628221ded92a715cb1f1568da802b11bb4df2c2326a167a",
   "blk-material/blk-material.yaml": "040fa977ff762ece754d50ed38ea9dee5d741771551d759b88005c5991f5b0e1",
@@ -12,12 +12,12 @@
   "blk-pr/blk-pr.yaml": "db7f159e61da185091e653d014aed1a7fd3f63855c6daafc9b1eff064c3b7d56",
   "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
   "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
-  "blk-refix/blk-refix.yaml": "5f45883e108c4e625d03087412fd3ee4ba4344b8e64d09fa4148a8e7f0c703a1",
+  "blk-refix/blk-refix.yaml": "c6a1ded23be9c036b9cb816e164b274370171bebb4e35e94643b9afeb6a7698d",
   "blk-rejudge/blk-rejudge.yaml": "539f1e4a310584d17bb3cf67a4e4f285911969a073637ab9ca9d1e9ac3c88b07",
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "895f3470e2ddebcf622a80d461dc0d42e0b7e50921eb0df944b28b87c8271047"
+  "darkfactory/darkfactory.yaml": "f47dc64997bb13a612b780c6130ef4d43215dc9ca8499796371c6b915cbdbf50"
  },
  "version": 1,
  "workflows": {

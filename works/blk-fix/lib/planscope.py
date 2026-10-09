@@ -65,7 +65,6 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import conflict  # noqa: E402
-import fixshape  # noqa: E402   平の run（修正の形 current）は照らさない
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
 import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
@@ -84,7 +83,6 @@ IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
 NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
 DOC = "__doc__"   # docstring の属性の名。字は自分の名を書かないので、adds は語でなく ast でも見る（_doc_added）
 NO_SCOPE = "範囲の欄の無い控え（217 番の形の盤面）"
-NO_PLAIN = "平の run（修正の形 current）——修正の段に修正案の欄を渡さない"
 
 
 def reject_head(ask: bool) -> str:
@@ -518,12 +516,9 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
     """盤面 b の承認済みの修正案の項目（planmarks.approved_items）と、版 rev からの変わったパス paths の版と今の中身を problems に
     渡す。テストの変更の許し（conflict.test_permits）を先に引く（欄の控えが凍結の印と食い違えば、そこで盤面を止めて BoardGap）。
     裁定の後（pass_ が ruled）は直す裁定（conflict.ruled_paths）のパスを permits に足す（裁定を受けた単位の全部は外さない）。
-    項目が無い・範囲の欄の無い控えなら照らさず ([], {"checked": False, "why": 理由})。平の run（fixshape.plain。比べの基準で、修正の段に修正案の欄を渡さない。
-    事後の関門の束も欄を読まない）も照らさない（NO_PLAIN）。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）。
+    項目が無い・範囲の欄の無い控えなら照らさず ([], {"checked": False, "why": 理由})。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）。
     loop_tree（TDD の輪が凍らせた時の木）と frozen（凍らせたファイル）を渡せば、凍った時の中身を problems の loop に渡す。
     範囲の相談の合意（conflict.agreed。agreed を渡せばその行）のパスをその項目の範囲に足す（with_agreed）"""
-    if fixshape.plain(b.dir):
-        return [], {"checked": False, "why": NO_PLAIN}
     permits = []
     agreed = conflict.agreed(b) if agreed is None else agreed
     for p in conflict.test_permits(b, rulings=False, agreed_rows=agreed):

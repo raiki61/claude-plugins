@@ -1,14 +1,14 @@
 """事後の関門の束（計画 220 Task 4。修正の受け付け fix-accept・fix-ruled-accept の最後の段）。
 
-TDD の輪の中にだけ在った 2 つの関門を、修正の形（fixshape）に依らず、base（修正前の版。writes.base_rev）から今の作業ツリーまでを
-相手にもう 1 度当てる。輪を飛ばす形（g1）・輪で direct に回った単位・輪の後の修正役が通した物も、ここで同じ決まりで見る。
+TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。writes.base_rev）から今の作業ツリーまでを相手にもう 1 度当てる。
+輪で direct に回った単位・輪の後の修正役が通した物も、ここで同じ決まりで見る。
 束が見つけた行は抜け（腕の中の流れが通したのに外側の関門で落ちた物）として帳面に積み、受け付けは行を全部並べて拒む。
 
 関門（GATES）:
 - red_green: 承認済みの修正案の欄（conflict.frozen_fields）の route が tdd の項目の受け入れのテスト tests[].id ごとに、今の木で
   一式を走らせて passed、base の木で failure で、赤の種類が輪と同じ決まり（tddloop.kind_problems: 宣言した名前の外の名前・import
   の失敗と、案が exception なのに断言の失敗を拒む。ほかの例外の型・unknown は通す。preflight F11）。宣言した名前は輪と同じく
-  テストを名指した項目の単位の約束の names（planmarks.unit_contract。単位の無い項目はその項目の adds）。平の run（fixshape.plain）・欄の無い run は
+  テストを名指した項目の単位の約束の names（planmarks.unit_contract。単位の無い項目はその項目の adds）。欄の無い run は
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
@@ -25,10 +25,9 @@ TDD の輪の中にだけ在った 2 つの関門を、修正の形（fixshape�
   （planmarks.rewrites）と、裁定 fix_test_scope の範囲（裁定の後の受け付けだけ。conflict.ruled_test_limits から修正案の行を
   外した物）の中だけを変えた関数。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
   含む関数の全体に広げ、`<行>-<行>` は書いたとおり（base との差分の塊の旧い側の行が範囲の外なら、その塊に掛かる関数は
-  許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部。平の run は修正の段に修正案の欄を渡さないので、
-  修正案の名指しを許しにしない（current の腕の比べの条件。preflight F15）
+  許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部
 
-帳面（LEDGER。今の周の作業ファイル）: {"rows": [{pass, attempt, shape, gate, id, detail, unit_keys}], "skipped": [{pass, attempt, why}]}。
+帳面（LEDGER。今の周の作業ファイル）: {"rows": [{pass, attempt, gate, id, detail, unit_keys}], "skipped": [{pass, attempt, why}]}。
 受け付けの回の印は (pass, attempt)（裁定の後の輪は回を 1 から数え直す）。2 回目の修正の段（依頼 226。同じブロックの 2 度目の
 include）の帳面と一式のログはその scope の周の置き場の物で、1 回目の段の物と分かれる。2 回目の修正の段（conflict.second_pass）の test_edits は、base からの
 差分に 1 回目の段で裁定 fix_test_scope の範囲として直したテストが在るので、裁定の範囲をいつも許す（受け付けの凍結の検査の前の輪と同じ）。最後の回の通し直し（accept_fix が自分を呼び直す）で
@@ -50,7 +49,6 @@ import tempfile
 
 import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直す義務・テストの変更の許し）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
-import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
 import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の関門の読み口をそのまま使う）
@@ -78,9 +76,8 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     b = entry.open_board(board_dir)
     repo = pathlib.Path(repo)
     rev = writes.base_rev(b, base_rev)
-    plain = fixshape.plain(board_dir)
     fields = conflict.frozen_fields(b)   # 先に読む（食い違いは BoardGap。下の planmarks.rewrites はもう投げない）
-    tests, gaps = ([], []) if plain else _accept_tests(b, fields)
+    tests, gaps = _accept_tests(b, fields)
     rows = []
     if tests and not suite:
         gaps.append(NO_SUITE)
@@ -88,8 +85,8 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
         got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b))
         rows += got
         gaps += why
-    rows += _test_edits(b, repo, rev, plain, pass_ == "ruled" or conflict.second_pass(b))
-    _record(b, _mark(pass_, attempt), fixshape.shape_at(board_dir), rows, gaps)
+    rows += _test_edits(b, repo, rev, pass_ == "ruled" or conflict.second_pass(b))
+    _record(b, _mark(pass_, attempt), rows, gaps)
     return rows
 
 
@@ -268,13 +265,13 @@ def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, w
         shutil.rmtree(td, ignore_errors=True)
 
 
-def _test_edits(b, repo: pathlib.Path, rev: str, plain: bool, ruled: bool) -> list[dict]:
+def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool) -> list[dict]:
     files = _test_files(repo, rev, tddloop.snapshot(repo))
     if not files:
         return []
     plan = [r["id"] for r in planmarks.rewrites(b) if isinstance(r.get("id"), str)]
     limits = conflict.ruled_test_limits(b, rulings=ruled, skip_ids=plan)   # 修正案の行を外した裁定の範囲（1 回目は空）
-    allowed = (set() if plain else set(plan)) | _ruled_ids(repo, rev, files, limits)
+    allowed = set(plan) | _ruled_ids(repo, rev, files, limits)
     return [_row("test_edits", i, EDITED) for i in tddloop.unnamed_edits(repo, rev, files, allowed)]
 
 
@@ -327,7 +324,7 @@ def _row(gate: str, test_id: str, detail: str, keys=()) -> dict:
     return {"gate": gate, "id": test_id, "detail": detail, "unit_keys": list(keys)}
 
 
-def _record(b, mark: dict, shape: str, rows: list, skipped: list) -> None:
+def _record(b, mark: dict, rows: list, skipped: list) -> None:
     """帳面に積む（同じ回の印・同じ中身の行と skipped は積み増さない）。積む物が無ければ書かない"""
     if not rows and not skipped:
         return
@@ -339,7 +336,7 @@ def _record(b, mark: dict, shape: str, rows: list, skipped: list) -> None:
     doc = {"rows": list(doc.get("rows") or []), "skipped": list(doc.get("skipped") or [])}
     before = (len(doc["rows"]), len(doc["skipped"]))
     for r in rows:
-        row = {**mark, "shape": shape, **r}
+        row = {**mark, **r}
         if row not in doc["rows"]:
             doc["rows"].append(row)
     for why in skipped:

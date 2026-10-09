@@ -32,7 +32,6 @@ import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import fixgates  # noqa: E402
 import fixmeasure  # noqa: E402
-import fixshape  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
@@ -122,7 +121,7 @@ def make_board(tmp, shape="af", items=2, fixture="run-src", *, start=None, calls
     board = art / "board"
     doc = start if start is not None else {"fix_shape": shape, **({"fixture": {"source_run": fixture, "manifest_sha256": "0" * 64,
                                                                               "at": "2026-10-02T00:00:00"}} if fixture else {})}
-    put(board / fixshape.START_REL, doc)
+    put(board / fixmeasure.fixture.START_REL, doc)
     if items:
         planmarks.save(board, 1, fields(items))
         if briefs:
@@ -286,11 +285,12 @@ class RowCase(unittest.TestCase):
         self.assertEqual(len(r["record_gaps"]), 1, r["record_gaps"])
         self.assertIn("tdd-lane-", r["record_gaps"][0])
 
-    def test_row_without_shape_record_is_a_gap(self):
+    def test_row_without_shape_record_is_g3(self):
+        """start の控えに形の鍵が無い盤面は、形が g3 だけになった後の盤面（入力 fix_shape を消した）: g3 と読み、欠けに数えない"""
         board = make_board(self.tmp, start={"test_cmd": ""})
         r = self.row(make_db(self.tmp), board)
-        self.assertEqual((r["shape"], r["fixture"]), ("af", ""))
-        self.assertTrue(any(fixshape.KEY in g for g in r["record_gaps"]), r["record_gaps"])
+        self.assertEqual((r["shape"], r["fixture"]), ("g3", ""))
+        self.assertFalse(any("fix_shape" in g for g in r["record_gaps"]), r["record_gaps"])
 
     def test_gaps_for_missing_loop_unit_and_brief(self):
         """tdd の項目の単位に輪の単位の行が無い・平の run でないのに欄が在って brief の控えが無い → 記録の欠け"""

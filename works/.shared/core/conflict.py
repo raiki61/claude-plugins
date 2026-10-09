@@ -25,7 +25,7 @@
 - brief_cite_problem(key, cites, repo, briefs, what, field): brief を誤りと言う物（申し出 brief_vs_judgment・裁定 fix_plan_item の
   grounds）が、その単位の brief の行を名指すかの確かめ（1 つの決まり）
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
-- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b)・
+- items(b)・unruled(b)・asked(b)・ruled_fix(b)・replaced_queries(b)・counts(b)・
   kind_counts(b): 読む口
 - held_by_rulings(b)・ruled_units(row): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定は、それが外す
   単位（申し出の単位と、fix_plan_item ならその項目に載る単位の全部）を直させない」の 1 つ
@@ -47,7 +47,7 @@
   文で盤面を止めて BoardGap
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
   テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
-- fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
+- fix_duty(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
   出どころ・depends と held_by_rulings）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
 - ruled_limits(b, decisions=): 直す裁定の範囲 limits を (申し出の行, 範囲) で並べる唯一の読み口（test_permits と blk-fix の
@@ -57,7 +57,7 @@
 - human_lines(b): 最後の関所と報告に載せる ask_human の行（諦めた fix_plan_item の行も。案の直しの理由を末尾に添える）
 - 案の直しの状態（依頼 226。裁定 fix_plan_item の行の欄 REPLAN_STATE）: apply_rulings が WAITING に置き、set_replan の 1 か所だけが
   AMENDED（項目を直した。held_by_rulings が外さず直す義務に戻す）か GAVE_UP（諦めた。asked に入り ask_human の行として並ぶ）に
-  移す（trace の行 REPLAN_OP）。欄の無い前の形の行は WAITING と読む。読む口は replan_state(row)・waiting(b)・amended_keys(b)
+  移す（trace の行 REPLAN_OP）。読む口は replan_state(row)・waiting(b)・amended_keys(b)
 - 1 回目に受け付けた返答の控え（HELD_REPLY。待つ単位が在る間、受け付けが盤面に渡さずに置いた返答で、役の bash_writes を残す）:
   held_reply(b)（今の周に p3.fix を受ける前だけ読む）・accepted_units(b)（fix_duty が直す義務から外す）・held_writes(b)・
   with_held(b, reply, as_handed=)（2 回目の返答に単位ごとに合わせる）・handed(held)（盤面に渡す形）。控えの changes は役が書いた形
@@ -130,7 +130,7 @@ FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmar
 FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by FIELDS_STOP_BY）の止めの文
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 # 案の直しの状態（裁定 REPLAN の行の欄。依頼 226）。WAITING → AMENDED か GAVE_UP の 2 つの移りだけ（set_replan）
-REPLAN_STATE = "replan"                 # 裁定の行の欄（欄の無い前の形の REPLAN の行は WAITING と読む）
+REPLAN_STATE = "replan"                 # 裁定の行の欄（apply_rulings が REPLAN の行に必ず置く）
 WAITING = "waiting"                     # 案の直しを待つ（単位は直す義務の外）
 AMENDED = "amended"                     # 項目を直した（単位は直す義務に戻る）
 GAVE_UP = "gave_up"                     # 諦めた（ask_human の行として最後の関所と次の run の依頼に届く）
@@ -424,16 +424,11 @@ def ruled_fix(b) -> list:
     return [i for i in items(b) if (i.get("ruling") or {}).get("decision") in FIX_DECISIONS]
 
 
-def asked_keys(b) -> set:
-    return {i["unit_key"] for i in asked(b)}
-
-
 def replan_state(row) -> str | None:
-    """裁定が fix_plan_item の行の案の直しの状態（欄 REPLAN_STATE。欄の無い前の形の行は WAITING）。ほかの裁定・裁いていない
-    行は None"""
+    """裁定が fix_plan_item の行の案の直しの状態（欄 REPLAN_STATE）。ほかの裁定・裁いていない行は None"""
     if (row.get("ruling") or {}).get("decision") != REPLAN:
         return None
-    return row.get(REPLAN_STATE) or WAITING
+    return row[REPLAN_STATE]
 
 
 def waiting(b) -> list:
@@ -690,7 +685,7 @@ NOTHING_OWED = ("直す義務の単位が残っていない——開いた単位
 def fix_duty(b) -> tuple:
     """(直す義務 owed_units_but_asked, 直す義務から外れた単位 {key: 理由})。外れた単位は、答えていない fork・escalate の問いの
     出どころ・depends（gatemarks.withheld_by。理由はそこが組にした問い）と、直す裁定でない裁定を受けた単位（held_by_rulings。
-    理由はその裁定）。owed と互いに素で、owed ∪ 外れた単位は gatemarks.fixable を覆う（写しの RL の _owed_units が外す fork の
+    理由はその裁定）。owed と互いに素で、owed ∪ 外れた単位は今の周に開いた単位（検証器の is_open）と関所で答えて戻した単位（gatemarks.returned）を覆う（写しの RL の _owed_units が外す fork の
     出どころは withheld か returned に在る。withheld は開いていない単位も含みうる）。1 単位が withheld と裁定の両方に当たれば
     裁定の理由。控えが読めなければ裁定の単位を外さない（owed_units_but_asked と同じ側）。
     1 回目に受け付けた返答の控え（held_reply）が在れば、その単位（accepted_units）を直す義務から引き、理由 ACCEPTED_WHY で外れた
@@ -755,11 +750,10 @@ def held_writes(b) -> list:
 
 
 def handed(held: dict) -> dict:
-    """控え（held_reply の 1 つ目）の盤面に渡す形: works だけの欄（bash_writes・HANDED）を外し、changes を渡す形の行（HANDED）に
-    した写し。HANDED の無い前の形の控えは changes が渡す形なので、そのまま"""
+    """控え（held_reply の 1 つ目）の盤面に渡す形: works だけの欄（bash_writes・HANDED）を外し、changes を渡す形の行（HANDED。
+    控えを書く blk-fix の受け付けが必ず置く）にした写し"""
     out = {k: v for k, v in held.items() if k not in _HELD_EXTRA}
-    if HANDED in held:
-        out["changes"] = list(held[HANDED])
+    out["changes"] = list(held[HANDED])
     return out
 
 
@@ -779,13 +773,8 @@ def with_held(b, reply: dict, *, as_handed: bool = False) -> dict:
     return out
 
 
-def excused_units(b) -> dict:
-    """直す義務から外れた単位 {key: 理由}（fix_duty の 2 つ目）"""
-    return fix_duty(b)[1]
-
-
 def nothing_owed_but_excused(b) -> dict:
-    """直す義務（owed_units_but_asked）が空で、外れた単位（excused_units）が 1 件以上ある盤面なら外れた単位 {key: 理由}
+    """直す義務（owed_units_but_asked）が空で、外れた単位（fix_duty の 2 つ目）が 1 件以上ある盤面なら外れた単位 {key: 理由}
     （空の changes が正しい返答）。違う・読めなければ空（止める側。義務も外れた単位も無い退化した盤面も止める）"""
     try:
         owed, excused = fix_duty(b)
