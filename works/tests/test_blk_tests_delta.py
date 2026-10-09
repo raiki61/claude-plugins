@@ -771,7 +771,8 @@ class TestDeltaBoard(RF.DeltaBoardCase):
                 "which_is_right": "request", "kind": "scope_needed", "round": b.round, "source": "fix", "status": "ruled"}
         rows = [{**base, "id": "c1-1", "unit_key": RF.K2,
                  "ruling": {"decision": "fix_plan_item", "text": "案の項目 2 の範囲が誤り", "limits": [], "by": "x",
-                            conflict.PLAN_ITEMS: [2], conflict.PLAN_UNITS: [RF.K2]}},
+                            conflict.PLAN_ITEMS: [2], conflict.PLAN_UNITS: [RF.K2]},
+                 conflict.REPLAN_STATE: conflict.WAITING},   # apply_rulings が fix_plan_item の行に置く状態
                 {**base, "id": "c1-2", "unit_key": RF.K1,
                  "ruling": {"decision": "fix_code_as", "text": "式を定義どおりに直す", "limits": ["test_stats.py:3"], "by": "x"}}]
         b.work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
