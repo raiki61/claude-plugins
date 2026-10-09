@@ -185,10 +185,10 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `stop-reasons` 止めの理由
 
 - 状態: 住処あり
-- 住処: `.shared/core/stopby.py`（層 L1。標準ライブラリだけ。機械の語の頭 `HEAD`（`works:`）と頭の読み `is_line`、core が書く語と 2 つ以上の持ち主が共に書く語の表 `REASONS`（名 → 意味）とその定数 `ADAPTER`・`FIX` など、ブロックとラインが自分だけの語を足す口 `declare`（表の名・別の意味で足された名を拒む）と `declared`）
+- 住処: `.shared/core/stopby.py`（層 L1。標準ライブラリだけ。機械の語の頭 `HEAD`（`works:`）と頭の読み `is_line`、決まりが core に在る段の語と 2 つ以上の持ち主が共に書く語の表 `REASONS`（名 → 意味）とその定数 `ADAPTER`・`FIX` など、ブロックとラインが自分だけの語を足す口 `declare`（表の名・別の意味で足された名を拒む）と `declared`）
 - 約束: 語の字は盤面の `state.stop.by`・答えを待つ `process.human_items` の行の `node`・裁定の `by`・trace の行の `by` に残るので変えない（寄せる前の字の一覧を `tests/test_stopby.py` が縛る）。報告の結末の口 `.shared/core/report.py` の `stop_outcome` は `is_line` の語を `stopped_by_line` と読む
 - 知ってよい所: 住処だけ。core の書き手は住処の定数を引き、自分の定数に写さない。ブロックとラインの自分だけの語は `declare("名", "意味")` で足して返りを自分の定数に置く（例 `blk-eyes/lib/eyes.py` の `STOP_BY`・`darkfactory/lib/line_edge.py` の `PROTECTED_BY`。ほかのブロックの語は引かない）
-- 今: 寄せる前は 24 の `.py` が 35 行で語を字のまま持ち、同じ語を重ねて持っていた（`works:adapter` は 4 か所、`works:fix` は 3 か所。線は前提と目的の語を別の名の定数に写していた）。柵は語の字（`"works:<名>"`・頭の `"works:"`・f-string の頭）と、住処の定数を別の名に写す形（`X = stopby.ADAPTER`・`from stopby import`）を見る。人の止め（`human:`・`request:`・`answer`）は人の関所の考え `human-gates` の物で、ここには入れない
+- 今: 寄せる前は 24 の `.py` が 35 行で語を字のまま持ち、同じ語を重ねて持っていた（`works:adapter` は 4 か所、`works:fix` は 3 か所。線は前提と目的の語を別の名の定数に写していた）。柵は語の字（`"works:<名>"`・頭の `"works:"`・f-string の頭）と、住処の定数を別の名に写す形（`X = stopby.ADAPTER`・`from stopby import`・`import stopby as`）を見る。人の止め（`human:`・`request:`・`answer`）は人の関所の考え `human-gates` の物で、ここには入れない
 
 ---
 

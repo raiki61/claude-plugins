@@ -125,7 +125,7 @@
    "id": "fx5",
    "title": "assert-changed が通らない時に run を落とさず盤面を止める（R50。run 26）",
    "file": "blk-fix/scripts/assert_changed.py",
-   "old": "            b.stop(reason, by=STOP_BY)",
+   "old": "            b.stop(reason, by=stopby.FIX)",
    "new": "            pass",
    "tests": {
     "tests/test_blk_fix.py": [

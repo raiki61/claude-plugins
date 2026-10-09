@@ -420,7 +420,7 @@
     },
     {
      "what": "住処の定数を別の名に写す",
-     "pattern": "^\\s*[A-Z][A-Z0-9_]*\\s*=\\s*stopby\\.[A-Z]|^\\s*from stopby import",
+     "pattern": "^\\s*[A-Z][A-Z0-9_]*\\s*=\\s*stopby\\.[A-Z]|^\\s*from stopby import|^\\s*import stopby as",
      "allowed": [
       ".shared/core/stopby.py"
      ],

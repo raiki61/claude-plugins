@@ -83,7 +83,7 @@ class YamlCase(unittest.TestCase):
         """止めた盤面の by はラインの h-judge と同じ 1 つの値（止めの理由の住処の stopby.PREMISES を引く。字で写さない）"""
         for path in (ROOT / "darkfactory" / "lib" / "line_edge.py", BLK / "scripts" / "collect.py"):
             text = path.read_text(encoding="utf-8")
-            self.assertIn("stopby.PREMISES", text, path)
+            self.assertIn("by=stopby.PREMISES)", text, path)   # 止める呼び出しが住処の定数を引く
             self.assertNotIn(stopby.PREMISES, text, path)
 
     def test_graph_node_names_the_rule(self):

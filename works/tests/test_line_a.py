@@ -275,7 +275,6 @@ class LineCase(LineBase):
     def test_failed_lens_collector_stops_run(self):
         """集め役そのものが落ちたら、ブロックの境が盤面を止め（by works:lens）、差分の審査は走らず、手直しの境の節は stop。
         報告は stopped_by_line で、止めた理由を出す"""
-        import lens
         r = replies()
         r["lens-collect"] = "fail"
         got = self.run_line(replies=r)
@@ -781,7 +780,6 @@ class RefixToTestsCase(LineBase):
     def test_objection_without_session_stops(self):
         """異議あり・判定役の会話が無い（包みを通らない run）→ h-rejudge が役を起こさずに盤面を止め（by works:rejudge-session）、
         後ろのブロックは飛び、報告は stopped_by_line（record_invalid にならない）。次の依頼の下書きに異議の文"""
-        import rejudge
         r = replies()
         r["fix"] = {**r["fix"], "rejudge_requested": OBJECTION}
         got = self.run_line(replies=r, inputs={"test_cmd": TEST_CMD})

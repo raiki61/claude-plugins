@@ -41,7 +41,6 @@ import halt  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import report  # noqa: E402
-import scopes  # noqa: E402
 import protect  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
 
@@ -778,7 +777,6 @@ class RejudgeEdgeCase(EdgeBase):
 
     def test_rejudge_edge_stop(self):
         """異議あり・判定役の会話なし → stop True・go False、盤面は by works:rejudge-session で止まり、p2.rejudge を起こさない"""
-        import rejudge
         self.objected()
         got = self.edge("rejudge")
         self.assertEqual((got["go"], got["stop"]), (False, True), got)

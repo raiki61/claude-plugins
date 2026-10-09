@@ -86,7 +86,7 @@ class YamlCase(unittest.TestCase):
         """止めた盤面の by はラインの h-mat と同じ 1 つの値（止めの理由の住処の stopby.PURPOSE を引く。字で写さない）"""
         for path in (ROOT / "darkfactory" / "lib" / "line_edge.py", ROOT / "blk-purpose" / "scripts" / "collect.py"):
             text = path.read_text(encoding="utf-8")
-            self.assertIn("stopby.PURPOSE", text, path)
+            self.assertIn("by=stopby.PURPOSE)", text, path)   # 止める呼び出しが住処の定数を引く
             self.assertNotIn(stopby.PURPOSE, text, path)
 
     def test_purpose_output_format_matches_role_schema(self):
