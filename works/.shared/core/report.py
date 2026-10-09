@@ -118,6 +118,7 @@ def without_first_round_line(v: dict) -> dict:
         else:
             del lines[k]
     return {**v, "out": "\n".join(lines)}
+MATERIAL_ROW = "素材 '{}' が"   # 写しの検証器の blockers が測れていない素材の行に付ける頭（未実施・人の起動待ち）
 UNIT_ROW_HEADS = ("[block] 未解消", "[suggest] do-now 未対応")   # 写しの検証器の blockers が単位の行に付ける頭
 EYES = ("R1", "R2", "R3", "R4")
 VALIDATOR_WHERE = "検証器の阻害"   # residue の行の where（次の run の依頼にも同じ字で渡す）
@@ -514,7 +515,8 @@ def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "
 
 def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = None) -> list:
     """fixed を名乗らせない残りの行（字のまま冒頭 1 と次の run の依頼に出す）: 検証器の阻害（exit 1 の箇条から名指しの帳尻の行
-    FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行だけを除いた物。読めなければ fail-closed で 1 行）と、
+    FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行と、依頼の answers が命令と出力つきで答えた測れていない素材の行
+    （gatemarks.measured_materials。人が手元で確かめた物として冒頭 1 の答えた行に並ぶ）だけを除いた物。読めなければ fail-closed で 1 行）と、
     検証器の外の残り（rest_outside_validator。最後のテストが緑でない・走れなかった（tests が None＝飛ばされた時は数えない）・
     独立の目（blk-eyes の出口）が ok でない・目の阻害と走っていない目と結果が無い目）。返りは [{where, text}]"""
     rows = []
@@ -524,8 +526,10 @@ def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = N
             rows.append({"where": VALIDATOR_WHERE, "text": "検証器の出力を読めない（exit 1。見出しか箇条の数が合わない）"})
         else:
             closed = _closed_units(b)
+            checked = gatemarks.measured_materials(b)
             rows += [{"where": VALIDATOR_WHERE, "text": x} for x in found
-                     if x != FIRST_ROUND_LINE and not any(_unit_row_of(x, k) for k in closed)]
+                     if x != FIRST_ROUND_LINE and not any(_unit_row_of(x, k) for k in closed)
+                     and not any(x.startswith(MATERIAL_ROW.format(n)) for n in checked)]
     counts, problem = EyeCounts([], [], []), ""
     if isinstance(eyeing, dict):
         counts = eye_counts(b, eyeing.get("reviews"))

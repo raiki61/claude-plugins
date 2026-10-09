@@ -48,6 +48,10 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   continue と同じく答えた扱い。出どころで複数の問いに当たる答えはどれにも答えない）・答えの名乗りの文・答えた行に載らない答えの行
   （台帳のどの問いにも当たらない・複数の問いに当たった・決着済みの問いに当たった。報告の冒頭と最後の関所が名指す。保留の件数に数えない）。
   ANSWERED_HEAD は答えた行の見出し、ANSWER_HOW は保留の行の下に出す答え方の 1 行
+- unmeasured(b)・origin_of(b, q)・material_answer(b, name)・measured_materials(b)・material_lines(b): 今の周に測れていない素材
+  （not_run・awaiting_human）・答えを結ぶ時の問いの出どころ（台帳の origin。origin を持てない field の問いは、key の頭の測れていない
+  素材の名）・素材の名で答えた依頼の答え（問いが立っていなくても当たる）・命令と出力つきで答えた素材（報告が検証器の阻害から外す。
+  HAND_CHECKED と名乗る）・答えた行に足す素材の行（利用者の声 10-09 の C2）
 - design_only(b)・design_item(b): 設計だけの run か・関所に載せる設計だけの行（載せなければ空）
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
@@ -144,6 +148,7 @@ KEY_CHAR = re.compile(r"[A-Za-z0-9_-]")   # 台帳の key の一致の前後に�
 HOLD_ITEM = re.compile(r"(?:^|[・、,，])\s*([A-Za-z0-9_-]*[A-Za-z0-9][A-Za-z0-9_-]*)")   # 「保留:」に並べた項の頭の key らしい並び
 START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
 ANSWERED_HEAD = "答えた問い（関所の continue か依頼の answers）"   # 答えた行（answered_lines）の見出し（報告の冒頭と最後の関所）
+HAND_CHECKED = "人が手元で確かめた（実測とは書かない）"   # 命令と出力つきの依頼の答えが当たった測れていない素材の名乗り
 ANSWER_HOW = ('答え方: 次の run の依頼を {"findings": [...], "answers": [{"question": "<問いの key か出どころ>", "text": "<答え>"}]} '
               'の形にすれば、その問いを人に聞き直さない（手元で測ったなら "command" と "output" も書く）')
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
@@ -517,13 +522,70 @@ def request_answers(b) -> list:
     return [a for a in rows if isinstance(a, dict)] if isinstance(rows, list) else []
 
 
+def unmeasured(b) -> dict:
+    """今の周に測れていない素材 {名: status}: 記録の素材のうち、写しの検証器の表 STATUS で阻害になる status（not_run・
+    awaiting_human）の物。記録に素材が無ければ空"""
+    mats = (getattr(b, "record", None) or {}).get("materials")
+    if not isinstance(mats, dict) or not mats:
+        return {}
+    table = b.rules.validator_module(b).STATUS
+    return {n: m["status"] for n, m in mats.items()
+            if isinstance(m, dict) and m.get("status") in table and table[m["status"]].blocks}
+
+
+def origin_of(b, q) -> str:
+    """答えを結ぶ時の問いの出どころ: 台帳の origin。origin が空の問い（field は写しの型で origin を持てない）で、key が今の周に
+    測れていない素材の名で始まる（名の直後が終わりか KEY_CHAR でない字）物は、その素材の名（機械が読む出どころ。台帳は変えない。
+    判定役は素材から立てる問いの key を素材の名で始める——利用者の run 8cb2ee00 の key「parallel_pr: …」）"""
+    got = q.get("origin")
+    if isinstance(got, str) and got:
+        return got
+    key = str(q.get("key") or "")
+    return next((n for n in unmeasured(b)
+                 if key.startswith(n) and not KEY_CHAR.match(key[len(n):len(n) + 1])), "")
+
+
 def _hits(b, a) -> list:
-    """依頼の答え a が当たる台帳の問い: question と key が字のまま等しい問いが在ればそれだけ、無ければ出どころ origin が等しい
+    """依頼の答え a が当たる台帳の問い: question と key が字のまま等しい問いが在ればそれだけ、無ければ出どころ（origin_of）が等しい
     問いの全部（同じ単位の fork と escalate のように複数に当たることがある）"""
     qs = [q for q in b.record.get("questions") or [] if isinstance(q, dict)]
     name = a.get("question")
     by_key = [q for q in qs if isinstance(q.get("key"), str) and q.get("key") and q.get("key") == name]
-    return by_key or [q for q in qs if isinstance(q.get("origin"), str) and q.get("origin") and q.get("origin") == name]
+    return by_key or [q for q in qs if name and origin_of(b, q) == name]
+
+
+def _measured(a: dict) -> bool:
+    """命令と出力の両方を持つ答え（人が手元で測った。依頼の入口が片方だけを拒む）"""
+    return bool(_squeeze(a.get("command")) and _squeeze(a.get("output")))
+
+
+def material_answer(b, name: str):
+    """依頼の答えのうち question が今の周に測れていない素材の名 name の最初の物（無ければ None）"""
+    if name not in unmeasured(b):
+        return None
+    return next((a for a in request_answers(b) if a.get("question") == name), None)
+
+
+def measured_materials(b) -> set:
+    """依頼の答えが命令と出力つきで答えた、今の周に測れていない素材の名（報告が検証器の阻害から外す。計画 request-answers の
+    決め 4 を、命令と出力の在る答えに限って測れなかった素材の代わりにする——実測とは書かず、人が手元で確かめたと名乗る）"""
+    if not request_answers(b):
+        return set()
+    return {n for n in unmeasured(b) if (a := material_answer(b, n)) is not None and _measured(a)}
+
+
+def material_lines(b) -> list:
+    """答えた行（answered_lines）に足す、依頼の答えが当たった測れていない素材の行（1 素材 1 行）。命令と出力が無い答えは、測りの
+    代わりにしないと言う"""
+    out = []
+    for n, st in unmeasured(b).items() if request_answers(b) else ():
+        a = material_answer(b, n)
+        if a is None:
+            continue
+        how = (f"{HAND_CHECKED}。検証器の阻害に数えない" if _measured(a)
+               else "command と output が無いので測りの代わりにせず、測れていないまま残りに数える")
+        out.append(f"素材 {n}（{st}）: {how}——{answer_note(a)}")
+    return out
 
 
 def request_answer(b, q):
@@ -624,6 +686,8 @@ def unmatched_answer_lines(b) -> list:
     out = []
     for a in request_answers(b):
         hits, note = _hits(b, a), answer_note(a)
+        if not hits and a.get("question") in unmeasured(b):   # 問いの無い測れていない素材に当たった（material_lines が並べる）
+            continue
         if not hits:
             out.append(f"依頼の答えに当たる問いが台帳に無い（判定が問いを立てなかったか、字が違う）: {a.get('question')}——{note}")
         elif len(hits) > 1:
@@ -788,7 +852,7 @@ def answered_lines(b) -> list:
     """held_lines と同じ所に別の見出し（ANSWERED_HEAD）で並べ、保留の件数に数えない行: 関所で continue を受けたか、依頼の
     answers が答えた台帳の問い（印は答えの出どころを名乗る）"""
     return [_ledger_line(q, "・" + answer_note(a) if (a := request_answer(b, q)) is not None else "・関所で continue を受けた")
-            for q in _asking(b) if _gate_answered(b, q)]
+            for q in _asking(b) if _gate_answered(b, q)] + material_lines(b)
 
 
 def _keep(b, row: dict) -> None:

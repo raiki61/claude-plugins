@@ -36,13 +36,14 @@ class GateBase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.tmp = pathlib.Path(self._tmp.name)
 
-    def gate(self, narrows=(), faces=(), questions=(), units=()):
-        """差し替えを当てた写しの RL で p2.human_gate を回す。(返り, 偽の盤面)"""
+    def gate(self, narrows=(), faces=(), questions=(), units=(), materials=None):
+        """差し替えを当てた写しの RL で p2.human_gate を回す。(返り, 偽の盤面)。materials は記録の素材 {名: {status, reason}}"""
         outs = {"p2.fix_plan": {"plan": [{"unit_keys": ["u"], "narrows": list(narrows)}]},
                 "p2.plan_review": {"faces": list(faces)}}
         b = types.SimpleNamespace(
             round=1, dir=self.tmp, loop_state={},
-            record={"process": {"human_items": [], "policy": {}}, "questions": list(questions), "units": list(units)},
+            record={"process": {"human_items": [], "policy": {}}, "questions": list(questions), "units": list(units),
+                    "materials": dict(materials or {})},
             # 名指しした方針の文書が無い: 固定した版（無し）から変わっていない
             state={"inputs": {"policy_md": str(self.tmp / "no-policy.md"), "cwd": str(self.tmp)}, "works": {},
                    "validator": str(board.VALIDATOR_PATH), "graph": str(board.GRAPH_PATH)},
@@ -746,6 +747,69 @@ class RequestAnswersCase(GateBase):
         self.assertIn("依頼者の答え: 無い", line)
         for text in (self.final_text(b), self.head(b)):
             self.assertIn("決着済みの問いに当たった答え", text)
+
+
+
+PR_NOT_RUN = {"parallel_pr": {"status": "not_run", "reason": "sandbox が api.github.com への通信を拒んだ"}}
+# 利用者の run 8cb2ee00 の判定役が立てた問いの形（field は写しの型で origin を持てない。key の頭が素材の名）
+FIELD_PR = {"key": "parallel_pr: 対象の 3 ファイルを触る並行のオープン PR を確かめていない", "kind": "field", "status": "held",
+            "reason": "素材の parallel_pr は not_run。測り方: `gh pr list --state open`"}
+MEASURED = {"question": "parallel_pr", "text": "同じ所を触る PR は無い", "command": "gh pr list --state open --json files",
+            "output": "[]"}
+
+
+class MaterialAnswersCase(GateBase):
+    """依頼の answers の question が、今の周に測れていない素材（not_run・awaiting_human）の名なら、その素材から立った問いと素材に
+    当たる（計画 request-answers の決め 2 の出どころ。利用者の声 10-09 の C2）"""
+    final_text, head = LedgerAsksCase.final_text, LedgerAsksCase.head
+    answers = RequestAnswersCase.answers
+
+    def test_field_question_named_by_material_is_answered_by_material_name(self):
+        """origin を持てない field の問いでも、key の頭が測れていない素材の名なら、機械はその素材を出どころと読んで答えを結ぶ"""
+        self.answers({"question": "parallel_pr", "text": "並行する PR は無い"})
+        _, b = self.gate(questions=[FIELD_PR], units=UNITS, materials=PR_NOT_RUN)
+        self.assertEqual(gatemarks.held_lines(b), [])
+        self.assertIn("依頼者の答え: 並行する PR は無い", "\n".join(gatemarks.answered_lines(b)))
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+        self.assertEqual(gatemarks.origin_of(b, FIELD_PR), "parallel_pr")
+
+    def test_key_prefix_needs_a_word_boundary_and_an_unmeasured_material(self):
+        """key の頭が素材の名でも、名の字が続く（別の名の断片）か、素材が測れている（clean）なら出どころと読まない"""
+        for name, q, mats in (("名の断片", {**FIELD_PR, "key": "parallel_prs の確かめ"}, PR_NOT_RUN),
+                              ("測れた素材", FIELD_PR, {"parallel_pr": {"status": "clean", "reason": "交差なし"}})):
+            with self.subTest(name):
+                _, b = self.gate(questions=[q], units=UNITS, materials=mats)
+                self.assertEqual(gatemarks.origin_of(b, q), "")
+
+    def test_answer_to_material_without_question_is_not_unmatched(self):
+        """判定役が問いを立てなかった素材にも、素材の名の答えは当たる（利用者の run f6eaf0a0）。命令と出力が無ければ測りの代わりに
+        しない（決め 4）"""
+        self.answers({"question": "parallel_pr", "text": "並行する PR は無い"})
+        _, b = self.gate(units=UNITS, materials=PR_NOT_RUN)
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+        self.assertEqual(gatemarks.measured_materials(b), set())
+        line = "\n".join(gatemarks.answered_lines(b))
+        self.assertIn("素材 parallel_pr", line)
+        self.assertIn("依頼者の答え: 並行する PR は無い", line)
+        self.assertNotIn(gatemarks.HAND_CHECKED, line)
+
+    def test_measured_answer_closes_the_material_as_hand_checked(self):
+        """命令と出力つきの答えは、素材を『人が手元で確かめた（実測とは書かない）』にし、報告の冒頭と最後の関所に名乗って並べる"""
+        self.answers(MEASURED)
+        _, b = self.gate(questions=[FIELD_PR], units=UNITS, materials=PR_NOT_RUN)
+        self.assertEqual(gatemarks.measured_materials(b), {"parallel_pr"})
+        for name, text in (("最後の関所", self.final_text(b)), ("報告の冒頭", self.head(b))):
+            with self.subTest(name):
+                self.assertIn(gatemarks.HAND_CHECKED, text)
+                self.assertIn("gh pr list --state open --json files", text)
+                self.assertNotIn("依頼の答えに当たる問いが台帳に無い", text)
+
+    def test_answer_to_measured_material_is_still_unmatched(self):
+        """測れている素材（clean）の名の答えは素材に当てない（答えは要らなかった。黙って捨てずに名指す）"""
+        self.answers(MEASURED)
+        _, b = self.gate(units=UNITS, materials={"parallel_pr": {"status": "clean", "reason": "交差なし"}})
+        self.assertEqual(gatemarks.measured_materials(b), set())
+        self.assertIn("parallel_pr", "\n".join(gatemarks.unmatched_answer_lines(b)))
 
 
 if __name__ == "__main__":

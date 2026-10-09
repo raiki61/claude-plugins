@@ -535,6 +535,24 @@ class ResidueOutcomeCase(unittest.TestCase):
         put_fix(self.b, {"changes": [{"unit_key": key}]})
         self.assertEqual(report.residue(self.b, gate(1, validator_out(row, FIRST_ROUND))), [])
 
+    def test_hand_checked_material_leaves_residue(self):
+        """依頼の answers が命令と出力つきで答えた測れていない素材の検証器の行は、残りに数えない（人が手元で確かめた。
+        利用者の声 10-09 の C2）。命令の無い答えの素材と、答えの無い素材の行は残す"""
+        import board
+        (self.b.dir / "r1").mkdir()
+        (self.b.dir / "r1" / "start.json").write_text(json.dumps({"answers": [
+            {"question": "parallel_pr", "text": "無い", "command": "gh pr list", "output": "[]"},
+            {"question": "main_path_observation", "text": "手で動かした"}]}, ensure_ascii=False), encoding="utf-8")
+        self.b.record = {"questions": [], "materials": {
+            "parallel_pr": {"status": "not_run", "reason": "網"}, "main_path_observation": {"status": "not_run", "reason": "資格"},
+            "prior_decisions": {"status": "awaiting_human", "reason": "洗えない"}}}
+        self.b.state = {**self.b.state, "validator": str(board.VALIDATOR_PATH)}
+        self.b.rules = board.rules_module()
+        rows = ["素材 'parallel_pr' が未実施: 網", "素材 'main_path_observation' が未実施: 資格",
+                "素材 'prior_decisions' が人の起動待ち: 洗えない"]
+        got = report.residue(self.b, gate(1, validator_out(*rows, FIRST_ROUND)))
+        self.assertEqual([r["text"] for r in got], rows[1:])
+
     def test_first_round_constant_matches_validator(self):
         """除く帳尻の行の定数は、写しの検証器の本文に字のまま在る（写しが変われば赤になり、黙って除かない）"""
         const = getattr(report, "FIRST_ROUND_LINE", None)
