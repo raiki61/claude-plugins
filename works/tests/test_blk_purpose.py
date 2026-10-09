@@ -178,7 +178,10 @@ class YamlCase(unittest.TestCase):
         text = (BLK / "commands" / "purpose.md").read_text(encoding="utf-8")
         # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す。裁定 R44）。パスだけを貼って Read させる
         self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.purpose-accept.output.reason_file"])
-        for needle in ("$INPUTS.request", "$INPUTS.constraints_file", "$LOOP_PREV.purpose-accept.output.reason_file",
+        # 依頼は intake が前の run の判断（prior_failures）を外した写しのパスで渡す（生の依頼のパスを役に見せない）
+        self.assertNotIn("$INPUTS.request", text)
+        self.assertNotIn("prior_failures", text, "役は前の run の判断の欄の名も知らない（機械が外す）")
+        for needle in ("$intake.output.request", "$INPUTS.constraints_file", "$LOOP_PREV.purpose-accept.output.reason_file",
                        "①PR 説明", "②計画・タスク記述", "③writer の要約", "目的不明",
                        "source_files", "known_weaknesses", "判定役", "2 周空転", "実測 2026-09-13", "仮説"):
             with self.subTest(needle):
@@ -299,6 +302,35 @@ class ScriptCase(unittest.TestCase):
         r = self.run_script("intake", INPUTS_CONSTRAINTS_FILE="")
         self.assertEqual(r.returncode, 2)
         self.assertIn("INPUTS_REQUEST", r.stderr)
+
+    def test_purpose_never_sees_prior_failures(self):
+        """目的の役に渡す依頼は、前の run の判断（prior_failures）を外した写し（目的の文は前の run の判断を知らない別の目の入力
+        になる。指示書の頼みでなく機械で外す）。ほかの欄は字のまま残し、元の依頼のファイルは変えない"""
+        doc = {"findings": [{"where": "stats.py", "text": "mean を直す"}], "pr": [3],
+               "prior_failures": [{"where": "受け付け", "text": "PRIOR-JUDGMENT-MARK 前の run の拒否"}]}
+        src = self.tmp / "outside" / "req-prior.json"
+        src.parent.mkdir()
+        raw = json.dumps(doc, ensure_ascii=False)
+        src.write_text(raw, encoding="utf-8")
+        r = self.intake(request=str(src))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        given = json.loads(r.stdout)["request"]
+        self.assertNotEqual(pathlib.Path(given).resolve(), src.resolve())
+        text = pathlib.Path(given).read_text(encoding="utf-8")
+        self.assertNotIn("prior_failures", text)
+        self.assertNotIn("PRIOR-JUDGMENT-MARK", text)
+        self.assertEqual(json.loads(text), {"findings": doc["findings"], "pr": [3]})
+        self.assertEqual(src.read_text(encoding="utf-8"), raw)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")   # 写しは盤面に置く（対象の作業ツリーを汚さない）
+
+    def test_intake_passes_request_without_prior_failures_as_is(self):
+        """前の run の判断を持たない依頼（配列の形・欄の無い object）は、そのパスのまま渡す"""
+        r = self.intake()
+        self.assertEqual(json.loads(r.stdout)["request"], "request_ok.json")
+        (self.repo / "req-obj.json").write_text(json.dumps({"findings": [{"where": "a", "text": "b"}]}), encoding="utf-8")
+        r = self.intake(request="req-obj.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["request"], "req-obj.json")
 
     def test_intake_refuses_when_purpose_is_frozen(self):
         # graph の once: 目的の文は 1 度だけ固める。盤面に在れば役を起こさない

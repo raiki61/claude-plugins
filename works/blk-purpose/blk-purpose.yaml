@@ -30,7 +30,8 @@ outcome_field: ok
 
 nodes:
   # 目的が凍っていないか・依頼が読めるか・前提の実測が写しの規則に通るかを見て、作業ツリーの写しを盤面に置く。
-  # 通らなければ終了コード 1 で run を止める（AI を起こす前に止める）
+  # 通らなければ終了コード 1 で run を止める（AI を起こす前に止める）。依頼が前の run の判断（prior_failures）を持てば、それを
+  # 外した写しを盤面に置き、出口の request はその写しのパス（目的の役は生の依頼を見ない。持たない依頼は元のパスのまま）
   - id: intake
     script: intake
     runtime: uv
@@ -38,6 +39,14 @@ nodes:
     with:
       request: $INPUTS.request
       constraints_file: $INPUTS.constraints_file
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        request: {type: string}
+        constraints_file: {type: string}
+      required: [ok, reason, request, constraints_file]
 
   # 目的の役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
   - id: purpose-loop
