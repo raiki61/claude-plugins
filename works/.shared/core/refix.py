@@ -36,7 +36,6 @@ prompt-<節>.md（呼び手のブロックが組む）・審査役の座 review<
 支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json）を先に消す——新しい
 審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
 """
-import copy
 import functools
 import json
 import os
@@ -58,6 +57,7 @@ import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import holeties  # noqa: E402
 import lens  # noqa: E402
+import marks  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import planrange  # noqa: E402
@@ -119,10 +119,8 @@ def output_format(role: str) -> dict:
             **{r: _pass(n)["fix"] for n, r in FIX_ROLE.items()}}.get(role)
     if node is None:
         raise BoardGap(f"役 {role!r} は差分の往復の役でない（{sorted(REVIEW_ROLE.values()) + sorted(FIX_ROLE.values())}）")
-    fmt = node_marker.mark(accept.role_schema(node), role)
-    if role in FIX_ROLE.values():
-        fmt["properties"][writes.FIELD] = copy.deepcopy(writes.BASH_WRITES_SCHEMA)
-    return fmt
+    # 足すのは足し欄の住処 marks（種 writes。表に無い審査役はそのまま返る）
+    return marks.add("writes", role, node_marker.mark(accept.role_schema(node), role), {writes.FIELD: writes.BASH_WRITES_SCHEMA})
 
 
 # ---------------------------------------------------------------- 盤面の読み

@@ -28,7 +28,7 @@ class Table(unittest.TestCase):
                          {"gate": ("gate-marks.json", marks.ROOT), "plan": ("plan-fields.json", marks.ROOT),
                           "delta": ("delta-verdicts.json", marks.WORK), "converge": (None, marks.WORK),
                           "query": ("query-examples.json", marks.ROOT), "purpose": ("out-of-purpose.json", marks.ROOT),
-                          "pr": ("pr-excluded.json", marks.WORK)})
+                          "pr": ("pr-excluded.json", marks.WORK), "writes": (None, marks.WORK)})
 
     def test_nodes(self):
         self.assertEqual(marks.nodes("gate"), ("p2.fix_plan", "p2.plan_review"))
@@ -150,6 +150,7 @@ class Owners(unittest.TestCase):
         import planmarks
         import prcheck
         import querytest
+        import refix
         self.assertEqual((gatemarks.NODES, gatemarks.MARKS_FILE), (marks.nodes("gate"), marks.KINDS["gate"].file))
         self.assertEqual((planmarks.NODES, planmarks.FIELDS_FILE), (marks.nodes("plan"), marks.KINDS["plan"].file))
         self.assertEqual((deltamarks.NODES, deltamarks.VERDICTS_FILE), (marks.nodes("delta"), marks.KINDS["delta"].file))
@@ -157,6 +158,7 @@ class Owners(unittest.TestCase):
         self.assertEqual((querytest.NODES, querytest.EXAMPLES_FILE), (marks.nodes("query"), marks.KINDS["query"].file))
         self.assertEqual((outpurpose.NODES, outpurpose.FILE), (marks.nodes("purpose"), marks.KINDS["purpose"].file))
         self.assertEqual(((prcheck.NODE,), prcheck.EXCLUDED), (marks.nodes("pr"), marks.KINDS["pr"].file))
+        self.assertEqual(tuple(refix.FIX_ROLE.values()), marks.nodes("writes"))
 
 
 if __name__ == "__main__":

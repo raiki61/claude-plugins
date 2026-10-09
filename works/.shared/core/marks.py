@@ -54,6 +54,8 @@ KINDS = {
     "purpose": Kind({"p2.diagnose": ()}, "out-of-purpose.json", ROOT),
     # 並行 PR の任せ先が外す hunk（prcheck）
     "pr": Kind({"p0.parallel_pr": ()}, "pr-excluded.json", WORK),
+    # 手直しの役の Bash で書いたファイルの申告 bash_writes（refix。外すのは writes.check、控えは書き込みの記録 trace に置く）
+    "writes": Kind({"refix": (), "refix2": ()}, None, WORK),
 }
 
 
