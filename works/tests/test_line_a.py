@@ -540,6 +540,22 @@ class JudgeReadsCase(LineBase):
         self.assertNotIn("JSON Schema", text)   # 返答の型は判定役の output_format（YAML）が持つ。材料に schema を貼らない
         self.assertLess(got["trail"].index("gathering"), got["trail"].index("judging"))
 
+    def test_judge_head_has_world_rows(self):
+        """世界の解の段の行（盤面の根の控えが指す行）は、判定の支度が判定の材料の頭に貼る（計画 world-solution の W8・5.3 節の 2）。
+        段は目的の後・判定の前に回る"""
+        import worldmark
+        row = {"finding": 1, "where": "docs/guide.md", "class_id": "w-guide", "problem": "使い方の案内の文書をどう保つか",
+               "activity": "文書の保守", "practice": "案内は一つの置き場に置き、他からは参照だけにする（見本の印 WR-5521）",
+               "sources": [], "applies": "", "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""},
+               "basis": "knowledge", "cached": False}
+        got = self.run_line(replies={**replies(), "world": [row]})
+        self.assertLess(got["trail"].index("worlding"), got["trail"].index("judging"))
+        self.assertLess(got["trail"].index("h-world"), got["trail"].index("judging"))
+        text = pathlib.Path(got["judge_brief"]["materials_file"]).read_text(encoding="utf-8")
+        self.assertIn(worldmark.HEAD, text)
+        self.assertIn("WR-5521", text)
+        self.assertIn(worldmark.NOT_WEB, text)
+
     def test_judge_brief_refuses_after_judged(self):
         """盤面の p2.diagnose が待っていない（判定を盤面へ渡した後）に支度を回すのは線の順の誤り（BoardGap。黙って空にしない）"""
         from board import BoardGap

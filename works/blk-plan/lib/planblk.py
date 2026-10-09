@@ -78,6 +78,7 @@ import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
+import planrange  # noqa: E402  （修正案の欄 structure の答えの要る行の表）
 import reads  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
@@ -85,6 +86,7 @@ import ripple  # noqa: E402  （blk-plan の lib。波及の一覧）
 import rolekit  # noqa: E402
 import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
 import structmark  # noqa: E402
+import worldmark  # noqa: E402  （世界の解の行。修正案の頭の節と事前審査の外れの訳に添える比べ）
 
 NODE_OF = {"plan": "p2.fix_plan", "plan-review": "p2.plan_review"}   # 役（YAML の役の節の id・印の名）→ 写しの graph の節
 ROLES = tuple(NODE_OF)
@@ -395,7 +397,7 @@ def design_section(b) -> str:
     """事前審査の指示書の頭に貼る節: 独立設計の節（design_only）と、修正案の項目の works の欄の節（planmarks.review_section。
     控えが無ければ無し）。欄の控えが凍結の印と食い違えば盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
     try:
-        fields = planmarks.review_section(b)
+        fields = planmarks.review_section(b, worldmark.challenges(worldmark.board_rows(b.dir)))
     except planmarks.FieldsBroken as e:   # 受け付けの後に欄の控えを書き換えた: 書き換えた欄を審査に見せず、盤面を止める
         why = f"修正案の項目の works の欄の控え {planmarks.FIELDS_FILE} が凍結と食い違う: {' '.join(str(e).split())}"
         if not (b.state.get("halted") or b.state.get("stop")):
@@ -1034,6 +1036,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
     part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main) if tree else "")
                                     if role == "plan-review"
                                     else (prior_part(b, role), structmark.plan_section(b.dir),
+                                          worldmark.plan_section(b.dir) if role == "plan" else "",
                                           prescription_section(b) if role == "plan" else "", plan_slots_section(b),
                                           units_ripple_part(b), verify_part(verify_file) if role == "plan" else "")) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
@@ -1164,7 +1167,7 @@ def with_plan_fields(run):
         b = entry.open_board(pathlib.Path(board))
         rnd = b.round
         named = _resolved(b, planmarks.NODE, reply)
-        gaps = planmarks.structure_gaps(named.get("plan"), structmark.dirty(b.dir))
+        gaps = planmarks.structure_gaps(named.get("plan"), planrange.answer_tables(b.dir))
         if gaps:
             return {"ok": False, "reason": planmarks.STRUCTURE_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         _, fields = planmarks.split(named, pathlib.Path(repo))

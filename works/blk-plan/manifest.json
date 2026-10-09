@@ -2,7 +2,8 @@
  "owner": "blk-plan",
  "consumes": [
   {"name": "prior-failures-in.json"},
-  {"name": "structure-state.json"}
+  {"name": "structure-state.json"},
+  {"name": "world-state.json"}
  ],
  "produces": [
   {"name": "design-premises.json", "format": "json", "schema": "schemas/design-premises.schema.json", "at": "root"},

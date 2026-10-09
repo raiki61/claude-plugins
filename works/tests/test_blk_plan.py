@@ -1308,6 +1308,76 @@ class StructureHeadCase(unittest.TestCase):
         self.assertIn(STRUCTURE_MISSING, self.plan_head())
 
 
+WORLD_ROW = {"finding": 1, "where": "stats.py", "class_id": "w-mean", "problem": "数の並びの平均をどう定義どおりに返すか",
+             "activity": "統計の関数の直し", "practice": "算術平均は値の和を個数で割る（見本の印 WP-3317）", "sources": [],
+             "applies": "平均の関数の直し", "not_applies": "",
+             "versus": {"proposed": "分母を 1 引いた数にする", "verdict": "differs",
+                        "challenge": "依頼は分母を 1 引く、定石は個数で割る。標本の分散を求める訳が無い限り定石を選ぶ（見本の印 WC-8841）"},
+             "basis": "knowledge", "cached": False}
+
+
+class WorldFieldCase(unittest.TestCase):
+    """修正案は世界の解の行ごとに従うか外れの訳を欄 structure に書き（{world: <類の id>, follows: true} か {world, deviation}）、
+    受け付けが欠けを拒む。行は修正案の指示書の頭に貼られ、外れの訳は事前審査の頭に行の challenge と並ぶ（計画 world-solution の W8）"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+    WHY = "人の前の決定が個数で割る形を禁じる（request_ok.json の 1 行目）ので定石に従わない"
+
+    def world_round(self, rows):
+        import worldmark
+        self.judged()
+        wf = self.tmp / "world-out" / worldmark.WORLD_FILE
+        wf.parent.mkdir(parents=True)
+        wf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        worldmark.write(self.board, status="ok", reason="", world_file=str(wf), classes=len(rows), cached=0, skipped=0,
+                        dropped=0)
+
+    def plan_with(self, structure, unit=UNIT_MEAN):
+        plan = linekit.reply("plan_ok")
+        for it in plan["plan"]:
+            if unit in it["unit_keys"]:
+                it["structure"] = structure
+        return plan
+
+    def test_plan_item_overlapping_world_row_needs_answer(self):
+        import worldmark
+        self.world_round([WORLD_ROW])
+        self.ok("snap", role="plan")
+        prep, got = self.round_of("plan", linekit.reply("plan_ok"))
+        head = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(worldmark.HEAD, head)
+        self.assertIn("WP-3317", head)
+        self.assertFalse(got["ok"], got)
+        why = self.reason_of(got)
+        self.assertTrue(why.startswith(planmarks.STRUCTURE_REJECT), why)
+        self.assertIn("世界の解の行 w-mean", why)
+
+    def test_plan_following_world_row_passes(self):
+        self.world_round([WORLD_ROW])
+        self.planned(self.plan_with([{"world": "w-mean", "follows": True}]))
+
+    def test_plan_unanswered_world_row_refused(self):
+        self.world_round([{**WORLD_ROW, "where": "docs/guide.md", "class_id": "w-doc"}])
+        self.ok("snap", role="plan")
+        _, got = self.round_of("plan", linekit.reply("plan_ok"))
+        self.assertFalse(got["ok"], got)
+        why = self.reason_of(got)
+        self.assertIn("w-doc", why)
+        self.assertIn("どの項目も答えていない", why)
+
+    def test_world_deviation_listed_for_review(self):
+        self.world_round([WORLD_ROW])
+        self.planned(self.plan_with([{"world": "w-mean", "deviation": self.WHY}]))
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        head = text.split(planmarks.REVIEW_HEAD)[0]
+        self.assertIn(planmarks.DEVIATION_HEAD, head)
+        self.assertIn(self.WHY, head)
+        self.assertIn("WC-8841", head)
+
+
 REWRITE = {"id": "test_stats.py::TestStats::test_clamp_within_range", "behavior": "上限の内側の値をそのまま返す",
            "old": "clamp(5, 0, 10) は 5", "new": "新しい期待（依頼で変わる振る舞い）"}
 

@@ -200,7 +200,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/worldmark.py`（行の欄の名 `FIELDS`・行のファイルの名 `WORLD_FILE`・控えの名 `STATE_FILE`・語 `VERDICTS`・`BASES`・名指しの句 `NOT_WEB`・読み口 `rows`・`read`・場所の字のパス `where_paths`・頭の節 `section`・単位の要点 `unit_note`・答えの要る行 `needs`・`required`・`unanswered`・関所の軸 `world_ok`・関所の行 `gate_line`・報告 `report_lines`）
 - 約束: `blk-world/world-row.schema.json`（欄と語が住処の定数と揃うことは `tests/test_worldmark.py` が縛る）
-- 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（出口を盤面の根の控えに写す境の節と、単位の要約に要点を足す写しの節）
+- 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（出口を盤面の根の控えに写す境の節と、単位の要約に要点を足す写しの節）・控えを読むブロックの宣言 `blk-*/manifest.json`（consumes。盤面の読み書きの約束）
 - 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4 で住処を置き、W5 で行を書くブロック `blk-world` を足した（線への差し込みは W7、使う側は W8・W9。それまでブロックはどの線にも入らない）。使う側に移る前の世界の調べは、判定役の指示書の先例の行（`blk-judge/commands/diagnose.md` の 7・8 項）と関所の決め手の欄 world（`.shared/core/gatemarks.py` の `FIELDS` と `_RULE`）に残る。柵は行のファイルと控えの名の字
 
 ### `stop-reasons` 止めの理由

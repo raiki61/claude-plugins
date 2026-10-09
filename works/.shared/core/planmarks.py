@@ -14,10 +14,11 @@ marks（種 plan。役の型にだけ欄を足し、受け付けが盤面へ渡�
 - 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
   書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
-- 構造の欄 structure（計画 2026-10-09-clean-whole の Task 2.4）: structure_gaps(plan, dirty) が、構造の目が汚れると見た単位
-  （dirty: 単位の id → 設計の行）を持つ項目に、行ごとの「従う（follows）か外れの訳（deviation）」の欠けと誤りの行を返す
-  （修正案の受け付けと同じ run の中の案の直しが拒む）。判定の処方への答え（prescription）も同じ欄に並べてよい（要るのは汚れる行だけ）。
-  deviations(fields) は控えの欄から外れの訳の並びを引く（事前審査の頭・報告・最後の関所が読む）。
+- 構造の欄 structure（計画 2026-10-09-clean-whole の Task 2.4・計画 world-solution の W8）: structure_gaps(plan, tables) が、答えの
+  要る行の表（Need）ごとに、項目に要る行の「従う（follows）か外れの訳（deviation）」の欠けと誤りの行と、どの項目も答えていない行を
+  返す（修正案の受け付けと同じ run の中の案の直しが拒む）。表は構造の目が汚れると見た単位（design_need。行の鍵 row）と世界の解の
+  答えの要る行（worldmark.need。行の鍵 world）で、答えの仕組みは 1 つ。判定の処方への答え（prescription）も同じ欄に並べてよい
+  （要るのは表の行だけ）。deviations(fields) は控えの欄から外れの訳の並びを引く（事前審査の頭・報告・最後の関所が読む）。
   prescriptions(b) は判定の返答（盤面の節 JUDGE_NODE の最新の出力）の単位ごとの処方（写しの盤面の記録は単位の処方を写さない
   ので、修正案の頭と修正役の brief はここから引く。利用者の声 D2）
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
@@ -47,6 +48,7 @@ import pathlib
 import posixpath
 import re
 import sys
+from typing import Callable, NamedTuple
 
 _GL = pathlib.Path(__file__).resolve().parent / "graphloops"
 if str(_GL) not in sys.path:
@@ -104,21 +106,30 @@ FIELD_SCHEMA = {
     "out_of_scope": {"type": "array", "items": {
         "type": "object", "additionalProperties": False, "required": ["glob", "why"],
         "properties": {"glob": {"type": "string", "minLength": 1}, "why": _WHY}}},
-    # 構造の欄（計画 clean-whole の Task 2.4）: 構造の目の汚れる行（row＝単位の id）か判定の処方（prescription＝単位の key）ごとに、
-    # 従う（follows: true）か外れの訳（deviation）のどちらか 1 つ。要るのは汚れる行だけ（structure_gaps が見る）
+    # 構造の欄（計画 clean-whole の Task 2.4・計画 world-solution の W8）: 構造の目の汚れる行（row＝単位の id）か判定の処方
+    # （prescription＝単位の key）か世界の解の行（world＝類の id）ごとに、従う（follows: true）か外れの訳（deviation）のどちらか 1 つ。
+    # 要るのは答えの要る行の表の行だけ（structure_gaps が見る）
     "structure": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
         "properties": {"row": {"type": "string", "minLength": 1}, "prescription": {"type": "string", "minLength": 1},
+                       "world": {"type": "string", "minLength": 1},
                        "follows": {"type": "boolean"}, "deviation": {"type": "string"}}}},
 }
 
 STRUCTURE_REJECT = ("修正案の項目の works の欄 structure に欠けか誤りが在る（構造の目が汚れると見た単位を持つ項目は、その行ごとに"
-                    "避け方に従うか外れの訳を書く。直して done し直す）。下の行を直した案を丸ごと出し直せ:")
+                    "避け方に従うか外れの訳を書く。世界の解の答えの要る行と範囲の重なる項目は、その行ごとに定石に従うか外れの訳を"
+                    "書く。直して done し直す）。下の行を直した案を丸ごと出し直せ:")
+ANSWER_KEYS = ("row", "prescription", "world")   # 欄 structure の行が答える先の鍵（ちょうど 1 つ）
 STRUCTURE_HEAD = ("structure＝構造の目が汚れると見た行（頭の『構造の目の行』の節の単位）への答えの並び。その単位を unit_keys に持つ"
                   "項目は、行ごとに {row: <単位の id（行の頭の字のまま）>, follows: true}（避け方 chosen に従う）か "
                   f"{{row: <単位の id>, deviation: <従わない訳。{MIN_DEVIATION} 字以上>}} を書け（欠けは受け付けが拒む）。"
                   "判定の処方（頭の『判定の処方』の節）から外れる項目は {prescription: <単位の key>, deviation: <訳>} を、"
-                  "処方に従うなら {prescription: <単位の key>, follows: true} を並べてよい。汚れる行の無い項目は空の並びか書かない")
+                  "処方に従うなら {prescription: <単位の key>, follows: true} を並べてよい。"
+                  "頭の『世界の解の行』の節に当たる所（答えの要る行）が在れば、その行の場所と範囲（allowed_paths・テストのファイル）の"
+                  "重なる項目は、行ごとに {world: <類の id>, follows: true}（定石に従う）か {world: <類の id>, deviation: <従わない訳。"
+                  f"{MIN_DEVIATION} 字以上で、出どころ（URL・<パス>:<行>・決定の記録のパス）を添える>}} を書け。どの項目も答えていない"
+                  "答えの要る行も受け付けが拒む。依頼そのものを出どころにした外れは修正前の関所で人に回る。"
+                  "汚れる行も答えの要る世界の解の行も無い項目は空の並びか書かない")
 REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）か adds の name に欠けか誤りが在る"
           "（直して done し直す）。下の行を直した案を丸ごと出し直せ:")
 # 修正案の役の指示書の頭に足す文（写しの指示書はこの欄を知らない）
@@ -146,7 +157,7 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "置くファイルのパスを書け。removes に識別子を書けば、差分で消えたかを見る。"
         + STRUCTURE_HEAD)
 REVIEW_HEAD = "## 修正案の項目の works の欄（機械が貼った）"
-DEVIATION_HEAD = "## 構造の目の避け方・判定の処方から外れた訳（修正案の欄 structure から機械が並べた。訳が成り立つかを見よ）"
+DEVIATION_HEAD = "## 構造の目の避け方・判定の処方・世界の解から外れた訳（修正案の欄 structure から機械が並べた。訳が成り立つかを見よ）"
 REVIEW_ASK = ("下は修正案の役が項目ごとに書いた works の欄（route・受け入れのテスト tests・書き換える既存のテスト rewrite_tests・"
               "整えの申告 refactor・書いてよいパス allowed_paths・触らない物 out_of_scope）。承認されると項目ごとの brief になり、"
               "修正役・TDD の役の要求の正本になる。受け入れのテストが"
@@ -593,12 +604,34 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
     return out, rows
 
 
+class Need(NamedTuple):
+    """答えの要る行の表 1 つ（structure_gaps が受ける）。key＝欄 structure の行で答える先の id を持つ鍵（ANSWER_KEYS の 1 つ）・
+    word＝誤りの文で行を呼ぶ名・hints＝{名指せる id: 誤りの文に添える推しの 1 文}・hint_word＝その 1 文の名・
+    unknown＝名指せない id を名指した時の文・of(項目)＝その項目が答える要る id の並び・missing(案)＝どの項目も答えていない id の並び"""
+    key: str
+    word: str
+    hints: dict
+    hint_word: str
+    unknown: str
+    of: Callable
+    missing: Callable
+
+
+def design_need(dirty: dict) -> Need:
+    """構造の目が汚れると見た単位（dirty: 単位の id → 設計の行）の表。項目の unit_keys に汚れる単位が在れば、その行の 1 件（row）が要る"""
+    def of(it):
+        keys = it.get("unit_keys") if isinstance(it.get("unit_keys"), list) else []
+        return [k for k in keys if isinstance(k, str) and k in dirty]
+    return Need("row", "設計の行", {k: (r or {}).get("chosen") or "無し" for k, r in dirty.items()}, "避け方",
+                "構造の目が汚れると見た行の単位でない", of, lambda plan: [])
+
+
 def _structure_row_problem(row) -> str | None:
-    """structure の 1 行の誤りの文（無ければ None）: row と prescription のちょうど 1 つ・follows: true と deviation のちょうど 1 つ"""
+    """structure の 1 行の誤りの文（無ければ None）: ANSWER_KEYS のちょうど 1 つ・follows: true と deviation のちょうど 1 つ"""
     if not isinstance(row, dict):
         return "行が object でない"
-    if ("row" in row) == ("prescription" in row):
-        return "row（構造の目の行）か prescription（判定の処方）のどちらか 1 つを書く"
+    if sum(k in row for k in ANSWER_KEYS) != 1:
+        return "row（構造の目の行）か prescription（判定の処方）か world（世界の解の類）のどれか 1 つを書く"
     has_follow, has_dev = "follows" in row, "deviation" in row
     if has_follow == has_dev:
         return "follows: true（従う）か deviation（外れの訳）のどちらか 1 つを書く"
@@ -610,32 +643,41 @@ def _structure_row_problem(row) -> str | None:
     return None
 
 
-def structure_gaps(plan, dirty: dict) -> list[str]:
-    """構造の欄の欠けと誤りの行（"plan[<i>].structure…: <理由>"）。dirty は構造の目が汚れると見た単位の id → 設計の行。
-    項目の unit_keys に汚れる単位が在れば、その行の 1 件（row）が要る。row は汚れる行の単位だけを名指す。plan は名前に戻した
-    unit_keys の案（返答の no の整数は呼び手が戻す）。形を成さない plan は空（写しの規則が型で拒む）"""
+def structure_gaps(plan, tables) -> list[str]:
+    """構造の欄の欠けと誤りの行（"plan[<i>].structure…: <理由>"）。tables は答えの要る行の表（Need）の並び。表ごとに、項目に要る
+    id（Need.of）の 1 件が要り、表の鍵の行は表の id だけを名指し、どの項目も答えていない id（Need.missing）が在れば拒む。
+    plan は名前に戻した unit_keys の案（返答の no の整数は呼び手が戻す）。形を成さない plan は空（写しの規則が型で拒む）"""
     if not isinstance(plan, list):
         return []
-    out = []
+    tables = list(tables or [])
+    out, owed = [], set()   # owed: 項目ごとに欠けを名指した (鍵, id)。案の全体の欠けで重ねて名指さない
     for i, it in enumerate(plan):
         if not isinstance(it, dict):
             continue
         rows = it.get("structure") if isinstance(it.get("structure"), list) else []
-        named = set()
+        named = {t.key: set() for t in tables}
         for j, row in enumerate(rows):
             bad = _structure_row_problem(row)
             if bad:
                 out.append(f"plan[{i}].structure[{j}]: {bad}")
                 continue
-            if "row" in row:
-                if row["row"] not in dirty:
-                    out.append(f"plan[{i}].structure[{j}].row（{row['row']}）: 構造の目が汚れると見た行の単位でない"
-                               f"（在るのは {sorted(dirty)}）")
-                named.add(row["row"])
-        for key in it.get("unit_keys") if isinstance(it.get("unit_keys"), list) else []:
-            if isinstance(key, str) and key in dirty and key not in named:
-                out.append(f"plan[{i}].structure: 設計の行 {key} に従うか、外れの訳を structure に書け"
-                           f"（避け方: {dirty[key].get('chosen') or '無し'}）")
+            for t in tables:
+                if t.key in row:
+                    if row[t.key] not in t.hints:
+                        out.append(f"plan[{i}].structure[{j}].{t.key}（{row[t.key]}）: {t.unknown}（在るのは {sorted(t.hints)}）")
+                    named[t.key].add(row[t.key])
+        for t in tables:
+            for k in t.of(it):
+                if k not in named[t.key]:
+                    owed.add((t.key, k))
+                    out.append(f"plan[{i}].structure: {t.word} {k} に従うか、外れの訳を structure に書け（{t.hint_word}: {t.hints[k]}）")
+    good = [it for it in plan if isinstance(it, dict)]
+    for t in tables:
+        for k in t.missing(good):
+            if (t.key, k) in owed:
+                continue
+            out.append(f"plan.structure: {t.word} {k} にどの項目も答えていない（その行の場所を直す項目に {{{t.key}: {k}, "
+                       f"follows: true}} か {{{t.key}, deviation}} を書け。{t.hint_word}: {t.hints.get(k, '無し')}）")
     return out
 
 
@@ -661,19 +703,20 @@ def answer_line(r: dict) -> str:
     if not isinstance(r, dict):
         return str(r)
     head = f"項目 {r['item']}・" if "item" in r else ""
-    what = f"設計の行 {r['row']}" if r.get("row") else f"処方 {r.get('prescription')}"
+    what = (f"設計の行 {r['row']}" if r.get("row") else f"世界の解の行 {r['world']}" if r.get("world")
+            else f"処方 {r.get('prescription')}")
     if r.get("follows") is True:
         return f"{head}{what}に従う（避け方・処方どおりに直す）"
     return f"{head}{what}から外れる——{r.get('deviation')}"
 
 
 def deviations(fields: list | None) -> list[dict]:
-    """控えの欄（split の形）の外れの訳の並び [{item（1 始まり）, row か prescription, deviation}]。無ければ空"""
+    """控えの欄（split の形）の外れの訳の並び [{item（1 始まり）, row か prescription か world, deviation}]。無ければ空"""
     out = []
     for n, f in enumerate(fields if isinstance(fields, list) else [], 1):
         for row in (f.get("structure") if isinstance(f, dict) and isinstance(f.get("structure"), list) else []):
             if isinstance(row, dict) and isinstance(row.get("deviation"), str):
-                key = "row" if "row" in row else "prescription"
+                key = next((k for k in ANSWER_KEYS if k in row), "prescription")
                 out.append({"item": n, key: row.get(key), "deviation": row["deviation"]})
     return out
 
@@ -892,9 +935,10 @@ def unit_contract(fields: list | None, key: str) -> dict | None:
             "rewrites": list(rws), "refactor": refactor, "names": list(names)}
 
 
-def review_section(b) -> str:
+def review_section(b, notes=None) -> str:
     """事前審査の役の指示書の頭に貼る節（"\\n\\n" で始まる）: 見る点の頼みと、項目ごとの欄の JSON。控えが無ければ空。
-    控えは frozen で読む（凍結の印と食い違えば FieldsBroken。読む側が盤面を止める）"""
+    控えは frozen で読む（凍結の印と食い違えば FieldsBroken。読む側が盤面を止める）。notes は {世界の解の類の id: 依頼の解き方との
+    比べの文}（呼び手が世界の解の行の住処から渡す）で、その類の外れの訳の尾に添える"""
     fields = frozen(b)
     if fields is None:
         return ""
@@ -902,5 +946,7 @@ def review_section(b) -> str:
     devs = deviations(fields)
     head = ""
     if devs:
-        head = f"\n\n{DEVIATION_HEAD}\n\n" + "\n".join(f"- {answer_line(d)}" for d in devs)
+        notes = notes or {}
+        head = f"\n\n{DEVIATION_HEAD}\n\n" + "\n".join(
+            f"- {answer_line(d)}" + (f"（定石との比べ: {notes[d['world']]}）" if notes.get(d.get("world")) else "") for d in devs)
     return f"{head}\n\n{REVIEW_HEAD}\n\n{REVIEW_ASK}\n\n" + "\n\n".join(rows)

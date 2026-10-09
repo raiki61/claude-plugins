@@ -95,6 +95,15 @@ class PlanGateCase(GateBase):
         got, _ = self.gate(narrows=[dict(NARROW)])
         self.assertNotIn("世界の解", got["ask"]["items"][0])
 
+    def test_rule_points_at_world_rows(self):
+        """関所の決め手の頼みは、世界の調べを役に任せず、頭の世界の解の行を使えと言い、依頼の解き方を決め手にしない（計画
+        world-solution の W8・5.3 節の 6）"""
+        for node, text in gatemarks.HEAD.items():
+            with self.subTest(node):
+                self.assertIn("世界の解の行", text)
+                self.assertNotIn("web を引くかは任せる", text)
+                self.assertIn("依頼が示した解き方は決め手にならない", text)
+
     def test_mixed_rows_ask_only_the_undecided(self):
         """決め手の在る行と欄の無い行が並べば、欄の無い行だけを聞き、決め手の在る行は項目に出さず記録に残す"""
         got, b = self.gate(narrows=[{**NARROW, **DECIDED}, {"what": "負の上限の clamp", "why": "上限が負の時の結果が変わる"}])

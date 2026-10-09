@@ -49,6 +49,15 @@ class EyeAcceptCase(unittest.TestCase):
             self.assertIn(f"{i}. {f}", prompt)
         self.assertIn("前の回の受け付けが拒んだ理由", eye.render(DOC, "evidence が空"))
 
+    def test_prompt_asks_chosen_to_follow_world_practice(self):
+        """単位の要約の尾の世界の解の要点を読み、避け方 chosen を定石の作りに沿わせ、沿わないなら訳を chosen_reason に書けと頼む
+        （計画 world-solution の W8・5.3 節の 3。入力の契約は 3 つのまま）"""
+        prompt = eye.render(DOC)
+        rule = next((ln for ln in prompt.splitlines() if "定石" in ln), "")
+        self.assertIn("chosen", rule)
+        self.assertIn("chosen_reason", rule)
+        self.assertIn("世界の解", rule)
+
     def test_good_rows_pass(self):
         self.assertEqual(eye.problems(DOC, {"rows": [CLEAN]}), [])
         self.assertEqual(eye.problems(DOC, {"rows": [DIRTY]}), [])

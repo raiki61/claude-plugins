@@ -18,8 +18,11 @@ knowledge の行は、頭の節・単位の要点・関所の行・報告に NOT
 - write(board_dir, …)・board_rows(board_dir): 控えを書く（線の境）・控えが指す行（無い・落ちた・読めない周は []。盤面の根から
   読む判定の支度・修正案の頭・関所が使う）
 - where_paths(where): 場所の字のパスの形の語（行の番号の尾を落とす）
-- section(world_file): 判定・修正案・事前審査の頭に貼る節（行が無ければ ""）
+- section(world_file)・board_section(board_dir)・plan_section(board_dir): 判定・修正案・事前審査の頭に貼る節（行が無ければ ""）。
+  board_* は盤面の根の控えが指す行で組み、plan_section は修正案の役に行ごとの答えを頼む文（PLAN_ASK）を足す
 - unit_note(rows, paths): 単位のパスと類の where が重なる行の要点（無ければ ""）
+- need(rows, inside)・challenges(rows): 修正案の受け付けに渡す答えの要る行の表（planmarks.Need。答えの仕組みは構造の目の汚れる
+  行と同じ 1 つ）・類ごとの依頼の解き方との比べの文（事前審査の外れの訳に添える）
 - needs(row)・answered(item)・required(rows, item, inside)・unanswered(rows, items): 答えの要る行（applies が空でない）と、修正案の
   項目の欄 structure の答え {world: <類の id>, follows: true} か {world, deviation}。inside(path, item) は項目の範囲の当て方
   （修正案の範囲の照らしの住処の口を呼び手が渡す。ここから import すると関所の決め手の住処との輪になる）
@@ -38,6 +41,7 @@ import posixpath
 
 import cite   # 依頼の引用「…」の形と語（決め手の出どころの照らしの住処）
 import marks  # 返答の足し欄の住処（種 means）
+import planmarks  # 修正案の欄 structure の答えの仕組み（答えの要る行の表 Need）
 
 WORLD_FILE = "world.jsonl"
 STATE_FILE = "world-state.json"
@@ -52,6 +56,10 @@ VERSUS_FIELDS = ("proposed", "verdict", "challenge")
 ANSWER_KEY = "world"   # 修正案の項目の欄 structure の答えの行で類の id を持つ鍵
 VERDICT_WORDS = {SAME: "定石と同じ", DIFFERS: "定石と違う", NONE: "依頼は解き方を示していない"}
 HEAD = "## 世界の解の行（依頼の行ごとの問題の類・世の中の定石・依頼の解き方との比べ）"
+PLAN_ASK = ("当たる所の在る行（答えの要る行）は、その行の場所と範囲の重なる項目ごとに、定石に従う（{world: <類の id>, follows: true}）"
+            "か、従わない訳（{world: <類の id>, deviation: <訳と出どころ>}）を項目の works の欄 structure に書け（欠けは受け付けが"
+            "拒む）。依頼の解き方は定石と比べて疑う案で、決め手にならない——依頼そのものを出どころにした外れは修正前の関所で人に回る。"
+            f"「{NOT_WEB}」の行も同じに答える")
 STATES = ("ok", "failed")
 MEANS = "means"
 MEANS_NODES = marks.nodes(MEANS)
@@ -188,6 +196,23 @@ def section(world_file) -> str:
     return "\n".join(lines) + "\n"
 
 
+def board_section(board_dir) -> str:
+    """盤面の根の控えが指す行の頭の節（控えが無い・落ちた・行が無い周は ""）"""
+    st = read(board_dir)
+    if st is None or st["status"] != "ok" or not st.get("world_file"):
+        return ""
+    try:
+        return section(st["world_file"])
+    except ValueError:
+        return ""
+
+
+def plan_section(board_dir) -> str:
+    """修正案の指示書の頭に貼る節（頭の節と答えの頼み。行が無い周は ""）"""
+    got = board_section(board_dir)
+    return f"{got}\n{PLAN_ASK}\n" if got else ""
+
+
 def _overlap(a: str, b: str) -> bool:
     return a == b or a.startswith(b.rstrip("/") + "/") or b.startswith(a.rstrip("/") + "/")
 
@@ -201,6 +226,19 @@ def unit_note(rows, paths) -> str:
 
 
 # ---------------------------------------------------------------- 答え
+def need(rows, inside) -> planmarks.Need:
+    """答えの要る行の表（planmarks.structure_gaps が受ける）。inside(path, item) は項目の範囲の当て方（呼び手が渡す）"""
+    got = [r for r in rows or [] if needs(r)]
+    return planmarks.Need(ANSWER_KEY, "世界の解の行", {r["class_id"]: r["practice"] for r in got}, "定石",
+                          "答えの要る世界の解の行の類でない", lambda item: required(got, item, inside),
+                          lambda items: unanswered(got, items))
+
+
+def challenges(rows) -> dict:
+    """{類の id: 依頼の解き方との比べの文}（事前審査の外れの訳に添える）"""
+    return {r["class_id"]: _versus(r) for r in rows or [] if isinstance(r, dict) and r.get("class_id")}
+
+
 def needs(row) -> bool:
     return isinstance(row, dict) and isinstance(row.get("applies"), str) and bool(row["applies"].strip())
 

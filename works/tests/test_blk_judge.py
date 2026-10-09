@@ -189,6 +189,17 @@ class YamlCase(unittest.TestCase):
             with self.subTest(needle):
                 self.assertIn(needle, item6)
 
+    def test_proposed_means_not_counted_as_prior_decision(self):
+        """依頼と目的の文が示した解き方は人の前の決定に数えない（工場が疑う案）。世界の解の決め手は材料の世界の解の行を先に使い、
+        先例の行は world:<類の id> で引く（計画 world-solution の W8・5.3 節の 2）"""
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        item7 = text[text.index("\n7. "):text.index("\n8. ")]
+        item8 = text[text.index("\n8. "):text.index("\n9. ")]
+        self.assertIn("依頼と目的の文が示した解き方は、人の前の決定に数えない", item7)
+        self.assertIn("世界の解の行", item7)
+        self.assertIn("world:<類の id>", item8)
+        self.assertIn("世界の解の行", item8)
+
     def test_diagnose_prompt_decides_before_asking(self):
         """人に問う前に自分で決める（持ち主 2026-09-29）: 7 項は決め手に人の前の決定・人の方針・対象の同じ場面・世界の解を並べ、
         人に問うのを 3 つの場合に限り、fork の reason に推しを書かせる。8 項の undecided_because はその 3 つのどれかを名指させる"""

@@ -501,6 +501,9 @@ nodes:
                           prescription:
                             type: string
                             minLength: 1
+                          world:
+                            type: string
+                            minLength: 1
                           follows:
                             type: boolean
                           deviation:

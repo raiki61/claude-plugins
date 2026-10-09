@@ -370,7 +370,8 @@
       ".shared/core/worldmark.py",
       "blk-world/world-row.schema.json",
       "blk-world/**",
-      "darkfactory/**"
+      "darkfactory/**",
+      "blk-*/manifest.json"
      ],
      "known": {}
     }

@@ -715,22 +715,22 @@ class TestStructure(PlanFieldsCase):
     WHY = "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"
 
     def test_plan_without_structure_row_is_refused(self):
-        got = planmarks.structure_gaps([item()], self.DIRTY)
+        got = planmarks.structure_gaps([item()], [planmarks.design_need(self.DIRTY)])
         self.assertEqual(len(got), 1, got)
         self.assertIn(f"設計の行 {MEAN} に従うか、外れの訳を structure に書け", got[0])
         self.assertTrue(got[0].startswith("plan[0].structure"))
 
     def test_two_dirty_units_need_a_row_each(self):
         it = item(unit_keys=[MEAN, self.OTHER], structure=[{"row": MEAN, "follows": True}])
-        got = planmarks.structure_gaps([it], self.DIRTY)
+        got = planmarks.structure_gaps([it], [planmarks.design_need(self.DIRTY)])
         self.assertEqual(len(got), 1, got)
         self.assertIn(self.OTHER, got[0])
         it["structure"].append({"row": self.OTHER, "deviation": self.WHY})
-        self.assertEqual(planmarks.structure_gaps([it], self.DIRTY), [])
+        self.assertEqual(planmarks.structure_gaps([it], [planmarks.design_need(self.DIRTY)]), [])
 
     def test_clean_unit_needs_nothing(self):
-        self.assertEqual(planmarks.structure_gaps([item()], {}), [])
-        self.assertEqual(planmarks.structure_gaps([item()], {self.OTHER: self.DIRTY[self.OTHER]}), [])
+        self.assertEqual(planmarks.structure_gaps([item()], [planmarks.design_need({})]), [])
+        self.assertEqual(planmarks.structure_gaps([item()], [planmarks.design_need({self.OTHER: self.DIRTY[self.OTHER]})]), [])
 
     def test_bad_rows_are_named(self):
         for name, row in (("両方", {"row": MEAN, "follows": True, "deviation": self.WHY}),
@@ -740,22 +740,68 @@ class TestStructure(PlanFieldsCase):
                           ("行と処方の両方", {"row": MEAN, "prescription": MEAN, "follows": True}),
                           ("従わないと書く", {"row": MEAN, "follows": False})):
             with self.subTest(name):
-                got = planmarks.structure_gaps([item(structure=[row])], self.DIRTY)
+                got = planmarks.structure_gaps([item(structure=[row])], [planmarks.design_need(self.DIRTY)])
                 self.assertTrue(got, name)
 
     def test_prescription_answers_are_allowed(self):
         it = item(structure=[{"row": MEAN, "follows": True}, {"prescription": MEAN, "deviation": self.WHY}])
-        self.assertEqual(planmarks.structure_gaps([it], self.DIRTY), [])
+        self.assertEqual(planmarks.structure_gaps([it], [planmarks.design_need(self.DIRTY)]), [])
         self.assertEqual(self.gaps(it), [])
 
     def test_plan_with_deviation_passes_and_is_recorded(self):
         it = item(structure=[{"row": MEAN, "deviation": self.WHY}])
-        self.assertEqual(planmarks.structure_gaps([it], self.DIRTY), [])
+        self.assertEqual(planmarks.structure_gaps([it], [planmarks.design_need(self.DIRTY)]), [])
         self.assertEqual(self.gaps(it), [])
         bare, fields = planmarks.split({"plan": [it]}, self.repo)
         self.assertNotIn("structure", bare["plan"][0])
         self.assertEqual(fields[0]["structure"], [{"row": MEAN, "deviation": self.WHY}])
         self.assertEqual(planmarks.deviations(fields), [{"item": 1, "row": MEAN, "deviation": self.WHY}])
+
+
+class TestWorldAnswers(PlanFieldsCase):
+    """世界の解の行への答え（計画 world-solution の W8・5.3 節の 4）: 答えの要る行（applies が空でない）の where と範囲の重なる項目は
+    欄 structure に {world: <類の id>, follows: true} か {world, deviation} を書き、どの項目も答えていない答えの要る行の在る案は拒む。
+    足し方は構造の目の汚れる行と同じ structure_gaps（答えの要る行の表を受ける）で、世界の解の表は worldmark.need が作る"""
+    WHY = "人の前の決定が仮の実装を禁じる（docs/decisions.md:40）ので定石に従わない"
+
+    def rows(self):
+        base = {"finding": 1, "where": "stats.py:3", "class_id": "w-mean", "problem": "平均の分母をどう決めるか",
+                "activity": "統計の関数の直し", "practice": "算術平均は値の和を個数で割る", "sources": [],
+                "applies": "平均の関数の直し", "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""},
+                "basis": "knowledge", "cached": False}
+        return [base, {**base, "finding": 2, "where": "docs/guide.md", "class_id": "w-doc", "applies": "案内の文書"}]
+
+    def need(self, rows):
+        import planrange
+        import worldmark
+        return worldmark.need(rows, planrange.inside)
+
+    def test_structure_gaps_shared_by_world_and_structure(self):
+        dirty = {MEAN: {"unit_id": MEAN, "verdict": "汚れる", "chosen": "分母の決めを 1 か所に"}}
+        rows = self.rows()[:1]
+        tables = [planmarks.design_need(dirty), self.need(rows)]
+        got = planmarks.structure_gaps([item()], tables)
+        self.assertEqual(len(got), 2, got)
+        self.assertTrue(any(f"設計の行 {MEAN}" in g for g in got), got)
+        self.assertTrue(any("世界の解の行 w-mean" in g for g in got), got)
+        it = item(structure=[{"row": MEAN, "follows": True}, {"world": "w-mean", "follows": True}])
+        self.assertEqual(planmarks.structure_gaps([it], tables), [])
+        it = item(structure=[{"row": MEAN, "follows": True}, {"world": "w-mean", "deviation": self.WHY}])
+        self.assertEqual(planmarks.structure_gaps([it], tables), [])
+        self.assertEqual(self.gaps(it), [])
+        self.assertEqual(planmarks.deviations(planmarks.split({"plan": [it]}, self.repo)[1]),
+                         [{"item": 1, "world": "w-mean", "deviation": self.WHY}])
+
+    def test_unknown_world_class_is_named(self):
+        it = item(structure=[{"world": "w-none", "follows": True}])
+        got = planmarks.structure_gaps([it], [self.need(self.rows()[:1])])
+        self.assertTrue(any("w-none" in g for g in got), got)
+
+    def test_world_row_no_item_answers_is_refused(self):
+        got = planmarks.structure_gaps([item(structure=[{"world": "w-mean", "follows": True}])], [self.need(self.rows())])
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("w-doc", got[0])
+        self.assertIn("どの項目も答えていない", got[0])
 
 
 if __name__ == "__main__":
