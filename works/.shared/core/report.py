@@ -53,6 +53,7 @@ import math
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import types
 from typing import NamedTuple
@@ -172,6 +173,7 @@ REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
 # 直しが対象に書く文に混じってはいけない works の内側の語と run の中の事情の言い方（修正役の共通の決まり writerules/common.md の
 # 「対象に書く文」。利用者の run 8cb2ee00 の差分が Terraform のコメントに「この単位」「作業ツリー」を書いた）。拒まず報告に並べる
 INNER_WORDS = ("この単位", "単位の key", "作業ツリー", "盤面", "この周", "この run", "判定役", "修正役", "独立の目", "関所")
+INNER_WORD = re.compile("|".join(re.escape(w) + ("(?!辺)" if w == "この周" else "") for w in INNER_WORDS))   # 「この周辺」は除く
 INNER_WORDS_HEAD = "直しが対象に足した行に works の内側の語（対象の読み手に通じない。当てる前に言い換えるかを決める）"
 HUNK_NEW = re.compile(r"^@@ -\S+ \+(\d+)")
 CLEANED_HEAD = "起動の前に片付けた前の run（use.sh start が worktree・枝・控えを消した。差分のファイルと盤面は残る）"
@@ -935,9 +937,25 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     return lines
 
 
-def inner_word_lines(b) -> list:
+def _target_uses(b, word: str) -> bool:
+    """対象が直す前の版（loop.reviewed_revision）で既にその語を使うか（git grep。版か作業ツリーが無い・git が落ちれば偽＝並べる側）"""
+    cwd = (b.state.get("inputs") or {}).get("cwd") if isinstance(getattr(b, "state", None), dict) else None
+    rev = (getattr(b, "loop_state", None) or {}).get("reviewed_revision")
+    if not (cwd and rev):
+        return False
+    try:
+        got = subprocess.run(["git", "-C", str(cwd), "grep", "-q", "-F", "-e", word, str(rev), "--"], capture_output=True)
+    except OSError:
+        return False
+    return got.returncode == 0
+
+
+def inner_word_lines(b, known=None) -> list:
     """冒頭 1 の行: 直しの差分（DIFFS の修正の差分と手直しの差分。どちらも前の姿からの差）が足した行のうち、INNER_WORDS の語を含む
-    行を 1 件 1 行（<パス>:<修正後の行>（語）: 行の中身）と件数の見出し。差分が無い・当たりが無ければ空。差分が読めなければその行"""
+    行を 1 件 1 行（<パス>:<修正後の行>（語）: 行の中身）と件数の見出し。対象が直す前の版で既に使う語（known。既定は _target_uses。
+    works 自身を直す run の盤面・関所など、対象の語）は数えない。差分が無い・当たりが無ければ空。差分が読めなければその行"""
+    known = known or (lambda w: _target_uses(b, w))
+    seen = {}
     rows = []
     for _, key in DIFFS:
         f = ((getattr(b, "loop_state", None) or {}).get(key) or {}).get("file")
@@ -957,7 +975,8 @@ def inner_word_lines(b) -> list:
                     continue
                 if ln.startswith("-"):
                     continue
-                words = [w for w in INNER_WORDS if w in ln] if ln.startswith("+") else []
+                words = list(dict.fromkeys(INNER_WORD.findall(ln))) if ln.startswith("+") else []
+                words = [w for w in words if not seen.setdefault(w, known(w))]
                 if words:
                     rows.append(f"{path}:{n}（{'・'.join(words)}）: {_one_line(ln[1:].strip())}")
                 n += 1

@@ -664,6 +664,16 @@ class InnerWordsCase(unittest.TestCase):
         self.assertIn("main.tf:12（作業ツリー）", got[2])
         self.assertEqual(len(got), 3, "消した行と語の無い行は並べない")
 
+    def test_words_the_target_already_uses_are_not_named(self):
+        """対象が直す前の版で既に使う語（対象の語。works 自身を直す run の盤面・関所など）は並べない。「この周辺」は「この周」でない"""
+        f = self.b.dir / "fix-delta-r1.patch"
+        f.write_text(self.PATCH + "diff --git a/b.md b/b.md\n--- a/b.md\n+++ b/b.md\n@@ -1 +1 @@\n-x\n+この周辺の話\n",
+                     encoding="utf-8")
+        self.b.loop_state = {"fix_delta": {"file": str(f)}}
+        got = report.inner_word_lines(self.b, known=lambda w: w == "作業ツリー")
+        self.assertEqual(len(got), 2, got)
+        self.assertIn("main.tf:11（この単位）", got[1])
+
     def test_no_diff_or_no_hits_is_silent(self):
         self.b.loop_state = {}
         self.assertEqual(report.inner_word_lines(self.b), [])
