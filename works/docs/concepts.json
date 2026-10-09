@@ -297,6 +297,56 @@
     }
    ]
   },
+  "plan-scope": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "修正案の項目の範囲（allowed_paths・out_of_scope の glob）を手で当てる形",
+     "pattern": "\\bglob_match\\(",
+     "allowed": [
+      ".shared/core/planrange.py",
+      ".shared/core/planmarks.py"
+     ],
+     "known": {
+      ".shared/core/protect.py": [
+       1,
+       "別の考え: 守りのファイルの型の当て方の正本を修正案の範囲と同じ glob の下回り（planmarks.glob_match）に寄せている（修正案の範囲の照らしではない）"
+      ],
+      ".shared/core/holeties.py": [
+       1,
+       "穴の名札が穴の場所を項目の範囲で結ぶ _path_hit が planrange.inside と同じ当て方を手で書く（2026-10-09 の統合で住処ができた。後で寄せる）"
+      ],
+      "blk-fix/lib/consult.py": [
+       3,
+       "範囲の相談の事前の確かめ（_inside・out_of_scope の当たり）が planrange.inside・oos_hit と同じ当て方を手で書く（住処の前からの物。後で寄せる）"
+      ],
+      "blk-plan/lib/ripple.py": [
+       1,
+       "波及の照らし _covered が項目の範囲の当て方（planrange.inside と同じ）を手で書く（案を書く段は承認の前の案を読む。後で寄せる）"
+      ]
+     }
+    }
+   ]
+  },
+  "test-files": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "テストのファイルの名の慣習を手で書く形（名の正規表現・名の型の字）",
+     "pattern": "test_\\.\\*|\\.\\*_test|\\(test\\|spec\\)|test_\\*\\.py|\\*_test\\.py",
+     "allowed": [
+      ".shared/core/impact.py",
+      "blk-fix/lib/tddloop.py"
+     ],
+     "known": {
+      ".shared/core/entry.py": [
+       1,
+       "別の考え: 検証ゲートの定義のファイルの型 GATE_FILE_PATTERNS（当たり過ぎを許す広めの当て方で、テストのフォルダ・CI・lint の設定も並べる。テストのファイルの見分けではない）"
+      ]
+     }
+    }
+   ]
+  },
   "entry-kind": {
    "status": "散らばり",
    "fences": []

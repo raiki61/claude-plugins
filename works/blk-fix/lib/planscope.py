@@ -125,7 +125,7 @@ def _test_ids(path: str, src: str | None) -> list[str] | None:
 
 
 def new_test_ids(path: str, base: str | None, now: str | None) -> list[str]:
-    """path が試験のモジュール（.py で名が test_*.py か *_test.py）の時だけ、now に在って base に無いテストの id
+    """path が試験のモジュール（pytest の既定の python_files の名の型 tddloop.PYTEST_FILE に当たる .py）の時だけ、now に在って base に無いテストの id
     （<path>::<クラス>::<名>・<path>::<名>）。now の構文が壊れていれば []（base が壊れていれば全部を新しい物に数える）"""
     if not tddloop.PYTEST_FILE.match(posixpath.basename(path)):
         return []

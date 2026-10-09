@@ -54,6 +54,8 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `prompt-assembly` | 指示書の組み立て | 散らばり |
 | `lanes` | 並べの枝 | 住処あり |
 | `marks` | 返答の足し欄 | 住処あり |
+| `plan-scope` | 修正案の項目の範囲の照らし | 住処あり |
+| `test-files` | テストのファイルの見分け | 住処あり |
 | `stop-reasons` | 止めの理由 | 散らばり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 
@@ -156,6 +158,22 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 今: 修正役の欄（`.shared/core/recount.py` が足し、`.shared/core/writes.py`・`blk-fix/scripts/accept.py`・`blk-fix/lib/fixlanes.py`・`blk-fix/lib/unitrows.py` が外す）と報告の書き手の `terms`（`blk-report/lib/report_roles.py`）、報告が並行 PR の控えを自分の名で読む `.shared/core/report.py` は、同じ手順をまだ手で書く（柵の表の既知の漏れ。`blk-fix/lib/unitrows.py` の外し方は柵の字の形に当たらない。並行の作業が触っているので後で寄せる）。控えのパスを持ち主の定数で組む所（`.shared/core/accept.py`・`blk-plan/lib/planblk.py`・`.shared/core/refix.py`・`dev/canary_check.py`）は名を持たないが、`marks.path_of` に寄せられる
 - 計画: `docs/plans/2026-10-09-marks-home.md`
 
+### `plan-scope` 修正案の項目の範囲の照らし
+
+- 状態: 住処あり
+- 住処: `.shared/core/planrange.py`（項目の範囲 `inside`・`out_of_scope` の当たり `oos_hit`・`oos_hit_for`・範囲の相談の合意 `with_agreed`・許しのパス `permit_paths`・単位に結べないパスの外れ `outside`・盤面で照らす `check_paths`）
+- 約束: 修正案の項目の欄 `allowed_paths`・`out_of_scope`（`blk-plan/schemas/plan-fields.schema.json`）
+- 知ってよい所: 住処と、glob の当て方の下回りと項目の欄の読みを持つ `.shared/core/planmarks.py`（`glob_match`・`test_paths`）。使う所は修正の受け付けの照らし `blk-fix/lib/planscope.py`（単位に結べる行と欠けの照らしはそちら）と手直しの受け付け `.shared/core/refix.py`（`check_paths`）で、どちらも住処を呼ぶ
+- 今: 同じ当て方を手で書く所が残る（`.shared/core/holeties.py`・`blk-fix/lib/consult.py`・`blk-plan/lib/ripple.py`。柵の表の既知の漏れ）。`.shared/core/protect.py` は守りのファイルの型を同じ下回りで当てる別の考え
+
+### `test-files` テストのファイルの見分け
+
+- 状態: 住処あり
+- 住処: 名の慣習は `.shared/core/impact.py` の `is_test`（`TEST_NAME`・`TEST_STEM`・`TEST_TAIL`・`TEST_DIRS`。言語の表でなく名の形）、宣言と慣習を合わせた見分けは `blk-fix/lib/tddloop.py` の `declared_test_files`・`is_test_file`（宣言＝役の申告の test_files と修正案の受け入れのテスト・書き換えの名指しのパス）
+- 約束: 文書の宣言は対象の git の属性 `linguist-documentation`（`impact` が読む）
+- 知ってよい所: 住処だけが名の型を書く。`blk-fix/lib/tddloop.py` の `PYTEST_FILE` は pytest の既定の python_files（実行器が pytest の時の名指しの型）で、同じ住処に置く。使う所（`blk-fix/lib/fixgates.py`・`blk-plan/lib/ripple.py`・`blk-fix/lib/planscope.py`）は住処の口を呼ぶ
+- 今: `.shared/core/entry.py` の `GATE_FILE_PATTERNS`（検証ゲートの定義のファイルの広めの型）は別の考えで、テストの名の型の字を含む（柵の表の既知の漏れ）。計画 `docs/plans/2026-10-09-lang-neutral-red.md`
+
 ---
 
 ## 散らばり
@@ -177,7 +195,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `carry-over` 次の run への持ち越し
 
 - 状態: 散らばり
-- 今: 書き手は `.shared/core/report.py`（`NEXT_REQUEST_FILE`・`next_doc`・`prior_failures`）、読み手と形の確かめは `.shared/core/ghreads.py`（`KEYS`・`DRAFT_KEYS`・`PRIOR_KEYS`・`carry_ci`）、盤面へ置くのは `.shared/core/entry.py`（`PRIOR_IN_FILE`・`place_prior`）、答えの下書きは `.shared/core/gatemarks.py`（`answer_drafts`）、R4 の頭に貼るのは `gatemarks.carried_section`。欄の名（`prior_failures`・`draft`・`source`）を書き手と読み手がそれぞれの定数で持つ
+- 今: 書き手は `.shared/core/report.py`（`NEXT_REQUEST_FILE`・`next_doc`・`prior_failures`）、読み手と形の確かめは `.shared/core/ghreads.py`（`KEYS`・`DRAFT_KEYS`・`PRIOR_KEYS`・`carry_ci`・目的の役に渡す前に欄 `prior_failures` を外した依頼の写しを作る `without_prior`）、盤面へ置くのは `.shared/core/entry.py`（`PRIOR_IN_FILE`・`place_prior`）、答えの下書きは `.shared/core/gatemarks.py`（`answer_drafts`）、R4 の頭に貼るのは `gatemarks.carried_section`。欄の名（`prior_failures`・`draft`・`source`）を書き手と読み手がそれぞれの定数で持つ
 - 約束（在る物）: `darkfactory/schemas/next-request.schema.json`・`darkfactory/schemas/prior-failures.schema.json`
 - 計画: まだ無い（`docs/plans/2026-10-09-structure-viewpoint.md` の 6 節の順で立てる）
 
