@@ -10,10 +10,15 @@ TDD の輪の並べ（tddlanes。docs/plans/2026-10-07-lane-nodes.md）と修正
 
 口:
 - MAX_LANES: 枝の輪の数（両方の段の YAML の <段>-lane-loop-1..3 と包みの adapter.KEYED_NODES。試験が縛る）
-- fork_out(ns): 節 <段>-fork の出口 {go, lanes, lane_1..lane_<MAX_LANES>}（ns は切った枝の番号。1..k の連番でなければ ValueError）
+- node_names(pattern): 枝の役の節の名の全部（pattern は段の名の型 "<段>-lane-{n}"。n は 1..MAX_LANES）
+- JOINED・MERGED・BACK: 締めの出口を残す欄の名と、締めた後の結末の語（当てた・順に戻した）
+- groups(rows): [(id, タグの並び)] をタグを共にする物どうしの組に（つながりは推移的。組の中と組の並びは rows の順。純粋）
+- relocate(path, repo, tree): run の作業ツリーの中のパス（実行器など）を単位の worktree の同じ所へ（外ならそのまま）
+- fork_out(ns, empty_ok=True): 節 <段>-fork の出口 {go, lanes, lane_1..lane_<MAX_LANES>}（ns は切った枝の番号。1..k の連番でなければ、
+  empty_ok が偽で空でも ValueError）
 - plant(repo, ns, place, manifest, union=()): 前の単位の worktree を片付け、run の作業ツリーの今の姿を base に枝ごとの単位の
   worktree（place/item-<n>）を切る（unitlanes.plant）。{n: {tree, git, base}}
-- tree_ok(tree, git): 単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由（役が指しを書き換えた枝は当てない）
+- tree_ok(row): 行の単位の worktree（tree）の `.git` の 1 行が切った時（git）と同じなら空、違えば理由（役が指しを書き換えた枝は当てない）
 - mark(board_dir, node, key, tree): 包みが読む 2 つの印を書く: 単位の鍵（adapter.session_key_path。替われば包みが新しい会話で
   起こす）と単位の worktree（adapter.lane_tree_path。盤面の下。包みの旗 lane が子の cwd にする）
 - revert_strays(repo, base, keep=()): 枝の間に run の作業ツリーで変わったファイル（keep の外）を base の姿に戻す（枝の役は包みの
@@ -21,6 +26,8 @@ TDD の輪の並べ（tddlanes。docs/plans/2026-10-07-lane-nodes.md）と修正
 - merge(repo, tree, *, since, base, log, declared, made, kept, union, earlier): 枝の差分を run の作業ツリーへ 3 方向で当てる
   （書き込みの記録の無い変更・当たらない差分・当てた中身が単位の worktree と違う物は当てない。枝の実行器が作ったファイル made は
   base の姿に戻して差分に入れない）。Merge（why・patch・names・unioned・clash）
+- merge_in_order(lanes, merge_one): 枝を順に当てる。merge_one(lane, earlier) が Merge を返し、earlier は前に当てた枝の差分の
+  パス（当てなかった枝の物は入らない）。[(lane, Merge)]
 - shared(patches): 2 本以上の枝の差分に出たファイル
 - carry(log, repo, applied, shared): 当てた枝の書き込みの記録を run の作業ツリーへ写す（unitlanes.carry_records）
 - claim_problems(claims, repo, board_dir, owed, try_query, briefs): 食い違いの申し出（1 件か並び）の機械の確かめ（conflict.problems）
@@ -48,6 +55,9 @@ import unittrees  # noqa: E402
 import writes  # noqa: E402
 
 MAX_LANES = 3
+JOINED = "joined"                   # 締めの出口を残す欄（resume で回し直された締めはこれを返す）
+MERGED = "merged"                   # 締めた後の結末: 枝の差分を当てた
+BACK = "serial"                     # 締めた後の結末: 順に戻した（順の輪が直す）
 
 
 class Merge(NamedTuple):
@@ -58,10 +68,47 @@ class Merge(NamedTuple):
     clash: bool       # 字の食い違いで当たらなかった
 
 
-def fork_out(ns) -> dict:
+def node_names(pattern: str) -> list:
+    """枝の役の節の名の全部（頭の注記）"""
+    return [pattern.format(n=n) for n in range(1, MAX_LANES + 1)]
+
+
+def groups(rows) -> list:
+    """[(id, タグの並び)] をタグを共にする物どうしの組に（頭の注記）。返りは id の並びの並び"""
+    rows = [(i, list(tags or [])) for i, tags in rows]
+    parent = {i: i for i, _ in rows}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    first = {}
+    for i, tags in rows:
+        for t in tags:
+            if t in first:
+                parent[find(i)] = find(first[t])
+            else:
+                first[t] = i
+    out = {}
+    for i, _ in rows:
+        out.setdefault(find(i), []).append(i)
+    return list(out.values())
+
+
+def relocate(path, repo, tree) -> pathlib.Path:
+    """run の作業ツリーの中のパスを単位の worktree の同じ所へ（頭の注記）"""
+    path = pathlib.Path(path)
+    try:
+        return pathlib.Path(tree) / path.absolute().relative_to(pathlib.Path(repo).absolute())
+    except ValueError:
+        return path
+
+
+def fork_out(ns, empty_ok: bool = True) -> dict:
     """節 <段>-fork の出口（頭の注記）"""
     ns = list(ns)
-    if ns != list(range(1, len(ns) + 1)) or len(ns) > MAX_LANES:
+    if ns != list(range(1, len(ns) + 1)) or len(ns) > MAX_LANES or not (ns or empty_ok):
         raise ValueError(f"枝の番号が 1..{MAX_LANES} の連番でない（{ns}）")
     return {"go": bool(ns), "lanes": len(ns), **{f"lane_{n}": n in ns for n in range(1, MAX_LANES + 1)}}
 
@@ -72,8 +119,9 @@ def plant(repo, ns, place, manifest, union=()) -> dict:
     return {n: {**row, "git": unitlanes._git_line(row["tree"])} for n, row in trees.items()}
 
 
-def tree_ok(tree, git: str) -> str:
-    """単位の worktree の指しの確かめ（頭の注記）"""
+def tree_ok(row) -> str:
+    """単位の worktree の指しの確かめ（頭の注記）。row は tree と git を持つ行（目録の行・枝の控え）"""
+    tree, git = row["tree"], row.get("git") or ""
     if git and unitlanes._git_line(tree) == git:
         return ""
     return f"単位の worktree {tree} の .git の指しが切った時と違う（この枝は当てず、順に戻す）"
@@ -123,6 +171,17 @@ def merge(repo, tree, *, since: str, base: str, log, declared=(), made=(), kept,
         tddloop.restore_paths(repo, before, names)
         return Merge(why, str(kept), [], [], False)
     return Merge("", str(kept), names, got, False)
+
+
+def merge_in_order(lanes, merge_one) -> list:
+    """枝を順に当てる（頭の注記）"""
+    earlier, out = set(), []
+    for lane in lanes:
+        got = merge_one(lane, frozenset(earlier))
+        if not got.why:
+            earlier |= set(got.names)
+        out.append((lane, got))
+    return out
 
 
 def shared(patches) -> list:

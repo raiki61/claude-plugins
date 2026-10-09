@@ -81,7 +81,7 @@ RULES_FILE = "fix-lane-{n}-{j}.md"
 BRIEFS_FILE = "fix-lane-{n}-{j}-briefs.md"   # 座の型の [BRIEF_FILE]（fixrules.implementer_values）
 REVIEW_FILE = "fix-lane-{n}-{j}-review.md"   # 審査役の下請けのファイル（fixrules.review_text）
 NEXT_FILE = "fix-lane-{n}.next.md"
-JOINED = "joined"   # 結末（fixrules.LANES_RECORD）の欄: 締めの出口（resume で回し直された締めはこれを返す）
+JOINED = lanekit.JOINED   # 結末（fixrules.LANES_RECORD）の欄: 締めの出口（resume で回し直された締めはこれを返す）
 REPLY_FILE = "fix-lane-{n}-{j}-reply.json"   # 通った枝の返答（修正役が changes の行を写す）
 TESTS_FILE = "fix-lane-{n}-tests.json"       # 枝の確かめが試験を選んで回す輪の状態の写し（実行器は単位の worktree の物）
 KEPT_FILE = "fix-lane-{n}-{j}.patch"         # 諦めた項目の差分（修正役が読む前の試み）
@@ -89,7 +89,7 @@ LANE_PATCH = "fix-lane-{n}.patch"            # 締めが当てた・当てられ
 PLACE = "fix-lanes"   # run ごとの置き場の今の scope の下（単位の worktree item-<n>・枝の試験の置き場 lane-<n>・審査の差分）
 PLANTED_OP, SETTLED_OP = "fix_lanes_planted", "fix_lanes_settled"   # 盤面の trace の行（canary_check・報告が読む）
 ACCEPTED, GAVE_UP, NOT_RUN = "accepted", "gave_up", "not_run"       # 枝の控えの項目の結末
-MERGED, BACK = "merged", "serial"                                   # 締めた後の項目の結末
+MERGED, BACK = lanekit.MERGED, lanekit.BACK                         # 締めた後の項目の結末
 # 枝の確かめの id → 拒否の見出しの短い名（受け付けの scripts/accept.py の CHECKS の部分集合と、枝だけの units）
 CHECKS = {
     "shape": "返答の形",
@@ -114,7 +114,7 @@ class Broken(Exception):
 
 def lane_nodes() -> list:
     """枝の役の節の印の名の全部（fix-lane-1..MAX_LANES）"""
-    return [LANE_NODE.format(n=n) for n in range(1, MAX_LANES + 1)]
+    return lanekit.node_names(LANE_NODE)
 
 
 def _read(path) -> dict:
@@ -136,26 +136,8 @@ def _write(path, doc) -> None:
 
 # ---------------------------------------------------------------- 分け方（純粋）
 def groups(rows) -> list:
-    """[(項目, 単位の並び)] を単位を共にする項目どうしの組に（組の中と組の並びは rows の順）。返りは項目の番号の並びの並び"""
-    rows = [(i, list(u)) for i, u in rows]
-    parent = {i: i for i, _ in rows}
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-    first = {}
-    for i, units in rows:
-        for k in units:
-            if k in first:
-                parent[find(i)] = find(first[k])
-            else:
-                first[k] = i
-    out = {}
-    for i, _ in rows:
-        out.setdefault(find(i), []).append(i)
-    return list(out.values())
+    """[(項目, 単位の並び)] を単位を共にする項目どうしの組に（組の中と組の並びは rows の順。lanekit.groups）。返りは項目の番号の並びの並び"""
+    return lanekit.groups(rows)
 
 
 def assign(grps, lanes: int = MAX_LANES, per: int = MAX_ITEMS) -> tuple:
@@ -315,11 +297,7 @@ def _tests_state(b, repo: pathlib.Path, tdd_state: str, n: int, tree: pathlib.Pa
     if not tdd_state or not pathlib.Path(tdd_state).is_file():
         return ""
     st = tddloop.load_state(tdd_state)
-    exe = pathlib.Path(st["exe"])
-    try:
-        exe = tree / exe.absolute().relative_to(repo.absolute())
-    except ValueError:
-        pass
+    exe = lanekit.relocate(st["exe"], repo, tree)
     work = place / f"lane-{n}" / "suite"   # 版の写しの結末の控え（work の親）も枝ごと（同時に走る枝が同じ控えを書かない）
     work.mkdir(parents=True, exist_ok=True)
     path = b.work(TESTS_FILE.format(n=n))
@@ -333,18 +311,13 @@ def _state(b, n) -> tuple:
     return path, _read(path)
 
 
-def _tree_ok(lst: dict) -> str:
-    """単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由（lanekit.tree_ok）"""
-    return lanekit.tree_ok(lst["tree"], lst.get("git") or "")
-
-
 def lane_prep(board_dir, n) -> dict:
     """節 fix-lane-prep-<n>（頭の注記）"""
     b = entry.open_board(pathlib.Path(board_dir))
     _, lst = _state(b, n)
     if lst["done"]:   # 済んだ枝（締めが止めた枝を含む）を Archon の resume が回し直した: 役を起こさない（YAML の役の when: が go を読む）
         return {"prompt_file": "", "go": False}
-    why = _tree_ok(lst)
+    why = lanekit.tree_ok(lst)
     if why:
         raise Broken(why)
     it = lst["items"][lst["cur"]]
@@ -400,7 +373,7 @@ def lane_step(board_dir, n, reply, repo, *, consulted: bool = False, base_rev: s
     it = lst["items"][lst["cur"]]
     tree = pathlib.Path(lst["tree"])
     lst["iterations"] += 1
-    why = _tree_ok(lst)
+    why = lanekit.tree_ok(lst)
     if why:   # 枝を済みにして抜ける（輪を落とさない。締めが枝の項目を順に戻す）
         _stop(lst, None, why)
         _write(path, lst)
@@ -571,7 +544,7 @@ def join(board_dir, repo, try_query=None) -> dict:
                 back[i] = {"why": f"枝の控えが読めない（{e}）", "lane": n}
             continue
         tree = pathlib.Path(lst["tree"])
-        broken = _tree_ok(lst)
+        broken = lanekit.tree_ok(lst)
         if not lst["done"] and not broken:   # 枝の輪が最後まで回らなかった（落ちた）: 書きかけを当てない
             _stop(lst, tree, "枝の輪が項目を最後まで回さなかった（落ちたか止まった）", b)
             _write(row["state"], lst)
@@ -583,19 +556,21 @@ def join(board_dir, repo, try_query=None) -> dict:
                 back[i] = {"why": broken, "lane": n}
         elif acc:
             ready.append((row, lst, acc))
-    applied, union_got, earlier, patched = [], [], set(), {}
-    for row, lst, acc in ready:
+
+    def merge_one(lane, earlier):
+        row, lst, _ = lane
         try:
-            got = lanekit.merge(repo, lst["tree"], since=lst["base"], base=man["base"], log=log, declared=lst.get("declared") or [],
-                                made=_made(lst), kept=b.work(LANE_PATCH.format(n=row["n"])), union=man.get("union") or (),
-                                earlier=earlier)
+            return lanekit.merge(repo, lst["tree"], since=lst["base"], base=man["base"], log=log, declared=lst.get("declared") or [],
+                                 made=_made(lst), kept=b.work(LANE_PATCH.format(n=row["n"])), union=man.get("union") or (),
+                                 earlier=earlier)
         except (unittrees.UnitTreeError, OSError) as e:   # git が効かない枝は戻す（締めを落とさない）
-            got = lanekit.Merge(f"枝の差分を作れない・当てられない（{' '.join(str(e).split())[:300]}）", "", [], [], False)
+            return lanekit.Merge(f"枝の差分を作れない・当てられない（{' '.join(str(e).split())[:300]}）", "", [], [], False)
+    applied, union_got, patched = [], [], {}
+    for (row, lst, acc), got in lanekit.merge_in_order(ready, merge_one):
         if got.why:
             for r in acc:
                 back[r["item"]] = {"why": got.why, "patch": got.patch, "lane": row["n"]}
             continue
-        earlier |= set(got.names)
         union_got += [p for p in got.unioned if p not in union_got]
         applied.append((lst["tree"], got.patch))
         patched[row["n"]] = list(got.names)

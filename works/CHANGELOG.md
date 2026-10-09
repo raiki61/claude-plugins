@@ -13,6 +13,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Changed
 
 - 考えの住処の柵の既知の漏れのうち、コードの重なりを住処へ寄せた: 読んだ証拠の置き場の名は `reads` の口（`evidence_name`・`index_name`・`is_index`・`EVIDENCE_GLOB`）から、止め札の名は `halt.STOP_FILE`、宣言のファイルの名は `scopes.MANIFEST`、食い違いの申し出の欄の名は `conflict` の定数から引く。core とブロックの docstring・コメント・YAML の説明・誤りの文は境の節の名を書かず、柵は `h-<語>` の形の全部を見る。run の動きは変わらない。
+- 並べの枝（考え `lanes`）の住処を `blk-fix/lib/lanekit.py` 1 つにした（計画 `docs/plans/2026-10-09-lanes-home.md`）: TDD の輪の並べ `tddlanes` と修正役の並べ `fixlanes` が別々に写していた分け方・節の名・実行器の読み替え・指しの確かめ・順に当てる輪・締めの語を lanekit に寄せ、段のモジュールには差し替え口だけを残す。地図の `lanes` を住処ありにして柵を掛け、core の表が字で並べる枝の節の名が枝の数とちょうど揃うことを試験 `tests/test_lanekit.py` が縛る。run の動きは変わらない。
 
 ### Fixed
 

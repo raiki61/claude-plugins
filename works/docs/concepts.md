@@ -51,7 +51,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `ai-launch` | AI の起こし方（模型・effort・道具・隔離） | 散らばり |
 | `ledger` | 費用と時間の帳簿 | 散らばり |
 | `prompt-assembly` | 指示書の組み立て | 散らばり |
-| `lanes` | 並べの枝 | 散らばり |
+| `lanes` | 並べの枝 | 住処あり |
 | `marks` | 返答の足し欄 | 散らばり |
 | `stop-reasons` | 止めの理由 | 散らばり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
@@ -138,6 +138,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 約束: graph の節の `writes`（`.shared/core/graphloops/graphs/review-loop.json`）と rules の `WRITE_OPS`
 - 知ってよい所: 写しの中だけ。works の側は盤面の口（`.shared/core/board.py`）を通す
 
+### `lanes` 並べの枝
+
+- 状態: 住処あり
+- 住処: `blk-fix/lib/lanekit.py`（枝の数 `MAX_LANES`・節の名 `node_names`・締めの語 `JOINED`・`MERGED`・`BACK`・分け方 `groups`・実行器の読み替え `relocate`・出口 `fork_out`・切る `plant`・指しの確かめ `tree_ok`・印 `mark`・戻す `revert_strays`・当てる `merge`・`merge_in_order`・`shared`・`carry`・申し出 `claim_problems`・`park`・片付け `remove`）。単位の worktree の下回りは `blk-fix/lib/unitlanes.py`
+- 約束: 段のモジュール `blk-fix/lib/tddlanes.py`・`blk-fix/lib/fixlanes.py` は差し替え口だけを持つ（何を枝に分けるか・枝の控えの形と置き場・枝の役の指示書・枝の確かめ・当てる時の段の照らし・当てた後の確かめ）。計画 `docs/plans/2026-10-09-lanes-home.md`
+- 知ってよい所: 住処と `blk-fix/lib/unitlanes.py`。枝の数の写し（`blk-fix/blk-fix.yaml` の `<段>-lane-loop-1..3`、core の表 `.shared/core/adapter.py` の `KEYED_NODES`・`.shared/core/seat.py` の `SEATS`・`SKILL_NODES`・`AGENT_NODES`・`.shared/core/stage-models.json`）は字で並べる（Archon の YAML は節を字で並べ、core はブロックを読めない）。試験が `MAX_LANES` とちょうど揃うことを縛る（`tests/test_lanekit.py`・`tests/test_tdd_lane_wiring.py`・`tests/test_fix_lane_wiring.py`・`tests/test_adapter_lane.py`）
+- 今: 同じ語 `lanes` が `blk-eyes/lib/eyes.py` の `LANES`（独立の目の筋）という別の考えにも使われている（この考えではない。柵の語の形には当たらない）
+
 ---
 
 ## 散らばり
@@ -185,12 +193,6 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 状態: 散らばり
 - 今: 写しの指示書を描く所は `.shared/core/rolekit.py` の `render_body` 1 つだが、「頭の節 → `---` → 写しの本文 → 役の定義 → 前の拒否」の並べはブロックごとに組む（`blk-plan/lib/planblk.py` の `head`・`brief_head`、`blk-eyes/lib/eyes.py` の `prep`、`blk-judge/lib/judgebrief.py`、`blk-material/lib/material.py`、`blk-spec/lib/specblk.py`、`blk-report/lib/report_roles.py`、`.shared/core/rejudge.py`、`.shared/core/design.py`）。「機械が貼った」節の見出しも各所の定数
-- 計画: まだ無い
-
-### `lanes` 並べの枝
-
-- 状態: 散らばり（部分の住処あり）
-- 今: 段に依らない部分は `blk-fix/lib/lanekit.py`（`MAX_LANES`・`fork_out`・`plant`）、単位の worktree は `blk-fix/lib/unitlanes.py`、段ごとの枝は `blk-fix/lib/tddlanes.py`・`blk-fix/lib/fixlanes.py`。枝の輪の数は `blk-fix/blk-fix.yaml` の `<段>-lane-loop-1..3` と `.shared/core/adapter.py` の `KEYED_NODES` にも写る。同じ語 `lanes` が `blk-eyes/lib/eyes.py` の `LANES`（独立の目の筋）という別の考えにも使われている
 - 計画: まだ無い
 
 ### `marks` 返答の足し欄

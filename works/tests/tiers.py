@@ -48,6 +48,7 @@ FAST = frozenset({
     "test_unittrees",       # 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
     "test_tdd_lane_wiring", # TDD の輪の並べの節の配線（YAML・筋書き・状態の JSON を読むだけ。git・子のプロセスなし）
     "test_fix_lane_wiring", # 修正役の並べの節の配線と並べの枝の部品の純粋な口（YAML・筋書き・表を読むだけ。git・盤面・子のプロセスなし）
+    "test_lanekit",         # 並べの枝の部品の純粋な口と枝の数の写しの縛り（一時の置き場のファイル 1 つ・表を読むだけ。git・子のプロセスなし）
     "test_unitlanes",       # 下請けを単位の worktree で並べる（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git と python3 1 本）
     "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
