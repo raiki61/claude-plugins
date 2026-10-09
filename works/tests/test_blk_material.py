@@ -509,7 +509,8 @@ class PrepCase(_Case):
         # 旗 text-reply の役（包みが schema を返答の道具に任せず本文で受ける）は、本文の JSON の断りと schema を貼る
         self.assertIn(material.rolekit.SCHEMA_NOTE, text)
         # fork の /code-review の返り方（届かなかった行は見ていないと書く・起こし直させない・旗の綴りを args に書かせない）の読み替え
-        self.assertTrue(text.rstrip("\n").endswith(material.LENS_FORK_NOTE), text[-400:])
+        # その後ろは全部の素材集めの役に付く所見の場所の書き方（利用者の声 10-09 の H）
+        self.assertTrue(text.rstrip("\n").endswith(material.LENS_FORK_NOTE + "\n\n---\n\n" + material.LOCATION_NOTE), text[-400:])
 
     def test_isolated_role_gets_pasted_prompt(self):
         bd, repo = self.board("normal")
@@ -598,6 +599,45 @@ class TakeCase(_Case):
         (repo / "stray.txt").unlink()
         got = material.take(bd, "provenance", good_reply("p1.provenance"), repo, "optional")
         self.assertTrue(got["ok"], got)
+
+    def hygiene(self, *wheres):
+        return {"findings": [{"where": w, "text": "所見の見本"} for w in wheres], "seen": "差分の全部"}
+
+    def test_location_beyond_the_file_is_sent_back(self):
+        """所見の場所の <パス>:<行> の行がそのファイルに無い（差分の行番号を書いた）返答は、理由を返して出し直させる。在るファイルの
+        在る行・作業ツリーに無いファイル・行の無い場所は通す（利用者の run f6eaf0a0 の 92 行のファイルの :184。利用者の声 10-09 の H）"""
+        bd, repo = self.board("normal")
+        material.route(bd, repo, "optional")
+        n = len((repo / "stats.py").read_text(encoding="utf-8").splitlines())
+        got = self.run_role("hygiene", self.hygiene(f"stats.py:{n + 100}", "stats.py:1-2 と :999（説明）"))
+        self.assertFalse(got["ok"], got)
+        self.assertFalse(got["done"])
+        self.assertIn(material.LOCATION_HEAD, got["reason"])
+        self.assertIn(f"stats.py:{n + 100}", got["reason"])
+        self.assertIn("stats.py:999", got["reason"], "名の無い :<行> は直前のパスの行")
+        again = material.prep(bd, "hygiene", repo, "")
+        self.assertIn(material.LOCATION_HEAD, pathlib.Path(again["prompt_file"]).read_text(encoding="utf-8"))
+        got = material.take(bd, "hygiene", self.hygiene("stats.py:1", "infra/main.tf:184", "stats.py（関数 mean）"), repo, "optional")
+        self.assertTrue(got["ok"], got)
+
+    def test_location_is_marked_instead_of_giving_up(self):
+        """場所の行の外れだけで出し直しが上限に届く回は、諦めて盤面を止めずに受け、場所に外れの印を付ける（場所の言い方で
+        run を止めない）"""
+        bd, repo = self.board("normal")
+        material.route(bd, repo, "optional")
+        bad = self.hygiene("stats.py:999")
+        for _ in range(material.GIVE_UP_AFTER - 1):
+            self.assertFalse(self.run_role("hygiene", bad)["ok"])
+        got = self.run_role("hygiene", bad)
+        self.assertEqual((got["ok"], got["give_up"]), (True, False), got)
+        out = entry.open_board(bd).latest_output("p1.hygiene")
+        self.assertIn(material.LOCATION_MARK, out["findings"][0]["where"])
+
+    def test_prompt_asks_for_file_line_numbers(self):
+        bd, repo = self.board("normal")
+        material.route(bd, repo, "optional")
+        got = material.prep(bd, "hygiene", repo, "")
+        self.assertIn(material.LOCATION_NOTE, pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"))
 
     def test_unreadable_reply_counts_as_reject(self):
         bd, repo = self.board("normal")

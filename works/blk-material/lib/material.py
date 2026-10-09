@@ -16,7 +16,8 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
            置く。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
 - take:    旗の役の包みの柵（adapter 空の run）→ 作業ツリーを route の姿と比べる →（p1.local_review だけ）fork のレンズ
            （/code-review）の所見が届かなかった空の行を『見ていない』と書く（.shared/core/diverted.py）→ 必須のレンズの起動
-           （_lens_gap）→ 盤面の done（写しの schema・post_check・writes・check_record・settle）。拒否は material-rejects.json
+           （_lens_gap）→ 所見の場所の <パス>:<行> が作業ツリーのファイルの行か（_location_gap。外れは拒んで出し直させ、
+           出し直しが上限に届く回は場所に印を付けて受ける）→ 盤面の done（写しの schema・post_check・writes・check_record・settle）。拒否は material-rejects.json
            に積み、GIVE_UP_AFTER 回目で done・give_up（輪を max_iterations で落とさない。R50）
 - collect: 出口。回した後も待っている節が在れば（3 回とも拒まれた）盤面を止めて ok: False（諦めた目は全部名指す）。
            出口は ok と reason だけ（本線の R3 の出口の snapshot・materials は読み手が無いので組まない）
@@ -34,6 +35,7 @@ import functools
 import json
 import os
 import pathlib
+import re
 import sys
 
 sys.dont_write_bytecode = True
@@ -44,6 +46,7 @@ if str(CORE) not in sys.path:
 
 from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 import adapter  # noqa: E402
+import conflict  # noqa: E402  （名指し <パス>:<行> の確かめ cite_problem）
 import diverted  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import engine.util as _util  # noqa: E402
@@ -150,6 +153,16 @@ LENS_FORK_NOTE = ("## /code-review の返り方（works の受け付けより。
 NA_HEADING = "## 『条件に当たらない』（not_applicable）を書けるか（works の受け付けより。上の指示書の読み替え）"
 NA_REFUSED = ("`not_applicable` は受け付けが拒む——見た結果を found・clean で、確かめられなかったなら not_run（理由つき）で"
               "書け。")
+# 所見の場所（返答の行の where）の <パス>:<行> は、作業ツリーのファイルの行で書かせる。レンズは差分のファイルを読むので、差分の
+# 行番号を書くことがある（利用者の run f6eaf0a0: 92 行のファイルに :184）。受け付けが在るファイルの行の外れを拒んで同じ会話で
+# 出し直させ（輪の fresh_context: false）、出し直しが上限に届く回は止めずに受けて場所に LOCATION_MARK を付ける
+LOCATION_NOTE = ("## 所見の場所の書き方（works の受け付けより）\n\n"
+                 "所見の場所（`where`）の `<パス>:<行>` は、作業ツリーの今のファイルの行番号で書け。差分のファイル（patch）の中の"
+                 "行番号を書くな——差分の行はファイルの行と違い、人が場所を開けない。差分で見つけた所見は、そのファイルを Read して"
+                 "行を確かめてから書け。受け付けは、在るファイルの行の外を指す場所を拒んで出し直させる。")
+LOCATION_HEAD = "所見の場所の行がファイルに無い（差分の行番号を書いていないか。作業ツリーのファイルの行で書き直せ）"
+LOCATION_MARK = "（works の受け付け: この行はファイルに無い——差分の行番号の疑い）"
+CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
 STOP_BY = "works:material"
 FENCE_BY = "works:adapter"               # 包みの確かめが通らない時の止め札（blk-ci・線の境の節と同じ by）
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
@@ -375,6 +388,7 @@ def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
             text = text.rstrip("\n") + "\n\n---\n\n" + rolekit.skill_overlay()   # 借りたスキルを読める役だけに無人の読み替え
         if nid == ROLES["local-review"]:
             text = text.rstrip("\n") + "\n\n---\n\n" + LENS_RETRY_NOTE + "\n\n---\n\n" + LENS_FORK_NOTE
+        text = text.rstrip("\n") + "\n\n---\n\n" + LOCATION_NOTE + "\n"
         path = b.dir / "prompts" / f"r{b.round}" / (safe_name(nid) + ".md")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
@@ -464,6 +478,52 @@ def _lens_gap(b, nid: str, reply: dict) -> tuple[str, bool] | None:
     return "宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs), bool(absent)
 
 
+def _where_rows(node) -> list:
+    """返答の中の where（文字列）と text を持つ行の全部（入れ子を辿る。行の dict そのもの）"""
+    if isinstance(node, list):
+        return [r for x in node for r in _where_rows(x)]
+    if not isinstance(node, dict):
+        return []
+    if isinstance(node.get("where"), str) and isinstance(node.get("text"), str):
+        return [node]
+    return [r for v in node.values() for r in _where_rows(v)]
+
+
+def _location_problems(reply, repo) -> dict:
+    """{where: [外れの文]}: 行の where の <パス>:<行>（パスの無い :<行> は直前のパスの行）のうち、作業ツリーに在るファイルを指し、
+    行がそのファイルに無い物（conflict.cite_problem で確かめる）。作業ツリーに無いファイル（消したファイル・パスでない語）は見ない"""
+    root, out = pathlib.Path(repo), {}
+    for row in _where_rows(reply):
+        last = ""
+        for m in CITE_IN_WHERE.finditer(row["where"]):
+            path = m["path"] or last
+            last = path
+            p = pathlib.Path(path)
+            if not path or not ((p if p.is_absolute() else root / p).is_file()):
+                continue
+            cite = f"{path}:{m['a']}" + (f"-{m['b']}" if m["b"] else "")
+            why = conflict.cite_problem(cite, root)
+            if why:
+                out.setdefault(row["where"], []).append(why)
+    return out
+
+
+def _location_gap(b, nid: str, reply, repo):
+    """(拒む文か None, 受ける返答)。外れが在り、場所の外れで拒んだ回が上限の 1 つ手前に届いていなければ拒む文。届いていれば
+    返答の外れた行の where に LOCATION_MARK を付けて受ける（場所の言い方だけで盤面を止めない）"""
+    bad = _location_problems(reply, repo)
+    if not bad:
+        return None, reply
+    tried = sum(1 for r in _rejects(b, nid) if str(r.get("reason") or "").startswith(LOCATION_HEAD))
+    if tried < GIVE_UP_AFTER - 1:
+        return LOCATION_HEAD + ":\n" + "\n".join(f"  - {w}: {'; '.join(e)}" for w, e in bad.items()), reply
+    marked = json.loads(json.dumps(reply))
+    for row in _where_rows(marked):
+        if row["where"] in bad:
+            row["where"] += LOCATION_MARK
+    return None, marked
+
+
 def _peers(b, nid: str) -> list:
     """同じ波で起きている（印を置いて待っている）ほかの素材集めの役の節"""
     return sorted(i["node"] for i in b.rd["instances"].values()
@@ -514,6 +574,9 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
         gap = _lens_gap(b, nid, reply) if nid == ROLES["local-review"] else None
         if gap:
             return _reject(b, nid, *gap)
+        where_gap, reply = _location_gap(b, nid, reply, repo)
+        if where_gap:
+            return _reject(b, nid, where_gap)
         try:
             b.done(nid, reply)
         except AnswerReject as e:
