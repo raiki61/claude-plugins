@@ -633,6 +633,24 @@ class TakeCase(_Case):
         out = entry.open_board(bd).latest_output("p1.hygiene")
         self.assertIn(material.LOCATION_MARK, out["findings"][0]["where"])
 
+    def test_location_after_other_rejects_does_not_give_up(self):
+        """ほかの理由の拒み（読めない返答）の後でも、場所の外れで数えて上限に届かせない: 上限の 1 つ手前からは印を付けて受ける"""
+        bd, repo = self.board("normal")
+        material.route(bd, repo, "optional")
+        material.prep(bd, "hygiene", repo, "")
+        self.assertFalse(material.refuse(bd, "hygiene", "返答が JSON として読めない")["give_up"])
+        self.assertFalse(self.run_role("hygiene", self.hygiene("stats.py:999"))["ok"])
+        got = self.run_role("hygiene", self.hygiene("stats.py:999"))
+        self.assertEqual((got["ok"], got["give_up"]), (True, False), got)
+
+    def test_location_outside_the_worktree_is_not_checked(self):
+        """作業ツリーの外の絶対パス（盤面の差分のファイル・標準の物）は場所の行を照らさない"""
+        bd, repo = self.board("normal")
+        material.route(bd, repo, "optional")
+        outside = pathlib.Path(bd) / "outside.txt"
+        outside.write_text("1 行\n", encoding="utf-8")
+        self.assertTrue(self.run_role("hygiene", self.hygiene(f"{outside}:50"))["ok"])
+
     def test_prompt_asks_for_file_line_numbers(self):
         bd, repo = self.board("normal")
         material.route(bd, repo, "optional")

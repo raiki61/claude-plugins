@@ -158,8 +158,8 @@ NA_REFUSED = ("`not_applicable` は受け付けが拒む——見た結果を fo
 # 出し直させ（輪の fresh_context: false）、出し直しが上限に届く回は止めずに受けて場所に LOCATION_MARK を付ける
 LOCATION_NOTE = ("## 所見の場所の書き方（works の受け付けより）\n\n"
                  "所見の場所（`where`）の `<パス>:<行>` は、作業ツリーの今のファイルの行番号で書け。差分のファイル（patch）の中の"
-                 "行番号を書くな——差分の行はファイルの行と違い、人が場所を開けない。差分で見つけた所見は、そのファイルを Read して"
-                 "行を確かめてから書け。受け付けは、在るファイルの行の外を指す場所を拒んで出し直させる。")
+                 "行番号を書くな——差分の行はファイルの行と違い、人が場所を開けない。差分で見つけた所見は、ファイルを読める役ならそのファイルを"
+                 "Read して行を確かめてから書け（読めない役は、確かめられない行番号を書かずにパスと関数名などで書け）。受け付けは、在るファイルの行の外を指す場所を拒んで出し直させる。")
 LOCATION_HEAD = "所見の場所の行がファイルに無い（差分の行番号を書いていないか。作業ツリーのファイルの行で書き直せ）"
 LOCATION_MARK = "（works の受け付け: この行はファイルに無い——差分の行番号の疑い）"
 CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
@@ -492,14 +492,15 @@ def _where_rows(node) -> list:
 def _location_problems(reply, repo) -> dict:
     """{where: [外れの文]}: 行の where の <パス>:<行>（パスの無い :<行> は直前のパスの行）のうち、作業ツリーに在るファイルを指し、
     行がそのファイルに無い物（conflict.cite_problem で確かめる）。作業ツリーに無いファイル（消したファイル・パスでない語）は見ない"""
-    root, out = pathlib.Path(repo), {}
+    root, out = pathlib.Path(repo).resolve(), {}
     for row in _where_rows(reply):
         last = ""
         for m in CITE_IN_WHERE.finditer(row["where"]):
             path = m["path"] or last
             last = path
             p = pathlib.Path(path)
-            if not path or not ((p if p.is_absolute() else root / p).is_file()):
+            full = (p if p.is_absolute() else root / p).resolve() if path else root
+            if not path or not full.is_file() or root not in full.parents:   # 作業ツリーの外（盤面・標準の物）は照らさない
                 continue
             cite = f"{path}:{m['a']}" + (f"-{m['b']}" if m["b"] else "")
             why = conflict.cite_problem(cite, root)
@@ -509,13 +510,13 @@ def _location_problems(reply, repo) -> dict:
 
 
 def _location_gap(b, nid: str, reply, repo):
-    """(拒む文か None, 受ける返答)。外れが在り、場所の外れで拒んだ回が上限の 1 つ手前に届いていなければ拒む文。届いていれば
-    返答の外れた行の where に LOCATION_MARK を付けて受ける（場所の言い方だけで盤面を止めない）"""
+    """(拒む文か None, 受ける返答)。外れが在り、この節の拒み（理由を問わない。_reject は種類を問わず GIVE_UP_AFTER 回で諦めて
+    盤面を止める）が上限の 1 つ手前に届いていなければ拒む文。届いていれば返答の外れた行の where に LOCATION_MARK を付けて受ける
+    （場所の言い方だけで盤面を止めない）"""
     bad = _location_problems(reply, repo)
     if not bad:
         return None, reply
-    tried = sum(1 for r in _rejects(b, nid) if str(r.get("reason") or "").startswith(LOCATION_HEAD))
-    if tried < GIVE_UP_AFTER - 1:
+    if len(_rejects(b, nid)) < GIVE_UP_AFTER - 1:
         return LOCATION_HEAD + ":\n" + "\n".join(f"  - {w}: {'; '.join(e)}" for w, e in bad.items()), reply
     marked = json.loads(json.dumps(reply))
     for row in _where_rows(marked):
