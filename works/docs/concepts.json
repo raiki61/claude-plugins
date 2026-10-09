@@ -845,110 +845,23 @@
    ]
   },
   "stop-reasons": {
-   "status": "散らばり",
+   "status": "住処あり",
    "fences": [
     {
-     "what": "止めの理由の語（盤面の state.stop.by に書く works:<名> の字）",
-     "pattern": "[\"\\']works:[a-z]",
-     "allowed": [],
-     "known": {
-      ".shared/core/ci_role.py": [
-       2,
-       "散らばり（段 5 でまとめる）: CI の役の止めの語と、包みの柵の止めの語 works:adapter（報告・素材・線と同じ値の重ね持ち）"
-      ],
-      ".shared/core/conflict.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 食い違いの止めの語と、修正案の欄の止めの語 works:fix（blk-fix と同じ値の重ね持ち）"
-      ],
-      ".shared/core/converge.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/entry.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/lens.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/prcheck.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/premises.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/purpose.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/refix.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 差分の目と手直しの止めの語 2 つ"
-      ],
-      ".shared/core/rejudge.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 再審の止めの語 2 つ"
-      ],
-      ".shared/core/replan.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      ".shared/core/report.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 報告が止めの語 works:adapter・works:rejudge-session を重ねて持つ"
-      ],
-      ".shared/core/scopes.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "blk-eyes/lib/eyes.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "blk-fix/lib/fixrules.py": [
-       1,
-       "散らばり（段 5 でまとめる）: brief の控えの止めの語 works:fix（assert_changed と同じ値の重ね持ち）"
-      ],
-      "blk-fix/lib/ruling.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "blk-fix/scripts/accept.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 受け付けが裁定の by に works:fix-accept を字で書く（2 か所）"
-      ],
-      "blk-fix/scripts/assert_changed.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 修正の段の止めの語 works:fix"
-      ],
-      "blk-judge/lib/judgetake.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "blk-judge/lib/judgeverify.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "blk-material/lib/material.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 素材の止めの語と、包みの柵の止めの語 works:adapter の重ね持ち"
-      ],
-      "blk-plan/lib/planblk.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "blk-spec/lib/specblk.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
-      ],
-      "darkfactory/lib/line_edge.py": [
-       4,
-       "散らばり（段 5 でまとめる）: 境の節が止める語（works:adapter は CI の役・素材と重ね持ち）"
-      ]
-     }
+     "what": "機械の止めの語の字（works:<名> と頭の works:）",
+     "pattern": "[\"']works:[a-z{\"']",
+     "allowed": [
+      ".shared/core/stopby.py"
+     ],
+     "known": {}
+    },
+    {
+     "what": "住処の定数を別の名に写す",
+     "pattern": "^\\s*[A-Z][A-Z0-9_]*\\s*=\\s*stopby\\.[A-Z]|^\\s*from stopby import|^\\s*import stopby as",
+     "allowed": [
+      ".shared/core/stopby.py"
+     ],
+     "known": {}
     }
    ]
   },

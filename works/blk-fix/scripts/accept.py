@@ -111,6 +111,7 @@ import unitrows  # noqa: E402   閉鎖の数え直しの前段（blk-fix/lib）
 import entry  # noqa: E402
 import parking  # noqa: E402   最後の回に止める単位を選ぶ（blk-fix/lib）
 import script_io  # noqa: E402   盤面の今の scope の根（.shared/core）
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
 from leftovers import git  # noqa: E402
 import consult  # noqa: E402   範囲の相談の周と枠（blk-fix/lib）
@@ -122,6 +123,7 @@ from factchecks import (  # noqa: E402   事実の確かめの口（blk-fix/lib�
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE",
           "INPUTS_CONSULTED")
 GIVE_UP_AFTER = 3   # 諦める拒否の回。輪 fix-loop の max_iterations はこれと相談の枠 consult.BUDGET の和（tests/test_blk_fix.py が YAML と突き合わせる）
+FIX_ACCEPT_BY = stopby.declare("fix-accept", "裁定の by: 修正の受け付けが申し出の単位を人に聞く行にした")
 CONSULTED_ENV = "INPUTS_CONSULTED"   # 確かめの節の consulted（true ならこの周は範囲の相談の周で、受け付けを回さない）
 CONSULTED = ("範囲の相談の周（返答の consult に答えの節が答えた）。受け付けは回さず、次の周の修正役が答えを読んで続けた返答を"
              "受け付ける")
@@ -320,7 +322,7 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
             conflict.park(b, items, source="fix")
         else:
             conflict.park(b, items, source="fix", ruling={"decision": conflict.ASK, "text": SECOND_CONFLICT, "limits": [],
-                                                          "by": "works:fix-accept"})
+                                                          "by": FIX_ACCEPT_BY})
             conflict.write_rulings(b)
     if pass_ == "first" and conflict.unruled(b):
         _put_parked(b.work(conflict.PARKED_REPLY), {**reply, "conflicts": items})
@@ -416,7 +418,7 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
         conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": conflict.UNKNOWN,
                            "kind": conflict.NEEDS_CONTEXT}],
                       source="fix", ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
-                                            "limits": [], "by": "works:fix-accept"})
+                                            "limits": [], "by": FIX_ACCEPT_BY})
     conflict.write_rulings(b)
     b.trace(PARKED_OP, node=recount.ROLE, unit_keys=list(settled.park), patch=patch, reasons=settled.park,
             unbound=settled.unbound, how=settled.how)

@@ -35,9 +35,9 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 from script_io import later_output  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。.shared/core の模块）
 
-STOP_BY = "works:fix"   # 修正の段が盤面を止めた印（報告の結末は stopped_by_line）
 NOTHING_OWED_OP = "fix_nothing_owed"   # 空の申告を、直す義務が残らず外れた単位だけの正しい返答として通した盤面の trace の行
 
 
@@ -54,7 +54,7 @@ def give_up(reason: str) -> int:
         import entry   # 盤面の入口（.shared/core。止める時だけ読む）
         b = entry.open_board(Path(artifacts) / "board", allow_halted=True)
         if not (b.state.get("stop") or b.state.get("halted")):   # もう止まった盤面は止め直さない（最初の理由が正）
-            b.stop(reason, by=STOP_BY)
+            b.stop(reason, by=stopby.FIX)
     except Exception as e:   # 盤面の無い模擬実行・開けない盤面: 止められないので 1 本目のまま run を止める
         print(f"assert-changed: {reason}（盤面を止められない: {' '.join(str(e).split())}）".replace("\n", " "), file=sys.stderr)
         return 1

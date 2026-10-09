@@ -9,7 +9,7 @@ claims_hypothesis, reads_file} を 1 行出して 0。
 - constraints_summary: 判定役に貼る要約。1 行 1 制約で「- [実測|仮説] <text>（測り方: <measured_how>）」。
   実行したコマンドと出力（measured_output）は載せない（全文は constraints_file）。制約 0 件なら決まった 1 文
 - premises.json が無い（前の呼び出しの残りは intake が消すので、在ればこの呼び出しの受け付けが書いた物）:
-  - ラインの盤面で、受け付けが 3 回とも拒んで輪を抜けた（rolekit.given_up_reason）: 最後の拒否の文で盤面を止め（by premises.STOP_BY）、
+  - ラインの盤面で、受け付けが 3 回とも拒んで輪を抜けた（rolekit.given_up_reason）: 最後の拒否の文で盤面を止め（by stopby.PREMISES）、
     ok: false と空の欄を出して 0（線が止まった盤面を見て判定役を起こさない。R50）
   - ラインの盤面がもう止まっている（intake が go: false で輪を飛ばした）: ok: false と空の欄を出して 0
   - それ以外（単独の run・配線の誤り）: 標準エラーに理由（諦めたなら最後の拒否の文）を 1 行出して 1
@@ -26,6 +26,7 @@ import os  # noqa: E402
 
 import premises  # noqa: E402
 import rolekit  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 INPUTS = ()   # 裁定 TA16: 読む INPUTS_* の組（無い）
@@ -45,7 +46,7 @@ def main() -> int:
         why = rolekit.given_up_reason(board, premises.PREMISES_NODE) if missing else ""
         if missing and rolekit.on_line(board) and (why or rolekit.line_stopped(board)):
             if why:
-                rolekit.stop_line(board, why, by=premises.STOP_BY)
+                rolekit.stop_line(board, why, by=stopby.PREMISES)
             out = EMPTY
         else:
             print(" ".join((f"{why}——{e}" if why else str(e)).split()), file=sys.stderr)

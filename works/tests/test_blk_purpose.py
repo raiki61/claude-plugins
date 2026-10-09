@@ -32,6 +32,7 @@ import purpose  # noqa: E402
 from accept import role_schema  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 DEADLINE = 1728000000
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
@@ -82,11 +83,11 @@ class YamlCase(unittest.TestCase):
         self.y = workflow()
 
     def test_stop_by_is_the_line_edge_one(self):
-        """止めた盤面の by はラインの h-mat と同じ 1 つの値（purpose.STOP_BY を参照する。字で写さない）"""
-        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
-        import line_edge
-        self.assertIs(line_edge.PURPOSE_BY, purpose.STOP_BY)
-        self.assertNotIn(purpose.STOP_BY, (ROOT / "blk-purpose" / "scripts" / "collect.py").read_text(encoding="utf-8"))
+        """止めた盤面の by はラインの h-mat と同じ 1 つの値（止めの理由の住処の stopby.PURPOSE を引く。字で写さない）"""
+        for path in (ROOT / "darkfactory" / "lib" / "line_edge.py", ROOT / "blk-purpose" / "scripts" / "collect.py"):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("by=stopby.PURPOSE)", text, path)   # 止める呼び出しが住処の定数を引く
+            self.assertNotIn(stopby.PURPOSE, text, path)
 
     def test_purpose_output_format_matches_role_schema(self):
         import node_marker

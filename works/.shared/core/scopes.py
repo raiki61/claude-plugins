@@ -76,7 +76,6 @@ WINDOW = "scope-window.json"                  # 盤面の根の今の窓 {scope,
 WINDOW_LOCK = "scope-window.json.lock"        # 窓の読み書きの錠（fcntl.flock。待つ上限は持たない）
 READ_OUTSIDE_OP = "scope_read_outside"        # 窓の宣言の外の読みの trace の行 {scope, paths}（落とさない。外れ D4）
 REQUIRED_MISSING_OP = "scope_required_missing"  # 窓の終わりに無かった必須の出力の trace の行 {scope, names}（止めない）
-SCOPE_CHECK_BY = "works:scope-check"          # 窓の照らしが盤面を止めた state.stop.by
 STOP_AFTER_END_OP = "stop_after_round_end"    # 周を締めた盤面に止めが来た印の trace の行（line_edge・report と同じ語。b.stop は拒む）
 OWNS = "owns"                                 # 周の scopes.json の鍵: 公開の名 → それを書いた scope（周ごとに持ち主は 1 つ）
 _ROUND_DIR = "r[0-9]*"                        # 周の置き場 r<N> の段の形（共有の記録の形の頭）

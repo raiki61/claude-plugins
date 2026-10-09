@@ -5,7 +5,7 @@
 """輪の後ろで出口を組む節（refix.collect_delta）。1 本目の {ok, faces, review_file, diff_file} に owed（手直しが答える義務の数。
 盤面の機械の節 p3.delta_owed が組んだ loop.delta_owed）・fix_rev（修正後に固めた版）・reads_file を足して 1 行。
 数えるのは盤面の今の周に受けた返答だけ（前の周・前の試みの返答は数えない）。3 回とも拒まれて受けていなければ、最後の拒否の
-文で盤面を止めて ok: false（refix.DELTA_BY）。拒否が足りずに受けていなければ標準エラーに 1 行で 2"""
+文で盤面を止めて ok: false（stopby.DELTA）。拒否が足りずに受けていなければ標準エラーに 1 行で 2"""
 import sys
 from pathlib import Path
 

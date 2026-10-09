@@ -30,6 +30,7 @@ import refix  # noqa: E402
 import report  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 FINDING = {"where": "stats.py", "cite": "return hi", "why": "上限を超えた値を黙って hi に丸め、呼び元は丸めたことに気づけない"}
 
@@ -198,7 +199,7 @@ class LensBoardCase(RF.DeltaBoardCase):
         out = self.script("exit", repo, collected=collected)
         self.assertIs(out["ok"], False)
         b = self.board_obj()
-        self.assertEqual(b.state["stop"]["by"], lens.STOP_BY)
+        self.assertEqual(b.state["stop"]["by"], stopby.LENS)
         self.assertIn(f"レンズの集め役が終わらなかった: {why}", b.state["stop"]["reason"])
         got = line_edge.edge(self.board, "refix", repo, run_id="run-7", adapter_mode="optional", final_gate="")
         self.assertEqual((got["stop"], got["go"]), (True, False))

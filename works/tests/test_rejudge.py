@@ -32,6 +32,7 @@ from board import BoardGap, graph_expanded, rules_module  # noqa: E402
 from engine import pointers  # noqa: E402
 from engine.render import Renderer  # noqa: E402
 from engine.util import dump, safe_name  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 GRAPH = graph_expanded()
 EXPECT = {
@@ -173,7 +174,7 @@ class RouteCase(_Case):
         self.assertEqual((got["next"], got["stopped"]), ("", True), got)
         self.assertIn(why_part, got["why"])
         st = kit.state(self.bd)
-        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertEqual(st["stop"]["by"], stopby.REJUDGE_SESSION)
         self.assertIn("判定役の会話", st["stop"]["reason"])
         inst = st["rounds"][-1]["instances"]["p2.rejudge"]
         self.assertNotIn("launched_at", inst)
@@ -566,7 +567,7 @@ class CollectCase(_Case):
         self.assertFalse(got["ok"])
         self.assertIn("p2.rejudge", got["reason"])
         st = kit.state(self.bd)
-        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY)
+        self.assertEqual(st["stop"]["by"], stopby.REJUDGE)
 
     def test_collect_names_last_rejection(self):
         self.board("objection")
@@ -587,7 +588,7 @@ class CollectCase(_Case):
         got = rejudge.collect(self.bd)
         self.assertTrue(got["ok"], got)
         self.assertEqual(got["passes"], 0)
-        self.assertEqual(kit.state(self.bd)["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertEqual(kit.state(self.bd)["stop"]["by"], stopby.REJUDGE_SESSION)
         self.assertFalse(got["unsettled"]["settled"])
 
     def test_collect_nothing_to_do(self):

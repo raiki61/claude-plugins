@@ -89,6 +89,7 @@ import lens  # noqa: E402
 import reads  # noqa: E402
 import refix  # noqa: E402  （差分の審査の穴の枝の名札 hole_ties・項目 tie_items）
 import scopes  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 import script_io  # noqa: E402
 import structmark  # noqa: E402
 import writes  # noqa: E402
@@ -150,10 +151,7 @@ FINAL_GATE_BY = "human:final-gate"             # 最後の関所の stop・rejec
 FINAL_GATE_STOPS = ("stop", "reject")           # 最後の関所の答えのうち止める語（書き手 line_edge の GATE_STOP）
 REQUEST_BY = "request:"                        # 止め札で止めた盤面の state.stop.by の頭
 HUMAN_BY = "human:"
-LINE_BY = "works:"
 ANSWER_BY = "answer"                           # 関所の答えの stop（halted.by）
-ADAPTER_BY = "works:adapter"                   # 包みの確かめで止めた盤面の by（線の包みの確かめ・CI の役の柵）
-REJUDGE_SESSION_BY = "works:rejudge-session"   # 再審の会話を確かめられずに止めた盤面の by
 FLAG_SEEN_OP = "stop_flag_seen"                # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 PR_NODE = "p0.parallel_pr"
 FORGE_HEAD = "PR を持つホスト（forge）"   # 冒頭 2 の forge の無い run の 1 行の頭（forge_line）
@@ -558,7 +556,7 @@ def stop_outcome(b) -> tuple:
         return "stopped_by_request", by, reason
     if (info and info is b.state.get("halted") and by == ANSWER_BY) or by.startswith(HUMAN_BY):
         return "stopped_by_human", by, reason
-    if by.startswith(LINE_BY):
+    if stopby.is_line(by):
         return "stopped_by_line", by, reason
     return ()
 
@@ -867,7 +865,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"最後の関所で止めた: 「{reason}」")
     elif by.startswith(HUMAN_BY) or (by == ANSWER_BY and info is b.state.get("halted")):
         lines.append(f"関所で止めた（{by}）: 「{reason}」")
-    if by == REJUDGE_SESSION_BY:
+    if by == stopby.REJUDGE_SESSION:
         lines.append(f"再審の会話を確かめられずに止めた: 異議を再審するか、新しい run で判定し直すかを決める（{_one_line(reason)}）")
     # 緑・赤の語は最後の関所と同じ口（tests_word。by role_needed で p4.ci が済んでいれば素材の status）
     role = entry.role_ci_status(b, tests) if tests is not None else None
@@ -1318,7 +1316,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     lines += gates_lines(b)
     lines += plan_ask_lines(b)
     by, reason, _ = _stop_info(b)
-    if by == ADAPTER_BY:
+    if by == stopby.ADAPTER:
         lines.append(f"包みの確かめで止めた: {reason}")
     cont = sum(1 for r in _launches(b, repo) if (r.get("session") or {}).get("mode") == "continued")
     lines.append(f"会話を継いだ起動: {cont} 本")

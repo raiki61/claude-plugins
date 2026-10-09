@@ -64,6 +64,7 @@ from engine.util import AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 import script_io  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 from rolekit import parse_reply, script_main  # noqa: E402,F401  （スクリプトの入口と返答の読み方は共通の rolekit）
 
 NODES = ("p0.local_checks", "p4.ci")   # 写しの graph の CI の節（engine_run.builtin が declared_checks）
@@ -71,8 +72,6 @@ ROLE = "ci"                             # YAML の役の節の id と包みの�
 NO_TREE_WRITE = "no-tree-write"         # 印の旗: 包みが役の cwd の作業ツリーを柵に足す（裁定 R56）
 OUTPUT_FORMAT = node_marker.mark(role_schema(NODES[0]), ROLE, flags=(NO_TREE_WRITE,))   # 2 つの節の schema は同じ形
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（tests/test_blk_ci.py が YAML と突き合わせる）
-STOP_BY = "works:ci"
-FENCE_BY = "works:adapter"               # 包みの宣言が読めない・柵が掛かっていない時の止め札の by（線の包みの確かめが止める by と同じ）
 NO_ADAPTER_NOTE = ("包み無し（adapter: optional）: CI の任せ先の役は graphloops の任せ先と同じ守り（sandbox だけ。作業ツリーの柵は"
                    "無い）で走った")
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
@@ -150,7 +149,7 @@ def fence(board_dir, node: str, repo) -> dict:
     with: で ci-accept と collect に渡す（役を起こした後に控えを読み直さない。再審査 N8）。
     - 包みを宣言した run（adapter が空）: 切符が在れば {go: True, reason: "", note: "", adapter: ""}。無ければ盤面を止める
     - 包み無しを宣言した run（adapter: optional）: {go: True, reason: "", note: NO_ADAPTER_NOTE, adapter: "optional"}
-    - 宣言が読めない: 盤面を止めて（by FENCE_BY）{go: False, reason, note: "", adapter: ""}。YAML は go が偽なら役の輪を飛ばす"""
+    - 宣言が読めない: 盤面を止めて（by stopby.ADAPTER）{go: False, reason, note: "", adapter: ""}。YAML は go が偽なら役の輪を飛ばす"""
     b = _open(board_dir, repo)
     _waiting(b, node)
     mode, why = _declared(b)
@@ -162,7 +161,7 @@ def fence(board_dir, node: str, repo) -> dict:
             why = str(e)
     if why:
         reason = f"包みの確かめが通らない: CI の任せ先の役（{node}）を起こさない（{why}）"
-        b.stop(reason, by=FENCE_BY)
+        b.stop(reason, by=stopby.ADAPTER)
         return {"go": False, "reason": reason, "note": "", "adapter": ""}
     return {"go": True, "reason": "", "note": _note(mode), "adapter": mode}
 
@@ -292,7 +291,7 @@ def take(board_dir, node: str, reply: dict, repo, mode: str) -> dict:
             why = f"包みの柵が CI の任せ先の役の起動に掛かっていない: {why}"
     if why:
         reason = f"{why}——返答を受けず盤面を止める"
-        b.stop(reason, by=FENCE_BY)
+        b.stop(reason, by=stopby.ADAPTER)
         return _noted(b, node, {"ok": False, "done": True, "give_up": False, "reason": reason, "node": node, "status": ""})
     before = {k: snap[k] for k in TREE_KEYS}
     moved = tree_moved(before, pathlib.Path(repo))   # 共通の比べ（R47。HEAD が引けなくなったのもここで 1 行になる）
@@ -350,7 +349,7 @@ def collect(board_dir, node: str, mode: str) -> dict:
             reason = f"{node} の返答が {len(rejects)} 回とも受け付けで拒まれた（最後の拒否: {rejects[-1]['reason']}）"
         else:
             reason = f"{node} の任せ先の役の返答を受けていない（輪が回らなかった）"
-        b.stop(reason, by=STOP_BY)
+        b.stop(reason, by=stopby.CI)
         return {**out, "reason": reason}
     status = ((b.record.get("materials") or {}).get("local_checks") or {}).get("status", "")
     out.update(ok=True, status=status, green=status == "clean")
@@ -358,6 +357,6 @@ def collect(board_dir, node: str, mode: str) -> dict:
         try:
             out["pr_go"] = entry.resume_after_ci(b)["pr_go"]
         except entry.InputRefused as e:
-            b.stop(f"CI の役の後に start の輪へ戻れない: {e}", by=STOP_BY)
+            b.stop(f"CI の役の後に start の輪へ戻れない: {e}", by=stopby.CI)
             return {**out, "ok": False, "reason": f"CI の役の後に start の輪へ戻れない: {e}"}
     return out

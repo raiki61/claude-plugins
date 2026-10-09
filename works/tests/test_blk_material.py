@@ -44,6 +44,7 @@ import material  # noqa: E402
 import node_marker  # noqa: E402
 import test_entry as TE  # noqa: E402
 import hermetic  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 LINE = "darkfactory"
 WHERE = "blk-material"
@@ -478,7 +479,7 @@ class RouteCase(_Case):
         self.assertTrue(got["stopped"])
         self.assertFalse(any(got[material.route_key(r)] for r in material.ROLES))
         st = entry.open_board(bd, allow_halted=True).state
-        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), material.FENCE_BY)
+        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), stopby.ADAPTER)
 
     def test_bad_adapter_word_is_wiring_error(self):
         bd, repo = self.board("normal")
@@ -675,7 +676,7 @@ class TakeCase(_Case):
         self.assertEqual((got["ok"], got["done"]), (False, True))
         self.assertIn("柵", got["reason"])
         st = entry.open_board(bd, allow_halted=True).state
-        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), material.FENCE_BY)
+        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), stopby.ADAPTER)
 
     def test_unflagged_role_needs_no_fence(self):
         bd, repo = self.board("normal")
@@ -770,7 +771,7 @@ class StoppedBoardCase(_Case):
             with self.subTest(role):
                 got = material.take(bd, role, good_reply(material.ROLES[role]), repo, mode)
                 self.assertEqual((got["ok"], got["done"], got["give_up"], got["stopped"]), (False, True, False, True), got)
-                self.assertIn(material.FENCE_BY, got["reason"])
+                self.assertIn(stopby.ADAPTER, got["reason"])
         # 読めない返答（飛ばした役の null）の受け付けも止まった旨の done
         got = material.refuse(bd, "gate-efficacy", "返答が JSON のオブジェクトでない（NoneType）")
         self.assertEqual((got["done"], got["stopped"]), (True, True))
@@ -783,7 +784,7 @@ class StoppedBoardCase(_Case):
         self.assertEqual(material._read_json(b.work(material.REJECTS), []), [])   # 止まった旨は拒否の回数に積まない
         out = material.collect(bd)
         self.assertFalse(out["ok"])
-        self.assertIn(material.FENCE_BY, out["reason"])
+        self.assertIn(stopby.ADAPTER, out["reason"])
         self.assertIn("柵", out["reason"])
 
     def test_accept_script_on_stopped_board_exits_0(self):
@@ -827,7 +828,7 @@ class StoppedBoardCase(_Case):
         self.assertTrue(all(o["done"] and not o["ok"] for o in outs), outs)
         self.assertEqual(sorted(bool(o.get("stopped")) for o in outs), [False, True])   # 1 本が止め、1 本は止まった盤面を見る
         st = entry.open_board(bd, allow_halted=True).state
-        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), material.FENCE_BY)
+        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), stopby.ADAPTER)
 
     def test_stop_is_idempotent(self):
         """もう止まった盤面に止め札を重ねない（記録も変えず、例外も出さない）"""
@@ -835,8 +836,8 @@ class StoppedBoardCase(_Case):
         material.take(bd, "provenance", good_reply("p1.provenance"), repo, "")
         before = _board_bytes(bd)
         b = entry.open_board(bd, allow_halted=True)
-        got = material.stop_once(b, "2 本目の柵の落ち", by=material.FENCE_BY)
-        self.assertEqual(got.get("by"), material.FENCE_BY)
+        got = material.stop_once(b, "2 本目の柵の落ち", by=stopby.ADAPTER)
+        self.assertEqual(got.get("by"), stopby.ADAPTER)
         self.assertNotIn("2 本目", got.get("reason", ""))
         self.assertEqual(_board_bytes(bd), before)
 

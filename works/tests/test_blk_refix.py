@@ -34,6 +34,7 @@ import rulebook  # noqa: E402
 import seat  # noqa: E402
 import writes  # noqa: E402
 import test_entry as TE  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 K1 = "stats.py mean: 分母が len(xs) - 1 になっている"
 K2 = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -232,7 +233,7 @@ class RefixCase(DeltaBoardCase):
         with self.assertRaises(BoardGap) as cm:
             refix.prep_fix(self.board, 1, repo)
         self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
-        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], refix.REFIX_BY)
+        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], stopby.REFIX)
 
     def test_refix2_brief_keeps_its_shape(self):
         """2 回目の手直しの材料は変えない（plan_items・compliance を載せない。2 判定は 1 回目の審査だけ）。穴の枝の名札 ties は

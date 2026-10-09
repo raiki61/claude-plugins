@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へまとめて住処ありにし、散らばりの 8 つにも数の歯止め（今の知る場所の数が増えない柵）を掛けた。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へ、`stop-reasons` を `.shared/core/stopby.py` へまとめて住処ありにし、残りの散らばりにも数の歯止め（今の知る場所の数が増えない柵）を掛けた。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
@@ -58,7 +58,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `plan-scope` | 修正案の項目の範囲の照らし | 住処あり |
 | `test-files` | テストのファイルの見分け | 住処あり |
 | `web-get` | 機械の web の取得と run をまたぐ控え | 住処あり |
-| `stop-reasons` | 止めの理由 | 散らばり |
+| `stop-reasons` | 止めの理由 | 住処あり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 
 ---
@@ -192,6 +192,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）で、どちらも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
 - 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。世界の解の段（同じ計画の W5）が 2 つめの使う所になる
 
+### `stop-reasons` 止めの理由
+
+- 状態: 住処あり
+- 住処: `.shared/core/stopby.py`（層 L1。標準ライブラリだけ。機械の語の頭 `HEAD`（`works:`）と頭の読み `is_line`、決まりが core に在る段の語と 2 つ以上の持ち主が共に書く語の表 `REASONS`（名 → 意味）とその定数 `ADAPTER`・`FIX` など、ブロックとラインが自分だけの語を足す口 `declare`（表の名・別の意味で足された名を拒む）と `declared`）
+- 約束: 語の字は盤面の `state.stop.by`・答えを待つ `process.human_items` の行の `node`・裁定の `by`・trace の行の `by` に残るので変えない（寄せる前の字の一覧を `tests/test_stopby.py` が縛る）。報告の結末の口 `.shared/core/report.py` の `stop_outcome` は `is_line` の語を `stopped_by_line` と読む
+- 知ってよい所: 住処だけ。core の書き手は住処の定数を引き、自分の定数に写さない。ブロックとラインの自分だけの語は `declare("名", "意味")` で足して返りを自分の定数に置く（例 `blk-eyes/lib/eyes.py` の `STOP_BY`・`darkfactory/lib/line_edge.py` の `PROTECTED_BY`。ほかのブロックの語は引かない）
+- 今: 寄せる前は 24 の `.py` が 35 行で語を字のまま持ち、同じ語を重ねて持っていた（`works:adapter` は 4 か所、`works:fix` は 3 か所。線は前提と目的の語を別の名の定数に写していた）。柵は語の字（`"works:<名>"`・頭の `"works:"`・f-string の頭）と、住処の定数を別の名に写す形（`X = stopby.ADAPTER`・`from stopby import`・`import stopby as`）を見る。人の止め（`human:`・`request:`・`answer`）は人の関所の考え `human-gates` の物で、ここには入れない
+
 ---
 
 ## 散らばり
@@ -234,12 +242,6 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 状態: 散らばり
 - 今: 写しの指示書を描く所は `.shared/core/rolekit.py` の `render_body` 1 つだが、「頭の節 → `---` → 写しの本文 → 役の定義 → 前の拒否」の並べはブロックごとに組む（`blk-plan/lib/planblk.py` の `head`・`brief_head`、`blk-eyes/lib/eyes.py` の `prep`、`blk-judge/lib/judgebrief.py`、`blk-material/lib/material.py`、`blk-spec/lib/specblk.py`、`blk-report/lib/report_roles.py`、`.shared/core/rejudge.py`、`.shared/core/design.py`）。「機械が貼った」節の見出しも各所の定数
-- 計画: まだ無い
-
-### `stop-reasons` 止めの理由
-
-- 状態: 散らばり
-- 今: 盤面の `state.stop.by` の語（`works:<名>`）を、26 の `.py` がそれぞれの定数で持つ（例 `.shared/core/lens.py` の `STOP_BY`・`.shared/core/premises.py` の `STOP_BY`・`blk-fix/scripts/assert_changed.py` の `STOP_BY`）。同じ値を別の所が重ねて持つ（`works:adapter` は `.shared/core/ci_role.py`・`.shared/core/report.py`・`blk-material/lib/material.py`、`works:fix` は 3 か所）。結末への写し（`works:` の頭なら `stopped_by_line`）は `outcome` の住処 `decide_outcome` に在る
 - 計画: まだ無い
 
 ### `core-seams` 写しの核の差し替えの口

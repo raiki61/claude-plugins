@@ -52,7 +52,6 @@ import marks
 
 RECORD = "plan-converge.json"
 PASS_DIR = "plan-converge"
-BY = "works:plan-converge"
 OP = "plan_converge"
 CLEAN = "clean"   # 抜け方の語（控えの outcome）
 AGAIN = "again"

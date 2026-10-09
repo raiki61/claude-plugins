@@ -9,7 +9,7 @@
 compliance・品質 quality）を承認済みの修正案の項目と照らし（deltamarks.gaps。欄を外した返答の写しの型の誤りも同じ拒否に並べる）、
 通れば欄を外して盤面へ渡し、受けた時だけ欄を今の周の delta-verdicts.json に控える。中身の拒否は終了コード 0 の 1 行
 （reason_file つき。裁定 R44）、回す側の誤り（印の無い試行・止めた run・環境変数の欠け）は 2。修正案の欄の控えが凍結の印と
-食い違えば、差分の審査の段の印（refix.DELTA_BY）で盤面を止めて控えを名指し 2。審査を受けた後で 2 判定の控えを置けなければ
+食い違えば、差分の審査の段の印（stopby.DELTA）で盤面を止めて控えを名指し 2。審査を受けた後で 2 判定の控えを置けなければ
 （rolekit.halt_unsaved）、同じ印で盤面を止めて控えを名指し 2"""
 import sys
 from pathlib import Path

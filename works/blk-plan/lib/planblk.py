@@ -78,6 +78,7 @@ import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
 import ripple  # noqa: E402  （blk-plan の lib。波及の一覧）
 import rolekit  # noqa: E402
@@ -93,7 +94,7 @@ READS_LOOP = {"plan": "plan-loop", "plan-review": "converge-loop.plan-review-loo
               REVISE_ROLE: "converge-loop.plan-revise-loop"}   # 役 → 出来事の節の名の輪（入れ子の輪は <外>.<中>）
 ISOLATED_FLAG = "isolated"  # 道具ゼロの役の印の旗（包みが Git の外の置き場で起こす）
 MAP_FLAG = "map"            # 工程の地図の旗（包みが system prompt に全体のグラフとこの会話の居場所を足す。修正案の役の会話の節に付ける）
-STOP_BY = "works:plan"
+STOP_BY = stopby.declare("plan", "修正案の段が止めた（輪が諦めた・行き止まりの単位・控えを置けない）")
 GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER   # 輪の max_iterations と同じ数（tests/test_blk_plan.py が YAML と突き合わせる）
 READS_INDEX = reads.index_name("plan")
 NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入力の既定の空と、ラインが渡す文字列 null）
@@ -1062,14 +1063,14 @@ def take(role: str, *, snapshot: str | None = None, settle: bool = True):
 def rewind_roles(b) -> None:
     """壁打ちの again で役の節 2 つ（修正案・事前審査）を同じ周の待ちに戻して settle する（修正案の待ちが出る。事前審査の待ちは
     案を受けるまで出ない）。後ろの節（LATER_NODES）が今の周に受けていれば、戻しは後ろへ伝わらないので戻さずに盤面を止めて
-    （by converge.BY。もう止まっていれば止め直さない）BoardGap。機械の節は渡さない（engine が戻さずに落ちる）"""
+    （by stopby.PLAN_CONVERGE。もう止まっていれば止め直さない）BoardGap。機械の節は渡さない（engine が戻さずに落ちる）"""
     later = [n for n in LATER_NODES if n in b.rd["done"]]
     if later:
         why = f"事前審査の壁打ちで修正案と事前審査を戻せない: 後ろの節 {'・'.join(later)} がこの周に受けた後（戻しは後ろへ伝わらない）"
         if not (b.state.get("halted") or b.state.get("stop")):
-            b.stop(why, by=converge.BY)
+            b.stop(why, by=stopby.PLAN_CONVERGE)
         raise BoardGap(why)
-    b.rewind([NODE_OF["plan"], NODE_OF["plan-review"]], by=converge.BY)
+    b.rewind([NODE_OF["plan"], NODE_OF["plan-review"]], by=stopby.PLAN_CONVERGE)
     b.settle()
 
 

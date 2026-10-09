@@ -36,6 +36,7 @@ import node_marker  # noqa: E402
 import planbrief  # noqa: E402   今の周の brief の行（fix_plan_item を brief の在る単位に限る）
 import querytest  # noqa: E402
 import script_io  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 ROLE = "rule"
 TREE = "rule-tree.json"          # 役を起こす前の作業ツリーの姿（b.work）
@@ -43,7 +44,7 @@ PROMPT = "prompt-rule.md"        # 指示書（b.work）
 LEDGER = "rule-prep.json"        # この輪の回の数え {iterations}
 GIVE_UP_AFTER = 3                # 輪 rule-loop の max_iterations と同じ（試験が YAML と突き合わせる）
 BY_ROLE = "role:rule"
-BY_GIVE_UP = "works:rule-give-up"
+BY_GIVE_UP = stopby.declare("rule-give-up", "裁定の by: 裁定役の返答が受け付けを通らず、決められない物として人に回した")
 GIVE_UP_TEXT = f"裁定役の返答が {GIVE_UP_AFTER} 回とも受け付けを通らなかった——材料から決められない物として人に回した"
 READONLY = "裁定役は読むだけで、作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない: "
 REJECT_FN = "accept_rule"   # 受け付けの関数の名（拒否の理由のファイルの名。script_io.reject_name）

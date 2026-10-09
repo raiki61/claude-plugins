@@ -7,7 +7,7 @@
 
 - source が「目的不明」でも ok: true（目的の出典が無いことを決めたのであって、ブロックの失敗ではない）
 - purpose.json が無く、ラインの盤面で受け付けが 3 回とも拒んで輪を抜けた（rolekit.given_up_reason）: 最後の拒否の文で盤面を
-  止め（by purpose.STOP_BY）、ok: false と空の欄を出して 0（線が止まった盤面を見て後ろの役を起こさない。R50）
+  止め（by stopby.PURPOSE）、ok: false と空の欄を出して 0（線が止まった盤面を見て後ろの役を起こさない。R50）
 - それ以外で purpose.json が無い・読めない・写しの型に合わない: 標準エラーに理由（諦めたなら最後の拒否の文）を 1 行出して 1
 - ARTIFACTS_DIR が欠けた（空も欠け）: 標準エラーに名前を出して 2
 """
@@ -19,9 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import json  # noqa: E402
 import os  # noqa: E402
 
-from purpose import NODE, PURPOSE_FILE, STOP_BY, read_purpose  # noqa: E402
+from purpose import NODE, PURPOSE_FILE, read_purpose  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）
 import rolekit  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 
@@ -38,7 +39,7 @@ def main() -> int:
         if not (why and rolekit.on_line(board)):
             print(" ".join((f"{why}——{e}" if why else str(e)).split()), file=sys.stderr)
             return 1
-        rolekit.stop_line(board, why, by=STOP_BY)
+        rolekit.stop_line(board, why, by=stopby.PURPOSE)
         out = {"ok": False, "purpose_file": "", "purpose_text": "", "source": ""}
     else:
         out = {"ok": True, "purpose_file": str(path), "purpose_text": obj["purpose_text"], "source": obj["source"]}

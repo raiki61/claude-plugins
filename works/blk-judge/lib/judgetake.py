@@ -30,12 +30,13 @@ import outpurpose  # noqa: E402
 import querytest  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
 
 NODE = "p2.diagnose"
 TREE_FILE = "judge-tree.json"            # 判定役を起こす前の作業ツリーの姿（b.work。judge-brief が entry.snapshot で置く）
 GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER    # 輪 judge-loop の max_iterations と同じ（tests/test_blk_judge.py が YAML と突き合わせる）
-STOP_BY = "works:judge"                  # 受け付けを通った判定が無いまま輪を抜けた盤面の state.stop.by
+STOP_BY = stopby.declare("judge", "受け付けを通った判定が無いまま輪を抜けた")   # 盤面の state.stop.by
 STANDALONE_FN = "check_judge"            # 単独の run の拒否の理由のファイルの名の頭（script_io が fn の名で付ける）
 
 

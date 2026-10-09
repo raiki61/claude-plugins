@@ -26,6 +26,7 @@ import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
 from test_edge import CLEAN_REVIEW, DELTA_FACE, DELTA_FIX, DELTA_REVIEW, FACE, ODD_NOTE, fix_reply, plan_reply  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 
 def fix_tree(repo):
@@ -274,7 +275,6 @@ class LineCase(LineBase):
     def test_failed_lens_collector_stops_run(self):
         """集め役そのものが落ちたら、ブロックの境が盤面を止め（by works:lens）、差分の審査は走らず、手直しの境の節は stop。
         報告は stopped_by_line で、止めた理由を出す"""
-        import lens
         r = replies()
         r["lens-collect"] = "fail"
         got = self.run_line(replies=r)
@@ -282,7 +282,7 @@ class LineCase(LineBase):
         for nid in ("reviewing", "refixing", "testing"):
             self.assertNotIn(nid, got["trail"])
         self.assertIs(got["out"]["h-refix"]["stop"], True)
-        self.assertEqual(self.state(got)["stop"]["by"], lens.STOP_BY)
+        self.assertEqual(self.state(got)["stop"]["by"], stopby.LENS)
         self.assertEqual(got["outcome"], "stopped_by_line")
         self.assertIn("レンズの集め役が終わらなかった", pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8"))
 
@@ -780,7 +780,6 @@ class RefixToTestsCase(LineBase):
     def test_objection_without_session_stops(self):
         """異議あり・判定役の会話が無い（包みを通らない run）→ h-rejudge が役を起こさずに盤面を止め（by works:rejudge-session）、
         後ろのブロックは飛び、報告は stopped_by_line（record_invalid にならない）。次の依頼の下書きに異議の文"""
-        import rejudge
         r = replies()
         r["fix"] = {**r["fix"], "rejudge_requested": OBJECTION}
         got = self.run_line(replies=r, inputs={"test_cmd": TEST_CMD})
@@ -788,7 +787,7 @@ class RefixToTestsCase(LineBase):
         for nid in ("rejudging", "reviewing", "refixing", "testing", "eyeing"):
             self.assertNotIn(nid, got["trail"])
         self.assertEqual(got["outcome"], "stopped_by_line")
-        self.assertEqual(self.state(got)["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertEqual(self.state(got)["stop"]["by"], stopby.REJUDGE_SESSION)
         self.assertIn(OBJECTION, pathlib.Path(got["report"]["next_request_file"]).read_text(encoding="utf-8"))
 
 

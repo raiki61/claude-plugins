@@ -10,7 +10,7 @@ rolekit.agent_def で前付けを剥がした本文を引く）。レンズの�
                         定義が引けないレンズは起こさない（not_routed と理由）。盤面に今の周の修正の差分が無ければ BoardGap
 - render(row, body, diff_file, files, lang): レンズの節の指示書（定義の本文と、この線での読み方・返し方）
 - collect(board, env):  集め役。レンズの節の出口（無ければ null）で lens.json を埋め、落ちたレンズも理由つきで記録して ok
-- exit_(board, collected): 境。集め役の出口が無い・ok でないなら盤面を止めて（by lens.STOP_BY）ok: false
+- exit_(board, collected): 境。集め役の出口が無い・ok でないなら盤面を止めて（by stopby.LENS）ok: false
 """
 import json
 import pathlib
@@ -27,6 +27,7 @@ import entry  # noqa: E402
 import lens  # noqa: E402
 import refix  # noqa: E402
 import rolekit  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 
 def _any_change(files):
@@ -119,5 +120,5 @@ def exit_(board, collected) -> dict:
     reason = f"レンズの集め役が終わらなかった: {why or '理由の記録が無い'}"
     b = entry.open_board(pathlib.Path(board), allow_halted=True)
     if not (b.state.get("halted") or b.state.get("stop")):
-        b.stop(reason, by=lens.STOP_BY)
+        b.stop(reason, by=stopby.LENS)
     return {"ok": False, "reason": reason, "lens_file": ""}

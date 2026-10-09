@@ -41,8 +41,8 @@ import halt  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import report  # noqa: E402
-import scopes  # noqa: E402
 import protect  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
@@ -504,7 +504,7 @@ class FinalGateCase(EdgeBase):
         b = entry.open_board(self.board, allow_halted=True)
         self.assertFalse(b.work(line_edge.FINAL_GATE_FILE).exists(), "最後の関所の文を書かない（開かない）")
         by, reason, _ = report._stop_info(b)
-        self.assertEqual(by, scopes.SCOPE_CHECK_BY)
+        self.assertEqual(by, stopby.SCOPE_CHECK)
         self.assertIn("r1/stray.json", reason)
         self.assertTrue(self.edge("eyes")["stop"], "後の境の節も止まりと読む")
 
@@ -777,13 +777,12 @@ class RejudgeEdgeCase(EdgeBase):
 
     def test_rejudge_edge_stop(self):
         """異議あり・判定役の会話なし → stop True・go False、盤面は by works:rejudge-session で止まり、p2.rejudge を起こさない"""
-        import rejudge
         self.objected()
         got = self.edge("rejudge")
         self.assertEqual((got["go"], got["stop"]), (False, True), got)
         self.assertIn("判定役の会話", got["why"])
         st = self.state()
-        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertEqual(st["stop"]["by"], stopby.REJUDGE_SESSION)
         self.assertNotIn("launched_at", entry.open_board(self.board, allow_halted=True).rd["instances"]["p2.rejudge"])
 
     def test_rejudge_edge_idle(self):
@@ -1023,7 +1022,7 @@ class GoCase(EdgeBase):
         self.assertEqual(b.node_state("p3.fix"), "done")
         self.assertFalse(self.edge("review")["go"])
         self.assertTrue(self.edge("tests")["go"])
-        rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
+        rows = [r for r in trace_rows(self.board) if r.get("by") == stopby.EMPTY_FIX]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
 
     def test_every_at_returns_all_fields(self):
@@ -1122,7 +1121,7 @@ class PlanEdgeCase(EdgeBase):
         self.assertEqual((b.node_state("p2.fix_plan"), b.node_state("p3.fix")), ("na", "done"))
         self.assertEqual(b.output_of_round("p3.fix", b.round)["changes"], [])
         self.assertIn("p4.ci", b.ready())
-        rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
+        rows = [r for r in trace_rows(self.board) if r.get("by") == stopby.EMPTY_FIX]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
         again = self.edge("plan", judged=self.judge_exit("judge_no_fix"))   # Archon の再開で呼び直しても 2 度渡さない
         self.assertEqual((again["go"], again["stop"]), (True, False))
@@ -1161,7 +1160,7 @@ class JudgeEdgeCase(EdgeBase):
         got = self.edge("judge", premised=None)
         self.assertEqual((got["stop"], got["go"]), (True, False))
         st = self.state()
-        self.assertEqual(st["stop"]["by"], line_edge.PREMISES_BY)
+        self.assertEqual(st["stop"]["by"], stopby.PREMISES)
         self.assertIn("前提の実測が盤面に無い", st["stop"]["reason"])
 
     def test_judge_edge_bridge_rejected_stops(self):
@@ -1171,7 +1170,7 @@ class JudgeEdgeCase(EdgeBase):
         got = self.edge("judge", premised=self.premises_exit(bad))
         self.assertEqual((got["stop"], got["go"]), (True, False))
         st = self.state()
-        self.assertEqual(st["stop"]["by"], line_edge.PREMISES_BY)
+        self.assertEqual(st["stop"]["by"], stopby.PREMISES)
         self.assertIn("measured_output", st["stop"]["reason"])
 
     def test_adapter_missing_stops_at_judge(self):
@@ -1180,7 +1179,7 @@ class JudgeEdgeCase(EdgeBase):
         got = self.edge("judge", adapter_mode="")
         self.assertEqual((got["stop"], got["go"]), (True, False))
         st = self.state()
-        self.assertEqual(st["stop"]["by"], line_edge.ADAPTER_BY)
+        self.assertEqual(st["stop"]["by"], stopby.ADAPTER)
         self.assertIn("包みが通っていない", st["stop"]["reason"])
         self.assertIn(RUN_ID, st["stop"]["reason"])
 
@@ -1242,7 +1241,7 @@ class MatEyesEdgeCase(EdgeBase):
         got = self.edge("mat")
         self.assertEqual((got["stop"], got["go"]), (True, False))
         st = self.state()
-        self.assertEqual(st["stop"]["by"], line_edge.PURPOSE_BY)
+        self.assertEqual(st["stop"]["by"], stopby.PURPOSE)
         self.assertIn("目的の文が盤面に無い", st["stop"]["reason"])
 
     def test_mat_purpose_rejected_stops(self):
@@ -1252,7 +1251,7 @@ class MatEyesEdgeCase(EdgeBase):
         (self.board / purpose.PURPOSE_FILE).write_text(json.dumps({"purpose_text": "x"}), encoding="utf-8")
         got = self.edge("mat")
         self.assertEqual((got["stop"], got["go"]), (True, False))
-        self.assertEqual(self.state()["stop"]["by"], line_edge.PURPOSE_BY)
+        self.assertEqual(self.state()["stop"]["by"], stopby.PURPOSE)
 
     def test_eyes_go_when_eyes_wait(self):
         """最後のテストの後（p4.assemble が済み R の目が待つ）→ at eyes の go True。止め札の後は stop"""

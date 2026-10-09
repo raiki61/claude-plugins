@@ -31,6 +31,7 @@ import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scopes  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 GRAPH = graph_expanded()
 TABLE_PATH = ROOT / "darkfactory" / "nodes.json"
@@ -353,7 +354,7 @@ class BoardCase(unittest.TestCase):
         self.assertIn("refitting/r1/x.json", str(cm.exception))
         self.assertIn("fixing", str(cm.exception))
         st = json.loads((d / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual(st["stop"]["by"], scopes.SCOPE_CHECK_BY)
+        self.assertEqual(st["stop"]["by"], stopby.SCOPE_CHECK)
         self.assertIn("refitting/r1/x.json", st["stop"]["reason"])
         self.assertEqual(self.window(d)["scope"], "")   # 窓は開いた節へ移る（後の開きが同じ誤りで落ち続けない）
         with self.line("h-review"):
@@ -369,7 +370,7 @@ class BoardCase(unittest.TestCase):
         self.put(d, "r1/stray.json")
         with self.scoped("reporting__report-write", block="blk-report"):
             b = entry.open_board(d, allow_halted=True)
-        self.assertEqual(b.state["stop"]["by"], scopes.SCOPE_CHECK_BY)
+        self.assertEqual(b.state["stop"]["by"], stopby.SCOPE_CHECK)
         self.assertEqual(self.window(d)["scope"], "reporting")
 
     def test_failed_check_on_stopped_board_goes_to_trace(self):
@@ -382,7 +383,7 @@ class BoardCase(unittest.TestCase):
         with self.line(), self.assertRaises(BoardGap):
             entry.open_board(d)
         got = self.trace_ops(d, scopes.STOP_AFTER_END_OP)
-        self.assertEqual([(r["by"], r["at"]) for r in got], [(scopes.SCOPE_CHECK_BY, "darkfactory")])
+        self.assertEqual([(r["by"], r["at"]) for r in got], [(stopby.SCOPE_CHECK, "darkfactory")])
         self.assertIn("planning/r1/z.json", got[0]["reason"])
         self.assertEqual(json.loads((d / "state.json").read_text(encoding="utf-8"))["stop"]["by"], "test")
 

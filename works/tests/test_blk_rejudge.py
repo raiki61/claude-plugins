@@ -27,6 +27,7 @@ from rejudgekit import load  # noqa: E402
 
 import rejudge  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BLK = ROOT / "blk-rejudge"
@@ -273,7 +274,7 @@ class ScriptCase(unittest.TestCase):
         self.assertTrue(self.ok("route")["stopped"])
         out = self.ok("collect")
         self.assertEqual((out["ok"], out["passes"]), (True, 0), out)
-        self.assertEqual(kit.state(self.bd)["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertEqual(kit.state(self.bd)["stop"]["by"], stopby.REJUDGE_SESSION)
 
     def test_loop_gives_up_after_three_rejections(self):
         """3 回とも拒まれても輪は max_iterations で落ちず（3 回目の受け付けが done を出し until_bash が抜ける）、collect が
@@ -295,7 +296,7 @@ class ScriptCase(unittest.TestCase):
         self.assertIn("3 回とも", out["reason"])
         self.assertIn(rounds[-1][1]["reason"].splitlines()[0], out["reason"])
         st = kit.state(self.bd)
-        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY)
+        self.assertEqual(st["stop"]["by"], stopby.REJUDGE)
         self.assertIn("$.new_facts", st["stop"]["reason"])
 
     def test_scripts_exit_zero_on_expected(self):

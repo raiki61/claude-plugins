@@ -65,6 +65,7 @@ import rulebook  # noqa: E402
 from rulebook import EMPTY, MARK, Unfilled, fill, join, render, shared  # noqa: E402,F401
 import script_io  # noqa: E402
 import seat as seatkit  # noqa: E402  （借りたスキルの座。引数の名 seat と分ける）
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 import writes  # noqa: E402  （修正前の版。g1 の審査役の型の [BASE_SHA]）
 import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。g1 の審査役の差分のファイルの置き場）
 from engine.util import Reject  # noqa: E402
@@ -113,7 +114,6 @@ LANES_WHY = "修正役の並べの枝の結末が在る（締めの節 fix-join 
 G1_PATCH_FILE = "g1-{n}.patch"   # g1 の審査役の差分のファイル（run ごとの置き場 adapter.run_place_of。修正役が seat.G1_PATCH で書く）
 G1_NO_POLICY = seatkit.NONE   # g1 の審査役の型の [GLOBAL_CONSTRAINTS]（人の方針の文書が無い run）
 G1_REST = "修正案のどの項目にも無い直す義務の単位 {keys}（判定のファイルが要求の正本）"   # g1 の残りの項目の実装役の型の題
-BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口（assert-changed の STOP_BY と同じ修正の段の印）
 BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）か欄の控え（盤面の {planbrief.planmarks.FIELDS_FILE}）が壊れているか"
                 "凍結の後に書き換えられ、承認した要求の正本が"
                 "引けない——brief の無い指示書で役を起こさずに盤面を止める")
@@ -391,12 +391,12 @@ def owed_values(b, values: dict) -> dict:
 
 
 def brief_halt(b, err) -> str:
-    """brief の控えが壊れた（planbrief.LedgerBroken の err）盤面を止め（by BRIEF_STOP_BY。もう止まった盤面は止め直さない。b が None
+    """brief の控えが壊れた（planbrief.LedgerBroken の err）盤面を止め（by stopby.FIX。もう止まった盤面は止め直さない。b が None
     なら止めない）、控えを名指す理由の 1 行を返す。止められなければ、そのわけを理由に足す"""
     why = f"{BRIEF_BROKEN}: {' '.join(str(err).split())}"
     if b is not None and not (b.state.get("halted") or b.state.get("stop")):
         try:
-            b.stop(why, by=BRIEF_STOP_BY)
+            b.stop(why, by=stopby.FIX)
         except Reject as e:
             why += f"（盤面を止められない: {' '.join(str(e).split())}）"
     return why

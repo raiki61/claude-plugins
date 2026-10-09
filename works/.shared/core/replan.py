@@ -2,7 +2,7 @@
 直しを終えられなかった単位の道は 1 本だけ: 待つ行（conflict の状態 WAITING）を諦めた行（GAVE_UP）にし、ask_human の道
 （conflict.asked・human_lines。最後の関所と次の run の依頼に裁定の文を字のまま載せる）に合流させる。
 
-- STOP_BY: この模块が盤面を止める時の by
+- 盤面を止める時の by と process.human_items の行の node は止めの理由の住処の stopby.REPLAN
 - CLOSE_WHY・HALTED_WHY: 諦めた理由（conflict.REPLAN_WHY に置く。HALTED_WHY は止まった盤面で締める時で、by・reason は盤面の止めの物）
 - UNSETTLED: 締めた後に待つ行が残った時の BoardGap の文
 - close(b, why): 待つ行の全部を諦めた行にし、id を返す（待つ行が無ければ何もせず []）
@@ -11,7 +11,7 @@
 - HAND_REFUSED: 1 回目に受け付けた返答の控えを盤面が受けない時の止めの文
 - hand_held(board_dir, repo): 盤面が止まっておらず、今の周の p3.fix を受けておらず、1 回目に受け付けた返答の控え
   （conflict.held_reply。待つ単位が在る間に修正の受け付けが盤面に渡さずに置いた物）が在れば、控えの盤面に渡す形（conflict.handed）を
-  recount.accept_fix で盤面に渡して真。盤面が受けなければ盤面を止めて（HAND_REFUSED・by STOP_BY）偽。渡す物が無ければ偽
+  recount.accept_fix で盤面に渡して真。盤面が受けなければ盤面を止めて（HAND_REFUSED・by stopby.REPLAN）偽。渡す物が無ければ偽
 - settle(board_dir, repo): 修正の段を抜ける所の頭で呼ぶ。1. close_at。2. hand_held。3. 待つ行が残れば BoardGap(UNSETTLED)。
   返り {"closed": [id…], "handed": hand_held の返り}
 
@@ -84,8 +84,8 @@ import reads  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import scopes  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
-STOP_BY = "works:replan"
 CLOSE_WHY = "同じ run の中で案の直しを終えられなかった（案の段に戻るのは 1 run に 1 回）"
 HALTED_WHY = "run が止まった（{by}: {reason}）ので、案の直しを終えなかった"
 UNSETTLED = "案の直しを待つ単位を残したまま修正の段を抜けようとした: {ids}"
@@ -121,7 +121,7 @@ MAX_TYPE_ERRORS = 10   # 型の外れを並べる行の数（accept の型の拒
 GATE_FILE = "replan-gate.md"       # 関所 replan-gate の文（今の周の作業ファイル）
 NOTES_FILE = "replan-notes.md"     # 修正の前の関所の条件・人の一言と、採った項目の事前審査の穴のうち人に聞く種類でない物（修正役に届ける）
 FIX_NOTES_HEAD = "## 修正の前の関所（policy-gate）で人が答えた条件（1 回目の修正の段と同じく、この段にも効く）"
-HUMAN_KIND = "replan"              # process.human_items の行の kinds（node は STOP_BY）
+HUMAN_KIND = "replan"              # process.human_items の行の kinds（node は stopby.REPLAN）
 GATE_BY = "human:replan-gate"      # 関所の stop で止めた盤面の by
 PLAN_GAVE_UP_WHY = "修正案の役の直しが 3 回とも拒まれた: {reason}"
 REVIEW_GAVE_UP_WHY = "事前審査の役の返答が 3 回とも拒まれた: {reason}"
@@ -170,7 +170,7 @@ def close_at(board_dir) -> list[str]:
 
 def hand_held(board_dir, repo) -> bool:
     """1 回目に受け付けた返答の控えを盤面に渡す。盤面が止まっている・今の周の p3.fix を受けた（held_reply が None）・控えが
-    無いなら何もせず偽。渡して盤面が受ければ真、受けなければ盤面を止めて（by STOP_BY）偽。何度呼んでも渡すのは 1 度"""
+    無いなら何もせず偽。渡して盤面が受ければ真、受けなければ盤面を止めて（by stopby.REPLAN）偽。何度呼んでも渡すのは 1 度"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     if b.state.get("stop") or b.state.get("halted"):   # 周の締めの halted も（盤面はもう返答を受けない）
@@ -182,7 +182,7 @@ def hand_held(board_dir, repo) -> bool:
     if out.get("ok") is True:
         return True
     reason = " ".join(str(out.get("reason") or "").split())
-    entry.open_board(board_dir, allow_halted=True).stop(HAND_REFUSED.format(reason=reason), by=STOP_BY)
+    entry.open_board(board_dir, allow_halted=True).stop(HAND_REFUSED.format(reason=reason), by=stopby.REPLAN)
     return False
 
 
@@ -613,13 +613,13 @@ def gate(b, *, run_id: str) -> dict:
 
 
 def _record_human(board_dir: pathlib.Path, ans: str, note: str) -> None:
-    """process.human_items に今の周の 1 行（node STOP_BY）。在れば積み増さない（Archon の再開）"""
+    """process.human_items に今の周の 1 行（node stopby.REPLAN）。在れば積み増さない（Archon の再開）"""
     b = entry.open_board(board_dir, allow_halted=True)
     items = b.record["process"]["human_items"]
-    if any(isinstance(h, dict) and h.get("node") == STOP_BY and h.get("round") == b.round for h in items):
+    if any(isinstance(h, dict) and h.get("node") == stopby.REPLAN and h.get("round") == b.round for h in items):
         return
     items.append({"round": b.round, "kinds": [HUMAN_KIND], "asked": [GATE_FILE], "answer": ans, "note": note,
-                  "node": STOP_BY})
+                  "node": stopby.REPLAN})
     b.save()
 
 

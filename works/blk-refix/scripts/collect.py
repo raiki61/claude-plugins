@@ -4,7 +4,7 @@
 # ///
 """blk-refix の出口を組む節（refix.collect_refix）: {ok, handled_file, review2_file, owed2, fixed2, files, reads_file}
 （review2_file は 2 回目の審査を回さなかった run では空。fixed2 は報告の次の run の依頼の下書きへ渡す数。T15）。
-手直し 1・審査 2・手直し 2 のどれかが 3 回とも拒まれて輪を抜けたら、最後の拒否の文で盤面を止めて ok: false（refix.REFIX_BY）。
+手直し 1・審査 2・手直し 2 のどれかが 3 回とも拒まれて輪を抜けたら、最後の拒否の文で盤面を止めて ok: false（stopby.REFIX）。
 拒否が足りずに手直しの返答が盤面の今の周に無ければ標準エラーに 1 行で 2"""
 import sys
 from pathlib import Path

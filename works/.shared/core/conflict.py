@@ -43,7 +43,7 @@
   ここから引く。permitted_units(b) はそのうち単位で許す行の単位。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
   skip_ids に並べた id の修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。輪の後に書き換えさせない）。
   修正案の欄の控え plan-fields.json が凍結の印と食い違えば（planmarks.FieldsBroken）、許しを引かずに盤面を止めて
-  （by FIELDS_STOP_BY）控えを名指す理由の BoardGap
+  （by stopby.FIX）控えを名指す理由の BoardGap
 - frozen_fields(b): 今の周の凍結した修正案の欄の並び（TDD の輪が単位の約束を組む元）。食い違いは test_permits と同じ 1 か所の
   文で盤面を止めて BoardGap
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
@@ -82,6 +82,7 @@ import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
 import scopes  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
@@ -117,7 +118,6 @@ WHICH = ("request", "test", "code", UNKNOWN, QUERY)
 UNSET = "unset"                         # kind_counts の鍵: kind の無い前の形の行
 WORD = "divergence"                     # superpowers の状態の語を読み替える works の語（216 の seams.json の words と同じ綴り）
 KIND = "conflict"                       # process.human_items の行の kinds（申し出の種類 KIND_FIELD とは別物）
-BY = "works:conflict"                   # その行の node と、答えの無いまま止めた by
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
 PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
@@ -129,9 +129,8 @@ AMENDED_TEST_ID = "plan-amended"        # 案の直しで直した項目の単�
 ASKED_OP = "plan_scope_asked"
 CONSULT_FIELD = "consult"   # 修正役の返答の任意の欄: 範囲の相談の頼み（在れば受け付けはその周を回さず、答えの節が答える）
 CONSULT_MIN_WHY = 10        # 頼みの理由の下限の字数
-FIELDS_STOP_BY = "works:fix"            # 修正案の欄の控えが凍結と食い違った盤面を止めた口（blk-fix の brief の止めと同じ修正の段の印）
 FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
-FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by FIELDS_STOP_BY）の止めの文
+FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by stopby.FIX）の止めの文
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 # 案の直しの状態（裁定 REPLAN の行の欄。依頼 226）。WAITING → AMENDED か GAVE_UP の 2 つの移りだけ（set_replan）
 REPLAN_STATE = "replan"                 # 裁定の行の欄（apply_rulings が REPLAN の行に必ず置く）
@@ -807,11 +806,11 @@ def _plan_limit(r: dict, source):
     return f"{got[0]}:{line}" if line else None
 
 
-def fields_broken(b, e: Exception, *, by: str = FIELDS_STOP_BY) -> Exception:
+def fields_broken(b, e: Exception, *, by: str = stopby.FIX) -> Exception:
     """修正案の欄の控えが壊れた（planmarks.FieldsBroken）時の 1 本の道: 盤面を by で止め（もう止まった盤面は止め直さない）、控えを
     名指す理由の BoardGap を返す（呼ぶ側が raise する。許しや照らしを黙って広げない・黙って捨てない）。文の頭は修正の段
-    （by FIELDS_STOP_BY）なら FIELDS_BROKEN、ほかの段は段を名指さない FIELDS_TAMPERED と「読まずに止めた」"""
-    head = FIELDS_BROKEN if by == FIELDS_STOP_BY else FIELDS_TAMPERED + "控えを読まずに止めた"
+    （by stopby.FIX）なら FIELDS_BROKEN、ほかの段は段を名指さない FIELDS_TAMPERED と「読まずに止めた」"""
+    head = FIELDS_BROKEN if by == stopby.FIX else FIELDS_TAMPERED + "控えを読まずに止めた"
     why = f"{head}: {' '.join(str(e).split())}"
     state = getattr(b, "state", None) or {}
     if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
