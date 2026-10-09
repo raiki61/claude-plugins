@@ -10,6 +10,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - 考えの住処の柵を足した（計画 `docs/plans/2026-10-09-structure-viewpoint.md` の Task 1）: 住処の在る 11 の考え（結末の語・深さ・機能の切り替え・境の節・止め札・部品の宣言・読んだ証拠・食い違いの申し出・包みの system prompt の塊・返答の契約・盤面に書く規則）ごとに、語の形と知ってよい所を表 `docs/concepts.json` に書き、知ってよい所の外の追跡されたファイルに語が出たら速い段の試験 `tests/test_concept_fences.py` が赤にする。今ある漏れは表の既知の漏れ（ファイル → 行の数と理由）に置き、減らす向きにだけ動かす。地図 `docs/concepts.md` と表の id・状態の食い違いと、地図に書いたパスが無いことも同じ試験が赤にする。run の動きは変わらない。
 
+### Changed
+
+- 並べの枝（考え `lanes`）の住処を `blk-fix/lib/lanekit.py` 1 つにした（計画 `docs/plans/2026-10-09-lanes-home.md`）: TDD の輪の並べ `tddlanes` と修正役の並べ `fixlanes` が別々に写していた分け方・節の名・実行器の読み替え・指しの確かめ・順に当てる輪・締めの語を lanekit に寄せ、段のモジュールには差し替え口だけを残す。地図の `lanes` を住処ありにして柵を掛け、core の表が字で並べる枝の節の名が枝の数とちょうど揃うことを試験 `tests/test_lanekit.py` が縛る。run の動きは変わらない。
+
 ## [0.2.52] - 2026-10-09
 
 ### Changed

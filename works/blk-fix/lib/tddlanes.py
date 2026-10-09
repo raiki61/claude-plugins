@@ -81,19 +81,20 @@ LANE_NEXT = "lane-{n}.next.md"  # 枝 n の回ごとの指示書（盤面の tdd
 KEPT = "lanes"              # 戻した枝の前の試みの差分の置き場（盤面の tdd-<k>/lanes/item-<n>.patch）
 PLACE = "lanes"             # 単位の worktree と控えの置き場（run ごとの置き場の <tdd-<k>>/lanes）
 LANE_DIR = "lane-{n}"
-MERGED, DIRECT, PARKED, BACK = "merged", "direct", "parked", "serial"
+MERGED, BACK = lanekit.MERGED, lanekit.BACK   # 締めた後の単位の結末（当てた・順に戻した。修正役の並べと同じ語）
+DIRECT, PARKED = "direct", "parked"
 CLEAN, UNION, CLASH, SEMANTIC = "clean", "union", "conflict", "semantic"   # 枝ごとの合わせの結末（頭の語）
 # 並べの見送り: 振り分けを受けた周で枝を切らなかった時の trace の行 {op: SKIP_OP, reason, why, loop}（節 tdd-step が積む）と理由の語。
 # switch: 入力 tdd_lanes が off（tddloop.start が状態の lanes_off に置く）・units: tdd の単位が 2 つに
 # 満たない・lanes: 範囲の引ける枝が 2 本に満たない（plan が状態の lanes_skipped に置く）
 SKIP_OP = "lanes_skipped"
 SKIP_SWITCH, SKIP_UNITS, SKIP_LANES = "switch", "units", "lanes"
-JOINED = "joined"   # 状態の lanes の欄: 締めの出口（締めた印。resume で回し直された締めはこれを返し、枝の輪は役を起こさずに抜ける）
+JOINED = lanekit.JOINED   # 状態の lanes の欄: 締めの出口（締めた印。resume で回し直された締めはこれを返し、枝の輪は役を起こさずに抜ける）
 
 
 def lane_nodes() -> list:
     """枝の役の節の印の名の全部（tdd-lane-1..MAX_LANES）"""
-    return [LANE_NODE.format(n=n) for n in range(1, MAX_LANES + 1)]
+    return lanekit.node_names(LANE_NODE)
 
 
 def ranges(board_dir, keys) -> dict:
@@ -119,25 +120,8 @@ def items_of(board_dir, keys) -> dict:
 
 
 def groups(queue, items) -> list:
-    """queue の単位を、修正案の項目を共にする物どうしの組に（項目でつながる単位は全部 1 組。組の中と組の並びは queue の順）"""
-    parent = {k: k for k in queue}
-
-    def find(k):
-        while parent[k] != k:
-            parent[k] = parent[parent[k]]
-            k = parent[k]
-        return k
-    first = {}
-    for k in queue:
-        for it in items.get(k) or []:
-            if it in first:
-                parent[find(k)] = find(first[it])
-            else:
-                first[it] = k
-    out = {}
-    for k in queue:
-        out.setdefault(find(k), []).append(k)
-    return list(out.values())
+    """queue の単位を、修正案の項目を共にする物どうしの組に（項目でつながる単位は全部 1 組。組の中と組の並びは queue の順。lanekit.groups）"""
+    return lanekit.groups([(k, items.get(k)) for k in queue])
 
 
 def _span(got: dict, keys) -> list | None:
@@ -187,11 +171,7 @@ def plan(st: dict, repo) -> bool:
 
 def _lane_state(st: dict, repo, keys, tree: pathlib.Path, lane: pathlib.Path) -> dict:
     """枝の控え: 輪の状態と同じ形で、枝の単位だけ・段 test から。実行器が run の作業ツリーの中なら単位の worktree の同じ物"""
-    exe = pathlib.Path(st["exe"])
-    try:
-        exe = tree / exe.absolute().relative_to(pathlib.Path(repo).absolute())
-    except ValueError:
-        pass
+    exe = lanekit.relocate(st["exe"], repo, tree)
     keys = list(keys)
     head = tddloop.snapshot(tree)
     contract = {}
@@ -214,7 +194,7 @@ def _lane_state(st: dict, repo, keys, tree: pathlib.Path, lane: pathlib.Path) ->
 # ---------------------------------------------------------------- 枝の輪を起こすか（節 tdd-fork）
 def fork(state_file) -> dict:
     """{go, lanes, lane_1..lane_<MAX_LANES>}。状態のファイルが空（実行器の無い run）・段が lanes でなければ go: false"""
-    out = {"go": False, "lanes": 0, **{f"lane_{n}": False for n in range(1, MAX_LANES + 1)}}
+    out = lanekit.fork_out([])
     if not state_file:
         return out
     st = tddloop._load(state_file)
@@ -253,18 +233,13 @@ def _over(st: dict, n) -> bool:
     return bool(tddloop._load(_lane(st, n)["state"])["done"])
 
 
-def _tree_ok(row: dict) -> str:
-    """単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由（lanekit.tree_ok）"""
-    return lanekit.tree_ok(row["tree"], row.get("git") or "")
-
-
 def lane_prep(state_file, n, values: dict | None = None) -> dict:
     """節 tdd-lane-prep-<n>（頭の注記）。{prompt_file, go}。枝が済んでいれば（_over）{"prompt_file": "", "go": False}"""
     st = tddloop._load(state_file)
     if _over(st, n):   # resume で回し直された済んだ枝の輪: 役を起こさない（YAML の役の when: が go を読む）
         return {"prompt_file": "", "go": False}
     row = _lane(st, n)
-    why = _tree_ok(row)
+    why = lanekit.tree_ok(row)
     if why:
         raise tddloop.Broken(why)
     lst = tddloop._load(row["state"])
@@ -320,7 +295,7 @@ def lane_step(state_file, n, reply, repo) -> dict:
     if reply is None and _over(st, n):   # 支度が go: false を返して役が飛ばされた周（resume）: 何も動かさずに輪を抜ける
         return {"ok": True, "done": True, "phase": "done", "reason": "", "unit_key": ""}
     row = _lane(st, n)
-    why = _tree_ok(row)
+    why = lanekit.tree_ok(row)
     lst_file = pathlib.Path(row["state"])
     if why:   # 枝を済みにして抜ける（輪を落とさない。締めが枝の単位を順に戻す）
         try:
@@ -441,7 +416,7 @@ def settle(st: dict, repo, try_query=None) -> list:
     for row in lanes["rows"]:
         keys = row["unit_keys"]
         try:
-            why = _tree_ok(row)
+            why = lanekit.tree_ok(row)
             if why:
                 raise tddloop.Broken(why)
             lst = tddloop._load(row["state"])
@@ -584,33 +559,30 @@ def _red_again(st, row, lst, k, work) -> str:
 def _apply_lanes(st, repo, ready, log, work, back, how) -> list:
     """緑まで済んだ枝を目録の順に当てる。当てた枝の [(row, lst, green, patch)]。当たらない枝の単位は back へ"""
     union = sorted({f for _, lst, green in ready for k in green for f in lst["units"][k].get("test_files") or []})
-    earlier, applied = set(), []
-    for row, lst, green in ready:
-        why, patch, names, mode = _merge(st, repo, row, lst, green, log, work, earlier, union)
-        how[row["n"]] = mode
-        if why:
+    applied = []
+    for (row, lst, green), got in lanekit.merge_in_order(
+            ready, lambda lane, earlier: _merge(st, repo, *lane, log, work, earlier, union)):
+        if got.why:
+            how[row["n"]] = CLASH if got.clash else ""
             for k in green:
-                back[k] = {"why": why, **({"patch": patch} if patch else {})}
+                back[k] = {"why": got.why, **({"patch": got.patch} if got.patch else {})}
             continue
-        earlier |= set(names)
-        applied.append((row, lst, green, patch))
+        how[row["n"]] = UNION if got.unioned else CLEAN
+        applied.append((row, lst, green, got.patch))
     return applied
 
 
-def _merge(st, repo, row, lst, green, log, work, earlier: set, union) -> tuple:
-    """枝の差分を当てる（lanekit.merge）。(戻す理由（当てたら空）, 前の試みの差分のファイル, 差分のパス, 合わせの結末)。TDD の段だけの
-    照らし: 前に当てた枝と重なるファイルの名指しのテストの関数の源が単位の worktree と同じか（_moved_tests）"""
+def _merge(st, repo, row, lst, green, log, work, earlier, union) -> lanekit.Merge:
+    """枝の差分を当てる（lanekit.merge）。TDD の段だけの照らし: 前に当てた枝と重なるファイルの名指しのテストの関数の源が単位の
+    worktree と同じか（_moved_tests）"""
     tree = pathlib.Path(row["tree"])
 
     def tests_moved(names):
         moved = _moved_tests(repo, tree, [lst["units"][k] for k in green], set(names) & earlier)
         return f"当てた後の名指しのテストの中身が単位の worktree と違う（{moved[:5]}）" if moved else ""
-    got = lanekit.merge(repo, tree, since=lst.get("lane_base") or lst["unit_head"], base=st["lanes"]["base"], log=log,
-                        declared=lst.get("declared") or [], made=lst.get("suite_made") or [],
-                        kept=work / KEPT / f"item-{row['n']}.patch", union=union, earlier=earlier, check=tests_moved)
-    if got.why:
-        return got.why, got.patch, [], CLASH if got.clash else ""
-    return "", got.patch, got.names, UNION if got.unioned else CLEAN
+    return lanekit.merge(repo, tree, since=lst.get("lane_base") or lst["unit_head"], base=st["lanes"]["base"], log=log,
+                         declared=lst.get("declared") or [], made=lst.get("suite_made") or [],
+                         kept=work / KEPT / f"item-{row['n']}.patch", union=union, earlier=earlier, check=tests_moved)
 
 
 def _moved_tests(repo, tree, units, shared: set) -> list:

@@ -396,8 +396,18 @@
    "fences": []
   },
   "lanes": {
-   "status": "散らばり",
-   "fences": []
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "並べの枝の仕組み（分け方の union-find・枝の数の輪・節の出口の鍵・単位の worktree の .git の 1 行・枝の数の値・住処の口の定義）",
+     "pattern": "parent\\[parent\\[|range\\(1, *(lanekit\\.)?MAX_LANES *\\+ *1\\)|lane_\\{n\\}\"|\\b_git_line\\(|\\bMAX_LANES *= *[0-9]|\\bdef (node_names|merge_in_order|relocate|tree_ok|fork_out|revert_strays)\\(",
+     "allowed": [
+      "blk-fix/lib/lanekit.py",
+      "blk-fix/lib/unitlanes.py"
+     ],
+     "known": {}
+    }
+   ]
   },
   "marks": {
    "status": "散らばり",
