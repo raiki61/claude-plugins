@@ -30,6 +30,7 @@ from board import BoardGap, DiskBoard  # noqa: E402
 import ci_role  # noqa: E402
 import converge  # noqa: E402
 import engine.util as engine_util  # noqa: E402
+import carry  # noqa: E402
 import entry  # noqa: E402
 import linekit  # noqa: E402
 import prcheck  # noqa: E402
@@ -1244,10 +1245,9 @@ class NextRequestCase(ReportBase):
                          {k: row[k] for k in ("mechanism", "measured", "false_positive_if")})
         self.assertIn(outpurpose.MARK, got[0]["text"])
         self.assertIs(got[0]["draft"], True)
-        import ghreads
         with self.assertRaises(ValueError):
-            ghreads.request_parts({"findings": items})
-        items = [{k: v for k, v in i.items() if k not in ghreads.DRAFT_KEYS} for i in items]
+            carry.parts({"findings": items})
+        items = [{k: v for k, v in i.items() if k not in carry.DRAFT_KEYS} for i in items]
         with tempfile.TemporaryDirectory(dir=linekit.work_home()) as d:
             self.assertEqual(accept.check_request(items, pathlib.Path(d), "次の run"), {"ok": True, "reason": ""})
         # 冒頭 1 は人が決めることだけ: 件数と下書きの置き場の 1 行で、所見を 1 件ずつ並べない（利用者の声 10-09 の B）。
@@ -1692,21 +1692,18 @@ class PriorFailuresBuildCase(ReportBase):
         out, text, h = self.build_eyeing(eyeing)
         doc = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
         self.assertEqual(set(doc), {"findings", "prior_failures"})
-        from engine.schema import validate_schema
-        for name, got in (("next-request", doc), ("prior-failures", doc["prior_failures"])):
-            schema = json.loads((ROOT / "darkfactory" / "schemas" / f"{name}.schema.json").read_text(encoding="utf-8"))
-            self.assertEqual(validate_schema(got, schema), [], name)
+        for name, got in ((carry.NEXT_SCHEMA, doc), (carry.PRIOR_SCHEMA, doc["prior_failures"])):
+            self.assertEqual(carry.errors(got, name), [], name)
         want = [{"where": "受け付け take_p2_fix_plan", "text": "案の欄が欠ける"}, R2_ROW]
         self.assertEqual(doc["prior_failures"], want)
         self.assertFalse(any(i["text"].startswith("R2 が redesign-needed") for i in doc["findings"]), doc["findings"])
-        self.assertEqual(json.loads((self.board / report.PRIOR_FAILURES_FILE).read_text(encoding="utf-8")), want)
-        self.assertEqual(out["prior_failures_file"], str(self.board / report.PRIOR_FAILURES_FILE))
+        self.assertEqual(json.loads((self.board / carry.PRIOR_FAILURES_FILE).read_text(encoding="utf-8")), want)
+        self.assertEqual(out["prior_failures_file"], str(self.board / carry.PRIOR_FAILURES_FILE))
         sec = h[report.PRIOR_HEADING]
         self.assertIn("2 件", sec)
         self.assertIn("案の欄が欠ける", sec)
         # 書いた next-request.json は依頼の型の正本が読める（次の run の依頼にそのまま使える）
-        import ghreads
-        parts = ghreads.request_parts(doc)
+        parts = carry.parts(doc)
         self.assertEqual((parts["findings"], parts["prior_failures"]), (doc["findings"], want))
 
     def test_no_failures_still_object(self):

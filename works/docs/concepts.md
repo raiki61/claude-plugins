@@ -1,12 +1,12 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へまとめて住処ありにし、散らばりの 8 つにも数の歯止め（今の知る場所の数が増えない柵）を掛けた。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
 - works の設計の考え（「run の結末」「止めの理由」「無人で回す時の方針」など）ごとに、それを 1 か所で持つ部品（住処）と、その考えを知ってよい所を 1 行ずつ並べた地図。
-- 住処の在る考えは、住処の外に漏れたら試験で分かるようにする（柵。計画 `docs/plans/2026-10-09-structure-viewpoint.md` の Task 1）。住処の無い考え（散らばり）は、まとめる計画へのリンクを持つ。
+- 住処の在る考えは、住処の外に漏れたら試験で分かるようにする（柵。計画 `docs/plans/2026-10-09-structure-viewpoint.md` の Task 1）。住処の無い考え（散らばり）は、まとめる計画へのリンクを持ち、今の知る場所の数が増えない歯止め（数の歯止め）を持つ。
 - 直す人（人も AI も）は、設計を始める前にここを読み、触る考えの住処を使う。住処の無い考えに足す時は、散らばりを増やさない形を先に選ぶ。
 
 ## 語
@@ -18,7 +18,8 @@
 - 漏れ（leak）: 知ってよい所の外に、その考えの語・欄の名・値が書かれていること。漏れた所は、考えが変わった時に一緒に直す必要があるのに、誰もそれを知らない所になる
 - 散らばり: 住処の無い考え。同じ考えを複数の所がそれぞれの形で知っている状態
 - 柵（fence）: 漏れを見つける安い試験。考えの語の形（正規表現）と知ってよい所を表に書き、表の外で語が見つかったら赤にする。今ある漏れは「既知の漏れ」として件数と理由つきで表に置き、減らす向きにだけ動かす（`tests/blockblind.py` と同じ型）
-- 状態: `住処あり`（住処が在り、柵を掛けられる）か `散らばり`（住処が無い。計画へのリンクを持つ）
+- 状態: `住処あり`（住処が在り、柵を掛けられる）か `散らばり`（住処が無い。計画へのリンクを持つ）。どちらも柵を持つ
+- 数の歯止め: 散らばりの考えの柵。知ってよい所が空で、今その考えを知っている所を全部既知の漏れとして件数つきで表に置く。まとめるたびに数が減り、増やす差分は試験が赤にする。住処ありにした時は、知ってよい所に住処を書いて柵を住処の柵に替える
 
 works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のうち、ここで使う物:
 
@@ -47,7 +48,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `marks` | 返答の足し欄（写しの型が持てない works の欄） | 住処あり |
 | `entry-kind` | 入口の種類（依頼・変更・PR） | 散らばり |
 | `start-record` | 始めの記録 `r1/start.json` | 散らばり |
-| `carry-over` | 次の run への持ち越し | 散らばり |
+| `carry-over` | 次の run への持ち越し | 住処あり |
 | `human-gates` | 人の関所と無人の方針 | 散らばり |
 | `ai-launch` | AI の起こし方（模型・effort・道具・隔離） | 散らばり |
 | `ledger` | 費用と時間の帳簿 | 散らばり |
@@ -174,9 +175,19 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 知ってよい所: 住処だけが名の型を書く。`blk-fix/lib/tddloop.py` の `PYTEST_FILE` は pytest の既定の python_files（実行器が pytest の時の名指しの型）で、同じ住処に置く。使う所（`blk-fix/lib/fixgates.py`・`blk-plan/lib/ripple.py`・`blk-fix/lib/planscope.py`）は住処の口を呼ぶ
 - 今: `.shared/core/entry.py` の `GATE_FILE_PATTERNS`（検証ゲートの定義のファイルの広めの型）は別の考えで、テストの名の型の字を含む（柵の表の既知の漏れ）。計画 `docs/plans/2026-10-09-lang-neutral-red.md`
 
+### `carry-over` 次の run への持ち越し
+
+- 状態: 住処あり
+- 住処: `.shared/core/carry.py`（層 L1。依頼の容器の欄の名 `KEYS`・`ANSWER_KEYS`・`PRIOR_KEYS`、下書きの印 `DRAFT_KEYS` と `is_draft`・`draft`、盤面の根のファイルの名 `NEXT_REQUEST_FILE`・`PRIOR_FAILURES_FILE`・`PRIOR_IN_FILE`、依頼の解き方 `parts`・`without_prior`・`carry_ci`（殻の口 `carry-ci`）、次の依頼の中身 `compose`・行の鍵 `row_key`、照らしてから置く `save`・`place_prior`、役に貼る節 `prior_section`）
+- 約束: `.shared/core/next-request.schema.json`・`.shared/core/prior-failures.schema.json`（住処が読み、書き手は書く前に照らし、読み手は前の失敗の行を照らす。欄の名の定数と Schema の欄が揃うことは `tests/test_carry_home.py` が縛る）と、盤面の根の置き場の宣言 `darkfactory/manifest.json`（書く物）・`blk-*/manifest.json`（読む物の consumes）
+- 知ってよい所: 住処と約束だけ。何を運ぶかの決めは書き手の側が持ち、形は住処を呼ぶ: 残りの行と前の失敗の行は `.shared/core/report.py`（`next_request`・`prior_failures`・`next_doc`）、答えの下書きの選びは `.shared/core/gatemarks.py`（`answer_drafts`）、目的の外の所見の行は `.shared/core/outpurpose.py`（`next_items`）。読み手（`.shared/core/entry.py`・`blk-judge/scripts/intake.py`・`blk-premises/scripts/intake.py`・`blk-purpose/scripts/intake.py`・`blk-judge/lib/judgebrief.py`・`blk-plan/lib/planblk.py`・殻 `dev/lib.sh`）も住処の名と口を引く。`gatemarks.carried_section`（修正前の関所で人が通した行を同じ run の R4 に貼る）は run の中の受け渡しで、この考えではない
+- 今: 欄の出どころの名 `source` は別の考え（目的の役の出どころ・素材の出どころ・プラグインの置き場）にも同じ名が多いので、柵は下書きの印を作りと読みの形（`"draft": True`・`"draft" in` など）で見る。容器の欄の名 `findings`・`answers`・`pr`・`issue` も別の考え（壁打ちの往復の `answers` など）と同じ字なので柵に入れず、呼び手が住処の定数（`carry.FINDINGS` など）を引く決まりだけで守る。利用者と役に読ませる文（`.shared/core/gatemarks.py` の答え方の案内 `ANSWER_HOW`・役の指示書・`skills/works/SKILL.md`）は容器の形を字で書く。計画 `docs/plans/2026-10-09-chained-rounds.md` の Task 1（作業の手順は `docs/plans/2026-10-09-carry-home.md`）。人が関所で決めた答えの持ち越しと、依頼の答えを問いに結ぶ所は同じ計画の Task 2
+
 ---
 
 ## 散らばり
+
+散らばりの考えは、どれも数の歯止めを持つ: 表 `docs/concepts.json` に語の形（`pattern`）と今の知る場所（`known`。ファイル → 行の数と理由）を置き、知ってよい所（`allowed`）は空。試験 `tests/test_concept_fences.py` が、今の木の数が表とちょうど揃うこと（増えても減っても赤）と、考えごとの既知の漏れの件数の和が main の表（`origin/main` の同じファイル）より増えず、main に無いパスも出ないことを見る（main の表が引けない時は名前つきで見送る。CI の works の job は全履歴で取るので見送らない）。まとめる計画は `docs/plans/2026-10-09-clean-whole.md` の段 5。
 
 ### `entry-kind` 入口の種類
 
@@ -191,13 +202,6 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 今: 置き場の名を 3 か所が定める（`.shared/core/entry.py` の `START_FILE`・`.shared/core/adapter.py` の `START_REL`（`.shared/core/fixture.py` はこれを引く）・`.shared/core/gatemarks.py` の `START_FILE`）。約束 `darkfactory/schemas/start.schema.json` は `{"type": "object"}` だけで何も縛らない。読み手は `gatemarks.start_doc` のほか、`.shared/core/adapter.py`・`.shared/core/fixture.py`・`.shared/core/entry.py` と殻 `dev/canary_check.py`・`dev/launch.py` が直に読む
 - 予定の住処: 入口ブロック `blk-entry`（予定）。置き場の名と読む口を 1 つにし、約束を控えの全体に広げる
 - 計画: `docs/plans/2026-10-09-one-entry-shape.md` の 2.5 節（枝 `wip/one-entry-plan`）
-
-### `carry-over` 次の run への持ち越し
-
-- 状態: 散らばり
-- 今: 書き手は `.shared/core/report.py`（`NEXT_REQUEST_FILE`・`next_doc`・`prior_failures`）、読み手と形の確かめは `.shared/core/ghreads.py`（`KEYS`・`DRAFT_KEYS`・`PRIOR_KEYS`・`carry_ci`・目的の役に渡す前に欄 `prior_failures` を外した依頼の写しを作る `without_prior`）、盤面へ置くのは `.shared/core/entry.py`（`PRIOR_IN_FILE`・`place_prior`）、答えの下書きは `.shared/core/gatemarks.py`（`answer_drafts`）、R4 の頭に貼るのは `gatemarks.carried_section`。欄の名（`prior_failures`・`draft`・`source`）を書き手と読み手がそれぞれの定数で持つ
-- 約束（在る物）: `darkfactory/schemas/next-request.schema.json`・`darkfactory/schemas/prior-failures.schema.json`
-- 計画: まだ無い（`docs/plans/2026-10-09-structure-viewpoint.md` の 6 節の順で立てる）
 
 ### `human-gates` 人の関所と無人の方針
 
@@ -241,5 +245,5 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 設計を始める時: 計画の「考えの棚卸し」の節（`docs/plans/2026-10-09-structure-viewpoint.md` の 4 節）で、触る考えの id をここから引く。無ければ新しい行を足す
 - 出荷の前: 触った考えの行（住処・知ってよい所・状態）を今の姿に直す
-- 散らばりを住処へまとめたら: 状態を `住処あり` にし、柵を表 `docs/concepts.json` に足す
+- 散らばりを住処へまとめたら: 状態を `住処あり` にし、表 `docs/concepts.json` の柵の知ってよい所に住処を書き、残った既知の漏れを今の姿に直す（数は main の表より増やせない）
 - 行のパスは試験 `tests/test_concept_fences.py` が在ることを確かめる。地図と表の id・状態の食い違いと、住処の外の漏れ（表の既知の漏れより増えた・減った・表に無い）も同じ試験が赤にする。既知の漏れの一覧と理由は表だけが持つ

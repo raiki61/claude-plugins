@@ -61,7 +61,8 @@ FAST = frozenset({
     "test_forge",           # forge の無い remote の決め（forge.py）と盤面への差し替え・報告の 1 行・ghreads の条件外: 関数を直に呼ぶ・偽の盤面・git init と remote add・偽の gh（盤面・子の実行器なし）
     "test_gate_na",         # ゲートの検算の役の『条件外』の差し替えとゲートの印: 関数を直に呼ぶ・偽の盤面・一時の置き場に差分のファイル（git・盤面・子のプロセスなし）
     "test_hostgh",          # run の中で利用者の gh を継ぐ口（dev/hostgh.py）: 関数を直に呼ぶ・偽の gh と sh の口を子で起こすだけ（git・盤面なし）
-    "test_carry_ci",        # run の後の CI の赤を次の依頼の prior_failures へ（ghreads.carry_ci）: 関数を直に呼ぶ・ghreads.py を python3 -I で起こすだけ（git・盤面なし）
+    "test_carry_ci",        # run の後の CI の赤を次の依頼の prior_failures へ（carry.carry_ci）: 関数を直に呼ぶ・carry.py を python3 -I で起こすだけ（git・盤面なし）
+    "test_carry_home",      # 次の run への持ち越しの住処（carry.py）: 関数を直に呼ぶ・一時の置き場のファイル・柵の表を読む（子のプロセスは git ls-files だけ）
     "test_depth",           # 単位ごとの深さ（darkfactory/lib/depth.py）: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_holeties",        # 差分の審査の穴の枝の名札（holeties と refix.hole_ties）: 関数を直に呼ぶ・偽の盤面（一時の置き場のファイル）だけ（git・子のプロセスなし）
     "test_judge_verify",    # 判定の根を開く（blk-judge/lib/judgeverify.py・申し送りの節・報告の行）: 偽の盤面で関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）

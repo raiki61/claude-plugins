@@ -1,26 +1,11 @@
-"""依頼のファイルの形と、依頼が名指した PR・issue を run の中で読む 1 か所（設計書 2.8）。層 L1（works の物を何も知らない）。
-標準ライブラリだけ（Python 3.9 で動く）。殻は `python3 -I ghreads.py carry-ci …` でファイルとして呼ぶ。
-
-依頼のファイルは findings の JSON の配列か、{"findings": [...], "pr": [<番号>…], "issue": [<番号>…], "answers": [...],
-"prior_failures": [...]} の形。prior_failures は前の run で最後まで通らなかった物 [{where, text}]（前の run の報告が書く
-next-request.json の欄。判定役と修正案の役の材料に貼る注意で、直す穴ではない）。
-answers は依頼者が前の run の問いに答えた物 [{question, text, command?, output?}]（question は問いの key か出どころ。
-command・output は人が手元で測った命令と出力で、両方か無し。前の run の報告が書いた答えの下書きの印 draft・source の在る行は、
-人が見直していないので拒む。findings の行も同じ: 前の run の判定が目的の外とした所見を報告が下書きの印つきで運ぶ）。読み手
-（entry・判定と前提の intake）はここで解き、graphloops の規則（check_request・add_request・REQUEST_SCHEMA）に渡すのは
-findings だけにする（容器の形を規則の側へ漏らさない）。
+"""依頼が名指した PR・issue を run の中で読む 1 か所（設計書 2.8）。層 L1（works の物を何も知らない）。
+標準ライブラリだけ（Python 3.9 で動く）。依頼のファイルの形（欄 pr・issue を含む容器）は持ち越しの住処 carry が解く。
 
 名指した PR・issue は、線の入口（entry.start）が run の中で gh を対象の根で呼んで読む。run の中の gh は開発の殻
 （dev/hostgh.py の口）が利用者の gh のログインを継がせる（2026-10-08 から。それより前は隔離した Archon の中から利用者の
 ログインが見えず、殻が隔離の前に読んでファイルで渡していた）。名指しは依頼の欄 pr・issue と入力 pr に限る（本文の中の URL は
-拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。
+拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。殻の口は持たない（前の carry-ci は carry.py へ移った）。
 
-- request_parts(doc) -> {"findings": list, "pr": [int], "issue": [int], "answers": [dict], "prior_failures": [dict]}: 解けなければ ValueError（1 行）
-- without_prior(doc) -> 依頼の object か None: 前の run の判断（欄 prior_failures）を外した写し。前の run の判断を知らない別の目
-  （目的の役）に渡す形を機械が作る口。欄が無い・object でない（findings の配列の形）なら None（そのまま渡してよい）
-- carry_ci(doc, ids) -> 依頼の object: run の後の CI が赤と言った試験の id を prior_failures の行（where CI_WHERE）として足す。
-  重い試験は run の外の CI で回り、run の報告はその赤を知らないので、人（か回す役）が CI の赤の id を next-request.json に足す口。
-  同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I ghreads.py carry-ci`
 - read_named(repo, prs, issues) -> 読み出し: 名指した物を gh で読む（gh の cwd は repo）。読めない項も記録して返す（止めない）
 - load_board(board_dir) -> 読み出し|None: 盤面の根の github.json（Archon の再開で読み直さない）。無ければ None
 - place(board_dir, doc): 読み出しを盤面の根の github.json に 0600 で置く（非公開の本文を持つ）
@@ -32,7 +17,6 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
   など）は forge の無い対象でも {status: unreadable, reason: gh の言葉, forge: no_forge: …}。入力 pr の base・head が読めない時に
   止めるのは読み手（entry）
 """
-import argparse
 import json
 import os
 import pathlib
@@ -41,18 +25,11 @@ import sys
 
 sys.dont_write_bytecode = True
 _HERE = str(pathlib.Path(__file__).resolve().parent)
-if _HERE not in sys.path:   # 殻は python3 -I で起こす（-I は自分の置き場を sys.path に足さない）。同じ層の forge だけを読む
+if _HERE not in sys.path:   # 置き場を sys.path に持たない起こし方（python3 -I など）でも同じ層の forge だけを読む
     sys.path.append(_HERE)     # 末尾に足す（core の名が標準の模块の名を覆わない）
 
 import forge  # noqa: E402
 
-KEYS = ("findings", "pr", "issue", "answers", "prior_failures")
-ANSWER_KEYS = ("question", "text", "command", "output")
-DRAFT_KEYS = ("draft", "source")   # 前の run の報告が next-request.json の answers・findings に置く下書きの印（人が見直して消すまで拒む）
-PRIOR_KEYS = ("where", "text")   # prior_failures の行の欄（前の run の報告が next-request.json に書いた形）
-CI_WHERE = "run の後の CI"   # carry_ci が足す prior_failures の行の where
-CI_TEXT = ("試験 {id} が CI で赤だった（重い試験は run の外の CI で回る。前の run の直しがこの試験を赤にした見込み。"
-           "同じ試験を赤にしない直しを出す）")
 GITHUB_READS_VERSION = 1
 BOARD_FILE = "github.json"   # 盤面の根に置く読み出しの写し
 PR_FIELDS = "baseRefOid,headRefOid,title,body,comments,reviews"
@@ -65,127 +42,6 @@ NOT_APPLICABLE = "not_applicable"   # forge の無い対象（forge.reason）で
 # 読みに行って読めなかった物（自前のドメインの GitHub Enterprise Server でログインが切れた、など）
 GH_NO_HOST = ("point to a known GitHub host", "no git remotes found")
 GH_EXIT_AUTH = 4
-
-
-def request_parts(doc) -> dict:
-    if isinstance(doc, list):
-        return {"findings": doc, "pr": [], "issue": [], "answers": [], "prior_failures": []}
-    if not isinstance(doc, dict):
-        raise ValueError(f"findings の配列か {{findings, pr, issue, answers, prior_failures}} の形でない（{type(doc).__name__}）")
-    extra = sorted(set(doc) - set(KEYS))
-    if extra:
-        raise ValueError(f"知らない鍵 {extra}（使えるのは {list(KEYS)}）")
-    findings = doc.get("findings", [])
-    if not isinstance(findings, list):
-        raise ValueError(f"findings が配列でない（{type(findings).__name__}）")
-    for i, f in enumerate(findings):
-        if isinstance(f, dict) and any(k in f for k in DRAFT_KEYS):
-            raise ValueError(f"findings[{i}] は前の run の報告が運んだ所見の下書き（draft・source の欄が在る。前の run の判定が目的の"
-                             "外とした所見で、人が見直していない）——この run の目的に入れるなら draft と source の欄を消し、入れない"
-                             "なら行を消す")
-    out = {"findings": findings}
-    for key in ("pr", "issue"):
-        nums = doc.get(key, [])
-        if not isinstance(nums, list) or any(type(n) is not int or n <= 0 for n in nums):
-            raise ValueError(f"{key} が正の整数の配列でない（{nums!r}）")
-        out[key] = nums
-    out["answers"] = _answers(doc.get("answers", []))
-    out["prior_failures"] = _prior_failures(doc.get("prior_failures", []))
-    return out
-
-
-def without_prior(doc):
-    """依頼 doc から前の run の判断（欄 prior_failures）を外した写し（ほかの欄は字のまま）。欄が無い・object でなければ None"""
-    if isinstance(doc, dict) and "prior_failures" in doc:
-        return {k: v for k, v in doc.items() if k != "prior_failures"}
-    return None
-
-
-def _prior_failures(rows) -> list:
-    """依頼の prior_failures（前の run で最後まで通らなかった物。前の run の報告が書いた next-request.json の欄）を確かめて
-    そのまま返す。行は {where, text} で、どちらも空でない文字列。知らない欄は拒む（ValueError。1 行）"""
-    if not isinstance(rows, list):
-        raise ValueError(f"prior_failures が配列でない（{type(rows).__name__}）")
-    for i, r in enumerate(rows):
-        if not isinstance(r, dict):
-            raise ValueError(f"prior_failures[{i}] が {{where, text}} の object でない（{type(r).__name__}）")
-        extra = sorted(set(r) - set(PRIOR_KEYS))
-        if extra:
-            raise ValueError(f"prior_failures[{i}] の知らない欄 {extra}（使えるのは {list(PRIOR_KEYS)}）")
-        for key in PRIOR_KEYS:
-            if not (isinstance(r.get(key), str) and r[key].strip()):
-                raise ValueError(f"prior_failures[{i}] の {key} が空でない文字列でない（{r.get(key)!r}）")
-    return rows
-
-
-def carry_ci(doc, ids) -> dict:
-    """依頼 doc（findings の配列か object）に、CI が赤と言った試験の id の並び ids を prior_failures の行として足した object を
-    返す（doc は変えない）。id は前後の空白を落とし、空と重なりは捨てる。既に同じ行が在れば足さない。answers と findings の下書き
-    （DRAFT_KEYS の在る行。前の run の報告が書き、人がまだ見直していない）は確かめずにそのまま残す（下書きは次の run の入口が拒む）"""
-    def drop(rows):
-        return [r for r in rows if not (isinstance(r, dict) and any(k in r for k in DRAFT_KEYS))]
-    bare = drop(doc) if isinstance(doc, list) else doc
-    if isinstance(doc, dict):
-        bare = {**doc, **{k: drop(doc[k]) for k in ("answers", "findings") if isinstance(doc.get(k), list)}}
-    parts = request_parts(bare)
-    got = list(dict.fromkeys(i.strip() for i in ids if isinstance(i, str) and i.strip()))
-    if not got:
-        raise ValueError("CI の赤の試験の id が 1 つも無い")
-    out = dict(doc) if isinstance(doc, dict) else {"findings": list(doc)}
-    rows = [dict(r) for r in parts["prior_failures"]]
-    for test_id in got:
-        row = {"where": CI_WHERE, "text": CI_TEXT.format(id=test_id)}
-        if row not in rows:
-            rows.append(row)
-    out["prior_failures"] = rows
-    return out
-
-
-def _carry_cli(request: str, failed: str, out: str) -> int:
-    """carry-ci の口: request（next-request.json）を読み、failed（1 行に 1 つの試験の id。# で始まる行と空の行は飛ばす。- は
-    標準入力）の id を足して out に書く（request と同じでよい）。誤りは標準エラーに 1 行で 2（out は書かない）"""
-    try:
-        doc = json.loads(pathlib.Path(request).read_text(encoding="utf-8"))
-        text = sys.stdin.read() if failed == "-" else pathlib.Path(failed).read_text(encoding="utf-8")
-        ids = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
-        got = carry_ci(doc, ids)
-    except (OSError, ValueError) as e:
-        print(f"ghreads carry-ci: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    dest = pathlib.Path(out)
-    tmp = dest.with_name(dest.name + ".tmp")
-    tmp.write_text(json.dumps(got, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, dest)
-    return 0
-
-
-def _answers(rows) -> list:
-    """依頼の answers を確かめてそのまま返す。question・text は空でない文字列、command・output は両方か無し、
-    知らない欄と同じ question の 2 度書きは拒む（ValueError。1 行）"""
-    if not isinstance(rows, list):
-        raise ValueError(f"answers が配列でない（{type(rows).__name__}）")
-    seen = set()
-    for i, a in enumerate(rows):
-        if not isinstance(a, dict):
-            raise ValueError(f"answers[{i}] が {{question, text, command?, output?}} の object でない（{type(a).__name__}）")
-        if any(k in a for k in DRAFT_KEYS):
-            raise ValueError(f"answers[{i}] は前の run の報告が書いた答えの下書き（draft・source の欄が在る。機械は答えていない）——"
-                             "見直して、台帳の問いの行（question が問いの key）は採るなら draft と source（と note）の欄を消し"
-                             "（text は直してよい。推しの無い行は text が空なので、note の材料から答えを書く）、"
-                             "採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
-                             "依頼ではどの問いにも当たらないので、一言に写してから行を消す")
-        extra = sorted(set(a) - set(ANSWER_KEYS))
-        if extra:
-            raise ValueError(f"answers[{i}] の知らない欄 {extra}（使えるのは {list(ANSWER_KEYS)}）")
-        for key in ANSWER_KEYS:
-            if (key in a or key in ("question", "text")) and not (isinstance(a.get(key), str) and a[key].strip()):
-                raise ValueError(f"answers[{i}] の {key} が空でない文字列でない（{a.get(key)!r}）")
-        if ("command" in a) != ("output" in a):
-            raise ValueError(f"answers[{i}] の command と output は両方書くか、どちらも書かない")
-        if a["question"] in seen:
-            raise ValueError(f"answers[{i}] の question {a['question']!r} が 2 度目（1 つの問いに答えは 1 つ）")
-        seen.add(a["question"])
-    return rows
 
 
 def _line(text) -> str:
@@ -299,14 +155,10 @@ def place(board_dir, doc) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="ghreads.py")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    c = sub.add_parser("carry-ci")
-    c.add_argument("--request", required=True)
-    c.add_argument("--failed", required=True)
-    c.add_argument("--out", required=True)
-    a = ap.parse_args(argv)
-    return _carry_cli(a.request, a.failed, a.out)
+    """殻の口は無い: 起こされたら移った先を 1 行で言って 2（前の carry-ci の打ち方を黙って通さない）"""
+    print("ghreads.py に殻の口は無い——run の後の CI の赤を次の依頼へ足す carry-ci は同じ置き場の carry.py へ移った"
+          "（python3 -I carry.py carry-ci --request … --failed … --out …）", file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

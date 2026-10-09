@@ -51,13 +51,13 @@ from engine.role_run import _tail  # noqa: E402  （素材の detail に写す�
 from engine.rules import cond_reads  # noqa: E402
 from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
+import carry  # noqa: E402  （L1。次の run への持ち越しの形の住処）
 import conflict  # noqa: E402
 import fixture  # noqa: E402
 import flow_adapter  # noqa: E402
 import forge  # noqa: E402
 import gatemarks  # noqa: E402
 import ghreads  # noqa: E402
-from ghreads import request_parts  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import scopes  # noqa: E402
@@ -560,7 +560,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
            "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
            "design_only": design_only, "fix_fixture": fx, FEATURES_KEY: off,
            FEATURES_ON_KEY: on,
-           "answers": answers, "prior_failures": prior}
+           carry.ANSWERS: answers, carry.PRIOR: prior}
     if change is not None:
         out.update(change)
     return out
@@ -615,7 +615,7 @@ def _change_base(raw: dict, repo: pathlib.Path, reads=None):
 def _read_request(rel: str, repo: pathlib.Path, rules):
     """依頼のファイルを読んで (path, text, items, answers, prior_failures)。items は findings の行、answers は依頼者の答え、
     prior_failures は前の run で最後まで通らなかった物（配列の形も
-    {findings, pr, issue, answers} の形も request_parts で解く）。読めない・どちらの形でもない・依頼の型に合わない は InputRefused"""
+    {findings, pr, issue, answers} の形も carry.parts で解く）。読めない・どちらの形でもない・依頼の型に合わない は InputRefused"""
     path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
     try:
         text = path.read_text(encoding="utf-8")
@@ -626,15 +626,15 @@ def _read_request(rel: str, repo: pathlib.Path, rules):
     except json.JSONDecodeError as e:
         raise InputRefused(f"依頼のファイル {rel} が JSON として読めない（{e}）") from None
     try:
-        parts = request_parts(doc)
+        parts = carry.parts(doc)
     except ValueError as e:
         raise InputRefused(f"依頼のファイル {rel} の形: {e}") from None
-    items = parts["findings"]
+    items = parts[carry.FINDINGS]
     errs = validate_schema([{"round": 1, "origin": ORIGIN, "findings": items}], rules.REQUEST_SCHEMA)
     if errs:
         raise InputRefused(f"依頼のファイル {rel} の形: findings の配列か {{findings, pr, issue, answers}} の形で、findings は "
                            "[{where, text, mechanism?, measured?, false_positive_if?}] の配列（空でない）: " + "; ".join(errs))
-    return path, text, items, parts["answers"], parts["prior_failures"]
+    return path, text, items, parts[carry.ANSWERS], parts[carry.PRIOR]
 
 
 def board_rules():
@@ -978,7 +978,7 @@ def add_pending_request(b) -> str:
         return "none"
     if b.node_state(PENDING_WAIT_NODE) == "pending":
         return "waiting"
-    b.add_request(request_parts(json.loads(pathlib.Path(doc["request_file"]).read_text(encoding="utf-8")))["findings"], ORIGIN)
+    b.add_request(carry.parts(json.loads(pathlib.Path(doc["request_file"]).read_text(encoding="utf-8")))[carry.FINDINGS], ORIGIN)
     return "added"
 
 
@@ -992,9 +992,6 @@ def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
 
 # ---------------------------------------------------------------- start（線 A の仕様 4 節）
 START_FILE = "start.json"
-PRIOR_IN_FILE = "prior-failures-in.json"   # 盤面の根に置く依頼の prior_failures [{where, text}]（place_prior。読むのは consumes で宣言した物）
-PRIOR_HEAD = ("## 前の run で最後まで通らなかった物（機械が貼った。直す穴ではない——同じ所で落ちない返答を出すための注意。"
-              "直す穴は依頼の findings だけ）")
 
 
 def declared_adapter(b) -> str:
@@ -1028,32 +1025,8 @@ def _request_text(inp: dict) -> str:
 
 def _kept(inp: dict) -> dict:
     """check_inputs の返りのうち start の控えに残す欄（依頼の行と文は控えに残さない。prior_failures は盤面の根の
-    PRIOR_IN_FILE が運ぶ）"""
-    return {k: v for k, v in inp.items() if k not in ("items", "request_text", "prior_failures")}
-
-
-def place_prior(board_dir: pathlib.Path, rows: list) -> None:
-    """依頼の prior_failures を盤面の根の PRIOR_IN_FILE に置く（行が無くても空の配列。読み手は manifest の consumes で宣言した
-    ブロックだけ）"""
-    _write_json(pathlib.Path(board_dir) / PRIOR_IN_FILE, list(rows))
-
-
-def prior_section(board_dir) -> str:
-    """盤面の根の PRIOR_IN_FILE の行を、役の材料に貼る節にした物（PRIOR_HEAD と 1 件 1 行）。無い・空なら ""。読めなければ
-    BoardGap（黙って 0 件に見せない）"""
-    p = pathlib.Path(board_dir) / PRIOR_IN_FILE
-    if not p.is_file():
-        return ""
-    try:
-        rows = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise BoardGap(f"{p} が読めない: {e}") from None
-    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
-        raise BoardGap(f"{p} の形が違う（[{{where, text}}]）")
-    if not rows:
-        return ""
-    return PRIOR_HEAD + "\n\n" + "\n".join(f"- {' '.join(str(r.get('where', '')).split())}: "
-                                             f"{' '.join(str(r.get('text', '')).split())}" for r in rows)
+    carry.PRIOR_IN_FILE が運ぶ）"""
+    return {k: v for k, v in inp.items() if k not in ("items", "request_text", carry.PRIOR)}
 
 
 def adopt_inputs(inp: dict) -> dict:
@@ -1135,10 +1108,10 @@ def _named(raw: dict, repo: pathlib.Path):
     if rel:
         path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
         try:
-            parts = request_parts(json.loads(path.read_text(encoding="utf-8")))
+            parts = carry.parts(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, UnicodeDecodeError, ValueError):
             return prs, issues
-        prs, issues = list(dict.fromkeys(parts["pr"] + prs)), list(parts["issue"])
+        prs, issues = list(dict.fromkeys(parts[carry.PR] + prs)), list(parts[carry.ISSUE])
     return prs, issues
 
 
@@ -1218,7 +1191,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
         except OSError as e:
             raise InputRefused(f"読んだ PR・issue を盤面の {ghreads.BOARD_FILE} に置けない（{type(e).__name__}: {e}）——"
                                "resume で読み直す") from None
-    place_prior(board_dir, inp["prior_failures"])
+    carry.place_prior(board_dir, inp[carry.PRIOR])
     keep = _kept(inp)
     work = b.work(START_FILE)
     prev = {}

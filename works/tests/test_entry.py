@@ -26,6 +26,7 @@ import board  # noqa: E402
 from board import BoardGap, BoardMismatch, DiskBoard, graph_expanded  # noqa: E402
 import engine.declared as engine_declared  # noqa: E402  （board が写しの graphloops を sys.path に足す）
 import engine.util as engine_util  # noqa: E402
+import carry  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
@@ -675,7 +676,7 @@ class CheckInputsCase(StartCaseBase):
         got = entry.check_inputs({"request": str(req)}, repo)
         self.assertEqual((got["items"], got["prior_failures"]), (rows, self.PRIOR))
         self.start(repo, raw=self.raw(request=str(req)))
-        self.assertEqual(json.loads((self.board / entry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
+        self.assertEqual(json.loads((self.board / carry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
         self.assertNotIn("prior_failures", gatemarks.start_doc(self.board))
 
     def test_request_prior_failures_bad_shape_refused(self):

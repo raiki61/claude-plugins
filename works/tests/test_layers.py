@@ -52,7 +52,8 @@ MOD = {
     "claude_auth": (1, None),  # 本流 scripts/claude_auth.py の写し（shared-copies.py が同一を縛る。works の物を何も知らない）
     "auth_launch": (1, None),  # 殻の認証の起こし役（claude_auth の写しだけを import する。works の物を何も知らない）
     "forge": (1, None),       # 対象の remote が forge（PR を持つホスト。GitHub）かを git だけで決める（ghreads と entry・report が読む。works の物を何も知らない）
-    "ghreads": (1, None),     # 依頼のファイルの形（findings の配列か {findings, pr, issue}）を解く 1 か所（works の物を何も知らない）
+    "ghreads": (1, None),     # 依頼が名指した PR・issue を run の中で gh で読む 1 か所（works の物を何も知らない）
+    "carry": (1, None),       # 次の run への持ち越しの住処（依頼の容器の形・下書きの印・前の失敗の置き場・約束の Schema。写しの engine の型検査だけを読む）
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
     "unittrees": (1, None),   # 修正の単位ごとの小さい git worktree（切る・差分・当てる・片付け。works の物を何も知らない）
     "marks": (1, None),       # 返答の足し欄の住処（役の型に欄を足す・返答から外す・盤面の控えの置き場と読み書き。標準ライブラリだけ）

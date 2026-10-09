@@ -19,7 +19,7 @@ sys.path.insert(0, str(TESTS))
 import test_plan_gate as TP  # noqa: E402  （ラインの模块の置き場も sys.path に足す）
 import accept  # noqa: E402
 import gatemarks  # noqa: E402
-import ghreads  # noqa: E402
+import carry  # noqa: E402
 import line_edge  # noqa: E402
 import report  # noqa: E402
 
@@ -142,11 +142,11 @@ class DraftsCase(TP.GateBase):
         self.assertEqual([d["question"] for d in drafts], [TP.FORK["key"]])
         self.assertEqual(drafts[0]["text"], "")
         self.assertIn("例外・空の値", drafts[0]["note"])
-        bare = {k: v for k, v in drafts[0].items() if k not in ghreads.DRAFT_KEYS}
+        bare = {k: v for k, v in drafts[0].items() if k not in carry.DRAFT_KEYS}
         with self.assertRaises(ValueError):
-            ghreads.request_parts({"findings": [], "answers": [bare]})
+            carry.parts({"findings": [], "answers": [bare]})
         with self.assertRaises(ValueError):
-            ghreads.request_parts({"findings": [], "answers": [{k: v for k, v in bare.items() if k != "note"}]})
+            carry.parts({"findings": [], "answers": [{k: v for k, v in bare.items() if k != "note"}]})
 
     def test_held_ledger_question_gets_its_push_as_draft_keyed_by_the_question(self):
         """無人の run は台帳の問いを関所に載せない。保留のままの fork は、key を question にした推しの下書きになる（見直して
@@ -231,7 +231,7 @@ class IntakeCase(unittest.TestCase):
         for row in ({"question": "q", "text": "t", "draft": True, "source": "s"}, {"question": "q", "text": "t", "source": "s"}):
             with self.subTest(row=row):
                 with self.assertRaises(ValueError) as cm:
-                    ghreads.request_parts({"findings": [], "answers": [row]})
+                    carry.parts({"findings": [], "answers": [row]})
                 self.assertIn("下書き", str(cm.exception))
                 self.assertIn("draft", str(cm.exception))
 
@@ -239,19 +239,19 @@ class IntakeCase(unittest.TestCase):
         """拒否の文は、台帳の問いの行（draft と source を消せば使える）と関所の項目の行（次の run の関所の一言の材料で、依頼では
         何にも当たらないので消す）を分けて言う（審査の指摘）"""
         with self.assertRaises(ValueError) as cm:
-            ghreads.request_parts({"findings": [], "answers": [{"question": "q", "text": "t", "draft": True, "source": "s"}]})
+            carry.parts({"findings": [], "answers": [{"question": "q", "text": "t", "draft": True, "source": "s"}]})
         self.assertIn("台帳の問い", str(cm.exception))
         self.assertIn("関所の項目", str(cm.exception))
 
     def test_carry_ci_keeps_drafts_as_they_are(self):
         """CI の赤を足す口（carry_ci）は下書きの行で止まらず、そのまま残す（審査の再現: 無人の run の下書きで exit 2 だった）"""
         draft = {"question": "q", "text": "t", "draft": True, "source": "s"}
-        got = ghreads.carry_ci({"findings": [], "prior_failures": [], "answers": [draft]}, ["tests/test_x.py::t"])
+        got = carry.carry_ci({"findings": [], "prior_failures": [], "answers": [draft]}, ["tests/test_x.py::t"])
         self.assertEqual(got["answers"], [draft])
         self.assertEqual(len(got["prior_failures"]), 1)
 
     def test_reviewed_answer_passes(self):
-        got = ghreads.request_parts({"findings": [], "answers": [{"question": "q", "text": "t"}]})
+        got = carry.parts({"findings": [], "answers": [{"question": "q", "text": "t"}]})
         self.assertEqual(got["answers"], [{"question": "q", "text": "t"}])
 
 

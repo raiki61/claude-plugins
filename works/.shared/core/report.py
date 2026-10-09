@@ -65,6 +65,7 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 import adapter  # noqa: E402
+import carry  # noqa: E402  （L1。次の run への持ち越しの形の住処: ファイルの名・欄の名・約束の Schema）
 import changemap  # noqa: E402  （unified diff を path → hunk の行に分ける写し）
 import conflict  # noqa: E402
 import converge  # noqa: E402
@@ -134,8 +135,6 @@ COST_FIELD = ("spend", "costUsd")
 COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
 ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
-NEXT_REQUEST_FILE = "next-request.json"   # 次の run の依頼の下書き {findings, prior_failures}（依頼の型の object の形）
-PRIOR_FAILURES_FILE = "prior-failures.json"   # この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]
 PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
 OUTSIDE_HEADING = "## 判定が目的の外とした所見"   # 1 件ずつの行（outpurpose.report_lines）。冒頭 1 は件数の行だけ（outpurpose.count_line）
 TDD_HEADING = "## TDD の輪の単位ごとの結末"   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
@@ -673,7 +672,7 @@ def prior_failures(b, left: list | None = None) -> list:
 
 def prior_lines(rows: list) -> list:
     """報告の節 PRIOR_HEADING の行（件数と 1 件 1 行）"""
-    return [f"{len(rows)} 件（次の run の依頼の下書き {NEXT_REQUEST_FILE} の prior_failures に載せた。判定役と修正案の役の材料に"
+    return [f"{len(rows)} 件（次の run の依頼の下書き {carry.NEXT_REQUEST_FILE} の prior_failures に載せた。判定役と修正案の役の材料に"
             "貼る注意で、直す穴ではない）"] + [f"{r['where']}: {r['text']}" for r in rows]
 
 
@@ -1815,9 +1814,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     left = residue(b, gate, tests=tests, eyeing=eyeing)
     items = next_request(b, tests=tests, left=left)
     prior = prior_failures(b, left)
-    req_p, rep_p, prior_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE, board_dir / PRIOR_FAILURES_FILE
-    _write_json(prior_p, prior)
-    _write_json(req_p, next_doc(b, items, prior))
+    rep_p = board_dir / REPORT_FILE
+    req_p, prior_p = carry.save(board_dir, next_doc(b, items, prior), prior)
     dead = _no_turn_exits(b, (b.state.get("inputs") or {}).get("cwd") or ".")
     if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
         _write_json(board_dir / NO_TURN_FILE, dead)
@@ -1855,13 +1853,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
 
 
 def next_doc(b, items: list, prior: list) -> dict:
-    """次の run の依頼の下書き {findings, prior_failures}。人の判断を待つ項目（無人の run が関所で止めた項目・保留のままの問い・問いの無い測れていない素材）を残せば、答えの下書き
+    """次の run の依頼の下書き {findings, prior_failures}（形は carry.compose）。人の判断を待つ項目（無人の run が関所で止めた項目・保留のままの問い・問いの無い測れていない素材）を残せば、答えの下書き
     （gatemarks.answer_drafts。draft: true・source つき。依頼の入口が拒むので人が見直してから使う）を answers に足す"""
-    doc = {"findings": items, "prior_failures": prior}
-    drafts = gatemarks.answer_drafts(b)
-    if drafts:
-        doc["answers"] = drafts
-    return doc
+    return carry.compose(items, prior, gatemarks.answer_drafts(b))
 
 
 def final_result(machine: dict, ai: dict | None) -> dict:

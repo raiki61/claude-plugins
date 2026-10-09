@@ -1,5 +1,5 @@
 """対象のリポジトリの remote が forge（PR を持つホスト。今は GitHub だけ）かを、git だけで決める 1 か所。層 L1（works の物を
-何も知らない。標準ライブラリだけで Python 3.9 で動く。殻から `python3 -I` で起こす ghreads も読む）。
+何も知らない。標準ライブラリだけで Python 3.9 で動く。ghreads と entry・report が読む）。
 
 core は git だけで動き、gh・GitHub は外側の forge の層（持ち主の決定 2026-10-07）。forge の無い remote では、PR を前提に
 する確かめ（並行 PR。利用者が名指した PR・issue は gh が読めなかった時だけ）は「確かめられなかった」ではなく「条件に当たら

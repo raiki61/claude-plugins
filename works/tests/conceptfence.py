@@ -6,6 +6,9 @@
 行の数」で数え、known とちょうど揃うかを見る（減る向きにだけ動かす。照らしは tests/blockblind.py の verdict を使う）。
 地図からは、考えの id と状態（map_ids）・見出しの下の決まった頭の行（map_rows。表の allowed が地図の住処か知ってよい所の行に
 在るかを試験が照らす）・行に書いたパス（map_paths）を読む。表を読むのはこのモジュールだけ。
+散らばり（住処の無い考え）の柵は知ってよい所が空で、今の知る場所を全部既知の漏れに置く数の歯止め。表そのものも増えない:
+main の表（MAIN_REF の同じパス。main_table）と比べ、考えごとの既知の漏れの件数の和が増えた・main に無いパスが出た所を
+growth が名指す（main で柵を持たない考えは比べない）。
 """
 import fnmatch
 import json
@@ -15,6 +18,7 @@ import subprocess
 from blockblind import verdict as _verdict
 
 TABLE = "docs/concepts.json"
+MAIN_REF = "origin/main"   # 表の件数を比べる相手（CI の works の job は全履歴で取るので在る）
 PATH_HEADS = (".shared/", "blk-", "darkfactory/", "dev/", "tests/", "skills/")
 HEADING = re.compile(r"^### `([^`]+)`")
 STATUS_WORD = re.compile(r"[^\s（(]+")
@@ -24,6 +28,39 @@ CODE = re.compile(r"`([^`]+)`")
 def load(root):
     """柵の表（works の docs/concepts.json）"""
     return json.loads((root / TABLE).read_text(encoding="utf-8"))
+
+
+def main_table(root, ref=MAIN_REF):
+    """(ref の柵の表, None) か (None, 引けない理由)。表のパスは works の根からの相対で引く（git の「<ref>:./<パス>」）"""
+    got = subprocess.run(["git", "-C", str(root), "show", f"{ref}:./{TABLE}"],
+                         capture_output=True, text=True, encoding="utf-8")
+    if got.returncode != 0:
+        return None, got.stderr.strip()[-200:] or f"git show の終了コード {got.returncode}"
+    return json.loads(got.stdout), None
+
+
+def _known_of(concept):
+    """{パス: 行の数}（考えの柵の全部の既知の漏れの和）"""
+    out = {}
+    for f in concept["fences"]:
+        for path, (n, _why) in f["known"].items():
+            out[path] = out.get(path, 0) + n
+    return out
+
+
+def growth(main, now):
+    """main の表より増えた所の文の一覧（空なら増えていない）: 考えごとの件数の和が増えた・main に無いパスが出た。
+    main で柵を持たない（考えが無い・柵が空の）考えは、初めて柵を掛ける差分なので比べない"""
+    out = []
+    for k, v in now["concepts"].items():
+        before = main["concepts"].get(k)
+        if not before or not before["fences"]:
+            continue
+        old, new = _known_of(before), _known_of(v)
+        if sum(new.values()) > sum(old.values()):
+            out.append(f"{k}: 既知の漏れの件数が main の {sum(old.values())} から {sum(new.values())} に増えた")
+        out += [f"{k}: main の表に無い既知の漏れ {p}" for p in new if p not in old]
+    return out
 
 
 def tracked(root):

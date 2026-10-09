@@ -349,31 +349,468 @@
   },
   "entry-kind": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "入口の種（request・change・both）を名で持つ・種で分かれる形（種の表 ENTRIES・種を決める行と種で分ける比べ・種の問い change_only・両方の入口で依頼を後から積む口・canary の語 --request change）",
+     "pattern": "\\bENTRIES\\b|\\b(change_only|add_pending_request|PENDING_WAIT_NODE|_entry_words)\\b|get\\(\"entry\"\\) *[!=]=|\\bkind == \"(request|change|both)\"|\"both\" if change|--request change",
+     "allowed": [],
+     "known": {
+      ".shared/core/conflict.py": [
+       4,
+       "散らばり（段 5 でまとめる）: start の控えの entry を読んで変更だけの run かを答える change_only（同じ口が 2 つ）"
+      ],
+      ".shared/core/entry.py": [
+       13,
+       "散らばり（段 5 でまとめる）: 種の表 ENTRIES と種を決める行・頭の行の入口の文を種で選ぶ _entry_words・両方の入口で依頼を後から積む add_pending_request と待つ節 PENDING_WAIT_NODE"
+      ],
+      "blk-judge/scripts/intake.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 変更だけの run（conflict.change_only）なら依頼の空を受ける"
+      ],
+      "blk-premises/scripts/intake.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 変更だけの run（conflict.change_only）なら依頼の空を受ける"
+      ],
+      "blk-purpose/scripts/intake.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 変更だけの run（conflict.change_only）なら依頼を読まない"
+      ],
+      "darkfactory/lib/line_edge.py": [
+       3,
+       "散らばり（段 5 でまとめる）: 判定の前に両方の入口の依頼を積む（entry.add_pending_request・PENDING_WAIT_NODE）"
+      ],
+      "dev/canary.sh": [
+       3,
+       "散らばり（段 5 でまとめる）: 変更から入る canary の語 --request change"
+      ],
+      "dev/canary_check.py": [
+       7,
+       "散らばり（段 5 でまとめる）: start の控えの種（entry.ENTRIES）で局所レビューの判じを分け、語 --request change で終了コードを決める"
+      ]
+     }
+    }
+   ]
   },
   "start-record": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "始めの記録の置き場の名（r1/start.json の字と、置き場の名の定数 START_FILE・START_REL）",
+     "pattern": "\\bSTART_(FILE|REL)\\b|[\"\\'/]start\\.json[\"\\']",
+     "allowed": [],
+     "known": {
+      ".shared/core/adapter.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 置き場の名 START_REL を自分で定め（層 L2 で entry を import できない）、切った機能を直に読む"
+      ],
+      ".shared/core/entry.py": [
+       6,
+       "散らばり（段 5 でまとめる）: 書き手。置き場の名 START_FILE（周の置き場の名）を定め、包みの形・入口の印・呼び直しで直に読む"
+      ],
+      ".shared/core/fixture.py": [
+       9,
+       "散らばり（段 5 でまとめる）: 固定材料の取り込みが adapter.START_REL を引いて控えを読み書きする"
+      ],
+      ".shared/core/gatemarks.py": [
+       3,
+       "散らばり（段 5 でまとめる）: 置き場の名 START_FILE を自分で定め、読み口 start_doc を持つ"
+      ],
+      "blk-ci/manifest.json": [
+       1,
+       "散らばり（段 5 でまとめる）: 盤面の控えの宣言（読む物）が名を書く"
+      ],
+      "darkfactory/manifest.json": [
+       1,
+       "散らばり（段 5 でまとめる）: 盤面の控えの宣言（書く物）が名を書く"
+      ],
+      "dev/canary_check.py": [
+       3,
+       "散らばり（段 5 でまとめる）: canary の確かめ役が r1/start.json を直に読む"
+      ],
+      "dev/canary_fixture.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 固定材料の写しが fixture.START_REL を引いて読む"
+      ],
+      "dev/fixmeasure.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 測りの殻が fixture.START_REL を引いて読む"
+      ],
+      "dev/launch.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 起動の殻が r1/start.json の request_file を直に読む"
+      ],
+      "dev/lib.sh": [
+       1,
+       "散らばり（段 5 でまとめる）: 殻の埋め込み Python が r*/start.json を直に探す"
+      ]
+     }
+    }
+   ]
   },
   "carry-over": {
-   "status": "散らばり",
-   "fences": []
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "持ち越しのファイルの名（引用符かパスの区切りで囲んだ字）・前の失敗の欄の名の字・下書きの印の作りと読み（\"draft\": True・draft=True・\"draft\" in・[\"draft\"]・.get(\"draft\")・(\"draft\", \"source\")）・住処の名の定数を自分で持つ形。下書きの出どころの欄 source と容器の欄 findings・answers・pr・issue は別の考えに同じ名が多いので柵に入れず、呼び手が住処の定数を引く決まりにする",
+     "pattern": "[\"'/]next-request\\.json[\"']|[\"'/]prior-failures(-in)?\\.json[\"']|[\"']prior_failures[\"']|[\"']draft[\"']\\s*(:\\s*True\\b|in\\b|\\])|\\.get\\([\"']draft[\"']\\)|\\bdraft=True\\b|\\([\"']draft[\"'], ?[\"']source[\"']\\)|(?<!carry\\.)\\b(DRAFT_KEYS|PRIOR_KEYS|PRIOR_IN_FILE|NEXT_REQUEST_FILE|PRIOR_FAILURES_FILE)\\b",
+     "allowed": [
+      ".shared/core/carry.py",
+      ".shared/core/next-request.schema.json",
+      ".shared/core/prior-failures.schema.json",
+      "blk-*/manifest.json",
+      "darkfactory/manifest.json"
+     ],
+     "known": {}
+    }
+   ]
   },
   "human-gates": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "人の関所の方針の語（最後の関所の入力 final_gate とその語 when_needed・protected_only、無人の run の入力 unattended と殻の旗 WORKS_USE_UNATTENDED）。借りたスキルの読み替え unattended.md は別の考えなので形から外す",
+     "pattern": "\\bfinal_gate\\b|\\bFINAL_GATES\\b|\\bunattended\\b(?!\\.md)|\\bUNATTENDED(_WORDS)?\\b|\\bWORKS_USE_UNATTENDED\\b|\\b(when_needed|protected_only)\\b",
+     "allowed": [],
+     "known": {
+      ".shared/core/board.py": [
+       5,
+       "散らばり（段 5 でまとめる）: engine の init --unattended に当たる盤面の欄 unattended"
+      ],
+      ".shared/core/entry.py": [
+       16,
+       "散らばり（段 5 でまとめる）: 入力 final_gate・unattended の語を確かめて start の控えと出口に渡す"
+      ],
+      ".shared/core/gatemarks.py": [
+       9,
+       "散らばり（段 5 でまとめる）: 無人の run かを読む unattended と無人の語 UNATTENDED、無人なら問いを項目に載せない"
+      ],
+      ".shared/core/protect.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 守りのファイルに触れた run は final_gate が when_needed でも関所を開く"
+      ],
+      ".shared/core/protected.json": [
+       1,
+       "散らばり（段 5 でまとめる）: 守りの一覧の説明が final_gate の when_needed を述べる"
+      ],
+      ".shared/core/replan.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 無人の run では範囲を広げるだけの直しを聞かずに通す"
+      ],
+      ".shared/core/report.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 報告の頭の行が最後の関所の形 final_gate を出し、既定 protected_only で開かない関所を正常と述べる"
+      ],
+      "darkfactory/darkfactory.yaml": [
+       26,
+       "散らばり（段 5 でまとめる）: 線の入力 final_gate・unattended と節への受け渡し"
+      ],
+      "darkfactory/lib/line_edge.py": [
+       19,
+       "散らばり（段 5 でまとめる）: 最後の関所を開くかを final_gate の語で決める"
+      ],
+      "darkfactory/scripts/edge.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 境の節の口が入力 final_gate を渡す"
+      ],
+      "darkfactory/scripts/start.py": [
+       2,
+       "散らばり（段 5 でまとめる）: start の口が入力 final_gate・unattended を渡す"
+      ],
+      "dev/canary.sh": [
+       3,
+       "散らばり（段 5 でまとめる）: canary の殻が最後の関所と無人の run の語を渡す"
+      ],
+      "dev/dogfood.sh": [
+       2,
+       "散らばり（段 5 でまとめる）: 自分食いの殻の既定 final_gate=always（use.sh と既定が違う）"
+      ],
+      "dev/use.sh": [
+       10,
+       "散らばり（段 5 でまとめる）: 利用者の殻の既定 final_gate=protected_only と無人の旗 WORKS_USE_UNATTENDED"
+      ]
+     }
+    }
+   ]
   },
   "ai-launch": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "AI の起こし方の語（段の模型と effort の行 model:・effort:、道具 allowed_tools、道具ゼロの隔離の旗 isolated と ISOLATED_RUN_BY、run の明示の模型 WORKS_DEV_MODEL）",
+     "pattern": "\\ballowed_tools\\b|^\\s*(model|effort):\\s|\\bWORKS_DEV_MODEL\\b|\\bISOLATED_RUN_BY\\b|\"isolated\"",
+     "allowed": [],
+     "known": {
+      ".shared/core/adapter.py": [
+       5,
+       "散らばり（段 5 でまとめる）: 包みが run の明示の模型 WORKS_DEV_MODEL を読み、道具ゼロの役を隔離の置き場で起こす"
+      ],
+      ".shared/core/agents/blind-judge.md": [
+       2,
+       "散らばり（段 5 でまとめる）: 前付けを持つ役の模型と effort の正本"
+      ],
+      ".shared/core/agents/cold-reader.md": [
+       2,
+       "散らばり（段 5 でまとめる）: 前付けを持つ役の模型と effort の正本"
+      ],
+      ".shared/core/agents/inspector.md": [
+       2,
+       "散らばり（段 5 でまとめる）: 前付けを持つ役の模型と effort の正本"
+      ],
+      ".shared/core/agents/investigator.md": [
+       2,
+       "散らばり（段 5 でまとめる）: 前付けを持つ役の模型と effort の正本"
+      ],
+      ".shared/core/agents/judge.md": [
+       2,
+       "散らばり（段 5 でまとめる）: 前付けを持つ役の模型と effort の正本"
+      ],
+      ".shared/core/node_marker.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 印の旗の一覧に隔離の旗 isolated を持つ"
+      ],
+      ".shared/core/protected.json": [
+       1,
+       "散らばり（段 5 でまとめる）: 守りの一覧の説明がブロックの定義の allowed_tools を述べる"
+      ],
+      ".shared/core/stage-models.json": [
+       1,
+       "散らばり（段 5 でまとめる）: 前付けを持たない役の模型と effort の正本"
+      ],
+      ".shared/core/versions.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 版の控えが模型の要求を WORKS_DEV_MODEL から読む"
+      ],
+      "blk-ci/blk-ci.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-delta/blk-delta.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-eyes/blk-eyes.yaml": [
+       18,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-eyes/lib/eyes.py": [
+       5,
+       "散らばり（段 5 でまとめる）: 独立の目の役の道具（allowed_tools）と隔離の役 ISOLATED_RUN_BY・旗 isolated"
+      ],
+      "blk-fix/blk-fix.yaml": [
+       48,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-judge/blk-judge.yaml": [
+       6,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-lens/blk-lens.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-material/blk-material.yaml": [
+       33,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-material/lib/material.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 素材の役の構え isolated（道具ゼロ・砂場）を自分の表で持つ"
+      ],
+      "blk-plan/blk-plan.yaml": [
+       12,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-plan/lib/planblk.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 隔離の旗 isolated を自分の定数で持つ"
+      ],
+      "blk-pr/blk-pr.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-premises/blk-premises.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-purpose/blk-purpose.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-refix/blk-refix.yaml": [
+       9,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-rejudge/blk-rejudge.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-report/blk-report.yaml": [
+       6,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-spec/blk-spec.yaml": [
+       9,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "blk-structure/blk-structure.yaml": [
+       3,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+      ],
+      "dev/archon.sh": [
+       8,
+       "散らばり（段 5 でまとめる）: run の模型 WORKS_DEV_MODEL の既定を解いて Archon の設定に書く"
+      ],
+      "dev/canary.sh": [
+       1,
+       "散らばり（段 5 でまとめる）: canary の殻が WORKS_DEV_MODEL を述べる"
+      ],
+      "dev/dogfood.sh": [
+       2,
+       "散らばり（段 5 でまとめる）: 自分食いの殻が WORKS_DEV_MODEL を渡す"
+      ],
+      "dev/guard.sh": [
+       5,
+       "散らばり（段 5 でまとめる）: WORKS_DEV_MODEL の明示と既定を読み分ける"
+      ],
+      "dev/launch.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 起動の控えに WORKS_DEV_MODEL を残して読み戻す"
+      ],
+      "dev/lib.sh": [
+       3,
+       "散らばり（段 5 でまとめる）: 殻の埋め込み Python が WORKS_DEV_MODEL を読む"
+      ],
+      "dev/use.sh": [
+       3,
+       "散らばり（段 5 でまとめる）: 利用者の殻が WORKS_DEV_MODEL を渡す"
+      ]
+     }
+    }
+   ]
   },
   "ledger": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "費用と時間の帳簿の欄の名（Archon の出来事の costUsd・会話の result の total_cost_usd・段ごとの時間 wall_s・包みの費用の控えの置き場 SPEND_DIR）",
+     "pattern": "\\b(costUsd|total_cost_usd|wall_s)\\b|\\bSPEND_DIR\\b",
+     "allowed": [],
+     "known": {
+      ".shared/core/COPIED_FROM": [
+       1,
+       "散らばり（段 5 でまとめる）: 写しのバイトを替える台帳の行が engine の段の行の時間 wall_s を述べる"
+      ],
+      ".shared/core/adapter.py": [
+       10,
+       "散らばり（段 5 でまとめる）: 包みが会話の result の total_cost_usd を継いだ分だけに直し、控え spend/ に累計を残す"
+      ],
+      ".shared/core/board.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 検査の段の行の時間 wall_s（engine の run_steps と同じ鍵）"
+      ],
+      ".shared/core/report.py": [
+       6,
+       "散らばり（段 5 でまとめる）: 報告の費用を Archon の出来事の data.spend.costUsd から組む"
+      ],
+      ".shared/core/structmark.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 構造の目の控えの時間 wall_s"
+      ],
+      "blk-structure/blk-structure.yaml": [
+       2,
+       "散らばり（段 5 でまとめる）: 構造のブロックの出口の時間 wall_s"
+      ],
+      "blk-structure/lib/eye.py": [
+       5,
+       "散らばり（段 5 でまとめる）: 構造の目の控えの時間 wall_s"
+      ],
+      "blk-structure/scripts/collect.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 段 A と構造の目の時間 wall_s を足す"
+      ],
+      "blk-structure/scripts/stage_a.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 段 A の時間 wall_s"
+      ],
+      "darkfactory/darkfactory.yaml": [
+       2,
+       "散らばり（段 5 でまとめる）: 構造の節の出口の時間 wall_s"
+      ],
+      "darkfactory/lib/line_edge.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 境の節が構造のブロックの時間 wall_s を受け渡す"
+      ],
+      "darkfactory/schemas/structure-state.schema.json": [
+       2,
+       "散らばり（段 5 でまとめる）: 構造の控えの型の時間 wall_s"
+      ],
+      "darkfactory/scripts/structure.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 構造の節の口の出口の時間 wall_s"
+      ],
+      "dev/canary_check.py": [
+       1,
+       "散らばり（段 5 でまとめる）: canary の確かめ役が費用 costUsd の取れない節を述べる"
+      ],
+      "dev/fixmeasure.py": [
+       3,
+       "散らばり（段 5 でまとめる）: 測りの殻が修正の工程の費用 costUsd を読む"
+      ],
+      "dev/lib.sh": [
+       3,
+       "散らばり（段 5 でまとめる）: 殻の埋め込み Python が run の metadata.total_cost_usd を出す"
+      ]
+     }
+    }
+   ]
   },
   "prompt-assembly": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "機械が指示書に貼る節の見出しの印（「機械が貼った」）",
+     "pattern": "機械が貼った",
+     "allowed": [],
+     "known": {
+      ".shared/core/carry.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 役に貼る前の失敗の節の見出し"
+      ],
+      ".shared/core/design.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 設計の役に貼る前提の節の見出しと、地図の文書の案内"
+      ],
+      ".shared/core/gatemarks.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 指示書に貼る節の見出しを自分の定数で持つ"
+      ],
+      ".shared/core/planmarks.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 指示書に貼る節の見出しを自分の定数で持つ"
+      ],
+      ".shared/core/replan.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 直しの関所の前と後の項目の節の見出し"
+      ],
+      ".shared/core/structmark.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 指示書に貼る節の見出しを自分の定数で持つ"
+      ],
+      "blk-eyes/lib/eyes.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 独立の目に貼る前提と累積差分の節の見出し"
+      ],
+      "blk-fix/lib/fixrules.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 指示書に貼る節の見出しを自分の定数で持つ"
+      ],
+      "blk-plan/lib/planblk.py": [
+       3,
+       "散らばり（段 5 でまとめる）: 修正案の役に貼る束ね・独立設計・裏取りの節の見出し"
+      ]
+     }
+    }
+   ]
   },
   "lanes": {
    "status": "住処あり",
@@ -396,11 +833,159 @@
   },
   "stop-reasons": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "止めの理由の語（盤面の state.stop.by に書く works:<名> の字）",
+     "pattern": "[\"\\']works:[a-z]",
+     "allowed": [],
+     "known": {
+      ".shared/core/ci_role.py": [
+       2,
+       "散らばり（段 5 でまとめる）: CI の役の止めの語と、包みの柵の止めの語 works:adapter（報告・素材・線と同じ値の重ね持ち）"
+      ],
+      ".shared/core/conflict.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 食い違いの止めの語と、修正案の欄の止めの語 works:fix（blk-fix と同じ値の重ね持ち）"
+      ],
+      ".shared/core/converge.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/entry.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/lens.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/prcheck.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/premises.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/purpose.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/refix.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 差分の目と手直しの止めの語 2 つ"
+      ],
+      ".shared/core/rejudge.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 再審の止めの語 2 つ"
+      ],
+      ".shared/core/replan.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      ".shared/core/report.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 報告が止めの語 works:adapter・works:rejudge-session を重ねて持つ"
+      ],
+      ".shared/core/scopes.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "blk-eyes/lib/eyes.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "blk-fix/lib/fixrules.py": [
+       1,
+       "散らばり（段 5 でまとめる）: brief の控えの止めの語 works:fix（assert_changed と同じ値の重ね持ち）"
+      ],
+      "blk-fix/lib/ruling.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "blk-fix/scripts/accept.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 受け付けが裁定の by に works:fix-accept を字で書く（2 か所）"
+      ],
+      "blk-fix/scripts/assert_changed.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 修正の段の止めの語 works:fix"
+      ],
+      "blk-judge/lib/judgetake.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "blk-judge/lib/judgeverify.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "blk-material/lib/material.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 素材の止めの語と、包みの柵の止めの語 works:adapter の重ね持ち"
+      ],
+      "blk-plan/lib/planblk.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "blk-spec/lib/specblk.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 自分の段で盤面を止める語を自分の定数で持つ"
+      ],
+      "darkfactory/lib/line_edge.py": [
+       4,
+       "散らばり（段 5 でまとめる）: 境の節が止める語（works:adapter は CI の役・素材と重ね持ち）"
+      ]
+     }
+    }
+   ]
   },
   "core-seams": {
    "status": "散らばり",
-   "fences": []
+   "fences": [
+    {
+     "what": "写しの核の差し替えの口（走る時に写しの名を替える CORE_OVERRIDES・組み手の印 rl_builder・写しのバイトを替える台帳の ! 行）",
+     "pattern": "\\bCORE_OVERRIDES\\b|^! \\{|\\brl_builder\\b",
+     "allowed": [],
+     "known": {
+      ".shared/core/COPIED_FROM": [
+       28,
+       "散らばり（段 5 でまとめる）: 写しのバイトを替える台帳の ! 行"
+      ],
+      ".shared/core/COPIED_FROM.changemap": [
+       1,
+       "散らばり（段 5 でまとめる）: 写しの変更の地図が ! 行を述べる"
+      ],
+      ".shared/core/board.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 組み手の印 rl_builder を定める"
+      ],
+      ".shared/core/conflict.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 直す義務の差し替えが CORE_OVERRIDES で入ることを述べる"
+      ],
+      ".shared/core/entry.py": [
+       8,
+       "散らばり（段 5 でまとめる）: 差し替えの表 CORE_OVERRIDES が入口のモジュールに同居し、組み手に rl_builder の印を付ける"
+      ],
+      ".shared/core/gatemarks.py": [
+       2,
+       "散らばり（段 5 でまとめる）: 関所の組み立てが CORE_OVERRIDES と rl_builder の差し替えで入ることを述べる"
+      ],
+      ".shared/core/reads.py": [
+       1,
+       "散らばり（段 5 でまとめる）: 読んだ記録の置き場の差し替えが CORE_OVERRIDES で入ることを述べる"
+      ],
+      ".shared/core/recount.py": [
+       1,
+       "散らばり（段 5 でまとめる）: hook_evidence の置き場の差し替えが CORE_OVERRIDES で入ることを述べる"
+      ],
+      "blk-report/prompts/COPIED_FROM": [
+       3,
+       "散らばり（段 5 でまとめる）: 報告の指示書の写しのバイトを替える台帳の ! 行"
+      ]
+     }
+    }
+   ]
   }
  }
 }

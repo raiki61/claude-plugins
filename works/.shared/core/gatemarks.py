@@ -63,14 +63,15 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   形の誤り（受け付けが拒む）と、形の整った推し（人に回す項目の末尾「／推し: …」に載る。照らしの _human_passed はこの尾を外す）
 - answer_key(b, q): 依頼の answers でその問いに答える時の question（保留の行の尾 ANSWER_KEY_HEAD と下書きが使う）
 - answer_drafts(b)・draft_line(drafts, next_file): 無人の run が関所で止まった項目と、保留のままの台帳の問い・問いの無い測れていない素材への答えの下書き
-  （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 ghreads が拒む）と、報告の冒頭 1 の行
-標準ライブラリと core の answer（L1。答えの行）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）だけ。
+  （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 carry.parts が拒む）と、報告の冒頭 1 の行
+標準ライブラリと core の answer（L1。答えの行）・carry（L1。下書きの印の付け方）・marks（L1）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）・scopes（L3）だけ。
 """
 import json
 import pathlib
 import re
 
 import answer
+import carry   # 下書きの印の付け方（次の run への持ち越しの形の住処）
 import converge
 import marks
 import scopes
@@ -615,10 +616,7 @@ DRAFT_HEAD = "人の判断を待つ項目への答えの下書き"
 def _draft(question: str, text: str, source: str, note: str = "") -> dict:
     """下書きの 1 行。推しの無い行は text を空にし、人が答えを書く材料を note に置く（draft・source だけを消しても、依頼の入口が
     空の text と知らない欄 note で拒む。置き場の文が答えとして問いに当たらない）"""
-    row = {"question": question, "text": text, "draft": True, "source": source}
-    if note:
-        row["note"] = note
-    return row
+    return carry.draft({"question": question, "text": text}, source, note)
 
 
 def _gate_draft(text: str, mark: dict, node: str) -> dict:
