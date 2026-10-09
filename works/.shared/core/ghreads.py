@@ -16,6 +16,8 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
 拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。
 
 - request_parts(doc) -> {"findings": list, "pr": [int], "issue": [int], "answers": [dict], "prior_failures": [dict]}: 解けなければ ValueError（1 行）
+- without_prior(doc) -> 依頼の object か None: 前の run の判断（欄 prior_failures）を外した写し。前の run の判断を知らない別の目
+  （目的の役）に渡す形を機械が作る口。欄が無い・object でない（findings の配列の形）なら None（そのまま渡してよい）
 - carry_ci(doc, ids) -> 依頼の object: run の後の CI が赤と言った試験の id を prior_failures の行（where CI_WHERE）として足す。
   重い試験は run の外の CI で回り、run の報告はその赤を知らないので、人（か回す役）が CI の赤の id を next-request.json に足す口。
   同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I ghreads.py carry-ci`
@@ -90,6 +92,13 @@ def request_parts(doc) -> dict:
     out["answers"] = _answers(doc.get("answers", []))
     out["prior_failures"] = _prior_failures(doc.get("prior_failures", []))
     return out
+
+
+def without_prior(doc):
+    """依頼 doc から前の run の判断（欄 prior_failures）を外した写し（ほかの欄は字のまま）。欄が無い・object でなければ None"""
+    if isinstance(doc, dict) and "prior_failures" in doc:
+        return {k: v for k, v in doc.items() if k != "prior_failures"}
+    return None
 
 
 def _prior_failures(rows) -> list:

@@ -384,7 +384,8 @@ LINE_ORDER = [
               "start": {"from": "$start.output"},
               "ci": _skippable("$ci-checking.output"), "eyes": _skippable("$h-eyes.output"),
               "eyeing": _skippable("$eyeing.output"), "cleaned_runs": "$INPUTS.cleaned_runs",
-              "depth": _skippable("$h-redepth.output")}},
+              "depth": _skippable("$h-redepth.output"),
+              "fix_tdd": _skippable("$fixing.output.tdd"), "refit_tdd": _skippable("$refitting.output.tdd")}},
     {"id": "reporting", "kind": "include", "block": "blk-report", "depends_on": ["report"],
      "when": "$report.output.ai_report_go == true", "with": {"machine_report": "$report.output.report_file"}},
     # 出口（returns）。AI の報告のブロックが落ちても機械の報告で出口を出す（all_done: 前の節の成否に依らず走る）
@@ -760,8 +761,11 @@ class LineRun:
     def _src(self, v):
         """with: の出どころを値に（{from, if_skipped} は走らなかった節で None。文字列 null も None）"""
         if isinstance(v, dict):
-            nid = v["from"].split(".")[0].lstrip("$")
-            return self.out.get(nid, v.get("if_skipped"))
+            nid, _, field = v["from"].lstrip("$").partition(".output")
+            if nid not in self.out:
+                return v.get("if_skipped")
+            got = self.out[nid]
+            return got.get(field.lstrip(".")) if field and isinstance(got, dict) else got
         return None if v == "null" else v
 
     def _when(self, row) -> bool:
@@ -847,7 +851,8 @@ class LineRun:
                 self.out[nid] = report.build(self.board.resolve(), judged=self._src(w["judged"]), tests=self._src(w["tests"]),
                                              start=self._src(w["start"]), ci=self._src(w["ci"]),
                                              run_id=RUN_ID, events=[],
-                                             depth_lines=(self._src(w["depth"]) or {}).get("lines") or ())
+                                             depth_lines=(self._src(w["depth"]) or {}).get("lines") or (),
+                                             tdd=[self._src(w["fix_tdd"]), self._src(w["refit_tdd"])])
                 self.trail.append(nid)
             elif nid == "result":
                 self.out[nid] = report.final_result(self.out["report"], self.out.get("reporting"))

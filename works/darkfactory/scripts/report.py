@@ -16,6 +16,9 @@
   1 行で出す。無いのは空と同じ（後から足した入力。前の版の with: で再開した run は渡さない）
 - INPUTS_DEPTH: 深さの節 h-redepth の出口（{depth, skip, lines, …}。計画 2026-10-06-variable-depth）。lines を冒頭 2 に並べる。
   無い・null は出さない（後から足した入力。前の版の with: で再開した run は渡さない）
+- INPUTS_FIX_TDD・INPUTS_REFIT_TDD: 1 回目と 2 回目の修正の段の TDD の輪の結末（修正のブロックの出口 tdd。{ran, suite, reason, units, …}）。
+  単位ごとの結末を報告の節に並べる（keep-essence の 11）。飛ばされた段・無い・null は出さない（後から足した入力。前の版の with: で
+  再開した run は渡さない）
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（Archon の出来事を読む run。空なら start の控えの run_id）
 途中で終わった run（上流の節が落ちても報告の節は all_done で走る）: Archon の出来事で最後の状態が落ちた節か、出口の印の欠け
 （h-eyes の出口が無い・h-eyes が目を回すと言ったのに blk-eyes の出口が無い）が在れば、結末 interrupted の報告を組み、冒頭 3 に
@@ -39,10 +42,11 @@ import script_io  # noqa: E402
 
 # 裁定 TA16: 読む INPUTS_* の組（YAML の with: の鍵と突き合わせる）
 INPUTS = ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_CI", "INPUTS_EYES", "INPUTS_EYEING",
-          "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH")
+          "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH", "INPUTS_FIX_TDD", "INPUTS_REFIT_TDD")
 CLEANED_RUNS = "INPUTS_CLEANED_RUNS"   # 文字列の入力（ほかは JSON）。無くても欠けに数えない
 DEPTH = "INPUTS_DEPTH"                 # 後から足した JSON の入力。無くても欠けに数えない
-LATE = (CLEANED_RUNS, DEPTH)
+TDD = ("INPUTS_FIX_TDD", "INPUTS_REFIT_TDD")   # 後から足した JSON の入力（修正の段の順。report.TDD_STAGES と同じ並び）。無くても欠けに数えない
+LATE = (CLEANED_RUNS, DEPTH, *TDD)
 NULL = "null"   # 飛ばされた節の出力（if_skipped: null）が届く字
 RUN_ID_ENV = "WORKFLOW_ID"
 # darkfactory.yaml で report に依る節（reporting: [report]・result: [report, reporting]）。この節が走る時には今の試みで
@@ -90,6 +94,7 @@ def main() -> int:
     try:
         judged, tests, start, ci, eyes, eyeing = (_json_or_none(n) for n in INPUTS if n not in LATE)
         depth = _json_or_none(DEPTH) if DEPTH in os.environ else None
+        tdd = [_json_or_none(n) if n in os.environ else None for n in TDD]
     except Broken as e:
         print(f"report: {_line(e)}", file=sys.stderr)
         return 2
@@ -108,7 +113,7 @@ def main() -> int:
                            events=events, interrupted="" if failed else None, failed=failed,
                            retried=reads.retried_nodes(events, after=AFTER_REPORT), eyeing=eyeing,
                            cleaned_runs=" ".join(os.environ.get(CLEANED_RUNS, "").split()),
-                           depth_lines=(depth or {}).get("lines") or ())
+                           depth_lines=(depth or {}).get("lines") or (), tdd=tdd)
     except (BoardGap, Reject) as e:
         print(f"報告を組めない（{type(e).__name__}）: {_line(e)}", file=sys.stderr)
         return 1

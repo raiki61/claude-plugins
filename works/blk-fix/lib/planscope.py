@@ -39,6 +39,9 @@
   . か :: の修飾子は、そのファイルの最上位のクラスなら クラス.名、モジュール名か :: の前のパスなら最上位の素の名で照らす。.py でない・構文が読めないファイルは、足した行に定義の行（def・class・代入・関数の形）が在れば
   残る。名を挙げるだけの行（消えたことを確かめる hasattr・変更の記録の注記）は残ったと見ない
 
+範囲の読み（項目の範囲・out_of_scope・合意・許しのパス）と単位に結べないパスの照らしは .shared/core/planrange.py に在り、
+手直しの受け付け（refix.accept_fix）も同じ物を呼ぶ。ここはそれに単位に結べる行の照らしと欠け・余分の照らしを足す。
+
 拒否の行はどれも、行の単位の key か項目の unit_keys の全部を字のまま含める（最後の回に parking.bind が単位に結ぶ）。
 ただし行に申告の無い変わったパスの外れは単位を名指せないので、パスだけを書く。
 
@@ -67,6 +70,8 @@ if str(_CORE) not in sys.path:
 import conflict  # noqa: E402
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
+import planrange  # noqa: E402   範囲の読みと単位に結べないパスの照らし（手直しの受け付けと同じ決まりの 1 か所。.shared/core）
+from planrange import LIFTED, NO_PLAN, NO_SCOPE, with_agreed  # noqa: E402,F401   この模块の口の名（試験と受け付けが読む）
 import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
 
 REJECT = "承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。範囲の外が要るなら変えずに食い違いの申し出で返せ）: "
@@ -75,14 +80,9 @@ REJECT_ASK = ("承認済みの修正案の項目から外れた（同じ brief �
               "「範囲の相談と事前の確かめ」の節のとおり、返答の consult の欄に相談を書いて返せ——修正案を書いた役が答え、許された物は"
               "範囲に入り、同じ会話の続きで直しを続ける。out_of_scope に当たる物が要る時も同じに相談せよ——修正案を書いた役が外した"
               "理由を考え直して決める。相談が聞けない・許されずに仕様として意見が割れる時だけ、変えずに食い違いの申し出で返せ）: ")
-# 単位に結べない変わったパスがほかの項目の out_of_scope に当たり、ある項目の範囲には入る時に足す文（申告すればその項目で照らす）
-OWNER_HINT = "（項目 {nums} の範囲には入る。その項目の単位の changes[].files に申告すれば、その項目の out_of_scope だけで照らす）"
-LIFTED = "out_of_scope_lifted"   # with_agreed が項目の写しに足す欄: 合意でその項目の out_of_scope から外したパス（字のまま）
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
-NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
 DOC = "__doc__"   # docstring の属性の名。字は自分の名を書かないので、adds は語でなく ast でも見る（_doc_added）
-NO_SCOPE = "範囲の欄の無い控え（217 番の形の盤面）"
 
 
 def reject_head(ask: bool) -> str:
@@ -144,35 +144,6 @@ def _keys(it: dict) -> list[str]:
 def _who(it: dict) -> str:
     """項目を名指す頭 "項目 <n>（<unit_keys の全部>）" """
     return f"項目 {it.get('item')}（{'・'.join(_keys(it))}）"
-
-
-def _globs(it: dict) -> list[str]:
-    return [g for g in it.get("allowed_paths") or [] if isinstance(g, str) and g]
-
-
-def _oos(it: dict) -> list[str]:
-    return [r["glob"] for r in it.get("out_of_scope") or [] if isinstance(r, dict) and isinstance(r.get("glob"), str)
-            and r["glob"]]
-
-
-def _inside(path: str, it: dict) -> bool:
-    """path が項目の範囲（allowed_paths の glob・tests と rewrite_tests の id のファイル）に入るか"""
-    return path in planmarks.test_paths(it) or any(planmarks.glob_match(path, g) for g in _globs(it))
-
-
-def _oos_hit(path: str, items: list[dict]):
-    """path に当たる out_of_scope の最初の (項目, glob)。無ければ None。合意でその項目の out_of_scope から外したパス（LIFTED）は
-    その項目では当たらない"""
-    return next(((it, g) for it in items if path not in (it.get(LIFTED) or ()) for g in _oos(it)
-                 if planmarks.glob_match(path, g)), None)
-
-
-def _oos_hit_for(path: str, mine: list[dict], items: list[dict]):
-    """行の単位の項目（mine）から見た path の out_of_scope の当たり。mine のどれかが path を明示に許す（_inside。allowed_paths・
-    tests と rewrite_tests の id のファイル・with_agreed が足した合意）なら mine の out_of_scope だけで照らす（ほかの項目の
-    out_of_scope は「その項目は触らない」で、許した項目の単位まで禁じない。run 249b）。許していなければ全部の項目で照らす。
-    permits（run の全部に効く許し）は明示の許しに数えない"""
-    return _oos_hit(path, mine if any(_inside(path, it) for it in mine) else items)
 
 
 def _word(name: str):
@@ -335,7 +306,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
        許したパスは、その単位の項目の out_of_scope だけで照らし、許していないパスはどの項目の out_of_scope でも照らす
        （_oos_hit_for。その単位の項目が無い行は 2 に回す）
     2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない（単位に結べない
-       ので緩めない。当たった行に、そのパスを許す項目を OWNER_HINT で名指す）
+       ので緩めない。当たった行に、そのパスを許す項目を planrange.OWNER_HINT で名指す。決まりは planrange.outside の 1 か所）
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
     4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing。語が __doc__ なら、
        名の def・class の docstring を差分で足していても在る。_doc_added）。canonical の文に
@@ -363,9 +334,6 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
     fixer_added = [(p, line) for p, pair in since.items() for line in added_removed(*pair)[0]]
     untouched = {p for p in loop if loop[p] is not None and p in changes and changes[p][1] == loop[p]}
 
-    def oos_line(head, path, hit):
-        return f"{head}{path} は項目 {hit[0].get('item')} の out_of_scope（{hit[1]}）に当たる"
-
     # 1. 行の申告したファイル
     seen = set()          # 1 で見たパス（2 で重ねて書かない）
     for r in rows:
@@ -378,23 +346,14 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             seen.add(f)
             if f in untouched:
                 continue
-            hit = _oos_hit_for(f, mine, items)
+            hit = planrange.oos_hit_for(f, mine, items)
             if hit:
-                out.append(oos_line(f"{key}: ", f, hit))
-            elif not (f in permits or any(_inside(f, it) for it in mine)):
+                out.append(planrange.oos_line(f"{key}: ", f, hit))
+            elif not (f in permits or any(planrange.inside(f, it) for it in mine)):
                 nums = "・".join(str(it.get("item")) for it in mine)
                 out.append(f"{key}: {f} は項目 {nums} の allowed_paths の外")
-    # 2. 変わったパスの全部
-    for p in sorted(changes):
-        if p in seen or p in untouched:
-            continue
-        hit = _oos_hit(p, items)
-        if hit:
-            owners = [it for it in items if _inside(p, it) and not _oos_hit(p, [it])]
-            out.append(oos_line("", p, hit) + (OWNER_HINT.format(nums="・".join(str(it.get("item")) for it in owners))
-                                               if owners else ""))
-        elif not (p in permits or any(_inside(p, it) for it in items)):
-            out.append(f"{p} はどの項目の allowed_paths にも無い")
+    # 2. 変わったパスの全部（単位に結べないパスの照らしは planrange.outside の 1 か所。手直しの受け付けも同じ）
+    out += planrange.outside(items, [p for p in sorted(changes) if p not in seen and p not in untouched], permits)
     # 3〜6. 見る項目（Missing 側は生きた項目だけ）
     looked = []
     named = {_test_key(row.get("id")) for it in items for row in it.get("tests") or [] if isinstance(row, dict)}
@@ -404,7 +363,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
         looked.append(it.get("item"))
         who = _who(it)
         skip = not set(_keys(it)) <= row_keys
-        if not skip and not any(_inside(p, it) for p in changes):
+        if not skip and not any(planrange.inside(p, it) for p in changes):
             out.append(f"{who}: 範囲の中に変えたファイルが無い")
         for add in it.get("adds") or []:
             raw = add.get("name") if isinstance(add, dict) else None
@@ -481,36 +440,6 @@ def _now_text(repo: pathlib.Path, path: str) -> str | None:
         return None   # 消した・読めない
 
 
-def with_agreed(items: list[dict], agreed) -> list[dict]:
-    """範囲の相談の合意（conflict.agreed の行 {item, granted_paths, granted_tests}）のパスを、その番号の項目の allowed_paths の
-    後ろに足した写し。許したパスと許したテストの範囲のパスは、その項目の写しの LIFTED にも並べ、字のまま同じパスに限ってその項目の
-    out_of_scope から外す（_oos_hit。案を書いた役が自分の外した物を考え直して許した。持ち主 2026-10-07）。元の項目は変えない。
-    ほかの項目は変えない。テストの書き換えの許しは conflict.test_permits が持つ"""
-    more: dict = {}
-    lift: dict = {}
-    for r in agreed or []:
-        n = str(r.get("item"))
-        for p in r.get("granted_paths") or []:
-            if isinstance(p, str) and p and p not in more.setdefault(n, []):
-                more[n].append(p)
-        tests = [got[0] for got in (conflict.parse_limit(t) for t in r.get("granted_tests") or [] if isinstance(t, str))
-                 if got]
-        for p in [*more.get(n, []), *tests]:
-            p = posixpath.normpath(p)
-            if p not in lift.setdefault(n, []):
-                lift[n].append(p)
-    out = []
-    for it in items:
-        n = str(it.get("item"))
-        add = [p for p in more.get(n, []) if p not in _globs(it)]
-        if not add and not lift.get(n):
-            out.append(it)
-            continue
-        out.append({**it, "allowed_paths": [*(it.get("allowed_paths") or []), *add],
-                    LIFTED: [*(it.get(LIFTED) or []), *lift.get(n, [])]})
-    return out
-
-
 def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *, pass_: str, loop_tree: str | None = None,
           frozen=(), agreed=None) -> tuple[list[str], dict]:
     """盤面 b の承認済みの修正案の項目（planmarks.approved_items）と、版 rev からの変わったパス paths の版と今の中身を problems に
@@ -519,22 +448,11 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
     項目が無い・範囲の欄の無い控えなら照らさず ([], {"checked": False, "why": 理由})。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）。
     loop_tree（TDD の輪が凍らせた時の木）と frozen（凍らせたファイル）を渡せば、凍った時の中身を problems の loop に渡す。
     範囲の相談の合意（conflict.agreed。agreed を渡せばその行）のパスをその項目の範囲に足す（with_agreed）"""
-    permits = []
     agreed = conflict.agreed(b) if agreed is None else agreed
-    for p in conflict.test_permits(b, rulings=False, agreed_rows=agreed):
-        got = conflict.parse_limit(p["limit"])
-        if got and got[0] not in permits:
-            permits.append(got[0])
-    if pass_ == "ruled":
-        permits += [p for p in conflict.ruled_paths(b) if p not in permits]
-    try:
-        items = planmarks.approved_items(b)
-    except planmarks.FieldsBroken as e:   # 控えが壊れた時の 1 本の道（盤面を止めて BoardGap）
-        raise conflict.fields_broken(b, e) from None
+    permits = planrange.permit_paths(b, ruled=pass_ == "ruled", agreed=agreed)
+    items, why = planrange.approved(b)
     if items is None:
-        return [], {"checked": False, "why": NO_PLAN}
-    if not planmarks.scoped(items):
-        return [], {"checked": False, "why": NO_SCOPE}
+        return [], {"checked": False, "why": why}
     items = with_agreed(items, agreed)
     changes = {p: (_base_text(repo, rev, p), _now_text(repo, p)) for p in paths}
     loop = {p: _base_text(repo, loop_tree, p) for p in paths if p in set(frozen)} if loop_tree else {}

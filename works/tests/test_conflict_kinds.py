@@ -364,6 +364,29 @@ class TestReplanState(unittest.TestCase):
         self.assertEqual(conflict.amended_keys(b), {MEAN, CLAMP})
         self.assertEqual(set(conflict.held_by_rulings(b)), {"u-wait"})
 
+    def test_amended_units_are_one_of_the_test_permits(self):
+        """keep-essence の 3: テストの変更を許す道は conflict.test_permits の 1 つ。案の直しで直した項目の単位（前の輪の受け入れの
+        テストの関数を変えてよい）もその行として返る（units を持ち、範囲の文字列 limit は持たない）。範囲の読み ruled_test_limits と
+        最後の関所の一覧 ruled_test_doc は範囲の行だけを読む"""
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="amended", plan_units=[MEAN, CLAMP]),
+                            row("c1-2", "u-wait", "fix_plan_item", state="waiting")])
+        rows = conflict.test_permits(b)
+        self.assertEqual([sorted(r["units"]) for r in rows if "units" in r], [sorted([MEAN, CLAMP])])
+        self.assertTrue(all("limit" not in r and r["why"].strip() and r["id"] for r in rows if "units" in r))
+        self.assertEqual(conflict.ruled_test_limits(b), [])
+        self.assertIsNone(conflict.ruled_test_doc(b))
+        self.assertEqual(conflict.permitted_units(b), {MEAN, CLAMP})
+
+    def test_permit_sources_are_read_in_one_place(self):
+        """keep-essence の 3: 許す元（修正案の rewrite_tests・範囲の相談の合意・裁定 fix_test_scope・案の直しで直した項目）を読むのは
+        conflict.test_permits の 1 か所。凍結の検査・事後の関門・範囲の照らしはその行を読み、元を直に読まない"""
+        root = pathlib.Path(conflict.__file__).resolve().parents[2]
+        direct = re.compile(r"\b(?:planmarks\.rewrites|amended_keys|agreed_permits|ruled_limits)\(")
+        found = [f"{p.relative_to(root)}:{i}" for p in sorted(root.rglob("*.py"))
+                 if p.relative_to(root).parts[0] != "tests" and p.name not in ("conflict.py", "planmarks.py")
+                 for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if direct.search(line)]
+        self.assertEqual(found, [])
+
     def test_gave_up_rows_join_ask_human_verbatim(self):
         text = "受け入れのテストの id を\nクラス付きにする（test_tiers.py:136-143）"
         b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="waiting", text=text),

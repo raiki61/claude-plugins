@@ -86,7 +86,9 @@ class ArchonShModelFrom(unittest.TestCase):
         fake_archon = dev_home / "bin" / "archon-darwin-arm64"
         self.pinned_seen = tmp / "pinned.txt"
         self.dev_model_seen = tmp / "dev-model.txt"
+        self.testslot_seen = tmp / "testslot.txt"
         fake_archon.write_text("#!/bin/sh\n" f'printf \'%s\\n\' "${{WORKS_MODEL_FROM-(unset)}}" > "{seen}"\n'
+                               f'printf \'%s|%s\\n\' "${{WORKS_TESTSLOT-(unset)}}" "$HOME" > "{self.testslot_seen}"\n'
                                f'printf \'%s\\n\' "${{WORKS_MODEL_PINNED-(unset)}}" > "{self.pinned_seen}"\n'
                                f'printf \'%s\\n\' "${{WORKS_DEV_MODEL:-(empty)}}" > "{self.dev_model_seen}"\n')
         fake_bin = tmp / "fake-bin"
@@ -98,7 +100,7 @@ class ArchonShModelFrom(unittest.TestCase):
         (fake_bin / "shasum").chmod(0o755)
         user_cfg = make_user_config(tmp / "user-claude-config")
         env = hermetic.child_env()
-        for name in ("WORKS_KEYCHAIN_ITEM", "WORKS_MODEL_FROM", "TITLE_GENERATION_MODEL", "MISE_TRUSTED_CONFIG_PATHS"):
+        for name in ("WORKS_KEYCHAIN_ITEM", "WORKS_MODEL_FROM", "TITLE_GENERATION_MODEL", "MISE_TRUSTED_CONFIG_PATHS", "WORKS_TESTSLOT"):
             env.pop(name, None)
         env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
                    FAKE_CLAUDE_LOG=str(tmp / "claude-calls.jsonl"), CLAUDE_CONFIG_DIR=str(user_cfg),
@@ -148,6 +150,28 @@ class ArchonShModelFrom(unittest.TestCase):
                 result, _config, _from = self.exec_archon_sh(**kw)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.dev_model_seen.read_text().strip(), want)
+
+    def test_testslot_default_is_named_before_home_is_isolated(self):
+        """機械全体の試験の枠の台本の既定は利用者の家のキャッシュから引く（式の正本は slotwrap.sh --default）。archon.sh は HOME・XDG を
+        隔離する前にそれを引いて WORKS_TESTSLOT に名指す（隔離の後の run の中の試験も同じ台本を通る）。台本が無ければ空（枠なし）、
+        利用者の名指しはそのまま"""
+        user_home = hermetic.tmpdir(self) / "user-home"
+        script = user_home / ".cache" / "works" / "testslot.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\n\"$@\"\n")
+        env = {"HOME": str(user_home), "XDG_CACHE_HOME": ""}
+        for kw, want in (({}, str(script)), ({"WORKS_TESTSLOT": "/named/slot.sh"}, "/named/slot.sh"),
+                         ({"WORKS_TESTSLOT": ""}, "")):
+            with self.subTest(**kw):
+                result, _config, _from = self.exec_archon_sh(**env, **kw)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                slot, home = self.testslot_seen.read_text().strip().split("|")
+                self.assertEqual(slot, want)
+                self.assertNotEqual(home, str(user_home))   # Archon の下は隔離した家
+        script.unlink()
+        result, _config, _from = self.exec_archon_sh(**env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.testslot_seen.read_text().strip().split("|")[0], "")
 
     def test_explicit_model_without_adapter_says_so(self):
         """包みを外した run（WORKS_DEV_ADAPTER が空・0）では明示の模型が段に届かない。黙らずに 1 行で言う。明示しない run は言わない"""

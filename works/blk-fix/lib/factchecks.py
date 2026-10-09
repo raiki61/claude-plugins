@@ -111,7 +111,7 @@ def _loop_states(board, state) -> list:
 
 def check_frozen(board: Path, state: str, repo: Path, pass_: str, agreed=None) -> list:
     """手順 1b: 凍ったテストのファイル（tddloop.frozen_problems）を run の全部の輪で見た拒否の文。今の輪（state）は今どおり、前の輪
-    （1 回目の修正の段の輪）は今の輪の状態の handoff の木（since）からの変更で見て、直した項目の単位（conflict.amended_keys）の前の
+    （1 回目の修正の段の輪）は今の輪の状態の handoff の木（since）からの変更で見て、直した項目の単位（テストの変更の許しの単位の行。conflict.permitted_units）の前の
     輪の受け入れのテストの関数（tddloop.test_spans）の中の変更は通す。テストの変更の許し（conflict.ruled_test_limits）は輪ごとに、
     凍結の検査が比べる木で修正案の行を引き直す（今の輪は輪の後の木、前の輪は since の木。tddloop.frozen_source）。輪が赤→緑を
     確かめた書き換えは、どの輪の物でも許しから外す。今の輪が無い（2 回目の段の輪が走らなかった）時、前の輪は輪の後の木で見る。
@@ -129,7 +129,7 @@ def check_frozen(board: Path, state: str, repo: Path, pass_: str, agreed=None) -
     old = loops[:-1] if state else loops
     if old:
         since = tddloop.load_state(state).get("handoff") if state else None
-        amended = conflict.amended_keys(b)
+        amended = conflict.permitted_units(b)
         for p in old:
             out += tddloop.frozen_problems(p, repo, allowed(tddloop.frozen_source(p, repo, since=since), True), since=since,
                                            skip_spans=tddloop.test_spans(p, amended))

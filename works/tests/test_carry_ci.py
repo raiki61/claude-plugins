@@ -34,6 +34,14 @@ class CarryCase(unittest.TestCase):
         self.assertIn(TID2, rows[2]["text"])
         self.assertEqual(ghreads.request_parts(got)["prior_failures"], rows)   # 依頼の型のまま
 
+    def test_without_prior_drops_only_the_carried_judgment(self):
+        """前の run の判断を知らない別の目（目的の役）に渡す写し: prior_failures だけを外し、ほかの欄は字のまま。外す物が無ければ None"""
+        doc = {"findings": [{"where": "a.py:1", "text": "穴"}], "pr": [2], "prior_failures": [{"where": "w", "text": "t"}]}
+        self.assertEqual(ghreads.without_prior(doc), {"findings": doc["findings"], "pr": [2]})
+        self.assertIn("prior_failures", doc)   # 元は変えない
+        self.assertIsNone(ghreads.without_prior({"findings": doc["findings"]}))
+        self.assertIsNone(ghreads.without_prior(doc["findings"]))
+
     def test_draft_findings_are_kept_as_they_are(self):
         """前の run の報告が下書きの印つきで運んだ目的の外の所見（findings の draft・source の行）でも止まらず、そのまま残す
         （下書きは次の run の入口が拒む。審査の再現: carry-ci が exit 2 だった）"""

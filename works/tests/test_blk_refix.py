@@ -32,6 +32,7 @@ import planmarks  # noqa: E402
 import refix  # noqa: E402
 import rulebook  # noqa: E402
 import seat  # noqa: E402
+import writes  # noqa: E402
 import test_entry as TE  # noqa: E402
 
 K1 = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -253,6 +254,89 @@ class RefixCase(DeltaBoardCase):
         self.assertIn("応答が無い", got["reason"])
         self.assertIn(PR_KEY[:40], got["reason"])
         self.assertEqual(TE.board_shas(self.board), before)
+
+    def _scoped_refix(self, *, before_fix=None, out_of_scope=()):
+        """範囲の欄の在る修正案（どの項目も stats.py だけを許す）で、1 回目の手直しの支度まで進めた作業ツリー"""
+        repo = self.fixed(before_fix=before_fix)
+        self.plan_fields(scoped=True)
+        if out_of_scope:
+            rows = json.loads((self.board / planmarks.FIELDS_FILE).read_text(encoding="utf-8"))["fields"]
+            rows[0]["out_of_scope"] = [{"glob": g, "why": "見本。この項目は触らない"} for g in out_of_scope]
+            planmarks.save(self.board, entry.open_board(self.board).round, rows)
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        reply = linekit.reply("fix2_delta_review_faces")
+        reply["compliance"] = {"verdict": "pass", "read": "修正案の項目 1・2 と差分の stats.py を読み、項目と差分を照らした",
+                               "items": []}
+        reply["quality"] = {"verdict": "fail", "why": "docstring が下限の枝の約束を書いていない穴が準拠の外に残っている"}
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(refix.prep_fix(self.board, 1, repo)["ok"])
+        apply_refix(repo)
+        return repo
+
+    def test_refix_outside_plan_scope_rejected(self):
+        """手直しも修正の段と同じ範囲の照らし（承認済みの修正案の項目の範囲の和・直す裁定が
+        広げたパス・範囲の相談の合意。単位に結べないので全部の項目で照らす）を機械で受ける。外れは拒み、盤面は前のまま"""
+        repo = self._scoped_refix()
+        (repo / "extra.py").write_text("X = 1\n", encoding="utf-8")
+        before = TE.board_shas(self.board)
+        got = refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("extra.py", got["reason"])
+        self.assertIn("allowed_paths", got["reason"])
+        self.assertEqual(TE.board_shas(self.board), before)
+
+    def test_refix_out_of_scope_glob_rejected(self):
+        repo = self._scoped_refix(out_of_scope=["test_stats.py"])
+        (repo / "test_stats.py").write_text((repo / "test_stats.py").read_text(encoding="utf-8") + "\n# x\n",
+                                            encoding="utf-8")
+        got = refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("out_of_scope", got["reason"])
+
+    def test_refix_inside_plan_scope_passes(self):
+        repo = self._scoped_refix()
+        got = refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+
+    def test_refix_is_not_blamed_for_the_fix_files(self):
+        """修正の段が触ったファイル（修正の差分の files）は手直しの照らしに入れない（修正の受け付けがその段の決まりで照らした物）"""
+        repo = self._scoped_refix(before_fix=lambda r: (r / "fixextra.py").write_text("Y = 2\n", encoding="utf-8"))
+        got = refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+
+    def test_refix_unrecorded_write_rejected_and_declared_write_passes(self):
+        """keep-essence の 5: 手直しの変更も書き込みの記録（Edit・Write）か申告（bash_writes）が要る。どちらも無ければ拒み盤面は
+        前のまま。申告すれば通し、欄は盤面へ渡す前に外す"""
+        repo, _ = self.reviewed()
+        self.assertTrue(refix.prep_fix(self.board, 1, repo)["ok"])
+        apply_refix(repo)
+        log = writes.sink(repo)
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("", encoding="utf-8")
+        self.addCleanup(lambda: log.unlink(missing_ok=True))
+        before = TE.board_shas(self.board)
+        got = refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("bash_writes", got["reason"])
+        self.assertIn("stats.py", got["reason"])
+        self.assertEqual(TE.board_shas(self.board), before)
+        reply = linekit.reply("fix2_delta_fix_ok")
+        reply["bash_writes"] = [{"path": p, "why": "整形の道具で docstring を書き直した（試験の見本）"}
+                                for p in writes.changed(repo, "HEAD")]
+        got = refix.accept_fix(reply, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        b = entry.open_board(self.board)
+        took = json.loads((b.dir / b.state["outputs"]["p3.delta_fix"]["file"]).read_text(encoding="utf-8"))
+        self.assertNotIn("bash_writes", took)
+
+    def test_refix_without_plan_scope_is_not_checked(self):
+        """修正案の範囲の欄が無い run（修正案の無い run・217 番の形の控え）は照らさない（修正の段と同じ）"""
+        repo, _ = self.reviewed()
+        self.assertTrue(refix.prep_fix(self.board, 1, repo)["ok"])
+        apply_refix(repo)
+        (repo / "extra.py").write_text("X = 1\n", encoding="utf-8")
+        self.assertTrue(refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)["ok"])
 
     def test_refix_needs_launch_mark(self):
         """prep_fix（起こした印）を通さずに手直しの返答を渡す → BoardGap（役に返さない。回す側の誤り）"""
@@ -539,7 +623,10 @@ class RefixStaticCase(unittest.TestCase):
             with self.subTest(role):
                 fmt = refix.output_format(role)
                 self.assertEqual(node_marker.parse(fmt["description"])["name"], role)
-                self.assertEqual({k: v for k, v in fmt.items() if k != "description"}, accept.role_schema(node))
+                bare = {k: v for k, v in fmt.items() if k != "description"}
+                if role in refix.FIX_ROLE.values():   # 書く役は works の欄 bash_writes を足す（受け付けが盤面へ渡す前に外す）
+                    self.assertEqual(bare["properties"].pop("bash_writes"), writes.BASH_WRITES_SCHEMA)
+                self.assertEqual(bare, accept.role_schema(node))
 
     def test_prompts_read_loop_prev_reason(self):
         """review2.md と、書く役 refix・refix2 の節の prompt（支度が組んだ指示書を Read させる）が、それぞれの受け付けの拒否の

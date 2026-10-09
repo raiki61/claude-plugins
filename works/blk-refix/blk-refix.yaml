@@ -99,6 +99,16 @@ nodes:
                       items:
                         type: string
                         minLength: 1
+              # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
+              bash_writes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, why]
+                  properties:
+                    path: {type: string, minLength: 1}
+                    why: {type: string, minLength: 10}
         - id: refix-accept
           script: accept_refix
           runtime: uv
@@ -355,6 +365,16 @@ nodes:
                       items:
                         type: string
                         minLength: 1
+              # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
+              bash_writes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, why]
+                  properties:
+                    path: {type: string, minLength: 1}
+                    why: {type: string, minLength: 10}
         - id: refix2-accept
           script: accept_refix
           runtime: uv

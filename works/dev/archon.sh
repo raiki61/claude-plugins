@@ -94,6 +94,14 @@ chmod +x "$BIN_PATH"
 # 打って隔離の置き場そのものになっていれば、toolset.py が名指しで止める
 USER_CLAUDE_CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
+# 機械全体の重いテストの枠の台本（WORKS_TESTSLOT）の既定は、利用者の家のキャッシュから引く式（正本は .shared/core/slotwrap.sh）。
+# 下で HOME・XDG を隔離すると式が利用者の家を指さないので、名指しが無ければ隔離の前に引いて名指しにする（run の中の試験も同じ
+# 台本を通る）。台本が無ければ空（run の中の試験は黙って枠を取らない）。利用者の名指し（空も）はそのまま
+if [ -z "${WORKS_TESTSLOT+x}" ]; then
+  WORKS_TESTSLOT="$(bash "$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/slotwrap.sh" --default)"
+  export WORKS_TESTSLOT
+fi
+
 # mise の信頼はパスに結び付き（利用者の家の信頼の控え）、run の worktree は隔離した家の下の新しいパスなので、対象の根で信頼した
 # 設定も run の中のテストでは信頼されず、道具の失敗が偽の赤になる。対象（cwd）の根を利用者の mise が信頼済みの時だけ、それを隔離の
 # 前に読み（mise trust --show の `<dir>: trusted` の行）、下で run の worktree の置き場を mise の公式の設定 MISE_TRUSTED_CONFIG_PATHS

@@ -1218,6 +1218,9 @@ nodes:
       eyeing: {from: $eyeing.output, if_skipped: null}
       cleaned_runs: $INPUTS.cleaned_runs
       depth: {from: $h-redepth.output, if_skipped: null}
+      # 修正の段ごとの TDD の輪の単位の結末（修正のブロックの出口 tdd。keep-essence の 11: 単位ごとの記録が報告に届く）
+      fix_tdd: {from: $fixing.output.tdd, if_skipped: null}
+      refit_tdd: {from: $refitting.output.tdd, if_skipped: null}
     output_format:
       type: object
       required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]

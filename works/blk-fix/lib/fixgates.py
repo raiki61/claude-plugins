@@ -21,9 +21,9 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   実行器が走らない・base の木を作れない時も skipped に理由（拒まない。輪の実行器が走らない時と同じく、回す側の事情で
   受け付けの回数を使わない）
 - test_edits: base から今の木で変わったテストのファイル（tddloop.TEST_FILE の名）のうち、base に在ったテストの関数
-  （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのは承認済みの修正案の rewrite_tests の id
-  （planmarks.rewrites）と、裁定 fix_test_scope の範囲（裁定の後の受け付けだけ。conflict.ruled_test_limits から修正案の行を
-  外した物）の中だけを変えた関数。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
+  （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのはテストの変更の許し（conflict.test_permits）の
+  行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、範囲の相談の合意・裁定 fix_test_scope の範囲（裁定は裁定の後の
+  受け付けだけ）の中だけを変えた関数。案の直しの単位の行は見ない（前の輪が足したテストは base に無く、ここでは照らさない）。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
   含む関数の全体に広げ、`<行>-<行>` は書いたとおり（base との差分の塊の旧い側の行が範囲の外なら、その塊に掛かる関数は
   許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部
 
@@ -76,7 +76,7 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     b = entry.open_board(board_dir)
     repo = pathlib.Path(repo)
     rev = writes.base_rev(b, base_rev)
-    fields = conflict.frozen_fields(b)   # 先に読む（食い違いは BoardGap。下の planmarks.rewrites はもう投げない）
+    fields = conflict.frozen_fields(b)   # 先に読む（食い違いは BoardGap。下の conflict.test_permits はもう投げない）
     tests, gaps = _accept_tests(b, fields)
     rows = []
     if tests and not suite:
@@ -269,8 +269,9 @@ def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool) -> list[dict]:
     files = _test_files(repo, rev, tddloop.snapshot(repo))
     if not files:
         return []
-    plan = [r["id"] for r in planmarks.rewrites(b) if isinstance(r.get("id"), str)]
-    limits = conflict.ruled_test_limits(b, rulings=ruled, skip_ids=plan)   # 修正案の行を外した裁定の範囲（1 回目は空）
+    permits = conflict.test_permits(b, rulings=ruled)   # テストの変更の許しの唯一の元（keep-essence の 3）
+    plan = [p["test"] for p in permits if isinstance(p.get("test"), str)]   # 修正案の名指しは id で許す
+    limits = [p["limit"] for p in permits if "limit" in p and "test" not in p]   # 合意と裁定の範囲（裁定は 1 回目は空）
     allowed = set(plan) | _ruled_ids(repo, rev, files, limits)
     return [_row("test_edits", i, EDITED) for i in tddloop.unnamed_edits(repo, rev, files, allowed)]
 
