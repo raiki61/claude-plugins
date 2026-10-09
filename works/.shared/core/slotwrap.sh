@@ -2,7 +2,8 @@
 # 機械全体で重いテストを同時に 4 本までにする枠の台本（testslot.sh）を通して、コマンドを起こす。bash slotwrap.sh <argv…>
 # 呼ぶのは works/tests/run.sh（全部・heavy）と、run の中で試験を起こす口 tree_run.slotted_run（engine の宣言の段・test_cmd・
 # blk-tests の plain と mid・TDD の輪と修正の受け付けの実行器）。枠の約束の正本はここ 1 か所（写しを作ると数え方が割れる）。
-# 台本は WORKS_TESTSLOT（既定は mainline の台本）。空なら枠を取らない（速い段と、TDD の実行器の中が立てる。TDD の実行器は外の
+# 台本は WORKS_TESTSLOT（既定は利用者の家のキャッシュの ${XDG_CACHE_HOME:-$HOME/.cache}/works/testslot.sh。置くかは利用者が決める。
+# 本流の台本を使うならそこへ symlink を置く）。空なら枠を取らない（速い段と、TDD の実行器の中が立てる。TDD の実行器は外の
 # tddloop.run_suite が枠を取るので、中の試験には取り直させない）。
 # 枠の置き場は台本の約束 TESTSLOT_DIR（既定は台本と同じ /private/tmp/claude-<uid>/testslots）で、ここで解決して台本へ渡す。
 # 台本が無い・枠の置き場に書けないときは、1 行出して枠を取らずに回す（子孫にも取らせない）。枠を持つ台本の下から呼ばれたら取り直さない
@@ -13,7 +14,13 @@
 # tree_run.slotted_run が盤面の testslot.json を立てる）、そこへ待ち {state: waiting, since, slots, pid} を書き、枠を取ったら
 # held に書き換える（状態の表示 works_dev_show_run と herdr の集計が読む。消すのは立てた側）。
 # 起こすコマンドには WORKS_SLOT_NOTE・WORKS_SLOT_MARK を渡さない（中の run.sh の印が外の段の印に混ざらないように）。
-DEFAULT_TESTSLOT=/Users/p03623/src/claude-plugins/.git/graphloops/ops/testslot.sh
+# bash slotwrap.sh --default は、既定の台本が在ればそのパスを、無ければ空を出して 0（何も起こさない）。HOME・XDG を隔離する殻
+# （dev/archon.sh）が、隔離の前にこれで引いて WORKS_TESTSLOT に名指す（隔離の後は既定の式が利用者の家を指さない）。
+DEFAULT_TESTSLOT=${XDG_CACHE_HOME:-$HOME/.cache}/works/testslot.sh
+if [ "${1-}" = --default ]; then
+  [ -f "$DEFAULT_TESTSLOT" ] && printf '%s\n' "$DEFAULT_TESTSLOT"
+  exit 0
+fi
 note=${WORKS_SLOT_NOTE-}
 mark=${WORKS_SLOT_MARK-}
 
@@ -67,7 +74,7 @@ unslotted() {
 slot=${WORKS_TESTSLOT-$DEFAULT_TESTSLOT}
 [ -z "$slot" ] && launch "$@"
 if [ ! -f "$slot" ]; then
-  # 既定の台本は開発の機械にだけ在る。無ければ黙って枠なしで回す（名指した台本が無い時だけ 1 行出す）
+  # 既定の台本は置いた機械にだけ在る。無ければ黙って枠なしで回す（名指した台本が無い時だけ 1 行出す）
   [ "$slot" = "$DEFAULT_TESTSLOT" ] || echo "slotwrap.sh: 重いテストの枠の台本が無い（${slot}）。枠を取らずに回す" >&2
   unslotted "$@"
 fi

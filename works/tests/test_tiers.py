@@ -333,6 +333,72 @@ class RunShCase(unittest.TestCase):
         self.assertEqual(len(calls), 1, calls)
         self.assert_uv(calls[0], "tests/tiers.py heavy")
 
+    def _home_env(self, **more):
+        """WORKS_TESTSLOT を名指さず、家（HOME）を一時の所に向けた env（家の違う環境の見本）"""
+        home = pathlib.Path(self._tmp.name) / "home"
+        home.mkdir(exist_ok=True)
+        env = {k: v for k, v in self.env.items() if k not in ("WORKS_TESTSLOT", "XDG_CACHE_HOME")}
+        env.update(HOME=str(home), **more)
+        return home, env
+
+    def _run_with(self, env, *args):
+        return subprocess.run(["sh", str(RUN_SH), *args], env=env, capture_output=True, text=True, encoding="utf-8",
+                              stdin=subprocess.DEVNULL)
+
+    def test_default_slot_script_is_in_the_users_cache(self):
+        """名指しの無い台本の既定は利用者の家のキャッシュ ~/.cache/works/testslot.sh（持ち主の家のパスを決め打ちしない）"""
+        home, env = self._home_env(WORKS_TESTS="heavy")
+        script = home / ".cache" / "works" / "testslot.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text(FAKE_SLOT)
+        r = self._run_with(env, "-k", "x")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        self.assertEqual(len(calls), 2, calls)
+        self.assertTrue(calls[0].startswith("slot N=4 "), calls[0])
+
+    def test_xdg_cache_home_moves_the_default(self):
+        home, env = self._home_env(WORKS_TESTS="heavy", XDG_CACHE_HOME=str(pathlib.Path(self._tmp.name) / "xdg"))
+        script = pathlib.Path(self._tmp.name) / "xdg" / "works" / "testslot.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text(FAKE_SLOT)
+        r = self._run_with(env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.calls()[0].startswith("slot N=4 "), self.calls())
+
+    def test_missing_default_runs_without_slot_quietly(self):
+        """家の違う環境（既定の台本を置いていない）では、落ちずに黙って枠なしで回す"""
+        _home, env = self._home_env(WORKS_TESTS="heavy")
+        r = self._run_with(env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stderr, "")
+        calls = self.calls()
+        self.assertEqual(len(calls), 1, calls)
+        self.assert_uv(calls[0], "tests/tiers.py heavy")
+
+    def test_default_flag_names_the_script_only_when_it_exists(self):
+        """slotwrap.sh --default は既定の台本が在ればそのパス、無ければ空を出す（dev/archon.sh が HOME を隔離する前に引く口）"""
+        home, env = self._home_env()
+        wrap = TESTS.parent / ".shared" / "core" / "slotwrap.sh"
+        got = subprocess.run(["bash", str(wrap), "--default"], env=env, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual((got.returncode, got.stdout), (0, ""))
+        script = home / ".cache" / "works" / "testslot.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text(FAKE_SLOT)
+        got = subprocess.run(["bash", str(wrap), "--default"], env=env, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual((got.returncode, got.stdout), (0, f"{script}\n"))
+        self.assertEqual(self.calls(), [])   # 何も起こさない
+
+    def test_shipped_scripts_name_no_user_home(self):
+        """配る殻とモジュール（tests の外の .sh・.py）は、利用者の家のパス（/Users/<名>/・/home/<名>/）を字で持たない"""
+        home = re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/")
+        root = TESTS.parent
+        found = [f"{p.relative_to(root)}:{i}" for p in sorted([*root.rglob("*.sh"), *root.rglob("*.py")])
+                 if "tests" not in p.relative_to(root).parts
+                 for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1)
+                 if home.search(line)]
+        self.assertEqual(found, [])
+
     def test_unwritable_slot_dir_runs_all_tier_without_slot(self):
         geteuid = getattr(os, "geteuid", None)
         if geteuid is None or geteuid() == 0:
