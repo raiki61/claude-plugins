@@ -128,6 +128,16 @@ class InputNamesCase(unittest.TestCase):
             with self.subTest(folder.name):
                 self.assertEqual(unread, set(), "宣言したが読まない入力（ラインの渡す口ごと消す）")
 
+    def test_fixture_inputs_are_declared(self):
+        """ブロックとラインの筋書き（fixtures/*.stubs.yaml）の fixture.inputs は、その工程が宣言した入力だけ（Archon の workflow test は
+        宣言の無い入力の筋書きを回さずに落とす。dev/check.sh でしか分からなかった）"""
+        for path in sorted(ROOT.glob("*/fixtures/*.stubs.yaml")):
+            wf = path.parent.parent
+            doc = yaml.safe_load((wf / f"{wf.name}.yaml").read_text(encoding="utf-8"))
+            given = set(((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("fixture") or {}).get("inputs") or {})
+            with self.subTest(str(path.relative_to(ROOT))):
+                self.assertEqual(given - set(doc.get("inputs") or {}), set())
+
     def test_script_inputs_match_with(self):
         """線とブロックの全部の script の節で、with: の鍵を INPUTS_<大文字> にした集合 == スクリプトの定数 INPUTS（TA16）"""
         for folder, y in workflows():

@@ -360,7 +360,7 @@ class EyesPurposeCase(LineBase):
         r["r4-scope"] = {**TB.SCOPE_OK, "policy_conflicts": [conflict]}
         got = self.run_line(replies=r, edits={})
         self.assertIn("r4-scope", got["eyes_roles"])
-        self.assertIs(got["out"]["eyeing"]["asking"], True)
+        self.assertIs(got["out"]["eyeing"]["ok"], True)   # 人に聞いている間は止めずに抜ける（問いは下の関所の文と報告に載る）
         self.assertIn(conflict, got["out"]["h-final"]["gate_text"])
         self.assertEqual(got["outcome"], "needs_human")
         text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
