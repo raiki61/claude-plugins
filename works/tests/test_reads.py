@@ -171,6 +171,14 @@ class CollectTest(BoardCase):
         got = self.collect("fix", FIX, ["brief-rel.md"], None)
         self.assertEqual(self.written(got)["rows"], [{"path": "brief-rel.md", "hook": "read", "event": None}])
 
+    def test_top_here_names_sibling_outside_loops(self):
+        """輪の外の節の出来事の上の名前は、今の script が居る include の名と節の id を __ でつないだ物（線の最上段なら id のまま）"""
+        here = json.dumps({"path": "worlding__world-verify"})
+        with mock.patch.dict(os.environ, {"ARCHON_NODE_EXECUTION": here}):
+            self.assertEqual(reads.top_here("world-collect"), "worlding__world-collect")
+        with mock.patch.dict(os.environ, {"ARCHON_NODE_EXECUTION": json.dumps({"path": "verify"})}):
+            self.assertEqual(reads.top_here("collect"), "collect")
+
     def test_included_node_path(self):
         self.assertEqual(reads.node_path("planning", "plan-loop", "plan"), "planning__plan-loop.plan")
         evs = events_with(self.docs)

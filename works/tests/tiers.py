@@ -94,6 +94,7 @@ FAST = frozenset({
     "test_webget",          # web の取得と run をまたぐ控え: 一時の置き場のファイルと転送の口を直に呼ぶだけ（網・git・子のプロセスなし）
     "test_world_check",     # 世界の解の抜き書きの照らしと検索語の検査: 関数を直に呼び、網の口は偽の get（網・git・子のプロセスなし）
     "test_worldmark",       # 世界の解の行の住処（worldmark）: 関数を直に呼ぶ・一時の置き場のファイルと約束の Schema を読むだけ（網・git・子のプロセスなし）
+    "test_blk_world",       # 世界の解のブロック: 関数を直に呼ぶ・一時の置き場のファイル・節の口を python で子に 8 本（網・git・uv・Archon なし）
     "test_tool_parity",     # 役の道具が本線の run_by の定義より少なくないか: YAML と写しの graph を読むだけ
     "test_adapter_lane",    # 包みの旗 lane（並べの枝の役を単位の worktree で起こす）: 種の git は gitkit の型の写し・単位の worktree を 2 本切る・adapter.plan を直に呼ぶ（子のプロセスは git だけ）
     "test_adapter_no_turn", # 包みの子の終わりの種分け: 包みを子で起こし、偽の claude（一時の置き場の python）が決めた行を出す（git・Archon・決まった秒の待ちなし）

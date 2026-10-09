@@ -56,6 +56,18 @@ class StoreCase(unittest.TestCase):
         self.store.put("e.json", {"schema": SCHEMA, "status": "error", "at": T})
         self.assertIsNotNone(self.store.get("e.json", T + 1))
 
+    def test_store_names_lists_fresh_docs_only(self):
+        """names: 置き場の名のうち get が返す物（schema・状態・期限が揃う）だけ。一時のファイルと読めない物は数えない"""
+        self.store.put("b.json", {"schema": SCHEMA, "status": "ok", "at": T})
+        self.store.put("a.json", {"schema": SCHEMA, "status": "ok", "at": T})
+        self.store.put("old.json", {"schema": SCHEMA, "status": "ok", "at": T - 1000})
+        self.store.put("err.json", {"schema": SCHEMA, "status": "error", "at": T})
+        (self.root / ".tmp-x.json").write_text("{}", encoding="utf-8")
+        (self.root / "bad.json").write_text("{", encoding="utf-8")
+        self.assertEqual(self.store.names(T + 1, ("ok",)), ["a.json", "b.json"])
+        self.assertEqual(webget.Store(None, SCHEMA, 100.0).names(T), [])
+        self.assertEqual(webget.Store(self.root / "none", SCHEMA, 100.0).names(T), [])
+
     def test_store_put_unwritable_returns_reason(self):
         self.root.parent.mkdir(parents=True, exist_ok=True)
         self.root.write_text("a file, not a folder", encoding="utf-8")

@@ -610,6 +610,10 @@
        3,
        "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
       ],
+      "blk-world/blk-world.yaml": [
+       9,
+       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）。世界の解のブロック（計画 world-solution の W5）を足して 1 本増えた。Archon は段の YAML からしか模型・effort・道具を読まないので、段 5 の 6 でまとめるまでは AI の段を持つブロックを足すたびに増える"
+      ],
       "dev/archon.sh": [
        8,
        "散らばり（段 5 でまとめる）: run の模型 WORKS_DEV_MODEL の既定を解いて Archon の設定に書く"
@@ -841,6 +845,178 @@
       "blk-report/prompts/COPIED_FROM": [
        3,
        "散らばり（段 5 でまとめる）: 報告の指示書の写しのバイトを替える台帳の ! 行"
+      ]
+     }
+    }
+   ]
+  },
+  "lang-names": {
+   "status": "散らばり",
+   "fences": [
+    {
+     "what": "特定の言語・テストの実行器の名（役の指示書と core の言語中立の歯止め。事実上の標準の形式の名は数えない）",
+     "pattern": "\\b(Python|JavaScript|TypeScript|Java|Ruby|Rust|Golang|Kotlin|Swift|pytest|unittest|jest|vitest|mocha|rspec)\\b",
+     "allowed": [],
+     "known": {
+      ".shared/core/COPIED_FROM": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 本流の写しと写しの台帳が言語・実行器の名を述べる（写しは works で直さない）"
+      ],
+      ".shared/core/accept.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/adapter.py": [
+       2,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/board.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/carry.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/entry.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/forge.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/ghreads.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/impact.py": [
+       12,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 言語ごとの読み方（import の読み取り・ライブラリの文書・波及）を持つ"
+      ],
+      ".shared/core/libdocs.py": [
+       2,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 言語ごとの読み方（import の読み取り・ライブラリの文書・波及）を持つ"
+      ],
+      ".shared/core/libdocs_local.py": [
+       4,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 言語ごとの読み方（import の読み取り・ライブラリの文書・波及）を持つ"
+      ],
+      ".shared/core/libdocs_web.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 言語ごとの読み方（import の読み取り・ライブラリの文書・波及）を持つ"
+      ],
+      ".shared/core/no-post-bin/works-gh": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/script_io.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/scripts/comment-ratio.sh": [
+       4,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 本流の写しと写しの台帳が言語・実行器の名を述べる（写しは works で直さない）"
+      ],
+      ".shared/core/scripts/review-record.py": [
+       3,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 本流の写しと写しの台帳が言語・実行器の名を述べる（写しは works で直さない）"
+      ],
+      ".shared/core/stopby.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/ticket.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/tree_run.py": [
+       2,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      ".shared/core/writerules/common.md": [
+       2,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 役の指示書が特定の言語・実行器を名指す（持ち主の決定 lang-neutral。抽象の言い方に直す）"
+      ],
+      "blk-fix/lib/planscope.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
+      ],
+      "blk-fix/lib/tddloop.py": [
+       12,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
+      ],
+      "blk-plan/lib/ripple.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 言語ごとの読み方（import の読み取り・ライブラリの文書・波及）を持つ"
+      ],
+      "blk-premises/commands/premises.md": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 役の指示書が特定の言語・実行器を名指す（持ち主の決定 lang-neutral。抽象の言い方に直す）"
+      ],
+      "dev/canary-seed-lanes2/README.md": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/canary-seed-lanes2/test_lib.py": [
+       7,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/canary-seed-large/README.md": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/canary-seed-large/test_lib.py": [
+       7,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/canary-seed/README.md": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/canary-seed/test_lib.py": [
+       4,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/canary.sh": [
+       5,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
+      ],
+      "dev/canary_fixture.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
+      ],
+      "dev/launch.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      "dev/lib.sh": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      "dev/mktarget.sh": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      "dev/selfcheck.py": [
+       1,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
+      ],
+      "dev/target-seed/test_stats.py": [
+       3,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: 試しの種（対象の見本のリポジトリ）が言語・実行器の名を持つ"
+      ],
+      "dev/tdd-suite.sh": [
+       13,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
+      ],
+      "dev/testcmd_check.py": [
+       14,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
+      ],
+      "dev/use.sh": [
+       5,
+       "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: コード・殻・YAML のコメントや docstring が実装の言語・実行器の名を述べる"
       ]
      }
     }

@@ -59,7 +59,7 @@ import test_line_a as TL  # noqa: E402
 from test_edge import CLEAN_REVIEW, DELTA_FACE  # noqa: E402
 
 # 線に include されていないブロック（線の run では起きない。自分の試験が口の関数を見る）。線に入れたらここから消す
-UNWIRED = {}
+UNWIRED = {"blk-world": "世界の解のブロック。線への差し込みは計画 docs/plans/2026-10-09-world-solution.md の W7"}
 
 
 def refix_edit(repo):

@@ -1,0 +1,79 @@
+# 筋書き offline: web が off の run（入力 web=off）。集める役は飛び、照らしは抜き書き無しで走り、判断する役は知識だけの行
+# （basis: knowledge）を返す。出口は止めずに「web で確かめていない」を reason に残す。網に届かない run（取り直しが全部落ちる）も
+# 判断する役から先は同じ道
+world-intake:
+  due: true
+  findings: 1
+  reason: ''
+world-classes-prep:
+  prompt: （言い直す役の描いた指示書）
+  prompt_file: world/classes-prompt-1.md
+  attempt: 1
+world-classes:
+  classes:
+  - finding: 1
+    class_id: ''
+    problem: テストを先に書く開発で、まだ無い機能を呼ぶテストを、コンパイルの要る対象でどう赤にするか
+    activity: テストを先に書く開発
+    proposed: 読むだけの役を足して生のログから判じさせる
+    queries:
+    - test-first red phase compile error stub
+    wording: false
+world-classes-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  attempt: 1
+world-cache:
+  collect_due: false
+  judge_due: true
+  prompt: ''
+world-verify:
+  kept: 0
+  dropped: 0
+  offline: false
+world-judge-prep:
+  prompt: （判断する役の描いた指示書）
+  prompt_file: world/judge-prompt-1.md
+  attempt: 1
+world-judge:
+  rows:
+  - finding: 1
+    practice: 読み込みの失敗は赤に数えず、最小の仮の実装で走らせてから期待違いの失敗を赤とする
+    sources: []
+    applies: 赤の判定の直し
+    not_applies: ''
+    verdict: differs
+    challenge: 依頼は読む役を足す、定石は仮の実装で走らせる。読み込みの失敗が赤でない訳が無い限り定石を選ぶ
+    basis: knowledge
+world-judge-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  attempt: 1
+collect:
+  ok: true
+  world_file: world/world.jsonl
+  status: ok
+  reason: web が off（web で確かめていない）
+  classes: 1
+  cached: 0
+  skipped: 0
+  dropped: 0
+fixture:
+  expect: completed
+  inputs:
+    web: 'off'
+  reached:
+  - world-intake
+  - world-classes-prep
+  - world-classes
+  - world-classes-accept
+  - world-cache
+  - world-verify
+  - world-judge-prep
+  - world-judge
+  - world-judge-accept
+  - collect

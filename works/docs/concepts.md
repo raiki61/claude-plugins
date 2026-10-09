@@ -61,6 +61,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `world` | 世界の解（問題の類ごとの定石と、依頼の解き方との比べ） | 住処あり |
 | `stop-reasons` | 止めの理由 | 住処あり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
+| `lang-names` | 特定の言語・テストの実行器の名 | 散らばり |
 
 ---
 
@@ -190,8 +191,8 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/webget.py`（層 L1。網に出してよい URL `safe_url`・転送の決まり `SafeRedirect`・取得 `http_get`（期限を持たない）・網に出ない切り替え `is_off`・run をまたぐ控えの置き場 `shared_root` と控え `Store`（名ごとの JSON。schema・状態・期限で選ぶ））
 - 約束: 口の形だけ（切り替えの名・控えの schema と期限・読む量の上限は呼ぶ側が持つ）
-- 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）で、どちらも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
-- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。世界の解の段（同じ計画の W5）が 2 つめの使う所になる
+- 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）と世界の解のブロック（`blk-world/lib/worldblk.py` が控えの期限 90 日と類ごとの控え・`blk-world/lib/worldcheck.py` が転送の決まり `safe_url` と取れない時の例外・`blk-world/scripts/verify.py` が取り直し）で、どれも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
+- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。同じ計画の W5 で世界の解のブロックが 2 つめの使う所になり、控えの類を役に見せるために控えの名の一覧 `Store.names` を足した
 
 ### `world` 世界の解（問題の類ごとの定石と、依頼の解き方との比べ）
 
@@ -199,7 +200,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 住処: `.shared/core/worldmark.py`（行の欄の名 `FIELDS`・行のファイルの名 `WORLD_FILE`・控えの名 `STATE_FILE`・語 `VERDICTS`・`BASES`・名指しの句 `NOT_WEB`・読み口 `rows`・`read`・場所の字のパス `where_paths`・頭の節 `section`・単位の要点 `unit_note`・答えの要る行 `needs`・`required`・`unanswered`・関所の軸 `world_ok`・関所の行 `gate_line`・報告 `report_lines`）
 - 約束: `blk-world/world-row.schema.json`（欄と語が住処の定数と揃うことは `tests/test_worldmark.py` が縛る）
 - 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（出口を盤面の根の控えに写す境の節と、単位の要約に要点を足す写しの節）
-- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4 で住処を置いた（行を書くブロックは W5、線への差し込みは W7、使う側は W8・W9）。使う側に移る前の世界の調べは、判定役の指示書の先例の行（`blk-judge/commands/diagnose.md` の 7・8 項）と関所の決め手の欄 world（`.shared/core/gatemarks.py` の `FIELDS` と `_RULE`）に残る。柵は行のファイルと控えの名の字
+- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4 で住処を置き、W5 で行を書くブロック `blk-world` を足した（線への差し込みは W7、使う側は W8・W9。それまでブロックはどの線にも入らない）。使う側に移る前の世界の調べは、判定役の指示書の先例の行（`blk-judge/commands/diagnose.md` の 7・8 項）と関所の決め手の欄 world（`.shared/core/gatemarks.py` の `FIELDS` と `_RULE`）に残る。柵は行のファイルと控えの名の字
 
 ### `stop-reasons` 止めの理由
 
@@ -262,6 +263,12 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 散らばり
 - 今: 口が 2 種類ある。走る時に写しの名を替える `.shared/core/entry.py` の `CORE_OVERRIDES`（組み手の印は `.shared/core/board.py` の `rl_builder`）と、写しのバイトを替える台帳 `.shared/core/COPIED_FROM` の `!` 行。どちらを使うかの決まりは文書に無く、`CORE_OVERRIDES` は入口のモジュールに同居している
 - 計画: まだ無い
+
+### `lang-names` 特定の言語・テストの実行器の名
+
+- 状態: 散らばり
+- 今: 役の指示書（`blk-*/commands`・`rules`・`prompts`）と core に特定の言語・テストの実行器の名を書かず、対象に依らない言い方にする（持ち主の決定 `lang-neutral`。事実上の標準の形式の名は名指してよいので数えない）。今その名を持つ所は、TDD の輪と実行器の口（`blk-fix/lib/tddloop.py` ほか）・言語ごとの読み方（`.shared/core/impact.py`・`.shared/core/libdocs.py`）・役の指示書の 3 本（`.shared/core/writerules/common.md`・`blk-fix/rules/tdd.md`・`blk-premises/commands/premises.md`）・試しの種と殻（`dev/`）・コメントと docstring。柵は言語と実行器の名の語（表 `docs/concepts.json`）で、新しい役の指示書が名を書けば赤になる（世界の解のブロックの指示書 `blk-world/commands` も、この柵で縛る）
+- 計画: `docs/plans/2026-10-09-clean-whole.md` の Task 3.8（この柵）と `docs/plans/2026-10-09-lang-neutral-red.md`（赤の判定の言語中立）
 
 ---
 

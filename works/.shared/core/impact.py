@@ -20,6 +20,7 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
   現れる追跡中の file（パスそのものか、一意な basename）
 - py_imports(text) -> list | None: Python の file の import の一覧（地図の import の辺と同じ読み取り。libdocs が使う）
 - tree_files(repo) -> list | None: 作業ツリーの file の一覧（追跡中と無視されていない未追跡。git が使えなければ None。libdocs が使う）
+- is_doc(path) -> bool: パスだけで文書と言えるか（文書・データの拡張子だけ。語の直しだけの依頼の行を機械が確かめる口）
 
 地図の JSON（schema works-impact/1）の欄:
 - key・rev（commit の sha）・rev_name・seeds {given, files, names, from_diff, missing}
@@ -170,6 +171,12 @@ def is_test(path):
     if any(part in TEST_DIRS for part in path.split("/")[:-1]):
         return "support"
     return None
+
+
+def is_doc(path) -> bool:
+    """パスだけで文書と言えるか: 文書・データの拡張子（DOC_EXT）の物だけ。拡張子の無い名（シバンを見ないと分からない）・ドットで始まる
+    設定・ほかの拡張子は偽（分からない物は文書と見ない側に倒す。中身を読む見分けは _lang）"""
+    return bool(path) and _ext(path) in DOC_EXT
 
 
 def _lang(path, rec):

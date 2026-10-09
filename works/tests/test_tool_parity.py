@@ -103,7 +103,11 @@ EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge",
                # 修正役の並べの枝の役（p3.fix と同じ writer）と、その範囲の相談の答えの節（修正案を書いた役の会話の写し。
                # docs/plans/2026-10-07-fix-lane-nodes.md）
                **{("blk-fix", f"fix-lane-{n}"): "writer" for n in (1, 2, 3)},
-               **{("blk-fix", f"plan-answer-lane-{n}"): "writer" for n in (1, 2, 3)}}
+               **{("blk-fix", f"plan-answer-lane-{n}"): "writer" for n in (1, 2, 3)},
+               # 世界の解のブロック（docs/plans/2026-10-09-world-solution.md）: 言い直す役と判断する役は対象を読まない道具ゼロの目
+               # （独立設計と同じ blind-judge）、集める役は本線の主のセッションが web を引く所に当たる writer（web だけを持つ）
+               ("blk-world", "world-classes"): "blind-judge", ("blk-world", "world-judge"): "blind-judge",
+               ("blk-world", "world-collect"): "writer"}
 
 
 def graph_run_by() -> dict:
