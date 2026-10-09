@@ -4,7 +4,8 @@
 知ってよい所（allowed。fnmatch の形で `*` は `/` もまたぐ）・既知の漏れ（known。"<works からのパス>" → [行の数, 理由]）。
 表の exclude（文書・写し・生成物・試験の材料）と allowed の外の追跡されたファイルで、pattern に当たる行を「ファイル →
 行の数」で数え、known とちょうど揃うかを見る（減る向きにだけ動かす。照らしは tests/blockblind.py の verdict を使う）。
-地図からは、考えの id と状態（map_ids）と、行に書いたパス（map_paths）を読む。表を読むのはこのモジュールだけ。
+地図からは、考えの id と状態（map_ids）・見出しの下の決まった頭の行（map_rows。表の allowed が地図の住処か知ってよい所の行に
+在るかを試験が照らす）・行に書いたパス（map_paths）を読む。表を読むのはこのモジュールだけ。
 """
 import fnmatch
 import json
@@ -16,7 +17,6 @@ from blockblind import verdict as _verdict
 TABLE = "docs/concepts.json"
 PATH_HEADS = (".shared/", "blk-", "darkfactory/", "dev/", "tests/", "skills/")
 HEADING = re.compile(r"^### `([^`]+)`")
-STATUS = "- 状態: "
 STATUS_WORD = re.compile(r"[^\s（(]+")
 CODE = re.compile(r"`([^`]+)`")
 
@@ -61,16 +61,25 @@ def verdict(found, known):
     return _verdict(found, {k: tuple(v) for k, v in known.items()})
 
 
-def map_ids(md):
-    """地図の {id: 状態}。見出し「### `<id>`」の下の最初の「- 状態: 」の行の最初の語（括弧の注記は落とす）"""
+def map_rows(md, label):
+    """地図の {id: 行の中身}。見出し「### `<id>`」の下の最初の「- <label>: 」の行の、頭の語を除いた残り"""
+    head = f"- {label}: "
     out, cur = {}, None
     for line in md.splitlines():
         m = HEADING.match(line)
         if m:
             cur = m.group(1)
-        elif cur is not None and cur not in out and line.startswith(STATUS):
-            word = STATUS_WORD.match(line[len(STATUS):])
-            out[cur] = word.group(0) if word else ""
+        elif cur is not None and cur not in out and line.startswith(head):
+            out[cur] = line[len(head):]
+    return out
+
+
+def map_ids(md):
+    """地図の {id: 状態}。「- 状態: 」の行の最初の語（括弧の注記は落とす）"""
+    out = {}
+    for k, rest in map_rows(md, "状態").items():
+        word = STATUS_WORD.match(rest)
+        out[k] = word.group(0) if word else ""
     return out
 
 

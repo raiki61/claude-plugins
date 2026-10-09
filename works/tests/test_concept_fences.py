@@ -37,6 +37,16 @@ class MapAndTable(unittest.TestCase):
             else:
                 self.assertEqual(v["fences"], [], k)   # 柵は住処の在る考えにだけ掛ける（計画 3.2 節の 1）
 
+    def test_allowed_named_in_map(self):
+        """表の allowed（柵が照らす知ってよい所）は、地図のその考えの「住処」「約束」「知ってよい所」の行に字で在る（2 か所が食い違わない）"""
+        rows = {lab: cf().map_rows(MD, lab) for lab in ("住処", "約束", "知ってよい所")}
+        for k, v in self.table["concepts"].items():
+            words = {w.rstrip("/") for lab in rows for w in cf().CODE.findall(rows[lab].get(k, ""))}
+            for f in v["fences"]:
+                for a in f["allowed"]:
+                    with self.subTest(concept=k, allowed=a):
+                        self.assertIn(a.removesuffix("/**"), words)
+
     def test_map_paths_exist(self):
         paths = cf().map_paths(MD)
         self.assertTrue(paths)
@@ -108,6 +118,10 @@ class Synthetic(unittest.TestCase):
         md = ("### `a` 一つ\n\n- 状態: 住処あり（写し）\n- 住処: x\n\n"
               "### `b` 二つ\n- 住処: y\n- 状態: 散らばり（部分の住処あり）\n- 状態: 住処あり\n")
         self.assertEqual(cf().map_ids(md), {"a": "住処あり", "b": "散らばり"})
+
+    def test_map_rows_take_first_labeled_line(self):
+        md = "### `a` 一つ\n- 住処: `x.py`\n- 住処: `y.py`\n### `b` 二つ\n- 状態: 散らばり\n"
+        self.assertEqual(cf().map_rows(md, "住処"), {"a": "`x.py`"})
 
     def test_map_paths_skip_planned_and_branch_lines(self):
         md = ("- 住処: `.shared/core/x.py` と `blk-a/` と `dev/*.sh`、`OUTCOMES`、`docs/y.md`\n"

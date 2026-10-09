@@ -14,7 +14,7 @@
 - 考え（concept）: 設計の 1 つの決まりごと。名前を付けて話せる単位（例: 「run の結末は 9 語のどれか」「止め札を見たら後ろを飛ばして報告へ」）
 - 住処（home）: その考えを 1 か所で持つ部品。モジュール・ブロック（`blk-*`）・schema・表のどれか。考えを変える時に触るのはここだけ、になっている所
 - 約束（contract）: 住処の外の人がその考えに触れる時の形を決めたファイルか欄（JSON Schema・YAML の出口の型・定数の表）
-- 知ってよい所（allowed places）: 住処のほかに、その考えの語・欄の名・値を書いてよい所。普通は住処・約束・その考えの入口（殻）だけ
+- 知ってよい所（allowed places）: 住処のほかに、その考えの語・欄の名・値を書いてよい所。普通は住処・約束・その考えの入口（殻）だけ。柵が照らす一覧は表 `docs/concepts.json` の `allowed` で、その全部を地図の行（住処・約束・知ってよい所）が字で名指す（試験が照らす）
 - 漏れ（leak）: 知ってよい所の外に、その考えの語・欄の名・値が書かれていること。漏れた所は、考えが変わった時に一緒に直す必要があるのに、誰もそれを知らない所になる
 - 散らばり: 住処の無い考え。同じ考えを複数の所がそれぞれの形で知っている状態
 - 柵（fence）: 漏れを見つける安い試験。考えの語の形（正規表現）と知ってよい所を表に書き、表の外で語が見つかったら赤にする。今ある漏れは「既知の漏れ」として件数と理由つきで表に置き、減らす向きにだけ動かす（`tests/blockblind.py` と同じ型）
@@ -73,7 +73,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `darkfactory/lib/depth.py`（`unit_depth`・`decide_doc`・`raise_doc`・`skip_reason`）。口は `darkfactory/scripts/depth.py`
 - 約束: ブロックへは平の入力 `skip`・`skip_optional`（省く理由の文）だけを渡す。ブロックは深さの語を知らない
-- 知ってよい所: 住処・`darkfactory/darkfactory.yaml`・`.shared/core/entry.py`（入力 `thickness` の語を確かめる）
+- 知ってよい所: ライン `darkfactory/` の中（住処・`darkfactory/darkfactory.yaml`）と `.shared/core/entry.py`（入力 `thickness` の語を確かめる。柵の語の形には当たらない）
 
 ### `features` 機能の切り替え
 
@@ -108,28 +108,28 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/reads.py`
 - 約束: `.shared/core/reads.schema.json`
-- 知ってよい所: 住処・各ブロックの口 `scripts/reads.py`（`blk-delta`・`blk-fix`・`blk-plan`・`blk-pr`・`blk-refix`）・それらの `manifest.json`
+- 知ってよい所: 住処・包み `.shared/core/adapter.py`（読んだ記録の置き場）・Read のフックの殻 `.shared/core/record-read.py`・各ブロックの口 `blk-*/scripts/reads.py`（`blk-delta`・`blk-fix`・`blk-plan`・`blk-pr`・`blk-refix`）・それらの宣言 `blk-*/manifest.json`
 
 ### `conflict` 食い違いの申し出
 
 - 状態: 住処あり
 - 住処: `.shared/core/conflict.py`（`FIELDS`・`DECISIONS`・`FIX_DECISIONS`・`fix_duty`）
 - 約束: 住処の定数の表（申し出の欄と裁定の語）
-- 知ってよい所: 住処・直す義務の持ち主のモジュール（`tests/test_duty_owner.py` の `OWNERS`）
+- 知ってよい所: 住処・申し出を書いて裁く修正のブロック `blk-fix/`。直す義務の持ち主のモジュール（`tests/test_duty_owner.py` の `OWNERS`）は義務の集合を作るが、申し出の欄の名は書かない
 
 ### `injectors` 包みが足す system prompt の塊
 
 - 状態: 住処あり
 - 住処: `.shared/core/adapter.py` の `INJECTORS`（行ごとに 名・条件・作り方・必須か）と `inject`
 - 約束: 表の行の形 `Injector`（同じファイル）
-- 知ってよい所: 住処だけ。塊を足すのは表に行を足すことで、起動の分岐を足さない
+- 知ってよい所: 住処と、包みを起こす殻 `.shared/core/claude-adapter`。塊を足すのは表に行を足すことで、起動の分岐を足さない
 
 ### `replycontract` 返答の契約
 
 - 状態: 住処あり
 - 住処: `.shared/core/replycontract.py`
 - 約束: 包みの旗 `text-reply`（印は `.shared/core/node_marker.py`）
-- 知ってよい所: 住処・`.shared/core/adapter.py`（旗を見て呼ぶ）
+- 知ってよい所: 住処・`.shared/core/adapter.py`（旗を見て呼ぶ）・`.shared/core/diverted.py`（下請けが返答の道具 StructuredOutput を継ぐ形を述べる）
 
 ### `writes` 役の返答を盤面に書く規則
 
