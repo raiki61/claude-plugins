@@ -260,16 +260,18 @@ README の「足りない所」と「仕様」の線 B の行、`skills/works/SK
 
 ### Task 1: 持ち越しの住処 `carry.py`（振る舞いは変えない）
 
+状態: 済み（2026-10-09。作業の手順と親から変えた所は `docs/plans/2026-10-09-carry-home.md`）。
+
 **Files:** Create `works/.shared/core/carry.py`・`works/tests/test_carry_home.py`。Modify `works/.shared/core/ghreads.py`（容器の形の定数と `request_parts`・`_answers`・`_prior_failures`・`carry_ci` を移し、PR・issue の読みだけ残す）・`works/.shared/core/report.py`（`NEXT_REQUEST_FILE`・`next_doc` の組み立てを carry から引く）・`works/.shared/core/entry.py`（`PRIOR_IN_FILE`・`place_prior`・`prior_section` を移す）・呼び手（`blk-judge/lib/judgebrief.py`・`blk-plan/lib/planblk.py`・`blk-judge/scripts/intake.py`・`blk-premises/scripts/intake.py`・`dev/lib.sh` の `next-request.json` の名・殻の `carry-ci` の口）・`works/docs/concepts.md`・`works/docs/concepts.json`（`carry-over` を住処ありにし柵を足す）・`works/tests/test_layers.py`・`works/tests/tiers.py`。今の試験の import 先（`tests/test_carry_ci.py`・`tests/test_report.py`・`tests/test_gate_drafts.py`・`tests/test_out_of_purpose.py`・`tests/test_entry.py`）
 
 **Interfaces:**
 - Produces（名と形は今のまま移す）: `carry.NEXT_REQUEST_FILE`・`KEYS`・`ANSWER_KEYS`・`DRAFT_KEYS`・`PRIOR_KEYS`・`CI_WHERE`・`PRIOR_IN_FILE`・`parts(doc) -> dict`（今の `request_parts`）・`carry_ci(doc, ids) -> dict`・`place_prior(board_dir, rows) -> None`・`prior_section(board_dir) -> str`
 - Produces（新）: `carry.compose(findings: list, prior: list, drafts: list) -> dict`（今の `next_doc` の中身。盤面を知らない）・`carry.is_draft(row) -> bool`・`carry.row_key(row: dict) -> str`（`where` と、`text` の最初の「（」までを空白を詰めて `\t` でつないだ物。Task 3 が使う）
 
-- [ ] 赤: `test_carry_names_live_in_carry`（柵の表の行 `carry-over` が通る＝`next-request.json`・`prior-failures-in.json`・`DRAFT_KEYS` の字が住処と知ってよい所の外に無い）・`test_compose_then_parts_roundtrip`（`compose` の返りから下書きの行を外すと `parts` が通る）・`test_row_key_ignores_reason_tail`（`{"where": "a.py", "text": "k1（修正がやらなかった: 理由 A）"}` と理由だけ違う行が同じ鍵）・`test_ghreads_keeps_only_github_reads`（`ghreads` に `KEYS` が無い）
-- [ ] 回して赤を見る: `python3 works/tests/tiers.py fast -k test_carry_home`
-- [ ] 移す。呼び手を carry に向け、古い名を残さない（`grep -rn "ghreads.request_parts\|ghreads.DRAFT_KEYS\|entry.place_prior\|entry.PRIOR_IN_FILE" works/` が 0 件）
-- [ ] 速い段と根の柵が緑。commit `refactor(works): 次の run への持ち越しの形を core の carry に 1 つにまとめる（書き手・読み手・置き場が同じ名を引く）`
+- [x] 赤: `test_carry_names_live_in_carry`（柵の表の行 `carry-over` が通る＝`next-request.json`・`prior-failures-in.json`・`DRAFT_KEYS` の字が住処と知ってよい所の外に無い）・`test_compose_then_parts_roundtrip`（`compose` の返りから下書きの行を外すと `parts` が通る）・`test_row_key_ignores_reason_tail`（`{"where": "a.py", "text": "k1（修正がやらなかった: 理由 A）"}` と理由だけ違う行が同じ鍵）・`test_ghreads_keeps_only_github_reads`（`ghreads` に `KEYS` が無い）
+- [x] 回して赤を見る: `python3 works/tests/tiers.py fast -k test_carry_home`
+- [x] 移す。呼び手を carry に向け、古い名を残さない（`grep -rn "ghreads.request_parts\|ghreads.DRAFT_KEYS\|entry.place_prior\|entry.PRIOR_IN_FILE" works/` が 0 件）
+- [x] 速い段と根の柵が緑。commit `refactor(works): 次の run への持ち越しの形を core の carry に 1 つにまとめる（書き手・読み手・置き場が同じ名を引く）`
 
 ### Task 2: 答えを自分の項目に結び、人が決めた答えを持ち越す
 

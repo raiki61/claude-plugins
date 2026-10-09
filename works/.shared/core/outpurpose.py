@@ -20,10 +20,11 @@ FILE に周ごとに控え、判定の写し judgment.json に戻す。次の ru
 - next_items(board_dir)・report_lines(board_dir)・count_line(board_dir, next_file, section): 次の run の依頼の行・報告の本文の行・
   報告の冒頭 1（人が決めること）の件数の 1 行。冒頭 1 には人が決めることだけを置き、所見は 1 件ずつ並べない（材料であって決め事でない。
   利用者の声 10-09 の B。10-09 の利用者は 23 件を読んで 3 件を採った）
-標準ライブラリと住処 marks（L1）だけ。
+標準ライブラリと住処 marks・carry（L1）だけ。
 """
 import json
 
+import carry   # 下書きの印の付け方（次の run への持ち越しの形の住処）
 import marks
 
 FIELD = "out_of_purpose"
@@ -198,17 +199,17 @@ def _carried(board_dir) -> list:
 
 def next_items(board_dir) -> list:
     """次の run の依頼の行: 控えた材料の行の where・text（尾に MARK と出どころと目的の外とした理由）と任意の欄に、下書きの印
-    draft: true と出どころ source（DRAFT_SOURCE）を付けた物（依頼の入口 ghreads が拒むので、人が見直して印を消すまで次の run の
+    draft: true と出どころ source（DRAFT_SOURCE）を付けた物（carry.draft。依頼の入口 carry.parts が拒むので、人が見直して印を消すまで次の run の
     目的にならない。答えの下書きと同じ扱い）。控えが読めなければその 1 行（読めない物を 0 件に見せない。印は付けない）"""
     try:
         got = _carried(board_dir)
     except ValueError as e:
         return [{"where": "判定（目的の外の所見）", "text": f"{_squeeze(e)}——前の run の目的の外の所見を確かめられない"}]
-    return [{"where": m["where"],
-             "text": f"{m['text'].split(f'（{MARK}')[0]}（{MARK}。出どころ: {_squeeze(r.get('source'))}・目的の外とした理由: "
-                     f"{_squeeze(r.get('why_outside'))}）",
-             **{k: m[k] for k in CARRY_KEYS if isinstance(m.get(k), str)},
-             "draft": True, "source": f"{DRAFT_SOURCE}（{_squeeze(r.get('source'))}）"}
+    return [carry.draft({"where": m["where"],
+                         "text": f"{m['text'].split(f'（{MARK}')[0]}（{MARK}。出どころ: {_squeeze(r.get('source'))}・"
+                                 f"目的の外とした理由: {_squeeze(r.get('why_outside'))}）",
+                         **{k: m[k] for k in CARRY_KEYS if isinstance(m.get(k), str)}},
+                        f"{DRAFT_SOURCE}（{_squeeze(r.get('source'))}）")
             for r, m in got]
 
 

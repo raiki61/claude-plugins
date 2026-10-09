@@ -1,0 +1,6 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "前の run の落ちた理由 [{where, text}]（形の住処は core の carry。書く前と依頼を解く時にこの Schema で照らす）。prior-failures.json（盤面の根。書き手は core の report.build。この run で最後まで通らなかった受け付けの理由と R2 の作り直しの理由）と prior-failures-in.json（盤面の根。書き手は core の entry.start。依頼の prior_failures の写し）が同じ形",
+ "type": "array",
+ "items": {"type": "object", "required": ["where", "text"], "properties": {"where": {"type": "string"}, "text": {"type": "string"}}}
+}

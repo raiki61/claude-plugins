@@ -281,7 +281,7 @@ Task:
 
 1. **stop-reasons（止めの理由）**: 26 のモジュールの `STOP_BY` の定数を 1 つの表へ。機械的で小さい
 2. **human-gates（人の関所と無人の方針）**: 最後の関所の既定が入口で違う件（線の入力は always・`dev/use.sh` は protected_only・`dev/dogfood.sh` は always）を 1 つに。止める 4 種のうち「測れず戻せない」の柵の印を足す。工場の中の 4 種の基準（依頼 222）。決め 1 の答え。語 unattended の 2 つの意味を分ける
-3. **carry-over（次の run への持ち越し）**: 欄の名を書き手（`report`）と読み手（`ghreads`）が 1 つのモジュールから引く。最後の関所に付けた条件・run が人に聞いて決めた問い（観点「人の決定を聞き直さない」）・止めた単位の差分（観点「止まっても仕事を捨てない」）を同じ下書きに載せる
+3. **carry-over（次の run への持ち越し）**: 欄の名を書き手（`report`）と読み手（`ghreads`）が 1 つのモジュールから引く（2026-10-09 済み: 住処 `.shared/core/carry.py`。周をつなぐ計画の Task 1）。最後の関所に付けた条件・run が人に聞いて決めた問い（観点「人の決定を聞き直さない」）・止めた単位の差分（観点「止まっても仕事を捨てない」）を同じ下書きに載せる
 4. **ledger（費用と時間の帳簿）**: 読み口を 1 つに。値は Archon の出来事から読む時に作り、累計を控えのファイルに持ち直さない（観点「履歴から作れる値は保存しない」）。包みが費用を書き換える回り道は Archon の穴として `docs/archon-feedback.md` に残す
 5. **prompt-assembly（指示書の組み立て）**: 「頭の節 → 区切り → 写しの本文 → 役の定義 → 前の拒否」の並べを `.shared/core/rolekit.py` の 1 つの口に
 6. **ai-launch（AI の起こし方）**: 模型・effort・道具・隔離の表を 1 つにし、YAML の値はそこから確かめる。起動の殻の設計書の残り（`dev/launch.py` の go・show・inputs、`dev/lib.sh` の埋め込み Python）と、Archon との結びを `.shared/core/flow_adapter.py` に寄せる件（Archon の置き場の環境変数を直に読む 5〜7 か所）もここ

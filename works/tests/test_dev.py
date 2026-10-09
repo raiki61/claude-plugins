@@ -557,7 +557,7 @@ class TestDevShell(unittest.TestCase):
                                 str(DEV / "lib.sh"), str(fake), str(wt), str(diffs)],
                                capture_output=True, text=True, encoding="utf-8",
                                env={**{k: v for k, v in os.environ.items() if k not in ("WORKS_RUN_ID", "HERDR_ENV")},
-                                    "WORKS_DEV_MODEL": "opus", "CLAUDE_BIN_PATH": "/usr/bin/true"})
+                                    "WORKS_DEV_MODEL": "opus", "CLAUDE_BIN_PATH": "/usr/bin/true", "DEV_DIR": str(DEV)})
             self.assertEqual(r.returncode, 0, r.stderr)
             body = (diffs / "run-run-1.diff").read_text()
             self.assertIn("+# 直した", body)
@@ -574,7 +574,7 @@ class TestDevShell(unittest.TestCase):
         (tmp / "diffs").mkdir(exist_ok=True)
         env = {**{k: v for k, v in os.environ.items() if k not in ("WORKS_RUN_ID", "HERDR_ENV", "WORKS_DEV_SHOW_CMD")},
                "WORKS_DEV_HOME": str(tmp / "dev-home"), "WORKS_DEV_MODEL": "opus", "CLAUDE_BIN_PATH": "/usr/bin/true",
-               "FAKE_RC": rc}
+               "FAKE_RC": rc, "DEV_DIR": str(DEV)}   # lib.sh は . で読まれ自分の置き場を知れない（殻と同じく DEV_DIR で渡す）
         if redo:
             env["WORKS_DEV_SHOW_CMD"] = redo
         return subprocess.run(["sh", "-c", '. "$1"; works_dev_show_run t "$2" "$3" "$3" "$4"', "_",

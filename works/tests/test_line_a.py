@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
 import converge  # noqa: E402
+import carry  # noqa: E402
 import entry  # noqa: E402
 import engine.util as engine_util  # noqa: E402,F401  （entry が写しの engine を sys.path に足した後。単独で起こしても読める）
 import gatemarks  # noqa: E402
@@ -502,10 +503,10 @@ class PriorFailuresLineCase(LineBase):
         rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
         got = self.run_line(request={"findings": rows, "prior_failures": self.PRIOR})
         board = got["board_dir"]
-        self.assertEqual(json.loads((board / entry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
+        self.assertEqual(json.loads((board / carry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
         mark = "PF-7731"
         judge = pathlib.Path(got["judge_brief"]["materials_file"]).read_text(encoding="utf-8")
-        self.assertIn(entry.PRIOR_HEAD, judge)
+        self.assertIn(carry.PRIOR_HEAD, judge)
         self.assertIn(mark, judge)
         prompts = {p.name: p.read_text(encoding="utf-8") for p in board.rglob("prompt-*.md")}
         plan = [t for n, t in prompts.items() if n == "prompt-p2.fix_plan.md"]

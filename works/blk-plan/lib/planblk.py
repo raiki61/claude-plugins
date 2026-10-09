@@ -67,6 +67,7 @@ if str(_CORE) not in sys.path:
 import accept  # noqa: E402
 import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。事前審査の下請けの答えのファイルの置き場）
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
+import carry  # noqa: E402
 import converge  # noqa: E402
 import design  # noqa: E402
 from engine import pointers  # noqa: E402  （board が写しの engine を sys.path に足す）
@@ -399,8 +400,8 @@ def design_only(b) -> str:
 
 def prior_part(b, role: str) -> str:
     """修正案の役の頭に貼る、前の run で最後まで通らなかった物の節（盤面の根の prior-failures-in.json。manifest の consumes。
-    entry.prior_section）。修正案の役だけ（事前審査・独立設計の役には貼らない）。行が無ければ空"""
-    return entry.prior_section(b.dir) if role == "plan" else ""
+    carry.prior_section）。修正案の役だけ（事前審査・独立設計の役には貼らない）。行が無ければ空"""
+    return carry.prior_section(b.dir, gap=BoardGap) if role == "plan" else ""
 
 
 def lib_section(b, repo) -> str:

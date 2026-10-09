@@ -9,7 +9,7 @@
 3. INPUTS_CONSTRAINTS_FILE が空でなければ、前提の実測（blk-premises が置く p0.premises の返答）を読み、写しの
    p0.premises の型と post_check に通す（purpose.check_constraints）。空なら前提の実測は無い
 4. 依頼が前の run の判断（欄 prior_failures）を持てば、それを外した写しを盤面の今の include の置き場の purpose-request.json に置き、
-   役にはその写しのパスを渡す（ghreads.without_prior。目的の文は前の run の判断を知らない別の目の入力になるので、指示書の頼みで
+   役にはその写しのパスを渡す（carry.without_prior。目的の文は前の run の判断を知らない別の目の入力になるので、指示書の頼みで
    なく機械で外す）。持たない依頼（配列の形・欄の無い object・JSON でない物）は、そのパスのまま渡す
 5. 目的の役を起こす前の作業ツリーの姿（accept.tree_state。HEAD・枝つき。裁定 R47）を盤面の purpose-snapshot.json に置く。
    受け付けは今の作業ツリーとこれを比べる（依頼のファイルが対象の中で未追跡でも、役が変えていなければ通る）。
@@ -32,7 +32,7 @@ import os  # noqa: E402
 
 from purpose import NODE, REQUEST_COPY, SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
 import conflict  # noqa: E402
-import ghreads  # noqa: E402
+import carry  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 import conflict  # noqa: E402
@@ -51,7 +51,7 @@ def _stop(reason: str) -> int:
 def _without_prior(text: str):
     """依頼の文から前の run の判断を外した object（外す物が無い・JSON でなければ None）"""
     try:
-        return ghreads.without_prior(json.loads(text))
+        return carry.without_prior(json.loads(text))
     except json.JSONDecodeError:
         return None
 

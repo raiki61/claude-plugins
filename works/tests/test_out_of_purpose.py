@@ -19,7 +19,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(ROOT / "blk-judge" / "lib"))
 import accept  # noqa: E402
-import ghreads  # noqa: E402
+import carry  # noqa: E402
 import outpurpose  # noqa: E402
 
 CR = {"where": "app/compute_logs/manager.py:27-58",
@@ -175,7 +175,7 @@ class CarryCase(unittest.TestCase):
         false_positive_if だけ）"""
         outpurpose.save(self.dir, 1, OOP, outpurpose.material_rows(self.b))
         for it in outpurpose.next_items(self.dir):
-            bare = {k: v for k, v in it.items() if k not in ghreads.DRAFT_KEYS}
+            bare = {k: v for k, v in it.items() if k not in carry.DRAFT_KEYS}
             self.assertLessEqual(set(bare), {"where", "text", "mechanism", "measured", "false_positive_if"})
 
     def test_carried_rows_are_drafts_the_request_entry_refuses(self):
@@ -186,11 +186,11 @@ class CarryCase(unittest.TestCase):
         self.assertTrue(all(i.get("draft") is True and i.get("source") for i in items), items)
         self.assertIn(OOP[0]["source"], items[0]["source"])
         with self.assertRaises(ValueError) as cm:
-            ghreads.request_parts({"findings": items})
+            carry.parts({"findings": items})
         self.assertIn("下書き", str(cm.exception))
         self.assertIn("findings[0]", str(cm.exception))
-        bare = [{k: v for k, v in i.items() if k not in ghreads.DRAFT_KEYS} for i in items]
-        self.assertEqual(ghreads.request_parts({"findings": bare})["findings"], bare)
+        bare = [{k: v for k, v in i.items() if k not in carry.DRAFT_KEYS} for i in items]
+        self.assertEqual(carry.parts({"findings": bare})["findings"], bare)
 
     def test_only_the_last_round_is_carried(self):
         """判定は周ごとに目的の外を決め直す: 前の周に目的の外とした所見が後の周に単位になれば運ばない（最後の周の行だけ）"""

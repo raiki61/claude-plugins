@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 次の run への持ち越し（`next-request.json`・`prior-failures.json`・`prior-failures-in.json` の欄の名・下書きの印・依頼の容器の解き方）を core の 1 つのモジュール `.shared/core/carry.py` にまとめ、書き手（報告）と読み手（依頼の入口）が同じ名と同じ JSON Schema（`.shared/core/` へ移した `next-request.schema.json`・`prior-failures.schema.json`。書く前に照らす）を引くようにした（書く中身はバイト一致で変わらない）。run の後の CI の赤を次の依頼へ足す口は `python3 -I .shared/core/carry.py carry-ci …` に移り、前の `ghreads.py carry-ci` は移った先を 1 行で言って終了コード 2 で終わる。
+
 ## [0.2.55] - 2026-10-09
 
 ### Fixed

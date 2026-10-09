@@ -25,9 +25,9 @@
   {"name": "final-gate.md", "format": "md"},
   {"name": "final-gate-answer.json", "format": "json", "schema": "schemas/final-gate-answer.schema.json"},
   {"name": "report.md", "format": "md", "at": "root"},
-  {"name": "next-request.json", "format": "json", "schema": "schemas/next-request.schema.json", "at": "root"},
-  {"name": "prior-failures.json", "format": "json", "schema": "schemas/prior-failures.schema.json", "at": "root"},
-  {"name": "prior-failures-in.json", "format": "json", "schema": "schemas/prior-failures.schema.json", "at": "root"},
+  {"name": "next-request.json", "format": "json", "schema": "../.shared/core/next-request.schema.json", "at": "root"},
+  {"name": "prior-failures.json", "format": "json", "schema": "../.shared/core/prior-failures.schema.json", "at": "root"},
+  {"name": "prior-failures-in.json", "format": "json", "schema": "../.shared/core/prior-failures.schema.json", "at": "root"},
   {"name": "no-turn-exits.json", "format": "json", "schema": "schemas/no-turn-exits.schema.json", "at": "root"}
  ]
 }

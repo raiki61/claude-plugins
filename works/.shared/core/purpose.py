@@ -28,7 +28,7 @@ STOP_BY = "works:purpose"   # 目的の文が盤面に無い・諦めた盤面�
 PREMISES_NODE = "p0.premises"
 PURPOSE_FILE = "purpose.json"             # 受け付けた目的の返答（graph の process.purpose と同じ中身）
 SNAPSHOT_FILE = "purpose-snapshot.json"   # 目的の役を起こす前（intake の時）の作業ツリーの姿。形は accept.TREE_SCHEMA（tree_state）
-REQUEST_COPY = "purpose-request.json"     # 目的の役に渡す依頼の写し（前の run の判断 prior_failures を外した物。ghreads.without_prior）
+REQUEST_COPY = "purpose-request.json"     # 目的の役に渡す依頼の写し（前の run の判断 prior_failures を外した物。carry.without_prior）
 
 
 def _post_check(nid, out, b):
