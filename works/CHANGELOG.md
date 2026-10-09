@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.52] - 2026-10-09
+
 ### Changed
 
 - リポジトリのルートの柵 doc-symbols（文書が名指す定数の実在）を works に合わせて狭めた（2026-10-09 の掃除。この柵のために名を足すだけの commit が 15 本ほど在り、本物の食い違いは 1 件も捕まえていなかった）: 書いた日の名指しを残す `docs/plans/` と `CHANGELOG.md` は見ない。`WORKS_` で始まる名は works のコード（.py・.sh・.yaml）のどこかに字で在れば実在と見て、除外の表に 1 つずつ足さない。柵のためだけに置いていた代入の行（`dev/use.sh` の入力の窓口 5 つ・`dev/dogfood.sh` の機能の窓口 2 つ。どれも読む所は `${…:-}` の形）を消した。動きは変わらない。
