@@ -133,6 +133,7 @@ REPORT_FILE = "report.md"
 NEXT_REQUEST_FILE = "next-request.json"   # 次の run の依頼の下書き {findings, prior_failures}（依頼の型の object の形）
 PRIOR_FAILURES_FILE = "prior-failures.json"   # この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]
 PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
+OUTSIDE_HEADING = "## 判定が目的の外とした所見"   # 1 件ずつの行（outpurpose.report_lines）。冒頭 1 は件数の行だけ（outpurpose.count_line）
 TDD_HEADING = "## TDD の輪の単位ごとの結末"   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
 TDD_STAGES = ("修正の段", "案を直した後の修正の段")   # build の tdd の並び（ラインの report の with の fix_tdd・refit_tdd の順）
 FREEZE_OFF_HEAD = "テストの凍結"   # 冒頭 2 の行の頭（TDD の輪を回していない修正の段は、凍結が効いていないと言う。freeze_lines）
@@ -804,7 +805,8 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
     人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・修正役が人に回した物（handoff_lines）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
-    申し送りの下書きと外した範囲・次の run に渡す物の件数と、その下に判定が目的の外として単位にしなかった所見（outpurpose.report_lines）と
+    申し送りの下書きと外した範囲・次の run に渡す物の件数と、その下に判定が目的の外として単位にしなかった所見の件数と置き場（outpurpose.count_line。
+    1 件ずつの行は本文の節 OUTSIDE_HEADING。冒頭 1 は人が決めることだけを置く）と
     無人の run の答えの下書きの件数（gatemarks.draft_line）。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -893,7 +895,9 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     n = len(next_items or [])
     lines += always_rows(b, left=left)
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
-    lines += outpurpose.report_lines(b.dir)
+    outside = outpurpose.count_line(b.dir, next_file, OUTSIDE_HEADING.removeprefix("## "))
+    if outside:
+        lines.append(outside)
     drafts = gatemarks.draft_line(gatemarks.answer_drafts(b), next_file)
     if drafts:
         lines.append(drafts)
@@ -1757,6 +1761,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     if loops:
         body += [TDD_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in loops], ""]
     body += [PRIOR_HEADING, "", *[f"- {r}" for r in prior_lines(prior)], ""]
+    outside = outpurpose.report_lines(board_dir)
+    if outside:
+        body += [OUTSIDE_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in outside], ""]
     # 局所レビュー（P1）の fork のレンズの戻した・見ていない（diverted）を先に、修正の後のレンズ（lens）を後に
     body += ["## 未確認のレンズ", "", *[f"- {r}" for r in [*diverted.report_lines(board_dir), *lens.report_lines(b)]], ""]
     body += ["## 仕組みの異常", "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]

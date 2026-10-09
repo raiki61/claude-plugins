@@ -24,6 +24,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- 報告の「1. 人が決めること」に、判定が依頼の目的の外とした所見を 1 件ずつ並べるのをやめ、件数と次の run の依頼の下書き（`next-request.json`）の置き場の 1 行だけにした（2026-10-09 の利用者の声 B。利用者は 23 件を読んで 3 件を採った。人が決める物ではなく、次の run に回すかの材料）。1 件ずつの行は本文の新しい節「判定が目的の外とした所見」に移し、下書きの `findings` に載せる行は今と同じ。
+
 - 既存のテストの変更を許す道を 1 つの関数 `conflict.test_permits` に集めた（keep-essence の 3。前は 4 つの許す元のうち、案の直しで直した項目の単位を凍結の検査が別に読み、事後の関門が修正案の書き換えの名指しを別に読んでいた）。凍結の検査・事後の関門・範囲の照らし・最後の関所はどれもこの関数の行から引く。許す範囲は変わらない。keep-essence の 3 の文を、許す元を全部名指す形に直した（何も外していない）。
 - 考えの住処の地図 `docs/concepts.md` と柵の表 `docs/concepts.json` に、2 つの統合で生まれた住処を足した: 修正案の項目の範囲の照らし `plan-scope`（住処 `.shared/core/planrange.py`。glob を手で当てる形の柵）と、テストのファイルの見分け `test-files`（住処 `impact.is_test` と `tddloop.declared_test_files`・`is_test_file`。名の慣習の型を手で書く形の柵）。今ある漏れは既知の漏れに理由つきで置いた。持ち越しの行に `ghreads.without_prior` を足した。手直しの役の型に欄 `bash_writes` を足す所は足し欄の住処 `marks` の種 `writes` を通す。run の動きは変わらない。
 

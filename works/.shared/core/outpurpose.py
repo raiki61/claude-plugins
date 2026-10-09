@@ -17,7 +17,9 @@ FILE に周ごとに控え、判定の写し judgment.json に戻す。次の ru
 - material_rows(b): 盤面の材料の行 [{where, text, …, from}]（from は出どころの節と目の名）
 - problems(rows, material): 行の誤り（形・材料に当たらない where）。1 件 1 文
 - save(board_dir, rnd, rows, material)・restore(doc, board_dir, rnd): 周の分を控える・判定の写しに戻す
-- next_items(board_dir)・report_lines(board_dir): 次の run の依頼の行・報告の行
+- next_items(board_dir)・report_lines(board_dir)・count_line(board_dir, next_file, section): 次の run の依頼の行・報告の本文の行・
+  報告の冒頭 1（人が決めること）の件数の 1 行。冒頭 1 には人が決めることだけを置き、所見は 1 件ずつ並べない（材料であって決め事でない。
+  利用者の声 10-09 の B。10-09 の利用者は 23 件を読んで 3 件を採った）
 標準ライブラリと住処 marks（L1）だけ。
 """
 import json
@@ -32,6 +34,7 @@ CARRY_KEYS = ("mechanism", "measured", "false_positive_if")   # 依頼の行の�
 MARK = "前の run の判定が凍結した目的の外として単位にしなかった所見を運んだ（この run の目的の内か、別の依頼に分けるかは判定が決める）"
 REPORT_HEAD = ("判定が凍結した目的の外として単位にしなかった所見（次の run の依頼の下書きに材料の行の全部の欄で、下書きの印 draft・"
                "source つきで載せた。依頼の入口が拒むので、次の run の目的に入れる行は印を消し、入れない行は消す）")
+COUNT_HEAD = "判定が目的の外とした所見"   # 冒頭 1 の件数の行の頭
 DRAFT_SOURCE = "前の run の判定が目的の外とした所見"   # next_items の行の source の頭
 ROW_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["source", "where", "why_outside"],
@@ -220,3 +223,18 @@ def report_lines(board_dir) -> list:
     return [f"{REPORT_HEAD}: {len(got)} 件"] + [
         f"  - {m['where']}（出どころ: {_squeeze(r.get('source'))}・目的の外とした理由: {_squeeze(r.get('why_outside'))}）"
         for r, m in got]
+
+
+def count_line(board_dir, next_file: str = "", section: str = "") -> str:
+    """報告の冒頭 1 の 1 行: 件数と、行を載せた次の run の依頼の下書きの置き場（next_file）と、1 件ずつの行（report_lines）を置いた
+    本文の節の名（section。報告の組み手が決める）。
+    無ければ ""。控えが読めなければその旨（読めない物を 0 件に見せない）"""
+    try:
+        got = _carried(board_dir)
+    except ValueError as e:
+        return f"{COUNT_HEAD}: {_squeeze(e)}"
+    if not got:
+        return ""
+    where = f"次の run の依頼の下書き {next_file}" if next_file else "次の run の依頼の下書き"
+    return (f"{COUNT_HEAD}: {len(got)} 件（{where} の findings に下書きの印つきで載せた。次の run に回すかの材料"
+            + (f"で、1 件ずつの中身は下の節「{section}」" if section else "") + "）")

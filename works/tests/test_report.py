@@ -1250,8 +1250,23 @@ class NextRequestCase(ReportBase):
         items = [{k: v for k, v in i.items() if k not in ghreads.DRAFT_KEYS} for i in items]
         with tempfile.TemporaryDirectory(dir=linekit.work_home()) as d:
             self.assertEqual(accept.check_request(items, pathlib.Path(d), "次の run"), {"ok": True, "reason": ""})
-        self.assertIn(outpurpose.REPORT_HEAD, h[H1])
-        self.assertIn(f"{row['where']}（出どころ: {oop['source']}", h[H1])
+        # 冒頭 1 は人が決めることだけ: 件数と下書きの置き場の 1 行で、所見を 1 件ずつ並べない（利用者の声 10-09 の B）。
+        # 1 件ずつの行は本文の節 report.OUTSIDE_HEADING に置く
+        self.assertIn(outpurpose.COUNT_HEAD, h[H1])
+        self.assertIn("1 件", h[H1])
+        self.assertIn(out["next_request_file"], h[H1])
+        self.assertNotIn(row["where"], h[H1])
+        self.assertIn(outpurpose.REPORT_HEAD, h[report.OUTSIDE_HEADING])
+        self.assertIn(f"{row['where']}（出どころ: {oop['source']}", h[report.OUTSIDE_HEADING])
+
+    def test_no_out_of_purpose_section_without_rows(self):
+        """目的の外の所見が無い run は、冒頭 1 に件数の行を出さず、本文の節も出さない"""
+        import outpurpose
+        self.begin()
+        self.without_node_env()
+        _, _, h = self.build()
+        self.assertNotIn(outpurpose.COUNT_HEAD, h[H1])
+        self.assertNotIn(report.OUTSIDE_HEADING, h)
 
     def test_next_request_keys_roundtrip(self):
         """穴の key に引用符・日本語・$( → next-request.json の text に 1 バイトも同じで在る"""
