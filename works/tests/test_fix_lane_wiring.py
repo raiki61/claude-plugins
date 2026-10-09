@@ -26,9 +26,9 @@ sys.path.insert(0, str(CORE))
 import adapter  # noqa: E402
 import consult  # noqa: E402
 import fixlanes  # noqa: E402
-import fixshape  # noqa: E402
 import lanekit  # noqa: E402
 import recount  # noqa: E402
+import seat  # noqa: E402
 import tddlanes  # noqa: E402
 from test_tdd_lane_wiring import QUIET, block, inner, layers, top  # noqa: E402
 
@@ -110,7 +110,7 @@ class TestWiring(unittest.TestCase):
         models = json.loads((CORE / "stage-models.json").read_text(encoding="utf-8"))["stages"]
         for n in fixlanes.lane_nodes():
             self.assertEqual(models[f"blk-fix/{n}"], models["blk-fix/fix"], n)
-            self.assertIn(n, fixshape.AGENT_NODES)
+            self.assertIn(n, seat.AGENT_NODES)
             self.assertIn(n, adapter.KEYED_NODES, "枝の中の項目が替われば新しい会話")
         for n in NS:
             self.assertEqual(models[f"blk-fix/plan-answer-lane-{n}"], models["blk-fix/plan-answer"])

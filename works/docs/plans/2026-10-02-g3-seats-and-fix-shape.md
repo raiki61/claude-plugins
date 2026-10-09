@@ -89,9 +89,9 @@ works の中の語:
 - works の強み 11 項目はどの腕でも外さない: 赤緑の機械の判定・元から赤の区別・凍結と許しの 1 本の道・3 回で戻す・書き込みの出どころ・受け付けで選んで回す試験・class_query の数え直し・申し出と裁定・独立設計と R1〜R4・守りのファイルと最後の関所・単位ごとの記録。どの腕も同じ外側の関門（修正の受け付け・束・差分の審査・最後のテスト・最後の関所）を通る。g1 では赤緑と凍結が輪の中に無いので、束がそれを受け持つ。g1 の「3 回で戻す」は、受け付けの最後の回の止めと戻し（`accept.park_bound_units` → `revert_units`）が受け持つ。修正役はどの形とも同じく、直す義務の単位をいつも changes に載せる（3 回の審査を通らなかった項目の単位も changes に残し、残った指摘は `root_or_symptom` の symptom の why に書く）。最後の回の拒否はその行に結べ、その単位の直しだけを戻して ask_human に止める。not_done に置くと拒否が単位に結べず返答全体が拒まれるので使わない。単位をまったく直せない時は食い違いの申し出（ASK）で返す。g1 の「受け付けで選んで回す試験」は、tdd-start が g1 でも取る元の結末で受け付けが回す。
 - 期限・タイムアウトを新しく足さない。止めるのは条件だけ。時間は測って報告するだけで、採否の条件にしない。
 - 今ある能力を減らさない: `fix_shape` が空の run は g3、前の版で作った盤面（`r1/start.json` に `fix_shape` が無い）は af として動く（座は出ず、道具の振る舞いは 220 の前と同じ）。
-- 後の振り分けを塞がない: 形はいつも `fixshape.shape_at` の 1 つの読み口から引く。ブロック・包み・測る関数が `start.json` を直に読まない。腕ごとの違いは `SHAPES`・`denied_tools` の表・`seat.SEATS` の表で持ち、語を決め打ちする分かれを散らさない。
+- 後の振り分けを塞がない: 形はいつも `fixshape.shape_at` の 1 つの読み口から引く。ブロック・包み・測る関数が `start.json` を直に読まない。腕ごとの違いは SHAPES・`denied_tools` の表・`seat.SEATS` の表で持ち、語を決め打ちする分かれを散らさない。
 - 並行の枝と重ねる所（取り込みの衝突を小さくする）:
-  - `works/blk-fix/lib/tddloop.py`（219・211 が大きく変える）: 触るのは `start` の頭の 1 分岐（g1）・`plan_contract` の頭の 1 行（平の run）・`_fix` の整えの条件の 1 項（平の run）・`start` の test_cmd の関門の決め方の 1 分岐（平の run）・`prep` の平の run の 1 分岐（fix・refactor の段の文を 219 の前の文 `PLAIN_DO` に替え、決まりの申告の行をこの輪では読まないと添える）・`prep` の座の 1 引数と、公開の別名 `unnamed_edits = _unnamed_edits` だけ。
+  - `works/blk-fix/lib/tddloop.py`（219・211 が大きく変える）: 触るのは `start` の頭の 1 分岐（g1）・`plan_contract` の頭の 1 行（平の run）・`_fix` の整えの条件の 1 項（平の run）・`start` の test_cmd の関門の決め方の 1 分岐（平の run）・`prep` の平の run の 1 分岐（fix・refactor の段の文を 219 の前の文 PLAIN_DO に替え、決まりの申告の行をこの輪では読まないと添える）・`prep` の座の 1 引数と、公開の別名 `unnamed_edits = _unnamed_edits` だけ。
   - `works/blk-fix/lib/fixrules.py`: `fix_parts`・`tdd_parts`・`tdd_render`・`tdd_prompt`・`fix_prompt` の `seat=""` の引数と、新しい関数 `implementer_values`・`g1_values` だけ。
   - `works/blk-fix/scripts/accept.py`: `accept_fix` の最後の 1 段（束）と `INPUTS` の 1 語だけ。
   - `works/.shared/core/refix.py`（218 が brief に欄を足す）: `cut` の brief の辞書に鍵 `seat_file` を 1 つ足すだけ。
@@ -148,8 +148,8 @@ Task 8 の `fixmeasure.verdict` がこの決まりをそのまま実装し、試
 - Produces（`fixshape`。標準ライブラリだけ）:
   - `SHAPES = ("current", "af", "g3", "g1")`・`DEFAULT = "g3"`・`BEFORE = "af"`（記録の無い盤面の形）・`KEY = "fix_shape"`・`START_REL = "r1/start.json"`・`CHOICE_REL = "r1/fix-shape.json"`（後の振り分けが選んだ形の控え `{shape, by, why}`。この計画では試験のほか誰も書かない）
   - `word(raw: str) -> str` — 前後の空白を除き、空なら `DEFAULT`。SHAPES の外は `ValueError("fix_shape=<値> は知らない値（current / af / g3 / g1）")`
-  - `shape_at(board_dir) -> str` — 読む順: `CHOICE_REL` の `shape` → `START_REL` の `KEY` → `BEFORE`。ファイルが無い・鍵が無いなら次へ。JSON が読めない・値が SHAPES の外なら `ValueError`（黙って既定にしない）
-  - `choose(board_dir, shape: str, *, by: str, why: str) -> None` — `CHOICE_REL` を書く（`shape` は SHAPES の内、`by`・`why` は空でない。外れは `ValueError`）。後の振り分けの書き口
+  - `shape_at(board_dir) -> str` — 読む順: CHOICE_REL の `shape` → `START_REL` の `KEY` → `BEFORE`。ファイルが無い・鍵が無いなら次へ。JSON が読めない・値が SHAPES の外なら `ValueError`（黙って既定にしない）
+  - `choose(board_dir, shape: str, *, by: str, why: str) -> None` — CHOICE_REL を書く（`shape` は SHAPES の内、`by`・`why` は空でない。外れは `ValueError`）。後の振り分けの書き口
   - `plain(board_dir) -> bool` — `shape_at(board_dir) == "current"`
   - `entry.check_inputs` の返りに `"fix_shape"`（`word` の値。`ValueError` は `InputRefused`）。`r1/start.json` に載る（今の `keep` の道）
   - `entry.start`: 呼び直しで前の控えの `fix_shape` が今の値と違えば `InputRefused`。返り `out` に `"fix_shape"`。頭の行に `・修正の形: <形>`（入力が空なら `（既定）` を足す）
@@ -605,7 +605,7 @@ git commit -m "feat(works): 修正の形 current では修正案の欄を修正�
 **Files:**
 - Modify: `works/.shared/core/seat.py`（`G1_HEAD`・`G1_REPORT`・`G1_HEAD_SHA`・`G1_PATCH`・`g1_prompt`・`g1_section`）
 - Modify: `works/blk-fix/lib/fixrules.py`（`g1_values`、`prep` の g1 の分かれ）
-- Modify: `works/blk-fix/lib/tddloop.py`（`start` の頭の g1 の分かれ、`G1_NO_LOOP`）
+- Modify: `works/blk-fix/lib/tddloop.py`（`start` の頭の g1 の分かれ、G1_NO_LOOP）
 - Modify: `works/blk-fix/blk-fix.yaml`（節 `fix`・`fix-ruled` の `allowed_tools` に `Agent`、注記 1 行）
 - Modify: `works/tests/test_seat.py`・`works/tests/test_blk_fix.py`（`TestFixPrep` に 1 本）・`works/tests/test_blk_fix_tdd.py`（`TestStart` に 1 本）
 
@@ -669,7 +669,7 @@ git commit -m "feat(works): 修正の形 g1 では TDD の輪を飛ばし、修�
 **Files:**
 - Create: `works/dev/fixmeasure.py`
 - Create: `works/tests/test_fixmeasure.py`（FAST。一時の置き場に sqlite の偽の archon.db と偽の盤面を作る）
-- Modify: `works/tests/tiers.py`・`works/CHANGELOG.md`・`works/.shared/core/fixshape.py`（`recorded`・`FIXTURE_KEY`。preflight F6）・`works/.shared/core/fixture.py`（`adopted` が `recorded` を読む）・`works/.shared/core/seat.py`（`G1_PATCH` を 0 で終える。Task 7 の持ち越し）・`works/tests/test_fixshape.py`・`works/tests/test_seat.py`
+- Modify: `works/tests/tiers.py`・`works/CHANGELOG.md`・`works/.shared/core/fixshape.py`（`recorded`・FIXTURE_KEY。preflight F6）・`works/.shared/core/fixture.py`（`adopted` が `recorded` を読む）・`works/.shared/core/seat.py`（`G1_PATCH` を 0 で終える。Task 7 の持ち越し）・`works/tests/test_fixshape.py`・`works/tests/test_seat.py`
 
 **Interfaces:**
 - Consumes:
@@ -786,7 +786,7 @@ git commit -m "feat(works): 修正の形の腕ごとに作り直し・費用・�
 
 **前提:** 218 が取り込まれている。218 の計画と実装から引いた 3 つの名（下の本文は置き換え済み）:
 - 差分の審査の返答の 2 判定の欄と語: `deltamarks.KEYS` の `compliance`（語は `deltamarks.COMPLIANCE`）・`quality`（`deltamarks.QUALITY`）。欄の形は `deltamarks.FIELD_SCHEMA`。穴とは `face_key` で結ぶ。
-- 外れの機械の検査が修正の受け付けで呼ばれる 1 か所: `works/blk-fix/scripts/accept.py` の段 1d（`check_plan_scope` → `planscope.check`）。平の run は 220 と 218 の継ぎ目の直し（3e3abf0d）で照らさず、trace に `NO_PLAIN` を残す。
+- 外れの機械の検査が修正の受け付けで呼ばれる 1 か所: `works/blk-fix/scripts/accept.py` の段 1d（`check_plan_scope` → `planscope.check`）。平の run は 220 と 218 の継ぎ目の直し（3e3abf0d）で照らさず、trace に NO_PLAIN を残す。
 - 品質が落ちた時に手直しへ渡る道: 穴が義務（`p3.delta_owed`）になり、`refix.prep_fix(b, 1, repo)` が `refix1-brief.json` に `plan_items`・`compliance`（`deltamarks.fail_rows`）・`ruled_paths` を書く。
 - 平の run の準拠（持ち主の裁定）: current の修正役は修正案を見ないので、差分の審査の準拠は `not_applicable`。`refix._plan_items` が平の run で空を返し、審査役の brief・受け付けの照らし（`deltamarks.gaps`）・手直しの brief がそろって項目の無い run になる。
 
@@ -899,7 +899,7 @@ git commit -m "feat(works): 座の文に申し出の種類を名指し、測る�
 ## 決定の後（別の計画。今は作らない）
 
 - 入力から `g1`・`current` を外す: `fixshape.SHAPES` を `("af", "g3")` にし、外した語は `InputRefused`（「試しは済んだ」と名指す）。前の盤面の `current`・`g1` は読めるように `shape_at` だけ受ける。
-- 外す物: Task 6 の 4 つの切り替え・Task 7 の g1 の分かれ（`G1_NO_LOOP`・`g1_values`・`g1_section`・節 `fix`・`fix-ruled` の `Agent`）・柵の Agent の行。
+- 外す物: Task 6 の 4 つの切り替え・Task 7 の g1 の分かれ（G1_NO_LOOP・`g1_values`・`g1_section`・節 `fix`・`fix-ruled` の `Agent`）・柵の Agent の行。
 - 残す物: af（撤収の退路。■11）・g3・束・固定材料・測る関数。af の文は固定材料で通る状態に保つ。判定が `switch_to_af` なら `DEFAULT` を af に替える。
 - `import_from_g1` が在れば、勝った要素を G3 の節に取り込む依頼を 1 本起こす。
 
@@ -908,7 +908,7 @@ git commit -m "feat(works): 座の文に申し出の種類を名指し、測る�
 - 形を選ぶ口: `fixshape.choose(board_dir, shape, by=…, why=…)` が `r1/fix-shape.json` を書き、`shape_at` は入力より先にそれを読む（Task 1）。座・柵・束・current の切り替え・測る関数は全部 `shape_at` から引くので、選んだ形にそのまま従う。
 - 振り分けを置く所: 境の節 h-fix（`line_edge.edge` の at fix）の、`go` を決めた後・固定材料を写す前。判定の出力（直す義務の単位の数・食い違いの申し出・構造の目の単位 `structure-units.json` と独立設計の要否）がここで全部そろう。入力 `fix_shape` が空の時だけ選ぶ形にすれば、形を名指した run と固定材料の run（Task 5 は取り込みで選んだ形の控えを消す）は今と同じに動く。
 - 既定は変わらない: 振り分けが無ければ `fix-shape.json` は書かれず、入力（空なら g3）のまま。
-- SDD の道: 形の語を 1 つ足し（`SHAPES` に足す）、`denied_tools` の表と `seat.SEATS` に行を足す形で入る。g1 の分かれ（Task 7: 輪を飛ばす・修正役が下請けを回す・束が事後に当てる）が最も近い下敷き。writing-plans（今は借りる一覧の外）を使うかは 221 と 216 の取り決め。
+- SDD の道: 形の語を 1 つ足し（SHAPES に足す）、`denied_tools` の表と `seat.SEATS` に行を足す形で入る。g1 の分かれ（Task 7: 輪を飛ばす・修正役が下請けを回す・束が事後に当てる）が最も近い下敷き。writing-plans（今は借りる一覧の外）を使うかは 221 と 216 の取り決め。
 - 測る関数は形の語を表で持つので、新しい形の行もそのまま数えられる。`verdict` の決まりはこの試しの 4 つの腕のための物で、221 は自分の決まりを先に固定する。
 
 ## この計画が扱わない物

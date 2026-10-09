@@ -123,7 +123,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    - graph_map（required でない。印に旗 map を持つ起動だけ。持ち主 2026-10-07: 節ごとに選ぶ）: 工程の地図（同じ置き場の
      graphmap。全体のグラフと、この節の会話の席の ★ と、後の流れ）。地図の元は pack の入口（archon-plugin.json の entrypoints）の
      YAML の隣の <stem>.graph.json（作る時に開発の道具 dev/graphmap_build.py が書く。包みは YAML を読まない）。印を持つ元がちょうど 1 本で、元の
-     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（fixshape.START_REL）の実効で off の機能（features_cut。既定で
+     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（START_REL）の実効で off の機能（features_cut。既定で
      off の機能を含む。欄の無い前の版の控えは features_off）に graph_map が在る run は足さず、ほかの語は地図が切った物として
      描く。控えが無い・切符が無い起動は切り替えの分からない地図（[needs …] を残す）。設計 docs/plans/2026-10-07-graph-map.md
    経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code 2.1.283 は initialize が
@@ -162,12 +162,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    fence.run_place.skipped に理由を残し、作れなければ起こさない。TMPDIR は Claude Code が sandbox の中で書ける一時フォルダへ
    向けるので向けず、WORKS_DEV_HOME・XDG_CACHE_HOME は run をまたぐ共有の置き場なので向けない。allowWrite に `/` が在る
    起動（任せ先）・道具ゼロ・Bash の無い役・網を閉じた役・切符の無い起動は sandbox も env も変えない
-18. **形ごとの道具の柵**（印のある起動で、切符が在る時だけ。計画 220）: 切符の board の修正の形（fixshape.shape_at。形はいつも
-   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 と g3 の外の修正役
-   （AGENT_NODES）の `Agent`——を `permissions.deny` の後ろに足し、足した数を fence.shape_deny に残す（拒む物が無ければ鍵を
-   持たない）。形の控えが壊れている（読めない・語の外）なら、壊れた切符と同じく claude を起こさない（理由に fix_shape）。
-   deny は道具の呼びを拒むだけで、YAML の `skills:` が載せたスキルの一覧は system prompt に残る（拒まれた呼びが Archon の
-   events に tool_called として出うる。一覧を外すのは YAML の側）
+18. 欠番（形ごとの道具の柵だった。修正の形が g3 だけになり、座の節と修正役に拒む道具が無くなったので、2026-10-09 の掃除で消した）
 19. **run の明示の模型**（印のある起動だけ）: 段の YAML は AI の段の全部に `model:` を書く（持ち主 2026-10-06）ので、Archon の
    設定の模型（開発の殻 archon.sh が書く run の模型）は段に効かない。run の模型を明示した run（env の WORKS_DEV_MODEL が空で
    ない。archon.sh は既定を WORKS_DEV_MODEL に書き戻さないので、空でなければ利用者の明示。続き・答えの行は控えの値で同じ名を
@@ -250,7 +245,6 @@ import time
 import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-import fixshape
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
 import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
 import tree_run
@@ -338,7 +332,7 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?, unit?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, query_rule?, repo_deny?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、5 の読むだけの gh の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
@@ -772,17 +766,6 @@ def board_of(ticket_doc: Optional[dict]) -> Optional[str]:
     return os.path.normpath(board)
 
 
-def shape_deny(board_dir: Optional[str], node: str) -> Tuple[str, ...]:
-    """18. 盤面 board_dir の修正の形で印 node の役に拒む道具。切符が無ければ ()。形の控えが壊れていれば Unrecognised
-    （理由に fix_shape。呼び手は起動を拒む）"""
-    if board_dir is None:
-        return ()
-    try:
-        return fixshape.denied_tools(fixshape.shape_at(board_dir), node)
-    except ValueError as e:
-        raise Unrecognised(f"盤面の修正の形（{fixshape.KEY}）が読めない（{e}）") from None
-
-
 def run_place_of(ticket_doc: Optional[dict]) -> Optional[str]:
     """17. 切符の board の隣の run ごとの置き場（<board の親>/run-place）。切符が無ければ None。切符の board が絶対パスの文字列でなければ
     BadTicket（壊れた切符の理由を「切符が無い」に化かさず、起動を拒ませる）"""
@@ -828,10 +811,9 @@ def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Op
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
                repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None,
-               tools_deny: Sequence[str] = (), lane: Sequence[str] = (),
+               lane: Sequence[str] = (),
                output_command: Optional[str] = None) -> Tuple[List[str], dict]:
     """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない。
-    tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）。
     lane は 6c の単位の worktree の全部の綴り（SDK が sandbox の塊を渡した起動だけ allowWrite の後ろに足す）"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
@@ -856,8 +838,6 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
             fence["run_place"] = {"skipped": skipped}
     if repo:
         fence["repo_deny"] = add_deny(doc, repo)
-    if tools_deny:
-        fence["shape_deny"] = add_deny(doc, tools_deny)
     if no_post is not None:
         fence["no_post"] = add_deny(doc, no_post_rules(no_post))
     return _put_settings(argv, found[0] if found else None, doc), fence
@@ -1190,11 +1170,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
          run_place: Optional[Callable[[], Optional[str]]] = None,
          board: Optional[Callable[[], Optional[str]]] = None, output_command: Optional[str] = None) -> Plan:
-    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みと、18 の切符の board の修正の形の控えの
-    読み（fixshape.shape_at）だけ。書くのは旗 isolated と 17 の置き場の mkdir）。
+    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書くのは旗 isolated と 17 の置き場の
+    mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
-    board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。
+    board は切符の board（board_of の値。切符が無ければ None。単位の鍵と旗 lane の単位の worktree が読む）を返す関数。同じ切符の 1 回の読みを使う。
     write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。output_command は下請けの返答の
     記録のフックのコマンド（包みが渡す。無ければ足さない）。
     env は起動の env（本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
@@ -1332,11 +1312,10 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
                 raise Unrecognised(f"役の cwd の worktree の根が git から引けない（{cwd}）")
             own = [x for x in [*spellings(top), *(y for o in others for y in spellings(o))] if x not in own] + own
         board_place = run_place() if run_place else None
-        tools_deny = shape_deny(board() if board else None, node)
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
                                 write_command, repo_deny(cwd),
                                 (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None,
-                                tools_deny, spellings(lane) if lane is not None else (), output_command=output_command)
+                                spellings(lane) if lane is not None else (), output_command=output_command)
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own and NO_TREE_WRITE in marker.flags:
@@ -1544,7 +1523,8 @@ def query_rule(path: pathlib.Path = QUERY_RULE_SOURCE) -> str:
 # prompt のキャッシュが切れる）。required の行は作れない時に claude を起こさない（fail closed）。そうでない行は
 # fence.<名> = {skipped: 理由} を残して塊を足さずに起こす（足す物なので）。塊を 1 つも作らない起動は argv を替えない
 MAP_FEATURE = "graph_map"      # 入力 features_off で工程の地図を切る語（entry.FEATURES と同じ。test_graphmap が縛る）
-FEATURES_KEY = "features_off"  # start の控え（fixshape.START_REL）の切った機能の欄（entry.FEATURES_KEY と同じ）
+START_REL = "r1/start.json"   # 盤面の start の控え（entry.START_FILE の 1 周目。L2 なので entry は import しない。fixture も読む）
+FEATURES_KEY = "features_off"  # start の控え（START_REL）の切った機能の欄（entry.FEATURES_KEY と同じ）
 FEATURES_CUT_KEY = "features_cut"  # 同じ控えの実効で off の機能の欄（既定で off の機能を含む。entry.FEATURES_CUT_KEY と同じ）
 PACK = pathlib.Path(__file__).resolve().parents[2]   # works/（.shared/core/adapter.py の 2 つ上）。地図の元は入口の YAML の隣
 
@@ -1591,7 +1571,7 @@ def query_rule_block(launch: Launch) -> Block:
 def features_off_at(board_dir: str) -> Optional[List[str]]:
     """盤面の start の控えの実効で off の機能の語（欄 FEATURES_CUT_KEY。既定で off の機能を含む。欄の無い前の版の控えは、
     その版の既定が全部 on なので切った機能の欄 FEATURES_KEY）。控えが無ければ None（start の前）。読めない・形が違えば ValueError"""
-    path = pathlib.Path(board_dir) / fixshape.START_REL
+    path = pathlib.Path(board_dir) / START_REL
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

@@ -22,8 +22,6 @@
 #   （既定。WORKS_DEV_ADAPTER=0 か空で包みを外すと adapter=optional）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
 #   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
 #   未設定・空は今どおり。1 の外の値（on など）だけが、何かを作る前に 1 行で止まる（終了コード 2）。
-#   WORKS_FIX_SHAPE は修正の形: 空でなければ current・af・g3・g1 のどれかで、入力 fix_shape=<値> を渡す。未設定・空は
-#   渡さない（ラインの既定 g3）。4 つの外の値は、何かを作る前に 1 行で止まる（終了コード 2）。
 #   WORKS_FIX_FIXTURE は固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した物）: 空でなければ在る
 #   フォルダかを確かめ、入力 fix_fixture=<絶対パス> を渡す（同じ木・同じ依頼の run を修正から始める）。無いフォルダは、何かを
 #   作る前に 1 行で止まる（終了コード 2）。未設定・空は渡さない。
@@ -54,13 +52,6 @@ else
     "" | 1) ;;
     *)
       echo "dogfood.sh: WORKS_DESIGN_ONLY は 1（設計だけの run）か空（今どおり）。受けた値: ${WORKS_DESIGN_ONLY}" >&2
-      exit 2
-      ;;
-  esac
-  case "${WORKS_FIX_SHAPE:-}" in
-    "" | current | af | g3 | g1) ;;
-    *)
-      echo "dogfood.sh: WORKS_FIX_SHAPE は current・af・g3・g1 のどれか（空はラインの既定 g3）。受けた値: ${WORKS_FIX_SHAPE}" >&2
       exit 2
       ;;
   esac
@@ -207,7 +198,6 @@ TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
 set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
-if [ -n "${WORKS_FIX_SHAPE:-}" ]; then set -- "$@" --input fix_shape="$WORKS_FIX_SHAPE"; fi
 if [ -n "${WORKS_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_FEATURES_OFF"; fi
 if [ -n "${WORKS_FEATURES_ON:-}" ]; then set -- "$@" --input features_on="$WORKS_FEATURES_ON"; fi
 if [ -n "$FIX_FIXTURE" ]; then set -- "$@" --input fix_fixture="$FIX_FIXTURE"; fi

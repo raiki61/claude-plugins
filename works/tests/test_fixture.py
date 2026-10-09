@@ -26,7 +26,6 @@ sys.path.insert(0, str(TESTS))
 
 import test_blk_fix as tbf  # noqa: E402
 import entry  # noqa: E402
-import fixshape  # noqa: E402
 import fixture  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
@@ -55,9 +54,9 @@ class FixtureBase(tbf.BoardCase):
         return man, self.board.parent / fixture.DIR
 
     def inputs(self, repo, **raw):
-        """今の run の入力（線の start と同じ手順: check_inputs の返りから start の控えに残す欄）。fix_shape は af"""
+        """今の run の入力（線の start と同じ手順: check_inputs の返りから start の控えに残す欄）"""
         given = {"request": str(self.tmp / "request.json"), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
-                 "adapter": "", "policy_md": "", "fix_shape": "af", **raw}
+                 "adapter": "", "policy_md": "", **raw}
         return entry.adopt_inputs(entry.check_inputs(given, repo))
 
     def adopt(self, src, repo, new_board=None, raw=None, **kw):
@@ -77,16 +76,17 @@ class FixtureBase(tbf.BoardCase):
 
 class FixtureCase(FixtureBase):
     def test_capture_then_adopt_elsewhere_rewrites_roots(self):
-        """写した盤面を別の置き場・別の commit（同じ木）で取り込む → 控えの run_id・形・出どころが今の値、古い盤面・対象の根・
+        """写した盤面を別の置き場・別の commit（同じ木）で取り込む → 控えの run_id・出どころが今の値、古い盤面・対象の根・
         HEAD の字がどのファイルにも残らず、p3.fix が待つ"""
         man, src = self.captured()
         other_repo = self.clone_same_tree()
         new_board = self.tmp / "b2" / "board"
         doc = self.adopt(src, other_repo, new_board)
-        self.assertEqual((doc["run_id"], doc["fix_shape"], doc["fixture"]["source_run"]), ("run-2", "af", "run-1"))
+        self.assertEqual((doc["run_id"], doc["fixture"]["source_run"]), ("run-2", "run-1"))
+        self.assertNotIn("fix_shape", doc)
         self.assertEqual(doc["fixture"]["manifest_sha256"],
                          hashlib.sha256((src / fixture.MANIFEST).read_bytes()).hexdigest())
-        self.assertEqual(json.loads((new_board / fixshape.START_REL).read_text(encoding="utf-8")), doc)
+        self.assertEqual(json.loads((new_board / fixture.START_REL).read_text(encoding="utf-8")), doc)
         texts = [p.read_text(encoding="utf-8", errors="ignore") for p in new_board.rglob("*") if p.is_file()]
         for old in (str(self.board), str(self.board.parent), str(self.repo), man["head"]):
             self.assertFalse(any(old in t for t in texts), old)
@@ -185,15 +185,12 @@ class FixtureCase(FixtureBase):
         self.assertEqual(man["files"], copied)
         self.assertIn(f"{fixture.COPY}/state.json", man["files"])
 
-    def test_adopt_drops_router_choice(self):
-        """写す前の盤面に振り分けの控え（g1）→ 取り込んだ盤面の形は今の入力 af（腕の形は今の入力で決める）"""
-        self.fix_ready()
-        fixshape.choose(self.board, "g1", by="test", why="振り分けの控えを写しから消す")
-        fixture.capture(self.board, self.repo, run_id="run-1", pack_root=PACK)
-        new_board = self.tmp / "b2" / "board"
-        self.adopt(self.board.parent / fixture.DIR, self.clone_same_tree(), new_board)
-        self.assertFalse((new_board / fixshape.CHOICE_REL).exists())
-        self.assertEqual(fixshape.shape_at(new_board), "af")
+    def test_start_record_place_is_one(self):
+        """start の控えの置き場は包みの START_REL 1 つ（1 周目の entry.START_FILE）。固定材料の印の読み口は adopted だけ"""
+        import adapter
+        self.assertEqual(fixture.START_REL, adapter.START_REL)
+        self.assertEqual(fixture.START_REL, f"r1/{entry.START_FILE}")
+        self.assertIsNone(fixture.adopted(self.tmp / "nowhere"))
 
     def test_adopt_refuses_other_tree(self):
         """種の木にファイルを 1 つ足して commit → 拒む（tree）。盤面は作らない"""
@@ -239,14 +236,14 @@ class FixtureCase(FixtureBase):
 
     def test_adopt_refuses_other_request_or_inputs(self):
         """依頼の文が違う・start の控えの入力の欄（test_cmd・final_gate など）が今の入力と違う → 拒む（何が違うかを名指す）。
-        今の値にするのは fix_shape・run_id・request_file・fix_fixture だけ"""
+        今の値にするのは run_id・request_file・fix_fixture・features_off・features_on だけ"""
         _, src = self.captured()
         other = self.clone_same_tree()
         self.refused(src, other, "依頼", request_text=REQUEST_TEXT + " ")
         self.refused(src, other, "test_cmd", raw={"test_cmd": "python3 -m unittest"})
         self.refused(src, other, "final_gate", raw={"final_gate": "when_needed"})
         self.refused(src, other, "adapter", raw={"adapter": "optional"})
-        self.assertEqual(self.adopt(src, other, raw={"fix_shape": "g1", "fix_fixture": str(src)})["fix_shape"], "g1")
+        self.assertEqual(self.adopt(src, other, raw={"fix_fixture": str(src)})["fix_fixture"], str(src))
 
     def test_adopt_refuses_non_empty_board(self):
         """取り込む先の盤面の置き場が空でない → 拒む（中身を書かない）"""
@@ -273,7 +270,7 @@ class FixtureStartCase(FixtureBase):
 
     def raw(self, src, **kw):
         return {"request": str(self.tmp / "request.json"), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
-                "adapter": "", "policy_md": "", "fix_shape": "af", "fix_fixture": str(src), **kw}
+                "adapter": "", "policy_md": "", "fix_fixture": str(src), **kw}
 
     def test_start_from_fixture(self):
         """start が写しを取り込み、p3.fix が待つ盤面と今と同じ形の返りを出す（CI の役は起こさない）。trace に取り込みの行"""
@@ -281,19 +278,18 @@ class FixtureStartCase(FixtureBase):
         other = self.clone_same_tree()
         new_board = self.tmp / "b2" / "board"
         out = entry.start(new_board, other, self.raw(src), run_id="run-2")
-        first = json.loads((self.board / fixshape.START_REL).read_text(encoding="utf-8"))
+        first = json.loads((self.board / fixture.START_REL).read_text(encoding="utf-8"))
         self.assertTrue(out["ok"])
-        self.assertEqual((out["ci_role_go"], out["pr_go"], out["fix_shape"]), (False, first["pr_go"], "af"))
+        self.assertEqual((out["ci_role_go"], out["pr_go"]), (False, first["pr_go"]))
         self.assertEqual(out["base_rev"], linekit.git(other, "rev-parse", "HEAD"))
         self.assertEqual(set(out), {"ok", "entry", "base_rev", "test_cmd", "policy_paste", "policy_path", "final_gate", "adapter",
-                                    "thickness", "gates", "fix_shape", "ci_role_go", "pr_go", "head_line", *entry.FEATURES})
+                                    "thickness", "gates", "ci_role_go", "pr_go", "head_line", *entry.FEATURES})
         self.assertIn("固定材料", out["head_line"])
         self.assertIn("p3.fix", entry.open_board(new_board).ready())
         self.assertEqual(len(trace_ops(new_board, fixture.TRACE_OP)), 1)
-        self.assertEqual(fixshape.shape_at(new_board), "af")
 
     def test_start_from_fixture_may_switch_features(self):
-        """固定材料から始める run は切る機能・入れる機能（features_off・features_on）を写した run と替えてよい（腕と同じく今の値にする欄。修正の段の
+        """固定材料から始める run は切る機能・入れる機能（features_off・features_on）を写した run と替えてよい（今の値にする欄。修正の段の
         機能を切って同じ所から比べる）。出口と控えは今の値"""
         _, src = self.captured()
         other = self.clone_same_tree()
@@ -302,7 +298,7 @@ class FixtureStartCase(FixtureBase):
                           run_id="run-3")
         self.assertEqual((out["fix_lanes"], out["tdd_lanes"], out["judge_verify"]), ("off", "on", "on"))
         self.assertIn("機能: fix_lanes off・review_tree auto", out["head_line"])
-        doc = json.loads((new_board / fixshape.START_REL).read_text(encoding="utf-8"))
+        doc = json.loads((new_board / fixture.START_REL).read_text(encoding="utf-8"))
         self.assertEqual((doc["features_off"], doc["features_on"]), (["fix_lanes"], ["judge_verify"]))
 
     def test_start_resume_with_fixture_skips_adopt(self):
@@ -315,7 +311,7 @@ class FixtureStartCase(FixtureBase):
         self.assertTrue(again["ok"])
         self.assertEqual(len(trace_ops(new_board, fixture.TRACE_OP)), 1, "呼び直しは取り込み直さない")
         with self.assertRaises(entry.InputRefused):
-            entry.start(new_board, other, self.raw(src, fix_shape="g1"), run_id="run-2")
+            entry.start(new_board, other, self.raw(src, test_cmd="python3 -m unittest"), run_id="run-2")
 
     def test_start_refuses_bad_fixture_without_board(self):
         """違う依頼の写し → InputRefused（盤面を作らない）"""

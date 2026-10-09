@@ -62,7 +62,6 @@ FAST = frozenset({
     "test_hostgh",          # run の中で利用者の gh を継ぐ口（dev/hostgh.py）: 関数を直に呼ぶ・偽の gh と sh の口を子で起こすだけ（git・盤面なし）
     "test_carry_ci",        # run の後の CI の赤を次の依頼の prior_failures へ（ghreads.carry_ci）: 関数を直に呼ぶ・ghreads.py を python3 -I で起こすだけ（git・盤面なし）
     "test_depth",           # 単位ごとの深さ（darkfactory/lib/depth.py）: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
-    "test_fixshape",        # 修正の形の読み口: 一時の置き場の JSON を読み書きするだけ（盤面・git・子のプロセスなし）
     "test_holeties",        # 差分の審査の穴の枝の名札（holeties と refix.hole_ties）: 関数を直に呼ぶ・偽の盤面（一時の置き場のファイル）だけ（git・子のプロセスなし）
     "test_judge_verify",    # 判定の根を開く（blk-judge/lib/judgeverify.py・申し送りの節・報告の行）: 偽の盤面で関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_ripple",          # 波及の一覧（blk-plan/lib/ripple.py）: 種の git は gitkit の型の写し・子のプロセスは git grep だけ

@@ -56,9 +56,6 @@ inputs:
   design_only:
     default: ""
     description: 設計だけの run か。空は今どおり。true は修正前の関所を項目の有無に関わらず開けて止める（殻の WORKS_DESIGN_ONLY=1）。continue で今どおり修正へ進み、stop で報告へ進む（判定・修正案・事前審査・独立設計が報告の見る所に並ぶ）。直す義務が 0 件の周は関所が走らず、修正もしない。事前審査の壁打ちが止まった run も、入力に依らず同じ行で止まる
-  fix_shape:
-    default: ""
-    description: 修正の形。current（比べの基準。修正案の欄を修正の段で使わない）・af（works 自身の文で回す今の形）・g3（af に借りたスキルの座を足した形）・g1（修正役 1 つが SDD の型で下請けを回す形）のどれか。空は既定の g3。start が確かめて盤面の控え r1/start.json に置き、呼び直しで替えれば止める
   features_off:
     default: ""
     description: >-
@@ -79,7 +76,7 @@ inputs:
       （固定材料の run は替えてよい）
   fix_fixture:
     default: ""
-    description: 固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した盤面と控え。相対なら対象の根から）。空は今どおり。在れば start が写しを取り込み、判定と修正案を作り直さずに修正から始める。木・依頼・test_cmd が写した時と違う・写しを書き換えた なら止める。腕（fix_shape）ごとに同じ所から回して比べるのに使う
+    description: 固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した盤面と控え。相対なら対象の根から）。空は今どおり。在れば start が写しを取り込み、判定と修正案を作り直さずに修正から始める。木・依頼・test_cmd が写した時と違う・写しを書き換えた なら止める。同じ所から回し直して比べるのに使う
   cleaned_runs:
     default: ""
     description: 殻（use.sh start）が Archon を起こす前に片付けた同じ対象の前の run（「<id>（<状態>）」を・で並べた 1 行）。報告の冒頭 2 に 1 行で出す。空なら出さない
@@ -122,7 +119,6 @@ nodes:
       lang: $INPUTS.lang
       unattended: $INPUTS.unattended
       design_only: $INPUTS.design_only
-      fix_shape: $INPUTS.fix_shape
       fix_fixture: $INPUTS.fix_fixture
       features_off: $INPUTS.features_off
       features_on: $INPUTS.features_on
@@ -140,7 +136,6 @@ nodes:
         adapter: {type: string}
         thickness: {type: string}
         gates: {type: string}
-        fix_shape: {type: string}
         fix_lanes: {type: string, enum: ["on", "off"]}      # 機能（入力 features_off・features_on と既定）ごとの on・off（entry.feature_words）
         graph_map: {type: string, enum: ["on", "off"]}      # ブロックへは写さない（包みが start の控えの features_off を読む）
         judge_verify: {type: string, enum: ["on", "off"]}

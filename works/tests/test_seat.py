@@ -11,7 +11,7 @@
 - skill の座はスキルの名・Skill の道具・効く所・効かない所・読み替えを持つ
 - prompt の座は 216 の fill で穴を全部埋める（残りの検査は座の本文だけに当て、読み替えの全文には当てない）。値が無ければ ValueError
 - 写しが固定（pin）と 1 バイトでも違えば ValueError（af の文へ黙って逃げない。Review Focus 5）
-- 座の skill の節は fixshape.SKILL_NODES と同じで、YAML で skills: と Skill を宣言する（prompt の座の節は skills: を持たない）。
+- 座の skill の節は YAML で skills: と Skill を宣言する（prompt の座の節は skills: を持たない）。
   YAML は blk-fix（tdd・fix・fix-ruled）・blk-delta（review）・blk-refix（refix・refix2）
 - 差分の審査役（1 回目だけ）の座（task-review）は型の後ろに判定の語の欄の表（型の語がどの欄のどの値に当たるか。欄の値は
   指示書 delta-review.md の決まりで返答の行から決まる）を持ち、勝つ物の段落は指示書を名指す。型の読み方の決まり（差分の外を
@@ -21,7 +21,7 @@
   と g1 の修正役の節に載り、ほかの座には載らない
 - 修正の形 g1 の節（g1_section）: 見出し・Agent・項目ごとの実装役と審査役のファイル・読み替えを持ち、読み替えの DISPATCH を
   名指して上書きする（Preflight F18）。下請けのファイルの型（g1_prompt）は穴を残さず、works の決まりと検索語の規律の塊を持つ
-  （run 221 の R4 の 3）。YAML で Agent を持つ節は fixshape.AGENT_NODES と同じ
+  （run 221 の R4 の 3）。YAML で Agent を持つ節は修正役とその並べの枝の役（seat.AGENT_NODES）だけ
 """
 import json
 import pathlib
@@ -44,7 +44,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import adapter  # noqa: E402
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
-import fixshape  # noqa: E402
 import rolekit  # noqa: E402
 import seat  # noqa: E402
 import spseam  # noqa: E402
@@ -84,14 +83,11 @@ class SeatCase(unittest.TestCase):
     def values(self):
         return {p: f"<{i}>" for i, p in enumerate(spseam.load_seams()["implementer"]["placeholders"])}
 
-    def test_section_empty_unless_g3(self):
-        for shape in ("current", "af", "g1"):
-            self.assertEqual(seat.section("tdd", shape), "")
-            self.assertEqual(seat.section("fix", shape, self.values()), "")
-        self.assertEqual(seat.section("rule", "g3"), "")              # 座の無い節
+    def test_section_empty_for_nodes_without_a_seat(self):
+        self.assertEqual(seat.section("rule"), "")              # 座の無い節
 
     def test_tdd_seat_names_skill_applies_and_overlay(self):
-        text = seat.section("tdd", "g3")
+        text = seat.section("tdd")
         s = spseam.load_seams()["tdd"]
         for w in (seat.HEAD, "Skill", "test-driven-development", *s["applies"], *s["not_applies"],
                   rolekit.skill_overlay().strip()):
@@ -102,28 +98,28 @@ class SeatCase(unittest.TestCase):
     def test_both_seat_kinds_share_the_wins_paragraph(self):
         """借りた文に何が勝つかの段落は skill の座と prompt の座で同じ 1 つ。skill の座はその前に Skill の道具で読めの 1 文だけを足す"""
         self.assertEqual(seat.WINS, "この指示書の段の約束（返す JSON・機械の関門・段の順）と下の読み替えは、借りた文に勝つ")
-        tdd = own_part(seat.section("tdd", "g3"))
+        tdd = own_part(seat.section("tdd"))
         self.assertIn(f"Skill の道具で `test-driven-development` を読み、その手順で進めよ。{seat.WINS}", tdd)
-        fix = own_part(seat.section("fix", "g3", self.values()))
+        fix = own_part(seat.section("fix", self.values()))
         self.assertEqual(fix.split("\n\n")[1], seat.WINS, "prompt の座は見出しの次がその段落")
         for text in (tdd, fix):
             self.assertEqual(text.count(seat.WINS), 1)
 
     def test_fix_seat_fills_implementer(self):
-        text = seat.section("fix", "g3", self.values())
+        text = seat.section("fix", self.values())
         self.assertIn("<1>", text)
         own = own_part(text)   # 残りの検査は座の本文だけに当てる（読み替えの全文には当てない。Preflight F8）
         self.assertNotRegex(own, HOLE)
         self.assertNotIn("[task name]", own)
         self.assertIn("implementer-prompt.md", own)
-        self.assertEqual(seat.section("fix-ruled", "g3", self.values()), text, "2 回目の修正役も同じ型")
+        self.assertEqual(seat.section("fix-ruled", self.values()), text, "2 回目の修正役も同じ型")
         with self.assertRaises(ValueError):
-            seat.section("fix", "g3", None)
+            seat.section("fix", None)
 
     def test_fix_seat_refuses_broken_pin(self):
         with mock.patch.object(seat.spseam, "fill", side_effect=ValueError("implementer-prompt.md: 中身が固定と違う")):
             with self.assertRaises(ValueError):
-                seat.section("fix", "g3", {"[BRIEF_FILE]": "x"})
+                seat.section("fix", {"[BRIEF_FILE]": "x"})
 
     def test_one_byte_off_the_pin_refuses_every_seat(self):
         """本物の写しを一時の置き場に写し、1 バイトだけ変えると、座は名指して ValueError（Preflight F9）"""
@@ -139,7 +135,7 @@ class SeatCase(unittest.TestCase):
                 p.write_bytes(bytes(raw))
                 with mock.patch.object(spseam, "BORROW_DIR", borrow):
                     with self.assertRaisesRegex(ValueError, re.escape(rel)):
-                        seat.section(node, "g3", self.values())
+                        seat.section(node, self.values())
 
     def review_values(self):
         return {p: f"<{i}>" for i, p in enumerate(spseam.load_seams()["task-review"]["placeholders"])}
@@ -171,14 +167,14 @@ class SeatCase(unittest.TestCase):
 
     def test_review_seat_has_filled_part_and_table(self):
         """差分の審査役の座（g3）は task-review の型の 6 つの穴を埋めた文と、その後ろの語の対応の表を持つ。2 回目の審査役も同じ型"""
-        text = seat.section("review", "g3", self.review_values())
+        text = seat.section("review", self.review_values())
         own = own_part(text)
         self.assertNotRegex(own, HOLE)
         self.assertIn("task-reviewer-prompt.md", own)
         self.assertIn("✅ Spec compliant", own)
         self.assertIn(seat.words_table("task-review"), own)
         self.assertLess(own.index("<5>"), own.index(seat.words_table("task-review")), "表は型の後ろ")
-        self.assertEqual(seat.section("review2", "g3", self.review_values()), "", "2 回目の審査役には座が無い（返答に判定の欄が無い）")
+        self.assertEqual(seat.section("review2", self.review_values()), "", "2 回目の審査役には座が無い（返答に判定の欄が無い）")
         wins = own.split("\n\n")[1]
         self.assertIn("commands/delta-review.md", wins, "勝つ物の段落は座のファイルの外の指示書を名指す")
         self.assertIn(seat.WINS_OF["review"], own)
@@ -207,8 +203,6 @@ class SeatCase(unittest.TestCase):
             p.write_text(p.read_text(encoding="utf-8").replace("Inspect code outside", "Inspect any code outside"), encoding="utf-8")
             got = spseam.seam_problems(src, item, spseam.load_seams(), overlay)
             self.assertTrue(any("CRAWL" in g for g in got), got)
-        for shape in ("current", "af", "g1"):
-            self.assertEqual(seat.section("review", shape, self.review_values()), "")
 
     def test_divergence_hint_names_every_kind(self):
         """手引きは状態の語 NEEDS_CONTEXT・BLOCKED と works の語 divergence を名指し、211 の種類（conflict.DIV_KINDS）の 1 語に 1 行
@@ -226,30 +220,27 @@ class SeatCase(unittest.TestCase):
         g3 でない形には載らない"""
         for node in ("fix", "fix-ruled"):
             with self.subTest(node):
-                text = seat.section(node, "g3", self.values())
+                text = seat.section(node, self.values())
                 own = own_part(text)
                 self.assertEqual(own.count(seat.DIVERGENCE_HINT), 1)
                 self.assertLess(own.index("implementer-prompt.md"), own.index(seat.DIVERGENCE_HINT))
         for node, values in (("tdd", None), ("review", self.review_values()), ("refix", None), ("refix2", None)):
             with self.subTest(node):
-                self.assertNotIn(seat.DIVERGENCE_HINT, seat.section(node, "g3", values))
-        for shape in ("current", "af", "g1"):
-            self.assertNotIn(seat.DIVERGENCE_HINT, seat.section("fix", shape, self.values()))
+                self.assertNotIn(seat.DIVERGENCE_HINT, seat.section(node, values))
 
     def test_refix_seat_names_receiving_review(self):
-        """手直しの役の座（g3）は receiving-code-review を Skill の道具で読ませ、効く所・効かない所と読み替えを持つ"""
+        """手直しの役の座は receiving-code-review を Skill の道具で読ませ、効く所・効かない所と読み替えを持つ"""
         s = spseam.load_seams()["receiving-review"]
         for node in ("refix", "refix2"):
             with self.subTest(node):
-                text = seat.section(node, "g3")
+                text = seat.section(node)
                 for w in (seat.HEAD, "Skill", "receiving-code-review", *s["applies"], *s["not_applies"]):
                     self.assertIn(w, text)
-                self.assertEqual(seat.section(node, "af"), "")
 
-    def test_skill_seats_are_the_fenced_nodes(self):
+    def test_skill_seats_are_the_skill_nodes(self):
         seams = spseam.load_seams()
         self.assertTrue(set(seat.SEATS.values()) <= set(seams))
-        self.assertEqual({n for n, s in seat.SEATS.items() if seams[s]["use_as"] == "skill"}, fixshape.SKILL_NODES)
+        self.assertEqual({n for n, s in seat.SEATS.items() if seams[s]["use_as"] == "skill"}, seat.SKILL_NODES)
 
     def test_yaml_skill_seats_declare_the_skill(self):
         """座の skill の節は YAML で skills: にちょうどそのスキルを持ち、allowed_tools に Skill を持つ。prompt の座の節は skills: を持たない
@@ -268,15 +259,15 @@ class SeatCase(unittest.TestCase):
                 else:
                     self.assertNotIn("skills", node)
                     self.assertNotIn("Skill", node["allowed_tools"])
-        # 修正役の節（fix・fix-ruled）は Agent を持つ（g1・g3 の下請け）。TDD の輪の役（tdd・tdd-rest・並べの枝の役）は持たない
-        # （並べは枝ごとの Archon の節。docs/plans/2026-10-07-lane-nodes.md）。Agent を持つ節の集まりは柵の表 AGENT_NODES と同じ
+        # 修正役の節（fix・fix-ruled）は Agent を持つ（単位ごとの下請け）。TDD の輪の役（tdd・tdd-rest・並べの枝の役）は持たない
+        # （並べは枝ごとの Archon の節。docs/plans/2026-10-07-lane-nodes.md）。Agent を持つ節の集まりは seat.AGENT_NODES
         for nid in ("fix", "fix-ruled"):
             self.assertIn("Agent", find_node(nodes, nid)["allowed_tools"], nid)
-        self.assertEqual({n["id"] for n in all_nodes(nodes) if "Agent" in (n.get("allowed_tools") or [])}, set(fixshape.AGENT_NODES))
+        self.assertEqual({n["id"] for n in all_nodes(nodes) if "Agent" in (n.get("allowed_tools") or [])}, seat.AGENT_NODES)
 
 
 class G1Case(unittest.TestCase):
-    """修正の形 g1: 修正役が SDD の型で下請けを回す節と、下請けに渡すファイルの型"""
+    """修正役が SDD の型で単位ごとに下請けを回す節と、下請けに渡すファイルの型（依頼 243 の 2）"""
 
     def test_g1_section_lists_files_and_overlay(self):
         rows = [{"item": 1, "impl_file": "/b/r1/g1-impl-1.md", "review_file": "/b/r1/g1-review-1.md", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]
@@ -294,31 +285,19 @@ class G1Case(unittest.TestCase):
             self.assertIn(name, seat.G1_OVERRIDES)
         self.assertLess(text.index(seat.G1_OVERRIDES), text.index(rolekit.skill_overlay().splitlines()[0]))
 
-    def test_g3_section_names_its_shape_and_the_loop_units(self):
-        """既定の形 g3 の修正役も同じ下請けの節で単位ごとに新しい会話を起こす（依頼 243 の 2）。見出しと読み替えの上書きは形を
-        名指し、輪で直した単位には下請けを起こさない旨（G1_LOOP_NOTE）を持つ。g1 の節は前と同じ見出しで、その旨を持たない"""
+    def test_section_names_the_loop_units_and_no_shape(self):
+        """修正役の節は輪で直した単位には下請けを起こさない旨（G1_LOOP_NOTE）を持ち、消した修正の形の語を名指さない"""
         rows = [{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]
-        g3 = seat.g1_section(rows, "g3")
-        self.assertTrue(g3.startswith("## 下請けを回す（修正の形 g3）"))
-        self.assertIn("修正の形 g3 のこの修正役", g3)
-        self.assertNotRegex(g3, r"修正の形 g1(?!・g3)")   # 読み替えの「g1・g3」の外に g1 を名指さない
-        self.assertIn(seat.G1_LOOP_NOTE, g3)
-        g1 = seat.g1_section(rows)
-        self.assertEqual(g1, seat.g1_section(rows, "g1"))
-        self.assertTrue(g1.startswith(seat.G1_HEAD))
-        self.assertNotIn(seat.G1_LOOP_NOTE, g1)
-        with self.assertRaises(ValueError):
-            seat.g1_section(rows, "af")   # 下請けを起こさない形（包みが Agent を拒む）には組まない
+        text = seat.g1_section(rows)
+        self.assertTrue(text.startswith(seat.G1_HEAD))
+        self.assertIn(seat.G1_LOOP_NOTE, text)
+        self.assertNotIn("修正の形", text)
+        self.assertNotIn("修正の形", seat.g1_prompt("implementer", {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}))
 
     def test_g1_section_hands_off_earlier_items(self):
         """2 つ目からの項目の実装役には、前の項目の実装役の報告から変えたファイルと緑にしたテストを渡す（会話の履歴でなく引き継ぎ）"""
         text = seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/g1-1.patch"}])
         self.assertIn(seat.G1_HANDOFF_HEAD, text)
-
-    def test_g3_prompts_name_their_shape(self):
-        values = {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}
-        self.assertIn("修正の形 g3 の下請け", seat.g1_prompt("implementer", values, "g3"))
-        self.assertEqual(seat.g1_prompt("implementer", values), seat.g1_prompt("implementer", values, "g1"))
 
     def test_g1_section_items_in_order(self):
         rows = [{"item": n, "impl_file": f"/b/i{n}", "review_file": f"/b/r{n}", "base": "abc123", "patch": f"/a/g1-{n}.patch"}
@@ -434,7 +413,7 @@ class G1Case(unittest.TestCase):
     def test_g3_section_has_no_parallel_paragraph(self):
         """修正役の下請けは run の作業ツリーで順に働く（項目の並べは修正役の外の枝の輪。前の形の並べの段落・当てるコマンドは外した）"""
         rows = [{"item": 1, "impl_file": "i1", "review_file": "r1", "base": "b1", "patch": "/p/g1-1.patch"}]
-        text = seat.g1_section(rows, "g3")
+        text = seat.g1_section(rows)
         self.assertFalse(hasattr(seat, "G1_PARALLEL_OF"))
         self.assertNotIn("1 つのメッセージ", text)
         self.assertEqual(text.count('top="$(git rev-parse --show-toplevel)"'), 1)
@@ -448,9 +427,9 @@ class G1Case(unittest.TestCase):
 
     def test_tree_prompts_keep_the_sub_inside_its_worktree(self):
         values = {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}
-        text = seat.g1_prompt("implementer", values, "g3", tree="/rp/units/item-1")
+        text = seat.g1_prompt("implementer", values, tree="/rp/units/item-1")
         self.assertIn(seat.G1_TREE_RULE_OF.format(tree="/rp/units/item-1"), text)
-        self.assertNotIn("/rp/units", seat.g1_prompt("implementer", values, "g3"))
+        self.assertNotIn("/rp/units", seat.g1_prompt("implementer", values))
 
     def test_g1_prompt_refuses_unreadable_query_rule(self):
         with mock.patch.object(seat.adapter, "query_rule", side_effect=adapter.Unrecognised("頭の行が無い")):

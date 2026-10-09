@@ -10,11 +10,12 @@
 殻の家の下の家を使い、測る側の env の WORKS_ADAPTER_HOME と違う）。盤面も Archon も家を書かないので、省けば測る側の env の家。
 
 語:
-- 腕: 修正の形（fixshape.SHAPES の current・af・g3・g1）ごとの run。固定材料: 同じ依頼を同じ所から始める盤面の写し
-  （行の fixture は元の run の id。固定材料の印は fixshape.recorded が読む）。
+- 腕: 修正の形（ARMS の current・af・g3・g1）ごとの run。2026-10-09 に形は g3 だけになった（入力 fix_shape を消した）ので、
+  形は前の版の盤面の start の控えの鍵 SHAPE_KEY から読み、鍵の無い盤面は g3（_shape_at。ここだけが前の版の盤面を読む）。
+  固定材料: 同じ依頼を同じ所から始める盤面の写し（行の fixture は元の run の id。固定材料の印は fixture.adopted が読む）。
 - 修正の工程: Archon の出来事の step_name の頭が FIX_STAGE の節。費用と時間は AI の節（data.node.kind が agent）だけを足す
   （輪の節 loop_group の node_completed は中の AI の節の費用の和を持つので、足すと 2 重になる。実物の archon.db で見た）。
-- 混ざり（contamination）: 修正の工程の節の tool_called のうち、その形でその節に拒む道具（fixshape.denied_tools。節は
+- 混ざり（contamination）: 修正の工程の節の tool_called のうち、その形でその節に拒む道具（_denied。前の版の包みの柵の表。節は
   step_name の最後の区切り）の呼び出しで、走った物。柵が拒んだ呼び出しも skills: の一覧に残るので tool_called に出る（Task 2 の
   審査 M5）。走ったかの見分けは道具ごと:
   - Skill: 同じ tool_call_id の tool_completed の tool_outcome が REFUSED（error）なら refused に数え、混ざりにしない。完了の行の
@@ -23,7 +24,7 @@
     （下請けが起きた印）の数までを走った物、残りを refused に数える。
   permissions.deny の素の Skill・Agent が実地で拒むかはまだ確かめていない（Task 3 の審査）——af・current・g1 の行で走った Skill
   は混ざりに出る（最初の試しの run で refused に出るかを見る。下の FIELDS_CHECKED）。
-- 記録の欠け（record_gaps）: 盤面を開けない・形の控えが読めない・start の控えに fix_shape が無い（前の版の盤面。形は af と読む）・
+- 記録の欠け（record_gaps）: 盤面を開けない・形の控えが読めない・
   tdd・tdd-rest の節の node_completed の数と輪の calls の行（並べを締めた節 tdd-join の行 lanes を除く）の数が違う・並べの枝の役
   tdd-lane-<n> の node_completed の数と枝の控えの calls の行（状態の lanes.calls）の数が違う・tdd の項目の単位（輪に渡した単位のうち）に輪の単位の行が無い（g1 は
   輪を回さないので見ない）・平の run でないのに修正案の欄が在って brief の控えが無い・修正の工程の AI の節の費用が取れない・g1 で
@@ -109,7 +110,7 @@ import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import fixgates  # noqa: E402
-import fixshape  # noqa: E402
+import fixture  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import report  # noqa: E402
@@ -122,7 +123,11 @@ FIX_STAGE = ("fixing__", "reviewing__", "refixing__")
 MIN_FIXTURES = 3
 COST_MARGIN = 1.10
 G1_MARGIN = 0.90
-ARMS = fixshape.SHAPES
+# 修正の形（腕）の語と前の版の包みの柵の表（2026-10-09 に消した .shared/core/fixshape.py の物。前の版の盤面を測るためだけ）
+ARMS = ("current", "af", "g3", "g1")
+PLAIN_ARM, G1_ARM, SEAT_ARM = "current", "g1", "g3"
+SHAPE_KEY = "fix_shape"                # 前の版の start の控えの鍵
+DENY = (("Skill", seat.SKILL_NODES, frozenset({SEAT_ARM})), ("Agent", seat.AGENT_NODES, frozenset({G1_ARM, SEAT_ARM})))
 AI_KIND = "agent"                      # node_completed の data.node.kind のうち AI の節
 REFUSED = "error"                      # tool_completed の tool_outcome のうち、呼び出しが走らなかった（拒まれた）印
 TDD_NODES = ("tdd", "tdd-rest")        # TDD の輪の役の印の名（step_name の最後の区切り。並べの後の順の輪の役 tdd-rest も）
@@ -139,13 +144,37 @@ UNKINDED = "unkinded"                  # 種類の無い申し出（211 の前�
 DECISIONS = ("keep_g3", "switch_to_af", "fix_gates_first", "incomplete")
 METRICS = ("redo_per_item", "cost_per_item")
 LOCAL_AGENT = "local_agent"            # task_activity の task_type のうち下請け（Agent）の起動
-G1_FIRST = "fix"                       # g1 の作り直しを数える最初の周の修正役の節（fixshape.AGENT_NODES のうち fix-ruled でない方）
+G1_FIRST = "fix"                       # g1 の作り直しを数える最初の周の修正役の節（seat.AGENT_NODES のうち fix-ruled でない方）
 NODE_ENDS = ("node_completed", "node_failed")   # 節の 1 回の終わり
 VERDICT_FAILS = ("compliance_fails", "quality_fails")   # redo のうち差分の審査の 2 判定の fail の数（redo_total に足さない）
 # 測る関数が頼る欄の形の印（最初の試しの run で確かめたら真にする。何を見るかはモジュールの頭）。偽が 1 つでも在れば verdict は incomplete
 FIELDS_CHECKED = {"node_kind_cost": False, "tool_outcome_refusal": False, "local_agent_start": False}
 WAIT_VERIFIED = False                  # 待ちの損の欄の形を本物の run で確かめたら真にする（モジュールの頭の「待ちの損」）
 TASK_ENDS = ("completed", "failed", "stopped")   # task_activity の終わりの印
+
+
+# ---------------------------------------------------------------- 前の版の盤面の修正の形
+def _shape_at(board) -> str:
+    """盤面の修正の形（腕）: start の控え（fixture.START_REL）の鍵 SHAPE_KEY。控えが無い・鍵が無いなら g3（形が g3 だけになった後の
+    盤面）。読めない・JSON の object でない・語の外は ValueError（黙って既定にしない）"""
+    path = pathlib.Path(board) / fixture.START_REL
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return SEAT_ARM
+    except (OSError, ValueError) as e:
+        raise ValueError(f"start の控え {path} が読めない（{e}）") from None
+    if not isinstance(doc, dict):
+        raise ValueError(f"start の控え {path} が JSON の object でない")
+    shape = doc.get(SHAPE_KEY, SEAT_ARM)
+    if shape not in ARMS:
+        raise ValueError(f"start の控え {path} の {SHAPE_KEY}={shape!r} は知らない値（{' / '.join(ARMS)}）")
+    return shape
+
+
+def _denied(shape: str, node: str) -> tuple:
+    """前の版の包みが形 shape の盤面で印 node の役に拒んだ道具（表 DENY の順。座の節は g3 の外で Skill、修正役は g1 と g3 の外で Agent）"""
+    return tuple(dict.fromkeys(tool for tool, nodes, allowed in DENY if node in nodes and shape not in allowed))
 
 
 # ---------------------------------------------------------------- Archon の出来事
@@ -308,7 +337,7 @@ def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int, int]:
         if e["event_type"] != "tool_called" or not _in_stage(e):
             continue
         name = e["data"].get("tool_name")
-        if name not in fixshape.denied_tools(shape, _node(e)):
+        if name not in _denied(shape, _node(e)):
             continue
         if name == "Agent":
             asked[e["step_name"]] = asked.get(e["step_name"], 0) + 1
@@ -319,7 +348,7 @@ def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int, int]:
         ran["Agent"] += went
         refused["Agent"] += n - went
     agents = sum(n for step, n in starts.items()
-                 if step.startswith(FIX_STAGE[0]) and report._step_name(step) in fixshape.AGENT_NODES)
+                 if step.startswith(FIX_STAGE[0]) and report._step_name(step) in seat.AGENT_NODES)
     return ran, refused, agents, len(first)
 
 
@@ -463,7 +492,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
         gaps.append(f"盤面を開けない: {' '.join(str(e).split())}")
         return out
     rounds = [_Round(b, n) for n in range(1, int(b.round) + 1)]
-    plain = shape == fixshape.PLAIN
+    plain = shape == PLAIN_ARM
     fields = _fields(rounds, gaps)
     states = _states(board, gaps)
     calls = [c for st in states for c in st.get("calls") or [] if isinstance(c, dict)]
@@ -475,7 +504,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
         gaps.append(f"tdd・tdd-rest の節の node_completed {tdd_done} 件と輪の calls {len(by_ai)} 行（並べの締めの行を除く）が違う")
     if lane_done != len(lane_calls):
         gaps.append(f"並べの枝の役（{LANE_PREFIX}<n>）の node_completed {lane_done} 件と枝の calls {len(lane_calls)} 行が違う")
-    if states and shape != seat.G1_SHAPE:
+    if states and shape != G1_ARM:
         have = {k for st in states for k in (st.get("units") or {})}
         lost = [k for f in fields if isinstance(f, dict) and f.get("route") == "tdd"
                 for k in f.get("unit_keys") or [] if k in asked and k not in have]
@@ -483,7 +512,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
             gaps.append(f"tdd の項目の単位に輪の単位の行が無い: {'、'.join(dict.fromkeys(lost))}")
     if not plain and fields and not any(scopes.each(r, planbrief.LEDGER) for r in rounds):
         gaps.append("平の run でないのに修正案の欄が在って brief の控え（briefs.json）が無い")
-    if shape == seat.G1_SHAPE and agents:
+    if shape == G1_ARM and agents:
         path, rows = _writes_rows(b, home)
         if rows is None:
             gaps.append(f"g1 で Agent が {agents} 回走ったのに書き込みの記録が無い（{path or '盤面に run の作業ツリーが無い'}。"
@@ -500,7 +529,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
                    "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
                    "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES),
-                   "subagent_redos": max(0, first - 2 * _g1_items(fields, asked, owed)) // 2 if shape == seat.G1_SHAPE else 0,
+                   "subagent_redos": max(0, first - 2 * _g1_items(fields, asked, owed)) // 2 if shape == G1_ARM else 0,
                    **_verdict_fails(b)}
     out["rulings"], out["divergences"] = _rulings(rounds, gaps)
     out["gate_misses"] = len(rows)
@@ -521,21 +550,18 @@ def row(db, run_id: str, board, *, adapter_home=None) -> dict:
     status, events = _events(db, run_id)
     gaps = []
     try:
-        shape = fixshape.shape_at(board)
-        rec = fixshape.recorded(board)
+        shape = _shape_at(board)
     except ValueError as e:
         gaps.append(f"修正の形の控えが読めない: {' '.join(str(e).split())}")
-        shape, rec = "", {"shape": None, "fixture": None}
-    else:
-        if rec["shape"] is None:
-            gaps.append(f"start の控えに {fixshape.KEY} が無い（前の版の盤面。形は {fixshape.BEFORE} と読む）")
+        shape = ""
+    mark = fixture.adopted(board)
     cost, secs, whys = _spend(events)
     gaps += [f"修正の工程の AI の節の費用（costUsd）が取れない: {w}" for w in whys]
     ran, refused, agents, first = _tool_calls(events, shape)
     tdd_done = sum(1 for e in _ai_nodes(events) if _in_stage(e, FIX_STAGE[0]) and _node(e) in TDD_NODES)
     lane_done = sum(1 for e in _ai_nodes(events) if _in_stage(e, FIX_STAGE[0]) and _node(e).startswith(LANE_PREFIX))
     facts = _board_facts(board, shape, tdd_done, agents, first, adapter_home, gaps, lane_done)
-    return {"run_id": run_id, "shape": shape, "fixture": str((rec["fixture"] or {}).get("source_run") or ""),
+    return {"run_id": run_id, "shape": shape, "fixture": str((mark or {}).get("source_run") or ""),
             "complete": status == "completed" and facts["report"], "items": facts["items"],
             "redo": facts["redo"], "redo_total": sum(v for k, v in facts["redo"].items() if k not in VERDICT_FAILS),
             "cost_usd": cost, "secs": secs,
@@ -591,7 +617,7 @@ def _why_invalid(r: dict) -> list[str]:
         why.append("混ざり（その形で拒む道具が走った: " + "・".join(f"{k} {n} 件" for k, n in mixed.items()) + "。柵が効いていない）")
     if r.get("record_gaps"):
         why.append(f"記録の欠け {len(r['record_gaps'])} 件")
-    if r.get("shape") != fixshape.PLAIN and r.get("red_green_checked") is not True:
+    if r.get("shape") != PLAIN_ARM and r.get("red_green_checked") is not True:
         why.append("束の赤緑が回っていない（実行器が無いか、確かめずに通した回が在る）")
     if not isinstance(r.get("items"), int) or r["items"] <= 0:
         why.append("項目の数が 0")

@@ -26,7 +26,6 @@ sys.path.insert(0, str(TESTS))
 import accept  # noqa: E402
 from board import BoardGap, rules_module  # noqa: E402
 import entry  # noqa: E402
-import fixshape  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
@@ -429,22 +428,17 @@ class RefixCase(DeltaBoardCase):
         self.assertFalse(pathlib.Path(got["prompt_file"]).exists())
         self.assertEqual(refix.must(self.board, "refix"), again["must"])
 
-    def test_prep_script_carries_refix_seat_only_in_g3(self):
-        """手直しの支度（scripts/prep.py）は盤面の形を fixshape.shape_at で引き、g3 なら receiving-code-review の座を組んだ指示書の
-        refix-keep の後に載せる。g3 でなければ載せない。2 回目の審査役には座が無い（返答に判定の欄が無く、判定の語の表の型と
-        ぶつかる）ので、g3 でも 2 回目の審査の支度は座のファイルを書かない"""
+    def test_prep_script_carries_refix_seat(self):
+        """手直しの支度（scripts/prep.py）は receiving-code-review の座を組んだ指示書の refix-keep の後に載せる。2 回目の審査役には
+        座が無い（返答に判定の欄が無く、判定の語の表の型とぶつかる）ので、2 回目の審査の支度は座のファイルを書かない"""
         import importlib.util
         spec = importlib.util.spec_from_file_location("blk_refix_prep", REFIX_DIR / "scripts" / "prep.py")
         prep = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(prep)
         repo, _ = self.reviewed()
         env = {"INPUTS_PASS": "1", "INPUTS_POLICY_PATH": ""}
-        fixshape.choose(self.board, "af", by="test", why="手直しの役の座が g3 だけで出ることの確かめ")
-        plain = pathlib.Path(prep.run(self.board, repo, env)["prompt_file"]).read_text(encoding="utf-8")
-        self.assertNotIn(seat.HEAD, plain)
-        fixshape.choose(self.board, "g3", by="test", why="手直しの役の座が g3 だけで出ることの確かめ")
         text = pathlib.Path(prep.run(self.board, repo, env)["prompt_file"]).read_text(encoding="utf-8")
-        self.assertIn(seat.section("refix", "g3"), text)
+        self.assertIn(seat.section("refix"), text)
         self.assertIn("receiving-code-review", text)
         apply_refix(repo)
         self.assertTrue(refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)["ok"])

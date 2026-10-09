@@ -10,8 +10,8 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - 本物の claude: env の WORKS_REAL_CLAUDE（絶対パス）、無ければ PATH の実行ファイル `claude`（この包み自身は飛ばす）。
   見つからなければ 1 行を出して終了コード 127
 - 置き場: env の WORKS_ADAPTER_HOME（無ければ ${XDG_STATE_HOME:-~/.local/state}/works/adapter）。絶対パスでなければ 1 行を出して終了コード 2
-- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・盤面の修正の形の
-  控えが読めない・会話の id を記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
+- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・会話の id を
+  記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
 - 印のある起動は stdin を中継し、最初の指示文が来た時に起動の記録を書く（adapter.py の頭の 9）
 - stream-json の起動は stdout を同じバイトで写し（印のある起動の result の費用の累計だけ、Archon の引き算がその起動の費用に
   なる値に見せ直す。頭の 20）、1 手も進まずに終わった子は result を写さずに終了コード 75

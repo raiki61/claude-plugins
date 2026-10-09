@@ -60,7 +60,7 @@ nodes:
             指示書 `$refix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
             前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直した返答を丸ごと出し直せ。理由の本文はファイルにだけ在る）: `$LOOP_PREV.refix-accept.output.reason_file`
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          skills: [receiving-code-review]   # 修正の形 g3 の座（seat.SEATS）。g3 以外の run は包みが Skill を拒む（fixshape.denied_tools）
+          skills: [receiving-code-review]   # 借りたスキルの座（seat.SEATS）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -316,7 +316,7 @@ nodes:
             指示書 `$refix2-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
             前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直した返答を丸ごと出し直せ。理由の本文はファイルにだけ在る）: `$LOOP_PREV.refix2-accept.output.reason_file`
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          skills: [receiving-code-review]   # 修正の形 g3 の座（seat.SEATS）。g3 以外の run は包みが Skill を拒む（fixshape.denied_tools）
+          skills: [receiving-code-review]   # 借りたスキルの座（seat.SEATS）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

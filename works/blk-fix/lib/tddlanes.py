@@ -64,7 +64,6 @@ import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of・包�
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import fixrules  # noqa: E402  （項目の範囲 item_ranges・決まりのファイルの組み立て）
-import fixshape  # noqa: E402  （盤面の修正の形。座）
 import lanekit  # noqa: E402  （並べの枝の部品: 切る・印・指しの確かめ・当てる・記録の写し・片付け。修正役の並べと共通）
 import planbrief  # noqa: E402
 import seat  # noqa: E402  （借りたスキルの座）
@@ -85,10 +84,10 @@ LANE_DIR = "lane-{n}"
 MERGED, DIRECT, PARKED, BACK = "merged", "direct", "parked", "serial"
 CLEAN, UNION, CLASH, SEMANTIC = "clean", "union", "conflict", "semantic"   # 枝ごとの合わせの結末（頭の語）
 # 並べの見送り: 振り分けを受けた周で枝を切らなかった時の trace の行 {op: SKIP_OP, reason, why, loop}（節 tdd-step が積む）と理由の語。
-# switch: 入力 tdd_lanes が off・shape: 修正の形が g3 でない（tddloop.start が状態の lanes_off に置く）・units: tdd の単位が 2 つに
+# switch: 入力 tdd_lanes が off（tddloop.start が状態の lanes_off に置く）・units: tdd の単位が 2 つに
 # 満たない・lanes: 範囲の引ける枝が 2 本に満たない（plan が状態の lanes_skipped に置く）
 SKIP_OP = "lanes_skipped"
-SKIP_SWITCH, SKIP_SHAPE, SKIP_UNITS, SKIP_LANES = "switch", "shape", "units", "lanes"
+SKIP_SWITCH, SKIP_UNITS, SKIP_LANES = "switch", "units", "lanes"
 JOINED = "joined"   # 状態の lanes の欄: 締めの出口（締めた印。resume で回し直された締めはこれを返し、枝の輪は役を起こさずに抜ける）
 
 
@@ -206,7 +205,7 @@ def _lane_state(st: dict, repo, keys, tree: pathlib.Path, lane: pathlib.Path) ->
             "suite_made": list(st.get("suite_made") or []), "phase": "test", "tries": 0, "reason": "", "iterations": 0,
             "runs": 1, "order": keys, "units": {k: tddloop._unit(k, "tdd") for k in keys}, "queue": list(keys), "cur": 0,
             "unit_head": head, "green_tree": "", "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {},
-            "contract": contract, "plain": bool(st.get("plain")), "test_cmd": st.get("test_cmd", ""),
+            "contract": contract, "test_cmd": st.get("test_cmd", ""),
             "test_cmd_gate": st.get("test_cmd_gate", tddloop.GATE_OFF), "test_cmd_note": st.get("test_cmd_note", ""),
             "light": [k for k in keys if k in light], "calls": [], "head_run": tddloop._head_run(st),
             "declared": [], "conflict": None, "lanes_on": False, "lane_base": head, "unit_heads": {keys[0]: head}}
@@ -276,7 +275,7 @@ def lane_prep(state_file, n, values: dict | None = None) -> dict:
     vals = {**{x: "" for x in fixrules.TDD_VALUES}, **(values or {}), "open_units": json.dumps([k], ensure_ascii=False)}
     briefs = tddloop._briefs(board_dir)
     try:
-        seat_text = seat.section("tdd", fixshape.shape_at(board_dir))
+        seat_text = seat.section("tdd")
     except ValueError as e:
         raise tddloop.Broken(f"TDD の輪の座を組めない: {e}") from None
     brief_file = pathlib.Path(row["files"][j - 1])
@@ -304,7 +303,7 @@ def _next_text(row: dict, lst: dict, j: int, k: str, brief_file: pathlib.Path) -
               f"- この単位の決まり: {brief_file}——" + ("この単位の最初の回。Read で全部読め" if fresh else
                                                      "この単位の間は書き直さない（この会話で読んでいなければ Read で全部読め）"),
               "", "## 今の単位と段", "", f"- 単位: {k}", f"- 段: {phase}", "",
-              "## この段ですること", "", tddloop.PLAIN_DO.get(phase, tddloop.DO[phase]) if lst.get("plain") else tddloop.DO[phase], ""]
+              "## この段ですること", "", tddloop.DO[phase], ""]
     if phase in ("fix", "refactor") and lst.get("test_cmd_gate") == tddloop.GATE_ON and k not in lst.get("light", []):
         lines += [f"緑の後に機械が run の test_cmd（`{lst['test_cmd']}`）も単位の worktree で走らせる。これも緑にせよ。", ""]
     if u.get("tests"):

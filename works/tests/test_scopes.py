@@ -38,7 +38,7 @@ INVENTORY_PUBLISHED = (
     "design-premises.json", "design.json", "fixture-outside/**", "gate-marks.json", "github.json", "judgment.json",
     "next-request.json", "no-turn-exits.json", "plan-fields.json", "premises.json", "purpose.json", "rejects-*.json",
     "report.md", "structure-state.json", "brief-*.md", "briefs.json", "delta-verdicts.json", "final-gate-answer.json",
-    "final-gate.md", "fix-held-reply.json", "fix-shape.json", "gate.md", "human-notes.md", "judged.json", "lens.json",
+    "final-gate.md", "fix-held-reply.json", "gate.md", "human-notes.md", "judged.json", "lens.json",
     "plan-converge.json", "plan-converge/**", "pr-excluded.json", "reads-pr-check.json", "reads-rejudge.json",
     "rejudge-diff.json", "rejudge-exit.json", "rejudge-session.json", "replan-gate.md", "replan-notes.md", "replan.json",
     "start.json", "structure-units.json")

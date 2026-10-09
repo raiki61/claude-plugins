@@ -8,8 +8,8 @@ description: |
   3 本まで。枝の役の節を包みが枝の worktree を cwd に起こす）が同時に回り（枝の中は順に、単位ごとに新しい会話で）、確かめの節が段ごとに
   赤・緑を確かめる。締めの節 tdd-join が差分を作業ツリーへ 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位・枝に入らな
   かった単位は輪 tdd-rest-loop が順に回す。依頼 243 の並べ。範囲が重なる枝も並べる）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
-  changes に行を書くだけ。修正の形 g1 と既定の g3 では、残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
-  下請けを Agent で起こす。依頼 243 の 2。g3 では修正の輪の前に、書いてよい範囲の在る項目（重なってもよい）が単位を共にしない 2 本以上の
+  changes に行を書くだけ。残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
+  下請けを Agent で起こす。依頼 243 の 2。修正の輪の前に、書いてよい範囲の在る項目（重なってもよい）が単位を共にしない 2 本以上の
   枝に分かれれば、節 fix-fork が枝ごとに小さい worktree を切り、枝の輪 fix-lane-loop-<n>（3 本まで。枝の役の節を包みが枝の worktree を
   cwd に起こす。項目ごとに新しい会話。範囲の相談と受け付けと同じ事実の確かめを枝の中で回す）が同時に直し、締めの節 fix-join が差分を
   作業ツリーへ 3 方向で当てる。当たらない枝・諦めた項目・枝に入らなかった項目は修正の輪が順に直す。依頼 243 の並べの 5 段目。
@@ -182,7 +182,7 @@ nodes:
           depends_on: [tdd-prep]
           when: "$tdd-prep.output.go == true"
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          # 借りたスキルの座（.shared/core/seat.py）: 修正の形 g3 の時だけ tdd-prep が指示書に座と読み替えを載せる。宣言は静的で、ほかの形の柵は包みが持つ
+          # 借りたスキルの座（.shared/core/seat.py）: tdd-prep が指示書に座と読み替えを載せる
           skills: [test-driven-development]
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
@@ -1545,7 +1545,7 @@ nodes:
             policy_path: $INPUTS.policy_path
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
-            base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
+            base_rev: $INPUTS.base_rev   # 下請けの審査役の型の [BASE_SHA]（fixrules.g1_values）
             plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
             ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
             pass: "first"
@@ -1568,7 +1568,7 @@ nodes:
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          # Agent は修正の形 g1・g3 で単位ごとの下請けを起こす口（seat.g1_section）。宣言は静的で、ほかの形は包みが拒む（fixshape.denied_tools）
+          # Agent は単位ごとの下請けを起こす口（seat.g1_section）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

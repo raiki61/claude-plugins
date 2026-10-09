@@ -423,7 +423,7 @@ class StartAdoptCase(unittest.TestCase):
         src = base.tmp / "reads.json"
         src.write_text(json.dumps({"version": 1, "pr": {}, "issue": {}}), encoding="utf-8")
         raw = {"request": str(base.tmp / "request.json"), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
-               "adapter": "", "policy_md": "", "fix_shape": "af", "fix_fixture": str(fixture_src), "github_reads": str(src)}
+               "adapter": "", "policy_md": "", "fix_fixture": str(fixture_src), "github_reads": str(src)}
         with mock.patch.object(entry.ticket, "write", side_effect=entry.ticket.TicketError("切符を書けない")):
             with self.assertRaises(entry.InputRefused) as cm:
                 entry.start(board, other, raw, run_id="run-2")

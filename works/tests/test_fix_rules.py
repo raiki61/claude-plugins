@@ -538,7 +538,7 @@ class TestRoleNodes(unittest.TestCase):
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
                                       "base_rev": "$INPUTS.base_rev", "plan_session": "$INPUTS.plan_session",
                                       "ripple_file": "$INPUTS.ripple_file", "pass": "first"})
-        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）。plan_session は範囲の相談の
+        # base_rev は指示書の run の値でなく、下請けの審査役の型の [BASE_SHA]（fixrules.g1_values）。plan_session は範囲の相談の
         # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない。修正役の並べの切り替え fix_lanes は節 fix-fork が読む
         self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session", "ripple_file"}, set(fixrules.FIX_VALUES))
         ff = find_node(nodes, "fix-fork")
@@ -1147,12 +1147,12 @@ class TestSeatParts(unittest.TestCase):
         """組んだ値で 216 の型が埋まる（穴が残らない）"""
         import seat
         got, _ = self._values([], ["a: 分母"])
-        self.assertIn(VALUES["judgment_file"], seat.section("fix", "g3", got))
+        self.assertIn(VALUES["judgment_file"], seat.section("fix", got))
 
 
 class G1ValuesCase(unittest.TestCase):
-    """修正の形 g1 の下請けのファイル（fixrules.g1_values）: brief の項目ごと・項目に無い直す義務の単位は残りの 1 項目
-    （[BRIEF_FILE] は判定のファイル）・項目のほかの単位は『今は直すな』。座の節の理由の文は形ごと（g3 は前と同じ文）"""
+    """修正役が起こす下請けのファイル（fixrules.g1_values）: brief の項目ごと・項目に無い直す義務の単位は 1 単位 1 項目
+    （[BRIEF_FILE] は判定のファイル）・項目のほかの単位は『今は直すな』"""
 
     ROWS = [{"item": 1, "unit_keys": ["a: 分母"], "file": "/b/r1/brief-1.md", "sha256": "0" * 64},
             {"item": 2, "unit_keys": ["b: 上限", "c: 外"], "file": "/b/r1/brief-2.md", "sha256": "1" * 64}]
@@ -1181,7 +1181,7 @@ class G1ValuesCase(unittest.TestCase):
         b = self.board()
         with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
             got = fixrules.g1_values(b, VALUES, "/repo", self.OWED, "")
-        self.assertEqual([r["item"] for r in got], [1, 2, 3], "項目に無い直す義務の単位は残りの 1 項目")
+        self.assertEqual([r["item"] for r in got], [1, 2, 3], "項目に無い直す義務の単位は 1 単位 1 項目")
         self.assertEqual({r["base"] for r in got}, {"abc123"})
         # 差分のファイルは run ごとの置き場（盤面の隣。包みが sandbox で書けるようにする所）の絶対パス。審査役の Diff file もそのパス
         place = b.dir.parent / "run-place"
@@ -1254,7 +1254,7 @@ class G1ValuesCase(unittest.TestCase):
         from unittest import mock
         b = self.board()
         with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
-            got = fixrules.g1_values(b, VALUES, "/repo", self.OWED, "", "g3")
+            got = fixrules.g1_values(b, VALUES, "/repo", self.OWED, "")
         self.assertEqual([sorted(r) for r in got], [["base", "impl_file", "item", "patch", "review_file"]] * len(got))
         self.assertNotIn("単位の worktree", pathlib.Path(got[0]["impl_file"]).read_text(encoding="utf-8"))
 
@@ -1286,23 +1286,11 @@ class G1ValuesCase(unittest.TestCase):
         self.assertIn(f"単位 {planbrief.unit_note(['b: 上限', 'c: 外'], ['b: 上限'])}）",
                       planbrief.head_text(self.ROWS[1:], ["b: 上限"]))
 
-    def test_gate_off_shapes_use_the_fixshape_words(self):
-        """tdd-start が test_cmd の関門を切る形は fixshape の語（平の run は fixshape.PLAIN）と seat.G1_SHAPE で引く"""
-        import fixshape
-        import seat
-        import tddloop
-        self.assertEqual(set(tddloop.GATE_OFF_BY_SHAPE), {fixshape.PLAIN, seat.G1_SHAPE})
-        self.assertFalse(hasattr(tddloop, "PLAIN_SHAPE"), "形の語を写さない")
-        self.assertTrue(set(tddloop.GATE_OFF_BY_SHAPE) <= set(fixshape.SHAPES))
-
-    def test_seat_reason_names_the_shape_and_g3_is_unchanged(self):
-        """g3 の指示書は前とバイト単位で同じ（座の節の理由の文は『（修正の形 g3 の座）』のまま）。g1 は g1 と書く"""
-        def reason(**kw):
-            return {pid: why for pid, _, why in fixrules.fix_parts(VALUES, seat="S", **kw)}["seat"]
-        self.assertEqual(reason(), "いつも（修正の形 g3 の座）")
-        self.assertEqual(reason(shape="g1"), "いつも（修正の形 g1 の座）")
+    def test_seat_reason_names_no_shape(self):
+        """座の節の理由の文は消した修正の形の語を名指さない（修正役と TDD の輪の役で同じ文）"""
+        fix = {pid: why for pid, _, why in fixrules.fix_parts(VALUES, seat="S")}["seat"]
         tdd = {pid: why for pid, _, why in fixrules.tdd_parts(tdd_values(), seat="S")}["seat"]
-        self.assertEqual(tdd, "いつも（修正の形 g3 の座）")
+        self.assertEqual((fix, tdd), ("いつも（座）", "いつも（座）"))
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))

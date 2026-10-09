@@ -10,7 +10,7 @@ INPUTS_PLAN_FILE・INPUTS_POLICY_PATH・INPUTS_NOTES_FILE（空でよい）。�
 置き場に置いて、{"prompt_file", "go": true} を 1 行出して 0。役はそのパスを Read する（理由の本文を $LOOP_PREV で貼らない。R44）。
 枝が済んでいる（締めが済んだ・枝の控えが done。Archon の resume は済みと記録していない枝の輪を 1 周目から回し直す）なら、何も書かずに
 {"prompt_file": "", "go": false}（役の節は when: で飛び、確かめが輪を抜ける）。
-環境変数が欠けた・状態が読めない・並べの周でない・枝が無い・単位の worktree の指しが切った時と違う: 標準エラーに 1 行出して 2。brief の控えが壊れていれば盤面を止めて 2。修正の形 g3 の座の写しが固定と違えば 2。
+環境変数が欠けた・状態が読めない・並べの周でない・枝が無い・単位の worktree の指しが切った時と違う: 標準エラーに 1 行出して 2。brief の控えが壊れていれば盤面を止めて 2。座の写しが固定と違えば 2。
 """
 import sys
 from pathlib import Path

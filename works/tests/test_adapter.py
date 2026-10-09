@@ -1727,14 +1727,11 @@ class DevWiringCase(unittest.TestCase):
             self.assertNotIn("WORKS_DEV_ADAPTER", r.stdout)
 
 
-class ShapeFenceCase(unittest.TestCase):
-    """形ごとの道具の柵（計画 220 Task 3）: 切符の board の修正の形（fixshape.shape_at）を読み、g3 以外の座の節（tdd）は Skill を、
-    g1・g3 の外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
-    形の控えが壊れていれば起こさない（理由に fix_shape）。切符の無い起動は今どおり"""
+class NoShapeFenceCase(unittest.TestCase):
+    """形ごとの道具の柵は消した（修正の形が g3 だけになった。2026-10-09）: 切符が在り、start の控えに前の版の形の語が残っていても、
+    座の節（tdd）の Skill・修正役（fix）の Agent を permissions.deny に足さず、fence に shape_deny の鍵を持たない"""
 
     def setUp(self):
-        import fixshape
-        self.fixshape = fixshape
         self.e = Env(self)
         self.board = self.e.tmp / "board"
         self.board.mkdir()
@@ -1744,75 +1741,18 @@ class ShapeFenceCase(unittest.TestCase):
                                  "protected": [str(self.board)], "written_at": "2026-10-02T00:00:00+09:00"}),
                      encoding="utf-8")
 
-    def start(self, shape):
-        p = self.board / self.fixshape.START_REL
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({self.fixshape.KEY: shape}), encoding="utf-8")
-
-    def launch(self, node):
-        r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        deny = json.loads(opt(self.e.child()["argv"], "--settings")[0]).get("permissions", {}).get("deny", [])
-        return deny, self.e.launches()[-1]["fence"]
-
-    def test_fence_denies_by_shape(self):
-        self.start("af")
-        deny, fence = self.launch("tdd")
-        self.assertIn("Skill", deny)
-        self.assertNotIn("Agent", deny, "輪の役は Agent を持たない（並べは枝ごとの節。docs/plans/2026-10-07-lane-nodes.md）")
-        self.assertEqual(fence["shape_deny"], 1)
-        self.start("g3")
-        deny, fence = self.launch("tdd")
-        self.assertNotIn("Skill", deny)
-        self.assertNotIn("shape_deny", fence)
-        with self.subTest("g1・g3 の修正役は Agent を拒まない・af の修正役は拒む（依頼 243 の 2）"):
-            self.start("g1")
-            deny, _ = self.launch("fix-ruled")
-            self.assertNotIn("Agent", deny)
-            self.start("g3")
-            deny, fence = self.launch("fix")
-            self.assertNotIn("Agent", deny)
-            self.assertNotIn("Skill", deny)
-            self.assertNotIn("shape_deny", fence)
-            self.start("af")
-            deny, fence = self.launch("fix")
-            self.assertIn("Agent", deny)
-            self.assertEqual(fence["shape_deny"], 1)
-
-    def test_no_record_means_af(self):
-        deny, _ = self.launch("tdd")
-        self.assertIn("Skill", deny)
-        deny, _ = self.launch("fix")
-        self.assertIn("Agent", deny)
-
-    def test_choice_file_steers_fence(self):
-        self.start("af")
-        self.fixshape.choose(self.board, "g3", by="test", why="振り分けの控えが柵を動かすことの確かめ")
-        deny, fence = self.launch("tdd")
-        self.assertNotIn("Skill", deny)
-        self.assertNotIn("shape_deny", fence)
-        deny, _ = self.launch("fix")
-        self.assertNotIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を外す側にも効く")
-
-    def test_broken_shape_refuses_launch(self):
-        self.start("x")
-        for node in ("tdd", "judge"):   # 柵の表に無い節も、壊れた控えでは起こさない
+    def test_no_tool_is_denied_by_shape(self):
+        p = self.board / adapter.START_REL
+        p.parent.mkdir(parents=True)
+        p.write_text(json.dumps({"fix_shape": "af"}), encoding="utf-8")
+        for node in ("tdd", "fix", "fix-ruled"):
             with self.subTest(node):
                 r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
-                self.assertEqual(r.returncode, 3, r.stderr)
-                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
-                self.assertIn("fix_shape", r.stderr)
-                self.assertIsNone(self.e.child())
-                self.assertEqual(self.e.launches()[-1]["mode"], "refused")
-
-    def test_no_ticket_unchanged(self):
-        adapter.ticket_path(self.e.cwd, self.e.home).unlink()
-        for node in ("tdd", "fix"):
-            with self.subTest(node):
-                deny, fence = self.launch(node)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                deny = json.loads(opt(self.e.child()["argv"], "--settings")[0]).get("permissions", {}).get("deny", [])
                 self.assertNotIn("Skill", deny)
                 self.assertNotIn("Agent", deny)
-                self.assertNotIn("shape_deny", fence)
+                self.assertNotIn("shape_deny", self.e.launches()[-1]["fence"])
 
 
 class UnitSessionCase(unittest.TestCase):

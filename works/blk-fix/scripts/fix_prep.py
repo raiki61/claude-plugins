@@ -5,7 +5,7 @@
 """修正役の指示書（blk-fix の節 fix-prep。修正の輪の中で役 fix の前。中身は fixrules.prep）。
 
 読む環境変数: ARTIFACTS_DIR（盤面はその下の board/）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_OPEN_UNITS・INPUTS_PLAN_FILE・
-INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）・INPUTS_BASE_REV（空でよい。修正の形 g1 の審査役の
+INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）・INPUTS_BASE_REV（空でよい。下請けの審査役の
 型の版）・INPUTS_PLAN_SESSION（範囲の相談の相手の会話の印の名。空は相談しない）・INPUTS_RIPPLE_FILE（波及の一覧。空でよい）と
 INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。修正役の並べ（入力 fix_lanes）は修正の輪の前の節 fix-fork が持つ。2 回目の修正の段（依頼 226。ブロックの 2 度目の include）の指示書と
 数えと座の作業ファイルは、その include の名の置き場（scope）で 1 回目と分かれる。
@@ -17,7 +17,7 @@ INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。修正役の並
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
 輪の要約（INPUTS_SUMMARY_FILE）の隣の状態から輪が緑にした単位を引き、g3 の修正役の下請けから外す（依頼 243 の 2）。修正役の並べの
 枝が直して当てた単位も外す（fixrules.lanes_merged。盤面の作業ファイルの枝の結末）。
-修正の形 g3・g1 の盤面で、借りた superpowers の写しが固定（pin）と違う・型の穴が埋まらなければ、座の無い指示書に逃げずに 2。
+借りた superpowers の写しが固定（pin）と違う・型の穴が埋まらなければ、座の無い指示書に逃げずに 2。
 """
 import os
 import sys

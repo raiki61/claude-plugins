@@ -35,7 +35,6 @@ sys.path.insert(0, str(TESTS))
 
 from gitkit import git  # noqa: E402
 import adapter  # noqa: E402
-import fixshape  # noqa: E402
 import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
 import unittrees  # noqa: E402
@@ -67,8 +66,7 @@ RANGES = {UA: ["a.py", "test_a.py"], UB: ["b.py", "test_b.py"], UD: ["d.py", "te
 
 
 class LaneCase(unittest.TestCase):
-    """2 つの単位（a.py と b.py。範囲が重ならない）を持つ種と小さな実行器で、形 g3 の輪を回す"""
-    SHAPE = "g3"
+    """2 つの単位（a.py と b.py。範囲が重ならない）を持つ種と小さな実行器で、輪を回す"""
     UNITS = (UA, UB)
     ITEMS = {}   # 単位 → 修正案の項目の番号（tddlanes.items_of の差し替え。空は 1 単位 1 枝）
     LANES = ""   # 入力 tdd_lanes（並べの周の切り替え。空は on）
@@ -88,9 +86,6 @@ class LaneCase(unittest.TestCase):
         self.suite = tmp / "suite.py"
         self.suite.write_text(SUITE, encoding="utf-8")
         self.board = tmp / "art" / "board"
-        p = self.board / fixshape.START_REL
-        p.parent.mkdir(parents=True)
-        p.write_text(json.dumps({fixshape.KEY: self.SHAPE}), encoding="utf-8")
         self.start = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(list(self.UNITS), ensure_ascii=False),
                                    lanes=self.LANES)
         self.assertTrue(self.start["go"], self.start)
@@ -233,19 +228,8 @@ class TestPlan(LaneCase):
         self.assertNotIn("lanes_skipped", emitted)
 
 
-class TestAfStaysSerial(LaneCase):
-    SHAPE = "af"
-
-    def test_af_never_plants(self):
-        got = self.route()
-        self.assertEqual(got["phase"], "test")
-        self.assertFalse(self.st()["lanes_on"])
-        self.assertEqual(got["lanes_skipped"]["reason"], tddlanes.SKIP_SHAPE)
-        self.assertIn("af", got["lanes_skipped"]["why"])
-
-
 class TestLanesSwitchedOff(LaneCase):
-    """入力 tdd_lanes が off（線の features_off の tdd_lanes）なら、形 g3 で枝が 2 本在っても並べの周へ進まず順に回す"""
+    """入力 tdd_lanes が off（線の features_off の tdd_lanes）なら、枝が 2 本在っても並べの周へ進まず順に回す"""
     LANES = "off"
 
     def test_off_never_plants(self):

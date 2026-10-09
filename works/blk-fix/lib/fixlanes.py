@@ -5,7 +5,7 @@
 枝の単位の worktree を cwd に起こす。旗 lane と self-resume）が項目を 1 つずつ直して修正役の返答の形で返す。
 
 語:
-- 項目: 承認済みの修正案の項目（planbrief の brief の行）。枝で直すのは、修正役が下請けを起こす単位（fixrules.dispatched。g3 は TDD の
+- 項目: 承認済みの修正案の項目（planbrief の brief の行）。枝で直すのは、修正役が下請けを起こす単位（fixrules.dispatched。TDD の
   輪が緑にした単位を除く）を持ち、範囲（fixrules.item_ranges）の在る項目だけ。項目の単位は今の直す義務と重なる物だけ
 - 組（groups）: 単位を共にする項目どうし（1 つの単位を 2 本の枝が直さない）。組は 1 本の枝に入る
 - 枝: 単位の worktree 1 本と、そこで順に直す項目の並び（MAX_ITEMS まで）。枝は MAX_LANES 本まで（YAML の枝の輪の数）。枝に入らない
@@ -21,7 +21,7 @@
 
 口:
 - groups(rows)・assign(groups): 分け方（純粋）
-- candidates(b, values, green, shape): 枝で直してよい項目の行と、直す義務に揃えた値
+- candidates(b, values, green): 枝で直してよい項目の行と、直す義務に揃えた値
 - fork(board_dir, repo, values, green, switch): 節 fix-fork。並べる枝が 2 本以上なら単位の worktree を切り、枝の控え・項目の決まりの
   ファイル・審査役のファイル・範囲の相談の控えを書いて {go, lanes, lane_<n>, why}。前に切った枝の締めの結末は消す
 - lane_prep(board_dir, n): 節 fix-lane-prep-<n>。回ごとの指示書（範囲の相談の答えが来た周は consult の続きの指示書）と包みが読む
@@ -56,7 +56,6 @@ import consult  # noqa: E402  （範囲の相談の枠・控え・答えの引�
 import entry  # noqa: E402
 import factchecks  # noqa: E402  （受け付けと同じ事実の確かめの口）
 import fixrules  # noqa: E402  （修正役の決まりの組み立て・直す義務・項目の範囲）
-import fixshape  # noqa: E402
 import lanekit  # noqa: E402  （並べの枝の部品: 切る・印・指しの確かめ・当てる・記録の写し・申し出・片付け。TDD の輪の並べと共通）
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
@@ -173,11 +172,11 @@ def assign(grps, lanes: int = MAX_LANES, per: int = MAX_ITEMS) -> tuple:
 
 
 # ---------------------------------------------------------------- 枝を切る（節 fix-fork）
-def candidates(b, values: dict, green, shape: str) -> tuple:
+def candidates(b, values: dict, green) -> tuple:
     """(枝で直してよい項目の行 [{item, units, brief, range}], 直す義務に揃えた値（fixrules.owed_values）)。行は修正案の項目の順"""
     values = fixrules.owed_values(b, values)
     owed = json.loads(values["open_units"])
-    subs = fixrules.dispatched(shape, "fix", owed, green)
+    subs = fixrules.dispatched(owed, green)
     ranges = fixrules.item_ranges(b)
     out = []
     for r in planbrief.for_units(fixrules.briefs_or_halt(b), subs):
@@ -197,19 +196,16 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
         b = entry.open_board(pathlib.Path(board_dir))
     except BoardGap as e:
         return {**out, "why": why or f"盤面が開けない（{' '.join(str(e).split())}）"}
-    shape = fixshape.shape_at(b.dir)
     repo = pathlib.Path(repo)
     for name in (fixrules.LANES_RECORD, fixrules.LANES_SUMMARY):   # 前に切った枝の締めの結末は、切り直す（か並べない）周に持ち込まない
         b.work(name).unlink(missing_ok=True)
     if why:
         pass
-    elif shape != seat.SHAPE:
-        why = f"修正の形 {shape}（並べるのは {seat.SHAPE} だけ）"
     elif not writes.sink(repo).is_file():
         why = "書き込みの記録が無い run（包みの無い起動。旗 lane の役を単位の worktree で起こせない）"
     else:
         try:
-            cands, values = candidates(b, values, green, shape)
+            cands, values = candidates(b, values, green)
         except BoardGap as e:
             return {**out, "why": f"直す義務か brief が引けない（{' '.join(str(e).split())}）"}
         lanes, rest = assign(groups([(c["item"], c["units"]) for c in cands]))
@@ -219,7 +215,7 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
         b.trace(PLANTED_OP, node="fix-fork", lanes=0, why=why)
         return {**out, "why": why}
     try:
-        rows = _plant(b, repo, values, cands, lanes, rest, shape)
+        rows = _plant(b, repo, values, cands, lanes, rest)
     except Exception as e:   # 枝を切れない・項目のファイルを組めない: 並べずに修正の輪へ（切った worktree は片付ける）
         why = f"枝を切れない（{type(e).__name__}: {' '.join(str(e).split())[:300]}）——修正の輪が順に直す"
         try:
@@ -239,7 +235,7 @@ def _expect(cands, lanes) -> list:
     return unitlanes.expect([(n, sorted({g for i in items for g in by[i]})) for n, items in enumerate(lanes, 1)])
 
 
-def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest, shape) -> list:
+def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest) -> list:
     """単位の worktree を切り、枝の控え・項目の決まりのファイル・審査役のファイル・範囲の相談の控え・試験の状態の写しと目録を書く"""
     place = script_io.scope_dir(pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))) / PLACE
     ns = list(range(1, len(lanes) + 1))
@@ -257,7 +253,7 @@ def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest, shape) -> li
     for n, items in zip(ns, lanes):
         tree = pathlib.Path(trees[n]["tree"])
         ask, ask_config = _ask(b, repo, values, n, tree, base)
-        entries = [_item(b, repo, values, by[i], n, j, items[:j - 1], items[j:], tree, base, docs, lang, shape, ask, place)
+        entries = [_item(b, repo, values, by[i], n, j, items[:j - 1], items[j:], tree, base, docs, lang, ask, place)
                    for j, i in enumerate(items, 1)]
         tests = _tests_state(b, repo, tdd_state, n, tree, place)
         state = b.work(LANE_STATE.format(n=n))
@@ -292,22 +288,21 @@ def _ask(b, repo, values: dict, n: int, tree: pathlib.Path, base: str) -> tuple:
     return fixrules.ask_text(path, sys.executable) + (f"\n\n{fixrules.RIPPLE_LINE.format(path=ripple)}" if ripple else ""), str(path)
 
 
-def _item(b, repo, values, c, n, j, earlier, later, tree, base, docs, lang, shape, ask, place) -> dict:
+def _item(b, repo, values, c, n, j, earlier, later, tree, base, docs, lang, ask, place) -> dict:
     """枝 n の j 番目の項目の決まりのファイルと審査役のファイルを書き、枝の控えの項目の行を返す。earlier・later は同じ枝の前・後の項目
     （審査の差分は枝の base からなので、前の項目の直しも入ると決まりと審査のファイルに書く）"""
     units, item = c["units"], c["item"]
     vals = {**values, "open_units": json.dumps(units, ensure_ascii=False)}
     head = planbrief.head_text(planbrief.for_units(fixrules.briefs_or_halt(b), units), units)
-    seat_text = seat.section("fix", shape, fixrules.implementer_values(b, vals, tree, units, BRIEFS_FILE.format(n=n, j=j)))
+    seat_text = seat.section("fix", fixrules.implementer_values(b, vals, tree, units, BRIEFS_FILE.format(n=n, j=j)))
     patch = str(place / f"lane-{n}-{j}.patch")
     review = b.work(REVIEW_FILE.format(n=n, j=j))
-    review.write_text(fixrules.review_text(c["brief"], values, base, patch, shape, str(tree), earlier), encoding="utf-8")
+    review.write_text(fixrules.review_text(c["brief"], values, base, patch, str(tree), earlier), encoding="utf-8")
     lane = fixrules.lane_text({"item": str(item), "units": "・".join(units), "tree": str(tree), "run_tree": str(repo),
                                "diff_cmd": seat.g1_diff_cmd(base, patch, str(tree)), "review_file": str(review),
                                "give_up": str(GIVE_UP_AFTER)}, later, earlier)
     title = f"# 修正役の並べの枝 {n} の {j} 番目の項目（修正案の項目 {item}）"
-    text = fixrules.render("fix", 1, fixrules.fix_parts(vals, fixrules.kinds_now(vals, repo), docs, seat_text, shape, "", ask, "",
-                                                        lane),
+    text = fixrules.render("fix", 1, fixrules.fix_parts(vals, fixrules.kinds_now(vals, repo), docs, seat_text, "", ask, "", lane),
                            before=[title, head] if head else [title], lang=lang)["text"]
     rules = b.work(RULES_FILE.format(n=n, j=j))
     rules.write_text(text, encoding="utf-8")

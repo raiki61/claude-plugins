@@ -2,7 +2,7 @@
 当たる節（NOT_HERE の外）を字のまま載せ、手直しの決まり（rules/refix.md）と run の値を繋ぐ。同じ入力からはバイト単位で同じ。
 
 並び: 役の頭（refix-head-<n>）→ 正本の節（NOT_HERE を除いた全部。ファイルの順）→ 読み替え（refix-remap。正本より勝つ）→ 手直しだけの決まり
-（refix-keep）→ 借りたスキルの座（seat。修正の形 g3 の receiving-code-review。呼び手の支度 scripts/prep.py が
+（refix-keep）→ 借りたスキルの座（seat。receiving-code-review。呼び手の支度 scripts/prep.py が
 seat.section で組んで渡す。空なら載せない）→ 返答（refix-reply。どの回も同じ）→ 返答の後に当たる物（refix-tail-<n>）。支度は輪の外で 1 度だけ組むので、形は full だけ（拒否の理由のファイルは役の節の
 prompt が $LOOP_PREV で名指す）。
 """
@@ -37,7 +37,7 @@ def parts(n: int, values: dict, seat: str = "") -> list:
             *canon,
             ("refix-remap", r["refix-remap"], ALWAYS + "（この役での読み替え）"),
             ("refix-keep", r["refix-keep"], ALWAYS + "（手直しだけの決まり）"),
-            *([("seat", seat, ALWAYS + "（修正の形 g3 の座）")] if seat else []),
+            *([("seat", seat, ALWAYS + "（座）")] if seat else []),
             ("refix-reply", r["refix-reply"], ALWAYS + "（返答の欄）"),
             ("refix-tail", r[f"refix-tail-{n}"], ALWAYS + "（返答の後に当たる物）")]
 
