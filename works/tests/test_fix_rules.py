@@ -815,6 +815,8 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
+            # 申し出の控えの行は無い（テストの変更の許しが案の直しの行を探す。盤面は mock なので控えを読ませない）
+            mock.patch.object(self.mod.conflict, "items", return_value=[]),
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
             mock.patch.object(self.mod, "last_settle", fake_settle(self.mod, {self.MEAN, self.CLAMP}, {})),
