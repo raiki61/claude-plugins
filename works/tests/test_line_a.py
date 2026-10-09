@@ -389,8 +389,8 @@ class AiReportCase(LineBase):
         machine = pathlib.Path(rep["machine_report_file"]).read_text(encoding="utf-8")
         self.assertIn(machine, pathlib.Path(rep["report_file"]).read_text(encoding="utf-8"))
         b = entry.open_board(got["board_dir"], allow_halted=True)
-        for nid in ("report.human_items", "report.cold_check", "report"):
-            self.assertEqual(b.node_state(nid), "done", nid)
+        self.assertEqual(b.node_state("report"), "done")
+        self.assertEqual(rep["ai_report"]["cold_check"]["verdict"], "pass", "書き手の頭を読んだ初見の読み手の判定")
 
     def test_ai_report_fail_keeps_machine(self):
         """書き手が 3 回とも拒まれて諦める → 最後の報告は機械の report.md、結末は変わらない。AI の報告の出口は ok: false と理由"""
@@ -403,8 +403,8 @@ class AiReportCase(LineBase):
         self.assertIs(rep["ai_report"]["ok"], False)
         self.assertIn("拒まれた", rep["ai_report"]["reason"])
 
-    def test_human_items_wait_not_unfinished(self):
-        """人が止めた盤面で機械の報告の時に report.human_items が待ち（報告の役の節）→ 結末は stopped_by_human のまま
+    def test_report_wait_not_unfinished(self):
+        """人が止めた盤面で機械の報告の時に report が待ち（報告の役の節）→ 結末は stopped_by_human のまま
         （record_invalid・needs_human に倒れない）で、ai_report_go が真"""
         r = replies()
         got = self.run_line(replies=r, gates={"final-gate": {"decision": "stop", "text": "x"}})
@@ -422,8 +422,7 @@ class AiReportCase(LineBase):
         self.assertIs(rep["ai_report"]["ok"], True)
         self.assertEqual(got["outcome"], "fixed")
         b = entry.open_board(got["board_dir"], allow_halted=True)
-        for nid in ("report.human_items", "report.cold_check", "report"):
-            self.assertEqual(b.node_state(nid), "done", nid)
+        self.assertEqual(b.node_state("report"), "done")
         self.assertEqual(b.state["works"]["after_round"]["by"], "stop_after_round")
 
     def test_no_fix_run_gets_ai_report(self):

@@ -311,7 +311,7 @@ class OutcomeCase(ReportBase):
         self.assertEqual(out["outcome"], "stopped_by_request")
         b = entry.open_board(self.board, allow_halted=True)
         # 止めた後に残るのは報告の役の節（表で blk-report。計画 P1 Task 34）だけ。その待ちは結末を替えない
-        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], ["report.human_items", "report.cold_check", "report"])
+        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], ["report"])
         self.assertIs(out["ai_report_go"], True)
 
     def test_record_invalid_from_settle_is_caught(self):
@@ -340,7 +340,7 @@ class OutcomeCase(ReportBase):
         self.assertNotIn("halted", st)
         self.assertEqual(st["works"][DiskBoard.AFTER_ROUND]["by"], "stop_after_round")
         b = entry.open_board(self.board)
-        self.assertEqual(b.ready(), ["report.human_items"])
+        self.assertEqual(b.ready(), ["report"])
         self.assertEqual((b.record["process"]["stop_reason"], b.record["process"]["halted"]["by"]),
                          ("stop_after_round", "stop_after_round"))
         self.assertIn("止めていない（周の締めの後で止めた", h[H3])
@@ -348,7 +348,7 @@ class OutcomeCase(ReportBase):
         self.assertEqual((out2["outcome"], out2["ai_report_go"]), ("fixed", True))
 
     def test_rebuild_after_the_ai_report_began_keeps_its_exit(self):
-        """Archon の resume は報告の節 report を毎回回し直す（always_run）。AI の報告のブロックが報告の頭の段（report.human_items）を
+        """Archon の resume は報告の節 report を毎回回し直す（always_run）。AI の報告のブロックが書き手の返答（report）を
         受けた後に落ちた run を resume しても、出口（ai_report_go を含む）は 1 度目と字で同じ: 替わると Archon が AI の報告のブロックを
         古いと数え、when: が偽になって済んだ段ごと飛ばし、AI の報告を黙って捨てる"""
         import test_blk_report as BR
@@ -356,11 +356,11 @@ class OutcomeCase(ReportBase):
         first, _, _ = self.build()
         self.assertIs(first["ai_report_go"], True)
         from test_blk_fix import launch
-        launch(self.board, "report.human_items")
+        launch(self.board, "report")
         repo = pathlib.Path(entry.open_board(self.board, allow_halted=True).state["inputs"]["cwd"])
-        got = entry.take(self.board, "report.human_items", BR.golden_reply("report.human_items"), repo)
+        got = entry.take(self.board, "report", BR.golden_reply("report"), repo)
         self.assertTrue(got["ok"], got)
-        self.assertNotIn("report.human_items", entry.open_board(self.board, allow_halted=True).ready())
+        self.assertNotIn("report", entry.open_board(self.board, allow_halted=True).ready())
         again, _, _ = self.build()
         self.assertEqual(again, first)
 

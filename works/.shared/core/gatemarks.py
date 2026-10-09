@@ -186,7 +186,7 @@ LANES_NAME = "eyes-lanes.json"
 QUOTE_NOTE = ("（引用の中の continue --note <…> は本線の道具の書き方。この関所では下の continue の行の一言で答える。"
               "--detail（単位を外す）はこの関所に無い——外したい単位と理由を一言に書けば修正役に届くが、直す義務の数からは外れない）")
 
-# 人が読む関所の文と報告の冒頭 3 行の頭（依頼の「冒頭 3 行で完結」。形は BLUF と本線 report-items.md の冒頭 3 行）
+# 人が読む関所の文と報告の冒頭 3 行の頭（依頼の「冒頭 3 行で完結」。形は BLUF と blk-report の commands/report-write.md の冒頭 3 行）
 HAPPENED, DECIDE, PUSH = "起きたこと: ", "決めてほしいこと: ", "推し: "
 # 推しは機械が作らない: 判定の役が問いの reason に書いた推しだけを拾い、無ければこの言い方（ask_text の項目と同じ）
 NO_PUSH = "判定の役が書いていない"
@@ -231,7 +231,7 @@ def pushes(texts) -> str:
 
 def head3(happened: str, decide: str, push: str, *, other: str = "") -> list:
     """冒頭 3 行: 起きたこと・決めてほしいこと・推し。決めることが無ければ 2 行目に other（次に大事な事実）を置く
-    （「無い」と断る決まり文句は書かない。本線 report-items.md の冒頭 3 行の決まり）"""
+    （「無い」と断る決まり文句は書かない。blk-report の commands/report-write.md の冒頭 3 行の決まり）"""
     return [HAPPENED + happened, DECIDE + decide if decide else other, PUSH + push]
 
 

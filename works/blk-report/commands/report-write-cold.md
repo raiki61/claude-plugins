@@ -11,7 +11,7 @@
 下の区切りの間が、お前が読む指示と本文の全部である（頭に「前の回の受け付けが拒んだ理由」の節が在れば、お前の前の返答は型が合わずに拒まれている。理由のところを直した返答を丸ごと出し直せ）。
 
 ==== ここから ====
-$report-cold-prep.output.prompt
+$report-write-cold-prep.output.prompt
 ==== ここまで ====
 
 返すのは上の JSON Schema に合う JSON だけ。

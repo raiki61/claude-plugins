@@ -1,23 +1,14 @@
-# 筋書き not-ready: 周の途中（報告の節がまだ出ていない盤面）でブロックが回された。どの輪も飛び、collect は報告を書かずに
+# 筋書き not-ready: 周の途中（報告の節がまだ出ていない盤面）でブロックが回された。書き手の輪は飛び、collect は報告を書かずに
 # ok: false と理由を返す（配線の誤りを黙って通さない）。
-rp-route1:
-  next: ''
-  node: report.human_items
-  why: report.human_items は ready でない（周 2・状態 running・待ち ['p4.ci']）
-rp-route2:
-  next: ''
-  node: report.cold_check
-  why: report.cold_check は ready でない（周 2・状態 running・待ち ['p4.ci']）
-rp-route3:
+rp-route:
   next: ''
   node: report
   why: report は ready でない（周 2・状態 running・待ち ['p4.ci']）
 collect:
   ok: false
-  reason: 報告の節 report.human_items が ready でない（盤面の状態 running・周 2）
+  reason: 報告の節 report が ready でない（盤面の状態 running・周 2）
   report_file: ''
   text_file: ''
-  human_items_file: ''
   facts_file: ''
   cold_check:
     verdict: ''
@@ -26,13 +17,9 @@ collect:
     decidable: false
   record_invalid: false
   rejects:
-    report.human_items: {cold: 0, format: 0, answer: 0}
-    report.cold_check: {cold: 0, format: 0, answer: 0}
     report: {cold: 0, format: 0, answer: 0}
 fixture:
   expect: completed
   reached:
-  - rp-route1
-  - rp-route2
-  - rp-route3
+  - rp-route
   - collect

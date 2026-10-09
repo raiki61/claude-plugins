@@ -43,7 +43,7 @@ EYES = {"r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", 
 MATERIAL = {"p0.prior_decisions", "p0.purpose_review", "p1.local_review", "p1.consistency_bypass", "p1.hygiene",
             "p1.external_standards", "p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity",
             "p1.main_path_observation", "p1.provenance"}
-ROLES |= EYES | MATERIAL | {"report.human_items", "report.cold_check", "report", "r2.design"}
+ROLES |= EYES | MATERIAL | {"report", "r2.design"}
 
 
 def raw_table() -> dict:
@@ -167,12 +167,14 @@ class TableCase(unittest.TestCase):
                           "r4.hidden_scope"})
 
     def test_report_rows_are_blk_report(self):
-        """報告の役の 3 節は blk-report の役（計画 P1 Task 34。ml-report の案の行）。graph の pre: finalize の節は report だけ——
+        """報告の役の節 report は blk-report の役（計画 P1 Task 34。ml-report の案の行）。頭と初見検査の節は absent（書き手が頭も
+        書き、輪の中の初見の読み手が確かめる。2026-10-09 の片付け）。graph の pre: finalize の節は report だけ——
         その関所（settle の RecordInvalid）は機械の報告の gate_record が受けて record_invalid にする（test_report）"""
-        for nid in ("report", "report.human_items", "report.cold_check"):
+        self.assertEqual((self.nodes["report"].by, self.nodes["report"].where), ("role", "blk-report"))
+        self.assertIn("R27", self.nodes["report"].reason)
+        for nid in ("report.human_items", "report.cold_check"):
             with self.subTest(nid):
-                self.assertEqual((self.nodes[nid].by, self.nodes[nid].where), ("role", "blk-report"))
-        self.assertIn("R27", self.nodes["report.human_items"].reason)
+                self.assertEqual(self.nodes[nid].by, "absent")
         self.assertEqual({n for n, g in GRAPH["nodes"].items() if g.get("pre") == "finalize"}, {"report"})
 
     def test_later_lines_name_their_line(self):

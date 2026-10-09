@@ -508,8 +508,8 @@ class LineRun:
         return eyes.collect(self.board, e["round"])
 
     def blk_report(self):
-        """blk-report の中の節の順（経路 → 支度 → 役 → 受け付け を 3 役 → 出口）。返答は replies[<役>]（無ければ blk-report の
-        筋書き pass の見本）。replies["report-give-up"] が真なら書き手を 3 回拒ませる（諦めの道）"""
+        """blk-report の中の節の順（経路 → 支度 → 書き手 → 受け付け（書き手の頭を読んだ初見の読み手の返答つき）→ 出口）。返答は
+        replies[<役>]（無ければ blk-report の筋書き pass の見本）。replies["report-give-up"] が真なら書き手を 3 回拒ませる（諦めの道）"""
         import yaml
         if str(ROOT / "blk-report" / "lib") not in sys.path:
             sys.path.insert(0, str(ROOT / "blk-report" / "lib"))
@@ -524,7 +524,8 @@ class LineRun:
                 body = self.replies.get(role, stubs[role])
                 if role == report_roles.WRITE and self.replies.get("report-give-up"):
                     body = {"text": "| 列 |\n|---|\n| これは説明の文。セルに入れてはいけない |"}
-                got = report_roles.accept(self.board, role, json.dumps(body, ensure_ascii=False), self.repo)
+                got = report_roles.accept(self.board, role, json.dumps(body, ensure_ascii=False), self.repo,
+                                          cold=json.dumps(self.replies.get(report_roles.WRITE_COLD, stubs[report_roles.WRITE_COLD])))
                 if got["done"]:
                     break
         return report_roles.collect(self.board, machine)

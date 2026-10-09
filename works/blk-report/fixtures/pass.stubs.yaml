@@ -1,58 +1,12 @@
-# 筋書き pass: 周の締めの後に 3 つの役が 1 回ずつ受け付けを通り、collect が盤面の report-ai.md を組む。
-# スクリプトの節は全部 stub（盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_report.py が子のプロセスで回す）。
-# 役の返答の本文は graphloops の台本 test_converges の最終報告の返答を縮めた物。
-rp-route1:
-  next: report-items
-  node: report.human_items
-  why: report.human_items が ready
-report-items-prep:
-  prompt_file: board/prompts/r3/report.human_items.md
-  prompt: ''
-  attempt: 1
-  node: report.human_items
-  facts_file: ''
-  already: false
-report-items:
-  text: "レビューは 3 周で収束し、直す物は残っていない。\n直した欠陥は 1 件で、テストは緑。\n次の周に回した物は無い。"
-report-items-accept:
-  ok: true
-  done: true
-  give_up: false
-  reason: ''
-  reason_file: ''
-  node: report.human_items
-  record_invalid: false
-rp-route2:
-  next: report-cold
-  node: report.cold_check
-  why: report.cold_check が ready
-report-cold-prep:
-  prompt_file: board/prompts/r3/report.cold_check.md
-  prompt: "お前は文脈を持たない初見の読み手。……（描いた本文）"
-  attempt: 1
-  node: report.cold_check
-  facts_file: ''
-  already: false
-report-cold:
-  verdict: pass
-  stops: []
-  guessed: []
-  decidable: true
-report-cold-accept:
-  ok: true
-  done: true
-  give_up: false
-  reason: ''
-  reason_file: ''
-  node: report.cold_check
-  record_invalid: false
-rp-route3:
+# 筋書き pass: 周の締めの後に書き手が 1 回で受け付けを通り（書き手の頭を読んだ初見の読み手は pass）、collect が盤面の
+# report-ai.md を組む。スクリプトの節は全部 stub（盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_report.py が
+# 子のプロセスで回す）。書き手の返答の本文は graphloops の台本 test_converges の最終報告の返答を縮めた物。
+rp-route:
   next: report-write
   node: report
   why: report が ready
 report-write-prep:
   prompt_file: board/prompts/r3/report.md
-  prompt: ''
   attempt: 1
   node: report
   facts_file: board/r3/report-facts.md
@@ -80,7 +34,6 @@ collect:
   reason: ''
   report_file: board/report-ai.md
   text_file: board/out/r3/report.json
-  human_items_file: board/out/r3/report.human_items.json
   facts_file: board/r3/report-facts.md
   cold_check:
     verdict: pass
@@ -89,21 +42,11 @@ collect:
     decidable: true
   record_invalid: false
   rejects:
-    report.human_items: {cold: 0, format: 0, answer: 0}
-    report.cold_check: {cold: 0, format: 0, answer: 0}
     report: {cold: 0, format: 0, answer: 0}
 fixture:
   expect: completed
   reached:
-  - rp-route1
-  - report-items-prep
-  - report-items
-  - report-items-accept
-  - rp-route2
-  - report-cold-prep
-  - report-cold
-  - report-cold-accept
-  - rp-route3
+  - rp-route
   - report-write-prep
   - report-write
   - report-write-cold-prep

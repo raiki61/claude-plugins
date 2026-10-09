@@ -1,12 +1,12 @@
-"""報告と初見検査のブロック（blk-report。本線の R13: report.human_items・report.cold_check・report）の検査。
+"""報告のブロック（blk-report。本線の R13: report。頭と初見検査の節はこのラインで absent）の検査。
 
 - YAML の形: 役の output_format が report_roles.output_format（写しの型か本文の型に印）と同じ・初見の読み手は道具を持たない・
   輪は done の旗で抜ける・when: が読むのはいつも走る経路の節の欄だけ・スクリプトが読む INPUTS_* と with: の鍵が同じ
-- 指示書の写し（prompts/）が本線の a1202d0 とバイト単位で同じ。commands は写しを貼らず、持ち主の書式の決まりを持つ
-- 芯（blk-report/lib/report_roles.py）: 手本の盤面（graphloops の台本 test_converges の周の締めの後）を、提案の表
-  （3 節を role にした darkfactory の表）で開き、経路・支度・受け付け・出口を回す。数は盤面から、機械の事実は書き換えずに付ける
+- 指示書の写し（prompts/）が本線の a1202d0 に台帳の手直しを当てた物とバイト単位で同じ。commands は写しを貼らず、持ち主の書式の決まりを持つ
+- 芯（blk-report/lib/report_roles.py）: 手本の盤面（graphloops の台本 test_converges の周の締めの後）を darkfactory の表で開き、
+  経路・支度・受け付け・出口を回す。数は盤面から、機械の事実は書き換えずに付ける
 - スクリプト: 子のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回し、輪の抜け方を until_bash の式で見る
-提案の表は pack の外の一時の置き場に置き、entry.PACK をそこへ向けて開く（本物の darkfactory/nodes.json は変えない。配線は後）。
+表は pack の外の一時の置き場に写し、entry.PACK をそこへ向けて開く（hook の board_hook.py を足せるように）。
 """
 import contextlib
 import importlib.util
@@ -33,22 +33,14 @@ for _p in (str(TESTS), str(CORE), str(BLK / "lib")):
         sys.path.insert(0, _p)
 
 import boardreplay as br  # noqa: E402
+import copyledger  # noqa: E402
 import entry  # noqa: E402
 import report_roles as rr  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 
 DEADLINE = 1728000000
 SCENARIO, RUN, READY_SEQ, MID_SEQ = "test_converges", "1", 171, 100
-NODES = ("report.human_items", "report.cold_check", "report")
-# 提案の表の行（報告に載せた darkfactory/nodes.json の差分と同じ。配線の時に本物の表へ入れる）
-PROPOSED = {
-    "report.human_items": {"by": "role", "where": "blk-report",
-                           "reason": "書き手（読むだけ）が報告の頭——平易な 3 行と人が決めること——を書く（本線 R13。台帳 R27）"},
-    "report.cold_check": {"by": "role", "where": "blk-report",
-                          "reason": "道具を持たない初見の読み手が、報告の頭の本文だけを貼られて読む（本線 X3。注記であって門ではない）"},
-    "report": {"by": "role", "where": "blk-report",
-               "reason": "書き手が初見検査の詰まりを直して本文の全部を書く。検証器の関所は盤面の settle が踏み、機械の事実は出口が字のまま付ける"},
-}
+PROMPTED = ("report.cold_check", "report")   # ブロックが描く写しの指示書の節（report.cold_check は書き手の輪の初見の読み手が借りる）
 
 
 def workflow():
@@ -71,21 +63,20 @@ def script_inputs(name):
 
 
 def golden_reply(nid):
-    """手本の台本がその節に返した返答（report.human_items・report は本文、report.cold_check は JSON）"""
+    """手本の台本がその節に返した返答（report は本文、report.cold_check は JSON。書き手の輪の初見の読み手の見本に使う）"""
     step = next(s for s in br.load_runs(SCENARIO)[RUN] if s.get("node") == nid and s["kind"] == "accept")
     text = step["args"]["text"]
     return {"text": text} if nid != "report.cold_check" else json.loads(text)
 
 
-# ---------------------------------------------------------------- 提案の表の pack と盤面
+# ---------------------------------------------------------------- 表の pack と盤面
 class Pack:
-    """提案の表（darkfactory の表の 3 節を role にした物）を置いた一時の pack の根。hook を渡せば board_hook.py も置く"""
+    """darkfactory の表を写した一時の pack の根。hook を渡せば board_hook.py も置く"""
 
     def __init__(self, hook=None):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self._tmp.name)
         doc = json.loads((ROOT / "darkfactory" / "nodes.json").read_text(encoding="utf-8"))
-        doc["nodes"].update(PROPOSED)
         line = self.root / doc["line"]
         line.mkdir()
         (line / "nodes.json").write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -122,6 +113,8 @@ def build(pack, kind, into):
         b.save()
         if kind == "stopped":
             entry.open_board(bd).stop("試験: 周の途中で人が止めた", by="human:test")
+        if kind != "mid":
+            rr.route(bd, rr.WRITE)   # Archon の rp-route と同じく settle して書き手の節を出す（頭と初見検査は absent で省く）
     return bd, repo
 
 
@@ -147,18 +140,17 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(self.y["inputs"]["machine_report"].get("default"), "")
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
 
-    def test_roles_follow_graph_order(self):
-        """段 k の輪の役が ROLES の k 番目、ROLES の節の並びが写しの graph の依存の並び"""
-        self.assertEqual([rr.NODE_OF[r] for r in rr.ROLES], list(NODES))
-        got = []
-        for k, grp in enumerate(self.loops(), 1):
-            m = re.fullmatch(r"\$rp-route(\d+)\.output\.next == '([a-z0-9-]+)'", grp.get("when", ""))
-            self.assertIsNotNone(m, grp.get("when"))
-            self.assertEqual(int(m.group(1)), k)
-            self.assertEqual(grp["depends_on"], [f"rp-route{k}"])
-            got.append(m.group(2))
-            self.assertEqual(self.top[f"rp-route{k}"]["with"], {"role": m.group(2)})
-        self.assertEqual(got, list(rr.ROLES))
+    def test_one_writer_loop(self):
+        """役は書き手 1 つ（report）。頭と初見検査の節は darkfactory の表で absent（2026-10-09 の片付け）"""
+        self.assertEqual(rr.ROLES, (rr.WRITE,))
+        self.assertEqual(rr.NODE_OF, {rr.WRITE: "report"})
+        loops = self.loops()
+        self.assertEqual([g["id"] for g in loops], [f"{rr.WRITE}-loop"])
+        self.assertEqual(loops[0]["when"], f"$rp-route.output.next == '{rr.WRITE}'")
+        self.assertEqual(loops[0]["depends_on"], ["rp-route"])
+        self.assertEqual(self.top["rp-route"]["with"], {"role": rr.WRITE})
+        table = json.loads((ROOT / "darkfactory" / "nodes.json").read_text(encoding="utf-8"))["nodes"]
+        self.assertEqual([table[n]["by"] for n in rr.REPORT_NODES], ["absent", "absent", "role"])
 
     def test_loops_exit_on_done_flag(self):
         for grp in self.loops():
@@ -173,8 +165,8 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(g["until_bash"], f"test ${role}-accept.output.done = true")
                 cold = [f"{rr.WRITE_COLD}-prep", rr.WRITE_COLD] if role == rr.WRITE else []
                 self.assertEqual([m["id"] for m in g["nodes"]], [f"{role}-prep", role, *cold, f"{role}-accept"])
-                # 初見の読み手は毎回新しい会話（本線の fresh_context）。書き手は同じ会話で出し直す（本線の writer）
-                self.assertIs(g["fresh_context"], role == "report-cold")
+                # 書き手は同じ会話で出し直す（本線の writer）。初見の読み手は節の context: fresh
+                self.assertIs(g["fresh_context"], False)
 
     def test_write_cold_reads_in_a_new_conversation(self):
         """書き手の輪の初見の読み手は、どの周も新しい会話で起きる（Archon の輪は直前の AI の節の会話を次の AI の節に継がせるので、
@@ -201,21 +193,20 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
-                if role["id"] in ("report-cold", rr.WRITE_COLD):
+                if role["id"] == rr.WRITE_COLD:
                     self.assertEqual(role["allowed_tools"], [], "初見の読み手は道具を持たない（本文だけを読む。X3）")
                 else:
                     self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
 
     def test_output_formats(self):
-        self.assertEqual(rr.output_format("report-items")["description"], "works-node: report-items")
-        self.assertEqual(rr.output_format("report-cold")["description"], "works-node: report-cold")
         # 書き手の輪には初見の読み手（新しい会話）が挟まるので、書き手は 2 周目から自分の会話に戻る（包みの旗 self-resume）
         self.assertEqual(rr.output_format("report-write")["description"], "works-node: report-write self-resume")
         self.assertEqual(rr.output_format(rr.WRITE_COLD)["description"], f"works-node: {rr.WRITE_COLD}")
-        self.assertEqual(validate_schema(golden_reply("report.cold_check"), rr.output_format("report-cold")), [])
-        for nid, role in (("report.human_items", "report-items"), ("report", "report-write")):
-            self.assertEqual(validate_schema(golden_reply(nid), rr.output_format(role)), [])
-            self.assertTrue(validate_schema({"text": ""}, rr.output_format(role)), "空の本文は型で落とす")
+        self.assertEqual(validate_schema(golden_reply("report.cold_check"), rr.output_format(rr.WRITE_COLD)), [])
+        self.assertEqual(validate_schema(golden_reply("report"), rr.output_format(rr.WRITE)), [])
+        self.assertTrue(validate_schema({"text": ""}, rr.output_format(rr.WRITE)), "空の本文は型で落とす")
+        with self.assertRaises(rr.BoardGap):
+            rr.output_format("report-items")
 
     def test_when_reads_only_routes(self):
         routes = {nid for nid, n in self.top.items() if n.get("script") == "route"}
@@ -258,66 +249,64 @@ class YamlCase(unittest.TestCase):
                     self.assertEqual(n["id"].rsplit("-", 1)[0], n["with"]["role"])
 
     def test_commands(self):
-        for role in rr.ROLES:
+        self.assertEqual(sorted(p.stem for p in (BLK / "commands").glob("*.md")), sorted([rr.WRITE, rr.WRITE_COLD]))
+        for role in (rr.WRITE, rr.WRITE_COLD):
             text = (BLK / "commands" / f"{role}.md").read_text(encoding="utf-8")
             with self.subTest(role):
                 self.assertNotIn("$LOOP_PREV", text, "拒否の文は prep が指示書に書く（R44）")
                 self.assertNotIn("{{", text, "指示書を写さない（本文は写しの描画）")
-                if role == "report-cold":
-                    # 道具を持たない役: 描いた本文そのものを貼る（最後の置き換えで入れるので、中の $ は置き換え直されない）
-                    self.assertIn("$report-cold-prep.output.prompt\n", text + "\n")
-                    self.assertNotIn("prompt_file", text)
-                    self.assertNotIn("Read", text)
-                    self.assertIn("道具を一切持たない", text)       # 本線の cold-reader の定義
-                    self.assertIn("冒頭 3 行", text)                # 持ち主の冷読の問い
-                else:
-                    self.assertIn(f"${role}-prep.output.prompt_file", text)
-                    self.assertIn("前の回の受け付けが拒んだ理由", text)
-                    for words in ("冒頭 3 行", "セルに", "中身→記号", "今壊れているのか"):
-                        self.assertIn(words, text)
-        write = (BLK / "commands" / "report-write.md").read_text(encoding="utf-8")
-        self.assertIn("$report-write-prep.output.facts_file", write)
+        cold = (BLK / "commands" / f"{rr.WRITE_COLD}.md").read_text(encoding="utf-8")
+        # 道具を持たない役: 描いた本文そのものを貼る（支度が貼る所を置き換えるので、中の $ は置き換え直されない）
+        self.assertIn(rr.COLD_PASTE + "\n", cold + "\n")
+        self.assertNotIn("prompt_file", cold)
+        self.assertNotIn("Read", cold)
+        self.assertIn("道具を一切持たない", cold)       # 本線の cold-reader の定義
+        self.assertIn("冒頭 3 行", cold)                # 持ち主の冷読の問い
+        write = (BLK / "commands" / f"{rr.WRITE}.md").read_text(encoding="utf-8")
+        self.assertIn(f"${rr.WRITE}-prep.output.prompt_file", write)
+        self.assertIn(f"${rr.WRITE}-prep.output.facts_file", write)
+        self.assertIn("前の回の受け付けが拒んだ理由", write)
+        for words in ("冒頭 3 行", "セルに", "中身→記号", "今壊れているのか", "初見の読み手"):
+            self.assertIn(words, write)
+        self.assertEqual(write.count("**セルに説明の文を入れない**"), 1, "書式の決まりは 1 か所だけに持つ")
 
     def test_prompt_copies_verbatim(self):
-        """指示書の写し（prompts/）は COPIED_FROM の 1 行目の commit の graphloops/prompts/ の下とバイト単位で同じ。
-        graph の 3 節の prompt_file を全部持ち、prompt_append を持たない"""
+        """指示書の写し（prompts/）は COPIED_FROM の 1 行目の commit の graphloops/prompts/ の下に、台帳の手直し（! 行）を
+        当てた物とバイト単位で同じ。ブロックが描く節の prompt_file を全部持ち、prompt_append を持たない"""
         base = BLK / "prompts"
-        lines = (base / "COPIED_FROM").read_text(encoding="utf-8").splitlines()
-        commit = lines[0].split()[0]
-        listed = [ln.split()[0] for ln in lines[1:] if ln.strip() and not ln.startswith("#")]
+        led = copyledger.read(base / "COPIED_FROM")
+        listed = [rel for rel, _ in led.rows]
         self.assertEqual(sorted(listed), sorted(str(p.relative_to(base)) for p in base.rglob("*.md")))
-        core = (CORE / "COPIED_FROM").read_text(encoding="utf-8").splitlines()[0].split()[0]
-        self.assertEqual(commit, core, "写し（graphloops/）と同じ commit から写す")
+        self.assertEqual(led.commit, copyledger.core_commit(), "写し（graphloops/）と同じ commit から写す")
         g = json.loads((CORE / "graphloops" / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
-        for nid in NODES:
+        for nid in PROMPTED:
             self.assertIn(g["nodes"][nid]["prompt_file"].removeprefix("../prompts/"), listed)
             self.assertNotIn("prompt_append", g["nodes"][nid])
         for rel in listed:
             with self.subTest(rel):
-                src = subprocess.run(["git", "-C", str(CORE), "show", f"{commit}:graphloops/prompts/{rel}"],
+                src = subprocess.run(["git", "-C", str(CORE), "show", f"{led.commit}:graphloops/prompts/{rel}"],
                                      capture_output=True, check=True).stdout
-                self.assertEqual((base / rel).read_bytes(), src)
+                self.assertEqual((base / rel).read_bytes(), copyledger.apply(led, rel, src))
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"pass.stubs.yaml", "rejected-thrice.stubs.yaml", "not-ready.stubs.yaml"})
         p = fx["pass.stubs.yaml"]
         self.assertEqual(p["fixture"]["expect"], "completed")
-        for role in rr.ROLES:
+        for role in (*rr.ROLES, rr.WRITE_COLD):
             self.assertIn(role, p["fixture"]["reached"])
         self.assertIs(p["collect"]["ok"], True)
         r = fx["rejected-thrice.stubs.yaml"]
-        self.assertEqual((r["report-items-accept"]["ok"], r["report-items-accept"]["done"]), (False, True))
+        self.assertEqual((r["report-write-accept"]["ok"], r["report-write-accept"]["done"]), (False, True))
         self.assertIn("dry-run は until_bash を回さず", (BLK / "fixtures" / "rejected-thrice.stubs.yaml").read_text(encoding="utf-8"))
-        self.assertNotIn("report-cold", r, "後の輪は飛ぶ")
         self.assertIs(r["collect"]["ok"], False)
         n = fx["not-ready.stubs.yaml"]
-        self.assertEqual(n["rp-route1"]["next"], "")
-        self.assertNotIn("report-items", n)
+        self.assertEqual(n["rp-route"]["next"], "")
+        self.assertNotIn("report-write", n)
         self.assertIs(n["collect"]["ok"], False)
         for name, f in fx.items():
             for nid, out in f.items():
-                if nid in rr.ROLES:
+                if nid in (*rr.ROLES, rr.WRITE_COLD):
                     with self.subTest(f"{name}:{nid}"):
                         self.assertEqual(validate_schema(out, rr.output_format(nid)), [])
 
@@ -384,16 +373,19 @@ class _Case(unittest.TestCase):
 
 class RouteCase(_Case):
     def test_ready_after_converge(self):
+        """周の締めの後は書き手の節がすぐ ready（頭と初見検査の節は表で absent なので省かれる）"""
         self.board()
-        got = rr.route(self.bd, "report-items")
-        self.assertEqual((got["next"], got["node"]), ("report-items", "report.human_items"), got)
-        self.assertEqual(rr.route(self.bd, "report-cold")["next"], "")
+        got = rr.route(self.bd, rr.WRITE)
+        self.assertEqual((got["next"], got["node"]), (rr.WRITE, "report"), got)
+        skipped = entry.open_board(self.bd).rd["skipped"]
+        self.assertIn("report.human_items", skipped)
+        self.assertIn("report.cold_check", skipped)
 
     def test_mid_round_not_ready(self):
         self.board("mid")
-        got = rr.route(self.bd, "report-items")
+        got = rr.route(self.bd, rr.WRITE)
         self.assertEqual(got["next"], "")
-        self.assertIn("report.human_items", got["why"])
+        self.assertIn("report", got["why"])
         out = rr.collect(self.bd)
         self.assertFalse(out["ok"])
         self.assertIn("ready", out["reason"])
@@ -401,8 +393,8 @@ class RouteCase(_Case):
     def test_stopped_run_reaches_report(self):
         """人が周の途中で止めた run も報告の節へ届く（graph の stop.node の下流。本線の answer stop と同じ道）"""
         self.board("stopped")
-        self.assertEqual(rr.route(self.bd, "report-items")["next"], "report-items")
-        prep, got = self.run_role("report-items", {"text": "人が止めた run の報告の頭"})
+        self.assertEqual(rr.route(self.bd, rr.WRITE)["next"], rr.WRITE)
+        prep, got = self.run_role(rr.WRITE, {"text": "人が止めた run の報告"})
         self.assertTrue(got["ok"], got)
         self.assertIn("stop", pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
 
@@ -411,33 +403,30 @@ class PathCase(_Case):
     def test_full_pass_path(self):
         self.board()
         rec_before = record(self.bd)
-        prep, got = self.run_role("report-items", golden_reply("report.human_items"))
-        self.assertEqual((got["ok"], got["done"], got["give_up"]), (True, True, False), got)
-        text = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
-        self.assertIn("最終報告の冒頭", text)                    # 本線の指示書を盤面の値で描いた
-        self.assertNotIn("{{", text)
-        self.assertEqual(prep["prompt"], "", "書き手には本文を貼らない（ファイルで読む）")
-        # 初見の読み手: 人が決めるところの本文だけを貼る。盤面・記録・差分の置き場を渡さない
-        self.assertEqual(rr.route(self.bd, "report-cold")["next"], "report-cold")
-        cprep = rr.prep(self.bd, "report-cold", self.repo)
-        self.assertIn(golden_reply("report.human_items")["text"].strip(), cprep["prompt"])
-        self.assertNotIn(str(self.bd), cprep["prompt"])
-        self.assertNotIn(str(self.repo), cprep["prompt"])
-        self.assertNotIn("record.json", cprep["prompt"])
-        got = rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
-        self.assertTrue(got["ok"], got)
-        self.assertEqual(state(self.bd)["loop"]["cold_check"]["verdict"], "pass")   # 写しの post_check の注記（本線と同じ）
-        # 書き手: 数の出どころ（盤面の事実）のファイルと、検証器の結果を描いた指示書
-        self.assertEqual(rr.route(self.bd, "report-write")["next"], "report-write")
-        wprep, got = self.run_role("report-write", golden_reply("report"))
-        self.assertTrue(got["ok"], got)
-        facts = pathlib.Path(wprep["facts_file"]).read_text(encoding="utf-8")
+        # 書き手: 数の出どころ（盤面の事実）のファイルと、検証器の結果と頭を書く材料を描いた指示書
+        self.assertEqual(rr.route(self.bd, rr.WRITE)["next"], rr.WRITE)
+        wprep = rr.prep(self.bd, rr.WRITE, self.repo)
+        self.assertNotIn("prompt", wprep, "書き手には本文を貼らない（ファイルで読む）")
         wtext = pathlib.Path(wprep["prompt_file"]).read_text(encoding="utf-8")
-        self.assertIn("検証器の最終結果", wtext)
+        self.assertNotIn("{{", wtext)
+        for words in ("検証器の最終結果", "冒頭 3 行は「人が決めること」だけ", "問いの台帳: ", "根本ユニット: "):
+            self.assertIn(words, wtext)                          # 本線の指示書（台帳の手直しの後）を盤面の値で描いた
         self.assertIn(wprep["facts_file"], wtext, "書き手に数の出どころを渡す")
+        # 初見の読み手: 書き手の頭だけを貼る。盤面・記録・差分の置き場を渡さない
+        reply = json.dumps(golden_reply("report"), ensure_ascii=False)
+        drawn = rr.write_cold_prep(self.bd, reply)["prompt"]
+        self.assertIn(rr.head_of(golden_reply("report")["text"])[:40], drawn)
+        self.assertNotIn(str(self.bd), drawn)
+        self.assertNotIn(str(self.repo), drawn)
+        self.assertNotIn("record.json", drawn)
+        got = rr.accept(self.bd, rr.WRITE, reply, self.repo, cold=json.dumps(golden_reply("report.cold_check")))
+        self.assertEqual((got["ok"], got["done"], got["give_up"]), (True, True, False), got)
+        facts = pathlib.Path(wprep["facts_file"]).read_text(encoding="utf-8")
         out = rr.collect(self.bd)
         self.assertTrue(out["ok"], out)
-        self.assertEqual(out["cold_check"]["verdict"], "pass")
+        self.assertNotIn("human_items_file", out)
+        self.assertEqual(out["cold_check"], golden_reply("report.cold_check"), "出口の cold_check は書き手の頭を読んだ初見の読み手の判定")
+        self.assertEqual(set(out["rejects"]), {"report"})
         rep = pathlib.Path(out["report_file"]).read_text(encoding="utf-8")
         head, _, rest = rep.partition("\n\n")
         self.assertIn(f"run {state(self.bd)['run_id']}", head)          # 来歴の 1 行は機械が刻む
@@ -464,9 +453,6 @@ class PathCase(_Case):
         mr = self.root / "machine-report.md"
         body = "# 機械の報告\n\n- 結末: fixed\n- 引用符 \" と $ARTIFACTS_DIR と $x.output.y はそのまま\n"
         mr.write_text(body, encoding="utf-8")
-        self.run_role("report-items", golden_reply("report.human_items"))
-        rr.prep(self.bd, "report-cold", self.repo)
-        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
         wprep, got = self.run_role("report-write", golden_reply("report"), machine_report=str(mr))
         self.assertTrue(got["ok"], got)
         self.assertEqual(pathlib.Path(wprep["facts_file"]).read_text(encoding="utf-8"), body)
@@ -478,23 +464,22 @@ class PathCase(_Case):
         self.board()
         before = (pathlib.Path(self.bd) / "state.json").read_bytes()
         bad = {"text": "頭\n\n| 項目 | 説明 |\n|---|---|\n| A | これは説明の文である。 |\n"}
-        prep, got = self.run_role("report-items", bad)
+        prep, got = self.run_role(rr.WRITE, bad)
         self.assertEqual((got["ok"], got["done"], got["give_up"]), (False, False, False), got)
         self.assertIn("セル", got["reason"])
         st = state(self.bd)
-        self.assertEqual(st["rounds"][-1]["instances"]["report.human_items"]["status"], "pending")
-        self.assertNotIn("report.human_items", st["rounds"][-1]["done"])
+        self.assertEqual(st["rounds"][-1]["instances"]["report"]["status"], "pending")
+        self.assertNotIn("report", st["rounds"][-1]["done"])
         self.assertTrue(before)
         # 2 回目の指示書の頭に前の拒否の文
-        prep2 = rr.prep(self.bd, "report-items", self.repo)
+        prep2 = rr.prep(self.bd, rr.WRITE, self.repo)
         self.assertTrue(pathlib.Path(prep2["prompt_file"]).read_text(encoding="utf-8").startswith(rr.REJECT_HEADING))
 
     def test_give_up_after_three_then_fallback_report(self):
         self.board()
-        rounds = [self.run_role("report-items", {"text": "| A |\n|---|\n| 説明の文。 |\n"})[1] for _ in range(rr.GIVE_UP_AFTER)]
+        rounds = [self.run_role(rr.WRITE, {"text": "| A |\n|---|\n| 説明の文。 |\n"})[1] for _ in range(rr.GIVE_UP_AFTER)]
         self.assertEqual([(g["ok"], g["done"], g["give_up"]) for g in rounds],
                          [(False, False, False)] * (rr.GIVE_UP_AFTER - 1) + [(False, True, True)])
-        self.assertEqual(rr.route(self.bd, "report-cold")["next"], "")
         out = rr.collect(self.bd)
         self.assertFalse(out["ok"])
         self.assertIn("3 回とも", out["reason"])
@@ -504,10 +489,10 @@ class PathCase(_Case):
 
     def test_writer_must_not_move_tree(self):
         self.board()
-        rr.prep(self.bd, "report-items", self.repo)
+        rr.prep(self.bd, rr.WRITE, self.repo)
         (pathlib.Path(self.repo) / "stray.txt").write_text("書き手が作った", encoding="utf-8")
         try:
-            got = rr.accept(self.bd, "report-items", json.dumps(golden_reply("report.human_items")), self.repo)
+            got = rr.accept(self.bd, rr.WRITE, json.dumps(golden_reply("report")), self.repo)
         finally:
             (pathlib.Path(self.repo) / "stray.txt").unlink()
         self.assertFalse(got["ok"])
@@ -515,8 +500,8 @@ class PathCase(_Case):
 
     def test_unreadable_reply_is_returned_to_role(self):
         self.board()
-        rr.prep(self.bd, "report-items", self.repo)
-        got = rr.accept(self.bd, "report-items", "{JSON でない", self.repo)
+        rr.prep(self.bd, rr.WRITE, self.repo)
+        got = rr.accept(self.bd, rr.WRITE, "{JSON でない", self.repo)
         self.assertFalse(got["ok"])
         self.assertIn("JSON", got["reason"])
 
@@ -552,21 +537,17 @@ class GlossaryCase(unittest.TestCase):
 class GlossaryPortCase(_Case):
     ITEMS = f"## 人が決めること\n\n{PACK_TERM}に人が PR の CI を見るかを決める\n"
 
-    def test_cold_prep_and_writer_cold_get_section_outside_body(self):
-        """初見の読み手に渡す 2 つの口（report-cold の prep・書き手の頭の write_cold_prep）に、本文の後ろへ機械が節を付ける"""
+    def test_writer_cold_gets_section_outside_body(self):
+        """初見の読み手に渡す書き手の頭（write_cold_prep）の後ろへ、機械が語の定義の節を付ける"""
         self.board()
         definition = pack_definition(self, PACK_TERM)
-        self.run_role("report-items", {"text": self.ITEMS})
-        cprep = rr.prep(self.bd, "report-cold", self.repo)
-        self.assertIn(GLOSSARY_HEAD, cprep["prompt"])
-        self.assertIn(definition, cprep["prompt"])
-        self.assertGreater(cprep["prompt"].index(GLOSSARY_HEAD), cprep["prompt"].index(self.ITEMS.strip()),
-                           "本文の中に差し込まない")
-        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
         rr.prep(self.bd, "report-write", self.repo)
         drawn = rr.write_cold_prep(self.bd, json.dumps({"text": self.ITEMS + "\n## 詳しく\n\n本文の続き\n"}, ensure_ascii=False))
         self.assertIn(GLOSSARY_HEAD, drawn["prompt"], "head_of が落とさない所に機械が付ける")
         self.assertIn(definition, drawn["prompt"])
+        self.assertGreater(drawn["prompt"].index(GLOSSARY_HEAD), drawn["prompt"].index(self.ITEMS.strip()),
+                           "本文の中に差し込まない")
+        self.assertNotIn("本文の続き", drawn["prompt"], "頭だけを渡す")
 
     def test_collect_adds_section_for_terms_in_facts(self):
         """人に渡す report-ai.md: 本文と機械の事実の間に節。語は機械の事実の固定の行からも拾う"""
@@ -575,9 +556,6 @@ class GlossaryPortCase(_Case):
         mr = self.root / "machine-report-glossary.md"
         body = f"# 機械の報告\n\n- {PACK_TERM}に人が PR の CI を見る\n"
         mr.write_text(body, encoding="utf-8")
-        self.run_role("report-items", golden_reply("report.human_items"))
-        rr.prep(self.bd, "report-cold", self.repo)
-        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
         _, got = self.run_role("report-write", golden_reply("report"), machine_report=str(mr))
         self.assertTrue(got["ok"], got)
         rep = pathlib.Path(rr.collect(self.bd, machine_report=str(mr))["report_file"]).read_text(encoding="utf-8")
@@ -592,45 +570,33 @@ RUN_TERM = {"term": "次の版の枝", "definition": "この run が直した物
 
 
 class RunTermsCase(_Case):
-    """書き手 2 役は本文と別に run ごとの語（terms）を返せる。盤面には {text} だけを渡し、語は 3 つの口の節に出す"""
-
-    def assert_terms_accepted_by_schema(self):
-        for role in ("report-items", "report-write"):
-            self.assertEqual(validate_schema({"text": "本文", "terms": [RUN_TERM]}, rr.output_format(role)), [],
-                             f"{role} の型が任意の terms を受けない")
+    """書き手は本文と別に run ごとの語（terms）を返せる。盤面には {text} だけを渡し、語は初見の読み手と報告の節に出す"""
 
     def test_schema_takes_optional_terms_and_rejects_broken(self):
-        self.assert_terms_accepted_by_schema()
-        for role in ("report-items", "report-write"):
-            with self.subTest(role):
-                self.assertEqual(validate_schema({"text": "本文"}, rr.output_format(role)), [], "terms は任意")
-                for bad in ([{"term": "語"}], [{"term": "", "definition": "定義"}], [{"term": "語", "definition": "定義", "x": 1}], "語"):
-                    self.assertTrue(validate_schema({"text": "本文", "terms": bad}, rr.output_format(role)), bad)
+        role = rr.WRITE
+        self.assertEqual(validate_schema({"text": "本文", "terms": [RUN_TERM]}, rr.output_format(role)), [],
+                         "書き手の型が任意の terms を受けない")
+        self.assertEqual(validate_schema({"text": "本文"}, rr.output_format(role)), [], "terms は任意")
+        for bad in ([{"term": "語"}], [{"term": "", "definition": "定義"}], [{"term": "語", "definition": "定義", "x": 1}], "語"):
+            self.assertTrue(validate_schema({"text": "本文", "terms": bad}, rr.output_format(role)), bad)
 
-    def test_items_terms_kept_off_board_and_shown_to_cold_reader(self):
-        self.assert_terms_accepted_by_schema()
+    def test_terms_kept_off_board(self):
         self.board()
         text = f"## 人が決めること\n\n{RUN_TERM['term']}を消すかを決める\n"
-        _, got = self.run_role("report-items", {"text": text, "terms": [RUN_TERM]})
+        _, got = self.run_role(rr.WRITE, {"text": text, "terms": [RUN_TERM]})
         self.assertTrue(got["ok"], got)
-        saved = entry.open_board(self.bd).output_of_round("report.human_items", entry.open_board(self.bd).round)
+        saved = entry.open_board(self.bd, allow_halted=True).output_of_round("report", entry.open_board(self.bd, allow_halted=True).round)
         self.assertEqual(saved, {"text": text}, "盤面には本文だけを渡す")
-        cprep = rr.prep(self.bd, "report-cold", self.repo)
-        self.assertIn(RUN_TERM["definition"], cprep["prompt"])
 
     def test_broken_terms_returned_to_writer(self):
-        self.assert_terms_accepted_by_schema()
         self.board()
-        _, got = self.run_role("report-items", {"text": "頭", "terms": [{"term": "語"}]})
+        _, got = self.run_role(rr.WRITE, {"text": "頭", "terms": [{"term": "語"}]})
         self.assertEqual((got["ok"], got["done"]), (False, False), got)
         self.assertIn("terms", got["reason"])
-        self.assertEqual(state(self.bd)["rounds"][-1]["instances"]["report.human_items"]["status"], "pending")
+        self.assertEqual(state(self.bd)["rounds"][-1]["instances"]["report"]["status"], "pending")
 
     def test_writer_terms_reach_writer_cold_and_report(self):
         self.board()
-        self.run_role("report-items", golden_reply("report.human_items"))
-        rr.prep(self.bd, "report-cold", self.repo)
-        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
         rr.prep(self.bd, "report-write", self.repo)
         reply = {"text": f"{RUN_TERM['term']}は残した\n\n## 人が決めること\n\n無し\n", "terms": [RUN_TERM]}
         drawn = rr.write_cold_prep(self.bd, json.dumps(reply, ensure_ascii=False))
@@ -642,7 +608,6 @@ class RunTermsCase(_Case):
         self.assertLess(rep.index(RUN_TERM["definition"]), rep.index(rr.MACHINE_HEADING))
 
     def test_pack_definition_wins_over_run_term(self):
-        self.assertEqual(validate_schema({"text": "本文", "terms": [RUN_TERM]}, rr.output_format("report-items")), [])
         got = rr.glossary_section(f"{PACK_TERM}に見る", [{"term": PACK_TERM, "definition": "run の別の定義"}])
         self.assertNotIn("run の別の定義", got)
         self.assertEqual(got.count(PACK_TERM), 1, "同じ語を重ねて並べない")
@@ -657,36 +622,31 @@ class RejectCountCase(_Case):
 
     def rejected_flow(self):
         self.board()
-        self.run_role("report-items", {"text": "| A |\n|---|\n| 説明の文。 |\n"})          # format
-        self.run_role("report-items", golden_reply("report.human_items"))
-        rr.prep(self.bd, "report-cold", self.repo)
-        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
         redesign = json.dumps({"verdict": "redesign-needed", "stops": ["冒頭"], "guessed": [], "decidable": False})
         passed = json.dumps(golden_reply("report.cold_check"))
         reply = json.dumps(golden_reply("report"), ensure_ascii=False)
+        rr.prep(self.bd, "report-write", self.repo)
+        got = rr.accept(self.bd, "report-write", json.dumps({"text": "| A |\n|---|\n| 説明の文。 |\n"}), self.repo,
+                        cold=passed)                                                                 # format
+        self.assertFalse(got["ok"], got)
         rr.prep(self.bd, "report-write", self.repo)
         got = rr.accept(self.bd, "report-write", reply, self.repo, cold=redesign)                  # cold
         self.assertFalse(got["ok"], got)
         rr.prep(self.bd, "report-write", self.repo)
         got = rr.accept(self.bd, "report-write", "{JSON でない", self.repo, cold=passed)           # answer
         self.assertFalse(got["ok"], got)
-        rr.prep(self.bd, "report-write", self.repo)
-        got = rr.accept(self.bd, "report-write", reply, self.repo, cold=passed)
-        self.assertTrue(got["ok"], got)
         return rr.collect(self.bd)
 
     def test_reject_rows_have_kind(self):
         self.rejected_flow()
         rows = json.loads(entry.open_board(self.bd).work(rr.REJECTS_NAME).read_text(encoding="utf-8"))
         self.assertEqual([(r["node"], r.get("kind")) for r in rows],
-                         [("report.human_items", "format"), ("report", "cold"), ("report", "answer")])
+                         [("report", "format"), ("report", "cold"), ("report", "answer")])
 
     def test_collect_counts_rejects_by_kind(self):
         out = self.rejected_flow()
-        self.assertTrue(out["ok"], out)
-        rejects = out.get("rejects") or {}
-        self.assertEqual(rejects.get("report.human_items"), {"cold": 0, "format": 1, "answer": 0})
-        self.assertEqual(rejects.get("report"), {"cold": 1, "format": 0, "answer": 1})
+        self.assertFalse(out["ok"], out)   # 3 回とも拒まれて諦めた
+        self.assertEqual(out.get("rejects"), {"report": {"cold": 1, "format": 1, "answer": 1}})
         rep = pathlib.Path(out["report_file"]).read_text(encoding="utf-8")
         self.assertIn(f"{COLD_LINE} 1 回", rep, "報告の行は出口の rejects の cold の合計と同じ値")
         self.assertLess(rep.index(rr.MACHINE_HEADING), rep.index(COLD_LINE), "機械の事実の見出しの直後に置く")
@@ -696,7 +656,7 @@ class RejectCountCase(_Case):
 
 class RejectCountRowsCase(unittest.TestCase):
     """拒否の行の配列を数える純粋な関数 count_rejects。kind の無い行（kind が入る前の run の行）・知らない kind の行は
-    捨てずに unknown へ数える（無い欄を既定値で読む）。node が NODE_OF の値に無い行は数えない"""
+    捨てずに unknown へ数える（無い欄を既定値で読む）。node が REPORT_NODES（頭と初見検査が回っていた前の版の節も）に無い行は数えない"""
 
     def test_rows_without_kind_count_as_unknown(self):
         count = getattr(rr, "count_rejects", None)
@@ -736,24 +696,19 @@ class RejectCountRowsCase(unittest.TestCase):
 class RecordInvalidCase(_Case):
     hook = BAD_VALIDATOR_HOOK
 
-    def test_validator_gate_stops_report_but_keeps_facts(self):
-        """記録が検証器を通らない run は report の節を出さない（本線の pre: finalize の関所）。ブロックは落ちずに、
-        人が決めるところの本文・検証器の出力の末尾・機械の事実を付けた報告を ok: false で残す"""
+    def test_validator_gate_stops_report(self):
+        """記録が検証器を通らない run は report の節を出さない（本線の pre: finalize の関所）。ブロックは落ちずに、書き手を
+        起こさず、出口は ok: false・record_invalid と理由を返す（報告の節が出ていないので report-ai.md は書かない。人に渡る
+        報告はラインの機械の報告で、結末 record_invalid と検証器の出力を載せる）"""
         self.board()
-        self.run_role("report-items", golden_reply("report.human_items"))
-        rr.prep(self.bd, "report-cold", self.repo)
-        got = rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
-        self.assertEqual((got["ok"], got["done"], got["record_invalid"]), (True, True, True), got)
-        r = rr.route(self.bd, "report-write")
+        r = rr.route(self.bd, rr.WRITE)
         self.assertEqual(r["next"], "")
         self.assertIn("検証器", r["why"])
         out = rr.collect(self.bd)
         self.assertFalse(out["ok"])
         self.assertTrue(out["record_invalid"])
-        rep = pathlib.Path(out["report_file"]).read_text(encoding="utf-8")
-        self.assertIn("偽の検証器", rep)
-        self.assertIn(golden_reply("report.human_items")["text"].strip(), rep)
-        self.assertIn(rr.MACHINE_HEADING, rep)
+        self.assertIn("検証器", out["reason"])
+        self.assertEqual(out["report_file"], "")
 
 
 # ---------------------------------------------------------------- スクリプト（子のプロセス）
@@ -818,36 +773,32 @@ class ScriptCase(_Case):
 
     def test_block_pass_path(self):
         self.board()
-        replies = {"report-items": golden_reply("report.human_items"), "report-cold": golden_reply("report.cold_check"),
-                   "report-write": golden_reply("report")}
-        for k, role in enumerate(rr.ROLES, 1):
-            self.assertEqual(self.ok("route", role=role)["next"], role)
-            exited, rounds = self.run_loop(role, replies[role])
-            self.assertEqual(exited, 1, rounds)
-            self.assertEqual(rounds[0][1]["reason_file"], "")
+        self.assertEqual(self.ok("route", role=rr.WRITE)["next"], rr.WRITE)
+        exited, rounds = self.run_loop(rr.WRITE, golden_reply("report"))
+        self.assertEqual(exited, 1, rounds)
+        self.assertEqual(rounds[0][1]["reason_file"], "")
         out = self.ok("collect", machine_report="")
         self.assertTrue(out["ok"], out)
         self.assertTrue(pathlib.Path(out["report_file"]).is_file())
 
     def test_loop_gives_up_after_three(self):
         self.board()
-        self.assertEqual(self.ok("route", role="report-items")["next"], "report-items")
-        exited, rounds = self.run_loop("report-items", {"text": "| A |\n|---|\n| 説明の文。 |\n"})
+        self.assertEqual(self.ok("route", role=rr.WRITE)["next"], rr.WRITE)
+        exited, rounds = self.run_loop(rr.WRITE, {"text": "| A |\n|---|\n| 説明の文。 |\n"})
         self.assertEqual(exited, rr.GIVE_UP_AFTER, "輪が上限まで抜けない（Archon は run を落とす）")
         self.assertTrue(all(pathlib.Path(a["reason_file"]).is_file() for _, a in rounds), "拒否の文はファイルで渡す（R44）")
-        self.assertEqual(self.ok("route", role="report-cold")["next"], "")
         out = self.ok("collect", machine_report="")
         self.assertFalse(out["ok"])
 
     def test_exit_two_on_wiring(self):
         self.board()
-        rc, _, err = self.run_script("route", drop=("ARTIFACTS_DIR",), role="report-items")
+        rc, _, err = self.run_script("route", drop=("ARTIFACTS_DIR",), role=rr.WRITE)
         self.assertEqual(rc, 2, err)
         self.assertIn("ARTIFACTS_DIR", err)
         rc, _, err = self.run_script("prep")
         self.assertEqual(rc, 2)
         self.assertIn("INPUTS_ROLE", err)
-        rc, out, err = self.run_script("prep", role="report-cold", machine_report="")   # 待っている instance が無い
+        rc, out, err = self.run_script("prep", role="report-cold", machine_report="")   # もう役に無い名（頭と初見検査は absent）
         self.assertEqual(rc, 2, out)
         self.assertEqual(out, "")
         rc, _, err = self.run_script("route", role="no-such-role")

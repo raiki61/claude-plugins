@@ -2,11 +2,10 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""役の返答を受け付ける（report_roles.accept）。拒否（写しの規則・表のセルの書式・読むだけの役の作業ツリーの変化・読めない返答）は
-0 で {ok: false, done, give_up, reason, reason_file}（3 回目の拒否で done——輪の抜ける印）。通れば {ok: true, done: true, …}。
-初見検査を受けた後に記録が検証器を通らなかったら record_invalid: true（report の節は出ない）。書き手の輪では INPUTS_COLD に
-書き手の頭を読んだ初見の読み手の返答が来る。確かめるかは役で決まる（書き手の輪だけ。空の返答は読めない返答として
-確かめを通らない。ほかの輪の空は見ない）。配線の誤りだけ 2"""
+"""書き手の返答を受け付ける（report_roles.accept）。拒否（写しの規則・表のセルの書式・読むだけの役の作業ツリーの変化・読めない返答・
+初見の読み手の redesign-needed）は 0 で {ok: false, done, give_up, reason, reason_file}（3 回目の拒否で done——輪の抜ける印）。
+通れば {ok: true, done: true, …}。INPUTS_COLD に書き手の頭を読んだ初見の読み手の返答が来る（空の返答は読めない返答として
+確かめを通らない）。配線の誤りだけ 2"""
 import sys
 from pathlib import Path
 

@@ -145,7 +145,7 @@ REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
 CLEANED_HEAD = "起動の前に片付けた前の run（use.sh start が worktree・枝・控えを消した。差分のファイルと盤面は残る）"
 INTERRUPTED_HEAD = "run が途中で終わった"
 RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
-AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
+AI_FIRST_NODE = "report"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）。頭と初見検査の節は表で absent
 AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid", "rejects")   # 最後の出口に写す AI の報告の欄
 
 

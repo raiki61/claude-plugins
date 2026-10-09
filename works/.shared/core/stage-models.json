@@ -38,7 +38,6 @@
     "blk-pr/pr-check": "light",
     "blk-premises/premises": "light",
     "blk-purpose/purpose": "light",
-    "blk-report/report-items": "light",
     "blk-report/report-write": "light"
   },
   "notes": {
