@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.60] - 2026-10-10
+
 ### Added
 
 - 目的の役（`blk-purpose`）が、依頼の示した解き方（手段）を目的の文に写さず、足し欄 `means` に分けるようにした（計画 world-solution の W6）。受け付けは欄を外し、盤面の `purpose.json` は写しの型のまま置き、手段は盤面の根の `purpose-means.json` に置く（依頼が解き方を示さなければ置かない）。独立設計（R2 の設計の半分）には今どおり目的の文だけが渡り、手段は渡らない（keep-essence の 9）。手段は世界の解の段が定石と比べる案として読む。
