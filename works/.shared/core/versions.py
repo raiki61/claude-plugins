@@ -6,7 +6,7 @@ run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon �
    model, settings, python, platform, unknown}
   - works.source: dev の殻が pack の写しに置く出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}。
     元の works が git で追跡されていなければ rev・dirty は null で、version は元の .claude-plugin/plugin.json の version）
-  - works.version: <pack>/VERSION の 1 行目（まだ無い版もある）
+  - works.version: <pack>/.claude-plugin/plugin.json の version（プラグインの版の正本。写しにも入る）
   - works.pack_sha256・files: 走った pack の中身そのものの印（出どころの控え・__pycache__・*.pyc・.DS_Store を除く、
     相対パスとファイルの sha256 を並べた sha256）。出どころが分からない写しでも中身で突き合わせられる
   - graphloops_copy: <pack>/.shared/core/COPIED_FROM の 1 行目
@@ -32,6 +32,7 @@ SCHEMA = 1
 FILE = "versions.json"
 SOURCE_FILE = ".works-source.json"
 TOOLSET_RECORD = ".works-toolset.json"
+PLUGIN_FILE = Path(".claude-plugin") / "plugin.json"
 ENV_ARCHON = "WORKS_ARCHON_VERSION"
 ENV_CLAUDE = "WORKS_CLAUDE_VERSION"
 ENV_MODEL = ("WORKS_DEV_MODEL", "WORKS_MODEL_RESOLVED")
@@ -83,6 +84,18 @@ def _first_line(path: Path, what: str, unknown: dict, key: str):
     return line
 
 
+def _plugin_version(pack: Path, unknown: dict):
+    """<pack>/.claude-plugin/plugin.json の version。無い・読めない・文字列でなければ null と理由"""
+    doc = _json_object(pack / PLUGIN_FILE, "プラグインの宣言", unknown, "works.version")
+    if doc is None:
+        return None
+    value = doc.get("version")
+    if not (isinstance(value, str) and value.strip()):
+        unknown["works.version"] = f"プラグインの宣言に version の文字列が無い（{pack / PLUGIN_FILE}）"
+        return None
+    return value.strip()
+
+
 def _env(env: Mapping[str, str], name: str, unknown: dict, key: str):
     value = (env.get(name) or "").strip()
     if not value:
@@ -118,8 +131,7 @@ def snapshot(pack: Path, env: Mapping[str, str] = os.environ, *, run_id: str = "
         "schema": SCHEMA,
         "run_id": run_id,
         "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "works": {"source": source,
-                  "version": _first_line(pack / "VERSION", "VERSION", unknown, "works.version"),
+        "works": {"source": source, "version": _plugin_version(pack, unknown),
                   "pack_sha256": pack_digest(pack), "files": len(files)},
         "graphloops_copy": _first_line(pack / ".shared" / "core" / "COPIED_FROM", "graphloops の写しの控え", unknown,
                                        "graphloops_copy"),

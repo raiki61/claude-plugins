@@ -48,8 +48,8 @@ works_dev_launch() {
 
 # works_dev_ledgers <控えの置き場> [<run-id>]: 控えを読む一覧の口（launch.py ledger list）。読めた控え 1 つを 1 行、
 # run_id・対象の dir（realpath）・結んだ時刻（無ければ 0）・包んだ基の参照（refs/works/wraps/ の下の時だけ）・herdr_pane・
-# herdr_socket・続き中（works_dev_continue の印 <置き場>/<run-id>.cont の鍵を誰かが持っていれば 1、無ければ空）・
-# 隔離の前の読み出しのファイル（.json の絶対パスの時だけ）をタブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い・
+# herdr_socket・続き中（works_dev_continue の印 <置き場>/<run-id>.cont の鍵を誰かが持っていれば 1、無ければ空）を
+# タブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い・
 # 知らない版の控えは飛ばす
 works_dev_ledgers() {
   if [ -n "${2:-}" ]; then
@@ -215,39 +215,6 @@ works_dev_ledger_dirs() {
   fi
 }
 
-# works_dev_reads_guard <out>: 隔離の前に読む読み出しのファイル <out>（非公開の本文を持つ）の後始末の trap を張る。ghreads read の前に呼ぶ。
-# 殻が works_dev_reads_settle より前に落ちたら（set -e・INT・TERM・HUP）、<out> と ghreads._write の一時のファイル（.<out の名>.*.tmp。
-# python の子が TERM で落ちると後始末が走らない）を消す。信号は信号ごとに受け、後始末の後に同じ信号で落ち直す（呼び手から見た終わり方を
-# trap の無い時から変えない）。works_dev_continue は INT・TERM・HUP の trap を自分で張って外す（持ち主の条件で変えない）ので、settle は
-# works_dev_continue を通る前に呼ぶ
-works_dev_reads_guard() {
-  GITHUB_READS=""
-  _works_dev_reads_out="$1"
-  trap '_works_dev_reads_drop' EXIT
-  trap '_works_dev_reads_drop INT' INT
-  trap '_works_dev_reads_drop TERM' TERM
-  trap '_works_dev_reads_drop HUP' HUP
-}
-
-# trap を先に外して（信号の後の EXIT で 2 度走らない）消し、信号で来たなら同じ信号で落ち直す
-_works_dev_reads_drop() {
-  trap - EXIT INT TERM HUP
-  rm -f "$_works_dev_reads_out" "$(dirname "$_works_dev_reads_out")"/."$(basename "$_works_dev_reads_out")".*.tmp || :
-  [ -z "${1:-}" ] || kill -s "$1" "$$"
-}
-
-# works_dev_reads_settle <既に名指したか 1|0>: 読み出しのファイルを渡すべき run が在りうる所まで来たので guard を外し、残っていれば
-# 0600 に揃える。結べて runs/ の控えに載った・unbound/ の控えか殻の案内の行が既に名指した（1）なら黙る。名指していない（0）なら
-# 残したことと消してよいことを 1 行で出す（結べないことは run が無いことと同じではない。消すのは clean か人）
-works_dev_reads_settle() {
-  trap - EXIT INT TERM HUP
-  [ -e "${_works_dev_reads_out:-}" ] || return 0
-  chmod 600 "$_works_dev_reads_out"
-  if [ "$1" = 0 ]; then
-    echo "隔離の前の読み出し ${_works_dev_reads_out} は 0600 で残した（どの run の控えにも結べない）。続けないなら消してよい"
-  fi
-}
-
 # works_dev_continue <archon を呼ぶ殻> <控えの置き場…（改行で区切る。1 行目がその run の控えの置き場）> <run-id> <archon の引数…>:
 # Archon に続きを渡す口（承認・関所の答え・続き・止める・取り消し。どの殻のどの行もここを通る）。続き中の印
 # <置き場>/<run-id>.cont（この殻が fd 9 で開いたまま flock で持つ）を置いてその run を running で集計し、Archon を呼び、印を外して run の今の状態で集計する
@@ -386,7 +353,7 @@ works_dev_show_synced() {
 
 # works_dev_ledger_bind <呼び手> <archon を呼ぶ殻> <対象の dir> <この起動の依頼の写し> [show [<差分を取り込むリポジトリ>]]:
 # use.sh・dogfood.sh の起動の後に run を結ぶ口（設計書 2.3）。run の一覧を 1 回引き、launch.py ledger bind が
-# 盤面の依頼がこの起動の写し（起動ごとに一意の絶対パス。依頼を省いた起動は GITHUB_READS の読み出しのファイル）と一致する run が
+# 盤面の依頼がこの起動の写し（起動ごとに一意の絶対パス。依頼を省いた --pr の起動は LAUNCH_MARK の起動の印）と一致する run が
 # ちょうど 1 本の時だけ結んで控え（$WORKS_DEV_HOME/runs）を書き、WORKS_RUN_ROW・WORKS_RUN_ID・WORKS_RUN_STATUS を置く。5 つめに show を渡せば works_dev_show_synced に渡す（--show は控えを
 # 書き直さない。起動の時の started_at と herdr_pane を残す）。結べなければ一覧に触れず控えも続きの行も書かず、理由と候補の後に
 # 結べなかった 1 行を出して 1
@@ -394,7 +361,7 @@ works_dev_ledger_bind() {
   if ! _lb_out=$(WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
     works_dev_launch ledger bind --for "$1" --dir "$WORKS_DEV_HOME/runs" --target "$3" --request "$4" \
       --model-value "$(works_dev_model_value)" --model-from "$(works_dev_model_from)" --wrap-ref "${WRAP_REF:-}" \
-      --github-reads "${GITHUB_READS:-}"); then
+      --launch-mark "${LAUNCH_MARK:-}"); then
     echo "この起動の run を結べなかった（続きの行は出さない。候補が在れば上の show の行で run id を名指しして出す）"
     return 1
   fi

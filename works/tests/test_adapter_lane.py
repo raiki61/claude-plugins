@@ -276,9 +276,8 @@ class TestFixLaneSessions(LaneCase):
 
 
 class TestLaneTables(unittest.TestCase):
-    def test_flag_tables_agree(self):
-        self.assertIn(adapter.LANE, adapter.FLAGS)
-        self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
+    def test_lane_is_a_marker_flag(self):
+        self.assertIn(adapter.LANE, node_marker.FLAGS)
 
     def test_keyed_nodes_cover_the_lane_roles(self):
         import fixlanes

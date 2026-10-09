@@ -133,61 +133,28 @@ class Env:
 
 
 class MarkerCase(unittest.TestCase):
-    def test_marker_text_round_trip(self):
-        self.assertEqual(adapter.marker_text("judge"), "works-node: judge")
-        self.assertEqual(adapter.marker_text("rejudge", cont="judge"), "works-node: rejudge continue=judge")
+    def test_parse_marker_reads_node_marker_grammar(self):
+        """包みの印の読みは node_marker.parse の文法そのもの（旗は名の順）"""
         m = adapter.parse_marker("works-node: rejudge continue=judge")
         self.assertEqual((m.name, m.cont, m.flags), ("rejudge", "judge", ()))
-        m = adapter.parse_marker("works-node: pr-check no-post")
-        self.assertEqual((m.name, m.cont, m.flags), ("pr-check", None, ("no-post",)))
+        m = adapter.parse_marker("works-node: pr-check no-tree-write")
+        self.assertEqual((m.name, m.cont, m.flags), ("pr-check", None, ("no-tree-write",)))
+        m = adapter.parse_marker("works-node: judge self-resume map")
+        self.assertEqual((m.name, m.cont, m.flags), ("judge", None, ("map", "self-resume")))
 
     def test_not_ours_is_none(self):
         for d in (None, "", "判定役の返答", 3, "works-nodes: x"):
             self.assertIsNone(adapter.parse_marker(d), d)
 
     def test_malformed_marker_is_bad(self):
-        # node_marker.parse（枝 wip/works-a2）が None を返す形は全部 BadMarker（包みは claude を起こさない）
+        # 頭 works-node: を持ち node_marker.parse が None を返す形は全部 BadMarker（包みは claude を起こさない。fail closed）
         for d in ("works-node:", "works-node: ", "works-node:judge", "works-node: a b=c", "works-node: judge continue=",
                   "works-node: ../x", "works-node: a continue=b continue=c", "works-node: Judge",
                   "works-node:  judge", "works-node: judge ", "works-node: judge  continue=x", "works-node: judge foo",
-                  "works-node: judge no-post no-post", "works-node: a_b", "works-node: judge continue=Judge",
+                  "works-node: judge map map", "works-node: a_b", "works-node: judge continue=Judge", "works-node: pr-check no-post",
                   "works-node: judge\ncontinue=x"):
             with self.assertRaises(adapter.BadMarker, msg=repr(d)):
                 adapter.parse_marker(d)
-
-    def test_marker_grammar_matches_node_marker(self):
-        """枝 wip/works-a2 の node_marker.parse と、読める・読めないが同じ（引けなければ skip）"""
-        src = subprocess.run(["git", "-C", str(ROOT), "show", "wip/works-a2:works/.shared/core/node_marker.py"],
-                             capture_output=True, text=True, encoding="utf-8")
-        if src.returncode != 0:
-            self.skipTest("SKIP local-branch: wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
-        ns = {}
-        exec(compile(src.stdout, "node_marker.py", "exec"), ns)
-        cases = ["works-node: judge", "works-node: rejudge continue=judge", "works-node: pr-check no-post",
-                 "works-node: x continue=y no-post", "works-node: no-post", "works-node: a-1 continue=b-2",
-                 "works-node:", "works-node: Judge", "works-node:  judge", "works-node: judge foo",
-                 "works-node: judge no-post no-post", "works-node: a_b", "works-node: judge ", "判定"]
-        for d in cases:
-            with self.subTest(d):
-                want = ns["parse"](d)
-                try:
-                    got = adapter.parse_marker(d)
-                except adapter.BadMarker:
-                    got = "bad"
-                if want is None:
-                    self.assertIn(got, (None, "bad"))
-                    self.assertEqual(got is None, not d.startswith("works-node:"))
-                else:
-                    self.assertEqual((got.name, got.cont, frozenset(got.flags)),
-                                     (want["name"], want["cont"], want["flags"]))
-
-    def test_flags_match_node_marker(self):
-        """包みの FLAGS は core の node_marker.FLAGS と同じ（印を作る側と読む側で旗がずれない）"""
-        sys.path.insert(0, str(CORE))
-        import node_marker
-        self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
-        m = adapter.parse_marker("works-node: ci no-tree-write")
-        self.assertEqual((m.name, m.flags), ("ci", ("no-tree-write",)))
 
     def test_marker_from_argv_both_spellings(self):
         a = ["--model", "opus", "--json-schema", schema("works-node: judge")]
@@ -310,13 +277,13 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(self.e.child()["argv"], argv)
 
     def test_marked_launch_with_unreadable_settings_fails_closed(self):
-        # 印のある起動は柵（フック・no-post・切符）なしで起こさない（裁定 I2）
+        # 印のある起動は柵（フック・読むだけの gh・切符）なしで起こさない（裁定 I2）
         broken = [
             sdk_argv("works-node: judge", extra=["--settings", SANDBOX]),                       # --settings が 2 つ
             sdk_argv("works-node: judge", settings="{not json"),                                # 読めない JSON
             sdk_argv("works-node: judge", settings="/no/such/settings.json"),                   # 無いファイル
             sdk_argv("works-node: judge", settings="[1, 2]"),                                   # 辞書でない
-            sdk_argv("works-node: pr-check no-post", settings='{"permissions": []}'),           # 混ぜられない
+            sdk_argv("works-node: pr-check", settings='{"permissions": []}'),           # 混ぜられない
             sdk_argv("works-node: fix", settings='{"sandbox": {"filesystem": 1}}'),             # 混ぜられない（柵の口）
             sdk_argv("works-node: judge", settings=None) + ["--settings"],                      # 値の無い旗
         ]
@@ -369,7 +336,7 @@ class AdapterCase(unittest.TestCase):
         self.assertIsNone(self.e.child())
 
     def test_bad_marker_fails_closed(self):
-        # 印の跡が在るのに読めない起動は素通ししない（黙って新しい会話で再審させず、no-post の柵も落とさない）
+        # 印の跡が在るのに読めない起動は素通ししない（黙って新しい会話で再審させず、読むだけの gh の柵も落とさない）
         for desc, argv in (("works-node: rejudge continue=", sdk_argv("works-node: rejudge continue=")),
                            ("works-node: pr-check no-psot", sdk_argv("works-node: pr-check no-psot")),
                            ("works-node: Rejudge continue=judge", sdk_argv("works-node: Rejudge continue=judge")),
@@ -395,11 +362,11 @@ class AdapterCase(unittest.TestCase):
         gh.chmod(0o755)
         return bindir, gh
 
-    def test_no_post_is_an_allowlist(self):
+    def test_read_only_gh_is_an_allowlist(self):
         # 読むだけの役の gh は許す物の一覧で組む（deny は allow に勝つので、gh を丸ごと拒み、読む口 works-gh を渡す）
         bindir, gh = self._fake_gh_bin()
         path = str(bindir) + os.pathsep + os.environ["PATH"]
-        r = self.e.run(sdk_argv("works-node: pr-check no-post"), PATH=path)
+        r = self.e.run(sdk_argv("works-node: pr-check"), PATH=path)
         self.assertEqual(r.returncode, 0, r.stderr)
         child = self.e.child()
         s, _ = self._hook_settings(child["argv"])
@@ -423,7 +390,7 @@ class AdapterCase(unittest.TestCase):
             self.assertIn(f"Bash({g}:*)", deny)
 
     def test_every_marked_launch_gets_the_read_only_gh(self):
-        """run の中の gh は利用者のログインを継ぐ（dev/hostgh.py）ので、印のある起動は旗 no-post の有無に依らず全部、
+        """run の中の gh は利用者のログインを継ぐ（dev/hostgh.py）ので、印のある起動は旗に依らず全部、
         同じ柵（gh を丸ごと拒む deny・git push の deny）と読むだけの口（WORKS_GH・PATH の頭の gh）で起こす（書く役・CI の役も
         PR へ投稿・push できない）。印の無い起動（題の生成。道具ゼロ）は今どおり触らない"""
         bindir, gh = self._fake_gh_bin()
@@ -553,12 +520,8 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(s["permissions"], {"deny": sdk["permissions"]["deny"]
                                             + adapter.no_post_rules(adapter.find_gh(os.environ["PATH"]))})
         self.assertEqual(s["hooks"]["Stop"], sdk["hooks"]["Stop"])
-        # 包みは下請けの返答の記録のフック（StructuredOutput。record-output.py）も足す（局所レビューの消えた所見を戻す元）
-        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]],
-                         ["Bash", "Read", "Edit|Write|NotebookEdit", "StructuredOutput"])
-        out = [h["command"] for m in s["hooks"]["PostToolUse"] if m["matcher"] == "StructuredOutput" for h in m["hooks"]]
-        self.assertEqual(len(out), 1)
-        self.assertIn("record-output.py", out[0])
+        # 包みが足すのは読んだ記録と書き込みの記録のフックだけ（下請けの返答の記録のフックは 2026-10-09 に外した）
+        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]], ["Bash", "Read", "Edit|Write|NotebookEdit"])
 
     def test_no_settings_gets_hook_only(self):
         # sandbox の無い節は SDK が --settings を付けない（〔包試〕の (f)）
@@ -852,11 +815,9 @@ class AdapterCase(unittest.TestCase):
             self.assertIsNotNone(at.tzinfo)   # 盤面の state.created（時差つき）と比べられる
             self.assertTrue(before.replace(microsecond=0) <= at <= after, at)
         self.assertEqual(ats, sorted(ats))
-        last = adapter.last_launch(self.e.cwd, "judge", self.e.home)
-        self.assertEqual(last, rows[2])
+        last = rows[2]   # 最後の判定役の行（再審の前の確かめ rejudge.session_ready が引く物）
         self.assertEqual(last["session"]["id"], self.e.session_id("judge"))
         self.assertNotEqual(last["session"]["id"], first)
-        self.assertIsNone(adapter.last_launch(self.e.cwd, "plan", self.e.home))
         self.assertEqual(rows[3]["session"]["from"], last["session"]["id"])
         self.assertNotIn("ts", rows[0])
 
@@ -1338,7 +1299,7 @@ class NetworkCase(unittest.TestCase):
 
     def test_closed_network_gets_strict_allowlist(self):
         for allowed in ([], ["github.com", "api.github.com"], ["*.example.com"]):
-            for desc in ("", "works-node: judge", "works-node: probe no-post"):
+            for desc in ("", "works-node: judge", "works-node: probe"):
                 with self.subTest(allowed=allowed, desc=desc):
                     network = {"allowedDomains": allowed, "allowLocalBinding": False}
                     r = self.e.run(sdk_argv(desc, settings=net_settings(network, excludedCommands=["works-gh:*"])))
@@ -1417,8 +1378,8 @@ class NetworkCase(unittest.TestCase):
                 self.assertEqual(self.e.launches()[-1]["mode"], "refused")
 
     def test_marked_launch_strict_and_fences_together(self):
-        # 印のある起動: 網の閉じとフック・no-post の柵が同じ --settings に乗る
-        r = self.e.run(sdk_argv("works-node: probe no-post", settings=net_settings({"allowedDomains": []})))
+        # 印のある起動: 網の閉じとフック・読むだけの gh の柵が同じ --settings に乗る
+        r = self.e.run(sdk_argv("works-node: probe", settings=net_settings({"allowedDomains": []})))
         self.assertEqual(r.returncode, 0, r.stderr)
         s = json.loads(opt(self.e.child()["argv"], "--settings")[0])
         self.assertIs(s["sandbox"]["network"]["strictAllowlist"], True)

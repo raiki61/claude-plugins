@@ -589,6 +589,7 @@ class LinekitCase(unittest.TestCase):
 # run_ci は偽の素材を渡さずに role_needed を返し、start の返りの ci_role_go が真になる（任せ先の役のブロックは blk-ci。tests/test_blk_ci.py）
 import subprocess  # noqa: E402
 
+import adapter  # noqa: E402
 import ticket  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "start.py"
@@ -708,7 +709,6 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual(entry.THICKNESS, ("自動", "軽量", "標準", "重厚"))
         self.assertEqual(entry.FINAL_GATES, ("always", "when_needed", "protected_only"))
         self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
-        self.assertEqual(entry.GATES, ("", "merge"))
 
     def test_request_relative_to_repo(self):
         """相対の依頼のパスは対象の根から（1 本目の intake と同じ）"""
@@ -1033,7 +1033,7 @@ class StartCase(StartCaseBase):
                 with self.assertRaises(entry.InputRefused):
                     self.start(repo, raw)
                 self.assertFalse(self.board.exists())
-                self.assertIsNone(ticket.read(repo))
+                self.assertIsNone(adapter.read_ticket(repo))
 
     def test_start_records_request_and_entry(self):
         repo = self.seed(declared=True)
@@ -1053,7 +1053,7 @@ class StartCase(StartCaseBase):
     def test_start_writes_ticket(self):
         repo = self.seed(declared=True)
         self.start(repo)
-        t = ticket.read(repo)
+        t = adapter.read_ticket(repo)
         self.assertEqual(t["run_id"], "run-7")
         self.assertEqual(t["board"], str(self.board))
         self.assertEqual(t["cwd"], str(repo))
@@ -1161,7 +1161,7 @@ class StartCase(StartCaseBase):
             with self.assertRaises(entry.InputRefused) as cm:
                 self.start(repo)
         self.assertIn("2 度とも", str(cm.exception))
-        self.assertIsNone(ticket.read(repo))
+        self.assertIsNone(adapter.read_ticket(repo))
 
     def test_start_idempotent(self):
         """同じ置き場で呼び直しても盤面を作り直さず、同じ返り（Archon の再開）"""
@@ -1243,12 +1243,17 @@ class ChangeEntryCase(StartCaseBase):
         self.assertEqual(entry.add_pending_request(entry.open_board(self.board)), "none")
 
     def test_start_object_request_and_change_adds_findings(self):
-        """依頼が {findings, pr, issue} の形でも、両方の入口で積むのは findings の行だけ（add_pending_request も同じ形を解く）"""
+        """依頼が {findings, pr, issue} の形でも、両方の入口で積むのは findings の行だけ（add_pending_request も同じ形を解く）。
+        名指した PR・issue は run の中で gh が読む（ここでは偽の gh。読めない項は記録して進む）"""
+        from test_ghreads import fake_gh
         repo, _ = self.changed_repo()
         rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
         req = request_file(self.tmp / "req" / "obj.json", {"findings": rows, "pr": [3], "issue": [5]})
+        bin_, _, _ = fake_gh(self.tmp / "gh")
         try:
-            got = self.start(repo, self.raw(request=str(req), base="base"))
+            with mock.patch.dict("os.environ", {"PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}"}):
+                os.environ.pop(entry.NO_AUTH_ENV, None)
+                got = self.start(repo, self.raw(request=str(req), base="base"))
         except entry.InputRefused as e:
             self.fail(f"object の形の依頼を拒んだ: {e}")
         self.assertEqual(got["entry"], "both")
@@ -1493,7 +1498,7 @@ class StartScriptCase(StartCaseBase):
         got = json.loads(lines[0])
         self.assertTrue(got["ok"])
         self.assertIn("判定から", got["head_line"])
-        self.assertEqual(ticket.read(repo)["run_id"], "wf-1")
+        self.assertEqual(adapter.read_ticket(repo)["run_id"], "wf-1")
         self.assertTrue((self.tmp / "art" / "board" / "state.json").is_file())
         self.assertFalse([*CORE.rglob("__pycache__"), *(ROOT / "darkfactory").rglob("__pycache__")])
 

@@ -55,7 +55,7 @@ FAST = frozenset({
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
-    "test_forge",           # forge の無い remote の決め（forge.py）と盤面への差し替え・報告の 1 行・ghreads の条件外: 関数を直に呼ぶ・偽の盤面・git init と remote add・ghreads.py を python3 -I で起こす（盤面・子の実行器なし）
+    "test_forge",           # forge の無い remote の決め（forge.py）と盤面への差し替え・報告の 1 行・ghreads の条件外: 関数を直に呼ぶ・偽の盤面・git init と remote add・偽の gh（盤面・子の実行器なし）
     "test_gate_na",         # ゲートの検算の役の『条件外』の差し替えとゲートの印: 関数を直に呼ぶ・偽の盤面・一時の置き場に差分のファイル（git・盤面・子のプロセスなし）
     "test_hostgh",          # run の中で利用者の gh を継ぐ口（dev/hostgh.py）: 関数を直に呼ぶ・偽の gh と sh の口を子で起こすだけ（git・盤面なし）
     "test_carry_ci",        # run の後の CI の赤を次の依頼の prior_failures へ（ghreads.carry_ci）: 関数を直に呼ぶ・ghreads.py を python3 -I で起こすだけ（git・盤面なし）
@@ -68,7 +68,7 @@ FAST = frozenset({
     "test_fix_rules",       # R65: 修正の決まりの正本と 2 つの指示書の組み立てを、関数を直に呼んで見る（盤面・git・子のプロセスなし）
     "test_conflict_kinds",  # 申し出の種類と裁定 fix_plan_item: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fix_units",       # 修正の受け付けの閉鎖の表と裁定の出どころ: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
-    "test_diverted",        # 下請けが親の返答の道具に書いた返答を拾う口: 一時の置き場のファイルと記録器を子で起こすだけ（git・盤面なし）
+    "test_diverted",        # 局所レビューの fork のレンズの「見ていない」の印: 関数を直に呼ぶ・一時の置き場のファイルだけ（git・盤面なし）
     "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
     "test_sp_skills",       # 借りる superpowers のスキルの一覧と無人の読み替え: borrow.json と md を読むだけ（git・子のプロセスなし）
     "test_seat",            # 借りたスキルの座: 216 の写しと seams.json を読むだけ（写しを一時の置き場に写す 1 本と、g1 の差分のコマンドを gitkit の型の写しで sh で走らせる 1 本を含む。盤面なし）

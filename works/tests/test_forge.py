@@ -273,14 +273,12 @@ class ReportLineCase(unittest.TestCase):
                 self.assertFalse([x for x in lines if x.startswith(report.FORGE_HEAD)], lines)
 
 
-GHREADS = CORE / "ghreads.py"
-
-
 class GhReadsCase(unittest.TestCase):
-    """隔離の前の読み出し（python3 -I ghreads.py read）は、forge の無い対象でも利用者が名指した PR・issue を gh で読み（GH_REPO・
+    """run の中の読み出し（ghreads.read_named）は、forge の無い対象でも利用者が名指した PR・issue を gh で読み（GH_REPO・
     別の remote・自前のドメインの GitHub Enterprise Server なら gh は読める）、gh も GitHub のホストを見つけなかった項だけを条件外
     （not_applicable、reason は no_forge: <種類>）と書く。gh が読みに行って読めなかった項は unreadable（理由は gh の言葉、欄 forge に
-    no_forge の決め）。--pr は base・head が読めなければ、条件外なら no_forge の理由で、読めないならログインしてから回せと止まる"""
+    no_forge の決め）。入力 pr は base・head が読めなければ、条件外なら no_forge の理由で、読めないならログインしてから回せと
+    線の入口（entry._change_base）が止める"""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -296,36 +294,44 @@ class GhReadsCase(unittest.TestCase):
         gh = self.bin / "gh"
         gh.write_text(f'#!/bin/sh\necho "$*" >> "{self.called}"\nexit 4\n', encoding="utf-8")
         gh.chmod(0o755)
-        self.out = self.tmp / "reads.json"
 
-    def read(self, *args, **env_kw):
+    def read(self, prs, issues=(), **env_kw):
+        """偽の gh を PATH の頭に置き、利用者の gh の設定の置き場を外した env（env_kw を上に置く）で read_named を呼ぶ"""
         import os
+        from unittest import mock
+        import ghreads
         env = hermetic.child_env(PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}", HOME=str(self.tmp / "home"),
-                                 **env_kw)
-        return subprocess.run([sys.executable, "-I", str(GHREADS), "read", "--repo", str(self.repo), *args, "--out", str(self.out)],
-                              capture_output=True, text=True, encoding="utf-8", env=env, cwd=str(self.tmp))
+                                 XDG_CONFIG_HOME=str(self.tmp / "xdg"), **env_kw)
+        if "GH_CONFIG_DIR" not in env_kw:
+            env.pop("GH_CONFIG_DIR", None)
+        with mock.patch.dict("os.environ", env, clear=True):
+            return ghreads.read_named(self.repo, list(prs), list(issues))
+
+    @staticmethod
+    def refusal(doc):
+        """読み出し doc で入力 pr=7 を解いた時の線の入口の拒みの文"""
+        import entry
+        try:
+            entry._change_base({"pr": "7"}, pathlib.Path("/nonexistent"), doc)
+        except entry.InputRefused as e:
+            return str(e)
+        raise AssertionError("拒まなかった")
 
     def test_named_items_gh_cannot_read_are_not_applicable(self):
         """gh が読めない（偽の gh は exit 4）名指しの項は unreadable でなく not_applicable（reason は no_forge: <種類>）。
         確かめる物が無いので人待ちにしない"""
-        req = self.tmp / "req.json"
-        req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
-        r = self.read("--request", str(req))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = self.read([7], [9])
         self.assertTrue(self.called.exists(), "利用者が名指した項を gh で読みに行かなかった")
-        import json
-        doc = json.loads(self.out.read_text(encoding="utf-8"))
         for got in (doc["pr"]["7"], doc["issue"]["9"]):
             self.assertEqual(got["status"], "not_applicable")
             self.assertTrue(got["reason"].startswith("no_forge: local_path"), got)
             self.assertIn("exit 4", got["reason"])   # gh が読めなかった理由も残す
 
-    def test_cli_pr_on_no_forge_refuses_with_the_reason(self):
-        """--pr の base・head を gh が読めなければ、書かずに 0 以外（理由は no_forge）"""
-        r = self.read("--request", "-", "--pr", "7")
-        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertFalse(self.out.exists())
-        self.assertIn("no_forge: local_path", r.stderr)
+    def test_pr_on_no_forge_refuses_with_the_reason(self):
+        """入力 pr の base・head を gh が読めなければ、線の入口が no_forge の理由と base を名指す案内で止める"""
+        text = self.refusal(self.read([7]))
+        self.assertIn("no_forge: local_path", text)
+        self.assertIn("base を名指して回す", text)
 
     def _reading_gh(self):
         """利用者のログインが見え、PR #7・issue #9 を返す偽の gh（test_ghreads.fake_gh）に替える"""
@@ -336,35 +342,24 @@ class GhReadsCase(unittest.TestCase):
     def test_named_items_gh_can_read_are_kept_on_no_forge(self):
         """forge の無い対象でも、gh が読める名指しの項（GH_REPO・別の remote・自前のドメインの GHES）は読んだ中身を載せる
         （名指した物を黙って落とさない。条件外にするのは並行 PR の確かめと、gh が読めなかった項だけ）"""
-        req = self.tmp / "req.json"
-        req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
-        r = self.read("--request", str(req), **self._reading_gh())
-        self.assertEqual(r.returncode, 0, r.stderr)
-        import json
-        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        doc = self.read([7], [9], **self._reading_gh())
         self.assertEqual(doc["pr"]["7"]["body"], "非公開の本文")
         self.assertEqual(doc["issue"]["9"]["body"], "課題の本文")
 
-    def test_cli_pr_gh_can_read_runs_on_no_forge(self):
-        """forge の無い対象でも、gh が --pr の base・head を読めれば書いて 0"""
-        r = self.read("--request", "-", "--pr", "7", **self._reading_gh())
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        import json
-        got = json.loads(self.out.read_text(encoding="utf-8"))["pr"]["7"]
+    def test_pr_gh_can_read_runs_on_no_forge(self):
+        """forge の無い対象でも、gh が PR の base・head を読めれば読み出しに載る"""
+        got = self.read([7], **self._reading_gh())["pr"]["7"]
         self.assertEqual((got["baseRefOid"], got["headRefOid"]), ("b" * 40, "h" * 40))
 
-
-    def test_cli_pr_gh_reads_without_base_head_refuses_with_gh_words_on_no_forge(self):
-        """forge の無い対象で gh が PR を読めたのに base・head の欄が欠けた時は、落ちずに書かずに 1。読めた項を『ホストが無い』と
-        言わず、forge の在る対象と同じ文で止まる"""
+    def test_pr_gh_reads_without_base_head_refuses_with_gh_words_on_no_forge(self):
+        """forge の無い対象で gh が PR を読めたのに base・head の欄が欠けた時は、線の入口が 1 行で止める。読めた項を『ホストが
+        無い』と言わず、forge の在る対象と同じ文で止まる"""
         from test_ghreads import fake_gh
         self.bin, _, login = fake_gh(self.tmp, base="", head="")
-        r = self.read("--request", "-", "--pr", "7", GH_CONFIG_DIR=str(login))
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertNotIn("Traceback", r.stderr)
-        self.assertFalse(self.out.exists())
-        self.assertIn("PR #7 の base・head を読めない", r.stderr)
-        self.assertNotIn("PR を持つホストが無い", r.stderr)
+        text = self.refusal(self.read([7], GH_CONFIG_DIR=str(login)))
+        self.assertIn("PR #7 の base・head を読めない", text)
+        self.assertNotIn("PR を持つホストが無い", text)
+        self.assertNotIn("\n", text)
 
     def _scripted_gh(self, rows):
         """引数の頭（"pr view 7"・"issue view 9"・"api … pulls/7/comments"）ごとに (exit, 標準出力, 標準エラー) を返す偽の gh に替える。
@@ -396,41 +391,29 @@ class GhReadsCase(unittest.TestCase):
         残す（本当に条件外の項と見分ける）"""
         self._ghes_target()
         self._scripted_gh({"pr\\ view\\ 7*": (1, None, self.EXPIRED), "issue\\ view\\ 9*": (1, None, self.EXPIRED)})
-        req = self.tmp / "req.json"
-        req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
-        r = self.read("--request", str(req))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        import json
-        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        doc = self.read([7], [9])
         for got in (doc["pr"]["7"], doc["issue"]["9"]):
             self.assertEqual(got["status"], "unreadable", got)
             self.assertIn("HTTP 401: Bad credentials", got["reason"])
             self.assertFalse(got["reason"].startswith("no_forge"), got)
             self.assertTrue(got["forge"].startswith("no_forge: other_host"), got)
-            self.assertNotIn("_no_host", got)   # 内側の印はファイルに残さない
+            self.assertNotIn("_no_host", got)   # 内側の印は読み出しに残さない
 
-    def test_ghes_with_expired_login_cli_pr_asks_to_log_in(self):
-        """--pr でも同じ: gh が読みに行って読めなかったら『ホストが無い』でなく gh でログインしてから回せと言って止まる"""
+    def test_ghes_with_expired_login_pr_asks_to_log_in(self):
+        """入力 pr でも同じ: gh が読みに行って読めなかったら『ホストが無い』でなく gh でログインしてから回せと言って止まる"""
         self._ghes_target()
         self._scripted_gh({"pr\\ view\\ 7*": (1, None, self.EXPIRED)})
-        r = self.read("--request", "-", "--pr", "7")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertFalse(self.out.exists())
-        self.assertIn("HTTP 401", r.stderr)
-        self.assertIn("ログインしてから回す", r.stderr)
-        self.assertNotIn("PR を持つホストが無い", r.stderr)
+        text = self.refusal(self.read([7]))
+        self.assertIn("HTTP 401", text)
+        self.assertIn("ログインしてから回す", text)
+        self.assertNotIn("PR を持つホストが無い", text)
 
     def test_gh_sees_no_github_host_is_not_applicable(self):
         """gh 自身が対象の remote を GitHub のホストと見ない（none of the git remotes … known GitHub host）項は今どおり
         not_applicable（理由は no_forge: <種類> と gh の言葉）"""
         self._ghes_target()
         self._scripted_gh({"pr\\ view\\ 7*": (1, None, self.NO_HOST)})
-        req = self.tmp / "req.json"
-        req.write_text('{"findings": [], "pr": [7]}', encoding="utf-8")
-        r = self.read("--request", str(req))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        import json
-        got = json.loads(self.out.read_text(encoding="utf-8"))["pr"]["7"]
+        got = self.read([7])["pr"]["7"]
         self.assertEqual(got["status"], "not_applicable", got)
         self.assertTrue(got["reason"].startswith("no_forge: other_host"), got)
         self.assertIn("known GitHub host", got["reason"])
@@ -447,12 +430,7 @@ class GhReadsCase(unittest.TestCase):
             "pr\\ view\\ 5*": (1, None, self.NO_HOST),
             "issue\\ view\\ 9*": (1, None, self.EXPIRED),
         })
-        req = self.tmp / "req.json"
-        req.write_text('{"findings": [], "pr": [7, 8, 5], "issue": [9]}', encoding="utf-8")
-        r = self.read("--request", str(req))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        import json
-        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        doc = self.read([7, 8, 5], [9])
         self.assertEqual((doc["pr"]["7"]["status"], doc["pr"]["7"]["review_comments"][0]["body"]), ("ok", "行"))
         self.assertEqual(doc["pr"]["8"]["status"], "partial")
         self.assertEqual(doc["pr"]["8"]["body"], "本文")

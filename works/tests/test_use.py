@@ -21,7 +21,6 @@ import os
 import pathlib
 import re
 import shutil
-import stat
 import subprocess
 import tempfile
 import unittest
@@ -79,8 +78,8 @@ class UseShell(unittest.TestCase):
         self.set_runs(working_path="/wt/run-1", output_root=str(self.out))
         # workflow run は、一覧の run のうち output_root の在る物の盤面 r1/start.json に、この起動の依頼（request= の値。
         # 変更だけの起動は空）を書く（start が起動の直後に依頼で run を結ぶ材料。Archon の線の start と同じ欄）。読み出しの
-        # ファイル（github_reads= の値）が在れば run-1 の metadata.inputs.github_reads に残す（Archon が run に残す入力と同じ欄。
-        # 依頼を省いた起動を結ぶ材料。FAKE_ARCHON_NO_GITHUB_READS が在れば残さない＝結べない --pr の形）。FAKE_ARCHON_RUN_EXIT が在れば
+        # 起動の印（launch_mark= の値）が在れば run-1 の metadata.inputs.launch_mark に残す（Archon が run に残す入力と同じ欄。
+        # 依頼を省いた --pr の起動を結ぶ材料。FAKE_ARCHON_NO_LAUNCH_MARK が在れば残さない＝結べない --pr の形）。FAKE_ARCHON_RUN_EXIT が在れば
         # workflow run は何も残さずにその終了コードで終わる（起動が落ちた形）。FAKE_ARCHON_RUNS_FAIL が在れば workflow runs --json は
         # 何も出さずに落ちる（一覧が読めない形）
         self.fake = self.tmp / "fake-archon.sh"
@@ -88,14 +87,12 @@ class UseShell(unittest.TestCase):
             "#!/bin/sh\n"
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
             f'case "$*" in "workflow runs --json") [ -z "${{FAKE_ARCHON_RUNS_FAIL:-}}" ] || exit 1; cat "{self.runs}" ;; esac\n'
-            # 起動の時に渡された読み出しのファイル（github_reads）の中身を写して残す（start が盤面へ写して消すので、起動の時に見る）
-            f'for a in "$@"; do case $a in github_reads=?*) cp "${{a#github_reads=}}" "{self.tmp / "github-reads-seen.json"}" ;; esac; done\n'
             'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
             '[ -z "${FAKE_ARCHON_RUN_EXIT:-}" ] || exit "$FAKE_ARCHON_RUN_EXIT"\n'
             f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
             "import json, os, pathlib, sys\n"
             "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
-            "reads = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('github_reads=')), '')\n"
+            "mark = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('launch_mark=')), '')\n"
             "path = pathlib.Path(os.environ['RUNS'])\n"
             "listed = json.loads(path.read_text())\n"
             "for r in listed['runs']:\n"
@@ -103,8 +100,8 @@ class UseShell(unittest.TestCase):
             "        board = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1')\n"
             "        board.mkdir(parents=True, exist_ok=True)\n"
             "        (board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
-            "    if reads and r.get('id') == 'run-1' and not os.environ.get('FAKE_ARCHON_NO_GITHUB_READS'):\n"
-            "        r.setdefault('metadata', {}).setdefault('inputs', {})['github_reads'] = reads\n"
+            "    if mark and r.get('id') == 'run-1' and not os.environ.get('FAKE_ARCHON_NO_LAUNCH_MARK'):\n"
+            "        r.setdefault('metadata', {}).setdefault('inputs', {})['launch_mark'] = mark\n"
             "path.write_text(json.dumps(listed))\n"
             "EOF\n"
             "exit 0\n")
@@ -202,9 +199,9 @@ class UseShell(unittest.TestCase):
     def test_start_change_entry_flags(self):
         """変更から入る口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
         依頼の - は依頼を省き（request= は空）、Archon へ --input base=・pr= を渡し、『入口: 変更から』を出す。
-        位置引数の後の --base は旗として読まない。依頼も読み出しのファイルも無い起動（--base だけ）は結ぶ印が無いので run を
-        結ばず、結べない時の 1 行を出して 1 で終わる（設計書 2.3。2026-10-01 の関所の答え A）。--pr の起動は読み出しのファイルで
-        結ぶ（test_start_pr_without_request_binds_by_reads）"""
+        位置引数の後の --base は旗として読まない。依頼の写しも起動の印も無い起動（--base だけ）は結ぶ印が無いので run を
+        結ばず、結べない時の 1 行を出して 1 で終わる（設計書 2.3。2026-10-01 の関所の答え A）。--pr の起動は起動の印で
+        結ぶ（test_start_pr_without_request_binds_by_launch_mark）"""
         t = self.target()
         r = self.use("start", "--base", "main", "-", cwd=str(t))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
@@ -216,8 +213,8 @@ class UseShell(unittest.TestCase):
         self.assertIn("入口: 変更から（base=main）", r.stdout)
         self.assertFalse((self.home / "requests").exists())
         self.log.unlink()
-        r = self.use("start", "--pr", "7", "--", str(t), "-", "true", **self.gh_env())   # --pr は隔離の前に読める PR
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)   # 依頼を省いても読み出しのファイルで結ぶ
+        r = self.use("start", "--pr", "7", "--", str(t), "-", "true")   # PR は run の中の start が読む
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)   # 依頼を省いても起動の印で結ぶ
         run = self.started()
         self.assertIn("pr=7", run)
         self.assertIn("test_cmd=true", run)
@@ -247,49 +244,36 @@ class UseShell(unittest.TestCase):
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
                 self.assertEqual(self.calls(), [])
 
-    def test_start_reads_named_pr_and_issue_before_isolation(self):
-        """依頼が {findings, pr, issue} で PR・issue を名指せば、Archon を起こす前に利用者の env（ログインが見える）のまま、
-        対象の根を cwd にして 1 回だけ読み、その結果のファイルを --input github_reads= で渡す（隔離した Archon の中では読めない）"""
+    def test_start_leaves_github_reading_to_the_run(self):
+        """依頼が {findings, pr, issue} で PR・issue を名指しても、殻は Archon を起こす前に gh を呼ばず、読み出しのファイルも
+        入力 github_reads も作らない（名指しは run の中の start が利用者の gh のログインを継いで読む）"""
         t = self.target()
-        req = self.tmp / "named.json"
-        req.write_text(json.dumps({"findings": [{"where": "stats.py:1", "text": "mean が空で落ちる"}], "pr": [7], "issue": [9]},
-                                  ensure_ascii=False))
-        r = self.use("start", str(t), str(req), **self.gh_env())
+        r = self.use("start", str(t), str(self.named_request()), **self.gh_env())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         run = self.started()
-        given = [a for a in run if a.startswith("github_reads=")]
-        self.assertEqual(len(given), 1, run)
-        self.assertNotEqual(given[0], "github_reads=", run)
-        seen = self.tmp / "github-reads-seen.json"
-        self.assertTrue(seen.exists(), "起動の時に読み出しのファイルが無い")
-        doc = json.loads(seen.read_text(encoding="utf-8"))
-        self.assertEqual(doc["pr"]["7"]["body"], "非公開の本文")
-        self.assertEqual([c["body"] for c in doc["pr"]["7"]["review_comments"]], ["非公開の行コメント"])
-        self.assertEqual(doc["issue"]["9"]["body"], "課題の本文")
+        self.assertFalse([a for a in run if a.startswith("github_reads=")], run)
+        self.assertFalse([a for a in run if a.startswith("launch_mark=")], run)   # 依頼の写しで結ぶ起動は印を要らない
         from test_ghreads import gh_calls
-        self.assertEqual({cwd for cwd, _ in gh_calls(self.gh_calls_file)}, {str(t)})
+        self.assertEqual(gh_calls(self.gh_calls_file), [])
+        self.assertFalse((self.home / "reads").exists())
 
-    def test_start_pr_without_request_binds_by_reads(self):
-        """依頼を - で省いた --pr の起動は、依頼の写しの代わりに読み出しのファイル（起動ごとに一意。Archon が run に残した
-        入力 github_reads）の一致で run を結ぶ。0 で終わり、控えにその読み出しのファイルを残し、ファイルは消さない（run が
-        start で盤面へ写す。2026-10-01 に利用者が踏んだ: 結ばずに 1 で終わり、後始末でファイルが消えて run が落ちた）"""
+    def test_start_pr_without_request_binds_by_launch_mark(self):
+        """依頼を - で省いた --pr の起動は、依頼の写しの代わりに起動ごとに一意の印（入力 launch_mark。Archon が run の
+        metadata.inputs に残す）の一致で run を結び、0 で終わる（2026-10-01 に利用者が踏んだ: 結ばずに 1 で終わった）。
+        控えに読み出しのファイルの欄は無い"""
         t = self.target()
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", **self.gh_env())
+        r = self.use("start", "--pr", "7", str(t), "-", "true", "")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("結べなかった", r.stdout)
-        given = [a.split("=", 1)[1] for a in self.started() if a.startswith("github_reads=")]
+        given = [a.split("=", 1)[1] for a in self.started() if a.startswith("launch_mark=")]
         self.assertEqual(len(given), 1, self.started())
+        self.assertTrue(given[0])
         led = json.loads((self.home / "runs" / "run-1.json").read_text())
-        self.assertEqual(led["github_reads"], given[0])
-        self.assertEqual(self.reads_left(), [pathlib.Path(given[0]).name])
-
-    def test_start_refuses_unreadable_pr_before_archon(self):
-        """--pr の base・head が隔離の前に読めなければ（ログインが見えない）、Archon を起こさずに止まる"""
-        t = self.target()
-        r = self.use("start", "--pr", "7", "--", str(t), "-", "true", **self.gh_env(logged_in=False))
-        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.calls(), [])
-        self.assertIn("7", r.stderr)
+        self.assertEqual(led["run_id"], "run-1")
+        self.assertNotIn("github_reads", led)
+        r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # 印を持つ run が無ければ推定で結ばない
+        self.assertIn("結べなかった", r.stdout)
 
     def test_refuses_target_under_private_tmp(self):
         for t in ("/private/tmp/works-use-test-none", "/tmp/works-use-test-none"):
@@ -378,128 +362,15 @@ class UseShell(unittest.TestCase):
                                   ensure_ascii=False))
         return req
 
-    def reads_left(self):
-        d = self.home / "reads"
-        return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
-
-    def assert_reads_kept_owner_only_and_named_once(self, r):
-        """結べなかった起動の読み出しのファイル: 消さずに 0600 で 1 本残り、そのパスと『続けないなら消してよい』を含む行がちょうど 1 行"""
-        left = self.reads_left()
-        self.assertEqual(len(left), 1, r.stdout)
-        path = self.home / "reads" / left[0]
-        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        named = [ln for ln in r.stdout.splitlines() if str(path) in ln and "続けないなら消してよい" in ln]
-        self.assertEqual(len(named), 1, r.stdout)
-
-    def test_start_refused_by_line_start_leaves_no_reads_file(self):
-        """--pr 7 の start で、Archon の中の線の start（本物の entry.start）が入力を拒んでも、読み出しのファイルは残らず、
-        『続けないなら消してよい』の行も出ない（一覧に生きた候補が在る形。run の終了コードは 0）"""
-        wrap = self.tmp / "wrap-archon.sh"
-        core = ROOT / ".shared" / "core"
-        wrap.write_text(
-            "#!/bin/sh\n"
-            f'sh "{self.fake}" "$@"\n'
-            "rc=$?\n"
-            'case "$1 $2" in "workflow run") ;; *) exit "$rc" ;; esac\n'
-            f'python3 - "$@" <<\'EOF\'\n'
-            "import pathlib, sys\n"
-            f"sys.path.insert(0, {str(core)!r})\n"
-            "import entry\n"
-            "src = next(a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('github_reads='))\n"
-            "raw = {'request': '', 'pr': '7', 'github_reads': src, 'test_cmd': '', 'thickness': '', 'gates': '',\n"
-            "       'final_gate': 'never-heard-of', 'adapter': '', 'policy_md': ''}\n"
-            "try:\n"
-            f"    entry.start(pathlib.Path({str(self.tmp / 'line-board')!r}), pathlib.Path.cwd(), raw, run_id='run-1')\n"
-            "except entry.InputRefused:\n"
-            "    pass\n"
-            "else:\n"
-            "    sys.exit('start が拒まなかった')\n"
-            "EOF\n"
-            'exit "$rc"\n')
-        t = self.target()
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", WORKS_DEV_ARCHON=str(wrap), **self.gh_env())
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue(any(a.startswith("github_reads=") and a != "github_reads=" for a in self.started()), self.calls())
-        self.assertEqual(self.reads_left(), [])
-        self.assertNotIn("続けないなら消してよい", r.stdout + r.stderr)
-
-    def test_unbound_start_keeps_reads_file_0600(self):
-        """start が run を結べない（起動は 0・読めた一覧で候補 0 本）時は、包んだ基の参照は外すが、隔離の前に読んだ読み出しのファイル
-        （非公開の本文を持つ）は消さずに 0600 で残し、そのパスと『続けないなら消してよい』を 1 行で名指す（結べないことは run が無いことと
-        同じではなく、消すと起動の関所で生きた run が落ちる）"""
+    def test_unbound_failed_start_drops_wrap_ref_with_candidates(self):
+        """結べず Archon の起動も 0 以外で終わったなら、一覧に候補の run が在っても包んだ基の参照を外し、控えには残さない"""
         t = self.target()
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
-        self.runs.write_text(json.dumps({"runs": []}))
-        r = self.use("start", str(t), str(self.named_request()), "true", "", **self.gh_env())
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertTrue(any(a.startswith("github_reads=") and a != "github_reads=" for a in self.started()), self.calls())
-        self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
-        self.assert_reads_kept_owner_only_and_named_once(r)
-
-    def test_unbound_failed_start_keeps_reads_file_0600_with_candidates(self):
-        """結べず Archon の起動も 0 以外で終わったなら、一覧に候補の run が在っても包んだ基の参照は外すが、読み出しのファイルは
-        終了コードで消さずに 0600 で残し、そのパスと『続けないなら消してよい』を 1 行で名指す（控えには残さない）"""
-        t = self.target()
-        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
-        r = self.use("start", str(t), str(self.named_request()), "true", "", FAKE_ARCHON_RUN_EXIT="3", **self.gh_env())
+        r = self.use("start", str(t), str(self.request), "true", "", FAKE_ARCHON_RUN_EXIT="3")
         self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
         self.assertIn("結べなかった", r.stdout)
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
         self.assertFalse((self.home / "unbound").exists() and os.listdir(self.home / "unbound"))
-        self.assert_reads_kept_owner_only_and_named_once(r)
-
-    def term_archon(self):
-        """workflow run の時だけ use.sh の殻（$PPID）へ TERM を送ってから偽の Archon に渡す包み。殻は子の終わりを待ってから trap を回す"""
-        wrap = self.tmp / "term-archon.sh"
-        wrap.write_text(
-            "#!/bin/sh\n"
-            'case "$1 $2" in "workflow run") kill -TERM $PPID ;; esac\n'
-            f'exec sh "{self.fake}" "$@"\n')
-        return wrap
-
-    def term_git_bin(self, on):
-        """引数に on が在る git の呼び出しの時だけ use.sh の殻（$PPID）へ TERM を送ってから本物の git へ渡す包みの置き場"""
-        bin_ = self.tmp / "term-git-bin"
-        bin_.mkdir(exist_ok=True)
-        (bin_ / "git").write_text(
-            "#!/bin/sh\n"
-            f'for a in "$@"; do case $a in {on}) kill -TERM $PPID; break ;; esac; done\n'
-            f'exec "{shutil.which("git")}" "$@"\n')
-        (bin_ / "git").chmod(0o755)
-        return bin_
-
-    def test_term_during_launch_discards_reads_file(self):
-        """Archon の起動の最中に use.sh が TERM を受けると、settle（結べた・名指した）より前に殻が落ちるので、<家>/reads/ に読み出しの
-        ファイルも一時のファイルも残さず、後始末の後に同じ信号（TERM）で落ちる"""
-        import signal
-        t = self.target()
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", WORKS_DEV_ARCHON=str(self.term_archon()), **self.gh_env())
-        self.assertEqual(self.reads_left(), [], r.stdout + r.stderr)
-        self.assertEqual(r.returncode, -signal.SIGTERM, r.stdout + r.stderr)
-
-    def test_term_before_launch_discards_reads_file(self):
-        """読み出しの後・起動の前（汚れた対象を包む git read-tree の時）に use.sh が TERM を受けても、読み出しのファイルも一時の
-        ファイルも残さず、後始末の後に同じ信号（TERM）で落ち、workflow run は呼ばない"""
-        import signal
-        t = self.target()
-        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
-        env = self.gh_env()
-        env["PATH"] = f"{self.term_git_bin('read-tree')}{os.pathsep}{env['PATH']}"
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", **env)
-        self.assertEqual(self.reads_left(), [], r.stdout + r.stderr)
-        self.assertEqual(r.returncode, -signal.SIGTERM, r.stdout + r.stderr)
-        self.assertFalse(any(c[3:5] == ["workflow", "run"] for c in self.calls()), self.calls())
-
-    def test_failure_before_launch_discards_reads_file(self):
-        """読み出しの後・起動の前の段が set -e で落ちる（<家>/archon-home をファイルで塞いで place_pack の mkdir -p を落とす）と、
-        読み出しのファイルが残らず、workflow run は呼ばない"""
-        t = self.target()
-        self.home.mkdir(parents=True, exist_ok=True)
-        (self.home / "archon-home").write_text("塞ぐ\n")
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", **self.gh_env())
-        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.reads_left(), [], r.stdout + r.stderr)
-        self.assertFalse(any(c[3:5] == ["workflow", "run"] for c in self.calls()), self.calls())
 
     def test_unbound_live_start_keeps_wrap_ref_and_clean_removes_it(self):
         """結べなくても Archon の起動が 0 で終わったなら run は生きていて包んだ基を使う。消さずに控えに残し、clean が片付ける"""
@@ -518,73 +389,49 @@ class UseShell(unittest.TestCase):
         self.assertEqual(list((self.home / "unbound").iterdir()), [])
 
     def test_unbound_clean_keeps_paths_while_another_candidate_lives(self):
-        """結べない起動の控えに候補が 2 本在る時、終わった 1 本を clean しても、もう 1 本が生きて（paused）いる間は包んだ基と
-        読み出しを消さず、控えの候補からその run だけを外す。最後の候補の clean で全部消す（生きた run の使う物を消さない）"""
+        """結べない起動の控えに候補が 2 本在る時、終わった 1 本を clean しても、もう 1 本が生きて（paused）いる間は包んだ基を
+        消さず、控えの候補からその run だけを外す。最後の候補の clean で全部消す（生きた run の使う物を消さない）"""
         t = self.target()
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
         two = lambda first, wt="": self.runs.write_text(json.dumps({"runs": [
             {"id": "run-1", "workflow_name": "darkfactory", "status": first, "working_path": wt},
             {"id": "run-2", "workflow_name": "darkfactory", "status": "paused"}]}))
         two("paused")
-        # 読み出しを持つ起動（--pr）が結べない形（偽の archon が読み出しを run に残さない）で回す
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_NO_GITHUB_READS="1", **self.gh_env())
+        # 印を持つ起動（--pr）が結べない形（偽の archon が印を run に残さない）で回す
+        r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         [kept] = list((self.home / "unbound").iterdir())
         doc = json.loads(kept.read_text())
         self.assertEqual(doc["candidates"], ["run-1", "run-2"])
-        reads = pathlib.Path(doc["github_reads"])
-        self.assertTrue(reads.is_file(), doc)
+        self.assertNotIn("github_reads", doc)
         wt = self.tmp / "run-wt"
         git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
         two("completed", str(wt))
         r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotEqual(git(t, "for-each-ref", "refs/works/"), "")
-        self.assertTrue(reads.exists())
         self.assertEqual(json.loads(kept.read_text())["candidates"], ["run-2"])
         self.assertFalse(wt.exists())                                     # run の worktree は今どおり片付ける
         self.runs.write_text(json.dumps({"runs": [{"id": "run-2", "workflow_name": "darkfactory", "status": "completed"}]}))
         r = self.use("clean", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
-        self.assertFalse(reads.exists())
         self.assertEqual(list((self.home / "unbound").iterdir()), [])
 
-    def test_unbound_pr_start_keeps_reads_file_and_clean_removes_it(self):
-        """--pr の起動が結べない（偽の archon が読み出しを run に残さない）時、生きた候補が在れば読み出しのファイルを消さずに控えに
-        残し（控えの github_reads がそのパス）、候補の run の clean が読み出しのファイルと控えを消す"""
-        t = self.target()
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_NO_GITHUB_READS="1", **self.gh_env())
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        [kept] = list((self.home / "unbound").iterdir())
-        doc = json.loads(kept.read_text())
-        reads = pathlib.Path(doc["github_reads"])
-        self.assertEqual((doc["candidates"], self.reads_left()), (["run-1"], [reads.name]))
-        self.assertIn(str(reads), r.stdout)
-        self.assertFalse([ln for ln in r.stdout.splitlines() if "続けないなら消してよい" in ln], r.stdout)   # 控えの案内と食い違う行は出さない
-        self.assertEqual(stat.S_IMODE(reads.stat().st_mode), 0o600)   # settle は残す読み出しを 0600 に揃える
-        self.set_runs(status="completed", working_path=str(self.tmp / "gone"), output_root=str(self.tmp / "out2"))
-        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual((self.reads_left(), list((self.home / "unbound").iterdir())), ([], []))
-
-    def test_unbound_unreadable_list_keeps_wrap_ref_and_reads_until_no_run_lives(self):
-        """起動は 0 で終わったが run の一覧が読めない（runs --json が落ちる）時は、生きた run が在るか分からないので包んだ基の参照も
-        読み出しのファイルも消さず、候補の無い控え（unknown）に残して 1 で終わる。clean は一覧が読めた時、この対象の生きた run が
+    def test_unbound_unreadable_list_keeps_wrap_ref_until_no_run_lives(self):
+        """起動は 0 で終わったが run の一覧が読めない（runs --json が落ちる）時は、生きた run が在るか分からないので包んだ基の参照を
+        消さず、候補の無い控え（unknown）に残して 1 で終わる。clean は一覧が読めた時、この対象の生きた run が
         在る間は残し、1 本も無くなった時に消す（迷ったら残す）"""
         t = self.target()
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_RUNS_FAIL="1", **self.gh_env())
+        r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_RUNS_FAIL="1")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("消さずに残した", r.stdout)
-        self.assertFalse([ln for ln in r.stdout.splitlines() if "続けないなら消してよい" in ln], r.stdout)   # unknown の控えが名指す
         self.assertNotEqual(git(t, "for-each-ref", "refs/works/"), "")
         [kept] = list((self.home / "unbound").iterdir())
         doc = json.loads(kept.read_text())
         self.assertEqual((doc["candidates"], doc["unknown"]), ([], True))
-        reads = pathlib.Path(doc["github_reads"])
-        self.assertTrue(reads.is_file(), doc)
-        self.assertEqual(stat.S_IMODE(reads.stat().st_mode), 0o600)   # settle は残す読み出しを 0600 に揃える
+        self.assertNotIn("github_reads", doc)
         wt = self.tmp / "run-wt"
         git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
         two = lambda second: self.runs.write_text(json.dumps({"runs": [
@@ -594,12 +441,11 @@ class UseShell(unittest.TestCase):
         r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotEqual(git(t, "for-each-ref", "refs/works/"), "")
-        self.assertTrue(reads.exists() and kept.exists())
+        self.assertTrue(kept.exists())
         two("completed")
         r = self.use("clean", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
-        self.assertFalse(reads.exists())
         self.assertEqual(list((self.home / "unbound").iterdir()), [])
 
     def test_unbound_malformed_runs_list_is_unreadable_not_zero_candidates(self):
@@ -687,20 +533,6 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertTrue(wt.exists())
         self.assertNotEqual(git(t, "branch", "--list", "archon/task-darkfactory-1"), "")
-
-    def test_clean_removes_reads_file_of_run(self):
-        """結べた run の読み出しのファイルは run の控えに残し、clean が run と一緒に消す（起動の関所で取り消して start が
-        写さなかった run の残りも掃く）"""
-        t = self.target()
-        r = self.use("start", str(t), str(self.named_request()), "true", "", **self.gh_env())
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(len(self.reads_left()), 1)
-        wt = self.tmp / "run-wt"
-        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
-        self.set_runs(status="completed", working_path=str(wt), output_root=str(self.tmp / "out"))
-        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.reads_left(), [])
 
     def test_refuses_target_without_origin(self):
         """origin の無い対象は Archon を呼ばずに 1 行で拒み、対象の remote は書き換えない"""
@@ -1944,7 +1776,7 @@ class UseShell(unittest.TestCase):
             f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
             "import json, os, pathlib, sys\n"
             "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
-            "reads = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('github_reads=')), '')\n"
+            "mark = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('launch_mark=')), '')\n"
             "path = pathlib.Path(os.environ['RUNS'])\n"
             "listed = json.loads(path.read_text())\n"
             "for r in listed['runs']:\n"
@@ -1952,8 +1784,8 @@ class UseShell(unittest.TestCase):
             "        board = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1')\n"
             "        board.mkdir(parents=True, exist_ok=True)\n"
             "        (board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
-            "    if reads and r.get('id') == 'run-1':\n"
-            "        r.setdefault('metadata', {}).setdefault('inputs', {})['github_reads'] = reads\n"
+            "    if mark and r.get('id') == 'run-1':\n"
+            "        r.setdefault('metadata', {}).setdefault('inputs', {})['launch_mark'] = mark\n"
             "path.write_text(json.dumps(listed))\n"
             "EOF\n"
             "exit 0\n")

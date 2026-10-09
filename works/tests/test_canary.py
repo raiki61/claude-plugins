@@ -1268,49 +1268,27 @@ class CheckTest(unittest.TestCase):
         self.assertIn("包みの起動の記録が無い", json.loads(got.stdout)["features"]["e_fix_lanes"]["why"])
 
     def lens_note(self, **notes):
-        """局所レビューの受け付けが周の作業ファイルに残す控え（diverted.LENS_FILE。material._recover の形）"""
-        write(self.board / "r1" / "local-review-lenses.json",
-              {"round": 1, "sessions": ["s1"], "payloads": 0, "recovered": [], "empty": [], "unseen": [], "unmatched": [],
-               **notes})
+        """局所レビューの受け付けが周の作業ファイルに残す控え（diverted.LENS_FILE。material._mark_unseen の形）"""
+        write(self.board / "r1" / "local-review-lenses.json", {"round": 1, "unseen": [], **notes})
 
-    def outputs(self, *rows):
-        """包みの家の reads/<cwd の hash>/outputs.jsonl（record-output のフックが下請けの StructuredOutput を 1 行ずつ残す）"""
-        write(self.root / "home" / "adapter" / "reads" / adapter.cwd_key(WORKTREE) / "outputs.jsonl",
-              "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-
-    def test_record_output_hook_is_red_when_a_fork_lens_went_unseen_without_its_record(self):
-        """(h) 記録のフック: 局所レビューの控えが fork のレンズを『見ていない』（unseen）と書いたのに、この run の包みの記録
-        outputs.jsonl が無いなら no（フックが起きていない）。記録の行が在って戻せなかったなら attempted、戻した・0 件を確かめた・
-        見ていない行が無いなら yes。読むだけで、終了コードには数えない"""
+    def test_lens_seen_says_whether_fork_lens_findings_arrived(self):
+        """(h) fork のレンズの所見: 局所レビューの控えが fork のレンズを『見ていない』（unseen）と書いた周が在れば attempted、
+        無ければ yes、控えが無ければ no。読むだけで、--request fix の終了コードには数えない"""
         self.fixer_run()
-        self.lens_note(unseen=["/code-review"])
-        got = self.run_tool(str(self.root), "--request", "fix", "--json")
-        self.assertEqual(got.returncode, 0, "(h) は終了コードに数えない")
-        h = json.loads(got.stdout)["features"]["h_record_output"]
-        self.assertEqual(h["status"], "no", h)
-        self.assertIn("outputs.jsonl", h["why"])
-        self.assertIn("/code-review", h["why"])
-        self.outputs({"ts": "2026-10-07T00:00:00+00:00", "session_id": "old", "agent_id": "a"})   # 盤面を作る前の行は数えない
-        self.assertEqual(json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]["status"], "no")
-        self.outputs({"ts": "2026-10-07T01:06:00+00:00", "session_id": "s1", "agent_id": "a", "input": {}})
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
-        self.assertEqual(h["status"], "attempted", h)
-        self.lens_note(recovered=[{"lens": "/code-review", "count": 3}])
-        doc = json.loads(self.run_tool(str(self.root), "--json").stdout)
-        self.assertEqual(doc["features"]["h_record_output"]["status"], "yes")
-        self.assertEqual(doc["lens_hook"]["recovered"], 3)
-        self.assertIn("(h) 記録のフック: yes", self.run_tool(str(self.root)).stdout)
-
-    def test_record_output_hook_without_lens_note_or_launches_is_said(self):
-        self.fixer_run()
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_lens_seen"]
         self.assertEqual(h["status"], "no")
         self.assertIn("local-review-lenses.json", h["why"])
         self.lens_note(unseen=["/code-review"])
-        shutil.rmtree(self.root / "home" / "adapter")
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
-        self.assertEqual(h["status"], "attempted", "記録が読めなければ赤と言わない")
-        self.assertIn("読めない", h["why"])
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 0, "(h) は --request fix の終了コードに数えない")
+        h = json.loads(got.stdout)["features"]["h_lens_seen"]
+        self.assertEqual(h["status"], "attempted", h)
+        self.assertIn("/code-review", h["why"])
+        self.lens_note()
+        doc = json.loads(self.run_tool(str(self.root), "--json").stdout)
+        self.assertEqual(doc["features"]["h_lens_seen"]["status"], "yes")
+        self.assertEqual(doc["lens_seen"], {"rounds": 1, "unseen": []})
+        self.assertIn("(h) fork のレンズの所見: yes", self.run_tool(str(self.root)).stdout)
 
     def local_review_launches(self, *rows):
         """包みの起動の記録に局所レビューの役の起動を足す（fence.text_reply は旗 text-reply の返答の形の塊の sha）"""
@@ -1324,7 +1302,7 @@ class CheckTest(unittest.TestCase):
 
     def test_text_reply_contract(self):
         """(j) 返答の契約: 局所レビューの起動がどれも旗 text-reply（起動の記録の fence.text_reply）で、返答の契約の記録が
-        起動ごとに決め（accepted）を持ち、返答の道具が残った跡（kind native・その会話の outputs.jsonl の行）が無ければ yes。
+        起動ごとに決め（accepted）を持ち、返答の道具が残った跡（kind native）が無ければ yes。
         出し直しを使い切った（gave_up）・決めの無い起動が在れば attempted、旗の無い起動・返答の道具の跡が在れば no、起動が
         無ければ no。終了コードには数えない"""
         self.fixer_run()
@@ -1341,11 +1319,6 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(doc["features"]["j_text_reply"]["status"], "yes", doc["features"]["j_text_reply"])
         self.assertEqual(doc["text_reply"]["kinds"], {"reasked": 1, "accepted": 1})
         self.assertIn("(j) 返答の契約: yes", self.run_tool(str(self.root)).stdout)
-        self.outputs({"ts": "2026-10-07T01:06:00+00:00", "session_id": "s1", "agent_id": "a", "input": {}})
-        j = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]
-        self.assertEqual(j["status"], "no")
-        self.assertIn("outputs.jsonl", j["why"])
-        self.outputs()
         self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "gave_up", "turn": 3})
         self.assertEqual(json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]["status"],
                          "attempted")
@@ -1369,19 +1342,8 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(j["status"], "attempted", j)
         self.assertIn("拒んだ", j["why"])
         self.lens_note(unseen=["/code-review"])
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_lens_seen"]
         self.assertEqual(h["status"], "attempted", h)
-
-    def test_record_output_hook_under_text_reply_is_not_red(self):
-        """(h) 旗 text-reply の起動では fork に返答の道具が無く、フックは起きない形が正しい。見ていない fork のレンズが在っても
-        outputs.jsonl が無いことを『フックが起きていない』（no）と言わず attempted にする"""
-        self.fixer_run()
-        self.lens_note(unseen=["/code-review"])
-        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
-                                    "fence": {"text_reply": "0123456789abcdef"}})
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
-        self.assertEqual(h["status"], "attempted", h)
-        self.assertIn("text-reply", h["why"])
 
     def start_entry(self, kind):
         """start の控え（r1/start.json）の入口の形（entry.ENTRIES の語）"""
@@ -1398,18 +1360,18 @@ class CheckTest(unittest.TestCase):
                 got = self.run_tool(str(self.root), "--request", "fix", "--json")
                 self.assertEqual(got.returncode, 0, "--request fix は (h)(j) を数えない")
                 f = json.loads(got.stdout)["features"]
-                for key in ("h_record_output", "j_text_reply"):
+                for key in ("h_lens_seen", "j_text_reply"):
                     self.assertEqual(f[key]["status"], want, (key, f[key]))
                     if want == "not_exercised":
                         self.assertIn("依頼から始めた run", f[key]["why"])
                         self.assertIn("not_request_entry", f[key]["why"])
         self.start_entry("request")
         text = self.run_tool(str(self.root)).stdout
-        self.assertIn("(h) 記録のフック: not_exercised", text)
+        self.assertIn("(h) fork のレンズの所見: not_exercised", text)
         self.assertIn("(j) 返答の契約: not_exercised", text)
         (self.board / "r1" / "start.json").unlink()
         f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
-        self.assertEqual([f["h_record_output"]["status"], f["j_text_reply"]["status"]], ["no", "no"], "控えが無ければ今までどおり")
+        self.assertEqual([f["h_lens_seen"]["status"], f["j_text_reply"]["status"]], ["no", "no"], "控えが無ければ今までどおり")
 
     def test_request_entry_with_local_review_traces_is_judged_as_usual(self):
         """entry が request でも局所レビューの跡（控え・起動）が在れば（修正が入った後の周）、いつもの判じに戻す"""
@@ -1420,11 +1382,11 @@ class CheckTest(unittest.TestCase):
                                     "fence": {"text_reply": "0123456789abcdef"}})
         self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 1})
         f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
-        self.assertEqual([f["h_record_output"]["status"], f["j_text_reply"]["status"]], ["yes", "yes"])
+        self.assertEqual([f["h_lens_seen"]["status"], f["j_text_reply"]["status"]], ["yes", "yes"])
 
-    def test_change_request_exit_code_counts_record_output_and_text_reply(self):
+    def test_change_request_exit_code_counts_lens_seen_and_text_reply(self):
         """--request change（変更から入る canary）の終了コードは (h)(j) だけで決める: 両方 yes なら 0、(h) が attempted
-        （text-reply で fork のレンズの本文が届かなかった）・not_exercised（依頼から始めた run）・(j) が no なら 1。
+        （fork のレンズの本文が届かなかった）・not_exercised（依頼から始めた run）・(j) が no なら 1。
         (a)〜(e) は数えない（fix の canary の物）"""
         self.fixer_run(planted=0)   # (a)(e) は yes でない
         self.start_entry("both")
@@ -1438,7 +1400,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
         self.assertEqual(self.run_tool(str(self.root), "--request", "fix").returncode, 1, "fix は (a) と (e) も数える")
         self.lens_note(unseen=["/code-review"])
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_lens_seen"]
         self.assertEqual(h["status"], "attempted", h)
         self.assertEqual(self.run_tool(str(self.root), "--request", "change").returncode, 1, "(h) の attempted は通過に数えない")
         self.lens_note()
@@ -1448,7 +1410,7 @@ class CheckTest(unittest.TestCase):
         (self.board / "r1" / "local-review-lenses.json").unlink()
         self.start_entry("request")
         got = self.run_tool(str(self.root), "--request", "change", "--json")
-        self.assertEqual(json.loads(got.stdout)["features"]["h_record_output"]["status"], "not_exercised")
+        self.assertEqual(json.loads(got.stdout)["features"]["h_lens_seen"]["status"], "not_exercised")
         self.assertEqual(got.returncode, 1, "依頼から始めた run は変更から入る canary の通過でない")
 
     def test_report_cold_reader_launches_are_new_sessions(self):

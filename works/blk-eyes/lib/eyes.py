@@ -325,12 +325,13 @@ def route(board_dir, role, rnd, skip: str = "") -> dict:
 
 # ---------------------------------------------------------------- 描く
 def render(b, nid) -> str:
-    """engine の emit_instance と同じ描き方（rolekit.render_body。reads に無い穴は描けない・cap なし・schema の断り）。
+    """engine の emit_instance と同じ描き方（rolekit.render_body。reads に無い穴は描けない・cap なし）。schema の断りは貼らない
+    （目の役に旗 text-reply は無く、返答の型は役の output_format で Archon が強いる）。
     指示書は写しの graph、無ければ同じ commit から写した gl-prompts/。番号で指す一覧（pointers）を持つ節は描かない。
     版を git で読めという写しの文（GIT_SHOW_SENTENCE）は、止めた cwd を Read で読めという文（FROZEN_READ）に替える"""
     if b.nodes[nid].get("pointers"):
         raise BoardGap(f"{nid} は番号で指す一覧（pointers）を持つ——独立の目の描き方は持たない（写しを見直す）")
-    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)[0].replace(GIT_SHOW_SENTENCE, FROZEN_READ)
+    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, schema_note=False)[0].replace(GIT_SHOW_SENTENCE, FROZEN_READ)
 
 
 def _lines(rows) -> str:

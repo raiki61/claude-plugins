@@ -212,7 +212,8 @@ class OverlayDeliveryCase(unittest.TestCase):
                 mock.patch.object(material, "_stopped", return_value=None), \
                 mock.patch.object(material, "_waiting", return_value={"attempts": 1}), \
                 mock.patch.object(material, "_rejects", return_value=[]), \
-                mock.patch.object(material, "render", return_value="役の本文\n"):
+                mock.patch.object(material, "render", return_value="役の本文\n"), \
+                mock.patch.object(material, "_na_note", return_value="条件の段"):
             got = material.prep(d, role, None, "")
         return pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
 

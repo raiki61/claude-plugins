@@ -8,8 +8,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 
 1. **Read と書き込みのフック**: `--settings` の JSON に PostToolUse:Read のフック（同じ置き場の record-read.py）と、
    PostToolUse:Edit|Write|NotebookEdit のフック（record-write.py。書いた後の中身の sha を writes_path に残し、書く役の受け付けが
-   版からの変更と突き合わせる。.shared/core/writes.py）と、PostToolUse:StructuredOutput のフック（record-output.py。下請けの
-   会話——skill の fork——が親の節の返答の道具に書いた返答を残し、局所レビューの受け付けが消えた所見を戻す。.shared/core/diverted.py）を足す。
+   版からの変更と突き合わせる。.shared/core/writes.py）を足す。
    SDK は sandbox を持つ節にだけ `--settings {"sandbox":{…}}` を付けるので、在ればマージ（SDK の鍵は上書きしない）、
    無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--effort` は
    触らない（読んで起動の記録に残すだけ。launch_row）。`--model` は 19 の時だけ替え、ほかは読んで記録に残すだけ。
@@ -56,11 +55,11 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SIGINT・SIGTERM・SIGHUP を受けた時（か直下の親が替わった時）と claude が終わった後に、溜めた仲間ごと
    tree_run.stop_group（数え上げ→送る→数え直し。TERM → KILL_GRACE → KILL）で止める。信号で止めた時は LINGER 待ってから
    128+信号で抜ける（すぐ死ぬと Archon の run が running のまま固まる。試し P17）。上限は tree_run と同じ勘定。
-5. **読むだけの gh**（印のある起動の全部。旗 no-post の有無にも切符にも依らない。持ち主 2026-10-08）: run の中の gh は利用者の
+5. **読むだけの gh**（印のある起動の全部。旗にも切符にも依らない。持ち主 2026-10-08）: run の中の gh は利用者の
    ログインを継ぐ（開発の殻 dev/hostgh.py の gh の口）ので、どの役も GitHub へ書けないように、gh は丸ごと拒み（permissions.deny の
    `Bash(gh:*)`・PATH の上の gh の絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、
    repo view <OWNER/REPO>）だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く
-   （NO_POST_DENY の注記）。旗 no-post は今は柵を足さない（印の文法と blk-pr の受け付けの読み物として残る）。これは事故の柵で、
+   （NO_POST_DENY の注記）。これは事故の柵で、
    堅い境ではない（役は利用者と同じ人で同じ keychain を持つ。本流の review-graph は隔離もしない）
 6. **旗 no-tree-write**（CI の任せ先の役。裁定 R56）: 役の sandbox は graphloops の任せ先と同じ allowWrite ['/']（依存の
    置き場・網を今までどおり使う）なので、本物の作業ツリーは包みが守る。役の cwd の worktree の根（`git rev-parse
@@ -220,8 +219,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    終わった result（subtype が success でない・is_error）と、structured_output を既に持つ result（schema を外し損ねた形）は
    そのまま写す。持った result は 20 の見せ直しに渡さず（記録を書かない）、写す result の累計は子の全部の手の累計なので、
    Archon の引き算はこの起動の費用の全部になる。回ごとの決めを `replies/<cwd の hash>.jsonl` に 1 行（{at, pid, node, kind:
-   accepted|reasked|gave_up|error|native, turn, errors?}）残す。stdin・stdout が stream-json でない起動は起こさない（fail closed）。
-   PostToolUse:StructuredOutput のフック（1）はそのまま足す（外し損ねた時の拾い戻しと、跡の記録）
+   accepted|reasked|gave_up|error|native, turn, errors?}）残す。stdin・stdout が stream-json でない起動は起こさない（fail closed）
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -259,14 +257,15 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import fixshape
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
+import node_marker  # L1（印の文法の正本）
 import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
+import ticket  # L2（包みの家・切符の置き場・git の env の外し物の 1 か所）
 import tree_run
 import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
 
 ENV_HOME = "WORKS_ADAPTER_HOME"
 WRITE_MATCHER = "Edit|Write|NotebookEdit"   # 書き込みの記録のフック（record-write.py）が掛かる道具
 WRITES_LOG = "writes.jsonl"
-OUTPUT_MATCHER = "StructuredOutput"   # 下請けの返答の記録のフック（record-output.py。拾うのは diverted.py）が掛かる道具
 ENV_REAL = "WORKS_REAL_CLAUDE"
 MARK_PREFIX = "works-node:"
 
@@ -274,7 +273,8 @@ MARK_PREFIX = "works-node:"
 SESSION_VALUE_FLAGS = ("--resume", "-r", "--session-id")
 SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
-_NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
+_NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ（段の表の名の形）
+
 # 単位の切れ目で会話を切る節の印の名（1 の単位の切れ目。依頼 243 の 2）と、支度が今の単位の鍵を書く置き場（run ごとの置き場の下）。
 # TDD の輪の役 tdd・並べの後の順の輪の役 tdd-rest・並べの枝の役 tdd-lane-1..3（blk-fix の tddlanes.MAX_LANES と同じ数。試験が縛る）と
 # 修正役の並べの枝の役 fix-lane-1..3（blk-fix の fixlanes.MAX_LANES と同じ数。枝の中の項目が替わると会話を切る。旗 self-resume と一緒でも切る）
@@ -283,12 +283,7 @@ SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
 LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
-# node_marker.FLAGS と同じ。no-post: 読むだけの役の印（gh の柵は今は印のある起動の全部に付く。5）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
-# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
-# この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
-# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す。text-reply: 返答の型を返答の道具に
-# 任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（21）
-FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply")
+# 旗の語（文法と一覧の正本は node_marker.FLAGS。ここは包みが分かれる旗の名だけ）
 NO_TREE_WRITE = "no-tree-write"
 SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
 FORK = "fork"                 # 1 の旗 fork（continue=X を X の会話の写しで起こす。continue と一緒にだけ付く）
@@ -354,35 +349,16 @@ class Plan(NamedTuple):
     reply: Optional[dict] = None    # 21: 旗 text-reply の起動の節の schema（子には渡さない。包みが返答を確かめる）。ほかは None
 
 
-def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
-    """output_format の description に置く印の 1 行（node_marker.mark の description と同じ）"""
-    parts = [MARK_PREFIX, name] + ([f"continue={cont}"] if cont else []) + list(flags)
-    return " ".join(parts)
-
-
 def parse_marker(description) -> Optional[Marker]:
-    """description が印なら Marker、印の頭（`works-node:`）を持たなければ None。
-    頭を持つのに読めなければ BadMarker（包みは claude を起こさない）。文法は枝 wip/works-a2 の node_marker.parse と同じ:
-    `works-node: <名>[ continue=<名>][ <flag>…]`、名は [a-z0-9-]+、区切りは空白 1 つ、flag は FLAGS に在る物を 1 度ずつ"""
+    """description が印なら Marker、印の頭（`works-node:`）を持たなければ None。文法は node_marker.parse の 1 つ:
+    `works-node: <名>[ continue=<名>][ <flag>…]`。頭を持つのに読めなければ BadMarker（包みは claude を起こさない。fail closed）。
+    旗は並びの順を持たない（node_marker.parse は集合で返す）ので、名の順に並べる"""
     if not isinstance(description, str) or not description.startswith(MARK_PREFIX):
         return None
-    bad = BadMarker(f"節の印が読めない: {description!r}")
-    if not description.startswith(MARK_PREFIX + " "):
-        raise bad
-    words = description[len(MARK_PREFIX) + 1:].split(" ")
-    if not _NAME_RE.fullmatch(words[0]):
-        raise bad
-    cont, flags = None, []
-    for w in words[1:]:
-        if w.startswith("continue="):
-            if cont is not None or not _NAME_RE.fullmatch(w[len("continue="):]):
-                raise bad
-            cont = w[len("continue="):]
-        elif w in FLAGS and w not in flags:
-            flags.append(w)
-        else:
-            raise bad
-    return Marker(words[0], cont, tuple(flags))
+    got = node_marker.parse(description)
+    if got is None:
+        raise BadMarker(f"節の印が読めない: {description!r}")
+    return Marker(got["name"], got["cont"], tuple(sorted(got["flags"])))
 
 
 def find_opt(argv: Sequence[str], name: str) -> List[Tuple[int, int, str, bool]]:
@@ -448,17 +424,8 @@ def _stream_in(argv: Sequence[str]) -> bool:
         return False
 
 
-def home(env=None) -> pathlib.Path:
-    """包みの家: ${WORKS_ADAPTER_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/works/adapter}（ticket.home と同じ。空は無いと同じ）"""
-    env = os.environ if env is None else env
-    if env.get(ENV_HOME):
-        return pathlib.Path(env[ENV_HOME])
-    state = env.get("XDG_STATE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "state")
-    return pathlib.Path(state) / "works" / "adapter"
-
-
-def cwd_key(cwd) -> str:
-    return hashlib.sha256(os.path.realpath(str(cwd)).encode("utf-8")).hexdigest()[:16]
+home = ticket.home          # 包みの家（切符と同じ 1 か所）
+cwd_key = ticket.cwd_key    # cwd の realpath の sha256 の先頭 16 桁（切符・記録の置き場の名）
 
 
 def _home_or(home_dir) -> pathlib.Path:
@@ -560,7 +527,7 @@ def read_replies(cwd, home_dir=None) -> List[dict]:
     """replies_path の行（読めない行は飛ばす。ファイルが無ければ空）"""
     try:
         text = replies_path(cwd, home_dir).read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
     out = []
     for ln in text.splitlines():
@@ -620,12 +587,6 @@ def read_launches(cwd, home_dir=None) -> List[dict]:
     return out
 
 
-def last_launch(cwd, node: str, home_dir=None) -> Optional[dict]:
-    """cwd で節 node を起こした最後の行（無ければ None）"""
-    rows = [r for r in read_launches(cwd, home_dir) if r.get("node") == node]
-    return rows[-1] if rows else None
-
-
 def read_session_id(path: pathlib.Path) -> Optional[str]:
     """id のファイルの中身。無い・読めない・空・1 語でない時は None"""
     try:
@@ -635,14 +596,11 @@ def read_session_id(path: pathlib.Path) -> Optional[str]:
     return text if _ID_RE.match(text) else None
 
 
-def hook_settings(command: str, write_command: Optional[str] = None, *, output_command: Optional[str] = None) -> dict:
-    """足す設定。期限は足さない（Claude の既定のまま）。write_command が在れば書き込みの記録のフックも、output_command が
-    在れば下請けの返答の記録のフック（PostToolUse:StructuredOutput。record-output.py）も足す"""
+def hook_settings(command: str, write_command: Optional[str] = None) -> dict:
+    """足す設定。期限は足さない（Claude の既定のまま）。write_command が在れば書き込みの記録のフックも足す"""
     post = [{"matcher": "Read", "hooks": [{"type": "command", "command": command}]}]
     if write_command:
         post.append({"matcher": WRITE_MATCHER, "hooks": [{"type": "command", "command": write_command}]})
-    if output_command:
-        post.append({"matcher": OUTPUT_MATCHER, "hooks": [{"type": "command", "command": output_command}]})
     return {"hooks": {"PostToolUse": post}}
 
 
@@ -835,15 +793,14 @@ def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Op
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
                repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None,
-               tools_deny: Sequence[str] = (), lane: Sequence[str] = (),
-               output_command: Optional[str] = None) -> Tuple[List[str], dict]:
+               tools_deny: Sequence[str] = (), lane: Sequence[str] = ()) -> Tuple[List[str], dict]:
     """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない。
     tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）。
     lane は 6c の単位の worktree の全部の綴り（SDK が sandbox の塊を渡した起動だけ allowWrite の後ろに足す）"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
-    ours = hook_settings(command, write_command, output_command=output_command)
+    ours = hook_settings(command, write_command)
     doc = merge_settings(_load_settings(found[0][2]), ours) if found else ours
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
@@ -871,13 +828,11 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
 
 
 # --- 起動ごとの柵 ---------------------------------------------------------------------------------------------
-GIT_ENV_DROP = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")   # ticket.py と同じ（外から漏れると別のリポジトリを見る）
+GIT_ENV_DROP = ticket.GIT_ENV_FALLBACK   # 外から漏れると別のリポジトリを見る（切符と同じ一覧）
 _ALIASES = (("/private/var", "/var"), ("/private/tmp", "/tmp"), ("/private/etc", "/etc"))
 
 
-def ticket_path(cwd, home_dir=None) -> pathlib.Path:
-    """切符の置き場（ticket.ticket_path と同じ式）"""
-    return _home_or(home_dir) / "tickets" / f"{cwd_key(cwd)}.json"
+ticket_path = ticket.ticket_path   # 切符の置き場（ticket.py の 1 か所）
 
 
 class BadTicket(Exception):
@@ -885,7 +840,7 @@ class BadTicket(Exception):
 
 
 def read_ticket(cwd, home_dir=None) -> Optional[dict]:
-    """切符（ticket.read の代わりの薄い口。枝 wip/works-a4 の ticket.py と同じファイルを読む）。
+    """切符（ticket.write が書いた物）を読む唯一の口。
     ファイルが無ければ None。在るのに読めない・object でない・protected が絶対パスの文字列の配列でなければ BadTicket"""
     path = ticket_path(cwd, home_dir)
     if not os.path.lexists(str(path)):
@@ -1196,14 +1151,13 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
          run_place: Optional[Callable[[], Optional[str]]] = None,
-         board: Optional[Callable[[], Optional[str]]] = None, output_command: Optional[str] = None) -> Plan:
+         board: Optional[Callable[[], Optional[str]]] = None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みと、18 の切符の board の修正の形の控えの
     読み（fixshape.shape_at）だけ。書くのは旗 isolated と 17 の置き場の mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
     board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。
-    write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。output_command は下請けの返答の
-    記録のフックのコマンド（包みが渡す。無ければ足さない）。
+    write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
     env は起動の env（本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
     子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印と 5 の口）"""
     argv = list(argv)
@@ -1327,7 +1281,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
 
     # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
     env = os.environ if env is None else env
-    gh = find_gh(env.get("PATH", ""))   # 5. 印のある起動の全部（旗 no-post の有無に依らない）
+    gh = find_gh(env.get("PATH", ""))   # 5. 印のある起動の全部
     try:
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
@@ -1343,7 +1297,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
                                 write_command, repo_deny(cwd),
                                 (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None,
-                                tools_deny, spellings(lane) if lane is not None else (), output_command=output_command)
+                                tools_deny, spellings(lane) if lane is not None else ())
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own and NO_TREE_WRITE in marker.flags:

@@ -1,6 +1,6 @@
 """包みの切符: 包み（.shared/adapter/claude-adapter）が、盤面の場所と役に書かせない場所を知るための小さなファイル（標準ライブラリだけ）。
 
-線の `start` が run ごとに 1 回だけ `write` で書き、包みが起動のたびに `read(cwd)` で引く。置き場は包みの家
+線の `start` が run ごとに 1 回だけ `write` で書き、包みが起動のたびに `adapter.read_ticket(cwd)` で引く。置き場は包みの家
 `home()` の下の `tickets/<cwd の realpath の sha256 の先頭 16 桁>.json`。cwd は run ごとの worktree なので、run の間で混ざらない。
 中身は `{run_id, board, cwd, protected, written_at}`。`protected` は `protected_paths` の値で、包みが
 `sandbox.filesystem.denyWrite` と `permissions.deny` に写す。守る場所は git から引く:
@@ -19,6 +19,8 @@
 `git rev-parse --local-env-vars` の環境変数を外す。git が引けなければ TicketError。役の worktree が守る場所の中に
 入れ子（守る場所が worktree の祖先か同じ）なら、黙って塞がずに TicketError（理由 1 行）。
 """
+from __future__ import annotations   # 包み（claude-adapter は Python 3.9 以上）が import する。注釈の X | None を定義の時に評価しない
+
 import datetime
 import hashlib
 import json
@@ -50,21 +52,24 @@ class TicketError(Exception):
     """守る場所を git から引けない（git でない cwd・git が無い）、または役の worktree が守る場所の中にある。"""
 
 
-def home() -> pathlib.Path:
-    """包みの家: ${WORKS_ADAPTER_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/works/adapter}（空は無いと同じ）。"""
-    own = os.environ.get("WORKS_ADAPTER_HOME")
-    if own:
-        return pathlib.Path(own)
-    state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+def home(env=None) -> pathlib.Path:
+    """包みの家: ${WORKS_ADAPTER_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/works/adapter}（空は無いと同じ）。env を省くと
+    os.environ。包み（adapter.home）も同じ関数"""
+    env = os.environ if env is None else env
+    if env.get("WORKS_ADAPTER_HOME"):
+        return pathlib.Path(env["WORKS_ADAPTER_HOME"])
+    state = env.get("XDG_STATE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "state")
     return pathlib.Path(state) / "works" / "adapter"
 
 
-def _key(cwd) -> str:
-    return hashlib.sha256(os.path.realpath(cwd).encode("utf-8")).hexdigest()[:16]
+def cwd_key(cwd) -> str:
+    """cwd の realpath の sha256 の先頭 16 桁（切符・包みの記録の置き場の名）"""
+    return hashlib.sha256(os.path.realpath(str(cwd)).encode("utf-8")).hexdigest()[:16]
 
 
-def ticket_path(cwd: pathlib.Path) -> pathlib.Path:
-    return home() / "tickets" / f"{_key(cwd)}.json"
+def ticket_path(cwd, home_dir=None) -> pathlib.Path:
+    """切符の置き場 <家>/tickets/<cwd_key>.json。home_dir を省くと home()"""
+    return (home() if home_dir is None else pathlib.Path(home_dir)) / "tickets" / f"{cwd_key(cwd)}.json"
 
 
 def _local_env_vars() -> tuple:
@@ -152,12 +157,3 @@ def write(board_dir: pathlib.Path, repo_cwd: pathlib.Path, run_id: str) -> pathl
             pass
         raise
     return path
-
-
-def read(cwd: pathlib.Path) -> dict | None:
-    """cwd の切符。無い・読めない・JSON のオブジェクトでなければ None。"""
-    try:
-        doc = json.loads(ticket_path(cwd).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return doc if isinstance(doc, dict) else None

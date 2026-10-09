@@ -12,12 +12,12 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
 - prep:    本線の指示書（gl-prompts の a1202d0 の写し）を engine と同じ描き方（rolekit.render_body）で
            $B/prompts/r<N>/<節>.md に描き、この周のこの節の拒否が在れば最後の拒否の文を頭に置き（R44）、起こした印を置く。
            p0.purpose がラインに無い盤面では、目的の欄を入力 purpose_file（blk-purpose の出口）か「目的の文が無い」の文で埋める
-           （作らない。PURPOSE_MISSING）。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
+           （作らない。PURPOSE_MISSING）。本文の後ろに、素材に not_applicable を書けるか（節の条件とこの周の真偽。_na_note）を
+           置く。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
 - take:    旗の役の包みの柵（adapter 空の run）→ 作業ツリーを route の姿と比べる →（p1.local_review だけ）fork のレンズ
-           （/code-review）が親の返答の道具に書いて親に届かなかった所見を包みの記録から戻す（.shared/core/diverted.py。戻せない
-           空の行は『見ていない』と書く）→ 必須のレンズの起動（_lens_gap）→ 盤面の done（写しの schema・post_check・
-           writes・check_record・settle）。拒否は material-rejects.json に積み、GIVE_UP_AFTER 回目で done・give_up
-           （輪を max_iterations で落とさない。R50）
+           （/code-review）の所見が届かなかった空の行を『見ていない』と書く（.shared/core/diverted.py）→ 必須のレンズの起動
+           （_lens_gap）→ 盤面の done（写しの schema・post_check・writes・check_record・settle）。拒否は material-rejects.json
+           に積み、GIVE_UP_AFTER 回目で done・give_up（輪を max_iterations で落とさない。R50）
 - collect: 出口。回した後も待っている節が在れば（3 回とも拒まれた）盤面を止めて ok: False（諦めた目は全部名指す）。
            本線の R3 の出口（snapshot と materials）を組む
 - 止まった盤面: 同じ波の 1 本の目が盤面を止めた（包みの柵）後は、並んで走る他の目の prep・take・refuse は盤面を書かずに
@@ -75,7 +75,7 @@ NODE_ROLE = {n: r for r, n in ROLES.items()}
 #   isolated:     道具なし・本文を貼る（遮断系。engine は stdin で渡す）
 #   investigator: Read・Grep・Glob・Bash・WebSearch・WebFetch。Bash は sandbox の中で網を閉じ（allowedDomains []。Archon が捨てる
 #                 strictAllowlist は包みが足す）、読むだけの口 works-gh だけを sandbox の外に出す（graphloops の SANDBOX_BASE の
-#                 excludedCommands gh と同じ考え。書く形は口の一覧と旗 no-post が止める）。issue・検索・Web は WebFetch・WebSearch
+#                 excludedCommands gh と同じ考え。書く形は口の一覧と包みが印のある起動の全部に掛ける gh の柵が止める）。issue・検索・Web は WebFetch・WebSearch
 #   skill:        回す側の会話で skill と agent のレンズを起こす（p1.local_review）。investigator の道具に Skill・Agent を足す
 #   delegate:     任せ先（graph の delegate）。engine の DELEGATE_TOOLS と delegate_settings（allowWrite ['/']・網）
 POSTURE = {
@@ -111,11 +111,11 @@ SANDBOX = {
 # その行は受け付けが拒んで同じ会話で起こし直させ、上限（GIVE_UP_AFTER 回）に届いた時だけ material は awaiting_human で人に渡る
 # （プラグインが隔離した設定に無い時は出し直さずにすぐ渡す。_lens_gap）
 SKILLS = {"local-review": ["code-review", "simplify", "security-review"]}
-# Bash を持つ役の印の旗: 包みが gh の書き込みを柵に足し（no-post）、役の cwd の作業ツリーを書けなくする（no-tree-write。
-# 包みは sandbox・切符の無い起動を起こさない）
+# Bash を持つ役の印の旗: 包みが役の cwd の作業ツリーを書けなくする（no-tree-write。包みは sandbox・切符の無い起動を起こさない。
+# gh の書き込みは旗に依らず、包みが印のある起動の全部で止める）
 # skill のレンズを起こす役（SKILLS）は旗 text-reply も持つ: 包みが返答の型を返答の道具（StructuredOutput）に任せず、本文で受けて
 # 確かめ、合わなければ同じ会話で出し直させる（fork で走る skill が返答の道具を継いで所見を書き、役に届かなかったため）
-FLAGS = {r: ("no-post", "no-tree-write") + (("text-reply",) if r in SKILLS else ()) for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
+FLAGS = {r: ("no-tree-write",) + (("text-reply",) if r in SKILLS else ()) for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
 PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示書の本文を prompt_text で渡す役
 SIMPLIFY_LENS = "/simplify"   # 指示書が持ち越しを許すレンズ（返答の simplify_carried）。本流 review-loop.py と同じ
 SETTING_SOURCES = dict.fromkeys(POSTURE, ("user",))
@@ -133,17 +133,23 @@ LENS_RETRY_NOTE = ("## 必須のレンズの呼び出しの失敗（works の受
                    "どれかのファイルが変わった周（ロジックでない変更でも）と 1 周目は `/simplify` を起こして `invoked: true` を書け。")
 # 写しの指示書と graph の note（/code-review に --comment も --fix も付けるな）の読み替え。包みの旗 text-reply の起動（この役の印。
 # .shared/core/adapter.py の頭の 21）では fork に返答の道具が無いので、/code-review は所見を本文で返す。返答の道具が残った形（包みを
-# 外した run など）では fork の所見は親に届かない（実測と拾い方は .shared/core/diverted.py の頭）ので、受け付けが包みの記録から戻す。
+# 外した run など）では fork の所見は親に届かない（実測は .shared/core/diverted.py の頭）ので、受け付けが空の行を『見ていない』と書く。
 # どちらの形でも役には起こし直させず、旗の綴りを args に書かせない
 LENS_FORK_NOTE = ("## /code-review の返り方（works の受け付けより。上の指示書の読み替え）\n\n"
                   "/code-review は別の会話（fork）で走る。所見を本文で返したら、それを /code-review の行の `items` に写せ"
                   "（どの所見も落とさない）。Skill の結果が『Skill execution completed』だけで所見の本文が無い時は、fork が所見を"
-                  "別の口（返答の道具）に書いた形で、所見は失われていない——works の受け付けが包みの記録からこの行へ戻す。"
+                  "別の口（返答の道具）に書いて親に届かなかった形で、works の受け付けがこの行を『見ていない』と報告に出す。"
                   "どちらでも /code-review を起こし直すな（同じ形で返り、時間だけ掛かる）。本文が無かった行は "
                   "`items` を空、`invoked: true` にして、`failed` に『本文が届かなかった』と渡した対象を書け"
                   "（『起こしたが所見なし』と書くな——見ていない物を 0 件に見せる）。\n\n"
                   "args に旗の綴り（`--comment`・`--fix`）を書くな——『付けない』と否定の文の中に書いても skill は旗として読む"
                   "（実測: 『--comment も --fix も付けない』の --fix が旗に取られた）。修正を禁じるのは『作業ツリーを変えるな』の文で言え。")
+# 写しの指示書の素材の書き方は not_applicable（条件に当たらない）を並べるが、受け付け（写しの check_record と works の差し替え
+# entry.role_judged_na_works）は、走った節の applies_cond が真なら拒み（役の判定を受ける差し替えが立つ時を除く）、applies_cond を
+# 持たない節は graph が na_self_ok を宣言した時だけ受ける。役はそれを知らないので、prep が節の条件とこの周の真偽を書く（_na_note）
+NA_HEADING = "## 『条件に当たらない』（not_applicable）を書けるか（works の受け付けより。上の指示書の読み替え）"
+NA_REFUSED = ("`not_applicable` は受け付けが拒む——見た結果を found・clean で、確かめられなかったなら not_run（理由つき）で"
+              "書け。")
 STOP_BY = "works:material"
 FENCE_BY = "works:adapter"               # 包みの確かめが通らない時の止め札（blk-ci・線の境の節と同じ by）
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
@@ -310,17 +316,46 @@ def _purpose(purpose_file: str) -> dict:
 
 def render(b, nid: str, purpose_file: str = "") -> str:
     """engine の emit_instance と同じ描き方の本文（rolekit.render_body。cap なし）。p0.purpose がラインに無い盤面では目的の欄を
-    _purpose で埋める。番号の控えは instance に置く。描けなければ BoardGap"""
+    _purpose で埋める。番号の控えは instance に置く。描けなければ BoardGap。
+    schema の断り（rolekit.SCHEMA_NOTE と graph の schema）は旗 text-reply の役（包みが返答の型を返答の道具に任せず本文で受ける）
+    にだけ貼る。ほかの役の返答の型は役の output_format（Archon が強いる）で渡る"""
     inst = _waiting(b, nid)
+    text_reply = any(ROLES[r] == nid and "text-reply" in f for r, f in FLAGS.items())
 
     def fill_purpose(ctx):
         if "p0.purpose" not in ctx["out"]:
             ctx["out"] = {**ctx["out"], "p0.purpose": _purpose(purpose_file)}
-    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, ctx_hook=fill_purpose)
+    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, ctx_hook=fill_purpose, schema_note=text_reply)
     if snap_ and inst.get("pointers") != snap_:
         inst["pointers"] = snap_
         b.save()
     return prompt
+
+
+def _na_note(b, nid: str) -> str:
+    """節 nid の役が素材に not_applicable を書けるかの段（NA_HEADING）。写しの check_record と同じ決め: applies_cond が在れば
+    この周の真偽（b.cond）と役の判定を受ける差し替え（RL の role_judged_na。works は entry.role_judged_na_works）、無ければ
+    graph の na_self_ok の宣言"""
+    n = b.nodes[nid]
+    ap = n.get("applies_cond")
+    if ap is None:
+        if n.get("na_self_ok"):
+            body = (f"この節は条件（applies_cond）を持たず、graph が『条件に当たらない』を名乗れる節と宣言している（na_self_ok: "
+                    f"{n['na_self_ok']}）。当たらない時は `not_applicable`（理由を reason に）を書いてよい。")
+        else:
+            body = ("この節は条件（applies_cond）を持たず、graph も『条件に当たらない』を名乗れる節と宣言していない（na_self_ok が"
+                    f"無い）ので、{NA_REFUSED}")
+    else:
+        ok, why = b.cond(ap)
+        if not ok:
+            body = f"この節の条件 `{ap}` はこの周に偽（{why}）なので、`not_applicable`（理由を reason に）を書いてよい。"
+        elif b.rules.role_judged_na(b, nid):
+            body = (f"この節の条件 `{ap}` はこの周に真（{why}）だが、機械が持つ事実はどれも条件を立てていない（works の受け付けは"
+                    "この節の役の判定を受ける）。差分を読んで条件に当たらないと判じたら `not_applicable`（理由を reason に）を"
+                    "書いてよい。")
+        else:
+            body = f"この節の条件 `{ap}` はこの周に真（{why}）なので、{NA_REFUSED}"
+    return f"{NA_HEADING}\n\n{body}"
 
 
 def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
@@ -333,7 +368,7 @@ def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
             return {"prompt_file": "", "prompt_text": "", "attempt": 0, "out_path": "", "node": nid, "already": False,
                     "stopped": True}
         inst = _waiting(b, nid)
-        text = render(b, nid, purpose_file)
+        text = render(b, nid, purpose_file).rstrip("\n") + "\n\n---\n\n" + _na_note(b, nid) + "\n"
         last = _rejects(b, nid)[-1:]
         if last:
             # 拒否の文は指示書に書く（役は読む）。$LOOP_PREV で貼ると、文の中の $<節>.output.<欄> を Archon が置き換え直す（R44）
@@ -394,15 +429,11 @@ def _skills(b, nid: str) -> list:
     return (inst or {}).get("skills") or b.graph["nodes"][nid].get("skills") or []
 
 
-def _recover(b, nid: str, role: str, reply: dict, repo) -> tuple:
-    """p1.local_review の返答に、fork のレンズ（/code-review）が親の返答の道具に書いて親に届かなかった所見を、包みの記録から
-    戻した写しと控えを返す（diverted.recover。戻せない空の行は『見ていない』と書く）。拾うのはこの周に起こした印より後に包みが
-    この役を起こした会話（拒まれて起こし直すと id が替わる）の行だけ。控えは受け付けが通った後に周の作業ファイルへ書く"""
-    since = (b.rd["instances"].get(nid) or {}).get("launched_at")
-    sessions = diverted.sessions_since(pathlib.Path(repo), role, since)
-    payloads = diverted.read_outputs(pathlib.Path(repo), sessions, since)
-    out, notes = diverted.recover(reply, _skills(b, nid), payloads)
-    return out, {"round": b.round, "sessions": sorted(sessions), "payloads": len(payloads), **notes}
+def _mark_unseen(b, nid: str, reply: dict) -> tuple:
+    """p1.local_review の返答の、fork のレンズ（/code-review）の所見が届かなかった空の行に『見ていない』の印を付けた写しと
+    控えを返す（diverted.mark_unseen）。控えは受け付けが通った後に周の作業ファイルへ書く"""
+    out, notes = diverted.mark_unseen(reply, _skills(b, nid))
+    return out, {"round": b.round, **notes}
 
 
 def _lens_gap(b, nid: str, reply: dict) -> tuple[str, bool] | None:
@@ -482,7 +513,7 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
                                    f"変えてはいけない（{'・'.join(moved)}）{who}")
         lens_note = None
         if nid == ROLES["local-review"]:
-            reply, lens_note = _recover(b, nid, role, reply, repo)
+            reply, lens_note = _mark_unseen(b, nid, reply)
         gap = _lens_gap(b, nid, reply) if nid == ROLES["local-review"] else None
         if gap:
             return _reject(b, nid, *gap)
@@ -490,7 +521,7 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
             b.done(nid, reply)
         except AnswerReject as e:
             return _reject(b, nid, str(e))
-        if lens_note is not None:   # 受け付けが通った返答の分だけ（拒んだ・諦めた回の『戻した』を報告に出さない）
+        if lens_note is not None:   # 受け付けが通った返答の分だけ（拒んだ・諦めた回の『見ていない』を報告に出さない）
             _write_json(b.work(diverted.LENS_FILE), lens_note)
     return {"ok": True, "done": True, "give_up": False, "stopped": False, "reason": "", "node": nid, "status": _status(reply)}
 

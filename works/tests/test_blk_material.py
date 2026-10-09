@@ -377,9 +377,9 @@ class ShapeCase(unittest.TestCase):
                     self.assertIsNone(net)
                     self.assertNotIn("excludedCommands", sb)
 
-    def test_works_gh_exclusion_is_gated_by_no_post(self):
-        """sandbox の外に出る works-gh は、読む形だけを通す口のまま: 除外を持つ役は印に旗 no-post（包みが口を PATH の頭に置き、
-        本物の gh を permissions.deny で拒む）を持ち、除外は口の名だけ（gh は外に出さない）。口は書く形を本物の gh に渡さない。
+    def test_works_gh_exclusion_is_read_only(self):
+        """sandbox の外に出る works-gh は、読む形だけを通す口のまま: 除外を持つ役は印を持ち（包みが印のある起動の全部で口を PATH の
+        頭に置き、本物の gh を permissions.deny で拒む）、除外は口の名だけ（gh は外に出さない）。口は書く形を本物の gh に渡さない。
         包みはこの役の sandbox の網を strictAllowlist で閉じる"""
         sys.path.insert(0, str(CORE))
         import adapter
@@ -399,7 +399,8 @@ class ShapeCase(unittest.TestCase):
                 continue
             with self.subTest(role):
                 self.assertEqual(sb["excludedCommands"], ["works-gh:*"])
-                self.assertIn("no-post", material.FLAGS[role])
+                self.assertIsNotNone(node_marker.parse(material.output_format(role)["description"]), role)
+                self.assertNotIn("no-post", material.FLAGS[role])
                 argv = ["--json-schema", json.dumps(material.output_format(role)), "--settings", json.dumps({"sandbox": sb})]
                 out, strict = adapter.strict_network(argv)
                 self.assertIs(strict, True)
@@ -495,7 +496,8 @@ class PrepCase(_Case):
         b = entry.open_board(bd)
         self.assertIn("お前は inspector。整合性の確認と、標準機構の迂回の検査を", text)
         self.assertIn(b.loop_state["diff_file"], text)
-        self.assertIn("返答はこの JSON Schema に合う JSON だけ", text)
+        # 返答の型は役の output_format（Archon が強いる）で渡る。旗 text-reply の無い役の指示書には schema の断りを貼らない
+        self.assertNotIn(material.rolekit.SCHEMA_NOTE.strip(), text)
         self.assertEqual((got["node"], got["attempt"], got["already"], got["prompt_text"]), ("p1.consistency_bypass", 1, False, ""))
         self.assertTrue(b.rd["instances"]["p1.consistency_bypass"].get("launched_at"))
 
@@ -505,7 +507,9 @@ class PrepCase(_Case):
         text = pathlib.Path(material.prep(bd, "local-review", repo, "")["prompt_file"]).read_text(encoding="utf-8")
         for e in board_mod.graph_expanded()["nodes"]["p1.local_review"]["skills"]:
             self.assertIn(e["skill"], text)
-        # fork の /code-review の返り方（受け付けが記録から戻す・起こし直させない・旗の綴りを args に書かせない）の読み替え
+        # 旗 text-reply の役（包みが schema を返答の道具に任せず本文で受ける）は、本文の JSON の断りと schema を貼る
+        self.assertIn(material.rolekit.SCHEMA_NOTE, text)
+        # fork の /code-review の返り方（届かなかった行は見ていないと書く・起こし直させない・旗の綴りを args に書かせない）の読み替え
         self.assertTrue(text.rstrip("\n").endswith(material.LENS_FORK_NOTE), text[-400:])
 
     def test_isolated_role_gets_pasted_prompt(self):
@@ -808,6 +812,41 @@ class GateNaCase(_Case):
         got = self.run_role("gate-efficacy", self.NA)
         self.assertFalse(got["ok"], got)
         self.assertIn("applies_cond が真で走ったのに not_applicable", got["reason"])
+
+
+class NaNoteCase(_Case):
+    """指示書の素材の書き方は not_applicable（条件に当たらない）を並べるが、受け付け（写しの check_record と works の差し替え
+    entry.role_judged_na_works）は、走った節の applies_cond が真なら拒み、applies_cond を持たない節は graph が na_self_ok を
+    宣言した時だけ受ける。役はその条件を知らされていなかったので、prep が節の条件とこの周の真偽（と名乗れるか）を指示書に書く"""
+
+    def prompt(self, kind, role):
+        bd, repo = self.board(kind)
+        material.route(bd, repo, "optional")
+        return pathlib.Path(material.prep(bd, role, repo, "")["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_gate_role_is_told_na_is_allowed_when_diff_has_no_gate(self):
+        text = self.prompt("normal", "gate-efficacy")
+        self.assertIn(material.NA_HEADING, text)
+        self.assertIn("`gates_touched`", text)
+        self.assertIn("`not_applicable`（理由を reason に）を書いてよい", text)
+        self.assertNotIn("`not_applicable` は受け付けが拒む", text)
+
+    def test_gate_role_is_told_na_is_refused_when_diff_changes_a_test(self):
+        text = self.prompt("gated", "gate-efficacy")
+        self.assertIn("`gates_touched`", text)
+        self.assertIn("真", text)
+        self.assertIn("`not_applicable` は受け付けが拒む", text)
+
+    def test_conditioned_role_with_true_condition_is_told_na_is_refused(self):
+        text = self.prompt("normal", "procedure-trace")
+        self.assertIn("`touches_procedures`", text)
+        self.assertIn("`not_applicable` は受け付けが拒む", text)
+
+    def test_role_without_condition_is_told_it_cannot_say_na(self):
+        text = self.prompt("normal", "consistency-bypass")
+        self.assertIn(material.NA_HEADING, text)
+        self.assertIn("`not_applicable` は受け付けが拒む", text)
+        self.assertIn("na_self_ok", text)
 
 
 class PurposeCase(_Case):

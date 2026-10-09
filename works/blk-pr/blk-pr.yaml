@@ -5,7 +5,7 @@ description: |
   読むだけの役 pr-check が 6 段の全部をし、担当の PR へは投稿せず申し送りの下書きを conflicts[].note に書く（handed_over が真の
   行は受け付けが拒む。下げた所は darkfactory/downgrades.json）。衝突した hunk は excluded に並べ、受け付けが確かめて盤面の
   今の周の pr-excluded.json に置く（後の役——判定・修正案・修正——に触らせない範囲として collect の excluded_file で渡す）。
-  gh は包みの読む口 works-gh だけ（印の旗 no-post。網は閉じ、口だけを sandbox の外で走らせる）。
+  gh は包みの読む口 works-gh だけ（包みが印のある起動の全部に掛ける柵。網は閉じ、口だけを sandbox の外で走らせる）。
   出口 collect: {ok, reason, pr_file, conflicts, drafts, material_status, excluded, excluded_file, reads_file}。
 
 returns: collect
@@ -42,8 +42,8 @@ nodes:
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: pr-check
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          # 読むだけ＋Bash（gh の読む口 "$WORKS_GH" と git の読む語）。書く道具は持たない。Bash の網は閉じ、口 works-gh だけを sandbox の外で
-          # 走らせる（包みの印 no-post が gh の書き込みの語と本物の gh を permissions.deny で拒む）。作業ツリーを変えれば受け付けが拒む。
+          # 読むだけ＋Bash（gh の読む口 "$WORKS_GH" と git の読む語）。書く道具は持たない。網は閉じ、口 works-gh だけを sandbox の外で
+          # 走らせる（包みが印のある起動の全部で本物の gh と git push を permissions.deny で拒み、口は読む形だけを通す）。作業ツリーを変えれば受け付けが拒む
           # allowedDomains: [] は WebFetch・WebSearch を止めない（web を止める鍵ではない。.shared/core/adapter.py の頭の 8）
           allowed_tools: [Read, Grep, Glob, Bash, WebSearch, WebFetch]
           sandbox:
@@ -53,9 +53,9 @@ nodes:
             excludedCommands: ["works-gh:*"]
             network: {allowedDomains: []}
           idle_timeout: 1728000000
-          # prcheck.OUTPUT_FORMAT（写しの p0.parallel_pr の schema に works だけの欄 excluded と印 works-node: pr-check no-post）を貼った物
+          # prcheck.OUTPUT_FORMAT（写しの p0.parallel_pr の schema に works だけの欄 excluded と印 works-node: pr-check）を貼った物
           output_format:
-            description: 'works-node: pr-check no-post'
+            description: 'works-node: pr-check'
             type: object
             required:
             - material

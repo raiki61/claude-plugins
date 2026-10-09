@@ -329,7 +329,7 @@ include の節に `fan_out` を付けると、Archon は子を同じ盤面で同
 
 ### 聞き直しの形（作っていない）
 
-後の節が前の節の AI に聞き直す道は塞がないが、まだ作らない。流れの道具に触る口 `.shared/core/flow_adapter.py` の `session_handle`・`resume` は NotImplementedError。形だけを決めた: 役を起こした節ごとに `<scope の根>/r<N>/session.json`（`.shared/core/session.schema.json`）、問いは自分の scope の根の `questions/<相手 scope>/<連番>.md`、答えは相手の scope の根の `answers/<問いの scope>/<連番>.md`。
+後の節が前の節の AI に聞き直す道は作っていない。形の案（`<scope の根>/r<N>/session.json`・問いの `questions/<相手 scope>/<連番>.md`・答えの `answers/<問いの scope>/<連番>.md`）は [docs/plans/2026-10-03-block-scope.md](plans/2026-10-03-block-scope.md) に在る。呼び手の無いまま置いた口（`flow_adapter` の `session_handle`・`resume` と `session.schema.json`）は 2026-10-09 に外した（作る時に足す）。
 
 ### 設計から外した 5 点（外れ D1〜D5）
 

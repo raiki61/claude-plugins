@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "GitHub の読み出しの写し github.json（盤面の根。書き手は core の ghreads.adopt）",
+ "title": "GitHub の読み出しの写し github.json（盤面の根。書き手は core の entry.start（ghreads.read_named で run の中で読み、ghreads.place で置く））",
  "type": "object",
  "properties": {
   "version": {"type": "integer"},

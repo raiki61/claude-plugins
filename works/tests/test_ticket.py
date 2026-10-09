@@ -5,7 +5,7 @@
   役の cwd の worktree 自身は入らない
 - 綴りと realpath が違う場所（symlink を通した綴り。macOS の /var と /private/var と同じ形）は両方が入る
 - 書く → 読むで同じ中身が返り、置き場は home()/tickets/<cwd の realpath の sha256 の先頭 16 桁>.json
-- 壊れた切符・無い切符は None。git でない cwd は TicketError
+- git でない cwd は TicketError（切符を読むのは包みの adapter.read_ticket だけ）
 使い捨てのリポジトリは tempfile の下に作る。包みの家は WORKS_ADAPTER_HOME で使い捨ての場所へ向ける（本物の家に書かない）。
 """
 import hashlib
@@ -23,6 +23,7 @@ CORE = ROOT / ".shared" / "core"
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 sys.path.insert(0, str(CORE))
 
+import adapter  # noqa: E402
 import ticket  # noqa: E402
 
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
@@ -266,11 +267,12 @@ class TicketCase(unittest.TestCase):
         self.assertIn(self.real(self.wt2), got)
 
     def test_write_read_roundtrip(self):
+        """書いた切符を包みの読み口（adapter.read_ticket。切符を読むのは包みだけ）で読むと同じ中身"""
         path = ticket.write(self.board, self.wt1, "run-123")
         digest = hashlib.sha256(self.real(self.wt1).encode("utf-8")).hexdigest()[:16]
         self.assertEqual(path, self.home / "tickets" / f"{digest}.json")
         self.assertEqual(ticket.ticket_path(self.wt1), path)
-        got = ticket.read(self.wt1)
+        got = adapter.read_ticket(self.wt1)
         self.assertEqual(got, json.loads(path.read_text(encoding="utf-8")))
         self.assertEqual(set(got), {"run_id", "board", "cwd", "protected", "written_at"})
         self.assertEqual(got["run_id"], "run-123")
@@ -282,25 +284,14 @@ class TicketCase(unittest.TestCase):
         wt_link = self.tmp / "wtlink"
         wt_link.symlink_to(self.wt1)
         self.assertEqual(ticket.ticket_path(wt_link), path)
-        self.assertEqual(ticket.read(wt_link), got)
+        self.assertEqual(adapter.read_ticket(wt_link), got)
         # 一時ファイルを残さない
         self.assertEqual(sorted(p.name for p in path.parent.iterdir()), [path.name])
 
     def test_write_overwrites(self):
         ticket.write(self.board, self.wt1, "run-1")
         ticket.write(self.board, self.wt1, "run-2")
-        self.assertEqual(ticket.read(self.wt1)["run_id"], "run-2")
-
-    def test_read_missing_is_none(self):
-        self.assertIsNone(ticket.read(self.wt1))
-
-    def test_read_broken_is_none(self):
-        path = ticket.ticket_path(self.wt1)
-        path.parent.mkdir(parents=True)
-        path.write_text("{not json", encoding="utf-8")
-        self.assertIsNone(ticket.read(self.wt1))
-        path.write_text("[1, 2]", encoding="utf-8")
-        self.assertIsNone(ticket.read(self.wt1), "オブジェクトでない JSON も壊れた扱い")
+        self.assertEqual(adapter.read_ticket(self.wt1)["run_id"], "run-2")
 
     def test_not_git_raises(self):
         plain = self.tmp / "plain"
@@ -309,7 +300,7 @@ class TicketCase(unittest.TestCase):
             ticket.protected_paths(plain, self.board)
         with self.assertRaises(ticket.TicketError):
             ticket.write(self.board, plain, "run-x")
-        self.assertIsNone(ticket.read(plain))
+        self.assertFalse(ticket.ticket_path(plain).exists())
 
     def test_home_default(self):
         with mock.patch.dict(os.environ, {"HOME": "/h", "XDG_STATE_HOME": "/xs"}):
@@ -320,6 +311,31 @@ class TicketCase(unittest.TestCase):
             os.environ["XDG_STATE_HOME"] = ""
             os.environ["WORKS_ADAPTER_HOME"] = ""
             self.assertEqual(ticket.home(), pathlib.Path("/h/.local/state/works/adapter"), "空は無いと同じ（${:-}）")
+
+
+class SharedHelpersCase(unittest.TestCase):
+    """包みの家・切符の置き場・git の env の外し物は ticket.py の 1 か所（包み adapter は同じ物を使う）"""
+
+    def test_home_reads_the_given_env(self):
+        self.assertEqual(ticket.home({"WORKS_ADAPTER_HOME": "/a/b"}), pathlib.Path("/a/b"))
+        self.assertEqual(ticket.home({"HOME": "/u"}), pathlib.Path("/u/.local/state/works/adapter"))
+        self.assertEqual(ticket.home({"HOME": "/u", "XDG_STATE_HOME": "/s"}), pathlib.Path("/s/works/adapter"))
+        self.assertEqual(ticket.home({"HOME": "/u", "WORKS_ADAPTER_HOME": ""}), pathlib.Path("/u/.local/state/works/adapter"))
+
+    def test_ticket_path_takes_a_home(self):
+        want = hashlib.sha256(os.path.realpath("/x/wt").encode("utf-8")).hexdigest()[:16]
+        self.assertEqual(ticket.cwd_key("/x/wt"), want)
+        self.assertEqual(ticket.ticket_path("/x/wt", "/h"), pathlib.Path("/h/tickets") / f"{want}.json")
+
+    def test_adapter_uses_the_same_helpers(self):
+        self.assertIs(adapter.home, ticket.home)
+        self.assertIs(adapter.cwd_key, ticket.cwd_key)
+        self.assertIs(adapter.ticket_path, ticket.ticket_path)
+        self.assertEqual(adapter.GIT_ENV_DROP, ticket.GIT_ENV_FALLBACK)
+
+    def test_annotations_are_postponed_for_python39(self):
+        """包み（claude-adapter は Python 3.9 以上）が ticket を import するので、注釈の `dict | None` を定義の時に評価しない"""
+        self.assertIsInstance(ticket.protected_paths.__annotations__["return"], str)
 
 
 if __name__ == "__main__":

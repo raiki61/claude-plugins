@@ -473,7 +473,6 @@ class RealLineCase(unittest.TestCase):
         self.assertEqual(adapter.FEATURES_KEY, entry.FEATURES_KEY)
         self.assertEqual(adapter.FEATURES_CUT_KEY, entry.FEATURES_CUT_KEY)
         self.assertIn(adapter.MAP, node_marker.FLAGS)
-        self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
 
 
 class InjectCase(unittest.TestCase):

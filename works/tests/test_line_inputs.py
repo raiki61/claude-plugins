@@ -46,10 +46,7 @@ READ_FROM_REQUEST = {"request_file", "items", "request_text", "answers", "prior_
 # 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
 CHANGE_INPUTS = {"base", "pr"}
 FROM_CHANGE = {"base_rev", "change"}
-# check_inputs でなく entry.start が読む start の名（隔離の前の読み出しのファイル。start が盤面へ写し、写しを check_inputs の
-# reads に渡す。解き方の正本の試験は test_ghreads）
-START_ONLY = {"github_reads"}
-# pr の名を読む時に渡す、殻が隔離の前に読んだ写し（HEAD と PR の head は同じ版）
+# pr の名を読む時に渡す、start が run の中で読んだ読み出し（HEAD と PR の head は同じ版。読み方の正本の試験は test_ghreads）
 PR_READS = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "", "body": ""}}, "issue": {}}
 
 
@@ -107,12 +104,18 @@ def start_script():
     return mod
 
 
+# 殻だけが読む入力（どの節も読まない。Archon が run の metadata.inputs に残し、use.sh が起動を run に結ぶ印。test_launch）
+SHELL_ONLY = {"launch_mark"}
+
+
 class InputNamesCase(unittest.TestCase):
     def test_yaml_inputs_are_all_referenced(self):
-        """宣言した入力はどれもどこかで使われ、使う名はどれも宣言されている（with だけでなく when・関所の文言・prompt も見る）"""
+        """宣言した入力はどれもどこかで使われ、使う名はどれも宣言されている（with だけでなく when・関所の文言・prompt も見る）。
+        殻だけが読む入力（SHELL_ONLY）はどの節も使わない"""
         doc = line()
         used = set(re.findall(r"\$INPUTS\.([A-Za-z_]\w*)", yaml.safe_dump(doc["nodes"], allow_unicode=True)))
-        self.assertEqual(used, set(doc["inputs"]))
+        self.assertEqual(used, set(doc["inputs"]) - SHELL_ONLY)
+        self.assertLessEqual(SHELL_ONLY, set(doc["inputs"]))
 
     def test_script_inputs_match_with(self):
         """線とブロックの全部の script の節で、with: の鍵を INPUTS_<大文字> にした集合 == スクリプトの定数 INPUTS（TA16）"""
@@ -148,9 +151,9 @@ class InputNamesCase(unittest.TestCase):
                      "features_off": "tdd_lanes, judge_verify", "features_on": "review_tree judge_verify"}
             want = {**given, "policy_md": str(repo / "policy.md"), "fix_fixture": str(repo / "fx"),
                     "features_off": ["judge_verify", "tdd_lanes"], "features_on": ["judge_verify", "review_tree"]}
-            self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"} - START_ONLY, "start.py の名に、渡す値を決めていない名がある")
+            self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"}, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
-            self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS - START_ONLY) | READ_FROM_REQUEST)
+            self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS) | READ_FROM_REQUEST)
             self.assertEqual(base["request_file"], str((repo / "req.json").resolve()))
             for name, value in given.items():
                 with self.subTest(name):

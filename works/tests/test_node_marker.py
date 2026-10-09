@@ -27,20 +27,25 @@ class MarkerCase(unittest.TestCase):
         self.assertEqual(node_marker.PREFIX, "works-node: ")
 
     def test_mark_parse_roundtrip(self):
-        m = mark(SCHEMA, "rejudge", cont="judge", flags=("no-post",))
-        self.assertEqual(m["description"], "works-node: rejudge continue=judge no-post")
-        self.assertEqual(parse(m["description"]), {"name": "rejudge", "cont": "judge", "flags": frozenset({"no-post"})})
+        m = mark(SCHEMA, "rejudge", cont="judge", flags=("map",))
+        self.assertEqual(m["description"], "works-node: rejudge continue=judge map")
+        self.assertEqual(parse(m["description"]), {"name": "rejudge", "cont": "judge", "flags": frozenset({"map"})})
         self.assertEqual(parse(mark(SCHEMA, "judge")["description"]), {"name": "judge", "cont": None, "flags": frozenset()})
         self.assertNotIn("description", SCHEMA, "mark が元の schema を書き換えた")
 
     def test_no_tree_write_flag(self):
         """旗 no-tree-write（包みが役の cwd の作業ツリーを書かせない。CI の任せ先の役。裁定 R56）を読み書きできる"""
-        self.assertEqual(node_marker.FLAGS, frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply"}))
+        self.assertEqual(node_marker.FLAGS, frozenset({"no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply"}))
         m = mark(SCHEMA, "ci", flags=("no-tree-write",))
         self.assertEqual(m["description"], "works-node: ci no-tree-write")
         self.assertEqual(parse(m["description"]), {"name": "ci", "cont": None, "flags": frozenset({"no-tree-write"})})
-        self.assertEqual(parse("works-node: x no-post no-tree-write")["flags"], frozenset({"no-post", "no-tree-write"}))
+        self.assertEqual(parse("works-node: x map no-tree-write")["flags"], frozenset({"map", "no-tree-write"}))
         self.assertIsNone(parse("works-node: ci no-tree-write no-tree-write"))
+
+    def test_no_post_is_not_a_flag(self):
+        """旗 no-post は無い（包みの読むだけの gh は印のある起動の全部に掛かり、旗は柵を足さなかった。2026-10-09 の掃除）"""
+        self.assertNotIn("no-post", node_marker.FLAGS)
+        self.assertIsNone(parse("works-node: pr-check no-post"))
 
     def test_self_resume_flag(self):
         """旗 self-resume（SDK が会話を継ぐ起動は、包みがこの節自身の会話を継ぐ。輪に範囲の相談の答えの節が挟まる修正役）"""
@@ -69,26 +74,26 @@ class MarkerCase(unittest.TestCase):
 
     def test_mark_refuses_what_parse_cannot_read(self):
         for kw in ({"name": "Judge"}, {"name": ""}, {"name": "judge", "cont": ""}, {"name": "judge", "cont": "J"},
-                   {"name": "judge", "flags": ("post",)}, {"name": "judge", "flags": ("no-post", "no-post")}):
+                   {"name": "judge", "flags": ("post",)}, {"name": "judge", "flags": ("map", "map")}):
             with self.subTest(kw):
                 with self.assertRaises(ValueError):
                     mark(SCHEMA, **kw)
 
     def test_parse_rejects_unknown(self):
         for text in ("works-node: Judge", "works-node: judge continue=", "works-node: judge flying",
-                     "works-node: ", "works-node:judge", "works-node: judge  no-post", "works-node: judge no-post no-post",
+                     "works-node: ", "works-node:judge", "works-node: judge  map", "works-node: judge map map",
                      "works-node: judge continue=a continue=b", "works-node: judge continue=J",
-                     "works-node: judge\nno-post", "works-node: judge ", " works-node: judge",
+                     "works-node: judge\nmap", "works-node: judge ", " works-node: judge",
                      "判定の返答", "", None, 3):
             with self.subTest(text=text):
                 self.assertIsNone(parse(text))
 
     def test_parse_flag_before_continue(self):
-        self.assertEqual(parse("works-node: pr-check no-post continue=judge"),
-                         {"name": "pr-check", "cont": "judge", "flags": frozenset({"no-post"})})
+        self.assertEqual(parse("works-node: pr-check map continue=judge"),
+                         {"name": "pr-check", "cont": "judge", "flags": frozenset({"map"})})
 
     def test_strip_restores(self):
-        for m in (mark(SCHEMA, "judge"), mark(SCHEMA, "rejudge", cont="judge", flags=("no-post",))):
+        for m in (mark(SCHEMA, "judge"), mark(SCHEMA, "rejudge", cont="judge", flags=("map",))):
             with self.subTest(m["description"]):
                 self.assertEqual(strip(m), SCHEMA)
                 self.assertIn("description", m, "strip が元を書き換えた")
@@ -146,15 +151,15 @@ class EngineChildCase(unittest.TestCase):
 
     def test_marked_launch_child_cannot_start_background_tasks(self):
         """背景を残した会話を引き継ぐと空の result で終わるので、印のある起動の子は背景の作業を起こせない"""
-        for desc in ("fix", "pr-check no-post"):
+        for desc in ("fix", "pr-check"):
             p = self.plan(desc)
             self.assertEqual((p.env or {}).get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"), "1", desc)
 
-    def test_no_post_env_keeps_engine_child_marker(self):
-        p = self.plan("pr-check no-post")
+    def test_read_only_gh_env_keeps_engine_child_marker(self):
+        p = self.plan("pr-check")
         self.assertEqual(p.mode, "merged", p.why)
         env = p.env or {}
-        self.assertIn("WORKS_GH", env, "no-post の口は残る")
+        self.assertIn("WORKS_GH", env, "読むだけの gh の口は印のある起動の全部に残る")
         self.assertEqual(env.get(self.name), "1")
 
 

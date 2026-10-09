@@ -7,9 +7,9 @@
   "blk-fix/blk-fix.yaml": "918442aaf7022fe28e7a130da1f53c226e03630b84ca343ec72effbd868bc8b9",
   "blk-judge/blk-judge.yaml": "8e4e7a2fe79d6d6c8c7771379da6ffe42d284e7d991ba1986f78f7bd88fe4e6f",
   "blk-lens/blk-lens.yaml": "7ccf607bc1c0067e0628221ded92a715cb1f1568da802b11bb4df2c2326a167a",
-  "blk-material/blk-material.yaml": "220d41b690de92ffc84e6d09ef9522420a1e2c8ce269cd8ff054ddca116bec41",
+  "blk-material/blk-material.yaml": "040fa977ff762ece754d50ed38ea9dee5d741771551d759b88005c5991f5b0e1",
   "blk-plan/blk-plan.yaml": "2b7e9d87c7e966241ef40cbbe2725b087dfa96322335b218962fcaf0be307f62",
-  "blk-pr/blk-pr.yaml": "4aea465a2c2272ef8d2900dc0171973bb4689587396d8e93fa8c2b396f075845",
+  "blk-pr/blk-pr.yaml": "db7f159e61da185091e653d014aed1a7fd3f63855c6daafc9b1eff064c3b7d56",
   "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
   "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
   "blk-refix/blk-refix.yaml": "5f45883e108c4e625d03087412fd3ee4ba4344b8e64d09fa4148a8e7f0c703a1",
@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "c0f3f9dba14ef544bcb9ee795d4323c7a82827a24168931e2355d8adc8205924",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "ddf3ec5b3e94b3994c25803ecedecdf8f27a473f46b7004fd82e77f78fdde49d"
+  "darkfactory/darkfactory.yaml": "895f3470e2ddebcf622a80d461dc0d42e0b7e50921eb0df944b28b87c8271047"
  },
  "version": 1,
  "workflows": {
@@ -1179,7 +1179,6 @@
         "prior-decisions-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "prior-decisions",
@@ -1249,7 +1248,6 @@
         "local-review-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write",
         "text-reply"
        ],
@@ -1353,7 +1351,6 @@
         "external-standards-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "external-standards",
@@ -1390,7 +1387,6 @@
         "procedure-trace-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "procedure-trace",
@@ -1427,7 +1423,6 @@
         "gate-efficacy-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "gate-efficacy",
@@ -1464,7 +1459,6 @@
         "test-double-fidelity-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "test-double-fidelity",
@@ -1501,7 +1495,6 @@
         "main-path-observation-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "main-path-observation",
@@ -1538,7 +1531,6 @@
         "provenance-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "provenance",
@@ -1817,9 +1809,6 @@
      "body": [
       {
        "deps": [],
-       "flags": [
-        "no-post"
-       ],
        "id": "pr-check",
        "kind": "ai",
        "marker": "pr-check"

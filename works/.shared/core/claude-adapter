@@ -36,7 +36,6 @@ import adapter  # noqa: E402
 SELF = os.path.realpath(__file__)
 RECORDER = os.path.join(HERE, "record-read.py")
 WRITE_RECORDER = os.path.join(HERE, "record-write.py")
-OUTPUT_RECORDER = os.path.join(HERE, "record-output.py")
 
 
 def say(line):
@@ -152,8 +151,7 @@ def main():
                      protected=lambda: protected(cwd, home_dir, read),
                      run_place=lambda: adapter.run_place_of(read()),
                      board=lambda: adapter.board_of(read()),
-                     write_command=adapter.hook_command(sys.executable, WRITE_RECORDER, sink),
-                     output_command=adapter.hook_command(sys.executable, OUTPUT_RECORDER, sink))
+                     write_command=adapter.hook_command(sys.executable, WRITE_RECORDER, sink))
     if p.mode == "refused":
         log_launch(home_dir, cwd, p)
         sys.stderr.write(p.why + "\n")

@@ -53,7 +53,7 @@ findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>
 - 必須: `where`（どこ）・`text`（何が悪いか）
 - 任意: `mechanism`（なぜ起きるか）・`measured`（何で確かめたか）・`false_positive_if`（どうなら誤りか）
 - これ以外の欄は拒まれる。型の確かめはラインの入口で、AI を起こす前に止まる。
-- object の形の `pr`・`issue`（省ける）は、対象の GitHub の PR・issue の番号（正の整数）の配列。名指した物の本文とコメントは、殻が Archon を起こす前に利用者の gh で 1 回だけ読み、run の盤面の `github.json` に置く（読めない物は読めないと記録して進む）。この版では役はまだそれを読まない。`findings` を省くと空の配列。
+- object の形の `pr`・`issue`（省ける）は、対象の GitHub の PR・issue の番号（正の整数）の配列。名指した物の本文とコメントは、run の入口（start の節）が利用者の gh のログインを継いで 1 回だけ読み、run の盤面の `github.json` に置く（読めない物は読めないと記録して進む。`--pr` の base・head が読めなければ start で止まる）。この版では役はまだそれを読まない。`findings` を省くと空の配列。
 
 ```json
 {"findings": [{"where": "src/app/parse.py:42", "text": "空の行で IndexError が出る"}], "pr": [12], "issue": [34]}
@@ -134,7 +134,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根>
 - 報告: 盤面の `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）と `next-request.json`（次の run に渡す依頼の下書き `{"findings": [...], "prior_failures": [...]}`。下書きの印の無い行はそのまま次の run の依頼に使える。判定が凍結した目的の外として単位にしなかった材料の所見（最後の周の分）も、材料の行の全部の欄で `findings` に載るが、`draft: true`・`source` の印つきで、依頼の入口が拒む——依頼者に見直してもらい、次の run の目的に入れる行は印を消し、入れない行は消す。無人の run が関所で止めた項目か保留のままの問いを残した時だけ、答えの下書き `answers`（`draft: true`・`source` つき。推しの無い行は `text` が空で、材料は `note`）が足され、それは依頼者が見直すまで使えない）と `prior-failures.json`（この run で最後まで通らなかった受け付けの理由と R2 の作り直しの理由）。
 - 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`round_limit`（直しは受け付けを通ったが、検証器の阻害・最後のテストの赤・独立の目の block が残った。冒頭 1 に残りの各行。本線 graphloops の runner の `round_limit`＝`--stop-after-round` の周で止めた、とは別の意味）・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）・`interrupted`（run が途中で終わった。冒頭 3 に落ちた節）。
 - 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、`sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" apply <対象リポジトリの根> <run-id>` で当ててから、手元でテストを回して commit する。殻は差分を書き直し、`git apply --check` で当たるかを先に見る。対象のファイルを消す差分は、消すファイルを並べて止まる（消してよければ `WORKS_USE_ALLOW_DELETE=1` を前に付けて打ち直す）。記録が止まりを示す run（人が最後の関所で `stop` と答えた・止め札・ラインの止め）の差分は、止まった結末と一言を 1 行で出して止まる。当てるのは依頼者が当てると決めた時だけで、`WORKS_USE_ALLOW_STOPPED=1` を前に付けて打ち直す。止まりかどうかを記録で確かめられない run（途中で終わった・関所で待つ run など）は、その 1 行を出して当てる。
-- 片付け: run の worktree・枝・控え（包んだ基を守る参照と読み出しのファイル）と、修正の段がその worktree から切った単位の worktree・守りの参照（`refs/works/units/` の下）は自動で片付く。正常に終わった・取り消した run（状態 completed・cancelled）は `wait`・`show` が差分を書き終えた後に消し、落ちた run（failed）などの生きていない run は次の `start` が差分を書いてから消す。差分を書けなかった run と、走っている・関所で待つ run は残す。差分のファイルと盤面は残るので、取り込みは片付けの後でも `apply` で当たる（片付けた run は Archon の resume で続けられない）。`start` が片付けた run の id と状態は、`start` の出力と報告の冒頭 2 に出る。手で消すのは `sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id>`（走っている・関所で待つ run は拒む）。
+- 片付け: run の worktree・枝・控え（包んだ基を守る参照）と、修正の段がその worktree から切った単位の worktree・守りの参照（`refs/works/units/` の下）は自動で片付く。正常に終わった・取り消した run（状態 completed・cancelled）は `wait`・`show` が差分を書き終えた後に消し、落ちた run（failed）などの生きていない run は次の `start` が差分を書いてから消す。差分を書けなかった run と、走っている・関所で待つ run は残す。差分のファイルと盤面は残るので、取り込みは片付けの後でも `apply` で当たる（片付けた run は Archon の resume で続けられない）。`start` が片付けた run の id と状態は、`start` の出力と報告の冒頭 2 に出る。手で消すのは `sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id>`（走っている・関所で待つ run は拒む）。
 - `report_file`: 最後の報告。盤面が報告の節を出した run（人か止め札で止めた・収束した）では AI が書いて初見の読み手が確かめた `report-ai.md`（最後に機械の報告が字のまま付く）、そうでなければ機械の `report.md`。機械の報告はいつも `machine_report_file`。
 
 依頼者に聞く・伝える時の書き方（3 節の関所で聞く時も、報告を読んで結果を伝える時も同じ。聞く物を増やす決まりではなく、聞くと決まった時・伝える時の書き方で、自明な分かれ目は今どおり推しで決める）:

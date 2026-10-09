@@ -61,11 +61,11 @@ class ChangeInputsCase(unittest.TestCase):
 
     @staticmethod
     def reads(doc: dict) -> dict:
-        """殻が隔離の前に読んだ写し（ghreads の読み出しのファイルの形）に PR #7 として doc を置いた物"""
+        """start が run の中で読んだ読み出し（ghreads.read_named の返りの形）に PR #7 として doc を置いた物"""
         return {"version": 1, "pr": {"7": doc}, "issue": {}}
 
     def test_pr_uses_github_base_oid_and_carries_description(self):
-        """pr → 隔離の前に読んだ写しの base・head を使う。差分の根は baseRefOid と HEAD の merge-base（ローカルの枝の名前で
+        """pr → run の中で読んだ読み出しの base・head を使う。差分の根は baseRefOid と HEAD の merge-base（ローカルの枝の名前で
         引かない）、PR の題と本文は change.text に"""
         head = git(self.repo, "rev-parse", "HEAD")
         got = entry.check_inputs({"request": "", "pr": "7"}, self.repo,

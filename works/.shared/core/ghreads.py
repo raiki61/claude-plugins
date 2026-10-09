@@ -1,5 +1,5 @@
-"""依頼のファイルの形と、依頼が名指した PR・issue を隔離の前に読む 1 か所（設計書 2.8）。層 L1（works の物を何も知らない）。
-標準ライブラリだけ（Python 3.9 で動く）。殻（use.sh・dogfood.sh）は `python3 -I ghreads.py read …` でファイルとして呼ぶ。
+"""依頼のファイルの形と、依頼が名指した PR・issue を run の中で読む 1 か所（設計書 2.8）。層 L1（works の物を何も知らない）。
+標準ライブラリだけ（Python 3.9 で動く）。殻は `python3 -I ghreads.py carry-ci …` でファイルとして呼ぶ。
 
 依頼のファイルは findings の JSON の配列か、{"findings": [...], "pr": [<番号>…], "issue": [<番号>…], "answers": [...],
 "prior_failures": [...]} の形。prior_failures は前の run で最後まで通らなかった物 [{where, text}]（前の run の報告が書く
@@ -10,25 +10,25 @@ command・output は人が手元で測った命令と出力で、両方か無し
 （entry・判定と前提の intake）はここで解き、graphloops の規則（check_request・add_request・REQUEST_SCHEMA）に渡すのは
 findings だけにする（容器の形を規則の側へ漏らさない）。
 
-隔離した Archon の中（HOME を差し替えた env）からは利用者の gh のログインが見えず、非公開のリポジトリは読めない（gh は
-exit 4）。だから殻が Archon を起こす前に、利用者の env のまま 1 回だけ読み、結果のファイルをラインの入力 github_reads で
-渡す。名指しは依頼の欄 pr・issue と --pr に限る（本文の中の URL は拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。
+名指した PR・issue は、線の入口（entry.start）が run の中で gh を対象の根で呼んで読む。run の中の gh は開発の殻
+（dev/hostgh.py の口）が利用者の gh のログインを継がせる（2026-10-08 から。それより前は隔離した Archon の中から利用者の
+ログインが見えず、殻が隔離の前に読んでファイルで渡していた）。名指しは依頼の欄 pr・issue と入力 pr に限る（本文の中の URL は
+拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。
 
 - request_parts(doc) -> {"findings": list, "pr": [int], "issue": [int], "answers": [dict], "prior_failures": [dict]}: 解けなければ ValueError（1 行）
 - carry_ci(doc, ids) -> 依頼の object: run の後の CI が赤と言った試験の id を prior_failures の行（where CI_WHERE）として足す。
   重い試験は run の外の CI で回り、run の報告はその赤を知らないので、人（か回す役）が CI の赤の id を next-request.json に足す口。
   同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I ghreads.py carry-ci`
-- read(repo, request, pr, out) -> int: 名指した物を読んで out に置く。終了コード（0 以外は --pr の base・head が読めない時だけ）
-- load(board_dir, src) -> doc|None: 盤面の根の github.json を先に、無ければ src を読むだけ（盤面を作る前に入力を確かめる）
-- discard_source(src): 読み出しの元 src を消す（無い・空の文字列は何もしない。盤面の github.json には触らない。OSError は呼び手へ）
-- adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写す。どちらでも src が在れば消す
-- 読み出しのファイルの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}。
+- read_named(repo, prs, issues) -> 読み出し: 名指した物を gh で読む（gh の cwd は repo）。読めない項も記録して返す（止めない）
+- load_board(board_dir) -> 読み出し|None: 盤面の根の github.json（Archon の再開で読み直さない）。無ければ None
+- place(board_dir, doc): 読み出しを盤面の根の github.json に 0600 で置く（非公開の本文を持つ）
+- 読み出しの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}。
   対象の remote に forge（PR を持つホスト。forge.py）が無くても、利用者が名指した項は gh で読む（GH_REPO・別の remote・自前の
   ドメインの GitHub Enterprise Server なら gh は読める。名指した物を黙って落とさない）。forge の無い対象で、gh も GitHub の
   ホストを見つけなかった項（GH_NO_HOST の言葉か exit 4。gh が起きない時も）は unreadable でなく {status: not_applicable, reason: no_forge: …。gh でも
-  読めなかった: …}、--pr は書かずに 1（base を名指して回す）。gh が GitHub のホストとして読みに行って読めなかった項（自前のドメインの
-  GHES でログインが切れた・HTTP 401 など）は forge の無い対象でも {status: unreadable, reason: gh の言葉, forge: no_forge: …} で、
-  --pr は書かずに 1（gh でログインしてから回す）
+  読めなかった: …}。gh が GitHub のホストとして読みに行って読めなかった項（自前のドメインの GHES でログインが切れた・HTTP 401
+  など）は forge の無い対象でも {status: unreadable, reason: gh の言葉, forge: no_forge: …}。入力 pr の base・head が読めない時に
+  止めるのは読み手（entry）
 """
 import argparse
 import json
@@ -263,98 +263,41 @@ def _write(out: pathlib.Path, doc: dict) -> None:
         raise
 
 
-def read(repo, request: str, pr: str, out) -> int:
-    """依頼のファイル（"" か "-" なら無し）の pr・issue と --pr の番号を読み、out に置く。名指しが無ければ何も書かずに 0。
-    依頼が読めない・形の外なら何も書かずに 0（形の誤りは start が拒む）。--pr の base・head が読めなければ書かずに 1"""
-    repo, out = pathlib.Path(repo), pathlib.Path(out)
-    prs, issues = [], []
-    if request and request != "-":
-        try:
-            parts = request_parts(json.loads(pathlib.Path(request).read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, ValueError):
-            return 0
-        prs, issues = list(parts["pr"]), list(parts["issue"])
-    cli = int(pr) if pr else None
-    if cli is not None and cli not in prs:
-        prs.append(cli)
-    if not prs and not issues:
-        return 0
+def read_named(repo, prs, issues) -> dict:
+    """名指した PR（番号の並び prs）と issue（issues）を gh で 1 回ずつ読み、読み出しの形で返す（何も書かない）。
+    読めない項も理由つきで載せて返す。gh の cwd は対象の根 repo"""
+    repo = pathlib.Path(repo)
     no_forge = forge.reason(forge.detect(repo))
     doc = {"version": GITHUB_READS_VERSION, "pr": {}, "issue": {}}
-    for n in prs:
+    for n in dict.fromkeys(prs):
         doc["pr"][str(n)] = _settle(_read_pr(repo, n), no_forge)
-    for n in issues:
+    for n in dict.fromkeys(issues):
         doc["issue"][str(n)] = _settle(_read_issue(repo, n), no_forge)
-    if cli is not None:
-        got = doc["pr"][str(cli)]
-        if not got.get("baseRefOid") or not got.get("headRefOid"):
-            if got.get("status") == NOT_APPLICABLE:   # forge の無い対象で gh も GitHub のホストを見つけなかった（ほかは下の文）
-                print(f"ghreads: PR #{cli} の base・head を読めない——対象の remote に PR を持つホストが無い（{got['reason']}）。"
-                      "base を名指して回す", file=sys.stderr)
-            else:
-                print(f"ghreads: PR #{cli} の base・head を読めない（{got.get('reason') or '欄が無い'}）——"
-                      "利用者の gh でログインしてから回す", file=sys.stderr)
-            return 1
-    _write(out, doc)
-    return 0
-
-
-def load(board_dir, src):
-    """盤面の根の github.json が在ればそれを、無ければ src を読んで返す（書かない・消さない）。どちらも無ければ None"""
-    dest = pathlib.Path(board_dir) / BOARD_FILE
-    if dest.is_file():
-        return json.loads(dest.read_text(encoding="utf-8"))
-    if not src or not pathlib.Path(src).is_file():
-        return None
-    return json.loads(pathlib.Path(src).read_text(encoding="utf-8"))
-
-
-def discard_source(src) -> None:
-    """読み出しの元 src を消す（非公開の本文を持つ）。無い・空の文字列は何もしない。盤面の github.json には触らない。消せなければ
-    OSError を呼び手へ"""
-    if src:
-        pathlib.Path(src).unlink(missing_ok=True)
-
-
-class DiscardFailed(OSError):
-    """adopt が盤面へ写し終えた後に、元 src を消せなかった（写しの失敗ではない）。原因の OSError は __cause__"""
-
-
-def adopt(board_dir, src):
-    """盤面の根の github.json が在ればそれを返す（Archon の再開で呼び直された時）。無く src が在れば盤面へ写し、写した物を返す。
-    どちらでも src が在れば消す（写した後の unlink が落ちた run の呼び直しで src が残り続けない）。どちらも無ければ None。
-    写しの失敗は OSError のまま、写した後に元を消せなかった時は DiscardFailed（OSError の子）で呼び手へ。
-    盤面の置き場は在ること（作るのは盤面の begin）"""
-    dest = pathlib.Path(board_dir) / BOARD_FILE
-    doc = load(board_dir, src)
-    if doc is not None and not dest.is_file():
-        _write(dest, doc)
-    try:
-        discard_source(src)
-    except OSError as e:
-        raise DiscardFailed(str(e)) from e
     return doc
+
+
+def load_board(board_dir):
+    """盤面の根の github.json を読んで返す（Archon の再開で同じ読み出しを使う）。無ければ None。壊れていれば ValueError・OSError"""
+    dest = pathlib.Path(board_dir) / BOARD_FILE
+    if not dest.is_file():
+        return None
+    return json.loads(dest.read_text(encoding="utf-8"))
+
+
+def place(board_dir, doc) -> None:
+    """読み出しを盤面の根の github.json に 0600 で置く（_write。盤面の置き場は在ること）"""
+    _write(pathlib.Path(board_dir) / BOARD_FILE, doc)
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="ghreads.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("read")
-    r.add_argument("--repo", required=True)
-    r.add_argument("--request", default="-")
-    r.add_argument("--pr", default="")
-    r.add_argument("--out", required=True)
     c = sub.add_parser("carry-ci")
     c.add_argument("--request", required=True)
     c.add_argument("--failed", required=True)
     c.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    if a.cmd == "carry-ci":
-        return _carry_cli(a.request, a.failed, a.out)
-    if a.pr and not a.pr.isdigit():
-        print(f"ghreads: --pr {a.pr!r} は PR の番号でない", file=sys.stderr)
-        return 2
-    return read(a.repo, a.request, a.pr, a.out)
+    return _carry_cli(a.request, a.failed, a.out)
 
 
 if __name__ == "__main__":

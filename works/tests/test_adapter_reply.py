@@ -68,9 +68,8 @@ def user_line(text):
 class MarkerCase(unittest.TestCase):
     def test_flag_is_known_to_both_readers(self):
         """旗 text-reply は印の文法（node_marker.parse）と包みの読み（adapter.parse_marker）の両方が読む"""
-        self.assertIn("text-reply", node_marker.parse("works-node: local-review no-post text-reply")["flags"])
-        self.assertIn("text-reply", adapter.parse_marker("works-node: local-review no-post text-reply").flags)
-        self.assertEqual(set(node_marker.FLAGS), set(adapter.FLAGS))
+        self.assertIn("text-reply", node_marker.parse("works-node: local-review no-tree-write text-reply")["flags"])
+        self.assertIn("text-reply", adapter.parse_marker("works-node: local-review no-tree-write text-reply").flags)
 
 
 class PlanCase(unittest.TestCase):
