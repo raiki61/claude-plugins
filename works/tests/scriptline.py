@@ -180,6 +180,8 @@ class ScriptLine:
             got = self.replies[key]
         elif (block, nid) == ("blk-structure", "structure-eye"):   # 単位の id は run ごとに決まるので、実測から組む
             got = linekit.structure_eye_reply(self.art / "structure" / "structure.json")
+        elif block == "blk-world" and nid in ("world-classes", "world-collect", "world-judge"):   # 依頼の行から組む（網に出ない）
+            got = world_reply(self.art, nid)
         elif (block, nid) == ("blk-judge", "judge-verify"):   # 判定の裏取りの束ね役: 下請けの代わりに答えのファイルを書く（線の木の段 3）
             got = linekit.verify_answers(self.board)
         else:
@@ -330,6 +332,27 @@ class ScriptLine:
         except Failed as e:
             failure = str(e)
         return {"completed": not failure, "failure": failure, "runs": self.runs, "trail": self.trail, "out": top.out}
+
+
+# ---------------------------------------------------------------- 世界の解の段の役の返答（網に出ない）
+def world_reply(art, nid):
+    """世界の解の段の 3 つの役の返答: 言い直す役は依頼の行ごとに 1 つの類（対象の名を書かない）、集める役は抜き書きなし（網に出ない）、
+    判断する役は類ごとに知識だけの行で、当たる所を書かない（答えの要らない行。修正案の見本を替えずに済む）"""
+    if str(ROOT / "blk-world" / "lib") not in sys.path:
+        sys.path.insert(0, str(ROOT / "blk-world" / "lib"))
+    import worldblk
+    out = pathlib.Path(art) / worldblk.OUT_DIR
+    if nid == "world-collect":
+        return {"excerpts": []}
+    if nid == "world-classes":
+        findings = json.loads((out / worldblk.INTAKE).read_text(encoding="utf-8"))["findings"]
+        return {"classes": [{"finding": i, "class_id": "", "problem": f"依頼の {i} 行目の作業を世の中はどう進めるか",
+                             "activity": "関数の振る舞いの直し", "proposed": "", "queries": ["function behavior fix practice"],
+                             "wording": False} for i in range(1, len(findings) + 1)]}
+    classes = json.loads((out / worldblk.CLASSES).read_text(encoding="utf-8"))
+    return {"rows": [{"finding": c["finding"], "practice": "関数は文書と試験が約束する振る舞いに合わせて直す", "sources": [],
+                      "applies": "", "not_applies": "", "verdict": "none", "challenge": "", "basis": "knowledge"}
+                     for c in classes if not c.get("wording")]}
 
 
 # ---------------------------------------------------------------- 役の既定の返答（linekit.LineRun と同じ見本）
