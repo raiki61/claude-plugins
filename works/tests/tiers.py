@@ -58,6 +58,7 @@ FAST = frozenset({
     "test_gatepolicy",      # 人の関所と無人の方針の住処の語・確かめ・読み・開くかの決め（一時の置き場のファイルだけ。git・子のプロセスなし）
     "test_startrec",        # 始めの記録の住処の読み口と入口の文（一時の置き場のファイルだけ。git・子のプロセスなし）
     "test_entry_block",     # 入口のブロックの置き場と約束（YAML と JSON を読むだけ。git・子のプロセスなし）
+    "test_copy_fence",      # 写しの柵（表 docs/copies.json）: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_concept_fences",  # 考えの住処の柵（地図 docs/concepts.md と表 docs/concepts.json）: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）

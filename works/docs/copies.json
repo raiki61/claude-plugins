@@ -1,0 +1,556 @@
+{
+ "about": "写しの柵の表（名の無い中身の写しを、言語に依らない正規化した行の窓で数える）。読むのは .shared/core/copyfence.py だけ（試験 tests/test_copy_fence）。window は窓の行の数、exclude は見ない所（グロブ → 理由）、known は既知の写し（パス → [写しに掛かった正規化した行の数, 理由]）。known は減る向きにだけ動かし、和は main の表より増やさない",
+ "window": 10,
+ "exclude": {
+  ".shared/core/graphloops/**": "本流の写し（COPIED_FROM が元の版とのバイトの一致を縛る。写しであることが約束）",
+  ".shared/core/gl-prompts/**": "本流の写し（COPIED_FROM が元の版とのバイトの一致を縛る。写しであることが約束）",
+  ".shared/borrow/**": "借りる物の固定の写し（borrow.json の sha256 が元との一致を縛る）",
+  "darkfactory/darkfactory.graph.json": "工程の YAML から作った物（dev/graphmap_build.py。手で書かない）",
+  "tests/boards/**": "記録した盤面の手本（試験の材料。書き換えない）",
+  "tests/events/**": "記録した出来事の流れ（試験の材料）",
+  "tests/adapter/**": "記録した起動の引数と返り（試験の材料）",
+  "tests/replies/**": "役の返答の見本（試験の材料。同じ形の返答が並ぶ）",
+  "dev/canary-fixture-units/**": "盤面の写しの材料（固定材料の試しに使う run の盤面そのもの）",
+  "dev/canary-seed*/**": "試しの対象の種のリポジトリ（別々の対象の中身。種どうしが似るのは試しの形）",
+  "dev/target-seed/**": "使い捨ての対象の種のリポジトリ（対象の中身）",
+  "docs/plans/**": "計画の記録（書いた時の形をそのまま残す歴史の文書。中のコードの抜き書きは写しに数えない）"
+ },
+ "known": {
+  ".shared/core/adapter.py": [
+   54,
+   "コードの繰り返し。相手: 同じファイルの中・.shared/core/rejudge.py"
+  ],
+  ".shared/core/ci_role.py": [
+   12,
+   "コードの繰り返し。相手: blk-spec/lib/specblk.py・blk-material/lib/material.py"
+  ],
+  ".shared/core/conflict.py": [
+   10,
+   "コードの繰り返し。相手: darkfactory/lib/depth.py"
+  ],
+  ".shared/core/rejudge.py": [
+   26,
+   "コードの繰り返し。相手: blk-report/lib/report_roles.py・.shared/core/adapter.py"
+  ],
+  "blk-ci/blk-ci.yaml": [
+   39,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-material/blk-material.yaml・blk-pr/blk-pr.yaml・blk-fix/blk-fix.yaml ほか 2 本"
+  ],
+  "blk-ci/fixtures/give-up.stubs.yaml": [
+   31,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-ci/fixtures/pass.stubs.yaml・blk-ci/fixtures/reject.stubs.yaml・blk-ci/fixtures/no-adapter.stubs.yaml ほか 1 本"
+  ],
+  "blk-ci/fixtures/no-adapter.stubs.yaml": [
+   41,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-ci/fixtures/pass.stubs.yaml・blk-ci/fixtures/reject.stubs.yaml・blk-ci/fixtures/give-up.stubs.yaml ほか 1 本"
+  ],
+  "blk-ci/fixtures/pass.stubs.yaml": [
+   47,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-ci/fixtures/reject.stubs.yaml・blk-ci/fixtures/no-adapter.stubs.yaml・blk-ci/fixtures/give-up.stubs.yaml ほか 1 本"
+  ],
+  "blk-ci/fixtures/reject.stubs.yaml": [
+   41,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-ci/fixtures/pass.stubs.yaml・blk-ci/fixtures/give-up.stubs.yaml・blk-ci/fixtures/no-adapter.stubs.yaml ほか 1 本"
+  ],
+  "blk-delta/blk-delta.yaml": [
+   68,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-refix/blk-refix.yaml・blk-pr/blk-pr.yaml・blk-fix/blk-fix.yaml ほか 1 本"
+  ],
+  "blk-entry/blk-entry.yaml": [
+   18,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: darkfactory/darkfactory.yaml"
+  ],
+  "blk-entry/schemas/input.schema.json": [
+   105,
+   "型の定義（schema）の繰り返し。相手: blk-entry/schemas/start.schema.json"
+  ],
+  "blk-entry/schemas/start.schema.json": [
+   105,
+   "型の定義（schema）の繰り返し。相手: blk-entry/schemas/input.schema.json"
+  ],
+  "blk-eyes/blk-eyes.yaml": [
+   482,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: 同じファイルの中・blk-material/blk-material.yaml・blk-plan/blk-plan.yaml"
+  ],
+  "blk-eyes/fixtures/give-up.stubs.yaml": [
+   68,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-eyes/fixtures/pass.stubs.yaml・darkfactory/fixtures/base.yaml"
+  ],
+  "blk-eyes/fixtures/pass.stubs.yaml": [
+   163,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・blk-eyes/fixtures/give-up.stubs.yaml"
+  ],
+  "blk-fix/blk-fix.yaml": [
+   510,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-material/blk-material.yaml・同じファイルの中・blk-rejudge/blk-rejudge.yaml ほか 6 本"
+  ],
+  "blk-fix/fixtures/conflict.stubs.yaml": [
+   286,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・blk-fix/fixtures/no-change.stubs.yaml・blk-fix/fixtures/pass.stubs.yaml ほか 5 本"
+  ],
+  "blk-fix/fixtures/fix-lanes.stubs.yaml": [
+   142,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-fix/fixtures/pass.stubs.yaml・blk-fix/fixtures/tdd-lanes.stubs.yaml・blk-fix/fixtures/tdd.stubs.yaml ほか 3 本"
+  ],
+  "blk-fix/fixtures/no-change.stubs.yaml": [
+   135,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-fix/fixtures/pass.stubs.yaml・blk-fix/fixtures/tdd-lanes.stubs.yaml・blk-fix/fixtures/tdd.stubs.yaml ほか 3 本"
+  ],
+  "blk-fix/fixtures/pass.stubs.yaml": [
+   161,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-fix/fixtures/tdd-lanes.stubs.yaml・blk-fix/fixtures/tdd.stubs.yaml・blk-fix/fixtures/no-change.stubs.yaml ほか 3 本"
+  ],
+  "blk-fix/fixtures/tdd-lanes.stubs.yaml": [
+   154,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-fix/fixtures/tdd.stubs.yaml・blk-fix/fixtures/pass.stubs.yaml・blk-fix/fixtures/no-change.stubs.yaml ほか 3 本"
+  ],
+  "blk-fix/fixtures/tdd.stubs.yaml": [
+   154,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-fix/fixtures/tdd-lanes.stubs.yaml・blk-fix/fixtures/pass.stubs.yaml・blk-fix/fixtures/no-change.stubs.yaml ほか 3 本"
+  ],
+  "blk-fix/scripts/consult_check.py": [
+   11,
+   "コードの繰り返し。相手: blk-fix/scripts/consult_prep.py"
+  ],
+  "blk-fix/scripts/consult_prep.py": [
+   11,
+   "コードの繰り返し。相手: blk-fix/scripts/consult_check.py"
+  ],
+  "blk-fix/scripts/fix_lane_step.py": [
+   10,
+   "コードの繰り返し。相手: blk-fix/scripts/tdd_join.py"
+  ],
+  "blk-fix/scripts/tdd_fork.py": [
+   10,
+   "コードの繰り返し。相手: blk-fix/scripts/tdd_lane_prep.py"
+  ],
+  "blk-fix/scripts/tdd_join.py": [
+   10,
+   "コードの繰り返し。相手: blk-fix/scripts/fix_lane_step.py"
+  ],
+  "blk-fix/scripts/tdd_lane_prep.py": [
+   10,
+   "コードの繰り返し。相手: blk-fix/scripts/tdd_fork.py"
+  ],
+  "blk-judge/fixtures/bad-reply.stubs.yaml": [
+   52,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-judge/fixtures/pass.stubs.yaml・darkfactory/fixtures/base.yaml"
+  ],
+  "blk-judge/fixtures/pass.stubs.yaml": [
+   54,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-judge/fixtures/bad-reply.stubs.yaml・darkfactory/fixtures/base.yaml"
+  ],
+  "blk-judge/scripts/intake.py": [
+   28,
+   "コードの繰り返し。相手: blk-premises/scripts/intake.py"
+  ],
+  "blk-material/blk-material.yaml": [
+   1192,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: 同じファイルの中・blk-ci/blk-ci.yaml・blk-pr/blk-pr.yaml ほか 2 本"
+  ],
+  "blk-material/fixtures/entry.stubs.yaml": [
+   45,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-material/fixtures/pass.stubs.yaml・darkfactory/fixtures/base.yaml・blk-material/fixtures/fence-stop.stubs.yaml"
+  ],
+  "blk-material/fixtures/fence-stop.stubs.yaml": [
+   11,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-material/fixtures/entry.stubs.yaml・blk-material/fixtures/give-up.stubs.yaml"
+  ],
+  "blk-material/fixtures/give-up.stubs.yaml": [
+   21,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-material/fixtures/peer-stop.stubs.yaml・blk-material/fixtures/fence-stop.stubs.yaml・blk-material/fixtures/pass.stubs.yaml ほか 1 本"
+  ],
+  "blk-material/fixtures/pass.stubs.yaml": [
+   298,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・blk-material/fixtures/entry.stubs.yaml・blk-material/fixtures/peer-stop.stubs.yaml ほか 1 本"
+  ],
+  "blk-material/fixtures/peer-stop.stubs.yaml": [
+   17,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-material/fixtures/pass.stubs.yaml・darkfactory/fixtures/base.yaml・blk-material/fixtures/give-up.stubs.yaml"
+  ],
+  "blk-material/lib/material.py": [
+   11,
+   "コードの繰り返し。相手: .shared/core/ci_role.py・blk-spec/lib/specblk.py"
+  ],
+  "blk-plan/blk-plan.yaml": [
+   255,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-eyes/blk-eyes.yaml・同じファイルの中・blk-refix/blk-refix.yaml ほか 3 本"
+  ],
+  "blk-plan/fixtures/give-up.stubs.yaml": [
+   95,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-plan/fixtures/plan-rejected.stubs.yaml・blk-plan/fixtures/pass.stubs.yaml・darkfactory/fixtures/base.yaml ほか 1 本"
+  ],
+  "blk-plan/fixtures/pass.stubs.yaml": [
+   147,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-plan/fixtures/plan-rejected.stubs.yaml・darkfactory/fixtures/base.yaml・blk-plan/fixtures/give-up.stubs.yaml"
+  ],
+  "blk-plan/fixtures/plan-rejected.stubs.yaml": [
+   138,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-plan/fixtures/pass.stubs.yaml・blk-plan/fixtures/give-up.stubs.yaml・darkfactory/fixtures/base.yaml"
+  ],
+  "blk-plan/scripts/collect.py": [
+   11,
+   "コードの繰り返し。相手: blk-plan/scripts/reads.py"
+  ],
+  "blk-plan/scripts/reads.py": [
+   11,
+   "コードの繰り返し。相手: blk-plan/scripts/collect.py"
+  ],
+  "blk-pr/blk-pr.yaml": [
+   57,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-material/blk-material.yaml・blk-ci/blk-ci.yaml・blk-fix/blk-fix.yaml ほか 2 本"
+  ],
+  "blk-premises/scripts/intake.py": [
+   28,
+   "コードの繰り返し。相手: blk-judge/scripts/intake.py"
+  ],
+  "blk-refix/blk-refix.yaml": [
+   206,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: 同じファイルの中・blk-delta/blk-delta.yaml・blk-plan/blk-plan.yaml ほか 3 本"
+  ],
+  "blk-rejudge/blk-rejudge.yaml": [
+   44,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-fix/blk-fix.yaml"
+  ],
+  "blk-rejudge/fixtures/no-session.stubs.yaml": [
+   16,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-rejudge/fixtures/rejected-thrice.stubs.yaml"
+  ],
+  "blk-rejudge/fixtures/rejected-thrice.stubs.yaml": [
+   35,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-rejudge/fixtures/no-session.stubs.yaml・blk-rejudge/fixtures/settled.stubs.yaml・darkfactory/fixtures/base.yaml"
+  ],
+  "blk-rejudge/fixtures/settled.stubs.yaml": [
+   55,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・blk-rejudge/fixtures/rejected-thrice.stubs.yaml・darkfactory/fixtures/rejudge.stubs.yaml"
+  ],
+  "blk-report/fixtures/pass.stubs.yaml": [
+   49,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/conflict-ask.stubs.yaml・darkfactory/fixtures/final-stop.stubs.yaml ほか 5 本"
+  ],
+  "blk-report/fixtures/rejected-thrice.stubs.yaml": [
+   10,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-report/fixtures/pass.stubs.yaml"
+  ],
+  "blk-report/lib/report_roles.py": [
+   15,
+   "コードの繰り返し。相手: .shared/core/rejudge.py"
+  ],
+  "blk-spec/blk-spec.yaml": [
+   161,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: 同じファイルの中・blk-plan/blk-plan.yaml・blk-refix/blk-refix.yaml ほか 3 本"
+  ],
+  "blk-spec/fixtures/gate-stop.stubs.yaml": [
+   57,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-spec/fixtures/no-faces.stubs.yaml・blk-spec/fixtures/pass.stubs.yaml・blk-spec/fixtures/give-up.stubs.yaml ほか 1 本"
+  ],
+  "blk-spec/fixtures/give-up.stubs.yaml": [
+   28,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-spec/fixtures/gate-stop.stubs.yaml・blk-spec/fixtures/no-faces.stubs.yaml・blk-spec/fixtures/pass.stubs.yaml ほか 1 本"
+  ],
+  "blk-spec/fixtures/no-faces.stubs.yaml": [
+   62,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-spec/fixtures/gate-stop.stubs.yaml・blk-spec/fixtures/pass.stubs.yaml・darkfactory/fixtures/base.yaml ほか 1 本"
+  ],
+  "blk-spec/fixtures/pass.stubs.yaml": [
+   72,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-spec/fixtures/no-faces.stubs.yaml・blk-spec/fixtures/gate-stop.stubs.yaml・darkfactory/fixtures/base.yaml ほか 1 本"
+  ],
+  "blk-spec/lib/specblk.py": [
+   12,
+   "コードの繰り返し。相手: .shared/core/ci_role.py・blk-material/lib/material.py"
+  ],
+  "blk-structure/blk-structure.yaml": [
+   14,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-world/blk-world.yaml"
+  ],
+  "blk-structure/scripts/collect.py": [
+   10,
+   "コードの繰り返し。相手: blk-structure/scripts/eye_accept.py"
+  ],
+  "blk-structure/scripts/eye_accept.py": [
+   10,
+   "コードの繰り返し。相手: blk-structure/scripts/collect.py"
+  ],
+  "blk-world/blk-world.yaml": [
+   44,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-structure/blk-structure.yaml・同じファイルの中"
+  ],
+  "blk-world/fixtures/cache-hit.stubs.yaml": [
+   53,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/pass.stubs.yaml"
+  ],
+  "blk-world/fixtures/offline.stubs.yaml": [
+   61,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/pass.stubs.yaml・blk-world/fixtures/cache-hit.stubs.yaml・blk-world/fixtures/wording.stubs.yaml"
+  ],
+  "blk-world/fixtures/pass.stubs.yaml": [
+   63,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/cache-hit.stubs.yaml・blk-world/fixtures/wording.stubs.yaml ほか 1 本"
+  ],
+  "blk-world/fixtures/wording.stubs.yaml": [
+   12,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/pass.stubs.yaml"
+  ],
+  "blk-world/scripts/cache.py": [
+   17,
+   "コードの繰り返し。相手: blk-world/scripts/classes_prep.py・blk-world/scripts/collect.py・blk-world/scripts/judge_prep.py"
+  ],
+  "blk-world/scripts/classes_accept.py": [
+   17,
+   "コードの繰り返し。相手: blk-world/scripts/judge_accept.py"
+  ],
+  "blk-world/scripts/classes_prep.py": [
+   17,
+   "コードの繰り返し。相手: blk-world/scripts/cache.py・blk-world/scripts/collect.py・blk-world/scripts/judge_prep.py"
+  ],
+  "blk-world/scripts/collect.py": [
+   17,
+   "コードの繰り返し。相手: blk-world/scripts/cache.py・blk-world/scripts/classes_prep.py・blk-world/scripts/judge_prep.py"
+  ],
+  "blk-world/scripts/judge_accept.py": [
+   17,
+   "コードの繰り返し。相手: blk-world/scripts/classes_accept.py"
+  ],
+  "blk-world/scripts/judge_prep.py": [
+   17,
+   "コードの繰り返し。相手: blk-world/scripts/cache.py・blk-world/scripts/classes_prep.py・blk-world/scripts/collect.py"
+  ],
+  "darkfactory/darkfactory.yaml": [
+   652,
+   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: 同じファイルの中・blk-entry/blk-entry.yaml"
+  ],
+  "darkfactory/fixtures/ai-report-fail.stubs.yaml": [
+   92,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/policy-stop.stubs.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/final-stop.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/base.yaml": [
+   1510,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: 同じファイルの中・blk-material/fixtures/pass.stubs.yaml・blk-fix/fixtures/conflict.stubs.yaml ほか 41 本"
+  ],
+  "darkfactory/fixtures/conflict-ask.stubs.yaml": [
+   176,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・同じファイルの中・blk-fix/fixtures/conflict.stubs.yaml ほか 14 本"
+  ],
+  "darkfactory/fixtures/final-stop.stubs.yaml": [
+   91,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/policy-stop.stubs.yaml・darkfactory/fixtures/stop-flag.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/final-when-needed-green.stubs.yaml": [
+   63,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/no-fix.stubs.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml ほか 11 本"
+  ],
+  "darkfactory/fixtures/no-fix.stubs.yaml": [
+   161,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/policy-stop.stubs.yaml ほか 14 本"
+  ],
+  "darkfactory/fixtures/policy-continue.stubs.yaml": [
+   87,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/rejudge.stubs.yaml・darkfactory/fixtures/spec.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/policy-stop.stubs.yaml": [
+   361,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/rejudge-no-session.stubs.yaml・同じファイルの中・darkfactory/fixtures/stop-flag.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/pr-fallback.stubs.yaml": [
+   81,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/no-fix.stubs.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/rejudge-no-session.stubs.yaml": [
+   367,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/policy-stop.stubs.yaml・同じファイルの中・darkfactory/fixtures/stop-flag.stubs.yaml ほか 13 本"
+  ],
+  "darkfactory/fixtures/rejudge.stubs.yaml": [
+   120,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/policy-stop.stubs.yaml ほか 13 本"
+  ],
+  "darkfactory/fixtures/spec.stubs.yaml": [
+   129,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/policy-continue.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/standard.stubs.yaml": [
+   108,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/policy-continue.stubs.yaml ほか 12 本"
+  ],
+  "darkfactory/fixtures/start-refused.stubs.yaml": [
+   26,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/base.yaml・darkfactory/fixtures/no-fix.stubs.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml ほか 11 本"
+  ],
+  "darkfactory/fixtures/stop-flag.stubs.yaml": [
+   223,
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/policy-stop.stubs.yaml・同じファイルの中 ほか 13 本"
+  ],
+  "darkfactory/lib/depth.py": [
+   10,
+   "コードの繰り返し。相手: .shared/core/conflict.py"
+  ],
+  "darkfactory/scripts/after.py": [
+   11,
+   "コードの繰り返し。相手: darkfactory/scripts/structure.py・darkfactory/scripts/world.py・darkfactory/scripts/depth.py"
+  ],
+  "darkfactory/scripts/depth.py": [
+   10,
+   "コードの繰り返し。相手: darkfactory/scripts/after.py・darkfactory/scripts/structure.py・darkfactory/scripts/world.py"
+  ],
+  "darkfactory/scripts/structure.py": [
+   11,
+   "コードの繰り返し。相手: darkfactory/scripts/after.py・darkfactory/scripts/world.py・darkfactory/scripts/depth.py"
+  ],
+  "darkfactory/scripts/world.py": [
+   11,
+   "コードの繰り返し。相手: darkfactory/scripts/after.py・darkfactory/scripts/structure.py・darkfactory/scripts/depth.py"
+  ],
+  "tests/boardreplay.py": [
+   12,
+   "試験の組み立ての繰り返し。相手: tests/test_board_goldens_fixture.py"
+  ],
+  "tests/test_accept.py": [
+   11,
+   "試験の組み立ての繰り返し。相手: tests/test_tdd_lanes.py・tests/test_reads.py・tests/test_rolekit.py ほか 1 本"
+  ],
+  "tests/test_adapter_no_turn.py": [
+   21,
+   "試験の組み立ての繰り返し。相手: tests/test_adapter_spend.py・tests/test_adapter_reply.py・tests/test_model_override.py"
+  ],
+  "tests/test_adapter_reply.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_adapter_no_turn.py・tests/test_adapter_spend.py・tests/test_model_override.py"
+  ],
+  "tests/test_adapter_spend.py": [
+   21,
+   "試験の組み立ての繰り返し。相手: tests/test_adapter_no_turn.py・tests/test_adapter_reply.py・tests/test_model_override.py"
+  ],
+  "tests/test_blk_ci.py": [
+   16,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_spec.py・tests/test_blk_report.py・tests/test_blk_eyes.py ほか 3 本"
+  ],
+  "tests/test_blk_eyes.py": [
+   24,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_spec.py・tests/test_blk_ci.py・tests/test_blk_report.py ほか 3 本"
+  ],
+  "tests/test_blk_fix_tdd.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_world.py"
+  ],
+  "tests/test_blk_judge.py": [
+   66,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_premises.py・tests/test_blk_purpose.py・tests/test_toolset.py"
+  ],
+  "tests/test_blk_plan.py": [
+   14,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_rejudge.py"
+  ],
+  "tests/test_blk_premises.py": [
+   41,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_judge.py・tests/test_blk_purpose.py"
+  ],
+  "tests/test_blk_purpose.py": [
+   37,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_judge.py・tests/test_blk_ci.py・tests/test_blk_eyes.py ほか 5 本"
+  ],
+  "tests/test_blk_rejudge.py": [
+   15,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_plan.py・tests/test_blk_report.py"
+  ],
+  "tests/test_blk_report.py": [
+   25,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_ci.py・tests/test_blk_spec.py・tests/test_blk_eyes.py ほか 4 本"
+  ],
+  "tests/test_blk_spec.py": [
+   26,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_ci.py・tests/test_blk_eyes.py・tests/test_blk_report.py ほか 3 本"
+  ],
+  "tests/test_blk_world.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_fix_tdd.py"
+  ],
+  "tests/test_board_goldens_fixture.py": [
+   12,
+   "試験の組み立ての繰り返し。相手: tests/boardreplay.py"
+  ],
+  "tests/test_board_open.py": [
+   20,
+   "試験の組み立ての繰り返し。相手: 同じファイルの中"
+  ],
+  "tests/test_canary_sh.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_selfcheck.py"
+  ],
+  "tests/test_carry_home.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_entry_inputs.py"
+  ],
+  "tests/test_dev_model.py": [
+   29,
+   "試験の組み立ての繰り返し。相手: tests/test_use.py"
+  ],
+  "tests/test_entry_inputs.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_carry_home.py"
+  ],
+  "tests/test_fix_rules.py": [
+   11,
+   "試験の組み立ての繰り返し。相手: tests/test_tdd_lane_wiring.py"
+  ],
+  "tests/test_model_override.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_adapter_no_turn.py・tests/test_adapter_reply.py・tests/test_adapter_spend.py"
+  ],
+  "tests/test_out_of_purpose.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_report_head.py"
+  ],
+  "tests/test_reads.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_accept.py・tests/test_rolekit.py・tests/test_ticket.py"
+  ],
+  "tests/test_report_head.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_out_of_purpose.py"
+  ],
+  "tests/test_rolekit.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_accept.py・tests/test_reads.py・tests/test_ticket.py"
+  ],
+  "tests/test_selfcheck.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_canary_sh.py"
+  ],
+  "tests/test_tdd_frozen.py": [
+   13,
+   "試験の組み立ての繰り返し。相手: tests/test_tdd_outside.py"
+  ],
+  "tests/test_tdd_lane_wiring.py": [
+   11,
+   "試験の組み立ての繰り返し。相手: tests/test_fix_rules.py"
+  ],
+  "tests/test_tdd_lanes.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_accept.py"
+  ],
+  "tests/test_tdd_outside.py": [
+   13,
+   "試験の組み立ての繰り返し。相手: tests/test_tdd_frozen.py"
+  ],
+  "tests/test_ticket.py": [
+   12,
+   "試験の組み立ての繰り返し。相手: tests/test_accept.py・tests/test_reads.py・tests/test_rolekit.py ほか 1 本"
+  ],
+  "tests/test_tiers.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_ci.py・tests/test_blk_eyes.py・tests/test_blk_purpose.py ほか 3 本"
+  ],
+  "tests/test_toolset.py": [
+   11,
+   "試験の組み立ての繰り返し。相手: tests/test_blk_purpose.py・tests/test_blk_ci.py・tests/test_blk_eyes.py ほか 4 本"
+  ],
+  "tests/test_use.py": [
+   51,
+   "試験の組み立ての繰り返し。相手: tests/test_dev_model.py・同じファイルの中"
+  ],
+  "tests/test_writes.py": [
+   10,
+   "試験の組み立ての繰り返し。相手: tests/test_ticket.py"
+  ]
+ }
+}
