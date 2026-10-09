@@ -9,8 +9,12 @@ linekit.LineRun を種の git を差し替えて組むだけ（FAST。git・子�
 - 報告の言語 lang がラインから start の with に渡り、start.py が読み、空は空のまま返る（LangInputCase）
 - 器 linekit.LineRun が start へ渡す入力の鍵は LINE_ORDER の start の with から導く（test_linerun_inputs_follow_line_order_start。
   種の git は作らない）
+- 出力の側（OutputNamesCase。Archon の穴 #2・#3）: 本文の $<節>.output.<欄> が同じ工程の節と出力の型の欄を名指す
+  （test_output_refs_name_real_fields）。ラインの節の出力の欄に読み手が在る（無い欄は UNREAD_OUTPUTS に理由つき。
+  test_line_outputs_have_readers）
 """
 import ast
+import collections
 import contextlib
 import copy
 import importlib.util
@@ -199,6 +203,119 @@ class InputNamesCase(unittest.TestCase):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs({"request": "req.json", "pr": "main"}, repo)
                 self.assertIn("pr='main'", str(cm.exception))
+
+
+# 出口の参照 $<節>.output[.<欄>]（輪の中の前の回 $LOOP_PREV.<節>.output.<欄> も）。本文（when・until・指示書・コメント）の参照は
+# Archon が読み込みで欄を照らさない（Archon の穴 #2。with: の from だけは照らす）
+OUTPUT_REF = re.compile(r"\$(?:LOOP_PREV\.)?([A-Za-z][\w-]*)\.output(?:\.([A-Za-z_]\w*))?")
+# ラインの節の出力の欄のうち、ラインのどこも読まない物 {作り手: (欄の組, 理由)}。作り手は include の id でなくブロックの名、script の
+# 節はスクリプトの名（同じスクリプトの境の節 h-* は 1 つの出口の型を分ける）。減らす方向にだけ変える（読み手を付けたら消す。
+# test_line_outputs_have_readers が今の姿と字のまま照らす）。ラインの出口（returns の節）は殻が run の結果として読むので見ない
+BOARD_CARRIED = ("ラインは盤面で受け渡す（後ろの境の節が盤面を読む）。ブロックの出口の欄は Archon の run の記録と、盤面を持たない"
+                 "ラインのための形で、このラインは読まない")
+UNREAD_OUTPUTS = {
+    "blk-delta": ({"diff_file", "faces", "fix_rev", "owed", "reads_file", "review_file"}, BOARD_CARRIED),
+    "blk-fix": ({"changes_file", "coverage", "files", "fix_file", "not_done", "reads_file", "reason", "removed", "tdd"},
+                BOARD_CARRIED + "。tdd（TDD の単位ごとの結末）は keep-essence の 11 の欠けで、報告へ繋ぐ（段 1 の Task 1.5）"),
+    "blk-lens": ({"lens_file", "reason"}, BOARD_CARRIED),
+    "blk-material": ({"reason"}, BOARD_CARRIED),
+    "blk-plan": ({"asks_human", "gate_kinds", "gave_up", "plan_file", "reads_file", "reason_file", "review_file", "ripple_file"},
+                 BOARD_CARRIED),
+    "blk-pr": ({"conflicts", "drafts", "excluded", "excluded_file", "material_status", "pr_file", "reads_file", "reason"},
+               BOARD_CARRIED),
+    "blk-purpose": ({"purpose_file", "purpose_text", "source"}, BOARD_CARRIED),
+    "blk-refix": ({"files", "fixed2", "handled_file", "owed2", "reads_file", "reads_files", "review2_file"}, BOARD_CARRIED),
+    "blk-rejudge": ({"diff_file", "lowered", "new_open_units", "objection", "passes", "reads_file", "reason", "unnamed_changed",
+                     "unsettled", "verdicts"}, BOARD_CARRIED),
+    "blk-report": ({"facts_file", "text_file"}, "AI の報告の材料と本文のファイル。出口 result は report_file だけを選ぶ"),
+    "depth": ({"depth_file"}, "盤面の depth.json のパス。報告は h-redepth の lines だけを読む（run の記録に残すだけ）"),
+    "edge": ({"spec_go"}, "仕様のブロック blk-spec は一つの入口の計画（docs/plans/2026-10-09-one-entry-shape.md）のために残し、"
+                          "まだ線に無い。読み手は計画の段 4 で付く（持ち主 2026-10-09: blk-spec を残す）"),
+    "structure": ({"design_file", "ok", "reason", "status", "wall_s"},
+                  "構造の境 h-structure は順の結び目（修正案の段が depends_on で待つ）。控えは盤面の structure-state.json で、出口は "
+                  "run の記録に残すだけ"),
+}
+
+
+def _deep(nodes):
+    for n in nodes:
+        yield n
+        yield from _deep((n.get("loop_group") or {}).get("nodes") or ())
+
+
+def _exit_node(block_name):
+    doc = load(ROOT / block_name / f"{block_name}.yaml")
+    return next(n for n in _deep(doc["nodes"]) if n["id"] == doc["returns"]), doc
+
+
+def _fields(node):
+    """節の出力の欄の名の組（include はブロックの出口の節の型）。型の無い節は None"""
+    if "include" in node:
+        node = _exit_node(node["include"])[0]
+    fmt = node.get("output_format")
+    return set((fmt or {}).get("properties") or ()) if fmt else None
+
+
+class OutputNamesCase(unittest.TestCase):
+    """出力の側の柵（読まない入力の柵 test_block_inputs_are_all_referenced の対。Archon の穴 #2・#3。docs/archon-feedback.md）"""
+
+    def test_output_refs_name_real_fields(self):
+        """ラインとブロックの YAML と指示書（commands/）の $<節>.output.<欄> は、同じ工程に在る節と、その節の出力の型に在る欄を
+        名指す（綴りの違い・消えた欄・ほかの工程の節の名指しを、実行の前に赤にする。Archon は本文の参照の欄を照らさない）"""
+        for folder, doc in workflows():
+            nodes = {n["id"]: n for n in _deep(doc["nodes"])}
+            texts = [(folder / f"{folder.name}.yaml")] + sorted((folder / "commands").glob("*.md"))
+            bad = []
+            for path in texts:
+                for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                    for m in OUTPUT_REF.finditer(line):
+                        nid, field = m.group(1), m.group(2)
+                        where = f"{path.relative_to(ROOT)}:{i} {m.group(0)}"
+                        if nid not in nodes:
+                            bad.append(f"{where}: 節 {nid} がこの工程に無い")
+                            continue
+                        got = _fields(nodes[nid])
+                        if field and got is not None and field not in got:
+                            bad.append(f"{where}: 欄 {field} が節 {nid} の出力の型に無い（在るのは {sorted(got)}）")
+                        elif field and got is None:
+                            bad.append(f"{where}: 節 {nid} は出力の型を持たない（欄を読めない）")
+            with self.subTest(folder.name):
+                self.assertEqual(bad, [])
+
+    def test_line_outputs_have_readers(self):
+        """ラインの節の出力の欄は、ラインのどこかが読む: $<節>.output.<欄> で名指すか、出力を丸ごと渡した節（{from: $<節>.output}）
+        の受け手のコード（作り手のフォルダの外の .py）が欄の名を字で書く（丸ごと渡しは緩い近似で、偽の赤は出さない）。
+        同じ作り手（ブロック・スクリプト）の節はまとめて見る。読まない欄は UNREAD_OUTPUTS に理由つきで名指す（減らす方向だけ）"""
+        doc = line()
+        text = (LINE / "darkfactory.yaml").read_text(encoding="utf-8")
+        nodes = {n["id"]: n for n in doc["nodes"]}
+        maker = {nid: n.get("include") or n.get("script") or nid for nid, n in nodes.items()}
+        named, whole = collections.defaultdict(set), set()
+        for m in OUTPUT_REF.finditer(text):
+            if m.group(1) in nodes:
+                (named[maker[m.group(1)]].add(m.group(2)) if m.group(2) else whole.add(maker[m.group(1)]))
+        pys = [(p, p.read_text(encoding="utf-8", errors="replace")) for p in sorted(ROOT.rglob("*.py"))
+               if p.relative_to(ROOT).parts[0] != "tests" and "graphloops" not in p.relative_to(ROOT).parts]
+
+        def read_elsewhere(field, own):
+            lit = re.compile(r"[\"']" + re.escape(field) + r"[\"']")
+            return any(p.relative_to(ROOT).parts[0] != own and lit.search(t) for p, t in pys)
+        unread = {}
+        for nid, n in nodes.items():
+            if nid == doc["returns"]:
+                continue
+            fields = _fields(n) or set()
+            own = n["include"] if "include" in n else "darkfactory"
+            outcome = _exit_node(n["include"])[1].get("outcome_field") if "include" in n else None
+            for f in sorted(fields - named[maker[nid]] - {outcome}):
+                if maker[nid] in whole and read_elsewhere(f, own):
+                    continue
+                unread.setdefault(maker[nid], set()).add(f)
+        known = {k: v[0] for k, v in UNREAD_OUTPUTS.items()}
+        self.assertEqual(unread, known, "読み手の無い出力の欄（読む所を付けるか、出力から消すか、UNREAD_OUTPUTS に理由つきで"
+                                        "名指す。読み手を付けた欄は UNREAD_OUTPUTS から消す）")
+        for k, (_f, why) in UNREAD_OUTPUTS.items():
+            self.assertTrue(why.strip(), k)
 
 
 class FeaturesOffCase(unittest.TestCase):

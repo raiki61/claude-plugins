@@ -6,18 +6,15 @@ description: |
   graphloops の規則（measured_needs_output: kind=実測 は実行したコマンドと出力が要る）に通るまで同じ会話で出し直させる
   （上限 3 回）。ラインから include で使う。出口は盤面の premises.json のパスと、判定役に貼る制約の要約。
 
-# 線 A がラインに入れる時の約束（配線は線 A の Task 17。この枝ではラインに入れない）:
-# - include の id は premising（ブロックの中の節の id と重ねない。Ruling R17）。判定（judging）の前に置き、
-#   judging は depends_on: [premising] にする。既定の trigger_rule（all_success）なので、このブロックが落ちれば
-#   判定役は起きない。落ちるのは: 依頼が読めない・規則が拒む（intake）。受け付けが 3 回とも拒めば、輪は done で抜け、
-#   collect が最後の拒否の文で盤面を止めて ok: false を返す（R50。後ろの境の節が止まった盤面を見て判定役を起こさない）
-# - ラインの盤面がもう止まっていれば（並行 PR の任せ先が諦めた）、intake が go: false を出し、輪（実測役）は飛ぶ
-# - 判定役には $premising.output.constraints_summary（1 行 1 制約の文）を貼り、全文は $premising.output.constraints_file
-#   （盤面の premises.json）を Read させる。kind=仮説 の制約は所与として使わない、と判定の指示書に書く
-# - 線は、このブロックの出口（collect の出力の JSON）を境の節 h-judge の with: premised に渡す。h-judge が盤面の p0.premises に
-#   渡し、判定のブロックには h-judge の出口 premises_file（盤面の out/r1/p0.premises.json）を渡す（計画 P1 Task 24）
-# - 渡す with: は request（ラインの $INPUTS.request）と base_rev（$base.output.rev）。判定のブロックと同じ依頼のファイル
-# - 依頼を盤面の request.json に積むのは判定のブロックの intake だけ（このブロックの intake は型を確かめるだけで積まない）
+# ラインから使う時の形（どの節に繋ぐかはラインの側が持つ）:
+# - このブロックが落ちれば（依頼が読めない・規則が拒む。intake）、既定の trigger_rule（all_success）で後ろの判定の役は起きない。
+#   受け付けが 3 回とも拒めば、輪は done で抜け、collect が最後の拒否の文で盤面を止めて ok: false を返す（R50。後ろの節は
+#   止まった盤面を見て役を起こさない）
+# - 盤面がもう止まっていれば（並行 PR の任せ先が諦めた）、intake が go: false を出し、輪（実測役）は飛ぶ
+# - 出口の constraints_summary（1 行 1 制約の文）は判定役に貼る形、constraints_file（盤面の premises.json）は全文を Read させる形。
+#   kind=仮説 の制約は所与として使わない、と読む側の指示書に書く
+# - 入力の request と base_rev は、判定と同じ依頼のファイルと周の頭の版を渡す
+# - 依頼を盤面の request.json に積むのはこのブロックではない（このブロックの intake は型を確かめるだけで積まない）
 
 inputs:
   request:
