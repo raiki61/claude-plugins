@@ -1,8 +1,9 @@
 """考えの住処の柵（地図 docs/concepts.md と表 docs/concepts.json）。
 
-住処の在る考え（地図の状態が「住処あり」）ごとに、その考えの語の形（正規表現）が「知ってよい所」と除く所の外の
+考えごとに（住処ありも散らばりも）、その考えの語の形（正規表現）が「知ってよい所」と除く所の外の
 追跡されたファイルに何行あるかを数え、表の既知の漏れ（ファイル → 件数と理由）とちょうど揃うことを見る。件数が
 表より増えても・減っても・表に無いファイルが出ても赤（減る向きにだけ動かす。tests/blockblind.py の許可表と同じ型）。
+散らばりの柵は知ってよい所が空の数の歯止め。表そのものも main の表（origin/main）より件数の和が増えない（NotAboveMain）。
 あわせて地図と表の id と状態が揃うこと・住処ありの考えが柵を持つこと・地図に書いたパスが在ることを見る（地図が
 古くなるのを防ぐ一番安い同期）。
 中身は tests/conceptfence.py（ここは試験だけ）。計画は docs/plans/2026-10-09-structure-viewpoint.md の 3 節と Task 1。
@@ -30,12 +31,15 @@ class MapAndTable(unittest.TestCase):
     def test_ids_and_status_agree(self):
         self.assertEqual(cf().map_ids(MD), {k: v["status"] for k, v in self.table["concepts"].items()})
 
-    def test_homed_concepts_have_fence(self):
+    def test_every_concept_has_fence(self):
+        """どの考えも柵を持つ。散らばり（住処が無い）の柵は知ってよい所が空で、今の知る場所を全部既知の漏れに置く数の歯止め
+        （減る向きにだけ動く。計画 docs/plans/2026-10-09-clean-whole.md の Task 3.1）"""
         for k, v in self.table["concepts"].items():
-            if v["status"] == "住処あり":
+            with self.subTest(concept=k):
                 self.assertTrue(v["fences"], k)
-            else:
-                self.assertEqual(v["fences"], [], k)   # 柵は住処の在る考えにだけ掛ける（計画 3.2 節の 1）
+                if v["status"] == "散らばり":
+                    self.assertEqual([f["allowed"] for f in v["fences"]], [[]] * len(v["fences"]), k)
+                    self.assertTrue(all(f["known"] for f in v["fences"]), f"{k}: 散らばりの柵が何も数えていない（語の形が今の知る場所に当たらない）")
 
     def test_allowed_named_in_map(self):
         """表の allowed（柵が照らす知ってよい所）は、地図のその考えの「住処」「約束」「知ってよい所」の行に字で在る（2 か所が食い違わない）"""
@@ -73,6 +77,25 @@ class FencesHold(unittest.TestCase):
                 with self.subTest(concept=k, what=f["what"]):
                     found = m.scan(ROOT, paths, f, table["exclude"])
                     self.assertEqual(m.verdict(found, f["known"]), [], f"{k}: {f['what']}")
+
+
+class NotAboveMain(unittest.TestCase):
+    """表そのものが増えない: 考えごとの既知の漏れは、main の表（origin/main の docs/concepts.json）より件数の和が増えず、
+    main に無いパスも出ない（計画 docs/plans/2026-10-09-clean-whole.md の Task 3.2）。main で柵を持たない考え（柵を
+    初めて掛ける差分）は比べない。main の表が読めない（浅い clone・ref が無い）時は名前つきで見送る（CI の works の job は
+    全履歴で取るので見送らない。見送りは FAIL_ON_SKIP=1 で赤）"""
+
+    def test_known_not_above_main(self):
+        m = cf()
+        main, why = m.main_table(ROOT)
+        if main is None:
+            self.skipTest(f"SKIP git-history: main の柵の表を引けない（{m.MAIN_REF}。浅い clone か ref が無い）: {why}")
+        self.assertEqual(m.growth(main, m.load(ROOT)), [])
+
+    def test_missing_ref_is_reported_not_raised(self):
+        got, why = cf().main_table(ROOT, "refs/heads/no-such-ref-for-concept-fences")
+        self.assertIsNone(got)
+        self.assertTrue(why)
 
 
 class Synthetic(unittest.TestCase):
@@ -113,6 +136,27 @@ class Synthetic(unittest.TestCase):
         self.assertTrue(m.verdict({"a.py": 1}, {"a.py": [2, "理由"]}))              # 減ったのに表が残る
         self.assertTrue(m.verdict({"a.py": 3}, {"a.py": [2, "理由"]}))              # 増えた
         self.assertTrue(m.verdict({"a.py": 2, "b.py": 1}, {"a.py": [2, "理由"]}))   # 表に無い漏れ
+
+    @staticmethod
+    def table(**concepts):
+        return {"concepts": {k: {"status": "散らばり", "fences": [{"what": "語", "pattern": "x", "allowed": [], "known": kn}]}
+                             for k, kn in concepts.items()}}
+
+    def test_growth_same_or_less_is_quiet(self):
+        main = self.table(a={"x.py": [2, "理由"], "y.py": [1, "理由"]})
+        self.assertEqual(cf().growth(main, main), [])
+        self.assertEqual(cf().growth(main, self.table(a={"x.py": [2, "理由"]})), [])          # 減った
+        self.assertEqual(cf().growth(main, self.table(a={"x.py": [1, "理由"], "y.py": [2, "理由"]})), [])  # 和が同じ
+
+    def test_growth_more_lines_or_new_path_is_red(self):
+        main = self.table(a={"x.py": [2, "理由"]})
+        self.assertTrue(cf().growth(main, self.table(a={"x.py": [3, "理由"]})))               # 和が増えた
+        self.assertTrue(cf().growth(main, self.table(a={"x.py": [1, "理由"], "z.py": [1, "理由"]})))  # main に無いパス
+
+    def test_growth_skips_concepts_without_main_fence(self):
+        main = {"concepts": {"a": {"status": "散らばり", "fences": []}}}
+        now = self.table(a={"x.py": [5, "理由"]}, b={"y.py": [1, "理由"]})
+        self.assertEqual(cf().growth(main, now), [])   # 初めて柵を掛ける差分（main は柵が空・考えが無い）は比べない
 
     def test_map_ids_take_first_status_word(self):
         md = ("### `a` 一つ\n\n- 状態: 住処あり（写し）\n- 住処: x\n\n"

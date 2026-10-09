@@ -9,6 +9,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Changed
 
 - 次の run への持ち越し（`next-request.json`・`prior-failures.json`・`prior-failures-in.json` の欄の名・下書きの印・依頼の容器の解き方）を core の 1 つのモジュール `.shared/core/carry.py` にまとめ、書き手（報告）と読み手（依頼の入口）が同じ名と同じ JSON Schema（`.shared/core/` へ移した `next-request.schema.json`・`prior-failures.schema.json`。書く前に照らす）を引くようにした（書く中身はバイト一致で変わらない）。run の後の CI の赤を次の依頼へ足す口は `python3 -I .shared/core/carry.py carry-ci …` に移り、前の `ghreads.py carry-ci` は移った先を 1 行で言って終了コード 2 で終わる。`use.sh` の表示が数える下書きの行は、次の run の入口が拒む行と同じ決まり（`draft` か `source` の欄が在る行）に揃えた。
+- 考えの住処の柵（`tests/test_concept_fences.py`）が、住処の無い散らばりの 8 つ（入口の種・始めの記録・人の関所の方針・AI の起こし方・費用と時間の帳簿・指示書の組み立て・止めの理由・写しの核の差し替えの口）にも、語の形と今の知る場所の数（`docs/concepts.json` の既知の漏れ）を持つ数の歯止めを掛け、考えごとの既知の漏れの件数の和が main の表（`origin/main`）より増えたり main に無いパスが出たりしたら赤にする（main の表が引けなければ `SKIP git-history` で見送る。製品のコードは変えない）
 
 ## [0.2.55] - 2026-10-09
 
