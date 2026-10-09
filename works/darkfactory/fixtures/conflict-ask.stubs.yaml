@@ -77,7 +77,6 @@ h-entry:
   pr_go: false
   premises_go: true
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -176,7 +175,6 @@ h-judge:
   pr_go: false
   premises_go: false
   purpose_go: true
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -216,7 +214,6 @@ h-mat:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: true
   structure_units_file: ''
   ripple_file: ''
@@ -648,7 +645,6 @@ h-plan:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: board/r1/structure-units.json
   ripple_file: ''
@@ -870,7 +866,6 @@ h-gate:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -892,7 +887,6 @@ h-fix:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1323,7 +1317,6 @@ h-replan:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1369,7 +1362,6 @@ h-regate:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1391,7 +1383,6 @@ h-refit:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1477,7 +1468,6 @@ h-rejudge:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1546,7 +1536,6 @@ h-review:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1618,7 +1607,6 @@ h-refix:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1727,7 +1715,6 @@ h-tests:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1759,7 +1746,6 @@ h-look:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1796,7 +1782,6 @@ h-final:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -1818,7 +1803,6 @@ h-eyes:
   pr_go: false
   premises_go: false
   purpose_go: false
-  spec_go: false
   mat_go: false
   structure_units_file: ''
   ripple_file: ''

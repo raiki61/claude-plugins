@@ -125,7 +125,7 @@ STRUCTURE_UNITS_FILE = "structure-units.json"
 STRUCTURE_UNITS_OP = "structure_units_dropped"   # 対象の根からの相対のパスが 1 本も取れず写さなかった単位・捨てたパスの trace の行
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
-         "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False, "mat_go": False,
+         "pr_go": False, "premises_go": False, "purpose_go": False, "mat_go": False,
          "structure_units_file": "", "ripple_file": "", "verify_file": ""}
 # 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
 RIPPLE_FILE = "ripple.json"
@@ -680,11 +680,11 @@ def _record_protected(b, rows, err: str) -> None:
 
 
 def entry_edge(b) -> dict:
-    """h-entry（start の後・判定の前）: 盤面の ready から、任せ先の役・ブロックを回すかの旗。判定から入る run と仕様から入る run の
-    両方で、pr-checking・premising・purposing の when: はこの欄だけを読む"""
+    """h-entry（start の後・判定の前）: 盤面の ready から、任せ先の役・ブロックを回すかの旗。pr-checking・premising の when: は
+    この欄だけを読む"""
     ready = b.ready()
     return {"go": True, "pr_go": "p0.parallel_pr" in ready, "premises_go": PREMISES_NODE in ready,
-            "purpose_go": "p0.purpose" in ready, "spec_go": any(n.startswith("spec.") for n in ready)}
+            "purpose_go": "p0.purpose" in ready}
 
 
 def _guard(b, repo) -> tuple:
@@ -1024,7 +1024,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        （修正案の欄の控え plan-fields.json の食い違い。conflict.test_permits）なら、関所を開かず止め直さずに _halted_out
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
-    5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
+    5. entry: 盤面の ready から pr_go・premises_go・purpose_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言と、関所で答えた問いで直す義務に戻った単位の行
        （gatemarks.returned_lines。notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。

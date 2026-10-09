@@ -48,9 +48,9 @@ SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
-            "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go",
+            "pr_go", "premises_go", "purpose_go", "mat_go",
             "structure_units_file", "ripple_file", "verify_file"}
-BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go"}
+BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -690,7 +690,7 @@ class ProtectedGateCase(EdgeBase):
 
 class EntryMidCase(EdgeBase):
     def test_entry_edge_flags(self):
-        """start の後の盤面（ready に p0.parallel_pr・p0.premises）→ go・pr_go・premises_go True、purpose_go・spec_go False。
+        """start の後の盤面（ready に p0.parallel_pr・p0.premises）→ go・pr_go・premises_go True、purpose_go False。
         origin は GitHub の形で偽の gh が交差を返す（並行 PR が任せ先の役に落ちる run）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         env = mock.patch.dict("os.environ", {"PATH": linekit.github_crossing(self.repo, self.tmp)})
@@ -705,8 +705,8 @@ class EntryMidCase(EdgeBase):
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.assertTrue({"p0.parallel_pr", "p0.premises"} <= set(entry.open_board(self.board).ready()))
         got = self.edge("entry")
-        self.assertEqual({k: got[k] for k in ("go", "pr_go", "premises_go", "purpose_go", "spec_go", "stop")},
-                         {"go": True, "pr_go": True, "premises_go": True, "purpose_go": False, "spec_go": False, "stop": False})
+        self.assertEqual({k: got[k] for k in ("go", "pr_go", "premises_go", "purpose_go", "stop")},
+                         {"go": True, "pr_go": True, "premises_go": True, "purpose_go": False, "stop": False})
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
         got = self.edge("entry")
