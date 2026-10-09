@@ -370,7 +370,12 @@ LINE_ORDER = [
     _edge("h-ci", "ci", ["start", "h-tests", "testing"]),
     {"id": "ci-final", "kind": "include", "block": "blk-ci", "depends_on": ["h-ci"], "when": "$h-ci.output.go == true",
      "with": {"node": "p4.ci"}},
-    _edge("h-look", "look", ["start", "h-tests", "testing", "h-ci", "ci-final"]),
+    # 直しの後の実測（構造のブロックの 2 度目の include。計画 2026-10-09-clean-whole の Task 2.5）と、その境の節（控えを書く）
+    {"id": "measuring-after", "kind": "include", "block": "blk-structure", "depends_on": ["h-ci", "ci-final"],
+     "trigger_rule": NFMOS, "with": {"base_rev": "$start.output.base_rev"}},
+    {"id": "h-after", "kind": "script", "script": "after", "depends_on": ["h-ci", "measuring-after"], "trigger_rule": ALL_DONE,
+     "with": {"measured": _skippable("$measuring-after.output")}},
+    _edge("h-look", "look", ["start", "h-tests", "testing", "h-ci", "ci-final", "h-after"]),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
      "with": {"skip_optional": "$h-redepth.output.skip"}},
     _edge("h-final", "final", ["start", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
@@ -656,9 +661,11 @@ class LineRun:
         """blk-structure の節の順（stage-a → 目を起こす周なら eye_prep・目の返答・eye_accept → collect）。本物のスクリプトを子の
         プロセスで回す（ARTIFACTS_DIR は盤面の置き場の親。cwd は対象）。目の返答は replies["structure-eye"] か、実測できた単位
         ごとの汚れないの 1 行（structure_eye_reply）"""
+        after = "base_rev" in (self.row.get("with") or {})   # 直しの後の 2 度目の include（段 B だけ）
         env = hermetic.child_env(ARTIFACTS_DIR=str(self.board.parent), PYTHONDONTWRITEBYTECODE="1",
-                                 INPUTS_UNITS=self.out["h-plan"]["structure_units_file"], INPUTS_ROOT="",
-                                 INPUTS_POLICY_PATH=self.out["start"].get("policy_path") or "")
+                                 INPUTS_UNITS="" if after else self.out["h-plan"]["structure_units_file"], INPUTS_ROOT="",
+                                 INPUTS_POLICY_PATH="" if after else self.out["start"].get("policy_path") or "",
+                                 INPUTS_BASE_REV=self.out["start"].get("base_rev") or "" if after else "")
 
         def run(script, **inputs):
             p = subprocess.run([sys.executable, str(ROOT / "blk-structure" / "scripts" / f"{script}.py")], cwd=str(self.repo),
@@ -674,7 +681,8 @@ class LineRun:
             run("eye_prep", structure_file=a["structure_file"])
             reply = (self.replies or {}).get("structure-eye") or structure_eye_reply(a["structure_file"])
             eye = json.dumps(run("eye_accept", **files, reply=json.dumps(reply, ensure_ascii=False)), ensure_ascii=False)
-        return run("collect", **files, eye_due=json.dumps(a["eye"]), eye=eye)
+        b = json.dumps(run("stage_b"), ensure_ascii=False) if a["after"] else "null"
+        return run("collect", **files, eye_due=json.dumps(a["eye"]), eye=eye, after_due=json.dumps(a["after"]), after=b)
 
     def blk_fix(self):
         self._edit("fix")
@@ -832,6 +840,9 @@ class LineRun:
             elif nid == "h-structure":
                 self.out[nid] = line_edge.structure_edge(self.board, self._src(row["with"]["structured"]),
                                                          self.out["h-plan"].get("go") is not False)
+                self.trail.append(nid)
+            elif nid == "h-after":
+                self.out[nid] = line_edge.after_edge(self.board, self._src(row["with"]["measured"]))
                 self.trail.append(nid)
             elif row["kind"] == "approval":
                 if self._when(row):

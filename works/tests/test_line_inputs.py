@@ -230,6 +230,9 @@ UNREAD_OUTPUTS = {
     "depth": ({"depth_file"}, "盤面の depth.json のパス。報告は h-redepth の lines だけを読む（run の記録に残すだけ）"),
     "edge": ({"spec_go"}, "仕様のブロック blk-spec は一つの入口の計画（docs/plans/2026-10-09-one-entry-shape.md）のために残し、"
                           "まだ線に無い。読み手は計画の段 4 で付く（持ち主 2026-10-09: blk-spec を残す）"),
+    "after": ({"ok", "reason", "status"},
+              "直しの後の構造の境 h-after は順の結び目（h-look が depends_on で待つ）。控えは盤面の structure-after.json で、出口は "
+              "run の記録に残すだけ"),
     "structure": ({"design_file", "ok", "reason", "status", "wall_s"},
                   "構造の境 h-structure は順の結び目（修正案の段が depends_on で待つ）。控えは盤面の structure-state.json で、出口は "
                   "run の記録に残すだけ"),

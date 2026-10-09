@@ -18,6 +18,9 @@
   独立設計（design.due）のどちらかを blk-plan で起こす周
 - structure_edge(board_dir, structured): h-structure（構造の境の節。darkfactory/scripts/structure.py の中身）。構造のブロックの出口を
   確かめ、盤面の根の控え（core の structmark）を書く。planning はこの節を待つ
+- after_edge(board_dir, measured): 直しの後の構造の境（darkfactory/scripts/after.py の中身。計画 2026-10-09-clean-whole の
+  Task 2.5）。直しの後に 2 度目に差し込んだ構造のブロックの出口（after.json）に、修正案の外れの訳（planmarks.deviations）を
+  足して盤面の根の控え（structmark.write_after）を書く。報告・最後の関所・独立の目の頭・結末の残りがその控えを読む
 - trace_empty_fix(b): 機械が p3.fix の空の返答を渡した印（trace の記録。entry.trace_empty_fix の別名）
 - 固定材料（core の fixture。計画 220 Task 5）: h-fix は go の後、1 周目なら盤面を $ARTIFACTS_DIR/fix-fixture へ写す
   （固定材料から始めた盤面は capture が写さない。写せなくても run は止めない）。包みの確かめは「この run で役が 1 つ起きた
@@ -57,6 +60,7 @@ import fixture  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import impact  # noqa: E402
+import planmarks  # noqa: E402
 import premises  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
@@ -416,6 +420,34 @@ def structure_edge(board_dir, structured, plan_go=True) -> dict:
     return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall}
 
 
+def after_edge(board_dir, measured) -> dict:
+    """直しの後の構造の境: 構造のブロックの出口 measured（飛ばされた・落ちた周は None）の after.json と、今の周の修正案の外れの訳を
+    盤面の根の控え（structmark.write_after）に書く。読み書きの失敗も節の失敗にせず status failed と理由で返す（線を止めない）"""
+    got = measured if isinstance(measured, dict) else {}
+    after, why = {}, ""
+    if not got:
+        why = "直しの後の構造のブロックの節が落ちたか走らなかった（出口が無い）"
+    else:
+        try:
+            after = json.loads(pathlib.Path(str(got.get("after_file") or "")).read_text(encoding="utf-8"))
+            if not isinstance(after, dict):
+                raise ValueError("after.json が JSON のオブジェクトでない")
+        except (OSError, UnicodeDecodeError, ValueError) as e:
+            after, why = {}, f"直しの後の実測の after.json が読めない: {e}"
+        if not why and got.get("status") != "ok":
+            why = str(got.get("reason") or "直しの後の構造のブロックが status: failed で抜けた")
+    try:
+        devs = planmarks.deviations(planmarks.read(entry.open_board(pathlib.Path(board_dir), allow_halted=True)))
+    except Exception as e:   # 控えが読めなくても実測は残す（外れの訳が無い印を理由に足す）
+        devs, why = [], (why + "。" if why else "") + f"修正案の欄が読めない（外れの訳を並べない）: {type(e).__name__}: {e}"
+    status = "failed" if why else "ok"
+    try:
+        structmark.write_after(board_dir, status=status, reason=why, after=after, deviations=devs)
+    except OSError as e:
+        status, why = "failed", (why + "。" if why else "") + f"直しの後の実測の控えを書けない: {e}"
+    return {"ok": True, "status": status, "reason": why}
+
+
 def _faces(b, nid: str) -> int:
     out = b.output_of_round(nid, b.round) or {}
     return len(out.get("faces") or [])
@@ -534,6 +566,7 @@ def _final_text(b, tests, objection: str, eyes: Eyes, rest: report.Rest, repo, r
     missing = structmark.note(structmark.read(b.dir))
     if missing:
         lines.append(f"- 構造のブロック: {missing}")
+    lines += [x if x[:1].isspace() else f"- {x}" for x in structmark.after_lines(b.dir)]   # 直しの後の実測（増えた所・外れの訳）
     passed = gatemarks.lines(b)
     if passed:
         lines.append(f"- 直す前の関所で通した項目（決め手が在るので聞かずに通した行と、人が通したので後の関所で聞き直さなかった行。{len(passed)} 件）:")

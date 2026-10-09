@@ -377,8 +377,8 @@ class MeasureCase(unittest.TestCase):
 
 BLOCK_DIR = ROOT / "blk-structure"
 BLOCK_YAML = BLOCK_DIR / "blk-structure.yaml"
-CONTRACT = {"units", "root", "policy_path"}
-OUTPUT_FILES = {"structure_file", "design_file"}
+CONTRACT = {"units", "root", "policy_path", "base_rev"}   # base_rev は直しの後の段（計画 clean-whole の Task 2.5）
+OUTPUT_FILES = {"structure_file", "design_file", "after_file"}
 
 
 def _found(v, key):
@@ -394,7 +394,7 @@ def _found(v, key):
 
 
 class BlockCase(unittest.TestCase):
-    """ブロックの骨（設計書 1 節・8 節・10 節の S2a）: 入力の契約 3 つ・段 A の実測・出力 2 本・節の時間・落ちても止めない"""
+    """ブロックの骨（設計書 1 節・8 節・10 節の S2a）: 入力の契約 4 つ（直しの後の段の base_rev を含む）・段 A の実測・出力 3 本・節の時間・落ちても止めない"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -409,7 +409,7 @@ class BlockCase(unittest.TestCase):
         import yaml
         return yaml.safe_load(BLOCK_YAML.read_text(encoding="utf-8"))
 
-    def run_block(self, units, root, reply=None):
+    def run_block(self, units, root, reply=None, base_rev=""):
         """Archon と同じ形で節を並びの順に回す（scriptline と同じ読み方: trigger_rule・when・loop_group の until_bash と
         max_iterations）。script の節は子で起こし（with: → INPUTS_<大文字>・ARTIFACTS_DIR・cwd は対象の根）、終了コード 0 と
         標準出力の JSON が output_format に合うことを確かめる。AI の節は構造の目の輪の中のちょうど 1 つだけで、目のほかの節は
@@ -419,7 +419,7 @@ class BlockCase(unittest.TestCase):
         doc = self.doc()
         art = self.tmp / "art"
         art.mkdir(exist_ok=True)
-        inputs = {"units": str(units), "root": str(root), "policy_path": ""}
+        inputs = {"units": str(units), "root": str(root), "policy_path": "", "base_rev": base_rev}
         scope = scriptline.Scope("blk-structure", inputs)
         env = {k: v for k, v in child_env().items() if not k.startswith("INPUTS_")}
         env.update(ARTIFACTS_DIR=str(art), WORKFLOW_ID="run-structure", PYTHONDONTWRITEBYTECODE="1")
@@ -613,6 +613,51 @@ class EyeInputsCase(unittest.TestCase):
         doc, prompt = self.stage_and_prep(repo)
         self.assertEqual(doc["units"][0]["concepts"], {"rows": [], "places": []})
         self.assertFalse((repo / "docs").exists())
+
+
+class AfterCase(unittest.TestCase):
+    """直しの後の段（計画 2026-10-09-clean-whole の Task 2.5）: 入力 base_rev が在る周は、単位を測らず目も起こさず、直しの前の版と
+    今の作業ツリーの差分を測って after.json に書く（柵の表が在れば知る場所の増え・新しい名・増えた写しの塊）"""
+
+    setUp, tearDown, units, run_block, doc = (BlockCase.setUp, BlockCase.tearDown, BlockCase.units, BlockCase.run_block,
+                                              BlockCase.doc)
+    target = EyeInputsCase.target
+    MAP, TABLE = EyeInputsCase.MAP, EyeInputsCase.TABLE
+
+    def after(self, repo, base):
+        out = self.run_block(self.tmp / "no-units.json", repo, base_rev=base)
+        self.assertIs(out["ok"], True)
+        self.assertEqual(pathlib.Path(out["design_file"]).stat().st_size, 0)
+        return json.loads(pathlib.Path(out["after_file"]).read_text(encoding="utf-8"))
+
+    def test_after_stage_counts_real_diff(self):
+        repo = self.target()
+        base = _git(repo, "rev-parse", "HEAD")
+        _write(repo, "src/edge.py", 'x = "round_limit"\ny = "round_limit"\nNEW_KNOB_NAME = 1\n')   # 住処の外に 1 行・新しい名
+        _write(repo, "src/fresh.py", 'z = "round_limit"\n')                                            # 追跡前の新しいファイル
+        _write(repo, "src/report.py", 'OUT = "round_limit"\nOTHER = "round_limit"\n')                 # 住処の中は数えない
+        got = self.after(repo, base)
+        self.assertEqual(got["status"], "ok", got)
+        self.assertEqual(sorted((f["path"], f["before"], f["after"]) for f in got["fence_up"]),
+                         [("src/edge.py", 1, 2), ("src/fresh.py", 0, 1)])
+        self.assertIn("NEW_KNOB_NAME", [n["name"] for n in got["new_names"]])
+        self.assertEqual(got["tables"], ["docs/concepts.json"])
+        self.assertEqual(_git(repo, "status", "--porcelain", "--untracked-files=no").count("\n") + 1, 2)   # 対象の index を動かさない
+
+    def test_no_table_reports_only(self):
+        """表の無い対象は柵を数えない（fence_up は空。作らない）が、差分の実測は出す"""
+        repo = self.target(with_table=False)
+        base = _git(repo, "rev-parse", "HEAD")
+        _write(repo, "src/edge.py", 'x = "round_limit"\ny = "round_limit"\n')
+        got = self.after(repo, base)
+        self.assertEqual((got["status"], got["fence_up"], got["tables"]), ("ok", [], []))
+        self.assertEqual(got["changed"], ["src/edge.py"])
+        self.assertFalse((repo / "docs").exists())
+
+    def test_unknown_base_does_not_stop_the_line(self):
+        got = self.after(self.target(), "0" * 40)
+        self.assertEqual(got["status"], "failed")
+        self.assertTrue(got["reason"].strip())
 
 
 class EyeCase(unittest.TestCase):

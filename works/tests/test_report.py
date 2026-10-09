@@ -1158,6 +1158,36 @@ class StructureCase(ReportBase):
         self.assertIn("構造のブロックの節が落ちた（実測の落ち）", body)
 
 
+class AfterMeasureCase(ReportBase):
+    """直しの後の実測の控え（structmark の structure-after.json。計画 2026-10-09-clean-whole の Task 2.5）: 柵の表を持つ対象で住処の
+    外の知る場所が増えた run は fixed を名乗らず round_limit、増えた所は「考えの住処: 」で始まる行で次の依頼の下書きに載る。
+    表の無い対象は結末を変えず、報告に数だけ並ぶ"""
+    UP = {"concept": "outcome", "what": "結末の語", "path": "src/edge.py", "before": 1, "after": 2}
+
+    def put_after(self, tables, fence_up, deviations=()):
+        import structmark
+        after = {"status": "ok", "reason": "", "base_rev": "x", "changed": ["src/edge.py"], "tables": tables,
+                 "fence_up": fence_up, "new_names": [{"name": "NEW_KNOB", "sites": 3}], "dup_blocks_added": 1}
+        structmark.write_after(self.board, status="ok", reason="", after=after, deviations=list(deviations))
+
+    def test_fence_up_blocks_fixed(self):
+        self.full()
+        self.put_after(["docs/concepts.json"], [self.UP])
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "round_limit")
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))["findings"]
+        self.assertTrue(any(str(i.get("text", "")).startswith("考えの住処: outcome") for i in items), items)
+
+    def test_no_table_reports_only(self):
+        self.full()
+        self.put_after([], [self.UP], deviations=[{"item": 1, "row": "u", "deviation": "訳" * 20}])
+        out, _, hs = self.build()
+        self.assertEqual(out["outcome"], "fixed")
+        body = hs[STRUCTURE_HEAD]
+        for want in ("直しの後の実測", "柵の表は無い", "新しい名 1 個", "NEW_KNOB", "外れた訳: " + "訳" * 20):
+            self.assertIn(want, body)
+
+
 class NextRequestCase(ReportBase):
     def declared_board(self, key=None):
         """差分の審査の穴（key）と事前審査の穴を、手直しが両方 declared で残した盤面"""

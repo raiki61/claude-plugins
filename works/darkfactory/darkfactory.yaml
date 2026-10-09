@@ -1040,12 +1040,41 @@ nodes:
     with:
       node: "p4.ci"
 
+  # 直しの後の実測（構造のブロックの 2 度目の include。計画 2026-10-09-clean-whole の Task 2.5）。修正の起点の版と今の作業ツリーの
+  # 差分を測る（AI なし）。軽量の run でも回す（深さの省く理由を渡さない）。落ちても線を止めない（出口の status と reason）
+  - id: measuring-after
+    description: '直しの後の差分で、設計の考えを知る場所の増減・新しい名・写しの塊を測る'
+    include: blk-structure
+    depends_on: [h-ci, ci-final]
+    trigger_rule: none_failed_min_one_success
+    with:
+      base_rev: $start.output.base_rev
+
+  # 直しの後の構造の境。直しの後の実測と修正案の外れの訳を盤面の根の控えにする（報告・最後の関所・独立の目の頭・結末の残りが読む）。
+  # 構造のブロックが飛ばされた・落ちた周も走り（all_done）、控えに failed と理由を残す
+  - id: h-after
+    script: after
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [h-ci, measuring-after]
+    trigger_rule: all_done
+    with:
+      measured: {from: $measuring-after.output, if_skipped: null}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, status, reason]
+      properties:
+        ok: {type: boolean}
+        status: {type: string, enum: [ok, failed]}
+        reason: {type: string}
+
   # 独立の目を回すか（最後のテストの後・最後の関所の前。目が盤面で待っていれば go）。先に、修正の前に作った独立設計を盤面へ渡す
   - id: h-look
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-tests, testing, h-ci, ci-final]
+    depends_on: [start, h-tests, testing, h-ci, ci-final, h-after]
     trigger_rule: none_failed_min_one_success
     with:
       at: "look"

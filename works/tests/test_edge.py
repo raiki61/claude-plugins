@@ -404,6 +404,31 @@ class FinalGateCase(EdgeBase):
         for x in converge.lines(b)[1:]:
             self.assertIn(x, lines)
 
+    def test_final_gate_lists_fence_up_and_deviations(self):
+        """直しの後の実測（直しの境 after_edge が盤面の根に控えた物）の増えた所と、修正案の外れの訳は最後の関所の文に並ぶ
+        （計画 2026-10-09-clean-whole の Task 2.5）"""
+        tests = self.closed()
+        art = self.tmp / "after.json"
+        up = {"concept": "outcome", "what": "結末の語", "path": "src/edge.py", "before": 1, "after": 2}
+        art.write_text(json.dumps({"status": "ok", "reason": "", "base_rev": "x", "changed": ["src/edge.py"],
+                                   "tables": ["docs/concepts.json"], "fence_up": [up], "new_names": [], "dup_blocks_added": 0}),
+                       encoding="utf-8")
+        why = "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"
+        with mock.patch.object(line_edge.planmarks, "read", return_value=[{"structure": [{"row": "u", "deviation": why}]}]):
+            got = line_edge.after_edge(self.board, {"ok": True, "after_file": str(art), "status": "ok", "reason": ""})
+        self.assertEqual(got["status"], "ok", got)
+        text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
+        self.assertIn("考えの住処: outcome（結末の語）を知る場所が src/edge.py で増えた（1 → 2 行）", text)
+        self.assertIn(why, text)
+        self.assertIn("直しの後の実測", text)
+
+    def test_after_edge_without_block_exit_marks_failed(self):
+        """直しの後の構造のブロックが飛ばされた・落ちた周も節を落とさず、控えに failed と理由を残す"""
+        self.premised()
+        got = line_edge.after_edge(self.board, None)
+        self.assertEqual((got["ok"], got["status"]), (True, "failed"))
+        self.assertTrue(got["reason"].strip())
+
     def test_final_gate_words_match_entry(self):
         """ラインの入力 final_gate の語は、start（entry.check_inputs）が受ける語と境の節が読む語で同じ（C18。mid_gate は無い）"""
         self.assertEqual(entry.FINAL_GATES, line_edge.FINAL_GATES)

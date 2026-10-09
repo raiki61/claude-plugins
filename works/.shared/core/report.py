@@ -508,7 +508,8 @@ def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "
     """検証器の外の残りの数えの正本（最後の関所と冒頭 1 の residue が同じ口を読む。検証器の行は持たない: 関所は検証器を回さない）。
     rows: tests が dict で tests_word が緑でなければ『最後のテストが<語>』・exit_problem（独立の目のブロックの出口が ok でない理由）が
     在れば『独立の目のブロックが ok でない: …』・目の行（blocked・not_run は『<R> が <status>: <reason>』、missing は
-    『<R> の結果が無い——再実行の要あり』。where は『独立の目 <R>』）"""
+    『<R> の結果が無い——再実行の要あり』。where は『独立の目 <R>』）・直しの後の実測が見た住処の外の知る場所の増え（structmark.after_rows。
+    「考えの住処: 」で始まる。柵の表を持つ対象だけ）"""
     word = tests_word(b, tests)
     rows = []
     if isinstance(tests, dict) and word != "緑":
@@ -518,6 +519,7 @@ def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "
     said = {e["name"]: f"{e['name']} が {e['status']}: {e['reason']}" for e in [*counts.blocked, *counts.not_run]}
     lost = {e["name"]: f"{e['name']} の結果が無い——再実行の要あり" for e in counts.missing}
     rows += [{"where": f"{EYES_WHERE} {n}", "text": said.get(n) or lost[n]} for n in EYES if n in said or n in lost]
+    rows += structmark.after_rows(b.dir)   # 柵の表を持つ対象で、直しの後の実測が住処の外の知る場所の増えを見た所（計画 clean-whole の Task 2.5）
     return Rest(word, counts, rows)
 
 
@@ -526,7 +528,8 @@ def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = N
     FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行と、依頼の answers が命令と出力つきで答えた測れていない素材の行
     （gatemarks.measured_materials。人が手元で確かめた物として冒頭 1 の答えた行に並ぶ）だけを除いた物。読めなければ fail-closed で 1 行）と、
     検証器の外の残り（rest_outside_validator。最後のテストが緑でない・走れなかった（tests が None＝飛ばされた時は数えない）・
-    独立の目（blk-eyes の出口）が ok でない・目の阻害と走っていない目と結果が無い目）。返りは [{where, text}]"""
+    独立の目（blk-eyes の出口）が ok でない・目の阻害と走っていない目と結果が無い目・直しの後の実測が見た住処の外の知る場所の増え）。
+    返りは [{where, text}]"""
     rows = []
     if gate.get("exit") == 1:
         found = _validator_blockers(str(gate.get("out") or ""))

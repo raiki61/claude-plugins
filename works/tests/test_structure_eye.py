@@ -255,5 +255,25 @@ class StructureBoundaryCase(unittest.TestCase):
             self.assertIn("構造の目の会話が落ちた", structmark.note(structmark.read(d)))
 
 
+class AfterWiringCase(unittest.TestCase):
+    """直しの後の実測の配線（計画 2026-10-09-clean-whole の Task 2.5）: 構造のブロックを直しの後に 2 度目に差し込み、修正の起点の版を
+    渡す。深さ（軽量の run）で省かない。境の節 h-after が控えを書き、独立の目の前の h-look がそれを待つ"""
+
+    def test_light_run_still_measures(self):
+        doc = yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))
+        nodes = {n["id"]: n for n in doc["nodes"]}
+        incs = [n for n in doc["nodes"] if n.get("include") == "blk-structure"]
+        self.assertEqual(len(incs), 2)
+        after = next(n for n in incs if (n.get("with") or {}).get("base_rev"))
+        self.assertEqual(after["with"]["base_rev"], "$start.output.base_rev")
+        self.assertNotIn("when", after)   # 全部の単位が軽量の run でも回す
+        self.assertFalse(any("skip" in k for k in after.get("with") or {}))
+        self.assertIn(after["id"], nodes["h-after"]["depends_on"])
+        self.assertEqual(nodes["h-after"]["trigger_rule"], "all_done")
+        self.assertIn("h-after", nodes["h-look"]["depends_on"])
+        first = next(n for n in incs if n is not after)
+        self.assertNotIn("base_rev", first.get("with") or {})
+
+
 if __name__ == "__main__":
     unittest.main()

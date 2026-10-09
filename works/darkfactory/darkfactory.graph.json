@@ -15,9 +15,9 @@
   "blk-refix/blk-refix.yaml": "94f44741c2ff1771d01d6a91770d2946eb9df22acb0f99b5a69fd12c6b1db528",
   "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
-  "blk-structure/blk-structure.yaml": "3404ec470771ead18943b3ac3a040a07374724374d4bb9cc0df391294c7507ae",
+  "blk-structure/blk-structure.yaml": "b288e8fa0004680608a1b3408b7d1081ff431734af3b73bac8eeafb4fd940d6f",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "e2d940441977dd251d3ef3dae6281a897ceca7c34aeb6d5a90c428933614cc81"
+  "darkfactory/darkfactory.yaml": "68249ef60e30abd2e8ea78985a7403908226918db6b6257dbeffb45365304f46"
  },
  "version": 1,
  "workflows": {
@@ -2182,6 +2182,14 @@
      "kind": "script"
     },
     {
+     "deps": [
+      "stage-a"
+     ],
+     "id": "stage-b",
+     "kind": "script",
+     "when": "$stage-a.output.after == true"
+    },
+    {
      "body": [
       {
        "deps": [],
@@ -2218,7 +2226,8 @@
     {
      "deps": [
       "stage-a",
-      "structure-eye-loop"
+      "structure-eye-loop",
+      "stage-b"
      ],
      "id": "collect",
      "kind": "script"
@@ -2679,12 +2688,34 @@
      }
     },
     {
+     "call": "blk-structure",
+     "deps": [
+      "h-ci",
+      "ci-final"
+     ],
+     "id": "measuring-after",
+     "kind": "call",
+     "purpose": "直しの後の差分で、設計の考えを知る場所の増減・新しい名・写しの塊を測る",
+     "with": {
+      "base_rev": "$start.output.base_rev"
+     }
+    },
+    {
+     "deps": [
+      "h-ci",
+      "measuring-after"
+     ],
+     "id": "h-after",
+     "kind": "script"
+    },
+    {
      "deps": [
       "start",
       "h-tests",
       "testing",
       "h-ci",
-      "ci-final"
+      "ci-final",
+      "h-after"
      ],
      "id": "h-look",
      "kind": "script"

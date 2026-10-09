@@ -15,7 +15,9 @@ rules（方針の文書の中身と根の地図の文書）と単位の concepts
 - 対象の根（INPUTS_ROOT）は空なら cwd。相対なら cwd から解く。方針の文書（INPUTS_POLICY_PATH）は任意で、中身を rules に置く
 - 単位のファイルが読めない・形が違う・measure.py が落ちた時も、structure.json の status: failed と reason に残して 0 で終える
   （実測が落ちても線を止めない。GitHub Actions の continue-on-error と同じ分け方で、節の結末は成功のまま）
-- {"structure_file", "design_file", "eye"} を 1 行出して 0（eye は構造の目を起こす周か。lib/eye.due）。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
+- 直しの前の版（INPUTS_BASE_REV）が在る周は直しの後の段: 単位を読まず測らず、units の空の structure.json を書いて after: true を返す
+  （段 B の stage_b がその差分を測る。計画 2026-10-09-clean-whole の Task 2.5）
+- {"structure_file", "design_file", "eye", "after"} を 1 行出して 0（eye は構造の目を起こす周か。lib/eye.due）。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
 """
 import json
 import os
@@ -33,7 +35,9 @@ import eye  # noqa: E402
 UNITS_ENV = "INPUTS_UNITS"
 ROOT_ENV = "INPUTS_ROOT"
 POLICY_ENV = "INPUTS_POLICY_PATH"
-INPUTS = (UNITS_ENV, ROOT_ENV, POLICY_ENV)   # 裁定 TA16: 読む INPUTS_* の組
+BASE_ENV = "INPUTS_BASE_REV"
+INPUTS = (UNITS_ENV, ROOT_ENV, POLICY_ENV, BASE_ENV)   # 裁定 TA16: 読む INPUTS_* の組
+AFTER_REASON = "直しの後の段（base_rev が在る周。単位を測らず目も起こさない。差分は段 B が測る）"
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 OUT_DIR = "structure"
 STRUCTURE_FILE = "structure.json"
@@ -91,8 +95,9 @@ def main() -> int:
     (out_dir / eye.EYE_FILE).unlink(missing_ok=True)
     root = Path(os.environ.get(ROOT_ENV) or ".").resolve()
     doc = {"status": "ok", "reason": "", "root": str(root), "policy_path": os.environ.get(POLICY_ENV, ""), "units": []}
+    after = bool(os.environ.get(BASE_ENV, "").strip())
     try:
-        units = read_units(os.environ.get(UNITS_ENV, ""))
+        units = [] if after else read_units(os.environ.get(UNITS_ENV, ""))
     except ValueError as e:
         doc.update(status="failed", reason=str(e))
     else:
@@ -103,12 +108,16 @@ def main() -> int:
         failed = [u["id"] for u in doc["units"] if u["status"] == "failed"]
         if failed:
             doc.update(status="failed", reason=f"実測が落ちた単位: {', '.join(failed)}")
-    doc["rules"] = context.rules(root, doc["policy_path"])
+    if after:
+        doc["reason"] = AFTER_REASON
+    else:
+        doc["rules"] = context.rules(root, doc["policy_path"])
     doc["timing"] = {"started_at": started, "finished_at": _now(), "wall_s": round(time.monotonic() - t0, 3)}
     structure = out_dir / STRUCTURE_FILE
     structure.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({"structure_file": str(structure), "design_file": str(design), "eye": eye.due(doc)}, ensure_ascii=False),
+    print(json.dumps({"structure_file": str(structure), "design_file": str(design), "eye": eye.due(doc), "after": after},
+                     ensure_ascii=False),
           flush=True)
     return 0
 
