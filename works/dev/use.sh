@@ -17,7 +17,9 @@
 #                                                                           記録が止まりを示す run は WORKS_USE_ALLOW_STOPPED=1 の時だけ）
 #   use.sh clean <対象リポジトリ> <run-id>                                  終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）。
 #                                                                           completed・cancelled の run は wait・show が差分を書いた後に自動で消し、
-#                                                                           failed などの残った run は次の start が差分を書いてから消す
+#                                                                           failed などの残った run は次の start が差分を書いてから消す。
+#                                                                           clean・start が消した failed の run は Archon の記録も abandon で閉じる
+#                                                                           （resume できなくなるため。worktree がもう無くても閉じる）
 #   use.sh check <対象リポジトリ>                                           AI を起こさずに、pack を置いて Archon の validate を回し、
 #                                                                           start に足りない物（uv・claude・認証・対象の条件）を全部並べる
 #
@@ -342,8 +344,44 @@ load_ledger() {
 . "$DEV_DIR/lib.sh"
 
 # clean_run <run-id> <run の行（row_of の形）>: 終わった run の worktree・枝・控え（と、その worktree から切った単位の worktree・参照）を消す。手の道（clean）と自動の道（auto_clean・
-# sweep_old_runs）が呼ぶ片付けの本体の 1 か所。生きた run かの判定は呼び手が済ませる。cd "$TARGET" した殻から呼ぶ
+# sweep_old_runs）が呼ぶ片付けの本体の 1 か所。生きた run かの判定は呼び手が済ませる。cd "$TARGET" した殻から呼ぶ。
+# 生きてもいず終わってもいない run（Archon の failed）の記録は「resume できる＝人の番」と言い続け、herdr の枠の集計
+# （lib.sh works_dev_herdr_sync）はそれを人の番に数える。片付けた run は resume できないので、片付けが済んだ後に記録を close_record で
+# 閉じる。状態の一覧は launch.py の LIVE_STATUSES・DONE_STATUSES（ledger live・ledger done）だけで決め、確かめが落ちたら何も消さずに 2 で返る。
+# worktree がもう無い run でも閉じる（前に片付けて記録だけ残った run は clean の打ち直しで閉じる）。返す値は片付けの結果だけで、
+# 閉じられなかった時は close_record が標準エラーに出し、その終了コードを CLOSE_STATUS に置く（閉じた run の id は CLOSED_RUNS に足す）
 clean_run() {
+  CLOSE_STATUS=0
+  _cr_st="$(printf '%s' "$2" | cut -f2)"
+  _cr_close=""
+  if [ -n "$_cr_st" ]; then
+    _cr_live="$(works_dev_launch ledger live --status "$_cr_st")" || return 2
+    _cr_done="$(works_dev_launch ledger "done" --status "$_cr_st")" || return 2
+    [ -n "$_cr_live" ] || [ -n "$_cr_done" ] || _cr_close=1
+  fi
+  clean_files "$1" "$2" || return $?
+  if [ -n "$_cr_close" ]; then
+    close_record "$1" "$_cr_st" || CLOSE_STATUS=$?
+  fi
+  return 0
+}
+
+# close_record <run-id> <状態>: 片付けた run の Archon の記録を abandon で閉じる（Archon v0.11.1 の abandon は記録を cancelled にする）。
+# 閉じた run の id を CLOSED_RUNS（空白区切り）に足す。落ちたら、片付けは済んだことと打ち直しの行を標準エラーに出し、abandon の終了コードで返る
+close_record() {
+  _cl_rc=0
+  WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow abandon "$1" || _cl_rc=$?
+  if [ "$_cl_rc" -ne 0 ]; then
+    echo "use.sh: run ${1} の worktree・枝・控えは片付けたが、Archon の記録（${2}）を abandon で閉じられなかった（終了コード ${_cl_rc}）。記録は resume できると言い続け、herdr の枠は人の番のまま残る。打ち直す: sh ${WORKS_USE_SH} clean ${TARGET} ${1}（Archon を直に: cd ${TARGET} && WORKS_DEV_HOME=${WORKS_USE_HOME} WORKS_DEV_NO_AUTH=1 sh ${ARCHON} workflow abandon ${1}）" >&2
+    return "$_cl_rc"
+  fi
+  echo "run ${1} の Archon の記録を閉じた（${2} → abandon。片付けた run は resume できない）"
+  CLOSED_RUNS="${CLOSED_RUNS:+${CLOSED_RUNS} }$1"
+  return 0
+}
+
+# clean_files <run-id> <run の行>: clean_run の片付けの部分（記録には触らない）
+clean_files() {
   GOT="$(printf '%s' "$2" | cut -f3)"
   # start が包んだ run の基を守った参照（控えの wrap_ref。refs/works/wraps/ の下の時だけ）も一緒に消す
   # drop_kept <run-id> <包んだ基の参照>
@@ -430,6 +468,7 @@ auto_clean() {
 # 報告の冒頭 2 へ渡す）。cd "$TARGET" した殻から呼ぶ
 sweep_old_runs() {
   CLEANED_RUNS=""
+  CLOSED_RUNS=""
   # 一覧が引けない・読めない時は、片付けが走らなかったことと理由（run_json の 1 行）を出す（黙って 0 で返さない）
   _sw_json="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" all 2>&1)" || {
     echo "前の run の片付けは走らなかった（run の一覧を引けない）: ${_sw_json}"
@@ -465,6 +504,9 @@ sweep_old_runs() {
   done <<EOF
 $_sw_json
 EOF
+  # 記録を閉じた run を起こした枠の集計を、片付けの後に 1 回だけ出し直す（id は Archon の run の id で空白を含まない）
+  # shellcheck disable=SC2086
+  [ -z "$CLOSED_RUNS" ] || herdr_sync $CLOSED_RUNS
   return 0
 }
 
@@ -663,9 +705,14 @@ elif got:
     if [ -n "$LIVE" ]; then
       refuse "run $3 は ${STATUS}。止めるか終わってから片付ける"
     fi
+    # 落ちた run の記録を閉じるのは clean_run（閉じられなければ片付けの行は出したまま、abandon の終了コードで終わる）
+    RID="$(printf '%s' "$ROW" | cut -f1)"
+    CLOSED_RUNS=""
     clean_status=0
-    clean_run "$(printf '%s' "$ROW" | cut -f1)" "$ROW" || clean_status=$?
-    exit "$clean_status"
+    clean_run "$RID" "$ROW" || clean_status=$?
+    [ "$clean_status" -eq 0 ] || exit "$clean_status"
+    [ -z "$CLOSED_RUNS" ] || herdr_sync "$RID"
+    exit "$CLOSE_STATUS"
     ;;
 esac
 

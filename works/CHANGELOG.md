@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 落ちた run（failed）を `use.sh clean` か次の `start` の自動の片付けで片付けても Archon の記録は failed のままで、resume できない run を「人の番」と言い続け、herdr の枠が blocked のまま残った（2026-10-09 の利用者の声）。片付けの本体は、片付けが済んだ後に、生きてもいず終わってもいない run の記録を `workflow abandon` で閉じ（cancelled）、run を起こした枠の集計を出し直す（`start` は片付けの後に 1 回）。worktree がもう無い run でも閉じるので、前に片付けて記録だけ残った run は `clean` の打ち直しで閉じる。abandon が落ちたら、片付けの結果は出したまま、標準エラーに打ち直しの行を出す（`clean` は abandon の終了コードで終わり、`start` は片付けた run に数えて起こす）。
+
 ### Changed
 
 - 次の run への持ち越し（`next-request.json`・`prior-failures.json`・`prior-failures-in.json` の欄の名・下書きの印・依頼の容器の解き方）を core の 1 つのモジュール `.shared/core/carry.py` にまとめ、書き手（報告）と読み手（依頼の入口）が同じ名と同じ JSON Schema（`.shared/core/` へ移した `next-request.schema.json`・`prior-failures.schema.json`。書く前に照らす）を引くようにした（書く中身はバイト一致で変わらない）。run の後の CI の赤を次の依頼へ足す口は `python3 -I .shared/core/carry.py carry-ci …` に移り、前の `ghreads.py carry-ci` は移った先を 1 行で言って終了コード 2 で終わる。`use.sh` の表示が数える下書きの行は、次の run の入口が拒む行と同じ決まり（`draft` か `source` の欄が在る行）に揃えた。
