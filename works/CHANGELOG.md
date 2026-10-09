@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.54] - 2026-10-09
+
 ### Fixed
 
 - 機械全体の重いテストの枠の台本（`WORKS_TESTSLOT`）の既定が、持ち主の家のパス（`/Users/…/.git/graphloops/ops/testslot.sh`）の決め打ちだった。既定を利用者の家のキャッシュ `${XDG_CACHE_HOME:-~/.cache}/works/testslot.sh` に替えた（式の正本は `.shared/core/slotwrap.sh`）。無ければ今どおり黙って枠なしで回す。開発の殻 `archon.sh` は HOME・XDG を隔離する前にこの既定を引いて `WORKS_TESTSLOT` に名指すので、run の中の試験も同じ台本を通る。前の既定の場所の台本を使っていた人は、新しい既定の場所に置く（symlink でよい）か `WORKS_TESTSLOT` で名指す。
