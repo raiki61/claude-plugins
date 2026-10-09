@@ -76,6 +76,10 @@ REF_EXT = PATHREF_EXT - {"sh", "bash", "zsh", "bats", "mk"} | DOC_EXT
 TEST_DIRS = frozenset({"tests", "test", "__tests__", "spec"})
 TEST_NAME = re.compile(r"(^test_.*\.py$|.*_test\.(py|go)$|.*\.bats$|.*\.(test|spec)\.[jt]sx?$|.*-(case|suite)\.(py|sh)$"
                        r"|^conftest\.py$)")
+# テストの実行器が自分で探す名の形（拡張子を除いた名の語の頭・尾。pytest の python_files・go test・Jest の testMatch・RSpec・
+# Maven の surefire と failsafe・xUnit の命名）。言語ごとの表でなく名の形 1 つで、文書・設定の拡張子（DOC_EXT・PATHREF_EXT）には当てない
+# 名に点を足した形は .test・.spec の尾だけ（test_x.json.gz のような控えのデータを数えない）
+TEST_STEM = re.compile(r"^(test_[^.]+|[^.]+_(test|spec)|.+\.(test|spec)|[^.]*[a-z0-9](Test|Tests|Spec|IT))$")
 # 拡張子を除いた名で呼ばれる物（YAML の script の値・include の値・名で起こすスクリプト）。JSON などの名は節の id と重なるので見ない
 STEM_EXT = frozenset({"py", "sh", "bash", "zsh", "bats", "yml", "yaml"})
 # project の根の印（名の言及を同じ project の中に限る。無いリポジトリは全体が 1 つの project）
@@ -102,7 +106,8 @@ HEURISTICS = [
     "点の付いた模块名の言及（module）は Python でない file だけ（python -m など。Python の file は import の読み取りが正）。"
     "stem は py（import で読まれていない物＝スクリプト）・シェル・YAML の file だけ。同じ名の file が複数あり、言及した file と"
     "共有するフォルダが 1 段も無ければ、どれとも決めない（not_seen.ambiguous_mentions に数える）",
-    "テストのモジュールは名前の型（test_*.py・*_test.py・*.bats・*.test.js・*-case.py など）。tests/ の下の他は支え",
+    "テストのモジュールは名前の型（test_*.py・*_test.py・*.bats・*.test.js・*-case.py など）と、文書・設定でない file の名の"
+    "語の頭・尾の慣習（test_*・*_test・*_spec・*.spec・*.test・*Test・*Tests・*Spec・*IT）。tests/ の下の他は支え",
     "動的 import（import_module・__import__・spec_from_file_location・runpy・exec など）は、引数の字が追跡中の"
     "file 名・フォルダ名に当たれば言及で辿れるとみなし、当たらなければ読めない物に数える",
     "文書と見るのは文書・データの拡張子と、拡張子の無い名・ドットで始まる設定の名だけ。ほかの拡張子は言語を問わず読めないコード",
@@ -146,8 +151,11 @@ def _code_sha():
 
 
 def is_test(path):
-    """"module"（回すテスト）・"support"（テストのフォルダの下の他の file）・None"""
-    if TEST_NAME.match(_base(path)):
+    """"module"（回すテスト）・"support"（テストのフォルダの下の他の file）・None。module は名の型（TEST_NAME）か、文書でも
+    設定でもない拡張子の file の名の慣習（TEST_STEM）"""
+    base = _base(path)
+    ext = _ext(path)
+    if TEST_NAME.match(base) or (ext and ext not in DOC_EXT | PATHREF_EXT and TEST_STEM.match(_stem(path))):
         return "module"
     if any(part in TEST_DIRS for part in path.split("/")[:-1]):
         return "support"

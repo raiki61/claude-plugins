@@ -35,7 +35,7 @@
     緑に届けば、後の単位は段を回さずに機械が閉じる（_close_covered: 受け入れのテストが全部確かめ済みの時だけ。赤・緑とも ok、
     covered_by に一緒に直した単位）。別の項目の単位・前の単位に無い項目にも載る単位は今どおり単位ごとに赤→緑を回す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
-    （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits）・テストを飛ばした・消していない
+    （is_test_file: 宣言か名の慣習）の既存の test* 関数の本体（.py でないファイルは行を消した・置き換えた差分）も変えていない（_other_test_edits）・テストを飛ばした・消していない
     （_vanished_problems）。関門が on なら、そのうえで run の test_cmd も緑（_test_cmd_problems。赤は拒み、走らない時は実行器が
     走らない時と同じに輪を抜ける）。refactor の緑の確かめも同じ。
     緑の後、返答の任意の欄 refactor（{declared, why}）で役が理由（10 字以上）つきで申告した単位か、約束の refactor が真（修正案の
@@ -979,13 +979,50 @@ def verified_rewrites(state_file) -> list[str]:
     return [i for i in dict.fromkeys(ids) if _norm_id(i) in done]
 
 
-TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")   # テストのファイルの名（実装の .py の test* 関数を凍らせない）
+def id_path(test_id: str) -> str:
+    """名指し（`<パス>::…`）のパスの部分（posixpath.normpath で整えた物）"""
+    return posixpath.normpath(test_id.strip().partition("::")[0])
+
+
+def declared_test_files(st) -> set[str]:
+    """宣言されたテストのファイル: 単位ごとの役の申告（test_files）と、承認済みの修正案の約束の受け入れのテスト（tests）・書き換えの
+    名指し（rewrites）のパス。テストのファイルの見分け（is_test_file）の正本。純粋"""
+    out = set()
+    for u in (st.get("units") or {}).values():
+        out |= {posixpath.normpath(f) for f in (u or {}).get("test_files") or [] if isinstance(f, str) and f.strip()}
+    for c in (st.get("contract") or {}).values():
+        ids = [t.get("id") for t in (c or {}).get("tests") or [] if isinstance(t, dict)] + list((c or {}).get("rewrites") or [])
+        out |= {id_path(i) for i in ids if isinstance(i, str) and i.strip()}
+    return out
+
+
+def is_test_file(path: str, declared) -> bool:
+    """テストのファイルか: 宣言（declared_test_files）に在るか、名の慣習（impact.is_test の module。テストの実行器が自分で探す名の
+    形で、言語の表でない）に当たるか。実装のファイルの test* 関数は凍らせない。純粋"""
+    return posixpath.normpath(path) in declared or impact.is_test(path) == "module"
 
 
 def _moved_test_files(st, repo, exclude=()) -> list[str]:
-    """単位の頭から変わったテストのファイル（TEST_FILE の名。走らせて出来たファイルと exclude を除く）"""
+    """単位の頭から変わったテストのファイル（is_test_file。走らせて出来たファイルと exclude を除く）"""
     moved = set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]) - set(exclude)
-    return sorted(f for f in moved if TEST_FILE.match(posixpath.basename(f)))
+    declared = declared_test_files(st)
+    return sorted(f for f in moved if is_test_file(f, declared))
+
+
+def _cut_lines(repo, tree: str, files: list[str]) -> list[str]:
+    """files のうち木 tree に在った .py でないファイルで、tree から今の作業ツリーまでに行を消した・置き換えた物（足すだけは
+    数えない。バイナリ・消したファイルは数える）。テストの関数の幅は言語に依らず引けないので、ファイルの単位で見る（.py は
+    _unnamed_edits が関数の単位で見る）"""
+    other = [f for f in files if not f.endswith(".py")]
+    there = sorted(set(git_names(repo, "ls-tree", "-r", "--name-only", tree, "--", *other))) if other else []
+    if not there:
+        return []
+    out = []
+    for line in git(repo, "diff-tree", "-r", "--numstat", "--no-renames", tree, snapshot(repo), "--", *there).splitlines():
+        _added, deleted, path = line.split("\t", 2)
+        if deleted != "0":
+            out.append(path)
+    return sorted(out)
 
 
 def _syntax_problems(repo, files) -> list[str]:
@@ -1014,15 +1051,21 @@ def _other_test_edits(st, u, repo) -> list[str]:
     if bad:
         return bad
     edits = _unnamed_edits(repo, st["unit_head"], files, set())
+    cut = _cut_lines(repo, st["unit_head"], files)
     return [f"既存のテスト {edits[:10]} の本体を書き換えた——直し・整えの段ではテストを変えない"
-            "（テストの誤りは what に書け。変えるしかないなら phase conflict で申し出よ）"] if edits else []
+            "（テストの誤りは what に書け。変えるしかないなら phase conflict で申し出よ）"] * bool(edits) + \
+        [f"既存のテストのファイル {cut[:10]} の行を消した・置き換えた——直し・整えの段ではテストを変えない"
+         "（.py でないテストのファイルは行を足すだけを通す。テストの誤りは what に書け。変えるしかないなら phase conflict で申し出よ）"] * bool(cut)
 
 
-def _vanish_scope(files) -> set | None:
-    """消えたテストを照らすモジュール（impact._mod の名）。conftest.py に触れていれば None（一式の全部）。純粋"""
-    if any(posixpath.basename(f) == "conftest.py" for f in files):
+def _vanish_scope(files, declared=frozenset()) -> set | None:
+    """消えたテストを照らすモジュール（impact._mod の名）。files のうちテストのファイル（is_test_file）だけを見る。conftest.py か
+    .py でないテストのファイルに触れていれば None（一式の全部。.py でないファイルは JUnit の行とモジュールを言語に依らず結べない
+    ので、分からない＝全部を照らす）。純粋"""
+    files = [f for f in files if is_test_file(f, declared)]
+    if any(posixpath.basename(f) == "conftest.py" or not f.endswith(".py") for f in files):
         return None
-    return {impact._mod(f) for f in files if TEST_FILE.match(posixpath.basename(f))}
+    return {impact._mod(f) for f in files}
 
 
 def _vanished(head: dict, refs: list, now: dict, args: list, scope, skip, whole=()) -> list[tuple[str, str]]:
@@ -1064,7 +1107,7 @@ def _vanished_problems(st, u, cases, args, repo) -> list[str]:
     refs = [_head_run(st)] + ([u["red_run"]] if u.get("red_run") else [])
     skip = [*_plan_rewrites(st, u["unit_key"]), *_verified(st)]
     gone = _vanished(_head_run(st), refs, {_key(c): c["outcome"] for c in cases}, list(args),
-                     _vanish_scope(_moved_test_files(st, repo)), skip, st["last_run"].get("whole") or ())
+                     _vanish_scope(_moved_test_files(st, repo), declared_test_files(st)), skip, st["last_run"].get("whole") or ())
     return [f"単位 '{u['unit_key']}' の段で、単位の頭で通っていたテスト {k} が {o}（飛ばされた・一式の結末から消えた）——"
             "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
 

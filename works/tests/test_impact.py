@@ -190,6 +190,21 @@ class MentionCase(RepoCase):
                             for e in m["edges"]))
 
 
+class TestIsTest(unittest.TestCase):
+    def test_is_test_by_cross_ecosystem_convention(self):
+        # テストの実行器が自分で探す名の形（語の頭・尾）。言語の表でなく名の形 1 つで、文書・設定の拡張子には当てない
+        for path in ("src/test/java/FooTest.java", "spec/foo_spec.rb", "src/foo_test.zig", "Calc.Tests/FooTests.cs",
+                     "src/FooSpec.scala", "it/FooIT.java", "web/foo.test.ts", "web/foo.spec.js", "pkg/calc_test.go",
+                     "tests/test_core.py", "tests/core_test.py", "conftest.py", "t/x-case.py", "t/y.bats"):
+            with self.subTest(path=path):
+                self.assertEqual(impact.is_test(path), "module")
+        for path in ("data/test_data.json", "docs/test_notes.md", "conf/test_ci.yml", "src/Contest.java",
+                     "src/latest.go", "scripts/run_tests.sh", "src/attest.rs",
+                     "tests/boards/steps/test_awaiting.json.gz"):
+            with self.subTest(path=path):
+                self.assertNotEqual(impact.is_test(path), "module")
+
+
 class UnanalysableCase(RepoCase):
     def test_unknown_language_seed_requires_all(self):
         m = self.map(["web/widget.js"])

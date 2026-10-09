@@ -1038,6 +1038,41 @@ class TestFixPhaseFreezesOtherTestsOnlyRunner(TestFixPhaseFreezesOtherTests):
         self.assertEqual(sorted(run["whole"]), ["test_other", "test_stats"])
 
 
+OTHER_GO = "package stats\n\nfunc TestLow(t *testing.T) {\n\tif Clamp(-1, 0, 10) != 0 {\n\t\tt.Fatal(\"low\")\n\t}\n}\n"
+
+
+class TestFixPhaseFreezesNonPythonTests(ContractCase):
+    """.py でない既存のテストのファイル（名の慣習か宣言で見分ける）も、直し・整えの段で行を消した・置き換えたら拒む
+    （関数の幅は言語に依らず引けないので、足すだけの差分だけを通す）"""
+    CONTRACT = TestFixPhaseFreezesOtherTests.CONTRACT
+
+    def setUp(self):
+        orig = tddloop.start
+
+        def start(board_dir, repo, *a, **k):
+            other = pathlib.Path(repo) / "stats_test.go"
+            if not other.exists():
+                other.write_text(OTHER_GO, encoding="utf-8")
+            return orig(board_dir, repo, *a, **k)
+        with mock.patch.object(tddloop, "start", start):
+            super().setUp()
+
+    red = TestFixPhaseFreezesOtherTests.red
+
+    def test_fix_phase_edit_of_non_python_test_rejected(self):
+        self.red()
+        self.edit("stats_test.go", "Clamp(-1, 0, 10) != 0", "false")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py", "stats_test.go"], "what": "上限の枝で hi を返す"})
+        self.assertFalse(got["ok"], got)
+        self.assertIn("stats_test.go", got["reason"])
+
+    def test_fix_phase_append_to_non_python_test_passes(self):
+        self.red()
+        self.edit("stats_test.go", "\t}\n}\n", "\t}\n}\n\nfunc helper() int { return 1 }\n")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py", "stats_test.go"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+
+
 class TestFixPhaseOtherTestsWithoutContract(LoopCase):
     def setUp(self):
         with _with_other_test(self):
@@ -1135,6 +1170,28 @@ class TestVanished(unittest.TestCase):
     def test_scope_of_touched_files(self):
         self.assertEqual(tddloop._vanish_scope(["a/test_y.py", "stats.py", "b/x_test.py"]), {"test_y", "x_test"})
         self.assertIsNone(tddloop._vanish_scope(["test_y.py", "tests/conftest.py"]), "conftest.py に触れたら一式")
+
+    def test_vanish_scope_non_python_is_whole(self):
+        # .py でないテストのファイルは JUnit の行とモジュールを言語に依らず結べない——分からない＝一式の全部を照らす
+        self.assertIsNone(tddloop._vanish_scope(["a/test_y.py", "pkg/calc_test.go"]))
+
+
+class TestTestFileIdentity(unittest.TestCase):
+    """テストのファイルの見分け: 宣言（単位の申告・約束の tests と rewrites のパス）を正本に、名の慣習（impact.is_test）を予備に"""
+
+    def test_declared_test_files_from_state(self):
+        st = {"units": {"u1": {"test_files": ["a/checks.go"]}, "u2": {}},
+              "contract": {"u1": {"tests": [{"id": "b/verify.kt::Verify::adds"}], "rewrites": ["./c/legacy.rb::old"]},
+                           "u2": None}}
+        self.assertEqual(tddloop.declared_test_files(st), {"a/checks.go", "b/verify.kt", "c/legacy.rb"})
+
+    def test_declared_test_file_counts(self):
+        self.assertTrue(tddloop.is_test_file("checks/verify.py", {"checks/verify.py"}), "慣習に当たらない名も宣言なら")
+        self.assertFalse(tddloop.is_test_file("checks/verify.py", set()))
+        for path in ("test_stats.py", "x_test.py", "conftest.py", "pkg/calc_test.go", "src/FooTest.java"):
+            with self.subTest(path=path):
+                self.assertTrue(tddloop.is_test_file(path, set()))
+        self.assertFalse(tddloop.is_test_file("stats.py", set()))
 
 
 class TestRewriteSharedAcrossUnits(ContractCase):
