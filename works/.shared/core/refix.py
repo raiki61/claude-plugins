@@ -10,7 +10,8 @@
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスと穴ごとの枝の名札（ties）を brief に書き、呼び手の
                              組み立て（prompt）で指示書を書き、印を置く
-- accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
+- accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に修正案の項目の
+                             範囲で変更を照らして外れを拒み（planrange.check_paths。修正の段と同じ決まり）、書き込みの
                              記録と突き合わせ、記録の無い変更を盤面の trace に残す）。1 回目の審査は準拠と品質の 2 判定の欄
                              （deltamarks）を承認済みの修正案の項目（_plan_items）と照らし、欠けと誤りは盤面へ渡さずに拒み、
                              通れば欄を外して渡し、受けた時だけ欄を今の周の delta-verdicts.json に控える
@@ -58,6 +59,7 @@ import holeties  # noqa: E402
 import lens  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
+import planrange  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import recount  # noqa: E402
@@ -79,6 +81,9 @@ DELTA_BY = "works:delta"
 # 手直しの段が盤面を止めた時の state.stop.by: 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた・手直しの支度が
 # 修正案の欄の控えの壊れを見た
 REFIX_BY = "works:refix"
+# 手直しの変更が承認済みの修正案の項目の範囲から外れた時の拒否の頭（planrange.check_paths の行を続ける。修正の段と同じ決まり）
+SCOPE_REJECT = ("手直しが承認済みの修正案の項目の範囲から外れた（項目の範囲の外で変えてよいのは材料の ruled_paths だけ。外れた変更を"
+                "戻して返答を丸ごと出し直せ。範囲の外が要る穴は直さずに declared で残し、how に理由を書け）: ")
 
 
 @functools.lru_cache(maxsize=1)
@@ -388,11 +393,20 @@ def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
 
 
 def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
-    """n 回目の手直しの役の返答（書く役）。entry.take の返り。先に版 base_rev からの変更を書き込みの記録と突き合わせ、
-    記録の無い変更を盤面の trace に残す（writes.check の strict=False。起点は盤面の review_rev。この役の返答の形は写しの graph の schema のままで
-    申告の欄 bash_writes を持たないので、拒まずに報告に出す）"""
-    rev = writes.base_rev(entry.open_board(board), base_rev)
-    got = writes.check(reply, repo, writes.changed(repo, rev), writes.sink(repo), strict=False)
+    """n 回目の手直しの役の返答（書く役）。entry.take の返り。先に、版 base_rev からの変更のうち修正の段が触ったファイル（修正の
+    差分の files。その段の受け付けが照らした）の外を、承認済みの修正案の項目の範囲で照らす（planrange.check_paths。修正の段と
+    同じ決まり。この役は単位を申告しないので全部の項目の範囲の和と out_of_scope で見る。修正案の範囲の欄が無い run は照らさない）。
+    外れが在れば盤面へ渡さずに {ok: False, reason}（同じ会話で直させる）。次に変更を書き込みの記録と突き合わせ、記録の無い変更を
+    盤面の trace に残す（writes.check の strict=False。起点は盤面の review_rev。この役の返答の形は写しの graph の schema のままで
+    申告の欄 bash_writes を持たないので、Bash で書いた正しい変更を申告できない。拒まずに報告に出す）"""
+    b = entry.open_board(board)
+    rev = writes.base_rev(b, base_rev)
+    paths = writes.changed(repo, rev)
+    fixed = set((fix_delta(b) or {}).get("files") or [])
+    bad, _note = planrange.check_paths(b, [p for p in paths if p not in fixed], ruled=True, by=REFIX_BY)
+    if bad:
+        return {"ok": False, "reason": SCOPE_REJECT + "\n" + "\n".join(f"  - {x}" for x in bad)}
+    got = writes.check(reply, repo, paths, writes.sink(repo), strict=False)
     out = entry.take(board, _pass(n)["fix"], got["reply"], repo)
     if out.get("ok") is True:   # 受けた時だけ（拒否では盤面を前のままにする）
         writes.trace(entry.open_board(board, allow_halted=True), FIX_ROLE[n], got)
