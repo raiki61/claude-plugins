@@ -94,7 +94,7 @@ _TOOLS = {
 TOOLS = {r: _TOOLS[p] for r, p in POSTURE.items()}
 # 網を閉じた Bash の役の sandbox。GitHub の宛先を許すと、sandbox の中のコードが読むだけの口を迂回して書ける（graphloops の role_run の注記）
 _CLOSED = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
-           "excludedCommands": ["works-gh:*"], "network": {"allowedDomains": []}}
+           "excludedCommands": [adapter.RO_GH_EXCLUDED], "network": {"allowedDomains": []}}
 # YAML の sandbox（tests/test_blk_material.py が YAML と突き合わせる）
 SANDBOX = {
     "inspector": {"enabled": True, "allowUnsandboxedCommands": False},

@@ -57,6 +57,7 @@ FAST = frozenset({
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
+    "test_gh_port",         # 役が読むだけの gh を呼ぶ形の柵: 指示書の md と YAML を読むだけ（git・子のプロセスなし）
     "test_forge",           # forge の無い remote の決め（forge.py）と盤面への差し替え・報告の 1 行・ghreads の条件外: 関数を直に呼ぶ・偽の盤面・git init と remote add・偽の gh（盤面・子の実行器なし）
     "test_gate_na",         # ゲートの検算の役の『条件外』の差し替えとゲートの印: 関数を直に呼ぶ・偽の盤面・一時の置き場に差分のファイル（git・盤面・子のプロセスなし）
     "test_hostgh",          # run の中で利用者の gh を継ぐ口（dev/hostgh.py）: 関数を直に呼ぶ・偽の gh と sh の口を子で起こすだけ（git・盤面なし）

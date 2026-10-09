@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- remote が GitHub の対象で、並行 PR の確認役が PR を読めなかった（壊れていた。2026-10-09 の利用者の run で `"$WORKS_GH" pr list -R …` が `deny network-outbound api.github.com:443` で落ちた）。役の Bash は網を閉じた sandbox で走り、外に出るのは除外 `works-gh:*` に当たる、口を素の名 `works-gh` で打った 1 つだけのコマンドだけなのに、指示書 `blk-pr/commands/pr-check.md` が口を変数で打たせていた。指示書を素の名の 1 つだけのコマンドに直し、口のパスを渡していた環境変数 `WORKS_GH` を包みから消した（読む物は無く、当たらない形へ誘うだけだった。口があるかの確かめは `command -v works-gh`）。呼び方の正本を包みの `RO_GH`・`RO_GH_EXCLUDED`・`RO_GH_RULE` の 1 か所にし、除外を持つ節の YAML と指示書がそれに揃うこと、役の指示書が gh を素の名の 1 つだけのコマンドの外で打たせないことを速い段の試験 `tests/test_gh_port.py` が縛る。
+
 ## [0.2.53] - 2026-10-09
 
 ### Added

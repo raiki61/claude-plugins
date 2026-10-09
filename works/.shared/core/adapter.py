@@ -58,8 +58,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 5. **読むだけの gh**（印のある起動の全部。旗にも切符にも依らない。持ち主 2026-10-08）: run の中の gh は利用者の
    ログインを継ぐ（開発の殻 dev/hostgh.py の gh の口）ので、どの役も GitHub へ書けないように、gh は丸ごと拒み（permissions.deny の
    `Bash(gh:*)`・PATH の上の gh の絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、
-   repo view <OWNER/REPO>）だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く
-   （NO_POST_DENY の注記）。これは事故の柵で、
+   repo view <OWNER/REPO>）だけを通す口 no-post-bin/works-gh を PATH の頭に置く（役は素の名で打つ。同じ口を gh の名でも置く）
+   （NO_POST_DENY の注記。役が口を呼ぶ形の正本は RO_GH・RO_GH_EXCLUDED・RO_GH_RULE）。これは事故の柵で、
    堅い境ではない（役は利用者と同じ人で同じ keychain を持つ。本流の review-graph は隔離もしない）
 6. **旗 no-tree-write**（CI の任せ先の役。裁定 R56）: 役の sandbox は graphloops の任せ先と同じ allowWrite ['/']（依存の
    置き場・網を今までどおり使う）なので、本物の作業ツリーは包みが守る。役の cwd の worktree の根（`git rev-parse
@@ -295,10 +295,20 @@ RUN_PLACE_NAME = "run-place"   # 切符の board の隣（run ごとの置き場
 RUN_PLACE_ENV = {"UV_CACHE_DIR": "uv-cache", "WORKS_RUN_PLACE": ""}   # 子の env 名 → 置き場の下の相対（"" は置き場そのもの）。向け直す物はここだけ
 # 印のある起動の全部（5）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
-# 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
-# gh の名で置き、前方一致をすり抜ける呼び方（command gh・xargs gh・sh -c "gh …"）も同じ一覧に通す。git push も拒む
+# 読む 4 つの形だけを通す口 works-gh（no-post-bin/）を PATH の頭に置いて役に渡す。同じ置き場に同じ口を
+# gh の名でも置き、前方一致をすり抜ける呼び方（command gh・xargs gh・sh -c "gh …"）も同じ一覧に通す。git push も拒む
 NO_POST_DENY = ("Bash(gh:*)", "Bash(git push:*)")
 NO_POST_BIN = pathlib.Path(__file__).resolve().parent / "no-post-bin"
+# 役が口を呼ぶ形の正本（tests/test_gh_port.py が YAML の除外と役の指示書をこの 3 つに縛る）。役の Bash は網を閉じた sandbox の
+# 中で走り、外に出るのは sandbox の excludedCommands（RO_GH_EXCLUDED）に当たるコマンドだけ。当たるのは素の名で打った 1 つだけの
+# コマンドで、変数・絶対パス・つなぎ・前に置く代入は当たらずに sandbox の中で走り、網に出られない（2026-10-09 の利用者の run の
+# deny network-outbound api.github.com:443。写しの graphloops の engine/role_run.py の頭の実測と同じ）
+RO_GH = "works-gh"   # 口の名（NO_POST_BIN の中のファイル。PATH の頭に在るので素の名で引ける）
+RO_GH_EXCLUDED = f"{RO_GH}:*"
+RO_GH_RULE = (f"GitHub の PR とリポジトリは読むだけの口 `{RO_GH}` を素の名で、1 つだけのコマンドとして打て"
+              f"（例 `{RO_GH} pr view 12 -R OWNER/REPO`）。通るのは pr list・pr view・pr diff（-R <OWNER/REPO> 付き）と"
+              " repo view <OWNER/REPO> だけで、この形だけが sandbox の外で走る。`gh` の名や変数に入れた口のパス、パイプ・`&&`・"
+              "`;`・`$(…)`、前に置く変数の代入を付けると sandbox の中で走り、網に出られない。")
 # 19. run の明示の模型（開発の殻が既定を書き戻さない名。空でなければ明示）と、それで起こす段の表（前付けを持たない役の段）
 ENV_RUN_MODEL = "WORKS_DEV_MODEL"
 STAGE_MODELS_FILE = pathlib.Path(__file__).resolve().parent / "stage-models.json"
@@ -659,10 +669,10 @@ def no_post_rules(gh_paths: Sequence[str]) -> List[str]:
 
 
 def no_post_env(env) -> dict:
-    """印のある起動（5）の子の env の差し替え: PATH の頭に口の置き場と、WORKS_GH（口）。口が起こす本物の gh は口が PATH から引く
+    """印のある起動（5）の子の env の差し替え: PATH の頭に口の置き場（役は口を素の名 RO_GH で引く。口のパスを env に置かない——
+    変数で打つと sandbox の除外に当たらない）。口が起こす本物の gh は口が PATH から引く
     （本物の gh のパスを env に置かない: run の中の本物の gh は利用者のログインを継ぐ口なので、役が env の値で打つ道を作らない）"""
     return {"PATH": str(NO_POST_BIN) + os.pathsep + env.get("PATH", ""),
-            "WORKS_GH": str(NO_POST_BIN / "works-gh"),
             "WORKS_GH_ACTIVE": ""}   # 外から漏れた口の輪止めの印で、役の口が全部拒まれないように空にする
 
 

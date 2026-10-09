@@ -159,7 +159,8 @@ class EngineChildCase(unittest.TestCase):
         p = self.plan("pr-check")
         self.assertEqual(p.mode, "merged", p.why)
         env = p.env or {}
-        self.assertIn("WORKS_GH", env, "読むだけの gh の口は印のある起動の全部に残る")
+        self.assertEqual(env["PATH"].split(":")[0], str(self.adapter.NO_POST_BIN), "読むだけの gh の口は印のある起動の全部に残る")
+        self.assertNotIn("WORKS_GH", env)   # 役は口を素の名で引く（sandbox の除外に当たる形。tests/test_gh_port.py）
         self.assertEqual(env.get(self.name), "1")
 
 

@@ -33,6 +33,7 @@ import entry  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
+import adapter  # noqa: E402
 import prcheck  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
@@ -706,13 +707,15 @@ class DeclaredCase(unittest.TestCase):
         for word in ("git checkout", "git switch", "git stash", "git reset"):
             self.assertIn(f"`{word}`", forbid[0])
         self.assertIn("包みが拒む", forbid[0])
-        # 読む gh は包みの許す物の口（"$WORKS_GH"。素の gh は包みが拒む）を通す。指示書の "$WORKS_GH" のコマンドは全部、
-        # GH_READ の語で -R <owner/repo> つき（2・5・6 段と、打ってよい物の一覧の 3 つ）。素の `gh …` は禁じる語か、使うなと名指した gh repo view だけ
-        self.assertEqual((prcheck.GH_ENV, prcheck.GH_WRAPPER), ("WORKS_GH", '"$WORKS_GH"'))
-        wrapped = re.findall(r'`("\$WORKS_GH" [^`]*)`', text)
+        # 読む gh は包みの許す物の口（素の名 works-gh。素の gh は包みが拒む）を通す。指示書の口のコマンドは全部、
+        # GH_READ の語で -R <owner/repo> つき（2・5・6 段と、打ってよい物の一覧の 3 つ）。素の `gh …` は禁じる語か、使うなと名指した gh repo view だけ。
+        # 口を素の名の 1 つだけのコマンドで打たせる（sandbox の除外に当たる形）ことと呼び方の文は tests/test_gh_port.py が縛る
+        self.assertFalse(hasattr(prcheck, "GH_ENV") or hasattr(prcheck, "GH_WRAPPER"))
+        self.assertIn(adapter.RO_GH_RULE, text)
+        wrapped = re.findall(rf'`({re.escape(adapter.RO_GH)} [^`]*)`', text.replace(adapter.RO_GH_RULE, ""))   # 呼び方の文の例は除く
         self.assertEqual(len(wrapped), 6, wrapped)
         for cmd in wrapped:
-            self.assertTrue(cmd.startswith(tuple(f"{prcheck.GH_WRAPPER} {w} " for w in prcheck.GH_READ)), cmd)
+            self.assertTrue(cmd.startswith(tuple(f"{adapter.RO_GH} {w} " for w in prcheck.GH_READ)), cmd)
             self.assertIn(" -R <owner/repo>", cmd, cmd)
         self.assertEqual(re.findall(r"`(gh [^`]*)`", text), ["gh repo view"])   # 素の gh は使うなと名指した物だけ
         self.assertIn("素の `gh`", text)

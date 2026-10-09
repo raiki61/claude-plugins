@@ -13,7 +13,7 @@ excluded に並べ、受け付けが確かめて今の周の pr-excluded.json �
 ここに在る物:
 - NODE・ROLE・OUTPUT_FORMAT: 節の名前、役の名前、役の output_format（写しの schema に works だけの欄 excluded を足し、
   印 works-node: pr-check を付けた物。excluded は受け付けが外してから盤面に渡す）
-- GH_ENV・GH_WRAPPER・GH_READ: 包みの読む口の環境変数と、役が打つ形、打ってよい gh の語（口を通す）
+- GH_READ: 打ってよい gh の語（包みの読む口を通す。口の名と呼び方の正本は包み adapter の RO_GH・RO_GH_RULE）
 - run_helper(b, *, runner=None): start（と線 B の境の節）が呼ぶ。engine で済んだか・役が要るか
 - snapshot・take・collect・drafts: blk-pr の節 pr-snap・pr-accept・collect の中身（main_* はスクリプトの入口）
 - downgrades・head_downgrades: 下げた物の一覧（<ライン>/downgrades.json）と、報告の頭の行の部品
@@ -63,12 +63,11 @@ OUTPUT_FORMAT = _output_format()
 SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.tree_state の形）
 EXCLUDED = marks.KINDS["pr"].file   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
 # 読む gh は包みの読む口を通す: 印のある起動の全部に、包み（.shared/core/adapter.py の 5）が素の gh を拒み（permissions.deny Bash(gh:*) と
-#   本物の gh のパス）、許す物だけを通す口のパスを環境変数 WORKS_GH に置く。口が通すのは pr list・pr view・pr diff の -R つきと
-#   repo view <OWNER/REPO> だけ。役は `"$WORKS_GH" pr view <n> -R <owner/repo>` の形で打つ（指示書と試験がこの形を見る）。
+#   本物の gh のパス）、許す物だけを通す口 works-gh を PATH の頭に置く。口が通すのは pr list・pr view・pr diff の -R つきと
+#   repo view <OWNER/REPO> だけ。役は口を素の名の 1 つだけのコマンドで打つ（sandbox の除外に当たる形。呼び方の正本は包みの
+#   RO_GH・RO_GH_EXCLUDED・RO_GH_RULE で、tests/test_gh_port.py が指示書と YAML をそれに縛る）。
 # GH_READ: 口を通して打ってよい gh の語（全部 -R <owner/repo> を付ける）。許す物の正本は包みの口の側で、これは指示書の側の組。
 #   禁じる物の一覧は読むだけの役にとって完全にならない（gh pr update-branch・git push など）ので、柵は許す物で組む。
-GH_ENV = "WORKS_GH"
-GH_WRAPPER = f'"${GH_ENV}"'
 GH_READ = ("pr list", "pr view", "pr diff")
 BRIEF = "pr-brief.json"         # 役への渡し物（落ちた理由・交差を取る集合・版）
 STOP_BY = "works:pr"           # 任せ先の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by

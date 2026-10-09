@@ -34,6 +34,7 @@ for _p in (str(TESTS), str(CORE), str(BLK / "lib")):
         sys.path.insert(0, _p)
 
 import accept  # noqa: E402
+import adapter  # noqa: E402
 import board as board_mod  # noqa: E402
 from board import BoardGap, DiskBoard, NodeTable, base_output  # noqa: E402
 import engine.util as engine_util  # noqa: E402
@@ -372,7 +373,7 @@ class ShapeCase(unittest.TestCase):
                 self.assertNotIn("enableWeakerNetworkIsolation", sb)
                 if "Bash" in material.TOOLS[role]:
                     self.assertEqual(net, {"allowedDomains": []})
-                    self.assertEqual(sb["excludedCommands"], ["works-gh:*"])
+                    self.assertEqual(sb["excludedCommands"], [adapter.RO_GH_EXCLUDED])
                 else:
                     self.assertIsNone(net)
                     self.assertNotIn("excludedCommands", sb)
@@ -381,8 +382,6 @@ class ShapeCase(unittest.TestCase):
         """sandbox の外に出る works-gh は、読む形だけを通す口のまま: 除外を持つ役は印を持ち（包みが印のある起動の全部で口を PATH の
         頭に置き、本物の gh を permissions.deny で拒む）、除外は口の名だけ（gh は外に出さない）。口は書く形を本物の gh に渡さない。
         包みはこの役の sandbox の網を strictAllowlist で閉じる"""
-        sys.path.insert(0, str(CORE))
-        import adapter
         bindir = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, str(bindir), True)
         gh, log = bindir / "gh", bindir / "gh.log"
@@ -398,7 +397,7 @@ class ShapeCase(unittest.TestCase):
             if "excludedCommands" not in sb:
                 continue
             with self.subTest(role):
-                self.assertEqual(sb["excludedCommands"], ["works-gh:*"])
+                self.assertEqual(sb["excludedCommands"], [adapter.RO_GH_EXCLUDED])
                 self.assertIsNotNone(node_marker.parse(material.output_format(role)["description"]), role)
                 self.assertNotIn("no-post", material.FLAGS[role])
                 argv = ["--json-schema", json.dumps(material.output_format(role)), "--settings", json.dumps({"sandbox": sb})]
