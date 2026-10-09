@@ -66,7 +66,6 @@ def _tree_unchanged(repo, board, rev):
         raise Reject(f"依頼を受け付けた後から作業ツリーが変わった——{RULE}（HEAD・枝・git が無視するファイルも）。測るときに作った物"
                      "（出力のファイル・キャッシュ）は rm で消し、書き換えた追跡中のファイルは git restore -- <path> で戻してから"
                      f"出し直せ（出力は $TMPDIR に置く）（{'・'.join(moved)}）")
-PREMISES_SNAPSHOT_FILE = "premises-snapshot.json"   # 実測役を起こす前の作業ツリー。形は accept.SNAPSHOT_FILE と同じ
 PREMISES_REQUEST_FILE = "premises-request.json"     # intake が型を確かめた依頼の行（JSON の配列）
 NONE_SUMMARY = "（測る数値・事実の主張は依頼に無かった。制約 0 件）"
 
