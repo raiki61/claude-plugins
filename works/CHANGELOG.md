@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.61] - 2026-10-10
+
 ### Fixed
 
 - 0.2.60 で世界の解の段（`worlding`）を素材集め（`gathering`）と並べて走らせたため、開いた素材集めの窓が世界の解の境の控え `world-state.json` を宣言の外の書き込みと読み、世界の解の段が回る run が全部、判定の前に `works:scope-check` で止まっていた。素材集めが世界の解の境 `h-world` を待つ順にし、include の節が盤面に書く別の節と並んで走らないことを線の試験で縛る。
