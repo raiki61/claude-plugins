@@ -471,7 +471,7 @@ def _design_rows(b) -> list:
         return []
 
 
-def _answered_rows(b) -> set:
+def _answered_rows(b) -> set | None:
     """修正案の欄 structure に答えのある汚れる行の単位（控えが読めなければ None＝照らさない。受け付けが欠けを拒む）"""
     try:
         fields = planmarks.read(b)

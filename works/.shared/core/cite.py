@@ -6,8 +6,9 @@
   絶対のパスは作業ツリーの中か roots（依頼のファイル・盤面の置き場）の中だけ。ファイルが在り、行がその中に在る
 - sources_problem(text, repo, roots=(), quoted="") -> str: 決め手の文（decided_by）の出どころの確かめ（通れば空）。文の中の
   URL（http・https。形だけ見る。取りに行かない）・名指し `<パス>:<行>`（problem）・作業ツリーの中のパス（/ を含むか拡張子を持つ語で、
-  在るファイルかフォルダ）・依頼の引用「…」（quoted＝依頼の文の中に字のまま在る）のどれかが 1 つ以上在り、書いた物が全部現物に
-  在る時だけ通る。どれも無ければ「出どころが現物に無い」
+  在るファイル。フォルダだけは出どころに数えない）・依頼の引用「…」（文に「依頼」の語が在る時だけ。quoted＝依頼の文の中に字のまま
+  在る）のどれかが 1 つ以上在り、書いた物が全部現物に在る時だけ通る。どれも無ければ「出どころが現物に無い」。
+  パスの形でない名指し（時刻 12:30 など。パスの部分に / も拡張子も無い）は名指しに数えない
 
 標準ライブラリだけ。works の物を何も import しない（conflict と gatemarks の両方が読む。輪を作らない）。
 """
@@ -19,7 +20,8 @@ import re
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
 URL = re.compile(r"https?://[^\s）)」』、。,]+")
 QUOTE = re.compile(r"「([^」]{4,})」")
-TOKEN = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]*(?::[1-9][0-9]*(?:-[1-9][0-9]*)?)?")
+TOKEN = re.compile(r"/?[A-Za-z0-9_.][A-Za-z0-9_./-]*(?::[1-9][0-9]*(?:-[1-9][0-9]*)?)?")
+REQUEST_WORD = "依頼"   # 引用「…」を依頼の文と照らすのは、この語が文に在る時だけ（出典の文書の引用は照らさない）
 NO_SOURCE = "決め手の出どころが現物に無い（パス:行・URL・依頼の引用「…」・設計の決定の記録のパスのどれも書いていない）"
 
 
@@ -60,7 +62,8 @@ def problem(cite, repo, roots=()) -> str:
 
 def _pathish(word: str) -> bool:
     last = word.rsplit("/", 1)[-1]
-    return ("/" in word or bool(re.fullmatch(r"[^.]+\.[A-Za-z][A-Za-z0-9]{0,5}", last))) and not word.startswith(".")
+    return ("/" in word or bool(re.fullmatch(r"[^.]+\.[A-Za-z][A-Za-z0-9]{0,5}", last))) and not word.startswith(".") \
+        and not word.startswith("/")
 
 
 def sources_problem(text, repo, roots=(), quoted: str = "") -> str:
@@ -69,22 +72,24 @@ def sources_problem(text, repo, roots=(), quoted: str = "") -> str:
     found, bad = 0, []
     rest = URL.sub(" ", text)
     found += len(URL.findall(text))
-    for q in QUOTE.findall(rest):
-        found += 1
-        if q.strip() not in quoted:
-            bad.append(f"依頼の引用「{q}」が依頼の文に無い")
+    if REQUEST_WORD in rest:
+        for q in QUOTE.findall(rest):
+            found += 1
+            if q.strip() not in quoted:
+                bad.append(f"依頼の引用「{q}」が依頼の文に無い")
     rest = QUOTE.sub(" ", rest)
     repo_p = pathlib.Path(repo).resolve()
     for word in TOKEN.findall(rest):
         word = word.rstrip(".")
-        if CITE.match(word):
+        m = CITE.match(word)
+        if m and (_pathish(m["path"]) or m["path"].startswith("/")):
             found += 1
             got = problem(word, repo_p, roots)
             if got:
                 bad.append(got)
-        elif _pathish(word):
+        elif not m and _pathish(word):
             p = (repo_p / word).resolve()
-            if inside(p, repo_p) and p.exists():
+            if inside(p, repo_p) and p.is_file():
                 found += 1
     if bad:
         return "決め手の出どころが現物に無い: " + " / ".join(bad)

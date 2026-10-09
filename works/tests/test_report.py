@@ -1178,13 +1178,21 @@ class AfterMeasureCase(ReportBase):
         items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))["findings"]
         self.assertTrue(any(str(i.get("text", "")).startswith("考えの住処: outcome") for i in items), items)
 
+    def test_deviation_line_has_one_renderer(self):
+        import planmarks
+        import structmark
+        d = {"item": 1, "row": "u", "deviation": "訳" * 20}
+        self.full()
+        self.put_after([], [], deviations=[d])
+        self.assertIn(planmarks.answer_line(d), "\n".join(structmark.after_lines(self.board)))
+
     def test_no_table_reports_only(self):
         self.full()
         self.put_after([], [self.UP], deviations=[{"item": 1, "row": "u", "deviation": "訳" * 20}])
         out, _, hs = self.build()
         self.assertEqual(out["outcome"], "fixed")
         body = hs[STRUCTURE_HEAD]
-        for want in ("直しの後の実測", "柵の表は無い", "新しい名 1 個", "NEW_KNOB", "外れた訳: " + "訳" * 20):
+        for want in ("直しの後の実測", "柵の表は無い", "新しい名 1 個", "NEW_KNOB", "から外れる——" + "訳" * 20):
             self.assertIn(want, body)
 
 

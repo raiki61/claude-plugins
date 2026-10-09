@@ -25,6 +25,7 @@ import json
 import pathlib
 
 import concepthome
+import planmarks   # 修正案の外れの訳の文の住処（answer_line）
 
 STATE_FILE = "structure-state.json"
 AFTER_FILE = "structure-after.json"
@@ -179,8 +180,5 @@ def after_lines(board_dir) -> list:
     for n in doc["after"].get("new_names") or []:
         if isinstance(n, dict):
             out.append(f"  - 新しい名 {n.get('name')}（現れる所 {n.get('sites')} か所）")
-    for d in doc.get("deviations") or []:
-        if isinstance(d, dict):
-            what = f"設計の行 {d['row']}" if d.get("row") else f"処方 {d.get('prescription')}"
-            out.append(f"  - 修正案の項目 {d.get('item')} が{what}から外れた訳: {d.get('deviation')}")
+    out += [f"  - 修正案の{planmarks.answer_line(d)}" for d in doc.get("deviations") or [] if isinstance(d, dict)]
     return out

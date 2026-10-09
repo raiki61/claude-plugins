@@ -655,6 +655,18 @@ def prescriptions(b) -> dict:
     return got
 
 
+def answer_line(r: dict) -> str:
+    """欄 structure の 1 行（か deviations の 1 行）の文: 「（項目 n・）設計の行 <id> に従う」か「…から外れる——<訳>」。
+    事前審査の頭・報告・最後の関所・修正役の brief が同じ文を引く"""
+    if not isinstance(r, dict):
+        return str(r)
+    head = f"項目 {r['item']}・" if "item" in r else ""
+    what = f"設計の行 {r['row']}" if r.get("row") else f"処方 {r.get('prescription')}"
+    if r.get("follows") is True:
+        return f"{head}{what}に従う（避け方・処方どおりに直す）"
+    return f"{head}{what}から外れる——{r.get('deviation')}"
+
+
 def deviations(fields: list | None) -> list[dict]:
     """控えの欄（split の形）の外れの訳の並び [{item（1 始まり）, row か prescription, deviation}]。無ければ空"""
     out = []
@@ -890,7 +902,5 @@ def review_section(b) -> str:
     devs = deviations(fields)
     head = ""
     if devs:
-        head = f"\n\n{DEVIATION_HEAD}\n\n" + "\n".join(
-            f"- 項目 {d['item']}・{'設計の行' if 'row' in d else '処方'} {d.get('row') or d.get('prescription')}: {d['deviation']}"
-            for d in devs)
+        head = f"\n\n{DEVIATION_HEAD}\n\n" + "\n".join(f"- {answer_line(d)}" for d in devs)
     return f"{head}\n\n{REVIEW_HEAD}\n\n{REVIEW_ASK}\n\n" + "\n\n".join(rows)

@@ -135,14 +135,6 @@ def _refactor(fields: dict) -> str:
     return f"declared: {'true' if rf.get('declared') is True else 'false'}" + (f"（理由: {rf['why']}）" if rf.get("why") else "")
 
 
-def _answer(r) -> str:
-    """修正案が構造の目の行・判定の処方に答えた欄 structure の 1 行（従う・外れの訳）"""
-    if not isinstance(r, dict):
-        return str(r)
-    what = f"設計の行 {r['row']}" if "row" in r else f"処方 {r.get('prescription')}"
-    return f"{what}: " + ("従う（避け方・処方どおりに直す）" if r.get("follows") is True else f"外れる——{r.get('deviation')}")
-
-
 def _unit(key: str, units: dict) -> str:
     u = units.get(key)
     if not isinstance(u, dict):
@@ -172,7 +164,7 @@ def render(n: int, item: dict, fields: dict, units: dict, purpose: str, structur
         "## 触らない物（out_of_scope）\n\n" + _scoped(fields, "out_of_scope", _scope),
         f"## 目的の文（凍結）\n\n{purpose or NONE}",
         structure or f"## 構造の目の行\n\n{NONE}",
-        "## 構造の目の行と処方への答え（structure）\n\n" + _bullets(fields.get("structure") or [], _answer),
+        "## 構造の目の行と処方への答え（structure）\n\n" + _bullets(fields.get("structure") or [], planmarks.answer_line),
         f"## {BACKGROUND}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),
     ]
     return "\n\n".join(parts) + "\n"

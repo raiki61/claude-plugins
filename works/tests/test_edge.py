@@ -422,6 +422,18 @@ class FinalGateCase(EdgeBase):
         self.assertIn(why, text)
         self.assertIn("直しの後の実測", text)
 
+    def test_fence_up_opens_when_needed_gate(self):
+        """柵の数が増えた run は、final_gate が when_needed でも最後の関所を開く（理由の句に名指す）"""
+        tests = self.closed()
+        art = self.tmp / "after.json"
+        up = {"concept": "outcome", "what": "結末の語", "path": "src/edge.py", "before": 1, "after": 2}
+        art.write_text(json.dumps({"status": "ok", "reason": "", "changed": ["src/edge.py"], "tables": ["docs/concepts.json"],
+                                   "fence_up": [up], "new_names": [], "dup_blocks_added": 0}), encoding="utf-8")
+        line_edge.after_edge(self.board, {"ok": True, "after_file": str(art), "status": "ok", "reason": ""})
+        got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertTrue(got["ask"], got)
+        self.assertIn("考えの住処の柵の数が増えた", got["gate_text"])
+
     def test_after_edge_without_block_exit_marks_failed(self):
         """直しの後の構造のブロックが飛ばされた・落ちた周も節を落とさず、控えに failed と理由を残す"""
         self.premised()

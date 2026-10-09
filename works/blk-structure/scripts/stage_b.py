@@ -6,9 +6,11 @@
 cwd）の今の作業ツリーの差分を、同じフォルダの measure.py の差分の形（--diff。コマンド 1 つの口。import しない）と、対象の柵の表
 （在れば。core の conceptfence.scan_change）で測り、$ARTIFACTS_DIR/structure/after.json に書く。
 
-after.json: {status: ok|failed, reason, base_rev, changed: [パス], tables: [表のパス], fence_up: [{concept, what, path, before, after}],
+after.json: {status: ok|failed, reason, base_rev, changed: [パス], tables: [表のパス], tables_changed: [直しが変えた表のパス],
+fence_up: [{concept, what, path, before, after}],
 new_names: [{name, sites}], dup_blocks_added: int, timing: {wall_s}}
-- fence_up は柵の表を持つ対象だけ（表の無い対象は空。表を作らない）。住処の外で知る場所の行が増えた所
+- fence_up は柵の表を持つ対象だけ（表の無い対象は空。表を作らない）。住処の外で知る場所の行が増えた所。数えは直しの前の版の表で
+  行い、直しが表そのものを変えた時は tables_changed に名指す。run の作業ツリーの .archon/ の写しは差分に数えない
 - new_names は差分が新しく持ち込んだ大文字の名と現れる場所の数、dup_blocks_added は差分で増えた写しの塊の数（ファイルごとの増えの和）
 - 差分の前の像は、対象を変えない一時の clone（--shared。対象の .git は書き換えない）を直しの前の版で取り出した物。差分は
   `git diff --binary <版>` と、まだ追跡されていないファイルの足しの patch
@@ -41,32 +43,37 @@ MEASURE = Path(__file__).resolve().parent / "measure.py"
 REASON_TAIL = 2000
 
 
-def _git(repo: Path, *args: str, ok=(0,)) -> str:
-    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
-                       stdin=subprocess.DEVNULL)
+def _git(repo: Path, *args: str, ok=(0,)) -> bytes:
+    """git の標準出力のバイト（差分は対象の文字コードのまま運ぶ。UTF-8 でないファイルも落とさない）"""
+    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, stdin=subprocess.DEVNULL)
     if p.returncode not in ok:
-        raise RuntimeError(f"git {' '.join(args[:2])} が終了コード {p.returncode}: {p.stderr.strip()[-REASON_TAIL:]}")
+        raise RuntimeError(f"git {' '.join(args[:2])} が終了コード {p.returncode}: "
+                           f"{p.stderr.decode('utf-8', 'replace').strip()[-REASON_TAIL:]}")
     return p.stdout
 
 
-def patch_of(root: Path, base: str) -> tuple[str, list]:
-    """(base と今の作業ツリーの patch, 変わったパス)。まだ追跡されていないファイルは /dev/null からの足しの patch を足す"""
-    text = _git(root, "diff", "--binary", "--no-renames", base, "--")
-    changed = [p for p in _git(root, "diff", "--name-only", "-z", "--no-renames", base, "--").split("\0") if p]
-    for p in [p for p in _git(root, "ls-files", "-z", "--others", "--exclude-standard").split("\0") if p]:
+def patch_of(root: Path, base: str, changed: list) -> bytes:
+    """base と今の作業ツリーの、変わったファイル changed（conceptfence.changed）の patch。まだ追跡されていないファイルは
+    /dev/null からの足しの patch"""
+    if not changed:
+        return b""
+    tracked = set(_git(root, "ls-files", "-z", "--").decode("utf-8", "surrogateescape").split("\0"))
+    old = set(_git(root, "ls-tree", "-r", "-z", "--name-only", base).decode("utf-8", "surrogateescape").split("\0"))
+    known = [p for p in changed if p in tracked or p in old]
+    text = _git(root, "diff", "--binary", "--no-renames", base, "--", *known) if known else b""
+    for p in [p for p in changed if p not in tracked and p not in old]:
         text += _git(root, "diff", "--binary", "--no-index", "--", "/dev/null", p, ok=(0, 1))
-        changed.append(p)
-    return text, list(dict.fromkeys(changed))
+    return text
 
 
-def measure_diff(root: Path, base: str, patch: str, paths: list) -> dict:
+def measure_diff(root: Path, base: str, patch: bytes, paths: list) -> dict:
     """直しの前の版の一時の clone に patch を当てて measure.py --diff で測った出力"""
     with tempfile.TemporaryDirectory(prefix="works-stage-b-") as tmp:
         clone = Path(tmp) / "before"
         _git(Path(tmp), "clone", "-q", "--shared", "--no-checkout", str(root), str(clone))
         _git(clone, "-c", "advice.detachedHead=false", "checkout", "-q", base)
         pf = Path(tmp) / "fix.patch"
-        pf.write_text(patch, encoding="utf-8")
+        pf.write_bytes(patch)
         p = subprocess.run([sys.executable, str(MEASURE), "--paths", *paths, "--repo", str(clone), "--diff", str(pf)],
                            cwd=str(clone), capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
         if p.returncode != 0:
@@ -86,20 +93,23 @@ def summarize(diff: dict) -> tuple[list, int]:
 
 
 def run(root: Path, base: str) -> dict:
-    doc = {"status": "ok", "reason": "", "base_rev": base, "changed": [], "tables": [], "fence_up": [], "new_names": [],
-           "dup_blocks_added": 0}
+    doc = {"status": "ok", "reason": "", "base_rev": base, "changed": [], "tables": [], "tables_changed": [], "fence_up": [],
+           "new_names": [], "dup_blocks_added": 0}
     if not base:
         doc.update(status="failed", reason=f"{BASE_ENV} が空（直しの前の版が無い）")
         return doc
     try:
         _git(root, "rev-parse", "--verify", "-q", f"{base}^{{commit}}")
-        patch, changed = patch_of(root, base)
-    except RuntimeError as e:
+        changed = conceptfence.changed(root, base)
+        patch = patch_of(root, base, changed)
+    except (RuntimeError, subprocess.CalledProcessError) as e:
         doc.update(status="failed", reason=str(e))
         return doc
     doc["changed"] = changed
-    found, bad = conceptfence.tables(root)
-    doc["tables"] = ["/".join(x for x in (b, concepthome.TABLE_NAME) if x) for b, _ in found]
+    found, bad = conceptfence.tables(root, rev=base)   # 直しの前の版の表で数える（直しが表を広げても数えは緩まない）
+    names = ["/".join(x for x in (b, concepthome.TABLE_NAME) if x) for b, _ in found]
+    doc["tables"] = names
+    doc["tables_changed"] = [n for n in names if n in changed]
     problems = list(bad)
     try:
         for b, table in found:

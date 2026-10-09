@@ -178,6 +178,17 @@ class FourAxesCase(GateBase):
         got, _ = self.gate(narrows=[{**NARROW, **bad}])
         self.assertIn("依頼の文に無い", got["ask"]["items"][0])
 
+    def test_sources_ignore_times_and_dirs_and_take_absolute_request_cites(self):
+        import cite
+        (self.tmp / "docs").mkdir()
+        (self.tmp / "docs" / "x.md").write_text("一\n二\n三\n", encoding="utf-8")
+        req = self.tmp / "req.json"
+        req.write_text("[]\n[]\n", encoding="utf-8")
+        self.assertEqual(cite.sources_problem("12:30 に決めた docs/x.md:3 の「三」の行", self.tmp), "")   # 時刻と出典の引用は数えない
+        self.assertEqual(cite.sources_problem(f"{req}:2", self.tmp / "docs", [str(self.tmp)]), "")
+        self.assertEqual(cite.sources_problem("docs/ の慣習", self.tmp), cite.NO_SOURCE)                # フォルダだけは出どころでない
+        self.assertIn("依頼の文に無い", cite.sources_problem("依頼の本文「無い字の並び」", self.tmp, quoted="ある字"))
+
     def test_clean_route_rows_do_not_block(self):
         self.put_rows({**ROUTE_UP, "route": "自分で決める", "route_reason": "決め手で決まる", "undecided_because": ""})
         got, _ = self.gate(narrows=[{**NARROW, **DECIDED}])

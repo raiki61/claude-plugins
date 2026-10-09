@@ -654,6 +654,48 @@ class AfterCase(unittest.TestCase):
         self.assertEqual(got["changed"], ["src/edge.py"])
         self.assertFalse((repo / "docs").exists())
 
+    def test_after_stage_keeps_first_eye_rows(self):
+        """直しの後の段は、同じ置き場の 1 度目の構造の目の行（design.jsonl）と目の控えを消さない（報告と最後の関所が読む）"""
+        repo = self.target()
+        reply = {"rows": [{"unit_id": "u-1", "verdict": "汚れる", "faces": [2], "evidence": ["/units/0/measure"],
+                           "reason": "責務を割る", "chosen": "1 か所に固める", "chosen_reason": "読み直しを割らない"}]}
+        first = self.run_block(self.units([{"id": "u-1", "paths": ["src/edge.py"], "summary": "s"}]), repo, reply=reply)
+        design = pathlib.Path(first["design_file"])
+        before = design.read_text(encoding="utf-8")
+        self.assertTrue(before.strip())
+        self.after(repo, _git(repo, "rev-parse", "HEAD"))
+        self.assertEqual(design.read_text(encoding="utf-8"), before)
+
+    def test_non_utf8_diff_is_measured(self):
+        repo = self.target()
+        base = _git(repo, "rev-parse", "HEAD")
+        (repo / "src" / "latin.txt").write_bytes("caf\xe9 round_limit\n".encode("latin-1"))
+        _write(repo, "src/edge.py", 'x = "round_limit"\ny = "round_limit"\n')
+        got = self.after(repo, base)
+        self.assertEqual(got["status"], "ok", got)
+        self.assertIn("src/latin.txt", got["changed"])
+        self.assertEqual([f["path"] for f in got["fence_up"]], ["src/edge.py"])
+
+    def test_archon_copy_is_not_measured(self):
+        """run の作業ツリーに置かれた .archon/ の写し（未追跡）は直しの差分に数えない"""
+        repo = self.target()
+        base = _git(repo, "rev-parse", "HEAD")
+        _write(repo, ".archon/workflows/x/src/y.py", 'z = "round_limit"\n')
+        got = self.after(repo, base)
+        self.assertEqual((got["changed"], got["fence_up"]), ([], []))
+
+    def test_table_widened_by_fix_still_counts(self):
+        """直しが柵の表の知ってよい所を広げても、数えは直しの前の版の表で行い、表が変わったことを名指す"""
+        repo = self.target()
+        base = _git(repo, "rev-parse", "HEAD")
+        wide = json.loads(json.dumps(self.TABLE))
+        wide["concepts"]["outcome"]["fences"][0]["allowed"].append("src/edge.py")
+        _write(repo, "docs/concepts.json", json.dumps(wide, ensure_ascii=False))
+        _write(repo, "src/edge.py", 'x = "round_limit"\ny = "round_limit"\n')
+        got = self.after(repo, base)
+        self.assertEqual([f["path"] for f in got["fence_up"]], ["src/edge.py"])
+        self.assertEqual(got["tables_changed"], ["docs/concepts.json"])
+
     def test_unknown_base_does_not_stop_the_line(self):
         got = self.after(self.target(), "0" * 40)
         self.assertEqual(got["status"], "failed")

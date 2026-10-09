@@ -10,7 +10,9 @@
 表の中のパスはその docs/ の親のフォルダ（持ち主のフォルダ）からの相対で読む。表が無い対象では何も数えない（作らない）。
 
 - load(root)・tracked(root)・scan(root, paths, fence, exclude)・verdict(found, known)・map_rows・map_ids・map_paths(md, heads)
-- tables(repo) -> ([(持ち主のフォルダ, 表)], [読めない表の訳]): 対象の表を探して読む（投げない）
+- tables(repo, rev=None) -> ([(持ち主のフォルダ, 表)], [読めない表の訳]): 対象の表を探して読む（投げない）。rev を渡せば
+  その版の木の表を読む（直しが表を広げても、直しの前の表で数える）
+- changed(repo, base_rev) -> [パス]: base_rev と今の作業ツリーで変わった・足したファイル（.archon/ の写しと入れ子のリポジトリは除く）
 - places(repo, base, table, paths) -> [{concept, what, path, lines, home, known_places}]: 単位のファイル（repo からの相対）に
   当たる柵ごとの行の数・住処（allowed）か・その考えを知る場所の数（持ち主のフォルダの中で exclude の外の全部。住処を含む）
 - scan_change(repo, base_rev, table, base="") -> [{concept, what, path, before, after}]: base_rev と今の作業ツリーの間で変わった
@@ -27,6 +29,7 @@ import re
 import subprocess
 
 import concepthome
+from leftovers import ARCHON_PREFIX   # 流れの道具が run の作業ツリーに写す工程の置き場（直しの差分に数えない）
 
 TABLE = concepthome.TABLE_NAME
 HEADING = re.compile(r"^### `([^`]+)`")
@@ -126,13 +129,30 @@ def map_paths(md, heads):
 
 
 # ---------------------------------------------------------------- 対象のリポジトリに当てる口
-def tables(repo) -> tuple[list[tuple[str, dict]], list[str]]:
-    """([(持ち主のフォルダ, 表)], [読めない表の訳])。表は追跡されたファイルの中の concepthome.TABLE_NAME（浅い順）。投げない"""
-    names, why = concepthome.tracked_names(pathlib.Path(repo))
+def _show(repo, rev: str, name: str) -> bytes | None:
+    p = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True, stdin=subprocess.DEVNULL)
+    return p.stdout if p.returncode == 0 else None
+
+
+def _rev_names(repo, rev: str) -> tuple[list[str], str]:
+    p = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "--name-only", rev], capture_output=True,
+                       stdin=subprocess.DEVNULL)
+    if p.returncode != 0:
+        return [], p.stderr.decode("utf-8", "replace").strip()[-300:] or f"git ls-tree が終了コード {p.returncode}"
+    return [n for n in p.stdout.decode("utf-8", "surrogateescape").split("\0") if n], ""
+
+
+def tables(repo, rev: str | None = None) -> tuple[list[tuple[str, dict]], list[str]]:
+    """([(持ち主のフォルダ, 表)], [読めない表の訳])。表は追跡されたファイル（rev なら その版の木）の中の concepthome.TABLE_NAME
+    （浅い順）。投げない"""
+    names, why = _rev_names(repo, rev) if rev else concepthome.tracked_names(pathlib.Path(repo))
     out, bad = [], [f"木を読めなかった: {why}"] if why else []
     for name in concepthome.pick_tables(names):
         try:
-            doc = json.loads((pathlib.Path(repo) / name).read_text(encoding="utf-8"))
+            raw = _show(repo, rev, name) if rev else (pathlib.Path(repo) / name).read_bytes()
+            if raw is None:
+                raise OSError(f"{rev} に読めない")
+            doc = json.loads(raw.decode("utf-8"))
             if not isinstance(doc, dict) or not isinstance(doc.get("concepts"), dict):
                 raise ValueError("concepts の表が無い")
             for k, v in doc["concepts"].items():
@@ -189,14 +209,15 @@ def places(repo, base: str, table: dict, paths) -> list[dict]:
     return out
 
 
-def _changed(repo, base_rev: str) -> list[str]:
-    """base_rev と今の作業ツリー（まだ追跡されていない物を含む）の間で変わった・足したファイル（repo からの相対）"""
+def changed(repo, base_rev: str) -> list[str]:
+    """base_rev と今の作業ツリー（まだ追跡されていない物を含む）の間で変わった・足したファイル（repo からの相対）。流れの道具の
+    写し（ARCHON_PREFIX の下）と、入れ子のリポジトリ（ls-files が / で終わる名で出す）は除く。git が落ちれば CalledProcessError"""
     def git(*args):
-        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
-                              check=True, stdin=subprocess.DEVNULL).stdout
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=True,
+                              stdin=subprocess.DEVNULL).stdout.decode("utf-8", "surrogateescape")
     diff = git("diff", "--name-only", "-z", "--no-renames", base_rev, "--").split("\0")
     new = git("ls-files", "-z", "--others", "--exclude-standard").split("\0")
-    return list(dict.fromkeys(f for f in diff + new if f))
+    return list(dict.fromkeys(f for f in diff + new if f and not f.endswith("/") and not f.startswith(ARCHON_PREFIX)))
 
 
 def _old(repo, rev: str, path: str) -> str:
@@ -215,7 +236,7 @@ def scan_change(repo, base_rev: str, table: dict, base: str = "") -> list[dict]:
     exclude と allowed の外の物を各柵で数え、行の数が増えた物（path は repo からの相対）。git が落ちれば CalledProcessError"""
     exclude = table.get("exclude") or []
     files = []
-    for p in _changed(repo, base_rev):
+    for p in changed(repo, base_rev):
         r = _within(p, base)
         if r is not None and not _hit(r, exclude):
             files.append((p, r))

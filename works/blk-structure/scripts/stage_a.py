@@ -15,7 +15,8 @@ rules（方針の文書の中身と根の地図の文書）と単位の concepts
 - 対象の根（INPUTS_ROOT）は空なら cwd。相対なら cwd から解く。方針の文書（INPUTS_POLICY_PATH）は任意で、中身を rules に置く
 - 単位のファイルが読めない・形が違う・measure.py が落ちた時も、structure.json の status: failed と reason に残して 0 で終える
   （実測が落ちても線を止めない。GitHub Actions の continue-on-error と同じ分け方で、節の結末は成功のまま）
-- 直しの前の版（INPUTS_BASE_REV）が在る周は直しの後の段: 単位を読まず測らず、units の空の structure.json を書いて after: true を返す
+- 直しの前の版（INPUTS_BASE_REV）が在る周は直しの後の段: 単位を読まず測らず、units の空の structure.json を AFTER_DIR の下に書いて
+  after: true を返す（1 度目の段の design.jsonl と目の控えを消さない）
   （段 B の stage_b がその差分を測る。計画 2026-10-09-clean-whole の Task 2.5）
 - {"structure_file", "design_file", "eye", "after"} を 1 行出して 0（eye は構造の目を起こす周か。lib/eye.due）。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
 """
@@ -40,6 +41,7 @@ INPUTS = (UNITS_ENV, ROOT_ENV, POLICY_ENV, BASE_ENV)   # 裁定 TA16: 読む INP
 AFTER_REASON = "直しの後の段（base_rev が在る周。単位を測らず目も起こさない。差分は段 B が測る）"
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 OUT_DIR = "structure"
+AFTER_DIR = "after"   # 直しの後の段の置き場（OUT_DIR の下。1 度目の段の design.jsonl と目の控えを消さない）
 STRUCTURE_FILE = "structure.json"
 DESIGN_FILE = "design.jsonl"
 MEASURE = Path(__file__).resolve().parent / "measure.py"
@@ -88,14 +90,14 @@ def main() -> int:
         print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
         return 2
     t0, started = time.monotonic(), _now()
-    out_dir = Path(art) / OUT_DIR
+    after = bool(os.environ.get(BASE_ENV, "").strip())
+    out_dir = Path(art) / OUT_DIR / (AFTER_DIR if after else "")
     out_dir.mkdir(parents=True, exist_ok=True)
     design = out_dir / DESIGN_FILE
     design.write_bytes(b"")
     (out_dir / eye.EYE_FILE).unlink(missing_ok=True)
     root = Path(os.environ.get(ROOT_ENV) or ".").resolve()
     doc = {"status": "ok", "reason": "", "root": str(root), "policy_path": os.environ.get(POLICY_ENV, ""), "units": []}
-    after = bool(os.environ.get(BASE_ENV, "").strip())
     try:
         units = [] if after else read_units(os.environ.get(UNITS_ENV, ""))
     except ValueError as e:

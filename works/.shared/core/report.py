@@ -1482,14 +1482,16 @@ def always_rows(b, left: list | None = None, *, rest: Rest | None = None) -> lis
         rows.append(f"仕組みの異常: 合計 {a['total']} 件（" + "・".join(f"{n} {k['count']}" for n, k in a["kinds"].items()) + "。所在の全件は仕組みの異常の節）"
                     + (f"。壊れた行 {a['skipped']} 行を飛ばした" if a["skipped"] else ""))
     if left is not None:
-        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）"
+        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目・"
+                    "直しの後の実測が見た住処の外の知る場所の増え）"
                     + (f"。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}" if left else ""))
     if rest is not None:
         def counted(found, tail=""):
             return f"{len(found)} 件（{'・'.join(e['name'] for e in found) or '無し'}{tail}）"
         rows.append(f"残り（最後の関所で数えられる分）: 独立の目の阻害 {counted(rest.counts.blocked)}・走っていない目 {counted(rest.counts.not_run)}・"
                     f"結果が無い目 {counted(rest.counts.missing, '。阻害 0 件ではなく判定が無い')}・最後のテスト: {rest.tests_word}。"
-                    f"数えられる分の合計 {len(rest.rows)} 件（目の 3 つの欄と、最後のテストが緑でなければその 1 件）。"
+                    f"数えられる分の合計 {len(rest.rows)} 件（目の 3 つの欄と、最後のテストが緑でなければその 1 件と、"
+                    "直しの後の実測が見た住処の外の知る場所の増え）。"
                     "検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる）"
                     + (f"。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}" if rest.counts.not_run or rest.counts.missing else ""))
     if left is None and rest is None:

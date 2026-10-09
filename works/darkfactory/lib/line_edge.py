@@ -756,6 +756,9 @@ def _final_needs(b, rest: report.Rest, objection: str, rows, err: str, asks: lis
         why.append(f"独立の目が阻害を返した（{'・'.join(e['name'] for e in rest.counts.blocked)}）")
     if mismatched:
         why.append(f"直したという申告と機械の数え直しが合わない単位が在る（{len(mismatched)} 件）")
+    fenced = structmark.after_rows(b.dir)
+    if fenced:
+        why.append(f"考えの住処の柵の数が増えた（{len(fenced)} 件。住処へ寄せるか、増やすなら地図と柵の表を直す）")
     if b.state.get("pending_human"):
         why.append("人に聞いている問いが盤面に在る")
     if objection:
