@@ -141,7 +141,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 - 会話の継ぎ（2）: 判定役の会話の id を記録し、再審（`continue=judge`）をその会話の続きで起こす。旗 `self-resume`・旗 `fork`（同時に走る枝の答えの節が修正案の役の会話の写しで答える）・単位の切れ目の新しい会話も包みが決める。
 - 柵（3・6・6b・6c）: 線の `start` が書いた切符の守る場所（共通の `.git`・ほかの worktree・盤面など）を `permissions.deny` と sandbox の `denyWrite` に足す。旗 `no-tree-write`（CI の任せ先）・`isolated`（道具ゼロの独立の目）・`lane`（並べの枝の役を単位の worktree で起こす。設計 [docs/plans/2026-10-07-lane-nodes.md](docs/plans/2026-10-07-lane-nodes.md)）も同じ所（18 の形ごとの道具の拒みは 2026-10-09 に消した）。
 - 木ごと止める（4）: 本物の claude を子として起こし、信号を受けた時と終わった後に孫まで止める（claude の Bash の道具はコマンドを別のグループで走らせるので、claude だけを止めると孫が残る）。
-- 読むだけの gh（5）: 印のある起動の全部で gh を丸ごと拒み、読む 4 つの形だけを通す口 `.shared/core/no-post-bin/works-gh` を env の `WORKS_GH` と PATH の頭の `gh` で渡す。`git push` も拒む。口は読む 4 つの形のほかの gh を全部拒むので、対象の試験が `gh --version` などを打つと赤になる。事故の柵で、堅い境ではない。
+- 読むだけの gh（5）: 印のある起動の全部で gh を丸ごと拒み、読む 4 つの形だけを通す口 `.shared/core/no-post-bin/works-gh` を PATH の頭に置く（役は素の名 `works-gh` の 1 つだけのコマンドで打つ。sandbox の外に出るのはこの形だけ。同じ口を `gh` の名でも置く）。`git push` も拒む。口は読む 4 つの形のほかの gh を全部拒むので、対象の試験が `gh --version` などを打つと赤になる。事故の柵で、堅い境ではない。
 - 柵なしで起こさない（7）: `--settings` を読めない・混ぜられない、切符が在るのに読めない、会話の id を記録できない時は、claude を起こさずに 1 行を出して終了コード 3 で止まる。
 - 網を閉じる（8。印の有無に依らない）: Archon は YAML の網の設定から `strictAllowlist` を捨てるので、包みが `allowedDomains` が `*` を含まない起動に `strictAllowlist: true` を足す。閉じるのは sandbox の中の Bash の網だけで、WebFetch・WebSearch はこの鍵の外（YAML の `allowedDomains: []` は web を止めない。役から web を外すなら道具の一覧から WebFetch・WebSearch を抜く）。
 - stdin の中継（9）: 印のある起動の stdin を中継し（バイトは変えない）、最初の指示文が来た時に起動の記録を書く。指示書には触らない（全文版・差分版を選ぶ口は 2026-10-09 に消した）。

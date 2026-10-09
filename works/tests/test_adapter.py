@@ -377,11 +377,13 @@ class AdapterCase(unittest.TestCase):
         with self.subTest("/private の別名の綴り"):
             self.assertIn(f"Bash({hermetic.alias(self, gh)}:*)", deny)
         self.assertFalse([x for x in s.get("permissions", {}).get("allow", []) if "gh" in x], "allow では一部を許せない")
-        # 子の env: PATH の頭に口、WORKS_GH は口。口の先の本物の gh のパスは env に置かない（口が PATH から引く。役が env の
+        # 子の env: PATH の頭に口（役は素の名 works-gh で引く。sandbox の除外に当たるのはその形だけなので、口のパスを env に
+        # 置かない——tests/test_gh_port.py）。口の先の本物の gh のパスも env に置かない（口が PATH から引く。役が env の
         # 値で本物の gh——run の中では利用者のログインを継ぐ口——を打つ道を作らない）
         env = child["env"]
         self.assertEqual(env["PATH"].split(os.pathsep)[0], str(adapter.NO_POST_BIN))
-        self.assertEqual(env["WORKS_GH"], str(adapter.NO_POST_BIN / "works-gh"))
+        self.assertEqual(shutil.which(adapter.RO_GH, path=env["PATH"]), str(adapter.NO_POST_BIN / adapter.RO_GH))
+        self.assertNotIn("WORKS_GH", env)
         self.assertNotIn("WORKS_REAL_GH", env)
         self.assertEqual(env["WORKS_GH_ACTIVE"], "")
         # PATH の上の gh は全部（手元の本物の gh も）絶対パスで拒む
@@ -391,7 +393,7 @@ class AdapterCase(unittest.TestCase):
 
     def test_every_marked_launch_gets_the_read_only_gh(self):
         """run の中の gh は利用者のログインを継ぐ（dev/hostgh.py）ので、印のある起動は旗に依らず全部、
-        同じ柵（gh を丸ごと拒む deny・git push の deny）と読むだけの口（WORKS_GH・PATH の頭の gh）で起こす（書く役・CI の役も
+        同じ柵（gh を丸ごと拒む deny・git push の deny）と読むだけの口（PATH の頭の works-gh と gh）で起こす（書く役・CI の役も
         PR へ投稿・push できない）。印の無い起動（題の生成。道具ゼロ）は今どおり触らない"""
         bindir, gh = self._fake_gh_bin()
         path = str(bindir) + os.pathsep + os.environ["PATH"]
@@ -405,7 +407,8 @@ class AdapterCase(unittest.TestCase):
                     self.assertIn(rule, deny)
                 env = child["env"]
                 self.assertEqual(env["PATH"].split(os.pathsep)[0], str(adapter.NO_POST_BIN))
-                self.assertEqual(env["WORKS_GH"], str(adapter.NO_POST_BIN / "works-gh"))
+                self.assertEqual(shutil.which(adapter.RO_GH, path=env["PATH"]), str(adapter.NO_POST_BIN / adapter.RO_GH))
+                self.assertNotIn("WORKS_GH", env)
                 self.assertNotIn("WORKS_REAL_GH", env)
                 self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.no_post_rules(adapter.find_gh(path))))
 
@@ -1302,12 +1305,12 @@ class NetworkCase(unittest.TestCase):
             for desc in ("", "works-node: judge", "works-node: probe"):
                 with self.subTest(allowed=allowed, desc=desc):
                     network = {"allowedDomains": allowed, "allowLocalBinding": False}
-                    r = self.e.run(sdk_argv(desc, settings=net_settings(network, excludedCommands=["works-gh:*"])))
+                    r = self.e.run(sdk_argv(desc, settings=net_settings(network, excludedCommands=[adapter.RO_GH_EXCLUDED])))
                     self.assertEqual(r.returncode, 0, r.stderr)
                     got = self.e.child()["argv"]
                     self.assertEqual(self.net(got), dict(network, strictAllowlist=True))
                     sb = json.loads(opt(got, "--settings")[0])["sandbox"]
-                    self.assertEqual(sb["excludedCommands"], ["works-gh:*"])   # ほかの鍵はそのまま
+                    self.assertEqual(sb["excludedCommands"], [adapter.RO_GH_EXCLUDED])   # ほかの鍵はそのまま
                     self.assertIs(self.e.launches()[-1]["strict_net"], True)
 
     def test_strict_false_is_forced_true(self):

@@ -50,12 +50,16 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 """
 import json
 import pathlib
+import sys
 import tempfile
 import unittest
 
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import adapter  # noqa: E402  （読むだけの gh の口の名 RO_GH_EXCLUDED の正本）
 TESTS = pathlib.Path(__file__).resolve().parent
 
 DEADLINE = 1728000000                     # 20 日（ms）
@@ -97,7 +101,7 @@ DELEGATE_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfU
 # 口の許す物の一覧と、包みが印のある起動の全部に足す permissions.deny が止める）。GitHub の宛先を許すと、sandbox の中のコードが読むだけの口を
 # 迂回して書ける（graphloops の role_run の注記）
 MATERIAL_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
-                    "excludedCommands": ["works-gh:*"], "network": {"allowedDomains": []}}
+                    "excludedCommands": [adapter.RO_GH_EXCLUDED], "network": {"allowedDomains": []}}
 _MAT_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
 _MATERIAL = {
     **{n: {"tools": _MAT_TOOLS, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"}

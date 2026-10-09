@@ -9,7 +9,7 @@
 それが利用者のログインを継ぐ口（dev/hostgh.py）。本物の gh のパスを env に置かない・断りの文に出さない（役がその値で本物の gh を
 打つ道を作らない。事故の柵で、堅い境ではない）。
 
-包みはこの口を 2 つの名で置く: `works-gh`（役が呼ぶ名。env の WORKS_GH が絶対パス）と、PATH の頭に置く `gh`
+包みはこの口を PATH の頭に 2 つの名で置く: `works-gh`（役が素の名で呼ぶ名。sandbox の除外に当たる。adapter の RO_GH）と `gh`
 （`command gh`・`xargs gh`・`sh -c "gh …"` など、permissions.deny の `Bash(gh:*)` の前方一致をすり抜ける呼び方の受け皿）。
 """
 import os

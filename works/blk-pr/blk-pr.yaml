@@ -42,7 +42,7 @@ nodes:
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: pr-check
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          # 読むだけ＋Bash（gh の読む口 "$WORKS_GH" と git の読む語）。書く道具は持たない。網は閉じ、口 works-gh だけを sandbox の外で
+          # 読むだけ＋Bash（素の名で打つ gh の読む口 works-gh と、git の読む語）。書く道具は持たない。網は閉じ、口 works-gh だけを sandbox の外で
           # 走らせる（包みが印のある起動の全部で本物の gh と git push を permissions.deny で拒み、口は読む形だけを通す）。作業ツリーを変えれば受け付けが拒む
           # allowedDomains: [] は WebFetch・WebSearch を止めない（web を止める鍵ではない。.shared/core/adapter.py の頭の 8）
           allowed_tools: [Read, Grep, Glob, Bash, WebSearch, WebFetch]
