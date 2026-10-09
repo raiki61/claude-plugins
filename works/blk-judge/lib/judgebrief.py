@@ -11,6 +11,7 @@ commands/diagnose.md のまま。受け付けは盤面の p2.diagnose の done�
   盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）何も書かずに go: false（判定役を起こさない。blk-material の
   支度と同じ形）。止まっていなければ盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
   作業ファイル judge-materials.md に書き（盤面の根の世界の解の控えが行を指せば worldmark.board_section の節を頭に貼る。
+  依頼の答えが在れば gatemarks.answers_section の節（答えの全部。判定役が問いか単位に結んで answer_ties に書く）を本文の後に、
   前の run で最後まで通らなかった物 prior-failures-in.json の行が在れば、
   carry.prior_section の節を末尾に足す。直す穴ではない注意）、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
   受け付けが比べる）、待っている試行に起こした印を置く（描く → 印 → 起こす。盤面の決まり 2）。パスを返す
@@ -27,6 +28,7 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import carry  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402  （依頼の答えの節。判定役が答えを問いか単位に結ぶ）
 import judgetake  # noqa: E402
 import rolekit  # noqa: E402
 import worldmark  # noqa: E402  （世界の解の行の住処。盤面の根の控えが指す行を材料の頭に貼る）
@@ -79,8 +81,9 @@ def brief(board_dir, repo) -> dict:
     tmp = p.with_name(p.name + ".tmp")
     prior = carry.prior_section(d, gap=BoardGap)   # 盤面の根の前の run で最後まで通らなかった物（manifest の consumes。無ければ貼らない）
     world = worldmark.board_section(d)   # 盤面の根の控えが指す世界の解の行（無い・落ちた周は貼らない）
-    tmp.write_text(HEAD + "\n\n" + (f"{world}\n" if world else "") + body + (f"\n\n{prior}\n" if prior else ""),
-                   encoding="utf-8")
+    answers = gatemarks.answers_section(b)   # 依頼の答えの全部（判定役が問いか単位に結ぶ。無ければ貼らない）
+    tmp.write_text(HEAD + "\n\n" + (f"{world}\n" if world else "") + body + (f"\n\n{answers}\n" if answers else "")
+                   + (f"\n\n{prior}\n" if prior else ""), encoding="utf-8")
     tmp.replace(p)
     entry.snapshot(d, judgetake.TREE_FILE, pathlib.Path(repo))
     entry.open_board(d).mark_launched(NODE, inst.get("attempts", 1))

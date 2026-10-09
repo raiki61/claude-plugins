@@ -251,6 +251,17 @@ nodes:
                     where: {type: string, minLength: 1}
                     why_outside: {type: string, minLength: 10}
                     text: {type: string, minLength: 1}
+              # 依頼の答えの 1 件ごとに、この run の問いか単位に結んだ行（gatemarks.with_ties。受け付けが外して答えと key に当て、盤面の根に控える）
+              answer_ties:
+                type: array
+                items:
+                  type: object
+                  required: [answer]
+                  additionalProperties: false
+                  properties:
+                    answer: {type: string, minLength: 1}
+                    to: {type: string, minLength: 1}
+                    none: {type: string, minLength: 20}
         - id: judge-accept
           script: accept
           runtime: uv

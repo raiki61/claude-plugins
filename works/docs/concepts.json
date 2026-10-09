@@ -232,7 +232,7 @@
    "fences": [
     {
      "what": "足し欄の盤面の控えの名",
-     "pattern": "\"(gate-marks|plan-fields|delta-verdicts|query-examples|out-of-purpose|pr-excluded|report-terms|purpose-means)\\.json\"",
+     "pattern": "\"(gate-marks|plan-fields|delta-verdicts|query-examples|out-of-purpose|pr-excluded|report-terms|purpose-means|answer-ties)\\.json\"",
      "allowed": [
       ".shared/core/marks.py",
       "blk-*/manifest.json",

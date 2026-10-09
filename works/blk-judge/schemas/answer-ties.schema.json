@@ -1,0 +1,10 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "判定役が依頼の答えを問いか単位に結んだ行 answer-ties.json（盤面の根。書き手は core の gatemarks.save_ties。受け付けを通った返答の足し欄 answer_ties の行と、その周。関所と報告が依頼の答えを問いに当てる時に読む）",
+ "type": "object",
+ "required": ["round", "ties"],
+ "properties": {
+  "round": {"type": "integer", "minimum": 1},
+  "ties": {"type": "array", "items": {"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string"}, "to": {"type": "string"}, "none": {"type": "string"}}}}
+ }
+}

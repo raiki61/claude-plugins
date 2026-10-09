@@ -115,6 +115,36 @@ class Shape(unittest.TestCase):
         self.assertNotEqual(c.row_key(a), c.row_key({"where": "b.py", "text": "k1（理由 A）"}))
 
 
+class HumanAnswers(unittest.TestCase):
+    """人が決めた答え（依頼の答えと、関所で人が continue で決めた問い）を次の依頼の answers に下書きの印なしで運ぶ"""
+
+    def test_human_answers_merge_request_and_gate_newest_wins(self):
+        c = carry()
+        req = [{"question": "q-1", "text": "前の答え"}, {"question": "parallel_pr", "text": "無い", "command": "gh pr list",
+                                                         "output": "[]"}]
+        decided = [{"question": "q-1", "text": "例外のまま"}, {"question": "q-2", "text": "0 を返す"}]
+        got = c.human_answers(decided, req, "run-9")
+        self.assertEqual([a["question"] for a in got], ["parallel_pr", "q-1", "q-2"])
+        self.assertEqual(got[0], req[1])
+        self.assertEqual(got[1]["text"], "run run-9 の関所で人が決めた: 例外のまま")
+        self.assertFalse(any(c.is_draft(a) for a in got))
+        self.assertEqual(c.parts({"findings": [], "answers": got})["answers"], got)
+
+    def test_human_answers_skip_drafts_and_odd_rows(self):
+        c = carry()
+        req = [c.draft({"question": "q-3", "text": ""}, "下書き"), "行でない", {"question": "", "text": "空"}]
+        self.assertEqual(c.human_answers([], req, "r"), [])
+
+    def test_compose_puts_human_answers_before_drafts_and_drops_drafts_they_answer(self):
+        c = carry()
+        human = [{"question": "q-1", "text": "決めた"}]
+        drafts = [c.draft({"question": "q-1", "text": ""}, "s"), c.draft({"question": "q-2", "text": ""}, "s")]
+        doc = c.compose([], [], drafts, human)
+        self.assertEqual([a["question"] for a in doc["answers"]], ["q-1", "q-2"])
+        self.assertFalse(c.is_draft(doc["answers"][0]))
+        self.assertEqual(c.errors(doc, c.NEXT_SCHEMA), [], "人が決めた答え（下書きの印なし）も約束に合う")
+
+
 class Board(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

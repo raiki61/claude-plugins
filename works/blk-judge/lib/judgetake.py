@@ -26,6 +26,7 @@ if str(_CORE) not in sys.path:
 
 import accept as core_accept  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402  （依頼の答えを判定役が問いか単位に結ぶ足し欄 answer_ties）
 import outpurpose  # noqa: E402
 import querytest  # noqa: E402
 import rolekit  # noqa: E402
@@ -68,24 +69,30 @@ def finish(board, out: dict) -> dict:
 
 
 def take(board, reply: dict, repo) -> dict:
-    """rolekit.accept_role の take: 例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、例と
-    目的の外の行を外した返答を entry.take に渡す（写しの型はどちらの欄も持たない）。通れば例を盤面の query-examples.json に、
-    目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に置く（finish が judgment.json に戻す）"""
+    """rolekit.accept_role の take: 例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、依頼の答えの
+    結び（gatemarks の answer_ties）を依頼の答えと返答の問いと単位に当てて確かめ（答えの全部に 1 行。欠けと当たらない名指しは拒む）、
+    例と目的の外の行と結びを外した返答を entry.take に渡す（写しの型はどの欄も持たない）。通れば例を盤面の query-examples.json に、
+    目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に（finish が judgment.json に戻す）、結びを盤面の根の控えに置く"""
     is_open = validator_module(_Validator).is_open
     errs = querytest.problems(reply.get("units"), is_open)
     if errs:
         return {"ok": False, "reason": "class_query の例が問いと合わない: " + "; ".join(errs)}
     reply, outside = outpurpose.split(reply)
+    reply, tied = gatemarks.split_ties(reply)
     b = entry.open_board(pathlib.Path(board), allow_halted=True)   # 止めた盤面の拒否は entry.take が言う
     material = outpurpose.material_rows(b)
     errs = outpurpose.problems(outside, material)
     if errs:
         return {"ok": False, "reason": f"{outpurpose.FIELD} の行が盤面の材料と合わない: " + "; ".join(errs)}
+    errs = gatemarks.tie_problems(tied, gatemarks.request_answers(b), reply)
+    if errs:
+        return {"ok": False, "reason": f"{gatemarks.TIES_FIELD} の行が依頼の答えと合わない: " + "; ".join(errs)}
     bare, examples = querytest.split(reply, is_open)
     out = entry.take(pathlib.Path(board), NODE, bare, pathlib.Path(repo), snapshot_name=TREE_FILE)
     if out.get("ok") is True:
         querytest.save(board, examples, replace=True)
         outpurpose.save(board, b.round, outside, material)
+        gatemarks.save_ties(board, b.round, tied)
     return out
 
 

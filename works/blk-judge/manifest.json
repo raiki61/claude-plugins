@@ -7,6 +7,7 @@
  "produces": [
   {"name": "judgment.json", "format": "json", "schema": "schemas/judgment.schema.json", "at": "root"},
   {"name": "judge-verify.json", "format": "json", "schema": "schemas/judge-verify.schema.json"},
-  {"name": "out-of-purpose.json", "format": "json", "schema": "schemas/out-of-purpose.schema.json", "at": "root"}
+  {"name": "out-of-purpose.json", "format": "json", "schema": "schemas/out-of-purpose.schema.json", "at": "root"},
+  {"name": "answer-ties.json", "format": "json", "schema": "schemas/answer-ties.schema.json", "at": "root"}
  ]
 }

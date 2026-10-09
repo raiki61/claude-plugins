@@ -656,5 +656,65 @@ class UnprovenQueryCase(unittest.TestCase):
                                  "盤面へ渡す写しの class_query に理由の欄を残さない（写しの型は additionalProperties: false）")
 
 
+class AnswerTiesTakeCase(unittest.TestCase):
+    """判定役の返答の足し欄 answer_ties（依頼の答えを問いか単位に結ぶ）を、受け付け（judgetake.take）が外して盤面へ渡し、
+    依頼の答えの全部に 1 行が無い・結び先が今の返答に無いなら拒み、通れば盤面の根に控える（黙って落とさない）"""
+
+    def setUp(self):
+        import types
+        from unittest import mock
+        import gatemarks
+        import judgetake
+        self.mock, self.gm, self.jt = mock, gatemarks, judgetake
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        (self.dir / "r1").mkdir()
+        answers = [{"question": "自分の項目 a.py", "text": "例外のまま"}, {"question": "自分の項目 b.py", "text": "変えない"}]
+        (self.dir / "r1" / "start.json").write_text(json.dumps({"answers": answers}, ensure_ascii=False), encoding="utf-8")
+        self.b = types.SimpleNamespace(dir=self.dir, round=1, state={"outputs": {}}, record={"process": {}},
+                                       latest_output=lambda nid: None)
+        self.reply = {"units": [{"key": "u-a", "label": "block"}], "questions": [{"key": "q-7", "kind": "fork"}]}
+
+    def take(self, ties):
+        with self.mock.patch.object(self.jt.entry, "open_board", return_value=self.b), \
+                self.mock.patch.object(self.jt.querytest, "problems", return_value=[]), \
+                self.mock.patch.object(self.jt.querytest, "split", side_effect=lambda r, _o: (r, [])), \
+                self.mock.patch.object(self.jt.querytest, "save"), \
+                self.mock.patch.object(self.jt.entry, "take", return_value={"ok": True, "reason": ""}) as t:
+            got = self.jt.take(self.dir, {**self.reply, self.gm.TIES_FIELD: ties}, self.dir)
+        return got, t
+
+    def test_judge_must_account_every_answer(self):
+        got, t = self.take([{"answer": "自分の項目 a.py", "to": "q-7"}])
+        self.assertFalse(got["ok"])
+        self.assertIn("自分の項目 b.py", got["reason"])
+        t.assert_not_called()
+
+    def test_tie_to_unknown_key_refused(self):
+        got, t = self.take([{"answer": "自分の項目 a.py", "to": "q-無い"}, {"answer": "自分の項目 b.py", "to": "u-a"}])
+        self.assertFalse(got["ok"])
+        self.assertIn("q-無い", got["reason"])
+        t.assert_not_called()
+
+    def test_good_ties_are_taken_off_and_saved(self):
+        ties = [{"answer": "自分の項目 a.py", "to": "q-7"}, {"answer": "自分の項目 b.py", "to": "u-a"}]
+        got, t = self.take(ties)
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn(self.gm.TIES_FIELD, t.call_args.args[2])
+        self.assertEqual(self.gm.ties(self.b), {"自分の項目 a.py": "q-7", "自分の項目 b.py": "u-a"})
+
+    def test_role_schema_has_optional_ties(self):
+        s = role_schema("p2.diagnose")
+        self.assertNotIn(self.gm.TIES_FIELD, s["required"])
+        row = s["properties"][self.gm.TIES_FIELD]["items"]
+        self.assertEqual(row["required"], ["answer"])
+        self.assertFalse(row["additionalProperties"])
+
+    def test_diagnose_prompt_asks_for_ties(self):
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        self.assertIn(f"`{self.gm.TIES_FIELD}`", text)
+
+
 if __name__ == "__main__":
     unittest.main()

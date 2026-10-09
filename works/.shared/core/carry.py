@@ -21,7 +21,8 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
 - carry_ci(doc, ids) -> 依頼の object: run の後の CI が赤と言った試験の id を prior_failures の行（where CI_WHERE）として足す。
   重い試験は run の外の CI で回り、run の報告はその赤を知らないので、人（か回す役）が CI の赤の id を next-request.json に足す口。
   同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I carry.py carry-ci`
-- is_draft(row)・draft(row, source, note="")・compose(findings, prior, drafts): 下書きの印の読みと付け方・次の依頼の下書きの中身
+- is_draft(row)・draft(row, source, note="")・compose(findings, prior, drafts, answers=()): 下書きの印の読みと付け方・次の依頼の下書きの中身
+- human_answers(decided, request_answers, run_id): 次の依頼に運ぶ人の答え（依頼の答えと、関所で人が決めた答え。下書きの印なし）
 - row_key(row): 行の鍵（where と、text の最初の「（」までを空白を詰めて \\t でつないだ物。理由の尾だけ違う行を同じ物と見る）
 - schema(name)・errors(doc, name): 約束の Schema（NEXT_SCHEMA・PRIOR_SCHEMA）と、それに照らした誤りの一覧
 - save(board_dir, doc, prior)・place_prior(board_dir, rows)・prior_section(board_dir, gap=ValueError):
@@ -179,12 +180,38 @@ def draft(row: dict, source: str, note: str = "") -> dict:
     return out
 
 
-def compose(findings: list, prior: list, drafts: list) -> dict:
-    """次の run の依頼の下書きの中身 {findings, prior_failures, answers?}（answers は答えの下書きが在る時だけ）。盤面を知らない"""
+def compose(findings: list, prior: list, drafts: list, answers=()) -> dict:
+    """次の run の依頼の下書きの中身 {findings, prior_failures, answers?}（answers は人が決めた答え answers か答えの下書きが在る時
+    だけ。人が決めた答えを先に並べ、同じ question の下書きは落とす）。盤面を知らない"""
     doc = {FINDINGS: findings, PRIOR: prior}
-    if drafts:
-        doc[ANSWERS] = drafts
+    decided = {a.get("question") for a in answers}
+    rows = [*answers, *(d for d in drafts if d.get("question") not in decided)]
+    if rows:
+        doc[ANSWERS] = rows
     return doc
+
+
+DECIDED_AT = "run {run} の関所で人が決めた: "   # human_answers が関所で決めた答えの text の頭に付ける字
+
+
+def human_answers(decided: list, request_answers: list, run_id: str) -> list:
+    """次の run の依頼に運ぶ人の答え [{question, text, command?, output?}]（下書きの印を持たない）: 依頼の答え request_answers の
+    うち下書きでない行（ANSWER_KEYS の欄だけ）と、関所で人が決めた問いの答え decided（{question, text}。text の頭に DECIDED_AT）。
+    同じ question は後の物（関所の答え）を採る。question か text の空な行・dict でない行は運ばない"""
+    out = {}
+    for a in request_answers or []:
+        if isinstance(a, dict) and not is_draft(a) and _filled(a.get("question")) and _filled(a.get("text")):
+            out.pop(a["question"], None)
+            out[a["question"]] = {k: a[k] for k in ANSWER_KEYS if k in a}
+    for d in decided or []:
+        if isinstance(d, dict) and _filled(d.get("question")) and _filled(d.get("text")):
+            out.pop(d["question"], None)
+            out[d["question"]] = {"question": d["question"], "text": DECIDED_AT.format(run=run_id or "（id 無し）") + d["text"]}
+    return list(out.values())
+
+
+def _filled(v) -> bool:
+    return isinstance(v, str) and bool(v.strip())
 
 
 def row_key(row: dict) -> str:
@@ -299,3 +326,4 @@ if __name__ == "__main__":
         if hasattr(_s, "reconfigure"):
             _s.reconfigure(encoding="utf-8")
     sys.exit(main())
+

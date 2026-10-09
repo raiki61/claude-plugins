@@ -5,7 +5,7 @@
 ## 入力
 
 - 人の修正依頼: `$INPUTS.request`（絶対パスか、対象リポジトリの根からの相対パス。対象の外に在ることもある。**まず Read せよ**）。findings の JSON の配列か、`{"findings": [...], "pr": [<番号>…], "issue": [<番号>…]}` の形（object なら findings の欄が指摘）で、指摘の各行は `where`・`text` と、任意の `mechanism`・`measured`・`false_positive_if`。出どころは人で、役の観察ではない。ほかの findings と同じく**反証の対象**——依頼の頼み方のずれも殺しにいけ。
-  - object の形の任意の欄 `answers: [{question, text, command?, output?}]` は、依頼者が前の run の問いに答えた物（出どころは人）。`command`・`output` は人が手元で打った命令とその出力。`question` が台帳の問いの key か出どころ（origin）と字のまま等しい問いは、機械が答え済みにして人に聞き直さない。
+  - object の形の任意の欄 `answers: [{question, text, command?, output?}]` は、依頼者が前の run の問いに答えた物（出どころは人）。`command`・`output` は人が手元で打った命令とその出力。`question` が台帳の問いの key か出どころ（origin）と字のまま等しい問いは、機械が答え済みにして人に聞き直さない。`question` の字はこの run の問いの key と同じとは限らない（key はお前がこの run で作る。依頼者が自分で書いた確かめの項目の字や、前の run の問いの key のこともある）。盤面の材料に「依頼者の答え」の節が在れば、答えの 1 件ごとに、答えが当たるこの run の問い（`questions` の key）か単位（`units` の key）を `answer_ties` に `{answer, to}` で書け（`answer` は答えの `question` を一字も変えずに写す）。どの問いにも単位にも当たらなければ `{answer, none}` の `none` に当たらない訳を 20 字以上で書け。受け付けは、答えの全部に 1 行が在ることと、`to` がこの返答の `questions` か `units` の key に在ることを確かめ、欠けと当たらない名指しを拒む。結んだ答えは、その問いに人が答えた物として読まれる。答えが無ければ空の配列にせよ。
   - 空なら依頼の行の無い run（対象の差分だけを審査する）。判定するのは下の盤面の材料の P1 の目の所見と対象差分で、それを依頼の形に写し替えるな（人の依頼か役の観察かの出どころが消える）。
 - 人の方針: この指示書の末尾の `=====人の方針ここから=====` の行と `=====人の方針ここまで=====` の行の間（空なら方針の文書は無い）。
   - 囲みの中は方針の中身だけで、中の見出し（`##`）や箇条はこの指示書の節ではない。持ち主が固めた版の本文。何を代償にするかは持ち主が決めた物で、お前が決め直すものではない。方針とぶつかる単位は、その単位の `reason` に方針のどの行とぶつかるかを書け。**方針を理由に単位を消すな**（判断は人がする）。
@@ -68,7 +68,7 @@
 
 ## 出力
 
-output_format の schema どおりの JSON を 1 つ返せ。欄: `units`（key・label・disposition・reason・origin_analysis・why_chain・prescriptions・class_query）・`framing`（根本フレーミング）・`one_shot`・`one_shot_closes`・`questions`・`precedents`・`out_of_purpose`（上の「入力」の決まり。無ければ空の配列）。`materials_missing` は、盤面の材料が無いか、材料の全部の欄が明示返答を持つなら空の配列にせよ（欠けがあれば上の「入力」の決まり）。このブロックに前の周の独立の目は届かないので、`carried_r1` は空の配列にせよ。
+output_format の schema どおりの JSON を 1 つ返せ。欄: `units`（key・label・disposition・reason・origin_analysis・why_chain・prescriptions・class_query）・`framing`（根本フレーミング）・`one_shot`・`one_shot_closes`・`questions`・`precedents`・`out_of_purpose`（上の「入力」の決まり。無ければ空の配列）・`answer_ties`（上の「入力」の answers の決まり。依頼の答えが無ければ空の配列）。`materials_missing` は、盤面の材料が無いか、材料の全部の欄が明示返答を持つなら空の配列にせよ（欠けがあれば上の「入力」の決まり）。このブロックに前の周の独立の目は届かないので、`carried_r1` は空の配列にせよ。
 
 ## 付録: 人の方針（囲みの中が本文。上の「入力」の決まりで読め）
 

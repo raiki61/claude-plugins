@@ -215,6 +215,42 @@ class DraftsCase(TP.GateBase):
         self.assertIn("draft", line)
 
 
+class HumanAnswersCarryCase(TP.LedgerAsksCase):
+    """人が関所で continue した問いと依頼の答えを、次の run の依頼の下書きの answers に下書きの印なしで運ぶ（問いの key は判定役が
+    run ごとに作るので、次の run は判定役が答えを結ぶ。gatemarks の answer_ties）"""
+
+    def test_next_doc_carries_human_answers(self):
+        (self.tmp / "r1").mkdir(exist_ok=True)
+        (self.tmp / "r1" / "start.json").write_text(json.dumps({"run_id": "run-7", "answers": [
+            {"question": "自分の項目 a.py", "text": "変えない"}]}, ensure_ascii=False), encoding="utf-8")
+        got, b = self.gate(questions=[TP.FORK], units=TP.UNITS)
+        self.answer(b, got, note="例外のままで直す")
+        doc = report.next_doc(b, [], [])
+        rows = {a["question"]: a for a in doc["answers"]}
+        self.assertEqual(rows["自分の項目 a.py"], {"question": "自分の項目 a.py", "text": "変えない"})
+        self.assertEqual(rows[TP.FORK["key"]]["text"], "run run-7 の関所で人が決めた: 例外のままで直す")
+        self.assertFalse(any(carry.is_draft(a) for a in doc["answers"]))
+        self.assertEqual(carry.parts(doc)["answers"], doc["answers"])
+        self.assertEqual(carry.errors(doc, carry.NEXT_SCHEMA), [])
+
+    def test_held_question_is_not_carried_as_decided(self):
+        """一言で「保留: <key>」と名指した問いは人が決めていないので運ばない（下書きに残る）"""
+        got, b = self.gate(questions=[TP.FORK], units=TP.UNITS)
+        self.answer(b, got, note=f"保留: {TP.FORK['key']}")
+        self.assertEqual(gatemarks.gate_decisions(b), [])
+
+    def test_drafts_still_refused(self):
+        """下書きの印の在る行は、人が決めた答えと並んでも今どおり依頼の入口が拒む"""
+        self.unattended = DraftsCase.unattended.__get__(self)
+        self.unattended()
+        got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
+        DraftsCase.stopped(self, b, got)
+        doc = report.next_doc(b, [], [])
+        self.assertTrue(any(carry.is_draft(a) for a in doc["answers"]))
+        with self.assertRaises(ValueError):
+            carry.parts(doc)
+
+
 def types_board_without_drafts(case):
     """人の居る run（start の控えが無い）の偽の盤面"""
     _, b = TP.GateBase.gate(case, narrows=[dict(TP.NARROW)])

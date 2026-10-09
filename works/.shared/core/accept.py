@@ -135,6 +135,8 @@ def _role_schema_json(node, numbered):
         schema = _strip_notes(querytest.with_examples(schema))
     if node in outpurpose.NODES:
         schema = _strip_notes(outpurpose.with_field(node, schema))
+    if node in gatemarks.TIE_NODES:
+        schema = _strip_notes(gatemarks.with_ties(node, schema))
     if node in worldmark.MEANS_NODES:
         schema = _strip_notes(worldmark.with_means(node, schema))
     if node in gatemarks.NODES:
@@ -156,7 +158,8 @@ def role_schema(node: str, numbered: bool = False) -> dict:
     項目の行に works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）を足す（同じく受け付けが外して
     盤面の plan-fields.json に置く）。1 回目の差分の審査の節（deltamarks.NODES）は準拠と品質の 2 判定の欄（compliance・quality）を
     足す（同じく受け付けが外して今の周の delta-verdicts.json に置く）。目的の節（worldmark.MEANS_NODES）は依頼の解き方の欄 means を
-    足す（同じく受け付けが外して盤面の根の足し欄の控えに置く）"""
+    足す（同じく受け付けが外して盤面の根の足し欄の控えに置く）。判定の節（gatemarks.TIE_NODES）は依頼の答えを問いか単位に結ぶ欄
+    answer_ties を足す（同じく受け付けが外して盤面の根の控えに置く）"""
     return json.loads(_role_schema_json(node, numbered))
 
 

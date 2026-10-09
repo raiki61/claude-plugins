@@ -19,7 +19,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
   判定が目的の外として単位にしなかった材料の所見は材料の行の任意の欄 mechanism・measured・false_positive_if と、下書きの印
   draft・source も持つ。印の在る行は依頼の入口が拒むので、人が見直すまで次の run の目的にならない）
-- next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は人の判断を待つ項目への答えの下書き）
+- next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は人が決めた答えと、人の判断を待つ項目への答えの下書き）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - handoff_lines(b) -> 修正役が人に回した物の行（breaks.accepted。冒頭 1・冒頭 3 行と最後の関所が同じ行を出す）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
@@ -1866,9 +1866,12 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
 
 
 def next_doc(b, items: list, prior: list) -> dict:
-    """次の run の依頼の下書き {findings, prior_failures}（形は carry.compose）。人の判断を待つ項目（無人の run が関所で止めた項目・保留のままの問い・問いの無い測れていない素材）を残せば、答えの下書き
-    （gatemarks.answer_drafts。draft: true・source つき。依頼の入口が拒むので人が見直してから使う）を answers に足す"""
-    return carry.compose(items, prior, gatemarks.answer_drafts(b))
+    """次の run の依頼の下書き {findings, prior_failures}（形は carry.compose）。人が決めた答え（依頼の答えと、関所で人が continue で
+    決めた問い。carry.human_answers。下書きの印なし——次の run の判定役が問いか単位に結ぶ）を answers に置き、人の判断を待つ項目
+    （無人の run が関所で止めた項目・保留のままの問い・問いの無い測れていない素材）を残せば、答えの下書き（gatemarks.answer_drafts。
+    draft: true・source つき。依頼の入口が拒むので人が見直してから使う）を後ろに足す"""
+    human = carry.human_answers(gatemarks.gate_decisions(b), gatemarks.request_answers(b), startrec.read(b.dir).get("run_id") or "")
+    return carry.compose(items, prior, gatemarks.answer_drafts(b), human)
 
 
 def final_result(machine: dict, ai: dict | None) -> dict:

@@ -1038,5 +1038,84 @@ class MaterialAnswersCase(GateBase):
         self.assertIn("parallel_pr", "\n".join(gatemarks.unmatched_answer_lines(b)))
 
 
+OWN_ITEM = "自分の項目 stats.py mean の空の列"   # 利用者が依頼に書いた確かめの項目の字（判定役の問いの key とは別の字）
+SEVEN = {**FORK, "key": "q-7"}
+
+
+class AnswerTiesCase(GateBase):
+    """判定役が依頼の答えを問いか単位に結んだ足し欄（answer_ties）を、字の一致の後に見る。問いの key は判定役が run ごとに作るので、
+    依頼の答えも前の周から運んだ答えも字の一致だけでは当たらない（利用者の声: 自分で書いた確かめの項目に答えを結べなかった）"""
+    answers = RequestAnswersCase.answers
+
+    def test_answer_tied_by_judge_hits_question(self):
+        self.answers({"question": OWN_ITEM, "text": "例外のまま"})
+        gatemarks.save_ties(self.tmp, 1, [{"answer": OWN_ITEM, "to": SEVEN["key"]}])
+        _, b = self.gate(questions=[SEVEN], units=UNITS)
+        self.assertTrue(gatemarks.answered(b, SEVEN))
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+        self.assertIn("依頼者の答え: 例外のまま", "\n".join(gatemarks.answered_lines(b)))
+        self.assertEqual(gatemarks.ties(b), {OWN_ITEM: SEVEN["key"]})
+
+    def test_literal_key_still_hits(self):
+        """字の一致の道は残す（結びが別の問いを指していても、key の字が等しい問いが先）"""
+        self.answers({"question": SEVEN["key"], "text": "例外のまま"})
+        gatemarks.save_ties(self.tmp, 1, [{"answer": SEVEN["key"], "to": ESCALATE["key"]}])
+        _, b = self.gate(questions=[SEVEN, ESCALATE], units=UNITS)
+        self.assertTrue(gatemarks.answered(b, SEVEN))
+        self.assertFalse(gatemarks.answered(b, ESCALATE))
+
+    def test_none_tie_reported_with_reason(self):
+        why = "この答えの項目は今の判定のどの問いにも単位にも当たらない（前の周で直った）"
+        self.answers({"question": OWN_ITEM, "text": "例外のまま"})
+        gatemarks.save_ties(self.tmp, 1, [{"answer": OWN_ITEM, "none": why}])
+        _, b = self.gate(questions=[SEVEN], units=UNITS)
+        self.assertFalse(gatemarks.answered(b, SEVEN))
+        self.assertEqual(gatemarks.ties(b), {})
+        line = "\n".join(gatemarks.unmatched_answer_lines(b))
+        self.assertIn(OWN_ITEM, line)
+        self.assertIn(why, line)
+
+    def test_tie_to_a_unit_is_named_not_unmatched(self):
+        """単位に結んだ答え（その単位に問いが立っていない）は、当たらない答えに並べず、結んだ単位を名指す"""
+        self.answers({"question": OWN_ITEM, "text": "上限は変えない"})
+        gatemarks.save_ties(self.tmp, 1, [{"answer": OWN_ITEM, "to": OTHER_UNIT}])
+        _, b = self.gate(units=UNITS)
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+        line = "\n".join(gatemarks.answered_lines(b))
+        self.assertIn(OTHER_UNIT, line)
+        self.assertIn("依頼者の答え: 上限は変えない", line)
+
+    def test_tie_problems_name_missing_and_unknown(self):
+        """依頼の答えの全部に 1 行・結び先は今の返答の問いか単位の key・当たらない訳は 20 字以上・知らない答えの行は拒む"""
+        answers = [{"question": OWN_ITEM, "text": "a"}, {"question": "二つ目", "text": "b"}]
+        reply = {"questions": [SEVEN], "units": UNITS}
+        self.assertEqual(gatemarks.tie_problems([{"answer": OWN_ITEM, "to": SEVEN["key"]},
+                                                 {"answer": "二つ目", "to": OTHER_UNIT}], answers, reply), [])
+        missing = gatemarks.tie_problems([{"answer": OWN_ITEM, "to": SEVEN["key"]}], answers, reply)
+        self.assertTrue(any("二つ目" in e for e in missing), missing)
+        unknown = gatemarks.tie_problems([{"answer": OWN_ITEM, "to": "q-無い"}, {"answer": "二つ目", "to": OTHER_UNIT}],
+                                         answers, reply)
+        self.assertTrue(any("q-無い" in e for e in unknown), unknown)
+        short = gatemarks.tie_problems([{"answer": OWN_ITEM, "none": "短い"}, {"answer": "二つ目", "to": OTHER_UNIT}],
+                                       answers, reply)
+        self.assertTrue(any("none" in e for e in short), short)
+        stray = gatemarks.tie_problems([{"answer": "依頼に無い", "to": SEVEN["key"]}], [], reply)
+        self.assertTrue(any("依頼に無い" in e for e in stray), stray)
+        both = gatemarks.tie_problems([{"answer": OWN_ITEM, "to": SEVEN["key"], "none": "x" * 30},
+                                       {"answer": "二つ目", "to": OTHER_UNIT}], answers, reply)
+        self.assertTrue(both, "to と none の両方は拒む")
+        self.assertEqual(gatemarks.tie_problems([], [], reply), [])
+
+    def test_answers_section_lists_every_answer(self):
+        """判定役の材料に貼る節は依頼の答えを全部並べ、無ければ空"""
+        _, b = self.gate(units=UNITS)
+        self.assertEqual(gatemarks.answers_section(b), "")
+        self.answers({"question": OWN_ITEM, "text": "例外のまま"}, {"question": "二つ目", "text": "b"})
+        text = gatemarks.answers_section(b)
+        self.assertIn(OWN_ITEM, text)
+        self.assertIn("二つ目", text)
+        self.assertIn(gatemarks.TIES_FIELD, text)
+
+
 if __name__ == "__main__":
     unittest.main()
