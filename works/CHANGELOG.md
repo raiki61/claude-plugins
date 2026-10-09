@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 試験の選び（`.shared/core/impact.py` の `_lang`）が、表に無い拡張子（Zig・OCaml・F#・Julia・Erlang・Nim など）のコードを文書と見なし、そのコードを直しても受け付けが当たる試験を何も選ばなかった穴を塞いだ（全体の計画の段 1.1。棚卸し `docs/language-neutral-inventory.md` の 5-3）。文書と見るのは文書・データの拡張子（`DOC_EXT`。データの `jsonl`・`ndjson` を足した）と、拡張子の無い名（`LICENSE` など）・ドットで始まる設定の名（`.gitignore` など）だけにし、ほかの拡張子は言語を問わず読めないコード（近くに在れば全部を回す）と見る。言語の表は足していない
+
 ## [0.2.52] - 2026-10-09
 
 ### Changed

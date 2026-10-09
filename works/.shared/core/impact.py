@@ -65,8 +65,9 @@ PATHREF_EXT = frozenset({"sh", "bash", "zsh", "bats", "yml", "yaml", "json", "js
 PATHREF_NAMES = frozenset({"makefile", "gnumakefile", "dockerfile", "justfile"})
 # 文書・データ。言及は拾うが先へは伸ばさない（実行されない）
 DOC_EXT = frozenset({"md", "markdown", "txt", "rst", "adoc", "csv", "lock", "html", "htm", "xml", "svg", "patch",
-                     "diff", "log", "example", "sample", "tsv"})
-# import を読まない言語のコード（依る側を字の一致でしか辿れない。近くに在れば全部を回す）。ほかの知らない拡張子は文書・データ扱い
+                     "diff", "log", "example", "sample", "tsv", "jsonl", "ndjson"})
+# import を読まない言語のコード（依る側を字の一致でしか辿れない。近くに在れば全部を回す）。この表は届いた先を先へ伸ばすかの
+# 目安で、言語の見分けには使わない: 表に無い拡張子も、文書の表（DOC_EXT）に無ければ同じく読めないコードと見る（_lang）
 OTHER_CODE_EXT = frozenset({"js", "jsx", "mjs", "cjs", "ts", "tsx", "go", "rb", "rs", "java", "kt", "kts", "scala", "c",
                             "h", "cc", "cpp", "cxx", "hpp", "cs", "swift", "php", "pl", "pm", "lua", "r", "dart",
                             "groovy", "gradle", "ex", "exs", "hs", "elm", "clj", "vue", "svelte", "ps1", "m", "mm"})
@@ -104,6 +105,7 @@ HEURISTICS = [
     "テストのモジュールは名前の型（test_*.py・*_test.py・*.bats・*.test.js・*-case.py など）。tests/ の下の他は支え",
     "動的 import（import_module・__import__・spec_from_file_location・runpy・exec など）は、引数の字が追跡中の"
     "file 名・フォルダ名に当たれば言及で辿れるとみなし、当たらなければ読めない物に数える",
+    "文書と見るのは文書・データの拡張子と、拡張子の無い名・ドットで始まる設定の名だけ。ほかの拡張子は言語を問わず読めないコード",
     "起点とその届いた先（近く）に読めない物（分からない言語・Python の構文の誤り・字の当たらない動的 import・"
     "大きすぎる file・シンボリックリンク）が在れば all_tests_required（分からないなら全部を回す）",
 ]
@@ -153,7 +155,10 @@ def is_test(path):
 
 
 def _lang(path, rec):
-    """file の種類: python・pathref・doc・binary・unknown（分からない言語）"""
+    """file の種類: python・pathref・doc・binary・unknown（分からない言語）。文書と見るのは文書・データの拡張子（DOC_EXT）と、
+    拡張子の無い名（LICENSE など。シバンが在ればスクリプト）・ドットで始まり他に点の無い名（.gitignore などの設定）だけ。
+    ほかの拡張子は言語を問わず読めないコード（unknown。近くに在れば全部を回す）——表に無い言語を文書と見て、試験を何も選ばない
+    形にしない（分からない＝全部を回す）"""
     if rec.get("bin"):
         return "binary"
     ext = _ext(path)
@@ -163,9 +168,9 @@ def _lang(path, rec):
         return "python"
     if ext in PATHREF_EXT or base in PATHREF_NAMES or (not ext and sheb):
         return "pathref"
-    if ext in OTHER_CODE_EXT:
-        return "unknown"
-    return "doc"
+    if not ext or ext in DOC_EXT or (base.startswith(".") and base.count(".") == 1):
+        return "doc"
+    return "unknown"
 
 
 # ---------------------------------------------------------------- file ごとの読み取り（中身だけに依る。sha で使い回す）

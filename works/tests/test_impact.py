@@ -199,6 +199,23 @@ class UnanalysableCase(RepoCase):
         self.assertTrue(sel["run_all"])
         self.assertEqual(sel["modules"], ["test_a", "test_b"])
 
+    def test_unknown_extension_selects_tests(self):
+        # 表に無い拡張子（ここでは Zig）のコードを直した変更も、分からない＝全部を回す（文書と見なして何も選ばない形にしない）
+        self.write("native/calc.zig", "pub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}\n")
+        m = self.map(["native/calc.zig"])
+        self.assertTrue(m["all_tests_required"], m["all_tests_reasons"])
+        self.assertIn("unknown-language: native/calc.zig", m["all_tests_reasons"])
+        sel = impact.select_tests(m, all_modules=["test_a"])
+        self.assertTrue(sel["run_all"])
+
+    def test_known_doc_and_dotfile_stay_doc(self):
+        # 文書・データの拡張子、ドットで始まる設定の名、拡張子もシバンも無い名は今どおり文書（全部を回さない）
+        for rel in ("notes/plan.md", "data/rows.jsonl", "conf/.gitignore", "LICENSE"):
+            with self.subTest(rel=rel):
+                self.write(rel, "plain words only\n")
+                m = self.map([rel])
+                self.assertFalse(m["all_tests_required"], m["all_tests_reasons"])
+
     def test_unanalysable_outside_the_neighbourhood_is_only_counted(self):
         m = self.map(["lonely/solo.py"])
         self.assertFalse(m["all_tests_required"])
