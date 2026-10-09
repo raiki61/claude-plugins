@@ -44,6 +44,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `injectors` | 包みが足す system prompt の塊 | 住処あり |
 | `replycontract` | 返答の契約（本文で返させて型を確かめる） | 住処あり |
 | `writes` | 役の返答を盤面に書く規則 | 住処あり |
+| `marks` | 返答の足し欄（写しの型が持てない works の欄） | 住処あり |
 | `entry-kind` | 入口の種類（依頼・変更・PR） | 散らばり |
 | `start-record` | 始めの記録 `r1/start.json` | 散らばり |
 | `carry-over` | 次の run への持ち越し | 散らばり |
@@ -52,7 +53,6 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `ledger` | 費用と時間の帳簿 | 散らばり |
 | `prompt-assembly` | 指示書の組み立て | 散らばり |
 | `lanes` | 並べの枝 | 散らばり |
-| `marks` | 返答の足し欄 | 散らばり |
 | `stop-reasons` | 止めの理由 | 散らばり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 
@@ -138,6 +138,15 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 約束: graph の節の `writes`（`.shared/core/graphloops/graphs/review-loop.json`）と rules の `WRITE_OPS`
 - 知ってよい所: 写しの中だけ。works の側は盤面の口（`.shared/core/board.py`）を通す
 
+### `marks` 返答の足し欄
+
+- 状態: 住処あり
+- 住処: `.shared/core/marks.py`（種の表 `KINDS`＝節か役 → 行の在り処・盤面の控えの名・置き場、と手順の口 `add`（役の型に足す）・`rows`・`split`（受け付けが盤面へ渡す前に外す）・`path_of`・`write`・`load`（控えに置く・読み戻す））
+- 約束: 盤面の控えの宣言 `blk-*/manifest.json`・`darkfactory/manifest.json` と控えの型 `blk-plan/schemas/gate-marks.schema.json`・`blk-plan/schemas/plan-fields.schema.json`・`blk-delta/schemas/delta-verdicts.schema.json`・`blk-judge/schemas/out-of-purpose.schema.json`・`blk-pr/schemas/pr-excluded.schema.json`
+- 知ってよい所: 住処と約束だけが控えの名を書き、欄を手で足す・外す。欄の意味（欄の型・欠けと誤りの検査・控えの中身の形・読んだ後の使い方）は欄を持つモジュール（`.shared/core/gatemarks.py`・`.shared/core/planmarks.py`・`.shared/core/deltamarks.py`・`.shared/core/converge.py`・`.shared/core/querytest.py`・`.shared/core/outpurpose.py`・`.shared/core/prcheck.py`）が持ち、手順は住処を呼ぶ。`.shared/core/converge.py` は外した欄を足し欄の控えでなく壁打ちの往復の記録に置く。役の印は `.shared/core/node_marker.py`（別の考え）
+- 今: 修正役の欄（`.shared/core/recount.py` が足し、`blk-fix/scripts/accept.py`・`blk-fix/lib/fixlanes.py` が外す）と報告の書き手の `terms`（`blk-report/lib/report_roles.py`）、報告が並行 PR の控えを自分の名で読む `.shared/core/report.py` は、同じ手順をまだ手で書く（柵の表の既知の漏れ。並行の作業が触っているので後で寄せる）
+- 計画: `docs/plans/2026-10-09-marks-home.md`
+
 ---
 
 ## 散らばり
@@ -191,13 +200,6 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 状態: 散らばり（部分の住処あり）
 - 今: 段に依らない部分は `blk-fix/lib/lanekit.py`（`MAX_LANES`・`fork_out`・`plant`）、単位の worktree は `blk-fix/lib/unitlanes.py`、段ごとの枝は `blk-fix/lib/tddlanes.py`・`blk-fix/lib/fixlanes.py`。枝の輪の数は `blk-fix/blk-fix.yaml` の `<段>-lane-loop-1..3` と `.shared/core/adapter.py` の `KEYED_NODES` にも写る。同じ語 `lanes` が `blk-eyes/lib/eyes.py` の `LANES`（独立の目の筋）という別の考えにも使われている
-- 計画: まだ無い
-
-### `marks` 返答の足し欄
-
-- 状態: 散らばり
-- 今: 写しの graph の型は欄を持てないので、「役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面のファイルに置く」を、`.shared/core/gatemarks.py`（関所の決め手）・`.shared/core/planmarks.py`（修正案の works の欄）・`.shared/core/deltamarks.py`（差分の審査の 2 判定）・`.shared/core/converge.py` の `with_fields`（壁打ちの欄）がそれぞれ同じ手順で書く。印は `.shared/core/node_marker.py`
-- 約束（在る物）: `blk-plan/schemas/gate-marks.schema.json`・`blk-plan/schemas/plan-fields.schema.json`
 - 計画: まだ無い
 
 ### `stop-reasons` 止めの理由

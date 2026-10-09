@@ -6,7 +6,7 @@
 
 判定役は目的の外の所見を構造の欄 out_of_purpose の行 {source, where, why_outside} で名指す（source＝材料のどの節・どの目の行か、
 where＝材料の行の where の写し、why_outside＝目的の外とした理由）。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）
-ので、querytest の例の欄と同じく役の型にだけ足し、受け付けが盤面へ渡す前に外して確かめる: where が盤面の材料の行（P1 の節の
+ので、足す・外す・置くの手順は住処 marks（種 purpose）に任せ、役の型にだけ足し、受け付けが盤面へ渡す前に外して確かめる: where が盤面の材料の行（P1 の節の
 出力の where・text を持つ行と、今の周に積まれた依頼の行）のどれにも当たらなければ拒む。通れば当たった材料の行ごと盤面の根の
 FILE に周ごとに控え、判定の写し judgment.json に戻す。次の run の依頼（report.next_request）は最後の周に控えた材料の行の全部の欄を、
 目的の外から運んだ印 MARK と下書きの印 draft・source つきで載せる（依頼の入口が拒むので、人が見直すまで次の run の目的に
@@ -18,15 +18,15 @@ FILE に周ごとに控え、判定の写し judgment.json に戻す。次の ru
 - problems(rows, material): 行の誤り（形・材料に当たらない where）。1 件 1 文
 - save(board_dir, rnd, rows, material)・restore(doc, board_dir, rnd): 周の分を控える・判定の写しに戻す
 - next_items(board_dir)・report_lines(board_dir): 次の run の依頼の行・報告の行
-標準ライブラリだけ。
+標準ライブラリと住処 marks（L1）だけ。
 """
-import copy
 import json
-import pathlib
+
+import marks
 
 FIELD = "out_of_purpose"
-FILE = "out-of-purpose.json"
-NODES = ("p2.diagnose",)
+FILE = marks.KINDS["purpose"].file
+NODES = marks.nodes("purpose")
 MIN_WHY = 10
 CARRY_KEYS = ("mechanism", "measured", "false_positive_if")   # 依頼の行の任意の欄（写しの RL の REQUEST_SCHEMA）
 MARK = "前の run の判定が凍結した目的の外として単位にしなかった所見を運んだ（この run の目的の内か、別の依頼に分けるかは判定が決める）"
@@ -47,20 +47,16 @@ ROW_SCHEMA = {
 
 def with_field(node: str, schema: dict) -> dict:
     """役の型に out_of_purpose（任意の欄。古い返答を拒まない）を足した写し（NODES でなければそのまま）"""
-    if node not in NODES:
-        return schema
-    out = copy.deepcopy(schema)
-    out.setdefault("properties", {})[FIELD] = {"type": "array", "items": copy.deepcopy(ROW_SCHEMA),
-                                               "note": "凍結した目的の外として単位にしなかった材料の所見（次の run の依頼に運ぶ）"}
-    return out
+    return marks.add("purpose", node, schema, {FIELD: {
+        "type": "array", "items": ROW_SCHEMA, "note": "凍結した目的の外として単位にしなかった材料の所見（次の run の依頼に運ぶ）"}})
 
 
 def split(reply) -> tuple:
     """（欄を外した返答の写し, 行の一覧。欄が無ければ []）。dict でない返答はそのまま"""
     if not isinstance(reply, dict):
         return reply, []
-    out = copy.deepcopy(reply)
-    return out, out.pop(FIELD, [])
+    out, got = marks.split("purpose", NODES[0], reply, (FIELD,))
+    return out, got.get(FIELD, [])
 
 
 def _squeeze(v) -> str:
@@ -142,7 +138,7 @@ def problems(rows, material: list) -> list:
 
 def _read(board_dir) -> dict:
     """控え {"rounds": {周: [行…]}}。無ければ空。読めなければ ValueError"""
-    p = pathlib.Path(board_dir) / FILE
+    p = marks.path_of("purpose", board_dir)
     if not p.is_file():
         return {"rounds": {}}
     try:
@@ -156,7 +152,7 @@ def _read(board_dir) -> dict:
 
 def save(board_dir, rnd: int, rows: list, material: list) -> None:
     """周 rnd の分を今の行で置き換える（行ごとに当たった材料の行 found を添える）。行が無く控えも無ければ書かない"""
-    p = pathlib.Path(board_dir) / FILE
+    p = marks.path_of("purpose", board_dir)
     try:
         doc = _read(board_dir)
     except ValueError:   # 読めない控えは書き直さない（前の周の分を黙って消さない。読めないことは next_items・report_lines が言う）
@@ -164,9 +160,7 @@ def save(board_dir, rnd: int, rows: list, material: list) -> None:
     if not rows and not p.is_file():
         return
     doc["rounds"][str(rnd)] = [{**r, "found": [dict(m) for m in _hits(r, material)]} for r in rows]
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    tmp.replace(p)
+    marks.write(p, doc)
 
 
 def restore(doc: dict, board_dir, rnd: int) -> dict:

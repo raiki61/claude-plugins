@@ -38,6 +38,7 @@ from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 from board import GRAPH_PATH, BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import AnswerReject, Reject  # noqa: E402
+import marks  # noqa: E402
 import script_io  # noqa: E402
 
 NODE = "p0.parallel_pr"
@@ -45,6 +46,7 @@ ROLE = "pr-check"
 MARK = "works-node: pr-check"   # node_marker.mark(role_schema(NODE), "pr-check") と同じ印（Task 2）
 # 本ループのスコープから外す hunk（works だけの欄。写しの schema の conflicts[] は additionalProperties: false で足せないので、
 # 返答の一番上に置き、受け付けが外してから盤面に渡す）。start・end は今の作業ツリーのファイルの行（1 始まり・両端を含む）
+EXCLUDED_FIELD = "excluded"
 EXCLUDED_SCHEMA = {"type": "array", "items": {
     "type": "object", "required": ["pr", "file", "start", "end", "why"], "additionalProperties": False,
     "properties": {"pr": {"type": "string", "minLength": 1}, "file": {"type": "string", "minLength": 1},
@@ -53,15 +55,13 @@ EXCLUDED_SCHEMA = {"type": "array", "items": {
 
 
 def _output_format():
-    s = role_schema(NODE)
-    s["properties"]["excluded"] = EXCLUDED_SCHEMA
-    s["required"] = [*s["required"], "excluded"]
+    s = marks.add("pr", NODE, role_schema(NODE), {EXCLUDED_FIELD: EXCLUDED_SCHEMA}, required=(EXCLUDED_FIELD,))
     return {"description": MARK, **s}
 
 
 OUTPUT_FORMAT = _output_format()
 SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.tree_state の形）
-EXCLUDED = "pr-excluded.json"   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
+EXCLUDED = marks.KINDS["pr"].file   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
 # 読む gh は包みの読む口を通す: 印のある起動の全部に、包み（.shared/core/adapter.py の 5）が素の gh を拒み（permissions.deny Bash(gh:*) と
 #   本物の gh のパス）、許す物だけを通す口のパスを環境変数 WORKS_GH に置く。口が通すのは pr list・pr view・pr diff の -R つきと
 #   repo view <OWNER/REPO> だけ。役は `"$WORKS_GH" pr view <n> -R <owner/repo>` の形で打つ（指示書と試験がこの形を見る）。
@@ -172,9 +172,7 @@ def check_excluded(reply: dict, repo) -> list:
 
 
 def _write(path: pathlib.Path, obj) -> pathlib.Path:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    marks.write(path, obj)
     return path
 
 
@@ -221,7 +219,8 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
                 "git が無視するファイルを変えてはいけない（checkout・switch・stash・reset・gh pr checkout を打つな）（"
                 + "・".join(moved) + "）"}
     # 写しの schema を先に当てる（型の崩れた conflicts を外す hunk の検査が読んで落ちないように。拒みの文は盤面の done と同じ形）
-    errs = validate_schema({k: v for k, v in reply.items() if k != "excluded"}, role_schema(NODE))
+    bare = marks.split("pr", NODE, reply, (EXCLUDED_FIELD,))[0]
+    errs = validate_schema(bare, role_schema(NODE))
     if errs:
         return {"ok": False, "reason": "返答が型に合わない（直して返し直す）:\n" + "\n".join(f"  - {e}" for e in errs)}
     errs = check_excluded(reply, repo)
@@ -229,10 +228,10 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
         return {"ok": False, "reason": "外す hunk（excluded）が合わない: " + "; ".join(errs)}
     excluded = _anchored(reply["excluded"], repo)
     try:
-        p = b.done(NODE, {k: v for k, v in reply.items() if k != "excluded"})
+        p = b.done(NODE, bare)
     except AnswerReject as e:
         return {"ok": False, "reason": str(e)}
-    _write(b.work(EXCLUDED), {"node": NODE, "head": before["head"], "excluded": excluded})   # 上で比べて同じ（HEAD も起こす前のまま）
+    _write(marks.path_of("pr", b), {"node": NODE, "head": before["head"], "excluded": excluded})   # 上で比べて同じ（HEAD も起こす前のまま）
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][NODE]["file"]}
 
@@ -270,11 +269,9 @@ def collect(board, *, opener=None, gave_up=None) -> dict:
     if rep is None:
         why = gave_up(board) if gave_up is not None else ""
         return {"ok": False, "reason": why or f"盤面が {NODE} の返答を受けていない", **empty}
-    reads, ex_p = b.work(f"reads-{ROLE}.json"), b.work(EXCLUDED)
-    try:
-        excluded = json.loads(ex_p.read_text(encoding="utf-8"))["excluded"]
-    except (OSError, ValueError, KeyError, TypeError):
-        excluded = None
+    reads, ex_p = b.work(f"reads-{ROLE}.json"), marks.path_of("pr", b)
+    doc = marks.load(ex_p)
+    excluded = doc.get(EXCLUDED_FIELD) if isinstance(doc, dict) else None
     posted = [c["pr"] for c in rep["conflicts"] if c.get("handed_over")]
     why = ([f"handed_over が真の行が在る: {posted}"] if posted else []) + \
           ([f"外す hunk の一覧 {ex_p} が読めない"] if excluded is None else [])

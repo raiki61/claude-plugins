@@ -2,8 +2,8 @@
 
 修正案の役（p2.fix_plan）の項目の行に、直し方の道（route・route_why）・受け入れのテスト（tests）・書き換える既存のテスト
 （rewrite_tests）・整えの申告（refactor）・書いてよいパス（allowed_paths）・触らない物（out_of_scope。依頼 218）を書かせる。承認された案は後で項目ごとの brief に切り出され、修正役・TDD の役が従う
-要求の正本になる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、関所の決め手の欄（gatemarks）と同じく、
-役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の plan-fields.json に置く。
+要求の正本になる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、足す・外す・置く・読むの手順は住処
+marks（種 plan。役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の plan-fields.json に置く）に任せる。
 - with_fields(node, schema): 役の型（accept.role_schema が重ねる）
 - gaps(reply, repo, exists=): 欠けと誤りの行（kind が関数・欄の adds の name がファイルの名・パスだけの行も。修正案の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。exists は
   受け入れのテストが既に在るかを引く口（既定は作業ツリー。同じ run の中の案の直しは修正の起点の版の木）
@@ -28,7 +28,7 @@
 - scoped(items)・scoped_items(b): 範囲の欄の在る項目の並びか（217 番の形の控えは範囲の無い run と同じに扱う 1 つの決まり。
   修正の受け付けの範囲の照らしと差分の審査の準拠の受け付けが使う）
 
-写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
+写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）と住処 marks（L1）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
 輪を作らない）。
 """
 from __future__ import annotations
@@ -37,7 +37,6 @@ import ast
 import copy
 import hashlib
 import json
-import os
 import pathlib
 import posixpath
 import re
@@ -49,10 +48,11 @@ if str(_GL) not in sys.path:
 
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import now  # noqa: E402
+import marks  # noqa: E402
 
-NODE = "p2.fix_plan"
-NODES = (NODE,)
-FIELDS_FILE = "plan-fields.json"   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄], "amended"?: {番号: 核の欄}}
+NODES = marks.nodes("plan")
+NODE = NODES[0]
+FIELDS_FILE = marks.KINDS["plan"].file   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄], "amended"?: {番号: 核の欄}}
 SAVED_OP = "plan_fields_saved"     # save が盤面の trace に書く凍結の印 {round, sha256}
 KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
 # 写しの graph の修正案の項目の欄（核）。差し替えた項目のこの欄を控えの AMENDED_KEY に置く（approved_items が足す鍵 item は外す）
@@ -137,13 +137,7 @@ REVIEW_ASK = ("下は修正案の役が項目ごとに書いた works の欄（r
 # ---------------------------------------------------------------- 役の型
 def with_fields(node: str, schema: dict) -> dict:
     """役の型の修正案の項目に works の欄を足した写し（NODES の節でなければ渡した物をそのまま返す）"""
-    if node not in NODES:
-        return schema
-    out = copy.deepcopy(schema)
-    row = out["properties"]["plan"]["items"]
-    row["properties"].update(copy.deepcopy(FIELD_SCHEMA))
-    row["required"] = [*row.get("required", []), *(k for k in REQUIRED if k not in row.get("required", []))]
-    return out
+    return marks.add("plan", node, schema, FIELD_SCHEMA, required=REQUIRED)
 
 
 # ---------------------------------------------------------------- テストの定義の行
@@ -563,21 +557,18 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
     """（works の欄を外した返答の写し, 項目と同じ並びの欄）。欄の行は外した欄に、項目の unit_keys の写しと、宣言した名前 adds
     （_declared: adds の name と、canonical が新設の無いモジュールを名指す行のパス）と、rewrite_tests の各行の書き換えてよい範囲
     limit（"<パス>:<定義の行>"。引けない行には付けない）を足した物。gaps を通った返答に使う"""
-    out = copy.deepcopy(reply)
-    fields = []
-    for it in (out.get("plan") if isinstance(out, dict) else None) or []:
-        if not isinstance(it, dict):
-            fields.append({})
+    out, rows = marks.split("plan", NODE, reply, KEYS)
+    items = out.get("plan") if isinstance(out, dict) else None
+    for it, got in zip(items if isinstance(items, list) else [], rows):
+        if not isinstance(it, dict):   # 形の崩れた項目の欄は空のまま
             continue
-        got = {k: it.pop(k) for k in KEYS if k in it}
         got["unit_keys"] = copy.deepcopy(it.get("unit_keys") or [])
         got["adds"] = _declared(it.get("adds"), repo)
         for row in got.get("rewrite_tests") or []:
             lim = _limit(repo, _id_of(row)) if _id_of(row) else None
             if lim:
                 row["limit"] = lim
-        fields.append(got)
-    return out, fields
+    return out, rows
 
 
 # ---------------------------------------------------------------- 盤面の控え
@@ -594,12 +585,7 @@ def save(board, rnd: int, fields: list, amended: dict | None = None, *, trace=No
     doc = {"round": rnd, "fields": fields}
     if amended is not None:
         doc[AMENDED_KEY] = {str(n): core for n, core in amended.items()}
-    raw = (json.dumps(doc, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
-    p = d / FIELDS_FILE
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.unlink(missing_ok=True)
-    tmp.write_bytes(raw)
-    os.replace(tmp, p)
+    raw = marks.write(marks.path_of("plan", d), doc)
     row = {"round": rnd, "sha256": hashlib.sha256(raw).hexdigest()}
     if trace is not None:
         trace(SAVED_OP, **row)
@@ -610,11 +596,7 @@ def save(board, rnd: int, fields: list, amended: dict | None = None, *, trace=No
 
 def _doc(b) -> dict | None:
     """今の周（b.round）の控えの全体。控えが無い・周が違う・読めない・fields が並びでないなら None"""
-    p = pathlib.Path(b.dir) / FIELDS_FILE
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    doc = marks.load(marks.path_of("plan", b))
     if not isinstance(doc, dict) or doc.get("round") != b.round or not isinstance(doc.get("fields"), list):
         return None
     return doc
@@ -686,7 +668,7 @@ def _frozen_doc(b) -> dict | None:
     mark = _saved_mark(b)
     if mark is None:
         return None
-    p = pathlib.Path(b.dir) / FIELDS_FILE
+    p = marks.path_of("plan", b)
     try:
         raw = p.read_bytes()
     except OSError as e:

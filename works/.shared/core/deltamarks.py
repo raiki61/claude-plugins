@@ -1,8 +1,8 @@
 """差分の審査の返答の works 側の 2 判定の欄（依頼 218）。
 
 1 回目の差分の審査の役（p3.delta_review）に、承認済みの修正案の項目への準拠（compliance）と、差分の品質（quality）の 2 つの
-判定を書かせる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、修正案の works の欄（planmarks）と同じく、
-役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して今の周の作業ファイル delta-verdicts.json に置く。2 回目の審査
+判定を書かせる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、足す・外す・置く・読むの手順は住処
+marks（種 delta。役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して今の周の作業ファイルに置く）に任せる。2 回目の審査
 （p3.delta_review2）には重ねない。
 - with_verdicts(node, schema): 役の型（accept.role_schema が重ねる）
 - gaps(reply, items): 欠けと誤りの行（審査の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。items は
@@ -17,14 +17,11 @@
   落ちた行だけで、unverifiable の行は face_key を空にする（穴を結べない）
 - 結ばれない穴: faces の key のうち、どの落ちた行の face_key にも無い物。在れば品質は fail、無ければ pass
 
-写しの engine の型の検査（engine.schema。L0 の写し）だけを使い、accept・refix・entry を import しない（accept がこの模块を
-読むので、輪を作らない）。
+写しの engine の型の検査（engine.schema。L0 の写し）と住処 marks（L1）だけを使い、accept・refix・entry を import しない
+（accept がこの模块を読むので、輪を作らない）。
 """
 from __future__ import annotations
 
-import copy
-import json
-import os
 import pathlib
 import sys
 
@@ -33,10 +30,11 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 from engine.schema import validate_schema  # noqa: E402
+import marks  # noqa: E402
 
-NODE = "p3.delta_review"
-NODES = (NODE,)                       # 2 回目の審査（p3.delta_review2）は含めない
-VERDICTS_FILE = "delta-verdicts.json"   # 今の周の作業ファイル {"round": 周, "compliance": …, "quality": …}
+NODES = marks.nodes("delta")          # 2 回目の審査（p3.delta_review2）は含めない
+NODE = NODES[0]
+VERDICTS_FILE = marks.KINDS["delta"].file   # 今の周の作業ファイル {"round": 周, "compliance": …, "quality": …}
 SAVED_OP = "delta_verdicts_saved"       # save が盤面の trace に書く行 {compliance: 判定, quality: 判定}
 COMPLIANCE = ("pass", "fail", "unverifiable", "not_applicable")
 QUALITY = ("pass", "fail")
@@ -64,12 +62,7 @@ REJECT = ("差分の審査の返答の 2 判定の欄（準拠 compliance・品�
 # ---------------------------------------------------------------- 役の型
 def with_verdicts(node: str, schema: dict) -> dict:
     """役の型に 2 判定の欄を足した写し（NODES の節でなければ渡した物をそのまま返す）"""
-    if node not in NODES:
-        return schema
-    out = copy.deepcopy(schema)
-    out["properties"].update(copy.deepcopy(FIELD_SCHEMA))
-    out["required"] = [*out.get("required", []), *(k for k in KEYS if k not in out.get("required", []))]
-    return out
+    return marks.add("delta", node, schema, FIELD_SCHEMA, required=KEYS)
 
 
 # ---------------------------------------------------------------- 受け付け
@@ -143,27 +136,20 @@ def gaps(reply: dict, items: list | None) -> list[str]:
 
 def split(reply: dict) -> tuple[dict, dict]:
     """（2 判定の欄を外した返答の写し, {compliance, quality}）。渡した返答は変えない。object でない返答はそのままの写しと空"""
-    out = copy.deepcopy(reply)
-    return out, ({k: out.pop(k) for k in KEYS if k in out} if isinstance(out, dict) else {})
+    return marks.split("delta", NODE, reply, KEYS)
 
 
 # ---------------------------------------------------------------- 盤面の外の控え
 def save(b, verdicts: dict) -> None:
     """今の周の作業ファイル b.work(VERDICTS_FILE) を {"round": b.round, **verdicts} で置き換え（一時のファイルから os.replace）、
     盤面の trace に SAVED_OP の行を 1 行足す（b は work・round・trace を読む）"""
-    p = b.work(VERDICTS_FILE)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps({"round": b.round, **verdicts}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, p)
+    marks.write(marks.path_of("delta", b), {"round": b.round, **verdicts})
     b.trace(SAVED_OP, compliance=verdicts["compliance"]["verdict"], quality=verdicts["quality"]["verdict"])
 
 
 def read(b) -> dict | None:
     """今の周の控え。無い・周が違う・読めないなら None"""
-    try:
-        doc = json.loads(b.work(VERDICTS_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    doc = marks.load(marks.path_of("delta", b))
     return doc if isinstance(doc, dict) and doc.get("round") == b.round else None
 
 

@@ -1,7 +1,7 @@
 """判定役の class_query の問いを、例で試してから受ける（Semgrep の ruleid/ok と同じ形）。works だけの検査（裁定 TA25）。
 
-写しの class_query は additionalProperties: false で例の欄を持てないので、例は役の型（accept.role_schema）にだけ足し、
-受け付けは盤面へ渡す前に例を外して query-examples.json に置く。項目 35: 部分一致の defects の問いが、直した後の正しい行も
+写しの class_query は additionalProperties: false で例の欄を持てないので、足す・外す・置く・読むの手順は住処 marks（種 query。
+例は役の型（accept.role_schema）にだけ足し、受け付けは盤面へ渡す前に例を外して query-examples.json に置く）に任せる。項目 35: 部分一致の defects の問いが、直した後の正しい行も
 数えたまま判定の基準になり、修正役が何をしても件数が減らなかった。
 
 - NODES・EXAMPLE_FIELDS・REASON_FIELDS・with_examples(schema): 例を持てる節と、例の欄（hits＝当たるべき 1 行・misses＝当たってはならない
@@ -17,7 +17,6 @@
 - save_closure(b, rows)・closure_lines(b): 修正の受け付けが問いを数え直した単位ごとの閉鎖の表を置く・最後の関所と報告の行
   （当たりが減っていない単位は stuck_only で別の見出し STUCK_HEAD の節に出す）
 """
-import copy
 import json
 import pathlib
 import sys
@@ -31,10 +30,11 @@ if str(_GL) not in sys.path:
 
 import engine.util as _util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+import marks  # noqa: E402
 import scopes  # noqa: E402
 
-EXAMPLES_FILE = "query-examples.json"
-NODES = ("p2.diagnose", "p2.rejudge", "p2.rejudge_third")   # 役の型に例の欄を足し、受け付けが例を外して試す節（blk-judge・blk-rejudge）
+EXAMPLES_FILE = marks.KINDS["query"].file
+NODES = marks.nodes("query")   # 役の型に例の欄を足し、受け付けが例を外して試す節（blk-judge・blk-rejudge）
 EXAMPLE_FIELDS = ("hits", "misses")
 UNAVAILABLE, MISSES_OMITTED = "examples_unavailable", "misses_omitted_why"
 REASON_FIELDS = (UNAVAILABLE, MISSES_OMITTED)   # 例を出せない・misses を書けない理由（例の欄と同じく盤面へ渡す前に外す）
@@ -62,9 +62,7 @@ def with_examples(schema: dict) -> dict:
     cq = (((schema.get("properties") or {}).get("units") or {}).get("items") or {}).get("properties", {}).get("class_query")
     if not isinstance(cq, dict) or "properties" not in cq:
         return schema
-    out = copy.deepcopy(schema)
-    out["properties"]["units"]["items"]["properties"]["class_query"]["properties"].update(copy.deepcopy(EXAMPLES_SCHEMA))
-    return out
+    return marks.add("query", NODES[0], schema, EXAMPLES_SCHEMA)   # 例を持てる節は同じ道（units[].class_query）
 
 
 def _flags(how) -> tuple:
@@ -177,33 +175,25 @@ def problems(units, is_open) -> list:
 def split(reply: dict, is_open=None) -> tuple:
     """（例と理由の欄を外した返答の写し, {単位の key: {hits, misses, examples_unavailable, misses_omitted_why, unproven}}）。
     例か理由を持つ単位と、is_open が渡れば例の無い開いた単位（unproven: 印の理由）を載せる"""
-    out = copy.deepcopy(reply)
-    units = out.get("units") or [] if isinstance(out, dict) else []
-    marks = {r["key"]: r["why"] for r in unproven(units, is_open)} if is_open else {}
-    examples = {}
-    for u in units:
-        cq = u.get("class_query") if isinstance(u, dict) else None
-        if isinstance(cq, dict) and any(k in cq for k in FIELDS):
-            examples[str(u.get("key"))] = {k: cq.pop(k) for k in FIELDS if k in cq}
-    for key, why in marks.items():
+    units = reply.get("units") or [] if isinstance(reply, dict) else []
+    unproved = {r["key"]: r["why"] for r in unproven(units, is_open)} if is_open else {}
+    out, got = marks.split("query", NODES[0], reply, FIELDS)
+    examples = {str(u.get("key")): ex for u, ex in zip((out.get("units") if isinstance(out, dict) else None) or [], got)
+                if ex}
+    for key, why in unproved.items():
         examples.setdefault(key, {})[UNPROVEN] = why
     return out, examples
 
 
 def save(board, examples: dict, *, replace: bool = False) -> pathlib.Path:
     """盤面の query-examples.json に足す（同じ key は新しい方）。replace は前の中身を捨てる（判定が単位を全部出し直した時）"""
-    p = pathlib.Path(board) / EXAMPLES_FILE
-    doc = {**({} if replace else _saved(board)), **examples}
-    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    p = marks.path_of("query", board)
+    marks.write(p, {**({} if replace else _saved(board)), **examples})
     return p
 
 
 def _saved(board) -> dict:
-    p = pathlib.Path(board) / EXAMPLES_FILE
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
-    except (OSError, ValueError):
-        doc = {}
+    doc = marks.load(marks.path_of("query", board))
     return doc if isinstance(doc, dict) else {}
 
 

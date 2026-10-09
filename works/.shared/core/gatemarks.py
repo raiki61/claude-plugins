@@ -6,8 +6,8 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 通した行は出どころつきで state.works.gate_passes に残り、報告の冒頭にいつも並び、最後の関所が開いた時はその文にも並ぶ
 （通した行は when_needed の最後の関所を開く理由に入れない）。欄の無い行は今までどおり聞く。
 
-写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、querytest の例の欄と同じく、役の型にだけ欄を足し、受け付けが
-盤面へ渡す前に外して盤面の gate-marks.json に置く。関所の組み立ては写しの RL の _plan_gate_items を差し替える（entry.CORE_OVERRIDES）。
+写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、足す・外す・置く・読むの手順は住処 marks（種 gate。役の型の
+行にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の gate-marks.json に置く）に任せる。関所の組み立ては写しの RL の _plan_gate_items を差し替える（entry.CORE_OVERRIDES）。
 
 狭めない案（持ち主 2026-10-01。人が関所で毎回「BASE の動きを残し、黙らずに名指す」形を書き足していたため）: 修正案の役は
 narrows を書く前に狭めを避ける形を当たり、無い時だけ narrows に書いて各行に探した結果（NO_NARROW）を書く。欄は決め手の欄と
@@ -61,16 +61,16 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 ghreads が拒む）と、報告の冒頭 1 の行
 標準ライブラリと core の answer（L1。答えの行）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）だけ。
 """
-import copy
 import json
 import pathlib
 import re
 
 import answer
 import converge
+import marks
 import scopes
 
-MARKS_FILE = "gate-marks.json"
+MARKS_FILE = marks.KINDS["gate"].file
 RECOMMEND = "recommend"   # 人に回す行の推し {answer, note, why}（実の利用者の run ac9e02ab。機械が読める推しが無かった）
 FIELDS = ("decided_by", "undecided_because", "fences", "world", RECOMMEND)
 RECOMMEND_ANSWERS = ("continue", "stop")
@@ -101,7 +101,7 @@ NO_NARROW = "no_narrow"
 NO_NARROW_MIN = 20     # 本流の事前審査が entrance の穴に求める no_add と同じ長さ
 NO_NARROW_SCHEMA = {"type": "string", "minLength": NO_NARROW_MIN,
                     "note": "狭めない案（BASE の動きを残し、直したい場合だけ新しい動きを当て、黙らずに名指す形）を探した結果"}
-NODES = ("p2.fix_plan", "p2.plan_review")
+NODES = marks.nodes("gate")
 _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（依頼の引用・URL と節・対象の同じ場面・人の前の決定＝ADR・台帳の行）。"
          "undecided_because＝決め手を当たっても答えが 1 つに決まらない理由（書けないなら空にせよ——自明なので人に回さない）。"
          "fences＝当たる柵の印（external_write 外への書き込み・irreversible 取り消せない操作・policy_doc 方針の文書の変更・"
@@ -268,27 +268,10 @@ def gate_text(asking: dict, *, run_id: str, node: str, record_name: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _row_schema(node: str, schema: dict) -> dict:
-    props = schema.get("properties") or {}
-    if node == "p2.fix_plan":
-        return props["plan"]["items"]["properties"]["narrows"]["items"]
-    return props["faces"]["items"]
-
-
-def _row_props(node: str, schema: dict):
-    return _row_schema(node, schema)["properties"]
-
-
 def with_marks(node: str, schema: dict) -> dict:
     """役の型に決め手の欄と狭めない案の欄を足した写し（NODES でなければそのまま）。修正案の narrows の行では狭めない案の欄が要る"""
-    if node not in NODES:
-        return schema
-    out = copy.deepcopy(schema)
-    _row_props(node, out).update({**copy.deepcopy(MARK_SCHEMA), NO_NARROW: copy.deepcopy(NO_NARROW_SCHEMA)})
-    if node == "p2.fix_plan":
-        row = _row_schema(node, out)
-        row["required"] = [*row.get("required", []), NO_NARROW]
-    return out
+    return marks.add("gate", node, schema, {**MARK_SCHEMA, NO_NARROW: NO_NARROW_SCHEMA},
+                     required=(NO_NARROW,) if node == "p2.fix_plan" else ())
 
 
 def narrow_gaps(node: str, reply: dict) -> list:
@@ -342,57 +325,37 @@ def recommend_gaps(node: str, reply: dict) -> list:
 
 def _rows(node: str, reply: dict) -> list:
     """行の一覧（plan は [[narrow…]…]、plan_review は [face…]）"""
-    if not isinstance(reply, dict):
-        return []
-    if node == "p2.fix_plan":
-        return [p.get("narrows") or [] if isinstance(p, dict) else [] for p in reply.get("plan") or []]
-    return reply.get("faces") or []
-
-
-def _pop(row) -> dict:
-    return {k: row.pop(k) for k in (*FIELDS, NO_NARROW) if isinstance(row, dict) and k in row}
+    return marks.rows("gate", node, reply) or []
 
 
 def split(node: str, reply: dict) -> tuple:
     """（決め手と狭めない案の欄を外した返答の写し, 行と同じ並びの決め手）。NODES でなければ（写し, None）"""
-    out = copy.deepcopy(reply)
-    if node not in NODES:
-        return out, None
-    rows = _rows(node, out)
-    if node == "p2.fix_plan":
-        return out, [[_pop(n) for n in narrows] for narrows in rows]
-    return out, [_pop(f) for f in rows]
+    return marks.split("gate", node, reply, (*FIELDS, NO_NARROW))
 
 
-def _any(marks) -> bool:
-    return any(_any(m) for m in marks) if isinstance(marks, list) else bool(marks)
+def _any(rows) -> bool:
+    return any(_any(m) for m in rows) if isinstance(rows, list) else bool(rows)
 
 
-def save(board, node: str, rnd: int, marks) -> None:
-    """盤面の gate-marks.json の節の分を今の返答の分で置き換える（周を控える）。決め手も狭めない案も 1 つも無ければ節の分を
-    消し、ファイルが無ければ作らない（どちらも書かない役の盤面は今までどおりの姿）"""
-    p = pathlib.Path(board) / MARKS_FILE
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
-    except (OSError, ValueError):
-        doc = {}
+def save(board, node: str, rnd: int, rows) -> None:
+    """盤面の gate-marks.json の節の分を今の返答の分（split の決め手）で置き換える（周を控える）。決め手も狭めない案も 1 つも
+    無ければ節の分を消し、ファイルが無ければ作らない（どちらも書かない役の盤面は今までどおりの姿）"""
+    p = marks.path_of("gate", board)
+    doc = marks.load(p)
     doc = doc if isinstance(doc, dict) else {}
-    if _any(marks):
-        doc[node] = {"round": rnd, "marks": marks}
+    if _any(rows):
+        doc[node] = {"round": rnd, "marks": rows}
     elif node in doc:
         del doc[node]
     else:
         return
-    p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    marks.write(p, doc)
 
 
 def _saved(b, node: str):
-    p = pathlib.Path(b.dir) / MARKS_FILE
-    try:
-        got = (json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}).get(node) or {}
-    except (OSError, ValueError, AttributeError):
-        return None
-    return got.get("marks") if got.get("round") == b.round else None
+    doc = marks.load(marks.path_of("gate", b))
+    got = (doc.get(node) if isinstance(doc, dict) else None) or {}
+    return got.get("marks") if isinstance(got, dict) and got.get("round") == b.round else None
 
 
 def _mark(row: dict, saved, *idx) -> dict:

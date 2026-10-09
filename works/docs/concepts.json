@@ -367,6 +367,59 @@
     }
    ]
   },
+  "marks": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "足し欄の盤面の控えの名",
+     "pattern": "\"(gate-marks|plan-fields|delta-verdicts|query-examples|out-of-purpose|pr-excluded)\\.json\"",
+     "allowed": [
+      ".shared/core/marks.py",
+      "blk-*/manifest.json",
+      "darkfactory/manifest.json"
+     ],
+     "known": {
+      ".shared/core/report.py": [
+       1,
+       "報告が並行 PR の外した hunk の控えを自分の定数 PR_EXCLUDED で読む（report.py は並行の作業が触っているので今回は寄せない。marks.path_of(\"pr\", b) を引けば消える）"
+      ],
+      ".shared/core/scopes.py": [
+       1,
+       "部品の置き場の考え（scope）が、どの scope からも読める盤面の共有のファイルを名で並べる（足し欄の手順ではない）"
+      ]
+     }
+    },
+    {
+     "what": "役の型に欄を手で足す形と、返答から欄を手で外す形",
+     "pattern": "\\[\"properties\"\\]\\[[^\\]]+\\] = |\\[\"properties\"\\]\\.update\\(|setdefault\\(\"properties\"|for k, v in reply\\.items\\(\\) if k (!=|not in)",
+     "allowed": [
+      ".shared/core/marks.py"
+     ],
+     "known": {
+      ".shared/core/recount.py": [
+       4,
+       "修正役の欄（conflicts・consult・bash_writes・closure.sites[].path）を役の型に手で足す。外す側が blk-fix の受け付けと並べの枝に散っていて並行の作業が触っているので、今回は住処に寄せない"
+      ],
+      "blk-fix/lib/fixlanes.py": [
+       1,
+       "修正役の欄 consult を返答から手で外す（recount の行と同じ理由）"
+      ],
+      "blk-fix/scripts/accept.py": [
+       1,
+       "修正役の欄 consult を返答から手で外す（recount の行と同じ理由）"
+      ],
+      "blk-judge/lib/judgeverify.py": [
+       1,
+       "写しの型でなく自分で組む裏取りの型の欄（同じ字の形の別の物）"
+      ],
+      "blk-report/lib/report_roles.py": [
+       1,
+       "報告の書き手の欄 terms を返答から外して report-terms.json に置く（同じ手順。報告の部品は並行の作業が触っているので今回は寄せない）"
+      ]
+     }
+    }
+   ]
+  },
   "entry-kind": {
    "status": "散らばり",
    "fences": []
@@ -396,10 +449,6 @@
    "fences": []
   },
   "lanes": {
-   "status": "散らばり",
-   "fences": []
-  },
-  "marks": {
    "status": "散らばり",
    "fences": []
   },
