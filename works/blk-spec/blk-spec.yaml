@@ -419,7 +419,7 @@ nodes:
               node: {type: string}
 
   # 関所を開くか・文。盤面は直す役の後（か審査の後）の settle で spec.approve を回し、周の途中の問い（pending_human）で止まっている。
-  # 文は線 A の境の節 h-gate（at gate）と同じ手順の gate_text（r<N>/gate.md にも置く）。止め札が在れば盤面を止めて ask false
+  # 文は線 A の関所の境の節（at gate）と同じ手順の gate_text（r<N>/gate.md にも置く）。止め札が在れば盤面を止めて ask false
   - id: spec-ask
     script: ask
     runtime: uv

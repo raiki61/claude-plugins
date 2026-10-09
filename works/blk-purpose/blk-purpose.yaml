@@ -57,7 +57,7 @@ nodes:
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # node_marker.mark(role_schema("p0.purpose"), "purpose") を 1 度出して貼った物（tests/test_blk_purpose.py が印を外して一致を見る）。
-          # 一番上の description は節の印（包みが argv の --json-schema から読む。裁定 TA20）で、返答の型の検査には効かない
+          # 一番上の description は節の印（包みが argv で渡る返答の型から読む。裁定 TA20）で、返答の型の検査には効かない
           output_format:
             description: "works-node: purpose"
             type: object

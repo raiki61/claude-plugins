@@ -14,8 +14,8 @@ description: |
 # - ラインの盤面がもう止まっていれば（並行 PR の任せ先が諦めた）、intake が go: false を出し、輪（実測役）は飛ぶ
 # - 判定役には $premising.output.constraints_summary（1 行 1 制約の文）を貼り、全文は $premising.output.constraints_file
 #   （盤面の premises.json）を Read させる。kind=仮説 の制約は所与として使わない、と判定の指示書に書く
-# - 線は、このブロックの出口（collect の出力の JSON）を境の節 h-judge の with: premised に渡す。h-judge が盤面の p0.premises に
-#   渡し、判定のブロックには h-judge の出口 premises_file（盤面の out/r1/p0.premises.json）を渡す（計画 P1 Task 24）
+# - このブロックの出口（collect の出力の JSON）の行き先は線が決める（盤面の p0.premises への渡しと、判定のブロックへの
+#   盤面の out/r1/p0.premises.json の渡しは線の配線。計画 P1 Task 24）
 # - 渡す with: は request（ラインの $INPUTS.request）と base_rev（$base.output.rev）。判定のブロックと同じ依頼のファイル
 # - 依頼を盤面の request.json に積むのは判定のブロックの intake だけ（このブロックの intake は型を確かめるだけで積まない）
 

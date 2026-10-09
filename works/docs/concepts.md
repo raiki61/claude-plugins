@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直した。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
@@ -87,7 +87,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `darkfactory/lib/line_edge.py`（中身）と `darkfactory/scripts/edge.py`（口）
 - 約束: `darkfactory/darkfactory.yaml` の `h-*` 節の `output_format`
-- 知ってよい所: ライン `darkfactory/` の中と測りの殻 `dev/`。ブロックと core は境の節の名を書かない。今ある名指し（docstring・コメント・YAML の説明・誤りの文）は柵の表の既知の漏れ
+- 知ってよい所: ライン `darkfactory/` の中と測りの殻 `dev/`。ブロックと core は境の節の名を書かない（docstring・コメント・YAML の説明・誤りの文も。入力と振る舞いを形で述べ、どの節が呼ぶか・渡すかは線の側に書く）。柵は `h-<語>` の形の全部を見るので、節を足しても表を直さない
 
 ### `halt` 止め札
 
@@ -99,21 +99,21 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `scope` 部品の置き場と宣言
 
 - 状態: 住処あり
-- 住処: `.shared/core/scopes.py`（manifest を読んで照らす・公開の名・持ち主）
+- 住処: `.shared/core/scopes.py`（manifest を読んで照らす・公開の名・持ち主。宣言のファイルの名は `MANIFEST`）
 - 約束: `.shared/core/manifest.schema.json` と、ブロックとラインごとの `manifest.json`
 - 知ってよい所: 住処・`.shared/core/entry.py`（盤面を開く口が scope を登録する）
 
 ### `reads` 読んだ証拠
 
 - 状態: 住処あり
-- 住処: `.shared/core/reads.py`
+- 住処: `.shared/core/reads.py`（集める口と、盤面の置き場の名の口 `evidence_name`（役ごとの証拠）・`index_name`（集めた側の索引）・`is_index`・`EVIDENCE_GLOB`。置き場の名を使う所はこの口から引く。引けない所は柵の表の既知の漏れ）
 - 約束: `.shared/core/reads.schema.json`
 - 知ってよい所: 住処・包み `.shared/core/adapter.py`（読んだ記録の置き場）・Read のフックの殻 `.shared/core/record-read.py`・各ブロックの口 `blk-*/scripts/reads.py`（`blk-delta`・`blk-fix`・`blk-plan`・`blk-pr`・`blk-refix`）・それらの宣言 `blk-*/manifest.json`
 
 ### `conflict` 食い違いの申し出
 
 - 状態: 住処あり
-- 住処: `.shared/core/conflict.py`（`FIELDS`・`DECISIONS`・`FIX_DECISIONS`・`fix_duty`）
+- 住処: `.shared/core/conflict.py`（`FIELDS`（欄の名 `WHY_FIELD`・`WHICH_FIELD`・`KIND_FIELD` を含む）・`DECISIONS`・`FIX_DECISIONS`・`fix_duty`）
 - 約束: 住処の定数の表（申し出の欄と裁定の語）
 - 知ってよい所: 住処・申し出を書いて裁く修正のブロック `blk-fix/`。直す義務の持ち主のモジュール（`tests/test_duty_owner.py` の `OWNERS`）は義務の集合を作るが、申し出の欄の名は書かない
 

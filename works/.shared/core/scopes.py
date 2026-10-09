@@ -61,6 +61,7 @@ import flow_adapter  # noqa: E402
 from board import SAVE_LOCK, BoardGap, name_matches  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import now  # noqa: E402
+import halt  # noqa: E402
 
 PACK = _CORE.parents[1]                       # works/（.shared/core の 2 つ上）
 MANIFEST = "manifest.json"                    # owner のフォルダの宣言のファイル
@@ -82,7 +83,7 @@ _ROUND_DIR = "r[0-9]*"                        # 周の置き場 r<N> の段の�
 _ROUND_NAME = re.compile(r"r\d+")              # 周の置き場 r<N> の段そのもの（board._ROUND_NAME と同じ字）
 # 共有の記録: core・engine・rules が書き、どの scope の窓で変わってもよい物の形（測り M2 の class shared と scope の登録・窓。
 # 盤面の根からのパスに段ごとに当てる。/ を持たない形は盤面の根の名にしか当たらない）。照らし・周の置き場の名・根のフォルダの 1 つの組
-SHARED = ("state.json", "record.json", "trace.jsonl", "STOP", "query-examples.json", "count-cache.json", "count-budget.json",
+SHARED = ("state.json", "record.json", "trace.jsonl", halt.STOP_FILE, "query-examples.json", "count-cache.json", "count-budget.json",
           "accept-rev-cache.json", f"{_ROUND_DIR}/fixgates-base.json",   # 受け付けの試験の結末の控え（どの scope の受け付けも使い回す）
           "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
           "out/**", "runs/**", "rounds/**", "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "tdd-*/**",

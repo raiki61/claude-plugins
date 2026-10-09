@@ -82,8 +82,10 @@ DIVERGENCE_SCENES = {
     conflict.NOT_RED: "受け入れのテスト・名指しの書き換えが、案どおりに書いても赤にならない・赤の種類が案と違う",
     conflict.SCOPE_NEEDED: ("brief や案の範囲の外を触らないと緑にならない・判定者の問いの数え直しが閉じない（範囲の相談の節が"
                             "在れば、先に返答の consult で相談して許されなかった時。下請けは相談が要ることをまとめ役に報告する）"),
-    conflict.QUERY_HITS_FIXED: "判定者の問いが直した後の正しい形にも当たる（`which_is_right` は query・`correct_lines` が要る）",
-    conflict.NEEDS_CONTEXT: "方針・依頼の意図・どれが正しいかが材料から決められず、人か依頼の答えが要る（`which_is_right` は unknown）",
+    conflict.QUERY_HITS_FIXED: (f"判定者の問いが直した後の正しい形にも当たる（`{conflict.WHICH_FIELD}` は {conflict.QUERY}・"
+                                f"`{conflict.CORRECT}` が要る）"),
+    conflict.NEEDS_CONTEXT: (f"方針・依頼の意図・どれが正しいかが材料から決められず、人か依頼の答えが要る"
+                             f"（`{conflict.WHICH_FIELD}` は {conflict.UNKNOWN}）"),
 }
 DIVERGENCE_HINT = "\n".join([
     f"実装役の型の状態の語 NEEDS_CONTEXT・BLOCKED（works の語 {conflict.WORD}）に当たる時は、その単位を直したことにせず、"

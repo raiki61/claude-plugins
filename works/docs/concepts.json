@@ -58,7 +58,7 @@
      "known": {
       ".shared/core/adapter.py": [
        2,
-       "包みが start の控えの features_off を読んで工程の地図を切る語 MAP_FEATURE と、同じ名の塊の行（test_graphmap が entry.FEATURES と縛る）"
+       "包み（層 L2）は entry（L3）を import できない（tests/test_layers.py の up）ので、start の控えの features_off を読んで工程の地図を切る語 MAP_FEATURE を自分で持ち（test_graphmap が entry.FEATURES と縛る）、同じ名を塊の行の名にも使う"
       ],
       "blk-fix/lib/fixlanes.py": [
        1,
@@ -78,7 +78,7 @@
       ],
       "dev/canary_check.py": [
        4,
-       "canary の確かめ役が枝を切る機能の語（LANE_FEATURES）と、出力の欄の名に同じ語を使う"
+       "canary の確かめ役が枝を切る機能の語（LANE_FEATURES。住処の entry.FEATURES は語ごとの名の定数を持たない）と、出力の欄の名（枝の行の一覧 tdd_lanes・fix_lanes。機能の語とは別の考え）に同じ語を使う"
       ]
      }
     }
@@ -89,89 +89,12 @@
    "fences": [
     {
      "what": "境の節の名",
-     "pattern": "\\bh-(entry|judge|mat|plan|structure|gate|fix|depth|replan|regate|refit|rejudge|mid|redepth|review|refix|tests|look|final|eyes)\\b",
+     "pattern": "\\bh-[a-z]+\\b",
      "allowed": [
       "darkfactory/**",
       "dev/**"
      ],
-     "known": {
-      ".shared/core/adapter.py": [
-       1,
-       "コメントが柵の確かめの使い手をラインの h-judge で述べる"
-      ],
-      ".shared/core/ci_role.py": [
-       1,
-       "コメントが止め札の by をラインの h-judge の確かめと比べる"
-      ],
-      ".shared/core/entry.py": [
-       4,
-       "docstring と誤りの文が、固定材料と空の返答の印の出どころをラインの h-fix・h-plan で述べる"
-      ],
-      ".shared/core/fixture.py": [
-       1,
-       "docstring が固定材料をラインの h-fix の時の盤面で述べる"
-      ],
-      ".shared/core/premises.py": [
-       1,
-       "コメントが STOP_BY の使い手をラインの h-judge で述べる"
-      ],
-      ".shared/core/purpose.py": [
-       1,
-       "コメントが STOP_BY の使い手をラインの h-mat で述べる"
-      ],
-      ".shared/core/replan.py": [
-       4,
-       "docstring が締めの呼ばれる所と入力の書き手をラインの h-rejudge・h-fix で述べる"
-      ],
-      ".shared/core/report.py": [
-       2,
-       "コメントが止め札の by と待つ行の締めをラインの h-judge・h-rejudge で述べる"
-      ],
-      "blk-fix/blk-fix.yaml": [
-       1,
-       "inputs の description が入力の書き手をラインの h-fix で述べる"
-      ],
-      "blk-fix/scripts/accept.py": [
-       4,
-       "docstring とコメントが控えた返答を盤面へ渡す所をラインの h-rejudge で述べる"
-      ],
-      "blk-judge/lib/judgebrief.py": [
-       1,
-       "コメントが盤面を止めた所をラインの h-mat で述べる"
-      ],
-      "blk-judge/lib/judgetake.py": [
-       1,
-       "docstring が前の受け付けの所をラインの h-plan で述べる"
-      ],
-      "blk-pr/blk-pr.yaml": [
-       1,
-       "description がブロックの開く条件をラインの h-entry で述べる"
-      ],
-      "blk-premises/blk-premises.yaml": [
-       2,
-       "コメントが出口の渡し先をラインの h-judge で述べる"
-      ],
-      "blk-premises/scripts/collect.py": [
-       1,
-       "docstring が止めた後の振る舞いをラインの h-judge で述べる"
-      ],
-      "blk-purpose/scripts/collect.py": [
-       1,
-       "docstring が止めた後の振る舞いをラインの h-mat で述べる"
-      ],
-      "blk-refix/blk-refix.yaml": [
-       1,
-       "description がブロックの開く条件をラインの h-refix で述べる"
-      ],
-      "blk-spec/blk-spec.yaml": [
-       1,
-       "コメントが関所の文の手順をラインの h-gate と比べる"
-      ],
-      "blk-spec/lib/specblk.py": [
-       1,
-       "docstring が関所の文の手順をラインの h-gate と比べる"
-      ]
-     }
+     "known": {}
     }
    ]
   },
@@ -186,12 +109,7 @@
       "dev/stop.sh",
       "darkfactory/lib/line_edge.py"
      ],
-     "known": {
-      ".shared/core/scopes.py": [
-       1,
-       "共有の記録の形の一覧 SHARED が止め札の名を halt.STOP_FILE から引かずに持つ"
-      ]
-     }
+     "known": {}
     }
    ]
   },
@@ -205,12 +123,7 @@
       ".shared/core/scopes.py",
       ".shared/core/entry.py"
      ],
-     "known": {
-      "darkfactory/lib/depth.py": [
-       1,
-       "深さの決めが配線の宣言のファイルを名（WIRING_FILES）で見分ける"
-      ]
-     }
+     "known": {}
     }
    ]
   },
@@ -234,35 +147,11 @@
       ],
       ".shared/core/prcheck.py": [
        1,
-       "読んだ証拠の索引の名 reads-<役>.json を自分で組む（住処に名の口が無い）"
-      ],
-      ".shared/core/recount.py": [
-       2,
-       "docstring が読んだ記録の置き場を述べ、読んだ証拠の索引の名 reads-<役>.json を自分で組む"
-      ],
-      ".shared/core/refix.py": [
-       3,
-       "読んだ証拠の索引の名 reads-<役>.json を自分で組む（住処に名の口が無い）"
-      ],
-      ".shared/core/rejudge.py": [
-       1,
-       "読んだ証拠の索引の名 reads-rejudge.json を自分で持つ（住処に名の口が無い）"
-      ],
-      ".shared/core/replan.py": [
-       1,
-       "案の直しの読んだ証拠の索引の名を自分で持つ（住処に名の口が無い）"
-      ],
-      ".shared/core/report.py": [
-       1,
-       "報告が読んだ証拠の索引を名の形 reads-*.json で集める"
+       "読んだ証拠の名 reads-<役>.json を自分で組む（住処の口を import できない: reads が entry を import し、entry が prcheck を import するので輪になる。tests/test_layers.py の cycle）"
       ],
       ".shared/core/scopes.py": [
        1,
-       "scope の照らしが読んだ証拠の索引を名の形 reads-*.json で見分ける"
-      ],
-      "blk-plan/lib/planblk.py": [
-       1,
-       "修正案のブロックの読んだ証拠の索引の名を自分で持つ（住処に名の口が無い）"
+       "scope の照らしが読んだ証拠を名の形 reads-*.json で見分ける（住処の口を import できない: reads が entry を import し、entry が scopes を import するので輪になる。tests/test_layers.py の cycle）"
       ]
      }
     }
@@ -283,17 +172,9 @@
        1,
        "docstring が try_query の照らしを申し出の欄 which_is_right で述べる"
       ],
-      ".shared/core/replan.py": [
-       3,
-       "案の直しの指示書に申し出の欄の中身を欄の名つきで貼る"
-      ],
-      ".shared/core/seat.py": [
-       2,
-       "座の読み替えの文が申し出の種類ごとの which_is_right の値を役に述べる"
-      ],
       ".shared/core/writerules/common.md": [
        6,
-       "書く役の決まりの正本が、役の書く申し出の欄の名と値を役に教える"
+       "書く役の決まりの正本（works の物で写しではない）が、役の書く申し出の欄の名と値を役に教える（役に読ませる文で、conflict の定数から文を組むのは見合わない）"
       ]
      }
     }
@@ -309,12 +190,7 @@
       ".shared/core/adapter.py",
       ".shared/core/claude-adapter"
      ],
-     "known": {
-      ".shared/core/graphmap.py": [
-       1,
-       "コメントが工程の地図の大きさの上限を包みの旗の 1 引数の上限で述べる"
-      ]
-     }
+     "known": {}
     }
    ]
   },
@@ -333,22 +209,6 @@
       ".shared/core/node_marker.py": [
        3,
        "印を Archon が載せる argv の --json-schema から読む（印の住処で、返答の契約とは別の考え）"
-      ],
-      ".shared/core/recount.py": [
-       1,
-       "docstring が役に渡る型を argv の --json-schema で述べる"
-      ],
-      "blk-judge/blk-judge.yaml": [
-       1,
-       "コメントが節の印の運ばれ方を argv の --json-schema で述べる"
-      ],
-      "blk-material/lib/material.py": [
-       1,
-       "コメントが旗 text-reply の効き目を返答の道具 StructuredOutput で述べる"
-      ],
-      "blk-purpose/blk-purpose.yaml": [
-       1,
-       "コメントが節の印の運ばれ方を argv の --json-schema で述べる"
       ]
      }
     }
