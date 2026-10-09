@@ -413,8 +413,8 @@
    "id": "lw2",
    "title": "同じ節の stub はどの筋書きでも同じ鍵の組を持つ（run 28 の merge の後、3 本の筋書きが輪の受け付けの done を欠いたまま残った）",
    "file": "darkfactory/fixtures/conflict-ask.stubs.yaml",
-   "old": "premises-accept:\n  ok: true\n  done: true\n",
-   "new": "premises-accept:\n  ok: true\n",
+   "old": "fix-accept:\n  ok: true\n  done: true\n",
+   "new": "fix-accept:\n  ok: true\n",
    "tests": {
     "tests/test_line_wiring.py": [
      "FixtureStubKeysCase.test_same_node_stubs_share_keys"

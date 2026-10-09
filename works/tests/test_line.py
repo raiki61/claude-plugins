@@ -30,6 +30,8 @@ sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import linekit  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 import line_edge  # noqa: E402
 from test_line_inputs import script_inputs  # noqa: E402
 
@@ -449,7 +451,7 @@ class DepthWiringCase(unittest.TestCase):
 
 class LineFixturesCase(unittest.TestCase):
     def fixtures(self):
-        return {p.name.removesuffix(".stubs.yaml"): load(p) for p in (LINE / "fixtures").glob("*.stubs.yaml")}
+        return {p.name.removesuffix(".stubs.yaml"): stubfold.load(p) for p in (LINE / "fixtures").glob("*.stubs.yaml")}
 
     def test_fixture_names(self):
         self.assertEqual(set(self.fixtures()), FIXTURES)

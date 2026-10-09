@@ -27,6 +27,8 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
 import board  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
@@ -587,8 +589,7 @@ class TestFixtures(unittest.TestCase):
     def test_line_conflict_ask_scenario(self):
         """ラインの筋書き conflict-ask: when_needed・緑でも ask_human の申し出で h-final が関所を開き、結末は needs_human"""
         import conflict
-        import yaml
-        f = yaml.safe_load((ROOT / "darkfactory" / "fixtures" / "conflict-ask.stubs.yaml").read_text(encoding="utf-8"))
+        f = stubfold.load(ROOT / "darkfactory" / "fixtures" / "conflict-ask.stubs.yaml")
         self.assertEqual(f["fixture"]["inputs"]["final_gate"], "when_needed")
         self.assertIs(f["fixing__conflict-check"]["go"], True)
         self.assertEqual(f["rule"]["rulings"][0]["decision"], "ask_human")

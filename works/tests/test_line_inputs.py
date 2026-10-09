@@ -37,6 +37,8 @@ sys.path.insert(0, str(TESTS))
 import entry  # noqa: E402
 import entryshape  # noqa: E402  （入口の変換）
 import linekit  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 # 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}（減らす方向にだけ変える）
 OPTIONAL_INPUTS = {}
@@ -142,7 +144,7 @@ class InputNamesCase(unittest.TestCase):
         for path in sorted(ROOT.glob("*/fixtures/*.stubs.yaml")):
             wf = path.parent.parent
             doc = yaml.safe_load((wf / f"{wf.name}.yaml").read_text(encoding="utf-8"))
-            given = set(((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("fixture") or {}).get("inputs") or {})
+            given = set((stubfold.load(path).get("fixture") or {}).get("inputs") or {})
             with self.subTest(str(path.relative_to(ROOT))):
                 self.assertEqual(given - set(doc.get("inputs") or {}), set())
 
