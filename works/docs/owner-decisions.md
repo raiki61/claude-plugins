@@ -291,8 +291,8 @@
 - 住処: 赤緑の判定は JUnit XML の結末で見る（`blk-fix/lib/tddloop.py`）。外す所の棚卸し `docs/language-neutral-inventory.md`
 - 強さ: 部分（**今壊れている**）
 - 隙間:
-  - 試験の選び: `.shared/core/impact.py` の `_lang` が、表（`PY_EXT`・`PATHREF_EXT`・`OTHER_CODE_EXT`）に無い拡張子を文書と見なす。表の外の言語のコードを直しても、受け付けは当たる試験を選ばない → 段 1
-  - 凍結と赤緑: `tddloop.py` の `TEST_FILE` が `.py` だけで、Python 以外では凍結の一部が黙って空になる。既定の実行器は `dev/use.sh` が pytest からしか作らない（`PYTEST_FILE`）→ 段 1（`TEST_FILE`）と段 6（実行器の約束を JUnit に寄せる大きい直し）
+  - （段 1 で塞いだ）試験の選び: `.shared/core/impact.py` の `_lang` は表に無い拡張子をコードと見る。文書は表の拡張子と、対象の git の属性 `linguist-documentation` の宣言
+  - （段 1 で塞いだ）凍結と赤緑のテストのファイルの見分けは、宣言と名の慣習（`tddloop.is_test_file`・`impact.is_test`。地図 `docs/concepts.md` の `test-files`）。残る隙間: 既定の実行器は `dev/use.sh` が pytest からしか作らない（`PYTEST_FILE`）→ 段 6（実行器の約束を JUnit に寄せる大きい直し）
   - 赤の理由の読み手（`NAME_KINDS` が CPython の例外の名）は言語に依らない形に変える（持ち主 2026-10-09「もちろん言語に依らない方がいい」。計画の 1 節の決め 2）
   - 言語を名指す分かれが増えたら赤にする柵が無い → 段 3
 
