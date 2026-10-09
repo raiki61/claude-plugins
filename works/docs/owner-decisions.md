@@ -169,7 +169,7 @@
 - 持ち主の言葉: 「責務とかいろいろ考えたうえで、そこの領域に設計無しで足を踏み入れると汚くなるよってポイントが関所にあがることもあると思うが、うまく対応できてるか」（2026-09-29）
 - 住処: 構造の目の 6 つの形（`eye.py` の `FORMS`）と、推し・捨てた案・代償の行（`blk-structure/design-row.schema.json` の chosen・rejected・chosen_reason）
 - 強さ: 役への助言
-- 隙間: 人に上げる道が無い。目の行き先はいつも「自分で決める」（`eye.py` の `ROUTE`・`ROUTE_REASON`）。構造の目の設計書 `docs/specs/2026-09-29-structure-block-design.md` の 6 節（設計の関所と戻り先）が未着手 → 段 2
+- 隙間: 2026-10-09 の段 2（計画 clean-whole の Task 2.3・2.6）で、目の行き先に「人に上げる」を足し（`eye.py` の `ROUTES`。決まらない訳 undecided_because と捨てた案が要る）、上げた行は修正前の関所の項目になる（`gatemarks.design_items`）。全案 NG の輪（設計書 6 節）は未着手
 
 ### `concept-home` 考えが形として見える・2 か所目に出たら先に部品へ寄せる
 
@@ -177,7 +177,7 @@
 - 出どころ: V032、記憶の決定 `two-places`
 - 持ち主の言葉: 「ほかにも考え方が形として見えてないところはないか」（2026-10-09）
   - 持ち主の言葉（記憶）: 「そういう風にあなたが作りこまなかったのも理由としてはあるのでは」「それこそ弱点な気がする」（2026-10-09）
-- 住処: works 自身は考えの住処の地図 `docs/concepts.md` と柵（表 `docs/concepts.json`・道具 `tests/conceptfence.py`・試験 `tests/test_concept_fences.py`。0.2.53 で入った）。事前審査と差分の審査の穴 copy（写しの指示書）
+- 住処: works 自身は考えの住処の地図 `docs/concepts.md` と柵（表 `docs/concepts.json`・道具 `.shared/core/conceptfence.py`・試験 `tests/test_concept_fences.py`。0.2.53 で入った）。事前審査と差分の審査の穴 copy（写しの指示書）
 - 強さ: 部分（works 自身の住処の在る 13 の考えは機械で強制。散らばりの 9 の考えと、対象のリポジトリは未実装）
 - 隙間: 散らばりの 9 には柵が無く、増えても赤にならない。対象のリポジトリの差分で「ある考えを知る場所が増えたか」を数える所が無い。修正案・事前審査・R1・R3 は住処を問わない（計画 `docs/plans/2026-10-09-structure-viewpoint.md` の Task 2〜4 が未着手）→ 段 2・段 3
 
@@ -495,7 +495,7 @@
 - 持ち主の言葉（最後）: 「関所にあげるのもいいけど、自明なやつがあがってきすぎるから、それの対策もうったよね」（2026-10-09）
 - 住処: 修正前の関所の決め手の欄（`gatemarks.py` の `FIELDS`: decided_by・undecided_because・fences・world・recommend）。決め手が在り、決まらない訳が空で、柵の印が無い行は聞かずに通り、報告に 1 行で並ぶ（`gatemarks.decided`・`gatemarks.lines`）
 - 強さ: 部分（欄と通し方は機械で強制。欄は役の自己申告）
-- 隙間: decided_by の出どころ（設計の決定の記録・URL・対象のファイルと行）が現物に在るかを照らさない。食い違いの申し出では照らしている（`conflict.py` の `cite_problem`）ので同じ照らしを当てる → 段 2
+- 隙間: 2026-10-09 の段 2（計画 clean-whole の Task 2.6）で、decided_by の出どころ（URL・パス:行・設計の決定の記録のパス・依頼の引用「…」）が現物に在るかを照らすようにした（照らしの住処は core の `cite.py`。食い違いの申し出の引用の照らしと同じ）。関所に載せないのは 4 つの軸（自明・世界の解・汚くない・やりすぎでない）が揃う行だけ（`gatemarks.axes`）。照らせない書き方の決め手が人に回って関所が増えないかは、段 2 の測り（Task 2.8）で見る
 
 ### `gates` 止める関所は 4 種だけ・不要な人の関門は外す
 

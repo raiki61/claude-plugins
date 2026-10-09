@@ -50,6 +50,20 @@ class BriefCase(tbf.BoardCase):
         args = (1, tbf.plan_reply()["plan"][0], FIELDS[0], {u["key"]: u for u in b.record["units"]}, "目的の文", "")
         self.assertEqual(planbrief.render(*args), planbrief.render(*args))
 
+    def test_brief_carries_prescriptions_and_structure_answers(self):
+        """修正役の brief に、判定の処方（盤面の記録は写さないので判定の返答から）と、修正案が構造の目の行・処方に答えた欄
+        structure が載る（計画 2026-10-09-clean-whole の Task 2.4・利用者の声 D2）"""
+        judge = tbf.load(tbf.JUDGE)
+        judge["units"][0]["prescriptions"] = ["分母を len(xs) にする（既存の機構 1 つで済ませる）"]
+        self.fix_ready(judge=judge)
+        dev = {"row": tbf.MEAN, "deviation": "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"}
+        planmarks.save(self.board, entry.open_board(self.board).round, [{**FIELDS[0], "structure": [dev]}])
+        got = planbrief.cut(entry.open_board(self.board))
+        text = pathlib.Path(got[0]["file"]).read_text(encoding="utf-8")
+        self.assertIn("分母を len(xs) にする（既存の機構 1 つで済ませる）", text)
+        self.assertIn("## 構造の目の行と処方への答え（structure）", text)
+        self.assertIn(dev["deviation"], text)
+
     def test_render_shows_scope(self):
         """brief に書いてよいパス（allowed_paths）と触らない物（out_of_scope）の節が並ぶ。欄の無い行（217 番の形）は無し"""
         item1 = tbf.plan_reply()["plan"][0]

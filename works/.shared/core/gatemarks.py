@@ -64,7 +64,16 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - answer_key(b, q): 依頼の answers でその問いに答える時の question（保留の行の尾 ANSWER_KEY_HEAD と下書きが使う）
 - answer_drafts(b)・draft_line(drafts, next_file): 無人の run が関所で止まった項目と、保留のままの台帳の問い・問いの無い測れていない素材への答えの下書き
   （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 carry.parts が拒む）と、報告の冒頭 1 の行
-標準ライブラリと core の answer（L1。答えの行）・carry（L1。下書きの印の付け方）・marks（L1）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）・scopes（L3）だけ。
+グラフの中で決めてよいか（持ち主 2026-10-09 の決め 1。計画 2026-10-09-clean-whole の Task 2.6）: 関所の行を聞かずに通すのは、4 つの軸が
+全部揃う時だけ（人がいる run も無人の run も同じ決まり。揃わない行は今どおり人に回し、無人なら止めて答えの下書きを残す）。
+自明（決め手の欄が揃い、decided_by の出どころ＝URL・パス:行・依頼の引用「…」・設計の決定の記録のパスが現物に在る。cite.sources_problem）・
+世界の解（world が在るか、決め手が URL）・汚くない（行の単位に構造の目が人に上げた行が無く、汚れる行には修正案の欄 structure の
+答えが在る）・やりすぎでない（柵の印が無く、行が修正案の単位の外を名指さない）。揃わない訳は人に回す行の尾「（人に聞く訳: …）」に載る。
+- axes(b, mark, units) -> [揃わない軸の訳]: 4 つの軸の確かめ（空ならグラフの中で決める）
+構造の目が人に上げた行（structmark の route が人に上げる行）は、修正前の関所の項目になる（種類 DESIGN_KIND。推し＝chosen、捨てた案と
+代償＝rejected。DESIGN_HEAD で始まる 1 行。人が continue で答えた同じ文の行は聞き直さない）。
+標準ライブラリと core の answer（L1。答えの行）・carry（L1。下書きの印の付け方）・cite（L1。出どころの照らし）・marks（L1）・
+converge（L3。事前審査の壁打ち。標準ライブラリだけ）・planmarks（L3）・scopes（L3）・structmark（L3）だけ。
 """
 import json
 import pathlib
@@ -72,9 +81,12 @@ import re
 
 import answer
 import carry   # 下書きの印の付け方（次の run への持ち越しの形の住処）
+import cite    # 決め手の出どころが現物に在るかの照らし（食い違いの申し出の引用の照らしと同じ住処）
 import converge
 import marks
+import planmarks   # 修正案の欄 structure（汚れる行への答え）
 import scopes
+import structmark  # 構造の目の行（汚れる・人に上げる）
 
 MARKS_FILE = marks.KINDS["gate"].file
 RECOMMEND = "recommend"   # 人に回す行の推し {answer, note, why}（実の利用者の run ac9e02ab。機械が読める推しが無かった）
@@ -108,15 +120,17 @@ NO_NARROW_MIN = 20     # 本流の事前審査が entrance の穴に求める no
 NO_NARROW_SCHEMA = {"type": "string", "minLength": NO_NARROW_MIN,
                     "note": "狭めない案（BASE の動きを残し、直したい場合だけ新しい動きを当て、黙らずに名指す形）を探した結果"}
 NODES = marks.nodes("gate")
-_RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（依頼の引用・URL と節・対象の同じ場面・人の前の決定＝ADR・台帳の行）。"
+_RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（URL と節・<パス>:<行>（対象の同じ場面・人の前の決定＝ADR）・"
+         "設計の決定の記録のパス・依頼の引用「…」（依頼の文を字のまま鉤括弧で）。機械が現物に在るかを照らし、照らせない出どころの行は人に回る）。"
          "undecided_because＝決め手を当たっても答えが 1 つに決まらない理由（書けないなら空にせよ——自明なので人に回さない）。"
          "fences＝当たる柵の印（external_write 外への書き込み・irreversible 取り消せない操作・policy_doc 方針の文書の変更・"
          "widen_protection 守り（資格・sandbox）を広げる・web_doubt web の結果が新しい疑いを出した）。decided_by が在り "
-         "undecided_because が空で fences が無い行は修正前の関所で人に聞かずに通り、出どころつきで報告に並ぶ（最後の関所が開けばその文にも）。"
+         "undecided_because が空で fences が無く、出どころが現物に在り、world か URL の決め手が在り、構造の目が人に上げた単位に当たらず、"
+         "修正案の単位の外を名指さない行は、修正前の関所で人に聞かずに通り、出どころつきで報告に並ぶ（最後の関所が開けばその文にも）。"
          "決め手が無い・決まらない・柵に当たる行は今までどおり人に聞く。"
          "人に回す前に、世の中が同じ問題をどう解いているかを当たれ——多くは既に解かれている（標準仕様・著名 OSS・公式の文書の定石。"
-         "web を引くかは任せる）。定石で 1 つに決まるなら、その出どころを decided_by に書いて自分で決めよ。それでも人に回す行は、"
-         "world＝当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）を書け。関所の項目にそのまま載る。"
+         "web を引くかは任せる）。定石で 1 つに決まるなら、その出どころを decided_by に書いて自分で決めよ。どの行にも "
+         "world＝当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由。人の前の決定で決まる行はそう書く）を書け。人に回す行では関所の項目にそのまま載る。"
          "人に回す行には recommend＝お前の推す答え 1 つ {answer: continue（通す）か stop（止める）, note: 関所の一言にそのまま写せる"
          "通す範囲と条件か止める理由, why: 推す理由} も書け。関所の項目の推しとして載り、無人の run が関所で止まった時は次の run の"
          "依頼の下書きの答えの下書きになる（人が見直すまで使われない。機械は関所に答えない）")
@@ -157,6 +171,8 @@ ANSWER_HOW = ('答え方: 次の run の依頼を {"findings": [...], "answers":
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
+DESIGN_KIND = "design"                # 関所の項目の kinds（構造の目が決めきれなかった設計の問い）
+DESIGN_HEAD = "構造の目が決めきれない設計の問い"   # その行の頭
 _NO_FIX = "修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は報告の見る所に並ぶ）"
 DESIGN_ONLY_ITEM = "設計だけの run: " + _NO_FIX
 STUCK_ITEM = "事前審査の壁打ちが止まった案: " + _NO_FIX   # 設計だけでない run の止まり（設計だけの run と名乗らない）
@@ -202,7 +218,8 @@ PUSH_TAIL = re.compile(r"／推し: [^／\n]*$")   # 関所の項目の末尾の
 # 関所の項目の種類（写しの RL の human_gate と gatemarks の問いの kinds）→ 平易な言い方
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
-              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "修正に進まない行"}
+              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "修正に進まない行",
+              DESIGN_KIND: "構造の目が決めきれなかった設計の問い"}
 
 
 def quote(question) -> list:
@@ -415,30 +432,119 @@ def _push(mark: dict) -> str:
 
 
 def _gate_rows(b) -> list:
-    """修正前の関所の決め手の濾しに掛ける行 [(kind, 文, 決め手, 節)]（修正案の narrows と事前審査の人に回す種類の穴）"""
+    """修正前の関所の決め手の濾しに掛ける行 [(kind, 文, 決め手, 節, 単位の key の並び)]（修正案の narrows と事前審査の人に回す種類の穴。
+    narrows の単位はその項目の unit_keys、穴の単位は穴の unit_keys）"""
     rows = []
     plan = b.output_of_round("p2.fix_plan", b.round) or {}
     saved = _saved(b, "p2.fix_plan")
     for i, p in enumerate(plan.get("plan") or []):
-        rows += [("regression", f"修正案 {i + 1} が狭める能力: {n['what']}——{n['why']}", _mark(n, saved, i, j), "p2.fix_plan")
+        keys = [k for k in p.get("unit_keys") or [] if isinstance(k, str)]
+        rows += [("regression", f"修正案 {i + 1} が狭める能力: {n['what']}——{n['why']}", _mark(n, saved, i, j), "p2.fix_plan", keys)
                  for j, n in enumerate(p.get("narrows") or [])]
     saved = _saved(b, "p2.plan_review")
-    rows += [(f["kind"], f"事前審査の穴 [{f['kind']}] {f['key']}: {f['why']}", _mark(f, saved, j), "p2.plan_review")
+    rows += [(f["kind"], f"事前審査の穴 [{f['kind']}] {f['key']}: {f['why']}", _mark(f, saved, j), "p2.plan_review",
+              [k for k in f.get("unit_keys") or [] if isinstance(k, str)])
              for j, f in enumerate((b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [])
              if f["kind"] in b.rules.HUMAN_FACE_KINDS]
     return rows
 
 
-def _item(text: str, mark: dict) -> str:
-    """人に回す行の関所の項目の文（世界の解・狭めない案・推しの尾つき）"""
-    return text + _world(mark) + _no_narrow(mark) + _push(mark)
+def _item(text: str, mark: dict, why=()) -> str:
+    """人に回す行の関所の項目の文（世界の解・狭めない案・人に聞く訳・推しの尾つき）"""
+    tail = f"（人に聞く訳: {' / '.join(why)}）" if why else ""
+    return text + _world(mark) + _no_narrow(mark) + tail + _push(mark)
+
+
+def _plan_keys(b) -> set:
+    plan = b.output_of_round("p2.fix_plan", b.round) or {}
+    return {k for p in plan.get("plan") or [] if isinstance(p, dict) for k in p.get("unit_keys") or [] if isinstance(k, str)}
+
+
+def _design_rows(b) -> list:
+    """構造の目の行（控えが無い・落ちた周は []）"""
+    state = structmark.read(b.dir)
+    if not state or state.get("status") != "ok":
+        return []
+    try:
+        return structmark.rows(state.get("design_file") or "")
+    except ValueError:
+        return []
+
+
+def _answered_rows(b) -> set | None:
+    """修正案の欄 structure に答えのある汚れる行の単位（控えが読めなければ None＝照らさない。受け付けが欠けを拒む）"""
+    try:
+        fields = planmarks.read(b)
+    except Exception:   # 控えの形の崩れは受け付けと brief が止める（ここは照らさない）
+        return None
+    if fields is None:
+        return None
+    return {r.get("row") for f in fields if isinstance(f, dict) for r in f.get("structure") or [] if isinstance(r, dict)}
+
+
+def axes(b, mark: dict, units) -> list:
+    """グラフの中で決めてよいかの 4 つの軸のうち揃わない物の訳（空なら揃う＝聞かずに通す）"""
+    out = []
+    if not decided(mark):
+        return ["決め手の欄が揃わない（decided_by が無いか、undecided_because か柵の印が在る）"]
+    start = start_doc(b.dir)
+    req = start.get("request_file") or ""
+    quoted = ""
+    try:
+        quoted = pathlib.Path(req).read_text(encoding="utf-8") if req else ""
+        quoted += "\n" + json.dumps(json.loads(quoted), ensure_ascii=False) if quoted else ""   # \u の逃がしを解いた字でも引ける
+    except (OSError, UnicodeDecodeError, ValueError):
+        pass
+    repo = (b.state.get("inputs") or {}).get("cwd") or "."
+    got = cite.sources_problem(str(mark.get("decided_by") or ""), repo, [str(pathlib.Path(req).parent) if req else "",
+                                                                       str(b.dir)], quoted)
+    if got:
+        out.append(got)
+    if not str(mark.get("world") or "").strip() and not cite.URL.search(str(mark.get("decided_by") or "")):
+        out.append("世界の解を当たった結果（world）が無い")
+    ups = {r.get("unit_id") for r in _design_rows(b) if r.get("route") == structmark.ROUTE_UP}
+    hit = sorted(set(units) & ups)
+    if hit:
+        out.append(f"構造の目が人に上げた単位（{'・'.join(hit)}）に当たる")
+    dirty = structmark.dirty(b.dir)
+    answered = _answered_rows(b)
+    if answered is not None:
+        miss = sorted(k for k in units if k in dirty and k not in answered)
+        if miss:
+            out.append(f"構造の目が汚れると見た単位（{'・'.join(miss)}）に修正案の答えが無い")
+    outside = sorted(set(units) - _plan_keys(b))
+    if outside:
+        out.append(f"修正案の単位の外を名指す（{'・'.join(outside)}）")
+    return out
+
+
+def design_items(b) -> list:
+    """構造の目が人に上げた行の関所の項目 [(DESIGN_KIND, 文)]（人が continue で答えた同じ文の行は除く）"""
+    out = []
+    for r in _design_rows(b):
+        if r.get("route") != structmark.ROUTE_UP:
+            continue
+        rej = "・".join(f"{x.get('option')}（代償: {x.get('cost')}）" for x in r.get("rejected") or [] if isinstance(x, dict))
+        text = (f"{DESIGN_HEAD} {r.get('unit_id')}: {r.get('undecided_because') or r.get('route_reason') or ''}"
+                f"／捨てた案: {rej or '（無し）'}／推し: {r.get('chosen') or '構造の目が書いていない'}"
+                + (f"（{r['chosen_reason']}）" if r.get("chosen_reason") else ""))
+        if not _continued(b, text):
+            out.append((DESIGN_KIND, text))
+    return out
+
+
+def _continued(b, text: str) -> bool:
+    return any(isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"
+               and text in (h.get("asked") or [])
+               for h in (b.record.get("process") or {}).get("human_items") or [])
 
 
 def plan_gate_items(b) -> list:
     """写しの RL の _plan_gate_items の差し替え: 同じ行を組み、決め手の在る行は項目から外して state.works.gate_passes に残す"""
-    rows = _gate_rows(b)
-    _record(b, [(text, m) for _, text, m, _ in rows if decided(m)])
-    items = [(kind, _item(text, m)) for kind, text, m, _ in rows if not decided(m)]
+    rows = [(*r, axes(b, r[2], r[4])) for r in _gate_rows(b)]
+    _record(b, [(text, m) for _, text, m, _, _, why in rows if not why])
+    items = [(kind, _item(text, m, why if decided(m) else ())) for kind, text, m, _, _, why in rows if why]
+    items += design_items(b)   # 構造の目が決めきれなかった設計の問い（人がいる run も無人の run も同じ）
     if not unattended(b):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
     item = design_item(b)
@@ -673,7 +779,8 @@ def answer_drafts(b) -> list:
     stops = [h for h in (b.record.get("process") or {}).get("human_items") or []
              if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "stop" and h.get("round") == b.round
              ] if unattended(b) else []
-    rows = {_item(text, m): (text, m, node) for _, text, m, node in _gate_rows(b)} if stops else {}
+    rows = {_item(text, m, why if decided(m) else ()): (text, m, node)
+            for _, text, m, node, units in _gate_rows(b) for why in [axes(b, m, units)]} if stops else {}
     for a in (stops[-1].get("asked") or []) if stops else []:
         if not isinstance(a, str) or a.startswith(DESIGN_ONLY_ITEM):
             continue

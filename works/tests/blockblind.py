@@ -12,10 +12,17 @@ COPIED_FROM を持つフォルダはバイト単位の写しで直せないの�
 lib の Python が組んで指示書に入れる文（blk-fix/lib/fixrules.py など）は、依頼の目的の文が commands・rules に限るので見ない。
 許可表の鍵に行番号を使わないのは、散文は行がずれやすいため（ESLint の bulk suppressions と同じ「ファイル×相手→件数」）。
 """
+import pathlib
 import re
 import subprocess
+import sys
 
 from test_layers import MOD
+
+_CORE = str(pathlib.Path(__file__).resolve().parents[1] / ".shared" / "core")
+if _CORE not in sys.path:
+    sys.path.insert(0, _CORE)
+from conceptfence import verdict  # noqa: E402,F401  （許可表とのずれの文。住処は core の柵の道具。test_block_blind も読む）
 
 NAME = re.compile(r"blk-[a-z0-9]+")
 MARK = "COPIED_FROM"
@@ -142,18 +149,6 @@ def _texts(root, files):
             yield f, (root / f).read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-
-
-def verdict(found, known):
-    """許可表とのずれの文の一覧（空なら揃っている）: 表に無い組・増えた組・減った組（直ったのに表が残る）"""
-    out = []
-    for key in sorted(set(found) | set(known)):
-        n, k = found.get(key, 0), known.get(key, (0, ""))[0]
-        if n > k:
-            out.append(f"増えた {key}: {n} 行（表は {k}）")
-        elif n < k:
-            out.append(f"減った {key}: {n} 行（表は {k}。表を減らす）")
-    return out
 
 
 def report(found, known):

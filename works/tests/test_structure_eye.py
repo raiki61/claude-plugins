@@ -44,7 +44,7 @@ class EyeAcceptCase(unittest.TestCase):
         prompt = eye.render(DOC)
         self.assertIn("u-1", prompt)
         self.assertNotIn("u-2", prompt)
-        self.assertIn(eye.QUESTION, prompt)
+        self.assertIn(eye.concepthome.EYE_ASK, prompt)
         for i, f in enumerate(eye.FORMS, 1):
             self.assertIn(f"{i}. {f}", prompt)
         self.assertIn("前の回の受け付けが拒んだ理由", eye.render(DOC, "evidence が空"))
@@ -56,7 +56,7 @@ class EyeAcceptCase(unittest.TestCase):
     def test_bad_rows_are_named(self):
         for name, rows in (("汚れるで避け方が無い", [{**DIRTY, "chosen": ""}]),
                            ("汚れるで形が無い", [{**DIRTY, "faces": []}]),
-                           ("人に上げる", [{**CLEAN, "route": "人に上げる"}]),
+                           ("知らない行き先", [{**DIRTY, "route": "後で"}]),
                            ("測れなかった単位", [CLEAN, {**CLEAN, "unit_id": "u-2"}]),
                            ("同じ単位の 2 行", [CLEAN, CLEAN]),
                            ("行が無い", []),
@@ -68,6 +68,50 @@ class EyeAcceptCase(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(eye.problems(DOC, {"rows": rows}))
         self.assertTrue(eye.problems(DOC, None))
+
+    def test_route_up_needs_reason(self):
+        """人に上げる行は、決め手を当たっても決まらない訳（undecided_because）と、捨てた案と代償（rejected）が要る。汚れない行は上げない"""
+        up = {**DIRTY, "route": "人に上げる", "rejected": [{"option": "2 か所に置く", "cost": "読み直しが割れる"}],
+              "undecided_because": "人の前の決定が 2 つの置き場を別々に推していて、どちらにも決まらない"}
+        self.assertEqual(eye.problems(DOC, {"rows": [up]}), [])
+        for name, bad in (("訳が無い", {"undecided_because": ""}), ("捨てた案が無い", {"rejected": []}),
+                          ("汚れないのに上げる", {"verdict": "汚れない", "faces": []})):
+            with self.subTest(name):
+                got = eye.problems(DOC, {"rows": [{**up, **bad}]})
+                self.assertTrue(got, name)
+        self.assertTrue(any("undecided_because" in g for g in eye.problems(DOC, {"rows": [{**up, "undecided_because": ""}]})))
+
+    def test_route_up_row_written(self):
+        """受け付けた人に上げる行は、行き先とその訳（route_reason＝決まらない訳）を design.jsonl に残す。自分で決める行は既定の訳"""
+        up = {**DIRTY, "route": "人に上げる", "rejected": [{"option": "2 か所に置く", "cost": "読み直しが割れる"}],
+              "undecided_because": "人の前の決定が 2 つの置き場を別々に推していて、どちらにも決まらない"}
+        with tempfile.TemporaryDirectory() as d:
+            s = pathlib.Path(d) / "structure.json"
+            s.write_text(json.dumps(DOC, ensure_ascii=False), encoding="utf-8")
+            design = pathlib.Path(d) / "design.jsonl"
+            design.write_bytes(b"")
+            eye.prep(s)
+            self.assertTrue(eye.accept(s, design, {"rows": [up]})["ok"])
+            row = json.loads(design.read_text(encoding="utf-8"))
+        self.assertEqual((row["route"], row["route_reason"], row["undecided_because"]),
+                         ("人に上げる", up["undecided_because"], up["undecided_because"]))
+        schema = json.loads((BLOCK / "design-row.schema.json").read_text(encoding="utf-8"))
+        from engine.schema import validate_schema
+        self.assertEqual(validate_schema(row, schema), [])
+
+    def test_prompt_carries_concepts_and_rules(self):
+        """目に見せる物に、単位に当たる考えの地図の行・知る場所の数と、方針と根の地図の文書が載る（段 A が structure.json に置いた物）"""
+        doc = {**DOC, "rules": {"policy": {"path": "POLICY.md", "text": "置き場は 1 つにする", "reason": ""},
+                                "maps": "### 対象のリポジトリの地図\n\n- 地図なし", "reason": ""},
+               "units": [{**DOC["units"][0], "concepts": {"rows": [{"id": "outcome", "map": "docs/concepts.md",
+                                                                     "text": "### `outcome` run の結末"}],
+                                                          "places": [{"concept": "outcome", "what": "結末の語", "path": "a.txt",
+                                                                      "lines": 1, "home": False, "known_places": 3}]}},
+                         DOC["units"][1]]}
+        prompt = eye.render(doc)
+        for want in ("置き場は 1 つにする", "### `outcome` run の結末", "known_places", "地図なし"):
+            self.assertIn(want, prompt)
+        self.assertEqual(eye.problems(doc, {"rows": [{**CLEAN, "evidence": ["/units/0/concepts/places/0/known_places"]}]}), [])
 
     def test_evidence_indexes_the_units_the_prompt_showed(self):
         """測れなかった単位が先に在っても、目が見た /units/0 は実測した単位を指す"""
@@ -209,6 +253,26 @@ class StructureBoundaryCase(unittest.TestCase):
                                                              "design_file": "", "structure_file": "", "wall_s": 1.0})
             self.assertIn("構造の目の会話が落ちた", got["reason"])
             self.assertIn("構造の目の会話が落ちた", structmark.note(structmark.read(d)))
+
+
+class AfterWiringCase(unittest.TestCase):
+    """直しの後の実測の配線（計画 2026-10-09-clean-whole の Task 2.5）: 構造のブロックを直しの後に 2 度目に差し込み、修正の起点の版を
+    渡す。深さ（軽量の run）で省かない。境の節 h-after が控えを書き、独立の目の前の h-look がそれを待つ"""
+
+    def test_light_run_still_measures(self):
+        doc = yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))
+        nodes = {n["id"]: n for n in doc["nodes"]}
+        incs = [n for n in doc["nodes"] if n.get("include") == "blk-structure"]
+        self.assertEqual(len(incs), 2)
+        after = next(n for n in incs if (n.get("with") or {}).get("base_rev"))
+        self.assertEqual(after["with"]["base_rev"], "$start.output.base_rev")
+        self.assertNotIn("when", after)   # 全部の単位が軽量の run でも回す
+        self.assertFalse(any("skip" in k for k in after.get("with") or {}))
+        self.assertIn(after["id"], nodes["h-after"]["depends_on"])
+        self.assertEqual(nodes["h-after"]["trigger_rule"], "all_done")
+        self.assertIn("h-after", nodes["h-look"]["depends_on"])
+        first = next(n for n in incs if n is not after)
+        self.assertNotIn("base_rev", first.get("with") or {})
 
 
 if __name__ == "__main__":

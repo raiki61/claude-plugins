@@ -24,7 +24,9 @@ PREFIX = "works-node: "
 # map: 包みが工程の地図（graphmap。全体のグラフとこの節の会話の居場所）を system prompt に足す（adapter.py の頭の 13 の差し込みの表）
 # text-reply: 包みが返答の型を返答の道具に任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（fork で走る skill を起こす
 # 局所レビューの役。adapter.py の頭の 21・replycontract.py）
-FLAGS = frozenset({"no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply"})
+# concept-map: 包みが考えの住処の地図の節（concepthome.section。対象の追跡されたファイルの docs/concepts.md）を system prompt に足す
+# （adapter.py の差し込みの表の行 concept_map。修正案・事前審査・R1・R3。計画 2026-10-09-clean-whole の Task 2.7）
+FLAGS = frozenset({"no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply", "concept-map"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

@@ -4,7 +4,8 @@
 # ///
 """構造のブロックの出口を組む。段 A が書いた structure.json（INPUTS_STRUCTURE_FILE）と design.jsonl（INPUTS_DESIGN_FILE）を
 確かめ、構造の目の輪の出口（INPUTS_EYE。輪が飛ばされた・落ちた周は null）と、目を起こす周だったか（INPUTS_EYE_DUE）を突き合わせ、
-{ok, structure_file, design_file, status, reason, wall_s} を 1 行出して 0。後段が読んでよいのはこの 2 本のファイルだけ。
+{ok, structure_file, design_file, after_file, status, reason, wall_s} を 1 行出して 0。後段が読んでよいのはこの 3 本のファイルだけ
+（after_file は直しの後の段（INPUTS_AFTER_DUE が true）の周の段 B の after.json。ほかの周は空）。
 
 - ok は実測や目が落ちても true（status: failed と reason で分かる。線を止めない）。failed は、実測が落ちた・目を起こす周なのに
   輪の出口が無い（目の会話が落ちた）・目の返答が 3 回とも受け付けで拒まれた周
@@ -24,11 +25,13 @@ STRUCTURE_ENV = "INPUTS_STRUCTURE_FILE"
 DESIGN_ENV = "INPUTS_DESIGN_FILE"
 EYE_DUE_ENV = "INPUTS_EYE_DUE"
 EYE_ENV = "INPUTS_EYE"
-INPUTS = (STRUCTURE_ENV, DESIGN_ENV, EYE_DUE_ENV, EYE_ENV)   # 裁定 TA16: 読む INPUTS_* の組
+AFTER_DUE_ENV = "INPUTS_AFTER_DUE"
+AFTER_ENV = "INPUTS_AFTER"
+INPUTS = (STRUCTURE_ENV, DESIGN_ENV, EYE_DUE_ENV, EYE_ENV, AFTER_DUE_ENV, AFTER_ENV)   # 裁定 TA16: 読む INPUTS_* の組
 
 
-def _eye_exit():
-    raw = os.environ.get(EYE_ENV, "").strip()
+def _eye_exit(name=EYE_ENV):
+    raw = os.environ.get(name, "").strip()
     try:
         got = json.loads(raw) if raw else None
     except json.JSONDecodeError:
@@ -63,8 +66,23 @@ def main() -> int:
         return 1
     kept = eye.state(structure.parent)
     status, reason = outcome(doc, os.environ.get(EYE_DUE_ENV, "").strip() == "true", _eye_exit(), kept)
+    after_file = ""
+    if os.environ.get(AFTER_DUE_ENV, "").strip() == "true":
+        got = _eye_exit(AFTER_ENV) or {}
+        after_file = str(got.get("after_file") or "")
+        if not after_file:
+            status, reason = "failed", "直しの後の実測の節が落ちたか走らなかった（出口が無い）"
+        else:
+            try:
+                a = json.loads(Path(after_file).read_text(encoding="utf-8"))
+                wall += (a.get("timing") or {}).get("wall_s") or 0
+                if a.get("status") != "ok":
+                    status, reason = "failed", f"直しの後の実測: {a.get('reason') or '理由の記録が無い'}"
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError) as e:
+                status, reason = "failed", f"直しの後の実測の after.json が読めない: {e}"
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({"ok": True, "structure_file": str(structure), "design_file": str(design), "status": status,
+    print(json.dumps({"ok": True, "structure_file": str(structure), "design_file": str(design), "after_file": after_file,
+                      "status": status,
                       "reason": reason, "wall_s": round(wall + (kept.get("wall_s") or 0), 3)}, ensure_ascii=False), flush=True)
     return 0
 

@@ -57,6 +57,8 @@ MOD = {
     "stopby": (1, None),      # 止めの理由の住処（機械が盤面の state.stop.by に書く語 works:<名> の表と、ブロックが自分の語を足す口。標準ライブラリだけ）
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
     "unittrees": (1, None),   # 修正の単位ごとの小さい git worktree（切る・差分・当てる・片付け。works の物を何も知らない）
+    "concepthome": (1, None),  # 判断の 1 軸と考えの住処の観点の文・地図と柵の表の探し方（包みの差し込みの表・blk-plan・blk-eyes・blk-structure が使う。標準ライブラリだけ）
+    "cite": (1, None),        # 名指しと決め手の出どころが現物に在るかの照らし（conflict と gatemarks が読む。標準ライブラリだけ）
     "marks": (1, None),       # 返答の足し欄の住処（役の型に欄を足す・返答から外す・盤面の控えの置き場と読み書き。標準ライブラリだけ）
     "graphmap": (1, None),    # 工程の地図（Archon の YAML から全体のグラフと節の居場所を組んで描く。works の物を何も知らない）
     "webget": (1, None),      # web の取得（転送の決まり）と run をまたぐ控え（ライブラリの文書の節と世界の解の段が使う。works の物を何も知らない）
@@ -79,6 +81,7 @@ MOD = {
     "design": (3, None),      # 修正の前に先に作る独立設計（r2.design）の支度・受け付け・控え・盤面への渡し（blk-plan・blk-eyes・境の節が使う）
     "diverted": (3, None),    # 局所レビューの fork のレンズの届かなかった空の行に「見ていない」の印を付ける口（受け付けが書き、報告が読む）
     "lens": (3, None),        # 修正の後のレンズの控え（盤面の今の周の lens.json。レンズのブロックが書き、差分の審査の支度と報告が読む）
+    "conceptfence": (3, None),  # 考えの住処の柵の道具（表を読む・数える・変更の前後で増えた漏れ。試験と blk-structure が使う）
     "structmark": (3, None),  # 構造のブロックの出口の控え（盤面の根の structure-state.json。境の節が書き、blk-plan・報告・最後の関所が読む）
     "rulebook": (3, None),    # 書く役の決まりの正本（writerules/common.md）と、節に切る・穴を埋める・形を描く口（blk-fix・blk-refix が使う）
     "gatemarks": (3, None),   # 修正前の関所の項目の決め手・写しの RL の _plan_gate_items の差し替え（accept の役の型・blk-plan・境の節・報告が使う）
@@ -101,6 +104,8 @@ PARTS = {
 }
 L0_TOPS = frozenset({"engine", "rules", "graphs"})   # 写しの graphloops の頭の名（core の模块が sys.path に足す）
 OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフォルダ（dev/lib.sh が除く物）
+# 対象のリポジトリの決まった名（.editorconfig と同じ「在れば読む」形で、対象の木の中を探す）。pack の docs/ を指さないので packref に数えない
+TARGET_NAMES = frozenset({"docs/concepts.md", "docs/concepts.json"})
 
 # ラインが配線する予定の include の id（線 A の仕様 2 節。T17 で darkfactory.yaml に入る）。YAML に入ったら消す
 PLANNED_INCLUDE_IDS = frozenset()
@@ -336,7 +341,7 @@ class Pack:
             bad = set(self.lines) - {u.owner}
         if words & bad:
             self._hit(f"name {u.id}:{scope} {v!r}", at)
-        if set(segs[:-1]) & OUTSIDE:
+        if set(segs[:-1]) & OUTSIDE and v not in TARGET_NAMES:
             self._hit(f"packref {u.id}:{scope} {v!r}", at)
 
     # -- 輪・節のスクリプト・YAML の include

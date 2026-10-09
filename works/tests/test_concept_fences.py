@@ -6,15 +6,20 @@
 散らばりの柵は知ってよい所が空の数の歯止め。表そのものも main の表（origin/main）より件数の和が増えない（NotAboveMain）。
 あわせて地図と表の id と状態が揃うこと・住処ありの考えが柵を持つこと・地図に書いたパスが在ることを見る（地図が
 古くなるのを防ぐ一番安い同期）。
-中身は tests/conceptfence.py（ここは試験だけ）。計画は docs/plans/2026-10-09-structure-viewpoint.md の 3 節と Task 1。
+中身は core の .shared/core/conceptfence.py（ここは試験だけ。run の中の構造のブロックも同じ道具を対象の表に当てる）。計画は docs/plans/2026-10-09-structure-viewpoint.md の 3 節と Task 1。
 """
 import glob
 import pathlib
+import sys
 import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+if str(ROOT / ".shared" / "core") not in sys.path:
+    sys.path.insert(0, str(ROOT / ".shared" / "core"))
 MD = (ROOT / "docs" / "concepts.md").read_text(encoding="utf-8")
+PATH_HEADS = (".shared/", "blk-", "darkfactory/", "dev/", "tests/", "skills/")   # works の地図の行のパスの頭（works の並べ方）
 
 
 def cf():
@@ -52,7 +57,7 @@ class MapAndTable(unittest.TestCase):
                         self.assertIn(a.removesuffix("/**"), words)
 
     def test_map_paths_exist(self):
-        paths = cf().map_paths(MD)
+        paths = cf().map_paths(MD, PATH_HEADS)
         self.assertTrue(paths)
         missing = [p for p in paths if not (glob.glob(str(ROOT / p)) if "*" in p else (ROOT / p).exists())]
         self.assertEqual(missing, [])
@@ -172,7 +177,7 @@ class Synthetic(unittest.TestCase):
               "- 予定の住処: `blk-entry`（予定）\n"
               "- 計画: `docs/p.md`（枝 `wip/x`）と `darkfactory/schemas/in.json`\n"
               "- 繰り返し: `.shared/core/x.py`\n")
-        self.assertEqual(cf().map_paths(md), [".shared/core/x.py", "blk-a", "dev/*.sh"])
+        self.assertEqual(cf().map_paths(md, PATH_HEADS), [".shared/core/x.py", "blk-a", "dev/*.sh"])
 
 
 if __name__ == "__main__":

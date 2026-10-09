@@ -377,7 +377,7 @@ def diff_section(repo: Path, paths: list, tree: dict, diff: tuple, max_bytes: in
             entries.append(diff_entry(p, b, a))
             for texts in (before["texts"], after["texts"]):
                 names |= set(NAME_RE.findall(texts.get(p, "")))
-        fresh = new_names(payload.read_text(encoding="utf-8"), before["texts"])
+        fresh = new_names(payload.read_text(encoding="utf-8", errors="replace"), before["texts"])
         names |= set(fresh)
         return {"kind": "patch", "touched": touched, "paths": entries,
                 "env": {"before": env(names, before["texts"]), "after": env(names, after["texts"])},
@@ -444,7 +444,7 @@ def main(argv=None) -> int:
     if a.diff:
         patch = Path(a.diff).resolve()
         try:
-            kind, names = read_diff_input(patch.read_text(encoding="utf-8"))
+            kind, names = read_diff_input(patch.read_text(encoding="utf-8", errors="replace"))   # 対象の文字コードの差分も落とさない（名は ASCII の大文字だけを拾う）
         except (OSError, UnicodeDecodeError) as e:
             print(f"measure.py: --diff: {e}", file=sys.stderr)
             return 1

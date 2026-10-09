@@ -298,7 +298,7 @@ nodes:
           idle_timeout: 1728000000
           # eyes.output_format("r1.minimality")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
           output_format:
-            description: 'works-node: r1-minimality'
+            description: 'works-node: r1-minimality concept-map'
             type: object
             required:
             - status
@@ -756,7 +756,7 @@ nodes:
           idle_timeout: 1728000000
           # eyes.output_format("r3.coherence")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
           output_format:
-            description: 'works-node: r3-coherence'
+            description: 'works-node: r3-coherence concept-map'
             type: object
             required:
             - status

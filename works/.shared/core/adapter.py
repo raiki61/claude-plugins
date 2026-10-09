@@ -126,6 +126,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
      YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（START_REL）の実効で off の機能（features_cut。既定で
      off の機能を含む。欄の無い前の版の控えは features_off）に graph_map が在る run は足さず、ほかの語は地図が切った物として
      描く。控えが無い・切符が無い起動は切り替えの分からない地図（[needs …] を残す）。設計 docs/plans/2026-10-07-graph-map.md
+   - concept_map（required でない。印に旗 concept-map を持つ起動だけ）: 考えの住処の地図の節（concepthome.section。対象の根＝
+     切符の盤面の state.json の inputs.cwd の追跡されたファイルから、決まった名の地図を探して並べる。無ければ無い旨）。盤面・根が
+     分からない起動は足さない。設計は計画 docs/plans/2026-10-09-clean-whole.md の Task 2.7
    経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code 2.1.283 は initialize が
    appendSystemPrompt を持つ時だけ argv の値を置き換え、systemPrompt の置き換え（SDK の既定は []）とは別に append を末尾に足す
    （本体の initialize の受けと system prompt の組み立てで確かめた）。works の YAML は systemPrompt を持たないので、initialize に
@@ -244,6 +247,7 @@ import time
 import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
+import concepthome  # L1（考えの住処の地図の節。13 の差し込みの表の concept_map が読む）
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
 import node_marker  # L1（印の文法の正本）
 import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
@@ -279,6 +283,7 @@ ISOLATED = "isolated"
 LANE = "lane"
 MAP = "map"   # 13 の旗 map（工程の地図を system prompt に足す）
 TEXT_REPLY = "text-reply"   # 21 の旗 text-reply（返答の契約。replycontract.py）
+CONCEPT_MAP = "concept-map"   # 13 の旗 concept-map（考えの住処の地図の節を system prompt に足す。concepthome.section）
 REPLIES_DIR = "replies"     # 21 の回ごとの記録 replies/<cwd の hash>.jsonl
 ISOLATED_PREFIX = "works-isolated-"
 # 旗 isolated の役が持ってよい道具（空のほかに）: 累積差分をファイルで受けて全体を読む比べる役（r2-compare）の Read だけ
@@ -1584,6 +1589,21 @@ def graph_map_block(launch: Launch) -> "Block | Skip":
     return graph_map_text(launch.node, off)
 
 
+def concept_map_block(launch: Launch) -> "Block | Skip":
+    """行 concept_map の作り: 切符の盤面の state.json の inputs.cwd（対象の根）で、考えの住処の地図の節（concepthome.section）。
+    盤面・根が分からない起動は Skip（役は対象自身の構造から住処を探す）"""
+    b = launch.board()
+    if not b:
+        return Skip("切符の盤面が無い（対象の根が分からない）")
+    try:
+        cwd = (json.loads((pathlib.Path(b) / "state.json").read_text(encoding="utf-8")).get("inputs") or {}).get("cwd")
+    except (OSError, ValueError, AttributeError) as e:
+        return Skip(f"盤面の state.json が読めない（{type(e).__name__}）")
+    if not isinstance(cwd, str) or not cwd:
+        return Skip("盤面の inputs.cwd が無い")
+    return block(concepthome.section(pathlib.Path(cwd)))
+
+
 def text_reply_block(launch: Launch) -> "Block | Skip":
     """行 text_reply の作り: 節の schema（印の description を外した物）と返答の形の決まり（replycontract.instruction）"""
     if not isinstance(launch.schema, dict):
@@ -1598,6 +1618,8 @@ INJECTORS = (   # Tuple[Injector, ...]
     Injector("graph_map", "工程の地図", lambda l: MAP in l.flags, graph_map_block, False),
     # 返答の形: 旗 text-reply の起動だけ（21。子は返答の道具を持たないので、形はここでしか届かない。作れなければ起こさない）
     Injector("text_reply", "返答の形", lambda l: TEXT_REPLY in l.flags, text_reply_block, True),
+    # 考えの住処の地図: 旗 concept-map の起動だけ（修正案・事前審査・R1・R3。計画 2026-10-09-clean-whole の Task 2.7。作れなければ足さずに起こす）
+    Injector("concept_map", "考えの住処の地図", lambda l: CONCEPT_MAP in l.flags, concept_map_block, False),
 )
 
 

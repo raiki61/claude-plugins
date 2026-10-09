@@ -656,6 +656,7 @@ structuring__stage-a:
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
   eye: true
+  after: false
 structure-eye-prep:
   prompt: （構造の目の描いた指示書）
   prompt_file: structure/eye-prompt-1.md
@@ -674,10 +675,13 @@ structure-eye-accept:
   give_up: false
   reason: ''
   attempt: 1
+structuring__stage-b:
+  after_file: ''
 structuring__collect:
   ok: true
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
+  after_file: ''
   status: ok
   reason: ''
   wall_s: 0.1
@@ -1831,6 +1835,25 @@ ci-final__collect:
   green: false
   pr_go: false
   note: ''
+measuring-after__stage-a:
+  structure_file: structure/structure.json
+  design_file: structure/design.jsonl
+  eye: false
+  after: true
+measuring-after__stage-b:
+  after_file: structure/after.json
+measuring-after__collect:
+  ok: true
+  structure_file: structure/structure.json
+  design_file: structure/design.jsonl
+  after_file: structure/after.json
+  status: ok
+  reason: ''
+  wall_s: 0.1
+h-after:
+  ok: true
+  status: ok
+  reason: ''
 h-look:
   ok: true
   stop: false

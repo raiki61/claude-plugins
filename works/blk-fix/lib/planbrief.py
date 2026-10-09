@@ -164,6 +164,7 @@ def render(n: int, item: dict, fields: dict, units: dict, purpose: str, structur
         "## 触らない物（out_of_scope）\n\n" + _scoped(fields, "out_of_scope", _scope),
         f"## 目的の文（凍結）\n\n{purpose or NONE}",
         structure or f"## 構造の目の行\n\n{NONE}",
+        "## 構造の目の行と処方への答え（structure）\n\n" + _bullets(fields.get("structure") or [], planmarks.answer_line),
         f"## {BACKGROUND}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),
     ]
     return "\n\n".join(parts) + "\n"
@@ -192,7 +193,9 @@ def _drawn(b) -> list[tuple[list, str]] | None:
     if len(fields) != len(plan):
         raise LedgerBroken(f"修正案の項目の数 {len(plan)} と盤面の控え {planmarks.FIELDS_FILE} の欄の数 {len(fields)} が違う"
                            "（同じ周の受け付けが同じ並びで書く物）")
-    units = {u["key"]: u for u in b.record.get("units") or [] if isinstance(u, dict) and isinstance(u.get("key"), str)}
+    given = planmarks.prescriptions(b)   # 写しの盤面の記録は単位の処方を写さない（判定の返答から足す。利用者の声 D2）
+    units = {u["key"]: {**u, "prescriptions": given.get(u["key"]) or u.get("prescriptions")}
+             for u in b.record.get("units") or [] if isinstance(u, dict) and isinstance(u.get("key"), str)}
     purpose = ((b.record.get("process") or {}).get("purpose") or {}).get("purpose_text") or ""
     structure = structmark.plan_section(b.dir)
     out = []

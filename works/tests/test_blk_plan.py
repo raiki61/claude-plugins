@@ -142,8 +142,9 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(of, planblk.output_format(planblk.DESIGN_ROLE))
         self.assertEqual(node_marker.strip(of), accept.role_schema(design.NODE))
         self.assertEqual(of["description"], f"works-node: {planblk.DESIGN_ROLE} isolated")
-        marks = {"plan": "works-node: plan map", planblk.REVISE_ROLE: "works-node: plan-revise continue=plan map",
-                 "plan-review": "works-node: plan-review"}
+        marks = {"plan": "works-node: plan map concept-map",
+                 planblk.REVISE_ROLE: "works-node: plan-revise continue=plan map concept-map",
+                 "plan-review": "works-node: plan-review concept-map"}
         for role, of in got.items():
             with self.subTest(role):
                 self.assertEqual(of, planblk.output_format(role))
@@ -790,8 +791,8 @@ class ScriptCase(unittest.TestCase):
 
     def test_plan_narrows_decided_passes_gate(self):
         """決め手の出どころが在り undecided_because が空で柵の印の無い狭めは、人に聞かずに通り、出どころつきで盤面に残る"""
-        decided = [{**NARROWS[0], "decided_by": "依頼の本文: 空の列の mean は今までどおり例外でよい", "undecided_because": "",
-                    "fences": []}]
+        decided = [{**NARROWS[0], "decided_by": "https://docs.python.org/3/library/statistics.html#statistics.mean の定義",
+                    "undecided_because": "", "fences": [], "world": "Python 公式の statistics.mean は空の列で例外を投げる"}]
         got, out = self.gate_after(decided)
         self.assertFalse(got["asking"], got)
         self.assertEqual((out["ok"], out["asks_human"]), (True, False))
@@ -878,8 +879,8 @@ class ScriptCase(unittest.TestCase):
     def test_plan_review_regression_decided_passes_gate(self):
         """事前審査の regression の穴も、決め手が在り柵の印が無ければ人に聞かない"""
         review = suggest_regression()
-        review["faces"][0].update({"decided_by": "依頼の本文: clamp は上限を超えたら hi を返す", "undecided_because": "",
-                                   "fences": []})
+        review["faces"][0].update({"decided_by": "https://en.cppreference.com/w/cpp/algorithm/clamp の定義（上限を超えたら hi）",
+                                   "undecided_because": "", "fences": [], "world": "C++ の std::clamp は上限を超えた値に hi を返す"})
         got, out = self.gate_after([], review)
         self.assertFalse(got["asking"], got)
         self.assertIs(out["asks_human"], False)
@@ -1294,6 +1295,70 @@ REWRITE = {"id": "test_stats.py::TestStats::test_clamp_within_range", "behavior"
            "old": "clamp(5, 0, 10) は 5", "new": "新しい期待（依頼で変わる振る舞い）"}
 
 
+class StructureFieldCase(unittest.TestCase):
+    """修正案は構造の目が汚れると見た行ごとに従うか外れの訳を欄 structure に書き、受け付けが欠けを拒む。外れの訳は事前審査の頭に
+    並ぶ。判定の処方は修正案の指示書の頭に載る（計画 2026-10-09-clean-whole の Task 2.4・利用者の声 D2）"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+    structured, block_exit = StructureHeadCase.structured, StructureHeadCase.block_exit
+    WHY = "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"
+
+    def dirty_round(self, judge=None):
+        self.judged(judge=judge)
+        design_file = self.tmp / "design.jsonl"
+        design_file.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.assertEqual(self.structured(self.block_exit(design_file))["status"], "ok")
+
+    def plan_with(self, structure):
+        plan = linekit.reply("plan_ok")
+        for it in plan["plan"]:
+            if UNIT_MEAN in it["unit_keys"]:
+                it["structure"] = structure
+        return plan
+
+    def test_plan_without_structure_row_is_refused(self):
+        self.dirty_round()
+        self.ok("snap", role="plan")
+        _, got = self.round_of("plan", linekit.reply("plan_ok"))
+        self.assertFalse(got["ok"], got)
+        why = self.reason_of(got)
+        self.assertTrue(why.startswith(planmarks.STRUCTURE_REJECT), why)
+        self.assertIn(f"設計の行 {UNIT_MEAN} に従うか、外れの訳を structure に書け", why)
+        self.assertFalse((self.board / planmarks.FIELDS_FILE).exists())
+
+    def test_plan_with_deviation_passes_and_is_recorded(self):
+        self.dirty_round()
+        self.planned(self.plan_with([{"row": UNIT_MEAN, "deviation": self.WHY}]))
+        fields = planmarks.read(entry.open_board(self.board))
+        self.assertEqual(planmarks.deviations(fields)[0]["deviation"], self.WHY)
+
+    def test_follows_passes(self):
+        self.dirty_round()
+        self.planned(self.plan_with([{"row": UNIT_MEAN, "follows": True}]))
+
+    def test_plan_review_sees_deviations(self):
+        self.dirty_round()
+        self.planned(self.plan_with([{"row": UNIT_MEAN, "deviation": self.WHY}]))
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        head = text.split(planmarks.REVIEW_HEAD)[0]
+        self.assertIn(planmarks.DEVIATION_HEAD, head)
+        self.assertIn(self.WHY, head)
+
+    def test_plan_head_carries_prescriptions(self):
+        """判定の処方は修正案の指示書の頭に載る（D2: 処方が修正案の役に届かず、関係を落とした）"""
+        judge = linekit.reply("judge_ok")
+        judge["units"][0]["prescriptions"] = ["ABAC の関係を保ったまま分母の決めを 1 か所に寄せる"]
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        head = text.split("\n\n# P2-10")[0]
+        self.assertIn(planblk.PRESCRIPTION_HEAD, head)
+        self.assertIn("ABAC の関係を保ったまま分母の決めを 1 か所に寄せる", head)
+
+
 class PlanFieldsCase(unittest.TestCase):
     """修正案の項目の works の欄（planmarks）: 受け付けが欠けを盤面へ渡す前に拒み、通った案は欄を外して盤面に渡し、欄は盤面の
     plan-fields.json に控える（盤面が受けた時だけ）。修正案の役の頭に欄の指示、事前審査の役の頭に欄の JSON が載る"""
@@ -1368,6 +1433,23 @@ class PlanFieldsCase(unittest.TestCase):
         text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
         for w in (planmarks.REVIEW_HEAD, "test_stats.py::TestStats::test_mean_of_two", "本物の経路", "mock"):
             self.assertIn(w, text)
+
+
+class ConceptRuleCase(unittest.TestCase):
+    """修正案と事前審査の頭に判断の 1 軸と考えの住処の観点（core の concepthome）が載り、考えの地図の節は包みの差し込みの表が
+    旗 concept-map の起動に配る（計画 2026-10-09-clean-whole の Task 2.7）"""
+
+    def test_plan_head_has_concept_rule(self):
+        import concepthome
+        self.assertIn(concepthome.PLAN_RULE, planblk.HEAD["plan"])
+        self.assertIn(concepthome.REVIEW_ASK, planblk.HEAD["plan-review"])
+        self.assertNotIn(concepthome.REVIEW_ASK, planblk.HEAD["plan"])
+
+    def test_roles_carry_concept_map_flag(self):
+        for role in ("plan", "plan-review", planblk.REVISE_ROLE):
+            with self.subTest(role):
+                flags = node_marker.parse(planblk.output_format(role)["description"])["flags"]
+                self.assertIn("concept-map", flags)
 
 
 class PlanFieldsSaveCase(unittest.TestCase):
@@ -1834,12 +1916,12 @@ class ConvergeReviseCase(unittest.TestCase):
 
     def test_revise_mark_continues_plan(self):
         of = planblk.output_format(planblk.REVISE_ROLE)
-        self.assertEqual(of["description"], "works-node: plan-revise continue=plan map")
+        self.assertEqual(of["description"], "works-node: plan-revise continue=plan map concept-map")
         self.assertEqual(node_marker.parse(of["description"])["cont"], "plan")
         bare = node_marker.strip(of)
         self.assertIn(converge.ANSWERS, bare["required"])
         self.assertEqual(converge.with_fields(planblk.REVISE_ROLE, accept.role_schema("p2.fix_plan", numbered=True)), bare)
-        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan map")   # 修正案の役は地図の旗だけ
+        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan map concept-map")   # 修正案の役は地図の旗 2 つだけ
 
 
 def two_items() -> dict:

@@ -85,6 +85,7 @@ import recount  # noqa: E402
 import rolekit  # noqa: E402
 import scopes  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
+import structmark  # noqa: E402
 
 CLOSE_WHY = "同じ run の中で案の直しを終えられなかった（案の段に戻るのは 1 run に 1 回）"
 HALTED_WHY = "run が止まった（{by}: {reason}）ので、案の直しを終えなかった"
@@ -446,6 +447,7 @@ def _plan_errors(b, rows: list, reply, repo) -> list:
             out.append(f"plan[{i}].unit_keys が貼った {json.dumps(want, ensure_ascii=False)} と違う（一字も変えずに写す）")
     if not _malformed(reply):
         out += planmarks.gaps(reply, pathlib.Path(repo), exists=_start_tree(b, pathlib.Path(repo)))
+        out += planmarks.structure_gaps(reply.get("plan"), structmark.dirty(b.dir))
         out += gatemarks.narrow_gaps(planmarks.NODE, reply)
         out += gatemarks.recommend_gaps(planmarks.NODE, reply)
     return out + _type_lines(reply, planmarks.NODE)
