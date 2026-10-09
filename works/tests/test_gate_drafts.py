@@ -20,7 +20,7 @@ import test_plan_gate as TP  # noqa: E402  （ラインの模块の置き場も 
 import accept  # noqa: E402
 import gatemarks  # noqa: E402
 import ghreads  # noqa: E402
-import plan  # noqa: E402
+import line_edge  # noqa: E402
 import report  # noqa: E402
 
 REC = {"answer": "continue", "note": "daemon だけを Recreate にする範囲で通す", "why": "Dagster 公式の chart が同じ分け方"}
@@ -76,7 +76,7 @@ class PushCase(TP.GateBase):
         got, _ = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
         item = got["ask"]["items"][0]
         self.assertTrue(item.endswith(f"／推し: 通す（continue）——{REC['note']}（理由: {REC['why']}）"), item)
-        text = plan.gate_text({"node": "p2.human_gate", **got["ask"]})
+        text = line_edge.gate_text({"node": "p2.human_gate", **got["ask"]})
         self.assertIn(f"推し: 通す（continue）——{REC['note']}", text.splitlines()[2])
 
     def test_slash_in_the_push_is_kept_out_of_the_tail_mark(self):

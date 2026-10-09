@@ -243,7 +243,7 @@ def push_of(texts) -> str:
 
 
 def gate_text(asking: dict, *, run_id: str, node: str, record_name: str) -> str:
-    """盤面の問い {node, kinds, question, items, …} を答えを受ける関所の文にする（修正前の関所の plan.gate_text と仕様の関所の
+    """盤面の問い {node, kinds, question, items, …} を答えを受ける関所の文にする（修正前の関所の line_edge.gate_text と仕様の関所の
     specblk.gate_text が呼ぶ 1 つの組み立て）。冒頭 3 行（起きたこと＝どの関所に何の項目が何件・決めてほしいこと＝通すか
     止めるか・推し＝項目の問いの理由に判定の役が書いた推し）→ 台帳の問いへの答え方（ASK_GATE_HEAD）→ 問いの文の引用と読み替えの
     1 行（QUOTE_NOTE）→ 項目 1 行ずつ → 答え方（answer.line。一言は record_name の記録に残る）。頭は平易な名で、盤面の節の

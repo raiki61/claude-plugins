@@ -3,6 +3,7 @@
 .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
+- gate_text(asking, *, run_id): 盤面の問いを修正の前の関所 policy-gate の文にする（h-gate。組み立ては gatemarks.gate_text）
 - judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
 - mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
 - rejudge_edge(board_dir, repo): h-rejudge の固有の仕事（修正役の異議の再審を回すか。判定役の会話が無ければ止める。計画 P1 Task 31）
@@ -56,7 +57,6 @@ import fixture  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import impact  # noqa: E402
-import plan  # noqa: E402
 import premises  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
@@ -117,6 +117,7 @@ ADAPTER_FIXTURE_OP = "adapter_check_after_fixture"   # 固定材料から始め�
 DIAGNOSE_NODE = "p2.diagnose"                # 判定の節（h-mat・h-plan が今の周に済んだかを見る）
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
+RUN_ID_HOLE = "<id>"                         # run の id を知らない呼び手の関所の文に入れる穴（gate_text）
 NOTES_FILE = "human-notes.md"                # 今の周の人の一言（h-fix が書き、修正役がパスで読む。R44: with: に文を貼らない）
 # 判定の単位を blk-structure の入力の契約 {id, paths, summary} に写したファイル（b.work。h-plan が書き、include の with: units が読む。
 # 写すのは線の側のここ 1 か所で、ブロックは判定役の返答の形を読まない。設計書 structure-block-design 8 節）
@@ -131,6 +132,16 @@ RIPPLE_FILE = "ripple.json"
 RIPPLE_REPLAN_FILE = "ripple/replan.json"   # 同じブロックの 2 度目の include（案の直し）が直した項目で作り直した一覧（同じ produces ripple/**）
 # 判定のブロックが今の周に置く単位の裏取りの申し送り（その manifest の produces。h-plan が修正案のブロックへパスで渡す。線の木の段 3）
 VERIFY_FILE = "judge-verify.json"
+
+
+def gate_text(asking: dict, *, run_id: str = RUN_ID_HOLE) -> str:
+    """盤面の問い {node, kinds, question, items, options, in_round}（state.pending_human。写しの RL の human_gate が立てる周の途中の
+    問い。項目には gatemarks が足す問いの台帳の問いも載る）を、人が Archon の関所 policy-gate で読む文にする（冒頭 3 行と答え方の行
+    つき。組み立ては gatemarks.gate_text）。h-gate が返りの gate_text と r<N>/gate.md に使う。答え方は起動の殻の答えの行
+    （answer.line）で continue "<通す範囲と条件>"（一言は run の記録に残り、修正役に届く）と stop "<理由>"。人が決める関所なので、
+    答えるのは依頼者（/works を回す Claude は聞いて写す）"""
+    return gatemarks.gate_text(asking, run_id=run_id or RUN_ID_HOLE, node=gatemarks.GATE_NODE,
+                               record_name="process.human_items")
 
 
 def _gap(msg):
@@ -1014,7 +1025,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
-       gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
+       gate: 盤面の問い（pending_human）が在れば ask と gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言と、関所で答えた問いで直す義務に戻った単位の行
        （gatemarks.returned_lines。notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
        go なら _capture_fixture（1 周目の盤面を固定材料に写す。写せなくても止めない）。
@@ -1083,7 +1094,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         asking = b.state.get("pending_human")
         if not asking:
             return out
-        text = plan.gate_text(asking, run_id=run_id)
+        text = gate_text(asking, run_id=run_id)
         _write_text(b.work(GATE_FILE), text)
         return {**out, "ask": True, "gate_text": text, "gate_file": str(b.work(GATE_FILE))}
     if at == "fix":

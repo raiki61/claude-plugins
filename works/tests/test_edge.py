@@ -1,4 +1,4 @@
-"""境の節の芯（darkfactory/lib/line_edge.py の edge・darkfactory/lib/plan.py の gate_text・darkfactory/scripts/edge.py）の検査（線 A の仕様 2 節・
+"""境の節の芯（darkfactory/lib/line_edge.py の edge・gate_text・darkfactory/scripts/edge.py）の検査（線 A の仕様 2 節・
 計画 Task 10a・裁定 TA1・TA4）。止め札の置き方そのもの（halt.place・seen・over・dev/stop.sh）は test_halt.py。
 
 盤面は linekit の種で start → 見本の返答を entry.take で進めて作る（役の返答の前に起こした印を置く。盤面の決まり 2）。
@@ -42,7 +42,6 @@ import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
-import plan  # noqa: E402
 import protect  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
@@ -232,7 +231,7 @@ class GateCase(EdgeBase):
         self.assertNotIn("archon workflow", text)   # PATH に無い archon を直に打つ行は書かない
         b = entry.open_board(self.board)
         self.assertEqual(b.work(line_edge.GATE_FILE).read_text(encoding="utf-8"), text)
-        self.assertEqual(text, plan.gate_text(b.state["pending_human"], run_id=RUN_ID))
+        self.assertEqual(text, line_edge.gate_text(b.state["pending_human"], run_id=RUN_ID))
         # 関所の文言は短い定型とこのパスだけを載せる（文そのものは Archon の置き換えに通さない。P1 Task 29 の持ち越し 2）
         self.assertEqual(got["gate_file"], str(b.work(line_edge.GATE_FILE)))
 
@@ -246,18 +245,18 @@ class GateCase(EdgeBase):
     def test_gate_text_without_run_id(self):
         asking = {"node": "p2.human_gate", "kinds": ["policy"], "question": "問い", "items": ["一"]}
         with mock.patch.dict(os.environ, {"WORKS_ANSWER_CMD": ""}):
-            text = plan.gate_text(asking)   # 殻の外で回した run: 打つ前に置き換える穴で書く
+            text = line_edge.gate_text(asking)   # 殻の外で回した run: 打つ前に置き換える穴で書く
         self.assertIn(f'{line_edge.answer.HOLE} <id> continue "<通す範囲と条件>"', text)
         self.assertIn(f'{line_edge.answer.HOLE} <id> stop "<理由>"', text)
         self.assertNotIn("archon workflow", text)
         with mock.patch.dict(os.environ, {"WORKS_ANSWER_CMD": "sh /plug/dev/use.sh answer /repo"}):
-            text = plan.gate_text(asking, run_id=RUN_ID)   # 起動の殻が置いた頭で、そのまま打てる行
+            text = line_edge.gate_text(asking, run_id=RUN_ID)   # 起動の殻が置いた頭で、そのまま打てる行
         self.assertIn(f'sh /plug/dev/use.sh answer /repo {RUN_ID} continue "<通す範囲と条件>"', text)
         self.assertIn(f'sh /plug/dev/use.sh answer /repo {RUN_ID} stop "<理由>"', text)
         self.assertNotIn("archon workflow", text)
         self.assertIn("- 一", text)
         with self.assertRaises(TypeError):
-            plan.gate_text("問い")
+            line_edge.gate_text("問い")
 
     def test_gate_null_means_not_opened(self):
         """at fix・gate None → answer を呼ばない。go は p3.fix の ready で決まる（問いの無い盤面は True、問いが残る盤面は False）"""
