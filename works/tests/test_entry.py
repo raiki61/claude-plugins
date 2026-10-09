@@ -1063,7 +1063,7 @@ class StartCase(StartCaseBase):
         got = self.start(repo)
         absent = len(entry.load_table("darkfactory").absent())
         line = got["head_line"]
-        for part in ("判定から", "依頼 2 件", "段: 自動（既定）", "gates: 空", f"このラインに無い節: {absent} 個",
+        for part in ("入口: 差分なし（HEAD）・依頼 2 件——P1 の役は起こさない", "段: 自動（既定）", "gates: 空", f"このラインに無い節: {absent} 個",
                      "下げている所: 2 個"):
             self.assertIn(part, line)
         self.assertNotIn("\n", line)
@@ -1172,9 +1172,10 @@ class StartCase(StartCaseBase):
                          {k: again[k] for k in ("base_rev", "ci_role_go", "pr_go", "head_line")})
 
 
-class ChangeEntryCase(StartCaseBase):
-    """変更（base の版）から入る入口。本線の既定の入口（add しない通常の run）と同じく入口の印を立てず、差分の根は
-    base と HEAD の merge-base（GitHub の PR の three-dot と同じ）"""
+class InputShapeCase(StartCaseBase):
+    """入口の入力の形（差分の根・差分・依頼の行）の中身で盤面の始め方が決まる。依頼の行はいつも盤面を作る時に積み、入口の印
+    （P1 の役を起こさない）は入力の差分が空の時だけ立つ。差分の根は base と HEAD の merge-base（GitHub の PR の three-dot と同じ）、
+    名指しが無ければ HEAD"""
 
     P1 = ("p1.local_review", "p1.consistency_bypass", "p1.hygiene")
 
@@ -1200,51 +1201,55 @@ class ChangeEntryCase(StartCaseBase):
         self.assertEqual([d for d in ("p0.parallel_pr", "p0.purpose") if b.node_state(d) == "pending"], [])
         return b
 
-    def test_start_change_only_is_normal_run(self):
-        """依頼無し・base だけ → 拒まず、P1 の差分の根（record.base）は merge-base、依頼を積まず入口の印も立てず、P1 の 3 節が
-        na にならない。start の出口 base_rev は修正の起点（修正前の HEAD）のまま"""
+    def batches(self):
+        return entry.open_board(self.board).record["process"].get("request_findings") or []
+
+    def test_diff_without_requests_is_plain_review(self):
+        """依頼無し・base だけ（差分あり）→ 拒まず、P1 の差分の根（record.base）は merge-base、依頼を積まず入口の印も立てず、
+        P1 の 3 節が na にならない。start の出口 base_rev は修正の起点（修正前の HEAD）のまま"""
         repo, fork = self.changed_repo()
         head = linekit.git(repo, "rev-parse", "HEAD")
         try:
             got = self.start(repo, self.raw(request="", base="base"))
         except entry.InputRefused as e:
-            self.fail(f"変更だけの入口を拒んだ: {e}")
+            self.fail(f"差分だけの入口を拒んだ: {e}")
         self.assertTrue(got["ok"])
-        self.assertEqual((got["entry"], got["base_rev"]), ("change", head))
+        self.assertEqual(got["base_rev"], head)
+        self.assertEqual((got["input"]["base"], got["input"]["diff"]["empty"], got["input"]["requests"]),
+                         ({"rev": fork, "from": "base", "name": "base"}, False, 0))
         b = entry.open_board(self.board)
         self.assertEqual(b.record["base"], fork)
         self.assertIsNone(b.record["process"].get("request_entry"))
-        self.assertFalse(b.record["process"].get("request_findings"))
+        self.assertFalse(self.batches())
         b = self.p1_deps_done(repo)
         for nid in self.P1:
             self.assertNotEqual(b.node_state(nid), "na", nid)
         import conflict
-        self.assertTrue(conflict.change_only(self.board))   # intake の読む印は entry.start が書いた控えから
-        self.assertIn("入口: 変更から（" + fork[:12] + "..HEAD・base base）", got["head_line"])
+        self.assertTrue(conflict.change_only(self.board))   # intake の読む印は entry.start が書いた控えの input から
+        self.assertIn("入口: 差分 " + fork[:12] + "..HEAD（1 ファイル・base base）・依頼 0 件", got["head_line"])
 
-    def test_start_request_and_change_keeps_p1(self):
-        """依頼と base の両方 → 版が固まった後に依頼を origin のバッチで 1 本積み、入口の印を立てない（P1 を外さない）。
+    def test_diff_with_requests_keeps_p1(self):
+        """依頼と差分の両方 → 依頼は盤面を作る時に origin のバッチで 1 本積み、入口の印を立てない（P1 を外さない）。
         呼び直しても 2 度積まない"""
         repo, fork = self.changed_repo()
         head = linekit.git(repo, "rev-parse", "HEAD")
         got = self.start(repo, self.raw(base="base"))
-        self.assertEqual((got["entry"], got["base_rev"]), ("both", head))
+        self.assertEqual((got["base_rev"], got["input"]["diff"]["empty"], got["input"]["requests"]), (head, False, 2))
         b = entry.open_board(self.board)
         self.assertEqual(b.record["base"], fork)
+        self.assertIs(b.state["works"]["begin"]["diff_empty"], False)
         self.assertIsNone(b.record["process"].get("request_entry"))
-        batches = b.record["process"]["request_findings"]
-        self.assertEqual([x["origin"] for x in batches], [entry.ORIGIN])
-        self.assertEqual(len(batches[0]["findings"]), 2)
+        self.assertEqual([x["origin"] for x in self.batches()], [entry.ORIGIN])
+        self.assertEqual(len(self.batches()[0]["findings"]), 2)
         b = self.p1_deps_done(repo)
         for nid in self.P1:
             self.assertNotEqual(b.node_state(nid), "na", nid)
         self.start(repo, self.raw(base="base"))
-        self.assertEqual(len(entry.open_board(self.board).record["process"]["request_findings"]), 1)
-        self.assertEqual(entry.add_pending_request(entry.open_board(self.board)), "none")
+        self.assertEqual(len(self.batches()), 1)
 
     def test_start_object_request_and_change_adds_findings(self):
-        """依頼が {findings, pr, issue} の形でも、両方の入口で積むのは findings の行だけ（add_pending_request も同じ形を解く）。
-        名指した PR・issue は run の中で gh が読む（ここでは偽の gh。読めない項は記録して進む）"""
+        """依頼が {findings, pr, issue} の形でも、積むのは findings の行だけ。名指した PR・issue は run の中で gh が読む
+        （ここでは偽の gh。読めない項は記録して進む）"""
         from test_ghreads import fake_gh
         repo, _ = self.changed_repo()
         rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
@@ -1256,34 +1261,35 @@ class ChangeEntryCase(StartCaseBase):
                 got = self.start(repo, self.raw(request=str(req), base="base"))
         except entry.InputRefused as e:
             self.fail(f"object の形の依頼を拒んだ: {e}")
-        self.assertEqual(got["entry"], "both")
-        batches = entry.open_board(self.board).record["process"]["request_findings"]
-        self.assertEqual([x["origin"] for x in batches], [entry.ORIGIN])
-        self.assertEqual(batches[0]["findings"], rows)
+        self.assertEqual(got["input"]["requests"], 2)
+        self.assertEqual([x["origin"] for x in self.batches()], [entry.ORIGIN])
+        self.assertEqual(self.batches()[0]["findings"], rows)
 
-    def test_both_waits_for_frozen_revision_then_adds(self):
-        """版が固まる前（CI の任せ先の役を待つ）は依頼を積まずに待ち、役が渡した後の resume_after_ci で積む（印は立てない）"""
+    def test_ci_role_wait_does_not_hold_requests(self):
+        """CI の任せ先の役を待つ run（版がまだ固まっていない）でも、依頼は盤面を作る時に積まれていて、差分が在るので印は
+        立たない。役が渡した後の resume_after_ci も積み直さない"""
         repo, _ = self.changed_repo(declared=False)
         got = self.start(repo, self.raw(base="base"))
         self.assertTrue(got["ci_role_go"])
         b = entry.open_board(self.board)
-        self.assertEqual(b.node_state(entry.PENDING_WAIT_NODE), "pending")
-        self.assertFalse(b.record["process"].get("request_findings"))
-        self.assertEqual(entry.add_pending_request(b), "waiting")
+        self.assertEqual(b.node_state("p1.worktree_before"), "pending")
+        self.assertEqual([x["origin"] for x in self.batches()], [entry.ORIGIN])
+        self.assertIsNone(b.record["process"].get("request_entry"))
         inst = pending_inst(b, "p0.local_checks")
         b.mark_launched("p0.local_checks", inst.get("attempts", 1))
         b.done("p0.local_checks", {"material": {"status": "clean", "count": 0, "checked": "試験の役の代わり"}})
         entry.resume_after_ci(entry.open_board(self.board))
         b = entry.open_board(self.board)
-        self.assertEqual([x["origin"] for x in b.record["process"]["request_findings"]], [entry.ORIGIN])
+        self.assertEqual([x["origin"] for x in self.batches()], [entry.ORIGIN])
         self.assertIsNone(b.record["process"].get("request_entry"))
 
-    def test_request_only_keeps_request_entry(self):
-        """依頼だけ → 今までどおり判定から入る run（印が立ち、依存が済んだ後に P1 の 3 節は na）"""
+    def test_empty_diff_with_requests_sets_mark(self):
+        """依頼だけ（差分が空）→ 判定から入る run（印が立ち、依存が済んだ後に P1 の 3 節は na）"""
         repo = self.seed(declared=True)
         got = self.start(repo)
         b = entry.open_board(self.board)
-        self.assertEqual(got["entry"], "request")
+        self.assertTrue(got["input"]["diff"]["empty"])
+        self.assertIs(b.state["works"]["begin"]["diff_empty"], True)
         self.assertEqual(b.record["process"]["request_entry"]["origin"], entry.ORIGIN)
         self.assertEqual(b.node_state("p1.consistency_bypass"), "pending")   # p0.parallel_pr・p0.purpose を待つ
         b = self.p1_deps_done(repo)
@@ -1291,6 +1297,45 @@ class ChangeEntryCase(StartCaseBase):
             self.assertEqual(b.node_state(nid), "na", nid)
         import conflict
         self.assertFalse(conflict.change_only(self.board))
+
+    def test_base_equal_head_with_request_enters_from_judging(self):
+        """--base が HEAD と同じ版で依頼が在る run（差分が空）→ 印が立ち、判定から入る。版を固める p1.worktree_before が
+        空差分の柵で止まらない（前は依頼を後から積む道で印が立たず、柵で止まった）"""
+        repo = self.seed(declared=True)
+        got = self.start(repo, self.raw(base="HEAD"))
+        self.assertTrue(got["input"]["diff"]["empty"])
+        self.assertEqual(got["input"]["base"]["from"], "base")
+        b = self.p1_deps_done(repo)
+        self.assertEqual(b.record["process"]["request_entry"]["origin"], entry.ORIGIN)
+        self.assertEqual(b.node_state("p1.worktree_before"), "done")
+        self.assertFalse(b.state.get("halted"))
+        for nid in self.P1:
+            self.assertEqual(b.node_state(nid), "na", nid)
+
+    def test_resume_after_fix_keeps_frozen_input(self):
+        """start の後に作業ツリーが変わってから start を呼び直しても（Archon の再開。修正が作業ツリーを進めた後）、入力の形は
+        最初の控えのまま（測り直さない）で、begin が別の引数と言わない"""
+        repo = self.seed(declared=True)
+        first = self.start(repo)
+        with (repo / "stats.py").open("a", encoding="utf-8") as f:
+            f.write("\n# 修正\n")
+        try:
+            again = entry.start(self.board, repo, self.raw(), run_id="run-7")
+        except (entry.InputRefused, entry.BoardGap) as e:
+            self.fail(f"作業ツリーが変わった後の呼び直しを拒んだ: {e}")
+        self.assertEqual(again["input"], first["input"])
+        self.assertTrue(again["input"]["diff"]["empty"])
+
+    def test_start_doc_has_input_not_entry(self):
+        """start の控え r1/start.json は入口の入力の形 input を持ち、入口の種（entry・entry_words・change）を持たない"""
+        repo = self.seed(declared=True)
+        got = self.start(repo)
+        doc = gatemarks.start_doc(self.board)
+        self.assertEqual(doc["input"], got["input"])
+        for gone in ("entry", "entry_words", "change"):
+            self.assertNotIn(gone, doc)
+            self.assertNotIn(gone, got)
+        self.assertEqual(set(doc["input"]), {"base", "head_rev", "diff", "requests", "request_file", "pr", "spec"})
 
 
 class ResumeCase(StartCaseBase):
@@ -1462,7 +1507,8 @@ class StartScriptCase(StartCaseBase):
         self.assertEqual(len(lines), 1)
         got = json.loads(lines[0])
         self.assertTrue(got["ok"])
-        self.assertIn("判定から", got["head_line"])
+        self.assertIn("差分なし（HEAD）", got["head_line"])
+        self.assertEqual(got["input"]["diff"]["empty"], True)
         self.assertEqual(adapter.read_ticket(repo)["run_id"], "wf-1")
         self.assertTrue((self.tmp / "art" / "board" / "state.json").is_file())
         self.assertFalse([*CORE.rglob("__pycache__"), *(ROOT / "darkfactory").rglob("__pycache__")])

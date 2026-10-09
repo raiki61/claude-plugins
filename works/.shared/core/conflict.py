@@ -223,9 +223,10 @@ start_doc = gatemarks.start_doc   # 盤面の start の控えの読み手は 1 �
 
 
 def change_only(board_dir) -> bool:
-    """ラインの盤面が、依頼を持たずに変更から入った run か（start の控えの entry が change）。
+    """ラインの盤面が、依頼の行を持たずに始めた run か（start の控えの入口の入力の形 input の requests が 0）。
     依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run の空は今までどおり欠け）"""
-    return start_doc(board_dir).get("entry") == "change"
+    shape = start_doc(board_dir).get("input")
+    return isinstance(shape, dict) and shape.get("requests") == 0
 
 
 def request_file(board_dir) -> str:
@@ -235,9 +236,10 @@ def request_file(board_dir) -> str:
 
 
 def change_only(board_dir) -> bool:
-    """ラインの盤面が、依頼を持たずに変更から入った run か（start の控えの entry が change）。
+    """ラインの盤面が、依頼の行を持たずに始めた run か（start の控えの入口の入力の形 input の requests が 0）。
     依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run の空は今までどおり欠け）"""
-    return start_doc(board_dir).get("entry") == "change"
+    shape = start_doc(board_dir).get("input")
+    return isinstance(shape, dict) and shape.get("requests") == 0
 
 
 def _inside(p: pathlib.Path, root: pathlib.Path) -> bool:

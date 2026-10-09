@@ -107,7 +107,6 @@ ADAPTER_BY = "works:adapter"                 # 包みが通っていない run �
 PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
 PREMISES_NODE = "p0.premises"
 PURPOSE_NODE = "p0.purpose"
-PENDING_REQUEST_BY = "works:pending-request"  # 依頼と変更の両方の run で、判定の前に依頼を積めなかった時の state.stop.by（h-mat）
 PURPOSE_BY = purpose.STOP_BY                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
@@ -899,9 +898,7 @@ def mat_edge(b, board_dir, repo) -> dict:
        （core の purpose.read_purpose。blk-purpose の受け付けが書く）を読んで entry.take(p0.purpose)（起こした印を置いてから。
        盤面の写しの schema が当たる）。無い・読めない・盤面が受けないなら b.stop("目的の文が盤面に無い: …", by=PURPOSE_BY) で
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
-    2. 依頼と変更の両方で始めた run の依頼がまだ積まれていなければ entry.add_pending_request で積む（CI の役の後の run でも、
-       判定の前に必ず届ける）。版がまだ固まっていない（積むと入口の印が立つ）なら b.stop(…, by=PENDING_REQUEST_BY) で stop
-    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
+    2. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
        今の周の判定（p2.diagnose）が既に済んだ盤面
        （固定材料から始めた run）は go 偽（判定の支度は待っていない p2.diagnose を線の順の誤りとして拒む）"""
     board_dir = pathlib.Path(board_dir)
@@ -920,10 +917,6 @@ def mat_edge(b, board_dir, repo) -> dict:
             entry.open_board(board_dir).stop(reason, by=PURPOSE_BY)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
-    if entry.add_pending_request(b) == "waiting":
-        reason = f"依頼を判定の前に積めない: {entry.PENDING_WAIT_NODE} がまだ済んでいない（今積むと入口の印が立ち P1 の目が外れる）"
-        b.stop(reason, by=PENDING_REQUEST_BY)
-        return {"stop": True, "go": False, "why": reason}
     return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK))}
 
 

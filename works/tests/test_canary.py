@@ -1345,27 +1345,28 @@ class CheckTest(unittest.TestCase):
         h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_lens_seen"]
         self.assertEqual(h["status"], "attempted", h)
 
-    def start_entry(self, kind):
-        """start の控え（r1/start.json）の入口の形（entry.ENTRIES の語）"""
-        write(self.board / "r1" / "start.json", {"entry": kind, "features_off": []})
+    def start_entry(self, empty):
+        """start の控え（r1/start.json）の入口の入力の形の diff.empty（真偽。"old" は input の無い前の版の控え）"""
+        doc = {"features_off": []} if empty == "old" else {"input": {"diff": {"empty": empty}}, "features_off": []}
+        write(self.board / "r1" / "start.json", doc)
 
-    def test_request_entry_run_says_local_review_was_not_exercised(self):
-        """依頼から始めた run（start の控えの entry が request）は局所レビューを回さない（P1 の役の条件 not_request_entry）。
-        (h)(j) は no でなく not_exercised と言い、局所レビューの跡が無いことを赤と取り違えさせない。控えが無い・entry が
-        change・both なら今までどおり no。--request fix の終了コードは (h)(j) を数えないまま"""
+    def test_empty_diff_run_says_local_review_was_not_exercised(self):
+        """差分が空の run（start の控えの input.diff.empty が真）は局所レビューを回さない（P1 の役の条件 not_request_entry）。
+        (h)(j) は no でなく not_exercised と言い、局所レビューの跡が無いことを赤と取り違えさせない。控えが無い・差分が在った
+        run なら今までどおり no。--request fix の終了コードは (h)(j) を数えないまま"""
         self.fixer_run()
-        for kind, want in (("request", "not_exercised"), ("both", "no"), ("change", "no")):
-            with self.subTest(kind):
-                self.start_entry(kind)
+        for empty, want in ((True, "not_exercised"), (False, "no")):
+            with self.subTest(empty):
+                self.start_entry(empty)
                 got = self.run_tool(str(self.root), "--request", "fix", "--json")
                 self.assertEqual(got.returncode, 0, "--request fix は (h)(j) を数えない")
                 f = json.loads(got.stdout)["features"]
                 for key in ("h_lens_seen", "j_text_reply"):
                     self.assertEqual(f[key]["status"], want, (key, f[key]))
                     if want == "not_exercised":
-                        self.assertIn("依頼から始めた run", f[key]["why"])
+                        self.assertIn("差分が空の run", f[key]["why"])
                         self.assertIn("not_request_entry", f[key]["why"])
-        self.start_entry("request")
+        self.start_entry(True)
         text = self.run_tool(str(self.root)).stdout
         self.assertIn("(h) fork のレンズの所見: not_exercised", text)
         self.assertIn("(j) 返答の契約: not_exercised", text)
@@ -1373,10 +1374,21 @@ class CheckTest(unittest.TestCase):
         f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
         self.assertEqual([f["h_lens_seen"]["status"], f["j_text_reply"]["status"]], ["no", "no"], "控えが無ければ今までどおり")
 
-    def test_request_entry_with_local_review_traces_is_judged_as_usual(self):
-        """entry が request でも局所レビューの跡（控え・起動）が在れば（修正が入った後の周）、いつもの判じに戻す"""
+    def test_old_start_doc_without_input_is_not_exercised(self):
+        """終わった run の古い控え（入口の入力の形 input が無い）を読んでも落ちず、(h)(j) は not_exercised（分からない）"""
         self.fixer_run()
-        self.start_entry("request")
+        self.start_entry("old")
+        got = self.run_tool(str(self.root), "--json")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        f = json.loads(got.stdout)["features"]
+        for key in ("h_lens_seen", "j_text_reply"):
+            self.assertEqual(f[key]["status"], "not_exercised", (key, f[key]))
+            self.assertIn("前の版の run", f[key]["why"])
+
+    def test_empty_diff_with_local_review_traces_is_judged_as_usual(self):
+        """差分が空の run でも局所レビューの跡（控え・起動）が在れば（修正が入った後の周）、いつもの判じに戻す"""
+        self.fixer_run()
+        self.start_entry(True)
         self.lens_note()
         self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
                                     "fence": {"text_reply": "0123456789abcdef"}})
@@ -1389,7 +1401,7 @@ class CheckTest(unittest.TestCase):
         （fork のレンズの本文が届かなかった）・not_exercised（依頼から始めた run）・(j) が no なら 1。
         (a)〜(e) は数えない（fix の canary の物）"""
         self.fixer_run(planted=0)   # (a)(e) は yes でない
-        self.start_entry("both")
+        self.start_entry(False)
         self.lens_note()
         self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
                                     "fence": {"text_reply": "0123456789abcdef"}})
@@ -1408,10 +1420,10 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.run_tool(str(self.root), "--request", "change").returncode, 1, "(j) の no")
         shutil.rmtree(self.root / "home" / "adapter")
         (self.board / "r1" / "local-review-lenses.json").unlink()
-        self.start_entry("request")
+        self.start_entry(True)
         got = self.run_tool(str(self.root), "--request", "change", "--json")
         self.assertEqual(json.loads(got.stdout)["features"]["h_lens_seen"]["status"], "not_exercised")
-        self.assertEqual(got.returncode, 1, "依頼から始めた run は変更から入る canary の通過でない")
+        self.assertEqual(got.returncode, 1, "差分が空の run は差分を持たせる canary の通過でない")
 
     def test_report_cold_reader_launches_are_new_sessions(self):
         """(i) 報告の初見の読み手（report-write-cold）の起動は、どの回も新しい会話（包みの起動の記録の session.mode が new）。

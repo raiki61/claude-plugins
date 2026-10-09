@@ -319,9 +319,9 @@ class ChangeOnlyCase(unittest.TestCase):
         self.assertFalse(hasattr(script_io, "change_only"), "層 1 の script_io が控えを読む問いを持っている")
         self.assertTrue(hasattr(conflict, "change_only"), "conflict に change_only が無い")
         self.assertFalse(conflict.change_only(self.board))   # 控えが無い
-        self.write_start({"entry": "change"})
+        self.write_start({"input": {"requests": 0}})
         self.assertTrue(conflict.change_only(self.board))
-        self.write_start({"entry": "request"})
+        self.write_start({"input": {"requests": 2}})
         self.assertFalse(conflict.change_only(self.board))
 
 

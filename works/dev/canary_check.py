@@ -126,8 +126,7 @@ import scopes  # noqa: E402    周の作業ファイルを全部の周と scope 
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
 
 YES, ATTEMPTED, NO = "yes", "attempted", "no"
-NOT_EXERCISED = "not_exercised"   # (h)(j): 依頼から始めた run で、局所レビューを回す形でなかった（no と見分ける）
-REQUEST_ENTRY = entry.ENTRIES[0]   # start の控えの entry のうち、依頼だけから始めた run（request）
+NOT_EXERCISED = "not_exercised"   # (h)(j): 差分が空の run で、局所レビューを回す形でなかった（no と見分ける）
 LOCAL_AGENT = "local_agent"
 TASK_ENDS = ("completed", "failed", "stopped")
 NODE_ENDS = ("node_completed", "node_failed")
@@ -699,20 +698,27 @@ def stages(events: list, key=stage_of) -> list:
     return out
 
 
-def start_entry(board: pathlib.Path) -> str:
-    """start の控え（r1/start.json）の入口の形（entry.ENTRIES の語。無い・読めなければ ""）"""
+def diff_empty(board: pathlib.Path):
+    """start の控え（r1/start.json）の入口の入力の形の diff.empty（真偽）。控えは在るが input の無い前の版の控えは "unknown"、
+    控えが無い・読めなければ None"""
     doc = _json(board / "r1" / "start.json")
-    got = doc.get("entry") if isinstance(doc, dict) else None
-    return got if isinstance(got, str) else ""
+    if not isinstance(doc, dict):
+        return None
+    shape = doc.get("input")
+    got = (shape.get("diff") or {}).get("empty") if isinstance(shape, dict) and isinstance(shape.get("diff"), dict) else None
+    return got if isinstance(got, bool) else "unknown"
 
 
 def unexercised(board: pathlib.Path, seen: dict, launch_rows: list | None) -> dict | None:
-    """依頼から始めた run で局所レビューの跡（受け付けの控え・局所レビューの役の起動。拒んだ起動も）が無ければ、(h)(j) に置く
-    not_exercised の判じ。ほかは None（いつもの判じ）"""
-    if start_entry(board) != REQUEST_ENTRY or seen["rounds"] or any(r.get("node") == LOCAL_REVIEW for r in launch_rows or []):
+    """差分が空の run（入力の差分が空なので P1 の役を起こさない）か、控えに入口の入力の形が無い前の版の run で、局所レビューの跡
+    （受け付けの控え・局所レビューの役の起動。拒んだ起動も）が無ければ、(h)(j) に置く not_exercised の判じ。ほかは None（いつもの
+    判じ。差分が在った run・控えが無い run）"""
+    empty = diff_empty(board)
+    if empty in (False, None) or seen["rounds"] or any(r.get("node") == LOCAL_REVIEW for r in launch_rows or []):
         return None
-    return {"status": NOT_EXERCISED, "why": f"依頼から始めた run（start の控えの entry が {REQUEST_ENTRY}）で、局所レビューは回らない"
-                                            "（P1 の役の条件 not_request_entry。変更から入る run は canary.sh --request change）"}
+    why = ("差分が空の run（start の控えの input.diff.empty が真）で、局所レビューは回らない" if empty is True else
+           "start の控えに入口の入力の形（input）が無い前の版の run で、差分が在ったかが分からない")
+    return {"status": NOT_EXERCISED, "why": why + "（P1 の役の条件 not_request_entry。差分を持たせる run は canary.sh --request change）"}
 
 
 def features_off(board: pathlib.Path) -> list:

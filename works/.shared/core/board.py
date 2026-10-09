@@ -801,15 +801,18 @@ class DiskBoard(_EngineBoard):
 
     @classmethod
     def begin(cls, d, *, repo, table, items, origin, base_rev, request_text, inputs=None, max_rounds=None,
-              stop_after_round=None, overrides=None, validator_runner=None) -> tuple["DiskBoard", Progress]:
+              stop_after_round=None, overrides=None, validator_runner=None,
+              diff_empty: bool | None = None) -> tuple["DiskBoard", Progress]:
         """線 A・B の start が共通に使う入口（仕様 5 節）: create → add_request(items, origin) → p0.base を base_output で受ける →
         settle。返り (盤面, Progress)。items を渡せば判定から入る run になる（RL の add が 1 周目の P1 より前の最初の依頼で入口の
         印を立て、settle が P1 の役の節を engine と同じ理由の na にする）。items が None なら add せずに始める通常の run（engine の
         init だけの run。入口の印が立たず、P1 の役は差分に回る）。1 周の run（線 A）は stop_after_round=1。
+        diff_empty は入口が測った「差分の根から作業ツリーまでが空か」（None は測りを渡さない本流の振る舞い）。state.works.begin に
+        控え、印を立てるかの差し替え（線 A の entry.entry_opens_by_diff）が読む。呼び直しの見分けにも入る
         - p0.base は engine と同じく settle が出した instance に起こした印を置いてから受ける（machine の節。表で machine でなければ
           作る前に BoardGap）
         - 冪等: 置き場に盤面が既に在れば作らずに開き、同じ run の呼び直し——items を渡した run なら記録の最初の依頼のバッチの
-          findings が items と同じ（sha256。None の run は後から積んだ依頼を見ない）・表が同じ（state.works.table_sha）・repo・base_rev・request_text・stop_after_round・max_rounds・inputs が作った時
+          findings が items と同じ（sha256。None の run は後から積んだ依頼を見ない）・表が同じ（state.works.table_sha）・repo・base_rev・request_text・stop_after_round・max_rounds・inputs・diff_empty が作った時
           （state.works.begin）と同じ——なら、済んでいない所（依頼・p0.base）だけを続けて settle して返す。どれかが違えば BoardGap
           （盤面は書かない）。依頼の形の誤りなどで途中で止まった begin は置き場を残す（engine の init と add と同じ）ので、直して
           呼び直せば続きから
@@ -829,7 +832,7 @@ class DiskBoard(_EngineBoard):
         try:
             args = json.loads(json.dumps({"repo": str(pathlib.Path(repo).resolve()), "base_rev": (base_rev or "").strip(),
                                           "request_text": request_text, "stop_after_round": stop_after_round,
-                                          "max_rounds": max_rounds, "inputs": inputs or {}}))
+                                          "max_rounds": max_rounds, "inputs": inputs or {}, "diff_empty": diff_empty}))
         except (TypeError, ValueError) as ex:
             raise BoardGap(f"begin の引数が JSON にならない: {ex}") from None
         if (d / "state.json").exists():
