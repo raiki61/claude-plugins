@@ -61,6 +61,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `web-get` | 機械の web の取得と run をまたぐ控え | 住処あり |
 | `world` | 世界の解（問題の類ごとの定石と、依頼の解き方との比べ） | 住処あり |
 | `stop-reasons` | 止めの理由 | 住処あり |
+| `chain` | 周の鎖（頼まれた時だけ周をつなぐ） | 住処あり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 | `lang-names` | 特定の言語・テストの実行器の名 | 散らばり |
 
@@ -71,7 +72,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `outcome` run の結末
 
 - 状態: 住処あり
-- 住処: `.shared/core/report.py` の `OUTCOMES`（10 語）と `decide_outcome`（盤面と止めの印から 1 語を決める）
+- 住処: `.shared/core/report.py` の `OUTCOMES`（10 語）と `decide_outcome`（盤面と止めの印から 1 語を決める）、run の外の読み手が読む結末の種の表 `OUTCOME_KIND`（周の鎖が読む）と報告の結末の読み `read_outcome`
 - 約束: `darkfactory/darkfactory.yaml` の報告の節の出口 `outcome` の enum
 - 知ってよい所: 住処・約束・`skills/works/SKILL.md`（利用者への説明）・`dev/`（測りの殻）
 - 今: 結末の語（`"no_fix_needed"` など）を文字列で持つ `.py` は住処だけ（22d98fdc で数えた）
@@ -210,6 +211,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 約束: 語の字は盤面の `state.stop.by`・答えを待つ `process.human_items` の行の `node`・裁定の `by`・trace の行の `by` に残るので変えない（寄せる前の字の一覧を `tests/test_stopby.py` が縛る）。報告の結末の口 `.shared/core/report.py` の `stop_outcome` は `is_line` の語を `stopped_by_line` と読む
 - 知ってよい所: 住処だけ。core の書き手は住処の定数を引き、自分の定数に写さない。ブロックとラインの自分だけの語は `declare("名", "意味")` で足して返りを自分の定数に置く（例 `blk-eyes/lib/eyes.py` の `STOP_BY`・`darkfactory/lib/line_edge.py` の `PROTECTED_BY`。ほかのブロックの語は引かない）
 - 今: 寄せる前は 24 の `.py` が 35 行で語を字のまま持ち、同じ語を重ねて持っていた（`works:adapter` は 4 か所、`works:fix` は 3 か所。線は前提と目的の語を別の名の定数に写していた）。柵は語の字（`"works:<名>"`・頭の `"works:"`・f-string の頭）と、住処の定数を別の名に写す形（`X = stopby.ADAPTER`・`from stopby import`・`import stopby as`）を見る。人の止め（`human:`・`request:`・`answer`）は人の関所の考え `human-gates` の物で、ここには入れない
+
+### `chain` 周の鎖（頼まれた時だけ周をつなぐ）
+
+- 状態: 住処あり
+- 住処: `.shared/core/chain.py`（層 L3。鎖の控え `chain.json` の形と読み書き `new`・`round_row`・`load`・`save`、周の行を盤面から組む `recorded`・`minutes`、止める条件の順と止めの語 `verdict`・`STOPS`、次の周の依頼 `next_request`、最後に採る周 `final_round`、鎖の報告の行 `report_lines`、殻の口 `python3 chain.py <口>`）
+- 約束: 鎖の控え `<利用の家>/chains/<鎖の id>/chain.json` の形（計画 `docs/plans/2026-10-09-chained-rounds.md` の 5 節。書くのは住処だけ）と、次の周の依頼は今の依頼の容器の形（考え `carry-over`）だけで書くこと
+- 知ってよい所: 住処と、周をつなぐ殻 `dev/use.sh`（旗 `--rounds`・`--budget-usd`、周の結果の版と参照 `refs/works/chains/<鎖>/<周>`、次の run の起動、`chain-resume`・鎖の id を受ける `show`・`apply`）。殻は止めの語と控えの名を字で持たず、住処の口が出す文と置き場を使う。run の中のどこも鎖を知らない（入力に鎖の欄を足さない。鎖の印は起動の印 `launch_mark` の字の中だけ）
+- 今: 止めの語は鎖の控えと鎖の報告にだけ出し、盤面の `state.stop.by`（考え `stop-reasons`）とは別の名の空間（盤面に書かない）。結末の語は字で持たず、結末の住処 `.shared/core/report.py` の種の表 `OUTCOME_KIND` だけを読む（考え `outcome`）。費用は `report.spent`、結末の読みは `report.read_outcome`（測りの殻 `dev/canary_check.py` も同じ口を引く）。柵は止めの語と控え・最後の差分のファイルの名。計画 `docs/plans/2026-10-09-chained-rounds.md`
 
 ### `entry-kind` 入口の種類
 

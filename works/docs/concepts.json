@@ -806,6 +806,19 @@
     }
    ]
   },
+  "chain": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "周の鎖の止めの語と、鎖の控え・最後の差分のファイルの名（引用符かパスの区切りで囲んだ字）。殻は語を字で持たず、口の出す文を出すだけ",
+     "pattern": "\\b(rounds_reached|same_items|no_change|cost_unknown|no_result)\\b|[\"'/]chain\\.json[\"']|[\"'/]final\\.diff[\"']",
+     "allowed": [
+      ".shared/core/chain.py"
+     ],
+     "known": {}
+    }
+   ]
+  },
   "core-seams": {
    "status": "散らばり",
    "fences": [

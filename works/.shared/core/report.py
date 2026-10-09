@@ -7,7 +7,9 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 返せば round_limit（残りが今の周に測れていない素材の行だけなら fixed_needs_check）にし、冒頭 1 と次の run の依頼に残りの行を字のまま出す（直す物が無い周は no_fix_needed のまま。赤は冒頭 1 に出る）。
 
 口（線 B の報告も呼ぶ。線 B の申し送り 3・TA18。どの head_* も盤面を書かない）:
-- OUTCOMES・COST_FIELD_VERIFIED・FIRST_ROUND_LINE
+- OUTCOMES・OUTCOME_KIND（結末の語 → 周の鎖が読む種 OUTCOME_KINDS）・COST_FIELD_VERIFIED・FIRST_ROUND_LINE
+- read_outcome(board_dir) -> 盤面の報告の冒頭の結末の語（無い・読めなければ空。周の鎖と測りの殻が読む）
+- spent(events) -> (run の節の費用の和か None, 取れない節の数)（周の鎖の費用）
 - gate_record(b) -> {exit, accepted, out, tail, traces, round_closed}
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
@@ -100,6 +102,13 @@ import writes  # noqa: E402
 PACK = CORE.parents[1]
 OUTCOMES = ("fixed", "fixed_needs_check", "no_fix_needed", "round_limit", "stopped_by_request", "stopped_by_human", "stopped_by_line",
             "needs_human", "record_invalid", "interrupted")
+# 結末の語 → 周の鎖（chain）が読む種。mended＝直して閉じた（直しを確かめる周を足せる）・closed＝直す物が無い・open＝残りが在る・
+# halted＝止め札・人の stop・ラインの止め・記録が検証器を通らない・waiting＝人の判断か確かめを待つ・broken＝run が途中で終わった。
+# 鎖は結末の語を字で持たず、この表の種だけを読む（考え outcome の柵）
+OUTCOME_KINDS = ("mended", "closed", "open", "halted", "waiting", "broken")
+OUTCOME_KIND = {"fixed": "mended", "no_fix_needed": "closed", "fixed_needs_check": "waiting", "round_limit": "open",
+                "stopped_by_request": "halted", "stopped_by_human": "halted", "stopped_by_line": "halted",
+                "needs_human": "waiting", "record_invalid": "halted", "interrupted": "broken"}
 # 1 周で止める run で写しの検証器（scripts/review-record.py）が必ず出す帳尻の行。exit 1 の箇条からこの行だけを字の一致で
 # 除き、残りを阻害と読む（前の周が在る run の「前ラウンドに阻害要因が N 件あった」は除かない）。写しと字が揃うことは試験が見る
 FIRST_ROUND_LINE = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
@@ -1641,6 +1650,17 @@ def _is_aggregate(e) -> bool:
     return d.get("accounting") == "aggregate" or d.get("aggregate") is True
 
 
+def spent(events) -> tuple:
+    """run の費用の和: (節の費用の和か None, 取れない節の数)。輪の集計の行（_is_aggregate）は数えない。取れない節が 1 つでも在るか、
+    出来事が無い・読めなければ和は None（読めない費用を 0 と数えない。周の鎖が上限を守れるかを決める材料）"""
+    done = _completed(events)
+    if not done:
+        return None, 0
+    got = [_event_cost(e)[0] for e in done if not _is_aggregate(e)]
+    missing = sum(1 for v in got if v is None)
+    return (None if missing else round(sum(got), 6)), missing
+
+
 def cost_rows(events, launches) -> list:
     """[{node, reported, actual, continued_from, base, aggregate}]。aggregate は輪の集計の行（合計に数えない）。events の node_completed の費用の欄（COST_FIELD）を節の名で
     launches（包みの起動の行。時刻の順に並べ直す。拒んだ起動は除く）と順に結ぶ。session.mode continued の起動は、continued_from に
@@ -1872,6 +1892,19 @@ def next_doc(b, items: list, prior: list) -> dict:
     draft: true・source つき。依頼の入口が拒むので人が見直してから使う）を後ろに足す"""
     human = carry.human_answers(gatemarks.gate_decisions(b), gatemarks.request_answers(b), startrec.read(b.dir).get("run_id") or "")
     return carry.compose(items, prior, gatemarks.answer_drafts(b), human)
+
+
+def read_outcome(board_dir) -> str:
+    """盤面の報告（REPORT_FILE）の冒頭の起きたことの行（gatemarks.HAPPENED）の括弧の結末の語（OUTCOMES の 1 つ）。報告が無い・
+    読めない・語が無ければ空（run の外の読み手——周の鎖・測りの殻——が結末を読む口）"""
+    try:
+        lines = (pathlib.Path(board_dir) / REPORT_FILE).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    for line in lines[:10]:
+        if line.startswith(gatemarks.HAPPENED):
+            return next((w for w in OUTCOMES if f"（{w}）" in line), "")
+    return ""
 
 
 def final_result(machine: dict, ai: dict | None) -> dict:

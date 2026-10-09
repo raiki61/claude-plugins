@@ -72,6 +72,7 @@ MOD = {
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "entryshape": (3, None),  # 入口の変換（入口の種類に触れる core の唯一の模块。入口のブロックの open が entry.start を通して呼ぶ）
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
+    "chain": (3, None),       # 周の鎖の決め（殻が呼ぶ。結末の住処 report と持ち越しの住処 carry を読む）
     "impact": (3, None),      # 変更の周りの地図（役が共有して読む。地図はまだどのブロックにも配線しない。libdocs が import の読み取りを使う）
     "libdocs": (3, None),     # ライブラリの文書（手元の版・公式）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
     "libdocs_local": (3, None),  # 手元に入っている版のライブラリを静的に読む（libdocs が使う）
