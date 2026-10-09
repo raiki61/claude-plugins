@@ -295,6 +295,29 @@ class FixtureStartCase(FixtureBase):
         self.assertIn("p3.fix", entry.open_board(new_board).ready())
         self.assertEqual(len(trace_ops(new_board, fixture.TRACE_OP)), 1)
 
+    def test_start_from_old_fixture_without_input_keeps_exit_contract(self):
+        """入口の入力の形を持つ前の版の固定材料（控えに input が無い）から始めても、出口は入口のブロックの型を満たす（Archon は
+        script の節の標準出力を output_format に当てて節を落とすので、input を null で出さず、欄ごと出さない）。頭の行はその事実を言う"""
+        import yaml
+        from engine.schema import validate_schema
+        _, src = self.captured()
+        other = self.clone_same_tree()
+        real = fixture.adopt
+
+        def old_adopt(board_dir, *a, **kw):
+            doc = real(board_dir, *a, **kw)
+            doc.pop("input", None)
+            path = startrec.path(board_dir)
+            path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            return doc
+        with mock.patch.object(fixture, "adopt", side_effect=old_adopt):
+            out = entry.start(self.tmp / "b-old" / "board", other, self.raw(src), run_id="run-old")
+        self.assertNotIn("input", out)
+        block = yaml.safe_load((ROOT / "blk-entry" / "blk-entry.yaml").read_text(encoding="utf-8"))
+        fmt = next(n for n in block["nodes"] if n["id"] == block["returns"])["output_format"]
+        self.assertEqual(validate_schema(out, fmt), [])
+        self.assertIn("控えに入口の入力の形が無い", out["head_line"])
+
     def test_start_from_fixture_may_switch_features(self):
         """固定材料から始める run は切る機能・入れる機能（features_off・features_on）を写した run と替えてよい（今の値にする欄。修正の段の
         機能を切って同じ所から比べる）。出口と控えは今の値"""

@@ -110,6 +110,7 @@ PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無�
 PREMISES_NODE = "p0.premises"
 PURPOSE_NODE = "p0.purpose"
 PURPOSE_BY = purpose.STOP_BY                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
+SPEC_EDGE_BY = "works:spec-edge"             # 仕様の段の後の engine の節の回し直しが入力の誤りで拒まれた時の state.stop.by（h-spec）
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
@@ -693,8 +694,14 @@ def spec_edge(b) -> dict:
     """h-spec（仕様の段の後・並行 PR の前。いつも走る）: 盤面の engine の節を回し直す（entry.resume_after_ci と同じ輪。仕様の段を
     挟む run では、版を固める p1.worktree_before が仕様の固め spec.freeze を待つので、並行 PR の確かめ p0.parallel_pr はここで
     初めて出る）。pr-checking の when: はこの欄 pr_go だけを読む（仕様の段の無い run では h-entry と同じ値）。test_cmd は start の
-    控えの値（止められた run の呼び直しで道を替えない）"""
-    entry.resume_after_ci(b, test_cmd=str(startrec.read(b.dir).get("test_cmd") or ""))
+    控えの値（止められた run の呼び直しで道を替えない）。回し直しが入力の誤りで拒まれたら（並行 PR の確かめの拒みなど）、境の節を
+    落とさずに盤面を止め（by SPEC_EDGE_BY。CI の役の後の入口へ戻る口 ci_role と同じ扱い）、理由つきで stop"""
+    try:
+        entry.resume_after_ci(b, test_cmd=str(startrec.read(b.dir).get("test_cmd") or ""))
+    except entry.InputRefused as e:
+        reason = f"仕様の段の後に盤面の engine の節を回し直せない: {e}"
+        entry.open_board(b.dir).stop(reason, by=SPEC_EDGE_BY)
+        return {"stop": True, "go": False, "pr_go": False, "why": reason}
     b = entry.open_board(b.dir)
     return {"go": True, "pr_go": "p0.parallel_pr" in b.ready()}
 

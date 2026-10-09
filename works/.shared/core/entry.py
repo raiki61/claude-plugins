@@ -1053,7 +1053,8 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
             f"{prcheck.head_downgrades(LINE)}")
     go = {"ci_role_go": False, "pr_go": doc.get("pr_go", False)}
     _write_json(work, {**doc, **go, FEATURES_CUT_KEY: features_cut(inp[FEATURES_KEY], on), "head_line": head})
-    return {"ok": True, "input": doc.get("input"), "pr_file": "", "base_rev": doc["base_rev"], "test_cmd": doc["test_cmd"],
+    shape = startrec.shape(doc)   # 入口の入力の形の無い前の版の固定材料は欄ごと出さない（出口の型は object。null で出すと節が落ちる）
+    return {"ok": True, **({"input": shape} if shape is not None else {}), "pr_file": "", "base_rev": doc["base_rev"], "test_cmd": doc["test_cmd"],
             "policy_paste": pol["paste"], "policy_path": pol["path"], "final_gate": doc["final_gate"], "adapter": doc["adapter"],
             "thickness": doc["thickness"], "gates": doc["gates"], **feature_words(inp[FEATURES_KEY], on), **go,
             "head_line": head}
