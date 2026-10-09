@@ -1,7 +1,9 @@
 """考えの住処の柵の道具（試験 tests/test_concept_fences は works 自身の表に、run の中の構造のブロックは対象の表に当てる）。
 
 表 docs/concepts.json（地図 docs/concepts.md の隣）が、住処の在る考えごとに柵を持つ: 語の形（pattern。正規表現）・
-知ってよい所（allowed。fnmatch の形で `*` は `/` もまたぐ）・既知の漏れ（known。"<表の持ち主のフォルダからのパス>" → [行の数, 理由]）。
+知ってよい所（allowed。fnmatch の形で `*` は `/` もまたぐ）・既知の漏れ（known。"<表の持ち主のフォルダからのパス>" → [行の数, 理由]）・
+結んだ写し（bound。任意。[{paths, lines, by, why}]: paths のファイルで lines（正規表現）に当たる行は、源の値を試験 by が縛る写しなので
+数えない。流れの道具が値を決まった置き場からしか読まないなど、写しが消せない時の形。どの行が写しかは by の試験が表の行を読んで縛る）。
 表の exclude（文書・写し・生成物・試験の材料）と allowed の外の追跡されたファイルで、pattern に当たる行を「ファイル →
 行の数」で数え、known とちょうど揃うかを見る（減る向きにだけ動かす）。
 地図からは、考えの id と状態（map_ids）・見出しの下の決まった頭の行（map_rows）・行に書いたパス（map_paths）を読む。
@@ -10,6 +12,8 @@
 表の中のパスはその docs/ の親のフォルダ（持ち主のフォルダ）からの相対で読む。表が無い対象では何も数えない（作らない）。
 
 - load(root)・tracked(root)・scan(root, paths, fence, exclude)・verdict(found, known)・map_rows・map_ids・map_paths(md, heads)
+- count_lines(text, fence, path) -> int: 1 つのファイルの柵の語の行の数（結んだ写しの行を除く。scan・places・scan_change が使う）
+- check_table(doc): 表の形の確かめ（concepts の表・pattern と bound の lines が正規表現・allowed と bound の paths が配列。外れは ValueError か re.error）
 - tables(repo, rev=None) -> ([(持ち主のフォルダ, 表)], [読めない表の訳]): 対象の表を探して読む（投げない）。rev を渡せば
   その版の木の表を読む（直しが表を広げても、直しの前の表で数える）
 - changed(repo, base_rev) -> [パス]: base_rev と今の作業ツリーで変わった・足したファイル（.archon/ の写しと入れ子のリポジトリは除く）
@@ -90,8 +94,14 @@ def _hit(path, globs):
     return any(fnmatch.fnmatch(path, g) for g in globs)
 
 
-def _count(text: str, pat) -> int:
-    return sum(1 for line in text.splitlines() if pat.search(line))
+def _bound(fence, path: str) -> list:
+    """path に当たる結んだ写しの行の形（正規表現）の並び"""
+    return [re.compile(b["lines"]) for b in fence.get("bound") or [] if _hit(path, b["paths"])]
+
+
+def count_lines(text: str, fence, path: str) -> int:
+    pat, copies = re.compile(fence["pattern"]), _bound(fence, path)
+    return sum(1 for line in text.splitlines() if pat.search(line) and not any(c.search(line) for c in copies))
 
 
 def _text(path: pathlib.Path) -> str | None:
@@ -105,13 +115,12 @@ def _text(path: pathlib.Path) -> str | None:
 
 def scan(root, paths, fence, exclude):
     """{パス: pattern に当たる行の数}。allowed と exclude に当たるファイル・読めないファイル・テキストでない物は見ない。0 は入れない"""
-    pat = re.compile(fence["pattern"])
     found = {}
     for f in paths:
         if _hit(f, fence["allowed"]) or _hit(f, exclude):
             continue
         text = _text(pathlib.Path(root) / f)
-        n = _count(text, pat) if text is not None else 0
+        n = count_lines(text, fence, f) if text is not None else 0
         if n:
             found[f] = n
     return found
@@ -190,18 +199,30 @@ def tables(repo, rev: str | None = None) -> tuple[list[tuple[str, dict]], list[s
             if raw is None:
                 raise OSError(f"{rev} に読めない")
             doc = json.loads(raw.decode("utf-8"))
-            if not isinstance(doc, dict) or not isinstance(doc.get("concepts"), dict):
-                raise ValueError("concepts の表が無い")
-            for k, v in doc["concepts"].items():
-                for f in v.get("fences") or []:
-                    re.compile(f["pattern"])
-                    if not isinstance(f.get("allowed"), list):
-                        raise ValueError(f"{k} の allowed が配列でない")
+            check_table(doc)
         except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError, re.error) as e:
             bad.append(f"{name}: {e}")
             continue
         out.append((concepthome.base_of(name), doc))
     return out, bad
+
+
+def check_table(doc) -> None:
+    if not isinstance(doc, dict) or not isinstance(doc.get("concepts"), dict):
+        raise ValueError("concepts の表が無い")
+    for k, v in doc["concepts"].items():
+        for f in v.get("fences") or []:
+            re.compile(f["pattern"])
+            if not isinstance(f.get("allowed"), list):
+                raise ValueError(f"{k} の allowed が配列でない")
+            bound = f.get("bound", [])
+            if not isinstance(bound, list):
+                raise ValueError(f"{k} の bound が配列でない")
+            for b in bound:
+                if not (isinstance(b, dict) and isinstance(b.get("paths"), list) and isinstance(b.get("lines"), str)
+                        and isinstance(b.get("by"), str) and b["by"]):
+                    raise ValueError(f"{k} の bound の行が {{paths: [...], lines: <正規表現>, by: <縛る試験>}} の形でない")
+                re.compile(b["lines"])
 
 
 def _within(path: str, base: str) -> str | None:
@@ -229,18 +250,17 @@ def places(repo, base: str, table: dict, paths) -> list[dict]:
     every = None
     out = []
     for k, f in _fences(table):
-        pat = re.compile(f["pattern"])
         hits = []
         for p, r in rel:
             text = _text(root / r)
-            n = _count(text, pat) if text is not None else 0
+            n = count_lines(text, f, r) if text is not None else 0
             if n:
                 hits.append((p, r, n))
         if not hits:
             continue
         if every is None:
             every = [x for x in tracked(root) if not _hit(x, exclude)]
-        total = sum(1 for x in every if (t := _text(root / x)) is not None and pat.search(t))
+        total = sum(1 for x in every if (t := _text(root / x)) is not None and count_lines(t, f, x))
         out += [{"concept": k, "what": f["what"], "path": p, "lines": n, "home": _hit(r, f["allowed"]),
                  "known_places": total} for p, r, n in hits]
     return out
@@ -280,15 +300,14 @@ def scan_change(repo, base_rev: str, table: dict, base: str = "") -> list[dict]:
     out = []
     olds, news = {}, {}
     for k, f in _fences(table):
-        pat = re.compile(f["pattern"])
         for p, r in files:
             if _hit(r, f["allowed"]):
                 continue
             if p not in news:
                 news[p] = _text(pathlib.Path(repo) / p) or ""
                 olds[p] = _old(repo, base_rev, p)
-            after = _count(news[p], pat)
-            before = _count(olds[p], pat)
+            after = count_lines(news[p], f, r)
+            before = count_lines(olds[p], f, r)
             if after > before:
                 out.append({"concept": k, "what": f["what"], "path": p, "before": before, "after": after})
     return out

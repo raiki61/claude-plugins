@@ -62,6 +62,15 @@ class MapAndTable(unittest.TestCase):
         missing = [p for p in paths if not (glob.glob(str(ROOT / p)) if "*" in p else (ROOT / p).exists())]
         self.assertEqual(missing, [])
 
+    def test_bound_copies_name_their_binding_test(self):
+        """結んだ写し（bound）の行は、写しを源に縛る試験のファイル by が在り、その試験が柵の表の行を読んで縛る数と揃える"""
+        for k, v in self.table["concepts"].items():
+            for f in v["fences"]:
+                for b in f.get("bound") or []:
+                    with self.subTest(concept=k, by=b.get("by")):
+                        self.assertTrue((ROOT / b["by"]).is_file(), b)
+                        self.assertTrue(b["paths"] and b["lines"] and b.get("why", "").strip(), b)
+
     def test_known_rows_have_reason(self):
         for k, v in self.table["concepts"].items():
             for f in v["fences"]:
@@ -134,6 +143,30 @@ class Synthetic(unittest.TestCase):
     def test_skips_binary_and_missing(self):
         (self.root / "bin.dat").write_bytes(b"\xff\xfeWORD\x00")
         self.assertEqual(cf().scan(self.root, ["bin.dat", "gone.py"], self.FENCE, []), {})
+
+    BOUND = {"what": "語", "pattern": r"\bmodel\b", "allowed": [], "known": {},
+             "bound": [{"paths": ["blk-*/*.yaml"], "lines": r"^\s*model:", "by": "tests/test_b.py", "why": "試験が源と縛る"}]}
+
+    def test_bound_copy_lines_are_not_counted(self):
+        """結んだ写し: bound の paths のファイルで lines に当たる行は数えない（源に試験で縛られた写し）。ほかの行・ほかのファイルは数える"""
+        self.put("blk-a/a.yaml", "  model: opus\n# model の説明\nmodel: sonnet\n")
+        self.put("lib/b.py", "model: x\n")
+        got = cf().scan(self.root, ["blk-a/a.yaml", "lib/b.py"], self.BOUND, [])
+        self.assertEqual(got, {"blk-a/a.yaml": 1, "lib/b.py": 1})
+        self.assertEqual(cf().count_lines("  model: opus\nmodel x\n", self.BOUND, "blk-z/z.yaml"), 1)
+        self.assertEqual(cf().count_lines("  model: opus\n", self.BOUND, "other/z.yaml"), 1)
+        self.assertEqual(cf().count_lines("  model: opus\n", self.FENCE | {"pattern": r"\bmodel\b"}, "blk-z/z.yaml"), 1)
+
+    def test_check_table_refuses_broken_bound(self):
+        """表の読み（tables が対象の表に当てる確かめ）は、bound が配列でない・paths が配列でない・lines が正規表現でない・
+        by が無い表を拒む（ValueError か re.error）"""
+        import re
+        cf().check_table({"concepts": {"a": {"fences": [self.BOUND]}}})
+        for bad in ("x", ["x"], [{"paths": "x", "lines": "a", "by": "t"}], [{"paths": ["x"], "lines": "(", "by": "t"}],
+                    [{"paths": ["x"], "lines": "a"}]):
+            with self.subTest(bad=bad):
+                with self.assertRaises((ValueError, re.error)):
+                    cf().check_table({"concepts": {"a": {"fences": [dict(self.BOUND, bound=bad)]}}})
 
     def test_ratchet(self):
         m = cf()
