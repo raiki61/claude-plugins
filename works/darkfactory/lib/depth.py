@@ -49,7 +49,7 @@ MAX_TESTS = 2         # 測り: 同じく受け入れのテストと書き換え
 CONTRACT_SUFFIXES = (".json", ".yaml", ".yml", ".toml")
 CONTRACT_DIR = "schemas/"
 GLOB_CHARS = ("*", "?", "[")
-WIRING_FILES = ("manifest.json",)   # 配線のファイルの名（部品の consumes・produces の宣言）
+WIRING_FILES = (scopes.MANIFEST,)   # 配線のファイルの名（部品の consumes・produces の宣言）
 WIRING_SUFFIXES = (".yaml", ".yml")  # <名>/<名>.yaml の形の物が線とブロックの配線（nodes・include・with）
 # 軽量の run で省く物（報告の冒頭 2 に 1 行ずつ名指す）。どれも 2026-10-05 の自分食いの小さい run で何も見つけなかった
 # 決め 6 は 2026-10-05 の測り、決め 9 は持ち主の決定 2026-10-06（写しの graph の ! 行で optional にした節）。AI の報告は省かない（決め 10）

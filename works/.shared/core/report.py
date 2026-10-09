@@ -143,7 +143,7 @@ REQUEST_BY = "request:"                        # 止め札で止めた盤面の 
 HUMAN_BY = "human:"
 LINE_BY = "works:"
 ANSWER_BY = "answer"                           # 関所の答えの stop（halted.by）
-ADAPTER_BY = "works:adapter"                   # 包みの確かめで止めた盤面の by（h-judge の確かめ・CI の役の柵）
+ADAPTER_BY = "works:adapter"                   # 包みの確かめで止めた盤面の by（線の包みの確かめ・CI の役の柵）
 REJUDGE_SESSION_BY = "works:rejudge-session"   # 再審の会話を確かめられずに止めた盤面の by
 FLAG_SEEN_OP = "stop_flag_seen"                # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 PR_NODE = "p0.parallel_pr"
@@ -155,7 +155,6 @@ REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口�
 REJUDGE_WHERE = "判定（再審の結果）"           # 次の run の依頼の再審の結果の行の where
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
-READS_INDEX_SUFFIX = "-block.json"   # 読んだ証拠の索引の名の尾（head_reads が行にしない）
 HEADINGS = ("## 1. 人が決めること", "## 2. 入口・段・決めた人", "## 3. 止めたか", "## 4. 読んだ証拠と包み", "## 5. 見る所")
 WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review",
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
@@ -1202,7 +1201,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     b = entry.open_board(board_dir, allow_halted=True)
     lines, unverified = [], False
     # 索引（blk-plan の reads-plan-block.json・案の直しの reads-replan-block.json。{役: reads-<役>.json}）は役の読んだ証拠でない
-    files = [p for p in _all_rounds(board_dir, "reads-*.json") if not p.name.endswith(READS_INDEX_SUFFIX)]
+    files = [p for p in _all_rounds(board_dir, reads.EVIDENCE_GLOB) if not reads.is_index(p.name)]
     for p in files:
         doc = _read_json(p, {}) or {}
         src = doc.get("sources") or {}
@@ -1667,7 +1666,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     結末も AI の報告の可否も替えない。
     record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。盤面を開けなければ BoardGap"""
     board_dir = pathlib.Path(board_dir)
-    try:   # 案の直しを待つ行を諦めた行にしてから読む（h-rejudge が飛ばされた run でも、待つ行を報告から落とさない）
+    try:   # 案の直しを待つ行を諦めた行にしてから読む（修正の段を抜ける所の締め replan.settle が飛ばされた run でも、待つ行を報告から落とさない）
         replan.close_at(board_dir)
     except BoardGap:   # 申し出の控えが読めない: 冒頭 1 の件数の行（_conflict_line）が「読めない」と言う
         pass

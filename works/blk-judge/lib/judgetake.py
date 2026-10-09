@@ -1,6 +1,6 @@
 """blk-judge の受け付けと出口の芯（run 27 の再発防止）。ラインの盤面（$ARTIFACTS_DIR/board/state.json）が在れば、判定役の返答を
 本線と同じ受け付け——盤面の p2.diagnose の done（写しの judge_output・writes・check_record。rolekit.accept_role → entry.take）——
-に通す。前は記憶の中の空の記録（check_judge）で受け、盤面の受け付けは後ろの境の節 h-plan が初めて当てていたので、素材を読む
+に通す。前は記憶の中の空の記録（check_judge）で受け、盤面の受け付けは後ろの線の節が初めて当てていたので、素材を読む
 決まり（awaiting_human の素材には kind=awaiting）に外れた返答が判定役に返らず、線が止まった（run 27）。
 
 - accept(board, raw, repo): ラインの盤面の受け付け。拒否は理由の本文を盤面の reject-take_p2.diagnose-<連番>.txt に書き、

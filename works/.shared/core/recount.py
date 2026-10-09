@@ -4,7 +4,7 @@
 done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写しの fix_covers_open_units で、盤面の上で次を当てる:
 直す義務の単位（[block] と do-now）を全部覆うか・修正が在るのに閉鎖の実証を黙らせていないか・判定役の class_query を
 修正前の版（state.inputs.review_rev）と修正後の作業ツリーで数え直し、closure.sites の数と母数が合うか・欠陥の形の数が
-減ったか・修正が書いた指し（wrote_refs）を現物で引けるか（読んだ記録は包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl から。
+減ったか・修正が書いた指し（wrote_refs）を現物で引けるか（読んだ記録は包みの置き場 adapter.reads_dir(run の worktree) の Read のフックの記録から。
 写しの RL の hook_evidence の置き場を entry.CORE_OVERRIDES が差し替える）。
 数え直した件数は盤面の loop.coverage_after、指しの読了は loop.wrote_refs_reads に残る。
 
@@ -38,6 +38,7 @@ from engine.util import Reject  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import reads  # noqa: E402
 import writes  # noqa: E402
 
 FIX_NODE = "p3.fix"
@@ -53,7 +54,7 @@ PRECEDENT_MIN_LEN = 4 # 写しの _precedent_gap・blank(problem, 4) の下限�
 def _precedent_conditions() -> list:
     """changes[].precedent の条件付き必須（draft-07 の if/then）。写しの受け付け（_precedent_gap）と同じ決まり:
     from_judge_row が真でない限り problem を求め、verdict が not_found なら searched、それ以外なら source を求める。
-    写しの engine の型検査は if/then を読まないので、役に渡る型（claude の --json-schema）にだけ効く"""
+    写しの engine の型検査は if/then を読まないので、役に渡る型（claude の起動の引数で渡る型）にだけ効く"""
     not_judge_row = {"not": {"required": ["from_judge_row"], "properties": {"from_judge_row": {"const": True}}}}
     is_not_found = {"required": ["verdict"], "properties": {"verdict": {"const": "not_found"}}}
     isnt_not_found = {"required": ["verdict"], "properties": {"verdict": {"not": {"const": "not_found"}}}}
@@ -170,10 +171,10 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    reads = b.work(f"reads-{ROLE}.json")
+    reads_p = b.work(reads.evidence_name(ROLE))
     return {"ok": True, "files": files, "changes_file": str(path), "fix_file": str(fix_file),
             "not_done": len(out.get("not_done") or []), "coverage": _coverage(b),
-            "reads_file": str(reads) if reads.is_file() else ""}
+            "reads_file": str(reads_p) if reads_p.is_file() else ""}
 
 
 def main_accept(fn=accept_fix, *, finish=None) -> int:

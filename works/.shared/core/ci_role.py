@@ -71,7 +71,7 @@ NO_TREE_WRITE = "no-tree-write"         # 印の旗: 包みが役の cwd の作�
 OUTPUT_FORMAT = node_marker.mark(role_schema(NODES[0]), ROLE, flags=(NO_TREE_WRITE,))   # 2 つの節の schema は同じ形
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（tests/test_blk_ci.py が YAML と突き合わせる）
 STOP_BY = "works:ci"
-FENCE_BY = "works:adapter"               # 包みの宣言が読めない・柵が掛かっていない時の止め札の by（線の h-judge の包みの確かめと同じ）
+FENCE_BY = "works:adapter"               # 包みの宣言が読めない・柵が掛かっていない時の止め札の by（線の包みの確かめが止める by と同じ）
 NO_ADAPTER_NOTE = ("包み無し（adapter: optional）: CI の任せ先の役は graphloops の任せ先と同じ守り（sandbox だけ。作業ツリーの柵は"
                    "無い）で走った")
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"

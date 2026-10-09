@@ -64,7 +64,7 @@ def brief(board_dir, repo) -> dict:
         return {"ok": True, "go": True, "materials_file": ""}
     b = entry.open_board(d, allow_halted=True)
     if b.state.get("halted") or b.state.get("stop"):
-        # 同じ境の節（h-mat）の後ろの前のブロック（素材集め）が盤面を止めた（run 30）。役を起こさず、出口が止まった盤面を渡す
+        # 前の段が盤面を止めた（run 30）。役を起こさず、出口が止まった盤面を渡す
         return {"ok": True, "go": False, "materials_file": ""}
     inst = b.rd["instances"].get(NODE)
     if not inst or inst.get("status") != "pending":

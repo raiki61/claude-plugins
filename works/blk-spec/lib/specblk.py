@@ -9,7 +9,7 @@
   ここは写さない・足さない
 
 人の関所は線 A の policy-gate と同じ仕組みを使う（新しい関所の仕組みを作らない）:
-- 文: 線 A の境の節 h-gate（at gate）と同じ手順。止め札（halt.seen）を見て、盤面の問い（pending_human）を関所の文（gate_text）にし、
+- 文: 線 A の関所の境の節（at gate）と同じ手順。止め札（halt.seen）を見て、盤面の問い（pending_human）を関所の文（gate_text）にし、
   r<N>/gate.md にも置く。境の節の中身はライン darkfactory の模块（層 L6）に移ったので、ブロック（層 L4）からは呼べない。
   関所の語・止め札の by・文の組み方はここに写して持つ（写しの印「線 A の境の節の写し」。core の関所の模块へ 1 つにまとめるのは
   統合の計画 Task 10）

@@ -8,6 +8,7 @@
 - ブロックの <役>-reads の節（blk-fix・blk-delta・blk-pr の scripts/reads.py）が main_for を通して 1 行を出す
 盤面は本物の darkfactory の表で linekit の種から entry.start で 1 回だけ作る（クラスに 1 回。git と子のプロセスを使うので heavy）
 """
+import fnmatch
 import json
 import os
 import pathlib
@@ -246,6 +247,19 @@ class EventsForTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ARCHON_CLI_COMMAND": self.fake_cli("print(json.dumps({'events': []}))\n")}):
             self.assertEqual(reads.events_for("run-6"), [])
             self.assertIsNone(reads.events_for(""), "run の id が無ければ呼ばない")
+
+
+class NamesTest(unittest.TestCase):
+    """読んだ証拠の置き場の名は住処の口だけが組む（役ごとの証拠・ブロックの索引・両方に当たる形・索引の見分け）"""
+
+    def test_evidence_and_index_names(self):
+        self.assertEqual(reads.evidence_name("fix"), "reads-fix.json")
+        self.assertEqual(reads.evidence_name("replan-plan"), "reads-replan-plan.json")
+        self.assertEqual(reads.index_name("plan"), "reads-plan-block.json")
+        for name in (reads.evidence_name("pr-check"), reads.index_name("replan")):
+            self.assertTrue(fnmatch.fnmatch(name, reads.EVIDENCE_GLOB), name)
+        self.assertTrue(reads.is_index(reads.index_name("replan")))
+        self.assertFalse(reads.is_index(reads.evidence_name("plan-review")))
 
 
 class FailedNodesTest(unittest.TestCase):

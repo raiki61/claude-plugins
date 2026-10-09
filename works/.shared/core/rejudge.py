@@ -44,6 +44,7 @@ import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 import querytest  # noqa: E402
+import reads  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 
@@ -60,7 +61,7 @@ SESSION_NAME = "rejudge-session.json"
 DIFF_NAME = "rejudge-diff.json"
 REJECTS_NAME = "rejudge-rejects.json"
 EXIT_NAME = "rejudge-exit.json"
-READS_NAME = "reads-rejudge.json"
+READS_NAME = reads.evidence_name("rejudge")
 BEFORE_PREFIX = "rejudge-units-before-"
 # 輪（loop_group）の max_iterations と同じ数。受け付けがこの数だけ拒んだら give_up（done）を出し、輪を失敗で抜けさせずに
 # collect へ渡す（Archon は max_iterations に達した輪を failed にし、後ろの節を全部止めるため。裁定 R50）。
