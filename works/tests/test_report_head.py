@@ -637,6 +637,47 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
         self.assertNotIn(self.KEY, self.gate_text())
 
 
+class InnerWordsCase(unittest.TestCase):
+    """直しの差分が対象に足した行に works の内側の語（単位・作業ツリー・盤面など）と run の中の事情が混じれば、報告の冒頭 1 に
+    場所つきで並べる（拒まない。利用者の run 8cb2ee00 の差分は Terraform のコメントに「この単位」「作業ツリー」を書いた。
+    利用者の声 10-09 の D1）"""
+
+    PATCH = ("diff --git a/main.tf b/main.tf\n--- a/main.tf\n+++ b/main.tf\n@@ -10,2 +10,4 @@\n 既存の行\n"
+             "+# この単位に固有なのは ID の共有だけ\n+# chart はこの作業ツリーに無い\n 既存の行 2\n+# 普通のコメント\n"
+             "@@ -40,1 +42,1 @@\n-# 盤面の古い行（消した行は見ない）\n+# 新しい行\n")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.b = fake_board(self._tmp.name)
+
+    def test_added_lines_with_inner_words_are_named_with_file_lines(self):
+        f = self.b.dir / "fix-delta-r1.patch"
+        f.write_text(self.PATCH, encoding="utf-8")
+        self.b.loop_state = {"fix_delta": {"file": str(f)}}
+        got = report.inner_word_lines(self.b)
+        self.assertTrue(got[0].startswith(report.INNER_WORDS_HEAD), got)
+        self.assertIn("2 件", got[0])
+        self.assertIn("main.tf:11（この単位）", got[1])
+        self.assertIn("main.tf:12（作業ツリー）", got[2])
+        self.assertEqual(len(got), 3, "消した行と語の無い行は並べない")
+
+    def test_no_diff_or_no_hits_is_silent(self):
+        self.b.loop_state = {}
+        self.assertEqual(report.inner_word_lines(self.b), [])
+        f = self.b.dir / "fix-delta-r1.patch"
+        f.write_text("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n", encoding="utf-8")
+        self.b.loop_state = {"fix_delta": {"file": str(f)}}
+        self.assertEqual(report.inner_word_lines(self.b), [])
+
+    def test_rule_is_in_the_writers_common_rules(self):
+        """修正役の共通の決まりに、対象に書く文へ works の内側の語と run の中の事情を書かない決まりが在る"""
+        text = (ROOT / ".shared" / "core" / "writerules" / "common.md").read_text(encoding="utf-8")
+        self.assertIn("対象に書く文", text)
+        for w in ("単位", "作業ツリー", "盤面"):
+            self.assertIn(w, text)
+
+
 class HandoffCase(unittest.TestCase):
     """修正役が人に回した物（実の利用者の run 97fd532f）: 修正の返答の changes[].breaks.accepted（壊すと分かって通す理由）は、
     どの節も読まず人に届かなかった（ADR の食い違いを『人に回す』と書いた行が、関所にも台帳にも報告にも載らずに消えた）。報告の

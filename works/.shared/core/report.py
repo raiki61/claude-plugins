@@ -64,6 +64,7 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 import adapter  # noqa: E402
+import changemap  # noqa: E402  （unified diff を path → hunk の行に分ける写し）
 import conflict  # noqa: E402
 import converge  # noqa: E402
 import design  # noqa: E402
@@ -168,6 +169,11 @@ WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
+# 直しが対象に書く文に混じってはいけない works の内側の語と run の中の事情の言い方（修正役の共通の決まり writerules/common.md の
+# 「対象に書く文」。利用者の run 8cb2ee00 の差分が Terraform のコメントに「この単位」「作業ツリー」を書いた）。拒まず報告に並べる
+INNER_WORDS = ("この単位", "単位の key", "作業ツリー", "盤面", "この周", "この run", "判定役", "修正役", "独立の目", "関所")
+INNER_WORDS_HEAD = "直しが対象に足した行に works の内側の語（対象の読み手に通じない。当てる前に言い換えるかを決める）"
+HUNK_NEW = re.compile(r"^@@ -\S+ \+(\d+)")
 CLEANED_HEAD = "起動の前に片付けた前の run（use.sh start が worktree・枝・控えを消した。差分のファイルと盤面は残る）"
 INTERRUPTED_HEAD = "run が途中で終わった"
 RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
@@ -824,7 +830,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit と fixed_needs_check の時の残り（left＝residue の返り）の各行・
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・修正役が人に回した物（handoff_lines）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・修正役が人に回した物（handoff_lines）・同じ run の中で直した修正案の項目（_amend_lines）・直しが対象に足した行の works の内側の語（inner_word_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数と、その下に判定が目的の外として単位にしなかった所見の件数と置き場（outpurpose.count_line。
     1 件ずつの行は本文の節 OUTSIDE_HEADING。冒頭 1 は人が決めることだけを置く）と
     答えの下書きの件数（gatemarks.draft_line）。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
@@ -908,6 +914,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")
         lines += [f"  - {x}" for x in closure]
     lines += _amend_lines(b)
+    lines += inner_word_lines(b)
     lines += _held_gap_lines(b)
     lines += rejudge_lines(b)
     lines += _rejudge_changes(b)
@@ -926,6 +933,35 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if drafts:
         lines.append(drafts)
     return lines
+
+
+def inner_word_lines(b) -> list:
+    """冒頭 1 の行: 直しの差分（DIFFS の修正の差分と手直しの差分。どちらも前の姿からの差）が足した行のうち、INNER_WORDS の語を含む
+    行を 1 件 1 行（<パス>:<修正後の行>（語）: 行の中身）と件数の見出し。差分が無い・当たりが無ければ空。差分が読めなければその行"""
+    rows = []
+    for _, key in DIFFS:
+        f = ((getattr(b, "loop_state", None) or {}).get(key) or {}).get("file")
+        if not f:
+            continue
+        try:
+            text = pathlib.Path(f).read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            rows.append(f"差分 {f} が読めない（{type(e).__name__}）——内側の語を確かめていない")
+            continue
+        for path, lines in changemap.split_diff(text)[0].items():
+            n = 0
+            for ln in lines:
+                m = HUNK_NEW.match(ln)
+                if m:
+                    n = int(m.group(1))
+                    continue
+                if ln.startswith("-"):
+                    continue
+                words = [w for w in INNER_WORDS if w in ln] if ln.startswith("+") else []
+                if words:
+                    rows.append(f"{path}:{n}（{'・'.join(words)}）: {_one_line(ln[1:].strip())}")
+                n += 1
+    return [f"{INNER_WORDS_HEAD}: {len(rows)} 件", *[f"  - {r}" for r in rows]] if rows else []
 
 
 def _amend_lines(b) -> list:
