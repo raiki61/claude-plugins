@@ -804,6 +804,22 @@ class MaterialAnswersCase(GateBase):
                 self.assertIn("gh pr list --state open --json files", text)
                 self.assertNotIn("依頼の答えに当たる問いが台帳に無い", text)
 
+    def test_answer_hitting_several_material_questions_closes_nothing(self):
+        """素材の名の答えが key の頭がその名の問い 2 つに当たる時は、どれにも答えず、素材も人が確かめた物にしない（答えたと
+        言わない物で残りを外さない）"""
+        self.answers(MEASURED)
+        two = [FIELD_PR, {**FIELD_PR, "key": "parallel_pr: 別の確かめ"}]
+        _, b = self.gate(questions=two, units=UNITS, materials=PR_NOT_RUN)
+        self.assertEqual(gatemarks.measured_materials(b), set())
+        self.assertEqual(gatemarks.material_lines(b), [])
+        self.assertIn("複数の問いに当たった", "\n".join(gatemarks.unmatched_answer_lines(b)))
+
+    def test_material_row_matches_the_validator(self):
+        """報告が素材の行を見分ける頭（report.MATERIAL_ROW）は、写しの検証器の素材の行の字と揃う"""
+        src = (pathlib.Path(board.VALIDATOR_PATH)).read_text(encoding="utf-8")
+        self.assertIn("f\"素材 '{name}' が{label}: {m['reason']}\"", src)
+        self.assertEqual(report.MATERIAL_ROW.format("{name}"), "素材 '{name}' が")
+
     def test_answer_to_measured_material_is_still_unmatched(self):
         """測れている素材（clean）の名の答えは素材に当てない（答えは要らなかった。黙って捨てずに名指す）"""
         self.answers(MEASURED)

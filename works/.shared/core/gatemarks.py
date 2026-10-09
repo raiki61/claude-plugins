@@ -562,10 +562,11 @@ def _measured(a: dict) -> bool:
 
 
 def material_answer(b, name: str):
-    """依頼の答えのうち question が今の周に測れていない素材の名 name の最初の物（無ければ None）"""
+    """依頼の答えのうち question が今の周に測れていない素材の名 name で、台帳の問いに 2 つ以上当たらない最初の物（無ければ None。
+    複数の問いに当たる答えは unmatched_answer_lines がどれにも答えないと名指すので、素材にも当てない）"""
     if name not in unmeasured(b):
         return None
-    return next((a for a in request_answers(b) if a.get("question") == name), None)
+    return next((a for a in request_answers(b) if a.get("question") == name and len(_hits(b, a)) <= 1), None)
 
 
 def measured_materials(b) -> set:
