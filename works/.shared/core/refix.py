@@ -347,11 +347,7 @@ def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
 
 def _copy_shape_errors(nid: str, bare: dict) -> list[str]:
     """2 判定の欄を外した返答を写しの graph の型（役の型から deltamarks の欄を除いた物）で照らした誤りの行"""
-    schema = accept.role_schema(nid)
-    for k in deltamarks.KEYS:
-        schema["properties"].pop(k, None)
-    schema["required"] = [r for r in schema.get("required", []) if r not in deltamarks.KEYS]
-    return validate_schema(bare, schema)
+    return validate_schema(bare, deltamarks.without_verdicts(nid, accept.role_schema(nid)))
 
 
 def _fix_report(b) -> dict:

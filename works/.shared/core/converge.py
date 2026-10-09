@@ -36,8 +36,9 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
 - revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
   前の往復の block を審査が suggest に下げた key も名指す）
 
-盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリだけを import する（gatemarks がこの模块を読み、entry が
-gatemarks を読むので、entry・rolekit・gatemarks を import すると輪になる）。
+役の型に欄を足す・返答から外す手順は住処 marks（種 converge）に任せる。外した欄は足し欄の控えでなく、この往復の控えに置く。
+盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリと住処 marks（L1）だけを import する（gatemarks がこの模块を
+読み、entry が gatemarks を読むので、entry・rolekit・gatemarks を import すると輪になる）。
 """
 from __future__ import annotations
 
@@ -46,6 +47,8 @@ import hashlib
 import json
 import os
 import shutil
+
+import marks
 
 RECORD = "plan-converge.json"
 PASS_DIR = "plan-converge"
@@ -439,33 +442,30 @@ def with_fields(role: str, schema: dict) -> dict:
     if role not in FIELDS:
         return schema
     name, field, required = FIELDS[role]
-    out = copy.deepcopy(schema)
-    out.setdefault("properties", {})[name] = copy.deepcopy(field)
-    if required and name not in out.get("required", []):
-        out["required"] = [*out.get("required", []), name]
-    for extra, field in TREE_FIELDS.get(role, {}).items():   # 任意（同じ役の型を案の直しの事前審査も使う）
-        out["properties"][extra] = copy.deepcopy(field)
-    return out
+    # TREE_FIELDS は任意（同じ役の型を案の直しの事前審査も使う）
+    return marks.add("converge", role, schema, {name: field, **TREE_FIELDS.get(role, {})}, required=(name,) if required else ())
 
 
 def split(role: str, reply: dict) -> tuple[dict, list]:
     """（壁打ちの欄を外した返答の写し, 外した値（無ければ []））"""
-    out = copy.deepcopy(reply)
-    got = out.pop(FIELDS[role][0], None) if role in FIELDS else None
+    if role not in FIELDS:
+        return copy.deepcopy(reply), []
+    out, got = marks.split("converge", role, reply, (FIELDS[role][0],))
+    got = got.get(FIELDS[role][0])
     return out, got if isinstance(got, list) else []
 
 
 def tree_split(reply: dict) -> tuple[dict, dict]:
     """（束ね役の欄 ITEMS・SYNERGY を外した返答の写し, {ITEMS: 値 | None, SYNERGY: 値 | None}）"""
-    out = copy.deepcopy(reply)
-    return out, {name: out.pop(name, None) for name in (ITEMS, SYNERGY)}
+    out, got = marks.split("converge", "plan-review", reply, (ITEMS, SYNERGY))
+    return out, {name: got.get(name) for name in (ITEMS, SYNERGY)}
 
 
 def drop_fields(reply):
     """事前審査の返答から壁打ちの欄（RESOLVED・ITEMS・SYNERGY）を外した写し（案の直しの事前審査は写しの型で受ける）"""
     if not isinstance(reply, dict):
         return reply
-    return {k: v for k, v in reply.items() if k not in (RESOLVED, ITEMS, SYNERGY)}
+    return marks.split("converge", "plan-review", reply, (RESOLVED, ITEMS, SYNERGY))[0]
 
 
 # ---------------------------------------------------------------- 文

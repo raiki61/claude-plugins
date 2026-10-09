@@ -107,6 +107,7 @@ FAST = frozenset({
     "test_plan_fields",     # 修正案の項目の works の欄（planmarks）: 関数を直に呼ぶ・種を一時の置き場に写すだけ（盤面・git・子のプロセスなし）
     "test_converge",        # 事前審査の壁打ちの決まりと往復の控え（converge）: 偽の盤面で関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_delta_marks",     # 差分の審査の返答の 2 判定の欄（deltamarks）: 関数を直に呼ぶ・偽の b に一時の置き場を持たせるだけ（盤面・git・子のプロセスなし）
+    "test_marks",           # 返答の足し欄の住処（marks）: 関数を直に呼ぶ・一時の置き場に控えを書くだけ（盤面・git・子のプロセスなし）
     "test_gate_drafts",     # 関所の項目の推しと無人の run の答えの下書き: test_plan_gate の偽の盤面で直に呼ぶ（盤面・git・子のプロセスなし）
     "test_out_of_purpose",  # 目的の外の所見を次の run の依頼へ運ぶ: 偽の盤面と一時の置き場のファイルだけ（git・子のプロセスなし。受け付けは mock）
     "test_plan_gate",       # 修正前の関所の項目の選別: 写しの RL の human_gate を偽の盤面で直に呼ぶ（盤面・git・子のプロセスなし）
