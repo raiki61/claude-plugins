@@ -285,10 +285,13 @@ class FixtureStartCase(FixtureBase):
         self.assertEqual(out["base_rev"], linekit.git(other, "rev-parse", "HEAD"))
         self.assertEqual(set(out), {"ok", "input", "pr_file", "base_rev", "test_cmd", "policy_paste", "policy_path", "final_gate",
                                     "adapter", "thickness", "gates", "ci_role_go", "pr_go", "head_line", *entry.FEATURES})
-        self.assertEqual(out["input"], first["input"])   # 入口の入力の形は写した控えの物（固定材料の run は入口を測り直さない）
+        adopted = startrec.read(new_board)
+        self.assertEqual(out["input"], adopted["input"])   # 入口の入力の形は取り込んだ控えの物（固定材料の run は入口を測り直さない）
+        self.assertEqual(set(out["input"]), set(first["input"]))
+        self.assertEqual(out["input"]["requests"], first["input"]["requests"])
         self.assertEqual(out["pr_file"], "")
         self.assertIn("固定材料", out["head_line"])
-        self.assertIn(startrec.words(first["input"]), out["head_line"])
+        self.assertIn(startrec.words(adopted["input"]), out["head_line"])
         self.assertIn("p3.fix", entry.open_board(new_board).ready())
         self.assertEqual(len(trace_ops(new_board, fixture.TRACE_OP)), 1)
 
