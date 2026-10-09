@@ -8,9 +8,12 @@ works の役の節（YAML の AI の節）の allowed_tools は、その run_by 
   書く道具・shell は各ブロックの今の持ち物のまま（読むだけの writer に書く道具を足さない。受け付けが作業ツリーを見張る）
 - comment-analyzer（pr-review-toolkit の agent。定義に tools: が無い＝全部の道具）: 目は作業ツリーを変えないので、定義の道具から
   書く道具と shell を除いた物（Read・Grep・Glob・WebSearch・WebFetch）。狭めた分は NARROWED に理由つきで置く
+考え ai-launch の柵の結んだ写し（docs/concepts.json の bound）の縛り手でもある（BoundCopiesCase）: model:・effort: の行は全部の段で、
+allowed_tools: の行は全部の段が本線の定義とちょうど同じファイルでだけ、源と縛った写しとして柵の数えから外れる。
 対応（graph の節 → YAML の節）は表 ROLE_NODES。nodes.json の役の節（by: role か fallback: role）と、pack の全部の AI の節が
 表に載っていることも見る（表から漏れた役が本線より少ない道具のまま残らないように）。
 """
+import fnmatch
 import json
 import pathlib
 import re
@@ -435,3 +438,63 @@ class RoleModelCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# 考え ai-launch の柵の結んだ写し（docs/concepts.json の bound。この試験が by）: 段の YAML の model:・effort:・allowed_tools: の行は、
+# Archon が段の YAML からしか読まないので消せない写し。この試験が源（役の前付け・stage-models.json・本線の役の定義）と縛った行だけを
+# 写しに数え、柵の数えから外す。縛りを証せない行（本線の定義より広い道具）は数えたまま
+CONCEPTS = ROOT / "docs" / "concepts.json"
+BY = "tests/test_tool_parity.py"
+KEYS = ("model", "effort", "allowed_tools")
+
+
+def bound_entries() -> list:
+    """ai-launch の柵の結んだ写しのうち、この試験が縛る行"""
+    doc = json.loads(CONCEPTS.read_text(encoding="utf-8"))
+    return [b for f in doc["concepts"]["ai-launch"]["fences"] for b in f.get("bound") or [] if b.get("by") == BY]
+
+
+def bound_files(b) -> list:
+    return [p for p in workflow_files() if any(fnmatch.fnmatch(str(p.relative_to(ROOT)), g) for g in b["paths"])]
+
+
+def keys_of(b) -> list:
+    """結んだ写しの行の形 lines が当たる段の鍵"""
+    return [k for k in KEYS if re.search(b["lines"], f"    {k}: x")]
+
+
+class BoundCopiesCase(unittest.TestCase):
+    """柵の結んだ写しが、この試験が縛る行ちょうどになっている（表の行を読んで縛る。縛っていない行を写しに数えない）"""
+
+    def setUp(self):
+        self.entries = bound_entries()
+        self.nodes = ai_nodes()
+        self.roles = stage_roles()
+
+    def test_entries_cover_model_effort_everywhere_and_tools_where_proven(self):
+        self.assertEqual(sorted(tuple(keys_of(b)) for b in self.entries), [("allowed_tools",), ("model", "effort")])
+        me = next(b for b in self.entries if keys_of(b) == ["model", "effort"])
+        self.assertEqual(sorted(bound_files(me)), workflow_files(), "model・effort は全部の段の YAML で源と縛る")
+
+    def test_bound_lines_are_exactly_the_checked_keys(self):
+        """結んだ写しのファイルで lines に当たる行の数は、そのファイルの AI の段の鍵の数とちょうど同じ（AI の段の外の行を写しに数えない）"""
+        for b in self.entries:
+            pat = re.compile(b["lines"])
+            for p in bound_files(b):
+                with self.subTest(lines=b["lines"], file=p.name):
+                    have = sum(1 for line in p.read_text(encoding="utf-8").splitlines() if pat.search(line))
+                    mine = [n for (folder, _), n in self.nodes.items() if folder == p.parent.name]
+                    self.assertTrue(all(all(k in n for k in KEYS) for n in mine), "AI の段は model・effort・allowed_tools を全部書く")
+                    self.assertEqual(have, len(mine) * len(keys_of(b)))
+
+    def test_tools_bound_only_where_equal_to_mainline_definition(self):
+        """道具の行を写しに数えるファイルは、AI の段の全部の道具が本線の役の定義とちょうど同じ（広げた段を 1 つでも持つファイルは数えたまま）"""
+        tools = next(b for b in self.entries if keys_of(b) == ["allowed_tools"])
+        files = {p.parent.name for p in bound_files(tools)}
+        self.assertIn("blk-world", files)
+        exact = {}
+        for (folder, nid), n in self.nodes.items():
+            same = set(n.get("allowed_tools") or []) == required(self.roles[(folder, nid)])
+            exact[folder] = exact.get(folder, True) and same
+        self.assertEqual(sorted(files), sorted(f for f, ok in exact.items() if ok and f != "darkfactory"),
+                         "本線の定義と同じ道具だけのファイルを、ちょうど全部写しに数える")

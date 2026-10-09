@@ -535,84 +535,64 @@
        "散らばり（段 5 でまとめる）: 版の控えが模型の要求を WORKS_DEV_MODEL から読む"
       ],
       "blk-ci/blk-ci.yaml": [
-       3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
-      ],
-      "blk-delta/blk-delta.yaml": [
-       3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       1,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-eyes/blk-eyes.yaml": [
-       18,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       6,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-eyes/lib/eyes.py": [
        5,
        "散らばり（段 5 でまとめる）: 独立の目の役の道具（allowed_tools）と隔離の役 ISOLATED_RUN_BY・旗 isolated"
       ],
       "blk-fix/blk-fix.yaml": [
-       48,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       16,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-judge/blk-judge.yaml": [
-       6,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
-      ],
-      "blk-lens/blk-lens.yaml": [
-       3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       2,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-material/blk-material.yaml": [
-       33,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       11,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-material/lib/material.py": [
        4,
        "散らばり（段 5 でまとめる）: 素材の役の構え isolated（道具ゼロ・砂場）を自分の表で持つ"
       ],
       "blk-plan/blk-plan.yaml": [
-       12,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       4,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-plan/lib/planblk.py": [
        1,
        "散らばり（段 5 でまとめる）: 隔離の旗 isolated を自分の定数で持つ"
       ],
       "blk-pr/blk-pr.yaml": [
-       3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       1,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-premises/blk-premises.yaml": [
-       3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       1,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-purpose/blk-purpose.yaml": [
-       3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       1,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-refix/blk-refix.yaml": [
-       9,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
-      ],
-      "blk-rejudge/blk-rejudge.yaml": [
        3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-report/blk-report.yaml": [
-       6,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
+       2,
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "blk-spec/blk-spec.yaml": [
-       9,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
-      ],
-      "blk-structure/blk-structure.yaml": [
        3,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）"
-      ],
-      "blk-world/blk-world.yaml": [
-       9,
-       "散らばり（段 5 でまとめる）: 段の YAML の節が模型・effort・道具を写しで持つ（tests/test_tool_parity.py が正本との食い違いを縛る）。世界の解のブロック（計画 world-solution の W5）を足して 1 本増えた。Archon は段の YAML からしか模型・effort・道具を読まないので、段 5 の 6 でまとめるまでは AI の段を持つブロックを足すたびに増える"
+       "散らばり（段 5 でまとめる）: 本線の役の定義より広い道具を持つ段の allowed_tools:（源と縛れない写し。model:・effort: は柵の結んだ写し）"
       ],
       "dev/archon.sh": [
        8,
@@ -642,7 +622,30 @@
        3,
        "散らばり（段 5 でまとめる）: 利用者の殻が WORKS_DEV_MODEL を渡す"
       ]
-     }
+     },
+     "bound": [
+      {
+       "paths": [
+        "blk-*/blk-*.yaml",
+        "darkfactory/*.yaml"
+       ],
+       "lines": "^\\s*(model|effort):\\s",
+       "by": "tests/test_tool_parity.py",
+       "why": "段の YAML の AI の段の model:・effort: は、Archon が段の YAML からしか読まない写し。試験が役の前付け（.shared/core/agents/*.md）か表 .shared/core/stage-models.json の値とちょうど揃うことを全部の段で縛る"
+      },
+      {
+       "paths": [
+        "blk-delta/blk-delta.yaml",
+        "blk-lens/blk-lens.yaml",
+        "blk-rejudge/blk-rejudge.yaml",
+        "blk-structure/blk-structure.yaml",
+        "blk-world/blk-world.yaml"
+       ],
+       "lines": "^\\s*allowed_tools:",
+       "by": "tests/test_tool_parity.py",
+       "why": "AI の段の道具が全部、本線の役の定義（試験の AGENT_TOOLS・MAIN_SESSION。写した元は本線の agents/<役>.md）とちょうど同じファイルの allowed_tools:。試験がファイルの全部の段で同じことを縛る。本線の定義より広い道具を持つ段のファイルは数えたまま"
+      }
+     ]
     }
    ]
   },

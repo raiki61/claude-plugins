@@ -19,6 +19,7 @@
 - 散らばり: 住処の無い考え。同じ考えを複数の所がそれぞれの形で知っている状態
 - 柵（fence）: 漏れを見つける安い試験。考えの語の形（正規表現）と知ってよい所を表に書き、表の外で語が見つかったら赤にする。今ある漏れは「既知の漏れ」として件数と理由つきで表に置き、減らす向きにだけ動かす（`tests/blockblind.py` と同じ型）
 - 状態: `住処あり`（住処が在り、柵を掛けられる）か `散らばり`（住処が無い。計画へのリンクを持つ）。どちらも柵を持つ
+- 結んだ写し（bound）: 流れの道具が値を決まった置き場からしか読まないなど、写しを消せない時に、源の値とちょうど揃うことを試験が縛った写しの行。柵の表の bound（{paths, lines, by, why}）に置き、by の試験が表の行を読んで「縛った行ちょうど」であることを確かめる。柵はその行を数えない（`.shared/core/conceptfence.py` の `count_lines`）。縛りを証せない行は数えたまま
 - 数の歯止め: 散らばりの考えの柵。知ってよい所が空で、今その考えを知っている所を全部既知の漏れとして件数つきで表に置く。まとめるたびに数が減り、増やす差分は試験が赤にする。住処ありにした時は、知ってよい所に住処を書いて柵を住処の柵に替える
 
 works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のうち、ここで使う物:
@@ -243,7 +244,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `ai-launch` AI の起こし方（模型・effort・道具・隔離）
 
 - 状態: 散らばり
-- 今: 模型と effort の正本は 2 つ（前付けを持つ役は `.shared/core/agents/*.md`、持たない役は `.shared/core/stage-models.json`）で、各ブロックの YAML の節が値を写し、`tests/test_tool_parity.py` が食い違いを縛る。道具（`allowed_tools`）は YAML の節ごと、道具ゼロの隔離は印の旗 `isolated`（`.shared/core/node_marker.py`）と `blk-eyes/lib/eyes.py` の `TOOLS`・`ISOLATED_RUN_BY`。run の明示の模型 `WORKS_DEV_MODEL` は `.shared/core/adapter.py` と殻（`dev/archon.sh`・`dev/guard.sh`・`dev/launch.py`）が読む
+- 今: 模型と effort の正本は 2 つ（前付けを持つ役は `.shared/core/agents/*.md`、持たない役は `.shared/core/stage-models.json`）。各ブロックの YAML の AI の段の `model:`・`effort:` は Archon が段の YAML からしか読まない写しで、`tests/test_tool_parity.py` が全部の段で正本とちょうど揃うことを縛るので、柵の結んだ写しに数える（数えない）。道具（`allowed_tools`）は YAML の節ごとで、本線の役の定義とちょうど同じ段だけのファイル（`blk-delta`・`blk-lens`・`blk-rejudge`・`blk-structure`・`blk-world`）は同じ試験が縛るので結んだ写し、本線より広い道具の段を持つファイルは縛りを証せないので数えたまま。道具ゼロの隔離は印の旗 `isolated`（`.shared/core/node_marker.py`）と `blk-eyes/lib/eyes.py` の `TOOLS`・`ISOLATED_RUN_BY`。run の明示の模型 `WORKS_DEV_MODEL` は `.shared/core/adapter.py` と殻（`dev/archon.sh`・`dev/guard.sh`・`dev/launch.py`）が読む。知る場所の数は 2026-10-10 に結んだ写しを外して 230 行・37 ファイルから 107 行・32 ファイルになった（main の表は 221 行・36 ファイル）
 - 計画: まだ無い
 
 ### `ledger` 費用と時間の帳簿
