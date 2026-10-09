@@ -734,16 +734,8 @@
        "散らばり（段 5 でまとめる）: 構造のブロックの出口の時間 wall_s"
       ],
       "blk-structure/lib/eye.py": [
-       5,
-       "散らばり（段 5 でまとめる）: 構造の目の控えの時間 wall_s"
-      ],
-      "blk-structure/scripts/collect.py": [
-       4,
-       "散らばり（段 5 でまとめる）: 段 A と構造の目の時間 wall_s を足す"
-      ],
-      "blk-structure/scripts/stage_a.py": [
        2,
-       "散らばり（段 5 でまとめる）: 段 A の時間 wall_s"
+       "散らばり（段 5 でまとめる）: 構造のブロックの時間の欄の名 WALL（段 A・段 B・目の控え・出口が引く）と目の控えの形"
       ],
       "darkfactory/darkfactory.yaml": [
        2,

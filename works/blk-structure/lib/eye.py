@@ -10,12 +10,15 @@
 出し直させる（輪の max_iterations は 3。3 回目の拒否は give_up で輪を抜け、線を落とさない）。
 
 控え eye.json（design.jsonl の隣。段 A が置き直す）: {attempt, started_at, reason, status: pending|ok|gave_up, wall_s}。
-wall_s は 1 回目の支度から最後の受け付けまでの壁時計の秒。
+目の秒は 1 回目の支度から最後の受け付けまでの壁時計の秒。
+ブロックの時間の欄の名 WALL（秒）はこのモジュールが持つ: 段 A・段 B の timing は stamp で書き、出口（collect）は wall で読んで足す。
 
 - due(doc):                   目を起こす周か（structure.json の status が ok で、実測できた単位が 1 つ以上）
 - prep(structure_file):       指示書を描いて控えの attempt を 1 つ進める。返り {prompt, prompt_file, attempt}
 - accept(structure_file, design_file, reply): 返答を確かめて行を書く。返り {ok, done, give_up, reason, attempt}
 - state(out_dir):             控え（無い・読めないなら {}）
+- stamp(doc, t0, **more):     doc の timing に t0（time.monotonic）からの秒を WALL の欄で書く（more は timing に並べる欄）
+- wall(doc):                  doc の timing（無ければ doc そのもの）の WALL の秒（無い・空なら 0）
 """
 import json
 import pathlib
@@ -32,6 +35,7 @@ PROMPT_FILE = "eye-prompt-{n}.md"
 MAX_ATTEMPTS = 3
 DUP_SHOWN = 5   # 目に見せる duplicates の件数（残りは duplicates_total の数だけ。_cut）
 SCHEMA = pathlib.Path(__file__).resolve().parents[1] / "design-row.schema.json"
+WALL = "wall_s"   # ブロックの時間の欄の名（壁時計の秒。段 A・段 B の timing・目の控え・出口が同じ名で持つ）
 ROUTES = ("自分で決める", "人に上げる")
 ROUTE, ROUTE_UP = ROUTES
 ROUTE_REASON = "目が決め手から 1 つに決めた（決めきれない訳を書かなかった）"
@@ -48,6 +52,16 @@ FORMS = (
 VERDICTS = ("汚れる", "汚れない")
 DIRTY = VERDICTS[0]
 
+
+def stamp(doc: dict, t0: float, **more) -> None:
+    doc["timing"] = {**more, WALL: round(time.monotonic() - t0, 3)}
+
+
+def wall(doc) -> float:
+    if not isinstance(doc, dict):
+        return 0
+    t = doc.get("timing") if isinstance(doc.get("timing"), dict) else doc
+    return t.get(WALL) or 0
 
 def measured(doc: dict) -> list:
     return [u for u in doc.get("units") or [] if isinstance(u, dict) and u.get("status") == "measured"]
@@ -136,7 +150,7 @@ def prep(structure_file) -> dict:
     path = out_dir / PROMPT_FILE.format(n=n)
     path.write_text(prompt, encoding="utf-8")
     _put(out_dir, {"attempt": n, "started_at": st.get("started_at") or time.time(), "reason": st.get("reason") or "",
-                   "status": "pending", "wall_s": st.get("wall_s", 0)})
+                   "status": "pending", WALL: st.get(WALL, 0)})
     return {"prompt": prompt, "prompt_file": str(path), "attempt": n}
 
 
@@ -227,11 +241,11 @@ def accept(structure_file, design_file, reply) -> dict:
         reason = " / ".join(bad)
         give_up = n >= MAX_ATTEMPTS
         _put(out_dir, {**st, "attempt": n, "started_at": started, "reason": reason,
-                       "status": "gave_up" if give_up else "pending", "wall_s": wall})
+                       "status": "gave_up" if give_up else "pending", WALL: wall})
         return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "attempt": n}
     rows = [{**r, "route": r.get("route", ROUTE),
              "route_reason": r["undecided_because"].strip() if r.get("route") == ROUTE_UP else ROUTE_REASON}
             for r in reply["rows"]]
     pathlib.Path(design_file).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-    _put(out_dir, {**st, "attempt": n, "started_at": started, "reason": "", "status": "ok", "wall_s": wall})
+    _put(out_dir, {**st, "attempt": n, "started_at": started, "reason": "", "status": "ok", WALL: wall})
     return {"ok": True, "done": True, "give_up": False, "reason": "", "attempt": n}

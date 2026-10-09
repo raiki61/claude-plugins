@@ -8,7 +8,7 @@ cwd）の今の作業ツリーの差分を、同じフォルダの measure.py �
 
 after.json: {status: ok|failed, reason, base_rev, changed: [パス], tables: [表のパス], tables_changed: [直しが変えた表のパス],
 fence_up: [{concept, what, path, before, after}],
-new_names: [{name, sites}], dup_blocks_added: int, timing: {wall_s}}
+new_names: [{name, sites}], dup_blocks_added: int, timing: {秒（lib/eye の WALL）}}
 - fence_up は柵の表を持つ対象だけ（表の無い対象は空。表を作らない）。住処の外で知る場所の行が増えた所。数えは直しの前の版の表で
   行い、直しが表そのものを変えた時は tables_changed に名指す。run の作業ツリーの .archon/ の写しは差分に数えない
 - new_names は差分が新しく持ち込んだ大文字の名と現れる場所の数、dup_blocks_added は差分で増えた写しの塊の数（ファイルごとの増えの和）
@@ -32,6 +32,8 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 import concepthome  # noqa: E402
 import conceptfence  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import eye  # noqa: E402  （ブロックの時間の欄の名 WALL と stamp）
 
 BASE_ENV = "INPUTS_BASE_REV"
 ROOT_ENV = "INPUTS_ROOT"
@@ -136,7 +138,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     root = Path(os.environ.get(ROOT_ENV) or ".").resolve()
     doc = run(root, os.environ.get(BASE_ENV, "").strip())
-    doc["timing"] = {"wall_s": round(time.monotonic() - t0, 3)}
+    eye.stamp(doc, t0)
     after = out_dir / AFTER_FILE
     after.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")

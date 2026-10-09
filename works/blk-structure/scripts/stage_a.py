@@ -8,7 +8,7 @@
 許さないので改行も書かない。行を書くのは構造の目の受け付け）。前の周の構造の目の控え eye.json は消す。
 
 structure.json: {status: ok|failed, reason, root, policy_path, rules, units: [{id, summary, paths, status, reason, measure, concepts}],
-timing: {started_at, finished_at, wall_s}}。単位の status は measured か failed（failed なら reason に measure.py の標準エラーの末尾）。
+timing: {started_at, finished_at, 秒（lib/eye の WALL）}}。単位の status は measured か failed（failed なら reason に measure.py の標準エラーの末尾）。
 rules（方針の文書の中身と根の地図の文書）と単位の concepts（単位のパスに当たる考えの地図の行と知る場所の数）は lib/context が
 対象の根から機械で探した物（構造の目に見せる。地図・柵の表の無い対象では空。作らない）。
 
@@ -114,7 +114,7 @@ def main() -> int:
         doc["reason"] = AFTER_REASON
     else:
         doc["rules"] = context.rules(root, doc["policy_path"])
-    doc["timing"] = {"started_at": started, "finished_at": _now(), "wall_s": round(time.monotonic() - t0, 3)}
+    eye.stamp(doc, t0, started_at=started, finished_at=_now())
     structure = out_dir / STRUCTURE_FILE
     structure.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")

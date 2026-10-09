@@ -4,12 +4,12 @@
 # ///
 """構造のブロックの出口を組む。段 A が書いた structure.json（INPUTS_STRUCTURE_FILE）と design.jsonl（INPUTS_DESIGN_FILE）を
 確かめ、構造の目の輪の出口（INPUTS_EYE。輪が飛ばされた・落ちた周は null）と、目を起こす周だったか（INPUTS_EYE_DUE）を突き合わせ、
-{ok, structure_file, design_file, after_file, status, reason, wall_s} を 1 行出して 0。後段が読んでよいのはこの 3 本のファイルだけ
+{ok, structure_file, design_file, after_file, status, reason, 秒（lib/eye の WALL）} を 1 行出して 0。後段が読んでよいのはこの 3 本のファイルだけ
 （after_file は直しの後の段（INPUTS_AFTER_DUE が true）の周の段 B の after.json。ほかの周は空）。
 
 - ok は実測や目が落ちても true（status: failed と reason で分かる。線を止めない）。failed は、実測が落ちた・目を起こす周なのに
   輪の出口が無い（目の会話が落ちた）・目の返答が 3 回とも受け付けで拒まれた周
-- wall_s は段 A と構造の目の壁時計の秒の和（structure.json の timing と lib/eye の控え）
+- 秒は段 A・段 B と構造の目の壁時計の秒の和（structure.json の timing と lib/eye の控え）
 - 2 本のどちらかが無い・structure.json が読めない（配線の誤り）: 標準エラーに理由を 1 行出して 1
 """
 import json
@@ -60,7 +60,7 @@ def main() -> int:
             raise OSError(f"設計の行のファイルが無い: {design}")
         if doc["status"] not in ("ok", "failed"):
             raise KeyError(f"status が ok・failed でない: {doc['status']!r}")
-        wall = doc["timing"]["wall_s"]
+        wall = doc["timing"][eye.WALL]
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"collect.py: 出力の 2 本が揃わない: {e}", file=sys.stderr)
         return 1
@@ -75,7 +75,7 @@ def main() -> int:
         else:
             try:
                 a = json.loads(Path(after_file).read_text(encoding="utf-8"))
-                wall += (a.get("timing") or {}).get("wall_s") or 0
+                wall += eye.wall(a)
                 if a.get("status") != "ok":
                     status, reason = "failed", f"直しの後の実測: {a.get('reason') or '理由の記録が無い'}"
             except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError) as e:
@@ -83,7 +83,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "structure_file": str(structure), "design_file": str(design), "after_file": after_file,
                       "status": status,
-                      "reason": reason, "wall_s": round(wall + (kept.get("wall_s") or 0), 3)}, ensure_ascii=False), flush=True)
+                      "reason": reason, eye.WALL: round(wall + eye.wall(kept), 3)}, ensure_ascii=False), flush=True)
     return 0
 
 
