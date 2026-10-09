@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計書。語は「語」の節と works/docs/concepts.md で定義 -->
 # 考えの住処の観点を、works の線と開発の流れに組み込む（実装計画）
 
-状態: 設計と計画だけ（コードは変えていない）。並行の片付けの 5 束が出荷した後に入れる（Task 3・4 が触る `blk-plan/lib/planblk.py`・`blk-eyes/lib/eyes.py` を束が直しているため）。決め事は持ち主の原則（CLAUDE.md の「判断の線」）に沿って自分で決めた。持ち主の承認が要るのは Task 6 の CLAUDE.md の 4 行だけ。Task は 7 つ。
+状態: Task 1 は済み（枝 wip/concept-fences）。Task 2〜7 と決め事 10・4.2 節（CLAUDE.md の 4 行）・5 節の順は、計画 `docs/plans/2026-10-09-clean-whole.md` の 7 節のとおり直した（Task 2〜4 は同じ計画の Task 2.1・2.7、Task 5 は Task 2.8、Task 7 は Task 3.4 に置き換え。CLAUDE.md の 4 行は取り下げ）。以下は元の本文。設計と計画だけ（コードは変えていない）。並行の片付けの 5 束が出荷した後に入れる（Task 3・4 が触る `blk-plan/lib/planblk.py`・`blk-eyes/lib/eyes.py` を束が直しているため）。決め事は持ち主の原則（CLAUDE.md の「判断の線」）に沿って自分で決めた。持ち主の承認が要るのは Task 6 の CLAUDE.md の 4 行だけ。Task は 7 つ。
 
 > **実装する者へ:** CLAUDE.md の決まりで、works の直しは darkfactory 自身に流す（Task ごとに 1 つの依頼。依頼の本文はその Task の節）。手で回す時は superpowers:subagent-driven-development か superpowers:executing-plans で Task ごとに進める。手順は `- [ ]` で追う。
 
