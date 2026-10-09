@@ -1,5 +1,5 @@
 {
- "about": "考えの住処の地図（docs/concepts.md）の柵の表。読むのは tests/conceptfence.py だけ",
+ "about": "考えの住処の地図（docs/concepts.md）の柵の表。読むのは .shared/core/conceptfence.py だけ（works 自身には試験 tests/test_concept_fences、run の中では構造のブロックが対象の表として当てる）",
  "exclude": [
   "tests/**",
   "docs/**",

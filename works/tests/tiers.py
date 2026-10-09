@@ -54,6 +54,7 @@ FAST = frozenset({
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
     "test_block_blind",     # ブロックの散文のほかのブロックの名指しの柵と、役の指示書のほかの役・段の語の柵: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_concepthome",     # 判断の 1 軸と考えの住処の観点の文（文字列と名前の一覧だけ。git は差し替える）
+    "test_concept_change",  # 柵を対象の変更に当てる口（種の git は gitkit の型の写し・子のプロセスは git だけ）
     "test_concept_fences",  # 考えの住処の柵（地図 docs/concepts.md と表 docs/concepts.json）: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）

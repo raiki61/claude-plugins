@@ -177,7 +177,7 @@
 - 出どころ: V032、記憶の決定 `two-places`
 - 持ち主の言葉: 「ほかにも考え方が形として見えてないところはないか」（2026-10-09）
   - 持ち主の言葉（記憶）: 「そういう風にあなたが作りこまなかったのも理由としてはあるのでは」「それこそ弱点な気がする」（2026-10-09）
-- 住処: works 自身は考えの住処の地図 `docs/concepts.md` と柵（表 `docs/concepts.json`・道具 `tests/conceptfence.py`・試験 `tests/test_concept_fences.py`。0.2.53 で入った）。事前審査と差分の審査の穴 copy（写しの指示書）
+- 住処: works 自身は考えの住処の地図 `docs/concepts.md` と柵（表 `docs/concepts.json`・道具 `.shared/core/conceptfence.py`・試験 `tests/test_concept_fences.py`。0.2.53 で入った）。事前審査と差分の審査の穴 copy（写しの指示書）
 - 強さ: 部分（works 自身の住処の在る 13 の考えは機械で強制。散らばりの 9 の考えと、対象のリポジトリは未実装）
 - 隙間: 散らばりの 9 には柵が無く、増えても赤にならない。対象のリポジトリの差分で「ある考えを知る場所が増えたか」を数える所が無い。修正案・事前審査・R1・R3 は住処を問わない（計画 `docs/plans/2026-10-09-structure-viewpoint.md` の Task 2〜4 が未着手）→ 段 2・段 3
 
