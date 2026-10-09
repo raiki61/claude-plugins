@@ -1491,6 +1491,8 @@ class ScriptCase(ReportBase):
         self.assertEqual(r.returncode, 0, r.stderr)
         text = pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8")
         self.assertIn(report.TDD_HEADING, text)
+        h = heads(text)
+        self.assertIn(report.FREEZE_OFF_HEAD, h[H2])   # 2 つ目の段は輪を回していない: 冒頭 2 で凍結が効いていないと言う
         for line in report.tdd_lines([(report.TDD_STAGES[0], TDD_RAN), (report.TDD_STAGES[1], TDD_OFF)]):
             self.assertIn(line, text)
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_FIX_TDD=None, INPUTS_REFIT_TDD=None)
@@ -1609,6 +1611,16 @@ class TddLinesCase(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertIn("回していない", rows[0])
         self.assertIn(TDD_OFF["reason"], rows[0])
+
+    def test_head_names_stages_without_freeze(self):
+        """keep-essence の 3: TDD の輪を回していない修正の段は、テストの凍結が効いていないと冒頭 2 の行で理由つきで言う（黙らない）"""
+        rows = report.freeze_lines([(report.TDD_STAGES[0], TDD_OFF), (report.TDD_STAGES[1], None)])
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0].startswith(report.FREEZE_OFF_HEAD), rows)
+        self.assertIn(report.TDD_STAGES[0], rows[0])
+        self.assertIn(TDD_OFF["reason"], rows[0])
+        self.assertEqual(report.freeze_lines([(report.TDD_STAGES[0], TDD_RAN), (report.TDD_STAGES[1], None)]), [])
+        self.assertEqual(report.freeze_lines([]), [])
 
     def test_stages_that_did_not_run_are_left_out(self):
         self.assertEqual(report.tdd_lines([(report.TDD_STAGES[0], None), (report.TDD_STAGES[1], None)]), [])

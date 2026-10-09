@@ -33,6 +33,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - build(board_dir, *, judged, tests, start, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None, cleaned_runs="", depth_lines=(), tdd=()) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - tdd_lines(stages) -> 修正の段ごとの TDD の輪の単位の結末の行（keep-essence の 11。修正のブロックの出口 tdd を読む）
+- freeze_lines(stages) -> 冒頭 2 の行: TDD の輪を回していない修正の段はテストの凍結が効いていないと言う（keep-essence の 3）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -134,6 +135,7 @@ PRIOR_FAILURES_FILE = "prior-failures.json"   # この run で最後まで通ら
 PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
 TDD_HEADING = "## TDD の輪の単位ごとの結末"   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
 TDD_STAGES = ("修正の段", "案を直した後の修正の段")   # build の tdd の並び（ラインの report の with の fix_tdd・refit_tdd の順）
+FREEZE_OFF_HEAD = "テストの凍結"   # 冒頭 2 の行の頭（TDD の輪を回していない修正の段は、凍結が効いていないと言う。freeze_lines）
 ACCEPT_WHERE = "受け付け"                  # prior_failures の受け付けの行の where の頭
 R2_REDESIGN = "R2 が redesign-needed"      # 検証器と独立の目が R2 の作り直しの行に付ける頭（findings から外し prior_failures にだけ載せる）
 NO_TURN_FILE = "no-turn-exits.json"   # 包みの終わりの記録の即時の死の行の写し（build が書く。起こし直しの行から辿る）
@@ -1118,10 +1120,10 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
     return [{k: r[k] for k in DOWNGRADE_KEYS} for r in doc]
 
 
-def head_entry(b, start: dict | None, *, cleaned_runs: str = "", depth_lines=()) -> list:
+def head_entry(b, start: dict | None, *, cleaned_runs: str = "", depth_lines=(), tdd=()) -> list:
     """冒頭 2: 入口・段・gates・最後の関所の形・包み・機能の on でない物（入力 features_off・features_on と既定）・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
     線が渡した深さの行（depth_lines。単位ごとの深さと、軽量で省いた物。渡されなければ出さない）・起動の前に
-    片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
+    片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）・テストの凍結が効いていない修正の段の行（tdd。freeze_lines）"""
     s = _start_doc(b, start)
     # 入口の文は start が控えに書く（渡された出口には無い。控えにも無いのは start が控えを書く前に落ちた run）
     words = s.get("entry_words") or _start_doc(b, None).get("entry_words") or "（控えが無い）"
@@ -1146,6 +1148,7 @@ def head_entry(b, start: dict | None, *, cleaned_runs: str = "", depth_lines=())
     lines.append(f"下げている所: {len(downs)} 個")
     lines += [f"  - {r['node']}: {r['what']}（{r['versus']}）" for r in downs]
     lines += [str(x) for x in depth_lines or () if isinstance(x, str) and x]
+    lines += freeze_lines(tdd)
     if cleaned_runs:
         lines.append(f"{CLEANED_HEAD}: {cleaned_runs}")
     return lines
@@ -1692,6 +1695,14 @@ def tdd_lines(stages) -> list:
     return rows
 
 
+def freeze_lines(stages) -> list:
+    """冒頭 2 の行（keep-essence の 3）: TDD の輪を回していない修正の段（修正のブロックの出口 tdd の ran が偽）ごとに、テストの
+    凍結が効いていないと理由つきで 1 行（黙らない）。stages は tdd_lines と同じ。走っていない段（None）は出さない"""
+    return [f"{FREEZE_OFF_HEAD}: {name}で効いていない（TDD の輪を回していないので既存のテストを凍らせていない——"
+            f"{_one_line(tdd.get('reason') or '理由なし')}）"
+            for name, tdd in stages if isinstance(tdd, dict) and not tdd.get("ran")]
+
+
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
           failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "",
@@ -1731,7 +1742,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, cleaned_runs=cleaned_runs, depth_lines=depth_lines), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_entry(b, start, cleaned_runs=cleaned_runs, depth_lines=depth_lines, tdd=list(zip(TDD_STAGES, tdd))), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]
