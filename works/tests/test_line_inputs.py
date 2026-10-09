@@ -336,6 +336,27 @@ class WorldReadersCase(unittest.TestCase):
         self.assertIn("world", UNREAD_OUTPUTS)
 
 
+class NoConcurrentWindowCase(unittest.TestCase):
+    def test_include_never_runs_beside_another_writer(self):
+        """include の節（scope の窓を開く）と、盤面に書く別の節（include か script）は、depends_on の先祖か子孫で順が決まる。
+        同時に走ると、開いた窓が別の節の書き込みを自分の宣言の外の書き込みと読み、works:scope-check で run を止める
+        （0.2.60: 世界の解の段が素材集めと並んで走り、境の節の控え world-state.json で全部の run が判定の前に止まった）"""
+        by = {n["id"]: n for n in line()["nodes"]}
+        anc = {}
+
+        def ancestors(i):
+            if i not in anc:
+                anc[i] = set()
+                for p in by[i].get("depends_on") or []:
+                    anc[i] |= {p} | ancestors(p)
+            return anc[i]
+
+        writers = [i for i, n in by.items() if "include" in n or "script" in n]
+        both = sorted(f"{a} <-> {b}" for a in writers if "include" in by[a] for b in writers
+                      if a != b and a not in ancestors(b) and b not in ancestors(a))
+        self.assertEqual(both, [])
+
+
 class FeaturesOffCase(unittest.TestCase):
     """切る機能と入れる機能（入力 features_off・features_on。持ち主の依頼 2026-10-07: 同じ依頼を機能を替えて回して比べる）:
     check_inputs が語を確かめて語の順の配列にし、start の出口の機能ごとの on・off・auto（entry.feature_words）を線がブロックの

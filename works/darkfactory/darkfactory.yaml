@@ -341,7 +341,8 @@ nodes:
 
   # 世界の解の段（計画 docs/plans/2026-10-09-world-solution.md の 5.1 節）。目的の文を盤面へ渡した後・判定の前に run で 1 回（h-mat の
   # world_go。入力 features_off の world で切った run・控えが既に在る周は回さない）。入力は依頼と、h-mat が目的の文と目的の役が
-  # 分けた依頼の解き方から組んだ目的の文のファイル。素材集めと並んで走る
+  # 分けた依頼の解き方から組んだ目的の文のファイル。素材集めの前に走る（並べると、開いた素材集めの窓が世界の解の書き込みを宣言の外と読んで
+  # run を止める。0.2.60。試験 test_line_inputs.NoConcurrentWindowCase）
   - id: worlding
     description: '依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる'
     include: blk-world
@@ -377,7 +378,7 @@ nodes:
   - id: gathering
     description: '判定の前に、差分を P1 の目と先行議論に見せて素材を集める'
     include: blk-material
-    depends_on: [h-mat]
+    depends_on: [h-mat, h-world]
     when: "$h-mat.output.mat_go == true"
     with:
       adapter: $entering.output.adapter

@@ -20,7 +20,7 @@
   "blk-structure/blk-structure.yaml": "b288e8fa0004680608a1b3408b7d1081ff431734af3b73bac8eeafb4fd940d6f",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
   "blk-world/blk-world.yaml": "afa59a40343615d2d85f34f42855e2eedd3f3660591609687571e3edd83172d5",
-  "darkfactory/darkfactory.yaml": "643da104a55349a720168c4add8d53fba848b299ebbc6d03f300df7204882d1a"
+  "darkfactory/darkfactory.yaml": "b5ced7a06e13a21affb192e46b9cc6ff5029a7d3f3268d830cdca6a77c509b9e"
  },
  "version": 1,
  "workflows": {
@@ -2695,7 +2695,8 @@
     {
      "call": "blk-material",
      "deps": [
-      "h-mat"
+      "h-mat",
+      "h-world"
      ],
      "id": "gathering",
      "kind": "call",

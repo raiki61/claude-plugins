@@ -274,7 +274,7 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 
 - [x] 赤: `test_world_block_between_purpose_and_judge`・`test_feature_world_off_skips_block_and_reports_it`・`test_structure_unit_summary_carries_world_note`・`test_world_output_has_readers`（段 1 の Task 1.5 の読み手の柵に当たる）
 - [x] 入れる・緑（線の模擬実行は CI）・commit（`feat(works): 世界の解の段を目的の後・判定の前に差し込む`）
-- 入れた形（2026-10-10）: 節 `worlding` は `h-mat` の後（素材集めと並ぶ）で、`when` は境の節の欄 `world_go`（線の when と include の with はいつも走る節だけを読む決まり M4 のため、目的の文の後に走る境 `h-mat` が決める。段の控えが盤面に在れば回さない＝run に 1 回・機能 `world` が off なら回さない）。入力の目的の文のファイルは `h-mat` が目的の文と `means` から組む（`world_purpose_file`）。境の節の出口の欄に 2 つ足した（`world_go`・`world_purpose_file`）。境 `h-world`（script `world`・all_done）が `line_edge.world_edge` で控えを `worldmark.write` に書き、判定がそれを待つ。機能の語の柵（考え `features`）の語の形には `world` を足していない（同じ字が関所の欄・答えの鍵の別の考えに在り、既知の漏れを増やすため。開発側の裁き）
+- 入れた形（2026-10-10）: 節 `worlding` は `h-mat` の後で、素材集め（`gathering`）はその境 `h-world` を待つ（0.2.60 では並べたが、開いた素材集めの窓が世界の解の書き込みを宣言の外と読み、全部の run が判定の前に works:scope-check で止まった。0.2.61 で順にし、include の節が盤面に書く別の節と並ばないことを試験 `test_line_inputs.NoConcurrentWindowCase` が縛る）で、`when` は境の節の欄 `world_go`（線の when と include の with はいつも走る節だけを読む決まり M4 のため、目的の文の後に走る境 `h-mat` が決める。段の控えが盤面に在れば回さない＝run に 1 回・機能 `world` が off なら回さない）。入力の目的の文のファイルは `h-mat` が目的の文と `means` から組む（`world_purpose_file`）。境の節の出口の欄に 2 つ足した（`world_go`・`world_purpose_file`）。境 `h-world`（script `world`・all_done）が `line_edge.world_edge` で控えを `worldmark.write` に書き、判定がそれを待つ。機能の語の柵（考え `features`）の語の形には `world` を足していない（同じ字が関所の欄・答えの鍵の別の考えに在り、既知の漏れを増やすため。開発側の裁き）
 
 ### W8: 使う側（判定・構造の目・修正案・事前審査）
 
