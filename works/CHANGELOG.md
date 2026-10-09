@@ -28,6 +28,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- `/works` スキルと README の `test_cmd` の説明に、Python・npm のほかの例（Go の `go test ./...`・Rust の `cargo test`・Java の `mvn -q test`・`./gradlew test`・Terraform のような IaC の `terraform init -backend=false && terraform validate`）を足し、`test_cmd` は機械が役の sandbox の外で直に走らせる（網も使える）のに対し、役の Bash は sandbox の中で走り多くは網も閉じているので、依存・provider を網から取りに行く検査は `test_cmd` に入れる、と書いた（2026-10-09 の利用者の声 F。利用者の run は `terraform fmt -check` だけを渡し、役の中では provider が起きなかった）。
+
 - 依頼の答えの下書き（`next-request.json` の `answers`）を、人の居る run でも作る（2026-10-09 の利用者の声 C4。今までは無人の run だけで、利用者は報告の文から問いの名を推して書き、字が合わなかった）。下書きは保留のままの台帳の問い（fork・escalate だけでなく field・awaiting も）ごとと、問いの立っていない run の中で測れなかった素材ごとに 1 行。`question` は答える時に字のまま書く名で、素材から立った問いと素材は素材の名（例 `parallel_pr`）、ほかは問いの key。報告と最後の関所の保留の行の尾にも「答える時の answers の question: "…"」と、区切りの分かる JSON の文字列で出す。関所の項目の下書きは今どおり無人の run だけ。
 
 - 結末に `fixed_needs_check`（直して、最後のテストまで通った。run の中で測れなかった確かめが残る）を足した（2026-10-09 の利用者の声 C3）。直しが受け付けを通り最後のテストも緑で、残りが run の中で測れなかった素材（網の拒否で回らなかった並行 PR の確かめ・雲の資格が要る主な経路の観測など。未実施・人の起動待ち）の行だけの run を、今までは「決めた周の数のうちに直しきれずに止まった（round_limit）」と呼んでいた。報告の冒頭 1 には「人が確かめる物」として各行が並び、冒頭 3 行の決めてほしいことに件数が載る。次の run の依頼の下書きに運ぶ物は今と同じ。`use.sh apply` は `fixed` と同じく当てる。ほかの残り（赤のテスト・ほかの阻害・独立の目の block）が 1 つでも在れば今どおり round_limit。
