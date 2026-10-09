@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.57] - 2026-10-09
+
 ### Added
 
 - 読んだ証拠（`reads-<役>.json`）に、役の節が web で取得した URL と検索の問いの欄 `web` を足した（Archon の出来事の WebFetch・WebSearch の呼びから引く。出来事が無ければ null）。後で役の抜き書きの URL を本当に取得したかを照らすため。読むべき物の行と欠け（missing）の数え方は変わらない
