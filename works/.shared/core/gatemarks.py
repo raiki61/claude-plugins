@@ -157,7 +157,6 @@ CARRIED_ASK = ("下の行は、直す前の関所で人が通すと答えた（c
                "ぶつかりを policy_conflicts に書くなら、[ ] の種類（regression は lost・policy は policy_conflicts）に合わせ、本文を"
                "一字も変えずに写せ。通した条件を超える消え・別の能力は自分の言葉で書け")
 ASK_HEAD = "問いの台帳の問い"          # 関所の項目の頭。答えの突き合わせもこの頭と key で引く
-ROUTE_UP = "人に上げる"                 # 構造の目の行の行き先の語（約束は構造のブロックの設計の行の型の enum）
 ASK_KINDS = ("fork", "escalate")       # 関所の項目の kinds（fork の問いと、status が escalate の問い）
 HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n]+)")   # 一言の「保留: <key>」（文の終わりまで。key を並べてよい。key は hold_keys が台帳から拾う）
 HOLD_END = re.compile(r"[。；;\n]")   # HOLD が読む文の終わり（unread_holds が一言を文に切る）
@@ -503,7 +502,7 @@ def axes(b, mark: dict, units) -> list:
         out.append(got)
     if not str(mark.get("world") or "").strip() and not cite.URL.search(str(mark.get("decided_by") or "")):
         out.append("世界の解を当たった結果（world）が無い")
-    ups = {r.get("unit_id") for r in _design_rows(b) if r.get("route") == ROUTE_UP}
+    ups = {r.get("unit_id") for r in _design_rows(b) if r.get("route") == structmark.ROUTE_UP}
     hit = sorted(set(units) & ups)
     if hit:
         out.append(f"構造の目が人に上げた単位（{'・'.join(hit)}）に当たる")
@@ -523,7 +522,7 @@ def design_items(b) -> list:
     """構造の目が人に上げた行の関所の項目 [(DESIGN_KIND, 文)]（人が continue で答えた同じ文の行は除く）"""
     out = []
     for r in _design_rows(b):
-        if r.get("route") != ROUTE_UP:
+        if r.get("route") != structmark.ROUTE_UP:
             continue
         rej = "・".join(f"{x.get('option')}（代償: {x.get('cost')}）" for x in r.get("rejected") or [] if isinstance(x, dict))
         text = (f"{DESIGN_HEAD} {r.get('unit_id')}: {r.get('undecided_because') or r.get('route_reason') or ''}"
