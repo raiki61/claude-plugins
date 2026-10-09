@@ -7,7 +7,7 @@
 - 分かったこと: 役は世の中を調べてはいたが、「依頼が示した仕組みの部品」を調べ、「この種の作業を世の中はどうやっているか」を調べなかった。依頼の解き方が目的の文にまで写り、全部の役がその枠の中で考えた。調べは任意の助言で、確かめる機械も、定石に従ったかを問う受け付けも無い。
 - 決めたこと: 判定の前に 1 つのブロック `blk-world` を必ず通す。依頼を「解き方と対象の名を外した問題の類」に言い直し、定石を出どころと原文つきで集めて機械が照らし、依頼の解き方と比べて違えば名指して定石を推す。修正案は定石に従うか外れの訳を書き、外れは人の関所に上がる。持ち主に聞くことは無い（11 節）。
 
-状態: 計画だけ（コードは変えていない）。2026-10-09、版 0.2.56（枝 `wip/integ-0256` の 09df8cfe）の事実で書いた。並行の枝 `wip/phase2-loop`（計画 `docs/plans/2026-10-09-clean-whole.md` の段 2）が入った後に入る（6 節）。
+状態: W1〜W10 は入った（W1・W2 は 0.2.57、W3〜W5 は 0.2.59、W6〜W9 は 0.2.60、W10 はその次の版）。残りは W11 の測り。計画は 2026-10-09、版 0.2.56（枝 `wip/integ-0256` の 09df8cfe）の事実で書いた。並行の枝 `wip/phase2-loop`（計画 `docs/plans/2026-10-09-clean-whole.md` の段 2）が入った後に入る（6 節）。
 
 > **実装する者へ:** superpowers:subagent-driven-development で Task ごとに opus の実装役と審査役で回す。手順は `- [ ]` で追う。入る前に `wip/phase2-loop` が `wip/integ-*` に合わさったかを確かめ、6 節の「つなぎ目」の名を今の版で照らし直す。
 
@@ -203,8 +203,8 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 - `FetchError`・`SafeRedirect`・`http_get(url: str, headers: dict, max_body: int) -> tuple[int, bytes]`（転送は `libdocs_web.safe_url` の決まりを webget に移した `safe_url`）
 - `Store(root: pathlib.Path | None, schema: str, ttl: float)`、`Store.get(name: str, now: float, statuses: tuple) -> dict | None`・`Store.put(name: str, doc: dict) -> str`（書けなければ理由の 1 行）、`shared_root(env: dict, sub: str) -> pathlib.Path | None`
 
-- [ ] 赤: `test_store_put_then_get_within_ttl`・`test_store_get_expired_is_none`・`test_store_put_unwritable_returns_reason`・`test_redirect_to_unsafe_host_is_not_followed`。`tests/test_libdocs.py` は緑のまま
-- [ ] 入れる・緑・commit（`refactor(works): web の取得と run をまたぐ控えを core の webget に寄せる（世界の解の段と文書の取得が同じ口を使うため）`）
+- [x] 赤: `test_store_put_then_get_within_ttl`・`test_store_get_expired_is_none`・`test_store_put_unwritable_returns_reason`・`test_redirect_to_unsafe_host_is_not_followed`。`tests/test_libdocs.py` は緑のまま
+- [x] 入れる・緑・commit（`refactor(works): web の取得と run をまたぐ控えを core の webget に寄せる（世界の解の段と文書の取得が同じ口を使うため）`）
 
 ### W2: 読んだ記録に web の取得を足す
 
@@ -212,8 +212,8 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 
 **Interfaces（Produces）:** `web_fetches(events, node_path: str) -> list[str]`（節が取得した URL の並び。`tool_inputs` を使う）・`web_searches(events, node_path: str) -> list[str]`（検索の問い）
 
-- [ ] 赤: `test_web_fetches_from_real_rows`・`test_web_searches_from_real_rows`・`test_no_events_returns_empty`
-- [ ] 入れる・緑・commit（`feat(works): 読んだ記録の口に、節が取得した URL と検索の問いを出来事から引く口を足す`）
+- [x] 赤: `test_web_fetches_from_real_rows`・`test_web_searches_from_real_rows`・`test_no_events_returns_empty`
+- [x] 入れる・緑・commit（`feat(works): 読んだ記録の口に、節が取得した URL と検索の問いを出来事から引く口を足す`）
 
 ### W3: 抜き書きの照らしと検索語の検査
 
@@ -296,8 +296,9 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 
 **Files:** Modify `works/.shared/core/report.py`（節「世界の解」）・`works/docs/concepts.md`・`works/docs/concepts.json`（5.7 節の行と柵）・`works/docs/owner-decisions.md`（`step-up` と 3 行の住処・強さ・隙間）・`works/skills/works/SKILL.md`（4.3 節の教え）・`works/docs/specs/2026-09-29-structure-block-design.md`（状態の行に「5 節と S4 は計画 world-solution が置き換えた」の 1 行）・`works/README.md`（段の並び）。Test `works/tests/test_report.py`・`works/tests/test_concept_fences.py`
 
-- [ ] 赤: `test_report_has_world_section`・柵の表の `world` の行が在る・観点の地図の名指すパスが在る（計画 clean-whole の Task 3.7 が入っていればその試験）
-- [ ] 入れる・緑・commit（`docs(works): 世界の解の段を報告・考えの地図・観点の地図・依頼の書き方に入れる`）
+- [x] 赤: `test_report_has_world_section`・柵の表の `world` の行が在る・観点の地図の名指すパスが在る（計画 clean-whole の Task 3.7 が入っていればその試験）
+- [x] 入れる・緑・commit（`docs(works): 世界の解の段を報告・考えの地図・観点の地図・依頼の書き方に入れる`）
+- 入れた形（2026-10-10）: 報告の節「世界の解」は `worldmark.report_lines` をそのまま並べ（構造の目の節の前。段は判定の前に走るため）、控えの無い run（機能 `world` を切った・段の前で止まった）は節を出さない。試験は `tests/test_report.py` の `WorldCase`（節の在りか・落ちた段の訳・控えの無い run・節の字が報告の内側の語 `report.INNER_WORD` に当たらない）。控えから使った類は行ごとに `worldmark.FROM_CACHE` で名指す（数の行だけではどの定石が前の run の物か分からない。`tests/test_worldmark.py`）。5.3 節の 7 の「増えた時間」は節に出さない（W5 の決めのとおり控えは段の時間を持たず、考え `ledger` の散らばりを増やさない。費用は報告の「費用」の節が節ごとに、段の時間は測りの殻 `dev/canary_check.py` が段ごとに出す。開発側の裁き）。柵の表の `world` の行は W4 で入っていたので足さず、地図の行（`docs/concepts.md`）の住処の口と今の使う所を今の版に直した。依頼の解き方 `means` の欄の意味は `worldmark` が持つので、考え `marks` の行の欄の持ち主の並びにも足した。計画 clean-whole の Task 3.7 は入っていないので、観点の地図の名指すパスは手で確かめた。観点の地図は `world`・`web-split`・`doubt-always` の住処と強さを今の形に直し（3 つとも「部分」）、隙間の行き先を段 2W にした（数のまとめの表も直した）。計画 clean-whole の本文に 8 節の 9 点を入れ、決め 2 の決まった形を定石の形（読み込み・コンパイル・準備の失敗は赤に数えず、最小の仮の実装で走らせてから期待違いの失敗を赤とする）に書き直した
 
 ### W11: 測り
 
@@ -321,7 +322,7 @@ run は前景で待たず、`run_in_background` で起こして知らせを受�
 
 ### 計画 clean-whole（`docs/plans/2026-10-09-clean-whole.md`）
 
-この計画では、その文書の状態の行の下に 1 行の追記（この計画を指す）だけを足す。本文は次に書き直す時に、次の 9 点に合わせる。
+この計画では、その文書の状態の行の下に 1 行の追記（この計画を指す）だけを足す。本文は次に書き直す時に、次の 9 点に合わせる（W10 で 9 点とも本文に入れた）。
 
 1. 段 6 の 6.8（web の調べを割る）を前へ出し、この計画の段 2W（W1〜W11）にする。置き場は段 2 の後・段 4 の前（段 4 と W8 が同じ `blk-plan/lib/planblk.py` を触るため）。5 節の図と版の目安も直す
 2. 1 節の決め 1 の「世界の解か」の軸: 「world に定石の出どころが在る」を、`worldmark.world_ok`（従う・依頼の外の出どころで訳の立つ外れ・答えの要る行が無い）に置き換える（W9）
@@ -336,7 +337,7 @@ run は前景で待たず、`run_in_background` で起こして知らせを受�
 ### ほかの文書
 
 - 計画 `docs/plans/2026-10-09-lang-neutral-red.md` の手順 3: 定石の形に書き直す（言語中立の直しを入れる枝が行う）
-- 構造の目の設計書: 状態の行に置き換えの 1 行（W10）
+- 構造の目の設計書: 状態の行に置き換えの 1 行（W10。入れた）
 
 ## 9. 危うさ
 

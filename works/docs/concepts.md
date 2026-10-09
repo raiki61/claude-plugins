@@ -159,7 +159,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/marks.py`（種の表 `KINDS`＝節か役 → 行の在り処・盤面の控えの名・置き場、と手順の口 `add`（役の型に足す）・`rows`・`split`（受け付けが盤面へ渡す前に外す）・`path_of`・`write`・`load`（控えに置く・読み戻す））
 - 約束: 盤面の控えの宣言 `blk-*/manifest.json`・`darkfactory/manifest.json` と控えの型 `blk-plan/schemas/gate-marks.schema.json`・`blk-plan/schemas/plan-fields.schema.json`・`blk-delta/schemas/delta-verdicts.schema.json`・`blk-judge/schemas/out-of-purpose.schema.json`・`blk-pr/schemas/pr-excluded.schema.json`
-- 知ってよい所: 住処と約束だけが控えの名を書き、欄を手で足す・外す。欄の意味（欄の型・欠けと誤りの検査・控えの中身の形・読んだ後の使い方）は欄を持つモジュール（`.shared/core/gatemarks.py`・`.shared/core/planmarks.py`・`.shared/core/deltamarks.py`・`.shared/core/converge.py`・`.shared/core/querytest.py`・`.shared/core/outpurpose.py`・`.shared/core/prcheck.py`）が持ち、手順は住処を呼ぶ。手直しの役の申告 `bash_writes` は種 `writes` で `.shared/core/refix.py` が足す（外すのは `.shared/core/writes.py`、控えは書き込みの記録）。`.shared/core/converge.py` は外した欄を足し欄の控えでなく壁打ちの往復の記録に置く。役の印は `.shared/core/node_marker.py`（別の考え）
+- 知ってよい所: 住処と約束だけが控えの名を書き、欄を手で足す・外す。欄の意味（欄の型・欠けと誤りの検査・控えの中身の形・読んだ後の使い方）は欄を持つモジュール（`.shared/core/gatemarks.py`・`.shared/core/planmarks.py`・`.shared/core/deltamarks.py`・`.shared/core/converge.py`・`.shared/core/querytest.py`・`.shared/core/outpurpose.py`・`.shared/core/prcheck.py`・依頼の解き方 `means` の `.shared/core/worldmark.py`）が持ち、手順は住処を呼ぶ。手直しの役の申告 `bash_writes` は種 `writes` で `.shared/core/refix.py` が足す（外すのは `.shared/core/writes.py`、控えは書き込みの記録）。`.shared/core/converge.py` は外した欄を足し欄の控えでなく壁打ちの往復の記録に置く。役の印は `.shared/core/node_marker.py`（別の考え）
 - 今: 修正役の欄（`.shared/core/recount.py` が足し、`.shared/core/writes.py`・`blk-fix/scripts/accept.py`・`blk-fix/lib/fixlanes.py`・`blk-fix/lib/unitrows.py` が外す）と報告の書き手の `terms`（`blk-report/lib/report_roles.py`）、報告が並行 PR の控えを自分の名で読む `.shared/core/report.py` は、同じ手順をまだ手で書く（柵の表の既知の漏れ。`blk-fix/lib/unitrows.py` の外し方は柵の字の形に当たらない。並行の作業が触っているので後で寄せる）。控えのパスを持ち主の定数で組む所（`.shared/core/accept.py`・`blk-plan/lib/planblk.py`・`.shared/core/refix.py`・`dev/canary_check.py`）は名を持たないが、`marks.path_of` に寄せられる
 - 計画: `docs/plans/2026-10-09-marks-home.md`
 
@@ -198,10 +198,10 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `world` 世界の解（問題の類ごとの定石と、依頼の解き方との比べ）
 
 - 状態: 住処あり
-- 住処: `.shared/core/worldmark.py`（行の欄の名 `FIELDS`・行のファイルの名 `WORLD_FILE`・控えの名 `STATE_FILE`・語 `VERDICTS`・`BASES`・名指しの句 `NOT_WEB`・読み口 `rows`・`read`・場所の字のパス `where_paths`・頭の節 `section`・単位の要点 `unit_note`・答えの要る行 `needs`・`required`・`unanswered`・関所の軸 `world_ok`・関所の行 `gate_line`・報告 `report_lines`）
+- 住処: `.shared/core/worldmark.py`（行の欄の名 `FIELDS`・行のファイルの名 `WORLD_FILE`・控えの名 `STATE_FILE`・語 `VERDICTS`・`BASES`・名指しの句 `NOT_WEB`・`FROM_CACHE`・読み口 `rows`・`read`・`stage_rows`・`board_rows`・控えを書く `write`・場所の字のパス `where_paths`・頭の節 `section`・`board_section`・`plan_section`・単位の要点 `unit_note`・答えの要る行の表 `need`・答えの要る行 `needs`・`required`・`unanswered`・依頼の解き方との比べの文 `challenges`・関所の軸 `world_ok`・関所の行 `gate_line`・報告の節「世界の解」の行 `report_lines`。依頼の解き方の足し欄 `MEANS` の意味 `with_means`・`split_means`・`write_means`・`means_of`。足す・外す・置く手順は考え `marks` の種 `means`）
 - 約束: `blk-world/world-row.schema.json`（欄と語が住処の定数と揃うことは `tests/test_worldmark.py` が縛る）
 - 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（出口を盤面の根の控えに写す境の節と、単位の要約に要点を足す写しの節）・控えを読むブロックの宣言 `blk-*/manifest.json`（consumes。盤面の読み書きの約束）
-- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4 で住処を置き、W5 で行を書くブロック `blk-world` を足した（線への差し込みは W7、使う側は W8・W9。それまでブロックはどの線にも入らない）。使う側に移る前の世界の調べは、判定役の指示書の先例の行（`blk-judge/commands/diagnose.md` の 7・8 項）と関所の決め手の欄 world（`.shared/core/gatemarks.py` の `FIELDS` と `_RULE`）に残る。柵は行のファイルと控えの名の字
+- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4〜W10 で入った。行を書くのはブロック `blk-world`（W5）で、線は目的の後・判定の前に 1 回だけ回し、境の節が出口を盤面の根の控えに写す（W7）。読むのは全部住処の口で、判定の支度 `blk-judge/lib/judgebrief.py`（頭の節）・単位の要約の写し `darkfactory/lib/line_edge.py`（単位の要点）・修正案の頭 `blk-plan/lib/planblk.py`（頭の節と答えの頼み）・修正案の受け付けの答えの表 `.shared/core/planrange.py`（`answer_tables`）・関所の軸 `.shared/core/gatemarks.py`（`axes`）・報告 `.shared/core/report.py`（節「世界の解」）。依頼の解き方を目的の文から分けるのは目的の受け付け `.shared/core/purpose.py`（W6）。段の時間は控えに持たず、報告の節にも出さない（考え `ledger` の散らばりを増やさない。流れの道具の出来事から作れる値で、費用は報告の「費用」の節が節ごとに、段の時間は測りの殻 `dev/canary_check.py` が段ごとに出す）。柵は行のファイルと控えの名の字
 
 ### `stop-reasons` 止めの理由
 
