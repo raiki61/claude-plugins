@@ -49,9 +49,9 @@ NO_INPUTS_CONSTANT = frozenset({
 })
 # check_inputs が start の名のほかに返す欄（依頼のファイルを読んだ結果）
 READ_FROM_REQUEST = {"request_file", "items", "request_text", "answers", "prior_failures"}
-# 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
+# 同じ名で返さず、差分の根（と PR の添え物）として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
 CHANGE_INPUTS = {"base", "pr"}
-FROM_CHANGE = {"base_rev", "change"}
+FROM_CHANGE = {"base_rev", "base", "pr"}
 # pr の名を読む時に渡す、start が run の中で読んだ読み出し（HEAD と PR の head は同じ版。読み方の正本の試験は test_ghreads）
 PR_READS = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "", "body": ""}}, "issue": {}}
 
@@ -165,8 +165,8 @@ class InputNamesCase(unittest.TestCase):
                     self.assertEqual(got - want, set(), f"スクリプトが読まない with: の鍵: {sorted(got - want)}")
 
     def test_check_inputs_passes_every_start_name(self):
-        """start.py が読む名ごとに、その名だけに既定と違う妥当な値を渡すと、check_inputs が同じ名でその値を返す（変更の入口の
-        base・pr は base_rev・change に解いて返す）。_word(raw, <名>) の名の取り違え・返しの足し忘れを、名ごとに赤にする"""
+        """start.py が読む名ごとに、その名だけに既定と違う妥当な値を渡すと、check_inputs が同じ名でその値を返す（差分の根の入口の
+        base・pr は base_rev・base・pr に解いて返す）。_word(raw, <名>) の名の取り違え・返しの足し忘れを、名ごとに赤にする"""
         names = set(start_script().INPUTS.values())
         with tempfile.TemporaryDirectory() as tmp:
             repo = pathlib.Path(tmp)
@@ -185,11 +185,11 @@ class InputNamesCase(unittest.TestCase):
             self.assertEqual(base["request_file"], str((repo / "req.json").resolve()))
             for name, value in given.items():
                 with self.subTest(name):
-                    if name in CHANGE_INPUTS:   # 同じ名でなく change の name に返る（git は偽物、PR は隔離の前の写し）
+                    if name in CHANGE_INPUTS:   # 同じ名でなく差分の根 base の name に返る（git は偽物、PR は run の中の読み出し）
                         with _fake_git():
                             got = entry.check_inputs({"request": "req.json", name: value}, repo, reads=PR_READS)
-                        self.assertEqual(got["change"]["from"], name)
-                        self.assertEqual(got["change"]["name"], want[name])
+                        self.assertEqual(got["base"]["from"], name)
+                        self.assertEqual(got["base"]["name"], want[name])
                         continue
                     self.assertNotEqual(base[name], want[name], "既定と同じ値では素通しを確かめられない")
                     got = entry.check_inputs({"request": "req.json", name: value}, repo)
@@ -197,7 +197,7 @@ class InputNamesCase(unittest.TestCase):
             with self.subTest("base"), mock.patch.object(entry, "_merge_base", lambda r, ref: f"fork-of-{ref}"):
                 got = entry.check_inputs({"request": "req.json", "base": "main"}, repo)
                 self.assertEqual(set(got) - set(base), FROM_CHANGE)
-                self.assertEqual((got["change"]["from"], got["change"]["name"], got["base_rev"]),
+                self.assertEqual((got["base"]["from"], got["base"]["name"], got["base_rev"]),
                                  ("base", "main", "fork-of-main"))
             with self.subTest("pr"):   # 番号でない値の拒みで名を読んでいることを見る（gh を起こさない）
                 with self.assertRaises(entry.InputRefused) as cm:

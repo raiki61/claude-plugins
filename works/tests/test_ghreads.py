@@ -242,13 +242,14 @@ class EntryReadsCase(unittest.TestCase):
                                            **pr7}}, "issue": {}}
 
     def test_pr_reads_copy_not_gh(self):
-        """差分の根は写しの baseRefOid と HEAD の merge-base、PR の題と本文は change.text。gh は 1 度も起こさない"""
+        """差分の根は写しの baseRefOid と HEAD の merge-base、PR の題と本文は添え物の pr。gh は 1 度も起こさない"""
         try:
             got = self.check(self.reads())
         except entry.InputRefused as e:
             self.fail(f"写しの PR を拒んだ: {e}")
         self.assertEqual(got["base_rev"], self.fork)
-        self.assertEqual(got["change"], {"from": "pr", "name": "7", "text": "題\n\n本文"})
+        self.assertEqual(got["base"], {"rev": self.fork, "from": "pr", "name": "7"})
+        self.assertEqual(got["pr"], {"number": "7", "title": "題", "body": "本文"})
         self.assertEqual(gh_calls(self.calls), [])
 
     def test_pr_refused_when_copy_unreadable_missing_or_head_differs(self):

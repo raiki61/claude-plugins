@@ -6,6 +6,7 @@
 - DiskBoard:               ディスクの盤面を開く入れ物（仕様 4.1・4.4）。写した engine の Board を継ぐ。入口は begin（仕様 5 節）
 - Progress:                settle まで回す口（settle・done・run_builtin・answer・skip・begin）の返り（仕様 4.1）
 - base_output:             p0.base の返答を機械が組む（begin が受け付けに渡す。仕様 5 節）
+- diff_of:                 差分の根から作業ツリーの今の姿までの測り（入口の入力の形の diff。版を固める節と同じ測り方）
 - tree_runner:             run_engine の既定の runner（works の tree_run で 1 段ずつ。返りの行は engine の run_steps と同じ鍵）
 - rules_module・graph_expanded: 盤面なしで写しの RL と graph を読む口（仕様 4.1 の末尾）
 - graph_path・graph_sha:   節の表が名指す graph（写しの graphs の下のファイル名）のパスと sha
@@ -442,6 +443,36 @@ def base_output(repo, base_rev: str) -> dict:
     return {"base_sha": sha, "method": BASE_METHOD, "commits": n, "merge_commit": int(merges) > 0, "intent_to_add": [],
             "touches_gates": True, "touches_external_seams": True, "touches_user_path": True, "touches_security_surface": True,
             "material": {"status": "found", "count": n, "detail": f"{name}（base_rev の名指し。空なら HEAD）"}}
+
+
+def diff_of(repo, base_rev: str) -> dict:
+    """差分の根 base_rev から作業ツリーの今の姿までの測り {empty, files, stat}（入口の入力の形の diff。entry.build_input と
+    entry.check_inputs の拒みが読む）。作業ツリーの姿は写しの RL の _worktree_tree（未追跡の新規ファイルも含め、.gitignore の
+    対象は除く）を util.GIT_CWD=repo で呼んだ木で、版を固める p1.worktree_before と同じ測り方（start の測りと空差分の柵の
+    測りが食い違わない）。木が base_rev の木と同じなら空。違えば git diff --numstat で数え、stat は --shortstat の 1 行。
+    GIT_CWD は呼ぶ前の値に戻す。木が引けない・base_rev が commit に引けなければ Reject"""
+    repo = pathlib.Path(repo)
+
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    base_tree = git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{base_rev}^{{tree}}")
+    if not base_tree:
+        raise Reject(f"差分の根 '{base_rev}' がリポジトリ {repo} の commit に引けない（git rev-parse --verify）")
+    old = _util.GIT_CWD
+    _util.GIT_CWD = str(repo)
+    try:
+        tree = rules_module()._worktree_tree()
+    finally:
+        _util.GIT_CWD = old
+    if tree == base_tree:
+        return {"empty": True, "files": 0, "stat": ""}
+    numstat = git("diff", "--numstat", base_tree, tree)
+    stat = git("diff", "--shortstat", base_tree, tree)
+    if numstat is None or stat is None:
+        raise Reject(f"差分の根 '{base_rev}' から作業ツリーの木 {tree[:12]} までを git diff で数えられない（リポジトリ {repo}）")
+    return {"empty": False, "files": len([x for x in numstat.splitlines() if x.strip()]), "stat": stat}
 
 
 # ---------------------------------------------------------------- 盤面

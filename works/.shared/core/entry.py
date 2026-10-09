@@ -497,10 +497,11 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     unattended, design_only, fix_fixture, features_off, features_on, answers} を返す（features_off・features_on は切る機能・入れる機能の語の配列で、features_off()・features_on() が確かめ、両方に在る語は拒む。unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
     fix_fixture は固定材料のフォルダ
     （core の fixture。修正を待つ盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
-    変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
-    少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items と answers は []。answers は依頼の欄 answers
+    差分の根（base の版か pr の番号）を名指せば {base_rev, base, pr} も足す（_change_base。base_rev は base と HEAD の merge-base）。
+    依頼が無ければ request_file・request_text は空・items と answers は []。依頼の行が空なら差分を測り（board.diff_of。名指しが
+    無ければ HEAD から）、差分も空なら拒む（EMPTY_REFUSED。依頼の行が在れば git を測らない）。answers は依頼の欄 answers
     （依頼者の答え。配列の形の依頼は []）で、start の控えに残り、gatemarks が問いの答えたかで読む。
-    盤面は作らない。拒む物（InputRefused）: 依頼も変更も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
+    盤面は作らない。拒む物（InputRefused）: 依頼の行も差分も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
     依頼が読めない・findings の配列でも {findings, pr, issue, answers} の形でもない・answers の形が違う・findings が依頼の型（写しの RL の REQUEST_SCHEMA）に
     合わない、thickness が重厚・知らない値、final_gate・adapter・unattended・design_only・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書・固定材料のフォルダが無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
@@ -538,11 +539,12 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     change = _change_base(raw, repo, reads)
     rel = _word(raw, "request")
     if not rel:
-        if change is None:
-            raise InputRefused("依頼（request）も変更（base・pr）も名指されていない——少なくとも 1 つを名指す")
         path, text, items, answers, prior = None, "", [], [], []
     else:
         path, text, items, answers, prior = _read_request(rel, repo, rules)
+    if not items and _diff(repo, change["base_rev"] if change else _git(repo, "rev-parse", "HEAD"))["empty"]:
+        raise InputRefused(f"{EMPTY_REFUSED}——依頼（request）を名指すか、差分の在る base・PR を名指す（差分の根から作業ツリーまでが空で、"
+                           "依頼の行も無い）")
     pol = _word(raw, "policy_md")
     if pol:
         pp = pathlib.Path(pol) if pathlib.Path(pol).is_absolute() else repo / pol
@@ -581,16 +583,19 @@ def _merge_base(repo: pathlib.Path, ref: str) -> str:
 
 
 def _change_base(raw: dict, repo: pathlib.Path, reads=None):
-    """変更の入口（base か pr）を解いて {base_rev, change} を返す。どちらも無ければ None。両方は拒む。
+    """差分の根を名指す入口（base か pr）を解いて {base_rev, base: {rev, from, name}, pr: {number, title, body} | None} を返す。
+    どちらも無ければ None（差分の根は HEAD。build_input が埋める）。両方は拒む。base.from は誰が根を決めたかの名札（base・pr）で、
+    後ろの段は分岐に使わない（頭の行と報告に書くだけ）。
     pr は gh を呼ばず、start が run の中で読んだ読み出し reads（ghreads.read_named の返りか、再開では盤面の github.json）の
     pr[<番号>] を読む（設計書 2.8）。読み出しに無い・読めなかった項・head が今の HEAD と違えば拒む（別の版を
     黙って見ない）。差分の根は GitHub が持つ base の版（baseRefOid）と HEAD の merge-base——fetch しないローカルの枝は古いことが
-    あるので名前では引かない。change.text は PR の題と本文（目的の文の出典の PR 説明として盤面の依頼の文に渡す）"""
+    あるので名前では引かない。pr の題と本文は添え物（_request_text が盤面の依頼の文に並べる）"""
     base, pr = _word(raw, "base"), _word(raw, "pr")
     if base and pr:
         raise InputRefused(f"base={base!r} と pr={pr!r} を両方名指した——どちらの差分か決まらない（片方だけ）")
     if base:
-        return {"base_rev": _merge_base(repo, base), "change": {"from": "base", "name": base, "text": ""}}
+        rev = _merge_base(repo, base)
+        return {"base_rev": rev, "base": {"rev": rev, "from": "base", "name": base}, "pr": None}
     if not pr:
         return None
     if not pr.isdigit():
@@ -608,8 +613,35 @@ def _change_base(raw: dict, repo: pathlib.Path, reads=None):
     oid = doc["baseRefOid"]
     if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{oid}^{{commit}}"], capture_output=True).returncode:
         raise InputRefused(f"PR #{pr} の base の版 {oid[:12]} が対象に無い——fetch してから始める")
-    text = "\n\n".join(s for s in (str(doc.get("title") or "").strip(), str(doc.get("body") or "").strip()) if s)
-    return {"base_rev": _merge_base(repo, oid), "change": {"from": "pr", "name": pr, "text": text}}
+    rev = _merge_base(repo, oid)
+    return {"base_rev": rev, "base": {"rev": rev, "from": "pr", "name": pr},
+            "pr": {"number": pr, "title": str(doc.get("title") or "").strip(), "body": str(doc.get("body") or "").strip()}}
+
+
+EMPTY_REFUSED = "直す物も審査する物も無い"   # 差分が空で依頼の行も空の入力を start が拒む文の頭
+
+
+def _diff(repo: pathlib.Path, base_rev: str) -> dict:
+    """board.diff_of の Reject を InputRefused にした物"""
+    try:
+        return board.diff_of(repo, base_rev)
+    except Reject as e:
+        raise InputRefused(f"差分を測れない: {e}") from None
+
+
+def build_input(inp: dict, repo: pathlib.Path) -> dict:
+    """check_inputs の返りから、入口の入力の形（r1/start.json の欄 input。schema は darkfactory/schemas/input.schema.json）を作る:
+    {base: {rev, from, name}, head_rev, diff: {empty, files, stat}, requests, request_file, pr: {number, title} | None, spec}。
+    base は差分の根（名指しが無ければ HEAD・from head）、diff は差分の根から作業ツリーの今の姿までの測り（board.diff_of）、
+    requests は依頼の行の数、pr は PR の番号と題（本文は盤面の依頼の文と github.json に在るので写さない）。
+    後ろの段（盤面・ブロック・境の節・報告）はこの形の中身（diff.empty・requests・pr・spec）だけを読み、入口の種類を見ない"""
+    repo = pathlib.Path(repo)
+    head = _git(repo, "rev-parse", "HEAD")
+    base = inp.get("base") or {"rev": head, "from": "head", "name": ""}
+    pr = inp.get("pr")
+    return {"base": dict(base), "head_rev": head, "diff": _diff(repo, base["rev"]), "requests": len(inp["items"]),
+            "request_file": inp["request_file"], "pr": {"number": pr["number"], "title": pr["title"]} if pr else None,
+            "spec": False}
 
 
 def _read_request(rel: str, repo: pathlib.Path, rules):
@@ -1018,9 +1050,18 @@ ENTRIES = ("request", "change", "both")
 
 
 def _request_text(inp: dict) -> str:
-    """盤面の依頼の文（DiskBoard.begin の request_text。固定材料の依頼の sha256 もこの文で照らす）"""
-    change = inp.get("change")
-    return inp["request_text"] or change["text"] or f"変更（{change['from']} {change['name']}）の審査"
+    """盤面の依頼の文（DiskBoard.begin の request_text。固定材料の依頼の sha256 もこの文で照らす）。依頼のファイルの文と PR の題・
+    本文の在る物を並べる: 両方なら見出し「## 依頼」「## PR #N の題と本文」つき、片方だけならその文のまま（固定材料の sha256 を
+    変えない）、どちらも無ければ差分の審査の 1 行"""
+    pr = inp.get("pr")
+    pr_text = "\n\n".join(x for x in (pr["title"], pr["body"]) if x) if pr else ""
+    req = inp["request_text"]
+    if req and pr_text:
+        return f"## 依頼\n\n{req.strip()}\n\n## PR #{pr['number']} の題と本文\n\n{pr_text}\n"
+    if req or pr_text:
+        return req or pr_text
+    base = inp.get("base") or {"from": "head", "name": "HEAD"}
+    return f"変更（{base['from']} {base['name']}）の審査"
 
 
 def _kept(inp: dict) -> dict:
@@ -1139,7 +1180,7 @@ def _entry_words(kind: str, inp: dict) -> str:
     """頭の行の入口の文"""
     if kind == "request":
         return f"判定から（依頼 {len(inp['items'])} 件）"
-    ch = inp["change"]
+    ch = inp["base"]
     what = f"変更から（{inp['base_rev'][:12]}..HEAD・{'PR #' if ch['from'] == 'pr' else 'base '}{ch['name']}）"
     return what if kind == "change" else f"{what}と依頼 {len(inp['items'])} 件（版が固まった後に積む）"
 
@@ -1173,7 +1214,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     inp = check_inputs(raw, repo, reads=reads)
     if inp["fix_fixture"]:
         return _start_from_fixture(board_dir, repo, raw, inp, run_id=run_id)
-    change = inp.get("change")
+    change = inp.get("base")
     kind = "both" if change and inp["items"] else "change" if change else "request"
     table = load_table(LINE)
     head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
