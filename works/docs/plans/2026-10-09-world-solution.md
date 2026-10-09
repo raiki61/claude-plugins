@@ -264,29 +264,33 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 
 **Interfaces（Produces）:** 盤面の控え（`marks.path_of` の置き場）に `means: [str]`。目的の文の型は写しのまま
 
-- [ ] 赤: `test_purpose_means_split_to_mark`・`test_independent_design_input_has_no_means`・`test_purpose_without_means_passes`
-- [ ] 入れる・緑・commit（`feat(works): 目的の役が依頼の示した解き方を目的の文から分けて足し欄 means に置く`）
+- [x] 赤: `test_purpose_means_split_to_mark`・`test_independent_design_input_has_no_means`・`test_purpose_without_means_passes`
+- [x] 入れる・緑・commit（`feat(works): 目的の役が依頼の示した解き方を目的の文から分けて足し欄 means に置く`）
+- 入れた形（2026-10-10）: 欄の意味（型・外す・控える・読む）の住処は `worldmark`（`MEANS`・`with_means`・`split_means`・`write_means`・`means_of`）で、手順は marks の種 `means`（控え `purpose-means.json`。解き方の無い依頼は置かない）。外すのは受け付けの芯 `.shared/core/purpose.py` の `check_purpose`（`blk-purpose/scripts/accept.py` は呼ぶだけ）。役の型への足しは `accept.role_schema` が重ねる。独立設計の試験は縛るだけ（中身を変えて赤になることは確かめた）
 
 ### W7: 線へ差し込む
 
 **Files:** Modify `works/darkfactory/darkfactory.yaml`（節 `worlding`・境の節 `h-world`）・`works/darkfactory/lib/line_edge.py`（控えを盤面の根に写す・`structure_units` が `worldmark.unit_note` を要約の尾に足す）・`works/.shared/core/entry.py`（`FEATURES` に `world`。測りの比べのため。既定は on）・`works/darkfactory/darkfactory.graph.json`（地図の作り直し）。Test `works/tests/test_line_wiring.py`・`works/tests/test_edge.py`・`works/tests/test_line_inputs.py`
 
-- [ ] 赤: `test_world_block_between_purpose_and_judge`・`test_feature_world_off_skips_block_and_reports_it`・`test_structure_unit_summary_carries_world_note`・`test_world_output_has_readers`（段 1 の Task 1.5 の読み手の柵に当たる）
-- [ ] 入れる・緑（線の模擬実行は CI）・commit（`feat(works): 世界の解の段を目的の後・判定の前に差し込む`）
+- [x] 赤: `test_world_block_between_purpose_and_judge`・`test_feature_world_off_skips_block_and_reports_it`・`test_structure_unit_summary_carries_world_note`・`test_world_output_has_readers`（段 1 の Task 1.5 の読み手の柵に当たる）
+- [x] 入れる・緑（線の模擬実行は CI）・commit（`feat(works): 世界の解の段を目的の後・判定の前に差し込む`）
+- 入れた形（2026-10-10）: 節 `worlding` は `h-mat` の後（素材集めと並ぶ）で、`when` は境の節の欄 `world_go`（線の when と include の with はいつも走る節だけを読む決まり M4 のため、目的の文の後に走る境 `h-mat` が決める。段の控えが盤面に在れば回さない＝run に 1 回・機能 `world` が off なら回さない）。入力の目的の文のファイルは `h-mat` が目的の文と `means` から組む（`world_purpose_file`）。境の節の出口の欄に 2 つ足した（`world_go`・`world_purpose_file`）。境 `h-world`（script `world`・all_done）が `line_edge.world_edge` で控えを `worldmark.write` に書き、判定がそれを待つ。機能の語の柵（考え `features`）の語の形には `world` を足していない（同じ字が関所の欄・答えの鍵の別の考えに在り、既知の漏れを増やすため。開発側の裁き）
 
 ### W8: 使う側（判定・構造の目・修正案・事前審査）
 
 **Files:** Modify `works/blk-judge/commands/diagnose.md`（7 項の (a)・(d)、8 項）・判定の支度の script（`worldmark.section` を貼る）・`works/blk-judge/blk-judge.yaml`（入力 `world_file`）・`works/blk-structure/commands/structure-eye.md`（chosen の 1 項）・`works/.shared/core/planmarks.py`（種 `world`・`structure_gaps` を答えの要る行の表を受ける形に）・`works/blk-plan/lib/planblk.py`（頭に `worldmark.section`）・`works/.shared/core/gatemarks.py`（`_RULE` の文だけ）。Test `works/tests/test_blk_judge.py`・`works/tests/test_structure_eye.py`・`works/tests/test_plan_fields.py`・`works/tests/test_blk_plan.py`
 
-- [ ] 赤: `test_judge_head_has_world_rows`・`test_proposed_means_not_counted_as_prior_decision`（指示書の文の在りか）・`test_plan_item_overlapping_world_row_needs_answer`・`test_plan_unanswered_world_row_refused`・`test_world_deviation_listed_for_review`・`test_structure_gaps_shared_by_world_and_structure`
-- [ ] 入れる・緑・commit（`feat(works): 判定・構造の目・修正案・事前審査が世界の解の行を読み、修正案は行ごとに従うか外れの訳を書く`）
+- [x] 赤: `test_judge_head_has_world_rows`・`test_proposed_means_not_counted_as_prior_decision`（指示書の文の在りか）・`test_plan_item_overlapping_world_row_needs_answer`・`test_plan_unanswered_world_row_refused`・`test_world_deviation_listed_for_review`・`test_structure_gaps_shared_by_world_and_structure`
+- [x] 入れる・緑・commit（`feat(works): 判定・構造の目・修正案・事前審査が世界の解の行を読み、修正案は行ごとに従うか外れの訳を書く`）
+- 入れた形（2026-10-10）: 判定のブロックに入力 `world_file` は足していない（M4 の決まりで include の with は `h-world` を読めない）。判定の支度（`blk-judge/lib/judgebrief.py`）が盤面の根の控えから `worldmark.board_section` を材料の頭に貼る（修正案の頭が構造の目の控えを読むのと同じ形。`blk-judge`・`blk-plan` の manifest の consumes に控えを宣言し、柵 `world` の知ってよい所に `blk-*/manifest.json` を足した。開発側の裁き）。`test_judge_head_has_world_rows` は盤面の要る試験なので `tests/test_line_a.py` に置いた。構造の目の指示の本文は `blk-structure/lib/eye.py` の `render`（`commands/structure-eye.md` は包み）。`structure_gaps(plan, tables)` は表 `planmarks.Need` の並びを受け、構造の目の表は `planmarks.design_need`、世界の解の表は `worldmark.need`、2 つを組むのは `planrange.answer_tables`（修正案の受け付けと同じ run の中の案の直しの 2 か所が使う）
 
 ### W9: 関所の世界の解の軸と keep-essence の 12（段 2 の Task 2.6 の後）
 
 **Files:** Modify `works/.shared/core/gatemarks.py`（`plan_gate_items` に世界の解の外れ・`KIND_WORDS`・`decided` に `worldmark.world_ok`）・`works/docs/keep-essence.md`（12 と数）。Test `works/tests/test_plan_gate.py`・`works/tests/test_gate_drafts.py`
 
-- [ ] 赤: `test_world_deviation_becomes_gate_item`・`test_deviation_cited_to_request_goes_to_human`・`test_following_world_row_passes_without_asking`・`test_unattended_world_deviation_stops_with_draft`・`test_knowledge_row_named_in_gate_item`
-- [ ] 入れる・緑・commit（`feat(works): 依頼を出どころにした世界の解の外れを修正前の関所に上げ、keep-essence に 12 を足す`）
+- [x] 赤: `test_world_deviation_becomes_gate_item`・`test_deviation_cited_to_request_goes_to_human`・`test_following_world_row_passes_without_asking`・`test_unattended_world_deviation_stops_with_draft`・`test_knowledge_row_named_in_gate_item`
+- [x] 入れる・緑・commit（`feat(works): 依頼を出どころにした世界の解の外れを修正前の関所に上げ、keep-essence に 12 を足す`）
+- 入れた形（2026-10-10）: 4 つの軸は `gatemarks.axes` に在る（`decided` は決め手の欄の揃いだけ）。世界の解の軸は、段が行を出した run（`worldmark.stage_rows` が並び）だけ `world_ok` で決め、控えが無い・段が落ちた run は今どおり（world か URL の決め手。段の落ちで関所が緩まない。開発側の裁き）。知識だけの行（knowledge）は 5.5 節の「知識だけの定石に従うのは自明側、外れは人へ」のとおり、従う答えは揃い、外れは出どころが依頼の外でも人に回す（`world_ok`）。外れの項目の文は `worldmark.gate_line`、人が continue で通した項目は聞き直さない。観点 `step-up` は観点の地図にまだ無かったので、強さ「機械で強制」の行をこの段で足した（`world`・`web-split`・`doubt-always` の住処と隙間の書き直しは W10）
 
 ### W10: 報告と文書
 
