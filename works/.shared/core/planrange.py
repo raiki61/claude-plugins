@@ -22,6 +22,7 @@ import posixpath
 
 import conflict
 import planmarks
+import stopby   # L1。止めの理由の住処
 
 # 単位に結べない変わったパスがほかの項目の out_of_scope に当たり、ある項目の範囲には入る時に足す文（申告すればその項目で照らす）
 OWNER_HINT = "（項目 {nums} の範囲には入る。その項目の単位の changes[].files に申告すれば、その項目の out_of_scope だけで照らす）"
@@ -122,7 +123,7 @@ def outside(items: list[dict], paths, permits=(), *, hint: bool = True) -> list[
     return out
 
 
-def approved(b, *, by: str = conflict.FIELDS_STOP_BY):
+def approved(b, *, by: str = stopby.FIX):
     """(承認済みの修正案の項目, 照らさない理由)。項目が無い・範囲の欄の無い控えなら (None, 理由)。控えが凍結の印と食い違えば
     conflict.fields_broken の道（by の印で盤面を止めて BoardGap）"""
     try:
@@ -136,7 +137,7 @@ def approved(b, *, by: str = conflict.FIELDS_STOP_BY):
     return items, ""
 
 
-def check_paths(b, paths, *, ruled: bool = True, by: str = conflict.FIELDS_STOP_BY) -> tuple[list[str], dict]:
+def check_paths(b, paths, *, ruled: bool = True, by: str = stopby.FIX) -> tuple[list[str], dict]:
     """盤面 b の承認済みの修正案の項目（範囲の相談の合意を足した物）で、単位に結べない変わったパス paths を outside で照らす
     （hint なし: 結ぶ単位を申告する欄の無い役）。返り (外れの行, 記録 {checked, items | why})"""
     items, why = approved(b, by=by)

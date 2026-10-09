@@ -34,6 +34,7 @@ from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, PLAN_FIELDS, block, boa
                           run_script)
 from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
 from test_blk_fix_tdd import LoopCase  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 DEADLINE = 1728000000
 WHY = "テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている"
@@ -313,7 +314,7 @@ class TestRuledScope(ConflictBoardCase):
         with self.assertRaises(_board.BoardGap) as cm:
             planscope.check([], entry.open_board(self.board), self.repo, "HEAD", [], pass_="first")
         self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
-        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], stopby.FIX)
 
 
 class TestAskHuman(ConflictBoardCase):
@@ -390,7 +391,7 @@ class TestAskHuman(ConflictBoardCase):
         self.assertIn(conflict.HEAD, got["gate_text"])
         self.assertIn(MEAN, got["gate_text"])
         b = entry.open_board(self.board, allow_halted=True)
-        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == conflict.BY]
+        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == stopby.CONFLICT]
         self.assertEqual(len(rows), 1)
         self.assertIsNone(rows[0]["answer"])
         items = report.next_request(b)
@@ -701,7 +702,7 @@ class TestPlanRewritePermits(ConflictBoardCase):
             conflict.frozen_fields(entry.open_board(self.board))
         self.assertTrue(str(got.exception).startswith(conflict.FIELDS_BROKEN), got.exception)
         after = entry.open_board(self.board, allow_halted=True)
-        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        self.assertEqual(after.state["stop"]["by"], stopby.FIX)
         with self.assertRaises(board.BoardGap) as again:
             conflict.test_permits(after)
         self.assertEqual(str(again.exception), str(got.exception), "_plan_rewrites と同じ文")
@@ -806,7 +807,7 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertIn(planmarks.FIELDS_FILE, err)
         self.assertNotIn("Traceback", err)
         after = entry.open_board(self.board, allow_halted=True)
-        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        self.assertEqual(after.state["stop"]["by"], stopby.FIX)
         self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
 
     def test_same_file_by_plan_and_ruling_lists_both_reasons_at_final_gate(self):
@@ -1012,7 +1013,7 @@ class TestTamperedFieldsAtLineEdge(ConflictBoardCase):
         self.assertFalse(out.get("ask"), "答えが効かない関所を開かない")
         self.assertIn(planmarks.FIELDS_FILE, out["why"])
         b = entry.open_board(self.board, allow_halted=True)
-        self.assertEqual(b.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        self.assertEqual(b.state["stop"]["by"], stopby.FIX)
         stops = [x for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"op": "stop"' in x]
         self.assertEqual(len(stops), 1, "2 度止めない")
         self.assertFalse(b.work(line_edge.FINAL_GATE_FILE).exists())

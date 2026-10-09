@@ -55,6 +55,7 @@ import gatemarks  # noqa: E402
 import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインの模块）
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 # 役の名（YAML の輪 <役>-loop・節 spec-<役>・包みの印 spec-<役>）→ 写しの graph の節
 ROLES = {"write": "spec.write", "review": "spec.review", "revise": "spec.revise"}
@@ -64,7 +65,7 @@ FREEZE = "spec.freeze"
 # 輪（loop_group）の max_iterations と同じ数（tests/test_blk_spec.py が YAML と突き合わせる）。この数だけ拒んだら done・give_up を出し、
 # 輪を max_iterations で落とさずに collect へ渡す（R50）
 GIVE_UP_AFTER = 3
-STOP_BY = "works:spec"                  # 輪が諦めた・固まらなかった時に collect が盤面を止める by
+STOP_BY = stopby.declare("spec", "仕様の輪が諦めた・固まらなかった")   # collect が盤面を止める by
 GATE_BY = "human:spec-gate"             # 出口の approved_by（人が関所 spec-gate で承認した。境の節の MID_GATE_BY と同じ名づけ）
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 REJECTS = "spec-rejects.json"           # 今の周の作業ファイル（b.work）

@@ -30,6 +30,7 @@ import entry  # noqa: E402
 import judgetake  # noqa: E402
 import node_marker  # noqa: E402
 import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 from engine.schema import validate_schema  # noqa: E402  （board が写しの engine を sys.path に足した後）
 
 ROLE = "judge-verify"                  # 束ね役の節の id と印の名
@@ -42,7 +43,7 @@ ANSWER_FILE = "unit-{n}.json"
 SYNERGY_FILE = "synergy.json"
 MIN_UNITS = 2                          # 裏取りを回す開いた単位の数の下限（1 単位は相乗りが無く、事前審査の下請けと重なる。設計書）
 SUBAGENT_TYPE = "general-purpose"      # 下請けの型は 1 つ（答えのファイルを書ける型。線の木の段 1 の教訓）
-STOP_BY = "works:judge-verify"         # 作業ツリーを変えた時の盤面の state.stop.by
+STOP_BY = stopby.declare("judge-verify", "判定の裏取りの束ね役か下請けが作業ツリーを変えた")   # 盤面の state.stop.by
 TRACE_OP = "judge_verify"
 OFF_OP = "judge_verify_off"           # 入力 verify が off で裏取りを回さなかった周の trace の行
 CHECKED, UNVERIFIED = "checked", "unverified"

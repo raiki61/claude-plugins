@@ -18,7 +18,6 @@ import os
 
 LENS_FILE = "lens.json"
 REVIEW_NODE = "p3.delta_review"   # 採った・採らなかったを数える差分の審査の節（1 回目）
-STOP_BY = "works:lens"   # 集め役が終わらなかった盤面の state.stop.by
 STATES = ("pending", "ran", "failed", "not_routed")
 FINDING_KEYS = ("where", "cite", "why")
 UNSEEN = {"pending": "集め役が埋めていない", "failed": "落ちた", "not_routed": "起こさなかった"}

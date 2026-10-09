@@ -45,6 +45,7 @@ import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 REFIT = "refitting"   # 2 回目の修正の段の線の include の名（その scope の根に 2 回目の段の物を書く。依頼 239）
 # 2 回目の修正の段の中の節の居場所（Archon が script の節に渡す ARCHON_NODE_EXECUTION。依頼 239 の測り M1）
@@ -208,7 +209,7 @@ class TestHold(ReplanCase):
         with mock.patch.object(recount, "accept_fix", return_value={"ok": False, "reason": "数え直しが合わない", "changes": []}):
             self.assertFalse(replan.hand_held(self.board, self.repo))
         stop = entry.open_board(self.board, allow_halted=True).state["stop"]
-        self.assertEqual(stop["by"], replan.STOP_BY)
+        self.assertEqual(stop["by"], stopby.REPLAN)
         self.assertIn("数え直しが合わない", stop["reason"])
 
     def test_no_waiting_hands_as_before(self):
@@ -833,9 +834,9 @@ class TestAnswer(TripCase):
         self.assertEqual(got["returned"], [MEAN])
         b = entry.open_board(self.board)
         self.assertIn("README.md", planmarks.approved_items(b)[0]["allowed_paths"])
-        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]
+        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == stopby.REPLAN]
         self.assertEqual(rows, [{"round": b.round, "kinds": [replan.HUMAN_KIND], "asked": [replan.GATE_FILE],
-                                 "answer": "continue", "note": "README も触ってよい", "node": replan.STOP_BY}])
+                                 "answer": "continue", "note": "README も触ってよい", "node": stopby.REPLAN}])
         notes = pathlib.Path(got["notes_file"]).read_text(encoding="utf-8")
         self.assertIn("README も触ってよい", notes)
         self.assertIn("mean-copy-advice", notes)
@@ -852,7 +853,7 @@ class TestAnswer(TripCase):
         self.assertEqual([c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]], [CLAMP])   # 1 回目の直しは残る
         self.assertEqual(b.node_state("p3.fix"), "done")
         self.assertIn("人が関所 replan-gate で run を止めた", conflict.human_lines(b)[0])
-        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]
+        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == stopby.REPLAN]
         self.assertEqual([h["answer"] for h in rows], ["stop"])
         self.assertEqual(planmarks.approved_items(b)[0]["allowed_paths"], _item(1)["allowed_paths"], "差し替えない")
 
@@ -900,7 +901,7 @@ class TestAnswer(TripCase):
         self.assertEqual(trace_ops(self.board), before)
         self.assertEqual(before.count(planmarks.AMEND_OP), 1)
         b = entry.open_board(self.board)
-        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
+        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == stopby.REPLAN]), 1)
         # 途中で落ちた再開（answered と result を書く前に落ちた）: 同じ答えをもう 1 度当てても行を積み増さない
         doc = self.trip_doc()
         del doc["answered"]
@@ -910,7 +911,7 @@ class TestAnswer(TripCase):
         self.assertEqual(replan.answer(self.board, self.repo, gate), first)
         self.assertEqual(trace_ops(self.board).count(planmarks.AMEND_OP), 1)
         b = entry.open_board(self.board)
-        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
+        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == stopby.REPLAN]), 1)
 
     def test_stop_twice_is_idempotent(self):
         self.trip(new=wider_paths(), review=no_faces())
@@ -919,7 +920,7 @@ class TestAnswer(TripCase):
         first = replan.answer(self.board, self.repo, gate)
         self.assertEqual(replan.answer(self.board, self.repo, gate), first)
         b = entry.open_board(self.board, allow_halted=True)
-        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
+        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == stopby.REPLAN]), 1)
 
     def test_lines_name_each_item(self):
         import line_edge

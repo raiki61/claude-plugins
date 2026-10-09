@@ -39,6 +39,7 @@ import refix  # noqa: E402
 import seat  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 
 
@@ -702,7 +703,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
             refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
         self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
         stop = real_entry.open_board(self.board, allow_halted=True).state["stop"]
-        self.assertEqual(stop["by"], refix.DELTA_BY)   # 差分の審査の段の印（修正の段の印・文でない）
+        self.assertEqual(stop["by"], stopby.DELTA)   # 差分の審査の段の印（修正の段の印・文でない）
         self.assertTrue(stop["reason"].startswith(conflict.FIELDS_TAMPERED), stop["reason"])
         self.assertNotIn("テストの変更の許し", stop["reason"])
 
@@ -716,7 +717,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
         self.assertIn(deltamarks.VERDICTS_FILE, r.stderr)
         b = real_entry.open_board(self.board, allow_halted=True)
-        self.assertEqual(b.state["stop"]["by"], refix.DELTA_BY)
+        self.assertEqual(b.state["stop"]["by"], stopby.DELTA)
         self.assertIn(deltamarks.VERDICTS_FILE, b.state["stop"]["reason"])
 
     def test_rejected_take_keeps_no_verdicts(self):

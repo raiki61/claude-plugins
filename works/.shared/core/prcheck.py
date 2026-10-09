@@ -70,7 +70,6 @@ EXCLUDED = marks.KINDS["pr"].file   # 受け付けた外す hunk {node, excluded
 #   禁じる物の一覧は読むだけの役にとって完全にならない（gh pr update-branch・git push など）ので、柵は許す物で組む。
 GH_READ = ("pr list", "pr view", "pr diff")
 BRIEF = "pr-brief.json"         # 役への渡し物（落ちた理由・交差を取る集合・版）
-STOP_BY = "works:pr"           # 任せ先の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
 READS = (ROLE, "pr-loop", ROLE)   # reads.main_for の (役, 輪, 節)（include の名は reads が今の scope から引く）
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")

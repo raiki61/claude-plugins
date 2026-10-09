@@ -57,7 +57,6 @@ import fixture  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import impact  # noqa: E402
-import premises  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
 import querytest  # noqa: E402
@@ -66,6 +65,7 @@ import rejudge  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 import structmark  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
@@ -93,7 +93,7 @@ FINAL_GATE_KIND = "final_gate"               # process.human_items の行の kin
 ENDED_BY = "stop_after_round"                # 1 周の run が周を締めた後の盤面の halted.by（最後のテストの後の普通の終わり）
 ENDED_AT = ("ci", "look", "final", "eyes")   # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた盤面に止める答え・止め札が来た印の trace の行（b.stop は拒まれる）
-PROTECTED_BY = "works:protected"              # 守りのファイルの行の node（human_items）と、答えの無いまま止めた by
+PROTECTED_BY = stopby.declare("protected", "守りのファイルの行が答えを待つまま止めた")   # その行の node（human_items）も同じ語
 PROTECTED_KIND = "protected_files"            # その行の kinds
 PROTECTED_HEAD = "守りのファイルを触った"      # 最後の関所の冒頭 3 行の直後の節の見出し（1 行目でも名指す）
 PROTECTED_UNKNOWN = "守りのファイルを確かめられなかった"   # 一覧か git が読めない時の見出し（黙って空にしない）
@@ -101,14 +101,10 @@ FLAG_BY_PREFIX = "request:"                  # 止め札で止めた盤面の st
 FLAG_SEEN_OP = "stop_flag_seen"              # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 AFTER_HALT_OP = "stop_flag_after_halt"       # 止まった後に見た止め札の trace の行（b.stop は呼ばない。M3）
 EMPTY_FIX_OP = entry.EMPTY_FIX_OP           # 機械が p3.fix の空の返答を渡した印の trace の行（正本は entry。TA6）
-EMPTY_FIX_BY = entry.EMPTY_FIX_BY
-JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を盤面が受けなかった時の state.stop.by（h-plan）
-ADAPTER_BY = "works:adapter"                 # 包みが通っていない run を止めた state.stop.by（h-judge。blk-ci の柵と同じ名）
-PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
+JUDGE_BRIDGE_BY = stopby.declare("judge-bridge", "判定のブロックの出口を盤面が受けなかった")   # state.stop.by（h-plan）
 PREMISES_NODE = "p0.premises"
 PURPOSE_NODE = "p0.purpose"
-PENDING_REQUEST_BY = "works:pending-request"  # 依頼と変更の両方の run で、判定の前に依頼を積めなかった時の state.stop.by（h-mat）
-PURPOSE_BY = purpose.STOP_BY                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
+PENDING_REQUEST_BY = stopby.declare("pending-request", "依頼と変更の両方の run で、判定の前に依頼を積めなかった")   # state.stop.by（h-mat）
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
@@ -231,10 +227,10 @@ def _carried(b) -> dict:
 
 def _closed_round_stop(b) -> dict | None:
     """周を締めた盤面（halted.by stop_after_round。b.stop が拒む）に、盤面を開く口の照らし（entry.open_board）が止めた事実として
-    書いた trace の行（STOP_AFTER_END_OP・by scopes.SCOPE_CHECK_BY）の最後の物。無ければ None"""
+    書いた trace の行（STOP_AFTER_END_OP・by stopby.SCOPE_CHECK）の最後の物。無ければ None"""
     if (b.state.get("halted") or {}).get("by") != ENDED_BY:
         return None
-    rows = [r for r in report.trace_rows(b, STOP_AFTER_END_OP) if r.get("by") == scopes.SCOPE_CHECK_BY]
+    rows = [r for r in report.trace_rows(b, STOP_AFTER_END_OP) if r.get("by") == stopby.SCOPE_CHECK]
     return rows[-1] if rows else None
 
 
@@ -613,17 +609,17 @@ def _protected_row(b):
 
 def _waiting_rows(b) -> list:
     """最後の関所の答えを写す今の周の行（守りのファイル・食い違いの申し出）"""
-    return [r for r in (_row(b, PROTECTED_BY), _row(b, conflict.BY)) if r is not None]
+    return [r for r in (_row(b, PROTECTED_BY), _row(b, stopby.CONFLICT)) if r is not None]
 
 
 def _record_conflict(b, asks: list) -> None:
     """process.human_items に今の周の 1 行（kinds conflict・answer は最後の関所の答えまで None・note に件数と単位）。
     呼び直しでは積み増さず、答えの前なら中身だけを今の申し出に合わせる"""
     note = f"{conflict.HEAD} {len(asks)} 件: " + "、".join(asks) + "——最後の関所で人が決める（通すのは continue だけ）"
-    row = _row(b, conflict.BY)
+    row = _row(b, stopby.CONFLICT)
     if row is None:
         b.record["process"]["human_items"].append({"round": b.round, "kinds": [conflict.KIND], "asked": list(asks),
-                                                   "answer": None, "note": note, "node": conflict.BY})
+                                                   "answer": None, "note": note, "node": stopby.CONFLICT})
     elif row.get("answer") is None and (row.get("asked"), row.get("note")) != (list(asks), note):
         row.update(asked=list(asks), note=note)
     else:
@@ -831,12 +827,12 @@ def _premises_reply(premised) -> tuple:
 def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=None) -> dict:
     """h-judge の固有の仕事（前提の役の後・判定の前。計画 P1 Task 24・P1-R9・〔線A計〕T22）。順:
     1. 包みの確かめ: reads.adapter_seen（この run の worktree の包みの起動の記録。盤面を作った後の行）が偽で adapter_mode が
-       optional でなければ b.stop("包みが通っていない: …", by=ADAPTER_BY) で stop（_adapter_guard）。決まりは「包みの確かめは、
+       optional でなければ b.stop("包みが通っていない: …", by=stopby.ADAPTER) で stop（_adapter_guard）。決まりは「包みの確かめは、
        この run で役が 1 つ起きた後の最初の境の節で止める」。固定材料から始めた盤面（fixture.adopted）はここまでに起きた役が
        無いので確かめず、trace に ADAPTER_FIXTURE_OP の 1 行を残して h-review（修正のブロックと再審の後）に回す
     2. 表で p0.premises が role なのに盤面で今の周に済んでいなければ、前提のブロックの出口 premised の constraints_file を読んで
        entry.take(p0.premises)（起こした印を置いてから。盤面の写しの schema・measured_needs_output・writes が当たる）。
-       出口が届かない・読めない・盤面が受けないなら b.stop("前提の実測が盤面に無い: …", by=PREMISES_BY) で stop。
+       出口が届かない・読めない・盤面が受けないなら b.stop("前提の実測が盤面に無い: …", by=stopby.PREMISES) で stop。
        済んでいれば渡さない（Archon の再開で呼び直しても同じ）
     3. go True・premises_file は盤面の state.outputs["p0.premises"] の置き場（絶対パス。na・表に無い節なら空）・
        purpose_go は目的の文（p0.purpose）が盤面で待っているか（前提を渡した後の ready。purposing の when:）"""
@@ -856,7 +852,7 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
             why = "" if got["ok"] else f"盤面が前提の実測を受けない: {got['reason']}"
         if why:
             reason = f"前提の実測が盤面に無い: {why}"
-            entry.open_board(board_dir).stop(reason, by=PREMISES_BY)
+            entry.open_board(board_dir).stop(reason, by=stopby.PREMISES)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
     return {"go": True, "premises_file": _out_file(b, PREMISES_NODE), "purpose_go": PURPOSE_NODE in b.ready()}
@@ -864,7 +860,7 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
 
 def _adapter_guard(b, board_dir, repo, *, run_id: str, adapter_mode: str) -> dict | None:
     """包みの確かめ: adapter_mode が optional でなく、reads.adapter_seen（この run の worktree の包みの起動の記録）が偽なら
-    b.stop("包みが通っていない: …", by=ADAPTER_BY) をして stop の返りを返す。通れば None。呼ぶのは、この run で役が 1 つ
+    b.stop("包みが通っていない: …", by=stopby.ADAPTER) をして stop の返りを返す。通れば None。呼ぶのは、この run で役が 1 つ
     起きた後の最初の境の節（通常の盤面は h-judge、固定材料から始めた盤面は h-review）"""
     if adapter_mode == "optional":
         return None
@@ -872,7 +868,7 @@ def _adapter_guard(b, board_dir, repo, *, run_id: str, adapter_mode: str) -> dic
     if seen["seen"]:
         return None
     reason = f"包みが通っていない: {'・'.join(seen['whys'])}。{ADAPTER_HINT}"
-    b.stop(reason, by=ADAPTER_BY)
+    b.stop(reason, by=stopby.ADAPTER)
     return {"stop": True, "go": False, "why": reason}
 
 
@@ -897,7 +893,7 @@ def mat_edge(b, board_dir, repo) -> dict:
     """h-mat の固有の仕事（目的の文の後・P1 の目の前。計画 P1 Task 32・33）。順:
     1. 表で p0.purpose が role なのに盤面で今の周に済んでいなければ、目的の文のブロックが盤面の根に置いた purpose.json
        （core の purpose.read_purpose。blk-purpose の受け付けが書く）を読んで entry.take(p0.purpose)（起こした印を置いてから。
-       盤面の写しの schema が当たる）。無い・読めない・盤面が受けないなら b.stop("目的の文が盤面に無い: …", by=PURPOSE_BY) で
+       盤面の写しの schema が当たる）。無い・読めない・盤面が受けないなら b.stop("目的の文が盤面に無い: …", by=stopby.PURPOSE) で
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
     2. 依頼と変更の両方で始めた run の依頼がまだ積まれていなければ entry.add_pending_request で積む（CI の役の後の run でも、
        判定の前に必ず届ける）。版がまだ固まっていない（積むと入口の印が立つ）なら b.stop(…, by=PENDING_REQUEST_BY) で stop
@@ -917,7 +913,7 @@ def mat_edge(b, board_dir, repo) -> dict:
             why = "" if got["ok"] else f"盤面が目的の文を受けない: {got['reason']}"
         if why:
             reason = f"目的の文が盤面に無い: {why}"
-            entry.open_board(board_dir).stop(reason, by=PURPOSE_BY)
+            entry.open_board(board_dir).stop(reason, by=stopby.PURPOSE)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
     if entry.add_pending_request(b) == "waiting":
@@ -1021,7 +1017,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        stop・reject は b.stop(一言 か FINAL_GATE_STOP_NOTE, by=FINAL_GATE_BY)——周を締めた盤面では b.stop が拒むので、
        trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop。守りのファイルの行（h-final が書いた）にも答えを写す。
        gate が null（関所が開かなかった）なら守りのファイルと食い違いを確かめ直し（_guard。h-final が飛ばされた run でも行を書く）、
-       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・conflict.BY）。at final・eyes の確かめ（_guard）が盤面を止めた
+       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・stopby.CONFLICT）。at final・eyes の確かめ（_guard）が盤面を止めた
        （修正案の欄の控え plan-fields.json の食い違い。conflict.test_permits）なら、関所を開かず止め直さずに _halted_out
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
@@ -1077,10 +1073,10 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
             reason = f"{PROTECTED_HEAD}のに最後の関所の答えが無い（関所が開かなかった）——通すのは人の continue だけ: {guarded.get('note')}"
             _stop_board(b, at, reason, PROTECTED_BY)
             return {**out, "stop": True, "why": reason}
-        asked = _row(b, conflict.BY)
+        asked = _row(b, stopby.CONFLICT)
         if asked is not None and asked.get("answer") is None:   # 食い違いの申し出が人に回ったのに最後の関所が開かなかった
             reason = f"{conflict.HEAD}が人に回ったのに最後の関所の答えが無い（関所が開かなかった）: {asked.get('note')}"
-            _stop_board(b, at, reason, conflict.BY)
+            _stop_board(b, at, reason, stopby.CONFLICT)
             return {**out, "stop": True, "why": reason}
     if flag:
         b.trace(FLAG_SEEN_OP, at=at, reason=flag["reason"], by=flag["by"])

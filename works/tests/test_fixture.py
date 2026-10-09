@@ -29,6 +29,7 @@ import entry  # noqa: E402
 import fixture  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 PACK = entry.PACK
 REQUEST_TEXT = (ROOT / "dev" / "target-seed" / "request_ok.json").read_text(encoding="utf-8")
@@ -438,7 +439,7 @@ class FixtureEdgeCase(FixtureBase):
         got = self.edge("review", board=new_board, repo=other, adapter_mode="")
         self.assertEqual((got["stop"], got["go"]), (True, False), got)
         stop = json.loads((new_board / "state.json").read_text(encoding="utf-8"))["stop"]
-        self.assertEqual(stop["by"], line_edge.ADAPTER_BY)
+        self.assertEqual(stop["by"], stopby.ADAPTER)
 
 
 if __name__ == "__main__":

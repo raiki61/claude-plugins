@@ -408,8 +408,25 @@
    ]
   },
   "stop-reasons": {
-   "status": "散らばり",
-   "fences": []
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "機械の止めの語の字（works:<名> と頭の works:）",
+     "pattern": "[\"']works:[a-z{\"']",
+     "allowed": [
+      ".shared/core/stopby.py"
+     ],
+     "known": {}
+    },
+    {
+     "what": "住処の定数を別の名に写す",
+     "pattern": "^\\s*[A-Z][A-Z0-9_]*\\s*=\\s*stopby\\.[A-Z]|^\\s*from stopby import",
+     "allowed": [
+      ".shared/core/stopby.py"
+     ],
+     "known": {}
+    }
+   ]
   },
   "core-seams": {
    "status": "散らばり",

@@ -46,6 +46,7 @@ import hermetic  # noqa: E402
 import writes  # noqa: E402
 import leftovers  # noqa: E402
 import lens  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "report.py"
 REPORT_SH = ROOT / "dev" / "report.sh"
@@ -431,7 +432,7 @@ class OutcomeCase(ReportBase):
     def test_stopped_by_line(self):
         """包みが無い（包みを通す run で起動の記録が無い・包みの確かめで止めた）→ stopped_by_line、冒頭 4 に「包みが通っていない」"""
         self.judged()
-        self.stop("包みの確かめが通らない: 包みの起動の記録が無い", ci_role.FENCE_BY)
+        self.stop("包みの確かめが通らない: 包みの起動の記録が無い", stopby.ADAPTER)
         out, _, h = self.build()
         self.assertEqual(out["outcome"], "stopped_by_line")
         self.assertIn("包みが通っていない", h[H4])
@@ -1039,7 +1040,7 @@ class HeadCase(ReportBase):
         b = entry.open_board(self.board)
         b.loop_state["rejudge_requested"] = {"round": 1, "text": ODD}
         b.save()
-        self.stop("判定役の会話を確かめられない", rejudge.STOP_BY_SESSION)
+        self.stop("判定役の会話を確かめられない", stopby.REJUDGE_SESSION)
         out, _, h = self.build()
         self.assertEqual(out["outcome"], "stopped_by_line")
         self.assertIn("再審の会話を確かめられずに止めた", h[H1])
@@ -1430,8 +1431,6 @@ class NamesCase(unittest.TestCase):
         self.assertEqual(report.PR_NODE, prcheck.NODE)
         self.assertEqual(report.DOWNGRADE_KEYS, prcheck.DOWNGRADE_KEYS)
         self.assertEqual(report.REJUDGE_DIFF, rejudge.DIFF_NAME)
-        self.assertEqual(report.REJUDGE_SESSION_BY, rejudge.STOP_BY_SESSION)
-        self.assertEqual(report.ADAPTER_BY, ci_role.FENCE_BY)
         self.assertEqual(report.declared_downgrades("darkfactory"), prcheck.downgrades("darkfactory"))
         self.assertEqual(report.declared_downgrades("no-such-line"), [])
         # 読んだ証拠の索引の名（blk-plan と案の直しが書く）は head_reads が飛ばす索引（reads.is_index）で、役の reads-<役>.json は索引でない

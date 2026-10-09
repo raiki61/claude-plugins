@@ -47,14 +47,13 @@ import querytest  # noqa: E402
 import reads  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 CONT = "judge"   # 再審の役が続きとして起きる会話（包みの印の continue=）
 # 写しの再審の節 → 役の名（YAML の節 id と包みの印の名）。数と順は持たない（passes が写しから引く）
 ROLE_OF = {"p2.rejudge": "rejudge", "p3.rejudge_reply": "rejudge-reply", "p2.rejudge2": "rejudge2",
            "p3.rejudge_reply2": "rejudge-reply2", "p2.rejudge3": "rejudge3", "p2.rejudge_third": "rejudge-third"}
 POST_CHECK = "rejudge_output"   # 0.21.0 の写しで再審の節を見分ける印（写しの post_check の名）
-STOP_BY_SESSION = "works:rejudge-session"
-STOP_BY = "works:rejudge"
 # 盤面の今の周の作業ファイル（b.work）
 SNAPSHOT_NAME = "rejudge-snapshot.json"
 SESSION_NAME = "rejudge-session.json"
@@ -299,7 +298,7 @@ def route(board_dir, repo) -> dict:
     if hit["cont"] == CONT:
         s = session_ready(b, repo)
         if not s["ok"]:
-            b.stop(f"判定役の会話が見つからない（{s['why']}）。再審せずに止めた", by=STOP_BY_SESSION)
+            b.stop(f"判定役の会話が見つからない（{s['why']}）。再審せずに止めた", by=stopby.REJUDGE_SESSION)
             return {"next": "", "node": hit["node"], "why": s["why"], "stopped": True}
         _write_json(b.work(SESSION_NAME), {"id": s["id"], "path": s["path"], "launch_at": s["launch_at"]})
     return {"next": hit["role"], "node": hit["node"], "why": f"{hit['node']} が ready", "stopped": False}
@@ -541,7 +540,7 @@ def collect(board_dir) -> dict:
             else:
                 reason = (f"回した後も再審の節 {waiting} が ready のまま（engine の順とブロックの段の順がずれた——"
                           "写し直しで増えた節の段が無い）")
-            b.stop(reason, by=STOP_BY)
+            b.stop(reason, by=stopby.REJUDGE)
     done = [p for p in ps if p["node"] in b.rd["done"]]
     verdicts = [(b.output_of_round(p["node"], b.round) or {}).get("verdict", "") for p in done]
     rows = _read_json(b.work(DIFF_NAME), [])

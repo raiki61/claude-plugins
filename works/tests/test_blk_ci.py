@@ -50,6 +50,7 @@ from engine.role_run import delegate_settings  # noqa: E402
 import adapter  # noqa: E402
 import ci_role  # noqa: E402
 import node_marker  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 BLK = ROOT / "blk-ci"
 ADAPTER_BIN = ROOT / ".shared" / "core" / "claude-adapter"
@@ -414,7 +415,7 @@ class ScriptCase(unittest.TestCase):
                 self.assertIs(got["go"], False)
                 self.assertEqual(got["adapter"], "")
                 self.assertIn("adapter", got["reason"])
-                self.assertEqual(self.opened().state["stop"]["by"], ci_role.FENCE_BY)
+                self.assertEqual(self.opened().state["stop"]["by"], stopby.ADAPTER)
                 out = self.ok("collect", node="p0.local_checks")
                 self.assertIs(out["ok"], False)
                 self.assertIn("adapter", out["reason"])
@@ -429,7 +430,7 @@ class ScriptCase(unittest.TestCase):
                 self.assertEqual((got["ok"], got["done"]), (False, True), got)
                 self.assertIn("adapter", got["reason"])
                 b = self.opened()
-                self.assertEqual(b.state["stop"]["by"], ci_role.FENCE_BY)
+                self.assertEqual(b.state["stop"]["by"], stopby.ADAPTER)
                 self.assertNotEqual(b.node_state("p0.local_checks"), "done", "返答は受けない")
 
     def test_mode_is_fixed_at_fence(self):
@@ -446,7 +447,7 @@ class ScriptCase(unittest.TestCase):
                       reply=json.dumps(linekit.reply("ci_found"), ensure_ascii=False))
         self.assertEqual((got["ok"], got["done"]), (False, True), got)
         self.assertIn("柵", got["reason"])
-        self.assertEqual(self.opened().state["stop"]["by"], ci_role.FENCE_BY)
+        self.assertEqual(self.opened().state["stop"]["by"], stopby.ADAPTER)
         out = self.ok("collect", node="p0.local_checks", adapter=fence["adapter"])
         self.assertEqual((out["ok"], out["note"]), (False, ""), out)
 
@@ -471,7 +472,7 @@ class ScriptCase(unittest.TestCase):
         got = self.ok("fence", node="p0.local_checks")
         self.assertIs(got["go"], False)
         self.assertIn("切符", got["reason"])
-        self.assertEqual(self.opened().state["stop"]["by"], ci_role.FENCE_BY)
+        self.assertEqual(self.opened().state["stop"]["by"], stopby.ADAPTER)
 
     def test_accept_halts_without_fenced_launch(self):
         """包みを宣言した run（adapter が空）で、役の起動が包みを通っていない・柵 no_tree_write が掛かっていない → 受け付けは
@@ -488,7 +489,7 @@ class ScriptCase(unittest.TestCase):
                 self.assertEqual((got["ok"], got["done"]), (False, True), got)
                 self.assertIn("柵", got["reason"])
                 b = self.opened()
-                self.assertEqual(b.state["stop"]["by"], ci_role.FENCE_BY)
+                self.assertEqual(b.state["stop"]["by"], stopby.ADAPTER)
                 self.assertNotEqual(b.node_state("p0.local_checks"), "done", "返答は受けない")
                 self.assertEqual(b.record["materials"]["local_checks"]["status"], "not_run", "役の返答（found）は受けない")
                 out = self.ok("collect", node="p0.local_checks")
@@ -558,7 +559,7 @@ class ScriptCase(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertIn("3 回とも", out["reason"])
         st = self.opened().state
-        self.assertEqual(st["stop"]["by"], ci_role.STOP_BY)
+        self.assertEqual(st["stop"]["by"], stopby.CI)
         self.assertIn("green", st["stop"]["reason"])
 
     def test_unreadable_reply_is_a_reject(self):

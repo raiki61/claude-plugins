@@ -53,6 +53,7 @@ import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 ENTRY_NODE = "p4.assemble"
 GATE_NODE = "r4.human_gate"
@@ -115,7 +116,7 @@ PREMISES_NAME = "eyes-premises.json"   # r2.compare に渡した前提の入力�
 # route が起きた目と go（入口の周の作業ファイル）。Archon の節が落ちた筋を、盤面の順のずれ・設計待ちと見分ける
 ROUTES_NAME = "eyes-routes.json"
 LANES_NAME = gatemarks.LANES_NAME      # 落ちた筋と、その文（最後の関所の目の行の下に並ぶ。読み手は gatemarks.fell_lanes）
-STOP_BY = "works:eyes"
+STOP_BY = stopby.declare("eyes", "独立の目の返答を受けられなかった（3 回とも拒まれた・回した後も目が残った）")
 PROMPTS_COPY = rolekit.PROMPTS_COPY
 # 写しの目の指示書（r1.comment_candidates・r1.minimality・r3.coherence・r4.hidden_scope）は版を git show・git grep で読めと言うが、
 # 目の道具は Read・Grep・Glob だけで shell を持たない（実測: R4 が版を読めないと申告した）。目の cwd の作業ツリーは入口で撮った版の

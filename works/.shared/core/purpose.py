@@ -24,7 +24,6 @@ from engine.util import Reject  # noqa: E402
 import script_io  # noqa: E402
 
 NODE = "p0.purpose"
-STOP_BY = "works:purpose"   # 目的の文が盤面に無い・諦めた盤面の state.stop.by（blk-purpose の collect と、止まった盤面を見る線が共に使う）
 PREMISES_NODE = "p0.premises"
 PURPOSE_FILE = "purpose.json"             # 受け付けた目的の返答（graph の process.purpose と同じ中身）
 SNAPSHOT_FILE = "purpose-snapshot.json"   # 目的の役を起こす前（intake の時）の作業ツリーの姿。形は accept.TREE_SCHEMA（tree_state）

@@ -33,6 +33,7 @@ from engine.schema import validate_schema  # noqa: E402
 import premises  # noqa: E402
 import rolekit  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_SNAPSHOT_FILE, check_premises  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 DEADLINE = 1728000000
 INCLUDE_ID = "premising"   # 線 A がラインで使う include の id（Ruling R17。ブロックの中の節の id と重ねない）
@@ -79,11 +80,11 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(validate_schema(load("premises_no_output"), fmt), [])
 
     def test_stop_by_is_the_line_edge_one(self):
-        """止めた盤面の by はラインの h-judge と同じ 1 つの値（premises.STOP_BY を参照する。字で写さない）"""
-        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
-        import line_edge
-        self.assertIs(line_edge.PREMISES_BY, premises.STOP_BY)
-        self.assertNotIn(premises.STOP_BY, (BLK / "scripts" / "collect.py").read_text(encoding="utf-8"))
+        """止めた盤面の by はラインの h-judge と同じ 1 つの値（止めの理由の住処の stopby.PREMISES を引く。字で写さない）"""
+        for path in (ROOT / "darkfactory" / "lib" / "line_edge.py", BLK / "scripts" / "collect.py"):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("stopby.PREMISES", text, path)
+            self.assertNotIn(stopby.PREMISES, text, path)
 
     def test_graph_node_names_the_rule(self):
         # 受け付けは graph の節が名指す post_check を引く。名前が変われば写し直しで気づくように、今の名前を固める

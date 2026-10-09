@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へまとめて住処ありにした。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へ、`stop-reasons` を `.shared/core/stopby.py` へまとめて住処ありにした。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
@@ -56,7 +56,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `marks` | 返答の足し欄 | 住処あり |
 | `plan-scope` | 修正案の項目の範囲の照らし | 住処あり |
 | `test-files` | テストのファイルの見分け | 住処あり |
-| `stop-reasons` | 止めの理由 | 散らばり |
+| `stop-reasons` | 止めの理由 | 住処あり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 
 ---
@@ -182,6 +182,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 知ってよい所: 住処と約束だけ。何を運ぶかの決めは書き手の側が持ち、形は住処を呼ぶ: 残りの行と前の失敗の行は `.shared/core/report.py`（`next_request`・`prior_failures`・`next_doc`）、答えの下書きの選びは `.shared/core/gatemarks.py`（`answer_drafts`）、目的の外の所見の行は `.shared/core/outpurpose.py`（`next_items`）。読み手（`.shared/core/entry.py`・`blk-judge/scripts/intake.py`・`blk-premises/scripts/intake.py`・`blk-purpose/scripts/intake.py`・`blk-judge/lib/judgebrief.py`・`blk-plan/lib/planblk.py`・殻 `dev/lib.sh`）も住処の名と口を引く。`gatemarks.carried_section`（修正前の関所で人が通した行を同じ run の R4 に貼る）は run の中の受け渡しで、この考えではない
 - 今: 欄の出どころの名 `source` は別の考え（目的の役の出どころ・素材の出どころ・プラグインの置き場）にも同じ名が多いので、柵は下書きの印を作りと読みの形（`"draft": True`・`"draft" in` など）で見る。容器の欄の名 `findings`・`answers`・`pr`・`issue` も別の考え（壁打ちの往復の `answers` など）と同じ字なので柵に入れず、呼び手が住処の定数（`carry.FINDINGS` など）を引く決まりだけで守る。利用者と役に読ませる文（`.shared/core/gatemarks.py` の答え方の案内 `ANSWER_HOW`・役の指示書・`skills/works/SKILL.md`）は容器の形を字で書く。計画 `docs/plans/2026-10-09-chained-rounds.md` の Task 1（作業の手順は `docs/plans/2026-10-09-carry-home.md`）。人が関所で決めた答えの持ち越しと、依頼の答えを問いに結ぶ所は同じ計画の Task 2
 
+### `stop-reasons` 止めの理由
+
+- 状態: 住処あり
+- 住処: `.shared/core/stopby.py`（層 L1。標準ライブラリだけ。機械の語の頭 `HEAD`（`works:`）と頭の読み `is_line`、core が書く語と 2 つ以上の持ち主が共に書く語の表 `REASONS`（名 → 意味）とその定数 `ADAPTER`・`FIX` など、ブロックとラインが自分だけの語を足す口 `declare`（表の名・別の意味で足された名を拒む）と `declared`）
+- 約束: 語の字は盤面の `state.stop.by`・答えを待つ `process.human_items` の行の `node`・裁定の `by`・trace の行の `by` に残るので変えない（寄せる前の字の一覧を `tests/test_stopby.py` が縛る）。報告の結末の口 `.shared/core/report.py` の `stop_outcome` は `is_line` の語を `stopped_by_line` と読む
+- 知ってよい所: 住処だけ。core の書き手は住処の定数を引き、自分の定数に写さない。ブロックとラインの自分だけの語は `declare("名", "意味")` で足して返りを自分の定数に置く（例 `blk-eyes/lib/eyes.py` の `STOP_BY`・`darkfactory/lib/line_edge.py` の `PROTECTED_BY`。ほかのブロックの語は引かない）
+- 今: 寄せる前は 24 の `.py` が 35 行で語を字のまま持ち、同じ語を重ねて持っていた（`works:adapter` は 4 か所、`works:fix` は 3 か所。線は前提と目的の語を別の名の定数に写していた）。柵は語の字（`"works:<名>"`・頭の `"works:"`・f-string の頭）と、住処の定数を別の名に写す形（`X = stopby.ADAPTER`・`from stopby import`）を見る。人の止め（`human:`・`request:`・`answer`）は人の関所の考え `human-gates` の物で、ここには入れない
+
 ---
 
 ## 散らばり
@@ -222,12 +230,6 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 状態: 散らばり
 - 今: 写しの指示書を描く所は `.shared/core/rolekit.py` の `render_body` 1 つだが、「頭の節 → `---` → 写しの本文 → 役の定義 → 前の拒否」の並べはブロックごとに組む（`blk-plan/lib/planblk.py` の `head`・`brief_head`、`blk-eyes/lib/eyes.py` の `prep`、`blk-judge/lib/judgebrief.py`、`blk-material/lib/material.py`、`blk-spec/lib/specblk.py`、`blk-report/lib/report_roles.py`、`.shared/core/rejudge.py`、`.shared/core/design.py`）。「機械が貼った」節の見出しも各所の定数
-- 計画: まだ無い
-
-### `stop-reasons` 止めの理由
-
-- 状態: 散らばり
-- 今: 盤面の `state.stop.by` の語（`works:<名>`）を、26 の `.py` がそれぞれの定数で持つ（例 `.shared/core/lens.py` の `STOP_BY`・`.shared/core/premises.py` の `STOP_BY`・`blk-fix/scripts/assert_changed.py` の `STOP_BY`）。同じ値を別の所が重ねて持つ（`works:adapter` は `.shared/core/ci_role.py`・`.shared/core/report.py`・`blk-material/lib/material.py`、`works:fix` は 3 か所）。結末への写し（`works:` の頭なら `stopped_by_line`）は `outcome` の住処 `decide_outcome` に在る
 - 計画: まだ無い
 
 ### `core-seams` 写しの核の差し替えの口

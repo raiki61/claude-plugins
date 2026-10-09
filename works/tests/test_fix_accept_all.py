@@ -36,6 +36,7 @@ import tddloop  # noqa: E402
 from test_blk_fix import CLAMP, FIXED, INVENTED, MEAN, extra_row, load  # noqa: E402
 from test_blk_fix_conflict import CLAMP_FIX, MEAN_FIX, ReplanCase, conflict_on_mean, only_clamp_reply  # noqa: E402
 import test_replan  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 FROZEN_LINE = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']（輪で直した単位のテストは変えない）"
 WRITES_LINE = "書き込みの出どころの記録が無い変更: stats.py"
@@ -544,7 +545,7 @@ class StopsKeepWorkCase(ReplanCase):
         self.assertTrue(out["plan_faces"] and all(f["handled"] == "declared" for f in out["plan_faces"]))
         self.assertIn(accept_mod.EMPTY_HANDED, out["fix_closure"]["reason"])
         ops = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
-        self.assertTrue(any(o.get("op") == entry.EMPTY_FIX_OP and o.get("by") == entry.EMPTY_FIX_BY for o in ops))
+        self.assertTrue(any(o.get("op") == entry.EMPTY_FIX_OP and o.get("by") == stopby.EMPTY_FIX for o in ops))
         self.assertIs(json.loads(self.changed(r)[1])["ok"], True, "空の申告は義務の外の単位だけの正しい返答")
 
     def test_second_pass_reply_level_rows_keep_first_pass_rows(self):

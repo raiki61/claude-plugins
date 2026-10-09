@@ -8,6 +8,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- 機械が盤面を止めた理由の語（`state.stop.by` の `works:<名>`）を core の 1 つのモジュール `.shared/core/stopby.py` の表にまとめ、24 のモジュールがそれぞれ持っていた定数と重なり（`works:adapter` の 4 か所・`works:fix` の 3 か所）を消した。ブロックとラインの自分だけの語は住処の口 `declare` で足す。盤面・報告・固定材料に書く語の字は変わらない
 - 次の run への持ち越し（`next-request.json`・`prior-failures.json`・`prior-failures-in.json` の欄の名・下書きの印・依頼の容器の解き方）を core の 1 つのモジュール `.shared/core/carry.py` にまとめ、書き手（報告）と読み手（依頼の入口）が同じ名と同じ JSON Schema（`.shared/core/` へ移した `next-request.schema.json`・`prior-failures.schema.json`。書く前に照らす）を引くようにした（書く中身はバイト一致で変わらない）。run の後の CI の赤を次の依頼へ足す口は `python3 -I .shared/core/carry.py carry-ci …` に移り、前の `ghreads.py carry-ci` は移った先を 1 行で言って終了コード 2 で終わる。`use.sh` の表示が数える下書きの行は、次の run の入口が拒む行と同じ決まり（`draft` か `source` の欄が在る行）に揃えた。
 
 ## [0.2.55] - 2026-10-09

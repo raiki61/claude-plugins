@@ -30,6 +30,7 @@ import test_blk_fix_conflict as fc  # noqa: E402
 import test_line_a as TL  # noqa: E402
 import test_replan as tr  # noqa: E402
 from test_script_contract import line_replies  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 # 共有の記録（core・engine・rules が書き、どの scope の窓でも変わってよい物）は照らしと同じ 1 つの組 scopes.SHARED（"/" で区切った
 # 段ごとの fnmatch。* は段をまたがず、末尾の ** だけが下の全部の段に当たるので、r1/ の下の私物が *-r*.patch のような形の陰に隠れない）
@@ -172,7 +173,7 @@ class UndeclaredWriteCase(unittest.TestCase):
 
             got = scriptline.ScriptLine(pathlib.Path(t) / "run", replies=line_replies(), edits={"fix": stray}).run()
             state = json.loads((board / "state.json").read_text(encoding="utf-8"))
-            self.assertEqual(state["stop"]["by"], scopes.SCOPE_CHECK_BY, got["failure"])   # 次に開いた節が盤面を止めた
+            self.assertEqual(state["stop"]["by"], stopby.SCOPE_CHECK, got["failure"])   # 次に開いた節が盤面を止めた
             self.assertIn("planning/r1/z.json", state["stop"]["reason"])
             self.assertIn("scope fixing", state["stop"]["reason"])
             self.assertIn("darkfactory/reporting", got["trail"])   # 報告は止めた後も走る

@@ -57,6 +57,7 @@ import planmarks  # noqa: E402
 import reads  # noqa: E402
 import report  # noqa: E402
 import rolekit  # noqa: E402
+import stopby  # noqa: E402  （止めの理由の住処）
 
 DEADLINE = 1728000000
 RUN_ID = "run-plan"
@@ -1540,7 +1541,7 @@ class ConvergeReviewCase(unittest.TestCase):
         with self.assertRaises(planblk.BoardGap):
             planblk.rewind_roles(b)
         after = self.board_obj()
-        self.assertEqual(after.state["stop"]["by"], converge.BY)
+        self.assertEqual(after.state["stop"]["by"], stopby.PLAN_CONVERGE)
         self.assertEqual(after.node_state("p2.fix_plan"), "done")
         for later in planblk.LATER_NODES:
             with self.subTest(later):
@@ -1549,7 +1550,7 @@ class ConvergeReviewCase(unittest.TestCase):
                                              rewind=lambda *a, **k: self.fail("戻した"), settle=lambda: self.fail("進めた"))
                 with self.assertRaises(planblk.BoardGap):
                     planblk.rewind_roles(fake)
-                self.assertEqual(calls, [converge.BY])
+                self.assertEqual(calls, [stopby.PLAN_CONVERGE])
 
     def test_rejects_restart_per_pass(self):
         """1 往復目に事前審査を 2 回拒ませてから again → 控えに事前審査の行は残らず、往復の行の rejects に 2 行"""

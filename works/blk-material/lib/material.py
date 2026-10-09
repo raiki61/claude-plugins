@@ -56,6 +56,7 @@ import entry  # noqa: E402
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 # 役の名（YAML の節 id・包みの印の名）→ 写しの graph の節。並びは graph の順
 ROLES = {
@@ -163,8 +164,7 @@ LOCATION_NOTE = ("## 所見の場所の書き方（works の受け付けより�
 LOCATION_HEAD = "所見の場所の行がファイルに無い（差分の行番号を書いていないか。作業ツリーのファイルの行で書き直せ）"
 LOCATION_MARK = "（works の受け付け: この行はファイルに無い——差分の行番号の疑い）"
 CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
-STOP_BY = "works:material"
-FENCE_BY = "works:adapter"               # 包みの確かめが通らない時の止め札（blk-ci・線の境の節と同じ by）
+STOP_BY = stopby.declare("material", "素材集めの役の返答を受けられなかった（3 回とも拒まれた・回した後も待っている）")
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 READONLY_MOVED = "読むだけの役が作業ツリーを変えた: "
@@ -302,7 +302,7 @@ def route(board_dir, repo, mode: str) -> dict:
                 bad = str(e)
             if bad:
                 reason = f"包みの確かめが通らない: 旗 no-tree-write の素材集めの役を起こさない（{bad}）"
-                stop_once(b, reason, by=FENCE_BY)
+                stop_once(b, reason, by=stopby.ADAPTER)
                 return {"ok": True, "stopped": True, "why": reason, "snapshot_file": "", **off}
         p = b.work(SNAPSHOT)
         doc = _read_json(p)
@@ -556,7 +556,7 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
             why = adapter.fenced_launch(pathlib.Path(repo), role, prepared["at"])
             if why:
                 reason = f"包みの柵が素材集めの役（{role}）の起動に掛かっていない: {why}——返答を受けず盤面を止める"
-                stop_once(b, reason, by=FENCE_BY)
+                stop_once(b, reason, by=stopby.ADAPTER)
                 return {"ok": False, "done": True, "give_up": False, "stopped": False, "reason": reason, "node": nid,
                         "status": ""}
         snap = _read_json(b.work(SNAPSHOT))

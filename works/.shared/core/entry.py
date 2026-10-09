@@ -22,7 +22,7 @@
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
 - hand(b, board_dir, nid, reply, repo): 機械が返答を渡す 1 つの口（待っている試行 board.pending_instance に起こした印を置いてから take）
 - empty_fix_reply(b, why): 直す義務 0 件の周（と、修正の輪の最後の回に義務の全部を止めた周）に機械が渡す p3.fix の空の返答
-  （裁定 TA6）。trace_empty_fix(b) がその印を trace に 1 行（EMPTY_FIX_OP・EMPTY_FIX_BY）
+  （裁定 TA6）。trace_empty_fix(b) がその印を trace に 1 行（EMPTY_FIX_OP・by stopby.EMPTY_FIX）
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
 """
@@ -61,6 +61,7 @@ import ghreads  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import scopes  # noqa: E402
+import stopby  # noqa: E402  （L1。止めの理由の住処）
 import script_io  # noqa: E402  （L1。機能の切り替えの語 SWITCH_ON・SWITCH_OFF）
 import ticket  # noqa: E402
 import tree_run  # noqa: E402
@@ -326,7 +327,7 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
     と一緒に盤面に渡す（盤面の work が私物を <scope>/r<N>/ に置く）。部品のコードは scope を知らない。
     流れの道具の節（flow_adapter.in_flow_node）が置き場の版の盤面を開く時だけ、scope が空でも scopes.enter を呼ぶ: 前の scope の
     窓（盤面を開いてから次の scope が開くまで）の盤面の変化を前の部品の宣言に照らし、今の scope の窓を開く。宣言の外の書き込み・
-    公開の名の持ち主の重なり・Schema の外れが在れば盤面を止め（_halt_scope_check。by SCOPE_CHECK_BY）、allow_halted で開いて
+    公開の名の持ち主の重なり・Schema の外れが在れば盤面を止め（_halt_scope_check。by stopby.SCOPE_CHECK）、allow_halted で開いて
     いなければ BoardGap（開いた節が落ちる。報告と結果の節は allow_halted で開くので走る）。run の外の道具（dev/report.sh・
     dev/fixmeasure.py）と試験の手は窓に触らない。env の PEEK_ENV が 1 の時（役の sandbox の中で受け付けの確かめを読むだけで
     回す修正役の事前の確かめ。盤面は柵で書けない）は scope の登録も窓の照らしもしない（どちらも盤面を書く）"""
@@ -369,12 +370,12 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
 
 
 def _halt_scope_check(b: DiskBoard, at: str, reason: str) -> None:
-    """窓の照らしの誤りで盤面を止める（by scopes.SCOPE_CHECK_BY）。止められない盤面（周を締めた・もう止まった・終わった run。
+    """窓の照らしの誤りで盤面を止める（by stopby.SCOPE_CHECK）。止められない盤面（周を締めた・もう止まった・終わった run。
     b.stop が Reject）には止めた事実を trace に 1 行（scopes.STOP_AFTER_END_OP。at・reason・by。line_edge と同じ逃げ）"""
     try:
-        b.stop(reason, by=scopes.SCOPE_CHECK_BY)
+        b.stop(reason, by=stopby.SCOPE_CHECK)
     except Reject:
-        b.trace(scopes.STOP_AFTER_END_OP, at=at, reason=reason, by=scopes.SCOPE_CHECK_BY)
+        b.trace(scopes.STOP_AFTER_END_OP, at=at, reason=reason, by=stopby.SCOPE_CHECK)
 
 
 
@@ -1313,7 +1314,6 @@ def hand(b, board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path) 
 
 EMPTY_FIX_REASON = "直す義務 0 件の周（p2.fix_plan が条件で na）——修正の役を起こさず、機械が空の返答を渡した"
 EMPTY_FIX_OP = "empty_fix"                   # 機械が p3.fix の空の返答を渡した印の trace の行（TA6）
-EMPTY_FIX_BY = "works:empty-fix"
 
 
 def empty_fix_reply(b=None, why: str = EMPTY_FIX_REASON) -> dict:
@@ -1334,4 +1334,4 @@ def empty_fix_reply(b=None, why: str = EMPTY_FIX_REASON) -> dict:
 def trace_empty_fix(b) -> None:
     """機械が p3.fix の空の返答を渡した印を trace に 1 行（空の返答を渡した側——線と修正の受け付け——が take の後に呼ぶ。TA6）。
     at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
-    b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)
+    b.trace(EMPTY_FIX_OP, node="p3.fix", by=stopby.EMPTY_FIX, round=b.round)
