@@ -126,7 +126,10 @@ class FinalTestSuitesCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
+        import board
+        # 記録に素材を置く試験が在るので、本物の盤面と同じく写しの規則を持たせる（素材の status を写しの表で読む口が在る）
+        self.b = types.SimpleNamespace(state={"validator": str(board.VALIDATOR_PATH)}, dir=pathlib.Path(self._tmp.name),
+                                       record={"process": {}}, round=1, rules=board.rules_module(),
                                        output_of_round=lambda nid, n: {}, scope_root=pathlib.Path(self._tmp.name))
         self.b.work = lambda name: self.b.dir / name   # 事前審査の壁打ちの控え（converge.lines）・案の直しの控えの置き場。控えは無い
 

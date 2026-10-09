@@ -372,7 +372,7 @@ class EscalateAsksCase(GateBase):
         self.answer(b, got, note=f"保留: {held['key']}")
         self.assertEqual(self.owed(b), {FORK_UNIT})
         rows = [r for r in gatemarks.held_lines(b) if held["key"] in r]
-        self.assertEqual([r.split(f"{SKIP_MARK}: ")[1] for r in rows], [OTHER_UNIT])
+        self.assertEqual([r.split(f"{SKIP_MARK}: ")[1].split(f"／{gatemarks.ANSWER_KEY_HEAD}")[0] for r in rows], [OTHER_UNIT])
 
     def test_gate_item_exemption_and_return_name_the_same_units(self):
         """fork と escalate の両方で、関所の項目が名指す単位・答える前に外れる単位・答えて戻る単位が同じ"""

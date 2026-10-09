@@ -19,7 +19,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
   判定が目的の外として単位にしなかった材料の所見は材料の行の任意の欄 mechanism・measured・false_positive_if と、下書きの印
   draft・source も持つ。印の在る行は依頼の入口が拒むので、人が見直すまで次の run の目的にならない）
-- next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は無人の run の答えの下書き）
+- next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は人の判断を待つ項目への答えの下書き）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - handoff_lines(b) -> 修正役が人に回した物の行（breaks.accepted。冒頭 1・冒頭 3 行と最後の関所が同じ行を出す）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
@@ -827,7 +827,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・修正役が人に回した物（handoff_lines）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数と、その下に判定が目的の外として単位にしなかった所見の件数と置き場（outpurpose.count_line。
     1 件ずつの行は本文の節 OUTSIDE_HEADING。冒頭 1 は人が決めることだけを置く）と
-    無人の run の答えの下書きの件数（gatemarks.draft_line）。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
+    答えの下書きの件数（gatemarks.draft_line）。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
         lines.append(f"記録が検証器を通らない（exit {gate.get('exit')}・受理 {report_accepts(b)}・今の周の記録が"
@@ -1800,7 +1800,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
 
 
 def next_doc(b, items: list, prior: list) -> dict:
-    """次の run の依頼の下書き {findings, prior_failures}。無人の run が人の判断を待つ項目（関所で止めた項目・保留のままの問い）を残せば、答えの下書き
+    """次の run の依頼の下書き {findings, prior_failures}。人の判断を待つ項目（無人の run が関所で止めた項目・保留のままの問い・問いの無い測れていない素材）を残せば、答えの下書き
     （gatemarks.answer_drafts。draft: true・source つき。依頼の入口が拒むので人が見直してから使う）を answers に足す"""
     doc = {"findings": items, "prior_failures": prior}
     drafts = gatemarks.answer_drafts(b)

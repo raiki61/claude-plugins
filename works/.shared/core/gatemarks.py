@@ -61,7 +61,8 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - gate_text(asking, *, run_id, node, record_name): 答えを受ける関所の文（修正前の関所と仕様の関所が呼ぶ 1 つの組み立て）
 - recommend_gaps(node, reply)・recommend_of(mark): 関所の項目の行の推し recommend {answer, note, why}（実の利用者の run ac9e02ab）の
   形の誤り（受け付けが拒む）と、形の整った推し（人に回す項目の末尾「／推し: …」に載る。照らしの _human_passed はこの尾を外す）
-- answer_drafts(b)・draft_line(drafts, next_file): 無人の run が関所で止まった項目と保留のままの台帳の問いへの答えの下書き
+- answer_key(b, q): 依頼の answers でその問いに答える時の question（保留の行の尾 ANSWER_KEY_HEAD と下書きが使う）
+- answer_drafts(b)・draft_line(drafts, next_file): 無人の run が関所で止まった項目と、保留のままの台帳の問い・問いの無い測れていない素材への答えの下書き
   （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 ghreads が拒む）と、報告の冒頭 1 の行
 標準ライブラリと core の answer（L1。答えの行）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）だけ。
 """
@@ -148,6 +149,7 @@ KEY_CHAR = re.compile(r"[A-Za-z0-9_-]")   # 台帳の key の一致の前後に�
 HOLD_ITEM = re.compile(r"(?:^|[・、,，])\s*([A-Za-z0-9_-]*[A-Za-z0-9][A-Za-z0-9_-]*)")   # 「保留:」に並べた項の頭の key らしい並び
 START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
 ANSWERED_HEAD = "答えた問い（関所の continue か依頼の answers）"   # 答えた行（answered_lines）の見出し（報告の冒頭と最後の関所）
+ANSWER_KEY_HEAD = "答える時の answers の question"   # 保留の行の尾: 依頼の answers に字のまま書く question（answer_key。JSON の文字列で区切る）
 HAND_CHECKED = "人が手元で確かめた（実測とは書かない）"   # 命令と出力つきの依頼の答えが当たった測れていない素材の名乗り
 ANSWER_HOW = ('答え方: 次の run の依頼を {"findings": [...], "answers": [{"question": "<問いの key か出どころ>", "text": "<答え>"}]} '
               'の形にすれば、その問いを人に聞き直さない（手元で測ったなら "command" と "output" も書く）')
@@ -633,9 +635,18 @@ def _gate_draft(text: str, mark: dict, node: str) -> dict:
     return _draft(text, "", f"{who}の行（決め手の欄が無い）", "推しも狭めない案も世界の解も役が書いていない——人が答えを text に書く")
 
 
-def _ask_draft(q: dict) -> dict:
-    """台帳の問い 1 つの下書き（question は問いの key。見直して draft を外せば次の run の依頼の answers がこの問いに当たる）"""
-    key = str(q.get("key") or "")
+def answer_key(b, q) -> str:
+    """依頼の answers でこの問いに答える時の question: 出どころ（origin_of）が今の周に測れていない素材の名で、その名がこの問い
+    だけに当たるなら素材の名（短く、字が run ごとに変わらない）、ほかは問いの key"""
+    name = origin_of(b, q)
+    if name in unmeasured(b) and _hits(b, {"question": name}) == [q]:
+        return name
+    return str(q.get("key") or "")
+
+
+def _ask_draft(b, q: dict) -> dict:
+    """台帳の問い 1 つの下書き（question は answer_key。見直して draft を外せば次の run の依頼の answers がこの問いに当たる）"""
+    key = answer_key(b, q)
     got = [m.strip() for m in PUSH_IN.findall(str(q.get("reason") or "")) if m.strip() and m.strip() != NO_PUSH]
     if got:
         return _draft(key, got[0], f"{ASK_HEAD} {key} の理由の推し（判定の役）")
@@ -643,19 +654,27 @@ def _ask_draft(q: dict) -> dict:
     return _draft(key, "", f"{ASK_HEAD} {key} の選択肢", f"推しを判定の役が書いていない。選択肢から人が答えを text に書く: {opts}")
 
 
+def _material_draft(name: str, st: str, reason) -> dict:
+    """問いの立っていない測れていない素材の下書き（question は素材の名）。答えは人が手元で確かめて書く"""
+    return _draft(name, "", f"素材 {name}（{st}）",
+                  f"run の中で測れなかった（{_squeeze(reason) or '理由なし'}）。手元で確かめ、結果を text に、打った命令と出力を "
+                  "command と output に書く（両方が在れば、次の run はこの素材を人が手元で確かめた物として残りに数えない）")
+
+
 def answer_drafts(b) -> list:
-    """無人の run が人の判断を待つ項目を残した時の答えの下書き [{question, text, draft: True, source, note?}]（実の利用者の run ac9e02ab。
-    推しの無い行は text が空で、材料が note に在る。
-    人の居る run は関所で答えるので空）: 修正前の関所に無人の殻が stop を答えた周の項目ごとに 1 行（推しが在ればその答え、無ければ
+    """人の判断を待つ項目を残した時の答えの下書き [{question, text, draft: True, source, note?}]（実の利用者の run ac9e02ab。
+    推しの無い行は text が空で、材料が note に在る）: 無人の run だけ、修正前の関所に無人の殻が stop を答えた周の項目ごとに 1 行
+    （人の居る run は人が関所で答えた。推しが在ればその答え、無ければ
     狭めない案・世界の解。入力 design_only の設計だけの行は除き、事前審査の壁打ちが止まった行は載せる。控えに当たらない項目は文の
-    推しの尾を拾う）と、関所に載せずに保留のままの台帳の問いごとに 1 行（key と理由の推し。関所で止まらなかった run でも、保留の
-    問いが残れば載る）。機械は関所にも問いにも答えない——下書きは依頼の入口が拒むので、人が見直してから使う"""
-    if not unattended(b):
-        return []
-    rows = {_item(text, m): (text, m, node) for _, text, m, node in _gate_rows(b)}
+    推しの尾を拾う）と、人の居る run でも無人の run でも、保留のままの台帳の問い（held_lines に並ぶ問い。kind を問わない）ごとに
+    1 行（question は answer_key、text は理由の推し）と、問いの立っていない測れていない素材ごとに 1 行（question は素材の名。
+    依頼の答えが当たった素材は除く）。人の居る run の下書きは利用者の声 10-09 の C4（下書きが無く、利用者が問いの名を推して書いて
+    字が合わなかった）。機械は関所にも問いにも答えない——下書きは依頼の入口が拒むので、人が見直してから使う"""
     out = []
     stops = [h for h in (b.record.get("process") or {}).get("human_items") or []
-             if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "stop" and h.get("round") == b.round]
+             if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "stop" and h.get("round") == b.round
+             ] if unattended(b) else []
+    rows = {_item(text, m): (text, m, node) for _, text, m, node in _gate_rows(b)} if stops else {}
     for a in (stops[-1].get("asked") or []) if stops else []:
         if not isinstance(a, str) or a.startswith(DESIGN_ONLY_ITEM):
             continue
@@ -665,7 +684,12 @@ def answer_drafts(b) -> list:
         push = PUSH_IN.findall(a) if PUSH_TAIL.search(a) else []
         out.append(_draft(PUSH_TAIL.sub("", a), push[-1].strip(), f"{named(GATE_NODE)}の項目の文の推し") if push
                    else _gate_draft(a, {}, GATE_NODE))
-    out += [_ask_draft(q) for q in asks(b) if not answered(b, q)]
+    held = [q for q in _asking(b) if not _gate_answered(b, q)]
+    out += [_ask_draft(b, q) for q in held]
+    asked = {origin_of(b, q) for q in _asking(b)}
+    mats = (b.record.get("materials") or {}) if unmeasured(b) else {}
+    out += [_material_draft(n, st, (mats.get(n) or {}).get("reason")) for n, st in unmeasured(b).items()
+            if n not in asked and material_answer(b, n) is None]
     return out
 
 
@@ -675,7 +699,7 @@ def draft_line(drafts: list, next_file: str) -> str:
         return ""
     return (f"{DRAFT_HEAD}: {len(drafts)} 件——次の run の依頼の下書き{f' {next_file}' if next_file else ''} の answers に置いた"
             "（draft: true・出どころ source つき。機械は答えていない。推しの無い行は text が空で、材料は note に在る。見直して、台帳の"
-            "問いの行（question が問いの key）は採るなら draft と source（と note）を消して text を答えにし、採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
+            "問いと素材の行（question が問いの key か素材の名）は採るなら draft と source（と note）を消して text を答えにし、採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
             "依頼ではどの問いにも当たらないので、一言に写してから行を消す）")
 
 
@@ -845,6 +869,7 @@ def held_lines(b) -> list:
     関所で答えたが直す義務に戻せなかった単位（unreturned_lines。人がまだ決める物なので件数に入れる）"""
     held, kept = pending(b), withheld(b)
     return [_ledger_line(q, skip=[k for k in _skips(q) if k in kept] if q in held else [])
+            + f"／{ANSWER_KEY_HEAD}: {json.dumps(answer_key(b, q), ensure_ascii=False)}"
             for q in _asking(b) if not _gate_answered(b, q)] + unreturned_lines(b)
 
 

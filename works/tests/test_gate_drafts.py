@@ -158,9 +158,33 @@ class DraftsCase(TP.GateBase):
         self.assertEqual(drafts[0]["text"], "例外——呼び手が既に例外を捕まえている")
         self.assertIn("推し", drafts[0]["source"])
 
-    def test_attended_run_gets_no_drafts(self):
+    def test_attended_run_gets_no_gate_item_drafts(self):
         got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
         self.stopped(b, got)
+        self.assertEqual(gatemarks.answer_drafts(b), [])
+
+    def test_attended_run_drafts_held_questions(self):
+        """人の居る run でも、保留のままの台帳の問いには答えの下書きを作る（利用者の run 8cb2ee00 は人の居る run で下書きが無く、
+        利用者は報告の文から問いの名を推して書き、字が合わなかった。利用者の声 10-09 の C4）。関所の項目の下書きは無人の run だけ"""
+        got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}], questions=[TP.FORK], units=TP.UNITS)
+        self.stopped(b, got)
+        self.assertEqual([d["question"] for d in gatemarks.answer_drafts(b)], [TP.FORK["key"]])
+
+    def test_field_question_from_a_material_is_drafted_by_the_material_name(self):
+        """素材から立った field の問い（key の頭が測れていない素材の名）は、短い素材の名を question にした下書きになり、保留の行にも
+        依頼の answers に書く question を区切りの分かる形で出す"""
+        _, b = self.gate(questions=[TP.FIELD_PR], units=TP.UNITS, materials=TP.PR_NOT_RUN)
+        drafts = gatemarks.answer_drafts(b)
+        self.assertEqual([d["question"] for d in drafts], ["parallel_pr"])
+        self.assertIn('answers の question: "parallel_pr"', gatemarks.held_lines(b)[0])
+
+    def test_unmeasured_material_without_question_gets_a_draft(self):
+        """問いの立っていない測れていない素材にも、素材の名の下書きを作る（利用者の run f6eaf0a0）。答えた素材には作らない"""
+        _, b = self.gate(units=TP.UNITS, materials=TP.PR_NOT_RUN)
+        drafts = gatemarks.answer_drafts(b)
+        self.assertEqual([(d["question"], d["text"]) for d in drafts], [("parallel_pr", "")])
+        self.assertIn("command", drafts[0]["note"])
+        TP.RequestAnswersCase.answers(self, TP.MEASURED)
         self.assertEqual(gatemarks.answer_drafts(b), [])
 
     def test_drafts_go_into_the_next_request_doc_and_the_head_names_the_file(self):
