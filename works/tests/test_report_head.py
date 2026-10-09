@@ -553,6 +553,32 @@ class ResidueOutcomeCase(unittest.TestCase):
         got = report.residue(self.b, gate(1, validator_out(*rows, FIRST_ROUND)))
         self.assertEqual([r["text"] for r in got], rows[1:])
 
+    def unmeasured_board(self):
+        import board
+        self.b.record = {"questions": [], "materials": {
+            "parallel_pr": {"status": "not_run", "reason": "網"}, "prior_decisions": {"status": "awaiting_human", "reason": "洗えない"}}}
+        self.b.state = {**self.b.state, "validator": str(board.VALIDATOR_PATH)}
+        self.b.rules = board.rules_module()
+        return ["素材 'parallel_pr' が未実施: 網", "素材 'prior_decisions' が人の起動待ち: 洗えない"]
+
+    def test_only_unmeasured_checks_left_is_fixed_needs_check(self):
+        """直しが受け付けを通り最後のテストも緑で、残りが run の中で測れなかった素材の行だけなら、直しきれず（round_limit）と
+        呼ばず fixed_needs_check（直した。人の確かめが残る。利用者の声 10-09 の C3）"""
+        rows = self.unmeasured_board()
+        self.assertIn("fixed_needs_check", report.OUTCOMES)
+        self.assertEqual(self.decide(gate(1, validator_out(*rows, FIRST_ROUND))), "fixed_needs_check")
+        self.assertIn("人の確かめ", report.OUTCOME_WORDS["fixed_needs_check"])
+
+    def test_unmeasured_checks_with_other_residue_is_round_limit(self):
+        """測れなかった素材の行のほかに、赤のテスト・ほかの阻害・目の block が 1 つでも残れば round_limit のまま"""
+        rows = self.unmeasured_board()
+        eyeing = {"ok": True, "reason": "", "reviews": {**EYES_PASS, "R3": {"status": "redesign-needed", "reason": "目"}}}
+        for name, g, kw in (("赤", gate(1, validator_out(*rows)), {"tests": RED}),
+                            ("ほかの阻害", gate(1, validator_out(*rows, REAL_BLOCKER)), {}),
+                            ("目の block", gate(1, validator_out(*rows)), {"eyeing": eyeing})):
+            with self.subTest(name):
+                self.assertEqual(self.decide(g, **kw), "round_limit")
+
     def test_first_round_constant_matches_validator(self):
         """除く帳尻の行の定数は、写しの検証器の本文に字のまま在る（写しが変われば赤になり、黙って除かない）"""
         const = getattr(report, "FIRST_ROUND_LINE", None)

@@ -4,7 +4,7 @@
 settle → finalize → run_validator を 1 度踏み、受理集合（report_accepts）の外か、今の周の記録（record_round と converge）が
 済んでいなければ record_invalid にする。検証器は validator_runner の包み（board_hook.py）が効く b.run_validator で回す。
 **残り（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が在る run に fixed を出さない**: 直した周で residue が 1 行でも
-返せば round_limit にし、冒頭 1 と次の run の依頼に残りの行を字のまま出す（直す物が無い周は no_fix_needed のまま。赤は冒頭 1 に出る）。
+返せば round_limit（残りが今の周に測れていない素材の行だけなら fixed_needs_check）にし、冒頭 1 と次の run の依頼に残りの行を字のまま出す（直す物が無い周は no_fix_needed のまま。赤は冒頭 1 に出る）。
 
 口（線 B の報告も呼ぶ。線 B の申し送り 3・TA18。どの head_* も盤面を書かない）:
 - OUTCOMES・COST_FIELD_VERIFIED・FIRST_ROUND_LINE
@@ -91,7 +91,7 @@ import structmark  # noqa: E402
 import writes  # noqa: E402
 
 PACK = CORE.parents[1]
-OUTCOMES = ("fixed", "no_fix_needed", "round_limit", "stopped_by_request", "stopped_by_human", "stopped_by_line",
+OUTCOMES = ("fixed", "fixed_needs_check", "no_fix_needed", "round_limit", "stopped_by_request", "stopped_by_human", "stopped_by_line",
             "needs_human", "record_invalid", "interrupted")
 # 1 周で止める run で写しの検証器（scripts/review-record.py）が必ず出す帳尻の行。exit 1 の箇条からこの行だけを字の一致で
 # 除き、残りを阻害と読む（前の周が在る run の「前ラウンドに阻害要因が N 件あった」は除かない）。写しと字が揃うことは試験が見る
@@ -121,6 +121,7 @@ def without_first_round_line(v: dict) -> dict:
 MATERIAL_ROW = "素材 '{}' が"   # 写しの検証器の blockers が測れていない素材の行に付ける頭（未実施・人の起動待ち）
 UNIT_ROW_HEADS = ("[block] 未解消", "[suggest] do-now 未対応")   # 写しの検証器の blockers が単位の行に付ける頭
 EYES = ("R1", "R2", "R3", "R4")
+CHECKS_LEFT = "人が確かめる物"   # fixed_needs_check の残り（冒頭 3 行の件数と冒頭 1 の見出し）
 VALIDATOR_WHERE = "検証器の阻害"   # residue の行の where（次の run の依頼にも同じ字で渡す）
 EYES_WHERE = "独立の目"
 COST_FIELD_VERIFIED = True   # 欄の形を canary の run の出来事の実物で確かめた（tests/events/db-rows-plan.json。2026-10-09）
@@ -583,7 +584,9 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
     機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）か食い違いの申し出を人に回した（ask_human と、案の直しを
     諦めた fix_plan_item。conflict.asked）→ needs_human、関所が通らない（accepted か round_closed が偽）→ record_invalid、
     直す物が無い周 → no_fix_needed、残り（residue:
-    検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が在る → round_limit、他 → fixed。
+    検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が、今の周に測れていない素材の行
+    （_unmeasured_row。run の中では測れない確かめ）だけ → fixed_needs_check（直した。人の確かめが残る。利用者の声 10-09 の C3:
+    直しが入って緑でも「直しきれず」と呼んでいた）、ほかの残りが在る → round_limit、他 → fixed。
     **fixed・no_fix_needed は accepted と round_closed が真の時だけ、fixed はさらに残りが無い時だけ**。直す物が無い周の赤は
     直しが起こした物でないので no_fix_needed のまま冒頭 1 に出す。report_accepts が 1 を受けるのは 1 周で止める
     run の帳尻の行を通すためで、1 の中身は residue が見る。needs_human を record_invalid の前に置くのは、人に聞いて
@@ -598,9 +601,19 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
         return "record_invalid"
     if _no_fix(b, judged):
         return "no_fix_needed"
-    if residue(b, gate, tests=tests, eyeing=eyeing):
+    left = residue(b, gate, tests=tests, eyeing=eyeing)
+    if left and all(_unmeasured_row(b, r) for r in left):
+        return "fixed_needs_check"
+    if left:
         return "round_limit"
     return "fixed"
+
+
+def _unmeasured_row(b, row: dict) -> bool:
+    """残りの行が、今の周に測れていない素材（gatemarks.unmeasured。not_run・awaiting_human）の検証器の行か。run の中では測れない
+    確かめ（網・雲の資格・人の起動）で、直しの出来ではない"""
+    text = str(row.get("text") or "")
+    return row.get("where") == VALIDATOR_WHERE and any(text.startswith(MATERIAL_ROW.format(n)) for n in gatemarks.unmeasured(b))
 
 
 # ---------------------------------------------------------------- 次の run に渡す依頼
@@ -748,7 +761,9 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
 
 # ---------------------------------------------------------------- 冒頭 3 行と 1〜5
 # 結末の語（decide_outcome の返り）→ 平易な言い方（冒頭 3 行の 1 行目。語は括弧に残す）
-OUTCOME_WORDS = {"fixed": "直して、最後のテストまで通った", "no_fix_needed": "直す物が無かった",
+OUTCOME_WORDS = {"fixed": "直して、最後のテストまで通った",
+                 "fixed_needs_check": "直して、最後のテストまで通った。run の中で測れなかった確かめが残る（人の確かめ待ち）",
+                 "no_fix_needed": "直す物が無かった",
                  "round_limit": "決めた周の数のうちに直しきれずに止まった", "stopped_by_request": "止め札で止めた",
                  "stopped_by_human": "人が関所で止めた", "stopped_by_line": "ラインが途中で止めた",
                  "needs_human": "人の判断を待ったまま止まった", "record_invalid": "記録が検証器を通らない（結果を名乗れない）",
@@ -793,6 +808,7 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
     parts = [("人に聞いている問い", 1 if ph else 0), ("保留にしたままの問い", len(held)),
              ("人に回した食い違いの申し出", len(_asked(b))), ("修正役が人に回した物", len(handoff_lines(b))),
              ("直しきれずに残った物", len(left or []) if outcome == "round_limit" else 0),
+             (CHECKS_LEFT, len(left or []) if outcome == "fixed_needs_check" else 0),
              ("記録が検証器を通らないこと", 1 if outcome == "record_invalid" else 0)]
     parts = [(w, n) for w, n in parts if n]
     decide = (f"{sum(n for _, n in parts)} 件——" + "・".join(f"{w} {n} 件" for w, n in parts) + "（下の「1. 人が決めること」）"
@@ -805,7 +821,7 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
 
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
-    """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
+    """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit と fixed_needs_check の時の残り（left＝residue の返り）の各行・
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
     人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・修正役が人に回した物（handoff_lines）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
@@ -822,6 +838,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
             lines.append(f"記録の痕跡 {field}: {json.dumps(val, ensure_ascii=False)[:400]}")
     if outcome == "round_limit" and left:
         lines.append("直しきれずに残った物（結末を「直した」と名乗らない）:")
+        lines += [f"  - {r['where']}: {r['text']}" for r in left or []]
+    if outcome == "fixed_needs_check" and left:
+        lines.append(f"{CHECKS_LEFT}（run の中で測れなかった確かめ。手元で確かめて、次の run の依頼の answers に command と output を"
+                     "添えて返せば、その素材は人が手元で確かめた物になる）:")
         lines += [f"  - {r['where']}: {r['text']}" for r in left or []]
     proc = b.record.get("process") or {}
     for h in proc.get("human_items") or []:

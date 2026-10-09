@@ -224,6 +224,14 @@ class ReportHeadCase(GateBase):
         self.assertIn("保留にしたままの問い 1 件", "\n".join(self.head(b, "fixed")))
         self.assertIn("保留にしたままの問いも在る（1 件", FinalHeadCase.head(self, b)[0])
 
+    def test_checks_left_are_counted_as_decision(self):
+        """直した・人の確かめが残る（fixed_needs_check）run は、残った確かめの件数を人が決めること（確かめること）に数える"""
+        _, b = self.gate()
+        got = self.head(b, "fixed_needs_check", left=[{"where": "検証器の阻害", "text": "素材 'parallel_pr' が未実施: 網"}])
+        self.assertTrue(got[0].startswith(gatemarks.HAPPENED + report.OUTCOME_WORDS["fixed_needs_check"]), got[0])
+        self.assertIn("人が確かめる物 1 件", got[1])
+        self.assertNotIn("直しきれず", "\n".join(got))
+
     def test_every_outcome_has_plain_words(self):
         self.assertEqual(set(report.OUTCOME_WORDS), set(report.OUTCOMES))
 

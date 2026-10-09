@@ -11,7 +11,7 @@
 
 ## 語
 
-- 考え（concept）: 設計の 1 つの決まりごと。名前を付けて話せる単位（例: 「run の結末は 9 語のどれか」「止め札を見たら後ろを飛ばして報告へ」）
+- 考え（concept）: 設計の 1 つの決まりごと。名前を付けて話せる単位（例: 「run の結末は 10 語のどれか」「止め札を見たら後ろを飛ばして報告へ」）
 - 住処（home）: その考えを 1 か所で持つ部品。モジュール・ブロック（`blk-*`）・schema・表のどれか。考えを変える時に触るのはここだけ、になっている所
 - 約束（contract）: 住処の外の人がその考えに触れる時の形を決めたファイルか欄（JSON Schema・YAML の出口の型・定数の表）
 - 知ってよい所（allowed places）: 住処のほかに、その考えの語・欄の名・値を書いてよい所。普通は住処・約束・その考えの入口（殻）だけ。柵が照らす一覧は表 `docs/concepts.json` の `allowed` で、その全部を地図の行（住処・約束・知ってよい所）が字で名指す（試験が照らす）
@@ -66,7 +66,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `outcome` run の結末
 
 - 状態: 住処あり
-- 住処: `.shared/core/report.py` の `OUTCOMES`（9 語）と `decide_outcome`（盤面と止めの印から 1 語を決める）
+- 住処: `.shared/core/report.py` の `OUTCOMES`（10 語）と `decide_outcome`（盤面と止めの印から 1 語を決める）
 - 約束: `darkfactory/darkfactory.yaml` の報告の節の出口 `outcome` の enum
 - 知ってよい所: 住処・約束・`skills/works/SKILL.md`（利用者への説明）・`dev/`（測りの殻）
 - 今: 結末の語（`"no_fix_needed"` など）を文字列で持つ `.py` は住処だけ（22d98fdc で数えた）

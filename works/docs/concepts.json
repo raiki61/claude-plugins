@@ -20,7 +20,7 @@
    "fences": [
     {
      "what": "結末の語",
-     "pattern": "\"(no_fix_needed|stopped_by_line|stopped_by_request|stopped_by_human|needs_human|round_limit)\"",
+     "pattern": "\"(fixed_needs_check|no_fix_needed|stopped_by_line|stopped_by_request|stopped_by_human|needs_human|round_limit)\"",
      "allowed": [
       ".shared/core/report.py",
       "darkfactory/darkfactory.yaml",

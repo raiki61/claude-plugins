@@ -238,7 +238,7 @@ works 自身の直しをライン `darkfactory` に回す殻が [dev/dogfood.sh]
 
 ## 足りない所
 
-- 周の輪（直ったと言えるまで 2 周目以降を回す）が無い。今のラインは 1 周の run で（`entry.start` の `stop_after_round=1`）、残りが在れば結末は round_limit のまま報告で終わる。続きは人が次の run の依頼に書く（報告の `next-request.json` の下書き）。周の輪は線 B（下の「仕様」）で、棚上げ（2026-10-09）。main には入っていない。
+- 周の輪（直ったと言えるまで 2 周目以降を回す）が無い。今のラインは 1 周の run で（`entry.start` の `stop_after_round=1`）、残りが在れば結末は round_limit のまま報告で終わる（残りが run の中で測れなかった確かめだけなら fixed_needs_check。直しは入って緑で、人の確かめが残る）。続きは人が次の run の依頼に書く（報告の `next-request.json` の下書き）。周の輪は線 B（下の「仕様」）で、棚上げ（2026-10-09）。main には入っていない。
 
 ## 仕様
 
