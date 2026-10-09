@@ -502,7 +502,7 @@
 - 観点: 人に聞く関所は、答えで run の次の動きが変わる時だけ開く。止めるのは 4 種（取り消せない・外に出る／安全／能力を減らす・方針を変える／測れず戻せない）。不要な人の関門（テスト実行の承認など）は外す。遮断の役は機械が自分で起こし、起こせない時だけ人に渡す
 - 出どころ: V054、記憶の決定 `gates`
 - 持ち主の言葉: 「コマンドくれたら実行するよ。」（2026-09-15）
-- 住処: 柵の印（`gatemarks.py` の `FENCES`）、能力を狭める行の kind regression と欄 `NO_NARROW`、最後の関所の開き方（`entry.py` の `FINAL_GATES`）
+- 住処: 柵の印（`gatemarks.py` の `FENCES`）、能力を狭める行の kind regression と欄 `NO_NARROW`、最後の関所の開き方（`gatepolicy.py` の `FINAL_GATES`）
 - 強さ: 部分
 - 隙間: 4 種のうち「測れず戻せない」に柵の印が無い。最後の関所の既定が入口で違う（線の入力は always・`dev/use.sh` は protected_only・`dev/dogfood.sh` は always）。工場の中で 4 種の基準を持つ依頼 222 は未着手（考え `human-gates` の散らばり）→ 段 5
 
