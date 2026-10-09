@@ -13,20 +13,22 @@ libdocs.section から呼ぶ。控え（盤面・包みの家）と文書のフ�
 - llms.txt: docs の場所の下の llms-full.txt・llms.txt、次に host の根の同じ 2 つ。最初に受けた 1 本だけ（ライブラリ 1 本の問いは
   PyPI で多くて 6 本、npm で 9 本）。llms.txt の決まり
   （https://llmstxt.org。頭は `# ` の H1）どおり、空でない最初の行が `# ` で始まる物だけを受け、HTML（SPA の 200）は捨てる
-- docs の場所は safe_url を通る物だけ（https・点を持つ host の名。IP の字・localhost・点の無い社内の名は不可）。コードの置き場
-  （github.com・gitlab.com・bitbucket.org）と registry の頁は docs の場所に数えない。転送の先も同じ確かめ（libdocs.http_get）
+- docs の場所は safe_url（core の webget の物。https・点を持つ host の名。IP の字・localhost・点の無い社内の名は不可）を通る物
+  だけ。コードの置き場（github.com・gitlab.com・bitbucket.org）と registry の頁は docs の場所に数えない。転送の先も同じ確かめ
+  （webget.http_get）
 
 送る物: URL はライブラリの名・版と、registry の答えに在った URL だけ（使う名も対象のコードの字も送らない）。鍵は付けない。
-読む量は get（libdocs.http_get が上限まで読む）に任せ、控える文書 1 本は KEEP_CHARS 字まで。期限は足さない（R4）。
+読む量は get（libdocs.http_get が webget.http_get を上限つきで呼ぶ）に任せ、控える文書 1 本は KEEP_CHARS 字まで。期限は足さない（R4）。
 
 口（標準ライブラリだけ。網は get(url, headers) -> (状態の番号, 本文) で差し替える。get の例外は取れなかった理由になる）:
-- safe_url(url) -> bool・https_site(url) -> str: 網に出してよい URL か・docs の場所に使える URL
+- https_site(url) -> str: docs の場所に使える URL（網に出してよいかの safe_url は webget に在り、ここでも同じ名で引ける）
 - fetch(lib, version, get) -> {status: ok|not_found|error, docs: [{kind: readme|llms, url, text}], error, note}
 """
-import ipaddress
 import json
 import re
 import urllib.parse
+
+from webget import safe_url
 
 PYPI = "https://pypi.org/pypi"
 NPM = "https://registry.npmjs.org"
@@ -46,25 +48,6 @@ def _get_text(get, url: str):
 
 def _keep(text: str) -> str:
     return text if len(text) <= KEEP_CHARS else text[:KEEP_CHARS]
-
-
-def safe_url(url) -> bool:
-    """網に出してよい URL か: https で、host が点を持つ名（IP の字・localhost・点の無い社内の名は不可）で、利用者名・合言葉を持たない。
-    docs の場所の選びと、libdocs.http_get の転送の先の確かめが使う（社内の網や http へ転送させない）"""
-    if not isinstance(url, str):
-        return False
-    try:
-        p = urllib.parse.urlsplit(url.strip())
-        host = (p.hostname or "").lower().rstrip(".")
-    except ValueError:
-        return False
-    if p.scheme != "https" or p.username or p.password or "." not in host or host == "localhost" or host.endswith(".localhost"):
-        return False
-    try:
-        ipaddress.ip_address(host)
-        return False
-    except ValueError:
-        return True
 
 
 def https_site(url) -> str:

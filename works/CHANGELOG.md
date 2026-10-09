@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 機械が web から文書を取る口（https の公の host にだけ付いていく転送・読む量の上限）と、取った物を run をまたいで使い回す控え（包みの家の下に名ごとの JSON。schema・状態・期限で選ぶ）を、ライブラリの文書の節（`libdocs`）の中から core の 1 つのモジュール `.shared/core/webget.py` へ寄せた。世界の解の段（計画 `docs/plans/2026-10-09-world-solution.md`）も同じ口を使うため。ライブラリの文書の節の振る舞い（節の文・控えのファイル・`WORKS_LIBDOCS_WEB=off`・控えの期限 7 日）は変わらない。考えの住処の地図に `web-get` を足し、網の素の口を使う所が住処の外に出たら試験が赤にする
+
 ## [0.2.56] - 2026-10-09
 
 ### Fixed
