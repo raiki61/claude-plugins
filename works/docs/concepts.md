@@ -57,6 +57,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `marks` | 返答の足し欄 | 住処あり |
 | `plan-scope` | 修正案の項目の範囲の照らし | 住処あり |
 | `test-files` | テストのファイルの見分け | 住処あり |
+| `web-get` | 機械の web の取得と run をまたぐ控え | 住処あり |
 | `stop-reasons` | 止めの理由 | 散らばり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 
@@ -110,7 +111,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `reads` 読んだ証拠
 
 - 状態: 住処あり
-- 住処: `.shared/core/reads.py`（集める口と、盤面の置き場の名の口 `evidence_name`（役ごとの証拠）・`index_name`（集めた側の索引）・`is_index`・`EVIDENCE_GLOB`。置き場の名を使う所はこの口から引く。引けない所は柵の表の既知の漏れ）
+- 住処: `.shared/core/reads.py`（集める口と、盤面の置き場の名の口 `evidence_name`（役ごとの証拠）・`index_name`（集めた側の索引）・`is_index`・`EVIDENCE_GLOB`。置き場の名を使う所はこの口から引く。引けない所は柵の表の既知の漏れ。役が web を引いた記録 `web_fetches`（取得した URL）・`web_searches`（検索の問い）も出来事から引き、証拠の欄 `web` に書く）
 - 約束: `.shared/core/reads.schema.json`
 - 知ってよい所: 住処・包み `.shared/core/adapter.py`（読んだ記録の置き場）・Read のフックの殻 `.shared/core/record-read.py`・各ブロックの口 `blk-*/scripts/reads.py`（`blk-delta`・`blk-fix`・`blk-plan`・`blk-pr`・`blk-refix`）・それらの宣言 `blk-*/manifest.json`
 
@@ -182,6 +183,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 約束: `.shared/core/next-request.schema.json`・`.shared/core/prior-failures.schema.json`（住処が読み、書き手は書く前に照らし、読み手は前の失敗の行を照らす。欄の名の定数と Schema の欄が揃うことは `tests/test_carry_home.py` が縛る）と、盤面の根の置き場の宣言 `darkfactory/manifest.json`（書く物）・`blk-*/manifest.json`（読む物の consumes）
 - 知ってよい所: 住処と約束だけ。何を運ぶかの決めは書き手の側が持ち、形は住処を呼ぶ: 残りの行と前の失敗の行は `.shared/core/report.py`（`next_request`・`prior_failures`・`next_doc`）、答えの下書きの選びは `.shared/core/gatemarks.py`（`answer_drafts`）、目的の外の所見の行は `.shared/core/outpurpose.py`（`next_items`）。読み手（`.shared/core/entry.py`・`blk-judge/scripts/intake.py`・`blk-premises/scripts/intake.py`・`blk-purpose/scripts/intake.py`・`blk-judge/lib/judgebrief.py`・`blk-plan/lib/planblk.py`・殻 `dev/lib.sh`）も住処の名と口を引く。`gatemarks.carried_section`（修正前の関所で人が通した行を同じ run の R4 に貼る）は run の中の受け渡しで、この考えではない
 - 今: 欄の出どころの名 `source` は別の考え（目的の役の出どころ・素材の出どころ・プラグインの置き場）にも同じ名が多いので、柵は下書きの印を作りと読みの形（`"draft": True`・`"draft" in` など）で見る。容器の欄の名 `findings`・`answers`・`pr`・`issue` も別の考え（壁打ちの往復の `answers` など）と同じ字なので柵に入れず、呼び手が住処の定数（`carry.FINDINGS` など）を引く決まりだけで守る。利用者と役に読ませる文（`.shared/core/gatemarks.py` の答え方の案内 `ANSWER_HOW`・役の指示書・`skills/works/SKILL.md`）は容器の形を字で書く。計画 `docs/plans/2026-10-09-chained-rounds.md` の Task 1（作業の手順は `docs/plans/2026-10-09-carry-home.md`）。人が関所で決めた答えの持ち越しと、依頼の答えを問いに結ぶ所は同じ計画の Task 2
+
+### `web-get` 機械の web の取得と run をまたぐ控え
+
+- 状態: 住処あり
+- 住処: `.shared/core/webget.py`（層 L1。網に出してよい URL `safe_url`・転送の決まり `SafeRedirect`・取得 `http_get`（期限を持たない）・網に出ない切り替え `is_off`・run をまたぐ控えの置き場 `shared_root` と控え `Store`（名ごとの JSON。schema・状態・期限で選ぶ））
+- 約束: 口の形だけ（切り替えの名・控えの schema と期限・読む量の上限は呼ぶ側が持つ）
+- 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）で、どちらも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
+- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。世界の解の段（同じ計画の W5）が 2 つめの使う所になる
 
 ---
 

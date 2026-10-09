@@ -30,6 +30,7 @@ for p in (ROOT / ".shared" / "core", ROOT / "blk-fix" / "lib", ROOT / "blk-plan"
         sys.path.insert(0, str(p))
 
 import libdocs  # noqa: E402
+import webget  # noqa: E402
 
 
 class FakeBoard:
@@ -202,7 +203,7 @@ class SectionCase(Base):
         f = self.write("app.py", "import requests\n")
 
         def broken(url, headers):
-            raise libdocs.FetchError("URLError: nodename nor servname provided")
+            raise webget.FetchError("URLError: nodename nor servname provided")
         text = self.section([f], broken)
         self.assertIn("取れなかった 1 本（requests: ", text)
         self.assertIn("URLError", text)
@@ -284,7 +285,7 @@ class SourcesCase(Base):
         self.install()
         f = self.write("app.py", "from requests import Session\n")
         home = self.tmp / "home"
-        env = {libdocs.SHARED_ENV: str(home)}
+        env = {webget.SHARED_ENV: str(home)}
         libdocs.section(self.board, self.repo, [f], get=ok_http(), env=env, now=1_800_000_000.0)
         self.board.round = 2
         http = FakeHttp()
@@ -382,17 +383,6 @@ class FilesCase(Base):
         self.assertIsNotNone(self.saved("official-1-readme.md", rnd=2), "前の周の控えから読んだ公式の文書も今の周に置く")
 
 
-class RedirectCase(unittest.TestCase):
-    def test_redirects_follow_only_safe_urls(self):
-        import urllib.request
-        req = urllib.request.Request("https://pypi.org/pypi/requests/json", headers={"User-Agent": "works-libdocs"})
-        h = libdocs.SafeRedirect()
-        self.assertIsNotNone(h.redirect_request(req, None, 302, "Found", {}, "https://elsewhere.example/x"))
-        for url in ("http://elsewhere.example/x", "https://10.1.2.3/x"):
-            with self.subTest(url=url):
-                self.assertIsNone(h.redirect_request(req, None, 302, "Found", {}, url))
-
-
 class ComposerCase(Base):
     def test_fix_prompt_carries_the_section(self):
         import fixrules
@@ -455,7 +445,7 @@ class HomeBase(Base):
     def setUp(self):
         super().setUp()
         self.home = self.tmp / "adapter-home"
-        self.env = {libdocs.SHARED_ENV: str(self.home)}
+        self.env = {webget.SHARED_ENV: str(self.home)}
         self.f = self.write("app.py", "import requests\n")
         self.write("requirements.txt", "requests==2.32.3\n")
 

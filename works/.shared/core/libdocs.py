@@ -8,7 +8,7 @@
    node_modules の中のライブラリを import せずに読んだ、単位が使う名の署名と説明。読めた版を以後の版にする（宣言の版より正しい）
 2. 公式（libdocs_web）: PyPI の README と docs の場所の llms.txt、npm は GitHub の版の tag の README と homepage の llms.txt。
    問いはライブラリの名・版と registry の答えに在った URL だけ。鍵は付けない。輸入の名と配る名が違えば手元の dist-info の配る名で
-   問う。転送は https の公の host の名にだけ付いていく（SafeRedirect）
+   問う。転送は https の公の host の名にだけ付いていく（webget.SafeRedirect）
 どこからも取れなかったライブラリは節の頭に名指し、役に自分で引けと言う。
 文書はファイルで渡す（持ち主 2026-10-09）: 取れた文書は、ライブラリごとに今の周の置き場 libdocs/<名>@<版>/ に丸ごと書き
 （手元は local-<digest>.md、公式は 1 本ずつ official-<番>-<種>.md）、節にはライブラリごとの名・入っている版・出どころ・ファイルのパスと、
@@ -29,8 +29,9 @@
   物は盤面の今の周の置き場 libdocs/<名>@<版>.official.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。
   取れなかった物・見つからない物・上限で取らない物・読めない file・手元に入っていない物は節の頭に数と名前で書く（黙って落とさない）。
   WORKS_LIBDOCS_WEB=off は網に出ない（公式を引かない。手元は読む）
-- run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: 公式の取れた物と見つからない物を、取った
-  時刻と一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
+- run をまたぐ控え（env に包みの家 webget.SHARED_ENV が在る時だけ。置き場の理由は webget の頭、長さの理由は定数の注記。読み書きは
+  core の webget.Store）: 公式の取れた物と見つからない物を、取った時刻と一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は
+  SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
   前の版が同じ置き場に残した Context7 の控え（<名>@<版>.json・<名>@<版>-<問いの digest>.json・枠切れの印 _quota.json）は、名が
   公式の控えの名（尾 OFFICIAL_SUFFIX）と違うので読まない（消しもしない）
 """
@@ -42,13 +43,12 @@ import re
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 
 import impact
 import libdocs_local
 import libdocs_web
 import scopes
+import webget
 
 ENV_SWITCH = "WORKS_LIBDOCS_WEB"       # off で網に出ない（出ないことを節に書く）
 MAX_LIBS = 8                           # 1 回に引くライブラリの数の上限（超えた物は名前で言う）
@@ -58,10 +58,6 @@ CACHE_DIR = "libdocs"                  # 盤面の周の置き場の下の控え
 # 変わり、並べの枝（同じ周の置き場を分け合う）が別の単位で同じライブラリを書くので、中身で名を分けて互いに上書きしない
 LOCAL_FILE = "local-{digest}.md"
 SUMMARY_MAX = 160                      # 公式の要約の 1 行の字数の上限
-# run をまたぐ控えの置き場: 包みの家（開発の殻 dev/archon.sh が利用の家ごとに export する WORKS_ADAPTER_HOME）の下の CACHE_DIR。
-# 利用の家ごとに分かれ、run を重ねても残り、切符（ticket.py）が役に書かせない場所なので、役が控えを書き換えて後の run の指示書に
-# 混ぜることはできない。env に無ければ（包みを外した run・試験）run をまたぐ控えは使わない（盤面の控えだけ）
-SHARED_ENV = "WORKS_ADAPTER_HOME"
 # 控えを使う長さ: 7 日。版を指した控え（<名>@<版>.official.json）の中身はその版の文書で、版が替われば名も替わる。版の無い控え（@any）は
 # 今の文書なので古びるが、1 日に何本も回す run の間で使い回せば同じ問いを繰り返さずに済み、週ごとに取り直せば古びは 1 週に収まる
 SHARED_TTL = 7 * 24 * 3600
@@ -86,10 +82,6 @@ PEP508 = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(.*)$
 EXACT = re.compile(r"===?\s*v?([0-9][0-9A-Za-z.+-]*)")
 LOWER = re.compile(r"(?:>=|~=|\^|~|>)\s*v?([0-9][0-9A-Za-z.+-]*)")
 BARE = re.compile(r"^v?([0-9][0-9A-Za-z.+-]*)$")
-
-
-class FetchError(Exception):
-    """網に届かない・答えが読めない（文は 1 行）"""
 
 
 # ---------------------------------------------------------------- 見つける
@@ -283,25 +275,9 @@ def unit_files(repo, judgment_file, keys=None) -> tuple:
 
 
 # ---------------------------------------------------------------- 引く
-class SafeRedirect(urllib.request.HTTPRedirectHandler):
-    """転送は libdocs_web.safe_url を通る先（https・公の host の名）にだけ付いていく（ほかは 3xx のまま返す）"""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not libdocs_web.safe_url(newurl):
-            return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def http_get(url: str, headers: dict) -> tuple:
-    """(状態の番号, 本文の頭 MAX_BODY バイトまで)。網に届かなければ FetchError。期限は足さない（節の宣言だけ）"""
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.build_opener(SafeRedirect).open(req) as r:  # noqa: S310  宛先は公式の口（https だけ）
-            return r.status, r.read(MAX_BODY)
-    except urllib.error.HTTPError as e:
-        return e.code, e.read(MAX_BODY) or b""
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        raise FetchError(f"{type(e).__name__}: {e}"[:200]) from None
+    """既定の網の口 get(url, headers): webget.http_get を MAX_BODY で呼ぶ（転送・誤りの扱いは webget。期限は足さない）"""
+    return webget.http_get(url, headers, MAX_BODY)
 
 
 # ---------------------------------------------------------------- 控え
@@ -317,60 +293,18 @@ def _cached(board, name: str, statuses=("ok", "not_found")):
     return None
 
 
-def shared_dir(env) -> pathlib.Path | None:
-    """run をまたぐ控えの置き場（SHARED_ENV の絶対パスの下の CACHE_DIR）。env に無い・相対なら None（使わない）"""
-    home = env.get(SHARED_ENV) or ""
-    return pathlib.Path(home) / CACHE_DIR if os.path.isabs(home) else None
-
-
-def _read_doc(path: pathlib.Path):
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return doc if isinstance(doc, dict) and doc.get("schema") == SCHEMA else None
-
-
-def _fresh(doc, now: float, span: float) -> bool:
-    at = doc.get("at")
-    return isinstance(at, (int, float)) and not isinstance(at, bool) and 0 <= now - at < span
-
-
-def _shared_get(sd, name: str, now: float, statuses=("ok", "not_found")):
-    """run をまたぐ控えの 1 本（statuses の状態で、SHARED_TTL の内の物）。無ければ None"""
-    doc = _read_doc(sd / name) if sd is not None else None
-    return doc if doc and doc.get("status") in statuses and _fresh(doc, now, SHARED_TTL) else None
-
-
-def _shared_put(sd, name: str, doc: dict) -> str:
-    """run をまたぐ控えに書く（同じ家で同時に走る run と読み合うので、一時のファイルに書いて置き換える）。書けなければ理由の 1 行"""
-    try:
-        sd.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=sd, prefix=".tmp-", suffix=".json")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
-            os.replace(tmp, sd / name)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-    except OSError as e:
-        return f"{name}: {type(e).__name__}: {e}"[:200]
-    return ""
-
-
 def _official_name(lib: dict) -> str:
     """公式の文書の控えの名（盤面の周・包みの家）: ライブラリの名と版だけ（公式の問いは名と版しか持たない）"""
     return _lib_dir(lib) + OFFICIAL_SUFFIX
 
 
-def _official(board, lib: dict, get, sd, now: float, keep, share) -> tuple:
-    """公式の文書（盤面の控え → 家の控え → 網の順）。(控えの形の dict, 出どころ board|shared|net)。取れた物と見つからない物だけ控える"""
+def _official(board, lib: dict, get, store, now: float, keep, share) -> tuple:
+    """公式の文書（盤面の控え → 家の控え store → 網の順）。(控えの形の dict, 出どころ board|shared|net)。取れた物と見つからない物だけ控える"""
     name = _official_name(lib)
     got = _cached(board, name)
     if got is not None:
         return got, "board"
-    got = _shared_get(sd, name, now)
+    got = store.get(name, now, ("ok", "not_found"))
     if got is not None:
         keep(name, got)
         return got, "shared"
@@ -500,18 +434,18 @@ def _section(board, repo, files, get, env, now) -> str:
         return "\n".join(head + ["", f"単位のファイル {c['files']} 本の import は標準ライブラリとリポジトリの中の物だけ"
                                      f"（標準 {c['stdlib']}・リポジトリの中 {c['local']}）。ライブラリの文書を取る物は無い（0 本）{unread}。"])
     keys = sorted(libs)
-    off = str(env.get(ENV_SWITCH, "")).strip().lower() == "off"
+    off = webget.is_off(env, ENV_SWITCH)
     take, over = keys[:MAX_LIBS], keys[MAX_LIBS:]
     rows, unshared = [], []
     official_from = {"board": 0, "shared": 0, "net": 0}
-    sd = shared_dir(env)
+    store = webget.Store(webget.shared_root(env, CACHE_DIR), SCHEMA, SHARED_TTL)
     roots = libdocs_local.roots(pathlib.Path(repo))
 
     def keep(name, doc):
         board.work(f"{CACHE_DIR}/{name}").write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
     def share(name, doc):
-        why = _shared_put(sd, name, doc) if sd is not None else ""
+        why = store.put(name, doc)
         if why:
             unshared.append(why)
     for k in take:
@@ -528,7 +462,7 @@ def _section(board, repo, files, get, env, now) -> str:
         if off:
             official = {"status": "off", "docs": [], "error": "", "note": ""}
         else:
-            official, origin = _official(board, lib, get, sd, now, keep, share)
+            official, origin = _official(board, lib, get, store, now, keep, share)
             official_from[origin] += 1 if official["status"] == "ok" else 0
         rows.append({"lib": lib, "local": local, "official": official, "saved": _save(board, lib, local, official)})
     by_local = {st: [r for r in rows if r["local"]["status"] == st] for st in ("ok", "absent", "error")}
