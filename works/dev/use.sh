@@ -17,7 +17,9 @@
 #                                                                           記録が止まりを示す run は WORKS_USE_ALLOW_STOPPED=1 の時だけ）
 #   use.sh clean <対象リポジトリ> <run-id>                                  終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）。
 #                                                                           completed・cancelled の run は wait・show が差分を書いた後に自動で消し、
-#                                                                           failed などの残った run は次の start が差分を書いてから消す
+#                                                                           failed などの残った run は次の start が差分を書いてから消す。
+#                                                                           clean で消した failed の run は Archon の記録も abandon で閉じる
+#                                                                           （resume できなくなるため。worktree がもう無くても閉じる）
 #   use.sh check <対象リポジトリ>                                           AI を起こさずに、pack を置いて Archon の validate を回し、
 #                                                                           start に足りない物（uv・claude・認証・対象の条件）を全部並べる
 #
@@ -663,9 +665,26 @@ elif got:
     if [ -n "$LIVE" ]; then
       refuse "run $3 は ${STATUS}。止めるか終わってから片付ける"
     fi
+    # 生きてもいず終わってもいない run（Archon の failed）の記録は「resume できる＝人の番」と言い続け、herdr の枠の集計
+    # （lib.sh works_dev_herdr_sync）はそれを人の番に数える。片付けた run は resume できないので、片付けが済んだ後に記録を
+    # Archon の abandon で閉じる（cancelled になる）。終わった状態の一覧は launch.py の DONE_STATUSES の 1 か所（ledger done）。
+    # 確かめが落ちたら何も消さずに止める。worktree がもう無い run でも閉じるので、前に片付けて記録だけ残った run は打ち直しで閉じる
+    DONE="$(works_dev_launch ledger "done" --status "$STATUS")" || exit 2
+    RID="$(printf '%s' "$ROW" | cut -f1)"
     clean_status=0
-    clean_run "$(printf '%s' "$ROW" | cut -f1)" "$ROW" || clean_status=$?
-    exit "$clean_status"
+    clean_run "$RID" "$ROW" || clean_status=$?
+    if [ "$clean_status" -ne 0 ] || [ -n "$DONE" ] || [ -z "$STATUS" ]; then
+      exit "$clean_status"
+    fi
+    abandon_status=0
+    WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow abandon "$RID" || abandon_status=$?
+    if [ "$abandon_status" -ne 0 ]; then
+      echo "use.sh: run ${RID} の worktree・枝・控えは片付けたが、Archon の記録（${STATUS}）を abandon で閉じられなかった（終了コード ${abandon_status}）。記録は resume できると言い続け、herdr の枠は人の番のまま残る。打ち直す: sh ${WORKS_USE_SH} clean ${TARGET} ${RID}（Archon を直に: cd ${TARGET} && WORKS_DEV_HOME=${WORKS_USE_HOME} WORKS_DEV_NO_AUTH=1 sh ${ARCHON} workflow abandon ${RID}）" >&2
+      exit "$abandon_status"
+    fi
+    echo "run ${RID} の Archon の記録を閉じた（${STATUS} → abandon。片付けた run は resume できない）"
+    herdr_sync "$RID"
+    exit 0
     ;;
 esac
 

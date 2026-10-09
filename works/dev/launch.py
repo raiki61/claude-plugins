@@ -43,7 +43,7 @@ LEDGER_SCHEMA = 1
 # 生きた run の状態（走っている・関所で待つ）。use.sh clean の拒みも ledger live でここを読む（一覧を 1 か所に）
 LIVE_STATUSES = ("running", "paused", "pending")
 # 終わった run の状態（正常に終わった・取り消した）。use.sh の is_done（wait・show の自動の片付けと stop の拒み）と lib.sh の
-# works_dev_show_run（clean の行を勧めるか）が ledger done でここを読む。
+# works_dev_show_run（clean の行を勧めるか）と use.sh clean（生きてもいずここにも無い run の記録を abandon で閉じるか）が ledger done でここを読む。
 # failed は含めない（Archon の resume が前の worktree を使い直すので、次の use.sh start の sweep_old_runs まで残す）
 DONE_STATUSES = ("completed", "cancelled")
 USAGE = ("launch.py env --for=<use.sh|dogfood.sh|archon.sh> [--claude] [--show] [--target <path>]"

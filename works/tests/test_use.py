@@ -81,12 +81,22 @@ class UseShell(unittest.TestCase):
         # 起動の印（launch_mark= の値）が在れば run-1 の metadata.inputs.launch_mark に残す（Archon が run に残す入力と同じ欄。
         # 依頼を省いた --pr の起動を結ぶ材料。FAKE_ARCHON_NO_LAUNCH_MARK が在れば残さない＝結べない --pr の形）。FAKE_ARCHON_RUN_EXIT が在れば
         # workflow run は何も残さずにその終了コードで終わる（起動が落ちた形）。FAKE_ARCHON_RUNS_FAIL が在れば workflow runs --json は
-        # 何も出さずに落ちる（一覧が読めない形）
+        # 何も出さずに落ちる（一覧が読めない形）。workflow abandon <id> は一覧のその run を cancelled にする（Archon v0.11.1 の
+        # abandon と同じ。FAKE_ARCHON_ABANDON_EXIT が在れば何も変えずにその終了コードで落ちる）
         self.fake = self.tmp / "fake-archon.sh"
         self.fake.write_text(
             "#!/bin/sh\n"
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
             f'case "$*" in "workflow runs --json") [ -z "${{FAKE_ARCHON_RUNS_FAIL:-}}" ] || exit 1; cat "{self.runs}" ;; esac\n'
+            'case "$1 $2" in "workflow abandon")\n'
+            '  [ -z "${FAKE_ARCHON_ABANDON_EXIT:-}" ] || { echo "archon: abandon に失敗した" >&2; exit "$FAKE_ARCHON_ABANDON_EXIT"; }\n'
+            f'  RUNS="{self.runs}" python3 -c \'import json, os, pathlib, sys\n'
+            'p = pathlib.Path(os.environ["RUNS"]); d = json.loads(p.read_text())\n'
+            'for r in d["runs"]:\n'
+            '    r["status"] = "cancelled" if r.get("id") == sys.argv[1] else r["status"]\n'
+            'p.write_text(json.dumps(d))\n'
+            '\' "$3"; echo "Abandoned workflow run: $3"; exit 0 ;;\n'
+            'esac\n'
             'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
             '[ -z "${FAKE_ARCHON_RUN_EXIT:-}" ] || exit "$FAKE_ARCHON_RUN_EXIT"\n'
             f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
@@ -512,6 +522,84 @@ class UseShell(unittest.TestCase):
                 self.assertIn(f"use.sh: run run-1 は {status}", r.stderr)
         self.set_runs(status="failed")
         self.assertEqual(self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None).returncode, 0)
+
+    def abandons(self):
+        """偽の archon への workflow abandon の呼び出し（[認証を読まない印, run-id] の並び）"""
+        return [[c[1], c[-1]] for c in self.calls() if c[3:5] == ["workflow", "abandon"]]
+
+    def test_clean_failed_run_abandons_record_and_updates_herdr_pane(self):
+        """落ちた run（failed）の Archon の記録は「resume できる＝人の番」と言い続け、herdr の枠は blocked のまま残った
+        （2026-10-09 の利用者の声）。片付けた run は resume できないので、片付けが済んだ後に記録を abandon で閉じ（cancelled）、
+        run を起こした枠の集計を出し直す"""
+        t = self.target()
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        self.set_runs(status="failed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        (self.home / "runs").mkdir(parents=True)
+        (self.home / "runs" / "run-1.json").write_text(json.dumps({"run_id": "run-1", "target": str(t), "herdr_pane": "pane-7",
+                                                                   "herdr_socket": ""}))
+        fake_bin, herdr_log = hermetic.fake_herdr(self.tmp)
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None,
+                     PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""), HERDR_ENV=None, HERDR_PANE_ID=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(wt.exists())
+        self.assertEqual(self.abandons(), [["1", "run-1"]])
+        self.assertEqual(json.loads(self.runs.read_text())["runs"][0]["status"], "cancelled")
+        self.assertIn("Archon の記録を閉じた", r.stdout)
+        sent = [a for _, a in hermetic.herdr_sockets(herdr_log)]
+        self.assertTrue(sent and sent[-1].startswith("pane release-agent pane-7 "), sent)
+
+    def test_clean_done_run_does_not_abandon(self):
+        """正常に終わった・取り消した run（launch.py の DONE_STATUSES）の記録は既に閉じているので abandon しない"""
+        t = self.target()
+        for status in ("completed", "cancelled"):
+            with self.subTest(status=status):
+                self.log.unlink(missing_ok=True)
+                self.set_runs(status=status, working_path=str(self.tmp / "gone-wt"), output_root=str(self.tmp / "out"))
+                r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual(self.abandons(), [])
+
+    def test_clean_again_abandons_failed_record_whose_worktree_is_gone(self):
+        """前の版の clean で worktree だけが消え、記録が failed のまま残った run も、clean の打ち直しで閉じる（残りの直し方）"""
+        t = self.target()
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        self.set_runs(status="failed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        self.assertEqual(self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None).returncode, 0)
+        self.assertFalse(wt.exists())
+        self.set_runs(status="failed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("もう無い", r.stdout)
+        self.assertEqual(self.abandons(), [["1", "run-1"], ["1", "run-1"]])
+        self.assertEqual(json.loads(self.runs.read_text())["runs"][0]["status"], "cancelled")
+
+    def test_clean_reports_abandon_failure_after_cleanup(self):
+        """abandon が落ちても片付けは済んでいる。片付けの行は出したまま、標準エラーに落ちたことと手で閉じる行を出し、
+        abandon の終了コードで終わる"""
+        t = self.target()
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        self.set_runs(status="failed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, FAKE_ARCHON_ABANDON_EXIT="4")
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertFalse(wt.exists())
+        self.assertIn("worktree を消した", r.stdout)
+        self.assertIn("abandon に失敗した", r.stderr)
+        self.assertIn("workflow abandon run-1", r.stderr)
+        self.assertIn(f"clean {t} run-1", r.stderr)
+        self.assertEqual(json.loads(self.runs.read_text())["runs"][0]["status"], "failed")
+
+    def test_clean_does_not_abandon_when_cleanup_fails(self):
+        """片付けが落ちた run は記録を閉じない（片付けの打ち直しを待つ）"""
+        t = self.target()
+        plain = self.tmp / "not-a-worktree"
+        plain.mkdir()
+        self.set_runs(status="failed", working_path=str(plain), output_root=str(self.tmp / "out"))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.abandons(), [])
 
     def test_clean_stops_when_live_check_fails(self):
         """生きているかの確かめ（launch.py ledger live）が落ちたら、生きていないと読まずに 2 で止まり、worktree も枝も消さない
