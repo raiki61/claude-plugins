@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へ、`stop-reasons` を `.shared/core/stopby.py` へまとめて住処ありにし、残りの散らばりにも数の歯止め（今の知る場所の数が増えない柵）を掛けた。`entry-kind` と `start-record` は入口のブロック `blk-entry` と core の `entryshape`・`startrec` へまとめて住処ありにした（計画 one-entry-shape）。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へ、`stop-reasons` を `.shared/core/stopby.py` へまとめて住処ありにし、残りの散らばりにも数の歯止め（今の知る場所の数が増えない柵）を掛けた。`entry-kind` と `start-record` は入口のブロック `blk-entry` と core の `entryshape`・`startrec` へまとめて住処ありにした（計画 one-entry-shape）。`human-gates` は core の `gatepolicy` へまとめて住処ありにした（境の節は線の入力を写さず始めの記録を読む）。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
@@ -49,7 +49,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `entry-kind` | 入口の種類（依頼・変更・PR） | 住処あり |
 | `start-record` | 始めの記録 `r1/start.json` | 住処あり |
 | `carry-over` | 次の run への持ち越し | 住処あり |
-| `human-gates` | 人の関所と無人の方針 | 散らばり |
+| `human-gates` | 人の関所と無人の方針 | 住処あり |
 | `ai-launch` | AI の起こし方（模型・effort・道具・隔離） | 散らばり |
 | `ledger` | 費用と時間の帳簿 | 散らばり |
 | `prompt-assembly` | 指示書の組み立て | 散らばり |
@@ -216,17 +216,19 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 知ってよい所: 住処と約束だけ。書き手は入口のブロックの節 open（core の `entry.start`）と固定材料の取り込み（`.shared/core/fixture.py`）で、どちらも置き場は住処から引く。読み手（`.shared/core/gatemarks.py`・`.shared/core/conflict.py`・`.shared/core/report.py`・`.shared/core/adapter.py`・`darkfactory/lib/depth.py`・`darkfactory/lib/line_edge.py`・殻 `dev/canary_check.py`・`dev/fixmeasure.py`・`dev/canary_fixture.py`）も住処の口を引く
 - 今: 標準ライブラリだけで pack の兄弟を import しない殻の決まりの 2 か所（`dev/launch.py` の起動直後の結び・`dev/lib.sh` の python の 1 行）は置き場の字を自分で持ち、表の既知の漏れに置く。柵は置き場の名を字で書く形・置き場の名の別名（START_REL・START_FILE の名）・別の読み口（start_doc の名。前の版に在った名で、今は無い）
 
+### `human-gates` 人の関所と無人の方針
+
+- 状態: 住処あり
+- 住処: `.shared/core/gatepolicy.py`（層 L1。線の入力と始めの記録の欄の名 `FINAL_KEY`・`UNATTENDED_KEY`、最後の関所の開き方の語 `FINAL_GATES`（既定 `ALWAYS`）と無人の語 `UNATTENDED`、入口の語の確かめ `check`（仕様の段と無人の組みも拒む）、始めの記録からの読み `final_mode`・`unattended`、最後の関所を開くかの決め `opens`、報告の頭の行の句 `head_words`、最後の関所の答えの行の kinds `FINAL_KIND`）
+- 約束: 始めの記録 `blk-entry/schemas/start.schema.json` の 2 つの欄（書き手は入口の 1 か所。入口のブロックの出口には出さない）
+- 知ってよい所: 住処と約束と、線の入力を受けて住処の `check` に渡す入口のブロック `blk-entry`（入力の宣言と、環境変数の名から入力の名への写し）。読み手（境の節 `darkfactory/lib/line_edge.py`・修正前の関所の決め手 `.shared/core/gatemarks.py`・案の直し `.shared/core/replan.py`・報告 `.shared/core/report.py`）は住処の口で始めの記録を読み、線の節ごとに入力を写さない
+- 今: 前は境の節 18 か所が線の入力 `final_gate` を写して受け、入口・境の節が語の表を別々に持ち、無人の語と読みは `gatemarks` に在った（考えの知る場所 116 行・16 ファイル）。残る既知の漏れは、線の入力の宣言（`darkfactory/darkfactory.yaml`）・生の事実を集める殻の旗と既定（`dev/use.sh` は protected_only、`dev/dogfood.sh` は always で、線の既定 always と違う。計画 `docs/plans/2026-10-09-clean-whole.md` の段 5 の 2 の残り）と、写しの engine の init `--unattended` に当たる盤面の欄（`.shared/core/board.py`。engine の語）。人の止めの語（`human:`・`request:`・`answer`）・止める 4 種の柵の印・語 unattended の 2 つの意味の分け（借りたスキルの読み替え `.shared/borrow/unattended.md` はどの run でも当たる別の考え）は同じ段の残り。柵は語の字（住処の口 `gatepolicy.<名>` は数えない）と、住処の定数を別の名に写す形
+
 ---
 
 ## 散らばり
 
 散らばりの考えは、どれも数の歯止めを持つ: 表 `docs/concepts.json` に語の形（`pattern`）と今の知る場所（`known`。ファイル → 行の数と理由）を置き、知ってよい所（`allowed`）は空。試験 `tests/test_concept_fences.py` が、今の木の数が表とちょうど揃うこと（増えても減っても赤）と、考えごとの既知の漏れの件数の和が main の表（`origin/main` の同じファイル）より増えず、main に無いパスも出ないことを見る（main の表が引けない時は名前つきで見送る。CI の works の job は全履歴で取るので見送らない）。まとめる計画は `docs/plans/2026-10-09-clean-whole.md` の段 5。
-
-### `human-gates` 人の関所と無人の方針
-
-- 状態: 散らばり
-- 今: 「無人の run か」は `gatemarks.unattended`（`.shared/core/gatemarks.py`）が 1 本で読むが、無人の時に何を変えるかは `.shared/core/replan.py`（範囲を広げるだけの直しを聞かずに通す）・`.shared/core/gatemarks.py`（問いを項目に載せない）・`.shared/core/board.py`（engine の `--unattended`）に分かれる。最後の関所を開く方針（`final_gate`）は `.shared/core/entry.py`・`.shared/core/report.py`・`darkfactory/lib/line_edge.py`・`darkfactory/darkfactory.yaml` が持つ。同じ語 `unattended` が、借りたスキルの読み替え `.shared/borrow/unattended.md`（どの run でも当たる）という別の考えにも使われている
-- 計画: まだ無い
 
 ### `ai-launch` AI の起こし方（模型・effort・道具・隔離）
 

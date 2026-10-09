@@ -235,9 +235,6 @@ def request_file(board_dir) -> str:
     return got if isinstance(got, str) else ""
 
 
-_inside = cite.inside
-
-
 def cite_problem(cite_, repo, roots=()) -> str:
     """名指し `<パス>:<行>` か `<パス>:<行>-<行>` の確かめ（通れば空。中身は core の cite.problem）"""
     return cite.problem(cite_, repo, roots)

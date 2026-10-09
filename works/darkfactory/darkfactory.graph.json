@@ -3,7 +3,7 @@
  "sources": {
   "blk-ci/blk-ci.yaml": "270bfa0f6ab706eaff76881e57164c0ac6c2e2edcc9fa6ccbc5c71b2c68dc361",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
-  "blk-entry/blk-entry.yaml": "5e7145462c1026123834eae292c1489d18e42d9a125bcb1b0343426a758a902b",
+  "blk-entry/blk-entry.yaml": "de839e107ef31c7dc7821d2d788706f98ab85fcc12d13f5fba8a3e04dbf6dfb6",
   "blk-eyes/blk-eyes.yaml": "0e8fe22a21be92f7aa3157e785169161a30bc46ceae988155672724165946e12",
   "blk-fix/blk-fix.yaml": "0578feecd3f9da777993d8b1390715670f1c47d921a91494be5661433fe3cc8d",
   "blk-judge/blk-judge.yaml": "72fe79cc510ba7159a8c76854219d74778dcb3ed2d5ceaa4a479a9979cf6fd5d",
@@ -19,7 +19,7 @@
   "blk-spec/blk-spec.yaml": "ee1fce070b20c1e639bc36e8b322cd303bb9ad7bc468804eb1db994d599f7d72",
   "blk-structure/blk-structure.yaml": "b288e8fa0004680608a1b3408b7d1081ff431734af3b73bac8eeafb4fd940d6f",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "67cb1acef05cfdab59a137178779eb9adecf27d7681b90955d6bc2460db208b3"
+  "darkfactory/darkfactory.yaml": "cb278ace47dda00de4ad7e0a21a5d8be8030008fc3a8b5c1f7c19a5d441c6ed5"
  },
  "version": 1,
  "workflows": {

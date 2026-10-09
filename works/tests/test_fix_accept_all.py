@@ -602,7 +602,7 @@ class StopsKeepWorkCase(ReplanCase):
         for it in ("1", "2", "3"):
             self.run_it(reply, INPUTS_ITERATION=it, INPUTS_TDD_STATE=state)
         line_edge, report = self.edge_modules()
-        review = line_edge.edge(self.board, "review", self.repo, run_id="run-12", adapter_mode="optional", final_gate="when_needed")
+        review = line_edge.edge(self.board, "review", self.repo, run_id="run-12", adapter_mode="optional")
         self.assertEqual((review["stop"], review["go"]), (False, True), "差分の審査へ進む")
         b = entry.open_board(self.board, allow_halted=True)
         self.assertEqual(report.fix_split(b)["kept"], [MEAN])

@@ -6,9 +6,10 @@ description: |
   （中身は core の entry.start）。入口の種類（依頼だけ・差分だけ・両方・PR）を知るのはこのブロックと、生の事実を集める殻だけ。
   後ろの節は出口の input の中身（差分が空か・依頼の行の数・PR の添え物・仕様の段を挟むか）だけを読み、入口の種類を見ない。
   入力を受けなければ open が 1 で止まる（AI の前）。出口は open: {ok, input, base_rev, test_cmd, policy_paste, policy_path,
-  final_gate, adapter, thickness, gates, 機能ごとの on・off, ci_role_go, pr_go, head_line, pr_file}（pr_file は PR の添え物の
+  adapter, thickness, gates, 機能ごとの on・off, ci_role_go, pr_go, head_line, pr_file}（pr_file は PR の添え物の
   ファイル。PR の無い run は空）。始めの記録は盤面の r1/start.json
-  （約束は schemas/start.schema.json）。
+  （約束は schemas/start.schema.json）。人の関所の方針の 2 つの語（最後の関所の開き方・無人の run か）は出口に出さず、
+  始めの記録に 1 度だけ置く（読み手は始めの記録を読む）。
   人の関所（launch）を持つので interactive（Archon は宣言の無い工程の approval を警告し、いずれ拒む。#2738。組み込む側は
   include の時にこの宣言を落とすので、組み込む線も interactive を持つ）
 
@@ -110,7 +111,7 @@ nodes:
       spec: $INPUTS.spec
     output_format:
       type: object
-      required: [ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, ci_role_go, head_line]
+      required: [ok, base_rev, test_cmd, policy_paste, policy_path, adapter, ci_role_go, head_line]
       properties:
         ok: {type: boolean}
         pr_file: {type: string}   # PR の添え物（番号・題・本文）を置いた盤面の根のファイル。PR の無い run は空
@@ -119,7 +120,6 @@ nodes:
         test_cmd: {type: string}
         policy_paste: {type: string}
         policy_path: {type: string}
-        final_gate: {type: string}
         adapter: {type: string}
         thickness: {type: string}
         gates: {type: string}

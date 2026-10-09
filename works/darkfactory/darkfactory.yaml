@@ -139,7 +139,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -192,7 +191,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -252,7 +250,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -306,7 +303,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -371,7 +367,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -460,7 +455,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -519,7 +513,6 @@ nodes:
       gate: {from: $policy-gate.output, if_skipped: null}
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -610,7 +603,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -664,7 +656,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -724,7 +715,6 @@ nodes:
       gate: {from: $replan-gate.output, if_skipped: null}
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -787,7 +777,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -864,7 +853,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -924,7 +912,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -977,7 +964,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -1029,7 +1015,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -1110,7 +1095,6 @@ nodes:
       gate: "null"
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -1148,7 +1132,7 @@ nodes:
     with:
       skip_optional: $h-redepth.output.skip   # 全部の単位が軽量の run は表で skippable の目（コメントの削除候補と R1〜R4。持ち主の決定 2026-10-06）を省く
 
-  # 最後の人の関所を開くか（final_gate: always か when_needed。C18・P1-R3。独立の目が阻害を返しても開く）
+  # 最後の人の関所を開くか（開き方は入口が始めの記録に置いた語を境の節が core の gatepolicy で読む。C18・P1-R3。独立の目が阻害を返しても開く）
   - id: h-final
     script: edge
     runtime: uv
@@ -1162,7 +1146,6 @@ nodes:
       gate: "null"
       tests: {from: $testing.output, if_skipped: null}
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
@@ -1222,7 +1205,6 @@ nodes:
       gate: {from: $final-gate.output, if_skipped: null}
       tests: "null"
       adapter: $entering.output.adapter
-      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false

@@ -410,7 +410,7 @@ class TestAskHuman(ConflictBoardCase):
         self.asked_board()
         b = entry.open_board(self.board)
         line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": True})
-        out = line_edge.edge(self.board, "eyes", self.repo, run_id="run-12", adapter_mode="", final_gate="when_needed")
+        out = line_edge.edge(self.board, "eyes", self.repo, run_id="run-12", adapter_mode="")
         self.assertTrue(out["stop"], out)
         self.assertIn(conflict.HEAD, out["why"])
 
@@ -1021,7 +1021,7 @@ class TestTamperedFieldsAtLineEdge(ConflictBoardCase):
     def test_at_final_no_gate(self):
         import line_edge
         self.tampered()
-        out = line_edge.edge(self.board, "final", self.repo, run_id="run-12", adapter_mode="", final_gate="always",
+        out = line_edge.edge(self.board, "final", self.repo, run_id="run-12", adapter_mode="",
                              tests={"ok": True, "green": True})
         self.assert_halted_once(out)
 
@@ -1029,7 +1029,7 @@ class TestTamperedFieldsAtLineEdge(ConflictBoardCase):
         """h-final が飛ばされた run の h-eyes（関所の答えが無い）"""
         import line_edge
         self.tampered()
-        out = line_edge.edge(self.board, "eyes", self.repo, run_id="run-12", adapter_mode="", final_gate="when_needed")
+        out = line_edge.edge(self.board, "eyes", self.repo, run_id="run-12", adapter_mode="")
         self.assert_halted_once(out)
 
 

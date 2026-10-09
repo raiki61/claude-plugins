@@ -1174,7 +1174,7 @@ class TestLineReplay(ReplanCase):
     prep_script = TestSecondPass.prep_script
 
     def e(self, at, **kw):
-        return line_edge.edge(self.board, at, self.repo, run_id="r", adapter_mode="optional", final_gate="", **kw)
+        return line_edge.edge(self.board, at, self.repo, run_id="r", adapter_mode="optional", **kw)
 
     def run_trip(self, new_item, gate=None, fix_notes=""):
         """fix_notes は h-fix が書いた修正の前の関所の一言（line_edge.NOTES_FILE。空なら書かない）"""

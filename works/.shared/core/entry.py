@@ -57,6 +57,7 @@ import fixture  # noqa: E402
 import flow_adapter  # noqa: E402
 import forge  # noqa: E402
 import gatemarks  # noqa: E402
+import gatepolicy  # noqa: E402  （L1。人の関所と無人の方針の住処。入口の語の確かめ）
 import entryshape  # noqa: E402  （入口の変換。入口の種類に触れるのはここだけ）
 import ghreads  # noqa: E402
 import policy  # noqa: E402
@@ -406,9 +407,7 @@ ORIGIN = "works/darkfactory"   # 依頼の出どころ（record.process.request_
 # 依頼 2026-10-06。計画 docs/plans/2026-10-06-variable-depth.md の決め 1。決めと上げは darkfactory/lib/depth.py）。重厚は受けない
 THICKNESS = ("自動", "軽量", "標準", "重厚")
 THICKNESS_DEFAULT = "自動"
-FINAL_GATES = ("always", "when_needed", "protected_only")   # 最後の人の関所の開き方（C18・P1-R3。line_edge.FINAL_GATES と同じ語）
 ADAPTER_MODES = ("", "optional")
-UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 DESIGN_ONLY_WORDS = ("", gatemarks.DESIGN_ONLY)   # 入力 design_only（空は今どおり。true は修正前の関所を必ず開ける設計だけの run）
 SPEC_ON = "on"
 SPEC_WORDS = ("", SPEC_ON)   # 入力 spec（空は仕様の段を挟まない。on は判定の前に仕様の段を挟む。入口の種類に依らない任意の段）
@@ -517,8 +516,9 @@ def _resumed_features(prev: dict, off: list, on: list) -> list:
 
 
 def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
-    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang,
-    unattended, design_only, fix_fixture, launch_mark, spec, features_off, features_on, answers} を返す（launch_mark は起こす殻が起動ごとに付けた印。生の事実として控えに残すだけ）（features_off・features_on は切る機能・入れる機能の語の配列で、features_off()・features_on() が確かめ、両方に在る語は拒む。unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
+    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, adapter, policy_md, lang,
+    design_only, fix_fixture, launch_mark, spec, features_off, features_on, answers} と人の関所の方針の 2 つの欄（gatepolicy.check の返り）
+    を返す（launch_mark は起こす殻が起動ごとに付けた印。生の事実として控えに残すだけ）（features_off・features_on は切る機能・入れる機能の語の配列で、features_off()・features_on() が確かめ、両方に在る語は拒む。人の関所の方針の欄と design_only は start の控え r1/start.json に残り、gatepolicy・gatemarks が読む。
     fix_fixture は固定材料のフォルダ
     （core の fixture。修正を待つ盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
     差分の根を名指せば {base_rev, base, pr} も足す（入口の変換 entryshape.change_base。base_rev は差分の根の merge-base）。
@@ -527,7 +527,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     （依頼者の答え。配列の形の依頼は []）で、start の控えに残り、gatemarks が問いの答えたかで読む。
     盤面は作らない。拒む物（InputRefused）: 依頼の行も差分も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
     依頼が読めない・findings の配列でも {findings, pr, issue, answers} の形でもない・answers の形が違う・findings が依頼の型（写しの RL の REQUEST_SCHEMA）に
-    合わない、thickness が重厚・知らない値、final_gate・adapter・unattended・design_only・gates が語の外（gates の文は写しの RL の check_inputs）、
+    合わない、thickness が重厚・知らない値、人の関所の方針の語（gatepolicy.check。仕様の段と無人の組みも）・adapter・design_only・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書・固定材料のフォルダが無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
     相対のパス（依頼・方針の文書）は対象の根 repo から。reads は start が run の中で読んだ PR・issue（entryshape.github_reads の返り。pr が読む）"""
@@ -537,24 +537,19 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
         raise InputRefused(HEAVY_REFUSED)
     if thickness not in THICKNESS:
         raise InputRefused(f"thickness={thickness!r} は知らない値（{' / '.join(THICKNESS)}。重厚は受けない）")
-    final_gate = _word(raw, "final_gate") or FINAL_GATES[0]
-    if final_gate not in FINAL_GATES:
-        raise InputRefused(f"final_gate={final_gate!r} は知らない値（{' / '.join(FINAL_GATES)}）")
     adapter = _word(raw, "adapter")
     if adapter not in ADAPTER_MODES:
         raise InputRefused(f"adapter={adapter!r} は知らない値（空か optional）")
-    unattended = _word(raw, "unattended")
-    if unattended not in UNATTENDED_WORDS:
-        raise InputRefused(f"unattended={unattended!r} は知らない値（空か {gatemarks.UNATTENDED}）")
     design_only = _word(raw, "design_only")
     if design_only not in DESIGN_ONLY_WORDS:
         raise InputRefused(f"design_only={design_only!r} は知らない値（空か {gatemarks.DESIGN_ONLY}）")
     spec = _word(raw, "spec")
     if spec not in SPEC_WORDS:
         raise InputRefused(f"spec={spec!r} は知らない値（空か {SPEC_ON}）")
-    if spec and unattended:
-        raise InputRefused("spec=on と無人の run（unattended）は組めない——仕様の承認は人の関所で、無人の run は関所で止めるので"
-                           "仕様が固まらずに止まる（人の居る run で回す）")
+    try:
+        gate_policy = gatepolicy.check(_word(raw, gatepolicy.FINAL_KEY), _word(raw, gatepolicy.UNATTENDED_KEY), spec=bool(spec))
+    except gatepolicy.Refused as e:
+        raise InputRefused(str(e)) from None
     if spec and _word(raw, "fix_fixture"):
         raise InputRefused("spec=on と固定材料（fix_fixture）は組めない——固定材料は修正の直前の盤面で、仕様の段より後")
     off = features_off(_word(raw, FEATURES_KEY))
@@ -595,8 +590,8 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
             raise InputRefused(f"名指した固定材料のフォルダ {fx} が無い（fix_fixture。前の run が修正の前に $ARTIFACTS_DIR/{fixture.DIR} に写した物）")
         fx = str(fp)
     out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
-           "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
-           "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
+           "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, **gate_policy,
+           "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"),
            "design_only": design_only, "fix_fixture": fx, "launch_mark": _word(raw, "launch_mark"), "spec": spec, FEATURES_KEY: off,
            FEATURES_ON_KEY: on,
            carry.ANSWERS: answers, carry.PRIOR: prior}
@@ -1055,7 +1050,7 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
     _write_json(work, {**doc, **go, FEATURES_CUT_KEY: features_cut(inp[FEATURES_KEY], on), "head_line": head})
     shape = startrec.shape(doc)   # 入口の入力の形の無い前の版の固定材料は欄ごと出さない（出口の型は object。null で出すと節が落ちる）
     return {"ok": True, **({"input": shape} if shape is not None else {}), "pr_file": "", "base_rev": doc["base_rev"], "test_cmd": doc["test_cmd"],
-            "policy_paste": pol["paste"], "policy_path": pol["path"], "final_gate": doc["final_gate"], "adapter": doc["adapter"],
+            "policy_paste": pol["paste"], "policy_path": pol["path"], "adapter": doc["adapter"],
             "thickness": doc["thickness"], "gates": doc["gates"], **feature_words(inp[FEATURES_KEY], on), **go,
             "head_line": head}
 
@@ -1092,7 +1087,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
        role）を置く。呼び直し（Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
     5. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
     6. 切符（ticket.write）を書き、r1/start.json を結果つきで書き直す
-    返り {ok, input, pr_file, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, thickness, gates, ci_role_go,
+    返り {ok, input, pr_file, base_rev, test_cmd, policy_paste, policy_path, adapter, thickness, gates, ci_role_go,
     pr_go, head_line}。
     input は入口の入力の形（後ろの段は入口の種類を見ず、この中身だけを読む）。pr_file は PR の添え物を置いた盤面の根のファイル
     （PR の無い run は空。目的の役が出典 ① PR 説明として読む）。base_rev は修正の起点（修正前の HEAD）で、下流の差分・
@@ -1163,7 +1158,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     if go["ci_role_go"]:
         head += "・修正前のテスト: 宣言も test_cmd も無い——任せ先の役がリポジトリから走らせ方を探す"
     out = {"ok": True, "input": shape, "pr_file": pr_file, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
-           "policy_path": pol["path"], "final_gate": inp["final_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
+           "policy_path": pol["path"], "adapter": inp["adapter"], "thickness": inp["thickness"],
            "gates": inp["gates"], **feature_words(inp[FEATURES_KEY], on), **go, "head_line": head}
     _write_json(work, {**doc, **go, "head_line": head})
     return out

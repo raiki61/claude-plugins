@@ -27,6 +27,17 @@ DECLARATION = {"suite": [{"name": "suite", "argv": ["python3", "-m", "unittest",
 BROKEN_DECLARATION = {"suite": []}   # 宣言の書式の誤り（suite は 1 段以上）。engine は読めずに任せ先へ落とす
 
 
+def set_final_gate(board, mode: str) -> None:
+    """入口が始めの記録に置いた最後の関所の開き方を mode に替える（境の節は入力で受けず、住処 gatepolicy で記録を読む）"""
+    import gatepolicy
+    import startrec
+    path = startrec.path(board)
+    doc = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    doc[gatepolicy.FINAL_KEY] = mode
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+
 def git_env() -> dict:
     """名前と時刻を固定した git の環境（利用者の設定の名前・署名に左右されない）"""
     fixed = {"GIT_AUTHOR_NAME": "works-test", "GIT_AUTHOR_EMAIL": "works-test@example.invalid",
@@ -251,13 +262,13 @@ def work_home() -> pathlib.Path:
 # depends_on, trigger_rule?, when?, with: {鍵: 出どころ}}。境の節（script edge）は edge.py の INPUTS を全部受け、使わない物は "null"。
 NFMOS = "none_failed_min_one_success"
 ALL_DONE = "all_done"
-EDGE_INPUTS = ("at", "judged", "premised", "gate", "tests", "adapter", "final_gate")
+EDGE_INPUTS = ("at", "judged", "premised", "gate", "tests", "adapter")
 
 
 def _edge(nid, at, deps, **given):
     """境の節の行。edge.py の INPUTS を全部渡す（使わない物は文字列 null。A-T10a の持ち越し 1）"""
     w = {k: "null" for k in EDGE_INPUTS}
-    w.update(at=at, adapter="$entering.output.adapter", final_gate="$INPUTS.final_gate", **given)
+    w.update(at=at, adapter="$entering.output.adapter", **given)
     return {"id": nid, "kind": "script", "script": "edge", "at": at, "depends_on": deps, "trigger_rule": NFMOS, "with": w}
 
 
@@ -826,8 +837,7 @@ class LineRun:
                     halt.place(self.board, "止め札の試し", "test")
                 kw = {k: self._src(row["with"][k]) for k in ("judged", "premised", "gate", "tests")}
                 self.out[nid] = line_edge.edge(self.board, row["at"], self.repo, run_id=RUN_ID,
-                                               adapter_mode=self.out["entering"]["adapter"],
-                                               final_gate=self.inputs["final_gate"], **kw)
+                                               adapter_mode=self.out["entering"]["adapter"], **kw)
                 self.trail.append(nid)
             elif row.get("script") == "depth":
                 import depth

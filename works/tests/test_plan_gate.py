@@ -20,6 +20,7 @@ import conflict  # noqa: E402
 import converge  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
+import gatepolicy  # noqa: E402
 import line_edge  # noqa: E402
 import report  # noqa: E402
 import startrec  # noqa: E402
@@ -57,7 +58,7 @@ class GateBase(unittest.TestCase):
         b.rules = holder.rules
         if unattended:
             (self.tmp / startrec.REL).parent.mkdir(parents=True, exist_ok=True)
-            (self.tmp / startrec.REL).write_text(json.dumps({"unattended": gatemarks.UNATTENDED}), encoding="utf-8")
+            (self.tmp / startrec.REL).write_text(json.dumps({gatepolicy.UNATTENDED_KEY: gatepolicy.UNATTENDED}), encoding="utf-8")
         return registry(holder.rules, "BUILTINS")["human_gate"](b, "p2.human_gate"), b
 
 

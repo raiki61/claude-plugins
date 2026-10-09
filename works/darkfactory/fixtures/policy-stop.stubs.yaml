@@ -28,7 +28,6 @@ entering__open:
   test_cmd: python3 -m unittest
   policy_paste: ''
   policy_path: ''
-  final_gate: always
   adapter: optional
   thickness: 標準
   gates: ''

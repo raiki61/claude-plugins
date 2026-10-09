@@ -575,7 +575,7 @@
 
 - 観点: 持ち主が寝ている間も自動で進める。無人の run で案の直しが範囲を広げるだけなら関所を飛ばす（2026-10-08 に持ち主が推しどおりで決めた）
 - 出どころ: V058（`obvious` と同じ発言）、引き継ぎの文書の 2026-10-08 朝の決め
-- 住処: 無人の run の印（`gatemarks.unattended`）、範囲を広げるだけの直しを聞かずに通す（`.shared/core/replan.py` の `WIDEN_OP`・`planmarks.widened`）、無人で止まった時の答えの下書き（`gatemarks.answer_drafts`。下書きの印つきで、入口は拒む）
+- 住処: 無人の run の印（`gatepolicy.unattended`。人の関所と無人の方針の住処 `.shared/core/gatepolicy.py`）、範囲を広げるだけの直しを聞かずに通す（`.shared/core/replan.py` の `WIDEN_OP`・`planmarks.widened`）、無人で止まった時の答えの下書き（`gatemarks.answer_drafts`。下書きの印つきで、入口は拒む）
 - 強さ: 部分
 - 隙間: 関所に載せるかを、無人かどうかでなく 4 つの軸（自明か・汚くないか・世界の解か・やりすぎでないか）の組み合わせで決める形にまだなっていない（持ち主 2026-10-09「さっきの4つの軸は前々から言ってるから。組み合わせで行けるでしょ」。計画の 1 節の決め 1 → 段 2）。考え `human-gates` が 3 か所に散る → 段 5
 

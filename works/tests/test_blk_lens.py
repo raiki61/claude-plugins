@@ -201,7 +201,7 @@ class LensBoardCase(RF.DeltaBoardCase):
         b = self.board_obj()
         self.assertEqual(b.state["stop"]["by"], stopby.LENS)
         self.assertIn(f"レンズの集め役が終わらなかった: {why}", b.state["stop"]["reason"])
-        got = line_edge.edge(self.board, "refix", repo, run_id="run-7", adapter_mode="optional", final_gate="")
+        got = line_edge.edge(self.board, "refix", repo, run_id="run-7", adapter_mode="optional")
         self.assertEqual((got["stop"], got["go"]), (True, False))
 
     def test_exit_stops_board_when_collector_failed(self):

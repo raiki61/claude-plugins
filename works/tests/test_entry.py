@@ -714,7 +714,7 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
         self.assertIn("mean", got["request_text"])
         self.assertEqual(entry.THICKNESS, ("自動", "軽量", "標準", "重厚"))
-        self.assertEqual(entry.FINAL_GATES, ("always", "when_needed", "protected_only"))
+        self.assertFalse(hasattr(entry, "FINAL_GATES"))   # 開き方の語は住処 gatepolicy の 1 か所
         self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
 
     def test_request_relative_to_repo(self):
@@ -1089,8 +1089,9 @@ class StartCase(StartCaseBase):
         got = self.start(repo, test_cmd=SEED_CMD, final_gate="when_needed", adapter="optional")
         b = entry.open_board(self.board)
         self.assertEqual(got["base_rev"], linekit.git(repo, "rev-parse", "HEAD"))
-        self.assertEqual((got["test_cmd"], got["final_gate"], got["adapter"], got["thickness"], got["gates"]),
-                         (SEED_CMD, "when_needed", "optional", "自動", ""))
+        self.assertEqual((got["test_cmd"], got["adapter"], got["thickness"], got["gates"]),
+                         (SEED_CMD, "optional", "自動", ""))
+        self.assertNotIn("final_gate", got)   # 開き方は出口に出さず、始めの記録に 1 度だけ置く
         self.assertEqual((got["policy_paste"], got["policy_path"]), ("", ""))
         self.assertIsNone(b.state["inputs"]["gates"])
         doc = json.loads(b.work("start.json").read_text(encoding="utf-8"))

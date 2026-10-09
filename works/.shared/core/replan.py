@@ -35,7 +35,7 @@
 人の関所の 1 つの決まり（replan-gate）と答え:
 - 決まり: 直した項目は、約束の欄が承認済みの物と字のまま同じで（planmarks.contract_diff が空。narrows は決め手の欄を外して
   比べる）、事前審査が人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS）を挙げなかった時だけ、人に聞かずに通す。それ以外は
-  関所 replan-gate で人に聞く。ただし無人の run（gatemarks.unattended）では、範囲を広げるだけの直し（planmarks.widened が
+  関所 replan-gate で人に聞く。ただし無人の run（gatepolicy.unattended）では、範囲を広げるだけの直し（planmarks.widened が
   返す: 違いが allowed_paths に足した行と out_of_scope から外した行だけ）も、人に聞く種類の穴が無ければ聞かずに通し、行の
   widened に足した・外した glob を置く。answer がその項目を採った時に trace に WIDEN_OP を 1 行書く（持ち主 2026-10-08）。役には決めさせず、コードが欄を比べて決める
 - WIDEN_OP・WIDEN_LINE・WIDEN_PARTS: 無人の run で範囲を広げるだけの直しを聞かずに通した trace の行の op と、lines の文
@@ -78,6 +78,7 @@ import conflict  # noqa: E402
 import converge  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
+import gatepolicy  # noqa: E402  （L1。無人の run か）
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
@@ -581,7 +582,7 @@ def gate(b, *, run_id: str) -> dict:
     if doc is None:
         return {"ask": False, "gate_text": "", "gate_file": ""}
     kinds = human_kinds(b)
-    alone = gatemarks.unattended(b)
+    alone = gatepolicy.unattended(b.dir)
     for row in doc["items"]:
         if row.get("result"):
             continue

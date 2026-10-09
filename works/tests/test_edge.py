@@ -37,6 +37,7 @@ import deltamarks  # noqa: E402
 import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
+import gatepolicy  # noqa: E402
 import halt  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
@@ -210,8 +211,11 @@ class EdgeBase(unittest.TestCase):
             "    if x > hi:\n        return lo", "    if x > hi:\n        return hi"), encoding="utf-8")
         return self.take("p3.fix", fix_reply(faces=True))
 
-    def edge(self, at, **kw):
-        kw.setdefault("final_gate", "always")
+    def edge(self, at, final_gate=None, **kw):
+        """境の節を呼ぶ。final_gate を渡せば、入口が始めの記録に置いた最後の関所の開き方をその語にしてから呼ぶ（境の節は入力で
+        受けず、住処 gatepolicy で記録を読む）"""
+        if final_gate is not None:
+            linekit.set_final_gate(self.board, final_gate)
         kw.setdefault("adapter_mode", "optional")   # 包みの確かめ（at judge）は JudgeEdgeCase が "" で見る
         return line_edge.edge(self.board, at, self.repo, run_id=RUN_ID, **kw)
 
@@ -456,10 +460,23 @@ class FinalGateCase(EdgeBase):
         self.assertEqual((got["ok"], got["status"]), (True, "failed"))
         self.assertTrue(got["reason"].strip())
 
-    def test_final_gate_words_match_entry(self):
-        """ラインの入力 final_gate の語は、start（entry.check_inputs）が受ける語と境の節が読む語で同じ（C18。mid_gate は無い）"""
-        self.assertEqual(entry.FINAL_GATES, line_edge.FINAL_GATES)
+    def test_final_gate_words_live_in_home(self):
+        """最後の関所の開き方の語は住処 gatepolicy の 1 か所（入口も境の節も自分の表を持たない。C18。mid_gate は無い）"""
+        for mod in (entry, line_edge):
+            self.assertFalse(hasattr(mod, "FINAL_GATES"), mod.__name__)
         self.assertFalse(hasattr(entry, "MID_GATES"))
+
+    def test_mode_comes_from_start_record(self):
+        """境の節は最後の関所の開き方を入力で受けず、入口が置いた始めの記録から読む（線の節ごとに入力を写さない）"""
+        import inspect
+        self.assertNotIn("final_gate", inspect.signature(line_edge.edge).parameters)
+        tests = self.closed()
+        linekit.set_final_gate(self.board, "when_needed")
+        self.assertFalse(line_edge.edge(self.board, "final", self.repo, run_id=RUN_ID, adapter_mode="optional",
+                                        tests=tests).get("ask"))
+        linekit.set_final_gate(self.board, "always")
+        self.assertTrue(line_edge.edge(self.board, "final", self.repo, run_id=RUN_ID, adapter_mode="optional",
+                                       tests=tests)["ask"])
 
     def test_final_default_is_always(self):
         tests = self.closed()
@@ -529,7 +546,7 @@ class FinalGateCase(EdgeBase):
                          {"decision": "stop", "text": "直し方が違う"})
         h = b.record["process"]["human_items"][-1]
         self.assertEqual((h["answer"], h["note"], h["node"], h["kinds"]), ("stop", "直し方が違う", line_edge.FINAL_GATE_BY,
-                                                                          [line_edge.FINAL_GATE_KIND]))
+                                                                          [gatepolicy.FINAL_KIND]))
         rows = trace_rows(self.board, line_edge.STOP_AFTER_END_OP)
         self.assertEqual([(r["at"], r["reason"], r["by"]) for r in rows], [("eyes", "直し方が違う", line_edge.FINAL_GATE_BY)])
         self.assertEqual(self.state()["halted"]["by"], line_edge.ENDED_BY)
@@ -1011,7 +1028,7 @@ class GoCase(EdgeBase):
             st = json.loads((board_dir / "state.json").read_text(encoding="utf-8"))
             st["works"].update(line=table.line, table_sha=table.sha())
             (board_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            got = line_edge.edge(board_dir, "fix", repo, run_id=RUN_ID, adapter_mode="", final_gate="always")
+            got = line_edge.edge(board_dir, "fix", repo, run_id=RUN_ID, adapter_mode="")
         self.assertEqual(entry.open_board(board_dir).round, 2)
         self.assertEqual(got["plan_file"], str(board_dir / "out" / "r2" / "p2.fix_plan.json"))
 
@@ -1451,7 +1468,7 @@ class EdgeScriptCase(EdgeBase):
     def run_edge(self, **env):
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         base.update({"INPUTS_AT": "fix", "INPUTS_JUDGED": "null", "INPUTS_PREMISED": "null", "INPUTS_GATE": "null",
-                     "INPUTS_TESTS": "null", "INPUTS_ADAPTER": "", "INPUTS_FINAL_GATE": "always", "ARTIFACTS_DIR": str(self.art),
+                     "INPUTS_TESTS": "null", "INPUTS_ADAPTER": "", "ARTIFACTS_DIR": str(self.art),
                      "WORKFLOW_ID": RUN_ID, "PYTHONDONTWRITEBYTECODE": "1"})
         base.update(env)
         base = {k: v for k, v in base.items() if v is not None}
@@ -1475,7 +1492,7 @@ class EdgeScriptCase(EdgeBase):
         got = json.loads(r.stdout)
         self.assertEqual((got["go"], got["notes"]), (True, ODD_NOTE))
         # 欠け・崩れ・盤面の誤り: 2（標準出力は空・標準エラーに 1 行）
-        for env in ({"INPUTS_TESTS": None}, {"INPUTS_FINAL_GATE": "sometimes"}, {"ARTIFACTS_DIR": ""}, {"WORKFLOW_ID": None}, {"INPUTS_GATE": "{壊れた"},
+        for env in ({"INPUTS_TESTS": None}, {"ARTIFACTS_DIR": ""}, {"WORKFLOW_ID": None}, {"INPUTS_GATE": "{壊れた"},
                     {"INPUTS_GATE": "[1]"}, {"INPUTS_AT": "nowhere"}, {"INPUTS_AT": "null"},
                     {"ARTIFACTS_DIR": str(self.tmp / "nowhere")}):
             with self.subTest(env=env):
@@ -1492,7 +1509,7 @@ class EdgeScriptCase(EdgeBase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         self.assertEqual(mod.INPUTS, ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_TESTS",
-                                      "INPUTS_ADAPTER", "INPUTS_FINAL_GATE"))
+                                      "INPUTS_ADAPTER"))
 
 
 class FinalGateEyesCase(EdgeBase):

@@ -72,6 +72,7 @@ import converge  # noqa: E402
 import design  # noqa: E402
 import diverted  # noqa: E402
 import gatemarks  # noqa: E402
+import gatepolicy  # noqa: E402  （L1。人の関所と無人の方針の住処）
 import impact  # noqa: E402
 import outpurpose  # noqa: E402
 import querytest  # noqa: E402
@@ -211,7 +212,7 @@ def _latest(board_dir: pathlib.Path, name: str) -> pathlib.Path | None:
 def final_gate_answer(board_dir) -> tuple:
     """最後の関所の答えの読み手（ここだけが final-gate-answer.json を読む）: (状態, 答えの doc, 答えのファイル)。
     answered＝{decision, text} が読めた／unreadable＝答えのファイルが在るのに読めない（doc は {}）、または関所の文が在るのに
-    答えのファイルが無い（ファイルは None）／not_asked＝関所の文も答えも無い（関所が開かなかった。final_gate protected_only の既定では正常）"""
+    答えのファイルが無い（ファイルは None）／not_asked＝関所の文も答えも無い（関所が開かなかった。守りのファイルを触った時だけ開く開き方の既定では正常。core の gatepolicy）"""
     ans = _latest(pathlib.Path(board_dir), FINAL_GATE_ANSWER)
     if ans is None:
         return ("unreadable" if _latest(pathlib.Path(board_dir), FINAL_GATE_FILE) is not None else "not_asked"), {}, None
@@ -228,7 +229,7 @@ def _gate_answer_note(board_dir) -> str:
         return f"（最後の関所の答え: {doc['decision']}「{doc.get('text') or ''}」）"
     if state == "unreadable":
         return f"（最後の関所の答えが読めなかった: {ans or '答えのファイルが無い'}）"
-    return ""   # 開かなかった（final_gate protected_only の既定では正常）。冒頭 1 の head_decisions も何も出さない
+    return ""   # 開かなかった（守りのファイルの時だけ開く既定の開き方では正常）。冒頭 1 の head_decisions も何も出さない
 
 
 def _all_rounds(board_dir: pathlib.Path, pattern: str) -> list:
@@ -1213,8 +1214,9 @@ def head_entry(b, start: dict | None, *, cleaned_runs: str = "", depth_lines=(),
     shape = startrec.shape(s) or startrec.shape(_start_doc(b, None))
     words = startrec.words(shape) if shape is not None else "（控えに入口の入力の形が無い）"
     parts = [f"入口: {words}", f"段: {s.get('thickness') or '（控えが無い）'}", f"gates: {s.get('gates') or '空'}"]
-    if s.get("final_gate"):
-        parts.append(f"最後の関所: {s['final_gate']}")
+    gate_words = gatepolicy.head_words(startrec.read(b.dir))   # 開き方は始めの記録にだけ在る（入口の出口には出さない）
+    if gate_words:
+        parts.append(gate_words)
     parts.append(f"包み: {'optional（包み無し）' if s.get('adapter') == 'optional' else '通す'}")
     # 機能（入力 features_off・features_on）は start の控えの欄（start の出口は機能ごとの on・off・auto だけを持つ）。
     # 控えが無い（start が控えを書く前に落ちた）run は語を出さない

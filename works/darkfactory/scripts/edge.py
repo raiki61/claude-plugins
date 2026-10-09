@@ -7,7 +7,7 @@
 h-refit・h-rejudge・h-review・h-refix・h-tests・h-ci・h-look・h-final・h-eyes）。いつも走る節で、when: を持たない。
 
 読む環境変数（Archon が節の with: から渡す。どれも在ること）:
-- INPUTS_AT（line_edge.AT の語）・INPUTS_ADAPTER（start の adapter）・INPUTS_FINAL_GATE（ラインの入力 final_gate。空は always）
+- INPUTS_AT（line_edge.AT の語）・INPUTS_ADAPTER（start の adapter）。最後の関所の開き方は入力で受けず、line_edge が始めの記録から読む
 - INPUTS_JUDGED（h-plan だけ: 判定のブロックの出口）・INPUTS_PREMISED（h-judge だけ: 前提のブロックの出口）・
   INPUTS_GATE（h-fix は policy-gate、h-refit は replan-gate、h-eyes は final-gate の出口）・INPUTS_TESTS（h-final だけ: blk-tests の final の出口）。
   どれも JSON のオブジェクトの文字列で、飛ばされた節は `{from: …, if_skipped: null}` の文字列 null（空も同じ）＝
@@ -30,7 +30,7 @@ import os  # noqa: E402
 import script_io  # noqa: E402
 
 # 裁定 TA16: 読む INPUTS_* の組（Task 17 の試験が YAML の with: の鍵と突き合わせる）
-INPUTS = ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_TESTS", "INPUTS_ADAPTER", "INPUTS_FINAL_GATE")
+INPUTS = ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_TESTS", "INPUTS_ADAPTER")
 JSON_INPUTS = {"INPUTS_JUDGED": "judged", "INPUTS_PREMISED": "premised", "INPUTS_GATE": "gate", "INPUTS_TESTS": "tests"}
 NULL = "null"   # 飛ばされた節の出力（if_skipped: null）が届く字
 RUN_ID_ENV = "WORKFLOW_ID"
@@ -83,7 +83,7 @@ def main() -> int:
     try:
         kw = {key: _obj(name) for name, key in JSON_INPUTS.items()}
         out = line_edge.edge(board, _word("INPUTS_AT"), Path.cwd(), run_id=os.environ[RUN_ID_ENV],
-                        adapter_mode=_word("INPUTS_ADAPTER"), final_gate=_word("INPUTS_FINAL_GATE"), **kw)
+                        adapter_mode=_word("INPUTS_ADAPTER"), **kw)
     except Broken as e:
         print(f"境の節の入力が崩れている: {_line(e)}", file=sys.stderr)
         return 2

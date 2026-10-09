@@ -28,10 +28,10 @@
   （修正のブロックと再審の後）。
   h-mat は今の周の判定が済んでいれば go を偽にする（判定のブロックを回さない）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
-  state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
+  state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を開き方（core の gatepolicy）に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
   その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。テストの変更の許し（承認済みの修正案の
   rewrite_tests と裁定 fix_test_scope の範囲。core の conflict.test_permits）が名指したテストの変更も守りのファイルの行として並ぶ
-- 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を final_gate に関わらず
+- 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を開き方に関わらず
   開き、文に「食い違いの申し出」の節を並べ、process.human_items に 1 行。答えの写しと、答えが来ない時の止めは守りのファイルと同じ
 """
 import json
@@ -58,6 +58,7 @@ import design  # noqa: E402
 import entry  # noqa: E402
 import fixture  # noqa: E402
 import gatemarks  # noqa: E402
+import gatepolicy  # noqa: E402  （L1。人の関所と無人の方針の住処。最後の関所の開き方は始めの記録から読む）
 import halt  # noqa: E402
 import impact  # noqa: E402
 import planmarks  # noqa: E402
@@ -88,14 +89,12 @@ GATE_AT = ("fix", "refit", "eyes")   # 関所の答えを受ける境の節（fi
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
 GATE_STOP = ("stop", "reject")
 GATE_STOP_NOTE = "関所で止めた"              # policy-gate の stop・reject に一言が無い時の理由
-FINAL_GATES = ("always", "when_needed", "protected_only")   # 入力 final_gate の語（空は always。P1-R3: 必ず止まれる所を残す）。
-# protected_only は守りのファイルを触った（確かめられなかった）時だけ開く（利用者の既定。ほかの理由は報告の冒頭に並ぶだけ。
-# 開いた関所の stop・reject は use.sh apply が読んで差分を当てずに止まり、当てるのは WORKS_USE_ALLOW_STOPPED=1 の時だけ）
+# 最後の関所の開き方は住処 gatepolicy（語・既定・開くかの決め）。境の節は入力で受けず、入口が置いた始めの記録から読む。
+# 開いた関所の stop・reject は use.sh apply が読んで差分を当てずに止まり、当てるのは WORKS_USE_ALLOW_STOPPED=1 の時だけ
 FINAL_GATE_FILE = "final-gate.md"            # final-gate の文（b.work）
 FINAL_GATE_ANSWER = "final-gate-answer.json" # final-gate の答え {decision, text}（b.work。stop・reject も書く——報告が読む）
 FINAL_GATE_BY = "human:final-gate"           # final-gate の stop・reject の by（state.stop.by か、周を締めた後なら trace の行）
 FINAL_GATE_STOP_NOTE = "最後の関所で止めた"  # final-gate の stop・reject に一言が無い時の理由
-FINAL_GATE_KIND = "final_gate"               # process.human_items の行の kinds
 ENDED_BY = "stop_after_round"                # 1 周の run が周を締めた後の盤面の halted.by（最後のテストの後の普通の終わり）
 ENDED_AT = ("ci", "look", "final", "eyes")   # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた盤面に止める答え・止め札が来た印の trace の行（b.stop は拒まれる）
@@ -194,9 +193,8 @@ def _gate_words(gate) -> tuple:
     return decision, text
 
 
-def _check_args(at, *, final_gate, judged, gate, tests, premised=None, adapter_mode="") -> str:
-    """配線の誤り（知らない at・場違いの入力・形の崩れ・語の外の adapter・final_gate）を BoardGap にし、final_gate の語
-    （空は既定の always）を返す"""
+def _check_args(at, *, judged, gate, tests, premised=None, adapter_mode="") -> None:
+    """配線の誤り（知らない at・場違いの入力・形の崩れ・語の外の adapter）を BoardGap にする"""
     if at not in AT:
         raise _gap(f"境の節の at {at!r} を知らない（{' / '.join(AT)}）")
     if (adapter_mode or "") not in entry.ADAPTER_MODES:
@@ -211,10 +209,6 @@ def _check_args(at, *, final_gate, judged, gate, tests, premised=None, adapter_m
         raise _gap(f"最後のテストの出口（tests）を受けるのは at final の JSON のオブジェクトだけ（at {at}・{type(tests).__name__}）")
     if judged is not None and (at != "plan" or not isinstance(judged, dict)):
         raise _gap(f"判定の出口（judged）を受けるのは at plan の JSON のオブジェクトだけ（at {at}・{type(judged).__name__}）")
-    mode = (final_gate or "").strip() or FINAL_GATES[0]
-    if mode not in FINAL_GATES:
-        raise _gap(f"final_gate={final_gate!r} は知らない値（{' / '.join(FINAL_GATES)}）")
-    return mode
 
 
 def _carried(b) -> dict:
@@ -299,7 +293,7 @@ def _answer_policy_gate(b, gate: dict) -> None:
 
 def _answer_final_gate(b, gate: dict) -> tuple:
     """final-gate（Archon だけの関所。盤面の問いでない）の答えを残す: どの答えも b.work(FINAL_GATE_ANSWER) に {decision, text}
-    （stop・reject も。報告が読む）と process.human_items に 1 行（kinds final_gate・answer は continue か stop・note は一言の字のまま）。
+    （stop・reject も。報告が読む）と process.human_items に 1 行（kinds gatepolicy.FINAL_KIND・answer は continue か stop・note は一言の字のまま）。
     同じ答えで呼び直した（Archon の再開）なら積み増さない。返り (止めるか, 止める理由)"""
     decision, text = _gate_words(gate)
     doc = {"decision": decision, "text": text}
@@ -311,7 +305,7 @@ def _answer_final_gate(b, gate: dict) -> tuple:
     if not again:
         _write_json(path, doc)
         answer = "continue" if decision in GATE_GO else "stop"
-        b.record["process"]["human_items"].append({"round": b.round, "kinds": [FINAL_GATE_KIND], "asked": [FINAL_GATE_FILE],
+        b.record["process"]["human_items"].append({"round": b.round, "kinds": [gatepolicy.FINAL_KIND], "asked": [FINAL_GATE_FILE],
                                                    "answer": answer, "note": text, "node": FINAL_GATE_BY})
         for row in _waiting_rows(b):   # 守りのファイル・食い違いの申し出の行に人の答えを写す（報告の冒頭 1 に出る）
             row["answer"] = answer
@@ -752,7 +746,7 @@ def _guard(b, repo) -> tuple:
 
 def _final_needs(b, rest: report.Rest, objection: str, rows, err: str, asks: list, mismatched: list, *,
                  handoffs: list = ()) -> list:
-    """最後の関所を開ける理由（1 件 1 句）。when_needed で開くかはこの列の空でなさだけで決め、_final_head の 1 行目もこの列を
+    """最後の関所を開ける理由（1 件 1 句）。開ける理由が要る開き方で開くかはこの列の空でなさだけで決め（gatepolicy.opens）、_final_head の 1 行目もこの列を
     並べる（理由を足すのはここだけ）。handoffs は修正役が人に回した物（report.handoff_lines。食い違いの申し出と同じく、役だけで
     決めた代償は人が決める）"""
     why = []
@@ -786,7 +780,7 @@ def _final_head(b, head: str, why: list, guarded: bool) -> list:
     決めてほしいこと＝報告へ進めるか止めるか・推し＝判定の役が問いの理由に書いた推し（機械は作らない）"""
     held = gatemarks.held_lines(b)
     happened = (f"最後のテストと独立の目が済み、報告の前で止まった。テストは{head}。"
-                + ("開けた理由: " + "・".join(why) if why else "関所はいつも開く設定（final_gate always）で、ほかに開けた理由は無い")
+                + ("開けた理由: " + "・".join(why) if why else f"関所はいつも開く設定（{gatepolicy.head_words({gatepolicy.FINAL_KEY: gatepolicy.ALWAYS})}）で、ほかに開けた理由は無い")
                 + (f"。判定の役が人に聞くと保留にしたままの問いも在る（{len(held)} 件。関所を開ける理由には数えない）" if held else ""))
     split = report.split_line(b)   # 修正の段が受けた単位と止めて持ち越した単位（止めていなければ空）
     happened += f"。{split}" if split else ""
@@ -797,7 +791,7 @@ def _final_head(b, head: str, why: list, guarded: bool) -> list:
 
 
 def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
-    """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・環境で起こせなかった・
+    """h-final（最後のテストと独立の目の後）: ask は開き方 mode（gatepolicy.opens）で決める。開ける理由は、最後のテストが緑でない（赤・環境で起こせなかった・
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
     阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る・修正役が人に回した物（report.handoff_lines）が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
     ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
@@ -818,7 +812,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     mismatched = querytest.closure_lines(b, mismatched_only=True)
     handoffs = report.handoff_lines(b)
     why = _final_needs(b, rest, objection, rows, err, asks, mismatched, handoffs=handoffs)
-    if (mode == "when_needed" and not why) or (mode == "protected_only" and not guarded):
+    if not gatepolicy.opens(mode, reasons=why, guarded=guarded):
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
     stuck = querytest.closure_lines(b, stuck_only=True)
@@ -1049,7 +1043,7 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
     return {"go": True, **carried, "structure_units_file": structure_units(b, carried, repo), "verify_file": _verify_file(b)}
 
 
-def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate: str, judged: dict | None = None,
+def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, judged: dict | None = None,
          gate: dict | None = None, tests: dict | None = None, premised: dict | None = None) -> dict:
     """境の節（計画 Task 10a。並びは C18 の順・計画 P1 Task 26）。返りは EMPTY の欄の全部（使わない欄は空の値。judgment_file・
     open_units はどの at でも h-plan の控え b.work(JUDGED_FILE) から）。盤面を開くのは 1 回（渡し替えの後は開き直す）。順:
@@ -1082,11 +1076,11 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        ci: go は p4.ci が任せ先に落ちて待っている（entry.role_waits。start の ci_role_go と同じ口）。
        review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。review は先に、固定材料から始めた盤面
        （fixture.adopted）なら包みの確かめ（_adapter_guard。通らなければ止める）。
-       final: final_edge（final_gate と最後のテストの出口 tests と独立の目の判定から ask と文）。
+       final: final_edge（始めの記録の最後の関所の開き方（gatepolicy.final_mode）と最後のテストの出口 tests と独立の目の判定から
+       ask と文）。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
-    配線の誤り（知らない at・場違いの入力・形の崩れ・知らない final_gate・adapter）は BoardGap"""
-    mode = _check_args(at, final_gate=final_gate, judged=judged, gate=gate, tests=tests, premised=premised,
-                       adapter_mode=adapter_mode)
+    配線の誤り（知らない at・場違いの入力・形の崩れ・知らない adapter・始めの記録の語の外の開き方）は BoardGap"""
+    _check_args(at, judged=judged, gate=gate, tests=tests, premised=premised, adapter_mode=adapter_mode)
     if at == "rejudge":   # 修正の段を抜ける所: 止まっているかを見る前に、案の直しを待つ行を締める（止まった盤面でも）
         replan.settle(board_dir, repo)
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
@@ -1178,6 +1172,10 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         if stopped:
             return {**out, **stopped}
     if at == "final":
+        try:
+            mode = gatepolicy.final_mode(b.dir)
+        except ValueError as e:
+            raise _gap(str(e)) from None
         got = final_edge(b, repo, run_id=run_id, mode=mode, tests=tests)
         if _stopped(b) and not _ended(b):   # final_edge の確かめ（_guard）が盤面を止めた: 関所を開かず、その理由で止まる
             return _halted_out(b, out, flag, at)

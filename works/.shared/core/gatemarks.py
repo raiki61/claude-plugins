@@ -4,7 +4,7 @@
 答えが 1 つに決まらない理由（undecided_because）が空で、柵の印（fences）の無い行は、人に聞かずに通す。判定役の問いの
 undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目に伸ばし、柵は Renovate の automerge:false と同じ明示の除外。
 通した行は出どころつきで state.works.gate_passes に残り、報告の冒頭にいつも並び、最後の関所が開いた時はその文にも並ぶ
-（通した行は when_needed の最後の関所を開く理由に入れない）。欄の無い行は今までどおり聞く。
+（通した行は最後の関所を開く理由に入れない）。欄の無い行は今までどおり聞く。
 
 写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、足す・外す・置く・読むの手順は住処 marks（種 gate。役の型の
 行にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の gate-marks.json に置く）に任せる。関所の組み立ては写しの RL の _plan_gate_items を差し替える（entry.CORE_OVERRIDES）。
@@ -22,7 +22,7 @@ narrows を書く前に狭めを避ける形を当たり、無い時だけ narro
 問いの台帳（record.questions）のうち人に聞く状態（検証器の ASKING）の問いも、修正前の関所の項目に 1 件 1 行で載せる（持ち主
 2026-09-29。run 119 の人の答え）。人に聞くと名乗る問いが人の口に繋がらないまま、出どころの免除だけが効いて
 いたため。この行は決め手の濾しに掛けない。関所の continue はその問いへの答えで、一言が問いに触れなければ修正役は問いの理由の推しで
-直す。一言で「保留: <key>」と名指した問いは答えに数えない。無人の run（入力 unattended）では問いの行を項目に載せない——関所を
+直す。一言で「保留: <key>」と名指した問いは答えに数えない。無人の run（gatepolicy.unattended）では問いの行を項目に載せない——関所を
 開けば無人の殻が stop を返し、問いと関係の無い単位の修正まで飛ぶので、出どころだけを飛ばして報告の冒頭に並べる。関所に載せる問い・
 出どころの免除・答えでの戻しは、fork も escalate も同じ asks の 1 つの決まりから作る（免除は works の差し替え
 conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は fork だけを外す）。
@@ -53,7 +53,6 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   素材の名）・素材の名で答えた依頼の答え（問いが立っていなくても当たる）・命令と出力つきで答えた素材（報告が検証器の阻害から外す。
   HAND_CHECKED と名乗る）・答えた行に足す素材の行（利用者の声 10-09 の C2）
 - design_only(b)・design_item(b): 設計だけの run か・関所に載せる設計だけの行（載せなければ空）
-- unattended(b): 無人の run か（盤面の start の控えは startrec.read で読む）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
 - LANES_NAME・fell_lanes(b): 独立の目の筋が落ちた文の置き場と読み手（blk-eyes が書き、最後の関所の目の行の下に並ぶ）
 - quote(question)・QUOTE_NOTE: 盤面の問いの文を引用として載せる行と、関所で添える答え方の読み替えの 1 行
@@ -82,6 +81,7 @@ import re
 import answer
 import carry   # 下書きの印の付け方（次の run への持ち越しの形の住処）
 import cite    # 決め手の出どころが現物に在るかの照らし（食い違いの申し出の引用の照らしと同じ住処）
+import gatepolicy   # 無人の run か（人の関所と無人の方針の住処）
 import converge
 import marks
 import planmarks   # 修正案の欄 structure（汚れる行への答え）
@@ -168,7 +168,6 @@ ANSWER_KEY_HEAD = "答える時の answers の question"   # 保留の行の尾:
 HAND_CHECKED = "人が手元で確かめた（実測とは書かない）"   # 命令と出力つきの依頼の答えが当たった測れていない素材の名乗り
 ANSWER_HOW = ('答え方: 次の run の依頼を {"findings": [...], "answers": [{"question": "<問いの key か出どころ>", "text": "<答え>"}]} '
               'の形にすれば、その問いを人に聞き直さない（手元で測ったなら "command" と "output" も書く）')
-UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
 DESIGN_KIND = "design"                # 関所の項目の kinds（構造の目が決めきれなかった設計の問い）
@@ -546,7 +545,7 @@ def plan_gate_items(b) -> list:
     _record(b, [(text, m) for _, text, m, _, _, why in rows if not why])
     items = [(kind, _item(text, m, why if decided(m) else ())) for kind, text, m, _, _, why in rows if why]
     items += design_items(b)   # 構造の目が決めきれなかった設計の問い（人がいる run も無人の run も同じ）
-    if not unattended(b):
+    if not gatepolicy.unattended(b.dir):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
     item = design_item(b)
     if item and not _design_only_answered(b, item):
@@ -574,11 +573,6 @@ def _design_only_answered(b, item: str) -> bool:
     return any(isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"
                and item in (h.get("asked") or [])
                for h in (b.record.get("process") or {}).get("human_items") or [])
-
-
-def unattended(b) -> bool:
-    """run が無人で回っている（start の控えの unattended。読めなければ人の居る run）"""
-    return startrec.read(b.dir).get("unattended") == UNATTENDED
 
 
 def _asking(b) -> list:
@@ -770,7 +764,7 @@ def answer_drafts(b) -> list:
     out = []
     stops = [h for h in (b.record.get("process") or {}).get("human_items") or []
              if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "stop" and h.get("round") == b.round
-             ] if unattended(b) else []
+             ] if gatepolicy.unattended(b.dir) else []
     rows = {_item(text, m, why if decided(m) else ()): (text, m, node)
             for _, text, m, node, units in _gate_rows(b) for why in [axes(b, m, units)]} if stops else {}
     for a in (stops[-1].get("asked") or []) if stops else []:

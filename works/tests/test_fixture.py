@@ -408,8 +408,7 @@ class FixtureEdgeCase(FixtureBase):
     """境の節 h-fix の写し（go の後の 1 段）と、固定材料から始めた盤面の h-judge・h-mat"""
 
     def edge(self, at, board=None, repo=None, adapter_mode="optional"):
-        return line_edge.edge(board or self.board, at, repo or self.repo, run_id="run-1", adapter_mode=adapter_mode,
-                              final_gate="always")
+        return line_edge.edge(board or self.board, at, repo or self.repo, run_id="run-1", adapter_mode=adapter_mode)
 
     def test_fix_edge_captures_once(self):
         """h-fix の go が真の 1 周目 → 盤面の隣に写しを作る。呼び直しても写し直さない"""
