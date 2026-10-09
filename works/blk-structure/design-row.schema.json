@@ -24,6 +24,7 @@
   "chosen_reason": {"type": "string", "description": "推しの理由"},
   "precedents": {"type": "array", "items": {"type": "string"}, "description": "先例の出典"},
   "route": {"type": "string", "enum": ["自分で決める", "人に上げる"]},
-  "route_reason": {"type": "string", "minLength": 1}
+  "route_reason": {"type": "string", "minLength": 1, "description": "行き先の訳（人に上げる行は undecided_because と同じ文）"},
+  "undecided_because": {"type": "string", "description": "決め手を当たっても決まらない訳（人に上げる行だけ）"}
  }
 }

@@ -545,6 +545,76 @@ class BlockCase(unittest.TestCase):
         self.assertTrue(s.get("properties"))
 
 
+class EyeInputsCase(unittest.TestCase):
+    """目に見せる物（計画 2026-10-09-clean-whole の Task 2.3）: 段 A が単位のパスに当たる考えの地図の行・知る場所の数と、方針の文書・
+    根の地図の文書を structure.json に置き、目の支度がそれを指示書に貼る。入力の契約は 3 つのまま（地図と表は root から探す）"""
+
+    setUp, tearDown, units = BlockCase.setUp, BlockCase.tearDown, BlockCase.units
+    MAP = ("# 地図\n\n### `outcome` run の結末\n\n- 状態: 住処あり\n- 住処: `src/report.py`\n\n"
+           "### `halt` 止め札\n\n- 状態: 住処あり\n- 住処: `src/halt.py`\n")
+    TABLE = {"exclude": ["docs/**"], "concepts": {
+        "outcome": {"status": "住処あり", "fences": [{"what": "結末の語", "pattern": "\"round_limit\"",
+                                                     "allowed": ["src/report.py"], "known": {}}]},
+        "halt": {"status": "住処あり", "fences": [{"what": "止め札", "pattern": "\"STOP\"", "allowed": ["src/halt.py"],
+                                                  "known": {}}]}}}
+
+    def target(self, with_table=True):
+        repo = self.tmp / "target"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _write(repo, "src/report.py", 'OUT = "round_limit"\n')
+        _write(repo, "src/edge.py", 'x = "round_limit"\n')
+        _write(repo, "src/halt.py", 'S = "STOP"\n')
+        _write(repo, "POLICY.md", "決まり: 結末の語は report.py だけが持つ\n")
+        _write(repo, "AGENTS.md", "# 対象の決まり\n\n層は下へだけ依存する\n")
+        if with_table:
+            _write(repo, "docs/concepts.md", self.MAP)
+            _write(repo, "docs/concepts.json", json.dumps(self.TABLE, ensure_ascii=False))
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "c0", date="2020-01-01")
+        return repo
+
+    def stage_and_prep(self, repo, policy=""):
+        art = self.tmp / "art"
+        art.mkdir(exist_ok=True)
+        units = self.units([{"id": "u-1", "paths": ["src/edge.py"], "summary": "境の節が結末の語を書く"}])
+        env = {k: v for k, v in child_env().items() if not k.startswith("INPUTS_")}
+        env.update(ARTIFACTS_DIR=str(art), PYTHONDONTWRITEBYTECODE="1", INPUTS_UNITS=str(units), INPUTS_ROOT=str(repo),
+                   INPUTS_POLICY_PATH=policy)
+        p = subprocess.run([sys.executable, str(BLOCK_DIR / "scripts" / "stage_a.py")], cwd=str(repo), env=env,
+                           capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        sf = json.loads(p.stdout)["structure_file"]
+        env["INPUTS_STRUCTURE_FILE"] = sf
+        q = subprocess.run([sys.executable, str(BLOCK_DIR / "scripts" / "eye_prep.py")], cwd=str(repo), env=env,
+                           capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual(q.returncode, 0, q.stderr)
+        return json.loads(pathlib.Path(sf).read_text(encoding="utf-8")), json.loads(q.stdout)["prompt"]
+
+    def test_eye_sees_concept_rows_for_unit_paths(self):
+        doc, prompt = self.stage_and_prep(self.target())
+        unit = doc["units"][0]
+        self.assertEqual([r["id"] for r in unit["concepts"]["rows"]], ["outcome"])   # 止め札の行は単位に当たらない
+        self.assertEqual([(x["concept"], x["path"], x["home"], x["known_places"]) for x in unit["concepts"]["places"]],
+                         [("outcome", "src/edge.py", False, 2)])
+        self.assertIn("### `outcome` run の結末", prompt)
+        self.assertNotIn("### `halt`", prompt)
+        self.assertIn("known_places", prompt)
+
+    def test_eye_sees_policy_text(self):
+        doc, prompt = self.stage_and_prep(self.target(), policy="POLICY.md")
+        self.assertEqual(doc["rules"]["policy"]["path"], "POLICY.md")
+        self.assertIn("結末の語は report.py だけが持つ", prompt)
+        self.assertIn("層は下へだけ依存する", prompt)   # 根の地図の文書（AGENTS.md）
+
+    def test_no_map_no_table_measures_only(self):
+        """地図も表も無い対象は実測だけで判じる（作らない）。concepts は空の並び"""
+        repo = self.target(with_table=False)
+        doc, prompt = self.stage_and_prep(repo)
+        self.assertEqual(doc["units"][0]["concepts"], {"rows": [], "places": []})
+        self.assertFalse((repo / "docs").exists())
+
+
 class EyeCase(unittest.TestCase):
     """構造の目（設計書 10 節の S2b）: 段 A の後の輪（prep → 道具ゼロの役 → 受け付け）が判定を確かめ、design.jsonl に行を書く。
     evidence の各行は structure.json の欄を指す JSON Pointer（RFC 6901）"""

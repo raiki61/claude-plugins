@@ -7,10 +7,12 @@
 結果を $ARTIFACTS_DIR/structure/structure.json に書く。設計の行のファイル design.jsonl は 0 バイトで置き直す（JSON Lines は空行を
 許さないので改行も書かない。行を書くのは構造の目の受け付け）。前の周の構造の目の控え eye.json は消す。
 
-structure.json: {status: ok|failed, reason, root, policy_path, units: [{id, summary, paths, status, reason, measure}],
+structure.json: {status: ok|failed, reason, root, policy_path, rules, units: [{id, summary, paths, status, reason, measure, concepts}],
 timing: {started_at, finished_at, wall_s}}。単位の status は measured か failed（failed なら reason に measure.py の標準エラーの末尾）。
+rules（方針の文書の中身と根の地図の文書）と単位の concepts（単位のパスに当たる考えの地図の行と知る場所の数）は lib/context が
+対象の根から機械で探した物（構造の目に見せる。地図・柵の表の無い対象では空。作らない）。
 
-- 対象の根（INPUTS_ROOT）は空なら cwd。相対なら cwd から解く。方針の文書（INPUTS_POLICY_PATH）は任意で、パスを控えるだけ
+- 対象の根（INPUTS_ROOT）は空なら cwd。相対なら cwd から解く。方針の文書（INPUTS_POLICY_PATH）は任意で、中身を rules に置く
 - 単位のファイルが読めない・形が違う・measure.py が落ちた時も、structure.json の status: failed と reason に残して 0 で終える
   （実測が落ちても線を止めない。GitHub Actions の continue-on-error と同じ分け方で、節の結末は成功のまま）
 - {"structure_file", "design_file", "eye"} を 1 行出して 0（eye は構造の目を起こす周か。lib/eye.due）。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
@@ -25,6 +27,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import context  # noqa: E402
 import eye  # noqa: E402
 
 UNITS_ENV = "INPUTS_UNITS"
@@ -93,10 +96,14 @@ def main() -> int:
     except ValueError as e:
         doc.update(status="failed", reason=str(e))
     else:
-        doc["units"] = [measure_unit(u, root) for u in units]
+        found = context.find(root)
+        doc["units"] = [{**measure_unit(u, root), "concepts": context.concepts(root, u["paths"], found)} for u in units]
+        if found["reason"]:
+            doc["concepts_reason"] = found["reason"]
         failed = [u["id"] for u in doc["units"] if u["status"] == "failed"]
         if failed:
             doc.update(status="failed", reason=f"実測が落ちた単位: {', '.join(failed)}")
+    doc["rules"] = context.rules(root, doc["policy_path"])
     doc["timing"] = {"started_at": started, "finished_at": _now(), "wall_s": round(time.monotonic() - t0, 3)}
     structure = out_dir / STRUCTURE_FILE
     structure.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
