@@ -522,7 +522,7 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
     permits = []
     agreed = conflict.agreed(b) if agreed is None else agreed
     for p in conflict.test_permits(b, rulings=False, agreed_rows=agreed):
-        got = conflict.parse_limit(p["limit"])
+        got = conflict.parse_limit(p["limit"]) if "limit" in p else None   # 単位で許す行（案の直し）はパスを足さない
         if got and got[0] not in permits:
             permits.append(got[0])
     if pass_ == "ruled":

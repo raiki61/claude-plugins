@@ -897,7 +897,7 @@ class TestPriorLoopsKeepRulings(unittest.TestCase):
         spec.loader.exec_module(mod)
         limits = mock.MagicMock(return_value=[])
         with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
-                mock.patch.object(mod.conflict, "amended_keys", return_value=set()), \
+                mock.patch.object(mod.conflict, "permitted_units", return_value=set()), \
                 mock.patch.object(mod.tddloop, "states", return_value=[pathlib.Path("/b/tdd-1/state.json")]), \
                 mock.patch.object(mod.tddloop, "frozen_problems", return_value=[]), \
                 mock.patch.object(mod.tddloop, "frozen_source", return_value=lambda *a: None), \
