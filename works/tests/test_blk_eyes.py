@@ -415,7 +415,7 @@ class FrozenReadCase(unittest.TestCase):
 
     def rendered(self, nid, raw):
         b = type("B", (), {"nodes": {nid: {}}})()
-        with mock.patch.object(eyes.rolekit, "render_body", lambda b, n, prompts_dir: (raw, None)):
+        with mock.patch.object(eyes.rolekit, "render_body", lambda b, n, prompts_dir, ctx_hook=None: (raw, None)):
             return eyes.render(b, nid)
 
     def test_copy_still_says_git_show_in_the_four_eyes(self):
@@ -490,6 +490,24 @@ class PrepCase(_Case):
         # 変更ファイルの名前は、graph の reads の制約（実測の出力）が運ぶことがあるので見ない（本線と同じ）
         for leak in (st["loop"]["diff_file"], str(self.repo), st["inputs"]["cwd"], "diff-r1"):
             self.assertNotIn(leak, text, f"遮断の役に {leak!r} が届いた")
+
+    def test_compare_gets_diff_by_file_not_pasted(self):
+        """run d7b7a712: 1,061KB の累積差分を r2.compare の指示書に貼り（1.1MB）、役が何も返さず R2 が落ちた。差分の本文は
+        大きさに依らず貼らず、置き場を名指して、役は Read だけで全体を読む（量の上限は置かない）"""
+        self.board("r1r2")
+        self.enter()
+        diff = pathlib.Path(state(self.bd)["loop"]["diff_file"])
+        body = [ln for ln in diff.read_text(encoding="utf-8").splitlines()
+                if ln[:1] in "+-" and not ln.startswith(("+++", "---")) and len(ln.strip("+- ")) > 3]
+        self.assertTrue(body, "種の累積差分に変わった行が在る（この試験の前提）")
+        text = eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"]
+        for ln in body:
+            self.assertNotIn(ln, text, "差分の本文を指示書に貼らない")
+        self.assertIn(eyes.DIFF_HEAD, text)
+        self.assertIn(str(diff), text, "差分のファイルの置き場を名指す")
+        self.assertIn(eyes.DIFF_POINTER.format(path=diff), text, "写しの指示書の『累積差分』の囲みは置き場を名指す 1 行")
+        self.assertLess(text.index(eyes.DIFF_HEAD), text.index("独立設計（目的だけから別の目が導いたもの）"))
+        self.assertEqual(eyes.allowed_tools("r2.compare"), ["Read"], "全体を読む道具は Read だけ")
 
     def test_compare_prompt_carries_premises_found_after_design(self):
         """人の条件 (1): 設計は修正の前に作るので、r2.compare の頭に修正の中の前提のずれ（loop.drift_notes）と記録の制約を貼り、
@@ -1298,7 +1316,7 @@ class YamlCase(unittest.TestCase):
                 roles[role] = ai
         self.assertEqual(node_marker.parse(roles["r2-compare"]["output_format"]["description"])["flags"],
                          frozenset({"isolated"}))
-        self.assertEqual(roles["r2-compare"]["allowed_tools"], [])
+        self.assertEqual(roles["r2-compare"]["allowed_tools"], ["Read"])   # 累積差分のファイルだけを読む（run d7b7a712）
         self.assertEqual(node_marker.parse(roles["r3-coherence"]["output_format"]["description"])["flags"], frozenset())
 
     def test_lanes_in_yaml(self):

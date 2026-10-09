@@ -72,7 +72,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    で起こす（graphloops の commands._isolated_cwd と同じ。claude は cwd が Git のリポジトリの外なら git status の写しを system
    prompt に入れない——公式 'Absent outside a Git repository'。CLAUDE.md は YAML の settingSources: [user] が外す）。置き場は run
    ごとに同じ（claude の会話の置き場は cwd ごとなので、出し直しの --resume が同じ会話を引ける）。会話の id・起動の記録の鍵は
-   Archon の cwd（run の worktree）のまま。道具を持つ起動（`--tools ""` でない）・置き場が Git の中の起動は起こさない
+   Archon の cwd（run の worktree）のまま。道具が空でも Read だけでもない起動（`--tools ""` か `--tools Read` でない。Read だけの
+   役は累積差分のファイルを読む比べる役 r2-compare）・置き場が Git の中の起動は起こさない
 6c. **旗 lane**（TDD の輪の並べの枝の役 tdd-lane-<n> と修正役の並べの枝の役 fix-lane-<n>。依頼 243 の並べの 4 段目・5 段目。
    docs/plans/2026-10-07-lane-nodes.md・docs/plans/2026-10-07-fix-lane-nodes.md）: 子を枝の
    単位の worktree を cwd に起こす。worktree のパスは役の文から取らず、枝の支度が切符の board の下に書く印（lane_tree_path:
@@ -298,6 +299,8 @@ MAP = "map"   # 13 の旗 map（工程の地図を system prompt に足す）
 TEXT_REPLY = "text-reply"   # 21 の旗 text-reply（返答の契約。replycontract.py）
 REPLIES_DIR = "replies"     # 21 の回ごとの記録 replies/<cwd の hash>.jsonl
 ISOLATED_PREFIX = "works-isolated-"
+# 旗 isolated の役が持ってよい道具（空のほかに）: 累積差分をファイルで受けて全体を読む比べる役（r2-compare）の Read だけ
+ISOLATED_TOOLS = frozenset({"Read"})
 QUERY_RULE_SOURCE = pathlib.Path(__file__).resolve().parent / "agents" / "judge.md"   # 検索語の規律の正本（写し）
 QUERY_RULE_HEAD = "- **検索語に対象の名前を載せるな。**"
 QUERY_RULE_LEAD = ("外のサービスへ問い合わせる時の決まり（works の包みより。役への直の指示。Agent で子を起こすなら、子への指示に"
@@ -1354,8 +1357,9 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         fence["lane"] = lane
         fence["lane_deny"] = [os.path.realpath(top), *others]
     if ISOLATED in marker.flags:
-        if not tools_empty:
-            return _refuse(argv, node, cont, tools_empty, "旗 isolated は道具ゼロの役（--tools \"\"）だけに付く")
+        if not tools_empty and _tools(argv) != ISOLATED_TOOLS:
+            return _refuse(argv, node, cont, tools_empty,
+                           "旗 isolated は道具ゼロの役（--tools \"\"）か Read だけの役（--tools Read）にだけ付く")
         place = isolated_place(cwd, env)
         try:
             place.mkdir(mode=0o700, parents=True, exist_ok=True)

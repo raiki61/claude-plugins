@@ -1,7 +1,7 @@
 {
   "r1.comment_candidates": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の読むだけの役（comment-analyzer）。3 回とも受け付けで拒まれたら省いて r1.minimality へ進む（graph の does: 取れなくても R1 の verdict を not_run に倒さない。graph で optional）"},
   "r1.minimality": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の読むだけの役（judge）。軽量の深さでは目のブロックが入力 skip_optional の理由で省く（持ち主の決定 2026-10-06。写しの graph の ! 行で optional）"},
-  "r2.compare": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の道具ゼロの役（blind-judge）。包みの旗 isolated で Git の外の置き場から起こす。軽量の深さでは目のブロックが入力 skip_optional の理由で省く（持ち主の決定 2026-10-06。写しの graph の ! 行で optional）"},
+  "r2.compare": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の blind-judge の役。道具は累積差分のファイルを読む Read だけ（差分の本文は指示書に貼らない）。包みの旗 isolated で Git の外の置き場から起こす。軽量の深さでは目のブロックが入力 skip_optional の理由で省く（持ち主の決定 2026-10-06。写しの graph の ! 行で optional）"},
   "r3.coherence": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の読むだけの役（inspector）。軽量の深さでは目のブロックが入力 skip_optional の理由で省く（持ち主の決定 2026-10-06。写しの graph の ! 行で optional）"},
   "r4.hidden_scope": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の読むだけの役（inspector）。消えた能力と方針とのぶつかりは機械の節 r4.human_gate が人に聞く。軽量の深さでは目のブロックが入力 skip_optional の理由で省く（持ち主の決定 2026-10-06。写しの graph の ! 行で optional）"},
   "stop.premise_check": {"by": "role", "where": "blk-eyes", "reason": "blk-eyes の読むだけの役（judge）。R2 が premise-invalid の周だけ（graph の cond r2_premise_invalid）"}
