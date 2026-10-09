@@ -23,12 +23,19 @@ knowledge の行は、頭の節・単位の要点・関所の行・報告に NOT
   （修正案の範囲の照らしの住処の口を呼び手が渡す。ここから import すると関所の決め手の住処との輪になる）
 - world_ok(answer, row, own_sources, cite_ok): 関所の軸「世界の解か」（答えの要らない行・従う・依頼の外の出どころで訳の立つ外れ）
 - gate_line(row, answer)・report_lines(board_dir): 関所の項目と報告の行
+
+依頼の解き方（足し欄 means。計画の W6・5.3 節の 1）: 目的の役は目的の文に解き方を書かず、依頼が示した解き方（手段）を役の型の
+足し欄 MEANS に分ける。足す・外す・置くの手順は住処 marks（種 means）に任せ、欄の意味（型・読んだ後の使い方）をここが持つ。
+目的の文の型は写しのまま。控えは世界の解の段の入力（言い直す役が依頼の解き方として見る）で、独立設計には渡さない（目的だけから設計する）。
+- MEANS_NODES・with_means(node, schema)・split_means(reply): 欄を持つ節・役の型に欄を足した写し・（欄を外した返答の写し, 手段の並び）
+- write_means(board_dir, means)・means_of(board_dir): 控えを置く（空なら置かない）・読む（無い・読めなければ []）
 """
 import json
 import pathlib
 import posixpath
 
 import cite   # 依頼の引用「…」の形と語（決め手の出どころの照らしの住処）
+import marks  # 返答の足し欄の住処（種 means）
 
 WORLD_FILE = "world.jsonl"
 STATE_FILE = "world-state.json"
@@ -44,6 +51,10 @@ ANSWER_KEY = "world"   # 修正案の項目の欄 structure の答えの行で�
 VERDICT_WORDS = {SAME: "定石と同じ", DIFFERS: "定石と違う", NONE: "依頼は解き方を示していない"}
 HEAD = "## 世界の解の行（依頼の行ごとの問題の類・世の中の定石・依頼の解き方との比べ）"
 STATES = ("ok", "failed")
+MEANS = "means"
+MEANS_NODES = marks.nodes(MEANS)
+MEANS_SCHEMA = {"type": "array", "items": {"type": "string", "minLength": 1},
+                "note": "依頼が示した解き方（こう直せという手段）の文の並び。目的の文には書かない。解き方を示さない依頼は書かない"}
 
 
 # ---------------------------------------------------------------- 読む
@@ -100,6 +111,33 @@ def where_paths(where) -> list:
             if p not in out:
                 out.append(p)
     return out
+
+
+# ---------------------------------------------------------------- 依頼の解き方（足し欄 means）
+def with_means(node: str, schema: dict) -> dict:
+    """役の型に means（任意の欄。古い返答を拒まない）を足した写し（MEANS_NODES でなければそのまま）"""
+    return marks.add(MEANS, node, schema, {MEANS: MEANS_SCHEMA})
+
+
+def split_means(reply) -> tuple:
+    """（欄を外した返答の写し, 手段の並び。欄が無ければ []）。dict でない返答はそのまま"""
+    if not isinstance(reply, dict):
+        return reply, []
+    out, got = marks.split(MEANS, MEANS_NODES[0], reply, (MEANS,))
+    return out, [m for m in got.get(MEANS) or [] if isinstance(m, str) and m.strip()]
+
+
+def write_means(board_dir, means) -> None:
+    """手段の並びを盤面の根の控えに置く（空なら置かない）"""
+    got = [m for m in means or [] if isinstance(m, str) and m.strip()]
+    if got:
+        marks.write(marks.path_of(MEANS, board_dir), {MEANS: got})
+
+
+def means_of(board_dir) -> list:
+    doc = marks.load(marks.path_of(MEANS, board_dir))
+    got = doc.get(MEANS) if isinstance(doc, dict) else None
+    return [m for m in got if isinstance(m, str) and m.strip()] if isinstance(got, list) else []
 
 
 # ---------------------------------------------------------------- 文

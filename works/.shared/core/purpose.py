@@ -3,7 +3,8 @@
 - check_constraints: 前提の実測（blk-premises が置く p0.premises の返答 {"constraints": [...]}）を、写しの graph の
                      p0.premises の型と post_check に通す（目的の役が読む前提を、graphloops の record.process.constraints と
                      同じ受け付けを通った物に限る）
-- check_purpose:     目的の役の返答を受け付ける。通れば盤面の purpose.json（graph の writes: process.purpose ← $）
+- check_purpose:     目的の役の返答を受け付ける。通れば盤面の purpose.json（graph の writes: process.purpose ← $）。役の型の足し欄
+                     means（依頼が示した解き方。worldmark）は外して盤面の根の足し欄の控えに置く（purpose.json は写しの型のまま）
 - read_purpose:      盤面の purpose.json を読み、型に通して返す（collect）
 
 check_purpose は dict を返し、例外で拒まない（accept.py の check_* と同じ）。check_constraints・read_purpose は Reject を投げる。
@@ -22,6 +23,7 @@ from accept import (TREE_KEYS, TREE_SCHEMA, _graph, _guard, _in_repo, _read_boar
 from board import DiskBoard  # noqa: E402  （規則に渡す入れ物は accept.py と同じ盤面の層の scratch）
 from engine.util import Reject  # noqa: E402
 import script_io  # noqa: E402
+import worldmark  # noqa: E402  （依頼の解き方の足し欄 means の住処）
 
 NODE = "p0.purpose"
 PREMISES_NODE = "p0.premises"
@@ -98,8 +100,9 @@ def _source_files_errors(files, repo) -> list:
 
 
 def check_purpose(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
-    """目的の役の返答を受け付ける。凍結（once）→ 作業ツリー（役は読むだけ）→ 型（写しの graph の p0.purpose の schema）
-    → 写しの post_check（graph が名指せば）→ source_files（works が足す）。通れば盤面の purpose.json に書く。
+    """目的の役の返答を受け付ける。凍結（once）→ 作業ツリー（役は読むだけ）→ 型（写しの graph の p0.purpose の schema に足し欄
+    means を足した役の型）→ 足し欄を外す → 写しの post_check（graph が名指せば）→ source_files（works が足す）。通れば盤面の
+    purpose.json に書き、外した依頼の解き方を足し欄の控えに置く（無ければ置かない）。
     {"ok", "reason", "purpose_file"}"""
     def run():
         repo_p, board_p = pathlib.Path(repo), pathlib.Path(board)
@@ -109,7 +112,7 @@ def check_purpose(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
             refuse_if_frozen(board_p)
             _tree_unchanged(repo_p, board_p)
             _type_errors(reply, role_schema(NODE), "目的の返答")
-            out = copy.deepcopy(reply)   # post_check が正規化しても返答の元は触らない（engine と同じく正規化の後を書く）
+            out, means = worldmark.split_means(reply)   # 写しの型の外の欄を外した写し（post_check が正規化しても返答の元は触らない）
             _post_check(NODE, out, DiskBoard.scratch(board_p, review_rev=rev))
             bad = _source_files_errors(out["source_files"], repo_p)
             if bad:
@@ -118,6 +121,7 @@ def check_purpose(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
                              "`./` や末尾の `/`・重ねた `/`・`.` や `..` の段・symlink 経由なし・大小文字もリポジトリのまま）で書け"
                              "（依頼のファイルなどリポジトリの外の物・git が無視するファイルは書かない）")
             path = _write_board(board_p, PURPOSE_FILE, out)
+            worldmark.write_means(board_p, means)
         return {"ok": True, "reason": "", "purpose_file": str(path)}
     return _guard(run, purpose_file="")
 

@@ -52,6 +52,8 @@ KINDS = {
                   "query-examples.json", ROOT),
     # 判定が凍結した目的の外の所見（outpurpose）
     "purpose": Kind({"p2.diagnose": ()}, "out-of-purpose.json", ROOT),
+    # 目的の役が目的の文から分けた依頼の解き方 means（worldmark。世界の解の段が定石と比べる案）
+    "means": Kind({"p0.purpose": ()}, "purpose-means.json", ROOT),
     # 並行 PR の任せ先が外す hunk（prcheck）
     "pr": Kind({"p0.parallel_pr": ()}, "pr-excluded.json", WORK),
     # 手直しの役の Bash で書いたファイルの申告 bash_writes（refix。外すのは writes.check、控えは書き込みの記録 trace に置く）

@@ -85,7 +85,7 @@ MOD = {
     "diverted": (3, None),    # 局所レビューの fork のレンズの届かなかった空の行に「見ていない」の印を付ける口（受け付けが書き、報告が読む）
     "lens": (3, None),        # 修正の後のレンズの控え（盤面の今の周の lens.json。レンズのブロックが書き、差分の審査の支度と報告が読む）
     "conceptfence": (3, None),  # 考えの住処の柵の道具（表を読む・数える・変更の前後で増えた漏れ。試験と blk-structure が使う）
-    "worldmark": (3, None),   # 世界の解の行の住処（行のファイルと控えの読み口・頭の節・単位の要点・答えの要る行・関所の軸と行・報告の行。cite だけを使う）
+    "worldmark": (3, None),   # 世界の解の行の住処（行のファイルと控えの読み口・頭の節・単位の要点・答えの要る行・関所の軸と行・報告の行と、目的の足し欄 means。cite・marks を使う）
     "structmark": (3, None),  # 構造のブロックの出口の控え（盤面の根の structure-state.json。境の節が書き、blk-plan・報告・最後の関所が読む）
     "rulebook": (3, None),    # 書く役の決まりの正本（writerules/common.md）と、節に切る・穴を埋める・形を描く口（blk-fix・blk-refix が使う）
     "gatemarks": (3, None),   # 修正前の関所の項目の決め手・写しの RL の _plan_gate_items の差し替え（accept の役の型・blk-plan・境の節・報告が使う）

@@ -86,6 +86,9 @@ nodes:
               source_files:
                 type: array
                 items: {type: string}
+              means:                  # 足し欄（写しの型の外。受け付けが外して盤面の根の控えに置く。worldmark.with_means）
+                type: array
+                items: {type: string, minLength: 1}
         - id: purpose-accept
           script: accept
           runtime: uv

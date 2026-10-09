@@ -1115,6 +1115,18 @@ class ScriptCase(unittest.TestCase):
         self.assertIn(linekit.reply("design_ok")["design"], head)
         self.assertIn("contract_drift", planblk.DESIGN_ASK)
 
+    def test_independent_design_input_has_no_means(self):
+        """独立設計（R2 の設計の半分）には目的の文だけが渡り、目的の役が分けた依頼の解き方 means は渡らない（keep-essence の 9。
+        計画 world-solution の W6・5.3 節の 1）"""
+        import worldmark
+        self.judged()
+        sentinel = "読むだけの役を足して生のログから引用つきで判じさせる手段"
+        worldmark.write_means(self.board, [sentinel])
+        self.assertEqual(worldmark.means_of(self.board), [sentinel])
+        prep, _ = self.designed()
+        self.assertNotIn(sentinel, prep["prompt"])
+        self.assertNotIn(sentinel, (self.board / design.PREMISES_FILE).read_text(encoding="utf-8"))
+
     def test_design_not_stands_is_not_a_face(self):
         """設計の役が問いは立たないと返した: 事前審査には設計を突き合わせず、穴にも挙げさせない（先行例の穴に載せない。問いが立つかは
         修正の後の目の層が前提を検算する）"""

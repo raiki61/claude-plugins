@@ -381,6 +381,28 @@ class ScriptCase(unittest.TestCase):
                                "purpose_file": str(self.board.resolve() / purpose.PURPOSE_FILE)})
         self.assertEqual(json.loads((self.board / purpose.PURPOSE_FILE).read_text(encoding="utf-8")), load("purpose_ok"))
 
+    def test_purpose_means_split_to_mark(self):
+        """依頼が示した解き方（手段）は目的の文に入れず足し欄 means に分ける（計画 world-solution の W6）。受け付けは欄を外して
+        盤面の purpose.json を写しの型のまま置き、外した手段を足し欄の控え（marks の種 means）に置く"""
+        import marks
+        self.assertEqual(self.intake().returncode, 0)
+        means = ["生のログを読むだけの役を足し、引用つきで判じさせる"]
+        got = self.accept({**load("purpose_ok"), "means": means})
+        self.assertIs(got["ok"], True, got)
+        self.assertEqual(json.loads((self.board / purpose.PURPOSE_FILE).read_text(encoding="utf-8")), load("purpose_ok"))
+        doc = json.loads(marks.path_of("means", self.board).read_text(encoding="utf-8"))
+        self.assertEqual(doc["means"], means)
+
+    def test_purpose_without_means_passes(self):
+        """means は任意の欄（解き方を示さない依頼は書かない）。役の型は欄を持ち、欄の無い返答も今どおり通り、控えを置かない"""
+        import marks
+        fmt = find_node(workflow(), "purpose")["output_format"]
+        self.assertIn("means", fmt["properties"])
+        self.assertNotIn("means", fmt["required"])
+        self.assertEqual(self.intake().returncode, 0)
+        self.assertIs(self.accept(load("purpose_ok"))["ok"], True)
+        self.assertFalse(marks.path_of("means", self.board).exists())
+
     def test_accept_unknown_purpose(self):
         # 出典が 1 つも得られない目的不明も、型に通れば受け付ける（R2 が unverifiable になるのは周の線の仕事）
         self.assertEqual(self.intake().returncode, 0)

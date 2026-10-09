@@ -3,6 +3,7 @@
  "consumes": [],
  "produces": [
   {"name": "purpose.json", "format": "json", "schema": "schemas/purpose.schema.json", "at": "root"},
+  {"name": "purpose-means.json", "format": "json", "schema": "schemas/purpose-means.schema.json", "at": "root"},
   {"name": "rejects-p0.purpose.json", "format": "json", "schema": "../.shared/core/rejects.schema.json", "at": "root"}
  ]
 }

@@ -44,6 +44,7 @@ import outpurpose  # noqa: E402
 import planmarks  # noqa: E402
 import querytest  # noqa: E402
 import script_io  # noqa: E402
+import worldmark  # noqa: E402
 from engine.rules import load_rules, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
@@ -134,6 +135,8 @@ def _role_schema_json(node, numbered):
         schema = _strip_notes(querytest.with_examples(schema))
     if node in outpurpose.NODES:
         schema = _strip_notes(outpurpose.with_field(node, schema))
+    if node in worldmark.MEANS_NODES:
+        schema = _strip_notes(worldmark.with_means(node, schema))
     if node in gatemarks.NODES:
         schema = _strip_notes(gatemarks.with_marks(node, schema))
     if node in planmarks.NODES:
@@ -152,7 +155,8 @@ def role_schema(node: str, numbered: bool = False) -> dict:
     関所の項目の行に決め手の欄を足す（同じく受け付けが外して盤面の gate-marks.json に置く）。修正案の節（planmarks.NODES）は
     項目の行に works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）を足す（同じく受け付けが外して
     盤面の plan-fields.json に置く）。1 回目の差分の審査の節（deltamarks.NODES）は準拠と品質の 2 判定の欄（compliance・quality）を
-    足す（同じく受け付けが外して今の周の delta-verdicts.json に置く）"""
+    足す（同じく受け付けが外して今の周の delta-verdicts.json に置く）。目的の節（worldmark.MEANS_NODES）は依頼の解き方の欄 means を
+    足す（同じく受け付けが外して盤面の根の足し欄の控えに置く）"""
     return json.loads(_role_schema_json(node, numbered))
 
 
