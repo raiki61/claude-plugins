@@ -77,6 +77,7 @@ MOD = {
     "design": (3, None),      # 修正の前に先に作る独立設計（r2.design）の支度・受け付け・控え・盤面への渡し（blk-plan・blk-eyes・境の節が使う）
     "diverted": (3, None),    # 局所レビューの fork のレンズの届かなかった空の行に「見ていない」の印を付ける口（受け付けが書き、報告が読む）
     "lens": (3, None),        # 修正の後のレンズの控え（盤面の今の周の lens.json。レンズのブロックが書き、差分の審査の支度と報告が読む）
+    "concepthome": (3, None),  # 判断の 1 軸と考えの住処の観点の文・地図と柵の表の探し方（blk-plan・blk-eyes・blk-structure が使う）
     "structmark": (3, None),  # 構造のブロックの出口の控え（盤面の根の structure-state.json。境の節が書き、blk-plan・報告・最後の関所が読む）
     "rulebook": (3, None),    # 書く役の決まりの正本（writerules/common.md）と、節に切る・穴を埋める・形を描く口（blk-fix・blk-refix が使う）
     "gatemarks": (3, None),   # 修正前の関所の項目の決め手・写しの RL の _plan_gate_items の差し替え（accept の役の型・blk-plan・境の節・報告が使う）
@@ -99,6 +100,8 @@ PARTS = {
 }
 L0_TOPS = frozenset({"engine", "rules", "graphs"})   # 写しの graphloops の頭の名（core の模块が sys.path に足す）
 OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフォルダ（dev/lib.sh が除く物）
+# 対象のリポジトリの決まった名（.editorconfig と同じ「在れば読む」形で、対象の木の中を探す）。pack の docs/ を指さないので packref に数えない
+TARGET_NAMES = frozenset({"docs/concepts.md", "docs/concepts.json"})
 
 # ラインが配線する予定の include の id（線 A の仕様 2 節。T17 で darkfactory.yaml に入る）。YAML に入ったら消す
 PLANNED_INCLUDE_IDS = frozenset()
@@ -334,7 +337,7 @@ class Pack:
             bad = set(self.lines) - {u.owner}
         if words & bad:
             self._hit(f"name {u.id}:{scope} {v!r}", at)
-        if set(segs[:-1]) & OUTSIDE:
+        if set(segs[:-1]) & OUTSIDE and v not in TARGET_NAMES:
             self._hit(f"packref {u.id}:{scope} {v!r}", at)
 
     # -- 輪・節のスクリプト・YAML の include
