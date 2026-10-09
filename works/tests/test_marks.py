@@ -53,6 +53,18 @@ class Add(unittest.TestCase):
 
     def test_node_outside_the_table_returns_the_same_schema(self):
         self.assertIs(marks.add("gate", "p3.fix", SCHEMA, F), SCHEMA)
+        self.assertIs(marks.drop("gate", "p3.fix", SCHEMA, F), SCHEMA)
+
+    def test_drop_undoes_add(self):
+        """drop は add の逆（足した欄を型と required から外した写し。受け付けが写しの型で照らす時に使う）"""
+        for node in ("p2.fix_plan", "p2.plan_review"):
+            with self.subTest(node):
+                added = marks.add("gate", node, SCHEMA, F, required=("x",))
+                self.assertEqual(marks.drop("gate", node, added, F), SCHEMA)
+        top = marks.add("delta", "p3.delta_review", {"type": "object", "properties": {"a": {}}, "required": ["a"]}, F,
+                        required=("x", "y"))
+        self.assertEqual(marks.drop("delta", "p3.delta_review", top, ("x", "y")),
+                         {"type": "object", "properties": {"a": {}}, "required": ["a"]})
 
 
 class Split(unittest.TestCase):

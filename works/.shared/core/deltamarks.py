@@ -4,7 +4,8 @@
 判定を書かせる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、足す・外す・置く・読むの手順は住処
 marks（種 delta。役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して今の周の作業ファイルに置く）に任せる。2 回目の審査
 （p3.delta_review2）には重ねない。
-- with_verdicts(node, schema): 役の型（accept.role_schema が重ねる）
+- with_verdicts(node, schema)・without_verdicts(node, schema): 役の型（accept.role_schema が重ねる）と、その逆（審査の受け付けが
+  欄を外した返答を写しの型で照らす）
 - gaps(reply, items): 欠けと誤りの行（審査の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。items は
   承認済みの修正案の項目（planmarks.approved_items。無い run は None か空で、準拠は not_applicable）。裁定で外れた項目は
   held（外した裁定の理由）を持ち、その項目の落ちた行は拒む（外れた項目を手直しの義務にしない）
@@ -63,6 +64,11 @@ REJECT = ("差分の審査の返答の 2 判定の欄（準拠 compliance・品�
 def with_verdicts(node: str, schema: dict) -> dict:
     """役の型に 2 判定の欄を足した写し（NODES の節でなければ渡した物をそのまま返す）"""
     return marks.add("delta", node, schema, FIELD_SCHEMA, required=KEYS)
+
+
+def without_verdicts(node: str, schema: dict) -> dict:
+    """with_verdicts の逆（2 判定の欄を外した型の写し。欄を外した返答を写しの graph の型で照らす時）"""
+    return marks.drop("delta", node, schema, KEYS)
 
 
 # ---------------------------------------------------------------- 受け付け

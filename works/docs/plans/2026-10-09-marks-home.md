@@ -47,6 +47,8 @@
 - `KINDS: dict[str, Kind]`、`Kind(at: dict[str, tuple], file: str | None, place: str)`、`EACH = "[]"`、`ROOT`・`WORK`
 - `nodes(kind) -> tuple`
 - `add(kind, node, schema, fields: dict, required=()) -> dict`（節が表に無ければ渡した物をそのまま返す）
+- `drop(kind, node, schema, names) -> dict`（add の逆。審査の受け付けが欄を外した返答を写しの型で照らす時。`.shared/core/refix.py` が手で逆をしていた所を `deltamarks.without_verdicts` 経由で寄せる。審査の後に足した）
+- `rows(kind, node, reply)`（欄を持つ行をその場のまま道の形で。gatemarks の検査が行を名指す）
 - `split(kind, node, reply, names) -> (bare, got)`（got は道の `EACH` の段だけ入れ子の並び、葉は外した欄の dict。節が表に無ければ（写し, None））
 - `path_of(kind, board) -> pathlib.Path`（ROOT は `board.dir` か渡したパス、WORK は `board.work(名)`）
 - `write(path, doc) -> bytes`（一時のファイルを消してから書き、os.replace。置いたバイトを返す）
@@ -67,12 +69,13 @@
 **Files:** Modify `docs/concepts.md`（`marks` を住処ありに）・`docs/concepts.json`・`CHANGELOG.md`
 
 - [ ] 柵 1: 盤面のファイルの名（6 つ）の字は住処・宣言（`manifest.json`）・約束（`schemas/*.schema.json`）の外に書かない
-- [ ] 柵 2: 役の型に欄を手で足す形（`["properties"][…] =`・`["properties"].update(`・`setdefault("properties"`）と、返答から欄を手で外す形（`for k, v in reply.items() if k`）。既知の漏れは修正役の欄と報告の `terms`（理由つき）
+- [ ] 柵 2: 役の型に欄を手で足す・外す形（`["properties"][…] =`・`["properties"].update(`・`.pop(`・`setdefault("properties"`）
+- [ ] 柵 3: 返答から欄を手で外す形（`for k, v in reply.items() if k`・`reply.pop(`・`.pop(k) for k in`）。柵 2・3 の既知の漏れは修正役の欄と報告の `terms`（理由つき）。前の 7 つのモジュールはどれも柵 2 か 3 に当たる（審査で確かめた）
 - [ ] `test_concept_fences` を緑に → commit
 
 ## Review Focus
 
-- 形の崩れた返答（`plan` が並びでない・`faces` が文字列・返答が dict でない）: 前と同じく落ちずに空の欄を返す（Task 1 の試験）
+- 形の崩れた返答（`plan` が並びでない・`faces` が文字列・返答が dict でない）: 落ちずに空の欄を返す（Task 1 の試験）。前は文字列・dict の中身を 1 字・1 鍵ずつ辿って空の欄を並べたが、受け付けの前段（`rolekit.parse_reply`・`planblk._plan_malformed`・`replan._malformed`）が形の崩れた返答を先に拒むので、run の動きは同じ
 - 盤面のファイルがリンクのとき: 置き換えはリンクを置き換え、先を書かない（Task 1）
 - 欄が 1 つも無い返答: gatemarks は控えを作らない・消す、outpurpose は控えが無ければ作らない（既存の試験）
 - 前の版の盤面（ファイルの名と中身の形）: 名と形は変えないので読める（既存の試験と fixture）
