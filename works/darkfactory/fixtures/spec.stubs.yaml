@@ -1,13 +1,7 @@
-# 筋書き rejudge-no-session: 修正役が判定に異議を出したが、判定役の会話を確かめられない（包みを通らない run）。
-# h-rejudge が役を起こさずに盤面を止め（by works:rejudge-session）、再審・差分の審査・手直し・最後のテスト・独立の目は飛び、
-# 境の節と報告は走る。報告は stopped_by_line（record_invalid にしない）。止めた盤面は報告の役の節を出すので AI の報告も回る
-# 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
-# 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
-# 食い違いの申し出が無い run: conflict-check は go 偽で、裁定の輪と 2 回目の修正の輪は飛ぶ（輪の中の stub は使われない）
-# blk-plan の壁打ちの輪 converge-loop の中の節（plan-revise-snap・直しの輪の中・plan-review-snap・事前審査の輪の中・converge-check）
-# の鍵は、入れ子の深さに依らず名前空間なし（依頼 231 の測り 3・6）。blk-plan を 2 度 include すると（依頼 226 の replanning）
-# 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
-# block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
+# 筋書き spec: 入力 spec=on の run（依頼だけの入口で仕様の段を挟む）。h-entry の spec_go が真で仕様の段 speccing（blk-spec）が
+# 回り、関所 spec-gate は模擬実行で自動で通る（答えは spec-answer の stub）。h-spec が並行 PR を回すかを出し（この筋書きは偽）、
+# 後ろは policy-continue と同じ道（事前審査が人に聞き、policy-gate の continue で修正へ）
+# 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/、仕様の段は blk-spec/fixtures/pass）
 entering__open:
   ok: true
   pr_file: ''
@@ -25,7 +19,7 @@ entering__open:
     requests: 2
     request_file: /tmp/request_ok.json
     pr: null
-    spec: false
+    spec: true
   base_rev: 0123456789abcdef0123456789abcdef01234567
   test_cmd: python3 -m unittest
   policy_paste: ''
@@ -40,7 +34,7 @@ entering__open:
   judge_verify: 'on'
   review_tree: 'on'
   tdd_lanes: 'on'
-  head_line: '入口: 差分なし（HEAD）・依頼 2 件——P1 の役は起こさない・段: 標準（既定）・gates: 空'
+  head_line: '入口: 差分なし（HEAD）・依頼 2 件——P1 の役は起こさない・仕様の段あり・段: 標準（既定）・gates: 空'
 ci-checking__ci-fence:
   go: true
   reason: ''
@@ -95,7 +89,7 @@ h-entry:
   pr_go: false
   premises_go: true
   purpose_go: false
-  spec_go: false
+  spec_go: true
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
@@ -325,8 +319,8 @@ h-mat:
 gathering__mat-route:
   ok: true
   stopped: false
-  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards:
-    回す・p1.procedure_trace: 回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards: 回す・p1.procedure_trace:
+    回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
   snapshot_file: board/r1/material-snapshot.json
   prior_decisions: true
   purpose_review: false
@@ -657,8 +651,8 @@ judge:
   - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
     label: block
     disposition: do-now
-    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と
-      docstring は算術平均で、テストも 2 を期待する'
+    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも
+      2 を期待する'
     origin_analysis: 算術平均と不偏分散の分母の取り違え
     class_query:
       how:
@@ -673,8 +667,7 @@ judge:
   - key: 'stats.py clamp: 上限を超えた値に lo を返す'
     label: block
     disposition: do-now
-    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp
-      とテストは hi を期待する'
+    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する'
     origin_analysis: 下限の枝を写したときに戻り値を直し忘れた形
     class_query:
       how:
@@ -1301,6 +1294,7 @@ fix-accept:
     files:
     - stats.py
     what: clamp の上限の枝で hi を返すように直した
+# 食い違いの申し出が無い run: conflict-check は go 偽で、裁定の輪と 2 回目の修正の輪は飛ぶ（輪の中の stub は使われない）
 fixing__conflict-check:
   go: false
   count: 0
@@ -1365,7 +1359,8 @@ fix-ruled:
     closure:
       mechanism: 下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した
       fix_mechanism: 上限の枝は hi を返し、下限の枝は lo を返す形に揃えた
-      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5, 0, 10) が 0 を返すことを見た'
+      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5,
+        0, 10) が 0 を返すことを見た'
       sites:
       - site: stats.py clamp の x > hi の枝
         red_seen: true
@@ -1456,7 +1451,7 @@ fixing__collect:
     units: []
 h-replan:
   ok: true
-  stop: true
+  stop: false
   go: false
   ask: false
   gate_text: ''
@@ -1465,7 +1460,7 @@ h-replan:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1502,7 +1497,7 @@ replanning__collect:
   ripple_file: ''
 h-regate:
   ok: true
-  stop: true
+  stop: false
   go: false
   ask: false
   gate_text: ''
@@ -1511,7 +1506,7 @@ h-regate:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1524,7 +1519,7 @@ h-regate:
   verify_file: ''
 h-refit:
   ok: true
-  stop: true
+  stop: false
   go: false
   ask: false
   gate_text: ''
@@ -1533,7 +1528,7 @@ h-refit:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1610,7 +1605,7 @@ refitting__collect:
     units: []
 h-rejudge:
   ok: true
-  stop: true
+  stop: false
   go: false
   ask: false
   gate_text: ''
@@ -1619,7 +1614,7 @@ h-rejudge:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1679,8 +1674,8 @@ rejudging__collect:
   reads_file: ''
 h-review:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1688,7 +1683,7 @@ h-review:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1753,8 +1748,8 @@ reviewing__collect:
   diff_file: board/fix.diff
 h-refix:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1762,7 +1757,7 @@ h-refix:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1862,8 +1857,8 @@ refixing__collect:
   reads_files: {}
 h-tests:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1871,7 +1866,7 @@ h-tests:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1894,7 +1889,7 @@ testing__run:
   by: engine
 h-ci:
   ok: true
-  stop: true
+  stop: false
   go: false
   ask: false
   gate_text: ''
@@ -1903,7 +1898,7 @@ h-ci:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1934,8 +1929,8 @@ ci-final__collect:
   note: ''
 h-look:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1943,7 +1938,7 @@ h-look:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1956,17 +1951,17 @@ h-look:
   verify_file: ''
 h-final:
   ok: true
-  stop: true
+  stop: false
   go: false
-  ask: false
-  gate_text: ''
+  ask: true
+  gate_text: （文）
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
-  gate_file: ''
+  why: ''
+  gate_file: board/r1/final-gate.md
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -1978,7 +1973,7 @@ h-final:
   verify_file: ''
 h-eyes:
   ok: true
-  stop: true
+  stop: false
   go: false
   ask: false
   gate_text: ''
@@ -1987,7 +1982,7 @@ h-eyes:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -2190,11 +2185,11 @@ eyeing__eyes-collect:
     claims: []
 report:
   ok: true
-  outcome: stopped_by_line
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
   ai_report_go: true
 reporting__rp-route:
@@ -2251,11 +2246,11 @@ reporting__collect:
     report: {cold: 0, format: 0, answer: 0}
 result:
   ok: true
-  outcome: stopped_by_line
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report-ai.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
   ai_report_go: true
   machine_report_file: board/report.md
@@ -2275,11 +2270,19 @@ fixture:
   expect: completed
   inputs:
     request: request_ok.json
+    spec: 'on'
     test_cmd: python3 -m unittest
     adapter: optional
   reached:
   - entering__open
   - h-entry
+  - speccing__write-route
+  - spec-write
+  - speccing__spec-ask
+  - speccing__spec-gate
+  - speccing__spec-answer
+  - speccing__collect
+  - h-spec
   - premising__collect
   - h-judge
   - purposing__collect
@@ -2296,10 +2299,15 @@ fixture:
   - h-refit
   - h-rejudge
   - h-review
+  - lensing__lens-exit
+  - reviewing__collect
   - h-refix
+  - refixing__collect
   - h-tests
+  - testing__run
   - h-ci
   - h-look
+  - eyeing__eyes-collect
   - h-final
   - h-eyes
   - report

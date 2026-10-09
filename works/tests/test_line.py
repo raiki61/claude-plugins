@@ -36,10 +36,14 @@ from test_line_inputs import script_inputs  # noqa: E402
 DEADLINE = 1728000000
 # when: で飛ばされない節（start・境の節・機械の報告 report・出口 result）。上流が落ちた後でも走るのは all_done の
 # report・result だけで、境の節は none_failed_min_one_success なので飛ばされる（落ちた run の読み手は if_skipped で受ける）
-ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") in ("edge", "depth")}
+ALWAYS = {"entering", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") in ("edge", "depth")}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
+START_STUB = "entering__open"
+# 2 つのブロックの輪の中の同じ id（模擬実行の鍵が名前空間なしで重なる）。筋書きの 1 つの stub が両方の節の output_format を満たす
+SHARED_STUB_KEYS = {"review-accept": "blk-delta の差分の審査の輪と blk-spec の仕様の審査の輪の受け付け（ブロックは互いの節の名を知らない"
+                                     "ので名を替えて避けない。test_role_stubs_pass_role_output_format と同じく型は stub で両方を満たす）"}   # 入口のブロック（include start）の open の節の模擬実行の鍵
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
-            "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask", "rejudge", "rejudge-no-session"}
+            "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask", "rejudge", "rejudge-no-session", "spec"}
 # conflict-ask は test_blk_fix_conflict が中身を見る
 
 
@@ -81,7 +85,7 @@ def stub_keys():
     for n in line()["nodes"]:
         if "include" in n:
             for m, inner in walk(block(n["include"])["nodes"]):
-                if "loop_group" in m or (inner and (n["include"], m["id"]) in seen):
+                if "loop_group" in m or "approval" in m or (inner and (n["include"], m["id"]) in seen):
                     continue
                 seen.add((n["include"], m["id"]))
                 keys.append(m["id"] if inner else f"{n['id']}__{m['id']}")
@@ -229,8 +233,13 @@ class LineShapeCase(unittest.TestCase):
         self.assertEqual({n["id"] for n in line()["nodes"]} & inner, set())
 
     def test_stub_keys_are_unique(self):
+        """模擬実行の鍵は一意。輪の中の節の鍵は名前空間なしなので、別のブロックの輪の中の同じ id は重なる（SHARED_STUB_KEYS に
+        理由つきで名指し、筋書きの 1 つの stub が両方の節の型を満たす。減らす方向にだけ変える）"""
         keys = stub_keys()
-        self.assertEqual(len(keys), len(set(keys)), sorted(k for k in keys if keys.count(k) > 1))
+        dup = {k for k in keys if keys.count(k) > 1}
+        self.assertEqual(dup, set(SHARED_STUB_KEYS))
+        for k in dup:
+            self.assertEqual(keys.count(k), 2, k)
 
     def test_nested_loop_stub_keys_are_bare(self):
         """入れ子の輪（blk-plan の壁打ちの輪 converge-loop の中の輪）の節も名前空間なしの鍵。輪そのものは stub を取らない（測り 3）"""
@@ -333,9 +342,9 @@ class LineShapeCase(unittest.TestCase):
                                         "h-rejudge"])
         self.assertEqual([(node(x).get("script"), node(x)["with"]["at"]) for x in ("h-replan", "h-regate", "h-refit")],
                          [("edge", "replan"), ("edge", "regate"), ("edge", "refit")])
-        self.assertEqual(node("h-replan")["depends_on"], ["start", "h-fix", "fixing"])
+        self.assertEqual(node("h-replan")["depends_on"], ["entering", "h-fix", "fixing"])
         self.assertEqual(node("h-refit")["with"]["gate"], {"from": "$replan-gate.output", "if_skipped": None})
-        self.assertEqual(node("h-rejudge")["depends_on"], ["start", "h-fix", "fixing", "h-refit", "refitting"])
+        self.assertEqual(node("h-rejudge")["depends_on"], ["entering", "h-fix", "fixing", "h-refit", "refitting"])
         re_ = node("replanning")
         self.assertEqual((re_["include"], re_["when"]), ("blk-plan", "$h-replan.output.go == true"))
         self.assertEqual(re_["with"]["replan"], "true")
@@ -407,7 +416,7 @@ class LensWiringCase(unittest.TestCase):
         rv["depends_on"] = ["h-review"]
         rv.pop("trigger_rule")
         self.assertEqual(rv, {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review"],
-                              "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}})
+                              "when": "$h-review.output.go == true", "with": {"base_rev": "$entering.output.base_rev"}})
         self.assertFalse([r["id"] for r in before if "lensing" in (r.get("depends_on") or [])
                           or "$lensing." in json.dumps(r.get("with") or {})], "lensing を読む節がほかに在ると戻せない")
 
@@ -450,9 +459,9 @@ class LineFixturesCase(unittest.TestCase):
         keys = set(stub_keys())
         for name, f in self.fixtures().items():
             with self.subTest(name):
-                want = keys - ({"start"} if name in REAL_START else set())
+                want = keys - ({START_STUB} if name in REAL_START else set())
                 self.assertEqual(want - set(f), set())
-                self.assertEqual("start" in f, name not in REAL_START)
+                self.assertEqual(START_STUB in f, name not in REAL_START)
                 self.assertIs(f.get("exec-code"), True)
 
     def test_judging_stubs_follow_block(self):
@@ -486,7 +495,7 @@ class LineFixturesCase(unittest.TestCase):
         f = self.fixtures()
         self.assertEqual(f["start-refused"]["fixture"]["expect"], "failed")
         # 出口 result は all_done で走り、機械の報告が無いので落ちる（報告の無い run を成功と言わない）
-        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], ["start", "report", "result"])
+        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], [START_STUB, "report", "result"])
         # start が本物で拒む入力（線の入力の確かめ entry.check_inputs が AI の前で拒む値）。軽量は 2026-10-06 から受けるので
         # 軽量を渡した筋書きは start を通り、拒みの筋書きにならなかった（dev/check.sh の workflow test で落ちていた）
         import entry   # noqa: E402  （linekit が .shared/core を sys.path に足す）

@@ -24,7 +24,7 @@
 - capture(board_dir, repo, *, run_id, pack_root): 固定材料を作って控えを返す。控えが既に在れば何も書かずにそれを返す。
   固定材料から始めた盤面（adopted が在る）は写さずに None
 - adopt(board_dir, src, repo, *, run_id, pack_root, request_text, inputs): 固定材料 src を board_dir へ取り込み、start の控え
-  （START_REL）の doc を返す。合わなければ FixtureRefused（何が違うかを名指す 1 行）。拒む時は盤面を書かない
+  （startrec.REL）の doc を返す。合わなければ FixtureRefused（何が違うかを名指す 1 行）。拒む時は盤面を書かない
 - adopted(board_dir): 固定材料から始めた盤面なら start の控えの KEY の欄 {source_run, manifest_sha256, at}、でなければ None
   （固定材料の印の読み口はこれ 1 つ）
 - since(board_dir, created): 包みの起動の記録を数え始める時刻（取り込んだ盤面は取り込んだ時刻、ほかは created）
@@ -40,7 +40,7 @@ import re
 import shutil
 import subprocess
 
-import adapter  # （L2。start の控えの置き場 START_REL の正本）
+import startrec  # （L1。始めの記録の置き場と読み口）
 
 DIR = "fix-fixture"             # $ARTIFACTS_DIR の下（盤面の隣）
 MANIFEST = "fixture.json"       # DIR の下の控え
@@ -48,11 +48,10 @@ COPY = "board"                  # DIR の下の盤面の写し
 OUTSIDE = "outside"             # DIR の下の、盤面の外のファイルの写し
 BOARD_OUTSIDE = "fixture-outside"   # 取り込んだ盤面の下の、OUTSIDE の写しの置き場
 TRACE_OP = "fixture_adopted"    # 取り込んだ盤面の trace の行（entry.start が書く）
-START_REL = adapter.START_REL     # 盤面の start の控え（r1/start.json）
 KEY = "fixture"                  # start の控えの鍵 {source_run, manifest_sha256, at}（entry.start が書く）
 # 取り込みで今の値にする入力の欄（ほかの入力の欄は start の控えと今の入力が同じでなければ拒む）。features_off・features_on
 # （切る機能・入れる機能）は同じ所から替えて比べる欄（判定・修正案の側の機能は写しの物のままで、修正の段の機能だけが効く）
-CURRENT = ("run_id", "request_file", "fix_fixture", "features_off", "features_on")
+CURRENT = ("run_id", "request_file", "fix_fixture", "features_off", "features_on", "launch_mark")
 _STR_KEYS = ("source_run", "head", "tree", "board_root", "repo_root", "pack_root", "request_sha256", "test_cmd")
 _MAP_KEYS = ("commits", "files")
 
@@ -129,7 +128,7 @@ def adopted(board_dir) -> dict | None:
     """固定材料から始めた盤面なら start の控えの KEY の欄（object の時だけ）、でなければ None（控えが無い・読めない・JSON の
     object でない・鍵が無いも None）"""
     try:
-        doc = json.loads((pathlib.Path(board_dir) / START_REL).read_text(encoding="utf-8"))
+        doc = json.loads((pathlib.Path(board_dir) / startrec.REL).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     mark = doc.get(KEY) if isinstance(doc, dict) else None
@@ -166,7 +165,7 @@ def capture(board_dir, repo, *, run_id: str, pack_root) -> dict | None:
     if man_path.is_file():
         return json.loads(man_path.read_text(encoding="utf-8"))
     state = json.loads((board / "state.json").read_text(encoding="utf-8"))
-    start = json.loads((board / START_REL).read_text(encoding="utf-8"))
+    start = json.loads((board / startrec.REL).read_text(encoding="utf-8"))
     request = str((state.get("inputs") or {}).get("request") or "")
     head, tree = _git(repo, "rev-parse", "HEAD"), _git(repo, "rev-parse", "HEAD^{tree}")
     if dest.exists():
@@ -210,8 +209,8 @@ def _check_copy(src: pathlib.Path, man: dict) -> None:
     parts = [f"{what}: {', '.join(ps)}" for what, ps in (("書き換わった", changed), ("足りない", missing), ("多い", extra)) if ps]
     if parts:
         raise FixtureRefused(f"固定材料 {src} が控えと違う（{'・'.join(parts)}）——写した後に書き換えた写しは取り込まない")
-    if f"{COPY}/{START_REL}" not in man["files"]:
-        raise FixtureRefused(f"固定材料 {src} に start の控え {COPY}/{START_REL} が無い")
+    if f"{COPY}/{startrec.REL}" not in man["files"]:
+        raise FixtureRefused(f"固定材料 {src} に start の控え {COPY}/{startrec.REL} が無い")
 
 
 def _check_repo(repo, man: dict) -> tuple:
@@ -293,7 +292,7 @@ def adopt(board_dir, src, repo, *, run_id: str, pack_root, request_text: str, in
     swap = {man["board_root"]: str(board), str(old_art): str(board.parent),
             **{str(old_art / r): str(board / BOARD_OUTSIDE / r) for r in rels},
             man["repo_root"]: str(pathlib.Path(repo).resolve()), man["pack_root"]: str(pack_root), man["head"]: head}
-    doc = json.loads(_swapper(swap)((src / COPY / START_REL).read_text(encoding="utf-8")))
+    doc = json.loads(_swapper(swap)((src / COPY / startrec.REL).read_text(encoding="utf-8")))
     bad = _differs(doc, inputs)
     if bad:
         raise FixtureRefused("start の控えの入力が今の入力と違う: " + "・".join(f"{k}={doc.get(k)!r}→{inputs[k]!r}" for k in bad)
@@ -304,7 +303,7 @@ def adopt(board_dir, src, repo, *, run_id: str, pack_root, request_text: str, in
     if rels:
         shutil.copytree(outside, board / BOARD_OUTSIDE)
     _rewrite(board, swap)
-    start_path = board / START_REL
+    start_path = board / startrec.REL
     doc = json.loads(start_path.read_text(encoding="utf-8"))
     doc.update({k: inputs[k] for k in CURRENT if k in inputs})
     doc.update({"run_id": run_id, KEY: {"source_run": man["source_run"], "manifest_sha256": man_sha,

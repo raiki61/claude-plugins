@@ -31,6 +31,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
 BLK = ROOT / "blk-spec"
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
 import linekit  # noqa: E402
@@ -81,12 +82,12 @@ def script_inputs(name):
 
 
 def spec_table_doc() -> dict:
-    """別の入口 darkfactory-spec の節の表の案: 1 本目のラインの表の spec.write・spec.review・spec.revise を role（where blk-spec）に
-    した物。spec.approve・spec.freeze・spec.check は 1 本目の表で既に builtin（auto）"""
+    """ブロックの単独の試験の表: 線 darkfactory の表（仕様の段を任意の段として配線し、spec.write・spec.review・spec.revise は
+    role・where blk-spec。spec.approve・spec.freeze・spec.check は builtin）の名だけを試験の写しの線の名にした物"""
     doc = json.loads((ROOT / "darkfactory" / "nodes.json").read_text(encoding="utf-8"))
-    doc["line"] = LINE
     for nid in ROLES.values():
-        doc["nodes"][nid] = {"by": "role", "where": "blk-spec"}
+        assert (doc["nodes"][nid]["by"], doc["nodes"][nid]["where"]) == ("role", "blk-spec"), (nid, doc["nodes"][nid])
+    doc["line"] = LINE
     return doc
 
 
@@ -187,9 +188,12 @@ class YamlCase(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("_line_edge_for_spec", ROOT / "darkfactory" / "lib" / "line_edge.py")
         edge = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(edge)
-        for name in ("GATE_GO", "GATE_STOP", "GATE_STOP_NOTE", "FLAG_BY_PREFIX", "FLAG_SEEN_OP", "GATE_FILE"):
+        for name in ("GATE_GO", "GATE_STOP", "GATE_STOP_NOTE", "FLAG_BY_PREFIX", "FLAG_SEEN_OP"):
             with self.subTest(name):
                 self.assertEqual(getattr(self.L, name), getattr(edge, name))
+        # 文の置き場は線の関所の文（公開の名。線の持ち物）と違う名にする: 線に include した仕様の段が線の公開の名を書くと、
+        # scope の照らしが「宣言の外に書いた」で盤面を止める（線に配線して本物のスクリプトで回して見つけた。test_script_contract の spec）
+        self.assertNotEqual(self.L.GATE_FILE, edge.GATE_FILE)
 
     def test_script_inputs_match_with(self):
         for n, _ in walk(self.y["nodes"]):
@@ -555,6 +559,79 @@ class ScriptCase(unittest.TestCase):
         self.assertIn("maybe", err)
         self.assertEqual(self.opened().state["pending_human"]["node"], "spec.approve", "知らない語では答えない")
 
+
+
+class LineSpecCase(ScriptCase):
+    """線 darkfactory の入口（entry.start）で入力 spec=on を渡した run。依頼だけ（差分が空）の入口で仕様の段を挟み、仕様の書き手が
+    受け入れ条件のテストを書いても入口の印（差分が空の印）は start の測りのまま。origin は GitHub の形で偽の gh が交差を返すので、
+    並行 PR の確かめは仕様を固めた後に境の節 h-spec（line_edge.spec_edge）で初めて任せ先の役に落ちる"""
+
+    def setUp(self):
+        self._old_cwd = engine_util.GIT_CWD
+        self.addCleanup(setattr, engine_util, "GIT_CWD", self._old_cwd)
+        p = mock.patch.object(entry, "PACK", self.pack)
+        p.start()
+        self.addCleanup(p.stop)
+        self.tmp = pathlib.Path(tempfile.mkdtemp(dir=self.home))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        env = mock.patch.dict("os.environ", {"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home")})
+        env.start()
+        self.addCleanup(env.stop)
+        self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
+        env = mock.patch.dict("os.environ", {"PATH": linekit.github_crossing(self.repo, self.tmp)})
+        env.start()
+        self.addCleanup(env.stop)
+        self.art = self.tmp / "art"
+        self.board = self.art / "board"
+        req = self.tmp / "request.json"
+        req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
+        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "",
+               "policy_md": "", "spec": "on"}
+        self.out = entry.start(self.board, self.repo, raw, run_id="run-spec")
+
+    def test_spec_reaches_board_flow(self):
+        """入力 spec=on → 盤面の inputs.flow と loop.flow が spec、spec.write が待つ。入口の入力の形の spec が真で、頭の行に出る。
+        並行 PR の確かめは版を固める前なので、まだ出ていない"""
+        b = self.opened()
+        self.assertEqual((b.state["inputs"]["flow"], b.loop_state.get("flow")), ("spec", "spec"))
+        self.assertIn("spec.write", b.ready())
+        self.assertIs(self.out["input"]["spec"], True)
+        self.assertIn("仕様の段あり", self.out["head_line"])
+        self.assertEqual(b.node_state("p0.parallel_pr"), "pending")
+        self.assertNotIn("p0.parallel_pr", b.ready())
+
+    def test_spec_write_sees_request_rows(self):
+        """依頼の行は盤面を作る時に積まれているので、仕様の書き手の指示書に依頼の行が載る（前の後積みでは届かなかった）"""
+        prep, _ = self.written()
+        self.assertIn("mean([1, 2, 3])", pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(len(self.opened().record["process"]["request_findings"]), 1)
+
+    def test_spec_tests_do_not_flip_the_mark_and_edge_drains_parallel_pr(self):
+        """仕様の書き手が受け入れ条件のテストのファイルを足して承認・固めた後も、入口の印は start の測り（差分が空）のまま在り、
+        版を固める p1.worktree_before は空差分の柵で止まらない。h-spec（spec_edge）は盤面の engine の節を回し直し、並行 PR の
+        確かめが任せ先に落ちたので pr_go 真"""
+        import line_edge
+        self.written()
+        self.assertIs(self.ok("route", role="review")["go"], True)
+        self.assertEqual(self.run_loop("review", review_reply(faces=False))[0], 1)
+        self.assertIs(self.ok("route", role="revise")["go"], False)
+        self.gate("approve", "進めてよい")
+        b = self.opened()
+        self.assertEqual(b.node_state("spec.freeze"), "done")
+        self.assertEqual(b.record["process"]["request_entry"]["origin"], entry.ORIGIN)
+        self.assertFalse(b.state.get("halted"))
+        self.assertEqual(b.node_state("p1.worktree_before"), "done")
+        got = line_edge.spec_edge(b)
+        self.assertEqual(got, {"go": True, "pr_go": True})
+        b = self.opened()
+        self.assertIn("p0.parallel_pr", b.ready())
+        self.assertTrue(b.rd["instances"][next(i for i, x in b.rd["instances"].items()
+                                               if x["node"] == "p0.parallel_pr")].get("engine_fallback"))
+
+    # 親の筋書きは試験の写しの線の盤面の物
+    test_pass_path = test_no_faces_skips_revise = test_gate_stop = test_give_up_after_three = None
+    test_review_is_read_only = test_unreadable_reply_is_counted = test_stop_flag_before_review = None
+    test_answer_rejects_unknown_word = None
 
 class NotSpecFlowCase(ScriptCase):
     """flow=spec の無い run（spec.* の節は写しの条件 spec_flow で na）にブロックを差したのは配線の誤り: 最初の route が 2 で落ちる"""

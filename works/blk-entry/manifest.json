@@ -1,0 +1,11 @@
+{
+ "owner": "blk-entry",
+ "consumes": [],
+ "produces": [
+  {"name": "start.json", "format": "json", "schema": "schemas/start.schema.json"},
+  {"name": "fixture-outside/**", "format": "md", "at": "root"},
+  {"name": "github.json", "format": "json", "schema": "schemas/github.schema.json", "at": "root"},
+  {"name": "pr.md", "format": "md", "at": "root"},
+  {"name": "prior-failures-in.json", "format": "json", "schema": "../.shared/core/prior-failures.schema.json", "at": "root"}
+ ]
+}

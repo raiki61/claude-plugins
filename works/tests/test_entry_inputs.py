@@ -18,6 +18,7 @@ sys.path.insert(0, str(TESTS))
 
 import board  # noqa: E402
 import entry  # noqa: E402
+import entryshape  # noqa: E402  （入口の変換）
 from gitkit import committed_copy, git  # noqa: E402
 
 SEED = ROOT / "dev" / "target-seed"
@@ -44,7 +45,7 @@ class ChangeInputsCase(unittest.TestCase):
             self.fail(f"変更だけの入口を拒んだ: {e}")
         self.assertEqual(got["items"], [])
         self.assertEqual(got["base_rev"], self.fork)
-        self.assertEqual(got["base"], {"rev": self.fork, "from": "base", "name": "base"})
+        self.assertEqual(got["base"], {"rev": self.fork, "from": "base", "name": "base", "label": "base base"})
         self.assertIsNone(got["pr"])
         self.assertNotIn("change", got)
 
@@ -57,7 +58,7 @@ class ChangeInputsCase(unittest.TestCase):
 
     def test_needs_request_or_change_and_not_both_changes(self):
         """依頼も差分も無い・base と pr の両方・引けない base は拒む（盤面の前に 1 行）"""
-        for raw, words in (({"request": ""}, entry.EMPTY_REFUSED), ({"request": "", "base": "base", "pr": "1"}, "両方"),
+        for raw, words in (({"request": ""}, entryshape.EMPTY_REFUSED), ({"request": "", "base": "base", "pr": "1"}, "両方"),
                            ({"request": "", "base": "no-such-branch"}, "引けない"), ({"request": "", "pr": "x"}, "番号でない")):
             with self.subTest(raw):
                 with self.assertRaises(entry.InputRefused) as cm:
@@ -70,7 +71,7 @@ class ChangeInputsCase(unittest.TestCase):
         board = pathlib.Path(self._tmp.name) / "board"
         with self.assertRaises(entry.InputRefused) as cm:
             entry.start(board, self.repo, {"request": "", "base": "HEAD"}, run_id="t")
-        self.assertTrue(str(cm.exception).startswith(entry.EMPTY_REFUSED), str(cm.exception))
+        self.assertTrue(str(cm.exception).startswith(entryshape.EMPTY_REFUSED), str(cm.exception))
         self.assertFalse(board.exists())
 
     def test_diff_of_clean_head_is_empty(self):
@@ -103,20 +104,20 @@ class ChangeInputsCase(unittest.TestCase):
         --pr → pr に番号と題（本文は控えに写さない）。後ろの段が読む欄はどの入口でも同じ鍵"""
         head = git(self.repo, "rev-parse", "HEAD")
         req = str(SEED / "request_ok.json")
-        only = entry.build_input(entry.check_inputs({"request": req}, self.repo), self.repo)
-        self.assertEqual(only["base"], {"rev": head, "from": "head", "name": ""})
+        only = entryshape.build(entry.check_inputs({"request": req}, self.repo), self.repo)
+        self.assertEqual(only["base"], {"rev": head, "from": "head", "name": "", "label": "HEAD"})
         self.assertTrue(only["diff"]["empty"])
         self.assertEqual((only["requests"], only["request_file"], only["pr"], only["spec"]),
                          (2, str(pathlib.Path(req).resolve()), None, False))
         self.assertEqual(only["head_rev"], head)
-        based = entry.build_input(entry.check_inputs({"request": "", "base": "base"}, self.repo), self.repo)
+        based = entryshape.build(entry.check_inputs({"request": "", "base": "base"}, self.repo), self.repo)
         self.assertEqual(based["base"]["from"], "base")
         self.assertGreaterEqual(based["diff"]["files"], 1)
         self.assertEqual(based["requests"], 0)
         doc = {"baseRefOid": self.fork, "headRefOid": head, "title": "題", "body": "本文"}
-        pr = entry.build_input(entry.check_inputs({"request": "", "pr": "7"}, self.repo, reads=self.reads(doc)), self.repo)
+        pr = entryshape.build(entry.check_inputs({"request": "", "pr": "7"}, self.repo, reads=self.reads(doc)), self.repo)
         self.assertEqual(pr["pr"], {"number": "7", "title": "題"})
-        self.assertEqual(pr["base"], {"rev": self.fork, "from": "pr", "name": "7"})
+        self.assertEqual(pr["base"], {"rev": self.fork, "from": "pr", "name": "7", "label": "PR #7「題」"})
         self.assertEqual(set(only), set(based))
         self.assertEqual(set(only), set(pr))
 
@@ -126,17 +127,17 @@ class ChangeInputsCase(unittest.TestCase):
         head = git(self.repo, "rev-parse", "HEAD")
         doc = {"baseRefOid": self.fork, "headRefOid": head, "title": "題", "body": "本文"}
         req = str(SEED / "request_ok.json")
-        both = entry._request_text(entry.check_inputs({"request": req, "pr": "7"}, self.repo, reads=self.reads(doc)))
+        both = entryshape.request_text(entry.check_inputs({"request": req, "pr": "7"}, self.repo, reads=self.reads(doc)))
         self.assertIn("## 依頼", both)
         self.assertIn("## PR #7 の題と本文", both)
         self.assertIn("題\n\n本文", both)
         self.assertIn((SEED / "request_ok.json").read_text(encoding="utf-8").strip(), both)
         only = entry.check_inputs({"request": req}, self.repo)
-        self.assertEqual(entry._request_text(only), only["request_text"])
+        self.assertEqual(entryshape.request_text(only), only["request_text"])
         pr_only = entry.check_inputs({"request": "", "pr": "7"}, self.repo, reads=self.reads(doc))
-        self.assertEqual(entry._request_text(pr_only), "題\n\n本文")
+        self.assertEqual(entryshape.request_text(pr_only), "題\n\n本文")
         base_only = entry.check_inputs({"request": "", "base": "base"}, self.repo)
-        self.assertEqual(entry._request_text(base_only), "変更（base base）の審査")
+        self.assertEqual(entryshape.request_text(base_only), "変更（base base）の審査")
 
     @staticmethod
     def reads(doc: dict) -> dict:
@@ -150,7 +151,7 @@ class ChangeInputsCase(unittest.TestCase):
         got = entry.check_inputs({"request": "", "pr": "7"}, self.repo,
                                  reads=self.reads({"baseRefOid": self.fork, "headRefOid": head, "title": "題", "body": "本文"}))
         self.assertEqual(got["base_rev"], self.fork)
-        self.assertEqual(got["base"], {"rev": self.fork, "from": "pr", "name": "7"})
+        self.assertEqual(got["base"], {"rev": self.fork, "from": "pr", "name": "7", "label": "PR #7「題」"})
         self.assertEqual(got["pr"], {"number": "7", "title": "題", "body": "本文"})
 
     def test_pr_refused_when_head_differs_or_base_missing(self):
@@ -162,6 +163,53 @@ class ChangeInputsCase(unittest.TestCase):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs({"request": "", "pr": "7"}, self.repo, reads=self.reads(doc))
                 self.assertIn(words, str(cm.exception))
+
+
+
+class SpecInputCase(unittest.TestCase):
+    """仕様の段（入力 spec）。入口の種類に依らず、どの入口とも組める任意の段。選べない組は start が AI の前で拒む"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = pathlib.Path(self._tmp.name) / "repo"
+        self.fork = committed_copy(self.repo, SEED)
+        self.req = str(SEED / "request_ok.json")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_spec_word_checked(self):
+        """spec は空か on（ほかの語は拒む）。on は input.spec が真で、空は偽"""
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs({"request": self.req, "spec": "yes"}, self.repo)
+        self.assertIn("spec", str(cm.exception))
+        on = entry.check_inputs({"request": self.req, "spec": "on"}, self.repo)
+        self.assertIs(entryshape.build(on, self.repo)["spec"], True)
+        off = entry.check_inputs({"request": self.req}, self.repo)
+        self.assertIs(entryshape.build(off, self.repo)["spec"], False)
+
+    def test_spec_refused_without_request_text(self):
+        """依頼の文が無い（依頼のファイルも PR の本文も無い）run の仕様の段は拒む（仕様の書き手が読む物が無い）"""
+        git(self.repo, "branch", "base")
+        (self.repo / "stats.py").write_text("x = 1\n", encoding="utf-8")
+        git(self.repo, "commit", "-q", "-am", "change")
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs({"request": "", "base": "base", "spec": "on"}, self.repo)
+        self.assertIn("仕様", str(cm.exception))
+
+    def test_spec_refused_when_unattended(self):
+        """仕様の承認は人の関所なので、無人の run とは組めない"""
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs({"request": self.req, "spec": "on", "unattended": "true"}, self.repo)
+        self.assertIn("無人", str(cm.exception))
+
+    def test_spec_refused_with_fixture(self):
+        """固定材料は修正の直前の盤面で仕様の段より後なので、組めない"""
+        fx = pathlib.Path(self._tmp.name) / "fx"
+        fx.mkdir()
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs({"request": self.req, "spec": "on", "fix_fixture": str(fx)}, self.repo)
+        self.assertIn("固定材料", str(cm.exception))
 
 
 if __name__ == "__main__":

@@ -348,12 +348,54 @@
    ]
   },
   "entry-kind": {
-   "status": "散らばり",
-   "fences": []
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "入口の生の入力（差分の根の名指し base・pr）を読む・渡す形（raw の base・pr の読み・INPUTS_BASE・INPUTS_PR・$INPUTS.base・$INPUTS.pr・殻の CHANGE_INPUT・旗 --base・--pr）",
+     "pattern": "_word\\(raw, [\"'](base|pr)[\"']\\)|\\bINPUTS_(BASE|PR)\\b|\\$INPUTS\\.(base|pr)\\b|\\bCHANGE_INPUT\\b|--(base|pr)\\b",
+     "allowed": [
+      ".shared/core/entryshape.py",
+      "blk-entry/**",
+      "dev/use.sh",
+      "dev/canary.sh",
+      "darkfactory/darkfactory.yaml"
+     ],
+     "known": {}
+    },
+    {
+     "what": "入口の種類で分かれる形と消した種の名（entry_words・ENTRIES・change_only・add_pending_request・PENDING_WAIT_NODE・PENDING_REQUEST_BY・差分の根の出どころ base.from での分岐・種の語での分岐）",
+     "pattern": "\\bentry_words\\b|\\bENTRIES\\b|\\bchange_only\\b|add_pending_request|PENDING_WAIT_NODE|PENDING_REQUEST_BY|\\[[\"']from[\"']\\]\\s*[!=]=|\\.get\\([\"']from[\"']\\)\\s*[!=]=\\s*[\"'](head|base|pr)[\"']|kind == [\"'](request|change|both)[\"']",
+     "allowed": [
+      ".shared/core/entryshape.py",
+      "blk-entry/**"
+     ],
+     "known": {}
+    }
+   ]
   },
   "start-record": {
-   "status": "散らばり",
-   "fences": []
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "始めの記録の置き場の名を字で書く形（引用符かパスの区切りで囲んだ start.json）・置き場の名の別名（START_REL・START_FILE）・別の読み口（start_doc）",
+     "pattern": "[\"'/]start\\.json[\"']|\\bSTART_(REL|FILE)\\b|\\bstart_doc\\b",
+     "allowed": [
+      ".shared/core/startrec.py",
+      "blk-entry/manifest.json",
+      "blk-*/manifest.json"
+     ],
+     "known": {
+      "dev/launch.py": [
+       1,
+       "標準ライブラリだけで pack の兄弟を import しない殻の決まり（起動直後の結びで盤面の依頼の写しを読む。この殻の頭の決まり）"
+      ],
+      "dev/lib.sh": [
+       1,
+       "殻の python の 1 行（全部の周の控えを glob で読む。pack の模块を import しない殻の決まり）"
+      ]
+     }
+    }
+   ]
   },
   "carry-over": {
    "status": "住処あり",

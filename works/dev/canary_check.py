@@ -1,8 +1,8 @@
 """works/dev/canary_check.py — canary の run（dev/canary.sh）が、狙った道を本当に通ったかを、終わった run の記録から出す（開発の殻。
 読むだけで何も書かない）。
 
-  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large|lanes2|change] [--json]
-  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large|lanes2|change] [--json]
+  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large|lanes2] [--json]
+  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large|lanes2] [--json]
 
 置き場の形は canary.sh が作る物（home/archon-home/archon.db・home/runs/<run-id>.json・home/diffs/run-<id>.diff）。run-id を省けば
 home/runs の一番新しい控えの run。盤面は Archon の run の行の output_root の下の artifacts/runs/<id>/board（--board で替える）。
@@ -10,14 +10,16 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
 包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/、--db の形では --launches で名指す）も
 読むだけで、盤面の state.json の run の worktree（inputs.cwd）のファイルの、盤面を作った後の行だけをその run の物と見る。
 --request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json、units は固定材料
-canary-fixture-units/ から始める run、large は測りの canary-request-large.json、lanes2 は canary-request-lanes2.json、change は
-canary-request-fix.json に commit しない 1 行の変更を足して変更から入る run）で、終了コードだけを変える（fix なら (e) も yes でないと 1、
-units は (f) だけ・large は (g) だけ・lanes2 は (k) だけ・change は (h)(j) だけで決める）。出す物は同じ。
+canary-fixture-units/ から始める run、large は測りの canary-request-large.json、lanes2 は canary-request-lanes2.json）で、終了コードだけを
+変える（fix なら (e) も yes でないと 1、units は (f) だけ・large は (g) だけ・lanes2 は (k) だけで決める）。出す物は同じ。
+差分を持たせた run（canary.sh --diff。start の控えの入口の入力の形 input.diff.empty が偽）は、語に依らず (h)(j) も終了コードに
+数える（語ではなく入力の中身で選ぶ。前の語 change は --request fix --diff に替わった）。
 
-依頼から始めた run（start の控え r1/start.json の entry が request。--request change のほかの語の run）は、局所レビューの役を回さない
+差分が空の run（start の控え（startrec の始めの記録）の入口の入力の形 input.diff.empty が真）は、局所レビューの役を回さない
 （P1 の役の条件 not_request_entry。1 周の run は修正が入る前の周しか回らない）。そういう run で局所レビューの跡（受け付けの控え・
 局所レビューの役の起動）が無ければ、(h)(j) は no でなく not_exercised（回す形の run でなかった）と出す。本当の赤の no と見分ける
-ため。跡が在れば（修正が入った後の周で回った）いつもの判じに戻す。控えが無い・entry が change・both の run も、いつもの判じ。
+ため。跡が在れば（修正が入った後の周で回った）いつもの判じに戻す。入口の入力の形の無い前の版の控えは not_exercised（分からない）。
+控えが無い・差分が在った run は、いつもの判じ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
@@ -63,12 +65,12 @@ units は (f) だけ・large は (g) だけ・lanes2 は (k) だけ・change は
   （並べの周の目録）と修正役の枝の数（fix_lanes_planted）と枝の輪の同時の最大、切った機能（start の控えの features_off）と機能ごとの実効の値（features。既定と全部 on を見分ける）、全体の分と
   費用（spend と同じ）。通ったと言う決まり: 結末が fixed で、切っていない枝の機能（tdd_lanes・fix_lanes）はどれも枝 2 本以上が
   同時に 2 本以上走った。報告の結末が無ければ no、ほかは attempted
-- (h) lens_seen（fork のレンズの所見が届いたか。--request change の時だけ終了コードに数える）: 局所レビューの受け付けが周ごとに
+- (h) lens_seen（fork のレンズの所見が届いたか。差分を持たせた run（input.diff.empty が偽。canary.sh --diff）の時だけ終了コードに数える）: 局所レビューの受け付けが周ごとに
   残す控え（diverted.LENS_FILE）が fork のレンズ（/code-review）を見ていない（unseen）と書いた周が在れば attempted（所見の本文が
-  局所レビューに届かなかった）、無ければ yes。控えが無ければ no（依頼から始めた run なら not_exercised。上）
+  局所レビューに届かなかった）、無ければ yes。控えが無ければ no（差分が空の run なら not_exercised。上）
 - (i) cold_new（報告の初見の読み手の会話。読むだけで終了コードには数えない）: 包みの起動の記録のうち report-write-cold の起動が
   どれも新しい会話（session.mode が new）なら yes。書き手の会話を継いだ起動が在る・起動が無い・記録が読めないなら no
-- (j) text_reply（返答の契約。--request change の時だけ終了コードに数える）: 包みの起動の記録のうち局所レビューの役（local-review）の起動が
+- (j) text_reply（返答の契約。差分を持たせた run（input.diff.empty が偽。canary.sh --diff）の時だけ終了コードに数える）: 包みの起動の記録のうち局所レビューの役（local-review）の起動が
   どれも旗 text-reply（fence.text_reply。包みが schema を子に渡さず、本文で受けて確かめ、合わなければ同じ会話で出し直させる。
   .shared/core/adapter.py の頭の 21）で、包みの家の replies/<cwd の hash>.jsonl（adapter.replies_path）が起動ごと（pid）に
   決めを持ち、返答の道具が残った跡（kind native）が無ければ yes。出し直しを使い切った
@@ -88,7 +90,7 @@ tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から no
 最後までの分、差分が変えたファイル。
 
 終了コード: 0 = (a)(b)(c)（--request fix なら (e) も。--request units は (f) だけ・--request large は (g) だけ・--request lanes2 は (k) だけ・
---request change は (h)(j) だけ）が全部 yes（attempted・not_exercised は yes でない）・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
+差分を持たせた run は語の道に (h)(j) も足す）が全部 yes（attempted・not_exercised は yes でない）・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
 run が無い（標準エラーに 1 行）。
 出力は辞書を書いた順（同じ入力なら同じ出力）。時刻は記録の物だけを使う。
 """
@@ -118,6 +120,7 @@ import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERE
 import adapter  # noqa: E402    包みの起動の記録の置き場（cwd_key）と旗の語（FORK）
 import fixture  # noqa: E402    包みの起動の記録を数え始める時刻（since）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
+import startrec  # noqa: E402   始めの記録の読み口（入口の入力の形の diff.empty）
 import entry  # noqa: E402      機能ごとの実効の値（feature_words・features_on_of・features_part）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
 import report_roles  # noqa: E402  報告の初見の読み手の節の名（WRITE_COLD）
@@ -143,10 +146,12 @@ ANSWER_LANE = re.compile(r"plan-answer-lane-(\d+)")   # 枝の答えの節（印
 PLANNER_NODES = ("plan", "plan-revise")   # 修正案の役の会話を起こす・継ぐ節（印の名）
 LAUNCHES = ("adapter", "launches")   # 利用の家の下の包みの起動の記録の置き場（adapter.launches_path）
 CONFLICT_PHASE = "conflict"   # TDD の輪の呼びの段の語のうち、食い違いの申し出（tddloop の step が積む calls の phase）
-# canary.sh の --request の語と、終了コードを決める道（tdd は (a)〜(c)・fix は (e) も・units は (f) だけ・change は (h)(j) だけ）
+# canary.sh の --request の語と、終了コードを決める道（tdd は (a)〜(c)・fix は (e) も・units は (f) だけ・large は (g) だけ・lanes2 は (k) だけ）。
+# 差分を持たせた run（input.diff.empty が偽）は語に依らず DIFF_CHECKS も数える
 REQUESTS = {"tdd": ("a_parallel", "b_overlap", "c_consult"), "fix": ("a_parallel", "b_overlap", "c_consult", "e_fix_lanes"),
-            "units": ("f_item_units",), "large": ("g_measure",), "lanes2": ("k_lane_chain",),
-            "change": ("h_lens_seen", "j_text_reply")}
+            "units": ("f_item_units",), "large": ("g_measure",), "lanes2": ("k_lane_chain",)}
+DIFF_CHECKS = ("h_lens_seen", "j_text_reply")   # 差分を持たせた run（input.diff.empty が偽）の局所レビューの道
+CHANGE_GONE = "--request change は --request fix --diff に替わった（差分を持たせるかは語でなく旗 --diff。確かめは入力の差分で選ぶ）"
 # 測り（(g)）の段: include（節の名の頭の <include>__）ごとの段。include の外の線の節（start・h-*・report など）は段 LINE_STAGE で、
 # run の全体に散るので分は区間の和。修正の include（FIX_SCOPES）の中は、さらに TDD の輪の段（TDD_TOP）と修正役の段（FIX_TOP）を
 # 外の輪の節の名で分けて出す
@@ -699,14 +704,13 @@ def stages(events: list, key=stage_of) -> list:
 
 
 def diff_empty(board: pathlib.Path):
-    """start の控え（r1/start.json）の入口の入力の形の diff.empty（真偽）。控えは在るが input の無い前の版の控えは "unknown"、
-    控えが無い・読めなければ None"""
-    doc = _json(board / "r1" / "start.json")
-    if not isinstance(doc, dict):
+    """start の控え（startrec の始めの記録）の入口の入力の形の diff.empty（真偽）。控えは在るが input の無い前の版の控えは
+    "unknown"、控えが無い・読めなければ None"""
+    doc = startrec.read(board)
+    if not doc:
         return None
-    shape = doc.get("input")
-    got = (shape.get("diff") or {}).get("empty") if isinstance(shape, dict) and isinstance(shape.get("diff"), dict) else None
-    return got if isinstance(got, bool) else "unknown"
+    got = startrec.diff_empty(doc)
+    return got if got is not None else "unknown"
 
 
 def unexercised(board: pathlib.Path, seen: dict, launch_rows: list | None) -> dict | None:
@@ -718,19 +722,19 @@ def unexercised(board: pathlib.Path, seen: dict, launch_rows: list | None) -> di
         return None
     why = ("差分が空の run（start の控えの input.diff.empty が真）で、局所レビューは回らない" if empty is True else
            "start の控えに入口の入力の形（input）が無い前の版の run で、差分が在ったかが分からない")
-    return {"status": NOT_EXERCISED, "why": why + "（P1 の役の条件 not_request_entry。差分を持たせる run は canary.sh --request change）"}
+    return {"status": NOT_EXERCISED, "why": why + "（P1 の役の条件 not_request_entry。差分を持たせる run は canary.sh --diff）"}
 
 
 def features_off(board: pathlib.Path) -> list:
-    """start の控え（r1/start.json）の切った機能の語（無い・読めなければ []）"""
-    doc = _json(board / "r1" / "start.json")
+    """start の控え（startrec の始めの記録）の切った機能の語（無い・読めなければ []）"""
+    doc = startrec.read(board)
     got = doc.get("features_off") if isinstance(doc, dict) else None
     return [w for w in got if isinstance(w, str)] if isinstance(got, list) else []
 
 
 def features_on(board: pathlib.Path) -> list:
     """start の控えの入れた機能の語（entry.features_on_of。features_on の欄の無い前の版の控えは前の版の既定の全部 on）"""
-    doc = _json(board / "r1" / "start.json")
+    doc = startrec.read(board)
     got = entry.features_on_of(doc) if isinstance(doc, dict) else []
     return [w for w in got if isinstance(w, str)] if isinstance(got, list) else []
 
@@ -953,6 +957,8 @@ def main(argv=None) -> int:
     p.add_argument("--json", action="store_true")
     try:
         a, rest = p.parse_known_args(argv)
+        if a.request == "change":
+            raise Refused(CHANGE_GONE)
         if rest or a.request not in REQUESTS:
             raise Refused(USAGE)
         if a.db:
@@ -980,7 +986,8 @@ def main(argv=None) -> int:
         print(json.dumps(got, ensure_ascii=False))
     else:
         print("\n".join(summary_lines(got)))
-    return 0 if all(got["features"][k]["status"] == YES for k in REQUESTS[a.request]) else 1
+    keys = REQUESTS[a.request] + (DIFF_CHECKS if diff_empty(board) is False else ())
+    return 0 if all(got["features"][k]["status"] == YES for k in keys) else 1
 
 
 if __name__ == "__main__":

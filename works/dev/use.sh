@@ -1,7 +1,7 @@
 #!/bin/sh
 # works/dev/use.sh — ほかのリポジトリを対象に、ライン darkfactory を回す起動の殻（skills/works/SKILL.md が入口）。
 #
-#   use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]]
+#   use.sh start [--base <版> | --pr <番号>] [--spec] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]]
 #                                                                           本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る。
 #                                                                           --base・--pr は変更から入る（差分に P1 の目を回す。依頼は - で省ける）
 #   use.sh show  <対象リポジトリ> [<run-id>]                                その対象で start が結んだ一番新しい run（か名指しの run）の状態・
@@ -29,10 +29,11 @@
 #   Archon v0.11.1 は $ARCHON_HOME/workflows/<pack>/ も探す）に起こすたびに写す。対象の作業ツリーは書かない。
 # - 対象はリポジトリの下のフォルダでもよく、その git の根で回す。start で対象を省けば今いるフォルダの git の根。
 # - start の旗は位置引数より前だけで読み、最初の -- で旗を終える（POSIX の Utility Syntax Guidelines 9・10）。--base と --pr は
-#   どちらか 1 つ。旗を読んだ後の位置引数の数で対象を省いたかを決める。依頼の - は標準入力でなく「依頼を省く」
-#   （--base か --pr が在る時だけ受ける）。依頼を省いた start は、--pr なら起動ごとに一意の印（入力 launch_mark）で
-#   run を結ぶ。--base だけなら結ぶ印が無いので run を結ばず、run の控えも続きの行も書かずに結べなかった 1 行と候補の show の行を出して
-#   1 で終わる（run id を名指しした show で続ける。設計書 2.3）。起動が 0 で終わり候補（依頼の写しも起動の印も持たない生きた run）が
+#   どちらか 1 つ。--spec は判定の前に仕様の段（仕様の書き手・審査・人の承認の関所）を挟む（入力 spec=on。どの入口とも組めるが、
+#   無人の run と固定材料とは組めない——線の入口が拒む）。旗を読んだ後の位置引数の数で対象を省いたかを決める。依頼の - は標準入力でなく「依頼を省く」
+#   （--base か --pr が在る時だけ受ける）。どの start も起動ごとに一意の印（入力 launch_mark）を付け、起動の後にその印で
+#   run を結ぶ（入口の種類で結び方を分けない。段 4.1）。結べなければ run の控えも続きの行も書かずに結べなかった 1 行と候補の
+#   show の行を出して 1 で終わる（run id を名指しした show で続ける。設計書 2.3）。起動が 0 で終わり候補（依頼の写しも起動の印も持たない生きた run）が
 #   在れば、run が使う包んだ基は消さずに <家>/unbound/<印>.json に候補と残し、clean <対象> <候補の run-id> が消す
 #   （ほかの候補が生きている間は候補から外すだけで、最後の候補の clean で消す）。
 # - run の worktree は対象の今の姿から切る: 汚れていなければ HEAD、commit していない変更・未追跡のファイル（.gitignore の物は
@@ -72,9 +73,10 @@
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
-USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--spec] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
 ARCHON_BASE_BRANCH=""   # Archon の workflow run に渡す worktree の土台の枝（start・check が下で origin の既定の枝から求める。入口の旗 --base の CHANGE_INPUT とは別物）
-CHANGE_INPUT=""   # 変更の入口（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
+CHANGE_INPUT=""   # 差分の根の名指し（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
+SPEC_INPUT=""     # 仕様の段を挟むか（旗 --spec。ラインの入力 spec=on。入口の種類に依らない任意の段）
 if [ "${1:-}" = start ]; then
   shift
   while [ "$#" -gt 0 ]; do
@@ -90,6 +92,10 @@ if [ "${1:-}" = start ]; then
         fi
         CHANGE_INPUT="${1#--}=$2"
         shift 2
+        ;;
+      --spec)
+        SPEC_INPUT=on
+        shift
         ;;
       --)
         shift
@@ -739,10 +745,9 @@ else
   echo "TDD の輪を飛ばす（全部の単位を直に直す）: test_cmd が pytest の 1 コマンドでない。JUnit XML を第 1 引数に書く実行器を最後の引数 <tdd_suite> に渡せば輪を回す"
 fi
 # 名指した PR・issue（依頼の欄 pr・issue と --pr）は、run の中の start が利用者の gh のログインを継いで読む（archon.sh が
-# dev/hostgh.py の口を PATH に置く）。依頼を省いた --pr の起動は依頼の写しを持たないので、起動ごとに一意の印（入力 launch_mark。
-# Archon が run の metadata.inputs に残す）を付け、起動の後にそれで run を結ぶ。--base だけの起動は結ばない（設計書 2.3）
-LAUNCH_MARK=""
-case $CHANGE_INPUT in pr=*) [ -n "$REQUEST" ] || LAUNCH_MARK="$STAMP" ;; esac
+# dev/hostgh.py の口を PATH に置く）。どの起動にも起動ごとに一意の印（入力 launch_mark。Archon が run の metadata.inputs に
+# 残し、入口のブロックが start の控えに生の事実として残す）を付け、起動の後にそれで run を結ぶ（入口の種類で分けない。段 4.1）
+LAUNCH_MARK="$STAMP"
 
 place_pack
 cd "$TARGET"
@@ -789,10 +794,14 @@ if [ -n "$WORKS_USE_FIX_FIXTURE" ]; then set -- "$@" --input fix_fixture="$WORKS
 if [ "${WORKS_USE_UNATTENDED:-}" = 1 ]; then set -- "$@" --input unattended=true; fi
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
 if [ -n "$CHANGE_INPUT" ]; then
-  echo "入口: 変更から（${CHANGE_INPUT}）"
+  echo "差分の根: ${CHANGE_INPUT}（差分の根から run の作業ツリーまでを入口のブロックが測る）"
   set -- "$@" --input "$CHANGE_INPUT"
 fi
-if [ -n "$LAUNCH_MARK" ]; then set -- "$@" --input launch_mark="$LAUNCH_MARK"; fi
+set -- "$@" --input launch_mark="$LAUNCH_MARK"
+if [ -n "$SPEC_INPUT" ]; then
+  echo "仕様の段: 判定の前に仕様（要件と受け入れ条件のテスト）を書いて人が承認する（関所で止まる）"
+  set -- "$@" --input spec="$SPEC_INPUT"
+fi
 if [ -n "$CLEANED_RUNS" ]; then set -- "$@" --input cleaned_runs="$CLEANED_RUNS"; fi
 set +e
 sh "$ARCHON" "$@"
@@ -800,9 +809,8 @@ run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
 
-# 起動の直後に、この起動の依頼（<家>/requests/<印>.json）を盤面に持つ run を 1 つに結ぶ（一覧の先頭を推定で採らない。
-# 同じ家から並べた start の run と混ざらない。依頼を省いた --pr の起動は起動の印（入力 launch_mark）で結び、--base だけの起動は
-# 結ばない）。結べなければ候補と show の行と結べなかった 1 行だけを出し、続きの行は出さない
+# 起動の直後に、この起動の印（入力 launch_mark）を持つ run を 1 つに結ぶ（一覧の先頭を推定で採らない。同じ家から並べた
+# start の run と混ざらない。入口の種類に依らず同じ結び方）。結べなければ候補と show の行と結べなかった 1 行だけを出し、続きの行は出さない
 if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
   # 起動が 0 で終わったなら、この起動の run は起動の関所で生きていて、包んだ基を使う（消すと承認した run が落ちる。
   # 2026-10-01 に実測）。推定では結ばず（設計書 2.3）、一覧のうち依頼の写しも起動の印も持たない生きた darkfactory の run

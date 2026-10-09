@@ -2,15 +2,18 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""ラインの入口の節 start（線 A の仕様 4 節。計画 Task 7）。中身は entry.start（.shared/core/entry.py）。
+"""入口のブロックの節 start（線 A の仕様 4 節。計画 Task 7、入口のブロックへは docs/plans/2026-10-09-one-entry-shape.md の 2.5 節）。
+中身は entry.start（.shared/core/entry.py）。
 
 読む環境変数（Archon が節の with: から渡す。どれも在ること。値の空は既定の意味）:
 - INPUTS_REQUEST（依頼のファイル。相対なら cwd＝対象の根から）・INPUTS_TEST_CMD・INPUTS_THICKNESS・INPUTS_GATES・
   INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD（INPUTS_LANG・INPUTS_BASE・INPUTS_PR・INPUTS_UNATTENDED・
-  INPUTS_DESIGN_ONLY・INPUTS_FIX_FIXTURE・INPUTS_FEATURES_OFF・INPUTS_FEATURES_ON は無くてよい。
+  INPUTS_DESIGN_ONLY・INPUTS_FIX_FIXTURE・INPUTS_FEATURES_OFF・INPUTS_FEATURES_ON・INPUTS_LAUNCH_MARK・INPUTS_SPEC は無くてよい。
   LANG は報告の言語で、無いのは空＝依頼文の言語。BASE・PR は変更の入口で、無いのは空＝名指さない。名指した PR・issue は entry.start が run の
   中で gh で読む。FIX_FIXTURE は固定材料のフォルダで、
-  無いのは空＝盤面を新しく作る。FEATURES_OFF・FEATURES_ON は切る機能・入れる機能の語で、無いのは空＝既定（entry.FEATURE_DEFAULTS））
+  無いのは空＝盤面を新しく作る。FEATURES_OFF・FEATURES_ON は切る機能・入れる機能の語で、無いのは空＝既定（entry.FEATURE_DEFAULTS）。
+  LAUNCH_MARK は起こす殻が起動ごとに付ける一意の印（生の事実。start の控えに残すだけ）。SPEC は仕様の段を挟むか（空か on）で、
+  無いのは空＝挟まない）
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（切符の run_id。空も欠け）
 版の控え: 入力を確かめる前（拒む run でも）に <ARTIFACTS_DIR>/versions.json を書く（versions.snapshot。盤面の外）。
 設定の写し settings に切る機能・入れる機能 {features_off: [語], features_on: [語]}（入力の語を区切って重ねずに並べた物。知らない語も
@@ -38,11 +41,12 @@ import script_io  # noqa: E402
 INPUTS = {"INPUTS_REQUEST": "request", "INPUTS_BASE": "base", "INPUTS_PR": "pr", "INPUTS_TEST_CMD": "test_cmd", "INPUTS_THICKNESS": "thickness", "INPUTS_GATES": "gates",
           "INPUTS_FINAL_GATE": "final_gate", "INPUTS_ADAPTER": "adapter", "INPUTS_POLICY_MD": "policy_md", "INPUTS_LANG": "lang",
           "INPUTS_UNATTENDED": "unattended", "INPUTS_DESIGN_ONLY": "design_only",
-          "INPUTS_FIX_FIXTURE": "fix_fixture", "INPUTS_FEATURES_OFF": "features_off", "INPUTS_FEATURES_ON": "features_on"}
+          "INPUTS_FIX_FIXTURE": "fix_fixture", "INPUTS_FEATURES_OFF": "features_off", "INPUTS_FEATURES_ON": "features_on",
+          "INPUTS_LAUNCH_MARK": "launch_mark", "INPUTS_SPEC": "spec"}
 # 無くても欠けに数えない入力（後から足した入力。前の版の with: で再開した run は渡さない。無いのは空と同じ）
 OPTIONAL = frozenset({"INPUTS_LANG", "INPUTS_BASE", "INPUTS_PR", "INPUTS_UNATTENDED",
                       "INPUTS_DESIGN_ONLY", "INPUTS_FIX_FIXTURE", "INPUTS_FEATURES_OFF",
-                      "INPUTS_FEATURES_ON"})
+                      "INPUTS_FEATURES_ON", "INPUTS_LAUNCH_MARK", "INPUTS_SPEC"})
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)
 

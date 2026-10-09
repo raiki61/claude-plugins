@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計書。語は「目的と語」の節と works/README.md で定義 -->
 # 入口を 1 つの形にする（依頼・手元の変更・PR を同じ入力に揃え、後ろは入力の中身だけで決める）
 
-状態: 計画 `docs/plans/2026-10-09-clean-whole.md` の段 4 として入れる（入る時期は同じ計画の段 2 の後）。足す物は同じ計画の 5 節の段 4 の 4.1〜4.4（--pr の起動の印・案の直しの分かれを消す・仕様の承認の関所を本物の run で確かめる・最後に柵）。3.2 節の「`dev/launch.py` を変えない」の行は古い（4.1 で書き直す）。以下は元の本文。設計と計画だけ（コードは変えていない）。並行の片付けの 5 束が出荷した後に入れる。7 節の決め事は持ち主の原則（下）に沿って自分で決めた。Task は 10 節。
+状態: 入れた（2026-10-09。枝 `wip/one-entry`。Task 1〜5・7 と段 4.1・4.2・4.4。Task 6 は持ち越し、Task 8（本物の AI の run）は未。末尾の節「実装の結果」）。元の状態の行: 計画 `docs/plans/2026-10-09-clean-whole.md` の段 4 として入れる（入る時期は同じ計画の段 2 の後）。足す物は同じ計画の 5 節の段 4 の 4.1〜4.4（--pr の起動の印・案の直しの分かれを消す・仕様の承認の関所を本物の run で確かめる・最後に柵）。3.2 節の「`dev/launch.py` を変えない」の行は古い（4.1 で書き直す）。以下は元の本文。設計と計画だけ（コードは変えていない）。並行の片付けの 5 束が出荷した後に入れる。7 節の決め事は持ち主の原則（下）に沿って自分で決めた。Task は 10 節。
 
 ## 平たく言うと（3 行）
 
@@ -386,3 +386,17 @@ start → ci-checking → h-entry → speccing（blk-spec。when: $h-entry.outpu
 - [ ] `canary.sh --request fix`（差分なし）: 頭の行が「差分なし（HEAD）・依頼 N 件——P1 の役は起こさない」、(h)(j) は `not_exercised`
 - [ ] 仕様の段の run（canary の種に `--spec`）: 仕様の承認の関所で止まり、答えで判定へ進み、判定の材料に受け入れ条件のバッチ（出どころ `SPEC_ORIGIN`）が在る
 - [ ] 結果をこの文書の末尾の節に書き、状態の行を「入れた」に替える
+
+## 実装の結果（2026-10-09。枝 wip/one-entry）
+
+- Task 1・2: 入口の入力の形（`input`）を作り、入口の種と依頼の後積みを消した。印は差し替え `entry_opens`（`entry.entry_opens_by_diff`）で「入力の差分が空」の時だけ立つ。差分の測りは `board.diff_of`（写しの `_worktree_tree` と同じ測り方）
+- Task 2.5: 入口のブロック `blk-entry`（起動の関所 launch と節 open）を線の最初の include `entering` にした。入口の種類に触れる core の所は `.shared/core/entryshape.py` 1 つに集め、始めの記録の置き場と読み口は `.shared/core/startrec.py`（層 L1）1 つにした（`entry.py` と core は層の決まりでブロックの lib を import できないので、変換の関数は core の模块に置き、ブロックの節がそれを通して呼ぶ）。約束は `blk-entry/schemas/input.schema.json` と `start.schema.json`（2.1 の形に表示の文 `base.label` を足した。`input_words` は `startrec.words` になり、`base.from` で分岐しない）。include の中の approval が止まり・approve で続き・reject で run を取り消すことは Archon v0.11.1 で実測した（試しの pack を `~/.cache` に置いて `workflow run`）
+- 段 4.1: 殻（`use.sh`・`dogfood.sh`）はどの起動にも `launch_mark` を付け、`launch.py ledger bind` は印か依頼の写しのどちらかが一致する run を結ぶ（`--base` だけの起動も結ぶ）。印は入口のブロックへ渡り、始めの記録に生の事実として残る
+- Task 3: `conflict.no_requests`（依頼の行が 0）・ブロックの入力の説明・P1 の表の理由・報告の入口の文を中身で書いた
+- Task 4: PR の run は盤面の根に `pr.md`（0600）を置き、線が出口の `pr_file` を目的の役へ渡す
+- Task 5（段 4.3）: 仕様の段を `speccing`（blk-spec）と境の節 `h-spec` で配線した（入力 `spec`・`use.sh --spec`・拒む組 3 つ・表の spec.* を role）。線を本物のスクリプトで回して見つけた 2 つの穴を直した: 仕様の書き手のテスト（版を固める前の未追跡のファイル）を修正の受け付けが修正役の変更と数えた（`writes.changed` を固めた版の木と比べる形に）・blk-spec の関所の文が線の公開の名 `gate.md` を書いて scope の照らしが盤面を止めた（`spec-gate.md` に）。模擬実行の鍵 `review-accept` は blk-delta と blk-spec の輪の中で重なり、1 つの stub が両方の型を満たす（試験の表 `SHARED_STUB_KEYS`）
+- Task 6: 持ち越し。写しの核の盤面は人に聞いている間（pending_human）は settle を進めないので、修正の後の spec.check の問いが立つと最後のテストより前で盤面が止まり、計画の「最後の関所で答える」形では線が最後の関所まで届かない。どこで答えるか（修正の段を抜ける境の節で関所を開くか）を決めてから入れる。今は問いが報告の冒頭と次の run の依頼に渡る
+- Task 7: canary の `--diff`・`canary_check` の入力の差分での選び・文書・CHANGELOG。版上げはしない（指示）。canary の固定材料は作り直していない（古い控えは入口の入力の形を持たないが、固定材料の run は begin を通らず、頭の行に「控えに入口の入力の形が無い」と書いて続ける。8 節の 6 と同じ扱い）
+- 段 4.2: 案の直しの壁打ちの素通しを、入力 replan でなく壁打ちの控えの事実で決める（直しの役の snap と `converge_check` から replan の分かれを消した。案の直しの include は 1 回目の壁打ちを抜けた後の控えを読むので素通しになる）
+- 段 4.4: 考え entry-kind・start-record を住処ありにし、柵を表に足した。10.1 節の機械の確かめは `tests/test_entry_block.py` の `ConversionLayerCase`（変換の層の外の当たりが 0 件）
+- Task 8: 未（本物の AI の run の canary は回していない）

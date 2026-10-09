@@ -28,6 +28,8 @@ import engine.declared as engine_declared  # noqa: E402  （board が写しの g
 import engine.util as engine_util  # noqa: E402
 import carry  # noqa: E402
 import entry  # noqa: E402
+import entryshape  # noqa: E402  （入口の変換）
+import startrec  # noqa: E402  （始めの記録の読み口）
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scopes  # noqa: E402
@@ -43,7 +45,9 @@ EYES = {"r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", 
 MATERIAL = {"p0.prior_decisions", "p0.purpose_review", "p1.local_review", "p1.consistency_bypass", "p1.hygiene",
             "p1.external_standards", "p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity",
             "p1.main_path_observation", "p1.provenance"}
-ROLES |= EYES | MATERIAL | {"report", "r2.design"}
+# 仕様の段（blk-spec。入力 spec=on の run だけ。計画 docs/plans/2026-10-09-one-entry-shape.md の 4 節）
+SPEC = {"spec.write", "spec.review", "spec.revise"}
+ROLES |= EYES | MATERIAL | SPEC | {"report", "r2.design"}
 
 
 def raw_table() -> dict:
@@ -85,7 +89,7 @@ class TableCase(unittest.TestCase):
         self.assertEqual(pre.where, "blk-premises")
         pr = self.nodes["p0.parallel_pr"]
         self.assertEqual((pr.by, pr.fallback), ("engine_run", "role"))
-        self.assertEqual(pr.where, "start")
+        self.assertEqual(pr.where, "blk-entry")
         self.assertIn("blk-pr", pr.reason)
         self.assertIn("投稿しない", pr.reason)
         self.assertIn("スコープから外す", pr.reason)   # review-graph の 6 段と同じく、衝突した hunk はこのループで触らない（Task 21）
@@ -114,7 +118,8 @@ class TableCase(unittest.TestCase):
                 e = self.nodes[nid]
                 self.assertEqual((e.by, e.where), ("role", "blk-material"))
                 if nid.startswith("p1."):
-                    self.assertIn("1 周目は条件", e.reason)
+                    self.assertIn("1 周目は", e.reason)
+                    self.assertIn("条件", e.reason)
 
     def test_eyes_rows_follow_block_proposal(self):
         """独立の目の 6 行は blk-eyes の案（eyes-rows.json）と同じ。r1.comment_candidates だけ skippable。R2 の設計の半分
@@ -138,7 +143,7 @@ class TableCase(unittest.TestCase):
     def test_machine_and_builtin_rows(self):
         """機械の節は p0.base だけ（start の begin）。graph の driver の 17 節は全部 builtin・auto"""
         self.assertEqual({n for n, e in self.nodes.items() if e.by == "machine"}, {"p0.base"})
-        self.assertEqual(self.nodes["p0.base"].where, "start")
+        self.assertEqual(self.nodes["p0.base"].where, "blk-entry")
         drivers = {n for n, g in GRAPH["nodes"].items() if g.get("run_by") == "driver"}
         self.assertEqual(len(drivers), 17)
         builtins = {n for n, e in self.nodes.items() if e.by == "builtin"}
@@ -146,7 +151,7 @@ class TableCase(unittest.TestCase):
         self.assertEqual({self.nodes[n].run for n in builtins}, {"auto"})
 
     def test_ci_nodes_fall_back_to_machine(self):
-        for nid, where in (("p0.local_checks", "start"), ("p4.ci", "blk-tests")):
+        for nid, where in (("p0.local_checks", "blk-entry"), ("p4.ci", "blk-tests")):
             with self.subTest(nid):
                 e = self.nodes[nid]
                 self.assertEqual((e.by, e.fallback), ("engine_run", "machine"))
@@ -177,12 +182,13 @@ class TableCase(unittest.TestCase):
 
     def test_later_lines_name_their_line(self):
         """周を重ねる入口・変異の検算・別の入口の行は comes_with にその名（線 B・線 C は棚上げと書く。2026-10-09）"""
-        want = {"p2.history": "棚上げ 2026-10-09", "p3.delta_gates": "棚上げ 2026-10-09", "p4.final_gates": "棚上げ 2026-10-09",
-                "spec.write": "darkfactory-spec"}
+        want = {"p2.history": "棚上げ 2026-10-09", "p3.delta_gates": "棚上げ 2026-10-09", "p4.final_gates": "棚上げ 2026-10-09"}
         for nid, name in want.items():
             with self.subTest(nid):
                 self.assertEqual(self.nodes[nid].by, "absent")
                 self.assertIn(name, self.nodes[nid].comes_with)
+        for nid in SPEC:   # 仕様の段は別の入口でなく、入口の種類に依らない任意の段として線に配線した
+            self.assertEqual((self.nodes[nid].by, self.nodes[nid].where), ("role", "blk-spec"))
         p1 = [n for n in GRAPH["nodes"] if n.startswith("p1.") and GRAPH["nodes"][n].get("run_by") != "driver"]
         self.assertEqual(set(p1), {n for n in MATERIAL if n.startswith("p1.")})
 
@@ -592,7 +598,7 @@ import subprocess  # noqa: E402
 import adapter  # noqa: E402
 import ticket  # noqa: E402
 
-SCRIPT = ROOT / "darkfactory" / "scripts" / "start.py"
+SCRIPT = ROOT / "blk-entry" / "scripts" / "start.py"
 SEED_CMD = "python3 -m unittest test_stats"
 
 
@@ -648,7 +654,7 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual((got["items"], got["answers"]), (rows, self.ANSWERS))
         self.assertNotIn("answers", entry.adopt_inputs(got))
         self.start(repo, raw=self.raw(request=str(req)))
-        self.assertEqual(gatemarks.start_doc(self.board)["answers"], self.ANSWERS)
+        self.assertEqual(startrec.read(self.board)["answers"], self.ANSWERS)
 
     def test_request_answers_bad_shape_refused(self):
         repo = self.seed()
@@ -677,7 +683,7 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual((got["items"], got["prior_failures"]), (rows, self.PRIOR))
         self.start(repo, raw=self.raw(request=str(req)))
         self.assertEqual(json.loads((self.board / carry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
-        self.assertNotIn("prior_failures", gatemarks.start_doc(self.board))
+        self.assertNotIn("prior_failures", startrec.read(self.board))
 
     def test_request_prior_failures_bad_shape_refused(self):
         repo = self.seed()
@@ -698,7 +704,7 @@ class CheckInputsCase(StartCaseBase):
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
                                     "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only",
-                                    "fix_fixture", "features_off", "features_on", "answers", "prior_failures"})
+                                    "fix_fixture", "launch_mark", "spec", "features_off", "features_on", "answers", "prior_failures"})
         self.assertEqual((got["answers"], got["prior_failures"], got["features_off"], got["features_on"]), ([], [], [], []))
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"]),
@@ -1099,7 +1105,7 @@ class StartCase(StartCaseBase):
         self.start(repo, test_cmd=SEED_CMD, adapter="optional")
         b = entry.open_board(self.board)
         self.assertEqual(entry.declared_adapter(b), "optional")
-        path = b.work(entry.START_FILE)
+        path = b.work(startrec.NAME)
         doc = json.loads(path.read_text(encoding="utf-8"))
         path.write_text(json.dumps({**doc, "adapter": ""}), encoding="utf-8")
         self.assertEqual(entry.declared_adapter(b), "")
@@ -1216,7 +1222,7 @@ class InputShapeCase(StartCaseBase):
         self.assertTrue(got["ok"])
         self.assertEqual(got["base_rev"], head)
         self.assertEqual((got["input"]["base"], got["input"]["diff"]["empty"], got["input"]["requests"]),
-                         ({"rev": fork, "from": "base", "name": "base"}, False, 0))
+                         ({"rev": fork, "from": "base", "name": "base", "label": "base base"}, False, 0))
         b = entry.open_board(self.board)
         self.assertEqual(b.record["base"], fork)
         self.assertIsNone(b.record["process"].get("request_entry"))
@@ -1225,7 +1231,7 @@ class InputShapeCase(StartCaseBase):
         for nid in self.P1:
             self.assertNotEqual(b.node_state(nid), "na", nid)
         import conflict
-        self.assertTrue(conflict.change_only(self.board))   # intake の読む印は entry.start が書いた控えの input から
+        self.assertTrue(conflict.no_requests(self.board))   # intake の読む印は entry.start が書いた控えの input から
         self.assertIn("入口: 差分 " + fork[:12] + "..HEAD（1 ファイル・base base）・依頼 0 件", got["head_line"])
 
     def test_diff_with_requests_keeps_p1(self):
@@ -1257,7 +1263,7 @@ class InputShapeCase(StartCaseBase):
         bin_, _, _ = fake_gh(self.tmp / "gh")
         try:
             with mock.patch.dict("os.environ", {"PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}"}):
-                os.environ.pop(entry.NO_AUTH_ENV, None)
+                os.environ.pop(entryshape.NO_AUTH_ENV, None)
                 got = self.start(repo, self.raw(request=str(req), base="base"))
         except entry.InputRefused as e:
             self.fail(f"object の形の依頼を拒んだ: {e}")
@@ -1296,7 +1302,7 @@ class InputShapeCase(StartCaseBase):
         for nid in self.P1:
             self.assertEqual(b.node_state(nid), "na", nid)
         import conflict
-        self.assertFalse(conflict.change_only(self.board))
+        self.assertFalse(conflict.no_requests(self.board))
 
     def test_base_equal_head_with_request_enters_from_judging(self):
         """--base が HEAD と同じ版で依頼が在る run（差分が空）→ 印が立ち、判定から入る。版を固める p1.worktree_before が
@@ -1330,12 +1336,30 @@ class InputShapeCase(StartCaseBase):
         """start の控え r1/start.json は入口の入力の形 input を持ち、入口の種（entry・entry_words・change）を持たない"""
         repo = self.seed(declared=True)
         got = self.start(repo)
-        doc = gatemarks.start_doc(self.board)
+        doc = startrec.read(self.board)
         self.assertEqual(doc["input"], got["input"])
         for gone in ("entry", "entry_words", "change"):
             self.assertNotIn(gone, doc)
             self.assertNotIn(gone, got)
         self.assertEqual(set(doc["input"]), {"base", "head_rev", "diff", "requests", "request_file", "pr", "spec"})
+
+    def test_start_doc_matches_contract(self):
+        """start の控えは始めの記録の約束（blk-entry/schemas/start.schema.json）に、欄 input と出口の input は出口の約束
+        （input.schema.json）に合う（依頼だけ・差分の根の名指しの両方）"""
+        from engine.schema import validate_schema
+        schemas = ROOT / "blk-entry" / "schemas"
+        rec = json.loads((schemas / "start.schema.json").read_text(encoding="utf-8"))
+        exit_ = json.loads((schemas / "input.schema.json").read_text(encoding="utf-8"))
+        repo, _ = self.changed_repo()
+        for name, raw in (("request", self.raw()), ("base", self.raw(request="", base="base"))):
+            with self.subTest(name):
+                if self.tmp.joinpath("board").exists():
+                    import shutil
+                    shutil.rmtree(self.tmp / "board")
+                got = self.start(repo, raw)
+                doc = startrec.read(self.board)
+                self.assertEqual(validate_schema(doc, rec), [])
+                self.assertEqual(validate_schema(got["input"], exit_), [])
 
 
 class ResumeCase(StartCaseBase):
@@ -1410,7 +1434,7 @@ class ResumeCase(StartCaseBase):
         got = self.start(repo, test_cmd=SEED_CMD)
         self.assertNotIn("fix_shape", got)
         self.assertNotIn("修正の形", got["head_line"])
-        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        doc = json.loads(entry.open_board(self.board).work(startrec.NAME).read_text(encoding="utf-8"))
         self.assertNotIn("fix_shape", doc)
 
     def test_features_off_reaches_exit_head_and_doc(self):
@@ -1421,7 +1445,7 @@ class ResumeCase(StartCaseBase):
         self.assertEqual({k: first[k] for k in entry.FEATURES},
                          {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "off"})
         self.assertIn("機能: judge_verify off・review_tree auto・tdd_lanes off", first["head_line"])
-        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        doc = json.loads(entry.open_board(self.board).work(startrec.NAME).read_text(encoding="utf-8"))
         self.assertEqual(doc["features_off"], ["judge_verify", "tdd_lanes"])
         with self.assertRaises(entry.InputRefused) as cm:
             entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
@@ -1436,7 +1460,7 @@ class ResumeCase(StartCaseBase):
         self.assertEqual({k: got[k] for k in entry.FEATURES},
                          {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on"})
         self.assertIn("機能: judge_verify off・review_tree auto", got["head_line"])
-        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        doc = json.loads(entry.open_board(self.board).work(startrec.NAME).read_text(encoding="utf-8"))
         self.assertEqual((doc["features_off"], doc["features_on"]), ([], []))
 
     def test_features_on_turns_defaults_on_and_is_kept_on_resume(self):
@@ -1445,7 +1469,7 @@ class ResumeCase(StartCaseBase):
         first = self.start(repo, test_cmd=SEED_CMD, features_on="review_tree,judge_verify")
         self.assertEqual({k: first[k] for k in entry.FEATURES}, {k: "on" for k in entry.FEATURES})
         self.assertIn("機能: 全部 on", first["head_line"])
-        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        doc = json.loads(entry.open_board(self.board).work(startrec.NAME).read_text(encoding="utf-8"))
         self.assertEqual(doc["features_on"], ["judge_verify", "review_tree"])
         with self.assertRaises(entry.InputRefused) as cm:
             entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")

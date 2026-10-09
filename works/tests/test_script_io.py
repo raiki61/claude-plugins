@@ -302,8 +302,9 @@ class PreambleCase(unittest.TestCase):
         self.assertEqual(self.pycaches(), [], "前置きの後の import が pack の中に __pycache__ を作った")
 
 
-class ChangeOnlyCase(unittest.TestCase):
-    """変更から入った run かの問いは、控えの読み手と同じ層 3 の conflict に在る（層 1 の script_io は conflict を import しない）"""
+class NoRequestsCase(unittest.TestCase):
+    """依頼の行の無い run かの問いは 1 つ（conflict.no_requests。始めの記録の入口の入力の形 input.requests が 0）で、控えの
+    読み手と同じ層 3 の conflict に在る（層 1 の script_io は conflict を import しない）。入口の種類（change_only）では見ない"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -314,16 +315,20 @@ class ChangeOnlyCase(unittest.TestCase):
         (self.board / "r1").mkdir(exist_ok=True)
         (self.board / "r1" / "start.json").write_text(json.dumps(doc), encoding="utf-8")
 
-    def test_change_only_lives_in_conflict(self):
+    def test_no_requests_lives_in_conflict(self):
         import conflict
-        self.assertFalse(hasattr(script_io, "change_only"), "層 1 の script_io が控えを読む問いを持っている")
-        self.assertTrue(hasattr(conflict, "change_only"), "conflict に change_only が無い")
-        self.assertFalse(conflict.change_only(self.board))   # 控えが無い
+        self.assertFalse(hasattr(script_io, "no_requests"), "層 1 の script_io が控えを読む問いを持っている")
+        self.assertFalse(hasattr(conflict, "change_only"), "入口の種類で見る問いが残っている")
+        self.assertEqual(conflict.__dict__.get("no_requests").__name__, "no_requests")
+        src = pathlib.Path(conflict.__file__).read_text(encoding="utf-8")
+        self.assertEqual(src.count("def no_requests("), 1, "同じ問いの定義が 2 つ")
+        self.assertFalse(conflict.no_requests(self.board))   # 控えが無い
         self.write_start({"input": {"requests": 0}})
-        self.assertTrue(conflict.change_only(self.board))
+        self.assertTrue(conflict.no_requests(self.board))
         self.write_start({"input": {"requests": 2}})
-        self.assertFalse(conflict.change_only(self.board))
-
+        self.assertFalse(conflict.no_requests(self.board))
+        self.write_start({"entry": "change"})   # 入力の形の無い前の版の控えは空を欠けと見る
+        self.assertFalse(conflict.no_requests(self.board))
 
 if __name__ == "__main__":
     unittest.main()

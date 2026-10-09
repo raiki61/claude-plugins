@@ -25,6 +25,7 @@ import hermetic  # noqa: E402
 import forge  # noqa: E402
 import board  # noqa: E402
 import entry  # noqa: E402
+import entryshape  # noqa: E402  （入口の変換）
 import prcheck  # noqa: E402
 import report  # noqa: E402
 from engine.rules import registry  # noqa: E402
@@ -278,7 +279,7 @@ class GhReadsCase(unittest.TestCase):
     別の remote・自前のドメインの GitHub Enterprise Server なら gh は読める）、gh も GitHub のホストを見つけなかった項だけを条件外
     （not_applicable、reason は no_forge: <種類>）と書く。gh が読みに行って読めなかった項は unreadable（理由は gh の言葉、欄 forge に
     no_forge の決め）。入力 pr は base・head が読めなければ、条件外なら no_forge の理由で、読めないならログインしてから回せと
-    線の入口（entry._change_base）が止める"""
+    線の入口（entryshape.change_base）が止める"""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -310,10 +311,10 @@ class GhReadsCase(unittest.TestCase):
     @staticmethod
     def refusal(doc):
         """読み出し doc で入力 pr=7 を解いた時の線の入口の拒みの文"""
-        import entry
+        import entryshape
         try:
-            entry._change_base({"pr": "7"}, pathlib.Path("/nonexistent"), doc)
-        except entry.InputRefused as e:
+            entryshape.change_base({"pr": "7"}, pathlib.Path("/nonexistent"), doc)
+        except entryshape.Refused as e:
             return str(e)
         raise AssertionError("拒まなかった")
 

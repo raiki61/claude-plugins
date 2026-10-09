@@ -10,7 +10,7 @@
 
 人の関所は線 A の policy-gate と同じ仕組みを使う（新しい関所の仕組みを作らない）:
 - 文: 線 A の関所の境の節（at gate）と同じ手順。止め札（halt.seen）を見て、盤面の問い（pending_human）を関所の文（gate_text）にし、
-  r<N>/gate.md にも置く。境の節の中身はライン darkfactory の模块（層 L6）に移ったので、ブロック（層 L4）からは呼べない。
+  ブロックの置き場の r<N>/spec-gate.md にも置く。境の節の中身はライン darkfactory の模块（層 L6）に移ったので、ブロック（層 L4）からは呼べない。
   関所の語・止め札の by・文の組み方はここに写して持つ（写しの印「線 A の境の節の写し」。core の関所の模块へ 1 つにまとめるのは
   統合の計画 Task 10）
 - 答え: Archon の approval（decisions: approve・continue・stop・reject。GATE_GO・GATE_STOP。線 A の境の節と同じ語）の出口を次の
@@ -79,7 +79,7 @@ GATE_STOP = ("stop", "reject")
 GATE_STOP_NOTE = "関所で止めた"          # stop・reject に一言が無い時の理由
 FLAG_BY_PREFIX = "request:"             # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
 FLAG_SEEN_OP = "stop_flag_seen"         # 止め札を見て止めた trace の行（op・at・reason・by）
-GATE_FILE = "gate.md"                   # 関所の文（b.work）
+GATE_FILE = "spec-gate.md"              # 関所の文（b.work。線の関所の文の公開の名 gate.md と分ける——線に include すると、公開の名は線の持ち物で、ブロックが書くと scope の照らしが盤面を止める）
 RUN_ID_HOLE = "<id>"                    # run の id を知らない時の文の穴
 
 

@@ -1,0 +1,110 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "入口のブロックの出口の約束: 入口の入力の形（start の控え r1/start.json の欄 input と、節 open の出口の欄 input）。どの入口（依頼のファイル・差分の根 base・PR）もこの 1 つの形に揃え、後ろの節はこの中身（diff.empty・requests・pr・spec）だけを読む。base.from は誰が差分の根を決めたかの名札で、表示だけに使う",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "base",
+  "head_rev",
+  "diff",
+  "requests",
+  "request_file",
+  "pr",
+  "spec"
+ ],
+ "properties": {
+  "base": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "rev",
+    "from",
+    "name",
+    "label"
+   ],
+   "description": "差分の根（P1 の役が差分を取る起点の版）。from は head（名指しなし）・base（--base）・pr（PR の base との merge-base）、label は頭の行に書く出どころの文",
+   "properties": {
+    "rev": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{40}$"
+    },
+    "from": {
+     "type": "string",
+     "enum": [
+      "head",
+      "base",
+      "pr"
+     ]
+    },
+    "name": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string",
+     "minLength": 1
+    }
+   }
+  },
+  "head_rev": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{40}$",
+   "description": "start の時の HEAD（修正の起点）"
+  },
+  "diff": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "empty",
+    "files",
+    "stat"
+   ],
+   "description": "差分の根から作業ツリーの今の姿（未追跡も含む・.gitignore の物は除く）までの測り。start の 1 回で固め、呼び直しでは測り直さない",
+   "properties": {
+    "empty": {
+     "type": "boolean"
+    },
+    "files": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "stat": {
+     "type": "string"
+    }
+   }
+  },
+  "requests": {
+   "type": "integer",
+   "minimum": 0,
+   "description": "依頼の行の数（行そのものは盤面の record.process.request_findings）"
+  },
+  "request_file": {
+   "type": "string",
+   "description": "依頼のファイルの絶対パス（無ければ空）"
+  },
+  "pr": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "additionalProperties": false,
+   "required": [
+    "number",
+    "title"
+   ],
+   "description": "PR の添え物（番号と題。本文は盤面の依頼の文と github.json に在る）。PR でなければ null",
+   "properties": {
+    "number": {
+     "type": "string",
+     "pattern": "^[0-9]+$"
+    },
+    "title": {
+     "type": "string"
+    }
+   }
+  },
+  "spec": {
+   "type": "boolean",
+   "description": "仕様の段を挟むか（入力 spec）"
+  }
+ }
+}

@@ -1,0 +1,132 @@
+name: blk-entry
+description: |
+  入口のブロック（線の最初のブロック。計画 docs/plans/2026-10-09-one-entry-shape.md の 2.5 節）。起動の関所（人が依頼と入力を
+  見て始める）を越えたら、入口の生の入力（依頼のファイル・差分の根 base・PR の番号・起動の印と、run の切り替えの語）を 1 つの
+  入力の形（出口の欄 input。約束は schemas/input.schema.json）に揃え、盤面を作って修正前の CI と並行 PR の engine の節を回す
+  （中身は core の entry.start）。入口の種類（依頼だけ・差分だけ・両方・PR）を知るのはこのブロックと、生の事実を集める殻だけ。
+  後ろの節は出口の input の中身（差分が空か・依頼の行の数・PR の添え物・仕様の段を挟むか）だけを読み、入口の種類を見ない。
+  入力を受けなければ open が 1 で止まる（AI の前）。出口は open: {ok, input, base_rev, test_cmd, policy_paste, policy_path,
+  final_gate, adapter, thickness, gates, 機能ごとの on・off, ci_role_go, pr_go, head_line, pr_file}（pr_file は PR の添え物の
+  ファイル。PR の無い run は空）。始めの記録は盤面の r1/start.json
+  （約束は schemas/start.schema.json）。
+  人の関所（launch）を持つので interactive（Archon は宣言の無い工程の approval を警告し、いずれ拒む。#2738。組み込む側は
+  include の時にこの宣言を落とすので、組み込む線も interactive を持つ）
+
+interactive: true
+
+inputs:
+  request:
+    default: ""
+    description: 依頼のファイル（findings の JSON の配列か、{findings, pr, issue, answers, prior_failures} の形）の絶対パス。相対なら run の worktree の根から。空は依頼の行なし
+  base:
+    default: ""
+    description: 差分の根を名指す版（枝・タグ・commit）。差分の根は base と HEAD の merge-base。pr と一緒には名指さない。空は名指しなし（差分の根は HEAD）
+  pr:
+    default: ""
+    description: 差分の根を名指す PR の番号。差分の根は PR の base の版と HEAD の merge-base、PR の題と本文は依頼の文に添える。base と一緒には名指さない
+  test_cmd:
+    default: ""
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。空なら宣言（.review-checks.json）か CI の任せ先の役
+  thickness:
+    default: ""
+    description: 手厚さ（空は自動・軽量・標準。重厚は受けない）
+  gates:
+    default: ""
+    description: graphloops の gates（空か merge）
+  final_gate:
+    default: ""
+    description: 最後の人の関所の開き方（空の既定は always・when_needed・protected_only）
+  adapter:
+    default: ""
+    description: 包みの形（空は包みを通す run・optional は包み無し）
+  policy_md:
+    default: ""
+    description: 人の方針の文書のパス（空なら既定の置き場）
+  lang:
+    default: ""
+    description: 報告と関所の文の言語（空は依頼文の言語）
+  unattended:
+    default: ""
+    description: 無人の run か（空か true）
+  design_only:
+    default: ""
+    description: 設計だけの run か（空か true）
+  fix_fixture:
+    default: ""
+    description: 固定材料のフォルダ（空は盤面を新しく作る）
+  features_off:
+    default: ""
+    description: 切る機能の語（カンマか空白で区切った 1 行。空は既定）
+  features_on:
+    default: ""
+    description: 入れる機能の語（features_off と同じ語。空は既定）
+  spec:
+    default: ""
+    description: 仕様の段を挟むか（空か on）。入口の種類に依らない任意の段で、入口の入力の形の spec に写る
+  launch_mark:
+    default: ""
+    description: 起こす殻が起動ごとに付ける一意の印（生の事実）。open が start の控えに残すだけで、分岐には使わない。Archon が run の metadata.inputs に残し、殻がこの起動の run を 1 つに結ぶのに使う
+
+returns: open
+outcome_field: ok
+
+nodes:
+  # 起動の関所。越えると run が続き、cancel で木ごと止められる（線 A 仕様 5.3）。利用者の PATH に archon は無いので、文は run を
+  # 起こした殻が出す行を指す（approval の文は $WORKFLOW_ID も置き換えるが、これは最初の節で前の節の出力がまだ無いので、殻の
+  # 行はここに組めない。殻ごとに家が違い、殻の show はその殻の家の run しか引けない）。include の中の approval も止まり、
+  # approve で続き、reject で run を取り消す（Archon v0.11.1 で 2026-10-09 に実測）
+  - id: launch
+    description: '起動の関所（人が依頼と入力を見て始める）'
+    approval:
+      message: |
+        run $WORKFLOW_ID を始める。進める・止める・取り消す行は、run を起こした殻が起動の後に出した行を使う。
+        use.sh の run は use.sh show <対象リポジトリ> $WORKFLOW_ID で出し直し、進める行を背景で打って use.sh wait <対象リポジトリ> $WORKFLOW_ID で戻る。
+
+  # 入口の入力を 1 つの形に揃え、盤面を作り（DiskBoard.begin）、CI と並行 PR の engine の節を回す（entry.start）。
+  # 入力を受けなければ 1 で止まる（AI の前）
+  - id: open
+    description: '入口の入力を 1 つの形に揃え、盤面と修正前の CI の段を開く'
+    script: start
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [launch]
+    with:
+      request: $INPUTS.request
+      base: $INPUTS.base
+      pr: $INPUTS.pr
+      test_cmd: $INPUTS.test_cmd
+      thickness: $INPUTS.thickness
+      gates: $INPUTS.gates
+      final_gate: $INPUTS.final_gate
+      adapter: $INPUTS.adapter
+      policy_md: $INPUTS.policy_md
+      lang: $INPUTS.lang
+      unattended: $INPUTS.unattended
+      design_only: $INPUTS.design_only
+      fix_fixture: $INPUTS.fix_fixture
+      features_off: $INPUTS.features_off
+      features_on: $INPUTS.features_on
+      launch_mark: $INPUTS.launch_mark
+      spec: $INPUTS.spec
+    output_format:
+      type: object
+      required: [ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, ci_role_go, head_line]
+      properties:
+        ok: {type: boolean}
+        pr_file: {type: string}   # PR の添え物（番号・題・本文）を置いた盤面の根のファイル。PR の無い run は空
+        input: {type: object}   # 入口の入力の形（schemas/input.schema.json。後ろの節はこの中身だけを読む）
+        base_rev: {type: string}
+        test_cmd: {type: string}
+        policy_paste: {type: string}
+        policy_path: {type: string}
+        final_gate: {type: string}
+        adapter: {type: string}
+        thickness: {type: string}
+        gates: {type: string}
+        fix_lanes: {type: string, enum: ["on", "off"]}      # 機能（入力 features_off・features_on と既定）ごとの on・off（entry.feature_words）
+        graph_map: {type: string, enum: ["on", "off"]}      # ブロックへは写さない（包みが start の控えの features_off を読む）
+        judge_verify: {type: string, enum: ["on", "off"]}
+        review_tree: {type: string, enum: ["on", "off", "auto"]}   # 既定の auto はブロックが開いた項目の数で決める
+        tdd_lanes: {type: string, enum: ["on", "off"]}
+        ci_role_go: {type: boolean}
+        head_line: {type: string}

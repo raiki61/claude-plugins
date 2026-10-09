@@ -90,6 +90,7 @@ import reads  # noqa: E402
 import refix  # noqa: E402  （差分の審査の穴の枝の名札 hole_ties・項目 tie_items）
 import scopes  # noqa: E402
 import script_io  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の読み口と入口の文）
 import structmark  # noqa: E402
 import writes  # noqa: E402
 
@@ -293,7 +294,7 @@ def _start_doc(b, start) -> dict:
     """start の出口（渡されなければ盤面の r1 の start の控え）"""
     if isinstance(start, dict):
         return start
-    return gatemarks.start_doc(b.dir)
+    return startrec.read(b.dir)
 
 
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた後の止め（最後の関所の stop・止め札）を境の節が trace に書く op（line_edge と同じ語）
@@ -1206,8 +1207,10 @@ def head_entry(b, start: dict | None, *, cleaned_runs: str = "", depth_lines=(),
     線が渡した深さの行（depth_lines。単位ごとの深さと、軽量で省いた物。渡されなければ出さない）・起動の前に
     片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）・テストの凍結が効いていない修正の段の行（tdd。freeze_lines）"""
     s = _start_doc(b, start)
-    # 入口の文は start が控えに書く（渡された出口には無い。控えにも無いのは start が控えを書く前に落ちた run）
-    words = s.get("entry_words") or _start_doc(b, None).get("entry_words") or "（控えが無い）"
+    # 入口の文は入口の入力の形（start の控えと出口の欄 input）から startrec.words が作る。どちらにも無いのは start が控えを
+    # 書く前に落ちた run か、入力の形を持つ前の版の控え
+    shape = startrec.shape(s) or startrec.shape(_start_doc(b, None))
+    words = startrec.words(shape) if shape is not None else "（控えに入口の入力の形が無い）"
     parts = [f"入口: {words}", f"段: {s.get('thickness') or '（控えが無い）'}", f"gates: {s.get('gates') or '空'}"]
     if s.get("final_gate"):
         parts.append(f"最後の関所: {s['final_gate']}")

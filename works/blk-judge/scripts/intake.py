@@ -10,7 +10,7 @@
 古い判定を拾って ok を出さないように。
 
 - 通れば {"ok": true, "reason": "", "request": <読んだパス>} を 1 行出して 0
-- ラインが依頼を持たずに変更から入った run（conflict.change_only）では INPUTS_REQUEST の空を受け、依頼を積まずに写しだけを置く
+- 依頼の行の無い run（conflict.no_requests。始めの記録の入口の入力の形の依頼の行が 0）では INPUTS_REQUEST の空を受け、依頼を積まずに写しだけを置く
   （request は空。判定役は素材の欄で差分を読む）
 - ファイルが読めない・JSON として読めない・規則が拒む・作業ツリーの写しが取れない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
 - 環境変数が欠けた（ARTIFACTS_DIR は空も欠け）: 標準エラーに名前を出して 2
@@ -46,7 +46,7 @@ def _stop(reason: str) -> int:
 def main() -> int:
     board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
     rel = os.environ.get(REQUEST_ENV, "")
-    no_request = REQUEST_ENV in os.environ and not rel and conflict.change_only(board)
+    no_request = REQUEST_ENV in os.environ and not rel and conflict.no_requests(board)
     missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)

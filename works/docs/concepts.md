@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
-状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へまとめて住処ありにした。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
+状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へまとめて住処ありにした。`entry-kind` と `start-record` は入口のブロック `blk-entry` と core の `entryshape`・`startrec` へまとめて住処ありにした（計画 one-entry-shape）。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。
 
 ## 平たく言うと（3 行）
 
@@ -45,8 +45,8 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `replycontract` | 返答の契約（本文で返させて型を確かめる） | 住処あり |
 | `writes` | 役の返答を盤面に書く規則 | 住処あり |
 | `marks` | 返答の足し欄（写しの型が持てない works の欄） | 住処あり |
-| `entry-kind` | 入口の種類（依頼・変更・PR） | 散らばり |
-| `start-record` | 始めの記録 `r1/start.json` | 散らばり |
+| `entry-kind` | 入口の種類（依頼・変更・PR） | 住処あり |
+| `start-record` | 始めの記録 `r1/start.json` | 住処あり |
 | `carry-over` | 次の run への持ち越し | 住処あり |
 | `human-gates` | 人の関所と無人の方針 | 散らばり |
 | `ai-launch` | AI の起こし方（模型・effort・道具・隔離） | 散らばり |
@@ -182,23 +182,25 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 知ってよい所: 住処と約束だけ。何を運ぶかの決めは書き手の側が持ち、形は住処を呼ぶ: 残りの行と前の失敗の行は `.shared/core/report.py`（`next_request`・`prior_failures`・`next_doc`）、答えの下書きの選びは `.shared/core/gatemarks.py`（`answer_drafts`）、目的の外の所見の行は `.shared/core/outpurpose.py`（`next_items`）。読み手（`.shared/core/entry.py`・`blk-judge/scripts/intake.py`・`blk-premises/scripts/intake.py`・`blk-purpose/scripts/intake.py`・`blk-judge/lib/judgebrief.py`・`blk-plan/lib/planblk.py`・殻 `dev/lib.sh`）も住処の名と口を引く。`gatemarks.carried_section`（修正前の関所で人が通した行を同じ run の R4 に貼る）は run の中の受け渡しで、この考えではない
 - 今: 欄の出どころの名 `source` は別の考え（目的の役の出どころ・素材の出どころ・プラグインの置き場）にも同じ名が多いので、柵は下書きの印を作りと読みの形（`"draft": True`・`"draft" in` など）で見る。容器の欄の名 `findings`・`answers`・`pr`・`issue` も別の考え（壁打ちの往復の `answers` など）と同じ字なので柵に入れず、呼び手が住処の定数（`carry.FINDINGS` など）を引く決まりだけで守る。利用者と役に読ませる文（`.shared/core/gatemarks.py` の答え方の案内 `ANSWER_HOW`・役の指示書・`skills/works/SKILL.md`）は容器の形を字で書く。計画 `docs/plans/2026-10-09-chained-rounds.md` の Task 1（作業の手順は `docs/plans/2026-10-09-carry-home.md`）。人が関所で決めた答えの持ち越しと、依頼の答えを問いに結ぶ所は同じ計画の Task 2
 
----
-
-## 散らばり
-
 ### `entry-kind` 入口の種類
 
-- 状態: 散らばり
-- 今: 種（`request`・`change`・`both`）を `.shared/core/entry.py` が決め、盤面の始め方・依頼を積む時期・頭の行・`.shared/core/conflict.py` の `change_only`・`dev/canary.sh`・`dev/canary_check.py` が種で分かれる
-- 予定の住処: 入口ブロック `blk-entry`（予定）と出口の約束 `darkfactory/schemas/input.schema.json`（予定）。後ろの段は種を知らず、入力の中身（差分が空か・依頼の行が在るか）だけを読む
-- 計画: `docs/plans/2026-10-09-one-entry-shape.md`（枝 `wip/one-entry-plan`。この版にはまだ無い）
+- 状態: 住処あり
+- 住処: 入口のブロック `blk-entry`（線の最初のブロック。起動の関所 launch と節 open。中身は core の `entry.start`）と、その中身が入口の種類に触れる core の唯一の模块 `.shared/core/entryshape.py`（差分の根の名指しの解き `change_base`・差分も依頼の行も無い入力の拒み `refuse_empty`・入口の入力の形を作る `build`・盤面の依頼の文 `request_text`・名指した PR と issue の読み `named`・`github_reads`・PR の添え物の置き `write_pr_file`）
+- 約束: `blk-entry/schemas/input.schema.json`（入口の入力の形。始めの記録の欄 `input` と節 open の出口の欄 `input`。後ろの段はこの中身——差分が空か・依頼の行の数・PR の添え物・仕様の段を挟むか——だけを読む。`base.from` は表示の名札で、出どころの文は `base.label`）
+- 知ってよい所: 住処と約束と、生の事実を集める殻 `dev/use.sh`（旗 `--base`・`--pr` を入力に写す）・`dev/canary.sh`（旗 `--diff` を `use.sh` の `--base` に写す試しの殻）と、線の入力を宣言して入口のブロックへ渡すだけの `darkfactory/darkfactory.yaml`。どの起動にも付ける起動の印 `launch_mark` は入口の種類でない生の事実（`dev/launch.py` は印か依頼の写しで run を結び、入口の種類で分かれない。計画 clean-whole の段 4.1）
+- 今: 入口の種（`entry` の request・change・both）と、依頼を版が固まった後に積む道（`add_pending_request`）・種で空の依頼を受ける問い（`change_only`）・頭の行の種の文（`entry_words`）は消した。判定から入るか（P1 の役を起こさないか）は入力の差分が空かだけで決まり（`entry.CORE_OVERRIDES` の `entry_opens`。写しの核の印を立てる所の差し替え）、依頼を読むブロックが空の依頼を受けるかは依頼の行の数で決まる（`conflict.no_requests`）。柵は、差分の根の名指しを読む・渡す形と、入口の種類で分かれる形・消した種の名の 2 本。計画 `docs/plans/2026-10-09-one-entry-shape.md`（2.5 節）と `docs/plans/2026-10-09-clean-whole.md` の段 4
 
 ### `start-record` 始めの記録 `r1/start.json`
 
-- 状態: 散らばり
-- 今: 置き場の名を 3 か所が定める（`.shared/core/entry.py` の `START_FILE`・`.shared/core/adapter.py` の `START_REL`（`.shared/core/fixture.py` はこれを引く）・`.shared/core/gatemarks.py` の `START_FILE`）。約束 `darkfactory/schemas/start.schema.json` は `{"type": "object"}` だけで何も縛らない。読み手は `gatemarks.start_doc` のほか、`.shared/core/adapter.py`・`.shared/core/fixture.py`・`.shared/core/entry.py` と殻 `dev/canary_check.py`・`dev/launch.py` が直に読む
-- 予定の住処: 入口ブロック `blk-entry`（予定）。置き場の名と読む口を 1 つにし、約束を控えの全体に広げる
-- 計画: `docs/plans/2026-10-09-one-entry-shape.md` の 2.5 節（枝 `wip/one-entry-plan`）
+- 状態: 住処あり
+- 住処: `.shared/core/startrec.py`（層 L1。置き場の名 `NAME`・`REL` と `path`、型つきの読み口 `read`・入口の入力の形の読み `shape`・`diff_empty`・`requests`、入口の文 `words`）
+- 約束: `blk-entry/schemas/start.schema.json`（記録の全体。欄 `input` は `input.schema.json` と同じ形で、試験 `tests/test_entry_block.py` が揃いを縛る）と、書き手の宣言 `blk-entry/manifest.json`（読み手の宣言は `blk-*/manifest.json` の consumes）
+- 知ってよい所: 住処と約束だけ。書き手は入口のブロックの節 open（core の `entry.start`）と固定材料の取り込み（`.shared/core/fixture.py`）で、どちらも置き場は住処から引く。読み手（`.shared/core/gatemarks.py`・`.shared/core/conflict.py`・`.shared/core/report.py`・`.shared/core/adapter.py`・`darkfactory/lib/depth.py`・`darkfactory/lib/line_edge.py`・殻 `dev/canary_check.py`・`dev/fixmeasure.py`・`dev/canary_fixture.py`）も住処の口を引く
+- 今: 標準ライブラリだけで pack の兄弟を import しない殻の決まりの 2 か所（`dev/launch.py` の起動直後の結び・`dev/lib.sh` の python の 1 行）は置き場の字を自分で持ち、表の既知の漏れに置く。柵は置き場の名を字で書く形・置き場の名の別名（START_REL・START_FILE の名）・別の読み口（start_doc の名。前の版に在った名で、今は無い）
+
+---
+
+## 散らばり
 
 ### `human-gates` 人の関所と無人の方針
 

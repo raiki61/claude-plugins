@@ -299,7 +299,7 @@ class ScriptLine:
                 if n["script"] == "edge":
                     self._edge_stop(n)
                 out = self._script(scope, n, loop)
-                if self.sessions and scope.block == LINE and nid == "start":
+                if self.sessions and n["script"] == "start":   # 入口のブロックの open の節（中身は entry.start）
                     self._put_session()
             elif "include" in n:
                 top = self.watch is not None and scope.block == LINE

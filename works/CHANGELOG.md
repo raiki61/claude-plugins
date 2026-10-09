@@ -6,9 +6,24 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 仕様の段（`use.sh start --spec`。ラインの入力 `spec=on`）: 判定の前に、仕様の書き手が要件と受け入れ条件のテストを書き、別の目が審査し、人が関所 `spec-gate` で承認する（承認した受け入れ条件は判定への依頼として積まれる）。入口の種類（依頼・`--base`・`--pr`）に依らずどれとも組める任意の段で、依頼の文（依頼のファイルか PR の題と本文）が要り、無人の run・固定材料とは組めない（入口が AI の前で拒む）。include の中の関所が止まり・承認で続き・取り消しで run を止めることは Archon v0.11.1 で実測した。報告の入口の行に「仕様の段あり」が出る。
+- `--pr` の run で、PR の番号・題・本文を盤面の根の `pr.md` に置き、目的の役が出典 ① PR 説明として読む（前は `--pr` だけの run で役に PR の文を渡す道が無かった）。
+
 ### Changed
 
+- 入口を 1 つの入力の形に揃えた（持ち主 2026-10-09「どの入り口でも最終的に何をセットするのかだけ」）: 線の最初のブロック `blk-entry`（起動の関所と節 `open`）が、依頼のファイル・`--base`・`--pr` を 1 つの形（差分の根・差分（空でもよい）・依頼の行・PR の添え物）に揃え、始めの記録 `r1/start.json` の欄 `input` と出口に出す（約束は `blk-entry/schemas/input.schema.json`）。入口の種（`entry` の request・change・both）と、依頼を版が固まった後に積む道をやめ、依頼の行はいつも盤面を作る時に積む。判定から入るか（P1 の役を起こさないか）は入口の種類でなく「入力の差分が空か」だけで決まる（写しの核の印を立てる所 `entry_opens` を差し替え）。依頼を読むブロックが空の依頼を受けるのも「依頼の行が無い run」で決まる（`conflict.no_requests`）。報告の冒頭 2 と頭の行の入口の文は入力の形から作る（例「差分なし（HEAD）・依頼 2 件——P1 の役は起こさない」）。依頼のファイルと PR の両方が在る run は、盤面の依頼の文に両方を並べる。
+- 始めの記録 `r1/start.json` の置き場の名と読む口を core の `startrec` 1 つにまとめた（前は 3 か所が名を、6 か所が読みを別々に持った）。約束 `blk-entry/schemas/start.schema.json` が記録の全体を縛る。
+- 起こす殻（`use.sh`・`dogfood.sh`）はどの起動にも起動ごとに一意の印 `launch_mark` を付け、起動の後にその印（か依頼の写し）で run を結ぶ。`--base` だけの起動も結ばれる（前は目印が無いとして結ばず 1 で終わった）。`use.sh` の表示「入口: 変更から（…）」は「差分の根: …」に替えた。
+- canary の語 `--request change` を旗 `--diff` に替えた（`--request fix --diff` が前の `change` と同じ run。語 `change` は替わりの打ち方を書いて拒む）。`canary_check.py` は (h)(j) を終了コードに数えるかを語でなく start の控えの入力の差分（`input.diff.empty`）で選ぶ。
 - 次の run への持ち越し（`next-request.json`・`prior-failures.json`・`prior-failures-in.json` の欄の名・下書きの印・依頼の容器の解き方）を core の 1 つのモジュール `.shared/core/carry.py` にまとめ、書き手（報告）と読み手（依頼の入口）が同じ名と同じ JSON Schema（`.shared/core/` へ移した `next-request.schema.json`・`prior-failures.schema.json`。書く前に照らす）を引くようにした（書く中身はバイト一致で変わらない）。run の後の CI の赤を次の依頼へ足す口は `python3 -I .shared/core/carry.py carry-ci …` に移り、前の `ghreads.py carry-ci` は移った先を 1 行で言って終了コード 2 で終わる。`use.sh` の表示が数える下書きの行は、次の run の入口が拒む行と同じ決まり（`draft` か `source` の欄が在る行）に揃えた。
+
+### Fixed
+
+- 差分の根を名指した run で差分が空（`--base` が HEAD と同じ版・PR の差分が空）で依頼が在ると、版を固める所の空差分の柵で止まった。差分が空なら判定から入る。
+- 依頼も差分も無い run が、修正前の CI を走らせた後に空差分の柵で止まった。盤面を作る前・CI の前に 1 行で拒む。
+- 仕様の段の書き手が版を固める前に書いた受け入れ条件のテスト（未追跡のファイル）を、修正の受け付けが修正役の変更と数えて範囲の外れで拒んだ（`writes.changed` が本物の index と比べていた。固めた版の木と比べる）。仕様の段の関所の文を線の公開の名 `gate.md` に書き、線に組み込むと scope の照らしが盤面を止めた（ブロックの置き場の `spec-gate.md` に書く）。どちらも仕様の段を線に配線して本物のスクリプトで回して見つけた。
 
 ## [0.2.55] - 2026-10-09
 

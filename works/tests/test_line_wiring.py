@@ -42,9 +42,10 @@ MAY_LACK = {
                                   "拒否（ok: false）の返りは盤面に渡していないので、盤面の欄を持たない（give-up・plan-rejected）"),
     ("blk-fix", "collect"): ({"coverage", "fix_file", "not_done", "reads_file"},
                              "ラインの筋書きは 1 本目の欄と tdd だけを置く（盤面から足す 4 欄。ラインの下流はどれも読まない）"),
-    ("blk-delta", "review-accept"): ({"review_file"},
+    ("blk-delta", "review-accept"): ({"review_file", "give_up", "node"},
                                      "ラインの筋書きは古い受け付けの欄 review_file を持つ（今の受け付けは返さない。下流は done と "
-                                     "reason_file だけを読む）"),
+                                     "reason_file だけを読む）。give_up・node は、線の筋書きの review-accept が仕様の段（blk-spec）の輪の"
+                                     "受け付けと模擬実行の鍵が重なり（test_line の SHARED_STUB_KEYS）、両方の型を満たすので持つ欄"),
 }
 
 
@@ -215,7 +216,7 @@ class ReportAfterFailureCase(unittest.TestCase):
         self.assertEqual(n.get("trigger_rule"), "all_done")
         for k, v in (n.get("with") or {}).items():
             src = v.get("from") if isinstance(v, dict) else v if isinstance(v, str) else ""
-            if set(re.findall(r"\$([A-Za-z][\w-]*)\.output", src)) - {"start"}:
+            if set(re.findall(r"\$([A-Za-z][\w-]*)\.output", src)) - {"entering"}:
                 with self.subTest(k):
                     self.assertIsInstance(v, dict)
                     self.assertIn("if_skipped", v)
@@ -243,7 +244,7 @@ class ReportAfterFailureCase(unittest.TestCase):
         """all_done の節（report・result・h-structure）は、start と all_done の節のほかの出力を if_skipped つきの binding で受ける。
         上流が飛ばされた run で字の参照を解けずに落ちる（start が入力を拒んだ run で h-structure が $h-plan.output.go で落ちた）"""
         nodes = line()["nodes"]
-        always = {"start"} | {n["id"] for n in nodes if n.get("trigger_rule") == "all_done"}
+        always = {"entering"} | {n["id"] for n in nodes if n.get("trigger_rule") == "all_done"}
         for n in nodes:
             if n.get("trigger_rule") != "all_done":
                 continue

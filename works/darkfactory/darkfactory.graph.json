@@ -3,21 +3,23 @@
  "sources": {
   "blk-ci/blk-ci.yaml": "270bfa0f6ab706eaff76881e57164c0ac6c2e2edcc9fa6ccbc5c71b2c68dc361",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
+  "blk-entry/blk-entry.yaml": "5e7145462c1026123834eae292c1489d18e42d9a125bcb1b0343426a758a902b",
   "blk-eyes/blk-eyes.yaml": "277d25144f14bee888c2e1720c6b17ee518c4295646539b20cfea2346336024b",
   "blk-fix/blk-fix.yaml": "0578feecd3f9da777993d8b1390715670f1c47d921a91494be5661433fe3cc8d",
-  "blk-judge/blk-judge.yaml": "7c22984c6739da1fdab9f6983ceeabf31f362c550e94c8cbe7ba3a1033ac162a",
+  "blk-judge/blk-judge.yaml": "72fe79cc510ba7159a8c76854219d74778dcb3ed2d5ceaa4a479a9979cf6fd5d",
   "blk-lens/blk-lens.yaml": "fe7f42c097083bd466fde0c424a3a77b778419b2fb026950f34df6d31f88f466",
   "blk-material/blk-material.yaml": "1683a4e544086d9d203e3d5a644e5abb9b55be2036db8d912a688e1e8ffa532c",
-  "blk-plan/blk-plan.yaml": "1839184e2614ca5b61b86332d868d431712db5689e25798084008aba8d0060d9",
+  "blk-plan/blk-plan.yaml": "c62239f806cd2f70ec4f85a0fb11e0ed80436c54f860f2f7f85298cf348decc4",
   "blk-pr/blk-pr.yaml": "4b4ed37065fbbe9486fed3e9849a57b90fae7fe7d55b2bddf3e4f7242637dfd8",
-  "blk-premises/blk-premises.yaml": "d4f33ee6f1317d9eb9cde00edd5b7f0645bfbadfd93201246fe4dddc590a264c",
-  "blk-purpose/blk-purpose.yaml": "345f5b8597d89cc64e9a897ce2f67f0667a9fd4fea32e916286402f3283e7865",
+  "blk-premises/blk-premises.yaml": "41c3da4174fb5cfce8313f90acbfd6c0a8be46500fd724975ed094acc0d8de14",
+  "blk-purpose/blk-purpose.yaml": "380ae202e851952d54cdd02f0684f51dab23fc7d774ad95b3bf9219c81a68cbf",
   "blk-refix/blk-refix.yaml": "94f44741c2ff1771d01d6a91770d2946eb9df22acb0f99b5a69fd12c6b1db528",
   "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
+  "blk-spec/blk-spec.yaml": "ee1fce070b20c1e639bc36e8b322cd303bb9ad7bc468804eb1db994d599f7d72",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "e2d940441977dd251d3ef3dae6281a897ceca7c34aeb6d5a90c428933614cc81"
+  "darkfactory/darkfactory.yaml": "c79c741198593683c3e02db72bacca3ce370bc11db1cc8d41f87fbafc30f28b8"
  },
  "version": 1,
  "workflows": {
@@ -122,6 +124,24 @@
      ],
      "id": "collect",
      "kind": "script"
+    }
+   ]
+  },
+  "blk-entry": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "launch",
+     "kind": "approval",
+     "purpose": "起動の関所（人が依頼と入力を見て始める）"
+    },
+    {
+     "deps": [
+      "launch"
+     ],
+     "id": "open",
+     "kind": "script",
+     "purpose": "入口の入力を 1 つの形に揃え、盤面と修正前の CI の段を開く"
     }
    ]
   },
@@ -2174,6 +2194,155 @@
     }
    ]
   },
+  "blk-spec": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "write-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "write-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "write-prep"
+       ],
+       "id": "spec-write",
+       "kind": "ai",
+       "marker": "spec-write"
+      },
+      {
+       "deps": [
+        "spec-write"
+       ],
+       "id": "write-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "write-route"
+     ],
+     "id": "write-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$write-route.output.go == true"
+    },
+    {
+     "deps": [
+      "write-route",
+      "write-loop"
+     ],
+     "id": "review-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "review-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "review-prep"
+       ],
+       "id": "spec-review",
+       "kind": "ai",
+       "marker": "spec-review"
+      },
+      {
+       "deps": [
+        "spec-review"
+       ],
+       "id": "review-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "review-route"
+     ],
+     "id": "review-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$review-route.output.go == true"
+    },
+    {
+     "deps": [
+      "review-route",
+      "review-loop"
+     ],
+     "id": "revise-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "revise-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "revise-prep"
+       ],
+       "id": "spec-revise",
+       "kind": "ai",
+       "marker": "spec-revise"
+      },
+      {
+       "deps": [
+        "spec-revise"
+       ],
+       "id": "revise-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "revise-route"
+     ],
+     "id": "revise-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$revise-route.output.go == true"
+    },
+    {
+     "deps": [
+      "revise-route",
+      "revise-loop"
+     ],
+     "id": "spec-ask",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "spec-ask"
+     ],
+     "id": "spec-gate",
+     "kind": "approval",
+     "when": "$spec-ask.output.ask == true"
+    },
+    {
+     "deps": [
+      "spec-ask",
+      "spec-gate"
+     ],
+     "id": "spec-answer",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "spec-answer"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
   "blk-structure": {
    "nodes": [
     {
@@ -2237,49 +2406,83 @@
   "darkfactory": {
    "nodes": [
     {
+     "call": "blk-entry",
      "deps": [],
-     "id": "launch",
-     "kind": "approval",
-     "purpose": "起動の関所（人が依頼と入力を見て始める）"
-    },
-    {
-     "deps": [
-      "launch"
-     ],
-     "id": "start",
-     "kind": "script",
-     "purpose": "入力を確かめ、盤面と修正前の CI の段を開く"
+     "id": "entering",
+     "kind": "call",
+     "purpose": "起動の関所を越えたら、入口の入力を 1 つの形に揃え、盤面と修正前の CI の段を開く",
+     "with": {
+      "adapter": "$INPUTS.adapter",
+      "base": "$INPUTS.base",
+      "design_only": "$INPUTS.design_only",
+      "features_off": "$INPUTS.features_off",
+      "features_on": "$INPUTS.features_on",
+      "final_gate": "$INPUTS.final_gate",
+      "fix_fixture": "$INPUTS.fix_fixture",
+      "gates": "$INPUTS.gates",
+      "lang": "$INPUTS.lang",
+      "launch_mark": "$INPUTS.launch_mark",
+      "policy_md": "$INPUTS.policy_md",
+      "pr": "$INPUTS.pr",
+      "request": "$INPUTS.request",
+      "spec": "$INPUTS.spec",
+      "test_cmd": "$INPUTS.test_cmd",
+      "thickness": "$INPUTS.thickness",
+      "unattended": "$INPUTS.unattended"
+     }
     },
     {
      "call": "blk-ci",
      "deps": [
-      "start"
+      "entering"
      ],
      "id": "ci-checking",
      "kind": "call",
      "purpose": "宣言の CI を機械で走らせられない run で、CI を任せ先の役が回す",
-     "when": "$start.output.ci_role_go == true",
+     "when": "$entering.output.ci_role_go == true",
      "with": {
       "node": "p0.local_checks"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "ci-checking"
      ],
      "id": "h-entry",
      "kind": "script"
     },
     {
-     "call": "blk-pr",
+     "call": "blk-spec",
      "deps": [
       "h-entry"
+     ],
+     "id": "speccing",
+     "kind": "call",
+     "purpose": "判定の前に、仕様（要件と受け入れ条件のテスト）を書いて人が承認する",
+     "when": "$h-entry.output.spec_go == true",
+     "with": {
+      "base_rev": "$entering.output.base_rev"
+     }
+    },
+    {
+     "deps": [
+      "entering",
+      "h-entry",
+      "speccing"
+     ],
+     "id": "h-spec",
+     "kind": "script"
+    },
+    {
+     "call": "blk-pr",
+     "deps": [
+      "h-spec"
      ],
      "id": "pr-checking",
      "kind": "call",
      "purpose": "並行して開いている PR との重なりを確かめる",
-     "when": "$h-entry.output.pr_go == true",
+     "when": "$h-spec.output.pr_go == true",
      "with": {}
     },
     {
@@ -2293,13 +2496,13 @@
      "purpose": "依頼の数値・在る無いの主張をコマンドで実測する",
      "when": "$h-entry.output.premises_go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
+      "base_rev": "$entering.output.base_rev",
       "request": "$INPUTS.request"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-entry",
       "premising"
      ],
@@ -2316,14 +2519,15 @@
      "purpose": "依頼の元の目的を 1 つの文に固める",
      "when": "$h-judge.output.purpose_go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
+      "base_rev": "$entering.output.base_rev",
       "constraints_file": "$h-judge.output.premises_file",
+      "pr_file": "$entering.output.pr_file",
       "request": "$INPUTS.request"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-judge",
       "purposing"
      ],
@@ -2340,7 +2544,7 @@
      "purpose": "判定の前に、差分を P1 の目と先行議論に見せて素材を集める",
      "when": "$h-mat.output.mat_go == true",
      "with": {
-      "adapter": "$start.output.adapter"
+      "adapter": "$entering.output.adapter"
      }
     },
     {
@@ -2354,16 +2558,16 @@
      "purpose": "依頼を根本の単位にまとめる判定（直す義務の元）",
      "when": "$h-mat.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "policy_paste": "$start.output.policy_paste",
+      "base_rev": "$entering.output.base_rev",
+      "policy_paste": "$entering.output.policy_paste",
       "premises_file": "$h-judge.output.premises_file",
       "request": "$INPUTS.request",
-      "verify": "$start.output.judge_verify"
+      "verify": "$entering.output.judge_verify"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-mat",
       "judging"
      ],
@@ -2380,7 +2584,7 @@
      "purpose": "判定の単位が名指すファイルの構造を実測し、汚れるかを判定する",
      "when": "$h-plan.output.go == true",
      "with": {
-      "policy_path": "$start.output.policy_path",
+      "policy_path": "$entering.output.policy_path",
       "units": "$h-plan.output.structure_units_file"
      }
     },
@@ -2403,13 +2607,13 @@
      "purpose": "独立設計・修正案（項目ごとの範囲とテスト）・事前審査の壁打ち",
      "when": "$h-plan.output.go == true",
      "with": {
-      "review_tree": "$start.output.review_tree",
+      "review_tree": "$entering.output.review_tree",
       "verify_file": "$h-plan.output.verify_file"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-plan",
       "h-structure",
       "planning"
@@ -2428,7 +2632,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-gate",
       "policy-gate"
      ],
@@ -2437,7 +2641,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-fix"
      ],
      "id": "h-depth",
@@ -2454,24 +2658,24 @@
      "purpose": "修正: 単位ごとの TDD の輪（枝を並べて 3 方向で合わせる）と修正役",
      "when": "$h-fix.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "fix_lanes": "$start.output.fix_lanes",
+      "base_rev": "$entering.output.base_rev",
+      "fix_lanes": "$entering.output.fix_lanes",
       "judgment_file": "$h-fix.output.judgment_file",
       "notes_file": "$h-fix.output.notes_file",
       "open_units": "$h-fix.output.open_units",
       "plan_file": "$h-fix.output.plan_file",
       "plan_session": "plan",
-      "policy_path": "$start.output.policy_path",
+      "policy_path": "$entering.output.policy_path",
       "ripple_file": "$h-fix.output.ripple_file",
-      "tdd_lanes": "$start.output.tdd_lanes",
+      "tdd_lanes": "$entering.output.tdd_lanes",
       "tdd_suite": "$INPUTS.tdd_suite",
-      "test_cmd": "$start.output.test_cmd",
+      "test_cmd": "$entering.output.test_cmd",
       "unit_depths": "$h-depth.output.unit_depths"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-fix",
       "fixing"
      ],
@@ -2489,12 +2693,12 @@
      "when": "$h-replan.output.go == true",
      "with": {
       "replan": "true",
-      "review_tree": "$start.output.review_tree"
+      "review_tree": "$entering.output.review_tree"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-replan",
       "replanning"
      ],
@@ -2512,7 +2716,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-regate",
       "replan-gate"
      ],
@@ -2529,23 +2733,23 @@
      "purpose": "直した案で 2 回目の修正",
      "when": "$h-refit.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "fix_lanes": "$start.output.fix_lanes",
+      "base_rev": "$entering.output.base_rev",
+      "fix_lanes": "$entering.output.fix_lanes",
       "judgment_file": "$h-refit.output.judgment_file",
       "notes_file": "$h-refit.output.notes_file",
       "open_units": "$h-refit.output.open_units",
       "plan_file": "$h-refit.output.plan_file",
       "plan_session": "plan",
-      "policy_path": "$start.output.policy_path",
+      "policy_path": "$entering.output.policy_path",
       "ripple_file": "$h-refit.output.ripple_file",
-      "tdd_lanes": "$start.output.tdd_lanes",
+      "tdd_lanes": "$entering.output.tdd_lanes",
       "tdd_suite": "$INPUTS.tdd_suite",
-      "test_cmd": "$start.output.test_cmd"
+      "test_cmd": "$entering.output.test_cmd"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-fix",
       "fixing",
       "h-refit",
@@ -2567,7 +2771,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-rejudge",
       "rejudging",
       "h-depth"
@@ -2577,7 +2781,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-rejudge",
       "rejudging",
       "h-redepth"
@@ -2607,12 +2811,12 @@
      "purpose": "修正の差分の審査（新しい穴と塞いだ穴の検算）",
      "when": "$h-review.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev"
+      "base_rev": "$entering.output.base_rev"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-review",
       "reviewing"
      ],
@@ -2629,14 +2833,14 @@
      "purpose": "差分の審査の穴の手直し",
      "when": "$h-refix.output.go == true",
      "with": {
-      "base_rev": "$start.output.base_rev",
-      "policy_paste": "$start.output.policy_paste",
-      "policy_path": "$start.output.policy_path"
+      "base_rev": "$entering.output.base_rev",
+      "policy_paste": "$entering.output.policy_paste",
+      "policy_path": "$entering.output.policy_path"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-refix",
       "refixing"
      ],
@@ -2653,12 +2857,12 @@
      "purpose": "最後のテスト（木の全部で 1 回）",
      "when": "$h-tests.output.go == true",
      "with": {
-      "cmd": "$start.output.test_cmd"
+      "cmd": "$entering.output.test_cmd"
      }
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-tests",
       "testing"
      ],
@@ -2680,7 +2884,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-tests",
       "testing",
       "h-ci",
@@ -2704,7 +2908,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-tests",
       "testing",
       "h-look",
@@ -2724,7 +2928,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-final",
       "final-gate"
      ],
@@ -2733,7 +2937,7 @@
     },
     {
      "deps": [
-      "start",
+      "entering",
       "h-eyes",
       "eyeing"
      ],

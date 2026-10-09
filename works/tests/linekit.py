@@ -257,7 +257,7 @@ EDGE_INPUTS = ("at", "judged", "premised", "gate", "tests", "adapter", "final_ga
 def _edge(nid, at, deps, **given):
     """境の節の行。edge.py の INPUTS を全部渡す（使わない物は文字列 null。A-T10a の持ち越し 1）"""
     w = {k: "null" for k in EDGE_INPUTS}
-    w.update(at=at, adapter="$start.output.adapter", final_gate="$INPUTS.final_gate", **given)
+    w.update(at=at, adapter="$entering.output.adapter", final_gate="$INPUTS.final_gate", **given)
     return {"id": nid, "kind": "script", "script": "edge", "at": at, "depends_on": deps, "trigger_rule": NFMOS, "with": w}
 
 
@@ -273,115 +273,117 @@ def _skippable(src):
 
 
 LINE_ORDER = [
-    {"id": "launch", "kind": "approval"},
-    {"id": "start", "kind": "script", "script": "start", "depends_on": ["launch"],
+    {"id": "entering", "kind": "include", "block": "blk-entry",
      "with": {"request": "$INPUTS.request", "base": "$INPUTS.base", "pr": "$INPUTS.pr", "test_cmd": "$INPUTS.test_cmd", "thickness": "$INPUTS.thickness",
               "gates": "$INPUTS.gates", "final_gate": "$INPUTS.final_gate", "adapter": "$INPUTS.adapter",
               "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang", "unattended": "$INPUTS.unattended",
               "design_only": "$INPUTS.design_only",
               "fix_fixture": "$INPUTS.fix_fixture", "features_off": "$INPUTS.features_off",
-              "features_on": "$INPUTS.features_on"}},
-    {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
-     "when": "$start.output.ci_role_go == true",
+              "features_on": "$INPUTS.features_on", "launch_mark": "$INPUTS.launch_mark", "spec": "$INPUTS.spec"}},
+    {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["entering"],
+     "when": "$entering.output.ci_role_go == true",
      "with": {"node": "p0.local_checks"}},
-    _edge("h-entry", "entry", ["start", "ci-checking"]),
-    {"id": "pr-checking", "kind": "include", "block": "blk-pr", "depends_on": ["h-entry"],
-     "when": "$h-entry.output.pr_go == true", "with": {}},
+    _edge("h-entry", "entry", ["entering", "ci-checking"]),
+    {"id": "speccing", "kind": "include", "block": "blk-spec", "depends_on": ["h-entry"],
+     "when": "$h-entry.output.spec_go == true", "with": {"base_rev": "$entering.output.base_rev"}},
+    _edge("h-spec", "spec", ["entering", "h-entry", "speccing"]),
+    {"id": "pr-checking", "kind": "include", "block": "blk-pr", "depends_on": ["h-spec"],
+     "when": "$h-spec.output.pr_go == true", "with": {}},
     {"id": "premising", "kind": "include", "block": "blk-premises", "depends_on": ["h-entry", "pr-checking"],
      "trigger_rule": NFMOS, "when": "$h-entry.output.premises_go == true",
-     "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev"}},
-    _edge("h-judge", "judge", ["start", "h-entry", "premising"], premised=_skippable("$premising.output")),
+     "with": {"request": "$INPUTS.request", "base_rev": "$entering.output.base_rev"}},
+    _edge("h-judge", "judge", ["entering", "h-entry", "premising"], premised=_skippable("$premising.output")),
     {"id": "purposing", "kind": "include", "block": "blk-purpose", "depends_on": ["h-judge"],
      "when": "$h-judge.output.purpose_go == true",
      "with": {"request": "$INPUTS.request", "constraints_file": "$h-judge.output.premises_file",
-              "base_rev": "$start.output.base_rev"}},
-    _edge("h-mat", "mat", ["start", "h-judge", "purposing"]),
+              "base_rev": "$entering.output.base_rev", "pr_file": "$entering.output.pr_file"}},
+    _edge("h-mat", "mat", ["entering", "h-judge", "purposing"]),
     {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat"],
      "when": "$h-mat.output.mat_go == true",
-     "with": {"adapter": "$start.output.adapter"}},
+     "with": {"adapter": "$entering.output.adapter"}},
     {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering"], "trigger_rule": NFMOS,
      "when": "$h-mat.output.go == true",
-     "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "premises_file": "$h-judge.output.premises_file",
-              "verify": "$start.output.judge_verify"}},
-    _edge("h-plan", "plan", ["start", "h-mat", "judging"], judged=_skippable("$judging.output")),
+     "with": {"request": "$INPUTS.request", "base_rev": "$entering.output.base_rev",
+              "policy_paste": "$entering.output.policy_paste", "premises_file": "$h-judge.output.premises_file",
+              "verify": "$entering.output.judge_verify"}},
+    _edge("h-plan", "plan", ["entering", "h-mat", "judging"], judged=_skippable("$judging.output")),
     {"id": "structuring", "kind": "include", "block": "blk-structure", "depends_on": ["h-plan"],
      "when": "$h-plan.output.go == true",
-     "with": {"units": "$h-plan.output.structure_units_file", "policy_path": "$start.output.policy_path"}},
+     "with": {"units": "$h-plan.output.structure_units_file", "policy_path": "$entering.output.policy_path"}},
     {"id": "h-structure", "kind": "script", "script": "structure", "depends_on": ["h-plan", "structuring"],
      "trigger_rule": ALL_DONE,
      "with": {"structured": _skippable("$structuring.output"),
               "plan_go": {"from": "$h-plan.output.go", "if_skipped": False}}},
     {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan", "h-structure"],
      "when": "$h-plan.output.go == true",
-     "with": {"verify_file": "$h-plan.output.verify_file", "review_tree": "$start.output.review_tree"}},
-    _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
+     "with": {"verify_file": "$h-plan.output.verify_file", "review_tree": "$entering.output.review_tree"}},
+    _edge("h-gate", "gate", ["entering", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
-    _edge("h-fix", "fix", ["start", "h-gate", "policy-gate"], gate=_skippable("$policy-gate.output")),
+    _edge("h-fix", "fix", ["entering", "h-gate", "policy-gate"], gate=_skippable("$policy-gate.output")),
     # 単位ごとの深さ（計画 2026-10-06-variable-depth）: 修正の前に決め（h-depth）、修正の後に信号で上げる（h-redepth）。いつも走る
-    _depth("h-depth", "decide", ["start", "h-fix"], open_units="$h-fix.output.open_units", tdd_suite="$INPUTS.tdd_suite"),
+    _depth("h-depth", "decide", ["entering", "h-fix"], open_units="$h-fix.output.open_units", tdd_suite="$INPUTS.tdd_suite"),
     {"id": "fixing", "kind": "include", "block": "blk-fix", "depends_on": ["h-fix", "h-depth"],
      "when": "$h-fix.output.go == true",
      "with": {"judgment_file": "$h-fix.output.judgment_file", "open_units": "$h-fix.output.open_units",
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
-              "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
-              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
+              "base_rev": "$entering.output.base_rev", "policy_path": "$entering.output.policy_path",
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$entering.output.test_cmd",
               "unit_depths": "$h-depth.output.unit_depths", "ripple_file": "$h-fix.output.ripple_file",
-              "plan_session": "plan", "tdd_lanes": "$start.output.tdd_lanes", "fix_lanes": "$start.output.fix_lanes"}},
+              "plan_session": "plan", "tdd_lanes": "$entering.output.tdd_lanes", "fix_lanes": "$entering.output.fix_lanes"}},
     # 同じ run の中の案の直し（依頼 226。1 run に 1 回）: blk-plan と blk-fix の 2 度目の include
-    _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
+    _edge("h-replan", "replan", ["entering", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
      "when": "$h-replan.output.go == true",
-     "with": {"replan": "true", "review_tree": "$start.output.review_tree"}},
-    _edge("h-regate", "regate", ["start", "h-replan", "replanning"]),
+     "with": {"replan": "true", "review_tree": "$entering.output.review_tree"}},
+    _edge("h-regate", "regate", ["entering", "h-replan", "replanning"]),
     {"id": "replan-gate", "kind": "approval", "depends_on": ["h-regate"], "when": "$h-regate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
-    _edge("h-refit", "refit", ["start", "h-regate", "replan-gate"], gate=_skippable("$replan-gate.output")),
+    _edge("h-refit", "refit", ["entering", "h-regate", "replan-gate"], gate=_skippable("$replan-gate.output")),
     {"id": "refitting", "kind": "include", "block": "blk-fix", "depends_on": ["h-refit"],
      "when": "$h-refit.output.go == true",
      "with": {"judgment_file": "$h-refit.output.judgment_file", "open_units": "$h-refit.output.open_units",
               "plan_file": "$h-refit.output.plan_file", "notes_file": "$h-refit.output.notes_file",
-              "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
-              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
+              "base_rev": "$entering.output.base_rev", "policy_path": "$entering.output.policy_path",
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$entering.output.test_cmd",
               "ripple_file": "$h-refit.output.ripple_file", "plan_session": "plan",
-              "tdd_lanes": "$start.output.tdd_lanes", "fix_lanes": "$start.output.fix_lanes"}},
-    _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
+              "tdd_lanes": "$entering.output.tdd_lanes", "fix_lanes": "$entering.output.fix_lanes"}},
+    _edge("h-rejudge", "rejudge", ["entering", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
      "with": {}},
-    _depth("h-redepth", "raise", ["start", "h-rejudge", "rejudging", "h-depth"],
+    _depth("h-redepth", "raise", ["entering", "h-rejudge", "rejudging", "h-depth"],
            replanned={"from": "$h-replan.output.go", "if_skipped": False},
            rejudged={"from": "$h-rejudge.output.go", "if_skipped": False}),
-    _edge("h-review", "review", ["start", "h-rejudge", "rejudging", "h-redepth"]),
+    _edge("h-review", "review", ["entering", "h-rejudge", "rejudging", "h-redepth"]),
     {"id": "lensing", "kind": "include", "block": "blk-lens", "depends_on": ["h-review"],
      "when": "$h-review.output.go == true", "with": {}},
     {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review", "lensing"], "trigger_rule": NFMOS,
-     "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}},
-    _edge("h-refix", "refix", ["start", "h-review", "reviewing"]),
+     "when": "$h-review.output.go == true", "with": {"base_rev": "$entering.output.base_rev"}},
+    _edge("h-refix", "refix", ["entering", "h-review", "reviewing"]),
     {"id": "refixing", "kind": "include", "block": "blk-refix", "depends_on": ["h-refix"],
      "when": "$h-refix.output.go == true",
-     "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste",
-              "policy_path": "$start.output.policy_path"}},
-    _edge("h-tests", "tests", ["start", "h-refix", "refixing"]),
+     "with": {"base_rev": "$entering.output.base_rev", "policy_paste": "$entering.output.policy_paste",
+              "policy_path": "$entering.output.policy_path"}},
+    _edge("h-tests", "tests", ["entering", "h-refix", "refixing"]),
     {"id": "testing", "kind": "include", "block": "blk-tests", "depends_on": ["h-tests"],
-     "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd"}},
+     "when": "$h-tests.output.go == true", "with": {"cmd": "$entering.output.test_cmd"}},
     # 最後のテストが任せ先に落ちた（test_cmd も宣言も無い）時だけ、任せ先の CI の役のブロックが p4.ci を渡す
-    _edge("h-ci", "ci", ["start", "h-tests", "testing"]),
+    _edge("h-ci", "ci", ["entering", "h-tests", "testing"]),
     {"id": "ci-final", "kind": "include", "block": "blk-ci", "depends_on": ["h-ci"], "when": "$h-ci.output.go == true",
      "with": {"node": "p4.ci"}},
-    _edge("h-look", "look", ["start", "h-tests", "testing", "h-ci", "ci-final"]),
+    _edge("h-look", "look", ["entering", "h-tests", "testing", "h-ci", "ci-final"]),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
      "with": {"skip_optional": "$h-redepth.output.skip"}},
-    _edge("h-final", "final", ["start", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
+    _edge("h-final", "final", ["entering", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
     {"id": "final-gate", "kind": "approval", "depends_on": ["h-final"], "when": "$h-final.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
-    _edge("h-eyes", "eyes", ["start", "h-final", "final-gate"], gate=_skippable("$final-gate.output")),
+    _edge("h-eyes", "eyes", ["entering", "h-final", "final-gate"], gate=_skippable("$final-gate.output")),
     # 機械の報告は上流の節が落ちた run でも走る（all_done）。start のほかの出力は落ちても飛ばされても null で受ける
-    {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"],
+    {"id": "report", "kind": "script", "script": "report", "depends_on": ["entering", "h-eyes", "eyeing"],
      "trigger_rule": ALL_DONE,
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
-              "start": {"from": "$start.output"},
+              "start": {"from": "$entering.output"},
               "ci": _skippable("$ci-checking.output"), "eyes": _skippable("$h-eyes.output"),
               "eyeing": _skippable("$eyeing.output"), "cleaned_runs": "$INPUTS.cleaned_runs",
               "depth": _skippable("$h-redepth.output"),
@@ -418,7 +420,7 @@ class LineRun:
         import entry  # noqa: F401  （.shared/core は頭で sys.path に足してある）
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
-        start_with = next(r for r in LINE_ORDER if r["id"] == "start")["with"]
+        start_with = next(r for r in LINE_ORDER if r["id"] == "entering")["with"]
         self.inputs = {**{k: "" for k in start_with if k != "request"}, "adapter": "optional", **(inputs or {})}
         self.stop_at = stop_at
         self.sessions = sessions
@@ -554,7 +556,7 @@ class LineRun:
             sys.path.insert(0, str(ROOT / "blk-material" / "lib"))
         import material
         import test_blk_material as TM
-        adapter = self.out["start"]["adapter"]
+        adapter = self.out["entering"]["adapter"]
         r = material.route(self.board, self.repo, adapter)
         for role, nid in material.ROLES.items():
             if not r.get(material.route_key(role)):
@@ -588,7 +590,7 @@ class LineRun:
                     break
         # 判定の根を開く（線の木の段 3）: 支度 → go なら束ね役（replies["judge-verify"]（盤面を受ける関数）か見本 verify_answers）→ まとめ
         # 線は裏取りの切り替えに start の出口の judge_verify（既定で off。入力 features_on・features_off）を渡す
-        if judgeverify.prep(self.board, self.repo, verify=(self.out.get("start") or {}).get("judge_verify", ""))["go"]:
+        if judgeverify.prep(self.board, self.repo, verify=(self.out.get("entering") or {}).get("judge_verify", ""))["go"]:
             answer = self.replies.get("judge-verify", verify_answers)
             if callable(answer):
                 answer(self.board)   # 下請けの代わりに答えのファイルを書く（束ね役の要約はまとめが読まない）
@@ -618,7 +620,7 @@ class LineRun:
             # 線は修正案のブロックの支度に h-plan の verify_file（判定の単位の裏取りの申し送り。線の木の段 3）を渡す
             # 事前審査の木の切り替えは start の出口の review_tree（既定で auto。入力 features_on・features_off）
             planblk.prep(self.board, role, self.repo, verify_file=(self.out.get("h-plan") or {}).get("verify_file", ""),
-                         review_tree=(self.out.get("start") or {}).get("review_tree", ""))
+                         review_tree=(self.out.get("entering") or {}).get("review_tree", ""))
             if planblk.accept_reply(self.board, role, json.dumps(body(), ensure_ascii=False), self.repo)["done"]:
                 return
 
@@ -658,7 +660,7 @@ class LineRun:
         ごとの汚れないの 1 行（structure_eye_reply）"""
         env = hermetic.child_env(ARTIFACTS_DIR=str(self.board.parent), PYTHONDONTWRITEBYTECODE="1",
                                  INPUTS_UNITS=self.out["h-plan"]["structure_units_file"], INPUTS_ROOT="",
-                                 INPUTS_POLICY_PATH=self.out["start"].get("policy_path") or "")
+                                 INPUTS_POLICY_PATH=self.out["entering"].get("policy_path") or "")
 
         def run(script, **inputs):
             p = subprocess.run([sys.executable, str(ROOT / "blk-structure" / "scripts" / f"{script}.py")], cwd=str(self.repo),
@@ -749,7 +751,7 @@ class LineRun:
     def blk_tests(self):
         import entry
         b = entry.open_board(self.board)
-        ci = entry.run_ci(b, "p4.ci", test_cmd=self.out["start"]["test_cmd"])
+        ci = entry.run_ci(b, "p4.ci", test_cmd=self.out["entering"]["test_cmd"])
         b.settle()
         b = entry.open_board(self.board, allow_halted=True)
         if ci["by"] == "role_needed":   # blk-tests の run_final と同じ: 素材はまだ修正前の物なので読まない
@@ -804,9 +806,7 @@ class LineRun:
         for row in LINE_ORDER:
             nid = row["id"]
             self.row = row
-            if nid == "launch":
-                self.trail.append(nid)
-            elif nid == "start":
+            if row.get("block") == "blk-entry":   # 入口のブロック（起動の関所を越えた後の open の節。中身は entry.start）
                 raw = {"request": str(self.request), **self.inputs}
                 self.out[nid] = entry.start(self.board, self.repo, raw, run_id=RUN_ID)
                 self.trail.append(nid)
@@ -818,7 +818,7 @@ class LineRun:
                     halt.place(self.board, "止め札の試し", "test")
                 kw = {k: self._src(row["with"][k]) for k in ("judged", "premised", "gate", "tests")}
                 self.out[nid] = line_edge.edge(self.board, row["at"], self.repo, run_id=RUN_ID,
-                                               adapter_mode=self.out["start"]["adapter"],
+                                               adapter_mode=self.out["entering"]["adapter"],
                                                final_gate=self.inputs["final_gate"], **kw)
                 self.trail.append(nid)
             elif row.get("script") == "depth":

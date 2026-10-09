@@ -539,8 +539,9 @@ class Bind(unittest.TestCase):
                             f"候補 b（paused）: use.sh show {self.target.resolve()} b")
 
     def test_launch_without_request_copy_does_not_bind(self):
+        """起動の印も依頼の写しも渡さない起動（前の版の殻）は目印が無いので結ばない"""
         rc, out, err = self.bind([self.row("change-only", "")], request="")
-        self.assert_unbound(rc, out, err, "依頼の写しの無い起動", "候補 change-only")
+        self.assert_unbound(rc, out, err, "起動の印も依頼の写しも無い起動", "候補 change-only")
 
     def bind_mark(self, rows, mark):
         """依頼を省いた起動（--pr）の結び方: --request は空、--launch-mark にこの起動の印"""
@@ -562,6 +563,20 @@ class Bind(unittest.TestCase):
                 self.assertEqual(rc, 0, err)
                 self.assertEqual(sh_assigned(self, out, ("WORKS_RUN_ID",))["WORKS_RUN_ID"], "mine")
                 self.assertNotIn("github_reads", json.loads((self.runs / "mine.json").read_text()))
+
+    def test_launch_with_request_and_mark_binds_by_either(self):
+        """殻はどの入口の起動にも印を付ける（段 4.1）。印と依頼の写しはどちらもこの起動だけを指す目印で、どちらかが一致する run を
+        結ぶ: 印だけが一致する run（盤面がまだ無い起動の直後）も、写しだけが一致する run（印を残さない前の版の Archon）も結ぶ"""
+        args = lambda mark: ["bind", "--for", "use.sh", "--dir", str(self.runs), "--target", str(self.target),
+                             "--request", str(self.request), "--launch-mark", mark, "--model-value", "opus", "--model-from", "既定"]
+        for name, rows in (("mark", [self.row("mine", metadata={"inputs": {"launch_mark": "20261009-1"}}),
+                                     self.row("other", metadata={"inputs": {"launch_mark": "20261009-2"}})]),
+                           ("request", [self.row("mine", str(self.request)), self.row("other", "/elsewhere.json")])):
+            with self.subTest(name):
+                shutil.rmtree(self.runs, ignore_errors=True)
+                rc, out, err = run_ledger(self, args("20261009-1"), {"WORKS_DEV_MODEL": ""}, json.dumps({"runs": rows}))
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(sh_assigned(self, out, ("WORKS_RUN_ID",))["WORKS_RUN_ID"], "mine")
 
     def test_launch_without_request_and_not_one_run_with_its_mark_does_not_bind(self):
         """起動の印の一致する run が 0 本・2 本なら結ばない（推定では選ばない）"""

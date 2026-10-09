@@ -52,7 +52,7 @@ def _stop(reason: str) -> int:
 def main() -> int:
     board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
     rel = os.environ.get(REQUEST_ENV, "")
-    no_request = REQUEST_ENV in os.environ and not rel and conflict.change_only(board)
+    no_request = REQUEST_ENV in os.environ and not rel and conflict.no_requests(board)
     missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
@@ -64,7 +64,7 @@ def main() -> int:
     if stopped:
         return _emit({"ok": True, "reason": f"盤面が止まっている（{_one_line(stopped)}）——実測役を起こさない", "request": rel,
                       "go": False})
-    items = []   # 変更から入った run の空の依頼（実測する依頼の行が無い）
+    items = []   # 依頼の行の無い run の空の依頼（実測する依頼の行が無い）
     if not no_request:
         path = Path.cwd() / rel
         try:

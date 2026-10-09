@@ -82,6 +82,7 @@ import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
 import scopes  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の読み口）
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
@@ -219,27 +220,19 @@ RULING_SCHEMA = {
 
 
 # ---------------------------------------------------------------- 名指しの確かめ
-start_doc = gatemarks.start_doc   # 盤面の start の控えの読み手は 1 つ（gatemarks も無人の run かを読む。conflict ⇄ gatemarks の輪を作らない）
 
 
-def change_only(board_dir) -> bool:
-    """ラインの盤面が、依頼の行を持たずに始めた run か（start の控えの入口の入力の形 input の requests が 0）。
-    依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run の空は今までどおり欠け）"""
-    shape = start_doc(board_dir).get("input")
-    return isinstance(shape, dict) and shape.get("requests") == 0
+def no_requests(board_dir) -> bool:
+    """ラインの盤面が、依頼の行を持たずに始めた run か（始めの記録の入口の入力の形 input.requests が 0。入口の種類は見ない）。
+    依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run・入力の形の無い
+    控えの空は今までどおり欠け）"""
+    return startrec.requests(startrec.read(board_dir)) == 0
 
 
 def request_file(board_dir) -> str:
     """run の依頼のファイル（盤面の start の控えの request_file。無ければ空）"""
-    got = start_doc(board_dir).get("request_file")
+    got = startrec.read(board_dir).get("request_file")
     return got if isinstance(got, str) else ""
-
-
-def change_only(board_dir) -> bool:
-    """ラインの盤面が、依頼の行を持たずに始めた run か（start の控えの入口の入力の形 input の requests が 0）。
-    依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run の空は今までどおり欠け）"""
-    shape = start_doc(board_dir).get("input")
-    return isinstance(shape, dict) and shape.get("requests") == 0
 
 
 def _inside(p: pathlib.Path, root: pathlib.Path) -> bool:

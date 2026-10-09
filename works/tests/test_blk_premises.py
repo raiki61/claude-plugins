@@ -393,6 +393,31 @@ class ScriptCase(RepoCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("INPUTS_REQUEST", r.stderr)
 
+    def write_start_input(self, requests):
+        """盤面の始めの記録（startrec の置き場）に入口の入力の形の依頼の行の数だけを置く（線の入口が書く形の一部）"""
+        p = self.board / "r1" / "start.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"input": {"requests": requests}}), encoding="utf-8")
+
+    def test_intake_accepts_empty_request_when_input_has_no_requests(self):
+        """依頼の行が無い run（始めの記録の input.requests が 0。入口の種類に依らない）では、依頼の空を受ける"""
+        self.write_start_input(0)
+        r = self.run_script("intake", INPUTS_REQUEST="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(r.stdout)["ok"], True)
+
+    def test_intake_refuses_empty_request_when_input_has_requests(self):
+        """依頼の行が在る run（input.requests が 1 以上）・始めの記録の無い run では、依頼の空は欠け（2）"""
+        for doc in (2, None):
+            with self.subTest(doc):
+                if doc is None:
+                    (self.board / "r1" / "start.json").unlink(missing_ok=True)
+                else:
+                    self.write_start_input(doc)
+                r = self.run_script("intake", INPUTS_REQUEST="")
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("INPUTS_REQUEST", r.stderr)
+
     # ---- accept
     def test_accept_bad_then_good(self):
         self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)

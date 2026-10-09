@@ -32,6 +32,7 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 import entry  # noqa: E402
+import entryshape  # noqa: E402  （入口の変換）
 import ghreads  # noqa: E402
 import hermetic  # noqa: E402
 import linekit  # noqa: E402
@@ -248,7 +249,7 @@ class EntryReadsCase(unittest.TestCase):
         except entry.InputRefused as e:
             self.fail(f"写しの PR を拒んだ: {e}")
         self.assertEqual(got["base_rev"], self.fork)
-        self.assertEqual(got["base"], {"rev": self.fork, "from": "pr", "name": "7"})
+        self.assertEqual(got["base"], {"rev": self.fork, "from": "pr", "name": "7", "label": "PR #7「題」"})
         self.assertEqual(got["pr"], {"number": "7", "title": "題", "body": "本文"})
         self.assertEqual(gh_calls(self.calls), [])
 
@@ -292,7 +293,7 @@ class StartReadsCase(unittest.TestCase):
         self.tmp = pathlib.Path(self._tmp.name)
         self.bin, self.calls, self.login = fake_gh(self.tmp)
         env = {name: None for name in GH_ENV}
-        env.update({"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"), entry.NO_AUTH_ENV: None,
+        env.update({"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"), entryshape.NO_AUTH_ENV: None,
                     "PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}", "GH_CONFIG_DIR": str(self.login)})
         ctx = gh_env(env)
         ctx.__enter__()
@@ -330,6 +331,25 @@ class StartReadsCase(unittest.TestCase):
                     self.assertEqual({cwd for cwd, _ in gh_calls(self.calls)}, {str(repo.resolve())})
                 else:
                     self.assertEqual(len(gh_calls(self.calls)), first, "再開で gh を呼び直した")
+
+    def test_start_writes_pr_file_only_for_pr(self):
+        """PR を名指した run だけ、盤面の根に pr.md（PR の番号・題・本文。0600）を置き、出口の pr_file がそのパス。目的の役が
+        出典 ① PR 説明として読む（前は --pr だけの run で役に PR の文を渡す道が無かった）。PR の無い run は空で、置かない"""
+        repo, board, raw = self.ready()
+        got = entry.start(board, repo, dict(raw), run_id="run-7")
+        path = board / entryshape.PR_FILE
+        self.assertEqual(got["pr_file"], str(path))
+        text = path.read_text(encoding="utf-8")
+        for part in ("PR #7", "非公開の題", "非公開の本文"):
+            self.assertIn(part, text)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(entry.start(board, repo, dict(raw), run_id="run-7")["pr_file"], str(path))   # 呼び直しも同じ
+        req = self.tmp / "plain.json"
+        req.write_text(json.dumps([{"where": "stats.py", "text": "直す"}]), encoding="utf-8")
+        other = self.tmp / "board-plain"
+        got = entry.start(other, repo, {**raw, "pr": "", "request": str(req)}, run_id="run-p")
+        self.assertEqual(got["pr_file"], "")
+        self.assertFalse((other / entryshape.PR_FILE).exists())
 
     def test_start_reads_request_named_items(self):
         """依頼の欄 pr・issue の名指しも run の中で読み、盤面の github.json に載る（読めない項は記録して進む）"""
@@ -377,13 +397,13 @@ class StartReadsCase(unittest.TestCase):
         repo, board, raw = self.ready()
         req = self.tmp / "req.json"
         req.write_text(json.dumps({"findings": [ROW], "issue": [9]}, ensure_ascii=False), encoding="utf-8")
-        with gh_env({entry.NO_AUTH_ENV: "1"}):
+        with gh_env({entryshape.NO_AUTH_ENV: "1"}):
             for name, given in (("pr", raw), ("issue", {**raw, "pr": "", "request": str(req)})):
                 with self.subTest(name):
                     with self.assertRaises(entry.InputRefused) as cm:
                         entry.start(self.tmp / f"b-{name}", repo, dict(given), run_id="run-x")
                     text = str(cm.exception)
-                    self.assertIn(entry.NO_AUTH_ENV, text)
+                    self.assertIn(entryshape.NO_AUTH_ENV, text)
                     self.assertNotIn("\n", text)
             self.assertEqual(gh_calls(self.calls), [])
             plain = self.tmp / "plain.json"
@@ -392,7 +412,7 @@ class StartReadsCase(unittest.TestCase):
 
 
 def start_script():
-    spec = importlib.util.spec_from_file_location("works_line_start_for_ghreads", ROOT / "darkfactory" / "scripts" / "start.py")
+    spec = importlib.util.spec_from_file_location("works_line_start_for_ghreads", ROOT / "blk-entry" / "scripts" / "start.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -401,19 +421,21 @@ def start_script():
 class LineWiringCase(unittest.TestCase):
     def test_line_has_no_reads_file_input_and_declares_launch_mark(self):
         """ラインは隔離の前の読み出しのファイルを受けない（入力 github_reads が無く、start.py も読まない）。殻が起動を run に
-        結ぶ印 launch_mark は入力に在り（Archon が run の metadata.inputs に残す）、どの節にも渡さない"""
+        結ぶ印 launch_mark は入力に在り（Archon が run の metadata.inputs に残す）、入口のブロックへ生の事実として渡すだけ
+        （ブロックの中の open が start の控えに残す。ほかの節には渡さない）"""
         y = yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))
         self.assertNotIn("github_reads", y.get("inputs") or {})
         self.assertIn("launch_mark", y.get("inputs") or {})
-        start = next(n for n in y["nodes"] if n.get("id") == "start")
+        start = next(n for n in y["nodes"] if n.get("include") == "blk-entry")
         self.assertNotIn("github_reads", start["with"])
-        self.assertNotIn("launch_mark", json.dumps(y["nodes"], ensure_ascii=False))
+        others = [n for n in y["nodes"] if n is not start]
+        self.assertNotIn("launch_mark", json.dumps(others, ensure_ascii=False))
+        self.assertEqual(start["with"]["launch_mark"], "$INPUTS.launch_mark")
         mod = start_script()
         self.assertNotIn("INPUTS_GITHUB_READS", mod.INPUTS)
         self.assertNotIn("INPUTS_GITHUB_READS", mod.OPTIONAL)
-        order = next(r for r in linekit.LINE_ORDER if r["id"] == "start")
+        order = next(r for r in linekit.LINE_ORDER if r.get("block") == "blk-entry")
         self.assertNotIn("github_reads", order["with"])
-
 
 if __name__ == "__main__":
     unittest.main()

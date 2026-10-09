@@ -18,7 +18,7 @@
 - 通れば {"ok": true, "reason": "", "request": <役に渡す依頼のパス（4 の写しか元のパス）>, "constraints_file": <前提のパス（無ければ空）>}
   を 1 行出して 0
 - どれかが通らない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
-- ラインが依頼を持たずに変更から入った run（conflict.change_only）では INPUTS_REQUEST の空を受け、依頼を読まない
+- 依頼の行の無い run（conflict.no_requests。始めの記録の入口の入力の形の依頼の行が 0）では INPUTS_REQUEST の空を受け、依頼を読まない
 - 環境変数が欠けた（ARTIFACTS_DIR は空も欠け。INPUTS_REQUEST は上の run の外で空も欠け。INPUTS_CONSTRAINTS_FILE は空を「無し」と読む）:
   標準エラーに名前を出して 2
 """
@@ -59,7 +59,7 @@ def _without_prior(text: str):
 def main() -> int:
     board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
     rel = os.environ.get(REQUEST_ENV, "")
-    no_request = REQUEST_ENV in os.environ and not rel and conflict.change_only(board)
+    no_request = REQUEST_ENV in os.environ and not rel and conflict.no_requests(board)
     missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     missing += [CONSTRAINTS_ENV] if CONSTRAINTS_ENV not in os.environ else []
     if missing:

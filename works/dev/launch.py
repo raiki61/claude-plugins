@@ -8,8 +8,10 @@ env: 殻 3 本（use.sh・dogfood.sh・archon.sh）の家の既定・claude の�
 殻は guard.sh の works_dev_launch_env で 2 段に受ける（1 段の eval "$(…)" では部品の失敗が消える）。
 ledger: run の控え <置き場>/<run-id>.json の形（版の欄 schema）と、起動の後に run を結ぶ規則を 1 か所で持つ。save は書き、
 list は lib.sh works_dev_ledgers のタブ区切りの 7 欄で読み、load は use.sh が続きで Archon を起こす値を代入の行で返し、
-bind は標準入力の run の一覧から、盤面の依頼がこの起動の依頼の写しと一致する（依頼を省いた起動は起動の印 --launch-mark が
-Archon の残した入力 launch_mark と一致する）run がちょうど 1 本の時だけ結んで控えを書く。
+bind は標準入力の run の一覧から、起動の印 --launch-mark が Archon の残した入力 launch_mark と一致するか、盤面の依頼がこの起動の
+依頼の写しと一致する run がちょうど 1 本の時だけ結んで控えを書く。殻（use.sh・dogfood.sh）はどの入口
+の起動にも起動ごとに一意の印を付けるので、結び方は入口の種類で分かれない（計画
+docs/plans/2026-10-09-clean-whole.md の段 4.1）。
 unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも起動の印も持たない run のうち生きた状態の物）が
 在れば、起動が使う包んだ基を候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの 1 行で出す。
 unbound-release は候補にその run を持ちその対象の結べない控えを全部回り、控えごとにパス・包んだ基・まだ生きている
@@ -346,7 +348,7 @@ def _run_request(row):
 
 
 def _run_mark(row):
-    """run の起動の印（Archon が run に残した入力 metadata.inputs.launch_mark。use.sh が依頼を省いた --pr の起動に付ける）。
+    """run の起動の印（Archon が run に残した入力 metadata.inputs.launch_mark。殻がどの起動にも付ける生の事実）。
     無ければ None"""
     inputs = _run_meta(row).get("inputs")
     value = inputs.get("launch_mark") if isinstance(inputs, dict) else None
@@ -383,18 +385,17 @@ def _ledger_bind(opts, environ, stdin):
         raise Unbound(f"{caller}: darkfactory の run が見つからない（対象 {here}）")
     show = lambda found: "".join(f"\n  候補 {r.get('id')}（{r.get('status')}）: {caller} show {here} {r.get('id')}"
                                  for r in found)
-    if opts["request"]:
-        want, mark = os.path.realpath(opts["request"]), "依頼"
-        mine = [r for r in rows if _run_request(r) == want]
-    elif opts.get("launch-mark"):
-        # 依頼の写しの無い起動（--pr）でも、起動の印は起動ごとに一意（use.sh の <日時>-<pid>）なので、推定でなく印で結ぶ
-        # （設計書 2.3）
-        want, mark = opts["launch-mark"], "起動の印"
-        mine = [r for r in rows if _run_mark(r) == want]
-    else:
-        # 依頼の写しも起動の印も無い起動（--base だけ）は目印が無いので結ばない（設計書 2.3。2026-10-01 の関所の答え）
+    mark_want = opts.get("launch-mark") or ""
+    req_want = os.path.realpath(opts["request"]) if opts["request"] else ""
+    if not mark_want and not req_want:
+        # 起動の印も依頼の写しも無い起動は目印が無いので結ばない（設計書 2.3。2026-10-01 の関所の答え）
         found = _unmarked(rows)
-        raise Unbound(f"{caller}: 依頼の写しの無い起動（変更だけ）は run を結ばない。推定では選ばない{show(found)}")
+        raise Unbound(f"{caller}: 起動の印も依頼の写しも無い起動は run を結ばない。推定では選ばない{show(found)}")
+    # 起動の印（殻の <日時>-<pid>。殻はどの入口の起動にも付ける）と依頼の写し（起動ごとに一意の絶対パス）は、どちらもこの起動
+    # だけを指す目印。どちらかが一致する run を結ぶ——入口の種類（依頼の写しが在るか）で結び方を分けない（段 4.1）
+    mine = [r for r in rows if (mark_want and _run_mark(r) == mark_want) or (req_want and _run_request(r) == req_want)]
+    want = "・".join(x for x in (mark_want, req_want) if x)
+    mark = "・".join(n for n, x in (("起動の印", mark_want), ("依頼", req_want)) if x)
     if len(mine) != 1:
         raise Unbound(f"{caller}: この起動の run を 1 つに結べない（{mark} {want} の run の候補が {len(mine)} 本）。"
                       f"推定では選ばない{show(mine)}")
