@@ -315,7 +315,7 @@ LINE_ORDER = [
     {"id": "h-world", "kind": "script", "script": "world", "depends_on": ["h-mat", "worlding"], "trigger_rule": ALL_DONE,
      "with": {"worlded": _skippable("$worlding.output"),
               "world_go": {"from": "$h-mat.output.world_go", "if_skipped": False}}},
-    {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat"],
+    {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat", "h-world"],
      "when": "$h-mat.output.mat_go == true",
      "with": {"adapter": "$entering.output.adapter"}},
     {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering", "h-world"], "trigger_rule": NFMOS,
