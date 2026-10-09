@@ -314,6 +314,21 @@ def plan_slots_section(b) -> str:
             f"- 入れてはいけない no（受け付けが拒む）: {'、'.join(shut) or '無し'}")
 
 
+PRESCRIPTION_HEAD = "## 判定の処方（判定役が単位ごとに書いた直し方の案。零処方から並ぶ。機械が判定の記録から貼った）"
+PRESCRIPTION_ASK = ("案は単位の処方を採れ。採らない処方が在れば、その単位を持つ項目の works の欄 structure に "
+                    "{prescription: <単位の key>, deviation: <採らない訳>} を書け（処方の関係・条件を黙って落とさない）。")
+
+
+def prescription_section(b) -> str:
+    """修正案の指示書の頭に貼る、案に入れる単位（plan_slots の必ず入れる・入れてよい）の判定の処方の節。処方の無い run は ""。
+    写しの指示書は単位を名前と label と区分だけで描き、処方を渡さない（利用者の声 D2）"""
+    owed, opened, units = plan_slots(b)
+    given = planmarks.prescriptions(b)
+    rows = [f"### {k}\n\n" + "\n".join(f"{i}. {x}" for i, x in enumerate(given[k], 1))
+            for k in units if k in owed | opened and k in given]
+    return f"{PRESCRIPTION_HEAD}\n\n{PRESCRIPTION_ASK}\n\n" + "\n\n".join(rows) if rows else ""
+
+
 def stuck_reason(b) -> str:
     """必ず入れるのに開いていない単位（関所で答えた問いの出どころが defer など。plan_slots の 必ず入れる − 入れてよい）が在れば、
     盤面を止める理由（PLAN_STUCK・その単位の no と key・STUCK_WHY）。無ければ空。写しの受け付けはこの単位を入れても外しても拒むので、
@@ -1012,7 +1027,8 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
         tree = len(_opened(b, _item_rows(b))) >= TREE_AUTO_MIN
     part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main) if tree else "")
                                     if role == "plan-review"
-                                    else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b),
+                                    else (prior_part(b, role), structmark.plan_section(b.dir),
+                                          prescription_section(b) if role == "plan" else "", plan_slots_section(b),
                                           units_ripple_part(b), verify_part(verify_file) if role == "plan" else "")) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
@@ -1142,6 +1158,9 @@ def with_plan_fields(run):
         b = entry.open_board(pathlib.Path(board))
         rnd = b.round
         named = _resolved(b, planmarks.NODE, reply)
+        gaps = planmarks.structure_gaps(named.get("plan"), structmark.dirty(b.dir))
+        if gaps:
+            return {"ok": False, "reason": planmarks.STRUCTURE_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         _, fields = planmarks.split(named, pathlib.Path(repo))
         bare, _ = planmarks.split(reply, pathlib.Path(repo))
         got = run(board, bare, repo)

@@ -6,8 +6,13 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 判定役が単位ごとに書いた処方（`prescriptions`）が、修正案の役の指示書にも修正役の brief にも届いていなかった（2026-10-09 の利用者の声 D2。写しの盤面の記録は単位の処方を写さず、brief の処方はいつも「無し」だった）。処方を判定の返答から引き、修正案の役の頭（『判定の処方』の節）と修正役の brief に載せる。
+
 ### Changed
 
+- 修正案は、構造の目が「汚れる」と見た単位を持つ項目ごとに、目の避け方に従う（`follows`）か外れの訳（`deviation`。20 字以上）を、項目の works の欄 `structure` に書くようにした。欠けた案は受け付け（同じ run の中の案の直しも）が「設計の行 <id> に従うか、外れの訳を structure に書け」と拒む（計画 clean-whole の Task 2.4。2026-10-09 の調べで、目の推しを黙って外した直しが 23 行のうち 7 行あった）。外れの訳は事前審査の指示書の頭と修正役の brief に並ぶ。判定の処方への答えも同じ欄に書ける。
 - 構造の目（`blk-structure`）が、単位のパスに当たる考えの地図の行（対象の追跡されたファイルに `docs/concepts.md` が在れば）と知る場所の数（`docs/concepts.json` の柵の表が在れば）、方針の文書（入力 `policy_path`。今までは控えるだけ）の中身、根の地図の文書（`ARCHITECTURE.md`・`AGENTS.md`）を見て、「設計の考えを知る場所が増えるか」の 1 つの問いで判じるようにした（計画 clean-whole の Task 2.3。2026-10-09 の調べで、目は単位と実測だけを見て 65% を「汚れる」と言い、区別が弱かった）。地図も表も無い対象では実測だけで判じ、地図や表を作らない。目が決め手を当たっても避け方を 1 つに決められない行は、行き先「人に上げる」と決まらない訳・捨てた案と代償を設計の行に残す（受け付けが訳の無い行を拒む）。
 - 次の run への持ち越し（`next-request.json`・`prior-failures.json`・`prior-failures-in.json` の欄の名・下書きの印・依頼の容器の解き方）を core の 1 つのモジュール `.shared/core/carry.py` にまとめ、書き手（報告）と読み手（依頼の入口）が同じ名と同じ JSON Schema（`.shared/core/` へ移した `next-request.schema.json`・`prior-failures.schema.json`。書く前に照らす）を引くようにした（書く中身はバイト一致で変わらない）。run の後の CI の赤を次の依頼へ足す口は `python3 -I .shared/core/carry.py carry-ci …` に移り、前の `ghreads.py carry-ci` は移った先を 1 行で言って終了コード 2 で終わる。`use.sh` の表示が数える下書きの行は、次の run の入口が拒む行と同じ決まり（`draft` か `source` の欄が在る行）に揃えた。
 

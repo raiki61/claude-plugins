@@ -706,5 +706,57 @@ class TestAmend(PlanFieldsCase):
         self.assertEqual(planmarks.plan_items(b), b.output_of_round(planmarks.NODE, 1)["plan"])
 
 
+class TestStructure(PlanFieldsCase):
+    """修正案の項目の欄 structure（計画 2026-10-09-clean-whole の Task 2.4）: 構造の目が汚れると見た単位を持つ項目は、その行ごとに
+    避け方に従う（follows）か外れの訳（deviation）を書く。判定の処方（prescriptions）への答えも同じ欄に並べてよい"""
+    OTHER = "stats.py clamp: 上限で lo を返す"
+    DIRTY = {MEAN: {"unit_id": MEAN, "verdict": "汚れる", "chosen": "分母の決めを 1 か所に"},
+             OTHER: {"unit_id": OTHER, "verdict": "汚れる", "chosen": "境の判定を 1 つに"}}
+    WHY = "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"
+
+    def test_plan_without_structure_row_is_refused(self):
+        got = planmarks.structure_gaps([item()], self.DIRTY)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn(f"設計の行 {MEAN} に従うか、外れの訳を structure に書け", got[0])
+        self.assertTrue(got[0].startswith("plan[0].structure"))
+
+    def test_two_dirty_units_need_a_row_each(self):
+        it = item(unit_keys=[MEAN, self.OTHER], structure=[{"row": MEAN, "follows": True}])
+        got = planmarks.structure_gaps([it], self.DIRTY)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn(self.OTHER, got[0])
+        it["structure"].append({"row": self.OTHER, "deviation": self.WHY})
+        self.assertEqual(planmarks.structure_gaps([it], self.DIRTY), [])
+
+    def test_clean_unit_needs_nothing(self):
+        self.assertEqual(planmarks.structure_gaps([item()], {}), [])
+        self.assertEqual(planmarks.structure_gaps([item()], {self.OTHER: self.DIRTY[self.OTHER]}), [])
+
+    def test_bad_rows_are_named(self):
+        for name, row in (("両方", {"row": MEAN, "follows": True, "deviation": self.WHY}),
+                          ("どちらも無い", {"row": MEAN}),
+                          ("短い訳", {"row": MEAN, "deviation": "短い"}),
+                          ("汚れる行でない", {"row": "別の単位", "follows": True}),
+                          ("行と処方の両方", {"row": MEAN, "prescription": MEAN, "follows": True}),
+                          ("従わないと書く", {"row": MEAN, "follows": False})):
+            with self.subTest(name):
+                got = planmarks.structure_gaps([item(structure=[row])], self.DIRTY)
+                self.assertTrue(got, name)
+
+    def test_prescription_answers_are_allowed(self):
+        it = item(structure=[{"row": MEAN, "follows": True}, {"prescription": MEAN, "deviation": self.WHY}])
+        self.assertEqual(planmarks.structure_gaps([it], self.DIRTY), [])
+        self.assertEqual(self.gaps(it), [])
+
+    def test_plan_with_deviation_passes_and_is_recorded(self):
+        it = item(structure=[{"row": MEAN, "deviation": self.WHY}])
+        self.assertEqual(planmarks.structure_gaps([it], self.DIRTY), [])
+        self.assertEqual(self.gaps(it), [])
+        bare, fields = planmarks.split({"plan": [it]}, self.repo)
+        self.assertNotIn("structure", bare["plan"][0])
+        self.assertEqual(fields[0]["structure"], [{"row": MEAN, "deviation": self.WHY}])
+        self.assertEqual(planmarks.deviations(fields), [{"item": 1, "row": MEAN, "deviation": self.WHY}])
+
+
 if __name__ == "__main__":
     unittest.main()

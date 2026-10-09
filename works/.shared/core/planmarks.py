@@ -14,6 +14,12 @@ marks（種 plan。役の型にだけ欄を足し、受け付けが盤面へ渡�
 - 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
   書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
+- 構造の欄 structure（計画 2026-10-09-clean-whole の Task 2.4）: structure_gaps(plan, dirty) が、構造の目が汚れると見た単位
+  （dirty: 単位の id → 設計の行）を持つ項目に、行ごとの「従う（follows）か外れの訳（deviation）」の欠けと誤りの行を返す
+  （修正案の受け付けと同じ run の中の案の直しが拒む）。判定の処方への答え（prescription）も同じ欄に並べてよい（要るのは汚れる行だけ）。
+  deviations(fields) は控えの欄から外れの訳の並びを引く（事前審査の頭・報告・最後の関所が読む）。
+  prescriptions(b) は判定の返答（盤面の節 JUDGE_NODE の最新の出力）の単位ごとの処方（写しの盤面の記録は単位の処方を写さない
+  ので、修正案の頭と修正役の brief はここから引く。利用者の声 D2）
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
 - climbs(norm): 整えたパスが根の外へ上るか（`..` は段で見る。conflict.parse_limit も同じ物を使う）
 - glob_problem(glob): 範囲の欄（allowed_paths・out_of_scope の glob）の誤りの文（\\ の区切り・根の外・`**`・`**/?*` のような字の無い丸ごとの許し）
@@ -54,14 +60,14 @@ NODES = marks.nodes("plan")
 NODE = NODES[0]
 FIELDS_FILE = marks.KINDS["plan"].file   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄], "amended"?: {番号: 核の欄}}
 SAVED_OP = "plan_fields_saved"     # save が盤面の trace に書く凍結の印 {round, sha256}
-KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
+KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope", "structure")
 # 写しの graph の修正案の項目の欄（核）。差し替えた項目のこの欄を控えの AMENDED_KEY に置く（approved_items が足す鍵 item は外す）
 CORE_KEYS = ("unit_keys", "approach", "adds", "removes", "shrink_first", "narrows")
 # 約束の欄（変えると関所に戻す物）と手段の欄（同じ run の中で修正案の役が直してよい物）。tests[] の行は CONTRACT_TEST_KEYS の
 # 欄だけが約束で、ほかの欄（id・path・red_kind・red_why）は手段
 CONTRACT_KEYS = ("unit_keys", "narrows", "removes", "allowed_paths", "out_of_scope", "rewrite_tests")
 CONTRACT_TEST_KEYS = ("behavior",)
-MEANS_KEYS = ("approach", "adds", "shrink_first", "route", "route_why", "tests", "refactor")
+MEANS_KEYS = ("approach", "adds", "shrink_first", "route", "route_why", "tests", "refactor", "structure")
 # 範囲を広げる欄（widened が見る）: allowed_paths に足す・out_of_scope から外すだけの直しは、範囲を広げるだけの直し
 WIDEN_KEYS = ("allowed_paths", "out_of_scope")
 AMENDED_KEY = "amended"            # 控えの鍵 {"<項目の番号>": {CORE_KEYS の欄}}（差し替えた項目の核の欄）
@@ -72,6 +78,7 @@ ROUTES = ("tdd", "direct")
 RED_KINDS = ("assertion", "exception")
 MIN_WHY = 10
 _WHY = {"type": "string", "minLength": MIN_WHY}
+MIN_DEVIATION = 20   # 構造の目の避け方・処方から外れる訳の字の下限
 # adds の kind のうち name が識別子（関数・欄の名）の物。ファイルの名・パスだけの name（_file_name）を gaps が拒む（依頼 194c:
 # receivers.py と書いた名を TDD の輪が 'py' と比べた）。文書・設定・CLI・柵・腕・テストなどはファイルを名指すのが筋の時が在るので見ない
 SYMBOL_KINDS = ("function", "record_field")
@@ -97,8 +104,21 @@ FIELD_SCHEMA = {
     "out_of_scope": {"type": "array", "items": {
         "type": "object", "additionalProperties": False, "required": ["glob", "why"],
         "properties": {"glob": {"type": "string", "minLength": 1}, "why": _WHY}}},
+    # 構造の欄（計画 clean-whole の Task 2.4）: 構造の目の汚れる行（row＝単位の id）か判定の処方（prescription＝単位の key）ごとに、
+    # 従う（follows: true）か外れの訳（deviation）のどちらか 1 つ。要るのは汚れる行だけ（structure_gaps が見る）
+    "structure": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "properties": {"row": {"type": "string", "minLength": 1}, "prescription": {"type": "string", "minLength": 1},
+                       "follows": {"type": "boolean"}, "deviation": {"type": "string"}}}},
 }
 
+STRUCTURE_REJECT = ("修正案の項目の works の欄 structure に欠けか誤りが在る（構造の目が汚れると見た単位を持つ項目は、その行ごとに"
+                    "避け方に従うか外れの訳を書く。直して done し直す）。下の行を直した案を丸ごと出し直せ:")
+STRUCTURE_HEAD = ("structure＝構造の目が汚れると見た行（頭の『構造の目の行』の節の単位）への答えの並び。その単位を unit_keys に持つ"
+                  "項目は、行ごとに {row: <単位の id（行の頭の字のまま）>, follows: true}（避け方 chosen に従う）か "
+                  f"{{row: <単位の id>, deviation: <従わない訳。{MIN_DEVIATION} 字以上>}} を書け（欠けは受け付けが拒む）。"
+                  "判定の処方（頭の『判定の処方』の節）から外れる項目は {prescription: <単位の key>, deviation: <訳>} を、"
+                  "処方に従うなら {prescription: <単位の key>, follows: true} を並べてよい。汚れる行の無い項目は空の並びか書かない")
 REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）か adds の name に欠けか誤りが在る"
           "（直して done し直す）。下の行を直した案を丸ごと出し直せ:")
 # 修正案の役の指示書の頭に足す文（写しの指示書はこの欄を知らない）
@@ -123,8 +143,10 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "out_of_scope＝範囲の中でも触らない物 {glob, why} の並び（why は "
         f"{MIN_WHY} 字以上。無ければ空の並び）。修正の受け付けは差分をこの範囲と照らし、外れたら同じ brief で返す。"
         "機械は差分で次を探すので、adds の name は識別子（関数・欄・CLI・テストの名）で書き、新設の物の canonical には"
-        "置くファイルのパスを書け。removes に識別子を書けば、差分で消えたかを見る")
+        "置くファイルのパスを書け。removes に識別子を書けば、差分で消えたかを見る。"
+        + STRUCTURE_HEAD)
 REVIEW_HEAD = "## 修正案の項目の works の欄（機械が貼った）"
+DEVIATION_HEAD = "## 構造の目の避け方・判定の処方から外れた訳（修正案の欄 structure から機械が並べた。訳が成り立つかを見よ）"
 REVIEW_ASK = ("下は修正案の役が項目ごとに書いた works の欄（route・受け入れのテスト tests・書き換える既存のテスト rewrite_tests・"
               "整えの申告 refactor・書いてよいパス allowed_paths・触らない物 out_of_scope）。承認されると項目ごとの brief になり、"
               "修正役・TDD の役の要求の正本になる。受け入れのテストが"
@@ -571,6 +593,79 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
     return out, rows
 
 
+def _structure_row_problem(row) -> str | None:
+    """structure の 1 行の誤りの文（無ければ None）: row と prescription のちょうど 1 つ・follows: true と deviation のちょうど 1 つ"""
+    if not isinstance(row, dict):
+        return "行が object でない"
+    if ("row" in row) == ("prescription" in row):
+        return "row（構造の目の行）か prescription（判定の処方）のどちらか 1 つを書く"
+    has_follow, has_dev = "follows" in row, "deviation" in row
+    if has_follow == has_dev:
+        return "follows: true（従う）か deviation（外れの訳）のどちらか 1 つを書く"
+    if has_follow and row["follows"] is not True:
+        return "follows は true だけ（従わないなら deviation に訳を書く）"
+    dev = row.get("deviation")
+    if has_dev and not (isinstance(dev, str) and len(dev.strip()) >= MIN_DEVIATION):
+        return f"deviation（外れの訳）は {MIN_DEVIATION} 字以上"
+    return None
+
+
+def structure_gaps(plan, dirty: dict) -> list[str]:
+    """構造の欄の欠けと誤りの行（"plan[<i>].structure…: <理由>"）。dirty は構造の目が汚れると見た単位の id → 設計の行。
+    項目の unit_keys に汚れる単位が在れば、その行の 1 件（row）が要る。row は汚れる行の単位だけを名指す。plan は名前に戻した
+    unit_keys の案（返答の no の整数は呼び手が戻す）。形を成さない plan は空（写しの規則が型で拒む）"""
+    if not isinstance(plan, list):
+        return []
+    out = []
+    for i, it in enumerate(plan):
+        if not isinstance(it, dict):
+            continue
+        rows = it.get("structure") if isinstance(it.get("structure"), list) else []
+        named = set()
+        for j, row in enumerate(rows):
+            bad = _structure_row_problem(row)
+            if bad:
+                out.append(f"plan[{i}].structure[{j}]: {bad}")
+                continue
+            if "row" in row:
+                if row["row"] not in dirty:
+                    out.append(f"plan[{i}].structure[{j}].row（{row['row']}）: 構造の目が汚れると見た行の単位でない"
+                               f"（在るのは {sorted(dirty)}）")
+                named.add(row["row"])
+        for key in it.get("unit_keys") if isinstance(it.get("unit_keys"), list) else []:
+            if isinstance(key, str) and key in dirty and key not in named:
+                out.append(f"plan[{i}].structure: 設計の行 {key} に従うか、外れの訳を structure に書け"
+                           f"（避け方: {dirty[key].get('chosen') or '無し'}）")
+    return out
+
+
+JUDGE_NODE = "p2.diagnose"   # 判定の節（単位の処方を持つ返答。写しの graph の writes は units に処方を写さない）
+
+
+def prescriptions(b) -> dict:
+    """{単位の key: [処方の文]}（判定の返答の最新の出力から。空の処方の単位は入れない。出力が無い・形が違えば {}）"""
+    out = b.latest_output(JUDGE_NODE)
+    units = out.get("units") if isinstance(out, dict) else None
+    got = {}
+    for u in units if isinstance(units, list) else []:
+        if isinstance(u, dict) and isinstance(u.get("key"), str):
+            rx = [x for x in u.get("prescriptions") or [] if isinstance(x, str) and x.strip()]
+            if rx:
+                got[u["key"]] = rx
+    return got
+
+
+def deviations(fields: list | None) -> list[dict]:
+    """控えの欄（split の形）の外れの訳の並び [{item（1 始まり）, row か prescription, deviation}]。無ければ空"""
+    out = []
+    for n, f in enumerate(fields if isinstance(fields, list) else [], 1):
+        for row in (f.get("structure") if isinstance(f, dict) and isinstance(f.get("structure"), list) else []):
+            if isinstance(row, dict) and isinstance(row.get("deviation"), str):
+                key = "row" if "row" in row else "prescription"
+                out.append({"item": n, key: row.get(key), "deviation": row["deviation"]})
+    return out
+
+
 # ---------------------------------------------------------------- 盤面の控え
 class FieldsBroken(ValueError):
     """盤面の控え plan-fields.json が今の周の凍結の印（SAVED_OP）と合わない（受け付けの後に書き換えた・消した・読めない）"""
@@ -792,4 +887,10 @@ def review_section(b) -> str:
     if fields is None:
         return ""
     rows = [f"### 修正案の項目 {n}\n\n```json\n{json.dumps(f, ensure_ascii=False, indent=1)}\n```" for n, f in enumerate(fields, 1)]
-    return f"\n\n{REVIEW_HEAD}\n\n{REVIEW_ASK}\n\n" + "\n\n".join(rows)
+    devs = deviations(fields)
+    head = ""
+    if devs:
+        head = f"\n\n{DEVIATION_HEAD}\n\n" + "\n".join(
+            f"- 項目 {d['item']}・{'設計の行' if 'row' in d else '処方'} {d.get('row') or d.get('prescription')}: {d['deviation']}"
+            for d in devs)
+    return f"{head}\n\n{REVIEW_HEAD}\n\n{REVIEW_ASK}\n\n" + "\n\n".join(rows)

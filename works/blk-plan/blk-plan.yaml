@@ -489,6 +489,22 @@ nodes:
                           why:
                             type: string
                             minLength: 10
+                    structure:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          row:
+                            type: string
+                            minLength: 1
+                          prescription:
+                            type: string
+                            minLength: 1
+                          follows:
+                            type: boolean
+                          deviation:
+                            type: string
         - id: plan-accept
           script: accept
           runtime: uv

@@ -135,6 +135,14 @@ def _refactor(fields: dict) -> str:
     return f"declared: {'true' if rf.get('declared') is True else 'false'}" + (f"（理由: {rf['why']}）" if rf.get("why") else "")
 
 
+def _answer(r) -> str:
+    """修正案が構造の目の行・判定の処方に答えた欄 structure の 1 行（従う・外れの訳）"""
+    if not isinstance(r, dict):
+        return str(r)
+    what = f"設計の行 {r['row']}" if "row" in r else f"処方 {r.get('prescription')}"
+    return f"{what}: " + ("従う（避け方・処方どおりに直す）" if r.get("follows") is True else f"外れる——{r.get('deviation')}")
+
+
 def _unit(key: str, units: dict) -> str:
     u = units.get(key)
     if not isinstance(u, dict):
@@ -164,6 +172,7 @@ def render(n: int, item: dict, fields: dict, units: dict, purpose: str, structur
         "## 触らない物（out_of_scope）\n\n" + _scoped(fields, "out_of_scope", _scope),
         f"## 目的の文（凍結）\n\n{purpose or NONE}",
         structure or f"## 構造の目の行\n\n{NONE}",
+        "## 構造の目の行と処方への答え（structure）\n\n" + _bullets(fields.get("structure") or [], _answer),
         f"## {BACKGROUND}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),
     ]
     return "\n\n".join(parts) + "\n"
@@ -192,7 +201,9 @@ def _drawn(b) -> list[tuple[list, str]] | None:
     if len(fields) != len(plan):
         raise LedgerBroken(f"修正案の項目の数 {len(plan)} と盤面の控え {planmarks.FIELDS_FILE} の欄の数 {len(fields)} が違う"
                            "（同じ周の受け付けが同じ並びで書く物）")
-    units = {u["key"]: u for u in b.record.get("units") or [] if isinstance(u, dict) and isinstance(u.get("key"), str)}
+    given = planmarks.prescriptions(b)   # 写しの盤面の記録は単位の処方を写さない（判定の返答から足す。利用者の声 D2）
+    units = {u["key"]: {**u, "prescriptions": given.get(u["key"]) or u.get("prescriptions")}
+             for u in b.record.get("units") or [] if isinstance(u, dict) and isinstance(u.get("key"), str)}
     purpose = ((b.record.get("process") or {}).get("purpose") or {}).get("purpose_text") or ""
     structure = structmark.plan_section(b.dir)
     out = []

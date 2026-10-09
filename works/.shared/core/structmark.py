@@ -9,6 +9,7 @@
 - rows(design_file):   設計の行（design.jsonl の JSON のオブジェクトの並び）。読めない・行が壊れていれば ValueError
 - note(state):         落ちた周の 1 文（ok の周・控えが無い周は ""）
 - plan_section(board_dir): 修正案の指示書の頭に貼る節（行が在れば行と守り方の指示、落ちた周は note、控えが無い・行が無い周は ""）
+- dirty(board_dir):    汚れると見た行（単位の id → 行）。控えが無い・落ちた周・行が読めない周は {}（修正案の欄 structure の要る行）
 - report_lines(board_dir): 報告の「構造の目」の節の行（判定の行か落ちの印と、増えた時間。控えが無い run は []）
 """
 import json
@@ -17,7 +18,9 @@ import pathlib
 STATE_FILE = "structure-state.json"
 MISSING = "構造の目の行なしで計画した"
 PLAN_HEAD = "## 構造の目の行（設計を知らない次の人が足す形が増えないかを別の目が見た判定。機械が貼った）"
-PLAN_ASK = "計画は各行の避け方（chosen）を守るか、守らないならその単位の計画に理由を書け。"
+DIRTY = "汚れる"   # 設計の行の verdict の語（約束は構造のブロックの設計の行の型の enum）
+PLAN_ASK = ("汚れると見た行の単位を持つ項目は、行ごとに避け方（chosen）に従うか、従わない訳を、項目の works の欄 structure に書け"
+            "（{row: <行の頭の単位の id>, follows: true} か {row, deviation: <訳>}。欠けは受け付けが拒む）。")
 
 
 def write(board_dir, *, status: str, reason: str, design_file: str, wall_s) -> pathlib.Path:
@@ -82,6 +85,12 @@ def _state_rows(board_dir):
         return state, rows(state.get("design_file") or ""), ""
     except ValueError as e:
         return state, [], note({"status": "failed", "reason": str(e)})
+
+
+def dirty(board_dir) -> dict:
+    """{単位の id: 汚れると見た設計の行}。控えが無い・落ちた周・行が読めない周は {}（行なしで計画した周は欄を求めない）"""
+    _, got, _ = _state_rows(board_dir)
+    return {r["unit_id"]: r for r in got if r.get("verdict") == DIRTY and isinstance(r.get("unit_id"), str)}
 
 
 def plan_section(board_dir) -> str:

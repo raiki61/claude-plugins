@@ -1293,6 +1293,70 @@ REWRITE = {"id": "test_stats.py::TestStats::test_clamp_within_range", "behavior"
            "old": "clamp(5, 0, 10) は 5", "new": "新しい期待（依頼で変わる振る舞い）"}
 
 
+class StructureFieldCase(unittest.TestCase):
+    """修正案は構造の目が汚れると見た行ごとに従うか外れの訳を欄 structure に書き、受け付けが欠けを拒む。外れの訳は事前審査の頭に
+    並ぶ。判定の処方は修正案の指示書の頭に載る（計画 2026-10-09-clean-whole の Task 2.4・利用者の声 D2）"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+    structured, block_exit = StructureHeadCase.structured, StructureHeadCase.block_exit
+    WHY = "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"
+
+    def dirty_round(self, judge=None):
+        self.judged(judge=judge)
+        design_file = self.tmp / "design.jsonl"
+        design_file.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.assertEqual(self.structured(self.block_exit(design_file))["status"], "ok")
+
+    def plan_with(self, structure):
+        plan = linekit.reply("plan_ok")
+        for it in plan["plan"]:
+            if UNIT_MEAN in it["unit_keys"]:
+                it["structure"] = structure
+        return plan
+
+    def test_plan_without_structure_row_is_refused(self):
+        self.dirty_round()
+        self.ok("snap", role="plan")
+        _, got = self.round_of("plan", linekit.reply("plan_ok"))
+        self.assertFalse(got["ok"], got)
+        why = self.reason_of(got)
+        self.assertTrue(why.startswith(planmarks.STRUCTURE_REJECT), why)
+        self.assertIn(f"設計の行 {UNIT_MEAN} に従うか、外れの訳を structure に書け", why)
+        self.assertFalse((self.board / planmarks.FIELDS_FILE).exists())
+
+    def test_plan_with_deviation_passes_and_is_recorded(self):
+        self.dirty_round()
+        self.planned(self.plan_with([{"row": UNIT_MEAN, "deviation": self.WHY}]))
+        fields = planmarks.read(entry.open_board(self.board))
+        self.assertEqual(planmarks.deviations(fields)[0]["deviation"], self.WHY)
+
+    def test_follows_passes(self):
+        self.dirty_round()
+        self.planned(self.plan_with([{"row": UNIT_MEAN, "follows": True}]))
+
+    def test_plan_review_sees_deviations(self):
+        self.dirty_round()
+        self.planned(self.plan_with([{"row": UNIT_MEAN, "deviation": self.WHY}]))
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        head = text.split(planmarks.REVIEW_HEAD)[0]
+        self.assertIn(planmarks.DEVIATION_HEAD, head)
+        self.assertIn(self.WHY, head)
+
+    def test_plan_head_carries_prescriptions(self):
+        """判定の処方は修正案の指示書の頭に載る（D2: 処方が修正案の役に届かず、関係を落とした）"""
+        judge = linekit.reply("judge_ok")
+        judge["units"][0]["prescriptions"] = ["ABAC の関係を保ったまま分母の決めを 1 か所に寄せる"]
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        head = text.split("\n\n# P2-10")[0]
+        self.assertIn(planblk.PRESCRIPTION_HEAD, head)
+        self.assertIn("ABAC の関係を保ったまま分母の決めを 1 か所に寄せる", head)
+
+
 class PlanFieldsCase(unittest.TestCase):
     """修正案の項目の works の欄（planmarks）: 受け付けが欠けを盤面へ渡す前に拒み、通った案は欄を外して盤面に渡し、欄は盤面の
     plan-fields.json に控える（盤面が受けた時だけ）。修正案の役の頭に欄の指示、事前審査の役の頭に欄の JSON が載る"""
