@@ -42,6 +42,7 @@ from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import report  # noqa: E402
 import rolekit  # noqa: E402
 
 # 役の名（YAML の節 id・包みの印の名）→ 写しの graph の節
@@ -291,7 +292,8 @@ def prep(board_dir, role, repo, machine_report="") -> dict:
     fp = b.work(FACTS_NAME)
     fp.write_text(facts_text(b, machine_report, v), encoding="utf-8")
     facts_file = str(fp)
-    prompt = render(b, nid, {"validation": v}) + WRITE_NOTE.format(path=facts_file)
+    # 1 周で止める run の帳尻の行は書き手に渡さない（機械の報告の残りの数えと同じ雑音の除き方。report.without_first_round_line）
+    prompt = render(b, nid, {"validation": report.without_first_round_line(v)}) + WRITE_NOTE.format(path=facts_file)
     last = _rejects(b, nid)[-1:]
     if last:
         # 拒否の文は指示書に書く。$LOOP_PREV で貼ると文の中の $<節>.output.<欄> を Archon が置き換え直す（裁定 R44）

@@ -262,11 +262,15 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("Read", cold)
         self.assertIn("道具を一切持たない", cold)       # 本線の cold-reader の定義
         self.assertIn("冒頭 3 行", cold)                # 持ち主の冷読の問い
+        # 頭だけを読む読み手に、報告の後ろに詳しい節と機械の事実の節が付くことを言う（言わないと、頭がその節を名指した所を
+        # 「本文の外への参照」として止まった所に挙げる。実物の拒否 55 回のうち 37 回）
+        self.assertIn(rr.MACHINE_HEADING.removeprefix("## "), cold)
+        self.assertNotIn("前の回の受け付けが拒んだ理由", cold, "初見の読み手の指示に拒否の節は付かない")
         write = (BLK / "commands" / f"{rr.WRITE}.md").read_text(encoding="utf-8")
         self.assertIn(f"${rr.WRITE}-prep.output.prompt_file", write)
         self.assertIn(f"${rr.WRITE}-prep.output.facts_file", write)
         self.assertIn("前の回の受け付けが拒んだ理由", write)
-        for words in ("冒頭 3 行", "セルに", "中身→記号", "今壊れているのか", "初見の読み手"):
+        for words in ("冒頭 3 行", "セルに", "中身→記号", "今壊れているのか", "初見の読み手", "機械の事実の節"):
             self.assertIn(words, write)
         self.assertEqual(write.count("**セルに説明の文を入れない**"), 1, "書式の決まりは 1 か所だけに持つ")
 
@@ -709,6 +713,36 @@ class RecordInvalidCase(_Case):
         self.assertTrue(out["record_invalid"])
         self.assertIn("検証器", out["reason"])
         self.assertEqual(out["report_file"], "")
+
+
+FIRST_ROUND_HOOK = '''
+def board_kwargs(table):
+    def runner(b, target):
+        return {"exit": 1, "out": "収束を妨げるもの 2 件:\\n  - [block] 未解消: a.py:f — 見本\\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"}
+    return {"validator_runner": runner}
+'''
+
+
+class FirstRoundLineCase(_Case):
+    """1 周で止める run で写しの検証器が必ず出す帳尻の行（report.FIRST_ROUND_LINE）は、書き手の指示書の検証器の結果
+    （{{validation}}）に渡さない（機械の報告の残りの数えと同じく雑音として除く。実物の AI の報告 56 本のうち 49 本が
+    2 周続けての決まりを書いていた）。ほかの阻害の行と件数の見出しは残す"""
+    hook = FIRST_ROUND_HOOK
+
+    def test_writer_prompt_drops_first_round_line(self):
+        import report
+        self.board()
+        text = pathlib.Path(rr.prep(self.bd, rr.WRITE, self.repo)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(report.FIRST_ROUND_LINE, text)
+        self.assertIn("[block] 未解消: a.py:f — 見本", text)
+        self.assertIn("収束を妨げるもの 1 件:", text)
+
+    def test_drop_keeps_other_output(self):
+        import report
+        only = {"exit": 1, "out": f"前置き\n収束を妨げるもの 1 件:\n  - {report.FIRST_ROUND_LINE}\n後ろ"}
+        self.assertEqual(report.without_first_round_line(only), {"exit": 1, "out": "前置き\n後ろ"})
+        clean = {"exit": 0, "out": "阻害なし"}
+        self.assertEqual(report.without_first_round_line(clean), clean)
 
 
 # ---------------------------------------------------------------- スクリプト（子のプロセス）

@@ -96,6 +96,26 @@ OUTCOMES = ("fixed", "no_fix_needed", "round_limit", "stopped_by_request", "stop
 FIRST_ROUND_LINE = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
 BLOCKERS_HEAD = re.compile(r"^収束を妨げるもの (\d+) 件:$")
 BULLET = "  - "
+
+
+def without_first_round_line(v: dict) -> dict:
+    """検証器の結果 {exit, out, …} の out から、帳尻の行 FIRST_ROUND_LINE の箇条を除き、『収束を妨げるもの N 件:』の N を
+    1 減らした物（0 件になれば見出しも除く）。行が無ければ v のまま。AI の報告の書き手に渡す検証器の結果を、機械の報告の
+    残りの数え（residue）と同じく雑音を除いた物にする（実物の AI の報告 56 本のうち 49 本が 2 周続けての決まりを書いていた）"""
+    lines = str(v.get("out") or "").split("\n")
+    if BULLET + FIRST_ROUND_LINE not in lines:
+        return v
+    i = lines.index(BULLET + FIRST_ROUND_LINE)
+    del lines[i]
+    heads = [k for k in range(i) if BLOCKERS_HEAD.match(lines[k])]
+    if heads:
+        k = heads[-1]
+        n = int(BLOCKERS_HEAD.match(lines[k]).group(1)) - 1
+        if n > 0:
+            lines[k] = f"収束を妨げるもの {n} 件:"
+        else:
+            del lines[k]
+    return {**v, "out": "\n".join(lines)}
 UNIT_ROW_HEADS = ("[block] 未解消", "[suggest] do-now 未対応")   # 写しの検証器の blockers が単位の行に付ける頭
 EYES = ("R1", "R2", "R3", "R4")
 VALIDATOR_WHERE = "検証器の阻害"   # residue の行の where（次の run の依頼にも同じ字で渡す）
