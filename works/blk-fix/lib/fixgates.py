@@ -268,12 +268,11 @@ def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, w
 
 def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool, ids=()) -> list[dict]:
     """ids は修正案の受け入れのテストの名指し（そのパスもテストのファイルと見る。書き換えの名指しのパスも同じ）"""
-    named = [r["id"] for r in planmarks.rewrites(b) if isinstance(r.get("id"), str)]   # テストのファイルの宣言（許しではない）
-    files = _test_files(repo, rev, tddloop.snapshot(repo), [*ids, *named])
+    permits = conflict.test_permits(b, rulings=ruled)   # テストの変更の許しの唯一の元（keep-essence の 3）
+    plan = [p["test"] for p in permits if isinstance(p.get("test"), str)]   # 修正案の名指しは id で許し、そのパスはテストのファイルの宣言
+    files = _test_files(repo, rev, tddloop.snapshot(repo), [*ids, *plan])
     if not files:
         return []
-    permits = conflict.test_permits(b, rulings=ruled)   # テストの変更の許しの唯一の元（keep-essence の 3）
-    plan = [p["test"] for p in permits if isinstance(p.get("test"), str)]   # 修正案の名指しは id で許す
     limits = [p["limit"] for p in permits if "limit" in p and "test" not in p]   # 合意と裁定の範囲（裁定は 1 回目は空）
     allowed = set(plan) | _ruled_ids(repo, rev, files, limits)
     return [_row("test_edits", i, EDITED) for i in tddloop.unnamed_edits(repo, rev, files, allowed)]
