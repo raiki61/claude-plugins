@@ -571,6 +571,8 @@ class ResidueOutcomeCase(unittest.TestCase):
         self.assertIn("fixed_needs_check", report.OUTCOMES)
         self.assertEqual(self.decide(gate(1, validator_out(*rows, FIRST_ROUND))), "fixed_needs_check")
         self.assertIn("人の確かめ", report.OUTCOME_WORDS["fixed_needs_check"])
+        # 最後のテストを走らせていない（飛ばした）run は「最後のテストまで通った」と言えないので round_limit のまま
+        self.assertEqual(self.decide(gate(1, validator_out(*rows, FIRST_ROUND)), tests=None), "round_limit")
 
     def test_unmeasured_checks_with_other_residue_is_round_limit(self):
         """測れなかった素材の行のほかに、赤のテスト・ほかの阻害・目の block が 1 つでも残れば round_limit のまま"""

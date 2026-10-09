@@ -591,7 +591,7 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
     諦めた fix_plan_item。conflict.asked）→ needs_human、関所が通らない（accepted か round_closed が偽）→ record_invalid、
     直す物が無い周 → no_fix_needed、残り（residue:
     検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が、今の周に測れていない素材の行
-    （_unmeasured_row。run の中では測れない確かめ）だけ → fixed_needs_check（直した。人の確かめが残る。利用者の声 10-09 の C3:
+    （_unmeasured_row。run の中では測れない確かめ）だけで最後のテストが走って緑 → fixed_needs_check（直した。人の確かめが残る。利用者の声 10-09 の C3:
     直しが入って緑でも「直しきれず」と呼んでいた）、ほかの残りが在る → round_limit、他 → fixed。
     **fixed・no_fix_needed は accepted と round_closed が真の時だけ、fixed はさらに残りが無い時だけ**。直す物が無い周の赤は
     直しが起こした物でないので no_fix_needed のまま冒頭 1 に出す。report_accepts が 1 を受けるのは 1 周で止める
@@ -608,8 +608,8 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
     if _no_fix(b, judged):
         return "no_fix_needed"
     left = residue(b, gate, tests=tests, eyeing=eyeing)
-    if left and all(_unmeasured_row(b, r) for r in left):
-        return "fixed_needs_check"
+    if left and all(_unmeasured_row(b, r) for r in left) and isinstance(tests, dict) and tests_word(b, tests) == "緑":
+        return "fixed_needs_check"   # 最後のテストを走らせて緑の時だけ（飛ばした run は「最後のテストまで通った」と言えない）
     if left:
         return "round_limit"
     return "fixed"
