@@ -57,7 +57,7 @@ RUN_ENV = "WORKFLOW_ID"
 MUST_ENV = "INPUTS_MUST"
 READS_LOG = "reads.jsonl"   # hook_evidence が board_dir の下に読む名前（record-read.py が書く名前）
 EVIDENCE_GLOB = "reads-*.json"   # 盤面の読んだ証拠の置き場の名の形（役ごとの証拠 evidence_name と索引 index_name の両方に当たる）
-INDEX_SUFFIX = "-block.json"     # 索引（{役: 役ごとの証拠のパス}）の名の尾。役ごとの証拠でないことの見分け（is_index）
+_INDEX_SUFFIX = "-block.json"     # 索引（{役: 役ごとの証拠のパス}）の名の尾。役ごとの証拠でないことの見分け（is_index）
 
 
 def evidence_name(role: str) -> str:
@@ -67,12 +67,12 @@ def evidence_name(role: str) -> str:
 
 def index_name(owner: str) -> str:
     """読んだ証拠を集めた側 owner が書く索引の名（{役: 役ごとの証拠のパス}。役ごとの証拠と別の名）"""
-    return f"reads-{owner}{INDEX_SUFFIX}"
+    return f"reads-{owner}{_INDEX_SUFFIX}"
 
 
 def is_index(name: str) -> bool:
     """EVIDENCE_GLOB に当たる名のうち索引（index_name）か。役ごとの証拠なら偽"""
-    return name.endswith(INDEX_SUFFIX)
+    return name.endswith(_INDEX_SUFFIX)
 
 
 # ---------------------------------------------------------------- Archon の出来事

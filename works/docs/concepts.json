@@ -89,7 +89,7 @@
    "fences": [
     {
      "what": "境の節の名",
-     "pattern": "\\bh-[a-z]+\\b",
+     "pattern": "(?a)\\bh-[a-z][a-z0-9_]*\\b",
      "allowed": [
       "darkfactory/**",
       "dev/**"
