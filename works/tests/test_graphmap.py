@@ -527,6 +527,24 @@ class InjectCase(unittest.TestCase):
             texts.add(out[-1])
         self.assertEqual(len(texts), 1)
 
+    def test_concept_map_row_appends_the_map_section(self):
+        """旗 concept-map の起動に、考えの住処の地図の節（core の concepthome.section。対象の根は盤面の inputs.cwd）を足す
+        （計画 2026-10-09-clean-whole の Task 2.7。指示書の組み立てに引数を足さず、差し込みの表の 1 行から配る）"""
+        import concepthome
+        self.start_doc([])
+        (self.board / "state.json").write_text(json.dumps({"inputs": {"cwd": str(self.tmp / "wt")}}), encoding="utf-8")
+        p = self.plan("works-node: plan-review concept-map")
+        self.assertIn("concept_map", p.fence)
+        self.assertIn("## 考えの住処の地図", self.appended(p)[0])
+        self.assertNotIn("concept_map", self.plan("works-node: plan-review").fence)
+        rows = [i.name for i in adapter.INJECTORS]
+        self.assertEqual(rows.count("concept_map"), 1)
+        self.assertIn(concepthome.MAP_NAME, self.appended(p)[0])
+
+    def test_concept_map_without_board_state_skips(self):
+        self.start_doc([])
+        self.assertIn("skipped", self.plan("works-node: plan-review concept-map").fence["concept_map"])
+
     def test_unflagged_and_tool_less(self):
         self.start_doc([])
         p = self.plan("works-node: plan")
@@ -649,8 +667,8 @@ class InjectCase(unittest.TestCase):
             adapter.inject(["--append-system-prompt", "a", "--append-system-prompt", "b"], launch, rows[:1])
 
     def test_registry_order(self):
-        self.assertEqual([i.name for i in adapter.INJECTORS], ["query_rule", "graph_map", "text_reply"])
-        self.assertEqual([i.required for i in adapter.INJECTORS], [True, False, True])
+        self.assertEqual([i.name for i in adapter.INJECTORS], ["query_rule", "graph_map", "text_reply", "concept_map"])
+        self.assertEqual([i.required for i in adapter.INJECTORS], [True, False, True, False])
 
 
 if __name__ == "__main__":

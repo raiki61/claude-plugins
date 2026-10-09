@@ -3,12 +3,12 @@
  "sources": {
   "blk-ci/blk-ci.yaml": "270bfa0f6ab706eaff76881e57164c0ac6c2e2edcc9fa6ccbc5c71b2c68dc361",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
-  "blk-eyes/blk-eyes.yaml": "277d25144f14bee888c2e1720c6b17ee518c4295646539b20cfea2346336024b",
+  "blk-eyes/blk-eyes.yaml": "0e8fe22a21be92f7aa3157e785169161a30bc46ceae988155672724165946e12",
   "blk-fix/blk-fix.yaml": "0578feecd3f9da777993d8b1390715670f1c47d921a91494be5661433fe3cc8d",
   "blk-judge/blk-judge.yaml": "7c22984c6739da1fdab9f6983ceeabf31f362c550e94c8cbe7ba3a1033ac162a",
   "blk-lens/blk-lens.yaml": "fe7f42c097083bd466fde0c424a3a77b778419b2fb026950f34df6d31f88f466",
   "blk-material/blk-material.yaml": "1683a4e544086d9d203e3d5a644e5abb9b55be2036db8d912a688e1e8ffa532c",
-  "blk-plan/blk-plan.yaml": "ca790ebf3b439ffd4f1a81c09335c7c5feafd0777ab3d4dbfa3f9401cb2a3b48",
+  "blk-plan/blk-plan.yaml": "a3d7e27faf0d654cf907c10820c0f45a5735d013cd29bd42923101868c12b328",
   "blk-pr/blk-pr.yaml": "4b4ed37065fbbe9486fed3e9849a57b90fae7fe7d55b2bddf3e4f7242637dfd8",
   "blk-premises/blk-premises.yaml": "d4f33ee6f1317d9eb9cde00edd5b7f0645bfbadfd93201246fe4dddc590a264c",
   "blk-purpose/blk-purpose.yaml": "345f5b8597d89cc64e9a897ce2f67f0667a9fd4fea32e916286402f3283e7865",
@@ -189,6 +189,9 @@
        "deps": [
         "r1-minimality-prep"
        ],
+       "flags": [
+        "concept-map"
+       ],
        "id": "r1-minimality",
        "kind": "ai",
        "marker": "r1-minimality"
@@ -306,6 +309,9 @@
       {
        "deps": [
         "r3-coherence-prep"
+       ],
+       "flags": [
+        "concept-map"
        ],
        "id": "r3-coherence",
        "kind": "ai",
@@ -1647,6 +1653,7 @@
         "plan-prep"
        ],
        "flags": [
+        "concept-map",
         "map"
        ],
        "id": "plan",
@@ -1692,6 +1699,7 @@
           "plan-revise-prep"
          ],
          "flags": [
+          "concept-map",
           "map"
          ],
          "id": "plan-revise",
@@ -1741,6 +1749,9 @@
         {
          "deps": [
           "plan-review-prep"
+         ],
+         "flags": [
+          "concept-map"
          ],
          "id": "plan-review",
          "kind": "ai",

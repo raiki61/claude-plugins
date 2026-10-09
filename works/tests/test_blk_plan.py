@@ -141,8 +141,9 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(of, planblk.output_format(planblk.DESIGN_ROLE))
         self.assertEqual(node_marker.strip(of), accept.role_schema(design.NODE))
         self.assertEqual(of["description"], f"works-node: {planblk.DESIGN_ROLE} isolated")
-        marks = {"plan": "works-node: plan map", planblk.REVISE_ROLE: "works-node: plan-revise continue=plan map",
-                 "plan-review": "works-node: plan-review"}
+        marks = {"plan": "works-node: plan map concept-map",
+                 planblk.REVISE_ROLE: "works-node: plan-revise continue=plan map concept-map",
+                 "plan-review": "works-node: plan-review concept-map"}
         for role, of in got.items():
             with self.subTest(role):
                 self.assertEqual(of, planblk.output_format(role))
@@ -1433,6 +1434,23 @@ class PlanFieldsCase(unittest.TestCase):
             self.assertIn(w, text)
 
 
+class ConceptRuleCase(unittest.TestCase):
+    """修正案と事前審査の頭に判断の 1 軸と考えの住処の観点（core の concepthome）が載り、考えの地図の節は包みの差し込みの表が
+    旗 concept-map の起動に配る（計画 2026-10-09-clean-whole の Task 2.7）"""
+
+    def test_plan_head_has_concept_rule(self):
+        import concepthome
+        self.assertIn(concepthome.PLAN_RULE, planblk.HEAD["plan"])
+        self.assertIn(concepthome.REVIEW_ASK, planblk.HEAD["plan-review"])
+        self.assertNotIn(concepthome.REVIEW_ASK, planblk.HEAD["plan"])
+
+    def test_roles_carry_concept_map_flag(self):
+        for role in ("plan", "plan-review", planblk.REVISE_ROLE):
+            with self.subTest(role):
+                flags = node_marker.parse(planblk.output_format(role)["description"])["flags"]
+                self.assertIn("concept-map", flags)
+
+
 class PlanFieldsSaveCase(unittest.TestCase):
     """修正案の欄の控えの置き方: 周は包みの頭で 1 度だけ読み、盤面が案を受けた後に控えを置けなければ盤面を止める"""
 
@@ -1897,12 +1915,12 @@ class ConvergeReviseCase(unittest.TestCase):
 
     def test_revise_mark_continues_plan(self):
         of = planblk.output_format(planblk.REVISE_ROLE)
-        self.assertEqual(of["description"], "works-node: plan-revise continue=plan map")
+        self.assertEqual(of["description"], "works-node: plan-revise continue=plan map concept-map")
         self.assertEqual(node_marker.parse(of["description"])["cont"], "plan")
         bare = node_marker.strip(of)
         self.assertIn(converge.ANSWERS, bare["required"])
         self.assertEqual(converge.with_fields(planblk.REVISE_ROLE, accept.role_schema("p2.fix_plan", numbered=True)), bare)
-        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan map")   # 修正案の役は地図の旗だけ
+        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan map concept-map")   # 修正案の役は地図の旗 2 つだけ
 
 
 def two_items() -> dict:

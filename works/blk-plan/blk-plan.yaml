@@ -270,7 +270,7 @@ nodes:
           idle_timeout: 1728000000
           # planblk.output_format("plan")（写しの p2.fix_plan の schema に印 works-node: plan）を貼った物。番号の欄は番号でも返せる（tests/test_blk_plan.py が一致を見る）
           output_format:
-            description: 'works-node: plan map'
+            description: 'works-node: plan map concept-map'
             type: object
             additionalProperties: false
             required:
@@ -604,7 +604,7 @@ nodes:
                 # planblk.output_format("plan-revise")（写しの p2.fix_plan の schema に、返した block への答えの欄 block_answers
                 # （converge.with_fields）と印 works-node: plan-revise continue=plan を足した物）を貼った物
                 output_format:
-                  description: 'works-node: plan-revise continue=plan map'
+                  description: 'works-node: plan-revise continue=plan map concept-map'
                   type: object
                   additionalProperties: false
                   required:
@@ -742,7 +742,7 @@ nodes:
                 # resolved（前の往復の block のうち消えた key）・束ね役の任意の欄 items（項目ごとの判定の要約。当たりの答えと
                 # 相乗りは下請けの答えのファイルから受け付けがまとめる）（converge.with_fields）を足した物）を貼った物
                 output_format:
-                  description: 'works-node: plan-review'
+                  description: 'works-node: plan-review concept-map'
                   type: object
                   additionalProperties: false
                   required:

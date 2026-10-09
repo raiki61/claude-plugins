@@ -68,6 +68,7 @@ import accept  # noqa: E402
 import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。事前審査の下請けの答えのファイルの置き場）
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import carry  # noqa: E402
+import concepthome  # noqa: E402  （L1。判断の 1 軸と考えの住処の観点の文）
 import converge  # noqa: E402
 import design  # noqa: E402
 from engine import pointers  # noqa: E402  （board が写しの engine を sys.path に足す）
@@ -93,6 +94,7 @@ READS_LOOP = {"plan": "plan-loop", "plan-review": "converge-loop.plan-review-loo
               REVISE_ROLE: "converge-loop.plan-revise-loop"}   # 役 → 出来事の節の名の輪（入れ子の輪は <外>.<中>）
 ISOLATED_FLAG = "isolated"  # 道具ゼロの役の印の旗（包みが Git の外の置き場で起こす）
 MAP_FLAG = "map"            # 工程の地図の旗（包みが system prompt に全体のグラフとこの会話の居場所を足す。修正案の役の会話の節に付ける）
+CONCEPT_FLAG = "concept-map"   # 考えの住処の地図の旗（包みが system prompt に地図の節を足す。修正案・事前審査の役に付ける）
 STOP_BY = "works:plan"
 GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER   # 輪の max_iterations と同じ数（tests/test_blk_plan.py が YAML と突き合わせる）
 READS_INDEX = reads.index_name("plan")
@@ -218,11 +220,11 @@ HANDOFF_REVIEW = ("人に回す物は人の口で挙げよ: 穴の直しの一�
 HEAD = {
     "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
              "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"
-             "\n\n" + planmarks.HEAD + "\n\n" + ITEMS_RULE + "\n\n" + REUSE_RULE),
+             "\n\n" + planmarks.HEAD + "\n\n" + ITEMS_RULE + "\n\n" + REUSE_RULE + "\n\n" + concepthome.PLAN_RULE),
     "plan-review": ("お前は修正案の事前審査の役（読むだけ。判定をした役とは別の目）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch と、"
                     "項目ごとの下請けを起こす Agent と、下請けが答えのファイル（盤面の外の run ごとの置き場）を書く Write だけで、作業ツリーを"
                     " 1 文字も変えてはいけない（受け付けは起こす前の作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の"
-                    " JSON Schema に合う JSON だけを返せ。\n\n" + REUSE_REVIEW + "\n\n" + HANDOFF_REVIEW),
+                    " JSON Schema に合う JSON だけを返せ。\n\n" + REUSE_REVIEW + "\n\n" + HANDOFF_REVIEW + "\n\n" + concepthome.REVIEW_ASK),
 }
 
 
@@ -251,13 +253,14 @@ def output_format(role: str) -> dict:
     prep が番号の一覧を貼って控えを固める（mark_launched(pointers=)）ので、番号の欄は番号でも返せる型に開く。
     独立設計の役は番号の欄を持たず、道具ゼロの旗 isolated を付ける。直しの役は修正案の印の付いていない型に答えの欄
     （converge.with_fields）を足し、印に continue=plan（修正案の役の会話の続き）を付ける。修正案の役とその会話の続きの直しの役は
-    工程の地図の旗 map を持つ（包みが工程の YAML から組んだ地図を渡す。同じ会話の節は旗を揃える）"""
+    工程の地図の旗 map を持つ（包みが工程の YAML から組んだ地図を渡す。同じ会話の節は旗を揃える）。修正案・事前審査・直しの役は
+    考えの住処の地図の旗 concept-map を持つ（包みの差し込みの表が地図の節を足す。計画 2026-10-09-clean-whole の Task 2.7）"""
     if role == REVISE_ROLE:
         schema = converge.with_fields(role, accept.role_schema(NODE_OF["plan"], numbered=True))
-        return node_marker.mark(schema, role, cont="plan", flags=(MAP_FLAG,))
+        return node_marker.mark(schema, role, cont="plan", flags=(MAP_FLAG, CONCEPT_FLAG))
     if role == DESIGN_ROLE:
         return node_marker.mark(accept.role_schema(design.NODE), role, flags=(ISOLATED_FLAG,))
-    flags = (MAP_FLAG,) if role == "plan" else ()
+    flags = (MAP_FLAG, CONCEPT_FLAG) if role == "plan" else (CONCEPT_FLAG,)
     return converge.with_fields(role, node_marker.mark(accept.role_schema(role_node(role), numbered=True), role, flags=flags))
 
 
@@ -869,7 +872,8 @@ def brief_head(b, main_prompt) -> str:
     diag = (b.record.get("process") or {}).get("diagnosis") or {}
     framing = {k: diag[k] for k in ("framing", "one_shot") if k in diag}
     return "\n\n".join(x for x in (
-        BRIEF_TITLE, SUB_HEAD, gatemarks.HEAD[NODE_OF["plan-review"]], REUSE_REVIEW, HANDOFF_REVIEW, _review_rules(b, main_prompt),
+        BRIEF_TITLE, SUB_HEAD, gatemarks.HEAD[NODE_OF["plan-review"]], REUSE_REVIEW, HANDOFF_REVIEW, concepthome.REVIEW_ASK,
+        _review_rules(b, main_prompt),
         f"判定者の見立て: {json.dumps(framing, ensure_ascii=False, indent=1)}" if framing else "", design_only(b),
         SUB_FORMAT.format(schema=json.dumps(item_schema(), ensure_ascii=False))) if x)
 

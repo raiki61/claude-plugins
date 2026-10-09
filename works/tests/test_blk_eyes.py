@@ -453,6 +453,36 @@ class AnchorCase(unittest.TestCase):
         self.assertEqual(design.anchor_note("https://example.com:443/a"), f"（{design.UNANCHORED}）")
 
 
+class ConceptHeadCase(_Case):
+    """R1・R3 の指示書の頭に、判断の 1 軸と考えの住処の観点（core の concepthome.R1_HEAD・R3_HEAD）と、直しの後の実測の数
+    （structmark.after_counts）が載る。ほかの目の頭は変えない（R2 は独立の設計の目なので地図も観点も渡さない）。
+    考えの地図の節は包みの差し込みの表（旗 concept-map）が system prompt に足す（計画 2026-10-09-clean-whole の Task 2.7）"""
+
+    def test_r1_head_carries_after_counts(self):
+        import concepthome
+        import structmark
+        self.board("r1r2")
+        self.enter()
+        after = {"status": "ok", "reason": "", "base_rev": "x", "changed": ["stats.py"], "tables": [], "fence_up": [],
+                 "new_names": [], "dup_blocks_added": 2}
+        structmark.write_after(self.bd, status="ok", reason="", after=after, deviations=[])
+        _, got = self.run_eye("r1-comments", COMMENTS_OK)   # 筋の順: コメントの削除候補の後に R1 の本体が待つ
+        self.assertTrue(got["ok"], got)
+        text = eyes.prep(self.bd, "r1-minimality", self.rnd, self.repo)["prompt"]
+        head = text[text.index("## 最小の意味"):].split("\n---\n")[0]   # 役の定義の後・写しの本文の前に置く頭の節
+        self.assertIn(concepthome.AXIS, head)
+        self.assertIn("増えた写しの塊 2 個", head)
+
+    def test_heads_only_on_r1_minimality_and_r3(self):
+        import concepthome
+        self.assertEqual(set(eyes.CONCEPT_HEADS), {"r1.minimality", "r3.coherence"})
+        self.assertEqual(eyes.CONCEPT_HEADS["r3.coherence"], concepthome.R3_HEAD)
+        for nid in eyes.ROLE_OF:
+            with self.subTest(nid):
+                flags = (node_marker.parse(eyes.output_format(nid)["description"]) or {}).get("flags") or ()
+                self.assertEqual("concept-map" in flags, nid in eyes.CONCEPT_HEADS)
+
+
 class PrepCase(_Case):
     def test_prep_renders_engine_prompt_with_role_definition(self):
         self.board("r1r2")
@@ -1318,7 +1348,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(node_marker.parse(roles["r2-compare"]["output_format"]["description"])["flags"],
                          frozenset({"isolated"}))
         self.assertEqual(roles["r2-compare"]["allowed_tools"], ["Read"])   # 累積差分のファイルだけを読む（run d7b7a712）
-        self.assertEqual(node_marker.parse(roles["r3-coherence"]["output_format"]["description"])["flags"], frozenset())
+        self.assertEqual(node_marker.parse(roles["r3-coherence"]["output_format"]["description"])["flags"], frozenset({"concept-map"}))
 
     def test_lanes_in_yaml(self):
         """筋ごとに route → 輪 を縦に並べ、筋の頭の route は入口と、その筋が待つ筋（eyes.LANE_AFTER）の最後の route・輪の後。

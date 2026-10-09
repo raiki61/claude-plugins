@@ -48,11 +48,13 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
 from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
+import concepthome  # noqa: E402  （L1。判断の 1 軸と考えの住処の観点の文）
 import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
+import structmark  # noqa: E402  （直しの後の実測の数）
 
 ENTRY_NODE = "p4.assemble"
 GATE_NODE = "r4.human_gate"
@@ -83,6 +85,10 @@ GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ�
 # 省き、諦めた時は今どおり出口が盤面を止める
 GIVE_UP_SKIPS = frozenset({"r1.comment_candidates"})
 REJECT_HEADING = rolekit.REJECT_HEADING
+# R1・R3 の頭の観点（core の concepthome。{section} に直しの後の実測の数を入れる）と旗 concept-map（包みが地図の節を足す）
+CONCEPT_HEADS = {"r1.minimality": concepthome.R1_HEAD, "r3.coherence": concepthome.R3_HEAD}
+CONCEPT_FLAG = "concept-map"
+NO_AFTER = "直しの後の実測: 控えが無い（測っていない run）"
 R4_NODE = "r4.hidden_scope"   # 直す前の関所で人が通した狭まりを頭に貼る目（gatemarks.carried_section）
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
 PREMISE_HEAD = "## 独立設計を作った後に分かった前提（機械が貼った）"
@@ -164,7 +170,8 @@ def allowed_tools(nid: str) -> list:
 
 def output_format(nid: str) -> dict:
     """役の output_format: 写しの schema（accept.role_schema）に印 works-node: <役>[ isolated]"""
-    return node_marker.mark(_accept.role_schema(nid), ROLE_OF[nid], flags=(ISOLATED_FLAG,) if isolated(nid) else ())
+    flags = ((ISOLATED_FLAG,) if isolated(nid) else ()) + ((CONCEPT_FLAG,) if nid in CONCEPT_HEADS else ())
+    return node_marker.mark(_accept.role_schema(nid), ROLE_OF[nid], flags=flags)
 
 
 # ---------------------------------------------------------------- 盤面
@@ -411,6 +418,9 @@ def prep(board_dir, role, rnd, repo) -> dict:
             prompt = f"{diff_head}\n\n---\n\n{prompt}"
         elif nid == R4_NODE and (carried := gatemarks.carried_section(b)):
             prompt = f"{carried}\n\n---\n\n{prompt}"
+        elif nid in CONCEPT_HEADS:   # 最小の読み替えと考えの住処の観点、直しの後の実測の数（地図の節は包みの差し込みの表）
+            head = CONCEPT_HEADS[nid].format(section=structmark.after_counts(b.dir) or NO_AFTER)
+            prompt = f"{head}\n\n---\n\n{prompt}"
         prompt, def_file, missing = rolekit.with_role_definition(b, nid, prompt)
         last = _rejects(b, rnd, nid)[-1:]
         if last:   # 拒否の文は本文に入れて渡す
