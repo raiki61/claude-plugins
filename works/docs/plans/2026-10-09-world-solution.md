@@ -225,8 +225,9 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 - `normalize(body: bytes | str) -> str`（HTML の札を外し、NFKC・空白の詰め・大小を揃える）
 - `verify(excerpts: list[dict], fetched: set[str], get) -> dict`（`{kept: [...], dropped: [{url, why}], offline: bool}`。抜き書きは 20 字以上。役が取得していない URL・取り直せない URL・本文に無い抜き書きは落とす。全部の取り直しが網に届かなければ `offline` を真）
 
-- [ ] 赤: `test_excerpt_found_in_body_is_kept`・`test_paraphrase_is_dropped`・`test_url_not_fetched_by_role_is_dropped`・`test_query_with_target_identifier_is_refused`・`test_all_fetch_errors_mark_offline`
-- [ ] 入れる・緑・commit（`feat(works): 世界の解の抜き書きを機械が取り直した本文で照らし、対象の名の入った問いを拒む`）
+- [x] 赤: `test_excerpt_found_in_body_is_kept`・`test_paraphrase_is_dropped`・`test_url_not_fetched_by_role_is_dropped`・`test_query_with_target_identifier_is_refused`・`test_all_fetch_errors_mark_offline`
+- [x] 入れる・緑・commit（`feat(works): 世界の解の抜き書きを機械が取り直した本文で照らし、対象の名の入った問いを拒む`）
+- 入れた形（2026-10-10）: 識別子と見るのは識別子の形の語（_ . / - か数字を含む・小文字の後に大文字。3 字以上）・パスの最後の段・バッククォートの字。普通の語（作業の名・略語・フォルダの名）は数えない。残った抜き書きの id は `x<n>`
 
 ### W4: 世界の解の行の住処 worldmark
 
@@ -241,8 +242,9 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 - `world_ok(answer: dict | None, row: dict, own_sources: set[str], cite_ok) -> tuple[bool, str]`（5.3 節の 6 の決まり）
 - `gate_line(row: dict, answer: dict) -> str`・`report_lines(board_dir) -> list[str]`
 
-- [ ] 赤: `test_section_marks_knowledge_rows`・`test_unit_note_only_overlapping_rows`・`test_required_by_path_overlap`・`test_unanswered_applies_row`・`test_world_ok_follow`・`test_world_ok_deviation_cited_to_request_is_false`・`test_world_ok_deviation_cited_elsewhere_is_true`
-- [ ] 入れる・緑・commit（`feat(works): 世界の解の行の住処 worldmark を core に置く`）
+- [x] 赤: `test_section_marks_knowledge_rows`・`test_unit_note_only_overlapping_rows`・`test_required_by_path_overlap`・`test_unanswered_applies_row`・`test_world_ok_follow`・`test_world_ok_deviation_cited_to_request_is_false`・`test_world_ok_deviation_cited_elsewhere_is_true`
+- [x] 入れる・緑・commit（`feat(works): 世界の解の行の住処 worldmark を core に置く`）
+- 入れた形（2026-10-10）: `required(rows, item, inside)`・`unanswered(rows, items)`。項目の範囲の当て方 `inside` は呼び手が `planrange.inside` を渡す（worldmark が planrange を import すると planrange → conflict → gatemarks の鎖で、W9 の gatemarks → worldmark と輪になる）。答えの要る行は `applies` が空でない行（`needs`）。場所の字のパスの口 `where_paths` を足した。行に `where`（依頼の行の字のまま）と `cached` を持つ。控えは段の時間を持たない（考え `ledger` の散らばりを増やさない。時間は流れの道具の出来事から作る）
 
 ### W5: ブロック blk-world
 
@@ -252,8 +254,9 @@ wip/phase2-loop が合わさる（段 2 の Task 2.2〜2.4。2.6 は W9 の前�
 - Consumes: W1 の `Store`・`http_get`、W2 の `web_fetches`、W3 の全部、W4 の `WORLD_FILE`・`STATE_FILE`・行の型
 - Produces: ブロックの入力 `request`・`purpose_file`（任意）・`cache_root`（任意）と出口 `world_file`・`state`（`{status, reason, wall_s, classes, cached, skipped, dropped}`）
 
-- [ ] 赤: `test_inputs_described_by_shape`（他のブロックの名を書かない。`tests/blockblind.py` の柵）・`test_every_finding_needs_a_class`・`test_wording_needs_doc_only_where`・`test_cache_hit_skips_collect`・`test_differs_needs_challenge`・`test_knowledge_rows_not_cached`と、4 つの筋書きの模擬実行。指示書 3 本に言語・道具の名が無いことは、計画 clean-whole の Task 3.8 の柵（考え `lang-names`）が見る所に `blk-world/commands` を入れて縛る（柵がまだ無ければ Task 3.8 と一緒に入れる。試験の中に別の語の表を持たない）
-- [ ] 入れる・緑（模擬実行は CI）・commit（`feat(works): 世界の解のブロック blk-world（問題の類に言い直し、定石を集めて照らし、依頼の解き方と比べる）`）
+- [x] 赤: `test_inputs_described_by_shape`（他のブロックの名を書かない。`tests/blockblind.py` の柵）・`test_every_finding_needs_a_class`・`test_wording_needs_doc_only_where`・`test_cache_hit_skips_collect`・`test_differs_needs_challenge`・`test_knowledge_rows_not_cached`と、4 つの筋書きの模擬実行。指示書 3 本に言語・道具の名が無いことは、計画 clean-whole の Task 3.8 の柵（考え `lang-names`）が見る所に `blk-world/commands` を入れて縛る（柵がまだ無ければ Task 3.8 と一緒に入れる。試験の中に別の語の表を持たない）
+- [x] 入れる・緑（模擬実行は CI）・commit（`feat(works): 世界の解のブロック blk-world（問題の類に言い直し、定石を集めて照らし、依頼の解き方と比べる）`）
+- 入れた形（2026-10-10）: 言い直す役と判断する役は道具ゼロ・旗 isolated の blind-judge（独立設計と同じ隔て。模型と effort は前付けの opus・high）で、依頼の行・目的の文・控えの類・抜き書きは支度の節（`classes_prep`・`judge_prep`）が貼る。表 stage-models には集める役 `blk-world/world-collect`（light）だけを足した。中身は `blk-world/lib/worldblk.py`。入力に web の切り替え `web`（on・off）を足した。出口は平の欄 {ok, world_file, status, reason, classes, cached, skipped, dropped}（段の時間は持たない）。core に `webget.Store.names`・`reads.top_here`・`impact.is_doc` を足した。柵 `lang-names`（計画 clean-whole の Task 3.8）を同じ commit で入れた。AI の段を持つ YAML が 1 本増えるので、考え `ai-launch` の数の歯止めが main より増える（持ち主の判断待ち）
 
 ### W6: 目的の役が依頼の解き方を分ける
 
