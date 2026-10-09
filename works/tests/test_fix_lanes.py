@@ -134,7 +134,7 @@ class TestFork(LaneBoard):
             self.assertEqual(st["items"][0]["units"], [key])
             rules = pathlib.Path(st["items"][0]["rules"]).read_text(encoding="utf-8")
             for w in ("修正役の並べの枝（機械が書いた", str(tree), key, "審査の下請け", st["items"][0]["review"],
-                      "借りたスキルの座（修正の形 g3）", "## 修正ごとに書くこと"):
+                      "## 借りたスキルの座", "## 修正ごとに書くこと"):
                 self.assertIn(w, rules)
             self.assertNotIn(CLAMP if key == MEAN else MEAN, rules.split("## 修正役の並べの枝")[1].split("## 修正ごとに")[0],
                              "枝の節はこの項目の単位だけを名指す")
