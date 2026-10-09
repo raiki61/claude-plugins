@@ -18,7 +18,7 @@
 | `lane_nodes()` / `lane_nodes()` | `lanekit.node_names(pattern)` |
 | `groups(queue, items)` / `groups(rows)` | `lanekit.groups(rows)` |
 | `_lane_state` の実行器の読み替え / `_tests_state` の同じ物 | `lanekit.relocate(path, repo, tree)` |
-| `fork` の空の出口の手組み / `lanekit.fork_out([])` | `lanekit.fork_out([])` |
+| `fork` の空の出口の手組みと空の目録の誤りの文 / `lanekit.fork_out([])` | `lanekit.fork_out(ns, empty_ok=...)` |
 | `_tree_ok(row)` / `_tree_ok(lst)` | `lanekit.tree_ok(row)`（行の `tree`・`git` を読む形に） |
 | `_apply_lanes`＋`_merge` の順の当て / `join` の中の同じ輪 | `lanekit.merge_in_order(lanes, merge_one)` |
 | `JOINED`・`MERGED`・`BACK` / 同じ 3 語 | `lanekit.JOINED`・`MERGED`・`BACK`（段は別名で持つ） |
@@ -46,3 +46,8 @@
 
 - 修正役の締めで git が効かない枝: `merge_one` の中で受け止めて戻す（前と同じ。TDD の段は前どおり受け止めない）
 - 段の `groups` の入力の形の違い（TDD は単位 → 項目、修正役は項目 → 単位）: どちらも `(id, タグ)` の並びに直して渡す
+
+## 残したこと
+
+- 実行器のパスを別の木へ読み替える同じ式が `blk-fix/lib/tddloop.py`（版の写し）と `blk-fix/lib/fixgates.py`（受け付けの木）にも在る。並べの枝の仕組みではない（枝でない木）ので柵の外に置いた。`relocate` を `tddloop` か `unittrees` に下ろして 3 か所で使う形は別の直し
+- `blk-fix/lib/fixrules.py` の `lanes_merged`・`overlap_line` が締めの結末の語 `merged` を字で読む（lanekit を import すると輪になる）。柵の表の既知の漏れに理由つきで置いた

@@ -14,7 +14,8 @@ TDD の輪の並べ（tddlanes。docs/plans/2026-10-07-lane-nodes.md）と修正
 - JOINED・MERGED・BACK: 締めの出口を残す欄の名と、締めた後の結末の語（当てた・順に戻した）
 - groups(rows): [(id, タグの並び)] をタグを共にする物どうしの組に（つながりは推移的。組の中と組の並びは rows の順。純粋）
 - relocate(path, repo, tree): run の作業ツリーの中のパス（実行器など）を単位の worktree の同じ所へ（外ならそのまま）
-- fork_out(ns): 節 <段>-fork の出口 {go, lanes, lane_1..lane_<MAX_LANES>}（ns は切った枝の番号。1..k の連番でなければ ValueError）
+- fork_out(ns, empty_ok=True): 節 <段>-fork の出口 {go, lanes, lane_1..lane_<MAX_LANES>}（ns は切った枝の番号。1..k の連番でなければ、
+  empty_ok が偽で空でも ValueError）
 - plant(repo, ns, place, manifest, union=()): 前の単位の worktree を片付け、run の作業ツリーの今の姿を base に枝ごとの単位の
   worktree（place/item-<n>）を切る（unitlanes.plant）。{n: {tree, git, base}}
 - tree_ok(row): 行の単位の worktree（tree）の `.git` の 1 行が切った時（git）と同じなら空、違えば理由（役が指しを書き換えた枝は当てない）
@@ -104,10 +105,10 @@ def relocate(path, repo, tree) -> pathlib.Path:
         return path
 
 
-def fork_out(ns) -> dict:
+def fork_out(ns, empty_ok: bool = True) -> dict:
     """節 <段>-fork の出口（頭の注記）"""
     ns = list(ns)
-    if ns != list(range(1, len(ns) + 1)) or len(ns) > MAX_LANES:
+    if ns != list(range(1, len(ns) + 1)) or len(ns) > MAX_LANES or not (ns or empty_ok):
         raise ValueError(f"枝の番号が 1..{MAX_LANES} の連番でない（{ns}）")
     return {"go": bool(ns), "lanes": len(ns), **{f"lane_{n}": n in ns for n in range(1, MAX_LANES + 1)}}
 

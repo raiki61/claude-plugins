@@ -117,6 +117,12 @@ class ForkOut(unittest.TestCase):
     def test_empty_matches_stage_fork(self):
         self.assertEqual(tddlanes.fork(""), lanekit.fork_out([]))
 
+    def test_empty_refused_when_asked(self):
+        """切った枝の在るはずの周（TDD の段が lanes）は空の目録を拒む。文は連番でない時と同じ 1 つ"""
+        with self.assertRaisesRegex(ValueError, r"枝の番号が 1\.\.\d+ の連番でない（\[\]）"):
+            lanekit.fork_out([], empty_ok=False)
+        self.assertEqual(lanekit.fork_out([1], empty_ok=False)["go"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

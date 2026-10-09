@@ -203,9 +203,7 @@ def fork(state_file) -> dict:
     rows = (st.get("lanes") or {}).get("rows") or []
     ns = [r.get("n") for r in rows]
     try:
-        if not rows:
-            raise ValueError(f"枝の番号が 1..{MAX_LANES} の連番でない（{ns}）")
-        return lanekit.fork_out(ns)
+        return lanekit.fork_out(ns, empty_ok=False)
     except ValueError as e:
         raise tddloop.Broken(f"並べの目録の{e}") from None
 

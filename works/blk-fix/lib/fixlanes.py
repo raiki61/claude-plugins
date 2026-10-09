@@ -556,6 +556,7 @@ def join(board_dir, repo, try_query=None) -> dict:
                 back[i] = {"why": broken, "lane": n}
         elif acc:
             ready.append((row, lst, acc))
+
     def merge_one(lane, earlier):
         row, lst, _ = lane
         try:

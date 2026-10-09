@@ -399,13 +399,18 @@
    "status": "住処あり",
    "fences": [
     {
-     "what": "並べの枝の仕組み（分け方の union-find・枝の数の輪・節の出口の鍵・単位の worktree の .git の 1 行・枝の数の値・住処の口の定義）",
-     "pattern": "parent\\[parent\\[|range\\(1, *(lanekit\\.)?MAX_LANES *\\+ *1\\)|lane_\\{n\\}\"|\\b_git_line\\(|\\bMAX_LANES *= *[0-9]|\\bdef (node_names|merge_in_order|relocate|tree_ok|fork_out|revert_strays)\\(",
+     "what": "並べの枝の仕組み（分け方の union-find・枝の数の輪・節の出口の鍵・単位の worktree の .git の 1 行・枝の数の値・順に当てる輪・締めの語・住処の口の定義とその包み）",
+     "pattern": "parent\\[parent\\[|range\\(1, *(lanekit\\.)?MAX_LANES *\\+ *1\\)|lane_\\{n\\}\"|\\b_git_line\\(|\\bMAX_LANES *= *[0-9]|earlier \\|= set\\(|\"(serial|joined)\"|outcome\"\\) == \"merged\"|\\bdef _?(node_names|merge_in_order|relocate|tree_ok|fork_out|revert_strays)\\(",
      "allowed": [
       "blk-fix/lib/lanekit.py",
       "blk-fix/lib/unitlanes.py"
      ],
-     "known": {}
+     "known": {
+      "blk-fix/lib/fixrules.py": [
+       2,
+       "修正役の並べの締めの結末（LANES_RECORD）を読む lanes_merged・overlap_line が、当てた項目の語 merged を字で持つ（lanekit を import すると fixrules → lanekit → tddloop → fixrules の輪になる）"
+      ]
+     }
     }
    ]
   },
