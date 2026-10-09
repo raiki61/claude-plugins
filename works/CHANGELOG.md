@@ -15,13 +15,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - ブロックが読まない入力と、ラインがそれを渡す配線を消した（2026-10-09 の整理）: `base_rev`（`blk-material`・`blk-eyes`・`blk-ci`・`blk-rejudge`・`blk-plan`）、`policy_paste`（`blk-rejudge`・`blk-plan`）、`judgment_file`・`policy_path`（`blk-plan`）。どれも「ラインの口を揃える。読まない」と書いてあった入力で、版も方針も判定も盤面が持つ。素材集め（`gathering`）へ目的の文のファイル `purpose_file` を渡す配線も消した（このラインは目的の節 `p0.purpose` を盤面で持つので、ブロックは渡された物を読まなかった。ブロックの入力そのものは目的の節の無いライン向けに残し、説明をほかのブロックの名でなく形で書いた）。境の節の出口から、それを運ぶだけだった欄 `purpose_file` も消した。ブロックの YAML と指示書のどこにも `$INPUTS.<名>` で使われない入力を赤にする試験を足した。
 - 独立の目のブロック `blk-eyes` の出口から、読み手の無い 14 欄（`complete`・`asking`・`stopped`・`eyes`・`gave_up`・`after_fix`・`open_units`・`r1_refire`・`r2_refire`・`purpose_known`・`purpose_unusable`・`premise`・`retaken_for_reviews`・`exit_file`）と、それを運ぶだけだった入口の控え `eyes-enter.json` を消した（2026-10-09 の整理）。残るのは機械の報告が読む `ok`・`reason`・`reviews` と、最後の関所の文が `eyes-exit.json` から読む `premise_inputs`。素材集めのブロック `blk-material` の出口からも、読み手の無い `ran`・`skipped`・`materials`・`snapshot`・`exit_file` と控え `material-exit.json` を消した（残るのは `ok`・`reason`）。
 - 前提の実測の役の指示書（`blk-premises/commands/premises.md`）の末尾の「本線の指示書」の節（graphloops a1202d0 の `p0.premises.md` の字のままの引用）を消した（2026-10-09 の整理）。中身は手順 3・5 に書き下してあり、同じ決まりと実例を 2 度読ませていた。
-- 人の方針の文書が無い run では、役の指示書に方針の段落（「## 人の方針」の見出しと「方針が在るなら…」の決まりの文。graph の `prompt_append` の `policy-paste.md`・`policy-path.md`・`policy.md`）を貼らないようにした（2026-10-09 の整理）。これまでは中身が「（この周には無い）」の段落を毎回貼っていた（実測: 131 本の指示書のどれも空）。方針の文書が在る run は今までどおり貼る。engine の描き方と違うのはここだけ（`.shared/core/rolekit.py` の `POLICY_PARTS`）。
-
 - ラインの模块 `darkfactory/lib/plan.py`（関所の文を組む `gate_text` を `gatemarks.gate_text` へ渡すだけの 29 行。呼び手は境の節の `line_edge` だけ）を消し、`gate_text` を `line_edge` に移した（2026-10-09 の整理）。関所の文は変わらない。
 
 ### Changed
 
 - 線 B（周を重ねる入口 `darkfactory-rounds`）と線 C（変異の検算 mutgate）を「これから入れる」と書いていた所を、今の姿（棚上げ 2026-10-09。作るかは別に決める）に直した（2026-10-09 の整理）。目的の役の指示書（`blk-purpose/commands/purpose.md`）は「works では目的の審査はまだ無い・線 B が持つ」と役に告げていたが、目的の審査 `p0.purpose_review` はラインで回っているので、その文を消した（目的を縮めない・要件を落とさないの決まりはそのまま）。ほかに `blk-purpose.yaml` の説明・README の「仕様」と「足りない所」・節の表 `nodes.json` の `comes_with`（報告の「このラインに無い節」の「入る時」に出る）・独立の目の `blk-eyes.yaml` の「まだ配線しない」・`docs/gl-map.md` を直し、線 B の設計と計画の頭に棚上げの印を足した（本文は書き直さない）。
+- 人の方針の文書が無い run では、役の指示書に方針の段落（「## 人の方針」の見出しと「方針が在るなら…」の決まりの文。graph の `prompt_append` の `policy-paste.md`・`policy-path.md`・`policy.md`）を貼らないようにした（2026-10-09 の整理）。これまでは中身が「（この周には無い）」の段落を毎回貼っていた（実測: 131 本の指示書のどれも空）。方針の文書が在る run は今までどおり貼る。engine の描き方と違うのはここだけ（`.shared/core/rolekit.py` の `POLICY_PARTS`）。
 
 ## [0.2.51] - 2026-10-09
 
