@@ -87,7 +87,9 @@ FILE = "conflicts.json"                 # 盤面の今の周の作業ファイ�
 RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）。今の scope の周の置き場（2 回目の修正の段は 1 回目と分かれる）
 PARKED_REPLY = "fix-parked-reply.json"  # 申し出を返した回の修正役の返答（裁定の後の出し直しで読む）。同じく今の scope の周の置き場
 KIND_FIELD = "kind"                      # 申し出の種類の欄（食い違いの起きた場面。which_is_right とは別の軸）
-FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right", KIND_FIELD)
+WHY_FIELD = "why_both_cannot_hold"       # 申し出の理由の欄（なぜ両方は同時に成り立たないか）
+WHICH_FIELD = "which_is_right"           # 正しいと見た側の欄（WHICH のどれか）
+FIELDS = ("unit_key", "between", WHY_FIELD, WHICH_FIELD, KIND_FIELD)
 CORRECT = "correct_lines"               # which_is_right: query の時だけ要る欄（直した後の正しい行の写し）
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
 REPLACE = "replace_query"               # 問いを置き換える裁定（新しい問いを hits・misses と申し出の correct_lines で試す）
@@ -163,8 +165,8 @@ ITEM_SCHEMA = {
     "properties": {
         "unit_key": {"type": "string", "minLength": 1},
         "between": {"type": "array", "minItems": MIN_CITES, "items": {"type": "string", "minLength": 3}},
-        "why_both_cannot_hold": {"type": "string", "minLength": MIN_WHY},
-        "which_is_right": {"type": "string", "enum": list(WHICH)},
+        WHY_FIELD: {"type": "string", "minLength": MIN_WHY},
+        WHICH_FIELD: {"type": "string", "enum": list(WHICH)},
         KIND_FIELD: {"type": "string", "enum": list(DIV_KINDS)},
         CORRECT: {"type": "array", "minItems": 1, "maxItems": MAX_LINES, "items": {"type": "string", "minLength": 1}},
     },
@@ -276,11 +278,11 @@ def _correct_problem(it, try_query) -> str:
     """which_is_right: query の申し出の correct_lines の確かめ（通れば空）。try_query(unit_key, lines) が渡れば、判定者の問いを
     その行に当てた結果の文（当たれば空）を足す"""
     lines = it.get(CORRECT)
-    if it["which_is_right"] != QUERY:
-        return f"{CORRECT} は which_is_right が {QUERY} の時だけ書く" if CORRECT in it else ""
+    if it[WHICH_FIELD] != QUERY:
+        return f"{CORRECT} は {WHICH_FIELD} が {QUERY} の時だけ書く" if CORRECT in it else ""
     if not isinstance(lines, list) or not lines or len(lines) > MAX_LINES \
             or not all(isinstance(x, str) and x.strip() for x in lines):
-        return (f"which_is_right が {QUERY} なら {CORRECT} に、判定者の問いが当たってしまう直した後の正しい行を 1〜{MAX_LINES} 行"
+        return (f"{WHICH_FIELD} が {QUERY} なら {CORRECT} に、判定者の問いが当たってしまう直した後の正しい行を 1〜{MAX_LINES} 行"
                 "写す（機械が問いを当てて確かめる）")
     return try_query(it["unit_key"], lines) if try_query else ""
 
@@ -289,14 +291,14 @@ def _kind_problem(it, at) -> str:
     """種類の欄 kind の確かめ（通れば空。外れなら at を頭に入れた仕上がりの文）: DIV_KINDS のどれかで、query_hits_fixed ⇔
     which_is_right query、needs_context なら which_is_right unknown。外れの文は両方の欄を名指す（修正役の受け付けと TDD の輪が
     同じ文を返す）"""
-    kind, which = it.get(KIND_FIELD), it.get("which_is_right")
+    kind, which = it.get(KIND_FIELD), it.get(WHICH_FIELD)
     if kind not in DIV_KINDS:
         return f"{at} の {KIND_FIELD} は {' / '.join(DIV_KINDS)} のどれか（{kind!r}）"
     if (kind == QUERY_HITS_FIXED) != (which == QUERY):
-        return (f"{at}: {KIND_FIELD} {QUERY_HITS_FIXED} と which_is_right {QUERY} は対で書く"
-                f"（{KIND_FIELD} {kind}・which_is_right {which}）")
+        return (f"{at}: {KIND_FIELD} {QUERY_HITS_FIXED} と {WHICH_FIELD} {QUERY} は対で書く"
+                f"（{KIND_FIELD} {kind}・{WHICH_FIELD} {which}）")
     if kind == NEEDS_CONTEXT and which != UNKNOWN:
-        return f"{at}: {KIND_FIELD} {NEEDS_CONTEXT} の which_is_right は {UNKNOWN}（{KIND_FIELD} {kind}・which_is_right {which}）"
+        return f"{at}: {KIND_FIELD} {NEEDS_CONTEXT} の {WHICH_FIELD} は {UNKNOWN}（{KIND_FIELD} {kind}・{WHICH_FIELD} {which}）"
     return ""
 
 
@@ -351,7 +353,7 @@ def _entry_problems(i, it, repo, roots, owed, seen, try_query, briefs) -> tuple:
     """申し出 1 件の (読めた unit_key か None, 文の並び)。seen は今までの申し出の owed の key（2 度申し出た検査）"""
     at = f"食い違い[{i}]"
     if not isinstance(it, dict) or set(it) - {*FIELDS, CORRECT} or any(k not in it for k in FIELDS):
-        return None, [f"{at} の欄は {list(FIELDS)}（which_is_right が {QUERY} の時は {CORRECT} も）"]
+        return None, [f"{at} の欄は {list(FIELDS)}（{WHICH_FIELD} が {QUERY} の時は {CORRECT} も）"]
     out, k = [], it["unit_key"]
     if k not in owed:
         out.append(f"{at} の unit_key {k!r} は今の直す義務の単位に無い（貼られた単位の key を一字も変えずに写す）")
@@ -359,10 +361,10 @@ def _entry_problems(i, it, repo, roots, owed, seen, try_query, briefs) -> tuple:
         out.append(f"{at} の unit_key {k!r} を 2 度申し出た（1 単位 1 件。名指しを between に並べる）")
     seen.add(k)
     key = k if isinstance(k, str) and k in owed else None
-    if not isinstance(it["why_both_cannot_hold"], str) or len(it["why_both_cannot_hold"].strip()) < MIN_WHY:
-        out.append(f"{at} の why_both_cannot_hold が {MIN_WHY} 字に足りない（なぜ両方は同時に成り立たないか）")
-    if it["which_is_right"] not in WHICH:
-        out.append(f"{at} の which_is_right は {' / '.join(WHICH)} のどれか（{it['which_is_right']!r}）")
+    if not isinstance(it[WHY_FIELD], str) or len(it[WHY_FIELD].strip()) < MIN_WHY:
+        out.append(f"{at} の {WHY_FIELD} が {MIN_WHY} 字に足りない（なぜ両方は同時に成り立たないか）")
+    if it[WHICH_FIELD] not in WHICH:
+        out.append(f"{at} の {WHICH_FIELD} は {' / '.join(WHICH)} のどれか（{it[WHICH_FIELD]!r}）")
     else:
         bad = _correct_problem(it, try_query)
         if bad:
@@ -570,7 +572,7 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
                "status": "ruled" if ruling else "parked", "ruling": ruling}
         doc["items"].append(row)
         ids.append(row["id"])
-        b.trace(PARK_OP, id=row["id"], unit_key=row["unit_key"], source=source, which_is_right=row["which_is_right"],
+        b.trace(PARK_OP, id=row["id"], unit_key=row["unit_key"], source=source, which_is_right=row[WHICH_FIELD],
                 kind=row.get(KIND_FIELD), between=row["between"], ruled=bool(ruling))
     _save(b, doc)
     return ids
@@ -647,7 +649,7 @@ def write_rulings(b) -> pathlib.Path:
                   *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),
                   *([f"- 申し出の正しい行: {json.dumps(r[CORRECT], ensure_ascii=False)}"] if r.get(CORRECT) else []),
                   f"- 申し出の名指し: {', '.join(r['between'])}",
-                  f"- 申し出の理由: {r['why_both_cannot_hold']}（正しいと見た側: {r['which_is_right']}）",
+                  f"- 申し出の理由: {r[WHY_FIELD]}（正しいと見た側: {r[WHICH_FIELD]}）",
                   f"- 申し出の種類: {r.get(KIND_FIELD) or '（無し）'}", ""]
     parked = b.work(PARKED_REPLY)
     if parked.is_file():
@@ -938,7 +940,7 @@ def human_lines(b) -> list:
     """最後の関所と報告に載せる ask_human の行（1 件 1 行。asked の行で、諦めた fix_plan_item も。裁定の文は字のまま。
     REPLAN_WHY が在れば末尾の括弧に「・案の直し: <why>・<HELD_WORK_KEPT>」）"""
     return [f"{r['unit_key']}: {r['ruling']['text']}（名指し {', '.join(r['between'])}・種類 {r.get(KIND_FIELD) or '無し'}・"
-            f"正しいと見た側 {r['which_is_right']}・"
+            f"正しいと見た側 {r[WHICH_FIELD]}・"
             + (f"依頼で探したこと {r['ruling']['request_searched']}・" if r["ruling"].get("request_searched") else "")
             + f"{r['id']}"
             + (f"・案の直し: {r[REPLAN_WHY]}・{HELD_WORK_KEPT}" if r.get(REPLAN_WHY) else "")

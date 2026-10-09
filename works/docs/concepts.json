@@ -1,0 +1,275 @@
+{
+ "about": "考えの住処の地図（docs/concepts.md）の柵の表。読むのは tests/conceptfence.py だけ",
+ "exclude": [
+  "tests/**",
+  "docs/**",
+  "CHANGELOG.md",
+  "README.md",
+  "skills/**",
+  "**/fixtures/**",
+  "dev/canary-fixture-units/**",
+  "dev/board-goldens/**",
+  ".shared/core/graphloops/**",
+  ".shared/core/gl-prompts/**",
+  ".shared/borrow/**",
+  "darkfactory/darkfactory.graph.json"
+ ],
+ "concepts": {
+  "outcome": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "結末の語",
+     "pattern": "\"(no_fix_needed|stopped_by_line|stopped_by_request|stopped_by_human|needs_human|round_limit)\"",
+     "allowed": [
+      ".shared/core/report.py",
+      "darkfactory/darkfactory.yaml",
+      "dev/**"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "depth": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "深さの控えと深さの口の名",
+     "pattern": "\"depth\\.json\"|\\bdepth\\.(unit_depth|run_depth|decide_doc|raise_doc)\\b",
+     "allowed": [
+      "darkfactory/**"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "features": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "機能の切り替えの語",
+     "pattern": "\"(fix_lanes|tdd_lanes|judge_verify|review_tree|graph_map)\"",
+     "allowed": [
+      ".shared/core/entry.py",
+      "darkfactory/darkfactory.yaml",
+      "dev/use.sh",
+      "dev/dogfood.sh"
+     ],
+     "known": {
+      ".shared/core/adapter.py": [
+       2,
+       "包み（層 L2）は entry（L3）を import できない（tests/test_layers.py の up）ので、start の控えの features_off を読んで工程の地図を切る語 MAP_FEATURE を自分で持ち（test_graphmap が entry.FEATURES と縛る）、同じ名を塊の行の名にも使う"
+      ],
+      "blk-fix/lib/fixlanes.py": [
+       1,
+       "ブロックが自分の入力の語の名を、知らない語の誤りの文に使う"
+      ],
+      "blk-fix/lib/tddloop.py": [
+       1,
+       "ブロックが自分の入力の語の名を、知らない語の誤りの文に使う"
+      ],
+      "blk-judge/lib/judgeverify.py": [
+       1,
+       "同名の別の語: TRACE_OP は trace の行の op の名で、機能の切り替えの語ではない"
+      ],
+      "blk-plan/lib/planblk.py": [
+       1,
+       "ブロックが自分の入力の語の名を、知らない語の誤りの文に使う"
+      ],
+      "dev/canary_check.py": [
+       4,
+       "canary の確かめ役が枝を切る機能の語（LANE_FEATURES。住処の entry.FEATURES は語ごとの名の定数を持たない）と、出力の欄の名（枝の行の一覧 tdd_lanes・fix_lanes。機能の語とは別の考え）に同じ語を使う"
+      ]
+     }
+    }
+   ]
+  },
+  "hinge": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "境の節の名",
+     "pattern": "(?a)\\bh-[a-z][a-z0-9_]*\\b",
+     "allowed": [
+      "darkfactory/**",
+      "dev/**"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "halt": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "止め札の名",
+     "pattern": "\"STOP\"",
+     "allowed": [
+      ".shared/core/halt.py",
+      "dev/stop.sh",
+      "darkfactory/lib/line_edge.py"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "scope": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "部品の宣言のファイルの名",
+     "pattern": "\"manifest\\.json\"",
+     "allowed": [
+      ".shared/core/scopes.py",
+      ".shared/core/entry.py"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "reads": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "読んだ証拠の置き場の名",
+     "pattern": "\"reads-|reads\\.jsonl",
+     "allowed": [
+      ".shared/core/reads.py",
+      ".shared/core/adapter.py",
+      ".shared/core/record-read.py",
+      "blk-*/scripts/reads.py",
+      "blk-*/manifest.json"
+     ],
+     "known": {
+      ".shared/core/entry.py": [
+       1,
+       "誤りの文が読んだ記録の置き場（reads.jsonl）を述べる"
+      ],
+      ".shared/core/prcheck.py": [
+       1,
+       "読んだ証拠の名 reads-<役>.json を自分で組む（住処の口を import できない: reads が entry を import し、entry が prcheck を import するので輪になる。tests/test_layers.py の cycle）"
+      ],
+      ".shared/core/scopes.py": [
+       1,
+       "scope の照らしが読んだ証拠を名の形 reads-*.json で見分ける（住処の口を import できない: reads が entry を import し、entry が scopes を import するので輪になる。tests/test_layers.py の cycle）"
+      ]
+     }
+    }
+   ]
+  },
+  "conflict": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "食い違いの申し出の欄の名",
+     "pattern": "why_both_cannot_hold|which_is_right",
+     "allowed": [
+      ".shared/core/conflict.py",
+      "blk-fix/**"
+     ],
+     "known": {
+      ".shared/core/querytest.py": [
+       1,
+       "docstring が try_query の照らしを申し出の欄 which_is_right で述べる"
+      ],
+      ".shared/core/writerules/common.md": [
+       6,
+       "書く役の決まりの正本（works の物で写しではない）が、役の書く申し出の欄の名と値を役に教える（役に読ませる文で、conflict の定数から文を組むのは見合わない）"
+      ]
+     }
+    }
+   ]
+  },
+  "injectors": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "system prompt を足す旗",
+     "pattern": "--append-system-prompt",
+     "allowed": [
+      ".shared/core/adapter.py",
+      ".shared/core/claude-adapter"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "replycontract": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "返答の型を縛る旗と道具の名",
+     "pattern": "--json-schema|StructuredOutput",
+     "allowed": [
+      ".shared/core/replycontract.py",
+      ".shared/core/adapter.py",
+      ".shared/core/diverted.py"
+     ],
+     "known": {
+      ".shared/core/node_marker.py": [
+       3,
+       "印を Archon が載せる argv の --json-schema から読む（印の住処で、返答の契約とは別の考え）"
+      ]
+     }
+    }
+   ]
+  },
+  "writes": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "盤面に書く規則の名",
+     "pattern": "\\bWRITE_OPS\\b|\\bapply_writes\\b",
+     "allowed": [
+      ".shared/core/board.py"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "entry-kind": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "start-record": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "carry-over": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "human-gates": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "ai-launch": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "ledger": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "prompt-assembly": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "lanes": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "marks": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "stop-reasons": {
+   "status": "散らばり",
+   "fences": []
+  },
+  "core-seams": {
+   "status": "散らばり",
+   "fences": []
+  }
+ }
+}

@@ -51,7 +51,7 @@ inputs:
     description: 盤面が受けた修正案（p2.fix_plan）のファイルのパス。事前審査（p2.plan_review）の返答は同じフォルダ。空は修正案の無い run
   notes_file:
     default: ""
-    description: 人が関所で答えた一言（盤面の record.process.human_items の今の周の note）を書いたファイルのパス（境の節 h-fix が書く）。空は聞いていない。一言の本文はファイルにだけ置く（R44。with の値に文を貼らない）
+    description: 人が関所で答えた一言（盤面の record.process.human_items の今の周の note）を書いたファイルのパス。空は聞いていない。一言の本文はファイルにだけ置く（R44。with の値に文を貼らない）
   policy_path:
     default: ""
     description: 人の方針の文書（盤面が固めた写し）のパス。空は方針の無い run

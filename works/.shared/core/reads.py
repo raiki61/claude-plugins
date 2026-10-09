@@ -25,6 +25,7 @@
 - tool_count(events, node_path, tool) -> int・tool_inputs(events, node_path, tool) -> [tool_input]（節の道具の呼びの数と入力。
   事前審査の束ね役の下請けの数と型を測る）
 - node_here(loop, node) -> str（今の script が居る include の名 flow_adapter.current_scope で組んだ node_path）
+- evidence_name(role)・index_name(owner)・is_index(name)・EVIDENCE_GLOB（盤面の読んだ証拠の置き場の名の口）
 - collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}
 - adapter_seen(board_dir, run_id, *, repo=None) -> {seen, merged, passthrough, whys}
 - main_for(role, loop, node) -> int（ブロックの `<役>-reads` の節のスクリプトの入口。include の名は flow_adapter.current_scope）
@@ -55,6 +56,23 @@ CLI_ENV = "ARCHON_CLI_COMMAND"
 RUN_ENV = "WORKFLOW_ID"
 MUST_ENV = "INPUTS_MUST"
 READS_LOG = "reads.jsonl"   # hook_evidence が board_dir の下に読む名前（record-read.py が書く名前）
+EVIDENCE_GLOB = "reads-*.json"   # 盤面の読んだ証拠の置き場の名の形（役ごとの証拠 evidence_name と索引 index_name の両方に当たる）
+_INDEX_SUFFIX = "-block.json"     # 索引（{役: 役ごとの証拠のパス}）の名の尾。役ごとの証拠でないことの見分け（is_index）
+
+
+def evidence_name(role: str) -> str:
+    """役 role の読んだ証拠の今の周の作業ファイルの名（collect が書く）"""
+    return f"reads-{role}.json"
+
+
+def index_name(owner: str) -> str:
+    """読んだ証拠を集めた側 owner が書く索引の名（{役: 役ごとの証拠のパス}。役ごとの証拠と別の名）"""
+    return f"reads-{owner}{_INDEX_SUFFIX}"
+
+
+def is_index(name: str) -> bool:
+    """EVIDENCE_GLOB に当たる名のうち索引（index_name）か。役ごとの証拠なら偽"""
+    return name.endswith(_INDEX_SUFFIX)
 
 
 # ---------------------------------------------------------------- Archon の出来事
@@ -217,7 +235,7 @@ def collect(board_dir, role: str, node_path: str, must_read: list, events, *, re
         if hook not in HOOK_SEEN and event is not True:
             missing.append(p)
     sources = {"hook": hook_on, "events": ev_src}
-    out = b.work(f"reads-{role}.json")
+    out = b.work(evidence_name(role))
     _write_json(out, {"role": role, "node_path": node_path, "rows": rows, "sources": sources, "missing": missing})
     return {"ok": True, "sources": sources, "missing": missing, "reads_file": str(out)}
 

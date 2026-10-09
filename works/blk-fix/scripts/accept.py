@@ -70,10 +70,10 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    写しの数え合わせの拒否が発火しないように揃える
 2a. 案の直しを待つ単位（conflict.waiting。裁定 fix_plan_item の WAITING の行）が在り、盤面が p3.fix を待っていれば（named_reply）、
    積んだ行が無く写しの照らしを乾いた形（3 の commit=False）で通る時だけ盤面に渡さずに控える（hold_fix。積んだ行か照らしの
-   誤りが在れば控えずに並べて拒む。控えた返答を h-rejudge の hand_held が渡して拒まれ盤面が止まる前に役へ返す）: 2 で揃える前の
+   誤りが在れば控えずに並べて拒む。控えた返答を後で replan.settle の hand_held が渡して拒まれ盤面が止まる前に役へ返す）: 2 で揃える前の
    役が書いた形の返答（番号は名前に戻す。site の path と役の coverage が在る）に、盤面に渡す形の changes（欄 conflict.HANDED）と
    役が申告した bash_writes を残して conflict.HELD_REPLY に置き、受けた時と同じ trace（書き込みの出どころ・TESTS_OP・SCOPE_OP・fixgates.SKIPPED_OP・CLOSURE_OP）と HELD_OP を書いて
-   {ok: true, done: true, parked: true, changes: 1 本目の行}。盤面へは h-rejudge の replan.settle（hand_held）が渡す
+   {ok: true, done: true, parked: true, changes: 1 本目の行}。盤面へは修正の段を抜ける所の replan.settle（hand_held）が渡す
 3. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が同じ問いで数え直す（仕様 3.2）。通れば 1 本目の
    出口のための changes（unit_key・files・what）を足し、表を盤面に置く
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
@@ -452,7 +452,7 @@ def hold_fix(named: dict, written: dict, whole: dict, b, traced) -> dict:
     """待つ単位（conflict.waiting）が在る間の受け付け: 役が書いた形の返答（written。番号は名前に戻した。unitrows.take が揃える前の
     物で、site の path と役の coverage が在る）に、盤面に渡す形の changes（named の物。欄 conflict.HANDED）と役が申告した
     bash_writes（whole の欄。前の控えの申告 conflict.held_writes を先に）を残して 1 回目に受け付けた返答の控え
-    （conflict.HELD_REPLY）に置き、受けた時と同じ trace（traced）と HELD_OP を書く。盤面には渡さない（h-rejudge の replan.settle が
+    （conflict.HELD_REPLY）に置き、受けた時と同じ trace（traced）と HELD_OP を書く。盤面には渡さない（修正の段を抜ける所の replan.settle が
     渡す形 conflict.handed で渡す）。2 回目の修正の段は控えの行を書いた形のまま数え直しに当て直す（揃えた後の行では site を
     当たりのファイルに結べない）。返りは輪を抜ける {ok, done, parked}"""
     held = {k: v for k, v in written.items() if k != writes.FIELD}
@@ -562,7 +562,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
         return tb
 
     # 待つ単位が在れば控える返答（named）。積んだ行が在るか控える時は、写しの照らしを乾いた形（commit=False。盤面を書かない）で
-    # 当ててその誤りも並べる（控えた返答を h-rejudge の hand_held が渡して拒まれ盤面が止まる前に、役へ返す）。
+    # 当ててその誤りも並べる（控えた返答を後で replan.settle の hand_held が渡して拒まれ盤面が止まる前に、役へ返す）。
     # どちらでもなければ盤面に done("p3.fix") を書く（事後の関門の束の後。preflight F12）
     named = named_reply(reply, board) if conflict.waiting(b) else None
     own_named = (named_reply(own, board) or own) if named is not None else None

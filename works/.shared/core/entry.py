@@ -15,7 +15,7 @@
 - run_ci(b, nid, *, test_cmd): CI の節を run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）
 - suites_line(tests, *, role_status): 最後のテストが走らせた一式と走らせなかった物の 1 行（報告の冒頭と最後の関所が使う）
 - start(board_dir, repo, raw, *, run_id): 入力の確かめ → 盤面を開く → 修正前のテストの記録 → 方針の文 → 切符
-  （入力 fix_fixture が在れば、core の fixture.adopt で h-fix の盤面の写しを取り込み、判定・修正案を作り直さずに修正の前から）
+  （入力 fix_fixture が在れば、core の fixture.adopt で修正を待つ盤面の写しを取り込み、判定・修正案を作り直さずに修正の前から）
 - resume_after_ci(b): 任せ先の CI の役が p0.local_checks を渡した後、ラインが start の輪（run_engine → settle）に戻る口
 - snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state）を今の周の b.work(name) に
 - take(board_dir, nid, reply, repo, *, snapshot_name, commit): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
@@ -496,7 +496,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang,
     unattended, design_only, fix_fixture, features_off, features_on, answers} を返す（features_off・features_on は切る機能・入れる機能の語の配列で、features_off()・features_on() が確かめ、両方に在る語は拒む。unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
     fix_fixture は固定材料のフォルダ
-    （core の fixture。h-fix の盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
+    （core の fixture。修正を待つ盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
     変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
     少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items と answers は []。answers は依頼の欄 answers
     （依頼者の答え。配列の形の依頼は []）で、start の控えに残り、gatemarks が問いの答えたかで読む。
@@ -553,7 +553,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     if fx:
         fp = pathlib.Path(fx) if pathlib.Path(fx).is_absolute() else repo / fx
         if not fp.is_dir():
-            raise InputRefused(f"名指した固定材料のフォルダ {fx} が無い（fix_fixture。h-fix が $ARTIFACTS_DIR/{fixture.DIR} に写した物）")
+            raise InputRefused(f"名指した固定材料のフォルダ {fx} が無い（fix_fixture。前の run が修正の前に $ARTIFACTS_DIR/{fixture.DIR} に写した物）")
         fx = str(fp)
     out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
            "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
@@ -1351,6 +1351,6 @@ def empty_fix_reply(b=None, why: str = EMPTY_FIX_REASON) -> dict:
 
 
 def trace_empty_fix(b) -> None:
-    """機械が p3.fix の空の返答を渡した印を trace に 1 行（h-plan と修正の受け付けが take の後に呼ぶ。TA6）。
+    """機械が p3.fix の空の返答を渡した印を trace に 1 行（空の返答を渡した側——線と修正の受け付け——が take の後に呼ぶ。TA6）。
     at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
     b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)

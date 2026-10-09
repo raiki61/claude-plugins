@@ -36,7 +36,7 @@ from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
 
 PREMISES_NODE = "p0.premises"
-STOP_BY = "works:premises"   # 前提の実測が盤面に無い・諦めた盤面の state.stop.by（blk-premises の collect とラインの h-judge が共に使う）
+STOP_BY = "works:premises"   # 前提の実測が盤面に無い・諦めた盤面の state.stop.by（blk-premises の collect と、止まった盤面を見る線が共に使う）
 PREMISES_FILE = "premises.json"                     # 受け付けた実測役の返答 {"constraints": [...]}
 PREMISES_SNAPSHOT_FILE = "premises-snapshot.json"   # 実測役を起こす前の作業ツリーの姿。形は accept.TREE_SCHEMA（tree_state）
 RULE = "実測役は作業ツリーを変えてはいけない"

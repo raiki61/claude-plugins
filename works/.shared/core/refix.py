@@ -60,6 +60,7 @@ import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
+import reads  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import seat  # noqa: E402
@@ -206,7 +207,7 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
             "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
             "[REPORT_FILE]": _out_file(b, recount.FIX_NODE) or seat.NONE,
             "[BASE_SHA]": _cut_base(b) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
-    _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()))
+    _drop_stale(b, brief_name, seat_name, reads.evidence_name(role), *((deltamarks.VERDICTS_FILE,) if n == 1 else ()))
     seat_file = str(_write_text(b.work(seat_name), seat_text)) if seat_text else ""
     doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
            "reads": _brief(b, p["review"]), "policy": pol, "seat_file": seat_file}
@@ -254,7 +255,7 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     role = FIX_ROLE[n]
     brief_name = f"refix{n}-brief.json"
     prompt_file = b.work(rolekit.prompt_name(p["fix"]))
-    _drop_stale(b, brief_name, f"reads-{role}.json", prompt_file.name)
+    _drop_stale(b, brief_name, reads.evidence_name(role), prompt_file.name)
     doc = {"node": p["fix"], "diff_file": d.get("file") or "", "owed": rows, "reads": _brief(b, p["fix"]),
            "policy": policy.brief(b)}
     try:   # 穴ごとの枝の名札（線の木の段 4a。材料だけで、答え方は変えない。組めなければ理由を置いて手直しは起こす）
@@ -425,7 +426,7 @@ def route(board: pathlib.Path) -> dict:
 
 
 def _reads_file(b, role) -> str:
-    p = b.work(f"reads-{role}.json")
+    p = b.work(reads.evidence_name(role))
     return str(p) if p.is_file() else ""
 
 

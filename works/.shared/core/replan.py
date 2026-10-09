@@ -7,12 +7,12 @@
 - UNSETTLED: 締めた後に待つ行が残った時の BoardGap の文
 - close(b, why): 待つ行の全部を諦めた行にし、id を返す（待つ行が無ければ何もせず []）
 - close_at(board_dir): 盤面を allow_halted で開き、止まっていれば HALTED_WHY、そうでなければ CLOSE_WHY で close。何度呼んでも
-  同じ（2 度目は待つ行が無い）。報告の組み立ては必ず走るので、修正の段が落ちて h-rejudge が飛ばされた run でも待つ行が落ちない
+  同じ（2 度目は待つ行が無い）。報告の組み立ては必ず走るので、修正の段が落ちて settle が飛ばされた run でも待つ行が落ちない
 - HAND_REFUSED: 1 回目に受け付けた返答の控えを盤面が受けない時の止めの文
 - hand_held(board_dir, repo): 盤面が止まっておらず、今の周の p3.fix を受けておらず、1 回目に受け付けた返答の控え
   （conflict.held_reply。待つ単位が在る間に修正の受け付けが盤面に渡さずに置いた物）が在れば、控えの盤面に渡す形（conflict.handed）を
   recount.accept_fix で盤面に渡して真。盤面が受けなければ盤面を止めて（HAND_REFUSED・by STOP_BY）偽。渡す物が無ければ偽
-- settle(board_dir, repo): h-rejudge の頭で呼ぶ。1. close_at。2. hand_held。3. 待つ行が残れば BoardGap(UNSETTLED)。
+- settle(board_dir, repo): 修正の段を抜ける所の頭で呼ぶ。1. close_at。2. hand_held。3. 待つ行が残れば BoardGap(UNSETTLED)。
   返り {"closed": [id…], "handed": hand_held の返り}
 
 案の直しの役（blk-plan を replan の入力つきで 2 度目に include した口。blk-plan の lib が入力 replan を見てここへ回す）:
@@ -46,7 +46,7 @@
 - answer(board_dir, repo, gate, fix_notes=): 関所の答え（無ければ None）を項目ごとに当てる。stop・reject は待つ行を STOPPED_WHY で締め、
   1 回目の控えを盤面に渡してから盤面を止める（by GATE_BY）。そうでなければ聞かない項目と continue・approve の項目を採って
   planmarks.amend で差し替え（行は AMENDED）、答えの無い聞く項目は NO_GATE_WHY で諦める。NOTES_FILE の頭には、修正の前の
-  関所（policy-gate）で人が答えた条件を書いたファイル fix_notes（線の h-fix が 1 回目の修正の段に渡した物）の中身を写す（人の
+  関所（policy-gate）で人が答えた条件を書いたファイル fix_notes（線が 1 回目の修正の段に渡した物）の中身を写す（人の
   条件は同じ run の 2 回目の修正の段にも効く）。全項目に result が在れば前の返りを
   そのまま返す（Archon の再開）。{returned, plan_file, notes_file, stop, why}
 - lines(b): TRIP_FILE の項目ごとの 1 行（最後の関所の文と報告の冒頭 1 が見出し AMEND_HEAD の下に並べる）
@@ -80,6 +80,7 @@ import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
+import reads  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import scopes  # noqa: E402
@@ -99,7 +100,7 @@ REVIEW_NODE = "replan.plan_review"
 ROLES = {"plan": PLAN_NODE, "plan-review": REVIEW_NODE}
 REVIEW_GRAPH_NODE = "p2.plan_review"   # 事前審査の返答の型を引く写しの graph の節（修正案は planmarks.NODE）
 BRIEF_NAME = "brief-{n}.md"        # 項目の brief の名（blk の lib の planbrief.NAME と同じ。tests/test_replan.py が突き合わせる）
-READS_INDEX = "reads-replan-block.json"   # 案の直しの役の読んだ証拠の索引（1 回目の reads-plan-block.json を上書きしない）
+READS_INDEX = reads.index_name("replan")   # 案の直しの役の読んだ証拠の索引（1 回目の reads-plan-block.json を上書きしない）
 READS_PREFIX = "replan-"           # 読んだ証拠の役の名の頭（reads-replan-<役>.json）
 REPLAN_ASK = ("承認済みの修正案の項目のうち、下に貼った項目だけを直せ。修正の段で修正役がこの項目の誤りを申し出て、裁定役が"
               "fix_plan_item（案の項目そのものの誤り）と裁いた。申し出の文と裁定の文を読み、裁定の文が名指した所を直した項目を"
@@ -186,7 +187,7 @@ def hand_held(board_dir, repo) -> bool:
 
 
 def settle(board_dir, repo) -> dict:
-    """h-rejudge の頭（修正の段を抜ける所）の締め。待つ行を諦めた行にし、1 回目に受け付けた返答の控えを盤面に渡し
+    """修正の段を抜ける所の頭の締め。待つ行を諦めた行にし、1 回目に受け付けた返答の控えを盤面に渡し
     （hand_held）、それでも待つ行が残れば BoardGap（UNSETTLED）"""
     closed = close_at(board_dir)
     handed = hand_held(board_dir, repo)
@@ -358,9 +359,9 @@ def _section(row: dict, conflicts: dict, role: str) -> str:
         lines += ["", ROW_HEAD.format(id=rid), "",
                   f"- 申し出の単位: {c.get('unit_key')}",
                   f"- 申し出の名指し（between）: {', '.join(c.get('between') or [])}",
-                  f"- 申し出の理由（why_both_cannot_hold）: {c.get('why_both_cannot_hold')}",
+                  f"- 申し出の理由（{conflict.WHY_FIELD}）: {c.get(conflict.WHY_FIELD)}",
                   f"- 申し出の種類（kind）: {c.get(conflict.KIND_FIELD) or '（無し）'}",
-                  f"- 正しいと見た側（which_is_right）: {c.get('which_is_right')}",
+                  f"- 正しいと見た側（{conflict.WHICH_FIELD}）: {c.get(conflict.WHICH_FIELD)}",
                   f"- 裁定（{ru.get('decision')}）の文: {ru.get('text')}"]
     if role == "plan-review":
         lines += ["", NEW_HEAD, "", *_json_block(new_item(row))]
@@ -549,7 +550,7 @@ def _gate_section(row: dict, conflicts: dict) -> list:
                  f"[{faces.get(k, {}).get('kind')}] {k}: {faces.get(k, {}).get('why')}" for k in row["human_faces"]))]
     for rid in row.get("rows") or []:
         c = conflicts.get(rid) or {}
-        lines += [f"- 申し出の文（{rid}・単位 {c.get('unit_key')}）: {c.get('why_both_cannot_hold')}",
+        lines += [f"- 申し出の文（{rid}・単位 {c.get('unit_key')}）: {c.get(conflict.WHY_FIELD)}",
                   f"- 裁定の文（{rid}）: {(c.get('ruling') or {}).get('text')}"]
     return lines + ["", OLD_HEAD, "", *_json_block(row["old"]), "", NEW_HEAD, "", *_json_block(new_item(row)), ""]
 

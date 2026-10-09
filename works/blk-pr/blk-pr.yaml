@@ -1,7 +1,7 @@
 name: blk-pr
 description: |
   並行 PR の検査の任せ先のブロック（写しの graph の p0.parallel_pr。〔線A計〕T21・持ち主の答え 2026-09-27 の案 (a)）。
-  start が engine の helper（parallel-pr.py）で 1〜5 段を済ませられなかった・交差が在った時だけ、ラインが開く（h-entry の pr_go）。
+  start が engine の helper（parallel-pr.py）で 1〜5 段を済ませられなかった・交差が在った時だけ、ラインが開く。
   読むだけの役 pr-check が 6 段の全部をし、担当の PR へは投稿せず申し送りの下書きを conflicts[].note に書く（handed_over が真の
   行は受け付けが拒む。下げた所は darkfactory/downgrades.json）。衝突した hunk は excluded に並べ、受け付けが確かめて盤面の
   今の周の pr-excluded.json に置く（後の役——判定・修正案・修正——に触らせない範囲として collect の excluded_file で渡す）。

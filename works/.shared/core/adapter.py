@@ -1009,7 +1009,7 @@ def add_fences(settings: dict, paths: Sequence[str]) -> Tuple[int, int]:
     return n_write, n_deny
 
 
-# --- 起動に柵が掛かったか（包みを宣言した run の CI の任せ先の役の受け付けが使う。裁定 R58。Task 22 の h-judge も使える） ----
+# --- 起動に柵が掛かったか（包みを宣言した run の CI の任せ先の役の受け付けが使う。裁定 R58。ほかの節の受け付けも同じ口で使える） ----
 def _at(s) -> Optional[datetime.datetime]:
     try:
         t = datetime.datetime.fromisoformat(str(s))

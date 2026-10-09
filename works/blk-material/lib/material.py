@@ -113,7 +113,7 @@ SANDBOX = {
 SKILLS = {"local-review": ["code-review", "simplify", "security-review"]}
 # Bash を持つ役の印の旗: 包みが役の cwd の作業ツリーを書けなくする（no-tree-write。包みは sandbox・切符の無い起動を起こさない。
 # gh の書き込みは旗に依らず、包みが印のある起動の全部で止める）
-# skill のレンズを起こす役（SKILLS）は旗 text-reply も持つ: 包みが返答の型を返答の道具（StructuredOutput）に任せず、本文で受けて
+# skill のレンズを起こす役（SKILLS）は旗 text-reply も持つ: 包みが返答の型を返答の道具に任せず、本文で受けて
 # 確かめ、合わなければ同じ会話で出し直させる（fork で走る skill が返答の道具を継いで所見を書き、役に届かなかったため）
 FLAGS = {r: ("no-tree-write",) + (("text-reply",) if r in SKILLS else ()) for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
 PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示書の本文を prompt_text で渡す役

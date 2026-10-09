@@ -4,7 +4,7 @@ description: |
   塞がっていなかった検算（盤面の機械の節 p3.delta_owed が組んだ義務）に、手直しの役（writer）が同じ周のうちに答える（refix）。
   fixed と答えた穴が在れば、盤面の機械の節 p3.fix_delta2 が手直しだけの差分を切り、2 回目の審査役（読むだけ）が検算する（review2）。
   その義務（p3.delta_owed2）が残れば 2 回目の手直し（refix2）。3 往復目は無い（2 回目の手直しの fixed は次の run の依頼の下書きへ）。
-  ラインは境の節 h-refix の go（盤面の p3.delta_fix が待つ）でこのブロックを開く。節の名前は写しの DELTA_PASSES から（refix.passes）。
+  ラインは盤面の p3.delta_fix が待つ時にこのブロックを開く。節の名前は写しの DELTA_PASSES から（refix.passes）。
   手直しの役の指示書は、支度の節（refix-prep・refix2-prep）が書く役の決まりの正本（.shared/core/writerules/common.md）の全節と
   手直しの決まり（rules/refix.md）と run の値から機械で組む（lib/refixrules.py。役の節の prompt は「組んだ指示書を Read で読め」）。
   拒否の理由は盤面のファイルに書き、役の節の prompt は $LOOP_PREV.<受け付け>.output.reason_file（パス）だけを読む（R44）。

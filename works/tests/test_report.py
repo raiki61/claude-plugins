@@ -33,6 +33,7 @@ import engine.util as engine_util  # noqa: E402
 import entry  # noqa: E402
 import linekit  # noqa: E402
 import prcheck  # noqa: E402
+import reads  # noqa: E402
 import refix  # noqa: E402
 import rejudge  # noqa: E402
 import replan  # noqa: E402
@@ -1418,14 +1419,15 @@ class NamesCase(unittest.TestCase):
         self.assertEqual(report.ADAPTER_BY, ci_role.FENCE_BY)
         self.assertEqual(report.declared_downgrades("darkfactory"), prcheck.downgrades("darkfactory"))
         self.assertEqual(report.declared_downgrades("no-such-line"), [])
-        # 読んだ証拠の索引の名（blk-plan と案の直しが書く）は head_reads が飛ばす尾で終わり、役の reads-<役>.json は終わらない
+        # 読んだ証拠の索引の名（blk-plan と案の直しが書く）は head_reads が飛ばす索引（reads.is_index）で、役の reads-<役>.json は索引でない
         sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
         try:
             import planblk
         finally:
             sys.path.remove(str(ROOT / "blk-plan" / "lib"))
         for index in (planblk.READS_INDEX, replan.READS_INDEX):
-            self.assertTrue(index.endswith(report.READS_INDEX_SUFFIX), index)
+            self.assertTrue(reads.is_index(index), index)
+        self.assertFalse(reads.is_index(reads.evidence_name("plan")))
 
 
 class ScriptCase(ReportBase):
