@@ -132,6 +132,26 @@ class RenderCase(Base):
         self.assertNotIn(rolekit.LANG_RULE.format(lang="English"), off)
         self.assertTrue(text.startswith(off.partition(rolekit.SCHEMA_NOTE)[0].rstrip("\n")), "言語の行は足すだけ（本文は同じ）")
 
+    def test_policy_paragraph_only_when_policy_exists(self):
+        """方針の段落（graph の prompt_append の policy-paste.md・policy-path.md・policy.md）は、方針の文書が在る run
+        （盤面の inputs.policy_md が空でない）だけに貼る。無い run に見出しと決まりの文だけを貼らない（2026-10-09 の整理）"""
+        b = FakeBoard(self.tmp)
+        prompts = self.tmp / "gl" / "prompts"
+        (prompts / "policy-paste.md").write_text("## 人の方針\n\n本文: {{?file:inputs.policy_md}}\n", encoding="utf-8")
+        (prompts / "policy.md").write_text("方針に照らして行え。\n", encoding="utf-8")
+        b.nodes["p9.role"]["prompt_append"] = ["../prompts/policy-paste.md", "../prompts/policy.md"]
+        none, _ = rolekit.render_body(b, "p9.role", prompts_dir=self.tmp / "gl")
+        self.assertTrue(none.startswith("単位: "), none)
+        self.assertNotIn("人の方針", none)
+        self.assertNotIn("方針に照らして", none)
+        doc = self.tmp / "policy.md"
+        doc.write_text("ログを消すな\n", encoding="utf-8")
+        b.ctx = lambda: {"record": {"units": [{"key": "u1"}]}, "inputs": {"policy_md": str(doc)}}
+        got, _ = rolekit.render_body(b, "p9.role", prompts_dir=self.tmp / "gl")
+        self.assertIn("## 人の方針", got)
+        self.assertIn("ログを消すな", got)
+        self.assertIn("方針に照らして行え。", got)
+
     def test_render_needs_pending_instance(self):
         with self.assertRaises(BoardGap):
             rolekit.render_prompt(FakeBoard(self.tmp, pending=False), "p9.role", prompts_dir=self.tmp / "gl")

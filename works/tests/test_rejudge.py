@@ -248,8 +248,11 @@ class RenderPrepCase(_Case):
         ctx["node"] = {"skills": []}
         snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
         # 指示書の本文は試験の側で組む（写しの graph の prompt_file・prompt_append を gl-prompts の置き場で引いて改行でつなぐ。
-        # engine の node_prompt と同じつなぎ方。rejudge の置き場の選び方は通さない）
-        parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
+        # engine の node_prompt と同じつなぎ方。rejudge の置き場の選び方は通さない）。engine と違うのは 1 つだけ: 方針の文書が無い
+        # run は方針の段落（rolekit.POLICY_PARTS）を貼らない
+        import rolekit
+        self.assertFalse((ctx.get("inputs") or {}).get("policy_md"), "この盤面は方針の文書の無い run")
+        parts = [n["prompt_file"], *(p for p in n.get("prompt_append") or [] if p.rsplit("/", 1)[-1] not in rolekit.POLICY_PARTS)]
         self.assertTrue(all(p.startswith("../prompts/") for p in parts), parts)
         tpl = "\n".join((kit.CORE / "gl-prompts" / "prompts" / p.removeprefix("../prompts/")).read_text(encoding="utf-8")
                         for p in parts)
@@ -260,8 +263,8 @@ class RenderPrepCase(_Case):
         got = path.read_text(encoding="utf-8")
         self.assertEqual(got, want)
         self.assertEqual(path, self.bd / "prompts" / f"r{b.round}" / (safe_name("p2.rejudge") + ".md"))
-        self.assertIn("## 人の方針", got)              # policy-paste.md
-        self.assertIn("方針が在るなら", got)            # policy.md
+        self.assertNotIn("## 人の方針", got)           # policy-paste.md（方針の文書の無い run には貼らない）
+        self.assertNotIn("方針が在るなら", got)         # policy.md（同じ）
         self.assertIn("判定の単位 src/a.py:f", got)     # 異議の文（loop.rejudge_requested）
         self.assertIn(UNIT_B, got)
 

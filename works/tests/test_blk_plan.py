@@ -1964,8 +1964,9 @@ class TreeReviewCase(unittest.TestCase):
         folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
         one, two = ((folder / f"item-{n}.md").read_text(encoding="utf-8") for n in (1, 2))
         self.assertNotIn(prep["prompt_file"], one)
-        for part in ("## 見ること", "## 返し方", "## 人の方針", planblk.DESIGN_HEAD, "リポジトリ: "):
+        for part in ("## 見ること", "## 返し方", planblk.DESIGN_HEAD, "リポジトリ: "):
             self.assertIn(part, one)
+        self.assertNotIn("## 人の方針", one)   # 方針の文書の無い run は方針の段落を貼らない（rolekit.POLICY_PARTS）
         self.assertIn("sum(xs) / (len(xs) - 1)", one)            # 項目 1 の単位の判定の理由
         self.assertNotIn("x > hi の枝で lo を返す", one)          # 項目 2 の単位の判定の理由は載せない
         self.assertNotIn("test_clamp_above_range", one)           # 項目 2 の波及の当たりも載せない
