@@ -10,6 +10,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - 機械全体の重いテストの枠の台本（`WORKS_TESTSLOT`）の既定が、持ち主の家のパス（`/Users/…/.git/graphloops/ops/testslot.sh`）の決め打ちだった。既定を利用者の家のキャッシュ `${XDG_CACHE_HOME:-~/.cache}/works/testslot.sh` に替えた（式の正本は `.shared/core/slotwrap.sh`）。無ければ今どおり黙って枠なしで回す。開発の殻 `archon.sh` は HOME・XDG を隔離する前にこの既定を引いて `WORKS_TESTSLOT` に名指すので、run の中の試験も同じ台本を通る。前の既定の場所の台本を使っていた人は、新しい既定の場所に置く（symlink でよい）か `WORKS_TESTSLOT` で名指す。
 - 目的の役（`blk-purpose`）が、依頼の欄 `prior_failures`（前の run の判断）を読めた。外すのは指示書の 1 行の頼みだけで、独立の目の独立が破れても誰も気づかなかった。役を起こす前の確かめ（intake）が、その欄を外した依頼の写しを盤面に置き、役にはその写しのパスだけを渡す（`ghreads.without_prior`）。欄の無い依頼は今どおり元のパスで渡す。
+- TDD の輪の単位ごとの結末（赤→緑・TDD を諦めた段と理由・初めから今どおりの直し・止めた単位）が報告に届いていなかった（keep-essence の 11 の欠け。修正のブロックの出口 `tdd` を誰も読んでいなかった）。ラインの機械の報告の節が 2 つの修正の段（`fixing`・`refitting`）の出口 `tdd` を受け、報告 `report.md` の節「TDD の輪の単位ごとの結末」に段ごとの件数と単位ごとの行を出す。輪を回していない段（テストの実行器が無いなど）はその理由を 1 行で言う。最後の関所の文にはまだ載らない。
 
 ### Added
 

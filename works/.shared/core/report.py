@@ -31,7 +31,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - always_rows(b, left=None, *, rest=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
   走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False, found_only=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
+  failed=None, retried=None, eyeing=None, cleaned_runs="", depth_lines=(), tdd=()) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
+- tdd_lines(stages) -> 修正の段ごとの TDD の輪の単位の結末の行（keep-essence の 11。修正のブロックの出口 tdd を読む）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -131,6 +132,8 @@ REPORT_FILE = "report.md"
 NEXT_REQUEST_FILE = "next-request.json"   # 次の run の依頼の下書き {findings, prior_failures}（依頼の型の object の形）
 PRIOR_FAILURES_FILE = "prior-failures.json"   # この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]
 PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
+TDD_HEADING = "## TDD の輪の単位ごとの結末"   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
+TDD_STAGES = ("修正の段", "案を直した後の修正の段")   # build の tdd の並び（ラインの report の with の fix_tdd・refit_tdd の順）
 ACCEPT_WHERE = "受け付け"                  # prior_failures の受け付けの行の where の頭
 R2_REDESIGN = "R2 が redesign-needed"      # 検証器と独立の目が R2 の作り直しの行に付ける頭（findings から外し prior_failures にだけ載せる）
 NO_TURN_FILE = "no-turn-exits.json"   # 包みの終わりの記録の即時の死の行の写し（build が書く。起こし直しの行から辿る）
@@ -1654,10 +1657,45 @@ def _finish_fields(b, judged, outcome) -> dict:
     return out
 
 
+def _tdd_unit(u: dict) -> str:
+    """TDD の輪の 1 単位の結末の行（修正のブロックの出口 tdd の units の行。route は tdd・direct・parked）"""
+    key, why = u.get("unit_key") or "（key 無し）", _one_line(u.get("why") or "")
+    if u.get("route") == "tdd":
+        return (f"{key}: 赤 {u.get('red') or '—'}・緑 {u.get('green') or '—'}・整え {u.get('refactor') or '—'}"
+                f"（名指しのテスト {', '.join(u.get('tests') or []) or '無し'}）")
+    if u.get("route") == "parked":
+        return f"{key}: 食い違いで止めた（{why or '理由なし'}）"
+    if u.get("gave_up"):
+        return f"{key}: TDD を諦めて今どおりの直しへ回した（{u['gave_up']} の段で: {why or '理由なし'}）"
+    return f"{key}: 初めから今どおりの直し（{why or '理由なし'}）"
+
+
+def tdd_lines(stages) -> list:
+    """修正の段ごとの TDD の輪の単位の結末の行（keep-essence の 11）。stages は [(段の名, 修正のブロックの出口 tdd か None)]。
+    None（飛ばされた段・渡されていない）は出さない。輪を回していない段（ran が偽）は理由つきの 1 行（黙らない）。回した段は
+    件数の 1 行と単位ごとの行（インデントつき）"""
+    rows = []
+    for name, tdd in stages:
+        if not isinstance(tdd, dict):
+            continue
+        if not tdd.get("ran"):
+            rows.append(f"{name}: TDD の輪を回していない（{_one_line(tdd.get('reason') or '理由なし')}）")
+            continue
+        units = [u for u in tdd.get("units") or [] if isinstance(u, dict)]
+        green = sum(u.get("route") == "tdd" and u.get("green") == "ok" for u in units)
+        gave = sum(u.get("route") == "direct" and bool(u.get("gave_up")) for u in units)
+        direct = sum(u.get("route") == "direct" and not u.get("gave_up") for u in units)
+        parked = sum(u.get("route") == "parked" for u in units)
+        rows.append(f"{name}: {len(units)} 単位（赤→緑 {green}・TDD を諦めた {gave}・初めから今どおりの直し {direct}・止めた {parked}。"
+                    f"実行器 {tdd.get('suite') or '—'}）" + (f"。輪を途中で抜けた: {_one_line(tdd['reason'])}" if tdd.get("reason") else ""))
+        rows += [f"  - {_tdd_unit(u)}" for u in units]
+    return rows
+
+
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
           failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "",
-          depth_lines=()) -> dict:
+          depth_lines=(), tdd=()) -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
     <盤面>/next-request.json（{findings: next_request の返り, prior_failures}）と <盤面>/prior-failures.json（prior_failures の返り）
     （と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
@@ -1665,7 +1703,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（線の中の報告の節は
     落ちた節 failed と空、dev の report.sh は run の状態）。retried（前の試みで落ち、続きで済んだ節）は冒頭 3 の試みの記録で、
     結末も AI の報告の可否も替えない。
-    record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。盤面を開けなければ BoardGap"""
+    record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。tdd は修正の段ごとの TDD の輪の結末（TDD_STAGES の順。修正のブロックの
+    出口 tdd か None）で、節 TDD_HEADING に単位ごとに並べる（tdd_lines。行が無ければ節を出さない）。盤面を開けなければ BoardGap"""
     board_dir = pathlib.Path(board_dir)
     try:   # 案の直しを待つ行を諦めた行にしてから読む（h-rejudge が飛ばされた run でも、待つ行を報告から落とさない）
         replan.close_at(board_dir)
@@ -1704,6 +1743,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     structure = structmark.report_lines(board_dir)
     if structure:
         body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
+    loops = tdd_lines(zip(TDD_STAGES, tdd))
+    if loops:
+        body += [TDD_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in loops], ""]
     body += [PRIOR_HEADING, "", *[f"- {r}" for r in prior_lines(prior)], ""]
     # 局所レビュー（P1）の fork のレンズの戻した・見ていない（diverted）を先に、修正の後のレンズ（lens）を後に
     body += ["## 未確認のレンズ", "", *[f"- {r}" for r in [*diverted.report_lines(board_dir), *lens.report_lines(b)]], ""]

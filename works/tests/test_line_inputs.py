@@ -215,8 +215,7 @@ BOARD_CARRIED = ("ラインは盤面で受け渡す（後ろの境の節が盤�
                  "ラインのための形で、このラインは読まない")
 UNREAD_OUTPUTS = {
     "blk-delta": ({"diff_file", "faces", "fix_rev", "owed", "reads_file", "review_file"}, BOARD_CARRIED),
-    "blk-fix": ({"changes_file", "coverage", "files", "fix_file", "not_done", "reads_file", "reason", "removed", "tdd"},
-                BOARD_CARRIED + "。tdd（TDD の単位ごとの結末）は keep-essence の 11 の欠けで、報告へ繋ぐ（段 1 の Task 1.5）"),
+    "blk-fix": ({"changes_file", "coverage", "files", "fix_file", "not_done", "reads_file", "reason", "removed"}, BOARD_CARRIED),
     "blk-lens": ({"lens_file", "reason"}, BOARD_CARRIED),
     "blk-material": ({"reason"}, BOARD_CARRIED),
     "blk-plan": ({"asks_human", "gate_kinds", "gave_up", "plan_file", "reads_file", "reason_file", "review_file", "ripple_file"},

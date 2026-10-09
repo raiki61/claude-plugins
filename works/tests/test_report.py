@@ -1447,7 +1447,8 @@ class ScriptCase(ReportBase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_CI",
-                                      "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH"))
+                                      "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH",
+                                      "INPUTS_FIX_TDD", "INPUTS_REFIT_TDD"))
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
                             INPUTS_CI="")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -1480,6 +1481,21 @@ class ScriptCase(ReportBase):
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_DEPTH=None)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("軽量で省いた", pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
+
+    def test_script_tdd_outcomes_reach_report(self):
+        """keep-essence の 11: 修正の段ごとの TDD の輪の単位の結末（修正のブロックの出口 tdd）が報告に届く。輪を回していない段は
+        回していないと理由つきで言う（黙らない）。前の版の with: で再開した run は渡さないので、無くても 0 で節を出さない"""
+        self.judged()
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)),
+                            INPUTS_FIX_TDD=json.dumps(TDD_RAN, ensure_ascii=False), INPUTS_REFIT_TDD=json.dumps(TDD_OFF, ensure_ascii=False))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8")
+        self.assertIn(report.TDD_HEADING, text)
+        for line in report.tdd_lines([(report.TDD_STAGES[0], TDD_RAN), (report.TDD_STAGES[1], TDD_OFF)]):
+            self.assertIn(line, text)
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_FIX_TDD=None, INPUTS_REFIT_TDD=None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(report.TDD_HEADING, pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
 
     def test_script_interrupted_by_missing_exit_marks(self):
         """上流の節が落ちた run（run 30・31 の形）: 出来事が取れなくても、h-eyes の出口が無い・目を回すと言ったのに blk-eyes の
@@ -1558,6 +1574,45 @@ R2_ROW = {"where": report.EYES_WHERE + " R2", "text": "R2 が redesign-needed: �
 def write_last(root: pathlib.Path, rows: dict) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "accept-last.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+
+
+# 修正のブロックの出口 tdd の見本（tddloop.exit_fields の形）: 赤→緑の単位・TDD を諦めた単位・初めから今どおりの単位・止めた単位
+TDD_RAN = {"ran": True, "suite": "tests/run.sh", "reason": "", "test_cmd": {"gate": "off", "note": ""}, "calls": [],
+           "units": [{"unit_key": "u-green", "route": "tdd", "why": "", "tests": ["t.py::test_a"], "red": "ok", "green": "ok",
+                      "refactor": "none", "gave_up": ""},
+                     {"unit_key": "u-gave", "route": "direct", "why": "赤が error で落ちた", "tests": [], "red": "", "green": "",
+                      "refactor": "", "gave_up": "test"},
+                     {"unit_key": "u-direct", "route": "direct", "why": "文書だけの直し", "tests": [], "red": "", "green": "",
+                      "refactor": "", "gave_up": ""},
+                     {"unit_key": "u-parked", "route": "parked", "why": "依頼とテストが食い違う", "tests": [], "red": "",
+                      "green": "", "refactor": "", "gave_up": ""}]}
+TDD_OFF = {"ran": False, "suite": "", "reason": "テストの実行器（入力 tdd_suite）が無い", "units": []}
+
+
+class TddLinesCase(unittest.TestCase):
+    """keep-essence の 11: TDD の輪の単位ごとの結末を報告の行にする（report.tdd_lines）"""
+
+    def test_each_unit_gets_its_outcome(self):
+        rows = report.tdd_lines([(report.TDD_STAGES[0], TDD_RAN)])
+        self.assertIn("4 単位", rows[0])
+        self.assertTrue(rows[0].startswith(report.TDD_STAGES[0]))
+        body = "\n".join(rows[1:])
+        for key in ("u-green", "u-gave", "u-direct", "u-parked"):
+            self.assertEqual(sum(key in r for r in rows[1:]), 1, key)
+        self.assertIn("t.py::test_a", body)
+        self.assertIn("赤が error で落ちた", body)
+        self.assertIn("依頼とテストが食い違う", body)
+        self.assertTrue(all(r.startswith("  - ") for r in rows[1:]))
+
+    def test_stage_without_loop_says_why(self):
+        rows = report.tdd_lines([(report.TDD_STAGES[0], TDD_OFF)])
+        self.assertEqual(len(rows), 1)
+        self.assertIn("回していない", rows[0])
+        self.assertIn(TDD_OFF["reason"], rows[0])
+
+    def test_stages_that_did_not_run_are_left_out(self):
+        self.assertEqual(report.tdd_lines([(report.TDD_STAGES[0], None), (report.TDD_STAGES[1], None)]), [])
+        self.assertEqual(len(report.tdd_lines([(report.TDD_STAGES[0], None), (report.TDD_STAGES[1], TDD_OFF)])), 1)
 
 
 class PriorFailuresUnitCase(unittest.TestCase):

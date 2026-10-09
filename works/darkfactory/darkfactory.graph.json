@@ -10,14 +10,14 @@
   "blk-material/blk-material.yaml": "1683a4e544086d9d203e3d5a644e5abb9b55be2036db8d912a688e1e8ffa532c",
   "blk-plan/blk-plan.yaml": "1839184e2614ca5b61b86332d868d431712db5689e25798084008aba8d0060d9",
   "blk-pr/blk-pr.yaml": "db7f159e61da185091e653d014aed1a7fd3f63855c6daafc9b1eff064c3b7d56",
-  "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
+  "blk-premises/blk-premises.yaml": "d4f33ee6f1317d9eb9cde00edd5b7f0645bfbadfd93201246fe4dddc590a264c",
   "blk-purpose/blk-purpose.yaml": "84285b88c7551f6eb1b89fdedf20bd244b41c781a6f013dadae88a2306b2e90e",
   "blk-refix/blk-refix.yaml": "c6a1ded23be9c036b9cb816e164b274370171bebb4e35e94643b9afeb6a7698d",
   "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "b779c8732192e0dc7cab7774e409dd0b50b7b6af6b7cf41544e9442fadf3e5b3"
+  "darkfactory/darkfactory.yaml": "4db18b9b3bae0c49d4c7e22c7e7e2c684b75c0ef879a4dec85cc8dca54c43990"
  },
  "version": 1,
  "workflows": {

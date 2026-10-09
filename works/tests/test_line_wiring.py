@@ -221,6 +221,15 @@ class ReportAfterFailureCase(unittest.TestCase):
                     self.assertIn("if_skipped", v)
                     self.assertIsNone(v["if_skipped"])
 
+    def test_report_reads_tdd_outcomes_of_both_fix_stages(self):
+        """keep-essence の 11: 修正の段ごとの TDD の輪の単位の結末（修正のブロックの出口 tdd）を、機械の報告が 2 つの段とも受ける
+        （飛ばされた段は null）"""
+        n = next(n for n in line()["nodes"] if n["id"] == "report")
+        fixes = [m["id"] for m in line()["nodes"] if m.get("include") == "blk-fix"]
+        self.assertEqual(fixes, ["fixing", "refitting"])
+        self.assertEqual(n["with"].get("fix_tdd"), {"from": "$fixing.output.tdd", "if_skipped": None})
+        self.assertEqual(n["with"].get("refit_tdd"), {"from": "$refitting.output.tdd", "if_skipped": None})
+
     def test_report_reruns_on_resume(self):
         """機械の報告 report は Archon の resume のたびに回し直す（always_run）。上流の節が落ちても all_done の節（tdd-join・fix-join）が
         受け止めて最後まで進んだ run は、report が結末 interrupted を書き、result が落ちて run が failed で残る。resume は落ちた節と
