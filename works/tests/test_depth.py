@@ -144,9 +144,10 @@ class LinesCase(unittest.TestCase):
         reason = depth.skip_reason(doc)
         self.assertIn("軽量", reason)
         text = "\n".join(depth.lines(doc))
-        self.assertIn("軽量で省いた: ", text)
+        skipped = [x for x in depth.lines(doc) if x.startswith("軽量で省いた: ")]
+        self.assertEqual(len(skipped), 1, "省いた物は 1 行にまとめる（2026-10-09 の片付け）")
         for word in ("差分の審査", "レンズ", "r1.comment_candidates", "R1", "R2", "R3", "R4"):
-            self.assertIn(word, text)
+            self.assertIn(word, skipped[0])
         self.assertNotIn("AI の報告", text, "AI の報告は省かない（計画の決め 10）")
 
     def test_standard_run_skips_nothing(self):

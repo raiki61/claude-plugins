@@ -209,9 +209,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   RP["機械の報告と次の run の依頼の下書き<br/>（next-request.json）を書く。<br/>findings：修正がやらなかった単位・<br/>手直しが残した穴と検算が要る穴・<br/>検証器の残り・テストの赤・落ちたレンズ・<br/>再審の残りと結果・人に回した食い違い・<br/>人に聞いたままの問い・<br/>判定が目的の外とした所見（out_of_purpose）<br/>（全部の出どころは report.next_request）。<br/>answers：無人の run が残した<br/>関所と問いへの答えの下書き（draft）。<br/>修正役が人に回した物は冒頭 1 に並ぶ<br/>（線の report。always_run）"]
-  RP -- "盤面が報告の役を出した時<br/>（ai_report_go）" --> RI["書き手が報告の頭<br/>（平易な 3 行と人が決めること）<br/>だけを書く<br/>（report-items-loop）"]
-  RI --> RC["道具を持たない初見の読み手が<br/>頭だけを読み、止まった所・<br/>推測で埋めた所を返す。新しい会話<br/>（report-cold-loop）"]
-  RC --> RW["書き手が詰まりを直した頭と<br/>本文の全部を書く。2 回目からは<br/>書き手自身の会話に戻る<br/>（report-write-loop の report-write）"]
+  RP -- "盤面が報告の役を出した時<br/>（ai_report_go）" --> RW["書き手が報告の頭<br/>（平易な 3 行と人が決めること）と<br/>本文の全部を書く。2 回目からは<br/>書き手自身の会話に戻る<br/>（report-write-loop の report-write）"]
   RW --> RWC["初見の読み手が書いた物の頭を<br/>どの回も新しい会話で読む<br/>（report-write-cold）"]
   RWC --> RWA{"作り直しが要るか<br/>（report-write-accept）"}
   RWA -- "redesign-needed<br/>（3 回目は受け取って冒頭に印）" --> RW

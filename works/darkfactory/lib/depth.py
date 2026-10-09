@@ -168,7 +168,7 @@ def lines(doc) -> list:
     out += [f"  - {k[:80]}: {r.get('depth')}（{' / '.join(r.get('why') or [])}）" for k, r in rows.items()]
     out += [f"  - 標準へ上げた信号: {why}" for why in doc.get("raised") or []]
     if run_depth(doc) == LIGHT:
-        out += [f"軽量で省いた: {what}" for what in SKIPPED]
+        out.append("軽量で省いた: " + "／".join(SKIPPED))   # 1 行にまとめる（項目の中に「・」が在るので区切りは「／」）
     return out
 
 

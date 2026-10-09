@@ -29,7 +29,7 @@ for _p in (str(ROOT / ".shared" / "core"), str(BLK / "lib")):
 import report_roles as rr  # noqa: E402
 
 WRITE_NODE = rr.NODE_OF[rr.WRITE]
-COLD_NODE = rr.NODE_OF[rr.COLD]
+COLD_NODE = rr.COLD_NODE
 UNSAID_OPENING = "冒頭 3 行で何の話かが言えない（『さっきの件』が何を指すか本文に無い）"
 GUESS = "『R3』が何かを推測で埋めた"
 NOT_PASSED = "初見の確かめを通っていない"
@@ -42,11 +42,11 @@ def cold(verdict, stops=(), guessed=()):
 
 
 def fake_board(tmp) -> types.SimpleNamespace:
-    """報告の書き手の節（report）が待っている盤面。初見検査（report.cold_check）は済んでいる"""
+    """報告の書き手の節（report）が待っている盤面（頭と初見検査の節はこのラインで absent）"""
     d = pathlib.Path(tmp)
     b = types.SimpleNamespace(dir=d, round=1, table=None,
                               state={"outputs": {}, "run_id": "run-1", "works": {"line": "darkfactory"}},
-                              rd={"instances": {WRITE_NODE: {"attempts": 1, "status": "pending"}}, "done": {COLD_NODE: {}}})
+                              rd={"instances": {WRITE_NODE: {"attempts": 1, "status": "pending"}}, "done": {}})
     b.work = lambda name: d / "r1" / name
     (d / "r1").mkdir(parents=True, exist_ok=True)
     return b
@@ -109,8 +109,7 @@ class WriteAcceptColdCase(unittest.TestCase):
         self.take.assert_not_called()
 
     def test_script_empty_cold_is_not_passed(self):
-        """scripts/accept.py: 書き手の輪で初見の読み手の返答が空で届いても確かめを飛ばさない（読めない返答として書き手に返す）。
-        ほかの輪の空（cold: ""）は確かめない"""
+        """scripts/accept.py: 書き手の輪で初見の読み手の返答が空で届いても確かめを飛ばさない（読めない返答として書き手に返す）"""
         spec = importlib.util.spec_from_file_location("_report_cold_accept", BLK / "scripts" / "accept.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -119,16 +118,20 @@ class WriteAcceptColdCase(unittest.TestCase):
         self.assertIs(got["ok"], False, got)
         self.take.assert_not_called()
         self.assertIsNone(rr._cold_block(cold("pass")))
-        with mock.patch.object(rr, "_cold_block", side_effect=AssertionError("ほかの輪で確かめた")):
-            got = mod.run(self._tmp.name, self._tmp.name, {**env, "INPUTS_ROLE": rr.COLD,
-                                                           "INPUTS_REPLY": cold("pass")})
-        self.assertIs(got["ok"], True, got)
 
     def test_pass_is_taken(self):
         got = self.accept("pass")
         self.assertIs(got["ok"], True, got)
         self.take.assert_called_once()
         self.assertNotIn(NOT_PASSED, self.marked())
+
+    def test_last_cold_reply_is_kept_for_collect(self):
+        """初見の読み手の最後の返答を控え、出口の cold_check にする（頭と初見検査の節が absent でも判定が残る）"""
+        self.accept("redesign-needed")
+        self.accept("pass")
+        kept = json.loads(self.b.work(rr.COLD_RESULT_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(kept["verdict"], "pass")
+        self.assertEqual(kept["stops"], [UNSAID_OPENING])
 
     def test_last_attempt_takes_and_marks(self):
         """上限の回（前に GIVE_UP_AFTER - 1 回拒んだ）の redesign-needed → 受け取って輪を抜け、印と理由を作業ファイルに残す"""

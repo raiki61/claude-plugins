@@ -1,0 +1,128 @@
+{
+ "_note": "2026-10-09 に canary の run b711eeaa（Archon v0.11.1・resumeB）の archon.db の remote_agent_workflow_events から、修正案の役（planning__plan-loop.plan）の行を写した（data は JSON を解いた形。ARCHON_CLI_COMMAND の workflow get --verbose --events --json が返す行と同じ列——tests/events/verbose-p13.json）。置き場のパスは @REPO@（run の作業ツリー）・@BOARD@（盤面）に伏せ、node_completed の data は node・spend・accounting・type だけを残した。tool_called の Read の行の形（data.tool_name・data.tool_input.file_path）と節の費用の欄（data.spend.costUsd = {source: provider, value}）の実物",
+ "events": [
+  {
+   "id": "3e928ada-2b5c-42ad-bfec-14e00f3f0197",
+   "workflow_run_id": "b711eeaa-70b4-4ec8-b5d0-5b0ac5efda58",
+   "event_order": 464,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "@BOARD@/planning/r1/prompt-p2.fix_plan.md"
+    },
+    "tool_call_id": "toolu_01V3EKYvP2n6M43KWnamiEJS"
+   },
+   "created_at": "2026-10-08 00:57:19"
+  },
+  {
+   "id": "8a897b46-c62c-4762-8dad-481d6fc3a23f",
+   "workflow_run_id": "b711eeaa-70b4-4ec8-b5d0-5b0ac5efda58",
+   "event_order": 468,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "@REPO@/test_lib.py"
+    },
+    "tool_call_id": "toolu_01VQNyzPq822eaAvEG7LnsHm"
+   },
+   "created_at": "2026-10-08 00:57:21"
+  },
+  {
+   "id": "0c4ef210-5a6d-498b-a505-d29788710ff6",
+   "workflow_run_id": "b711eeaa-70b4-4ec8-b5d0-5b0ac5efda58",
+   "event_order": 472,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "@REPO@/money.py"
+    },
+    "tool_call_id": "toolu_01MkEKYkkayfEZA94eUpKYyx"
+   },
+   "created_at": "2026-10-08 00:57:22"
+  },
+  {
+   "id": "80e73f6b-03e7-4f0b-b350-664b260b01f8",
+   "workflow_run_id": "b711eeaa-70b4-4ec8-b5d0-5b0ac5efda58",
+   "event_order": 476,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "@REPO@/slugs.py"
+    },
+    "tool_call_id": "toolu_0123FiJDNP3CjvjEN8JQxA7u"
+   },
+   "created_at": "2026-10-08 00:57:23"
+  },
+  {
+   "id": "d80623fa-9050-4b7b-ad1e-283c693a099e",
+   "workflow_run_id": "b711eeaa-70b4-4ec8-b5d0-5b0ac5efda58",
+   "event_order": 480,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "@REPO@/README.md"
+    },
+    "tool_call_id": "toolu_01VuFKHxQotJVMaLFvzg1QjA"
+   },
+   "created_at": "2026-10-08 00:57:23"
+  },
+  {
+   "id": "f72af600-bcd5-416f-8cd2-d03bb9d30638",
+   "workflow_run_id": "b711eeaa-70b4-4ec8-b5d0-5b0ac5efda58",
+   "event_order": 488,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "node": {
+     "id": "plan",
+     "kind": "agent",
+     "source": {
+      "kind": "inline"
+     }
+    },
+    "spend": {
+     "tokens": {
+      "source": "provider",
+      "value": {
+       "input": 64034,
+       "output": 3860,
+       "cacheRead": 41044,
+       "cacheWrite": 22984
+      }
+     },
+     "costUsd": {
+      "source": "provider",
+      "value": 0.2694523
+     },
+     "stopReason": {
+      "source": "provider",
+      "value": "tool_use"
+     },
+     "numTurns": {
+      "source": "provider",
+      "value": 7
+     }
+    },
+    "accounting": "node",
+    "type": "agent"
+   },
+   "created_at": "2026-10-08 00:57:50"
+  }
+ ]
+}

@@ -207,7 +207,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
                      # 判定の裏取りは既定で off なので、入力 features_on で入れて裏取りの節（束ね役・まとめ）も回す
                      inputs={"tdd_suite": str(suite), "thickness": depth.STANDARD, "features_on": "judge_verify"}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
         "ci-final-stop": dict(replies={**line_replies(), "ci": linekit.reply("ci_found")}, edits=edits, declared=False,
-                              bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
+                              bad_first={"blk-ci/ci", "blk-report/report-write"},
                               gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}}),
         "give-up": dict(replies={**line_replies(), "plan": lambda n: {}}, edits=edits),
         # run 30: 素材集めの役が 3 回とも拒まれて諦め、素材集めのブロックが盤面を止める。同じ境の節（h-mat）の後ろの判定の

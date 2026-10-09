@@ -80,8 +80,6 @@ ROLE_NODES = {
     "r3.coherence": ("blk-eyes", "r3-coherence"),
     "r4.hidden_scope": ("blk-eyes", "r4-scope"),
     "stop.premise_check": ("blk-eyes", "premise-check"),
-    "report.human_items": ("blk-report", "report-items"),
-    "report.cold_check": ("blk-report", "report-cold"),
     "report": ("blk-report", "report-write"),
     "spec.write": ("blk-spec", "spec-write"),
     "spec.review": ("blk-spec", "spec-review"),

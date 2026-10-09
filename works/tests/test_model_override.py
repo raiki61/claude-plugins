@@ -83,7 +83,7 @@ class RunModelPlanCase(unittest.TestCase):
 
     def test_frontmatter_roles_keep_their_model(self):
         """前付けを持つ役の段（表の外）は明示の模型でも替えない。記録に model_declared を持たない"""
-        for node, model in (("judge", "opus"), ("r2-compare", "opus"), ("review", "sonnet"), ("report-cold", "sonnet")):
+        for node, model in (("judge", "opus"), ("r2-compare", "opus"), ("review", "sonnet"), ("report-write-cold", "sonnet")):
             with self.subTest(node):
                 p = self.plan(sdk_argv(node, model=model), WORKS_DEV_MODEL="haiku")
                 self.assertEqual(adapter.requested_flag(p.argv, "--model"), model)

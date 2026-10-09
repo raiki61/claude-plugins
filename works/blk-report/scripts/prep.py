@@ -2,9 +2,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""役を起こす前の支度（report_roles.prep）: 本線の指示書を盤面の値で描き、拒否の後なら前の拒否の文を頭に置き、書き手は
-作業ツリーの写しを取り、起こした印を置く。出口 {prompt_file, prompt, attempt, node, facts_file, already}。
-prompt は初見の読み手にだけ描いた本文（道具が無いので指示に貼る）。facts_file は report の書き手の数の出どころ"""
+"""書き手を起こす前の支度（report_roles.prep）: 本線の指示書を盤面の値で描き、拒否の後なら前の拒否の文を頭に置き、
+作業ツリーの写しを取り、起こした印を置く。出口 {prompt_file, attempt, node, facts_file, already}。
+facts_file は書き手の数の出どころ"""
 import sys
 from pathlib import Path
 

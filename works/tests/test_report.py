@@ -35,6 +35,7 @@ import linekit  # noqa: E402
 import prcheck  # noqa: E402
 import refix  # noqa: E402
 import rejudge  # noqa: E402
+import replan  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
@@ -310,7 +311,7 @@ class OutcomeCase(ReportBase):
         self.assertEqual(out["outcome"], "stopped_by_request")
         b = entry.open_board(self.board, allow_halted=True)
         # 止めた後に残るのは報告の役の節（表で blk-report。計画 P1 Task 34）だけ。その待ちは結末を替えない
-        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], ["report.human_items", "report.cold_check", "report"])
+        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], ["report"])
         self.assertIs(out["ai_report_go"], True)
 
     def test_record_invalid_from_settle_is_caught(self):
@@ -339,7 +340,7 @@ class OutcomeCase(ReportBase):
         self.assertNotIn("halted", st)
         self.assertEqual(st["works"][DiskBoard.AFTER_ROUND]["by"], "stop_after_round")
         b = entry.open_board(self.board)
-        self.assertEqual(b.ready(), ["report.human_items"])
+        self.assertEqual(b.ready(), ["report"])
         self.assertEqual((b.record["process"]["stop_reason"], b.record["process"]["halted"]["by"]),
                          ("stop_after_round", "stop_after_round"))
         self.assertIn("止めていない（周の締めの後で止めた", h[H3])
@@ -347,7 +348,7 @@ class OutcomeCase(ReportBase):
         self.assertEqual((out2["outcome"], out2["ai_report_go"]), ("fixed", True))
 
     def test_rebuild_after_the_ai_report_began_keeps_its_exit(self):
-        """Archon の resume は報告の節 report を毎回回し直す（always_run）。AI の報告のブロックが報告の頭の段（report.human_items）を
+        """Archon の resume は報告の節 report を毎回回し直す（always_run）。AI の報告のブロックが書き手の返答（report）を
         受けた後に落ちた run を resume しても、出口（ai_report_go を含む）は 1 度目と字で同じ: 替わると Archon が AI の報告のブロックを
         古いと数え、when: が偽になって済んだ段ごと飛ばし、AI の報告を黙って捨てる"""
         import test_blk_report as BR
@@ -355,11 +356,11 @@ class OutcomeCase(ReportBase):
         first, _, _ = self.build()
         self.assertIs(first["ai_report_go"], True)
         from test_blk_fix import launch
-        launch(self.board, "report.human_items")
+        launch(self.board, "report")
         repo = pathlib.Path(entry.open_board(self.board, allow_halted=True).state["inputs"]["cwd"])
-        got = entry.take(self.board, "report.human_items", BR.golden_reply("report.human_items"), repo)
+        got = entry.take(self.board, "report", BR.golden_reply("report"), repo)
         self.assertTrue(got["ok"], got)
-        self.assertNotIn("report.human_items", entry.open_board(self.board, allow_halted=True).ready())
+        self.assertNotIn("report", entry.open_board(self.board, allow_halted=True).ready())
         again, _, _ = self.build()
         self.assertEqual(again, first)
 
@@ -608,6 +609,13 @@ class HeadCase(ReportBase):
             self.assertIn(row, h[H1])
         self.assertIn("## 仕組みの異常\n\n- 宣言の外の読み（", text)
         self.assertIn("## 未確認のレンズ\n\n- レンズを走らせていない", text)
+        # 2026-10-09 の片付け: 末尾の「このラインに無い節」の節は出さない（冒頭 2 の 1 行が数と一覧の置き場を言う）。冒頭 4 の
+        # 仕組みの異常は 0 件の種を並べない（冒頭 1 の合計と「仕組みの異常」の節が言う）。残りが 0 件なら関所の例外の注記を付けない
+        self.assertNotIn("## このラインに無い節", text)
+        self.assertFalse(any(name in h[H4] for name, _, _ in report.ANOMALY_OPS), h[H4])
+        self.assertNotIn(report.NOT_RUN_GATE_NOTE, h[H1])
+        self.assertNotIn(report.NOT_RUN_GATE_NOTE, "\n".join(report.always_rows(b, left=[])))
+        self.assertIn(report.NOT_RUN_GATE_NOTE, "\n".join(report.always_rows(b, left=[{"where": "w", "text": "a"}])))
 
     def final_text(self, b, tests):
         """最後の関所の文を本物の作り手（line_edge._eyes と report.rest_outside_validator）が作った eyes・rest で組む"""
@@ -676,10 +684,11 @@ class HeadCase(ReportBase):
 
     def test_head_one_rest_row_names_the_not_run_exception_like_the_gate(self):
         """報告の冒頭 1 の残りの行（always_rows の left の枝）も、最後の関所の残りの行と同じ NOT_RUN_GATE_NOTE の一文で、走っていない目
-        （not_run）を関所では開ける理由に数えないことを名指す"""
+        （not_run）を関所では開ける理由に数えないことを名指す（走っていない目が在る時。残りが 0 件なら添えない）"""
         self.begin()
         self.without_node_env()
-        _, _, h = self.build()
+        eyeing = {"ok": True, "reason": "", "reviews": {**EYES_PASS, "R3": {"status": "not_run", "reason": "返答が無い"}}}
+        _, _, h = self.build(eyeing=eyeing)
         rest_rows = [x for x in h[H1].splitlines() if x.startswith("- 残り")]
         self.assertEqual(len(rest_rows), 1)
         self.assertIn(report.NOT_RUN_GATE_NOTE, rest_rows[0])
@@ -888,6 +897,23 @@ class HeadCase(ReportBase):
         self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan", "読んだ証拠 fix", "読んだ証拠 fix.refit"])
         self.assertEqual([x.rsplit("。", 1)[1].rstrip("）") for x in rows], [str(p) for p in made])
 
+    def test_reads_lines_skip_block_index(self):
+        """blk-plan の索引 reads-plan-block.json と案の直しの索引 reads-replan-block.json（{役: reads-<役>.json} の対応で、
+        役の読んだ証拠そのものでない）は読みの節の行にしない（実物の run 55/56 本に「読んだ証拠 None: 渡した 0 件」が出ていた）"""
+        self.full()
+        made = {}
+        for name, doc in (("reads-plan.json", {"role": "plan", "rows": [], "missing": [],
+                                               "sources": {"hook": False, "events": "none"}}),
+                          ("reads-plan-block.json", {"plan": "x/reads-plan.json"}),
+                          ("reads-replan-block.json", {"plan": "x/reads-replan-plan.json"})):
+            p = self.board / "r1" / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            made[name] = p
+        rows = [x for x in report.head_reads(self.board, RUN_ID) if x.startswith("読んだ証拠")]
+        self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan"], rows)
+        self.assertFalse(any("None" in x for x in rows), rows)
+
     def test_round_two_paths(self):
         """周 2 の出力（state.outputs[節]["file"] が out/r2/）→ 見る所のパスは out/r2/ の下（周を仮定しない）"""
         self.full()
@@ -910,9 +936,9 @@ class HeadCase(ReportBase):
         b = entry.open_board(self.board)
         lines = report.head_entry(b, None)
         n = len(b.state["works"]["not_in_line"])
-        self.assertTrue(any(x.startswith(f"このラインに無い節: {n} 個") for x in lines), lines)
-        self.assertTrue(any(x.startswith("p2.history: ") for x in report.absent_lines(b)))
-        self.assertEqual(len(report.absent_lines(b)), n)
+        hit = [x for x in lines if x.startswith(f"このラインに無い節: {n} 個")]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertNotIn("報告の末尾", hit[0], "末尾の一覧の節は無い（一覧は周の添え書きの not_in_line）")
         downs = report.declared_downgrades(b.table.line)
         self.assertTrue(any(x.startswith(f"下げている所: {len(downs)} 個") for x in lines))
         self.assertTrue(any(x.strip().startswith("- p0.parallel_pr:") and "review-graph" in x for x in lines))
@@ -1067,8 +1093,7 @@ class HeadCase(ReportBase):
         self.begin()
         self.without_node_env()
         zero = [x for x in report.head_reads(self.board, RUN_ID) if "宣言の外の読み" in x]
-        self.assertEqual(len(zero), 1, zero)
-        self.assertIn(": 0 件", zero[0])
+        self.assertEqual(zero, [], "0 件の種は冒頭 4 に並べない（冒頭 1 の合計と仕組みの異常の節が言う）")
         b = entry.open_board(self.board)
         b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md", "r1/x.json"])
         b.trace(scopes.READ_OUTSIDE_OP, scope="refitting", paths=["fixing/r1/a.md"])
@@ -1082,8 +1107,7 @@ class HeadCase(ReportBase):
         self.begin()
         self.without_node_env()
         zero = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
-        self.assertEqual(len(zero), 1, zero)
-        self.assertIn(": 0 件", zero[0])
+        self.assertEqual(zero, [], "0 件の種は冒頭 4 に並べない")
         entry.open_board(self.board).trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
         hit = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
         self.assertEqual(len(hit), 1, hit)
@@ -1338,7 +1362,7 @@ class HeadWhereDesignCase(unittest.TestCase):
 
 
 class CostCase(unittest.TestCase):
-    # 節の費用は data.spend.costUsd（Archon v0.11.1）。**推測**: 数が入る時の形は録った実物（tests/events）に 0 件で、有限の数と置いた
+    # 節の費用は data.spend.costUsd（Archon v0.11.1）。ここの見本は有限の数の形（実物の {source: provider, value} の形は test_cost_from_real_rows）
     EVENTS = [{"event_type": "node_completed", "step_name": "judging__judge-loop.judge", "data": {"spend": {"costUsd": 0.0284}}},
               {"event_type": "node_completed", "step_name": "rejudging__rj-loop.rejudge", "data": {"spend": {"costUsd": 0.0615}}},
               {"event_type": "node_started", "step_name": "x", "data": {"spend": {"costUsd": 9}}}]
@@ -1357,8 +1381,17 @@ class CostCase(unittest.TestCase):
         self.assertEqual(len(hit), 1, lines)
         self.assertIn("judge の会話を継いだ", hit[0])
         self.assertIn("累積かどうか未確認", hit[0])
-        self.assertIn("欄の形は未確認", hit[0])   # COST_FIELD_VERIFIED が偽の間
-        self.assertFalse(report.COST_FIELD_VERIFIED)
+        self.assertNotIn("欄の形は未確認", hit[0])   # 欄の形は実物で確かめた（test_cost_from_real_rows）
+        self.assertTrue(report.COST_FIELD_VERIFIED)
+
+    def test_cost_from_real_rows(self):
+        """節の費用の欄の実物（tests/events/db-rows-plan.json。canary の archon.db の node_completed）は
+        data.spend.costUsd = {source: provider, value: 数}。その値を節の費用に読み、「欄の形は未確認」を添えない"""
+        evs = json.loads((TESTS / "events" / "db-rows-plan.json").read_text(encoding="utf-8"))["events"]
+        self.assertEqual([(r["node"], r["reported"]) for r in report.cost_rows(evs, [])], [("plan", 0.2694523)])
+        lines = report.head_cost(None, RUN_ID, events=evs, launches=[])
+        self.assertTrue(any(x.startswith("費用 plan: 0.2694523 USD") for x in lines), lines)
+        self.assertFalse(any("欄の形は未確認" in x for x in lines), lines)
 
     def test_cost_unavailable_line(self):
         """events None → 費用の行が「取れない」の 1 行。費用の欄の無い出来事も 1 行"""
@@ -1393,6 +1426,14 @@ class NamesCase(unittest.TestCase):
         self.assertEqual(report.ADAPTER_BY, ci_role.FENCE_BY)
         self.assertEqual(report.declared_downgrades("darkfactory"), prcheck.downgrades("darkfactory"))
         self.assertEqual(report.declared_downgrades("no-such-line"), [])
+        # 読んだ証拠の索引の名（blk-plan と案の直しが書く）は head_reads が飛ばす尾で終わり、役の reads-<役>.json は終わらない
+        sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
+        try:
+            import planblk
+        finally:
+            sys.path.remove(str(ROOT / "blk-plan" / "lib"))
+        for index in (planblk.READS_INDEX, replan.READS_INDEX):
+            self.assertTrue(index.endswith(report.READS_INDEX_SUFFIX), index)
 
 
 class ScriptCase(ReportBase):

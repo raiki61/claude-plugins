@@ -1,61 +1,57 @@
-# 筋書き rejected-thrice: 報告の頭の書き手の返答を受け付けが 3 回拒み（表のセルに説明の文）、3 回目に諦めの印（done: true・
-# give_up: true）を出す。初見検査と本文の段は rp-route が回す物を返さないので飛び、collect が理由と機械の事実だけの報告を書いて ok: false。
+# 筋書き rejected-thrice: 書き手の返答を受け付けが 3 回拒み（表のセルに説明の文）、3 回目に諦めの印（done: true・
+# give_up: true）を出す。collect が理由と機械の事実だけの報告を書いて ok: false。
 # 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、輪が抜けた後の配線
-# （rp-route2 → rp-route3 → collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_report.py の
+# （collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_report.py の
 # test_loop_gives_up_after_three が、Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
-rp-route1:
-  next: report-items
-  node: report.human_items
-  why: report.human_items が ready
-report-items-prep:
-  prompt_file: board/prompts/r3/report.human_items.md
-  prompt: ''
-  attempt: 1
-  node: report.human_items
-  facts_file: ''
+rp-route:
+  next: report-write
+  node: report
+  why: report が ready
+report-write-prep:
+  prompt_file: board/prompts/r3/report.md
+  attempt: 3
+  node: report
+  facts_file: board/r3/report-facts.md
   already: false
-report-items:
+report-write:
   text: "| 項目 | 説明 |\n|---|---|\n| 収束 | 3 周で収束し、直す物は残っていない。 |\n"
-report-items-accept:
+report-write-cold-prep:
+  prompt_file: board/prompts/r3/report-write-cold.md
+  prompt: "お前は cold-reader。……（書き手の返答の頭を描いた本文）"
+report-write-cold:
+  verdict: pass
+  stops: []
+  guessed: []
+  decidable: true
+report-write-accept:
   ok: false
   done: true
   give_up: true
   reason: "表のセルに説明の文を入れない（持ち主の決まり）。\n- 3 行目のセル「3 周で収束し、直す物は残っていない。」（19 字）"
-  reason_file: board/reject-report_report.human_items-3.txt
-  node: report.human_items
-  record_invalid: false
-rp-route2:
-  next: ''
-  node: report.cold_check
-  why: report.cold_check は ready でない（周 3・状態 converged・待ち ['report.human_items']）
-rp-route3:
-  next: ''
+  reason_file: board/reject-report_report-3.txt
   node: report
-  why: report は ready でない（周 3・状態 converged・待ち ['report.human_items']）
+  record_invalid: false
 collect:
   ok: false
-  reason: 'report.human_items の返答が 3 回とも受け付けで拒まれた（最後の拒否: 表のセルに説明の文を入れない）'
+  reason: 'report の返答が 3 回とも受け付けで拒まれた（最後の拒否: 表のセルに説明の文を入れない）'
   report_file: board/report-ai.md
   text_file: ''
-  human_items_file: ''
   facts_file: board/r3/report-facts.md
   cold_check:
-    verdict: ''
+    verdict: pass
     stops: []
     guessed: []
-    decidable: false
+    decidable: true
   record_invalid: false
   rejects:
-    report.human_items: {cold: 0, format: 3, answer: 0}
-    report.cold_check: {cold: 0, format: 0, answer: 0}
-    report: {cold: 0, format: 0, answer: 0}
+    report: {cold: 0, format: 3, answer: 0}
 fixture:
   expect: completed
   reached:
-  - rp-route1
-  - report-items-prep
-  - report-items
-  - report-items-accept
-  - rp-route2
-  - rp-route3
+  - rp-route
+  - report-write-prep
+  - report-write
+  - report-write-cold-prep
+  - report-write-cold
+  - report-write-accept
   - collect
