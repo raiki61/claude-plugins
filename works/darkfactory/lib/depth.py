@@ -40,6 +40,7 @@ import conflict  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402
 import scopes  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の読み口）
 
 LIGHT = "軽量"
 STANDARD = "標準"
@@ -208,7 +209,7 @@ def _open_units(raw) -> list:
 
 
 def decide(b, open_units, *, tdd_suite: str) -> dict:
-    start = gatemarks.start_doc(b.dir)
+    start = startrec.read(b.dir)
     checked = bool((tdd_suite or "").strip() or str(start.get("test_cmd") or "").strip())
     doc = decide_doc(planmarks.read(b), _open_units(open_units), forced=str(start.get("thickness") or ""), checked=checked)
     write(b.dir, doc)

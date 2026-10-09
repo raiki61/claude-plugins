@@ -22,6 +22,7 @@ import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
 import report  # noqa: E402
+import startrec  # noqa: E402
 from engine.rules import registry  # noqa: E402
 
 NARROW = {"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま"}
@@ -55,8 +56,8 @@ class GateBase(unittest.TestCase):
         board.DiskBoard._apply_overrides(holder, entry.CORE_OVERRIDES)
         b.rules = holder.rules
         if unattended:
-            (self.tmp / gatemarks.START_FILE).parent.mkdir(parents=True, exist_ok=True)
-            (self.tmp / gatemarks.START_FILE).write_text(json.dumps({"unattended": gatemarks.UNATTENDED}), encoding="utf-8")
+            (self.tmp / startrec.REL).parent.mkdir(parents=True, exist_ok=True)
+            (self.tmp / startrec.REL).write_text(json.dumps({"unattended": gatemarks.UNATTENDED}), encoding="utf-8")
         return registry(holder.rules, "BUILTINS")["human_gate"](b, "p2.human_gate"), b
 
 
@@ -170,8 +171,8 @@ class FourAxesCase(GateBase):
         req = self.tmp / "request.json"
         req.write_text(json.dumps({"findings": [{"where": "stats.py", "text": "空の列の mean は今までどおり例外でよい"}]},
                                   ensure_ascii=False), encoding="utf-8")
-        (self.tmp / gatemarks.START_FILE).parent.mkdir(parents=True, exist_ok=True)
-        (self.tmp / gatemarks.START_FILE).write_text(json.dumps({"request_file": str(req)}), encoding="utf-8")
+        (self.tmp / startrec.REL).parent.mkdir(parents=True, exist_ok=True)
+        (self.tmp / startrec.REL).write_text(json.dumps({"request_file": str(req)}), encoding="utf-8")
         ok = {**DECIDED, "decided_by": "依頼の本文「空の列の mean は今までどおり例外でよい」"}
         self.assertEqual(self.gate(narrows=[{**NARROW, **ok}])[0], {"ok": True})
         bad = {**DECIDED, "decided_by": "依頼の本文「空の列は 0 を返す」"}

@@ -69,6 +69,7 @@ import rejudge  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の読み口）
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import structmark  # noqa: E402
 
@@ -76,10 +77,11 @@ import structmark  # noqa: E402
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
 # 人が止まれる所は最後の人の関所 final-gate。P1-R3）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）。
 # rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。look は最後のテストの後に独立の目を回すかを決め、eyes は
+# spec は仕様の段（任意。入力 spec）の後・並行 PR の前の境で、仕様を固めた後に盤面の engine の節を回し直して pr_go を出す
 # 独立の目と最後の関所の後に関所の答えを受ける（人は目の結果を見てから答える。本線の r4.human_gate と同じ順。名 h-eyes は前の並びのまま）
 # replan・regate・refit は修正の段の後・再審の前の案の直し（依頼 226。1 run に 1 回）。ci は最後のテストの後に、p4.ci が
 # 任せ先に落ちて待っていれば（test_cmd も宣言も無い run）任せ先の CI の役のブロックを回すかを決める
-AT = ("entry", "judge", "mat", "plan", "gate", "fix", "replan", "regate", "refit", "rejudge", "review", "refix", "tests",
+AT = ("entry", "spec", "judge", "mat", "plan", "gate", "fix", "replan", "regate", "refit", "rejudge", "review", "refix", "tests",
       "ci", "look", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "refit", "eyes")   # 関所の答えを受ける境の節（fix は policy-gate、refit は replan-gate、eyes は final-gate）
@@ -108,7 +110,7 @@ EMPTY_FIX_OP = entry.EMPTY_FIX_OP           # 機械が p3.fix の空の返答�
 JUDGE_BRIDGE_BY = stopby.declare("judge-bridge", "判定のブロックの出口を盤面が受けなかった")   # state.stop.by（h-plan）
 PREMISES_NODE = "p0.premises"
 PURPOSE_NODE = "p0.purpose"
-PENDING_REQUEST_BY = stopby.declare("pending-request", "依頼と変更の両方の run で、判定の前に依頼を積めなかった")   # state.stop.by（h-mat）
+SPEC_EDGE_BY = stopby.declare("spec-edge", "仕様の段の後の engine の節の回し直しが入力の誤りで拒まれた")   # state.stop.by（h-spec）
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
@@ -717,6 +719,22 @@ def entry_edge(b) -> dict:
             "purpose_go": "p0.purpose" in ready, "spec_go": any(n.startswith("spec.") for n in ready)}
 
 
+def spec_edge(b) -> dict:
+    """h-spec（仕様の段の後・並行 PR の前。いつも走る）: 盤面の engine の節を回し直す（entry.resume_after_ci と同じ輪。仕様の段を
+    挟む run では、版を固める p1.worktree_before が仕様の固め spec.freeze を待つので、並行 PR の確かめ p0.parallel_pr はここで
+    初めて出る）。pr-checking の when: はこの欄 pr_go だけを読む（仕様の段の無い run では h-entry と同じ値）。test_cmd は start の
+    控えの値（止められた run の呼び直しで道を替えない）。回し直しが入力の誤りで拒まれたら（並行 PR の確かめの拒みなど）、境の節を
+    落とさずに盤面を止め（by SPEC_EDGE_BY。CI の役の後の入口へ戻る口 ci_role と同じ扱い）、理由つきで stop"""
+    try:
+        entry.resume_after_ci(b, test_cmd=str(startrec.read(b.dir).get("test_cmd") or ""))
+    except entry.InputRefused as e:
+        reason = f"仕様の段の後に盤面の engine の節を回し直せない: {e}"
+        entry.open_board(b.dir).stop(reason, by=SPEC_EDGE_BY)
+        return {"stop": True, "go": False, "pr_go": False, "why": reason}
+    b = entry.open_board(b.dir)
+    return {"go": True, "pr_go": "p0.parallel_pr" in b.ready()}
+
+
 def _guard(b, repo) -> tuple:
     """守りのファイルと食い違いの申し出を確かめ、在れば今の周の行（答えは最後の関所まで None）に書く。返り (rows, rev, err, asks)。
     h-final と、関所の答えの無い h-eyes が呼ぶ（独立の目のブロックが落ちて h-final が飛ばされた run でも、行を見ずに通さない）"""
@@ -931,9 +949,7 @@ def mat_edge(b, board_dir, repo) -> dict:
        （core の purpose.read_purpose。blk-purpose の受け付けが書く）を読んで entry.take(p0.purpose)（起こした印を置いてから。
        盤面の写しの schema が当たる）。無い・読めない・盤面が受けないなら b.stop("目的の文が盤面に無い: …", by=stopby.PURPOSE) で
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
-    2. 依頼と変更の両方で始めた run の依頼がまだ積まれていなければ entry.add_pending_request で積む（CI の役の後の run でも、
-       判定の前に必ず届ける）。版がまだ固まっていない（積むと入口の印が立つ）なら b.stop(…, by=PENDING_REQUEST_BY) で stop
-    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
+    2. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
        今の周の判定（p2.diagnose）が既に済んだ盤面
        （固定材料から始めた run）は go 偽（判定の支度は待っていない p2.diagnose を線の順の誤りとして拒む）"""
     board_dir = pathlib.Path(board_dir)
@@ -952,10 +968,6 @@ def mat_edge(b, board_dir, repo) -> dict:
             entry.open_board(board_dir).stop(reason, by=stopby.PURPOSE)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
-    if entry.add_pending_request(b) == "waiting":
-        reason = f"依頼を判定の前に積めない: {entry.PENDING_WAIT_NODE} がまだ済んでいない（今積むと入口の印が立ち P1 の目が外れる）"
-        b.stop(reason, by=PENDING_REQUEST_BY)
-        return {"stop": True, "go": False, "why": reason}
     return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK))}
 
 
@@ -1057,7 +1069,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        （修正案の欄の控え plan-fields.json の食い違い。conflict.test_permits）なら、関所を開かず止め直さずに _halted_out
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
-    5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
+    5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。spec: spec_edge（盤面の engine の節を回し直して pr_go）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言と、関所で答えた問いで直す義務に戻った単位の行
        （gatemarks.returned_lines。notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
@@ -1120,6 +1132,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         return {**out, "stop": True, "why": flag["reason"]}
     if at == "entry":
         return {**out, **entry_edge(b)}
+    if at == "spec":
+        return {**out, **spec_edge(b)}
     if at == "judge":
         return {**out, **judge_edge(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode, premised=premised)}
     if at == "plan":

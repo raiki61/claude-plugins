@@ -4,7 +4,7 @@
   VERSION・graphloops の写しの行・借りた物の記録（$CLAUDE_CONFIG_DIR/.works-toolset.json）・Archon と Claude Code の版（env）。
   分からない値は null にして、unknown に鍵と理由を書く（推測で埋めない）
 - write: <ARTIFACTS_DIR>/versions.json に一時ファイルから置き換えて書く
-- darkfactory/scripts/start.py は入力を拒む run でも、盤面より先に versions.json を書く
+- blk-entry/scripts/start.py は入力を拒む run でも、盤面より先に versions.json を書く
 """
 import json
 import os
@@ -135,7 +135,7 @@ class StartWritesVersionsCase(unittest.TestCase):
                         "INPUTS_THICKNESS": "", "INPUTS_GATES": "", "INPUTS_FINAL_GATE": "", "INPUTS_ADAPTER": "",
                         "INPUTS_POLICY_MD": "", "ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-v-1",
                         "WORKS_ARCHON_VERSION": "v0.11.1", "PYTHONDONTWRITEBYTECODE": "1"})
-            r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "start.py")], cwd=cwd, env=env,
+            r = subprocess.run([sys.executable, str(ROOT / "blk-entry" / "scripts" / "start.py")], cwd=cwd, env=env,
                                capture_output=True, text=True, encoding="utf-8")
             self.assertNotEqual(r.returncode, 0, r.stdout)
             doc = json.loads((art / versions.FILE).read_text(encoding="utf-8"))
@@ -158,7 +158,7 @@ class StartWritesVersionsCase(unittest.TestCase):
                         "INPUTS_POLICY_MD": "", "INPUTS_FEATURES_OFF": "tdd_lanes, judge_verify,tdd_lanes no_such",
                         "INPUTS_FEATURES_ON": "review_tree、judge_verify",
                         "ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-v-2", "PYTHONDONTWRITEBYTECODE": "1"})
-            r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "start.py")], cwd=cwd, env=env,
+            r = subprocess.run([sys.executable, str(ROOT / "blk-entry" / "scripts" / "start.py")], cwd=cwd, env=env,
                                capture_output=True, text=True, encoding="utf-8")
             self.assertNotEqual(r.returncode, 0, r.stdout)
             doc = json.loads((art / versions.FILE).read_text(encoding="utf-8"))

@@ -6,8 +6,24 @@
 # の鍵は、入れ子の深さに依らず名前空間なし（依頼 231 の測り 3・6）。blk-plan を 2 度 include すると（依頼 226 の replanning）
 # 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
 # block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
-start:
+entering__open:
   ok: true
+  pr_file: ''
+  input:
+    base:
+      rev: 0123456789abcdef0123456789abcdef01234567
+      from: head
+      name: ''
+      label: HEAD
+    head_rev: 0123456789abcdef0123456789abcdef01234567
+    diff:
+      empty: true
+      files: 0
+      stat: ''
+    requests: 2
+    request_file: /tmp/request_ok.json
+    pr: null
+    spec: false
   base_rev: 0123456789abcdef0123456789abcdef01234567
   test_cmd: python3 -m unittest
   policy_paste: ''
@@ -22,7 +38,7 @@ start:
   judge_verify: 'on'
   review_tree: 'on'
   tdd_lanes: 'on'
-  head_line: '入口: 判定から（依頼 2 件）・段: 標準（既定）・gates: 空'
+  head_line: '入口: 差分なし（HEAD）・依頼 2 件——P1 の役は起こさない・段: 標準（既定）・gates: 空'
 ci-checking__ci-fence:
   go: true
   reason: ''
@@ -61,6 +77,89 @@ ci-checking__collect:
   pr_go: false
   note: ''
 h-entry:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: ''
+  open_units: ''
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: true
+  purpose_go: false
+  spec_go: false
+  mat_go: false
+  structure_units_file: ''
+  ripple_file: ''
+  verify_file: ''
+speccing__write-route: {go: true, node: spec.write, why: spec.write が ready}
+write-prep:
+  prompt_file: board/prompts/r1/spec.write.md
+  attempt: 1
+  out_path: board/out/r1/spec.write.json
+  node: spec.write
+  already: false
+spec-write:
+  requirements:
+  - {key: R1, text: mean は 3 つの数の平均を返す}
+  acceptance:
+  - {key: A1, requirement: R1, file: test_spec_accept.py, name: test_mean_is_middle, run: python3 -m unittest test_spec_accept}
+  out_of_scope: []
+write-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.write}
+speccing__review-route: {go: true, node: spec.review, why: spec.review が ready}
+review-prep:
+  prompt_file: board/prompts/r1/spec.review.md
+  attempt: 1
+  out_path: board/out/r1/spec.review.json
+  node: spec.review
+  already: false
+spec-review:
+  faces:
+  - {key: F1, kind: missing, where: R1, why: 空の列の平均をどう扱うかが要件にも受け入れ条件にも無い（例外か 0 か）}
+  reason: 要件 R1 と受け入れ条件 A1 を読み、境目の入力を確かめた
+speccing__revise-route: {go: true, node: spec.revise, why: spec.revise が ready}
+revise-prep:
+  prompt_file: board/prompts/r1/spec.revise.md
+  attempt: 1
+  out_path: board/out/r1/spec.revise.json
+  node: spec.revise
+  already: false
+spec-revise:
+  spec:
+    requirements:
+    - {key: R1, text: mean は 3 つの数の平均を返す}
+    acceptance:
+    - {key: A1, requirement: R1, file: test_spec_accept.py, name: test_mean_is_middle, run: python3 -m unittest test_spec_accept}
+    out_of_scope: [空の列の平均（依頼に無い。今の実装の ZeroDivisionError のまま）]
+  handled:
+  - {key: F1, handled: declared, how: 空の列は依頼の範囲の外と決め、out_of_scope に理由つきで足した}
+revise-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.revise}
+speccing__spec-ask:
+  ask: true
+  stop: false
+  gate_text: "修正の前の関所（盤面の問い spec.approve・種類: spec_approval）\n\n仕様（要件と受け入れ条件）を承認するか。…\n"
+  why: ''
+speccing__spec-answer: {answered: true, decision: approve, stop: false, why: ''}
+speccing__collect:
+  ok: true
+  reason: ''
+  spec_file: board/r1/spec.json
+  tests:
+  - {file: test_spec_accept.py, sha: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
+  approved_by: human:spec-gate
+  approval_note: 受け入れ条件 A1 で進めてよい
+  frozen_rev: 1f0e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c
+  requirements: 1
+  acceptance: 1
+  faces: 1
+  handled: 1
+h-spec:
   ok: true
   stop: false
   go: true
@@ -1640,6 +1739,8 @@ review:
     verdict: pass
     why: 差分は mean の分母と clamp の上限の枝を直すだけで、faces に挙げる穴は無い
 review-accept:
+  node: p3.delta_review
+  give_up: false
   ok: true
   done: true
   reason: ''
@@ -2200,7 +2301,7 @@ fixture:
     adapter: optional
     final_gate: when_needed
   reached:
-  - start
+  - entering__open
   - h-entry
   - premising__collect
   - h-judge

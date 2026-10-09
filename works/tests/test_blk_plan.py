@@ -173,8 +173,10 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(self.top["converge-loop"]["depends_on"], ["plan-snap", "plan-loop"])
         self.assertEqual(self.top["converge-loop"]["trigger_rule"], "none_failed_min_one_success")
         self.assertNotIn("when", self.top["converge-loop"])
-        self.assertEqual(inner["plan-revise-snap"]["with"], {"role": planblk.REVISE_ROLE, "replan": "$INPUTS.replan"})
-        self.assertEqual(inner["converge-check"]["with"], {"replan": "$INPUTS.replan"})   # 2 度目の include では 1 往復で done
+        # 直しの役が起きるか・壁打ちを抜けるかは壁打ちの控えの事実だけで決め、入力 replan を渡さない（計画 2026-10-03-plan-converge の
+        # F2。計画 clean-whole の段 4.2 で戻した。2 度目の include でも控えの事実で素通しになる）
+        self.assertEqual(inner["plan-revise-snap"]["with"], {"role": planblk.REVISE_ROLE, "replan": "$INPUTS.replan"})   # snap の口は共通
+        self.assertNotIn("with", inner["converge-check"])
         self.assertNotIn("depends_on", inner["plan-revise-snap"])
         self.assertEqual(inner["review-ripple"]["depends_on"], ["plan-revise-snap", "plan-revise-loop"])
         self.assertEqual(inner["review-ripple"]["with"], {"stage": "items", "replan": "$INPUTS.replan"})
@@ -271,6 +273,9 @@ class YamlCase(unittest.TestCase):
                 want = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
                 mod = script_module(n["script"])
                 self.assertEqual(set(mod.INPUTS), want)
+                if n["script"] == "converge":   # 壁打ちの出口は控えの事実だけで決め、入力を読まない（段 4.2）
+                    self.assertEqual((set(mod.OPTIONAL), want), (set(), set()))
+                    continue
                 # 後から足した replan（と支度の verify_file・review_tree。判定の単位の裏取りの申し送りと事前審査の木の切り替え）
                 # だけが無くてよい（無い・空は今どおり）
                 self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"} | ({"INPUTS_VERIFY_FILE", "INPUTS_REVIEW_TREE"}
@@ -1892,21 +1897,25 @@ class ConvergeReviseCase(unittest.TestCase):
         plan = json.loads(pathlib.Path(idx["plan"]).read_text(encoding="utf-8"))
         self.assertEqual(plan["node_path"], "planning__plan-loop.plan")
 
-    def test_replan_include_does_not_converge(self):
-        """2 度目の include（依頼 226 の replanning。入力 replan）では壁打ちを回さない: 同じ周の 1 回目の控えの抜け方が again で
-        p2.fix_plan が待っていても、直しの役の snap は go 偽で写しを置かず、converge-check は 1 往復で done（outcome・record_file は
-        空）。読んだ証拠は直しの役を数えず、案の直しの役の節の名は READS_LOOP の入れ子の輪で組む（F9）"""
+    def test_replan_include_decides_by_record_facts(self):
+        """2 度目の include（依頼 226 の replanning）も、直しの役が起きるか・壁打ちを抜けるかを入力 replan でなく壁打ちの控えの事実
+        だけで決める（計画 2026-10-03-plan-converge の決め F2。枝の合わせで入力の分かれが黙って戻ったのを段 4.2 で消した）。
+        同じ控え（again で p2.fix_plan が待つ）なら replan を渡しても 1 回目の include と同じ答え。案の直しの include の現実の盤面
+        （1 回目の壁打ちを抜けた後: 案を受けて p2.fix_plan は待たず、抜け方は again でない）では、直しの役は go 偽で converge-check は
+        done。読んだ証拠は直しの役を数えず、案の直しの役の節の名は READS_LOOP の入れ子の輪で組む（F9）"""
         role = planblk.REVISE_ROLE
         self.again()
         b = self.board_obj()
         self.assertEqual(converge.read(b)["outcome"], converge.AGAIN)
-        self.assertIs(self.check()["done"], False)   # 1 回目の include なら壁打ちは続く
-        self.assertEqual(self.ok("snap", role=role, replan="true"), {"ok": True, "go": False, "snapshot_file": ""})
-        self.assertFalse(b.work(planblk.snapshot_name(role)).exists())
-        self.assertEqual(self.ok("converge", replan="true"), {"ok": True, "done": True, "outcome": "", "record_file": ""})
-        self.assertEqual(converge.read(b)["outcome"], converge.AGAIN)   # 控えに触れない
-        self.assertTrue(self.ok("snap", role=role)["go"])
+        self.assertIs(self.ok("snap", role=role, replan="true")["go"], True)   # 入力 replan は見ない
+        self.assertIs(self.ok("converge", replan="true")["done"], False)
         self.ok("prep", role=role, excluded_file="")   # 1 回目の直しの役の指示書が同じ周に在る
+        got = self.ok("accept", role=role, reply=json.dumps(self.reply(), ensure_ascii=False))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        doc = converge.read(b)
+        converge._write(b, {**doc, "outcome": converge.CLEAN})   # 1 回目の壁打ちを抜けた後の控え
+        self.assertEqual(self.ok("snap", role=role, replan="true"), {"ok": True, "go": False, "snapshot_file": ""})
+        self.assertIs(self.ok("converge", replan="true")["done"], True)
         b.work(rolekit.prompt_name(planblk.replan_mod.REVIEW_NODE)).write_text("案の直しの事前審査\n", encoding="utf-8")
         idx = json.loads(pathlib.Path(in_include("replanning", planblk.collect_reads, self.board, self.repo, "", "true")["reads_file"])
                          .read_text(encoding="utf-8"))

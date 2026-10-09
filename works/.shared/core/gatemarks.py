@@ -53,7 +53,7 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   素材の名）・素材の名で答えた依頼の答え（問いが立っていなくても当たる）・命令と出力つきで答えた素材（報告が検証器の阻害から外す。
   HAND_CHECKED と名乗る）・答えた行に足す素材の行（利用者の声 10-09 の C2）
 - design_only(b)・design_item(b): 設計だけの run か・関所に載せる設計だけの行（載せなければ空）
-- unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
+- unattended(b): 無人の run か（盤面の start の控えは startrec.read で読む）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
 - LANES_NAME・fell_lanes(b): 独立の目の筋が落ちた文の置き場と読み手（blk-eyes が書き、最後の関所の目の行の下に並ぶ）
 - quote(question)・QUOTE_NOTE: 盤面の問いの文を引用として載せる行と、関所で添える答え方の読み替えの 1 行
@@ -86,6 +86,7 @@ import converge
 import marks
 import planmarks   # 修正案の欄 structure（汚れる行への答え）
 import scopes
+import startrec   # 始めの記録（盤面の r1/start.json）の読み口
 import structmark  # 構造の目の行（汚れる・人に上げる）
 
 MARKS_FILE = marks.KINDS["gate"].file
@@ -162,7 +163,6 @@ HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n]+)")   # 一言の「保留: 
 HOLD_END = re.compile(r"[。；;\n]")   # HOLD が読む文の終わり（unread_holds が一言を文に切る）
 KEY_CHAR = re.compile(r"[A-Za-z0-9_-]")   # 台帳の key の一致の前後にこれが続けば、もっと長い key の断片
 HOLD_ITEM = re.compile(r"(?:^|[・、,，])\s*([A-Za-z0-9_-]*[A-Za-z0-9][A-Za-z0-9_-]*)")   # 「保留:」に並べた項の頭の key らしい並び
-START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
 ANSWERED_HEAD = "答えた問い（関所の continue か依頼の answers）"   # 答えた行（answered_lines）の見出し（報告の冒頭と最後の関所）
 ANSWER_KEY_HEAD = "答える時の answers の question"   # 保留の行の尾: 依頼の answers に字のまま書く question（answer_key。JSON の文字列で区切る）
 HAND_CHECKED = "人が手元で確かめた（実測とは書かない）"   # 命令と出力つきの依頼の答えが当たった測れていない素材の名乗り
@@ -219,7 +219,8 @@ PUSH_TAIL = re.compile(r"／推し: [^／\n]*$")   # 関所の項目の末尾の
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
               ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "修正に進まない行",
-              DESIGN_KIND: "構造の目が決めきれなかった設計の問い"}
+              DESIGN_KIND: "構造の目が決めきれなかった設計の問い",
+              "spec_approval": "仕様（要件と受け入れ条件）の承認", "spec_changed": "承認の後に受け入れ条件のテストが変わった"}
 
 
 def quote(question) -> list:
@@ -487,7 +488,7 @@ def axes(b, mark: dict, units) -> list:
     out = []
     if not decided(mark):
         return ["決め手の欄が揃わない（decided_by が無いか、undecided_because か柵の印が在る）"]
-    start = start_doc(b.dir)
+    start = startrec.read(b.dir)
     req = start.get("request_file") or ""
     quoted = ""
     try:
@@ -555,7 +556,7 @@ def plan_gate_items(b) -> list:
 
 def design_only(b) -> bool:
     """run が設計だけの run（start の控えの design_only。読めなければ今どおりの run）"""
-    return start_doc(b.dir).get("design_only") == DESIGN_ONLY
+    return startrec.read(b.dir).get("design_only") == DESIGN_ONLY
 
 
 def design_item(b) -> str:
@@ -577,16 +578,7 @@ def _design_only_answered(b, item: str) -> bool:
 
 def unattended(b) -> bool:
     """run が無人で回っている（start の控えの unattended。読めなければ人の居る run）"""
-    return start_doc(b.dir).get("unattended") == UNATTENDED
-
-
-def start_doc(board_dir) -> dict:
-    """盤面の start の控え（読めない・dict でなければ空の dict）"""
-    try:
-        doc = json.loads((pathlib.Path(board_dir) / START_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
+    return startrec.read(b.dir).get("unattended") == UNATTENDED
 
 
 def _asking(b) -> list:
@@ -627,7 +619,7 @@ def ask_text(q) -> str:
 
 def request_answers(b) -> list:
     """依頼の answers（start の控えの欄。無い・配列でなければ空。dict でない行は読まない）"""
-    rows = start_doc(b.dir).get("answers")
+    rows = startrec.read(b.dir).get("answers")
     return [a for a in rows if isinstance(a, dict)] if isinstance(rows, list) else []
 
 

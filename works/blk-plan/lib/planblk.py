@@ -984,10 +984,11 @@ def snap(board_dir, role: str, repo, replan: str = "") -> dict:
     """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false。修正案の
     行き止まりの盤面（stuck_reason）は止めて go: false。独立設計の役は core の design.snap（起こすかは design.due）。
     直しの役は壁打ちの抜け方が again（converge.held）で p2.fix_plan が待つ時だけ go: true（写しは plan-revise-snapshot.json）。
-    replan なら直しの役はいつも go: false（案の直しは壁打ちを回さない。事前審査の穴は関所 replan-gate が項目ごとに読む）、
-    ほかの役は core の replan.snap"""
+    直しの役が起きるかは壁打ちの控えの事実だけで決め、入力 replan を見ない（計画 2026-10-03-plan-converge の決め F2。案の直しの
+    include では 1 回目の壁打ちを抜けた後で、案を受けた p2.fix_plan は待たないので go: false になる）。replan ならほかの役は core の
+    replan.snap"""
     if role == REVISE_ROLE:
-        return {"ok": True, "go": False, "snapshot_file": ""} if replanning(replan) else _revise_snap(board_dir, repo)
+        return _revise_snap(board_dir, repo)
     if role == DESIGN_ROLE:
         return design.snap(board_dir, repo)
     if replanning(replan):
@@ -1243,15 +1244,13 @@ def revise_take():
     return wrapped
 
 
-def converge_check(board_dir, replan: str = "") -> dict:
+def converge_check(board_dir) -> dict:
     """converge-check: 壁打ちの出口。done は「控えの抜け方が again でない」か「今の往復で p2.fix_plan か p2.plan_review の拒否が
     GIVE_UP_AFTER 件に達した」か「盤面が止まっている」（止まった盤面では役が起きず抜け方が again のまま残るので、輪を
     max_iterations で落とさずに抜ける。R50。報告は collect が出す）。止めた盤面でも開ける。
-    replan ならいつも 1 往復で done（outcome・record_file は空。同じ周の 1 回目の控えを読まない。案の直しは壁打ちを回さず、
-    事前審査の穴は関所 replan-gate が項目ごとに読む）。
+    抜けるかは控えの事実だけで決め、入力 replan を見ない（計画 2026-10-03-plan-converge の決め F2。案の直しの include では 1 回目の
+    壁打ちを抜けた後の控えを読むので 1 往復で done。事前審査の穴は関所 replan-gate が項目ごとに読む）。
     返り {ok: True, done, outcome（控えの語。無ければ ""）, record_file}"""
-    if replanning(replan):
-        return {"ok": True, "done": True, "outcome": "", "record_file": ""}
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     outcome = converge.read(b)["outcome"]
     gave = any(len(rolekit.rejects(b, nid)) >= GIVE_UP_AFTER for nid in NODE_OF.values())

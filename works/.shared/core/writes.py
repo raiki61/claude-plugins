@@ -33,7 +33,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import adapter  # noqa: E402
-from leftovers import git, git_names  # noqa: E402
+from leftovers import git  # noqa: E402
 
 FIELD = "bash_writes"
 MIN_WHY = 10
@@ -89,9 +89,11 @@ def base_rev(b, given: str = "") -> str:
 
 
 def changed(repo, rev: str) -> list:
-    """版 rev からの変更（追跡中の差分と消した物、git が無視しない未追跡のファイル。リポジトリの根から）"""
-    return sorted(set(git_names(repo, "diff", "--name-only", "--no-renames", rev, "--", ":/"))
-                  | set(git_names(repo, "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")))
+    """版 rev からの変更（変えた・消した・git が無視しない新しいファイル。リポジトリの根から）。rev の木と比べる（changed_from）
+    ので、rev に在る未追跡のファイル（写しの核が版を固める review_rev は作業ツリーの未追跡のファイルも入れる。仕様の段の書き手が
+    版を固める前に書いた受け入れ条件のテストなど）は、中身が同じなら変更に数えない。前は本物の index と比べ、未追跡のファイルを
+    全部変更と数えたので、仕様の段の run の修正の受け付けが書き手のテストを修正役の範囲の外れと拒んだ"""
+    return changed_from(repo, rev)
 
 
 def changed_from(repo, tree: str) -> list:

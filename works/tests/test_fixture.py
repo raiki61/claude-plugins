@@ -27,6 +27,7 @@ sys.path.insert(0, str(TESTS))
 import test_blk_fix as tbf  # noqa: E402
 import entry  # noqa: E402
 import fixture  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の置き場と読み口）
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
@@ -87,7 +88,7 @@ class FixtureCase(FixtureBase):
         self.assertNotIn("fix_shape", doc)
         self.assertEqual(doc["fixture"]["manifest_sha256"],
                          hashlib.sha256((src / fixture.MANIFEST).read_bytes()).hexdigest())
-        self.assertEqual(json.loads((new_board / fixture.START_REL).read_text(encoding="utf-8")), doc)
+        self.assertEqual(json.loads((new_board / startrec.REL).read_text(encoding="utf-8")), doc)
         texts = [p.read_text(encoding="utf-8", errors="ignore") for p in new_board.rglob("*") if p.is_file()]
         for old in (str(self.board), str(self.board.parent), str(self.repo), man["head"]):
             self.assertFalse(any(old in t for t in texts), old)
@@ -187,10 +188,10 @@ class FixtureCase(FixtureBase):
         self.assertIn(f"{fixture.COPY}/state.json", man["files"])
 
     def test_start_record_place_is_one(self):
-        """start の控えの置き場は包みの START_REL 1 つ（1 周目の entry.START_FILE）。固定材料の印の読み口は adopted だけ"""
+        """start の控えの置き場は包みの START_REL 1 つ（1 周目の startrec.NAME）。固定材料の印の読み口は adopted だけ"""
         import adapter
-        self.assertEqual(fixture.START_REL, adapter.START_REL)
-        self.assertEqual(fixture.START_REL, f"r1/{entry.START_FILE}")
+        self.assertEqual(startrec.REL, startrec.REL)
+        self.assertEqual(startrec.REL, f"r1/{startrec.NAME}")
         self.assertIsNone(fixture.adopted(self.tmp / "nowhere"))
 
     def test_adopt_refuses_other_tree(self):
@@ -279,15 +280,44 @@ class FixtureStartCase(FixtureBase):
         other = self.clone_same_tree()
         new_board = self.tmp / "b2" / "board"
         out = entry.start(new_board, other, self.raw(src), run_id="run-2")
-        first = json.loads((self.board / fixture.START_REL).read_text(encoding="utf-8"))
+        first = json.loads((self.board / startrec.REL).read_text(encoding="utf-8"))
         self.assertTrue(out["ok"])
         self.assertEqual((out["ci_role_go"], out["pr_go"]), (False, first["pr_go"]))
         self.assertEqual(out["base_rev"], linekit.git(other, "rev-parse", "HEAD"))
-        self.assertEqual(set(out), {"ok", "entry", "base_rev", "test_cmd", "policy_paste", "policy_path", "final_gate", "adapter",
-                                    "thickness", "gates", "ci_role_go", "pr_go", "head_line", *entry.FEATURES})
+        self.assertEqual(set(out), {"ok", "input", "pr_file", "base_rev", "test_cmd", "policy_paste", "policy_path", "final_gate",
+                                    "adapter", "thickness", "gates", "ci_role_go", "pr_go", "head_line", *entry.FEATURES})
+        adopted = startrec.read(new_board)
+        self.assertEqual(out["input"], adopted["input"])   # 入口の入力の形は取り込んだ控えの物（固定材料の run は入口を測り直さない）
+        self.assertEqual(set(out["input"]), set(first["input"]))
+        self.assertEqual(out["input"]["requests"], first["input"]["requests"])
+        self.assertEqual(out["pr_file"], "")
         self.assertIn("固定材料", out["head_line"])
+        self.assertIn(startrec.words(adopted["input"]), out["head_line"])
         self.assertIn("p3.fix", entry.open_board(new_board).ready())
         self.assertEqual(len(trace_ops(new_board, fixture.TRACE_OP)), 1)
+
+    def test_start_from_old_fixture_without_input_keeps_exit_contract(self):
+        """入口の入力の形を持つ前の版の固定材料（控えに input が無い）から始めても、出口は入口のブロックの型を満たす（Archon は
+        script の節の標準出力を output_format に当てて節を落とすので、input を null で出さず、欄ごと出さない）。頭の行はその事実を言う"""
+        import yaml
+        from engine.schema import validate_schema
+        _, src = self.captured()
+        other = self.clone_same_tree()
+        real = fixture.adopt
+
+        def old_adopt(board_dir, *a, **kw):
+            doc = real(board_dir, *a, **kw)
+            doc.pop("input", None)
+            path = startrec.path(board_dir)
+            path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            return doc
+        with mock.patch.object(fixture, "adopt", side_effect=old_adopt):
+            out = entry.start(self.tmp / "b-old" / "board", other, self.raw(src), run_id="run-old")
+        self.assertNotIn("input", out)
+        block = yaml.safe_load((ROOT / "blk-entry" / "blk-entry.yaml").read_text(encoding="utf-8"))
+        fmt = next(n for n in block["nodes"] if n["id"] == block["returns"])["output_format"]
+        self.assertEqual(validate_schema(out, fmt), [])
+        self.assertIn("控えに入口の入力の形が無い", out["head_line"])
 
     def test_start_from_fixture_may_switch_features(self):
         """固定材料から始める run は切る機能・入れる機能（features_off・features_on）を写した run と替えてよい（今の値にする欄。修正の段の
@@ -299,7 +329,7 @@ class FixtureStartCase(FixtureBase):
                           run_id="run-3")
         self.assertEqual((out["fix_lanes"], out["tdd_lanes"], out["judge_verify"]), ("off", "on", "on"))
         self.assertIn("機能: fix_lanes off・review_tree auto", out["head_line"])
-        doc = json.loads((new_board / fixture.START_REL).read_text(encoding="utf-8"))
+        doc = json.loads((new_board / startrec.REL).read_text(encoding="utf-8"))
         self.assertEqual((doc["features_off"], doc["features_on"]), (["fix_lanes"], ["judge_verify"]))
 
     def test_start_resume_with_fixture_skips_adopt(self):

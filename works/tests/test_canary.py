@@ -782,17 +782,14 @@ class CanaryShTest(unittest.TestCase):
         self.assertIn(f'SEED="$DEV_DIR/{SEED_LANES2.name}"', block)
         self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_LANES2.name}"', block)
         self.assertNotIn("FIXTURE", block)
-        self.assertEqual(set(canary_check.REQUESTS), {"tdd", "fix", "units", "large", "lanes2", "change"}, "殻と確かめ役の語が同じ")
-        self.assertIn("--request tdd|fix|units|large|lanes2|change", text)
+        self.assertEqual(set(canary_check.REQUESTS), {"tdd", "fix", "units", "large", "lanes2"}, "殻と確かめ役の語が同じ")
+        self.assertIn("--request tdd|fix|units|large|lanes2]", text)
 
-    def test_change_uses_fix_request_and_one_line_of_the_seed(self):
-        """--request change は fix の種（canary-seed）と依頼 canary-request-fix.json を使い、固定材料を使わない。変える字
-        （CHANGE_FROM）は種の CHANGE_FILE にちょうど 1 つ在り、変えた後の字（CHANGE_TO）は無い（変えれば 1 行だけ変わる）"""
+    def test_diff_changes_one_line_of_the_seed(self):
+        """--diff が変える字（CHANGE_FROM）は種（canary-seed。tdd・fix の種）の CHANGE_FILE にちょうど 1 つ在り、変えた後の字
+        （CHANGE_TO）は無い（変えれば 1 行だけ変わる）。前の語 change は語として受けない"""
         text = CANARY_SH.read_text(encoding="utf-8")
-        block = text.split("  change)\n", 1)[1].split(";;", 1)[0]
-        self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_FIX.name}"', block)
-        self.assertNotIn("SEED=", block)
-        self.assertNotIn("FIXTURE", block)
+        self.assertIn("--request change は --request fix --diff に替わった", text)
         consts = dict(re.findall(r"^(CHANGE_(?:FILE|FROM|TO))='([^'\n]+)'$", text, re.M))
         self.assertEqual(set(consts), {"CHANGE_FILE", "CHANGE_FROM", "CHANGE_TO"}, consts)
         seed = (SEED / consts["CHANGE_FILE"]).read_text(encoding="utf-8")
@@ -1345,27 +1342,28 @@ class CheckTest(unittest.TestCase):
         h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_lens_seen"]
         self.assertEqual(h["status"], "attempted", h)
 
-    def start_entry(self, kind):
-        """start の控え（r1/start.json）の入口の形（entry.ENTRIES の語）"""
-        write(self.board / "r1" / "start.json", {"entry": kind, "features_off": []})
+    def start_entry(self, empty):
+        """start の控え（r1/start.json）の入口の入力の形の diff.empty（真偽。"old" は input の無い前の版の控え）"""
+        doc = {"features_off": []} if empty == "old" else {"input": {"diff": {"empty": empty}}, "features_off": []}
+        write(self.board / "r1" / "start.json", doc)
 
-    def test_request_entry_run_says_local_review_was_not_exercised(self):
-        """依頼から始めた run（start の控えの entry が request）は局所レビューを回さない（P1 の役の条件 not_request_entry）。
-        (h)(j) は no でなく not_exercised と言い、局所レビューの跡が無いことを赤と取り違えさせない。控えが無い・entry が
-        change・both なら今までどおり no。--request fix の終了コードは (h)(j) を数えないまま"""
+    def test_empty_diff_run_says_local_review_was_not_exercised(self):
+        """差分が空の run（start の控えの input.diff.empty が真）は局所レビューを回さない（P1 の役の条件 not_request_entry）。
+        (h)(j) は no でなく not_exercised と言い、局所レビューの跡が無いことを赤と取り違えさせない。控えが無い・差分が在った
+        run なら今までどおり no。差分が空の run の終了コードは (h)(j) を数えず、差分の在る run は数える（no で 1）"""
         self.fixer_run()
-        for kind, want in (("request", "not_exercised"), ("both", "no"), ("change", "no")):
-            with self.subTest(kind):
-                self.start_entry(kind)
+        for empty, want, rc in ((True, "not_exercised", 0), (False, "no", 1)):
+            with self.subTest(empty):
+                self.start_entry(empty)
                 got = self.run_tool(str(self.root), "--request", "fix", "--json")
-                self.assertEqual(got.returncode, 0, "--request fix は (h)(j) を数えない")
+                self.assertEqual(got.returncode, rc, "(h)(j) を数えるかは入力の差分で選ぶ")
                 f = json.loads(got.stdout)["features"]
                 for key in ("h_lens_seen", "j_text_reply"):
                     self.assertEqual(f[key]["status"], want, (key, f[key]))
                     if want == "not_exercised":
-                        self.assertIn("依頼から始めた run", f[key]["why"])
+                        self.assertIn("差分が空の run", f[key]["why"])
                         self.assertIn("not_request_entry", f[key]["why"])
-        self.start_entry("request")
+        self.start_entry(True)
         text = self.run_tool(str(self.root)).stdout
         self.assertIn("(h) fork のレンズの所見: not_exercised", text)
         self.assertIn("(j) 返答の契約: not_exercised", text)
@@ -1373,10 +1371,21 @@ class CheckTest(unittest.TestCase):
         f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
         self.assertEqual([f["h_lens_seen"]["status"], f["j_text_reply"]["status"]], ["no", "no"], "控えが無ければ今までどおり")
 
-    def test_request_entry_with_local_review_traces_is_judged_as_usual(self):
-        """entry が request でも局所レビューの跡（控え・起動）が在れば（修正が入った後の周）、いつもの判じに戻す"""
+    def test_old_start_doc_without_input_is_not_exercised(self):
+        """終わった run の古い控え（入口の入力の形 input が無い）を読んでも落ちず、(h)(j) は not_exercised（分からない）"""
         self.fixer_run()
-        self.start_entry("request")
+        self.start_entry("old")
+        got = self.run_tool(str(self.root), "--json")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        f = json.loads(got.stdout)["features"]
+        for key in ("h_lens_seen", "j_text_reply"):
+            self.assertEqual(f[key]["status"], "not_exercised", (key, f[key]))
+            self.assertIn("前の版の run", f[key]["why"])
+
+    def test_empty_diff_with_local_review_traces_is_judged_as_usual(self):
+        """差分が空の run でも局所レビューの跡（控え・起動）が在れば（修正が入った後の周）、いつもの判じに戻す"""
+        self.fixer_run()
+        self.start_entry(True)
         self.lens_note()
         self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
                                     "fence": {"text_reply": "0123456789abcdef"}})
@@ -1384,34 +1393,25 @@ class CheckTest(unittest.TestCase):
         f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
         self.assertEqual([f["h_lens_seen"]["status"], f["j_text_reply"]["status"]], ["yes", "yes"])
 
-    def test_change_request_exit_code_counts_lens_seen_and_text_reply(self):
-        """--request change（変更から入る canary）の終了コードは (h)(j) だけで決める: 両方 yes なら 0、(h) が attempted
-        （fork のレンズの本文が届かなかった）・not_exercised（依頼から始めた run）・(j) が no なら 1。
-        (a)〜(e) は数えない（fix の canary の物）"""
-        self.fixer_run(planted=0)   # (a)(e) は yes でない
-        self.start_entry("both")
+    def test_local_review_checks_follow_input_diff(self):
+        """(h)(j) を終了コードに数えるかは語でなく start の控えの入力の差分で選ぶ: 差分を持たせた run（input.diff.empty が偽。
+        canary.sh --diff）は語の道（fix なら (a)(b)(c)(e)）に (h)(j) も足し、差分が空の run は数えない。前の語 change は
+        替わりの打ち方を書いて 2 で拒む"""
+        self.fixer_run()
+        self.start_entry(False)
         self.lens_note()
         self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
                                     "fence": {"text_reply": "0123456789abcdef"}})
         self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 1})
-        got = self.run_tool(str(self.root), "--request", "change", "--json")
-        f = json.loads(got.stdout)["features"]
-        self.assertNotEqual(f["a_parallel"]["status"], "yes")
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
-        self.assertEqual(self.run_tool(str(self.root), "--request", "fix").returncode, 1, "fix は (a) と (e) も数える")
         self.lens_note(unseen=["/code-review"])
-        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_lens_seen"]
-        self.assertEqual(h["status"], "attempted", h)
-        self.assertEqual(self.run_tool(str(self.root), "--request", "change").returncode, 1, "(h) の attempted は通過に数えない")
-        self.lens_note()
-        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "native", "turn": 1})
-        self.assertEqual(self.run_tool(str(self.root), "--request", "change").returncode, 1, "(j) の no")
-        shutil.rmtree(self.root / "home" / "adapter")
-        (self.board / "r1" / "local-review-lenses.json").unlink()
-        self.start_entry("request")
-        got = self.run_tool(str(self.root), "--request", "change", "--json")
-        self.assertEqual(json.loads(got.stdout)["features"]["h_lens_seen"]["status"], "not_exercised")
-        self.assertEqual(got.returncode, 1, "依頼から始めた run は変更から入る canary の通過でない")
+        self.assertEqual(self.run_tool(str(self.root), "--request", "fix").returncode, 1, "差分の在る run は (h) の attempted を数える")
+        self.start_entry(True)
+        self.assertEqual(self.run_tool(str(self.root), "--request", "fix").returncode, 0, "差分が空の run は (h)(j) を数えない")
+        old = self.run_tool(str(self.root), "--request", "change")
+        self.assertEqual(old.returncode, 2)
+        self.assertIn("--request fix --diff", old.stderr)
 
     def test_report_cold_reader_launches_are_new_sessions(self):
         """(i) 報告の初見の読み手（report-write-cold）の起動は、どの回も新しい会話（包みの起動の記録の session.mode が new）。

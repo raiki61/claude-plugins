@@ -207,20 +207,19 @@ class UseShell(unittest.TestCase):
         self.assertEqual(self.started()[0], str(t))
 
     def test_start_change_entry_flags(self):
-        """変更から入る口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
-        依頼の - は依頼を省き（request= は空）、Archon へ --input base=・pr= を渡し、『入口: 変更から』を出す。
-        位置引数の後の --base は旗として読まない。依頼の写しも起動の印も無い起動（--base だけ）は結ぶ印が無いので run を
-        結ばず、結べない時の 1 行を出して 1 で終わる（設計書 2.3。2026-10-01 の関所の答え A）。--pr の起動は起動の印で
-        結ぶ（test_start_pr_without_request_binds_by_launch_mark）"""
+        """差分の根を名指す口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
+        依頼の - は依頼を省き（request= は空）、Archon へ --input base=・pr= を渡し、『差分の根: …』を出す。
+        位置引数の後の --base は旗として読まない。どの起動も起動の印で run を結ぶ（--base だけの起動も結ぶ。段 4.1。
+        test_start_binds_every_launch_by_launch_mark）"""
         t = self.target()
         r = self.use("start", "--base", "main", "-", cwd=str(t))
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("結べなかった", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("結べなかった", r.stdout)
         run = self.started()
         self.assertEqual(run[0], str(t))
         self.assertIn("base=main", run)
         self.assertIn("request=", run)
-        self.assertIn("入口: 変更から（base=main）", r.stdout)
+        self.assertIn("差分の根: base=main", r.stdout)
         self.assertFalse((self.home / "requests").exists())
         self.log.unlink()
         r = self.use("start", "--pr", "7", "--", str(t), "-", "true")   # PR は run の中の start が読む
@@ -228,7 +227,7 @@ class UseShell(unittest.TestCase):
         run = self.started()
         self.assertIn("pr=7", run)
         self.assertIn("test_cmd=true", run)
-        self.assertIn("入口: 変更から（pr=7）", r.stdout)
+        self.assertIn("差分の根: pr=7", r.stdout)
         self.log.unlink()
         r = self.use("start", "--base", "main", str(t), str(self.request))   # 依頼と変更の両方
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -241,7 +240,22 @@ class UseShell(unittest.TestCase):
         run = self.started()
         self.assertIn("test_cmd=--base", run)
         self.assertNotIn("base=main", run)
-        self.assertNotIn("入口: 変更から", r.stdout)
+        self.assertNotIn("差分の根:", r.stdout)
+
+    def test_use_spec_flag(self):
+        """旗 --spec は Archon へ --input spec=on を渡し、仕様の段を挟むことを 1 行で出す（入口の旗と組める）。付けなければ渡さない"""
+        t = self.target()
+        r = self.use("start", "--spec", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("spec=on", self.started())
+        self.assertIn("仕様の段", r.stdout)
+        self.log.unlink()
+        r = self.use("start", "--base", "main", "--spec", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue({"spec=on", "base=main"} <= set(self.started()))
+        self.log.unlink()
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertFalse([a for a in self.started() if a.startswith("spec=")])
 
     def test_start_change_entry_refusals(self):
         """依頼の - は --base か --pr が在る時だけ受け、--base と --pr の両方・値の無い旗は拒む（Archon を呼ばない）"""
@@ -262,25 +276,33 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         run = self.started()
         self.assertFalse([a for a in run if a.startswith("github_reads=")], run)
-        self.assertFalse([a for a in run if a.startswith("launch_mark=")], run)   # 依頼の写しで結ぶ起動は印を要らない
+        self.assertEqual(len([a for a in run if a.startswith("launch_mark=")]), 1, run)   # どの起動も印を 1 つ付ける（段 4.1）
         from test_ghreads import gh_calls
         self.assertEqual(gh_calls(self.gh_calls_file), [])
         self.assertFalse((self.home / "reads").exists())
 
-    def test_start_pr_without_request_binds_by_launch_mark(self):
-        """依頼を - で省いた --pr の起動は、依頼の写しの代わりに起動ごとに一意の印（入力 launch_mark。Archon が run の
-        metadata.inputs に残す）の一致で run を結び、0 で終わる（2026-10-01 に利用者が踏んだ: 結ばずに 1 で終わった）。
-        控えに読み出しのファイルの欄は無い"""
+    def test_start_binds_every_launch_by_launch_mark(self):
+        """どの入口の起動（依頼だけ・--base だけ・--pr だけ）にも起動ごとに一意の印（入力 launch_mark。Archon が run の
+        metadata.inputs に残す）を 1 つ付け、その一致で run を結んで 0 で終わる（入口の種類で結び方を分けない。段 4.1。
+        前は --base だけの起動を結ばず 1 で終わった）。控えに読み出しのファイルの欄は無い。印を持つ run も依頼の写しを持つ
+        run も無ければ推定で結ばない"""
         t = self.target()
-        r = self.use("start", "--pr", "7", str(t), "-", "true", "")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("結べなかった", r.stdout)
-        given = [a.split("=", 1)[1] for a in self.started() if a.startswith("launch_mark=")]
-        self.assertEqual(len(given), 1, self.started())
-        self.assertTrue(given[0])
-        led = json.loads((self.home / "runs" / "run-1.json").read_text())
-        self.assertEqual(led["run_id"], "run-1")
-        self.assertNotIn("github_reads", led)
+        marks = []
+        for args in (("start", str(t), str(self.request), "true", ""), ("start", "--base", "main", str(t), "-", "true", ""),
+                     ("start", "--pr", "7", str(t), "-", "true", "")):
+            with self.subTest(args[1]):
+                r = self.use(*args)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertNotIn("結べなかった", r.stdout)
+                given = [a.split("=", 1)[1] for a in self.started() if a.startswith("launch_mark=")]
+                self.assertEqual(len(given), 1, self.started())
+                self.assertTrue(given[0])
+                marks.append(given[0])
+                led = json.loads((self.home / "runs" / "run-1.json").read_text())
+                self.assertEqual(led["run_id"], "run-1")
+                self.assertNotIn("github_reads", led)
+                self.log.unlink()
+        self.assertEqual(len(set(marks)), 3, marks)
         r = self.use("start", "--pr", "7", str(t), "-", "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # 印を持つ run が無ければ推定で結ばない
         self.assertIn("結べなかった", r.stdout)
@@ -386,8 +408,8 @@ class UseShell(unittest.TestCase):
         """結べなくても Archon の起動が 0 で終わったなら run は生きていて包んだ基を使う。消さずに控えに残し、clean が片付ける"""
         t = self.target()
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
-        r = self.use("start", "--base", "HEAD", str(t), "-", "true", "")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)          # 結べないので 1（続きの行は出さない）
+        r = self.use("start", "--base", "HEAD", str(t), "-", "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)          # 印が run に残らず結べないので 1（続きの行は出さない）
         self.assertNotEqual(git(t, "for-each-ref", "refs/works/"), "")   # 包んだ参照が残る
         self.assertIn("use.sh clean", r.stdout)                          # 片付け方を 1 行で出す
         wt = self.tmp / "run-wt"
@@ -493,10 +515,10 @@ class UseShell(unittest.TestCase):
             {"id": i, "workflow_name": "darkfactory", "status": status} for i in ids]}))
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 起動 A の手元\n")
         live("run-1")
-        self.assertEqual(self.use("start", "--base", "HEAD", str(t), "-", "true", "").returncode, 1)
+        self.assertEqual(self.use("start", "--base", "HEAD", str(t), "-", "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1").returncode, 1)
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 起動 B の手元\n")
         live("run-1", "run-2")
-        self.assertEqual(self.use("start", "--base", "HEAD", str(t), "-", "true", "").returncode, 1)
+        self.assertEqual(self.use("start", "--base", "HEAD", str(t), "-", "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1").returncode, 1)
         self.assertEqual(len(git(t, "for-each-ref", "refs/works/").splitlines()), 2)
         self.assertEqual(sorted(json.loads(p.read_text())["candidates"] for p in (self.home / "unbound").iterdir()),
                          [["run-1"], ["run-1", "run-2"]])
@@ -1020,7 +1042,9 @@ class UseShell(unittest.TestCase):
         self.assertEqual(run[3:], [
             "workflow", "run", "darkfactory", "--from", head,
             "--input", f"request={req}", "--input", "test_cmd=python3 -m unittest -q",
-            "--input", "tdd_suite=", "--input", "adapter=", "--input", "final_gate=protected_only", "--base", "main"])
+            "--input", "tdd_suite=", "--input", "adapter=", "--input", "final_gate=protected_only", "--base", "main",
+            "--input", run[-1].split("=", 1)[0] + "=" + run[-1].split("=", 1)[1]])
+        self.assertTrue(run[-1].startswith("launch_mark=") and run[-1] != "launch_mark=", run[-1])   # どの起動も印を付ける（段 4.1）
         self.assertIn("WORKS_DEV_ADAPTER=1 ", r.stdout)   # 何も付けない start は包みを入れる（続きの行も archon.sh に 1 を渡す）
         self.assertEqual(runs, [str(t), "1", str(self.home), "workflow", "runs", "--json"])
         out = r.stdout
@@ -1476,11 +1500,11 @@ class UseShell(unittest.TestCase):
         self.assertIn("run id: run-mine", r.stdout)
 
     def test_start_does_not_bind_run_without_board(self):
-        """盤面にこの起動の依頼を持つ run が無ければ、盤面の無い run（盤面を作る前に落ちた・別の起動の run）を代わりに
-        結ばない。控えも続きの行も書かず、結べない時の 1 行を出して 1 で終わる（設計書 2.3）"""
+        """起動の印を持つ run も盤面にこの起動の依頼を持つ run も無ければ、盤面の無い run（盤面を作る前に落ちた・別の起動の
+        run）を代わりに結ばない。控えも続きの行も書かず、結べない時の 1 行を出して 1 で終わる（設計書 2.3）"""
         t = self.target()
         self.set_runs(working_path="/wt/run-1", output_root=str(self.tmp / "no-board"))
-        r = self.use("start", str(t), str(self.request), "true", "")
+        r = self.use("start", str(t), str(self.request), "true", "", FAKE_ARCHON_NO_LAUNCH_MARK="1")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("結べなかった", r.stdout)
         self.assertNotIn("run id: run-1", r.stdout)

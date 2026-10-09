@@ -268,6 +268,29 @@ class BeginCase(unittest.TestCase):
         b2, _ = self.begin(**same)
         self.assertEqual(b2.dir, b.dir)
 
+    def test_begin_diff_empty_is_part_of_args(self):
+        """入口の測り diff_empty は state.works.begin に控え、呼び直しの見分けに入る（同じ置き場で diff_empty だけ違う begin は
+        BoardGap。盤面は書かない）"""
+        b, _ = self.begin(diff_empty=True)
+        self.assertIs(b.state["works"]["begin"]["diff_empty"], True)
+        before = {n: (b.dir / n).read_bytes() for n in ("state.json", "record.json")}
+        with self.assertRaises(BoardGap) as cm:
+            self.begin(diff_empty=False)
+        self.assertIn("diff_empty", str(cm.exception))
+        self.assertEqual({n: (b.dir / n).read_bytes() for n in before}, before)
+        self.assertEqual(self.begin(diff_empty=True)[0].dir, b.dir)
+
+    def test_entry_opens_override_needs_diff_empty(self):
+        """works の差し替え entry_opens（entry.entry_opens_by_diff）: 依頼を P1 の前に積んでも、入口の測りが差分ありなら
+        印を立てない。空なら立て、None（測りを渡さない本流の振る舞い）は写しのまま立てる"""
+        import entry
+        over = {"entry_opens": entry.CORE_OVERRIDES["entry_opens"]}
+        for name, flag, marked in (("diff", False, False), ("empty", True, True), ("none", None, True)):
+            with self.subTest(name):
+                b, _ = self.begin(name, diff_empty=flag, overrides=over)
+                self.assertEqual(len(b.record["process"]["request_findings"]), 1)
+                self.assertEqual("request_entry" in b.record["process"], marked)
+
     def test_begin_bad_base_rev_leaves_nothing(self):
         # base_rev の誤りは入口で拒む（create の前。置き場を残さない）
         with self.assertRaises(Reject) as cm:

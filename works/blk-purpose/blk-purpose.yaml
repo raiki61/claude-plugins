@@ -15,7 +15,7 @@ description: |
 inputs:
   request:
     default: ""
-    description: 依頼のファイルのパス（ラインの依頼。対象リポジトリの根からの相対か絶対）。目的の役がまず読む。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
+    description: 依頼のファイルのパス（ラインの依頼。対象リポジトリの根からの相対か絶対）。目的の役がまず読む。空を受けるのは依頼の行の無い run だけ（intake が盤面の始めの記録の入口の入力の形で確かめる）
   constraints_file:
     default: ""
     description: |
@@ -24,6 +24,9 @@ inputs:
   base_rev:
     default: ""
     description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）
+  pr_file:
+    default: ""
+    description: PR の添え物（番号・題・本文）を書いたファイルの絶対パス。目的の役が出典 ① PR 説明として読む。空なら PR の無い run
 
 returns: collect
 outcome_field: ok

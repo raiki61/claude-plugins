@@ -80,9 +80,10 @@ class CanaryShStartTest(unittest.TestCase):
         return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
                               encoding="utf-8", check=True).stdout.strip()
 
-    def test_change_starts_from_an_uncommitted_one_line_change_with_base(self):
+    def test_diff_flag_adds_one_uncommitted_line_and_base(self):
+        """--diff は語の種と依頼のまま、commit しない 1 行の変更と --base <種を写した commit> を足す（前の --request change と同じ run）"""
         place = self.tmp / "change"
-        got = self.canary("--request", "change", place=place)
+        got = self.canary("--request", "fix", "--diff", place=place)
         self.assertEqual(got.returncode, 7, got.stdout + got.stderr)
         seen = json.loads((place / "home" / "fake-use.json").read_text(encoding="utf-8"))
         repo = (place / "repo").resolve()
@@ -90,7 +91,15 @@ class CanaryShStartTest(unittest.TestCase):
         self.assertEqual(seen["status"], " M calc.py\n", "変更は commit しない calc.py の 1 か所だけ")
         self.assertEqual(seen["numstat"], "1\t1\tcalc.py\n")
         self.assertIn("+    \"\"\"中央値（個数が偶数なら、並べた真ん中の 2 つの平均）", seen["diff"])
-        self.assertIn("canary_check.py " + str(place.resolve()) + " fake-run --request change", got.stdout)
+        self.assertIn("canary_check.py " + str(place.resolve()) + " fake-run --request fix", got.stdout)
+
+    def test_change_word_refused_with_replacement(self):
+        """前の語 change は黙って読み替えず、替わりの打ち方（--request fix --diff）を書いて 2 で拒む（何も作らない）"""
+        place = self.tmp / "old"
+        got = self.canary("--request", "change", place=place)
+        self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
+        self.assertIn("--request fix --diff", got.stderr)
+        self.assertFalse(place.exists())
 
     def test_other_words_start_without_base_on_a_clean_tree(self):
         place = self.tmp / "tdd"
@@ -102,7 +111,7 @@ class CanaryShStartTest(unittest.TestCase):
 
     def test_build_only_change_prints_the_start_line_with_base(self):
         place = self.tmp / "build"
-        got = self.canary("--build-only", "--request", "change", place=place)
+        got = self.canary("--build-only", "--request", "fix", "--diff", place=place)
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
         repo = (place / "repo").resolve()
         self.assertFalse((place / "home" / "fake-use.json").exists(), "--build-only は use.sh を起こさない")

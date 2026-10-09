@@ -12,9 +12,6 @@
   {"name": "lens.json"}
  ],
  "produces": [
-  {"name": "start.json", "format": "json", "schema": "schemas/start.schema.json"},
-  {"name": "fixture-outside/**", "format": "md", "at": "root"},
-  {"name": "github.json", "format": "json", "schema": "schemas/github.schema.json", "at": "root"},
   {"name": "structure-state.json", "format": "json", "schema": "schemas/structure-state.schema.json", "at": "root"},
   {"name": "structure-units.json", "format": "json", "schema": "schemas/structure-units.schema.json"},
   {"name": "judged.json", "format": "json", "schema": "schemas/judged.schema.json"},
@@ -27,7 +24,6 @@
   {"name": "report.md", "format": "md", "at": "root"},
   {"name": "next-request.json", "format": "json", "schema": "../.shared/core/next-request.schema.json", "at": "root"},
   {"name": "prior-failures.json", "format": "json", "schema": "../.shared/core/prior-failures.schema.json", "at": "root"},
-  {"name": "prior-failures-in.json", "format": "json", "schema": "../.shared/core/prior-failures.schema.json", "at": "root"},
   {"name": "no-turn-exits.json", "format": "json", "schema": "schemas/no-turn-exits.schema.json", "at": "root"}
  ]
 }

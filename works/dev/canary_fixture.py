@@ -45,6 +45,7 @@ for _p in (PACK / ".shared" / "core",):
 import board  # noqa: E402   表の graph の sha・置き場の版・盤面の層の版
 import entry  # noqa: E402   ラインの表（load_table）
 import fixture  # noqa: E402   固定材料の形（DIR・MANIFEST・COPY）と控えの照らし
+import startrec  # noqa: E402  （始めの記録の置き場と読み口）
 
 SEED, REQUEST, FIXTURE = "seed", "request.json", fixture.DIR
 PORTABLE = "/works-canary-fixture"   # 写しの中の置き場のパスの印の根（どの機械にも無い置き場）
@@ -158,7 +159,7 @@ def build(place, run_id: str, out) -> dict:
         fixture._check_copy(src, man)
     except fixture.FixtureRefused as e:
         raise Refused(str(e)) from None
-    start = json.loads((src / fixture.COPY / fixture.START_REL).read_text(encoding="utf-8"))
+    start = json.loads((src / fixture.COPY / startrec.REL).read_text(encoding="utf-8"))
     request = pathlib.Path(start.get("request_file") or "")
     if not request.is_file() or _sha(request.read_bytes()) != man["request_sha256"]:
         raise Refused(f"start の控えの依頼 {request} が無いか、sha256 が控えの依頼と違う")

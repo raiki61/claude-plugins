@@ -141,8 +141,11 @@ REPO="$DIR/repo"
 ORIGIN="$DIR/origin.git"
 # 写しの名は起動ごとに一意（use.sh と同じ印）。<dir> を使い直しても、一覧に残る前の起動の run と結びの候補が重ならない
 mkdir -p "$DIR/requests"
-REQUEST="$DIR/requests/$(date +%Y%m%d-%H%M%S)-$$.json"
+STAMP="$(date +%Y%m%d-%H%M%S)-$$"
+REQUEST="$DIR/requests/$STAMP.json"
 cp "$1" "$REQUEST"
+# 起動の印（use.sh と同じ形の起動ごとに一意の生の事実）。入口のブロックへ渡り、起動の後にこれで run を結ぶ（段 4.1）
+LAUNCH_MARK="$STAMP"
 
 # 依頼の欄 pr・issue が名指した PR・issue は、run の中の start が利用者の gh のログインを継いで読む（設計書 2.8）。clone は origin を
 # 付け替える（gh が GitHub のリポジトリを解けない）ので、元のリポジトリ SRC の remote（upstream が在ればそれ、無ければ origin。
@@ -190,7 +193,7 @@ set +e
 # 修正の段の TDD の輪の実行器（この clone の works/dev/tdd-suite.sh。WORKS_DOGFOOD_TDD_SUITE を空にすれば輪を飛ばす）。
 # 包みを外した run は adapter=optional（launch.py env の WORKS_LAUNCH_ADAPTER_MODE）で回す（h-judge が包みの無い run を止めないように。報告に出る）
 TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
-set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
+set -- workflow run darkfactory --input request="$REQUEST" --input launch_mark="$LAUNCH_MARK" --input test_cmd="$2" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
 if [ -n "${WORKS_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_FEATURES_OFF"; fi

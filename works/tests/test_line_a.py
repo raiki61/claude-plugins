@@ -99,7 +99,7 @@ class LineCase(LineBase):
         次の依頼の下書きが盤面に在る"""
         got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}}, github=True)
         self.order_ok(got["trail"])
-        for nid in ("start", "premising", "judging", "planning", "policy-gate", "fixing", "reviewing", "refixing", "testing",
+        for nid in ("entering", "premising", "judging", "planning", "policy-gate", "fixing", "reviewing", "refixing", "testing",
                     "final-gate", "report"):
             self.assertIn(nid, got["trail"])
         # origin は GitHub の形で偽の gh が交差を返すので、並行 PR の engine の helper は任せ先に落ちる（blk-pr が回る）
@@ -572,7 +572,7 @@ class NoForgeCase(LineBase):
             with self.subTest(kind):
                 got = self.run_origin(self.tmp / kind, url)
                 self.assertNotIn("pr-checking", got["trail"])
-                self.assertIs(got["out"]["start"]["pr_go"], False)
+                self.assertIs(got["out"]["entering"]["pr_go"], False)
                 b = entry.open_board(got["board_dir"], allow_halted=True)
                 m = b.record["materials"]["parallel_pr"]
                 self.assertEqual(m["status"], "not_applicable", m)
@@ -728,7 +728,7 @@ class RefixToTestsCase(LineBase):
         self.assertEqual(b.state["works"]["after_round"]["by"], "stop_after_round")
         self.assertTrue(any((got["board_dir"] / "rounds").glob("round-*.json")))
         # blk-tests の final はラインの test_cmd（start の出口）を受けて走る。種は宣言を持つので engine は宣言の段を走らせる
-        self.assertEqual(got["out"]["start"]["test_cmd"], TEST_CMD)
+        self.assertEqual(got["out"]["entering"]["test_cmd"], TEST_CMD)
         self.assertIn("test_stats", pathlib.Path(got["out"]["testing"]["log"]).read_text(encoding="utf-8"))
         return b
 

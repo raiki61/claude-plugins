@@ -35,6 +35,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 import entry  # noqa: E402
+import entryshape  # noqa: E402  （入口の変換）
 import linekit  # noqa: E402
 
 # 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}（減らす方向にだけ変える）
@@ -49,9 +50,9 @@ NO_INPUTS_CONSTANT = frozenset({
 })
 # check_inputs が start の名のほかに返す欄（依頼のファイルを読んだ結果）
 READ_FROM_REQUEST = {"request_file", "items", "request_text", "answers", "prior_failures"}
-# 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
+# 同じ名で返さず、差分の根（と PR の添え物）として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
 CHANGE_INPUTS = {"base", "pr"}
-FROM_CHANGE = {"base_rev", "change"}
+FROM_CHANGE = {"base_rev", "base", "pr"}
 # pr の名を読む時に渡す、start が run の中で読んだ読み出し（HEAD と PR の head は同じ版。読み方の正本の試験は test_ghreads）
 PR_READS = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "", "body": ""}}, "issue": {}}
 
@@ -59,8 +60,8 @@ PR_READS = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h"
 def _fake_git():
     """entry の git を読む口を偽物にする（FAST の段は git も子のプロセスも起こさない）。PR の base・head は PR_READS から"""
     stack = contextlib.ExitStack()
-    stack.enter_context(mock.patch.object(entry, "_git", return_value="h" * 40))
-    stack.enter_context(mock.patch.object(entry.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")))
+    stack.enter_context(mock.patch.object(entryshape, "_git", return_value="h" * 40))
+    stack.enter_context(mock.patch.object(entryshape.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")))
     return stack
 
 
@@ -104,14 +105,14 @@ def script_inputs(path: pathlib.Path):
 
 
 def start_script():
-    spec = importlib.util.spec_from_file_location("start_script", LINE / "scripts" / "start.py")
+    spec = importlib.util.spec_from_file_location("start_script", ROOT / "blk-entry" / "scripts" / "start.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
-# 殻だけが読む入力（どの節も読まない。Archon が run の metadata.inputs に残し、use.sh が起動を run に結ぶ印。test_launch）
-SHELL_ONLY = {"launch_mark"}
+# 殻だけが読む入力（どの節も読まない）。起動の印 launch_mark は入口のブロックへ渡し、start の控えに生の事実として残す
+SHELL_ONLY = set()
 
 
 class InputNamesCase(unittest.TestCase):
@@ -165,8 +166,8 @@ class InputNamesCase(unittest.TestCase):
                     self.assertEqual(got - want, set(), f"スクリプトが読まない with: の鍵: {sorted(got - want)}")
 
     def test_check_inputs_passes_every_start_name(self):
-        """start.py が読む名ごとに、その名だけに既定と違う妥当な値を渡すと、check_inputs が同じ名でその値を返す（変更の入口の
-        base・pr は base_rev・change に解いて返す）。_word(raw, <名>) の名の取り違え・返しの足し忘れを、名ごとに赤にする"""
+        """start.py が読む名ごとに、その名だけに既定と違う妥当な値を渡すと、check_inputs が同じ名でその値を返す（差分の根の入口の
+        base・pr は base_rev・base・pr に解いて返す）。_word(raw, <名>) の名の取り違え・返しの足し忘れを、名ごとに赤にする"""
         names = set(start_script().INPUTS.values())
         with tempfile.TemporaryDirectory() as tmp:
             repo = pathlib.Path(tmp)
@@ -175,7 +176,7 @@ class InputNamesCase(unittest.TestCase):
             (repo / "fx").mkdir()   # 固定材料のフォルダ（fix_fixture は在るフォルダだけを受ける）
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
                      "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true",
-                     "design_only": "true", "fix_fixture": "fx",
+                     "design_only": "true", "fix_fixture": "fx", "launch_mark": "20261009-1", "spec": "on",
                      "features_off": "tdd_lanes, judge_verify", "features_on": "review_tree judge_verify"}
             want = {**given, "policy_md": str(repo / "policy.md"), "fix_fixture": str(repo / "fx"),
                     "features_off": ["judge_verify", "tdd_lanes"], "features_on": ["judge_verify", "review_tree"]}
@@ -185,19 +186,19 @@ class InputNamesCase(unittest.TestCase):
             self.assertEqual(base["request_file"], str((repo / "req.json").resolve()))
             for name, value in given.items():
                 with self.subTest(name):
-                    if name in CHANGE_INPUTS:   # 同じ名でなく change の name に返る（git は偽物、PR は隔離の前の写し）
+                    if name in CHANGE_INPUTS:   # 同じ名でなく差分の根 base の name に返る（git は偽物、PR は run の中の読み出し）
                         with _fake_git():
                             got = entry.check_inputs({"request": "req.json", name: value}, repo, reads=PR_READS)
-                        self.assertEqual(got["change"]["from"], name)
-                        self.assertEqual(got["change"]["name"], want[name])
+                        self.assertEqual(got["base"]["from"], name)
+                        self.assertEqual(got["base"]["name"], want[name])
                         continue
                     self.assertNotEqual(base[name], want[name], "既定と同じ値では素通しを確かめられない")
                     got = entry.check_inputs({"request": "req.json", name: value}, repo)
                     self.assertEqual(got[name], want[name])
-            with self.subTest("base"), mock.patch.object(entry, "_merge_base", lambda r, ref: f"fork-of-{ref}"):
+            with self.subTest("base"), mock.patch.object(entryshape, "merge_base", lambda r, ref: f"fork-of-{ref}"):
                 got = entry.check_inputs({"request": "req.json", "base": "main"}, repo)
                 self.assertEqual(set(got) - set(base), FROM_CHANGE)
-                self.assertEqual((got["change"]["from"], got["change"]["name"], got["base_rev"]),
+                self.assertEqual((got["base"]["from"], got["base"]["name"], got["base_rev"]),
                                  ("base", "main", "fork-of-main"))
             with self.subTest("pr"):   # 番号でない値の拒みで名を読んでいることを見る（gh を起こさない）
                 with self.assertRaises(entry.InputRefused) as cm:
@@ -228,11 +229,13 @@ UNREAD_OUTPUTS = {
                      "unsettled", "verdicts"}, BOARD_CARRIED),
     "blk-report": ({"facts_file", "text_file"}, "AI の報告の材料と本文のファイル。出口 result は report_file だけを選ぶ"),
     "depth": ({"depth_file"}, "盤面の depth.json のパス。報告は h-redepth の lines だけを読む（run の記録に残すだけ）"),
-    "edge": ({"spec_go"}, "仕様のブロック blk-spec は一つの入口の計画（docs/plans/2026-10-09-one-entry-shape.md）のために残し、"
-                          "まだ線に無い。読み手は計画の段 4 で付く（持ち主 2026-10-09: blk-spec を残す）"),
     "after": ({"ok", "reason", "status"},
               "直しの後の構造の境 h-after は順の結び目（h-look が depends_on で待つ）。控えは盤面の structure-after.json で、出口は "
               "run の記録に残すだけ"),
+    "blk-spec": ({"acceptance", "approval_note", "approved_by", "faces", "frozen_rev", "handled", "reason", "requirements",
+                  "spec_file", "tests"},
+                 "仕様の段は固めた仕様を盤面の record.process.spec に置き、受け入れ条件は判定への依頼として盤面に積む（写しの核の "
+                 "spec.freeze）。後ろの節は盤面から読み、出口は run の記録と人の確かめに残すだけ"),
     "structure": ({"design_file", "ok", "reason", "status", "wall_s"},
                   "構造の境 h-structure は順の結び目（修正案の段が depends_on で待つ）。控えは盤面の structure-state.json で、出口は "
                   "run の記録に残すだけ"),
@@ -414,15 +417,16 @@ class FeaturesOffCase(unittest.TestCase):
         nodes = {n["id"]: n for n in doc["nodes"]}
         for key in ("features_off", "features_on"):
             self.assertEqual(doc["inputs"][key].get("default"), "")
-            self.assertEqual(nodes["start"]["with"][key], f"$INPUTS.{key}")
-        props = nodes["start"]["output_format"]["properties"]
+            self.assertEqual(nodes["entering"]["with"][key], f"$INPUTS.{key}")
+        entry_block = load(ROOT / "blk-entry" / "blk-entry.yaml")   # 線の include entering の出口は入口のブロックの open の節
+        props = next(n for n in entry_block["nodes"] if n["id"] == entry_block["returns"])["output_format"]["properties"]
         self.assertEqual(set(self.WIRING), set(entry.FEATURES))
         for name in entry.FEATURES:
             with self.subTest(name):
                 words = ["on", "off", "auto"] if self.DEFAULTS[name] == "auto" else ["on", "off"]
                 self.assertEqual(props[name], {"type": "string", "enum": words})
                 for nid, key in self.WIRING[name]:
-                    self.assertEqual(nodes[nid]["with"].get(key), f"$start.output.{name}", f"{nid}.{key}")
+                    self.assertEqual(nodes[nid]["with"].get(key), f"$entering.output.{name}", f"{nid}.{key}")
                     block = load(ROOT / nodes[nid]["include"] / f"{nodes[nid]['include']}.yaml")
                     self.assertEqual(block["inputs"][key].get("default"), "", "ブロックの既定は空（on＝今どおり）")
 
@@ -441,7 +445,7 @@ class LangInputCase(unittest.TestCase):
     def test_line_passes_lang_to_start(self):
         doc = line()
         self.assertIn("lang", doc["inputs"])
-        start = next(n for n in doc["nodes"] if n["id"] == "start")
+        start = next(n for n in doc["nodes"] if n["id"] == "entering")
         self.assertEqual(start["with"].get("lang"), "$INPUTS.lang")
 
     def test_start_script_reads_lang(self):
@@ -459,7 +463,7 @@ class LineRunInputsCase(unittest.TestCase):
         """LineRun が start へ渡す入力の鍵は LINE_ORDER の start の with から request を除いた物（手で重ねない）。
         種の git は作らない（seed_repo を差し替える）"""
         order = copy.deepcopy(linekit.LINE_ORDER)
-        start = next(r for r in order if r["id"] == "start")
+        start = next(r for r in order if r["id"] == "entering")
         start["with"]["new_knob"] = "$INPUTS.new_knob"
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(linekit, "LINE_ORDER", order), \

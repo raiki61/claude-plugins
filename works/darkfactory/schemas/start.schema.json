@@ -1,5 +1,0 @@
-{
- "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "線の start が入力を確かめて置く控え r1/start.json（書き手は core の entry.start と固定材料の取り込み）",
- "type": "object"
-}

@@ -1,5 +1,5 @@
 #!/bin/sh
-# works/dev/canary.sh [--build-only] [--request tdd|fix|units|large|lanes2|change] [<置き場>]
+# works/dev/canary.sh [--build-only] [--request tdd|fix|units|large|lanes2] [--diff] [<置き場>]
 #
 # canary: 決まった小さな対象と決まった依頼で、ライン darkfactory を本物の AI で 1 回回す（費用が掛かる。回す前に持ち主の了承を取る）。
 # 普段の依頼ではたまにしか通らない道を 1 run でまとめて通し、版ごとの確かめにする。各依頼で狙う道 (a)〜(k) と、種と依頼を
@@ -12,8 +12,11 @@
 #           判定と修正案を作り直さずに修正の直前の盤面から始める。道 (f)。固定材料を canary_fixture.py check が名指せば何も作らずに止まる
 #   large   種 canary-seed-large/・依頼 canary-request-large.json。測りの run。道 (g)
 #   lanes2  種 canary-seed-lanes2/・依頼 canary-request-lanes2.json。道 (k)
-#   change  種と依頼は fix の物。1 の後に calc.py の 1 行（CHANGE_FROM を CHANGE_TO に）を commit せずに変え、2 の起動に
-#           --base <1 の commit> を付ける（--build-only でも同じ対象を作り、起動の行に出す）。道 (h)(j)
+#   （前の語 change は --request fix --diff に替わった。語 change は替わりの打ち方を書いて拒む）
+#
+# --diff: 差分を持たせる（語の種と依頼はそのまま）。1 の後に calc.py の 1 行（CHANGE_FROM を CHANGE_TO に）を commit せずに変え、
+#   2 の起動に --base <1 の commit> を付ける（--build-only でも同じ対象を作り、起動の行に出す）。入口は差分の在る run になり、
+#   P1 の役（局所レビュー）が差分を見る。道 (h)(j)（canary_check.py は語でなく start の控えの入力の差分でこれを数える）
 #
 # 手順:
 #   1. 置き場 <置き場>（既定は ${XDG_CACHE_HOME:-$HOME/.cache}/works-canary/<日時>-<pid>。TMPDIR は再起動で消えるので使わない）に
@@ -27,16 +30,18 @@
 # 読む環境: WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON は use.sh がそのまま読む（全部 off・全部 on と比べる run。どちらも付けない
 # run は既定）。認証は use.sh が WORKS_KEYCHAIN_ITEM の項目から拾う（値は出さない。canary は名指しの項目だけで回すので、空なら
 # 何も作らずに止まる）。模型は WORKS_DEV_MODEL（use.sh と同じ。ここでは埋めない）。WORKS_DEV_USE は use.sh の差し替え（試験が偽物を差す）。
-# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large・lanes2・change のどれでもない・units の固定材料を使えない・change の変える字が種の calc.py にちょうど 1 つ無い・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
+# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large・lanes2 のどれでもない（change は替わりの打ち方を書く）・units の固定材料を使えない・--diff の変える字が種の calc.py にちょうど 1 つ無い・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
 # python3 -I で pytest が読めない（隔離した家では利用者の site-packages が見えない）・WORKS_KEYCHAIN_ITEM が空（--build-only は見ない）。
 set -eu
 
-USAGE="usage: canary.sh [--build-only] [--request tdd|fix|units|large|lanes2|change] [<置き場>]"
+USAGE="usage: canary.sh [--build-only] [--request tdd|fix|units|large|lanes2] [--diff] [<置き場>]"
 BUILD_ONLY=""
+CHANGE=""    # 1 なら commit しない 1 行の変更を足し、--base を付けて差分の在る入口で始める（--diff）
 REQUEST_WORD=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --build-only) BUILD_ONLY=1; shift ;;
+    --diff) CHANGE=1; shift ;;
     --request)
       if [ "$#" -lt 2 ] || [ -z "$2" ] || [ -n "$REQUEST_WORD" ]; then
         echo "$USAGE" >&2
@@ -67,8 +72,7 @@ refuse() {
 REQUEST_WORD="${REQUEST_WORD:-tdd}"
 SEED="$DEV_DIR/canary-seed"
 FIXTURE=""   # 固定材料（--request units）。空なら判定から始める
-CHANGE=""    # 1 なら commit しない 1 行の変更を足し、--base を付けて変更から入る（--request change）
-# --request change が種の CHANGE_FILE で変える字（calc.py:median の docstring の 1 行。sed の s/// に入れるので / や正規表現の字を持たない）
+# --diff が種の CHANGE_FILE で変える字（calc.py:median の docstring の 1 行。sed の s/// に入れるので / や正規表現の字を持たない）
 CHANGE_FILE='calc.py'
 CHANGE_FROM='中央値（個数が偶数なら真ん中の 2 つの平均）'
 CHANGE_TO='中央値（個数が偶数なら、並べた真ん中の 2 つの平均）'
@@ -90,11 +94,8 @@ case "$REQUEST_WORD" in
     SEED="$DEV_DIR/canary-seed-lanes2"
     REQUEST="$DEV_DIR/canary-request-lanes2.json"
     ;;
-  change)
-    REQUEST="$DEV_DIR/canary-request-fix.json"
-    CHANGE=1
-    ;;
-  *) refuse "--request は tdd・fix・units・large・lanes2・change のどれか（${REQUEST_WORD}）" ;;
+  change) refuse "--request change は --request fix --diff に替わった（差分を持たせるかは語でなく旗 --diff）" ;;
+  *) refuse "--request は tdd・fix・units・large・lanes2 のどれか（${REQUEST_WORD}）" ;;
 esac
 
 . "$DEV_DIR/guard.sh"
@@ -149,14 +150,14 @@ g -C "$REPO" push -q origin main
 g -C "$REPO" fetch -q origin
 g -C "$REPO" remote set-head origin main >/dev/null
 
-BASE_REV=""   # 変更から入る（--request change）なら、変更の土台の版（種を写した commit）
+BASE_REV=""   # 差分を持たせる（--diff）なら、差分の根の版（種を写した commit）
 if [ -n "$CHANGE" ]; then
   BASE_REV="$(g -C "$REPO" rev-parse HEAD)"
   # sed -i は GNU と BSD で旗が違うので、写しに書いてから元へ戻す（cat で戻してファイルの権限を変えない）
   sed "s/${CHANGE_FROM}/${CHANGE_TO}/" "$REPO/$CHANGE_FILE" >"$REPO/$CHANGE_FILE.canary"
   cat "$REPO/$CHANGE_FILE.canary" >"$REPO/$CHANGE_FILE"
   rm -f "$REPO/$CHANGE_FILE.canary"
-  echo "変更から入る: ${CHANGE_FILE} の 1 行を commit せずに変えた（--base ${BASE_REV}）"
+  echo "差分を持たせる: ${CHANGE_FILE} の 1 行を commit せずに変えた（--base ${BASE_REV}）"
 fi
 
 echo "canary の置き場: ${ROOT}（対象 repo/・origin origin.git/・利用の家 home/）・依頼 ${REQUEST}（--request ${REQUEST_WORD}）"

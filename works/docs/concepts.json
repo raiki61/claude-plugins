@@ -361,100 +361,50 @@
    ]
   },
   "entry-kind": {
-   "status": "散らばり",
+   "status": "住処あり",
    "fences": [
     {
-     "what": "入口の種（request・change・both）を名で持つ・種で分かれる形（種の表 ENTRIES・種を決める行と種で分ける比べ・種の問い change_only・両方の入口で依頼を後から積む口・canary の語 --request change）",
-     "pattern": "\\bENTRIES\\b|\\b(change_only|add_pending_request|PENDING_WAIT_NODE|_entry_words)\\b|get\\(\"entry\"\\) *[!=]=|\\bkind == \"(request|change|both)\"|\"both\" if change|--request change",
-     "allowed": [],
-     "known": {
-      ".shared/core/conflict.py": [
-       4,
-       "散らばり（段 5 でまとめる）: start の控えの entry を読んで変更だけの run かを答える change_only（同じ口が 2 つ）"
-      ],
-      ".shared/core/entry.py": [
-       13,
-       "散らばり（段 5 でまとめる）: 種の表 ENTRIES と種を決める行・頭の行の入口の文を種で選ぶ _entry_words・両方の入口で依頼を後から積む add_pending_request と待つ節 PENDING_WAIT_NODE"
-      ],
-      "blk-judge/scripts/intake.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 変更だけの run（conflict.change_only）なら依頼の空を受ける"
-      ],
-      "blk-premises/scripts/intake.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 変更だけの run（conflict.change_only）なら依頼の空を受ける"
-      ],
-      "blk-purpose/scripts/intake.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 変更だけの run（conflict.change_only）なら依頼を読まない"
-      ],
-      "darkfactory/lib/line_edge.py": [
-       3,
-       "散らばり（段 5 でまとめる）: 判定の前に両方の入口の依頼を積む（entry.add_pending_request・PENDING_WAIT_NODE）"
-      ],
-      "dev/canary.sh": [
-       3,
-       "散らばり（段 5 でまとめる）: 変更から入る canary の語 --request change"
-      ],
-      "dev/canary_check.py": [
-       7,
-       "散らばり（段 5 でまとめる）: start の控えの種（entry.ENTRIES）で局所レビューの判じを分け、語 --request change で終了コードを決める"
-      ]
-     }
+     "what": "入口の生の入力（差分の根の名指し base・pr）を読む・渡す形（raw の base・pr の読み・INPUTS_BASE・INPUTS_PR・$INPUTS.base・$INPUTS.pr・殻の CHANGE_INPUT・旗 --base・--pr）",
+     "pattern": "_word\\(raw, [\"'](base|pr)[\"']\\)|\\bINPUTS_(BASE|PR)\\b|\\$INPUTS\\.(base|pr)\\b|\\bCHANGE_INPUT\\b|--(base|pr)\\b",
+     "allowed": [
+      ".shared/core/entryshape.py",
+      "blk-entry/**",
+      "dev/use.sh",
+      "dev/canary.sh",
+      "darkfactory/darkfactory.yaml"
+     ],
+     "known": {}
+    },
+    {
+     "what": "入口の種類で分かれる形と消した種の名（entry_words・ENTRIES・change_only・add_pending_request・PENDING_WAIT_NODE・PENDING_REQUEST_BY・差分の根の出どころ base.from での分岐・種の語での分岐）",
+     "pattern": "\\bentry_words\\b|\\bENTRIES\\b|\\bchange_only\\b|add_pending_request|PENDING_WAIT_NODE|PENDING_REQUEST_BY|\\[[\"']from[\"']\\]\\s*[!=]=|\\.get\\([\"']from[\"']\\)\\s*[!=]=\\s*[\"'](head|base|pr)[\"']|kind == [\"'](request|change|both)[\"']",
+     "allowed": [
+      ".shared/core/entryshape.py",
+      "blk-entry/**"
+     ],
+     "known": {}
     }
    ]
   },
   "start-record": {
-   "status": "散らばり",
+   "status": "住処あり",
    "fences": [
     {
-     "what": "始めの記録の置き場の名（r1/start.json の字と、置き場の名の定数 START_FILE・START_REL）",
-     "pattern": "\\bSTART_(FILE|REL)\\b|[\"\\'/]start\\.json[\"\\']",
-     "allowed": [],
+     "what": "始めの記録の置き場の名を字で書く形（引用符かパスの区切りで囲んだ start.json）・置き場の名の別名（START_REL・START_FILE）・別の読み口（start_doc）",
+     "pattern": "[\"'/]start\\.json[\"']|\\bSTART_(REL|FILE)\\b|\\bstart_doc\\b",
+     "allowed": [
+      ".shared/core/startrec.py",
+      "blk-entry/manifest.json",
+      "blk-*/manifest.json"
+     ],
      "known": {
-      ".shared/core/adapter.py": [
-       4,
-       "散らばり（段 5 でまとめる）: 置き場の名 START_REL を自分で定め（層 L2 で entry を import できない）、切った機能を直に読む"
-      ],
-      ".shared/core/entry.py": [
-       6,
-       "散らばり（段 5 でまとめる）: 書き手。置き場の名 START_FILE（周の置き場の名）を定め、包みの形・入口の印・呼び直しで直に読む"
-      ],
-      ".shared/core/fixture.py": [
-       9,
-       "散らばり（段 5 でまとめる）: 固定材料の取り込みが adapter.START_REL を引いて控えを読み書きする"
-      ],
-      ".shared/core/gatemarks.py": [
-       3,
-       "散らばり（段 5 でまとめる）: 置き場の名 START_FILE を自分で定め、読み口 start_doc を持つ"
-      ],
-      "blk-ci/manifest.json": [
-       1,
-       "散らばり（段 5 でまとめる）: 盤面の控えの宣言（読む物）が名を書く"
-      ],
-      "darkfactory/manifest.json": [
-       1,
-       "散らばり（段 5 でまとめる）: 盤面の控えの宣言（書く物）が名を書く"
-      ],
-      "dev/canary_check.py": [
-       3,
-       "散らばり（段 5 でまとめる）: canary の確かめ役が r1/start.json を直に読む"
-      ],
-      "dev/canary_fixture.py": [
-       1,
-       "散らばり（段 5 でまとめる）: 固定材料の写しが fixture.START_REL を引いて読む"
-      ],
-      "dev/fixmeasure.py": [
-       2,
-       "散らばり（段 5 でまとめる）: 測りの殻が fixture.START_REL を引いて読む"
-      ],
       "dev/launch.py": [
        1,
-       "散らばり（段 5 でまとめる）: 起動の殻が r1/start.json の request_file を直に読む"
+       "標準ライブラリだけで pack の兄弟を import しない殻の決まり（起動直後の結びで盤面の依頼の写しを読む。この殻の頭の決まり）"
       ],
       "dev/lib.sh": [
        1,
-       "散らばり（段 5 でまとめる）: 殻の埋め込み Python が r*/start.json を直に探す"
+       "殻の python の 1 行（全部の周の控えを glob で読む。pack の模块を import しない殻の決まり）"
       ]
      }
     }

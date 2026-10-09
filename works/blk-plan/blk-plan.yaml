@@ -549,7 +549,7 @@ nodes:
           timeout: 1728000000
           with:
             role: plan-revise
-            replan: $INPUTS.replan
+            replan: $INPUTS.replan   # snap の script は役ごとに共通で読む（直しの役は控えの事実だけで決め、この値を見ない）
           output_format:
             type: object
             additionalProperties: false
@@ -928,15 +928,14 @@ nodes:
                     out_file: {type: string}
 
         # 壁打ちの出口。抜け方が again でない・今の往復の役が諦めた・盤面が止まった時に done（外の輪の until_bash が読む）。
-        # 2 度目の include（replan）では壁打ちを回さない: 直しの snap は go: false、ここはいつも 1 往復で done
+        # 抜けるかは壁打ちの控えの事実だけで決める（入力 replan を見ない。2 度目の include（replan）は 1 回目の壁打ちを抜けた後の
+        # 控えを読むので、直しの snap は go: false、ここは 1 往復で done）
         - id: converge-check
           script: converge
           runtime: uv
           timeout: 1728000000
           depends_on: [plan-review-snap, plan-review-loop]
           trigger_rule: none_failed_min_one_success
-          with:
-            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false

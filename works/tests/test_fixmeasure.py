@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "blk-fix" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
 import adapter  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の置き場と読み口）
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402
@@ -121,7 +122,7 @@ def make_board(tmp, shape="af", items=2, fixture="run-src", *, start=None, calls
     board = art / "board"
     doc = start if start is not None else {"fix_shape": shape, **({"fixture": {"source_run": fixture, "manifest_sha256": "0" * 64,
                                                                               "at": "2026-10-02T00:00:00"}} if fixture else {})}
-    put(board / fixmeasure.fixture.START_REL, doc)
+    put(board / fixmeasure.startrec.REL, doc)
     if items:
         planmarks.save(board, 1, fields(items))
         if briefs:

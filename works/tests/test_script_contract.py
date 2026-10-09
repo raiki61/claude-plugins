@@ -54,13 +54,12 @@ import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scriptline  # noqa: E402
 import test_blk_fix_tdd as TT  # noqa: E402
+import test_blk_spec as TS  # noqa: E402
 import test_line_a as TL  # noqa: E402
 from test_edge import CLEAN_REVIEW, DELTA_FACE  # noqa: E402
 
 # 線に include されていないブロック（線の run では起きない。自分の試験が口の関数を見る）。線に入れたらここから消す
-UNWIRED = {
-    "blk-spec": "仕様から入る道（flow: spec）はまだ線に配線していない（P1-R2）。test_blk_spec が口の関数を見る",
-}
+UNWIRED = {}
 
 
 def refix_edit(repo):
@@ -221,6 +220,14 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "fix-give-up": dict(replies={**line_replies(), "fix": lambda n: {}}, edits=edits),
         "unchanged-file": dict(replies={**line_replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
+        # 仕様の段（入力 spec=on。依頼だけの入口）: 仕様の書き手が受け入れ条件のテストを書き（1 回目は拒む）、審査が穴を 1 件
+        # 挙げ、直す役が答え、人が関所 spec-gate で承認すると spec.freeze が固め、h-spec が engine の節を回し直して判定へ進む
+        "spec": dict(replies={**line_replies(), "spec-write": TS.write_reply(), "spec-review": TS.review_reply(),
+                              "spec-revise": TS.revise_reply()},
+                     edits={**edits, "spec-write": lambda repo: (pathlib.Path(repo) / "test_spec_accept.py").write_text(
+                         TS.ACCEPT_TEST, encoding="utf-8")},
+                     bad_first={"blk-spec/spec-write"}, inputs={"spec": "on"},
+                     gates={"spec-gate": {"decision": "approve", "text": "受け入れ条件 A1 で進めてよい"}}),
         "tdd-lanes": dict(replies=lanes_replies(), edits=edits, bad_first={"tdd-lane-1"},
                           inputs={"tdd_suite": str(suite), "features_off": "review_tree"}),
         # 修正役の並べ（docs/plans/2026-10-07-fix-lane-nodes.md）: 書き込みの記録の在る run で、範囲の在る 2 項目が単位を共にしない
@@ -249,7 +256,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
     }
 
 
-OUTCOMES = {"plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
+OUTCOMES = {"spec": "fixed", "plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
             "material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed", "tdd-lanes": "fixed", "fix-lanes": "fixed",
             "rejudge-no-session": "stopped_by_line",
@@ -287,6 +294,19 @@ class ScriptContractCase(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(got["completed"], got["failure"])
                 self.assertEqual(got["out"]["result"]["outcome"], OUTCOMES[name])
+
+    def test_spec_stage_runs_before_judging(self):
+        """仕様の段（入力 spec=on）: h-entry の後に仕様の段のブロックが回り（書き手の 1 回目は拒まれる）、関所 spec-gate の承認で
+        仕様が固まり、境の節 h-spec の後に判定へ進んで修正まで届く。仕様の書き手のテストは修正役の変更に数えない"""
+        got = self.got["spec"]
+        trail = got["trail"]
+        for key in ("blk-spec/spec-gate", "blk-spec/spec-answer", "blk-spec/collect", "darkfactory/h-spec"):
+            self.assertIn(key, trail)
+        self.assertLess(trail.index("darkfactory/h-entry"), trail.index("blk-spec/write-route"))
+        self.assertLess(trail.index("darkfactory/h-spec"), trail.index("blk-judge/judge"))
+        self.assertIs(got["out"]["speccing"]["ok"], True)
+        self.assertIs(got["out"]["entering"]["input"]["spec"], True)
+        self.assertEqual(got["out"]["result"]["outcome"], "fixed")
 
     def test_no_test_command_final_test_by_ci_role(self):
         """テストのコマンドも宣言も無い種（ci-final-stop）: 最後のテストが任せ先に落ち、境の節 h-ci の go で任せ先の CI の役の
@@ -327,7 +347,7 @@ class ScriptContractCase(unittest.TestCase):
         for key in ("blk-rejudge/collect", "blk-refix/refix2-accept", "blk-tests/run", "blk-eyes/eyes-collect",
                     "darkfactory/report"):
             self.assertIn(key, got["trail"])
-        self.assertEqual(out["start"]["test_cmd"], TL.TEST_CMD)
+        self.assertEqual(out["entering"]["test_cmd"], TL.TEST_CMD)
         self.assertIs(out["report"]["tests_green"], True)
         self.assertNotIn(TL.NOT_RUN, pathlib.Path(out["report"]["report_file"]).read_text(encoding="utf-8"))
         stopped = self.got["rejudge-no-session"]

@@ -48,6 +48,7 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 sys.path.insert(0, str(CORE))
 
 import adapter  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の置き場と読み口）
 import hermetic  # noqa: E402
 
 SANDBOX = '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"failIfUnavailable":true}}'
@@ -1715,7 +1716,7 @@ class NoShapeFenceCase(unittest.TestCase):
                      encoding="utf-8")
 
     def test_no_tool_is_denied_by_shape(self):
-        p = self.board / adapter.START_REL
+        p = self.board / startrec.REL
         p.parent.mkdir(parents=True)
         p.write_text(json.dumps({"fix_shape": "af"}), encoding="utf-8")
         for node in ("tdd", "fix", "fix-ruled"):

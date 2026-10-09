@@ -43,6 +43,7 @@ sys.path.insert(0, str(TESTS))
 
 import linekit  # noqa: E402
 import entry  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の読み口）
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
@@ -393,7 +394,7 @@ class ScriptCase(unittest.TestCase):
 
     def break_start(self, how):
         """start の控え（今の周の start.json）の adapter を読めなくする"""
-        path = self.opened().work(entry.START_FILE)
+        path = self.opened().work(startrec.NAME)
         doc = json.loads(path.read_text(encoding="utf-8"))
         if how == "gone":
             path.unlink()

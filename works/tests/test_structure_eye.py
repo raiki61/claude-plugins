@@ -208,7 +208,7 @@ class StructureBoundaryCase(unittest.TestCase):
     def runs(self, failed: str) -> dict:
         nodes = line_nodes()
         scope = scriptline.Scope("darkfactory", {})
-        for nid in ("start", "h-plan", "structuring", "h-structure"):
+        for nid in ("entering", "h-plan", "structuring", "h-structure"):
             scope.out[nid], scope.status[nid] = {"go": True}, "ok"
         scope.out.pop(failed)
         scope.status[failed] = "failed"
@@ -222,7 +222,7 @@ class StructureBoundaryCase(unittest.TestCase):
     def test_block_failure_still_plans(self):
         nodes = line_nodes()
         scope = scriptline.Scope("darkfactory", {})
-        for nid in ("start", "h-plan"):
+        for nid in ("entering", "h-plan"):
             scope.out[nid], scope.status[nid] = {"go": True}, "ok"
         scope.status["structuring"] = "failed"
         self.assertTrue(scriptline.ScriptLine._runs(None, scope, nodes["h-structure"], False))
@@ -265,7 +265,7 @@ class AfterWiringCase(unittest.TestCase):
         incs = [n for n in doc["nodes"] if n.get("include") == "blk-structure"]
         self.assertEqual(len(incs), 2)
         after = next(n for n in incs if (n.get("with") or {}).get("base_rev"))
-        self.assertEqual(after["with"]["base_rev"], "$start.output.base_rev")
+        self.assertEqual(after["with"]["base_rev"], "$entering.output.base_rev")
         self.assertNotIn("when", after)   # 全部の単位が軽量の run でも回す
         self.assertFalse(any("skip" in k for k in after.get("with") or {}))
         self.assertIn(after["id"], nodes["h-after"]["depends_on"])

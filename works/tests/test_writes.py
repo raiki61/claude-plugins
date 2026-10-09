@@ -150,6 +150,19 @@ class TestChangedFrom(RepoCase):
                                  check=True).stdout.split()
         self.assertNotIn("NOTES.md", tracked, "本物の index は触らない")
 
+    def test_changed_from_frozen_revision_ignores_untracked_files_written_before(self):
+        """版 rev（写しの核が版を固めた review_rev。作業ツリーの未追跡のファイルも入る）に在る未追跡のファイルは、中身が同じなら
+        rev からの変更でない（仕様の段の書き手が版を固める前に書いた受け入れ条件のテストを、修正役の変更と数えない。線に仕様の段を
+        配線して本物のスクリプトで回して見つけた）。中身を変えれば変更で、rev に無い新しいファイルは今どおり変更"""
+        (self.repo / "test_spec_accept.py").write_text("仕様の書き手が書いた\n", encoding="utf-8")
+        frozen = tddloop.snapshot(self.repo)
+        self.assertEqual(writes.changed(self.repo, frozen), [])
+        (self.repo / "stats.py").write_text("修正\n", encoding="utf-8")
+        (self.repo / "NEW.md").write_text("修正役の記録\n", encoding="utf-8")
+        self.assertEqual(writes.changed(self.repo, frozen), ["NEW.md", "stats.py"])
+        (self.repo / "test_spec_accept.py").write_text("弱めた\n", encoding="utf-8")
+        self.assertIn("test_spec_accept.py", writes.changed(self.repo, frozen))
+
     def test_untouched_files_are_not_changed_without_auto_refresh(self):
         """利用者の git 設定 diff.autoRefreshIndex=false でも、触っていないファイルを変わったと数えない（一時の index に stat が無い）"""
         (self.repo / "NOTES.md").write_text("前の項目の記録\n", encoding="utf-8")

@@ -23,7 +23,7 @@ WORDS = frozenset({
     "works:rejudge-session", "works:replan", "works:scope-check",
     # ブロックとラインが declare で足す語
     "works:judge", "works:judge-verify", "works:fix-accept", "works:rule-give-up", "works:eyes", "works:spec",
-    "works:material", "works:plan", "works:protected", "works:judge-bridge", "works:pending-request",
+    "works:material", "works:plan", "works:protected", "works:judge-bridge", "works:spec-edge",
 })
 SKIP = (".shared/core/graphloops/", ".shared/borrow/")
 

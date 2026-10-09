@@ -989,7 +989,7 @@ class TestDevShell(unittest.TestCase):
             copies = list((dog / "requests").iterdir()); self.assertEqual(len(copies), 1, copies); copy = copies[0]; self.assertRegex(copy.name, r"^\d{8}-\d{6}-\d+\.json$"); self.assertEqual(copy.read_text(), request.read_text())
             self.assertEqual(calls, [
                 [str(repo), "", "workflow", "run", "darkfactory",
-                 "--input", f"request={copy}", "--input", "test_cmd=python3 -m unittest -q",
+                 "--input", f"request={copy}", "--input", f"launch_mark={copy.stem}", "--input", "test_cmd=python3 -m unittest -q",
                  "--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=", "--input", "final_gate=always"],
                 [str(repo), "1", "workflow", "runs", "--json"],
             ])

@@ -57,11 +57,13 @@ import fixture  # noqa: E402
 import flow_adapter  # noqa: E402
 import forge  # noqa: E402
 import gatemarks  # noqa: E402
+import entryshape  # noqa: E402  （入口の変換。入口の種類に触れるのはここだけ）
 import ghreads  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import scopes  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
+import startrec  # noqa: E402  （L1。始めの記録 r1/start.json の置き場・読み口・入口の文）
 import script_io  # noqa: E402  （L1。機能の切り替えの語 SWITCH_ON・SWITCH_OFF）
 import ticket  # noqa: E402
 import tree_run  # noqa: E402
@@ -252,6 +254,21 @@ def role_judged_na_works(b, nid) -> bool:
     return not gate_signals(files, diff)
 
 
+@board.rl_builder
+def entry_opens_by_diff(rl):
+    """写しの RL の entry_opens（いま add すれば入口の印が立つか）を包む組み手: 写しの条件（1 周目の P1 より前で印がまだ無い）が
+    真で、かつ start が測った入口の差分が空（state.works.begin.diff_empty が真）の時だけ真。diff_empty が None（測りを渡さない
+    begin。本流の振る舞い）なら写しのまま。印は「入力の差分が空」の意味になり、写しの核の印を読む所は全部が入力の中身で決まる"""
+    orig = rl.entry_opens
+
+    def entry_opens(b):
+        if not orig(b):
+            return False
+        flag = ((b.state.get("works") or {}).get("begin") or {}).get("diff_empty")
+        return flag is None or flag is True
+    return entry_opens
+
+
 # 線 A の核が写しの RL に当てる差し替え（名前 → (関数, 理由)）。ラインの board_hook.py の overrides が同じ名前を持てば、そちらが勝つ
 CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
@@ -285,6 +302,10 @@ CORE_OVERRIDES = {
     "fill_materials": (fill_materials_forge,
                        "forge の無い run で条件外にした並行 PR の節の素材を not_applicable（reason は no_forge: <種類>）で埋める"
                        "（写しは走らなかった節を not_run と書き、検証器の阻害になる）"),
+    "entry_opens": (entry_opens_by_diff,
+                    "入口の印（判定から入る run。P1 の役を起こさない）を、依頼を P1 の前に積んだかでなく、start が測った入力の差分が"
+                    "空かで立てる（持ち主 2026-10-09「入口は 1 つの入力の形にそろえる」。差分の在る run に依頼を足しても P1 は"
+                    "差分を見る。依頼はいつも盤面を作る時に積む。計画 docs/plans/2026-10-09-one-entry-shape.md の 2.3）"),
     "role_judged_na": (role_judged_na_works,
                        "線 A の p0.base は機械が touches_gates を判定せずに真へ倒すので、ゲートの検算の役の『条件外』は、前の周の修正が"
                        "ゲートを変えたと申告しておらず、差分に機械が見るゲートの印（定義のファイル・assert の行）が無い時だけ受ける"
@@ -390,6 +411,9 @@ FINAL_GATES = ("always", "when_needed", "protected_only")   # 最後の人の関
 ADAPTER_MODES = ("", "optional")
 UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 DESIGN_ONLY_WORDS = ("", gatemarks.DESIGN_ONLY)   # 入力 design_only（空は今どおり。true は修正前の関所を必ず開ける設計だけの run）
+SPEC_ON = "on"
+SPEC_WORDS = ("", SPEC_ON)   # 入力 spec（空は仕様の段を挟まない。on は判定の前に仕様の段を挟む。入口の種類に依らない任意の段）
+SPEC_FLOW = "spec"           # 仕様の段を挟む run の盤面の inputs.flow（写しの核の唯一の選び口。本流の --input flow=spec と同じ）
 # 入力 features_off が切る機能・features_on が入れる機能（持ち主の依頼 2026-10-07: 同じ依頼を機能を替えて回して比べる）。
 # 語は線の入力の語で、線がブロックへ on・off・auto の平の入力（start の出口の同じ名の欄）に写す。並びは語の順（控えと報告の並びも同じ）
 FEATURES = {
@@ -495,18 +519,19 @@ def _resumed_features(prev: dict, off: list, on: list) -> list:
 
 def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang,
-    unattended, design_only, fix_fixture, features_off, features_on, answers} を返す（features_off・features_on は切る機能・入れる機能の語の配列で、features_off()・features_on() が確かめ、両方に在る語は拒む。unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
+    unattended, design_only, fix_fixture, launch_mark, spec, features_off, features_on, answers} を返す（launch_mark は起こす殻が起動ごとに付けた印。生の事実として控えに残すだけ）（features_off・features_on は切る機能・入れる機能の語の配列で、features_off()・features_on() が確かめ、両方に在る語は拒む。unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
     fix_fixture は固定材料のフォルダ
     （core の fixture。修正を待つ盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
-    変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
-    少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items と answers は []。answers は依頼の欄 answers
+    差分の根を名指せば {base_rev, base, pr} も足す（入口の変換 entryshape.change_base。base_rev は差分の根の merge-base）。
+    依頼が無ければ request_file・request_text は空・items と answers は []。依頼の行が空なら差分を測り（board.diff_of。名指しが
+    無ければ HEAD から）、差分も空なら拒む（entryshape.EMPTY_REFUSED。依頼の行が在れば git を測らない）。answers は依頼の欄 answers
     （依頼者の答え。配列の形の依頼は []）で、start の控えに残り、gatemarks が問いの答えたかで読む。
-    盤面は作らない。拒む物（InputRefused）: 依頼も変更も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
+    盤面は作らない。拒む物（InputRefused）: 依頼の行も差分も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
     依頼が読めない・findings の配列でも {findings, pr, issue, answers} の形でもない・answers の形が違う・findings が依頼の型（写しの RL の REQUEST_SCHEMA）に
     合わない、thickness が重厚・知らない値、final_gate・adapter・unattended・design_only・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書・固定材料のフォルダが無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
-    相対のパス（依頼・方針の文書）は対象の根 repo から。reads は start が run の中で読んだ PR・issue（_github_reads の返り。pr が読む）"""
+    相対のパス（依頼・方針の文書）は対象の根 repo から。reads は start が run の中で読んだ PR・issue（entryshape.github_reads の返り。pr が読む）"""
     repo = pathlib.Path(repo)
     thickness = _word(raw, "thickness") or THICKNESS_DEFAULT
     if thickness == "重厚":
@@ -525,6 +550,14 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     design_only = _word(raw, "design_only")
     if design_only not in DESIGN_ONLY_WORDS:
         raise InputRefused(f"design_only={design_only!r} は知らない値（空か {gatemarks.DESIGN_ONLY}）")
+    spec = _word(raw, "spec")
+    if spec not in SPEC_WORDS:
+        raise InputRefused(f"spec={spec!r} は知らない値（空か {SPEC_ON}）")
+    if spec and unattended:
+        raise InputRefused("spec=on と無人の run（unattended）は組めない——仕様の承認は人の関所で、無人の run は関所で止めるので"
+                           "仕様が固まらずに止まる（人の居る run で回す）")
+    if spec and _word(raw, "fix_fixture"):
+        raise InputRefused("spec=on と固定材料（fix_fixture）は組めない——固定材料は修正の直前の盤面で、仕様の段より後")
     off = features_off(_word(raw, FEATURES_KEY))
     on = features_on(_word(raw, FEATURES_ON_KEY))
     both = [w for w in on if w in off]
@@ -536,14 +569,20 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
         rules.check_inputs({"gates": gates} if gates else {})
     except Reject as e:
         raise InputRefused(f"gates: {e}") from None
-    change = _change_base(raw, repo, reads)
     rel = _word(raw, "request")
-    if not rel:
-        if change is None:
-            raise InputRefused("依頼（request）も変更（base・pr）も名指されていない——少なくとも 1 つを名指す")
-        path, text, items, answers, prior = None, "", [], [], []
-    else:
-        path, text, items, answers, prior = _read_request(rel, repo, rules)
+    try:
+        change = entryshape.change_base(raw, repo, reads)   # 入口の種類に触れるのは入口の変換（entryshape）だけ
+        if not rel:
+            path, text, items, answers, prior = None, "", [], [], []
+        else:
+            path, text, items, answers, prior = _read_request(rel, repo, rules)
+        entryshape.refuse_empty(items, change, repo)
+    except entryshape.Refused as e:
+        raise InputRefused(str(e)) from None
+    pr = (change or {}).get("pr") or {}
+    if spec and not text and not (pr.get("title") or pr.get("body")):
+        raise InputRefused("spec=on なのに依頼の文が無い（依頼のファイルも PR の題と本文も無い）——仕様の書き手が読む物が無い。"
+                           "依頼を名指すか、仕様の段を外す")
     pol = _word(raw, "policy_md")
     if pol:
         pp = pathlib.Path(pol) if pathlib.Path(pol).is_absolute() else repo / pol
@@ -559,58 +598,12 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
            "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
            "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
-           "design_only": design_only, "fix_fixture": fx, FEATURES_KEY: off,
+           "design_only": design_only, "fix_fixture": fx, "launch_mark": _word(raw, "launch_mark"), "spec": spec, FEATURES_KEY: off,
            FEATURES_ON_KEY: on,
            carry.ANSWERS: answers, carry.PRIOR: prior}
     if change is not None:
         out.update(change)
     return out
-
-
-def _git(repo: pathlib.Path, *args) -> str:
-    """repo で git を読むだけ呼ぶ。引けなければ InputRefused（1 行）"""
-    got = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
-    if got.returncode != 0:
-        raise InputRefused(f"git {' '.join(args)} が引けない: {got.stderr.strip() or got.returncode}")
-    return got.stdout.strip()
-
-
-def _merge_base(repo: pathlib.Path, ref: str) -> str:
-    """ref と HEAD の merge-base（GitHub の PR の three-dot と同じ差分の根）"""
-    rev = _git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
-    return _git(repo, "merge-base", rev, "HEAD")
-
-
-def _change_base(raw: dict, repo: pathlib.Path, reads=None):
-    """変更の入口（base か pr）を解いて {base_rev, change} を返す。どちらも無ければ None。両方は拒む。
-    pr は gh を呼ばず、start が run の中で読んだ読み出し reads（ghreads.read_named の返りか、再開では盤面の github.json）の
-    pr[<番号>] を読む（設計書 2.8）。読み出しに無い・読めなかった項・head が今の HEAD と違えば拒む（別の版を
-    黙って見ない）。差分の根は GitHub が持つ base の版（baseRefOid）と HEAD の merge-base——fetch しないローカルの枝は古いことが
-    あるので名前では引かない。change.text は PR の題と本文（目的の文の出典の PR 説明として盤面の依頼の文に渡す）"""
-    base, pr = _word(raw, "base"), _word(raw, "pr")
-    if base and pr:
-        raise InputRefused(f"base={base!r} と pr={pr!r} を両方名指した——どちらの差分か決まらない（片方だけ）")
-    if base:
-        return {"base_rev": _merge_base(repo, base), "change": {"from": "base", "name": base, "text": ""}}
-    if not pr:
-        return None
-    if not pr.isdigit():
-        raise InputRefused(f"pr={pr!r} は PR の番号でない")
-    doc = ((reads or {}).get("pr") or {}).get(pr)
-    if not isinstance(doc, dict) or not doc.get("baseRefOid") or not doc.get("headRefOid"):
-        why = " ".join(str((doc.get("reason") if isinstance(doc, dict) else "") or "読み出しにこの PR の base・head が無い").split())
-        if isinstance(doc, dict) and doc.get("status") == ghreads.NOT_APPLICABLE:   # forge の無い対象で gh も GitHub を見つけなかった
-            raise InputRefused(f"PR #{pr} の base・head を読めない——対象の remote に PR を持つホストが無い（{why}）。base を名指して回す")
-        raise InputRefused(f"PR #{pr} の base・head を読めない（{why}）——利用者の gh でログインしてから回す")
-    head = _git(repo, "rev-parse", "HEAD")
-    if doc["headRefOid"] != head:
-        raise InputRefused(f"PR #{pr} の head {doc['headRefOid'][:12]} が対象の HEAD {head[:12]} と違う——PR の head を"
-                           "取り出した所で始める")
-    oid = doc["baseRefOid"]
-    if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{oid}^{{commit}}"], capture_output=True).returncode:
-        raise InputRefused(f"PR #{pr} の base の版 {oid[:12]} が対象に無い——fetch してから始める")
-    text = "\n\n".join(s for s in (str(doc.get("title") or "").strip(), str(doc.get("body") or "").strip()) if s)
-    return {"base_rev": _merge_base(repo, oid), "change": {"from": "pr", "name": pr, "text": text}}
 
 
 def _read_request(rel: str, repo: pathlib.Path, rules):
@@ -956,31 +949,7 @@ def _drain(b, p, *, test_cmd: str, runner=None) -> dict:
             pr = prcheck.run_helper(b, runner=runner)
     except prcheck.Refused as e:
         raise InputRefused(str(e)) from None
-    add_pending_request(b)
     return {"ci_role_go": any(role_waits(b, n) for n in p["ready"]), "pr_go": _pr_go(b, pr)}
-
-
-PENDING_WAIT_NODE = "p1.worktree_before"   # これが済む前の add は入口の印を立てる（写しの RL の entry_opens）
-
-
-def add_pending_request(b) -> str:
-    """依頼と変更の両方で始めた run の依頼を、1 周目の版が固まった後（入口の印を立てない所）に RL の add で積む。
-    本線で通常の run の途中に add するのと同じで、P1 の目は外れず、依頼は origin 付きのバッチで判定に届く。
-    返り: "none"（積む依頼が無い・もう積んだ）・"added"（今積んだ）・"waiting"（版がまだ固まっていない）。
-    積んだかは記録の request_findings（origin のバッチ）だけで見る（呼び直しても 2 度積まない）"""
-    try:
-        doc = json.loads(b.work(START_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return "none"
-    if doc.get("entry") != "both":
-        return "none"
-    batches = (b.record.get("process") or {}).get("request_findings") or []
-    if any(x.get("origin") == ORIGIN for x in batches):
-        return "none"
-    if b.node_state(PENDING_WAIT_NODE) == "pending":
-        return "waiting"
-    b.add_request(carry.parts(json.loads(pathlib.Path(doc["request_file"]).read_text(encoding="utf-8")))[carry.FINDINGS], ORIGIN)
-    return "added"
 
 
 def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
@@ -992,13 +961,12 @@ def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
 
 
 # ---------------------------------------------------------------- start（線 A の仕様 4 節）
-START_FILE = "start.json"
 
 
 def declared_adapter(b) -> str:
-    """run が宣言した包みの形: start が今の周の START_FILE に控えた入力 adapter（ADAPTER_MODES の値。"" は包みを通す run、
+    """run が宣言した包みの形: start が今の周の startrec.NAME に控えた入力 adapter（ADAPTER_MODES の値。"" は包みを通す run、
     "optional" は包み無しで回す run）。控えが無い・読めない・鍵が無い・語の外は ValueError（読む側が fail closed で止める）"""
-    path = b.work(START_FILE)
+    path = b.work(startrec.NAME)
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -1015,15 +983,6 @@ def _write_json(path: pathlib.Path, doc: dict) -> None:
     os.replace(tmp, path)
 
 
-ENTRIES = ("request", "change", "both")
-
-
-def _request_text(inp: dict) -> str:
-    """盤面の依頼の文（DiskBoard.begin の request_text。固定材料の依頼の sha256 もこの文で照らす）"""
-    change = inp.get("change")
-    return inp["request_text"] or change["text"] or f"変更（{change['from']} {change['name']}）の審査"
-
-
 def _kept(inp: dict) -> dict:
     """check_inputs の返りのうち start の控えに残す欄（依頼の行と文は控えに残さない。prior_failures は盤面の根の
     carry.PRIOR_IN_FILE が運ぶ）"""
@@ -1033,8 +992,14 @@ def _kept(inp: dict) -> dict:
 def adopt_inputs(inp: dict) -> dict:
     """固定材料の取り込み（fixture.adopt）が start の控えと照らす今の入力の欄: _kept から base_rev と answers を除いた物（start は控えの
     base_rev を修正の起点の版で上書きするので、入力の base_rev は控えに残らない。answers は依頼の文の sha256 が照らすので二重に
-    照らさず、欄の無い前の版の固定材料も読める）"""
-    return {k: v for k, v in _kept(inp).items() if k not in ("base_rev", "answers")}
+    照らさず、欄の無い前の版の固定材料も読める。spec は固定材料と組めない（check_inputs が拒む）ので照らさない）"""
+    return {k: v for k, v in _kept(inp).items() if k not in ("base_rev", "answers", "spec")}
+
+
+def _fixture_words(doc: dict) -> str:
+    """固定材料の控えの入口の文（input の無い前の版の控えは、その事実を書く）"""
+    shape = startrec.shape(doc)
+    return startrec.words(shape) if shape is not None else "控えに入口の入力の形が無い（前の版の固定材料）"
 
 
 FIXTURE_MISMATCH = "固定材料と works の版が違う"   # 取り込んだ盤面を今の表・graph で開けない時の拒みの頭
@@ -1050,7 +1015,7 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
     3. 取り込んだ時だけ盤面の trace に fixture.TRACE_OP の 1 行
     4. ticket.write、start の控えに ci_role_go（偽）・pr_go（控えの値）・頭の行を書き足す
     返りは start と同じ形。取り込みは start の控えの入力の欄を今の入力と照らすので、入力の欄は控えの値も今の値も同じ"""
-    work = board_dir / fixture.START_REL
+    work = startrec.path(board_dir)
     resumed = fixture.adopted(board_dir) is not None
     if resumed:
         prev = json.loads(work.read_text(encoding="utf-8"))
@@ -1062,7 +1027,7 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
     else:
         try:
             doc = fixture.adopt(board_dir, inp["fix_fixture"], repo, run_id=run_id, pack_root=PACK,
-                                request_text=_request_text(inp), inputs=adopt_inputs(inp))
+                                request_text=entryshape.request_text(inp), inputs=adopt_inputs(inp))
         except fixture.FixtureRefused as e:
             raise InputRefused(f"固定材料を取り込まない: {e}") from None
         on = inp[FEATURES_ON_KEY]
@@ -1085,105 +1050,78 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
         raise InputRefused(f"包みの切符を書けない: {e}") from None
     pol = policy.brief(b)
     head = (f"入口: 固定材料から（run {doc[fixture.KEY]['source_run']} の修正の前。判定と修正案は写しの物）・"
-            f"{doc.get('entry_words', '')}・{features_part(inp[FEATURES_KEY], on)}・"
+            f"{_fixture_words(doc)}・{features_part(inp[FEATURES_KEY], on)}・"
             f"{prcheck.head_downgrades(LINE)}")
     go = {"ci_role_go": False, "pr_go": doc.get("pr_go", False)}
     _write_json(work, {**doc, **go, FEATURES_CUT_KEY: features_cut(inp[FEATURES_KEY], on), "head_line": head})
-    return {"ok": True, "entry": doc["entry"], "base_rev": doc["base_rev"], "test_cmd": doc["test_cmd"],
+    shape = startrec.shape(doc)   # 入口の入力の形の無い前の版の固定材料は欄ごと出さない（出口の型は object。null で出すと節が落ちる）
+    return {"ok": True, **({"input": shape} if shape is not None else {}), "pr_file": "", "base_rev": doc["base_rev"], "test_cmd": doc["test_cmd"],
             "policy_paste": pol["paste"], "policy_path": pol["path"], "final_gate": doc["final_gate"], "adapter": doc["adapter"],
             "thickness": doc["thickness"], "gates": doc["gates"], **feature_words(inp[FEATURES_KEY], on), **go,
             "head_line": head}
 
 
-# 認証の要らない起動（開発の殻 dev/archon.sh。テスト・validate・workflow test）の印。この run の中の gh は利用者の gh の
-# ログインを継がない（dev/hostgh.py の口を置かない）ので、名指した PR・issue を読めない
-NO_AUTH_ENV = "WORKS_DEV_NO_AUTH"
-
-
-def _named(raw: dict, repo: pathlib.Path):
-    """入力 pr と依頼の欄 pr・issue が名指した (PR の番号の並び, issue の番号の並び)。依頼が読めない・形の外なら依頼の分は
-    無しにする（形の誤りは check_inputs が拒む）"""
-    pr = _word(raw, "pr")
-    prs, issues = ([int(pr)] if pr.isdigit() else []), []
-    rel = _word(raw, "request")
-    if rel:
-        path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
-        try:
-            parts = carry.parts(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, ValueError):
-            return prs, issues
-        prs, issues = list(dict.fromkeys(parts[carry.PR] + prs)), list(parts[carry.ISSUE])
-    return prs, issues
-
-
-def _github_reads(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict):
-    """名指した PR・issue を run の中で gh で読んだ読み出し（ghreads.read_named。読めない項も記録して返す）。名指しが無ければ
-    None。盤面の根に github.json が在れば（Archon の再開）それを使い、読み直さない（run の中で同じ版を見る）。
-    認証の要らない起動（NO_AUTH_ENV）で名指せば、gh を呼ばずに 1 行で拒む（読めないと黙って記録しない）"""
-    try:
-        kept = ghreads.load_board(board_dir)
-    except (OSError, ValueError) as e:
-        raise InputRefused(f"盤面の {ghreads.BOARD_FILE} を読めない（{type(e).__name__}: {e}）") from None
-    if kept is not None:
-        return kept
-    prs, issues = _named(raw, repo)
-    if not prs and not issues:
+def _kept_input(board_dir: pathlib.Path):
+    """呼び直し（Archon の再開）の時、最初の start が控えた入口の入力の形（r1/start.json の欄 input）。控えが無ければ None。
+    控えは在るのに input が無い・dict でなければ InputRefused（測り直さない。修正が作業ツリーを進めた後に測ると別の値になる）"""
+    path = startrec.path(board_dir)
+    if not path.is_file():
         return None
-    if os.environ.get(NO_AUTH_ENV) == "1":
-        named = "・".join([f"PR #{n}" for n in prs] + [f"issue #{n}" for n in issues])
-        raise InputRefused(f"{named} を名指したが、この run は {NO_AUTH_ENV}=1 で起こしたので run の中の gh が利用者のログインを"
-                           "継がず読めない——認証を使う起動（use.sh start・dogfood.sh）で回す")
-    return ghreads.read_named(repo, prs, issues)
-
-
-def _entry_words(kind: str, inp: dict) -> str:
-    """頭の行の入口の文"""
-    if kind == "request":
-        return f"判定から（依頼 {len(inp['items'])} 件）"
-    ch = inp["change"]
-    what = f"変更から（{inp['base_rev'][:12]}..HEAD・{'PR #' if ch['from'] == 'pr' else 'base '}{ch['name']}）"
-    return what if kind == "change" else f"{what}と依頼 {len(inp['items'])} 件（版が固まった後に積む）"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise InputRefused(f"start の控え {path} を読めない（{type(e).__name__}: {e}）") from None
+    shape = doc.get("input") if isinstance(doc, dict) else None
+    if not isinstance(shape, dict):
+        raise InputRefused(f"start の控え {path} に入口の入力の形（input）が無い——この版より前の盤面は続けない（新しい置き場で始める）")
+    return shape
 
 
 def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str, runner=None) -> dict:
     """ラインの入口。順:
-    1. _github_reads（名指した PR・issue を run の中で gh で読む。再開では盤面の根の github.json を先に）→ check_inputs（拒めば
-       盤面を作らずに InputRefused）。盤面を作った後に読み出しを盤面の根の github.json に置く。
+    1. entryshape.github_reads（名指した PR・issue を run の中で gh で読む。再開では盤面の根の github.json を先に）→ check_inputs（拒めば
+       盤面を作らずに InputRefused。差分も依頼の行も無い入力もここで拒む）。盤面を作った後に読み出しを盤面の根の github.json に置く。
        入力 fix_fixture（固定材料）が在れば、ここから先は _start_from_fixture（取り込み → 盤面を開く → trace → 切符。begin と
        CI の輪を回さない）
-    2. DiskBoard.begin（1 周の run。origin works/darkfactory・stop_after_round=1・board_hook.py の overrides・validator_runner）。
-       入口は本線の engine の分かれ方に揃える: 依頼だけ → 依頼を積んで判定から入る run（base_rev は空＝HEAD）。変更（base・pr）
-       が在る → base_rev＝解いた merge-base で依頼を積まずに始める通常の run（入口の印が立たず、P1 の目が差分に回る）。依頼も
-       在れば、1 周目の版が固まった後に add_pending_request が積む（途中の add は P1 を外さない）。
-       lang が空でなければ inputs.lang に渡す（本線 loop.py の --lang。空は盤面の
-       既定 LANG_DEFAULT＝依頼文の言語）。入口の Reject は InputRefused
-    3. テストを走らせる前に r1/start.json に入力の控えと、宣言が無い時の道 ci_fallback（test_cmd か role）を置く。呼び直し
-       （Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
-    4. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
-    5. 切符（ticket.write）を書き、r1/start.json を結果つきで書き直す
-    返り {ok, entry, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, thickness, gates, ci_role_go,
+    2. 入口の入力の形（entryshape.build。差分の根・差分・依頼の行・PR）を作る。呼び直しでは最初の控えの input を使い、測り直さない
+    3. DiskBoard.begin（1 周の run。origin works/darkfactory・stop_after_round=1・board_hook.py の overrides・validator_runner）。
+       依頼の行が在ればいつも盤面を作る時に積み、入口の測り diff_empty を渡す。入口の印（P1 の役を起こさない）は差し替え
+       entry_opens_by_diff が「差分が空」の時だけ立てる——差分が在れば P1 の役が差分に回り、依頼は 1 周目の判定に届く。
+       P1 の差分の根（record.base）は input.base.rev（名指しが無ければ HEAD）。lang が空でなければ inputs.lang に渡す（本線
+       loop.py の --lang。空は盤面の既定 LANG_DEFAULT＝依頼文の言語）。入口の Reject は InputRefused
+    4. テストを走らせる前に r1/start.json に入力の控え（入口の入力の形 input を含む）と、宣言が無い時の道 ci_fallback（test_cmd か
+       role）を置く。呼び直し（Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
+    5. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
+    6. 切符（ticket.write）を書き、r1/start.json を結果つきで書き直す
+    返り {ok, input, pr_file, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, thickness, gates, ci_role_go,
     pr_go, head_line}。
-    entry は ENTRIES の語（依頼だけ・変更だけ・両方）。base_rev は修正の起点（修正前の HEAD）で、下流の差分・
-    受け付けが「修正が触った物」を切る版。変更から入る run の P1 の差分の根（merge-base）は盤面の record.base にだけ置き、
+    input は入口の入力の形（後ろの段は入口の種類を見ず、この中身だけを読む）。pr_file は PR の添え物を置いた盤面の根のファイル
+    （PR の無い run は空。目的の役が出典 ① PR 説明として読む）。base_rev は修正の起点（修正前の HEAD）で、下流の差分・
+    受け付けが「修正が触った物」を切る版。P1 の差分の根（merge-base）は盤面の record.base と input.base にだけ置き、
     ここには出さない（PR にもとからある変更を修正の変更と取り違えない）。
     ci_role_go は CI の節（p0.local_checks）が任せ先に落ちたまま待っている（test_cmd も宣言も無い。裁定 R52）。pr_go は _pr_go の
     3 値——"pending" の run は、CI の役の後に resume_after_ci が測る"""
     repo = pathlib.Path(repo).resolve()
     board_dir = pathlib.Path(board_dir)
-    reads = _github_reads(board_dir, repo, raw)
+    try:
+        reads = entryshape.github_reads(board_dir, repo, raw)
+    except entryshape.Refused as e:
+        raise InputRefused(str(e)) from None
     inp = check_inputs(raw, repo, reads=reads)
     if inp["fix_fixture"]:
         return _start_from_fixture(board_dir, repo, raw, inp, run_id=run_id)
-    change = inp.get("change")
-    kind = "both" if change and inp["items"] else "change" if change else "request"
-    table = load_table(LINE)
-    head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
     try:
-        b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=None if change else inp["items"], origin=ORIGIN,
-                               base_rev=inp.get("base_rev", ""), request_text=_request_text(inp),
+        shape = _kept_input(board_dir) or entryshape.build(inp, repo)
+    except entryshape.Refused as e:
+        raise InputRefused(str(e)) from None
+    table = load_table(LINE)
+    try:
+        b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=inp["items"] or None, origin=ORIGIN,
+                               base_rev=inp.get("base_rev", ""), request_text=entryshape.request_text(inp),
                                inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
-                                       **({"lang": inp["lang"]} if inp["lang"] else {})},
-                               stop_after_round=1, **open_kwargs(LINE, table))
+                                       **({"lang": inp["lang"]} if inp["lang"] else {}),
+                                       **({"flow": SPEC_FLOW} if shape["spec"] else {})},
+                               stop_after_round=1, diff_empty=shape["diff"]["empty"], **open_kwargs(LINE, table))
     except Reject as e:
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
     if reads is not None and not (board_dir / ghreads.BOARD_FILE).is_file():
@@ -1193,8 +1131,12 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
             raise InputRefused(f"読んだ PR・issue を盤面の {ghreads.BOARD_FILE} に置けない（{type(e).__name__}: {e}）——"
                                "resume で読み直す") from None
     carry.place_prior(board_dir, inp[carry.PRIOR])
+    try:
+        pr_file = entryshape.write_pr_file(board_dir, inp)
+    except OSError as e:
+        raise InputRefused(f"PR の添え物を盤面の {entryshape.PR_FILE} に置けない（{type(e).__name__}: {e}）") from None
     keep = _kept(inp)
-    work = b.work(START_FILE)
+    work = b.work(startrec.NAME)
     prev = {}
     if work.is_file():
         prev = json.loads(work.read_text(encoding="utf-8"))
@@ -1205,9 +1147,8 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     else:
         on = inp[FEATURES_ON_KEY]
     # 呼び直し（Archon の再開）では、修正が HEAD を進めていても最初の控えの起点を使う
-    base_rev = prev.get("base_rev") or head_rev or (b.record.get("base") or "")
-    doc = {**keep, "run_id": run_id, "requests": len(inp["items"]), "base_rev": base_rev, "entry": kind,
-           "entry_words": _entry_words(kind, inp), "change": change,
+    base_rev = prev.get("base_rev") or shape["head_rev"]
+    doc = {**keep, "run_id": run_id, "requests": len(inp["items"]), "base_rev": base_rev, "input": shape,
            "ci_fallback": "test_cmd" if inp["test_cmd"] else "role", FEATURES_CUT_KEY: features_cut(inp[FEATURES_KEY], on)}
     _write_json(work, doc)
     go = _drain(b, p, test_cmd=inp["test_cmd"], runner=runner)
@@ -1218,11 +1159,11 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     pol = policy.brief(b)
     absent = len(b.state["works"].get("not_in_line") or [])
     thick = inp["thickness"] + ("（既定）" if not _word(raw, "thickness") else "")
-    head = (f"入口: {doc['entry_words']}・段: {thick}・gates: {inp['gates'] or '空'}・"
+    head = (f"入口: {startrec.words(shape)}・段: {thick}・gates: {inp['gates'] or '空'}・"
             f"{features_part(inp[FEATURES_KEY], on)}・このラインに無い節: {absent} 個・{prcheck.head_downgrades(LINE)}")
     if go["ci_role_go"]:
         head += "・修正前のテスト: 宣言も test_cmd も無い——任せ先の役がリポジトリから走らせ方を探す"
-    out = {"ok": True, "entry": kind, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
+    out = {"ok": True, "input": shape, "pr_file": pr_file, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
            "policy_path": pol["path"], "final_gate": inp["final_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
            "gates": inp["gates"], **feature_words(inp[FEATURES_KEY], on), **go, "head_line": head}
     _write_json(work, {**doc, **go, "head_line": head})

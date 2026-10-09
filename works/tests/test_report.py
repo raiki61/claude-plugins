@@ -32,6 +32,7 @@ import converge  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 import carry  # noqa: E402
 import entry  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の読み口）
 import linekit  # noqa: E402
 import prcheck  # noqa: E402
 import reads  # noqa: E402
@@ -946,18 +947,26 @@ class HeadCase(ReportBase):
         self.assertTrue(any(x.startswith(f"下げている所: {len(downs)} 個") for x in lines))
         self.assertTrue(any(x.strip().startswith("- p0.parallel_pr:") and "review-graph" in x for x in lines))
 
-    def test_entry_words_from_start_doc(self):
-        """冒頭 2 の入口は start の控えの entry_words（変更から入った run を判定からと書かない）。渡された出口に無くても控えから"""
+    def test_entry_line_from_input(self):
+        """冒頭 2 の入口は入口の入力の形（start の控えの欄 input か出口の欄 input）から startrec.words が作る 1 本の文。
+        渡された出口に無くても控えから。差分の在る run は「差分 …..HEAD（N ファイル・出どころ）」で、入口の種類を見ない。
+        入力の形の無い控えは、その事実を書く（落ちない）"""
         self.judged()
         b = entry.open_board(self.board)
-        self.assertTrue(report.head_entry(b, {})[0].startswith("入口: 判定から（依頼 "))
+        self.assertTrue(report.head_entry(b, {})[0].startswith("入口: 差分なし（HEAD）・依頼 "), report.head_entry(b, {})[0])
+        self.assertIn("P1 の役は起こさない", report.head_entry(b, {})[0])
         self.assertIn("・段: ", report.head_entry(b, {})[0])   # entry.start の頭の行と同じ字
-        words = "変更から（0123456789ab..HEAD・PR #7）"
-        self.assertTrue(report.head_entry(b, {"entry_words": words})[0].startswith(f"入口: {words}・"))
-        p = self.board / "r1" / entry.START_FILE
+        shape = {"base": {"rev": "0123456789ab" + "0" * 28, "from": "pr", "name": "7", "label": "PR #7「題」"},
+                 "head_rev": "1" * 40, "diff": {"empty": False, "files": 3, "stat": ""}, "requests": 0, "request_file": "",
+                 "pr": {"number": "7", "title": "題"}, "spec": False}
+        words = "差分 0123456789ab..HEAD（3 ファイル・PR #7「題」）・依頼 0 件"
+        self.assertTrue(report.head_entry(b, {"input": shape})[0].startswith(f"入口: {words}・"))
+        p = self.board / "r1" / startrec.NAME
         doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
-        p.write_text(json.dumps({**doc, "entry_words": words}, ensure_ascii=False), encoding="utf-8")
-        self.assertTrue(report.head_entry(b, {"entry": "change"})[0].startswith(f"入口: {words}・"))
+        p.write_text(json.dumps({**doc, "input": shape}, ensure_ascii=False), encoding="utf-8")
+        self.assertTrue(report.head_entry(b, {"ok": True})[0].startswith(f"入口: {words}・"))
+        p.write_text(json.dumps({k: v for k, v in doc.items() if k != "input"}, ensure_ascii=False), encoding="utf-8")
+        self.assertTrue(report.head_entry(b, {})[0].startswith("入口: （控えに入口の入力の形が無い）・"))
 
     def test_features_part_from_start_doc(self):
         """冒頭 2 の頭の行に切った機能（入力 features_off）が出る。正本は start の控え（start の出口は機能ごとの on・off だけ）。
@@ -965,7 +974,7 @@ class HeadCase(ReportBase):
         self.judged()
         b = entry.open_board(self.board)
         self.assertIn("・機能: judge_verify off・review_tree auto", report.head_entry(b, {})[0])   # 控えは空の配列（既定）
-        p = self.board / "r1" / entry.START_FILE
+        p = self.board / "r1" / startrec.NAME
         doc = json.loads(p.read_text(encoding="utf-8"))
         p.write_text(json.dumps({**doc, "features_off": ["tdd_lanes"], "features_on": ["judge_verify"]}, ensure_ascii=False),
                      encoding="utf-8")

@@ -105,6 +105,7 @@ for _p in (PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
         sys.path.insert(0, str(_p))
 
 import adapter  # noqa: E402
+import startrec  # noqa: E402  （始めの記録の置き場と読み口）
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
@@ -155,9 +156,9 @@ TASK_ENDS = ("completed", "failed", "stopped")   # task_activity の終わりの
 
 # ---------------------------------------------------------------- 前の版の盤面の修正の形
 def _shape_at(board) -> str:
-    """盤面の修正の形（腕）: start の控え（fixture.START_REL）の鍵 SHAPE_KEY。控えが無い・鍵が無いなら g3（形が g3 だけになった後の
+    """盤面の修正の形（腕）: start の控え（startrec.REL）の鍵 SHAPE_KEY。控えが無い・鍵が無いなら g3（形が g3 だけになった後の
     盤面）。読めない・JSON の object でない・語の外は ValueError（黙って既定にしない）"""
-    path = pathlib.Path(board) / fixture.START_REL
+    path = pathlib.Path(board) / startrec.REL
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

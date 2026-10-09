@@ -3,7 +3,7 @@
 # dependencies = []
 # ///
 """関所を開くか・文（specblk.ask。線 A の境の節の at gate と同じ手順）。盤面の問い spec.approve を関所の文にし、
-r<N>/gate.md にも置く。止め札が在れば盤面を止める。出口 {ask, stop, gate_text, why}。run の id は環境変数 WORKFLOW_ID"""
+ブロックの置き場の r<N>/spec-gate.md にも置く。止め札が在れば盤面を止める。出口 {ask, stop, gate_text, why}。run の id は環境変数 WORKFLOW_ID"""
 import os
 import sys
 from pathlib import Path

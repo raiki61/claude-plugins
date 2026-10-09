@@ -53,6 +53,7 @@ MOD = {
     "auth_launch": (1, None),  # 殻の認証の起こし役（claude_auth の写しだけを import する。works の物を何も知らない）
     "forge": (1, None),       # 対象の remote が forge（PR を持つホスト。GitHub）かを git だけで決める（ghreads と entry・report が読む。works の物を何も知らない）
     "ghreads": (1, None),     # 依頼が名指した PR・issue を run の中で gh で読む 1 か所（works の物を何も知らない）
+    "startrec": (1, None),    # 始めの記録（盤面の r1/start.json）の住処: 置き場の名・読み口・入口の入力の形の読みと入口の文（標準ライブラリだけ）
     "carry": (1, None),       # 次の run への持ち越しの住処（依頼の容器の形・下書きの印・前の失敗の置き場・約束の Schema。写しの engine の型検査だけを読む）
     "stopby": (1, None),      # 止めの理由の住処（機械が盤面の state.stop.by に書く語 works:<名> の表と、ブロックが自分の語を足す口。標準ライブラリだけ）
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
@@ -68,6 +69,7 @@ MOD = {
     "no-post-bin/works-gh": (2, None),
     "fixture": (3, None),     # 固定材料（h-fix の盤面の写しと取り込み。entry と境の節が使う。entry・board を import しない）
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
+    "entryshape": (3, None),  # 入口の変換（入口の種類に触れる core の唯一の模块。入口のブロックの open が entry.start を通して呼ぶ）
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
     "impact": (3, None),      # 変更の周りの地図（役が共有して読む。地図はまだどのブロックにも配線しない。libdocs が import の読み取りを使う）
     "libdocs": (3, None),     # ライブラリの文書（手元の版・公式）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
@@ -98,9 +100,11 @@ MOD = {
     "premises": (4, "blk-premises"),
 }
 # 共有の模块の中に居る上の層の名前（割る前の当座。V2）: 模块 → (層, 持ち主, 名前の組)
+# 1 つの模块に持ち主の違う組が在れば (層, 持ち主, 名前の組) の並び。entry の start・check_inputs は入口のブロック blk-entry の
+# 節 open の中身（計画 docs/plans/2026-10-09-one-entry-shape.md の 2.5 節）
 PARTS = {
-    "entry": (6, "darkfactory", frozenset({"check_inputs", "start", "_drain", "_pr_go", "resume_after_ci",
-                                           "declared_adapter", "LINE", "ORIGIN"})),
+    "entry": [(6, "darkfactory", frozenset({"_drain", "_pr_go", "resume_after_ci", "declared_adapter", "LINE", "ORIGIN"})),
+              (5, "blk-entry", frozenset({"check_inputs", "start"}))],
 }
 L0_TOPS = frozenset({"engine", "rules", "graphs"})   # 写しの graphloops の頭の名（core の模块が sys.path に足す）
 OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフォルダ（dev/lib.sh が除く物）
@@ -322,9 +326,10 @@ class Pack:
                 self._hit(f"private {u.id} -> {t.id}", at)
 
     def _part(self, u, mod, attr, at):
-        _layer, owner, names = self.parts[mod]
-        if attr in names and u.name != mod and u.owner != owner and u.layer:
-            self._hit(f"up {u.id} -> {mod}.{attr}", at)
+        rows = self.parts[mod]
+        for _layer, owner, names in ([rows] if isinstance(rows[0], int) else rows):
+            if attr in names and u.name != mod and u.owner != owner and u.layer:
+                self._hit(f"up {u.id} -> {mod}.{attr}", at)
 
     def _strings(self, u, node, scope, at, piece=False):
         v = node.value

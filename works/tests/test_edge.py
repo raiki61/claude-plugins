@@ -376,6 +376,21 @@ class FinalGateCase(EdgeBase):
         self.assertEqual(b.work(line_edge.FINAL_GATE_FILE).read_text(encoding="utf-8"), text)
         self.assertEqual(got["gate_file"], str(b.work(line_edge.FINAL_GATE_FILE)))
 
+    def test_final_text_carries_pending_spec_changed_question(self):
+        """仕様の段の run で修正の後に受け入れ条件のテストが変わり、写しの核の spec.check が周の途中の問い spec_changed を立てた
+        盤面（線の中で答える道はまだ無い。計画 one-entry-shape の Task 6）でも、最後の関所は文に問いを字のまま引いて開き、
+        この関所の答えが問いに答えないことを言う（止まらずに報告まで届く）"""
+        tests = self.closed()
+        b = entry.open_board(self.board, allow_halted=True)
+        b.state["pending_human"] = {"node": "spec.check", "kinds": ["spec_changed"], "in_round": True,
+                                    "question": "承認済みの受け入れ条件のテストのファイルが、承認の後に変わった",
+                                    "items": ["test_spec_accept.py: sha256 aaaaaaaaaaaa → bbbbbbbbbbbb"], "options": ["continue", "stop"]}
+        b.save()
+        got = self.edge("final", tests=tests, final_gate="always")
+        self.assertIs(got["ask"], True, got)
+        for want in ("承認の後に変わった", "test_spec_accept.py", "この関所の答えはこの問いに答えない"):
+            self.assertIn(want, got["gate_text"])
+
     def test_final_gate_starts_with_three_lines(self):
         """最後の関所の文は冒頭 3 行（起きたこと・決めてほしいこと・推し）で始まり、今の中身（テスト・ログ・作業ツリー・答え方）は
         その後ろに残る。記録に推しが無ければ機械は推さない"""
@@ -758,6 +773,25 @@ class EntryMidCase(EdgeBase):
             with self.subTest(at=at):
                 got = self.edge(at)
                 self.assertEqual((got["go"], got["stop"]), (False, False))
+
+
+class SpecEdgeCase(EdgeBase):
+    """境の節 h-spec（line_edge.spec_edge。仕様の段の後・並行 PR の前）"""
+
+    def test_spec_edge_without_spec_matches_entry(self):
+        """仕様の段の無い run では h-entry と同じ pr_go（回し直す engine の節が無い）"""
+        self.started()
+        self.assertEqual(self.edge("spec")["pr_go"], self.edge("entry")["pr_go"])
+
+    def test_spec_edge_refusal_stops_board(self):
+        """回し直した engine の節が入力の誤りで拒まれたら（並行 PR の確かめの拒みなど）、境の節を落とさずに盤面を止め、理由と
+        止めた節を残して stop（落とすと後ろの節が拒みの理由なしに走る。CI の役の後の入口へ戻る口 ci_role と同じ扱い）"""
+        self.started()
+        with mock.patch.object(entry, "resume_after_ci", side_effect=entry.InputRefused("並行 PR の確かめを受けない")):
+            got = self.edge("spec")
+        self.assertEqual((got["stop"], got["go"], got["pr_go"]), (True, False, False), got)
+        self.assertIn("並行 PR の確かめを受けない", got["why"])
+        self.assertEqual(self.state()["stop"]["by"], line_edge.SPEC_EDGE_BY)
 
 
 class ReplanEdgeCase(EdgeBase):
