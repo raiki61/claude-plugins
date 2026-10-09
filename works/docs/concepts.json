@@ -360,6 +360,22 @@
     }
    ]
   },
+  "world": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "世界の解の行のファイルと控えの名",
+     "pattern": "world\\.jsonl|world-state\\.json",
+     "allowed": [
+      ".shared/core/worldmark.py",
+      "blk-world/world-row.schema.json",
+      "blk-world/**",
+      "darkfactory/**"
+     ],
+     "known": {}
+    }
+   ]
+  },
   "entry-kind": {
    "status": "住処あり",
    "fences": [
