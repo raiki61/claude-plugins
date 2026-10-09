@@ -8,7 +8,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
-- 落ちた run（failed）を `use.sh clean` で片付けても Archon の記録は failed のままで、resume できない run を「人の番」と言い続け、herdr の枠が blocked のまま残った（2026-10-09 の利用者の声）。`clean` は片付けが済んだ後、生きてもいず終わってもいない run の記録を `workflow abandon` で閉じ（cancelled）、run を起こした枠の集計を出し直す。worktree がもう無い run でも閉じるので、前に片付けて記録だけ残った run は `clean` の打ち直しで閉じる。abandon が落ちたら、片付けの結果は出したまま、標準エラーに打ち直しの行を出して abandon の終了コードで終わる。
+- 落ちた run（failed）を `use.sh clean` か次の `start` の自動の片付けで片付けても Archon の記録は failed のままで、resume できない run を「人の番」と言い続け、herdr の枠が blocked のまま残った（2026-10-09 の利用者の声）。片付けの本体は、片付けが済んだ後に、生きてもいず終わってもいない run の記録を `workflow abandon` で閉じ（cancelled）、run を起こした枠の集計を出し直す（`start` は片付けの後に 1 回）。worktree がもう無い run でも閉じるので、前に片付けて記録だけ残った run は `clean` の打ち直しで閉じる。abandon が落ちたら、片付けの結果は出したまま、標準エラーに打ち直しの行を出す（`clean` は abandon の終了コードで終わり、`start` は片付けた run に数えて起こす）。
 
 ## [0.2.55] - 2026-10-09
 

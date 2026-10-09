@@ -1792,6 +1792,57 @@ class UseShell(unittest.TestCase):
         run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
         self.assertIn("cleaned_runs=run-f（failed）", run)
 
+    def old_failed_run_with_pane(self, t):
+        """start の片付けにかかる前の落ちた run（run-f。差分を書ける）と、それを起こした herdr の枠 pane-5 の控え。
+        今の run（run-1）は関所で待つ。(run-f の worktree)"""
+        out = self.tmp / "old-out"
+        wt = self.tmp / "wt-run-f"
+        git(t, "worktree", "add", "-q", "-b", "archon/old-run-f", str(wt))
+        board = out / "artifacts" / "runs" / "run-f" / "board"
+        (board / "r2").mkdir(parents=True)
+        (board / "r2" / "start.json").write_text(json.dumps({"base_rev": git(t, "rev-parse", "HEAD")}))
+        (board / "r1").mkdir()
+        (board / "r1").chmod(0o555)
+        self.addCleanup((board / "r1").chmod, 0o755)
+        new = {"id": "run-1", "workflow_name": "darkfactory", "status": "paused", "working_path": "/wt/run-1", "output_root": str(self.out)}
+        old = {"id": "run-f", "workflow_name": "darkfactory", "status": "failed", "working_path": str(wt), "output_root": str(out)}
+        self.runs.write_text(json.dumps({"runs": [new, old]}))
+        (self.home / "runs").mkdir(parents=True)
+        (self.home / "runs" / "run-f.json").write_text(json.dumps({"run_id": "run-f", "target": str(t), "herdr_pane": "pane-5",
+                                                                   "herdr_socket": ""}))
+        return wt
+
+    def test_start_sweep_abandons_failed_old_run_and_updates_its_pane(self):
+        """start が片付けた落ちた run も、手の clean と同じく Archon の記録を abandon で閉じ（cancelled）、その run を起こした枠
+        （打った殻の枠と別でも）の集計を出し直す"""
+        t = self.target()
+        wt = self.old_failed_run_with_pane(t)
+        fake_bin, herdr_log = hermetic.fake_herdr(self.tmp)
+        r = self.use("start", str(t), str(self.request), PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                     HERDR_ENV=None, HERDR_PANE_ID=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(wt.exists(), r.stdout + r.stderr)
+        self.assertEqual(self.abandons(), [["1", "run-f"]])
+        rows = {row["id"]: row["status"] for row in json.loads(self.runs.read_text())["runs"]}
+        self.assertEqual(rows, {"run-1": "paused", "run-f": "cancelled"})
+        self.assertIn("run run-f の Archon の記録を閉じた", r.stdout)
+        sent = [a for _, a in hermetic.herdr_sockets(herdr_log)]
+        self.assertTrue(any(a.startswith("pane release-agent pane-5 ") for a in sent), sent)
+        run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
+        self.assertIn("cleaned_runs=run-f（failed）", run)
+
+    def test_start_sweep_reports_abandon_failure_and_still_starts(self):
+        """start の片付けで abandon が落ちても、片付けは済んだので cleaned_runs に載せて起こす。標準エラーに打ち直しの行を出す"""
+        t = self.target()
+        wt = self.old_failed_run_with_pane(t)
+        r = self.use("start", str(t), str(self.request), FAKE_ARCHON_ABANDON_EXIT="4")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(wt.exists(), r.stdout + r.stderr)
+        self.assertIn("abandon で閉じられなかった（終了コード 4）", r.stderr)
+        self.assertIn(f"clean {t} run-f", r.stderr)
+        run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
+        self.assertIn("cleaned_runs=run-f（failed）", run)
+
     def test_start_without_old_runs_passes_no_cleaned_runs(self):
         """片付ける前の run が無ければ、start は入力 cleaned_runs を渡さず、片付けが走らなかったとも言わない"""
         t = self.target()
