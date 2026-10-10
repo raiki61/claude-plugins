@@ -97,7 +97,7 @@ def materialize(pack):
             merged = text(p)
             p.write_text(merged, encoding="utf-8")
             done.append(p)
-        base.unlink()
+        base.unlink()  # 基が残ると、合わせ済みの筋書きにもう一度 materialize した時に、空で落とした鍵が基から戻る。Archon が基を読むかは手元で確かめていない（読まないなら、消しても模擬実行は変わらない）
     return done
 
 

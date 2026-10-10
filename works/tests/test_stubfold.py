@@ -94,6 +94,21 @@ class LineFoldCase(unittest.TestCase):
                 self.assertEqual(yaml.safe_load(stubfold.merge_text(base_text, read_now(rel))), yaml.safe_load(old.stdout))
 
 
+class LoadPathCase(unittest.TestCase):
+    def test_tests_read_scenarios_through_load(self):
+        """試験は筋書きを stubfold.load で読む（素の safe_load だと、基を置いた置き場で合わせていない違いだけを読む）。
+        数えるのは、safe_load と筋書きの名の尾（stubfold.SUFFIX）が同じ行に在る行。前の行で名を受けて次の行で解析する形と、
+        ほかの解析の口は見ない。この試験自身は、合わせない読みと比べる行を持つので外す"""
+        found = []
+        for p in sorted((ROOT / "tests").glob("*.py")):
+            if p.name == pathlib.Path(__file__).name:
+                continue
+            for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if "safe_load" in line and stubfold.SUFFIX in line:
+                    found.append(f"{p.name}:{n}")
+        self.assertEqual(found, [], "筋書きは stubfold.load で読む（置き場に基が在っても合わせた stub を読むため）")
+
+
 class MaterializeCase(unittest.TestCase):
     def test_materialize_writes_merged_and_drops_base(self):
         with tempfile.TemporaryDirectory() as tmp:

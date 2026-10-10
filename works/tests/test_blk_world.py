@@ -34,6 +34,8 @@ import rolekit  # noqa: E402
 import worldblk  # noqa: E402
 import worldmark  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 T = 1_800_000_000.0
 URL = "https://example.org/guide/tdd"
@@ -567,7 +569,7 @@ class Yaml(unittest.TestCase):
         nodes = {n["id"]: n for n in walk(flow()["nodes"])}
         for name in ("pass", "offline"):
             with self.subTest(fixture=name):
-                doc = yaml.safe_load((BLK / "fixtures" / f"{name}.stubs.yaml").read_text(encoding="utf-8"))
+                doc = stubfold.load(BLK / "fixtures" / f"{name}.stubs.yaml")
                 reached = doc["fixture"]["reached"]
                 self.assertEqual(reached[-1], "collect")
                 stubs = {k: v for k, v in doc.items() if k != "fixture"}

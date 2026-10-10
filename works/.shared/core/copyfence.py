@@ -8,35 +8,28 @@
 既知とちょうど揃うかは conceptfence と同じ verdict で見る（増えた・減った・表に無いファイル）。表そのものは main の表より
 既知の行の数の和が増えない（growth）。
 
-- load(path)・tracked(root)・hit(path, globs)・normalize(text)・scan(root, paths, window, exclude)・verdict(found, known)
-- main_table(root, rel, ref=MAIN_REF) -> ref の rel（root からの相対）の表か None（ref に表が無い）・growth(main, now)
+- normalize(text)・scan(root, paths, window, exclude)・peers(root, paths, window, exclude)・growth(main, now)
+- peers は {パス: [写しの相手のパス]}（scan と同じ窓の印の表から出す。表は相手を持たず、赤の文がここから出す）
+- load・tracked・hit・verdict・main_table は conceptfence の物をそのまま借りる（main_table は (ref の表, None) か (None, 引けない理由)）
 標準ライブラリと conceptfence（追跡されたファイルの一覧・既知とのずれの文・テキストの読み）だけを使う。
 """
 from __future__ import annotations
 
-import fnmatch
 import hashlib
-import json
 import pathlib
-import subprocess
 from collections import defaultdict
 
 import conceptfence
 
 MAIN_REF = conceptfence.MAIN_REF
 COMMENT_HEADS = ("#", "//", "/*", "*", "<!--", "-->", "--")   # 注記の頭の印（言語を名指さない、よく在る形）
+SAME_FILE = "同じファイルの中"   # peers が、写しの相手が同じファイル自身であることを示す印
 
 tracked = conceptfence.tracked
 verdict = conceptfence.verdict
-
-
-def load(path):
-    """写しの柵の表（path の JSON）"""
-    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-
-
-def hit(path, globs):
-    return any(fnmatch.fnmatch(path, g) for g in globs)
+load = conceptfence.read_table
+hit = conceptfence.hit
+main_table = conceptfence.main_table
 
 
 def normalize(text):
@@ -49,12 +42,12 @@ def normalize(text):
     return out
 
 
-def scan(root, paths, window, exclude):
-    """{パス: 写しの窓に掛かった正規化した行の数}（写しの無いファイルは載せない）"""
+def _windows(root, paths, window, exclude):
+    """{窓の印: [(パス, 窓の頭の位置)]}（見ない所と読めないファイルは飛ばす。2 か所以上に在る印が写し）"""
     root = pathlib.Path(root)
-    where = defaultdict(list)   # 窓の印 → [(パス, 窓の頭の位置)]
+    where = defaultdict(list)
     for rel in paths:
-        if hit(rel, exclude):
+        if conceptfence.hit(rel, exclude):
             continue
         text = conceptfence._text(root / rel)
         if text is None:
@@ -63,8 +56,13 @@ def scan(root, paths, window, exclude):
         for k in range(len(lines) - window + 1):
             key = hashlib.blake2b("\n".join(lines[k:k + window]).encode("utf-8"), digest_size=16).digest()
             where[key].append((rel, k))
+    return where
+
+
+def scan(root, paths, window, exclude):
+    """{パス: 写しの窓に掛かった正規化した行の数}（写しの無いファイルは載せない）"""
     covered = defaultdict(set)
-    for spots in where.values():
+    for spots in _windows(root, paths, window, exclude).values():
         if len(spots) < 2:
             continue
         for rel, k in spots:
@@ -72,11 +70,15 @@ def scan(root, paths, window, exclude):
     return {rel: len(v) for rel, v in sorted(covered.items())}
 
 
-def main_table(root, rel, ref=MAIN_REF):
-    """ref の写しの柵の表（rel は root からの相対）。ref にその表が無ければ None（引けない ref も None。ref の在るなしは呼び手が先に見る）"""
-    got = subprocess.run(["git", "-C", str(root), "show", f"{ref}:./{rel}"],
-                         capture_output=True, text=True, encoding="utf-8")
-    return json.loads(got.stdout) if got.returncode == 0 else None
+def peers(root, paths, window, exclude):
+    """{パス: [写しの相手のパス]}（scan が載せるパスと同じ。同じファイルの中の写しは SAME_FILE で示す）"""
+    out = defaultdict(set)
+    for spots in _windows(root, paths, window, exclude).values():
+        if len(spots) < 2:
+            continue
+        for i, (rel, _) in enumerate(spots):
+            out[rel].update(SAME_FILE if other == rel else other for j, (other, _) in enumerate(spots) if j != i)
+    return {rel: sorted(v) for rel, v in sorted(out.items())}
 
 
 def growth(main, now):
@@ -86,3 +88,4 @@ def growth(main, now):
     old = sum(n for n, _ in main["known"].values())
     new = sum(n for n, _ in now["known"].values())
     return [f"既知の写しの行の数の和が main の {old} から {new} に増えた（新しい写しは寄せる）"] if new > old else []
+

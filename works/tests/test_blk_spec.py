@@ -44,6 +44,8 @@ import engine.util as engine_util  # noqa: E402
 from accept import role_schema  # noqa: E402
 from board import DiskBoard  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 DEADLINE = 1728000000
 LINE = "darkfactory-spec"             # 提案の別の入口（試験の写しの pack にだけ置く）
@@ -227,7 +229,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual((base / name).read_bytes(), src)
 
     def test_fixtures(self):
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"pass.stubs.yaml", "no-faces.stubs.yaml", "gate-stop.stubs.yaml", "give-up.stubs.yaml"})
         full = ["write-route", "write-prep", "spec-write", "write-accept", "review-route", "review-prep", "spec-review",
                 "review-accept", "revise-route", "revise-prep", "spec-revise", "revise-accept", "spec-ask", "spec-gate",

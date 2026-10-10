@@ -59,6 +59,8 @@ import reads  # noqa: E402
 import report  # noqa: E402
 import rolekit  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 DEADLINE = 1728000000
 RUN_ID = "run-plan"
@@ -312,7 +314,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(mine & others, set())
 
     def test_fixtures(self):
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"pass.stubs.yaml", "plan-rejected.stubs.yaml", "give-up.stubs.yaml"})
         p = fx["pass.stubs.yaml"]
         self.assertEqual(p["fixture"]["expect"], "completed")

@@ -30,6 +30,8 @@ from engine.schema import validate_schema  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 BLK = ROOT / "blk-rejudge"
 DEADLINE = 1728000000
 BOARDS = None
@@ -170,7 +172,7 @@ class YamlCase(unittest.TestCase):
             self.assertNotIn("$LOOP_PREV", str(n.get("prompt", "")), n["id"])
 
     def test_fixtures(self):
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"settled.stubs.yaml", "no-session.stubs.yaml", "rejected-thrice.stubs.yaml"})
         s = fx["settled.stubs.yaml"]
         self.assertEqual(s["fixture"]["expect"], "completed")

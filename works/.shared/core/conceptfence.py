@@ -11,7 +11,7 @@
 対象のリポジトリでは、表は追跡されたファイルの中の決まった名（concepthome.TABLE_NAME。根か、どのフォルダの下でも）で探し、
 表の中のパスはその docs/ の親のフォルダ（持ち主のフォルダ）からの相対で読む。表が無い対象では何も数えない（作らない）。
 
-- load(root)・tracked(root)・scan(root, paths, fence, exclude)・verdict(found, known)・map_rows・map_ids・map_paths(md, heads)
+- load(root)・read_table(path)・tracked(root)・hit(path, globs)・scan(root, paths, fence, exclude)・verdict(found, known)・map_rows・map_ids・map_paths(md, heads)
 - count_lines(text, fence, path) -> int: 1 つのファイルの柵の語の行の数（結んだ写しの行を除く。scan・places・scan_change が使う）
 - check_table(doc): 表の形の確かめ（concepts の表・pattern と bound の lines が正規表現・allowed と bound の paths が配列。外れは ValueError か re.error）
 - tables(repo, rev=None) -> ([(持ち主のフォルダ, 表)], [読めない表の訳]): 対象の表を探して読む（投げない）。rev を渡せば
@@ -21,7 +21,7 @@
   当たる柵ごとの行の数・住処（allowed）か・その考えを知る場所の数（持ち主のフォルダの中で exclude の外の全部。住処を含む）
 - scan_change(repo, base_rev, table, base="") -> [{concept, what, path, before, after}]: base_rev と今の作業ツリーの間で変わった
   ファイル（持ち主のフォルダの中だけ）を各柵で数え、住処の外で行の数が増えた物（path は repo からの相対）
-- fork_ref(root, ref=MAIN_REF)・main_table(root, ref=MAIN_REF)・growth(main, now): 散らばり（住処の無い考え）の柵は知ってよい所が空で、今の知る場所を全部
+- fork_ref(root, ref=MAIN_REF)・main_table(root, ref=MAIN_REF, rel=TABLE)・growth(main, now): 散らばり（住処の無い考え）の柵は知ってよい所が空で、今の知る場所を全部
   既知の漏れに置く数の歯止め。表そのものも増えない: main の表（ref の同じパス）と比べ、考えごとの既知の漏れの件数の和が増えた・
   main に無いパスが出た所を growth が名指す（main で柵を持たない考えは比べない）
 
@@ -45,9 +45,14 @@ STATUS_WORD = re.compile(r"[^\s（(]+")
 CODE = re.compile(r"`([^`]+)`")
 
 
+def read_table(path):
+    """柵の表（path の JSON）。考えの柵も写しの柵も、表をこれで読む"""
+    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
 def load(root):
     """柵の表（root の docs/concepts.json）"""
-    return json.loads((pathlib.Path(root) / TABLE).read_text(encoding="utf-8"))
+    return read_table(pathlib.Path(root) / TABLE)
 
 
 def fork_ref(root, ref=MAIN_REF):
@@ -58,9 +63,9 @@ def fork_ref(root, ref=MAIN_REF):
     return got.stdout.strip() if got.returncode == 0 and got.stdout.strip() else ref
 
 
-def main_table(root, ref=MAIN_REF):
-    """(ref の柵の表, None) か (None, 引けない理由)。表のパスは root からの相対で引く（git の「<ref>:./<パス>」）"""
-    got = subprocess.run(["git", "-C", str(root), "show", f"{ref}:./{TABLE}"],
+def main_table(root, ref=MAIN_REF, rel=TABLE):
+    """(ref の柵の表, None) か (None, 引けない理由)。表のパス rel は root からの相対で引く（git の「<ref>:./<パス>」）"""
+    got = subprocess.run(["git", "-C", str(root), "show", f"{ref}:./{rel}"],
                          capture_output=True, text=True, encoding="utf-8")
     if got.returncode != 0:
         return None, got.stderr.strip()[-200:] or f"git show の終了コード {got.returncode}"
@@ -98,13 +103,13 @@ def tracked(root):
     return list(dict.fromkeys(f for f in out.split("\0") if f))
 
 
-def _hit(path, globs):
+def hit(path, globs):
     return any(fnmatch.fnmatch(path, g) for g in globs)
 
 
 def _bound(fence, path: str) -> list:
     """path に当たる結んだ写しの行の形（正規表現）の並び"""
-    return [re.compile(b["lines"]) for b in fence.get("bound") or [] if _hit(path, b["paths"])]
+    return [re.compile(b["lines"]) for b in fence.get("bound") or [] if hit(path, b["paths"])]
 
 
 def count_lines(text: str, fence, path: str) -> int:
@@ -125,7 +130,7 @@ def scan(root, paths, fence, exclude):
     """{パス: pattern に当たる行の数}。allowed と exclude に当たるファイル・読めないファイル・テキストでない物は見ない。0 は入れない"""
     found = {}
     for f in paths:
-        if _hit(f, fence["allowed"]) or _hit(f, exclude):
+        if hit(f, fence["allowed"]) or hit(f, exclude):
             continue
         text = _text(pathlib.Path(root) / f)
         n = count_lines(text, fence, f) if text is not None else 0
@@ -252,7 +257,7 @@ def places(repo, base: str, table: dict, paths) -> list[dict]:
     root = pathlib.Path(repo) / base if base else pathlib.Path(repo)
     exclude = table.get("exclude") or []
     rel = [(p, _within(p, base)) for p in paths]
-    rel = [(p, r) for p, r in rel if r is not None and not _hit(r, exclude)]
+    rel = [(p, r) for p, r in rel if r is not None and not hit(r, exclude)]
     if not rel:
         return []
     every = None
@@ -267,9 +272,9 @@ def places(repo, base: str, table: dict, paths) -> list[dict]:
         if not hits:
             continue
         if every is None:
-            every = [x for x in tracked(root) if not _hit(x, exclude)]
+            every = [x for x in tracked(root) if not hit(x, exclude)]
         total = sum(1 for x in every if (t := _text(root / x)) is not None and count_lines(t, f, x))
-        out += [{"concept": k, "what": f["what"], "path": p, "lines": n, "home": _hit(r, f["allowed"]),
+        out += [{"concept": k, "what": f["what"], "path": p, "lines": n, "home": hit(r, f["allowed"]),
                  "known_places": total} for p, r, n in hits]
     return out
 
@@ -303,13 +308,13 @@ def scan_change(repo, base_rev: str, table: dict, base: str = "") -> list[dict]:
     files = []
     for p in changed(repo, base_rev):
         r = _within(p, base)
-        if r is not None and not _hit(r, exclude):
+        if r is not None and not hit(r, exclude):
             files.append((p, r))
     out = []
     olds, news = {}, {}
     for k, f in _fences(table):
         for p, r in files:
-            if _hit(r, f["allowed"]):
+            if hit(r, f["allowed"]):
                 continue
             if p not in news:
                 news[p] = _text(pathlib.Path(repo) / p) or ""

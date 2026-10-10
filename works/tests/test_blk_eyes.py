@@ -51,6 +51,8 @@ from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA, rules_module  
 from engine.schema import validate_schema  # noqa: E402
 import node_marker  # noqa: E402
 import prepkit  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 LINE = "eyes-line"
 ROWS = json.loads((HERE / "boards" / "tables" / "eyes-rows.json").read_text(encoding="utf-8"))
@@ -1417,7 +1419,7 @@ class YamlCase(unittest.TestCase):
             self.assertIn(w, text)
 
     def test_fixtures(self):
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"pass.stubs.yaml", "give-up.stubs.yaml"})
         p = fx["pass.stubs.yaml"]
         self.assertEqual(p["fixture"]["expect"], "completed")

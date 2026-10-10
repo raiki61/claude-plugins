@@ -34,6 +34,8 @@ import premises  # noqa: E402
 import rolekit  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_SNAPSHOT_FILE, check_premises  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 DEADLINE = 1728000000
 INCLUDE_ID = "premising"   # 線 A がラインで使う include の id（Ruling R17。ブロックの中の節の id と重ねない）
@@ -160,11 +162,11 @@ class YamlCase(unittest.TestCase):
         }
         for name, decl in want.items():
             with self.subTest(name):
-                f = yaml.safe_load((BLK / "fixtures" / f"{name}.stubs.yaml").read_text(encoding="utf-8"))
+                f = stubfold.load(BLK / "fixtures" / f"{name}.stubs.yaml")
                 self.assertIs(f["exec-code"], True)
                 for k, v in decl.items():
                     self.assertEqual(f["fixture"][k], v)
-        fx = lambda n: yaml.safe_load((BLK / "fixtures" / f"{n}.stubs.yaml").read_text(encoding="utf-8"))  # noqa: E731
+        fx = lambda n: stubfold.load(BLK / "fixtures" / f"{n}.stubs.yaml")  # noqa: E731
         self.assertEqual(fx("pass")["premises"], load("premises_ok"))
         self.assertEqual(fx("bad-reply")["premises"], load("premises_no_output"))
 

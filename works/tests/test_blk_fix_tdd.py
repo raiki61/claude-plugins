@@ -35,6 +35,8 @@ import planmarks  # noqa: E402
 import prepkit  # noqa: E402
 import tddloop  # noqa: E402
 from unittest import mock  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 DEADLINE = 1728000000
 MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -244,7 +246,7 @@ class TestYaml(unittest.TestCase):
 
     def test_fixtures_carry_tdd_exit(self):
         """pass は実行器の無い run（輪は飛ぶ・tdd は ran: false）、tdd は輪が 1 周で done を立てる run（tdd-step まで届く）"""
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(fx["pass.stubs.yaml"]["collect"]["tdd"]["ran"], False)
         self.assertNotIn("tdd_suite", fx["pass.stubs.yaml"]["fixture"]["inputs"])
         t = fx["tdd.stubs.yaml"]

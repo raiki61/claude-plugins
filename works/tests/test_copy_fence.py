@@ -67,12 +67,30 @@ class Synthetic(unittest.TestCase):
         a, b = self.put("a.py", BLOCK), self.put("copy/b.py", BLOCK)
         self.assertEqual(self.scan(a, b, exclude={"copy/**": "元の写し"}), {})
 
+    def test_peers_name_the_other_spots(self):
+        """同じ並びを 2 つのファイルに置くと、各ファイルの相手はもう片方。同じファイルの中の繰り返しは印で示し、写しの無いファイルは載せない"""
+        a, b = self.put("a.py", BLOCK), self.put("b.py", BLOCK)
+        c = self.put("c.py", "".join(f"other_{i} = 1\n" for i in range(10)))
+        d = self.put("d.yaml", BLOCK + "middle: 1\n" + BLOCK)
+        got = cpf().peers(self.root, [a, b, c], 10, {})
+        self.assertEqual(got, {a: [b], b: [a]})
+        self.assertEqual(cpf().peers(self.root, [d], 10, {}), {d: [cpf().SAME_FILE]})
+        self.assertEqual(set(cpf().peers(self.root, [a, b, c, d], 10, {})), set(self.scan(a, b, c, d)))
+
     def test_new_copy_not_on_known_list_is_red(self):
         a, b = self.put("a.py", BLOCK), self.put("b.py", BLOCK)
         found = self.scan(a, b)
         self.assertEqual(cpf().verdict(found, {a: [10, "理由"], b: [10, "理由"]}), [])
         self.assertTrue(cpf().verdict(found, {a: [10, "理由"]}))       # b は表に無い
         self.assertTrue(cpf().verdict({}, {a: [10, "理由"]}))          # 直ったのに表が残る
+
+    def test_tools_are_conceptfence_tools(self):
+        """柵の道具は考えの柵の物を借りる（写して持たない）: 同じ物でなければ、直す所が 2 か所になる"""
+        import conceptfence
+        m = cpf()
+        self.assertIs(m.hit, getattr(conceptfence, "hit", None))
+        self.assertIs(m.main_table, conceptfence.main_table)
+        self.assertIs(m.load, getattr(conceptfence, "read_table", None))
 
     def test_growth_is_the_known_total(self):
         m = cpf()
@@ -101,6 +119,12 @@ class TableHolds(unittest.TestCase):
                 self.assertGreater(n, 0)
                 self.assertTrue(why.strip(), "既知の写しに理由が無い")
 
+    def test_reasons_carry_no_peer_list(self):
+        """既知の理由は写しの相手を手で持たない（相手は走査が出す。持つと写しが動いた時に黙って古くなる）"""
+        for path, (_, why) in self.table["known"].items():
+            with self.subTest(known=path):
+                self.assertNotIn("相手:", why)
+
     def test_excludes_are_live(self):
         """見ない所のグロブは、どれも追跡されたファイルに当たる（当たらない行は消す）"""
         paths = self.m.tracked(ROOT)
@@ -109,8 +133,14 @@ class TableHolds(unittest.TestCase):
                 self.assertTrue(any(self.m.hit(p, [glob]) for p in paths), "どのファイルにも当たらない")
 
     def test_copies_match_known(self):
-        found = self.m.scan(ROOT, self.m.tracked(ROOT), self.table["window"], self.table["exclude"])
-        self.assertEqual(self.m.verdict(found, self.table["known"]), [],
+        paths, window, exclude = self.m.tracked(ROOT), self.table["window"], self.table["exclude"]
+        found = self.m.scan(ROOT, paths, window, exclude)
+        problems = self.m.verdict(found, self.table["known"])
+        if problems:
+            near = self.m.peers(ROOT, paths, window, exclude)
+            problems = problems + [f"  写しの相手 {p}: {'・'.join(near[p])}" for p in sorted(near)
+                                   if found.get(p) != self.table["known"].get(p, [None])[0]]
+        self.assertEqual(problems, [],
                          "写しが表の既知と揃わない。新しい写しは 1 か所へ寄せる（寄せられない訳があれば理由つきで表に置く）。"
                          "減った所は表を減らす")
 
@@ -126,7 +156,8 @@ class NotAboveMain(unittest.TestCase):
                           capture_output=True).returncode != 0:
             self.skipTest(f"SKIP git-history: {m.MAIN_REF} を引けない（浅い clone か ref が無い）")
         import conceptfence
-        self.assertEqual(m.growth(m.main_table(ROOT, TABLE, conceptfence.fork_ref(ROOT)), m.load(ROOT / TABLE)), [])
+        main, _why = m.main_table(ROOT, conceptfence.fork_ref(ROOT), TABLE)
+        self.assertEqual(m.growth(main, m.load(ROOT / TABLE)), [])
 
 
 if __name__ == "__main__":

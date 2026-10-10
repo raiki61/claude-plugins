@@ -41,6 +41,8 @@ for p in (str(CORE), str(TESTS)):
 import linekit  # noqa: E402
 import accept  # noqa: E402,F401  （写しの engine を sys.path に足す）
 from engine.schema import validate_schema  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 LINE = "darkfactory"
 RUN_ID = "run-script-line"
@@ -369,7 +371,7 @@ def default_reply(block, nid):
         board_nid = material.ROLES[nid]
         return linekit.reply("purpose_review_ok") if board_nid == "p0.purpose_review" else TM.good_reply(board_nid)
     if block == "blk-report":
-        stubs = yaml.safe_load((ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))
+        stubs = stubfold.load(ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml")
         return stubs[nid]
     if block == "blk-lens":
         return linekit.LENS_REPLY

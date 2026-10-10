@@ -551,11 +551,13 @@ class LineRun:
     def blk_report(self):
         """blk-report の中の節の順（経路 → 支度 → 書き手 → 受け付け（書き手の頭を読んだ初見の読み手の返答つき）→ 出口）。返答は
         replies[<役>]（無ければ blk-report の筋書き pass の見本）。replies["report-give-up"] が真なら書き手を 3 回拒ませる（諦めの道）"""
-        import yaml
         if str(ROOT / "blk-report" / "lib") not in sys.path:
             sys.path.insert(0, str(ROOT / "blk-report" / "lib"))
+        if str(ROOT / "dev") not in sys.path:
+            sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
         import report_roles
-        stubs = yaml.safe_load((ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))
+        import stubfold
+        stubs = stubfold.load(ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml")
         machine = self.out["report"]["report_file"]
         for role in report_roles.ROLES:
             if report_roles.route(self.board, role)["next"] != role:

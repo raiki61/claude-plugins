@@ -42,8 +42,7 @@ find "$DIR" -name .git -prune -o \
 # works/ を project pack として写す。tests/・dev/・docs/ は除く（lib.sh）
 . "$DEV_DIR/lib.sh"
 works_dev_copy_pack "$WORKS_DIR" "$DIR/.archon/workflows/works"
-# 筋書きの共通の基（<工程>/fixtures/base.yaml）を写しの筋書きに合わせて基を消す。Archon の模擬実行は *.stubs.yaml を 1 本ずつ
-# 読み、基を読まない（合わせ方は stubfold.py）
+# 筋書きの共通の基（<工程>/fixtures/base.yaml）を写しの筋書きに合わせて基を消す（合わせ方と消す訳は stubfold.materialize）
 python3 "$DEV_DIR/stubfold.py" materialize "$DIR/.archon/workflows/works"
 
 # 利用者の git の設定（署名・hook）に左右されないように、この commit だけ切る

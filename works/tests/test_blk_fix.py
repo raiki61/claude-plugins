@@ -50,6 +50,8 @@ import planmarks  # noqa: E402
 import planscope  # noqa: E402
 import prepkit  # noqa: E402
 import writes  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 DEADLINE = 1728000000
 # 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
@@ -352,7 +354,7 @@ class TestBlockYaml(unittest.TestCase):
                 self.assertLessEqual(set(re.findall(r"INPUTS_[A-Z_]+", src)), set(inputs), "定数に無い INPUTS_* を読まない")
 
     def test_fixtures(self):
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         # tdd は test_blk_fix_tdd、conflict（食い違いの申し出の筋書き）は test_blk_fix_conflict が見る
         self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml", "tdd-lanes.stubs.yaml",
                                    "fix-lanes.stubs.yaml", "conflict.stubs.yaml"})

@@ -33,6 +33,8 @@ from accept import role_schema  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 DEADLINE = 1728000000
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
@@ -201,11 +203,11 @@ class YamlCase(unittest.TestCase):
         self.assertEqual({p.name.split(".")[0] for p in (BLK / "fixtures").glob("*.stubs.yaml")}, set(want))
         for name, decl in want.items():
             with self.subTest(name):
-                f = yaml.safe_load((BLK / "fixtures" / f"{name}.stubs.yaml").read_text(encoding="utf-8"))
+                f = stubfold.load(BLK / "fixtures" / f"{name}.stubs.yaml")
                 self.assertIs(f["exec-code"], True)
                 for k, v in decl.items():
                     self.assertEqual(f["fixture"][k], v)
-        stub = lambda n: yaml.safe_load((BLK / "fixtures" / f"{n}.stubs.yaml").read_text(encoding="utf-8"))["purpose"]
+        stub = lambda n: stubfold.load(BLK / "fixtures" / f"{n}.stubs.yaml")["purpose"]
         self.assertEqual(stub("pass"), load("purpose_ok"))
         self.assertEqual(stub("bad-reply"), load("purpose_missing_source_file"))
         # 模擬実行は stub を役の output_format に通すので、受け付けまで届く悪い返答は型には合う物

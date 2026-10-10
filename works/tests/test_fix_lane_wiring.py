@@ -14,8 +14,6 @@ import pathlib
 import sys
 import unittest
 
-import yaml
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BLK = ROOT / "blk-fix"
 CORE = ROOT / ".shared" / "core"
@@ -31,6 +29,8 @@ import recount  # noqa: E402
 import seat  # noqa: E402
 import tddlanes  # noqa: E402
 from test_tdd_lane_wiring import QUIET, block, inner, layers, top  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 NS = range(1, fixlanes.MAX_LANES + 1)
 
@@ -124,12 +124,12 @@ class TestWiring(unittest.TestCase):
         self.assertEqual(fixlanes.MAX_ITERATIONS, fixlanes.MAX_ITEMS * accept.GIVE_UP_AFTER + consult.BUDGET)
 
     def test_fixtures_walk_the_lanes(self):
-        f = yaml.safe_load((BLK / "fixtures" / "fix-lanes.stubs.yaml").read_text(encoding="utf-8"))
+        f = stubfold.load(BLK / "fixtures" / "fix-lanes.stubs.yaml")
         self.assertEqual((f["fix-fork"]["go"], f["fix-fork"]["lanes"], f["fix-fork"]["lane_3"]), (True, 2, False))
         self.assertEqual(f["fixture"]["reached"], ["fix-fork", "fix-lane-step-1", "fix-lane-step-2", "fix-join", "collect"])
         self.assertEqual(f["fix-join"]["merged"], [1, 2])
         for name in ("pass", "tdd", "tdd-lanes", "no-change", "conflict"):
-            g = yaml.safe_load((BLK / "fixtures" / f"{name}.stubs.yaml").read_text(encoding="utf-8"))
+            g = stubfold.load(BLK / "fixtures" / f"{name}.stubs.yaml")
             self.assertIs(g["fix-fork"]["go"], False, name)
             self.assertNotIn("fix-units", g, "前の形の締めの節は無い")
 

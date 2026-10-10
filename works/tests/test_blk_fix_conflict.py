@@ -577,14 +577,13 @@ def tddloop_step(case, reply):
 class TestFixtures(unittest.TestCase):
     def test_block_conflict_scenario(self):
         """blk-fix の筋書き conflict: 1 回目は mean を申し出て parked、裁定の輪と 2 回目の修正の輪を通って collect まで"""
-        import yaml
-        f = yaml.safe_load((BLK / "fixtures" / "conflict.stubs.yaml").read_text(encoding="utf-8"))
+        f = stubfold.load(BLK / "fixtures" / "conflict.stubs.yaml")
         self.assertEqual([c["unit_key"] for c in f["fix"]["conflicts"]], [MEAN])
         self.assertEqual((f["fix-accept"]["parked"], f["conflict-check"]["go"]), (True, True))
         self.assertEqual(f["fix-ruled"], load("fix2_ok"))
         self.assertEqual(f["fixture"]["reached"][-1], "collect")
         for name in ("pass", "no-change", "tdd"):
-            g = yaml.safe_load((BLK / "fixtures" / f"{name}.stubs.yaml").read_text(encoding="utf-8"))
+            g = stubfold.load(BLK / "fixtures" / f"{name}.stubs.yaml")
             self.assertIs(g["conflict-check"]["go"], False, name)
 
     def test_line_conflict_ask_scenario(self):

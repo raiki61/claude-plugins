@@ -53,6 +53,8 @@ import ci_role  # noqa: E402
 import node_marker  # noqa: E402
 import prepkit  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 BLK = ROOT / "blk-ci"
 ADAPTER_BIN = ROOT / ".shared" / "core" / "claude-adapter"
@@ -195,7 +197,7 @@ class YamlCase(unittest.TestCase):
         self.assertIn("kind=awaiting・origin=local_checks", (BLK / "prompts" / "p4.ci.md").read_text(encoding="utf-8"))
 
     def test_fixtures(self):
-        fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
+        fx = {p.name: stubfold.load(p) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"pass.stubs.yaml", "reject.stubs.yaml", "give-up.stubs.yaml", "no-adapter.stubs.yaml",
                                    "fence-halt.stubs.yaml"})
         reached = ["ci-fence", "ci-snap", "ci-prep", "ci", "ci-accept", "collect"]

@@ -29,6 +29,8 @@ import scopes  # noqa: E402
 import seat  # noqa: E402
 import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 QUIET = "mutates_checkout"
 
@@ -195,7 +197,7 @@ class TestFork(unittest.TestCase):
 
 class TestFixtures(unittest.TestCase):
     def test_lanes_fixture_walks_the_lanes(self):
-        f = yaml.safe_load((BLK / "fixtures" / "tdd-lanes.stubs.yaml").read_text(encoding="utf-8"))
+        f = stubfold.load(BLK / "fixtures" / "tdd-lanes.stubs.yaml")
         self.assertEqual(f["tdd-step"]["phase"], "lanes")
         self.assertEqual((f["tdd-fork"]["lanes"], f["tdd-fork"]["lane_3"]), (2, False))
         self.assertEqual(f["fixture"]["reached"], ["tdd-step", "tdd-fork", "tdd-lane-step-1", "tdd-lane-step-2", "tdd-join",
@@ -205,7 +207,7 @@ class TestFixtures(unittest.TestCase):
             self.assertIs(f[f"tdd-lane-step-{n}"]["done"], True)
         lanes = f["collect"]["tdd"]["lanes"]
         self.assertEqual([u["outcome"] for u in lanes["units"]], ["merged", "serial"])
-        t = yaml.safe_load((BLK / "fixtures" / "tdd.stubs.yaml").read_text(encoding="utf-8"))
+        t = stubfold.load(BLK / "fixtures" / "tdd.stubs.yaml")
         self.assertIs(t["tdd-fork"]["go"], False, "並べない run")
 
 

@@ -34,6 +34,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - 試験 `WorldCase` の 2 本を、世界の段を畳んだ後の控えの形（`worldmark.write` が `cached`・`skipped` を受けない）に合わせた。
 - 案の直しの段（replanning など）の AI が外の理由で落ちた run の報告が、案の直しを待つ行を「諦めた」に締めて、resume で同じ段をやり直せず矛盾した記録で止まっていたのを直した。上流の節が落ちて途中で終わった run では待つ行を締めず、冒頭 1 と次の run の依頼に「未完了（前の run が途中で落ちて、案の直しを終えていない）」と出し、resume で案の直し・関所・2 回目の修正が同じ段から続く。落ちの無い run は今までどおり締める。
 
+### Changed
+
+- 写しの柵の表 `docs/copies.json` の既知の理由から、手で書いていた写しの相手の列挙（「。相手: …」134 件）を落とした。相手は走査 `copyfence.peers`（窓の印の表を `scan` と同じ `_windows` から出す）が導き、`tests/test_copy_fence.py` の `test_copies_match_known` が赤の時にずれたパスの相手を文に添える。
+- ブロックの筋書きを素の `yaml.safe_load` で読んでいた `tests/` の 24 行を `stubfold.load` に置き替え、素の読みが戻らないことを `tests/test_stubfold.py` の `test_tests_read_scenarios_through_load` で縛った。
+- 写しの柵の道具 `load`・`hit`・`main_table` を `conceptfence` の物を借りる形にし、写して持たなくした（`main_table` は引けない訳を返す `(表, 訳)` の形に揃った）。
+
 ## [0.2.63] - 2026-10-10
 
 ### Fixed
