@@ -218,7 +218,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/cite.py`（層 L1。標準ライブラリだけ。名指し `<パス>:<行>[-<行>]` の形 `CITE`、1 つの名指しの確かめ `problem`、決め手の文の出どころの確かめ `sources_problem`、場所の文の中の名指し 1 つ分の形 `CITE_IN_WHERE` と読み `where_cites`（パスの無い `:<行>` は直前のパスを継ぐ）、場所の文の頭のパス `lead_path`）
 - 約束: 名指しの形と場所の文の読みは住処の外に持ち直さない。住処の別名・包みも置かない（読み手は `cite.CITE`・`cite.problem` を直に引く）
-- 知ってよい所: 住処だけ。読み手（`.shared/core/conflict.py`・`.shared/core/gatemarks.py`・`.shared/core/report.py`・`blk-material/lib/material.py`・`blk-fix/lib/ruling.py`・`blk-fix/lib/tddloop.py`・`blk-fix/lib/fixgates.py`）は住処の口を引き、自分の定数や関数に写さない
+- 知ってよい所: 住処だけ。読み手（`.shared/core/conflict.py`・`.shared/core/gatemarks.py`・`.shared/core/report.py`・`blk-material/lib/material.py`・`blk-fix/lib/ruling.py`・`blk-fix/lib/tddloop.py`・`blk-fix/lib/fixgates.py`・`.shared/core/worldmark.py`）は住処の口を引き、自分の定数や関数に写さない
 - 今: 寄せる前は、`conflict` が住処の `CITE` と `problem` を別名 `CITE`・包み `cite_problem` で持ち直し、素材集めの `material` が名指しの形を錨を外して `CITE_IN_WHERE` に書き直し、`holeties` が場所の文の頭のパスを `lead_path` で別に読んでいた。柵は、住処の定数を別の名に写す形（`X = cite.Y`・`from cite import`・`import cite as`）と、消した別名・包みの名・場所の文の読みの定義の字を見る。小文字の名への写しや別の名の包みは字の形で見分けられず、柵は見ない
 
 ### `entry-kind` 入口の種類

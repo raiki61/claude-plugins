@@ -71,6 +71,7 @@ FAST = frozenset({
     "test_carry_home",      # 次の run への持ち越しの住処（carry.py）: 関数を直に呼ぶ・一時の置き場のファイル・柵の表を読む（子のプロセスは git ls-files だけ）
     "test_stopby",          # 止めの理由の住処（stopby.py）: 関数を直に呼ぶ・pack の .py を ast で読む・柵の表を読む（子のプロセスは git ls-files だけ）
     "test_depth",           # 単位ごとの深さ（darkfactory/lib/depth.py）: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
+    "test_cite",            # 名指しの形の住処（cite.py）: 関数を直に呼ぶだけ（git・子のプロセスなし）
     "test_holeties",        # 差分の審査の穴の枝の名札（holeties と refix.hole_ties）: 関数を直に呼ぶ・偽の盤面（一時の置き場のファイル）だけ（git・子のプロセスなし）
     "test_judge_verify",    # 判定の根を開く（blk-judge/lib/judgeverify.py・申し送りの節・報告の行）: 偽の盤面で関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_ripple",          # 波及の一覧（blk-plan/lib/ripple.py）: 種の git は gitkit の型の写し・子のプロセスは git grep だけ
