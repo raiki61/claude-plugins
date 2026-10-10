@@ -61,7 +61,12 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   .claude-plugin/marketplace.json）の版を、写した固定の版と数の組（6.10.0 → (6, 10, 0)）で比べる。決まりは 1 つで、数で読めて
   固定より古い版だけを飛ばし、ほかの版のフォルダ（数で読めない版の名も）には固定との食い違い・節の契約の破れ・包むファイルに
   増えた人に聞く文（human partner を含む行）を出す（固定と同じ版か数で読めない名の版で違いが無ければ黙る）。フォルダの無い版（一覧にだけ在る物
-  など）は同じ決まりで 1 行を出す。入っていない・読めない JSON は 1 行で名指して続ける。版を上げるかは人が決める（上げるのは vendor）。網には出ず、何も書かず、終了コードは 0（使い方の誤りだけ 2）。
+  など）は同じ決まりで 1 行を出す。入っていない・読めない JSON は 1 行で名指して続ける。版を上げるかは人が決める（上げるのは vendor）。
+  上流（UPSTREAM_URL）の tag（git ls-remote --tags の refs/tags/v<数>）も同じ決まりで比べ、固定より新しい tag を 1 行ずつ名指す。
+  marketplace の一覧は手元の写し（更新されないままのことがある）なので、その版の行には一覧の更新の時刻を添える。確かめられなかった所
+  （上流の tag・読めない marketplace の一覧・読めない installed_plugins.json）は所ごとに『確かめられなかった: <所>』の 1 行を出し、
+  1 つでも在れば『新しい版が無い』とは締めない（登録の無い marketplace は読む物が無いだけで、確かめられなかった所に数えない）。
+  何も書かず、終了コードは 0（使い方の誤りだけ 2）。
 """
 import datetime
 import hashlib
@@ -108,6 +113,7 @@ VENDORED = "superpowers"                    # 写しを持つ借りる物（.sha
 LEDGER = "COPIED_FROM"                      # 写しの台帳の名（.shared/borrow/superpowers/ の下。形は .shared/core/copyledger.py）
 LICENCE_HEADS = {"MIT": "MIT License"}      # borrow.json の licence → 使用許諾のファイルの頭の行（写してよい物だけ）
 UPSTREAM = "github.com/obra/superpowers"    # 写し元の系統（台帳の 1 行目に書く）
+UPSTREAM_URL = f"https://{UPSTREAM}.git"    # newer が tag を読む上流の URL
 OLD_MARK = ".works-old."                    # 入れ替えの間、前の版の写しと台帳を脇へ退ける名の印
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")    # 固定に書く写し元の commit（installed_plugins.json の gitCommitSha）
 # 写しが pin と合わない時の直し方（写しは works の置き場の一部なので、works の置き場が壊れている）
@@ -116,7 +122,9 @@ VENDORED_FIX = ("  直す: works を入れ直す（claude plugin install works@r
 VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
 VERSION_NUMBER = re.compile(r"[0-9]+(?:\.[0-9]+)*")   # newer が数の組で比べられる版の名（6.10.0 → (6, 10, 0)）
 HUMAN_ASK = "human partner"                 # 原文の役が人に聞く文の印（小文字で比べる。newer が増えた行を名指す。読み替えで覆うかは人が決める）
-NEWER_LAST = "版を上げるかは人が決める（上げる時は toolset.py vendor <版> で写しと pin を取り直し、同じ commit で試験を通す）"
+NEWER_LAST = ("版を上げるかは人が決める（上げる時は、上流の tag v<版> の木を作業ツリーの外に clone し、tag が指す commit を渡して "
+              "toolset.vendor を呼び、写しと pin を取り直し、同じ commit で試験を通す。利用者のキャッシュの版は tag と同じ中身とは"
+              "限らないので、そこからは写さない）")
 
 
 class ToolsetError(Exception):
@@ -744,25 +752,52 @@ def _local_versions(user_cfg: pathlib.Path, mp: str) -> tuple:
 
 
 def _marketplace_versions(user_cfg: pathlib.Path, mp: str) -> tuple:
-    """marketplace の一覧に載る superpowers の ([版の名], [名指す行])。一覧は known_marketplaces.json の <mp>.installLocation の
-    .claude-plugin/marketplace.json の plugins[] の name が superpowers の行の version"""
+    """marketplace の一覧に載る superpowers の ([版の名], [名指す行], 読めなかったか, 一覧の更新の時刻 | None)。一覧は
+    known_marketplaces.json の <mp>.installLocation の .claude-plugin/marketplace.json の plugins[] の name が superpowers の
+    行の version。時刻は marketplace.json の mtime（UTC）。読めなかったのは壊れた・形が違う時だけで、登録が無いのは読む物が
+    無いだけ（名指す行に留める）"""
     km = user_cfg / "plugins" / "known_marketplaces.json"
     known = _read_json(km)
     if known is None:
-        return [], [f"marketplace {mp} が登録されていない（{km} が無い）"]
+        return [], [f"marketplace {mp} が登録されていない（{km} が無い）"], False, None
     entry = known.get(mp) if known is not _BAD else None
     loc = entry.get("installLocation") if isinstance(entry, dict) else None
     if known is _BAD or (entry is not None and not isinstance(loc, str)):
-        return [], [f"marketplace の一覧を読めない（{km}）"]
+        return [], [f"marketplace の一覧を読めない（{km}）"], True, None
     if entry is None:
-        return [], [f"marketplace {mp} が登録されていない（{km} に行が無い）"]
+        return [], [f"marketplace {mp} が登録されていない（{km} に行が無い）"], False, None
     p = pathlib.Path(loc) / ".claude-plugin" / "marketplace.json"
     doc = _read_json(p)
     rows = doc.get("plugins") if isinstance(doc, dict) else None
     if not isinstance(rows, list):
-        return [], [f"marketplace の一覧を読めない（{p}）"]
+        return [], [f"marketplace の一覧を読めない（{p}）"], True, None
+    at = datetime.datetime.fromtimestamp(p.stat().st_mtime, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return [r["version"] for r in rows if isinstance(r, dict) and r.get("name") == VENDORED
-            and isinstance(r.get("version"), str)], []
+            and isinstance(r.get("version"), str)], [], False, at
+
+
+def _upstream_versions(pin_key: tuple) -> tuple:
+    """上流（UPSTREAM_URL）の tag の ([版の名], 確かめられなかった理由 | None)。git ls-remote --tags の refs/tags/v<数>
+    （注釈つきの tag の ^{} の行は同じ tag なので除く）の <数>。写した固定の版（pin_key）の tag すら一覧に無い時
+    （tag が 1 本も無い空のリポジトリ・向け先の誤りを含む）は、正本として読めていないので理由を返す"""
+    import changemap   # newer だけが使う。install・vendor・contract は git の口を読み込まない
+    rc, out, err = changemap.run("ls-remote", "--tags", UPSTREAM_URL, env={"GIT_TERMINAL_PROMPT": "0"})
+    if rc is None:
+        return [], err.strip() or "git を起こせない"
+    if rc != 0:
+        tail = next((ln.strip() for ln in reversed(err.splitlines()) if ln.strip()), "")
+        return [], f"git ls-remote が終了コード {rc} で終わった" + (f": {tail}" if tail else "")
+    found = []
+    for ln in out.splitlines():
+        _, tab, ref = ln.partition("\t")
+        if not tab or not ref.startswith("refs/"):
+            return [], f"git ls-remote の行を読めない: {ln!r}"
+        m = re.fullmatch(rf"refs/tags/v({VERSION_NUMBER.pattern})", ref)
+        if m and m.group(1) not in found:
+            found.append(m.group(1))
+    if pin_key not in {_version_key(v) for v in found}:
+        return found, f"写した固定の版の tag が上流の一覧に無い（tag {len(found)} 本）"
+    return found, None
 
 
 def _new_asks(src: pathlib.Path, copy: pathlib.Path, item: dict) -> list:
@@ -779,8 +814,8 @@ def _new_asks(src: pathlib.Path, copy: pathlib.Path, item: dict) -> list:
 
 
 def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
-    """開発の再開の確かめ。手元と marketplace の一覧の superpowers の版を写した固定の版と比べて行を出す。何も書かず、網に
-    出ず、読めない物は 1 行で名指して続け、いつも 0"""
+    """開発の再開の確かめ。手元・marketplace の一覧・上流の tag の superpowers の版を写した固定の版と比べて行を出す。何も書かず、
+    確かめられなかった所は 1 行で名指して続け（1 つでも在れば『無い』と締めない）、いつも 0"""
     user_cfg = user_cfg or user_config_dir()
     borrow_dir = pack / ".shared" / "borrow"
     item = load_borrow(pack)[VENDORED]
@@ -795,9 +830,15 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
     seams = spseam.load_seams(borrow_dir)
     overlay = (borrow_dir / spseam.OVERLAY_FILE).read_text(encoding="utf-8")
     folders, homeless, notes = _local_versions(user_cfg, mp)
-    listed, mp_notes = _marketplace_versions(user_cfg, mp)
-    for ln in notes + mp_notes:
-        print(ln)
+    listed, mp_notes, mp_unreadable, mp_time = _marketplace_versions(user_cfg, mp)
+    upstream, upstream_why = _upstream_versions(pin_key)
+    unchecked = bool(notes) or mp_unreadable or upstream_why is not None   # 確かめられなかった所が 1 つでも在るか
+    for ln in notes:
+        print(f"確かめられなかった: {ln}")
+    for ln in mp_notes:
+        print(f"確かめられなかった: {ln}" if mp_unreadable else ln)
+    if upstream_why is not None:
+        print(f"確かめられなかった: 上流の tag（{upstream_why}）")
     if not folders and not homeless:
         print(f"{VENDORED} が入っていない（{user_cfg / 'plugins' / 'cache' / mp / VENDORED} に版のフォルダが無く、"
               f"installed_plugins.json に {VENDORED}@{mp} の行も無い）")
@@ -839,7 +880,8 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
             print(f"- 人に聞く文が増えた: {rel}: {ln}")
     # 手元にフォルダの無い版（installed_plugins.json の行・marketplace の一覧）は当てられないので、同じ決まりで名指すだけ
     for v, where in [*((v, "installed_plugins.json に在るが版のフォルダが無い") for v in homeless),
-                     *((v, "marketplace の一覧に在る") for v in listed)]:
+                     *((v, "marketplace の一覧に在る") for v in listed),
+                     *((v, "上流の tag に在る") for v in upstream)]:
         key = _version_key(v)
         if older(v) or key == pin_key or v in seen or key in seen:
             continue
@@ -847,9 +889,11 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
         seen |= {v, key} - {None}
         how = "数で読めない版の名。" if key is None else ""
         tail = f"。入れるなら claude plugin update {VENDORED}@{mp}" if where.startswith("marketplace") else ""
-        print(f"{VENDORED} {v}: {where}（{how}手元に無いので契約は当てていない{tail}）")
+        copy_of = f"（手元の写し・{mp_time}の物）" if where.startswith("marketplace") else ""
+        print(f"{VENDORED} {v}: {where}（{how}手元に無いので契約は当てていない{tail}）{copy_of}")
     if not found:
-        print(f"{VENDORED}: 写した {pin_v} より新しい版・違う中身は、手元にも marketplace の一覧にも無い")
+        print(f"{VENDORED}: 確かめられなかった所が在るので、写した {pin_v} より新しい版が無いとは言えない" if unchecked else
+              f"{VENDORED}: 写した {pin_v} より新しい版・違う中身は、上流の tag にも手元にも marketplace の一覧にも無い")
     print(NEWER_LAST)
     return 0
 

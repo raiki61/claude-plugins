@@ -27,6 +27,7 @@ sys.path.insert(0, str(CORE / "graphloops"))
 
 import flow_adapter  # noqa: E402
 import scopes  # noqa: E402
+import spseam  # noqa: E402
 from board import BoardGap  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 
@@ -210,8 +211,11 @@ class ManifestCase(unittest.TestCase):
     def test_borrowed_shape_keeps_notice(self):
         doc = json.loads((CORE / "manifest.schema.json").read_text(encoding="utf-8"))
         self.assertIn("writing-plans", doc["description"])
-        self.assertIn(".shared/borrow/superpowers/6.4.2/LICENSE", doc["description"])
-        lic = (ROOT / ".shared/borrow/superpowers/6.4.2/LICENSE").read_text(encoding="utf-8")
+        item = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        for part in (".shared/borrow/superpowers/", "LICENSE", "borrow.json"):
+            self.assertIn(part, doc["description"])
+        self.assertNotIn(f"/{item['pin']['version']}/", doc["description"])
+        lic = (spseam.vendored_dir(item, ROOT / ".shared" / "borrow") / item["licence_file"]).read_text(encoding="utf-8")
         self.assertIn("Copyright (c) 2025 Jesse Vincent", lic)
         self.assertIn("Permission is hereby granted", lic)
 

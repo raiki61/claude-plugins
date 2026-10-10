@@ -6,6 +6,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 借りる superpowers の固定を上げても、使用許諾ファイルの所在を名指す文と試験が壊れないようにした。部品の宣言の約束 `manifest.schema.json` の description は、使用許諾の全文の所在を版つきのパスでなく `.shared/borrow/superpowers/<borrow.json の superpowers.pin.version>/LICENSE` の形で述べ、`test_borrowed_shape_keeps_notice` は `borrow.json` の pin から写しのパスを引く。`NewerCase` の試験は、固定より新しい版・古い版の字を書かずに pin の版から導く（固定を上げても意味が変わらない）。
+- `dev/toolset.py newer` が、起動ごとに上流の tag（`git ls-remote --tags`。網に出る）を読み、固定より新しい tag を「上流の tag に在る」と出すようにした。上流の tag（tag が 1 本も返らない・固定の版の tag が一覧に無い時も含む）・読めない marketplace の一覧・読めない `installed_plugins.json` のどれかが確かめられなかった時は、所ごとに「確かめられなかった」と出し、「新しい版が無い」とは言わない（前は手元の marketplace の一覧の写しだけで「無い」と言い切っていた）。marketplace の一覧の版の行には「手元の写し・<時刻>の物」を添える。新しい版の案内の締めの文は、上流の tag の木から写す道だけを名指す（利用者のキャッシュの版は tag と同じ中身とは限らないので、そこから `toolset.py vendor <版>` で写す道は案内しない）。終了コード 0 と、`dogfood.sh` の `|| echo` は保つ。
+- 借りる superpowers を 6.4.2 から上流の最新 7.0.0 に上げた（固定の commit `bb92a77741419a4ab5f06e711a283343f1ada0c3` は tag `v7.0.0` が指す commit。確かめた日 2026-10-10）。写しは上流の tag の木から `toolset.vendor` で丸ごと写し直し、写し・台帳 `COPIED_FROM`・`borrow.json` の pin を 1 回で替えて、6.4.2 の写しを消した。写す前に `seams.json` の錨・穴・語（`spseam.seam_problems`）が破れず、人に聞く文（human partner の行）が増えていないことを確かめ、写した後の `toolset.py contract` は 0 で終わる。写しの差分で変わったのは 2 ファイルだけ（残りの 18 ファイルはバイトのまま同じ）: `skills/requesting-code-review/SKILL.md`（基準の commit を取る例の `awk '{print $1}'` を `cut -d' ' -f1` に）と `skills/systematic-debugging/SKILL.md`（環境変数の有無を確かめる例の 2 行を `${IDENTITY:+SET}` と `env | grep` の形から `[ -n ... ]` と `printenv` の形に）。どちらもコードの例の書き替えで、works が読み替える決まりの文は変わらない。`seams.json` と読み替え `unattended.md` は直していない。
+
 ## [0.2.62] - 2026-10-10
 
 ### Added

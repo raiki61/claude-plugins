@@ -46,13 +46,15 @@ import tempfile
 import unittest
 from unittest import mock
 
+import gitkit
 from gitkit import GIT_ID, committed_copy, git
 import hermetic  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
-sys.path.append(str(DEV))   # 筋書きの合わせ方（dev/stubfold.py）
+sys.path.insert(0, str(DEV))   # 筋書きの合わせ方（dev/stubfold.py）と版の道具（dev/toolset.py）
 import stubfold  # noqa: E402
+import toolset  # noqa: E402
 
 BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
 _saved = {}
@@ -946,6 +948,9 @@ class TestDevShell(unittest.TestCase):
                         CLAUDE_CONFIG_DIR=str(tmp / "user-claude"), **security)
         env.pop("WORKS_DEV_NO_AUTH", None)
         env.pop("WORKS_DEV_ADAPTER", None)   # 既定（包みを通す）を見る。試験ごとに env_kw で渡す
+        url = getattr(toolset, "UPSTREAM_URL", None)   # 起動の時の newer を網に出さない（上流を無いパスへ向ける）
+        if url:
+            env.update(gitkit.git_url_redirect(url, tmp / "no-such-upstream"))
         for name, value in env_kw.items():
             if value is None:
                 env.pop(name, None)
