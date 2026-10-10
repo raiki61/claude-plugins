@@ -38,6 +38,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 包み `claude-adapter` が試験の結果の使い回し（`tree_run`→`webget`）を読むようになって、PATH の python3 が古い（3.9）時に読み込みで落ち、本物の claude が見つからない時の終了コード 127 でなく 1 を返していたのを直した（`webget.py` の型の注記を遅れて評価する）。
 - 写しの柵と考えの柵の「表の数が main より増えない」試験が、run の途中で main が数を下げると run の直しと関わらずに赤になり、修正の受け付けが単位の直しを全部控えに回していたのを直した（10-10 の run 59096641・cf59511e・cad5d365）。比べる相手を、HEAD と `origin/main` の分かれ目（`conceptfence.fork_ref`）の表にした。main へ入れる時は分かれ目が main の頭なので、本当の増えはそこで捕まる。
 - 試験 `TreeRunnerCase.test_tree_runner_shape` が、機械の試験の枠を取れた時だけ付く `wait_s` と枠の文で赤になっていたのを、その試験の中では枠を取らせない（`WORKS_TESTSLOT` を空に）形で直した。
 - 試験 `WorldCase` の 2 本を、世界の段を畳んだ後の控えの形（`worldmark.write` が `cached`・`skipped` を受けない）に合わせた。

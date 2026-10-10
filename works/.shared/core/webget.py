@@ -24,6 +24,8 @@ run をまたぐ控え:
   root が None なら読まず・書かない（put は空を返す）
   試験の結果の使い回し（tree_run.slotted_run）は控え Store だけを使い、置き場は run の盤面の下（shared_root は使わない）
 """
+from __future__ import annotations
+
 import ipaddress
 import json
 import os
