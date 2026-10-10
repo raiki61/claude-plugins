@@ -5,17 +5,18 @@
 - problem(cite, repo, roots=()) -> str: 1 つの名指しの確かめ（通れば空）。相対のパスは作業ツリーの根から（外と .git は拒む）、
   絶対のパスは作業ツリーの中か roots（依頼のファイル・盤面の置き場）の中だけ。ファイルが在り、行がその中に在る
 - flat(s) -> str: 空白の並び（改行・タブ・連続する空白）を 1 つの空白に寄せ、色の制御文字（ESC[…m）を除いた文
-- quoted_in(quote, text) -> bool: 引いた文 quote が text の中に、flat で寄せた後の部分一致で在るか（空の引用は偽）。
-  テストの赤の引用が結末の失敗の文に在るかの照らしが使う（実行器の出力は改行・色の付き方が回ごとに違いうる）
+- quoted_in(quote, text, norm=flat) -> bool: 引いた文 quote が text の中に、両側を norm で寄せた後の部分一致で在るか（寄せて空に
+  なる引用は偽。字数の下限は無い）。引用 1 つの照らしの 1 か所。既定の flat はテストの赤の引用が結末の失敗の文に在るかの照らし
+  （実行器の出力は改行・色の付き方が回ごとに違いうる）。独立設計の対応表の design_quote は fold、missing_quotes も中でこれを呼ぶ
 - sources_problem(text, repo, roots=(), quoted="") -> str: 決め手の文（decided_by）の出どころの確かめ（通れば空）。文の中の
   URL（http・https。形だけ見る。取りに行かない）・名指し `<パス>:<行>`（problem）・作業ツリーの中のパス（/ を含むか拡張子を持つ語で、
   在るファイル。フォルダだけは出どころに数えない）・依頼の引用「…」（文に「依頼」の語が在る時だけ。quoted＝依頼の文の中に字のまま
   在る）のどれかが 1 つ以上在り、書いた物が全部現物に在る時だけ通る。どれも無ければ「出どころが現物に無い」。
   パスの形でない名指し（時刻 12:30 など。パスの部分に / も拡張子も無い）は名指しに数えない
-- fold(text)・quotes(text)・missing_quotes(text, source, folded=True) -> list[str]: 引用「…」の照らし（sources_problem の依頼の引用と、
-  独立設計の引用の照らしが使う 1 か所）。fold は NFKC にして空白を 1 つに畳む。missing_quotes は text の引用のうち source に部分文字列
-  として在らない物。folded が真（既定）なら両側を fold してから照らす（独立設計の引用）。偽なら字のまま（sources_problem の依頼の引用は
-  偽。関所の決め手の照らしを緩めない）
+- fold(text)・quotes(text)・missing_quotes(text, source, folded=True) -> list[str]: 引用「…」の照らし（sources_problem の依頼の
+  引用と、独立設計の引用の照らしが使う 1 か所）。fold は NFKC にして空白を 1 つに畳む。missing_quotes は text の引用のうち、source に
+  quoted_in でない物。folded が真（既定）なら両側を fold してから照らす（独立設計の引用）。偽なら字のまま（sources_problem の依頼の
+  引用は偽。関所の決め手の照らしを緩めない）
 - ref_problem(source, prefix, known) -> list[str]: 出どころの文の中の prefix で始まる参照（頭に字が添えてあってもよい）の id が、
   呼び手が渡した実在の id の組 known に在るかの照らし。無い id ごとに誤りの 1 文（prefix の語が無ければ空）
 
@@ -99,10 +100,10 @@ def flat(s) -> str:
     return " ".join(ANSI.sub("", s).split()) if isinstance(s, str) else ""
 
 
-def quoted_in(quote, text) -> bool:
-    """引いた文 quote が text の中に、flat で寄せた後の部分一致で在るか（寄せて空になる引用は偽）"""
-    q = flat(quote)
-    return bool(q) and q in flat(text)
+def quoted_in(quote, text, *, norm=flat) -> bool:
+    """引いた文 quote が text の中に、両側を norm（flat・fold・字のままの str）で寄せた後の部分一致で在るか（寄せて空になる引用は偽）"""
+    q = norm(quote)
+    return bool(q.strip()) and q in norm(text)
 
 
 def _pathish(word: str) -> bool:
@@ -122,11 +123,10 @@ def quotes(text) -> list:
 
 
 def missing_quotes(text, source, *, folded: bool = True) -> list:
-    """text の引用「…」のうち、source に在る部分文字列でない物を出た順に（無ければ空）。folded が真なら両側に fold を掛けて照らし、
+    """text の引用「…」のうち、source に quoted_in でない物を出た順に（無ければ空）。folded が真なら両側に fold を掛けて照らし、
     偽なら字のまま（全角と半角・空白の違いも別の字と数える）"""
     norm = fold if folded else str
-    haystack = norm(source)
-    return [q for q in quotes(text) if norm(q) not in haystack]
+    return [q for q in quotes(text) if not quoted_in(q, source, norm=norm)]
 
 
 def sources_problem(text, repo, roots=(), quoted: str = "") -> str:

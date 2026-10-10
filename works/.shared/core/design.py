@@ -66,7 +66,7 @@ MISSING = "独立設計が取れなかった"
 REJECT_HEADING = rolekit.REJECT_HEADING
 UNUSABLE = {"目的不明": "目的の出典が取れない（目的不明）——独立設計を回さない",
             "狭めている": "目的の文を監査が『狭めている』と判定した——狭められた目的で独立設計を回さない"}
-DRIFT_HEAD = "独立設計との構造の食い違い: "   # 事前審査の穴の why の頭の 2 語（指示書 planblk.DESIGN_ASK・quote_gaps・試験が同じ名を読む）
+DRIFT_HEAD = "独立設計との構造の食い違い: "
 UNPAIRED_HEAD = "独立設計に対の無い仕組み: "
 QUOTE_HEADS = (DRIFT_HEAD, UNPAIRED_HEAD)
 ROW_QUOTE_KEYS = ("approach", "adds", "allowed_paths", "shrink_first")   # 案の行のうち、引用の照らしが読む欄
@@ -660,14 +660,13 @@ def _map_gaps(source, rows, design_map) -> list:
             if count.get((item, name), 0) > 1]
     out += [f"design_map の行（項目 {e.get('item')}・name {e.get('name')}）は項目の adds に無い" for e in entries
             if (e.get("item"), e.get("name")) not in wanted]
-    haystack = cite.fold(source)
     for e in entries:
         quote = e.get("design_quote")
         if quote is None:
             continue
         inner = str(quote).strip()
         inner = inner[1:-1] if inner.startswith("「") and inner.endswith("」") else inner
-        if not inner.strip() or cite.fold(inner) not in haystack:
+        if not cite.quoted_in(inner, source, norm=cite.fold):
             out.append(f"design_map の name {e.get('name')} の design_quote「{inner}」が独立設計の文に字のまま無い（対が無いなら null）")
     return out
 

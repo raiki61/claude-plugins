@@ -19,7 +19,7 @@
   合否・その回に起こした一式と test_cmd の数・秒）を積む（秒は書くだけで止める条件に使わない）
   - route: 直す義務の単位（_owed: 開いた単位から、答え待ち・ask_human で外れた単位と食い違いで止めた単位を除く）を全部 1 度だけ
     tdd か direct（理由 10 字以上）に振る。約束で tdd の単位は direct に振れない（出口は phase conflict の申し出）
-  - test: 申告したテストのファイルの外のテストのファイル（is_test_file）に触れていない・赤の判定 red_check（名指しは failure で
+  - test: 申告したテストのファイルの外のテストのファイル（impact.is_test_file）に触れていない・赤の判定 red_check（名指しは failure で
     落ち、error・一式に居ない・もう通る・飛ばされたは拒み、元で通っていた物は緑。言語に依らない事実だけ）。テストでないファイル
     （これから足す名前の仮の実装）への書き込みは拒まず、単位の stub_files に残す。error・一式に居ないで拒む時は NOT_RAN の
     1 行を足す（走る前の失敗は赤に数えず、直して走らせ直させる）。
@@ -39,7 +39,7 @@
     緑に届けば、後の単位は段を回さずに機械が閉じる（_close_covered: 受け入れのテストが全部確かめ済みの時だけ。赤・緑とも ok、
     covered_by に一緒に直した単位）。別の項目の単位・前の単位に無い項目にも載る単位は今どおり単位ごとに赤→緑を回す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
-    （is_test_file: 宣言か名の慣習）の既存の test* 関数の本体（.py でないファイルは行を消した・置き換えた差分）も変えていない（_other_test_edits）・テストを飛ばした・消していない
+    （impact.is_test_file: 宣言か名の慣習）の既存の test* 関数の本体（.py でないファイルは行を消した・置き換えた差分）も変えていない（_other_test_edits）・テストを飛ばした・消していない
     （_vanished_problems）。関門が on なら、そのうえで run の test_cmd も緑（_test_cmd_problems。赤は拒み、走らない時は実行器が
     走らない時と同じに輪を抜ける）。refactor の緑の確かめも同じ。
     緑の後、返答の任意の欄 refactor（{declared, why}）で役が理由（10 字以上）つきで申告した単位か、約束の refactor が真（修正案の
@@ -132,7 +132,8 @@ MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試�
 MIN_WHY = 10
 MIN_QUOTE = 3   # 赤の引用の下限（寄せた字数。1〜2 字の引用はどの失敗の文にも当たるので、照らす先が短くなければ拒む）
 QUOTES_FIELD = "red_quotes"   # test の段の返答の欄と単位の記録の欄の名: {名指しの id: {quote: 失敗の文, why: なぜ期待どおりの理由か}}
-GAVE_UP_WHY = "機械が書いた申し出（TDD の確認が回数の上限まで通らなかった）: "   # 3 回拒まれた単位の申し出の why の頭。人が読む理由の文で、見分けには使わない（盤面の行の source が conflict.GAVE_UP_SOURCE）
+UNSENT = "unsent"   # 状態の欄: 盤面へまだ積んでいない止めた申し出の並び（行 {source, item}）
+GAVE_UP_WHY = "機械が書いた申し出（TDD の確認が回数の上限まで通らなかった）: "   # 3 回拒まれた単位の申し出の why の頭
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 UNIT_NODE = "tdd"   # 輪の役の印の名（包みの adapter.KEYED_NODES の 1 つ。単位の切れ目で会話を切る）
 REST_NODE = "tdd-rest"   # 並べの後に残りの単位を順に回す輪 tdd-rest の役の印の名（同じ支度・確かめ。KEYED_NODES の 1 つ）
@@ -1129,7 +1130,7 @@ def id_path(test_id: str) -> str:
 
 def declared_test_files(st) -> set[str]:
     """宣言されたテストのファイル: 単位ごとの役の申告（test_files）と、承認済みの修正案の約束の受け入れのテスト（tests）・書き換えの
-    名指し（rewrites）のパス。テストのファイルの見分け（is_test_file）の正本。純粋"""
+    名指し（rewrites）のパス。テストのファイルの見分け（impact.is_test_file）の宣言の正本。純粋"""
     out = set()
     for u in (st.get("units") or {}).values():
         out |= {posixpath.normpath(f) for f in (u or {}).get("test_files") or [] if isinstance(f, str) and f.strip()}
@@ -1139,17 +1140,11 @@ def declared_test_files(st) -> set[str]:
     return out
 
 
-def is_test_file(path: str, declared) -> bool:
-    """テストのファイルか: 宣言（declared_test_files）に在るか、名の慣習（impact.is_test の module。テストの実行器が探す名の
-    形で、言語の表でない。語の尾の形はテストのフォルダの下だけ）に当たるか。どちらにも当たらない実装のファイルは凍らせない。純粋"""
-    return posixpath.normpath(path) in declared or impact.is_test(path) == "module"
-
-
 def _moved_test_files(st, repo, exclude=()) -> list[str]:
-    """単位の頭から変わったテストのファイル（is_test_file。走らせて出来たファイルと exclude を除く）"""
+    """単位の頭から変わったテストのファイル（impact.is_test_file。走らせて出来たファイルと exclude を除く）"""
     moved = set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]) - set(exclude)
     declared = declared_test_files(st)
-    return sorted(f for f in moved if is_test_file(f, declared))
+    return sorted(f for f in moved if impact.is_test_file(f, declared))
 
 
 def _cut_lines(repo, tree: str, files: list[str]) -> list[str]:
@@ -1203,10 +1198,10 @@ def _other_test_edits(st, u, repo) -> list[str]:
 
 
 def _vanish_scope(files, declared=frozenset()) -> set | None:
-    """消えたテストを照らすモジュール（impact._mod の名）。files のうちテストのファイル（is_test_file）だけを見る。conftest.py か
+    """消えたテストを照らすモジュール（impact._mod の名）。files のうちテストのファイル（impact.is_test_file）だけを見る。conftest.py か
     .py でないテストのファイルに触れていれば None（一式の全部。.py でないファイルは JUnit の行とモジュールを言語に依らず結べない
     ので、分からない＝全部を照らす）。純粋"""
-    files = [f for f in files if is_test_file(f, declared)]
+    files = [f for f in files if impact.is_test_file(f, declared)]
     if any(posixpath.basename(f) == "conftest.py" or not f.endswith(".py") for f in files):
         return None
     return {impact._mod(f) for f in files}
@@ -1318,7 +1313,7 @@ def _test(st, reply, repo) -> list:
         return errs
     extra = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(files) - set(st["suite_made"]))
     declared = declared_test_files(st) | set(files)
-    outside = [f for f in extra if is_test_file(f, declared)]
+    outside = [f for f in extra if impact.is_test_file(f, declared)]
     if outside:
         return [f"申告したテストのファイルの外のテストのファイルに触れた: {outside[:5]}——test_files に申告するか、触れるな"]
     stubs = [f for f in extra if f not in outside]   # テストでないファイル（これから足す名前の仮の実装）は拒まず、記録に残す
@@ -1512,6 +1507,13 @@ def _park_cur(st, repo, key, why) -> None:
     _next_unit(st, repo)
 
 
+def flush_unsent(state_file, park) -> None:
+    """状態の未送の並び UNSENT（step が保存と同じ 1 回の書き込みで積んだ止めた申し出）を park で盤面へ流す（flush_claims）。
+    節 tdd-step が毎回呼ぶ（済んだ輪の resume の早抜けでも、前の周が積めなかった申し出を積む）"""
+    st = _load(state_file)
+    flush_claims(state_file, st, st, UNSENT, park)
+
+
 def flush_claims(state_file, st: dict, holder: dict, field: str, park) -> None:
     """状態の st に保存した、盤面にまだ積んでいない申し出の並び holder[field] を park に渡し、渡せたら空にして保存し直す
     （申し出を積む口は conflict.park で、同じ申し出を積み増さない。積みの途中で落ちても、次の呼びが残りを積む。積む口が無ければ何もしない）"""
@@ -1524,8 +1526,8 @@ def flush_claims(state_file, st: dict, holder: dict, field: str, park) -> None:
 
 
 def step(state_file, reply, repo, try_query=None, lanes=None, log=None, outbox=True) -> dict:
-    """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
-    節が盤面の控えに積む）, writes（書き込みの出どころの突き合わせの結果。節が盤面の trace に積む）}。
+    """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, writes（書き込みの出どころの突き合わせの
+    結果。節が盤面の trace に積む）}。
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
     lanes は並べの口（tddlanes の module。節の script が渡す。tddloop からは import しない）: 状態の lanes_on が真なら振り分けの後に
     lanes.plan（段 lanes へ進めば輪 tdd-loop は抜け、枝の輪と tdd-join が回す）。無ければ並べない。段 lanes の状態で呼べば Broken。
@@ -1534,8 +1536,9 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None, outbox=T
     lanes を渡されて振り分けを受けた周で枝を切らなければ、出口の lanes_skipped に {reason, why, loop}（理由の語は tddlanes の SKIP_*。
     状態の lanes_off（入力）か lanes.plan の置いた lanes_skipped。loop は輪の盤面の置き場の名 tdd-<k>）を載せる（節が trace に積む）。
     log は書き込みの記録（既定は repo の writes.sink。並べの枝の確かめは単位の worktree を repo に、run の作業ツリーの記録を渡す）。
-    outbox が真なら止めた申し出を、保存と同じ 1 回の書き込みで状態の未送の並び unsent（行 {source, item}）に積む（盤面へ積むのは
-    節 tdd-step が flush_claims で。保存と積みの間で落ちても、次の呼びが積み直す）。並べの枝の確かめは偽（枝の諦めは締めが輪へ戻す）。
+    outbox が真なら止めた申し出を、保存と同じ 1 回の書き込みで状態の未送の並び UNSENT（行 {source, item}）に積む（止めた申し出の
+    出口はこの 1 つ。盤面へ積むのは節 tdd-step が flush_unsent で。保存と積みの間で落ちても、次の呼びが積み直す）。並べの枝の確かめは
+    偽（枝の諦めは締めが輪へ戻す）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
     st = _load(state_file)
@@ -1551,7 +1554,7 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None, outbox=T
             "phase": "conflict" if isinstance(reply, dict) and reply.get("phase") == "conflict" else phase,
             "unit_key": "" if phase == "route" else st["queue"][st["cur"]]}
     item = None
-    source = conflict.TDD_SOURCE   # 申し出の出どころ（役が出した申し出。諦めは下で GAVE_UP_SOURCE）
+    source = conflict.TDD_SOURCE
     got = None
     skipped = None   # 振り分けを受けた周で並べなかった理由（lanes を渡された時だけ。出口の lanes_skipped）
     if isinstance(reply, dict) and reply.get("phase") != "conflict":
@@ -1600,10 +1603,10 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None, outbox=T
     st.setdefault("calls", []).append({**call, "ok": not probs, "runs": st["runs"] - runs0,
                                        "secs": round(time.monotonic() - t0, 1)})
     if outbox and item is not None:
-        st.setdefault("unsent", []).append({"source": source, "item": item})
+        st.setdefault(UNSENT, []).append({"source": source, "item": item})
     _save(state_file, st)
     out = {"ok": not probs, "done": st["done"] or st["phase"] == "lanes",   # 段 lanes は輪を抜けて枝の輪へ（状態は済んでいない）
-           "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"], "conflict": item, "writes": got}
+           "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"], "writes": got}
     if skipped is not None and not probs:
         out["lanes_skipped"] = skipped
     return out

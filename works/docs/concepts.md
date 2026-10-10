@@ -178,9 +178,9 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `test-files` テストのファイルの見分け
 
 - 状態: 住処あり
-- 住処: 名の慣習は `.shared/core/impact.py` の `is_test`（`TEST_NAME`・`TEST_STEM`・`TEST_TAIL`・`TEST_DIRS`。言語の表でなく名の形）、宣言と慣習を合わせた見分けは `blk-fix/lib/tddloop.py` の `declared_test_files`・`is_test_file`（宣言＝役の申告の test_files と修正案の受け入れのテスト・書き換えの名指しのパス）
+- 住処: 名の慣習は `.shared/core/impact.py` の `is_test`（`TEST_NAME`・`TEST_STEM`・`TEST_TAIL`・`TEST_DIRS`。言語の表でなく名の形）、宣言と慣習を合わせた見分けは同じ `impact.py` の `is_test_file(path, declared)`（宣言のパスの組に在るか、名の慣習の module か。正規化してから照らす）。TDD の輪の宣言の組は `blk-fix/lib/tddloop.py` の `declared_test_files`（役の申告の test_files と修正案の受け入れのテスト・書き換えの名指しのパス）
 - 約束: 文書の宣言は対象の git の属性 `linguist-documentation`（`impact` が読む）
-- 知ってよい所: 住処だけが名の型を書く。`blk-fix/lib/tddloop.py` の `PYTEST_FILE` は pytest の既定の python_files（実行器が pytest の時の名指しの型）で、同じ住処に置く。使う所（`blk-fix/lib/fixgates.py`・`blk-plan/lib/ripple.py`・`blk-fix/lib/planscope.py`）は住処の口を呼ぶ
+- 知ってよい所: 住処だけが名の型を書く。`blk-fix/lib/tddloop.py` の `PYTEST_FILE` は pytest の既定の python_files（実行器が pytest の時の名指しの型）で、同じ住処に置く。使う所（`blk-fix/lib/fixgates.py`・`blk-plan/lib/ripple.py`・`blk-fix/lib/planscope.py`・run の広さを数える `darkfactory/lib/depth.py` の `_wide`）は住処の口を呼び、宣言と慣習を合わせる式を自分で組まない
 - 今: `.shared/core/entry.py` の `GATE_FILE_PATTERNS`（検証ゲートの定義のファイルの広めの型）は別の考えで、テストの名の型の字を含む（柵の表の既知の漏れ）。計画 `docs/plans/2026-10-09-lang-neutral-red.md`
 
 ### `red-check` TDD の赤の判定（事実と失敗の文の引用）
@@ -234,9 +234,9 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `cite` 名指しの形と場所の文の読み
 
 - 状態: 住処あり
-- 住処: `.shared/core/cite.py`（層 L1。標準ライブラリだけ。名指し `<パス>:<行>[-<行>]` の形 `CITE`、1 つの名指しの確かめ `problem`、決め手の文の出どころの確かめ `sources_problem`、場所の文の中の名指し 1 つ分の形 `CITE_IN_WHERE` と読み `where_cites`（パスの無い `:<行>` は直前のパスを継ぐ）、場所の文の頭のパス `lead_path`）
-- 約束: 名指しの形と場所の文の読みは住処の外に持ち直さない。住処の別名・包みも置かない（読み手は `cite.CITE`・`cite.problem` を直に引く）
-- 知ってよい所: 住処だけ。読み手（`.shared/core/conflict.py`・`.shared/core/gatemarks.py`・`.shared/core/report.py`・`blk-material/lib/material.py`・`blk-fix/lib/ruling.py`・`blk-fix/lib/tddloop.py`・`blk-fix/lib/fixgates.py`・`.shared/core/worldmark.py`）は住処の口を引き、自分の定数や関数に写さない
+- 住処: `.shared/core/cite.py`（層 L1。標準ライブラリだけ。名指し `<パス>:<行>[-<行>]` の形 `CITE`、1 つの名指しの確かめ `problem`、決め手の文の出どころの確かめ `sources_problem`、場所の文の中の名指し 1 つ分の形 `CITE_IN_WHERE` と読み `where_cites`（パスの無い `:<行>` は直前のパスを継ぐ）、場所の文の頭のパス `lead_path`、引用「…」の照らし `fold`・`quotes`・`quoted_in`（引用 1 つ。寄せ方 `norm` は既定の `flat`・`fold`・字のまま）・`missing_quotes`）
+- 約束: 名指しの形と場所の文の読み、引用を畳んで部分文字列かを見る式は住処の外に持ち直さない。住処の別名・包みも置かない（読み手は `cite.CITE`・`cite.problem` を直に引く）
+- 知ってよい所: 住処だけ。読み手（`.shared/core/conflict.py`・`.shared/core/gatemarks.py`・`.shared/core/report.py`・`blk-material/lib/material.py`・`blk-fix/lib/ruling.py`・`blk-fix/lib/tddloop.py`・`blk-fix/lib/fixgates.py`・`.shared/core/worldmark.py`・独立設計の引用を照らす `.shared/core/design.py`）は住処の口を引き、自分の定数や関数に写さない
 - 今: 寄せる前は、`conflict` が住処の `CITE` と `problem` を別名 `CITE`・包み `cite_problem` で持ち直し、素材集めの `material` が名指しの形を錨を外して `CITE_IN_WHERE` に書き直し、`holeties` が場所の文の頭のパスを `lead_path` で別に読んでいた。柵は、住処の定数を別の名に写す形（`X = cite.Y`・`from cite import`・`import cite as`）と、消した別名・包みの名・場所の文の読みの定義の字を見る。小文字の名への写しや別の名の包みは字の形で見分けられず、柵は見ない
 
 ### `entry-kind` 入口の種類

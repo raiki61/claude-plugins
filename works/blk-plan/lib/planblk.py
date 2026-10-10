@@ -199,8 +199,8 @@ PLAN_SLOTS_HEAD = promptsection.Section("## 案に入れてよい単位の no（
 DESIGN_HEAD = promptsection.Section("## 独立設計（修正案を見ない別の目が、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作った理想解。機械が貼った）", source="fn:planblk.design_only")
 DESIGN_ASK = ("修正案をこの設計と構造で突き合わせよ——何を固定し何を派生と見るか・どこに継ぎ目を置くか・目的の当事者が日常で回す"
               "動線が閉じるか。案が足す仕組み（ファイル・関数・節・役・欄・入力）ごとと、この項目の adds・allowed_paths の大きさごとに、"
-              "設計との食い違いかを判じよ。判じる根拠は引用で示す: 独立設計の行と案の行（その項目の approach・adds・allowed_paths・"
-              "shrink_first）を、それぞれ「…」で字のまま引け。設計から引用できない所は、大きさの開きでも対の無さでも食い違いに数えない"
+              "設計との食い違いかを判じよ。判じる根拠は引用で示す: 独立設計の行と案の行（その項目の "
+              f"{'・'.join(design.ROW_QUOTE_KEYS)}）を、それぞれ「…」で字のまま引け。設計から引用できない所は、大きさの開きでも対の無さでも食い違いに数えない"
               "（表現の違い・設計が触れていない所もこの決まり1つで読む。設計は判定の単位も実装の事情も知らない）。"
               "食い違いと判じた物は、設計に対の無い仕組みも大きさの開きも、faces に kind contract_drift・severity block で挙げ、why を"
               f"対の無い仕組みなら『{design.UNPAIRED_HEAD}』、構造の食い違い・大きさの開きなら『{design.DRIFT_HEAD}』で始め、"
@@ -1198,7 +1198,7 @@ def with_converge(run):
         merged = tree_merge(b0, bare, tree, resolved)
         if merged["gaps"]:
             return {"ok": False, "reason": TREE_REJECT + "\n" + "\n".join(f"  - {g}" for g in merged["gaps"])}
-        if merged.get("off"):   # 木にしない往復は返答 1 つが審査の答え（項目の答えのファイルが無い）。引用の照らしもここで掛ける
+        if merged.get("off"):
             gaps = design_gaps(b0, merged["review"].get("faces"), converge.open_items(b0), tree.get(converge.DESIGN_MAP) or [])
             if gaps:
                 return {"ok": False, "reason": DESIGN_QUOTE_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}

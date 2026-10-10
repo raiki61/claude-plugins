@@ -214,7 +214,7 @@ class FileCase(unittest.TestCase):
 
 
 class BoardReadCase(unittest.TestCase):
-    """盤面を読む口（decide・signals・raise_）。盤面は dir・round・record だけを持つ偽物で、控えのファイルを一時の置き場に書く"""
+    """盤面を読む口（decide・signals・raise_）。盤面は dir・round・record・work だけを持つ偽物で、控えのファイルを一時の置き場に書く"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -223,7 +223,8 @@ class BoardReadCase(unittest.TestCase):
         self.skipped = {}
         self.b = types.SimpleNamespace(dir=self.dir, round=1, record={"questions": []}, state={},
                                        node_state=lambda nid: "done" if nid in self.skipped else "pending",
-                                       skip=lambda nid, why: self.skipped.__setitem__(nid, why))
+                                       skip=lambda nid, why: self.skipped.__setitem__(nid, why),
+                                       work=lambda name: self.dir / "r1" / name)   # 周の作業ファイル（食い違いの共有の控え）
         put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1]), item([U2], tests=4)]})
 
     def start(self, **kw):
@@ -387,6 +388,17 @@ class BoardReadCase(unittest.TestCase):
         put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1], paths=("a/1.py", "a/2.py"))]})
         files = ["a/3.py", "tests/test_extra.py", "a/test_more.py"]
         self.b.loop_state = {"fix_delta": {"round": 1, "file": "p.patch", "files": files, "rev": "f1x2d3l4t5"}}
+        depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+        doc = depth.raise_(self.b, replanned=False, rejudged=False)
+        self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+        self.assertIn("3 個", doc.get("counted") or "")
+
+    def test_raise_sees_declared_test_file_through_home(self):
+        """差分のテストのファイルの見分けは住処 impact.is_test_file と同じ: 正規化の前の綴り（./ つき）のパスでも、項目の tests の
+        id のファイルなら run の広さに数えない"""
+        self.start(test_cmd="sh t.sh")
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1], paths=("a/1.py", "a/2.py"))]})
+        self.b.loop_state = {"fix_delta": {"round": 1, "file": "p.patch", "files": ["a/3.py", "./t.py"], "rev": "f1x2d3l4t5"}}
         depth.decide(self.b, json.dumps([U1]), tdd_suite="")
         doc = depth.raise_(self.b, replanned=False, rejudged=False)
         self.assertEqual(depth.run_depth(doc), depth.LIGHT)

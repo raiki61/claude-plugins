@@ -423,7 +423,7 @@ def prep(board_dir, role: str, repo, *, head: str, design_part: str = "") -> dic
     conflicts = {c.get("id"): c for c in conflict.items(b)}
     ask = [REPLAN_ASK] if role == "plan" else [design_part, REVIEW_ASK_REPLAN, planmarks.REVIEW_ASK]
     schema = accept.role_schema(planmarks.NODE if role == "plan" else REVIEW_GRAPH_NODE)   # 受け付けが当てる型（名前の型）
-    if role == "plan-review" and design.stands(board_dir) is not None:   # 独立設計が立つ時は、項目の adds の対応表の欄も見せる
+    if role == "plan-review" and design.stands(board_dir) is not None:
         schema = converge.with_design_map(schema)
     parts = [head.rstrip("\n"), *ask, *(_section(r, conflicts, role) for r in rows),
              rolekit.lang_line(b.state.get("inputs")) + rolekit.SCHEMA_NOTE + dump(schema)]
@@ -524,7 +524,7 @@ def _take(board_dir: pathlib.Path, role: str, reply, repo) -> dict:
             bare, marks = gatemarks.split(planmarks.NODE, {"plan": [got]})
             row["new"], row["new_marks"] = bare["plan"][0], marks[0]
     else:
-        design_map = reply.get(converge.DESIGN_MAP) if isinstance(reply, dict) else None   # drop_fields が外す前に取る
+        design_map = reply.get(converge.DESIGN_MAP) if isinstance(reply, dict) else None
         reply = converge.drop_fields(reply)   # 同じ役の型の壁打ちと束ね役の任意の欄（案の直しは写しの型で受ける）
         errs = _type_lines(reply, REVIEW_GRAPH_NODE)
         if design_map is not None:

@@ -663,8 +663,10 @@ class TestUnitLoop(LoopCase):
         for _ in range(tddloop.retry_max()):
             got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["helper.py"], "what": "直せていない"})
             self.assertFalse(got["ok"])
-        item = got["conflict"]
-        self.assertIsNotNone(item, "3 回拒まれた単位は機械の申し出 1 件を出口に載せる")
+        self.assertNotIn("conflict", got, "止めた申し出の出口は状態の未送の並び 1 つ")
+        unsent = self.st()[tddloop.UNSENT]
+        self.assertEqual([r["source"] for r in unsent], [conflict.GAVE_UP_SOURCE], "3 回拒まれた単位は機械の申し出 1 件を状態の未送に積む")
+        item = unsent[0]["item"]
         self.assertEqual((item["unit_key"], item["kind"], item["which_is_right"]), (MEAN, "needs_context", "unknown"))
         self.assertEqual(item["between"], [], "brief の無い run では名指しは空")
         last = got["reason"].splitlines()[0][:100]
@@ -681,7 +683,6 @@ class TestUnitLoop(LoopCase):
         lines = "\n".join(tddloop.handoff_lines(st))
         self.assertIn(f"- {MEAN}: 食い違いの申し出で止めた", lines)
         self.assertNotIn("direct に回した", lines)
-        self.assertEqual(st.get("unsent"), [{"source": conflict.GAVE_UP_SOURCE, "item": item}], "盤面へ積む前の申し出は状態に残る")
         ruler = "\n".join(fixrules.sections("ruler.md").values())
         self.assertIn(conflict.GAVE_UP_SOURCE, ruler, "裁定役の指示書は機械の申し出を出どころの欄 source で名指す")
         self.assertNotIn(tddloop.GAVE_UP_WHY, ruler, "理由の頭の文の写しで見分けない")
@@ -1408,14 +1409,6 @@ class TestTestFileIdentity(unittest.TestCase):
                            "u2": None}}
         self.assertEqual(tddloop.declared_test_files(st), {"a/checks.go", "b/verify.kt", "c/legacy.rb"})
 
-    def test_declared_test_file_counts(self):
-        self.assertTrue(tddloop.is_test_file("checks/verify.py", {"checks/verify.py"}), "慣習に当たらない名も宣言なら")
-        self.assertFalse(tddloop.is_test_file("checks/verify.py", set()))
-        for path in ("test_stats.py", "x_test.py", "conftest.py", "pkg/calc_test.go", "src/test/java/FooTest.java"):
-            with self.subTest(path=path):
-                self.assertTrue(tddloop.is_test_file(path, set()))
-        self.assertFalse(tddloop.is_test_file("stats.py", set()))
-
 
 class TestRewriteSharedAcrossUnits(ContractCase):
     """1 つの項目が 2 つの単位にまたがると、同じ書き換えの名指しが両方の単位の約束に載る。前の単位で赤→緑を確かめた id は、
@@ -1498,7 +1491,7 @@ class TestOneItemTwoUnits(ContractCase):
         self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
         got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母と上限の枝を項目どおりに直した"})
         self.assertTrue(got["ok"], got)
-        self.assertEqual((got["done"], got["conflict"]), (True, None), "同じ項目の後の単位は機械が閉じ、輪は済む")
+        self.assertEqual((got["done"], self.st().get(tddloop.UNSENT)), (True, None), "同じ項目の後の単位は機械が閉じ、輪は済む")
         st = self.st()
         self.assertEqual(st["parked"], [])
         self.assertNotIn("conflict", [c["phase"] for c in st["calls"]])
@@ -2442,7 +2435,7 @@ class TestResume(LoopCase):
             self.assertEqual(code, 0, (call, err))
             rows = self.parked_rows(art)
             self.assertEqual([r["unit_key"] for r in rows], [MEAN], call)
-            self.assertEqual(self.st().get("unsent"), [], call)
+            self.assertEqual(self.st().get(tddloop.UNSENT), [], call)
 
 
 class TestRunSuiteSlot(unittest.TestCase):

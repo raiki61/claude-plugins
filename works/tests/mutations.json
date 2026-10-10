@@ -207,7 +207,7 @@
   },
   {
    "id": "gu1",
-   "title": "TDD の輪: 段の RETRY_MAX 回目の拒否で諦めて裁定に回す（give-up）",
+   "title": "TDD の輪: 振り分けの段の RETRY_MAX 回目の拒否で諦めて全部の単位を direct に回す（give-up。test・fix の段の諦めは gu1-green の裁定へ）",
    "file": "blk-fix/lib/tddloop.py",
    "old": "        if st[\"tries\"] >= retry_max():",
    "new": "        if False:",
@@ -665,7 +665,7 @@
    "id": "dp-touched",
    "title": "run の広さの数えが修正の実際の差分（loop.fix_delta の files）を足さず、計画の allowed_paths だけで数える",
    "file": "darkfactory/lib/depth.py",
-   "old": "    return set(_paths(mine)) | {p for p in touched if isinstance(p, str) and p not in test_files\n                                and impact.is_test(p) != \"module\"}, _tests(mine)\n",
+   "old": "    return set(_paths(mine)) | {p for p in touched if isinstance(p, str) and not impact.is_test_file(p, declared)}, _tests(mine)\n",
    "new": "    return set(_paths(mine)), _tests(mine)\n",
    "tests": {
     "tests/test_depth.py": [
@@ -675,10 +675,10 @@
   },
   {
    "id": "dp-undeclared-tests",
-   "title": "run の広さの数えが、宣言に無いテストのファイル（名の慣習に当たる物）を実装のパスに数える",
+   "title": "run の広さの数えが、宣言に無いテストのファイル（名の慣習に当たる物）を実装のパスに数える（住処 impact.is_test_file を通さない）",
    "file": "darkfactory/lib/depth.py",
-   "old": "                                and impact.is_test(p) != \"module\"}, _tests(mine)\n",
-   "new": "                                }, _tests(mine)\n",
+   "old": "and not impact.is_test_file(p, declared)}",
+   "new": "and p not in declared}",
    "tests": {
     "tests/test_depth.py": [
      "BoardReadCase.test_raise_does_not_count_undeclared_test_files"

@@ -20,6 +20,9 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
   現れる追跡中の file（パスそのものか、一意な basename）
 - py_imports(text) -> list | None: Python の file の import の一覧（地図の import の辺と同じ読み取り。libdocs が使う）
 - tree_files(repo) -> list | None: 作業ツリーの file の一覧（追跡中と無視されていない未追跡。git が使えなければ None。libdocs が使う）
+- is_test(path) -> "module" | "support" | None: 名の慣習でのテストの file の見分け（言語の表でなく名の形）
+- is_test_file(path, declared) -> bool: テストの file か（宣言 declared に在るか、is_test の module）。宣言と慣習を合わせた見分けの
+  1 か所（TDD の輪・事後の関門・深さの run の広さの数えが呼ぶ）。純粋
 
 地図の JSON（schema works-impact/1）の欄:
 - key・rev（commit の sha）・rev_name・seeds {given, files, names, from_diff, missing}
@@ -41,6 +44,7 @@ import heapq
 import json
 import os
 import pathlib
+import posixpath
 import re
 import sys
 
@@ -171,6 +175,12 @@ def is_test(path):
     if any(part in TEST_DIRS for part in path.split("/")[:-1]):
         return "support"
     return None
+
+
+def is_test_file(path: str, declared) -> bool:
+    """テストの file か: 宣言（declared。正規化したパスの組）に在るか、名の慣習（is_test の module。テストの実行器が探す名の形で、
+    言語の表でない。語の尾の形はテストのフォルダの下だけ）に当たるか。どちらにも当たらない実装の file はテストと見ない。純粋"""
+    return posixpath.normpath(path) in declared or is_test(path) == "module"
 
 
 def _lang(path, rec):

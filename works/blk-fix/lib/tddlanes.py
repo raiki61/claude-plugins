@@ -324,7 +324,7 @@ def lane_step(state_file, n, reply, repo) -> dict:
         return {**_park(lst_file, lst, reply, tree), "unit_key": k}
     items = reply.get(writes.FIELD) if isinstance(reply, dict) else None
     cur = lst["cur"]
-    out = tddloop.step(lst_file, reply, tree, log=writes.sink(repo), outbox=False)   # 枝の諦めは締めが輪へ戻すので未送に積まない
+    out = tddloop.step(lst_file, reply, tree, log=writes.sink(repo), outbox=False)
     lst = tddloop._load(lst_file)
     if out["ok"] and items and not writes.shape_problems(items):
         lst["declared"] = [*lst.get("declared", []), *items]

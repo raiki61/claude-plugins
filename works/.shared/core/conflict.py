@@ -139,8 +139,8 @@ FIX_SOURCE = "fix"                       # 盤面の行の出どころの欄 sou
 TDD_SOURCE = "tdd"                       # 同じく: TDD の輪の役の申し出（phase conflict）
 GAVE_UP_SOURCE = "tdd-gave-up"           # 同じく: 3 回拒まれて機械が止めた単位の申し出（人が読む理由の文でなく、この値で見分ける）
 SOURCES = (FIX_SOURCE, TDD_SOURCE, GAVE_UP_SOURCE)
-REPEAT_GAVE_UP = ("作り直しの後にも同じ単位が TDD の確認の上限まで落ちた（案を直した行 {prior}）。機械で回し続けず、"
-                  "設計を疑う判断を人に回す")   # 2 度目の諦めの ask_human の裁定の文
+REPEAT_GAVE_UP = ("案を直して作り直した後に、同じ単位が TDD の確認の上限まで落ちた（案を直した行 {prior}）。機械で回し続けず、"
+                  "設計を疑う判断を人に回す")   # 作り直した後の諦めの ask_human の裁定の文
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 # 案の直しの状態（裁定 REPLAN の行の欄。依頼 226）。WAITING → AMENDED か GAVE_UP の 2 つの移りだけ（set_replan）
 REPLAN_STATE = "replan"                 # 裁定の行の欄（apply_rulings が REPLAN の行に必ず置く）
@@ -356,24 +356,15 @@ def _path(b) -> pathlib.Path:
 
 
 def _load(b) -> dict:
-    return _load_path(_path(b))
-
-
-def _load_path(path: pathlib.Path) -> dict:
     try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads(_path(b).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {"items": []}
     except (OSError, ValueError) as e:
-        raise _board.BoardGap(f"食い違いの控え {path} が読めない: {e}") from None
+        raise _board.BoardGap(f"食い違いの控え {_path(b)} が読めない: {e}") from None
     if not isinstance(doc, dict) or not isinstance(doc.get("items"), list):
-        raise _board.BoardGap(f"食い違いの控え {path} の形が違う（{{items: [...]}}）")
+        raise _board.BoardGap(f"食い違いの控え {_path(b)} の形が違う（{{items: [...]}}）")
     return doc
-
-
-def items_across_scopes(b) -> list:
-    """線と登録した scope の置き場（scopes.each）の控えの行の全部。壊れた控えは BoardGap"""
-    return [r for p in scopes.each(b, FILE) for r in _load_path(p)["items"]]
 
 
 def _write(path: pathlib.Path, text: str) -> None:
@@ -573,7 +564,7 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
 
 def park_claims(b, rows: list) -> list:
     """輪の状態の未送の行 {source, item} を積む。機械が諦めた申し出（GAVE_UP_SOURCE）で、その単位が案を直して直す義務に戻った単位
-    （amended_keys）なら、作り直した後の 2 度目の諦めなので、裁定に回さず ask_human つき（by stopby.TDD_REPEAT）で積む。ほかは裁定なし。
+    （amended_rows_by_unit）なら、作り直した後にまた止まった単位なので、裁定に回さず ask_human つき（by stopby.TDD_REPEAT）で積む。ほかは裁定なし。
     返りは積んだ・在った行の id"""
     ids, asked = [], False
     amended = amended_rows_by_unit(b)

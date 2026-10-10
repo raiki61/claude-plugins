@@ -56,9 +56,7 @@ def main() -> int:
         out = tddloop.step(os.environ["INPUTS_STATE_FILE"], reply, Path.cwd(),   # query の申し出は判定者の問いを当てて確かめる
                            try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines),
                            lanes=tddlanes)   # 並べの口 plan（tddlanes が tddloop を import するので、輪には節が渡す）
-        out.pop("conflict", None)   # 止めた申し出は状態の未送の並びに保存済み（次の行が盤面の控えと trace に積む）
-        st = tddloop._load(os.environ["INPUTS_STATE_FILE"])   # 済んだ輪の resume の早抜けでも、前の周が積めなかった申し出を積む
-        tddloop.flush_claims(os.environ["INPUTS_STATE_FILE"], st, st, "unsent",
+        tddloop.flush_unsent(os.environ["INPUTS_STATE_FILE"],
                              lambda rows: conflict.park_claims(entry.open_board(board), rows))   # 裁定の輪が読む
         out.pop("writes", None)   # 記録の無い run は輪の後の fix-accept が盤面の trace に積む（同じ worktree の同じ記録）
         skipped = out.pop("lanes_skipped", None)

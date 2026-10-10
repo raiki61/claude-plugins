@@ -45,9 +45,9 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402
 import conflict  # noqa: E402
 import gatemarks  # noqa: E402
-import impact  # noqa: E402  （テストのファイルの名の慣習の読み口 is_test）
+import impact  # noqa: E402
 import planmarks  # noqa: E402
-import refix  # noqa: E402  （修正の差分の測りの読み口 fix_delta）
+import refix  # noqa: E402
 import scopes  # noqa: E402
 import startrec  # noqa: E402  （始めの記録の読み口）
 
@@ -87,18 +87,15 @@ def _tests(items: list) -> int:
 
 def _wide(items, keys, touched=()) -> tuple:
     """(run 全体で触るファイルの集合, 受け入れと書き換えのテストの本数)。keys の単位を載せる項目を重ねずにまとめ、触るファイルは
-    計画の allowed_paths と touched（テストのファイルを除く）の和集合（重なりは 1 個）。テストのファイルは、項目の tests・
-    rewrite_tests の id のファイルか、名の慣習（impact.is_test の module。TDD の輪が凍らせるテストのファイルの見分けと同じ）に当たる物"""
+    計画の allowed_paths と touched（テストのファイルを除く）の和集合（重なりは 1 個）。テストのファイルの見分けは impact.is_test_file
+    （宣言＝項目の tests・rewrite_tests の id のファイルか、名の慣習。TDD の輪が凍らせるテストのファイルの見分けと同じ口）"""
     mine = list({id(it): it for key in keys for it in _items_of(items, key)}.values())
-    test_files = {p for it in mine for p in planmarks.test_paths(it)}
-    return set(_paths(mine)) | {p for p in touched if isinstance(p, str) and p not in test_files
-                                and impact.is_test(p) != "module"}, _tests(mine)
+    declared = {p for it in mine for p in planmarks.test_paths(it)}
+    return set(_paths(mine)) | {p for p in touched if isinstance(p, str) and not impact.is_test_file(p, declared)}, _tests(mine)
 
 
 def run_wide(items, keys, touched=()) -> list:
-    """run 全体の広さが単位ごとの上限を超えた理由の並び。keys の単位を載せる項目を重ねずにまとめ、触るファイル（重なりは 1 個）と
-    受け入れと書き換えのテストの和で数える。触るファイルは計画の allowed_paths に、修正の実際の差分 touched のうちテストのファイルを
-    除いた物を足す。単位ごとには軽量でも、集まれば広い差分になるのを標準へ上げる信号に使う"""
+    """_wide の広さが単位ごとの上限を超えた理由の並び。単位ごとには軽量の集まりを標準へ上げる信号"""
     paths, tests = _wide(items, keys, touched)
     paths = len(paths)
     out = []
@@ -271,7 +268,7 @@ def _trace(b, op: str) -> list:
 def signals(b) -> tuple:
     units = {}
     try:
-        rows, broken = conflict.items_across_scopes(b), []
+        rows, broken = conflict.items(b), []
     except BoardGap:   # 壊れた控えは上げる側へ倒す（gatemarks の台帳と同じ。軽量のまま黙って残さない）
         rows, broken = [], ["食い違いの控えが読めない"]
     for r in rows:

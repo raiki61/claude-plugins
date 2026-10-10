@@ -887,6 +887,14 @@
       ".shared/core/cite.py"
      ],
      "known": {}
+    },
+    {
+     "what": "引用の照らしの式を住処の外で組む形（cite.fold で両側を畳んで部分文字列かを見る。照らしは quoted_in・missing_quotes を呼ぶ）",
+     "pattern": "\\bcite\\.fold\\(",
+     "allowed": [
+      ".shared/core/cite.py"
+     ],
+     "known": {}
     }
    ]
   },

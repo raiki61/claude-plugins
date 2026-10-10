@@ -420,9 +420,10 @@ class TestAskHuman(ConflictBoardCase):
 
 class TestTddConflict(LoopCase):
     def test_conflict_in_route_parks_unit_without_reject(self):
+        import tddloop
         got = tddloop_step(self, {"phase": "conflict", **conflict_on_mean()})
         self.assertEqual((got["ok"], got["done"]), (True, False), got)
-        self.assertEqual(got["conflict"]["unit_key"], MEAN)
+        self.assertEqual([r["item"]["unit_key"] for r in self.st()[tddloop.UNSENT]], [MEAN])
         st = self.st()
         self.assertEqual((st["tries"], st["parked"]), (0, [MEAN]))
         got = tddloop_step(self, {"phase": "route", "units": [{"unit_key": CLAMP, "route": "direct",

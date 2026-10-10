@@ -209,6 +209,16 @@ class TestIsTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertNotEqual(impact.is_test(path), "module")
 
+    def test_is_test_file_declared_or_convention(self):
+        """宣言と名の慣習を合わせた見分け: 宣言の組に在れば慣習に当たらない名もテスト（綴りは正規化してから照らす）"""
+        self.assertTrue(impact.is_test_file("checks/verify.py", {"checks/verify.py"}), "慣習に当たらない名も宣言なら")
+        self.assertTrue(impact.is_test_file("./checks/verify.py", {"checks/verify.py"}), "正規化の前の綴りでも宣言なら")
+        self.assertFalse(impact.is_test_file("checks/verify.py", set()))
+        for path in ("test_stats.py", "x_test.py", "conftest.py", "pkg/calc_test.go", "src/test/java/FooTest.java"):
+            with self.subTest(path=path):
+                self.assertTrue(impact.is_test_file(path, set()))
+        self.assertFalse(impact.is_test_file("stats.py", set()))
+
 
 class UnanalysableCase(RepoCase):
     def test_unknown_language_seed_requires_all(self):

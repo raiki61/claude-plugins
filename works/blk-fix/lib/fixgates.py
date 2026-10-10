@@ -17,7 +17,7 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
-  base から変わったテストのファイル（tddloop.is_test_file: 名指しのパスか名の慣習）と名指しのファイルだけを写して走らせる。今の木で走らせて出来た
+  base から変わったテストのファイル（impact.is_test_file: 名指しのパスか名の慣習）と名指しのファイルだけを写して走らせる。今の木で走らせて出来た
   ファイルは消す（書き込みの出どころの突き合わせに載せない）。base の木の結末は名指しごとの鍵（base の版・実行器・名指し・その
   テストのファイルと写す conftest.py の今の中身。_base_keys）で盤面の根の周の置き場の BASE_CACHE に残し、控えに無い名指しだけを
   base の木で走らせる（base は run の中で動かないので、受け付けの回・最後の回の通し直し・2 回目の修正の段をまたいで使い回す。
@@ -30,7 +30,7 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   その行には印 agreed を付ける（落ちれば受け付けがそのテストだけを戻して名指す。overflow_asks）。赤の種類が守りのテスト
   （planmarks.GUARD_KIND）なら今の木で緑だけを求め、base の結末（base で何か）は帳面の guards に残す（base で緑でも抜けの行に
   しない。受けた回の trace が名指す）
-- test_edits: base から今の木で変わったテストのファイル（tddloop.is_test_file: 修正案の受け入れのテスト・書き換えの名指しのパスか名の慣習）のうち、base に在ったテストの関数
+- test_edits: base から今の木で変わったテストのファイル（impact.is_test_file: 修正案の受け入れのテスト・書き換えの名指しのパスか名の慣習）のうち、base に在ったテストの関数
   （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのはテストの変更の許し（conflict.test_permits）の
   行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、修正案の項目の removes（消す名）を base の本体で名指す関数の id
   （行の test。消す仕組みを縛るテストは変えざるを得ない。関数の丸ごとの消しも許す）と、範囲の相談の合意・裁定 fix_test_scope の範囲
@@ -60,7 +60,7 @@ import shutil
 import cite  # noqa: E402  （.shared/core。名指しの形）
 import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直す義務・テストの変更の許し）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
-import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
+import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名・テストのファイルの見分け）
 import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行）
 import planrange  # noqa: E402  （.shared/core。範囲の相談の合意を項目の写しに重ねる with_agreed・パスを結ぶ項目 owner）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の関門の読み口をそのまま使う）
@@ -244,9 +244,9 @@ def present(repo, test_id) -> bool:
 
 
 def _test_files(repo, rev: str, tree: str, ids=()) -> list[str]:
-    """base から木 tree で変わったテストのファイル（tddloop.is_test_file。宣言は名指し ids のパス）"""
+    """base から木 tree で変わったテストのファイル（impact.is_test_file。宣言は名指し ids のパス）"""
     declared = {tddloop.id_path(i) for i in ids}
-    return [f for f in tddloop.touched(repo, rev, tree) if tddloop.is_test_file(f, declared)]
+    return [f for f in tddloop.touched(repo, rev, tree) if impact.is_test_file(f, declared)]
 
 
 def _red_units(board_dir, repo: pathlib.Path) -> dict:

@@ -23,6 +23,20 @@ class WhereCase(unittest.TestCase):
         self.assertEqual(cite.where_cites(":4 の話"), [("", "4", None)])
 
 
+class QuotedInCase(unittest.TestCase):
+    def test_one_quote_by_norm(self):
+        """引用 1 つの照らしは quoted_in 1 つ: 字数の下限は無く、空の引用は偽。寄せ方は norm（既定 flat。独立設計の引用は fold、
+        依頼の引用は字のまま str）"""
+        self.assertTrue(cite.quoted_in("上限", "上限は入口 1 箇所で掛ける", norm=cite.fold))
+        self.assertFalse(cite.quoted_in("下限", "上限は入口 1 箇所で掛ける", norm=cite.fold))
+        self.assertFalse(cite.quoted_in("", "上限", norm=cite.fold))
+        self.assertFalse(cite.quoted_in("  ", "上限", norm=cite.fold))
+        self.assertTrue(cite.quoted_in("入口 １  箇所", "上限は入口 1 箇所で掛ける", norm=cite.fold))
+        self.assertFalse(cite.quoted_in("入口 １ 箇所", "上限は入口 1 箇所で掛ける", norm=str))
+        self.assertFalse(cite.quoted_in("入口 １ 箇所", "上限は入口 1 箇所で掛ける"), "既定の flat は NFKC にしない")
+        self.assertTrue(cite.quoted_in("入口 1\n箇所", "\x1b[31m上限は入口 1  箇所\x1b[0m"), "既定の flat は空白と色を寄せる")
+
+
 class HomeCase(unittest.TestCase):
     def test_readers_live_only_in_cite(self):
         for owner, name in ((holeties, "lead_path"), (material, "CITE_IN_WHERE"),
