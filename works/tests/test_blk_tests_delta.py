@@ -39,6 +39,7 @@ import refix  # noqa: E402
 import seat  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
+import prepkit  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
 
 
@@ -512,6 +513,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertEqual(path.name, "review1-seat.md")
         self.assertIn(str(path), got["must"])
         text = path.read_text(encoding="utf-8")
+        prepkit.drawn(self, refix.REVIEW_ROLE[1], text)   # 審査役の指示書が名指す座のファイル
         b = real_entry.open_board(self.board)
         d = b.loop_state["fix_delta"]
         for w in (seat.HEAD, got["brief_file"], d["file"], d["rev"], b.loop_state["reviewed_revision"],

@@ -26,6 +26,7 @@ import rejudgekit as kit  # noqa: E402
 from rejudgekit import UNIT_A, UNIT_B, load  # noqa: E402
 
 import node_marker  # noqa: E402
+import prepkit  # noqa: E402
 import rejudge  # noqa: E402
 from accept import role_schema, snapshot_tree  # noqa: E402
 from board import BoardGap, graph_expanded, rules_module  # noqa: E402
@@ -315,6 +316,7 @@ class RenderPrepCase(_Case):
         rejudge.refuse(self.bd, "p2.rejudge", "返答が JSON として読めない（頭: '$rj-route1.output.next と $LOOP_PREV.x'）")
         got = pathlib.Path(rejudge.prep(self.bd, "rejudge", self.repo)["prompt_file"]).read_text(encoding="utf-8")
         self.assertTrue(got.startswith(rejudge.REJECT_HEADING), got[:200])
+        prepkit.drawn(self, "rejudge", got)
         self.assertIn("$rj-route1.output.next と $LOOP_PREV.x", got)
         self.assertTrue(got.endswith(first), "拒否の節の後ろは描き直した指示書そのまま（拒否の節を積み重ねない）")
 

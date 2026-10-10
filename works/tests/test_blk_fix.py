@@ -48,6 +48,7 @@ if str(BLK / "lib") not in sys.path:   # 修正のブロックのモジュール
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import planscope  # noqa: E402
+import prepkit  # noqa: E402
 import writes  # noqa: E402
 
 DEADLINE = 1728000000
@@ -792,6 +793,10 @@ class TestFixPrep(BoardCase):
         full = prompt.read_text(encoding="utf-8")
         self.assertEqual(full.split("\n")[1], line, "理由の本文は貼らず、パスを見出しの次の 1 行で名指す（R44）")
         self.assertNotIn(pathlib.Path(reason_file).read_text(encoding="utf-8")[:40], full)
+        prepkit.drawn(self, "fix", full + "\n\n" + pathlib.Path(reason_file).read_text(encoding="utf-8"),   # 名指すファイルもつなぐ
+                      off=("structmark.plan_section", "consult.answer_text", "fixlanes.summary_text", "fixrules.lanes_text",
+                           "libdocs._local_text", "planbrief.head_text", "planbrief.render", "replan._notes", "seat.g1_prompt",
+                           "seat.section", "tddloop._finish"))
         self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], full, "出し直しも決まりを全部")
         self.assertEqual((r["iteration"], prompt_head(full)["iteration"]), (2, 2))
 
@@ -903,6 +908,9 @@ class TestFixPrep(BoardCase):
         self.assertNotIn(seat.G1_EXTRA["task-review"][0], impl.read_text(encoding="utf-8"))
         self.assertIn(str(self.repo), impl.read_text(encoding="utf-8"))
         full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "fix", full, off=("structmark.plan_section", "consult.answer_text", "fixlanes.summary_text",
+                                              "fixrules.lanes_text", "libdocs._local_text", "planbrief.render", "replan._notes",
+                                              "seat.g1_prompt", "seat.section", "tddloop._finish", "fixrules.last_reject"))
         self.assertIn(seat.G1_HEAD, full)
         self.assertNotIn(seat.HEAD, full, "借りたスキルの座は載せない")
         for f in (impl, review):

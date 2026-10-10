@@ -29,6 +29,7 @@ for p in (ROOT / ".shared" / "core", ROOT / ".shared" / "core" / "graphloops", B
         sys.path.insert(0, str(p))
 
 import blockblind  # noqa: E402
+import prepkit  # noqa: E402
 import rolekit  # noqa: E402
 import worldblk  # noqa: E402
 import worldmark  # noqa: E402
@@ -169,6 +170,7 @@ class Classes(Base):
         self.assertEqual((got["ok"], got["done"]), (False, True))
         first = (self.out / worldblk.PROMPT.format(role=worldblk.CLASSES_ROLE, n=2)).read_text(encoding="utf-8")
         self.assertTrue(first.startswith(rolekit.with_reject("", reasons[0])), "拒んだ理由を次の指示書の頭に rolekit の形で置く")
+        prepkit.drawn(self, "world-classes", first)
 
     def test_rejections_counted_by_rolekit(self):
         """拒否は rolekit の控えに積まれ、3 回目で done。諦めの文は rolekit が返し、役ごとの手書きの輪の控えは作らない"""
@@ -230,6 +232,7 @@ class Plan(Base):
         self.assertTrue(self.classes({"classes": [klass(1), doc_class()]})["ok"])
         worldblk.plan(self.out)
         prompt = worldblk.judge_prep(self.out)["prompt"]
+        prepkit.drawn(self, "world-judge", prompt, off=("rolekit.with_reject",))
         for want in (worldblk.class_id(PROBLEM), worldblk.class_id(DOC_PROBLEM), PROBLEM, "test-first red phase compile error stub",
                      klass()["proposed"]):
             self.assertIn(want, prompt)

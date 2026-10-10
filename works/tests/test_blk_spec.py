@@ -35,6 +35,7 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
 import linekit  # noqa: E402
+import prepkit  # noqa: E402
 import answer as core_answer  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
@@ -417,12 +418,15 @@ class ScriptCase(unittest.TestCase):
         exited, rounds = self.run_loop("review", review_reply())
         self.assertEqual(exited, 1)
         prompt = pathlib.Path(rounds[0][0]["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "spec-review", prompt, off=("specblk.prep",))
         self.assertIn("test_mean_is_middle", prompt, "writer の仕様（out.spec.write）を描いた")
         # 直す: 穴に答える
         self.assertIs(self.ok("route", role="revise")["go"], True)
         exited, rounds = self.run_loop("revise", revise_reply())
         self.assertEqual(exited, 1)
-        self.assertIn("F1", pathlib.Path(rounds[0][0]["prompt_file"]).read_text(encoding="utf-8"))
+        prompt = pathlib.Path(rounds[0][0]["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "spec-revise", prompt, off=("specblk.prep",))
+        self.assertIn("F1", prompt)
         # 関所: 承認の前に run は走らせない（記録に仕様は無い）。文に run のコマンドの字面と審査の穴と答え
         b = self.opened()
         self.assertEqual(b.state["pending_human"]["node"], "spec.approve")
@@ -505,6 +509,7 @@ class ScriptCase(unittest.TestCase):
         self.assertIn("missing_test.py", rounds[0][1]["reason"])
         second = pathlib.Path(rounds[1][0]["prompt_file"]).read_text(encoding="utf-8")
         self.assertTrue(second.startswith(lib().REJECT_HEADING), "拒否の文は指示書の頭（R44）")
+        prepkit.drawn(self, "spec-write", second)
         self.assertIn("missing_test.py", second)
         self.assertEqual([p["already"] for p, _ in rounds], [False, True, True], "拒否の後の出し直しは同じ試行")
         self.assertIs(self.ok("route", role="review")["go"], False)

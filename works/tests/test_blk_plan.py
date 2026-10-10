@@ -54,6 +54,7 @@ import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
 import planmarks  # noqa: E402
+import prepkit  # noqa: E402
 import reads  # noqa: E402
 import report  # noqa: E402
 import rolekit  # noqa: E402
@@ -737,6 +738,10 @@ class ScriptCase(unittest.TestCase):
         prep, got = self.round_of("plan", linekit.reply("plan_ok"))
         self.assertTrue(got["ok"], got)
         self.assertIn(planblk.PLAN_SLOTS_HEAD, pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        prepkit.drawn(self, "plan", pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"),
+                      off=("rolekit.with_role_definition", "planblk.verify_part", "ripple.units_section", "structmark.plan_section",
+                           "libdocs._local_text", "worldmark.section", "planblk.prescription_section", "carry.prior_section",
+                           "rolekit.with_reject", "replan._section", "graphmap.render", "concepthome.section"))
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
         self.assertNotIn(planblk.PLAN_SLOTS_HEAD, text)
@@ -1861,6 +1866,10 @@ class ConvergeReviseCase(unittest.TestCase):
         self.assertEqual((got["node"], got["already"]), ("p2.fix_plan", False))
         self.assertIn("out_path", got)
         p = pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, planblk.REVISE_ROLE, p, off=("rolekit.with_role_definition", "planblk.verify_part", "ripple.units_section",
+                                                         "structmark.plan_section", "planblk.prescription_section", "carry.prior_section",
+                                                         "rolekit.with_reject", "planblk.plan_slots_section", "graphmap.render",
+                                                         "concepthome.section"))
         self.assertIn(converge.REVISE_ASK, p)
         self.assertIn(self.KEY, p)
         self.assertTrue(p.startswith(planblk.HEAD["plan"].split("\n\n")[0]), p[:200])
@@ -2290,8 +2299,12 @@ class TreeReviewCase(unittest.TestCase):
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
         doc2 = self.ripple_doc()
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
-        self.ok("prep", role="plan-review", excluded_file="")
+        prep = self.ok("prep", role="plan-review", excluded_file="")
         brief = (self.board_obj().work(planblk.ITEMS_DIR.format(k=2)) / "item-2.md").read_text(encoding="utf-8")
+        prepkit.drawn(self, "plan-review", "\n".join(f.read_text(encoding="utf-8") for f in [   # 頭の指示書と項目ごとの下請けの頼み
+            pathlib.Path(prep["prompt_file"]), *sorted(self.board_obj().work(planblk.ITEMS_DIR.format(k=2)).glob("*.md"))]),
+            off=("rolekit.with_role_definition", "libdocs._local_text", "rolekit.with_reject", "planblk._errors_part",
+                 "planmarks.review_section", "replan._section", "concepthome.section"))
         diff = brief[brief.index(planblk.DIFF_HEAD):]
         self.assertIn("+", diff)
         self.assertIn("上限ちょうどの値はそのまま返す", diff)

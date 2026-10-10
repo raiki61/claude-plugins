@@ -123,8 +123,7 @@ ASK_HEAD = promptsection.Section("## 問い", source="fn:eye.render")
 SHAPES_HEAD = promptsection.Section("## 見る形（番号で答える）", source="fn:eye.render")
 REPLY_HEAD = promptsection.Section("## 返し方", source="fn:eye.render")
 UNITS_HEAD = promptsection.Section("## 単位と実測（structure.json から機械が抜いた物。これが渡された物の全部）", source="fn:eye.render")
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
-RECEIVES = [promptsection.Receive("structure-eye", head, "eye.render") for head in (REJECT_HEAD, ASK_HEAD, SHAPES_HEAD, REPLY_HEAD, UNITS_HEAD)]
+RECEIVES = [promptsection.Receive("structure-eye", head) for head in (REJECT_HEAD, ASK_HEAD, SHAPES_HEAD, REPLY_HEAD, UNITS_HEAD)]
 
 
 def render(doc: dict, rejected: str = "") -> str:

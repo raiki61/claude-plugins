@@ -63,6 +63,7 @@ import planmarks  # noqa: E402
 import planrange  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
+import promptsection  # noqa: E402
 import reads  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
@@ -73,6 +74,8 @@ import writes  # noqa: E402
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
 REVIEW_ROLE = {1: "review", 2: "review2"}   # 審査役の名（印 works-node の名・reads-<役>.json）
 FIX_ROLE = {1: "refix", 2: "refix2"}        # 手直しの役の名
+# 1 回目の審査役の座（cut が review1-seat.md に書いて brief の seat_file と must で名指す。2 回目の審査役 review2 には座が無い）
+RECEIVES = [promptsection.Receive(REVIEW_ROLE[1], head) for head in (seat.HEAD, seat.PROMPT_HEAD, seat.WORDS_HEAD)]
 # 読んだ証拠の節（reads.main_for の引数: 役・輪・節。Task 6 の reads.py の口。include の名は reads が今の scope から引く）
 READS = {"review": ("review", "delta-loop", "review"),
          "refix": ("refix", "refix-loop", "refix"),

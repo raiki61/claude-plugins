@@ -26,6 +26,7 @@ import entry  # noqa: E402
 import lens  # noqa: E402
 import lenses  # noqa: E402
 import linekit  # noqa: E402
+import prepkit  # noqa: E402
 import refix  # noqa: E402
 import report  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
@@ -127,6 +128,7 @@ class LensBoardCase(RF.DeltaBoardCase):
         d = refix.fix_delta(self.board_obj())
         self.assertIs(out["silent_failure_hunter_go"], True)
         self.assertIn(linekit.LENS_DEF_BODY, out["prompt_silent_failure_hunter"])
+        prepkit.drawn(self, "lens-silent-failure-hunter", out["prompt_silent_failure_hunter"])
         self.assertIn(d["file"], out["prompt_silent_failure_hunter"])
         self.assertIn('["stats.py"]', out["prompt_silent_failure_hunter"])
         self.assertNotIn("model: inherit", out["prompt_silent_failure_hunter"], "前付けは剥がす")

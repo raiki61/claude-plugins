@@ -51,6 +51,7 @@ from engine.role_run import delegate_settings  # noqa: E402
 import adapter  # noqa: E402
 import ci_role  # noqa: E402
 import node_marker  # noqa: E402
+import prepkit  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
 
 BLK = ROOT / "blk-ci"
@@ -555,6 +556,7 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual((row["ok"], row["reason"]), (False, rounds[-1][1]["reason"]))
         second = pathlib.Path(rounds[1][0]["prompt_file"]).read_text(encoding="utf-8")
         self.assertTrue(second.startswith(ci_role.REJECT_HEADING))
+        prepkit.drawn(self, ci_role.ROLE, second)
         self.assertIn(rounds[0][1]["reason"], second)
         out = self.ok("collect", node="p0.local_checks")
         self.assertFalse(out["ok"])

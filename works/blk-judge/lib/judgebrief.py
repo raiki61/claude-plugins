@@ -43,15 +43,11 @@ HEAD = promptsection.Section("# 判定の材料（盤面から描いた物）\n\
                              "本線の判定の指示書（graphloops の p2.diagnose.md）の「入力」の節と問いの台帳の段を、この run の盤面から engine と同じ描き方で描いた物。"
                              "値が貼ってある欄はそのまま読め。パス（対象差分・観点の正本など）は Read で読め。手順と返す JSON の形は、お前を起こした"
                              "指示書のとおり。", source="fn:judgebrief.brief")
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。判定役は材料の頭と、依頼・PR・世界の解の行・前の run の落ちた理由を受ける
+# 判定役は材料の頭と、依頼・PR・世界の解の行・前の run の落ちた理由を受ける
 RECEIVES = [
-    promptsection.Receive("judge", LEDGER_HEAD, "judgebrief.template"),
-    promptsection.Receive("judge", HEAD, "judgebrief.brief"),
-    promptsection.Receive("judge", carry.PRIOR_HEAD, "carry.prior_section"),
-    promptsection.Receive("judge", worldmark.HEAD, "worldmark.section"),
-    *(promptsection.Receive("judge", head, "entryshape.request_text") for head in (entryshape.REQUEST_HEAD, entryshape.PR_TEXT_HEAD)),
-    *(promptsection.Receive("judge", head, "entryshape.write_pr_file")
-      for head in (entryshape.PR_TITLE, entryshape.PR_SUBJECT_HEAD, entryshape.PR_BODY_HEAD)),
+    *(promptsection.Receive("judge", head) for head in (
+        LEDGER_HEAD, HEAD, carry.PRIOR_HEAD, worldmark.HEAD, entryshape.REQUEST_HEAD, entryshape.PR_TEXT_HEAD, entryshape.PR_TITLE,
+        entryshape.PR_SUBJECT_HEAD, entryshape.PR_BODY_HEAD)),
 ]
 
 

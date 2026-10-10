@@ -54,7 +54,6 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import conflict  # noqa: E402
 import entry  # noqa: E402
-import graphmap  # noqa: E402  （L1。工程の地図の節の見出し）
 from leftovers import Unreadable, git_names  # noqa: E402
 import consult  # noqa: E402  （同じブロックの lib。範囲の相談の控え・置き場・答え）
 import libdocs  # noqa: E402
@@ -194,7 +193,6 @@ def select_kinds(sources: dict) -> dict:
         seen = sum(len(v) for v in sources.values())
         return {k: f"変更の種類が分からない（パス {seen} 本から見分けられない）——全部載せる" for k in KINDS}
     return {k: "; ".join(got[k][:5]) + (f" ほか {len(got[k]) - 5} 本" if len(got[k]) > 5 else "") for k in KINDS if k in got}
-
 
 
 # ---------------------------------------------------------------- 組み立て（純粋）
@@ -600,23 +598,25 @@ LANES_TEXT = promptsection.Section("## 修正役の並べの枝の結末（機�
                                    "- 「枝が直さなかった単位」（枝の返答の not_done）も直す義務のまま（下請けの項目に載る）\n"
                                    "- 「止めた単位」（食い違いの申し出。機械が盤面に積んだ）は changes にも not_done にも書かない", source="fn:fixrules.lanes_text")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。核の節は、修正役の指示書を組む口が貼る
+
+def receives(fixers) -> list:
+    """受け手の表 RECEIVES の行のうち、役の名で組む物。ライブラリの文書の節を受ける直す役 fixers"""
+    return [promptsection.Receive(role, head) for role in fixers
+            for head in (libdocs.TITLE, libdocs.DOC_TITLE, libdocs.FRAGMENT_HEAD, libdocs.LIB_HEAD)]
+
+
+# 核の節は、修正役の指示書を組む口が貼る。並べの枝の役の行は、枝の名を持つ fixlanes が組み（枝の数の住処 lanekit は、
+# この lib を回って import する）、TDD の輪の役が受ける決まりの節の行は、輪の役の名を持つ tddloop が組む
 RECEIVES = [
-    promptsection.Receive("fix", LANES_TEXT, "fixrules.lanes_text"),
-    promptsection.Receive("fix-ruled", HELD_HEAD, "fixrules.held_text"),
-    *(promptsection.Receive(role, TDD_REJECT_HEAD, "fixrules.tdd_render") for role in ("tdd", "tdd-rest")),
-    *(promptsection.Receive(role, head, "seat.section") for role in ("fix", "tdd") for head in (seatkit.HEAD, seatkit.PROMPT_HEAD)),
-    promptsection.Receive("fix", seatkit.G1_HEAD, "seat.g1_section"),
-    promptsection.Receive("fix", seatkit.G1_SUB_HEAD, "seat.g1_prompt"),
-    *(promptsection.Receive("fix-ruled", head, "conflict.write_rulings")
+    promptsection.Receive(recount.ROLE, LANES_TEXT),
+    promptsection.Receive(recount.RULED_ROLE, HELD_HEAD),
+    *(promptsection.Receive(role, head) for role in (recount.ROLE, recount.RULED_ROLE)
+      for head in (seatkit.HEAD, seatkit.PROMPT_HEAD, seatkit.G1_HEAD, seatkit.G1_SUB_HEAD)),
+    *(promptsection.Receive(recount.RULED_ROLE, head)
       for head in (conflict.RULINGS_TITLE, conflict.RULING_HEAD, conflict.PREV_REPLY_HEAD)),
-    *(promptsection.Receive(role, head, "replan._notes") for role in ("fix", "fix-ruled")
+    *(promptsection.Receive(role, head) for role in (recount.ROLE, recount.RULED_ROLE)
       for head in (replan.FIX_NOTES_HEAD, replan.NOTE_HEAD, replan.FACES_HEAD)),
-    *(promptsection.Receive(role, head, when) for role in ("fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3") for head, when in (
-        (libdocs.TITLE, "libdocs.section"), (libdocs.DOC_TITLE, "libdocs._local_text"),
-        (libdocs.FRAGMENT_HEAD, "libdocs._local_text"), (libdocs.LIB_HEAD, "libdocs._render"))),
-    *(promptsection.Receive(role, graphmap.HEAD, "graphmap.render") for role in (
-        "plan-answer", "plan-answer-ruled", "plan-answer-lane-1", "plan-answer-lane-2", "plan-answer-lane-3")),
+    *receives((recount.ROLE, recount.RULED_ROLE)),
 ]
 
 

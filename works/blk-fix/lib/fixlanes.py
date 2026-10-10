@@ -60,6 +60,7 @@ import lanekit  # noqa: E402  （並べの枝の部品: 切る・印・指しの
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import promptsection  # noqa: E402
+import recount  # noqa: E402  （修正役の印の名 ROLE・裁定の後の修正役の印の名 RULED_ROLE）
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 import seat  # noqa: E402
@@ -654,14 +655,18 @@ SUMMARY_TITLE = promptsection.Section("# 修正役の並べの枝の結末（機
 MERGED_HEAD = promptsection.Section("## 当てた項目（直しは run の作業ツリーに在る。changes に枝の返答の行を写す）", source="fn:fixlanes.summary_text")
 BACK_HEAD = promptsection.Section("## 順に戻した項目（この周で直す。下請けの項目に載る）", source="fn:fixlanes.summary_text")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。枝の役は自分の枝の指示書を、締めの後の修正役は結末の文を受ける
-_LANES = ("fix-lane-1", "fix-lane-2", "fix-lane-3")
+# 枝の役は自分の枝の指示書を、締めの後の修正役は結末の文を受ける。枝の役と範囲の相談の答えの節の役の名は lanekit から引き、
+# 相談・brief・ライブラリの文書・工程の地図の節の行も、それぞれの持ち主の口で組む
 RECEIVES = [
-    *(promptsection.Receive(role, head, when) for role in _LANES for head, when in (
-        (LANE_TITLE, "fixlanes._item"), (NEXT_REJECT_HEAD, "fixlanes._next_text"), (READ_HEAD, "fixlanes._next_text"),
-        (STEP_TITLE, "fixlanes._next_text"), (CHECK_HEAD, "fixlanes.render_rejects"))),
-    *(promptsection.Receive(role, head, "fixlanes.summary_text") for role in ("fix", "fix-ruled")
+    *consult.receives(lanekit.node_names(ANSWER_NODE), lane_nodes()),
+    *fixrules.receives(lane_nodes()),
+    *planbrief.receives(lane_nodes()),
+    *(promptsection.Receive(role, head) for role in lane_nodes()
+      for head in (LANE_TITLE, NEXT_REJECT_HEAD, READ_HEAD, STEP_TITLE, CHECK_HEAD, seat.HEAD, seat.PROMPT_HEAD)),
+    *(promptsection.Receive(role, head) for role in (recount.ROLE, recount.RULED_ROLE)
       for head in (SUMMARY_TITLE, MERGED_HEAD, BACK_HEAD)),
+    # 修正の受け付け（scripts/accept.py）の拒否の理由のファイル。次の回の修正役の指示書がパスを名指す
+    *(promptsection.Receive(role, CHECK_HEAD, "fixrules.last_reject") for role in (recount.ROLE, recount.RULED_ROLE)),
 ]
 
 

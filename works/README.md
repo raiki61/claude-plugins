@@ -13,7 +13,7 @@ works は、AI に修正の仕事を任せるための Claude Code のプラグ�
   8. 別の目で確かめる
   9. 報告する
 - どの工程でも、AI の返事は機械が形と中身を確かめ、通った時だけ次へ進む。人が確かめる所（関所）で止まるのは、始める時と、AI と機械が決めきれない時（最後の関所を毎回にする設定もある）。
-- 流れの図と、工程ごとに何をしているかは [docs/darkfactory-flow.md](docs/darkfactory-flow.md) に在る。役ごとの文脈・返す欄・やり取りは、宣言から作った設計図 [docs/darkfactory-design.md](docs/darkfactory-design.md) に在る。
+- 流れの図と、工程ごとに何をしているかは [docs/darkfactory-flow.md](docs/darkfactory-flow.md) に在る。
 
 仕組みの要点: Archon（AI の工程を YAML で書き、機械が順に回す道具）の上で動く pack。工程を並べるのは Archon に任せる。各工程の受け付けの規則と記録の検証器は、このリポジトリの既存のプラグイン graphloops から `.shared/core/` に写して使う。
 
@@ -147,7 +147,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 - 網を閉じる（8。印の有無に依らない）: Archon は YAML の網の設定から `strictAllowlist` を捨てるので、包みが `allowedDomains` が `*` を含まない起動に `strictAllowlist: true` を足す。閉じるのは sandbox の中の Bash の網だけで、WebFetch・WebSearch はこの鍵の外（YAML の `allowedDomains: []` は web を止めない。役から web を外すなら道具の一覧から WebFetch・WebSearch を抜く）。
 - stdin の中継（9）: 印のある起動の stdin を中継し（バイトは変えない）、最初の指示文が来た時に起動の記録を書く。指示書には触らない（全文版・差分版を選ぶ口は 2026-10-09 に消した）。
 - system prompt の差し込みの表（13）: 表 `INJECTORS` の行を決まった順に足す。今の行は `query_rule`（検索語に対象の名前を載せるなという判定役の定義の塊）・`graph_map`（下）・`text_reply`（返答の契約）。
-  - `graph_map` の地図の元（入口の YAML の隣の `<名>.graph.json`）は作る時に `uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で書き（同じ道具が設計図 `docs/darkfactory-design.md` も書く）、試験 `tests/test_graphmap.py` が今の YAML から組んだ物と字で同じかを縛る。今の旗 `map` は修正案の役の会話の 7 節（`plan`・`plan-revise`・`plan-answer`・`plan-answer-ruled`・`plan-answer-lane-1`〜`3`）だけ（持ち主 2026-10-07: 節ごとに選ぶ。設計 [docs/plans/2026-10-07-graph-map.md](docs/plans/2026-10-07-graph-map.md)）。
+  - `graph_map` の地図の元（入口の YAML の隣の `<名>.graph.json`）は作る時に `uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で書き、試験 `tests/test_graphmap.py` が今の YAML から組んだ物と字で同じかを縛る。今の旗 `map` は修正案の役の会話の 7 節（`plan`・`plan-revise`・`plan-answer`・`plan-answer-ruled`・`plan-answer-lane-1`〜`3`）だけ（持ち主 2026-10-07: 節ごとに選ぶ。設計 [docs/plans/2026-10-07-graph-map.md](docs/plans/2026-10-07-graph-map.md)）。
 - 対象の持ち主の禁止を写す（14）: 役の cwd の worktree の根の `.claude/settings.json`・`.claude/settings.local.json` の `permissions.deny` だけを足す（allow・CLAUDE.md・フックは読まない）。
 - engine の子の目印（15）: 子の env に `GRAPHLOOPS_ENGINE_CHILD=1` を立てる（本流の `ENGINE_CHILD_ENV` と同じ名）。対象の `tests/run.sh` などが既に読む形のまま、AI の役からの重い一式を拒める。
 - 子の終わりの種分け（16）・run ごとの書ける置き場（17。下の「自分食い」）・run の明示の模型（19。上の「開発の回し方」）・費用の見せ直し（20。包みが会話を替えた起動でも Archon の節の費用と模型が本当の値になるようにする）・返答の契約（21。局所レビューの役を本流の review-graph と同じく本文の JSON で受け、合わなければ同じ会話で 2 回まで出し直させる。設計 [docs/plans/2026-10-08-reply-contract.md](docs/plans/2026-10-08-reply-contract.md)）。

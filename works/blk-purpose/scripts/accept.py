@@ -18,4 +18,5 @@ def with_done(out: dict) -> dict:
     return rolekit.with_done(script_io.board_dir(), NODE, out)
 
 
-sys.exit(script_io.main(check_purpose, finish=with_done))
+if __name__ == "__main__":
+    sys.exit(script_io.main(check_purpose, finish=with_done))

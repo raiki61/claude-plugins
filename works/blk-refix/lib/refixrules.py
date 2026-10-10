@@ -16,6 +16,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import promptsection  # noqa: E402
+import refix  # noqa: E402  （差分の往復の役の名 FIX_ROLE・REVIEW_ROLE）
 import rulebook  # noqa: E402
 import seat  # noqa: E402  （借りたスキルの座の見出し）
 
@@ -26,10 +27,9 @@ ALWAYS = "いつも"
 # 正本のうち載せない節: 食い違いの申し出（conflicts）の出口はこの役に無い。曲げない決まりと、申し出の代わりの declared は読み替え
 # （refix-remap）が言う
 NOT_HERE = ("core-conflict",)
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。借りたスキルの座の節は、座を組む口（seat.section）が貼る
+# 借りたスキルの座の節は、座を組む口（seat.section）が貼る
 RECEIVES = [
-    *(promptsection.Receive(role, head, "seat.section") for role in ("refix", "refix2", "review2") for head in (seat.HEAD, seat.PROMPT_HEAD)),
-    promptsection.Receive("review2", seat.WORDS_HEAD, "seat.words_table"),
+    *(promptsection.Receive(role, seat.HEAD) for role in refix.FIX_ROLE.values()),   # 座は skill で使うので型の節（PROMPT_HEAD）は載らない
 ]
 
 

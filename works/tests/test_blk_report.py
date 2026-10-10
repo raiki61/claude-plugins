@@ -35,6 +35,7 @@ for _p in (str(TESTS), str(CORE), str(BLK / "lib")):
 import boardreplay as br  # noqa: E402
 import copyledger  # noqa: E402
 import entry  # noqa: E402
+import prepkit  # noqa: E402
 import report_roles as rr  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 
@@ -477,7 +478,9 @@ class PathCase(_Case):
         self.assertTrue(before)
         # 2 回目の指示書の頭に前の拒否の文
         prep2 = rr.prep(self.bd, rr.WRITE, self.repo)
-        self.assertTrue(pathlib.Path(prep2["prompt_file"]).read_text(encoding="utf-8").startswith(rr.REJECT_HEADING))
+        again = pathlib.Path(prep2["prompt_file"]).read_text(encoding="utf-8")
+        self.assertTrue(again.startswith(rr.REJECT_HEADING))
+        prepkit.drawn(self, rr.WRITE, again)
 
     def test_give_up_after_three_then_fallback_report(self):
         self.board()

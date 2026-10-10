@@ -50,6 +50,7 @@ from accept import role_schema  # noqa: E402
 from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA, rules_module  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import node_marker  # noqa: E402
+import prepkit  # noqa: E402
 
 LINE = "eyes-line"
 ROWS = json.loads((HERE / "boards" / "tables" / "eyes-rows.json").read_text(encoding="utf-8"))
@@ -469,6 +470,7 @@ class ConceptHeadCase(_Case):
         _, got = self.run_eye("r1-comments", COMMENTS_OK)   # 筋の順: コメントの削除候補の後に R1 の本体が待つ
         self.assertTrue(got["ok"], got)
         text = eyes.prep(self.bd, "r1-minimality", self.rnd, self.repo)["prompt"]
+        prepkit.drawn(self, "r1-minimality", text, off=("rolekit.with_reject", "concepthome.section"))
         head = text[text.index("## 最小の意味"):].split("\n---\n")[0]   # 役の定義の後・写しの本文の前に置く頭の節
         self.assertIn(concepthome.AXIS, head)
         self.assertIn("増えた写しの塊 2 個", head)
@@ -489,6 +491,7 @@ class PrepCase(_Case):
         self.enter()
         got = eyes.prep(self.bd, "r1-comments", self.rnd, self.repo)
         text = pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "r1-comments", text, off=("rolekit.with_role_definition", "rolekit.with_reject"))
         self.assertEqual(got["prompt"], text)
         self.assertEqual((got["node"], got["attempt"], got["already"]), ("r1.comment_candidates", 1, False))
         # 写しの graph の reads で描いた本文（穴が盤面の値で埋まる）と、返す JSON Schema
@@ -550,6 +553,9 @@ class PrepCase(_Case):
         p.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         self.enter()
         text = eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"]
+        prepkit.drawn(self, "r2-compare", text, off=("rolekit.with_reject", "eyes.premise_section",   # 設計の後の人の答え・人の答え・
+                                                     "design.human_answers", "design.named_sections",   # 名指しの設計書・
+                                                     "design.repo_map"))   # 地図のファイルは無い
         self.assertIn(eyes.PREMISE_HEAD, text)
         self.assertIn("周 1: 上限は呼び手ごとに違うと分かった", text)
         self.assertIn(f"『{eyes.PREMISE_CHANGED}: 』", text)
@@ -587,6 +593,7 @@ class PrepCase(_Case):
         self._with_human_item()
         entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
         text = design.prep(self.bd, self.repo)["prompt"]
+        prepkit.drawn(self, "r2-design", text, off=("rolekit.with_reject", "design.named_sections", "design.repo_map"))
         self.assertIn(self.HUMAN_ITEM["note"], text, "人の答えの一言が独立設計の役に届く")
         self.assertNotIn(self.HUMAN_ITEM["asked"][0], text, "聞いた項目の本文は貼らない")
 
@@ -1096,7 +1103,8 @@ class PathCase(_Case):
         self.enter()
         self.assertFalse(eyes.route(self.bd, "r2-compare", self.rnd)["go"])
         self.assertTrue(eyes.route(self.bd, "premise-check", self.rnd)["go"])
-        _, got = self.run_eye("premise-check", PREMISE_ESCALATE)
+        prep, got = self.run_eye("premise-check", PREMISE_ESCALATE)
+        prepkit.drawn(self, "premise-check", prep["prompt"], off=("rolekit.with_reject",))
         self.assertTrue(got["ok"], got)
         q = [x for x in record(self.bd)["questions"] if x.get("kind") == "premise"]
         self.assertEqual([(x["key"], x["status"]) for x in q], [("識別子を別に持つか", "escalate")])
@@ -1128,7 +1136,10 @@ class PathCase(_Case):
         roles = ["r1-comments", "r2-compare", "r3-coherence", "r4-scope"]
         for role in roles:
             self.assertTrue(eyes.route(self.bd, role, self.rnd)["go"], role)
-            eyes.prep(self.bd, role, self.rnd, self.repo)
+            text = eyes.prep(self.bd, role, self.rnd, self.repo)["prompt"]
+            if role in ("r3-coherence", "r4-scope"):
+                prepkit.drawn(self, role, text, off={"r3-coherence": ("rolekit.with_reject", "concepthome.section"),
+                                                     "r4-scope": ("rolekit.with_reject", "gatemarks.carried_section")}[role])
         procs = [subprocess.Popen([sys.executable, str(PACK.root / "blk-eyes" / "scripts" / "accept.py")], cwd=str(self.repo),
                                   env=script_env(self.bd, role=role, reply=json.dumps(REPLY[role], ensure_ascii=False)),
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for role in roles]

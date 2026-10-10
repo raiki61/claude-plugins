@@ -29,6 +29,7 @@ import entry  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
+import prepkit  # noqa: E402
 import refix  # noqa: E402
 import rulebook  # noqa: E402
 import seat  # noqa: E402
@@ -550,6 +551,7 @@ class RefixScriptCase(DeltaBoardCase):
         prepped = json.loads(r.stdout)
         self.assertEqual(prepped["owed"], 2)
         composed = pathlib.Path(prepped["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, refix.FIX_ROLE[1], composed)
         self.assertIn(f"`{prepped['brief_file']}`", composed)
         self.assertIn(prepped["prompt_file"], prepped["must"])
         r = self.run_script("blk-refix", "accept_refix", repo, reply=json.dumps(linekit.reply("fix2_delta_fix_missing_key")),

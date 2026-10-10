@@ -42,6 +42,7 @@ import entry  # noqa: E402
 import linekit  # noqa: E402
 import material  # noqa: E402
 import node_marker  # noqa: E402
+import prepkit  # noqa: E402
 import test_entry as TE  # noqa: E402
 import hermetic  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
@@ -247,6 +248,8 @@ class _Case(unittest.TestCase):
         """prep → take（役の代わりに見本の返答を渡す）"""
         got = material.prep(self.bd, role, self.repo, purpose_file)
         self.assertTrue(pathlib.Path(got["prompt_file"]).is_file(), got)
+        prepkit.drawn(self, role, pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"),
+                      off=("material.prep",))   # 拒否の後・local-review の時だけの節も同じ関数が貼る
         nid = material.ROLES[role]
         return material.take(self.bd, role, reply if reply is not None else good_reply(nid), self.repo, adapter)
 
@@ -921,6 +924,7 @@ class PurposeCase(_Case):
         self.assertIs(r["purpose_review"], True, r["why"])
         got = material.prep(bd, "purpose-review", repo, "")
         text = pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "purpose-review", text, off=("material.prep",))
         self.assertIn(PURPOSE_REPLY["purpose_text"], text)           # 盤面の目的（purpose_file ではない）
         self.assertNotIn(material.PURPOSE_MISSING, text)
         reply = {"verdict": "問題なし", "reason": "要約は依頼の範囲を狭めていない", "findings": []}

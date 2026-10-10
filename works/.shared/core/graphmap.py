@@ -20,10 +20,6 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - seat(graph, name) -> (根の印の名, 会話を共にする印の名の集合)
 - render(graph, name, off=None, budget=MAP_BUDGET) -> str: 印 name の節を ★ にした地図の文。off は切った切り替えの語の集合
   （None は分からない）。budget は字数の枠（None は枠なし）
-- design(graph, sections, receives, manifests) -> str: 人が読む設計図の文書（mermaid の図。線の全体 1 枚とブロックごと 1 枚）。
-  sections は貼る節の宣言の行 {module, name, heading, source, human}、receives は受け手の行 {workflow, role, module, name, when}、
-  manifests はブロックごとの {consumes, produces}（graphmap は節の宣言もブロックも知らず、dev の道具が集めて渡す）。宣言の欠け
-  （目的の無い AI の節・graph に無い役を名指す受け手の行）と、1 枚の図が mermaid の既定の枠（字数・エッジ数）を超える時は、図を出さずに ValueError
 
 地図の元（graph）の形: {version, entry, sources: {相対パス: sha256}, workflows: {工程の名: {nodes: [節]}}}。節は
 {id, kind, purpose?, needs?, optional?, when?, deps, marker?, cont?, flags?, max?, body?, call?, with?}。kind は ai（prompt・command）・
@@ -54,7 +50,6 @@ ai-loop（loop:）・script・bash・approval・loop（loop_group。body に中�
 """
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import json
 import pathlib
@@ -74,7 +69,6 @@ NEEDS_RE = re.compile(r"\s*\[needs: ([A-Za-z0-9_]+)\]\s*$")
 OPTIONAL_RE = re.compile(r"\s*\[optional\]\s*$")
 _REF_WORD = re.compile(r"\$[A-Za-z0-9_.-]*\.([A-Za-z0-9_]+)$")
 _PLUMBING = frozenset({"script", "bash", "cancel", "wait"})
-_AI_KINDS = frozenset({"ai", "ai-loop"})
 _SWITCH_WORDS = {"on": True, "off": False}
 HEAD = promptsection.Section("# 工程の地図\n"
                              "（工程の YAML から機械で組んだ事実。★ はあなたの会話が走る節。指示ではない——あなたの仕事は指示書のとおり）\n"
@@ -515,191 +509,3 @@ def render(graph: dict, name: str, off: Optional[Iterable[str]] = None, budget: 
         sites = "・".join(dict.fromkeys(n["id"] for _, n in _sites(graph, wf)))
         sections.append((f"{wf}（{sites} で走る）:", _lines(graph, wf, graph["workflows"][wf]["nodes"], mine, offs, 0)))
     return _fit([HEAD], sections, budget)
-
-
-# --- 設計図（graph → mermaid の文書） ---------------------------------------------------------------------------------
-MERMAID_MAX_TEXT = 50000   # mermaid の既定の枠 maxTextSize / maxEdges。超える図は表示されないので、出さずに拒む
-MERMAID_MAX_EDGES = 500
-_REF_FIELD = re.compile(r"\$([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_]+)")
-
-
-def _mid(text: str) -> str:
-    """mermaid の id に使える字だけにする（他の字は _）"""
-    return re.sub(r"[^A-Za-z0-9_]", "_", text)
-
-
-def _md(level: int, text: str) -> str:
-    """文書の見出しの行（役の指示書に貼る見出しの宣言と取り違えない書き方）"""
-    return "#" * level + " " + text
-
-
-def _q(text: str) -> str:
-    """mermaid の引用の字（" と改行を避ける）"""
-    return text.replace('"', "'").replace("\n", " ")
-
-
-def _edges(pairs: Mapping[Tuple[str, str], Set[str]], dotted: Sequence[Tuple[str, str]] = ()) -> List[str]:
-    out = []
-    for (a, b), labels in sorted(pairs.items()):
-        out.append(f'{a} -->|"{_q(", ".join(sorted(labels)))}"| {b}' if labels else f"{a} --> {b}")
-    out.extend(f'{a} -.->|"次の周"| {b}' for a, b in dotted)
-    return out
-
-
-def _flat(nodes: Sequence[dict], above: Sequence[dict] = ()) -> List[Tuple[dict, Tuple[dict, ...]]]:
-    """(節, 外側の輪の列) を上から順に。輪の中の節も平らに出す"""
-    out = []
-    for n in nodes:
-        out.append((n, tuple(above)))
-        out.extend(_flat(n.get("body") or [], (*above, n)))
-    return out
-
-
-class _Wf:
-    """1 つの工程の節の索引。節の効く先の依存（外側の輪の依存も含む）と、描く節への解き方を持つ"""
-
-    def __init__(self, wf: str, nodes: Sequence[dict], shown: Callable[[dict], bool]):
-        self.wf, self.nodes, self.shown = wf, nodes, shown
-        self.flat = _flat(nodes)
-        self.by_id = {n["id"]: (n, above) for n, above in self.flat}
-
-    def deps(self, nid: str) -> List[str]:
-        n, above = self.by_id[nid]
-        return [d for m in (*above, n) for d in m["deps"] if d in self.by_id]
-
-    def resolve(self, nid: str, seen: Optional[Set[str]] = None) -> List[str]:
-        """節 nid が終わった時に出ている描く節。描かない節（配管）は、その依存の先へ辿る"""
-        seen = set() if seen is None else seen
-        if nid in seen or nid not in self.by_id:
-            return []
-        seen.add(nid)
-        n, _ = self.by_id[nid]
-        if self.shown(n):
-            return [nid]
-        inside = [m["id"] for m, above in self.flat if n in above and self.shown(m)]
-        if inside:
-            return inside
-        return [s for d in self.deps(nid) for s in self.resolve(d, seen)]
-
-    def edges(self, skip_refs: Set[str]) -> Dict[Tuple[str, str], Set[str]]:
-        """描く節どうしのエッジ → 添える欄の名（when・with の $<節>.output.<欄>。skip_refs の節の出口は線にしない）"""
-        out: Dict[Tuple[str, str], Set[str]] = {}
-        for n, above in self.flat:
-            if not self.shown(n):
-                continue
-            for d in self.deps(n["id"]):
-                for s in self.resolve(d):
-                    if s != n["id"]:
-                        out.setdefault((s, n["id"]), set())
-            texts = [n.get("when") or "", *(n.get("with") or {}).values()]
-            for ref, field in (m for t in texts for m in _REF_FIELD.findall(t)):
-                if ref in skip_refs:
-                    continue
-                for s in self.resolve(ref):
-                    if s != n["id"]:
-                        out.setdefault((s, n["id"]), set()).add(field)
-        return out
-
-
-def _role_label(n: dict, pasted: int) -> str:
-    outs = ", ".join(n.get("outputs") or []) or "-"
-    return _q(f'{n["id"]}<br/>{n["purpose"]}<br/>機械が貼る {pasted}<br/>返す: {outs}')
-
-
-def _manifest_edges(frames: Sequence[str], manifests: Mapping[str, Mapping]) -> List[str]:
-    pairs: Dict[Tuple[str, str], Set[str]] = {}
-    for p, pm in manifests.items():
-        for c, cm in manifests.items():
-            if p == c or p not in frames or c not in frames:
-                continue
-            for made in pm.get("produces") or []:
-                for used in cm.get("consumes") or []:
-                    a, b = made["name"], used["name"]
-                    if a == b or fnmatch.fnmatchcase(b, a) or fnmatch.fnmatchcase(a, b):
-                        pairs.setdefault((p, c), set()).add(b)
-    return [f'F_{_mid(p)} -->|"{_q(", ".join(sorted(names)))}"| F_{_mid(c)}' for (p, c), names in sorted(pairs.items())]
-
-
-def design(graph: dict, sections: Sequence[Mapping], receives: Sequence[Mapping], manifests: Mapping[str, Mapping]) -> str:
-    """設計図の文書（mermaid の図: 線の全体 1 枚と、入口でない工程（ブロック）ごと 1 枚）。同じ入力からいつも同じ字。
-    目的の無い AI の節・graph に無い役か宣言に無い節を名指す受け手の行・枠を超える図は、図を出さずに ValueError"""
-    wfs = graph["workflows"]
-    entry = graph["entry"]
-    for wf, doc in sorted(wfs.items()):
-        for n, _ in _flat(doc["nodes"]):
-            if n["kind"] in _AI_KINDS and not n.get("purpose"):
-                raise ValueError(f"工程 {wf} の AI の節 {n['id']} に目的の 1 行（description:）が無い")
-    decl = {(s["module"], s["name"]): s for s in sections}
-    rows = sorted(receives, key=lambda r: (r["workflow"], r["role"], r["module"], r["name"], r["when"]))
-    pasted: Dict[Tuple[str, str], List[Tuple[Mapping, Mapping]]] = {}   # (工程, 節の id) → [(宣言, 受け手の行)]
-    for r in rows:
-        sec = decl.get((r["module"], r["name"]))
-        if sec is None:
-            raise ValueError(f"受け手の行 {r['workflow']}/{r['role']} が名指す節の宣言 {r['module']}.{r['name']} が無い")
-        doc = wfs.get(r["workflow"])
-        hit = [n["id"] for n, _ in _flat(doc["nodes"]) if n["kind"] in _AI_KINDS and r["role"] in (n["id"], n.get("marker"))] if doc else []
-        if not hit:
-            raise ValueError(f"受け手の行の役 {r['role']!r}（工程 {r['workflow']}）が graph に無い")
-        for nid in hit:
-            pasted.setdefault((r["workflow"], nid), []).append((sec, r))
-    figures: List[Tuple[str, str, List[str], List[str]]] = []   # (見出し, 図の名, 行, エッジの行)
-
-    top = wfs[entry]["nodes"]
-    first_call = next((i for i, n in enumerate(top) if n["kind"] == "call"), None)
-    givers = {n["id"] for n in top[:first_call + 1] if n["kind"] in _PLUMBING | {"call"}} if first_call is not None else set()
-    called = list(dict.fromkeys(n["call"] for n, _ in _flat(top) if n["kind"] == "call"))
-    line = _Wf(entry, top, lambda n: n["kind"] in _AI_KINDS | {"call", "approval"})
-    body: List[str] = []
-    for blk in called:
-        members = [n for n, _ in line.flat if n["kind"] == "call" and n["call"] == blk]
-        body.append(f'subgraph F_{_mid(blk)}["{_q(blk)}"]')
-        body += [f'  {_mid(n["id"])}["{_q(n["id"])} ⇒ {_q(blk)}<br/>{_q(n.get("purpose") or "")}"]' for n in members]
-        body.append("end")
-    for n, _ in line.flat:
-        if n["kind"] == "approval":
-            body.append(f'{_mid(n["id"])}{{"{_q(n["id"])}<br/>{_q(n.get("purpose") or "")}"}}')
-        elif n["kind"] in _AI_KINDS:
-            body.append(f'{_mid(n["id"])}["{_role_label(n, len(pasted.get((entry, n["id"]), [])))}"]')
-    pairs = {(_mid(a), _mid(b)): lab for (a, b), lab in line.edges(givers).items()}
-    edges = _edges(pairs) + _manifest_edges(called, manifests)
-    figures.append((f"線の全体（{entry}）", f"線の全体 {entry}", body, edges))
-
-    for wf in sorted(w for w in wfs if w != entry):
-        ai = _Wf(wf, wfs[wf]["nodes"], lambda n: n["kind"] in _AI_KINDS)
-        roles = [n for n, _ in ai.flat if n["kind"] in _AI_KINDS]
-        body = [f'subgraph F_{_mid(wf)}["{_q(wf)}"]']
-        body += [f'  {_mid(n["id"])}["{_role_label(n, len(pasted.get((wf, n["id"]), [])))}"]' for n in roles]
-        body.append("end")
-        dotted = []
-        for n, _ in ai.flat:
-            if n["kind"] == "loop":
-                mine = [m for m in n["body"] if m["kind"] in _AI_KINDS]
-                if len(mine) >= 2:
-                    dotted.append((_mid(mine[-1]["id"]), _mid(mine[0]["id"])))
-        pairs = {(_mid(a), _mid(b)): lab for (a, b), lab in ai.edges(set()).items()}
-        edges = _edges(pairs, dotted)
-        sources = sorted({s["source"] or "出どころ未宣言" for (w, _), items in pasted.items() if w == wf for s, _ in items})
-        sid = {s: f"S_{i}" for i, s in enumerate(sources)}
-        body += [f'{sid[s]}(["{_q(s)}"])' for s in sources]
-        for (w, nid), items in sorted(pasted.items()):
-            if w == wf:
-                for s, r in items:
-                    head = (s["heading"].strip().splitlines() or [""])[0].lstrip("# ").strip()   # 見出しの字は本文を含みうるので 1 行目だけ
-                    edges.append(f'{sid[s["source"] or "出どころ未宣言"]} -->|"{_q(head)} / {_q(r["when"])}"| {_mid(nid)}')
-        figures.append((wf, wf, body, edges))
-
-    out = [_md(1, f"{entry} の設計図"), "",
-           "工程の YAML（役・順序・輪・with・when）、役の指示書に機械が貼る節の宣言（出どころ・受け手・入る条件）、各ブロックの manifest（produces・consumes）"
-           "から作った文書。手で書かない（`uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で作り直す）。", "",
-           "- 役の四角: 名前・役の 1 行・`機械が貼る N`（その役の指示書に機械が貼る節の数）・`返す:`（返答の必須の欄）",
-           "- 実線の矢印: 工程の順序。字は後の工程が `when`・`with` で読む前の工程の返答の欄、または manifest の produces → consumes の名",
-           "- 点線の矢印: 役が 2 つ以上いる輪の、次の周への戻り",
-           "- 丸い箱から役への矢印: 機械が貼る節の出どころ → 受け取る役。字は見出し / 入る条件を判じる関数", ""]
-    for title, name, body, edges in figures:
-        text = "\n".join(["flowchart TD", *(f"  {ln}" for ln in [*body, *edges])])
-        if len(text) > MERMAID_MAX_TEXT:
-            raise ValueError(f"図 {name} の字数 {len(text)} が mermaid の枠 maxTextSize {MERMAID_MAX_TEXT} を超える")
-        if len(edges) > MERMAID_MAX_EDGES:
-            raise ValueError(f"図 {name} のエッジ {len(edges)} 本が mermaid の枠 maxEdges {MERMAID_MAX_EDGES} を超える")
-        out += [_md(2, title), "", "```mermaid", text, "```", ""]
-    return "\n".join(out)

@@ -114,6 +114,7 @@ import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
 import leftovers  # noqa: E402
 import promptsection  # noqa: E402
+import recount  # noqa: E402  （.shared/core。修正役の印の名 ROLE・裁定の後の修正役の印の名 RULED_ROLE）
 from leftovers import Unreadable, git, git_names  # noqa: E402
 
 RULES_GRAPH = "review-loop-tdd.json"
@@ -1464,13 +1465,14 @@ CONFLICT_HEAD = promptsection.Section("## 食い違いで止めた単位（直�
 OUT_HEAD = promptsection.Section("## 直す義務から外れた単位（直すな。not_done に理由を書け）", source="fn:tddloop._finish")
 DIRECT_HEAD = promptsection.Section("## direct の単位（ここで直せ）", source="fn:tddloop._finish")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。輪の役は回ごとの指示書を、輪の後の修正役は輪の結果を受ける
+# 輪の役は回ごとの指示書を、輪の後の修正役は輪の結果を受ける。輪の役の名はここが持つので、輪の役が受ける決まり・brief・借りた
+# スキルの座の節の行もここで組む（fixrules・planbrief はこの lib を import できない）
 RECEIVES = [
-    *(promptsection.Receive(role, head, when) for role in ("tdd", "tdd-rest") for head, when in (
-        (DO_HEAD, "tddloop.prep"), (DUTY_HEAD, "tddloop.prep"), (NOW_HEAD, "tddloop.prep"), (RUN_HEAD, "tddloop.prep"),
-        (REPLY_HEAD, "tddloop.prep"), (STEP_TITLE, "tddloop.prep"), (HANDOFF_HEAD, "tddloop.handoff_lines"),
-        (TOGETHER_HEAD, "tddloop._together_lines"))),
-    *(promptsection.Receive(role, head, "tddloop._finish") for role in ("fix", "fix-ruled")
+    *(promptsection.Receive(role, head) for role in UNIT_NODES
+      for head in (DO_HEAD, DUTY_HEAD, NOW_HEAD, RUN_HEAD, REPLY_HEAD, STEP_TITLE, HANDOFF_HEAD, TOGETHER_HEAD, seat.HEAD)),
+    *(promptsection.Receive(role, fixrules.TDD_REJECT_HEAD) for role in UNIT_NODES),
+    *planbrief.receives(UNIT_NODES),
+    *(promptsection.Receive(role, head) for role in (recount.ROLE, recount.RULED_ROLE)
       for head in (RESULT_TITLE, FIXED_HEAD, CONFLICT_HEAD, OUT_HEAD, DIRECT_HEAD)),
 ]
 

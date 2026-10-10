@@ -32,11 +32,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / "blk-fix" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+sys.path.append(str(ROOT / "tests"))   # 試験の道具（prepkit）
 
 import adapter  # noqa: E402
 import conflict  # noqa: E402
 import consult  # noqa: E402
 import fixrules  # noqa: E402
+import prepkit  # noqa: E402
 import recount  # noqa: E402
 import scopes  # noqa: E402
 
@@ -211,6 +213,7 @@ class FlowCase(Base):
         out = self.ask(reply(ask_row(tests=["works/tests/test_report.py:12"]), ask_row(paths=["../outside.md"])))
         self.assertEqual((out["consulted"], out["go"], out["turn"], out["spent"]), (True, True, 1, False))
         q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "plan-answer", q, off=("graphmap.render",))   # 工程の地図は包みが system prompt に足す
         self.assertIn("相談 1", q)
         self.assertNotIn("相談 2", q, "断った頼みは答えの節に聞かない")
         self.assertIn("works/CHANGELOG.md", q)

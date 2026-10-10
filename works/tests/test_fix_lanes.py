@@ -32,6 +32,7 @@ for _p in (ROOT / "blk-fix" / "lib",):
         sys.path.append(str(_p))
 
 import adapter  # noqa: E402
+import prepkit  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import fixlanes  # noqa: E402
@@ -175,6 +176,9 @@ class TestLane(LaneBoard):
         st = self.state(1)
         self.assertIn(st["items"][0]["rules"], text)
         self.assertIn("この項目の最初の回", text)
+        prepkit.drawn(self, "fix-lane-1", text + "\n\n" + pathlib.Path(st["items"][0]["rules"]).read_text(encoding="utf-8"),   # 回の指示書と項目の決まり
+                      off=("structmark.plan_section", "consult.answer_text", "fixlanes._next_text", "fixlanes.render_rejects",
+                           "libdocs._local_text", "planbrief.render"))
         key = pathlib.Path(adapter.session_key_path(str(self.board), "fix-lane-1")).read_text(encoding="utf-8").strip()
         self.assertTrue(key.endswith(":lane-1:item-1"), key)
         mark = pathlib.Path(adapter.lane_tree_path(str(self.board), "fix-lane-1")).read_text(encoding="utf-8").strip()

@@ -263,10 +263,10 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `prompt-sections` 指示書に機械が貼る節の見出しの宣言
 
 - 状態: 住処あり
-- 住処: `.shared/core/promptsection.py`（層 L1。標準ライブラリだけ。節の宣言 `Section`——見出しの字そのものの str の子で、出どころ `source` と人向けの理由 `human` の欄を持つ——と、受け手の宣言 `Receive`（役の印の名・節の定数・入る条件を判じる関数の完全な名）、宣言を並べる口 `declared_sections`）
-- 約束: 受け手の側の表 `RECEIVES`（その役の指示書を組むブロックの lib のモジュール `blk-*/lib/*.py` の直下）。共有の定数は受け手も条件も持たず、受け手と条件は受け手の側の表だけが知る。出どころの 3 形は `input:<名>`（ブロックの入力。ブロックの lib の節だけ）・`board:<モジュール>.<定数>`（盤面のファイルの名を持つ定数を指し、字を写さない）・`fn:<モジュール>.<関数>`（節の中身を作る関数）
+- 住処: `.shared/core/promptsection.py`（層 L1。標準ライブラリだけ。節の宣言 `Section`——見出しの字そのものの str の子で、出どころ `source` か、役の指示書に機械が貼らない理由 `human` の欄を持つ——と、受け手の宣言 `Receive`（役の印の名・節の定数・入る条件を判じる関数の完全な名。受けるとは節がその役の文脈に届くこと——指示書に貼られる、または指示書が名指すファイルで渡る——。その関数が節の出どころ `fn:` と同じなら省き、出どころの関数を入る条件とする）、宣言を並べる口 `declared_sections`）
+- 約束: 受け手の側の表 `RECEIVES`（その役の指示書を組むモジュールの直下。ブロックの lib のモジュール `blk-*/lib/*.py` の行はそのブロックの役、指示書を組む core のモジュールの行は、役を印に持つちょうど 1 つの工程の役）。共有の定数は受け手も条件も持たず、受け手と条件は受け手の側の表だけが知る。出どころの 3 形は `input:<名>`（ブロックの入力。ブロックの lib の節だけ）・`board:<モジュール>.<定数>`（盤面のファイルの名を持つ定数を指し、字を写さない）・`fn:<モジュール>.<関数>`（節の中身を作る関数）
 - 知ってよい所: 住処だけ。見出しの定数は役の支度のモジュール（`blk-*/lib/*.py`・`blk-*/scripts/*.py`・`darkfactory/lib/*.py`・`darkfactory/scripts/*.py`・`.shared/core/*.py`）の直下で `promptsection.Section(...)` の最初の引数に置く。型と口の定義が住処の外に写されないことを柵が見る
-- 今: 範囲の正本は ast の柵 `tests/test_graphmap.py` の `RealLineCase.test_machine_headings_are_declared_sections`: 上のモジュールの docstring でない字面のうち、`#` の見出しの行を持つ物（f-string の穴の先に字が在る形も）は全部 `Section` の最初の引数に在る。見出しを貼るのでなく読む所（`re` の関数・文字列の照らしの method の引数・比べの項）は外す。穴を持つ見出しは `.format` の型にして呼び手が `X.format(...)` で埋める。宣言が解けること（`test_section_declarations_resolve`）と、受け手の表が現物と合うこと（`test_receives_match_the_code`）も同じ試験が見る
+- 今: 範囲の正本は ast の柵 `tests/test_graphmap.py` の `RealLineCase.test_machine_headings_are_declared_sections`: 上のモジュールの docstring でない字面のうち、`#` の見出しの行を持つ物（f-string の穴の先に字が在る形も）は全部 `Section` の最初の引数に在る。見出しを貼るのでなく読む所（`re` の関数・文字列の照らしの method の引数・比べの項）は外す。穴を持つ見出しは `.format` の型にして呼び手が `X.format(...)` で埋める。宣言が解けること（`test_section_declarations_resolve`）と、受け手の表の行が引けて工程ごとに現物と合うこと（`test_receives_match_the_code`）も同じ試験が見る。役ごとには、各ブロックの試験が描いた本物の指示書（名指すファイルを描ける所はつないで）を `tests/prepkit.py` の `drawn` が役の行と照らす（本文に現れた宣言済みの見出しはその役の行に在り、役の行の節で本文に無い物は、その描きで入らない入る条件の関数として名指した物だけ）
 - 計画: 無し
 
 ### `core-seams` 写しの核の差し替えの口

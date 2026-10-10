@@ -32,6 +32,7 @@ import stubfold  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
+import prepkit  # noqa: E402
 from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, PLAN_FIELDS, block, board_shas, find_node, load, pop_accept_last,  # noqa: E402
                           run_script)
 from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
@@ -982,6 +983,9 @@ class TestRuledPrepBrief(ConflictBoardCase):
     def test_rulings_line_before_brief_head(self):
         import planbrief
         r, prompt = self.ruled_prompt("fix_code_as", RULE_TEXT)
+        prepkit.drawn(self, "fix-ruled", prompt, off=("structmark.plan_section", "conflict.write_rulings", "fixlanes.summary_text",
+                                                      "fixrules.held_text", "libdocs._local_text", "planbrief.render", "replan._notes",
+                                                      "seat.g1_prompt", "seat.section", "tddloop._finish", "fixrules.last_reject"))
         self.assertIn(r["rulings_file"], prompt.split("\n")[1], "裁定の文のファイルを見出しの次の 1 行で名指す")
         self.assertLess(prompt.index(r["rulings_file"]), prompt.index(planbrief.HEAD))
 

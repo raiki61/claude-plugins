@@ -50,10 +50,10 @@ def input_name(row) -> str:
 
 TASK_HEAD = promptsection.Section("## この節での仕事", source="fn:lenses.render")
 REPLY_HEAD = promptsection.Section("## 返答の書き方", source="fn:lenses.render")
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。レンズごとの役の印の名は lens-<レンズの名>
+# レンズごとの役の印の名は lens-<レンズの名>
 RECEIVES = [
-    promptsection.Receive(f"lens-{row['lens']}", head, when) for row in LENSES for head, when in (
-        (TASK_HEAD, "lenses.render"), (REPLY_HEAD, "lenses.render"), (rolekit.ROLE_DEF_HEAD, "lenses.render"))
+    *(promptsection.Receive(f"lens-{row['lens']}", head) for row in LENSES for head in (TASK_HEAD, REPLY_HEAD)),
+    *(promptsection.Receive(f"lens-{row['lens']}", rolekit.ROLE_DEF_HEAD, "lenses.render") for row in LENSES),
 ]
 
 

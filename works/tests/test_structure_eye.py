@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import eye  # noqa: E402
 import line_edge  # noqa: E402
+import prepkit  # noqa: E402
 import scriptline  # noqa: E402
 import structmark  # noqa: E402
 from hermetic import child_env  # noqa: E402
@@ -47,7 +48,9 @@ class EyeAcceptCase(unittest.TestCase):
         self.assertIn(eye.concepthome.EYE_ASK, prompt)
         for i, f in enumerate(eye.FORMS, 1):
             self.assertIn(f"{i}. {f}", prompt)
-        self.assertIn("前の回の受け付けが拒んだ理由", eye.render(DOC, "evidence が空"))
+        again = eye.render(DOC, "evidence が空")
+        self.assertIn("前の回の受け付けが拒んだ理由", again)
+        prepkit.drawn(self, "structure-eye", again)
 
     def test_prompt_asks_chosen_to_follow_world_practice(self):
         """単位の要約の尾の世界の解の要点を読み、避け方 chosen を定石の作りに沿わせ、沿わないなら訳を chosen_reason に書けと頼む

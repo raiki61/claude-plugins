@@ -53,6 +53,7 @@ from board import BoardGap  # noqa: E402  （board が写しの engine を sys.p
 import entry  # noqa: E402
 import planmarks  # noqa: E402
 import promptsection  # noqa: E402
+import recount  # noqa: E402  （修正役の印の名 ROLE・裁定の後の修正役の印の名 RULED_ROLE）
 import structmark  # noqa: E402
 
 LEDGER = "briefs.json"
@@ -84,16 +85,22 @@ STRUCTURE_HEAD = promptsection.Section("## 構造の目の行と処方への答�
 BACKGROUND_HEAD = promptsection.Section(f"## {BACKGROUND}", source=_FN)
 UNIT_HEAD = promptsection.Section("### {key}", source="fn:planbrief._unit")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。brief の節は、直す役の全部（枝・輪・裁定の後の役）の頭に貼る
-_BRIEFED = ("fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3", "tdd", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "tdd-rest")
-RECEIVES = [
-    *(promptsection.Receive(role, head, "planbrief.render") for role in _BRIEFED for head in (
-        TITLE, UNITS_HEAD, APPROACH_HEAD, ADDS_HEAD, REMOVES_HEAD, SHRINK_HEAD, NARROWS_HEAD, ROUTE_HEAD, TESTS_HEAD, REWRITE_HEAD,
-        REFACTOR_HEAD, ALLOWED_HEAD, OUT_OF_SCOPE_HEAD, PURPOSE_HEAD, STRUCTURE_ROW_HEAD, STRUCTURE_HEAD, BACKGROUND_HEAD)),
-    *(promptsection.Receive(role, UNIT_HEAD, "planbrief._unit") for role in _BRIEFED),
-    *(promptsection.Receive(role, HEAD, "planbrief.head_text") for role in _BRIEFED),
-    *(promptsection.Receive(role, structmark.PLAN_HEAD, "structmark.plan_section") for role in _BRIEFED),
-]
+
+def receives(roles) -> list:
+    """受け手の表 RECEIVES の行。brief の節は、直す役の全部（枝・輪・裁定の後の役）の頭に貼る"""
+    return [
+        *(promptsection.Receive(role, head) for role in roles for head in (
+            TITLE, UNITS_HEAD, APPROACH_HEAD, ADDS_HEAD, REMOVES_HEAD, SHRINK_HEAD, NARROWS_HEAD, ROUTE_HEAD, TESTS_HEAD, REWRITE_HEAD,
+            REFACTOR_HEAD, ALLOWED_HEAD, OUT_OF_SCOPE_HEAD, PURPOSE_HEAD, STRUCTURE_ROW_HEAD, STRUCTURE_HEAD, BACKGROUND_HEAD)),
+        *(promptsection.Receive(role, UNIT_HEAD) for role in roles),
+        *(promptsection.Receive(role, HEAD) for role in roles),
+        *(promptsection.Receive(role, structmark.PLAN_HEAD) for role in roles),
+    ]
+
+
+# 並べの枝の役の行は、枝の名を持つ fixlanes・tddlanes が組み（枝の数の住処 lanekit は、この lib を回って import する）、TDD の輪の役の行は
+# 輪の役の名を持つ tddloop が組む（tddloop はこの lib を import する）
+RECEIVES = receives((recount.ROLE, recount.RULED_ROLE))
 UNSCOPED = "無し（この案は範囲を決めていない。範囲では縛らない）"   # 範囲の欄の無い項目（依頼 218 より前の案）の範囲の節
 NOT_NOW = "今は直すな"   # brief の行で、項目の単位のうち今直す単位でない物の頭（head_text）
 

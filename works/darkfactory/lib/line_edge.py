@@ -653,14 +653,15 @@ def _stat(r) -> str:
     return f"+{r['added']} −{r['deleted']}" if r.get("added") is not None else "行数なし"
 
 
-PROTECTED_UNKNOWN_HEAD = promptsection.Section("## {head}（差分が一覧に触れていないとは言えない）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+GATE_TEXT_HEAD = "最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）"
+PROTECTED_UNKNOWN_HEAD = promptsection.Section("## {head}（差分が一覧に触れていないとは言えない）", human=GATE_TEXT_HEAD)
 PROTECTED_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。works 自身の試験・柵・受け付けの口。通すのは人の continue だけ）",
-                                            human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+                                            human=GATE_TEXT_HEAD)
 CONFLICT_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。裁定役か機械が人に回した。単位は直さずに残した。通すのは人の continue だけ）",
-                                           human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
-HANDOFF_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。通すのは人の continue だけ）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
-UNPROVEN_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。閉鎖の数え直しは例で試していない問いのまま）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
-CLOSURE_ROWS_HEAD = promptsection.Section("## {head}（{count} 件）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+                                           human=GATE_TEXT_HEAD)
+HANDOFF_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。通すのは人の continue だけ）", human=GATE_TEXT_HEAD)
+UNPROVEN_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。閉鎖の数え直しは例で試していない問いのまま）", human=GATE_TEXT_HEAD)
+CLOSURE_ROWS_HEAD = promptsection.Section("## {head}（{count} 件）", human=GATE_TEXT_HEAD)
 
 
 def _protected_text(rows, rev: str, err: str, repo) -> str:

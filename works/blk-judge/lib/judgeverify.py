@@ -194,11 +194,8 @@ def _clear(b) -> None:
 
 ALL_UNITS_HEAD = promptsection.Section("### 単位の全部\n\n", source="fn:judgeverify.prep_on")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
 RECEIVES = [
-    promptsection.Receive("judge-verify", head, when) for head, when in (
-        (UNIT_HEAD, "judgeverify.prep_on"), (TITLE, "judgeverify._head"), (RULES, "judgeverify._head"), (VIEW_HEAD, "judgeverify._head"),
-        (SYNERGY_HEAD, "judgeverify.prep_on"), (AGG, "judgeverify.prep_on"), (ALL_UNITS_HEAD, "judgeverify.prep_on"))
+    promptsection.Receive(ROLE, head) for head in (UNIT_HEAD, TITLE, RULES, VIEW_HEAD, SYNERGY_HEAD, AGG, ALL_UNITS_HEAD)
 ]
 
 

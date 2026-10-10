@@ -31,6 +31,7 @@ sys.path.insert(0, str(TESTS))
 from gitkit import committed_copy, git  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
+import prepkit  # noqa: E402
 import tddloop  # noqa: E402
 from unittest import mock  # noqa: E402
 
@@ -416,6 +417,8 @@ class TestStart(LoopCase):
         with mock.patch.object(tddloop.planbrief, "cut_at", return_value=rows) as cut:
             route = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
             self.assertEqual(pathlib.Path(cut.call_args[0][0]).resolve(), self.board.resolve(), "盤面の置き場で切る")
+            prepkit.drawn(self, "tdd", route, off=("structmark.plan_section", "fixrules.tdd_render", "planbrief.render",
+                                                   "tddloop._together_lines", "tddloop.handoff_lines", "tddloop.prep"))
             self.assertIn("brief-1.md", route)
             self.assertIn("brief-2.md", route)
             self.route()   # MEAN は tdd、CLAMP は direct

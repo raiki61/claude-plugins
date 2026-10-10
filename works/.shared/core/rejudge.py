@@ -68,8 +68,8 @@ BEFORE_PREFIX = "rejudge-units-before-"
 # tests/test_blk_rejudge.py が YAML の max_iterations と同じかを見る
 GIVE_UP_AFTER = 3
 REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:rejudge.prep")
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。この役の指示書を組むのはこのモジュール
-RECEIVES = [promptsection.Receive("rejudge", REJECT_HEADING, "rejudge.prep")]
+# この役の指示書を組むのはこのモジュール
+RECEIVES = [promptsection.Receive(ROLE_OF["p2.rejudge"], REJECT_HEADING)]
 ADAPTER_HOME_ENV = "WORKS_ADAPTER_HOME"
 PROMPTS_COPY = rolekit.PROMPTS_COPY
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")

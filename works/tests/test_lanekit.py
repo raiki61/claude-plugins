@@ -15,6 +15,7 @@
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -111,6 +112,40 @@ class CopiesOfTheCount(unittest.TestCase):
         answers = set(lanekit.node_names(fixlanes.ANSWER_NODE))
         want = {f"blk-fix/{n}" for n in {*tddlanes.lane_nodes(), *fixlanes.lane_nodes(), *answers}}
         self.assertEqual(self.lanes(doc["stages"]), want)
+
+
+# 枝の数を変えて blk-fix の受け手の表 RECEIVES を組み直し、枝の役ごとの受ける節（の 1 行目）を JSON で出す（別のプロセスで。
+# 変えた数を試験の外に漏らさない。表の読み口は tests/prepkit.py の receive_rows）
+_RECEIVES_AT = """
+import json, pathlib, sys
+pack = pathlib.Path(sys.argv[1])
+sys.dont_write_bytecode = True
+sys.path[:0] = [str(pack / "blk-fix" / "lib"), str(pack / "tests")]
+import lanekit, prepkit
+lanekit.MAX_LANES = int(sys.argv[2])
+got = {}
+for _, workflow, r in prepkit.receive_rows(pack):
+    if workflow == "blk-fix":
+        got.setdefault(r.role, set()).add(str(r.section).splitlines()[0])
+print(json.dumps({k: sorted(v) for k, v in got.items()}))
+"""
+
+
+class ReceivesFollowTheCount(unittest.TestCase):
+    """受け手の表 RECEIVES の枝の役の行は、枝の数（lanekit.MAX_LANES）に付いて増える。枝 1 と同じ節を、枝 1..MAX_LANES のどれもが受ける
+    （枝の役の名を字で並べると、数を増やした時に増えた枝の受け手の行が無いまま残る）"""
+
+    def test_every_lane_receives_what_lane_one_does(self):
+        n = lanekit.MAX_LANES + 1
+        out = subprocess.run([sys.executable, "-c", _RECEIVES_AT, str(ROOT), str(n)],
+                             capture_output=True, text=True, check=True).stdout
+        got = json.loads(out)
+        for pattern in (tddlanes.LANE_NODE, fixlanes.LANE_NODE, fixlanes.ANSWER_NODE):
+            first = got.get(pattern.format(n=1))
+            self.assertTrue(first, f"{pattern.format(n=1)} の受け手の行が無い")
+            for k in range(2, n + 1):
+                role = pattern.format(n=k)
+                self.assertEqual(got.get(role), first, f"枝の数 {n} で {role} が枝 1 と同じ節を受けない")
 
 
 class ForkOut(unittest.TestCase):

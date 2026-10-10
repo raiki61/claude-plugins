@@ -87,15 +87,9 @@ GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ�
 # 省き、諦めた時は今どおり出口が盤面を止める
 GIVE_UP_SKIPS = frozenset({"r1.comment_candidates"})
 REJECT_HEADING = rolekit.REJECT_HEADING
-
-
-def concept_heads() -> dict:
-    """R1・R3 の頭の観点（core の concepthome。{section} に直しの後の実測の数を入れる）。R1 は最小の読み替え、R3 は考えの住処の観点"""
-    return {"r1.minimality": concepthome.R1_HEAD, "r3.coherence": concepthome.R3_HEAD}
-
-
-CONCEPT_HEADS = concept_heads()
-CONCEPT_FLAG = "concept-map"   # 包みが考えの住処の地図の節を system prompt に足す旗
+# R1・R3 の頭の観点（core の concepthome。{section} に直しの後の実測の数を入れる）と旗 concept-map（包みが地図の節を足す）
+CONCEPT_HEADS = {"r1.minimality": concepthome.R1_HEAD, "r3.coherence": concepthome.R3_HEAD}
+CONCEPT_FLAG = "concept-map"
 NO_AFTER = "直しの後の実測: 控えが無い（測っていない run）"
 R4_NODE = "r4.hidden_scope"   # 直す前の関所で人が通した狭まりを頭に貼る目（gatemarks.carried_section）
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
@@ -123,19 +117,16 @@ LATE_ASK = ("上の人の関所の答えのうち、次の物は独立設計を�
             "答えに照らした目的で突き合わせよ。")
 DRIFT_HEAD = promptsection.Section("### 前提のずれ（修正の中の申告）", source="fn:eyes.premise_section")
 CONSTRAINT_HEAD = promptsection.Section("### 記録の制約", source="fn:eyes.premise_section")
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。節の字と出どころは各定数の Section が持つ
 RECEIVES = [
-    promptsection.Receive("r2-compare", PREMISE_HEAD, "eyes.premise_section"),
-    promptsection.Receive("r2-compare", LATE_HEAD, "eyes.premise_section"),
-    promptsection.Receive("r2-compare", DRIFT_HEAD, "eyes.premise_section"),
-    promptsection.Receive("r2-compare", CONSTRAINT_HEAD, "eyes.premise_section"),
-    promptsection.Receive("r2-compare", DIFF_HEAD, "eyes.diff_section"),
-    promptsection.Receive("r1-minimality", concepthome.R1_HEAD, "eyes.concept_heads"),
-    promptsection.Receive("r3-coherence", concepthome.R3_HEAD, "eyes.concept_heads"),
-    promptsection.Receive("r4-scope", gatemarks.CARRIED_HEAD, "gatemarks.carried_section"),
-    *(promptsection.Receive(role, rolekit.ROLE_DEF_HEAD, "rolekit.with_role_definition") for role in ROLE_OF.values()),
-    *(promptsection.Receive(role, rolekit.REJECT_HEADING, "rolekit.with_reject") for role in ROLE_OF.values()),
-    *(promptsection.Receive(role, head, "concepthome.section") for role in ("r1-minimality", "r3-coherence")
+    *(promptsection.Receive(ROLE_OF[PREMISE_NODE], head) for head in (PREMISE_HEAD, LATE_HEAD, DRIFT_HEAD, CONSTRAINT_HEAD)),
+    promptsection.Receive(ROLE_OF[DIFF_NODE], DIFF_HEAD),
+    *(promptsection.Receive(ROLE_OF[PREMISE_NODE], head) for head in (   # 前提の節が design.premises で貼る人の答え・設計書の節・地図
+        design.HUMAN_HEAD, design.NAMED_HEAD, design.NAMED_BODY_HEAD, design.MAP_HEAD, design.MAP_FILE_HEAD)),
+    *(promptsection.Receive(ROLE_OF[node], head, "eyes.prep") for node, head in CONCEPT_HEADS.items()),
+    promptsection.Receive(ROLE_OF[R4_NODE], gatemarks.CARRIED_HEAD),
+    *(promptsection.Receive(role, rolekit.ROLE_DEF_HEAD) for role in ROLE_OF.values()),
+    *(promptsection.Receive(role, rolekit.REJECT_HEADING) for role in ROLE_OF.values()),
+    *(promptsection.Receive(ROLE_OF[node], head) for node in CONCEPT_HEADS   # 旗 concept-map（包みが足す）
       for head in (concepthome.MAP_FOUND_HEAD, concepthome.MAP_NONE_HEAD)),
 ]
 LOCK_NAME = "board.lock"

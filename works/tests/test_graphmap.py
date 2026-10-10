@@ -13,13 +13,14 @@ docs/plans/2026-10-07-graph-map.md）の検査。
   呼ぶ節は全部が目的の 1 行を持つ。description は 1 行。features_off の語 graph_map と包みの定数が合う
 - 包みの差し込みの表: 旗 map の起動に地図を、道具を持つ起動に検索語の規律を、決まった順に 1 つの繋ぎ方で足し、塊ごとの digest を
   fence に残す。graph_map が切られた run・古い元・繋げない起動は足さずに理由を残して起こす。required の行が作れなければ拒む
+- 節の宣言（.shared/core/promptsection.py）: 支度のモジュールの見出しの字面は Section の宣言の中だけ。宣言の出どころが解ける。
+  受け手の表 RECEIVES の行が引けて、工程ごとに現物と合う（役ごとは各ブロックの試験が描いた指示書を tests/prepkit.py の drawn が照らす）。
+  支度のモジュールは tests/prepkit.py で場所から読む
 git なし。子のプロセスは地図の元を書く道具 dev/graphmap_build.py を python3 で 4 本起こすだけ。
 """
 import ast
-import contextlib
 import hashlib
-import importlib.util
-import inspect
+import importlib
 import json
 import pathlib
 import re
@@ -27,7 +28,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 from unittest import mock
 
@@ -46,6 +46,7 @@ import entry  # noqa: E402
 import graphmap  # noqa: E402
 import hermetic  # noqa: E402
 import node_marker  # noqa: E402
+import prepkit  # noqa: E402
 
 
 
@@ -67,15 +68,7 @@ def find(nodes, nid):
 HEADING_LINE = re.compile(r"(?m)^#{1,6} ")
 # 見出しを貼るのでなく読む所（照らし・切り出し）の method
 READING_METHODS = {"startswith", "endswith", "strip", "lstrip", "rstrip", "split", "rsplit", "partition", "rpartition",
-                   "find", "rfind", "index", "rindex", "count"}
-
-
-def prep_files() -> list:
-    """役の支度のモジュール。写しの graphloops/・gl-prompts/（core の下の子の置き場）は入らない"""
-    out = []
-    for pat in ("blk-*/lib/*.py", "blk-*/scripts/*.py", "darkfactory/lib/*.py", "darkfactory/scripts/*.py", ".shared/core/*.py"):
-        out.extend(sorted(ROOT.glob(pat)))
-    return out
+                   "find", "rfind", "index", "rindex", "count", "removeprefix"}
 
 
 def docstring_constants(tree) -> set:
@@ -88,12 +81,12 @@ def docstring_constants(tree) -> set:
     return out
 
 
-def reading_constants(tree) -> set:
-    """re の関数の引数・str の照らしの method の引数・比べの項に在る字面"""
+def reading_nodes(tree) -> set:
+    """見出しを貼るのでなく読む所（re の関数の引数・str の照らしの method の引数・比べの項）の中の節の id"""
     out = set()
 
     def mark(node):
-        out.update(id(c) for c in ast.walk(node) if isinstance(c, ast.Constant))
+        out.update(id(c) for c in ast.walk(node))
     for n in ast.walk(tree):
         if isinstance(n, ast.Compare):
             mark(n)
@@ -116,54 +109,21 @@ def declared_constants(tree) -> set:
     return out
 
 
-@contextlib.contextmanager
-def prep_path(near: pathlib.Path):
-    """支度のモジュールを読む間の import の道（core・読む物の隣・ブロックの lib）。読んだ後に道と私的な読み込みを戻す"""
-    added = [str(CORE), str(near), *map(str, sorted(ROOT.glob("blk-*/lib")))]
-    before = set(sys.modules)
-    sys.path[:0] = added
-    try:
-        yield
-    finally:
-        for a in added:
-            sys.path.remove(a)
-        for name in set(sys.modules) - before:
-            f = getattr(sys.modules[name], "__file__", None) or ""
-            here = pathlib.Path(f).resolve() if f else None
-            if here and here.is_relative_to(ROOT.resolve()) and not here.is_relative_to(CORE.resolve()):
-                del sys.modules[name]
-
-
 _PREP_MODULES: dict = {}
 
 
 def load_prep(path: pathlib.Path):
-    """支度のモジュールを場所から読む（同じ名の別の置き場の物と取り違えない）"""
+    """支度のモジュールを場所から読む（読み口は tests/prepkit.py の load。読んだ物は試験の間取っておく）"""
     key = path.resolve()
     if key not in _PREP_MODULES:
-        name = "_prep_" + "_".join(key.relative_to(ROOT.resolve()).with_suffix("").parts).replace("-", "_").replace(".", "_")
-        spec = importlib.util.spec_from_file_location(name, key)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[name] = mod
-        with prep_path(key.parent):
-            spec.loader.exec_module(mod)
-        _PREP_MODULES[key] = mod
+        _PREP_MODULES[key] = prepkit.load(ROOT, key)
     return _PREP_MODULES[key]
 
 
 def import_named(name: str, near: pathlib.Path):
-    """`<モジュール>` の名で引く（core か読む物の隣）"""
-    with prep_path(near):
+    """`<モジュール>` の名で引く（core か読む物の隣。道は prepkit.import_path）"""
+    with prepkit.import_path(ROOT, near):
         return importlib.import_module(name)
-
-
-def declaring_files() -> list:
-    """promptsection を使う支度のモジュール（Section を宣言する物・RECEIVES を持つ物）"""
-    out = []
-    for p in prep_files():
-        if p.name != "promptsection.py" and "promptsection" in p.read_text(encoding="utf-8"):
-            out.append(p)
-    return out
 
 
 def all_sections() -> list:
@@ -174,41 +134,25 @@ def all_sections() -> list:
         raise AssertionError(f"promptsection が読めない: {e}") from None
     if not hasattr(promptsection, "declared_sections"):
         raise AssertionError("promptsection.declared_sections が無い")
-    return [(p, name, val) for p in declaring_files() for name, val in promptsection.declared_sections(load_prep(p))]
-
-
-def assemblers() -> list:
-    """(読んだ物の場所, 持ち主のブロック): 役の指示書を組むモジュール。ブロックの lib と、指示書を組む core の L4 のモジュール
-    （test_layers の MOD で持ち主のブロックに結ぶ）。受け手の表 RECEIVES の置き場"""
-    from test_layers import MOD
-    out = [(p, p.parent.parent.name) for p in sorted(ROOT.glob("blk-*/lib/*.py"))]
-    out.extend((CORE / f"{name}.py", owner) for name, (layer, owner) in sorted(MOD.items()) if layer == 4 and owner)
-    return out
+    return [(p, name, val) for p in prepkit.declaring_files(ROOT) for name, val in promptsection.declared_sections(load_prep(p))]
 
 
 def used_in_code(path: pathlib.Path, mod) -> tuple:
     """モジュールの本体が名で使う物: (Section の値の字 → 値, 呼ぶ関数の完全な名 `<モジュール>.<関数>` の集まり)。
-    宣言の文（モジュール直下の Section の代入と RECEIVES の表）と、見出しを読む所（比べの項・照らしの method の引数）は使いに数えない。
+    宣言の文（モジュール直下の Section の代入と RECEIVES の表）と、見出しを読む所（reading_nodes）は使いに数えない。
     別名・import した名・`<モジュール>.<名>` の形は、実物を引いて解く。このファイルの中の関数（読み込み名が私的）は数えない"""
     import promptsection
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    skip = reading_constants(tree)
+    skip = reading_nodes(tree)
     for n in tree.body:
         if isinstance(n, (ast.Assign, ast.AnnAssign)):
             targets = n.targets if isinstance(n, ast.Assign) else [n.target]
             names = [t.id for t in targets if isinstance(t, ast.Name)]
             if names and all(nm == "RECEIVES" or isinstance(getattr(mod, nm, None), promptsection.Section) for nm in names):
                 skip.update(id(x) for x in ast.walk(n))
-    reading = set()   # 比べの項・照らしの method の引数の中の名
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Compare):
-            reading.update(id(x) for x in ast.walk(n))
-        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in READING_METHODS:
-            for a in [*n.args, *(k.value for k in n.keywords)]:
-                reading.update(id(x) for x in ast.walk(a))
     sections, calls = {}, set()
     for n in ast.walk(tree):
-        if id(n) in skip or id(n) in reading:
+        if id(n) in skip:
             continue
         if isinstance(n, ast.Name):
             value = getattr(mod, n.id, None)
@@ -660,9 +604,9 @@ class RealLineCase(unittest.TestCase):
         `<名> = promptsection.Section(...)` の最初の引数に在る。見出しを貼るのでなく読む所（re の関数・str の照らしの method の引数・
         比べの項）は外す"""
         bad = []
-        for p in prep_files():
+        for p in prepkit.prep_files(ROOT):
             tree = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
-            skip = docstring_constants(tree) | reading_constants(tree) | declared_constants(tree)
+            skip = docstring_constants(tree) | reading_nodes(tree) | declared_constants(tree)
             for n in ast.walk(tree):
                 if (isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in skip
                         and HEADING_LINE.search(n.value)):
@@ -671,14 +615,14 @@ class RealLineCase(unittest.TestCase):
 
     def test_section_declarations_resolve(self):
         """全部の Section は出どころが解ける。board:<モジュール>.<定数> は持ち主の定数が引けて str、fn:<モジュール>.<関数> は関数として引け、
-        input:<名> はブロックの lib に在る Section だけが使えて、そのブロックの YAML の inputs: に在る。役の文脈の節は source を、
-        人向けの節は human に理由を持つ"""
+        input:<名> はブロックの lib に在る Section だけが使えて、そのブロックの YAML の inputs: に在る。機械が貼る節は source を、
+        貼らない節は human にその理由を持つ"""
         found = all_sections()
         self.assertTrue(found, "Section の宣言が 1 つも無い")
         for path, name, sec in found:
             where = f"{path.relative_to(ROOT)}:{name}"
             with self.subTest(where):
-                self.assertTrue(sec.source or sec.human, f"{where}: source も human も空（出どころか人向けの理由が要る）")
+                self.assertTrue(sec.source or sec.human, f"{where}: source も human も空（出どころか、機械が貼らない理由が要る）")
                 if not sec.source:
                     continue
                 kind, _, rest = sec.source.partition(":")
@@ -699,30 +643,22 @@ class RealLineCase(unittest.TestCase):
                     self.assertTrue(callable(target), f"{where}: {rest} が関数として引けない")
 
     def test_receives_match_the_code(self):
-        """受け手の役の側の表 RECEIVES（その役の指示書を組むモジュールの直下。ブロックの lib と、指示書を組む core の L4 のモジュール）
-        の各行: role はそのブロックの工程の graph の印の名に在り、when の関数は引けて、その関数の本体が行の Section の定数を参照する
-        （使わない関数の名を書いた古い行は落ちる）。人向けでない Section はどれも、少なくとも 1 つのブロックの RECEIVES の行に在る
-        （受け手の無い貼る節は落ちる）。逆の向きも照らす: ブロックのモジュールが人向けでない Section の定数を使うか、ほかの行の
-        when に名指された core の関数を呼べば、そのブロックの RECEIVES にその節の行が在る（別のブロックが同じ節を貼り始めて
-        行が増えないまま緑、を落とす）。RECEIVES を持つ core のモジュールは、ブロックに結んだ L4 だけ"""
+        """受け手の役の側の表 RECEIVES（その役の指示書を組むモジュールの直下）の行を、prepkit.receive_rows で読む（ブロックの lib の
+        行はそのブロックの、指示書を組む core のモジュールの行は役を印に持つちょうど 1 つの工程の行）。各行: role はその工程の graph の
+        印の名に在り、入る条件の関数（when。省いた行は節の出どころ fn: の関数）が引ける。機械が貼る Section（human の無い物）はどれも、
+        少なくとも 1 つのブロックの RECEIVES の行に在る（受け手の無い貼る節は落ちる）。逆の向きも工程ごとに照らす: 支度のモジュール
+        （prepkit.PREP_GLOBS のブロックの lib・scripts と、RECEIVES を持つ core のモジュール）が機械が貼る Section の定数を使えば
+        その節の行が、ほかの行の when に名指された関数を呼べばその関数の節のどれかの行が、その工程の RECEIVES に在る（別のブロックが
+        同じ節を貼り始めて行が増えないまま緑、を落とす。関数が役によって貼り分ける節のどれを受けるかは、役ごとの照らしが見る）。役ごとの照らしは、各ブロックの試験が描いた指示書で prepkit.drawn が見る"""
         g = real_graph()
         roles = {}
         for marker, places in graphmap.markers(g).items():
             for wf, _ in places:
                 roles.setdefault(wf, set()).add(marker)
-        names = {}   # Section の値（字）→ それを持つ定数の名
-        for _, name, sec in all_sections():
-            names.setdefault(str(sec), set()).add(name)
-        homes = assemblers()
-        owned = {p for p, _ in homes}
-        stray = [p.relative_to(ROOT).as_posix() for p in sorted(CORE.glob("*.py"))
-                 if p not in owned and re.search(r"(?m)^RECEIVES\b", p.read_text(encoding="utf-8"))]
-        self.assertEqual(stray, [], "指示書を組むブロックに結ばない core のモジュールが RECEIVES を持つ（置き場は tests/test_layers.py の MOD の L4）")
-        rows = []    # (ブロック, 読んだ物の場所, 行)
-        for p, block in homes:
-            if re.search(r"(?m)^RECEIVES\b", p.read_text(encoding="utf-8")):
-                rows.extend((block, p, r) for r in getattr(load_prep(p), "RECEIVES", ()))
+        rows = [(block, p, r) for p, block, r in prepkit.receive_rows(ROOT)]   # (工程, 読んだ物の場所, 行)
         self.assertTrue(rows, "RECEIVES の行が 1 つも無い")
+        blocks = [p for pat in prepkit.PREP_GLOBS if pat.startswith("blk-") for p in sorted(ROOT.glob(pat))]
+        homes = sorted({*((p, p.parent.parent.name) for p in blocks), *((p, block) for block, p, _ in rows)})
         listed = set()
         by_block = {}    # ブロック → 受ける節の字
         by_when = {}     # 入る条件の関数の完全な名 → 受ける節の字
@@ -735,21 +671,15 @@ class RealLineCase(unittest.TestCase):
                 self.assertIn(row.role, roles.get(block, set()), f"{where}: {block} の工程の graph に印 {row.role} が無い")
                 mod, _, func = row.when.rpartition(".")
                 self.assertTrue(mod and func, f"{where}: when が <モジュール>.<関数> の形でない: {row.when!r}")
-                fn = getattr(import_named(mod, path.parent), func, None)
-                self.assertTrue(callable(fn), f"{where}: when の関数 {row.when} が引けない")
-                body = ast.parse(textwrap.dedent(inspect.getsource(fn)))
-                used = {n.id for n in ast.walk(body) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(body) if isinstance(n, ast.Attribute)}
-                self.assertTrue(used & names.get(str(row.section), set()),
-                                f"{where}: {row.when} の本体が Section の定数 {sorted(names.get(str(row.section), set()))} を参照しない")
+                self.assertTrue(callable(getattr(import_named(mod, path.parent), func, None)), f"{where}: when の関数 {row.when} が引けない")
         orphans = sorted(f"{path.relative_to(ROOT)}:{name}" for path, name, sec in all_sections()
                          if not sec.human and str(sec) not in listed)
         self.assertEqual(orphans, [], "どのブロックの RECEIVES にも無い貼る節（受け手の無い節）がある")
         for path, block in homes:   # 逆の向き: コードが使う節・呼ぶ条件の関数 → そのブロックの RECEIVES の行
             used_sections, called = used_in_code(path, load_prep(path))
-            want = {s for s, v in used_sections.items() if not v.human}
-            for func in called:
-                want |= by_when.get(func, set())
-            missing = sorted(s.splitlines()[0] for s in want if s not in by_block.get(block, set()))
+            mine = by_block.get(block, set())
+            missing = sorted(s.splitlines()[0] for s, v in used_sections.items() if not v.human and s not in mine)
+            missing += sorted(f"{func} の節のどれか" for func in called if func in by_when and not by_when[func] & mine)
             with self.subTest(f"{path.relative_to(ROOT)} が使う節の行"):
                 self.assertEqual(missing, [], f"{path.relative_to(ROOT)} が使う節に、{block} の RECEIVES の行が無い（受け手の役と入る条件を足す）")
 

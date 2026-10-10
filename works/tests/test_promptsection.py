@@ -1,9 +1,9 @@
 """役の指示書に機械が貼る節の見出しの宣言（.shared/core/promptsection.py。考え prompt-sections）の検査。
 
 縛る事:
-- Section は見出しの字そのものの str（f-string・.format・==・dict の鍵が素の字と同じ）。出どころ（source）と人向けの理由
-  （human）を欄に持ち、複製（copy.deepcopy）と pickle の往復で欄が残る
-- Receive は受け手の役の側の行（role・section・when）
+- Section は見出しの字そのものの str（f-string・.format・==・dict の鍵が素の字と同じ）。出どころ（source）か機械が貼らない
+  理由（human）を欄に持ち、複製（copy.deepcopy）と pickle の往復で欄が残る
+- Receive は受け手の役の側の行（role・section・when）。when を省けば節の出どころ（fn:）の関数で、出どころが関数でない節は省けない
 - declared_sections(module) はモジュールの直下の Section の値だけを名と並べて返す
 標準ライブラリだけ。mock なし（モジュールの代わりに types.SimpleNamespace を渡す）。
 """
@@ -71,6 +71,11 @@ class SectionCase(unittest.TestCase):
         row = m.Receive(role="plan", section=s, when="planblk.design_section")
         self.assertEqual((row.role, row.when), ("plan", "planblk.design_section"))
         self.assertIs(row.section, s)
+        self.assertEqual(m.Receive("plan", hole).when, "planblk.items")   # 省けば出どころの関数
+        self.assertEqual(m.Receive("plan", hole, "planblk.other").when, "planblk.other")
+        for section in (s, bare, human):   # 出どころが関数でない節は省けない
+            with self.subTest(section.source or section.human or "空"), self.assertRaisesRegex(ValueError, "when が無く"):
+                m.Receive("plan", section)
 
         # 宣言の口: Section の値だけを名と並べる（素の str・数・関数は数えない）
         mod = types.SimpleNamespace(A_HEAD=s, B_HEAD=human, PLAIN_HEAD="## 素の字", N=3, ROWS=[row], f=lambda: s)

@@ -277,11 +277,11 @@ def _judge_rows(out) -> list:
 PROBLEMS_HEAD = promptsection.Section("## 問題の類と依頼の解き方（機械が言い直しの返答から抜いた物。これが渡された物の全部）", source="fn:worldblk.judge_prep")
 CLASS_HEAD = promptsection.Section("### 類 {class_id}", source="fn:worldblk.judge_prep")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
 RECEIVES = [
-    *(promptsection.Receive(role, rolekit.REJECT_HEADING, "rolekit.with_reject") for role in ("world-classes", "world-judge")),
-    *(promptsection.Receive("world-classes", head, "worldblk.classes_prep") for head in (FINDINGS_HEAD, PURPOSE_HEAD, REPLY_HEAD)),
-    *(promptsection.Receive("world-judge", head, "worldblk.judge_prep") for head in (PROBLEMS_HEAD, CLASS_HEAD, REPLY_HEAD)),
+    *(promptsection.Receive(role, rolekit.REJECT_HEADING) for role in ("world-classes", "world-judge")),
+    *(promptsection.Receive("world-classes", head) for head in (FINDINGS_HEAD, PURPOSE_HEAD, REPLY_HEAD)),
+    *(promptsection.Receive("world-judge", head) for head in (PROBLEMS_HEAD, CLASS_HEAD)),
+    promptsection.Receive("world-judge", REPLY_HEAD, "worldblk.judge_prep"),
 ]
 
 

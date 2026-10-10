@@ -63,11 +63,14 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402
 import adapter  # noqa: E402   L2。包みの会話の id の置き場（session_path）と run ごとの置き場（run_place_of）
 import conflict  # noqa: E402   範囲の相談の trace の行（ASKED_OP）と頼みの欄（CONSULT_FIELD）
+import graphmap  # noqa: E402   工程の地図の節の見出し（L1）
 import node_marker  # noqa: E402   答えの節の印
 import planmarks  # noqa: E402   glob の当て方の正本・承認済みの修正案の項目
 import promptsection  # noqa: E402
-import script_io  # noqa: E402   L1。今の scope の根
+import recount  # noqa: E402  （修正役の印の名 ROLE）
+import script_io  # noqa: E402  （L1。今の scope の根）
 
+ANSWERERS = ("plan-answer", "plan-answer-ruled")   # 範囲の相談に答える修正案の役の会話の節（並べの枝の答えの節は fixlanes.ANSWER_NODE）
 PEER = "fix-planner"        # 答えの節が継ぐ会話のブロックの中の名（alias が入力 plan_session の会話の id をこの名で写す）
 STATE = "consult-{pass_}.json"
 QUESTION_FILE = "consult-{pass_}-{turn}-ask.md"
@@ -155,13 +158,15 @@ ANSWER_HEAD = promptsection.Section("""\
 """, source="fn:consult.answer_text")
 ANSWER_ROW_HEAD = promptsection.Section("## 相談（項目 {item}・パス {paths}・テスト {tests}）", source="fn:consult.answer_text")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。相談を受ける修正案の役の会話と、答えを読む修正役
-_ANSWERERS = ("plan-answer", "plan-answer-ruled", "plan-answer-lane-1", "plan-answer-lane-2", "plan-answer-lane-3")
-_ASKERS = ("fix", "fix-lane-1", "fix-lane-2", "fix-lane-3")
-RECEIVES = [
-    *(promptsection.Receive(role, head, "consult.question") for role in _ANSWERERS for head in (QUESTION, ASK_TEXT)),
-    *(promptsection.Receive(role, head, "consult.answer_text") for role in _ASKERS for head in (ANSWER_HEAD, ANSWER_ROW_HEAD)),
-]
+
+def receives(answerers, askers) -> list:
+    """受け手の表 RECEIVES の行。相談を受ける修正案の役の会話 answerers（旗 map で包みが工程の地図も足す）と、答えを読む修正役 askers"""
+    return [*(promptsection.Receive(role, head) for role in answerers for head in (QUESTION, ASK_TEXT, graphmap.HEAD)),
+            *(promptsection.Receive(role, head) for role in askers for head in (ANSWER_HEAD, ANSWER_ROW_HEAD))]
+
+
+# 並べの枝の役の行は、枝の名を持つ fixlanes が組む（枝の数の住処 lanekit は、この lib を回って import する）
+RECEIVES = receives(ANSWERERS, (recount.ROLE,))
 
 
 def _now() -> str:

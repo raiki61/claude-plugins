@@ -168,11 +168,11 @@ CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:
 STOP_BY = stopby.declare("material", "素材集めの役の返答を受けられなかった（3 回とも拒まれた・回した後も待っている）")
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
 REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:material.prep")
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。素材集めの役は全部、同じ読み替えと拒否の理由を受ける
+# 素材集めの役は全部、同じ読み替えと拒否の理由を受ける
 RECEIVES = [
-    *(promptsection.Receive(role, head, "material.prep") for role in ROLES
+    *(promptsection.Receive(role, head) for role in ROLES
       for head in (LENS_RETRY_NOTE, LENS_FORK_NOTE, LOCATION_NOTE, REJECT_HEADING)),
-    *(promptsection.Receive(role, NA_HEADING, "material._na_note") for role in ROLES),
+    *(promptsection.Receive(role, NA_HEADING) for role in ROLES),
 ]
 READONLY_MOVED = "読むだけの役が作業ツリーを変えた: "
 PURPOSE_MISSING = "（目的の文はこの run に無い——目的の節 p0.purpose がこのラインに無く、目的のファイルも渡されていない。目的を推し量って補うな）"

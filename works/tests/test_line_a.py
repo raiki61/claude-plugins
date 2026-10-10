@@ -25,6 +25,7 @@ import engine.util as engine_util  # noqa: E402,F401  （entry が写しの engi
 import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
+import prepkit  # noqa: E402
 from test_edge import CLEAN_REVIEW, DELTA_FACE, DELTA_FIX, DELTA_REVIEW, FACE, ODD_NOTE, fix_reply, plan_reply  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
 
@@ -552,6 +553,7 @@ class JudgeReadsCase(LineBase):
         self.assertLess(got["trail"].index("worlding"), got["trail"].index("judging"))
         self.assertLess(got["trail"].index("h-world"), got["trail"].index("judging"))
         text = pathlib.Path(got["judge_brief"]["materials_file"]).read_text(encoding="utf-8")
+        prepkit.drawn(self, "judge", text, off=("entryshape.request_text", "entryshape.write_pr_file", "carry.prior_section"))
         self.assertIn(worldmark.HEAD, text)
         self.assertIn("WR-5521", text)
         self.assertIn(worldmark.NOT_WEB, text)

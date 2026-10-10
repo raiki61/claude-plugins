@@ -19,6 +19,7 @@ for p in (ROOT / ".shared" / "core", ROOT / "blk-judge" / "lib", ROOT / "blk-pla
 import accept  # noqa: E402
 import judgeverify as jv  # noqa: E402
 import planblk  # noqa: E402
+import prepkit  # noqa: E402
 import report  # noqa: E402
 
 KEY1 = "stats.py+mean: 分母が len(xs) - 1 になっている"
@@ -153,6 +154,7 @@ class PrepCase(Base):
         for k in (KEY1, KEY2):
             self.assertIn(k, syn)
         self.assertEqual(pathlib.Path(jv.answer_in(syn)), jv.synergy_file(self.b))
+        prepkit.drawn(self, jv.ROLE, "\n".join(p.read_text(encoding="utf-8") for p in briefs))   # 束ね役の指示書と、下請けに渡すファイル
         self.tree_state.assert_called_once()
 
     def test_prep_places_unverified_notes_first(self):

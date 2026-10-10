@@ -35,6 +35,7 @@ sys.path.insert(0, str(TESTS))
 
 from gitkit import git  # noqa: E402
 import adapter  # noqa: E402
+import prepkit  # noqa: E402
 import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
 import unittrees  # noqa: E402
@@ -387,6 +388,8 @@ class TestSettle(LaneCase):
         self.assertEqual((self.repo / "a.py").read_text(encoding="utf-8"), "def double(x):\n    return x + x\n")
         prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn("並べで済まなかった", prompt)
+        prepkit.drawn(self, tddloop.REST_NODE, prompt, off=("structmark.plan_section", "fixrules.tdd_render", "planbrief.head_text",
+                                                            "planbrief.render", "tddloop._together_lines", "tddloop.prep"))
         self.assertIn(UA, prompt.split(tddloop.HANDOFF_HEAD, 1)[1], "並べで済んだ単位は引き継ぎに並ぶ")
         # 順に戻った単位は今どおり回る
         self.edit(self.repo, "test_b.py", "triple(1), int)\n", "triple(1), int)\n" + B_TEST)
@@ -789,6 +792,9 @@ class TestPrep(LaneCase):
                 self.assertNotIn(w, sub)
             self.assertNotIn(tddloop.HANDOFF_HEAD, sub, "枝の 1 番目の単位に引き継ぎは無い")
             node = tddlanes.LANE_NODE.format(n=r["n"])
+            prepkit.drawn(self, node, text + "\n\n" + sub,   # 回ごとの指示書と、それが名指す単位の決まりのファイル
+                          off=("structmark.plan_section", "planbrief.head_text", "planbrief.render", "tddlanes._next_text",
+                               "tddloop._together_lines", "tddloop.handoff_lines"))
             self.assertEqual(pathlib.Path(adapter.lane_tree_path(str(self.board), node)).read_text(encoding="utf-8").strip(), r["tree"],
                              "包みが cwd にする単位の worktree（役の文からは取らない）")
             key = pathlib.Path(adapter.session_key_path(str(self.board), node)).read_text(encoding="utf-8").strip()

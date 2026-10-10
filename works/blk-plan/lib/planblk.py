@@ -69,6 +69,7 @@ import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。事�
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import carry  # noqa: E402
 import concepthome  # noqa: E402  （L1。判断の 1 軸と考えの住処の観点の文）
+import graphmap  # noqa: E402  （L1。工程の地図の節の見出し）
 import converge  # noqa: E402
 import design  # noqa: E402
 from engine import pointers  # noqa: E402  （board が写しの engine を sys.path に足す）
@@ -1406,67 +1407,24 @@ def collect(board_dir, replan: str = "", repo=None) -> dict:
     return out
 
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。節の字と出どころは各定数の Section が持つ
-_WRITERS = ("plan", "plan-revise")
-_ROLES = (*_WRITERS, "plan-review", "r2-design")
+_WRITERS = ("plan", REVISE_ROLE)
+_ROLES = (*ROLES, REVISE_ROLE, DESIGN_ROLE)
 RECEIVES = [
-    *(promptsection.Receive(role, head, when) for role in _WRITERS for head, when in (
-        (PLAN_SLOTS_HEAD, "planblk.plan_slots_section"),
-        (PRESCRIPTION_HEAD, "planblk.prescription_section"),
-        (PRESCRIPTION_UNIT_HEAD, "planblk.prescription_section"),
-        (VERIFY_HEAD, "planblk.verify_part"),
-        (ripple.UNITS_HEAD, "ripple.units_section"),
-        (ripple.UNIT_HEAD, "ripple.units_section"),
-        (structmark.PLAN_HEAD, "structmark.plan_section"),
-        (carry.PRIOR_HEAD, "carry.prior_section"),
-        (converge.FACE_HEAD, "converge._face_text"))),
-    promptsection.Receive("plan", worldmark.HEAD, "worldmark.section"),
-    promptsection.Receive("plan", replan_mod.ITEM_HEAD, "replan._section"),
-    promptsection.Receive("plan", replan_mod.OLD_HEAD, "replan._section"),
-    promptsection.Receive("plan", replan_mod.ROW_HEAD, "replan._section"),
-    *(promptsection.Receive("plan-review", head, when) for head, when in (
-        (DESIGN_HEAD, "planblk.design_only"),
-        (planmarks.REVIEW_HEAD, "planmarks.review_section"),
-        (planmarks.FIELDS_ITEM_HEAD, "planmarks.review_section"),
-        (planmarks.DEVIATION_HEAD, "planmarks.review_section"),
-        (AGG_HEAD, "planblk.tree_part"),
-        (ITEM_HEAD, "planblk.tree_part"),
-        (SYNERGY_HEAD, "planblk.tree_part"),
-        (ITEM_PLAN_HEAD, "planblk.tree_part"),
-        (ITEM_UNITS_HEAD, "planblk.tree_part"),
-        (ALL_ITEMS_HEAD, "planblk.tree_part"),
-        (OVERLAPS_HEAD, "planblk.tree_part"),
-        (BRIEF_TITLE, "planblk.brief_head"),
-        (SUB_FORMAT, "planblk.brief_head"),
-        (DIFF_HEAD, "planblk._diff_part"),
-        (CARRIED_HEAD, "planblk._carried_part"),
-        (PRECEDENT_HEAD, "planblk._precedent_part"),
-        (ERRORS_HEAD, "planblk._errors_part"),
-        (HISTORY_HEAD, "planblk._item_history"),
-        (ripple.HEAD, "ripple.section"),
-        (ripple.ITEM_HEAD, "ripple.item_text"),
-        (ripple.ITEM_KEYS_HEAD, "ripple.item_text"),
-        (converge.PASS_HEAD, "converge.review_section"),
-        (converge.FACE_HEAD, "converge._face_text"),
-        (replan_mod.ITEM_HEAD, "replan._section"),
-        (replan_mod.OLD_HEAD, "replan._section"),
-        (replan_mod.ROW_HEAD, "replan._section"),
-        (replan_mod.NEW_HEAD, "replan._section"))),
-    *(promptsection.Receive(role, head, when) for role in ("plan", "plan-review") for head, when in (
-        (libdocs.TITLE, "libdocs.section"),
-        (libdocs.DOC_TITLE, "libdocs._local_text"),
-        (libdocs.FRAGMENT_HEAD, "libdocs._local_text"),
-        (libdocs.LIB_HEAD, "libdocs._render"))),
-    *(promptsection.Receive("r2-design", head, when) for head, when in (
-        (design.DESIGN_PREMISE_HEAD, "design.prep"),
-        (design.HUMAN_HEAD, "design.human_answers"),
-        (design.NAMED_HEAD, "design.named_sections"),
-        (design.NAMED_BODY_HEAD, "design.named_sections"),
-        (design.MAP_HEAD, "design.repo_map"),
-        (design.MAP_FILE_HEAD, "design.repo_map"))),
-    *(promptsection.Receive(role, head, when) for role in _ROLES for head, when in (
-        (rolekit.ROLE_DEF_HEAD, "rolekit.with_role_definition"),
-        (rolekit.REJECT_HEADING, "rolekit.with_reject"))),
-    *(promptsection.Receive(role, head, "concepthome.section") for role in ("plan", "plan-review")
+    *(promptsection.Receive(role, head) for role in _WRITERS for head in (
+        PLAN_SLOTS_HEAD, PRESCRIPTION_HEAD, PRESCRIPTION_UNIT_HEAD, VERIFY_HEAD, ripple.UNITS_HEAD, ripple.UNIT_HEAD, structmark.PLAN_HEAD,
+        carry.PRIOR_HEAD, converge.FACE_HEAD)),
+    *(promptsection.Receive("plan", head) for head in (worldmark.HEAD, replan_mod.ITEM_HEAD, replan_mod.OLD_HEAD, replan_mod.ROW_HEAD)),
+    *(promptsection.Receive("plan-review", head) for head in (
+        DESIGN_HEAD, planmarks.REVIEW_HEAD, planmarks.FIELDS_ITEM_HEAD, planmarks.DEVIATION_HEAD, AGG_HEAD, ITEM_HEAD, SYNERGY_HEAD,
+        ITEM_PLAN_HEAD, ITEM_UNITS_HEAD, ALL_ITEMS_HEAD, OVERLAPS_HEAD, BRIEF_TITLE, SUB_FORMAT, DIFF_HEAD, CARRIED_HEAD, PRECEDENT_HEAD,
+        ERRORS_HEAD, HISTORY_HEAD, ripple.HEAD, ripple.ITEM_HEAD, ripple.ITEM_KEYS_HEAD, converge.PASS_HEAD, converge.FACE_HEAD,
+        replan_mod.ITEM_HEAD, replan_mod.OLD_HEAD, replan_mod.ROW_HEAD, replan_mod.NEW_HEAD)),
+    *(promptsection.Receive(role, head) for role in ("plan", "plan-review")
+      for head in (libdocs.TITLE, libdocs.DOC_TITLE, libdocs.FRAGMENT_HEAD, libdocs.LIB_HEAD)),
+    *(promptsection.Receive(DESIGN_ROLE, head) for head in (
+        design.DESIGN_PREMISE_HEAD, design.HUMAN_HEAD, design.NAMED_HEAD, design.NAMED_BODY_HEAD, design.MAP_HEAD, design.MAP_FILE_HEAD)),
+    *(promptsection.Receive(role, head) for role in _ROLES for head in (rolekit.ROLE_DEF_HEAD, rolekit.REJECT_HEADING)),
+    *(promptsection.Receive(role, graphmap.HEAD) for role in _WRITERS),   # 旗 map（包みが足す）
+    *(promptsection.Receive(role, head) for role in (*ROLES, REVISE_ROLE)   # 旗 concept-map（包みが足す）
       for head in (concepthome.MAP_FOUND_HEAD, concepthome.MAP_NONE_HEAD)),
 ]

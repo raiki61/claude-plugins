@@ -113,7 +113,6 @@ MAP_NAMES = ("ARCHITECTURE.md", "AGENTS.md")
 MAP_HEAD = promptsection.Section("### 対象のリポジトリの地図", source="fn:design.repo_map")
 MAP_FILE_HEAD = promptsection.Section("#### {name}:1-{total}", source="fn:design.repo_map")
 NAMED_BODY_HEAD = promptsection.Section("#### {name}（{src}）", source="fn:design.named_sections")
-SLUG_LINE = promptsection.Section("# {title}", human="見出しのアンカーの重複を数えるために組む行（指示書には貼らない）")
 MAP_ASK = ("対象のリポジトリの根に在る地図の文書（依頼を固めた版のファイルから機械が貼った。見出しは出どころのパス:行）。"
            "依頼が名指していなくても、仕組みの中に既に在る実物（信用の起点・外との通信の経路・守る物）から設計を始めよ。")
 
@@ -316,9 +315,9 @@ def _section_lines(text, *, num="", anchor="", slugs=None, md_lines=None) -> tup
         want = urllib.parse.unquote(anchor).lower()
         hits = []
         if slugs is not None:
-            for k, h in enumerate(heads):
-                before = "\n".join(SLUG_LINE.format(title=x['title']) for x in heads[:k])
-                if want in slugs(before + "\n# " + h["title"]) - slugs(before):
+            titles = [x["title"] for x in heads]
+            for k, h in enumerate(heads):   # 見出し k のアンカー: 題を ATX の行に並べた文書の k 番目までの slug から、k より前の slug を引いた物
+                if want in slugs("\n# ".join(["", *titles[:k + 1]])) - slugs("\n# ".join(["", *titles[:k]])):
                     hits.append(h)
         if not hits:
             hits = [h for h in heads if want and want in h["title"].lower()]

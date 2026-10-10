@@ -691,14 +691,13 @@ PHASES_HEAD = promptsection.Section("## 段ごとの仕事と返す JSON", sourc
 CONFLICT_HEAD = promptsection.Section("### 食い違いの申し出（どの段でも）", source="fn:tddlanes.unit_text")
 RUN_HEAD = promptsection.Section("## テストの回し方", source="fn:tddlanes.unit_text")
 
-# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。並べの枝の輪の役は、枝の指示書と単位の決まりのファイルを受ける
+# 並べの枝の輪の役は、枝の指示書と単位の決まりのファイルと brief を受ける
+# （役の名は lanekit から引く）
 RECEIVES = [
-    *(promptsection.Receive(role, head, when) for role in ("tdd-lane-1", "tdd-lane-2", "tdd-lane-3") for head, when in (
-        (NEXT_REJECT_HEAD, "tddlanes._next_text"), (READ_HEAD, "tddlanes._next_text"), (NOW_HEAD, "tddlanes._next_text"),
-        (DO_HEAD, "tddlanes._next_text"), (REPLY_HEAD, "tddlanes._next_text"), (STEP_TITLE, "tddlanes._next_text"),
-        (UNIT_TITLE, "tddlanes.lane_prep"), (PHASE_HEAD, "tddlanes.unit_text"), (RULES_HEAD, "tddlanes.unit_text"),
-        (STEPS_HEAD, "tddlanes.unit_text"), (PHASES_HEAD, "tddlanes.unit_text"), (CONFLICT_HEAD, "tddlanes.unit_text"),
-        (RUN_HEAD, "tddlanes.unit_text"), (tddloop.HANDOFF_HEAD, "tddloop.handoff_lines"))),
+    *planbrief.receives(lane_nodes()),
+    *(promptsection.Receive(role, head) for role in lane_nodes() for head in (
+        NEXT_REJECT_HEAD, READ_HEAD, NOW_HEAD, DO_HEAD, REPLY_HEAD, STEP_TITLE, UNIT_TITLE, PHASE_HEAD, RULES_HEAD, STEPS_HEAD,
+        PHASES_HEAD, CONFLICT_HEAD, RUN_HEAD, tddloop.HANDOFF_HEAD, tddloop.TOGETHER_HEAD, seat.HEAD)),
 ]
 
 

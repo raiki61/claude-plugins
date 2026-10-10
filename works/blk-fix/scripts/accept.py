@@ -100,7 +100,7 @@ import posixpath  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import fixgates  # noqa: E402   事後の関門の束（blk-fix/lib）
-import fixlanes  # noqa: E402   枝の確かめの拒否の見出し CHECK_HEAD（blk-fix/lib。枝の拒否と同じ見出しの形）
+import fixlanes  # noqa: E402   枝の確かめの拒否の見出し CHECK_HEAD（blk-fix/lib）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）

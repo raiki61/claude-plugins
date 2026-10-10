@@ -902,9 +902,6 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
                            other=f"次の run に渡す物: {len(next_items or [])} 件")
 
 
-HEADING_MARK = promptsection.Section("## ", human="見出しの印の字（貼らず、見出しの定数から剥ぐ計算にだけ使う）")
-
-
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit と fixed_needs_check の時の残り（left＝residue の返り）の各行・
@@ -1006,7 +1003,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     n = len(next_items or [])
     lines += always_rows(b, left=left)
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
-    outside = outpurpose.count_line(b.dir, next_file, OUTSIDE_HEADING.removeprefix(HEADING_MARK))
+    outside = outpurpose.count_line(b.dir, next_file, OUTSIDE_HEADING.removeprefix("## "))
     if outside:
         lines.append(outside)
     drafts = gatemarks.draft_line(gatemarks.answer_drafts(b), next_file)
