@@ -547,7 +547,7 @@ class JudgeReadsCase(LineBase):
         row = {"finding": 1, "where": "docs/guide.md", "class_id": "w-guide", "problem": "使い方の案内の文書をどう保つか",
                "activity": "文書の保守", "practice": "案内は一つの置き場に置き、他からは参照だけにする（見本の印 WR-5521）",
                "sources": [], "applies": "", "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""},
-               "basis": "knowledge", "cached": False}
+               "basis": "knowledge"}
         got = self.run_line(replies={**replies(), "world": [row]})
         self.assertLess(got["trail"].index("worlding"), got["trail"].index("judging"))
         self.assertLess(got["trail"].index("h-world"), got["trail"].index("judging"))

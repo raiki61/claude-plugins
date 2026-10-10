@@ -29,9 +29,8 @@
 - tool_count(events, node_path, tool) -> int・tool_inputs(events, node_path, tool) -> [tool_input]（節の道具の呼びの数と入力。
   事前審査の束ね役の下請けの数と型を測る）
 - web_fetches(events, node_path) -> [URL]・web_searches(events, node_path) -> [問い]（節が WebFetch で取得した URL と WebSearch の
-  問い。出来事の順で重ねない。events が無ければ []。世界の解の段が、抜き書きの URL を役が本当に取得したかを照らす）
+  問い。出来事の順で重ねない。events が無ければ []）
 - node_here(loop, node) -> str（今の script が居る include の名 flow_adapter.current_scope で組んだ node_path）
-- top_here(node) -> str（今の script が居る include の中の輪の外の節の出来事の上の名前 `<include>__<id>`）
 - evidence_name(role)・index_name(owner)・is_index(name)・EVIDENCE_GLOB（盤面の読んだ証拠の置き場の名の口）
 - collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}（読んだ証拠の
   ファイルには節の web の記録 web も書く）
@@ -168,13 +167,6 @@ def node_path(include: str, loop: str, node: str) -> str:
 def node_here(loop: str, node: str) -> str:
     """今の script が居る include（flow_adapter.current_scope）の中の輪 loop の節 node の出来事の上の名前（node_path）"""
     return node_path(flow_adapter.current_scope(), loop, node)
-
-
-def top_here(node: str) -> str:
-    """今の script が居る include の中の、輪の外の節 node の出来事の上の名前（`<include>__<id>`。線の最上段なら id のまま。
-    形は flow_adapter の形 A。web の取得を後の節の機械が照らす時に、同じ include の兄弟の役の節を引く）"""
-    scope = flow_adapter.current_scope()
-    return f"{scope}{flow_adapter.INCLUDE_SEP}{node}" if scope else node
 
 
 def _steps(events, node_path: str):

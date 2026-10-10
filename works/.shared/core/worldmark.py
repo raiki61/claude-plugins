@@ -17,6 +17,7 @@ knowledge の行は、頭の節・関所の行に NOT_WEB と名指して並べ�
 - rows(path)・read(board_dir): 行（読めない・形が違えば ValueError）と控え（無い・読めない・形が違えば None）
 - write(board_dir, …)・stage_rows(board_dir): 控えを書く（線の境）・控えが指す行（段が行を出さなかった周を None で分ける＝関所の軸。
   盤面の根から読む判定の支度・修正案の頭・関所が使う。呼び手は None と [] の違いを `stage_rows(d) or []` の 1 式で書く）
+- ref_problems(reply, board_dir): 判定の返答の先例の出どころ world:<類の id> が控えの指す行に無い誤りの文（判定の受け付けが拒む）
 - section(rows): 判定・修正案・事前審査の頭に貼る節（行が無ければ ""）。修正案の役に行ごとの答えを頼む文は PLAN_ASK
 - need(rows)・challenges(rows): 修正案の受け付けに渡す答えの要る行の表（planmarks.Need。答えの仕組みは構造の目の汚れる
   行と同じ 1 つ。行は項目に場所で結ばず、どの項目も答えていない行だけを欠けにする）・類ごとの依頼の解き方との比べの文（事前審査の
@@ -130,9 +131,12 @@ def stage_rows(board_dir) -> list | None:
         return None
 
 
-def ref_problems(sources, board_dir) -> list:
-    """判定の先例の出どころ（sources）の world:<類の id> が、盤面の根の控えが指す行の class_id に在るかの誤りの文の並び（通れば空）。
-    段の行が無い周（控えが無い・落ちた・行が空）の world: は全部宙に浮いた参照として数える。world: の無い出どころは見ない"""
+def ref_problems(reply, board_dir) -> list:
+    """判定の返答（reply）の先例 precedents の出どころ source の world:<類の id> が、盤面の根の控えが指す行の class_id に在るかの
+    誤りの文の並び（通れば空）。段の行が無い周（控えが無い・落ちた・行が空）の world: は全部宙に浮いた参照として数える。
+    world: の無い出どころは見ない"""
+    got = reply.get("precedents") if isinstance(reply, dict) else None
+    sources = [p.get("source") for p in got if isinstance(p, dict)] if isinstance(got, list) else []
     known = {r["class_id"] for r in stage_rows(board_dir) or []}
     return [p for s in sources for p in cite.ref_problem(s, SOURCE_PREFIX, known)]
 

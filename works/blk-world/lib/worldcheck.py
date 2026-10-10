@@ -19,9 +19,8 @@ docs/specs/2026-09-29-structure-block-design.md の 5 節の「検索語の検�
 - text_problems(text, banned) -> [当たった識別子]（名の順）
 - normalize(body) -> str: HTML の札（script・style・注釈の中身ごと）を外し、文字の参照を戻し、NFKC・飾りの引用符と線の字の揃え・
   Markdown の飾りの字とリンクの形の外し・空白の詰め・大小の揃え
-- verify(excerpts, get) -> {kept: [{id, class, url, excerpt}], dropped: [{class, url, why}], offline}: excerpts は
-  [{class, url, excerpt}]（class は呼び手が付けた札で、そのまま運ぶ）、get(url) -> (状態の番号, 本文)（網に届かなければ
-  webget.FetchError）
+- verify(excerpts, get) -> {kept: [呼び手の行], dropped: [{…呼び手の行, why}], offline}: excerpts は {url, excerpt} を持つ
+  呼び手の行（ほかの欄はそのまま運ぶ）、get(url) -> (状態の番号, 本文)（網に届かなければ webget.FetchError）
 """
 from __future__ import annotations
 
@@ -111,7 +110,7 @@ def verify(excerpts, get) -> dict:
     kept, dropped = [], []
 
     def drop(row, why):
-        dropped.append({"class": row.get("class"), "url": row.get("url"), "why": why})
+        dropped.append({**row, "why": why})
 
     for row in excerpts if isinstance(excerpts, list) else []:
         if not isinstance(row, dict):
@@ -145,5 +144,5 @@ def verify(excerpts, get) -> dict:
         elif normalize(text) not in body:
             drop(row, "抜き書きが取り直した本文に無い（字のままでない・要約か言い換え）")
         else:
-            kept.append({"id": f"x{len(kept) + 1}", "class": row.get("class"), "url": url, "excerpt": text})
+            kept.append(row)
     return {"kept": kept, "dropped": dropped, "offline": tried > 0 and reached == 0}

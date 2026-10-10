@@ -162,7 +162,7 @@ nodes:
                 type: array
                 items:
                   type: object
-                  required: [finding, practice, sources, applies, not_applies, verdict, challenge, basis]
+                  required: [finding, practice, sources, applies, not_applies, verdict, challenge]
                   additionalProperties: false
                   properties:
                     finding: {type: integer, minimum: 1}
@@ -172,7 +172,6 @@ nodes:
                     not_applies: {type: string}
                     verdict: {type: string, enum: [same, differs, none]}
                     challenge: {type: string}
-                    basis: {type: string, enum: [web, knowledge]}
               excerpts:
                 type: array
                 items:

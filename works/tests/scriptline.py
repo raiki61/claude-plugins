@@ -346,14 +346,14 @@ def world_reply(art, nid):
         findings = json.loads((out / worldblk.INTAKE).read_text(encoding="utf-8"))["findings"]
         node = next(n for n, _ in walk(flow("blk-world")["nodes"]) if n["id"] == "world-classes")
         fields = node["output_format"]["properties"]["classes"]["items"]["properties"]   # 役の型が持つ欄だけ返す
-        rows = [{"finding": i, "class_id": "", "problem": f"依頼の {i} 行目の作業を世の中はどう進めるか",
-                 "activity": "関数の振る舞いの直し", "proposed": "", "queries": ["function behavior fix practice"],
-                 "wording": False} for i in range(1, len(findings) + 1)]
+        rows = [{"finding": i, "problem": f"依頼の {i} 行目の作業を世の中はどう進めるか",
+                 "activity": "関数の振る舞いの直し", "proposed": "", "queries": ["function behavior fix practice"]}
+                for i in range(1, len(findings) + 1)]
         return {"classes": [{k: v for k, v in r.items() if k in fields} for r in rows]}
     classes = json.loads((out / worldblk.CLASSES).read_text(encoding="utf-8"))
     return {"rows": [{"finding": c["finding"], "practice": "関数は文書と試験が約束する振る舞いに合わせて直す", "sources": [],
-                      "applies": "", "not_applies": "", "verdict": "none", "challenge": "", "basis": "knowledge"}
-                     for c in classes if not c.get("wording")]}
+                      "applies": "", "not_applies": "", "verdict": "none", "challenge": ""}
+                     for c in classes]}
 
 
 # ---------------------------------------------------------------- 役の既定の返答（linekit.LineRun と同じ見本）

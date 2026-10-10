@@ -73,7 +73,7 @@ def take(board, reply: dict, repo) -> dict:
     拒む）、例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、例と
     目的の外の行を外した返答を entry.take に渡す（写しの型はどちらの欄も持たない）。通れば例を盤面の query-examples.json に、
     目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に置く（finish が judgment.json に戻す）"""
-    errs = worldmark.ref_problems([p.get("source") for p in reply.get("precedents") or [] if isinstance(p, dict)], board)
+    errs = worldmark.ref_problems(reply, board)
     if errs:
         return {"ok": False, "reason": "precedents の出どころが世界の解の行に無い: " + "; ".join(errs)}
     is_open = validator_module(_Validator).is_open

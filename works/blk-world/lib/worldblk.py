@@ -9,16 +9,18 @@ web の検索と取得だけ）、抜き書きを機械が取り直した本文�
 置き場は $ARTIFACTS_DIR の下の OUT_DIR（盤面の外。place が盤面の置き場から組む。intake が置き直す）。
 - intake.json: {findings, purpose_text, means, web, reason}
 - classes.json（言い直す役の受け付けが通した行）: [{finding, where, class_id, problem, activity, proposed, queries}]
-- plan.json（類を決めた後）: {over, taken, web}
+- plan.json（類を決めた後）: {over, taken}
 - judge-input.json・judged.json（web の役の材料と、受け付けが通した行）
 - verified.json（web の役の受け付けが抜き書きを照らした結果）: {kept, dropped, offline, over_excerpts}
 - rejects-<役>.json: 出し直しの輪の拒否の文（core の rolekit が積む）。拒めば同じ会話で出し直させ、rolekit.GIVE_UP_AFTER 回目の拒否で
   輪を抜ける（線を止めない。出口の status: failed と reason に残す）
 
-上限（5.4 節）: 類は MAX_CLASSES・検索語は類ごとに MAX_QUERIES（全部の行に 1 本以上）・抜き書きは取った類ごとに MAX_EXCERPTS
-（越えた分は頭から取り、取らなかった数を残す）。類の id は問題の類の文を正規化した字の hash で、対象の名を持たない。言い直す役の
-問題の類・作業・検索語・依頼の解き方は、web の役に渡るので、全部が依頼の行の識別子を持たない。web の役の返答の根拠（sources）と
-印（basis）は機械が決める: 取り直した本文に字のまま在る抜き書きを指す根拠だけ残し、残りが無い行は basis: knowledge にする。
+上限（5.4 節）: 類は MAX_CLASSES・検索語は類ごとに MAX_QUERIES（全部の行に 1 本以上）・抜き書きは返答の全部で MAX_EXCERPTS ×
+取った類の数（抜き書きは類に結ばないので類ごとには数えない。越えた分は頭から取り、取らなかった数を残す）。類の id は問題の類の
+文を正規化した字の hash で、対象の名を持たない。言い直す役の問題の類・作業・検索語・依頼の解き方は、web の役に渡るので、全部が
+依頼の行の識別子を持たない。web の役の返答の根拠（sources）と
+印（basis）は機械だけが決める（役は basis を返さない）: 取り直した本文に字のまま在る抜き書きを指す根拠だけ残し、残れば
+basis: web、残りが無い行は basis: knowledge にする。
 網に出ない run（web が off・取り直しが全部網に届かない）も止めず、行は知識だけで書く（basis: knowledge）。
 """
 from __future__ import annotations
@@ -241,10 +243,10 @@ def classes_accept(out, reply) -> dict:
 def plan(out) -> dict:
     """言い直しの行から、取る類（MAX_CLASSES まで）を決めて plan.json に書く。返り {judge_due}（web の役を起こすか）"""
     out = pathlib.Path(out)
-    doc = _need(out, INTAKE)
+    _need(out, INTAKE)   # 入口の控えの無い置き場は配線の誤り
     rows = _read(out / CLASSES)
     if not isinstance(rows, list):
-        _write(out / PLAN, {"over": [], "taken": [], "web": doc["web"]})
+        _write(out / PLAN, {"over": [], "taken": []})
         return {"judge_due": False}
     taken, over = [], []
     for r in rows:
@@ -252,7 +254,7 @@ def plan(out) -> dict:
             over.append(r["finding"])
         elif r["class_id"] not in taken:
             taken.append(r["class_id"])
-    _write(out / PLAN, {"over": over, "taken": taken, "web": doc["web"]})
+    _write(out / PLAN, {"over": over, "taken": taken})
     return {"judge_due": bool(taken)}
 
 
@@ -271,7 +273,7 @@ def judge_prep(out) -> dict:
     if not (out / JUDGE_INPUT).is_file():
         _write(out / JUDGE_INPUT, _judge_rows(out))
     rows = _need(out, JUDGE_INPUT)
-    web = _need(out, PLAN)["web"]
+    web = _need(out, INTAKE)["web"]
     by_class = {}
     for r in rows:
         by_class.setdefault(r["class_id"], []).append(r)
@@ -289,12 +291,12 @@ def judge_prep(out) -> dict:
                   "機械が同じ URL を取り直し、本文に字のまま無い抜き書きは落とし、それを指す sources も外す",
                   "- url は取得の道具で本当に取得したページだけ（検索の結果の一覧に出ただけの URL は書かない）"]
     else:
-        lines += ["- web は off: 検索も取得もしない。excerpts は空の配列、sources は空、basis は knowledge にして、知識だけで定石を書く",
-                  "  （web を使っても機械が抜き書きを捨て、根拠を外して印を knowledge にする）"]
+        lines += ["- web は off: 検索も取得もしない。excerpts は空の配列、sources は空にして、知識だけで定石を書く",
+                  "  （web を使っても機械が抜き書きを捨て、根拠を外す）"]
     lines += ["- rows に、上の依頼の行の全部へ 1 つずつ（finding は上の番号）",
               "- practice: 世の中の実務家がこの類を決まってどう解いているか（1〜3 文。対象の名を書かない）",
-              "- sources: practice の根拠にした抜き書きの id（excerpts の id）。抜き書きを使わないなら空",
-              f"- basis: sources が 1 つ以上なら {worldmark.WEB}、空なら {worldmark.KNOWLEDGE}（機械が照らした後に決め直す）",
+              "- sources: practice の根拠にした抜き書きの id（excerpts の id）。抜き書きを使わないなら空。web で確かめたかの印は、機械が"
+              "照らして残った根拠から付ける",
               "- applies: この依頼にどう当たるか。not_applies: どこには当たらないか（当たらない依頼なら applies は空）",
               f"- verdict: 依頼の解き方が定石と同じなら {worldmark.SAME}、違えば {worldmark.DIFFERS}、依頼が解き方を示していなければ "
               f"{worldmark.NONE}",
@@ -317,12 +319,12 @@ def _excerpts(reply) -> tuple:
             bad.append(f"excerpts[{i}]: id {e['id']} が返答の中で重なる")
         else:
             ids.add(e["id"])
-            took.append(e)
+            took.append({k: e[k] for k in ("id", "url", "excerpt")})
     return took, bad
 
 
 def judge_problems(rows: list, findings: list, reply, web: bool = True) -> list:
-    """web の役の返答の拒否の文。web が off の run は抜き書きと根拠を見ない（機械が捨てる）"""
+    """web の役の返答の拒否の文。web が off の run は抜き書きと根拠を見ない（機械が捨てる）。印 basis は見ない（機械が付ける）"""
     got = reply.get("rows") if isinstance(reply, dict) else None
     if not isinstance(got, list):
         return ["返答に rows（行の配列）が無い"]
@@ -357,11 +359,6 @@ def judge_problems(rows: list, findings: list, reply, web: bool = True) -> list:
         stray = [s for s in src if s not in ids] if web else []
         if stray:
             out.append(f"{head}: sources {stray} は返答の excerpts の id でない（在るのは {sorted(ids) or '無し'}）")
-        basis = r.get("basis")
-        if basis not in worldmark.BASES:
-            out.append(f"{head}: basis は {'・'.join(worldmark.BASES)} のどちらか")
-        elif web and (basis == worldmark.WEB) != bool(src):
-            out.append(f"{head}: basis {worldmark.WEB} は sources が 1 つ以上・{worldmark.KNOWLEDGE} は sources が空の時")
         for key in ("applies", "not_applies", "challenge"):
             if not isinstance(r.get(key), str):
                 out.append(f"{head}: {key} が字でない（無ければ空の字）")
@@ -382,15 +379,14 @@ def judge_problems(rows: list, findings: list, reply, web: bool = True) -> list:
 
 def _check_excerpts(out, reply, web: bool, get, classes: int) -> dict:
     """返答の抜き書きを、機械が取り直した本文で照らして verified.json に書く。返り {抜き書きの id: {id, url, excerpt}}（残った物）。
-    web が off の run は取り直さず、残る抜き書きは無い。越えた分（取った類ごとに MAX_EXCERPTS）は頭から取り、取らなかった数を残す"""
+    web が off の run は取り直さず、残る抜き書きは無い。越えた分（返答の全部で MAX_EXCERPTS × 取った類の数）は頭から取り、
+    取らなかった数を残す"""
     excerpts = _excerpts(reply)[0] if web else []
     took = excerpts[:MAX_EXCERPTS * classes]
-    # worldcheck.verify は渡した行の class の欄をそのまま運ぶ: 役の抜き書きの id を載せて渡し、残った行の class を id に戻す
-    got = worldcheck.verify([{"class": e["id"], "url": e["url"], "excerpt": e["excerpt"]} for e in took], get)
-    kept = [{"id": k["class"], "url": k["url"], "excerpt": k["excerpt"]} for k in got["kept"]]
-    _write(pathlib.Path(out) / VERIFIED, {"kept": kept, "dropped": got["dropped"], "offline": got["offline"],
+    got = worldcheck.verify(took, get)
+    _write(pathlib.Path(out) / VERIFIED, {"kept": got["kept"], "dropped": got["dropped"], "offline": got["offline"],
                                           "over_excerpts": len(excerpts) - len(took)})
-    return {k["id"]: k for k in kept}
+    return {k["id"]: k for k in got["kept"]}
 
 
 def judge_accept(out, reply, get=fetch) -> dict:
@@ -398,7 +394,7 @@ def judge_accept(out, reply, get=fetch) -> dict:
     根拠の残らない行の印を knowledge にして、判断の行を書く"""
     out = pathlib.Path(out)
     rows = _need(out, JUDGE_INPUT)
-    web = _need(out, PLAN)["web"]
+    web = _need(out, INTAKE)["web"]
     bad = judge_problems(rows, _need(out, INTAKE)["findings"], reply, web)
     if not bad:
         kept = _check_excerpts(out, reply, web, get, len({r["class_id"] for r in rows}))
@@ -450,7 +446,7 @@ def finish(out) -> dict:
             reasons.append(f"集めて判断する役の返答が受け付けを通らなかった: {_why_failed(out, JUDGE_ROLE)}")
     rows = _rows(out) if status == "ok" else []
     world.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-    if not pl.get("web", True) and pl.get("taken"):
+    if not intake_doc.get("web", True) and pl.get("taken"):
         reasons.append(f"web が off（{worldmark.NOT_WEB}）")
     elif ver.get("offline"):
         reasons.append(f"網に届かなかった（{worldmark.NOT_WEB}）")

@@ -92,7 +92,7 @@ class Files(unittest.TestCase):
         (self.dir / worldmark.STATE_FILE).write_text(json.dumps({"status": "odd"}), encoding="utf-8")
         self.assertIsNone(worldmark.read(self.dir))
 
-    def test_write_then_read_and_board_rows(self):
+    def test_write_then_read_and_stage_rows(self):
         """線の境が書く控え（write）を read が読み、stage_rows はその行を返す（控えが無い・落ちた・行が読めない周は None）"""
         self.assertIsNone(worldmark.stage_rows(self.dir))
         p = self.put([row()])
@@ -127,20 +127,13 @@ class Files(unittest.TestCase):
 class Notes(unittest.TestCase):
     """構造の目への単位の注記の道（unit_note・where_paths）は無い。世界の解は判定の単位の処方と先例を通って届く"""
 
-    def test_unit_note_only_overlapping_rows(self):
-        self.assertFalse(hasattr(worldmark, "unit_note"))
-        self.assertFalse(hasattr(worldmark, "_overlap"))
-
-    def test_unit_note_names_knowledge_rows(self):
-        self.assertFalse(hasattr(worldmark, "unit_note"))
-        self.assertIn(worldmark.NOT_WEB, worldmark.section([row(basis="knowledge", sources=[])]))
-
-    def test_where_paths(self):
-        self.assertFalse(hasattr(worldmark, "where_paths"))
+    def test_no_unit_note_or_where_paths(self):
+        for name in ("unit_note", "_overlap", "where_paths"):
+            self.assertFalse(hasattr(worldmark, name), name)
 
 
 class Answers(unittest.TestCase):
-    def test_required_by_path_overlap(self):
+    def test_rows_are_not_bound_to_items_by_path(self):
         """行を項目に場所で結ぶ required は無い: どの項目も行に結ばれず、答えの無い行は欠けに残る"""
         self.assertFalse(hasattr(worldmark, "required"))
         rows = [row(), row(finding=2, class_id="w2", where="docs/guide.md"), row(finding=3, class_id="w3", applies="")]
@@ -149,25 +142,28 @@ class Answers(unittest.TestCase):
         self.assertEqual(table.missing([{"allowed_paths": ["src/"]}]), ["w1", "w2"])
 
     def test_world_source_must_name_a_staged_row(self):
-        """先例の出どころ world:<類の id> は盤面の根の控えが指す行に在る id だけを通す。頭に字を添えても拾い、world: の無い出どころは見ない"""
+        """判定の返答の先例（precedents）の出どころ world:<類の id> は盤面の根の控えが指す行に在る id だけを通す。頭に字を添えても拾い、
+        world: の無い出どころは見ない。出どころを返答から抜くのも worldmark（呼び手は返答をそのまま渡す）"""
+        def refs(*sources):
+            return {"precedents": [{"source": s, "why": "先例"} for s in sources]}
         self.assertTrue(hasattr(worldmark, "ref_problems"), "worldmark.ref_problems が無い")
         with tempfile.TemporaryDirectory() as tmp:
             board = pathlib.Path(tmp)
             world = board / worldmark.WORLD_FILE
             world.write_text(json.dumps(row(), ensure_ascii=False) + "\n", encoding="utf-8")
             (board / worldmark.STATE_FILE).write_text(json.dumps({"status": "ok", "reason": "", "world_file": str(world)}), encoding="utf-8")
-            self.assertEqual(worldmark.ref_problems(["world:w1"], board), [])
+            self.assertEqual(worldmark.ref_problems(refs("world:w1"), board), [])
             for src in ("world:w-none", "世界の解 world:w-none"):
-                got = worldmark.ref_problems([src], board)
+                got = worldmark.ref_problems(refs(src), board)
                 self.assertEqual(len(got), 1, got)
                 self.assertIn("w-none", got[0])
-            self.assertEqual(worldmark.ref_problems(["https://example.org/tdd", "docs/guide.md の 3 節"], board), [])
-            self.assertEqual(len(worldmark.ref_problems(["world:w1", "world:w-none"], board)), 1)
+            self.assertEqual(worldmark.ref_problems(refs("https://example.org/tdd", "docs/guide.md の 3 節"), board), [])
+            self.assertEqual(len(worldmark.ref_problems(refs("world:w1", "world:w-none"), board)), 1)
         with tempfile.TemporaryDirectory() as bare:
-            got = worldmark.ref_problems(["world:w1"], pathlib.Path(bare))
+            got = worldmark.ref_problems(refs("world:w1"), pathlib.Path(bare))
             self.assertEqual(len(got), 1, got)
             self.assertIn("w1", got[0])
-            self.assertEqual(worldmark.ref_problems(["https://example.org/tdd"], pathlib.Path(bare)), [])
+            self.assertEqual(worldmark.ref_problems(refs("https://example.org/tdd"), pathlib.Path(bare)), [])
 
     def test_row_without_applies_needs_no_answer(self):
         self.assertEqual(worldmark.unanswered([row(applies="")], []), [])

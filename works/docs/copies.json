@@ -270,11 +270,11 @@
   ],
   "blk-world/fixtures/offline.stubs.yaml": [
    38,
-   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/pass.stubs.yaml・blk-world/fixtures/cache-hit.stubs.yaml・blk-world/fixtures/wording.stubs.yaml"
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/pass.stubs.yaml"
   ],
   "blk-world/fixtures/pass.stubs.yaml": [
    38,
-   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/cache-hit.stubs.yaml・blk-world/fixtures/wording.stubs.yaml ほか 1 本"
+   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml"
   ],
   "blk-world/scripts/classes_accept.py": [
    11,

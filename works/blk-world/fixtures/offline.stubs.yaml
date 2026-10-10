@@ -1,5 +1,5 @@
-# 筋書き offline: web が off の run（入力 web=off）。web の役は検索も取得もせず、知識だけの行（basis: knowledge）を返し、
-# 受け付けは抜き書きを取り直さない。出口は止めずに「web で確かめていない」を reason に残す。網に届かない run（取り直しが
+# 筋書き offline: web が off の run（入力 web=off）。web の役は検索も取得もせず、根拠の無い知識だけの行を返し、
+# 受け付けは抜き書きを取り直さない（行の印は basis: knowledge）。出口は止めずに「web で確かめていない」を reason に残す。網に届かない run（取り直しが
 # 全部落ちる）も web の役から先は同じ道
 world-intake:
   due: true
@@ -34,7 +34,6 @@ world-judge:
     not_applies: ''
     verdict: differs
     challenge: 依頼は読む役を足す、定石は仮の実装で走らせる。読み込みの失敗が赤でない訳が無い限り定石を選ぶ
-    basis: knowledge
   excerpts: []
 world-judge-accept:
   ok: true

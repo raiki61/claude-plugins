@@ -1159,15 +1159,6 @@ class PlanEdgeCase(EdgeBase):
             self.assertEqual(set(r), {"id", "paths", "summary"})
             self.assertIsInstance(r["summary"], str)
 
-    def test_structure_unit_summary_carries_world_note(self):
-        """単位の要約に世界の解を注記する道は無い（worldmark.unit_note は無く、要約に『世界の解:』の尾が付かない）"""
-        import worldmark
-        self.assertFalse(hasattr(worldmark, "unit_note"))
-        self.premised()
-        got = self.edge("plan", judged=self.judge_exit())
-        for r in json.loads(pathlib.Path(got["structure_units_file"]).read_text(encoding="utf-8")):
-            self.assertNotIn("世界の解:", r["summary"])
-
     def test_structure_unit_summary_is_judge_reason_only(self):
         """世界の解の行の where が単位のパスと重なっても、h-plan が構造の目に渡す単位の要約 summary は判定の単位の reason だけ
         （構造の目の入力の契約は 3 つのまま。世界の解は判定の単位の処方と先例を通って届く）"""
@@ -1175,7 +1166,7 @@ class PlanEdgeCase(EdgeBase):
         self.premised()
         row = {"finding": 1, "where": "stats.py", "class_id": "w-mean", "problem": "平均の分母をどう決めるか",
                "activity": "統計の関数を書く", "practice": "算術平均は個数で割る", "sources": [], "applies": "mean の直し",
-               "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""}, "basis": "knowledge", "cached": False}
+               "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""}, "basis": "knowledge"}
         wf = self.tmp / "world-out" / worldmark.WORLD_FILE
         wf.parent.mkdir(parents=True)
         wf.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")

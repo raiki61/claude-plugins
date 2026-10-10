@@ -35,7 +35,6 @@ world-judge:
     not_applies: ''
     verdict: differs
     challenge: 依頼は読む役を足す、定石は仮の実装で走らせる。読み込みの失敗が赤でない訳が無い限り定石を選ぶ
-    basis: web
   excerpts:
   - id: x1
     url: https://example.org/guide/tdd

@@ -358,7 +358,6 @@ world-judge:
     not_applies: ''
     verdict: none
     challenge: ''
-    basis: web
   excerpts:
   - id: x1
     url: https://example.org/guide/mean

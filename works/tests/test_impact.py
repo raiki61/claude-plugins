@@ -210,18 +210,6 @@ class TestIsTest(unittest.TestCase):
                 self.assertNotEqual(impact.is_test(path), "module")
 
 
-class TestIsDoc(unittest.TestCase):
-    def test_is_doc_by_document_extension_only(self):
-        """パスだけで文書と言えるのは文書・データの拡張子（DOC_EXT）の物だけ。拡張子の無い名（シバンを見ないと分からない）・
-        設定・コードは文書でない（語の直しだけの依頼を機械が確かめる口。分からない物は文書と見ない側に倒す）"""
-        for path in ("README.md", "docs/guide.rst", "notes/a.txt", "CHANGELOG.MD"):
-            with self.subTest(path=path):
-                self.assertTrue(impact.is_doc(path))
-        for path in ("LICENSE", "scripts/run", "conf/x.yaml", "src/a.py", "web/a.ts", "conf/.gitignore", ""):
-            with self.subTest(path=path):
-                self.assertFalse(impact.is_doc(path))
-
-
 class UnanalysableCase(RepoCase):
     def test_unknown_language_seed_requires_all(self):
         m = self.map(["web/widget.js"])

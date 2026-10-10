@@ -889,7 +889,7 @@
 - 観点: 持ち主の言葉は、web から取ってきてまとめる所に安い模型（Sonnet）を使ってよいという許しで、役を割れという要求ではない。役をどう割るかは設計の選択で、理由は設計書 `docs/specs/2026-09-29-structure-block-design.md` の 5 節に置く
 - 出どころ: 記憶の決定 `web-split`（V073 の後の発言）
   - 持ち主の言葉: 「sonnetとかつかってもいいしね。WEBからとってきてまとめるところは」（2026-09-29）
-- 住処: 世界の解のブロック `blk-world` の web の役（`world-judge`。web から集めてまとめ、依頼の解き方との比べを判断する）と、`.shared/core/stage-models.json` の `blk-world/world-judge` の行（軽い模型）。構造の目の設計書 5 節は割り方の理由の置き場
+- 住処: 世界の解のブロック `blk-world` の web の役（`world-judge`。web から集めてまとめ、依頼の解き方との比べを判断する）と、`.shared/core/stage-models.json` の `blk-world/world-judge` の行（軽い模型）。計画 `docs/plans/2026-10-09-world-solution.md` の 5.2 節は割り方の理由の置き場
 - 強さ: 機械で強制（段の模型は stage-models.json の行が決める）
 - 隙間: 言い直す役を web の役から分けるかは関所で人が分けると答えた（道具ゼロの役と web の役）。割り方の理由は設計書 5 節
 
