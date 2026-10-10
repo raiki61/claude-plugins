@@ -3,257 +3,139 @@
 ## 平易版（3 行）
 
 - darkfactory は、修正の依頼を受けて「調べる → 世の中の解き方を当たる → 判定する → 計画する → 直す → 審査する → 試す → 報告する」を 1 本の流れで回す、AI の修正の工場。
-- 下の図は、その 1 回（run）が通る工程を始めから終わりまで描いたもの。最初の全体の図で工程の並びを、その後の 7 枚で世界の解・判定・計画・修正・差分の審査・独立の目・報告の中を描いた。箱の中に、その工程で何をしているかを書いた。
-- 実線は今動いている流れ、点線と薄い箱はこれから入る予定の流れ（2026-10-10 の works 0.2.60 の形）。
+- 下の 1 枚の図が、その 1 回（run）の全部。枠 1 つが部品（ブロック）1 つで、枠の見出しに「何の部品か（線での名前・ブロックの名前）」、枠の中に部品がしていることを順に書いた。
+- 実線は今動いている流れ、点線と薄い箱はこれから入る予定（2026-10-10 の works 0.2.62 の形）。
 
 ## 図の読み方
 
-- 四角: AI や機械が作業する工程。1 行目が何をしているか、最後の行の括弧は設定ファイルでの名前（全体の図は線 `darkfactory/darkfactory.yaml` の節の id、段ごとの図はブロック `blk-*/blk-*.yaml` の節の id）。
-- 黄色のひし形: 人が確かめる所（関所）。いつも止まるわけではなく、AI と機械がまず考え、決めきれない物だけ人に聞く。関所で人が止めた時は報告へ進む（その線は図では省いた）。
-- 灰色のひし形: 機械が決める分かれ目（AI には決めさせない）。
-- 線の上の字: その工程を回す条件。字の無い線はいつも通る。
-- 赤い枠: 盤面（run の記録の置き場）を止めて、報告へ飛ぶ道。止めた後も報告は必ず書かれる。
-- 省いた物: 工程と工程の間では毎回、機械が「次の工程を回すか・飛ばすか」を決めている（設定ファイルの h- で始まる節）。図が混むので、深さを決める h-depth・h-redepth と、関所を開くかを決める h-regate・h-final だけを描いた。
-- 機能の切り替え: run の入力 `features_on`・`features_off` で、判定の裏取り（`judge_verify`）・事前審査の木（`review_tree`）・TDD の輪の並べ（`tdd_lanes`）・修正役の並べ（`fix_lanes`）・工程の地図（`graph_map`）を入れたり切ったりできる。既定は `judge_verify` が off、`review_tree` が auto、ほかは on（12b）。図の線の字にその機能の名を書いた。
+- 枠: 部品（ブロック）1 つ。見出しの括弧は、線 `darkfactory/darkfactory.yaml` の節の id と、ブロックのファイル `blk-*`。
+- 四角: AI や機械が作業する所。黄色のひし形は人が確かめる所（関所。いつも止まるわけではなく、AI と機械で決めきれない物だけ聞く。人が止めた時は報告へ進む線は省いた）。灰色のひし形は機械が決める分かれ目。
+- 線の上の字: その部品を回す条件。字の無い線はいつも通る。
+- 省いた物: 部品と部品の間で毎回、機械が「次を回すか・飛ばすか」を決めている（線の h- で始まる節）。
+- 機能の切り替え: run の入力 `features_on`・`features_off` で、判定の裏取り（`judge_verify`）・事前審査の木（`review_tree`）・TDD の輪の並べ（`tdd_lanes`）・修正役の並べ（`fix_lanes`）・工程の地図（`graph_map`）・世界の解（`world`）を入れたり切ったりできる。既定は `judge_verify` が off、`review_tree` が auto、ほかは on。
 
-## 全体の図
+## 全体の図（1 枚）
 
 ```mermaid
 flowchart TD
   Q1(["依頼のファイル"]) --> L
   Q2(["手元の変更（--base）"]) --> L
   Q3(["PR（--pr）"]) --> L
-  subgraph EB["入口のブロック（entering。入口の種類を知るのはここと殻だけ）"]
-    L{"始めてよいか<br/>人が確かめる<br/>（launch）"} --> ST["入口を 1 つの入力の形に揃える<br/>（差分の根・差分・依頼の行・PR）。<br/>差分も依頼も無ければ止める。<br/>依頼の answers と機能の切り替え<br/>（features_on・features_off）・<br/>深さの入力（thickness）も控え、<br/>run の準備をする（open）"]
+
+  subgraph EB["入口のブロック（entering・blk-entry。入口の種類を知るのはここと殻だけ）"]
+    L{"始めてよいか<br/>人が確かめる<br/>（launch）"} --> ST["入口を 1 つの入力の形に揃える<br/>（差分の根・差分・依頼の行・PR）。<br/>差分も依頼も無ければ止める（open）"]
   end
-  ST -- "テストの走らせ方が<br/>分からない時だけ" --> CI["AI がリポジトリを読んで<br/>テストの走らせ方を探す<br/>（ci-checking）"]
-  ST --> PM
-  CI --> PM
-  ST -- "前の run の固定材料を<br/>渡した時だけ（fix_fixture）" --> DEP
-  ST -- "origin が GitHub で<br/>機械が済ませられない時だけ" --> PR["同時に動いている他の PR と<br/>触る所がぶつからないか調べる<br/>（pr-checking）"]
-  PR --> PM["依頼に書かれた前提が本当か<br/>実際に測って確かめる<br/>（premising）"]
-  PM -- "必要な時だけ" --> PU["依頼の元の目的を<br/>1 文に固める。依頼が示した<br/>解き方は目的の文に書かず<br/>欄 means に分ける<br/>（purposing）"]
-  PM --> WO
-  PU -- "目的の文と means" --> WO["依頼の行ごとに問題の類に言い直し、<br/>世の中の定石を集めて機械が照らし、<br/>依頼の解き方と比べる。<br/>run で 1 回（機能 world が on の時）<br/>（worlding。下の世界の解の図）"]
-  WO -- "世界の解の行を盤面の根に控えた後<br/>（h-world。並べると素材集めの窓が<br/>世界の段の書き込みを宣言の外と読むので順に。0.2.61）" --> MA["判定の前に材料を集める：<br/>過去の決定・目的の文の審査・<br/>差分の局所レビューなど<br/>（要る時だけ。gathering）"]
-  MA --> JU["何が問題で<br/>どこを直すべきかを判定する。<br/>世界の解の行を先に使う<br/>（judging。下の判定の図）"]
-  WO -- "世界の解の行" --> JU
-
-  JU --> SA["判定の単位が名指すファイルを<br/>機械で測り、その直し方が<br/>コードの構造を汚さないかを<br/>AI が単位ごとに判定する。<br/>単位の要約に世界の解の行の<br/>要点が付き、避け方を定石に沿わせる<br/>（structuring）"]
-  SA -- "判定の行（決めきれない行は<br/>「人に上げる」と訳つき）" --> PLAN
-
-  JU --> PLAN["独立設計・修正案・<br/>事前審査の壁打ち。<br/>修正案は構造の目の行と<br/>世界の解の行ごとに<br/>従うか外れの訳を書く<br/>（planning。下の計画の図）"]
-
-  PLAN -- "能力を減らす・方針とぶつかる<br/>変更があり、決めきれない時・<br/>構造の目が決めきれない問い・<br/>依頼を出どころにした世界の解の外れ・<br/>事前審査の同じ block が続いた時<br/>（設計だけの run はいつも止まる）" --> PG{"直す前に<br/>人が確かめる<br/>（policy-gate）"}
-  PLAN --> DEP
-  PG -- "通す" --> DEP["直す単位ごとに<br/>深さ（軽量か標準）を機械が決める。<br/>入力 thickness が空なら自動、<br/>軽量・標準なら全部をその深さに<br/>（h-depth）"]
-  DEP --> FX["コードを直す。<br/>TDD の輪と修正役の輪。<br/>範囲の重ならない枝は<br/>小さい作業ツリーで同時に回し、<br/>機械が 3 方向で合わせる<br/>（fixing。下の修正の図）"]
-
-  FX -- "裁定が計画の項目そのものを<br/>誤りとした時だけ（1 run に 1 回）" --> RPN["誤りと裁いた計画の項目だけを<br/>別の AI が直し、別の AI が審査する<br/>（replanning）"]
-  RPN --> RGD{"直した計画を<br/>人に聞くか<br/>（h-regate）"}
-  RGD -- "約束が変わる・<br/>人に聞く穴がある" --> RG{"直した計画を<br/>人が確かめる<br/>（replan-gate）"}
-  RGD -- "約束が変わらず穴も無い・<br/>無人の run で範囲を<br/>広げるだけの直し" --> RFT
-  RG -- "通す" --> RFT["直した項目の単位だけを<br/>もう一度直す<br/>（refitting）"]
-  FX -- "直す側が判定に<br/>異議を出した時だけ" --> RJ["判定をやり直す<br/>（rejudging）"]
-  RFT -- "異議を出した時だけ" --> RJ
-
-  FX --> RD
+  ST -- "テストの走らせ方が<br/>分からない時だけ" --> CI1
+  subgraph CIB["CI のブロック（ci-checking・blk-ci）"]
+    CI1["AI がリポジトリを読んで<br/>テストの走らせ方を探す"]
+  end
+  ST -- "入力 spec=on の時だけ" --> SP1
+  CI1 --> SP1
+  subgraph SPB["仕様のブロック（speccing・blk-spec）"]
+    SP1["要件と受け入れ条件の<br/>テストを書き、別の目が審査"] --> SP2{"人が承認する<br/>（spec-gate）"}
+  end
+  ST --> PR1
+  SP2 --> PR1
+  subgraph PRB["並行 PR のブロック（pr-checking・blk-pr。GitHub で機械が済ませられない時だけ）"]
+    PR1["同時に開いている他の PR と<br/>触る所が重ならないか"]
+  end
+  PR1 --> PM1
+  ST --> PM1
+  subgraph PMB["前提のブロック（premising・blk-premises）"]
+    PM1["依頼に書かれた数値・在る無いを<br/>コマンドで実測して確かめる"]
+  end
+  PM1 -- "要る時だけ" --> PU1
+  subgraph PUB["目的のブロック（purposing・blk-purpose）"]
+    PU1["依頼の元の目的を 1 文に固める"] --> PU2["依頼が示した解き方は<br/>目的に書かず欄 means に分ける"]
+  end
+  PM1 --> W1
+  PU2 --> W1
+  subgraph WOB["世界の解のブロック（worlding・blk-world。run で 1 回）"]
+    W1["依頼の行を、対象の名と解き方を<br/>外した問題の類に言い直す"] --> W2["世の中の定石を web で集める<br/>（前の run の控えに在れば引く）"]
+    W2 --> W3["機械が抜き書きを<br/>取り直した本文で照らす"] --> W4["類ごとの定石と、<br/>依頼の解き方との違いを書く"]
+  end
+  W4 --> MA1
+  subgraph MAB["素材のブロック（gathering・blk-material。要る時だけ）"]
+    MA1["過去の決定・目的の審査・<br/>差分の局所レビューなどを集める"]
+  end
+  MA1 --> J1
+  W4 -- "世界の解の行" --> J1
+  subgraph JUB["判定のブロック（judging・blk-judge）"]
+    J1["依頼を根本の単位にまとめる。<br/>世界の解の行を先例として先に使い、<br/>依頼の解き方は前の決定に数えない"] -- "judge_verify が on で<br/>単位が 2 つ以上" --> J2["単位ごとの裏取り<br/>（根本か・証拠・場所）"]
+  end
+  J1 --> S1
+  J2 --> S1
+  subgraph SAB["構造の目のブロック（structuring・blk-structure）"]
+    S1["単位が触るファイルを機械が測る<br/>（考えの地図・知る場所の数）"] --> S2["その直し方で構造が汚れるかを<br/>単位ごとに判定する。<br/>決めきれない行は人に上げる"]
+  end
+  S2 --> P0
+  J1 --> P0
+  subgraph PLB["計画のブロック（planning・blk-plan）"]
+    P0["独立設計：別の AI が修正案を見ずに<br/>目的と制約だけから設計する（道具なし）"] --> P1["修正案：単位を項目（書いてよい範囲・<br/>受け入れのテスト）に分ける。<br/>構造の目・判定の処方・世界の解の行<br/>ごとに従うか外れの訳を書く"]
+    P1 --> P2["事前審査：8 つの目で穴を探す<br/>（写し・入口・契約のずれ・死んだ道・<br/>範囲の膨張・後退・方針・先例の出典）。<br/>独立設計と比べる"]
+    P2 --> P3{"止める穴（block）が<br/>残るか"}
+    P3 -- "残る（今は 3 往復まで）" --> P4["案を丸ごと書き直し、<br/>審査が全部を読み直す"]
+    P4 --> P2
+    PX1["予定：審査の前に、機械で数え上げられる<br/>物を全件出して 1 回目で出し切る<br/>（消す名の残り・工程の地図の古さ）"] -.-> P2
+    PX2["予定：2 回目からは開いた穴と<br/>その波及だけを書き直し・審査。<br/>穴が減らない回は関所へ。回数の上限なし"] -.-> P4
+  end
+  P3 -- "残らない・同じ block が続く" --> PG{"直す前の関所<br/>（policy-gate）<br/>能力を減らす・方針とぶつかる・<br/>決めきれない物が在る時だけ"}
+  PG -- "通す" --> DEP{"直す単位ごとに<br/>軽量か標準かを決める<br/>（h-depth）"}
+  DEP --> F1
+  subgraph FXB["修正のブロック（fixing・blk-fix）"]
+    F1["TDD の輪：テストを書く → 赤を機械が確かめる →<br/>直す → 緑を機械が確かめる。<br/>同じ段で 3 回拒まれたら普通の直しへ"]
+    F2["修正役：TDD に向かない単位を直す"]
+    F3["範囲の重ならない枝は<br/>小さい作業ツリーで同時に回し、<br/>機械が 3 方向で合わせる"]
+    F1 --- F3
+    F2 --- F3
+  end
+  subgraph RDO["やり直しの道（要る時だけ）"]
+    RPN["計画の項目の直し<br/>（replanning・blk-plan）"] --> RG{"人が確かめる<br/>（replan-gate）"} --> RFT["直した項目だけ<br/>2 回目の修正<br/>（refitting・blk-fix）"]
+    RJ["判定の再審<br/>（rejudging・blk-rejudge）"]
+  end
+  F3 -- "裁定が計画の項目を<br/>誤りとした時" --> RPN
+  F3 -- "修正役が判定に<br/>異議を出した時" --> RJ
+  F3 --> RD
   RFT --> RD
-  RJ --> RD{"修正の後の信号で<br/>標準へ上げた後も<br/>全部の単位が軽量か<br/>（h-redepth）"}
-  RD -- "標準の単位が在る<br/>（差分が出来た時）" --> RV["差分を局所レビューの目と<br/>別の AI の審査に当て、<br/>穴が在れば手直しする<br/>（lensing・reviewing・refixing。<br/>下の差分の審査の図）"]
-  RD -- "全部が軽量<br/>（差分の審査・レンズ・<br/>手直しを省く）" --> TE
-  RV --> TE["テストを全部走らせる<br/>（testing）"]
-  TE -- "テストのコマンドも宣言も<br/>無く、機械で走らせられない時だけ<br/>（h-ci）" --> CIF["AI がリポジトリを読んで<br/>テストを走らせる<br/>（ci-final）"]
-  CIF --> EY
-  TE --> EY["書いた AI とは別の目で<br/>最後に確かめる<br/>（eyeing。全部が軽量なら<br/>R1〜R4 を省く。下の独立の目の図）"]
-  EY --> FGD{"最後の関所を開くか<br/>（h-final。入力 final_gate）"}
-  FGD -- "always：いつも<br/>when_needed：聞くことが在る時<br/>protected_only：守りのファイルを<br/>触った時（use.sh の既定）" --> FG{"結果を見て<br/>人が確かめる<br/>（final-gate）"}
-  FGD -- "開かない" --> RP
-  FG -. "作り直しが要る時は<br/>取り込まない（予定）" .-> NEXT["設計からやり直す<br/>次の依頼の下書きを作る<br/>（予定）"]
-  FG -- "通す" --> RP["何をしたかの記録・報告の骨組みと、<br/>次の run の依頼の下書き<br/>（next-request.json）を作る。<br/>途中で落ちた run でも、<br/>resume のたびにも必ず走る<br/>（report。下の報告の図）"]
-  RP -- "AI の報告を書く時" --> RPA["AI が読みやすい報告を書き<br/>初めて読む人に通じるか確かめる<br/>（reporting）"]
-  RP --> RS["結果を返す<br/>（result）"]
-  RPA --> RS
-  SC["どの工程の後でも：<br/>部品が宣言の外に書いたら<br/>盤面を止める<br/>（照らし・依頼 239）"] --> RP
+  RJ --> RD{"全部の単位が<br/>軽量のままか<br/>（h-redepth）"}
+  RD -- "標準の単位が在る" --> LZ
+  subgraph RVB["差分の審査のブロック（lensing・blk-lens → reviewing・blk-delta → refixing・blk-refix）"]
+    LZ["局所レビューのレンズ"] --> DR["差分の審査：新しい穴と<br/>塞いだ穴の検算"] --> RF["穴が在れば手直し"]
+  end
+  RD -- "全部が軽量" --> T1
+  RF --> T1
+  subgraph TEB["テストのブロック（testing・blk-tests）"]
+    T1["最後のテストを<br/>木の全部で 1 回走らせる"]
+  end
+  T1 -- "テストのコマンドも宣言も無い時だけ" --> CIF["CI のブロックで<br/>AI が走らせる（ci-final）"]
+  T1 --> MF1
+  CIF --> MF1
+  subgraph MAFB["直した後の実測（measuring-after・blk-structure の 2 回目）"]
+    MF1["実の差分で、考えを知る場所の増減・<br/>新しい名・写しの塊を測る。<br/>住処の外に増えたら直し済みにしない"]
+  end
+  MF1 --> E0
+  subgraph EYB["独立の目のブロック（eyeing・blk-eyes。全部が軽量なら省く）"]
+    E0["書いた AI と別の目で確かめる"] --> E1["R1 冗長と最小性・<br/>R2 独立設計との比較・<br/>R3 整合・R4 隠れた範囲"]
+  end
+  E1 --> FG{"最後の関所<br/>（final-gate。入力 final_gate：<br/>always・when_needed・protected_only）"}
+  E1 -- "関所を開かない時" --> RP
+  FG -- "通す" --> RP["記録と報告の骨組み・<br/>次の run の依頼の下書きを作る。<br/>途中で落ちた run でも必ず走る<br/>（report）"]
+  RP -- "AI の報告を書く時" --> R1
+  subgraph RPB["報告のブロック（reporting・blk-report）"]
+    R1["AI が読みやすい報告を書き、<br/>初めて読む人に通じるか確かめる"]
+  end
+  RP --> RS["結果を返す（result）"]
+  R1 --> RS
+  SC["どの部品の後でも：<br/>部品が宣言の外に書いたら<br/>盤面を止めて報告へ"] --> RP
 
   classDef plan fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3,color:#555
   classDef gate fill:#fff7e0,stroke:#c90
   classDef mdec fill:#eeeeee,stroke:#666
   classDef halt fill:#fdecec,stroke:#c33
-  class NEXT plan
+  class PX1,PX2 plan
   class SC halt
-  class L,PG,RG,FG gate
-  class RGD,RD,FGD mdec
-```
-
-## 世界の解の図（worlding・blk-world）
-
-```mermaid
-flowchart TD
-  WI["依頼の行と目的の文<br/>（解き方の欄 means つき）を読む<br/>（world-intake）"] -- "依頼の行が在る時" --> WC["言い直す役（道具なし・対象を読まない）が<br/>依頼の行ごとに、解き方と対象の名を外した<br/>問題の類・作業の種類・検索語を返す。<br/>対象の名の入った類と、場所が文書でない<br/>「語の直しだけ」の印は受け付けが拒む<br/>（world-classes-loop）"]
-  WC --> WK{"語の直しだけの行を飛ばし、<br/>run をまたぐ控え<br/>（類ごと・90 日）に<br/>定石が在るかを引く<br/>（world-cache）"}
-  WK -- "控えに無い類が在る<br/>（入力 web が on）" --> WL["集める役（軽い模型・web だけ）が<br/>URL と原文の抜き書きだけを返す<br/>（world-collect）"]
-  WL --> WV["機械が、役が本当に取得した URL かを<br/>読んだ記録で確かめ、同じ URL を<br/>取り直した本文に抜き書きが在るかを照らす。<br/>外れた抜き書きは落とす<br/>（world-verify）"]
-  WK -- "全部が控えに在る" --> WJ
-  WK -- "全部の行を飛ばした" --> WO
-  WV --> WJ["判断する役（道具なし）が、照らして残った<br/>抜き書きだけを材料に、類ごとの定石・当たる所・<br/>依頼の解き方との比べ（違えば違いの文）を書く。<br/>抜き書きが残らなければ知識だけの行<br/>（web で確かめていない）<br/>（world-judge-loop）"]
-  WJ --> WO["行を world.jsonl に書き、web で<br/>確かめた定石だけを控えに足す<br/>（collect）"]
-
-  classDef mdec fill:#eeeeee,stroke:#666
-  class WK mdec
-```
-
-## 判定の図（judging・blk-judge）
-
-```mermaid
-flowchart TD
-  JI["依頼の型を確かめて<br/>盤面に積む。読めなければ<br/>AI を起こす前に止める<br/>（intake）"] --> JB["凍結した目的・材料・<br/>問いの台帳と世界の解の行を描いて<br/>判定役が読むファイルに置く<br/>（judge-brief）"]
-  JB --> JL["判定役が依頼を根本の単位にまとめる。<br/>answers で答えた問いは聞き直さず、<br/>目的の外とした材料の所見は<br/>out_of_purpose に名指す。<br/>受け付けが拒めば同じ会話で<br/>3 回まで出し直させる<br/>（judge-loop：judge・judge-accept）"]
-  JL --> VP{"判定の裏取りを回すか：<br/>judge_verify が on で<br/>開いた単位が 2 つ以上<br/>（verify-prep）"}
-  VP -- "回す（judge_verify は既定で off）" --> JV["束ね役が、単位ごとの裏取り<br/>（根本か・証拠・場所）と<br/>単位どうしの相乗り<br/>（重複・関わり・順番）の下請けを<br/>同時に起こす。新しい会話<br/>（judge-verify）"]
-  JV --> VM["機械が答えを申し送り<br/>judge-verify.json にまとめる。<br/>単位は消さない<br/>（verify-merge）"]
-  VP -- "回さない" --> JC
-  VM --> JC["受け付けた判定と<br/>直す義務の単位を出口に出す<br/>（collect）"]
-
-  classDef mdec fill:#eeeeee,stroke:#666
-  class VP mdec
-```
-
-## 計画の図（planning・replanning・blk-plan）
-
-上の図が今の形。下の「事前審査が見る物と止める基準」は今の決まりを、点線の箱は直す予定（依頼 plan-review-scope と速さの計画 2026-10-10-factory-speed）を描いた。
-
-```mermaid
-flowchart TD
-  RS0["独立設計がまだ無く、<br/>作れるかを調べる<br/>（r2-design-snap）"] -- "作れる時だけ" --> RD2["別の AI が修正案を見ずに、<br/>目的と制約だけから<br/>自分ならどう直すかを設計する。<br/>道具なし（あとで比べるため）<br/>（r2-design-loop）"]
-  RS0 --> PS
-  RD2 --> PS["直す物が在るか調べる<br/>（plan-snap）"]
-  PS -- "直す物が在る時" --> RIP["機械が、変える名の呼び出し元と<br/>試験を引いて波及の一覧にする<br/>（plan-ripple）"]
-  RIP --> PL["修正案の役が単位を項目<br/>（書いてよい範囲・受け入れのテスト）<br/>に分ける。新しい機構を足す前に<br/>同じ仕事の既存の助け手を探す。<br/>構造の目の行・判定の処方・<br/>世界の解の行ごとに従うか<br/>外れの訳を欄 structure に書く<br/>（欠けは受け付けが拒む）。<br/>受け付けに通るまで 3 回<br/>（plan-loop）"]
-  PL --> CVS
-  PS -- "直す物が無い周" --> PC
-  subgraph CV["壁打ち（converge-loop。今は 3 往復まで）"]
-    CVS["block が在れば、修正案の会話の<br/>続きで答えて、案を丸ごと書き直す<br/>（plan-revise-loop。2 往復目から）"] --> RR["波及の一覧を引き直す<br/>（review-ripple）"]
-    RR --> TREE{"事前審査を<br/>項目ごとの木にするか<br/>（plan-review-prep。<br/>入力 review_tree）"}
-    TREE -- "on か、auto で<br/>開いた項目が 2 つ以上" --> PRT["事前審査：項目ごとの下請けを<br/>同時に起こし、独立設計と比べて穴を探す。<br/>最後に項目どうしの関わりを 1 度見る。<br/>毎回、全部の項目を読み直す<br/>（plan-review-loop。新しい会話）"]
-    TREE -- "off か、auto で<br/>開いた項目が 1 つ以下" --> PR1["事前審査：審査役 1 つが<br/>案の全体を独立設計と比べる。<br/>外れの訳（世界の解の外れは<br/>定石との比べの文つき）を照らす<br/>（plan-review-loop。新しい会話）"]
-    PRT --> CK{"block が残るか<br/>（converge-check）"}
-    PR1 --> CK
-    CK -- "残る" --> CVS
-  end
-  CK -- "block 無し・<br/>同じ block が続いた・<br/>3 往復でも消えない" --> PC["読んだ証拠を残し、<br/>案と事前審査を出口に出す。<br/>block が残った案は<br/>直す前の関所で止まる<br/>（plan-reads・collect）"]
-
-  subgraph RV["事前審査が見る物と止める基準（今の決まり。指示書 p2.plan_review と planblk の頭）"]
-    IN["読む物：修正案・直す単位・判定の見立て・<br/>判定者の先行例（世界の解）・独立設計・<br/>波及の一覧・考えの地図・<br/>リポジトリ（読む版で）・観点の正本・人の方針"]
-    IN --> K["案ごと・足す 1 行ごとに 8 つの目：<br/>1 写し（正本の在る物を別に写す）<br/>2 入口（同じ集合へ入る別の経路）<br/>3 契約のずれ（変える物を読む・書く側<br/>　＝指示書・文書・試験・地図が追従しない）<br/>4 死んだ道 5 範囲の膨張<br/>6 後退（BASE の能力を消す・狭める）<br/>7 方針 8 先行例の出典<br/>＋既存の助け手を量ったか・小さく閉じる別案"]
-    K --> SV["止める基準：書けば次の周に<br/>block になる穴は block、ほかは suggest。<br/>6・7 と案の narrows は人に回す"]
-  end
-
-  M1["予定：審査の前に、機械で数え上げられる物を<br/>機械が全件出す（案が消す・名を替える物を<br/>名指す所の全部・工程の地図の古さ）。<br/>1 回目で出し切る。run 6a51125d の<br/>止めた 10 件のうち 9 件がこの種類（3 契約のずれ）"] -.-> PL
-  M1 -.-> PRT
-  M2["予定：2 回目からは、開いた所見と<br/>その直しが触った所（波及）だけを<br/>書き直し・審査する。開いた所見は<br/>回ごとに減り、無くなれば止まる。<br/>減らない回は設計の食い違いとして関所へ。<br/>回数の上限は置かない"] -.-> CVS
-  M3["測り：止めた所見のうち 1 回目に出た割合<br/>（run 6a51125d 6/10・48 run 67/93）。<br/>往復の回数はこれで決まる"] -.-> CK
-
-  classDef mdec fill:#eeeeee,stroke:#666
-  classDef plan fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3,color:#555
-  class TREE,CK mdec
-  class M1,M2,M3 plan
-```
-
-## 修正の図（fixing・refitting・blk-fix）
-
-```mermaid
-flowchart TD
-  IB["修正の前に、git が無視する<br/>ファイルを控える<br/>（ignored-before）"] --> TS["テストの実行器（tdd_suite）が<br/>在れば一式を 1 回走らせて<br/>元の結末を取る<br/>（tdd-start）"]
-  TS -- "実行器が在る時だけ" --> TL["TDD の輪：振り分けの後、単位ごとに<br/>テスト → 赤（機械）→ 直し →<br/>緑（機械）→ 整え。<br/>単位が替わる周は新しい会話<br/>（tdd-loop）"]
-  TS --> TF
-  TL --> TF{"範囲の引ける tdd の枝<br/>（項目を共にする単位の組）が<br/>2 本以上か<br/>（tdd-fork）"}
-  TF -- "2 本以上<br/>（既定の形 g3 で tdd_lanes が on）" --> TLN["枝ごとに小さい作業ツリーを切り、<br/>枝 1〜3 の TDD の輪を同時に回す。<br/>枝の中は単位を順に<br/>（tdd-lane-loop-1〜3）"]
-  TLN --> TJ["枝の差分を作業ツリーへ<br/>3 方向で当て、<br/>緑を確かめ直す<br/>（tdd-join）"]
-  TJ -- "済まなかった単位・<br/>食い違った枝が在る時" --> TR["残りの単位を順に回す<br/>TDD の輪<br/>（tdd-rest-loop）"]
-  TJ --> FF
-  TR --> FF
-  TF -- "1 本以下・<br/>実行器が無い" --> FF{"範囲の在る項目が<br/>単位を共にしない<br/>枝 2 本以上に分かれるか<br/>（fix-fork）"}
-  FF -- "2 本以上<br/>（既定の形 g3 で fix_lanes が on）" --> FLN["枝ごとに小さい作業ツリーを切り、<br/>枝 1〜3 の修正役の輪を同時に回す。<br/>項目を順に、項目ごとに新しい会話。<br/>受け付けと同じ事実の確かめを枝で当てる<br/>（fix-lane-loop-1〜3）"]
-  FLN -- "範囲の外・凍ったテストの<br/>書き換えが要る時（consult）" --> PAL["修正案を書いた役の会話の写しが<br/>範囲の相談に答える。<br/>機械が答えを確かめる<br/>（plan-answer-lane-1〜3）"]
-  PAL -- "同じ会話で直しを続ける" --> FLN
-  FLN --> FJ["通った項目の差分を<br/>作業ツリーへ 3 方向で当てる<br/>（fix-join）"]
-  FJ --> FXL
-  FF -- "1 本以下" --> FXL["修正役の輪：TDD の輪と枝で<br/>直していない単位を、項目ごとに<br/>新しい会話の下請けで直す。<br/>受け付けが誤りを全部並べて返し<br/>3 回まで出し直させる<br/>（fix-loop：fix・fix-accept）"]
-  FXL -- "範囲の外・凍ったテストの<br/>書き換えが要る時（consult）" --> PA["修正案を書いた役の会話の続きが<br/>範囲の相談に答え、<br/>機械が確かめて盤面に残す<br/>（plan-answer・fix-consult-check）"]
-  PA -- "次の周に同じ会話で<br/>直しを続ける" --> FXL
-  FXL -- "受け付けが 3 回拒んだ時" --> PK["拒否を単位に結び、その単位だけを<br/>直す前に戻して控えに残し、人に回す。<br/>ほかの単位はそのまま先へ<br/>（依頼 242・244）"]
-  PK --> CC
-  FXL --> CC{"食い違いの申し出の<br/>名指しが現物に在るか<br/>（conflict-check）"}
-  CC -- "在る" --> RL["裁定役が持ち主の決まりで裁く。<br/>計画の項目の誤りと裁けば<br/>線の replanning へ<br/>（rule-loop）"]
-  RL --> FR["裁定の文を読んで直す<br/>2 回目の修正役（修正役の会話の続き。<br/>範囲の相談も同じ形）<br/>（fix-ruled-loop・plan-answer-ruled）"]
-  CC -- "無い" --> CL
-  FR --> CL["修正役が残した無視される<br/>ファイルを消し、申告したファイルが<br/>実際に変わったかを確かめて<br/>出口に集める<br/>（clean・assert-changed・collect）"]
-
-  classDef mdec fill:#eeeeee,stroke:#666
-  class TF,FF,CC mdec
-```
-
-## 差分の審査の図（lensing・reviewing・refixing）
-
-```mermaid
-flowchart TD
-  RD{"全部の単位が<br/>軽量のままか<br/>（線の h-redepth）"} -- "全部が軽量" --> TE["テストを全部走らせる<br/>（線の testing）"]
-  RD -- "標準の単位が在り、<br/>差分が出来た時" --> LR["入れてある pr-review-toolkit の<br/>レンズを差分に当てるかを決める<br/>（lensing の lens-route）"]
-  LR --> LS["エラーの握りつぶし探しの目が<br/>新しい会話で差分を読む。<br/>落ちても止めない<br/>（lens-silent-failure-hunter）"]
-  LS --> LC["指摘を出どころつきで残す<br/>（lens-collect・lens-exit）"]
-  LC --> CUT["審査する差分を切り出す<br/>（reviewing の cut）"]
-  CUT --> DR["別の AI が実際の差分を審査し、<br/>レンズの指摘も検算する。<br/>受け付けに通るまで 3 回<br/>（delta-loop）"]
-  DR --> DC["読んだ証拠を残し、<br/>穴を出口に出す<br/>（review-reads・collect）"]
-  DC -- "穴が見つかった時だけ" --> RF1["見つかった穴を直す<br/>（refixing の refix-loop）"]
-  DC --> TE
-  RF1 --> R2Q{"2 回目の審査が要るか<br/>（route1）"}
-  R2Q -- "要る" --> RV2["直した差分を<br/>もう一度審査する<br/>（review2-loop）"]
-  RV2 --> R3Q{"2 回目の手直しが要るか<br/>（route2）"}
-  R3Q -- "要る" --> RF2["残った穴を直す<br/>（refix2-loop。ここまで）"]
-  R2Q -- "要らない" --> TE
-  R3Q -- "要らない" --> TE
-  RF2 --> TE
-
-  classDef mdec fill:#eeeeee,stroke:#666
-  class RD,R2Q,R3Q mdec
-```
-
-## 独立の目の図（eyeing・blk-eyes）
-
-```mermaid
-flowchart TD
-  EE["修正の後の撮り直しが<br/>済んだか確かめ、<br/>目を起こす前の作業ツリーを写す。<br/>全部の単位が軽量の run は、<br/>コメントの削除候補と R1〜R4 を<br/>起こさずに盤面で省く<br/>（eyes-enter。入力 skip_optional）"]
-  EE --> C1["コメントの削除候補を挙げる<br/>（r1-comments-loop）"]
-  C1 --> M1["R1：直しは最小か・<br/>冗長な物は無いか<br/>（r1-minimality-loop）"]
-  EE --> C2["R2：修正の前に作った<br/>独立設計と差分を比べる。道具なし<br/>（r2-compare-loop）"]
-  C2 -- "設計の前提が<br/>崩れたと言った時" --> P2["前提を実態で検算する<br/>（premise-check-loop）"]
-  EE --> C3["R3：全体の筋は通るか<br/>（r3-coherence-loop）"]
-  M1 --> C4["R4：依頼の範囲を超えていないか・<br/>見えていない範囲は無いか<br/>（r4-scope-loop）"]
-  P2 --> C4
-  C2 --> C4
-  C4 -- "消えた能力・方針との<br/>ぶつかりを見つけた時" --> HG["人に聞く問いを立てる。<br/>問いは最後の関所の文に載る<br/>（r4.human_gate）"]
-  C1 --> EC
-  C3 --> EC
-  C4 --> EC["目の判定を集める。<br/>諦めた目が在れば盤面を止める<br/>（eyes-collect）"]
-  HG --> EC
-```
-
-## 報告の図（report・reporting・blk-report）
-
-```mermaid
-flowchart TD
-  RP["機械の報告と次の run の依頼の下書き<br/>（next-request.json）を書く。<br/>findings：修正がやらなかった単位・<br/>手直しが残した穴と検算が要る穴・<br/>検証器の残り・テストの赤・落ちたレンズ・<br/>再審の残りと結果・人に回した食い違い・<br/>人に聞いたままの問い・<br/>判定が目的の外とした所見（out_of_purpose）<br/>（全部の出どころは report.next_request）。<br/>answers：無人の run が残した<br/>関所と問いへの答えの下書き（draft）。<br/>修正役が人に回した物は冒頭 1 に並ぶ<br/>（線の report。always_run）"]
-  RP -- "盤面が報告の役を出した時<br/>（ai_report_go）" --> RW["書き手が報告の頭<br/>（平易な 3 行と人が決めること）と<br/>本文の全部を書く。2 回目からは<br/>書き手自身の会話に戻る<br/>（report-write-loop の report-write）"]
-  RW --> RWC["初見の読み手が書いた物の頭を<br/>どの回も新しい会話で読む<br/>（report-write-cold）"]
-  RWC --> RWA{"作り直しが要るか<br/>（report-write-accept）"}
-  RWA -- "redesign-needed<br/>（3 回目は受け取って冒頭に印）" --> RW
-  RWA -- "通った" --> RCL["AI の報告と機械の事実を<br/>出口に集める<br/>（collect）"]
-  RP --> RS["結果を返す<br/>（線の result）"]
-  RCL --> RS
-
-  classDef mdec fill:#eeeeee,stroke:#666
-  class RWA mdec
+  class L,SP2,PG,RG,FG gate
+  class P3,DEP,RD mdec
 ```
 
 ## 工程ごとに何をしているか
