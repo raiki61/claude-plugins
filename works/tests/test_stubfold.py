@@ -73,6 +73,11 @@ class MergeRuleCase(unittest.TestCase):
         self.assertEqual(self.merged(base, scen),
                          {"a": {"l": [3], "f": {"x": 9}, "s": "new", "t": "three\n", "m": 7, "n": {"k": 2}}})
 
+    def test_mapping_emptied_by_nulls_is_empty_mapping(self):
+        """中の欄が全部落ちた写像は空の写像 {} になる（RFC 7386。鍵ごと落ちて null にはならない）"""
+        self.assertEqual(self.merged("a:\n  x: 1\n  y: 2\nb: 1\n", "a:\n  x:\n  y: ~\n"), {"a": {}, "b": 1})
+        self.assertEqual(self.merged("a:\n  m:\n    x: 1\n", "a:\n  m:\n    x:\n"), {"a": {"m": {}}})
+
     def test_leaf_lines_kept_verbatim(self):
         """葉の行は元の字のまま並ぶ（こちらの解析で書き直さない）"""
         out = stubfold.merge_text("a:\n  x: '007'\n  y: 2\n", "a:\n  y:   \"two\"  # 注記\n")

@@ -100,8 +100,11 @@ def _merge(base_text, own_text, depth):
         elif o["kind"] == "map" and b["kind"] == "map":
             if o["child"] != b["child"]:
                 raise ValueError(f"鍵 {b['key']} の中の字下げが基（{b['child']}）と筋書き（{o['child']}）で違う")
-            parts.append(_nl("".join(o["pre"] + [o["line"]])))
-            parts.append(_nl(_merge("".join(b["body"]), "".join(o["body"]), o["child"])))
+            inner = _merge("".join(b["body"]), "".join(o["body"]), o["child"])
+            if _blocks(inner, o["child"])[1]:
+                parts.append(_nl("".join(o["pre"] + [o["line"]])) + _nl(inner))
+            else:   # 中が全部落ちた写像は空の写像（RFC 7386。null にしない）
+                parts.append(_nl("".join(o["pre"]) + " " * depth + o["key"] + ": {}" + _nl(inner)))
         else:
             parts.append(_nl(o["text"]))
     parts.extend(_nl(o["text"]) for o in own if o["key"] in mine and o["kind"] != "null")
@@ -136,7 +139,7 @@ def materialize(pack):
             merged = text(p)
             p.write_text(merged, encoding="utf-8")
             done.append(p)
-        base.unlink()  # 基が残ると、合わせ済みの筋書きにもう一度 materialize した時に、空で落とした鍵が基から戻る。Archon が基を読むかは手元で確かめていない（読まないなら、消しても模擬実行は変わらない）
+        base.unlink()  # 基が残ると、合わせ済みの筋書きにもう一度 materialize した時に、空で落とした鍵が基から戻る（Archon は *.stubs.yaml だけを筋書きに読むので、消しても模擬実行は変わらない）
     return done
 
 

@@ -26,6 +26,11 @@ def cpf():
     return copyfence
 
 
+def cf():
+    import conceptfence   # 表の読み・追跡・グロブ当て・既知とのずれ・main の表の口（写しの柵も直に使う）
+    return conceptfence
+
+
 BLOCK = "".join(f"value_{i} = compute({i}, 'x')\n" for i in range(10))
 
 
@@ -81,17 +86,9 @@ class Synthetic(unittest.TestCase):
     def test_new_copy_not_on_known_list_is_red(self):
         a, b = self.put("a.py", BLOCK), self.put("b.py", BLOCK)
         found = self.scan(a, b)
-        self.assertEqual(cpf().verdict(found, {a: [10, "理由"], b: [10, "理由"]}), [])
-        self.assertTrue(cpf().verdict(found, {a: [10, "理由"]}))       # b は表に無い
-        self.assertTrue(cpf().verdict({}, {a: [10, "理由"]}))          # 直ったのに表が残る
-
-    def test_tools_are_conceptfence_tools(self):
-        """柵の道具は考えの柵の物を借りる（写して持たない）: 同じ物でなければ、直す所が 2 か所になる"""
-        import conceptfence
-        m = cpf()
-        self.assertIs(m.hit, getattr(conceptfence, "hit", None))
-        self.assertIs(m.main_table, conceptfence.main_table)
-        self.assertIs(m.load, getattr(conceptfence, "read_table", None))
+        self.assertEqual(cf().verdict(found, {a: [10, "理由"], b: [10, "理由"]}), [])
+        self.assertTrue(cf().verdict(found, {a: [10, "理由"]}))       # b は表に無い
+        self.assertTrue(cf().verdict({}, {a: [10, "理由"]}))          # 直ったのに表が残る
 
     def test_growth_is_the_known_total(self):
         m = cpf()
@@ -110,6 +107,17 @@ class Synthetic(unittest.TestCase):
         self.assertTrue(m.growth(main, {"known": {"a.py": [3, "x"], "b.py": [8, "y", ["a.py"]], "c.py": [2, "z"]}}))
         self.assertTrue(m.growth(main, {"known": {"a.py": [10, "x"], "b.py": [4, "y", ["d.py"]]}}))   # 寄せ元が main に無い
         self.assertTrue(m.growth(main, {"known": {"a.py": [10, "x"], "b.py": [4, "y", []]}}))         # 寄せ元が空
+
+    def test_growth_hands_out_each_source_once(self):
+        """同じ寄せ元の減りは 1 度だけ配る: 寄せ元を分け合う新しいパスの組では、行の和がその組の寄せ元の減りの和を超えたら赤
+        （名指していない別の写しの減りで和の検査だけが通る抜け道を塞ぐ）"""
+        m = cpf()
+        main = {"known": {"a.py": [10, "x"], "c.py": [10, "z"]}}
+        self.assertTrue(m.growth(main, {"known": {"X.py": [10, "y", ["a.py"]], "Y.py": [10, "y", ["a.py"]]}}))
+        self.assertEqual(m.growth(main, {"known": {"X.py": [5, "y", ["a.py"]], "Y.py": [5, "y", ["a.py"]], "c.py": [10, "z"]}}), [])
+        # 組は寄せ元でつながる: X は a と c、Y は c を名指す。組の減りは 20 で、行の和 20 まで通る
+        self.assertEqual(m.growth(main, {"known": {"X.py": [12, "y", ["a.py", "c.py"]], "Y.py": [8, "y", ["c.py"]]}}), [])
+        self.assertTrue(m.growth(main, {"known": {"X.py": [12, "y", ["a.py", "c.py"]], "Y.py": [9, "y", ["c.py"]]}}))
         self.assertEqual(m.growth(None, {"known": {"a.py": [99, "x"]}}), [])   # main に表が無い（初めて掛ける柵）
 
 
@@ -117,8 +125,8 @@ class TableHolds(unittest.TestCase):
     """本物の works の木: 写しは表の既知とちょうど揃う"""
 
     def setUp(self):
-        self.m = cpf()
-        self.table = self.m.load(ROOT / TABLE)
+        self.m, self.cf = cpf(), cf()
+        self.table = self.cf.read_table(ROOT / TABLE)
 
     def test_table_shape(self):
         self.assertIsInstance(self.table["window"], int)
@@ -142,15 +150,15 @@ class TableHolds(unittest.TestCase):
 
     def test_excludes_are_live(self):
         """見ない所のグロブは、どれも追跡されたファイルに当たる（当たらない行は消す）"""
-        paths = self.m.tracked(ROOT)
+        paths = self.cf.tracked(ROOT)
         for glob in self.table["exclude"]:
             with self.subTest(glob):
-                self.assertTrue(any(self.m.hit(p, [glob]) for p in paths), "どのファイルにも当たらない")
+                self.assertTrue(any(self.cf.hit(p, [glob]) for p in paths), "どのファイルにも当たらない")
 
     def test_copies_match_known(self):
-        paths, window, exclude = self.m.tracked(ROOT), self.table["window"], self.table["exclude"]
+        paths, window, exclude = self.cf.tracked(ROOT), self.table["window"], self.table["exclude"]
         found = self.m.scan(ROOT, paths, window, exclude)
-        problems = self.m.verdict(found, self.table["known"])
+        problems = self.cf.verdict(found, self.table["known"])
         if problems:
             near = self.m.peers(ROOT, paths, window, exclude)
             problems = problems + [f"  写しの相手 {p}: {'・'.join(near[p])}" for p in sorted(near)
@@ -170,9 +178,8 @@ class NotAboveMain(unittest.TestCase):
         if subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--verify", f"{m.MAIN_REF}^{{commit}}"],
                           capture_output=True).returncode != 0:
             self.skipTest(f"SKIP git-history: {m.MAIN_REF} を引けない（浅い clone か ref が無い）")
-        import conceptfence
-        main, _why = m.main_table(ROOT, conceptfence.fork_ref(ROOT), TABLE)
-        self.assertEqual(m.growth(main, m.load(ROOT / TABLE)), [])
+        main, _why = cf().main_table(ROOT, cf().fork_ref(ROOT), TABLE)
+        self.assertEqual(m.growth(main, cf().read_table(ROOT / TABLE)), [])
 
 
 if __name__ == "__main__":
