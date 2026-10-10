@@ -152,8 +152,9 @@ class AllChecksCase(test_blk_fix.BoardCase):
         rc.assert_called_once(); self.assertIs(rc.call_args.kwargs["commit"], True)
 
     def test_last_round_parks_units_bound_by_two_checks(self):
-        # 最後の回: mean の行は範囲の外の other.py（scope）、clamp の行は breaks.result「なし」（copy）。2 つの確かめの行が
-        # それぞれ別の単位に結べるので、両方を止めて残りで通す（ParkBoundMultiLineCase と同じ盤面の形）
+        # 最後の回: mean の行は範囲の外の other.py（scope。はみ出し）、clamp の行は breaks.result「なし」（copy。成り立たない）。
+        # 写しの拒否が在るのではみ出しだけの回でなく（相談に積まない）、成り立たない行で clamp を止め、同じ stats.py を触る mean も
+        # 止めて残りで通す（ParkBoundMultiLineCase と同じ盤面の形）
         self.scope_ready(["stats.py"]); self.edit_tree(FIXED)
         (self.repo / "other.py").write_text("x = 1\n", encoding="utf-8")
         reply = load("fix2_ok"); reply["changes"][0]["files"].append("other.py"); reply["changes"][1]["breaks"]["result"] = "なし"

@@ -64,8 +64,10 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    out_of_scope（planscope の記録 overflow）、案の外で足したテスト（同じ overflow）、名指しの外の既存のテストの関数の書き換え
    （fixgates.overflow_asks）、凍ったファイルの輪の受け入れのテストでない既存のテストの関数の中だけの書き換え
    （tddloop.frozen_asks）。成り立たない行は、赤のまま・凍結の関数の外の書き換え・書き込みの出どころ・写しの拒否など、それ以外の
-   全部。成り立たない行が 1 つでも在れば今どおり全部を並べて拒む（最後の回の止めも成り立たない行にだけ当てる）。はみ出しの行だけの回は
-   拒まずに settle_overflow を通す: まだ聞いていない物は範囲の相談に積み（consult.queue。返りは {ok: false, queued: true}。
+   全部。成り立たない行が 1 つでも在れば今どおり全部を並べて拒む（最後の回の止めも成り立たない行にだけ当てる）。はみ出しの行だけに
+   見える回は、3 の写しの照らしを乾いた形（commit=False）で先に当て、写しの拒否が出れば成り立たない行に足す（後で見つかる拒否で
+   相談の周を使わない）。最後の回に成り立たない行で単位を止めた後に残るはみ出しは、聞かずに戻して名指す（止めた後に相談の周へ
+   回さない）。はみ出しの行だけの回は拒まずに settle_overflow を通す: まだ聞いていない物は範囲の相談に積み（consult.queue。返りは {ok: false, queued: true}。
    作業ツリーは変えない）、聞いて allow の物は合意として範囲に入っているので行が消え、deny・defer・聞けない物と枠が足りず
    聞けない物は、機械が元の姿に戻して（パスは revert_units、テストの関数は tddloop.restore_tests）残りの直しで通し直す。
    戻した物は reverted に渡して 2 度戻さない。戻しても行が残る物は『はみ出しを戻せない』という成り立たない行にする。
@@ -544,13 +546,15 @@ def _queue_rows(asks: list) -> list:
     return [{**{k: v for k, v in r.items() if k != "lines"}, "why": "\n".join(r["lines"])} for r in by.values()]
 
 
-def settle_overflow(asks: list, found: list, whole: dict, board, base_rev, repo, *, parked, reverted, trail: dict, pass_: str):
+def settle_overflow(asks: list, found: list, whole: dict, board, base_rev, repo, *, parked, reverted, trail: dict, pass_: str,
+                    ask: bool = True):
     """はみ出しの行だけの回の道筋の選び。返りは出口の dict（積んだ {ok: false, queued: true}・戻して通し直した返り）か、拒む時は None
     （戻しきれない物を成り立たない行にして found に足してある）。見分けは持ち主（planscope の overflow・fixgates.overflow_asks・tddloop.frozen_asks）、聞いた答えは conflict.plan_asks、
     積みは consult.queue、戻しは keep_patch・revert_units 相当・tddloop.restore_tests・_without_rows が持ち、ここは選ぶだけ:
     - 戻したのにまだ行が残る物（reverted に在る）は『はみ出しを戻せない』
     - まだ聞いていない物は積む（枠が足りなければ戻す側）。積んだが ask が頼みにする前の物は積み直さず同じ出口
-    - 聞いた物（allow の後も残る行・deny・defer・invalid・unavailable・refused）は戻す"""
+    - 聞いた物（allow の後も残る行・deny・defer・invalid・unavailable・refused）は戻す
+    ask が偽（最後の回に成り立たない行を止めた後の残り）は聞かずに全部を戻す（止めた後に相談の周へ回さない）"""
     b = entry.open_board(board)
     answered = [r for r in conflict.plan_asks(b) if r.get("origin") == consult.ORIGIN_ACCEPT]
     pending = consult.queued(b, pass_)
@@ -561,7 +565,7 @@ def settle_overflow(asks: list, found: list, whole: dict, board, base_rev, repo,
         return None
     fresh, back, waiting = [], [], False
     for a in asks:
-        if a.get("revert") or any(_covers(r, a) for r in answered):   # revert: 合意のテストが赤緑で落ちた（聞き直さず戻す）
+        if not ask or a.get("revert") or any(_covers(r, a) for r in answered):   # revert: 合意のテストが赤緑で落ちた（聞き直さず戻す）
             back.append(a)
         elif any(_covers(r, a) for r in pending):
             waiting = True
@@ -674,6 +678,12 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset(), reverted=fro
     note(found, "gates", fixgates.reject_lines(gates) if gates else [])
     asks = gather_overflow(scope_note, frozen_over, gates, board, base_rev, repo)
     over, rest = split_rows(found, asks)
+    if over and not rest:   # はみ出しの行だけに見える回は、写しの照らし（3）を乾いた形で先に当てる（写しの拒否は成り立たない行。
+        # 相談に積む・戻す道を選ぶのは、成り立たない行が本当に無い時だけ。後で見つかる写しの拒否で相談の周を無駄にしない）
+        dry = recount.accept_fix(_shaped(reply, board, repo)[0], board, base_rev, repo, commit=False)
+        if dry.get("ok") is not True:
+            note(found, "copy", dry.get("problems") or [str(dry.get("reason") or "")])
+            over, rest = split_rows(found, asks)
     if over and not rest:   # はみ出しの行だけ: 拒まずに相談に積むか、戻して通し直す
         got = settle_overflow(asks, found, whole, board, base_rev, repo, parked=parked, reverted=reverted, trail=trail, pass_=pass_)
         if got is not None:
@@ -683,18 +693,14 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset(), reverted=fro
         out = settle([t for _, t in rest])
         if out is not None:
             return out
-        found = list(over)   # 止める単位が無ければ成り立たない行は外す。はみ出しの行はそのまま（下で相談に回す）
+        found = list(over)   # 止める単位が無ければ成り立たない行は外す。はみ出しの行は聞かずに戻して名指す（最後の回の止めの
+        # 後に相談の周へ回すと、止めた後の返答に「答えが出るまで直しを足すな」を返して輪が答えを待つ形になる）
         if over:
             got = settle_overflow(asks, found, whole, board, base_rev, repo, parked=parked, reverted=reverted, trail=trail,
-                                  pass_=pass_)
+                                  pass_=pass_, ask=False)
             if got is not None:
                 return got
-    b = entry.open_board(board)
-    if conflict.held_reply(b)[0] is not None:   # 2 回目の修正の段: 名前に戻して 1 回目の控えの行を合わせる（検査は済んだ役の返答に当てた）
-        named = named_reply(reply, board)
-        reply = conflict.with_held(b, named if named is not None else reply)
-    own = reply   # 写しに渡す形に揃える前の返答（控える時は控えの行をこの形で残す。take は渡した返答を変えない）
-    reply, rows = unitrows.take(reply, b, repo)
+    reply, rows, own, b = _shaped(reply, board, repo)
 
     def traced():   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         tb = entry.open_board(board, allow_halted=True)
@@ -739,6 +745,19 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset(), reverted=fro
         return hold_fix(named, own_named, whole, b, traced)
     traced()
     return out
+
+
+def _shaped(reply, board, repo) -> tuple:
+    """写しに渡す形の返答 (返答, 閉鎖の数え直しの行, 揃える前の返答, 盤面)。2 回目の修正の段は名前に戻して 1 回目の控えの行を
+    合わせ（conflict.with_held。検査は済んだ役の返答に当てた）、unitrows.take で閉鎖の数え直しを当てる。揃える前の返答は控える時に
+    控えの行をこの形で残す物（take は渡した返答を変えない）。盤面は書かない"""
+    b = entry.open_board(board)
+    if conflict.held_reply(b)[0] is not None:
+        named = named_reply(reply, board)
+        reply = conflict.with_held(b, named if named is not None else reply)
+    own = reply
+    shaped, rows = unitrows.take(reply, b, repo)
+    return shaped, rows, own, b
 
 
 def with_done(out: dict) -> dict:
