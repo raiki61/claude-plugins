@@ -31,6 +31,7 @@ import querytest  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
+import worldmark  # noqa: E402
 from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
 
 NODE = "p2.diagnose"
@@ -68,9 +69,13 @@ def finish(board, out: dict) -> dict:
 
 
 def take(board, reply: dict, repo) -> dict:
-    """rolekit.accept_role の take: 例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、例と
+    """rolekit.accept_role の take: 先例の出どころ world:<類の id> が実在の世界の行かを照らし（worldmark.ref_problems。無ければ盤面を開かずに
+    拒む）、例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、例と
     目的の外の行を外した返答を entry.take に渡す（写しの型はどちらの欄も持たない）。通れば例を盤面の query-examples.json に、
     目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に置く（finish が judgment.json に戻す）"""
+    errs = worldmark.ref_problems([p.get("source") for p in reply.get("precedents") or [] if isinstance(p, dict)], board)
+    if errs:
+        return {"ok": False, "reason": "precedents の出どころが世界の解の行に無い: " + "; ".join(errs)}
     is_open = validator_module(_Validator).is_open
     errs = querytest.problems(reply.get("units"), is_open)
     if errs:

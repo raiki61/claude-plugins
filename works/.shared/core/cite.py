@@ -9,6 +9,8 @@
   在るファイル。フォルダだけは出どころに数えない）・依頼の引用「…」（文に「依頼」の語が在る時だけ。quoted＝依頼の文の中に字のまま
   在る）のどれかが 1 つ以上在り、書いた物が全部現物に在る時だけ通る。どれも無ければ「出どころが現物に無い」。
   パスの形でない名指し（時刻 12:30 など。パスの部分に / も拡張子も無い）は名指しに数えない
+- ref_problem(source, prefix, known) -> list[str]: 出どころの文の中の prefix で始まる参照（頭に字が添えてあってもよい）の id が、
+  呼び手が渡した実在の id の組 known に在るかの照らし。無い id ごとに誤りの 1 文（prefix の語が無ければ空）
 
 標準ライブラリだけ。works の物を何も import しない（conflict と gatemarks の両方が読む。輪を作らない）。
 """
@@ -94,3 +96,12 @@ def sources_problem(text, repo, roots=(), quoted: str = "") -> str:
     if bad:
         return "決め手の出どころが現物に無い: " + " / ".join(bad)
     return "" if found else NO_SOURCE
+
+
+def ref_problem(source, prefix, known) -> list:
+    """出どころの文（source）の中の prefix で始まる参照（頭に字が添えてあってもよい）の id を、呼び手が渡した実在の id の組（known）と
+    照らす。無い id ごとに誤りの 1 文を返す（prefix の語が無ければ空）。頭の字と id の組は、この住処が works の物を知らないよう呼び手が渡す"""
+    if not isinstance(source, str):
+        return []
+    ids = dict.fromkeys(re.findall(re.escape(prefix) + r"([A-Za-z0-9][A-Za-z0-9_-]*)", source))
+    return [f"{prefix}{i} が実在の行を指さない" for i in ids if i not in known]

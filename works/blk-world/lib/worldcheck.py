@@ -11,16 +11,17 @@ docs/specs/2026-09-29-structure-block-design.md の 5 節の「検索語の検�
 普通の語（作業の名・略語・フォルダの名）は識別子に数えない（問いの言葉を奪わない）。照らしは語の切れ目で、大小を問わない。
 
 抜き書きの照らし: 役の取得の道具は本文を要約して返すので、役が見た字は原文の記録にならない。照らしは機械が同じ URL を取り直した
-本文で行う。役が取得していない URL（読んだ記録に無い）・網に出してよい URL でない・取り直せない・答えが 2xx でない・本文に
-字のまま無い（正規化した後）・短い（MIN_EXCERPT 字未満）抜き書きは落とす。同じ URL は 1 度だけ取り直す。取り直した全部が網に
+本文だけで行う。網に出してよい URL でない・取り直せない・答えが 2xx でない・本文に字のまま無い（正規化した後）・短い
+（MIN_EXCERPT 字未満）抜き書きは落とす。同じ URL（# と末尾の / の違いは同じ）は 1 度だけ取り直す。取り直した全部が網に
 届かなければ offline（網に出られない run。抜き書きの無い知識だけの道へ）。
 
 - banned_tokens(findings) -> set[str]
 - text_problems(text, banned) -> [当たった識別子]（名の順）
 - normalize(body) -> str: HTML の札（script・style・注釈の中身ごと）を外し、文字の参照を戻し、NFKC・飾りの引用符と線の字の揃え・
   Markdown の飾りの字とリンクの形の外し・空白の詰め・大小の揃え
-- verify(excerpts, fetched, get) -> {kept: [{id, class, url, excerpt}], dropped: [{class, url, why}], offline}: excerpts は
-  [{class, url, excerpt}]、fetched は役が取得した URL の集合、get(url) -> (状態の番号, 本文)（網に届かなければ webget.FetchError）
+- verify(excerpts, get) -> {kept: [{id, class, url, excerpt}], dropped: [{class, url, why}], offline}: excerpts は
+  [{class, url, excerpt}]（class は呼び手が付けた札で、そのまま運ぶ）、get(url) -> (状態の番号, 本文)（網に届かなければ
+  webget.FetchError）
 """
 from __future__ import annotations
 
@@ -105,8 +106,7 @@ def _same(url) -> str:
     return urllib.parse.urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), p.query, ""))
 
 
-def verify(excerpts, fetched, get) -> dict:
-    seen = {_same(u) for u in fetched or ()}
+def verify(excerpts, get) -> dict:
     bodies, reached, tried = {}, 0, 0
     kept, dropped = [], []
 
@@ -122,9 +122,6 @@ def verify(excerpts, fetched, get) -> dict:
             continue
         if len(text.strip()) < MIN_EXCERPT:
             drop(row, f"抜き書きが {MIN_EXCERPT} 字より短い")
-            continue
-        if _same(url) not in seen:
-            drop(row, "役がこの URL を取得していない（読んだ記録に無い）")
             continue
         if not webget.safe_url(url):
             drop(row, "網に出してよい URL でない（https で公の名の host だけ）")
