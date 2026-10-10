@@ -500,11 +500,6 @@ def _items(board) -> list:
     return planrange.with_agreed(items, conflict.agreed(b)) if items else []
 
 
-def _owner(items: list, path: str):
-    """path を範囲に持つ項目の番号（最初。無ければ項目の最初。項目が無ければ None）"""
-    return next((it.get("item") for it in items if planrange.inside(path, it)), items[0].get("item") if items else None)
-
-
 def gather_overflow(scope_note, frozen, gates: list, board, base_rev, repo) -> list:
     """受け付けが見つけた、相談に回せるはみ出し [{line, item, paths, tests, new_tests, ref}]。入口は 3 つで、見分けは持ち主が持つ:
     範囲の持ち主 planscope の記録 overflow、凍結の持ち主 tddloop の頼み（check_frozen の asks）、事後の関門の持ち主 fixgates の
@@ -513,8 +508,8 @@ def gather_overflow(scope_note, frozen, gates: list, board, base_rev, repo) -> l
             "new_tests": list(o.get("new_tests") or []), "ref": None}
            for o in (scope_note or {}).get("overflow") or [] if isinstance(o, dict) and o.get("line")]
     items = _items(board) if frozen or gates else []
-    out += [{"line": a["line"], "item": _owner(items, a["path"]), "paths": [], "tests": list(a["tests"]), "new_tests": [],
-             "ref": a.get("ref")} for a in frozen]
+    out += [{"line": a["line"], "item": (planrange.owner(a["path"], items) or {}).get("item"), "paths": [],
+             "tests": list(a["tests"]), "new_tests": [], "ref": a.get("ref")} for a in frozen]
     rev = writes.base_rev(entry.open_board(board), base_rev)
     out += [{"line": a["line"], "item": a["item"], "paths": [], "tests": list(a["tests"]), "new_tests": [], "ref": rev}
             for a in fixgates.overflow_asks(gates, repo, rev, items)]

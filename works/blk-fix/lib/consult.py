@@ -9,9 +9,12 @@
    包みの置き場へ写す（alias。ブロックはほかのブロックの節の名を YAML に書かない）。
 2. 答えの節（AI。印 `works-node: <答えの節> continue=PEER`）: 修正案を書いた役の会話の続きで、読むだけの道具で答える
    （ANSWER_SCHEMA）。包みが PEER の id で `--resume` する。
-3. 確かめの節（scripts/consult_check.py → settle）: 答えを確かめ（judge。許すのは頼んだ物の中だけ）、1 頼み 1 行を盤面の
+3. 確かめの節（scripts/consult_check.py → settle）: 答えを確かめ（judge。許すのは頼んだ物の中だけ。人の関所の条件の相談を除く）、1 頼み 1 行を盤面の
    trace（conflict.ASKED_OP）に書き、修正役が読む答えのファイルを書く。合意（allow の行）は conflict.agreed が読み、範囲の
    照らし（planscope.with_agreed）とテストの変更の許し（conflict.test_permits）に入る。
+人の関所の continue の条件（盤面の process.human_items の今の周の一言）も、役が頼まなくても頼みの節（ask）が承認済みの項目ごとの
+相談にする（origin gate。今の周の条件 1 回につき 1 度）。頼む物の一覧は無く、答えの節が条件で要るパス・テストの書き換え・新しい
+テストを決める（judge は根の外のパスだけ捨てる）。合意は条件のテストも含め、ほかの相談と同じ読み口に入る。
 修正案の項目の out_of_scope（案を書いた役が明示に外したパス）に当たる頼みも断らずに答えの節へ回す（持ち主 2026-10-07「相談で
 考え直させる」。前は先の確かめで断り、run 54d81ef1 は CHANGELOG.md の 1 行で scope_needed → fix_plan_item → 修正案の直しの関所に
 止まった）。指示書はその項目の out_of_scope の glob と外した理由を引き、ほかの項目の out_of_scope に当たるならその項目を名指して、
@@ -143,7 +146,8 @@ QUESTION = promptsection.Section("""\
 答えは次の JSON だけ（`answers` に相談の番号ごとに 1 件。番号は上の「相談 <番号>」）:
 - ask: 相談の番号
 - decision: allow（範囲に足してよい）・deny（足さない。範囲の中で直せ）・defer（今の run では直さない。次の run の仕事）
-- paths: 足してよいパス（頼まれた物の中から。allow の時だけ。頼まれていない物は機械が捨てる）
+- paths: 足してよいパス（頼まれた物の中から。allow の時だけ。頼まれていない物は機械が捨てる。「人が関所で出した条件」の相談には
+  頼まれた物の一覧が無い。条件が求める物を自分で挙げてよい。機械はリポジトリの根の外のパスだけ捨てる）
 - tests: 書き換えてよいテストの範囲（頼まれた物の中から。allow の時だけ。期待を実装に合わせるための書き換えは許すな）
 - new_tests: 足してよい新しいテスト（頼まれた物の中から。allow の時だけ。無ければ省く）。{{id, red_kind}} の並び。red_kind は
   足す前の木で期待の種類（assertion＝断言の失敗・exception＝例外）の赤になるテストならその種類、足す前の木でも緑の守りの
@@ -164,6 +168,17 @@ ASK_TEXT = promptsection.Section("""\
 {why}
 """, source="fn:consult.question")
 
+ASK_GATE_TEXT = promptsection.Section("""\
+## 相談 {n}: 項目 {item}（単位: {units}）
+
+- 項目の今の範囲（allowed_paths）: {allowed}
+- 触らない物（out_of_scope）: {oos}
+- 人が関所で出した条件（字のまま。直す前に人が答えた物で、通す範囲と条件を超えて削れない）:
+{why}
+{oos_hits}- 答え方: この条件を満たすのにこの項目で要る、足すパス・書き換える既存のテストの範囲・足す新しいテスト（id と赤の種類）を決めよ。
+  この項目に関わらない条件なら deny。
+""", source="fn:consult.question")
+
 ANSWER_HEAD = promptsection.Section("""\
 # 範囲の相談の答え（相談の周 {turn}）
 
@@ -174,14 +189,20 @@ ANSWER_HEAD_ACCEPT = promptsection.Section("""\
 
 受け付けが見つけたはみ出しを、修正案を書いた役に聞いた（機械が確かめて盤面に残した）。相談ごとの答え:
 """, source="fn:consult.answer_text")
+ANSWER_HEAD_GATE = promptsection.Section("""\
+# 範囲の相談の答え（相談の周 {turn}）
+
+人が関所で出した条件を、修正案を書いた役に聞いた（機械が確かめて盤面に残した）。相談ごとの答え:
+""", source="fn:consult.answer_text")
 ANSWER_ROW_HEAD = promptsection.Section("## 相談（項目 {item}・パス {paths}・テスト {tests}{new_tests}）", source="fn:consult.answer_text")
 
 
 def receives(answerers, askers) -> list:
     """受け手の表 RECEIVES の行。相談を受ける修正案の役の会話 answerers（旗 map で包みが工程の地図も足す）と、答えを読む修正役 askers"""
     return [*(promptsection.Receive(role, head) for role in answerers for head in (QUESTION, ASK_TEXT, graphmap.HEAD)),
+            *(promptsection.Receive(role, ASK_GATE_TEXT, "consult.gate_asks") for role in answerers),
             *(promptsection.Receive(role, head) for role in askers
-              for head in (ANSWER_HEAD, ANSWER_HEAD_ACCEPT, ANSWER_ROW_HEAD))]
+              for head in (ANSWER_HEAD, ANSWER_HEAD_ACCEPT, ANSWER_HEAD_GATE, ANSWER_ROW_HEAD))]
 
 
 # 並べの枝の役の行は、枝の名を持つ fixlanes が組む（枝の数の住処 lanekit は、この lib を回って import する）
@@ -189,6 +210,8 @@ RECEIVES = receives(ANSWERERS, (recount.ROLE,))
 
 
 ORIGIN_ACCEPT = "accept"   # 頼みと確かめの行の origin: 受け付けが見つけて積んだ頼み（無い＝修正役が返答の consult に書いた頼み）
+ORIGIN_GATE = "gate"       # 同じ欄: 人の関所の continue の条件を機械が相談にした頼み（頼む物は無く、役が条件で要る物を決める）
+CONTINUE = "continue"
 KINDS = (*planmarks.RED_KINDS, planmarks.GUARD_KIND)   # 合意の新しいテストの赤の種類
 
 
@@ -285,14 +308,15 @@ def _test_file(test_id: str) -> str:
     return _norm(str(test_id).partition("::")[0])
 
 
-def screen(items: dict, item: str, paths: list, tests: list, why: str = "x" * MIN_WHY, new_tests=()):
+def screen(items: dict, item: str, paths: list, tests: list, why: str = "x" * MIN_WHY, new_tests=(), gate: bool = False):
     """AI に聞く前に断る文（通れば None）: 知らない項目・頼む物が無い・理由が短い・根の外のパス・足したいパスがもう範囲の中。
     足したい新しいテスト（new_tests）が在れば、パスも書き換えの範囲も無くても断らず、パスがもう範囲の中でも断らない。
-    out_of_scope に当たるパスは断らない（答えの節が考え直す。oos_hits が指示書と行に当たりを名指す）"""
+    out_of_scope に当たるパスは断らない（答えの節が考え直す。oos_hits が指示書と行に当たりを名指す）。
+    gate（人の関所の条件の相談）は頼む物が無くてよい（役が条件で要る物を決める）"""
     it = items.get(str(item))
     if it is None:
         return f"項目 {item or '（無し）'} は承認済みの修正案に無い（在る項目: {sorted(items)}）"
-    if not paths and not tests and not new_tests:
+    if not paths and not tests and not new_tests and not gate:
         return "足したいパスも書き換えたいテストも無い（何も頼んでいない）"
     if len((why or "").strip()) < MIN_WHY:
         return f"理由（why）が無いか {MIN_WHY} 字に満たない（相手が仕様として判断できる理由を書け）"
@@ -347,10 +371,16 @@ def _hits_text(hits: list, item: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def judge(answer, paths: list, tests: list, new_tests=()):
+def _safe(path: str) -> bool:
+    """リポジトリの根の中の相対パスか"""
+    return bool(path) and not planmarks.climbs(path) and not path.startswith("/")
+
+
+def judge(answer, paths: list, tests: list, new_tests=(), open_ended: bool = False):
     """答えの 1 件の確かめ。返り (行の欄 {decision, granted_paths, granted_tests, granted_new_tests, spec, reason} | None, 注記の文の列)。
     allow は頼んだ物の中だけを許し（足した物は捨てて注記。新しいテストは頼んだ id で赤の種類 KINDS の物だけ {id, red_kind}）、
-    何も残らなければ形の崩れ。deny・defer は何も許さない"""
+    何も残らなければ形の崩れ。deny・defer は何も許さない。open_ended（人の関所の条件の相談。頼む物が無い）は、頼んだ物の中という
+    縛りの代わりに、リポジトリの根の外のパスだけを捨てる"""
     if not isinstance(answer, dict):
         return None, ["答えが無いか JSON のオブジェクトでない"]
     d, reason = answer.get("decision"), answer.get("reason")
@@ -369,7 +399,7 @@ def judge(answer, paths: list, tests: list, new_tests=()):
     for field, want, key in (("paths", want_p, "granted_paths"), ("tests", want_t, "granted_tests")):
         for x in answer.get(field) or []:
             x = _norm(x) if field == "paths" else str(x).strip()
-            if x in want:
+            if x in want or (open_ended and _safe(_limit_path(x))):
                 if x not in out[key]:
                     out[key].append(x)
             else:
@@ -378,7 +408,7 @@ def judge(answer, paths: list, tests: list, new_tests=()):
     for x in answer.get("new_tests") or []:
         tid, kind = (x.get("id"), x.get("red_kind")) if isinstance(x, dict) else (x, None)
         tid = str(tid).strip() if isinstance(tid, str) else ""
-        if tid not in want_n:
+        if tid not in want_n and not (open_ended and tid and _safe(_test_file(tid))):
             notes.append(f"頼んでいない new_tests の {tid or x!r} を許した答え（捨てた）")
         elif kind not in KINDS:
             notes.append(f"new_tests の {tid} の red_kind が {list(KINDS)} のどれでもない: {kind!r}（捨てた）")
@@ -400,11 +430,16 @@ def question(items: dict, asks: list) -> str:
         hits = a.get("out_of_scope")
         hits = oos_hits(items, a["item"], a["paths"] + [_test_file(x) for x in a.get("new_tests") or []], a["tests"]) \
             if hits is None else hits
+        why = "\n".join("  " + line for line in a["why"].splitlines())
+        if a.get("origin") == ORIGIN_GATE:
+            parts.append(ASK_GATE_TEXT.format(n=a["n"], item=a["item"], units=show(it.get("unit_keys") or []),
+                                              allowed=show(it.get("allowed_paths") or []), oos=show(oos),
+                                              oos_hits=_hits_text(hits, a["item"]), why=why))
+            continue
         parts.append(ASK_TEXT.format(n=a["n"], item=a["item"], units=show(it.get("unit_keys") or []),
                                      allowed=show(it.get("allowed_paths") or []), oos=show(oos),
                                      paths=show(a["paths"]), tests=show(a["tests"]), new_tests=show(a.get("new_tests") or []),
-                                     oos_hits=_hits_text(hits, a["item"]),
-                                     why="\n".join("  " + line for line in a["why"].splitlines())))
+                                     oos_hits=_hits_text(hits, a["item"]), why=why))
     return QUESTION.format(n=len(asks), asks="\n".join(parts).rstrip("\n"), min_why=MIN_WHY, guard=planmarks.GUARD_KIND)
 
 
@@ -445,6 +480,22 @@ def left(b, pass_: str) -> int:
     return max(0, BUDGET - int(state(b, pass_).get("turns") or 0))
 
 
+def gate_notes(b) -> str:
+    """盤面の今の周の人の関所の continue の一言（process.human_items の note）を改行で並べた文（字のまま。無ければ空）"""
+    items = ((getattr(b, "record", None) or {}).get("process") or {}).get("human_items") or []
+    return "\n".join(h["note"] for h in items if isinstance(h, dict) and h.get("round") == b.round and h.get("answer") == CONTINUE
+                     and isinstance(h.get("note"), str) and h["note"].strip())
+
+
+def gate_asks(b, items: dict) -> list:
+    """人の関所の条件（gate_notes）の頼み。今の周の条件がまだ相談に出ていなければ、承認済みの項目ごとに 1 件
+    {item, paths, tests, new_tests, why, origin: gate}。条件が無い・出し済み（確かめの行が 1 件でも在る）・項目が無ければ []"""
+    notes = gate_notes(b)
+    if not notes or not items or any(r.get("origin") == ORIGIN_GATE and r.get("round") == b.round for r in conflict.plan_asks(b)):
+        return []
+    return [{"item": n, "paths": [], "tests": [], "new_tests": [], "why": notes, "origin": ORIGIN_GATE} for n in items]
+
+
 def queue(b, pass_: str, asks: list) -> bool:
     """受け付けが見つけたはみ出しの頼み asks [{item, paths, tests, new_tests, why}] を、相談の状態の queued に積む（次の ask が
     返答の consult が無くても頼みにする。origin は accept）。積む周の分の turns に 1 を足す。残りの周が 2 に満たなければ（積む周と
@@ -472,6 +523,8 @@ def ask(b, repo, reply, plan_session: str, pass_: str, node: str, home_dir=None)
     turns = int(st.get("turns") or 0)
     items = items_of(b)
     asks = [*(st.get("queued") or []), *(requests(reply) or [])] or None   # 受け付けが積んだ頼み（queue）も返答の consult と同じ道に載せる
+    if asks is None and turns < BUDGET:   # 人の関所の条件は、役が頼まなくても機械が相談にする（枠が尽きていれば聞かない）
+        asks = gate_asks(b, items) or None
     if asks is None:
         return {"consulted": False, "go": False, "prompt_file": "", "turn": 0, "spent": False}
     if turns >= BUDGET:
@@ -480,7 +533,7 @@ def ask(b, repo, reply, plan_session: str, pass_: str, node: str, home_dir=None)
     rows = []
     for n, a in enumerate(asks, 1):
         new_tests = a.get("new_tests") or []
-        why = screen(items, a["item"], a["paths"], a["tests"], a["why"], new_tests)
+        why = screen(items, a["item"], a["paths"], a["tests"], a["why"], new_tests, gate=a.get("origin") == ORIGIN_GATE)
         hits = oos_hits(items, a["item"], a["paths"] + [_test_file(x) for x in new_tests], a["tests"]) if a["item"] in items else []
         rows.append({**a, "n": n, "out_of_scope": hits,
                      **({"status": REFUSED, "why_refused": why} if why else {"status": ASKED})})
@@ -555,7 +608,8 @@ def _trace_rows(b, st: dict, answer, by_n: dict, turn: int, pass_: str, node: st
             if answer is None:
                 row.update(status=UNAVAILABLE, why_unavailable="答えの節が答えを返さなかった（飛ばされたか落ちた）")
             else:
-                fields, notes = judge(by_n.get(r["n"]), row["paths"], row["tests"], row["new_tests"])
+                fields, notes = judge(by_n.get(r["n"]), row["paths"], row["tests"], row["new_tests"],
+                                      open_ended=r.get("origin") == ORIGIN_GATE)
                 row.update(notes=notes)
                 row.update({**fields, "status": ANSWERED} if fields is not None else {"status": INVALID})
                 if fields is not None and fields["decision"] == ALLOW:
@@ -571,7 +625,8 @@ def _trace_rows(b, st: dict, answer, by_n: dict, turn: int, pass_: str, node: st
 
 def answer_text(turn: int, rows: list) -> str:
     """修正役が読む答えのファイルの本文（相談ごとに 1 節）"""
-    head = ANSWER_HEAD_ACCEPT if any(r.get("origin") == ORIGIN_ACCEPT for r in rows) else ANSWER_HEAD
+    head = ANSWER_HEAD_ACCEPT if any(r.get("origin") == ORIGIN_ACCEPT for r in rows) else \
+        ANSWER_HEAD_GATE if any(r.get("origin") == ORIGIN_GATE for r in rows) else ANSWER_HEAD
     lines = [head.format(turn=turn)]
     for r in rows:
         head = ANSWER_ROW_HEAD.format(item=r.get('item') or '（無し）', paths=('・'.join(r.get('paths') or [])) or '（無し）',

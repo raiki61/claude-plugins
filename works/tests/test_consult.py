@@ -236,7 +236,7 @@ class FlowCase(Base):
         out = self.ask(reply(ask_row(tests=["works/tests/test_report.py:12"]), ask_row(paths=["../outside.md"])))
         self.assertEqual((out["consulted"], out["go"], out["turn"], out["spent"]), (True, True, 1, False))
         q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
-        prepkit.drawn(self, "plan-answer", q, off=("graphmap.render",))   # 工程の地図は包みが system prompt に足す
+        prepkit.drawn(self, "plan-answer", q, off=("graphmap.render", "consult.gate_asks"))   # 工程の地図は包みが system prompt に足す
         self.assertIn("相談 1", q)
         self.assertNotIn("相談 2", q, "断った頼みは答えの節に聞かない")
         self.assertIn("works/CHANGELOG.md", q)
@@ -300,6 +300,33 @@ class FlowCase(Base):
         consult.queue(self.b, "first", [row])
         self.assertFalse(consult.queued(self.b, "first"))
         self.assertEqual(consult.state(self.b, "first")["turns"], consult.BUDGET - 1)
+
+    def test_human_gate_condition_is_asked_without_reply_consult(self):
+        """人の関所の continue の条件（盤面の process.human_items の今の周の一言）は、修正役の返答に consult が無くても次の ask で
+        修正案を書いた役への相談になる（条件の字のままが指示書に載る）。役は条件で要る新しいテストを頼まれていなくても許せ、
+        合意（conflict.agreed）に入り、範囲の照らしが読む項目の tests に重なる。同じ周の同じ条件は 2 度聞かない"""
+        self.plan_session()
+        note = "既存の集計を壊さないことを確かめるテストを足してから直せ"
+        self.b.record = {"process": {"human_items": [{"round": 1, "kinds": ["final"], "answer": "continue", "note": note},
+                                                     {"round": 0, "kinds": ["final"], "answer": "continue", "note": "前の周の一言"}]}}
+        out = self.ask({"changes": []})
+        self.assertEqual((out["consulted"], out["go"]), (True, True), "条件が在れば返答に consult が無くても聞く")
+        q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(note, q)
+        self.assertNotIn("前の周の一言", q)
+        # 条件の相談だけの描きで、頼みの節（ASK_TEXT。入る条件は consult.question）は入らない
+        prepkit.drawn(self, "plan-answer", q, off=("graphmap.render", "consult.question"))
+        tid = "works/tests/test_lens.py::LensCase::test_total_is_kept"
+        answer = {"answers": [{"ask": 1, "decision": "allow", "paths": [], "tests": [], "spec": "",
+                               "new_tests": [{"id": tid, "red_kind": "assertion"}], "reason": "人の条件のテストを項目に足してよい"}]}
+        consult.settle(self.b, answer, "first", "plan-answer")
+        (agreed,) = conflict.agreed(self.b)
+        self.assertEqual(agreed["granted_new_tests"], [{"id": tid, "red_kind": "assertion"}])
+        (merged,) = planrange.with_agreed([{"item": agreed["item"], "allowed_paths": [], "tests": []}], [agreed])
+        self.assertEqual([row["id"] for row in merged["tests"]], [tid], "合意した新しいテストは項目の tests と同じに読まれる")
+        self.assertIsNotNone(consult.take(self.b, "first"))
+        again = self.ask({"changes": []})
+        self.assertEqual((again["consulted"], again["go"]), (False, False), "同じ周の同じ条件は 2 度聞かない")
 
     def test_out_of_scope_reconsidered(self):
         """out_of_scope に当たる頼みは答えの節に聞く。allow の行は、その項目の out_of_scope を外した印（overrode_out_of_scope。

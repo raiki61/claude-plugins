@@ -351,7 +351,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
     seen_items = [it for it in items if set(_keys(it)) & row_keys]
     for p in [p for p in sorted(changes) if p not in seen and p not in untouched]:
         for line in planrange.outside(items, [p], permits):
-            owner = next((it for it in seen_items if planrange.inside(p, it)), None) or (seen_items[0] if seen_items else None)
+            owner = planrange.owner(p, seen_items)
             out.append(line)
             overflow.append({"line": line, "item": owner.get("item") if owner else None, "unit_key": None, "paths": [p],
                              "new_tests": []})
@@ -421,11 +421,11 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             if _test_key(tid) in named:
                 continue
             keys = [r["unit_key"] for r in rows if isinstance(r.get("unit_key"), str) and p in (r.get("files") or [])]
-            mine = [it for it in items if keys and keys[0] in _keys(it)] or [it for it in seen_items if planrange.inside(p, it)] \
-                or seen_items
+            mine = [it for it in items if keys and keys[0] in _keys(it)]
+            owner = mine[0] if mine else planrange.owner(p, seen_items)
             line = f"{tid} は修正案のどの項目の tests にも無いテストを足した"
             out.append(line)
-            overflow.append({"line": line, "item": mine[0].get("item") if mine else None, "unit_key": keys[0] if keys else None,
+            overflow.append({"line": line, "item": owner.get("item") if owner else None, "unit_key": keys[0] if keys else None,
                              "paths": [], "new_tests": [tid]})
     return out, {"checked": True, "unchecked": unchecked, "items": looked, "overflow": overflow}
 

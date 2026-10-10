@@ -62,7 +62,7 @@ import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直�
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
 import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行）
-import planrange  # noqa: E402  （.shared/core。範囲の相談の合意を項目の写しに重ねる with_agreed・項目の範囲 inside）
+import planrange  # noqa: E402  （.shared/core。範囲の相談の合意を項目の写しに重ねる with_agreed・パスを結ぶ項目 owner）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の関門の読み口をそのまま使う）
 import writes  # noqa: E402  （.shared/core。修正前の版）
 from leftovers import Unreadable, git  # noqa: E402
@@ -129,7 +129,7 @@ def reject_line(row: dict) -> str:
 def overflow_asks(rows: list[dict], repo, rev: str, items) -> list[dict]:
     """束の行のうち test_edits（EDITED。名指しの外の既存のテストの本体の書き換え）を、範囲の相談の頼み
     [{item, tests: [<パス>:<base の定義の行>], line}] に直す（受け付けが相談に回す。line は行の拒否の文 reject_line）。item は
-    そのテストのファイルを範囲に持つ項目の最初（無ければ項目の最初）。base に定義の行が引けない行（消えた関数など）は頼みにしない
+    そのテストのファイルを結ぶ項目（planrange.owner）。base に定義の行が引けない行（消えた関数など）は頼みにしない
     （成り立たない行のまま）"""
     out = []
     for r in rows:
@@ -142,7 +142,7 @@ def overflow_asks(rows: list[dict], repo, rev: str, items) -> list[dict]:
             line = None
         if not line:
             continue
-        item = next((it for it in items if planrange.inside(path, it)), None) or (items[0] if items else None)
+        item = planrange.owner(path, items)
         out.append({"item": item.get("item") if item else None, "tests": [f"{path}:{line}"], "line": reject_line(r)})
     return out
 

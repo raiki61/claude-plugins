@@ -10,6 +10,7 @@
   （conflict.ruled_paths）。run の全部の項目の範囲の和に入る。out_of_scope には勝たない
 
 - with_agreed(items, agreed)・inside(path, it)・oos_hit(path, items)・oos_hit_for(path, mine, items): 範囲の読み
+- owner(path, items): パスを結ぶ項目（範囲に入る最初の項目、無ければ項目の最初）。はみ出しを相談に回す時の項目の選び
 - permit_paths(b, *, ruled, agreed): 許しのパスの並び
 - outside(items, paths, permits, *, hint): 単位に結べない変わったパスの外れの行（全項目の範囲の和か許しに入らない・どれかの項目の
   out_of_scope に当たる）。hint なら、ほかの項目の out_of_scope に当たるがある項目の範囲には入るパスに OWNER_HINT を足す
@@ -47,6 +48,12 @@ def _oos(it: dict) -> list[str]:
 def inside(path: str, it: dict) -> bool:
     """path が項目の範囲（allowed_paths の glob・tests と rewrite_tests の id のファイル）に入るか"""
     return path in planmarks.test_paths(it) or any(planmarks.glob_match(path, g) for g in globs(it))
+
+
+def owner(path: str, items: list[dict]):
+    """path を結ぶ項目: 範囲に入る（inside）最初の項目、無ければ items の最初。items が空なら None（受け付けがはみ出しを範囲の
+    相談に回す時に、頼みをどの項目に結ぶかの決まりの 1 か所。planscope・fixgates・受け付けが呼ぶ）"""
+    return next((it for it in items if inside(path, it)), items[0] if items else None)
 
 
 def answer_tables(board_dir) -> list:
