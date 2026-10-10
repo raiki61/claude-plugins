@@ -1213,12 +1213,12 @@ WORLD_ROW = {"finding": 1, "where": "stats.py:10", "class_id": "w1", "problem": 
              "applies": "平均の直し", "not_applies": "",
              "versus": {"proposed": "分母から 1 を引く", "verdict": "differs",
                         "challenge": "依頼は 1 を引く、定石は個数で割る。標本の分散でない限り定石を選ぶ"},
-             "basis": "web", "cached": False}
+             "basis": "web"}
 
 
 class WorldCase(ReportBase):
     """報告の「世界の解」の節（計画 2026-10-09-world-solution の W10・5.3 節の 7）: 盤面の根の世界の解の控えが指す行ごとの定石と
-    依頼の解き方との比べ・web で確かめていない行の名指し・控えから使った類・数の行。段が落ちた周は落ちた訳。控えの無い run
+    依頼の解き方との比べ・web で確かめていない行の名指し・数の行。段が落ちた周は落ちた訳。控えの無い run
     （機能 world を切った・段の前で止まった）は節を出さない。節の字は works の内側の語（report.INNER_WORDS）を使わない"""
 
     def put_world(self, status, rows=(), reason=""):
@@ -1226,19 +1226,19 @@ class WorldCase(ReportBase):
         p = self.tmp / worldmark.WORLD_FILE
         p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
         worldmark.write(self.board, status=status, reason=reason, world_file=str(p) if status == "ok" else "",
-                        classes=len(rows), cached=sum(1 for r in rows if r["cached"]), skipped=1, dropped=2)
+                        classes=len(rows), dropped=2)
 
     def test_report_has_world_section(self):
         import worldmark
         self.full()
         knowledge = {**WORLD_ROW, "finding": 2, "class_id": "w2", "practice": "空の入力は先に弾く", "sources": [],
-                     "basis": "knowledge", "cached": True, "versus": {"proposed": "", "verdict": "none", "challenge": ""}}
+                     "basis": "knowledge", "versus": {"proposed": "", "verdict": "none", "challenge": ""}}
         self.put_world("ok", [WORLD_ROW, knowledge])
         _, _, hs = self.build()
         self.assertIn(WORLD_HEAD, hs)
         body = hs[WORLD_HEAD]
         for want in ("w1", WORLD_ROW["practice"], "分母から 1 を引く", WORLD_ROW["versus"]["challenge"], "w2",
-                     worldmark.NOT_WEB, "控えから使った類 1", "飛ばした行 1", "落とした抜き書き 2"):
+                     worldmark.NOT_WEB, "類 2", "落とした抜き書き 2"):
             self.assertIn(want, body)
         self.assertEqual([ln for ln in body.splitlines() if report.INNER_WORD.search(ln)], [])
         self.assertLess(list(hs).index(WORLD_HEAD), list(hs).index(STRUCTURE_HEAD) if STRUCTURE_HEAD in hs else len(hs))
