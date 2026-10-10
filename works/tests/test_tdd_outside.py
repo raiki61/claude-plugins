@@ -277,6 +277,28 @@ class TestAcceptOutsideTier(OutsideCase):
         for p in paths:
             self.assertTrue(pathlib.Path(p).is_relative_to(cwd), f"引数 {p} が起こし場所 {cwd} の下に無い（symlink の綴りのまま）")
 
+    def test_base_copy_lets_tests_read_git(self):
+        """版の写しは git の保管庫を持つので、git を読む試験は版で緑になり、今の木で壊した時に新しい赤として拾われる。
+        比べた後に一時の木は残らず、作業ツリーと枝は元のまま"""
+        reads_git = (
+            "import subprocess\nimport unittest\n\n\n"
+            "class TestOutside(unittest.TestCase):\n"
+            "    def test_lists_itself(self):\n"
+            "        got = subprocess.run([\"git\", \"ls-files\", \"heavy\"], capture_output=True, text=True).stdout\n"
+            f"        self.assertIn(\"{OUTSIDE}\", got)\n")
+        self.write(OUTSIDE, reads_git)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "git を読む段の外の試験")
+        state = self.begin()
+        self.write(OUTSIDE, reads_git.replace(f'assertIn("{OUTSIDE}"', 'assertIn("heavy/nothing.py"'))
+        branch = git(self.repo, "rev-parse", "--abbrev-ref", "HEAD")
+        probs, note = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertTrue(probs, f"版の写しで git を読めず、版でも赤と数えて新しい赤から外した（知らせ: {note}）")
+        self.assertIn("test_lists_itself", probs[0])
+        self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1, "比べた後に一時の木が残る")
+        self.assertEqual(git(self.repo, "diff", "--name-only"), OUTSIDE, "比べた後も作業ツリーは直した後の姿のまま")
+        self.assertEqual(git(self.repo, "rev-parse", "--abbrev-ref", "HEAD"), branch, "枝が動いた")
+
     def test_base_reds_left_out_are_named_in_note(self):
         """版の写しでも赤だったので新しい赤から外した試験は、黙って外さず、件数と名を知らせに出す。外した物が無い時は足さない"""
         failing = OUTSIDE_PASSING.replace("1 + 1, 2", "1 + 1, 3")

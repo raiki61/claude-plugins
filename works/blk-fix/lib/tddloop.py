@@ -87,17 +87,17 @@
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
 import ast
+import contextlib
 import difflib
 import hashlib
-import io
 import json
 import os
 import pathlib
 import posixpath
 import re
+import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import unittest
@@ -2202,10 +2202,41 @@ def save_json(path: pathlib.Path, doc) -> None:
     os.replace(tmp, path)
 
 
+@contextlib.contextmanager
+def temp_tree(repo: pathlib.Path, rev: str):
+    """(版 rev を出した一時の git worktree（--detach。フックは切る）か None, 作れない理由の並び)。写しに .git が在るので git を読む
+    試験も今の木と同じ条件で走る。成否に関わらず消す（この worktree だけを外し、外せなければ置き場を消して prune する。
+    作業ツリー・index・枝は動かさず、git の控え .git/worktrees/ の行を残さない）。置き場の根は実のパスに解く（実行器の起こし場所と
+    引数の綴りをそろえる。test_base_copy_args_lie_under_real_cwd）"""
+    try:
+        td = pathlib.Path(tempfile.mkdtemp(prefix="works-tdd-rev-")).resolve()
+    except OSError as e:
+        yield None, [f"{type(e).__name__}: {e}"]
+        return
+    wt = td / "repo"
+    try:
+        try:
+            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(wt), rev)
+        except Unreadable as e:
+            yield None, [str(e)]
+            return
+        yield wt, []
+    finally:
+        try:
+            git(repo, "worktree", "remove", "--force", str(wt))
+        except Unreadable:
+            shutil.rmtree(wt, ignore_errors=True)
+            try:
+                git(repo, "worktree", "prune")
+            except Unreadable:
+                pass
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def _base_reds(st, repo, rev, files, kexpr) -> tuple:
-    """(版 rev の姿で同じ試験を回して赤だった鍵の集合か None, 問題)。版の姿は一時の置き場に git archive で写して走らせ、
-    作業ツリー・index・枝は動かさない。実行器が repo の中に在れば写しの中の同じ物を走らせる（自分の置き場から根を引く実行器が
-    写しの根で走るように）。
+    """(版 rev の姿で同じ試験を回して赤だった鍵の集合か None, 問題)。版の姿は一時の git worktree（--detach）に出して走らせ、
+    作業ツリー・index・枝は動かさない（写しに .git が在るので、git を読む試験も今の木と同じ条件で走る）。実行器が repo の中に
+    在れば写しの中の同じ物を走らせる（自分の置き場から根を引く実行器が写しの根で走るように）。
     写しは版の姿だけ（今の木から何も写さない）なので、結末は版・実行器・後ろの引数（ファイルと -k）で決まる。走らせた結末は
     盤面の根の REV_CACHE に残し、同じ版・同じ実行器・同じ -k で、名指したファイルが前に走らせた回のファイルに含まれれば
     走らせずに使う（run の中で版は動かないので、受け付けの回・2 回目の修正の段をまたいで 1 回で足りる。195g は回ごとに 3 分半）。
@@ -2216,14 +2247,9 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
     for r in rows:
         if isinstance(r, dict) and {k: r.get(k) for k in key} == key and set(files) <= set(r.get("files") or []):
             return set(r.get("reds") or []), []
-    with tempfile.TemporaryDirectory(prefix="works-tdd-rev-") as td:
-        copy = pathlib.Path(td).resolve() / "repo"   # 実行器の起こし場所（実のパス）と引数の綴りをそろえる
-        try:
-            tar = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev], capture_output=True, check=True).stdout
-            with tarfile.open(fileobj=io.BytesIO(tar)) as t:
-                t.extractall(copy, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
-        except (OSError, subprocess.CalledProcessError, tarfile.TarError) as e:
-            return None, [f"版 {rev} を写せない（{type(e).__name__}: {e}）"]
+    with temp_tree(repo, rev) as (copy, cant):
+        if copy is None:
+            return None, [f"版 {rev} を写せない（{'; '.join(cant)}）"]
         exe = pathlib.Path(st["exe"])
         try:
             inner = copy / exe.absolute().relative_to(pathlib.Path(repo).absolute())

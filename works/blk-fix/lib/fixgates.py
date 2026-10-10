@@ -50,14 +50,12 @@ OUT_OF_DUTY を除いた物。義務の外の項目は確かめる物でなく�
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import os
 import pathlib
 import posixpath
 import shutil
-import tempfile
 
 import cite  # noqa: E402  （.shared/core。名指しの形）
 import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直す義務・テストの変更の許し）
@@ -338,7 +336,7 @@ def _red_key(repo: pathlib.Path, suite: str, test_id: str, u: dict) -> str:
 def _red_tree_probs(repo: pathlib.Path, rev: str, suite: str, ids: list, loop: dict, work: pathlib.Path,
                     cache: pathlib.Path) -> tuple:
     """(名指し → 赤の木での red_check の問題の文（空なら赤）か None, 実行器が走らない理由)。控えに無い名指しだけを、一時の
-    worktree（base の版から作る。_temp_tree）で tddloop.red_rerun に回す（名指しは 1 本ずつ。その名指しだけの事実にする）。
+    worktree（base の版から作る。tddloop.temp_tree）で tddloop.red_rerun に回す（名指しは 1 本ずつ。その名指しだけの事実にする）。
     赤の木を読めない（オブジェクトが無い）名指しは返さない（呼び手が base の木で見る）"""
     seen = tddloop.load_json(cache, {})
     keys = {i: _red_key(repo, suite, i, loop[tddloop._norm_id(i)]) for i in ids}
@@ -346,7 +344,7 @@ def _red_tree_probs(repo: pathlib.Path, rev: str, suite: str, ids: list, loop: d
     need = [i for i in ids if i not in out]
     if not need:
         return out, []
-    with _temp_tree(repo, rev) as (wt, why):
+    with tddloop.temp_tree(repo, rev) as (wt, why):
         if wt is None:
             return None, why
         exe = _inner_exe(repo, wt, suite)
@@ -383,7 +381,7 @@ def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, w
     """(base の木で走らせた結末か None, 問題)。一時の git worktree（--detach）に base を出し、copy のパスを今の木の姿に揃えて
     （今の木に無ければ消して）走らせる。実行器が repo の中に在れば worktree の中の同じ物を走らせる。worktree は成否に
     関わらず消す（作業ツリー・index・枝は動かさない）"""
-    with _temp_tree(repo, rev) as (wt, why):
+    with tddloop.temp_tree(repo, rev) as (wt, why):
         if wt is None:
             return None, why
         for f in copy:
@@ -405,30 +403,6 @@ def _inner_exe(repo: pathlib.Path, wt: pathlib.Path, suite: str) -> str:
         return str(inner if inner.is_file() else exe)
     except ValueError:
         return suite
-
-
-@contextlib.contextmanager
-def _temp_tree(repo: pathlib.Path, rev: str):
-    """(一時の git worktree（--detach。フックは切る）か None, 作れない理由)。成否に関わらず消す（作業ツリー・index・枝は動かさない）"""
-    td = pathlib.Path(tempfile.mkdtemp(prefix="works-fixgates-"))
-    wt = td / "base"
-    try:
-        try:
-            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(wt), rev)
-        except Unreadable as e:
-            yield None, [str(e)]
-            return
-        yield wt, []
-    finally:   # この worktree だけを外す。外せなければ置き場を消して prune（git の控え .git/worktrees/ の行を残さない）
-        try:
-            git(repo, "worktree", "remove", "--force", str(wt))
-        except Unreadable:
-            shutil.rmtree(wt, ignore_errors=True)
-            try:
-                git(repo, "worktree", "prune")
-            except Unreadable:
-                pass
-        shutil.rmtree(td, ignore_errors=True)
 
 
 def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool, ids=()) -> list[dict]:
