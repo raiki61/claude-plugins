@@ -16,7 +16,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
-- next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
+- next_request(b, *, tests=None, left=None, interrupted=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
+  interrupted が None でない（途中で落ちた run）時だけ、案の直しを待つ行（未完了）の単位の行を足す。
   判定が目的の外として単位にしなかった材料の所見は材料の行の任意の欄 mechanism・measured・false_positive_if と、下書きの印
   draft・source も持つ。印の在る行は依頼の入口が拒むので、人が見直すまで次の run の目的にならない）
 - next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は人の判断を待つ項目への答えの下書き）
@@ -31,7 +32,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - always_rows(b, left=None, *, rest=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
   走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False, found_only=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None, retried=None, eyeing=None, cleaned_runs="", depth_lines=(), tdd=(), absorbed=None) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
+  failed=None, retried=None, eyeing=None, cleaned_runs="", depth_lines=(), tdd=(), absorbed=None) -> dict（盤面を読む前に、落ちの無い run（interrupted が None）だけ replan.close_at で案の直しを待つ行を諦めた行にする。落ちた run は待つ行のまま未完了と報告し、resume で続ける）
 - tdd_lines(stages) -> 修正の段ごとの TDD の輪の単位の結末の行（keep-essence の 11。修正のブロックの出口 tdd を読む）
 - freeze_lines(stages) -> 冒頭 2 の行: TDD の輪を回していない修正の段はテストの凍結が効いていないと言う（keep-essence の 3）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -758,7 +759,7 @@ def lens_next_items(b) -> list:
             for f in s["failed"]]
 
 
-def next_request(b, *, tests: dict | None = None, left: list | None = None) -> list:
+def next_request(b, *, tests: dict | None = None, left: list | None = None, interrupted: str | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
     手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴（どちらも枝の名札 _tie_notes を text の終わりに添える）・修正の not_done・最後のテストが緑でない行・
     残り（left＝residue の返り）の全件（carry_left。テストの赤は上の行が持つ。not_done と人に回した単位の検証器の単位の行は、
@@ -770,6 +771,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     最後の関所の答え・読めなかったも、その行の後ろに添える）・
     食い違いの申し出を人に回して直さずに残した単位（conflict.asked: ask_human と、案の直しを諦めた fix_plan_item。裁定が外した
     単位 conflict.ruled_units ごとに 1 行。裁定の文は字のまま）・
+    案の直しを待ったまま途中で落ちた run（interrupted が None でない）は、待つ行（conflict.waiting）も同じ形で、案の直しの欄に
+    replan.PENDING_WHY（未完了。resume で続く）を書く（落ちの無い run は待つ行を持ち越さない。build が先に締める）・
     判定が凍結した目的の外として単位にしなかった材料の所見（outpurpose.next_items。最後の周の分を、材料の行の全部の欄で、運んだ
     印と下書きの印 draft・source つきで）"""
     items = []
@@ -794,10 +797,11 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": str(tests.get("log") or "最後のテスト"),
                       "text": f"{TESTS_TEXT}{tests_word(b, tests)}（{tests.get('reason') or 'ログを読む'}）"})
     asked = _asked_units(_asked(b))
+    pending = _asked_units(_waiting(b)) if interrupted is not None else []
     settled, settled_keys = _rejudge_next(b)
-    # 単位の行（not_done・人に回した単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
+    # 単位の行（not_done・人に回した単位・未完了の単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
     owned = {nd["unit_key"] for nd in fix.get("not_done") or [] if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str)} \
-        | {k for k, _ in asked} | settled_keys
+        | {k for k, _ in asked} | {k for k, _ in pending} | settled_keys
     items += carry_left(left, owned, tests)
     items += lens_next_items(b)
     items += outpurpose.next_items(b.dir)
@@ -811,6 +815,10 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
                               f"名指し {', '.join(r['between'])}"
                               + (f"。案の直し: {r[conflict.REPLAN_WHY]}。{conflict.HELD_WORK_KEPT}" if r.get(conflict.REPLAN_WHY)
                                  else "") + "）"})
+    for k, r in pending:
+        items.append({"where": k,
+                      "text": f"{k}（{replan.PENDING_WHY}。裁定の文: {r['ruling']['text']}。名指し {', '.join(r['between'])}。"
+                              f"{conflict.HELD_WORK_KEPT}）"})
     ph = b.state.get("pending_human") or {}
     if ph.get("question"):
         asked = "・".join(str(x) for x in ph.get("items") or [])
@@ -1055,6 +1063,14 @@ def _asked(b) -> list:
     """今の周に人に回した食い違いの申し出（控えが読めなければ空。件数の行が「読めない」と言う）"""
     try:
         return conflict.asked(b)
+    except BoardGap:
+        return []
+
+
+def _waiting(b) -> list:
+    """案の直しを待つ行（控えが読めなければ空。_asked と同じ）"""
+    try:
+        return conflict.waiting(b)
     except BoardGap:
         return []
 
@@ -1867,13 +1883,16 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     落ちた節 failed と空、dev の report.sh は run の状態）。retried（前の試みで落ち、続きで済んだ節）は冒頭 3 の試みの記録で、
     結末も AI の報告の可否も替えない。absorbed（受け止めた落ち。split_fallen）は冒頭 3 に出し、
     残り（residue）に数える（absorbed_rows）。
+    案の直しを待つ行は、落ちの無い run（interrupted が None）では盤面を読む前に replan.close_at で諦めた行に締め、落ちた run では締めずに
+    replan.PENDING_WHY（未完了）として冒頭 1 と next_request に出す（resume で案の直しが同じ段から続く）。
     record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。tdd は修正の段ごとの TDD の輪の結末（TDD_STAGES の順。修正のブロックの
     出口 tdd か None）で、節 TDD_HEADING に単位ごとに並べる（tdd_lines。行が無ければ節を出さない）。盤面を開けなければ BoardGap"""
     board_dir = pathlib.Path(board_dir)
-    try:   # 案の直しを待つ行を諦めた行にしてから読む（修正の段を抜ける所の締め replan.settle が飛ばされた run でも、待つ行を報告から落とさない）
-        replan.close_at(board_dir)
-    except BoardGap:   # 申し出の控えが読めない: 冒頭 1 の件数の行（_conflict_line）が「読めない」と言う
-        pass
+    if interrupted is None:   # 落ちた run は待つ行を締めない（resume で案の直しを同じ段から続ける。報告は replan.PENDING_WHY で未完了と言う）
+        try:   # 案の直しを待つ行を諦めた行にしてから読む（修正の段を抜ける所の締め replan.settle が飛ばされた run でも、待つ行を報告から落とさない）
+            replan.close_at(board_dir)
+        except BoardGap:   # 申し出の控えが読めない: 冒頭 1 の件数の行（_conflict_line）が「読めない」と言う
+            pass
     b = entry.open_board(board_dir, allow_halted=True)
     gate = gate_record(b)
     # 盤面が報告の役の節を出したか（表で role のラインだけ。いつ出るかは gate_record の docstring。stop_after_round で周を
@@ -1885,7 +1904,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged, eyeing=eyeing,
                                                                            absorbed=absorbed)
     left = residue(b, gate, tests=tests, eyeing=eyeing, absorbed=absorbed)
-    items = next_request(b, tests=tests, left=left)
+    items = next_request(b, tests=tests, left=left, interrupted=interrupted)
     prior = prior_failures(b, left)
     rep_p = board_dir / REPORT_FILE
     req_p, prior_p = carry.save(board_dir, next_doc(b, items, prior), prior)

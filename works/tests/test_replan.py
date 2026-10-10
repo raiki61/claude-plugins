@@ -1,7 +1,9 @@
 """同じ run の中の案の直し（依頼 226）の締め: replan.close・close_at・settle。
 
-待つ単位（裁定 fix_plan_item の行の状態 WAITING）を残したまま修正の段を抜けない。h-rejudge（settle）と報告の組み立て
-（report.build の close_at）が、待つ行を諦めた行（GAVE_UP）にして ask_human の道に載せる。止まった盤面でも締める。
+待つ単位（裁定 fix_plan_item の行の状態 WAITING）を残したまま修正の段を抜けない。h-rejudge（settle）が、待つ行を諦めた行
+（GAVE_UP）にして ask_human の道に載せる。落ちの無い run（interrupted が None）では、settle が飛ばされても報告の組み立て
+（report.build の close_at）が同じように締める。落ちた run（interrupted が空の文字列も含む）は締めずに未完了
+（replan.PENDING_WHY）と報告し、resume で同じ段から続ける。止まった盤面でも締める。
 締めた後に待つ行が残れば BoardGap。持ち越し（次の run の修正案へ）の道は無い。
 待つ単位が在る間、修正の受け付けは返答を盤面に渡さずに控え（conflict.HELD_REPLY。受けた時と同じ trace を書く）、settle が渡す
 （replan.hand_held）。集める節と報告は返答を recount.fix_reply の 1 つの口で読む（盤面の p3.fix か控え）。
@@ -36,6 +38,7 @@ from test_blk_fix_conflict import (CLAMP, CLAMP_FIELDS, MEAN, MEAN_FIX, PLAN_TEX
 from test_blk_fix import PLAN_FIELDS, PLAN_REVIEW_OK, load, run_script  # noqa: E402
 
 import board  # noqa: E402
+from board import BoardGap  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planblk  # noqa: E402
@@ -100,7 +103,7 @@ class TestSettle(ReplanCase):
         self.assertEqual(row[conflict.REPLAN_WHY], replan.HALTED_WHY.format(by="human:test", reason="人が止めた一言"))
 
     def test_report_build_closes_waiting_rows(self):
-        """h-rejudge を通らずに（fixing が落ちた run）報告を組んでも、待つ行は諦めた行になり、次の run の依頼に裁定の文が届く"""
+        """落ちの無い run で h-rejudge が飛ばされた形でも、報告を組むと待つ行は諦めた行になり、次の run の依頼に裁定の文が届く"""
         self.ruled()
         report.build(self.board, judged=None, tests=None, start=None)
         b = entry.open_board(self.board, allow_halted=True)
@@ -108,6 +111,28 @@ class TestSettle(ReplanCase):
         self.assertEqual(conflict.replan_state(conflict.items(b)[0]), conflict.GAVE_UP)
         items = report.next_request(b)
         self.assertTrue(any(i["where"] == MEAN and PLAN_TEXT in i["text"] for i in items), items)
+
+    def test_interrupted_report_keeps_waiting_rows_as_pending(self):
+        """上流の節が落ちて途中で終わった run の報告は、待つ行を諦めた行に締めず、未完了として冒頭と次の run の依頼に出す"""
+        self.ruled()
+        got = report.build(self.board, judged=None, tests=None, start=None, interrupted="cancelled")
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(len(conflict.waiting(b)), 1, "落ちた run では待つ行を締めない")
+        row = conflict.items(b)[0]
+        self.assertEqual(conflict.replan_state(row), conflict.WAITING)
+        self.assertFalse(row.get(conflict.REPLAN_WHY))
+        findings = json.loads(pathlib.Path(got["next_request_file"]).read_text(encoding="utf-8"))["findings"]
+        hit = [i for i in findings if i["where"] == MEAN]
+        self.assertEqual(len(hit), 1, findings)
+        self.assertIn(replan.PENDING_WHY, hit[0]["text"])
+        self.assertIn(f"裁定の文: {PLAN_TEXT}", hit[0]["text"])
+        self.assertIn(conflict.HELD_WORK_KEPT, hit[0]["text"])
+        lines = replan.lines(b)
+        self.assertTrue(any(replan.PENDING_WHY in x for x in lines), lines)
+        self.assertFalse(any("直さずに諦めた" in x for x in lines), lines)
+        text = pathlib.Path(got["report_file"]).read_text(encoding="utf-8")
+        self.assertIn(replan.PENDING_WHY, text)
+        self.assertNotIn("直さずに諦めた", text)
 
     def test_no_new_count_constant(self):
         self.assertFalse([n for n in dir(replan) if "LIMIT" in n or n == "GIVE_UP_AFTER"])
@@ -675,6 +700,37 @@ class TestGateRule(TripCase):
         self.assertEqual((row["contract_changed"], row["human_faces"]), ([], ["mean-empty-regression"]))
         self.assertIn("mean-empty-regression", got["gate_text"])
 
+    def test_closed_item_is_not_asked(self):
+        """束ねた食い違いの行がもう待つ状態でない項目は、約束の欄が変わっていても関所に問わず、諦めた結果と理由を写す"""
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.close(entry.open_board(self.board), replan.CLOSE_WHY)
+        got = replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertFalse(got["ask"])
+        self.assertEqual(got["gate_file"], "")
+        row = self.trip_doc()["items"][0]
+        self.assertEqual((row["result"], row["why"]), (replan.GAVE_UP, replan.CLOSE_WHY))
+
+    def test_item_sharing_row_with_gave_up_item_is_not_asked(self):
+        """1 つの食い違いの行を 2 つの項目が束ね、片方がこの関所の決まりで諦められて共有の行が諦めた状態になったら、
+        もう片方の項目も問わず、答えの受けも BoardGap を上げない"""
+        self.trip(new=wider_paths(), review=no_faces())
+        b = entry.open_board(self.board)
+        doc = self.trip_doc()
+        row2 = copy.deepcopy(doc["items"][0])
+        row2.update({"item": 2, "new": None, "review": None})
+        doc["items"].append(row2)
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        got = replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertFalse(got["ask"], self.trip_doc()["items"])
+        self.assertEqual(got["gate_file"], "")
+        self.assertEqual(conflict.replan_state(conflict.items(entry.open_board(self.board))[0]), conflict.GAVE_UP)
+        self.assertEqual(self.trip_doc()["items"][0]["result"], replan.GAVE_UP)
+        try:
+            ans = replan.answer(self.board, self.repo, None)
+        except BoardGap as e:
+            self.fail(f"共有の行が諦めた状態の項目を答えの受けが採ろうとして BoardGap: {e}")
+        self.assertEqual(ans["returned"], [])
+
     def test_human_kinds_read_from_copied_rules(self):
         b = entry.open_board(self.board)
         self.assertEqual(replan.human_kinds(b), board.rules_module(pathlib.Path(b.state["graph"])).HUMAN_FACE_KINDS)
@@ -826,6 +882,51 @@ class TestAnswer(TripCase):
         self.assertEqual(got["notes_file"], "")
         self.assertEqual(self.trip_doc()["items"][0]["result"], "amended")
         self.assertEqual((b.record.get("process") or {}).get("human_items"), [], "関所が開かなければ行を足さない")
+
+    def test_resume_after_interrupted_report_amends(self):
+        """落ちた run の報告を組んでも待つ行は待つままで、resume で案の直しの役・関所・答えが同じ段から続けられる"""
+        report.build(self.board, judged=None, tests=None, start=None, interrupted="")
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(conflict.replan_state(conflict.items(b)[0]), conflict.WAITING)
+        self.trip(new=red_kind_fixed(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, None)
+        self.assertEqual(got["returned"], [MEAN])
+        b = entry.open_board(self.board)
+        self.assertEqual(conflict.replan_state(conflict.items(b)[0]), conflict.AMENDED)
+
+    def test_answer_skips_item_closed_after_review(self):
+        """聞かずに通す形の項目でも、事前審査の後に待つ行が諦めた状態に締められたなら採らず、BoardGap を上げない"""
+        self.trip(new=red_kind_fixed(), review=no_faces())
+        replan.close(entry.open_board(self.board), replan.CLOSE_WHY)
+        replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertEqual(self.trip_doc()["items"][0]["result"], replan.GAVE_UP)
+        try:
+            got = replan.answer(self.board, self.repo, None)
+        except BoardGap as e:
+            self.fail(f"締めた項目を答えの受けが採ろうとして BoardGap: {e}")
+        self.assertEqual(got["returned"], [])
+        self.assertEqual(conflict.replan_state(conflict.items(entry.open_board(self.board, allow_halted=True))[0]),
+                         conflict.GAVE_UP)
+
+    def test_taken_item_sharing_row_with_unanswered_item_does_not_gap(self):
+        """食い違いの行を束ねた 2 項目の片方（聞かずに通す形）を採ろうとする時、もう片方（聞く形）が答え無しで諦められて
+        共有の行が諦めた状態になるなら、採らずに BoardGap を上げない"""
+        self.trip(new=red_kind_fixed(), review=no_faces())
+        b = entry.open_board(self.board)
+        doc = self.trip_doc()
+        row2 = copy.deepcopy(doc["items"][0])
+        row2["item"] = 2
+        row2["new"] = {**copy.deepcopy(row2["new"]), "allowed_paths": [*_item(1)["allowed_paths"], "README.md"]}
+        doc["items"].append(row2)
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, None)   # 共有の行が諦めた状態の項目を採ろうとすると BoardGap
+        self.assertEqual(got["returned"], [])
+        items = self.trip_doc()["items"]
+        self.assertEqual([r["result"] for r in items], [replan.GAVE_UP, replan.GAVE_UP])
+        self.assertEqual(conflict.replan_state(conflict.items(entry.open_board(self.board, allow_halted=True))[0]),
+                         conflict.GAVE_UP)
 
     def test_continue_takes_asked_item_and_writes_notes(self):
         self.trip(new=wider_paths(), review=means_face())

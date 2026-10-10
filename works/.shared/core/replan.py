@@ -4,10 +4,13 @@
 
 - 盤面を止める時の by と process.human_items の行の node は止めの理由の住処の stopby.REPLAN
 - CLOSE_WHY・HALTED_WHY: 諦めた理由（conflict.REPLAN_WHY に置く。HALTED_WHY は止まった盤面で締める時で、by・reason は盤面の止めの物）
+- PENDING_WHY: 途中で落ちた run の報告と次の run の依頼で、待つ行を「未完了」と読ませる文（盤面には書かない。続きは resume で同じ段から）
 - UNSETTLED: 締めた後に待つ行が残った時の BoardGap の文
 - close(b, why): 待つ行の全部を諦めた行にし、id を返す（待つ行が無ければ何もせず []）
 - close_at(board_dir): 盤面を allow_halted で開き、止まっていれば HALTED_WHY、そうでなければ CLOSE_WHY で close。何度呼んでも
-  同じ（2 度目は待つ行が無い）。報告の組み立ては必ず走るので、修正の段が落ちて settle が飛ばされた run でも待つ行が落ちない
+  同じ（2 度目は待つ行が無い）。報告の組み立ては、落ちの無い run（interrupted が None）でだけ呼ぶ: 修正の段が落ちずに settle が
+  飛ばされた run でも待つ行が落ちない。上流の節が落ちて途中で終わった run では締めず（待つ行のまま resume で同じ段から続ける）、
+  PENDING_WHY で未完了と報告する
 - HAND_REFUSED: 1 回目に受け付けた返答の控えを盤面が受けない時の止めの文
 - hand_held(board_dir, repo): 盤面が止まっておらず、今の周の p3.fix を受けておらず、1 回目に受け付けた返答の控え
   （conflict.held_reply。待つ単位が在る間に修正の受け付けが盤面に渡さずに置いた物）が在れば、控えの盤面に渡す形（conflict.handed）を
@@ -21,7 +24,7 @@
   answer・result・why）。まだ無い値は null
 - PLAN_NODE・REVIEW_NODE・ROLES: 盤面に無い節の名（拒否の控え rejects-<名>.json と指示書 prompt-<名>.md の名。1 回目の
   p2.fix_plan・p2.plan_review の控えと重ならない）
-- material(b): 待つ行を裁定の欄 plan_items の番号ごとに束ねて TRIP_FILE を書く（在れば書き直さない＝再開）。{"go", "items"}
+- material(b): 待つ行を裁定の欄 plan_items の番号ごとに束ねて TRIP_FILE を書く（在れば書き直さない＝再開。待つ行がもう諦めた状態の項目には結果 gave_up を写す: _sync_closed）。{"go", "items"}
 - snap・prep・accept_reply・collect: 修正案の役（plan）と事前審査の役（plan-review）の支度・受け付け・出口。修正案の役には誤りと
   裁かれた項目・申し出・裁定の文だけを渡し（REPLAN_ASK）、返答は渡した項目に限る（数・unit_keys の字・works の欄・狭めない案・
   型の誤りを全部並べて 1 回で拒む。REPLAN_REJECT）。受け入れのテストが既に在るかは修正の起点の版（盤面の review_rev）の木で
@@ -49,7 +52,8 @@
   関所（policy-gate）で人が答えた条件を書いたファイル fix_notes（線が 1 回目の修正の段に渡した物）の中身を写す（人の
   条件は同じ run の 2 回目の修正の段にも効く）。全項目に result が在れば前の返りを
   そのまま返す（Archon の再開）。{returned, plan_file, notes_file, stop, why}
-- lines(b): TRIP_FILE の項目ごとの 1 行（最後の関所の文と報告の冒頭 1 が見出し AMEND_HEAD の下に並べる）
+- lines(b): TRIP_FILE の項目ごとの 1 行（最後の関所の文と報告の冒頭 1 が見出し AMEND_HEAD の下に並べる）。まだ待つ行の項目と、
+  TRIP_FILE に束ねられていない待つ行（案の直しの前に落ちた run）は、諦めたと書かず PENDING_WHY の 1 行
 
 層 L3。entry・conflict・recount・planmarks・gatemarks・accept・rolekit・leftovers と L1 の answer を読み、report と blk の lib は import しない
 （report がこの模块を呼ぶ向きだけ。blk-plan の lib がこの模块を呼ぶ向きだけ）。期限・回数の上限は持たない（諦めの数は rolekit の物）。
@@ -90,6 +94,7 @@ import stopby  # noqa: E402  （L1。止めの理由の住処）
 
 CLOSE_WHY = "同じ run の中で案の直しを終えられなかった（案の段に戻るのは 1 run に 1 回）"
 HALTED_WHY = "run が止まった（{by}: {reason}）ので、案の直しを終えなかった"
+PENDING_WHY = "未完了（前の run が途中で落ちて、案の直しを終えていない）"
 UNSETTLED = "案の直しを待つ単位を残したまま修正の段を抜けようとした: {ids}"
 HAND_REFUSED = "1 回目に受け付けた修正の返答を盤面が受けない: {reason}"
 _ENDED_BY = "stop_after_round"   # 1 周の run が周を締めた盤面の halted.by（普通の終わりで、止めたと読まない）
@@ -242,6 +247,31 @@ def _closed(b) -> bool:
     return took.get("round") == b.round
 
 
+def _sync_closed(b, doc: dict) -> bool:
+    """result の無い行のうち、束ねた食い違いの行（rows）に諦めた状態（conflict.GAVE_UP）の行が 1 つでも在る項目は、人の答えでも
+    採りに移せない（conflict.set_replan は 1 行でも外れれば何も移さない）ので、result を GAVE_UP、why をその行の諦めた理由
+    （最初に在る物）に写す。変えたら真（呼び手が書く）。採りに移った行・待つ行だけの項目は写さない（再開で同じ答えを当て直す道）。
+    読むだけで、控えは動かさない（状態の正本と移しの口は conflict）"""
+    rows = {c.get("id"): c for c in conflict.items(b)}
+    changed = False
+    for r in doc["items"]:
+        if r.get("result"):
+            continue
+        gave = [rows[i] for i in r.get("rows") or [] if i in rows and conflict.replan_state(rows[i]) == conflict.GAVE_UP]
+        if gave:
+            r["result"], r["why"] = GAVE_UP, gave[0].get(conflict.REPLAN_WHY)
+            changed = True
+    return changed
+
+
+def _read_synced(b) -> dict | None:
+    """read_trip して、控えの状態に揃えた（_sync_closed）物を書き戻す"""
+    doc = read_trip(b)
+    if doc is not None and _sync_closed(b, doc):
+        _write_trip(b, doc)
+    return doc
+
+
 def _role_item(item: dict) -> dict:
     """承認済みの項目（planmarks.approved_items の 1 つ）から、役の返答の型が持てない欄を外した写し: 鍵 item と、
     rewrite_tests の行の範囲 limit（凍結の控えで split が足した物。約束の欄の比べも limit を見ない）"""
@@ -255,10 +285,11 @@ def _role_item(item: dict) -> dict:
 def material(b) -> dict:
     """待つ行（conflict.waiting）を裁定の欄 plan_items の番号ごとに束ねて TRIP_FILE を書く（項目 1 つに行 1 つ。単位は束ねた行の
     ruled_units の和。old は承認済みの項目を役に渡す形にした物: _role_item）。TRIP_FILE が今の周に在れば書き直さない（再開）。
+    再開で使い回す時は、待つ行がもう諦めた状態の項目に結果を写す（_sync_closed）。
     盤面が止まっている・今の周の p3.fix を受けた・束ねる行が無いなら go False。返り {"go", "items": [番号…]}"""
     if _closed(b):
         return {"go": False, "items": []}
-    doc = read_trip(b)
+    doc = _read_synced(b)
     if doc is None:
         by_item: dict[int, list] = {}
         for r in conflict.waiting(b):
@@ -288,8 +319,8 @@ def material(b) -> dict:
 
 
 def _handed(doc: dict | None, role: str) -> list:
-    """役に渡す項目の行（doc の行そのもの）: plan は new の無い行、plan-review は new が在り review の無い行"""
-    rows = (doc or {}).get("items") or []
+    """役に渡す項目の行（doc の行そのもの）: plan は new の無い行、plan-review は new が在り review の無い行。result の在る行は渡さない"""
+    rows = [r for r in (doc or {}).get("items") or [] if not r.get("result")]
     if role == "plan":
         return [r for r in rows if r.get("new") is None]
     return [r for r in rows if r.get("new") is not None and r.get("review") is None]
@@ -297,7 +328,7 @@ def _handed(doc: dict | None, role: str) -> list:
 
 def snap(board_dir, role: str, repo) -> dict:
     """{ok, go, snapshot_file}。plan は material を通し new の無い項目が在れば go、plan-review は new が在り review の無い項目が
-    在れば go。go なら役の輪の前に 1 度だけ作業ツリーの写しを置く（支度は置き直さない。拒まれた回が残した変化も、輪の全部の回の
+    在れば go（どちらも待つ行がもう諦めた状態の項目は数えない）。go なら役の輪の前に 1 度だけ作業ツリーの写しを置く（支度は置き直さない。拒まれた回が残した変化も、輪の全部の回の
     受け付けがこの写しと比べて拒む。planblk の読むだけの役の決まりと同じ）"""
     node_of(role)
     board_dir = pathlib.Path(board_dir)
@@ -305,7 +336,7 @@ def snap(board_dir, role: str, repo) -> dict:
     if role == "plan":
         go = material(b)["go"] and bool(_handed(read_trip(b), role))
     else:
-        go = not _closed(b) and bool(_handed(read_trip(b), role))
+        go = not _closed(b) and bool(_handed(_read_synced(b), role))
     if not go:
         return {"ok": True, "go": False, "snapshot_file": ""}
     return {"ok": True, "go": True, "snapshot_file": str(entry.snapshot(board_dir, _snapshot_name(role), pathlib.Path(repo)))}
@@ -577,8 +608,9 @@ def _widen_traced(b) -> set:
 
 
 def gate(b, *, run_id: str) -> dict:
-    """関所 replan-gate の決まりを当てる。返り {ask, gate_text, gate_file}（聞かなければ文とファイルは空）"""
-    doc = read_trip(b)
+    """関所 replan-gate の決まりを当てる。返り {ask, gate_text, gate_file}（聞かなければ文とファイルは空）。束ねた食い違いの行が
+    もう諦めた状態の項目（for の前から、また for の中で別の項目の諦めが共有の行を諦めた状態にした物）は問わず、結果を写す"""
+    doc = _read_synced(b)
     if doc is None:
         return {"ask": False, "gate_text": "", "gate_file": ""}
     kinds = human_kinds(b)
@@ -598,8 +630,9 @@ def gate(b, *, run_id: str) -> dict:
             row["widened"] = (planmarks.widened(old, new) if alone and row["contract_changed"] and not row["human_faces"]
                               else None)
             row["ask"] = bool((row["contract_changed"] and not row["widened"]) or row["human_faces"])
+    _sync_closed(b, doc)
     _write_trip(b, doc)
-    judged = [r for r in doc["items"] if isinstance(r.get("ask"), bool)]
+    judged = [r for r in doc["items"] if isinstance(r.get("ask"), bool) and r.get("result") != GAVE_UP]
     asked = [r for r in judged if r["ask"]]
     if not asked:
         return {"ask": False, "gate_text": "", "gate_file": ""}
@@ -651,7 +684,8 @@ def _notes(b, note: str, taken: list, fix_notes="") -> str:
 def answer(board_dir, repo, gate: dict | None, *, fix_notes="") -> dict:
     """関所の答え gate（{decision, text}。関所が開かなかったなら None）を当てる。返り {returned: [単位…], plan_file, notes_file,
     stop, why}。fix_notes は修正の前の関所の条件を書いたファイルのパス（空・無ければ無い。notes_file の頭に写す）。
-    TRIP_FILE の全項目に result が在れば、何も書き換えずに前の返りを返す（Archon の再開）"""
+    TRIP_FILE の全項目に result が在れば、何も書き換えずに前の返りを返す（Archon の再開）。採る項目の共有の行が、答えを受けた
+    ときの別の項目の諦めで諦めた状態になったなら、その項目は採らずに諦めた結果を写す（_sync_closed）"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     doc = read_trip(b)
@@ -687,6 +721,8 @@ def answer(board_dir, repo, gate: dict | None, *, fix_notes="") -> dict:
             r["answer"] = decision
             if r not in taken:
                 _give_up(b, r, NO_GATE_WHY)
+        _sync_closed(b, doc)   # 採る項目の共有の行が別の項目の諦めで諦めた状態になった形は採らない
+        taken = [r for r in taken if not r.get("result")]
         if taken:
             done = planmarks.amended(b)
             todo = {r["item"]: new_item(r) for r in taken if r["item"] not in done}
@@ -714,18 +750,23 @@ def _widen_text(widened: dict) -> str:
 
 
 def lines(b) -> list[str]:
-    """TRIP_FILE の項目ごとの 1 行（無ければ []）。答えを受けずに締めた項目（settle の諦め）は待つ行の理由を引く"""
+    """TRIP_FILE の項目ごとの 1 行（無ければ []）。答えを受けずに締めた項目（settle の諦め）は待つ行の理由を引く。まだ待つ行
+    （途中で落ちた run）を束ねた項目は PENDING_WHY、TRIP_FILE に束ねられていない待つ行は 1 行ずつ PENDING_WHY で並べる"""
     doc = read_trip(b)
-    if doc is None:
-        return []
     why_of = {c.get("id"): c.get(conflict.REPLAN_WHY) for c in conflict.items(b)}
+    waiting = {r["id"]: r for r in conflict.waiting(b)}
     out = []
-    for r in doc["items"]:
+    for r in (doc or {}).get("items") or []:
         if r.get("result") == AMENDED:
             how = ("直した——人が承認した" if r.get("ask") else _widen_text(r["widened"]) if r.get("widened")
                    else "直した——聞かずに通した（手段の欄だけ）")
+        elif not r.get("result") and any(i in waiting for i in r.get("rows") or []):
+            how = PENDING_WHY
         else:
             why = r.get("why") or next((why_of[i] for i in r.get("rows") or [] if why_of.get(i)), "") or "答えを受けていない"
             how = f"直さずに諦めた: {why}"
         out.append(f"案の項目 {r['item']}（単位 {_units(r)}）: {how}")
+    bundled = {i for r in (doc or {}).get("items") or [] for i in r.get("rows") or []}
+    out += [f"案の直しを待つ行 {i}（単位 {'、'.join(conflict.ruled_units(row))}）: {PENDING_WHY}"
+            for i, row in waiting.items() if i not in bundled]
     return out
