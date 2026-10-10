@@ -19,7 +19,7 @@
 - 盤面: run ごとの状態の置き場（`$ARTIFACTS_DIR/board/`）。この計画は盤面のファイルの名も置き場も変えない。
 - 写し: `works/.shared/core/graphloops/` と `works/.shared/core/gl-prompts/` は、本流の graphloops のバイト単位の写し。この計画は写しを変えない（写しの台帳 `works/.shared/core/COPIED_FROM` に行を足さない）。写しの rules（`graphloops/rules/review-loop.py`）の関数は呼んでよい。盤面からは `b.rules`、試験からは `board.rules_module()` で引ける。
 - 固めた版 HEAD: 依頼を受けた時に固めた、対象のリポジトリ（run が直すリポジトリ）の commit。名指しの文書はこの版の追跡ファイルから読む（作業ツリーの今の中身ではない）。
-- 試験の段: `works/tests/tiers.py` が試験の模块を FAST（速い段）と HEAVY（重い段。git・盤面・子のプロセスを使う）に分ける。この計画で触る試験の模块 `test_blk_eyes`・`test_blk_plan`・`test_report` はどれも HEAVY。各 Task は触った模块の名指したクラスだけを回し、速い段と根の柵（リポジトリの根の試験の束）は最後の Task で 1 度だけ回す。
+- 試験の段: `works/tests/tiers.py` が試験のモジュールを FAST（速い段）と HEAVY（重い段。git・盤面・子のプロセスを使う）に分ける。この計画で触る試験のモジュール `test_blk_eyes`・`test_blk_plan`・`test_report` はどれも HEAVY。各 Task は触ったモジュールの名指したクラスだけを回し、速い段と根の柵（リポジトリの根の試験の束）は最後の Task で 1 度だけ回す。
 
 独立設計の語:
 - 独立設計（役 r2.design）: 修正案も実装も見ずに、目的の文と渡された材料だけから理想の設計を導く AI の役。道具を一切持たない（ファイルを読めない）。この「道具を持たない隔て」は設計書 `works/docs/specs/2026-09-29-structure-block-design.md` の 7 節が決めた物で、崩さない。材料は機械（`design.prep`）が先に読んで、指示書の頭に本文として貼る。
@@ -76,7 +76,7 @@ keep-essence は `works/docs/keep-essence.md` の、どの作りでも残す wor
 - 形式ごと・言語ごとの表（拡張子 → 見出しの正規表現のような物）を足さない。
 - 独立設計の役に道具を足さない。材料は機械が読んで貼る。kind は `PREMISE_KINDS` の中だけ。
 - 盤面のファイルの名と置き場を変えない（依頼 239 とぶつけない）。
-- 新しい模块は作らない。試験はどれも `unittest.TestCase` のクラスの中に置く。
+- 新しいモジュールは作らない。試験はどれも `unittest.TestCase` のクラスの中に置く。
 - 注記・docstring・拒否の文・貼る文は日本語。Python 3.12 が下限。
 - 焦点の試験は `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>.<Class>`。速い段は `works/` から `WORKS_TESTS=fast sh tests/run.sh`。根の柵は `sh ~/.cache/works-dogfood/rootfences.sh`。
 - CHANGELOG は `works/CHANGELOG.md` の `[Unreleased]` だけに足す。版は上げない。
@@ -101,7 +101,7 @@ keep-essence は `works/docs/keep-essence.md` の、どの作りでも残す wor
   - `_section`（155-177 行）を差し替え、返りを変える。
   - `named_sections`（180-200 行）を新しい返りに合わせる。
   - `_named_hit`（231-236 行）は `_split_target` を使う。
-  - 模块の docstring の named_sections の行（19-22 行）を直す。
+  - モジュールの docstring の named_sections の行（19-22 行）を直す。
 - Modify: `works/docs/language-neutral-inventory.md`（節 7 に項目 7-7 を足し、件数の表の 7 の (C) を 7、計の (C) を 8 にする）
 - Test: `works/tests/test_blk_eyes.py`（新しい class `SectionShapeCase(unittest.TestCase)`。`PrepCase` に 1 本）
 
@@ -270,7 +270,7 @@ Expected: 新しい 5 本のうち、`test_adoc_link_section_is_given`・`test_p
 3. リンクと `CODE_SPAN_NUM` の当たりを除いた文の `NAME_NUM`・`NAME_QUOTE`（`_docs_named` が 1 本以上の物だけ。0 本は拾わない）。
 4. 残りの文（リンク・`CODE_SPAN_NUM`・候補が 1 本以上の名前の当たりを除いた文）の `BARE_NUM`。
 
-docs の本数（パスの無い番号を結ぶ相手）には、1〜3 で数えた設計書のパスを重ねずに数える。名前の候補が 2 本以上の物は docs に数えない（withheld の 1 行だけにし、`BARE_NUM` にも回さない）。模块の docstring の named_sections の行も、拾う形に合わせて直す。
+docs の本数（パスの無い番号を結ぶ相手）には、1〜3 で数えた設計書のパスを重ねずに数える。名前の候補が 2 本以上の物は docs に数えない（withheld の 1 行だけにし、`BARE_NUM` にも回さない）。モジュールの docstring の named_sections の行も、拾う形に合わせて直す。
 
 - [ ] **Step 4: 通ることを確かめる**
 
@@ -295,7 +295,7 @@ git commit -m "feat(works): 文書の拡張子なら形式を問わず名指し�
   - `premises`（203-213 行）が地図の節を 3 つ目に並べる。
   - `CLAIM_WORDS`（80 行）と `claims_given`（223-228 行）を直す。
   - `DESIGN_PREMISE_REREAD`（66 行）の括弧に「・対象のリポジトリの地図」を足す。
-  - 模块の docstring の premises の行（17 行）を直す。
+  - モジュールの docstring の premises の行（17 行）を直す。
 - Modify: `works/blk-eyes/lib/eyes.py`（`PREMISE_ASK`（85 行）の「依頼が名指した設計書の節」の後に「・対象のリポジトリの地図」を足す）
 - Test: `works/tests/test_blk_eyes.py`（`PrepCase` に 4 本。今の `test_design_prompt_is_built_only_from_allowed_kinds_without_structure_outputs` の kinds の集合に `"repo_map"` を足す。`PathCase` に 1 本）
 

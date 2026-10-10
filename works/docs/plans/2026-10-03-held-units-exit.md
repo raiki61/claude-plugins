@@ -20,7 +20,7 @@
 - パスは、断りが無ければリポジトリの根からの相対。`accept.py:541` はそのファイルの 541 行目（起点の版）。
 - 盤面: run ごとの状態の置き場（`$ARTIFACTS_DIR/board/`）。工程の節（例 `p3.fix` は修正の節）は 1 周に 1 度だけ返答を受ける。
 - 写し: `works/.shared/core/graphloops/` と `works/.shared/core/gl-prompts/` は、本流の graphloops のバイト単位の写し。この計画は写しを変えない。
-- 試験の段: `works/tests/tiers.py` が試験の模块を FAST（速い段）と HEAVY（重い段。git・盤面・子のプロセスを使う）に分ける。手元で回すのは速い段と、この計画で触った模块。
+- 試験の段: `works/tests/tiers.py` が試験のモジュールを FAST（速い段）と HEAVY（重い段。git・盤面・子のプロセスを使う）に分ける。手元で回すのは速い段と、この計画で触ったモジュール。
 
 修正の段の語:
 - 修正役: 直す役の AI。返答の `changes` に、直した単位ごとに 1 行（`unit_key`・`files` など）を書く。単位は判定役が切った 1 つの欠陥。
@@ -77,7 +77,7 @@ keep-essence は `works/docs/keep-essence.md` の、どの作りでも残す wor
 - 期限・タイムアウトを新しく足さない（定数・引数・YAML のどれにも）。
 - 写しと本流 `graphloops/` は変えない。写しの台帳 `works/.shared/core/COPIED_FROM` に行を足さない。
 - keep-essence の 3・4・6 は今の確かめのまま（凍結・3 回で諦める・選んだ試験）。
-- 新しい模块は作らない。試験はどれも `unittest.TestCase` のクラスの中に置く。
+- 新しいモジュールは作らない。試験はどれも `unittest.TestCase` のクラスの中に置く。
 - 注記・docstring・拒否の文・約束の文は日本語。Python 3.12 が下限。
 - 焦点の試験は `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。速い段は `works/` から `WORKS_TESTS=fast sh tests/run.sh`。根の柵は `sh ~/.cache/works-dogfood/rootfences.sh`。
 - CHANGELOG は `works/CHANGELOG.md` の `[Unreleased]` だけに足す。版は上げない。
@@ -150,11 +150,11 @@ Expected: 主の試験は FAIL（`ok` が偽で、理由に「元で赤でなか
 
 - [ ] **Step 3: `accept.py` から `revert_ruled_units` を消す**
 
-`accept_fix` の `note(found, "frozen", …)` の次の 9 行（`got = revert_ruled_units(…)` から `return out` まで）・関数 `revert_ruled_units`・定数 `accept.RULED_REVERTED_OP` を消す。模块の docstring の「裁定の後（INPUTS_PASS が ruled）は、凍ったテストの検査の次に revert_ruled_units …」の 5 行（32-36 行）を消し、1d の「単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。」（52 行）を「外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。」に替える。`drop_excused_units` と `_held_files` は今のまま。
+`accept_fix` の `note(found, "frozen", …)` の次の 9 行（`got = revert_ruled_units(…)` から `return out` まで）・関数 `revert_ruled_units`・定数 `accept.RULED_REVERTED_OP` を消す。モジュールの docstring の「裁定の後（INPUTS_PASS が ruled）は、凍ったテストの検査の次に revert_ruled_units …」の 5 行（32-36 行）を消し、1d の「単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。」（52 行）を「外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。」に替える。`drop_excused_units` と `_held_files` は今のまま。
 
 - [ ] **Step 4: `planscope.py` の外れた項目の分かれを消す**
 
-`_all_held`・`_held_note` を消し、`problems` から引数 `held` と範囲を与える項目の絞り（`granting`）を消して `items` の全部で範囲を与える（`_held_note(...)` を足していた 2 か所の文は末尾を外すだけ）。`check` の呼びから `held=` を消す。模块の docstring の「外れた項目」の段（10-13 行）と `problems` の docstring の `held` の行を、「裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）」の 1 行に替える。`import conflict` は `test_permits` などでまだ使う。
+`_all_held`・`_held_note` を消し、`problems` から引数 `held` と範囲を与える項目の絞り（`granting`）を消して `items` の全部で範囲を与える（`_held_note(...)` を足していた 2 か所の文は末尾を外すだけ）。`check` の呼びから `held=` を消す。モジュールの docstring の「外れた項目」の段（10-13 行）と `problems` の docstring の `held` の行を、「裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）」の 1 行に替える。`import conflict` は `test_permits` などでまだ使う。
 
 - [ ] **Step 5: 今の振る舞いを縛っていた試験を直す**
   - `test_blk_fix_conflict.TestFixPlanItemWholeItem.test_parked_fix_of_a_held_unit_is_reverted` → 名を `test_parked_fix_of_a_held_unit_stays` にし、「機械も戻す」の断言を消し、断言を「`ok` が真・`stats.py` に `return hi` が残る・控えの返答（`conflict.PARKED_REPLY`）は変わらない・trace に `fix_ruled_reverted` の行が無い」に替える。

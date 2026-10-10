@@ -100,13 +100,13 @@ run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/ve
 - L1 基礎: `tree_run`・`script_io`・`node_marker`・`graphmap`（工程の地図）
 - L2 包み: `adapter`・`ticket`・`claude-adapter`・`record-read.py`・`record-write.py`・`no-post-bin/works-gh`
 - L3 盤面と受け付け: `board`・`accept`・`policy`・`entry`（共有の部分）・`halt`（止め札）・`refix`・`recount`
-- L4 ブロックの模块: 使うブロックが 1 つの模块（`ci_role`・`purpose`・`rejudge`・`prcheck`、`<blk>/lib/`）。持ち主のブロックとラインだけが使う
+- L4 ブロックのモジュール: 使うブロックが 1 つのモジュール（`ci_role`・`purpose`・`rejudge`・`prcheck`、`<blk>/lib/`）。持ち主のブロックとラインだけが使う
 - L5 ブロック: `blk-*/`。ほかのブロック・ライン・自分に付く include の id を知らない
-- L6 ラインの模块: 使うラインが 1 つの模块（`<line>/lib/`。例: `darkfactory/lib/` の境の節の中身）。持ち主のラインだけが使う
+- L6 ラインのモジュール: 使うラインが 1 つのモジュール（`<line>/lib/`。例: `darkfactory/lib/` の境の節の中身）。持ち主のラインだけが使う
 - L7 ライン: `<line>/`（`nodes.json` を持つフォルダ）。ブロックを名前で include してよい
 - L8 `dev/`・L9 `tests/`: 全部を知ってよい。pack の中からは参照しない
 
-ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core の模块の `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
+ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（モジュールは `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core のモジュールの `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
 
 ## 選んだ物だけの隔離した Claude の設定（借りた superpowers のスキルと部品・coldwrite・pr-review-toolkit）
 

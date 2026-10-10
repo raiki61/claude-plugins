@@ -16,7 +16,7 @@
 - 修正の受け付け: `works/blk-fix/scripts/accept.py` の `accept_fix`。修正役の返答を確かめ、通れば盤面の `p3.fix` に渡す（`recount.accept_fix` → `entry.take`）。拒めば終了コード 0 の `{"ok": false, "reason", "reason_file", "changes": [], "done"}` を 1 行出し、理由の本文は盤面の `reject-accept_fix-<連番>.txt`（`script_io.emit_result`）。
 - 写しの照らし: 盤面が `p3.fix` を受ける時に当てる写しの検査（graph の型・番号の読み替え・post_check `fix_covers_open_units`・記録の整合）。224c で、`fix_covers_open_units` は形の誤りを全部溜めて 1 回で返す形になった（見出し `FIX_REJECT_HEADING`）。
 - 輪: 修正役の返答が受け付けに通るまで、同じ節の組を最大 3 回まわす（`accept.GIVE_UP_AFTER = 3`。`with_done` が 3 回目の拒否で抜ける旗 `done` を立てる）。1 回目の修正を `first`、裁定の後の 2 回目の修正役 fix-ruled を `ruled` と呼ぶ（環境変数 `INPUTS_PASS`）。
-- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段: git・盤面・子のプロセスを使う）。手元で回すのは速い段と、この計画で触った重い段の模块だけ。重い段の全部は GitHub の CI。
+- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段: git・盤面・子のプロセスを使う）。手元で回すのは速い段と、この計画で触った重い段のモジュールだけ。重い段の全部は GitHub の CI。
 
 今の受け付けの確かめ（`accept_fix` の順。左の名は下の表 `CHECKS` の id にする）:
 1. `frozen`: TDD の輪で凍ったテストのファイルを書き換えていないか（`tddloop.frozen_problems`）。今は当たれば即 `refuse`。
@@ -77,7 +77,7 @@ keep-essence: `works/docs/keep-essence.md` の、どの形でも残す works の
 
 - 226 は先に入る。224 は最後の審査の前に、226 が入った `wip/works-next` に載せ直す（Task 5）。
 - 重なるファイル: `works/blk-fix/scripts/accept.py`（226 は `unitrows.take` の後・`recount.accept_fix` の前に `conflict.waiting` の分かれと `hold_fix` を置き、受けた時の 4 つの trace を `traced()` の閉包にまとめた。`resolved_changes` を `named_reply` 経由にした）・`works/.shared/core/recount.py`（226 は `fix_reply`・`v1_changes` を足す。224 は `accept_fix` に keyword `commit` を足す。同じ関数の別の行）・`works/tests/test_blk_fix_conflict.py`・`test_fix_duty.py`・`test_fix_rules.py`（226 は数行。224 は mock の引数の形だけ）。
-- 重ならない: `board.py`・`entry.py` の `take`・`blk-fix.yaml`・新しい試験の模块 `test_fix_accept_all.py`（226 の試験の手助け `ReplanCase` に依らない。226 の分かれは mock で確かめる）。
+- 重ならない: `board.py`・`entry.py` の `take`・`blk-fix.yaml`・新しい試験のモジュール `test_fix_accept_all.py`（226 の試験の手助け `ReplanCase` に依らない。226 の分かれは mock で確かめる）。
 - 236: 236 が先に入り、修正の受け付けの確かめの id の表を別の所に置いていれば、Task 5 で `CHECKS` の見出しと「止めてよいか」をその表に寄せ、表を 2 つにしない。236 が `role-rejects.json` の行を作る時は、出口の `rejects` の `check` を読めばよい。
 
 ## Global Constraints
@@ -86,8 +86,8 @@ keep-essence: `works/docs/keep-essence.md` の、どの形でも残す works の
 - 写し（`works/.shared/core/graphloops/`・`gl-prompts/`）と本流 `graphloops/` は変えない。`COPIED_FROM` に行を足さない。
 - keep-essence の 11 項目を保つ。3・5・6・7 の確かめは全部の回で走る。4 は `GIVE_UP_AFTER` と `with_done` を変えない。8 は決め 3。
 - 拒んだ受け付けは盤面の状態（`state.json`・`out/`・instance）を書かない。書いてよいのは今も書く物だけ（数え直しの量と控え `count-budget.json`・`count-cache.json`、事後の関門の束の帳面 `fixgates.LEDGER`、`revert_ruled_units`・`park_bound_units` の今の書き戻し、申し出の控え）。
-- 層（`works/tests/test_layers.py`）を変えない。新しい模块は作らない（試験の模块 1 本を除く）。
-- 新しい試験の模块 `test_fix_accept_all` は HEAVY（`test_blk_fix.BoardCase` で種の git と盤面を作る）。`works/tests/tiers.py` の HEAVY に 1 行足す。
+- 層（`works/tests/test_layers.py`）を変えない。新しいモジュールは作らない（試験のモジュール 1 本を除く）。
+- 新しい試験のモジュール `test_fix_accept_all` は HEAVY（`test_blk_fix.BoardCase` で種の git と盤面を作る）。`works/tests/tiers.py` の HEAVY に 1 行足す。
 - 試験はどれも `unittest.TestCase` のクラスの中に置く。
 - 注記・docstring・拒否の文は日本語。
 - Python 3.12 が下限。
@@ -122,7 +122,7 @@ keep-essence: `works/docs/keep-essence.md` の、どの形でも残す works の
   - 型の誤り・番号の読み替えの誤り・記録の整合の誤りの `AnswerReject` は `problems=errs`（1 誤り 1 要素。文は今と同じ）。
   - `entry.take(board_dir, nid, reply, repo, *, snapshot_name=None, commit=True) -> dict` — `commit` が偽なら、開いた入れ物で `vet` を当てて捨てる。返り `{"ok": bool, "reason": str, "dry": True}` に、拒否なら `problems`（例外の `problems`。空なら `[reason]`）。止めた run・読むだけの役の作業ツリーの比べは `commit` に依らず今どおり先に当てる。
   - `recount.accept_fix(reply, board, base_rev, repo, *, commit=True) -> dict` — 偽なら `entry.take(…, commit=False)` の返りに `"changes": []` を足して返す（盤面を読み直さない）。
-  - 試験の模块の頭の手助け（後の Task も使う）: `accept_module(name) -> module`（`blk-fix/scripts/accept.py` を `spec_from_file_location` で別名に読む。`test_blk_fix.TestAccept.accept_module` と同じ形）・`sha(path) -> str`（ファイルの sha256）。
+  - 試験のモジュールの頭の手助け（後の Task も使う）: `accept_module(name) -> module`（`blk-fix/scripts/accept.py` を `spec_from_file_location` で別名に読む。`test_blk_fix.TestAccept.accept_module` と同じ形）・`sha(path) -> str`（ファイルの sha256）。
 
 - [ ] **Step 1: 落ちる試験を書く**（`test_blk_fix` の `BoardCase`・`load`・`FIXED`・`board_shas` を使う）
 
@@ -213,7 +213,7 @@ git commit -m "feat(works): 盤面の受け付けの検査を保存せずに当�
   - `render_rejects(found: list[tuple[str, str]]) -> str` — `REJECT_HEAD` の後に、表の順で行の在る確かめごとに `## <見出し>（確かめ <id>・<件数> 件）` と、行 `  - <文>` を並べる。同じ (id, 文) は 1 つ。文の中の改行は次の行の頭に 4 字の空白を置いて続ける。
   - `rejected(found) -> dict` — `{"ok": False, "reason": render_rejects(found), "rejects": [{"check": id, "text": 文}…], "changes": []}`。`rejects` は本文の `  - ` の行と同じ数・同じ順。
 
-- [ ] **Step 1: 落ちる試験を書く**（`accept_module` は `test_blk_fix.TestAccept.accept_module` と同じく `spec_from_file_location` で読む関数を模块の頭に置く）
+- [ ] **Step 1: 落ちる試験を書く**（`accept_module` は `test_blk_fix.TestAccept.accept_module` と同じく `spec_from_file_location` で読む関数をモジュールの頭に置く）
 
 ```python
 class RenderCase(unittest.TestCase):
@@ -366,7 +366,7 @@ git commit -m "feat(works): 修正の受け付けが申し出より後の確か�
   - `revert_ruled_units`（`ruled`）は、凍結の誤りを積んだ後でも今の位置で走る（決め 5）。
   - `take_conflicts` は積んだ誤りに依らず走る。1 回目の parked の出口は、積んだ誤りが在っても返す（決め 3）。`ruled` の新しい申し出は ask_human に裁いて積み、拒否の後も残る。
 
-- [ ] **Step 1: 落ちる試験を書く**（`SeamCase(test_blk_fix.BoardCase)`。`acc`・`env`・`accept_direct` は `AllChecksCase` から、`tdd_frozen`・`scope_ready` は `test_blk_fix.TestAccept` から借りる（`tdd_frozen` は `scope_ready` を呼ぶ）。凍結の誤りは `tdd_frozen()` で作るか、`mock.patch.object(self.acc.tddloop, "frozen_problems", return_value=[FROZEN_LINE])` で置く（模块の定数 `FROZEN_LINE = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']（輪で直した単位のテストは変えない）"`）。申し出は `test_blk_fix_conflict.conflict_on_mean()` と `only_clamp_reply()`。`conflict_items(board) -> list[dict]` は盤面の今の周の `conflict.FILE` の `items`）
+- [ ] **Step 1: 落ちる試験を書く**（`SeamCase(test_blk_fix.BoardCase)`。`acc`・`env`・`accept_direct` は `AllChecksCase` から、`tdd_frozen`・`scope_ready` は `test_blk_fix.TestAccept` から借りる（`tdd_frozen` は `scope_ready` を呼ぶ）。凍結の誤りは `tdd_frozen()` で作るか、`mock.patch.object(self.acc.tddloop, "frozen_problems", return_value=[FROZEN_LINE])` で置く（モジュールの定数 `FROZEN_LINE = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']（輪で直した単位のテストは変えない）"`）。申し出は `test_blk_fix_conflict.conflict_on_mean()` と `only_clamp_reply()`。`conflict_items(board) -> list[dict]` は盤面の今の周の `conflict.FILE` の `items`）
 
 ```python
     def test_222f_three_classes_in_one_rejection(self):

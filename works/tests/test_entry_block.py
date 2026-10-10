@@ -73,7 +73,7 @@ class EntryBlockCase(unittest.TestCase):
 
 
 # 入口の種類を知ってよい変換の層（計画 docs/plans/2026-10-09-one-entry-shape.md の 10.1 節の機械の確かめ。持ち主 2026-10-09
-# 「入口を環境変数や引数に変換する層」）: 生の事実を集める殻と、線の最初のブロックと、その中身が触る core の唯一の模块と、
+# 「入口を環境変数や引数に変換する層」）: 生の事実を集める殻と、線の最初のブロックと、その中身が触る core の唯一のモジュールと、
 # 線の入力を宣言して入口のブロックへ渡すだけの YAML
 CONVERSION_LAYER = {".shared/core/entryshape.py", "blk-entry/**", "dev/use.sh", "dev/canary.sh", "dev/dogfood.sh",
                     "darkfactory/darkfactory.yaml"}

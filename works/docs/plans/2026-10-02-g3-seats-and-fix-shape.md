@@ -16,7 +16,7 @@
 - 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段: git のリポジトリ・盤面・子のプロセスを使う）。手元で回すのは速い段だけ。重い段の全部と変異テストは GitHub の CI だけ。
 
 依頼（works の直しを works 自身の工程に流す頼みごとの 1 件。番号で呼ぶ）。この文書は 220 番を実装する。220 は 214 番（座）と 215 番（形の切り替え）を吸収した物。関わる依頼と、この計画が頼る所（どれも本文の Interfaces に名と形を書き写した）:
-- 216: superpowers（下の語）の版 6.4.2 の使うファイルを `works/.shared/borrow/superpowers/6.4.2/` に写して固定し、包む節（下の語）を `works/.shared/borrow/seams.json` に置く。照合と穴埋めの模块 `works/.shared/core/spseam.py`。計画は `../claude-plugins-work1-sdd5/works/docs/plans/2026-10-02-superpowers-pin-and-seam.md`。
+- 216: superpowers（下の語）の版 6.4.2 の使うファイルを `works/.shared/borrow/superpowers/6.4.2/` に写して固定し、包む節（下の語）を `works/.shared/borrow/seams.json` に置く。照合と穴埋めのモジュール `works/.shared/core/spseam.py`。計画は `../claude-plugins-work1-sdd5/works/docs/plans/2026-10-02-superpowers-pin-and-seam.md`。
 - 217: 修正案の項目に欄（受け入れのテスト `tests`・書き換えてよい既存のテスト `rewrite_tests`・整えの申告 `refactor`・振り分け `route`）を足し、項目ごとの brief を修正役の要求の正本にする。取り込み済み（この枝の起点 10ae035d）。
 - 218: 修正案からの外れの機械の検査と、差分の審査の 2 判定（準拠と品質）。計画は書いている途中（`../claude-plugins-work1-sdd7`）。
 - 219: TDD の輪の 1 周期を修正案の欄で回す（赤の種類の照合・名指しの書き換え・`test_cmd` の関門・整えの申告）。計画は `../claude-plugins-work1-sdd6/works/docs/plans/2026-10-02-tdd-cycle.md`。
@@ -65,8 +65,8 @@ works の中の語:
 
 **Architecture:** 形は 1 か所に記録し、どこでもそこから読む。
 
-- 線の `start` が入力 `fix_shape` を確かめて盤面の控え `r1/start.json` に置く。新しい模块 `fixshape` が盤面の置き場から読む（ブロックの YAML に入力を通さない）。後の振り分けが選んだ形を置く控え `r1/fix-shape.json` も、同じ読み口が先に読む（この計画では誰も書かない）。
-- 座は模块 `seat` が 216 の `seams.json` から組み、各ブロックの指示書の組み立て（`fixrules`・`refix.cut`・`refixrules`）が「節」として載せる（2 回目からは差分の形 delta に乗る）。g3 の時だけ文が出る。
+- 線の `start` が入力 `fix_shape` を確かめて盤面の控え `r1/start.json` に置く。新しいモジュール `fixshape` が盤面の置き場から読む（ブロックの YAML に入力を通さない）。後の振り分けが選んだ形を置く控え `r1/fix-shape.json` も、同じ読み口が先に読む（この計画では誰も書かない）。
+- 座はモジュール `seat` が 216 の `seams.json` から組み、各ブロックの指示書の組み立て（`fixrules`・`refix.cut`・`refixrules`）が「節」として載せる（2 回目からは差分の形 delta に乗る）。g3 の時だけ文が出る。
 - YAML の AI の節は腕ごとに分けない。`skills:`・`Skill`・`Agent` は静的に宣言し、包みが切符の盤面から形を読んで、その腕で使わない道具を `permissions.deny` で拒む。
 - 機械の関門は全部の腕で同じ。TDD の輪の中にだけ在った関門（受け入れのテストの赤→緑・名指しの外の既存テストの変更）を、束が修正の受け付けで事後にもう 1 度当てる。束が見つけた物を抜けとして数える。
 - 固定材料は h-fix の時の盤面の写し。次の run は入力 `fix_fixture` で写しを取り込み、判定・修正案を作り直さずに修正から始める。
@@ -98,9 +98,9 @@ works の中の語:
   - `works/blk-fix/scripts/accept.py`: `accept_fix` の最後の 1 段（束）と `INPUTS` の 1 語だけ。
   - `works/.shared/core/refix.py`（218 が brief に欄を足す）: `cut` の brief の辞書に鍵 `seat_file` を 1 つ足すだけ。
   - `works/darkfactory/darkfactory.yaml`・`works/blk-fix/blk-fix.yaml`（219 が `test_cmd` を通す）: 入力 2 つ・start の `with` 2 行・fix-accept の `with` 1 行・節の `skills:`・`allowed_tools` だけ。
-- 層（`works/tests/test_layers.py` の表 MOD。上の層は同じ層か下の層だけを import する。L2 は包み、L3 は盤面と受け付けの共有の部品、L4 はブロックの模块、L8 は dev）: `fixshape` は L2（包みが読む。標準ライブラリだけ）、`seat` と `fixture` は L3（`fixture` は `entry`・`board` を import しない。`entry` が読む）、`fixgates` は blk-fix の L4、`fixmeasure` は dev（L8）。
-- Python 3.12 が下限。新しい注記・docstring・指示書の文は日本語。新しい模块は `from __future__ import annotations` で始める。
-- 焦点の試験: `cd works/tests && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest <module>[.<Class>]`（重い段の模块は、この計画で足した class か試験だけを名指して回してよい）。組の仕上げ: `WORKS_TESTS=fast nice -n 19 sh works/tests/run.sh` と、リポジトリのルートの軽い柵 `sh ~/.cache/works-dogfood/rootfences.sh`（ルートの `tests/run.sh` から文書の定数・数の突き合わせ・写しの一致の検査だけを抜いて当てる殻）。
+- 層（`works/tests/test_layers.py` の表 MOD。上の層は同じ層か下の層だけを import する。L2 は包み、L3 は盤面と受け付けの共有の部品、L4 はブロックのモジュール、L8 は dev）: `fixshape` は L2（包みが読む。標準ライブラリだけ）、`seat` と `fixture` は L3（`fixture` は `entry`・`board` を import しない。`entry` が読む）、`fixgates` は blk-fix の L4、`fixmeasure` は dev（L8）。
+- Python 3.12 が下限。新しい注記・docstring・指示書の文は日本語。新しいモジュールは `from __future__ import annotations` で始める。
+- 焦点の試験: `cd works/tests && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest <module>[.<Class>]`（重い段のモジュールは、この計画で足した class か試験だけを名指して回してよい）。組の仕上げ: `WORKS_TESTS=fast nice -n 19 sh works/tests/run.sh` と、リポジトリのルートの軽い柵 `sh ~/.cache/works-dogfood/rootfences.sh`（ルートの `tests/run.sh` から文書の定数・数の突き合わせ・写しの一致の検査だけを抜いて当てる殻）。
 - 役の返答の型・ブロックの入力・script の `with` を変えた Task は、同じ Task の中で筋書きの返答（`works/tests/replies/*.json`・`works/tests/linekit.py` の線の写し・`works/*/fixtures/*.stubs.yaml`）と表の試験（`test_line_inputs`・`test_blk_fix_tdd.TestYaml`・`test_line.LineShapeCase`）を合わせる。
 - CHANGELOG は `works/CHANGELOG.md` の `[Unreleased]` に、Task 8（最初の組の終わり）と Task 10 で足す。版は上げない。
 - commit のメッセージの末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。push はしない。
@@ -335,7 +335,7 @@ git commit -m "feat(works): 修正の形 g3 で TDD の役に test-driven-develo
 
 **Files:**
 - Modify: `works/.shared/core/fixshape.py`（`AGENT_NODES`・`denied_tools`）
-- Modify: `works/.shared/core/adapter.py`（`_with_hook` の柵の段に 1 項、模块の docstring の柵の一覧に 1 項目）
+- Modify: `works/.shared/core/adapter.py`（`_with_hook` の柵の段に 1 項、モジュールの docstring の柵の一覧に 1 項目）
 - Modify: `works/tests/test_fixshape.py`・`works/tests/test_adapter.py`（新しい class `ShapeFenceCase`）
 
 **Interfaces:**

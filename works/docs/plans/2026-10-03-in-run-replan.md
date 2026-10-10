@@ -16,7 +16,7 @@
 - 盤面: run ごとの状態の置き場（`$ARTIFACTS_DIR/board/`）。周（round）ごとの作業ファイルは `board/r<N>/<名>`（`b.work(名)`）。節の出力は `board/out/r<N>/`。盤面の節（`p2.fix_plan`・`p2.plan_review`・`p2.human_gate`・`p3.fix` など）は、本流 graphloops の review-loop の graph の写しで、出力は 1 周に 1 度だけ受ける。線の節と盤面の節は別物で、線のブロックが盤面の節の返答を作って渡す。
 - 境の節: 線の `h-*` の節。どれも `darkfactory/scripts/edge.py` を `at` を替えて回し（中身は `darkfactory/lib/line_edge.py` の `edge`）、盤面を読んで次のブロックを回すか（`go`）と関所を開くか（`ask`）を決める。いつも走る。`when:` と関所の文はこの節の出力だけを読む。
 - 写し: `works/.shared/core/graphloops/`・`works/.shared/core/gl-prompts/` は本流（リポジトリの根の `graphloops/` プラグイン）のバイト単位の写し。手直しは台帳 `works/.shared/core/COPIED_FROM` の `!` 行（形は `copyledger.py`）だけで入れる。この計画は写しを変えない。
-- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段: git・盤面・子のプロセスを使う）。手元で回すのは速い段と、この計画で触った重い段の模块を名指した物だけ。重い段の全部は GitHub の CI。
+- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段: git・盤面・子のプロセスを使う）。手元で回すのは速い段と、この計画で触った重い段のモジュールを名指した物だけ。重い段の全部は GitHub の CI。
 
 役（AI の節。どれも JSON の返答だけを返し、機械の受け付けが確かめる）:
 - 修正案の役: 判定の後、直し方の案（項目の並び）を書く。事前審査の役: 別の目で案の穴（faces）を挙げる。案と事前審査を通り、修正の前の関所（`policy-gate`。聞く事が在る時だけ開く）を抜けた案を「承認済みの修正案」と呼ぶ。
@@ -32,7 +32,7 @@
 
 works の中の語:
 - 単位: 判定役が切った 1 つの欠陥。key で呼ぶ。
-- 申し出と裁定: 修正役・TDD の役が「依頼・テスト・コードのどれかが同時に成り立たない」と名指しで返す物が申し出。裁定役が 5 つ（`fix_test_scope`・`fix_code_as`・`ask_human`・`replace_query`・`fix_plan_item`）のどれかに裁く。控えは `b.work("conflicts.json")`、模块は `works/.shared/core/conflict.py`。
+- 申し出と裁定: 修正役・TDD の役が「依頼・テスト・コードのどれかが同時に成り立たない」と名指しで返す物が申し出。裁定役が 5 つ（`fix_test_scope`・`fix_code_as`・`ask_human`・`replace_query`・`fix_plan_item`）のどれかに裁く。控えは `b.work("conflicts.json")`、モジュールは `works/.shared/core/conflict.py`。
 - 直す義務: 修正役が今直す単位の集合（`conflict.fix_duty(b)` の 1 つ目）。外れた単位と理由が 2 つ目（excused）。
 - 修正の段の 1 回目・2 回目: 線の `fixing`（今の修正の段）を 1 回目、案を直した後の修正を 2 回目と呼ぶ。どちらも `blk-fix` の節で回る（形は Task 9 の測りで決める）。
 - 案の直し（replan）: `fix_plan_item` と裁かれた項目を、同じ run の中で修正案の役に直させ、事前審査と人の関所の決まりを通して、2 回目の修正の段に戻すこと。この計画が作る。
@@ -57,7 +57,7 @@ works の中の語:
 - 線の `fixing` と `h-rejudge` の間に、案の直しの鎖を足す: 案を束ねる → 修正案の役（項目だけ）→ 事前審査の役 → 関所を開くかを決める → 関所 `replan-gate`（要る時だけ）→ 答えを受ける → 2 回目の修正の段。鎖の形（ブロックを 2 度 include する形 A か、1 つの include に回の入力で載せる形 B か）は、Task 9 の前に運び役が Archon v0.11.1 で測った結果で決める（Task 9）。
 - 盤面の節は戻さない。待つ単位が在る間、1 回目の受け付けは `p3.fix` を盤面に渡さずに返答を控え、2 回目の受け付けが控えの行と新しい行を合わせて渡す。案を直さずに終わった時（諦めた・人が止めた）は、控えをそのまま渡す。報告は盤面の `p3.fix` が無ければ控えを読む（1 回目に直した単位の記録を落とさない）。
 - 直した項目は works 側の控え `plan-fields.json` に重ねる（鍵 `amended`）。差し替えは `planmarks.amend` だけがし、trace に印 `plan_amended` を書く。承認済みの項目を読む口（`planmarks.approved_items`・新しい `planmarks.plan_items`）が重ねた形を返し、brief はその印の後だけ切り直す。2 回目の修正役の `plan_file` は盤面の `p2.fix_plan` の出力のまま（事前審査の返答が隣に在る）で、直した項目は切り直した brief と覚え書きで届く。
-- 案の直しの段の全部（束ねる・指示書・受け付け・関所の決まり・答え・締め）は新しい core の模块 `works/.shared/core/replan.py`（層 L3）が持つ。指示書の頭（役の定義・独立設計の節）は呼び手が組んで渡す（`replan` は blk の lib を import しない）。
+- 案の直しの段の全部（束ねる・指示書・受け付け・関所の決まり・答え・締め）は新しい core のモジュール `works/.shared/core/replan.py`（層 L3）が持つ。指示書の頭（役の定義・独立設計の節）は呼び手が組んで渡す（`replan` は blk の lib を import しない）。
 - 待つ単位の状態は `conflicts.json` の裁定の行の欄 `replan`（`waiting`・`amended`・`gave_up`）。`amended` の行だけが直す義務を外さない。`gave_up` の行は ask_human の行と同じ道（最後の関所・報告・次の run の依頼）に載り、裁定の文は字のまま。
 - 関所 `replan-gate` の答えの語は、ほかの関所と同じ意味: continue・approve は直した項目で修正に戻る。stop・reject は run を止める（1 回目に直した単位の差分は報告に残る）。
 
@@ -97,9 +97,9 @@ works の中の語:
 - 事前審査を通り、関所の決まりで人が承認した（か、聞く要の無い）項目だけで直す。2 回目の修正の段の要求の正本は、直した項目から切り直した brief。
 - 盤面の 1 周に 1 度の節の約束を崩さない（`Board.rewind` を呼ばない）。
 - 層（`works/tests/test_layers.py` の表 `MOD`。上の層は同じ層か下の層だけを import する）: `replan` は L3（`"replan": (3, None)`）。L3 どうしの import で輪を作らない（`conflict`・`planmarks` は `replan` を import しない。`report` は `replan.lines`・`replan.close_at` を呼ぶので `report` → `replan` の向きだけで、`replan` は `report` を import しない）。`replan` は blk の lib（`planblk`・`planbrief`・`fixrules`・`tddloop`）を import しない。
-- 新しい試験の模块は `works/tests/tiers.py` の FAST か HEAVY に書く（`test_replan` は HEAVY: 種の git と盤面を作る）。
+- 新しい試験のモジュールは `works/tests/tiers.py` の FAST か HEAVY に書く（`test_replan` は HEAVY: 種の git と盤面を作る）。
 - 受け入れのテストの id はクラスの中（`<パス>::<クラス>::<名>`。227 の決まり）。この計画の試験もどれも `unittest.TestCase` のクラスの中に置く。
-- 新しい模块は `from __future__ import annotations` で始め、注記・docstring・指示書の文・拒否の文は日本語。
+- 新しいモジュールは `from __future__ import annotations` で始め、注記・docstring・指示書の文・拒否の文は日本語。
 - Python 3.12 が下限。
 - 役の返答の型・ブロックの入力・script の `with` を変えた Task は、同じ Task の中で表の試験（`test_blk_plan`・`test_blk_fix` の YAML の突き合わせ・`test_script_contract`・`test_line.LineShapeCase`・`tests/linekit.py` の `LINE_ORDER`）を合わせる。
 - 焦点の試験: `cd works/tests && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest <module>[.<Class>]`。組の仕上げ（Task 4・9・10 の終わり）: `WORKS_TESTS=fast nice -n 19 sh works/tests/run.sh` と `sh ~/.cache/works-dogfood/rootfences.sh`（根の `tests/run.sh` の速い柵だけを当てる殻）。
@@ -279,7 +279,7 @@ git commit -m "feat(works): 承認された項目の差し替えの印の後だ�
   - `fix_duty(b)`: 1 つ目（直す義務）から `accepted_units` を引き、2 つ目に `ACCEPTED_WHY` の理由で足す。`owed_units_but_asked`（盤面の検証器の差し替え）は変えない——盤面は全部の単位の行を要る。
   - `with_held(b, reply: dict) -> dict` — 控えが無ければ `reply` のまま。在れば `changes`・`not_done` を「控えの行のうち `reply` に無い単位の行」＋「`reply` の行」にした写し。ほかの欄は `reply` の物。
 
-- [ ] **Step 1: 落ちる試験を書く**（`test_conflict_kinds` の偽の盤面: `SimpleNamespace(work=…, trace=…, round=1, state={"outputs": {}})` と一時の `conflicts.json`。helper `fake_with_rows(rows)` はその盤面に行を置いた物、`row(id, key, decision, *, state=None, text=…, plan_units=())` は行 1 つ、`mean_row()` は MEAN の changes の 1 行。模块の頭に `MEAN`・`CLAMP` の 2 つの key の定数を置く。`fix_duty` を呼ぶ試験は `conflict.owed_units_but_asked` と `gatemarks.withheld_by` を `mock.patch.object` で差す——偽の盤面は `state["graph"]` を持たない）
+- [ ] **Step 1: 落ちる試験を書く**（`test_conflict_kinds` の偽の盤面: `SimpleNamespace(work=…, trace=…, round=1, state={"outputs": {}})` と一時の `conflicts.json`。helper `fake_with_rows(rows)` はその盤面に行を置いた物、`row(id, key, decision, *, state=None, text=…, plan_units=())` は行 1 つ、`mean_row()` は MEAN の changes の 1 行。モジュールの頭に `MEAN`・`CLAMP` の 2 つの key の定数を置く。`fix_duty` を呼ぶ試験は `conflict.owed_units_but_asked` と `gatemarks.withheld_by` を `mock.patch.object` で差す——偽の盤面は `state["graph"]` を持たない）
 
 ```python
 class TestReplanState(unittest.TestCase):

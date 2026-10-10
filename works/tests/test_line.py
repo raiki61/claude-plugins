@@ -302,7 +302,7 @@ class LineShapeCase(unittest.TestCase):
                 self.assertNotIn("include_id", block(n["include"]).get("inputs") or {}, n["include"])
 
     def test_block_code_has_no_scope_code(self):
-        """部品のコード（blk-*/lib・blk-*/scripts の .py）は scope を知らない: 流れの道具の口・scope の模块・include の名の入力を
+        """部品のコード（blk-*/lib・blk-*/scripts の .py）は scope を知らない: 流れの道具の口・scope のモジュール・include の名の入力を
         書かない（置き場の分け・登録・集めは core の共通の口だけ。依頼 239 の Global Constraints）"""
         found = [f"{p.relative_to(ROOT)}: {word}" for p in sorted(ROOT.glob("blk-*/*/*.py")) if p.parent.name in ("lib", "scripts")
                  for word in ("flow_adapter", "import scopes", "INCLUDE_ID") if word in p.read_text(encoding="utf-8")]

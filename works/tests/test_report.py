@@ -1513,7 +1513,7 @@ class CostCase(unittest.TestCase):
 # ---------------------------------------------------------------- 名前の揃い・スクリプト・dev の殻
 class NamesCase(unittest.TestCase):
     def test_board_names_match_writers(self):
-        """報告が読む盤面の上の名前が書き手の模块と同じ（層 L3 は書き手を import しないので、ここで突き合わせる）"""
+        """報告が読む盤面の上の名前が書き手のモジュールと同じ（層 L3 は書き手を import しないので、ここで突き合わせる）"""
         sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
         try:
             import line_edge

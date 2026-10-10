@@ -841,7 +841,7 @@ class AfterFrozen(Exception):
 
 class TestFirstPassPlanLimits(unittest.TestCase):
     """1 回目（first）の受け付けも、修正案が名指した書き換えを凍結の検査に渡す（裁定の範囲は 2 回目だけ）。
-    盤面・git は使わない（test_fix_rules.TestThirdRejectParksBoundUnit と同じく受け付けの模块を読み、検査を mock にする）"""
+    盤面・git は使わない（test_fix_rules.TestThirdRejectParksBoundUnit と同じく受け付けのモジュールを読み、検査を mock にする）"""
 
     def test_first_pass_hands_plan_limits_to_frozen_check(self):
         import importlib.util

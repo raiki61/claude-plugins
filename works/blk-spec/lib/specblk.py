@@ -10,8 +10,8 @@
 
 人の関所は線 A の policy-gate と同じ仕組みを使う（新しい関所の仕組みを作らない）:
 - 文: 線 A の関所の境の節（at gate）と同じ手順。止め札（halt.seen）を見て、盤面の問い（pending_human）を関所の文（gate_text）にし、
-  ブロックの置き場の r<N>/spec-gate.md にも置く。境の節の中身はライン darkfactory の模块（層 L6）に移ったので、ブロック（層 L4）からは呼べない。
-  関所の語・止め札の by・文の組み方はここに写して持つ（写しの印「線 A の境の節の写し」。core の関所の模块へ 1 つにまとめるのは
+  ブロックの置き場の r<N>/spec-gate.md にも置く。境の節の中身はライン darkfactory のモジュール（層 L6）に移ったので、ブロック（層 L4）からは呼べない。
+  関所の語・止め札の by・文の組み方はここに写して持つ（写しの印「線 A の境の節の写し」。core の関所のモジュールへ 1 つにまとめるのは
   統合の計画 Task 10）
 - 答え: Archon の approval（decisions: approve・continue・stop・reject。GATE_GO・GATE_STOP。線 A の境の節と同じ語）の出口を次の
   script の節が with: で受け、盤面の answer に渡す（approve・continue は continue、stop・reject は stop。境の節の policy-gate と
@@ -52,7 +52,7 @@ from engine.util import AnswerReject, Reject, now, safe_name  # noqa: E402
 from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
-import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインの模块）
+import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインのモジュール）
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
@@ -74,7 +74,7 @@ PROMPTS = BLK / "prompts"               # 本線 a1202d0 の指示書の写し�
 NULL = "null"                           # 飛ばされた節の出力（if_skipped: null）が届く字
 RUN_ID_ENV = "WORKFLOW_ID"              # 関所の文の run の id（ラインの境の節と同じ）
 # 線 A の境の節の写し（darkfactory/lib/line_edge.py・plan.py。層の決まりでブロックからは import できない。統合の計画 Task 10 で
-# core の関所の模块へ 1 つにまとめる）
+# core の関所のモジュールへ 1 つにまとめる）
 GATE_GO = ("approve", "continue")       # approve は continue と、reject は stop と同じ（台帳 R32）
 GATE_STOP = ("stop", "reject")
 GATE_STOP_NOTE = "関所で止めた"          # stop・reject に一言が無い時の理由

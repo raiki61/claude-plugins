@@ -1,4 +1,4 @@
-"""修正役の後始末（blk-fix の節 ignored_before・clean・assert_changed が import する模块。節ではないので scripts/ でなくここに置く）。
+"""修正役の後始末（blk-fix の節 ignored_before・clean・assert_changed が import するモジュール。節ではないので scripts/ でなくここに置く）。
 
 - ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない、fix-accept は変えた返答を拒む。
                       決まりはここの 1 本。自分食いの run では pack の写し .archon/workflows/works/** が在る——protected.json の copies の pack-copy）
@@ -16,7 +16,7 @@
 控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。控えと消した物のファイルは
 盤面の今の scope の根（script_io.scope_dir。include の中なら <盤面>/<include の名>/）に置く（同じブロックの 2 度目の include が
 1 度目の控えを上書きしない）。
-失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリと層 L1 の script_io だけ（core のほかの模块は読まない。
+失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリと層 L1 の script_io だけ（core のほかのモジュールは読まない。
 tests/test_blk_fix が縛る）。
 """
 import hashlib

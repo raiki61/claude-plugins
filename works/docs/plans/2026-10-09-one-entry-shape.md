@@ -390,7 +390,7 @@ start → ci-checking → h-entry → speccing（blk-spec。when: $h-entry.outpu
 ## 実装の結果（2026-10-09。枝 wip/one-entry）
 
 - Task 1・2: 入口の入力の形（`input`）を作り、入口の種と依頼の後積みを消した。印は差し替え `entry_opens`（`entry.entry_opens_by_diff`）で「入力の差分が空」の時だけ立つ。差分の測りは `board.diff_of`（写しの `_worktree_tree` と同じ測り方）
-- Task 2.5: 入口のブロック `blk-entry`（起動の関所 launch と節 open）を線の最初の include `entering` にした。入口の種類に触れる core の所は `.shared/core/entryshape.py` 1 つに集め、始めの記録の置き場と読み口は `.shared/core/startrec.py`（層 L1）1 つにした（`entry.py` と core は層の決まりでブロックの lib を import できないので、変換の関数は core の模块に置き、ブロックの節がそれを通して呼ぶ）。約束は `blk-entry/schemas/input.schema.json` と `start.schema.json`（2.1 の形に表示の文 `base.label` を足した。`input_words` は `startrec.words` になり、`base.from` で分岐しない）。include の中の approval が止まり・approve で続き・reject で run を取り消すことは Archon v0.11.1 で実測した（試しの pack を `~/.cache` に置いて `workflow run`）
+- Task 2.5: 入口のブロック `blk-entry`（起動の関所 launch と節 open）を線の最初の include `entering` にした。入口の種類に触れる core の所は `.shared/core/entryshape.py` 1 つに集め、始めの記録の置き場と読み口は `.shared/core/startrec.py`（層 L1）1 つにした（`entry.py` と core は層の決まりでブロックの lib を import できないので、変換の関数は core のモジュールに置き、ブロックの節がそれを通して呼ぶ）。約束は `blk-entry/schemas/input.schema.json` と `start.schema.json`（2.1 の形に表示の文 `base.label` を足した。`input_words` は `startrec.words` になり、`base.from` で分岐しない）。include の中の approval が止まり・approve で続き・reject で run を取り消すことは Archon v0.11.1 で実測した（試しの pack を `~/.cache` に置いて `workflow run`）
 - 段 4.1: 殻（`use.sh`・`dogfood.sh`）はどの起動にも `launch_mark` を付け、`launch.py ledger bind` は印か依頼の写しのどちらかが一致する run を結ぶ（`--base` だけの起動も結ぶ）。印は入口のブロックへ渡り、始めの記録に生の事実として残る
 - Task 3: `conflict.no_requests`（依頼の行が 0）・ブロックの入力の説明・P1 の表の理由・報告の入口の文を中身で書いた
 - Task 4: PR の run は盤面の根に `pr.md`（0600）を置き、線が出口の `pr_file` を目的の役へ渡す

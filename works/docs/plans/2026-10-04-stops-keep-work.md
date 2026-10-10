@@ -26,7 +26,7 @@
 - 修正の段: 修正のブロック `blk-fix/`（節を並べた YAML `blk-fix.yaml` と、その script と lib）。1 回の run に 2 度起きることがある（1 回目の段と、裁定の後の 2 回目の段。同じブロックの 2 度目の include）。
 - 段の頭の木: 修正の段の最初の節 ignored-before が走った時の作業ツリーの姿（git の木の sha）。2 回目の段は自分の物を持つ。
 - 写し: `.shared/core/graphloops/` は本流 graphloops（別のプラグイン）のバイト単位の写し。この計画は変えない。写しの受け付け（盤面の `p3.fix` の型と規則）の拒否の文は、単位の行なら頭に `unit_key[:60]` を置く。
-- 試験の段: `tests/tiers.py` が試験の模块を FAST（速い段）と HEAVY（重い段）に分ける。
+- 試験の段: `tests/tiers.py` が試験のモジュールを FAST（速い段）と HEAVY（重い段）に分ける。
 - 根の柵: リポジトリの根の試験の一式 `sh ~/.cache/works-dogfood/rootfences.sh`。
 
 修正の段の語:
@@ -85,9 +85,9 @@
 - 期限・タイムアウトを新しく足さない（定数・引数・YAML のどれにも）。
 - 写し `.shared/core/graphloops/` と本流の `graphloops/` は変えない。写しの台帳 `.shared/core/COPIED_FROM` に行を足さない。
 - keep-essence の 3・4・6 の確かめは弱めない（凍結・選んだ試験の赤は最後の回でも行として出し、単位を止める理由になる）。
-- 新しい模块は `blk-fix/lib/parking.py` の 1 つだけ。試験の模块は足さない（`tests/tiers.py` を変えない）。試験はどれも `unittest.TestCase` のクラスの中に置く。
+- 新しいモジュールは `blk-fix/lib/parking.py` の 1 つだけ。試験のモジュールは足さない（`tests/tiers.py` を変えない）。試験はどれも `unittest.TestCase` のクラスの中に置く。
 - 注記・docstring・拒否の文・報告の文は日本語。Python 3.12 が下限。標準ライブラリだけ。
-- 試験は、各 Task では触った模块だけを回す: `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。速い段（`WORKS_TESTS=fast sh tests/run.sh`）と根の柵は最後の Task で 1 回だけ回す。
+- 試験は、各 Task では触ったモジュールだけを回す: `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。速い段（`WORKS_TESTS=fast sh tests/run.sh`）と根の柵は最後の Task で 1 回だけ回す。
 - CHANGELOG は `CHANGELOG.md` の `[Unreleased]` だけに足す。版は上げない。
 - commit のメッセージは日本語で、末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。push はしない。
 
@@ -192,7 +192,7 @@ Expected: 主の試験は 3 回目に FAIL（`(ok, done)` が `(False, True)`。
 4. `settle.park` が空なら、義務の外の単位の行を `changes` から外し（直しは作業ツリーに残す）、`found` を空にして先へ進む（写しの照らしは commit=True で回る）。外した単位か数えなかった文が在れば、受けた時に trace へ `ABSORBED_OP` を 1 行。
 5. 写しの受け付けが最後の回に拒めば、その行を 2 と同じに回す（3 か 4）。止める単位が無いのに写しが拒むなら、この Task では今どおり `rejected(found)` を返す（Task 2 が土台に替える）。
 
-`render_rejects` の `for check, (head, _)` を `CHECKS` の新しい形に合わせる。`bind_problems`・`unrevert_units`・`_held_files`・`drop_excused_units`・`park_bound_units`・`parkable`・PARK_UNDONE_OP を消す。`revert_units` から `frozen_tree` の分かれを消す。模块の docstring の 29-31・62-63・78-85 行を、決め 1・3・4 の 3 行に替える。`planscope.py:27` の「accept.bind_problems が単位に結ぶ」を「最後の回に parking.bind が単位に結ぶ」に直す。
+`render_rejects` の `for check, (head, _)` を `CHECKS` の新しい形に合わせる。`bind_problems`・`unrevert_units`・`_held_files`・`drop_excused_units`・`park_bound_units`・`parkable`・PARK_UNDONE_OP を消す。`revert_units` から `frozen_tree` の分かれを消す。モジュールの docstring の 29-31・62-63・78-85 行を、決め 1・3・4 の 3 行に替える。`planscope.py:27` の「accept.bind_problems が単位に結ぶ」を「最後の回に parking.bind が単位に結ぶ」に直す。
 
 - [ ] **Step 5: 今の振る舞いを縛っていた試験を直す**
   - `test_fix_accept_all.AllChecksCase.test_last_round_unbindable_line_rejects_whole` → 名を `test_last_round_duplicate_and_copy_park_their_units` にし、`(ok, done)` が `(True, True)`・止めた単位が MEAN と CLAMP・`changes` が空。
@@ -255,7 +255,7 @@ git commit -m "fix(works): 修正の輪の最後の回は拒否の行を単位�
         self.assertIs(json.loads(self.changed(r)[1])["ok"], True, "空の申告は義務の外の単位だけの正しい返答")
 ```
 
-`accept_mod` は `test_fix_accept_all.accept_module` で読んだ受け付けの模块。`reddening_fixer` に引数 `faces: bool = False` を足し、真なら `p2.plan_review` を穴 1 つ以上の見本（`linekit.reply("plan_review_regression")`）で受けた盤面にする（`fix_ready` の事前審査の見本 `PLAN_REVIEW_OK` は穴を持たないことがあるため）。
+`accept_mod` は `test_fix_accept_all.accept_module` で読んだ受け付けのモジュール。`reddening_fixer` に引数 `faces: bool = False` を足し、真なら `p2.plan_review` を穴 1 つ以上の見本（`linekit.reply("plan_review_regression")`）で受けた盤面にする（`fix_ready` の事前審査の見本 `PLAN_REVIEW_OK` は穴を持たないことがあるため）。
 
 - [ ] **Step 2: 落ちることを確かめる**
 

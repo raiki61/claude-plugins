@@ -22,7 +22,7 @@
 - fill・word: 部品の型の穴を埋めた文・出口の語の対応
 
 Claude Code が版のフォルダに置く印（MARKERS）と .DS_Store（IGNORED）は数えない。版のフォルダの外を指すパス（絶対のパス・..）と
-symlink は読まずに 1 行で名指す（たどらない）。標準ライブラリだけを使い、works のほかの模块を
+symlink は読まずに 1 行で名指す（たどらない）。標準ライブラリだけを使い、works のほかのモジュールを
 import しない。層は L3（盤面と受け付けの層。rolekit と同じく .shared/borrow を読む）。
 """
 import hashlib

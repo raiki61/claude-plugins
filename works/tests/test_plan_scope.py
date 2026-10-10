@@ -9,7 +9,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
-if str(ROOT / "blk-fix" / "lib") not in sys.path:   # 修正のブロックの模块。後ろに足して core の名を隠さない
+if str(ROOT / "blk-fix" / "lib") not in sys.path:   # 修正のブロックのモジュール。後ろに足して core の名を隠さない
     sys.path.append(str(ROOT / "blk-fix" / "lib"))
 import linekit  # noqa: E402
 import planscope  # noqa: E402

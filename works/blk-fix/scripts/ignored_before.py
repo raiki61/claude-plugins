@@ -19,7 +19,7 @@ import json  # noqa: E402
 import os  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
-from leftovers import Unreadable, record_ignored  # noqa: E402   .shared/core の模块（V13）
+from leftovers import Unreadable, record_ignored  # noqa: E402   .shared/core のモジュール（V13）
 
 INPUTS = ()   # 読む入力は無い（置き場は今の scope の根。script_io.scope_dir）
 

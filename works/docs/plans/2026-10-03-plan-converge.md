@@ -18,7 +18,7 @@
 - `Board.rewind(nids, by)`: 写しの engine（`works/.shared/core/graphloops/engine/board.py:228`）の、今の周の節を待ちに戻す公式の口。機械の節（`p2.human_gate` など）は戻せない（die）。返答の置き場は `.stale-r<周>` に退ける。
 - 包み: `works/.shared/core/adapter.py`。役の節の `output_format` の頭の印 `works-node: <名>[ continue=<名>]` を読み、`continue=X` の節を X の会話の続きで起こす（今の例: `blk-fix` の `fix-ruled`（`continue=fix`）、`blk-rejudge` の `rejudge`（`continue=judge`））。
 - 写し: `works/.shared/core/graphloops/`・`gl-prompts/` は本流のバイト単位の写し。この計画は変えない。
-- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段）。手元で回すのは速い段と、この計画で触った重い段の模块を名指した物だけ（重い段の全部は GitHub の CI）。
+- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（重い段）。手元で回すのは速い段と、この計画で触った重い段のモジュールを名指した物だけ（重い段の全部は GitHub の CI）。
 
 役と目:
 - 修正案の役（節 `plan`・盤面の節 `p2.fix_plan`）: 判定の後、直し方の案を書く。
@@ -44,7 +44,7 @@
 
 **Architecture:**
 
-- 決まりは 1 つ:「最後の事前審査に `block` が残った案は直しへ進まない（設計だけの行で関所を開く）」。壁打ちを続けるかは事実で決める: `block` が無ければ抜ける（clean）、前の往復の `block` の key がまた `block` なら抜ける（persisted）、柵の往復に達したら抜ける（unsettled）、それ以外はもう 1 往復（again）。この判定は新しい core の模块 `works/.shared/core/converge.py`（標準ライブラリだけ）の純粋な関数 `decide` 1 つが持ち、`blk-plan` の受け付け・修正前の関所（`gatemarks.plan_gate_items`）・報告・最後の関所が同じ控えを読む。
+- 決まりは 1 つ:「最後の事前審査に `block` が残った案は直しへ進まない（設計だけの行で関所を開く）」。壁打ちを続けるかは事実で決める: `block` が無ければ抜ける（clean）、前の往復の `block` の key がまた `block` なら抜ける（persisted）、柵の往復に達したら抜ける（unsettled）、それ以外はもう 1 往復（again）。この判定は新しい core のモジュール `works/.shared/core/converge.py`（標準ライブラリだけ）の純粋な関数 `decide` 1 つが持ち、`blk-plan` の受け付け・修正前の関所（`gatemarks.plan_gate_items`）・報告・最後の関所が同じ控えを読む。
 - 盤面の扱い: どの往復の事前審査の返答も、同じ口で盤面が受ける（作業ツリーの比べ・型・番号の読み替え・post_check・記録の検査）。ただし受けた後の settle はまだ回さず、先に往復を記録する。again なら役の節 2 つ（`p2.fix_plan`・`p2.plan_review`）を `Board.rewind` で同じ周の待ちに戻してから settle する（`p2.human_gate` は走らない）。clean・persisted・unsettled ならそのまま settle する（`p2.human_gate` が走り、記録を読む）。だから関所は最後の案と最後の審査だけを見る。機械の節は戻さない。後ろの節が既に受けていれば戻さずに落とす（BoardGap）。写しの graph に辺を足さない。
 - Archon の形: `blk-plan.yaml` の事前審査の輪を、新しい外の輪 `converge-loop` の中に移し、その前に直しの役の輪 `plan-revise-loop` を置く（輪の中の輪）。外の輪の終わりの script の節 `converge-check` が `done` を返す。独立設計の輪と最初の修正案の輪は外の輪の外のまま（独立設計は 1 度だけ作り、案を見ない。keep-essence 9）。
 - 同じ会話: 直しの役は印 `continue=plan` で修正案の役の会話の続きとして起きる（包みの今の口）。事前審査はどの往復も新しい会話。
@@ -116,10 +116,10 @@
 - 上位互換: 入力 `design_only`・入力 `unattended`・関所の continue で直しへ進む道・修正役の `plan_faces` の申し送りは、入力も道も残す。振る舞いの変わる所は 1 つだけで、明示する: 無人の run で壁打ちが止まった（同じ block が続いた・柵の往復でも消えない）時は、今のように直しへ進まず、関所で止まって報告へ進む（Task 6・CHANGELOG に書く。F11）。
 - 層（`works/tests/test_layers.py` の `MOD`）: `converge` は L3（`"converge": (3, None)`）で、標準ライブラリだけを import する（`gatemarks` が `converge` を import し、`entry` が `gatemarks` を import するので、`converge` が `entry`・`rolekit`・`gatemarks` を import すると輪になる）。盤面を書き換える手（`rewind`・`settle`・`entry.take`）は `planblk` が持つ。
 - 関所と報告の文は平易な名を主語にし、盤面の節の名は括弧の「記録の名」の後ろに置く（`tests/test_plan_gate.py` の `PlainSubjectCase` と同じ決まり）。状態の語 `pass` などを括弧の外に出さない。
-- 新しい試験の模块は `works/tests/tiers.py` の FAST か HEAVY に書く（`test_converge` は FAST）。試験はどれも `unittest.TestCase` のクラスの中に置く。
-- 新しい模块は `from __future__ import annotations` で始め、注記・docstring・指示書の文・拒否の文は日本語。Python 3.12 が下限。
+- 新しい試験のモジュールは `works/tests/tiers.py` の FAST か HEAVY に書く（`test_converge` は FAST）。試験はどれも `unittest.TestCase` のクラスの中に置く。
+- 新しいモジュールは `from __future__ import annotations` で始め、注記・docstring・指示書の文・拒否の文は日本語。Python 3.12 が下限。
 - 役の返答の型・script の `with` を変えた Task は、同じ Task の中で表の試験（`test_blk_plan`・`test_yaml_rules`・`test_script_contract`・`test_tool_parity`）を合わせる。
-- 試験の回し方（どれも `works/` で）: 模块ごと `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。HEAVY の模块も同じ書き方で、名指した物だけを回す。組の仕上げ（Task 2・5・6 の終わり）に速い段 `WORKS_TESTS=fast sh tests/run.sh`。
+- 試験の回し方（どれも `works/` で）: モジュールごと `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。HEAVY のモジュールも同じ書き方で、名指した物だけを回す。組の仕上げ（Task 2・5・6 の終わり）に速い段 `WORKS_TESTS=fast sh tests/run.sh`。
 - CHANGELOG は `works/CHANGELOG.md` の `[Unreleased]` だけに足す（Task 6）。版は上げない。
 - commit のメッセージは日本語で、末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。push はしない。
 

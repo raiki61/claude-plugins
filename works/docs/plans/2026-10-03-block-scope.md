@@ -21,7 +21,7 @@
 - 共通の口: ブロックのスクリプトが盤面に触る時に必ず通る core の関数。盤面を開く `entry.open_board`（`works/.shared/core/entry.py:172`）、受け付けの入口 `script_io.main`・`emit_result`、役の入口 `rolekit.script_main`、読んだ証拠の入口 `reads.main_for`。この計画は scope の処理をここにだけ置く。
 - 回の印（pass tag）: 依頼 226 が足した場当たりの分け。2 度目の `blk-fix` の include（`refitting`）に YAML の入力 `pass_tag: "refit"` を渡し、`script_io.tagged(名, 印)` でファイルの名に `.refit` を足す。配線はスクリプト 8 本・lib 4 本・core 4 本に散り、`blk-fix/lib/ruling.py:41` の `rule-tree.json` は印を通らない（2 度目が 1 度目を上書きする穴）。
 - 写し: `works/.shared/core/graphloops/`・`gl-prompts/` は本流 `graphloops/` のバイト単位の写し。手直しは台帳 `works/.shared/core/COPIED_FROM` の `!` 行だけ。この計画は写しを変えない。
-- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（git・盤面・子のプロセスを使う段）。新しい試験の模块はどちらかに書く。
+- 試験の段: `works/tests/tiers.py` の FAST（速い段）と HEAVY（git・盤面・子のプロセスを使う段）。新しい試験のモジュールはどちらかに書く。
 
 この計画の語:
 - scope: 今の script が居る include の名。線の最上段なら空。値を返すのは `flow_adapter.current_scope()` だけ。
@@ -42,7 +42,7 @@
 **Architecture:**
 
 - 置き場は根で分ける。`DiskBoard` に `scope` と、公開する名の集合 `published` を持たせ、`b.work(名)` は名が公開なら `board/r<N>/<名>`、そうでなければ `board/<scope>/r<N>/<名>` を返す。部品のコードは今のまま `b.work("rule-tree.json")` と書くだけで、2 度の include は自動で別の置き場に行く（印の付け忘れが構造上起きない）。scope が空なら全部今のパス。
-- scope の出どころは `works/.shared/core/flow_adapter.py`（新しい core の模块。Archon に触る所を集める 1 つの口。口は current_scope・artifact_root・input・session_handle・resume の 5 つ）。Archon が include の名を script に渡すかは未測定なので Task 1 で測り、渡すならアダプタがそれを読み、渡さないなら include の節の YAML の入力 `include_id`（226 が `blk-fix`・`blk-plan` に足した物）を読む。どちらでも部品からは同じに見える。
+- scope の出どころは `works/.shared/core/flow_adapter.py`（新しい core のモジュール。Archon に触る所を集める 1 つの口。口は current_scope・artifact_root・input・session_handle・resume の 5 つ）。Archon が include の名を script に渡すかは未測定なので Task 1 で測り、渡すならアダプタがそれを読み、渡さないなら include の節の YAML の入力 `include_id`（226 が `blk-fix`・`blk-plan` に足した物）を読む。どちらでも部品からは同じに見える。
 - 宣言は manifest に書く。Produces は既定で公開の置き場に置き、持ち主は周ごとに 1 つの scope（`board/r<N>/scopes.json` に core が記録。2 つ目の書き手は落とす）。同じブロックの各 include がそれぞれ出す物は per_include で scope の根に残し、読む側（報告）は core の `scopes.each`・`scopes.all_rounds` で集める。
 - 照らし: `entry.open_board` が開くたびに、開いている窓の scope の書き込みを照らす（scope の根・自分の公開の Produces・共有の記録の外の変化、持ち主の重なり、無い必須の Produces、Schema に合わない JSON の Produces を BoardGap で落とす）。全部品の manifest が揃った後（Task 9）にだけ繋ぐ。
 - 回の印は、置き場の分けが効いた後（Task 5）に恒等にし、呼び出しを 1 本ずつ消し（Task 6）、YAML と本体を消す（Task 7）。印が持っていた意味「2 回目の修正の段か」は盤面の事実 `conflict.second_pass(b)`（今の周の裁定の行に案を直した印 amended が在るか）で引く。
@@ -82,8 +82,8 @@
 - 動いている途中の古い形の run は移し替えない（scope の在る開き方で古い盤面を開けば BoardMismatch。Task 5）。
 - 期限・タイムアウトを足さない。`scopes.json` の読み書きの `fcntl.flock` は待つだけで期限を持たない。新しい script の節は足さない。
 - 層（`works/tests/test_layers.py` の表 MOD）: `flow_adapter` は層 1（標準ライブラリだけ。works の物を何も知らない）、`scopes` は層 3。`script_io`（層 1）は `flow_adapter` だけを import し、`scopes` を import しない。`board` は `flow_adapter`・`scopes` を import しない（scope と公開の名は引数で受ける）。
-- 新しい試験の模块は `works/tests/tiers.py` の FAST か HEAVY に書く（`test_scopes` は FAST、`test_block_scope` は HEAVY）。試験は `unittest.TestCase` のクラスの中（id は `<パス>::<クラス>::<名>`）。
-- 新しい模块は `from __future__ import annotations` で始め、注記・docstring・エラー文は日本語。Python 3.12 が下限。
+- 新しい試験のモジュールは `works/tests/tiers.py` の FAST か HEAVY に書く（`test_scopes` は FAST、`test_block_scope` は HEAVY）。試験は `unittest.TestCase` のクラスの中（id は `<パス>::<クラス>::<名>`）。
+- 新しいモジュールは `from __future__ import annotations` で始め、注記・docstring・エラー文は日本語。Python 3.12 が下限。
 - この文書と `works/docs` に、まだ無い定数・消す定数を逆引用符で囲んだ大文字の名で書かない（根の `tests/run.sh` の doc-symbols の柵が赤になる。226 で起きた）。
 - 焦点の試験: `cd works/tests && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest <module>[.<Class>]`。YAML を変えた Task（5・7）と最後（9）の仕上げ: `WORKS_TESTS=fast nice -n 19 sh works/tests/run.sh`、`sh ~/.cache/works-dogfood/rootfences.sh`（根の `tests/run.sh` の速い柵だけを当てる殻）、`sh works/dev/check.sh`（Archon の模擬実行。赤の数が Task 1 で控えた起点の数を超えない）。重い段の全部は GitHub の CI。
 - CHANGELOG は `works/CHANGELOG.md` の `[Unreleased]` だけに足す（Task 9）。版は上げない。commit のメッセージは日本語で、末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。push しない。
@@ -129,7 +129,7 @@ P4 の pack の `blkx` に入力 `include_id`（default は空）と、全部の
 
 - [ ] **Step 2: M2（盤面の名の棚卸し）を作る**
 
-`works/.shared/core`・`works/blk-*/lib`・`works/blk-*/scripts`・`works/darkfactory` の全部の `b.work(…)` の名（式なら形 `prompt-*.md` のように）と、`b.dir /`・`board /`・`pathlib.Path(board_dir) /`・`leftovers._board_path` で盤面の根に書く名と、`report._all_rounds` の形を列挙する。名ごとに書き手（どの模块の、どのブロックか線から呼ばれる関数か）と読み手を grep で引き、class を 1 つの基準で振る: 書き手の include の外（ほかのブロック・線・報告・engine・rules）が読まない → `private`。読み、書く scope が周に 1 つ → `published`。同じブロックの各 include が書き、報告などが全部を集める → `per_include`。core が書き、複数の scope の窓で変わる記録（`state.json`・`record.json`・`trace.jsonl`・`out/**`・`runs/**`・`rounds/**`・`conflicts.json` の候補）→ `shared`。設計 §3 の予想（trace は追記式の共有の口・`state.json`・`record.json` は core が scope をキーに書く）はこの基準で確かめ、違えば違ったと書く。
+`works/.shared/core`・`works/blk-*/lib`・`works/blk-*/scripts`・`works/darkfactory` の全部の `b.work(…)` の名（式なら形 `prompt-*.md` のように）と、`b.dir /`・`board /`・`pathlib.Path(board_dir) /`・`leftovers._board_path` で盤面の根に書く名と、`report._all_rounds` の形を列挙する。名ごとに書き手（どのモジュールの、どのブロックか線から呼ばれる関数か）と読み手を grep で引き、class を 1 つの基準で振る: 書き手の include の外（ほかのブロック・線・報告・engine・rules）が読まない → `private`。読み、書く scope が周に 1 つ → `published`。同じブロックの各 include が書き、報告などが全部を集める → `per_include`。core が書き、複数の scope の窓で変わる記録（`state.json`・`record.json`・`trace.jsonl`・`out/**`・`runs/**`・`rounds/**`・`conflicts.json` の候補）→ `shared`。設計 §3 の予想（trace は追記式の共有の口・`state.json`・`record.json` は core が scope をキーに書く）はこの基準で確かめ、違えば違ったと書く。
 
 - [ ] **Step 3: M3（rules の前提）を測る**
 
@@ -484,7 +484,7 @@ Expected: PASS → Commit（`refactor(works): 回の印を恒等にする（置�
 6. 読んだ証拠（`recount.collect` の `tag`・`recount.reads_role` の呼び出し・`blk-fix/scripts/{collect,reads}.py` の印）
 7. 試験の帳面（`fixgates.problems`・`skipped`・`unchecked`・`_mark` の `tag`、一式のログの名の印）
 
-各組の Run: `cd works/tests && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest <組の試験の模块> test_block_scope`
+各組の Run: `cd works/tests && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest <組の試験のモジュール> test_block_scope`
 Expected: PASS。commit のメッセージは `refactor(works): 回の印の呼び出しを消す——<組の名>（239 Task 6）`
 
 ---

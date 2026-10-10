@@ -25,7 +25,7 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
 - key・rev（commit の sha）・rev_name・seeds {given, files, names, from_diff, missing}
 - reach {path: {depth, lang, test, candidate, parent {from, kind, key, line}}}: 起点から届いた file（起点は含まない）
 - edges [{path, dep, kind, key, candidate, count, hits [[行番号, 行]], resolution?}]: path が dep に依る
-  （kind: import・path（basename の言及）・stem（拡張子を除いた名が引用符か YAML の値）・module（点の付いた模块名）・
+  （kind: import・path（basename の言及）・stem（拡張子を除いた名が引用符か YAML の値）・module（点の付いたモジュール名）・
   symbol（起点の関数・クラスの名、起点の名前））
 - reverse_imports・tests・mentions・refs: reach の分類（パスの一覧）。mentions はコードの file、refs は
   YAML・JSON・MD などの設定と文書
@@ -95,10 +95,10 @@ DYNAMIC = {"import_module": 0, "__import__": 0, "spec_from_file_location": 1, "r
 UNANALYSABLE_TRIGGERS = frozenset({"unknown-language", "py-parse-error", "dynamic-import", "too-large", "symlink"})
 HEURISTICS = [
     "file の一覧は git ls-files（追跡中）と ls-files -o --exclude-standard（無視されていない未追跡）。中身は作業ツリーの物",
-    "Python の模块名は、パスの後ろから数えた点の名。根は __init__.py を持たないフォルダ（sys.path の入口とみなす）。"
+    "Python のモジュール名は、パスの後ろから数えた点の名。根は __init__.py を持たないフォルダ（sys.path の入口とみなす）。"
     "sys.path.insert・append の引数に在る字（代入を 3 段まで辿る）で終わるフォルダを先に、次に自分のフォルダを見る。"
     "それでも複数なら全部に辺を張り、resolution を ambiguous・candidate にする",
-    "言及は語の一致（basename・引用符か YAML の値の、拡張子を除いた名・点の付いた模块名・起点の関数とクラスの名）。"
+    "言及は語の一致（basename・引用符か YAML の値の、拡張子を除いた名・点の付いたモジュール名・起点の関数とクラスの名）。"
     "同じ basename が複数あれば、当たりの行のパスの形で絞り、残りは言及した file に一番近い（共通のフォルダが深い）物",
     "Python・シェル・YAML・JSON などの設定からは先へ伸ばす。文書（md・txt など）・テストのモジュール・テストのフォルダの下の"
     "Python でない file（fixture・golden）で止める"
@@ -107,7 +107,7 @@ HEURISTICS = [
     "起点の関数・クラスの名は、_ を含む名か、SYMBOL_MIN 字以上で大文字を含む名（DiskBoard など）だけを鍵にする。"
     "テストのモジュールの名は鍵にしない。起点の関数・クラスの名の言及（symbol）と拡張子を除いた名の言及（stem）は、起点と同じ project（manifest を持つ"
     "一番近い祖先のフォルダ。無ければリポジトリ全体）の中だけ。symbol の当たりは葉（先へ伸ばさない。名前の起点は伸ばす）。"
-    "点の付いた模块名の言及（module）は Python でない file だけ（python -m など。Python の file は import の読み取りが正）。"
+    "点の付いたモジュール名の言及（module）は Python でない file だけ（python -m など。Python の file は import の読み取りが正）。"
     "stem は py（import で読まれていない物＝スクリプト）・シェル・YAML の file だけ。同じ名の file が複数あり、言及した file と"
     "共有するフォルダが 1 段も無ければ、どれとも決めない（not_seen.ambiguous_mentions に数える）",
     "テストのモジュールは名前の型（test_*.py・*_test.py・*.bats・*.test.js・*-case.py など）と、Python・文書・設定でない file の"
@@ -306,7 +306,7 @@ def _py_facts(text):
 
 def py_imports(text):
     """Python の file の import の一覧 [[名, 段, 行番号, 行の字, from の名の一覧]]（_py_facts の imports と同じ形）。
-    構文の誤りで読めなければ None（ほかの模块が import の読み取りを 2 か所に持たないための公開の口）"""
+    構文の誤りで読めなければ None（ほかのモジュールが import の読み取りを 2 か所に持たないための公開の口）"""
     facts = _py_facts(text)
     return None if facts["error"] else facts["imports"]
 
@@ -384,7 +384,7 @@ def _owners_for(f, owners, tokens):
 
 # ---------------------------------------------------------------- 本体
 class _Index:
-    """1 回の map の中で使う表（file・中身の読み取り・模块名・語の索引）"""
+    """1 回の map の中で使う表（file・中身の読み取り・モジュール名・語の索引）"""
 
     def __init__(self, repo, cache_dir, scan=True):
         self.repo = pathlib.Path(repo)
@@ -503,7 +503,7 @@ def _write_json(path, doc):
 
 
 def _names_of(path, pkgdirs):
-    """(点の模块名, 根のフォルダ) の列。根は __init__.py を持たないフォルダだけ"""
+    """(点のモジュール名, 根のフォルダ) の列。根は __init__.py を持たないフォルダだけ"""
     parts = path.split("/")
     stem = parts[-1].rsplit(".", 1)[0]
     comps = parts[:-1] + ([] if stem == "__init__" else [stem])
@@ -609,7 +609,7 @@ def _normalize_seeds(ix, seeds):
         if s in ix.files or s in ix.special:
             files.add(s)
             if ix.special.get(s) == "missing":
-                missing.add(s)   # 作業ツリーで消した file: import する側はまだ名を書いているので、模块の表に残す
+                missing.add(s)   # 作業ツリーで消した file: import する側はまだ名を書いているので、モジュールの表に残す
         elif s in ix.dirs:
             files.update(p for p in ix.files if p.startswith(s + "/"))
         elif "/" not in s and len(ix.by_base.get(s, [])) == 1:
@@ -715,7 +715,7 @@ def _build(repo, rev, rev_sha, changed, seeds, diff, ix):
         for kind, key in keys:
             for f in words.get(key, ()):
                 if f == x or ix.lang.get(f) == "binary" or (kind == "module" and ix.lang.get(f) == "python"):
-                    continue   # Python の file の模块名は import の読み取りが正（字の一致を重ねない）
+                    continue   # Python の file のモジュール名は import の読み取りが正（字の一致を重ねない）
                 h = ix.hits(f, kind, key)
                 if not h[0]:
                     continue

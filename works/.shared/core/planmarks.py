@@ -35,7 +35,7 @@ marks（種 plan。役の型にだけ欄を足し、受け付けが盤面へ渡�
 - scoped(items)・scoped_items(b): 範囲の欄の在る項目の並びか（217 番の形の控えは範囲の無い run と同じに扱う 1 つの決まり。
   修正の受け付けの範囲の照らしと差分の審査の準拠の受け付けが使う）
 
-写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）と住処 marks（L1）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
+写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）と住処 marks（L1）だけを使い、entry・conflict を import しない（conflict がこのモジュールを読むので、
 輪を作らない）。
 """
 from __future__ import annotations

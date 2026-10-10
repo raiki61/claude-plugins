@@ -16,7 +16,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
-import test_plan_gate as TP  # noqa: E402  （ラインの模块の置き場も sys.path に足す）
+import test_plan_gate as TP  # noqa: E402  （ラインのモジュールの置き場も sys.path に足す）
 import accept  # noqa: E402
 import gatemarks  # noqa: E402
 import carry  # noqa: E402

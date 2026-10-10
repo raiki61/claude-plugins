@@ -10,7 +10,7 @@
 判定者の問い（class_query）が直した後の正しい形にも当たる時は、which_is_right: query と正しい行（correct_lines）で申し出て、
 裁定 replace_query が新しい問いを例（hits・misses と correct_lines）で機械に試させてから置き換える（Semgrep の規則の試験の ruleid・ok）。
 
-この模块が持つ物（盤面の今の周の作業ファイル b.work(FILE) {"items": [...]} と trace の行。どのブロック・ラインの名も書かない）:
+このモジュールが持つ物（盤面の今の周の作業ファイル b.work(FILE) {"items": [...]} と trace の行。どのブロック・ラインの名も書かない）:
 - ITEM_SCHEMA・CONFLICTS_SCHEMA: 1 件の形（unit_key・between・why_both_cannot_hold・which_is_right・kind。query なら correct_lines も）と、
   修正役の返答の欄 conflicts。kind は食い違いの起きた場面の種類で、DIV_KINDS の 6 つ（brief_vs_judgment・unnamed_test_broke・
   not_red・scope_needed・query_hits_fixed・needs_context）のどれか。which_is_right（どちらが正しいか）とは別の軸で、

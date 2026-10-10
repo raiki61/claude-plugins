@@ -43,7 +43,7 @@ from gitkit import committed_copy, git  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import hermetic  # noqa: E402
-if str(BLK / "lib") not in sys.path:   # 修正のブロックの模块（brief の凍結）。後ろに足して core の名を隠さない
+if str(BLK / "lib") not in sys.path:   # 修正のブロックのモジュール（brief の凍結）。後ろに足して core の名を隠さない
     sys.path.append(str(BLK / "lib"))
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
@@ -1555,7 +1555,7 @@ class TestGiveUpOnBoard(BoardCase):
 
 
 class TestLeftoversModule(unittest.TestCase):
-    """後始末の模块 leftovers は .shared/core に置く（構造の調べ V13。scripts/ の下の .py は全部スクリプトとして拾われる）"""
+    """後始末のモジュール leftovers は .shared/core に置く（構造の調べ V13。scripts/ の下の .py は全部スクリプトとして拾われる）"""
 
     def test_leftovers_lives_in_core_not_scripts(self):
         self.assertFalse((BLK / "scripts" / "leftovers.py").exists())
@@ -1566,9 +1566,9 @@ class TestLeftoversModule(unittest.TestCase):
         names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level == 0}
         self.assertTrue(names)
-        # 標準ライブラリと、盤面の scope の根を引く層 L1 の script_io だけ（pack の core のほかの模块は読まない。依頼 239）
+        # 標準ライブラリと、盤面の scope の根を引く層 L1 の script_io だけ（pack の core のほかのモジュールは読まない。依頼 239）
         self.assertEqual(sorted(names - set(sys.stdlib_module_names) - {"script_io"}), [],
-                         "標準ライブラリと script_io だけ（pack の core の他の模块も読まない）")
+                         "標準ライブラリと script_io だけ（pack の core の他のモジュールも読まない）")
         self.assertFalse(any(isinstance(n, ast.ImportFrom) and n.level for n in ast.walk(tree)))
 
     def test_leftovers_callers_import_from_core(self):

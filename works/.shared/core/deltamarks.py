@@ -19,7 +19,7 @@ marks（種 delta。役の型にだけ欄を足し、受け付けが盤面へ渡
 - 結ばれない穴: faces の key のうち、どの落ちた行の face_key にも無い物。在れば品質は fail、無ければ pass
 
 写しの engine の型の検査（engine.schema。L0 の写し）と住処 marks（L1）だけを使い、accept・refix・entry を import しない
-（accept がこの模块を読むので、輪を作らない）。
+（accept がこのモジュールを読むので、輪を作らない）。
 """
 from __future__ import annotations
 

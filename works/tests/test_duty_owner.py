@@ -7,7 +7,7 @@ escalate・裁定の decision が ask_human、か正本の部品 gatemarks.withh
 
 - 走査の範囲は works の下の .py。tests・dev・fixtures と、写しの L0（.shared/core/graphloops・.shared/core/scripts）は見ない
   （写しはバイト一致で変えない。works は entry.CORE_OVERRIDES で差し替える。写しの中の同じ式は差し替えの方が読む）
-- 行の鍵は「<模块>:<関数>」。行番号は使わない（直した後の行のずれで表を書き換えさせない）
+- 行の鍵は「<モジュール>:<関数>」。行番号は使わない（直した後の行のずれで表を書き換えさせない）
 - 今ある違反は KNOWN_REBUILDS に {鍵: 理由か直す依頼の番号} で載せる。期限は置かない。表は手で書き、走査は足さない。
   直って違反が消えたのに残っている行は赤（test_layers の KNOWN と同じ。表は減らす方向にだけ変える）
 """
@@ -27,7 +27,7 @@ OPEN_CALLS = frozenset({"is_open"})
 CANON_CALLS = frozenset({"withheld", "withheld_by", "returned", "asks", "pending", "fix_duty", "held_by_rulings"})
 RAW_MARKS = ("'fork'", "'escalate'", "ASKING")
 
-# 今ある違反 {"<模块>:<関数>": 理由か直す依頼の番号}。走査が実際に挙げた物だけを、理由をつけて載せる
+# 今ある違反 {"<モジュール>:<関数>": 理由か直す依頼の番号}。走査が実際に挙げた物だけを、理由をつけて載せる
 KNOWN_REBUILDS: dict = {}
 
 

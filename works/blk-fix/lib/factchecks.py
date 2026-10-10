@@ -185,7 +185,7 @@ def declared_files(rows, repo) -> set:
 
 
 def precheck(cfg: dict, reply=None) -> dict:
-    """事前の確かめ（模块の頭）"""
+    """事前の確かめ（モジュールの頭）"""
     entry.peek_as(cfg.get("scope") or "")   # 役の Bash には節の env が無い。控えの置き場の印で読むだけに開く
     board, repo = Path(cfg["board"]), Path(cfg["repo"])
     state, pass_, base_rev = cfg.get("tdd_state") or "", cfg.get("pass") or "first", cfg.get("base_rev") or ""

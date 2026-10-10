@@ -2,7 +2,7 @@
 
 test_layers の決まり 3（name）はコードの文字列の定数だけを見る。ここはブロックの追跡されたテキスト全部を行で読み、
 自分以外の blk-<名>（名の集合は blk-* のフォルダから取る）を「ファイル:相手の名 → 行の数」で数える。core に置かれた
-ブロックの模块（test_layers の MOD で L4）も持ち主のブロックの部品として数える。行で読むのでコードの文字列の定数も数え、
+ブロックのモジュール（test_layers の MOD で L4）も持ち主のブロックの部品として数える。行で読むのでコードの文字列の定数も数え、
 決まり 3 と重なりうる（当座に許すなら両方の表に載せる）。
 COPIED_FROM を持つフォルダはバイト単位の写しで直せないので外す（test_layers が L0 の写しに文字列の決まりを当てないのと同じ）。
 役の指示書（commands・rules・写しでない prompts。下のフォルダの深さは問わない）と、ブロックの外に 1 つだけ置いて
@@ -26,7 +26,7 @@ from conceptfence import verdict  # noqa: E402,F401  （許可表とのずれの
 
 NAME = re.compile(r"blk-[a-z0-9]+")
 MARK = "COPIED_FROM"
-# core に置かれたブロックの模块（層の正本 MOD で L4）もそのブロックの部品として数える: パス → 持ち主
+# core に置かれたブロックのモジュール（層の正本 MOD で L4）もそのブロックの部品として数える: パス → 持ち主
 CORE_OWNER = {f".shared/core/{m}.py": owner for m, (layer, owner) in MOD.items() if layer == 4}
 
 # 2026-09-28 の依頼: この run はブロックの中身を変えない（他の run とぶつけない）。別の run で入力を形と約束で書き直す
@@ -91,7 +91,7 @@ def blocks(root):
 
 
 def tracked(root):
-    """ブロックのファイルと、core に在るブロックの模块（L4）と決まりの正本（works からのパス）。追跡された物と、まだ追跡されて
+    """ブロックのファイルと、core に在るブロックのモジュール（L4）と決まりの正本（works からのパス）。追跡された物と、まだ追跡されて
     いない .gitignore に当たらない物（足したファイルを commit の前から数える）"""
     out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
                           "blk-*", *CORE_OWNER, SHARED_RULES],

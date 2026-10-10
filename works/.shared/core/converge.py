@@ -37,7 +37,7 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
   前の往復の block を審査が suggest に下げた key も名指す）
 
 役の型に欄を足す・返答から外す手順は住処 marks（種 converge）に任せる。外した欄は足し欄の控えでなく、この往復の控えに置く。
-盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリと住処 marks（L1）だけを import する（gatemarks がこの模块を
+盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリと住処 marks（L1）だけを import する（gatemarks がこのモジュールを
 読み、entry が gatemarks を読むので、entry・rolekit・gatemarks を import すると輪になる）。
 """
 from __future__ import annotations

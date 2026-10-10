@@ -1,5 +1,5 @@
 """外から止める口（線 A の仕様 5.3）。標準ライブラリと写しの engine.util だけ（dev/stop.sh が軽く読む）。
-札を見て盤面を止める境の節の中身は、ライン darkfactory の模块 darkfactory/lib/line_edge.py（層の決まり。裁定 R59）。
+札を見て盤面を止める境の節の中身は、ライン darkfactory のモジュール darkfactory/lib/line_edge.py（層の決まり。裁定 R59）。
 
 止め札は盤面の STOP（{reason, by, at} の JSON）。置くのは dev/stop.sh（人）で、見るのは境の節。見た境の節は盤面の
 DiskBoard.stop(理由, by) を呼び、後ろの段を飛ばして report を必ず走らせる（a2695cf の cmd_stop と同じ意味: 理由は必須・

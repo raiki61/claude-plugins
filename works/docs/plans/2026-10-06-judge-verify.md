@@ -57,7 +57,7 @@
 
 - 判定のブロックは `judge-verify.json` を manifest の produces（周の置き場）で宣言する。境の節 h-plan（`line_edge.plan_edge`）が今の周の控えのパスを出口の欄 `verify_file` で返し（波及の一覧 `ripple_file` と同じ形。境の節の出口の型は全部同じなので、全部の境の節の output_format と筋書きの stub に欄を足す）、線が修正案のブロックの入力 `verify_file` へ渡す。
 - 修正案のブロックの入力 `verify_file` は形で述べる（「単位ごとの裏取りの申し送りの JSON。units と synergy。空か文字列 null なら無い」）。ブロックは出どころを名指さない。支度の節 prep の全部が入力を受け（同じ script を回す節は同じ with: を持つ決まり）、使うのは修正案の役だけ。直しの役は修正案の役の会話の続きなので、もう読んでいる。同じ run の中の案の直し（2 度目の include）には渡さない（修正の段の食い違いを直す道で、根の切り方は 1 度目に読んだ）。
-- 報告（core の report）は周ごとの `judge-verify.json` を名で読む（`rejudge-diff.json` と同じ形。書き手の模块を import しない）。
+- 報告（core の report）は周ごとの `judge-verify.json` を名で読む（`rejudge-diff.json` と同じ形。書き手のモジュールを import しない）。
 
 ## 抜け方と失敗の扱い
 

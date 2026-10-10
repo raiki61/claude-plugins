@@ -39,7 +39,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
 並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json と出口 rejudge-exit.json、判定の単位の裏取りの申し送り
-judge-verify.json）は書き手の模块（ライン・ブロック）を import せずに
+judge-verify.json）は書き手のモジュール（ライン・ブロック）を import せずに
 ファイルの名前として読む（層 L3 は上の層を import しない。裁定 R59）。書き手と名前を揃えるのは試験（test_report）。
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、

@@ -71,7 +71,7 @@ import conflict  # noqa: E402
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
 import planrange  # noqa: E402   範囲の読みと単位に結べないパスの照らし（手直しの受け付けと同じ決まりの 1 か所。.shared/core）
-from planrange import LIFTED, NO_PLAN, NO_SCOPE, with_agreed  # noqa: E402,F401   この模块の口の名（試験と受け付けが読む）
+from planrange import LIFTED, NO_PLAN, NO_SCOPE, with_agreed  # noqa: E402,F401   このモジュールの口の名（試験と受け付けが読む）
 import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
 
 REJECT = "承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。範囲の外が要るなら変えずに食い違いの申し出で返せ）: "
@@ -307,7 +307,7 @@ def _named_paths(text: str, paths) -> list[str]:
 def problems(items: list[dict], rows: list[dict], changes: dict, *,
              permits=(), loop=None) -> tuple[list[str], dict]:
     """承認済みの修正案の項目（items）と差分の外れの行と記録 {"checked": True, "unchecked": [識別子の形でない名], "items": [見た
-    項目の番号], "unproven": [修正案の外で足したテストの id]}。純粋な関数（ファイル・盤面を読まない）。見る物は模块の docstring の語と、下の 1〜6:
+    項目の番号], "unproven": [修正案の外で足したテストの id]}。純粋な関数（ファイル・盤面を読まない）。見る物はモジュールの docstring の語と、下の 1〜6:
     1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、out_of_scope に当たらない。その単位の項目のどれかが明示に
        許したパスは、その単位の項目の out_of_scope だけで照らし、許していないパスはどの項目の out_of_scope でも照らす
        （_oos_hit_for。その単位の項目が無い行は 2 に回す）

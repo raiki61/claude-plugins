@@ -56,7 +56,7 @@
   TRIP_FILE に束ねられていない待つ行（案の直しの前に落ちた run）は、諦めたと書かず PENDING_WHY の 1 行
 
 層 L3。entry・conflict・recount・planmarks・gatemarks・accept・rolekit・leftovers と L1 の answer を読み、report と blk の lib は import しない
-（report がこの模块を呼ぶ向きだけ。blk-plan の lib がこの模块を呼ぶ向きだけ）。期限・回数の上限は持たない（諦めの数は rolekit の物）。
+（report がこのモジュールを呼ぶ向きだけ。blk-plan の lib がこのモジュールを呼ぶ向きだけ）。期限・回数の上限は持たない（諦めの数は rolekit の物）。
 """
 from __future__ import annotations
 

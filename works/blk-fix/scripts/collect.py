@@ -27,7 +27,7 @@ import pathlib
 import sys
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))   # ブロックの模块（lib/ は Archon が探さない）
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))   # ブロックのモジュール（lib/ は Archon が探さない）
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import entry  # noqa: E402
 import recount  # noqa: E402

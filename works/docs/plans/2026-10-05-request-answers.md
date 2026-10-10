@@ -62,9 +62,9 @@ block の中身: 修正案は、前の run の拒否の理由と run が裁い�
 - `blk-*` の文書とコードに、ほかのブロックの名や中身を書かない（`blk-judge/commands/diagnose.md` が書くのは自分の入力＝依頼の `answers` のことだけ）。`darkfactory/darkfactory.yaml` はこの計画では変えない。
 - トークン・資格情報を読まない・書かない・出さない。Archon の開発元へ連絡しない。
 - `ghreads.py` は Python 3.9 で動く形のまま・標準ライブラリだけ（殻が `python3 -I` で呼ぶ）。
-- 新しい模块も試験の模块も足さない（`tests/tiers.py` を変えない）。試験は `unittest.TestCase` の class の中に置く。
+- 新しいモジュールも試験のモジュールも足さない（`tests/tiers.py` を変えない）。試験は `unittest.TestCase` の class の中に置く。
 - 注記・docstring・文・報告の文は日本語。
-- 各 Task では触った模块だけを回す: `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。速い段（`WORKS_TESTS=fast sh tests/run.sh`）と根の柵（リポジトリの根の試験の一式 `sh ~/.cache/works-dogfood/rootfences.sh`）は最後の Task で 1 回だけ。
+- 各 Task では触ったモジュールだけを回す: `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.<module>[.<Class>]`。速い段（`WORKS_TESTS=fast sh tests/run.sh`）と根の柵（リポジトリの根の試験の一式 `sh ~/.cache/works-dogfood/rootfences.sh`）は最後の Task で 1 回だけ。
 - CHANGELOG は `CHANGELOG.md` の `[Unreleased]` だけ。版は上げない。commit は日本語で、末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。push しない。
 
 ## Review Focus
@@ -80,7 +80,7 @@ block の中身: 修正案は、前の run の拒否の理由と run が裁い�
 ### Task 1: 依頼の型に answers を足し、入口から start の控えへ届ける
 
 **Files:**
-- Modify: `.shared/core/ghreads.py`（`KEYS`・`request_parts`・模块の docstring の 4-6 行と 12 行）
+- Modify: `.shared/core/ghreads.py`（`KEYS`・`request_parts`・モジュールの docstring の 4-6 行と 12 行）
 - Modify: `.shared/core/entry.py`（`_read_request` 383-403 行・`check_inputs` の 315 行の受けと 328-331 行の `out`・docstring 266-277 行・`adopt_inputs` 813-816 行）
 - Test: `tests/test_entry.py`（`CheckInputsCase`。`test_inputs_defaults` の直しと新しい 2 本。頭の import に `gatemarks` を足す）
 
@@ -154,7 +154,7 @@ git commit -m "feat(works): 依頼のファイルに欄 answers（問いの key 
 ### Task 2: 答えたかを 1 つの述語で読み、出どころを名乗って並べる
 
 **Files:**
-- Modify: `.shared/core/gatemarks.py`（`answered` 467-471 行・`returned_lines` 579-584 行・`_gate_answered` 593-594 行・`answered_lines` 611-613 行・新しい関数と定数。模块の docstring の 44-46 行の辺りに 1 項）
+- Modify: `.shared/core/gatemarks.py`（`answered` 467-471 行・`returned_lines` 579-584 行・`_gate_answered` 593-594 行・`answered_lines` 611-613 行・新しい関数と定数。モジュールの docstring の 44-46 行の辺りに 1 項）
 - Modify: `.shared/core/report.py`（`head_decisions` の 662-669 行。docstring 612 行の名指し）
 - Modify: `darkfactory/lib/line_edge.py`（`_final_text` の 528-537 行と「盤面の問い: 無い」の条件 538 行。docstring 484 行の名指し）
 - Test: `tests/test_plan_gate.py`（新しい class `RequestAnswersCase(GateBase)`）

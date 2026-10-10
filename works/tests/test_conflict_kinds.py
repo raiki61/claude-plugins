@@ -292,7 +292,7 @@ class FixPlanItemRulingCase(unittest.TestCase):
 
 def fake_with_rows(rows):
     """偽の盤面（work は一時の置き場のファイル・round 1・state の outputs は空・trace は traced に貯める）に、申し出の行
-    rows を置いた物。一時の置き場は模块の終わりに消す"""
+    rows を置いた物。一時の置き場はモジュールの終わりに消す"""
     root = pathlib.Path(tempfile.mkdtemp())
     unittest.addModuleCleanup(shutil.rmtree, root, ignore_errors=True)
     traced = []

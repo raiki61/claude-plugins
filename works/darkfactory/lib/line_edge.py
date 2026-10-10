@@ -1,5 +1,5 @@
 """境の節の中身（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4。並びは C18 の順: 計画 P1 Task 26・P1-R3・P1-R4）。
-ライン darkfactory の模块（層 L6。裁定 R59）で、使うのは darkfactory/scripts/edge.py と structure.py・world.py・after.py だけ。止め札そのもの（置く・読む）は共有の
+ライン darkfactory のモジュール（層 L6。裁定 R59）で、使うのは darkfactory/scripts/edge.py と structure.py・world.py・after.py だけ。止め札そのもの（置く・読む）は共有の
 .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める

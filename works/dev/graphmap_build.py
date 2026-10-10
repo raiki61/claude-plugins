@@ -6,7 +6,7 @@
 pack の宣言 archon-plugin.json の entrypoints の入口ごとに、部品 .shared/core/graphmap の build で地図の元を組む（入口の名を
 省けば全部）。build は書き、check は書かずに、今の YAML から組んだ物と字で違う（か無い）元を名指して終了コード 1 で抜ける。
 YAML を替えたら build で書き直す（包みは古い元の地図を足さない。試験 tests/test_graphmap.py が古い元を赤にする）。
-pack の模块は標準ライブラリだけなので、YAML を読む PyYAML はこの道具が渡す。
+pack のモジュールは標準ライブラリだけなので、YAML を読む PyYAML はこの道具が渡す。
 """
 import pathlib
 import sys

@@ -1,4 +1,4 @@
-"""単位ごとの深さ（計画 docs/plans/2026-10-06-variable-depth.md。ライン darkfactory の模块・層 L6）。使うのは darkfactory/scripts/depth.py。
+"""単位ごとの深さ（計画 docs/plans/2026-10-06-variable-depth.md。ライン darkfactory のモジュール・層 L6）。使うのは darkfactory/scripts/depth.py。
 
 判定が切った単位ごとに、修正案の項目の欄（plan-fields.json）の形から深さ（軽量か標準）を機械が決め、修正の後の信号で標準へ上げる。
 標準は今の振る舞いのすべて。軽量は、測りで何も見つけなかった確かめ（SKIPPED: 差分の審査とレンズ・手直し、独立の目の R1〜R4 と

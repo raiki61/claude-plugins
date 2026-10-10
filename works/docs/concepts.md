@@ -214,7 +214,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `entry-kind` 入口の種類
 
 - 状態: 住処あり
-- 住処: 入口のブロック `blk-entry`（線の最初のブロック。起動の関所 launch と節 open。中身は core の `entry.start`）と、その中身が入口の種類に触れる core の唯一の模块 `.shared/core/entryshape.py`（差分の根の名指しの解き `change_base`・差分も依頼の行も無い入力の拒み `refuse_empty`・入口の入力の形を作る `build`・盤面の依頼の文 `request_text`・名指した PR と issue の読み `named`・`github_reads`・PR の添え物の置き `write_pr_file`）
+- 住処: 入口のブロック `blk-entry`（線の最初のブロック。起動の関所 launch と節 open。中身は core の `entry.start`）と、その中身が入口の種類に触れる core の唯一のモジュール `.shared/core/entryshape.py`（差分の根の名指しの解き `change_base`・差分も依頼の行も無い入力の拒み `refuse_empty`・入口の入力の形を作る `build`・盤面の依頼の文 `request_text`・名指した PR と issue の読み `named`・`github_reads`・PR の添え物の置き `write_pr_file`）
 - 約束: `blk-entry/schemas/input.schema.json`（入口の入力の形。始めの記録の欄 `input` と節 open の出口の欄 `input`。後ろの段はこの中身——差分が空か・依頼の行の数・PR の添え物・仕様の段を挟むか——だけを読む。`base.from` は表示の名札で、出どころの文は `base.label`）
 - 知ってよい所: 住処と約束と、生の事実を集める殻 `dev/use.sh`（旗 `--base`・`--pr` を入力に写す）・`dev/canary.sh`（旗 `--diff` を `use.sh` の `--base` に写す試しの殻）と、線の入力を宣言して入口のブロックへ渡すだけの `darkfactory/darkfactory.yaml`。どの起動にも付ける起動の印 `launch_mark` は入口の種類でない生の事実（`dev/launch.py` は印か依頼の写しで run を結び、入口の種類で分かれない。計画 clean-whole の段 4.1）
 - 今: 入口の種（`entry` の request・change・both）と、依頼を版が固まった後に積む道（`add_pending_request`）・種で空の依頼を受ける問い（`change_only`）・頭の行の種の文（`entry_words`）は消した。判定から入るか（P1 の役を起こさないか）は入力の差分が空かだけで決まり（`entry.CORE_OVERRIDES` の `entry_opens`。写しの核の印を立てる所の差し替え）、依頼を読むブロックが空の依頼を受けるかは依頼の行の数で決まる（`conflict.no_requests`）。柵は、差分の根の名指しを読む・渡す形と、入口の種類で分かれる形・消した種の名の 2 本。計画 `docs/plans/2026-10-09-one-entry-shape.md`（2.5 節）と `docs/plans/2026-10-09-clean-whole.md` の段 4

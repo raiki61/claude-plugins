@@ -11,7 +11,7 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - tree_state・tree_change・tree_moved: 読むだけの役（blk-pr・blk-ci・entry.take・rejudge.take）を起こす前後の作業ツリーの姿
                  （snapshot_tree に HEAD・枝を足した物）と、その違いの文（R47。check_judge の突き合わせも tree_change で言う）。
                  bytecode=False はバイトコード（_is_bytecode）を姿から除く（測るためにコマンドを走らせる実測役の見張り。premises）
-- guard・in_repo・resolve_rev・read_board・write_board・type_errors: 受け付けの部品の公開の名（ブロックの模块の受け付けが使う）
+- guard・in_repo・resolve_rev・read_board・write_board・type_errors: 受け付けの部品の公開の名（ブロックのモジュールの受け付けが使う）
 - touched_files: 修正が触ったファイル（バイトコードは除く。protect が数える）
 
 check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": False, "reason": str}。
@@ -237,7 +237,7 @@ def _guard(fn, **on_reject):
         return {"ok": False, "reason": f"受け付けの中で例外（{type(e).__name__}: {e}）", **on_reject}
 
 
-# 受け付けの部品の公開の名（ブロックの模块の受け付け——premises など——が私的な名前を借りずに使う。層の決まり private）
+# 受け付けの部品の公開の名（ブロックのモジュールの受け付け——premises など——が私的な名前を借りずに使う。層の決まり private）
 guard = _guard
 in_repo = _in_repo
 resolve_rev = _rev

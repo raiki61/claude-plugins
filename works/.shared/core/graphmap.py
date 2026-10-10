@@ -8,7 +8,7 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 口（API）:
 - build(entry, resolve, base, parse) -> dict: 入口の工程の YAML（entry）から、include／workflow で呼ぶ工程を resolve(名) で
   引いてたどり、地図の元（graph。JSON にできる dict）を組む。base は sources の相対パスの根。parse は YAML の字を読む関数
-  （yaml.safe_load。pack の模块は標準ライブラリだけなので受けて使う）。包みは YAML を読まないので、組むのは試験と開発の道具
+  （yaml.safe_load。pack のモジュールは標準ライブラリだけなので受けて使う）。包みは YAML を読まないので、組むのは試験と開発の道具
   dev/graphmap_build.py で、包みは組んだ JSON を読む
 - pack_resolver(pack, parse) -> resolve: pack の直下のフォルダの <d>/<d>.yaml を工程の名（YAML の name:）で引く既定の resolve
 - entrypoints(pack) -> {名: YAML の相対パス}: pack の宣言 archon-plugin.json の entrypoints

@@ -421,7 +421,7 @@
       ],
       "dev/lib.sh": [
        1,
-       "殻の python の 1 行（全部の周の控えを glob で読む。pack の模块を import しない殻の決まり）"
+       "殻の python の 1 行（全部の周の控えを glob で読む。pack のモジュールを import しない殻の決まり）"
       ]
      }
     }

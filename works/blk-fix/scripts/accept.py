@@ -93,7 +93,7 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # ブロックの模块（lib/ は Archon が探さない）
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # ブロックのモジュール（lib/ は Archon が探さない）
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import os  # noqa: E402
 import posixpath  # noqa: E402
@@ -472,7 +472,7 @@ def hold_fix(named: dict, written: dict, whole: dict, b, traced) -> dict:
 
 
 def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
-    """修正役の返答の受け付け（模块の頭の手順）。parked はこの受け付けが最後の回にもう止めた単位（park_units の通し直しが渡す）"""
+    """修正役の返答の受け付け（モジュールの頭の手順）。parked はこの受け付けが最後の回にもう止めた単位（park_units の通し直しが渡す）"""
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
     attempt = int(os.environ.get("INPUTS_ITERATION") or 0)

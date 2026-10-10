@@ -1892,8 +1892,8 @@ def selected_problems(state_file, repo, rev) -> tuple:
 
 
 def _by_test_file(repo, cases) -> dict:
-    """赤の case をテストのファイルごとに分けた {「（ファイル <根からのパス>）」: [id]}（現れた順）。ファイルは case の模块
-    （impact._junit_module）が impact._mod に等しいテストのファイル（impact.tree_files と impact.is_test）で、同じ名の模块が
+    """赤の case をテストのファイルごとに分けた {「（ファイル <根からのパス>）」: [id]}（現れた順）。ファイルは case のモジュール
+    （impact._junit_module）が impact._mod に等しいテストのファイル（impact.tree_files と impact.is_test）で、同じ名のモジュールが
     2 つ以上在れば全部を名指す。見つからない case の鍵は ""（パスを名指さない）"""
     files = {}
     for p in impact.tree_files(repo) or []:

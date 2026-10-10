@@ -5,29 +5,29 @@
 - L1 基礎: tree_run・script_io・node_marker
 - L2 包み: adapter・ticket・claude-adapter・record-read.py・no-post-bin/works-gh
 - L3 盤面と受け付け: board・accept・policy・entry（共有の部分）・halt（止め札）・refix・recount・rolekit（役の節の共通の口）・protect（守りのファイル）
-- L4 ブロックの模块: 持ち主のブロックが 1 つの模块（core に在る物は MOD の表・<blk>/lib/*.py）
+- L4 ブロックのモジュール: 持ち主のブロックが 1 つのモジュール（core に在る物は MOD の表・<blk>/lib/*.py）
 - L5 ブロック: blk-*/（scripts など）
-- L6 ラインの模块: 持ち主のラインが 1 つの模块（<line>/lib/*.py・<line>/*.py・MOD の表で 6 の物・PARTS の名前）
+- L6 ラインのモジュール: 持ち主のラインが 1 つのモジュール（<line>/lib/*.py・<line>/*.py・MOD の表で 6 の物・PARTS の名前）
 - L7 ライン: <line>/（nodes.json を持つフォルダ。scripts など）
 - L8 dev・L9 tests: pack の全部を知ってよい。pack の中の誰からも参照されない（ここでは走査しない）
 
 縛る決まり（§7 の 1〜8。破れの語は各行の頭。直し方の案内は VIOLATIONS・MARKERS）:
 1. up: import（遅らせた import・importlib.import_module("定数")・`import X as Y` の別名を含む）は同じ層か下の層へ。
    ブロックの YAML は include を持たず、ラインの include は在るブロックだけを指す（yaml-include）
-2. owner: L4 の模块を使ってよいのは持ち主のブロックと L6・L7 だけ。L6 の模块は持ち主のラインだけ。
-   private: 別の模块から `from X import _名` で私的な名前を借りない（L0 の写しからは除く。`X._名` の属性の形は見ない）
+2. owner: L4 のモジュールを使ってよいのは持ち主のブロックと L6・L7 だけ。L6 のモジュールは持ち主のラインだけ。
+   private: 別のモジュールから `from X import _名` で私的な名前を借りない（L0 の写しからは除く。`X._名` の属性の形は見ない）
 3. name: L1〜L5 のコードの文字列の定数（docstring を除く。字のまま一致か、パスの形の文字列の 1 区切り。f-string・%・.format の
    破片は穴と端の / を落としてから区切る）に、ラインの名前・ラインの include の id・自分以外の blk-* の名前が現れない
    （L6・L7 はほかのラインの名前）。docstring・コメント・YAML・md の散文の blk-<名> は test_block_blind が見る
-4. cycle: works の模块の import のグラフに輪が無い
+4. cycle: works のモジュールの import のグラフに輪が無い
 5. script: */scripts/*.py はどれも自分の YAML の `script: <名>` の節で、ほかから import されない。未配線の節は PLANNED_SCRIPTS に載せる
 6. dynamic: importlib.import_module・__import__ の引数は文字列の定数だけ。runpy・exec・eval は使わない
    （spec_from_file_location で場所から読むのは許す）
 7. packref: pack（L1〜L7）のコードの文字列が dev/・tests/・docs/ を指さない（/ と join の項の "dev" なども）
 8. 許可表: 今ある破れは KNOWN に載せ、減らす方向にしか変えない。直ったのに行が残っていれば赤（PLANNED_* も同じ）。
    KNOWN に置けるのは破れの組（VIOLATIONS の語）だけ。層・置き場・表が決まっていない印（MARKERS の語: 解けない import の
-   unresolved・層の無い core の模块の unassigned・名前の重なりの shadow・置き場の外の unplaced など）は KNOWN に在っても赤
-   （置けると模块ごと検査から外れ、中の破れが隠れる）
+   unresolved・層の無い core のモジュールの unassigned・名前の重なりの shadow・置き場の外の unplaced など）は KNOWN に在っても赤
+   （置けるとモジュールごと検査から外れ、中の破れが隠れる）
 
 L0 は import だけを見る（バイト単位の写しなので、文字列の決まりは当てない。写しの一致は test_core_copy・test_core_verbatim）。
 """
@@ -42,7 +42,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-# core の模块の層と持ち主（.shared/core からの相対。.py は除く）。表に無い core の模块は unassigned で赤
+# core のモジュールの層と持ち主（.shared/core からの相対。.py は除く）。表に無い core のモジュールは unassigned で赤
 MOD = {
     "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None),
     "answer": (1, None),      # 関所の文の答えの行（起動の殻が env に置いた頭で組む。works の物を何も知らない）
@@ -70,7 +70,7 @@ MOD = {
     "no-post-bin/works-gh": (2, None),
     "fixture": (3, None),     # 固定材料（h-fix の盤面の写しと取り込み。entry と境の節が使う。entry・board を import しない）
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
-    "entryshape": (3, None),  # 入口の変換（入口の種類に触れる core の唯一の模块。入口のブロックの open が entry.start を通して呼ぶ）
+    "entryshape": (3, None),  # 入口の変換（入口の種類に触れる core の唯一のモジュール。入口のブロックの open が entry.start を通して呼ぶ）
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
     "impact": (3, None),      # 変更の周りの地図（役が共有して読む。地図はまだどのブロックにも配線しない。libdocs が import の読み取りを使う）
     "libdocs": (3, None),     # ライブラリの文書（手元の版・公式）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
@@ -102,14 +102,14 @@ MOD = {
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }
-# 共有の模块の中に居る上の層の名前（割る前の当座。V2）: 模块 → (層, 持ち主, 名前の組)
-# 1 つの模块に持ち主の違う組が在れば (層, 持ち主, 名前の組) の並び。entry の start・check_inputs は入口のブロック blk-entry の
+# 共有のモジュールの中に居る上の層の名前（割る前の当座。V2）: モジュール → (層, 持ち主, 名前の組)
+# 1 つのモジュールに持ち主の違う組が在れば (層, 持ち主, 名前の組) の並び。entry の start・check_inputs は入口のブロック blk-entry の
 # 節 open の中身（計画 docs/plans/2026-10-09-one-entry-shape.md の 2.5 節）
 PARTS = {
     "entry": [(6, "darkfactory", frozenset({"_drain", "_pr_go", "resume_after_ci", "declared_adapter", "LINE", "ORIGIN"})),
               (5, "blk-entry", frozenset({"check_inputs", "start"}))],
 }
-L0_TOPS = frozenset({"engine", "rules", "graphs"})   # 写しの graphloops の頭の名（core の模块が sys.path に足す）
+L0_TOPS = frozenset({"engine", "rules", "graphs"})   # 写しの graphloops の頭の名（core のモジュールが sys.path に足す）
 OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフォルダ（dev/lib.sh が除く物）
 # 対象のリポジトリの決まった名（.editorconfig と同じ「在れば読む」形で、対象の木の中を探す）。pack の docs/ を指さないので packref に数えない
 TARGET_NAMES = frozenset({"docs/concepts.md", "docs/concepts.json"})
@@ -123,28 +123,28 @@ PLANNED_SCRIPTS = frozenset({"blk-structure/scripts/measure.py"})   # 実測の�
 VIOLATIONS = {
     "up": "上向きの依存。先を下の層へ移すか、上の層から引数で渡す形にする。当座に許すなら V 番号つきで KNOWN に足す",
     "owner": "持ち主の外から使っている。共有の層へ移すか、持ち主の中に閉じる。当座に許すなら V 番号つきで KNOWN に足す",
-    "private": "別の模块の私的な名前（_名）を借りている。公開の名前にする。当座に許すなら V 番号つきで KNOWN に足す",
+    "private": "別のモジュールの私的な名前（_名）を借りている。公開の名前にする。当座に許すなら V 番号つきで KNOWN に足す",
     "name": "下の層がライン・include の id・ほかのブロックの名前を書いている。入力か引数で受ける形にする。"
             "当座に許すなら V 番号つきで KNOWN に足す",
     "cycle": "import の輪。どれか 1 本の辺を消す。当座に許すなら V 番号つきで KNOWN に足す",
     "script": "scripts/ の .py が YAML の節でない（か、ほかから import されている）。節なら YAML の script: に配線するか、"
-              "配線の予定なら PLANNED_SCRIPTS に足す。模块なら lib/ か core へ移す。当座に許すなら V 番号つきで KNOWN に足す",
+              "配線の予定なら PLANNED_SCRIPTS に足す。モジュールなら lib/ か core へ移す。当座に許すなら V 番号つきで KNOWN に足す",
     "dynamic": "定数でない動的な読み込み（import_module・__import__・runpy・exec・eval）。定数の import にする。"
                "当座に許すなら V 番号つきで KNOWN に足す",
     "packref": "pack が dev/・tests/・docs/ を指している（pack の写しに入らない）。参照を消す。当座に許すなら V 番号つきで KNOWN に足す",
     "yaml-include": "ブロックが include を持つか、ラインが無いブロックを include している。YAML を直す。"
                     "当座に許すなら V 番号つきで KNOWN に足す",
 }
-# 層・置き場・表が決まっていない印。KNOWN には置けない（置くと模块ごと検査から外れ、中の破れが隠れる。審査 Important 1）
+# 層・置き場・表が決まっていない印。KNOWN には置けない（置くとモジュールごと検査から外れ、中の破れが隠れる。審査 Important 1）
 MARKERS = {
-    "unassigned": "core の模块の層が決まっていない。MOD に (層, 持ち主) を足す（KNOWN には置けない）",
-    "unresolved": "import の先が解けない。先の模块の層が決まっていない（core なら MOD に足す・ブロックかラインの物なら lib/ に置く）"
+    "unassigned": "core のモジュールの層が決まっていない。MOD に (層, 持ち主) を足す（KNOWN には置けない）",
+    "unresolved": "import の先が解けない。先のモジュールの層が決まっていない（core なら MOD に足す・ブロックかラインの物なら lib/ に置く）"
                   "か、名前の誤りか、相対の import（KNOWN には置けない）",
     "unparsable": "Python として読めない。直す（KNOWN には置けない）",
-    "shadow": "core と lib で模块の名前が重なる（sys.path の順で取り違える）。どちらかの名前を変える（KNOWN には置けない）",
+    "shadow": "core と lib でモジュールの名前が重なる（sys.path の順で取り違える）。どちらかの名前を変える（KNOWN には置けない）",
     "unplaced": "層の決まった置き場（.shared/core・blk-*/・nodes.json を持つラインのフォルダ）の外の .py。置き場へ移す"
                 "（KNOWN には置けない）",
-    "mod-gone": "MOD の行に当たる模块が core に無い。MOD から消す（KNOWN には置けない）",
+    "mod-gone": "MOD の行に当たるモジュールが core に無い。MOD から消す（KNOWN には置けない）",
     "planned-wired": "YAML に配線済み。PLANNED_SCRIPTS か PLANNED_INCLUDE_IDS から消す（KNOWN には置けない）",
     "planned-gone": "ファイルが無い。PLANNED_SCRIPTS から消す（KNOWN には置けない）",
 }
@@ -197,7 +197,7 @@ class Pack:
         self.units = []
         self._collect()
         self.include_ids = self._include_ids()
-        self.named = {}   # import の名 → Unit（core と lib の模块）
+        self.named = {}   # import の名 → Unit（core と lib のモジュール）
         for u in self.units:
             if u.name is None or u.layer == 0:
                 continue
@@ -266,7 +266,7 @@ class Pack:
             return "L0"
         t = self.named.get(top)
         if u.layer == 0:
-            return t or None   # 写しが works の模块を引けば上向き。ほかの名は写しの中の物
+            return t or None   # 写しが works のモジュールを引けば上向き。ほかの名は写しの中の物
         if t is not None and t.path.parent == self.core:
             return t   # 節のスクリプト・lib は core を sys.path の 0 番に足す（core が勝つ）
         sib = u.path.parent / f"{top}.py"
@@ -342,7 +342,7 @@ class Pack:
         segs = w.split("/") if re.fullmatch(r"[A-Za-z0-9_.\-][A-Za-z0-9_.\-/]*", w) and "/" in w else []
         words = {v, *segs}
         if u.layer <= 5:
-            # 自分のブロックの名前を書いてよいのはブロックのフォルダの中だけ（core に在る L4 の模块は持ち主の名前も書かない）
+            # 自分のブロックの名前を書いてよいのはブロックのフォルダの中だけ（core に在る L4 のモジュールは持ち主の名前も書かない）
             here = u.owner if u.path.is_relative_to(self.root / str(u.owner)) else None
             bad = set(self.lines) | self.include_ids | self.planned_ids | (set(self.blocks) - {here})
         else:
@@ -368,7 +368,7 @@ class Pack:
             names = {n["script"] for n in _nodes(doc) if isinstance(n.get("script"), str)}
             wired |= {f"{owner}/scripts/{s}.py" for s in names}
         have = {str(p.relative_to(self.root)) for p in self.root.glob("*/scripts/*.py")}
-        imported = {f"{b}.py" for a, b in self.edges if a != b} & have   # 節は import されない（されるなら模块）
+        imported = {f"{b}.py" for a, b in self.edges if a != b} & have   # 節は import されない（されるならモジュール）
         for s in sorted((have - wired - self.planned_scripts) | imported):
             self._hit(f"script {s}", s)
         for s in sorted(self.planned_scripts & wired):

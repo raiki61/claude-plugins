@@ -145,7 +145,7 @@ Archon の DB（持ち主の機械の `$TMPDIR/works-dev/archon-home/archon.db`�
 - 標準（と、形が分からない単位）は今の振る舞いと 1 字も変えない。
 - `blk-*` にほかのブロックの名や中身を書かない。深さの決めと上げの規則は `darkfactory/` だけ。
 - `blk-fix/` は変えない。期限・タイムアウトを足さない。
-- 新しい試験の模块は `tests/tiers.py` の速い段か重い段に書く。
+- 新しい試験のモジュールは `tests/tiers.py` の速い段か重い段に書く。
 
 ## Task 1: 深さの決めと上げ（darkfactory/lib/depth.py）
 

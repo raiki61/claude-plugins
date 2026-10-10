@@ -183,8 +183,8 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(col["depends_on"], ["spec-answer"])
 
     def test_gate_copies_match_line_edge(self):
-        """境の節の中身はラインの模块（層 L6）で、ブロックからは import できない。写した関所の語・止め札の by・文の置き場が
-        線 A の境の節と同じ（core の関所の模块へ 1 つにまとめるのは統合の計画 Task 10。それまで写しの食い違いをここで止める）"""
+        """境の節の中身はラインのモジュール（層 L6）で、ブロックからは import できない。写した関所の語・止め札の by・文の置き場が
+        線 A の境の節と同じ（core の関所のモジュールへ 1 つにまとめるのは統合の計画 Task 10。それまで写しの食い違いをここで止める）"""
         spec = importlib.util.spec_from_file_location("_line_edge_for_spec", ROOT / "darkfactory" / "lib" / "line_edge.py")
         edge = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(edge)
@@ -206,7 +206,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(n["runtime"], "uv")
         on_disk = {p.stem for p in (BLK / "scripts").glob("*.py")}
         used = {n["script"] for n, _ in walk(self.y["nodes"]) if "script" in n}
-        self.assertEqual(on_disk, used, "scripts/ の .py は全部 YAML の節（模块は lib/）")
+        self.assertEqual(on_disk, used, "scripts/ の .py は全部 YAML の節（モジュールは lib/）")
 
     def test_prompts_are_mainline_copies(self):
         """指示書の写し（blk-spec/prompts/）は、COPIED_FROM の 1 行目の commit の本線の指示書とバイト単位で同じ。
