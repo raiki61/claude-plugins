@@ -115,16 +115,16 @@ class CopiesOfTheCount(unittest.TestCase):
 
 
 # 枝の数を変えて blk-fix の受け手の表 RECEIVES を組み直し、枝の役ごとの受ける節（の 1 行目）を JSON で出す（別のプロセスで。
-# 変えた数を試験の外に漏らさない。表の読み口は tests/prepkit.py の receive_rows）
+# 変えた数を試験の外に漏らさない。表の読み口は core の graphmap.receive_rows）
 _RECEIVES_AT = """
 import json, pathlib, sys
 pack = pathlib.Path(sys.argv[1])
 sys.dont_write_bytecode = True
-sys.path[:0] = [str(pack / "blk-fix" / "lib"), str(pack / "tests")]
-import lanekit, prepkit
+sys.path[:0] = [str(pack / "blk-fix" / "lib"), str(pack / ".shared" / "core")]
+import graphmap, lanekit, yaml
 lanekit.MAX_LANES = int(sys.argv[2])
 got = {}
-for _, workflow, r in prepkit.receive_rows(pack):
+for _, workflow, r in graphmap.receive_rows(pack, yaml.safe_load):
     if workflow == "blk-fix":
         got.setdefault(r.role, set()).add(str(r.section).splitlines()[0])
 print(json.dumps({k: sorted(v) for k, v in got.items()}))

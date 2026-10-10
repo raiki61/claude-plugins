@@ -5,7 +5,7 @@
   uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py check <pack> [<入口の名>…]
 
 pack の宣言 archon-plugin.json の entrypoints の入口ごとに、部品 .shared/core/graphmap の build で地図の元を組み、その地図の元と
-受け手の表の行（各モジュールの RECEIVES。読み口は tests/prepkit.py の receive_rows）から design で設計図を組む（入口の名を
+受け手の表の行（各モジュールの RECEIVES。読み口は core の graphmap.receive_rows）から design で設計図を組む（入口の名を
 省けば全部）。build は書き、check は書かずに、今の YAML と宣言から組んだ物と字で違う（か無い）ファイルを名指して終了コード 1 で抜ける。
 YAML か宣言を替えたら build で書き直す（包みは古い元の地図を足さない。試験 tests/test_graphmap.py が古い元と古い設計図を赤にする）。
 pack のモジュールは標準ライブラリだけなので、YAML を読む PyYAML はこの道具が渡す。
@@ -19,12 +19,9 @@ import re
 import sys
 
 sys.dont_write_bytecode = True
-_PACK = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_PACK / ".shared" / "core"))
-sys.path.insert(0, str(_PACK / "tests"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / ".shared" / "core"))
 
 import graphmap  # noqa: E402
-import prepkit  # noqa: E402
 
 LACK = "設計に無い"
 _DRAWN = frozenset({"ai", "ai-loop", "call", "approval"})   # 図に描く節（役・呼び・関所）。機械の節は描かず、順はその先へたどる
@@ -183,6 +180,11 @@ def design(graph: dict, rows) -> str:
     return "\n".join(out)
 
 
+def design_path(pack: pathlib.Path, name: str) -> pathlib.Path:
+    """入口 name の設計図のファイル（<pack>/docs/<入口の名>-design.md）"""
+    return pathlib.Path(pack) / "docs" / f"{name}-design.md"
+
+
 def main(argv) -> int:
     for stream in (sys.stdout, sys.stderr):   # 場所の設定が ASCII・cp1252 でも日本語の行で落ちない
         if hasattr(stream, "reconfigure"):
@@ -200,12 +202,12 @@ def main(argv) -> int:
         print(f"graphmap_build: 入口に無い名 {', '.join(unknown)}（在るのは {', '.join(sorted(eps))}）", file=sys.stderr)
         return 2
     resolve = graphmap.pack_resolver(pack, yaml.safe_load)
-    rows = [(wf, row) for _, wf, row in prepkit.receive_rows(pack)]
+    rows = [(wf, row) for _, wf, row in graphmap.receive_rows(pack, yaml.safe_load)]
     bad = 0
     for name in names:
         graph = graphmap.build(pack / eps[name], resolve, pack, yaml.safe_load)
         for out, text in ((graphmap.graph_path(pack, eps[name]), graphmap.dumps(graph)),
-                          (pack / "docs" / f"{name}-design.md", design(graph, rows))):
+                          (design_path(pack, name), design(graph, rows))):
             if argv[0] == "build":
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(text, encoding="utf-8")

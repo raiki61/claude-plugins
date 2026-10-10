@@ -17,6 +17,8 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - stale(graph, base) -> [相対パス]: sources の sha256 と今のファイルが違う（無い）物。空なら新しい
 - one_graph(pack, has) -> dict: pack の入口ごとの地図の元のうち has(地図の元) が真のちょうど 1 本（古い・読めない・本数が違えば ValueError）
 - markers(graph) -> {印の名: [(工程の名, 節の id)]}
+- receive_rows(pack, parse) -> [(場所, 工程の名, promptsection.Receive)]: 支度のモジュールの表 RECEIVES の行を工程に結ぶ。ブロックの lib の
+  行はそのブロック、core の行は今の YAML から組んだ地図で役を印に持つちょうど 1 つの工程（0 か 2 つ以上なら ValueError）
 - seat(graph, name) -> (根の印の名, 会話を共にする印の名の集合)
 - render(graph, name, off=None, budget=MAP_BUDGET) -> str: 印 name の節を ★ にした地図の文。off は切った切り替えの語の集合
   （None は分からない）。budget は字数の枠（None は枠なし）
@@ -274,6 +276,37 @@ def markers(graph: dict) -> Dict[str, List[Tuple[str, str]]]:
         for n in _walk(doc["nodes"]):
             if "marker" in n:
                 out.setdefault(n["marker"], []).append((wf, n["id"]))
+    return out
+
+
+def _role_homes(pack: pathlib.Path, parse: Callable[[str], object]) -> Dict[str, Set[str]]:
+    """役の印の名 → それを持つ工程の名の集まり（pack の入口ごとに今の YAML から組んだ地図の印から）"""
+    resolve = pack_resolver(pack, parse)
+    homes: Dict[str, Set[str]] = {}
+    for rel in entrypoints(pack).values():
+        for marker, places in markers(build(pathlib.Path(pack) / rel, resolve, pack, parse)).items():
+            homes.setdefault(marker, set()).update(wf for wf, _ in places)
+    return homes
+
+
+def receive_rows(pack: pathlib.Path, parse: Callable[[str], object]) -> List[Tuple[pathlib.Path, str, promptsection.Receive]]:
+    """(読んだ物の場所, 工程の名, 行): 各ブロックの lib（と、指示書を core のモジュールが組む役の core のモジュール）の表 RECEIVES の行
+    （支度のモジュールは promptsection.declaring_files・load で読む）。lib の行の工程はそのブロック、core の行の工程は、行の役を印に持つ
+    ちょうど 1 つの工程（今の YAML から組んだ地図の印から引く。0 か 2 つ以上なら ValueError）。parse は yaml.safe_load"""
+    pack = pathlib.Path(pack).resolve()
+    out, homes = [], None
+    for p in promptsection.declaring_files(pack):
+        in_lib = p.parent.name == "lib" and p.parent.parent.name.startswith("blk-")
+        if not (in_lib or p.parent == pack / ".shared" / "core"):
+            continue
+        for row in getattr(promptsection.load(pack, p), "RECEIVES", ()):
+            if in_lib:
+                out.append((p, p.parent.parent.name, row))
+                continue
+            homes = homes if homes is not None else _role_homes(pack, parse)
+            if len(homes.get(row.role, ())) != 1:
+                raise ValueError(f"{p.relative_to(pack)} の RECEIVES の行の役 {row.role!r} が、1 つの工程の役として graph に無い")
+            out.append((p, next(iter(homes[row.role])), row))
     return out
 
 

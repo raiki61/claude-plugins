@@ -18,7 +18,7 @@ docs/plans/2026-10-07-graph-map.md）の検査。
   fence に残す。graph_map が切られた run・古い元・繋げない起動は足さずに理由を残して起こす。required の行が作れなければ拒む
 - 節の宣言（.shared/core/promptsection.py）: 支度のモジュールの見出しの字面は Section の宣言の中だけ。宣言の出どころが解ける。
   受け手の表 RECEIVES の行が引けて、工程ごとに現物と合う（役ごとは各ブロックの試験が描いた指示書を tests/prepkit.py の drawn が照らす）。
-  支度のモジュールは tests/prepkit.py で場所から読む
+  支度のモジュールは promptsection の読み口（prep_files・load）で場所から読み、受け手の表の行は graphmap.receive_rows で引く
 git なし。子のプロセスは地図の元を書く道具 dev/graphmap_build.py を python3 で 6 本起こすだけ。
 """
 import ast
@@ -51,7 +51,7 @@ import graphmap  # noqa: E402
 import graphmap_build  # noqa: E402
 import hermetic  # noqa: E402
 import node_marker  # noqa: E402
-import prepkit  # noqa: E402
+import promptsection  # noqa: E402
 
 
 
@@ -118,16 +118,16 @@ _PREP_MODULES: dict = {}
 
 
 def load_prep(path: pathlib.Path):
-    """支度のモジュールを場所から読む（読み口は tests/prepkit.py の load。読んだ物は試験の間取っておく）"""
+    """支度のモジュールを場所から読む（読み口は promptsection.load。読んだ物は試験の間取っておく）"""
     key = path.resolve()
     if key not in _PREP_MODULES:
-        _PREP_MODULES[key] = prepkit.load(ROOT, key)
+        _PREP_MODULES[key] = promptsection.load(ROOT, key)
     return _PREP_MODULES[key]
 
 
 def import_named(name: str, near: pathlib.Path):
-    """`<モジュール>` の名で引く（core か読む物の隣。道は prepkit.import_path）"""
-    with prepkit.import_path(ROOT, near):
+    """`<モジュール>` の名で引く（core か読む物の隣。道は promptsection.import_path）"""
+    with promptsection.import_path(ROOT, near):
         return importlib.import_module(name)
 
 
@@ -139,7 +139,7 @@ def all_sections() -> list:
         raise AssertionError(f"promptsection が読めない: {e}") from None
     if not hasattr(promptsection, "declared_sections"):
         raise AssertionError("promptsection.declared_sections が無い")
-    return [(p, name, val) for p in prepkit.declaring_files(ROOT) for name, val in promptsection.declared_sections(load_prep(p))]
+    return [(p, name, val) for p in promptsection.declaring_files(ROOT) for name, val in promptsection.declared_sections(load_prep(p))]
 
 
 def used_in_code(path: pathlib.Path, mod) -> tuple:
@@ -587,10 +587,10 @@ class RealLineCase(unittest.TestCase):
 
     def test_design_file_is_fresh(self):
         """設計図 docs/<入口>-design.md は、今の地図の元と受け手の表の行から作り直した物と同じ（替えたら build で書き直す）"""
-        rows = [(wf, row) for _, wf, row in prepkit.receive_rows(ROOT)]
+        rows = [(wf, row) for _, wf, row in graphmap.receive_rows(ROOT, yaml.safe_load)]
         for name, rel in graphmap.entrypoints(ROOT).items():
             with self.subTest(name):
-                path = ROOT / "docs" / f"{name}-design.md"
+                path = graphmap_build.design_path(ROOT, name)
                 self.assertTrue(path.is_file(), f"{path} が無い")
                 self.assertEqual(path.read_text(encoding="utf-8"), graphmap_build.design(graphmap.load(graphmap.graph_path(ROOT, rel)), rows),
                                  f"{path.name} が古い。`uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で書き直す")
@@ -700,7 +700,7 @@ class RealLineCase(unittest.TestCase):
         `<名> = promptsection.Section(...)` の最初の引数に在る。見出しを貼るのでなく読む所（re の関数・str の照らしの method の引数・
         比べの項）は外す"""
         bad = []
-        for p in prepkit.prep_files(ROOT):
+        for p in promptsection.prep_files(ROOT):
             tree = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
             skip = docstring_constants(tree) | reading_nodes(tree) | declared_constants(tree)
             for n in ast.walk(tree):
@@ -739,11 +739,11 @@ class RealLineCase(unittest.TestCase):
                     self.assertTrue(callable(target), f"{where}: {rest} が関数として引けない")
 
     def test_receives_match_the_code(self):
-        """受け手の役の側の表 RECEIVES（その役の指示書を組むモジュールの直下）の行を、prepkit.receive_rows で読む（ブロックの lib の
+        """受け手の役の側の表 RECEIVES（その役の指示書を組むモジュールの直下）の行を、graphmap.receive_rows で読む（ブロックの lib の
         行はそのブロックの、指示書を組む core のモジュールの行は役を印に持つちょうど 1 つの工程の行）。各行: role はその工程の graph の
         印の名に在り、入る条件の関数（when。省いた行は節の出どころ fn: の関数）が引ける。機械が貼る Section（human の無い物）はどれも、
         少なくとも 1 つのブロックの RECEIVES の行に在る（受け手の無い貼る節は落ちる）。逆の向きも工程ごとに照らす: 支度のモジュール
-        （prepkit.PREP_GLOBS のブロックの lib・scripts と、RECEIVES を持つ core のモジュール）が機械が貼る Section の定数を使えば
+        （promptsection.prep_files のうちブロックの lib・scripts と、RECEIVES を持つ core のモジュール）が機械が貼る Section の定数を使えば
         その節の行が、ほかの行の when に名指された関数を呼べばその関数の節のどれかの行が、その工程の RECEIVES に在る（別のブロックが
         同じ節を貼り始めて行が増えないまま緑、を落とす。関数が役によって貼り分ける節のどれを受けるかは、役ごとの照らしが見る）。役ごとの照らしは、各ブロックの試験が描いた指示書で prepkit.drawn が見る"""
         g = real_graph()
@@ -751,9 +751,9 @@ class RealLineCase(unittest.TestCase):
         for marker, places in graphmap.markers(g).items():
             for wf, _ in places:
                 roles.setdefault(wf, set()).add(marker)
-        rows = [(block, p, r) for p, block, r in prepkit.receive_rows(ROOT)]   # (工程, 読んだ物の場所, 行)
+        rows = [(block, p, r) for p, block, r in graphmap.receive_rows(ROOT, yaml.safe_load)]   # (工程, 読んだ物の場所, 行)
         self.assertTrue(rows, "RECEIVES の行が 1 つも無い")
-        blocks = [p for pat in prepkit.PREP_GLOBS if pat.startswith("blk-") for p in sorted(ROOT.glob(pat))]
+        blocks = [p for p in promptsection.prep_files(ROOT) if p.parent.parent.name.startswith("blk-")]
         homes = sorted({*((p, p.parent.parent.name) for p in blocks), *((p, block) for block, p, _ in rows)})
         listed = set()
         by_block = {}    # ブロック → 受ける節の字
