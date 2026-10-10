@@ -12,6 +12,7 @@
 - pack の中に __pycache__ を作らない（試験が持つ写しの pack で見る）
 孫の生死はプロセスグループ（コマンドの sh の pid と同じ番号）が空かで見る。グループの外へ出た孫は、孫が書いた pid で見る。
 """
+import json
 import os
 import pathlib
 import shlex
@@ -29,8 +30,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 TREE_RUN = ROOT / ".shared" / "core" / "tree_run.py"
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 sys.path.insert(0, str(TREE_RUN.parent))
+sys.path.insert(0, str(ROOT / "tests"))
 
+import gitkit  # noqa: E402
+import script_io  # noqa: E402
 import tree_run  # noqa: E402
+import webget  # noqa: E402
+
+RERUN = "GRAPHLOOPS_RERUN_CHECKS"   # 本流の引かずに走らせる旗と同じ名
 
 
 def group_gone(pgid, within):
@@ -489,6 +496,355 @@ class CommandArgvCase(unittest.TestCase):
     def test_launch_kind_reads_126_127_as_red(self):
         self.assertEqual([tree_run.launch_kind(c) for c in (None, 0, 1, 126, 127)],
                          ["broken", "clean", "red", "red", "red"])
+
+
+class SlotReuseCase(unittest.TestCase):
+    """slotted_run の結果の使い回し: 同じ run の中で、同じ git の木・同じ argv・同じ環境の 2 度目は子を起こさない。
+    置き場は run の盤面（ARTIFACTS_DIR）の下で、別の run は引かない。本物の git と本物の子のプロセスで試す"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        (self.repo / "a.txt").write_text("1\n", encoding="utf-8")
+        (self.repo / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+        gitkit.git(self.repo, "init", "-q")
+        gitkit.git(self.repo, "add", "-A")
+        gitkit.git(self.repo, "commit", "-q", "-m", "seed")
+        self.count = self.tmp / "count"
+        self.home = self.tmp / "home"
+        self.art = self.tmp / "artifacts" / "run-a"
+        self.env = {"PATH": os.environ["PATH"], "WORKS_TESTSLOT": "", webget.SHARED_ENV: str(self.home),
+                    "ARTIFACTS_DIR": str(self.art)}
+        self.n = 0
+        outer = mock.patch.dict(os.environ, {}, clear=False)
+        outer.start()
+        self.addCleanup(outer.stop)
+        os.environ.pop(RERUN, None)
+
+    def launch(self, argv=None, *, env=None, outputs=(), cwd=None):
+        """slotted_run を 1 回呼ぶ ——（終了コード, 出力, note）。argv の既定は count に 1 行足して out/err を書く sh"""
+        argv = argv or ["sh", "-c", f'echo 1 >> {self.count}; echo out; echo err >&2']
+        note = {}
+        self.n += 1
+        log = self.tmp / f"log-{self.n}"
+        with open(log, "wb") as f:
+            rc, _ = tree_run.slotted_run(argv, env or self.env, outputs=outputs, note=note, stdin=subprocess.DEVNULL,
+                                         stdout=f, stderr=subprocess.STDOUT, cwd=str(cwd or self.repo))
+        return rc, log.read_bytes(), note
+
+    def fresh(self, name):
+        """別の検査のために、数えのファイルと run の置き場を新しくする（同じ試験の中で検査を重ねる）"""
+        self.count = self.tmp / f"count-{name}"
+        self.env = {**self.env, "ARTIFACTS_DIR": str(self.tmp / "artifacts" / name)}
+
+    def launched(self):
+        return len(self.count.read_text(encoding="utf-8").split()) if self.count.exists() else 0
+
+    def test_second_identical_run_does_not_launch(self):
+        rc1, out1, note1 = self.launch()
+        rc2, out2, note2 = self.launch()
+        self.assertEqual((rc1, rc2, self.launched()), (0, 0, 1))
+        self.assertEqual(out1, out2)
+        self.assertIn(b"out", out2)
+        self.assertNotIn("reused", note1)
+        self.assertEqual(set(note2["reused"]), {"at", "took_s", "key", "entry", "from"})
+        self.assertEqual(note2["reused"]["from"], "run-a")
+        self.assertTrue(pathlib.Path(note2["reused"]["entry"]).is_file())
+        # 木のファイルを 1 字変える・環境の値を 1 つ変えると走らせる
+        (self.repo / "a.txt").write_text("2\n", encoding="utf-8")
+        self.launch()
+        self.assertEqual(self.launched(), 2)
+        self.launch(env={**self.env, "SOME_FLAG": "x"})
+        self.assertEqual(self.launched(), 3)
+        # .gitignore に当たるファイルの変更は木に入らない
+        (self.repo / "ignored").mkdir()
+        (self.repo / "ignored" / "x").write_text("x", encoding="utf-8")
+        self.launch()
+        self.assertEqual(self.launched(), 3)
+        for name in ("without_home_or_run_it_always_launches", "other_run_does_not_reuse", "merged_consumer_gets_both_streams",
+                     "outputs_are_written_back"):
+            with self.subTest(name):
+                self.fresh(name)
+                getattr(self, f"check_{name}")()
+
+    def test_entry_lives_under_run_board(self):
+        """控えは run の盤面の下（ARTIFACTS_DIR/board/test-reuse）に置く: 包みの家の下には何も作らない"""
+        self.launch()
+        _, _, note = self.launch()
+        self.assertEqual(self.launched(), 1)
+        entry = pathlib.Path(note["reused"]["entry"])
+        self.assertTrue(entry.is_file())
+        self.assertEqual(entry.parent, self.art / script_io.BOARD_DIR / tree_run.REUSE_SUB)
+        self.assertFalse((self.home / tree_run.REUSE_SUB).exists())
+
+    def check_without_home_or_run_it_always_launches(self):
+        """置き場は run の盤面の下なので、ARTIFACTS_DIR が無い呼びは 2 度とも走らせ、家が無い・相対の呼びは 2 度目を使い回す"""
+        env = {k: v for k, v in self.env.items() if k != "ARTIFACTS_DIR"}
+        self.launch(env=env)
+        _, _, note = self.launch(env=env)
+        self.assertEqual(self.launched(), 2)
+        self.assertNotIn("reused", note)
+        for name, home in (("no_home", None), ("relative_home", "relative/home")):
+            with self.subTest(name):
+                self.fresh(name)
+                env = {k: v for k, v in self.env.items() if k != webget.SHARED_ENV}
+                if home:
+                    env[webget.SHARED_ENV] = home
+                self.launch(env=env)
+                _, _, note = self.launch(env=env)
+                self.assertEqual(self.launched(), 1)
+                self.assertIn("reused", note)
+
+    def check_other_run_does_not_reuse(self):
+        """使い回すのは同じ run の中だけ: 同じ家・同じ木・同じコマンドでも、別の run（ARTIFACTS_DIR の名が違う）は走らせる"""
+        self.launch()
+        _, _, note = self.launch(env={**self.env, "ARTIFACTS_DIR": str(self.tmp / "artifacts" / "run-b")})
+        self.assertEqual(self.launched(), 2)
+        self.assertNotIn("reused", note)
+        self.launch()
+        self.assertEqual(self.launched(), 2)
+
+    def test_red_or_tree_changing_run_is_not_kept(self):
+        red = ["sh", "-c", f'echo 1 >> {self.count}; exit 1']
+        self.assertEqual(self.launch(red)[0], 1)
+        rc, _, note = self.launch(red)
+        self.assertEqual((rc, self.launched()), (1, 2))
+        self.assertIn("reuse_off", note)
+        self.assertNotIn("reused", note)
+        # .gitignore の外にファイルを作る回は、緑でも置かない
+        make = ["sh", "-c", f'echo 1 >> {self.count}; echo x > made.txt']
+        _, _, note = self.launch(make)
+        self.assertIn("reuse_off", note)
+        (self.repo / "made.txt").unlink()
+        self.launch(make)
+        (self.repo / "made.txt").unlink()
+        self.assertEqual(self.launched(), 4)
+        with self.subTest("not_a_git_tree_launches_and_says_why"):
+            self.fresh("not_a_git_tree")
+            self.check_not_a_git_tree_launches_and_says_why()
+
+    def test_rerun_flag_runs_and_keeps_writing(self):
+        show = ["sh", "-c", f'echo 1 >> {self.count}; env']
+        with mock.patch.dict(os.environ, {RERUN: "1"}):
+            _, out1, _ = self.launch(show)
+            _, out2, note2 = self.launch(show)
+        self.assertEqual(self.launched(), 2)
+        self.assertNotIn("reused", note2)
+        self.assertNotIn(RERUN.encode(), out1 + out2)
+        # 旗を外した次の呼びは、旗の下で書いた結果に当たる
+        _, _, note3 = self.launch(show)
+        self.assertEqual(self.launched(), 2)
+        self.assertIn("reused", note3)
+
+    def test_per_node_vars_do_not_split_key_and_are_not_passed(self):
+        show = ["sh", "-c", f'echo 1 >> {self.count}; env']
+        first = {**self.env, "ARCHON_NODE_EXECUTION": "a", "INPUTS_X": "1", "ARCHON_HOME": "/h"}
+        second = {**self.env, "ARCHON_NODE_EXECUTION": "b", "INPUTS_X": "2"}
+        _, out, _ = self.launch(show, env=first)
+        _, _, note = self.launch(show, env=second)
+        self.assertEqual(self.launched(), 1)
+        self.assertIn("reused", note)
+        seen = {line.split(b"=", 1)[0] for line in out.splitlines() if b"=" in line}
+        self.assertFalse({n for n in seen if n.startswith((b"ARCHON_", b"INPUTS_"))}, seen)
+        self.assertNotIn(webget.SHARED_ENV.encode(), seen)
+        self.assertIn(b"ARTIFACTS_DIR", seen)
+
+    def test_tool_change_splits_key(self):
+        script = self.tmp / "tool.sh"
+        script.write_text(f"#!/bin/sh\necho 1 >> {self.count}\n", encoding="utf-8")
+        script.chmod(0o755)
+        self.launch([str(script)])
+        self.launch([str(script)])
+        self.assertEqual(self.launched(), 1)
+        script.write_text(f"#!/bin/sh\necho 1 >> {self.count}\necho changed\n", encoding="utf-8")
+        self.launch([str(script)])
+        self.assertEqual(self.launched(), 2)
+
+    def check_merged_consumer_gets_both_streams(self):
+        """標準出力と標準エラーを別のファイルに受けた回の控えは、標準エラーを標準出力に併せる呼び手（TDD の輪の頭など）にも両方届く。
+        逆に併せた回の控えを別々に受ける呼び手には、併せた出力が標準出力に、標準エラーは空で届く"""
+        argv = ["sh", "-c", f'echo 1 >> {self.count}; echo to-out; echo to-err >&2']
+        out, err = self.tmp / "split.out", self.tmp / "split.err"
+        with open(out, "wb") as o, open(err, "wb") as e:
+            tree_run.slotted_run(argv, self.env, stdin=subprocess.DEVNULL, stdout=o, stderr=e, cwd=str(self.repo))
+        rc, merged, note = self.launch(argv)
+        self.assertEqual((rc, self.launched()), (0, 1))
+        self.assertIn("reused", note)
+        self.assertEqual(sorted(merged.split()), [b"to-err", b"to-out"])
+        (self.repo / "a.txt").write_text("3\n", encoding="utf-8")
+        self.launch(argv)
+        out2, err2 = self.tmp / "again.out", self.tmp / "again.err"
+        with open(out2, "wb") as o, open(err2, "wb") as e:
+            tree_run.slotted_run(argv, self.env, stdin=subprocess.DEVNULL, stdout=o, stderr=e, cwd=str(self.repo))
+        self.assertEqual(self.launched(), 2)
+        self.assertEqual(sorted(out2.read_bytes().split()), [b"to-err", b"to-out"])
+        self.assertEqual(err2.read_bytes(), b"")
+
+    def check_outputs_are_written_back(self):
+        report = self.tmp / "report.xml"
+        argv = ["sh", "-c", f'echo 1 >> {self.count}; echo "<r/>" > {report}']
+        self.launch(argv, outputs=(report,))
+        report.unlink()
+        _, _, note = self.launch(argv, outputs=(report,))
+        self.assertEqual(self.launched(), 1)
+        self.assertIn("reused", note)
+        self.assertEqual(report.read_text(encoding="utf-8"), "<r/>\n")
+
+    def check_not_a_git_tree_launches_and_says_why(self):
+        plain = self.tmp / "plain"
+        plain.mkdir()
+        self.launch(cwd=plain)
+        _, _, note = self.launch(cwd=plain)
+        self.assertEqual(self.launched(), 2)
+        self.assertIn("reuse_off", note)
+
+    def launch_new(self, argv=None, *, env=None, outputs=(), **extra):
+        """launch と同じに slotted_run を 1 回呼ぶ。足した引数（skip など）を渡す。呼びが例外を上げたら試験の失敗として読める形で返す
+        ——（終了コード, 出力, note）"""
+        argv = argv or ["sh", "-c", f'echo 1 >> {self.count}; echo out; echo err >&2']
+        note = {}
+        self.n += 1
+        log = self.tmp / f"log-{self.n}"
+        try:
+            with open(log, "wb") as f:
+                rc, _ = tree_run.slotted_run(argv, env or self.env, outputs=outputs, note=note, stdin=subprocess.DEVNULL,
+                                             stdout=f, stderr=subprocess.STDOUT, cwd=str(self.repo), **extra)
+        except Exception as e:   # noqa: BLE001  試験の本文の失敗として読ませる（変異の実行器が見分ける）
+            self.fail(f"slotted_run が例外を上げた: {type(e).__name__}: {e}")
+        return rc, log.read_bytes(), note
+
+    def entry_of(self, note):
+        return pathlib.Path(note["reused"]["entry"])
+
+    def rewrite_entry(self, path, edit):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        edit(doc)
+        path.write_text(json.dumps(doc), encoding="utf-8")
+
+    def test_skip_runs_child_and_keeps_writing(self):
+        _, _, note1 = self.launch_new()
+        self.assertEqual(self.launched(), 1)
+        rc, _, note2 = self.launch_new(skip="呼び手の都合で引かない")
+        self.assertEqual((rc, self.launched()), (0, 2))
+        self.assertNotIn("reused", note2)
+        self.assertIn("呼び手の都合で引かない", note2.get("reuse_off", ""))
+        _, _, note3 = self.launch_new()
+        self.assertEqual(self.launched(), 2)
+        self.assertIn("reused", note3)
+
+    def test_broken_entry_runs_child_and_says_why(self):
+        report = self.tmp / "report.xml"
+
+        def broken_base64(doc):
+            doc["out"] = "!!broken!!"
+
+        def longer_files(doc):
+            doc["files"] = doc["files"] + [None]
+
+        def missing_out(doc):
+            del doc["out"]
+
+        for name, edit, word in (("broken_base64", broken_base64, "base64"), ("files_length", longer_files, "files"),
+                                 ("missing_field", missing_out, "KeyError")):
+            with self.subTest(name):
+                self.fresh(name)
+                argv = ["sh", "-c", f'echo 1 >> {self.count}; echo out; echo "<r/>" > {report}']
+                self.launch_new(argv, outputs=(report,))
+                _, _, note2 = self.launch_new(argv, outputs=(report,))
+                self.assertEqual(self.launched(), 1)
+                self.rewrite_entry(self.entry_of(note2), edit)
+                rc, log, note3 = self.launch_new(argv, outputs=(report,))
+                self.assertEqual((rc, self.launched()), (0, 2))
+                self.assertNotIn("reused", note3)
+                self.assertEqual(log, b"out\n")
+                self.assertIn(word, note3.get("reuse_off", ""))
+
+    def test_red_entry_is_not_reused(self):
+        """控えの JSON の終了コードを手で 1 に書き換えると、同じ呼びは控えを引かずに子を起こし、緑でないと名指す"""
+        self.launch_new()
+        _, _, note2 = self.launch_new()
+        self.assertEqual(self.launched(), 1)
+        self.rewrite_entry(self.entry_of(note2), lambda doc: doc.update(exit=1))
+        rc, _, note3 = self.launch_new()
+        self.assertEqual((rc, self.launched()), (0, 2))
+        self.assertNotIn("reused", note3)
+        self.assertIn("緑でない", note3.get("reuse_off", ""))
+
+    def test_entry_with_other_material_is_not_reused(self):
+        """材料（指紋の元）の違う控えを同じ名に置いても、同じ呼びは控えを引かずに子を起こし、材料が違うと名指す"""
+        self.launch_new()
+        _, _, note2 = self.launch_new()
+        self.assertEqual(self.launched(), 1)
+        self.rewrite_entry(self.entry_of(note2), lambda doc: doc["material"].update(os="other-os"))
+        rc, _, note3 = self.launch_new()
+        self.assertEqual((rc, self.launched()), (0, 2))
+        self.assertNotIn("reused", note3)
+        self.assertIn("材料", note3.get("reuse_off", ""))
+
+    def test_entry_without_time_runs_child_without_partial_replay(self):
+        report = self.tmp / "report.xml"
+        argv = ["sh", "-c", f'echo 1 >> {self.count}; echo out; echo "<r/>" > {report}']
+        self.launch_new(argv, outputs=(report,))
+        _, _, note2 = self.launch_new(argv, outputs=(report,))
+        self.rewrite_entry(self.entry_of(note2), lambda doc: doc.pop("at"))
+        rc, log, note3 = self.launch_new(argv, outputs=(report,))
+        self.assertEqual((rc, self.launched()), (0, 2))
+        self.assertEqual(log.count(b"out"), 1, log)
+        self.assertNotIn("reused", note3)
+        self.assertTrue(note3.get("reuse_off"), note3)
+
+    def test_writeback_failure_restores_log(self):
+        report = self.tmp / "report.xml"
+        argv = ["sh", "-c", f'echo 1 >> {self.count}; echo out; [ -d {report} ] || echo "<r/>" > {report}']
+        self.launch_new(argv, outputs=(report,))
+        report.unlink()
+        report.mkdir()   # 書き戻し先がディレクトリ: IsADirectoryError
+        rc, log, note = self.launch_new(argv, outputs=(report,))
+        self.assertEqual((rc, self.launched()), (0, 2))
+        self.assertNotIn("reused", note)
+        self.assertEqual(log, b"out\n")
+        self.assertNotIn(b"\x00", log)
+        self.assertTrue(note.get("reuse_off"), note)
+
+    def test_writeback_reason_names_what_could_not_be_undone(self):
+        """書き戻しの失敗の片付けが効かなかった時、理由は『戻した』と言い切らず、戻せなかったパスを名指す"""
+        first, blocked = self.tmp / "first.xml", self.tmp / "blocked"
+        blocked.mkdir()   # 2 つ目の書き先がディレクトリ: 1 つ目を書いた後で IsADirectoryError
+        entry = {"files": [b"<r/>", b"<r/>"], "std": [b"", b""]}
+        with mock.patch.object(tree_run.os, "unlink", side_effect=PermissionError("no")):
+            why = tree_run._write_back([((first, blocked), entry)], [{}])
+        self.assertIn("戻せなかった", why)
+        self.assertIn(str(first), why)
+        self.assertNotIn("書いた分は戻した", why)
+        first.unlink()
+        self.assertIn("書いた分は戻した", tree_run._write_back([((first, blocked), entry)], [{}]))
+        self.assertFalse(first.exists())
+
+    def test_plain_miss_names_key(self):
+        _, _, first = self.launch_new()
+        _, _, second = self.launch_new()
+        head = second["reused"]["key"][:12]
+        self.assertRegex(first.get("reuse_off", ""), "同じ指紋の控えが無い")
+        self.assertIn(head, first.get("reuse_off", ""))
+        self.fresh("without_run")
+        _, _, plain = self.launch_new(env={k: v for k, v in self.env.items() if k != "ARTIFACTS_DIR"})
+        self.assertNotIn("reuse_off", plain)
+
+    def test_entry_from_other_run_copy_is_not_reused(self):
+        self.launch_new()
+        _, _, note2 = self.launch_new()
+        self.assertEqual(self.launched(), 1)
+        src = self.entry_of(note2).parent
+        dst = pathlib.Path(str(src).replace("run-a", "run-b"))
+        self.assertNotEqual(src, dst)
+        shutil.copytree(src, dst)   # 固定材料の写しと同じに、置き場を丸ごと別の run の場所へ
+        rc, _, note = self.launch_new(env={**self.env, "ARTIFACTS_DIR": str(self.tmp / "artifacts" / "run-b")})
+        self.assertEqual((rc, self.launched()), (0, 2))
+        self.assertNotIn("reused", note)
+        self.assertIn("run-a", note.get("reuse_off", ""))
 
 
 if __name__ == "__main__":

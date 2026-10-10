@@ -1,4 +1,4 @@
-"""コマンドを自分のプロセスグループで走らせ、止めるときは木ごと止める殻（標準ライブラリだけ）。
+"""コマンドを自分のプロセスグループで走らせ、止めるときは木ごと止める殻（標準ライブラリと、同じ層の unittrees・webget だけ）。
 
 Archon は節を止める（Ctrl-C・SIGTERM・期限）とき直下の子だけを止め、テストが背景に起こした孫は生き残って
 作業ツリーに書き続ける（試作で実測: 期限の 2 分後に孫の subshell がファイルを書いた）。graphloops の
@@ -29,18 +29,32 @@ engine/role_run.py（_tree_members・_stop_tree。本線 9f91687 = graphloops 0.
 128+受けた信号（直下の親が消えた回は SIGHUP）、コマンドが空なら 2。関数として使う側は run(argv, **Popen の引数) を呼ぶ。
 子に渡す環境は outside_env(os.environ) で uv run の外の形にする（blk-tests の run_tests と盤面の tree_runner。台帳 R23。
 決まりを 1 か所に置くのは、線の CI と engine_run の CI で同じ宣言が片方だけ偽の赤になるのを防ぐため）。
+重い試験を起こす口 slotted_run は、同じ run の中で同じ指紋（作業ツリーの木・argv・環境・道具）の緑を使い回す。控えは run の盤面の下に置く（説明は slotted_run）。
 """
+import base64
 import collections
+import datetime
 import errno
+import hashlib
+import json
+import math
 import os
 import pathlib
+import platform
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+
+sys.dont_write_bytecode = True   # 下の import が（python3 tree_run.py で起こした時に）pack の中へ __pycache__ を作らないように
+
+import script_io  # noqa: E402  （層 L1。盤面の名 BOARD_DIR）
+import unittrees  # noqa: E402  （層 L1。作業ツリーの木の sha）
+import webget  # noqa: E402  （層 L1。控え Store と、子に渡さない家の変数 SHARED_ENV）
 
 KILL_GRACE = 2    # SIGTERM から SIGKILL までの猶予（秒）。Archon の cancel の猶予（SIGTERM → 5 秒 → SIGKILL）より短くする:
                   # 同じ 5 秒だと、SIGTERM を無視する孫へ SIGKILL を送る前に殻が Archon に殺され、孫が残った（試し P11）
@@ -411,35 +425,379 @@ def run(argv, **popen_kw):
 SLOTWRAP = pathlib.Path(__file__).resolve().parent / "slotwrap.sh"
 SLOT_NOTE_ENV = "WORKS_SLOT_NOTE"
 SLOT_MARK_ENV = "WORKS_SLOT_MARK"
-SLOT_MARK = "testslot.json"   # 盤面（$ARTIFACTS_DIR/board。script_io.BOARD_DIR と同じ名）の中の、枠を待つ・中の印
+SLOT_MARK = "testslot.json"   # 盤面（$ARTIFACTS_DIR/script_io.BOARD_DIR）の中の、枠を待つ・中の印
+BOARD_SUB = script_io.BOARD_DIR   # 盤面の名の別名（値は script_io が持つ）
+NOTE_KEYS = ("reused", "reuse_off")   # slotted_run の note の欄。行と状態へ写す口は note_fields
+
+REUSE_SUB = "test-reuse"                  # 試験の結果の控えの置き場の名（盤面 BOARD_SUB の下。同じ run の中でしか引かない）
+REUSE_SCHEMA = "works-test-reuse/1"
+RERUN_ENV = "GRAPHLOOPS_RERUN_CHECKS"     # 本流の引かずに走らせる旗と同じ名。engine 側の環境に立てる（子には渡さない）
+NODE_ENV_PREFIXES = ("ARCHON_", "INPUTS_")   # 節ごとに変わる変数（Archon が節に立てる）。tests/hermetic.sh が試験の入口で落とすのと同じ接頭辞
+# 指紋から外す環境変数: シェルの状態・接続と端末の識別子・起こした会話の識別子で、結果に効かない物だけ。迷う変数は入れる側に倒す
+IGNORED_ENV = frozenset({
+    "_", "PWD", "OLDPWD", "SHLVL",
+    "SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY", "SSH_AUTH_SOCK",
+    "TERM_SESSION_ID", "ITERM_SESSION_ID", "WINDOWID", "TMUX", "TMUX_PANE", "STY", "SESSIONNAME",
+    "VSCODE_GIT_IPC_HANDLE", "VSCODE_IPC_HOOK_CLI",
+    "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+})
 
 
-def slotted_run(argv, env, **popen_kw):
-    """run の中で重い試験（engine の宣言の段・test_cmd・blk-tests の plain と mid・TDD の輪と修正の受け付けの実行器）を起こす唯一の口: argv を機械全体の試験の枠
+def child_env(env) -> dict:
+    """slotted_run が子に渡す環境: 節ごとに変わる ARCHON_*・INPUTS_*、包みの家（webget.SHARED_ENV）、旗 RERUN_ENV を外す。
+    外さないと、節が違うだけで指紋が割れるか、外した変数が結果を変えたまま同じ指紋に当たる。家は web の控えの置き場で試験に要らない。
+    試験の結果の控えの置き場は盤面の下に移り、子は ARTIFACTS_DIR から辿れる
+    （試験のコードが置き場のパスを知らないことは、偽の緑を書かせない守りには数えない）"""
+    return {k: v for k, v in env.items() if k not in (webget.SHARED_ENV, RERUN_ENV) and not k.startswith(NODE_ENV_PREFIXES)}
+
+
+def _tool(argv0, cwd, path):
+    """argv[0] の解決先の実パス・大きさ・更新時刻。/ を含む語は cwd から、含まない語は PATH から引く（子と同じ引き方）"""
+    found = str(pathlib.Path(cwd) / argv0) if "/" in argv0 else shutil.which(argv0, path=path)
+    if not found or not os.path.exists(found):
+        return {"argv0": argv0, "missing": True}
+    real = os.path.realpath(found)
+    st = os.stat(real)
+    return {"argv0": argv0, "path": real, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+
+def reuse_material(argv, env, cwd, outputs, tree) -> dict:
+    """結果の使い回しの指紋の材料: 作業ツリーの木の sha（tree）・argv（頭の nice -n N は外す。outputs のパスは <out:i>、cwd の実パスは
+    <cwd>）・OS と CPU の種類とカーネルの版・argv[0] を解決した実パスと大きさと更新時刻・子に渡す env の名ごとの sha256
+    （IGNORED_ENV と ARTIFACTS_DIR と枠の変数を除く。値の中の cwd の字は <cwd>）。env は子に渡す形（child_env の後）。
+    引く時は材料の完全一致を見る——鍵（材料の sha256）は置き場の名にだけ使う"""
+    real = os.path.realpath(cwd)
+
+    def plain(text):
+        for i, out in enumerate(outputs):
+            for form in {str(out), os.path.realpath(out)}:
+                text = text.replace(form, f"<out:{i}>")
+        return text.replace(real, "<cwd>").replace(str(cwd), "<cwd>")
+
+    words = list(argv)
+    if words[:2] == ["nice", "-n"] and len(words) > 3 and words[2].lstrip("-").isdigit():
+        words = words[3:]
+    skip = IGNORED_ENV | {"ARTIFACTS_DIR", SLOT_NOTE_ENV, SLOT_MARK_ENV}
+    return {"format": 1, "tree": tree, "argv": [plain(w) for w in words],
+            "os": platform.system(), "machine": platform.machine(), "kernel": platform.release(),
+            "tool": _tool(words[0], cwd, env.get("PATH", "")),
+            "env": {k: hashlib.sha256(plain(v).encode("utf-8", "surrogateescape")).hexdigest()
+                    for k, v in sorted(env.items()) if k not in skip}}
+
+
+def note_fields(note: dict) -> dict:
+    """slotted_run の note のうち、行と状態へ写す欄（NOTE_KEYS の在る物）。呼び手は欄の名を知らずにこれを写す"""
+    return {k: note[k] for k in NOTE_KEYS if note.get(k)}
+
+
+def reused_text(note: dict) -> str:
+    """使い回した結果の出どころの句（報告に出す）: run <出どころ>・<控えた時刻>・鍵 <頭 12 字>。
+    note（か note_fields を写した行）を受け、reused が無ければ空"""
+    reused = note.get("reused")
+    if not reused:
+        return ""
+    at = datetime.datetime.fromtimestamp(reused["at"]).astimezone().isoformat(timespec="seconds")
+    return f"run {reused['from']}・{at}・鍵 {reused['key'][:12]}"
+
+
+def reuse_phrase(note: dict) -> str:
+    """ログの末尾に書く 1 行: 当たりは『（控えから使った: run …・時刻・鍵 …）』、外れは『（控えを使わない: 理由）』。
+    使い回しの置き場の無い run（どちらの欄も無い）は空"""
+    if note.get("reused"):
+        return f"（控えから使った: {reused_text(note)}）"
+    return f"（控えを使わない: {note['reuse_off']}）" if note.get("reuse_off") else ""
+
+
+def _sink(f, which, why):
+    """子の標準出力か標準エラーの行き先 f から、控えられる形 (パス, 書き始めの位置) を引く。DEVNULL と STDOUT（標準出力に
+    併せる）は控える物が無いので None。引けなければ why に理由を積んで None"""
+    if f is subprocess.DEVNULL or (which == "stderr" and f is subprocess.STDOUT):
+        return None
+    name = getattr(f, "name", None)
+    if not (hasattr(f, "fileno") and "b" in getattr(f, "mode", "") and isinstance(name, str) and os.path.isfile(name)):
+        why.append(f"{which} の行き先が控えられない（バイナリの通常のファイルでない）")
+        return None
+    f.flush()
+    return name, os.fstat(f.fileno()).st_size
+
+
+def new_group(steps, cwd) -> dict:
+    """一式（宣言の段の並び）の使い回しの入れ物。steps は [{name, argv, outputs}]。sha は一式の宣言 [{argv, outputs}] の sha
+    （outputs は cwd からのパス）で、各段の材料の欄 group に入る——段を 1 つずつ呼ぶ呼び手の控えと材料が割れ、一式の控えは replay_group だけが引く。
+    pending は走らせた段の控えの下書き、failed は置かない理由。replay_group が木を取って tree に置く"""
+    decl = [{"argv": list(s["argv"]), "outputs": [os.path.relpath(o, cwd) for o in s["outputs"]]} for s in steps]
+    sha = hashlib.sha256(json.dumps(decl, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"sha": sha, "steps": [dict(s) for s in steps], "tree": None, "cwd": str(cwd), "pending": [], "failed": [], "off": False}
+
+
+def _plan(argv, env, outputs, popen_kw, note, group=None):
+    """使い回しの計画 {store, name, material, key, tree, cwd, sinks, run}。置き場は run の盤面の下（ARTIFACTS_DIR/board/test-reuse）で、
+    ARTIFACTS_DIR が無い・名が空なら None（控えを読まず書かず、今どおり走らせる）。置き場が在って使えない理由が在れば
+    note['reuse_off'] に置いて None。
+    group（new_group の入れ物）が在れば、木は一式で 1 度だけ取った物（group['tree']）を使い、材料の欄 group に一式の sha を入れる"""
+    art = env.get("ARTIFACTS_DIR") or ""
+    run = os.path.basename(art.rstrip(os.sep))
+    if run in ("", ".", ".."):
+        if group is not None:
+            group["off"] = True
+        return None
+    cwd = popen_kw.get("cwd") or os.getcwd()
+    why, sinks = [], []
+    for which in ("stdout", "stderr"):
+        f = popen_kw.get(which)
+        sinks.append(None if f is not None and which == "stderr" and f is popen_kw.get("stdout") else _sink(f, which, why))
+    tree = group["tree"] if group is not None else None
+    if tree is None:
+        try:
+            tree = unittrees.fresh_tree(cwd)
+        except (unittrees.UnitTreeError, OSError) as e:
+            why.append(f"作業ツリーの木が取れない（{cwd}。git の木でない）: {e}"[:300])
+    if why:
+        note["reuse_off"] = "; ".join(why)
+        if group is not None:
+            group["off"] = True
+        return None
+    if group is not None:
+        group["tree"] = tree
+    child = child_env(env)
+    material = {**reuse_material(argv, child, cwd, outputs, tree), "group": group["sha"] if group is not None else ""}
+    key = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"store": webget.Store(pathlib.Path(art) / BOARD_SUB / REUSE_SUB, REUSE_SCHEMA, math.inf), "name": key + ".json", "material": material, "key": key,
+            "tree": tree, "cwd": cwd, "sinks": sinks, "run": run}
+
+
+def _load_entry(plan, outputs):
+    """同じ指紋の緑の控えを引いて確かめ、復号する ——（控え, 理由）。控え = {files（outputs ごとの中身か None）, std（標準出力・標準エラー）,
+    reused（使い回しの行 {at, took_s（控えた時の実行の秒）, key, entry, from}。本流 checks_cache の行の形。時間の欄の名だけ、帳簿の欄の名の柵に
+    散らさないよう took_s。from は控えを書いた run の名）}。使えなければ (None, 理由)。何も書き戻さない"""
+    short = f"鍵 {plan['key'][:12]}"
+    doc = plan["store"].get(plan["name"], time.time())
+    if not doc:
+        if (plan["store"].root / plan["name"]).exists():
+            return None, f"控えが読めない（壊れた JSON・型の違い・時刻 at の欠け。{short}）"
+        return None, f"同じ指紋の控えが無い（{short}）"
+    if doc.get("material") != plan["material"]:
+        return None, f"控えの材料が今と違う（{short}）"
+    if doc.get("exit") != 0:
+        return None, f"控えが緑でない（終了コード {doc.get('exit')}。{short}）"
+    if doc.get("run") != plan["run"]:
+        return None, f"別の run の控えは使わない（控えの run {doc.get('run')}・今の run {plan['run']}。{short}）"
+    files = doc.get("files")
+    if not isinstance(files, list) or len(files) != len(outputs):
+        return None, f"控えの files の長さが outputs と違う（控え {len(files) if isinstance(files, list) else files!r}・今 {len(outputs)}。{short}）"
+    try:
+        decoded = [None if b is None else base64.b64decode(b, validate=True) for b in files]
+        std = [base64.b64decode(doc[k], validate=True) for k in ("out", "err")]
+    except (KeyError, TypeError, ValueError) as e:   # binascii.Error は ValueError
+        return None, f"控えの中身が壊れている（壊れた base64 か欄の欠け: {type(e).__name__}: {e}。{short}）"[:300]
+    return ({"files": decoded, "std": std,
+             "reused": {"at": doc["at"], "took_s": doc.get("took"), "key": plan["key"], "entry": str(plan["store"].root / plan["name"]),
+                        "from": doc["run"]}}, "")
+
+
+def _write_back(entries, popen_kws):
+    """控えの中身を今の場所へ書き戻す。entries は [(outputs, _load_entry の控え)]、popen_kws は同じ並びの子の起こし方
+    （標準出力・標準エラーの行き先 stdout・stderr）。全部を 1 つの try で書き、1 つでも失敗したら書いた outputs を消し、標準出力・標準エラーの
+    行き先を書き始めの位置へ戻して（seek と truncate）理由を返す（全部か無し）。成功なら空"""
+    written, marks = [], {}
+    try:
+        for (outputs, entry), kw in zip(entries, popen_kws):
+            for path, data in zip(outputs, entry["files"]):
+                if data is not None:
+                    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+                    pathlib.Path(path).write_bytes(data)
+                    written.append(path)
+            out, err = kw.get("stdout"), kw.get("stderr")
+            merged = err is subprocess.STDOUT or (err is not None and err is out)   # 標準エラーを標準出力に併せる呼び手には、控えの標準エラーも標準出力へ
+            for data, f in ((entry["std"][0], out), (entry["std"][1], out if merged else err)):
+                if data and f is not None and f is not subprocess.DEVNULL:
+                    if id(f) not in marks:
+                        f.flush()
+                        marks[id(f)] = (f, f.tell())
+                    f.write(data)
+                    f.flush()
+    except (KeyError, TypeError, ValueError, OSError) as e:
+        stuck = []   # 戻せなかった物（理由に載せる。戻せたと言い切らない）
+        for path in written:
+            try:
+                os.unlink(path)
+            except OSError:
+                stuck.append(str(path))
+        for f, pos in marks.values():
+            try:
+                f.seek(pos)
+                f.truncate()
+            except (ValueError, OSError):
+                stuck.append(f"ログの行き先 {getattr(f, 'name', '?')}")
+        undone = f"戻せなかった: {'・'.join(stuck)}" if stuck else "書いた分は戻した"
+        return f"控えの書き戻しに失敗した（{type(e).__name__}: {e}）"[:150] + f"。{undone}"[:300]
+    return ""
+
+
+def _lookup(plan, outputs, popen_kw):
+    """同じ指紋の緑の控えを引き、標準出力・標準エラーと outputs のファイルを今の場所へ書き戻して ——（使い回しの行, 理由）。
+    使えない・書き戻せないなら (None, 理由)"""
+    entry, why = _load_entry(plan, outputs)
+    if entry is None:
+        return None, why
+    why = _write_back([(outputs, entry)], [popen_kw])
+    return (None, why) if why else (entry["reused"], "")
+
+
+def _no_reuse_reason(env, skip="") -> str:
+    """引かずに走らせる理由を決める 1 か所: skip（呼び手が渡す文）が在ればそれ、無ければ旗 RERUN_ENV が立つ時の文、ほかは空"""
+    if skip:
+        return skip
+    if os.environ.get(RERUN_ENV) or env.get(RERUN_ENV):
+        return f"旗 {RERUN_ENV} が立っている（引かずに回す。書くのは続ける）"
+    return ""
+
+
+def replay_group(group, env, cwd, sinks):
+    """一式（new_group の入れ物）の全段の控えを引き、全段が当たれば全段を 1 つの _write_back で全部か無しで書き戻す ——
+    （段ごとの使い回しの行, 理由）。外れれば何も書かず (None, どの段がなぜ外れたか。旗なら旗の文)。置き場の無い run は (None, "")。
+    sinks は段ごとの (標準出力, 標準エラー) の行き先。木はここで 1 度だけ取り、group['tree'] に置く（段ごとの計画も一式の木を使う）。
+    一式の控えを引く口はここだけ（段を 1 つずつ呼ぶ slotted_run は group を渡されれば引かない）"""
+    plans = []
+    for step, (out, err) in zip(group["steps"], sinks):
+        note = {}
+        plan = _plan(step["argv"], env, step["outputs"], {"cwd": str(cwd), "stdout": out, "stderr": err}, note, group)
+        if plan is None:
+            return None, note.get("reuse_off", "")
+        plans.append(plan)
+    reason = _no_reuse_reason(env)
+    if reason:
+        return None, reason
+    entries = []
+    for step, plan in zip(group["steps"], plans):
+        entry, why = _load_entry(plan, step["outputs"])
+        if entry is None:
+            return None, f"段 {step['name']}: {why}"
+        entries.append((step["outputs"], entry))
+    why = _write_back(entries, [{"stdout": out, "stderr": err} for out, err in sinks])
+    return (None, why) if why else ([e["reused"] for _, e in entries], "")
+
+
+def _tree_moved(plan) -> str:
+    """走らせた後の木が走らせる前と違えば、その理由（同じなら空）"""
+    try:
+        after = unittrees.fresh_tree(plan["cwd"])
+    except (unittrees.UnitTreeError, OSError) as e:
+        return f"走らせた後の作業ツリーの木が取れない: {e}"[:300]
+    if after != plan["tree"]:
+        return f"走らせている間に作業ツリーが変わった（.gitignore の外に物を作るか書き換えた。木 {plan['tree'][:12]} → {after[:12]}）"
+    return ""
+
+
+def _off(note, text):
+    """note['reuse_off'] に理由を足す（先の理由が在れば『；』で続ける）"""
+    note["reuse_off"] = f"{note['reuse_off']}；{text}" if note.get("reuse_off") else text
+
+
+def _keep(plan, rc, wall, outputs, note, group=None):
+    """緑（終了コード 0）で、走らせた前後の木が同じ回だけ控えに置く。置かない理由は note['reuse_off']。
+    group が在れば置かずに group['pending'] へ積み（置くのは全段が済んだ後の keep_group）、置かない理由は group['failed'] へ"""
+    refuse = group["failed"].append if group is not None else lambda text: _off(note, text)
+    if rc != 0:
+        refuse(f"終了コード {rc}（緑の回だけ控える）")
+        return
+    moved = _tree_moved(plan) if group is None else ""
+    if moved:
+        refuse(moved)
+        return
+    enc = lambda b: base64.b64encode(b).decode("ascii")   # noqa: E731
+    try:
+        std = []
+        for sink in plan["sinks"]:
+            if sink is None:
+                std.append(b"")
+                continue
+            with open(sink[0], "rb") as f:
+                f.seek(sink[1])
+                std.append(f.read())
+        files = [enc(pathlib.Path(p).read_bytes()) if os.path.isfile(p) else None for p in outputs]
+    except OSError as e:   # 控えの手間で緑の回を起こせなかった扱いにしない（呼び手は OSError を exit None と読む）
+        refuse(f"出力が読めない: {e}"[:300])
+        return
+    doc = {"schema": REUSE_SCHEMA, "at": time.time(), "run": plan["run"], "material": plan["material"], "exit": 0,
+           "out": enc(std[0]), "err": enc(std[1]), "files": files, "took": wall}
+    if group is not None:
+        group["pending"].append((plan, doc))
+        return
+    bad = plan["store"].put(plan["name"], doc)
+    if bad:
+        refuse(f"控えに書けない（{bad}）")
+
+
+def keep_group(group) -> str:
+    """一式の全段が済んだ後に呼ぶ。全段が終了コード 0 で、前後の木が同じ時だけ全段の控えを置く。置かなかった理由（置いたら空）を返す——
+    呼び手は各段の行の reuse_off に足す。置き場の無い run・木が取れなかった run は空"""
+    if group["off"] or group["tree"] is None:
+        return ""
+    if group["failed"]:
+        return "一式を控えない: " + "；".join(group["failed"])
+    if len(group["pending"]) != len(group["steps"]):
+        return f"一式を控えない: 起こせなかった段が在る（走った {len(group['pending'])}・宣言 {len(group['steps'])}）"
+    moved = _tree_moved({"cwd": group["cwd"], "tree": group["tree"]})
+    if moved:
+        return f"一式を控えない: {moved}"
+    bad = [b for b in (plan["store"].put(plan["name"], doc) for plan, doc in group["pending"]) if b]
+    return f"一式を控えない: 控えに書けない（{bad[0]}）" if bad else ""
+
+
+def slotted_run(argv, env, *, outputs=(), note=None, skip="", group=None, **popen_kw):
+    """run の中で重い試験（engine の宣言の段・test_cmd・blk-tests の最後のテスト・TDD の輪と修正の受け付けの実行器）を起こす唯一の口: argv を機械全体の試験の枠
     （slotwrap.sh。約束の正本はそこ）を通して run で走らせ、(終了コード, 枠を待った秒か None) を返す。待った秒は枠を取った時で、
     枠を取らなかった（祖先が持つ・台本が無い・WORKS_TESTSLOT が空）なら None。
     包むと argv の起こせなさが bash の 126・127 に化けるので、slotwrap.sh が exec の失敗を印に書き、ここで OSError に戻す——
     呼ぶ側の OSError の道（exit None）と launch_kind の broken がそのまま効く。止められたら Stopped が上がる。
-    env に ARTIFACTS_DIR が在れば（run の中）、盤面の testslot.json を待ちの印として slotwrap.sh に書かせ、書いた時はどの道で抜けても消す"""
+    env に ARTIFACTS_DIR が在れば（run の中）、盤面の testslot.json を待ちの印として slotwrap.sh に書かせ、書いた時はどの道で抜けても消す。
+    子に渡す環境は child_env(env)。
+    **同じ run の中の使い回し**: env に ARTIFACTS_DIR が在れば、run の盤面の下（ARTIFACTS_DIR/board/test-reuse）に
+    試験の結果を控える（包みの家の有無は問わない）。同じ指紋（reuse_material。作業ツリーの木・argv・環境・道具）の緑の控えが在れば、子を起こさずに
+    (0, None) を返し、標準出力・標準エラー・outputs（試験が書く報告のファイルの絶対パス）の中身を今の場所へ書き戻し、
+    note['reused'] = {at, took_s, key, entry, from（控えを書いた run の名）} を置く。別の run の控え（置き場の写しで来た物）は引かない。
+    置くのは終了コード 0 で、走らせた前後の木が同じ回だけ（赤・.gitignore の外に物を作る回は置かず、理由を note['reuse_off'] に置く）。
+    使い回せなかった理由（控えが無い・壊れている・別の run の控え・書き戻せない・skip・旗）は、置き場の在る run の note['reuse_off'] に置く
+    （欄を行と状態へ写す口は note_fields、ログの 1 行は reuse_phrase）。
+    skip（理由の文）が在れば、engine 側の環境に RERUN_ENV が立っていれば、引かずに走らせる（置くのは続ける。理由の決め方は _no_reuse_reason）。
+    group（new_group の入れ物）を渡した呼びは skip の有無に関わらず引かない（一式の控えは replay_group だけが引く）。控えは置かずに
+    group に積み、全段が済んだ後の keep_group が全段が緑の時だけ置く。stdout・stderr はバイナリの通常のファイル（か DEVNULL・STDOUT）の時だけ控えられる"""
+    note = {} if note is None else note
+    outputs = [str(o) for o in outputs]
+    plan = _plan(argv, env, outputs, popen_kw, note, group)
+    if plan:
+        reason = _no_reuse_reason(env, skip)
+        if group is None and not reason:
+            reused, reason = _lookup(plan, outputs, popen_kw)
+            if reused:
+                note["reused"] = reused
+                return 0, None
+        if reason:
+            _off(note, reason)
+    env = child_env(env)
     # 包むと run の証明は外の bash と slotwrap.sh しか見ないので、包む前に中の argv を同じ証明に通す（起こせなければ OSError → broken）
     prove_launchable(argv, popen_kw.get("cwd"), env)
-    fd, note = tempfile.mkstemp(prefix="works-slot-")
+    fd, slot_note = tempfile.mkstemp(prefix="works-slot-")
     os.close(fd)
-    extra = {SLOT_NOTE_ENV: note}
+    extra = {SLOT_NOTE_ENV: slot_note}
     if env.get("ARTIFACTS_DIR"):
-        extra[SLOT_MARK_ENV] = os.path.join(env["ARTIFACTS_DIR"], "board", SLOT_MARK)
+        extra[SLOT_MARK_ENV] = os.path.join(env["ARTIFACTS_DIR"], script_io.BOARD_DIR, SLOT_MARK)
     started = time.time()
     try:
         rc = run(["bash", str(SLOTWRAP), *argv], env={**env, **extra}, **popen_kw)
-        seen = pathlib.Path(note).read_text(encoding="utf-8").split()
+        seen = pathlib.Path(slot_note).read_text(encoding="utf-8").split()
         if "execfail" in seen:
             code = errno.EACCES if rc == 126 else errno.ENOENT   # POSIX.1-2024 2.8.2: 126 は実行できない・127 は見つからない
             raise OSError(code, f"{os.strerror(code)}（枠の下で exec が落ちた。exit {rc}）", argv[0])
-        return rc, (max(round(os.stat(note).st_mtime - started, 1), 0.0) if "held" in seen else None)
+        waited = max(round(os.stat(slot_note).st_mtime - started, 1), 0.0) if "held" in seen else None
+        if plan:
+            _keep(plan, rc, round(time.time() - started - (waited or 0), 1), outputs, note, group)
+        return rc, waited
     finally:
         # 印は、この呼び出しの slotwrap.sh が書いた時だけ消す（祖先が枠を持つ入れ子の段は印を書かず、同じ盤面の外の段の印を残す）
-        wrote = SLOT_MARK_ENV in extra and "mark" in pathlib.Path(note).read_text(encoding="utf-8").split()
-        for f in [note] + ([extra[SLOT_MARK_ENV]] if wrote else []):
+        wrote = SLOT_MARK_ENV in extra and "mark" in pathlib.Path(slot_note).read_text(encoding="utf-8").split()
+        for f in [slot_note] + ([extra[SLOT_MARK_ENV]] if wrote else []):
             try:
                 os.unlink(f)
             except FileNotFoundError:

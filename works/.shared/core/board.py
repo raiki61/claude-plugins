@@ -384,31 +384,68 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
     ps を待つ上限 PS_TIMEOUT を含む）、止めた後に LINGER（1 秒）待ってから tree_run.Stopped を投げる（ここでは捕まえない）。標準出力・標準エラーは log_dir/<段の番号>.out・.err に丸ごと。
     返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, started, exit, wall_s, tail}（started は段を起こした epoch 秒で、
     試験の報告が今の段の物かを checks_reply が見る。起こせなければ exit None と error。argv は包む前の宣言の形）。枠を取った段だけ wait_s（枠を待った秒）を足し、wall_s は待ちを除いた実行の時間のまま。
+    使い回しの単位は宣言の一式（段は前の段の副作用に依りうるので、段ごとには使い回さない）: 全段のログを開いた後に tree_run.replay_group が
+    一式の控えを 1 度だけ引き、全段が同じ run の中で同じ木・同じ一式・同じ環境の緑なら、子を起こさず、段の junit（宣言していれば
+    cwd からのパス）を全部書き戻し、各行に reused（本流 checks_cache の行と同じ形）を足す。1 段でも外れれば全段を走らせ（tree_run.slotted_run）、
+    全段が緑で木が変わらなければ一式を置く（tree_run.keep_group）。使い回せなかった理由は各行の reuse_off（置き場の在る run だけ）。
     engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる。
     子の環境は uv run の外の形で、PYTHONDONTWRITEBYTECODE=1 を立てる（works の決まり。engine の run_steps は環境をそのまま継ぐ）"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     env = tree_run.outside_env(os.environ)
+    outputs = [[str(pathlib.Path(cwd) / s["junit"])] if s.get("junit") else [] for s in steps]
     runs = []
-    for i, s in enumerate(steps):
-        started = time.time()
-        base = log_dir / f"{i + 1}"
-        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err", "started": started}
-        wait = None
-        with open(row["out"], "wb") as out, open(row["err"], "wb") as err:
-            try:
-                rc, wait = tree_run.slotted_run(list(s["argv"]), env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                                                cwd=str(cwd))
-            except OSError as e:
-                rc = None
-                row["error"] = str(e)
-                err.write(str(e).encode("utf-8"))
-        data = pathlib.Path(row["out"]).read_bytes() + b"\n" + pathlib.Path(row["err"]).read_bytes()
-        row.update(exit=rc, wall_s=round(time.time() - started - (wait or 0), 1), tail=_tail(data))
-        if wait is not None:
-            row["wait_s"] = wait
-        runs.append(row)
+    with contextlib.ExitStack() as stack:
+        logs = []
+        for i in range(len(steps)):
+            base = log_dir / f"{i + 1}"
+            logs.append((str(base) + ".out", str(base) + ".err",
+                         stack.enter_context(open(str(base) + ".out", "wb")), stack.enter_context(open(str(base) + ".err", "wb"))))
+        group = tree_run.new_group([{"name": s["name"], "argv": list(s["argv"]), "outputs": o} for s, o in zip(steps, outputs)], cwd)
+        replay_at = time.time()   # 控えから書き戻した報告が、段の起動より古く見えないように、書き戻す前の時刻を起動に使う
+        replayed, why = tree_run.replay_group(group, env, cwd, [(out, err) for _, _, out, err in logs])
+        for i, (s, o, (out_path, err_path, out, err)) in enumerate(zip(steps, outputs, logs)):
+            started = replay_at if replayed else time.time()
+            row = {"name": s["name"], "argv": list(s["argv"]), "out": out_path, "err": err_path, "started": started}
+            wait, note = None, {}
+            if replayed:
+                rc, note = 0, {"reused": replayed[i]}
+            else:
+                try:
+                    rc, wait = tree_run.slotted_run(list(s["argv"]), env, outputs=o, note=note, skip=why, group=group,
+                                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err, cwd=str(cwd))
+                except OSError as e:
+                    rc = None
+                    row["error"] = str(e)
+                    err.write(str(e).encode("utf-8"))
+            out.flush()
+            err.flush()
+            data = pathlib.Path(out_path).read_bytes() + b"\n" + pathlib.Path(err_path).read_bytes()
+            row.update(exit=rc, wall_s=round(time.time() - started - (wait or 0), 1), tail=_tail(data))
+            if wait is not None:
+                row["wait_s"] = wait
+            row.update(tree_run.note_fields(note))
+            runs.append(row)
+        if not replayed:
+            left = tree_run.keep_group(group)   # 一式を置かなかった理由は、全段の行の reuse_off に足す
+            for row in runs:
+                if left:
+                    row["reuse_off"] = f"{row['reuse_off']}；{left}" if row.get("reuse_off") else left
     return runs
+
+
+def _reused_note(runs: list, reply: dict) -> dict:
+    """返答の素材に、控えから使った段の出どころを足す（写しの checks_reply は works が直さないので、受け付けに渡す前にここで足す）。
+    使い回した段（行に reused）が在れば、素材の checked（clean）か detail（found）の末尾に『控えから使った段: <段>（<出どころ>）』。
+    素材が無い（任せ先へ落ちる）・clean でも found でもない返答は変えない。修正前のテストの行（baseline_line）は checked を
+    そのまま出すので、ここに足せば出どころが報告に載る"""
+    used = [f"{r['name']}（{text}）" for r in runs if (text := tree_run.reused_text(r))]
+    material = (reply.get("reply") or {}).get("material")
+    field = {"clean": "checked", "found": "detail"}.get((material or {}).get("status"))
+    if not used or not field or not isinstance(material.get(field), str):
+        return reply
+    note = "控えから使った段: " + "・".join(used)
+    return {**reply, "reply": {**reply["reply"], "material": {**material, field: f"{material[field]} ／ {note}"}}}
 
 
 # ---------------------------------------------------------------- p0.base の返答を機械が組む
@@ -1271,8 +1308,8 @@ class DiskBoard(_EngineBoard):
             runs = (runner or tree_runner)(steps, pathlib.Path(root), log_dir)
             self.trace("engine_run", instance=nid, node=nid,
                        runs=[{**{k: r.get(k) for k in ("name", "exit", "wall_s", "error")},
-                              **({"wait_s": r["wait_s"]} if "wait_s" in r else {})} for r in runs])
-        reply = er["reply"](self, nid, launch, runs)
+                              **{k: r[k] for k in ("wait_s", *tree_run.NOTE_KEYS) if k in r}} for r in runs])
+        reply = _reused_note(runs, er["reply"](self, nid, launch, runs))
         if "fallback" in reply:
             return self._fall_back(nid, er, reply["fallback"], {"runs": runs})
         inst["mode"], inst["launch"] = "engine_run", launch

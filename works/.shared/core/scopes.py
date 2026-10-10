@@ -84,6 +84,7 @@ _ROUND_NAME = re.compile(r"r\d+")              # 周の置き場 r<N> の段そ�
 # 盤面の根からのパスに段ごとに当てる。/ を持たない形は盤面の根の名にしか当たらない）。照らし・周の置き場の名・根のフォルダの 1 つの組
 SHARED = ("state.json", "record.json", "trace.jsonl", halt.STOP_FILE, "query-examples.json", "count-cache.json", "count-budget.json",
           "accept-rev-cache.json", f"{_ROUND_DIR}/fixgates-base.json",   # 受け付けの試験の結末の控え（どの scope の受け付けも使い回す）
+          "test-reuse/**",   # 試験の結果の使い回しの控え（tree_run.slotted_run が run の間だけ置く）
           "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
           "out/**", "runs/**", "rounds/**", "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "tdd-*/**",
           f"{_ROUND_DIR}/conflicts.json", f"{_ROUND_DIR}/libdocs.json", f"{_ROUND_DIR}/libdocs/**",

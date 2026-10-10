@@ -9,6 +9,7 @@ import copy
 import json
 import os
 import pathlib
+import re
 import signal
 import subprocess
 import sys
@@ -21,6 +22,9 @@ sys.path.insert(0, str(HERE))
 
 import boardreplay as R  # noqa: E402  （board と写しの engine を sys.path に足す）
 from test_board_steps import TABLE, StepCase, first_step, kind_steps, tok, trace_ops, with_by  # noqa: E402
+import entry  # noqa: E402
+import gitkit  # noqa: E402
+import tree_run  # noqa: E402
 from board import CORE_DIR, BoardGap, tree_runner  # noqa: E402
 from engine import declared  # noqa: E402
 from engine.commands import engine_run_refusal  # noqa: E402
@@ -196,6 +200,74 @@ class RunEngineCase(EngineRunCase):
             with self.subTest(bad):
                 self.assertIsNotNone(declared.parse(json.dumps({"suite": [{**step, "junit": bad}]}))[1])
         self.assertIsNotNone(declared.parse(json.dumps({"suite": [{**step, "other": 1}]}))[1])
+
+    def test_reused_steps_named_in_material_and_rows(self):
+        """同じ run の中で p0.local_checks を同じ木で 2 度走らせると、2 度目の素材 local_checks の checked に『控えから使った段』と
+        出どころの run が出る（1 度目には出ない）。entry.run_ci の返りの rows にも reused が通る"""
+        env = {"ARTIFACTS_DIR": str(self.tmp / "arts" / "run-a"), "WORKS_TESTSLOT": ""}
+        got = []
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            for _ in range(2):
+                b = self.board_before(engine_run_step("p0.local_checks"), edit=minimal("p0.local_checks"))
+                self.write_decl(b, GREEN)
+                ci = entry.run_ci(b, "p0.local_checks", test_cmd="")
+                got.append((ci, b.record["materials"]["local_checks"]))
+        (ci1, m1), (ci2, m2) = got
+        self.assertEqual((m1["status"], m2["status"]), ("clean", "clean"))
+        self.assertNotIn("控えから使った段", m1["checked"])
+        self.assertIn("控えから使った段: suite（run run-a・", m2["checked"])
+        self.assertIn("・鍵 ", m2["checked"])
+        self.assertNotIn("reused", ci1["runs"][0])
+        self.assertEqual(set(ci2["runs"][0]), {"name", "exit", "how", "reused"})
+        self.assertEqual(ci2["runs"][0]["reused"]["from"], "run-a")
+        with self.subTest("reported_step"):
+            self.check_reused_reported_step_still_counts_as_ran()
+
+    def check_reused_reported_step_still_counts_as_ran(self):
+        """試験の報告（junit）を宣言した段を同じ run の中で使い回した回は、報告が書き戻されて、走ったと数える（件数で見る
+        checks_reply が『走らなかった段』に落とさない）。報告は .gitignore に当たる場所に書く段（当たらなければ木が変わり、控えない）"""
+        step = self.reported_step("<testcase name='t'/>", 0)
+        env = {"ARTIFACTS_DIR": str(self.tmp / "arts" / "run-a"), "WORKS_TESTSLOT": ""}
+        got = []
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            for _ in range(2):
+                b = self.board_before(engine_run_step("p0.local_checks"), edit=minimal("p0.local_checks"))
+                ignore = self.repo(b) / ".gitignore"
+                ignore.write_text((ignore.read_text(encoding="utf-8") if ignore.exists() else "") + "report.xml\n", encoding="utf-8")
+                self.write_decl(b, [step])
+                ci = entry.run_ci(b, "p0.local_checks", test_cmd="")
+                got.append((ci, b.record["materials"]["local_checks"]))
+        (ci1, m1), (ci2, m2) = got
+        self.assertEqual((m1["status"], m2["status"]), ("clean", "clean"), got)
+        self.assertNotIn("reused", ci1["runs"][0])
+        self.assertIn("reused", ci2["runs"][0])
+
+    def test_reused_found_reply_names_source_in_detail(self):
+        """赤の素材（found）でも、控えから使った段の行（reused つき）が在れば、出どころの句『控えから使った段』は checked でなく
+        detail の末尾に付く（使った段が無い回には付かない）。既定の runner の一式の控えは全段が緑の時だけなので赤の行に reused は付かず、
+        この分岐には runner が返す行で届く"""
+        reused = {"at": 1_700_000_000.0, "took_s": 1.0, "key": "k" * 64, "entry": "/store/k.json", "from": "run-a"}
+
+        def runner_with(extra):
+            def run(steps, cwd, log_dir):
+                return [{"name": s["name"], "argv": list(s["argv"]), "out": "", "err": "", "started": 0.0, "exit": 3, "wall_s": 0.1,
+                         "tail": "1 failed", **extra} for s in steps]
+            return run
+
+        got = []
+        for extra in ({}, {"reused": reused}):
+            b = self.board_before(engine_run_step("p0.local_checks"), edit=minimal("p0.local_checks"))
+            self.write_decl(b, RED)
+            self.assertTrue(b.run_engine("p0.local_checks", runner=runner_with(extra))["ok"])
+            got.append(b.record["materials"]["local_checks"])
+        plain, used = got
+        self.assertEqual((plain["status"], used["status"]), ("found", "found"), got)
+        self.assertNotIn("控えから使った段", plain["detail"])
+        self.assertIn("控えから使った段: suite（run run-a・", used["detail"])
+        self.assertIn("・鍵 " + "k" * 12, used["detail"])
+        self.assertNotIn("checked", used)
 
     def test_declaration_changed_refused(self):
         """撮った計画を差し込み、宣言を書き換えてから当てる → {ok: False, relaunch: True}、why は engine_run_refusal の文。
@@ -497,6 +569,169 @@ class TreeRunnerCase(StepCase):
         seen = json.loads(pathlib.Path(rows[0]["out"]).read_text(encoding="utf-8"))
         self.assertEqual(seen, {"VIRTUAL_ENV": None, "UV_RUN_RECURSION_DEPTH": None, "UV_NO_CONFIG": None,
                                 "PYTHONDONTWRITEBYTECODE": "1"})
+
+    def reuse_env(self, run="run-a"):
+        """結果の使い回しを使える環境（run の置き場だけ。包みの家は要らない）。枠の台本は使わない"""
+        return {"ARTIFACTS_DIR": str(self.tmp / "arts" / run), "WORKS_TESTSLOT": ""}
+
+    def test_reused_step_row_has_mainline_shape(self):
+        """同じ run の中で、同じ木の同じ段を 2 度走らせる。2 度目は子を起こさず、行の reused が本流の行と同じ形
+        {at, took_s, key, entry, from}（from は run の名）で、段の junit は書き戻されている。行の鍵は使い回さない回の鍵に reused を足すだけ"""
+        tree = self.tmp / "tree"
+        tree.mkdir()
+        (tree / ".gitignore").write_text("report.xml\n", encoding="utf-8")
+        gitkit.git(tree, "init", "-q")
+        gitkit.git(tree, "add", "-A")
+        gitkit.git(tree, "commit", "-q", "-m", "seed")
+        count = self.tmp / "count"
+        step = {"name": "suite", "junit": "report.xml",
+                "argv": [sys.executable, "-c", f"open({str(count)!r}, 'a').write('1'); open('report.xml', 'w').write('<r/>')"]}
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            first = tree_runner([step], tree, self.tmp / "logs1")
+            (tree / "report.xml").unlink()
+            second = tree_runner([step], tree, self.tmp / "logs2")
+        self.assertEqual(count.read_text(encoding="utf-8"), "1")
+        self.assertNotIn("reused", first[0])
+        self.assertEqual(second[0]["exit"], 0)
+        self.assertEqual(set(second[0]) - set(first[0]), {"reused"})
+        self.assertEqual(set(second[0]["reused"]), {"at", "took_s", "key", "entry", "from"})
+        self.assertEqual(second[0]["reused"]["from"], "run-a")
+        self.assertEqual((tree / "report.xml").read_text(encoding="utf-8"), "<r/>")
+        self.assertTrue(pathlib.Path(second[0]["out"]).is_file())
+
+    def git_tree(self, ignore="", files=None):
+        """git の木を作って commit する（.gitignore と files）。返りは木のパス"""
+        tree = self.tmp / "tree"
+        tree.mkdir()
+        (tree / ".gitignore").write_text(ignore, encoding="utf-8")
+        for name, text in (files or {}).items():
+            (tree / name).write_text(text, encoding="utf-8")
+        gitkit.git(tree, "init", "-q")
+        gitkit.git(tree, "add", "-A")
+        gitkit.git(tree, "commit", "-q", "-m", "seed")
+        return tree
+
+    def counting_step(self, name, code=0, body=""):
+        """走るたびに自分の数えのファイルへ 1 行足す段（終了コード code）。argv に段の印 MARK-<name> を持つ"""
+        count = self.tmp / f"count-{name}"
+        script = f"'MARK-{name}'; open({str(count)!r}, 'a').write('1\\n'); {body + '; ' if body else ''}import sys; sys.exit({code})"
+        return {"name": name, "argv": [sys.executable, "-c", script]}
+
+    def times(self, name):
+        count = self.tmp / f"count-{name}"
+        return len(count.read_text(encoding="utf-8").split()) if count.exists() else 0
+
+    def test_earlier_step_side_effect_is_not_reused_alone(self):
+        """.gitignore の下の dist/ に書く build の段と、dist を読んで src が good でなければ exit 1 の test の段を、同じ run の中で
+        src=bad→good→bad と 3 度通すと、3 度目の test の段は赤。build の段だけを 1 度目の控えから使うと dist が書かれず、
+        good の dist が残ったまま test の段が緑になる（前の段の副作用を飛ばして後の段が走る）"""
+        tree = self.git_tree(ignore="dist/\n", files={"src.txt": "seed"})
+        build = {"name": "build", "argv": [sys.executable, "-c",
+                                           "import os, shutil; os.makedirs('dist', exist_ok=True); shutil.copy('src.txt', 'dist/out.txt')"]}
+        check = {"name": "test", "argv": [sys.executable, "-c",
+                                          "import sys; sys.exit(0 if open('dist/out.txt').read() == 'good' else 1)"]}
+        seen = []
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            for i, text in enumerate(("bad", "good", "bad")):
+                (tree / "src.txt").write_text(text, encoding="utf-8")
+                gitkit.git(tree, "add", "-A")
+                gitkit.git(tree, "commit", "-q", "-m", f"src {text} {i}")
+                rows = tree_runner([build, check], tree, self.tmp / f"logs{i}")
+                seen.append([(r["name"], r["exit"]) for r in rows])
+        self.assertEqual(seen, [[("build", 0), ("test", 1)], [("build", 0), ("test", 0)], [("build", 0), ("test", 1)]])
+
+    def test_row_carries_reuse_off(self):
+        """使い回しの置き場が在る run で、1 度目（一式が控えに無い回）の行には控えに無い段の名と鍵の頭が載り、
+        終了コード 1 の段の行には赤を控えない理由が載る"""
+        tree = self.git_tree()
+        lint, suite = self.counting_step("lint"), self.counting_step("suite", code=1)
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            rows = tree_runner([lint, suite], tree, self.tmp / "logs")
+        self.assertEqual([r["exit"] for r in rows], [0, 1])
+        for r in rows:
+            self.assertIn("reuse_off", r, r["name"])
+        self.assertIn("lint", rows[0]["reuse_off"])
+        self.assertRegex(rows[0]["reuse_off"], "同じ指紋の控えが無い（鍵 [0-9a-f]{12}）")
+        self.assertIn("終了コード 1", rows[1]["reuse_off"])
+
+    def test_rerun_flag_reason_reaches_rows(self):
+        """1 度走らせて一式を控えた後、GRAPHLOOPS_RERUN_CHECKS を立てて同じ一式を通すと、全段が走り、各行の reuse_off が
+        旗の名を名指す（控えに無い、とは言わない）"""
+        tree = self.git_tree()
+        steps = [self.counting_step("lint"), self.counting_step("suite")]
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            tree_runner(steps, tree, self.tmp / "logs1")
+            with mock.patch.dict(os.environ, {"GRAPHLOOPS_RERUN_CHECKS": "1"}):
+                rows = tree_runner(steps, tree, self.tmp / "logs2")
+        self.assertEqual((self.times("lint"), self.times("suite")), (2, 2))
+        for r in rows:
+            self.assertNotIn("reused", r)
+            self.assertIn("reuse_off", r, r["name"])
+            self.assertIn("GRAPHLOOPS_RERUN_CHECKS", r["reuse_off"])
+            self.assertNotIn("控えが無い", r["reuse_off"])
+
+    def test_broken_group_entry_reason_reaches_rows(self):
+        """一式を控えた後、2 段目の控えの JSON の out を壊れた base64 に書き換えて同じ一式を通すと、全段が走り、
+        行の reuse_off がその控えの壊れを名指す"""
+        tree = self.git_tree()
+        steps = [self.counting_step("lint"), self.counting_step("suite")]
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            tree_runner(steps, tree, self.tmp / "logs1")
+            hurt = []
+            for path in self.tmp.rglob("*.json"):
+                try:
+                    doc = json.loads(path.read_text(encoding="utf-8"))
+                except ValueError:
+                    continue
+                if isinstance(doc, dict) and doc.get("schema") == tree_run.REUSE_SCHEMA and "MARK-suite" in json.dumps(doc["material"]):
+                    doc["out"] = "!!broken!!"
+                    path.write_text(json.dumps(doc), encoding="utf-8")
+                    hurt.append(path)
+            self.assertEqual(len(hurt), 1, hurt)
+            rows = tree_runner(steps, tree, self.tmp / "logs2")
+        self.assertEqual((self.times("lint"), self.times("suite")), (2, 2))
+        for r in rows:
+            self.assertNotIn("reused", r)
+            self.assertIn("reuse_off", r, r["name"])
+            self.assertIn("base64", r["reuse_off"])
+
+    def test_single_command_entries_do_not_complete_group(self):
+        """一式の 2 段と同じ argv・環境・木を slotted_run で 1 つずつ（一式の外で）緑で走らせて控えても、
+        その後の tree_runner は使い回さずに全段を走らせる"""
+        tree = self.git_tree()
+        steps = [self.counting_step("lint"), self.counting_step("suite")]
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            env = tree_run.outside_env(os.environ)
+            for i, s in enumerate(steps):
+                with open(self.tmp / f"alone{i}.out", "wb") as out, open(self.tmp / f"alone{i}.err", "wb") as err:
+                    rc, _ = tree_run.slotted_run(list(s["argv"]), env, outputs=(), note={}, stdin=subprocess.DEVNULL,
+                                                 stdout=out, stderr=err, cwd=str(tree))
+                self.assertEqual(rc, 0)
+            self.assertEqual((self.times("lint"), self.times("suite")), (1, 1))
+            rows = tree_runner(steps, tree, self.tmp / "logs")
+        self.assertEqual((self.times("lint"), self.times("suite")), (2, 2))
+        for r in rows:
+            self.assertNotIn("reused", r)
+
+    def test_partial_red_group_is_not_kept(self):
+        """1 段目が赤・2 段目が緑の一式を通した後、同じ木で同じ一式を通すと 2 段目も走る（赤の混じった一式は置かれない）"""
+        tree = self.git_tree()
+        steps = [self.counting_step("lint", code=1), self.counting_step("suite")]
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            tree_runner(steps, tree, self.tmp / "logs1")
+            rows = tree_runner(steps, tree, self.tmp / "logs2")
+        self.assertEqual((self.times("lint"), self.times("suite")), (2, 2))
+        self.assertEqual([r["exit"] for r in rows], [1, 0])
+        for r in rows:
+            self.assertNotIn("reused", r)
+            self.assertIn("一式を控えない: 終了コード 1", r["reuse_off"])
 
 
 if __name__ == "__main__":

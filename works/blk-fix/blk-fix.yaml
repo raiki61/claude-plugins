@@ -2050,7 +2050,8 @@ nodes:
             file: {type: string}
         # TDD の輪の結果 {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor,
         # gave_up, problems, red_kinds, test_cmd, refactor_why}], test_cmd: {gate, note}, calls: [{n, phase, unit_key, ok, runs,
-        # secs}]}。実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
+        # secs}], reused?: {suite, test_cmd}}。reused は輪の頭で同じ run の中の控えから使い回した結果の出どころの句（使った物だけ）。
+        # 実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
         tdd: {type: object}
         # 盤面の欄（〔線A計〕T17。recount.collect）: 受けた修正の返答のファイル・直せなかった単位の数・単位ごとの前後の件数・読んだ証拠
         fix_file: {type: string}

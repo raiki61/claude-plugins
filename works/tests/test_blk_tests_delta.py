@@ -41,6 +41,7 @@ from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 import prepkit  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
+import webget  # noqa: E402
 
 
 
@@ -306,6 +307,24 @@ class TestTestsModes(ER.EngineRunCase):
             return rc, None, err.getvalue()
         self.assertEqual(text.count("\n"), 1)
         return rc, json.loads(text), err.getvalue()
+
+    def test_final_never_reads_reuse_store(self):
+        """同じ run の中で同じ木の p4.ci が控えに緑を置いた後でも、最後のテスト（run_final）は宣言の段を走らせ直す（子が起きる）。
+        控えには書き続ける（旗は run_ci の間だけ立ち、終われば戻る）。旗なしで run_ci を通せば同じ控えに当たる"""
+        count = self.tmp / "final-count"
+        decl = [{"name": "suite", "argv": [sys.executable, "-c", f"open({str(count)!r}, 'a').write('1\\n')"]}]
+        env = {webget.SHARED_ENV: str(self.tmp / "home"), "ARTIFACTS_DIR": str(self.tmp / "arts" / "run-a"), "WORKS_TESTSLOT": ""}
+        mod = load_run_tests()
+        launched = lambda: len(count.read_text(encoding="utf-8").split()) if count.exists() else 0   # noqa: E731
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            for expected in (1, 2):
+                out = mod.run_final(self.mode_board(decl=decl), "", run_ci=real_entry.run_ci, refused=real_entry.CiRefused)
+                self.assertEqual((out["ok"], out["green"], launched()), (True, True, expected))
+                self.assertNotIn("GRAPHLOOPS_RERUN_CHECKS", os.environ)
+            ci = real_entry.run_ci(self.mode_board(decl=decl), "p4.ci", test_cmd="")
+        self.assertEqual(launched(), 2)
+        self.assertEqual(ci["runs"][0]["reused"]["from"], "run-a")
 
     # -- final
     def test_final_by_engine(self):

@@ -34,6 +34,7 @@ import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scopes  # noqa: E402
 import stopby  # noqa: E402  （止めの理由の住処）
+import webget  # noqa: E402
 
 GRAPH = graph_expanded()
 TABLE_PATH = ROOT / "darkfactory" / "nodes.json"
@@ -823,6 +824,28 @@ class LocalChecksMaterialCase(StartCaseBase):
         tail = log.read_text(encoding="utf-8").rstrip().splitlines()[-1]
         self.assertIn("FAILED", tail)
         self.assertIn(tail, m["detail"])
+
+    def test_second_call_reuses_and_names_origin(self):
+        """包みの家と run の置き場を置いた環境で、同じ木・同じ test_cmd の local_checks_material を同じ run の中で 2 度呼ぶと、
+        2 度目は子を起こさず、素材の checked に『控えから使った』と出どころの run が出る。launched に reused が入り、
+        別の run の呼びは走らせる"""
+        repo = self.seed()
+        count = self.tmp / "count"
+        cmd = f"echo 1 >> {count}; echo all-green"
+        env = {webget.SHARED_ENV: str(self.tmp / "home"), "ARTIFACTS_DIR": str(self.tmp / "arts" / "run-a"), "WORKS_TESTSLOT": ""}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            first = entry.local_checks_material(repo, cmd, self.tmp / "one.log")["material"]
+            launched = {}
+            second = entry.local_checks_material(repo, cmd, self.tmp / "two.log", launched=launched)["material"]
+            with mock.patch.dict(os.environ, {"ARTIFACTS_DIR": str(self.tmp / "arts" / "run-b")}):
+                entry.local_checks_material(repo, cmd, self.tmp / "three.log")
+        self.assertEqual(len(count.read_text(encoding="utf-8").split()), 2)
+        self.assertEqual((first["status"], second["status"]), ("clean", "clean"))
+        self.assertNotIn("控えから使った", first["checked"])
+        self.assertIn("控えから使った（run run-a・", second["checked"])
+        self.assertEqual(launched["reused"]["from"], "run-a")
+        self.assertIn("all-green", (self.tmp / "two.log").read_text(encoding="utf-8"))
 
     def test_clean_carries_checked(self):
         """clean は写しの RR の規則で checked が要る（何を見たか）。count 0・detail も付く"""

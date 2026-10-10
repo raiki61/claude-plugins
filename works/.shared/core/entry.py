@@ -652,8 +652,9 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     標準出力と標準エラーを log_path に）、終了コード 0 なら clean（写しの RR の規則で checked が要る）、他は found・count 1。
     detail はログの末尾（engine の段の末尾と同じ切り方）。起こせなければ（shell の先頭の語が tree_run.prove_launchable の証明を
     通らない回も）not_run。test_cmd が空なら走らせずに not_run。
-    止められたら（tree_run.Stopped）捕まえない。launched（dict）を渡せば、起こす前に決めた起こし方を launched["how"] に置く
-    （返りの素材の形は変えない）。niced が真なら、起こすプロセス（枠の台本とその下の木）の優先度を nice -n 19 と同じだけ下げる
+    止められたら（tree_run.Stopped）捕まえない。launched（dict）を渡せば、起こす前に決めた起こし方を launched["how"] に置き、
+    slotted_run の note にも使う（同じ run の中の控えから使い回した回は launched["reused"] に出どころが、使い回せなかった回は
+    launched["reuse_off"] に理由が入る。出どころは素材の checked・detail にその句が付く。返りの素材の形は変えない）。niced が真なら、起こすプロセス（枠の台本とその下の木）の優先度を nice -n 19 と同じだけ下げる
     （TDD の輪の中の test_cmd。ADR 0071 の 3 の 1。argv・起こし方・起こせなさの証明は変えない）"""
     cmd = (test_cmd or "").strip()
     if not cmd:
@@ -661,16 +662,16 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     log_path = pathlib.Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     argv, how = tree_run.command_argv(cmd)
-    if launched is not None:
-        launched["how"] = how
+    launched = {} if launched is None else launched
+    launched["how"] = how
     with open(log_path, "wb") as f:
         try:
-            code, _ = tree_run.slotted_run(argv, tree_run.outside_env(os.environ), stdin=subprocess.DEVNULL,
+            code, _ = tree_run.slotted_run(argv, tree_run.outside_env(os.environ), note=launched, stdin=subprocess.DEVNULL,
                                            stdout=f, stderr=subprocess.STDOUT, cwd=str(repo),
                                            **({"preexec_fn": _nice19} if niced else {}))
         except OSError as e:
             return {"material": {"status": "not_run", "reason": f"{_launched(argv, how)} でテストのコマンドを起こせない: {e}"}}
-    return _cmd_material(code, log_path, argv, how)
+    return _reused_material(_cmd_material(code, log_path, argv, how), launched)
 
 
 def _nice19() -> None:
@@ -697,6 +698,17 @@ def _cmd_material(code: int | None, log_path: pathlib.Path, argv: list, how: str
         return {"material": {"status": "clean", "count": 0, "checked": ran, "detail": tail}}
     return {"material": {"status": "found", "count": 1,
                          "detail": f"{ran} ／ 末尾: {tail} ／ {gatemarks.BASELINE_UNVERIFIED}（test_cmd は shell の文字列で、試験の報告を宣言できない）"}}
+
+
+def _reused_material(mat: dict, note: dict) -> dict:
+    """同じ run の中の控えから使い回した test_cmd（note は tree_run.slotted_run の note か、その欄を写した行）の素材 mat の checked（clean）か
+    detail（found）の末尾に、出どころの句を足す。使い回していない・clean でも found でもない素材は変えない"""
+    m = mat["material"]
+    field = {"clean": "checked", "found": "detail"}.get(m.get("status"))
+    text = tree_run.reused_text(note)
+    if not text or not field:
+        return mat
+    return {"material": {**m, field: f"{m[field]} ／ {TEST_CMD_STEP} は控えから使った（{text}）"}}
 
 
 def _engine_log(b, nid: str, runs: list) -> pathlib.Path:
@@ -842,8 +854,9 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     - test_cmd が在れば、宣言が在っても捨てない: engine が宣言の段を走らせた後に test_cmd の段（TEST_CMD_STEP）を足し
       （_with_test_cmd）、素材は runs の全部から組まれる——宣言の一式と test_cmd の両方が緑の時だけ clean（AND の合成）。
       test_cmd が宣言の段と同じコマンドなら 1 度だけ走らせ、返りの same_as にその段の名
-    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, runs: 段ごとの {name, exit, how}, same_as?}。
-      how は _with_test_cmd が起こす前に決めて走った行に写した値のまま
+    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, runs: 段ごとの {name, exit, how, reused?, reuse_off?}, same_as?}。
+      how は _with_test_cmd が起こす前に決めて走った行に写した値のまま。reused は同じ run の中の控えから使い回した段の出どころ、
+      reuse_off は使い回せなかった理由（tree_run.slotted_run の note と同じ形。欄は tree_run.note_fields が写す）
     - fallback（宣言が無い・engine の返答を受け付けが拒んだ）で任せ先に落ちた: test_cmd が在れば _ci_by_cmd（起こした印 →
       git の根で test_cmd → done。engine が既に test_cmd の段を走らせていればその結果を使い、2 度走らせない）→ {by: "role", log, how?}
     - fallback で test_cmd が空 → {by: "role_needed", log: "", why}。意味は「この節の素材はこの呼び出しで何も渡していない。
@@ -860,7 +873,7 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     if got.get("ok"):
         same = {"same_as": note["same_as"]} if note.get("same_as") else {}
         runs = got.get("runs") or []
-        rows = [{k: r.get(k) for k in ("name", "exit", "how")} for r in runs]
+        rows = [{**{k: r.get(k) for k in ("name", "exit", "how")}, **tree_run.note_fields(r)} for r in runs]
         return {"by": "engine", "log": str(_engine_log(b, nid, runs)), "runs": rows, **same}
     if "fallback" not in got:
         raise CiRefused(f"{nid} を engine で走らせられない: {got.get('why')}")
@@ -885,7 +898,7 @@ def _ci_by_cmd(b, nid: str, test_cmd: str, *, ran: dict | None = None) -> dict:
         log.write_bytes(b"".join(pathlib.Path(ran[k]).read_bytes() for k in ("out", "err")
                                  if ran.get(k) and pathlib.Path(ran[k]).is_file()))
         launched = {"how": ran.get("how")}
-        b.done(nid, _cmd_material(ran["exit"], log, ran["argv"], launched["how"]))
+        b.done(nid, _reused_material(_cmd_material(ran["exit"], log, ran["argv"], launched["how"]), ran))
     else:
         root = pathlib.Path(_util.repo_root() or b.state["inputs"]["cwd"])
         launched = {}

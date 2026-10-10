@@ -36,7 +36,8 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             前の block の行き先）、faces・shrink・resolved・当たりの答え・相乗りを審査の返答にまとめる。束ね役の返答は項目ごとの判定の
             要約（converge.ITEMS）だけで、答えのファイルと食い違えば拒む。確かめを通らない項目は、出し直しの支度がその項目の下請けの
             ファイルにだけ機械の読める誤りの一覧（ERRORS_HEAD）を貼って起こし直させ、通った項目は起こし直さない。
-            修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が閉じた項目を変えたら拒む（CLOSED_REJECT）。
+            修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が返した開いた項目の行に閉じた・保留の項目の前の往復の行を差し込んで全体にし（converge.splice）、閉じた項目を変えた
+            行・開いた項目の行の欠けは拒む（CLOSED_REJECT）。
             入力 review_tree が off（script_io.switch_auto）なら支度は木の節（tree_part）を書かず、今の往復の下請けの置き場
             （ITEMS_DIR）が無いので受け付けは木のまとめを飛ばす（_tree_off。審査役 1 つの返答をそのまま受ける）。auto なら
             往復ごとに開いた項目が TREE_AUTO_MIN（2）以上の時だけ木にし、1 つ以下の往復は off と同じ道
@@ -114,7 +115,7 @@ NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit�
 RESOLVED_REJECT = "前の往復の block の行き先が書かれていない（下の行を全部直して出し直せ）:"
 ANSWERS_REJECT = "block への答えに誤りが在る（下の行を全部直して出し直せ）:"
 TREE_REJECT = "項目ごとの審査の答え（下請けの答えのファイル・束ね役の items）に欠けか誤りが在る（下の行を全部直して出し直せ）:"
-CLOSED_REJECT = "閉じた項目を変えた（下の行を直して出し直せ）:"
+CLOSED_REJECT = "閉じた・開いた項目の行が合わない（下の行を直して出し直せ）:"
 RIPPLE_UNITS = "ripple/units.json"      # 今の周の作業ファイル（manifest の produces ripple/**）
 RIPPLE_PASS = "ripple/pass-{k}.json"
 RIPPLE_LATEST = "ripple.json"           # 最後に作った項目ごとの一覧の写し（修正の段へ線が渡す。manifest の produces）
@@ -127,6 +128,7 @@ ANSWERS_DIR = "plan-review/r{r}/pass-{k}"
 ANSWER_FILE = "item-{n}.json"
 SYNERGY_FILE = "synergy.json"
 AGENT_OP = "plan_review_agents"         # 読んだ証拠の節が盤面の trace に書く、事前審査の下請けの起動の数の行
+SURPLUS_OP = "plan_review_surplus"      # 下請けの答えの余りの行（開く出典でない precedents・覆っていない当たりに無い hits）を捨てた印の trace の行
 # 下請けの型は 1 つ（答えのファイルを Write で書ける型。読むだけの Explore は Write を持たない。run 68f35d6b は往復 1 が
 # general-purpose・往復 2・3 が Explore で、型ごとに道具と深さが違った）
 SUBAGENT_TYPE = "general-purpose"
@@ -308,19 +310,24 @@ def _names(b, nid: str) -> list:
     return next((p.get("names") or [] for p in b.pointer_rows(nid)["pointers"] or []), [])
 
 
-def plan_slots_section(b) -> str:
-    """修正案の指示書の頭に貼る、入れてよい no・入れてはいけない no の節（本文の見出し・one_shot_closes より優先する）"""
+def plan_slots_section(b, filled=()) -> str:
+    """修正案の指示書の頭に貼る、入れてよい no・入れてはいけない no の節（本文の見出し・one_shot_closes より優先する）。filled
+    （直しの役が書かず機械が前の往復の行を差し込む項目の単位。converge.filled_units）の no は『必ず案に入れる』から外して別の行に並べる"""
     owed, opened, units = plan_slots(b)
     names = _names(b, NODE_OF["plan"])
     no = {k: i + 1 for i, k in enumerate(names)}
-    must = sorted(no[k] for k in owed if k in no)
+    must = sorted(no[k] for k in owed - set(filled) if k in no)
     may = sorted(no[k] for k in opened - owed if k in no)
     shut = [f"no {no[k]}（label={u.get('label')}・disposition={u.get('disposition', '無し')}）"
             for k, u in units.items() if k not in opened and k not in owed and k in no]
-    if not shut:   # 本文の一覧が受け付けの集合と同じ（全部入れてよい）なら貼らない。行き止まりの盤面は役を起こす前に止める（halt_if_stuck）
+    if not shut and not filled:   # 本文の一覧が受け付けの集合と同じ（全部入れてよい）なら貼らない。行き止まりの盤面は役を起こす前に止める（halt_if_stuck）
         return ""
-    return (f"{PLAN_SLOTS_HEAD}\n\n- 必ず案に入れる no: {must}\n- 入れてもよい no（人の答え待ちの問いの出どころ・depends。入れなくてもよい）: {may}\n"
-            f"- 入れてはいけない no（受け付けが拒む）: {'、'.join(shut) or '無し'}")
+    lines = [f"- 必ず案に入れる no: {must}",
+             f"- 入れてもよい no（人の答え待ちの問いの出どころ・depends。入れなくてもよい）: {may}"]
+    if filled:
+        lines.append(f"- 機械が差し込む no（閉じた・保留の項目。書かなくてよい）: {sorted(no[k] for k in set(filled) if k in no)}")
+    lines.append(f"- 入れてはいけない no（受け付けが拒む）: {'、'.join(shut) or '無し'}")
+    return f"{PLAN_SLOTS_HEAD}\n\n" + "\n".join(lines)
 
 
 PRESCRIPTION_HEAD = promptsection.Section("## 判定の処方（判定役が単位ごとに書いた直し方の案。零処方から並ぶ。機械が判定の記録から貼った）", source="fn:planblk.prescription_section")
@@ -684,12 +691,23 @@ def _precedent_part(rows: list, n: int) -> str:
     return "\n".join(lines)
 
 
+def _precedent_wanted(rows: list, n: int) -> list:
+    return [x["id"] for x in rows if x["cached"] is None and x["fetch_by"] == n]
+
+
 def _precedent_gaps(rows: list, n: int, got: dict) -> list[str]:
-    want = [x["id"] for x in rows if x["cached"] is None and x["fetch_by"] == n]
     ids = [r.get("id") for r in got.get("precedents") or []]
-    return ([f"$.precedents: 先行例の出典 {i} の確かめの行が無い（WebFetch で 1 度開いて {{id, found, quote}} を書け）"
-             for i in want if i not in ids]
-            + [f"$.precedents: {i} はこの項目の下請けが開く出典でない" for i in ids if i not in want])
+    return [f"$.precedents: 先行例の出典 {i} の確かめの行が無い（WebFetch で 1 度開いて {{id, found, quote}} を書け）"
+            for i in _precedent_wanted(rows, n) if i not in ids]
+
+
+def _surplus(b, n: int, got: dict, rip: dict, pre_rows: list) -> dict:
+    """型の合った項目 n の答えの余りの行の id {precedents, hits}: この項目の下請けが開く出典でない precedents の行・波及の一覧の
+    項目 n の覆っていない当たりに無い hits の行。拒まずに捨てる（check_item が取り除く）"""
+    want_p = _precedent_wanted(pre_rows, n)
+    want_h = [h["id"] for h in ripple.uncovered(rip, n)]
+    return {"precedents": [r.get("id") for r in got.get("precedents") or [] if r.get("id") not in want_p],
+            "hits": [h.get("id") for h in got["hits"] if h.get("id") not in want_h]}
 
 
 def save_precedents(b, plan_rows: dict, answers: dict, k: int) -> None:
@@ -753,7 +771,6 @@ def item_answer_gaps(b, n: int, got: dict, rip: dict) -> list[str]:
     carried = carried_hits(b, n, rip)
     ids = [h.get("id") for h in got["hits"]]
     errs += [f"$.hits: 覆っていない当たり {h} への答えが無い" for h in want if h not in ids and h not in carried]
-    errs += [f"$.hits: {h} は波及の一覧の項目 {n} の覆っていない当たりに無い" for h in ids if h not in want]
     errs += [f"$.hits: {h} に答えが {ids.count(h)} つある（1 つだけ）" for h in sorted(set(ids)) if ids.count(h) > 1]
     blocks = converge.block_faces(got)
     if any(h.get("answer") == "block" for h in got["hits"]) and not blocks:
@@ -778,14 +795,21 @@ def item_answer_gaps(b, n: int, got: dict, rip: dict) -> list[str]:
 
 
 def check_item(b, k: int, n: int, rip: dict, pre: list | None = None) -> tuple:
-    """(通った答え | None, 誤りの行, ファイルが無いか)。pre は先行例の出典の開き手を決める開いた項目の並び（precedent_plan）"""
+    """(通った答え | None, 誤りの行, ファイルが無いか, 捨てた余りの行 _surplus)。通った答えは余りの行を取り除いた写し。
+    pre は先行例の出典の開き手を決める開いた項目の並び（precedent_plan）"""
     path = answer_file(b, k, n)
+    dropped = {"precedents": [], "hits": []}
     if not path.is_file():
-        return None, [], True
+        return None, [], True, dropped
     got, errs = _load(path, item_schema())
     if got is not None:
-        errs = item_answer_gaps(b, n, got, rip) + _precedent_gaps(precedent_plan(b, [n] if pre is None else pre).get(n) or [], n, got)
-    return (None if errs else got), errs, False
+        rows = precedent_plan(b, [n] if pre is None else pre).get(n) or []
+        dropped = _surplus(b, n, got, rip, rows)
+        got = {**got, "hits": [h for h in got["hits"] if h.get("id") not in dropped["hits"]],
+               **({"precedents": [r for r in got["precedents"] if r.get("id") not in dropped["precedents"]]}
+                  if "precedents" in got else {})}
+        errs = item_answer_gaps(b, n, got, rip) + _precedent_gaps(rows, n, got)
+    return (None if errs else got), errs, False, dropped
 
 
 def _tree_off(b, k: int, rip: dict) -> bool:
@@ -811,7 +835,10 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
     opened = converge.open_items(b)
     gaps, answers = [], {}
     for n in opened:
-        got, errs, missing = check_item(b, k, n, rip, opened)
+        got, errs, missing, dropped = check_item(b, k, n, rip, opened)
+        for field, ids in dropped.items():
+            for i in ids:
+                b.trace(SURPLUS_OP, round=b.round, pass_=k, item=n, field=field, id=i)
         where = f"項目 {n}（{answer_file(b, k, n)}）"
         if missing:
             gaps.append(f"{where}: 答えのファイルが無い（その項目の下請けを起こせ）")
@@ -960,7 +987,7 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
     done, todo, retry = [], [], False
     for n in opened:
         path = folder / f"item-{n}.md"
-        got, errs, missing = check_item(b, k, n, doc, opened) if plan else (None, [], True)
+        got, errs, missing, _ = check_item(b, k, n, doc, opened) if plan else (None, [], True, {})
         if got is not None:
             done.append(f"- 項目 {n}: {path}")
             continue
@@ -1229,7 +1256,7 @@ def _revise_prep(board_dir) -> dict:
         raise BoardGap(f"直しの役（{REVISE_ROLE}）を起こす待ちが無い: 事前審査の壁打ちの抜け方が again でないか、{nid} が待っていない")
     path = b.work(REVISE_PROMPT.format(k=converge.pass_no(b)))
     doc = _ripple_of(b, converge.pass_no(b) - 1)
-    path.write_text(rolekit.compose([HEAD["plan"].split("\n\n")[0], section, plan_slots_section(b),
+    path.write_text(rolekit.compose([HEAD["plan"].split("\n\n")[0], section, plan_slots_section(b, filled=converge.filled_units(b)),
                                      ripple.section(doc) if isinstance(doc, dict) else ""],
                                     reject_file=rolekit.last_reject_file(b, nid)), encoding="utf-8")
     m = b.mark_launched(nid, inst.get("attempts", 1), pointers=b.pointer_rows(nid)["pointers"])
@@ -1242,9 +1269,11 @@ def revise_take():
     1. 形の崩れた返答（dict でない）は修正案の口に渡す（entry.take が拒み、出し直しの道に乗せる）
     2. 答えの欄 block_answers を外し（converge.split）、返した block への答えの欠けと誤り（converge.answer_gaps）が在れば
        盤面へ渡さずに拒む（ANSWERS_REJECT と行）
-    3. 最後の往復で閉じた項目を変えた・消した直し（converge.closed_gaps。名前に戻して比べる）は拒む（CLOSED_REJECT と行）
-    4. 外した返答を修正案の口 take("plan", snapshot=直しの役の写し)（with_plan_fields で包んだ物）に渡す
-    5. 盤面が受けたら答えを壁打ちの控えに置く（converge.note_answers。次の往復の行へ移る）。置けなければ盤面を止めて BoardGap"""
+    3. 名前に戻した返答の行に前の往復の閉じた・保留の項目の行を差し込んで案の全体にする（converge.splice）。閉じた項目を変えた・
+       開いた項目の行が欠けた直しは拒む（CLOSED_REJECT と行）。閉じた項目の前のままの行は捨てる
+    4. 全体にした返答を修正案の口 take("plan", snapshot=直しの役の写し)（with_plan_fields で包んだ物）に渡す
+    5. 盤面が受けたら答えを壁打ちの控えに置き（converge.note_answers。次の往復の行へ移る）、捨てた行を trace に残す
+       （converge.DROPPED_OP）。置けなければ盤面を止めて BoardGap"""
     run = take("plan", snapshot=snapshot_name(REVISE_ROLE))
 
     def wrapped(board, reply, repo):
@@ -1255,14 +1284,20 @@ def revise_take():
         gaps = converge.answer_gaps(b0, answers)
         if gaps:
             return {"ok": False, "reason": ANSWERS_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        dropped = []
         if not _plan_malformed(bare):
-            closed = converge.closed_gaps(b0, _resolved(b0, NODE_OF["plan"], bare).get("plan") or [])
-            if closed:
-                return {"ok": False, "reason": CLOSED_REJECT + "\n" + "\n".join(f"  - {g}" for g in closed)}
+            named = _resolved(b0, NODE_OF["plan"], bare)
+            whole, rejects, dropped = converge.splice(b0, named["plan"])
+            if rejects:
+                return {"ok": False, "reason": CLOSED_REJECT + "\n" + "\n".join(f"  - {g}" for g in rejects)}
+            bare = {**named, "plan": whole}   # engine の pointers は名前の文字列をそのまま通すので番号へ戻さない
         got = run(board, bare, repo)
         if got.get("ok") is True:
             try:
-                converge.note_answers(entry.open_board(pathlib.Path(board), allow_halted=True), answers)
+                b1 = entry.open_board(pathlib.Path(board), allow_halted=True)
+                for item in dropped:
+                    b1.trace(converge.DROPPED_OP, round=b1.round, pass_=converge.pass_no(b1), id=item)
+                converge.note_answers(b1, answers)
             except Exception as e:   # 書けない: 答えの無い往復の行にしない
                 raise BoardGap(rolekit.halt_unsaved(board, converge.RECORD, e, by=STOP_BY)) from None
         return got

@@ -50,11 +50,20 @@ def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
     """最後のテスト（盤面の p4.ci）→ settle。run_ci の拒否（refused）は Refused。
     run_ci が role_needed（任せ先に落ちて cmd も空。宣言が無い時も、宣言が在るのに engine が落ちた時も）なら、盤面の素材を
     読まずに green: false・by: role_needed を返す（p4.ci は任せ先に落ちたまま待つ。裁定 R52）——素材はまだ修正前の
-    周の頭の物で、それを最後の結果にすると修正後のテストを走らせずに緑と言う（Task 7 の審査 I2）"""
+    周の頭の物で、それを最後の結果にすると修正後のテストを走らせずに緑と言う（Task 7 の審査 I2）。
+    最後のテストは同じ run の中の控え（tree_run.slotted_run の結果の使い回し）を引かない——同じ木と命令でも環境の不具合で
+    結末が変わった前例が在り、省くとその赤を見逃すため。控えには書き続ける（旗 RERUN_ENV を run_ci の間だけ立てる）"""
+    had = os.environ.get(tree_run.RERUN_ENV)
+    os.environ[tree_run.RERUN_ENV] = "1"
     try:
         ci = run_ci(b, CI_NODE, test_cmd=cmd)
     except refused as e:
         raise Refused(f"最後のテスト（{CI_NODE}）を走らせられない: {e}") from None
+    finally:
+        if had is None:
+            del os.environ[tree_run.RERUN_ENV]
+        else:
+            os.environ[tree_run.RERUN_ENV] = had
     if ci["by"] == "role_needed":
         return {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
     material = b.record.get("materials", {}).get("local_checks") or {}

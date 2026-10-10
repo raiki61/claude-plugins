@@ -64,7 +64,7 @@ MOD = {
     "cite": (1, None),        # 名指しの形と出どころの照らし・場所の文の読みの住処。標準ライブラリだけ
     "marks": (1, None),       # 返答の足し欄の住処（役の型に欄を足す・返答から外す・盤面の控えの置き場と読み書き。標準ライブラリだけ）
     "graphmap": (1, None),    # 工程の地図（Archon の YAML から全体のグラフと節の居場所を組んで描く。works の物を何も知らない）
-    "webget": (1, None),      # web の取得（転送の決まり）と run をまたぐ控え（ライブラリの文書の節と世界の解の段が使う。works の物を何も知らない）
+    "webget": (1, None),      # web の取得（転送の決まり）と run をまたぐ控え（ライブラリの文書の節と世界の解の段が使う。試験の結果の使い回しは控え Store だけを使い、置き場は run の盤面の下。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "replycontract": (2, None),  # 包みの旗 text-reply の返答の契約（返答の形・本文の読みと型の検査・同じ会話での出し直し。adapter が使う）

@@ -22,6 +22,7 @@ run をまたぐ控え:
   のどれか（None なら問わない）で、取った時刻 at（数）から ttl 秒の内（0 <= now - at < ttl）の物だけを返す。put(name, doc) は
   同じ置き場を同時に走る run と読み合うので一時のファイルに書いて置き換え、書けなければ理由の 1 行を返す。
   root が None なら読まず・書かない（put は空を返す）
+  試験の結果の使い回し（tree_run.slotted_run）は控え Store だけを使い、置き場は run の盤面の下（shared_root は使わない）
 """
 import ipaddress
 import json

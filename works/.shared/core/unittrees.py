@@ -3,6 +3,8 @@
 修正の工程が直す単位ごとに worktree を切り、流れの道具の fan_out で同時に直させ、差分を run の作業ツリーへ順に当てる土台。
 run の作業ツリー（repo）の本物の index・HEAD・枝はどの口も動かさない（index を使う手は全部一時の GIT_INDEX_FILE で回す）。
 
+- fresh_tree(repo) -> sha: 作業ツリーの今の姿の木の sha（HEAD を空の一時の index に読んで add -A。commit も参照も作らない。
+  同じ中身なら同じ sha。試験の結果の使い回しの鍵が使う）
 - snapshot(repo) -> sha: run の作業ツリーの今の姿（未 commit の tracked の変更と、git が無視しない untracked を含む）を、
   親を HEAD にした commit にして sha を返す。参照 base-<sha> で守る（worktree を切る前に gc に拾われない）
 - add(repo, base_sha, place) -> path: `git worktree add --detach <place> <base_sha>`。単位の参照 u-<place の印> で base を守る
@@ -98,6 +100,19 @@ def _tree_now(tree, tmp: str, objects: str | None = None) -> str:
         shutil.copy2(real, index)
     _git(tree, "add", "-A", index=index, objects=objects)
     return _out(tree, "write-tree", index=index, objects=objects)
+
+
+def fresh_tree(repo) -> str:
+    """repo の作業ツリーの今の姿（追跡中のファイルと、.gitignore に当たらない未追跡のファイルの中身・実行ビット・シンボリック
+    リンク）の木の sha。HEAD を空の一時の index に読み、add -A して write-tree する——本物の index の assume-unchanged などの
+    印を継がないので、同じ中身なら同じ sha になる（_tree_now は本物の index を写すので、中身の鍵には使わない）。
+    本物の index・HEAD・枝は動かさない。git の木でなければ UnitTreeError"""
+    with tempfile.TemporaryDirectory(prefix="works-unit-") as tmp:
+        index = os.path.join(tmp, "index")
+        if _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False).returncode == 0:
+            _git(repo, "read-tree", "HEAD", index=index)
+        _git(repo, "add", "-A", "--", ":/", index=index)
+        return _out(repo, "write-tree", index=index)
 
 
 def snapshot(repo) -> str:

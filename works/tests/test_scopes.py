@@ -416,6 +416,12 @@ class GateCase(unittest.TestCase):
         self.put("scope-window.json")
         self.assertEqual(self.check(w), [])
 
+    def test_write_to_reuse_store_passes(self):
+        # 試験の結果の使い回しの控え（盤面の根の test-reuse/）は、どの scope の窓の中で書いても宣言の外の書き込みにならない
+        w = self.window("fixing", "blk-fix")
+        self.put("test-reuse/" + "a" * 64 + ".json")
+        self.assertEqual(self.check(w), [])
+
     def test_test_result_caches_pass(self):
         # 受け付けが base の試験の結末を控える置き場（周の置き場と盤面の根。fixing と refitting の両方の scope が書く。run 195g の
         # 0.2.28 で宣言の外として run が止まった）

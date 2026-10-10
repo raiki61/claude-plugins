@@ -14,9 +14,12 @@ import board  # noqa: E402
 import entry  # noqa: E402
 
 
-def _runner(calls, batches=None):
+REUSED = {"at": 1_700_000_000.0, "took_s": 1.5, "key": "k" * 64, "entry": "/store/k.json", "from": "run-a"}
+
+
+def _runner(calls, batches=None, reused=()):
     """子のプロセスを起こさない runner: tree_runner と同じく log_dir/<段の番号>.out・.err を書く。argv に 'exit 1' で exit 1。
-    calls に段の argv を、batches に呼ばれた 1 回ごとの段の名を積む"""
+    calls に段の argv を、batches に呼ばれた 1 回ごとの段の名を積む。reused に挙げた名の段の行には、控えから使った印 REUSED を足す"""
     def run(steps, cwd, log_dir):
         if batches is not None:
             batches.append([s["name"] for s in steps])
@@ -29,7 +32,7 @@ def _runner(calls, batches=None):
             out.write_text(f"{s['name']}-ran\n", encoding="utf-8")
             err.write_text("", encoding="utf-8")
             runs.append({"name": s["name"], "argv": list(s["argv"]), "out": str(out), "err": str(err),
-                         "exit": 1 if "exit 1" in " ".join(s["argv"]) else 0})
+                         "exit": 1 if "exit 1" in " ".join(s["argv"]) else 0, **({"reused": REUSED} if s["name"] in reused else {})})
         return runs
     return run
 
@@ -67,11 +70,11 @@ class _Board:
 
 
 class RunCiTestCmdRulesCase(unittest.TestCase):
-    def run_ci(self, steps, test_cmd, **kw):
+    def run_ci(self, steps, test_cmd, reused=(), **kw):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         b, calls, self.batches = _Board(tmp.name, steps, **kw), [], []
-        with mock.patch.object(board, "tree_runner", _runner(calls, self.batches)):
+        with mock.patch.object(board, "tree_runner", _runner(calls, self.batches, reused)):
             got = entry.run_ci(b, "p4.ci", test_cmd=test_cmd)
         return b, got, calls
 
@@ -111,6 +114,20 @@ class RunCiTestCmdRulesCase(unittest.TestCase):
         self.assertEqual(sum(1 for c in calls if c[:2] == ["bash", "-c"]), 1, "任せ先に落ちた後に test_cmd を走らせ直した")
         self.assertEqual(b.given["material"]["status"], "found")
         self.assertIn("test_cmd-ran", pathlib.Path(got["log"]).read_text(encoding="utf-8"))
+
+    def test_fallback_with_reused_test_cmd_row_names_source(self):
+        """engine が test_cmd の段を同じ run の控えから使った行（reused つき）を持って任せ先に落ちた回は、渡す素材の checked
+        （clean）と detail（found）の末尾に、控えから使った句と出どころの run が付く。使っていない回には付かない"""
+        for cmd, field, status in (("true", "checked", "clean"), ("echo x; exit 1", "detail", "found")):
+            with self.subTest(status):
+                b, got, _ = self.run_ci([{"name": "pytest", "argv": ["pytest"]}], cmd, reused=(entry.TEST_CMD_STEP,), reject=True)
+                self.assertEqual(got["by"], "role")
+                m = b.given["material"]
+                self.assertEqual(m["status"], status)
+                self.assertIn(f"{entry.TEST_CMD_STEP} は控えから使った（run run-a・", m[field])
+                self.assertIn(f"・鍵 {'k' * 12}", m[field])
+                b, _, _ = self.run_ci([{"name": "pytest", "argv": ["pytest"]}], cmd, reject=True)
+                self.assertNotIn("控えから使った", b.given["material"][field])
 
 
 class LaunchHowRecordedCase(unittest.TestCase):

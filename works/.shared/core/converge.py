@@ -23,8 +23,9 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
 - block_faces(review)・decide(passes, fence=): block の face と、続けるか止めるかの語（CLEAN・AGAIN・PERSISTED・UNSETTLED）
 - read(b)・pass_no(b)・note_answers(b, answers)・record_pass(b, review, ...)・stash_rejects(b, rows)・held(b):
   控えの読み書き
-- note_plan(b, rows)・open_items(b)・closed_gaps(b, rows)・item_id・item_hash: 項目の控え・次に審査する項目の番号・閉じた
-  項目を変えた・消した直しの行
+- note_plan(b, rows)・open_items(b)・filled_units(b)・splice(b, rows)・item_id・item_hash: 項目の控え・次に審査する項目の番号・
+  機械が差し込む（閉じた・保留の）項目の単位・直しの役が返した開いた項目の行に前の往復の行を差し込んで案の全体を組む口
+  （閉じた項目を変えた行は拒み、前と同じ行は捨てる）
 - answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行（項目の在る
   控えでは、今の往復で開いている項目の分だけ）
 - with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す（事前審査の型には項目ごとの審査の欄
@@ -54,6 +55,7 @@ import promptsection
 RECORD = "plan-converge.json"
 PASS_DIR = "plan-converge"
 OP = "plan_converge"
+DROPPED_OP = "plan_converge_dropped"   # 直しの役が返した閉じた項目の前のままの行を捨てた印（trace の op）
 CLEAN = "clean"   # 抜け方の語（控えの outcome）
 AGAIN = "again"
 PERSISTED = "persisted"
@@ -69,8 +71,9 @@ FACE_KEYS = ("key", "kind", "where", "why")
 
 REVISE_ASK = ("事前審査（別の目）が、お前の修正案に下の block（直しへ進めない穴）を挙げた。block ごとに、案を直したなら handled に fixed、"
               "how に直した所を、直さずに異を唱えるなら handled に disputed、how に根拠を、block_answers に 1 行ずつ書け（key は下の key を"
-              "一字も変えずに写す）。そのうえで直した案を丸ごと plan に返せ（前の案と同じ型。直さない項目もそのまま入れる）。suggest の穴は"
-              "採っても採らなくてもよい。直した案は新しい会話の事前審査に掛かり、同じ block が残れば直しへ進まずに人の関所で止まる。")
+              "一字も変えずに写す）。そのうえで開いた項目の行を plan に返せ（前の案と同じ型の行。閉じた項目は書くな。機械が前の往復の行を"
+              "差し込む。保留の項目は直す時だけ書け）。suggest の穴は採っても採らなくてもよい。直した案は新しい会話の事前審査に掛かり、"
+              "同じ block が残れば直しへ進まずに人の関所で止まる。")
 REREVIEW_ASK = ("下は前の往復で挙がった block と、修正案の役の答え（fixed＝直した・disputed＝異を唱えた）。今の案を読み、前の block の key "
                 "ごとに、穴が消えたなら resolved にその key を入れ、残っていれば同じ key のまま faces に severity block で挙げ直せ（同じ穴に"
                 "別の key を付けない。key は一字も変えずに写す）。新しい穴は新しい key で挙げよ。前の block が 1 つでも block のまま残ると、"
@@ -83,11 +86,10 @@ LINE_HEAD = ("事前審査の壁打ち: {n} 往復・抜け方は{word}（記録
              "（往復ごとの案と審査: {path}）")
 LINE_PASS = ("  - {k} 往復目: block {keys}・修正案の役の答え fixed {f} 件・disputed {d} 件・審査が消えたと言った key {resolved}"
              "・審査が suggest に下げた key {down}")
-CLOSED_ASK = ("下の項目は前の往復で事前審査が block を挙げずに閉じた。plan に一字も変えずに入れよ（変えた・消した・組み直した直しは"
-              "受け付けが拒む）:")
+CLOSED_ASK = "下の項目は前の往復で事前審査が block を挙げずに閉じた。plan に書くな（機械が前の往復の行のまま差し込む）:"
 NOTES_HEAD = ("参考: 事前審査が挙げた suggest の穴（block でない。答えなくてよく、採っても採らなくてもよい。項目を開き直さない。"
               "修正の段にも事前審査の返答として渡る）:")
-HELD_NOTE = "下の項目は同じ block が続いたので保留にした（直さなくてよい。人の関所が読む）:"
+HELD_NOTE = "下の項目は同じ block が続いたので保留にした（直さなくてよい。書かなければ機械が差し込む。人の関所が読む）:"
 ITEMS_WHY = "固まった項目: {closed}。保留の項目: {held}。開いたままの項目: {open}"
 LINE_ITEMS = "    項目: 閉じた {closed}・開いた {open}・保留 {held}・相乗りの審査の block {synergy}"
 WORDS = {CLEAN: "block が消えた", PERSISTED: "同じ block が続いた", UNSETTLED: "柵の往復でも block が消えない", AGAIN: "途中"}
@@ -307,19 +309,58 @@ def item_blocks(b, n: int) -> list:
     return list(dict.fromkeys(out))
 
 
-def closed_gaps(b, rows: list) -> list[str]:
-    """直した案（名前に戻した行の並び）が、最後の往復で閉じた項目を変えた・消した（組み直した）行"""
+def _filled_ids(doc: dict) -> dict:
+    """今の案の項目の id → 最後の往復で閉じた・保留にした項目の state（開いた項目・まだ審査していない項目は入らない）"""
+    last = _last_items(doc)
+    return {it["id"]: last[it["id"]]["state"] for it in doc.get("plan") or []
+            if (last.get(it["id"]) or {}).get("state") in (CLOSED, HELD)}
+
+
+def filled_units(b) -> list[str]:
+    """機械が前の往復の行を差し込む項目（最後の往復で閉じた・保留にした項目）の単位の key。項目の控えが無ければ []"""
     doc = read(b)
-    now = {item_id(r.get("unit_keys")): item_hash(r) for r in rows if isinstance(r, dict)}
-    out = []
-    for it in _last_items(doc).values():
-        if it.get("state") != CLOSED:
-            continue
-        if it["id"] not in now:
-            out.append(f"閉じた{_label(it)}が案に無い（単位の組を変えずに、前の案のまま入れよ）")
-        elif now[it["id"]] != it.get("hash"):
-            out.append(f"閉じた{_label(it)}を変えた（前の案のまま一字も変えずに入れよ）")
-    return out
+    filled = _filled_ids(doc)
+    return [k for it in doc.get("plan") or [] if it["id"] in filled for k in it["unit_keys"]]
+
+
+def splice(b, rows: list) -> tuple[list, list[str], list[str]]:
+    """直しの役が返した行（名前に戻した行の並び）に前の往復の行を差し込んだ案の全体, 拒む行, 捨てた id を返す。
+    控えの案の順に、閉じた項目は控えの行、開いた項目と保留の項目は返答の同じ id の行を並べる。控えに当たらない返答の行（単位を
+    組み替えた行・新しい項目の行）は返答の順で後ろに足す（捨てない）。保留の項目の行が返答に無く、その単位がどの返答の行にも
+    無ければ控えの行を差し込む。閉じた項目の行が返答に在って控えと同じ hash なら捨て（捨てた id）、違えば拒む。閉じた項目の単位を
+    別の行に入れた返答、開いた項目の行も単位も返答に無い返答も拒む"""
+    doc = read(b)
+    given = [r for r in rows if isinstance(r, dict)]
+    by_id = {}
+    for r in given:
+        by_id.setdefault(item_id(r.get("unit_keys")), r)
+    in_rows = {str(k) for r in given for k in r.get("unit_keys") or []}
+    filled = _filled_ids(doc)
+    whole, rejects, dropped, used = [], [], [], set()
+    for n, it in enumerate(doc.get("plan") or [], 1):
+        mine = by_id.get(it["id"])
+        homeless = not {str(k) for k in it["unit_keys"]} & in_rows
+        if filled.get(it["id"]) == CLOSED:
+            if mine is not None:
+                used.add(id(mine))
+                if item_hash(mine) == it["hash"]:
+                    dropped.append(it["id"])
+                else:
+                    rejects.append(f"閉じた項目 {n} を変えた（書くな。機械が差し込む）")
+            elif not homeless:
+                rejects.append(f"閉じた項目 {n} の単位を別の行に入れた（書くな。機械が差し込む）")
+            if "row" in it:
+                whole.append(copy.deepcopy(it["row"]))
+        elif mine is not None:
+            used.add(id(mine))
+            whole.append(mine)
+        elif homeless and filled.get(it["id"]) == HELD:
+            if "row" in it:
+                whole.append(copy.deepcopy(it["row"]))
+        elif homeless:
+            rejects.append(f"開いた項目 {n} の行が無い（変えないなら前のまま返せ・単位を移したなら移した行に入れよ）")
+    whole += [r for r in given if id(r) not in used]
+    return whole, rejects, dropped
 
 
 def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict, synergy: list | None = None,

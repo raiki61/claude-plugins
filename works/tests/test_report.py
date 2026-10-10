@@ -1720,6 +1720,16 @@ class TddLinesCase(unittest.TestCase):
         self.assertIn("依頼とテストが食い違う", body)
         self.assertTrue(all(r.startswith("  - ") for r in rows[1:]))
 
+    def test_stage_line_names_reused_source(self):
+        """出口 tdd に reused（元の結末と test_cmd の句）が在れば、段の行に『控えから使った結果』とその句が出る。無ければ出ない"""
+        suite = "run run-a・2026-10-10T09:00:00+09:00・鍵 0123456789ab"
+        test_cmd = "run run-a・2026-10-10T09:05:00+09:00・鍵 ba9876543210"
+        rows = report.tdd_lines([(report.TDD_STAGES[0], {**TDD_RAN, "reused": {"suite": suite, "test_cmd": test_cmd}})])
+        self.assertIn("控えから使った結果", rows[0])
+        self.assertIn(suite, rows[0])
+        self.assertIn(test_cmd, rows[0])
+        self.assertNotIn("控えから使った結果", report.tdd_lines([(report.TDD_STAGES[0], TDD_RAN)])[0])
+
     def test_stage_without_loop_says_why(self):
         rows = report.tdd_lines([(report.TDD_STAGES[0], TDD_OFF)])
         self.assertEqual(len(rows), 1)

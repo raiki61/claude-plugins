@@ -2275,6 +2275,75 @@ class TreeReviewCase(unittest.TestCase):
         self.assertTrue(rec["passes"][-1]["items"][1]["reopened"])
         self.assertEqual(rec["passes"][-1]["synergy"], [on_closed["key"]])
 
+    def block_item_one(self):
+        """項目 1 だけに block が挙がり、項目 2 が閉じた往復まで進める（again）。返りは波及の一覧"""
+        self.ready()
+        doc = self.ripple_doc()
+        self.write_answers(1, {1: self.answer(1, doc, faces=[MEAN_BLOCK]), 2: self.answer(2, doc)})
+        _, got = self.review(self.summary({1: [MEAN_BLOCK["key"]], 2: []}))
+        self.assertTrue(got.get("again"), got)
+        self.assertEqual(converge.open_items(self.board_obj()), [1])
+        return doc
+
+    MEAN_ANSWERS = [{"key": MEAN_BLOCK["key"], "handled": "fixed", "how": "空の列を先に弾く手順を案に足した"}]
+    MEAN_FIXED = "mean は空の列を先に弾き、分母を len(xs) に直す（定義どおり）"
+
+    def test_board_plan_is_whole_after_splice(self):
+        """直しの役が開いた項目 1 の行だけを返しても受け付けが通り、次の往復を受けた後の控えの案は 2 項目の全体で、閉じた項目 2 の
+        行は前の案と同じ（again の後は rewind_roles が出力を戻すので、控えの写しを開く）"""
+        self.block_item_one()
+        role = planblk.REVISE_ROLE
+        fixed = two_items()
+        fixed["plan"][0]["approach"] = self.MEAN_FIXED
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        _, got = self.round_of(role, {"plan": [fixed["plan"][0]], converge.ANSWERS: self.MEAN_ANSWERS})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        doc = self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        self.write_answers(2, {1: self.answer(1, doc, resolved=[MEAN_BLOCK["key"]])}, synergy=self.synergy())
+        _, got = self.round_of("plan-review", self.summary({1: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        passes = converge.read(self.board_obj())["passes"]
+        before, after = (json.loads(pathlib.Path(p["files"]["p2.fix_plan.json"]).read_text(encoding="utf-8")) for p in passes)
+        self.assertEqual(len(after["plan"]), 2)
+        self.assertEqual(after["plan"][0]["approach"], self.MEAN_FIXED)
+        self.assertEqual(after["plan"][1], before["plan"][1])
+        self.assertEqual(converge.item_hash(after["plan"][1]), converge.item_hash(before["plan"][1]))
+        self.assertEqual(passes[1]["items"][1]["hash"], passes[0]["items"][1]["hash"])
+
+    def test_unchanged_closed_row_is_dropped_and_traced(self):
+        """閉じた項目の行を前のまま返した直しは拒まずに捨て、受けた後に盤面の trace に DROPPED_OP の行（項目の id）が 1 行だけ在る"""
+        self.block_item_one()
+        role = planblk.REVISE_ROLE
+        fixed = two_items()
+        fixed["plan"][0]["approach"] = self.MEAN_FIXED
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        _, got = self.round_of(role, {**fixed, converge.ANSWERS: self.MEAN_ANSWERS})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        self.assertTrue(hasattr(converge, "DROPPED_OP"), "converge.DROPPED_OP が無い")
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+        dropped = [r for r in rows if r.get("op") == converge.DROPPED_OP]
+        self.assertEqual([r.get("id") for r in dropped], [converge.item_id([UNIT_CLAMP])])
+        out = self.board_obj().state["outputs"][planblk.NODE_OF["plan"]]["file"]
+        plan = json.loads((self.board_obj().dir / out).read_text(encoding="utf-8"))["plan"]
+        self.assertEqual(len(plan), 2)
+
+    def test_revise_prompt_slots_name_filled_units(self):
+        """項目 2 が閉じた往復の後の直しの役の指示書は、入れてはいけない単位が無い盤面でも入れてよい no の節を貼り、閉じた項目 2 の
+        単位を『必ず案に入れる no』に並べず『機械が差し込む no』の行に並べる"""
+        self.block_item_one()
+        self.assertTrue(self.ok("snap", role=planblk.REVISE_ROLE)["go"])
+        prep = self.ok("prep", role=planblk.REVISE_ROLE, excluded_file="")
+        text = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
+        names = planblk._names(self.board_obj(), planblk.NODE_OF["plan"])
+        mean, clamp = names.index(UNIT_MEAN) + 1, names.index(UNIT_CLAMP) + 1
+        self.assertIn(planblk.PLAN_SLOTS_HEAD, text)
+        self.assertIn(f"- 必ず案に入れる no: {[mean]}", text)
+        filled = [line for line in text.splitlines() if line.startswith("- 機械が差し込む no")]
+        self.assertEqual(len(filled), 1, filled)
+        self.assertTrue(filled[0].endswith(f": {[clamp]}"), filled)
+
     def test_second_pass_reviews_diff_and_carries_answers_and_notes(self):
         """2 往復目から: 項目の下請けは前の往復からの案の差分と前の block の行き先だけを見る。前の往復で答えた当たりは機械が
         引き継ぐ（答えなくてよい）。suggest の穴は項目を開き直さず、直しの役に参考として渡り、最後の審査の返答にも残る"""
@@ -2363,6 +2432,69 @@ class TreeReviewCase(unittest.TestCase):
         self.write_answers(2, {2: self.answer(2, doc, resolved=[clamp_block["key"]])}, synergy=self.synergy())
         _, got = self.round_of("plan-review", self.summary({2: []}))
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def surplus_rows(self):
+        """盤面の trace のうち、捨てた余りの行（planblk.SURPLUS_OP）"""
+        path = self.board / "trace.jsonl"
+        rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()] if path.is_file() else []
+        return [r for r in rows if r.get("op") == getattr(planblk, "SURPLUS_OP", "plan_review_surplus")]
+
+    def test_surplus_precedent_row_dropped(self):
+        """項目 2 の下請けの答えに、項目 1 が開く出典の確かめの行が余りで在っても拒まない: 余りの行は trace に残して捨て、
+        先行例の控えにその確かめは入らない"""
+        self.ready()
+        doc = self.ripple_doc()
+        pre = planblk.precedent_plan(self.board_obj(), converge.open_items(self.board_obj()))
+        other = next(x["id"] for x in pre[1] if x["fetch_by"] == 1)
+        own = [x["id"] for x in pre[2] if x["fetch_by"] == 2]
+        self.assertTrue(own)
+        self.assertNotIn(other, own)
+        self.write_answers(1, {1: self.answer(1, doc)})
+        stray = {"id": other, "found": False, "quote": "余りの確かめ（この項目の下請けが開く出典でない）"}
+        mine = [{"id": i, "found": True, "quote": "出典は在り、単位の問題に当たっている"} for i in own]
+        self.write_answers(1, {2: {**self.answer(2, doc), "precedents": mine + [stray]}}, synergy=self.synergy())
+        _, got = self.review(self.summary({1: [], 2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        rows = [r for r in self.surplus_rows() if r.get("item") == 2 and "precedents" in json.dumps(r, ensure_ascii=False)]
+        self.assertEqual(len(rows), 1, self.surplus_rows())
+        self.assertIn(other, json.dumps(rows[0], ensure_ascii=False))
+        cache = json.loads(self.board_obj().scope_root.joinpath(planblk.PRECEDENT_CACHE).read_text(encoding="utf-8"))
+        self.assertEqual(len(cache), 2)
+        self.assertNotIn(stray["quote"], json.dumps(cache, ensure_ascii=False))
+
+    def test_surplus_hit_dropped(self):
+        """項目の下請けの答えの hits に波及の一覧に無い id の行が在っても拒まない: 余りの行は trace に残して捨て、
+        往復の控えの hits に入らない"""
+        self.ready()
+        doc = self.ripple_doc()
+        stray = {"id": "H-not-in-ripple", "answer": "no_effect", "why": NO_EFFECT}
+        two = self.answer(2, doc)
+        self.write_answers(1, {1: self.answer(1, doc), 2: {**two, "hits": two["hits"] + [stray]}}, synergy=self.synergy())
+        _, got = self.review(self.summary({1: [], 2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        rows = [r for r in self.surplus_rows() if r.get("item") == 2 and "hits" in json.dumps(r, ensure_ascii=False)]
+        self.assertEqual(len(rows), 1, self.surplus_rows())
+        self.assertIn(stray["id"], json.dumps(rows[0], ensure_ascii=False))
+        hits = converge.read(self.board_obj())["passes"][-1]["items"][1]["hits"]
+        self.assertEqual([h["id"] for h in hits], [h["id"] for h in planblk.ripple.uncovered(doc, 2)])
+        self.assertNotIn(stray["id"], [h["id"] for h in hits])
+
+    def test_missing_precedent_row_refused_without_surplus_lines(self):
+        """開くべき出典の確かめの行が無く、余りの行も在る答えは拒む。拒否の文は欠けの行だけを名指し、余りの行は名指さない"""
+        self.ready()
+        doc = self.ripple_doc()
+        pre = planblk.precedent_plan(self.board_obj(), converge.open_items(self.board_obj()))
+        other = next(x["id"] for x in pre[1] if x["fetch_by"] == 1)
+        own = [x["id"] for x in pre[2] if x["fetch_by"] == 2]
+        self.assertTrue(own)
+        self.write_answers(1, {1: self.answer(1, doc)})
+        stray = {"id": other, "found": False, "quote": "余りの確かめ（この項目の下請けが開く出典でない）"}
+        self.write_answers(1, {2: {**self.answer(2, doc), "precedents": [stray]}}, synergy=self.synergy(), fetched=False)
+        _, got = self.review(self.summary({1: [], 2: []}))
+        self.assertFalse(got["ok"])
+        text = self.reason_of(got)
+        self.assertIn(f"先行例の出典 {own[0]} の確かめの行が無い", text)
+        self.assertNotIn("開く出典でない", text)
 
     def test_reads_trace_agent_launches_against_item_files(self):
         """読んだ証拠の節が、束ね役の Agent の呼びの数と下請けのファイルの数を盤面の trace に並べる（拒まない。測る）"""

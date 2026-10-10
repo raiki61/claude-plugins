@@ -492,6 +492,126 @@
      "FixtureStubKeysCase.test_same_node_stubs_share_keys"
     ]
    }
+  },
+  {
+   "id": "ru1",
+   "title": "試験の結果の控えを引く時、終了コードが 0 でない控え（手で書き換えた控え）も使い回す",
+   "file": ".shared/core/tree_run.py",
+   "old": "    if doc.get(\"exit\") != 0:\n",
+   "new": "    if False:\n",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_red_entry_is_not_reused"
+    ]
+   }
+  },
+  {
+   "id": "ru2",
+   "title": "試験の結果の控えを引く時、材料が今と違う控え（同じ名に置いた別の指紋の控え）も使い回す",
+   "file": ".shared/core/tree_run.py",
+   "old": "    if doc.get(\"material\") != plan[\"material\"]:\n",
+   "new": "    if False:\n",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_entry_with_other_material_is_not_reused"
+    ]
+   }
+  },
+  {
+   "id": "ru3",
+   "title": "試験の結果の控えを引く時、files の長さが outputs と違う控えも使い回す（足りない分の報告は書き戻されない）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    if not isinstance(files, list) or len(files) != len(outputs):",
+   "new": "    if not isinstance(files, list):",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_broken_entry_runs_child_and_says_why"
+    ]
+   }
+  },
+  {
+   "id": "ru4",
+   "title": "控えの中身を復号する except から KeyError を外す（欄の欠けた控えが例外になって漏れる）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    except (KeyError, TypeError, ValueError) as e:   # binascii.Error は ValueError",
+   "new": "    except (TypeError, ValueError) as e:   # binascii.Error は ValueError",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_broken_entry_runs_child_and_says_why"
+    ]
+   }
+  },
+  {
+   "id": "ru5",
+   "title": "控えの書き戻しの except から OSError を外す（書き戻し先に書けない回が例外になって漏れ、書いた分が戻らない）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    except (KeyError, TypeError, ValueError, OSError) as e:\n",
+   "new": "    except (KeyError, TypeError, ValueError) as e:\n",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_writeback_failure_restores_log"
+    ]
+   }
+  },
+  {
+   "id": "ru6",
+   "title": "赤（終了コードが 0 でない回）も緑の控えとして置く（控えは終了コード 0 と書かれるので、次の回が赤を緑として使い回す）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    if rc != 0:\n",
+   "new": "    if False:\n",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_red_or_tree_changing_run_is_not_kept"
+    ]
+   }
+  },
+  {
+   "id": "ru8",
+   "title": "一式を置かない時、赤の段があったことを理由に名指さない（起こせなかった段が在る、の理由に化ける）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    if group[\"failed\"]:\n",
+   "new": "    if False:\n",
+   "tests": {
+    "tests/test_board_engine_run.py": [
+     "TreeRunnerCase.test_partial_red_group_is_not_kept"
+    ]
+   }
+  },
+  {
+   "id": "ru9",
+   "title": "engine の素材に控えから使った段の出どころを足す時、赤の素材（found）の detail には足さない",
+   "file": ".shared/core/board.py",
+   "old": "    field = {\"clean\": \"checked\", \"found\": \"detail\"}.get((material or {}).get(\"status\"))",
+   "new": "    field = {\"clean\": \"checked\"}.get((material or {}).get(\"status\"))",
+   "tests": {
+    "tests/test_board_engine_run.py": [
+     "RunEngineCase.test_reused_found_reply_names_source_in_detail"
+    ]
+   }
+  },
+  {
+   "id": "ru10",
+   "title": "任せ先に落ちた回、engine が控えから使った test_cmd の段の行（reused つき）を素材に渡さない",
+   "file": ".shared/core/entry.py",
+   "old": "launched[\"how\"]), ran))",
+   "new": "launched[\"how\"]), {}))",
+   "tests": {
+    "tests/test_ci_test_cmd.py": [
+     "RunCiTestCmdRulesCase.test_fallback_with_reused_test_cmd_row_names_source"
+    ]
+   }
+  },
+  {
+   "id": "ru11",
+   "title": "test_cmd の素材に控えから使った出どころを足す時、赤の素材（found）の detail には足さない",
+   "file": ".shared/core/entry.py",
+   "old": "    field = {\"clean\": \"checked\", \"found\": \"detail\"}.get(m.get(\"status\"))",
+   "new": "    field = {\"clean\": \"checked\"}.get(m.get(\"status\"))",
+   "tests": {
+    "tests/test_ci_test_cmd.py": [
+     "RunCiTestCmdRulesCase.test_fallback_with_reused_test_cmd_row_names_source"
+    ]
+   }
   }
  ],
  "dropped": [

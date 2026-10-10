@@ -9,7 +9,8 @@
   そのコマンドの文字列をそのまま含むなら same_as_suite（一式と同じなので 2 度走らせない）、ほかは 1 回走らせて緑なら on、
   赤・走らないなら off にして理由を test_cmd_note に残す（元から赤の test_cmd で毎単位を拒まない）。test_cmd は nice を付けて
   走らせ、既存のファイルを書き換えた回はいつも赤（書き換えた物は戻す。_cmd_run）。関門が on なら直し・整えの段の指示書に
-  そのコマンドを書く。
+  そのコマンドを書く。元の結末と test_cmd を同じ run の中の控えから使い回した回は、その出どころの句を状態の reused
+  （{suite, test_cmd}。使った物だけ）に置き、出口 exit_fields が載せる（ログの末尾の 1 行は run_suite・_cmd_run が書く）。
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run・平の run は無し）→ 役 tdd（修正役。
   単位の中の段は同じ会話で、単位が替わると包みが新しい会話で起こす（支度が書く単位の鍵。依頼 243 の 2）。振り分け・テスト・直し・整えを返す）→
@@ -213,27 +214,33 @@ def hashes(repo, files) -> dict:
 
 
 # ---------------------------------------------------------------- 一式を走らせる
-def run_suite(exe: str, repo, work: pathlib.Path, n, args=(), only=False):
+def run_suite(exe: str, repo, work: pathlib.Path, n, args=(), only=False, note=None):
     """実行器を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
     .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと。
     args は JUnit の書き先の後ろに足す（段の外の試験のファイル・node id を絶対パスで・受け付けの -k。works/dev/tdd-suite.sh は
     pytest に渡し、試験の根（conftest.py の置き場）が違う名指しは根ごとに別のプロセスで流して JUnit を 1 つに合わせる）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）。
     輪の元の結末・各段・受け付け・版の写しの全部がここを通るので、nice -n 19 と機械の試験の枠（tree_run.slotted_run）を
     ここで付ける（ADR 0071 の 3 の 1）。枠を待った秒はログの末尾に書く（走った時間と分けて見る）。
-    only なら env に合図 ONLY_ENV=1 を付ける（後ろの試験だけでよい。輪の赤・緑の回）。付けない回は外の env の合図も落とす"""
+    only なら env に合図 ONLY_ENV=1 を付ける（後ろの試験だけでよい。輪の赤・緑の回）。付けない回は外の env の合図も落とす。
+    同じ run の中で同じ木・同じ引数の緑の回は、控えから使い回して子を起こさない（JUnit XML は書き戻す。tree_run.slotted_run）。
+    ログの末尾に、使い回した回はその出どころを、使い回せなかった回はその理由を 1 行書く（tree_run.reuse_phrase。使い回しの置き場の無い run は書かない）。
+    note（dict）を渡せば slotted_run の note に使い、呼び手が出どころ（reused）と理由（reuse_off）を読める"""
     argv = ["nice", "-n", "19"] + ([sys.executable] if exe.endswith(".py") else []) + [exe]
     junit = work / f"junit-{n}.xml"
     log = work / f"suite-{n}.log"
     env = {k: v for k, v in tree_run.outside_env(os.environ).items() if k != ONLY_ENV}
     env.update({"PYTHONDONTWRITEBYTECODE": "1", **({ONLY_ENV: "1"} if only else {})})
+    reuse = {} if note is None else note
     with open(log, "wb") as out:
         try:
-            rc, wait = tree_run.slotted_run([*argv, str(junit), *args], env, stdin=subprocess.DEVNULL, stdout=out,
-                                            stderr=subprocess.STDOUT, cwd=str(repo))
+            rc, wait = tree_run.slotted_run([*argv, str(junit), *args], env, outputs=(junit,), note=reuse, stdin=subprocess.DEVNULL,
+                                            stdout=out, stderr=subprocess.STDOUT, cwd=str(repo))
         except OSError as e:
             return None, None, [f"テストの実行器を起こせない（{type(e).__name__}: {e}。ログ {log}）"]
         if wait is not None:
             out.write(f"\n（試験の枠を待った秒: {wait}）\n".encode("utf-8"))
+        if tree_run.reuse_phrase(reuse):
+            out.write(f"\n{tree_run.reuse_phrase(reuse)}\n".encode("utf-8"))
     if not junit.is_file():
         return None, rc, [f"テストの実行器が JUnit XML を書かなかった（exit {rc}。ログ {log}）"]
     try:
@@ -440,25 +447,26 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit
         k += 1
     work = board_dir / f"tdd-{k}"
     work.mkdir()
-    cases, code, why = run_suite(str(exe), repo, work, 0)
+    reuse = {"suite": {}, "test_cmd": {}}
+    cases, code, why = run_suite(str(exe), repo, work, 0, note=reuse["suite"])
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
     test_cmd = (test_cmd or "").strip()
-    gate, note, made = _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
+    gate, note, made = _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log", reuse["test_cmd"])
     st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
           "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
           "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract,
           "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "light": light, "calls": [],
-          "lanes_on": lanes_ok,
+          "lanes_on": lanes_ok, "reused": {k: t for k, n in reuse.items() if (t := tree_run.reused_text(n))},
           "lanes_off": None if lanes_ok else {"reason": "switch", "why": "入力 tdd_lanes が off（並べの周を切った run）"}}
     state_file = work / STATE
     _save(state_file, st)
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
 
 
-def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tuple[str, str, list]:
+def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path, note=None) -> tuple[str, str, list]:
     """(関門, 理由, 走らせて出来たファイル)。空は (off, "", [])。実行器のファイルの中身が cmd をそのまま含めば
     (same_as_suite, "", [])（use.sh が pytest の 1 コマンドから書いた実行器など。一式の緑が同じコマンドの緑）。ほかは機械の
     試験の枠（entry.local_checks_material → tree_run.slotted_run）で 1 回走らせ、緑なら on、赤・走らないなら off と理由。
@@ -470,7 +478,7 @@ def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tupl
             return GATE_SAME, "", []
     except OSError:
         pass   # 読めない実行器は包みと見なさず、走らせて決める
-    mat, made = _cmd_run(repo, cmd, log)
+    mat, made = _cmd_run(repo, cmd, log, note)
     if mat["status"] == "clean":
         return GATE_ON, "", made
     if mat["status"] == "found":
@@ -479,13 +487,19 @@ def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tupl
     return GATE_OFF, f"run の test_cmd（{cmd}）を輪の頭で走らせられない（{mat.get('reason', '')}）——この輪では確かめない", made
 
 
-def _cmd_run(repo, cmd: str, log: pathlib.Path) -> tuple[dict, list[str]]:
+def _cmd_run(repo, cmd: str, log: pathlib.Path, note=None) -> tuple[dict, list[str]]:
     """test_cmd を機械の試験の枠で nice を付けて 1 回走らせる（ADR 0071 の 3 の 1）——（素材, 新しく出来たパス）。
     決まりは 1 つ: 既存のファイルを書き換えた（変えた・消した）test_cmd は緑でない。書き換えたパスは走らせる前の木に戻し
     （restore_paths。緑を出した木と残る木を違えない）、素材を赤（found）にして、書き換えたパスと戻したことを rewrote の文に載せる。
-    suite_made に積んでよいのは新しく出来たパスだけ（積むと書き込みの出どころの照合・凍結の照らしから外れる）"""
+    suite_made に積んでよいのは新しく出来たパスだけ（積むと書き込みの出どころの照合・凍結の照らしから外れる）。
+    ログの末尾に、使い回した回はその出どころを、使い回せなかった回はその理由を 1 行書く（tree_run.reuse_phrase）。
+    note（dict）を渡せば呼び手が出どころ（reused）と理由（reuse_off）を読める"""
     pre = snapshot(repo)
-    mat = entry.local_checks_material(repo, cmd, log, niced=True)["material"]
+    launched = {} if note is None else note
+    mat = entry.local_checks_material(repo, cmd, log, niced=True, launched=launched)["material"]
+    if tree_run.reuse_phrase(launched):   # 使い回した回は前後の木が同じ回だけ控えに置かれるので、書き換えは起きない
+        with open(log, "ab") as f:
+            f.write(f"\n{tree_run.reuse_phrase(launched)}\n".encode("utf-8"))
     post = snapshot(repo)
     made = sorted(set(git_names(repo, "diff-tree", "-r", "--name-only", "--no-renames", "--diff-filter=A", pre, post)))
     rewrote = sorted(set(touched(repo, pre, post)) - set(made))
@@ -2048,7 +2062,9 @@ def exit_fields(start_out: dict) -> dict:
     なので走らせなかった・""）,
     refactor_why（整えの申告の理由）}]}。refactor は ""・skipped（申告が無く整えの段を飛ばした）・none・ok・reverted。
     ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} と calls（step 1 回ごとの
-    {n, phase, unit_key, ok, runs, secs}。役の費用は Archon の出来事に在り、この行の順（tdd の節の起動の順）で後から結べる）も載る"""
+    {n, phase, unit_key, ok, runs, secs}。役の費用は Archon の出来事に在り、この行の順（tdd の節の起動の順）で後から結べる）も載る。
+    輪の頭で同じ run の中の控えから使い回した結果が在れば reused: {suite（元の結末）, test_cmd}（使った物だけ。値は
+    tree_run.reused_text の句 run <出どころ>・<時刻>・鍵 <頭 12 字>）も載る"""
     if not isinstance(start_out, dict) or not start_out.get("go"):
         so = start_out if isinstance(start_out, dict) else {}
         return {"ran": False, "suite": so.get("suite", ""), "reason": so.get("reason", ""), "units": []}
@@ -2061,6 +2077,8 @@ def exit_fields(start_out: dict) -> dict:
     out = {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows,
            "test_cmd": {"gate": st.get("test_cmd_gate", GATE_OFF), "note": st.get("test_cmd_note", "")},
            "calls": st.get("calls", [])}
+    if st.get("reused"):
+        out["reused"] = st["reused"]
     lanes = st.get("lanes") or {}
     if "out" in lanes:   # 並べの周を締めた run だけ（単位ごとの結末と枝の段の呼び）
         out["lanes"] = {"units": lanes["out"], "calls": lanes.get("calls", []), "reverted": lanes.get("reverted", []),

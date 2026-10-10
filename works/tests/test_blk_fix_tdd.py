@@ -1574,6 +1574,100 @@ class TestTestCmdGate(LoopCase):
     def lint(self):
         return f"{sys.executable} lint.py"
 
+    def run_env(self, run="run-a"):
+        """結果の使い回しを使える環境（run の置き場だけ。包みの家は要らない。枠の台本は使わない）"""
+        tmp = pathlib.Path(self._tmp.name)
+        return {"ARTIFACTS_DIR": str(tmp / "arts" / run), "WORKS_TESTSLOT": ""}
+
+    def head(self, cmd):
+        """木をそのままに、輪の頭をもう 1 度決める（restart は lint.py を commit し直すので、2 度目からはこちら）"""
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=cmd)
+        self.assertTrue(self.start["go"], self.start)
+        self.state = self.start["state_file"]
+
+    def test_loop_head_reuses_green_test_cmd_from_earlier_run(self):
+        """同じ run の中で同じ木の 2 つの輪の頭が test_cmd の関門を決める。2 度目は test_cmd を起こさずに on になり、出来たファイルは空。
+        ファイルを書き換える test_cmd の結果は控えに置かれず、次の輪の頭でも走って赤になる"""
+        count = pathlib.Path(self._tmp.name) / "count"
+        green = f"echo 1 >> {count}; echo ok"
+        with mock.patch.dict(os.environ, self.run_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            self.restart(green)
+            self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+            self.head(green)
+            self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+            self.assertEqual(self.st()["suite_made"], [])
+            self.assertEqual(len(count.read_text(encoding="utf-8").split()), 1)
+            log = pathlib.Path(self.st()["work"]) / "test-cmd-0.log"
+            self.assertIn("控えから使った", log.read_text(encoding="utf-8"))
+            rewriting = f"echo 1 >> {count}; echo x >> stats.py"
+            for _ in range(2):
+                self.head(rewriting)
+                self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_OFF)
+                self.assertIn("書き換える", self.st()["test_cmd_note"])
+            self.assertEqual(len(count.read_text(encoding="utf-8").split()), 3)
+        with self.subTest("run_suite"):
+            self.check_run_suite_reuses_green_suite_in_same_run()
+
+    def check_run_suite_reuses_green_suite_in_same_run(self):
+        """実行器が緑の回は、同じ run の中で同じ木・同じ引数なら 2 度目は起こさず、JUnit XML を書き戻して同じ結末を返し、
+        ログの末尾に出どころを書く。木が変われば走らせる"""
+        tmp = pathlib.Path(self._tmp.name)
+        count = tmp / "suite-count"
+        exe = tmp / "green_suite.py"
+        exe.write_text("import sys\n"
+                       f"open({str(count)!r}, 'a').write('1\\n')\n"
+                       "open(sys.argv[1], 'w').write('<testsuite><testcase classname=\"t\" name=\"a\"/></testsuite>')\n",
+                       encoding="utf-8")
+        work = tmp / "suite-work"
+        work.mkdir()
+        with mock.patch.dict(os.environ, self.run_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            first = tddloop.run_suite(str(exe), self.repo, work, 1)
+            second = tddloop.run_suite(str(exe), self.repo, work, 2)
+            (self.repo / "extra.txt").write_text("x", encoding="utf-8")
+            tddloop.run_suite(str(exe), self.repo, work, 3)
+        self.assertEqual(first[1:], (0, []))
+        self.assertEqual(second, first)
+        self.assertEqual(len(count.read_text(encoding="utf-8").split()), 2)
+        self.assertNotIn("控えから使った", (work / "suite-1.log").read_text(encoding="utf-8"))
+        self.assertIn("控えから使った", (work / "suite-2.log").read_text(encoding="utf-8"))
+
+    def test_run_suite_log_names_why_not_reused(self):
+        """使い回しの置き場が在る run で赤の実行器を run_suite で走らせると、ログの末尾に『控えを使わない』と理由が出る"""
+        tmp = pathlib.Path(self._tmp.name)
+        exe = tmp / "red_suite.py"
+        exe.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
+        work = tmp / "red-work"
+        work.mkdir()
+        with mock.patch.dict(os.environ, self.run_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            tddloop.run_suite(str(exe), self.repo, work, 1)
+        self.assertRegex((work / "suite-1.log").read_text(encoding="utf-8"), r"控えを使わない[:：]\s*\S")
+
+    def test_loop_head_reuse_reaches_exit_fields(self):
+        """同じ run の中で同じ木の 2 度目の輪の頭の後、出口 exit_fields の reused に test_cmd の『run run-a・…・鍵 …』の句が入る
+        （1 度目の出口には無い）"""
+        count = pathlib.Path(self._tmp.name) / "count"
+        green = f"echo 1 >> {count}; echo ok"
+
+        def exit_of_head():
+            state = self.st()
+            state["done"] = True   # 輪が済んだ印（出口は済んだ輪だけが出す）
+            pathlib.Path(self.state).write_text(json.dumps(state), encoding="utf-8")
+            return tddloop.exit_fields(self.start)
+
+        with mock.patch.dict(os.environ, self.run_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            self.restart(green)
+            first = exit_of_head()
+            self.head(green)
+            second = exit_of_head()
+        self.assertEqual(len(count.read_text(encoding="utf-8").split()), 1)
+        self.assertNotIn("test_cmd", first.get("reused", {}))
+        self.assertIn("reused", second)
+        self.assertRegex(second["reused"].get("test_cmd", ""), r"^run run-a・.+・鍵 [0-9a-f]{12}$")
+
     def test_fix_rejected_when_test_cmd_red(self):
         self.restart(self.lint())
         self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)

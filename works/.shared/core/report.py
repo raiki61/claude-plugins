@@ -1852,6 +1852,12 @@ def _tdd_unit(u: dict) -> str:
     return f"{key}: 初めから今どおりの直し（{why or '理由なし'}）"
 
 
+def _reused_line(reused) -> str:
+    """出口 tdd の reused {suite, test_cmd}（輪の頭で控えから使い回した結果の出どころの句）を『元の結末 …・test_cmd …』に"""
+    labels = (("suite", "元の結末"), ("test_cmd", "test_cmd"))
+    return "・".join(f"{label} {_one_line(reused[k])}" for k, label in labels if isinstance(reused, dict) and reused.get(k))
+
+
 def tdd_lines(stages) -> list:
     """修正の段ごとの TDD の輪の単位の結末の行（keep-essence の 11）。stages は [(段の名, 修正のブロックの出口 tdd か None)]。
     None（飛ばされた段・渡されていない）は出さない。輪を回していない段（ran が偽）は理由つきの 1 行（黙らない）。回した段は
@@ -1869,7 +1875,8 @@ def tdd_lines(stages) -> list:
         direct = sum(u.get("route") == "direct" and not u.get("gave_up") for u in units)
         parked = sum(u.get("route") == "parked" for u in units)
         rows.append(f"{name}: {len(units)} 単位（赤→緑 {green}・TDD を諦めた {gave}・初めから今どおりの直し {direct}・止めた {parked}。"
-                    f"実行器 {tdd.get('suite') or '—'}）" + (f"。輪を途中で抜けた: {_one_line(tdd['reason'])}" if tdd.get("reason") else ""))
+                    f"実行器 {tdd.get('suite') or '—'}）" + (f"。輪を途中で抜けた: {_one_line(tdd['reason'])}" if tdd.get("reason") else "")
+                    + (f"。控えから使った結果: {_reused_line(tdd['reused'])}" if tdd.get("reused") else ""))
         rows += [f"  - {_tdd_unit(u)}" for u in units]
     return rows
 

@@ -321,11 +321,63 @@ class ItemsCase(BoardCase):
 
     def test_closed_item_changed_or_dropped_is_named(self):
         self.review([face("key-a1", units=["u1"])])
-        self.assertEqual(converge.closed_gaps(self.b, [row("u1", approach="直した"), row("u2")]), [])
-        gaps = converge.closed_gaps(self.b, [row("u1"), row("u2", approach="変えた")])
-        self.assertEqual(len(gaps), 1, gaps)
-        self.assertIn("u2", gaps[0])
-        self.assertEqual(len(converge.closed_gaps(self.b, [row("u1", "u2")])), 1)
+        whole, rejects, dropped = self.splice([row("u1", approach="直した")])
+        self.assertEqual((rejects, dropped), ([], []), "閉じた項目の行が無い返答は拒まない（機械が差し込む）")
+        self.assertEqual(whole, [row("u1", approach="直した"), row("u2")])
+        _, rejects, dropped = self.splice([row("u1"), row("u2", approach="変えた")])
+        self.assertEqual(len(rejects), 1, rejects)
+        self.assertIn("閉じた項目 2 を変えた", rejects[0])
+        self.assertEqual(dropped, [])
+        _, rejects, _ = self.splice([row("u1", "u2")])
+        self.assertEqual(len(rejects), 1, rejects)
+        self.assertIn("閉じた項目 2 の単位を別の行に入れた", rejects[0])
+
+    def splice(self, rows):
+        self.assertTrue(hasattr(converge, "splice"), "converge.splice が無い")
+        return converge.splice(self.b, rows)
+
+    def hold_second(self):
+        """項目 2（u2）が保留・項目 1（u1）が開いた往復の後の控え"""
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        got = self.review([face("key-a2", units=["u1"]), face("key-b1", units=["u2"])])
+        self.assertEqual(self.states(got), [converge.OPEN, converge.HELD])
+
+    def test_splice_fills_closed_rows_byte_equal(self):
+        self.review([face("key-a1", units=["u1"])])
+        whole, rejects, dropped = self.splice([row("u1", approach="直した")])
+        self.assertEqual((rejects, dropped), ([], []))
+        self.assertEqual(whole, [row("u1", approach="直した"), row("u2")])
+        kept = converge.read(self.b)["passes"][-1]["items"][1]["hash"]
+        self.assertEqual(converge.item_hash(whole[1]), kept)
+
+    def test_splice_keeps_unmatched_reply_rows(self):
+        self.review([face("key-a1", units=["u1"])])
+        whole, rejects, dropped = self.splice([row("u1", "u3", approach="組み替えた"), row("u9", approach="新しい項目")])
+        self.assertEqual(rejects, [])
+        self.assertEqual(dropped, [])
+        self.assertEqual(whole, [row("u2"), row("u1", "u3", approach="組み替えた"), row("u9", approach="新しい項目")])
+
+    def test_splice_refuses_missing_open_item(self):
+        self.review([face("key-a1", units=["u1"])])
+        whole, rejects, _ = self.splice([])
+        self.assertEqual(len(rejects), 1, rejects)
+        self.assertIn("開いた項目 1 の行が無い", rejects[0])
+        self.assertEqual(whole, [row("u2")])
+
+    def test_splice_takes_changed_held_row(self):
+        self.hold_second()
+        whole, rejects, _ = self.splice([row("u1", approach="直した"), row("u2", approach="保留を変えた")])
+        self.assertEqual(rejects, [])
+        self.assertEqual(whole, [row("u1", approach="直した"), row("u2", approach="保留を変えた")])
+        whole, rejects, _ = self.splice([row("u1", approach="直した")])
+        self.assertEqual(rejects, [])
+        self.assertEqual(whole, [row("u1", approach="直した"), row("u2")])
+
+    def test_splice_lets_held_units_regroup(self):
+        self.hold_second()
+        whole, rejects, _ = self.splice([row("u1", "u2", approach="まとめた")])
+        self.assertEqual(rejects, [])
+        self.assertEqual([k for r in whole for k in r["unit_keys"]], ["u1", "u2"])
 
     def test_answers_and_resolved_only_for_reviewed_items(self):
         self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
@@ -358,6 +410,21 @@ class ItemsCase(BoardCase):
         sec = converge.revise_section(self.b)
         self.assertIn("key-b2", sec)
         self.assertNotIn("### key-a1", sec)
+
+    def test_revise_section_asks_open_items_only(self):
+        converge.note_plan(self.b, [row("u1"), row("u2"), row("u3")])
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        self.review([face("key-a1", units=["u1"]), face("key-b2", units=["u2"])])
+        sec = converge.revise_section(self.b)
+        self.assertIn(converge.REVISE_ASK, sec)
+        self.assertIn("開いた項目の行", converge.REVISE_ASK)
+        self.assertNotIn("丸ごと", converge.REVISE_ASK)
+        self.assertIn("閉じた項目は書くな", converge.REVISE_ASK)
+        self.assertIn("書くな", converge.CLOSED_ASK)
+        self.assertNotIn("一字も変えずに入れよ", converge.CLOSED_ASK)
+        self.assertIn("書かなければ機械が差し込む", converge.HELD_NOTE)
+        self.assertIn("項目 3（u3）", sec)
+        self.assertIn("項目 1（u1）", sec)
 
 
 if __name__ == "__main__":
