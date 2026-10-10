@@ -708,6 +708,23 @@ class TreeRunnerCase(StepCase):
             self.assertNotIn("reused", r)
             self.assertIn("一式を控えない: 終了コード 1", r["reuse_off"])
 
+    def test_group_that_changes_tree_is_not_kept(self):
+        """1 段目が .gitignore の外にファイルを作る一式は、全段が緑でも置かれない（同じ木に戻して通すと全段が走り、行の reuse_off が
+        木の変わりを名指す）"""
+        tree = self.git_tree()
+        steps = [self.counting_step("lint", body="open('made.txt', 'w').write('x')"), self.counting_step("suite")]
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            first = tree_runner(steps, tree, self.tmp / "logs1")
+            (tree / "made.txt").unlink()
+            rows = tree_runner(steps, tree, self.tmp / "logs2")
+        self.assertEqual((self.times("lint"), self.times("suite")), (2, 2))
+        self.assertEqual([r["exit"] for r in first], [0, 0])
+        for r in first:
+            self.assertIn("一式を控えない: 走らせている間に作業ツリーが変わった", r["reuse_off"])
+        for r in rows:
+            self.assertNotIn("reused", r)
+
 
 if __name__ == "__main__":
     unittest.main()

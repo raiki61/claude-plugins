@@ -590,6 +590,30 @@
    }
   },
   {
+   "id": "ru13",
+   "title": "一式を置く前に、走らせている間に作業ツリーが変わったかを見ない（.gitignore の外に物を作る一式も置き、次の同じ一式が作る物を作らずに緑を使い回す）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    moved = _tree_moved({\"cwd\": group[\"cwd\"], \"tree\": group[\"tree\"]})\n",
+   "new": "    moved = \"\"\n",
+   "tests": {
+    "tests/test_board_engine_run.py": [
+     "TreeRunnerCase.test_group_that_changes_tree_is_not_kept"
+    ]
+   }
+  },
+  {
+   "id": "ru14",
+   "title": "緑の回の控えに、今回書かれていない前から残る古い報告も入れる（書き戻しで古い報告が新しい時刻を得て、報告の鮮度の確かめを通る）",
+   "file": ".shared/core/tree_run.py",
+   "old": "if os.path.isfile(p) and os.stat(p).st_mtime >= started else None",
+   "new": "if os.path.isfile(p) else None",
+   "tests": {
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_stale_output_is_not_kept"
+    ]
+   }
+  },
+  {
    "id": "ru10",
    "title": "任せ先に落ちた回、engine が控えから使った test_cmd の段の行（reused つき）を素材に渡さない",
    "file": ".shared/core/entry.py",

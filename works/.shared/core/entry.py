@@ -654,7 +654,7 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     通らない回も）not_run。test_cmd が空なら走らせずに not_run。
     止められたら（tree_run.Stopped）捕まえない。launched（dict）を渡せば、起こす前に決めた起こし方を launched["how"] に置き、
     slotted_run の note にも使う（同じ run の中の控えから使い回した回は launched["reused"] に出どころが、使い回せなかった回は
-    launched["reuse_off"] に理由が入る。出どころは素材の checked・detail にその句が付く。返りの素材の形は変えない）。niced が真なら、起こすプロセス（枠の台本とその下の木）の優先度を nice -n 19 と同じだけ下げる
+    launched["reuse_off"] に理由が入る。出どころは素材の checked にその句が付く（使い回した回は緑なので clean だけ）。返りの素材の形は変えない）。niced が真なら、起こすプロセス（枠の台本とその下の木）の優先度を nice -n 19 と同じだけ下げる
     （TDD の輪の中の test_cmd。ADR 0071 の 3 の 1。argv・起こし方・起こせなさの証明は変えない）"""
     cmd = (test_cmd or "").strip()
     if not cmd:

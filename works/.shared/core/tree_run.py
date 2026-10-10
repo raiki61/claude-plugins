@@ -1,4 +1,4 @@
-"""コマンドを自分のプロセスグループで走らせ、止めるときは木ごと止める殻（標準ライブラリと、同じ層の unittrees・webget だけ）。
+"""コマンドを自分のプロセスグループで走らせ、止めるときは木ごと止める殻（標準ライブラリと、同じ層の script_io・unittrees・webget だけ）。
 
 Archon は節を止める（Ctrl-C・SIGTERM・期限）とき直下の子だけを止め、テストが背景に起こした孫は生き残って
 作業ツリーに書き続ける（試作で実測: 期限の 2 分後に孫の subshell がファイルを書いた）。graphloops の
@@ -694,8 +694,10 @@ def _off(note, text):
     note["reuse_off"] = f"{note['reuse_off']}；{text}" if note.get("reuse_off") else text
 
 
-def _keep(plan, rc, wall, outputs, note, group=None):
+def _keep(plan, rc, started, wall, outputs, note, group=None):
     """緑（終了コード 0）で、走らせた前後の木が同じ回だけ控えに置く。置かない理由は note['reuse_off']。
+    outputs は起こした時刻 started 以後に書かれた物だけを控える（前から残る古い報告は None。控えると書き戻しで新しい時刻を得て、
+    報告の鮮度の確かめを通ってしまう）。
     group が在れば置かずに group['pending'] へ積み（置くのは全段が済んだ後の keep_group）、置かない理由は group['failed'] へ"""
     refuse = group["failed"].append if group is not None else lambda text: _off(note, text)
     if rc != 0:
@@ -715,7 +717,7 @@ def _keep(plan, rc, wall, outputs, note, group=None):
             with open(sink[0], "rb") as f:
                 f.seek(sink[1])
                 std.append(f.read())
-        files = [enc(pathlib.Path(p).read_bytes()) if os.path.isfile(p) else None for p in outputs]
+        files = [enc(pathlib.Path(p).read_bytes()) if os.path.isfile(p) and os.stat(p).st_mtime >= started else None for p in outputs]
     except OSError as e:   # 控えの手間で緑の回を起こせなかった扱いにしない（呼び手は OSError を exit None と読む）
         refuse(f"出力が読めない: {e}"[:300])
         return
@@ -800,7 +802,7 @@ def slotted_run(argv, env, *, outputs=(), note=None, skip="", group=None, **pope
             raise OSError(code, f"{os.strerror(code)}（枠の下で exec が落ちた。exit {rc}）", argv[0])
         waited = max(round(os.stat(slot_note).st_mtime - started, 1), 0.0) if "held" in seen else None
         if plan:
-            _keep(plan, rc, round(time.time() - started - (waited or 0), 1), outputs, note, group)
+            _keep(plan, rc, started, round(time.time() - started - (waited or 0), 1), outputs, note, group)
         return rc, waited
     finally:
         # 印は、この呼び出しの slotwrap.sh が書いた時だけ消す（祖先が枠を持つ入れ子の段は印を書かず、同じ盤面の外の段の印を残す）

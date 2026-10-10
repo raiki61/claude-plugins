@@ -570,6 +570,21 @@ class SlotReuseCase(unittest.TestCase):
                 self.fresh(name)
                 getattr(self, f"check_{name}")()
 
+    def test_stale_output_is_not_kept(self):
+        """緑で終わったのに outputs を書かなかった回は、前から残る古い報告を控えに入れない（控えに入れると、2 度目の書き戻しで
+        古い報告が新しい時刻を得て、報告の鮮度の確かめを通ってしまう）。2 度目も古い報告は古いまま"""
+        report = self.repo / "ignored" / "report.xml"
+        report.parent.mkdir()
+        report.write_text("<old/>\n", encoding="utf-8")
+        old = time.time() - 3600
+        os.utime(report, (old, old))
+        argv = ["sh", "-c", f'echo 1 >> {self.count}']
+        self.launch(argv, outputs=(report,))
+        _, _, note = self.launch(argv, outputs=(report,))
+        self.assertEqual(self.launched(), 1)
+        self.assertIn("reused", note)
+        self.assertLess(report.stat().st_mtime, time.time() - 1800, "古い報告を書き戻して新しく見せた")
+
     def test_entry_lives_under_run_board(self):
         """控えは run の盤面の下（ARTIFACTS_DIR/board/test-reuse）に置く: 包みの家の下には何も作らない"""
         self.launch()
