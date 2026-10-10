@@ -48,6 +48,7 @@ import posixpath
 import shutil
 import tempfile
 
+import cite  # noqa: E402  （.shared/core。名指しの形）
 import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直す義務・テストの変更の許し）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
@@ -290,7 +291,7 @@ def _ruled_ids(repo, rev: str, files: list, limits: list) -> set:
         got = conflict.parse_limit(lim)
         if not got or got[0] not in files:
             continue
-        m = conflict.CITE.match(lim.strip())
+        m = cite.CITE.match(lim.strip())
         scope.setdefault(got[0], []).append(got[1] and (*got[1], bool(m) and not m["b"]))
     out = set()
     for path, spans in scope.items():

@@ -102,6 +102,7 @@ sys.dont_write_bytecode = True
 
 import adapter  # noqa: E402  （.shared/core。包みが会話を切る単位の鍵の置き場 session_key_path）
 import board  # noqa: E402
+import cite  # noqa: E402  （.shared/core。名指しの形）
 import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ・直す義務から外れた単位）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
@@ -1527,7 +1528,7 @@ def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) 
     for lim in allowed:
         got = conflict.parse_limit(lim)
         if got:
-            m = conflict.CITE.match(lim.strip())
+            m = cite.CITE.match(lim.strip())
             # 1 行の指し（`<パス>:<行>`）だけが関数の幅に広がる。`<行>-<行>` は書いたとおり
             scope.setdefault(got[0], []).append(got[1] and (*got[1], bool(m) and not m["b"]))
     for path, name in skip_spans:

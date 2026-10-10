@@ -38,9 +38,10 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
-並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json と出口 rejudge-exit.json、判定の単位の裏取りの申し送り
+再審の差分 rejudge-diff.json と出口 rejudge-exit.json、判定の単位の裏取りの申し送り
 judge-verify.json）は書き手のモジュール（ライン・ブロック）を import せずに
 ファイルの名前として読む（層 L3 は上の層を import しない。裁定 R59）。書き手と名前を揃えるのは試験（test_report）。
+並行 PR の外した範囲の名は住処 marks の KINDS から引く。
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、
 第三の目の「方針の岐路」の争点（写し a1202d0 の graph に欄が無い）。費用は書き出し（Task 19）の run_facts の代わりに
@@ -68,6 +69,7 @@ if str(CORE) not in sys.path:
 import adapter  # noqa: E402
 import carry  # noqa: E402  （L1。次の run への持ち越しの形の住処: ファイルの名・欄の名・約束の Schema）
 import changemap  # noqa: E402  （unified diff を path → hunk の行に分ける写し）
+import cite  # noqa: E402
 import conflict  # noqa: E402
 import converge  # noqa: E402
 import design  # noqa: E402
@@ -75,6 +77,7 @@ import diverted  # noqa: E402
 import gatemarks  # noqa: E402
 import gatepolicy  # noqa: E402  （L1。人の関所と無人の方針の住処）
 import impact  # noqa: E402
+import marks  # noqa: E402
 import outpurpose  # noqa: E402
 import querytest  # noqa: E402
 import recount  # noqa: E402
@@ -163,7 +166,7 @@ ANSWER_BY = "answer"                           # 関所の答えの stop（halte
 FLAG_SEEN_OP = "stop_flag_seen"                # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 PR_NODE = "p0.parallel_pr"
 FORGE_HEAD = "PR を持つホスト（forge）"   # 冒頭 2 の forge の無い run の 1 行の頭（forge_line）
-PR_EXCLUDED = "pr-excluded.json"               # 並行 PR の外した hunk {node, head, excluded}
+PR_EXCLUDED = marks.KINDS["pr"].file           # 並行 PR の外した hunk {node, head, excluded}（周ごとに全部読むので置き場でなく名だけを引く）
 REJUDGE_DIFF = "rejudge-diff.json"             # 再審の単位の差分の行の列
 VERIFY_NOTES = "judge-verify.json"             # 判定の単位の裏取りの申し送り（線の木の段 3。単位ごとの state・verdict と相乗り）
 REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口（決着した結果 verdicts・objection・new_open_units・lowered）
@@ -1498,13 +1501,13 @@ def _tie_notes(b, n: int) -> dict:
 
 def eye_ties(b) -> list:
     """独立の目が場所を挙げた行（R1 の deletions・R4 の surfaced。今の周の出力）の名札（holeties.tie の path・change・unit の規則。
-    key は「R<n>: <場所の先頭 80 字>」、where は場所の頭のパス holeties.lead_path）。行が無ければ空"""
+    key は「R<n>: <場所の先頭 80 字>」、where は場所の頭のパス cite.lead_path）。行が無ければ空"""
     holes = []
     for name, nid, field, _ in EYE_ROWS:
         for r in (b.output_of_round(nid, b.round) or {}).get(field) or []:
             if isinstance(r, dict) and isinstance(r.get("where"), str) and r["where"].strip():
                 holes.append({"key": f"{name}: {_one_line(r['where'])[:80]}", "from": nid,
-                              "where": holeties.lead_path(r["where"])})
+                              "where": cite.lead_path(r["where"])})
     if not holes:
         return []
     fix = b.output_of_round(recount.FIX_NODE, b.round) or {}

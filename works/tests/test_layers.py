@@ -61,7 +61,7 @@ MOD = {
     "concepthome": (1, None),  # 判断の 1 軸と考えの住処の観点の文・地図と柵の表の探し方（包みの差し込みの表・blk-plan・blk-eyes・blk-structure が使う。標準ライブラリだけ）
     "promptsection": (1, None),  # 役の指示書に機械が貼る節の見出しの宣言（Section・Receive・declared_sections。標準ライブラリだけ）
     "gatepolicy": (1, None),  # 人の関所と無人の方針の住処（語・既定・入口の確かめ・始めの記録からの読み・最後の関所を開くか。startrec だけを使う）
-    "cite": (1, None),        # 名指しと決め手の出どころが現物に在るかの照らし（conflict と gatemarks が読む。標準ライブラリだけ）
+    "cite": (1, None),        # 名指しの形と出どころの照らし・場所の文の読みの住処。標準ライブラリだけ
     "marks": (1, None),       # 返答の足し欄の住処（役の型に欄を足す・返答から外す・盤面の控えの置き場と読み書き。標準ライブラリだけ）
     "graphmap": (1, None),    # 工程の地図（Archon の YAML から全体のグラフと節の居場所を組んで描く。works の物を何も知らない）
     "webget": (1, None),      # web の取得（転送の決まり）と run をまたぐ控え（ライブラリの文書の節と世界の解の段が使う。works の物を何も知らない）

@@ -35,7 +35,6 @@ import functools
 import json
 import os
 import pathlib
-import re
 import sys
 
 sys.dont_write_bytecode = True
@@ -46,7 +45,7 @@ if str(CORE) not in sys.path:
 
 from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 import adapter  # noqa: E402
-import conflict  # noqa: E402  （名指し <パス>:<行> の確かめ cite_problem）
+import cite  # noqa: E402  （名指し <パス>:<行> の確かめ cite.problem と場所の文の読み cite.where_cites）
 import diverted  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import engine.util as _util  # noqa: E402
@@ -164,7 +163,6 @@ LOCATION_NOTE = promptsection.Section("## 所見の場所の書き方（works �
                                       "Read して行を確かめてから書け（読めない役は、確かめられない行番号を書かずにパスと関数名などで書け）。受け付けは、在るファイルの行の外を指す場所を拒んで出し直させる。", source="fn:material.prep")
 LOCATION_HEAD = "所見の場所の行がファイルに無い（差分の行番号を書いていないか。作業ツリーのファイルの行で書き直せ）"
 LOCATION_MARK = "（works の受け付け: この行はファイルに無い——差分の行番号の疑い）"
-CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
 STOP_BY = stopby.declare("material", "素材集めの役の返答を受けられなかった（3 回とも拒まれた・回した後も待っている）")
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
 REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:material.prep")
@@ -498,19 +496,16 @@ def _where_rows(node) -> list:
 
 def _location_problems(reply, repo) -> dict:
     """{where: [外れの文]}: 行の where の <パス>:<行>（パスの無い :<行> は直前のパスの行）のうち、作業ツリーに在るファイルを指し、
-    行がそのファイルに無い物（conflict.cite_problem で確かめる）。作業ツリーに無いファイル（消したファイル・パスでない語）は見ない"""
+    行がそのファイルに無い物（cite.problem で確かめる）。作業ツリーに無いファイル（消したファイル・パスでない語）は見ない"""
     root, out = pathlib.Path(repo).resolve(), {}
     for row in _where_rows(reply):
-        last = ""
-        for m in CITE_IN_WHERE.finditer(row["where"]):
-            path = m["path"] or last
-            last = path
+        for path, a, b in cite.where_cites(row["where"]):
             p = pathlib.Path(path)
             full = (p if p.is_absolute() else root / p).resolve() if path else root
             if not path or not full.is_file() or root not in full.parents:   # 作業ツリーの外（盤面・標準の物）は照らさない
                 continue
-            cite = f"{path}:{m['a']}" + (f"-{m['b']}" if m["b"] else "")
-            why = conflict.cite_problem(cite, root)
+            ref = f"{path}:{a}" + (f"-{b}" if b else "")
+            why = cite.problem(ref, root)
             if why:
                 out.setdefault(row["where"], []).append(why)
     return out

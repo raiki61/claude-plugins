@@ -12,6 +12,8 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+sys.path.insert(0, str(ROOT / "tests"))
+import blockblind  # noqa: E402
 import report  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
@@ -790,11 +792,17 @@ class InnerWordsCase(unittest.TestCase):
         self.assertEqual(report.inner_word_lines(self.b), [])
 
     def test_rule_is_in_the_writers_common_rules(self):
-        """修正役の共通の決まりに、対象に書く文へ works の内側の語と run の中の事情を書かない決まりが在る"""
+        """表（INNER_WORDS）→決まりの文の片向き: 対象に書く文を禁じる行に、表の語が字のまま在る。役の呼び名（blockblind.ROLE_TERMS）の
+        語は字で足せないので、句「指示書が呼ぶほかの役の呼び名」で言う。表に語を足して決まりに書かなければ落ちる（決まりの散文が
+        表より広いのは許す）"""
         text = (ROOT / ".shared" / "core" / "writerules" / "common.md").read_text(encoding="utf-8")
-        self.assertIn("対象に書く文", text)
-        for w in ("単位", "作業ツリー", "盤面"):
-            self.assertIn(w, text)
+        rule = [ln for ln in text.splitlines() if "対象に書く文" in ln]
+        self.assertEqual(len(rule), 1, rule)
+        for w in report.INNER_WORDS:
+            if w in blockblind.ROLE_TERMS:
+                self.assertIn("指示書が呼ぶほかの役の呼び名", rule[0], w)
+            else:
+                self.assertIn(w, rule[0], w)
 
 
 class HandoffCase(unittest.TestCase):

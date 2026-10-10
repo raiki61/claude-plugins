@@ -77,6 +77,7 @@ from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
+import marks  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import planrange  # noqa: E402  （修正案の欄 structure の答えの要る行の表）
@@ -1152,7 +1153,7 @@ def with_converge(run):
         plan_out = (b.state["outputs"].get(NODE_OF["plan"]) or {}).get("file")
         files = {"p2.fix_plan.json": str(b.dir / plan_out) if plan_out else "",
                  "p2.plan_review.json": str(b.dir / got["out_file"]),
-                 planmarks.FIELDS_FILE: str(b.dir / planmarks.FIELDS_FILE),
+                 planmarks.FIELDS_FILE: str(marks.path_of("plan", b)),
                  rolekit.prompt_name(NODE_OF["plan-review"]): str(b.work(rolekit.prompt_name(NODE_OF["plan-review"]))),
                  **merged["files"]}
         try:

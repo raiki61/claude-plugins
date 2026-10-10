@@ -28,6 +28,7 @@ if str(_CORE) not in sys.path:
 
 from accept import TREE_KEYS, tree_moved  # noqa: E402   共通の作業ツリーの比べ（R47）
 from board import BoardGap  # noqa: E402
+import cite  # noqa: E402
 import conflict  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
@@ -100,8 +101,8 @@ def limit_problem(lim: str, repo) -> str:
         return f"範囲 {lim!r} が空"
     if conflict.parse_limit(lim) is None:   # 絶対パス・根の外: 凍結の検査（tddloop.frozen_problems）が読めない範囲を受けない
         return f"範囲 {lim!r} がリポジトリの根からの相対パスでない"
-    if conflict.CITE.match(lim.strip()):
-        return conflict.cite_problem(lim, repo)
+    if cite.CITE.match(lim.strip()):
+        return cite.problem(lim, repo)
     repo = pathlib.Path(repo).resolve()
     p = (repo / lim.strip()).resolve()
     if pathlib.Path(lim.strip()).is_absolute() or not str(p).startswith(str(repo) + os.sep) or not p.is_file():
@@ -110,15 +111,15 @@ def limit_problem(lim: str, repo) -> str:
 
 
 def grounds_problems(r: dict, repo, request: str, roots) -> list:
-    """裁きの出どころ: grounds の名指しが全部現物に在る（conflict.cite_problem）。依頼のファイルが在る run の ask_human は、
+    """裁きの出どころ: grounds の名指しが全部現物に在る（cite.problem）。依頼のファイルが在る run の ask_human は、
     grounds に依頼の行を挙げる（依頼に先に書かれた人の答え。debconf の preseed と同じく、在れば聞かずに使う）か、
     request_searched に依頼で何を探して答えが無かったかを書く"""
     grounds = r.get("grounds") or []
-    errs = [e for e in (conflict.cite_problem(g, repo, roots) for g in grounds) if e]
+    errs = [e for e in (cite.problem(g, repo, roots) for g in grounds) if e]
     def at(p):
         return (pathlib.Path(repo) / p).resolve()   # 絶対のパスは / がそのまま勝つ
     if r["decision"] == conflict.ASK and request and at(request).is_file() and not r.get("request_searched"):
-        cited = [m for m in (conflict.CITE.match(g.strip()) for g in grounds if isinstance(g, str)) if m]
+        cited = [m for m in (cite.CITE.match(g.strip()) for g in grounds if isinstance(g, str)) if m]
         if not any(at(m["path"]) == at(request) for m in cited):
             errs.append(f"依頼のファイル {request} が在る run の ask_human は、依頼に先に書かれた人の答えを当たった証拠が要る——"
                         "答えが在れば grounds に依頼の行（<絶対パス>:<行>）を挙げてそれで裁き、無ければ request_searched に"

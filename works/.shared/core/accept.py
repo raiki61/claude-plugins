@@ -40,6 +40,7 @@ if str(_GL) not in sys.path:
 import engine.util as _util  # noqa: E402
 import deltamarks  # noqa: E402
 import gatemarks  # noqa: E402
+import marks  # noqa: E402
 import outpurpose  # noqa: E402
 import planmarks  # noqa: E402
 import querytest  # noqa: E402
@@ -127,22 +128,24 @@ def _drop_plan_only_kinds(node, schema):
     return schema
 
 
+# 役の型へ足し欄を足す順（節の集まり, 足す関数 (節, 型) -> 型）。節の集まりは各モジュールが marks.KINDS から引いた物
+_MARK_ADDERS = (
+    (querytest.NODES, lambda node, schema: querytest.with_examples(schema)),
+    (outpurpose.NODES, outpurpose.with_field),
+    (worldmark.MEANS_NODES, worldmark.with_means),
+    (gatemarks.NODES, gatemarks.with_marks),
+    (planmarks.NODES, planmarks.with_fields),
+    (deltamarks.NODES, deltamarks.with_verdicts),
+)
+
+
 @functools.lru_cache(maxsize=None)
 def _role_schema_json(node, numbered):
     graph = _graph() if numbered else _unpointed(_graph())
     schema = _drop_plan_only_kinds(node, _strip_notes(expand_refs(graph)["nodes"][node]["schema"]))
-    if node in querytest.NODES:
-        schema = _strip_notes(querytest.with_examples(schema))
-    if node in outpurpose.NODES:
-        schema = _strip_notes(outpurpose.with_field(node, schema))
-    if node in worldmark.MEANS_NODES:
-        schema = _strip_notes(worldmark.with_means(node, schema))
-    if node in gatemarks.NODES:
-        schema = _strip_notes(gatemarks.with_marks(node, schema))
-    if node in planmarks.NODES:
-        schema = _strip_notes(planmarks.with_fields(node, schema))
-    if node in deltamarks.NODES:
-        schema = _strip_notes(deltamarks.with_verdicts(node, schema))
+    for nodes, add in _MARK_ADDERS:
+        if node in nodes:
+            schema = _strip_notes(add(node, schema))
     return json.dumps(schema, ensure_ascii=False)
 
 
@@ -150,13 +153,9 @@ def role_schema(node: str, numbered: bool = False) -> dict:
     """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す。
     numbered は番号を貼って控えを固める役（mark_launched(pointers=)。board が番号を名前に戻す）で、pointers の位置を
     engine の widen のまま番号か名前の型に開く。ほかは名前（文字列）の型のまま（_unpointed）。修正差分のレビューは
-    事前審査だけの語を kind から落とす（_drop_plan_only_kinds）。判定・再審の節（querytest.NODES）は class_query に例の欄
-    （hits・misses）を足す（写しの型は持てない。受け付けが盤面へ渡す前に外す）。修正案と事前審査の節（gatemarks.NODES）は
-    関所の項目の行に決め手の欄を足す（同じく受け付けが外して盤面の gate-marks.json に置く）。修正案の節（planmarks.NODES）は
-    項目の行に works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）を足す（同じく受け付けが外して
-    盤面の plan-fields.json に置く）。1 回目の差分の審査の節（deltamarks.NODES）は準拠と品質の 2 判定の欄（compliance・quality）を
-    足す（同じく受け付けが外して今の周の delta-verdicts.json に置く）。目的の節（worldmark.MEANS_NODES）は依頼の解き方の欄 means を
-    足す（同じく受け付けが外して盤面の根の足し欄の控えに置く）"""
+    事前審査だけの語を kind から落とす（_drop_plan_only_kinds）。足し欄は _MARK_ADDERS の節の集まりごとに足す（写しの型は
+    持てない。受け付けが盤面へ渡す前に外して各モジュールの控えに置く）。役ごとの output_format で足す種は表の外で、
+    KINDS の行と各モジュールが持つ"""
     return json.loads(_role_schema_json(node, numbered))
 
 
@@ -531,7 +530,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             except Reject as e:
                 raise _name_hints(e)
             opened = [u["key"] for u in out["units"] if V.is_open(u)]
-            if examples or (pathlib.Path(board) / querytest.EXAMPLES_FILE).is_file():   # 例の無い判定は前の周の例を消すだけ
+            if examples or marks.path_of("query", board).is_file():   # 例の無い判定は前の周の例を消すだけ
                 querytest.save(board, examples, replace=True)
             path = _write_board(board, JUDGMENT_FILE, querytest.restore(out, board))
         return {"ok": True, "reason": note or "", "open_units": opened, "judgment_file": str(path)}

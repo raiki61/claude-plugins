@@ -239,10 +239,6 @@
       "darkfactory/manifest.json"
      ],
      "known": {
-      ".shared/core/report.py": [
-       1,
-       "報告が並行 PR の外した hunk の控えを、周ごとに全部読むために自分の定数 PR_EXCLUDED で持つ（report.py は並行の作業が触っているので今回は寄せない。名は marks.KINDS[\"pr\"].file を引けば消える）"
-      ],
       ".shared/core/scopes.py": [
        1,
        "部品の置き場の考え（scope）が、どの scope からも読める盤面の共有のファイルを名で並べる（足し欄の手順ではない）"
@@ -252,6 +248,14 @@
        "報告の書き手の欄 terms の控えの名 TERMS_NAME（同じ手順を手で書く。報告の部品は並行の作業が触っているので今回は寄せない）"
       ]
      }
+    },
+    {
+     "what": "足し欄の控えの名の定数を住処を通さずにパスへ組む形",
+     "pattern": "(/\\s*|\\.work\\()(gatemarks\\.MARKS_FILE|planmarks\\.FIELDS_FILE|deltamarks\\.VERDICTS_FILE|querytest\\.EXAMPLES_FILE|outpurpose\\.FILE|prcheck\\.EXCLUDED)\\b",
+     "allowed": [
+      ".shared/core/marks.py"
+     ],
+     "known": {}
     },
     {
      "what": "役の型に欄を手で足す・外す形",
@@ -814,6 +818,19 @@
      "pattern": "^\\s*[A-Z][A-Z0-9_]*\\s*=\\s*stopby\\.[A-Z]|^\\s*from stopby import|^\\s*import stopby as",
      "allowed": [
       ".shared/core/stopby.py"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "cite": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "名指しの形・場所の文の読みを別の場所に持ち直す形（住処の定数を別の名に写す・包みの定義・場所の文の読みの定義）",
+     "pattern": "^\\s*[A-Z][A-Z0-9_]*\\s*=\\s*cite\\.[A-Z]|^\\s*from cite import|^\\s*import cite as|def cite_problem\\b|def lead_path|CITE_IN_WHERE|conflict\\.CITE|conflict\\.cite_problem",
+     "allowed": [
+      ".shared/core/cite.py"
      ],
      "known": {}
     }

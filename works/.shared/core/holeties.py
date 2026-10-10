@@ -20,7 +20,7 @@
 - groups(ties): 枝の組 {lanes: {枝: [key]}（名札が枝 1 つで held でない穴）, synergy: [key]（枝 2 つ以上・0・held）}
 - spread(ties): 測りの数 {holes, single, multi, none, held, groups（空でない組の数）, branches: {枝: 穴の数}}
 - label(枝)・note(名札)・lines(ties)・count_line(ties): 人が読む字（「項目 1」「単位 <key>」）
-- unit_path(単位の key)・lead_path(場所の文): 頭のパス
+- unit_path(単位の key): 頭のパス
 """
 from __future__ import annotations
 
@@ -50,14 +50,6 @@ def unit_branch(key: str) -> str:
 def unit_path(key: str) -> str:
     """単位の key の頭のパス（`<パス>+<名>: <一言>` か `<パス>: <一言>` の <パス>）。取れなければ空"""
     head = str(key or "").split(":", 1)[0].split("+", 1)[0].strip()
-    return head if "/" in head or "." in head else ""
-
-
-def lead_path(text: str) -> str:
-    """場所の文（「works/x.py:12（…）」「works/x.py の docstring」）の頭のパス。最初の空白か「（」までの字から、最初の「:」の前。
-    パスの形（/ か . を持つ）でなければ空"""
-    head = str(text or "").strip().split(None, 1)[0] if str(text or "").strip() else ""
-    head = head.split("（", 1)[0].split(":", 1)[0]
     return head if "/" in head or "." in head else ""
 
 

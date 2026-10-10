@@ -214,7 +214,9 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
             "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
             "[REPORT_FILE]": _out_file(b, recount.FIX_NODE) or seat.NONE,
             "[BASE_SHA]": _cut_base(b) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
-    _drop_stale(b, brief_name, seat_name, reads.evidence_name(role), *((deltamarks.VERDICTS_FILE,) if n == 1 else ()))
+    _drop_stale(b, brief_name, seat_name, reads.evidence_name(role))
+    if n == 1:
+        marks.path_of("delta", b).unlink(missing_ok=True)
     seat_file = str(_write_text(b.work(seat_name), seat_text)) if seat_text else ""
     doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
            "reads": _brief(b, p["review"]), "policy": pol, "seat_file": seat_file}

@@ -119,7 +119,8 @@ import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
 import adapter  # noqa: E402    包みの起動の記録の置き場（cwd_key）と旗の語（FORK）
 import fixture  # noqa: E402    包みの起動の記録を数え始める時刻（since）
-import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
+import marks  # noqa: E402     足し欄の控えの置き場（path_of）
+import planmarks  # noqa: E402  修正案の欄の控え（AMEND_OP・test_paths）
 import startrec  # noqa: E402   始めの記録の読み口（入口の入力の形の diff.empty）
 import entry  # noqa: E402      機能ごとの実効の値（feature_words・features_on_of・features_part）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
@@ -240,7 +241,7 @@ def plan_items(board: pathlib.Path) -> list:
     """承認済みの修正案の欄の控え（plan-fields.json）の項目 [{item, route, unit_keys, allowed_paths, test_files, files}]。
     test_files は tests・rewrite_tests の id のファイル（planmarks.test_paths。書いてよい範囲に入る）、files は allowed_paths と
     test_files の和（項目が触ってよいファイル。glob は字のまま）。無ければ []"""
-    doc = _json(board / planmarks.FIELDS_FILE)
+    doc = _json(marks.path_of("plan", board))
     fields = doc.get("fields") if isinstance(doc, dict) else None
     out = []
     for n, f in enumerate(fields if isinstance(fields, list) else [], 1):

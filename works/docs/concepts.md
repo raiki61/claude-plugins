@@ -62,6 +62,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `web-get` | 機械の web の取得と run をまたぐ控え | 住処あり |
 | `world` | 世界の解（問題の類ごとの定石と、依頼の解き方との比べ） | 住処あり |
 | `stop-reasons` | 止めの理由 | 住処あり |
+| `cite` | 名指しの形と場所の文の読み | 住処あり |
 | `core-seams` | 写しの核の差し替えの口 | 散らばり |
 | `lang-names` | 特定の言語・テストの実行器の名 | 散らばり |
 
@@ -160,8 +161,8 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/marks.py`（種の表 `KINDS`＝節か役 → 行の在り処・盤面の控えの名・置き場、と手順の口 `add`（役の型に足す）・`rows`・`split`（受け付けが盤面へ渡す前に外す）・`path_of`・`write`・`load`（控えに置く・読み戻す））
 - 約束: 盤面の控えの宣言 `blk-*/manifest.json`・`darkfactory/manifest.json` と控えの型 `blk-plan/schemas/gate-marks.schema.json`・`blk-plan/schemas/plan-fields.schema.json`・`blk-delta/schemas/delta-verdicts.schema.json`・`blk-judge/schemas/out-of-purpose.schema.json`・`blk-pr/schemas/pr-excluded.schema.json`
-- 知ってよい所: 住処と約束だけが控えの名を書き、欄を手で足す・外す。欄の意味（欄の型・欠けと誤りの検査・控えの中身の形・読んだ後の使い方）は欄を持つモジュール（`.shared/core/gatemarks.py`・`.shared/core/planmarks.py`・`.shared/core/deltamarks.py`・`.shared/core/converge.py`・`.shared/core/querytest.py`・`.shared/core/outpurpose.py`・`.shared/core/prcheck.py`・依頼の解き方 `means` の `.shared/core/worldmark.py`）が持ち、手順は住処を呼ぶ。手直しの役の申告 `bash_writes` は種 `writes` で `.shared/core/refix.py` が足す（外すのは `.shared/core/writes.py`、控えは書き込みの記録）。`.shared/core/converge.py` は外した欄を足し欄の控えでなく壁打ちの往復の記録に置く。役の印は `.shared/core/node_marker.py`（別の考え）
-- 今: 修正役の欄（`.shared/core/recount.py` が足し、`.shared/core/writes.py`・`blk-fix/scripts/accept.py`・`blk-fix/lib/fixlanes.py`・`blk-fix/lib/unitrows.py` が外す）と報告の書き手の `terms`（`blk-report/lib/report_roles.py`）、報告が並行 PR の控えを自分の名で読む `.shared/core/report.py` は、同じ手順をまだ手で書く（柵の表の既知の漏れ。`blk-fix/lib/unitrows.py` の外し方は柵の字の形に当たらない。並行の作業が触っているので後で寄せる）。控えのパスを持ち主の定数で組む所（`.shared/core/accept.py`・`blk-plan/lib/planblk.py`・`.shared/core/refix.py`・`dev/canary_check.py`）は名を持たないが、`marks.path_of` に寄せられる
+- 知ってよい所: 住処と約束だけが控えの名を書き、欄を手で足す・外す。欄の意味（欄の型・欠けと誤りの検査・控えの中身の形・読んだ後の使い方）は欄を持つモジュール（`.shared/core/gatemarks.py`・`.shared/core/planmarks.py`・`.shared/core/deltamarks.py`・`.shared/core/converge.py`・`.shared/core/querytest.py`・`.shared/core/outpurpose.py`・`.shared/core/prcheck.py`・依頼の解き方 `means` の `.shared/core/worldmark.py`）が持ち、手順は住処を呼ぶ。控えのパスは `path_of` で組む。名を助け手に渡して組ませない（柵は字の形だけを見る）。周ごとに全部読む報告 `.shared/core/report.py` だけは名を `KINDS` から引く。手直しの役の申告 `bash_writes` は種 `writes` で `.shared/core/refix.py` が足す（外すのは `.shared/core/writes.py`、控えは書き込みの記録）。`.shared/core/converge.py` は外した欄を足し欄の控えでなく壁打ちの往復の記録に置く。役の印は `.shared/core/node_marker.py`（別の考え）
+- 今: 修正役の欄（`.shared/core/recount.py` が足し、`.shared/core/writes.py`・`blk-fix/scripts/accept.py`・`blk-fix/lib/fixlanes.py`・`blk-fix/lib/unitrows.py` が外す）と報告の書き手の `terms`（`blk-report/lib/report_roles.py`）は、同じ手順をまだ手で書く（柵の表の既知の漏れ。`blk-fix/lib/unitrows.py` の外し方は柵の字の形に当たらない。並行の作業が触っているので後で寄せる）
 - 計画: `docs/plans/2026-10-09-marks-home.md`
 
 ### `plan-scope` 修正案の項目の範囲の照らし
@@ -211,6 +212,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 約束: 語の字は盤面の `state.stop.by`・答えを待つ `process.human_items` の行の `node`・裁定の `by`・trace の行の `by` に残るので変えない（寄せる前の字の一覧を `tests/test_stopby.py` が縛る）。報告の結末の口 `.shared/core/report.py` の `stop_outcome` は `is_line` の語を `stopped_by_line` と読む
 - 知ってよい所: 住処だけ。core の書き手は住処の定数を引き、自分の定数に写さない。ブロックとラインの自分だけの語は `declare("名", "意味")` で足して返りを自分の定数に置く（例 `blk-eyes/lib/eyes.py` の `STOP_BY`・`darkfactory/lib/line_edge.py` の `PROTECTED_BY`。ほかのブロックの語は引かない）
 - 今: 寄せる前は 24 の `.py` が 35 行で語を字のまま持ち、同じ語を重ねて持っていた（`works:adapter` は 4 か所、`works:fix` は 3 か所。線は前提と目的の語を別の名の定数に写していた）。柵は語の字（`"works:<名>"`・頭の `"works:"`・f-string の頭）と、住処の定数を別の名に写す形（`X = stopby.ADAPTER`・`from stopby import`・`import stopby as`）を見る。人の止め（`human:`・`request:`・`answer`）は人の関所の考え `human-gates` の物で、ここには入れない
+
+### `cite` 名指しの形と場所の文の読み
+
+- 状態: 住処あり
+- 住処: `.shared/core/cite.py`（層 L1。標準ライブラリだけ。名指し `<パス>:<行>[-<行>]` の形 `CITE`、1 つの名指しの確かめ `problem`、決め手の文の出どころの確かめ `sources_problem`、場所の文の中の名指し 1 つ分の形 `CITE_IN_WHERE` と読み `where_cites`（パスの無い `:<行>` は直前のパスを継ぐ）、場所の文の頭のパス `lead_path`）
+- 約束: 名指しの形と場所の文の読みは住処の外に持ち直さない。住処の別名・包みも置かない（読み手は `cite.CITE`・`cite.problem` を直に引く）
+- 知ってよい所: 住処だけ。読み手（`.shared/core/conflict.py`・`.shared/core/gatemarks.py`・`.shared/core/report.py`・`blk-material/lib/material.py`・`blk-fix/lib/ruling.py`・`blk-fix/lib/tddloop.py`・`blk-fix/lib/fixgates.py`）は住処の口を引き、自分の定数や関数に写さない
+- 今: 寄せる前は、`conflict` が住処の `CITE` と `problem` を別名 `CITE`・包み `cite_problem` で持ち直し、素材集めの `material` が名指しの形を錨を外して `CITE_IN_WHERE` に書き直し、`holeties` が場所の文の頭のパスを `lead_path` で別に読んでいた。柵は、住処の定数を別の名に写す形（`X = cite.Y`・`from cite import`・`import cite as`）と、消した別名・包みの名・場所の文の読みの定義の字を見る。小文字の名への写しや別の名の包みは字の形で見分けられず、柵は見ない
 
 ### `entry-kind` 入口の種類
 

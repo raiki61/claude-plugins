@@ -11,6 +11,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - 役の指示書に機械が貼る節の見出しを宣言にした。見出しは持ち主のモジュールの定数（`.shared/core/promptsection.py` の `Section`）で出どころ（ブロックの入力・盤面のファイル・節を作る関数）を持ち、受ける役と入る条件の関数は、その役の指示書を組むモジュールの表 `RECEIVES` が持つ（入る条件の関数が出どころの関数と同じ行は省く）。試験 `tests/test_graphmap.py` が、宣言の外の見出しの字・受け手の無い節・工程の表に行の無い節の使いを赤にし、各ブロックの試験が描いた役の指示書（指示書が名指すファイルを描ける所はつないで）を `tests/prepkit.py` の `drawn` が役の行と照らす（受けるとは、節がその役の文脈に届くこと: 指示書に貼られる、または指示書が名指すファイルで渡る）。並べの枝の 2 本目からは lanekit が同じ形で組むので枝 1 の描きで、範囲の相談の答えの枝の役 `plan-answer-lane-1`〜`3` は同じ `consult.receives` で組むので `plan-answer` の描きで代えて照らす。
   描いて照らしていない役: `refix2`・`plan-answer-ruled`。
 
+### Changed
+
+- 修正役の決まり（`writerules/common.md`）の「対象に書く文に works の内側の語を書くな」の行に、報告が拾う内側の語の表（`report.INNER_WORDS`）の語を字のまま書いた。試験が表の各語がその行に在ることを縛る（表→文の片向き。役の呼び名は句で言う）。表に語を足して決まりに書き忘れると赤になる。
+- 同じ物を住処を通さずに組んでいた所を住処に寄せた（動きは変えない）。足し欄の控えのパスは `marks.path_of` で組み、報告は並行 PR の控えの名を `marks.KINDS` から引く。名指しの形と場所の文の読みは `cite` に寄せ（`conflict.CITE`・`conflict.cite_problem`・`material.CITE_IN_WHERE`・`holeties.lead_path` を消した）、柵の表に考え `cite` と控えの名をパスに組む形を足した。役の型へ足し欄を足す分かれは表 1 つにした。
+
 ### Fixed
 
 - 写しの柵と考えの柵の「表の数が main より増えない」試験が、run の途中で main が数を下げると run の直しと関わらずに赤になり、修正の受け付けが単位の直しを全部控えに回していたのを直した（10-10 の run 59096641・cf59511e・cad5d365）。比べる相手を、HEAD と `origin/main` の分かれ目（`conceptfence.fork_ref`）の表にした。main へ入れる時は分かれ目が main の頭なので、本当の増えはそこで捕まる。

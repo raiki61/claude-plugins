@@ -12,6 +12,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import cite  # noqa: E402
 import holeties  # noqa: E402
 
 U1 = "works/a.py+f: 一つ目"
@@ -237,12 +238,12 @@ class BoardCase(unittest.TestCase):
 
 class PathCase(unittest.TestCase):
     def test_lead_path(self):
-        self.assertEqual(holeties.lead_path("works/x.py:513-540 (_final_text の residue 呼び)"), "works/x.py")
-        self.assertEqual(holeties.lead_path("works/x.py の docstring「…」"), "works/x.py")
-        self.assertEqual(holeties.lead_path("works/x.py:550（_final_text の直前）"), "works/x.py")
-        self.assertEqual(holeties.lead_path("works/x.py（何か）"), "works/x.py")
-        self.assertEqual(holeties.lead_path("全体の設計"), "")
-        self.assertEqual(holeties.lead_path(""), "")
+        self.assertEqual(cite.lead_path("works/x.py:513-540 (_final_text の residue 呼び)"), "works/x.py")
+        self.assertEqual(cite.lead_path("works/x.py の docstring「…」"), "works/x.py")
+        self.assertEqual(cite.lead_path("works/x.py:550（_final_text の直前）"), "works/x.py")
+        self.assertEqual(cite.lead_path("works/x.py（何か）"), "works/x.py")
+        self.assertEqual(cite.lead_path("全体の設計"), "")
+        self.assertEqual(cite.lead_path(""), "")
 
     def test_unit_path(self):
         self.assertEqual(holeties.unit_path("works/a.py+f: 一言"), "works/a.py")

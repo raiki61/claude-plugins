@@ -21,7 +21,6 @@
   （<パス>:<行>。依頼の行・テストの行・コードの行が現物に在る）・query の申し出の correct_lines に判定者の問いが当たるか・kind が
   DIV_KINDS のどれかで which_is_right と対になるか・brief_vs_judgment ならその単位の brief の行を between に名指すか（briefs は
   planbrief.by_unit_at の形 {unit_key: [{item, file}]}。None と {} は brief の無い run）。文の一覧（空なら通る）
-- cite_problem(cite, repo, roots): 1 つの名指しの確かめ
 - brief_cite_problem(key, cites, repo, briefs, what, field): brief を誤りと言う物（申し出 brief_vs_judgment・裁定 fix_plan_item の
   grounds）が、その単位の brief の行を名指すかの確かめ（1 つの決まり）
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
@@ -160,7 +159,6 @@ LATE_REPLAN_PROMISE = ("案の項目そのものが誤りと裁いたが、こ�
                        "行にし、最後の人の関所で人が決める。changes に書くな。この段までに直した項目の単位の直しは作業ツリーに"
                        "そのまま残す（戻すな・触るな。最後の人の関所で人が見る）")   # 2 回目の修正の段で新しく fix_plan_item と裁いた行（状態 WAITING）の約束（write_rulings）
 _HELD_ROWS = ("changes", "not_done")    # 控えと返答を単位で合わせる欄
-CITE = cite.CITE   # 名指しの形の住処は core の cite（関所の決め手の照らしも同じ物を使う）
 
 ITEM_SCHEMA = {
     "type": "object",
@@ -236,11 +234,6 @@ def request_file(board_dir) -> str:
     return got if isinstance(got, str) else ""
 
 
-def cite_problem(cite_, repo, roots=()) -> str:
-    """名指し `<パス>:<行>` か `<パス>:<行>-<行>` の確かめ（通れば空。中身は core の cite.problem）"""
-    return cite.problem(cite_, repo, roots)
-
-
 def _correct_problem(it, try_query) -> str:
     """which_is_right: query の申し出の correct_lines の確かめ（通れば空）。try_query(unit_key, lines) が渡れば、判定者の問いを
     その行に当てた結果の文（当たれば空）を足す"""
@@ -272,7 +265,7 @@ def _kind_problem(it, at) -> str:
 def brief_cite_problem(key, cites, repo, briefs, what: str, field: str) -> str:
     """brief を誤りと言う物（申し出 brief_vs_judgment・裁定 fix_plan_item）の確かめの 1 つの決まり（通れば空。外れなら what と
     field を名指す文）: 単位 key に brief が在り（briefs は planbrief.by_unit_at の形。None と {} は brief の無い run）、名指しの並び
-    cites（欄 field）のどれか 1 つのパスがその単位の brief のファイルのどれかと同じ。名指しの行がファイルに在るかは cite_problem が見る"""
+    cites（欄 field）のどれか 1 つのパスがその単位の brief のファイルのどれかと同じ。名指しの行がファイルに在るかは cite.problem が見る"""
     rows = ((briefs or {}).get(key) or []) if isinstance(key, str) else []
     files = [r["file"] for r in rows if isinstance(r, dict) and isinstance(r.get("file"), str)]
     if not files:
@@ -280,7 +273,7 @@ def brief_cite_problem(key, cites, repo, briefs, what: str, field: str) -> str:
     want = {pathlib.Path(f).resolve() for f in files}
     root = pathlib.Path(repo).resolve()
     for c in cites if isinstance(cites, list) else []:
-        m = CITE.match(c.strip()) if isinstance(c, str) else None
+        m = cite.CITE.match(c.strip()) if isinstance(c, str) else None
         if m:
             raw = pathlib.Path(m["path"])
             if (raw if raw.is_absolute() else root / raw).resolve() in want:
@@ -343,7 +336,7 @@ def _entry_problems(i, it, repo, roots, owed, seen, try_query, briefs) -> tuple:
     if not isinstance(cites, list) or len(cites) < MIN_CITES:
         out.append(f"{at} の between は食い違う所を {MIN_CITES} つ以上（依頼の行・テストのファイル:行・コードのファイル:行）")
         return key, out
-    out += [f"{at}: {e}" for e in (cite_problem(c, repo, roots) for c in cites) if e]
+    out += [f"{at}: {e}" for e in (cite.problem(c, repo, roots) for c in cites) if e]
     return key, out
 
 
@@ -760,7 +753,7 @@ def nothing_owed_but_excused(b) -> dict:
 def parse_limit(lim: str):
     """裁定の範囲の 1 つ `<パス>` か `<パス>:<行>[-<行>]` → (作業ツリーの根からのパス, (始め, 終わり) か None（ファイル全体）)。
     根の外・根そのものを指す物は None"""
-    m = CITE.match(lim.strip())
+    m = cite.CITE.match(lim.strip())
     path = posixpath.normpath(m["path"] if m else lim.strip())
     if planmarks.climbs(path):   # `..` は段で見る（`..foo/x.py` は根の中。planmarks.gaps が通す範囲を捨てない）
         return None

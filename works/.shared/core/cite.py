@@ -12,7 +12,11 @@
 - ref_problem(source, prefix, known) -> list[str]: 出どころの文の中の prefix で始まる参照（頭に字が添えてあってもよい）の id が、
   呼び手が渡した実在の id の組 known に在るかの照らし。無い id ごとに誤りの 1 文（prefix の語が無ければ空）
 
-標準ライブラリだけ。works の物を何も import しない（conflict と gatemarks の両方が読む。輪を作らない）。
+- CITE_IN_WHERE: 場所の文の中の名指し 1 つ分の形（CITE の錨を外した物。パスは空でもよい）
+- where_cites(where) -> [(パス, 始め, 終わり)]: 場所の文の中の名指しを順に返す。パスの無い `:<行>` は直前のパス、直前が無ければ空
+- lead_path(text) -> str: 場所の文（「x.py:12（…）」「x.py の docstring」）の頭のパス。パスの形でなければ空
+
+標準ライブラリだけ。works の物を何も import しない（読み手が多いので輪を作らない）。
 """
 from __future__ import annotations
 
@@ -20,6 +24,7 @@ import pathlib
 import re
 
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
+CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
 URL = re.compile(r"https?://[^\s）)」』、。,]+")
 QUOTE = re.compile(r"「([^」]{4,})」")
 TOKEN = re.compile(r"/?[A-Za-z0-9_.][A-Za-z0-9_./-]*(?::[1-9][0-9]*(?:-[1-9][0-9]*)?)?")
@@ -60,6 +65,24 @@ def problem(cite, repo, roots=()) -> str:
     if b > n:
         return f"名指し {cite!r} の行がファイルに無い（{n} 行しか無い）"
     return ""
+
+
+def where_cites(where) -> list:
+    """場所の文の中の名指しを順に [(パス, 始め, 終わり)] で返す（始め・終わりは字。終わりの無い名指しは None）。
+    パスの無い `:<行>` は直前の名指しのパス、直前が無ければパスは空"""
+    out, last = [], ""
+    for m in CITE_IN_WHERE.finditer(where):
+        last = m["path"] or last
+        out.append((last, m["a"], m["b"]))
+    return out
+
+
+def lead_path(text: str) -> str:
+    """場所の文（「works/x.py:12（…）」「works/x.py の docstring」）の頭のパス。最初の空白か「（」までの字から、最初の「:」の前。
+    パスの形（/ か . を持つ）でなければ空"""
+    head = str(text or "").strip().split(None, 1)[0] if str(text or "").strip() else ""
+    head = head.split("（", 1)[0].split(":", 1)[0]
+    return head if "/" in head or "." in head else ""
 
 
 def _pathish(word: str) -> bool:
