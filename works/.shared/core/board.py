@@ -386,8 +386,8 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
     試験の報告が今の段の物かを checks_reply が見る。起こせなければ exit None と error。argv は包む前の宣言の形）。枠を取った段だけ wait_s（枠を待った秒）を足し、wall_s は待ちを除いた実行の時間のまま。
     使い回しの単位は宣言の一式（段は前の段の副作用に依りうるので、段ごとには使い回さない）: 全段のログを開いた後に tree_run.replay_group が
     一式の控えを 1 度だけ引き、全段が同じ run の中で同じ木・同じ一式・同じ環境の緑なら、子を起こさず、段の junit（宣言していれば
-    cwd からのパス）を全部書き戻し、各行に reused（本流 checks_cache の行と同じ形）を足す。1 段でも外れれば全段を走らせ（tree_run.slotted_run）、
-    全段が緑で木が変わらなければ一式を置く（tree_run.keep_group）。使い回せなかった理由は各行の reuse_off（置き場の在る run だけ）。
+    cwd からのパス）を全部書き戻す。1 段でも外れれば全段を走らせ（tree_run.slotted_run）、全段が緑で木が変わらなければ一式を置く
+    （tree_run.keep_group）。段ごとの note の欄（出どころ・使い回せなかった理由）は tree_run.note_fields で行へ写す。
     engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる。
     子の環境は uv run の外の形で、PYTHONDONTWRITEBYTECODE=1 を立てる（works の決まり。engine の run_steps は環境をそのまま継ぐ）"""
     log_dir = pathlib.Path(log_dir)
@@ -404,12 +404,13 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
         group = tree_run.new_group([{"name": s["name"], "argv": list(s["argv"]), "outputs": o} for s, o in zip(steps, outputs)], cwd)
         replay_at = time.time()   # 控えから書き戻した報告が、段の起動より古く見えないように、書き戻す前の時刻を起動に使う
         replayed, why = tree_run.replay_group(group, env, cwd, [(out, err) for _, _, out, err in logs])
-        for i, (s, o, (out_path, err_path, out, err)) in enumerate(zip(steps, outputs, logs)):
+        notes = replayed or [{} for _ in steps]
+        for s, o, note, (out_path, err_path, out, err) in zip(steps, outputs, notes, logs):
             started = replay_at if replayed else time.time()
             row = {"name": s["name"], "argv": list(s["argv"]), "out": out_path, "err": err_path, "started": started}
-            wait, note = None, {}
+            wait = None
             if replayed:
-                rc, note = 0, {"reused": replayed[i]}
+                rc = 0
             else:
                 try:
                     rc, wait = tree_run.slotted_run(list(s["argv"]), env, outputs=o, note=note, skip=why, group=group,
@@ -424,28 +425,26 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
             row.update(exit=rc, wall_s=round(time.time() - started - (wait or 0), 1), tail=_tail(data))
             if wait is not None:
                 row["wait_s"] = wait
-            row.update(tree_run.note_fields(note))
             runs.append(row)
         if not replayed:
-            left = tree_run.keep_group(group)   # 一式を置かなかった理由は、全段の行の reuse_off に足す
-            for row in runs:
-                if left:
-                    row["reuse_off"] = f"{row['reuse_off']}；{left}" if row.get("reuse_off") else left
+            tree_run.keep_group(group, notes)
+    for row, note in zip(runs, notes):
+        row.update(tree_run.note_fields(note))
     return runs
 
 
 def _reused_note(runs: list, reply: dict) -> dict:
     """返答の素材に、控えから使った段の出どころを足す（写しの checks_reply は works が直さないので、受け付けに渡す前にここで足す）。
-    使い回した段（行に reused）が在れば、素材の checked（clean）か detail（found）の末尾に『控えから使った段: <段>（<出どころ>）』。
-    素材が無い（任せ先へ落ちる）・clean でも found でもない返答は変えない。修正前のテストの行（baseline_line）は checked を
+    使い回した段（行に reused）が在れば、素材の checked（clean）の末尾に『控えから使った段: <段>（<出どころ>）』。
+    控えは全段が緑の一式だけなので、使い回した段の在る返答は clean にしかならない（checks_reply は終了コードで赤を決める）。
+    素材が無い（任せ先へ落ちる）・clean でない返答は変えない。修正前のテストの行（baseline_line）は checked を
     そのまま出すので、ここに足せば出どころが報告に載る"""
     used = [f"{r['name']}（{text}）" for r in runs if (text := tree_run.reused_text(r))]
-    material = (reply.get("reply") or {}).get("material")
-    field = {"clean": "checked", "found": "detail"}.get((material or {}).get("status"))
-    if not used or not field or not isinstance(material.get(field), str):
+    material = (reply.get("reply") or {}).get("material") or {}
+    if not used or material.get("status") != "clean" or not isinstance(material.get("checked"), str):
         return reply
     note = "控えから使った段: " + "・".join(used)
-    return {**reply, "reply": {**reply["reply"], "material": {**material, field: f"{material[field]} ／ {note}"}}}
+    return {**reply, "reply": {**reply["reply"], "material": {**material, "checked": f"{material['checked']} ／ {note}"}}}
 
 
 # ---------------------------------------------------------------- p0.base の返答を機械が組む

@@ -55,7 +55,7 @@ import promptsection
 RECORD = "plan-converge.json"
 PASS_DIR = "plan-converge"
 OP = "plan_converge"
-DROPPED_OP = "plan_converge_dropped"   # 直しの役が返した閉じた項目の前のままの行を捨てた印（trace の op）
+DROPPED_OP = "plan_converge_dropped"
 CLEAN = "clean"   # 抜け方の語（控えの outcome）
 AGAIN = "again"
 PERSISTED = "persisted"

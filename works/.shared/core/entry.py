@@ -701,14 +701,13 @@ def _cmd_material(code: int | None, log_path: pathlib.Path, argv: list, how: str
 
 
 def _reused_material(mat: dict, note: dict) -> dict:
-    """同じ run の中の控えから使い回した test_cmd（note は tree_run.slotted_run の note か、その欄を写した行）の素材 mat の checked（clean）か
-    detail（found）の末尾に、出どころの句を足す。使い回していない・clean でも found でもない素材は変えない"""
+    """同じ run の中の控えから使い回した test_cmd（note は tree_run.slotted_run の note か、その欄を写した行）の素材 mat の checked（clean）の
+    末尾に、出どころの句を足す。控えは終了コード 0 の回だけなので使い回した素材は clean にしかならない。使い回していない・clean でない素材は変えない"""
     m = mat["material"]
-    field = {"clean": "checked", "found": "detail"}.get(m.get("status"))
     text = tree_run.reused_text(note)
-    if not text or not field:
+    if not text or m.get("status") != "clean":
         return mat
-    return {"material": {**m, field: f"{m[field]} ／ {TEST_CMD_STEP} は控えから使った（{text}）"}}
+    return {"material": {**m, "checked": f"{m['checked']} ／ {TEST_CMD_STEP} は控えから使った（{text}）"}}
 
 
 def _engine_log(b, nid: str, runs: list) -> pathlib.Path:

@@ -620,8 +620,8 @@ class SlotReuseCase(unittest.TestCase):
         self.assertIn("reuse_off", note)
         (self.repo / "made.txt").unlink()
         self.launch(make)
+        self.assertEqual(self.launched(), 4)   # 置かれていれば 2 度目は控えから使われ、子が起きない
         (self.repo / "made.txt").unlink()
-        self.assertEqual(self.launched(), 4)
         with self.subTest("not_a_git_tree_launches_and_says_why"):
             self.fresh("not_a_git_tree")
             self.check_not_a_git_tree_launches_and_says_why()

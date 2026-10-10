@@ -117,17 +117,16 @@ class RunCiTestCmdRulesCase(unittest.TestCase):
 
     def test_fallback_with_reused_test_cmd_row_names_source(self):
         """engine が test_cmd の段を同じ run の控えから使った行（reused つき）を持って任せ先に落ちた回は、渡す素材の checked
-        （clean）と detail（found）の末尾に、控えから使った句と出どころの run が付く。使っていない回には付かない"""
-        for cmd, field, status in (("true", "checked", "clean"), ("echo x; exit 1", "detail", "found")):
-            with self.subTest(status):
-                b, got, _ = self.run_ci([{"name": "pytest", "argv": ["pytest"]}], cmd, reused=(entry.TEST_CMD_STEP,), reject=True)
-                self.assertEqual(got["by"], "role")
-                m = b.given["material"]
-                self.assertEqual(m["status"], status)
-                self.assertIn(f"{entry.TEST_CMD_STEP} は控えから使った（run run-a・", m[field])
-                self.assertIn(f"・鍵 {'k' * 12}", m[field])
-                b, _, _ = self.run_ci([{"name": "pytest", "argv": ["pytest"]}], cmd, reject=True)
-                self.assertNotIn("控えから使った", b.given["material"][field])
+        （clean）の末尾に、控えから使った句と出どころの run が付く（控えは終了コード 0 の回だけなので clean にしかならない）。
+        使っていない回には付かない"""
+        b, got, _ = self.run_ci([{"name": "pytest", "argv": ["pytest"]}], "true", reused=(entry.TEST_CMD_STEP,), reject=True)
+        self.assertEqual(got["by"], "role")
+        m = b.given["material"]
+        self.assertEqual(m["status"], "clean")
+        self.assertIn(f"{entry.TEST_CMD_STEP} は控えから使った（run run-a・", m["checked"])
+        self.assertIn(f"・鍵 {'k' * 12}", m["checked"])
+        b, _, _ = self.run_ci([{"name": "pytest", "argv": ["pytest"]}], "true", reject=True)
+        self.assertNotIn("控えから使った", b.given["material"]["checked"])
 
 
 class LaunchHowRecordedCase(unittest.TestCase):

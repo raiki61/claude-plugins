@@ -128,7 +128,7 @@ ANSWERS_DIR = "plan-review/r{r}/pass-{k}"
 ANSWER_FILE = "item-{n}.json"
 SYNERGY_FILE = "synergy.json"
 AGENT_OP = "plan_review_agents"         # 読んだ証拠の節が盤面の trace に書く、事前審査の下請けの起動の数の行
-SURPLUS_OP = "plan_review_surplus"      # 下請けの答えの余りの行（開く出典でない precedents・覆っていない当たりに無い hits）を捨てた印の trace の行
+SURPLUS_OP = "plan_review_surplus"
 # 下請けの型は 1 つ（答えのファイルを Write で書ける型。読むだけの Explore は Write を持たない。run 68f35d6b は往復 1 が
 # general-purpose・往復 2・3 が Explore で、型ごとに道具と深さが違った）
 SUBAGENT_TYPE = "general-purpose"

@@ -426,10 +426,9 @@ SLOTWRAP = pathlib.Path(__file__).resolve().parent / "slotwrap.sh"
 SLOT_NOTE_ENV = "WORKS_SLOT_NOTE"
 SLOT_MARK_ENV = "WORKS_SLOT_MARK"
 SLOT_MARK = "testslot.json"   # 盤面（$ARTIFACTS_DIR/script_io.BOARD_DIR）の中の、枠を待つ・中の印
-BOARD_SUB = script_io.BOARD_DIR   # 盤面の名の別名（値は script_io が持つ）
 NOTE_KEYS = ("reused", "reuse_off")   # slotted_run の note の欄。行と状態へ写す口は note_fields
 
-REUSE_SUB = "test-reuse"                  # 試験の結果の控えの置き場の名（盤面 BOARD_SUB の下。同じ run の中でしか引かない）
+REUSE_SUB = "test-reuse"                  # 試験の結果の控えの置き場の名（盤面 script_io.BOARD_DIR の下。同じ run の中でしか引かない）
 REUSE_SCHEMA = "works-test-reuse/1"
 RERUN_ENV = "GRAPHLOOPS_RERUN_CHECKS"     # 本流の引かずに走らせる旗と同じ名。engine 側の環境に立てる（子には渡さない）
 NODE_ENV_PREFIXES = ("ARCHON_", "INPUTS_")   # 節ごとに変わる変数（Archon が節に立てる）。tests/hermetic.sh が試験の入口で落とすのと同じ接頭辞
@@ -562,7 +561,7 @@ def _plan(argv, env, outputs, popen_kw, note, group=None):
     child = child_env(env)
     material = {**reuse_material(argv, child, cwd, outputs, tree), "group": group["sha"] if group is not None else ""}
     key = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
-    return {"store": webget.Store(pathlib.Path(art) / BOARD_SUB / REUSE_SUB, REUSE_SCHEMA, math.inf), "name": key + ".json", "material": material, "key": key,
+    return {"store": webget.Store(pathlib.Path(art) / script_io.BOARD_DIR / REUSE_SUB, REUSE_SCHEMA, math.inf), "name": key + ".json", "material": material, "key": key,
             "tree": tree, "cwd": cwd, "sinks": sinks, "run": run}
 
 
@@ -655,7 +654,8 @@ def _no_reuse_reason(env, skip="") -> str:
 
 def replay_group(group, env, cwd, sinks):
     """一式（new_group の入れ物）の全段の控えを引き、全段が当たれば全段を 1 つの _write_back で全部か無しで書き戻す ——
-    （段ごとの使い回しの行, 理由）。外れれば何も書かず (None, どの段がなぜ外れたか。旗なら旗の文)。置き場の無い run は (None, "")。
+    （段ごとの note（slotted_run の note と同じ形。reused に出どころ）, 理由）。外れれば何も書かず (None, どの段がなぜ外れたか。
+    旗なら旗の文。呼び手は段ごとの slotted_run の skip に渡す)。置き場の無い run は (None, "")。
     sinks は段ごとの (標準出力, 標準エラー) の行き先。木はここで 1 度だけ取り、group['tree'] に置く（段ごとの計画も一式の木を使う）。
     一式の控えを引く口はここだけ（段を 1 つずつ呼ぶ slotted_run は group を渡されれば引かない）"""
     plans = []
@@ -675,7 +675,7 @@ def replay_group(group, env, cwd, sinks):
             return None, f"段 {step['name']}: {why}"
         entries.append((step["outputs"], entry))
     why = _write_back(entries, [{"stdout": out, "stderr": err} for out, err in sinks])
-    return (None, why) if why else ([e["reused"] for _, e in entries], "")
+    return (None, why) if why else ([{"reused": e["reused"]} for _, e in entries], "")
 
 
 def _tree_moved(plan) -> str:
@@ -729,9 +729,17 @@ def _keep(plan, rc, wall, outputs, note, group=None):
         refuse(f"控えに書けない（{bad}）")
 
 
-def keep_group(group) -> str:
-    """一式の全段が済んだ後に呼ぶ。全段が終了コード 0 で、前後の木が同じ時だけ全段の控えを置く。置かなかった理由（置いたら空）を返す——
-    呼び手は各段の行の reuse_off に足す。置き場の無い run・木が取れなかった run は空"""
+def keep_group(group, notes) -> None:
+    """一式の全段が済んだ後に呼ぶ。全段が終了コード 0 で、前後の木が同じ時だけ全段の控えを置く。置かなかった理由は、段ごとの
+    note（slotted_run に渡した物）の reuse_off に足す。置き場の無い run・木が取れなかった run は何も足さない"""
+    why = _group_unkept(group)
+    if why:
+        for note in notes:
+            _off(note, why)
+
+
+def _group_unkept(group) -> str:
+    """keep_group の本体: 一式を置き、置かなかった理由（置いたら空）を返す"""
     if group["off"] or group["tree"] is None:
         return ""
     if group["failed"]:

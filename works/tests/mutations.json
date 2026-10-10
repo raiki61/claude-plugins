@@ -578,14 +578,14 @@
    }
   },
   {
-   "id": "ru9",
-   "title": "engine の素材に控えから使った段の出どころを足す時、赤の素材（found）の detail には足さない",
-   "file": ".shared/core/board.py",
-   "old": "    field = {\"clean\": \"checked\", \"found\": \"detail\"}.get((material or {}).get(\"status\"))",
-   "new": "    field = {\"clean\": \"checked\"}.get((material or {}).get(\"status\"))",
+   "id": "ru12",
+   "title": "走らせている間に作業ツリーが変わった回（.gitignore の外に物を作る回）も緑の控えとして置く（次の同じ呼びが作る物を作らずに緑を使い回す）",
+   "file": ".shared/core/tree_run.py",
+   "old": "    moved = _tree_moved(plan) if group is None else \"\"\n",
+   "new": "    moved = \"\"\n",
    "tests": {
-    "tests/test_board_engine_run.py": [
-     "RunEngineCase.test_reused_found_reply_names_source_in_detail"
+    "tests/test_tree_run.py": [
+     "SlotReuseCase.test_red_or_tree_changing_run_is_not_kept"
     ]
    }
   },
@@ -595,18 +595,6 @@
    "file": ".shared/core/entry.py",
    "old": "launched[\"how\"]), ran))",
    "new": "launched[\"how\"]), {}))",
-   "tests": {
-    "tests/test_ci_test_cmd.py": [
-     "RunCiTestCmdRulesCase.test_fallback_with_reused_test_cmd_row_names_source"
-    ]
-   }
-  },
-  {
-   "id": "ru11",
-   "title": "test_cmd の素材に控えから使った出どころを足す時、赤の素材（found）の detail には足さない",
-   "file": ".shared/core/entry.py",
-   "old": "    field = {\"clean\": \"checked\", \"found\": \"detail\"}.get(m.get(\"status\"))",
-   "new": "    field = {\"clean\": \"checked\"}.get(m.get(\"status\"))",
    "tests": {
     "tests/test_ci_test_cmd.py": [
      "RunCiTestCmdRulesCase.test_fallback_with_reused_test_cmd_row_names_source"

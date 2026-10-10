@@ -244,31 +244,6 @@ class RunEngineCase(EngineRunCase):
         self.assertNotIn("reused", ci1["runs"][0])
         self.assertIn("reused", ci2["runs"][0])
 
-    def test_reused_found_reply_names_source_in_detail(self):
-        """赤の素材（found）でも、控えから使った段の行（reused つき）が在れば、出どころの句『控えから使った段』は checked でなく
-        detail の末尾に付く（使った段が無い回には付かない）。既定の runner の一式の控えは全段が緑の時だけなので赤の行に reused は付かず、
-        この分岐には runner が返す行で届く"""
-        reused = {"at": 1_700_000_000.0, "took_s": 1.0, "key": "k" * 64, "entry": "/store/k.json", "from": "run-a"}
-
-        def runner_with(extra):
-            def run(steps, cwd, log_dir):
-                return [{"name": s["name"], "argv": list(s["argv"]), "out": "", "err": "", "started": 0.0, "exit": 3, "wall_s": 0.1,
-                         "tail": "1 failed", **extra} for s in steps]
-            return run
-
-        got = []
-        for extra in ({}, {"reused": reused}):
-            b = self.board_before(engine_run_step("p0.local_checks"), edit=minimal("p0.local_checks"))
-            self.write_decl(b, RED)
-            self.assertTrue(b.run_engine("p0.local_checks", runner=runner_with(extra))["ok"])
-            got.append(b.record["materials"]["local_checks"])
-        plain, used = got
-        self.assertEqual((plain["status"], used["status"]), ("found", "found"), got)
-        self.assertNotIn("控えから使った段", plain["detail"])
-        self.assertIn("控えから使った段: suite（run run-a・", used["detail"])
-        self.assertIn("・鍵 " + "k" * 12, used["detail"])
-        self.assertNotIn("checked", used)
-
     def test_declaration_changed_refused(self):
         """撮った計画を差し込み、宣言を書き換えてから当てる → {ok: False, relaunch: True}、why は engine_run_refusal の文。
         何も走らず、盤面（state・record・trace）は前のまま、節は待ちのまま"""
