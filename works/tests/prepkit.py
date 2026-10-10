@@ -1,5 +1,5 @@
 """役の支度のモジュール（役の指示書を組む・貼る節を宣言するモジュール）の読み口と受け手の表の行の道具（tests/test_graphmap.py・
-tests/test_lanekit.py が使う）。
+tests/test_lanekit.py と、設計図を書く dev/graphmap_build.py が使う）。
 
 - prep_files(pack)・declaring_files(pack): 支度を持ちうるモジュールの場所と、そのうち promptsection を使う物
 - import_path(pack, near)・load(pack, path): 支度のモジュールを場所から読む（同じ名の別の置き場の物と取り違えない）

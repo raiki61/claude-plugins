@@ -11,12 +11,15 @@ docs/plans/2026-10-07-graph-map.md）の検査。
   dev/graphmap_build.py の build で書き直す）。古い元は stale が名指す・道具の check が 1 で抜ける
 - 本物の線: 旗 map の節の席は旗が揃う（会話の中で system prompt を替えない）。地図の文は字数の枠の中。地図に載る AI・輪・
   呼ぶ節は全部が目的の 1 行を持つ（AI の節は地図に載らない物も全部）。description は 1 行。features_off の語 graph_map と包みの定数が合う
+- 設計図（dev/graphmap_build.py の design）: 地図の元と受け手の表の行から、工程ごとの mermaid の素の flowchart（名前・入れ子・順・
+  矢印の元から読む欄）と細目の表を組む。宣言から引けない物は「設計に無い」。本物の docs/darkfactory-design.md は作り直した物と同じ。
+  check は古い設計図も名指して 1 で抜ける
 - 包みの差し込みの表: 旗 map の起動に地図を、道具を持つ起動に検索語の規律を、決まった順に 1 つの繋ぎ方で足し、塊ごとの digest を
   fence に残す。graph_map が切られた run・古い元・繋げない起動は足さずに理由を残して起こす。required の行が作れなければ拒む
 - 節の宣言（.shared/core/promptsection.py）: 支度のモジュールの見出しの字面は Section の宣言の中だけ。宣言の出どころが解ける。
   受け手の表 RECEIVES の行が引けて、工程ごとに現物と合う（役ごとは各ブロックの試験が描いた指示書を tests/prepkit.py の drawn が照らす）。
   支度のモジュールは tests/prepkit.py で場所から読む
-git なし。子のプロセスは地図の元を書く道具 dev/graphmap_build.py を python3 で 4 本起こすだけ。
+git なし。子のプロセスは地図の元を書く道具 dev/graphmap_build.py を python3 で 6 本起こすだけ。
 """
 import ast
 import hashlib
@@ -40,10 +43,12 @@ SEED = TESTS / "graphmap"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
+sys.path.insert(0, str(ROOT / "dev"))
 
 import adapter  # noqa: E402
 import entry  # noqa: E402
 import graphmap  # noqa: E402
+import graphmap_build  # noqa: E402
 import hermetic  # noqa: E402
 import node_marker  # noqa: E402
 import prepkit  # noqa: E402
@@ -467,6 +472,66 @@ class CompactCase(unittest.TestCase):
         self.assertEqual(graphmap.render(g, "me", off=[], budget=200), graphmap.render(g, "me", off=[], budget=200))
 
 
+class DesignCase(unittest.TestCase):
+    """設計図（dev/graphmap_build.py の design）: 地図の元と受け手の表の行から、mermaid の素の flowchart（名前・入れ子・順・渡る物）と
+    細目の表を組む。宣言から引けない物は「設計に無い」と書く"""
+
+    def setUp(self):
+        import promptsection
+        self.g = seed_graph()
+        self.sec = promptsection.Section("## 前の回の理由\n本文", source="fn:mod.prep")
+        self.rows = [("blk-b", promptsection.Receive("fixer", self.sec)),
+                     ("blk-b", promptsection.Receive("fixer", self.sec, when="mod.again")),   # 同じ節を別の条件で: 節は 1 つ
+                     ("blk-b", promptsection.Receive("lane-1", self.sec, when="mod.lanes"))]
+
+    def figure(self, text: str, title: str) -> str:
+        head = text.index(title)
+        start = text.index("```mermaid\n", head)
+        return text[start:text.index("\n```", start + 1)]
+
+    def test_figures_are_plain_flowcharts_of_names_nesting_order_and_fields(self):
+        text = graphmap_build.design(self.g, self.rows)
+        line = self.figure(text, "## 線 line")
+        self.assertTrue(line.startswith("```mermaid\nflowchart TD\n"))
+        # 渡る物: 描かない機械の節（h-a・start）が返す欄は、その節を辿って着く矢印に <節>.<欄> で載る
+        for want in ('N_gate{"gate"}', 'N_writing["writing ⇒ blk-a"]', 'N_gate -->|"h-a.go, start.lanes"| N_writing',
+                     'N_writing -->|"h-b.go"| N_doing', "N_doing --> N_closing"):
+            self.assertIn(want, line)
+        self.assertNotIn("N_h_a", line)    # 目的の無い配管は箱に描かず、順はその先へたどる
+        self.assertNotIn("N_start", line)  # 目的の在る機械の節も箱には出さない（役と呼びと関所だけ）
+        a = self.figure(text, "## ブロック blk-a")
+        for want in ('subgraph L_write_loop["⟳3 write-loop"]', 'subgraph L_revise_loop["⟳2 revise-loop"]', 'N_reviser["reviser"]',
+                     "N_writer --> L_revise_loop"):
+            self.assertIn(want, a)
+        self.assertLess(a.index("L_revise_loop"), a.index("N_reviser"))   # 入れ子: 中の輪の中に役
+        b = self.figure(text, "## ブロック blk-b")
+        self.assertIn('N_fixer -->|"ask"| N_answer', b)   # 渡る物: 後の節が when・with で読む前の節の返答の欄
+        self.assertIn("L_lane_loop_1 --> L_fix_loop", b)
+        for fig in (line, a, b):
+            self.assertNotIn("<br", fig)   # 図は形だけ（目的の文などの細目は表へ）
+        self.assertEqual(text, graphmap_build.design(self.g, list(reversed(self.rows))))   # 決まった字
+
+    def test_tables_carry_the_purposes_and_the_pasted_sections(self):
+        text = graphmap_build.design(self.g, self.rows)
+        self.assertIn("| fixer | AI | 直す役 | 1 | - |", text)
+        self.assertIn("| writing | ⇒ blk-a | 案を書く | - | lanes ← start.lanes, peer ← off |", text)   # with の全部（字の値も）
+        self.assertIn("| 前の回の理由 | fn:mod.prep | fixer | mod.prep |", text)
+        self.assertIn("| 前の回の理由 | fn:mod.prep | lane-1 | mod.lanes |", text)
+        self.assertIn("| 前の回の理由 | fn:mod.prep | fixer | mod.again |", text)
+
+    def test_run_inputs_are_named_as_inputs(self):
+        find(self.g["workflows"]["line"]["nodes"], "closing")["with"]["request"] = "$INPUTS.request"
+        self.assertIn("| closing | ⇒ blk-a | 締める | - | lanes ← start.lanes, peer ← on, request ← 入力.request |",
+                      graphmap_build.design(self.g, self.rows))
+
+    def test_what_the_declarations_lack_is_named_not_guessed(self):
+        """目的の 1 行（description:）の無い節と、受け手の表に行の無い役は「設計に無い」。指示書や docstring から拾い直さない"""
+        del find(self.g["workflows"]["blk-a"]["nodes"], "writer")["purpose"]
+        text = graphmap_build.design(self.g, self.rows)
+        self.assertIn("| writer | AI | 設計に無い | 設計に無い | - |", text)
+        self.assertIn("| reviser | AI | 直す役 | 設計に無い | - |", text)
+
+
 class StaleCase(unittest.TestCase):
     def test_stale_names_changed_sources_and_cli_check(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -486,6 +551,14 @@ class StaleCase(unittest.TestCase):
             r = run("check")
             self.assertEqual(r.returncode, 1)
             self.assertIn("line/line.graph.json が古い", r.stderr)
+            self.assertIn("docs/line-design.md が古い", r.stderr)   # 設計図も同じ YAML から作るので一緒に古くなる
+            self.assertEqual(run("build").returncode, 0)
+            design = pack / "docs" / "line-design.md"
+            design.write_text(design.read_text(encoding="utf-8") + "手で足した行\n", encoding="utf-8")
+            r = run("check")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("docs/line-design.md が古い", r.stderr)
+            self.assertNotIn("graph.json が古い", r.stderr)
             (pack / "blk-a" / "blk-a.yaml").unlink()
             self.assertEqual(graphmap.stale(g, pack), ["blk-a/blk-a.yaml", "blk-b/blk-b.yaml"])
 
@@ -511,6 +584,16 @@ class RealLineCase(unittest.TestCase):
                 self.assertEqual(path.read_text(encoding="utf-8"), graphmap.dumps(graphmap.build(ROOT / rel, resolve, ROOT, yaml.safe_load)),
                                  f"{path.name} が YAML より古い。`uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py "
                                  f"build works` で書き直す")
+
+    def test_design_file_is_fresh(self):
+        """設計図 docs/<入口>-design.md は、今の地図の元と受け手の表の行から作り直した物と同じ（替えたら build で書き直す）"""
+        rows = [(wf, row) for _, wf, row in prepkit.receive_rows(ROOT)]
+        for name, rel in graphmap.entrypoints(ROOT).items():
+            with self.subTest(name):
+                path = ROOT / "docs" / f"{name}-design.md"
+                self.assertTrue(path.is_file(), f"{path} が無い")
+                self.assertEqual(path.read_text(encoding="utf-8"), graphmap_build.design(graphmap.load(graphmap.graph_path(ROOT, rel)), rows),
+                                 f"{path.name} が古い。`uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で書き直す")
 
     def flagged(self, g):
         return sorted(m for m, places in graphmap.markers(g).items()
