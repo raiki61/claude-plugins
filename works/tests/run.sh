@@ -5,6 +5,7 @@
 # （見送りの理由は『SKIP <能力>: <理由>』。約束は tests/tiers.py の頭）。
 # 全部と heavy は、機械全体で重いテストを同時に 4 本までにする枠（.shared/core/slotwrap.sh。台本は WORKS_TESTSLOT で差し替え。
 # 約束の正本はそちら）を通して回す。fast は枠を取らず、中の試験が起こす試験にも取らせない（WORKS_TESTSLOT を空にする）。
+# fast は tests/tiers.py が子のプロセスに割って並べる（数は WORKS_JOBS。無ければ CPU の数から決め、1 で並べない。約束は tiers.py の頭）。
 # 走らせる run の env は tests/hermetic.sh で落としてから試験を起こす（dev/tdd-suite.sh と同じ一覧）。
 cd "$(dirname "$0")/.." || exit 2
 

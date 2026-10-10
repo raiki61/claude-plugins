@@ -18,6 +18,16 @@ TDD の実行器 dev/tdd-suite.sh（pytest で回す）は `python3 tests/tiers.
 読んだ WORKS_SHARD は消してから試験を起こす（中の試験が起こす run.sh・tiers.py に組を継がせない）。
 `python3 tests/tiers.py list <段>` は回すモジュールの名前を 1 行ずつ出すだけ（WORKS_SHARD が在れば組の分だけ）。
 
+並べ（WORKS_JOBS）: fast は子のプロセス（`tiers.py child <段> [unittest の引数]`）を並べる数だけ起こし、モジュールを重さの目安の
+重い順に、手の空いた子へ 1 本ずつ渡す（モジュールは割らない）。子の結果（件数・失敗・見送り・モジュールごとの秒）は親が 1 つに
+合わせ、見送りの門も合わせた一覧に 1 回当てて、1 本の時と同じ形と終了コードで出す。結果を返さずに終わった子は、回していた
+モジュールを名指しして error に数える。並べる数の決め（jobs）は: WORKS_JOBS（1 以上の整数。1 なら今までどおり 1 本）、無ければ
+CPU の数までで、いちばん重いモジュールの 1 本が律速になる所まで。heavy と全部は並べない（重いテストの枠の 1 本の中で回る）。
+`python3 tests/tiers.py jobs <段>` は並べる数を出すだけ（dev/tdd-suite.sh が同じ数で pytest を並べる。決めを写さない）。
+子の標準入力と標準出力は親との線で、子の試験の標準出力は標準エラーに寄せる（子ごとにまとめて、子が終わった順に写す）。
+-f は子ごとに効く。並べた子は段のモジュールだけを import する（1 本の時は discover が全部を import するので、段の外の
+モジュールの読み込みの失敗も error に出る。並べた時は出ない）。
+
 heavy に置く物: 試験ごとに git のリポジトリを作る（git init・commit・mktarget・dogfood の clone）・uv run を起こす・
 Archon を起こす・golden を再生する・プロセスの木を起こす・決まった秒を待つ。短くても、これらを使うモジュールは heavy に置く
 （負荷の高い機械では git と子のプロセスが遅れの元になる）。種の git を tests/gitkit.py の型（プロセスに 1 回だけ作る）の
@@ -28,7 +38,9 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
+import threading
 import time
 import unittest
 
@@ -179,6 +191,30 @@ def shard_env(environ):
     return int(m.group(1)), int(m.group(2))
 
 
+def jobs(environ, names, cpus):
+    """並べる子のプロセスの数。WORKS_JOBS（1 以上の整数）が在ればその値、形が違えば ValueError。無ければ CPU の数（cpus）までで、
+    組（shard_of）のいちばん重い組がいちばん重いモジュールの 1 本に並ぶ最小の数（それより増やしても律速の 1 本は縮まない）"""
+    raw = environ.get("WORKS_JOBS", "")
+    if raw != "":
+        if not re.fullmatch(r"[1-9][0-9]*", raw):
+            raise ValueError(f"WORKS_JOBS は 1 以上の整数（1 で並べない）（今の値: {raw}）")
+        return int(raw)
+    names = sorted(names)
+    heaviest = max((weight(m) for m in names), default=0.0)
+    for n in range(1, max(1, cpus)):
+        if max(sum(weight(m) for m in g) for g in shard_of(names, n).values()) <= heaviest:
+            return n
+    return max(1, cpus)
+
+
+def tier_jobs(tier, names, environ):
+    """段を並べる数。並べるのは fast だけ（heavy と全部は機械全体の重いテストの枠の 1 本の中で回るので 1 本のまま）"""
+    if tier != "fast":
+        return 1
+    cpus = getattr(os, "process_cpu_count", os.cpu_count)() or 1
+    return jobs(environ, names, cpus)
+
+
 def modules():
     """unittest discover（-s tests -p test_*.py）が拾うモジュールの名前。tests/ の下に package は置かない"""
     return sorted(p.stem for p in TESTS.glob(PATTERN))
@@ -272,6 +308,220 @@ class SkipGateRunner(unittest.TextTestRunner):
         return super().run(test)
 
 
+# 並べた子（`tiers.py child <段> [unittest の引数]`）と親の線: 親は子の標準入力にモジュールの名を 1 行ずつ渡し、子は回し終えるごとに
+# 標準出力に JOB_READY の 1 行、入力が尽きたら JOB_RESULT の 1 行（結果の JSON）を返す。子の試験の出力は標準エラーに寄せる
+JOB_READY = "tiers-job-ready"
+JOB_RESULT = "tiers-job-result: "
+
+
+class _Done:
+    """子で回った試験の写し（親の SkipGateResult が id と説明の行を引く分だけ）"""
+
+    def __init__(self, ident, text, short):
+        self._id, self._text, self._short = ident, text, short
+
+    def id(self):
+        return self._id
+
+    def __str__(self):
+        return self._text
+
+    def shortDescription(self):
+        return self._short
+
+
+def _done(test):
+    return [test.id(), str(test), test.shortDescription()]
+
+
+class _Muted:
+    """書きを止められる流れ（子は結果を親へ返した後の Ran と OK の行を出さない。出すのは親）"""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.on = True
+
+    def write(self, text):
+        if self.on:
+            self._stream.write(text)
+
+    def writeln(self, text=""):
+        if self.on:
+            self._stream.writeln(text)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _take_line():
+    """子の標準入力と標準出力を親との線に取り、試験には標準入力に空・標準出力に標準エラーを当てる（試験とその子が線を読み書き
+    しない。写した fd は子のプロセスに継がれない）。(読む口, 書く口)"""
+    sys.stdout.flush()
+    rin = os.fdopen(os.dup(0), "r", encoding="utf-8")
+    wout = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    os.dup2(2, 1)
+    return rin, wout
+
+
+class JobQueue:
+    """子の一式: 親から届くモジュールの名ごとに、その試験を読んで回し、JOB_READY を返す"""
+
+    def __init__(self, loader, line):
+        self.loader, (self.rin, self.wout) = loader, line
+
+    def __call__(self, result):
+        for name in self.rin:
+            name = name.strip()
+            if name:
+                self.loader.loadTestsFromName(name)(result)
+            self.wout.write(JOB_READY + "\n")
+
+
+class JobLoader(unittest.TestLoader):
+    """子の discover: 名を読まずに JobQueue を返す（-k は unittest.main がこの loader に立て、loadTestsFromName が当てる）"""
+
+    def discover(self, start_dir, pattern="test*.py", top_level_dir=None):
+        sys.path.insert(0, str(TESTS))   # discover と同じく tests/ を import の頭に足す
+        return JobQueue(self, _take_line())
+
+
+class JobResult(SkipGateResult):
+    """子の結果。見送りの門と一覧・失敗の本文は出さず、全部を親へ返す（親がまとめて 1 本の時と同じ形で出す）"""
+
+    def printErrors(self):
+        doc = {"run": self.testsRun,
+               "errors": [[*_done(t), e] for t, e in self.errors],
+               "failures": [[*_done(t), e] for t, e in self.failures],
+               "skipped": [[*_done(t), r] for t, r in self.skipped],
+               "expectedFailures": [[*_done(t), e] for t, e in self.expectedFailures],
+               "unexpectedSuccesses": [_done(t) for t in self.unexpectedSuccesses],
+               "secs": getattr(self, "_works_secs", {}),
+               "durations": list(getattr(self, "collectedDurations", []))}
+        self.stream.flush()
+        sys.stdout.flush()
+        wout = self._works_line
+        wout.write(JOB_RESULT + json.dumps(doc, ensure_ascii=True) + "\n")
+        wout.flush()
+        self.stream.on = False
+
+
+class JobRunner(SkipGateRunner):
+    resultclass = JobResult
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stream = _Muted(self.stream)
+
+    def run(self, test):
+        self._works_line = test.wout
+        return super().run(test)
+
+    def _makeResult(self):
+        result = super()._makeResult()
+        result._works_line = self._works_line
+        return result
+
+
+class Jobs:
+    """子のプロセス（`tiers.py child <段> [unittest の引数]`）を workers 本起こし、モジュールを重い順に、手の空いた子へ 1 本ずつ渡す。
+    子の結果は親の result に足し、子の出力は子が終わった順に子ごとにまとめて標準エラーへ写す。結果を返さずに終わった子は、
+    回していたモジュールを名指しして error に数え、渡せずに残ったモジュールも error に数える"""
+
+    def __init__(self, tier, names, workers, args):
+        self.tier, self.workers, self.args = tier, workers, args
+        self.todo = sorted(names, key=lambda m: (-weight(m), m))
+
+    def __call__(self, result):
+        lock = threading.Lock()
+        todo = list(self.todo)
+        procs = []
+
+        def work():
+            p = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).resolve()), "child", self.tier, *self.args],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, encoding="utf-8", errors="replace")
+            with lock:
+                procs.append(p)
+            err = []
+            reader = threading.Thread(target=lambda: err.append(p.stderr.read()))
+            reader.start()
+            doing, rest = None, ""
+            try:
+                while True:
+                    with lock:
+                        doing = todo.pop(0) if todo else None
+                    if doing is None:
+                        break
+                    p.stdin.write(doing + "\n")
+                    p.stdin.flush()
+                    if p.stdout.readline() != JOB_READY + "\n":
+                        break
+                    doing = None
+                p.stdin.close()
+                rest = p.stdout.read()
+            except OSError:   # 子が先に終わって線が切れた
+                pass
+            p.wait()
+            reader.join()
+            with lock:
+                sys.stderr.write("".join(err))
+                sys.stderr.flush()
+                self._take(result, p.returncode, doing, rest)
+
+        threads = [threading.Thread(target=work) for _ in range(min(self.workers, len(todo)))]
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            for p in procs:
+                if p.poll() is None:
+                    p.kill()
+        if todo:
+            result.errors.append((_Done("tiers.job", "子のプロセス", None),
+                                  "子のプロセスが全部終わり、回らなかったモジュールが残った: " + ", ".join(todo)))
+
+    @staticmethod
+    def _take(result, rc, doing, rest):
+        doc = None
+        for line in rest.splitlines():
+            if line.startswith(JOB_RESULT):
+                doc = json.loads(line[len(JOB_RESULT):])
+        if doing is not None or doc is None or rc not in (0, 1, 5):
+            what = f"{doing} を回す間に" if doing is not None else ""
+            result.errors.append((_Done("tiers.job", f"子のプロセス（{doing or '結果'}）", None),
+                                  f"子のプロセスが{what}結果を返さずに終わった（終了コード {rc}）" if doc is None
+                                  else f"子のプロセスが{what}終了コード {rc} で終わった"))
+        if doc is None:
+            return
+        result.testsRun += doc["run"]
+        for key in ("errors", "failures", "skipped", "expectedFailures"):
+            getattr(result, key).extend((_Done(*t[:3]), t[3]) for t in doc[key])
+        result.unexpectedSuccesses.extend(_Done(*t) for t in doc["unexpectedSuccesses"])
+        secs = getattr(result, "_works_secs", None)
+        if secs is None:
+            secs = result._works_secs = {}
+        for m, v in doc["secs"].items():
+            secs[m] = secs.get(m, 0.0) + v
+        if hasattr(result, "collectedDurations"):
+            result.collectedDurations.extend(tuple(d) for d in doc["durations"])
+
+
+class JobsLoader(unittest.TestLoader):
+    """親の discover: Jobs を返す（-k などの引数は unittest.main が親で読み、子にもそのまま渡す）"""
+
+    def __init__(self, jobs_):
+        super().__init__()
+        self.jobs = jobs_
+
+    def discover(self, start_dir, pattern="test*.py", top_level_dir=None):
+        return self.jobs
+
+
 def paths(tier):
     """段のモジュールのファイル（works の根から。名前の順）。dev/tdd-suite.sh が pytest に渡す"""
     return sorted(f"{TESTS.name}/{m}.py" for m in tier_modules(tier))
@@ -288,11 +538,15 @@ def main(argv):
             return 2
         print("\n".join(paths(argv[2])))
         return 0
-    listing = len(argv) >= 2 and argv[1] == "list"
+    listing = len(argv) >= 2 and argv[1] in ("list", "jobs")
     if listing:
+        listing, argv = argv[1], argv[1:]
+    # 並べた子: `tiers.py child <段> [unittest の引数]`。親（Jobs）が起こし、線で渡されたモジュールを回して結果を返す
+    job = len(argv) >= 3 and argv[1] == "child"
+    if job:
         argv = argv[1:]
     if len(argv) < 2 or argv[1] not in (*TIERS, "all"):
-        print("tiers: 段は fast・heavy・all（使い方: python3 tests/tiers.py [list] <段> [unittest の引数]）", file=sys.stderr)
+        print("tiers: 段は fast・heavy・all（使い方: python3 tests/tiers.py [list|jobs] <段> [unittest の引数]）", file=sys.stderr)
         return 2
     try:
         shard = shard_env(os.environ)
@@ -312,13 +566,27 @@ def main(argv):
         # 組は段に依らず全部のモジュールで分ける（段ごとに分けると、同じ組の番号が段で別のモジュールを指す）
         keep &= set(shard_of(modules(), total)[index])
         print(f"tiers: 組 {index}/{total}（{len(keep)} 本のモジュール）", file=sys.stderr)
-    if listing:
+    if listing == "list":
         print("\n".join(sorted(keep)))
         return 0
-    loader = unittest.TestLoader() if argv[1] == "all" and shard is None else TierLoader(keep)
+    try:
+        n = 1 if job else tier_jobs(argv[1], keep, os.environ)
+    except ValueError as e:
+        print(f"tiers: {e}", file=sys.stderr)
+        return 2
+    if listing == "jobs":
+        print(n)
+        return 0
+    runner = SkipGateRunner
+    if job:
+        loader, runner = JobLoader(), JobRunner
+    elif n > 1:
+        loader = JobsLoader(Jobs(argv[1], keep, n, argv[2:]))
+    else:
+        loader = unittest.TestLoader() if argv[1] == "all" and shard is None else TierLoader(keep)
     # `python3 -m unittest` と同じ sys.path の頭（作業フォルダ）にする。tests/ は discover が頭に足す
     sys.path[0] = os.getcwd()
-    unittest.main(module=None, testLoader=loader, testRunner=SkipGateRunner,
+    unittest.main(module=None, testLoader=loader, testRunner=runner,
                   argv=["python -m unittest", "discover", "-s", str(TESTS), "-p", PATTERN, *argv[2:]])
     return 0  # unittest.main が終了コードで抜けるので、ここには来ない
 

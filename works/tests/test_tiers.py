@@ -216,6 +216,163 @@ class ShardCase(unittest.TestCase):
         self.assertIn("WORKS_SHARD", "".join(c.args[0] for c in err.write.call_args_list))
 
 
+# 並べた速い段の端から端の試験の偽の tests/: tiers.py と重さの記録はそのまま写し、FAST の名ごとにモジュールを置く（中身は下の
+# 3 つだけ。ほかは空）。試験は自分のプロセスの番号を FAKE_PIDS の置き場に書く（別のプロセスで回ったかを見る）。FAKE_MEET=1 なら
+# test_core_copy と test_cite は互いの印を待ち合わせる（同じ時に回っていなければ待ちが切れて赤）
+MEET = """
+def meet(me, other):
+    import os, pathlib, time
+    if os.environ.get("FAKE_MEET") != "1":
+        return
+    d = pathlib.Path(os.environ["FAKE_PIDS"])
+    (d / f"meet.{me}").touch()
+    end = time.monotonic() + 30
+    while not (d / f"meet.{other}").exists():
+        assert time.monotonic() < end, "待ち合わせが切れた（同じ時に回っていない）"
+        time.sleep(0.05)
+"""
+JOB_MODULES = {
+    "test_core_copy": MEET + """
+import os, pathlib, unittest
+class Pass(unittest.TestCase):
+    def test_one(self):
+        (pathlib.Path(os.environ["FAKE_PIDS"]) / f"core_copy-{os.getpid()}").touch()
+        meet("a", "b")
+    def test_two(self):
+        pass
+""",
+    "test_cite": MEET + """
+import os, pathlib, unittest
+class Fail(unittest.TestCase):
+    def test_red(self):
+        (pathlib.Path(os.environ["FAKE_PIDS"]) / f"cite-{os.getpid()}").touch()
+        meet("b", "a")
+        if os.environ.get("FAKE_RED") == "1":
+            self.assertEqual(1, 2, "わざと赤")
+""",
+    "test_gitkit": """
+import os, unittest
+class Skip(unittest.TestCase):
+    def test_skip(self):
+        self.skipTest("SKIP dash: dash が無い")
+    def test_pass(self):
+        if os.environ.get("FAKE_DIE") == "1":
+            os._exit(0)   # 結果を返さずに子のプロセスが終わる
+""",
+}
+
+
+class JobsCase(unittest.TestCase):
+    """速い段を子のプロセスに割って並べる（WORKS_JOBS。既定は CPU の数と重さから決め、1 で今と同じ 1 本）。
+    結果（件数・失敗・見送り・見送りの門・モジュールごとの秒）は 1 つに合わせて、1 本の時と同じ形と終了コードで出す"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        root = pathlib.Path(os.path.realpath(cls._tmp.name))
+        tests = root / "tests"
+        tests.mkdir()
+        shutil.copy(TESTS / "tiers.py", tests / "tiers.py")
+        shutil.copy(TESTS / "shard-seconds.json", tests / "shard-seconds.json")
+        for name in tiers.FAST:
+            (tests / f"{name}.py").write_text(JOB_MODULES.get(name, ""), encoding="utf-8")
+        cls.root = root
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def run_tiers(self, *args, **env):
+        import hermetic
+        pids = pathlib.Path(tempfile.mkdtemp(dir=self.root))
+        # 外の走りの門・組・並べの値は継がない（渡した物だけ）
+        clean = {k: v for k, v in hermetic.child_env().items()
+                 if k not in ("FAIL_ON_SKIP", "SKIP_ALLOW", "WORKS_SHARD", "WORKS_JOBS")}
+        clean.update(FAKE_PIDS=str(pids), **env)
+        p = subprocess.Popen([sys.executable, "tests/tiers.py", "fast", *args], cwd=self.root, env=clean,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        out, err = p.communicate(timeout=120)
+        self.parent_pid = str(p.pid)
+        return (subprocess.CompletedProcess(p.args, p.returncode, out, err),
+                {f.name.split("-")[0]: f.name.split("-")[1] for f in pids.iterdir() if "-" in f.name})
+
+    def summary(self, err):
+        """出力の形（Ran の行の数と件数・結びの行）。秒は走りごとに違うので外す"""
+        ran = re.findall(r"^Ran (\d+) tests? in [0-9.]+s$", err, re.M)
+        return ran, err.rstrip().splitlines()[-1]
+
+    def test_red_in_one_job_makes_the_whole_red_with_the_same_counts(self):
+        one, _ = self.run_tiers(WORKS_JOBS="1", FAKE_RED="1")
+        many, pids = self.run_tiers(WORKS_JOBS="3", FAKE_RED="1")
+        self.assertEqual(one.returncode, 1, one.stderr)
+        self.assertEqual(many.returncode, 1, many.stderr)
+        self.assertEqual(self.summary(one.stderr), (["5"], "FAILED (failures=1, skipped=1)"))
+        self.assertEqual(self.summary(many.stderr), self.summary(one.stderr))
+        self.assertIn("FAIL: test_red (test_cite.Fail.test_red)", many.stderr)
+        self.assertIn("わざと赤", many.stderr)
+        self.assertEqual(many.stderr.count("モジュールごとの秒: "), 1, many.stderr)
+
+    def test_modules_run_at_the_same_time_in_child_processes(self):
+        r, pids = self.run_tiers(WORKS_JOBS="3", FAKE_MEET="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotEqual(pids["core_copy"], pids["cite"])
+        self.assertNotIn(self.parent_pid, pids.values())
+
+    def test_green_jobs_say_ok_with_the_same_counts(self):
+        one, _ = self.run_tiers(WORKS_JOBS="1")
+        many, _ = self.run_tiers(WORKS_JOBS="3")
+        self.assertEqual((one.returncode, many.returncode), (0, 0), many.stderr)
+        self.assertEqual(self.summary(many.stderr), (["5"], "OK (skipped=1)"))
+        self.assertEqual(self.summary(many.stderr), self.summary(one.stderr))
+        secs = next(l for l in many.stderr.splitlines() if l.startswith("モジュールごとの秒: "))
+        self.assertEqual(sorted(re.findall(r"(test_\w+)=", secs)), ["test_cite", "test_core_copy", "test_gitkit"])
+
+    def test_skip_gate_counts_skips_from_every_job(self):
+        r, _ = self.run_tiers(WORKS_JOBS="3", FAIL_ON_SKIP="1")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("見送りを失敗に数えた: 1 件（FAIL_ON_SKIP=1）", r.stderr)
+        self.assertIn("test_gitkit.Skip.test_skip: SKIP dash: dash が無い （SKIP_ALLOW に無い）", r.stderr)
+        r, _ = self.run_tiers(WORKS_JOBS="3", FAIL_ON_SKIP="1", SKIP_ALLOW="dash")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_args_pass_to_every_job(self):
+        r, pids = self.run_tiers("-k", "core_copy", WORKS_JOBS="3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.summary(r.stderr), (["2"], "OK"))
+        self.assertEqual(set(pids), {"core_copy"})
+        one, _ = self.run_tiers("-k", "nothing_matches", WORKS_JOBS="1")
+        many, _ = self.run_tiers("-k", "nothing_matches", WORKS_JOBS="3")
+        self.assertEqual((one.returncode, many.returncode), (5, 5), many.stderr)
+        self.assertEqual(self.summary(many.stderr), self.summary(one.stderr))
+
+    def test_job_that_dies_without_results_is_red(self):
+        r, _ = self.run_tiers(WORKS_JOBS="3", FAKE_DIE="1")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("test_gitkit", r.stderr)
+
+    def test_bad_jobs_value_exits_2(self):
+        for bad in ("0", "a", "-1", "1.5"):
+            with self.subTest(bad):
+                r, _ = self.run_tiers(WORKS_JOBS=bad)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn("WORKS_JOBS", r.stderr)
+
+    def test_default_jobs_stop_where_the_heaviest_module_is_the_floor(self):
+        """既定の数は CPU の数まで。それより先は、いちばん重いモジュールの 1 本が律速になる所で止める（増やしても縮まない）"""
+        names = sorted(tiers.FAST)
+
+        def top(n):
+            return max(sum(tiers.weight(m) for m in g) for g in tiers.shard_of(names, n).values())
+        heaviest = max(tiers.weight(m) for m in names)
+        self.assertEqual(tiers.jobs({}, names, 1), 1)
+        self.assertEqual(tiers.jobs({}, names, 2), 2)
+        n = tiers.jobs({}, names, 1000)
+        self.assertEqual(top(n), heaviest)
+        self.assertGreater(top(n - 1), heaviest)
+        self.assertEqual(tiers.jobs({"WORKS_JOBS": "1"}, names, 1000), 1)
+        self.assertEqual(tiers.jobs({"WORKS_JOBS": "5"}, names, 2), 5)
+
+
 class TierPathsCase(unittest.TestCase):
     """dev/tdd-suite.sh（pytest で回す TDD の実行器）が段のファイルを引く口 `python3 tests/tiers.py paths <段>`"""
 

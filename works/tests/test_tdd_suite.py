@@ -26,11 +26,20 @@ from engine.schema import load_graph  # noqa: E402
 parse_junit = load_rules(str(TDD_GRAPH), load_graph(str(TDD_GRAPH))[0]).parse_junit
 
 
+# 並べる数の口 jobs は WORKS_JOBS をそのまま返す（無ければ 1。決めの正本は本物の tiers.jobs で、test_tiers が縛る）
 FAKE_TIERS = '''\
+import os
 import sys
 FILES = {"fast": ["tests/test_fake.py"], "heavy": ["tests/test_other.py"]}
 if len(sys.argv) == 3 and sys.argv[1] == "paths" and sys.argv[2] in FILES:
     print("\\n".join(FILES[sys.argv[2]]))
+    sys.exit(0)
+if len(sys.argv) == 3 and sys.argv[1] == "jobs" and sys.argv[2] in FILES:
+    n = os.environ.get("WORKS_JOBS", "1")
+    if not n.isdigit() or n == "0":
+        print("tiers: WORKS_JOBS は 1 以上の整数", file=sys.stderr)
+        sys.exit(2)
+    print(n)
     sys.exit(0)
 print("tiers: 偽の段の口", file=sys.stderr)
 sys.exit(2)
@@ -107,7 +116,7 @@ class TddSuiteCase(unittest.TestCase):
         (self.root / "tests" / "test_other.py").write_text(OTHER_TEST, encoding="utf-8")
         self.caller = tmp / "caller"   # 呼ぶ側の cwd（works の根と別の所。本線の rules はリポジトリの根で起こす）
         self.caller.mkdir()
-        self.env = {k: v for k, v in os.environ.items() if k not in ("WORKS_TDD_TIER", "PYTHONDONTWRITEBYTECODE")}
+        self.env = {k: v for k, v in os.environ.items() if k not in ("WORKS_TDD_TIER", "PYTHONDONTWRITEBYTECODE", "WORKS_JOBS")}
 
     def run_suite(self, out, *args, **env):
         e = dict(self.env)
@@ -141,6 +150,50 @@ class TddSuiteCase(unittest.TestCase):
         broken = [n for n in got if n.endswith("test_broken")]   # 読み込みの失敗の行は classname が空で、name がモジュールの名前
         self.assertEqual([got.pop(n) for n in broken], ["error"], got)
         self.assertEqual(got, {"test_pass": "passed", "test_fail": "failure", "test_error": "failure", "test_skip": "skipped"})
+
+    def test_jobs_split_the_tier_and_write_one_junit(self):
+        # 並べる数（tiers.py jobs）が 2 以上なら pytest-xdist で並べ、JUnit は 1 本の時と同じ 1 つの書き先・同じ結末。-k も効く
+        out = self.caller / "junit.xml"
+        one = self.run_suite(out)
+        alone = self.outcomes(out)
+        r = self.run_suite(out, WORKS_JOBS="2")
+        self.assertEqual((one.returncode, r.returncode), (1, 1), r.stdout + r.stderr)
+        self.assertIn("2 workers", r.stdout)
+        self.assertNotIn("workers", one.stdout)
+        self.assertEqual(self.outcomes(out), alone)
+        r = self.run_suite(out, "-k", "test_pass", WORKS_JOBS="2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_pass": "passed"})
+        r = self.run_suite(out, "-k", "nothing_matches", WORKS_JOBS="2")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+
+    def test_jobs_keep_collection_errors_and_other_outcomes(self):
+        (self.root / "tests" / "test_broken.py").write_text("from fakekit import MISSING  # noqa: F401\n", encoding="utf-8")
+        (self.root / "tests" / "tiers.py").write_text(
+            FAKE_TIERS.replace('["tests/test_fake.py"]', '["tests/test_broken.py", "tests/test_fake.py"]'), encoding="utf-8")
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, WORKS_JOBS="2")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        got = {n: o for n, (_, o) in self.outcomes(out).items()}
+        broken = [n for n in got if n.endswith("test_broken")]
+        self.assertEqual([got.pop(n) for n in broken], ["error"], got)
+        self.assertEqual(got, {"test_pass": "passed", "test_fail": "failure", "test_error": "failure", "test_skip": "skipped"})
+
+    def test_only_env_with_given_tests_does_not_split(self):
+        # 輪の赤・緑の回（足した試験だけ）は段の一覧を割らないので並べない（子を起こす手間だけが増える）
+        other = f"{self.root / 'tests' / 'test_other.py'}::OtherCase::test_other"
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, other, TDD_SUITE_ONLY="1", WORKS_JOBS="2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("workers", r.stdout)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_other": "passed"})
+
+    def test_bad_jobs_stops_before_pytest(self):
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, WORKS_JOBS="a")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("WORKS_JOBS", r.stderr)
+        self.assertFalse(out.exists())
 
     def test_heavy_tier_by_env(self):
         out = self.caller / "junit.xml"

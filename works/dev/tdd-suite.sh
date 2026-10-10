@@ -90,11 +90,25 @@ done
 if [ "${TDD_SUITE_ONLY-}" = 1 ] && { [ -s "$tmp/inner" ] || [ -s "$tmp/outer" ]; }; then
   files=
 fi
+# 段の一覧を回すときは、並べる数を段の一覧と同じ tests/tiers.py の口 jobs から引く（決めの正本は tiers.jobs。WORKS_JOBS=1 で並べない）。
+# 2 以上なら works の根の一式を xdist で並べ、ファイルごとに手の空いた worker へ配る（--dist loadfile。run.sh の並べと
+# 同じくモジュールを割らない）。JUnit は xdist が 1 つの書き先に書く。足した試験だけの回（段の一覧を集めない）と外の根は並べない
+xdist_with=
+xdist_args=
+if [ -n "$files" ]; then
+  jobs=$(uv run --no-project python3 tests/tiers.py jobs "$tier") || exit 2
+  if [ "$jobs" -gt 1 ]; then
+    xdist_with="--with pytest-xdist==3.8.0"
+    xdist_args="-n $jobs --dist loadfile"
+  fi
+fi
+# 一式の命令（1 か所で綴る。書き先と試験は後ろに足す）
+suite="uv run --no-project --with pyyaml --with pytest $xdist_with python3 -m pytest -p no:cacheprovider --continue-on-collection-errors"
 # shellcheck disable=SC2046,SC2086  # 段のファイル・node id は空白を含まない。1 本ずつ別の引数にする
 if [ ! -s "$tmp/outer" ]; then
   inner=$(cat "$tmp/inner")
   rm -rf "$tmp"
-  exec uv run --no-project --with pyyaml --with pytest python3 -m pytest -p no:cacheprovider --continue-on-collection-errors --junitxml="$out" $files $inner "$@"
+  exec $suite $xdist_args --junitxml="$out" $files $inner "$@"
 fi
 # 試験の根が違う名指しは別のプロセスで流す（1 つのプロセスに 2 つの engine を載せない）。works の根を先に、外の根は根ごとに 1 本
 code=0
@@ -105,7 +119,8 @@ run_root() { # <cwd> <node id…>
   dir=$1
   shift
   i=$((i + 1))
-  (cd "$dir" && uv run --no-project --with pyyaml --with pytest python3 -m pytest -p no:cacheprovider --continue-on-collection-errors --junitxml="$tmp/$i.xml" "$@")
+  # shellcheck disable=SC2086  # suite・xdist_args は空白で区切った引数の並び
+  (cd "$dir" && $suite $xdist_args --junitxml="$tmp/$i.xml" "$@")
   rc=$?
   if [ "$rc" = 5 ]; then zero=1; else ran=1; fi
   if [ "$rc" != 5 ] && [ "$rc" -gt "$code" ]; then code=$rc; fi
@@ -114,6 +129,7 @@ if [ -n "$files" ] || [ -s "$tmp/inner" ]; then
   # shellcheck disable=SC2046,SC2086
   run_root "$works" $files $(cat "$tmp/inner") "$@"
 fi
+xdist_args=
 for r in $(cut -f1 "$tmp/outer" | sort -u); do
   # shellcheck disable=SC2046,SC2086
   run_root "$r" $(awk -F'\t' -v r="$r" '$1 == r { print $2 }' "$tmp/outer") "$@"
