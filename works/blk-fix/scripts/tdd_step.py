@@ -6,7 +6,8 @@
 
 読む環境変数: INPUTS_REPLY（役 tdd の返答の JSON。役が飛ばされた周は null か空）・INPUTS_STATE_FILE（tdd-start の state_file）・ARTIFACTS_DIR（盤面は その下の board/）。
 赤・緑は機械だけが決める（役の申告では決まらない）。段を確かめる前に、前の段の後から変わったファイルを書き込みの記録と返答の欄
-bash_writes に突き合わせる（writes.check。無ければ拒む）。食い違いの申し出（phase conflict）が通れば、盤面の控え（conflict.park）に積む。
+bash_writes に突き合わせる（writes.check。無ければ拒む）。食い違いの申し出（phase conflict）が通れば、状態の未送の並びに保存し、盤面の控え（conflict.park_claims）に積む
+（積めずに落ちた申し出は、次の呼びが済んだ輪の早抜けでも積み直す）。
 形 g3 の振り分けの後に並べる枝が切れれば done が真で phase は lanes（輪 tdd-loop はここを抜け、tdd-fork が枝の輪を起こす）。
 振り分けを受けた周で並べなかったら、理由を盤面の trace に 1 行（tddlanes.SKIP_OP の {reason, why, loop}）積む。
 出口は {"ok", "done", "reason", "phase", "reason_file"} の 1 行と 0。
@@ -55,9 +56,10 @@ def main() -> int:
         out = tddloop.step(os.environ["INPUTS_STATE_FILE"], reply, Path.cwd(),   # query の申し出は判定者の問いを当てて確かめる
                            try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines),
                            lanes=tddlanes)   # 並べの口 plan（tddlanes が tddloop を import するので、輪には節が渡す）
-        items = [i for i in [out.pop("conflict", None)] if i is not None]
-        if items:   # 止めた申し出を盤面の控えと trace に積む（裁定の輪が読む）
-            conflict.park(entry.open_board(board), items, source="tdd")
+        out.pop("conflict", None)   # 止めた申し出は状態の未送の並びに保存済み（次の行が盤面の控えと trace に積む）
+        st = tddloop._load(os.environ["INPUTS_STATE_FILE"])   # 済んだ輪の resume の早抜けでも、前の周が積めなかった申し出を積む
+        tddloop.flush_claims(os.environ["INPUTS_STATE_FILE"], st, st, "unsent",
+                             lambda rows: conflict.park_claims(entry.open_board(board), rows))   # 裁定の輪が読む
         out.pop("writes", None)   # 記録の無い run は輪の後の fix-accept が盤面の trace に積む（同じ worktree の同じ記録）
         skipped = out.pop("lanes_skipped", None)
         if skipped:   # 振り分けの後に並べなかった理由を 1 行（run の報告・canary_check が読む）

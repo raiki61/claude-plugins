@@ -16,6 +16,7 @@
 """
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import types
@@ -164,6 +165,39 @@ class WordsCase(unittest.TestCase):
         import gatemarks
         self.assertEqual(gatemarks.eye_named("R1", "skipped"), f"{gatemarks.EYES['R1']}（R1）: 軽量で省いた（skipped）")
 
+    def test_docs_thresholds_name_constants(self):
+        """閾値の正本は depth.MAX_PATHS・MAX_TESTS の 1 か所。計画の決め 3・4・11 と流れの文書の 12a は定数を名指し、文書に残る数字は
+        定数（以下の側）か定数＋1（「以上」の側が残る時）と同じ"""
+        docs = ROOT / "docs"
+        plan = (docs / "plans" / "2026-10-06-variable-depth.md").read_text(encoding="utf-8").splitlines()
+        flow = (docs / "darkfactory-flow.md").read_text(encoding="utf-8").splitlines()
+
+        def section(lines, head):
+            start = next(i for i, ln in enumerate(lines) if ln.startswith(head))
+            end = next((i for i in range(start + 1, len(lines))
+                        if lines[i].startswith(("- **決め", "## ")) or re.match(r"\d+[a-z]?\. ", lines[i])), len(lines))
+            return "\n".join(lines[start:end])
+
+        parts = {"決め 3": section(plan, "- **決め 3（"), "決め 4": section(plan, "- **決め 4（"),
+                 "決め 11": section(plan, "- **決め 11（"), "12a": section(flow, "12a. ")}
+        for name, text in parts.items():
+            with self.subTest(name=name):
+                self.assertIn("depth.MAX_PATHS", text)
+                self.assertIn("depth.MAX_TESTS", text)
+                for n in re.findall(r"(\d+) 個以下", text):
+                    self.assertEqual(int(n), depth.MAX_PATHS)
+                for n in re.findall(r"(\d+) 本以下", text):
+                    self.assertEqual(int(n), depth.MAX_TESTS)
+                for n in re.findall(r"(\d+) 個以上", text):
+                    self.assertEqual(int(n), depth.MAX_PATHS + 1)
+                for n in re.findall(r"(\d+) 本以上", text):
+                    self.assertEqual(int(n), depth.MAX_TESTS + 1)
+        for name in ("決め 4", "12a"):
+            with self.subTest(name=name, word="超える"):
+                self.assertIn("超える", parts[name])
+        self.assertIn("loop.fix_delta", parts["決め 4"])
+        self.assertNotIn("範囲の相談で足したパスは数えない", parts["決め 4"])
+
 
 class FileCase(unittest.TestCase):
     def test_write_and_read(self):
@@ -227,6 +261,12 @@ class BoardReadCase(unittest.TestCase):
         self.assertIn("止めた", units["u3"])
         self.assertEqual(run, [])
 
+    def test_signals_broken_conflicts_raise_all(self):
+        (self.dir / "r1").mkdir()
+        (self.dir / "r1" / "conflicts.json").write_text("{壊れた控え", encoding="utf-8")
+        _, run = depth.signals(self.b)
+        self.assertTrue(any("食い違いの控えが読めない" in r for r in run), run)
+
     def test_signals_unanswered_questions_raise_all(self):
         with mock.patch.object(depth.gatemarks, "pending", return_value=[{"key": "q1", "kind": "fork"}]):
             units, run = depth.signals(self.b)
@@ -254,6 +294,103 @@ class BoardReadCase(unittest.TestCase):
         self.skipped.clear()
         depth.raise_(self.b, replanned=True, rejudged=False)
         self.assertEqual(self.skipped, {})
+
+    def test_raise_wide_paths_make_run_standard(self):
+        """単位ごとには軽量でも、run 全体で触るファイルが多ければ標準へ上げ、差分の審査も省かない。重なるファイルは 1 個に数える"""
+        self.start(test_cmd="sh t.sh")
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [
+            item([U1], paths=("a/1.py", "a/2.py")), item([U2], paths=("b/1.py", "b/2.py"))]})
+        doc = depth.decide(self.b, json.dumps([U1, U2]), tdd_suite="")
+        self.assertEqual(json.loads(depth.unit_map(doc)), {U1: depth.LIGHT, U2: depth.LIGHT})
+        doc = depth.raise_(self.b, replanned=False, rejudged=False)
+        self.assertEqual(json.loads(depth.unit_map(doc)), {U1: depth.STANDARD, U2: depth.STANDARD})
+        self.assertEqual(depth.run_depth(doc), depth.STANDARD)
+        self.assertIn("run 全体で触るファイル 4 個（3 個まで）", doc["raised"])
+        self.assertEqual(depth.skip_reason(doc), "")
+        self.assertEqual(self.skipped, {})
+
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [
+            item([U1], paths=("a/x.py",)), item([U2], paths=("a/x.py",))]})
+        depth.decide(self.b, json.dumps([U1, U2]), tdd_suite="")
+        doc = depth.raise_(self.b, replanned=False, rejudged=False)
+        self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+        self.assertEqual(doc["raised"], [])
+        self.assertEqual(self.skipped, {depth.DELTA_NODE: depth.skip_reason(doc)})
+
+    def test_raise_wide_tests_make_run_standard_even_when_forced_light(self):
+        """単位ごとには軽量でも、run 全体の受け入れと書き換えのテストが上限を超えれば標準へ上げる。ちょうど上限なら軽量のまま。軽量の名指しでも同じ"""
+        at_limit = [item([U1], tests=1), item([U2], tests=depth.MAX_TESTS - 1)]
+        over_limit = [item([U1], tests=1), item([U2], tests=depth.MAX_TESTS)]
+        for thickness in ("自動", depth.LIGHT):
+            for total, fields in ((depth.MAX_TESTS, at_limit), (depth.MAX_TESTS + 1, over_limit)):
+                with self.subTest(thickness=thickness, total=total):
+                    self.skipped.clear()
+                    put(self.dir / "plan-fields.json", {"round": 1, "fields": fields})
+                    self.start(thickness=thickness, test_cmd="sh t.sh")
+                    doc = depth.decide(self.b, json.dumps([U1, U2]), tdd_suite="")
+                    self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+                    doc = depth.raise_(self.b, replanned=False, rejudged=False)
+                    if total <= depth.MAX_TESTS:
+                        self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+                        self.assertEqual(doc["raised"], [])
+                        self.assertEqual(self.skipped, {depth.DELTA_NODE: depth.skip_reason(doc)})
+                    else:
+                        self.assertEqual(depth.run_depth(doc), depth.STANDARD)
+                        self.assertIn(f"run 全体の受け入れと書き換えのテストが {total} 本（{depth.MAX_TESTS} 本まで）",
+                                      doc["raised"])
+                        self.assertEqual(self.skipped, {})
+
+    def test_raise_counts_actual_diff_beyond_plan(self):
+        """計画の allowed_paths は上限以内でも、修正の実際の差分（loop.fix_delta）の足すパスで和が上限を超えれば標準へ上がり、差分の審査を
+        省かない。ちょうど上限・重なりは 1 個・テストのファイルは数えず軽量のまま。差分が無ければ計画で数え、控えの counted に理由が残る"""
+        rev = "f1x2d3l4t5"
+        plan = ("a/1.py", "a/2.py")
+        cases = (   # (名, 計画の allowed_paths, 実際の差分のファイル, 標準へ上がるか, 数えた数)
+            ("上限を超える", plan, ["a/1.py", "a/2.py", "a/3.py", "a/4.py"], True, 4),
+            ("ちょうど上限", plan, ["a/3.py"], False, 3),
+            ("重なりは 1 個", plan, ["a/2.py", "a/3.py"], False, 3),
+            ("テストのファイルは数えない", plan + ("a/3.py",), ["a/1.py", "t.py"], False, 3),
+        )
+        for word, paths, files, raised, count in cases:
+            with self.subTest(word=word):
+                self.skipped.clear()
+                self.start(test_cmd="sh t.sh")
+                put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1], paths=paths)]})
+                self.b.loop_state = {"fix_delta": {"round": 1, "file": "p.patch", "files": files, "rev": rev}}
+                depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+                doc = depth.raise_(self.b, replanned=False, rejudged=False)
+                self.assertEqual(depth.run_depth(doc), depth.STANDARD if raised else depth.LIGHT)
+                self.assertEqual(self.skipped, {} if raised else {depth.DELTA_NODE: depth.skip_reason(doc)})
+                counted = doc.get("counted") or ""
+                self.assertIn(f"{count} 個", counted)
+                self.assertIn(rev, counted)
+                self.assertEqual(depth.read(self.dir).get("counted"), doc.get("counted"))
+        stale = {"fix_delta": {"round": 0, "files": ["a/3.py", "a/4.py", "a/5.py"], "rev": rev}}
+        for word, loop_state in (("差分なし", {}), ("前の周の差分", stale)):
+            with self.subTest(word=word):
+                self.skipped.clear()
+                self.start(test_cmd="sh t.sh")
+                put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1], paths=plan)]})
+                self.b.loop_state = loop_state
+                depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+                doc = depth.raise_(self.b, replanned=False, rejudged=False)
+                self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+                counted = doc.get("counted") or ""
+                self.assertIn("2 個", counted)
+                self.assertIn("計画の allowed_paths", counted)
+                self.assertNotIn(rev, counted)
+
+    def test_raise_does_not_count_undeclared_test_files(self):
+        """項目の tests・rewrite_tests に宣言の無いテストのファイル（名の慣習に当たる別のテストのモジュール）は、修正の実際の差分に
+        在っても run の広さに数えない。実装のファイルだけを数える"""
+        self.start(test_cmd="sh t.sh")
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1], paths=("a/1.py", "a/2.py"))]})
+        files = ["a/3.py", "tests/test_extra.py", "a/test_more.py"]
+        self.b.loop_state = {"fix_delta": {"round": 1, "file": "p.patch", "files": files, "rev": "f1x2d3l4t5"}}
+        depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+        doc = depth.raise_(self.b, replanned=False, rejudged=False)
+        self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+        self.assertIn("3 個", doc.get("counted") or "")
 
     def test_raise_without_file_is_standard(self):
         doc = depth.raise_(self.b, replanned=False, rejudged=True)

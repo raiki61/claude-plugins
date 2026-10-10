@@ -1122,6 +1122,26 @@ class ScriptCase(unittest.TestCase):
         self.assertIn(linekit.reply("design_ok")["design"], head)
         self.assertIn("contract_drift", planblk.DESIGN_ASK)
 
+    def test_design_ask_names_unpaired_mechanisms_and_item_size_gap(self):
+        """事前審査の頭に貼る DESIGN_ASK は、対の無い仕組みも大きさの開きも、食い違いなら contract_drift・block で挙げさせる。判じる根拠は
+        独立設計の行と案の行（approach・adds・allowed_paths・shrink_first）の「…」の引用で、設計から引用できない所は開きでも対の無さでも
+        食い違いに数えない（1 つの決まり）。why の頭は design.DRIFT_HEAD・design.UNPAIRED_HEAD、対応表 design_map は項目の答えが書き
+        （相乗りの審査と束ね役は書かない）、「」は 2 つの頭の穴の why と design_map では独立設計と案の行の引用だけに使う。実装の細部は
+        挙げない決まりと REUSE_REVIEW の copy を挙げ直さない決まりは残る"""
+        ask = planblk.DESIGN_ASK
+        self.assertIn("contract_drift", ask)
+        self.assertIn("severity block", ask)
+        self.assertIn("設計から引用できない所は、大きさの開きでも対の無さでも食い違いに数えない", ask)
+        for name in ("approach", "adds", "allowed_paths", "shrink_first", "「…」", design.DRIFT_HEAD, design.UNPAIRED_HEAD):
+            self.assertIn(name, ask, f"DESIGN_ASK に {name!r} の名指しが無い")
+        self.assertIn(converge.DESIGN_MAP, ask)
+        self.assertIn("相乗りの審査と束ね役は書かない", ask)
+        self.assertIn("「」を独立設計と案の行の引用だけに使い", ask)
+        self.assertIn("単位を閉じるのに要る実装の細部は挙げない", ask)
+        self.assertIn("REUSE_REVIEW", ask)
+        self.assertNotIn("設計が触れていない所は食い違いでない", ask, "引用の決まりと食い違う除外の文は残さない")
+        self.assertNotIn("kind scope_creep", ask, "対の無い仕組みは suggest に回さず contract_drift・block で挙げる")
+
     def test_independent_design_input_has_no_means(self):
         """独立設計（R2 の設計の半分）には目的の文だけが渡り、目的の役が分けた依頼の解き方 means は渡らない（keep-essence の 9。
         計画 world-solution の W6・5.3 節の 1）"""
@@ -1608,9 +1628,9 @@ class ConvergeReviewCase(unittest.TestCase):
     節 2 つ（修正案・事前審査）を同じ周の待ちに戻す。盤面は ScriptCase と同じ種（p2.fix_plan を受けた所）、支度と受け付けは子の
     プロセス。ScriptCase を継がずに helper だけを借りる（継ぐと ScriptCase の試験が 2 度回る）"""
 
-    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of, designed = (
         ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
-        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of, ScriptCase.designed)
     KEY = linekit.reply("plan_review_regression")["faces"][0]["key"]   # 見本の block の key（F13）
 
     def board_obj(self):
@@ -1785,6 +1805,99 @@ class ConvergeReviewCase(unittest.TestCase):
         head = planblk.head("plan-review", "", planblk.lib_section(b, self.repo), part)
         self.assertEqual(text, head + "\n\n" + want)
         self.assertNotIn(converge.REREVIEW_ASK, text)
+
+
+    DESIGN_TEXT = "上限は入口 1 箇所で掛け、各所では掛け直さない。平均は定義どおりに割る"
+    ROW_TEXT = "式と戻り値を 1 か所ずつ直すだけで足りる"   # plan_ok の shrink_first に字のまま在る
+
+    def stand_design(self, plan="plan_ok"):
+        """独立設計が立つ盤面で修正案を受けた所まで（p2.plan_review が待つ）"""
+        self.judged()
+        _, got = self.designed({"question_stands": True, "reason": "問いは立っている", "design": self.DESIGN_TEXT})
+        self.assertTrue(got["ok"], got)
+        self.planned(plan)
+
+    @staticmethod
+    def drift(why, key="design-drift-mean-split", head=None):
+        return {"key": key, "unit_keys": [UNIT_MEAN], "kind": "contract_drift", "where": "stats.py mean",
+                "why": (head or design.DRIFT_HEAD) + why, "severity": "block"}
+
+    def test_design_drift_face_needs_quotes_in_both(self):
+        """独立設計の在る盤面で、why が design.DRIFT_HEAD か design.UNPAIRED_HEAD で始まる穴は、引用「…」が独立設計の文と案の行（shrink_first を
+        含む）の両方に字のまま在る時だけ受ける。引用が無い・字が 1 つ違う・片方にしか無い穴は、穴の key を名指して拒む"""
+        self.stand_design()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        cases = (("設計と継ぎ目の置き方が違う、という穴だ", "引用が無い"),
+                 (f"設計の「上限は入口 2 箇所で掛け」に対し案の「{self.ROW_TEXT}」は食い違う", "設計の引用の字が 1 つ違う"),
+                 (f"設計の「上限は入口 1 箇所で掛け」に対し案の「{self.ROW_TEXT[:-1]}ぬ」は食い違う", "案の行の引用の字が違う"),
+                 ("設計の「上限は入口 1 箇所で掛け」を引いただけで案の行を引かない", "案の行の引用が無い"),
+                 (f"案の「{self.ROW_TEXT}」を引いただけで設計の行を引かない", "設計の引用が無い"))
+        for head in (design.DRIFT_HEAD, design.UNPAIRED_HEAD):
+            for why, label in cases:
+                with self.subTest(head=head, case=label):
+                    reply = {**linekit.reply("plan_review_ok"), "faces": [self.drift(why, head=head)]}
+                    _, got = self.round_of("plan-review", reply)
+                    self.assertFalse(got["ok"], got)
+                    text = self.reason_of(got)
+                    self.assertTrue(text.startswith(planblk.DESIGN_QUOTE_REJECT), text)
+                    self.assertIn("design-drift-mean-split", text)
+        good = f"設計の「上限は入口 1 箇所で掛け」に対し案の「{self.ROW_TEXT}」は継ぎ目の置き方が違う"
+        reply = {**linekit.reply("plan_review_ok"), "faces": [self.drift(good, head=design.UNPAIRED_HEAD)]}
+        _, got = self.round_of("plan-review", reply)
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def test_design_map_must_cover_every_added_name(self):
+        """独立設計の在る盤面で、design_map が項目の adds の name を 1 つ欠く・同じ name を 2 行書く・design_quote が独立設計に無い字の返答は、
+        name を名指して拒む。全部の name を 1 行ずつ持ち、引用が実在する（か null で対が無い）返答は受ける"""
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["adds"] = [{"kind": "function", "name": "clamp", "canonical": "stats.clamp の上限の枝"}]
+        self.stand_design(plan)
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        row = {"item": 1, "name": "clamp", "design_quote": "上限は入口 1 箇所で掛け",
+               "why": "設計の上限の掛け方に案の clamp の上限の枝が当たる"}
+        review = linekit.reply("plan_review_ok")
+        for label, bad in (("欠ける", []), ("設計に無い字", [{**row, "design_quote": "上限は入口 2 箇所で掛け"}]), ("2 行", [row, row])):
+            with self.subTest(label):
+                _, got = self.round_of("plan-review", {**review, converge.DESIGN_MAP: bad})
+                self.assertFalse(got["ok"], got)
+                text = self.reason_of(got)
+                self.assertTrue(text.startswith(planblk.DESIGN_QUOTE_REJECT), text)
+                self.assertRegex(text, r"(add|name) clamp")
+        _, got = self.round_of("plan-review", {**review, converge.DESIGN_MAP: [{**row, "design_quote": None}]})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        self.assertNotIn(converge.DESIGN_MAP, self.board_obj().output_of_round("p2.plan_review", 1))
+
+    def test_design_quotes_not_checked_without_design(self):
+        """独立設計が立たない run は、引用の無い穴も design_map の無い返答も今までどおり受ける"""
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["adds"] = [{"kind": "function", "name": "clamp", "canonical": "stats.clamp の上限の枝"}]
+        self.judged()
+        self.planned(plan)
+        reply = {**linekit.reply("plan_review_ok"), "faces": [self.drift("設計と継ぎ目の置き方が違う、という穴だ")]}
+        got = self.review(reply, ready=False)
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+
+class QuoteFoldCase(unittest.TestCase):
+    """引用の照らし（cite.missing_quotes）は両側を NFKC にし、空白の並びを 1 つに畳んでから字のまま在るかを見る。字の 1 つ違いは見逃さない"""
+
+    def test_width_and_whitespace_folded_but_one_char_difference_missing(self):
+        import cite
+        source = "上限は入口 1 箇所で掛ける。\n呼び手は値を渡すだけにする"
+        self.assertEqual(cite.missing_quotes("「上限は入口 1 箇所で掛ける。 呼び手は値を渡す」", source), [])
+        self.assertEqual(cite.missing_quotes("「上限は入口 １ 箇所で掛ける」", source), [], "全角の数字は NFKC で半角と同じ")
+        self.assertEqual(cite.missing_quotes("「上限は入口 2 箇所で掛ける」", source), ["上限は入口 2 箇所で掛ける"])
+        self.assertEqual(cite.missing_quotes("引用の無い文", source), [])
+        self.assertEqual(cite.quotes("短い「ab」と「四文字以上の引用」"), ["四文字以上の引用"], "4 字未満は引用に数えない")
+
+    def test_request_quote_check_of_sources_stays_literal(self):
+        """関所の決め手の依頼の引用の照らし（cite.sources_problem）は畳まない: 全角と半角・空白だけが違う引用は依頼の文に無いと拒む"""
+        import cite
+        request = "上限は入口 1 箇所で掛ける"
+        for quote in ("上限は入口 １ 箇所で掛ける", "上限は入口  1 箇所で掛ける", "上限は入口 1箇所で掛ける"):
+            with self.subTest(quote):
+                self.assertIn("依頼の文に無い", cite.sources_problem(f"依頼の本文「{quote}」", ".", quoted=request))
+        self.assertEqual(cite.sources_problem("依頼の本文「上限は入口 1 箇所で掛ける」", ".", quoted=request), "")
 
 
 class ConvergeReviseCase(unittest.TestCase):
@@ -2050,9 +2163,9 @@ class TreeReviewCase(unittest.TestCase):
     判定の要約だけ。確かめを通らない答えは、その項目の下請けにだけ機械の読める形で返す。閉じた項目を直しの役が変えたら拒む。
     helper は ScriptCase・ConvergeReviewCase から借りる"""
 
-    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of, designed = (
         ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
-        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of, ScriptCase.designed)
     board_obj = ConvergeReviewCase.board_obj
 
     def ready(self):
@@ -2201,6 +2314,66 @@ class TreeReviewCase(unittest.TestCase):
         self.assertEqual(errs["item"], 2)
         self.assertTrue(any("why" in e for e in errs["errors"]), errs)
         self.write_answers(1, {2: self.answer(2, doc)})
+        _, got = self.round_of("plan-review", self.summary({1: [], 2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def test_item_design_quotes_reopen_only_that_item(self):
+        """独立設計の在る木の往復で、項目 1 の下請けの答えの design.DRIFT_HEAD の穴の引用が独立設計に無い時、受け付けは拒み、次の支度は
+        項目 1 の下請けのファイルにだけ ERRORS_HEAD と引用の誤りを貼って起こし直させる。確かめを通った項目 2（adds の clamp を design_map に
+        書いた答え）は DONE_HEAD に並べて起こし直さない"""
+        self.judged()
+        _, got = self.designed({"question_stands": True, "reason": "問いは立っている",
+                                "design": "上限は入口 1 箇所で掛け、各所では掛け直さない。平均は定義どおりに割る"})
+        self.assertTrue(got["ok"], got)
+        self.planned(two_items())
+        doc = self.ripple_doc()
+        bad_quote = "上限は入口 2 箇所で掛け"
+        drift = {**MEAN_BLOCK, "key": "item1-design-drift", "kind": "contract_drift",
+                 "why": design.DRIFT_HEAD + f"設計の「{bad_quote}」に対し案の「mean の分母を len(xs) に直す（定義どおり）」は食い違う"}
+        two = {**self.answer(2, doc), converge.DESIGN_MAP: [
+            {"item": 2, "name": "clamp", "design_quote": None, "why": "設計は上限の枝の関数を足さないので対が無い"}]}
+        self.write_answers(1, {1: self.answer(1, doc, faces=[drift]), 2: two})
+        _, got = self.review(self.summary({1: [drift["key"]], 2: []}))
+        self.assertFalse(got["ok"], got)
+        text = self.reason_of(got)
+        self.assertTrue(text.startswith(planblk.TREE_REJECT), text)
+        self.assertIn("項目 1", text)
+        self.assertIn(bad_quote, text)
+        self.assertNotIn("項目 2（", text)
+        prompt = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        redo = prompt[prompt.index(planblk.REDO_HEAD):]
+        self.assertIn(str(folder / "item-1.md"), redo)
+        self.assertNotIn(str(folder / "item-2.md"), redo)
+        self.assertIn(str(folder / "item-2.md"), prompt[prompt.index(planblk.DONE_HEAD):prompt.index(planblk.REDO_HEAD)])
+        one = (folder / "item-1.md").read_text(encoding="utf-8")
+        self.assertIn(planblk.ERRORS_HEAD, one)
+        self.assertIn(bad_quote, one[one.index(planblk.ERRORS_HEAD):])
+
+    def test_synergy_design_quotes_checked_against_named_items(self):
+        """相乗りの審査の答えの design.DRIFT_HEAD の穴も、引用が独立設計の文と、穴の unit_keys が名指す項目の行の両方に字のまま在る時だけ
+        受ける（design_map は相乗りの審査に求めない）"""
+        self.judged()
+        _, got = self.designed({"question_stands": True, "reason": "問いは立っている",
+                                "design": "上限は入口 1 箇所で掛け、各所では掛け直さない。平均は定義どおりに割る"})
+        self.assertTrue(got["ok"], got)
+        self.planned(two_items())
+        doc = self.ripple_doc()
+        two = {**self.answer(2, doc), converge.DESIGN_MAP: [
+            {"item": 2, "name": "clamp", "design_quote": None, "why": "設計は上限の枝の関数を足さないので対が無い"}]}
+        self.write_answers(1, {1: self.answer(1, doc), 2: two})
+
+        def face(quote):
+            return {**MEAN_BLOCK, "key": "synergy-design-drift", "kind": "contract_drift", "unit_keys": [UNIT_MEAN, UNIT_CLAMP],
+                    "why": design.DRIFT_HEAD + f"設計の「{quote}」に対し案の「mean の分母を len(xs) に直す（定義どおり）」は食い違う"}
+        self.write_answers(1, {}, synergy=self.synergy([face("上限は入口 2 箇所で掛け")]))
+        _, got = self.review(self.summary({1: [], 2: []}))
+        self.assertFalse(got["ok"], got)
+        text = self.reason_of(got)
+        self.assertTrue(text.startswith(planblk.TREE_REJECT), text)
+        self.assertIn("相乗りの審査", text)
+        self.assertIn("上限は入口 2 箇所で掛け", text)
+        self.write_answers(1, {}, synergy=self.synergy([face("上限は入口 1 箇所で掛け")]))
         _, got = self.round_of("plan-review", self.summary({1: [], 2: []}))
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
 

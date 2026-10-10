@@ -63,8 +63,10 @@
     prep・step を呼ぶのは誤り（Broken）。引き継ぎの節には並べで済んだ単位も並ぶ。出口の lanes に単位ごとの結末（枝の番号と合わせの
     結末）・重なりのファイル・重なりの見込みと枝の段の呼び
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
-  単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
-  （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
+  単位の頭に戻して食い違いの申し出（機械が書いた 1 件。裁定の輪が裁く）で止めて次の単位へ、refactor は緑の時の木に戻す。
+  実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
+  （輪は done の印で抜け、max_iterations に届いて落ちない。R50）。段 test で役が direct_why を返した単位は、修正案の約束が無い run
+  （約束が在れば direct_why は拒まれる）に限り、申し出の道を通らずに direct へ渡る
 - fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（裁定 fix_test_scope の
   範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す。.py に新しい関数・クラス・メソッドを
   足しただけで、既存の文も既存のテストが読む名・枠の掛け金も変えない物は数えない）
@@ -130,6 +132,7 @@ MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試�
 MIN_WHY = 10
 MIN_QUOTE = 3   # 赤の引用の下限（寄せた字数。1〜2 字の引用はどの失敗の文にも当たるので、照らす先が短くなければ拒む）
 QUOTES_FIELD = "red_quotes"   # test の段の返答の欄と単位の記録の欄の名: {名指しの id: {quote: 失敗の文, why: なぜ期待どおりの理由か}}
+GAVE_UP_WHY = "機械が書いた申し出（TDD の確認が回数の上限まで通らなかった）: "   # 3 回拒まれた単位の申し出の why の頭。人が読む理由の文で、見分けには使わない（盤面の行の source が conflict.GAVE_UP_SOURCE）
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 UNIT_NODE = "tdd"   # 輪の役の印の名（包みの adapter.KEYED_NODES の 1 つ。単位の切れ目で会話を切る）
 REST_NODE = "tdd-rest"   # 並べの後に残りの単位を順に回す輪 tdd-rest の役の印の名（同じ支度・確かめ。KEYED_NODES の 1 つ）
@@ -733,17 +736,17 @@ HANDOFF_HEAD = promptsection.Section("## 前の単位の引き継ぎ（機械が
 
 
 def handoff_lines(st) -> list:
-    """今の単位より前に済んだ単位の 1 行ずつ（単位の key・直したファイル・緑にしたテスト・整え・direct に回した理由）。無ければ空"""
+    """今の単位より前に済んだ単位の 1 行ずつ（単位の key・直したファイル・緑にしたテスト・整え・止めた理由・direct に回した理由）。無ければ空"""
     rows = []
     for k in [*(st.get("lanes") or {}).get("done_keys", []), *st["queue"][:st["cur"]]]:
         u = st["units"].get(k)
         if not u:
             continue
+        if u.get("route") == "parked":
+            rows.append(f"- {k}: 食い違いの申し出で止めた（木は単位の頭に戻した）: {u.get('why', '')[:200]}")
+            continue
         if u.get("gave_up"):
             rows.append(f"- {k}: 諦めて direct に回した（木は単位の頭に戻した。修正役が直す）: {u.get('why', '')[:200]}")
-            continue
-        if u.get("route") == "parked":
-            rows.append(f"- {k}: 食い違いの申し出で止めた（木は単位の頭に戻した）")
             continue
         if u.get("covered_by"):
             rows.append(f"- {k}: 同じ修正案の項目の単位 {'、'.join(u['covered_by'])} の段で一緒に直した（受け入れのテスト "
@@ -1421,23 +1424,29 @@ def _refactor(st, reply, repo) -> list:
     return []
 
 
-def _give_up(st, repo, probs) -> None:
-    """段の RETRY_MAX 回目の拒否"""
+def _give_up(st, repo, probs):
+    """段の RETRY_MAX 回目の拒否。test・fix の段は単位を止めて機械の申し出 1 件を返す（それ以外は None）"""
     head = f"{retry_max()} 回とも通らなかった: {probs[0][:200]}"
     if st["phase"] == "route":
         _abort(st, repo, "振り分けの返答が " + head, "route")
-        return
+        return None
     u = _cur(st)
     if st["phase"] == "refactor":
         restore(repo, st["green_tree"])
         u.update(refactor="reverted", problems=probs[:10])
         st["head_run"] = _next_head(_head_run(st), st.get("green_run"))   # 緑の木に戻したので、次の単位の頭の回は緑の回
-    else:
-        restore(repo, st["unit_head"])
-        stage = "red" if st["phase"] == "test" else "green"
-        _to_direct(u, stage, f"TDD の{'赤' if stage == 'red' else '緑'}の確認が " + head, probs)
-    st["cur"] += 1
-    _next_unit(st, repo)
+        st["cur"] += 1
+        _next_unit(st, repo)
+        return None
+    stage = "red" if st["phase"] == "test" else "green"
+    key = st["queue"][st["cur"]]
+    why = f"{GAVE_UP_WHY}TDD の{'赤' if stage == 'red' else '緑'}の確認が " + head
+    briefs = planbrief.by_unit_at(pathlib.Path(st["work"]).parent).get(key, [])   # 状態と作業ツリーを動かす前に読む（読めずに落ちても半端に残さない）
+    item = {"unit_key": key, "between": [f"{b['file']}:1" for b in briefs], "why_both_cannot_hold": why,
+            "which_is_right": conflict.UNKNOWN, "kind": conflict.NEEDS_CONTEXT}
+    u.update(gave_up=stage, problems=probs[:10])
+    _park_cur(st, repo, key, why)
+    return item
 
 
 def _abort(st, repo, why, stage) -> None:
@@ -1471,7 +1480,6 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
     item = {k: reply.get(k) for k in conflict.FIELDS}
     if conflict.CORRECT in reply:
         item[conflict.CORRECT] = reply[conflict.CORRECT]
-    parked = st.setdefault("parked", [])
     if st["phase"] == "route":
         owed = set(_owed(st))
     else:
@@ -1480,22 +1488,42 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
                               try_query=try_query, briefs=planbrief.by_unit_at(pathlib.Path(st["work"]).parent))
     if probs:
         return probs, None
-    parked.append(item["unit_key"])
-    st.setdefault("parked_why", {})[item["unit_key"]] = item["why_both_cannot_hold"]
     if st["phase"] == "route":
+        _mark_parked(st, item["unit_key"], item["why_both_cannot_hold"])
         if not owed - {item["unit_key"]}:   # 振る単位が残らない
             st.update(order=[], units={}, queue=[], cur=0, done=True)
         st["reason"] = ""
         return [], item
-    u = _cur(st)
-    restore(repo, st["unit_head"])
-    u.update(route="parked", why=item["why_both_cannot_hold"])
-    st["cur"] += 1
-    _next_unit(st, repo)
+    _park_cur(st, repo, item["unit_key"], item["why_both_cannot_hold"])
     return [], item
 
 
-def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
+def _mark_parked(st, key, why) -> None:
+    st.setdefault("parked", []).append(key)
+    st.setdefault("parked_why", {})[key] = why
+
+
+def _park_cur(st, repo, key, why) -> None:
+    """今の単位を食い違いの申し出で止める: 輪の状態に止めた単位と理由を積み、作業ツリーを単位の頭に戻して次の単位へ"""
+    _mark_parked(st, key, why)
+    restore(repo, st["unit_head"])
+    _cur(st).update(route="parked", why=why)
+    st["cur"] += 1
+    _next_unit(st, repo)
+
+
+def flush_claims(state_file, st: dict, holder: dict, field: str, park) -> None:
+    """状態の st に保存した、盤面にまだ積んでいない申し出の並び holder[field] を park に渡し、渡せたら空にして保存し直す
+    （申し出を積む口は conflict.park で、同じ申し出を積み増さない。積みの途中で落ちても、次の呼びが残りを積む。積む口が無ければ何もしない）"""
+    claims = holder.get(field)
+    if not claims or park is None:
+        return
+    park(list(claims))
+    holder[field] = []
+    _save(state_file, st)
+
+
+def step(state_file, reply, repo, try_query=None, lanes=None, log=None, outbox=True) -> dict:
     """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
     節が盤面の控えに積む）, writes（書き込みの出どころの突き合わせの結果。節が盤面の trace に積む）}。
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
@@ -1506,6 +1534,8 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     lanes を渡されて振り分けを受けた周で枝を切らなければ、出口の lanes_skipped に {reason, why, loop}（理由の語は tddlanes の SKIP_*。
     状態の lanes_off（入力）か lanes.plan の置いた lanes_skipped。loop は輪の盤面の置き場の名 tdd-<k>）を載せる（節が trace に積む）。
     log は書き込みの記録（既定は repo の writes.sink。並べの枝の確かめは単位の worktree を repo に、run の作業ツリーの記録を渡す）。
+    outbox が真なら止めた申し出を、保存と同じ 1 回の書き込みで状態の未送の並び unsent（行 {source, item}）に積む（盤面へ積むのは
+    節 tdd-step が flush_claims で。保存と積みの間で落ちても、次の呼びが積み直す）。並べの枝の確かめは偽（枝の諦めは締めが輪へ戻す）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
     st = _load(state_file)
@@ -1521,6 +1551,7 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
             "phase": "conflict" if isinstance(reply, dict) and reply.get("phase") == "conflict" else phase,
             "unit_key": "" if phase == "route" else st["queue"][st["cur"]]}
     item = None
+    source = conflict.TDD_SOURCE   # 申し出の出どころ（役が出した申し出。諦めは下で GAVE_UP_SOURCE）
     got = None
     skipped = None   # 振り分けを受けた周で並べなかった理由（lanes を渡された時だけ。出口の lanes_skipped）
     if isinstance(reply, dict) and reply.get("phase") != "conflict":
@@ -1557,7 +1588,8 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
         st["tries"] += 1
         st["reason"] = "\n".join(f"- {p}" for p in probs)
         if st["tries"] >= retry_max():
-            _give_up(st, repo, probs)
+            item = _give_up(st, repo, probs)
+            source = conflict.GAVE_UP_SOURCE
     st["iterations"] += 1
     if not st["done"] and st["iterations"] >= MAX_ITERATIONS:
         _abort(st, repo, f"TDD の輪の回数の上限（{MAX_ITERATIONS} 回）に届いた", "budget")
@@ -1567,6 +1599,8 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
         st["handoff"] = snapshot(repo)
     st.setdefault("calls", []).append({**call, "ok": not probs, "runs": st["runs"] - runs0,
                                        "secs": round(time.monotonic() - t0, 1)})
+    if outbox and item is not None:
+        st.setdefault("unsent", []).append({"source": source, "item": item})
     _save(state_file, st)
     out = {"ok": not probs, "done": st["done"] or st["phase"] == "lanes",   # 段 lanes は輪を抜けて枝の輪へ（状態は済んでいない）
            "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"], "conflict": item, "writes": got}

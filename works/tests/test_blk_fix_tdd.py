@@ -29,10 +29,12 @@ sys.path.insert(0, str(BLK / "lib"))
 sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
+import conflict  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import prepkit  # noqa: E402
+import stopby  # noqa: E402
 import tddloop  # noqa: E402
 from unittest import mock  # noqa: E402
 sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
@@ -363,6 +365,50 @@ class LoopCase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
+    def real_board(self):
+        """盤面の作業ファイルを本物にした盤面（節 tdd-step が止めた申し出を積む先）。返りは ARTIFACTS_DIR。輪の状態の置き場とは別"""
+        sys.path.insert(0, str(CORE / "graphloops"))
+        import engine.util as engine_util
+        import entry
+        import linekit
+        tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(setattr, engine_util, "GIT_CWD", engine_util.GIT_CWD)
+        root = pathlib.Path(tmp.name)
+        self.adapter_home = str(root / "adapter-home")
+        request = root / "request.json"
+        request.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": self.adapter_home}):
+            entry.start(root / "art" / "board", linekit.seed_repo(root / "repo"),
+                        {"request": str(request), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
+                         "adapter": "", "policy_md": ""}, run_id="run-12")
+        return root / "art"
+
+    def tdd_step(self, art, reply):
+        """節 tdd-step のスクリプトを子で起こす（reply が None なら役が飛ばされた周の null）。返りは (終了コード, 出口, 標準エラー)"""
+        return run_script("tdd_step", self.repo, {"ARTIFACTS_DIR": str(art), "INPUTS_STATE_FILE": self.state,
+                                                  "INPUTS_REPLY": json.dumps(reply), "WORKS_ADAPTER_HOME": self.adapter_home})
+
+    def refuse_red_three_times(self, art):
+        """赤の段で返答を retry_max 回拒まれる（テストの名指しが空）。返りは最後の呼びの (終了コード, 出口, 標準エラー)"""
+        got = None
+        for _ in range(tddloop.retry_max()):
+            got = self.tdd_step(art, {"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": []})
+        return got
+
+    def open_board(self, art):
+        import entry
+        with mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": self.adapter_home}):
+            return entry.open_board(art / "board")
+
+    def conflicts_file(self, art):
+        """節 tdd-step が申し出を積む盤面の控え（今の周の conflicts.json）"""
+        return self.open_board(art).work("conflicts.json")
+
+    def parked_rows(self, art):
+        import conflict
+        return conflict.items(self.open_board(art))
+
 
 class TestStart(LoopCase):
     def test_baseline_and_first_prompt(self):
@@ -604,9 +650,102 @@ class TestUnitLoop(LoopCase):
         self.assertEqual((self.repo / "test_stats.py").read_text(encoding="utf-8"), before, "書いたテストを外す")
         self.assertFalse((self.repo / "helper.py").exists(), "単位の頭に戻す")
         u = tddloop.exit_fields(self.start)["units"][0]
-        self.assertEqual((u["route"], u["gave_up"]), ("direct", "green"))
+        self.assertEqual((u["route"], u["gave_up"]), ("parked", "green"))
         self.assertTrue(u["problems"])
         self.assertIn("緑", u["why"])
+
+    def test_green_give_up_parks_unit_for_ruling_and_moves_on(self):
+        import fixrules
+        self.route(clamp="tdd")
+        before = (self.repo / "test_stats.py").read_text(encoding="utf-8")
+        self.red()
+        (self.repo / "helper.py").write_text("X = 1\n", encoding="utf-8")   # 直す段が足した新しいファイル
+        for _ in range(tddloop.retry_max()):
+            got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["helper.py"], "what": "直せていない"})
+            self.assertFalse(got["ok"])
+        item = got["conflict"]
+        self.assertIsNotNone(item, "3 回拒まれた単位は機械の申し出 1 件を出口に載せる")
+        self.assertEqual((item["unit_key"], item["kind"], item["which_is_right"]), (MEAN, "needs_context", "unknown"))
+        self.assertEqual(item["between"], [], "brief の無い run では名指しは空")
+        last = got["reason"].splitlines()[0][:100]
+        for w in (str(tddloop.retry_max()), "緑", last, tddloop.GAVE_UP_WHY):
+            self.assertIn(w, item["why_both_cannot_hold"])
+        st = self.st()
+        self.assertEqual(st["parked"], [MEAN])
+        u = st["units"][MEAN]
+        self.assertEqual((u["route"], u["gave_up"]), ("parked", "green"))
+        self.assertTrue(u["problems"])
+        self.assertEqual((self.repo / "test_stats.py").read_text(encoding="utf-8"), before, "書いたテストを外す")
+        self.assertFalse((self.repo / "helper.py").exists(), "単位の頭に戻す")
+        self.assertEqual((got["done"], st["phase"], st["queue"][st["cur"]]), (False, "test", CLAMP))
+        lines = "\n".join(tddloop.handoff_lines(st))
+        self.assertIn(f"- {MEAN}: 食い違いの申し出で止めた", lines)
+        self.assertNotIn("direct に回した", lines)
+        self.assertEqual(st.get("unsent"), [{"source": conflict.GAVE_UP_SOURCE, "item": item}], "盤面へ積む前の申し出は状態に残る")
+        ruler = "\n".join(fixrules.sections("ruler.md").values())
+        self.assertIn(conflict.GAVE_UP_SOURCE, ruler, "裁定役の指示書は機械の申し出を出どころの欄 source で名指す")
+        self.assertNotIn(tddloop.GAVE_UP_WHY, ruler, "理由の頭の文の写しで見分けない")
+
+    def test_red_give_up_parks_machine_claim_with_source(self):
+        """機械が諦めた単位の申し出と、役が出した申し出（phase conflict）は、盤面の行の出どころ source で見分けられる"""
+        art = self.real_board()
+        self.route(clamp="tdd")
+        got = self.tdd_step(art, {"phase": "conflict", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+                                  "why_both_cannot_hold": "期待値と依頼の分母が食い違い、どちらを正とするか決められない",
+                                  "which_is_right": "unknown", "kind": "needs_context"})
+        self.assertEqual(got[0], 0, got)
+        for _ in range(tddloop.retry_max()):
+            got = self.tdd_step(art, {"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": []})
+        self.assertEqual(got[0], 0, got)
+        rows = {r["unit_key"]: r for r in self.parked_rows(art)}
+        self.assertEqual(sorted(rows), sorted([MEAN, CLAMP]))
+        self.assertEqual(rows[CLAMP]["source"], conflict.GAVE_UP_SOURCE, "3 回拒まれて機械が止めた単位")
+        self.assertEqual(rows[MEAN]["source"], conflict.TDD_SOURCE, "役が出した申し出")
+
+    def test_give_up_reads_briefs_before_moving_tree(self):
+        """止める前に盤面の brief を読む。読めずに落ちた周は、作業ツリーを単位の頭に戻さず、状態も進めない"""
+        self.route()
+        self.red()
+        (self.repo / "helper.py").write_text("X = 1\n", encoding="utf-8")   # 直す段が足した新しいファイル
+        reply = {"phase": "fix", "unit_key": MEAN, "files": ["helper.py"], "what": "直せていない"}
+        for _ in range(tddloop.retry_max() - 1):
+            self.assertFalse(self.step(reply)["ok"])
+        with mock.patch.object(planbrief, "by_unit_at", side_effect=OSError("brief が読めない")):
+            with self.assertRaises(OSError):
+                self.step(reply)
+        self.assertTrue((self.repo / "helper.py").exists(), "読めずに落ちたので単位の頭に戻していない")
+        st = self.st()
+        self.assertEqual((st["cur"], st["parked"]), (0, []))
+
+    def test_second_machine_give_up_is_asked_to_human(self):
+        """案を直して直す義務に戻った単位（共有の控え r<N>/conflicts.json に、その単位を外した fix_plan_item の行が状態 AMENDED で在る）が
+        また 3 回拒まれたら、裁定に回さず人に上げる（前の行の欄が今の申し出と同じでも違っても。同じ欄の申し出が前の行に吸われない）。
+        案を直していない単位の最初の諦めは今どおり裁定なしで積む"""
+        first = self.real_board()
+        self.route()
+        self.assertEqual(self.refuse_red_three_times(first)[0], 0)
+        (prior,) = self.parked_rows(first)
+        self.assertEqual(prior["source"], conflict.GAVE_UP_SOURCE)
+        self.assertIsNone(prior["ruling"], "案を直していない単位の最初の諦めは裁定なし")
+        amended = {**prior, "status": "ruled", conflict.REPLAN_STATE: conflict.AMENDED,
+                   "ruling": {"decision": conflict.REPLAN, "text": "項目の誤り", "limits": [], conflict.PLAN_UNITS: [MEAN],
+                              "by": "ruler"}}
+        for same_fields in (True, False):
+            art = self.real_board()
+            row = amended if same_fields else {**amended, "why_both_cannot_hold": "前の周で諦めた時の別の理由"}
+            self.conflicts_file(art).write_text(json.dumps({"items": [row]}, ensure_ascii=False), encoding="utf-8")
+            self.restart()
+            self.route()
+            self.assertEqual(self.refuse_red_three_times(art)[0], 0)
+            b = self.open_board(art)
+            note = f"前の行の欄が今と{'同じ' if same_fields else '違う'}場合"
+            self.assertEqual(len(conflict.items(b)), 2, "案を直した行は同じ欄の申し出を吸わない: " + note)
+            new = conflict.items(b)[1]
+            self.assertEqual(new["source"], conflict.GAVE_UP_SOURCE, note)
+            self.assertEqual([r["id"] for r in conflict.unruled(b)], [], note)
+            self.assertEqual([r["id"] for r in conflict.asked(b)], [new["id"]], note)
+            self.assertEqual((new["ruling"]["decision"], new["ruling"]["by"]), (conflict.ASK, stopby.TDD_REPEAT), note)
+            self.assertTrue(b.work(conflict.RULINGS_FILE).is_file(), "裁定の文のファイルも書く: " + note)
 
     def test_refactor_gives_up_back_to_green_tree(self):
         self.route()
@@ -814,8 +953,8 @@ class TestPlanContract(ContractCase):
         self.assertTrue(got["ok"], got)
         self.assertIn("NameError", self.st()["units"][MEAN][tddloop.QUOTES_FIELD][MEAN_ID]["quote"])
 
-    def test_wrong_kind_three_times_gives_up_to_direct(self):
-        """結末に無い引用で 3 回拒まれ、direct に移って木が単位の頭に戻る（gave_up red）"""
+    def test_wrong_kind_three_times_gives_up_and_parks_for_ruling(self):
+        """結末に無い引用で 3 回拒まれ、食い違いの申し出で止めて裁定に回し、木が単位の頭に戻る（gave_up red）"""
         self.route()
         head = (self.repo / "test_stats.py").read_text(encoding="utf-8")
         self.add_test(WRONG_KIND_TEST)
@@ -827,7 +966,7 @@ class TestPlanContract(ContractCase):
         self.assertTrue(got["done"], "tdd の単位が 1 つなので輪は済む")
         self.assertEqual((self.repo / "test_stats.py").read_text(encoding="utf-8"), head, "作業ツリーは単位の頭")
         u = self.st()["units"][MEAN]
-        self.assertEqual((u["route"], u["gave_up"]), ("direct", "red"))
+        self.assertEqual((u["route"], u["gave_up"]), ("parked", "red"))
 
     def test_unknown_kind_is_recorded_not_rejected(self):
         """実行器が failure に message も本文も書かず（SUITE）、ログも空なら、引用を照らす先が無い。引用なしに拒まず通し、
@@ -2285,6 +2424,25 @@ class TestResume(LoopCase):
             self.assertEqual({k: v for k, v in json.loads(out).items() if k != "reason_file"},
                              {"ok": True, "done": True, "reason": "", "phase": "done"})
         self.assertEqual(self.snap(), before)
+
+    def test_park_failure_then_next_call_parks_once(self):
+        """単位を止めた周で盤面の控えへの積みが落ちても（状態は止めた単位の分だけ進んで保存済み）、済んだ輪に役が飛ばされた周
+        （resume）の呼びで同じ申し出がちょうど 1 件積まれ、その後の呼びは積み増さない"""
+        art = self.real_board()
+        conflicts = self.conflicts_file(art)
+        conflicts.write_text("{壊れた控え", encoding="utf-8")
+        self.route()
+        code, out, err = self.refuse_red_three_times(art)
+        self.assertEqual(code, 2, (out, err))
+        self.assertIn("食い違いの控え", err)
+        self.assertEqual(self.st()["parked"], [MEAN], "止めた単位は状態に保存済み（resume でも次の単位から続く）")
+        conflicts.write_text('{"items": []}', encoding="utf-8")
+        for call in ("積み直す呼び", "積み増さない呼び"):
+            code, out, err = self.tdd_step(art, None)
+            self.assertEqual(code, 0, (call, err))
+            rows = self.parked_rows(art)
+            self.assertEqual([r["unit_key"] for r in rows], [MEAN], call)
+            self.assertEqual(self.st().get("unsent"), [], call)
 
 
 class TestRunSuiteSlot(unittest.TestCase):

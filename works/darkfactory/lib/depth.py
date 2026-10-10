@@ -12,17 +12,23 @@
 - decide_doc(items, open_units, *, forced, checked): 直す義務の単位の全部の深さ（控えの形）。forced は入力 thickness の語
   （空・自動は機械が決める。軽量・標準は全部をその深さに固定）
 - raise_doc(doc, *, units, run): 信号で標準へ上げた控え。units は {単位: 理由}（その単位だけ）、run は理由の並び（全部の単位）。下げない
+- run_wide(items, keys, touched=()): 控えの単位 keys を合わせた run 全体の広さ（触るファイルの和集合と、受け入れと書き換えの
+  テストの和）が単位ごとの上限 MAX_PATHS・MAX_TESTS を超えた理由の並び。触るファイルは計画の allowed_paths に、修正の実際の差分
+  （touched。raise_ が盤面の loop.fix_delta の files を渡す）のうちテストのファイルを除いた物を足して数える。raise_ が run の信号に
+  足し、単位ごとには軽量の集まりも標準へ上げる
 - run_depth(doc): 切った後の run 全体の段の深さ（全部の単位が軽量の時だけ軽量。単位が無ければ標準）
 - skip_reason(doc): run が軽量なら省く理由の文、標準なら空（ブロックの平の入力 skip・skip_optional に渡す）
-- lines(doc): 報告の冒頭 2 の行（単位ごとの深さの数・上げた理由・軽量で省いた物）
+- lines(doc): 報告の冒頭 2 の行（単位ごとの深さの数・上げた理由・run の広さの数え・軽量で省いた物）
 - unit_map(doc): {単位: 深さ} の JSON の文字列（修正のブロックへのつなぎ目。計画の「blk-fix へのつなぎ目」）
 - write(board_dir, doc)・read(board_dir): 盤面の根の控え depth.json
 - decide(b, open_units, *, tdd_suite): 盤面を読む口（修正の前の節 h-depth）。修正案の項目の欄（planmarks.read）・start の控えの
   thickness と test_cmd・入力 tdd_suite から決めて控えを書く。open_units は h-fix の出口の JSON の配列の文字列（読めなければ単位なし）
-- signals(b): 修正の後の上げる信号 ({単位: 理由}, [run の理由])。食い違いの申し出（各 scope の今の周の conflicts.json）・止めた単位
+- signals(b): 修正の後の上げる信号 ({単位: 理由}, [run の理由])。食い違いの申し出（今の周の共有の控え r<N>/conflicts.json）・止めた単位
   （trace の conflict.ACCEPT_PARKED_OP の行）・答えていない問い（gatemarks.pending）
-- raise_(b, *, replanned, rejudged): 盤面を読む口（修正の後の節 h-redepth）。signals と線の信号（案の直し・再審が走った）で上げて
-  控えを書き直す。控えが無い（h-depth が走らなかった）run は単位なし（標準）。run が軽量のままなら、待っている差分の審査
+- raise_(b, *, replanned, rejudged): 盤面を読む口（修正の後の節 h-redepth）。signals と線の信号（案の直し・再審が走った）と
+  run_wide（run 全体の広さ）で上げて控えを書き直す。広さは盤面の修正の差分（loop.fix_delta。差分の審査が見るのと同じ物）で数え直し、
+  数えたファイルの数と起点を控えの counted に 1 行残す（差分が今の周に無い・読めない時は計画の allowed_paths で数え、その理由を残す）。
+  控えが無い（h-depth が走らなかった）run は単位なし（標準）。run が軽量のままなら、待っている差分の審査
   （DELTA_NODE）を省く理由（skip_reason）で盤面から省く（board.skip。記録の省略した機構に残る）
 """
 import json
@@ -36,17 +42,21 @@ _CORE = pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
+from board import BoardGap  # noqa: E402
 import conflict  # noqa: E402
 import gatemarks  # noqa: E402
+import impact  # noqa: E402  （テストのファイルの名の慣習の読み口 is_test）
 import planmarks  # noqa: E402
+import refix  # noqa: E402  （修正の差分の測りの読み口 fix_delta）
 import scopes  # noqa: E402
 import startrec  # noqa: E402  （始めの記録の読み口）
 
 LIGHT = "軽量"
 STANDARD = "標準"
-FILE = "depth.json"   # 盤面の根の控え {"units": {key: {"depth", "why": [...]}}, "forced", "raised": [...]}
-MAX_PATHS = 3         # 測り: 何も見つけなかった単位は allowed_paths 1〜3 個、見つけた単位は 4 個以上
-MAX_TESTS = 2         # 測り: 同じく受け入れのテストと書き換える既存のテストが合わせて 1 本、見つけた単位は 4 本以上
+FILE = "depth.json"   # 盤面の根の控え {"units": {key: {"depth", "why": [...]}}, "forced", "raised": [...], "counted": "run の広さの数え 1 行"}
+MAX_PATHS = 3         # 測り: 何も見つけなかった単位は allowed_paths 1〜3 個、見つけた単位は 4 個（MAX_PATHS を超える）
+MAX_TESTS = 2         # 測り: 同じく受け入れのテストと書き換える既存のテストが合わせて 1 本、見つけた単位は 4 本（MAX_TESTS を超える）
+PLAN_ORIGIN = "計画の allowed_paths"   # 控えの counted の起点（実際の差分で数え直せなかった時）
 CONTRACT_SUFFIXES = (".json", ".yaml", ".yml", ".toml")
 CONTRACT_DIR = "schemas/"
 GLOB_CHARS = ("*", "?", "[")
@@ -73,6 +83,30 @@ def _paths(items: list) -> list:
 
 def _tests(items: list) -> int:
     return sum(len(it.get("tests") or []) + len(it.get("rewrite_tests") or []) for it in items)
+
+
+def _wide(items, keys, touched=()) -> tuple:
+    """(run 全体で触るファイルの集合, 受け入れと書き換えのテストの本数)。keys の単位を載せる項目を重ねずにまとめ、触るファイルは
+    計画の allowed_paths と touched（テストのファイルを除く）の和集合（重なりは 1 個）。テストのファイルは、項目の tests・
+    rewrite_tests の id のファイルか、名の慣習（impact.is_test の module。TDD の輪が凍らせるテストのファイルの見分けと同じ）に当たる物"""
+    mine = list({id(it): it for key in keys for it in _items_of(items, key)}.values())
+    test_files = {p for it in mine for p in planmarks.test_paths(it)}
+    return set(_paths(mine)) | {p for p in touched if isinstance(p, str) and p not in test_files
+                                and impact.is_test(p) != "module"}, _tests(mine)
+
+
+def run_wide(items, keys, touched=()) -> list:
+    """run 全体の広さが単位ごとの上限を超えた理由の並び。keys の単位を載せる項目を重ねずにまとめ、触るファイル（重なりは 1 個）と
+    受け入れと書き換えのテストの和で数える。触るファイルは計画の allowed_paths に、修正の実際の差分 touched のうちテストのファイルを
+    除いた物を足す。単位ごとには軽量でも、集まれば広い差分になるのを標準へ上げる信号に使う"""
+    paths, tests = _wide(items, keys, touched)
+    paths = len(paths)
+    out = []
+    if paths > MAX_PATHS:
+        out.append(f"run 全体で触るファイル {paths} 個（{MAX_PATHS} 個まで）")
+    if tests > MAX_TESTS:
+        out.append(f"run 全体の受け入れと書き換えのテストが {tests} 本（{MAX_TESTS} 本まで）")
+    return out
 
 
 def _contract(path: str) -> bool:
@@ -168,6 +202,8 @@ def lines(doc) -> list:
     out = [head]
     out += [f"  - {k[:80]}: {r.get('depth')}（{' / '.join(r.get('why') or [])}）" for k, r in rows.items()]
     out += [f"  - 標準へ上げた信号: {why}" for why in doc.get("raised") or []]
+    if doc.get("counted"):
+        out.append(f"run の広さの数え: {doc['counted']}")
     if run_depth(doc) == LIGHT:
         out.append("軽量で省いた: " + "／".join(SKIPPED))   # 1 行にまとめる（項目の中に「・」が在るので区切りは「／」）
     return out
@@ -216,15 +252,6 @@ def decide(b, open_units, *, tdd_suite: str) -> dict:
     return doc
 
 
-def _rows(path) -> list:
-    try:
-        doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    items = doc.get("items") if isinstance(doc, dict) else doc
-    return [r for r in items or [] if isinstance(r, dict)] if isinstance(items, list) else []
-
-
 def _trace(b, op: str) -> list:
     try:
         lines = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
@@ -243,10 +270,13 @@ def _trace(b, op: str) -> list:
 
 def signals(b) -> tuple:
     units = {}
-    for path in scopes.each(b, conflict.FILE):
-        for r in _rows(path):
-            if isinstance(r.get("unit_key"), str):
-                units.setdefault(r["unit_key"], "食い違いの申し出が在る")
+    try:
+        rows, broken = conflict.items_across_scopes(b), []
+    except BoardGap:   # 壊れた控えは上げる側へ倒す（gatemarks の台帳と同じ。軽量のまま黙って残さない）
+        rows, broken = [], ["食い違いの控えが読めない"]
+    for r in rows:
+        if isinstance(r, dict) and isinstance(r.get("unit_key"), str):
+            units.setdefault(r["unit_key"], "食い違いの申し出が在る")
     for row in _trace(b, conflict.ACCEPT_PARKED_OP):
         for k in row.get("unit_keys") or []:
             if isinstance(k, str):
@@ -254,9 +284,22 @@ def signals(b) -> tuple:
     try:
         held = gatemarks.pending(b)
     except Exception as e:   # 台帳が読めない盤面は上げる側へ倒す（軽量のまま黙って残さない）
-        return units, [f"問いの台帳が読めない（{type(e).__name__}）"]
-    run = [f"答えていない問い {q.get('key')}" for q in held if isinstance(q, dict)]
+        return units, [*broken, f"問いの台帳が読めない（{type(e).__name__}）"]
+    run = broken + [f"答えていない問い {q.get('key')}" for q in held if isinstance(q, dict)]
     return units, run
+
+
+def _actual_diff(b) -> tuple:
+    """(修正の実際の差分のファイル, 数えの起点の 1 行)。盤面の loop.fix_delta（差分の審査が見るのと同じ測り）が今の周に無い・読めない時は、
+    ファイル無しで起点に計画の allowed_paths と理由を返す（上げる側へ倒さず、計画の数えで数える）"""
+    try:
+        delta = refix.fix_delta(b)
+    except Exception as e:
+        return [], f"{PLAN_ORIGIN}（修正の差分を読めない: {type(e).__name__}）"
+    files = delta.get("files") if isinstance(delta, dict) else None
+    if not isinstance(files, list):
+        return [], f"{PLAN_ORIGIN}（修正の差分が今の周に無い）"
+    return files, f"修正の差分 {str(delta.get('rev') or '')[:12]}"
 
 
 def raise_(b, *, replanned: bool, rejudged: bool) -> dict:
@@ -266,6 +309,10 @@ def raise_(b, *, replanned: bool, rejudged: bool) -> dict:
         run.append("同じ run の案の直しが走った")
     if rejudged:
         run.append("判定への異議の再審が走った")
+    items = planmarks.read(b)
+    touched, origin = _actual_diff(b)
+    run += run_wide(items, doc["units"], touched)
+    doc["counted"] = f"触るファイル {len(_wide(items, doc['units'], touched)[0])} 個（起点: {origin}）"
     doc = raise_doc(doc, units=units, run=run)
     write(b.dir, doc)
     why = skip_reason(doc)

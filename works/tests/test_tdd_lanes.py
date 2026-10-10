@@ -309,9 +309,10 @@ class TestLaneCommand(LaneCase):
             self.assertFalse(got["ok"], got)
         self.assertTrue(got["done"], got)
         lst = json.loads(pathlib.Path(self.lane(UA)["state"]).read_text(encoding="utf-8"))
-        self.assertEqual((lst["units"][UA]["route"], lst["units"][UA]["gave_up"]), ("direct", "red"))
+        self.assertEqual((lst["units"][UA]["route"], lst["units"][UA]["gave_up"]), ("parked", "red"))
         got = self.join()
         self.assertIn(UA, self.st()["lanes"]["back"], "並べで諦めた単位は順に戻す（direct にしない）")
+        self.assertIn("段の確かめを諦めた", self.st()["lanes"]["back"][UA]["why"])
 
     def test_wrong_unit_conflict_counts_as_a_reject(self):
         self.route()

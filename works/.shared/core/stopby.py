@@ -38,6 +38,7 @@ REASONS = {
     "rejudge-session": "判定役の会話が見つからず、再審せずに止めた",
     "replan": "同じ run の中の案の直しで止めた（その答えの行の node も同じ語）",
     "scope-check": "窓の照らし（部品の置き場と宣言）が誤りを見て止めた",
+    "tdd-repeat": "同じ単位がまた TDD の確認の上限まで落ちたので、機械が裁定に回さず人に回した（裁定の by）",
 }
 _DECLARED = {}
 
@@ -89,3 +90,4 @@ REJUDGE = word("rejudge")
 REJUDGE_SESSION = word("rejudge-session")
 REPLAN = word("replan")
 SCOPE_CHECK = word("scope-check")
+TDD_REPEAT = word("tdd-repeat")

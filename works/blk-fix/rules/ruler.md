@@ -7,7 +7,7 @@
 ## 読む物
 
 - 申し出の控え: <<conflicts_file>>——Read で全部読め。`items` の各行の `id`・`unit_key`・`between`（名指した所）・
-  `why_both_cannot_hold`・`which_is_right`・`kind`（申し出の種類）・`source`（fix か tdd）が在り、`which_is_right` が query の行には `correct_lines` も在る。
+  `why_both_cannot_hold`・`which_is_right`・`kind`（申し出の種類）・`source`（fix・tdd・tdd-gave-up）が在り、`which_is_right` が query の行には `correct_lines` も在る。
   `ruling` が null の行だけを裁く
 - 裁く申し出の id: <<ids>>
 - 判定のファイル: <<judgment_file>>——単位の `reason`・`origin_analysis`・`prescriptions` を読む
@@ -45,3 +45,9 @@
 
 機械は id の過不足・語・範囲と grounds の在る無し・依頼の在る run の ask_human の出どころ・`fix_plan_item` が範囲を持たず、grounds にその単位の brief の行を挙げるか（brief の無い単位は拒む）・その項目の単位に直す裁定を並べていないかを確かめ、外れれば理由のファイルを名指して出し直させる。3 回とも通らなければ、
 裁かれていない申し出は全部人に回る。
+
+`source` が `tdd-gave-up` の行は、TDD の輪の同じ段が 3 回拒まれた単位から機械が作った申し出で、その `kind`・`which_is_right` は機械が決まった値を埋めた欄であり、役の見立てではない。この行に限り、上の基準に加えて次の順と条件で裁く。
+1. 項目・範囲・問いの誤り（`fix_plan_item`・`fix_test_scope`・`replace_query`）を先に疑う。3 回続けて通らなかったのは、直し方より先に、項目の受け入れのテストや範囲や判定者の問いが誤っているしるしかもしれない。
+2. `fix_code_as` は、`grounds` に材料（依頼・判定・テスト・コードの行）を挙げ、コードを直せば済むと示せる時だけ選ぶ。`grounds` が空の `fix_code_as` は機械が拒む。
+3. `fix_code_as` で直した単位は、修正案の項目の元の受け入れのテストで確かめる（基準の版で赤・今の木で緑を機械が見る）。
+4. 作り直した後にまた上限まで落ちた単位は機械が人に回すので、この裁きには来ない。

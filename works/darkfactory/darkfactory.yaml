@@ -869,7 +869,7 @@ nodes:
     depends_on: [h-rejudge]
     when: "$h-rejudge.output.go == true"
 
-  # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。食い違いの申し出・止めた単位・答えていない問い・案の直し・再審。
+  # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。上げる信号（単位ごとの信号と run 全体の広さ）は darkfactory/lib/depth.py の raise_ が決める。
   # 全部の単位が軽量のままなら、待っている差分の審査（p3.delta_review）を盤面で省き（h-review が差分の審査・レンズ・手直しを回さない）、
   # skip に省く理由を出して独立の目（skip_optional）に平の入力で渡す（決め 6・9。レンズは h-review が回さないので渡さない）。lines は機械の報告の冒頭 2
   - id: h-redepth

@@ -140,7 +140,7 @@ nodes:
   # テスト・直し・整えを返す（C17）。fresh_context は false のままで、同じ単位の段は 1 つの会話を継ぎ、単位が替わる周だけ包みが
   # 新しい会話で起こす（tdd-prep が run ごとの置き場に書く単位の鍵。前の単位の物は指示書の引き継ぎの節で渡す。依頼 243 の 2）。
   # 赤は tdd-step が red_check（中で写しの red_problems）、緑は写しの green_problems で決める。
-  # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は direct）、
+  # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は食い違いの申し出で止めて裁定に回す）、
   # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）。
   # 形 g3 で振り分けの後に範囲の引ける tdd の枝（項目を共にする単位の組）が 2 本以上なら、tdd-step が枝ごとの worktree を切って
   # 段を lanes にし、輪はそこで抜ける（tdd-step が done を立てる。出口の phase は lanes）。並べの周は輪の外の節が回す: tdd-fork → 枝の輪 tdd-lane-loop-<n>

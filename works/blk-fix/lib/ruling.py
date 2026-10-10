@@ -158,6 +158,10 @@ def problems(reply, todo: dict, repo, request: str = "", roots=(), briefs=None) 
                                               conflict.REPLAN, "grounds")
             if bad:
                 errs.append(f"申し出 {r['id']}: {bad}")
+        if (r["decision"] == "fix_code_as" and (todo.get(r["id"]) or {}).get("source") == conflict.GAVE_UP_SOURCE
+                and not r.get("grounds")):
+            errs.append(f"申し出 {r['id']}: 機械が諦めた単位の申し出（source {conflict.GAVE_UP_SOURCE}）への fix_code_as は、"
+                        "コードを直せば済むと示す材料（依頼・判定・テスト・コードの行）を grounds に挙げる")
         if r["decision"] == conflict.REPLACE or "query" in r:
             errs += [f"申し出 {r['id']}: {e}" for e in query_problems(r, todo.get(r["id"]) or {})]
         errs += [f"申し出 {r['id']}: {e}" for e in grounds_problems(r, repo, request, roots)]

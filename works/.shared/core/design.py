@@ -30,6 +30,9 @@ Archon を知らない関数だけを出す。
                  GIVE_UP_AFTER 回目で done（輪を抜ける。諦めても線は止めない——事前審査は設計なしで進み、最後の R2 が言う）
 - read_design:   design.json（無ければ None。壊れていれば Reject）。made は (中身 か None, 壊れている理由) で拒まない
 - missing(b):    設計が無い理由の 1 文（諦めた・目的が使えない・控えが無い）。事前審査の指示書と独立の目の出口が使う
+- DRIFT_HEAD・UNPAIRED_HEAD: 事前審査の穴の why の頭の 2 語（構造の食い違い・対の無い仕組み）。指示書の決まり・照らし・試験が同じ名を読む
+- stands(board_dir): 設計が在り問いが立つ時のその返答（無い・壊れている・問いが立たないなら None）
+- quote_gaps(board_dir, faces, rows, design_map=None): 2 つの頭の穴の引用と、項目の答えの design_map の誤りの行（設計が立たなければ空）
 - hand(b, …):    盤面が r2.design を待っていて控えが在れば渡す（渡しの手順は line_edge と同じ entry.hand の 1 か所）
 """
 import pathlib
@@ -48,6 +51,7 @@ from board import BoardGap, pending_instance  # noqa: E402  （board が写し�
 from engine.render import FILE_CAP, cap_bytes  # noqa: E402
 from engine.util import Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
+import cite  # noqa: E402
 import entry  # noqa: E402
 import impact  # noqa: E402
 import promptsection  # noqa: E402
@@ -62,7 +66,12 @@ MISSING = "独立設計が取れなかった"
 REJECT_HEADING = rolekit.REJECT_HEADING
 UNUSABLE = {"目的不明": "目的の出典が取れない（目的不明）——独立設計を回さない",
             "狭めている": "目的の文を監査が『狭めている』と判定した——狭められた目的で独立設計を回さない"}
-HANDED_OP = "r2_design_handed"          # 控えを盤面へ渡した trace の行
+DRIFT_HEAD = "独立設計との構造の食い違い: "   # 事前審査の穴の why の頭の 2 語（指示書 planblk.DESIGN_ASK・quote_gaps・試験が同じ名を読む）
+UNPAIRED_HEAD = "独立設計に対の無い仕組み: "
+QUOTE_HEADS = (DRIFT_HEAD, UNPAIRED_HEAD)
+ROW_QUOTE_KEYS = ("approach", "adds", "allowed_paths", "shrink_first")   # 案の行のうち、引用の照らしが読む欄
+TEXT_SEP = "\x00"   # 引用の照らしで文を継ぐ字（畳みの空白に化けないので、欄をまたぐ引用は字のままと数えない）
+HANDED_OP = "r2_design_handed"         # 控えを盤面へ渡した trace の行
 MISSING_OP = "r2_design_missing"        # 設計が無いまま先へ進んだ trace の行
 HUMAN_HEAD = promptsection.Section("### 人の関所の答え", source="fn:design.human_answers")
 HUMAN_ASK = ("人が関所で答えた前提（run の中で人が決めた物）。ほかの節より先に読め。答えが目的の文や前の要求を取り下げ・変えていれば、"
@@ -613,6 +622,87 @@ def missing(b) -> str:
     if why:
         return UNUSABLE[why]
     return f"{MISSING}: 修正の前に設計の役を起こしていない（{DESIGN_FILE} が無い）"
+
+
+def stands(board_dir):
+    """設計が在り問いが立つ時のその返答（設計が無い・控えが壊れている・問いが立たないなら None）"""
+    got, _ = made(board_dir)
+    return got if got is not None and got.get("question_stands") else None
+
+
+def _texts(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _texts(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _texts(v)
+
+
+def _row_text(row) -> str:
+    return TEXT_SEP.join(t for k in ROW_QUOTE_KEYS for t in _texts(row.get(k)))
+
+
+def _map_gaps(source, rows, design_map) -> list:
+    """design_map の誤りの行: 項目の adds の (項目, name) ごとにちょうど 1 行・adds に無い行は誤り・design_quote が在れば独立設計の
+    文に字のまま在る（null は対が無い）"""
+    entries = [e for e in design_map if isinstance(e, dict)] if isinstance(design_map, list) else []
+    wanted = list(dict.fromkeys((r.get("item"), a["name"]) for r in rows for a in r.get("adds") or []
+                                if isinstance(a, dict) and isinstance(a.get("name"), str)))
+    count = {}
+    for e in entries:
+        count[(e.get("item"), e.get("name"))] = count.get((e.get("item"), e.get("name")), 0) + 1
+    out = [f"design_map に項目 {item} の add {name} の行が無い（adds の name ごとにちょうど 1 行）" for item, name in wanted
+           if not count.get((item, name))]
+    out += [f"design_map に項目 {item} の add {name} の行が {count[(item, name)]} 行ある（ちょうど 1 行）" for item, name in wanted
+            if count.get((item, name), 0) > 1]
+    out += [f"design_map の行（項目 {e.get('item')}・name {e.get('name')}）は項目の adds に無い" for e in entries
+            if (e.get("item"), e.get("name")) not in wanted]
+    haystack = cite.fold(source)
+    for e in entries:
+        quote = e.get("design_quote")
+        if quote is None:
+            continue
+        inner = str(quote).strip()
+        inner = inner[1:-1] if inner.startswith("「") and inner.endswith("」") else inner
+        if not inner.strip() or cite.fold(inner) not in haystack:
+            out.append(f"design_map の name {e.get('name')} の design_quote「{inner}」が独立設計の文に字のまま無い（対が無いなら null）")
+    return out
+
+
+def quote_gaps(board_dir, faces, rows, design_map=None) -> list:
+    """事前審査の穴の引用の誤りの行（設計が無い・問いが立たない run では空）。faces は unit_keys を単位の名にした穴、rows は案の行
+    （unit_keys は単位の名・item は項目の番号）。why が DRIFT_HEAD か UNPAIRED_HEAD で始まる穴ごとに、why の引用「…」が
+    独立設計の文に字のまま在る物と、穴の unit_keys が重なる案の行（どれにも重ならなければ rows の全部）の approach・adds・
+    allowed_paths・shrink_first に字のまま在る物が 1 つ以上ずつ要り、どちらにも無い引用は誤り。design_map を渡した時（None は
+    求めない）は rows の adds の name ごとに 1 行を求め、design_quote の実在を照らす"""
+    got = stands(board_dir)
+    if got is None:
+        return []
+    source = got.get("design") or ""
+    rows = [r for r in rows if isinstance(r, dict)]
+    out = []
+    for f in faces if isinstance(faces, list) else []:
+        why = f.get("why") if isinstance(f, dict) else None
+        if not (isinstance(why, str) and why.startswith(QUOTE_HEADS)):
+            continue
+        keys = {str(k) for k in f.get("unit_keys") or []}
+        mine = [r for r in rows if keys & {str(k) for k in r.get("unit_keys") or []}] or rows
+        off_design = cite.missing_quotes(why, source)
+        off_rows = cite.missing_quotes(why, TEXT_SEP.join(_row_text(r) for r in mine))
+        found = cite.quotes(why)
+        name = f"穴 {f.get('key')}"
+        if len(off_design) == len(found):
+            out.append(f"{name}: why に独立設計の文に字のまま在る引用「…」が無い（独立設計の行を「…」で引け）")
+        if len(off_rows) == len(found):
+            out.append(f"{name}: why に案の行（{'・'.join(ROW_QUOTE_KEYS)}）に字のまま在る引用「…」が無い（案の行を「…」で引け）")
+        out += [f"{name}: 引用「{q}」が独立設計にも案の行にも字のまま無い（「」は独立設計と案の行の引用だけに使い、"
+                "ほかの引用は『』か `…` で書く）" for q in dict.fromkeys(off_design) if q in off_rows]
+    if design_map is not None:
+        out += _map_gaps(source, rows, design_map)
+    return out
 
 
 def hand(b, board_dir, repo) -> dict:

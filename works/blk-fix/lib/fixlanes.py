@@ -635,7 +635,7 @@ def _park(b, repo, lanes, try_query) -> tuple:
             refused[c["unit_key"]] = probs[0][:300]
         else:
             good.append(c)
-    lanekit.park(b, good, "fix")
+    lanekit.park(b, good, conflict.FIX_SOURCE)
     return good, refused
 
 

@@ -135,6 +135,12 @@ CONSULT_FIELD = "consult"   # 修正役の返答の任意の欄: 範囲の相談
 CONSULT_MIN_WHY = 10        # 頼みの理由の下限の字数
 FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
 FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by stopby.FIX）の止めの文
+FIX_SOURCE = "fix"                       # 盤面の行の出どころの欄 source の値: 修正役の申し出（受け付けと修正役の並べが積む）
+TDD_SOURCE = "tdd"                       # 同じく: TDD の輪の役の申し出（phase conflict）
+GAVE_UP_SOURCE = "tdd-gave-up"           # 同じく: 3 回拒まれて機械が止めた単位の申し出（人が読む理由の文でなく、この値で見分ける）
+SOURCES = (FIX_SOURCE, TDD_SOURCE, GAVE_UP_SOURCE)
+REPEAT_GAVE_UP = ("作り直しの後にも同じ単位が TDD の確認の上限まで落ちた（案を直した行 {prior}）。機械で回し続けず、"
+                  "設計を疑う判断を人に回す")   # 2 度目の諦めの ask_human の裁定の文
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 # 案の直しの状態（裁定 REPLAN の行の欄。依頼 226）。WAITING → AMENDED か GAVE_UP の 2 つの移りだけ（set_replan）
 REPLAN_STATE = "replan"                 # 裁定の行の欄（apply_rulings が REPLAN の行に必ず置く）
@@ -350,15 +356,24 @@ def _path(b) -> pathlib.Path:
 
 
 def _load(b) -> dict:
+    return _load_path(_path(b))
+
+
+def _load_path(path: pathlib.Path) -> dict:
     try:
-        doc = json.loads(_path(b).read_text(encoding="utf-8"))
+        doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {"items": []}
     except (OSError, ValueError) as e:
-        raise _board.BoardGap(f"食い違いの控え {_path(b)} が読めない: {e}") from None
+        raise _board.BoardGap(f"食い違いの控え {path} が読めない: {e}") from None
     if not isinstance(doc, dict) or not isinstance(doc.get("items"), list):
-        raise _board.BoardGap(f"食い違いの控え {_path(b)} の形が違う（{{items: [...]}}）")
+        raise _board.BoardGap(f"食い違いの控え {path} の形が違う（{{items: [...]}}）")
     return doc
+
+
+def items_across_scopes(b) -> list:
+    """線と登録した scope の置き場（scopes.each）の控えの行の全部。壊れた控えは BoardGap"""
+    return [r for p in scopes.each(b, FILE) for r in _load_path(p)["items"]]
 
 
 def _write(path: pathlib.Path, text: str) -> None:
@@ -408,9 +423,20 @@ def second_pass(b) -> bool:
     return any(replan_state(i) == AMENDED for i in items(b))
 
 
+def amended_rows_by_unit(b) -> dict:
+    """項目を直した行（状態 AMENDED）が外していた単位（ruled_units。直す義務に戻った単位）ごとの、その行。同じ単位を外す行が
+    複数なら先の行"""
+    out: dict = {}
+    for i in items(b):
+        if replan_state(i) == AMENDED:
+            for k in ruled_units(i):
+                out.setdefault(k, i)
+    return out
+
+
 def amended_keys(b) -> set:
-    """項目を直した行（状態 AMENDED）が外していた単位の全部（ruled_units。直す義務に戻った単位）"""
-    return {k for i in items(b) if replan_state(i) == AMENDED for k in ruled_units(i)}
+    """項目を直した行（状態 AMENDED）が外していた単位の全部（直す義務に戻った単位）"""
+    return set(amended_rows_by_unit(b))
 
 
 def set_replan(b, ids, state: str, *, why: str = "") -> None:
@@ -521,13 +547,16 @@ def kind_counts(b) -> dict:
 
 def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
     """申し出を積む（status parked・ruling は None か渡した物）。同じ単位・同じ名指し・同じ理由の申し出は積み増さない
-    （Archon の呼び直し）。trace に 1 行ずつ。返りは積んだ・在った行の id"""
+    （Archon の呼び直し。案を直した行（状態 AMENDED）は数えない——作り直した後の同じ申し出は新しい申し出）。trace に 1 行ずつ。
+    返りは積んだ・在った行の id。source が SOURCES の外なら BoardGap"""
+    if source not in SOURCES:
+        raise _board.BoardGap(f"申し出の出どころ {source!r} が表 SOURCES {list(SOURCES)} に無い")
     doc = _load(b)
     ids = []
     for it in rows:
         # 前からの 4 つの欄は必ず在る（受け付けと機械の申し出が確かめてから積む）。kind だけは前の形の行に無いことがある
         body = {**{k: it[k] for k in FIELDS if k != KIND_FIELD}, KIND_FIELD: it.get(KIND_FIELD)}
-        same = next((r for r in doc["items"] if {k: r.get(k) for k in FIELDS} == body), None)
+        same = next((r for r in doc["items"] if replan_state(r) != AMENDED and {k: r.get(k) for k in FIELDS} == body), None)
         if same is not None:
             ids.append(same["id"])
             continue
@@ -539,6 +568,26 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
         b.trace(PARK_OP, id=row["id"], unit_key=row["unit_key"], source=source, which_is_right=row[WHICH_FIELD],
                 kind=row.get(KIND_FIELD), between=row["between"], ruled=bool(ruling))
     _save(b, doc)
+    return ids
+
+
+def park_claims(b, rows: list) -> list:
+    """輪の状態の未送の行 {source, item} を積む。機械が諦めた申し出（GAVE_UP_SOURCE）で、その単位が案を直して直す義務に戻った単位
+    （amended_keys）なら、作り直した後の 2 度目の諦めなので、裁定に回さず ask_human つき（by stopby.TDD_REPEAT）で積む。ほかは裁定なし。
+    返りは積んだ・在った行の id"""
+    ids, asked = [], False
+    amended = amended_rows_by_unit(b)
+    for r in rows:
+        ruling = None
+        if r["source"] == GAVE_UP_SOURCE:
+            prior = amended.get(r["item"]["unit_key"])
+            if prior is not None:
+                ruling = {"decision": ASK, "text": REPEAT_GAVE_UP.format(prior=prior.get("id")), "limits": [],
+                          "by": stopby.TDD_REPEAT}
+                asked = True
+        ids += park(b, [r["item"]], source=r["source"], ruling=ruling)
+    if asked:
+        write_rulings(b)
     return ids
 
 

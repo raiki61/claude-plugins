@@ -30,7 +30,8 @@
   型の誤りを全部並べて 1 回で拒む。REPLAN_REJECT）。受け入れのテストが既に在るかは修正の起点の版（盤面の review_rev）の木で
   引く。事前審査の役には呼び手が組んだ独立設計の節と、前後の項目だけを渡す（REVIEW_ASK_REPLAN）。どちらも読むだけの役で、
   輪の前に snap が置いた作業ツリーの写しと比べて変わっていれば拒む（支度は写しを置き直さない）。拒否は rolekit.with_done の控えに積み、GIVE_UP_AFTER 回目で done
-  （諦めは盤面を止めない。後の関所が項目ごとに読む）
+  （諦めは盤面を止めない。後の関所が項目ごとに読む）。独立設計が立つ run の事前審査の役には、型に対応表の欄 design_map を足して見せ
+  （converge.with_design_map）、受け付けは返答の design_map を drop_fields の前に取り出して、穴の引用と一緒に design.quote_gaps で照らす
 - new_item(row): TRIP_FILE の行の直した項目に、外した決め手の欄を narrows の行ごとに戻した形
 - revised_fields(b, repo): 今の周の項目の欄（planmarks.read）の、直した項目（TRIP_FILE の行の new）を planmarks.split の欄に
   差し替えた並び。直した項目が 1 つも無い・控えが無いなら None（blk-plan の lib が案の直しの後の波及の一覧を作り直す材料）
@@ -80,6 +81,7 @@ import accept  # noqa: E402
 import answer as _answer  # noqa: E402
 import conflict  # noqa: E402
 import converge  # noqa: E402
+import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import gatepolicy  # noqa: E402  （L1。無人の run か）
@@ -421,6 +423,8 @@ def prep(board_dir, role: str, repo, *, head: str, design_part: str = "") -> dic
     conflicts = {c.get("id"): c for c in conflict.items(b)}
     ask = [REPLAN_ASK] if role == "plan" else [design_part, REVIEW_ASK_REPLAN, planmarks.REVIEW_ASK]
     schema = accept.role_schema(planmarks.NODE if role == "plan" else REVIEW_GRAPH_NODE)   # 受け付けが当てる型（名前の型）
+    if role == "plan-review" and design.stands(board_dir) is not None:   # 独立設計が立つ時は、項目の adds の対応表の欄も見せる
+        schema = converge.with_design_map(schema)
     parts = [head.rstrip("\n"), *ask, *(_section(r, conflicts, role) for r in rows),
              rolekit.lang_line(b.state.get("inputs")) + rolekit.SCHEMA_NOTE + dump(schema)]
     rejects = _rejects(board_dir, node)
@@ -520,8 +524,15 @@ def _take(board_dir: pathlib.Path, role: str, reply, repo) -> dict:
             bare, marks = gatemarks.split(planmarks.NODE, {"plan": [got]})
             row["new"], row["new_marks"] = bare["plan"][0], marks[0]
     else:
+        design_map = reply.get(converge.DESIGN_MAP) if isinstance(reply, dict) else None   # drop_fields が外す前に取る
         reply = converge.drop_fields(reply)   # 同じ役の型の壁打ちと束ね役の任意の欄（案の直しは写しの型で受ける）
         errs = _type_lines(reply, REVIEW_GRAPH_NODE)
+        if design_map is not None:
+            errs += [f"型の外れ: {e}" for e in validate_schema(design_map, converge.DESIGN_MAP_SCHEMA, f"$.{converge.DESIGN_MAP}")]
+        if errs:
+            return {"ok": False, "reason": REVIEW_REJECT + "\n" + "\n".join(f"  - {e}" for e in errs)}
+        errs = design.quote_gaps(board_dir, reply["faces"], [{**r["new"], "item": r["item"]} for r in rows],
+                                 design_map if isinstance(design_map, list) else [])
         if errs:
             return {"ok": False, "reason": REVIEW_REJECT + "\n" + "\n".join(f"  - {e}" for e in errs)}
         for row in rows:

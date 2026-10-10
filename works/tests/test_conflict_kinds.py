@@ -290,6 +290,29 @@ class FixPlanItemRulingCase(unittest.TestCase):
         self.assertIn("`kind`", fixrules.sections(fixrules.RULER)["ruler-head"])
 
 
+class GaveUpRulingCase(unittest.TestCase):
+    """機械が諦めた単位の申し出（行の source が conflict.GAVE_UP_SOURCE）への fix_code_as は、コードを直せば済むと示す材料
+    （grounds）を挙げた時だけ通る。役の申し出（source が conflict.TDD_SOURCE）は今どおり grounds なしで通る"""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = pathlib.Path(tmp.name)
+        seed(self.repo)
+
+    def errs(self, source, **over):
+        todo = {"c1-1": {"id": "c1-1", "unit_key": KEY, "source": source, "which_is_right": "unknown", "kind": "needs_context"}}
+        r = {"id": "c1-1", "decision": "fix_code_as", "text": "テストの期待は依頼どおりなので、コードの返り値を hi に直せ",
+             "limits": [], **over}
+        return ruling.problems({"rulings": [r]}, todo, self.repo, "", ())
+
+    def test_fix_code_as_on_machine_claim_needs_grounds(self):
+        got = self.errs(conflict.GAVE_UP_SOURCE, grounds=[])
+        self.assertTrue(any("grounds" in e and "fix_code_as" in e for e in got), got)
+        self.assertEqual(self.errs(conflict.GAVE_UP_SOURCE, grounds=["stats.py:3", "test_stats.py:2"]), [])
+        self.assertEqual(self.errs(conflict.TDD_SOURCE, grounds=[]), [], "役の申し出は今どおり")
+
+
 def fake_with_rows(rows):
     """偽の盤面（work は一時の置き場のファイル・round 1・state の outputs は空・trace は traced に貯める）に、申し出の行
     rows を置いた物。一時の置き場はモジュールの終わりに消す"""

@@ -324,7 +324,7 @@ def lane_step(state_file, n, reply, repo) -> dict:
         return {**_park(lst_file, lst, reply, tree), "unit_key": k}
     items = reply.get(writes.FIELD) if isinstance(reply, dict) else None
     cur = lst["cur"]
-    out = tddloop.step(lst_file, reply, tree, log=writes.sink(repo))
+    out = tddloop.step(lst_file, reply, tree, log=writes.sink(repo), outbox=False)   # 枝の諦めは締めが輪へ戻すので未送に積まない
     lst = tddloop._load(lst_file)
     if out["ok"] and items and not writes.shape_problems(items):
         lst["declared"] = [*lst.get("declared", []), *items]
@@ -381,7 +381,7 @@ def join(state_file, repo, try_query=None, park=None) -> dict:
     joined = (st.get("lanes") or {}).get(JOINED)
     if joined is not None:   # resume で回し直された締め: 締めた時の出口をそのまま返す（盤面・作業ツリーを動かさない。積み終えた
         out = dict(joined)   # 申し出は空で積み直さない）。節の出力は同じなので Archon は後ろの節の済みを使い続ける
-        _park_claims(state_file, st, out["conflicts"], park)
+        tddloop.flush_claims(state_file, st, st["lanes"][JOINED], "conflicts", park)
         return out
     if st.get("done") or st.get("phase") != "lanes" or not st.get("lanes"):
         raise tddloop.Broken(f"並べの周でない（段 {st.get('phase')!r}）——tdd-join は枝の輪の後に 1 回だけ回る")
@@ -400,17 +400,8 @@ def join(state_file, repo, try_query=None, park=None) -> dict:
            "conflicts": items}
     st["lanes"][JOINED] = dict(out)   # 積み終えるまで申し出を出口に残す（積んだら空にする。節の出力に申し出は載らない）
     tddloop._save(state_file, st)
-    _park_claims(state_file, st, items, park)
+    tddloop.flush_claims(state_file, st, st["lanes"][JOINED], "conflicts", park)
     return dict(out)
-
-
-def _park_claims(state_file, st: dict, items: list, park) -> None:
-    """申し出を積む口に渡し、渡せたら保存した出口の申し出を空にする（再生は積まない）"""
-    if not items or park is None:
-        return
-    park(list(items))
-    st["lanes"][JOINED]["conflicts"] = []
-    tddloop._save(state_file, st)
 
 
 def settle(st: dict, repo, try_query=None) -> list:
@@ -492,12 +483,11 @@ def _close_units(st, row, lst, keys, back, out, items, try_query, work) -> list:
             if probs:
                 back[k] = {"why": "並べの食い違いの申し出が確かめを通らない: " + probs[0][:300]}
                 continue
-            st.setdefault("parked", []).append(k)
-            st.setdefault("parked_why", {})[k] = c["why_both_cannot_hold"]
+            tddloop._mark_parked(st, k, c["why_both_cannot_hold"])
             st["units"][k].update(route="parked", why=c["why_both_cannot_hold"])
             items.append(c)
             out[k] = (PARKED, "")
-        elif u.get("route") == "direct":
+        elif u.get("route") == "direct" or u.get("gave_up"):
             if u.get("gave_up") == "writer":
                 st["units"][k] = _record(u)
                 out[k] = (DIRECT, u.get("why", ""))

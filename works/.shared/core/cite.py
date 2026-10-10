@@ -12,6 +12,10 @@
   在るファイル。フォルダだけは出どころに数えない）・依頼の引用「…」（文に「依頼」の語が在る時だけ。quoted＝依頼の文の中に字のまま
   在る）のどれかが 1 つ以上在り、書いた物が全部現物に在る時だけ通る。どれも無ければ「出どころが現物に無い」。
   パスの形でない名指し（時刻 12:30 など。パスの部分に / も拡張子も無い）は名指しに数えない
+- fold(text)・quotes(text)・missing_quotes(text, source, folded=True) -> list[str]: 引用「…」の照らし（sources_problem の依頼の引用と、
+  独立設計の引用の照らしが使う 1 か所）。fold は NFKC にして空白を 1 つに畳む。missing_quotes は text の引用のうち source に部分文字列
+  として在らない物。folded が真（既定）なら両側を fold してから照らす（独立設計の引用）。偽なら字のまま（sources_problem の依頼の引用は
+  偽。関所の決め手の照らしを緩めない）
 - ref_problem(source, prefix, known) -> list[str]: 出どころの文の中の prefix で始まる参照（頭に字が添えてあってもよい）の id が、
   呼び手が渡した実在の id の組 known に在るかの照らし。無い id ごとに誤りの 1 文（prefix の語が無ければ空）
 
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import unicodedata
 
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
 CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
@@ -106,6 +111,24 @@ def _pathish(word: str) -> bool:
         and not word.startswith("/")
 
 
+def fold(text) -> str:
+    """引用の照らしの前に両側へ掛ける畳み: NFKC にし、空白（改行・タブ含む）の並びを 1 つの半角空白にして前後を除く"""
+    return " ".join(unicodedata.normalize("NFKC", str(text)).split())
+
+
+def quotes(text) -> list:
+    """文の中の引用「…」（4 字以上。前後の空白を除く）を出た順に"""
+    return [q.strip() for q in QUOTE.findall(text)] if isinstance(text, str) else []
+
+
+def missing_quotes(text, source, *, folded: bool = True) -> list:
+    """text の引用「…」のうち、source に在る部分文字列でない物を出た順に（無ければ空）。folded が真なら両側に fold を掛けて照らし、
+    偽なら字のまま（全角と半角・空白の違いも別の字と数える）"""
+    norm = fold if folded else str
+    haystack = norm(source)
+    return [q for q in quotes(text) if norm(q) not in haystack]
+
+
 def sources_problem(text, repo, roots=(), quoted: str = "") -> str:
     if not isinstance(text, str) or not text.strip():
         return NO_SOURCE
@@ -113,10 +136,8 @@ def sources_problem(text, repo, roots=(), quoted: str = "") -> str:
     rest = URL.sub(" ", text)
     found += len(URL.findall(text))
     if REQUEST_WORD in rest:
-        for q in QUOTE.findall(rest):
-            found += 1
-            if q.strip() not in quoted:
-                bad.append(f"依頼の引用「{q}」が依頼の文に無い")
+        found += len(QUOTE.findall(rest))
+        bad += [f"依頼の引用「{q}」が依頼の文に無い" for q in missing_quotes(rest, quoted, folded=False)]
     rest = QUOTE.sub(" ", rest)
     repo_p = pathlib.Path(repo).resolve()
     for word in TOKEN.findall(rest):

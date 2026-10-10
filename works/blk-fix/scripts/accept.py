@@ -337,10 +337,10 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
         if bad:
             return reply, {**_reject(CONFLICT_BAD + " / ".join(bad)), "lines": lines}
         if pass_ == "first":
-            conflict.park(b, items, source="fix")
+            conflict.park(b, items, source=conflict.FIX_SOURCE)
         else:
-            conflict.park(b, items, source="fix", ruling={"decision": conflict.ASK, "text": SECOND_CONFLICT, "limits": [],
-                                                          "by": FIX_ACCEPT_BY})
+            conflict.park(b, items, source=conflict.FIX_SOURCE,
+                          ruling={"decision": conflict.ASK, "text": SECOND_CONFLICT, "limits": [], "by": FIX_ACCEPT_BY})
             conflict.write_rulings(b)
     if pass_ == "first" and conflict.unruled(b):
         _put_parked(b.work(conflict.PARKED_REPLY), {**reply, "conflicts": items})
@@ -441,7 +441,7 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
         why = " / ".join(texts)
         conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": conflict.UNKNOWN,
                            "kind": conflict.NEEDS_CONTEXT}],
-                      source="fix", ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
+                      source=conflict.FIX_SOURCE, ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
                                             "limits": [], "by": FIX_ACCEPT_BY})
     conflict.write_rulings(b)
     b.trace(PARKED_OP, node=recount.ROLE, unit_keys=list(settled.park), patch=patch, reasons=settled.park,

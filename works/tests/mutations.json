@@ -207,7 +207,7 @@
   },
   {
    "id": "gu1",
-   "title": "TDD の輪: 段の RETRY_MAX 回目の拒否で諦めて direct に回す（give-up）",
+   "title": "TDD の輪: 段の RETRY_MAX 回目の拒否で諦めて裁定に回す（give-up）",
    "file": "blk-fix/lib/tddloop.py",
    "old": "        if st[\"tries\"] >= retry_max():",
    "new": "        if False:",
@@ -622,6 +622,102 @@
    "tests": {
     "tests/test_ci_test_cmd.py": [
      "RunCiTestCmdRulesCase.test_fallback_with_reused_test_cmd_row_names_source"
+    ]
+   }
+  },
+  {
+   "id": "gu1-green",
+   "title": "TDD の輪: 緑の段の RETRY_MAX 回目の拒否で諦めて裁定に回す（give-up）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "        if st[\"tries\"] >= retry_max():",
+   "new": "        if False:",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_green_give_up_parks_unit_for_ruling_and_moves_on"
+    ]
+   }
+  },
+  {
+   "id": "pr-design-quote",
+   "title": "事前審査の穴の引用の照らし: 独立設計との食い違い・対の無い仕組みの穴の why の引用を照らさず、引用の無い穴も受ける",
+   "file": ".shared/core/design.py",
+   "old": "        if not (isinstance(why, str) and why.startswith(QUOTE_HEADS)):\n            continue\n",
+   "new": "        if True:\n            continue\n",
+   "tests": {
+    "tests/test_blk_plan.py": [
+     "ConvergeReviewCase.test_design_drift_face_needs_quotes_in_both"
+    ]
+   }
+  },
+  {
+   "id": "gu-unsent",
+   "title": "TDD の輪: 状態の未送の申し出を盤面へ流さない（流し口が積まずに空にする）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "    park(list(claims))\n    holder[field] = []\n",
+   "new": "    holder[field] = []\n",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestResume.test_park_failure_then_next_call_parks_once"
+    ]
+   }
+  },
+  {
+   "id": "dp-touched",
+   "title": "run の広さの数えが修正の実際の差分（loop.fix_delta の files）を足さず、計画の allowed_paths だけで数える",
+   "file": "darkfactory/lib/depth.py",
+   "old": "    return set(_paths(mine)) | {p for p in touched if isinstance(p, str) and p not in test_files\n                                and impact.is_test(p) != \"module\"}, _tests(mine)\n",
+   "new": "    return set(_paths(mine)), _tests(mine)\n",
+   "tests": {
+    "tests/test_depth.py": [
+     "BoardReadCase.test_raise_counts_actual_diff_beyond_plan"
+    ]
+   }
+  },
+  {
+   "id": "dp-undeclared-tests",
+   "title": "run の広さの数えが、宣言に無いテストのファイル（名の慣習に当たる物）を実装のパスに数える",
+   "file": "darkfactory/lib/depth.py",
+   "old": "                                and impact.is_test(p) != \"module\"}, _tests(mine)\n",
+   "new": "                                }, _tests(mine)\n",
+   "tests": {
+    "tests/test_depth.py": [
+     "BoardReadCase.test_raise_does_not_count_undeclared_test_files"
+    ]
+   }
+  },
+  {
+   "id": "gu-amended-absorbed",
+   "title": "申し出を積み増さない防ぎが、案を直した行（AMENDED）も同じ申し出に数え、作り直した後の同じ欄の申し出が前の行に吸われる",
+   "file": ".shared/core/conflict.py",
+   "old": "replan_state(r) != AMENDED and {k: r.get(k) for k in FIELDS} == body",
+   "new": "{k: r.get(k) for k in FIELDS} == body",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_second_machine_give_up_is_asked_to_human"
+    ]
+   }
+  },
+  {
+   "id": "gu-repeat",
+   "title": "機械の諦めの申し出: 同じ単位の 2 度目を見分けず、裁定に回す",
+   "file": ".shared/core/conflict.py",
+   "old": "        if r[\"source\"] == GAVE_UP_SOURCE:\n",
+   "new": "        if False:\n",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_second_machine_give_up_is_asked_to_human"
+    ]
+   }
+  },
+  {
+   "id": "rl-gaveup-grounds",
+   "title": "裁定の返答の確かめ: 機械が諦めた単位への fix_code_as の grounds の在る無しを見ない",
+   "file": "blk-fix/lib/ruling.py",
+   "old": "                and not r.get(\"grounds\")):\n",
+   "new": "                and False):\n",
+   "tests": {
+    "tests/test_conflict_kinds.py": [
+     "GaveUpRulingCase.test_fix_code_as_on_machine_claim_needs_grounds"
     ]
    }
   }

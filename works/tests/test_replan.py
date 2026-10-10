@@ -40,6 +40,7 @@ from test_blk_fix import PLAN_FIELDS, PLAN_REVIEW_OK, load, run_script  # noqa: 
 import board  # noqa: E402
 from board import BoardGap  # noqa: E402
 import conflict  # noqa: E402
+import converge  # noqa: E402
 import entry  # noqa: E402
 import planblk  # noqa: E402
 import planmarks  # noqa: E402
@@ -561,6 +562,76 @@ class TestReplanRoles(ReplanCase):
         got = self.accept("plan-review", reply)
         self.assertTrue(got["ok"], got)
         self.assertNotIn("items", self.trip()["items"][0]["review"])
+
+    DESIGN_TEXT = "上限は入口 1 箇所で掛け、各所では掛け直さない。平均は定義どおりに割る"
+    DESIGN_ROW = "mean の分母を len(xs) に直し"   # fixed_item の approach に字のまま在る
+    ADD = {"kind": "function", "name": "mean", "canonical": "stats.mean の分母"}
+
+    def design_stands(self):
+        """独立設計が立つ盤面（盤面の根の design.json）"""
+        import accept
+        import design
+        accept.write_board(self.board, design.DESIGN_FILE,
+                           {"question_stands": True, "reason": "問いは立っている", "design": self.DESIGN_TEXT})
+
+    def at_review(self, item=None):
+        """直した項目 item（既定は fixed_item）を修正案の役が返した後、事前審査の役の支度まで進める。返りは支度の指示書の文"""
+        replan.material(self.b); self.prep("plan")
+        self.assertTrue(self.accept("plan", {"plan": [item or fixed_item()]})["ok"])
+        self.assertTrue(replan.snap(self.board, "plan-review", self.repo)["go"])
+        return pathlib.Path(self.prep("plan-review")["prompt_file"]).read_text(encoding="utf-8")
+
+    @staticmethod
+    def drift(why, key="design-drift-mean-split"):
+        return {"key": key, "unit_keys": [MEAN], "kind": "contract_drift", "where": "stats.py mean", "why": why,
+                "severity": "block"}
+
+    def test_replan_review_design_quotes_checked(self):
+        """同じ run の案の直しの事前審査でも、独立設計との食い違いの穴（why の頭が design.DRIFT_HEAD）の引用が、独立設計の文と直した
+        項目の行の両方に字のまま在る時だけ受ける。無い引用・字の違う引用は穴の key を名指して拒む"""
+        import design
+        self.design_stands()
+        self.at_review()
+        head = design.DRIFT_HEAD
+        for text in (head + "設計と継ぎ目の置き方が違う、という穴だ",                                                  # 引用が無い
+                     head + f"設計の「上限は入口 2 箇所で掛け」に対し案の「{self.DESIGN_ROW}」は食い違う",              # 設計の引用の字が違う
+                     head + "設計の「上限は入口 1 箇所で掛け」に対し案の「mean の分母を len(xs) - 1 に直し」は食い違う",  # 案の行の引用の字が違う
+                     head + "設計の「上限は入口 1 箇所で掛け」だけを引いた"):                                          # 案の行の引用が無い
+            with self.subTest(text):
+                got = self.accept("plan-review", {**no_faces(), "faces": [self.drift(text)]})
+                self.assertFalse(got["ok"], got)
+                self.assertIn(replan.REVIEW_REJECT, got["reason"])
+                self.assertIn("design-drift-mean-split", got["reason"])
+        good = head + f"設計の「上限は入口 1 箇所で掛け」に対し案の「{self.DESIGN_ROW}」は継ぎ目の置き方が違う"
+        got = self.accept("plan-review", {**no_faces(), "faces": [self.drift(good)]})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.trip()["items"][0]["review"]["faces"][0]["why"], good)
+
+    def test_replan_review_without_design_skips_quotes(self):
+        """独立設計が立たない run の案の直しの事前審査は、引用の無い穴も今までどおり受ける"""
+        import design
+        prompt = self.at_review()
+        self.assertNotIn(f'"{converge.DESIGN_MAP}"', prompt.split("JSON Schema", 1)[-1])
+        got = self.accept("plan-review", {**no_faces(), "faces": [self.drift(design.DRIFT_HEAD + "設計と継ぎ目の置き方が違う")]})
+        self.assertTrue(got["ok"], got)
+
+    def test_replan_review_design_map_checked(self):
+        """案の直しの事前審査の返答は design_map を書ける（型で拒まない）。独立設計が立つ時、直した項目の adds の name を 1 つ欠く・設計に
+        無い字を design_quote に引く・同じ name を 2 行書く返答は name を名指して拒み、全部の name がそろって引用が実在する（か null）返答は
+        受ける。指示書に貼る型にも design_map の欄が在る（設計が立たない run には無い）"""
+        self.design_stands()
+        prompt = self.at_review({**fixed_item(), "adds": [self.ADD]})
+        self.assertIn(f'"{converge.DESIGN_MAP}"', prompt.split("JSON Schema", 1)[-1])
+        row = {"item": 1, "name": "mean", "design_quote": "平均は定義どおりに割る",
+               "why": "設計の平均の記述に案の mean の分母の直しが当たる"}
+        for bad in ([], [{**row, "design_quote": "設計に無い字の並び"}], [row, row]):
+            with self.subTest(bad):
+                got = self.accept("plan-review", {**no_faces(), converge.DESIGN_MAP: bad})
+                self.assertFalse(got["ok"], got)
+                self.assertIn("mean", got["reason"])
+        got = self.accept("plan-review", {**no_faces(), converge.DESIGN_MAP: [{**row, "design_quote": None}]})
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn(converge.DESIGN_MAP, self.trip()["items"][0]["review"])
 
     def test_snap_go_follows_trip(self):
         self.assertTrue(replan.snap(self.board, "plan", self.repo)["go"])

@@ -29,7 +29,7 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
 - answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行（項目の在る
   控えでは、今の往復で開いている項目の分だけ）
 - with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す（事前審査の型には項目ごとの審査の欄
-  ITEMS（項目ごとの判定の要約）も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す。下請けの答えのファイルの
+  ITEMS（項目ごとの判定の要約）と DESIGN_MAP（独立設計との対応表）も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す。下請けの答えのファイルの
   当たりの答えの型は HITS_SCHEMA）
 - item_blocks(b, n): 項目 n が答える前の往復の block の key（受け付けが下請けの答えの resolved を確かめる）
 - prev_row(b, n)・answered_hits(b, n)・carried_notes(b): 前の往復のその項目の案の行・当たりの答えと、suggest の穴（往復の行の
@@ -119,7 +119,14 @@ HITS_SCHEMA = {"type": "array", "items": {
     "type": "object", "additionalProperties": False, "required": ["id", "answer", "why"],
     "properties": {"id": {"type": "string", "minLength": 2}, "answer": {"type": "string", "enum": list(HIT_ANSWERS)},
                    "why": {"type": "string", "minLength": 10}}}}
-TREE_FIELDS = {"plan-review": {ITEMS: ITEMS_SCHEMA}}
+# 独立設計と案の仕組みの対応表（項目の adds の name ごとに 1 行。独立設計が立つ run の項目の答えが書く。design_quote は独立設計の
+# 字のままの引用か、対が無ければ null。照らしは core の design.quote_gaps）。事前審査の役の型にだけ在り、盤面へ渡す前に外す
+DESIGN_MAP = "design_map"
+DESIGN_MAP_SCHEMA = {"type": "array", "items": {
+    "type": "object", "additionalProperties": False, "required": ["item", "name", "design_quote", "why"],
+    "properties": {"item": {"type": "integer", "minimum": 1}, "name": {"type": "string", "minLength": 1},
+                   "design_quote": {"type": ["string", "null"]}, "why": {"type": "string", "minLength": 10}}}}
+TREE_FIELDS = {"plan-review": {ITEMS: ITEMS_SCHEMA, DESIGN_MAP: DESIGN_MAP_SCHEMA}}
 
 
 # ---------------------------------------------------------------- 決まり
@@ -497,16 +504,22 @@ def split(role: str, reply: dict) -> tuple[dict, list]:
 
 
 def tree_split(reply: dict) -> tuple[dict, dict]:
-    """（束ね役の欄 ITEMS・SYNERGY を外した返答の写し, {ITEMS: 値 | None, SYNERGY: 値 | None}）"""
-    out, got = marks.split("converge", "plan-review", reply, (ITEMS, SYNERGY))
-    return out, {name: got.get(name) for name in (ITEMS, SYNERGY)}
+    """（束ね役の欄 ITEMS・SYNERGY と対応表 DESIGN_MAP を外した返答の写し, {ITEMS: 値 | None, SYNERGY: 値 | None, DESIGN_MAP: 値 | None}）"""
+    out, got = marks.split("converge", "plan-review", reply, (ITEMS, SYNERGY, DESIGN_MAP))
+    return out, {name: got.get(name) for name in (ITEMS, SYNERGY, DESIGN_MAP)}
+
+
+def with_design_map(schema: dict) -> dict:
+    """事前審査の型の写しに対応表の欄 DESIGN_MAP（任意）だけを足した写し（案の直しの事前審査の指示書が、独立設計の立つ時に見せる）"""
+    return marks.add("converge", "plan-review", schema, {DESIGN_MAP: DESIGN_MAP_SCHEMA})
 
 
 def drop_fields(reply):
-    """事前審査の返答から壁打ちの欄（RESOLVED・ITEMS・SYNERGY）を外した写し（案の直しの事前審査は写しの型で受ける）"""
+    """事前審査の返答から壁打ちの欄（RESOLVED・ITEMS・SYNERGY・DESIGN_MAP）を外した写し（案の直しの事前審査は写しの型で受ける。
+    対応表は外す前に呼び手が取り出して照らす）"""
     if not isinstance(reply, dict):
         return reply
-    return marks.split("converge", "plan-review", reply, (RESOLVED, ITEMS, SYNERGY))[0]
+    return marks.split("converge", "plan-review", reply, (RESOLVED, ITEMS, SYNERGY, DESIGN_MAP))[0]
 
 
 # ---------------------------------------------------------------- 文

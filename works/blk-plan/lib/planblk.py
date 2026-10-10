@@ -33,7 +33,8 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             審査のファイルを今の周の plan-review-items/pass-<k>/ に書き、束ね役の頼み（AGG_HEAD）でそれを Agent で並べて起こさせる。
             下請けは答えを盤面の外の run ごとの置き場（answers_dir。盤面は守る場所で役が書けない）の機械が決めたファイルに Write で
             書く。受け付け（tree_merge）がそのファイルを項目ごとに確かめ（型・覆っていない当たりの全部の答え・自分の項目の単位だけ・
-            前の block の行き先）、faces・shrink・resolved・当たりの答え・相乗りを審査の返答にまとめる。束ね役の返答は項目ごとの判定の
+            前の block の行き先・独立設計が立つ時は穴の引用と対応表 design_map。design_gaps）、faces・shrink・resolved・当たりの答え・
+            相乗りを審査の返答にまとめる（相乗りの審査の答えは穴の引用だけを照らす）。束ね役の返答は項目ごとの判定の
             要約（converge.ITEMS）だけで、答えのファイルと食い違えば拒む。確かめを通らない項目は、出し直しの支度がその項目の下請けの
             ファイルにだけ機械の読める誤りの一覧（ERRORS_HEAD）を貼って起こし直させ、通った項目は起こし直さない。
             修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が返した開いた項目の行に閉じた・保留の項目の前の往復の行を差し込んで全体にし（converge.splice）、閉じた項目を変えた
@@ -117,6 +118,8 @@ RESOLVED_REJECT = "前の往復の block の行き先が書かれていない（
 ANSWERS_REJECT = "block への答えに誤りが在る（下の行を全部直して出し直せ）:"
 TREE_REJECT = "項目ごとの審査の答え（下請けの答えのファイル・束ね役の items）に欠けか誤りが在る（下の行を全部直して出し直せ）:"
 CLOSED_REJECT = "閉じた・開いた項目の行が合わない（下の行を直して出し直せ）:"
+DESIGN_QUOTE_REJECT = ("独立設計の引用か design_map に誤りが在る（下の行を全部直して出し直せ。「」は独立設計と案の行の引用だけに使い、"
+                       "ほかの引用は『』か `…` で書く）:")
 RIPPLE_UNITS = "ripple/units.json"      # 今の周の作業ファイル（manifest の produces ripple/**）
 RIPPLE_PASS = "ripple/pass-{k}.json"
 RIPPLE_LATEST = "ripple.json"           # 最後に作った項目ごとの一覧の写し（修正の段へ線が渡す。manifest の produces）
@@ -195,9 +198,20 @@ PLAN_SLOTS_HEAD = promptsection.Section("## 案に入れてよい単位の no（
                                         "one_shot_closes に載る単位より、この節が優先する）", source="fn:planblk.plan_slots_section")
 DESIGN_HEAD = promptsection.Section("## 独立設計（修正案を見ない別の目が、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作った理想解。機械が貼った）", source="fn:planblk.design_only")
 DESIGN_ASK = ("修正案をこの設計と構造で突き合わせよ——何を固定し何を派生と見るか・どこに継ぎ目を置くか・目的の当事者が日常で回す"
-              "動線が閉じるか。構造の本質的な食い違いは faces に kind contract_drift・severity block で挙げ、why を"
-              "『独立設計との構造の食い違い: 』で始めよ。表現の違い・設計が触れていない所は食い違いでない（設計は判定の単位も"
-              "実装の事情も知らない）。")
+              "動線が閉じるか。案が足す仕組み（ファイル・関数・節・役・欄・入力）ごとと、この項目の adds・allowed_paths の大きさごとに、"
+              "設計との食い違いかを判じよ。判じる根拠は引用で示す: 独立設計の行と案の行（その項目の approach・adds・allowed_paths・"
+              "shrink_first）を、それぞれ「…」で字のまま引け。設計から引用できない所は、大きさの開きでも対の無さでも食い違いに数えない"
+              "（表現の違い・設計が触れていない所もこの決まり1つで読む。設計は判定の単位も実装の事情も知らない）。"
+              "食い違いと判じた物は、設計に対の無い仕組みも大きさの開きも、faces に kind contract_drift・severity block で挙げ、why を"
+              f"対の無い仕組みなら『{design.UNPAIRED_HEAD}』、構造の食い違い・大きさの開きなら『{design.DRIFT_HEAD}』で始め、"
+              "why に独立設計の行と案の行の引用をそれぞれ 1 つ以上入れよ（機械が字のまま在るかを照らし、無ければ出し直させる）。"
+              "大きさの開きには、この項目の shrink に小さく閉じる別案も書け。この 2 つの頭の穴の why と design_map では、「」を"
+              "独立設計と案の行の引用だけに使い、ほかの引用は『』か `…` で書け。"
+              "独立設計が立つ run では、項目の答え（項目ごとの下請けの答えのファイル。下請けを起こさない往復と案の直しの事前審査では"
+              "返答）に design_map を書け。相乗りの審査と束ね役は書かない。行は項目の adds の name ごとに 1 行 "
+              "{item, name, design_quote（独立設計に対がある時はその行を字のまま引く。対が無ければ null）, why}。"
+              "単位を閉じるのに要る実装の細部は挙げない。頭の『既にある物を量ったかを見よ』（REUSE_REVIEW）で kind copy に挙げた行は、"
+              "contract_drift に挙げ直さない。")
 DESIGN_NOT_STANDS = ("設計の役は、目的の問いが立たないと返した（{reason}）。問いが立つかは修正の後の独立の目が前提を実態で検算して"
                      "扱うので、ここでは穴に挙げない。設計との突き合わせはせずに審査せよ。")
 DESIGN_NONE = "独立設計は無い（{why}）。設計との突き合わせはせずに審査せよ。"
@@ -632,6 +646,7 @@ def item_schema() -> dict:
             "properties": {"item": {"type": "integer", "minimum": 1}, "checked": {"type": "string", "minLength": 10},
                            "hits": copy.deepcopy(converge.HITS_SCHEMA), "faces": faces, "shrink": shrink,
                            "resolved": {"type": "array", "items": {"type": "string"}},
+                           converge.DESIGN_MAP: copy.deepcopy(converge.DESIGN_MAP_SCHEMA),
                            "precedents": {"type": "array", "items": {
                                "type": "object", "additionalProperties": False, "required": ["id", "found", "quote"],
                                "properties": {"id": {"type": "string"}, "found": {"type": "boolean"},
@@ -763,6 +778,16 @@ def carried_hits(b, n: int, rip: dict) -> dict:
     return out
 
 
+def design_gaps(b, faces, items: list, design_map=None) -> list[str]:
+    """独立設計の引用の誤りの行（design.quote_gaps。設計が立たない run では空）。faces の unit_keys は単位の名に戻して重ね、案の行は
+    壁打ちの控えの項目 items の行。design_map を渡す（None でない）と items の adds の name ごとの対応表も求める"""
+    names = _names(b, NODE_OF["plan-review"])
+    plan = converge.read(b).get("plan") or []
+    rows = [{**plan[n - 1].get("row", {}), "item": n} for n in items if 1 <= n <= len(plan)]
+    named = [{**f, "unit_keys": [_unit_name(names, k) for k in f.get("unit_keys") or []]} for f in faces if isinstance(f, dict)]
+    return design.quote_gaps(b.dir, named, rows, design_map)
+
+
 def item_answer_gaps(b, n: int, got: dict, rip: dict) -> list[str]:
     """型の合った項目 n の答えの中身の誤り: 覆っていない当たり（前の往復の答えを引き継ぐ物 carried_hits は除く）の全部に
     ちょうど 1 つの答え・block と答えた当たりには block の face・face は項目 n の単位だけを名指す・前の往復の block
@@ -792,7 +817,7 @@ def item_answer_gaps(b, n: int, got: dict, rip: dict) -> list[str]:
     errs += [f"$.resolved: {k} は項目 {n} の前の往復の block に無い" for k in got["resolved"] if k not in prev]
     errs += [f"$.resolved: {k} が resolved と block の face の両方に在る（消えたか残ったかのどちらか 1 つ）"
              for k in got["resolved"] if k in block_keys]
-    return errs
+    return errs + [f"$.faces・design_map: {e}" for e in design_gaps(b, got["faces"], [n], got.get(converge.DESIGN_MAP) or [])]
 
 
 def check_item(b, k: int, n: int, rip: dict, pre: list | None = None) -> tuple:
@@ -831,7 +856,7 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
     rip = _ripple_of(b, k) or {}
     base = {"review": bare, "resolved": resolved, "synergy": [], "hits": {}, "files": {}, "gaps": []}
     if _tree_off(b, k, rip):
-        return base
+        return {**base, "off": True}
     plan = converge.read(b)["plan"]
     opened = converge.open_items(b)
     gaps, answers = [], {}
@@ -872,6 +897,8 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
         else:
             syn, errs = _load(path, synergy_schema())
             gaps += [f"相乗りの審査（{path}）: {e}" for e in errs]
+            if syn is not None:
+                gaps += [f"相乗りの審査（{path}）: {e}" for e in design_gaps(b, syn["faces"], list(range(1, len(plan) + 1)))]
     faces = [f for n in opened if n in answers for f in answers[n]["faces"]] + list((syn or {}).get("faces") or [])
     keys = [f["key"] for f in faces]
     gaps += [f"face の key {key} が 2 つの答えに在る（後に書いた項目の key を変えよ）" for key in sorted(set(keys))
@@ -1153,7 +1180,9 @@ def with_converge(run):
     受けてから往復を記録する（again の返答も作業ツリーの比べと盤面の受け付けを通る）:
     1. 形の崩れた返答（dict でない・faces が list でない）は run に渡す（entry.take が拒み、出し直しの道に乗せる）
     2. 壁打ちの欄 resolved と束ね役の欄 items を外し、下請けの答えのファイルを確かめて返答にまとめる（tree_merge。誤りが在れば
-       盤面へ渡さずに拒む）。前の往復の block の行き先の欠けと誤り（converge.resolved_gaps。face は名前に戻して読む）が在れば拒む
+       盤面へ渡さずに拒む。木にしない往復は返答 1 つが審査の答えなので、独立設計が立つ時の穴の引用と束ね役の欄に外した design_map を
+       ここで design_gaps に掛け、誤りが在れば DESIGN_QUOTE_REJECT で拒む）。前の往復の block の行き先の欠けと誤り
+       （converge.resolved_gaps。face は名前に戻して読む）が在れば拒む
     3. 外した返答を run に渡す。拒まれたら往復を記録せずに拒否を返す
     4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す）。
        記録できなければ盤面を止めて BoardGap（revise_take の答えの控えと同じ）
@@ -1169,6 +1198,10 @@ def with_converge(run):
         merged = tree_merge(b0, bare, tree, resolved)
         if merged["gaps"]:
             return {"ok": False, "reason": TREE_REJECT + "\n" + "\n".join(f"  - {g}" for g in merged["gaps"])}
+        if merged.get("off"):   # 木にしない往復は返答 1 つが審査の答え（項目の答えのファイルが無い）。引用の照らしもここで掛ける
+            gaps = design_gaps(b0, merged["review"].get("faces"), converge.open_items(b0), tree.get(converge.DESIGN_MAP) or [])
+            if gaps:
+                return {"ok": False, "reason": DESIGN_QUOTE_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         bare, resolved = merged["review"], merged["resolved"]
         named = _resolved(b0, NODE_OF["plan-review"], bare)
         gaps = converge.resolved_gaps(b0, named["faces"], resolved)

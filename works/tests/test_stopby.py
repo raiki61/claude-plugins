@@ -118,10 +118,10 @@ class Pack(unittest.TestCase):
         self.assertEqual({n: f for n, f in owners.items() if len(f) > 1}, {})
 
     def test_words_unchanged(self):
-        """表と declare の語の字は寄せる前と同じ"""
+        """表と declare の語の字は寄せる前と同じ（2 度目の諦めを機械が人に回した印 tdd-repeat だけが足された）"""
         m = stopby()
         got = {m.HEAD + n for n in m.REASONS} | {m.HEAD + n for _, n, _ in declares()}
-        self.assertEqual(got, WORDS)
+        self.assertEqual(got, WORDS | {"works:tdd-repeat"})
 
     def test_attributes_exist(self):
         """pack が引く stopby.<名> は住処に在る（字の誤りを走る前に見る）"""

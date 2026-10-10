@@ -46,7 +46,7 @@ def main() -> int:
         out = tddlanes.join(os.environ[INPUTS[0]], Path.cwd(),   # query の申し出は判定者の問いを当てて確かめる
                             try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines),
                             # 枝の申し出のうち確かめを通った物を盤面の控えと trace に積む（裁定の輪が読む。lanekit.park）
-                            park=lambda items: lanekit.park(entry.open_board(board), items, "tdd"))
+                            park=lambda items: lanekit.park(entry.open_board(board), items, lanekit.conflict.TDD_SOURCE))
         out.pop("conflicts")
     except (tddloop.Broken, Unreadable, OSError, BoardGap) as e:
         print(f"tdd-join: {' '.join(str(e).split())}", file=sys.stderr)
