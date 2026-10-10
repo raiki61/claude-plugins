@@ -1,0 +1,9 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "判定が依頼の答えと前の周の作り直しの行を今の返答の問い・単位に結んだ行 answer-ties.json（盤面の根。書き手は core の gatemarks.save_answer_ties。周 → 結びの行。読み手は gatemarks の answer_binds・unmatched_answer_lines・returned_lines・answer_tie_lines）",
+ "type": "object",
+ "required": ["rounds"],
+ "properties": {
+  "rounds": {"type": "object", "patternProperties": {"^[0-9]+$": {"type": "array", "items": {"type": "object", "properties": {"answer": {"type": "string"}, "redesign": {"type": "string"}, "to": {"type": "string"}, "none": {"type": "string"}}}}}}
+ }
+}

@@ -1448,7 +1448,7 @@ _ROLES = (*ROLES, REVISE_ROLE, DESIGN_ROLE)
 RECEIVES = [
     *(promptsection.Receive(role, head) for role in _WRITERS for head in (
         PLAN_SLOTS_HEAD, PRESCRIPTION_HEAD, PRESCRIPTION_UNIT_HEAD, VERIFY_HEAD, ripple.UNITS_HEAD, ripple.UNIT_HEAD, structmark.PLAN_HEAD,
-        carry.PRIOR_HEAD, converge.FACE_HEAD)),
+        carry.PRIOR_HEAD, carry.REDESIGN_HEAD, converge.FACE_HEAD)),
     *(promptsection.Receive("plan", head) for head in (worldmark.HEAD, replan_mod.ITEM_HEAD, replan_mod.OLD_HEAD, replan_mod.ROW_HEAD)),
     *(promptsection.Receive("plan-review", head) for head in (
         DESIGN_HEAD, planmarks.REVIEW_HEAD, planmarks.FIELDS_ITEM_HEAD, planmarks.DEVIATION_HEAD, AGG_HEAD, ITEM_HEAD, SYNERGY_HEAD,

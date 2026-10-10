@@ -132,6 +132,7 @@ def _drop_plan_only_kinds(node, schema):
 _MARK_ADDERS = (
     (querytest.NODES, lambda node, schema: querytest.with_examples(schema)),
     (outpurpose.NODES, outpurpose.with_field),
+    (gatemarks.ANSWER_TIE_NODES, gatemarks.with_answer_ties),
     (worldmark.MEANS_NODES, worldmark.with_means),
     (gatemarks.NODES, gatemarks.with_marks),
     (planmarks.NODES, planmarks.with_fields),

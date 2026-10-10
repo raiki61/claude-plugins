@@ -251,6 +251,18 @@ nodes:
                     where: {type: string, minLength: 1}
                     why_outside: {type: string, minLength: 10}
                     text: {type: string, minLength: 1}
+              # 依頼の答えと前の周の作り直しの行を今の返答の問い・単位に結ぶ行（gatemarks.with_answer_ties。受け付けが外して確かめ、盤面の
+              # answer-ties.json に置く）
+              answer_ties:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    answer: {type: string, minLength: 1}
+                    redesign: {type: string, minLength: 1}
+                    to: {type: string, minLength: 1}
+                    none: {type: string, minLength: 20}
         - id: judge-accept
           script: accept
           runtime: uv

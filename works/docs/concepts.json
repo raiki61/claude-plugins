@@ -232,7 +232,7 @@
    "fences": [
     {
      "what": "足し欄の盤面の控えの名",
-     "pattern": "\"(gate-marks|plan-fields|delta-verdicts|query-examples|out-of-purpose|pr-excluded|report-terms|purpose-means)\\.json\"",
+     "pattern": "\"(gate-marks|plan-fields|delta-verdicts|query-examples|out-of-purpose|answer-ties|pr-excluded|report-terms|purpose-means)\\.json\"",
      "allowed": [
       ".shared/core/marks.py",
       "blk-*/manifest.json",
@@ -443,6 +443,28 @@
       ".shared/core/prior-failures.schema.json",
       "blk-*/manifest.json",
       "darkfactory/manifest.json"
+     ],
+     "known": {}
+    }
+   ]
+  },
+  "chain": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "鎖の止めの語の字（rounds_reached・no_change・same_items・cost_unread・launch_unbound）。run の中の止めの理由 stopby の語とは別の表で、鎖の控えと鎖の報告にだけ出る",
+     "pattern": "\\b(rounds_reached|no_change|same_items|cost_unread|launch_unbound)\\b",
+     "allowed": [
+      ".shared/core/chain.py"
+     ],
+     "known": {}
+    },
+    {
+     "what": "鎖の控えと報告のファイルの名（chain.json・chain.md・final.diff）。読み書きの形は住処が持ち、殻は住処の口と git の手続きでだけ引く",
+     "pattern": "\\bchain\\.(json|md)\\b|\\bfinal\\.diff\\b",
+     "allowed": [
+      ".shared/core/chain.py",
+      "dev/use.sh"
      ],
      "known": {}
     }

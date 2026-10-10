@@ -8,7 +8,8 @@ next-request.schema.json と prior-failures.schema.json）の読みと照らし�
 
 依頼のファイルは findings の JSON の配列か、{"findings": [...], "pr": [<番号>…], "issue": [<番号>…], "answers": [...],
 "prior_failures": [...]} の形。prior_failures は前の run で最後まで通らなかった物 [{where, text}]（前の run の報告が書く
-next-request.json の欄。判定役と修正案の役の材料に貼る注意で、直す穴ではない）。
+next-request.json の欄。判定役と修正案の役の材料に貼る。受け付けが最後まで拒んだ行は直す穴ではない注意で、独立の目 R2 の作り直しの行
+（where が REDESIGN_WHERE）は次の周の先頭で直す穴）。
 answers は依頼者が前の run の問いに答えた物 [{question, text, command?, output?}]（question は問いの key か出どころ。
 command・output は人が手元で測った命令と出力で、両方か無し。前の run の報告が書いた答えの下書きの印 draft・source の在る行は、
 人が見直していないので拒む。findings の行も同じ: 前の run の判定が目的の外とした所見を報告が下書きの印つきで運ぶ）。読み手
@@ -22,10 +23,12 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
   重い試験は run の外の CI で回り、run の報告はその赤を知らないので、人（か回す役）が CI の赤の id を next-request.json に足す口。
   同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I carry.py carry-ci`
 - is_draft(row)・draft(row, source, note="")・compose(findings, prior, drafts): 下書きの印の読みと付け方・次の依頼の下書きの中身
+- is_redesign(row): 行が独立の目 R2 の作り直しの行か（where が REDESIGN_WHERE）
 - row_key(row): 行の鍵（where と、text の最初の「（」までを空白を詰めて \\t でつないだ物。理由の尾だけ違う行を同じ物と見る）
 - schema(name)・errors(doc, name): 約束の Schema（NEXT_SCHEMA・PRIOR_SCHEMA）と、それに照らした誤りの一覧
 - save(board_dir, doc, prior)・place_prior(board_dir, rows)・prior_section(board_dir, gap=ValueError):
-  盤面の根に照らしてから書く口と、依頼の前の失敗を役の材料に貼る節（読めなければ呼び手が渡した例外の型 gap）
+  盤面の根に照らしてから書く口と、依頼の前の失敗を役の材料に貼る節（受け付けの拒否の行の注意の節と、作り直しの行の直す穴の
+  節の 2 つ。読めなければ呼び手が渡した例外の型 gap）
 """
 import argparse
 import functools
@@ -52,6 +55,7 @@ DRAFT, SOURCE, NOTE = "draft", "source", "note"
 DRAFT_KEYS = (DRAFT, SOURCE)   # 前の run の報告が next-request.json の answers・findings に置く下書きの印（人が見直して消すまで拒む）
 PRIOR_KEYS = ("where", "text")   # prior_failures の行の欄（前の run の報告が next-request.json に書いた形）
 CI_WHERE = "run の後の CI"   # carry_ci が足す prior_failures の行の where
+REDESIGN_WHERE = "独立の目 R2"   # 独立の目 R2 の作り直しの行の where（報告が書き、is_redesign が読む）
 CI_TEXT = ("試験 {id} が CI で赤だった（重い試験は run の外の CI で回る。前の run の直しがこの試験を赤にした見込み。"
            "同じ試験を赤にしない直しを出す）")
 
@@ -59,8 +63,10 @@ CI_TEXT = ("試験 {id} が CI で赤だった（重い試験は run の外の C
 NEXT_REQUEST_FILE = "next-request.json"   # 次の run の依頼の下書き {findings, prior_failures, answers?}（依頼の型の object の形）
 PRIOR_FAILURES_FILE = "prior-failures.json"   # この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]
 PRIOR_IN_FILE = "prior-failures-in.json"   # 依頼の prior_failures の写し [{where, text}]（place_prior。読むのは consumes で宣言した物）
-PRIOR_HEAD = promptsection.Section("## 前の run で最後まで通らなかった物（機械が貼った。直す穴ではない——同じ所で落ちない返答を出すための注意。"
-                                   "直す穴は依頼の findings だけ）", source="fn:carry.prior_section")
+PRIOR_HEAD = promptsection.Section("## 前の run で最後まで通らなかった物（機械が貼った。受け付けの拒否の行は直す穴ではない——"
+                                   "同じ所で落ちない返答を出すための注意）", source="fn:carry.prior_section")
+REDESIGN_HEAD = promptsection.Section("## 前の周の独立の目が作り直しを要ると言った物——直す穴。この周の先頭で直す",
+                                      source="fn:carry.prior_section")
 
 # 約束（この置き場の JSON Schema）
 NEXT_SCHEMA = "next-request.schema.json"
@@ -230,8 +236,14 @@ def place_prior(board_dir, rows: list) -> None:
     write(pathlib.Path(board_dir) / PRIOR_IN_FILE, _checked(list(rows), PRIOR_SCHEMA, PRIOR_IN_FILE))
 
 
+def is_redesign(row) -> bool:
+    """行が独立の目 R2 の作り直しの行か（where が REDESIGN_WHERE。空白は詰めて比べる）"""
+    return isinstance(row, dict) and " ".join(str(row.get("where") or "").split()) == REDESIGN_WHERE
+
+
 def prior_section(board_dir, gap=ValueError) -> str:
-    """盤面の根の PRIOR_IN_FILE の行を、役の材料に貼る節にした物（PRIOR_HEAD と 1 件 1 行）。無い・空なら ""。読めない・形が違えば
+    """盤面の根の PRIOR_IN_FILE の行を、役の材料に貼る節にした物: 受け付けの拒否などの行は PRIOR_HEAD の節（注意）に、作り直しの行
+    （is_redesign）は REDESIGN_HEAD の節（直す穴）に、それぞれ 1 件 1 行。どちらの行も無ければ ""。読めない・形が違えば
     gap（呼び手が渡す例外の型。盤面の層の呼び手は BoardGap。黙って 0 件に見せない）"""
     p = pathlib.Path(board_dir) / PRIOR_IN_FILE
     if not p.is_file():
@@ -244,8 +256,10 @@ def prior_section(board_dir, gap=ValueError) -> str:
         raise gap(f"{p} の形が違う（[{{where, text}}]）")
     if not rows:
         return ""
-    return PRIOR_HEAD + "\n\n" + "\n".join(f"- {' '.join(str(r.get('where', '')).split())}: "
-                                             f"{' '.join(str(r.get('text', '')).split())}" for r in rows)
+    notes, redesign = [r for r in rows if not is_redesign(r)], [r for r in rows if is_redesign(r)]
+    return "\n\n".join(head + "\n\n" + "\n".join(f"- {' '.join(str(r.get('where', '')).split())}: "
+                                                 f"{' '.join(str(r.get('text', '')).split())}" for r in part)
+                       for head, part in ((PRIOR_HEAD, notes), (REDESIGN_HEAD, redesign)) if part)
 
 
 def carry_ci(doc, ids) -> dict:

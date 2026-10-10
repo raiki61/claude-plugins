@@ -8,6 +8,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 
 口（線 B の報告も呼ぶ。線 B の申し送り 3・TA18。どの head_* も盤面を書かない）:
 - OUTCOMES・COST_FIELD_VERIFIED・FIRST_ROUND_LINE
+- OUTCOME_KINDS（結末の語 → 周の鎖が見る種）・header_outcome(board_dir)（報告の冒頭の結末の語）・round_facts(board_dir, events, run_doc) -> 終わった周の結末・種・費用・分・止まり・起点の版
+  （鎖 chain.py が読む。結末の語と費用の欄の名を知る場所は増やさず、ここが束ねる）
 - gate_record(b) -> {exit, accepted, out, tail, traces, round_closed}
 - residue(b, gate, *, tests=None, eyeing=None, absorbed=()) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None, absorbed=()) -> OUTCOMES の 1 つ
@@ -68,6 +70,7 @@ if str(CORE) not in sys.path:
 
 import adapter  # noqa: E402
 import carry  # noqa: E402  （L1。次の run への持ち越しの形の住処: ファイルの名・欄の名・約束の Schema）
+import chain  # noqa: E402  （L1。周の鎖の住処。ここは結末の種の語 KIND_* だけを引く）
 import changemap  # noqa: E402  （unified diff を path → hunk の行に分ける写し）
 import cite  # noqa: E402
 import conflict  # noqa: E402
@@ -105,6 +108,12 @@ import writes  # noqa: E402
 PACK = CORE.parents[1]
 OUTCOMES = ("fixed", "fixed_needs_check", "no_fix_needed", "round_limit", "stopped_by_request", "stopped_by_human", "stopped_by_line",
             "needs_human", "record_invalid", "interrupted")
+# 結末の語 → 周をつなぐ鎖が見る種（chain.KINDS）。鎖は結末の語を字で持たず、この表だけを引く。round_limit は次の周へ進める
+# （独立の目 R2 の作り直しが残った周もここ）。人の確かめが残る fixed_needs_check と、人に聞いたままの needs_human は人が要る
+OUTCOME_KINDS = {"fixed": chain.KIND_CLOSED, "no_fix_needed": chain.KIND_CLOSED, "round_limit": chain.KIND_OPEN,
+                 "stopped_by_request": chain.KIND_HALTED, "stopped_by_human": chain.KIND_HALTED, "stopped_by_line": chain.KIND_HALTED,
+                 "record_invalid": chain.KIND_HALTED, "needs_human": chain.KIND_HUMAN, "fixed_needs_check": chain.KIND_HUMAN,
+                 "interrupted": chain.KIND_WAIT}
 # 1 周で止める run で写しの検証器（scripts/review-record.py）が必ず出す帳尻の行。exit 1 の箇条からこの行だけを字の一致で
 # 除き、残りを阻害と読む（前の周が在る run の「前ラウンドに阻害要因が N 件あった」は除かない）。写しと字が揃うことは試験が見る
 FIRST_ROUND_LINE = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
@@ -708,7 +717,8 @@ def _accept_last_files(board_dir: pathlib.Path) -> list:
 
 
 def prior_failures(b, left: list | None = None) -> list:
-    """この run で最後まで通らなかった物 [{where, text}]（次の run の判定役と修正案の役の材料に貼る。直す穴ではない）:
+    """この run で最後まで通らなかった物 [{where, text}]（次の run の判定役と修正案の役の材料に貼る。受け付けの拒否の行は直す穴ではない
+    注意で、R2 の作り直しの行は次の周の先頭で直す穴）:
     ①盤面の根と scope の根の accept-last.json（受け付けの出口が最後の結果を上書きする控え。script_io.note_last）のうち ok で
     ない行。text は最後の理由のファイルの本文（読めなければ行の reason）を 1 行にした物。where は「受け付け <名>」と、scope の根
     なら（<scope>）。控えが読めなければその旨の行（黙って 0 件に見せない）
@@ -738,14 +748,14 @@ def prior_failures(b, left: list | None = None) -> list:
     r2 = [r for r in left or [] if _r2_redesign(r)]
     if r2:   # 独立の目の形を先に採る（検証器の同じ目の行は二重に載せない）
         pick = next((r for r in r2 if str(r.get("where") or "").startswith(EYES_WHERE)), r2[0])
-        rows.append({"where": f"{EYES_WHERE} R2", "text": _one_line(pick["text"])})
+        rows.append({"where": carry.REDESIGN_WHERE, "text": _one_line(pick["text"])})
     return rows
 
 
 def prior_lines(rows: list) -> list:
-    """報告の節 PRIOR_HEADING の行（件数と 1 件 1 行）"""
+    """報告の節 PRIOR_HEADING の行（次の run に運んだ行の件数と 1 件 1 行）"""
     return [f"{len(rows)} 件（次の run の依頼の下書き {carry.NEXT_REQUEST_FILE} の prior_failures に載せた。判定役と修正案の役の材料に"
-            "貼る注意で、直す穴ではない）"] + [f"{r['where']}: {r['text']}" for r in rows]
+            "貼る。受け付けの拒否の行は直す穴ではない注意で、R2 の作り直しの行は次の周の先頭で直す穴）"] + [f"{r['where']}: {r['text']}" for r in rows]
 
 
 def carry_left(left: list | None, owned: set, tests: dict | None) -> list:
@@ -1790,6 +1800,52 @@ def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
     return lines
 
 
+def _minutes(run_doc) -> float | None:
+    """Archon の run の行（workflow get の返り）の started_at から completed_at までの分。どちらかが読めなければ None"""
+    def at(key):
+        try:
+            return datetime.datetime.fromisoformat(str((run_doc or {}).get(key)).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    began, ended = at("started_at"), at("completed_at")
+    return None if began is None or ended is None else round((ended - began).total_seconds() / 60, 1)
+
+
+def header_outcome(board_dir) -> str:
+    """報告 report.md の冒頭の起きたことの行（gatemarks.HAPPENED）の括弧の結末の語（OUTCOMES）。報告が無い・読めない・行が無ければ空"""
+    try:
+        lines = (pathlib.Path(board_dir) / REPORT_FILE).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    for line in lines[:10]:
+        if line.startswith(gatemarks.HAPPENED):
+            return next((w for w in OUTCOMES if f"（{w}）" in line), "")
+    return ""
+
+
+def round_facts(board_dir, events, run_doc) -> dict:
+    """終わった周の事実（鎖が読む。盤面は書かない）: outcome（報告の冒頭の起きたことの行の結末の語。読めなければ空）・kind
+    （OUTCOME_KINDS。止まりと言う記録は halted、結末が読めなければ halted）・cost（節の費用 cost_rows の和）・cost_read（費用が 1 つも
+    取れない・取れない節が在れば偽。0 と読まない）・minutes（run の行の started_at から completed_at）・stopped（stopped_run が止まりと
+    言えば [結末の語, by, 一言]）・base_rev（始めの記録の起点）・r2（次の依頼に残る独立の目 R2 の作り直しの行の数）・
+    report_file・next_file（あれば）。events は workflow get の出来事、run_doc はその返り（run の行）"""
+    d = pathlib.Path(board_dir)
+    stopped = stopped_run(d)
+    outcome = header_outcome(d)
+    kind = chain.KIND_HALTED if stopped else OUTCOME_KINDS.get(outcome, chain.KIND_HALTED)
+    rows = [r for r in cost_rows(events, []) if not r["aggregate"]]   # 起動の記録は継いだ会話の注記にだけ効き、和は変えない
+    read = bool(rows) and not [w for _, w in map(_event_cost, _completed(events)) if w]
+    cost = round(sum(r["actual"] for r in rows), 6) if rows else None
+    nxt = d / carry.NEXT_REQUEST_FILE
+    doc = _read_json(nxt, None)
+    held = [r for k in (carry.FINDINGS, carry.PRIOR) for r in (doc.get(k) if isinstance(doc, dict) else None) or []]
+    return {"outcome": outcome, "kind": kind, "cost": cost, "cost_read": read, "minutes": _minutes(run_doc),
+            "stopped": list(stopped) if stopped else None, "base_rev": startrec.read(d).get("base_rev") or "",
+            "r2": sum(1 for r in held if isinstance(r, dict) and _r2_redesign(r)),
+            "report_file": str(d / REPORT_FILE) if (d / REPORT_FILE).is_file() else "",
+            "next_file": str(nxt) if isinstance(doc, dict) else ""}
+
+
 # ---------------------------------------------------------------- 模型
 def head_models(board_dir, launches=None) -> list:
     """費用の前の模型の行。全体は <盤面の親＝ARTIFACTS_DIR>/versions.json の model（start の時に archon.sh が渡した要求と
@@ -1959,6 +2015,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     if loops:
         body += [TDD_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in loops], ""]
     body += [PRIOR_HEADING, "", *[f"- {r}" for r in prior_lines(prior)], ""]
+    unbound = gatemarks.answer_tie_lines(b)   # 判定が単位にしなかった作り直しの行（運んだ行の件数に数えない）
+    if unbound:
+        body += [*unbound, ""]
     outside = outpurpose.report_lines(board_dir)
     if outside:
         body += [OUTSIDE_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in outside], ""]

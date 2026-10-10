@@ -7,6 +7,7 @@
   {"name": "replan.json"},
   {"name": "gate-marks.json"},
   {"name": "out-of-purpose.json"},
+  {"name": "answer-ties.json"},
   {"name": "rejects-r2.design.json"},
   {"name": "purpose.json"},
   {"name": "purpose-means.json"},

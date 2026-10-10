@@ -389,6 +389,8 @@ works_dev_ledger_bind() {
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
 # 走っている節・alive（最後の動きから 30 分以内か）・試験の枠を待っているか（盤面の testslot.json）・節ごとの費用 cost_usd
 # （report.head_cost。報告の費用の行と同じ）も出す。
+# 環境 WORKS_CHAIN_FACTS にパスが在る時だけ（周の鎖の wait の 1 歩が付ける）、終わった run にも同じ workflow get を 1 回打ち、
+# 出来事と返りを report.round_facts に渡して、返った周の事実（結末・種・費用・分・止まり・起点の版）をそのパスに書く。無ければ何もしない。
 # WORKS_DEV_HOME・CLAUDE_BIN_PATH を export 済み（WORKS_DEV_MODEL は明示した時だけ）で、guard.sh を読み DEV_DIR（works/dev）を置いた殻から呼ぶ。
 works_dev_show_run() {
   _go="$(works_dev_go "$2" "$3")"
@@ -473,6 +475,24 @@ else:
     cost = (r.get("metadata") or {}).get("total_cost_usd")
     print("今までの費用:", "{} USD（Archon の run の metadata.total_cost_usd。目安で、正は報告の費用の行）".format(cost)
           if isinstance(cost, (int, float)) else "取れない（run に total_cost_usd が無い）")
+# 周の鎖が読む周の事実（WORKS_CHAIN_FACTS のパスが在る時だけ）: 終わった run にも走っている run と同じ workflow get を 1 回打ち、
+# 出来事と返りを report.round_facts に渡して返りをそのパスへ書く（出来事の読みも結末の語も写さない）。取れなければ error を書く
+facts_path = os.environ.get("WORKS_CHAIN_FACTS", "")
+if facts_path:
+    try:
+        got = subprocess.run(["sh", os.environ["ARCHON_SH"], "workflow", "get", r.get("id") or "", "--verbose", "--events", "--json"],
+                             env=dict(os.environ, WORKS_DEV_NO_AUTH="1"), capture_output=True, text=True)
+        try:
+            doc = json.loads(got.stdout)
+        except ValueError:
+            raise ValueError("archon workflow get の出力が JSON として読めない（終了コード {}）".format(got.returncode))
+        sys.path.insert(0, os.environ["CORE_DIR"])
+        import report
+        facts = report.round_facts(board, doc.get("events"), doc)
+    except Exception as err:
+        facts = {"error": "周の事実を読めない（{}）".format(err)}
+    with open(facts_path, "w", encoding="utf-8") as f:
+        json.dump(facts, f, ensure_ascii=False)
 print("修正の差分がある worktree:", r.get("working_path"))
 # 出どころの名は起こし役 auth_launch.py の check の出力: keychain の段なら archon.sh が同じ順で拾い直し、受け継いだ変数の段なら
 # その変数の名（殻に export が要る）

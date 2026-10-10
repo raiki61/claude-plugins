@@ -973,6 +973,45 @@ class RequestAnswersCase(GateBase):
         for text in (self.final_text(b), self.head(b)):
             self.assertIn("決着済みの問いに当たった答え", text)
 
+    def ties(self, *rows):
+        gatemarks.save_answer_ties(self.tmp, 1, list(rows))
+
+    def test_tie_to_question_key_answers_it(self):
+        """question の字が問いの key と違う答えでも、判定が key q-7 に結べば答えた扱いになり、当たらない行に並ばない"""
+        q7 = {**FORK, "key": "q-7"}
+        self.answers({"question": "空の列の扱い", "text": "例外のまま"})
+        self.ties({"answer": "空の列の扱い", "to": "q-7"})
+        got, b = self.gate(questions=[q7], units=UNITS)
+        self.assertEqual(got, {"ok": True}, "答えた問いは修正前の関所に載せない")
+        self.assertTrue(gatemarks.answered(b, q7))
+        self.assertEqual(gatemarks.answer_binds(b, gatemarks.request_answers(b)[0]), [q7], "結びが当てる問いは key q-7 の 1 つ")
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+        self.assertIn("依頼者の答え: 例外のまま", "\n".join(gatemarks.answered_lines(b)))
+
+    def test_tie_to_unit_and_none_rows(self):
+        """単位に結んだ答えはその単位の答えとして修正役に渡り、none に結んだ答えは訳つきで当たらない行に並ぶ。字の一致の道は今どおり"""
+        self.answers({"question": FORK["key"], "text": "例外のまま"}, {"question": "単位への答え", "text": "上限は 10"},
+                     {"question": "もう無い問い", "text": "あれは取り下げた"})
+        self.ties({"answer": "単位への答え", "to": OTHER_UNIT},
+                  {"answer": "もう無い問い", "none": "その問いは前の run で決着して今の台帳に無い"})
+        _, b = self.gate(questions=[FORK], units=UNITS)
+        self.assertTrue(gatemarks.answered(b, FORK))
+        returned = "\n".join(gatemarks.returned_lines(b))
+        self.assertIn(f"依頼で答えた単位 {OTHER_UNIT}", returned)
+        self.assertIn("依頼者の答え: 上限は 10", returned)
+        unmatched = "\n".join(gatemarks.unmatched_answer_lines(b))
+        self.assertIn("もう無い問い", unmatched)
+        self.assertIn("その問いは前の run で決着して今の台帳に無い", unmatched)
+        self.assertNotIn("単位への答え", unmatched)
+        self.assertNotIn(FORK["key"], unmatched)
+        # 判定が none に結んでも、台帳に key が字のまま等しい問いが在れば答えた扱いのまま、当たらない行にも並ばない
+        # （判定の後に機械が立てる問いの key で書かれた答え）
+        self.answers({"question": FORK["key"], "text": "例外のまま"})
+        self.ties({"answer": FORK["key"], "none": "判定の返答にその問いが無く、後で機械が台帳に立てる問い"})
+        _, b = self.gate(questions=[FORK], units=UNITS)
+        self.assertTrue(gatemarks.answered(b, FORK))
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+
 
 
 PR_NOT_RUN = {"parallel_pr": {"status": "not_run", "reason": "sandbox が api.github.com への通信を拒んだ"}}

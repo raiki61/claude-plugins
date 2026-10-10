@@ -6,8 +6,10 @@
 - accept(board, raw, repo): ラインの盤面の受け付け。拒否は理由の本文を盤面の reject-take_p2.diagnose-<連番>.txt に書き、
   判定役へはパスだけを返す（R44）。この周の 3 回目の拒否で done・give_up（輪を max_iterations で落とさない。R50）。
   通れば盤面が受けた返答（judge_output が正規化した物）を盤面の judgment.json に写し、open_units を足す
-- take(board, reply, repo): ラインの盤面の受け付けの前に、class_query の例（hits・misses。querytest）で問いそのものを試す。
-  例は外して写しの受け付けに渡し、通れば盤面の query-examples.json に置く（単独の run は core の check_judge が同じことをする）
+- take(board, reply, repo): ラインの盤面の受け付けの前に、class_query の例（hits・misses。querytest）で問いそのものを試し、
+  依頼の答えと作り直しの行が answer_ties で返答の問い・単位に結ばれたかを確かめる（gatemarks）。
+  例と結びは外して写しの受け付けに渡し、通れば盤面の query-examples.json と answer-ties.json に置く（単独の run は core の
+  check_judge が例だけ同じことをする）
 - finish(board, out): accept の後ろ半分（rolekit.main_accept の after）。例を judgment.json に戻す
 - with_done(board, out): 盤面の無い単独の run（check_judge）の受け付けに輪を抜ける旗 done を足す（この run の拒否の数で数える）
 - is_open(unit): 単位が直す義務を残すか（検証器の is_open。出口と裏取りの支度 judgeverify が使う）
@@ -26,6 +28,7 @@ if str(_CORE) not in sys.path:
 
 import accept as core_accept  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import outpurpose  # noqa: E402
 import querytest  # noqa: E402
 import rolekit  # noqa: E402
@@ -70,9 +73,10 @@ def finish(board, out: dict) -> dict:
 
 def take(board, reply: dict, repo) -> dict:
     """rolekit.accept_role の take: 先例の出どころ world:<類の id> が実在の世界の行かを照らし（worldmark.ref_problems。無ければ盤面を開かずに
-    拒む）、例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、例と
-    目的の外の行を外した返答を entry.take に渡す（写しの型はどちらの欄も持たない）。通れば例を盤面の query-examples.json に、
-    目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に置く（finish が judgment.json に戻す）"""
+    拒む）、例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、依頼の答えと作り直しの行の結び
+    （answer_ties）が返答の問い・単位に結ばれているか確かめ、例と目的の外の行と結びを外した返答を entry.take に渡す（写しの型は
+    どの欄も持たない）。通れば例を盤面の query-examples.json に、目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に置き
+    （finish が judgment.json に戻す）、結びを answer-ties.json に置く"""
     errs = worldmark.ref_problems(reply, board)
     if errs:
         return {"ok": False, "reason": "precedents の出どころが世界の解の行に無い: " + "; ".join(errs)}
@@ -81,16 +85,21 @@ def take(board, reply: dict, repo) -> dict:
     if errs:
         return {"ok": False, "reason": "class_query の例が問いと合わない: " + "; ".join(errs)}
     reply, outside = outpurpose.split(reply)
+    reply, tie_rows = gatemarks.split_answer_ties(reply)
     b = entry.open_board(pathlib.Path(board), allow_halted=True)   # 止めた盤面の拒否は entry.take が言う
     material = outpurpose.material_rows(b)
     errs = outpurpose.problems(outside, material)
     if errs:
         return {"ok": False, "reason": f"{outpurpose.FIELD} の行が盤面の材料と合わない: " + "; ".join(errs)}
+    errs = gatemarks.answer_tie_problems(b, reply, tie_rows)
+    if errs:
+        return {"ok": False, "reason": f"{gatemarks.ANSWER_TIES} が依頼の答えと作り直しの行に結ばれていない: " + "; ".join(errs)}
     bare, examples = querytest.split(reply, is_open)
     out = entry.take(pathlib.Path(board), NODE, bare, pathlib.Path(repo), snapshot_name=TREE_FILE)
     if out.get("ok") is True:
         querytest.save(board, examples, replace=True)
         outpurpose.save(board, b.round, outside, material)
+        gatemarks.save_answer_ties(board, b.round, tie_rows)
     return out
 
 

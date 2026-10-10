@@ -7,7 +7,7 @@
 - 分かったこと: 1 本の run の中で周を回す形（棚上げの線 B）は、Archon の関所と輪の決まりに当たり、作りかけで止まっている。推しは、起動の殻が「前の周の結果の版」と「前の周が書いた次の依頼」で次の run を起こす外の鎖。どの周も今と同じ 1 本の run で、入口の形も変わらない。先に、散らばった持ち越しの考えを 1 つのモジュールにまとめる（Task 1）。
 - 頼みたいこと: 7 節の 2 件の決め（どちらも推しつき）。ほかは推しで進める。
 
-状態: 計画だけ（コードは変えていない）。2026-10-09、版 0.2.53（main の b23eefa9）の事実で書いた。計画 `docs/plans/2026-10-09-clean-whole.md`（以下「全体の計画」）の 6 節の「周を重ねる線はやらない」と、段 5 の持ち越しの順を直す（8 節）。
+状態: 2026-10-09、版 0.2.53（main の b23eefa9）の事実で書いた計画。Task 1（carry.py）と、Task 3 の鎖の住処 `chain.py`・Task 5〜7 の殻（`--rounds`・周のつなぎ・最後の差分・鎖の報告）を 2026-10-10 に入れた（今の形は Task 3 の節）。ほかの Task の状態は各 Task の状態の行に従う。Task 4 は、起動の入力の組み立てを use.sh の中の 1 か所のまま `--chain-next` が同じ道を通る形にしたため lib.sh への寄せは要らなくなった（包みの commit の手続きだけ `tree_commit` に切り出した）。計画 `docs/plans/2026-10-09-clean-whole.md`（以下「全体の計画」）の 6 節の「周を重ねる線はやらない」と、段 5 の持ち越しの順を直す（8 節）。
 
 > **実装する者へ:** superpowers:subagent-driven-development（推し）か superpowers:executing-plans で、Task ごとに回す。下請けは全部 opus。手順は `- [ ]` で追う。
 
@@ -27,7 +27,7 @@
   - 読み手と形の確かめ: `.shared/core/ghreads.py:47-50` `KEYS`・`ANSWER_KEYS`・`DRAFT_KEYS`・`PRIOR_KEYS`、`:68` `request_parts`、`:112` `carry_ci`
   - 盤面へ置く: `.shared/core/entry.py:995` `PRIOR_IN_FILE`・`:1035` `place_prior`・`:1041` `prior_section`
   - 答えの下書き: `.shared/core/gatemarks.py:584` `answer_drafts`
-- 依頼の答えが問いに当たる道は 1 本だけ: `gatemarks._hits`（`:520`）が、答えの `question` と台帳の問いの key か出どころ origin の字の一致を見る。問いの key は判定役がその run で作るので、依頼を書く時の利用者は key を知らない。当たらなかった答えは `unmatched_answer_lines`（`:620`）が報告に「当たる問いが台帳に無い」と並べるだけ。利用者が「自分で書いた確かめの項目に答えを結べなかった」と言った件はこの形（この文書は「確かめの項目」を、依頼に自分で書いた findings の行と読む。4.5 の仕組みは問いの key でも findings の行でも同じに結ぶ）
+- 依頼の答えが問いに当たる道は 1 本だけだった（今は `gatemarks.answer_binds`）: 前は `gatemarks._hits`（`:520`）が、答えの `question` と台帳の問いの key か出どころ origin の字の一致を見る。問いの key は判定役がその run で作るので、依頼を書く時の利用者は key を知らない。当たらなかった答えは `unmatched_answer_lines`（`:620`）が報告に「当たる問いが台帳に無い」と並べるだけ。利用者が「自分で書いた確かめの項目に答えを結べなかった」と言った件はこの形（この文書は「確かめの項目」を、依頼に自分で書いた findings の行と読む。4.5 の仕組みは問いの key でも findings の行でも同じに結ぶ）
 - 前の run の下書きの答えも同じ穴を持つ: `_ask_draft` は前の run の問いの key を `question` に置くが、次の run の判定役が同じ key を作る保証は無い
 - 2 周目の今の手順（利用者 work4 の run 97fd532f は 2 周目）: `use.sh apply` で前の差分を手元に当てる → `next-request.json` を見直して依頼にする → `use.sh start` で起こし直す
 - 1 周の重さ: 小さな見本で約 20 分・$7.7。canary の run 5318f732（依頼だけ・P1 の役なし）は 14.2 分・$5.68、e91112dd（差分あり・P1 の局所レビューあり）は 23.4 分・$8.11
@@ -116,15 +116,15 @@ use.sh start --rounds N [--budget-usd X] [--base <版> | --pr <番号>] [--] [<�
 ### 4.3 止める条件（決まった順に見る）
 
 1. 周の数: k が N に達した → `rounds_reached`
-2. 結末の種（結末の住処 `report.OUTCOMES` に新しく足す種の表 `OUTCOME_KIND`。4.8）:
-   - `closed`（fixed・no_fix_needed）→ `closed`。ただし 7 節の決め 1 で「確かめの周を足す」を採れば、fixed で周が残る時は依頼の行を空にして 1 周足す（差分は k 周目の直し・依頼なし＝今の「変更だけ」の run）
+2. 結末の種（結末の住処 `report.py` の表 `OUTCOME_KINDS`。4.8。語は `chain.KIND_*`）:
+   - `closed`（fixed・no_fix_needed）→ `closed`。7 節の決め 1 の「確かめの周を足す」は採らない（独立の目 R1〜R4 が各周で直しを確かめている）
    - `halted`（止め札・人が関所で stop・ラインの止め・記録が検証器を通らない）→ `halted`
-   - `waiting`（needs_human）→ `needs_human`
-   - `broken`（interrupted）→ `wait`（resume と `wait` の後に続く）
-   - `open`（round_limit）→ 次の 3〜6 を見る
-3. 人の判断が要る: k 周目の `next-request.json` に下書きの印の在る行（`answers` の下書き、目的の外の findings）が在る → `needs_human`。関所の項目を run の中で決めるかは 4 つの軸の仕組み（全体の計画の段 2 の Task 2.6）が決め、決めきれない物だけが下書きになる。鎖は下書きを答えに替えない
-4. 進みが無い: k 周目の差分が空（`result_k` の木＝`base_k` の木）→ `no_change`。k 周目の残りの行の鍵の集合が k−1 周目と同じ → `same_items`（行の鍵は `carry.row_key`。4.5）
-5. 費用: 利用者が上限を決めた時だけ。累計 ＋ これまでの周の最大の費用 ＞ 上限 → `budget`（次の周で上限を越えうるなら起こさない）。どれかの周の費用が読めない → `cost_unknown`（上限を守れると言えないので止める。上限が無ければ読めなくても止めない）
+   - `human`（needs_human・fixed_needs_check。人に聞いたまま・run の中で測れない確かめが残る）→ `human`
+   - `wait`（interrupted）→ 止めずに待つ（resume と `wait` の後に続く）
+   - `open`（round_limit。独立の目 R2 の作り直しが残った周もここで、閉じた周と数えない）→ 次の 3〜6 を見る
+3. 人の判断が要る: k 周目の `next-request.json` に下書きの印の在る行（`answers` の下書き、目的の外の findings）が在る → `human`。関所の項目を run の中で決めるかは 4 つの軸の仕組み（全体の計画の段 2 の Task 2.6）が決め、決めきれない物だけが下書きになる。鎖は下書きを答えに替えない。止めた鎖は保留して続ける口を持たず、報告 `chain.md` が下書きを見直して新しい鎖を起こす手順を言う
+4. 進みが無い: k 周目の結果の木が周の頭の木と同じ（差分が空を含む）→ `no_change`。k 周目の残りの行の鍵の集合が k−1 周目と同じ → `same_items`（行の鍵は `carry.row_key`。4.5）
+5. 費用: 利用者が上限を決めた時だけ。累計 ＋ これまでの周の最大の費用 ＞ 上限 → `budget`（次の周で上限を越えうるなら起こさない）。どれかの周の費用が読めない → `cost_unread`（上限を守れると言えないので止める。上限が無ければ読めなくても止めない）。期限・タイムアウトは足さない
 6. どれにも当たらない → `go`
 
 鎖の止めの語は、run の中の止めの理由（`state.stop.by`・考え `stop-reasons`）とは別の物で、鎖の控えと鎖の報告にだけ出る。
@@ -142,12 +142,13 @@ use.sh start --rounds N [--budget-usd X] [--base <版> | --pr <番号>] [--] [<�
 
 ### 4.5 答えを自分の項目に結ぶ（利用者の声の直し）
 
-問いの key は判定役が run ごとに作るので、字の一致だけでは、依頼に書いた答えも前の周から運んだ答えも当たらない。結ぶのを判定役の仕事にし、機械が確かめる。
+問いの key は判定役が run ごとに作るので、字の一致だけでは、依頼に書いた答えも前の周から運んだ答えも当たらない。結ぶのを判定役の仕事にし、機械が確かめる。独立の目 R2 が作り直しを要ると言った行も、次の周の先頭で直す穴として同じ欄で結ぶ。
 
-- 判定役の指示書の頭に、依頼の答えを全部並べる節を貼る（今は貼らない。`blk-judge/lib/judgebrief.py`）
-- 判定役の返答に works の足し欄 `answer_ties` を足す（足し欄の住処 `.shared/core/marks.py` の `KINDS` に種 `answers` を 1 行。節は `p2.diagnose`）。行の形 `{"answer": "<答えの question の字>", "to": "<台帳の問いの key か単位の key>"}` か `{"answer": "…", "none": "<当たらない訳。20 字以上>"}`
-- 受け付け（`blk-judge/scripts/accept.py`）は、依頼の答えの全部に 1 行が在ることと、`to` が今の返答の問いの key か単位の key に在ることを照らし、欠けと当たらない名指しを拒む（黙って落とさない）
-- `gatemarks._hits` は字の一致の後に `answer_ties` の `to` を見る。結んだ答えは今の `answered` の道で問いを答えたことにし、`unmatched_answer_lines` に出なくなる。`none` の行はその訳つきで今の行に出る
+- 判定役の指示書の頭に、依頼の答えを全部並べる節を貼る（`blk-judge/lib/judgebrief.py` の `answers_section`）。前の周の作り直しの行は `carry.prior_section` が、受け付けの拒否の行の注意の節（`PRIOR_HEAD`）とは別の「直す穴」の節（`REDESIGN_HEAD`）に貼る
+- 判定役の返答に works の足し欄 `answer_ties` を足す（足し欄の住処 `.shared/core/marks.py` の `KINDS` に種 `answers` を 1 行。節は `p2.diagnose`）。行の形は 4 つ: `{"answer": "<答えの question の字>", "to": "<今の返答の問いの key か単位の key>"}`・`{"answer": "…", "none": "<当たらない訳。20 字以上>"}`・`{"redesign": "<作り直しの行の text の最初の「（」まで>", "to": "<[block] か do-now の単位の key>"}`・`{"redesign": "…", "none": "<反証か凍結した目的の外とした訳。20 字以上>"}`
+- 受け付け（`blk-judge/lib/judgetake.py` の `take`）は、今の返答の問いに当てて結ばれない答え（どの問いにも字で当たらない・複数に当たる）と、作り直しの行の全部に、結びの行が在ることを照らし、欠けと当たらない名指しを拒む（黙って落とさない）。字の一致で返答の問い 1 つに当たる答えと、測れていない素材の名の答えには結びを求めない（書けば結びが勝つ）。`to` は今の返答の key に在ること、作り直しの行の結び先は [block] か do-now の単位であること（defer にしない）も照らす
+- `gatemarks.answer_binds` が答えの当たる問いを決める 1 つの式（受け付けは返答の問いを、報告は台帳の問いを渡す）。字の一致の後に `answer_ties` の `to` を見る。問いに結んだ答えは今の `answered` の道で答えたことにし、`unmatched_answer_lines` に出なくなる。単位に結んだ答えは `returned_lines` で修正役にその単位の答えとして渡し、答えの `none` の行は訳つきで今の行に出る。作り直しの `none` の行は報告の節「次の run に引き継ぐ落ちた理由」の中の小見出し「判定が単位にしなかった作り直し（次の run に運ばない）」の下に並べ、次の周には運ばない（その周の R2 がもう一度見る）
+- 1 周の中では直しに戻さない（線の YAML は変えない）。作り直しが残った周は今どおり `round_limit` になり、鎖の決めはこれを開いた周と読んで次の周へ進む
 
 ### 4.6 鎖の報告
 
@@ -174,7 +175,7 @@ use.sh start --rounds N [--budget-usd X] [--base <版> | --pr <番号>] [--] [<�
 
 - 持ち越し（考え `carry-over`）→ `.shared/core/carry.py`（Task 1）。依頼の容器の形・下書きの印・前の失敗の置き場・次の依頼の組み立て・行の鍵。層 L1（works のほかの物を import しない。`ghreads.py` が import する）
 - 鎖（新しい考え `chain`）→ `.shared/core/chain.py`。鎖の控えの形・止めの語と決め・次の依頼の書き出し・鎖の報告の行。殻からは `python3 chain.py <口>`
-- 結末の種 → 結末の住処 `report.py` に `OUTCOME_KIND` を足す（結末の語を鎖が文字列で持たない。考え `outcome` の柵）
+- 結末の種 → 結末の住処 `report.py` に表 `OUTCOME_KINDS` と、終わった周の事実の口 `round_facts` を足す（結末の語・費用の欄の名を鎖が持たない。考え `outcome` の柵）
 - 起動の入力の組み立て → `dev/lib.sh` の 1 つの関数（今は `use.sh:777-796` に 1 か所。鎖で 2 か所目になるので部品へ寄せる）
 - 包みの commit を作る所 → `dev/lib.sh` の 1 つの関数（今は `use.sh` の start の包み。4.2 の 3 で 2 か所目）
 
@@ -275,34 +276,36 @@ README の「足りない所」と「仕様」の線 B の行、`skills/works/SK
 
 ### Task 2: 答えを自分の項目に結び、人が決めた答えを持ち越す
 
-**Files:** Modify `works/.shared/core/marks.py`（`KINDS` に `answers`）・`works/.shared/core/gatemarks.py`（`_hits` が足し欄を見る・`answer_ties` の形と確かめ）・`works/blk-judge/lib/judgebrief.py`（答えの節）・`works/blk-judge/scripts/accept.py`（欠けを拒む）・`works/blk-judge/commands/diagnose.md`（欄の書き方）・Create `works/blk-judge/schemas/answer-ties.schema.json`・Modify `works/blk-judge/manifest.json`・`works/.shared/core/carry.py`（`human_answers`）・`works/.shared/core/report.py`（`next_doc` が人の答えを `answers` に足す）。Test `works/tests/test_plan_gate.py`・`works/tests/test_blk_judge.py`・`works/tests/test_gate_drafts.py`・`works/tests/test_report.py`
+**Files:** Modify `works/.shared/core/marks.py`（`KINDS` に `answers`）・`works/.shared/core/gatemarks.py`（`answer_binds` が足し欄を見る・`answer_ties` の形と確かめ）・`works/blk-judge/lib/judgebrief.py`（答えの節）・`works/blk-judge/lib/judgetake.py`（欠けを拒む）・`works/blk-judge/commands/diagnose.md`（欄の書き方）・Create `works/blk-judge/schemas/answer-ties.schema.json`・Modify `works/blk-judge/manifest.json`・`works/.shared/core/carry.py`（`human_answers`）・`works/.shared/core/report.py`（`next_doc` が人の答えを `answers` に足す）。Test `works/tests/test_plan_gate.py`・`works/tests/test_blk_judge.py`・`works/tests/test_gate_drafts.py`・`works/tests/test_report.py`
 
 **Interfaces:**
-- Produces: 判定役の返答の足し欄 `answer_ties: [{"answer": str, "to": str} | {"answer": str, "none": str}]`（4.5）
-- Produces: `gatemarks.ties(b) -> dict[str, str]`（答えの question → 結んだ問いの key。`none` の行は入れない）
+- Produces: 判定役の返答の足し欄 `answer_ties: [{"answer": str, "to": str} | {"answer": str, "none": str} | {"redesign": str, "to": str} | {"redesign": str, "none": str}]`（4.5）
+- Produces: `gatemarks.answer_binds(b, a, questions=None, answer_rows=None) -> list`（答えの当たる問い。式は 1 つ）・`gatemarks.answer_tie_problems(b, reply, rows)`・`carry.is_redesign(row)`・`carry.REDESIGN_WHERE`・`carry.REDESIGN_HEAD`
 - Produces: `carry.human_answers(gate_rows: list, request_answers: list) -> list`（人が関所で continue した問いと依頼の答えを `{question, text}` の行に。`text` の頭に「run <id> の関所で人が決めた: 」。下書きの印を持たない）
 
-- [ ] 赤: `test_answer_tied_by_judge_hits_question`（答え `question: "自分の項目 a.py"` を判定役が key `q-7` に結ぶ → `answered(b, q7)` が真・`unmatched_answer_lines` が空）・`test_judge_must_account_every_answer`（答え 2 件・足し欄 1 件 → 受け付けが拒み、文に欠けた question）・`test_tie_to_unknown_key_refused`・`test_none_tie_reported_with_reason`・`test_literal_key_still_hits`（今の字の一致の道）・`test_next_doc_carries_human_answers`（関所で continue した問いが次の依頼の `answers` に下書きの印なしで載り、`carry.parts` が通る）・`test_drafts_still_refused`（下書きの行は今どおり拒む）
-- [ ] 回して赤を見る（`test_blk_judge` のうち HEAVY の物は CI）
-- [ ] 入れる
+- [x] 赤: `test_tie_to_question_key_answers_it`（答え `question: "空の列の扱い"` を判定役が key `q-7` に結ぶ → `answered(b, q7)` が真・`unmatched_answer_lines` が空）・`test_unbound_answer_without_tie_is_rejected_by_question`（返答の問いに当たらない答えに結びが無い → 受け付けが拒み、文に欠けた question。字の一致で当たる答えは名指さない）・`test_literal_and_material_answers_need_no_tie`（字の一致の道と素材の名の答え）・`test_answer_hitting_two_reply_questions_needs_tie`・`test_tie_to_unknown_key_is_rejected`・`test_tie_to_unit_and_none_rows`（単位への結びは修正役の行に、`none` は訳つきで報告に）・`test_redesign_row_must_bind_to_open_unit_or_none`・`test_redesign_none_row_passes_and_is_reported`・`test_redesign_rows_get_their_own_fix_section`・`test_diagnose_prompt_treats_redesign_rows_as_fix_holes`
+- [ ] 赤: `test_next_doc_carries_human_answers`（関所で continue した問いが次の依頼の `answers` に下書きの印なしで載り、`carry.parts` が通る。`carry.human_answers`・`report.next_doc` の項目は別の項目で入れる）・`test_drafts_still_refused`（下書きの行は今どおり拒む）
+- [x] 回して赤を見る（`test_blk_judge` のうち HEAVY の物は CI）
+- [x] 答えの結び・受け付け・判定の材料の節・作り直しの節を入れる（`carry.human_answers`・`report.next_doc` は未済）
 - [ ] 緑。commit `feat(works): 依頼の答えを判定役が問いか項目に結び、受け付けが結び忘れを拒む。人が決めた答えを次の依頼へ運ぶ`
 
 ### Task 3: 鎖の決め `chain.py`（純粋な関数）
 
-**Files:** Create `works/.shared/core/chain.py`・`works/tests/test_chain.py`。Modify `works/.shared/core/report.py`（`OUTCOME_KIND`）・`works/docs/concepts.md`・`works/docs/concepts.json`（考え `chain` を住処ありで足す）・`works/tests/tiers.py`
+状態: 済み（2026-10-10。Task 5 の殻と Task 6・7 の取り込み・報告まで同じ項目で入れた。作りは下の「今の形」）。
 
-**Interfaces:**
-- Consumes: Task 1 の `carry.parts`・`carry.is_draft`・`carry.row_key`、Task 2 の `carry.human_answers`
-- Produces: `report.OUTCOME_KIND: dict[str, str]`（語 → `closed`・`open`・`halted`・`waiting`・`broken`。4.3 の 2）
-- Produces: `chain.STOPS: dict[str, str]`（止めの語 → 1 行の文。語は `rounds_reached`・`closed`・`halted`・`needs_human`・`no_change`・`same_items`・`budget`・`cost_unknown`）
-- Produces: `chain.verdict(doc: dict, *, confirm: bool) -> dict`（`{"go": "go"|"wait"|"stop", "word": str, "text": str, "next_empty": bool}`。`confirm` は 7 節の決め 1。`next_empty` は確かめの周＝依頼の行を空にする周）
-- Produces: `chain.next_request(round_doc: dict, first: dict | None, carried: list) -> tuple[dict, list]`（次の依頼と、運ばなかった下書きの行）
-- Produces: `chain.round_row(...) -> dict`・`chain.load(path) -> dict`・`chain.save(path, doc) -> None`（5 節の形。`os.replace`）
+**Files:** Create `works/.shared/core/chain.py`・`works/tests/test_chain.py`。Modify `works/.shared/core/report.py`（`OUTCOME_KINDS`・`round_facts`）・`works/dev/lib.sh`（`WORKS_CHAIN_FACTS`）・`works/dev/use.sh`・`works/docs/concepts.md`・`works/docs/concepts.json`（考え `chain` を住処ありで足す）・`works/tests/tiers.py`・`works/tests/test_layers.py`（層の表に `chain`）
 
-- [ ] 赤: `test_every_outcome_has_kind`・`test_stop_order`（4.3 の 1〜6 を 1 本ずつ。N に達した周が fixed でも語は `rounds_reached`）・`test_fixed_with_rounds_left_confirms`（`confirm=True` → `go`・`next_empty`、`False` → `closed`）・`test_drafts_stop_for_human`・`test_empty_diff_is_no_change`・`test_same_keys_twice_stop`・`test_budget_predicts_next_round`（上限 $20・累計 $15・最大の周 $8 → `budget`）・`test_unknown_cost_stops_only_with_budget`・`test_interrupted_waits`・`test_next_request_drops_drafts_and_keeps_first_answers`・`test_next_request_without_first_request`（10 節の 5）・`test_chain_has_no_outcome_strings`（柵 `outcome`）
-- [ ] 回して赤を見る: `python3 works/tests/tiers.py fast -k test_chain`
-- [ ] 入れる
-- [ ] 緑。commit `feat(works): 周の鎖の決め（止める条件・次の依頼・控えの形）を core の chain に置く`
+**今の形（Interfaces）:**
+- Consumes: `carry.parts`・`carry.is_draft`・`carry.row_key`・`carry.write`（層 L1。chain は標準ライブラリと carry だけを import する）
+- Produces: `report.OUTCOME_KINDS: dict[str, str]`（結末の語 → `chain.KIND_CLOSED`・`KIND_HALTED`・`KIND_HUMAN`・`KIND_WAIT`・`KIND_OPEN`。4.3 の 2）と `report.round_facts(board_dir, events, run_doc) -> dict`（`outcome`・`kind`・`cost`・`cost_read`・`minutes`・`stopped`・`base_rev`・`r2`・`report_file`・`next_file`）
+- Produces: `chain.STOPS`（止めの語 → 1 行の文。語は `rounds_reached`・`closed`・`halted`・`human`・`no_change`・`same_items`・`budget`・`cost_unread`・`launch_unbound`。run の中の止めの理由 `stopby` とは別の表）
+- Produces: `chain.decide(doc, facts, budget=None) -> {act, word, text}`（`act` は `launch`・`wait`・`stop`・`follow`。`facts` が None なら起こした次の周の状態 `pending` を見る: 子の pid が生きていれば待ち、起動の印を置いて死んでいれば `launch_unbound`、起動の前で死んでいれば起こし直す）
+- Produces: `chain.next_request(prev_next_doc, first_doc) -> dict`・`chain.held_rows(next_doc)`・`chain.pick(rounds) -> (採る周, 飛ばした止まった周)`・`chain.render(doc) -> str`・鎖の控え `new_doc`・`load`・`save`・`add_round`（排他は `chain.json.lock` の `fcntl.flock`）
+- 殻の口: `python3 -I chain.py init|hold|launched|pid|bound|pending|plan|of-run|prep|step|pick|render`。殻は `wait` が終わりを見た所で周の結果の commit を作り（`use.sh` の `tree_commit`。参照 `refs/works/chains/<鎖>/<周>`）、`step` が決めた次の周を `start --chain-next <鎖の id>` で切り離して起こす（`step` から子の pid の書き込みまで殻が錠を持つ）
+
+- [x] 赤: `tests/test_chain.py`（`Decide`・`NextRequest`・`Pick`・`Render`・`Shell`・`Fences`）・`tests/test_report.py` の `test_every_outcome_has_a_chain_kind`・`test_round_facts_*`・`tests/test_use.py` の `ChainShell`
+- [x] 入れる
+- [x] 緑
 
 ### Task 4: 殻の部品を寄せる（起動の入力の組み立てと包みの commit）
 

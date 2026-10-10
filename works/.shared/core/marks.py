@@ -52,6 +52,8 @@ KINDS = {
                   "query-examples.json", ROOT),
     # 判定が凍結した目的の外の所見（outpurpose）
     "purpose": Kind({"p2.diagnose": ()}, "out-of-purpose.json", ROOT),
+    # 判定が依頼の答えと前の周の作り直しの行を問い・単位に結んだ行（gatemarks の answer_ties）
+    "answers": Kind({"p2.diagnose": ()}, "answer-ties.json", ROOT),
     # 目的の役が目的の文から分けた依頼の解き方 means（worldmark。世界の解の段が定石と比べる案）
     "means": Kind({"p0.purpose": ()}, "purpose-means.json", ROOT),
     # 並行 PR の任せ先が外す hunk（prcheck）

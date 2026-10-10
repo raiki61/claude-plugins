@@ -1373,6 +1373,48 @@ class UseShell(unittest.TestCase):
         self.assertNotEqual(r.returncode, gate_rc, r.stdout)
         self.assertIn("running", r.stdout)
 
+    # ---- 周の鎖（偽の archon の流れは下の ChainShell の check_ が持ち、ここの試験名で回す）
+    def test_start_rounds_flag_and_refusals(self):
+        """--rounds と --budget-usd は位置引数より前で読まれる。0・1.5・x、--budget-usd の単独、負・数でない値、WORKS_DESIGN_ONLY=1・
+        WORKS_USE_FIX_FIXTURE との組は Archon を起こす前に 1 行で拒まれる。省略と 1 では鎖の控えを作らない。--rounds の start の終わりには
+        鎖を進める wait の行が出る"""
+        run_chain_checks(self, 'check_start_rounds_flag_and_refusals')
+
+    def test_chain_second_round_launch_args(self):
+        """1 周目が open で終わると、2 周目は start の道で起こされる。--from result_1・--input base=B0（1 本だけ・pr= 無し）・
+        launch_mark=<鎖>-2・空でない --base と、1 周目と同じ test_cmd・tdd_suite・入力を持つ。wait の殻に WORKS_DESIGN_ONLY=1 や別の
+        WORKS_USE_* が在っても、2 周目は 1 周目の入力で起きる。2 周目の run の控えが在り、--pr 12 の鎖では依頼の pr に 12 が在る"""
+        run_chain_checks(self, 'check_chain_second_round_launch_args')
+
+    def test_chain_unattended_next_round_is_detached(self):
+        """無人の鎖の 2 周目は切り離して起こされ、偽の archon の approve が遅くても wait は期限のうちに 3 か 6 で戻る。2 周目の run は
+        最後まで走り、打ち直した wait は子が生きている間 launch_unbound で止めない"""
+        run_chain_checks(self, 'check_chain_unattended_next_round_is_detached')
+
+    def test_chain_facts_read_events_of_done_run(self):
+        """鎖の 1 歩は、終わった run にも workflow get --verbose --events --json を打ち、鎖の控えの周の cost_read が真で、費用と分が数になる"""
+        run_chain_checks(self, 'check_chain_facts_read_events_of_done_run')
+
+    def test_chain_round_result_on_start_base(self):
+        """result_k は run-<k>.diff をその周の始めの記録の base_rev の木に当てて作られ（親は周の起点 from_k）、refs/works/chains/<鎖>/<k> で
+        守られる。--pr の 1 周目でも二重に当たらず、final.diff は B0 から採った周の結果までの差になる。始めの記録の base_rev が周の起点と
+        違う盤面（起点の 1 つ前）でも、木は base_rev の木・親は起点になる"""
+        run_chain_checks(self, 'check_chain_round_result_on_start_base')
+
+    def test_wait_exit_6_names_next_run(self):
+        """鎖が次の周を起こして期限のうちに結べた wait は、終了コード 6 で新しい run の id と次の行を出す。同じ run に wait を打ち直しても
+        2 本目を起こさない。止めた鎖は 5 と止めの 1 行を出す"""
+        run_chain_checks(self, 'check_wait_exit_6_names_next_run', 'check_chain_interrupted_round_does_not_claim_a_next_run')
+
+    def test_chain_answer_then_wait_launches_next(self):
+        """paused → answer → wait が終わりを見て次の周を起こす。2 周目の起動が Archon の前で落ちても、次の wait で鎖の控えから続けられる"""
+        run_chain_checks(self, 'check_chain_answer_then_wait_launches_next')
+
+    def test_apply_show_clean_chain_id(self):
+        """apply <鎖の id> は final.diff を今の apply と同じ確かめで当てる（消す行は許しが無ければ拒む）。show <鎖の id> は chain.md を出す。
+        clean <鎖の id> は、最後の周が生きていれば今の clean と同じ文で拒み、そうでなければ refs/works/chains/<鎖>/* と控えを消す"""
+        run_chain_checks(self, 'check_apply_show_clean_chain_id')
+
     # ---- show・check
     def test_show_writes_diff_under_use_home(self):
         t = self.target()
@@ -2003,6 +2045,478 @@ class UseShell(unittest.TestCase):
         self.assertIn(["plugin", "install", "coldwrite@works-local"], [c["argv"][:3] for c in calls])
         self.assertEqual({c["cfg"] for c in calls}, {cfg})   # claude は隔離した設定にだけ入れる
         self.assertIn("run id: run-1", r.stdout)
+
+
+import sys  # noqa: E402
+import time  # noqa: E402
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+
+
+class _CoreChain:
+    """周の鎖の住処 chain.py を使う時に読み込む（無い版でも試験の収集は落ちず、使った試験の中で読み込みに落ちる）"""
+
+    def __getattr__(self, name):
+        import importlib
+        return getattr(importlib.import_module("chain"), name)
+
+
+core_chain = _CoreChain()   # 鎖の控えを直に置く試験が形を引く
+
+# 周の鎖の偽の archon: 起こした run を順に run-1・run-2…と増やし（status は paused から。試験が finish で終わらせる）、workflow get
+# は run の行に試験が置いた出来事を足して返す。起動の引数は UseShell の偽物と同じ形で FAKE_LOG に残す。FAKE_APPROVE_DELAY が在れば
+# approve をその秒だけ遅らせる（切り離した起動が前景を塞がないことを見る）
+FAKE_CHAIN_ARCHON = r"""
+import datetime, json, os, pathlib, sys, time
+args = sys.argv[1:]
+state_path = pathlib.Path(os.environ["FAKE_STATE"])
+with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as f:
+    f.write("\t".join([os.path.realpath(os.getcwd()), os.environ.get("WORKS_DEV_NO_AUTH", ""), os.environ.get("WORKS_DEV_HOME", ""), *args]) + "\t\n")
+def load():
+    return json.loads(state_path.read_text(encoding="utf-8"))
+def save(d):
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d), encoding="utf-8")
+    os.replace(tmp, state_path)
+d = load()
+if args[:2] == ["workflow", "runs"]:
+    print(json.dumps({"runs": d["runs"]}))
+elif args[:2] == ["workflow", "get"]:
+    row = next((r for r in d["runs"] if r["id"] == args[2]), None)
+    if row is None:
+        sys.exit(1)
+    print(json.dumps({**row, "events": d.get("events", {}).get(args[2], [])}))
+elif args[:2] == ["workflow", "run"]:
+    d["seq"] += 1
+    rid = "run-%d" % d["seq"]
+    got = {a.split("=", 1)[0]: a.split("=", 1)[1] for a in args if "=" in a and not a.startswith("-")}
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    d["runs"].append({"id": rid, "workflow_name": "darkfactory", "status": "paused", "working_path": "/wt/" + rid,
+                      "output_root": os.environ["FAKE_OUT"], "started_at": now,
+                      "metadata": {"inputs": {"launch_mark": got.get("launch_mark", "")}}})
+    board = pathlib.Path(os.environ["FAKE_OUT"], "artifacts", "runs", rid, "board", "r1")
+    board.mkdir(parents=True, exist_ok=True)
+    (board / "start.json").write_text(json.dumps({"request_file": got.get("request", ""), "base_rev": args[args.index("--from") + 1]}))
+    save(d)
+elif args[:2] == ["workflow", "approve"]:
+    time.sleep(float(os.environ.get("FAKE_APPROVE_DELAY", "0")))
+elif args[:2] == ["workflow", "abandon"]:
+    for r in d["runs"]:
+        if r["id"] == args[2]:
+            r["status"] = "cancelled"
+    save(d)
+"""
+
+FINDING = {"where": "stats.py:9", "text": "mean が空で落ちる"}
+
+
+class ChainShell(unittest.TestCase):
+    """start --rounds と、wait が終わりを見るたびに進める周の鎖（偽の archon。AI は起こさない）"""
+    target = UseShell.target
+    calls = UseShell.calls
+    assert_refused = UseShell.assert_refused
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._td.name).resolve()
+        self.addCleanup(self._td.cleanup)
+        self.home = self.tmp / "use-home"
+        self.dev_home = self.tmp / "dev-home"
+        self.request = self.tmp / "req.json"
+        self.request.write_text(json.dumps([FINDING]))
+        self.log = self.tmp / "calls.txt"
+        self.out = self.tmp / "out"
+        self.out.mkdir()
+        self.state = self.tmp / "state.json"
+        self.state.write_text(json.dumps({"runs": [], "seq": 0, "events": {}}))
+        (self.tmp / "fake_archon.py").write_text(FAKE_CHAIN_ARCHON, encoding="utf-8")
+        self.fake = self.tmp / "fake-archon.sh"
+        self.fake.write_text(f'#!/bin/sh\nexec python3 "{self.tmp / "fake_archon.py"}" "$@"\n')
+        self.env = {"FAKE_STATE": str(self.state), "FAKE_LOG": str(self.log), "FAKE_OUT": str(self.out)}
+        self.addCleanup(self.wait_child_done)   # 切り離した起動が置き場を使っている間は消さない（登録の逆順で、置き場の掃除より先に走る）
+
+    def use(self, *args, **env):
+        return UseShell.use(self, *args, **{**self.env, **env})
+
+    def doc(self):
+        return json.loads(self.state.read_text())
+
+    def chain_dir(self):
+        found = sorted((self.home / "chains").glob("c-*"))
+        self.assertEqual(len(found), 1, found)
+        return found[0]
+
+    def chain_doc(self):
+        return json.loads((self.chain_dir() / "chain.json").read_text())
+
+    def runs_called(self):
+        return [c for c in self.calls() if c[3:5] == ["workflow", "run"]]
+
+    def inputs(self, call):
+        return [call[i + 1] for i, a in enumerate(call) if a == "--input"]
+
+    def diffs(self, target):
+        """周ごとの差分（前の周の結果の上に積んだ物）。周 k の差分は周 k-1 の結果の木に当たる"""
+        self.diff_seq = getattr(self, "diff_seq", 0) + 1
+        wt = self.tmp / f"wt-diffs-{self.diff_seq}"
+        committed_copy(wt, DEV / "target-seed")
+        out = []
+        for k in (1, 2, 3):
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + f"# 周{k}の直し\n")
+            out.append(subprocess.run(["git", "-C", str(wt), "diff", "--binary"], capture_output=True, text=True, check=True).stdout)
+            git(wt, "add", "-A")
+            git(wt, "commit", "-q", "-m", f"round {k}")
+        return out
+
+    def finish(self, n, word="round_limit", findings=(FINDING,), diff=None, costs=(1.5, 2.25), minutes=21.5, extra=None):
+        """run-<n> を終わらせる: 状態 completed・出来事（節の費用）・始めと終わりの時刻・報告の冒頭の結末の語・次の依頼の下書き・差分のファイル"""
+        d = self.doc()
+        rid = f"run-{n}"
+        for r in d["runs"]:
+            if r["id"] == rid:
+                r.update(status="completed", started_at="2026-10-09T12:00:00.000Z",
+                         completed_at=(datetime_plus(minutes)), **(extra or {}))
+        d["events"][rid] = [{"event_type": "node_completed", "step_name": f"node{i}",
+                             "data": {"spend": {"costUsd": {"source": "provider", "value": c}}}} for i, c in enumerate(costs)]
+        self.state.write_text(json.dumps(d))
+        board = self.out / "artifacts" / "runs" / rid / "board"
+        (board / "report.md").write_text(f"# 報告（run {rid}）\n\n起きたこと: 見本（{word}）\n", encoding="utf-8")
+        (board / "next-request.json").write_text(json.dumps({"findings": list(findings), "prior_failures": []}))
+        if diff is not None:
+            (self.home / "diffs").mkdir(parents=True, exist_ok=True)
+            (self.home / "diffs" / f"run-{rid}.diff").write_text(diff)
+
+    def start(self, t, rounds="3", *flags, **env):
+        r = self.use("start", "--rounds", rounds, *flags, str(t), str(self.request), "true", "", **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+    def wait_child_done(self):
+        """切り離した起動が終わる（鎖の控えに残した子の pid が居なくなる）まで待つ。一時の置き場を消す前に子を終わらせる"""
+        end = time.monotonic() + 90
+        while time.monotonic() < end:
+            alive = []
+            for p in self.tmp.glob("*/chains/*/chain.json"):
+                pid = (json.loads(p.read_text(encoding="utf-8")).get("pending") or {}).get("pid")
+                try:
+                    if pid:
+                        os.kill(pid, 0)
+                        alive.append(pid)
+                except ProcessLookupError:
+                    pass
+            if not alive:
+                break
+            time.sleep(0.5)
+        time.sleep(2)   # 子が最後に控えとログを書き終える間
+
+    # ---- 旗
+    def check_start_rounds_flag_and_refusals(self):
+        """--rounds と --budget-usd は位置引数より前で読まれる。0・1.5・x、--budget-usd の単独、負・数でない値、WORKS_DESIGN_ONLY=1・
+        WORKS_USE_FIX_FIXTURE との組は Archon を起こす前に 1 行で拒まれる。省略と 1 では鎖の控えを作らない。--rounds の start の終わりには
+        鎖を進める wait の行が出る"""
+        t = self.target()
+        fixture = self.tmp / "fixture"
+        fixture.mkdir()
+        for args, env, word in ((("--rounds", "0"), {}, "--rounds"), (("--rounds", "1.5"), {}, "--rounds"), (("--rounds", "x"), {}, "--rounds"),
+                                (("--budget-usd", "5"), {}, "--budget-usd"), (("--rounds", "2", "--budget-usd", "-3"), {}, "--budget-usd"),
+                                (("--rounds", "2", "--budget-usd", "abc"), {}, "--budget-usd"),
+                                (("--rounds", "2", "--budget-usd", "0"), {}, "--budget-usd"),
+                                (("--rounds", "2"), {"WORKS_DESIGN_ONLY": "1"}, "WORKS_DESIGN_ONLY"),
+                                (("--rounds", "2"), {"WORKS_USE_FIX_FIXTURE": str(fixture)}, "WORKS_USE_FIX_FIXTURE")):
+            with self.subTest(args=args, env=env):
+                self.assert_refused(self.use("start", *args, str(t), str(self.request), "true", "", **env), word)
+        for args in ((), ("--rounds", "1")):
+            with self.subTest(single=args):
+                r = self.use("start", *args, str(t), str(self.request), "true", "")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertFalse((self.home / "chains").exists())
+                self.assertNotIn("鎖", r.stdout)
+                self.log.unlink()
+        self.state.write_text(json.dumps({"runs": [], "seq": 0, "events": {}}))
+        r = self.start(t, "2", "--budget-usd", "12.5")
+        doc = self.chain_doc()
+        self.assertEqual((doc["rounds_max"], doc["budget_usd"], doc["test_cmd"], doc["tdd_suite"]), (2, 12.5, "true", ""))
+        self.assertEqual(pathlib.Path(doc["first_request"]).read_text(), self.request.read_text())
+        self.assertEqual((doc["pending"]["run"], doc["pending"]["launched"], doc["pending"]["mark"]), ("run-1", True, doc["id"] + "-1"))
+        self.assertIn(f"sh {USE} wait {t} run-1", r.stdout)
+        self.assertIn(doc["id"], r.stdout)
+
+    # ---- 2 周目の起動
+    def second_round(self, home, t, start_flags, request, wait_env):
+        self.home = self.tmp / home
+        self.state.write_text(json.dumps({"runs": [], "seq": 0, "events": {}}))
+        self.log.unlink(missing_ok=True)
+        d1, _, _ = self.diffs(t)
+        r = self.use("start", "--rounds", "3", *start_flags, str(t), request, "true", "", WORKS_USE_THICKNESS="2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.finish(1, diff=d1)
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="90", **wait_env)
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertIn("run-2", r.stdout)
+        first, second = self.runs_called()
+        return first, second, self.chain_dir().name
+
+    def check_chain_second_round_launch_args(self):
+        """1 周目が open で終わると、2 周目は start の道で起こされる。--from result_1・--input base=B0（1 本だけ・pr= 無し）・
+        launch_mark=<鎖>-2・空でない --base と、1 周目と同じ test_cmd・tdd_suite・入力を持つ。wait の殻に WORKS_DESIGN_ONLY=1 や別の
+        WORKS_USE_* が在っても、2 周目は 1 周目の入力で起きる。2 周目の run の控えが在り、--pr 12 の鎖では依頼の pr に 12 が在る"""
+        t = self.target()
+        head = git(t, "rev-parse", "HEAD")
+        wait_env = {"WORKS_DESIGN_ONLY": "1", "WORKS_USE_THICKNESS": "9", "WORKS_USE_UNATTENDED": None, "WORKS_USE_GATES": "x"}
+        first, second, cid = self.second_round("home-a", t, (), str(self.request), wait_env)
+        result1 = git(t, "rev-parse", f"refs/works/chains/{cid}/1")
+        self.assertEqual(second[second.index("--from") + 1], result1)
+        ins = self.inputs(second)
+        self.assertEqual([i for i in ins if i.startswith("base=")], [f"base={head}"])
+        self.assertEqual([i for i in ins if i.startswith(("pr=", "design_only", "gates="))], [])
+        self.assertIn(f"launch_mark={cid}-2", ins)
+        self.assertIn("thickness=2", ins)                       # 1 周目の入力。wait の殻の 9 ではない
+        self.assertNotEqual(second[second.index("--base") + 1], "")
+        for key in ("test_cmd=", "tdd_suite=", "adapter=", "final_gate="):
+            self.assertEqual([i for i in ins if i.startswith(key)], [i for i in self.inputs(first) if i.startswith(key)], key)
+        ledger = json.loads((self.home / "runs" / "run-2.json").read_text())
+        self.assertEqual(ledger["run_id"], "run-2")
+        request = next(i for i in ins if i.startswith("request=")).split("=", 1)[1]
+        self.assertEqual(json.loads(pathlib.Path(request).read_text())["findings"], [FINDING])   # 前の周の残りが依頼になる
+        # --pr の鎖: 次の周の入力に pr は使わず、依頼の pr に 12 を運ぶ。--base の鎖: 2 周目の根は 1 周目の始めの版
+        t2 = self.target("target-pr")
+        first, second, _ = self.second_round("home-b", t2, ("--pr", "12"), "-", {})
+        ins = self.inputs(second)
+        self.assertEqual([i for i in ins if i.startswith("pr=")], [])
+        self.assertEqual([i for i in ins if i.startswith("base=")], [f"base={git(t2, 'rev-parse', 'HEAD')}"])
+        request = next(i for i in ins if i.startswith("request=")).split("=", 1)[1]
+        self.assertEqual(json.loads(pathlib.Path(request).read_text())["pr"], [12])
+        t3 = self.target("target-base")
+        first, second, _ = self.second_round("home-c", t3, ("--base", "main"), str(self.request), {})
+        self.assertIn("base=main", self.inputs(first))
+        self.assertEqual([i for i in self.inputs(second) if i.startswith("base=")], [f"base={git(t3, 'rev-parse', 'HEAD')}"])
+
+    def check_chain_unattended_next_round_is_detached(self):
+        """無人の鎖の 2 周目は切り離して起こされ、偽の archon の approve が遅くても wait は期限のうちに 3 か 6 で戻る。2 周目の run は
+        最後まで走り、打ち直した wait は子が生きている間 launch_unbound で止めない"""
+        t = self.target()
+        d1, _, _ = self.diffs(t)
+        self.start(t, "2", WORKS_USE_UNATTENDED="1", FAKE_APPROVE_DELAY="12")
+        self.finish(1, diff=d1)
+        began = time.monotonic()
+        r = self.use("wait", str(t), "run-1", WORKS_USE_UNATTENDED="1", FAKE_APPROVE_DELAY="12", WORKS_USE_WAIT_SECONDS="3")
+        self.assertIn(r.returncode, (3, 6), r.stdout + r.stderr)
+        self.assertLess(time.monotonic() - began, 11, "approve の遅れを前景で待った")
+        r = self.use("wait", str(t), "run-1", WORKS_USE_UNATTENDED="1", FAKE_APPROVE_DELAY="12", WORKS_USE_WAIT_SECONDS="60")
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertNotIn("launch_unbound", r.stdout + r.stderr)
+        self.assertEqual(len(self.runs_called()), 2)
+        self.assertEqual(self.chain_doc()["pending"]["launched"], True)
+        self.wait_child_done()
+        verbs = [c[3:6] for c in self.calls()]
+        self.assertIn(["workflow", "approve", "run-2"], verbs)   # 2 周目も 1 周目と同じ行で無人の承認と止めを通る
+        self.assertIn(["workflow", "respond", "run-2"], verbs)
+
+    def check_chain_facts_read_events_of_done_run(self):
+        """鎖の 1 歩は、終わった run にも workflow get --verbose --events --json を打ち、鎖の控えの周の cost_read が真で、費用と分が数になる"""
+        t = self.target()
+        self.start(t, "2")
+        self.finish(1, word="fixed", costs=(1.5, 2.25), minutes=21.5)
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="30")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn(["workflow", "get", "run-1", "--verbose", "--events", "--json"], [c[3:] for c in self.calls()])
+        row = self.chain_doc()["rounds"][0]
+        self.assertEqual((row["cost"], row["cost_read"], row["minutes"], row["kind"]), (3.75, True, 21.5, "closed"))
+
+    def check_chain_interrupted_round_does_not_claim_a_next_run(self):
+        """途中で落ちた周（結末が interrupted）は周に足さず、次の周を結べたと言う終了コード 6 も返さない。起こし直しも止めもせず、
+        控えの周と pending は変わらない"""
+        t = self.target()
+        self.start(t, "3")
+        self.finish(1, word="interrupted")
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="30")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("途中で落ちた", r.stdout)
+        self.assertNotIn("次の周を起こして結んだ", r.stdout)
+        self.assertEqual(len(self.runs_called()), 1)
+        doc = self.chain_doc()
+        self.assertEqual((doc["rounds"], doc["pending"]["run"], doc["stop"]), ([], "run-1", None))
+
+    def check_chain_round_result_on_start_base(self):
+        """result_k は run-<k>.diff をその周の始めの記録の base_rev の木に当てて作られ（親は周の起点 from_k）、refs/works/chains/<鎖>/<k> で
+        守られる。--pr の 1 周目でも二重に当たらず、final.diff は B0 から採った周の結果までの差になる。始めの記録の base_rev が周の起点と
+        違う盤面（起点の 1 つ前）でも、木は base_rev の木・親は起点になる"""
+        t = self.target()
+        old_head = git(t, "rev-parse", "HEAD")
+        (t / "other.txt").write_text("周の起点にだけ在る\n")
+        git(t, "add", "-A")
+        git(t, "commit", "-q", "-m", "other")
+        head = git(t, "rev-parse", "HEAD")
+        d1, _, _ = self.diffs(t)
+        self.start(t, "2", "--pr", "12")
+        board = self.out / "artifacts" / "runs" / "run-1" / "board" / "r1" / "start.json"
+        board.write_text(json.dumps({"request_file": "", "base_rev": old_head}))   # 差分は起点の 1 つ前（old_head）との差
+        self.finish(1, word="fixed", diff=d1)
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="30")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        cid = self.chain_dir().name
+        ref = f"refs/works/chains/{cid}/1"
+        result = git(t, "rev-parse", ref)
+        self.assertEqual(git(t, "rev-parse", f"{ref}^"), head)   # 親は周の起点
+        expected = self.tmp / "expected"
+        committed_copy(expected, DEV / "target-seed")
+        (expected / "stats.py").write_text((expected / "stats.py").read_text() + "# 周1の直し\n")
+        git(expected, "add", "-A")
+        self.assertEqual(git(t, "rev-parse", f"{result}^{{tree}}"), git(expected, "write-tree"))   # 木は base_rev の木に差分を当てた物
+        final = (self.chain_dir() / "final.diff").read_text()
+        self.assertEqual(final.count("+# 周1の直し"), 1, final)
+        self.assertEqual(final, subprocess.run(["git", "-C", str(t), "diff", "--binary", old_head, result], capture_output=True, text=True).stdout)
+        self.assertEqual(self.chain_doc()["original_base"], old_head)
+
+    def check_wait_exit_6_names_next_run(self):
+        """鎖が次の周を起こして期限のうちに結べた wait は、終了コード 6 で新しい run の id と次の行を出す。同じ run に wait を打ち直しても
+        2 本目を起こさない。止めた鎖は 5 と止めの 1 行を出す"""
+        t = self.target()
+        d1, d2, _ = self.diffs(t)
+        self.start(t, "3")
+        self.finish(1, diff=d1)
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="90")
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertIn("run-2", r.stdout)
+        self.assertIn(f"sh {USE} wait {t} run-2", r.stdout)
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="30")
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertIn("run-2", r.stdout)
+        self.assertEqual(len(self.runs_called()), 2)
+        self.finish(2, word="fixed", diff=d2, findings=())
+        r = self.use("wait", str(t), "run-2", WORKS_USE_WAIT_SECONDS="30")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("止めた（closed", r.stdout)
+        self.assertEqual(len(self.runs_called()), 2)
+        self.assertEqual(self.chain_doc()["stop"]["word"], "closed")
+        self.assertTrue((self.chain_dir() / "chain.md").is_file())
+
+    def check_chain_answer_then_wait_launches_next(self):
+        """paused → answer → wait が終わりを見て次の周を起こす。2 周目の起動が Archon の前で落ちても、次の wait で鎖の控えから続けられる"""
+        t = self.target()
+        d1, _, _ = self.diffs(t)
+        self.start(t, "2")
+        r = self.use("answer", str(t), "run-1", "continue", "通す", "me")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.finish(1, diff=d1)
+        git(t, "remote", "remove", "origin")   # 2 周目の start は origin が無いと Archon の前で拒む
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="60")
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("wait", r.stdout)
+        self.assertEqual(len(self.runs_called()), 1)
+        pend = self.chain_doc()["pending"]
+        self.assertEqual((pend["round"], pend["launched"], pend["run"]), (2, False, ""))
+        git(t, "remote", "add", "origin", str(self.tmp / "origin.git"))
+        git(t, "update-ref", "refs/remotes/origin/main", "HEAD")
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="90")
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertEqual(len(self.runs_called()), 2)
+        self.assertEqual(len(self.chain_doc()["rounds"]), 1)
+
+    # ---- 取り込み・報告・片付け
+    def fake_chain(self, t, *, final=None, run_status="completed", pending=None, stopped=False):
+        """鎖の控え・最後の差分・周の結果の参照を家と対象に直に置く（周を実際に回さずに apply・show・clean を見る）"""
+        cid = "c-20261009-120000-1"
+        d = self.home / "chains" / cid
+        d.mkdir(parents=True)
+        doc = core_chain.new_doc(cid, target=str(t), rounds=2, budget=None, request="", test_cmd="true", tdd_suite="", env=[],
+                            use_sh=str(USE), pid=1)
+        row = {"n": 1, "run": "run-1", "from": git(t, "rev-parse", "HEAD"), "base_rev": git(t, "rev-parse", "HEAD"),
+               "result": git(t, "rev-parse", "HEAD"), "same_tree": False, "outcome": "x", "kind": "open", "minutes": 3.0, "cost": 1.0,
+               "cost_read": True, "keys": [], "held_rows": [], "files": 1, "r2": 0, "stopped": None, "diff": "", "report": "",
+               "next_file": ""}
+        doc.update(rounds=[row], pending=pending, original_base=row["base_rev"], stop={"word": "rounds_reached", "text": "t"})
+        core_chain.save(d, doc)
+        git(t, "update-ref", f"refs/works/chains/{cid}/1", "HEAD")
+        if final is not None:
+            (d / "final.diff").write_text(final)
+        self.state.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": run_status,
+                                                     "working_path": "/wt/none", "output_root": str(self.out)}], "seq": 1, "events": {}}))
+        board = self.out / "artifacts" / "runs" / "run-1" / "board"
+        (board / "r1").mkdir(parents=True)
+        if stopped:
+            (board / "r1" / "final-gate-answer.json").write_text(json.dumps({"decision": "stop", "text": "守りのファイルは戻す"}))
+        return cid, d
+
+    def check_apply_show_clean_chain_id(self):
+        """apply <鎖の id> は final.diff を今の apply と同じ確かめで当てる（消す行は許しが無ければ拒む）。show <鎖の id> は chain.md を出す。
+        clean <鎖の id> は、最後の周が生きていれば今の clean と同じ文で拒み、そうでなければ refs/works/chains/<鎖>/* と控えを消す"""
+        d1, _, _ = self.diffs(None)
+        t = self.target()
+        cid, d = self.fake_chain(t, final=d1)
+        r = self.use("apply", str(t), cid)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git(t, "status", "--porcelain"), "M stats.py")
+        self.assertIn(f"鎖 {cid}", r.stdout)
+        git(t, "checkout", "-q", "--", "stats.py")
+        # 消す行は許しが無ければ拒む
+        (t / "test_stats.py").unlink()
+        gone = subprocess.run(["git", "-C", str(t), "diff", "--binary"], capture_output=True, text=True).stdout
+        git(t, "checkout", "-q", "--", "test_stats.py")
+        (d / "final.diff").write_text(gone)
+        r = self.use("apply", str(t), cid)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("WORKS_USE_ALLOW_DELETE=1", r.stderr)
+        self.assertEqual(git(t, "status", "--porcelain"), "")
+        r = self.use("apply", str(t), cid, WORKS_USE_ALLOW_DELETE="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        git(t, "checkout", "-q", "--", ".")
+        # 採った周の run の記録が止まりなら、今の apply と同じに拒む
+        (d / "final.diff").write_text(d1)
+        board = self.out / "artifacts" / "runs" / "run-1" / "board"
+        (board / "r1" / "final-gate-answer.json").write_text(json.dumps({"decision": "stop", "text": "守りのファイルは戻す"}))
+        r = self.use("apply", str(t), cid)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("WORKS_USE_ALLOW_STOPPED=1", r.stderr)
+        (board / "r1" / "final-gate-answer.json").unlink()
+        # show は chain.md を出す
+        r = self.use("show", str(t), cid)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"# 鎖 {cid} の報告", r.stdout)
+        self.assertIn("rounds_reached", r.stdout)
+        # clean: 最後の周が生きていれば拒み、次の周を起こす途中でも拒み、そうでなければ消す
+        self.set_state_status("running")
+        r = self.use("clean", str(t), cid)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("run run-1 は running。止めるか終わってから片付ける", r.stderr)
+        self.assertTrue(d.is_dir())
+        self.set_state_status("completed")
+        doc = core_chain.load(d)
+        doc["pending"] = {"round": 2, "mark": cid + "-2", "pid": None, "launched": False, "run": "", "from": "f", "request": "", "log": ""}
+        core_chain.save(d, doc)
+        r = self.use("clean", str(t), cid)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("次の周を起こす途中", r.stderr)
+        doc["pending"] = None
+        core_chain.save(d, doc)
+        r = self.use("clean", str(t), cid)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(d.exists())
+        self.assertEqual(git(t, "for-each-ref", "refs/works/chains/"), "")
+
+    def set_state_status(self, status):
+        d = self.doc()
+        for r in d["runs"]:
+            r["status"] = status
+        self.state.write_text(json.dumps(d))
+
+
+def run_chain_checks(owner, *names):
+    """ChainShell の check_ で始まる確かめを、owner の部分試験として 1 本ずつ新しい準備（家・偽の archon・後片付け）で回す"""
+    for name in names:
+        with owner.subTest(check=name):
+            case = ChainShell(name)
+            case.setUp()
+            try:
+                getattr(case, name)()
+            finally:
+                case.doCleanups()
+
+
+def datetime_plus(minutes: float) -> str:
+    """finish が run の completed_at に置く時刻（始め 2026-10-09T12:00:00Z から minutes 分後）"""
+    import datetime
+    base = datetime.datetime(2026, 10, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    return (base + datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 if __name__ == "__main__":

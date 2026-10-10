@@ -44,9 +44,14 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   聞いたままの問いと戻せなかった単位（保留の件数）・関所で答えた問い（件数に数えない）・修正役に渡す義務に戻った単位・答えたが
   今の周の units に無いので戻せなかった単位
 - request_answers(b)・request_answer(b, q)・answer_note(a)・unmatched_answer_lines(b): 依頼の answers（start の控えの欄。依頼者の
-  答え）・q の key か出どころ origin と question が字のまま等しく、q だけに当たる答え（answered と _gate_answered が読む。関所の
-  continue と同じく答えた扱い。出どころで複数の問いに当たる答えはどれにも答えない）・答えの名乗りの文・答えた行に載らない答えの行
-  （台帳のどの問いにも当たらない・複数の問いに当たった・決着済みの問いに当たった。報告の冒頭と最後の関所が名指す。保留の件数に数えない）。
+  答え）・q の key か出どころ origin と question が字のまま等しく（か、判定が answer_ties で q の key に結び）、q だけに当たる答え
+  （answered と _gate_answered が読む。関所の continue と同じく答えた扱い。出どころで複数の問いに当たる答えはどれにも答えない）・
+  答えの名乗りの文・答えた行に載らない答えの行（台帳のどの問いにも当たらない・複数の問いに当たった・決着済みの問いに当たった・
+  判定が結べないと訳つきで名乗った。報告の冒頭と最後の関所が名指す。保留の件数に数えない）。
+- answer_binds(b, a, questions=None, answer_rows=None)・with_answer_ties(node, schema)・split_answer_ties(reply)・answer_tie_problems(b, reply, rows)・
+  answer_ties(b)・save_answer_ties(board, rnd, rows)・answer_tie_lines(b): 依頼の答えが当たる問いを決める 1 つの式（受け付けは返答の
+  問いに、報告は台帳に当てる）と、判定の返答の足し欄 answer_ties（種 answers。答えを問い・単位に、前の周の作り直しの行を直す単位に結ぶ。
+  役の型に足し、受け付けが外して確かめ、通れば控え answer-ties.json に置く）の手順の口と、判定が単位にしなかった作り直しの報告の行
   ANSWERED_HEAD は答えた行の見出し、ANSWER_HOW は保留の行の下に出す答え方の 1 行
 - unmeasured(b)・origin_of(b, q)・material_answer(b, name)・measured_materials(b)・material_lines(b): 今の周に測れていない素材
   （not_run・awaiting_human）・答えを結ぶ時の問いの出どころ（台帳の origin。origin を持てない field の問いは、key の頭の測れていない
@@ -178,6 +183,22 @@ ANSWER_KEY_HEAD = "答える時の answers の question"   # 保留の行の尾:
 HAND_CHECKED = "人が手元で確かめた（実測とは書かない）"   # 命令と出力つきの依頼の答えが当たった測れていない素材の名乗り
 ANSWER_HOW = ('答え方: 次の run の依頼を {"findings": [...], "answers": [{"question": "<問いの key か出どころ>", "text": "<答え>"}]} '
               'の形にすれば、その問いを人に聞き直さない（手元で測ったなら "command" と "output" も書く）')
+# 判定の返答の足し欄 answer_ties（種 answers）: 依頼の答えを今の返答の問い・単位に、前の周の独立の目の作り直しの行を直す単位に結ぶ行。
+# 形は {answer, to}・{answer, none}・{redesign, to}・{redesign, none}（none は当たらない・単位にしない訳）
+ANSWER_TIES = "answer_ties"
+ANSWER_TIE_NODES = marks.nodes("answers")
+ANSWER_TIE_MIN = 20     # none の訳の最小の長さ（本流の事前審査が entrance の穴に求める no_add と同じ長さ）
+ANSWER_TIE_ROW = {
+    "type": "object", "additionalProperties": False,
+    "properties": {
+        "answer": {"type": "string", "minLength": 1, "note": "依頼の answers の question を一字も変えずに写した物"},
+        "redesign": {"type": "string", "minLength": 1, "note": "作り直しの節の行の text の最初の「（」まで"},
+        "to": {"type": "string", "minLength": 1, "note": "結び先: 今の返答の問いの key か単位の key（作り直しの行は [block] か do-now の単位）"},
+        "none": {"type": "string", "minLength": ANSWER_TIE_MIN, "note": "結べない訳（答えが当たる問いも単位も無い・作り直しの行が反証で死んだか目的の外）"},
+    },
+}
+NO_CARRY_HEAD = promptsection.Section("### 判定が単位にしなかった作り直し（次の run に運ばない）",
+                                      human="人が読む報告の節 PRIOR_HEADING の中の小見出し。役の指示書には貼らない")
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
 DESIGN_KIND = "design"                # 関所の項目の kinds（構造の目が決めきれなかった設計の問い）
@@ -707,13 +728,161 @@ def origin_of(b, q) -> str:
                  if key.startswith(n) and not KEY_CHAR.match(key[len(n):len(n) + 1])), "")
 
 
-def _hits(b, a) -> list:
-    """依頼の答え a が当たる台帳の問い: question と key が字のまま等しい問いが在ればそれだけ、無ければ出どころ（origin_of）が等しい
-    問いの全部（同じ単位の fork と escalate のように複数に当たることがある）"""
-    qs = [q for q in b.record.get("questions") or [] if isinstance(q, dict)]
+def answer_binds(b, a, questions=None, answer_rows=None) -> list:
+    """依頼の答え a が当たる問い（questions を渡せばそれ、渡さなければ台帳の問い）: 判定が answer_ties で a をこの問いの key に
+    結んでいればその問い（answer_rows は結びの行。渡さなければ控え answer_ties(b)、空の列なら字の一致だけ）、無ければ question と key が
+    字のまま等しい問い、それも無ければ出どころ（origin_of）が等しい問いの全部（同じ単位の fork と escalate のように複数に当たる
+    ことがある）。受け付け（返答の問いに当てる）と報告（台帳に当てる）が引く 1 つの式"""
+    qs = [q for q in (b.record.get("questions") or [] if questions is None else questions) if isinstance(q, dict)]
     name = a.get("question")
+    tied = _tie_of(answer_ties(b) if answer_rows is None else answer_rows, a)
+    if tied is not None and isinstance(tied.get("to"), str):
+        by_tie = [q for q in qs if q.get("key") == tied["to"]]
+        if by_tie:
+            return by_tie
     by_key = [q for q in qs if isinstance(q.get("key"), str) and q.get("key") and q.get("key") == name]
     return by_key or [q for q in qs if name and origin_of(b, q) == name]
+
+
+def _tie_of(rows, a):
+    """結びの行のうち、依頼の答え a の question を answer に持つ最初の行（無ければ None）"""
+    return next((r for r in rows if isinstance(r, dict) and "answer" in r and r["answer"] == a.get("question")), None)
+
+
+def with_answer_ties(node: str, schema: dict) -> dict:
+    """役の型に answer_ties（任意の欄。古い返答を拒まない）を足した写し（ANSWER_TIE_NODES でなければそのまま）"""
+    return marks.add("answers", node, schema, {ANSWER_TIES: {
+        "type": "array", "items": ANSWER_TIE_ROW,
+        "note": "依頼の answers と前の周の作り直しの行を、今の返答の問い・単位に結ぶ行（字の一致で当たらない答えと、作り直しの行の全部）"}})
+
+
+def split_answer_ties(reply) -> tuple:
+    """（answer_ties を外した返答の写し, 行の一覧。欄が無ければ []）。dict でない返答はそのまま"""
+    if not isinstance(reply, dict):
+        return reply, []
+    out, got = marks.split("answers", ANSWER_TIE_NODES[0], reply, (ANSWER_TIES,))
+    return out, got.get(ANSWER_TIES, [])
+
+
+def answer_ties(b) -> list:
+    """控え answer-ties.json の最後の周の結びの行（無い・読めない・形が違えば空）"""
+    doc = marks.load(marks.path_of("answers", b))
+    rounds = doc.get("rounds") if isinstance(doc, dict) else None
+    if not isinstance(rounds, dict) or not rounds:
+        return []
+    rows = rounds[max(rounds, key=lambda k: int(k) if str(k).isdigit() else 0)]
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def save_answer_ties(board, rnd: int, rows: list) -> None:
+    """周 rnd の結びの行を控え answer-ties.json に置く（その周の分を置き換える）。行が無く控えも無ければ書かない"""
+    p = marks.path_of("answers", board)
+    doc = marks.load(p)
+    if not (isinstance(doc, dict) and isinstance(doc.get("rounds"), dict)):
+        doc = {"rounds": {}}
+    if not rows and not p.is_file():
+        return
+    doc["rounds"][str(rnd)] = rows
+    marks.write(p, doc)
+
+
+def _redesign_rows(b) -> list:
+    """依頼の prior_failures の写し（盤面の根の prior-failures-in.json）のうち、作り直しの行（無い・読めなければ空）"""
+    try:
+        rows = json.loads((pathlib.Path(b.dir) / carry.PRIOR_IN_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [r for r in rows if carry.is_redesign(r)] if isinstance(rows, list) else []
+
+
+def _fix_duty(unit: dict) -> bool:
+    """単位が [block] か do-now の [suggest]（作り直しの行を結んでよい単位）"""
+    return unit.get("label") == "block" or (unit.get("label") == "suggest" and unit.get("disposition") == "do-now")
+
+
+def _tie_row_problems(i: int, r, answers: dict, redesign: dict, questions: dict, units: dict) -> tuple:
+    """結びの行 1 つの誤りの一覧と、結んだ先（("answer"|"redesign", 鍵)。形が崩れていれば None）"""
+    where = f"{ANSWER_TIES}[{i}]"
+    if not isinstance(r, dict):
+        return [f"{where} が object でない"], None
+    subject = [k for k in ("answer", "redesign") if k in r]
+    target = [k for k in ("to", "none") if k in r]
+    extra = sorted(set(r) - {"answer", "redesign", "to", "none"})
+    if len(subject) != 1 or len(target) != 1 or extra:
+        return [f"{where} の形が違う（{{answer か redesign のどちらか 1 つ, to か none のどちらか 1 つ}}。知らない欄 {extra}）"], None
+    out, kind = [], subject[0]
+    value = r[kind]
+    if not (isinstance(value, str) and _squeeze(value)):
+        return [f"{where} の {kind} が空でない文字列でない"], None
+    if kind == "answer":
+        key = value
+        if key not in answers:
+            out.append(f"{where} の answer {value!r} が依頼の answers のどの question にも当たらない（question を一字も変えずに写す）")
+    else:
+        key = carry.row_key({"where": carry.REDESIGN_WHERE, "text": value})
+        if key not in redesign:
+            out.append(f"{where} の redesign {_squeeze(value)!r} が作り直しの節のどの行にも当たらない（行の text の最初の「（」までを写す）")
+    if target[0] == "none":
+        if len(_squeeze(r["none"])) < ANSWER_TIE_MIN:
+            out.append(f"{where} の none が {ANSWER_TIE_MIN} 字に満たない（当たらない訳を書く）")
+    elif kind == "answer":
+        if r["to"] not in questions and r["to"] not in units:
+            out.append(f"{where} の to {r['to']!r} が今の返答の問いの key にも単位の key にも無い")
+    elif r["to"] not in units:
+        out.append(f"{where} の to {r['to']!r} が今の返答の単位の key に無い（作り直しの行は [block] か do-now の単位に結ぶ。"
+                   "反証で死んだ行と目的の外の行は none に訳を書く）")
+    elif not _fix_duty(units[r["to"]]):
+        out.append(f"{where} の to {r['to']!r} が [block] でも do-now でもない（作り直しの行は直す単位に結ぶ。defer にしない）")
+    return out, (kind, key)
+
+
+def answer_tie_problems(b, reply, rows) -> list:
+    """判定の返答 reply（answer_ties を外した写し）と結びの行 rows の誤り（1 件 1 文）: 行の形・to が今の返答の問いか単位の key に
+    在るか・作り直しの行の結び先が直す単位か。求める結び: 返答の問いに answer_binds で 1 つにも当たらない（素材の名で測れていない
+    素材に当たる答えを除く）・複数に当たる依頼の答えと、作り直しの行の全部。字の一致で返答の問い 1 つに当たる答えは結びを求めない
+    （書けば結びが勝つ）。判定の後に機械が台帳へ立てる問い（R が確かめられないと返した周の ASK_KEYS の key）の字で書かれた答えも、
+    判定の返答に問いが無いので結びを求めない。台帳はこの時点で今の返答の問いを持たないので、返答の問いを渡して当てる"""
+    if not isinstance(rows, list):
+        return [f"{ANSWER_TIES} が配列でない（{type(rows).__name__}）"]
+    body = reply if isinstance(reply, dict) else {}
+    questions = [q for q in body.get("questions") or [] if isinstance(q, dict)]
+    units = {u.get("key"): u for u in body.get("units") or [] if isinstance(u, dict)}
+    answers = {a.get("question"): a for a in request_answers(b)}
+    redesign = {carry.row_key(r): r for r in _redesign_rows(b)}
+    out, tied = [], set()
+    for i, r in enumerate(rows):
+        errs, got = _tie_row_problems(i, r, answers, redesign, {q.get("key") for q in questions}, units)
+        out += errs
+        if got is not None and not errs:
+            if got in tied:
+                out.append(f"{ANSWER_TIES}[{i}] が同じ {got[0]} {got[1]!r} の 2 度目（1 つの答え・行に結びは 1 つ）")
+            tied.add(got)
+    later = set((getattr(getattr(b, "rules", None), "ASK_KEYS", None) or {}).values())   # 判定の後に機械が台帳へ立てる問いの key
+    for name, a in answers.items():
+        if ("answer", name) in tied or name in later:
+            continue
+        hits = answer_binds(b, a, questions, answer_rows=())
+        if len(hits) == 1 or (not hits and name in unmeasured(b)):
+            continue
+        out.append(f"依頼の答え {name!r} が" + (f"返答の複数の問いに当たる（{'・'.join(str(q.get('key')) for q in hits)}）" if hits
+                                             else "返答のどの問いにも当たらない")
+                   + f"のに結びが無い——{ANSWER_TIES} に {{answer: {name!r}, to: <今の返答の問いの key か単位の key>}} か "
+                   f"{{answer: {name!r}, none: <当たらない訳。{ANSWER_TIE_MIN} 字以上>}} を足す")
+    for key, r in redesign.items():
+        if ("redesign", key) not in tied:
+            out.append(f"作り直しの行 {_squeeze(r.get('text'))!r} に結びが無い——{ANSWER_TIES} に {{redesign: <行の text の最初の「（」まで>, "
+                       f"to: <[block] か do-now の単位の key>}} か {{redesign, none: <反証で死んだか目的の外とした訳。{ANSWER_TIE_MIN} 字以上>}} を足す")
+    return out
+
+
+def answer_tie_lines(b) -> list:
+    """報告の節の小見出し NO_CARRY_HEAD と、判定が単位にしなかった作り直しの行（redesign と none の結び）の 1 件 1 行。無ければ空
+    （この行は次の run に運ばない。次の周の独立の目がもう一度見る）"""
+    rows = [r for r in answer_ties(b) if "redesign" in r and "none" in r]
+    if not rows:
+        return []
+    return [NO_CARRY_HEAD, ""] + [f"- {carry.REDESIGN_WHERE}: {_squeeze(r['redesign'])}——判定が単位にしなかった訳: {_squeeze(r['none'])}"
+                                  for r in rows]
 
 
 def _measured(a: dict) -> bool:
@@ -726,7 +895,7 @@ def material_answer(b, name: str):
     複数の問いに当たる答えは unmatched_answer_lines がどれにも答えないと名指すので、素材にも当てない）"""
     if name not in unmeasured(b):
         return None
-    return next((a for a in request_answers(b) if a.get("question") == name and len(_hits(b, a)) <= 1), None)
+    return next((a for a in request_answers(b) if a.get("question") == name and len(answer_binds(b, a)) <= 1), None)
 
 
 def measured_materials(b) -> set:
@@ -752,9 +921,9 @@ def material_lines(b) -> list:
 
 
 def request_answer(b, q):
-    """依頼の答えのうち q だけに当たる（_hits が q 1 つ）最初の物（無ければ None）。複数の問いに当たる答えはどれにも答えない
+    """依頼の答えのうち q だけに当たる（answer_binds が q 1 つ）最初の物（無ければ None）。複数の問いに当たる答えはどれにも答えない
     （1 つの答えを別の問いの答えとして修正役に渡さない。unmatched_answer_lines が名指す）"""
-    return next((a for a in request_answers(b) if (h := _hits(b, a)) and len(h) == 1 and h[0] is q), None)
+    return next((a for a in request_answers(b) if (h := answer_binds(b, a)) and len(h) == 1 and h[0] is q), None)
 
 
 def answer_note(a: dict) -> str:
@@ -797,7 +966,7 @@ def answer_key(b, q) -> str:
     """依頼の answers でこの問いに答える時の question: 出どころ（origin_of）が今の周に測れていない素材の名で、その名がこの問い
     だけに当たるなら素材の名（短く、字が run ごとに変わらない）、ほかは問いの key"""
     name = origin_of(b, q)
-    if name in unmeasured(b) and _hits(b, {"question": name}) == [q]:
+    if name in unmeasured(b) and answer_binds(b, {"question": name}, answer_rows=()) == [q]:
         return name
     return str(q.get("key") or "")
 
@@ -867,11 +1036,17 @@ def draft_line(drafts: list, next_file: str) -> str:
 def unmatched_answer_lines(b) -> list:
     """答えた行（answered_lines）に載らない依頼の答え（1 件 1 行。黙って答えた扱いにも、黙って捨てもしない）: 台帳のどの問いの
     key にも出どころにも当たらない物・出どころで複数の問いに当たった物（どれにも答えない）・決着済み（人に聞く状態でない）の
-    問いに当たった物（答えは直しに使わない）"""
-    out = []
+    問いに当たった物（答えは直しに使わない）。判定が answer_ties で結んだ答えは、問いに結んだ物が answer_binds で当たり、今の周の
+    単位に結んだ物は修正役へ渡り（returned_lines）、結ばれないと訳つきで名乗った物（none）は訳つきで並べる"""
+    out, answer_rows = [], answer_ties(b)
     for a in request_answers(b):
-        hits, note = _hits(b, a), answer_note(a)
+        hits, note, tie = answer_binds(b, a, answer_rows=answer_rows), answer_note(a), _tie_of(answer_rows, a)
         if not hits and a.get("question") in unmeasured(b):   # 問いの無い測れていない素材に当たった（material_lines が並べる）
+            continue
+        if not hits and _tied_unit(b, a, answer_rows):   # 単位に結んだ（returned_lines が修正役へ渡す）
+            continue
+        if not hits and tie is not None and "none" in tie:
+            out.append(f"結ばなかった依頼の答え（問いにも単位にも結ばれないと判定が名乗った）: {a.get('question')}——訳: {_squeeze(tie['none'])}——{note}")
             continue
         if not hits:
             out.append(f"依頼の答えに当たる問いが台帳に無い（判定が問いを立てなかったか、字が違う）: {a.get('question')}——{note}")
@@ -882,6 +1057,14 @@ def unmatched_answer_lines(b) -> list:
             out.append(f"決着済みの問いに当たった答え: {a.get('question')} → {hits[0].get('key')}（{hits[0].get('status')}）"
                        f"（答えは直しに使わない）——{note}")
     return out
+
+
+def _tied_unit(b, a, answer_rows) -> str:
+    """判定が依頼の答え a を結んだ今の周の単位の key（単位に結ばなかった・単位が今の周に無ければ ""）"""
+    tie = _tie_of(answer_rows, a)
+    to = tie.get("to") if tie is not None else None
+    keys = {u.get("key") for u in b.record.get("units") or [] if isinstance(u, dict)}
+    return to if isinstance(to, str) and to in keys else ""
 
 
 def answered(b, q) -> bool:
@@ -994,7 +1177,8 @@ def returned(b) -> set:
 
 def returned_lines(b) -> list:
     """修正役に渡す行: 関所か依頼の answers で答えた問いと、それで直す義務に戻った単位（1 問 1 行。今の周の units に無い単位は
-    約束しない）。依頼の答えの問いは推しでなく答えの文で直させる"""
+    約束しない）。依頼の答えの問いは推しでなく答えの文で直させる。判定が answer_ties で今の周の単位に結んだ依頼の答えは、その単位の
+    答えとして 1 答え 1 行を足す"""
     out = []
     for q, keep, _ in _answered_skips(b):
         if not keep:
@@ -1005,6 +1189,11 @@ def returned_lines(b) -> list:
         out.append(f"{'依頼' if a is not None else '関所'}で答えた{ASK_HEAD} {q.get('key')} の出どころ・depends は直す義務に戻った"
                    f"（保留の問いの出どころとして飛ばさない）: {'・'.join(keep)}{how}。"
                    "判定者の class_query が無い単位は coverage.how と counts を書け（写しの受け付けが求める）")
+    answer_rows = answer_ties(b)
+    for a in request_answers(b):
+        unit = _tied_unit(b, a, answer_rows) if not answer_binds(b, a, answer_rows=answer_rows) else ""
+        if unit:
+            out.append(f"依頼で答えた単位 {unit}（判定が依頼の答えをこの単位に結んだ）——答え: {answer_note(a)}")
     return out
 
 

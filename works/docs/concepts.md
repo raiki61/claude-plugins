@@ -50,6 +50,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `entry-kind` | 入口の種類（依頼・変更・PR） | 住処あり |
 | `start-record` | 始めの記録 `r1/start.json` | 住処あり |
 | `carry-over` | 次の run への持ち越し | 住処あり |
+| `chain` | 周の鎖（頼まれたら周をつなぎ、差分 1 本と報告 1 本で返す） | 住処あり |
 | `human-gates` | 人の関所と無人の方針 | 住処あり |
 | `ai-launch` | AI の起こし方（模型・effort・道具・隔離） | 散らばり |
 | `ledger` | 費用と時間の帳簿 | 散らばり |
@@ -160,7 +161,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 - 状態: 住処あり
 - 住処: `.shared/core/marks.py`（種の表 `KINDS`＝節か役 → 行の在り処・盤面の控えの名・置き場、と手順の口 `add`（役の型に足す）・`rows`・`split`（受け付けが盤面へ渡す前に外す）・`path_of`・`write`・`load`（控えに置く・読み戻す））
-- 約束: 盤面の控えの宣言 `blk-*/manifest.json`・`darkfactory/manifest.json` と控えの型 `blk-plan/schemas/gate-marks.schema.json`・`blk-plan/schemas/plan-fields.schema.json`・`blk-delta/schemas/delta-verdicts.schema.json`・`blk-judge/schemas/out-of-purpose.schema.json`・`blk-pr/schemas/pr-excluded.schema.json`
+- 約束: 盤面の控えの宣言 `blk-*/manifest.json`・`darkfactory/manifest.json` と控えの型 `blk-plan/schemas/gate-marks.schema.json`・`blk-plan/schemas/plan-fields.schema.json`・`blk-delta/schemas/delta-verdicts.schema.json`・`blk-judge/schemas/out-of-purpose.schema.json`・`blk-judge/schemas/answer-ties.schema.json`・`blk-pr/schemas/pr-excluded.schema.json`
 - 知ってよい所: 住処と約束だけが控えの名を書き、欄を手で足す・外す。欄の意味（欄の型・欠けと誤りの検査・控えの中身の形・読んだ後の使い方）は欄を持つモジュール（`.shared/core/gatemarks.py`・`.shared/core/planmarks.py`・`.shared/core/deltamarks.py`・`.shared/core/converge.py`・`.shared/core/querytest.py`・`.shared/core/outpurpose.py`・`.shared/core/prcheck.py`・依頼の解き方 `means` の `.shared/core/worldmark.py`）が持ち、手順は住処を呼ぶ。控えのパスは `path_of` で組む。名を助け手に渡して組ませない（柵は字の形だけを見る）。周ごとに全部読む報告 `.shared/core/report.py` だけは名を `KINDS` から引く。手直しの役の申告 `bash_writes` は種 `writes` で `.shared/core/refix.py` が足す（外すのは `.shared/core/writes.py`、控えは書き込みの記録）。`.shared/core/converge.py` は外した欄を足し欄の控えでなく壁打ちの往復の記録に置く。役の印は `.shared/core/node_marker.py`（別の考え）
 - 今: 修正役の欄（`.shared/core/recount.py` が足し、`.shared/core/writes.py`・`blk-fix/scripts/accept.py`・`blk-fix/lib/fixlanes.py`・`blk-fix/lib/unitrows.py` が外す）と報告の書き手の `terms`（`blk-report/lib/report_roles.py`）は、同じ手順をまだ手で書く（柵の表の既知の漏れ。`blk-fix/lib/unitrows.py` の外し方は柵の字の形に当たらない。並行の作業が触っているので後で寄せる）
 - 計画: `docs/plans/2026-10-09-marks-home.md`
@@ -184,10 +185,18 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `carry-over` 次の run への持ち越し
 
 - 状態: 住処あり
-- 住処: `.shared/core/carry.py`（層 L1。依頼の容器の欄の名 `KEYS`・`ANSWER_KEYS`・`PRIOR_KEYS`、下書きの印 `DRAFT_KEYS` と `is_draft`・`draft`、盤面の根のファイルの名 `NEXT_REQUEST_FILE`・`PRIOR_FAILURES_FILE`・`PRIOR_IN_FILE`、依頼の解き方 `parts`・`without_prior`・`carry_ci`（殻の口 `carry-ci`）、次の依頼の中身 `compose`・行の鍵 `row_key`、照らしてから置く `save`・`place_prior`、役に貼る節 `prior_section`）
+- 住処: `.shared/core/carry.py`（層 L1。依頼の容器の欄の名 `KEYS`・`ANSWER_KEYS`・`PRIOR_KEYS`、下書きの印 `DRAFT_KEYS` と `is_draft`・`draft`、盤面の根のファイルの名 `NEXT_REQUEST_FILE`・`PRIOR_FAILURES_FILE`・`PRIOR_IN_FILE`、依頼の解き方 `parts`・`without_prior`・`carry_ci`（殻の口 `carry-ci`）、次の依頼の中身 `compose`・行の鍵 `row_key`、独立の目 R2 の作り直しの行 `REDESIGN_WHERE`・`is_redesign`・`REDESIGN_HEAD`、照らしてから置く `save`・`place_prior`、役に貼る節 `prior_section`（受け付けの拒否の行の注意の節と作り直しの行の直す穴の節）
 - 約束: `.shared/core/next-request.schema.json`・`.shared/core/prior-failures.schema.json`（住処が読み、書き手は書く前に照らし、読み手は前の失敗の行を照らす。欄の名の定数と Schema の欄が揃うことは `tests/test_carry_home.py` が縛る）と、盤面の根の置き場の宣言 `darkfactory/manifest.json`（書く物）・`blk-*/manifest.json`（読む物の consumes）
 - 知ってよい所: 住処と約束だけ。何を運ぶかの決めは書き手の側が持ち、形は住処を呼ぶ: 残りの行と前の失敗の行は `.shared/core/report.py`（`next_request`・`prior_failures`・`next_doc`）、答えの下書きの選びは `.shared/core/gatemarks.py`（`answer_drafts`）、目的の外の所見の行は `.shared/core/outpurpose.py`（`next_items`）。読み手（`.shared/core/entry.py`・`blk-judge/scripts/intake.py`・`blk-premises/scripts/intake.py`・`blk-purpose/scripts/intake.py`・`blk-judge/lib/judgebrief.py`・`blk-plan/lib/planblk.py`・殻 `dev/lib.sh`）も住処の名と口を引く。`gatemarks.carried_section`（修正前の関所で人が通した行を同じ run の R4 に貼る）は run の中の受け渡しで、この考えではない
 - 今: 欄の出どころの名 `source` は別の考え（目的の役の出どころ・素材の出どころ・プラグインの置き場）にも同じ名が多いので、柵は下書きの印を作りと読みの形（`"draft": True`・`"draft" in` など）で見る。容器の欄の名 `findings`・`answers`・`pr`・`issue` も別の考え（壁打ちの往復の `answers` など）と同じ字なので柵に入れず、呼び手が住処の定数（`carry.FINDINGS` など）を引く決まりだけで守る。利用者と役に読ませる文（`.shared/core/gatemarks.py` の答え方の案内 `ANSWER_HOW`・役の指示書・`skills/works/SKILL.md`）は容器の形を字で書く。計画 `docs/plans/2026-10-09-chained-rounds.md` の Task 1（作業の手順は `docs/plans/2026-10-09-carry-home.md`）。人が関所で決めた答えの持ち越しと、依頼の答えを問いに結ぶ所は同じ計画の Task 2
+
+### `chain` 周の鎖（頼まれたら周をつなぎ、差分 1 本と報告 1 本で返す）
+
+- 状態: 住処あり
+- 住処: `.shared/core/chain.py`（層 L1。鎖の止めの語の表 `STOPS`、結末の種の語 `KIND_CLOSED`・`KIND_HALTED`・`KIND_HUMAN`・`KIND_WAIT`・`KIND_OPEN`、次の一手の決め `decide`、次の周の依頼 `next_request`、最後の差分に採る周 `pick`、報告 `render`、鎖の控え `<家>/chains/<鎖の id>/chain.json` の形と読み書き `new_doc`・`load`・`save`・`add_round`、殻の口 `init`・`hold`・`launched`・`pid`・`bound`・`pending`・`plan`・`of-run`・`prep`・`step`・`pick`・`render`）
+- 約束: 結末の語から種を引く表 `OUTCOME_KINDS` と、終わった周の結末・種・費用・分・止まり・起点の版を返す口 `round_facts`（どちらも `.shared/core/report.py`。鎖は結末の語も費用の欄の名も持たず、この 2 つを受ける）
+- 知ってよい所: 住処だけが鎖の止めの語と控えの形を持つ。殻 `dev/use.sh` は旗（`--rounds`・`--budget-usd`・内部の `--chain-next`）を読んで住処に問い、git の手続き（周の結果の commit・最後の差分）と切り離した起動だけを持つ（鎖の控えの名はここで引く）。周の事実を書く口は `dev/lib.sh`（`works_dev_show_run` が環境 `WORKS_CHAIN_FACTS` の在る時だけ `report.round_facts` の返りを書く）。鎖の止めの語は run の中の止めの理由（`.shared/core/stopby.py`）とは別の考えで、鎖の控えと鎖の報告にだけ出る
+- 今: 持ち主の決め「指定があれば何周もつなげる」（2026-10-09）の外の鎖。各周は今と同じ 1 本の run で、線の YAML・写しの核は変えない。計画 `docs/plans/2026-10-09-chained-rounds.md`
 
 ### `web-get` 機械の web の取得と run をまたぐ控え
 

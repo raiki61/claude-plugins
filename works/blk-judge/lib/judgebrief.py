@@ -11,10 +11,13 @@ commands/diagnose.md のまま。受け付けは盤面の p2.diagnose の done�
   盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）何も書かずに go: false（判定役を起こさない。blk-material の
   支度と同じ形）。止まっていなければ盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
   作業ファイル judge-materials.md に書き（盤面の根の世界の解の控えが行を指せば worldmark.section の節を頭に貼る。
+  依頼の answers が在れば、全部を並べる節 answers_section を足し、
   前の run で最後まで通らなかった物 prior-failures-in.json の行が在れば、
-  carry.prior_section の節を末尾に足す。直す穴ではない注意）、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
+  carry.prior_section の節を末尾に足す。受け付けの拒否の行は直す穴ではない注意で、独立の目 R2 の作り直しの行は直す穴の節）、
+  判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
   受け付けが比べる）、待っている試行に起こした印を置く（描く → 印 → 起こす。盤面の決まり 2）。パスを返す
 """
+import json
 import pathlib
 import sys
 
@@ -28,6 +31,7 @@ from board import BoardGap  # noqa: E402  （board が写しの engine を sys.p
 import carry  # noqa: E402
 import entry  # noqa: E402
 import entryshape  # noqa: E402
+import gatemarks  # noqa: E402
 import judgetake  # noqa: E402
 import promptsection  # noqa: E402
 import rolekit  # noqa: E402
@@ -38,15 +42,17 @@ BRIEF_FILE = "judge-materials.md"
 START = promptsection.Section("## 入力", human="本線の判定の指示書から節を切り出す探し字（役の指示書には貼らない）")
 END = promptsection.Section("## 手順", human="本線の判定の指示書から節を切り出す探し字（役の指示書には貼らない）")
 LEDGER_START, LEDGER_END = "問いの台帳（questions）", "**前の周の R1 最小性"   # 問いの台帳の決まりの段（本線の同じ指示書）
+ANSWERS_HEAD = promptsection.Section("## 依頼の answers（全部。依頼者が前の run の問いに答えた物。字が問いの key か出どころに当たらない答えは、"
+                                     "返答の answer_ties で問いか単位に結ぶ）", source="fn:judgebrief.answers_section")
 LEDGER_HEAD = promptsection.Section("## 問いの台帳（本線の判定の指示書の同じ段。kind・status・書ける欄はここが正本）\n\n", source="fn:judgebrief.template")
 HEAD = promptsection.Section("# 判定の材料（盤面から描いた物）\n\n"
                              "本線の判定の指示書（graphloops の p2.diagnose.md）の「入力」の節と問いの台帳の段を、この run の盤面から engine と同じ描き方で描いた物。"
                              "値が貼ってある欄はそのまま読め。パス（対象差分・観点の正本など）は Read で読め。手順と返す JSON の形は、お前を起こした"
                              "指示書のとおり。", source="fn:judgebrief.brief")
-# 判定役は材料の頭と、依頼・PR・世界の解の行・前の run の落ちた理由を受ける
+# 判定役は材料の頭と、依頼・依頼の answers・PR・世界の解の行・前の run の落ちた理由と作り直しの行を受ける
 RECEIVES = [
     *(promptsection.Receive("judge", head) for head in (
-        LEDGER_HEAD, HEAD, carry.PRIOR_HEAD, worldmark.HEAD, entryshape.REQUEST_HEAD, entryshape.PR_TEXT_HEAD, entryshape.PR_TITLE,
+        LEDGER_HEAD, HEAD, ANSWERS_HEAD, carry.PRIOR_HEAD, carry.REDESIGN_HEAD, worldmark.HEAD, entryshape.REQUEST_HEAD, entryshape.PR_TEXT_HEAD, entryshape.PR_TITLE,
         entryshape.PR_SUBJECT_HEAD, entryshape.PR_BODY_HEAD)),
 ]
 
@@ -66,6 +72,15 @@ def template(b) -> str:
     n = b.nodes[NODE]
     text = (rolekit.prompt_graph_path(b, n).parent / n["prompt_file"]).read_text(encoding="utf-8")
     return section(text) + "\n" + LEDGER_HEAD + section(text, LEDGER_START, LEDGER_END)
+
+
+def answers_section(b) -> str:
+    """依頼の answers（依頼者が前の run の問いに答えた物）の全部を並べる節（判定役が answer_ties で結ぶ材料。無ければ ""）"""
+    rows = gatemarks.request_answers(b)
+    if not rows:
+        return ""
+    return ANSWERS_HEAD + "\n\n" + "\n".join(f"- question: {json.dumps(a.get('question'), ensure_ascii=False)} → {gatemarks.answer_note(a)}"
+                                             for a in rows)
 
 
 def brief(board_dir, repo) -> dict:
@@ -88,8 +103,9 @@ def brief(board_dir, repo) -> dict:
     tmp = p.with_name(p.name + ".tmp")
     prior = carry.prior_section(d, gap=BoardGap)   # 盤面の根の前の run で最後まで通らなかった物（manifest の consumes。無ければ貼らない）
     world = worldmark.section(worldmark.stage_rows(d) or [])   # 盤面の根の控えが指す世界の解の行（無い・落ちた周は貼らない）
-    tmp.write_text(HEAD + "\n\n" + (f"{world}\n" if world else "") + body + (f"\n\n{prior}\n" if prior else ""),
-                   encoding="utf-8")
+    answers = answers_section(b)   # 依頼の answers の全部（無ければ貼らない）
+    tmp.write_text(HEAD + "\n\n" + (f"{world}\n" if world else "") + body + (f"\n\n{answers}\n" if answers else "")
+                   + (f"\n\n{prior}\n" if prior else ""), encoding="utf-8")
     tmp.replace(p)
     entry.snapshot(d, judgetake.TREE_FILE, pathlib.Path(repo))
     entry.open_board(d).mark_launched(NODE, inst.get("attempts", 1))

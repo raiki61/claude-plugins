@@ -684,5 +684,137 @@ class UnprovenQueryCase(unittest.TestCase):
                                  "盤面へ渡す写しの class_query に理由の欄を残さない（写しの型は additionalProperties: false）")
 
 
+class AnswerTiesTakeCase(unittest.TestCase):
+    """判定の受け付け（judgetake.take）が、依頼の answers と前の周の作り直しの行が answer_ties で今の返答の問い・単位に
+    結ばれたかを確かめる。盤面の台帳は空で、問いは返答にだけ在る（返答の問いは entry.take の後に台帳に入る）"""
+    REDESIGN = {"where": "独立の目 R2", "text": "R2 が redesign-needed: 独立設計と構造が合わない"}
+    BLOCK = {"key": "a.py: f の誤り", "label": "block", "disposition": None}
+    DEFER = {"key": "b.py: g の誤り", "label": "suggest", "disposition": "defer"}
+    NONE_WHY = "反証で死んだ: 独立設計の構造は依頼の外の物で、この周の目的に入らない"
+
+    def setUp(self):
+        import types
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        self.types = types
+        import carry
+        import gatemarks
+        import judgetake
+        self.carry, self.gatemarks, self.jt = carry, gatemarks, judgetake
+
+    def board(self, answers=(), prior=(), materials=None):
+        (self.dir / "r1").mkdir(exist_ok=True)
+        (self.dir / "r1" / "start.json").write_text(json.dumps({"answers": list(answers)}, ensure_ascii=False), encoding="utf-8")
+        self.carry.place_prior(self.dir, list(prior))
+        status = self.types.SimpleNamespace(blocks=True)
+        return self.types.SimpleNamespace(
+            dir=self.dir, round=1, state={"outputs": {}}, latest_output=lambda nid: None,
+            record={"process": {"request_findings": []}, "questions": [], **({"materials": materials} if materials else {})},
+            rules=self.types.SimpleNamespace(validator_module=lambda b: self.types.SimpleNamespace(STATUS={"not_run": status})))
+
+    def take(self, board, reply):
+        from unittest import mock
+        with mock.patch.object(self.jt.entry, "open_board", return_value=board), \
+                mock.patch.object(self.jt.entry, "take", return_value={"ok": True, "reason": ""}) as t:
+            got = self.jt.take(self.dir, reply, self.dir)
+        return got, t
+
+    @staticmethod
+    def question(key, origin="a.py: f の誤り"):
+        return {"key": key, "kind": "fork", "status": "held", "origin": origin, "options": ["a", "b"], "reason": "割れる"}
+
+    def test_unbound_answer_without_tie_is_rejected_by_question(self):
+        b = self.board(answers=[{"question": "空の列の扱い", "text": "例外"}, {"question": "q-1", "text": "0 を返す"}])
+        got, t = self.take(b, {"units": [self.BLOCK], "questions": [self.question("q-1")]})
+        self.assertFalse(got["ok"])
+        self.assertIn("'空の列の扱い'", got["reason"])
+        self.assertNotIn("'q-1'", got["reason"], "字の一致で返答の問い 1 つに当たる答えは名指さない")
+        t.assert_not_called()
+        # 判定の材料は依頼の answers の全部を並べる（答えの無い依頼には節を貼らない）
+        import judgebrief
+        section = judgebrief.answers_section(b)
+        for needle in ('"空の列の扱い"', '"q-1"', "依頼者の答え: 例外", "依頼者の答え: 0 を返す", "answer_ties"):
+            self.assertIn(needle, section)
+        self.assertEqual(judgebrief.answers_section(self.board()), "")
+
+    def test_literal_and_material_answers_need_no_tie(self):
+        b = self.board(answers=[{"question": "q-1", "text": "0 を返す"}, {"question": "parallel_pr", "text": "並行する PR は無い"}],
+                       materials={"parallel_pr": {"status": "not_run", "reason": "通信を拒まれた"}})
+        reply = {"units": [self.BLOCK], "questions": [self.question("q-1")]}
+        self.assertEqual(self.gatemarks.answer_tie_problems(b, reply, []), [], "結びの行が無くても求める物は無い")
+        got, t = self.take(b, reply)
+        self.assertTrue(got["ok"], got)
+        t.assert_called_once()
+        # 判定の後に機械が台帳へ立てる問い（R が確かめられないと返した周の ASK_KEYS の key）の字の答えも、返答に問いが無くて通る
+        b = self.board(answers=[{"question": "R3 を確かめる材料", "text": "docs/ を見よ"}])
+        b.rules.ASK_KEYS = {"R3": "R3 を確かめる材料"}
+        got, _ = self.take(b, {"units": [self.BLOCK]})
+        self.assertTrue(got["ok"], got)
+
+    def test_answer_hitting_two_reply_questions_needs_tie(self):
+        b = self.board(answers=[{"question": self.BLOCK["key"], "text": "例外"}])
+        reply = {"units": [self.BLOCK], "questions": [self.question("q-1"), self.question("q-2")]}
+        got, t = self.take(b, reply)
+        self.assertFalse(got["ok"])
+        self.assertIn("複数の問い", got["reason"])
+        t.assert_not_called()
+        got, _ = self.take(b, {**reply, "answer_ties": [{"answer": self.BLOCK["key"], "to": "q-2"}]})
+        self.assertTrue(got["ok"], got)
+
+    def test_tie_to_unknown_key_is_rejected(self):
+        b = self.board(answers=[{"question": "空の列の扱い", "text": "例外"}])
+        got, t = self.take(b, {"units": [self.BLOCK], "answer_ties": [{"answer": "空の列の扱い", "to": "q-9"}]})
+        self.assertFalse(got["ok"])
+        self.assertIn("'q-9'", got["reason"])
+        t.assert_not_called()
+
+    def test_redesign_row_must_bind_to_open_unit_or_none(self):
+        b = self.board(prior=[self.REDESIGN])
+        head = self.REDESIGN["text"]
+        units = [self.BLOCK, self.DEFER]
+        for name, ties, needle in (("結び無し", [], "作り直しの行"),
+                                   ("defer の単位", [{"redesign": head, "to": self.DEFER["key"]}], "[block] でも do-now でもない"),
+                                   ("知らない行", [{"redesign": "別の行", "to": self.BLOCK["key"]}], "作り直しの節のどの行にも当たらない"),
+                                   ("短い訳", [{"redesign": head, "none": "目的の外"}], "字に満たない")):
+            with self.subTest(name):
+                got, t = self.take(b, {"units": units, "answer_ties": ties})
+                self.assertFalse(got["ok"])
+                self.assertIn(needle, got["reason"])
+                t.assert_not_called()
+        got, _ = self.take(b, {"units": units, "answer_ties": [{"redesign": head, "to": self.BLOCK["key"]}]})
+        self.assertTrue(got["ok"], got)
+
+    def test_redesign_none_row_passes_and_is_reported(self):
+        import report
+        b = self.board(prior=[self.REDESIGN])
+        got, _ = self.take(b, {"units": [self.BLOCK], "answer_ties": [{"redesign": self.REDESIGN["text"], "none": self.NONE_WHY}]})
+        self.assertTrue(got["ok"], got)
+        lines = self.gatemarks.answer_tie_lines(b)
+        self.assertIn("次の run に運ばない", lines[0])
+        self.assertIn(self.REDESIGN["text"], "\n".join(lines))
+        self.assertIn(self.NONE_WHY, "\n".join(lines))
+        count = report.prior_lines([])
+        self.assertTrue(count[0].startswith("0 件"), count)
+        self.assertEqual(len(count), 1, "運ばなかった行は節の件数にも行にも数えない")
+
+    def test_good_ties_are_taken_off_and_saved(self):
+        b = self.board(answers=[{"question": "空の列の扱い", "text": "例外"}], prior=[self.REDESIGN])
+        ties = [{"answer": "空の列の扱い", "to": "q-1"}, {"redesign": self.REDESIGN["text"], "to": self.BLOCK["key"]}]
+        got, t = self.take(b, {"units": [self.BLOCK], "questions": [self.question("q-1")], "answer_ties": ties})
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn("answer_ties", t.call_args.args[2])
+        self.assertEqual(json.loads((self.dir / "answer-ties.json").read_text(encoding="utf-8")), {"rounds": {"1": ties}})
+        self.assertEqual(self.gatemarks.answer_ties(b), ties)
+
+    def test_diagnose_prompt_treats_redesign_rows_as_fix_holes(self):
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        for needle in ("answer_ties", "作り直しを要ると言った物——直す穴。この周の先頭で直す", "1 行ずつ反証", "[block] か do-now の単位",
+                       "defer にしない", "{redesign, none}", "{answer, to}", "{answer, none}", "20 字以上"):
+            with self.subTest(needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("独立設計の目の作り直しの理由。**直す穴ではない**", text)
+
+
 if __name__ == "__main__":
     unittest.main()

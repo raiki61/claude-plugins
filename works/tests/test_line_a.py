@@ -553,7 +553,8 @@ class JudgeReadsCase(LineBase):
         self.assertLess(got["trail"].index("worlding"), got["trail"].index("judging"))
         self.assertLess(got["trail"].index("h-world"), got["trail"].index("judging"))
         text = pathlib.Path(got["judge_brief"]["materials_file"]).read_text(encoding="utf-8")
-        prepkit.drawn(self, "judge", text, off=("entryshape.request_text", "entryshape.write_pr_file", "carry.prior_section"))
+        prepkit.drawn(self, "judge", text, off=("entryshape.request_text", "entryshape.write_pr_file", "carry.prior_section",
+                                                "judgebrief.answers_section"))
         self.assertIn(worldmark.HEAD, text)
         self.assertIn("WR-5521", text)
         self.assertIn(worldmark.NOT_WEB, text)

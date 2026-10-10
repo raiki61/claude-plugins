@@ -1,21 +1,28 @@
 #!/bin/sh
 # works/dev/use.sh — ほかのリポジトリを対象に、ライン darkfactory を回す起動の殻（skills/works/SKILL.md が入口）。
 #
-#   use.sh start [--base <版> | --pr <番号>] [--spec] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]]
+#   use.sh start [--base <版> | --pr <番号>] [--spec] [--rounds <N> [--budget-usd <X>]] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]]
 #                                                                           本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る。
 #                                                                           --base・--pr は変更から入る（差分に P1 の目を回す。依頼は - で省ける）
+#                                                                           --rounds N（2 以上）は周をつなぐ鎖: wait が終わりを見るたびに次の周を起こす
+#                                                                           （--budget-usd X は費用の上限。--rounds と組む時だけ）
 #   use.sh show  <対象リポジトリ> [<run-id>]                                その対象で start が結んだ一番新しい run（か名指しの run）の状態・
 #                                                                           次に打つ行・差分のファイルを出し直す
 #   use.sh wait  <対象リポジトリ> <run-id>                                  裏で回る run を決まった時間（WORKS_USE_WAIT_SECONDS。既定 540 秒）
 #                                                                           まで待ち、状態を 1 行で返す（0 = 関所で待つ・3 = まだ走っている・
-#                                                                           5 = 終わった・1 = 落ちた・見つからない）。AI を起こさない
+#                                                                           5 = 終わった（鎖なら止めた）・1 = 落ちた・見つからない・6 = 鎖が次の周を
+#                                                                           起こして結んだ（新しい run の id と次の行を出す））。鎖の周の終わりなら
+#                                                                           次の周を切り離して起こす（Archon を自分では起こさない）
 #   use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> 関所で待つ run に答える（答えた者を <家>/answers.jsonl に残す）。残りの工程は切り離して回し、wait の行で返る
 #   use.sh approve <対象リポジトリ> <run-id>                               起動の関所を越える（切り離して回し、wait の行で返る）
 #   use.sh stop  <対象リポジトリ> <run-id> <理由>                           止める（関所で待つ run は respond stop、走っている run は止め札）
-#   use.sh apply <対象リポジトリ> <run-id>                                  その run の差分を書き直し、git apply --check の後に対象へ当てる
+#   use.sh apply <対象リポジトリ> <run-id か鎖の id>                        その run の差分を書き直し、git apply --check の後に対象へ当てる
 #                                                                           （commit しない。消す行は WORKS_USE_ALLOW_DELETE=1 の時だけ。
-#                                                                           記録が止まりを示す run は WORKS_USE_ALLOW_STOPPED=1 の時だけ）
-#   use.sh clean <対象リポジトリ> <run-id>                                  終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）。
+#                                                                           記録が止まりを示す run は WORKS_USE_ALLOW_STOPPED=1 の時だけ）。
+#                                                                           鎖の id なら、元の基から採った周の結果までの差分 final.diff を同じ確かめで当てる。
+#                                                                           show に鎖の id を渡せば周ごとと合計の報告 chain.md を出す
+#   use.sh clean <対象リポジトリ> <run-id か鎖の id>                        終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）。
+#                                                                           鎖の id なら、鎖の控えと周の結果を守る参照を消す（最後の周が生きている・次の周を起こす途中は拒む）。
 #                                                                           completed・cancelled の run は wait・show が差分を書いた後に自動で消し、
 #                                                                           failed などの残った run は次の start が差分を書いてから消す。
 #                                                                           clean・start が消した failed の run は Archon の記録も abandon で閉じる
@@ -75,14 +82,42 @@
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
-USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--spec] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--spec] [--rounds <N> [--budget-usd <X>]] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id か鎖の id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id か鎖の id> | use.sh clean <対象リポジトリ> <run-id か鎖の id> | use.sh check <対象リポジトリ>"
 ARCHON_BASE_BRANCH=""   # Archon の workflow run に渡す worktree の土台の枝（start・check が下で origin の既定の枝から求める。入口の旗 --base の CHANGE_INPUT とは別物）
 CHANGE_INPUT=""   # 差分の根の名指し（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
 SPEC_INPUT=""     # 仕様の段を挟むか（旗 --spec。ラインの入力 spec=on。入口の種類に依らない任意の段）
+ROUNDS=""         # 周の鎖の周の数（旗 --rounds。2 以上の時だけ鎖の控えを作る。省略と 1 は今と同じ 1 周）
+BUDGET_USD=""     # 鎖の費用の上限 USD（旗 --budget-usd。--rounds と組む時だけ）
+CHAIN_NEXT=""     # 鎖の次の周の起動（内部の旗 --chain-next <鎖の id>。wait の鎖の 1 歩だけが切り離して打つ）
 if [ "${1:-}" = start ]; then
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --rounds)
+        case "${2:-}" in
+          '' | *[!0-9]*) echo "use.sh: --rounds は 2 以上の整数（受けた値: ${2:-}）" >&2; exit 2 ;;
+        esac
+        [ "$2" -ge 1 ] || { echo "use.sh: --rounds は 2 以上の整数（受けた値: $2）" >&2; exit 2; }
+        ROUNDS=""
+        [ "$2" -lt 2 ] || ROUNDS="$2"
+        shift 2
+        ;;
+      --budget-usd)
+        case "${2:-}" in
+          '' | *[!0-9.]* | . | *.*.* | *.) echo "use.sh: --budget-usd は正の数（受けた値: ${2:-}）" >&2; exit 2 ;;
+        esac
+        awk -v v="$2" 'BEGIN { exit !(v + 0 > 0) }' || { echo "use.sh: --budget-usd は正の数（受けた値: $2）" >&2; exit 2; }
+        BUDGET_USD="$2"
+        shift 2
+        ;;
+      --chain-next)
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          echo "$USAGE" >&2
+          exit 2
+        fi
+        CHAIN_NEXT="$2"
+        shift 2
+        ;;
       --base | --pr)
         if [ "$#" -lt 2 ] || [ -z "$2" ]; then
           echo "$USAGE" >&2
@@ -106,6 +141,10 @@ if [ "${1:-}" = start ]; then
       *) break ;;
     esac
   done
+  if [ -n "$BUDGET_USD" ] && [ -z "$ROUNDS" ]; then
+    echo "use.sh: --budget-usd は --rounds 2 以上と組む時だけ（周が 1 つなら上限を比べる相手が無い）" >&2
+    exit 2
+  fi
   set -- start "$@"
 fi
 CMD="${1:-}"
@@ -119,6 +158,24 @@ esac
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
+CHAIN_PY="$WORKS_DIR/.shared/core/chain.py"
+CHAIN_DIR=""   # 鎖の控えの置き場 <家>/chains/<鎖の id>（鎖の起動か次の周の起動の時だけ）
+CN_REQUEST="" CN_TEST_CMD="" CN_TDD_SUITE="" CN_FROM="" CN_BASE="" CN_MARK="" CN_ROUND="" CN_FIRST_RUN=""
+# 鎖の次の周（start --chain-next）: 起動に効く環境（WORKS_USE_* と WORKS_DESIGN_ONLY）を、wait を打った殻の値ごと全部外し、鎖の控えの
+# KEY=VALUE だけを戻す（1 周目と同じ環境で起きる）。対象・依頼・test_cmd・tdd_suite・起動の基・差分の根・起動の印も控えから戻す。
+# 家（控えの場所）だけは親が WORKS_USE_HOME で渡す
+if [ -n "$CHAIN_NEXT" ]; then
+  _cn_home="${WORKS_USE_HOME:-}"
+  [ -n "$_cn_home" ] || { echo "use.sh: --chain-next は鎖の家を WORKS_USE_HOME で受ける（内部の旗。wait の鎖の 1 歩が打つ）" >&2; exit 2; }
+  for _v in $(env | sed -n -e 's/^\(WORKS_USE_[A-Za-z0-9_]*\)=.*/\1/p' -e 's/^\(WORKS_DESIGN_ONLY\)=.*/\1/p'); do unset "$_v"; done
+  CHAIN_DIR="$_cn_home/chains/$CHAIN_NEXT"
+  _cn_plan="$(python3 -I "$CHAIN_PY" plan --dir "$CHAIN_DIR")" || { echo "use.sh: 鎖 ${CHAIN_NEXT} の次の周を鎖の控え（${CHAIN_DIR}）から読めない" >&2; exit 2; }
+  eval "$_cn_plan"
+  WORKS_USE_HOME="$_cn_home"
+  export WORKS_USE_HOME
+  CHANGE_INPUT="base=$CN_BASE"
+  SPEC_INPUT=""
+fi
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 WORKS_USE_SH="$DEV_DIR/use.sh"
 # 下で素のまま読む窓口の既定（set -u）
@@ -129,6 +186,8 @@ WORKS_USE_ALLOW_TESTCMD="${WORKS_USE_ALLOW_TESTCMD:-}"
 export WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH
 # start の時の既定の釘は控えからだけ受ける（load_ledger が置く）。利用者の殻に残った値で既定を替えさせない
 unset WORKS_MODEL_PINNED
+# 周の事実の書き先は wait の鎖の 1 歩だけが show_run に付ける。殻に残った値で終わった run の事実を書かせない
+unset WORKS_CHAIN_FACTS
 
 refuse() {
   echo "use.sh: $*" >&2
@@ -149,6 +208,12 @@ if [ "$CMD" = start ]; then
     "" | 1) ;;
     *) refuse "WORKS_USE_ALLOW_TESTCMD は 1（対象の手元を走らせる test_cmd でも起こす）か空（止める）。受けた値: ${WORKS_USE_ALLOW_TESTCMD}" ;;
   esac
+  # 周をつなぐ鎖と組めない起動（Archon を起こす前に 1 行で拒む）: 設計だけの run は差分を作らず次の周の基が無く、固定材料は
+  # 1 周目の修正の直前の盤面だけを指す
+  if [ -n "$ROUNDS" ]; then
+    [ "${WORKS_DESIGN_ONLY:-}" != 1 ] || refuse "--rounds は WORKS_DESIGN_ONLY=1 と組めない（設計だけの run は差分を作らず、次の周の基が無い）"
+    [ -z "$WORKS_USE_FIX_FIXTURE" ] || refuse "--rounds は WORKS_USE_FIX_FIXTURE と組めない（固定材料は 1 周目の修正の直前の盤面で、周をつなげない）"
+  fi
   # 固定材料のフォルダは打ったフォルダから絶対にする（ラインは相対を run の worktree の根から読むので、殻で解いて渡す）
   if [ -n "$WORKS_USE_FIX_FIXTURE" ]; then
     _fx="$(cd "$WORKS_USE_FIX_FIXTURE" 2>/dev/null && pwd -P)" ||
@@ -167,6 +232,11 @@ if [ "$CMD" = start ]; then
     3) TARGET_ARG="$2"; REQUEST_SRC="$3"; TEST_CMD="" ;;
     *) TARGET_ARG="$2"; REQUEST_SRC="$3"; TEST_CMD="$4" ;;
   esac
+  # 鎖の次の周の依頼・test_cmd は鎖の控えから（依頼が空の周は - で、差分の根 base=<元の基> が入口になる）
+  if [ -n "$CHAIN_NEXT" ]; then
+    REQUEST_SRC="${CN_REQUEST:--}"
+    TEST_CMD="$CN_TEST_CMD"
+  fi
 else
   TARGET_ARG="$2"
 fi
@@ -275,6 +345,92 @@ place_pack() {
   works_dev_copy_pack "$WORKS_DIR" "$_wf/.works.new.$$"
   rm -rf "$_wf/works"
   mv "$_wf/.works.new.$$" "$_wf/works"
+}
+
+# tree_commit <木の元の版> <差分のファイルか空> <親の版> <message>: 一時の index（HEAD の木から始める。空から add -A すると .gitignore に
+# 当たるのに追跡している物が消える）に <木の元の版> の木を読み、差分が在れば git apply --cached --binary で当て、空なら作業ツリーを
+# add -A で包んで（.gitignore の物は入らない）write-tree し、その木の commit（親は <親の版>）を標準出力に出す。start の包みと、鎖の
+# 周の結果が同じ手続きを使う（git の plumbing。対象の作業ツリー・index・枝・タグは動かさない）。対象の git の中から呼ぶ
+tree_commit() {
+  mkdir -p "$WORKS_WRAPS_DIR"
+  _tc_idx="$WORKS_WRAPS_DIR/.index.$$"
+  rm -f "$_tc_idx"
+  _tc_rc=0
+  GIT_INDEX_FILE="$_tc_idx" git read-tree "$1" || _tc_rc=$?
+  if [ "$_tc_rc" -eq 0 ] && [ -n "$2" ]; then
+    GIT_INDEX_FILE="$_tc_idx" git apply --cached --binary "$2" || _tc_rc=$?
+  elif [ "$_tc_rc" -eq 0 ]; then
+    GIT_INDEX_FILE="$_tc_idx" git add -A || _tc_rc=$?
+  fi
+  if [ "$_tc_rc" -ne 0 ]; then
+    rm -f "$_tc_idx"
+    return "$_tc_rc"
+  fi
+  _tc_tree="$(GIT_INDEX_FILE="$_tc_idx" git write-tree)" || { rm -f "$_tc_idx"; return 1; }
+  rm -f "$_tc_idx"
+  GIT_AUTHOR_NAME=works GIT_AUTHOR_EMAIL=works@localhost GIT_COMMITTER_NAME=works GIT_COMMITTER_EMAIL=works@localhost \
+    git commit-tree "$_tc_tree" -p "$3" -m "$4"
+}
+
+# chain_env_names: 起動に効く環境の名（WORKS_USE_* と WORKS_DESIGN_ONLY）のうち、鎖の控えに持つ物。wait・取り込みだけが読む窓口と、
+# この殻が自分で置く WORKS_USE_SH は持たない
+chain_env_names() {
+  env | sed -n -e 's/^\(WORKS_USE_[A-Z0-9_][A-Z0-9_]*\)=.*/\1/p' -e 's/^\(WORKS_DESIGN_ONLY\)=.*/\1/p' |
+    grep -v -x -e WORKS_USE_SH -e WORKS_USE_WAIT_SECONDS -e WORKS_USE_ALLOW_DELETE -e WORKS_USE_ALLOW_STOPPED || true
+}
+
+# chain_init: start --rounds の 1 周目を起こす前に、鎖の控え <家>/chains/<鎖の id>/chain.json を書く（周の決めは chain.py が持つ。
+# ここは旗の値と、1 周目の対象・依頼の写し・test_cmd・tdd_suite・起動の環境を渡すだけ。環境の中身は chain.py も読まない）
+chain_init() {
+  set -- init "--dir=$CHAIN_DIR" "--id=$CHAIN_ID" "--target=$TARGET" "--rounds=$ROUNDS" "--budget=$BUDGET_USD" "--request=$REQUEST" \
+    "--test-cmd=$TEST_CMD" "--tdd-suite=$TDD_SUITE" "--use-sh=$WORKS_USE_SH" "--pid=$$"
+  case "$CHANGE_INPUT" in pr=*) set -- "$@" "--first-pr=${CHANGE_INPUT#pr=}" ;; esac   # 1 周目の --pr は次の依頼の pr として運ぶ
+  for _ce in $(chain_env_names); do
+    eval "_cv=\${$_ce}"
+    # shellcheck disable=SC2154  # _cv は上の eval が置く
+    set -- "$@" "--env=$_ce=$_cv"
+  done
+  python3 -I "$CHAIN_PY" "$@"
+}
+
+# apply_checked <差分のファイル> <止まりを見る run-id> <呼び名>: 差分を対象へ当てる確かめ（消す行は許しが要る・記録が止まりを示す run は
+# 許しが要る・git apply --check）と当てる本体。run の差分（apply <run-id>）と鎖の最後の差分（apply <鎖の id>）が同じ確かめを通る。
+# cd "$TARGET" した殻から呼ぶ
+apply_checked() {
+  _ac_diff="$1" _ac_rid="$2" _ac_label="$3"
+  _ac_gone="$(git apply --numstat --summary "$_ac_diff" | sed -n 's/^ delete mode [0-9]* //p' | tr '\n' ' ')"
+  if [ -n "$_ac_gone" ] && [ "${WORKS_USE_ALLOW_DELETE:-}" != 1 ]; then
+    refuse "差分が対象のファイルを消す（${_ac_gone}）。消してよければ WORKS_USE_ALLOW_DELETE=1 を前に付けて打ち直す"
+  fi
+  # 記録が止まりを明示する run（人が最後の関所で stop と答えた・止め札・ラインの止め）は当てない。止まりの判定の正本は
+  # report.stopped_run（結末を決める decide_outcome と同じ分け方）。止まりかを言える記録が無いか読めない run は 1 行出して当てる
+  _ac_stopped="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$_ac_rid" |
+    RUN_ID="$_ac_rid" CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import json, os, sys
+sys.path.insert(0, os.environ["CORE_DIR"])
+import report
+r = json.load(sys.stdin)
+board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board")
+got = report.stopped_run(board) if os.path.isdir(board) else None
+rid = os.environ["RUN_ID"]
+if got is None:
+  print("unknown\trun {} は止まりかどうかを記録で確かめられなかった（盤面 {}。止まりかを言える記録が無いか読めない）。当てる".format(rid, board))
+elif got:
+  word, by, text = got
+  print("stopped\trun {} は{}（{}）で止まった: 「{}」".format(rid, report.OUTCOME_WORDS.get(word, word), by, " ".join(text.split())))
+')" || exit 2
+  case "$_ac_stopped" in
+    stopped*)
+      if [ "$WORKS_USE_ALLOW_STOPPED" != 1 ]; then
+        refuse "${_ac_stopped#*	}。それでも当てるなら WORKS_USE_ALLOW_STOPPED=1 を前に付けて打ち直す"
+      fi
+      echo "use.sh: ${_ac_stopped#*	}。WORKS_USE_ALLOW_STOPPED=1 なので当てる" >&2
+      ;;
+    unknown*) echo "use.sh: ${_ac_stopped#*	}" >&2 ;;
+  esac
+  git apply --check "$_ac_diff" || refuse "差分が対象に当たらない（${_ac_diff}）。対象の手元の変更とぶつかっていないかを見る"
+  git apply "$_ac_diff"
+  echo "${_ac_label} の差分を ${TARGET} に当てた（commit はしていない。テストを回してから commit する）: ${_ac_diff}"
 }
 
 # row_of: 標準入力の run の行（lib.sh works_dev_run_json の JSON の 1 行）を「id<TAB>status<TAB>working_path」に直す。読めなければ 1
@@ -467,6 +623,120 @@ auto_clean() {
   return 0
 }
 
+# pid_alive <pid>: その process が居て、終わって親に引き取られるのを待つだけの状態（Z）でもない
+pid_alive() {
+  { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; } || return 1
+  _pa_st="$(ps -o stat= -p "$1" 2>/dev/null || true)"
+  case "$_pa_st" in Z*) return 1 ;; *) return 0 ;; esac
+}
+
+# chain_wait_bound <鎖の控えの置き場>: 次の周の run が控えに結ばれる（pending の run が入る）のを、wait の期限（deadline）まで待つ。
+# 結ばれたら 0 と run の id を標準出力に出す。子の pid が死んで結ばれないまま・期限が来たら 1
+chain_wait_bound() {
+  while :; do
+    _cb="$(python3 -I "$CHAIN_PY" pending --dir "$1")" || return 1
+    _cb_run="$(printf '%s' "$_cb" | cut -f1)"
+    if [ -n "$_cb_run" ]; then
+      printf '%s\n' "$_cb_run"
+      return 0
+    fi
+    pid_alive "$(printf '%s' "$_cb" | cut -f2)" || return 1
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep 1
+  done
+}
+
+# chain_step <鎖の id> <run-id> <周の事実のファイル> <差分を書いた show_run の終了コード>: 終わった周の run を鎖に足し、次の周を切り離して
+# 起こすか止めるかを進める（周の決めは chain.py。ここは git の手続きと切り離した起動だけ）。錠 <鎖>/chain.json.lock は周の結果を
+# 作ってから子の pid を控えに書くまで持ち続け（同じ run に wait を重ねて打っても 2 本目を起こさない）、待つ前に外す。
+# 終了コードの案は CHAIN_STATUS に置く（6 = 次の周を結んだ・5 = 止めた・3 = 結ぶのを待つうちに期限が来た・1 = 鎖を進められない）
+chain_step() {
+  _cs_id="$1" _cs_rid="$2" _cs_facts="$3" _cs_dst="$4"   # 下の set -- が位置引数を使うので先に控える
+  _cs_dir="$WORKS_USE_HOME/chains/$_cs_id"
+  CHAIN_STATUS=1
+  exec 8>"$_cs_dir/chain.json.lock"
+  python3 -I "$CHAIN_PY" hold 8 || { exec 8>&-; echo "鎖 $_cs_id: 控えの錠を取れない"; return 0; }
+  _cs_diff="$WORKS_USE_HOME/diffs/run-$_cs_rid.diff"
+  _cs_prep="$(python3 -I "$CHAIN_PY" --held prep --dir "$_cs_dir" --run "$_cs_rid" --facts "$_cs_facts")" || { exec 8>&-; echo "鎖 $_cs_id: run $_cs_rid は鎖の今の周でない"; return 0; }
+  _cs_round="$(printf '%s' "$_cs_prep" | cut -f1)"
+  _cs_from="$(printf '%s' "$_cs_prep" | cut -f2)"
+  _cs_base="$(printf '%s' "$_cs_prep" | cut -f3)"
+  # 周の結果: その周の起点の木に run-<id>.diff を当て、前の周の結果を親にした commit。参照で守る（run の worktree が片付いた後も、
+  # 次の周の起点と最後の差分がここから届く）。差分が無い周（空の差分）は結果を作らない（chain.py が進みの無い周と読む）
+  set -- --unwritten "" --diff "$_cs_diff"
+  if [ "$_cs_round" = done ]; then
+    : # 同じ run に wait を打ち直した: 周は足してあるので、結果も作らず控えの今の姿で決め直す
+  elif [ "$_cs_dst" -ne 0 ]; then
+    set -- --unwritten "差分を書けなかった（works_dev_show_run が終了コード $_cs_dst）" --diff "$_cs_diff"
+  elif [ -s "$_cs_diff" ]; then
+    if _cs_res="$(cd "$TARGET" && tree_commit "$_cs_base" "$_cs_diff" "$_cs_from" "works: 鎖 $_cs_id の周 ${_cs_round} の結果")" &&
+      git -C "$TARGET" update-ref "refs/works/chains/$_cs_id/${_cs_round}" "$_cs_res"; then
+      set -- --unwritten "" --diff "$_cs_diff" --result "$_cs_res" --result-tree "$(git -C "$TARGET" rev-parse "$_cs_res^{tree}")" \
+        --from-tree "$(git -C "$TARGET" rev-parse "$_cs_from^{tree}" 2>/dev/null || true)"
+    else
+      set -- --unwritten "周の結果の commit を作れなかった（差分 ${_cs_diff} を周の起点 ${_cs_base} に当てられない）" --diff "$_cs_diff"
+    fi
+  fi
+  _cs_out="$(python3 -I "$CHAIN_PY" --held step --dir "$_cs_dir" --run "$_cs_rid" --facts "$_cs_facts" "$@")" || { exec 8>&-; echo "鎖 $_cs_id: 鎖の控えを進められなかった"; return 0; }
+  _cs_act="$(printf '%s' "$_cs_out" | cut -f1)"
+  case "$_cs_act" in
+    launch)
+      _cs_n="$(printf '%s' "$_cs_out" | cut -f2)"
+      _cs_log="$_cs_dir/round-${_cs_n}.log"
+      echo "鎖 $_cs_id: 周 ${_cs_n} を切り離して起こす（前の周は run ${_cs_rid}。出力は ${_cs_log}）"
+      WORKS_USE_HOME="$WORKS_USE_HOME" nohup sh "$WORKS_USE_SH" start --chain-next "$_cs_id" "$TARGET" - >"$_cs_log" 2>&1 </dev/null 8>&- &
+      python3 -I "$CHAIN_PY" --held pid --dir "$_cs_dir" --pid "$!" --log "$_cs_log"
+      exec 8>&-
+      ;;
+    wait)
+      exec 8>&-
+      echo "鎖 $_cs_id: 次の周の起動を待つ（$(printf '%s' "$_cs_out" | cut -f2)）"
+      ;;
+    follow) exec 8>&- ;;
+    aborted)
+      # 途中で落ちた周は周に足していない（run は鎖の今の周のまま）。次の周が結ばれたと言わず、resume で続けた後の wait に任せる
+      exec 8>&-
+      echo "鎖 $_cs_id: run ${_cs_rid} は途中で落ちた周で、鎖は進めない（$(printf '%s' "$_cs_out" | cut -f2)）"
+      return 0
+      ;;
+    stop)
+      _cs_word="$(printf '%s' "$_cs_out" | cut -f2)"
+      _cs_text="$(printf '%s' "$_cs_out" | cut -f3)"
+      # 最後の差分: 元の基から、止まりと言われていない最後の周の結果まで（止まった周は採らず、chain.md が差分を名指す）
+      _cs_kept="$(python3 -I "$CHAIN_PY" pick --dir "$_cs_dir")"
+      rm -f "$_cs_dir/final.diff"
+      if [ -n "$_cs_kept" ]; then
+        git -C "$TARGET" diff --binary --no-ext-diff "$(printf '%s' "$_cs_kept" | cut -f4)" "$(printf '%s' "$_cs_kept" | cut -f3)" >"$_cs_dir/final.diff" ||
+          { rm -f "$_cs_dir/final.diff"; _cs_kept=""; echo "鎖 $_cs_id: 最後の差分を書けなかった（git diff が落ちた）"; }
+      fi
+      python3 -I "$CHAIN_PY" render --dir "$_cs_dir" >/dev/null
+      exec 8>&-
+      echo "鎖 $_cs_id を止めた（${_cs_word}: ${_cs_text}）。報告: $_cs_dir/chain.md"
+      if [ -n "$_cs_kept" ]; then
+        echo "最後の差分（元の基から周 $(printf '%s' "$_cs_kept" | cut -f1) の結果まで）: $_cs_dir/final.diff。取り込む: sh $WORKS_USE_SH apply $TARGET $_cs_id"
+      else
+        echo "最後の差分に採れる周が無い（止まっていない周が無い）。報告で止まった周の差分を見る"
+      fi
+      CHAIN_STATUS=5
+      return 0
+      ;;
+    *)
+      exec 8>&-
+      echo "鎖 $_cs_id: ${_cs_out}"
+      return 0
+      ;;
+  esac
+  # 次の周の run が結ばれるのを期限まで待つ（錠は外した後。子が控えに run を書く）
+  if _cs_next="$(chain_wait_bound "$_cs_dir")"; then
+    echo "鎖 $_cs_id: 次の周を起こして結んだ。run ${_cs_next}。待つ: sh $WORKS_USE_SH wait $TARGET ${_cs_next}"
+    CHAIN_STATUS=6
+  else
+    echo "鎖 $_cs_id: 次の周の run はまだ結ばれていない（子の出力: $_cs_dir/round-*.log）。待つなら同じ行を打ち直す（起動が落ちていれば起こし直すか止める）: sh $WORKS_USE_SH wait $TARGET $_cs_rid"
+    CHAIN_STATUS=3
+  fi
+  return 0
+}
+
 # sweep_old_runs: start が Archon を起こす前に、この対象の生きていない run（failed も含む。持ち主の決め: 次の start が前の run を片付ける。古い run は
 # resume しない）の worktree・枝・控えを clean_run で消す。生きた状態は launch.py の LIVE_STATUSES（ledger live）の 1 か所で決め、
 # 状態が読めない・確かめが落ちた run は残す（迷ったら残す）。消す前に差分を <家>/diffs に書き、書けなければ残して理由を出す。
@@ -533,6 +803,10 @@ case "$CMD" in
   show)
     resolve_claude
     cd "$TARGET"
+    # 鎖の id なら、周ごとと合計の報告 chain.md（今の控えから描き直す。止めていない鎖は途中の姿）を出す
+    if [ -f "$WORKS_USE_HOME/chains/${3:-}/chain.json" ]; then
+      exec python3 -I "$CHAIN_PY" render --dir "$WORKS_USE_HOME/chains/$3"
+    fi
     # run-id を省けば、この対象で start が結んだ一番新しい run（控えが無い時だけ一覧の一番新しい run）
     RID="${3:-$(ledger_latest)}"
     # 出す進める・続きの行も、start の控えの模型・claude・包みで組む（別の殻の値で黙って替えない）。run が見つからなければ下が言う
@@ -571,8 +845,16 @@ case "$CMD" in
         # 出力は捨てる（wait は状態を 1 行で返す）。show_run は CLAUDE_BIN_PATH を読むので wait でも解く
         resolve_claude
         diff_status=0
-        WORKS_RUN_ID="$3" works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null || diff_status=$?
+        # 鎖の周の run なら、差分と一緒に周の事実（結末・費用・分・起点の版）も書く（WORKS_CHAIN_FACTS）
+        chain_id="$(python3 -I "$CHAIN_PY" of-run --home "$WORKS_USE_HOME" --run "$3" 2>/dev/null)" || chain_id=""
+        chain_facts=""
+        [ -z "$chain_id" ] || chain_facts="$WORKS_USE_HOME/chains/$chain_id/facts-$3.json"
+        WORKS_CHAIN_FACTS="$chain_facts" WORKS_RUN_ID="$3" works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null || diff_status=$?
         auto_clean "$(printf '%s' "$ROW" | cut -f1)" "$ROW" "$diff_status"
+        if [ -n "$chain_id" ]; then
+          chain_step "$chain_id" "$3" "$chain_facts" "$diff_status"
+          wait_status=$CHAIN_STATUS
+        fi
         break
       fi
       case $STATUS in
@@ -658,6 +940,15 @@ print(json.dumps(row, ensure_ascii=False))
     # show と同じ組み方で差分を書き直してから当てる（git apply --check で当たるかを先に見る。消す行は明示の許しが要る）
     resolve_claude
     cd "$TARGET"
+    # 鎖の id なら、鎖が止まった時に書いた最後の差分（元の基から、止まりと言われていない最後の周の結果まで）を同じ確かめで当てる
+    if [ -f "$WORKS_USE_HOME/chains/$3/chain.json" ]; then
+      CHAIN_DIR="$WORKS_USE_HOME/chains/$3"
+      _ap_kept="$(python3 -I "$CHAIN_PY" pick --dir "$CHAIN_DIR")" || exit 2
+      [ -f "$CHAIN_DIR/final.diff" ] || refuse "鎖 $3 の最後の差分がまだ無い（鎖が止まっていないか、採れる周が無い）。use.sh show ${TARGET} $3 で報告を見る"
+      [ -s "$CHAIN_DIR/final.diff" ] || refuse "鎖 $3 の最後の差分が空（元の基から採った周の結果までに変更が無い）。use.sh show ${TARGET} $3 で報告を見る"
+      apply_checked "$CHAIN_DIR/final.diff" "$(printf '%s' "$_ap_kept" | cut -f2)" "鎖 $3（周 $(printf '%s' "$_ap_kept" | cut -f1)）"
+      exit 0
+    fi
     WORKS_RUN_ID="$3"
     export WORKS_RUN_ID
     diff_status=0
@@ -665,44 +956,35 @@ print(json.dumps(row, ensure_ascii=False))
     [ "$diff_status" -eq 0 ] || refuse "run $3 の差分を書き直せなかった（works_dev_show_run が終了コード ${diff_status}）。前の差分は当てない。use.sh show ${TARGET} $3 で理由を見る"
     DIFF="$WORKS_USE_HOME/diffs/run-$3.diff"
     [ -s "$DIFF" ] || refuse "run $3 の差分が空か書けていない（${DIFF}）。use.sh show ${TARGET} $3 で理由を見る"
-    GONE="$(git apply --numstat --summary "$DIFF" | sed -n 's/^ delete mode [0-9]* //p' | tr '\n' ' ')"
-    if [ -n "$GONE" ] && [ "${WORKS_USE_ALLOW_DELETE:-}" != 1 ]; then
-      refuse "差分が対象のファイルを消す（${GONE}）。消してよければ WORKS_USE_ALLOW_DELETE=1 を前に付けて打ち直す"
-    fi
-    # 記録が止まりを明示する run（人が最後の関所で stop と答えた・止め札・ラインの止め）は当てない。止まりの判定の正本は
-    # report.stopped_run（結末を決める decide_outcome と同じ分け方）。止まりかを言える記録が無いか読めない run は 1 行出して当てる
-    STOPPED="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$3" |
-      RUN_ID="$3" CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
-import json, os, sys
-sys.path.insert(0, os.environ["CORE_DIR"])
-import report
-r = json.load(sys.stdin)
-board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board")
-got = report.stopped_run(board) if os.path.isdir(board) else None
-rid = os.environ["RUN_ID"]
-if got is None:
-    print("unknown\trun {} は止まりかどうかを記録で確かめられなかった（盤面 {}。止まりかを言える記録が無いか読めない）。当てる".format(rid, board))
-elif got:
-    word, by, text = got
-    print("stopped\trun {} は{}（{}）で止まった: 「{}」".format(rid, report.OUTCOME_WORDS.get(word, word), by, " ".join(text.split())))
-')" || exit 2
-    case "$STOPPED" in
-      stopped*)
-        if [ "$WORKS_USE_ALLOW_STOPPED" != 1 ]; then
-          refuse "${STOPPED#*	}。それでも当てるなら WORKS_USE_ALLOW_STOPPED=1 を前に付けて打ち直す"
-        fi
-        echo "use.sh: ${STOPPED#*	}。WORKS_USE_ALLOW_STOPPED=1 なので当てる" >&2
-        ;;
-      unknown*) echo "use.sh: ${STOPPED#*	}" >&2 ;;
-    esac
-    git apply --check "$DIFF" || refuse "差分が対象に当たらない（${DIFF}）。対象の手元の変更とぶつかっていないかを見る"
-    git apply "$DIFF"
-    echo "run $3 の差分を ${TARGET} に当てた（commit はしていない。テストを回してから commit する）: ${DIFF}"
+    apply_checked "$DIFF" "$3" "run $3"
     exit 0
     ;;
   clean)
     # 終わった run の worktree と枝を消す（git worktree remove・branch -D）。走っている・関所で待つ run は拒む
     cd "$TARGET"
+    # 鎖の id なら、鎖の控えと周の結果を守る参照を消す。次の周を起こす途中（pending が残る）か、最後の周の run が生きていれば、
+    # 今の clean と同じ文で拒む（生きた状態の判定は下と同じ ledger live）
+    if [ -f "$WORKS_USE_HOME/chains/$3/chain.json" ]; then
+      CHAIN_DIR="$WORKS_USE_HOME/chains/$3"
+      _cc="$(python3 -I "$CHAIN_PY" pending --dir "$CHAIN_DIR")" || exit 2
+      _cc_run="$(printf '%s' "$_cc" | cut -f1)"
+      _cc_last="$(printf '%s' "$_cc" | cut -f7)"
+      if [ -n "$(printf '%s' "$_cc" | cut -f4)" ] && [ -z "$_cc_run" ]; then
+        refuse "鎖 $3 は次の周を起こす途中（pending が残っている）。止めるか終わってから片付ける"
+      fi
+      for _cc_id in $_cc_run $_cc_last; do
+        if _cc_row="$(run_row "$_cc_id" 2>/dev/null)"; then
+          _cc_st="$(printf '%s' "$_cc_row" | cut -f2)"
+          [ -z "$_cc_run" ] || [ "$_cc_id" != "$_cc_run" ] || refuse "run ${_cc_id} は ${_cc_st}。止めるか終わってから片付ける"
+          _cc_live="$(works_dev_launch ledger live --status "$_cc_st")" || exit 2
+          [ -z "$_cc_live" ] || refuse "run ${_cc_id} は ${_cc_st}。止めるか終わってから片付ける"
+        fi
+      done
+      git for-each-ref --format='%(refname)' "refs/works/chains/$3/" | while IFS= read -r _cc_ref; do git update-ref -d "$_cc_ref"; done
+      rm -rf "$CHAIN_DIR"
+      echo "鎖 $3 の控え（${CHAIN_DIR}）と周の結果を守る参照（refs/works/chains/$3/）を消した"
+      exit 0
+    fi
     ROW="$(run_row "$3")" || exit 2
     STATUS="$(printf '%s' "$ROW" | cut -f2)"
     # 生きた状態の一覧は launch.py の LIVE_STATUSES の 1 か所（ledger live）。確かめが落ちたら生きていないと読まずに止める
@@ -767,7 +1049,10 @@ if [ "$REQUEST_SRC" != - ]; then
   cp "$REQUEST_SRC" "$REQUEST"   # 依頼の元が後で書き換わっても、回した物が残る
 fi
 
-if [ "$#" -ge 5 ]; then
+if [ -n "$CHAIN_NEXT" ]; then
+  TDD_SUITE="$CN_TDD_SUITE"   # 1 周目に決めた実行器をそのまま使う（周ごとに変えない）
+  echo "TDD の輪: 鎖の 1 周目と同じ実行器 ${TDD_SUITE:-（空。輪を飛ばす）}"
+elif [ "$#" -ge 5 ]; then
   TDD_SUITE="$5"
   echo "TDD の輪: 渡された実行器 ${TDD_SUITE:-（空。輪を飛ばす）}"
 elif printf '%s' "$TEST_CMD" | grep -Eq '^[[:space:]]*((uv|poetry) run |python3? -m )?pytest([[:space:]]|$)' &&
@@ -795,6 +1080,16 @@ fi
 # dev/hostgh.py の口を PATH に置く）。どの起動にも起動ごとに一意の印（入力 launch_mark。Archon が run の metadata.inputs に
 # 残し、入口のブロックが start の控えに生の事実として残す）を付け、起動の後にそれで run を結ぶ（入口の種類で分けない。段 4.1）
 LAUNCH_MARK="$STAMP"
+# 周の鎖の印は <鎖の id>-<周>（読むのは殻だけ。入力に鎖の欄は足さない）。次の周は鎖の控えが決めた印を使う
+if [ -n "$ROUNDS" ]; then
+  CHAIN_ID="c-$STAMP"
+  CHAIN_DIR="$WORKS_USE_HOME/chains/$CHAIN_ID"
+  LAUNCH_MARK="$CHAIN_ID-1"
+elif [ -n "$CHAIN_NEXT" ]; then
+  LAUNCH_MARK="$CN_MARK"
+  # 模型・claude の実行ファイル・包みは 1 周目の run の控えから（wait を打った殻の値で替えない）
+  load_ledger "$CN_FIRST_RUN" "鎖 ${CHAIN_NEXT} の次の周を起こす（Archon を起こす）"
+fi
 
 place_pack
 cd "$TARGET"
@@ -805,16 +1100,12 @@ cd "$TARGET"
 # clean が run と一緒に消す。run を結べない時は、下の結べなかった所で控え unbound/ に残すか、その場で外す）
 BASE_REV="$(git rev-parse HEAD)"
 WRAP_REF=""
-if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
-  mkdir -p "$WORKS_WRAPS_DIR"
-  _idx="$WORKS_WRAPS_DIR/.index.$$"
-  rm -f "$_idx"
-  GIT_INDEX_FILE="$_idx" git read-tree HEAD
-  GIT_INDEX_FILE="$_idx" git add -A
-  _tree="$(GIT_INDEX_FILE="$_idx" git write-tree)"
-  rm -f "$_idx"
-  BASE_REV="$(GIT_AUTHOR_NAME=works GIT_AUTHOR_EMAIL=works@localhost GIT_COMMITTER_NAME=works GIT_COMMITTER_EMAIL=works@localhost \
-    git commit-tree "$_tree" -p HEAD -m "works: use.sh start が包んだ対象の手元の姿（run の基）")"
+if [ -n "$CHAIN_NEXT" ]; then
+  # 鎖の次の周の run は前の周の結果（鎖が守る参照の commit）から切る。対象の手元は包まない
+  BASE_REV="$CN_FROM"
+  echo "対象: ${TARGET}（鎖 ${CHAIN_NEXT} の ${CN_ROUND} 周目。run の worktree は前の周の結果 ${BASE_REV} から切る）"
+elif [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+  BASE_REV="$(tree_commit HEAD "" HEAD "works: use.sh start が包んだ対象の手元の姿（run の基）")"
   WRAP_REF="refs/works/wraps/$BASE_REV"
   git update-ref "$WRAP_REF" "$BASE_REV"
   git diff --name-status HEAD "$BASE_REV" | tr '\t' ' ' >"$WORKS_WRAPS_DIR/$BASE_REV.txt"
@@ -850,6 +1141,15 @@ if [ -n "$SPEC_INPUT" ]; then
   set -- "$@" --input spec="$SPEC_INPUT"
 fi
 if [ -n "$CLEANED_RUNS" ]; then set -- "$@" --input cleaned_runs="$CLEANED_RUNS"; fi
+# 鎖: 1 周目は控えを書き（chain_init）、どの周も Archon を起こす直前に「起こした」と起動の基を控えに残す
+# （pid が死んでいて起こした印がある周を、結べないまま終わった起動と読む材料）
+if [ -n "$ROUNDS" ]; then
+  chain_init || exit 2
+  echo "鎖 ${CHAIN_ID}: ${ROUNDS} 周まで${BUDGET_USD:+（費用の上限 \$${BUDGET_USD}）}つなぐ（控え ${CHAIN_DIR}）"
+fi
+if [ -n "$CHAIN_DIR" ]; then
+  python3 -I "$CHAIN_PY" launched --dir "$CHAIN_DIR" --from "$BASE_REV" || exit 2
+fi
 set +e
 sh "$ARCHON" "$@"
 run_status=$?
@@ -896,6 +1196,10 @@ if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
 fi
 RID="$WORKS_RUN_ID"
 BOUND="$WORKS_RUN_ROW"
+# 結べた run を鎖の控えの今の周に結ぶ（wait が次の周へ進める目印。次の周の起動を待つ wait もこの印を読む）
+if [ -n "$CHAIN_DIR" ]; then
+  python3 -I "$CHAIN_PY" bound --dir "$CHAIN_DIR" --run "$RID" || exit 2
+fi
 
 # 無人の run: 起動の関所を越え（残りをその場で回す）、次に人が決める関所で待っていれば止めて報告へ進める（本線の --unattended）
 if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
@@ -930,6 +1234,10 @@ if [ -n "$BOUND" ]; then
   herdr_sync "$RID=$WORKS_RUN_STATUS"
 else
   herdr_sync
+fi
+# 鎖は wait が終わりを見るたびに 1 歩進む（次の周は wait が切り離して起こす）
+if [ -n "$ROUNDS" ]; then
+  echo "鎖 ${CHAIN_ID} を進める（run が関所で待つ間は answer・approve。終わりを見ると次の周を起こす）: sh $WORKS_USE_SH wait $TARGET $RID"
 fi
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

@@ -115,7 +115,6 @@ for _p in (PACK / "blk-report" / "lib", PACK / "blk-fix" / "lib", PACK / ".share
 import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP・REPLAN_OP）
 import diverted  # noqa: E402  局所レビューの控え（LENS_FILE）
 import fixlanes  # noqa: E402  修正役の並べの締めの trace の行の語（SETTLED_OP）・合わせの結末の語（MERGED）
-import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（HAPPENED）
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
 import adapter  # noqa: E402    包みの起動の記録の置き場（cwd_key）と旗の語（FORK）
 import fixture  # noqa: E402    包みの起動の記録を数え始める時刻（since）
@@ -545,14 +544,7 @@ def lane_chain(trace: list) -> tuple[dict, dict]:
 
 def outcome(board: pathlib.Path) -> str:
     """報告（report.md）の冒頭の起きたことの行（gatemarks.HAPPENED）の括弧の結末の語（report.OUTCOMES）。報告が無い・読めなければ空"""
-    try:
-        lines = (board / report.REPORT_FILE).read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return ""
-    for line in lines[:10]:
-        if line.startswith(gatemarks.HAPPENED):
-            return next((w for w in report.OUTCOMES if f"（{w}）" in line), "")
-    return ""
+    return report.header_outcome(board)
 
 
 # ---------------------------------------------------------------- 出来事

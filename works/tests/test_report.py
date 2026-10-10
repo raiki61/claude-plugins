@@ -460,6 +460,16 @@ class OutcomeCase(ReportBase):
         self.assertIn(ph["question"], h[H1])
         self.assertIn(ph["items"][0], h[H1])
 
+    def test_every_outcome_has_a_chain_kind(self):
+        """OUTCOMES の 10 語の全部が OUTCOME_KINDS に種を持ち、round_limit は open、fixed は closed、needs_human は human になる
+        （周の鎖は結末の語を字で持たず、この表だけを引く）"""
+        self.assertEqual(set(report.OUTCOME_KINDS), set(report.OUTCOMES))
+        self.assertEqual(report.OUTCOME_KINDS["round_limit"], "open")
+        self.assertEqual(report.OUTCOME_KINDS["fixed"], "closed")
+        self.assertEqual(report.OUTCOME_KINDS["needs_human"], "human")
+        self.assertEqual(report.OUTCOME_KINDS["interrupted"], "wait")
+        self.assertTrue(set(report.OUTCOME_KINDS.values()) <= {"closed", "halted", "human", "wait", "open"})
+
 
 # 写しの検証器（.shared/core/scripts/review-record.py）が 1 周目にいつも出す帳尻の行
 FIRST_ROUND = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
@@ -1499,6 +1509,39 @@ class CostCase(unittest.TestCase):
         lines = report.head_cost(None, RUN_ID, events=evs, launches=[])
         self.assertTrue(any(x.startswith("費用 plan: 0.2694523 USD") for x in lines), lines)
         self.assertFalse(any("欄の形は未確認" in x for x in lines), lines)
+
+    def test_round_facts_reads_cost_minutes_and_base_rev(self):
+        """round_facts は、費用の和（読めない節が在れば cost_read 偽）・workflow get の返りの started_at と completed_at からの分・
+        始めの記録の base_rev・結末の種を返す。結末は報告の冒頭の起きたことの行の括弧の語から読み、R2 の作り直しの行の数も数える"""
+        with tempfile.TemporaryDirectory() as td:
+            board = pathlib.Path(td)
+            (board / "r1").mkdir()
+            (board / "r1" / "start.json").write_text(json.dumps({"base_rev": "ab" * 20}))
+            (board / "report.md").write_text("# 報告（run r）\n\n" + report.gatemarks.HAPPENED
+                                             + report.OUTCOME_WORDS["round_limit"] + "（round_limit）\n", encoding="utf-8")
+            (board / carry.NEXT_REQUEST_FILE).write_text(json.dumps({
+                "findings": [{"where": "a", "text": "残り"}],
+                "prior_failures": [{"where": "独立の目", "text": report.R2_REDESIGN + "（理由）"}]}))
+            provider = lambda v: {"data": {"spend": {"costUsd": {"source": "provider", "value": v}}}}  # noqa: E731
+            events = [{"event_type": "node_completed", "step_name": "judge", **provider(1.5)},
+                      {"event_type": "node_completed", "step_name": "fix", **provider(2.25)}]
+            run_doc = {**json.loads((TESTS / "events" / "get-finished.json").read_text(encoding="utf-8")),   # workflow get の返りの形
+                       "started_at": "2026-09-26T12:00:00.000Z", "completed_at": "2026-09-26T12:21:30.000Z"}
+            got = report.round_facts(board, events, run_doc)
+            self.assertEqual((got["outcome"], got["kind"]), ("round_limit", "open"))
+            self.assertEqual((got["cost"], got["cost_read"]), (3.75, True))
+            self.assertEqual(got["minutes"], 21.5)
+            self.assertEqual((got["base_rev"], got["r2"], got["stopped"]), ("ab" * 20, 1, None))
+            self.assertEqual(got["next_file"], str(board / carry.NEXT_REQUEST_FILE))
+            # 取れない節が 1 つでも在れば、和を 0 と読まず cost_read を偽にする。出来事も run の行も無ければ費用・分は None
+            events.append({"event_type": "node_completed", "step_name": "report", "data": {"spend": {"costUsd": {"source": "unavailable"}}}})
+            self.assertFalse(report.round_facts(board, events, run_doc)["cost_read"])
+            nothing = report.round_facts(board, None, {})
+            self.assertEqual((nothing["cost"], nothing["cost_read"], nothing["minutes"]), (None, False, None))
+        # 報告が無く結末を読めない周は、勝手に続けず halted の種にする
+        with tempfile.TemporaryDirectory() as td:
+            got = report.round_facts(td, [], {})
+            self.assertEqual((got["outcome"], got["kind"], got["report_file"], got["next_file"]), ("", "halted", "", ""))
 
     def test_cost_unavailable_line(self):
         """events None → 費用の行が「取れない」の 1 行。費用の欄の無い出来事も 1 行"""

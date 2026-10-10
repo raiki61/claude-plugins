@@ -54,6 +54,7 @@ MOD = {
     "forge": (1, None),       # 対象の remote が forge（PR を持つホスト。GitHub）かを git だけで決める（ghreads と entry・report が読む。works の物を何も知らない）
     "ghreads": (1, None),     # 依頼が名指した PR・issue を run の中で gh で読む 1 か所（works の物を何も知らない）
     "startrec": (1, None),    # 始めの記録（盤面の r1/start.json）の住処: 置き場の名・読み口・入口の入力の形の読みと入口の文（標準ライブラリだけ）
+    "chain": (1, None),       # 周の鎖の住処（止めの語・次の一手の決め・次の依頼・採る周・報告・鎖の控え。標準ライブラリと carry・promptsection だけを読む）
     "carry": (1, None),       # 次の run への持ち越しの住処（依頼の容器の形・下書きの印・前の失敗の置き場・約束の Schema。写しの engine の型検査だけを読む）
     "stopby": (1, None),      # 止めの理由の住処（機械が盤面の state.stop.by に書く語 works:<名> の表と、ブロックが自分の語を足す口。標準ライブラリだけ）
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）

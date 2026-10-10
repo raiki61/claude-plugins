@@ -68,6 +68,7 @@ FAST = frozenset({
     "test_gate_na",         # ゲートの検算の役の『条件外』の差し替えとゲートの印: 関数を直に呼ぶ・偽の盤面・一時の置き場に差分のファイル（git・盤面・子のプロセスなし）
     "test_hostgh",          # run の中で利用者の gh を継ぐ口（dev/hostgh.py）: 関数を直に呼ぶ・偽の gh と sh の口を子で起こすだけ（git・盤面なし）
     "test_carry_ci",        # run の後の CI の赤を次の依頼の prior_failures へ（carry.carry_ci）: 関数を直に呼ぶ・carry.py を python3 -I で起こすだけ（git・盤面なし）
+    "test_chain",           # 周の鎖の住処（chain.py）: 関数を直に呼ぶ・一時の置き場のファイル・chain.main の口（git・Archon・子のプロセスなし）
     "test_carry_home",      # 次の run への持ち越しの住処（carry.py）: 関数を直に呼ぶ・一時の置き場のファイル・柵の表を読む（子のプロセスは git ls-files だけ）
     "test_stopby",          # 止めの理由の住処（stopby.py）: 関数を直に呼ぶ・pack の .py を ast で読む・柵の表を読む（子のプロセスは git ls-files だけ）
     "test_depth",           # 単位ごとの深さ（darkfactory/lib/depth.py）: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
