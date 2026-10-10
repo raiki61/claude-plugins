@@ -7,60 +7,14 @@
 # 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
 # block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
 h-eyes:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 最後の関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 report:
-  ok: true
   outcome: stopped_by_human
-  judgment_file: board/judgment.json
-  report_file: board/report.md
-  next_request_file: board/next-request.json
   tests_green: false
-  validator_exit: 0
-  ai_report_go: true
 result:
-  ok: true
   outcome: stopped_by_human
-  judgment_file: board/judgment.json
-  report_file: board/report-ai.md
-  next_request_file: board/next-request.json
   tests_green: false
-  validator_exit: 0
-  ai_report_go: true
-  machine_report_file: board/report.md
-  ai_report:
-    ok: true
-    reason: ''
-    report_file: board/report-ai.md
-    text_file: board/out/r3/report.json
-    facts_file: board/r3/report-facts.md
-    cold_check:
-      verdict: pass
-      stops: []
-      guessed: []
-      decidable: true
-    record_invalid: false
 fixture:
   expect: completed
   inputs:

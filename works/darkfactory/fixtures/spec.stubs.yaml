@@ -3,109 +3,18 @@
 # 後ろは policy-continue と同じ道（事前審査が人に聞き、policy-gate の continue で修正へ）
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/、仕様の段は blk-spec/fixtures/pass）
 entering__open:
-  ok: true
-  pr_file: ''
   input:
-    base:
-      rev: 0123456789abcdef0123456789abcdef01234567
-      from: head
-      name: ''
-      label: HEAD
-    head_rev: 0123456789abcdef0123456789abcdef01234567
-    diff:
-      empty: true
-      files: 0
-      stat: ''
-    requests: 2
-    request_file: /tmp/request_ok.json
-    pr: null
     spec: true
-  base_rev: 0123456789abcdef0123456789abcdef01234567
-  test_cmd: python3 -m unittest
-  policy_paste: ''
-  policy_path: ''
-  adapter: optional
-  thickness: 標準
-  gates: ''
-  ci_role_go: false
-  pr_go: false
-  fix_lanes: 'on'
-  judge_verify: 'on'
-  review_tree: 'on'
-  tdd_lanes: 'on'
   head_line: '入口: 差分なし（HEAD）・依頼 2 件——P1 の役は起こさない・仕様の段あり・段: 標準（既定）・gates: 空'
 h-entry:
-  ok: true
-  stop: false
-  go: true
-  ask: false
-  gate_text: ''
-  judgment_file: ''
-  open_units: ''
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: true
-  purpose_go: false
   spec_go: true
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-gate:
-  ok: true
-  stop: false
-  go: false
   ask: true
   gate_text: （文）
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
   gate_file: board/r1/gate.md
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-fix:
-  ok: true
-  stop: false
-  go: true
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: board/out/r1/p2.fix_plan.json
   notes: 範囲
   notes_file: board/r1/human-notes.md
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 fixture:
   expect: completed
   inputs:

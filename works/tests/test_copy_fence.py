@@ -4,7 +4,8 @@
 貼った物）はそこを素通りするので、言語に依らない行の窓で見る: 行の頭と尾の空白を落とし、空行と注記だけの行（頭が #・//・/*・*・
 <!-- など）を飛ばした「正規化した行」の、表の window 行の並びが、木の 2 か所以上（別のファイルでも同じファイルでも）に在れば写しと
 数える。ファイルごとに写しに掛かった正規化した行の数を、表の既知（パス → [行の数, 理由]）とちょうど揃うかで見る（増えても・減っても・
-表に無いファイルが出ても赤。減る向きにだけ動かす。考えの柵と同じ型）。表そのものも main の表より既知の行の数の和が増えない。
+表に無いファイルが出ても赤。減る向きにだけ動かす。考えの柵と同じ型）。表そのものも main の表より増えない: 既知の行の数の和が
+増えず、main の既知に無いパスは、寄せ元（既知の値の 3 つ目の欄 from）がどれも main の既知に在り、その減りで埋まる時だけ通る。
 見ない所（表の exclude。グロブ → 理由）は、元の写しを変えない約束の写し・作った物・記録した材料。
 """
 import pathlib
@@ -96,8 +97,19 @@ class Synthetic(unittest.TestCase):
         m = cpf()
         main = {"known": {"a.py": [10, "x"]}}
         self.assertEqual(m.growth(main, {"known": {"a.py": [10, "x"]}}), [])
-        self.assertEqual(m.growth(main, {"known": {"b.py": [8, "y"]}}), [])
+        self.assertTrue(m.growth(main, {"known": {"b.py": [8, "y"]}}))      # main に無いパスは、和が減っても寄せ元が無ければ赤
         self.assertTrue(m.growth(main, {"known": {"a.py": [10, "x"], "b.py": [1, "y"]}}))
+
+    def test_growth_lets_a_new_path_take_over_named_sources(self):
+        """main に無いパスは、寄せ元 from がどれも main の既知に在り、その減りの和が行の数以上の時だけ通る"""
+        m = cpf()
+        main = {"known": {"a.py": [10, "x"], "c.py": [6, "z"]}}
+        self.assertEqual(m.growth(main, {"known": {"b.py": [8, "y", ["a.py"]], "c.py": [6, "z"]}}), [])
+        self.assertEqual(m.growth(main, {"known": {"a.py": [2, "x"], "b.py": [8, "y", ["a.py", "a.py"]], "c.py": [6, "z"]}}), [])
+        # 和は 16 から 13 に減るが、寄せ元 a.py の減り 7 が b.py の 8 行に足りない（c.py の減りは寄せ元に名指していない）
+        self.assertTrue(m.growth(main, {"known": {"a.py": [3, "x"], "b.py": [8, "y", ["a.py"]], "c.py": [2, "z"]}}))
+        self.assertTrue(m.growth(main, {"known": {"a.py": [10, "x"], "b.py": [4, "y", ["d.py"]]}}))   # 寄せ元が main に無い
+        self.assertTrue(m.growth(main, {"known": {"a.py": [10, "x"], "b.py": [4, "y", []]}}))         # 寄せ元が空
         self.assertEqual(m.growth(None, {"known": {"a.py": [99, "x"]}}), [])   # main に表が無い（初めて掛ける柵）
 
 
@@ -114,14 +126,17 @@ class TableHolds(unittest.TestCase):
         for glob, why in self.table["exclude"].items():
             with self.subTest(exclude=glob):
                 self.assertTrue(why.strip(), "見ない所に理由が無い")
-        for path, (n, why) in self.table["known"].items():
+        for path, (n, why, *rest) in self.table["known"].items():
             with self.subTest(known=path):
                 self.assertGreater(n, 0)
                 self.assertTrue(why.strip(), "既知の写しに理由が無い")
+                self.assertLessEqual(len(rest), 1, "既知の値は [行の数, 理由] か [行の数, 理由, 寄せ元]")
+                for sources in rest:
+                    self.assertTrue(sources and all(isinstance(x, str) and x for x in sources), "寄せ元はパスの字の列")
 
     def test_reasons_carry_no_peer_list(self):
         """既知の理由は写しの相手を手で持たない（相手は走査が出す。持つと写しが動いた時に黙って古くなる）"""
-        for path, (_, why) in self.table["known"].items():
+        for path, (_, why, *_rest) in self.table["known"].items():
             with self.subTest(known=path):
                 self.assertNotIn("相手:", why)
 

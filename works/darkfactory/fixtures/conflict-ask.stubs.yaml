@@ -33,19 +33,7 @@ fix:
     breaks:
       how: git grep -n 'clamp(' -- '*.py'
       result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
-  not_done: []
   interactions: []
-  fix_closure:
-    status: clean
-    checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
-  mechanism_changed: false
-  premise_drift: false
-  gates_changed: false
-  seams_changed: false
-  security_surface_changed: false
-  path_changed: false
-  wrote_refs: []
-  plan_faces: []
   conflicts:
   - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
     between:
@@ -55,10 +43,6 @@ fix:
     which_is_right: request
     kind: unnamed_test_broke
 fix-accept:
-  ok: true
-  done: true
-  reason: ''
-  reason_file: ''
   changes: []
   parked: true
 fixing__conflict-check:
@@ -72,15 +56,7 @@ rule:
     text: 依頼とテストのどちらが正しいかは方針の変更で、人が決める
     limits: []
 rule-accept:
-  ok: true
-  done: true
-  reason: ''
-  reason_file: ''
-  rulings_file: board/r1/conflict-rulings.md
   counts:
-    parked: 1
-    unruled: 0
-    fix_test_scope: 0
     fix_code_as: 0
     ask_human: 1
 fix-ruled:
@@ -110,24 +86,8 @@ fix-ruled:
     breaks:
       how: git grep -n 'clamp(' -- '*.py'
       result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
-  not_done: []
   interactions: []
-  fix_closure:
-    status: clean
-    checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
-  mechanism_changed: false
-  premise_drift: false
-  gates_changed: false
-  seams_changed: false
-  security_surface_changed: false
-  path_changed: false
-  wrote_refs: []
-  plan_faces: []
 fix-ruled-accept:
-  ok: true
-  done: true
-  reason: ''
-  reason_file: ''
   changes:
   - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
     files:
@@ -138,10 +98,6 @@ refitting__conflict-check:
   count: 1
   file: board/r1/conflicts.json
 h-final:
-  ok: true
-  stop: false
-  go: false
-  ask: true
   gate_text: '起きたこと: 最後のテストと独立の目が済み、報告の前で止まった。テストは緑。開けた理由: 食い違いの申し出を人に回した（1 件）
 
     決めてほしいこと: 報告へ進めて run を終えるか、止めるか（打つ行は末尾の答え方）
@@ -158,55 +114,10 @@ h-final:
     最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは緑
 
     '
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: board/r1/final-gate.md
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 report:
-  ok: true
   outcome: needs_human
-  judgment_file: board/judgment.json
-  report_file: board/report.md
-  next_request_file: board/next-request.json
-  tests_green: true
-  validator_exit: 0
-  ai_report_go: true
 result:
-  ok: true
   outcome: needs_human
-  judgment_file: board/judgment.json
-  report_file: board/report-ai.md
-  next_request_file: board/next-request.json
-  tests_green: true
-  validator_exit: 0
-  ai_report_go: true
-  machine_report_file: board/report.md
-  ai_report:
-    ok: true
-    reason: ''
-    report_file: board/report-ai.md
-    text_file: board/out/r3/report.json
-    facts_file: board/r3/report-facts.md
-    cold_check:
-      verdict: pass
-      stops: []
-      guessed: []
-      decidable: true
-    record_invalid: false
 fixture:
   expect: completed
   inputs:

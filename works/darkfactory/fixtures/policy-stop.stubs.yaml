@@ -7,337 +7,62 @@
 # 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
 # block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
 h-gate:
-  ok: true
-  stop: false
-  go: false
   ask: true
   gate_text: （文）
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
   gate_file: board/r1/gate.md
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-fix:
-  ok: true
   stop: true
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-replan:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-regate:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-refit:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-rejudge:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-review:
-  ok: true
   stop: true
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-refix:
-  ok: true
   stop: true
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-tests:
-  ok: true
   stop: true
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-ci:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-look:
-  ok: true
   stop: true
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-final:
-  ok: true
   stop: true
-  go: false
   ask: false
   gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
   gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-eyes:
-  ok: true
   stop: true
-  go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
   why: 人が関所で止めた
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 report:
-  ok: true
   outcome: stopped_by_human
-  judgment_file: board/judgment.json
-  report_file: board/report.md
-  next_request_file: board/next-request.json
   tests_green: false
-  validator_exit: 0
   ai_report_go: false
-result:
-  ok: true
-  outcome: stopped_by_human
-  judgment_file: board/judgment.json
-  report_file: board/report.md
-  next_request_file: board/next-request.json
-  tests_green: false
-  validator_exit: 0
-  ai_report_go: false
-  machine_report_file: board/report.md
-  ai_report: null
+# ai_report を null の値で持つ（報告の役を出さない）。入れ子の null は基の欄を外す印なので、流れの形 {…} で丸ごと置き替える
+result: {ok: true, outcome: stopped_by_human, judgment_file: board/judgment.json, report_file: board/report.md,
+  next_request_file: board/next-request.json, tests_green: false, validator_exit: 0, ai_report_go: false,
+  machine_report_file: board/report.md, ai_report: null}
 fixture:
   expect: completed
   inputs:

@@ -4,9 +4,11 @@
 - 正規化した行: 行の頭と尾の空白を落とし、空行と、注記だけの行（頭が COMMENT_HEADS のどれか）を飛ばした行
 - 写し: 正規化した行の window 行の並び（窓）が、見る所の 2 か所以上（別のファイルでも同じファイルでも）に在る物
 - ファイルの写しの数: そのファイルの正規化した行のうち、写しの窓に掛かった行の数
-表は {about, window, exclude: {グロブ: 理由}, known: {パス: [行の数, 理由]}}。グロブは fnmatch の形で `*` は `/` もまたぐ。
-既知とちょうど揃うかは conceptfence と同じ verdict で見る（増えた・減った・表に無いファイル）。表そのものは main の表より
-既知の行の数の和が増えない（growth）。
+表は {about, window, exclude: {グロブ: 理由}, known: {パス: [行の数, 理由] か [行の数, 理由, [寄せ元のパス…]]}}。グロブは
+fnmatch の形で `*` は `/` もまたぐ。既知とちょうど揃うかは conceptfence と同じ verdict で見る（増えた・減った・表に無いファイル）。
+表そのものは main の表より増えない（growth）: 既知の行の数の和が増えない。main の既知に無いパスは、3 つ目の欄（寄せ元 from）が
+どれも main の既知に在り、寄せ元の main からの減りの和（同じ寄せ元は 1 度）がそのパスの行の数以上の時だけ通す（写しを寄せて
+新しいパスに移す時の明示の付け替え。それ以外の新しいパスは数の増減に関わらず赤）。
 
 - normalize(text)・scan(root, paths, window, exclude)・peers(root, paths, window, exclude)・growth(main, now)
 - peers は {パス: [写しの相手のパス]}（scan と同じ窓の印の表から出す。表は相手を持たず、赤の文がここから出す）
@@ -82,10 +84,23 @@ def peers(root, paths, window, exclude):
 
 
 def growth(main, now):
-    """main の表より既知の行の数の和が増えた時の文の一覧（空なら増えていない）。main に表が無ければ初めて掛ける柵なので比べない"""
+    """main の表より増えた所の文の一覧（空なら増えていない）: 既知の行の数の和が増えた・main に無いパスが寄せ元で埋まらない。
+    main に表が無ければ初めて掛ける柵なので比べない"""
     if not main:
         return []
-    old = sum(n for n, _ in main["known"].values())
-    new = sum(n for n, _ in now["known"].values())
-    return [f"既知の写しの行の数の和が main の {old} から {new} に増えた（新しい写しは寄せる）"] if new > old else []
-
+    was, known = main["known"], now["known"]
+    old, new = sum(v[0] for v in was.values()), sum(v[0] for v in known.values())
+    out = [f"既知の写しの行の数の和が main の {old} から {new} に増えた（新しい写しは寄せる）"] if new > old else []
+    for path, row in sorted(known.items()):
+        if path in was:
+            continue
+        sources = list(dict.fromkeys(row[2] if len(row) > 2 else []))
+        missing = [s for s in sources if s not in was]
+        freed = sum(was[s][0] - (known[s][0] if s in known else 0) for s in sources if s in was)
+        if not sources:
+            out.append(f"main の表に無い既知の写し {path}（{row[0]} 行。寄せ元 from が無い。新しい写しは寄せる）")
+        elif missing:
+            out.append(f"main の表に無い既知の写し {path} の寄せ元 {'・'.join(missing)} が main の既知に無い")
+        elif freed < row[0]:
+            out.append(f"main の表に無い既知の写し {path}（{row[0]} 行）を寄せ元の減り {freed} 行で埋められない")
+    return out

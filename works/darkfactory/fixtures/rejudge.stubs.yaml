@@ -8,77 +8,14 @@
 # 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
 # block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
 h-gate:
-  ok: true
-  stop: false
-  go: false
   ask: true
   gate_text: （文）
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
   gate_file: board/r1/gate.md
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-fix:
-  ok: true
-  stop: false
-  go: true
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: board/out/r1/p2.fix_plan.json
   notes: 範囲
   notes_file: board/r1/human-notes.md
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-rejudge:
-  ok: true
-  stop: false
   go: true
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 rejudge:
   verdict: 退ける
   new_facts: stats.py の clamp の上限の枝を読み、上限を超えた値に hi を返すのが定義だと確かめた（修正の後の 13 行目）。判定の単位の読みはそのまま
@@ -89,27 +26,10 @@ rejudge:
   - key: 'stats.py clamp: 上限を超えた値に lo を返す'
     label: block
 rejudge-accept:
-  ok: true
-  done: true
-  give_up: false
-  reason: ok p2.rejudge を受け付けた
-  node: p2.rejudge
   verdict: 退ける
 rejudging__collect:
-  ok: true
-  reason: ''
-  passes: 1
   verdicts:
   - 退ける
-  unsettled:
-    text: ''
-    settled: true
-  objection: ''
-  new_open_units: []
-  lowered: []
-  unnamed_changed: []
-  diff_file: board/r1/rejudge-diff.json
-  reads_file: ''
 fixture:
   expect: completed
   inputs:

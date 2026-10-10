@@ -9,179 +9,43 @@
 # block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
 # 判定の根を開く（線の木の段 3）: 開いた単位が 2 つ以上なら束ね役が裏取りの下請けを並べ、機械が申し送りにまとめる
 judging__verify-prep:
-  ok: true
   go: false
   prompt_file: ''
 judging__collect:
-  ok: true
   open_units: []
   need_fix: false
-  judgment_file: board/judgment.json
-  one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 h-plan:
-  ok: true
-  stop: false
-  go: true
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: board/r1/structure-units.json
-  ripple_file: ''
   verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 planning__plan-snap:
-  ok: true
   go: false
   snapshot_file: ''
 plan-review-snap:
-  ok: true
   go: false
   snapshot_file: ''
 converge-check:
-  ok: true
-  done: true
   outcome: ''
-  record_file: board/r1/plan-converge.json
 planning__collect:
-  ok: true
   plan_file: ''
   review_file: ''
-  asks_human: false
-  gate_kinds: []
-  reads_file: board/r1/reads-plan-block.json
-  gave_up: false
-  reason_file: ''
-  ripple_file: board/r1/ripple.json
 h-fix:
-  ok: true
-  stop: false
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 replanning__plan-snap:
-  ok: true
   go: false
   snapshot_file: ''
 replanning__collect:
-  ok: true
   plan_file: ''
   review_file: ''
-  asks_human: false
-  gate_kinds: []
-  reads_file: board/r1/reads-plan-block.json
-  gave_up: false
-  reason_file: ''
-  ripple_file: ''
 h-review:
-  ok: true
-  stop: false
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 h-refix:
-  ok: true
-  stop: false
   go: false
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 report:
-  ok: true
   outcome: no_fix_needed
-  judgment_file: board/judgment.json
-  report_file: board/report.md
-  next_request_file: board/next-request.json
   tests_green: false
-  validator_exit: 0
-  ai_report_go: true
 result:
-  ok: true
   outcome: no_fix_needed
-  judgment_file: board/judgment.json
-  report_file: board/report-ai.md
-  next_request_file: board/next-request.json
   tests_green: false
-  validator_exit: 0
-  ai_report_go: true
-  machine_report_file: board/report.md
-  ai_report:
-    ok: true
-    reason: ''
-    report_file: board/report-ai.md
-    text_file: board/out/r3/report.json
-    facts_file: board/r3/report-facts.md
-    cold_check:
-      verdict: pass
-      stops: []
-      guessed: []
-      decidable: true
-    record_invalid: false
 fixture:
   expect: completed
   inputs:

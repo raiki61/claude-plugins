@@ -3,12 +3,15 @@
   python3 works/dev/stubfold.py materialize <pack の dir>
 
 筋書きの置き場に共通の基（BASE。筋書きと同じ形の「節の鍵 → stub」の写像。Archon は名が *.stubs.yaml の物だけを筋書きに読むので
-基は読まない）が在れば、筋書き 1 本の stub は次の 1 つの決まりで合わせる:
-- 基の鍵を基の並びで置き、筋書きが同じ鍵を持てば筋書きの値で丸ごと置き替える（入れ子の中は合わせない）
-- 筋書きの値が空（`鍵:`・null・~）の鍵は落とす（基に在っても、その筋書きでは stub しない節。本物で回す節など）
-- 筋書きにだけ在る鍵（筋書きの宣言 fixture を含む）は後ろに足す
-基が無ければ筋書きはそのまま。合わせはテキストで行い、鍵の塊（頭の桁の `鍵:` の行と、続く字下げの行・その前の注記の行）を
-元の字のまま並べる（模擬実行の読み手の解析をこちらの解析で置き替えない）。頭の桁の鍵の 2 度書きは拒む。
+基は読まない）が在れば、筋書き 1 本の stub は RFC 7386（JSON Merge Patch）の形の 1 つの決まりで合わせる:
+- 基の鍵を基の並びで置き、筋書きが同じ鍵を持てば、両方の値が写像なら中を同じ決まりで鍵ごとに合わせ（入れ子のどの深さでも）、
+  どちらかが写像でない（列・字・数・流れの形 {…}・[…]・| などの塊）なら筋書きの値で丸ごと置き替える
+- 合わせる写像の中で筋書きの値が空（`鍵:`・null・~）の鍵は落とす（最上位なら、基に在ってもその筋書きでは stub しない節。
+  入れ子なら、基の stub からその欄を外す）
+- 筋書きにだけ在る鍵（筋書きの宣言 fixture を含む）は後ろに足す（値は元の字のまま。中の null も値として残る）
+基が無ければ筋書きはそのまま。合わせはテキストで行い、鍵の塊（その字下げの `鍵:` の行と、続く深い行・その前の注記の行）を
+元の字のまま並べる（模擬実行の読み手の解析をこちらの解析で置き替えない。葉の行は書き直さない）。同じ字下げの鍵の 2 度書き・
+引用した鍵などの `鍵:` の形でない行・合わせる写像どうしの字下げの違いは拒む（ValueError）。
 
 materialize は模擬実行に渡す前の写し（dev/mktarget.sh が写した pack）で、基の在る置き場の筋書きを合わせた物に書き替え、基を消す。
 試験は load（合わせた stub を解析して返す。解析は試験の側の YAML の道具）で筋書きを読む。標準ライブラリだけを使う（load の解析を除く）。
@@ -25,54 +28,90 @@ _KEY = re.compile(r"^([A-Za-z0-9_][A-Za-z0-9_.-]*):(?:[ \t]+(.*))?$")
 _NULL = re.compile(r"^(?:null|~|Null|NULL)?[ \t]*(?:#.*)?$")
 
 
-def _blocks(text):
-    """(頭の行の文字列, [(鍵, 塊の文字列, 空か)], 末尾の注記・空行)。塊は前の注記・空行と、鍵の行と続く字下げの行"""
+def _indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def _blocks(text, depth=0):
+    """(頭の行の文字列, [塊], 末尾の注記・空行)。塊は {key, text, kind（null・map・leaf）, line（鍵の行まで）, body, child}。
+    depth の字下げの `鍵:` の行で切る。塊の字は前の注記・空行と、鍵の行と続く深い行"""
     head, blocks, pending, cur = [], [], [], None
     for line in text.splitlines(keepends=True):
-        m = _KEY.match(line.rstrip("\r\n"))
+        bare = line.rstrip("\r\n")
+        ind = _indent(bare)
+        m = _KEY.match(bare[depth:]) if ind == depth else None
         if m:
             if cur is not None:
                 blocks.append(cur)
-            cur = {"key": m.group(1), "lines": pending + [line], "value": m.group(2) or "", "body": False}
+            cur = {"key": m.group(1), "pre": pending, "line": line, "value": (m.group(2) or "").strip(), "body": []}
             pending = []
-        elif line.strip() == "" or line.startswith("#"):
+        elif bare.strip() == "" or (bare.lstrip().startswith("#") and ind <= depth):
             (pending if cur is not None else head).append(line)
-        else:
+        elif ind > depth or (ind == depth and cur is not None and (bare[depth:] == "-" or bare[depth:].startswith("- "))):
             if cur is None:
-                raise ValueError(f"頭の桁の鍵の前に中身の行がある: {line!r}")
-            cur["lines"].extend(pending + [line])
-            cur["body"] = cur["body"] or not line.lstrip().startswith("#")
+                raise ValueError(f"字下げ {depth} の鍵の前に中身の行がある: {line!r}")
+            cur["body"].extend(pending + [line])
             pending = []
+        else:
+            raise ValueError(f"字下げ {depth} の行が `鍵:` の形でない（引用した鍵・字下げの違いなどは合わせない）: {line!r}")
     if cur is not None:
         blocks.append(cur)
-    out, seen = [], set()
+    seen = set()
     for b in blocks:
         if b["key"] in seen:
-            raise ValueError(f"頭の桁の鍵 {b['key']} を 2 度書いている")
+            raise ValueError(f"字下げ {depth} の鍵 {b['key']} を 2 度書いている")
         seen.add(b["key"])
-        out.append((b["key"], "".join(b["lines"]), not b["body"] and bool(_NULL.match(b["value"]))))
-    return "".join(head), out, "".join(pending)
+        b["text"] = "".join(b["pre"] + [b["line"]] + b["body"])
+        _kind(b)
+    return "".join(head), blocks, "".join(pending)
+
+
+def _kind(b):
+    """塊の値の種類: null（空）・map（字下げした写像）・leaf（それ以外。丸ごと置き替える）。map なら child に中の字下げ"""
+    value = "" if b["value"].startswith("#") else b["value"]
+    rows = [ln for ln in b["body"] if ln.strip() and not ln.lstrip().startswith("#")]
+    b["child"] = None
+    if value:
+        b["kind"] = "null" if _NULL.match(value) and not rows else "leaf"
+    elif not rows:
+        b["kind"] = "null"
+    elif rows[0].lstrip().startswith("- ") or rows[0].strip() == "-":
+        b["kind"] = "leaf"
+    else:
+        b["kind"], b["child"] = "map", _indent(rows[0])
 
 
 def _nl(s):
     return s if not s or s.endswith("\n") else s + "\n"
 
 
-def merge_text(base_text, scenario_text):
-    """基と筋書きのテキストを合わせた筋書きのテキスト（頭は筋書きの頭）"""
-    _, base, _ = _blocks(base_text)
-    head, own, tail = _blocks(scenario_text)
-    mine = {k: (b, empty) for k, b, empty in own}
+def _merge(base_text, own_text, depth):
+    """1 つの字下げの写像どうしを合わせたテキスト（頭と尾は筋書きの物）"""
+    _, base, _ = _blocks(base_text, depth)
+    head, own, tail = _blocks(own_text, depth)
+    mine = {b["key"]: b for b in own}
     parts = [_nl(head)]
-    for key, block, _ in base:
-        if key in mine:
-            block, empty = mine.pop(key)
-            if empty:
-                continue
-        parts.append(_nl(block))
-    parts.extend(_nl(b) for k, b, empty in own if k in mine and not empty)
+    for b in base:
+        o = mine.pop(b["key"], None)
+        if o is None:
+            parts.append(_nl(b["text"]))
+        elif o["kind"] == "null":
+            continue
+        elif o["kind"] == "map" and b["kind"] == "map":
+            if o["child"] != b["child"]:
+                raise ValueError(f"鍵 {b['key']} の中の字下げが基（{b['child']}）と筋書き（{o['child']}）で違う")
+            parts.append(_nl("".join(o["pre"] + [o["line"]])))
+            parts.append(_nl(_merge("".join(b["body"]), "".join(o["body"]), o["child"])))
+        else:
+            parts.append(_nl(o["text"]))
+    parts.extend(_nl(o["text"]) for o in own if o["key"] in mine and o["kind"] != "null")
     parts.append(tail)
     return "".join(parts)
+
+
+def merge_text(base_text, scenario_text):
+    """基と筋書きのテキストを合わせた筋書きのテキスト（頭は筋書きの頭）"""
+    return _merge(base_text, scenario_text, 0)
 
 
 def text(path):

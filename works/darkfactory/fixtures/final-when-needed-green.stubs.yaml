@@ -7,29 +7,9 @@
 # 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
 # block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
 h-final:
-  ok: true
-  stop: false
-  go: false
   ask: false
   gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
   gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
-  world_go: false
-  world_purpose_file: ''
 fixture:
   expect: completed
   inputs:

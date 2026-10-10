@@ -36,9 +36,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
-- 写しの柵の表 `docs/copies.json` の既知の理由から、手で書いていた写しの相手の列挙（「。相手: …」134 件）を落とした。相手は走査 `copyfence.peers`（窓の印の表を `scan` と同じ `_windows` から出す）が導き、`tests/test_copy_fence.py` の `test_copies_match_known` が赤の時にずれたパスの相手を文に添える。
+- 写しの柵の表 `docs/copies.json` の既知の理由から、手で書いていた写しの相手の列挙（「。相手: …」124 件）を落とした。相手は走査 `copyfence.peers`（窓の印の表を `scan` と同じ `_windows` から出す）が導き、`tests/test_copy_fence.py` の `test_copies_match_known` が赤の時にずれたパスの相手を文に添える。
 - ブロックの筋書きを素の `yaml.safe_load` で読んでいた `tests/` の 24 行を `stubfold.load` に置き替え、素の読みが戻らないことを `tests/test_stubfold.py` の `test_tests_read_scenarios_through_load` で縛った。
 - 写しの柵の道具 `load`・`hit`・`main_table` を `conceptfence` の物を借りる形にし、写して持たなくした（`main_table` は引けない訳を返す `(表, 訳)` の形に揃った）。
+- 筋書きの合わせ方（`dev/stubfold.py`）を RFC 7386（JSON Merge Patch）の形にした。前は最上位の鍵ごとの丸ごとの置き替えで、1 欄だけ違う筋書きも stub 全体を持っていた。今は写像どうしを入れ子まで鍵ごとに合わせ、写像でない値（列・字・数・流れの形 `{…}`・塊の字）は丸ごと置き替え、合わせる写像の中で筋書きの値が空の鍵は落とす（入れ子なら基の欄を外す印）。合わせは前と同じくテキストで行い、葉の行は元の字のまま並べる（同じ字下げの鍵の 2 度書き・引用した鍵・合わせる写像どうしの字下げの違いは拒む）。ラインの筋書き 14 本を基との違いだけに畳み直し（2,447 行 → 1,013 行）、合わせた中身が畳む前と同じことを確かめた。`ai_report` を null の値で持つ 2 本（`policy-stop`・`start-refused`）の `result` は流れの形で丸ごと置き替える。試験 `LineFoldCase` の「基と同じ値の鍵を持たない」は入れ子の欄まで見る。写しの柵の既知の和は 11,256 行から 9,598 行に下がった。
+- 合わせた筋書きの中身が前と同じことを縛る試験 `test_fold_kept_every_scenario` を、基を足した 1 つの commit の歴史を毎回確かめ直す形から、寄せの差分の間だけ縛る形にした。基の在る置き場（走査で導く）ごとに、main から分かれた所にその置き場の基が無いか `dev/stubfold.py` がそこと違う時だけ、そこの筋書きをそこの stubfold で合わせた物と今の木の `stubfold.load` を解析の後で比べる。どちらでもない置き場は比べない。
+- 写しの柵の表が main より増えない検査（`copyfence.growth`）が、既知の和だけを見て、別の写しが同じ数だけ減れば main の表に無いパスの写しを通していたのを、考えの柵と同じ強さにした。main の既知に無いパスは、既知の値の 3 つ目の欄 `from`（寄せ元のパスの並び）がどれも main の既知に在り、寄せ元の main からの減りの和がそのパスの行の数以上の時だけ通る（写しを寄せて新しいパスへ移す時の明示の付け替え）。それ以外の新しいパスは数の増減に関わらず赤。和の検査は残す。
 
 ## [0.2.63] - 2026-10-10
 
@@ -69,7 +72,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
-- ラインの筋書き（`darkfactory/fixtures/*.stubs.yaml`）の共通の stub を 1 つの基 `darkfactory/fixtures/base.yaml` に寄せ、筋書きには筋書きごとの違いだけを残した（14 本で 34,297 行 → 基と筋書きで 4,866 行）。合わせ方は `dev/stubfold.py` の 1 つの決まり（筋書きの鍵が基の鍵を丸ごと置き替え、筋書きの値が空の鍵は stub しない）で、`dev/mktarget.sh` が模擬実行の前に写しの筋書きを合わせて基を消す。合わせた stub が畳む前の筋書きと同じことは試験 `tests/test_stubfold.py` が git の前の版と比べて縛る。新しい段の stub は基に 1 度だけ足す。
+- ラインの筋書き（`darkfactory/fixtures/*.stubs.yaml`）の共通の stub を 1 つの基 `darkfactory/fixtures/base.yaml` に寄せ、筋書きには筋書きごとの違いだけを残した（14 本で 34,297 行 → 基と筋書きで 4,866 行）。合わせ方は `dev/stubfold.py` の 1 つの決まり（筋書きの鍵が基の鍵を丸ごと置き替え、筋書きの値が空の鍵は stub しない）で、`dev/mktarget.sh` が模擬実行の前に写しの筋書きを合わせて基を消す。合わせた stub が畳む前の筋書きと同じことは試験 `tests/test_stubfold.py` が、寄せの差分の間だけ（main に基が無い置き場か `dev/stubfold.py` が main と違う時）main の版を main の stubfold で合わせた物と比べて縛る。新しい段の stub は基に 1 度だけ足す。
 
 ## [0.2.61] - 2026-10-10
 
