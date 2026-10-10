@@ -85,6 +85,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: ci
+          description: 'CI の任せ先: 対象の CI の定義を読み、写しの上でテスト・lint を走らせて結果を返す'
           model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: ci

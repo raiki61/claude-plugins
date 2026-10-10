@@ -65,6 +65,7 @@ nodes:
               prompt: {type: string}
               prompt_file: {type: string}
         - id: world-classes
+          description: '言い直す役: 依頼の各行を解き方と対象の名を外した問題の類に言い直し、検索語を返す（道具なし）'
           model: opus                 # 役 blind-judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 blind-judge の前付けの effort（段は前付けを読まない）
           command: world-classes
@@ -143,6 +144,7 @@ nodes:
               prompt: {type: string}
               prompt_file: {type: string}
         - id: world-judge
+          description: 'web の役: 問題の類ごとに定石を web で集め、依頼の解き方が定石と同じか違うかを返す'
           model: sonnet               # web から集めてまとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る）
           effort: medium              # 同じ表の effort
           command: world-judge

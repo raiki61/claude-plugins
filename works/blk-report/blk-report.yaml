@@ -66,6 +66,7 @@ nodes:
               facts_file: {type: string}
               already: {type: boolean}
         - id: report-write
+          description: '報告の書き手: run の記録を読み、平易な冒頭・人が決めること・本文を書いて返す'
           model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: report-write
@@ -109,6 +110,7 @@ nodes:
               prompt_file: {type: string}
               prompt: {type: string}
         - id: report-write-cold
+          description: '文脈を持たない初見の読み手: 報告の本文だけを読み、詰まった所と推測した所を返す'
           model: sonnet               # 役 cold-reader の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: medium              # 役 cold-reader の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           # 指示は commands/report-write-cold.md（初見の読み手の決まり）に書き手の頭を描いた本文を入れた物（支度が組む）

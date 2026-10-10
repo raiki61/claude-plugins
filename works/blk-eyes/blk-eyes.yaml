@@ -131,6 +131,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r1-comments
+          description: '独立の目: 変更が足したコメントを読み、消す候補を返す（読むだけ）'
           model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: r1-comments
@@ -287,6 +288,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r1-minimality
+          description: '独立の目: 変更の冗長さと最小性を読み、削れる所を返す（読むだけ）'
           model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: r1-minimality
@@ -446,6 +448,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r2-compare
+          description: '独立の目: 目的だけから作った独立設計と累積差分を突き合わせ、違いを返す（Read だけ）'
           model: opus                 # 役 blind-judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 blind-judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: r2-compare
@@ -595,6 +598,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: premise-check
+          description: '独立の目: 設計の前提が実物で崩れていないかを検算し、成り立つかを返す（読むだけ）'
           model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: premise-check
@@ -745,6 +749,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r3-coherence
+          description: '独立の目: 変更の全体が整合しているかを読み、通すかを返す（読むだけ）'
           model: sonnet               # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: medium              # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: r3-coherence
@@ -879,6 +884,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r4-scope
+          description: '独立の目: 変更が見落とした影響範囲を探し、表に出した物を返す（読むだけ）'
           model: sonnet               # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: medium              # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: r4-scope

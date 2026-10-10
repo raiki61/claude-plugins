@@ -60,6 +60,7 @@ nodes:
       until_bash: test $purpose-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: purpose
+          description: '目的の役: 依頼を読み、元の目的を 1 つの文にして返す（解き方は分けて並べる。読むだけ）'
           model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: purpose

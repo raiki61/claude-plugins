@@ -34,6 +34,7 @@ nodes:
   # 表 .shared/core/stage-models.json の値を段に書く（run の既定に頼らない）。どの工程に組み込まれても、前に終わった AI の節の
   # 会話を継がずに新しい会話で読む（context: fresh。輪の外の AI の節の決まり。tests/test_yaml_rules.py の SessionCase）
   - id: lens-silent-failure-hunter
+    description: '黙った失敗のレンズ: 変更が失敗を握りつぶしていないかを読み、指摘を返す（読むだけ）'
     model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
     effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
     command: lens-silent-failure-hunter

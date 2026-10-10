@@ -92,6 +92,7 @@ nodes:
               prompt_file: {type: string}
               attempt: {type: integer}
         - id: structure-eye
+          description: '構造の目: 直しの単位ごとに、直しがコードの構造を汚すかを判定して返す（道具なし）'
           model: opus                 # 役 blind-judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           command: structure-eye
           depends_on: [structure-eye-prep]

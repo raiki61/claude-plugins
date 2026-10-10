@@ -65,6 +65,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: spec-write
+          description: '仕様の書き手: 依頼が完成と言える要件を書き、受け入れ条件をテストとして書いて返す'
           model: opus                 # 修正案・仕様を書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: spec-write
@@ -194,6 +195,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: spec-review
+          description: '仕様の審査役: 要件と受け入れ条件の抜け・曖昧さ・範囲の外を挙げて返す（読むだけ）'
           model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: spec-review
@@ -306,6 +308,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: spec-revise
+          description: '仕様の書き手: 審査が挙げた穴に 1 度ずつ答え、直した仕様の全体を返す'
           model: opus                 # 修正案・仕様を書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: spec-revise

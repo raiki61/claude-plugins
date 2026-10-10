@@ -56,6 +56,7 @@ nodes:
       until_bash: test $premises-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: premises
+          description: '実測役: 依頼の数値・件数・有無の主張を作業ツリーで測り直し、制約の一覧を返す'
           model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: premises

@@ -10,7 +10,7 @@ docs/plans/2026-10-07-graph-map.md）の検査。
 - 新しさ: 本物の地図の元 darkfactory/darkfactory.graph.json は今の YAML から組み直した物と同じ（YAML を替えたら
   dev/graphmap_build.py の build で書き直す）。古い元は stale が名指す・道具の check が 1 で抜ける
 - 本物の線: 旗 map の節の席は旗が揃う（会話の中で system prompt を替えない）。地図の文は字数の枠の中。地図に載る AI・輪・
-  呼ぶ節は全部が目的の 1 行を持つ。description は 1 行。features_off の語 graph_map と包みの定数が合う
+  呼ぶ節は全部が目的の 1 行を持つ（AI の節は地図に載らない物も全部）。description は 1 行。features_off の語 graph_map と包みの定数が合う
 - 包みの差し込みの表: 旗 map の起動に地図を、道具を持つ起動に検索語の規律を、決まった順に 1 つの繋ぎ方で足し、塊ごとの digest を
   fence に残す。graph_map が切られた run・古い元・繋げない起動は足さずに理由を残して起こす。required の行が作れなければ拒む
 - 節の宣言（.shared/core/promptsection.py）: 支度のモジュールの見出しの字面は Section の宣言の中だけ。宣言の出どころが解ける。
@@ -582,6 +582,19 @@ class RealLineCase(unittest.TestCase):
                     "h-ci", "h-final"):
             with self.subTest(nid):
                 self.assertFalse(find(nodes, nid).get("optional"), f"{nid} は落ちたら線を止める節で optional でない")
+
+    def test_every_ai_node_has_a_purpose(self):
+        """AI の節（prompt・command・loop を持つ節。輪の中も）は全部が何をする役かの 1 行（description:）を持つ（地図と設計図の役の名の
+        隣に出る。旗 map の地図に載らない節も、設計図には載る）"""
+        g = real_graph()
+        stack = [(wf, n) for wf, doc in g["workflows"].items() for n in doc["nodes"]]
+        bare = []
+        while stack:
+            wf, n = stack.pop()
+            stack.extend((wf, m) for m in n.get("body") or [])
+            if n["kind"] in ("ai", "ai-loop") and not n.get("purpose"):
+                bare.append(f"{wf}:{n['id']}")
+        self.assertEqual(sorted(bare), [], "何をする役かの 1 行（description:）の無い AI の節")
 
     def test_descriptions_are_one_short_line(self):
         for p in sorted(ROOT.glob("*/*.yaml")):

@@ -75,6 +75,7 @@ nodes:
       until_bash: test $judge-accept.output.done = true
       nodes:
         - id: judge
+          description: '判定役: 人の修正依頼を読み、根本の単位にまとめてラベルと処置を返す（読むだけ）'
           model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: diagnose
@@ -306,6 +307,7 @@ nodes:
   # 置き場に Write で書く。返答は 1 行の要約だけ（答えの中身は機械がまとめる）。判定役とは別の目なので判定役の会話を継がない
   # （context: fresh）。作業ツリーは書かない（mutates_checkout: false。変わればまとめが盤面を止める）
   - id: judge-verify
+    description: '裏取りの束ね役: 判定の単位ごとに確かめる下請けを並べて起こし、要約を返す'
     model: opus                 # 確かめる目の役（本線の judge に当たる。tests/test_tool_parity.py の RoleModelCase が縛る）
     effort: high
     prompt: 指示書 `$verify-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。

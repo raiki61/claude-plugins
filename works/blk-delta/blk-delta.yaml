@@ -44,6 +44,7 @@ nodes:
       until_bash: test $review-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: review
+          description: '差分の審査役: この周の修正の差分だけを読み、修正が新しく作った穴を返す（読むだけ）'
           model: sonnet               # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: medium              # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: delta-review

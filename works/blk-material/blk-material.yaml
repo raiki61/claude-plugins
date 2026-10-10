@@ -134,6 +134,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: prior-decisions
+        description: '先行議論の突合: 過去の議論・決定を探し、今回の変更と食い違う所を返す'
         model: sonnet   # 役 investigator の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
         effort: medium  # 役 investigator の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: prior-decisions
@@ -308,6 +309,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: purpose-review
+        description: '目的の審査: 変更が目的に沿っているかを読み、外れた所を返す（読むだけ）'
         model: sonnet   # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
         effort: medium  # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: purpose-review
@@ -444,6 +446,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: local-review
+        description: '局所レビュー: レビューのスキルと agent のレンズを起こし、指摘を集めて返す'
         model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: local-review
@@ -630,6 +633,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: consistency-bypass
+        description: '整合性と迂回の目: 既存の仕組みを避けた作りが無いかを読み、指摘を返す（読むだけ）'
         model: sonnet   # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
         effort: medium  # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: consistency-bypass
@@ -839,6 +843,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: hygiene
+        description: '文脈を持たない読み手: 渡された差分と観点だけを読み、指摘を返す（道具なし）'
         model: sonnet   # 役 cold-reader の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
         effort: medium  # 役 cold-reader の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: hygiene
@@ -966,6 +971,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: external-standards
+        description: '外部標準照合: 作る前に既製の定番解が無いかを調べ、比べた結果を返す'
         model: sonnet   # 役 investigator の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
         effort: medium  # 役 investigator の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: external-standards
@@ -1168,6 +1174,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: procedure-trace
+        description: '手順トレース: 変更に関わる手順を順にたどって確かめ、指摘を返す'
         model: sonnet   # 役 investigator の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
         effort: medium  # 役 investigator の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: procedure-trace
@@ -1335,6 +1342,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: gate-efficacy
+        description: 'ゲートの実効性確認: 検査が落とすべき物を本当に落とすかを写しの上で確かめて返す'
         model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: gate-efficacy
@@ -1506,6 +1514,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: test-double-fidelity
+        description: '代役の忠実性: テストの代役が本物と同じ振る舞いかを確かめ、食い違いを返す'
         model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: test-double-fidelity
@@ -1672,6 +1681,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: main-path-observation
+        description: '主経路の実行観測: 変更した主経路を写しの上で走らせ、観測した事を返す'
         model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: main-path-observation
@@ -1834,6 +1844,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: provenance
+        description: '根拠の出所検査: 変更が頼る根拠の出所を確かめ、主張ごとの結果を返す'
         model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: provenance

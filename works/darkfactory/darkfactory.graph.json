@@ -1,25 +1,25 @@
 {
  "entry": "darkfactory",
  "sources": {
-  "blk-ci/blk-ci.yaml": "270bfa0f6ab706eaff76881e57164c0ac6c2e2edcc9fa6ccbc5c71b2c68dc361",
-  "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
+  "blk-ci/blk-ci.yaml": "f48eb4ada24b9e0943e6a045535666d44917d80f9ea3d9e739085df19336599d",
+  "blk-delta/blk-delta.yaml": "f7b47c9faac845c696939a7918be3854dfa7bdbc55fb72c813f5fc851ccd60ef",
   "blk-entry/blk-entry.yaml": "c28e4b7209157ddaa3d349ae3d661a9d91accebdad268d58987369506deeb995",
-  "blk-eyes/blk-eyes.yaml": "0e8fe22a21be92f7aa3157e785169161a30bc46ceae988155672724165946e12",
+  "blk-eyes/blk-eyes.yaml": "e1d52845e7e48cbc6d416ea5d35123aec2eb1f112d47f284049a977cbff03ab2",
   "blk-fix/blk-fix.yaml": "66e3034f73e38d2b5b86fac43a893b6f9d6c625884f99e5acc7f5c406541e710",
-  "blk-judge/blk-judge.yaml": "0d492a777034f7ce829ffd9eae292a34bd0f7c5a12a8bc338261685f12b14949",
-  "blk-lens/blk-lens.yaml": "fe7f42c097083bd466fde0c424a3a77b778419b2fb026950f34df6d31f88f466",
-  "blk-material/blk-material.yaml": "1683a4e544086d9d203e3d5a644e5abb9b55be2036db8d912a688e1e8ffa532c",
+  "blk-judge/blk-judge.yaml": "36b7316d8232e52179053cd144f1ace1b1f0c469f5cfa6967159c531d5a1899e",
+  "blk-lens/blk-lens.yaml": "20704cad5cbb886154070063fb62a0cf830c0f7b3c68f0856f3d6a1e2ecfb63f",
+  "blk-material/blk-material.yaml": "fa382cd81a6574237af642bca074058f31f9e6829185393dba8063b4df31df2f",
   "blk-plan/blk-plan.yaml": "429efe2ce5bc4161d6069035cb5945788c869c54065a1bc35f0426ded583a019",
-  "blk-pr/blk-pr.yaml": "4b4ed37065fbbe9486fed3e9849a57b90fae7fe7d55b2bddf3e4f7242637dfd8",
-  "blk-premises/blk-premises.yaml": "41c3da4174fb5cfce8313f90acbfd6c0a8be46500fd724975ed094acc0d8de14",
-  "blk-purpose/blk-purpose.yaml": "8b97922464f08978bfbf454384671bf37e1d8918bdba55c16c3c3782e306e6fa",
-  "blk-refix/blk-refix.yaml": "94f44741c2ff1771d01d6a91770d2946eb9df22acb0f99b5a69fd12c6b1db528",
-  "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
-  "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
-  "blk-spec/blk-spec.yaml": "ee1fce070b20c1e639bc36e8b322cd303bb9ad7bc468804eb1db994d599f7d72",
-  "blk-structure/blk-structure.yaml": "b288e8fa0004680608a1b3408b7d1081ff431734af3b73bac8eeafb4fd940d6f",
+  "blk-pr/blk-pr.yaml": "045851b2c509c64e4dae75e9175a2987f35240ab3834f81537715b6354085a93",
+  "blk-premises/blk-premises.yaml": "041f26cea73a6877aeb43d9912a08089e0655788f7708a6368a39c000194841c",
+  "blk-purpose/blk-purpose.yaml": "17149bcd709ee14be659f8bb5b067ad336888de6ac16726f9f41fe8fa83e1134",
+  "blk-refix/blk-refix.yaml": "dfc4617a31adb4e6383059ca2e77cf2c801df14109f56b573ec955975061c5b6",
+  "blk-rejudge/blk-rejudge.yaml": "f57cebd041ab5cc44aeb0a896e676e09b439e75544509e47dd0f52d77bb37225",
+  "blk-report/blk-report.yaml": "c82bb18a2c08d4e1fc28d6d79a6d4406d81b2647fa0d6d4cd9ea76bf0cd3c04b",
+  "blk-spec/blk-spec.yaml": "844582feffafd75434fd0dcd8a4a8d67e60a8aa997c9c8c6f23e0e85158db152",
+  "blk-structure/blk-structure.yaml": "690a67b4422c4ccb600bf30539724d2c0bd9a2ffecdae46dbf46c366cd8840e1",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "blk-world/blk-world.yaml": "832053517dd33c95353e1cf7f7cfd864d44f291c123626e406a37ff7ae9f4b18",
+  "blk-world/blk-world.yaml": "45bd1e1c63000855e0092db5bc53c950c472ed39125c8d0264ddb7f3700d1ef6",
   "darkfactory/darkfactory.yaml": "c3438e74c66210c110f51d7f10278ae45dff4f6b4f863ddfae80cfbfb6924f8d"
  },
  "version": 1,
@@ -55,7 +55,8 @@
        ],
        "id": "ci",
        "kind": "ai",
-       "marker": "ci"
+       "marker": "ci",
+       "purpose": "CI の任せ先: 対象の CI の定義を読み、写しの上でテスト・lint を走らせて結果を返す"
       },
       {
        "deps": [
@@ -95,7 +96,8 @@
        "deps": [],
        "id": "review",
        "kind": "ai",
-       "marker": "review"
+       "marker": "review",
+       "purpose": "差分の審査役: この周の修正の差分だけを読み、修正が新しく作った穴を返す（読むだけ）"
       },
       {
        "deps": [
@@ -173,7 +175,8 @@
        ],
        "id": "r1-comments",
        "kind": "ai",
-       "marker": "r1-comments"
+       "marker": "r1-comments",
+       "purpose": "独立の目: 変更が足したコメントを読み、消す候補を返す（読むだけ）"
       },
       {
        "deps": [
@@ -215,7 +218,8 @@
        ],
        "id": "r1-minimality",
        "kind": "ai",
-       "marker": "r1-minimality"
+       "marker": "r1-minimality",
+       "purpose": "独立の目: 変更の冗長さと最小性を読み、削れる所を返す（読むだけ）"
       },
       {
        "deps": [
@@ -256,7 +260,8 @@
        ],
        "id": "r2-compare",
        "kind": "ai",
-       "marker": "r2-compare"
+       "marker": "r2-compare",
+       "purpose": "独立の目: 目的だけから作った独立設計と累積差分を突き合わせ、違いを返す（Read だけ）"
       },
       {
        "deps": [
@@ -295,7 +300,8 @@
        ],
        "id": "premise-check",
        "kind": "ai",
-       "marker": "premise-check"
+       "marker": "premise-check",
+       "purpose": "独立の目: 設計の前提が実物で崩れていないかを検算し、成り立つかを返す（読むだけ）"
       },
       {
        "deps": [
@@ -336,7 +342,8 @@
        ],
        "id": "r3-coherence",
        "kind": "ai",
-       "marker": "r3-coherence"
+       "marker": "r3-coherence",
+       "purpose": "独立の目: 変更の全体が整合しているかを読み、通すかを返す（読むだけ）"
       },
       {
        "deps": [
@@ -378,7 +385,8 @@
        ],
        "id": "r4-scope",
        "kind": "ai",
-       "marker": "r4-scope"
+       "marker": "r4-scope",
+       "purpose": "独立の目: 変更が見落とした影響範囲を探し、表に出した物を返す（読むだけ）"
       },
       {
        "deps": [
@@ -1101,7 +1109,8 @@
        "deps": [],
        "id": "judge",
        "kind": "ai",
-       "marker": "judge"
+       "marker": "judge",
+       "purpose": "判定役: 人の修正依頼を読み、根本の単位にまとめてラベルと処置を返す（読むだけ）"
       },
       {
        "deps": [
@@ -1134,6 +1143,7 @@
      "id": "judge-verify",
      "kind": "ai",
      "marker": "judge-verify",
+     "purpose": "裏取りの束ね役: 判定の単位ごとに確かめる下請けを並べて起こし、要約を返す",
      "when": "$verify-prep.output.go == true"
     },
     {
@@ -1168,6 +1178,7 @@
      "id": "lens-silent-failure-hunter",
      "kind": "ai",
      "marker": "lens-silent-failure-hunter",
+     "purpose": "黙った失敗のレンズ: 変更が失敗を握りつぶしていないかを読み、指摘を返す（読むだけ）",
      "when": "$lens-route.output.silent_failure_hunter_go == true"
     },
     {
@@ -1211,6 +1222,7 @@
        "id": "prior-decisions",
        "kind": "ai",
        "marker": "prior-decisions",
+       "purpose": "先行議論の突合: 過去の議論・決定を探し、今回の変更と食い違う所を返す",
        "when": "$prior-decisions-prep.output.stopped == false"
       },
       {
@@ -1244,6 +1256,7 @@
        "id": "purpose-review",
        "kind": "ai",
        "marker": "purpose-review",
+       "purpose": "目的の審査: 変更が目的に沿っているかを読み、外れた所を返す（読むだけ）",
        "when": "$purpose-review-prep.output.stopped == false"
       },
       {
@@ -1281,6 +1294,7 @@
        "id": "local-review",
        "kind": "ai",
        "marker": "local-review",
+       "purpose": "局所レビュー: レビューのスキルと agent のレンズを起こし、指摘を集めて返す",
        "when": "$local-review-prep.output.stopped == false"
       },
       {
@@ -1314,6 +1328,7 @@
        "id": "consistency-bypass",
        "kind": "ai",
        "marker": "consistency-bypass",
+       "purpose": "整合性と迂回の目: 既存の仕組みを避けた作りが無いかを読み、指摘を返す（読むだけ）",
        "when": "$consistency-bypass-prep.output.stopped == false"
       },
       {
@@ -1347,6 +1362,7 @@
        "id": "hygiene",
        "kind": "ai",
        "marker": "hygiene",
+       "purpose": "文脈を持たない読み手: 渡された差分と観点だけを読み、指摘を返す（道具なし）",
        "when": "$hygiene-prep.output.stopped == false"
       },
       {
@@ -1383,6 +1399,7 @@
        "id": "external-standards",
        "kind": "ai",
        "marker": "external-standards",
+       "purpose": "外部標準照合: 作る前に既製の定番解が無いかを調べ、比べた結果を返す",
        "when": "$external-standards-prep.output.stopped == false"
       },
       {
@@ -1419,6 +1436,7 @@
        "id": "procedure-trace",
        "kind": "ai",
        "marker": "procedure-trace",
+       "purpose": "手順トレース: 変更に関わる手順を順にたどって確かめ、指摘を返す",
        "when": "$procedure-trace-prep.output.stopped == false"
       },
       {
@@ -1455,6 +1473,7 @@
        "id": "gate-efficacy",
        "kind": "ai",
        "marker": "gate-efficacy",
+       "purpose": "ゲートの実効性確認: 検査が落とすべき物を本当に落とすかを写しの上で確かめて返す",
        "when": "$gate-efficacy-prep.output.stopped == false"
       },
       {
@@ -1491,6 +1510,7 @@
        "id": "test-double-fidelity",
        "kind": "ai",
        "marker": "test-double-fidelity",
+       "purpose": "代役の忠実性: テストの代役が本物と同じ振る舞いかを確かめ、食い違いを返す",
        "when": "$test-double-fidelity-prep.output.stopped == false"
       },
       {
@@ -1527,6 +1547,7 @@
        "id": "main-path-observation",
        "kind": "ai",
        "marker": "main-path-observation",
+       "purpose": "主経路の実行観測: 変更した主経路を写しの上で走らせ、観測した事を返す",
        "when": "$main-path-observation-prep.output.stopped == false"
       },
       {
@@ -1563,6 +1584,7 @@
        "id": "provenance",
        "kind": "ai",
        "marker": "provenance",
+       "purpose": "根拠の出所検査: 変更が頼る根拠の出所を確かめ、主張ごとの結果を返す",
        "when": "$provenance-prep.output.stopped == false"
       },
       {
@@ -1843,7 +1865,8 @@
        "deps": [],
        "id": "pr-check",
        "kind": "ai",
-       "marker": "pr-check"
+       "marker": "pr-check",
+       "purpose": "並行 PR の衝突チェック: 開いている PR を読むだけで調べ、変更と衝突する物を返す"
       },
       {
        "deps": [
@@ -1889,7 +1912,8 @@
        "deps": [],
        "id": "premises",
        "kind": "ai",
-       "marker": "premises"
+       "marker": "premises",
+       "purpose": "実測役: 依頼の数値・件数・有無の主張を作業ツリーで測り直し、制約の一覧を返す"
       },
       {
        "deps": [
@@ -1930,7 +1954,8 @@
        "deps": [],
        "id": "purpose",
        "kind": "ai",
-       "marker": "purpose"
+       "marker": "purpose",
+       "purpose": "目的の役: 依頼を読み、元の目的を 1 つの文にして返す（解き方は分けて並べる。読むだけ）"
       },
       {
        "deps": [
@@ -1969,7 +1994,8 @@
        "deps": [],
        "id": "refix",
        "kind": "ai",
-       "marker": "refix"
+       "marker": "refix",
+       "purpose": "手直し役: 差分の審査が挙げた穴を直し、穴ごとの扱いを返す（1 回目）"
       },
       {
        "deps": [
@@ -2007,7 +2033,8 @@
        "deps": [],
        "id": "review2",
        "kind": "ai",
-       "marker": "review2"
+       "marker": "review2",
+       "purpose": "手直しの審査役: 手直しだけの差分を読み、手直しが新しく作った穴を返す（2 回目。読むだけ）"
       },
       {
        "deps": [
@@ -2047,7 +2074,8 @@
        "deps": [],
        "id": "refix2",
        "kind": "ai",
-       "marker": "refix2"
+       "marker": "refix2",
+       "purpose": "手直し役: 2 回目の審査が挙げた穴を直し、穴ごとの扱いを返す（最後）"
       },
       {
        "deps": [
@@ -2110,7 +2138,8 @@
        ],
        "id": "rejudge",
        "kind": "ai",
-       "marker": "rejudge"
+       "marker": "rejudge",
+       "purpose": "判定役の続き: 修正役の異議を読み、自分の判定を同じ会話で考え直して返す（読むだけ）"
       },
       {
        "deps": [
@@ -2161,7 +2190,8 @@
        ],
        "id": "report-write",
        "kind": "ai",
-       "marker": "report-write"
+       "marker": "report-write",
+       "purpose": "報告の書き手: run の記録を読み、平易な冒頭・人が決めること・本文を書いて返す"
       },
       {
        "deps": [
@@ -2177,7 +2207,8 @@
        ],
        "id": "report-write-cold",
        "kind": "ai",
-       "marker": "report-write-cold"
+       "marker": "report-write-cold",
+       "purpose": "文脈を持たない初見の読み手: 報告の本文だけを読み、詰まった所と推測した所を返す"
       },
       {
        "deps": [
@@ -2226,7 +2257,8 @@
        ],
        "id": "spec-write",
        "kind": "ai",
-       "marker": "spec-write"
+       "marker": "spec-write",
+       "purpose": "仕様の書き手: 依頼が完成と言える要件を書き、受け入れ条件をテストとして書いて返す"
       },
       {
        "deps": [
@@ -2265,7 +2297,8 @@
        ],
        "id": "spec-review",
        "kind": "ai",
-       "marker": "spec-review"
+       "marker": "spec-review",
+       "purpose": "仕様の審査役: 要件と受け入れ条件の抜け・曖昧さ・範囲の外を挙げて返す（読むだけ）"
       },
       {
        "deps": [
@@ -2304,7 +2337,8 @@
        ],
        "id": "spec-revise",
        "kind": "ai",
-       "marker": "spec-revise"
+       "marker": "spec-revise",
+       "purpose": "仕様の書き手: 審査が挙げた穴に 1 度ずつ答え、直した仕様の全体を返す"
       },
       {
        "deps": [
@@ -2386,7 +2420,8 @@
        ],
        "id": "structure-eye",
        "kind": "ai",
-       "marker": "structure-eye"
+       "marker": "structure-eye",
+       "purpose": "構造の目: 直しの単位ごとに、直しがコードの構造を汚すかを判定して返す（道具なし）"
       },
       {
        "deps": [
@@ -2447,7 +2482,8 @@
        ],
        "id": "world-classes",
        "kind": "ai",
-       "marker": "world-classes"
+       "marker": "world-classes",
+       "purpose": "言い直す役: 依頼の各行を解き方と対象の名を外した問題の類に言い直し、検索語を返す（道具なし）"
       },
       {
        "deps": [
@@ -2486,7 +2522,8 @@
        ],
        "id": "world-judge",
        "kind": "ai",
-       "marker": "world-judge"
+       "marker": "world-judge",
+       "purpose": "web の役: 問題の類ごとに定石を web で集め、依頼の解き方が定石と同じか違うかを返す"
       },
       {
        "deps": [

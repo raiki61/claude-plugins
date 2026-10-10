@@ -88,6 +88,7 @@ nodes:
               already:
                 type: boolean
         - id: rejudge
+          description: '判定役の続き: 修正役の異議を読み、自分の判定を同じ会話で考え直して返す（読むだけ）'
           model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: rejudge
