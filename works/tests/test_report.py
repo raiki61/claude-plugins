@@ -1777,7 +1777,7 @@ class TddLinesCase(unittest.TestCase):
         self.assertNotIn("控えから使った結果", report.tdd_lines([(report.TDD_STAGES[0], TDD_RAN)])[0])
 
     def test_tdd_unit_shows_red_quotes_stub_files_and_unchecked(self):
-        """人が報告と最後の関所で赤の理由の正しさを見るため、単位の行に名指しごとの引用と理由・仮の実装のファイル・引用を照らせなかった
+        """人が報告で赤の理由の正しさを見るため、単位の行に名指しごとの引用と理由・仮の実装のファイル・引用を照らせなかった
         名指しが載る（1 単位 1 行のまま）"""
         unit = {"unit_key": "u-green", "route": "tdd", "why": "", "tests": ["t.py::test_a", "t.py::test_b"], "red": "ok", "green": "ok",
                 "refactor": "none", "gave_up": "",
