@@ -20,7 +20,7 @@
   "blk-structure/blk-structure.yaml": "b288e8fa0004680608a1b3408b7d1081ff431734af3b73bac8eeafb4fd940d6f",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
   "blk-world/blk-world.yaml": "afa59a40343615d2d85f34f42855e2eedd3f3660591609687571e3edd83172d5",
-  "darkfactory/darkfactory.yaml": "b5ced7a06e13a21affb192e46b9cc6ff5029a7d3f3268d830cdca6a77c509b9e"
+  "darkfactory/darkfactory.yaml": "c3438e74c66210c110f51d7f10278ae45dff4f6b4f863ddfae80cfbfb6924f8d"
  },
  "version": 1,
  "workflows": {
@@ -2677,6 +2677,7 @@
      ],
      "id": "worlding",
      "kind": "call",
+     "optional": true,
      "purpose": "依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる",
      "when": "$h-mat.output.world_go == true",
      "with": {
@@ -2741,6 +2742,7 @@
      ],
      "id": "structuring",
      "kind": "call",
+     "optional": true,
      "purpose": "判定の単位が名指すファイルの構造を実測し、汚れるかを判定する",
      "when": "$h-plan.output.go == true",
      "with": {
@@ -2956,6 +2958,7 @@
      ],
      "id": "lensing",
      "kind": "call",
+     "optional": true,
      "purpose": "修正の後の局所レビュー（レンズ）",
      "when": "$h-review.output.go == true",
      "with": {}
@@ -3050,6 +3053,7 @@
      ],
      "id": "measuring-after",
      "kind": "call",
+     "optional": true,
      "purpose": "直しの後の差分で、設計の考えを知る場所の増減・新しい名・写しの塊を測る",
      "with": {
       "base_rev": "$entering.output.base_rev"
@@ -3082,6 +3086,7 @@
      ],
      "id": "eyeing",
      "kind": "call",
+     "optional": true,
      "purpose": "独立の目（冗長と最小性・独立設計との比較・整合・範囲）",
      "when": "$h-look.output.go == true",
      "with": {

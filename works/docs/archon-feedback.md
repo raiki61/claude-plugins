@@ -99,6 +99,7 @@ works（Archon の上の pack「darkfactory」）が、Archon v0.11.1 の挙動�
 - Archon の挙動: `trigger_rule: all_done` で後ろの節が走っても、親の run は失敗のまま残る。`when:` から節の状態を読めない。
 - works の回り道: run の中から `workflow get --events` で出来事を読む（`works/.shared/core/reads.py`）、落ちた筋を盤面から推す。
 - works で確かめる事: 修正の後の局所レビューのブロック（blk-lens）の集め役が all_done で受けている。レンズが 1 本落ちた時に run 全体が失敗扱いになるか。
+  - works の報告の側の扱いを替えた（宣言した段の落ちは結末を interrupted にしない）: 線の YAML が description の末尾に `[optional]` と宣言した足しの検査の段（目・レンズ・構造・直しの後の測り・世界の解）の落ちは、線の終わりの出口が届いた run では報告の冒頭 3 に「落ちたが、線が宣言のとおり受け止めた節」として並べ、結末を interrupted にしない（その段は確かめていないので残りに数え、結末は fixed にならない）。宣言の無い段（修正の本体など）の落ちは今までどおり interrupted。Archon の run の状態は未実測（all_done で受けた落ちが run の状態を失敗のまま残すかは、実際の run で確かめていない）。
 - 外せる時: Archon の `when:` が節の状態を読めるか、all_done で受け止めた失敗を run の失敗から外せる版。
 
 ### 12. loop_group の出力に型が無い

@@ -22,9 +22,13 @@
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（Archon の出来事を読む run。空なら start の控えの run_id）
 途中で終わった run（上流の節が落ちても報告の節は all_done で走る）: Archon の出来事で最後の状態が落ちた節か、出口の印の欠け
 （h-eyes の出口が無い・h-eyes が目を回すと言ったのに blk-eyes の出口が無い）が在れば、結末 interrupted の報告を組み、冒頭 3 に
-落ちた節を出す（出来事だけに頼らない: 出来事が取れない run でも出口の印で分かる）。report より下流の節（AFTER_REPORT）の
-失敗は前の試みの物なので数えない。resume で前の試みで落ちた節が後で済んだ run は途中で終わった run でなく、その節を冒頭 3 に
-試みの記録として出す
+落ちた節を出す（出来事だけに頼らない: 出来事が取れない run でも出口の印で分かる）。ただし線の YAML が description の末尾の
+[optional] で受け止めると宣言した段（地図の元の節の欄 optional。その中の節を含む）の落ちは、出口の印が揃った run では途中で
+終わった数えにせず、受け止めた落ちとして冒頭 3 に ABSORBED_HEAD の行で出す（その段は確かめていないので残りにも節ごと 1 行数え、
+結末は fixed にならない）。出口の印が欠けた run と、
+地図の元が古い・読めない run は落ちた節を全部中断に数える（後者は標準エラーに理由を 1 行出す）。report より下流の節
+（AFTER_REPORT）の失敗は前の試みの物なので数えない。resume で前の試みで落ちた節が後で済んだ run は途中で終わった run でなく、
+その節を冒頭 3 に試みの記録として出す
 出口:
 - report.build の結果を 1 行の JSON で出して 0（record_invalid・止めた run・途中で終わった run も 0。結末で知らせる）
 - 盤面が開けない（BoardGap・写しの Reject）: 標準エラーに理由を 1 行出して 1。標準出力には何も出さない
@@ -84,6 +88,13 @@ def unreached(eyes, eyeing) -> list:
     return []
 
 
+def split_failed(events, graph, reached: bool):
+    """落ちた節を (中断の落ち, 受け止めた落ち) に分ける（どちらも [{node, error}]）。分け方は最後の関所と同じ口
+    （report.split_fallen。線の YAML が [optional] と宣言した段の落ちで、出口の印が揃った run だけ受け止める）"""
+    import report
+    return report.split_fallen(events, graph, reached, AFTER_REPORT)
+
+
 def main() -> int:
     missing = [n for n in INPUTS if n not in os.environ and n not in LATE]
     if not os.environ.get(script_io.ARTIFACTS_ENV):
@@ -108,9 +119,17 @@ def main() -> int:
         if not (board / "state.json").is_file():
             raise BoardGap(f"盤面 {board} が無い（start の前に落ちた run か、works の run でない）")
         events = reads.events_for(run_id)
-        failed = reads.failed_nodes(events, after=AFTER_REPORT) or unreached(eyes, eyeing)
+        lost = unreached(eyes, eyeing)
+        graph = None
+        if not lost and reads.failed_nodes(events, after=AFTER_REPORT):   # 落ちが無ければ受け止めを判じる要が無い
+            try:
+                graph = report.line_graph(Path(__file__).resolve().parents[2], AFTER_REPORT)   # 報告より下流の節を持つ線の地図の元
+            except ValueError as e:
+                print(f"report: 落ちた節の受け止めを判じなかった（全部中断に数える）: {_line(e)}", file=sys.stderr)
+        failed, absorbed = split_failed(events, graph, not lost)
+        failed = failed or lost
         out = report.build(board.resolve(), judged=judged, tests=tests, start=start, ci=ci, run_id=run_id,
-                           events=events, interrupted="" if failed else None, failed=failed,
+                           events=events, interrupted="" if failed else None, failed=failed, absorbed=absorbed,
                            retried=reads.retried_nodes(events, after=AFTER_REPORT), eyeing=eyeing,
                            cleaned_runs=" ".join(os.environ.get(CLEANED_RUNS, "").split()),
                            depth_lines=(depth or {}).get("lines") or (), tdd=tdd)

@@ -102,6 +102,132 @@ class ResumedRunCase(unittest.TestCase):
         self.assertNotIn("result", [f["node"] for f in got["failed"] or []])
 
 
+class AbsorbedFailureCase(unittest.TestCase):
+    """足しの検査の段（線の YAML が [optional] と宣言した節）の落ちは、線の終わりまで届いた run では結末を interrupted にせず、
+    受け止めた落ち（absorbed）として冒頭 3 に残る。修正の本体の枝の落ちは今までどおり中断。報告の節（darkfactory/scripts/report.py）の
+    main を、出来事と report.build を差し替えて直に呼ぶ（地図の元は本物の darkfactory.graph.json を graphmap の口で読む）"""
+
+    EYE_FALL = "eyeing__r4-scope-loop.r4-scope"
+    FIX_FALL = "fixing__tdd-lane-loop-1.tdd-lane-1"
+    REACHED = {"EYES": {"go": True}, "EYEING": {"ok": True}}
+
+    @staticmethod
+    def ev(kind, step=None, error=None):
+        return {"event_type": kind, "step_name": step, "data": {"error": error} if error else {}}
+
+    def run_main(self, events, *, eyes, eyeing=None, patches=()):
+        """報告の節の main を 1 回呼び、report.build に渡った kwargs と標準エラーの字を返す"""
+        import contextlib
+        import importlib.util
+        import io
+        import os
+        import reads
+        spec = importlib.util.spec_from_file_location("_report_script_absorbed",   # 報告の節の本体を別名で読む
+                                                      ROOT / "darkfactory" / "scripts" / "report.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        got, err = {}, io.StringIO()
+        with tempfile.TemporaryDirectory() as art:
+            (pathlib.Path(art) / "board").mkdir()
+            (pathlib.Path(art) / "board" / "state.json").write_text("{}", encoding="utf-8")
+            env = {n: "null" for n in mod.INPUTS}
+            env.update({"INPUTS_EYES": json.dumps(eyes) if eyes is not None else "null",
+                        "INPUTS_EYEING": json.dumps(eyeing) if eyeing is not None else "null",
+                        "ARTIFACTS_DIR": art, "WORKFLOW_ID": "run-absorbed"})
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(reads, "events_for", return_value=events), \
+                    mock.patch.object(report, "build", side_effect=lambda *a, **kw: got.update(kw) or {"ok": True}), \
+                    mock.patch("script_io._emit"), \
+                    mock.patch("sys.stderr", err):
+                with contextlib.ExitStack() as stack:   # 差し替えは main を呼ぶ間だけ効かせ、抜けたら必ず戻す
+                    for p in patches:
+                        stack.enter_context(p)
+                    self.assertEqual(mod.main(), 0)
+        return got, err.getvalue()
+
+    def nodes(self, rows):
+        return [r["node"] for r in rows or []]
+
+    def test_r4_lane_fall_in_optional_stage_is_not_interrupted(self):
+        """目のブロックの中の輪の節だけが落ち（eyeing の行は出来事に無い）、線の終わりの出口が届いた run: 結末を interrupted にせず、
+        落ちた節は absorbed に載る"""
+        ev = self.ev
+        events = [ev("workflow_started"), ev("node_started", self.EYE_FALL),
+                  ev("node_failed", self.EYE_FALL, "invalid_request: 模型 API が拒否した"),
+                  ev("node_started", "report")]
+        got, _ = self.run_main(events, eyes=self.REACHED["EYES"], eyeing=self.REACHED["EYEING"])
+        self.assertIsNone(got.get("interrupted"), got.get("failed"))
+        self.assertEqual(got.get("failed"), [])
+        self.assertEqual(self.nodes(got.get("absorbed")), [self.EYE_FALL])
+
+    def test_fix_lane_fall_still_interrupts_beside_absorbed_eye(self):
+        """修正の本体の枝の落ち（枝の締めが受け止めて h-replan は済んだ形）は印が無いので中断のまま。同じ run の目の落ちは absorbed に移る"""
+        ev = self.ev
+        events = [ev("workflow_started"),
+                  ev("node_started", self.FIX_FALL), ev("node_failed", self.FIX_FALL, "枝が落ちた"),
+                  ev("node_completed", "h-replan"),
+                  ev("node_started", self.EYE_FALL), ev("node_failed", self.EYE_FALL, "invalid_request"),
+                  ev("node_started", "report")]
+        got, _ = self.run_main(events, eyes=self.REACHED["EYES"], eyeing=self.REACHED["EYEING"])
+        self.assertNotIn(self.EYE_FALL, self.nodes(got.get("failed")))
+        self.assertEqual(self.nodes(got.get("failed")), [self.FIX_FALL])
+        self.assertIsNotNone(got.get("interrupted"))
+        self.assertEqual(self.nodes(got.get("absorbed")), [self.EYE_FALL])
+
+    def test_unreached_line_names_every_fall_as_cause(self):
+        """線の終わりの出口が届かない run（INPUTS_EYES が null）: どの落ちも受け止めに数えず、落ちた節を全部誤りの文つきで
+        中断の原因に挙げる（h-ci の落ちが後ろの h-after で隠れない）"""
+        ev = self.ev
+        events = [ev("workflow_started"),
+                  ev("node_started", "h-ci"), ev("node_failed", "h-ci", "Script node 'h-ci' failed [exit 1]"),
+                  ev("node_started", "worlding__world-loop.world"),
+                  ev("node_failed", "worlding__world-loop.world", "invalid_request"),
+                  ev("node_completed", "h-after"), ev("node_started", "report")]
+        got, _ = self.run_main(events, eyes=None)
+        failed = {f["node"]: f["error"] for f in got.get("failed") or []}
+        self.assertIn("h-ci", failed)
+        self.assertIn("worlding__world-loop.world", failed)
+        self.assertIn("exit 1", failed["h-ci"])
+        self.assertIn("invalid_request", failed["worlding__world-loop.world"])
+        self.assertIsNotNone(got.get("interrupted"))
+        self.assertEqual(got.get("absorbed"), [])
+
+    def test_stale_or_unreadable_graph_keeps_every_fall_interrupting(self):
+        """地図の元が古い・読めない時は受け止めを判じず、落ちた節を全部中断に数え、標準エラーに理由を 1 行出す"""
+        import graphmap
+        ev = self.ev
+        events = [ev("workflow_started"), ev("node_started", self.EYE_FALL),
+                  ev("node_failed", self.EYE_FALL, "invalid_request"), ev("node_started", "report")]
+        cases = {"stale": [mock.patch.object(graphmap, "stale", return_value=["darkfactory/darkfactory.yaml"])],
+                 "unreadable": [mock.patch.object(graphmap, "load", side_effect=ValueError("地図の元が読めない"))]}
+        for name, patches in cases.items():
+            with self.subTest(name):
+                got, err = self.run_main(events, eyes=self.REACHED["EYES"], eyeing=self.REACHED["EYEING"], patches=patches)
+                self.assertIn(self.EYE_FALL, self.nodes(got.get("failed")))
+                self.assertIsNotNone(got.get("interrupted"))
+                self.assertFalse(got.get("absorbed"))
+                lines = [x for x in err.splitlines() if x.strip()]
+                self.assertEqual(len(lines), 1, err)
+                self.assertIn("受け止め", lines[0])
+
+    def test_head_stop_lists_absorbed_nodes(self):
+        """head_stop に受け止めた落ち absorbed=[{node, error}] を渡すと、冒頭 3 に節の名と誤りの文の 1 行目を並べ、中断の行は出さない"""
+        with tempfile.TemporaryDirectory() as tmp:
+            b = fake_board(tmp)
+            absorbed = [{"node": "eyeing__r4-scope-loop.r4-scope",
+                         "error": "invalid_request: 模型 API が拒否した\nTraceback (most recent call last):"}]
+            try:
+                lines = report.head_stop(b, absorbed=absorbed)
+            except TypeError as e:
+                self.fail(f"head_stop が受け止めた落ちを受けない: {e}")
+        text = "\n".join(lines)
+        self.assertIn(report.ABSORBED_HEAD, text)
+        self.assertIn("eyeing__r4-scope-loop.r4-scope", text)
+        self.assertIn("invalid_request: 模型 API が拒否した", text)
+        self.assertNotIn("Traceback", text, "誤りの文は 1 行目だけ")
+        self.assertNotIn(report.INTERRUPTED_HEAD, text)
+
+
 EVENTS_DIR = pathlib.Path(__file__).resolve().parent / "events"
 
 
@@ -922,3 +1048,72 @@ class PlanAskLinesCase(unittest.TestCase):
         self.assertIn("CHANGELOG.md（項目 1 の out_of_scope の CHANGELOG.md）", lines[1])
         self.assertIn("out_of_scope は外したまま", lines[2])
         self.assertIn("docs/a.md", lines[2])
+
+
+GATE_ANCHORS = ("h-final",)   # 最後の関所（darkfactory.yaml の h-final）を持つ線の地図の元を引く
+
+
+class AbsorbedResidueCase(unittest.TestCase):
+    """落ちたが線が受け止めた節（absorbed）は、その段の結果を確かめていないので残りに節ごと 1 行数え、ほかに残りが無くても
+    fixed を名乗らせない。最後の関所も同じ口（absorbed_falls と rest_outside_validator）で名指す。偽の盤面で直に呼ぶ"""
+
+    WORLD = {"node": "worlding__world-loop.world", "error": "invalid_request: 模型 API が拒否した\nTraceback (most recent call last):"}
+    MEASURE = {"node": "measuring-after__measure", "error": "測りが落ちた"}
+    EYEING = {"ok": True, "reason": "", "reviews": EYES_PASS}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.b = fake_board(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def decide(self, **kw):
+        return report.decide_outcome(self.b, gate(0), tests=GREEN, judged=NEED_FIX, eyeing=self.EYEING, **kw)
+
+    def test_absorbed_fall_alone_is_not_fixed(self):
+        """ほかに残りが無い run でも、受け止めた段の落ちが在れば fixed でなく round_limit（落ちが無ければ fixed のまま）"""
+        self.assertEqual(self.decide(), "fixed")
+        self.assertEqual(self.decide(absorbed=[self.WORLD]), "round_limit")
+
+    def test_residue_has_one_row_per_absorbed_node(self):
+        rows = report.residue(self.b, gate(0), tests=GREEN, eyeing=self.EYEING, absorbed=[self.WORLD, self.MEASURE])
+        self.assertEqual([r["where"] for r in rows], [f"{report.ABSORBED_WHERE} {self.WORLD['node']}",
+                                                      f"{report.ABSORBED_WHERE} {self.MEASURE['node']}"])
+        text = rows[0]["text"]
+        self.assertIn("invalid_request: 模型 API が拒否した", text)
+        self.assertNotIn("Traceback", text, "誤りの文は 1 行目だけ")
+        self.assertIn("確かめていない", text)
+        self.assertIn("再実行の要あり", text)
+
+    def test_final_gate_rest_names_absorbed_nodes(self):
+        """最後の関所の残り（rest_outside_validator）が同じ行を持ち、always_rows の文に節の名と確かめていないことが出る"""
+        counts = report.eye_counts(self.b, EYES_PASS)
+        rest = report.rest_outside_validator(self.b, tests=GREEN, counts=counts, absorbed=[self.WORLD])
+        self.assertEqual([r["where"] for r in rest.rows], [f"{report.ABSORBED_WHERE} {self.WORLD['node']}"])
+        text = "\n".join(report.always_rows(self.b, rest=rest))
+        self.assertIn(self.WORLD["node"], text)
+        self.assertIn("確かめていない", text)
+
+    def test_absorbed_falls_takes_only_declared_stages(self):
+        """線の YAML が [optional] と宣言した段（世界の解）の落ちだけを受け止めた落ちにし、修正の本体の枝の落ちは含めない"""
+        ev = AbsorbedFailureCase.ev
+        events = [ev("node_failed", "worlding__world-loop.world", "invalid_request"),
+                  ev("node_failed", "fixing__fix-lane-loop-1.fix-lane-1", "枝が落ちた")]
+        self.assertEqual([f["node"] for f in report.absorbed_falls(events, ROOT, GATE_ANCHORS)], ["worlding__world-loop.world"])
+
+    def test_absorbed_falls_is_empty_without_events_or_graph(self):
+        """出来事が取れない・地図の元が古いか読めない時は空（最後の関所は止めない）"""
+        import graphmap
+        ev = AbsorbedFailureCase.ev
+        events = [ev("node_failed", "worlding__world-loop.world", "invalid_request")]
+        self.assertEqual(report.absorbed_falls(None, ROOT, GATE_ANCHORS), [])
+        with mock.patch.object(graphmap, "stale", return_value=["darkfactory/darkfactory.yaml"]):
+            self.assertEqual(report.absorbed_falls(events, ROOT, GATE_ANCHORS), [])
+        with mock.patch.object(graphmap, "load", side_effect=ValueError("読めない")):
+            self.assertEqual(report.absorbed_falls(events, ROOT, GATE_ANCHORS), [])
+
+    def test_gate_anchor_finds_the_one_line_graph(self):
+        """最後の関所が自分の節で引く地図の元は、本物の線の 1 本だけで、報告の節が引く地図の元と同じ"""
+        mine = report.line_graph(ROOT, GATE_ANCHORS)
+        self.assertEqual(mine, report.line_graph(ROOT, ("reporting", "result")))
