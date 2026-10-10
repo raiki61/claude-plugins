@@ -383,13 +383,18 @@ class TestBaseCache(FixGatesCase):
 
 
 STUB = "def halve(x):\n    return 0  # 仮の実装\n\n\ndef clamp(x, lo, hi):"   # test の段で赤を作るために足す最小の仮の実装
+TWICE_ID = "test_two.py::TestTwo::test_twice"
+SAB_ID = "test_sab.py::TestSab::test_clamp_in_range"
+SAB = ("import unittest\n\nfrom stats import clamp\n\n\nclass TestSab(unittest.TestCase):\n    def test_clamp_in_range(self):\n"
+       "        self.assertEqual(clamp(5, 0, 10), 5)\n")   # base で通るテスト（直す前から緑）
 
 
 class TestLoopRedTree(FixGatesCase):
     """輪が仮の実装（テストでないファイル）を足して赤を確かめた単位の受け入れのテストは、事後の関門も輪の記録した赤の木
     （red_tree。仮の実装を含む）で名指しを走らせ直して failure を見る（持ち主の直す前の関所の答え (3) A）。base の木にテストの
     ファイルだけを写すと、仮の実装が無く組み立てで落ちて『一式の結末に居ない』と拒むため。今の木のテストのファイルが赤の記録と
-    違う単位は、赤の木が今のテストを表さないので base の木で見る（今どおり）"""
+    輪が終わった時（frozen）と違う単位は、赤の木が今のテストを表さないので base の木で見る（今どおり）。赤の木を使う名指しも
+    base の木＋テストのファイルで 1 回走らせ、passed（直す前から通る）なら拒む（仮の実装の名目で既存の実装を壊した偽の赤を拒む）"""
 
     def stub_red(self):
         """test_two.py（halve を読む）を書き、仮の実装で赤にした木を輪の単位の記録に残し、本物の実装に直す"""
@@ -402,13 +407,19 @@ class TestLoopRedTree(FixGatesCase):
         return red
 
     def save_unit(self, red_tree, **over):
-        """盤面の根の輪の状態 tdd-1/state.json に、赤を確かめた単位の記録を置く（輪の _test が残す欄だけ）"""
+        """盤面の根の輪の状態 tdd-1/state.json に、赤を確かめた単位の記録を置く（輪の _test が残す欄だけ。frozen は輪が終わった
+        時のテストのファイルの hash で、今の姿）"""
         unit = {"unit_key": tbf.MEAN, "route": "tdd", "red": "ok", "tests": [TWO_ID], "test_files": ["test_two.py"],
                 "test_hashes": fixgates.tddloop.hashes(self.repo, ["test_two.py"]), "red_tree": red_tree, "stub_files": ["stats.py"],
                 **over}
+        self.save_units({tbf.MEAN: unit})
+
+    def save_units(self, units):
+        files = sorted({f for u in units.values() for f in u["test_files"]})
         d = self.board / "tdd-1"
         d.mkdir(parents=True, exist_ok=True)
-        (d / fixgates.tddloop.STATE).write_text(json.dumps({"units": {tbf.MEAN: unit}}, ensure_ascii=False), encoding="utf-8")
+        (d / fixgates.tddloop.STATE).write_text(json.dumps({"units": units, "frozen": fixgates.tddloop.hashes(self.repo, files)},
+                                                           ensure_ascii=False), encoding="utf-8")
 
     def test_stub_red_rechecked_on_loop_red_tree(self):
         """base の木では一式の結末に居ないテストでも、輪の赤の木で failure なら行は無い"""
@@ -425,8 +436,9 @@ class TestLoopRedTree(FixGatesCase):
         self.assertTrue(rows[0]["detail"].startswith(fixgates.RED_TREE_HEAD), rows[0]["detail"])
         self.assertIn("もう通る", rows[0]["detail"])
 
-    def test_test_file_moved_after_red_falls_back_to_base(self):
-        """赤の後にテストのファイルが変わった単位は、赤の木が今のテストを表さないので base の木で見る（仮の実装が無く拒む）"""
+    def test_test_file_moved_after_loop_falls_back_to_base(self):
+        """輪が終わった後（やり直し・裁定）にテストのファイルが変わった単位は、赤の木が今のテストを表さないので base の木で見る
+        （仮の実装が無く拒む）"""
         self.stub_red()
         path = self.repo / "test_two.py"
         path.write_text(path.read_text(encoding="utf-8") + "\n# 赤の後の書き足し\n", encoding="utf-8")
@@ -434,6 +446,39 @@ class TestLoopRedTree(FixGatesCase):
         self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", TWO_ID)])
         self.assertTrue(rows[0]["detail"].startswith("base で "), rows[0]["detail"])
         self.assertIn("一式の結末に居ない", rows[0]["detail"])
+
+    def test_two_units_share_a_test_file(self):
+        """後の単位が同じテストのファイルに足し、後の単位の仮の実装を頭で読んでも、先の単位は輪の赤の木で見る（輪が終わった時の
+        テストのファイルと今が同じなら、赤の時の hash と違っても base に戻さない）"""
+        self.ready_with_fields([{**FIELDS[0], "tests": [{**TEST_ROW, "id": TWO_ID}, {**TEST_ROW, "id": TWICE_ID}]}])
+        path = self.repo / "test_two.py"
+        path.write_text(TWO_FILE, encoding="utf-8")
+        self.edit_tree({"def clamp(x, lo, hi):": STUB})
+        a = {"unit_key": "a", "route": "tdd", "red": "ok", "tests": [TWO_ID], "test_files": ["test_two.py"],
+             "test_hashes": fixgates.tddloop.hashes(self.repo, ["test_two.py"]), "red_tree": fixgates.tddloop.snapshot(self.repo)}
+        self.edit_tree({"return 0  # 仮の実装": "return x / 2"})   # 単位 a を直す
+        path.write_text(path.read_text(encoding="utf-8").replace("from stats import halve", "from stats import halve, twice")
+                        + "\n    def test_twice(self):\n        self.assertEqual(twice(2), 4)\n", encoding="utf-8")
+        self.edit_tree({"def clamp(x, lo, hi):": "def twice(x):\n    return 0  # 仮の実装\n\n\ndef clamp(x, lo, hi):"})
+        b = {"unit_key": "b", "route": "tdd", "red": "ok", "tests": [TWICE_ID], "test_files": ["test_two.py"],
+             "test_hashes": fixgates.tddloop.hashes(self.repo, ["test_two.py"]), "red_tree": fixgates.tddloop.snapshot(self.repo)}
+        self.edit_tree({"return 0  # 仮の実装": "return x * 2"})   # 単位 b を直す
+        self.save_units({"a": a, "b": b})
+        self.assertEqual(self.problems(), [])
+
+    def test_sabotaged_red_tree_green_at_base_is_a_miss(self):
+        """test の段が既存の実装を壊した木を赤の木に残し、fix の段で戻しても、base の木＋テストのファイルで通る（直す前から緑）
+        なら行（別の目 R1 の写し）"""
+        self.ready_with_fields(self.fields_for(SAB_ID))
+        (self.repo / "test_sab.py").write_text(SAB, encoding="utf-8")
+        self.edit_tree({"def clamp(x, lo, hi):": "def clamp(x, lo, hi):\n    return -1  # 壊す\n"})
+        self.save_unit(fixgates.tddloop.snapshot(self.repo), tests=[SAB_ID], test_files=["test_sab.py"],
+                       test_hashes=fixgates.tddloop.hashes(self.repo, ["test_sab.py"]))
+        self.edit_tree({"    return -1  # 壊す\n": ""})
+        rows = self.problems()
+        self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", SAB_ID)])
+        self.assertTrue(rows[0]["detail"].startswith("base で "), rows[0]["detail"])
+        self.assertIn("もう通る", rows[0]["detail"])
 
     def test_red_tree_result_is_cached(self):
         """赤の木は run の中で動かないので、結末を控えて回をまたいで使い回す"""
@@ -447,7 +492,7 @@ class TestLoopRedTree(FixGatesCase):
         with mock.patch.object(fixgates.tddloop, "run_suite", side_effect=run):
             self.assertEqual(self.problems(attempt=1), [])
             self.assertEqual(self.problems(attempt=2), [])
-        self.assertEqual(calls.count(False), 1, "赤の木は 1 回だけ走らせる")
+        self.assertEqual(calls.count(False), 2, "赤の木と base の木は 1 回ずつだけ走らせる")
 
 
 class TestTestEdits(FixGatesCase):

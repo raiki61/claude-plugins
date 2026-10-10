@@ -8,10 +8,12 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
 - red_green: 承認済みの修正案の欄（conflict.frozen_fields）の route が tdd の項目の受け入れのテスト tests[].id ごとに、今の木で
   一式を走らせて passed、base の木で failure（輪と同じ赤の判定 tddloop.red_check が返す事実の文: 言語に依らず、error・一式の結末に
   居ない・もう通る・飛ばされたを拒む。文は『base で 』を頭に付けて行の detail に並べる）。輪が赤を確かめた単位（盤面の根の
-  輪の状態の units で、route が tdd・red が ok・赤の木 red_tree が在り、今の木のテストのファイルが赤の記録 test_hashes と同じ物）の
-  名指しは、base の木の代わりに輪の記録した赤の木（仮の実装を含む）で走らせ直す（tddloop.red_rerun。並べの締めと同じ口。
-  文は RED_TREE_HEAD を頭に付ける）。test の段は走る前の失敗を最小の仮の実装で直してよいので、base の木にテストのファイルだけを
-  写すと組み立てで落ちる正しい赤を拒むため（持ち主の直す前の関所の答え (3) A）。赤の木を読めない時は base の木で見る。欄の無い run は
+  輪の状態の units で、route が tdd・red が ok・赤の木 red_tree が在り、今の木のテストのファイルが輪が終わった時の hash（輪の
+  状態の frozen）と同じ物）の名指しは、赤の判定を輪の記録した赤の木（仮の実装を含む）で走らせ直して見る（tddloop.red_rerun。
+  並べの締めと同じ口。文は RED_TREE_HEAD を頭に付ける）。test の段は走る前の失敗を最小の仮の実装で直してよいので、base の木に
+  テストのファイルだけを写すと組み立てで落ちる正しい赤を拒むため（持ち主の直す前の関所の答え (3) A）。その名指しも base の木では
+  今どおり走らせ、passed（直す前から通る）の時だけ拒む（仮の実装の名目で既存の実装を壊して作った偽の赤を拒む。error・一式の
+  結末に居ないは仮の実装が無いだけなので拒まない）。赤の木を読めない時は base の木で見る。欄の無い run は
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
@@ -176,20 +178,23 @@ def _test_files(repo, rev: str, tree: str, ids=()) -> list[str]:
 
 def _red_units(board_dir, repo: pathlib.Path) -> dict:
     """名指しの id（tddloop._norm_id）→ 輪が赤を確かめた単位の記録（盤面の根の全部の輪の状態 tddloop.states。route が tdd・red が ok・
-    諦めていない・赤の木 red_tree が在り、今の木のテストのファイルが赤の記録 test_hashes と同じ単位。同じ名指しは先の輪の物）。
-    読めない輪の状態は飛ばす（その名指しは base の木で見る。緩めない側）"""
+    諦めていない・赤の木 red_tree が在り、今の木のテストのファイルが輪が終わった時の hash（その輪の状態の frozen）と同じ単位。
+    後の単位が同じファイルに足しただけなら赤の木を使う（赤の木の中のファイルが赤の記録と同じかは red_rerun が照らす）。同じ名指しは
+    先の輪の物）。読めない輪の状態は飛ばす（その名指しは base の木で見る。緩めない側）"""
     out = {}
     for path in tddloop.states(board_dir):
         try:
-            units = tddloop.load_state(path).get("units") or {}
+            st = tddloop.load_state(path)
         except tddloop.Broken:
             continue
-        for u in units.values():
+        frozen = st.get("frozen") or {}
+        for u in (st.get("units") or {}).values():
             if not (isinstance(u, dict) and u.get("route") == "tdd" and u.get("red") == "ok" and not u.get("gave_up")
                     and u.get("red_tree") and u.get("test_files")):
                 continue
-            if tddloop.hashes(repo, u["test_files"]) != {f: (u.get("test_hashes") or {}).get(f) for f in u["test_files"]}:
-                continue   # 赤の後にテストのファイルが変わった: 赤の木は今のテストを表さない
+            if any(f not in frozen for f in u["test_files"]) \
+                    or tddloop.hashes(repo, u["test_files"]) != {f: frozen[f] for f in u["test_files"]}:
+                continue   # 輪の後（やり直し・裁定）にテストのファイルが変わった: 赤の木は今のテストを表さない
             for t in u.get("tests") or []:
                 out.setdefault(tddloop._norm_id(t), u)
     return out
@@ -198,8 +203,8 @@ def _red_units(board_dir, repo: pathlib.Path) -> dict:
 def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path,
                loop: dict | None = None) -> tuple[list, list]:
     """(行, 飛ばした理由)。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回走らせ、base の木の結末は控え（cache。
-    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる。loop（_red_units）に在る名指しは base の木の
-    代わりに輪の赤の木で走らせ直す（_red_tree_probs。結末は同じ控えに _red_key の鍵で残す）。赤の判定は輪と同じ
+    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる。loop（_red_units）に在る名指しは赤を輪の
+    赤の木で走らせ直して見て（_red_tree_probs。結末は同じ控えに _red_key の鍵で残す）、base の木では passed の時だけ拒む。赤の判定は輪と同じ
     tddloop.red_check の事実の文（行の detail は『base で 』か RED_TREE_HEAD を頭に付けて並べる）"""
     work.mkdir(parents=True, exist_ok=True)
     ids = [t["id"] for t in tests]
@@ -213,11 +218,10 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
     red, why = _red_tree_probs(repo, rev, suite, [i for i in ids if tddloop._norm_id(i) in (loop or {})], loop or {}, work, cache)
     if red is None:
         return [], [f"{NO_RUN}（輪の赤の木: {'; '.join(why)}）"]
-    rest = [i for i in ids if i not in red]
     copy = sorted(set(_test_files(repo, rev, tree, ids)) | {tddloop.id_path(i) for i in ids})
-    keys = _base_keys(repo, rev, suite, rest, copy)
+    keys = _base_keys(repo, rev, suite, ids, copy)
     seen = tddloop.load_json(cache, {})
-    need = [i for i in rest if keys[i] not in seen]
+    need = [i for i in ids if keys[i] not in seen]
     rules = tddloop.rules()
     if need:
         base, why = _base_run(repo, rev, suite, need, copy, work)
@@ -231,12 +235,14 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         if c is None or c["outcome"] != "passed":
             rows.append(_row("red_green", t["id"], f"今の木で {c['outcome'] if c else '一式の結末に居ない'}（受け入れのテストが緑でない）",
                              t["unit_keys"]))
-        if t["id"] in red:
-            if red[t["id"]]:
-                rows.append(_row("red_green", t["id"], RED_TREE_HEAD + "；".join(red[t["id"]]), t["unit_keys"]))
-            continue
         base = [seen[keys[t["id"]]]] if seen.get(keys[t["id"]]) else []   # base の木の結末のうちこのテストに当たる行（無ければ空）
         probs, _ = tddloop.red_check([t["id"]], base, None, None)
+        if t["id"] in red:   # 赤は赤の木で見る。base の木では直す前から通る時だけ拒む
+            if red[t["id"]]:
+                rows.append(_row("red_green", t["id"], RED_TREE_HEAD + "；".join(red[t["id"]]), t["unit_keys"]))
+            if base and base[0].get("outcome") == "passed":
+                rows.append(_row("red_green", t["id"], "base で " + "；".join(probs), t["unit_keys"]))
+            continue
         if probs:
             rows.append(_row("red_green", t["id"], "base で " + "；".join(probs), t["unit_keys"]))
     return rows, []

@@ -435,7 +435,7 @@ class TestSettle(LaneCase):
         passing = "\n    def test_two(self):\n        self.assertEqual(double(2) - double(0), 4)\n"   # 直す前から通る
         (tree / "test_a.py").write_text(SEED["test_a.py"] + passing, encoding="utf-8")
         lst = json.loads(pathlib.Path(row["state"]).read_text(encoding="utf-8"))   # 下請けが控えを手で書き換えた
-        lst["units"][UA].update(tests=[A_ID], test_files=["test_a.py"], red="ok", red_kinds={A_ID: "unknown"},
+        lst["units"][UA].update(tests=[A_ID], test_files=["test_a.py"], red="ok",
                                 test_hashes=tddloop.hashes(tree, ["test_a.py"]))
         lst.update(phase="fix", tries=0)
         pathlib.Path(row["state"]).write_text(json.dumps(lst, ensure_ascii=False), encoding="utf-8")
