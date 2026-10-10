@@ -7,7 +7,11 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
 関門（GATES）:
 - red_green: 承認済みの修正案の欄（conflict.frozen_fields）の route が tdd の項目の受け入れのテスト tests[].id ごとに、今の木で
   一式を走らせて passed、base の木で failure（輪と同じ赤の判定 tddloop.red_check が返す事実の文: 言語に依らず、error・一式の結末に
-  居ない・もう通る・飛ばされたを拒む。文は『base で 』を頭に付けて行の detail に並べる）。欄の無い run は
+  居ない・もう通る・飛ばされたを拒む。文は『base で 』を頭に付けて行の detail に並べる）。輪が赤を確かめた単位（盤面の根の
+  輪の状態の units で、route が tdd・red が ok・赤の木 red_tree が在り、今の木のテストのファイルが赤の記録 test_hashes と同じ物）の
+  名指しは、base の木の代わりに輪の記録した赤の木（仮の実装を含む）で走らせ直す（tddloop.red_rerun。並べの締めと同じ口。
+  文は RED_TREE_HEAD を頭に付ける）。test の段は走る前の失敗を最小の仮の実装で直してよいので、base の木にテストのファイルだけを
+  写すと組み立てで落ちる正しい赤を拒むため（持ち主の直す前の関所の答え (3) A）。赤の木を読めない時は base の木で見る。欄の無い run は
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
@@ -39,6 +43,7 @@ OUT_OF_DUTY を除いた物。義務の外の項目は確かめる物でなく�
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -68,7 +73,8 @@ EDITED = "名指しの外の既存のテストの本体を変えた・消した�
 OUT_OF_DUTY = "直す義務の外の単位（止めた・答え待ち・人に回した）だけを名指す項目——受け入れのテストの事後の赤緑は確かめない"
 SKIPPED_OP = impact.ACCEPT_GATES_SKIPPED_OP   # 受けた受け付けの回に飛ばした理由を載せる盤面の trace の行（報告が数える）
 BASE_CACHE = "fixgates-base.json"   # base の木の結末の控え {鍵: JUnit の行か null}（_base_keys。周の置き場の根）
-RUN = "gates"   # 一式のログ・JUnit の名（suite-gates-<回>-now.log・…-base.log）
+RUN = "gates"   # 一式のログ・JUnit の名（suite-gates-<回>-now.log・…-base.log・…-red-<n>.log）
+RED_TREE_HEAD = "輪の赤の木で "   # 赤の木で走らせ直した名指しの行の detail の頭（base の木の行は『base で 』）
 
 
 def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_: str = "first") -> list[dict]:
@@ -84,7 +90,8 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     if tests and not suite:
         gaps.append(NO_SUITE)
     elif tests:
-        got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b))
+        got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b),
+                              _red_units(b.dir, repo))
         rows += got
         gaps += why
     rows += _test_edits(b, repo, rev, pass_ == "ruled" or conflict.second_pass(b), [t["id"] for t in tests])
@@ -167,10 +174,33 @@ def _test_files(repo, rev: str, tree: str, ids=()) -> list[str]:
     return [f for f in tddloop.touched(repo, rev, tree) if tddloop.is_test_file(f, declared)]
 
 
-def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path) -> tuple[list, list]:
+def _red_units(board_dir, repo: pathlib.Path) -> dict:
+    """名指しの id（tddloop._norm_id）→ 輪が赤を確かめた単位の記録（盤面の根の全部の輪の状態 tddloop.states。route が tdd・red が ok・
+    諦めていない・赤の木 red_tree が在り、今の木のテストのファイルが赤の記録 test_hashes と同じ単位。同じ名指しは先の輪の物）。
+    読めない輪の状態は飛ばす（その名指しは base の木で見る。緩めない側）"""
+    out = {}
+    for path in tddloop.states(board_dir):
+        try:
+            units = tddloop.load_state(path).get("units") or {}
+        except tddloop.Broken:
+            continue
+        for u in units.values():
+            if not (isinstance(u, dict) and u.get("route") == "tdd" and u.get("red") == "ok" and not u.get("gave_up")
+                    and u.get("red_tree") and u.get("test_files")):
+                continue
+            if tddloop.hashes(repo, u["test_files"]) != {f: (u.get("test_hashes") or {}).get(f) for f in u["test_files"]}:
+                continue   # 赤の後にテストのファイルが変わった: 赤の木は今のテストを表さない
+            for t in u.get("tests") or []:
+                out.setdefault(tddloop._norm_id(t), u)
+    return out
+
+
+def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path,
+               loop: dict | None = None) -> tuple[list, list]:
     """(行, 飛ばした理由)。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回走らせ、base の木の結末は控え（cache。
-    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる。赤の判定は輪と同じ tddloop.red_check の
-    事実の文（行の detail は『base で 』を頭に付けて並べる）"""
+    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる。loop（_red_units）に在る名指しは base の木の
+    代わりに輪の赤の木で走らせ直す（_red_tree_probs。結末は同じ控えに _red_key の鍵で残す）。赤の判定は輪と同じ
+    tddloop.red_check の事実の文（行の detail は『base で 』か RED_TREE_HEAD を頭に付けて並べる）"""
     work.mkdir(parents=True, exist_ok=True)
     ids = [t["id"] for t in tests]
     tree = tddloop.snapshot(repo)
@@ -180,10 +210,14 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         tddloop.restore_paths(repo, tree, tddloop.touched(repo, tree, tddloop.snapshot(repo)))   # 走らせて出来た物を消す
     if now is None:
         return [], [f"{NO_RUN}（今の木で実行器が走らない: {'; '.join(why)}）"]
+    red, why = _red_tree_probs(repo, rev, suite, [i for i in ids if tddloop._norm_id(i) in (loop or {})], loop or {}, work, cache)
+    if red is None:
+        return [], [f"{NO_RUN}（輪の赤の木: {'; '.join(why)}）"]
+    rest = [i for i in ids if i not in red]
     copy = sorted(set(_test_files(repo, rev, tree, ids)) | {tddloop.id_path(i) for i in ids})
-    keys = _base_keys(repo, rev, suite, ids, copy)
+    keys = _base_keys(repo, rev, suite, rest, copy)
     seen = tddloop.load_json(cache, {})
-    need = [i for i in ids if keys[i] not in seen]
+    need = [i for i in rest if keys[i] not in seen]
     rules = tddloop.rules()
     if need:
         base, why = _base_run(repo, rev, suite, need, copy, work)
@@ -197,11 +231,52 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         if c is None or c["outcome"] != "passed":
             rows.append(_row("red_green", t["id"], f"今の木で {c['outcome'] if c else '一式の結末に居ない'}（受け入れのテストが緑でない）",
                              t["unit_keys"]))
+        if t["id"] in red:
+            if red[t["id"]]:
+                rows.append(_row("red_green", t["id"], RED_TREE_HEAD + "；".join(red[t["id"]]), t["unit_keys"]))
+            continue
         base = [seen[keys[t["id"]]]] if seen.get(keys[t["id"]]) else []   # base の木の結末のうちこのテストに当たる行（無ければ空）
         probs, _ = tddloop.red_check([t["id"]], base, None, None)
         if probs:
             rows.append(_row("red_green", t["id"], "base で " + "；".join(probs), t["unit_keys"]))
     return rows, []
+
+
+def _red_key(repo: pathlib.Path, suite: str, test_id: str, u: dict) -> str:
+    """赤の木の結末の控えの鍵: 赤の木（中身を決める sha）・実行器・名指し・赤の記録のテストのファイルの中身。赤の木は run の中で
+    動かないので、回・1 回目と 2 回目の修正の段をまたいで使い回せる"""
+    raw = json.dumps(["red", u["red_tree"], tddloop.exe_id(repo, suite), test_id, sorted((u.get("test_hashes") or {}).items())],
+                     ensure_ascii=False)
+    return "red:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _red_tree_probs(repo: pathlib.Path, rev: str, suite: str, ids: list, loop: dict, work: pathlib.Path,
+                    cache: pathlib.Path) -> tuple:
+    """(名指し → 赤の木での red_check の問題の文（空なら赤）か None, 実行器が走らない理由)。控えに無い名指しだけを、一時の
+    worktree（base の版から作る。_temp_tree）で tddloop.red_rerun に回す（名指しは 1 本ずつ。その名指しだけの事実にする）。
+    赤の木を読めない（オブジェクトが無い）名指しは返さない（呼び手が base の木で見る）"""
+    seen = tddloop.load_json(cache, {})
+    keys = {i: _red_key(repo, suite, i, loop[tddloop._norm_id(i)]) for i in ids}
+    out = {i: seen[keys[i]] for i in ids if isinstance(seen.get(keys[i]), list)}
+    need = [i for i in ids if i not in out]
+    if not need:
+        return out, []
+    with _temp_tree(repo, rev) as (wt, why):
+        if wt is None:
+            return None, why
+        exe = _inner_exe(repo, wt, suite)
+        for n, i in enumerate(need, 1):
+            u = {**loop[tddloop._norm_id(i)], "tests": [i]}
+            try:
+                probs, why = tddloop.red_rerun(wt, u, exe, work, f"{RUN}-red-{n}")
+            except Unreadable:
+                continue
+            if probs is None:
+                return None, why
+            out[i] = probs
+            seen = {**tddloop.load_json(cache, {}), keys[i]: probs}
+            tddloop.save_json(cache, seen)
+    return out, []
 
 
 def _base_keys(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list) -> dict:
@@ -223,13 +298,9 @@ def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, w
     """(base の木で走らせた結末か None, 問題)。一時の git worktree（--detach）に base を出し、copy のパスを今の木の姿に揃えて
     （今の木に無ければ消して）走らせる。実行器が repo の中に在れば worktree の中の同じ物を走らせる。worktree は成否に
     関わらず消す（作業ツリー・index・枝は動かさない）"""
-    td = pathlib.Path(tempfile.mkdtemp(prefix="works-fixgates-"))
-    wt = td / "base"
-    try:
-        try:
-            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(wt), rev)
-        except Unreadable as e:
-            return None, [str(e)]
+    with _temp_tree(repo, rev) as (wt, why):
+        if wt is None:
+            return None, why
         for f in copy:
             src, dst = repo / f, wt / f
             if src.is_file():
@@ -237,14 +308,32 @@ def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, w
                 shutil.copyfile(src, dst)
             elif dst.is_file() or dst.is_symlink():
                 dst.unlink()
-        exe = pathlib.Path(suite)
-        try:
-            inner = wt / exe.absolute().relative_to(repo.absolute())
-            exe = inner if inner.is_file() else exe
-        except ValueError:
-            pass
-        cases, _, why = tddloop.run_suite(str(exe), wt, work, f"{RUN}-base", tddloop.abs_ids(wt, ids))
+        cases, _, why = tddloop.run_suite(_inner_exe(repo, wt, suite), wt, work, f"{RUN}-base", tddloop.abs_ids(wt, ids))
         return cases, why
+
+
+def _inner_exe(repo: pathlib.Path, wt: pathlib.Path, suite: str) -> str:
+    """実行器が repo の中に在れば worktree の中の同じ物（在れば）、ほかは suite のまま"""
+    exe = pathlib.Path(suite)
+    try:
+        inner = wt / exe.absolute().relative_to(repo.absolute())
+        return str(inner if inner.is_file() else exe)
+    except ValueError:
+        return suite
+
+
+@contextlib.contextmanager
+def _temp_tree(repo: pathlib.Path, rev: str):
+    """(一時の git worktree（--detach。フックは切る）か None, 作れない理由)。成否に関わらず消す（作業ツリー・index・枝は動かさない）"""
+    td = pathlib.Path(tempfile.mkdtemp(prefix="works-fixgates-"))
+    wt = td / "base"
+    try:
+        try:
+            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", str(wt), rev)
+        except Unreadable as e:
+            yield None, [str(e)]
+            return
+        yield wt, []
     finally:   # この worktree だけを外す。外せなければ置き場を消して prune（git の控え .git/worktrees/ の行を残さない）
         try:
             git(repo, "worktree", "remove", "--force", str(wt))

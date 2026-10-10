@@ -522,11 +522,10 @@ def _record(u: dict) -> dict:
 
 
 def _red_again(st, row, lst, k, work) -> str:
-    """単位 k の赤を確かめ直す（控えの赤の記録は run ごとの置き場に在り、役の sandbox からも書ける）。単位の worktree を、記録の
-    赤の木（red_tree。仮の実装を含む）の姿にして名指しだけを回し、red_check の事実（名指しが failure で落ちる）で照らす。引用は
-    赤の回に照らし済みで、回ごとに変わる文（番地・秒・一時のパス）で誤って戻さないため、照らし直さない。赤の時のテストのファイルは
-    枝の次の単位の頭の木（無ければ今の姿）の中身で、凍結の記録と同じ物であり、戻した赤の木の中のテストのファイルも記録と同じで
-    あることを回す前に照らす。回した後は worktree を元の姿に戻す。通れば空、記録どおりに落ちなければ戻す理由"""
+    """単位 k の赤を確かめ直す（控えの赤の記録は run ごとの置き場に在り、役の sandbox からも書ける）。単位の worktree で、記録の
+    赤の木（red_tree。仮の実装を含む）で名指しを回す（tddloop.red_rerun。事後の関門と同じ口）。赤の時のテストのファイルは
+    枝の次の単位の頭の木（無ければ今の姿）の中身で、凍結の記録と同じ物であることを回す前に照らす。通れば空、記録どおりに
+    落ちなければ戻す理由"""
     tree = pathlib.Path(row["tree"])
     u = lst["units"][k]
     if u.get("covered_by"):   # 段を回さずに閉じた単位: 赤は枝で緑に届いた単位の名指しに在り、その単位の確かめ直しが見る
@@ -543,23 +542,16 @@ def _red_again(st, row, lst, k, work) -> str:
         return "赤の記録に名指しのテストが無い（赤を確かめ直せない）"
     if not u.get("red_tree"):
         return "赤の木が控えに無い（赤を確かめ直せない）"
-    final = tddloop.snapshot(tree)
     src = next((heads[q] for q in keys[i + 1:] if q in heads), None)   # 閉じた単位は頭の木を持たない（木を変えない）ので飛ばす
     then = tddloop._tree_hashes(tree, src, files) if src else tddloop.hashes(tree, files)
     recorded = u.get("test_hashes") or {}
     if any(then[f] != recorded.get(f) for f in files):
         return "テストのファイルの中身が赤の記録と違う（赤を確かめ直せない）"
-    try:
-        tddloop.restore(tree, u["red_tree"])
-        if any(h != recorded.get(f) for f, h in tddloop.hashes(tree, files).items()):
-            return "赤の木の中のテストのファイルが赤の記録と違う（赤を確かめ直せない）"
-        cases, code, why = tddloop.run_suite(lst["exe"], tree, work, f"lane-{row['n']}-red-{i + 1}", tddloop.abs_ids(tree, tests),
-                                             only=True)
-    finally:
-        tddloop.restore(tree, final)
-    if cases is None:
+    probs, why = tddloop.red_rerun(tree, u, lst["exe"], work, f"lane-{row['n']}-red-{i + 1}", st["baseline"])
+    if probs is None:
         return "赤を確かめ直す実行器が走らない（" + "; ".join(why)[:300] + "）"
-    probs, _ = tddloop.red_check(tests, cases, code, st["baseline"])
+    if probs == [tddloop.RED_TREE_MOVED]:
+        return tddloop.RED_TREE_MOVED
     return ("赤の記録を機械が確かめ直すと再現しない（記録の赤の木で名指しを回した）: " + probs[0][:300]) if probs else ""
 
 

@@ -341,6 +341,34 @@ def red_check(named: list, cases: list, code, baseline, quotes=None, log=None) -
     return probs, unchecked
 
 
+
+RED_TREE_MOVED = "赤の木の中のテストのファイルが赤の記録と違う（赤を確かめ直せない）"
+
+
+def red_rerun(tree, u: dict, exe: str, work: pathlib.Path, n, baseline=None) -> tuple:
+    """単位の記録 u の赤を、記録の赤の木（red_tree。仮の実装を含む）で確かめ直す唯一の口（並べの締め tddlanes._red_again と
+    事後の関門 fixgates._red_green が呼ぶ）——（問題の文の並びか None, 実行器が走らない理由）。作業ツリー tree を赤の木の姿にし、
+    その中のテストのファイルが記録（test_hashes）と同じかを照らしてから（違えば [RED_TREE_MOVED]）名指しだけを回し、red_check の
+    事実（名指しが failure で落ちる）で照らす。引用は赤の回に照らし済みで、回ごとに変わる文（番地・秒・一時のパス）で誤って
+    戻さないため、照らし直さない。回した後は tree を元の姿に戻す。実行器が走らなければ (None, 理由)。tree は赤の木の
+    オブジェクトを読める git の作業ツリー（同じリポジトリの worktree）。baseline（元の結末）が None なら名指しの行だけで見る
+    （事後の関門。名指しの外は今の木の一式が見る）"""
+    tests, files = list(u.get("tests") or []), list(u.get("test_files") or [])
+    recorded = u.get("test_hashes") or {}
+    final = snapshot(tree)
+    try:
+        restore(tree, u["red_tree"])
+        if any(h != recorded.get(f) for f, h in hashes(tree, files).items()):
+            return [RED_TREE_MOVED], []
+        cases, code, why = run_suite(exe, tree, work, n, abs_ids(tree, tests), only=True)
+    finally:
+        restore(tree, final)
+    if cases is None:
+        return None, why
+    if baseline is None:
+        cases = [c for t in tests if (c := rules().match_case(t, cases)) is not None]
+    return red_check(tests, cases, code, baseline)[0], []
+
 def _key(c) -> str:
     return f"{c['classname']}::{c['name']}"   # 写しの rules の _key と同じ形（元の結末の鍵）
 
