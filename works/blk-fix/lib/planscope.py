@@ -82,6 +82,7 @@ REJECT_ASK = ("承認済みの修正案の項目から外れた（同じ brief �
               "理由を考え直して決める。相談が聞けない・許されずに仕様として意見が割れる時だけ、変えずに食い違いの申し出で返せ）: ")
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
+UNPROVEN = "修正案の外で足したテスト（赤を確かめていない）"   # 記録の unproven を受けた回の trace に載せる頭（受け付けの traced）
 DOC = "__doc__"   # docstring の属性の名。字は自分の名を書かないので、adds は語でなく ast でも見る（_doc_added）
 
 
@@ -301,7 +302,7 @@ def _named_paths(text: str, paths) -> list[str]:
 def problems(items: list[dict], rows: list[dict], changes: dict, *,
              permits=(), loop=None) -> tuple[list[str], dict]:
     """承認済みの修正案の項目（items）と差分の外れの行と記録 {"checked": True, "unchecked": [識別子の形でない名], "items": [見た
-    項目の番号]}。純粋な関数（ファイル・盤面を読まない）。見る物は模块の docstring の語と、下の 1〜6:
+    項目の番号], "unproven": [修正案の外で足したテストの id]}。純粋な関数（ファイル・盤面を読まない）。見る物は模块の docstring の語と、下の 1〜6:
     1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、out_of_scope に当たらない。その単位の項目のどれかが明示に
        許したパスは、その単位の項目の out_of_scope だけで照らし、許していないパスはどの項目の out_of_scope でも照らす
        （_oos_hit_for。その単位の項目が無い行は 2 に回す）
@@ -314,8 +315,9 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
        そのモジュールのファイルを新設したか、足した行を持つ
     5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない。.py のファイルの名は
        そのモジュールのファイルが消えた
-    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra。生きた項目の tests の各 id は、
-       そのパスが変わり、今の中身に定義の行が在る
+    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は、そのファイルを files に申告した単位が無ければ Extra。
+       申告した単位が在れば拒まず、記録の unproven に名指す（UNPROVEN。人の関所の条件で足したテスト。run 75d8ed4e）。
+       生きた項目の tests の各 id は、そのパスが変わり、今の中身に定義の行が在る
     裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）。
     permits のパスは 1 でも範囲に入る。out_of_scope は permits にも勝つ（1・2 とも先に見る）。ただし範囲の相談の合意でその項目の
     out_of_scope から外したパス（with_agreed の LIFTED）は、その項目の out_of_scope に当たらない（1・2 とも）。
@@ -415,14 +417,17 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             now = changes.get(path, (None, None))[1]
             if path not in changes or planmarks.line_in(now, tid) is None:
                 out.append(f"{who}: tests の {tid} が修正の後の木に無い（変えたファイルにその定義が無い）")
+    unproven = []   # 単位が申告したファイルに足した tests に無いテスト（拒まず記録に名指す）
     for p in sorted(since):
         for tid in new_test_ids(p, *since[p]):
             if _test_key(tid) in named:
                 continue
             keys = [r["unit_key"] for r in rows if isinstance(r.get("unit_key"), str) and p in (r.get("files") or [])]
-            head = f"{'・'.join(dict.fromkeys(keys))}: " if keys else ""
-            out.append(f"{head}{tid} は修正案のどの項目の tests にも無いテストを足した")
-    return out, {"checked": True, "unchecked": unchecked, "items": looked}
+            if keys:
+                unproven.append(tid)
+                continue
+            out.append(f"{tid} は修正案のどの項目の tests にも無いテストを足した")
+    return out, {"checked": True, "unchecked": unchecked, "items": looked, "unproven": unproven}
 
 
 # ---------------------------------------------------------------- 盤面から

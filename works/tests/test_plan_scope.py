@@ -73,13 +73,28 @@ class ProblemsCase(unittest.TestCase):
         self.assertEqual(note["unchecked"], ["平均の定義の注記", "古い注記の文"])
 
     def test_new_test_must_be_named_in_tests(self):
+        """tests に無い新しいテストは、そのファイルを申告した単位が無ければ拒む"""
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        ch = {**STATS, "test_stats.py": (base, base + "    def test_extra(self):\n        pass\n")}
+        it = item(allowed_paths=["stats.py", "test_stats.py"])
+        got, note = planscope.problems([it], [ROW], ch)
+        self.assertTrue(any("test_stats.py::TestStats::test_extra" in p and "tests にも無い" in p for p in got), got)
+        self.assertEqual(note.get("unproven"), [])
+        named = item(tests=[{"id": "test_stats.py::TestStats::test_extra"}])
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
+        got, note = planscope.problems([named], rows, ch)
+        self.assertEqual((got, note.get("unproven")), ([], []))
+
+    def test_new_test_in_unit_files_is_recorded_not_rejected(self):
+        """run 75d8ed4e: 人の関所の条件に合わせて、単位が申告したファイルに tests に無いテストを足した。拒まず、修正案の外で
+        足したテスト（赤を確かめていない）として記録の unproven に名指す"""
         base = "class TestStats:\n    def test_a(self):\n        pass\n"
         ch = {**STATS, "test_stats.py": (base, base + "    def test_extra(self):\n        pass\n")}
         rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
         it = item(allowed_paths=["stats.py", "test_stats.py"])
-        self.assertTrue(any("test_stats.py::TestStats::test_extra" in p for p in planscope.problems([it], rows, ch)[0]))
-        named = item(tests=[{"id": "test_stats.py::TestStats::test_extra"}])
-        self.assertEqual(planscope.problems([named], rows, ch)[0], [])
+        got, note = planscope.problems([it], rows, ch)
+        self.assertEqual(got, [])
+        self.assertEqual(note.get("unproven"), ["test_stats.py::TestStats::test_extra"])
 
     def test_named_test_missing_after_fix(self):
         it = item(tests=[{"id": "test_stats.py::TestStats::test_mean_of_two"}])
