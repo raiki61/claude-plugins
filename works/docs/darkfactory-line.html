@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>darkfactory 工程図</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* layout: 左に工程の線（上から下へ進む）、右に選んだ段の中身と盤面に積もった物。狭い画面では縦に積む */
+:root{
+  --bg:#f3f4f2; --panel:#ffffff; --ink:#1f2a2e; --muted:#5d6b70; --line:#c9d0cc;
+  --accent:#1f6f78; --accent-soft:#e2eeee; --gate:#b7791f; --gate-soft:#fbf1df;
+  --rally:#8a3d62; --rally-soft:#f6e8ef; --new:#2f7d4f; --new-soft:#e5f2ea; --plan:#7b858a;
+  --f-body:"IBM Plex Sans JP","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#161b1d; --panel:#1e2528; --ink:#e3e8e6; --muted:#9aa7a9; --line:#34403f;
+  --accent:#5fb3ba; --accent-soft:#1f3436; --gate:#e0a54a; --gate-soft:#3a2f1c;
+  --rally:#d48aae; --rally-soft:#3a2430; --new:#6fcb94; --new-soft:#1d3427; --plan:#8c979b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#161b1d; --panel:#1e2528; --ink:#e3e8e6; --muted:#9aa7a9; --line:#34403f;
+  --accent:#5fb3ba; --accent-soft:#1f3436; --gate:#e0a54a; --gate-soft:#3a2f1c;
+  --rally:#d48aae; --rally-soft:#3a2430; --new:#6fcb94; --new-soft:#1d3427; --plan:#8c979b; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.6}
+.wrap{max-width:1200px;margin:0 auto;padding-inline:16px;padding-block:24px 48px}
+header h1{font-size:22px;margin:0 0 4px;text-wrap:balance;letter-spacing:.01em}
+header p{margin:0;color:var(--muted);max-width:70ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:14px 0 20px;color:var(--muted);font-size:12.5px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.dia{width:10px;height:10px;background:var(--gate);transform:rotate(45deg)}
+.rl{color:var(--rally);font-weight:700}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:24px;align-items:start}
+@media (max-width:820px){.grid{grid-template-columns:minmax(0,1fr)}}
+/* 左の線 */
+ol.flow{list-style:none;margin:0;padding:0;position:relative}
+ol.flow::before{content:"";position:absolute;left:15px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.st{position:relative;padding-left:40px;margin-bottom:6px}
+.st button{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:8px 12px}
+.st button:hover{border-color:var(--accent)}
+.st button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.st[aria-current="true"] button{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.mk{position:absolute;left:9px;top:14px;width:14px;height:14px;border-radius:50%;background:var(--panel);border:2px solid var(--accent)}
+.st.gate .mk{border-radius:2px;transform:rotate(45deg);border-color:var(--gate);background:var(--gate-soft)}
+.st.mach .mk{border-color:var(--muted)}
+.st.cond button{border-style:dashed}
+.row1{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.nm{font-weight:700}
+.id{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
+.tag{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.tag.r{background:var(--rally-soft);color:var(--rally)}
+.tag.g{background:var(--gate-soft);color:var(--gate)}
+.tag.c{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+/* 右の中身 */
+aside{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
+@media (max-width:820px){aside{position:static}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.card h2{margin:0;font-size:18px;text-wrap:balance}
+.card .sub{font-family:var(--f-mono);font-size:12px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.sec{margin-top:14px}
+.sec h3{margin:0 0 6px;font-size:11.5px;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.sec ul{margin:0;padding-left:18px}
+.sec li{margin:2px 0}
+.f{font-family:var(--f-mono);font-size:12.5px;overflow-wrap:anywhere}
+.rally{border-left:3px solid var(--rally);background:var(--rally-soft);padding:8px 10px;border-radius:0 6px 6px 0}
+.rally b{color:var(--rally)}
+.plan{border:1px dashed var(--plan);color:var(--muted);padding:8px 10px;border-radius:6px}
+.board{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px}
+.board h3{margin:0 0 8px;font-size:13px}
+.board ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.board li{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.board li .when{font-size:11px;color:var(--muted);min-width:5.5em}
+.board li.isnew{background:var(--new-soft);border-radius:6px;padding:2px 6px;margin-inline:-6px}
+.board li.isnew .f{color:var(--new);font-weight:600}
+.empty{color:var(--muted)}
+footer{margin-top:28px;color:var(--muted);font-size:12px;max-width:80ch}
+@media (prefers-reduced-motion:no-preference){.st button{transition:border-color .15s,box-shadow .15s}}
+</style>
+<style>html,body{margin:0}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>darkfactory 工程図</h1>
+    <p>修正の依頼が 1 回の run で通る部品（ブロック）を上から順に並べた。左の段を押すと、右にその段がすること・指示書に貼る物・盤面（run の記録の置き場）に足す物と、そこまでに積もった物が出る。works 0.2.62 の線の形。</p>
+  </header>
+  <div class="legend" aria-label="凡例">
+    <span><i class="dot"></i>AI と機械の部品</span>
+    <span><i class="dia"></i>人が確かめる関所</span>
+    <span>点線の枠：条件が合う時だけ回る</span>
+    <span><b class="rl">↺</b>ラリー（行ったり来たりする所）</span>
+  </div>
+  <div class="grid">
+    <nav aria-label="工程"><ol class="flow" id="flow"></ol></nav>
+    <aside>
+      <div class="card" id="detail" aria-live="polite"></div>
+      <div class="board" id="board"></div>
+    </aside>
+  </div>
+  <footer>この図は手で書いた写し。今後は、線の YAML（darkfactory.yaml）・各ブロックの YAML と manifest.json・指示書の型から機械で描き出し、宣言と実の読み書きが食い違う所を赤にする予定。図に描いていない小さなラリー：AI の役はほぼ全部、答える → 機械の受け付けが形と出典を照らす → 外れなら理由をつけて同じ役に出し直させる（3 回まで）、を持つ。</footer>
+</div>
+
+<script>
+const S=[
+ {n:"入口",id:"entering",b:"blk-entry",k:"ai",
+  does:["始めてよいかを人が確かめる（launch の関所）","依頼・手元の変更（--base）・PR（--pr）のどれでも、1 つの入力の形にそろえる。差分も依頼も無ければ止める","修正前のテストを走らせる"],
+  reads:["依頼のファイル","--base の版・--pr の番号","run の入力（test_cmd・features・final_gate など 17 個）"],
+  adds:[["start.json","入力の形（差分の根・差分・依頼の行・PR・機能の切り替え）"],["pr.md","PR の題と本文（--pr の時）"],["prior-failures-in.json","前の run の持ち越し"],["修正前のテストの結果","赤緑の比べの基準"]],tags:["g:launch の関所"]},
+ {n:"CI",id:"ci-checking",b:"blk-ci",k:"ai",cond:"テストの走らせ方が分からない時だけ",
+  does:["AI がリポジトリを読んで、テストの走らせ方を探して走らせる"],reads:["start.json"],adds:[["修正前のテストの結果","AI が走らせた分"]]},
+ {n:"仕様",id:"speccing",b:"blk-spec",k:"ai",cond:"入力 spec=on の時だけ",
+  does:["要件と受け入れ条件のテストを書く","別の目が審査し、穴があれば書き手が直す","人が承認する（spec-gate）"],reads:["依頼の文","差分の根"],adds:[["仕様と受け入れ条件","承認した物は判定への依頼として積まれる"]],
+  rally:"書き手 ↔ 審査（穴が無くなるまで、3 回まで）",tags:["r:↺ 書き手と審査","g:spec-gate"]},
+ {n:"並行 PR",id:"pr-checking",b:"blk-pr",k:"ai",cond:"GitHub で、機械が済ませられない時だけ",
+  does:["同時に開いている他の PR と、触る所が重ならないかを確かめる"],reads:["開いている PR の一覧"],adds:[["pr-excluded.json","重なりの確かめの結果"]]},
+ {n:"前提",id:"premising",b:"blk-premises",k:"ai",
+  does:["依頼に書かれた数値や「在る・無い」を、コマンドで実測して確かめる"],reads:["依頼","差分の根（base_rev）"],adds:[["premises.json","実測の札（コマンドと出力つき）"]]},
+ {n:"目的",id:"purposing",b:"blk-purpose",k:"ai",cond:"要る時だけ",
+  does:["依頼の元の目的を 1 文に固める","依頼が示した解き方は目的に書かず、欄 means に分ける"],reads:["依頼","前提の札","pr.md"],
+  adds:[["purpose.json","目的の文","key"],["purpose-means.json","依頼が示した解き方（目的と分けた物）"]]},
+ {n:"世界の解",id:"worlding",b:"blk-world",k:"ai",
+  does:["依頼の行を、対象の名と解き方を外した「問題の類」に言い直す","世の中の定石を web で集める（前の run の控えにあれば引く）","機械が、抜き書きが取り直した本文に在るかを照らす","類ごとの定石と、依頼の解き方との違いを書く"],
+  reads:["依頼","目的の文と means"],adds:[["world.jsonl","問題の類ごとの定石と、依頼の解き方との違い（出典つき）","key"],["world-state.json","後の役が読む口"]]},
+ {n:"素材",id:"gathering",b:"blk-material",k:"ai",cond:"要る時だけ",
+  does:["過去の決定・目的の文の審査・差分の局所レビューなど、判定の前の材料を集める"],reads:["差分","入口の控え"],adds:[["材料","過去の決定・目的の審査・局所レビューの所見"]]},
+ {n:"判定",id:"judging",b:"blk-judge",k:"ai",
+  does:["依頼を根本の単位にまとめ、直す処方と人への問いを決める","世界の解の行を先例として先に使い、依頼の解き方は前の決定に数えない","judge_verify が on なら、単位ごとに根本か・証拠・場所を裏取りする"],
+  prompt:["目的の文","材料","問いの台帳","世界の解の行","人の方針"],
+  adds:[["judgment.json","根本の単位・処方・人への問い","key"],["out-of-purpose.json","目的の外とした所見"]]},
+ {n:"構造の目",id:"structuring",b:"blk-structure",k:"ai",
+  does:["単位が触るファイルを機械が測る（考えの地図・知る場所の数）","その直し方で構造が汚れるかを単位ごとに判定する。決めきれない行は人に上げる"],
+  reads:["単位の一覧","方針","考えの地図"],adds:[["structure-state.json","単位ごとの汚れる・汚れないと、選んだ直し方","key"]]},
+ {n:"計画",id:"planning",b:"blk-plan",k:"ai",
+  does:["独立設計：別の AI が修正案を見ずに、目的と制約だけから設計する（道具なし）","修正案：単位を項目（書いてよい範囲・受け入れのテスト）に分け、構造の目・処方・世界の解の行ごとに従うか外れの訳を書く","事前審査：8 つの目で穴を探す（写し・入口・契約のずれ・死んだ道・範囲の膨張・後退・方針・先例の出典）"],
+  prompt:["修正案の役へ：単位・判定の見立てと処方・構造の目の行・世界の解の行・持ち越し","事前審査の役へ：修正案・単位・見立て・先例・独立設計"],
+  adds:[["design.json","独立設計"],["plan-fields.json","修正案（項目ごとの範囲とテスト、行ごとの従う・外れの訳）","key"],["gate-marks.json","関所に載せるか・決め手の印"],["plan-converge/","往復ごとの案と審査の控え"]],
+  rally:"修正案の役 ↔ 事前審査（止める穴が残る間、今は 3 往復まで）。今は毎回、案を丸ごと書き直し、審査が全部を読み直す",
+  plan:"予定：審査の前に、機械で数え上げられる物（消す名の残り・工程の地図の古さ）を機械が全件出して 1 回目で出し切る。2 回目からは開いた穴とその波及だけを書き直し・審査する。穴が減らない回は関所へ。回数の上限は置かない",
+  tags:["r:↺ 修正案と事前審査"]},
+ {n:"直す前の関所",id:"policy-gate",b:"関所",k:"gate",cond:"能力を減らす・方針とぶつかる・決めきれない物がある時だけ",
+  does:["人が「通す範囲と条件」を答える。答えは修正役に届く"],reads:["修正案","関所の印"],adds:[["人の答え","通す範囲と条件"]],tags:["g:policy-gate"]},
+ {n:"深さ",id:"h-depth",b:"機械",k:"mach",
+  does:["直す単位ごとに、軽量か標準かを機械が決める"],reads:["単位","入力 thickness"],adds:[["単位ごとの深さ","軽量なら差分の審査と独立の目を省く"]]},
+ {n:"修正",id:"fixing",b:"blk-fix",k:"ai",
+  does:["TDD の輪：単位ごとに、テストを書く → 直す → 整える","修正役：TDD に向かない単位を直す","範囲の重ならない枝は小さい作業ツリーで同時に回し、機械が 3 方向で合わせる"],
+  reads:["judgment.json","修正案","申し送り","波及の一覧","test_cmd","単位の深さ"],
+  adds:[["作業ツリーの差分","直したコードとテスト","key"],["changes.json","書いたファイル"],["fix-unit-rows.json","単位ごとの赤緑と結末"]],
+  rally:"TDD の輪：赤と緑を機械が試験で確かめ、外れなら差し戻し（同じ段で 3 回で諦めて普通の直しへ）。修正役：受け付けが範囲と試験で差し戻し",
+  tags:["r:↺ 赤緑の確かめ"]},
+ {n:"やり直しの道",id:"replanning・refitting・rejudging",b:"blk-plan・blk-fix・blk-rejudge",k:"ai",cond:"裁定が計画の項目を誤りとした時・修正役が判定に異議を出した時だけ",
+  does:["計画の項目の直し → 人が確かめる（replan-gate）→ 直した項目だけ 2 回目の修正","判定の再審"],reads:["裁定","異議"],adds:[["直した計画と 2 回目の差分","要る時だけ"]],tags:["g:replan-gate"]},
+ {n:"差分の審査",id:"lensing・reviewing・refixing",b:"blk-lens・blk-delta・blk-refix",k:"ai",cond:"標準の単位がある時（全部が軽量なら省く）",
+  does:["局所レビューのレンズ","差分の審査：新しい穴と塞いだ穴の検算","穴があれば手直し"],reads:["差分","lens.json"],
+  adds:[["lens.json","レンズの所見"],["delta-verdicts.json","差分の穴と手直し"]],rally:"審査 ↔ 手直し（手直しをもう 1 度審査、2 回まで）",tags:["r:↺ 審査と手直し"]},
+ {n:"テスト",id:"testing",b:"blk-tests",k:"ai",
+  does:["最後のテストを木の全部で 1 回走らせる","テストのコマンドも宣言も無い時は、CI のブロックで AI が走らせる（ci-final）"],reads:["test_cmd"],adds:[["最後のテストの結果","いつも走らせる（使い回さない）"]]},
+ {n:"直した後の実測",id:"measuring-after",b:"blk-structure（2 回目）",k:"ai",
+  does:["実の差分で、考えを知る場所の増減・新しい名・写しの塊を測る","住処の外に知る場所が増えたら、直し済みにしない"],reads:["差分の根と実の差分"],adds:[["直した後の構造の行","段 B の実測"]]},
+ {n:"独立の目",id:"eyeing",b:"blk-eyes",k:"ai",cond:"全部が軽量なら省く",
+  does:["書いた AI と別の目で確かめる","R1 冗長と最小性・R2 独立設計との比較・R3 整合・R4 隠れた範囲"],reads:["独立設計（design-premises.json）","差分","記録"],
+  adds:[["eyes-exit.json","R1〜R4 の判定（作り直しが要るか）","key"]]},
+ {n:"最後の関所",id:"final-gate",b:"関所",k:"gate",cond:"入力 final_gate による（always・when_needed・protected_only）",
+  does:["人が結果を見て、取り込むかを決める"],reads:["差分","報告の骨組み","独立の目の判定"],adds:[["人の答え","通すか止めるか"]],tags:["g:final-gate"]},
+ {n:"報告",id:"report・reporting",b:"blk-report",k:"ai",
+  does:["記録と報告の骨組み・次の run の依頼の下書きを作る（途中で落ちた run でも必ず走る）","AI が読みやすい報告を書き、初めて読む人に通じるかを確かめる"],reads:["記録の全部"],
+  adds:[["report.md・report-ai.md","報告"],["next-request.json","次の run の依頼の下書き"]],rally:"書き手 ↔ 初めて読む人の目（通じない所を返す、3 回まで）",tags:["r:↺ 書き手と初見の目"]}
+];
+const flow=document.getElementById('flow'),det=document.getElementById('detail'),brd=document.getElementById('board');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+S.forEach((s,i)=>{
+  const li=document.createElement('li');
+  li.className='st'+(s.k==='gate'?' gate':s.k==='mach'?' mach':'')+(s.cond?' cond':'');
+  const tags=(s.tags||[]).map(t=>{const [k,v]=t.split(':');return `<span class="tag ${k==='r'?'r':k==='g'?'g':''}">${esc(v)}</span>`}).join('')+(s.cond?`<span class="tag c">条件つき</span>`:'');
+  li.innerHTML=`<i class="mk" aria-hidden="true"></i><button id="st-${i}" type="button"><div class="row1"><span class="nm">${i+1}. ${esc(s.n)}</span><span class="id">${esc(s.id)} · ${esc(s.b)}</span></div>${tags?`<div class="tags">${tags}</div>`:''}</button>`;
+  li.querySelector('button').addEventListener('click',()=>show(i));
+  flow.appendChild(li);
+});
+function list(a,mono){return `<ul>${a.map(x=>`<li${mono?' class="f"':''}>${esc(x)}</li>`).join('')}</ul>`}
+function show(i){
+  const s=S[i];
+  [...flow.children].forEach((li,j)=>li.setAttribute('aria-current',j===i?'true':'false'));
+  let h=`<h2>${i+1}. ${esc(s.n)}</h2><div class="sub">${esc(s.id)} · ${esc(s.b)}</div>`;
+  if(s.cond)h+=`<div class="sec"><h3>回る条件</h3><div>${esc(s.cond)}</div></div>`;
+  h+=`<div class="sec"><h3>すること</h3>${list(s.does)}</div>`;
+  if(s.prompt)h+=`<div class="sec"><h3>指示書に貼る物</h3>${list(s.prompt)}</div>`;
+  if(s.reads)h+=`<div class="sec"><h3>受け取る物</h3>${list(s.reads)}</div>`;
+  if(s.rally)h+=`<div class="sec"><h3>ラリー</h3><div class="rally"><b>↺</b> ${esc(s.rally)}</div></div>`;
+  if(s.plan)h+=`<div class="sec"><h3>直す予定</h3><div class="plan">${esc(s.plan)}</div></div>`;
+  det.innerHTML=h;
+  let b=`<h3>盤面に積もった物（${i+1} 段目まで。緑はこの段で足した物）</h3><ul>`;
+  let any=false;
+  S.slice(0,i+1).forEach((t,j)=>(t.adds||[]).forEach(a=>{any=true;b+=`<li class="${j===i?'isnew':''}"><span class="when">${j+1}. ${esc(t.n)}</span><span class="f">${esc(a[0])}</span><span>${esc(a[1])}${a[2]?' ★':''}</span></li>`}));
+  b+=`</ul><p class="empty" style="margin:8px 0 0;font-size:12px">★ は後の部品の指示書に貼られる主な物</p>`;
+  brd.innerHTML=any?b:'<p class="empty">まだ何も積もっていない</p>';
+  try{localStorage.setItem('df-step',String(i))}catch(e){}
+}
+let start=10;try{const v=parseInt(localStorage.getItem('df-step'),10);if(v>=0&&v<S.length)start=v}catch(e){}
+show(start);
+</script>
+</body>
+</html>
