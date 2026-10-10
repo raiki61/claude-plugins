@@ -51,7 +51,7 @@ import hermetic  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
-sys.path.append(str(DEV))   # 筋書きの合わせ方（dev/stubfold.py）
+sys.path.insert(0, str(DEV))   # 筋書きの合わせ方（dev/stubfold.py）
 import stubfold  # noqa: E402
 
 BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
@@ -946,6 +946,8 @@ class TestDevShell(unittest.TestCase):
                         CLAUDE_CONFIG_DIR=str(tmp / "user-claude"), **security)
         env.pop("WORKS_DEV_NO_AUTH", None)
         env.pop("WORKS_DEV_ADAPTER", None)   # 既定（包みを通す）を見る。試験ごとに env_kw で渡す
+        from test_toolset import upstream_redirect
+        env.update(upstream_redirect(tmp / "no-such-upstream"))   # 起動の時の newer を網に出さない（上流を無いパスへ向ける）
         for name, value in env_kw.items():
             if value is None:
                 env.pop(name, None)

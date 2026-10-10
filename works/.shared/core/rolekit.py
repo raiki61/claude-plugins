@@ -20,6 +20,7 @@
                   （止まっていなければ）。返りは止めた理由（届いていなければ空。呼び手は配線の誤りとして扱う）
 - with_done:      盤面の節でない受け付け（script_io.main の finish）に done を足す。拒否は盤面の根の控え rejects-<名>.json に
                   積み、通った時か give_up_after 回目の拒否で done（控えは intake が clear_rejects で消す）
+- rejected:       盤面の節でない受け付けの拒否の文の並び（古い順。指示書の番号と、輪が落ちた周の最後の拒否の文に使う）
 - given_up_reason・stop_line: 盤面の節でない受け付けの出口が、控えの最後の拒否の文を引き、ラインの盤面なら止める
 - halt_unsaved:   盤面が役の返答を受けた後で、受け付けが外した欄の控えを置けない時の 1 本の道（盤面を止め、控えを名指す理由を返す。
                   呼び手は BoardGap で投げ、スクリプトは 2）
@@ -379,13 +380,16 @@ def with_done(board: pathlib.Path, name: str, out: dict, *, give_up_after: int =
     return {**out, "done": len(rows) >= give_up_after}
 
 
+def rejected(board: pathlib.Path, name: str) -> list:
+    """盤面の節でない受け付け name の拒否の文の並び（古い順。控えが無ければ空）"""
+    rows = _read_json(rejects_path(board, name), [])
+    return [str(r.get("reason", "")) for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
 def given_up_reason(board: pathlib.Path, name: str, *, give_up_after: int = GIVE_UP_AFTER) -> str:
     """控えの拒否が give_up_after 件あれば、諦めた理由の 1 行（最後の拒否の文）。届いていなければ空"""
-    rows = _read_json(rejects_path(board, name), [])
-    if not isinstance(rows, list) or len(rows) < give_up_after:
-        return ""
-    last = rows[-1].get("reason", "") if isinstance(rows[-1], dict) else ""
-    return _gave_up_text(name, len(rows), last)
+    got = rejected(board, name)
+    return _gave_up_text(name, len(got), got[-1]) if len(got) >= give_up_after else ""
 
 
 def on_line(board: pathlib.Path) -> bool:

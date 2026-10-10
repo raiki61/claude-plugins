@@ -453,6 +453,26 @@ class RealLineCase(unittest.TestCase):
         self.assertNotIn("tdd-lane-loop-1", off)
         self.assertIn("(off: tdd_lanes)", off)
 
+    def test_optional_stages_are_declared_on_the_line(self):
+        """落ちても線を止めない足しの検査の段（目・レンズ・構造・直しの後の測り・世界の解）だけが optional: true を持つ。修正の本体・
+        判定・計画・最後のテスト・CI・差分の審査・素材集めと境の節は持たない。印は目的の文に残らない"""
+        g = real_graph()
+        nodes = g["workflows"][g["entry"]]["nodes"]
+        purposes = {"eyeing": "独立の目（冗長と最小性・独立設計との比較・整合・範囲）",
+                    "lensing": "修正の後の局所レビュー（レンズ）",
+                    "structuring": "判定の単位が名指すファイルの構造を実測し、汚れるかを判定する",
+                    "measuring-after": "直しの後の差分で、設計の考えを知る場所の増減・新しい名・写しの塊を測る",
+                    "worlding": "依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる"}
+        for nid, purpose in purposes.items():
+            with self.subTest(nid):
+                node = find(nodes, nid)
+                self.assertIs(node.get("optional"), True, f"{nid} に optional: true が無い")
+                self.assertEqual(node.get("purpose"), purpose, "目的の文に印が残っている（印は欄 optional に切り出す）")
+        for nid in ("fixing", "refitting", "judging", "planning", "testing", "ci-final", "reviewing", "gathering",
+                    "h-ci", "h-final"):
+            with self.subTest(nid):
+                self.assertFalse(find(nodes, nid).get("optional"), f"{nid} は落ちたら線を止める節で optional でない")
+
     def test_descriptions_are_one_short_line(self):
         for p in sorted(ROOT.glob("*/*.yaml")):
             if p.stem != p.parent.name:

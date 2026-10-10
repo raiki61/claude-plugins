@@ -9,8 +9,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 口（線 B の報告も呼ぶ。線 B の申し送り 3・TA18。どの head_* も盤面を書かない）:
 - OUTCOMES・COST_FIELD_VERIFIED・FIRST_ROUND_LINE
 - gate_record(b) -> {exit, accepted, out, tail, traces, round_closed}
-- residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
-- decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
+- residue(b, gate, *, tests=None, eyeing=None, absorbed=()) -> fixed を名乗らせない残り [{where, text}]
+- decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None, absorbed=()) -> OUTCOMES の 1 つ
 - stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
 - head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, cleaned_runs="")（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)
@@ -26,12 +26,12 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - branch_rows(b)・eye_ties(b) -> 差分の審査の穴と独立の目が場所を挙げた行の枝の名札の行（線の木の段 4a。冒頭 1 と最後の関所の文が同じ行を出す。穴も行も無ければ空）
 - verify_lines(b) -> 判定の単位の裏取りの行（周ごと。根本でない・証拠が無い・場所が違う・確かめられなかった単位と単位どうしの重複・
   順番。全部の単位が根本で合えば件数の 1 行。単位は消さないので、人が単位を減らすかを決める材料）
-- tests_word(b, tests)・eye_counts(b, reviews) -> EyeCounts(blocked, not_run, missing)・rest_outside_validator(b, *, tests, counts, exit_problem="") -> Rest(tests_word, counts, rows)
+- tests_word(b, tests)・eye_counts(b, reviews) -> EyeCounts(blocked, not_run, missing)・rest_outside_validator(b, *, tests, counts, exit_problem="", absorbed=()) -> Rest(tests_word, counts, rows)
   （検証器の外の残りの数えの正本。最後の関所と冒頭 1・次の依頼が同じ口を読む。NOT_RUN_GATE_NOTE が not_run の例外の理由）
 - always_rows(b, left=None, *, rest=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
   走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False, found_only=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None, retried=None, eyeing=None, cleaned_runs="", depth_lines=(), tdd=()) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
+  failed=None, retried=None, eyeing=None, cleaned_runs="", depth_lines=(), tdd=(), absorbed=None) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - tdd_lines(stages) -> 修正の段ごとの TDD の輪の単位の結末の行（keep-essence の 11。修正のブロックの出口 tdd を読む）
 - freeze_lines(stages) -> 冒頭 2 の行: TDD の輪を回していない修正の段はテストの凍結が効いていないと言う（keep-essence の 3）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -131,6 +131,7 @@ EYES = ("R1", "R2", "R3", "R4")
 CHECKS_LEFT = "人が確かめる物"   # fixed_needs_check の残り（冒頭 3 行の件数と冒頭 1 の見出し）
 VALIDATOR_WHERE = "検証器の阻害"   # residue の行の where（次の run の依頼にも同じ字で渡す）
 EYES_WHERE = "独立の目"
+ABSORBED_WHERE = "受け止めた落ち"
 COST_FIELD_VERIFIED = True   # 欄の形を canary の run の出来事の実物で確かめた（tests/events/db-rows-plan.json。2026-10-09）
 # 節の費用の欄（node_completed の data の下の道）。録った Archon v0.11.1 の実物（tests/events/verbose-*.json）に在る形。
 # 報告されなかった費用は {source: unavailable, reason} で、0 と混ぜない（Archon #3295・#3420）。報告された費用は Archon の
@@ -180,6 +181,7 @@ HUNK_NEW = re.compile(r"^@@ -\S+ \+(\d+)")
 CLEANED_HEAD = "起動の前に片付けた前の run（use.sh start が worktree・枝・控えを消した。差分のファイルと盤面は残る）"
 INTERRUPTED_HEAD = "run が途中で終わった"
 RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
+ABSORBED_HEAD = "落ちたが、線が宣言のとおり受け止めた節"
 AI_FIRST_NODE = "report"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）。頭と初見検査の節は表で absent
 AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid", "rejects")   # 最後の出口に写す AI の報告の欄
 
@@ -506,12 +508,64 @@ class Rest(NamedTuple):
     rows: list
 
 
-def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "") -> Rest:
+def _optional(graph) -> tuple:
+    """地図の元の入口の工程の最上段で、受け止めると宣言した（欄 optional）節の id"""
+    return tuple(n["id"] for n in graph["workflows"][graph["entry"]]["nodes"] if n.get("optional"))
+
+
+def line_graph(pack) -> dict:
+    """受け止めの宣言を読む線の地図の元: pack の入口ごとの地図の元のうち、最上段に受け止めの宣言を持つ物（graphmap.one_graph。
+    古い・読めない・ちょうど 1 本でなければ ValueError。線の節の名は書かない）"""
+    import graphmap
+    return graphmap.one_graph(pack, _optional)
+
+
+def split_fallen(events, graph, reached: bool, after=(), seen=()):
+    """落ちた節を (中断の落ち, 受け止めた落ち) に分ける（どちらも [{node, error}]）。受け止めの決まりの正本: 受け止めてよいのは、
+    線の YAML が最上段の節の description の末尾に [optional] と宣言した段（地図の元の節の欄 optional）と、その中の節（出来事の名
+    `<節>__…`・`<節>.…`）の落ちだけで、線の終わりの出口の印が揃っている（reached）run に限る。地図の元が無い（graph が None。
+    古い・読めない）か出口の印が欠けた run は、落ちた節を全部中断に数える。after は failed_nodes と同じ。seen は、残りを別の欄が
+    数える段（線が渡す最上段の節の id。目の段は目の欄が結果の無い目として数える）で、その中の受け止めた落ちに seen: True を付ける
+    （absorbed_rows が残りに重ねない）"""
+    every = reads.failed_nodes(events, after=after)
+    if graph is None or not reached:
+        return every, []
+    stopping = reads.failed_nodes(events, after=(*after, *_optional(graph)))
+    kept = {f["node"] for f in stopping}
+    return stopping, [{**f, "seen": True} if reads.within(f["node"], seen) else f for f in every if f["node"] not in kept]
+
+
+def absorbed_falls(events, pack, seen=()) -> list:
+    """最後の関所が残りに数える受け止めた落ち（split_fallen の 2 つ目。events は reads.events_for の返り。seen は split_fallen と
+    同じ）。出来事が取れない（None）か、地図の元が古い・読めない時は空（関所は止めない）"""
+    if events is None:
+        return []
+    try:
+        return split_fallen(events, line_graph(pack), True, seen=seen)[1]
+    except ValueError:
+        return []
+
+
+def _first_error(x: dict) -> str:
+    """落ちた節の行 {node, error} の誤りの文の 1 行目（無ければその旨）"""
+    return (str(x.get("error") or "").strip().splitlines() or ["（誤りの文が無い）"])[0]
+
+
+def absorbed_rows(absorbed) -> list:
+    """受け止めた落ち absorbed（split_fallen の 2 つ目）の残りの行 [{where, text}]（節ごとに 1 行）。残りの数えの正本: 線は先へ
+    進んだので、その段が見るはずだった物は確かめていない。成功の結末（fixed）に隠さないために、残りに数える。ただし seen の付いた
+    落ち（別の欄が同じ落ちを既に数える段。split_fallen）は行を出さない（冒頭 3 には出る）"""
+    return [{"where": f"{ABSORBED_WHERE} {a.get('node')}",
+             "text": f"{a.get('node')} が落ちた（誤り: {_first_error(a)}）——線は受け止めて先へ進んだが、その段の結果は確かめていない（再実行の要あり）"}
+            for a in absorbed or [] if not a.get("seen")]
+
+
+def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "", absorbed=()) -> Rest:
     """検証器の外の残りの数えの正本（最後の関所と冒頭 1 の residue が同じ口を読む。検証器の行は持たない: 関所は検証器を回さない）。
     rows: tests が dict で tests_word が緑でなければ『最後のテストが<語>』・exit_problem（独立の目のブロックの出口が ok でない理由）が
     在れば『独立の目のブロックが ok でない: …』・目の行（blocked・not_run は『<R> が <status>: <reason>』、missing は
     『<R> の結果が無い——再実行の要あり』。where は『独立の目 <R>』）・直しの後の実測が見た住処の外の知る場所の増え（structmark.after_rows。
-    「考えの住処: 」で始まる。柵の表を持つ対象だけ）"""
+    「考えの住処: 」で始まる。柵の表を持つ対象だけ）・受け止めた落ち absorbed の行（absorbed_rows。where は『受け止めた落ち <節>』）"""
     word = tests_word(b, tests)
     rows = []
     if isinstance(tests, dict) and word != "緑":
@@ -522,16 +576,17 @@ def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "
     lost = {e["name"]: f"{e['name']} の結果が無い——再実行の要あり" for e in counts.missing}
     rows += [{"where": f"{EYES_WHERE} {n}", "text": said.get(n) or lost[n]} for n in EYES if n in said or n in lost]
     rows += structmark.after_rows(b.dir)   # 柵の表を持つ対象で、直しの後の実測が住処の外の知る場所の増えを見た所（計画 clean-whole の Task 2.5）
+    rows += absorbed_rows(absorbed)
     return Rest(word, counts, rows)
 
 
-def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = None) -> list:
+def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = None, absorbed=()) -> list:
     """fixed を名乗らせない残りの行（字のまま冒頭 1 と次の run の依頼に出す）: 検証器の阻害（exit 1 の箇条から名指しの帳尻の行
     FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行と、依頼の answers が命令と出力つきで答えた測れていない素材の行
     （gatemarks.measured_materials。人が手元で確かめた物として冒頭 1 の答えた行に並ぶ）だけを除いた物。読めなければ fail-closed で 1 行）と、
     検証器の外の残り（rest_outside_validator。最後のテストが緑でない・走れなかった（tests が None＝飛ばされた時は数えない）・
-    独立の目（blk-eyes の出口）が ok でない・目の阻害と走っていない目と結果が無い目・直しの後の実測が見た住処の外の知る場所の増え）。
-    返りは [{where, text}]"""
+    独立の目（blk-eyes の出口）が ok でない・目の阻害と走っていない目と結果が無い目・直しの後の実測が見た住処の外の知る場所の増え・
+    落ちたが線が受け止めた節 absorbed）。返りは [{where, text}]"""
     rows = []
     if gate.get("exit") == 1:
         found = _validator_blockers(str(gate.get("out") or ""))
@@ -548,7 +603,7 @@ def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = N
         counts = eye_counts(b, eyeing.get("reviews"))
         problem = "" if eyeing.get("ok") is True else _one_line(eyeing.get("reason") or "理由なし")
     named = {f"{EYES_WHERE} {e['name']}": f"{e['name']} が {e['status']}" for e in [*counts.blocked, *counts.not_run]}
-    for r in rest_outside_validator(b, tests=tests, counts=counts, exit_problem=problem).rows:
+    for r in rest_outside_validator(b, tests=tests, counts=counts, exit_problem=problem, absorbed=absorbed).rows:
         said = named.get(r["where"])   # 検証器の blockers が同じ周の記録から既に出した目の行（名と status が同じ）は二重に数えない。status が違う行は残す
         if said and any(x["where"] == VALIDATOR_WHERE and x["text"].startswith(said) for x in rows):
             continue
@@ -591,12 +646,12 @@ def stopped_run(board_dir) -> tuple | None:
 
 
 def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | None = None,
-                   eyeing: dict | None = None) -> str:
+                   eyeing: dict | None = None, absorbed=()) -> str:
     """結末。順: 止め札（by request:）→ stopped_by_request、関所の stop・reject（halted.by answer か by human:）→ stopped_by_human、
     機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）か食い違いの申し出を人に回した（ask_human と、案の直しを
     諦めた fix_plan_item。conflict.asked）→ needs_human、関所が通らない（accepted か round_closed が偽）→ record_invalid、
     直す物が無い周 → no_fix_needed、残り（residue:
-    検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が、今の周に測れていない素材の行
+    検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目・落ちたが線が受け止めた節 absorbed）が、今の周に測れていない素材の行
     （_unmeasured_row。run の中では測れない確かめ）だけで最後のテストが走って緑 → fixed_needs_check（直した。人の確かめが残る。利用者の声 10-09 の C3:
     直しが入って緑でも「直しきれず」と呼んでいた）、ほかの残りが在る → round_limit、他 → fixed。
     **fixed・no_fix_needed は accepted と round_closed が真の時だけ、fixed はさらに残りが無い時だけ**。直す物が無い周の赤は
@@ -613,7 +668,7 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
         return "record_invalid"
     if _no_fix(b, judged):
         return "no_fix_needed"
-    left = residue(b, gate, tests=tests, eyeing=eyeing)
+    left = residue(b, gate, tests=tests, eyeing=eyeing, absorbed=absorbed)
     if left and all(_unmeasured_row(b, r) for r in left) and isinstance(tests, dict) and tests_word(b, tests) == "緑":
         return "fixed_needs_check"   # 最後のテストを走らせて緑の時だけ（飛ばした run は「最後のテストまで通った」と言えない）
     if left:
@@ -1250,16 +1305,17 @@ def forge_line(b) -> str:
     return f"{FORGE_HEAD}: 無い——並行 PR の確かめは条件外（not_applicable。{why}）" if why else ""
 
 
-def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, retried: list | None = None) -> list:
+def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, retried: list | None = None,
+              absorbed: list | None = None) -> list:
     """冒頭 3: 止めたか（止め札・関所の stop・機械の止め。理由と止めた所）。interrupted は Archon の run の状態（線の中は
     分からないので空）、failed は落ちた節 [{node, error}]（reads.failed_nodes）。落ちた節が在れば節ごとに名前と誤りの文の
     1 行目を出し、無ければ Archon の run の状態を出す。retried は前の試みで落ち、続き（resume）で済んだ節
-    [{node, failures, error}]（reads.retried_nodes）で、止めた理由でなく試みの記録として出す（結末は替えない）"""
+    [{node, failures, error}]（reads.retried_nodes）で、止めた理由でなく試みの記録として出す（結末は替えない）。absorbed は
+    受け止めた落ち（split_fallen）で、止めた理由でなく、節の名と誤りの文の 1 行目を黙って消さずに出す"""
     lines = []
     if interrupted is not None:
         for f in failed or []:
-            error = (str(f.get("error") or "").strip().splitlines() or ["（誤りの文が無い）"])[0]
-            lines.append(f"{INTERRUPTED_HEAD}: 節 {f.get('node')} が落ちた（誤り: {error}）")
+            lines.append(f"{INTERRUPTED_HEAD}: 節 {f.get('node')} が落ちた（誤り: {_first_error(f)}）")
         if not failed:
             lines.append(f"{INTERRUPTED_HEAD}。Archon の run の状態は {interrupted or '（不明）'}")
     by, reason, info = _stop_info(b)
@@ -1284,6 +1340,7 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, 
     for r in retried or []:
         lines.append(f"{RETRIED_HEAD}: {r.get('node')}（落ちた回 {r.get('failures')}。"
                      f"最後の誤り: {r.get('error') or '（誤りの文が無い）'}）")
+    lines += [f"{ABSORBED_HEAD}: {a.get('node')}（誤り: {_first_error(a)}）" for a in absorbed or []]
     return lines
 
 
@@ -1488,7 +1545,7 @@ def always_rows(b, left: list | None = None, *, rest: Rest | None = None) -> lis
                     + (f"。壊れた行 {a['skipped']} 行を飛ばした" if a["skipped"] else ""))
     if left is not None:
         rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目・"
-                    "直しの後の実測が見た住処の外の知る場所の増え）"
+                    "直しの後の実測が見た住処の外の知る場所の増え・落ちたが線が受け止めた節）"
                     + (f"。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}" if left else ""))
     if rest is not None:
         def counted(found, tail=""):
@@ -1496,9 +1553,13 @@ def always_rows(b, left: list | None = None, *, rest: Rest | None = None) -> lis
         rows.append(f"残り（最後の関所で数えられる分）: 独立の目の阻害 {counted(rest.counts.blocked)}・走っていない目 {counted(rest.counts.not_run)}・"
                     f"結果が無い目 {counted(rest.counts.missing, '。阻害 0 件ではなく判定が無い')}・最後のテスト: {rest.tests_word}。"
                     f"数えられる分の合計 {len(rest.rows)} 件（目の 3 つの欄と、最後のテストが緑でなければその 1 件と、"
-                    "直しの後の実測が見た住処の外の知る場所の増え）。"
+                    "直しの後の実測が見た住処の外の知る場所の増えと、落ちたが線が受け止めた節）。"
                     "検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる）"
                     + (f"。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}" if rest.counts.not_run or rest.counts.missing else ""))
+        fell = [r["text"] for r in rest.rows if r["where"].startswith(ABSORBED_WHERE)]
+        if fell:   # 落ちたが線が受け止めた段は、数えるだけでなく節の名と誤りと確かめていないことを 1 行ずつ名指す
+            rows.append(f"{ABSORBED_WHERE}（{len(fell)} 件。上の合計に入る。その段の結果は確かめていない）:")
+            rows += [f"  - {x}" for x in fell]
     if left is None and rest is None:
         rows.append("残り: 数えを渡されていない（always_rows に left も rest も無い——呼び元の渡し忘れで、0 件ではない）")
     return rows
@@ -1797,14 +1858,15 @@ def freeze_lines(stages) -> list:
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
           failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "",
-          depth_lines=(), tdd=()) -> dict:
+          depth_lines=(), tdd=(), absorbed: list | None = None) -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
     <盤面>/next-request.json（{findings: next_request の返り, prior_failures}）と <盤面>/prior-failures.json（prior_failures の返り）
     （と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
     report_file・next_request_file・prior_failures_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
     board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（線の中の報告の節は
     落ちた節 failed と空、dev の report.sh は run の状態）。retried（前の試みで落ち、続きで済んだ節）は冒頭 3 の試みの記録で、
-    結末も AI の報告の可否も替えない。
+    結末も AI の報告の可否も替えない。absorbed（受け止めた落ち。split_fallen）は冒頭 3 に出し、
+    残り（residue）に数える（absorbed_rows）。
     record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。tdd は修正の段ごとの TDD の輪の結末（TDD_STAGES の順。修正のブロックの
     出口 tdd か None）で、節 TDD_HEADING に単位ごとに並べる（tdd_lines。行が無ければ節を出さない）。盤面を開けなければ BoardGap"""
     board_dir = pathlib.Path(board_dir)
@@ -1820,8 +1882,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     # 報告の頭の段を AI の報告のブロックがもう受けた（done）盤面も出した物に数える: Archon の resume はこの節を毎回回し直す
     # （ラインの always_run）ので、値が替わると AI の報告のブロックが古いと数えられ、when: が偽で済んだ段ごと飛ばされる
     ai_go = interrupted is None and (AI_FIRST_NODE in b.ready() or b.node_state(AI_FIRST_NODE) == "done")
-    outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged, eyeing=eyeing)
-    left = residue(b, gate, tests=tests, eyeing=eyeing)
+    outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged, eyeing=eyeing,
+                                                                           absorbed=absorbed)
+    left = residue(b, gate, tests=tests, eyeing=eyeing, absorbed=absorbed)
     items = next_request(b, tests=tests, left=left)
     prior = prior_failures(b, left)
     rep_p = board_dir / REPORT_FILE
@@ -1832,7 +1895,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, cleaned_runs=cleaned_runs, depth_lines=depth_lines, tdd=list(zip(TDD_STAGES, tdd))), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_entry(b, start, cleaned_runs=cleaned_runs, depth_lines=depth_lines, tdd=list(zip(TDD_STAGES, tdd))), head_stop(b, interrupted=interrupted, failed=failed, retried=retried, absorbed=absorbed),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]

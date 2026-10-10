@@ -152,8 +152,13 @@ def _word(name: str):
 
 
 def _definition(name: str):
+    """行 1 本が名 name の定義かを search で照らす型。3 本の枝は全部行の頭に錨で止める: `def`・`class`（字下げと、小文字の語の
+    修飾子の並び async・export・declare・abstract・public・data などは許す）、`<名> =`、`[function ]<名>()`。行が `"` や `-` など
+    語でない字で始まる文書・表の中の文字列（JSON の `"pattern": "def <名>|..."`）は定義と数えない。言語やファイルの種類では分けない。
+    残る限界: 文書の中の字下げしたコード例の `    def <名>(` や、小文字の語で始まる散文の `the class <名>` は行の頭の型に当たるので
+    定義と数える"""
     n = re.escape(name)
-    return re.compile(rf"(?:def|class)\s+{n}\b|^{n}\s*=|^(?:function\s+)?{n}\s*\(\)")
+    return re.compile(rf"^[ \t]*(?:[a-z]+[ \t]+)*(?:def|class)[ \t]+{n}\b|^{n}\s*=|^(?:function\s+)?{n}\s*\(\)")
 
 
 def _lookup(name) -> str | None:

@@ -711,8 +711,7 @@ class LineRun:
         p = self.tmp / "exits" / "world" / worldmark.WORLD_FILE
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-        return {"ok": True, "world_file": str(p), "status": "ok", "reason": "", "classes": len(rows), "cached": 0,
-                "skipped": 0, "dropped": 0}
+        return {"ok": True, "world_file": str(p), "status": "ok", "reason": "", "classes": len(rows), "dropped": 0}
 
     def blk_fix(self):
         self._edit("fix")

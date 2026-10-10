@@ -1,15 +1,14 @@
 name: blk-world
 description: |
   世界の解のブロック（計画 docs/plans/2026-10-09-world-solution.md の 5.2 節）。依頼の行ごとに、依頼が示した解き方と対象の名を
-  外した問題の類に言い直させ（言い直す役。道具ゼロで対象を読まない）、run をまたぐ控えに無い類だけ、世の中の定石の抜き書きを
-  web で集めさせ（集める役。web の検索と取得だけ）、役が本当に取得した URL の抜き書きを機械が取り直した本文で照らし、残った
-  抜き書きを材料に、類ごとの定石と、それがこの依頼にどう当たるかと、依頼の解き方が定石と同じか違うかを判断させ（判断する役。
-  道具ゼロ）、行を世界の解の行のファイル（world.jsonl。行の形は world-row.schema.json）に書く。
-  語の直しだけの行（役の申告と、where が全部文書のファイルであることの機械の確かめの両方）は飛ばす。web が off の run・網に
-  届かない run も止めず、判断する役は抜き書き無しで知識だけから行を書く（basis: knowledge。web で確かめていない）。
-  落ちた段が在っても線を止めない（出口の status: failed と reason）。後段が読んでよいのは出口の world_file だけ。
-  入力の契約は依頼のファイル・目的の文のファイル（任意）・run をまたぐ控えの置き場（任意）・web の切り替えの 4 つで、この契約を
-  満たすラインなら include で差し込める。
+  外した問題の類に言い直させ（言い直す役。道具ゼロで対象を読まない）、言い直した問題の類・作業・検索語・依頼の解き方だけを
+  見せた web の役（web の検索と取得だけ）に、世の中の定石の抜き書きを集めさせ、類ごとの定石と、それがこの依頼にどう
+  当たるかと、依頼の解き方が定石と同じか違うかを判断させる。機械が抜き書きを取り直した本文で照らし（字のまま無い抜き書きは
+  落ち、それを指す根拠も外れる。残る根拠が無い行は basis: knowledge）、行を世界の解の行のファイル（world.jsonl。行の形は
+  world-row.schema.json）に書く。
+  web が off の run・網に届かない run も止めず、行は知識だけから書く（basis: knowledge。web で確かめていない）。落ちた段が
+  在っても線を止めない（出口の status: failed と reason）。後段が読んでよいのは出口の world_file だけ。
+  入力の契約は依頼のファイル・目的の文のファイル（任意）・web の切り替えの 3 つで、この契約を満たすラインなら include で差し込める。
 
 inputs:
   request:
@@ -18,18 +17,15 @@ inputs:
   purpose_file:
     default: ""
     description: 目的の文のファイルのパス（任意）。{purpose_text, means?} の JSON（means は依頼が示した解き方の文の配列）。言い直す役に見せる
-  cache_root:
-    default: ""
-    description: run をまたぐ控えの置き場の絶対パス（任意）。空なら包みの家の下（包みを外した run では控えを使わない）
   web:
     default: "on"
-    description: on か off（空は on）。off なら定石を web で集めず、控えと知識だけで行を書く
+    description: on か off（空は on）。off なら定石を web で集めず、知識だけで行を書く
 
 returns: collect
 outcome_field: ok
 
 nodes:
-  # 置き場を置き直し、依頼・目的の文・控えの類を読む。読めない時も止めない（出口が status: failed にする）
+  # 置き場を置き直し、依頼・目的の文を読む。読めない時も止めない（出口が status: failed にする）
   - id: world-intake
     script: intake
     runtime: uv
@@ -37,7 +33,6 @@ nodes:
     with:
       request: $INPUTS.request
       purpose_file: $INPUTS.purpose_file
-      cache_root: $INPUTS.cache_root
       web: $INPUTS.web
     output_format:
       type: object
@@ -48,7 +43,7 @@ nodes:
         findings: {type: integer, minimum: 0}
         reason: {type: string}
 
-  # 言い直す役の輪。拒否の後は同じ会話で出し直させ、3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける
+  # 言い直す役の輪。拒否の後は同じ会話で出し直させ、3 回目の拒否で受け付けが done を出して輪を抜ける
   # （max_iterations で落とさない。裁定 R50）
   - id: world-classes-loop
     depends_on: [world-intake]
@@ -65,18 +60,17 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt, prompt_file, attempt]
+            required: [prompt, prompt_file]
             properties:
               prompt: {type: string}
               prompt_file: {type: string}
-              attempt: {type: integer}
         - id: world-classes
           model: opus                 # 役 blind-judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 blind-judge の前付けの effort（段は前付けを読まない）
           command: world-classes
           depends_on: [world-classes-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: []   # 道具ゼロ。対象の木を読まずに上に上がる（独立設計の隔てと同じ型）。見せるのは支度が貼る依頼の行・目的の文・控えの類だけ
+          allowed_tools: []   # 道具ゼロ。対象の木を読まずに上に上がる（独立設計の隔てと同じ型）。見せるのは支度が貼る依頼の行・目的の文だけ
           mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -90,16 +84,14 @@ nodes:
                 type: array
                 items:
                   type: object
-                  required: [finding, class_id, problem, activity, proposed, queries, wording]
+                  required: [finding, problem, activity, proposed, queries]
                   additionalProperties: false
                   properties:
                     finding: {type: integer, minimum: 1}
-                    class_id: {type: string}
                     problem: {type: string, minLength: 1}
                     activity: {type: string, minLength: 1}
                     proposed: {type: string}
                     queries: {type: array, items: {type: string}}
-                    wording: {type: boolean}
         - id: world-classes-accept
           script: classes_accept
           runtime: uv
@@ -110,17 +102,15 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, done, give_up, reason, attempt]
+            required: [ok, done, reason]
             properties:
               ok: {type: boolean}
               done: {type: boolean}
-              give_up: {type: boolean}
               reason: {type: string}
-              attempt: {type: integer}
 
-  # 控えを引く。言い直しが通らなかった周・輪が飛んだ周も走り（all_done）、集める類も判断する行も無いと出す
-  - id: world-cache
-    script: cache
+  # 類を決める。言い直しが通らなかった周・輪が飛んだ周も走り（all_done）、判断する行が無いと出す
+  - id: world-plan
+    script: plan
     runtime: uv
     timeout: 1728000000
     depends_on: [world-intake, world-classes-loop]
@@ -128,65 +118,14 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [collect_due, judge_due, prompt]
+      required: [judge_due]
       properties:
-        collect_due: {type: boolean}
         judge_due: {type: boolean}
-        prompt: {type: string}
 
-  # 集める役。控えに無い類が在り、web が on の周だけ。前の役の会話を継がずに新しい会話で起きる（context: fresh。輪の外の AI の節の決まり）
-  - id: world-collect
-    context: fresh
-    model: sonnet               # web から集めて運ぶ軽い役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る）
-    effort: medium              # 同じ表の effort
-    command: world-collect
-    depends_on: [world-cache]
-    when: "$world-cache.output.collect_due == true"
-    settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-    allowed_tools: [WebSearch, WebFetch]   # web の検索と取得だけ。対象の木を読まない
-    mutates_checkout: false
-    sandbox: {enabled: true, allowUnsandboxedCommands: false}
-    idle_timeout: 1728000000
-    output_format:
-      description: 'works-node: world-collect'
-      type: object
-      required: [excerpts]
-      additionalProperties: false
-      properties:
-        excerpts:
-          type: array
-          items:
-            type: object
-            required: [class, url, excerpt]
-            additionalProperties: false
-            properties:
-              class: {type: string}
-              url: {type: string}
-              excerpt: {type: string}
-
-  # 照らす。判断する行の在る周は、集める役が飛ばされた・落ちた周も走る（all_done。抜き書き無しで知識だけの行へ）
-  - id: world-verify
-    script: verify
-    runtime: uv
-    timeout: 1728000000
-    depends_on: [world-cache, world-collect]
-    trigger_rule: all_done
-    when: "$world-cache.output.judge_due == true"
-    with:
-      reply: {from: "$world-collect.output", if_skipped: null}
-    output_format:
-      type: object
-      additionalProperties: false
-      required: [kept, dropped, offline]
-      properties:
-        kept: {type: integer, minimum: 0}
-        dropped: {type: integer, minimum: 0}
-        offline: {type: boolean}
-
-  # 判断する役の輪（言い直す役の輪と同じ形）
+  # web の役の輪（言い直す役の輪と同じ形）。web の役が定石を集めて判断し、受け付けが抜き書きを取り直した本文で照らす
   - id: world-judge-loop
-    depends_on: [world-verify]
-    when: "$world-cache.output.judge_due == true"
+    depends_on: [world-plan]
+    when: "$world-plan.output.judge_due == true"
     loop_group:
       max_iterations: 3
       fresh_context: false
@@ -199,25 +138,24 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt, prompt_file, attempt]
+            required: [prompt, prompt_file]
             properties:
               prompt: {type: string}
               prompt_file: {type: string}
-              attempt: {type: integer}
         - id: world-judge
-          model: opus                 # 役 blind-judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
-          effort: high                # 役 blind-judge の前付けの effort（段は前付けを読まない）
+          model: sonnet               # web から集めてまとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る）
+          effort: medium              # 同じ表の effort
           command: world-judge
           depends_on: [world-judge-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: []   # 道具ゼロ。見せるのは支度が貼る問題の類と照らして残った抜き書きだけ（web は持たない）
+          allowed_tools: [WebSearch, WebFetch]   # web の検索と取得だけ。対象の木を読まない。見せるのは支度が貼る問題の類・作業・検索語・依頼の解き方だけ
           mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           output_format:
-            description: 'works-node: world-judge isolated'
+            description: 'works-node: world-judge'
             type: object
-            required: [rows]
+            required: [rows, excerpts]
             additionalProperties: false
             properties:
               rows:
@@ -235,6 +173,16 @@ nodes:
                     verdict: {type: string, enum: [same, differs, none]}
                     challenge: {type: string}
                     basis: {type: string, enum: [web, knowledge]}
+              excerpts:
+                type: array
+                items:
+                  type: object
+                  required: [id, url, excerpt]
+                  additionalProperties: false
+                  properties:
+                    id: {type: string}
+                    url: {type: string}
+                    excerpt: {type: string}
         - id: world-judge-accept
           script: judge_accept
           runtime: uv
@@ -245,31 +193,27 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, done, give_up, reason, attempt]
+            required: [ok, done, reason]
             properties:
               ok: {type: boolean}
               done: {type: boolean}
-              give_up: {type: boolean}
               reason: {type: string}
-              attempt: {type: integer}
 
   # 出口。どの段が飛ばされた・落ちた周も走り（all_done）、落ちの理由を status と reason に残す
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [world-intake, world-classes-loop, world-cache, world-collect, world-verify, world-judge-loop]
+    depends_on: [world-intake, world-classes-loop, world-plan, world-judge-loop]
     trigger_rule: all_done
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, world_file, status, reason, classes, cached, skipped, dropped]
+      required: [ok, world_file, status, reason, classes, dropped]
       properties:
         ok: {type: boolean}
         world_file: {type: string}
         status: {type: string, enum: [ok, failed]}
         reason: {type: string}
         classes: {type: integer, minimum: 0}
-        cached: {type: integer, minimum: 0}
-        skipped: {type: integer, minimum: 0}
         dropped: {type: integer, minimum: 0}

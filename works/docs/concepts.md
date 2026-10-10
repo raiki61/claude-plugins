@@ -192,16 +192,16 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 状態: 住処あり
 - 住処: `.shared/core/webget.py`（層 L1。網に出してよい URL `safe_url`・転送の決まり `SafeRedirect`・取得 `http_get`（期限を持たない）・網に出ない切り替え `is_off`・run をまたぐ控えの置き場 `shared_root` と控え `Store`（名ごとの JSON。schema・状態・期限で選ぶ））
 - 約束: 口の形だけ（切り替えの名・控えの schema と期限・読む量の上限は呼ぶ側が持つ）
-- 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）と世界の解のブロック（`blk-world/lib/worldblk.py` が控えの期限 90 日と類ごとの控え・`blk-world/lib/worldcheck.py` が転送の決まり `safe_url` と取れない時の例外・`blk-world/scripts/verify.py` が取り直し）で、どれも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
-- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。同じ計画の W5 で世界の解のブロックが 2 つめの使う所になり、控えの類を役に見せるために控えの名の一覧 `Store.names` を足した
+- 知ってよい所: 住処だけが網の素の口（`urllib.request`・`http.client`・`urlopen`）を使う（写しの graphloops は柵の外。表の exclude）。使う所はライブラリの文書の節 `.shared/core/libdocs.py`（切り替え `WORKS_LIBDOCS_WEB`・控えの期限 7 日・読む量の上限）と公式の文書の口 `.shared/core/libdocs_web.py`（`safe_url` で docs の場所を選ぶ）と世界の解のブロック（`blk-world/lib/worldblk.py` が取り直し（`fetch`）・`blk-world/lib/worldcheck.py` が転送の決まり `safe_url` と取れない時の例外）で、どれも住処を呼ぶ。役が自分で引く web（道具の WebSearch・WebFetch）は別の考えで、その記録は `reads`（`web_fetches`・`web_searches`）
+- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W1 で libdocs の中から寄せた（振る舞いは同じ）。同じ計画の W5 で世界の解のブロックが 2 つめの使う所になった
 
 ### `world` 世界の解（問題の類ごとの定石と、依頼の解き方との比べ）
 
 - 状態: 住処あり
-- 住処: `.shared/core/worldmark.py`（行の欄の名 `FIELDS`・行のファイルの名 `WORLD_FILE`・控えの名 `STATE_FILE`・語 `VERDICTS`・`BASES`・名指しの句 `NOT_WEB`・`FROM_CACHE`・読み口 `rows`・`read`・`stage_rows`・`board_rows`・控えを書く `write`・場所の字のパス `where_paths`・頭の節 `section`・`board_section`・`plan_section`・単位の要点 `unit_note`・答えの要る行の表 `need`・答えの要る行 `needs`・`required`・`unanswered`・依頼の解き方との比べの文 `challenges`・関所の軸 `world_ok`・関所の行 `gate_line`・報告の節「世界の解」の行 `report_lines`。依頼の解き方の足し欄 `MEANS` の意味 `with_means`・`split_means`・`write_means`・`means_of`。足す・外す・置く手順は考え `marks` の種 `means`）
+- 住処: `.shared/core/worldmark.py`（行の欄の名 `FIELDS`・行のファイルの名 `WORLD_FILE`・控えの名 `STATE_FILE`・語 `VERDICTS`・`BASES`・名指しの句 `NOT_WEB`・先例の出どころの頭の字 `SOURCE_PREFIX`・読み書き `rows`・`read`・`write`・`stage_rows`・頭の節 `section`・答えの要る行 `needs`・`need`・`unanswered`・依頼の解き方との比べの文 `challenges`・関所の軸 `world_ok`・関所の行 `gate_line`・報告の節「世界の解」の行 `report_lines`・先例の出どころが実在の行かの照らし `ref_problems`。依頼の解き方の足し欄 `MEANS` の意味 `with_means`・`split_means`・`write_means`・`means_of`。足す・外す・置く手順は考え `marks` の種 `means`）
 - 約束: `blk-world/world-row.schema.json`（欄と語が住処の定数と揃うことは `tests/test_worldmark.py` が縛る）
-- 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（出口を盤面の根の控えに写す境の節と、単位の要約に要点を足す写しの節）・控えを読むブロックの宣言 `blk-*/manifest.json`（consumes。盤面の読み書きの約束）
-- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4〜W10 で入った。行を書くのはブロック `blk-world`（W5）で、線は目的の後・判定の前に 1 回だけ回し、境の節が出口を盤面の根の控えに写す（W7）。読むのは全部住処の口で、判定の支度 `blk-judge/lib/judgebrief.py`（頭の節）・単位の要約の写し `darkfactory/lib/line_edge.py`（単位の要点）・修正案の頭 `blk-plan/lib/planblk.py`（頭の節と答えの頼み）・修正案の受け付けの答えの表 `.shared/core/planrange.py`（`answer_tables`）・関所の軸 `.shared/core/gatemarks.py`（`axes`）・報告 `.shared/core/report.py`（節「世界の解」）。依頼の解き方を目的の文から分けるのは目的の受け付け `.shared/core/purpose.py`（W6）。段の時間は控えに持たず、報告の節にも出さない（考え `ledger` の散らばりを増やさない。流れの道具の出来事から作れる値で、費用は報告の「費用」の節が節ごとに、段の時間は測りの殻 `dev/canary_check.py` が段ごとに出す）。柵は行のファイルと控えの名の字
+- 知ってよい所: 住処・約束・ブロック `blk-world/` の中・線 `darkfactory/`（出口を盤面の根の控えに写す境の節）・控えを読むブロックの宣言 `blk-*/manifest.json`（consumes。盤面の読み書きの約束）
+- 今: 計画 `docs/plans/2026-10-09-world-solution.md` の W4〜W10 で入った。行を書くのはブロック `blk-world`（W5）で、線は目的の後・判定の前に 1 回だけ回し、境の節が出口を盤面の根の控えに写す（W7）。読むのは全部住処の口で、判定の支度 `blk-judge/lib/judgebrief.py`（頭の節）・修正案の頭 `blk-plan/lib/planblk.py`（頭の節と答えの頼み）・修正案の受け付けの答えの表 `.shared/core/planrange.py`（`answer_tables`）・関所の軸 `.shared/core/gatemarks.py`（`axes`）・報告 `.shared/core/report.py`（節「世界の解」）。判定の受け付け（`blk-judge/lib/judgetake.py` と core の `.shared/core/accept.py` の `check_judge`）は、先例の出どころ `world:<類の id>` が実在の行かを住処の口 `ref_problems` で照らす。依頼の解き方を目的の文から分けるのは目的の受け付け `.shared/core/purpose.py`（W6）。段の時間は控えに持たず、報告の節にも出さない（考え `ledger` の散らばりを増やさない。流れの道具の出来事から作れる値で、費用は報告の「費用」の節が節ごとに、段の時間は測りの殻 `dev/canary_check.py` が段ごとに出す）。柵は行のファイルと控えの名の字
 
 ### `stop-reasons` 止めの理由
 

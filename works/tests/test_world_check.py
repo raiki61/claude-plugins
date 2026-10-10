@@ -1,9 +1,10 @@
 """世界の解の抜き書きの照らしと検索語の検査（blk-world/lib/worldcheck.py。計画 docs/plans/2026-10-09-world-solution.md の W3）。
 
 - 検索語の検査: 依頼の行（where と字）から対象の識別子を集め（banned_tokens）、問題の類・検索語・定石の文に現れたら名指す（text_problems）
-- 抜き書きの照らし: 役が取得した URL だけを、機械が同じ URL を取り直した本文で照らし、本文に字のまま在る抜き書きだけを残す（verify）。
+- 抜き書きの照らし: 機械が同じ URL を取り直した本文で照らし、本文に字のまま在る抜き書きだけを残す（verify）。
   網の口は偽の get を渡す（網・git・子のプロセスなし）
 """
+import inspect
 import pathlib
 import sys
 import unittest
@@ -49,8 +50,15 @@ class Normalize(unittest.TestCase):
 
 
 class Verify(unittest.TestCase):
+    def test_refetch_alone_proves_excerpt(self):
+        """照らしは機械が取り直した本文だけで決まる（役の取得の記録を引数に取らない）。本文に字のまま在る抜き書きは残る"""
+        self.assertEqual(list(inspect.signature(worldcheck.verify).parameters), ["excerpts", "get"])
+        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], getter({URL: (200, PAGE.encode())}))
+        self.assertEqual([(k["class"], k["url"]) for k in got["kept"]], [("c1", URL)])
+        self.assertEqual(got["dropped"], [])
+
     def test_excerpt_found_in_body_is_kept(self):
-        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], {URL}, getter({URL: (200, PAGE.encode())}))
+        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], getter({URL: (200, PAGE.encode())}))
         self.assertEqual([(k["class"], k["url"], k["excerpt"]) for k in got["kept"]], [("c1", URL, GOOD)])
         self.assertEqual(got["dropped"], [])
         self.assertFalse(got["offline"])
@@ -58,38 +66,39 @@ class Verify(unittest.TestCase):
 
     def test_paraphrase_is_dropped(self):
         para = "Compile errors do not count as red; write a minimal stub and then watch it fail properly."
-        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": para}], {URL}, getter({URL: (200, PAGE.encode())}))
+        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": para}], getter({URL: (200, PAGE.encode())}))
         self.assertEqual(got["kept"], [])
         self.assertEqual([d["url"] for d in got["dropped"]], [URL])
         self.assertIn("本文に無い", got["dropped"][0]["why"])
 
     def test_url_not_fetched_by_role_is_dropped(self):
+        """役が取得した記録は引かない: どの記録にも無い URL でも、機械が取り直した本文に字のまま在れば残る"""
         calls = []
-        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], {OTHER},
-                                getter({URL: (200, PAGE.encode())}, calls))
-        self.assertEqual(got["kept"], [])
-        self.assertIn("取得していない", got["dropped"][0]["why"])
-        self.assertEqual(calls, [], "役が取得していない URL は取り直さない")
+        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], getter({URL: (200, PAGE.encode())}, calls))
+        self.assertEqual(len(got["kept"]), 1)
+        self.assertEqual(calls, [URL])
 
     def test_fetched_url_matches_without_fragment_or_trailing_slash(self):
-        got = worldcheck.verify([{"class": "c1", "url": URL + "#red", "excerpt": GOOD}], {URL + "/"},
-                                getter({URL + "#red": (200, PAGE.encode())}))
-        self.assertEqual(len(got["kept"]), 1)
+        calls = []
+        rows = [{"class": "c1", "url": URL + "#red", "excerpt": GOOD}, {"class": "c2", "url": URL + "/", "excerpt": GOOD}]
+        got = worldcheck.verify(rows, getter({URL + "#red": (200, PAGE.encode())}, calls))
+        self.assertEqual(calls, [URL + "#red"])
+        self.assertEqual(len(got["kept"]), 2)
 
     def test_short_excerpt_is_dropped(self):
-        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": "red test"}], {URL}, getter({URL: (200, PAGE.encode())}))
+        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": "red test"}], getter({URL: (200, PAGE.encode())}))
         self.assertEqual(got["kept"], [])
         self.assertIn(str(worldcheck.MIN_EXCERPT), got["dropped"][0]["why"])
 
     def test_unsafe_url_is_not_fetched(self):
         calls = []
         bad = "http://localhost/x"
-        got = worldcheck.verify([{"class": "c1", "url": bad, "excerpt": GOOD}], {bad}, getter({}, calls))
+        got = worldcheck.verify([{"class": "c1", "url": bad, "excerpt": GOOD}], getter({}, calls))
         self.assertEqual(got["kept"], [])
         self.assertEqual(calls, [])
 
     def test_error_status_is_dropped(self):
-        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], {URL}, getter({URL: (404, PAGE.encode())}))
+        got = worldcheck.verify([{"class": "c1", "url": URL, "excerpt": GOOD}], getter({URL: (404, PAGE.encode())}))
         self.assertEqual(got["kept"], [])
         self.assertIn("404", got["dropped"][0]["why"])
         self.assertFalse(got["offline"], "答えが返った取り直しは網に届いている")
@@ -97,7 +106,7 @@ class Verify(unittest.TestCase):
     def test_same_url_is_fetched_once(self):
         calls = []
         rows = [{"class": "c1", "url": URL, "excerpt": GOOD}, {"class": "c2", "url": URL, "excerpt": "Write a failing test first."}]
-        got = worldcheck.verify(rows, {URL}, getter({URL: (200, PAGE.encode())}, calls))
+        got = worldcheck.verify(rows, getter({URL: (200, PAGE.encode())}, calls))
         self.assertEqual(calls, [URL])
         self.assertEqual(len(got["kept"]), 2)
         self.assertEqual(len({k["id"] for k in got["kept"]}), 2)
@@ -105,7 +114,7 @@ class Verify(unittest.TestCase):
     def test_all_fetch_errors_mark_offline(self):
         down = webget.FetchError("URLError: no route")
         rows = [{"class": "c1", "url": URL, "excerpt": GOOD}, {"class": "c1", "url": OTHER, "excerpt": GOOD}]
-        got = worldcheck.verify(rows, {URL, OTHER}, getter({URL: down, OTHER: down}))
+        got = worldcheck.verify(rows, getter({URL: down, OTHER: down}))
         self.assertTrue(got["offline"])
         self.assertEqual(got["kept"], [])
         self.assertEqual(len(got["dropped"]), 2)
@@ -113,11 +122,11 @@ class Verify(unittest.TestCase):
     def test_one_reachable_fetch_is_not_offline(self):
         down = webget.FetchError("URLError: no route")
         rows = [{"class": "c1", "url": URL, "excerpt": GOOD}, {"class": "c1", "url": OTHER, "excerpt": GOOD}]
-        got = worldcheck.verify(rows, {URL, OTHER}, getter({URL: (200, PAGE.encode()), OTHER: down}))
+        got = worldcheck.verify(rows, getter({URL: (200, PAGE.encode()), OTHER: down}))
         self.assertFalse(got["offline"])
 
     def test_nothing_to_fetch_is_not_offline(self):
-        self.assertFalse(worldcheck.verify([], set(), getter({}))["offline"])
+        self.assertFalse(worldcheck.verify([], getter({}))["offline"])
 
 
 FINDINGS = [

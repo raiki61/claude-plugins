@@ -290,6 +290,78 @@
    }
   },
   {
+   "id": "ts2",
+   "title": "newer: git を起こせない時に確かめられなかった理由を落とし、『無い』と締める",
+   "file": "dev/toolset.py",
+   "old": "        return [], err.strip() or \"git を起こせない\", None",
+   "new": "        return [], None, None",
+   "tests": {
+    "tests/test_toolset.py": [
+     "NewerCase.test_newer_without_git_is_unchecked_not_nothing"
+    ]
+   }
+  },
+  {
+   "id": "ts3",
+   "title": "newer: 読めない installed_plugins.json を確かめられなかった所に数えず、『無い』と締める",
+   "file": "dev/toolset.py",
+   "old": "unchecked = bool(notes) or mp_unreadable or upstream_why is not None",
+   "new": "unchecked = mp_unreadable or upstream_why is not None",
+   "tests": {
+    "tests/test_toolset.py": [
+     "NewerCase.test_newer_unreadable_installed_plugins_alone_is_not_closed_as_nothing"
+    ]
+   }
+  },
+  {
+   "id": "ts4",
+   "title": "newer: 壊れた known_marketplaces.json を読めなかった所に数えず、『無い』と締める",
+   "file": "dev/toolset.py",
+   "old": "        return [], [f\"marketplace の一覧を読めない（{km}）\"], True, None",
+   "new": "        return [], [f\"marketplace の一覧を読めない（{km}）\"], False, None",
+   "tests": {
+    "tests/test_toolset.py": [
+     "NewerCase.test_newer_broken_known_marketplaces_is_not_closed_as_nothing"
+    ]
+   }
+  },
+  {
+   "id": "ts5",
+   "title": "newer: ls-remote の読めない行を飛ばして読めたことにし、『無い』と締める",
+   "file": "dev/toolset.py",
+   "old": "            return [], f\"git ls-remote の行を読めない: {ln!r}\", None",
+   "new": "            continue",
+   "tests": {
+    "tests/test_toolset.py": [
+     "NewerCase.test_newer_unreadable_ls_remote_line_is_not_closed_as_nothing"
+    ]
+   }
+  },
+  {
+   "id": "ts6",
+   "title": "newer: 上流に固定の版の tag が無い時の理由を落とし、『確かめられなかった』を出さない",
+   "file": "dev/toolset.py",
+   "old": "        return found, f\"写した固定の版の tag が上流の一覧に無い（tag {len(found)} 本）\", None",
+   "new": "        return found, None, None",
+   "tests": {
+    "tests/test_toolset.py": [
+     "NewerCase.test_newer_names_new_tag_and_unchecked_when_pinned_tag_is_missing"
+    ]
+   }
+  },
+  {
+   "id": "ts7",
+   "title": "newer: 上流の固定の版の tag が指す commit と pin の commit の照らしを外し、『違う中身は無い』と締める",
+   "file": "dev/toolset.py",
+   "old": "    if upstream_commit is not None and upstream_commit != pin.get(\"commit\"):",
+   "new": "    if False:",
+   "tests": {
+    "tests/test_toolset.py": [
+     "NewerCase.test_newer_names_pinned_tag_moved_to_another_commit"
+    ]
+   }
+  },
+  {
    "id": "fg1",
    "title": "最後の関所の stop・reject で盤面を止める（state.stop.by human:final-gate）",
    "file": "darkfactory/lib/line_edge.py",

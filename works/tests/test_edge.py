@@ -1160,25 +1160,34 @@ class PlanEdgeCase(EdgeBase):
             self.assertIsInstance(r["summary"], str)
 
     def test_structure_unit_summary_carries_world_note(self):
-        """世界の解の行の where が単位のパスと重なれば、h-plan は単位の要約 summary の尾にその行の要点（worldmark.unit_note）を足す
-        （構造の目の入力の契約は 3 つのまま。計画 world-solution の W7・5.3 節の 3）"""
+        """単位の要約に世界の解を注記する道は無い（worldmark.unit_note は無く、要約に『世界の解:』の尾が付かない）"""
+        import worldmark
+        self.assertFalse(hasattr(worldmark, "unit_note"))
+        self.premised()
+        got = self.edge("plan", judged=self.judge_exit())
+        for r in json.loads(pathlib.Path(got["structure_units_file"]).read_text(encoding="utf-8")):
+            self.assertNotIn("世界の解:", r["summary"])
+
+    def test_structure_unit_summary_is_judge_reason_only(self):
+        """世界の解の行の where が単位のパスと重なっても、h-plan が構造の目に渡す単位の要約 summary は判定の単位の reason だけ
+        （構造の目の入力の契約は 3 つのまま。世界の解は判定の単位の処方と先例を通って届く）"""
         import worldmark
         self.premised()
         row = {"finding": 1, "where": "stats.py", "class_id": "w-mean", "problem": "平均の分母をどう決めるか",
                "activity": "統計の関数を書く", "practice": "算術平均は個数で割る", "sources": [], "applies": "mean の直し",
-               "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""}, "basis": "knowledge",
-               "cached": False}
+               "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""}, "basis": "knowledge", "cached": False}
         wf = self.tmp / "world-out" / worldmark.WORLD_FILE
         wf.parent.mkdir(parents=True)
         wf.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
-        worldmark.write(self.board, status="ok", reason="", world_file=str(wf), classes=1, cached=0, skipped=0, dropped=0)
-        got = self.edge("plan", judged=self.judge_exit())
+        (self.board / worldmark.STATE_FILE).write_text(json.dumps(
+            {"status": "ok", "reason": "", "world_file": str(wf), "classes": 1, "dropped": 0}), encoding="utf-8")
+        judged = self.judge_exit()
+        reasons = {u["key"]: u["reason"] for u in json.loads(pathlib.Path(judged["judgment_file"]).read_text(encoding="utf-8"))["units"]}
+        got = self.edge("plan", judged=judged)
         rows = json.loads(pathlib.Path(got["structure_units_file"]).read_text(encoding="utf-8"))
-        note = worldmark.unit_note([row], ["stats.py"])
         self.assertEqual(len(rows), 2)
-        self.assertTrue(note)
         for r in rows:
-            self.assertTrue(r["summary"].endswith(note), r["summary"])
+            self.assertEqual(r["summary"], reasons[r["id"]])
 
     def test_plan_hands_verify_notes(self):
         """go の h-plan は判定のブロックが今の周に置いた単位の裏取りの申し送り（judge-verify.json）を verify_file で返す（無ければ空。
@@ -1358,7 +1367,7 @@ class MatEyesEdgeCase(EdgeBase):
         self.assertIs(got.get("world_go"), True, got)
         doc = json.loads(pathlib.Path(got["world_purpose_file"]).read_text(encoding="utf-8"))
         self.assertEqual(doc, {"purpose_text": linekit.reply("purpose_ok")["purpose_text"], "means": means})
-        worldmark.write(self.board, status="ok", reason="", world_file="", classes=0, cached=0, skipped=0, dropped=0)
+        worldmark.write(self.board, status="ok", reason="", world_file="", classes=0, dropped=0)
         got = self.edge("mat")
         self.assertEqual((got.get("world_go"), got.get("world_purpose_file")), (False, ""))
 
@@ -1424,15 +1433,15 @@ class WorldEdgeCase(unittest.TestCase):
         wf = self.board.parent / "out" / worldmark.WORLD_FILE
         wf.parent.mkdir(exist_ok=True)
         wf.write_text("", encoding="utf-8")
-        return {"ok": True, "world_file": str(wf), "status": "ok", "reason": "", "classes": 2, "cached": 1, "skipped": 0,
-                "dropped": 3, **kw}
+        return {"ok": True, "world_file": str(wf), "status": "ok", "reason": "", "classes": 2, "dropped": 3, **kw}
 
     def test_ok_exit_written_to_state(self):
         import worldmark
         got = line_edge.world_edge(self.board, self.exit(), True)
         self.assertEqual((got["ok"], got["status"]), (True, "ok"), got)
         st = worldmark.read(self.board)
-        self.assertEqual((st["status"], st["classes"], st["cached"], st["dropped"]), ("ok", 2, 1, 3))
+        self.assertEqual((st["status"], st["classes"], st["dropped"]), ("ok", 2, 3))
+        self.assertNotIn("cached", st)
         self.assertEqual(got["world_file"], st["world_file"])
 
     def test_not_due_writes_nothing(self):

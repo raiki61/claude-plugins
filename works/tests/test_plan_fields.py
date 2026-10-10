@@ -759,7 +759,7 @@ class TestStructure(PlanFieldsCase):
 
 
 class TestWorldAnswers(PlanFieldsCase):
-    """世界の解の行への答え（計画 world-solution の W8・5.3 節の 4）: 答えの要る行（applies が空でない）の where と範囲の重なる項目は
+    """世界の解の行への答え（計画 world-solution の W8・5.3 節の 4）: 答えの要る行（applies が空でない）には、案のどれかの項目が
     欄 structure に {world: <類の id>, follows: true} か {world, deviation} を書き、どの項目も答えていない答えの要る行の在る案は拒む。
     足し方は構造の目の汚れる行と同じ structure_gaps（答えの要る行の表を受ける）で、世界の解の表は worldmark.need が作る"""
     WHY = "人の前の決定が仮の実装を禁じる（docs/decisions.md:40）ので定石に従わない"
@@ -772,9 +772,23 @@ class TestWorldAnswers(PlanFieldsCase):
         return [base, {**base, "finding": 2, "where": "docs/guide.md", "class_id": "w-doc", "applies": "案内の文書"}]
 
     def need(self, rows):
-        import planrange
         import worldmark
-        return worldmark.need(rows, planrange.inside)
+        return worldmark.need(rows)
+
+    def test_world_rows_bind_no_item_by_place(self):
+        """盤面の根の控えが世界の行を指しても、答えの表は項目に場所で行を結ばない（of が空）。どの項目も答えない行は missing に残る"""
+        import planrange
+        row = self.rows()[0]
+        wf = self.tmp / "world.jsonl"
+        wf.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+        (self.tmp / "world-state.json").write_text(json.dumps(
+            {"status": "ok", "reason": "", "world_file": str(wf), "classes": 1, "dropped": 0}), encoding="utf-8")
+        world = planrange.answer_tables(self.tmp)[1]
+        overlapping = item(allowed_paths=["stats.py"])
+        self.assertEqual(world.of(overlapping), [])
+        self.assertEqual(world.missing([overlapping]), ["w-mean"])
+        answered = item(structure=[{"world": "w-mean", "follows": True}])
+        self.assertEqual(world.missing([overlapping, answered]), [])
 
     def test_structure_gaps_shared_by_world_and_structure(self):
         dirty = {MEAN: {"unit_id": MEAN, "verdict": "汚れる", "chosen": "分母の決めを 1 か所に"}}

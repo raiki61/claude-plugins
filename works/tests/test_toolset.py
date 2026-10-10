@@ -21,6 +21,7 @@ Claude Code が自分で書く状態（projects/・.claude.json・backups/・rem
 （FAKE_CLAUDE。受けた argv を記録し、本物の 2.1.283 と同じ形で settings.json・plugins/ の状態のファイルを書く）を渡す。
 形は本物の CLI で一時の置き場に入れて確かめた（報告 $S/r61/cfg-report.md）。
 """
+import datetime
 import json
 import os
 import pathlib
@@ -39,6 +40,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(DEV))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import toolset  # noqa: E402
+import gitkit  # noqa: E402
 import hermetic  # noqa: E402
 import spseam  # noqa: E402
 import copyledger  # noqa: E402
@@ -160,6 +162,12 @@ def files_under(base: pathlib.Path) -> list:
 def plugin_version(src: pathlib.Path) -> str:
     """偽の claude がキャッシュの置き場に使う版（plugin.json に version が無ければ unknown）"""
     return json.loads((src / ".claude-plugin" / "plugin.json").read_text()).get("version") or "unknown"
+
+
+def upstream_redirect(to) -> dict:
+    """newer が tag を読む上流（toolset.UPSTREAM_URL）への git の接続を to（手元のリポジトリのパス。無いパスなら届かない上流）へ
+    向け替える env の差分。定数が欠ければ AttributeError で落ちる（向け替えが黙って外れて本物の網に出ない）。test_dev も使う"""
+    return gitkit.git_url_redirect(toolset.UPSTREAM_URL, to)
 
 
 PLUGINS = ("coldwrite", "pr-review-toolkit")   # 手元の marketplace に並ぶ名の順（sorted）
@@ -1136,7 +1144,35 @@ class McpCase(Base):
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
 
 
-PIN_V = toolset.load_borrow(ROOT)["superpowers"]["pin"]["version"]    # 6.4.2
+PIN_V = toolset.load_borrow(ROOT)["superpowers"]["pin"]["version"]
+
+
+def _bumped(pin):
+    """pin の最後の段に 1 を足した、固定より新しい版（数で読めなければ None）"""
+    key = toolset._version_key(pin)
+    return None if key is None else ".".join(str(n) for n in (*key[:-1], key[-1] + 1))
+
+
+def _newer_than(pin):
+    """数の組では pin より新しく、字の順では pin より古い版（頭に 0 を付けて割る。作れなければ None）"""
+    bumped = _bumped(pin)
+    if bumped is None:
+        return None
+    parts = bumped.split(".")
+    i = next((i for i, p in enumerate(parts) if not p.startswith("0")), None)
+    if i is None:
+        return None
+    parts[i] = "0" + parts[i]
+    return ".".join(parts)
+
+
+def _older_than(pin):
+    """pin の 0 でない最後の段から 1 を引いた、固定より古い版（作れなければ None）"""
+    key = toolset._version_key(pin)
+    if key is None or not any(key):
+        return None
+    i = max(i for i, n in enumerate(key) if n)
+    return ".".join(str(n) for n in (*key[:i], key[i] - 1, *key[i + 1:]))
 
 
 class NewerCase(Base):
@@ -1149,6 +1185,59 @@ class NewerCase(Base):
         shutil.rmtree(self.tmp / "user")   # Base の偽の superpowers 9.9.0 のフォルダも消す（版のフォルダは候補に数える）
         self.user = make_user_config(self.tmp / "user", only={"coldwrite", "pr-review-toolkit"})
         self.item = toolset.load_borrow(ROOT)["superpowers"]
+        # newer が読む pack は偽の物（写しの固定の commit を試験が書き換えても本物の borrow.json に触れない）
+        self.pack = self.tmp / "pack"
+        shutil.copytree(ROOT / ".shared" / "borrow", self.pack / ".shared" / "borrow")
+        (self.pack / ".shared" / "core").symlink_to(ROOT / ".shared" / "core")
+        (self.pack / "dev").mkdir()
+        shutil.copy2(TOOLSET, self.pack / "dev" / "toolset.py")
+        self.upstream = self.make_upstream(PIN_V)
+
+    def make_upstream(self, *versions, name="upstream", light=False):
+        """手元に、versions の tag v<版>（light なら軽量の tag、既定は注釈つき）を打った git リポジトリを作って返す（上流の代わり）。
+        固定の版の tag を打ったら、その tag が指す commit を偽の pack の borrow.json の pin の commit に書く"""
+        repo = self.tmp / name
+        repo.mkdir()
+        gitkit.git(repo, "init", "-q")
+        gitkit.git(repo, "commit", "-q", "--allow-empty", "-m", "upstream")
+        for v in versions:
+            self.tag(repo, v, light)
+        if PIN_V in versions:
+            self.set_pin_commit(gitkit.git(repo, "rev-parse", f"v{PIN_V}^{{commit}}"))
+        return repo
+
+    def tag(self, repo, v, light=False):
+        gitkit.git(repo, "tag", "-f", f"v{v}", *(() if light else ("-a", "-m", f"v{v}")))
+
+    def set_pin_commit(self, commit):
+        p = self.pack / ".shared" / "borrow" / "borrow.json"
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["superpowers"]["pin"]["commit"] = commit
+        p.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    def repoint(self, v, light=False):
+        """上流の tag v<版> を、新しい空の commit に付け直す。その commit を返す"""
+        gitkit.git(self.upstream, "commit", "-q", "--allow-empty", "-m", "moved")
+        self.tag(self.upstream, v, light)
+        return gitkit.git(self.upstream, "rev-parse", "HEAD")
+
+    def cli(self, *args, **env):
+        """偽の pack の toolset.py を、上流の URL を self.upstream（リポジトリのパス。無いパスなら届かない上流）へ向け替えて起こす"""
+        return subprocess.run([sys.executable, str(self.pack / "dev" / "toolset.py"), *args], capture_output=True, text=True,
+                              encoding="utf-8", env=hermetic.child_env(
+                                  **{"CLAUDE_CONFIG_DIR": str(self.user), **upstream_redirect(self.upstream), **env}))
+
+    def newer_out(self, **env):
+        """newer を起こし、終了コード 0 を確かめて標準出力を返す"""
+        r = self.cli("newer", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def assert_unchecked(self, out, what):
+        """what を『確かめられなかった』と名指し、締めの『無い』を出さず、最後の行を出している"""
+        self.assertIn(f"確かめられなかった: {what}", out)
+        self.assertNotIn("より新しい版・違う中身は", out)
+        self.assertIn(toolset.NEWER_LAST, out)
 
     def add_version(self, v, edit=None):
         """写しを <user>/plugins/cache/superpowers-marketplace/superpowers/<v>/ に写し、edit の相対パスを書き換え、
@@ -1175,12 +1264,17 @@ class NewerCase(Base):
         self.put_marketplace_raw(json.dumps(doc))
 
     def test_newer_compares_numerically_and_applies_the_contract(self):
-        self.add_version("6.10.0", edit={"skills/test-driven-development/SKILL.md": "Ask your human partner now.\n"})
-        self.add_version("6.3.0")
+        newer, older = _newer_than(PIN_V), _older_than(PIN_V)
+        if newer is None or older is None:
+            self.fail(f"固定 {PIN_V} からは字と数の割れる版か古い版を作れない")
+        self.assertLess(newer, PIN_V)   # 字の順では古い（字で比べる実装なら飛ばしてしまう版）
+        self.assertGreater(toolset._version_key(newer), toolset._version_key(PIN_V))
+        self.add_version(newer, edit={"skills/test-driven-development/SKILL.md": "Ask your human partner now.\n"})
+        self.add_version(older)
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("superpowers 6.10.0", r.stdout)
-        self.assertNotIn("superpowers 6.3.0", r.stdout)
+        self.assertIn(f"superpowers {newer}", r.stdout)
+        self.assertNotIn(f"superpowers {older}", r.stdout)
         self.assertIn("skills/test-driven-development/SKILL.md: 中身が固定と違う", r.stdout)
         self.assertIn("人に聞く文が増えた: skills/test-driven-development/SKILL.md: Ask your human partner now.", r.stdout)
         self.assertIn("tdd: 錨", r.stdout)
@@ -1191,15 +1285,80 @@ class NewerCase(Base):
         self.assertIn("写しと同じ版なのに中身が違う", self.cli("newer").stdout)
 
     def test_newer_lists_marketplace_only_versions(self):
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
         self.add_version(PIN_V)
-        self.put_marketplace({"plugins": [{"name": "superpowers", "version": "7.0.0"}]})
-        self.assertIn("superpowers 7.0.0: marketplace の一覧に在る", self.cli("newer").stdout)
+        self.put_marketplace({"plugins": [{"name": "superpowers", "version": newer}]})
+        self.assertIn(f"superpowers {newer}: marketplace の一覧に在る", self.cli("newer").stdout)
 
     def test_newer_with_nothing_newer_says_one_line(self):
         self.add_version(PIN_V)
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("より新しい版・違う中身は、手元にも marketplace の一覧にも無い", r.stdout)
+        self.assertIn("より新しい版・違う中身は、上流の tag にも手元にも marketplace の一覧にも無い", r.stdout)
+        self.assertNotIn("確かめられなかった", r.stdout)
+
+    def test_newer_names_upstream_tags_newer_than_the_pin(self):
+        """手元に固定の版しか無くても、上流の tag に固定より新しい版が在れば名指し、固定と同じ・古い tag は名指さず、締めの『無い』を出さない"""
+        newer, older = _bumped(PIN_V), _older_than(PIN_V)
+        if newer is None or older is None:
+            self.fail(f"固定 {PIN_V} から新しい版と古い版を作れない")
+        self.upstream = self.make_upstream(older, PIN_V, newer, name="upstream-tags")
+        self.add_version(PIN_V)
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"superpowers {newer}: 上流の tag に在る", r.stdout)
+        self.assertNotIn(f"superpowers {older}", r.stdout)
+        self.assertNotIn(f"superpowers {PIN_V}", r.stdout)
+        self.assertNotIn("確かめられなかった", r.stdout)
+        self.assertNotIn("より新しい版・違う中身は", r.stdout)
+
+    def test_newer_unreachable_upstream_is_named_and_not_closed_as_nothing(self):
+        """上流に届かない時は『確かめられなかった: 上流の tag』を 1 行出し、締めの『無い』を出さず、終了コード 0 で最後の行を出す"""
+        self.upstream = self.tmp / "no-such-upstream"
+        self.add_version(PIN_V)
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("確かめられなかった: 上流の tag", r.stdout)
+        self.assertNotIn("より新しい版・違う中身は", r.stdout)
+        self.assertIn(toolset.NEWER_LAST, r.stdout)
+
+    def test_newer_upstream_without_the_pinned_tag_is_named_and_not_closed_as_nothing(self):
+        """上流が tag を 1 本も返さない（空のリポジトリ・向け先の誤り）時も、固定の版の tag すら見えないので
+        『確かめられなかった: 上流の tag』を出し、締めの『無い』を出さない"""
+        self.upstream = self.make_upstream(name="upstream-empty")
+        self.add_version(PIN_V)
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("確かめられなかった: 上流の tag", r.stdout)
+        self.assertNotIn("より新しい版・違う中身は", r.stdout)
+        self.assertIn(toolset.NEWER_LAST, r.stdout)
+
+    def test_newer_unreadable_marketplace_is_not_closed_as_nothing(self):
+        """上流に新しい tag が無くても、marketplace の一覧が読めない時は『確かめられなかった: marketplace の一覧』を出し、締めの『無い』を出さない"""
+        self.add_version(PIN_V)
+        self.put_marketplace_raw("{壊れた")
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("確かめられなかった: marketplace の一覧", r.stdout)
+        self.assertNotIn("より新しい版・違う中身は", r.stdout)
+
+    def test_newer_names_the_marketplace_list_as_a_local_copy_with_its_time(self):
+        """一覧にだけ在る版の行は、一覧が手元の写しであることと、一覧の更新の時刻（marketplace.json の mtime）を添える"""
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
+        self.add_version(PIN_V)
+        self.put_marketplace({"plugins": [{"name": "superpowers", "version": newer}]})
+        at = datetime.datetime(2026, 3, 5, 12, 34, 56, tzinfo=datetime.timezone.utc)
+        os.utime(self.tmp / "marketplaces" / self.item["marketplace"] / ".claude-plugin" / "marketplace.json",
+                 (at.timestamp(), at.timestamp()))
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"superpowers {newer}: marketplace の一覧に在る", r.stdout)
+        self.assertIn("手元の写し", r.stdout)
+        self.assertIn("2026-03-05", r.stdout)
 
     def test_newer_names_unparsable_versions(self):
         self.add_version("latest")
@@ -1207,7 +1366,7 @@ class NewerCase(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         # 数で読めない名の版のフォルダでも、中身が固定と同じで違いが無ければ名指さず、締めの『違いは無い』を出す
         self.assertNotIn("superpowers latest", r.stdout)
-        self.assertIn("より新しい版・違う中身は、手元にも marketplace の一覧にも無い", r.stdout)
+        self.assertIn("より新しい版・違う中身は、上流の tag にも手元にも marketplace の一覧にも無い", r.stdout)
         # 中身が違う版は、名が数で読めなくても素通しせず、pin と節の契約を当てて名指し、締めの『違いは無い』を出さない
         self.add_version("8ca22dba9a94", edit={"skills/test-driven-development/SKILL.md": "x\n"})
         r = self.cli("newer")
@@ -1230,22 +1389,29 @@ class NewerCase(Base):
         self.assertIn("marketplace の一覧を読めない", r.stdout)
 
     def test_newer_writes_nothing(self):
-        self.add_version("6.10.0")
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
+        self.add_version(newer)
+        moved = self.repoint(PIN_V)   # 上流の固定の tag が別の commit を指しても、写しの pin を取り直さない
         before = {p: p.read_bytes() for p in self.user.rglob("*") if p.is_file()}
-        pack = {p: p.read_bytes() for p in (ROOT / ".shared" / "borrow").rglob("*") if p.is_file()}
+        pack = {p: p.read_bytes() for p in (self.pack / ".shared" / "borrow").rglob("*") if p.is_file()}
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("superpowers 6.10.0", r.stdout)
+        self.assertIn(f"superpowers {newer}", r.stdout)
+        self.assertIn(f"と違う（{moved}）", r.stdout)
         self.assertEqual({p: p.read_bytes() for p in self.user.rglob("*") if p.is_file()}, before)
-        self.assertEqual({p: p.read_bytes() for p in (ROOT / ".shared" / "borrow").rglob("*") if p.is_file()}, pack)
+        self.assertEqual({p: p.read_bytes() for p in (self.pack / ".shared" / "borrow").rglob("*") if p.is_file()}, pack)
 
     def test_dogfood_start_runs_newer_once(self):
         rows = (DEV / "dogfood.sh").read_text(encoding="utf-8").splitlines()
         hits = [i for i, ln in enumerate(rows) if 'toolset.py" newer' in ln]
         self.assertEqual(len(hits), 1)
-        show_end = next(i for i, ln in enumerate(rows) if "works_dev_show_synced dogfood.sh" in ln)   # --show の分岐の終わり
-        clone = next(i for i, ln in enumerate(rows) if ln.startswith("g clone "))                     # clone の行
-        self.assertTrue(show_end < hits[0] < clone)
+        run = next(i for i, ln in enumerate(rows) if ln.startswith('sh "$ARCHON"'))                      # workflow run の行
+        synced = max(i for i, ln in enumerate(rows) if "works_dev_show_synced dogfood.sh" in ln)         # 続きの行（--show の分岐の物は先）
+        exit_run = next(i for i, ln in enumerate(rows) if ln.startswith('[ "$run_status" -ne 0 ]'))      # run の終了コードを返す行
+        self.assertTrue(run < synced < hits[0] < exit_run)   # 網を待つ読みは、起動の仕事が全部済んだ最後（終了コードを返す前）
+        self.assertIn("上流の tag を読む", rows[hits[0] - 1])   # 読む前に待つことを言う
         self.assertIn("|| echo", rows[hits[0]])   # 落ちても起動を止めない
 
     def test_newer_takes_no_version(self):
@@ -1257,16 +1423,22 @@ class NewerCase(Base):
 
     def test_newer_unreadable_installed_plugins_is_named_not_fatal(self):
         """installed_plugins.json が JSON として読めなくても、1 行で名指して版のフォルダの確かめを続ける"""
-        self.add_version("6.10.0")
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
+        self.add_version(newer)
         (self.user / "plugins" / "installed_plugins.json").write_text("{壊れた", encoding="utf-8")
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("installed_plugins.json", r.stdout)
-        self.assertIn("superpowers 6.10.0", r.stdout)
+        self.assertIn(f"superpowers {newer}", r.stdout)
 
     def test_newer_names_added_asks_whatever_the_case(self):
         """人に聞く文は大文字・小文字を問わずに拾う（原文には行頭の Human partner が在る）"""
-        self.add_version("6.10.0", edit={"skills/receiving-code-review/SKILL.md": "Human partner decides this.\n"})
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
+        self.add_version(newer, edit={"skills/receiving-code-review/SKILL.md": "Human partner decides this.\n"})
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("人に聞く文が増えた: skills/receiving-code-review/SKILL.md: Human partner decides this.", r.stdout)
@@ -1292,3 +1464,72 @@ class NewerCase(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("superpowers nightly: marketplace の一覧に在る", r.stdout)
         self.assertNotIn("より新しい版・違う中身は", r.stdout)
+
+    def assert_pinned_tag_moved(self, light):
+        """上流の v<固定の版> を、写した commit と別の commit へ付け直すと、その commit を名指し、締めの『無い』を出さない"""
+        self.upstream = self.make_upstream(PIN_V, name="upstream-moved", light=light)
+        self.add_version(PIN_V)
+        moved = self.repoint(PIN_V, light)
+        out = self.newer_out()
+        self.assertIn(f"上流の tag v{PIN_V} が写した commit", out)
+        self.assertIn(f"と違う（{moved}）", out)
+        self.assertNotIn("より新しい版・違う中身は", out)
+
+    def test_newer_names_pinned_tag_moved_to_another_commit(self):
+        self.assert_pinned_tag_moved(light=False)
+
+    def test_newer_reads_lightweight_pinned_tag_commit(self):
+        self.assert_pinned_tag_moved(light=True)
+
+    def test_newer_names_every_source_of_the_same_version(self):
+        """同じ新しい版が上流の tag と marketplace の一覧の両方に在る時は、その版の 1 行に両方の源を名指し、
+        入れるコマンドと一覧の写しの時刻を添える（どちらかの行が畳まれて消えない）"""
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
+        self.upstream = self.make_upstream(PIN_V, newer, name="upstream-tags")
+        self.add_version(PIN_V)
+        self.put_marketplace({"plugins": [{"name": "superpowers", "version": newer}]})
+        rows = [ln for ln in self.newer_out().splitlines() if ln.startswith(f"superpowers {newer}:")]
+        self.assertEqual(len(rows), 1, rows)
+        for want in ("上流の tag", "marketplace の一覧", f"claude plugin update superpowers@{self.item['marketplace']}", "手元の写し"):
+            self.assertIn(want, rows[0])
+
+    def test_newer_without_git_is_unchecked_not_nothing(self):
+        self.add_version(PIN_V)
+        no_git = self.tmp / "no-git"
+        no_git.mkdir()
+        self.assert_unchecked(self.newer_out(PATH=str(no_git)), "上流の tag（git が見つからない")
+
+    def test_newer_unreadable_installed_plugins_alone_is_not_closed_as_nothing(self):
+        """新しい版がどこにも無く、読めないのが installed_plugins.json だけでも、締めの『無い』を出さない"""
+        self.add_version(PIN_V)
+        (self.user / "plugins" / "installed_plugins.json").write_text("{壊れた", encoding="utf-8")
+        self.assert_unchecked(self.newer_out(), "installed_plugins.json を読めない")
+
+    def test_newer_broken_known_marketplaces_is_not_closed_as_nothing(self):
+        self.add_version(PIN_V)
+        mp = self.item["marketplace"]
+        for label, text in (("壊れた JSON", "{壊れた"), ("installLocation が文字列でない", json.dumps({mp: {"installLocation": 5}}))):
+            with self.subTest(label):
+                _put(self.user / "plugins" / "known_marketplaces.json", text)
+                self.assert_unchecked(self.newer_out(), "marketplace の一覧を読めない")
+
+    def test_newer_unreadable_ls_remote_line_is_not_closed_as_nothing(self):
+        """固定の tag の行が先に出ても、後ろに読めない行が在れば、読めたことにせず『確かめられなかった』と名指す"""
+        self.add_version(PIN_V)
+        commit = toolset.load_borrow(self.pack)["superpowers"]["pin"]["commit"]
+        bindir = self.tmp / "fake-bin"
+        _put(bindir / "git", f"#!/bin/sh\nprintf '%s\\trefs/tags/v%s\\n' {commit} {PIN_V}\necho 'no tab here'\n", 0o755)
+        out = self.newer_out(PATH=f"{bindir}{os.pathsep}{os.environ['PATH']}")
+        self.assert_unchecked(out, "上流の tag（git ls-remote の行を読めない")
+
+    def test_newer_names_new_tag_and_unchecked_when_pinned_tag_is_missing(self):
+        newer = _bumped(PIN_V)
+        if newer is None:
+            self.fail(f"固定 {PIN_V} から新しい版を作れない")
+        self.upstream = self.make_upstream(newer, name="upstream-newer-only")
+        self.add_version(PIN_V)
+        out = self.newer_out()
+        self.assertIn(f"superpowers {newer}: 上流の tag に在る", out)
+        self.assert_unchecked(out, "上流の tag")

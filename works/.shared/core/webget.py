@@ -20,8 +20,8 @@ run をまたぐ控え:
   できない。env に無い・相対なら None（包みを外した run・試験。run をまたぐ控えは使わない）
 - Store(root, schema, ttl): 名ごとに 1 本の JSON（dict）。get(name, now, statuses=None) は schema が揃い、状態 status が statuses
   のどれか（None なら問わない）で、取った時刻 at（数）から ttl 秒の内（0 <= now - at < ttl）の物だけを返す。put(name, doc) は
-  同じ置き場を同時に走る run と読み合うので一時のファイルに書いて置き換え、書けなければ理由の 1 行を返す。names(now, statuses=None)
-  は get が返す名の一覧（控えの類を役に見せる世界の解の段が使う）。root が None なら読まず・書かない（put は空を返す）
+  同じ置き場を同時に走る run と読み合うので一時のファイルに書いて置き換え、書けなければ理由の 1 行を返す。
+  root が None なら読まず・書かない（put は空を返す）
 """
 import ipaddress
 import json
@@ -112,13 +112,6 @@ class Store:
         """控えの 1 本（statuses の状態で、ttl の内の物）。無ければ None"""
         doc = self._read(name) if self.root is not None else None
         return doc if doc and (statuses is None or doc.get("status") in statuses) and self._fresh(doc, now) else None
-
-    def names(self, now: float, statuses=None) -> list:
-        """置き場の名のうち get が返す物（名の順。一時のファイルは数えない）。root が None・置き場が無いなら空"""
-        if self.root is None or not self.root.is_dir():
-            return []
-        return [p.name for p in sorted(self.root.glob("*.json"))
-                if not p.name.startswith(".tmp-") and self.get(p.name, now, statuses) is not None]
 
     def put(self, name: str, doc: dict) -> str:
         """控えに書く（一時のファイルに書いて置き換える）。書けなければ理由の 1 行。root が None なら何もしない"""

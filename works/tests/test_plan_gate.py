@@ -226,8 +226,8 @@ class WorldGateCase(GateBase):
         wf = self.tmp / "world-out" / worldmark.WORLD_FILE
         wf.parent.mkdir(parents=True, exist_ok=True)
         wf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-        worldmark.write(self.tmp, status="ok", reason="", world_file=str(wf), classes=len(rows), cached=0, skipped=0,
-                        dropped=0)
+        (self.tmp / worldmark.STATE_FILE).write_text(json.dumps(
+            {"status": "ok", "reason": "", "world_file": str(wf), "classes": len(rows), "dropped": 0}), encoding="utf-8")
 
     def put_answers(self, *answers):
         import planmarks
@@ -264,17 +264,32 @@ class WorldGateCase(GateBase):
         for want in ("WG-4410", "呼び手の都合で 0 を返す形に寄せたい", "人に聞く訳"):
             self.assertIn(want, item)
 
+    def test_world_deviation_is_asked_once(self):
+        """世界の行から外れる案の項目に決め手の揃った narrows の行が在っても、類の id が関所の項目に載るのは世界の解の外れの項目の
+        1 度だけ。narrows の行は世界の解の軸で止めず、聞かずに通した行に残る"""
+        self.put_world(WORLD_ROW)
+        self.put_answers({"world": "w-mean", "deviation": "呼び手の都合で 0 を返す形に寄せたい、と考えた"})
+        got, b = self.gate(narrows=[{**NARROW, **DECIDED}])
+        self.assertEqual(got.get("decision"), "ask", got)
+        items = got["ask"]["items"]
+        self.assertEqual(len([x for x in items if "w-mean" in x]), 1, items)
+        self.assertEqual(got["ask"]["kinds"].count(gatemarks.WORLD_KIND), 1, got["ask"]["kinds"])
+        passed = [p["item"] for p in b.state["works"].get("gate_passes") or []]
+        self.assertTrue(any(x.startswith("修正案 1 が狭める能力") for x in passed), passed)
+
     def test_deviation_cited_to_request_goes_to_human(self):
-        """依頼を出どころにした外れは、引用が依頼に在っても人に回る。同じ項目の決め手の行も世界の解の軸で揃わない。依頼の外の
-        出どころ（現物に在るパス:行）で訳の立つ外れはグラフの中で通り、通した行に残る"""
+        """依頼を出どころにした外れは、引用が依頼に在っても人に回る。行の外れは世界の解の外れの項目が 1 度だけ聞き、同じ項目の
+        決め手の揃った narrows の行は世界の解の軸で止めない。依頼の外の出どころ（現物に在るパス:行）で訳の立つ外れは
+        グラフの中で通り、通した行に残る"""
         self.put_request()
         self.put_world(WORLD_ROW)
         self.put_answers({"world": "w-mean", "deviation": f"依頼の本文「{REQUEST_LINE}」に従い、定石から外れる"})
-        got, _ = self.gate(narrows=[{**NARROW, **DECIDED}])
+        got, b = self.gate(narrows=[{**NARROW, **DECIDED}])
         self.assertEqual(got.get("decision"), "ask", got)
         items = got["ask"]["items"]
-        self.assertTrue(any("w-mean" in x and "依頼" in x for x in items), items)
-        self.assertTrue(any(NARROW["what"] in x and "世界の解" in x for x in items), items)
+        self.assertEqual(len([x for x in items if "w-mean" in x and "依頼" in x]), 1, items)
+        self.assertEqual([x for x in items if x.startswith("修正案 1 が狭める能力")], [], items)
+        self.assertTrue(any(p["item"].startswith("修正案 1 が狭める能力") for p in b.state["works"].get("gate_passes") or []))
         (self.tmp / "docs").mkdir()
         (self.tmp / "docs" / "0007-zero.md").write_text("# 決め\n\n空の列は 0 を返す\n", encoding="utf-8")
         self.put_answers({"world": "w-mean", "deviation": "人の前の決定 docs/0007-zero.md:3 が 0 を返すと決めた"})

@@ -393,11 +393,17 @@ def not_allowed(b, nid: str, reply) -> list[str]:
     return lines
 
 
+def world_part(b) -> str:
+    """修正案の指示書の頭に貼る世界の解の節（盤面の根の控えが指す行と、行ごとの答えの頼み。行が無い周は ""）"""
+    got = worldmark.section(worldmark.stage_rows(b.dir) or [])
+    return f"{got}\n{worldmark.PLAN_ASK}\n" if got else ""
+
+
 def design_section(b) -> str:
     """事前審査の指示書の頭に貼る節: 独立設計の節（design_only）と、修正案の項目の works の欄の節（planmarks.review_section。
     控えが無ければ無し）。欄の控えが凍結の印と食い違えば盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
     try:
-        fields = planmarks.review_section(b, worldmark.challenges(worldmark.board_rows(b.dir)))
+        fields = planmarks.review_section(b, worldmark.challenges(worldmark.stage_rows(b.dir) or []))
     except planmarks.FieldsBroken as e:   # 受け付けの後に欄の控えを書き換えた: 書き換えた欄を審査に見せず、盤面を止める
         why = f"修正案の項目の works の欄の控え {planmarks.FIELDS_FILE} が凍結と食い違う: {' '.join(str(e).split())}"
         if not (b.state.get("halted") or b.state.get("stop")):
@@ -1036,7 +1042,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
     part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main) if tree else "")
                                     if role == "plan-review"
                                     else (prior_part(b, role), structmark.plan_section(b.dir),
-                                          worldmark.plan_section(b.dir) if role == "plan" else "",
+                                          world_part(b) if role == "plan" else "",
                                           prescription_section(b) if role == "plan" else "", plan_slots_section(b),
                                           units_ripple_part(b), verify_part(verify_file) if role == "plan" else "")) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
