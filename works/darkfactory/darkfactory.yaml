@@ -344,7 +344,7 @@ nodes:
   # 分けた依頼の解き方から組んだ目的の文のファイル。素材集めの前に走る（並べると、開いた素材集めの窓が世界の解の書き込みを宣言の外と読んで
   # run を止める。0.2.60。試験 test_line_inputs.NoConcurrentWindowCase）
   - id: worlding
-    description: '依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる'
+    description: '依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる [optional]'
     include: blk-world
     depends_on: [h-mat]
     when: "$h-mat.output.world_go == true"
@@ -442,7 +442,7 @@ nodes:
 
   # 判定の単位が名指すファイルを機械で実測する（構造のブロック）。h-plan が契約の形に写した単位のファイルを受ける
   - id: structuring
-    description: '判定の単位が名指すファイルの構造を実測し、汚れるかを判定する'
+    description: '判定の単位が名指すファイルの構造を実測し、汚れるかを判定する [optional]'
     include: blk-structure
     depends_on: [h-plan]
     when: "$h-plan.output.go == true"
@@ -943,7 +943,7 @@ nodes:
   # 修正の後のレンズ（修正が差分を作った run だけ）。集め役が終わらなければブロックの境が盤面を止め、後ろの境の節が stop する。
   # 全部の単位が軽量の run は h-redepth が差分の審査を盤面で省くので、h-review の go が偽でレンズも回らない
   - id: lensing
-    description: '修正の後の局所レビュー（レンズ）'
+    description: '修正の後の局所レビュー（レンズ） [optional]'
     include: blk-lens
     depends_on: [h-review]
     when: "$h-review.output.go == true"
@@ -1121,7 +1121,7 @@ nodes:
   # 直しの後の実測（構造のブロックの 2 度目の include。計画 2026-10-09-clean-whole の Task 2.5）。修正の起点の版と今の作業ツリーの
   # 差分を測る（AI なし）。軽量の run でも回す（深さの省く理由を渡さない）。落ちても線を止めない（出口の status と reason）
   - id: measuring-after
-    description: '直しの後の差分で、設計の考えを知る場所の増減・新しい名・写しの塊を測る'
+    description: '直しの後の差分で、設計の考えを知る場所の増減・新しい名・写しの塊を測る [optional]'
     include: blk-structure
     depends_on: [h-ci, ci-final]
     trigger_rule: none_failed_min_one_success
@@ -1193,7 +1193,7 @@ nodes:
   # 独立の目（R1〜R4。修正と最後のテストの後の、書き手と別の目）。結果は最後の関所の文に載る。r4.human_gate が人に聞けば止めずに
   # 抜け、問いは関所の文に載り、報告が needs_human と問いを次の run へ渡す
   - id: eyeing
-    description: '独立の目（冗長と最小性・独立設計との比較・整合・範囲）'
+    description: '独立の目（冗長と最小性・独立設計との比較・整合・範囲） [optional]'
     include: blk-eyes
     depends_on: [h-look]
     when: "$h-look.output.go == true"

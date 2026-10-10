@@ -4,11 +4,11 @@
  "description": "依頼の行ごとに、問題の類・世の中の定石・依頼の解き方との比べを 1 行にした物。読み口の住処は core の worldmark（欄と語が揃うことは tests/test_worldmark.py が縛る）",
  "type": "object",
  "additionalProperties": false,
- "required": ["finding", "where", "class_id", "problem", "activity", "practice", "sources", "applies", "not_applies", "versus", "basis", "cached"],
+ "required": ["finding", "where", "class_id", "problem", "activity", "practice", "sources", "applies", "not_applies", "versus", "basis"],
  "properties": {
   "finding": {"type": "integer", "minimum": 1, "description": "依頼の行の番号（1 始まり）"},
   "where": {"type": "string", "description": "依頼の行の where の字のまま（機械が写す）"},
-  "class_id": {"type": "string", "minLength": 1, "description": "問題の類の id（対象の名を持たない。run と対象をまたいで控えを引く鍵）"},
+  "class_id": {"type": "string", "minLength": 1, "description": "問題の類の id（対象の名を持たない。問題の類の文の hash）"},
   "problem": {"type": "string", "minLength": 1, "description": "問題の類の 1 文（依頼の解き方と対象の名を外し、作業の言葉で言い直した物）"},
   "activity": {"type": "string", "minLength": 1, "description": "作業の種類の名"},
   "practice": {"type": "string", "minLength": 1, "description": "定石（1〜3 文。対象の名を書かない）"},
@@ -34,7 +34,6 @@
     "challenge": {"type": "string", "description": "differs の時の「依頼は X、定石は Y。…でない限り Y を選ぶ」の文"}
    }
   },
-  "basis": {"type": "string", "enum": ["web", "knowledge"], "description": "web: 照らした抜き書きが 1 つ以上・knowledge: 模型の知識だけ（web で確かめていない）"},
-  "cached": {"type": "boolean", "description": "run をまたぐ控えの類を使ったか"}
+  "basis": {"type": "string", "enum": ["web", "knowledge"], "description": "web: 照らした抜き書きが 1 つ以上・knowledge: 模型の知識だけ（web で確かめていない）"}
  }
 }

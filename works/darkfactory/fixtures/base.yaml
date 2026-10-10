@@ -322,8 +322,8 @@ h-mat:
   verify_file: ''
   world_go: false
   world_purpose_file: ''
-# 世界の解の段（計画 world-solution の W7）: 依頼の 1 行を言い直す役が 1 回で問題の類にし、集める役が抜き書きを返し、照らしが 1 つ
-# 残し、判断する役が依頼の解き方を示さない行（verdict none）を 1 回で返す。輪の中の節の鍵は名前空間なし
+# 世界の解の段（計画 world-solution の W7）: 依頼の 1 行を言い直す役が 1 回で問題の類にし、web の役が抜き書きと依頼の解き方を示さない行（verdict none）を 1 回で返し、
+# 受け付けが取り直した本文で照らして 1 つ残す。輪の中の節の鍵は名前空間なし
 worlding__world-intake:
   due: true
   findings: 2
@@ -331,40 +331,23 @@ worlding__world-intake:
 world-classes-prep:
   prompt: （言い直す役の描いた指示書）
   prompt_file: world/classes-prompt-1.md
-  attempt: 1
 world-classes:
   classes:
   - finding: 1
-    class_id: ''
     problem: 数の並びの平均を返す関数が、定義どおりの値を返すようにどう直すか
     activity: 統計の関数の直し
     proposed: ''
     queries:
     - arithmetic mean definition divide by count
-    wording: false
 world-classes-accept:
   ok: true
   done: true
-  give_up: false
   reason: ''
-  attempt: 1
-worlding__world-cache:
-  collect_due: true
+worlding__world-plan:
   judge_due: true
-  prompt: （集める役の描いた指示書）
-worlding__world-collect:
-  excerpts:
-  - class: w-0123456789ab
-    url: https://example.org/guide/mean
-    excerpt: The arithmetic mean is the sum of the values divided by the number of values.
-worlding__world-verify:
-  kept: 1
-  dropped: 0
-  offline: false
 world-judge-prep:
-  prompt: （判断する役の描いた指示書）
+  prompt: （web の役の描いた指示書）
   prompt_file: world/judge-prompt-1.md
-  attempt: 1
 world-judge:
   rows:
   - finding: 1
@@ -376,20 +359,20 @@ world-judge:
     verdict: none
     challenge: ''
     basis: web
+  excerpts:
+  - id: x1
+    url: https://example.org/guide/mean
+    excerpt: The arithmetic mean is the sum of the values divided by the number of values.
 world-judge-accept:
   ok: true
   done: true
-  give_up: false
   reason: ''
-  attempt: 1
 worlding__collect:
   ok: true
   world_file: world/world.jsonl
   status: ok
   reason: ''
   classes: 1
-  cached: 0
-  skipped: 0
   dropped: 0
 h-world:
   ok: true

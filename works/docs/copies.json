@@ -260,10 +260,6 @@
    12,
    "コードの繰り返し。相手: .shared/core/ci_role.py・blk-material/lib/material.py"
   ],
-  "blk-structure/blk-structure.yaml": [
-   14,
-   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-world/blk-world.yaml"
-  ],
   "blk-structure/scripts/collect.py": [
    10,
    "コードの繰り返し。相手: blk-structure/scripts/eye_accept.py"
@@ -272,49 +268,21 @@
    10,
    "コードの繰り返し。相手: blk-structure/scripts/collect.py"
   ],
-  "blk-world/blk-world.yaml": [
-   44,
-   "工程の YAML の節の型（支度・役・受け付けの組と出口の型）の繰り返し。相手: blk-structure/blk-structure.yaml・同じファイルの中"
-  ],
-  "blk-world/fixtures/cache-hit.stubs.yaml": [
-   53,
-   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/pass.stubs.yaml"
-  ],
   "blk-world/fixtures/offline.stubs.yaml": [
-   61,
+   38,
    "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/pass.stubs.yaml・blk-world/fixtures/cache-hit.stubs.yaml・blk-world/fixtures/wording.stubs.yaml"
   ],
   "blk-world/fixtures/pass.stubs.yaml": [
-   63,
+   38,
    "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/cache-hit.stubs.yaml・blk-world/fixtures/wording.stubs.yaml ほか 1 本"
   ],
-  "blk-world/fixtures/wording.stubs.yaml": [
-   12,
-   "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: blk-world/fixtures/offline.stubs.yaml・blk-world/fixtures/pass.stubs.yaml"
-  ],
-  "blk-world/scripts/cache.py": [
-   17,
-   "コードの繰り返し。相手: blk-world/scripts/classes_prep.py・blk-world/scripts/collect.py・blk-world/scripts/judge_prep.py"
-  ],
   "blk-world/scripts/classes_accept.py": [
-   17,
+   11,
    "コードの繰り返し。相手: blk-world/scripts/judge_accept.py"
   ],
-  "blk-world/scripts/classes_prep.py": [
-   17,
-   "コードの繰り返し。相手: blk-world/scripts/cache.py・blk-world/scripts/collect.py・blk-world/scripts/judge_prep.py"
-  ],
-  "blk-world/scripts/collect.py": [
-   17,
-   "コードの繰り返し。相手: blk-world/scripts/cache.py・blk-world/scripts/classes_prep.py・blk-world/scripts/judge_prep.py"
-  ],
   "blk-world/scripts/judge_accept.py": [
-   17,
+   11,
    "コードの繰り返し。相手: blk-world/scripts/classes_accept.py"
-  ],
-  "blk-world/scripts/judge_prep.py": [
-   17,
-   "コードの繰り返し。相手: blk-world/scripts/cache.py・blk-world/scripts/classes_prep.py・blk-world/scripts/collect.py"
   ],
   "darkfactory/darkfactory.yaml": [
    652,
@@ -325,7 +293,7 @@
    "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: darkfactory/fixtures/policy-stop.stubs.yaml・darkfactory/fixtures/rejudge-no-session.stubs.yaml・darkfactory/fixtures/final-stop.stubs.yaml ほか 12 本"
   ],
   "darkfactory/fixtures/base.yaml": [
-   1510,
+   1500,
    "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）。相手: 同じファイルの中・blk-material/fixtures/pass.stubs.yaml・blk-fix/fixtures/conflict.stubs.yaml ほか 41 本"
   ],
   "darkfactory/fixtures/conflict-ask.stubs.yaml": [
@@ -428,10 +396,6 @@
    24,
    "試験の組み立ての繰り返し。相手: tests/test_blk_spec.py・tests/test_blk_ci.py・tests/test_blk_report.py ほか 3 本"
   ],
-  "tests/test_blk_fix_tdd.py": [
-   10,
-   "試験の組み立ての繰り返し。相手: tests/test_blk_world.py"
-  ],
   "tests/test_blk_judge.py": [
    66,
    "試験の組み立ての繰り返し。相手: tests/test_blk_premises.py・tests/test_blk_purpose.py・tests/test_toolset.py"
@@ -459,10 +423,6 @@
   "tests/test_blk_spec.py": [
    26,
    "試験の組み立ての繰り返し。相手: tests/test_blk_ci.py・tests/test_blk_eyes.py・tests/test_blk_report.py ほか 3 本"
-  ],
-  "tests/test_blk_world.py": [
-   10,
-   "試験の組み立ての繰り返し。相手: tests/test_blk_fix_tdd.py"
   ],
   "tests/test_board_goldens_fixture.py": [
    12,

@@ -1559,23 +1559,12 @@ def features_off_at(board_dir: str) -> Optional[List[str]]:
 
 
 def graph_map_text(node: str, off: Optional[Sequence[str]], pack: Optional[pathlib.Path] = None) -> "Block | Skip":
-    """印 node の工程の地図の塊。pack の入口（archon-plugin.json の entrypoints）ごとの地図の元のうち node を持つ物が
-    ちょうど 1 つで、元の YAML から書き直されていない（sha が同じ）時だけ。ほかは Skip。読めなければ ValueError"""
-    pack = PACK if pack is None else pack
-    found = []
-    for _name, rel in sorted(graphmap.entrypoints(pack).items()):
-        path = graphmap.graph_path(pack, rel)
-        if not path.is_file():
-            continue
-        g = graphmap.load(path)
-        if node in graphmap.markers(g):
-            found.append((path, g))
-    if len(found) != 1:
-        return Skip(f"印 {node} を持つ地図の元が {len(found)} 本（ちょうど 1 本の時だけ足す）")
-    path, g = found[0]
-    old = graphmap.stale(g, pack)
-    if old:
-        return Skip(f"地図の元 {path.name} が YAML より古い（{', '.join(old)}。dev/graphmap_build.py の build で書き直す）")
+    """印 node の工程の地図の塊。pack の入口ごとの地図の元のうち node を持つ物がちょうど 1 つで、元の YAML から書き直されて
+    いない時だけ（graphmap.one_graph）。ほか（読めないも）は Skip"""
+    try:
+        g = graphmap.one_graph(PACK if pack is None else pack, lambda g: node in graphmap.markers(g))
+    except ValueError as e:
+        return Skip(f"印 {node}: {e}")
     return block(graphmap.render(g, node, off))
 
 

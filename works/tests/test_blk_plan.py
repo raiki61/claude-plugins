@@ -1331,8 +1331,8 @@ class WorldFieldCase(unittest.TestCase):
         wf = self.tmp / "world-out" / worldmark.WORLD_FILE
         wf.parent.mkdir(parents=True)
         wf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-        worldmark.write(self.board, status="ok", reason="", world_file=str(wf), classes=len(rows), cached=0, skipped=0,
-                        dropped=0)
+        (self.board / worldmark.STATE_FILE).write_text(json.dumps(
+            {"status": "ok", "reason": "", "world_file": str(wf), "classes": len(rows), "dropped": 0}), encoding="utf-8")
 
     def plan_with(self, structure, unit=UNIT_MEAN):
         plan = linekit.reply("plan_ok")

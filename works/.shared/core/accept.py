@@ -522,6 +522,9 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             errs = querytest.problems(reply.get("units"), V.is_open)
             if errs:
                 raise Reject("class_query の例が問いと合わない: " + "; ".join(errs))
+            errs = worldmark.ref_problems([p.get("source") for p in reply.get("precedents") or [] if isinstance(p, dict)], board)
+            if errs:
+                raise Reject("precedents の出どころが世界の解の行に無い: " + "; ".join(errs))
             out, examples = querytest.split(reply, V.is_open)   # judge_output は 1 行の欄と class_query を正規化する（split の写し。返答の元は触らない）
             try:
                 note = rules.POST_CHECKS["judge_output"](b, "p2.diagnose", out, None)

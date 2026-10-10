@@ -189,6 +189,29 @@ class FalseRejectCase(unittest.TestCase):
         got, _ = planscope.problems([it], [{"unit_key": MEAN, "files": sorted(again)}], again)
         self.assertTrue(any("old_mean" in p for p in got), "足した行に定義が在れば残ったと見る")
 
+    CONCEPTS_LINE = '  "pattern": "def where_paths|def lead_path",\n'
+
+    def test_definition_text_in_data_file_is_not_canonical_elsewhere(self):
+        """行の頭（字下げは許す）で始まる定義だけを定義と数える: 表（JSON）の文字列の中の `def <名>` は canonical の外の定義でなく、
+        字下げした本物の定義（async def）は数え続ける"""
+        it = item(allowed_paths=["stats.py", "util.py", "docs/**"],
+                  adds=[{"kind": "function", "name": "where_paths", "canonical": "stats.py に新設"}])
+        ch = {"stats.py": ("", "def where_paths(xs):\n    return xs\n"),
+              "docs/concepts.json": ("", self.CONCEPTS_LINE),
+              "util.py": ("", "    async def where_paths(xs):\n        return xs\n")}
+        got, _ = planscope.problems([it], [{"unit_key": MEAN, "files": sorted(ch)}], ch)
+        outside = [p for p in got if "canonical" in p]
+        self.assertTrue(any("util.py" in p for p in outside), got)
+        self.assertFalse(any("docs/concepts.json" in p for p in got), got)
+
+    def test_removed_name_in_data_file_string_is_gone(self):
+        """removes の名を消した差分に、その名を `def <名>` の字で含む表（JSON）の文字列を足しても、足した行に定義が残ったと見ない"""
+        it = item(allowed_paths=["stats.py", "docs/**"], removes=["lead_path"])
+        ch = {"stats.py": ("def lead_path(xs):\n    return xs\n", "def where_paths(xs):\n    return xs\n"),
+              "docs/concepts.json": ("", self.CONCEPTS_LINE)}
+        got, _ = planscope.problems([it], [{"unit_key": MEAN, "files": sorted(ch)}], ch)
+        self.assertEqual(got, [])
+
     def test_dotted_name_found_by_last_segment(self):
         """名は kind を問わず :: と . で割った最後の段で探す。/ を含む名は確かめず unchecked に回す"""
         it = item(adds=[{"kind": "function", "name": "Stats.median", "canonical": "stats.py の Stats に新設"},

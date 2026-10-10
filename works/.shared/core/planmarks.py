@@ -117,7 +117,7 @@ FIELD_SCHEMA = {
 }
 
 STRUCTURE_REJECT = ("修正案の項目の works の欄 structure に欠けか誤りが在る（構造の目が汚れると見た単位を持つ項目は、その行ごとに"
-                    "避け方に従うか外れの訳を書く。世界の解の答えの要る行と範囲の重なる項目は、その行ごとに定石に従うか外れの訳を"
+                    "避け方に従うか外れの訳を書く。世界の解の答えの要る行は、行ごとにどれかの項目が定石に従うか外れの訳を"
                     "書く。直して done し直す）。下の行を直した案を丸ごと出し直せ:")
 ANSWER_KEYS = ("row", "prescription", "world")   # 欄 structure の行が答える先の鍵（ちょうど 1 つ）
 STRUCTURE_HEAD = ("structure＝構造の目が汚れると見た行（頭の『構造の目の行』の節の単位）への答えの並び。その単位を unit_keys に持つ"
@@ -125,10 +125,10 @@ STRUCTURE_HEAD = ("structure＝構造の目が汚れると見た行（頭の『�
                   f"{{row: <単位の id>, deviation: <従わない訳。{MIN_DEVIATION} 字以上>}} を書け（欠けは受け付けが拒む）。"
                   "判定の処方（頭の『判定の処方』の節）から外れる項目は {prescription: <単位の key>, deviation: <訳>} を、"
                   "処方に従うなら {prescription: <単位の key>, follows: true} を並べてよい。"
-                  "頭の『世界の解の行』の節に当たる所（答えの要る行）が在れば、その行の場所と範囲（allowed_paths・テストのファイル）の"
-                  "重なる項目は、行ごとに {world: <類の id>, follows: true}（定石に従う）か {world: <類の id>, deviation: <従わない訳。"
+                  "頭の『世界の解の行』の節に当たる所（答えの要る行）が在れば、答えの要る行ごとに、どれかの項目が "
+                  "{world: <類の id>, follows: true}（定石に従う）か {world: <類の id>, deviation: <従わない訳。"
                   f"{MIN_DEVIATION} 字以上で、出どころ（URL・<パス>:<行>・決定の記録のパス）を添える>}} を書け。どの項目も答えていない"
-                  "答えの要る行も受け付けが拒む。依頼そのものを出どころにした外れは修正前の関所で人に回る。"
+                  "答えの要る行は受け付けが拒む。依頼そのものを出どころにした外れは修正前の関所で人に回る。"
                   "汚れる行も答えの要る世界の解の行も無い項目は空の並びか書かない")
 REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）か adds の name に欠けか誤りが在る"
           "（直して done し直す）。下の行を直した案を丸ごと出し直せ:")
@@ -676,7 +676,7 @@ def structure_gaps(plan, tables) -> list[str]:
         for k in t.missing(good):
             if (t.key, k) in owed:
                 continue
-            out.append(f"plan.structure: {t.word} {k} にどの項目も答えていない（その行の場所を直す項目に {{{t.key}: {k}, "
+            out.append(f"plan.structure: {t.word} {k} にどの項目も答えていない（答えの要る行ごとに、どれかの項目が {{{t.key}: {k}, "
                        f"follows: true}} か {{{t.key}, deviation}} を書け。{t.hint_word}: {t.hints.get(k, '無し')}）")
     return out
 

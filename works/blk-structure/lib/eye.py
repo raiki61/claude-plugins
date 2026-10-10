@@ -129,8 +129,8 @@ def render(doc: dict, rejected: str = "") -> str:
               "- evidence は根拠にした実測の欄を、下の JSON（units の配列と timing）の中を指す JSON Pointer（RFC 6901。例 /units/0/measure）で"
               " 1 つ以上。無い欄を指すな",
               "- reason は理由。汚れると見た単位は chosen（推しの避け方）と chosen_reason（推しの理由）も書く",
-              "- 単位の summary の尾の『世界の解: …』は、その単位の直しに当たる世の中の定石（依頼の解き方との比べつき）。汚れると見た"
-              "単位の chosen（避け方）は定石の作りに沿わせ、沿わないならその訳を chosen_reason に書く",
+              "- 単位の summary（判定の単位の reason）が世の中の定石（世界の解）を名指していれば、汚れると見た単位の chosen はその作りに沿わせ、"
+              "沿わないならその訳を chosen_reason に書く",
               f"- route は {ROUTE}（既定。書かなくてよい）か {ROUTE_UP}。{ROUTE_UP}は、汚れると見た単位で、決め手（下の rules の"
               "方針・人の前の決定・対象の同じ場面・世界の解）を当たっても避け方が 1 つに決まらない時だけ。その時は chosen に推し、"
               f"rejected に捨てた案と代償を 1 つ以上、undecided_because に決まらない訳（{MIN_UNDECIDED} 字以上。何と何で割れたか）を書く。"
