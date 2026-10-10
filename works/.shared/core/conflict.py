@@ -37,9 +37,10 @@
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位を直す義務から外す。
   entry.CORE_OVERRIDES）
-- test_permits(b, rulings=, source=, skip_ids=): テストの変更の許し（承認済みの修正案の rewrite_tests・範囲の相談の合意・裁定 fix_test_scope の範囲・
+- test_permits(b, rulings=, source=, skip_ids=, base=): テストの変更の許し（承認済みの修正案の rewrite_tests・範囲の相談の合意・裁定 fix_test_scope の範囲・
   案の直しで直した項目の単位。keep-essence の 3 の 1 本の道）の唯一の元。凍結の検査・事後の関門・範囲の照らし・最後の関所は
-  ここから引く。permitted_units(b) はそのうち単位で許す行の単位。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
+  ここから引く。permitted_units(b) はそのうち単位で許す行の単位。source を渡すと、修正案の行の範囲をその木でテストの id から引き直し、
+  範囲の相談の合意の行（修正前の版の行。読む木は 1 つ）は base（修正前の版の読み口）を使ってその木の行へ移す。
   skip_ids に並べた id の修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。輪の後に書き換えさせない）。
   修正案の欄の控え plan-fields.json が凍結の印と食い違えば（planmarks.FieldsBroken）、許しを引かずに盤面を止めて
   （by stopby.FIX）控えを名指す理由の BoardGap
@@ -52,7 +53,7 @@
   changes を止めない（blk-fix の assert-changed と recount.collect）
 - ruled_limits(b, decisions=): 直す裁定の範囲 limits を (申し出の行, 範囲) で並べる唯一の読み口（test_permits と blk-fix の
   planscope が読む）
-- ruled_test_limits(b, rulings=, source=, skip_ids=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
+- ruled_test_limits(b, rulings=, source=, skip_ids=, base=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
   fix_test_scope の範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行（諦めた fix_plan_item の行も。案の直しの理由を末尾に添える）
 - 案の直しの状態（依頼 226。裁定 fix_plan_item の行の欄 REPLAN_STATE）: apply_rulings が WAITING に置き、set_replan の 1 か所だけが
@@ -123,7 +124,8 @@ KIND = "conflict"                       # process.human_items の行の kinds（
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
 PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
-AGREED_TEST_ID = "plan-agreed"          # 範囲の相談で修正案を書いた役が許したテストの書き換えを守りのファイルの行にする時の id の頭
+REMOVES_TEST_ID = "plan-removes"        # 承認済みの修正案の項目の removes（消す名）を本体で名指す既存テストの書き換え・消しの許しの行の id の頭
+AGREED_TEST_ID = "plan-agreed"         # 範囲の相談で修正案を書いた役が許したテストの書き換えを守りのファイルの行にする時の id の頭
 AMENDED_TEST_ID = "plan-amended"        # 案の直しで直した項目の単位の前の輪の受け入れのテストの許しの行の id の頭（範囲の文字列を持たない）
 # 範囲の相談（修正役が返答の欄 consult で頼み、修正の輪の答えの節が修正案を書いた役の会話の続きで答える。設計
 # docs/plans/2026-10-06-ask-planner.md）の 1 問 1 答の trace の行の語。書くのは修正の輪の確かめの節（sandbox の外の機械）、
@@ -175,7 +177,8 @@ ITEM_SCHEMA = {
 }
 CONFLICTS_SCHEMA = {"type": "array", "items": ITEM_SCHEMA}
 # 範囲の相談の頼みの欄（CONSULT_FIELD）。1 回の返答で項目ごとに 1 件ずつ並べてよい。paths は足したいパス（リポジトリの根からの
-# 相対）、tests は書き換えたい既存のテストの範囲（<パス> か <パス>:<行>）、why は相手が仕様として判断できる理由
+# 相対）、tests は書き換えたい既存のテストの範囲（<パス> か <パス>:<行>。行は修正前の版の行）、new_tests（任意）は足したい新しいテストの id
+# （<パス>::<クラス>::<名前>。修正案の tests に無いテスト）、why は相手が仕様として判断できる理由
 CONSULT_SCHEMA = {
     "type": "array",
     "minItems": 1,
@@ -187,6 +190,7 @@ CONSULT_SCHEMA = {
             "item": {"type": "integer", "minimum": 1},
             "paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
             "tests": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "new_tests": {"type": "array", "items": {"type": "string", "minLength": 1}},
             "why": {"type": "string", "minLength": CONSULT_MIN_WHY},
         },
     },
@@ -793,6 +797,14 @@ def _plan_rewrites(b) -> list[dict]:
         raise fields_broken(b, e) from None
 
 
+def _plan_removes(b) -> list[dict]:
+    """planmarks.removes_permits。_plan_rewrites と同じく、控えが食い違えば盤面を止めて BoardGap"""
+    try:
+        return planmarks.removes_permits(b)
+    except planmarks.FieldsBroken as e:
+        raise fields_broken(b, e) from None
+
+
 def frozen_fields(b) -> list | None:
     """今の周の凍結した修正案の欄の並び（planmarks.frozen。控えが無ければ None）。控えが凍結の印と食い違えば、_plan_rewrites と
     同じく盤面を止めて BoardGap（fields_broken の道。TDD の輪の約束を黙って空にしない）"""
@@ -825,17 +837,46 @@ def agreed(b) -> list[dict]:
     return [r for r in plan_asks(b) if r.get("status") == "answered" and r.get("decision") == "allow"]
 
 
-def agreed_permits(rows) -> list[dict]:
-    """合意の行の書き換えてよいテストの範囲を test_permits の行の形に（行の順・範囲の順）"""
-    return [{"limit": lim, "id": f"{AGREED_TEST_ID}-{r.get('item')}",
-             "why": f"範囲の相談 {r.get('id')}（項目 {r.get('item')}）で修正案を書いた役が許したテストの書き換え: {r.get('reason')}"}
-            for r in rows for lim in r.get("granted_tests") or [] if isinstance(lim, str) and parse_limit(lim)]
+def _in_tree(lim: str, source, base):
+    """合意の範囲 lim（行は修正前の版の行。読む木は 1 つ）を、source（パス → 読む木での中身）の木の範囲へ移す。source が無ければ
+    そのまま（修正前の版を読む事後の関門）。ファイルだけの指しは木に依らずそのまま。1 行の指し `<パス>:<行>` は base（パス →
+    修正前の版の中身）でその行を含む関数の id を引き、読む木でその id の定義の行を引き直す（関数の中身が変わっていても付く。
+    関数の外の行は行そのものを planmarks.map_line で移す）。行の範囲 `<行>-<行>` は、途中に足した行も書き換えた行も無い時だけ
+    移す（足した行を許しに含めない）。移せない（base が読めない・関数が
+    読む木に無い・行が書き換わっている）なら None（許しを捨てる。広げない）"""
+    got = parse_limit(lim)
+    if got is None or got[1] is None or source is None:
+        return lim
+    path, (a, b) = got
+    old, new = base(path) if base else None, source(path)
+    if not isinstance(old, str) or not isinstance(new, str):
+        return None
+    if cite.CITE.match(lim.strip())["b"]:
+        got = planmarks.map_range(old, new, a, b)
+        return f"{path}:{got[0]}-{got[1]}" if got else None
+    tid = planmarks.id_at(old, path, a)
+    line = (planmarks.line_in(new, tid) if tid else None) or planmarks.map_line(old, new, a)
+    return f"{path}:{line}" if line else None
 
 
-def test_permits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_rows=None) -> list[dict]:
+def agreed_permits(rows, *, source=None, base=None) -> list[dict]:
+    """合意の行の書き換えてよいテストの範囲を test_permits の行の形に（行の順・範囲の順）。範囲の行は修正前の版の行で（相談の頼みも
+    答えもそう書く）、source・base の渡し方は _in_tree"""
+    out = []
+    for r in rows:
+        for lim in r.get("granted_tests") or []:
+            moved = _in_tree(lim, source, base) if isinstance(lim, str) and parse_limit(lim) else None
+            if moved:
+                out.append({"limit": moved, "id": f"{AGREED_TEST_ID}-{r.get('item')}",
+                            "why": f"範囲の相談 {r.get('id')}（項目 {r.get('item')}）で修正案を書いた役が許したテストの書き換え: {r.get('reason')}"})
+    return out
+
+
+def test_permits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_rows=None, base=None) -> list[dict]:
     """既存のテストの変更の許しの唯一の元（keep-essence の 3。許す元を読むのはここだけで、凍結の検査・事後の関門・範囲の照らし・
-    最後の関所はこの行を読む）。許す元は 4 つ: 承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）・範囲の相談の
-    合意（agreed_permits）・rulings が真なら裁定 fix_test_scope の範囲（ruled_fix の順）・案の直しで直した項目の単位（amended_keys。
+    最後の関所はこの行を読む）。許す元は 5 つ: 承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）・範囲の相談の
+    合意（agreed_permits）・承認済みの修正案の項目の removes を本体で名指す既存テスト（planmarks.removes_permits。書き換えも関数の
+    丸ごとの消しも許す）・rulings が真なら裁定 fix_test_scope の範囲（ruled_fix の順）・案の直しで直した項目の単位（amended_keys。
     前の輪の受け入れのテストの関数を、直した案で書き直してよい）。
     行は {limit: 範囲の文字列, id: 守りのファイルの行の id の頭, why: 許した理由}。修正案の行は名指しのテストの id（test）も持つ
     （id で許す事後の関門が読む）。案の直しの行だけは limit を持たず units（単位の key の並び）を持つ（テストの関数の幅は TDD の輪の
@@ -843,6 +884,8 @@ def test_permits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_ro
     引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。skip_ids（修正案の行の id そのまま）に
     在る修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。tddloop.verified_rewrites）。裁定の行はそのまま。
     範囲の相談の合意（agreed_rows を渡せばその行——盤面にまだ写していない合意を足して見る事前の確かめ）は修正案の行の後にいつも入れる。
+    合意の範囲の行は修正前の版の行で、source を渡す読み手には base（パス → 修正前の版の中身）も渡して、その木の行へ移す（_in_tree。
+    移せない範囲は捨てる）。裁定の範囲は書いた木のまま。
     修正案の欄の控えが凍結の印と食い違えば、盤面を止めて BoardGap（_plan_rewrites）"""
     out = []
     skip = set(skip_ids)
@@ -851,7 +894,12 @@ def test_permits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_ro
         if lim:
             out.append({"limit": lim, "id": f"{PLAN_TEST_ID}-{r['item']}", "test": r["id"],
                         "why": f"承認済みの修正案の項目 {r['item']} が名指した既存テストの書き換え（{r['id']}）: {r['new']}"})
-    out += agreed_permits(agreed(b) if agreed_rows is None else agreed_rows)
+    for r in _plan_removes(b):
+        lim = _plan_limit(r, source)
+        if lim:
+            out.append({"limit": lim, "id": f"{REMOVES_TEST_ID}-{r['item']}", "test": r["id"],
+                        "why": f"承認済みの修正案の項目 {r['item']} が消す名を本体で名指す既存テスト（{r['id']}）: 消す仕組みを縛るので書き換え・消しを許す"})
+    out += agreed_permits(agreed(b) if agreed_rows is None else agreed_rows, source=source, base=base)
     if rulings:
         out += [{"limit": lim, "id": f"{RULED_TEST_ID}-{r['id']}",
                  "why": f"{HEAD}の裁定 {r['id']}（{r['unit_key']}）が許したテストの変更: {r['ruling']['text']}"}
@@ -885,10 +933,10 @@ def ruled_paths(b) -> list[str]:
     return out
 
 
-def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_rows=None) -> list[str]:
+def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_rows=None, base=None) -> list[str]:
     """テストの変更の許し（test_permits）の範囲の文字列の並び。rulings が偽なら裁定の範囲を含めない（1 回目の受け付け）。
-    source・skip_ids は test_permits と同じ（凍結の検査は輪の後の木の読み口と、輪が確かめた書き換えの id を渡す）"""
-    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source, skip_ids=skip_ids, agreed_rows=agreed_rows)
+    source・skip_ids・base は test_permits と同じ（凍結の検査は輪の後の木の読み口と、輪が確かめた書き換えの id と、修正前の版の読み口を渡す）"""
+    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source, skip_ids=skip_ids, agreed_rows=agreed_rows, base=base)
             if "limit" in p]
 
 

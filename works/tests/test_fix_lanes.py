@@ -247,6 +247,28 @@ class TestLane(LaneBoard):
         self.assertIn(".git の指し", next(i for i in doc["items"] if i["item"] == 2)["why"])
 
 
+class OverflowCase(LaneBoard):
+    def test_lane_does_not_reject_out_of_plan_test(self):
+        """枝で、単位が申告したファイルに案の外のテストを足しても、枝の確かめは拒まず（scope の行が無い）、項目の結末の行に overflow
+        としてそのテストを名指す（本線の受け付けが合わせた作業ツリーで相談に回す）"""
+        self.forked()
+        self.edit(1, MEAN_FIX)
+        path = self.tree(1) / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("\n\nif __name__", "\n    def test_extra(self):\n        self.assertEqual(mean([2, 4]), 3)\n\n\nif __name__"),
+                        encoding="utf-8")
+        self.record(path)
+        reply = lane_reply(MEAN)
+        reply["changes"][0]["files"] = ["stats.py", "test_stats.py"]
+        got = self.step(1, reply)
+        tid = "test_stats.py::TestStats::test_extra"
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        self.assertNotIn("確かめ scope", got["reason"])
+        (result,) = self.state(1)["results"]
+        self.assertEqual(result["outcome"], fixlanes.ACCEPTED)
+        self.assertIn(tid, json.dumps(result.get("overflow"), ensure_ascii=False))
+
+
 class TestJoin(LaneBoard):
     def both(self, second=CLAMP_FIX):
         self.forked()

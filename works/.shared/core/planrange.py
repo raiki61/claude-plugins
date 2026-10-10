@@ -73,12 +73,15 @@ def oos_line(head: str, path: str, hit) -> str:
 
 
 def with_agreed(items: list[dict], agreed) -> list[dict]:
-    """範囲の相談の合意（conflict.agreed の行 {item, granted_paths, granted_tests}）のパスを、その番号の項目の allowed_paths の
-    後ろに足した写し。許したパスと許したテストの範囲のパスは、その項目の写しの LIFTED にも並べ、字のまま同じパスに限ってその項目の
-    out_of_scope から外す（oos_hit。案を書いた役が自分の外した物を考え直して許した。持ち主 2026-10-07）。元の項目は変えない。
+    """範囲の相談の合意（conflict.agreed の行 {item, granted_paths, granted_tests, granted_new_tests}）のパスを、その番号の項目の
+    allowed_paths の後ろに足した写し。許したテストの範囲のパス・許した新しいテストのファイル・許したパスは、その項目の写しの LIFTED
+    にも並べ、字のまま同じパスに限ってその項目の out_of_scope から外す（oos_hit。案を書いた役が自分の外した物を考え直して許した。
+    持ち主 2026-10-07）。許した新しいテスト {id, red_kind} は、その項目の写しの tests の後ろに印 agreed つきで足す（テストのファイルは
+    planmarks.test_paths で範囲に入る。案の外で足したテストの拒否の行に当たらず、事後の関門が赤緑を確かめる）。元の項目は変えない。
     ほかの項目は変えない。テストの書き換えの許しは conflict.test_permits が持つ"""
     more: dict = {}
     lift: dict = {}
+    new_tests: dict = {}
     for r in agreed or []:
         n = str(r.get("item"))
         for p in r.get("granted_paths") or []:
@@ -86,6 +89,12 @@ def with_agreed(items: list[dict], agreed) -> list[dict]:
                 more[n].append(p)
         tests = [got[0] for got in (conflict.parse_limit(t) for t in r.get("granted_tests") or [] if isinstance(t, str))
                  if got]
+        fresh = [row for row in r.get("granted_new_tests") or [] if isinstance(row, dict) and isinstance(row.get("id"), str)
+                 and row["id"].strip()]
+        for row in fresh:
+            if row["id"] not in [x["id"] for x in new_tests.setdefault(n, [])]:
+                new_tests[n].append({"id": row["id"], "red_kind": row.get("red_kind"), "agreed": True})
+        tests += [planmarks.test_paths({"tests": [row]})[0] for row in fresh if planmarks.test_paths({"tests": [row]})]
         for p in [*more.get(n, []), *tests]:
             p = posixpath.normpath(p)
             if p not in lift.setdefault(n, []):
@@ -94,10 +103,12 @@ def with_agreed(items: list[dict], agreed) -> list[dict]:
     for it in items:
         n = str(it.get("item"))
         add = [p for p in more.get(n, []) if p not in globs(it)]
-        if not add and not lift.get(n):
+        if not add and not lift.get(n) and not new_tests.get(n):
             out.append(it)
             continue
+        have = {row.get("id") for row in it.get("tests") or [] if isinstance(row, dict)}
         out.append({**it, "allowed_paths": [*(it.get("allowed_paths") or []), *add],
+                    "tests": [*(it.get("tests") or []), *(row for row in new_tests.get(n, []) if row["id"] not in have)],
                     LIFTED: [*(it.get(LIFTED) or []), *lift.get(n, [])]})
     return out
 

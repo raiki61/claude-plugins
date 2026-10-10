@@ -114,6 +114,7 @@ import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （.shared/core。修正案の項目の works の欄。単位の約束）
+from planmarks import test_functions  # noqa: E402,F401  （.shared/core。テストの関数の id（pytest の node id の形）→ 源の引き。tddlanes が tddloop.test_functions の名で読む）
 import script_io  # noqa: E402  （.shared/core。入力の切り替えの語 switch_on）
 import seat  # noqa: E402  （.shared/core。借りたスキルの座）
 import tree_run  # noqa: E402
@@ -208,6 +209,74 @@ def restore_paths(repo, tree: str, paths) -> list:
             git(repo, "read-tree", tree, env=env)
             git(repo, "checkout-index", "-f", "--", *sorted(keep), env=env)
     return paths
+
+
+def _chain_at(src, line: int):
+    """.py の中身 src の line を含む最も内側の関数の名の連なり（`<クラス>::<名前>` か `<名前>`。_def_line の name の形）。無い・構文が
+    読めなければ None"""
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return None
+    best = []
+
+    def walk(body, chain):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                top = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                if top <= line <= node.end_lineno and len(chain) + 1 > len(best):
+                    best[:] = [*chain, node.name]
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, [*chain, node.name])
+    walk(tree.body, [])
+    return "::".join(best) if best else None
+
+
+def restore_tests(repo, tree: str, specs, *, ref=None) -> list:
+    """名指したテストの関数の幅だけを木 tree の姿に戻す（木に無い関数は消す。ファイル全体は戻さない: 同じファイルに在る許した直しや
+    輪の受け入れのテストを残す）。specs は `<パス>:<行>`（行は ref の木のそのファイルの関数の中の行。ref が無ければ tree。どの関数かを
+    名で引き直して tree と作業ツリーの同じ名の関数を入れ替える）か、テストの id `<パス>::<クラス>::<名前>`（作業ツリーで足した関数を
+    消す・木に在れば戻す）。関数の幅は _function_span（デコレータと上のコメントの行から本体の終わり）。作業ツリーの関数が引けない
+    （消えた）spec は戻せない。戻したパスの一覧を返す"""
+    repo = pathlib.Path(repo)
+    want: dict = {}
+    for spec in specs:
+        if "::" in spec:
+            path, _, name = spec.partition("::")
+        else:
+            got = conflict.parse_limit(spec)
+            if not got or not got[1]:
+                continue
+            path = got[0]
+            name = _chain_at(_tree_text(repo, ref or tree, path) or "", got[1][0])
+        path = posixpath.normpath(path)
+        if name and name not in want.setdefault(path, []):
+            want[path].append(name)
+    done = []
+    for path, names in want.items():
+        old, now = _tree_text(repo, tree, path), _now_text(repo, path)
+        if now is None or not path.endswith(".py"):
+            continue
+        old_lines, now_lines = (old or "").splitlines(), now.splitlines()
+        edits = []
+        for name in names:
+            line = _def_line(now, name)
+            span = _function_span(now_lines, line) if line else None
+            if span is None:
+                continue
+            was = _def_line(old, name) if old is not None else None
+            base = _function_span(old_lines, was) if was else None
+            if base is not None:
+                edits.append((span[0], span[1], old_lines[base[0] - 1:base[1]]))
+            else:   # 木に無い関数（作業ツリーで足した物）は消す。上の空の行 1 本も（足した時に置いた区切り）
+                top = span[0] - 1 if span[0] > 1 and not now_lines[span[0] - 2].strip() else span[0]
+                edits.append((top, span[1], []))
+        for a, b, lines in sorted(edits, reverse=True):
+            now_lines[a - 1:b] = lines
+        if edits:
+            (repo / path).write_text("\n".join(now_lines) + ("\n" if now.endswith("\n") or not now_lines else ""), encoding="utf-8")
+            done.append(path)
+    return done
 
 
 def hashes(repo, files) -> dict:
@@ -1009,35 +1078,6 @@ def _plan_rewrites(st, k) -> list:
     return (_contract(st, k) or {}).get("rewrites") or []
 
 
-def test_functions(src: str, path: str) -> dict[str, str]:
-    """.py の中身 src から、名前が test で始まる関数（モジュールの直下と、クラスの直下のメソッド。入れ子のクラスも辿る）の
-    id（pytest の node id の形 `<path>::<クラス>[::<内のクラス>…]::<名前>` か `<path>::<名前>`）→ その関数の源
-    （ast.get_source_segment。デコレータの行から）。構文が読めない・path が .py でなければ {}。純粋"""
-    if not path.endswith(".py"):
-        return {}
-    try:
-        tree = ast.parse(src)
-    except (SyntaxError, ValueError):
-        return {}
-    out = {}
-
-    def take(node, head):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
-            top = min([node.lineno] + [d.lineno for d in node.decorator_list])
-            span = ast.Constant(value=None, lineno=top, col_offset=node.col_offset, end_lineno=node.end_lineno,
-                                end_col_offset=node.end_col_offset)   # デコレータの行から本体の終わりまで
-            out[f"{head}::{node.name}"] = ast.get_source_segment(src, span) or ""
-
-    def walk(body, head):
-        for node in body:
-            take(node, head)
-            if isinstance(node, ast.ClassDef):
-                walk(node.body, f"{head}::{node.name}")
-
-    walk(tree.body, path)
-    return out
-
-
 def _unnamed_edits(repo, tree: str, files: list[str], allowed: set[str]) -> list[str]:
     """files のうち木 tree に在った .py で、木の時の test_functions に在った id の源が変わった・消えた物のうち、allowed に無い
     id（_id_base で整え、parametrize の `[…]` を落として比べる）。import の行・補助の関数・新しいテストは見ない。今の中身が構文として読めなければ、木の時の
@@ -1593,7 +1633,15 @@ def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) 
     .py のファイルに足しただけの物（_without_additions。新しい関数・クラス、既存のクラスの新しいメソッド、新しい名の import・代入で、
     既存のテストが読む名にも枠の掛け金にも当たらない物）は凍結に数えない（依頼 195i の 2: 別の項目が測りのテストを足しただけで人の
     関所を通らせない）。足した物を除いた中身が基準の木と同じ（コードの木もコメントの行も。_same_code）なら通し、許しの範囲が在れば
-    足した物を除いた中身で範囲の外の塊を見る。既存の文の書き換え・消し・skip の印の追加は今どおり拒む"""
+    足した物を除いた中身で範囲の外の塊を見る。既存の文の書き換え・消し・skip の印の追加は今どおり拒む
+    文は 1 ファイル 1 文（許しの無いファイルを 1 つの文に並べない）。範囲の外の塊が全部、輪の受け入れのテストでない既存のテストの
+    関数の幅に収まるファイルは frozen_asks が相談の頼みに直す（同じ文を line に持つ）"""
+    return [line for _, line, _ in _frozen_rows(state_file, repo, allowed, since, skip_spans)]
+
+
+def _frozen_rows(state_file, repo, allowed, since, skip_spans) -> list:
+    """凍ったファイルの検査の本体（frozen_problems と frozen_asks が共有する、判定の式の 1 か所）。返り [(パス, 文, 範囲の外の塊
+    （`a-b` の文の並び。旧い側の行。許しの範囲が無ければ変わった塊の全部。読めなければ ["（輪が済んだ時の姿が読めない）"]）)]"""
     if not state_file:
         return []
     st = _load(state_file)
@@ -1613,7 +1661,7 @@ def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) 
             line = _def_line(_tree_text(repo, base, path), name)
             if line:
                 scope.setdefault(path, []).append((line, line, True))   # def の行の 1 行の指し（関数の幅に広がる）
-    probs, outside = [], {}
+    out = []
     for f in moved:
         spans = scope.get(f)
         if spans and None in spans:
@@ -1622,17 +1670,67 @@ def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) 
         pruned = _without_additions(was, _now_text(repo, f), f)
         if not spans:
             if not any(_same_code(was, lines) for lines in pruned):
-                probs.append(f)
+                bad = min([_hunks_outside(repo, base, f, []), *(_hunks_outside(repo, base, f, [], new=lines) for lines in pruned)],
+                          key=len)
+                out.append((f, f"TDD の輪で凍ったテストのファイルを書き換えた: {[f]}（輪で直した単位のテストは変えない）", bad))
             continue
         # 足した物を除いた中身のどれか（と今どおりの中身）で範囲の外の塊が無ければ通す。並べるのは一番少ない物
         bad = min([_hunks_outside(repo, base, f, spans), *(_hunks_outside(repo, base, f, spans, new=lines) for lines in pruned)],
                   key=len)
         if bad:
-            outside[f] = bad
-    out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
-    out += [f"TDD の輪で凍ったテストのファイル {f} を、テストの変更の許し（修正案の rewrite_tests の名指しまたは裁定 fix_test_scope）"
-            f"の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
-            "（範囲に並べた行だけ直してよい。.py の 1 行の指しはその行を含む関数の全体）" for f, bad in outside.items()]
+            out.append((f, f"TDD の輪で凍ったテストのファイル {f} を、テストの変更の許し（修正案の rewrite_tests の名指しまたは裁定 "
+                           f"fix_test_scope）の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
+                           "（範囲に並べた行だけ直してよい。.py の 1 行の指しはその行を含む関数の全体）", bad))
+    return out
+
+
+def frozen_asks(state_file, repo, allowed=(), since=None, skip_spans=(), rev=None) -> list:
+    """frozen_problems と同じ計算で、凍ったファイルごとの相談の頼み [{path, tests: [<パス>:<関数の def の行>], line, ref}]。範囲の外の
+    塊（足しただけの文を除いた後の物）が全部、輪の受け入れのテスト（test_spans）でない既存のテストの関数の幅（_function_span）の中に
+    収まるファイルだけ。塊が 1 つでも関数の外（import の行・モジュールの直下の定数・クラスの属性など）か、輪の受け入れのテストの
+    関数に掛かれば頼みにしない（成り立たない frozen の文のまま）。line はそのファイルの frozen_problems の文と同じ。
+    頼みの行の番号は修正前の版 rev の物（範囲の相談の合意の行の読む木は 1 つ。conflict.agreed_permits）で、凍結の基準の木の関数を
+    id で rev の木へ引き直す。rev に無い関数（輪が足した物）・rev が読めない時は頼みにしない。ref は rev で、restore_tests の ref に渡す"""
+    rows = _frozen_rows(state_file, repo, allowed, since, skip_spans)
+    if not rows or not rev:
+        return []
+    st = _load(state_file)
+    base = since or st.get("frozen_tree") or st.get("handoff")
+    mine = test_spans(state_file, list(st.get("units") or {}))
+    out = []
+    for path, line, bad in rows:
+        old = _tree_text(repo, base, path)
+        spans = _hunk_functions(old, bad) if path.endswith(".py") else None
+        if not spans:
+            continue
+        guarded = [_function_span(old.splitlines(), _def_line(_tree_text(repo, base, p), n) or 0) for p, n in mine if p == path]
+        if any(g and s[0] <= g[1] and g[0] <= s[1] for s in spans for g in guarded):
+            continue
+        before = _tree_text(repo, rev, path)
+        ids = [planmarks.id_at(old, path, s[1]) for s in spans]   # 関数の幅の最後の行は幅の中（最も外側の関数の id）
+        lines = [planmarks.line_in(before, i) if i and before is not None else None for i in ids]
+        if all(lines):
+            out.append({"path": path, "tests": [f"{path}:{n}" for n in lines], "line": line, "ref": rev})
+    return out
+
+
+def _hunk_functions(src, bad: list):
+    """src の関数の幅 (始め, 終わり) の並び（重なりは 1 つ）で、bad の塊（`a-b` か `a`。旧い側の行）が全部収まる物。1 つでも関数の
+    外・幅をまたぐ・読めない塊が在れば None。bad が空でも None"""
+    if not bad or src is None:
+        return None
+    lines = src.splitlines()
+    out = []
+    for text in bad:
+        a, sep, b = text.partition("-")
+        if not a.isdigit() or (sep and not b.isdigit()):
+            return None
+        a, b = int(a), int(b) if sep else int(a)
+        span = _function_span(lines, a)
+        if span is None or b > span[1]:
+            return None
+        if span not in out:
+            out.append(span)
     return out
 
 
@@ -1710,6 +1808,17 @@ def frozen_source(state_file, repo, *, since=None):
     return read
 
 
+def rev_source(repo, rev):
+    """版 rev の木から、パスの中身を読む口（conflict.ruled_test_limits の base。範囲の相談の合意の行は修正前の版の行で、凍結の検査が
+    読む木へ移す元）。版・パスが読めなければ口は None を返す（許しを捨てる側）"""
+    def read(path):
+        try:
+            return git(repo, "show", f"{rev}:{path}") if rev else None
+        except Unreadable:
+            return None
+    return read
+
+
 def _now_text(repo, path):
     """作業ツリーの path の中身（無ければ None）"""
     p = pathlib.Path(repo) / path
@@ -1731,6 +1840,7 @@ def _hunks_outside(repo, tree, path, spans, new=None) -> list:
     wide = []
     for s, e, single in (sp for sp in spans if sp):
         w = _function_span(old, s) if single and path.endswith(".py") else None
+        w = _padded(old, w) if w else None   # 関数を丸ごと消す塊は前後の区切りの空行を含む（空行は許しの幅の中）
         wide.append((*(w or (s, e)), w is not None))
     bad = []
     for tag, i1, i2, _, _ in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
@@ -1742,6 +1852,16 @@ def _hunks_outside(repo, tree, path, spans, new=None) -> list:
         if not any(s <= a and b <= e or (ins and f and s - 1 <= a <= e) for s, e, f in wide):
             bad.append(f"{a}-{b}" if b != a else str(a))
     return bad
+
+
+def _padded(old, span):
+    """関数の幅 span (始め, 終わり) を、前と後ろに続く空行まで広げた幅"""
+    a, b = span
+    while a > 1 and not old[a - 2].strip():
+        a -= 1
+    while b < len(old) and not old[b].strip():
+        b += 1
+    return a, b
 
 
 # 凍ったファイルに足しただけの物（frozen_problems）。既存のテストに効く名・枠の掛け金は足した物に数えない

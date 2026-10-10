@@ -858,7 +858,7 @@ class TestFirstPassPlanLimits(unittest.TestCase):
                                                "INPUTS_PASS": "first"}), self.assertRaises(AfterFrozen):
             mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
         frozen.assert_called_once()
-        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY, skip_ids=[], agreed_rows=None)
+        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY, skip_ids=[], agreed_rows=None, base=mock.ANY)
         self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
 

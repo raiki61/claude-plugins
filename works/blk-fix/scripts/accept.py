@@ -44,7 +44,7 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 1d. check_plan_scope: 承認済みの修正案の項目（planmarks.approved_items）と差分を照らす（planscope.check）。範囲（allowed_paths・
    out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
-   無いテストを足した（そのファイルを申告した単位が無い物。申告した単位が在れば拒まず記録の unproven に名指す）・tests のテストが無い、を拒む。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
+   無いテストを足した・tests のテストが無い、を拒む（範囲の外の変更と案の外のテストは「はみ出し」。下の 1e の後の振り分け）。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
    凍らせたファイルなら凍った後に変えた分だけで見る。
    外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。裁定の後
    （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。out_of_scope はテストの許しと
@@ -57,9 +57,19 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
    （今の拒否の道。最後の回はほかの行と同じ決まりで単位に結ぶ）。盤面に done を書く 3 の前に置く
    （拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）。受けた回に束が赤緑を確かめずに飛ばした
-   理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）と、1d の記録の unproven（修正案の外で足したテスト。
-   planscope.UNPROVEN）は盤面の trace の fixgates.SKIPPED_OP の行に載せる（報告と最後の人の関所の文が数える）。2 回目の修正の段（同じブロックの 2 度目の include）の帳面はその scope の物で、
+   理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）は盤面の trace の fixgates.SKIPPED_OP の行に載せる
+   （報告と最後の人の関所の文が数える）。2 回目の修正の段（同じブロックの 2 度目の include）の帳面はその scope の物で、
    裁定の範囲は 1 回目の段の物をいつも許す（fixgates.problems が conflict.second_pass で引く）
+はみ出しの振り分け（-3〜1e の後・3 の前）. 積んだ行を「はみ出し」と「成り立たない」に分ける。はみ出しは、範囲の外のファイル・
+   out_of_scope（planscope の記録 overflow）、案の外で足したテスト（同じ overflow）、名指しの外の既存のテストの関数の書き換え
+   （fixgates.overflow_asks）、凍ったファイルの輪の受け入れのテストでない既存のテストの関数の中だけの書き換え
+   （tddloop.frozen_asks）。成り立たない行は、赤のまま・凍結の関数の外の書き換え・書き込みの出どころ・写しの拒否など、それ以外の
+   全部。成り立たない行が 1 つでも在れば今どおり全部を並べて拒む（最後の回の止めも成り立たない行にだけ当てる）。はみ出しの行だけの回は
+   拒まずに settle_overflow を通す: まだ聞いていない物は範囲の相談に積み（consult.queue。返りは {ok: false, queued: true}。
+   作業ツリーは変えない）、聞いて allow の物は合意として範囲に入っているので行が消え、deny・defer・聞けない物と枠が足りず
+   聞けない物は、機械が元の姿に戻して（パスは revert_units、テストの関数は tddloop.restore_tests）残りの直しで通し直す。
+   戻した物は reverted に渡して 2 度戻さない。戻しても行が残る物は『はみ出しを戻せない』という成り立たない行にする。
+   認めた物と戻した物は受けた回の trace の impact.ACCEPT_OVERFLOW_OP の行に名指す
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
    -3〜1e の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
    not_done に書いた返答を、直しを戻させない自分の文（ACCEPTED_ROWS。check_accepted_rows。id accepted）で拒み、輪の最後の回でもその直しを
@@ -104,6 +114,7 @@ import fixlanes  # noqa: E402   枝の確かめの拒否の見出し CHECK_HEAD�
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
+import planrange  # noqa: E402   項目の範囲の読み・相談の合意を足した項目（.shared/core）
 import planscope  # noqa: E402   承認済みの修正案の項目と差分の照らし（blk-fix/lib）
 import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
 import recount  # noqa: E402
@@ -136,6 +147,10 @@ NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書い�
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
 EXCUSED = ("直す義務から外れた単位を changes に書いた（答えが届くまで・人が決めるまで直さない。changes から外し、not_done に"
            "理由を書け）: ")
+UNREVERTABLE = "はみ出しを戻せない: "   # 戻しても行が残るはみ出しの成り立たない行の頭（後ろに元の文）
+EMPTIED = "はみ出しを戻すと直しが残らない: "   # 戻すとその単位の files が空になる成り立たない行の頭（後ろに単位）
+QUEUED = ("受け付けが範囲の外のはみ出しを見つけ、修正案を書いた役への相談に回した（作業ツリーは変えていない。次の周の指示書に従い、"
+          "答えが出るまで直しを足すな）: ")
 ACCEPTED_ROWS = ("1 回目の修正の段で受け付けた単位を changes か not_done に書いた（その単位の行は機械が 1 回目の控えから足す。"
                  "changes からも not_done からも外せ。作業ツリーのその単位の直しはそのまま残せ）: ")
 ABSORBED_OP = "fix_excused_dropped"   # 最後の回に、義務の外の単位の行を changes から外した・数えなかった拒否の文の盤面の trace の行
@@ -382,10 +397,9 @@ def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: 
     return got, out
 
 
-def revert_units(board, repo, files: set) -> str:
-    """止めた単位の足跡 files を段の頭の木（leftovers.head_tree）に戻す。先に、その木から
-    今の作業ツリー（未追跡の新しいファイルも。一時の index で固めた木）への files の差分を盤面の fix-parked-<n>.patch に控える
-    （戻した木に当てれば戻す前の姿になる）。返りは控えのパス"""
+def keep_patch(board, repo, files) -> str:
+    """段の頭の木（leftovers.head_tree）から今の作業ツリー（未追跡の新しいファイルも。一時の index で固めた木）への files の差分を
+    盤面の fix-parked-<n>.patch に控える（戻した木に当てれば戻す前の姿になる）。返りは控えのパス"""
     b = entry.open_board(board, allow_halted=True)
     head = leftovers.head_tree(board)
     files = sorted(files)
@@ -395,8 +409,15 @@ def revert_units(board, repo, files: set) -> str:
     patch = b.work(f"{PARKED_PATCH}-{n}.patch")
     now = leftovers.snapshot(repo)
     patch.write_bytes(git(repo, "diff", "--binary", "--no-renames", head, now, "--", *files, text=False) if files else b"")
-    tddloop.restore_paths(repo, head, files)
     return str(patch)
+
+
+def revert_units(board, repo, files: set) -> str:
+    """止めた単位の足跡 files を段の頭の木（leftovers.head_tree）に戻す。先に、その木から今の作業ツリーへの files の差分を
+    盤面の fix-parked-<n>.patch に控える（keep_patch）。返りは控えのパス"""
+    patch = keep_patch(board, repo, files)
+    tddloop.restore_paths(repo, leftovers.head_tree(board), sorted(files))
+    return patch
 
 
 def _without_rows(reply: dict, rest: list, mine: set, repo) -> dict:
@@ -472,8 +493,126 @@ def hold_fix(named: dict, written: dict, whole: dict, b, traced) -> dict:
     return {"ok": True, "done": True, "parked": True, "reason": "", "reason_file": "", "changes": changes}
 
 
-def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
-    """修正役の返答の受け付け（モジュールの頭の手順）。parked はこの受け付けが最後の回にもう止めた単位（park_units の通し直しが渡す）"""
+def _items(board) -> list:
+    """承認済みの修正案の項目（範囲の相談の合意を足した物。planrange.with_agreed）。案の無い run・範囲の欄の無い控えは []"""
+    b = entry.open_board(board)
+    items, _ = planrange.approved(b)
+    return planrange.with_agreed(items, conflict.agreed(b)) if items else []
+
+
+def _owner(items: list, path: str):
+    """path を範囲に持つ項目の番号（最初。無ければ項目の最初。項目が無ければ None）"""
+    return next((it.get("item") for it in items if planrange.inside(path, it)), items[0].get("item") if items else None)
+
+
+def gather_overflow(scope_note, frozen, gates: list, board, base_rev, repo) -> list:
+    """受け付けが見つけた、相談に回せるはみ出し [{line, item, paths, tests, new_tests, ref}]。入口は 3 つで、見分けは持ち主が持つ:
+    範囲の持ち主 planscope の記録 overflow、凍結の持ち主 tddloop の頼み（check_frozen の asks）、事後の関門の持ち主 fixgates の
+    test_edits の行（fixgates.overflow_asks）。このモジュールは束ねるだけ"""
+    out = [{"line": o["line"], "item": o.get("item"), "paths": list(o.get("paths") or []), "tests": [],
+            "new_tests": list(o.get("new_tests") or []), "ref": None}
+           for o in (scope_note or {}).get("overflow") or [] if isinstance(o, dict) and o.get("line")]
+    items = _items(board) if frozen or gates else []
+    out += [{"line": a["line"], "item": _owner(items, a["path"]), "paths": [], "tests": list(a["tests"]), "new_tests": [],
+             "ref": a.get("ref")} for a in frozen]
+    rev = writes.base_rev(entry.open_board(board), base_rev)
+    out += [{"line": a["line"], "item": a["item"], "paths": [], "tests": list(a["tests"]), "new_tests": [], "ref": rev}
+            for a in fixgates.overflow_asks(gates, repo, rev, items)]
+    return out
+
+
+def split_rows(found: list, asks: list) -> tuple:
+    """積んだ行 (確かめの id, 文) の並び → (はみ出しの行, 成り立たない行)。はみ出しは文が asks の line を含む行（reject_head が付いても
+    外れない）。『はみ出しを戻せない』の行は成り立たない行"""
+    over, rest = [], []
+    for row in reject_rows(found):
+        hit = not row[1].startswith(UNREVERTABLE) and any(a["line"] in row[1] for a in asks)
+        (over if hit else rest).append(row)
+    return over, rest
+
+
+def _covers(row: dict, ask: dict) -> bool:
+    """相談の行（頼みの行）row が、同じ項目の同じ物 ask（パス・テストの範囲・新しいテストが全部入る）を名指しているか"""
+    return str(row.get("item") or "") == str(ask["item"] or "") and all(
+        set(ask[k]) <= set(row.get(k) or []) for k in ("paths", "tests", "new_tests"))
+
+
+def _queue_rows(asks: list) -> list:
+    """項目ごとに 1 件の頼み（consult.queue の形）にまとめる"""
+    by: dict = {}
+    for a in asks:
+        r = by.setdefault(str(a["item"] or ""), {"item": a["item"], "paths": [], "tests": [], "new_tests": [], "lines": []})
+        for k in ("paths", "tests", "new_tests"):
+            r[k] += [x for x in a[k] if x not in r[k]]
+        r["lines"].append(a["line"])
+    return [{**{k: v for k, v in r.items() if k != "lines"}, "why": "\n".join(r["lines"])} for r in by.values()]
+
+
+def settle_overflow(asks: list, found: list, whole: dict, board, base_rev, repo, *, parked, reverted, trail: dict, pass_: str):
+    """はみ出しの行だけの回の道筋の選び。返りは出口の dict（積んだ {ok: false, queued: true}・戻して通し直した返り）か、拒む時は None
+    （戻しきれない物を成り立たない行にして found に足してある）。見分けは持ち主（planscope の overflow・fixgates.overflow_asks・tddloop.frozen_asks）、聞いた答えは conflict.plan_asks、
+    積みは consult.queue、戻しは keep_patch・revert_units 相当・tddloop.restore_tests・_without_rows が持ち、ここは選ぶだけ:
+    - 戻したのにまだ行が残る物（reverted に在る）は『はみ出しを戻せない』
+    - まだ聞いていない物は積む（枠が足りなければ戻す側）。積んだが ask が頼みにする前の物は積み直さず同じ出口
+    - 聞いた物（allow の後も残る行・deny・defer・invalid・unavailable・refused）は戻す"""
+    b = entry.open_board(board)
+    answered = [r for r in conflict.plan_asks(b) if r.get("origin") == consult.ORIGIN_ACCEPT]
+    pending = consult.queued(b, pass_)
+    stuck = [a for a in asks if a["line"] in reverted]
+    if stuck:
+        for a in stuck:
+            note(found, "scope", UNREVERTABLE + a["line"])
+        return None
+    fresh, back, waiting = [], [], False
+    for a in asks:
+        if any(_covers(r, a) for r in answered):
+            back.append(a)
+        elif any(_covers(r, a) for r in pending):
+            waiting = True
+        else:
+            fresh.append(a)
+    if fresh and consult.queue(b, pass_, _queue_rows(fresh)) or waiting and not fresh:
+        return {"ok": False, "reason": QUEUED + " / ".join(a["line"] for a in asks), "changes": [], "queued": True}
+    back += fresh   # 枠が足りず聞けない物
+    paths = sorted({p for a in back for p in a["paths"]})
+    emptied = [c.get("unit_key") for c in whole.get("changes") or [] if isinstance(c, dict)
+               and declared_files([c], repo) and declared_files([c], repo) <= set(paths)]
+    if emptied:
+        for key in emptied:
+            note(found, "scope", f"{EMPTIED}{key}")
+        return None
+    head = leftovers.head_tree(board)
+    by_ref: dict = {}
+    for a in back:
+        for spec in a["tests"]:
+            by_ref.setdefault(a["ref"], [])
+            if spec not in by_ref[a["ref"]]:
+                by_ref[a["ref"]].append(spec)
+    ids = sorted({i for a in back for i in a["new_tests"]})
+    specs = [s for ss in by_ref.values() for s in ss]
+    test_files = {posixpath.normpath(s.partition("::")[0]) if "::" in s else (conflict.parse_limit(s) or (s,))[0] for s in [*specs, *ids]}
+    patch = keep_patch(board, repo, {*paths, *test_files})
+    tddloop.restore_paths(repo, head, paths)
+    for ref, ss in by_ref.items():
+        tddloop.restore_tests(repo, head, ss, ref=ref)
+    tddloop.restore_tests(repo, head, ids)
+    trail["reverted"].append({"paths": paths, "tests": specs, "new_tests": ids, "patch": patch,
+                              "lines": [a["line"] for a in back]})
+    gone = set(paths)
+    rows = []
+    for c in whole.get("changes") or []:
+        keep = [f for f in c.get("files") or [] if not isinstance(f, str) or not declared_files([{"files": [f]}], repo) & gone] \
+            if isinstance(c, dict) else None
+        rows.append({**c, "files": keep} if keep is not None else c)
+    return accept_fix(_without_rows(whole, rows, gone, repo), board, base_rev, repo, parked=parked,
+                      reverted=reverted | {a["line"] for a in back}, trail=trail)
+
+
+def accept_fix(reply, board, base_rev, repo, *, parked=frozenset(), reverted=frozenset(), trail=None):
+    """修正役の返答の受け付け（モジュールの頭の手順）。parked はこの受け付けが最後の回にもう止めた単位（park_units の通し直しが渡す）。
+    reverted はこの受け付けがもう戻したはみ出しの行の文（settle_overflow の通し直しが渡す。2 度戻さない）、trail は戻した物の控え
+    {"reverted": [...]}（通し直しをまたいで受けた回の trace に名指す）"""
+    trail = {"reverted": []} if trail is None else trail
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
     attempt = int(os.environ.get("INPUTS_ITERATION") or 0)
@@ -505,7 +644,8 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
         absorbed.update(dropped=dropped, absorbed=settled.absorbed)
         return None
 
-    note(found, "frozen", check_frozen(board, state, repo, pass_))
+    frozen_over = []   # 相談に回せる凍ったファイルの頼み（check_frozen が足す）
+    note(found, "frozen", check_frozen(board, state, repo, pass_, asks=frozen_over, base_rev=base_rev))
     wrote = check_writes(reply, board, base_rev, repo, state)
     note(found, "writes", wrote["problems"])
     reply = wrote["reply"]   # 誤りが在っても bash_writes を外した返答（後の確かめはこれを使う）
@@ -536,11 +676,23 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     note(found, "tests", red)
     gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""), attempt, pass_=pass_)
     note(found, "gates", fixgates.reject_lines(gates) if gates else [])
-    if last and found:
-        out = settle([t for _, t in reject_rows(found)])
+    asks = gather_overflow(scope_note, frozen_over, gates, board, base_rev, repo)
+    over, rest = split_rows(found, asks)
+    if over and not rest:   # はみ出しの行だけ: 拒まずに相談に積むか、戻して通し直す
+        got = settle_overflow(asks, found, whole, board, base_rev, repo, parked=parked, reverted=reverted, trail=trail, pass_=pass_)
+        if got is not None:
+            return got
+        over, rest = split_rows(found, asks)
+    if last and rest:   # 最後の回の止めは成り立たない行にだけ当てる
+        out = settle([t for _, t in rest])
         if out is not None:
             return out
-        found = []
+        found = list(over)   # 止める単位が無ければ成り立たない行は外す。はみ出しの行はそのまま（下で相談に回す）
+        if over:
+            got = settle_overflow(asks, found, whole, board, base_rev, repo, parked=parked, reverted=reverted, trail=trail,
+                                  pass_=pass_)
+            if got is not None:
+                return got
     b = entry.open_board(board)
     if conflict.held_reply(b)[0] is not None:   # 2 回目の修正の段: 名前に戻して 1 回目の控えの行を合わせる（検査は済んだ役の返答に当てた）
         named = named_reply(reply, board)
@@ -556,9 +708,12 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
         if scope_note is not None:
             tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
-        gaps += [f"{planscope.UNPROVEN}: {t}" for t in (scope_note or {}).get("unproven") or []]
-        if gaps:   # 束が赤緑を確かめずに受けた回・修正案の外で足したテスト（拒まないが、報告で見えるように）
+        if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
             tb.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
+        agreed = [r.get("id") for r in conflict.agreed(tb) if r.get("origin") == consult.ORIGIN_ACCEPT]
+        guards = [f"{g['id']}: 守りのテスト（base で {g['base']}）" for g in fixgates.guards(board, pass_=pass_, attempt=attempt)]
+        if agreed or trail["reverted"] or guards:   # はみ出しを相談で認めた・機械が戻した・守りのテストを認めた（報告が 1 件ずつ名指す）
+            tb.trace(impact.ACCEPT_OVERFLOW_OP, node=recount.ROLE, agreed=agreed, reverted=trail["reverted"], guards=guards)
         if rows:
             tb.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(tb, rows)))
         if absorbed["dropped"] or absorbed["absorbed"]:
@@ -574,7 +729,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     if out.get("ok") is not True:
         note(found, "copy", out.get("problems") or [str(out.get("reason") or "")])
     if last and found:   # 最後の回の写しの拒否も同じ決まりで結ぶ（止める単位が無ければ機械の空の返答を渡す）
-        got = settle([t for _, t in reject_rows(found)], by_copy=True)
+        got = settle([t for _, t in split_rows(found, asks)[1]], by_copy=True)
         return got if got is not None else hand_empty(found, board, base_rev, repo)
     if found:
         return rejected(found)
@@ -590,7 +745,7 @@ def with_done(out: dict) -> dict:
     """輪を抜ける旗 done（R50）: 通った時か、この周の輪の 3 回目（fix-prep の iteration。INPUTS_ITERATION。範囲の相談の周は数えない）
     の拒否。iteration が数でなければ ValueError（回す側の誤り。main_accept が 2 にする）"""
     it = int(os.environ["INPUTS_ITERATION"])
-    return {**out, "done": out.get("ok") is True or it >= GIVE_UP_AFTER}
+    return {**out, "done": out.get("ok") is True or (it >= GIVE_UP_AFTER and out.get("queued") is not True)}
 
 
 def consulted_out() -> dict:

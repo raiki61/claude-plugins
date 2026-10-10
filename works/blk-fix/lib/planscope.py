@@ -24,7 +24,7 @@
   結ばない）。裁定で範囲が広がるのはこのパスだけで、裁定を受けた単位の全部を外さない（外せば fix_code_as が案の外の変更を
   通す）。out_of_scope には勝たない（案が外したパスが要るのは案の項目の誤りで、範囲の相談か fix_plan_item の道。合意で外れた
   パスだけは、外した項目の out_of_scope に当たらない）
-- 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
+- 識別子の形（planmarks.IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
   日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
   止めない）
 - モジュールの名（_module）: / も :: も無い .py のファイルの名（receivers.py）は、拡張子 py の語でなくモジュールの名
@@ -81,8 +81,6 @@ REJECT_ASK = ("承認済みの修正案の項目から外れた（同じ brief �
               "範囲に入り、同じ会話の続きで直しを続ける。out_of_scope に当たる物が要る時も同じに相談せよ——修正案を書いた役が外した"
               "理由を考え直して決める。相談が聞けない・許されずに仕様として意見が割れる時だけ、変えずに食い違いの申し出で返せ）: ")
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
-IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
-UNPROVEN = "修正案の外で足したテスト（赤を確かめていない）"   # 記録の unproven を受けた回の trace に載せる頭（受け付けの traced）
 DOC = "__doc__"   # docstring の属性の名。字は自分の名を書かないので、adds は語でなく ast でも見る（_doc_added）
 
 
@@ -147,10 +145,6 @@ def _who(it: dict) -> str:
     return f"項目 {it.get('item')}（{'・'.join(_keys(it))}）"
 
 
-def _word(name: str):
-    return re.compile(rf"(?<![\w]){re.escape(name)}(?![\w])")
-
-
 def _definition(name: str):
     """行 1 本が名 name の定義かを search で照らす型。3 本の枝は全部行の頭に錨で止める: `def`・`class`（字下げと、小文字の語の
     修飾子の並び async・export・declare・abstract・public・data などは許す）、`<名> =`、`[function ]<名>()`。行が `"` や `-` など
@@ -161,20 +155,11 @@ def _definition(name: str):
     return re.compile(rf"^[ \t]*(?:[a-z]+[ \t]+)*(?:def|class)[ \t]+{n}\b|^{n}\s*=|^(?:function\s+)?{n}\s*\(\)")
 
 
-def _lookup(name) -> str | None:
-    """adds の name・removes の名で差分を探す語（:: と . で割った最後の段）。識別子の形でない・/ を含む名と、.py のファイルの名
-    （_module が見る。拡張子 py を語にしない）は None（語では確かめない）"""
-    if not isinstance(name, str) or not IDENT.match(name) or "/" in name or name.endswith(".py"):
-        return None
-    last = re.split(r"::|\.", name)[-1]
-    return last or None
-
-
 def _module(name) -> str | None:
     """.py のファイルの名（/ も :: も無い）が宣言するモジュールの名（tddloop._declared_name。0.2.41 の名の規則: receivers.py は
     receivers で、拡張子 py ではない）。ほかの名と、モジュールの名が引けない名（__init__.py だけ・app.receivers.py のように
     拡張子の前に . を含みファイルに結べない名）は None"""
-    if not isinstance(name, str) or not IDENT.match(name) or "/" in name or "::" in name or not name.endswith(".py") \
+    if not isinstance(name, str) or not planmarks.IDENT.match(name) or "/" in name or "::" in name or not name.endswith(".py") \
             or "." in name[:-3]:
         return None
     return tddloop._declared_name(name) or None
@@ -276,7 +261,7 @@ def _remains(raw: str, name: str, changes: dict, diffs: dict) -> bool:
     クラス.名、モジュールなら最上位の素の名、どちらでもないファイルは見ない）。.py でない・構文が読めないファイルは、足した行に
     定義の行（_definition）が在れば残る"""
     qual = _qualifier(raw)
-    word, define = _word(name), _definition(name)
+    word, define = planmarks.word_re(name), _definition(name)
     for p, (_, now) in changes.items():
         added, removed = diffs[p]
         defs = _defined_names(now) if p.endswith(".py") else None
@@ -307,21 +292,20 @@ def _named_paths(text: str, paths) -> list[str]:
 def problems(items: list[dict], rows: list[dict], changes: dict, *,
              permits=(), loop=None) -> tuple[list[str], dict]:
     """承認済みの修正案の項目（items）と差分の外れの行と記録 {"checked": True, "unchecked": [識別子の形でない名], "items": [見た
-    項目の番号], "unproven": [修正案の外で足したテストの id]}。純粋な関数（ファイル・盤面を読まない）。見る物はモジュールの docstring の語と、下の 1〜6:
+    項目の番号], "overflow": [はみ出しの行 {line（拒否の行の文）, item, unit_key, paths, new_tests}]}。純粋な関数（ファイル・盤面を読まない）。見る物はモジュールの docstring の語と、下の 1〜6:
     1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、out_of_scope に当たらない。その単位の項目のどれかが明示に
        許したパスは、その単位の項目の out_of_scope だけで照らし、許していないパスはどの項目の out_of_scope でも照らす
        （_oos_hit_for。その単位の項目が無い行は 2 に回す）
     2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない（単位に結べない
        ので緩めない。当たった行に、そのパスを許す項目を planrange.OWNER_HINT で名指す。決まりは planrange.outside の 1 か所）
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
-    4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing。語が __doc__ なら、
+    4. adds: 探す語（planmarks.search_word）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing。語が __doc__ なら、
        名の def・class の docstring を差分で足していても在る。_doc_added）。canonical の文に
        変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）。.py のファイルの名（_module）は
        そのモジュールのファイルを新設したか、足した行を持つ
     5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない。.py のファイルの名は
        そのモジュールのファイルが消えた
-    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は、そのファイルを files に申告した単位が無ければ Extra。
-       申告した単位が在れば拒まず、記録の unproven に名指す（UNPROVEN。人の関所の条件で足したテスト。run 75d8ed4e）。
+    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra（範囲の相談の合意で項目に入った物は tests に在る）。
        生きた項目の tests の各 id は、そのパスが変わり、今の中身に定義の行が在る
     裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）。
     permits のパスは 1 でも範囲に入る。out_of_scope は permits にも勝つ（1・2 とも先に見る）。ただし範囲の相談の合意でその項目の
@@ -330,7 +314,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
     全部（changes）で見て、修正役に問う外れと余分（1・2・6 の Extra・canonical の外の定義）は凍った後に修正役が変えた分だけ
     （凍った時の中身と今の中身の差分）で見る。凍った後に変わっていないファイルは 1・2 で照らさない"""
     permits, loop = set(permits), dict(loop or {})
-    out, unchecked = [], []
+    out, unchecked, overflow = [], [], []   # overflow: 1・2・6 の行（範囲の外のはみ出し）。受け付けが相談に回す物の見分けは範囲の持ち主のここ
     row_keys = {r.get("unit_key") for r in rows if isinstance(r.get("unit_key"), str)}
     diffs = {p: added_removed(*pair) for p, pair in changes.items()}
     added_all = [(p, line) for p, (add, _) in diffs.items() for line in add]
@@ -354,13 +338,23 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             if f in untouched:
                 continue
             hit = planrange.oos_hit_for(f, mine, items)
+            line = None
             if hit:
-                out.append(planrange.oos_line(f"{key}: ", f, hit))
+                line = planrange.oos_line(f"{key}: ", f, hit)
             elif not (f in permits or any(planrange.inside(f, it) for it in mine)):
                 nums = "・".join(str(it.get("item")) for it in mine)
-                out.append(f"{key}: {f} は項目 {nums} の allowed_paths の外")
+                line = f"{key}: {f} は項目 {nums} の allowed_paths の外"
+            if line:
+                out.append(line)
+                overflow.append({"line": line, "item": mine[0].get("item"), "unit_key": key, "paths": [f], "new_tests": []})
     # 2. 変わったパスの全部（単位に結べないパスの照らしは planrange.outside の 1 か所。手直しの受け付けも同じ）
-    out += planrange.outside(items, [p for p in sorted(changes) if p not in seen and p not in untouched], permits)
+    seen_items = [it for it in items if set(_keys(it)) & row_keys]
+    for p in [p for p in sorted(changes) if p not in seen and p not in untouched]:
+        for line in planrange.outside(items, [p], permits):
+            owner = next((it for it in seen_items if planrange.inside(p, it)), None) or (seen_items[0] if seen_items else None)
+            out.append(line)
+            overflow.append({"line": line, "item": owner.get("item") if owner else None, "unit_key": None, "paths": [p],
+                             "new_tests": []})
     # 3〜6. 見る項目（Missing 側は生きた項目だけ）
     looked = []
     named = {_test_key(row.get("id")) for it in items for row in it.get("tests") or [] if isinstance(row, dict)}
@@ -382,11 +376,11 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
                                         for p in _module_files(mod, changes)):
                     out.append(f"{who}: adds の {raw} のモジュールのファイル（{mod}）が差分で新設されず足した行も持たない")
                 continue
-            name = _lookup(raw)
+            name = planmarks.search_word(raw)
             if name is None:
                 unchecked.append(raw)
                 continue
-            word = _word(name)
+            word = planmarks.word_re(name)
             if not skip and not any(word.search(line) for _, line in added_all) \
                     and not (name == DOC and _doc_added(raw, changes)):
                 out.append(f"{who}: adds の {raw} が差分の足した行に無い" + ("（その def・class の docstring も差分で足されていない）"
@@ -404,13 +398,13 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
                 if not skip and not any(changes[p][1] is None for p in _module_files(mod, changes)):
                     out.append(f"{who}: removes の {raw} のモジュールのファイル（{mod}）が差分で消えていない")
                 continue
-            name = _lookup(raw)
+            name = planmarks.search_word(raw)
             if name is None:
                 unchecked.append(raw)
                 continue
             if skip:
                 continue
-            word = _word(name)
+            word = planmarks.word_re(name)
             if not any(word.search(line) for line in removed_all) or _remains(raw, name, changes, diffs):
                 out.append(f"{who}: removes の {raw} が差分で消えていない（消した行に無いか、足した行に定義が残る）")
         for row in [] if skip else it.get("tests") or []:
@@ -422,17 +416,18 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             now = changes.get(path, (None, None))[1]
             if path not in changes or planmarks.line_in(now, tid) is None:
                 out.append(f"{who}: tests の {tid} が修正の後の木に無い（変えたファイルにその定義が無い）")
-    unproven = []   # 単位が申告したファイルに足した tests に無いテスト（拒まず記録に名指す）
-    for p in sorted(since):
+    for p in sorted(since):   # 6. どの項目の tests にも無い新しいテスト（人の関所の条件で足したテストも。相談で認められれば項目の tests に入る）
         for tid in new_test_ids(p, *since[p]):
             if _test_key(tid) in named:
                 continue
             keys = [r["unit_key"] for r in rows if isinstance(r.get("unit_key"), str) and p in (r.get("files") or [])]
-            if keys:
-                unproven.append(tid)
-                continue
-            out.append(f"{tid} は修正案のどの項目の tests にも無いテストを足した")
-    return out, {"checked": True, "unchecked": unchecked, "items": looked, "unproven": unproven}
+            mine = [it for it in items if keys and keys[0] in _keys(it)] or [it for it in seen_items if planrange.inside(p, it)] \
+                or seen_items
+            line = f"{tid} は修正案のどの項目の tests にも無いテストを足した"
+            out.append(line)
+            overflow.append({"line": line, "item": mine[0].get("item") if mine else None, "unit_key": keys[0] if keys else None,
+                             "paths": [], "new_tests": [tid]})
+    return out, {"checked": True, "unchecked": unchecked, "items": looked, "overflow": overflow}
 
 
 # ---------------------------------------------------------------- 盤面から

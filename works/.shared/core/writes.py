@@ -33,7 +33,8 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import adapter  # noqa: E402
-from leftovers import git  # noqa: E402
+import impact  # noqa: E402  （テストのファイルの名の慣習 is_test）
+from leftovers import Unreadable, git, git_names  # noqa: E402
 
 FIELD = "bash_writes"
 MIN_WHY = 10
@@ -48,6 +49,7 @@ SKIP = (".archon/",)
 NO_RECORD = "書き込みの記録が無い run（包みが無い起動）——書き込みの出どころを突き合わせずに通した"
 NO_RECORD_OP = "writes_unrecorded_run"   # 盤面の trace の行（報告が数える）
 CARRY_TOOL = "unit-merge"               # 単位の worktree の記録を写した行の tool_name（carry）
+BASE_TESTS_UNREAD_OP = "writes_base_tests_unread"   # 修正前の版のテストを読み損ねた（base_test_texts。盤面の trace の行 {rev, unread}）
 LEFT_OP = "writes_left"                  # 拒まずに残した記録の無い変更（欄 bash_writes を持たない手直しの役）
 REJECT = ("作業ツリーの変更に、書き込みの記録（Edit・Write）も申告（bash_writes）も無い——Edit・Write で書き直すか、返答の "
           "bash_writes にパスと、Bash で書いた理由（実行の権限・バイナリ・大量の機械的な置き換え）を書け（射程: 見るのは今の中身を"
@@ -86,6 +88,29 @@ def _rel(p: str):
 def base_rev(b, given: str = "") -> str:
     """突き合わせの起点の版: 盤面の state.inputs.review_rev（start が固めた修正前の版）。無ければ given、それも空なら HEAD"""
     return (b.state.get("inputs") or {}).get("review_rev") or given or "HEAD"
+
+
+def base_test_texts(b, repo) -> dict:
+    """修正前の版（base_rev）に在ったテストの .py（名の慣習 impact.is_test の module）の中身 {パス: 中身}（git ls-tree・git show）。
+    版が読めない・読めないファイルは含めない（空なら {}）が、読み損ねたことは trace の行 BASE_TESTS_UNREAD_OP（版と読めなかった
+    パス。版が読めなければ unread は空でなく ["<版>"]）に残す——含めなかったテストを名指す許しは凍結した欄に載らないので、後の拒否の
+    原因を辿れるようにする"""
+    rev = base_rev(b)
+    try:
+        names = git_names(repo, "ls-tree", "-r", "--name-only", rev)
+    except Unreadable:
+        b.trace(BASE_TESTS_UNREAD_OP, rev=rev, unread=["<版>"])
+        return {}
+    out, unread = {}, []
+    for path in sorted(names):
+        if path.endswith(".py") and impact.is_test(path) == "module":
+            try:
+                out[path] = git(repo, "show", f"{rev}:{path}")
+            except Unreadable:
+                unread.append(path)
+    if unread:
+        b.trace(BASE_TESTS_UNREAD_OP, rev=rev, unread=unread)
+    return out
 
 
 def changed(repo, rev: str) -> list:

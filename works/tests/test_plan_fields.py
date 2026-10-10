@@ -1,6 +1,6 @@
 """修正案の項目の works 側の欄（planmarks）。役の型への重ね・欠けと誤りの行・テストの定義の行の引き・欄を外す受け付けの口・
 盤面の控えの周つきの読み書きを、関数を直に呼んで見る（FAST。種は dev の target-seed を一時の置き場に写すだけ。git・盤面・
-子のプロセスなし）。test_stats.py の test_mean_of_three の定義は 8 行目、test_clamp_within_range は 11 行目"""
+子のプロセスなし。writes.base_test_texts の試験だけは git の写しを使う）。test_stats.py の test_mean_of_three の定義は 8 行目、test_clamp_within_range は 11 行目"""
 import copy
 import json
 import pathlib
@@ -9,12 +9,15 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+from gitkit import committed_copy  # noqa: E402
 import accept  # noqa: E402
 import planmarks  # noqa: E402
+import writes  # noqa: E402
 
 SEED = ROOT / "dev" / "target-seed"
 GRAPH = accept.GRAPH_PATH
@@ -185,6 +188,20 @@ class TestSplitAndBoard(PlanFieldsCase):
         self.assertEqual(fields[0]["rewrite_tests"][0]["limit"], "test_stats.py:11")
         self.assertEqual(fields[0]["route"], "tdd")
         self.assertIn("tests", reply["plan"][0])   # 渡した返答は変えない
+
+    def test_split_freezes_tests_naming_removes_as_permits(self):
+        """removes（消す名）を base の本体で名指すテストは、欄の行の removes_tests に {id, limit} で並ぶ（義務でない許しの行）。
+        探す木は渡された base_tests（作業ツリーで既に消えたテストも並ぶ）。名指さないテストは並ばない"""
+        base_tests = {"test_stats.py": (SEED / "test_stats.py").read_text(encoding="utf-8")}
+        tree = self.repo / "test_stats.py"
+        tree.write_text(base_tests["test_stats.py"].replace(
+            "    def test_clamp_within_range(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n\n", ""), encoding="utf-8")
+        self.assertNotIn("test_clamp_within_range", tree.read_text(encoding="utf-8"))
+        _, fields = planmarks.split({"plan": [item(removes=["stats.clamp"])]}, self.repo, base_tests=base_tests)
+        got = sorted((r["id"], r["limit"]) for r in fields[0]["removes_tests"])
+        self.assertEqual(got, [("test_stats.py::TestStats::test_clamp_above_range", "test_stats.py:14"),
+                               ("test_stats.py::TestStats::test_clamp_within_range", "test_stats.py:11")])
+        self.assertNotIn("test_stats.py::TestStats::test_mean_of_three", [r["id"] for r in fields[0]["removes_tests"]])
 
     def test_save_read_by_round(self):
         b = types.SimpleNamespace(dir=self.tmp, round=1)
@@ -816,6 +833,46 @@ class TestWorldAnswers(PlanFieldsCase):
         self.assertEqual(len(got), 1, got)
         self.assertIn("w-doc", got[0])
         self.assertIn("どの項目も答えていない", got[0])
+
+
+class TestBaseTestTexts(unittest.TestCase):
+    """writes.base_test_texts: 修正前の版のテストを読み損ねたら、黙って空にせず trace の行に残す（凍結した欄の removes_tests が
+    欠けた原因を後で辿れるように）"""
+
+    class Board:
+        def __init__(self, rev):
+            self.state, self.rows = {"inputs": {"review_rev": rev}}, []
+
+        def trace(self, op, **kw):
+            self.rows.append({"op": op, **kw})
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = pathlib.Path(self._tmp.name) / "repo"
+        self.rev = committed_copy(self.repo, SEED)
+
+    def test_readable_base_leaves_no_trace_row(self):
+        b = self.Board(self.rev)
+        self.assertEqual(sorted(writes.base_test_texts(b, self.repo)), ["test_stats.py"])
+        self.assertEqual(b.rows, [])
+
+    def test_unreadable_rev_is_traced(self):
+        b = self.Board("0" * 40)
+        self.assertEqual(writes.base_test_texts(b, self.repo), {})
+        self.assertEqual(b.rows, [{"op": writes.BASE_TESTS_UNREAD_OP, "rev": "0" * 40, "unread": ["<版>"]}])
+
+    def test_unreadable_file_is_traced_with_its_path(self):
+        b = self.Board(self.rev)
+        real = writes.git
+
+        def flaky(repo, *args, **kw):
+            if args[0] == "show":
+                raise writes.Unreadable("git show が落ちた")
+            return real(repo, *args, **kw)
+        with mock.patch.object(writes, "git", flaky):
+            self.assertEqual(writes.base_test_texts(b, self.repo), {})
+        self.assertEqual(b.rows, [{"op": writes.BASE_TESTS_UNREAD_OP, "rev": self.rev, "unread": ["test_stats.py"]}])
 
 
 if __name__ == "__main__":

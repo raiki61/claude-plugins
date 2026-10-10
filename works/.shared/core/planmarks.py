@@ -9,7 +9,13 @@ marks（種 plan。役の型にだけ欄を足し、受け付けが盤面へ渡�
   受け入れのテストが既に在るかを引く口（既定は作業ツリー。同じ run の中の案の直しは修正の起点の版の木）
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
 - line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
-- split(reply, repo)・save(board, rnd, fields)・read(b)・rewrites(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び
+- id_at(src, path, line)・map_range(old, new, first, last)・map_line(old, new, line): line_in の逆（行を含む関数の id）と、行の番号を
+  別の版の木へ移す口
+  （範囲の相談の合意の行は修正前の版の行で、凍結の検査が読む木へはこの 2 つで移す）
+- split(reply, repo, base_tests=)・save(board, rnd, fields)・read(b)・rewrites(b)・removes_permits(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び・
+  removes を本体で名指す既存のテストの並び（base_tests は修正前の版のテストの中身。split が欄 removes_tests に置く許しの行）
+- IDENT・search_word(name)・word_re(name)・test_functions(src, path): adds・removes の名を差分や本体で探す語の決まり・テストの関数の源の引き
+  （blk-fix の planscope・tddloop と split が同じ物を呼ぶ）
 - unit_contract(fields, key): 1 つの単位の約束（その単位を名指す項目の道・受け入れのテスト・書き換えの id・整えの申告を合わせた物。TDD の輪が読む）
 - 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
@@ -42,6 +48,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import difflib
 import hashlib
 import json
 import pathlib
@@ -79,6 +86,9 @@ AMEND_OP = "plan_amended"          # amend だけが書く trace の行 {round, 
 REQUIRED = ("route", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
 ROUTES = ("tdd", "direct")
 RED_KINDS = ("assertion", "exception")
+# 範囲の相談の合意で入る新しいテストだけが使う赤の種類: 守りのテスト（base で緑でよい。人の条件「X を壊さないことを確かめよ」の型）。
+# 修正案の役の tests は今どおり赤を求めるので RED_KINDS には入れない
+GUARD_KIND = "guard"
 MIN_WHY = 10
 _WHY = {"type": "string", "minLength": MIN_WHY}
 MIN_DEVIATION = 20   # 構造の目の避け方・処方から外れる訳の字の下限
@@ -301,6 +311,66 @@ def _py_line(src: str, names: list):
     return fn[0].lineno if fn else None
 
 
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")   # adds の name・removes の名が識別子の形か
+
+
+def search_word(name) -> str | None:
+    """adds の name・removes の名で差分や本体を探す語（:: と . で割った最後の段）。識別子の形でない・/ を含む名と、.py のファイルの名
+    （拡張子 py を語にしない）は None（語では確かめない）"""
+    if not isinstance(name, str) or not IDENT.match(name) or "/" in name or name.endswith(".py"):
+        return None
+    last = re.split(r"::|\.", name)[-1]
+    return last or None
+
+
+def word_re(name: str):
+    """探す語 name を語の境で探す型（前後が語の字でない）"""
+    return re.compile(rf"(?<![\w]){re.escape(name)}(?![\w])")
+
+
+def test_functions(src: str, path: str) -> dict[str, str]:
+    """.py の中身 src から、名前が test で始まる関数（モジュールの直下と、クラスの直下のメソッド。入れ子のクラスも辿る）の
+    id（実行器の node id の形 `<path>::<クラス>[::<内のクラス>…]::<名前>` か `<path>::<名前>`）→ その関数の源
+    （ast.get_source_segment。デコレータの行から）。構文が読めない・path が .py でなければ {}。純粋"""
+    if not path.endswith(".py"):
+        return {}
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return {}
+    out = {}
+
+    def take(node, head):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            top = min([node.lineno] + [d.lineno for d in node.decorator_list])
+            span = ast.Constant(value=None, lineno=top, col_offset=node.col_offset, end_lineno=node.end_lineno,
+                                end_col_offset=node.end_col_offset)   # デコレータの行から本体の終わりまで
+            out[f"{head}::{node.name}"] = ast.get_source_segment(src, span) or ""
+
+    def walk(body, head):
+        for node in body:
+            take(node, head)
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, f"{head}::{node.name}")
+
+    walk(tree.body, path)
+    return out
+
+
+def _naming_removes(item: dict, base_tests: dict) -> list[dict]:
+    """項目 item の removes（消す名）の探す語（search_word）を、base_tests（パス → 修正前の版のテストのファイルの中身）の
+    テストの関数の本体から語の境で探し、当たった関数の行 {id, limit: "<パス>:<定義の行>"} を並びの順で返す。定義の行が引けない
+    関数（入れ子のクラスの中など）は並べない（許しを広げない）"""
+    words = [word_re(w) for w in map(search_word, item.get("removes") or []) if w]
+    out = []
+    for path, text in (base_tests if words else {}).items():
+        for tid, body in test_functions(text, path).items():
+            line = line_in(text, tid) if any(w.search(body) for w in words) else None
+            if line:
+                out.append({"id": tid, "limit": f"{posixpath.normpath(path)}:{line}"})
+    return out
+
+
 def line_in(src: str, test_id: str) -> int | None:
     """テストの id のファイルの中身 src での定義の行（1 始まり。引き方は find_test と同じ）。id の形が違う・名前が無いなら None。
     .py かは _resolve と同じく整えたパス（posixpath.normpath。`t.py/` は t.py）で決める"""
@@ -311,6 +381,45 @@ def line_in(src: str, test_id: str) -> int | None:
     if posixpath.normpath(path).endswith(".py"):
         return _py_line(src, names)
     return next((i for i, line in enumerate(src.splitlines(), 1) if names[-1] in line), None)
+
+
+def id_at(src: str, path: str, line: int) -> str | None:
+    """.py の中身 src の line 行目を含む最も外側の関数（メソッドも）のテストの id（`<path>::<クラス>…::<名前>`。line_in の逆）。
+    関数の外の行・.py でない・構文が読めないなら None"""
+    if not path.endswith(".py"):
+        return None
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return None
+    best = []
+
+    def walk(body, chain):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                top = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                if top <= line <= node.end_lineno and not best:
+                    best[:] = [*chain, node.name]
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body, [*chain, node.name])
+    walk(tree.body, [])
+    return "::".join([path, *best]) if best else None
+
+
+def map_range(old: str, new: str, first: int, last: int) -> tuple[int, int] | None:
+    """old の first〜last 行目（1 始まり）が、new にそのまま（途中に足した行も書き換えた行も無く）在れば、その行の幅。
+    行の番号を別の版の木へ移す口（範囲の指しを別の木で読む）。移せなければ None"""
+    got = difflib.SequenceMatcher(None, old.splitlines(), new.splitlines(), autojunk=False).get_opcodes()
+    for tag, i1, i2, j1, _ in got:
+        if tag == "equal" and i1 < first <= last <= i2:
+            return j1 + first - i1, j1 + last - i1
+    return None
+
+
+def map_line(old: str, new: str, line: int) -> int | None:
+    """old の line 行目と同じ行が new に在れば、その行の番号（map_range の 1 行）"""
+    got = map_range(old, new, line, line)
+    return got[0] if got else None
 
 
 def find_test(repo: pathlib.Path, test_id: str) -> int | None:
@@ -588,10 +697,12 @@ def _declared(adds, repo: pathlib.Path) -> list[str]:
     return out
 
 
-def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
+def split(reply: dict, repo: pathlib.Path, *, base_tests: dict | None = None) -> tuple[dict, list[dict]]:
     """（works の欄を外した返答の写し, 項目と同じ並びの欄）。欄の行は外した欄に、項目の unit_keys の写しと、宣言した名前 adds
     （_declared: adds の name と、canonical が新設の無いモジュールを名指す行のパス）と、rewrite_tests の各行の書き換えてよい範囲
-    limit（"<パス>:<定義の行>"。引けない行には付けない）を足した物。gaps を通った返答に使う"""
+    limit（"<パス>:<定義の行>"。引けない行には付けない）を足した物。gaps を通った返答に使う。
+    base_tests（パス → 修正前の版のテストのファイルの中身）を渡せば、項目の removes を本体で名指すテストの行 removes_tests
+    [{id, limit}] も足す（書き換え・消しを許すだけの行で、義務でない。作業ツリーでは消えたテストも修正前の版で探す）"""
     out, rows = marks.split("plan", NODE, reply, KEYS)
     items = out.get("plan") if isinstance(out, dict) else None
     for it, got in zip(items if isinstance(items, list) else [], rows):
@@ -603,6 +714,8 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
             lim = _limit(repo, _id_of(row)) if _id_of(row) else None
             if lim:
                 row["limit"] = lim
+        if base_tests is not None:
+            got["removes_tests"] = _naming_removes(it, base_tests)
     return out, rows
 
 
@@ -863,10 +976,10 @@ def plan_items(b) -> list | None:
     return out
 
 
-def amend(b, items: dict, repo) -> None:
+def amend(b, items: dict, repo, *, base_tests: dict | None = None) -> None:
     """承認済みの項目を直した項目に差し替えて凍結し直す。items は {番号: 直した項目（CORE_KEYS と KEYS の欄の全部。鍵 item は
     外す）}。直した項目を split に通して欄の行を作り直し（adds の名と rewrite_tests[].limit を repo から引き直す）、今の控え
-    （frozen。食い違えば FieldsBroken）の fields[n-1] をその行に替え、核の欄を AMENDED_KEY[n] に置いて save し直し、trace に
+    （frozen。食い違えば FieldsBroken）の fields[n-1] をその行に替え（base_tests を渡せば removes_tests も引き直す）、核の欄を AMENDED_KEY[n] に置いて save し直し、trace に
     AMEND_OP {round, items} を書く。知らない番号・unit_keys が元と違う項目は ValueError（受け付けが先に拒む物）で、その時は控えも
     trace も変えない。b は dir・round・output_of_round・trace（盤面の trace の書き口）だけを使う"""
     current = approved_items(b)
@@ -881,7 +994,7 @@ def amend(b, items: dict, repo) -> None:
         if _contract_value(it, "unit_keys") != _contract_value(current[n - 1], "unit_keys"):
             raise ValueError(f"項目 {n} の unit_keys が元と違う（元 {current[n - 1].get('unit_keys')!r}・"
                              f"直した物 {it.get('unit_keys')!r}。差し替えは同じ単位の項目だけ）")
-        _, rows = split({"plan": [it]}, repo)
+        _, rows = split({"plan": [it]}, repo, base_tests=base_tests)
         fields[n - 1] = rows[0]
         done[n] = {k: it[k] for k in CORE_KEYS if k in it}
     save(b.dir, b.round, fields, amended=dict(sorted(done.items())), trace=b.trace)
@@ -900,6 +1013,20 @@ def rewrites(b) -> list[dict]:
             if isinstance(row, dict) and isinstance(row.get("limit"), str) and row["limit"]:
                 out.append({"item": n, "unit_keys": list(f.get("unit_keys") or []), "id": row.get("id"),
                             "new": row.get("new"), "limit": row["limit"]})
+    return out
+
+
+def removes_permits(b) -> list[dict]:
+    """今の周の承認済みの修正案の項目の removes（消す名）を本体で名指す既存のテストの並び {item, id, limit}（split が凍結した欄の
+    removes_tests。書き換え・消しを許すだけの行で、義務ではない）。rewrites と同じく frozen で読み（印と食い違えば FieldsBroken）、
+    範囲 limit の無い行は並べない（許しを広げない）"""
+    out = []
+    for n, f in enumerate(frozen(b) or [], 1):
+        if not isinstance(f, dict):
+            continue
+        for row in f.get("removes_tests") or []:
+            if isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("limit"), str) and row["limit"]:
+                out.append({"item": n, "id": row["id"], "limit": row["limit"]})
     return out
 
 

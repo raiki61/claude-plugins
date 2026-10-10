@@ -1632,13 +1632,26 @@ def plan_ask_lines(b) -> list:
 
 def gates_lines(b) -> list:
     """修正の受け付けの事後の関門の束が、受け入れのテストの赤緑を確かめずに受けた回の行（blk-fix の受け付けが盤面の trace に
-    impact.ACCEPT_GATES_SKIPPED_OP で積んだ物）: 回の数と理由（同じ理由は 1 度）。報告の冒頭（head_reads）と最後の人の関所の
+    impact.ACCEPT_GATES_SKIPPED_OP で積んだ物）: 回の数と理由（同じ理由は 1 度）。加えて、受け付けが範囲の外のはみ出しを相談で
+    認めた・機械が戻した行（impact.ACCEPT_OVERFLOW_OP）を 1 件ずつ名指す。報告の冒頭（head_reads）と最後の人の関所の
     文（darkfactory の line_edge._final_text）が載せる"""
+    out = []
     rows = trace_rows(b, impact.ACCEPT_GATES_SKIPPED_OP)
-    if not rows:
-        return []
-    whys = list(dict.fromkeys(w for r in rows for w in r.get("why") or [] if isinstance(w, str)))
-    return [f"事後の関門の束: 受け付け {len(rows)} 回が受け入れのテストの赤緑を確かめずに通した（理由: {' / '.join(whys)[:600]}）"]
+    if rows:
+        whys = list(dict.fromkeys(w for r in rows for w in r.get("why") or [] if isinstance(w, str)))
+        out.append(f"事後の関門の束: 受け付け {len(rows)} 回が受け入れのテストの赤緑を確かめずに通した（理由: {' / '.join(whys)[:600]}）")
+    agreed, undone, guards = [], [], []
+    for r in trace_rows(b, impact.ACCEPT_OVERFLOW_OP):
+        agreed += [f"相談 {i}" for i in r.get("agreed") or [] if f"相談 {i}" not in agreed]
+        undone += [x for x in r.get("reverted") or [] if isinstance(x, dict) and x not in undone]
+        guards += [g for g in r.get("guards") or [] if isinstance(g, str) and g not in guards]
+    if agreed:
+        out.append(f"はみ出しを相談で認めた: {'・'.join(agreed)}（範囲に入れ、新しいテストは赤緑を確かめた）")
+    out += [f"守りのテストを認めた（今の木で緑だけを確かめた）: {g}" for g in guards]
+    for x in undone:
+        what = "・".join([*(x.get("paths") or []), *(x.get("tests") or []), *(x.get("new_tests") or [])]) or "（無し）"
+        out.append(f"はみ出しを戻した（相談で認められなかった・聞けなかった）: {what}（控えの差分 {x.get('patch') or '（無し）'}）")
+    return out
 
 
 def _time(s):

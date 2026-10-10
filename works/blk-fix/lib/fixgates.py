@@ -25,11 +25,14 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   実行器に出来れば、ここで now の一式を名指しだけに絞れる）。実行器（入力 tdd_suite）が無ければ帳面の skipped に NO_SUITE。
   実行器が走らない・base の木を作れない時も skipped に理由（拒まない。輪の実行器が走らない時と同じく、回す側の事情で
   受け付けの回数を使わない）
+  範囲の相談の合意で項目に入った新しいテスト（planrange.with_agreed が項目の tests に印 agreed つきで足す。granted_new_tests）は、
+  項目の route を問わず（direct でも）同じ関門に入れる。赤の種類が守りのテスト（planmarks.GUARD_KIND）なら今の木で緑だけを求め、
+  base の結末（base で何か）は帳面の guards に残す（base で緑でも抜けの行にしない。受けた回の trace が名指す）
 - test_edits: base から今の木で変わったテストのファイル（tddloop.is_test_file: 修正案の受け入れのテスト・書き換えの名指しのパスか名の慣習）のうち、base に在ったテストの関数
   （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのはテストの変更の許し（conflict.test_permits）の
-  行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、範囲の相談の合意・裁定 fix_test_scope の範囲（裁定は裁定の後の
-  受け付けだけ）の中だけを変えた関数。ほかに、修正案の項目の removes（消す名）を base の本体で名指す関数も許す（_removes_ids。
-  消す仕組みを縛るテストは変えざるを得ない。run 6a51125d）。案の直しの単位の行は見ない（前の輪が足したテストは base に無く、ここでは照らさない）。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
+  行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、修正案の項目の removes（消す名）を base の本体で名指す関数の id
+  （行の test。消す仕組みを縛るテストは変えざるを得ない。関数の丸ごとの消しも許す）と、範囲の相談の合意・裁定 fix_test_scope の範囲
+  （裁定は裁定の後の受け付けだけ）の中だけを変えた関数。案の直しの単位の行は見ない（前の輪が足したテストは base に無く、ここでは照らさない）。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
   含む関数の全体に広げ、`<行>-<行>` は書いたとおり（base との差分の塊の旧い側の行が範囲の外なら、その塊に掛かる関数は
   許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部
 
@@ -58,8 +61,8 @@ import cite  # noqa: E402  （.shared/core。名指しの形）
 import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直す義務・テストの変更の許し）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
-import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行・案の項目の removes）
-import planscope  # noqa: E402  （同じブロックの lib。removes の名の探す語の読み口をそのまま使う）
+import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行）
+import planrange  # noqa: E402  （.shared/core。範囲の相談の合意を項目の写しに重ねる with_agreed・項目の範囲 inside）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の関門の読み口をそのまま使う）
 import writes  # noqa: E402  （.shared/core。修正前の版）
 from leftovers import Unreadable, git  # noqa: E402
@@ -68,10 +71,10 @@ LEDGER = "fix-gates.json"
 GATES = ("red_green", "test_edits")
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——受け入れのテストの事後の赤緑は確かめない"
 REJECT = "修正の後の木に、輪の中の関門が通さない物が在る（事後の関門の束）: "
-REDO = ("——並べた行を全部直してから、返答を丸ごと出し直せ（受け入れのテストは base で failure の赤・今の木で緑。名指しの外の"
-        "既存のテストの本体は変えない。案の前提が誤りなら conflicts で申し出よ）")
+REDO = ("——red_green の行を全部直してから、返答を丸ごと出し直せ（受け入れのテストは base で failure の赤・今の木で緑。"
+        "案の前提が誤りなら conflicts で申し出よ）")   # 出し直しの頼みは成り立たない行（red_green）にだけ。test_edits の行は相談に回る（overflow_asks）
 NO_RUN = "受け入れのテストの事後の赤緑を確かめられない"   # skipped の頭（実行器が走らない・base の木を作れない）
-EDITED = "名指しの外の既存のテストの本体を変えた・消した（変えてよいのは修正案の rewrite_tests の名指しと裁定 fix_test_scope の範囲だけ）"
+EDITED = "名指しの外の既存のテストの本体を変えた・消した（変えてよいのは修正案の rewrite_tests の名指しと、修正案が消す名を名指すテストと、裁定 fix_test_scope の範囲だけ）"
 OUT_OF_DUTY = "直す義務の外の単位（止めた・答え待ち・人に回した）だけを名指す項目——受け入れのテストの事後の赤緑は確かめない"
 SKIPPED_OP = impact.ACCEPT_GATES_SKIPPED_OP   # 受けた受け付けの回に飛ばした理由を載せる盤面の trace の行（報告が数える）
 BASE_CACHE = "fixgates-base.json"   # base の木の結末の控え {鍵: JUnit の行か null}（_base_keys。周の置き場の根）
@@ -88,16 +91,16 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     rev = writes.base_rev(b, base_rev)
     fields = conflict.frozen_fields(b)   # 先に読む（食い違いは BoardGap。下の conflict.test_permits はもう投げない）
     tests, gaps = _accept_tests(b, fields)
-    rows = []
+    rows, guards = [], []
     if tests and not suite:
         gaps.append(NO_SUITE)
     elif tests:
-        got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b),
-                              _red_units(b.dir, repo))
+        got, why, guards = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b),
+                                      _red_units(b.dir, repo))
         rows += got
         gaps += why
     rows += _test_edits(b, repo, rev, pass_ == "ruled" or conflict.second_pass(b), [t["id"] for t in tests])
-    _record(b, _mark(pass_, attempt), rows, gaps)
+    _record(b, _mark(pass_, attempt), rows, gaps, guards)
     return rows
 
 
@@ -111,10 +114,36 @@ def _base_cache(b) -> pathlib.Path:
 def reject_lines(rows: list[dict]) -> list[str]:
     """行ごとの拒否の文『REJECT<gate> <id>: <detail>（項目の単位 …）』。最後の文の末に出し直しの頼み REDO。受け付けはこの並びを
     そのまま拒否に渡す（理由は " / " でつないだ 1 つの文で全部の行が並ぶ。最後の回は文ごとに単位に結んで止める）"""
-    out = [f"{REJECT}{r['gate']} {r['id']}: {r['detail']}"
-           + (f"（項目の単位 {'、'.join(r['unit_keys'])}）" if r.get("unit_keys") else "") for r in rows]
-    if out:
+    out = [reject_line(r) for r in rows]
+    if out and any(r["gate"] == "red_green" for r in rows):
         out[-1] += REDO
+    return out
+
+
+def reject_line(row: dict) -> str:
+    """行 1 つの拒否の文（出し直しの頼み REDO を付けない）。受け付けが test_edits の行を相談の頼み（overflow_asks）に結ぶ line"""
+    return f"{REJECT}{row['gate']} {row['id']}: {row['detail']}" + (
+        f"（項目の単位 {'、'.join(row['unit_keys'])}）" if row.get("unit_keys") else "")
+
+
+def overflow_asks(rows: list[dict], repo, rev: str, items) -> list[dict]:
+    """束の行のうち test_edits（EDITED。名指しの外の既存のテストの本体の書き換え）を、範囲の相談の頼み
+    [{item, tests: [<パス>:<base の定義の行>], line}] に直す（受け付けが相談に回す。line は行の拒否の文 reject_line）。item は
+    そのテストのファイルを範囲に持つ項目の最初（無ければ項目の最初）。base に定義の行が引けない行（消えた関数など）は頼みにしない
+    （成り立たない行のまま）"""
+    out = []
+    for r in rows:
+        if r.get("gate") != "test_edits":
+            continue
+        path = tddloop.id_path(r["id"])
+        try:
+            line = planmarks.line_in(git(repo, "show", f"{rev}:{path}"), r["id"])
+        except Unreadable:
+            line = None
+        if not line:
+            continue
+        item = next((it for it in items if planrange.inside(path, it)), None) or (items[0] if items else None)
+        out.append({"item": item.get("item") if item else None, "tests": [f"{path}:{line}"], "line": reject_line(r)})
     return out
 
 
@@ -139,6 +168,19 @@ def skipped(board_dir, *, pass_: str, attempt: int) -> list[str]:
     return [r["why"] for r in doc.get("skipped") or [] if {k: v for k, v in r.items() if k != "why"} == want]
 
 
+def guards(board_dir, *, pass_: str, attempt: int) -> list[dict]:
+    """今の scope の帳面の、受け付けの回 (pass_, attempt) の守りのテストの base の結末 [{id, base}]（無ければ空）。受け付けが受けた回の
+    trace に『守りのテスト（base で <結末>）』として名指す"""
+    path = entry.open_board(board_dir, allow_halted=True).work(LEDGER)
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, TypeError, ValueError):
+        return []
+    want = _mark(pass_, attempt)
+    return [{k: v for k, v in r.items() if k in ("id", "base")} for r in doc.get("guards") or []
+            if {k: v for k, v in r.items() if k not in ("id", "base")} == want]
+
+
 def unchecked(board_dir, *, pass_: str, attempt: int) -> list[str]:
     """受け付けの回 (pass_, attempt) に、確かめるはずの受け入れのテストの赤緑を確かめなかった理由（skipped から OUT_OF_DUTY を
     除いた物）。受け付けが受けた回の盤面の trace に載せる"""
@@ -152,20 +194,27 @@ def unchecked_whys(whys) -> list[str]:
 
 
 def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
-    """(route が tdd の項目のうち直す義務の単位を名指す物（unit_keys の無い項目も）の受け入れのテスト [{id, unit_keys}]
-    （項目の順・id の重複は最初の物。単位は名指した項目の全部）, 義務の外の項目を見なかった理由)"""
+    """(受け入れのテスト [{id, unit_keys, guard}]（項目の順・id の重複は最初の物。単位は名指した項目の全部。guard は守りのテスト
+    （赤の種類が planmarks.GUARD_KIND）か）, 義務の外の項目を見なかった理由)。見るのは、route が tdd の項目の tests と、範囲の相談の
+    合意で項目に入った新しいテスト（planrange.with_agreed。項目の route を問わない）のうち、直す義務の単位を名指す項目（unit_keys の
+    無い項目も）の物。凍結した欄は番号（item）を付けて with_agreed に通して読む"""
     owed = conflict.owed_units_but_asked(b) if fields else set()
+    numbered = [{**f, "item": n} if isinstance(f, dict) else f for n, f in enumerate(fields or [], 1)]
+    seen = planrange.with_agreed([f for f in numbered if isinstance(f, dict)], conflict.agreed(b)) if fields else []
     out, why = {}, []
-    for n, f in enumerate(fields or [], 1):
-        if not isinstance(f, dict) or f.get("route") != "tdd":
+    for n, f in enumerate(seen, 1):
+        n = f.get("item") or n
+        tdd = f.get("route") == "tdd"
+        rows = [t for t in f.get("tests") or [] if tdd or (isinstance(t, dict) and t.get("agreed"))]
+        if not rows:
             continue
         keys = [k for k in f.get("unit_keys") or [] if isinstance(k, str)] if isinstance(f.get("unit_keys"), list) else []
         if keys and not set(keys) & owed:
             why.append(f"{OUT_OF_DUTY}: 修正案の項目 {n}（単位 {'、'.join(keys)}）")
             continue
-        for t in f.get("tests") or []:
+        for t in rows:
             if isinstance(t, dict) and isinstance(t.get("id"), str) and t["id"].strip():
-                got = out.setdefault(t["id"], {"id": t["id"], "unit_keys": []})
+                got = out.setdefault(t["id"], {"id": t["id"], "unit_keys": [], "guard": t.get("red_kind") == planmarks.GUARD_KIND})
                 got["unit_keys"] += [k for k in keys if k not in got["unit_keys"]]
     return list(out.values()), why
 
@@ -201,8 +250,9 @@ def _red_units(board_dir, repo: pathlib.Path) -> dict:
 
 
 def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path,
-               loop: dict | None = None) -> tuple[list, list]:
-    """(行, 飛ばした理由)。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回走らせ、base の木の結末は控え（cache。
+               loop: dict | None = None) -> tuple[list, list, list]:
+    """(行, 飛ばした理由, 守りのテストの base の結末 [{id, base}])。守りのテスト（guard。赤の種類が planmarks.GUARD_KIND）は今の木で
+    緑だけを求め、base の結末は抜けの行にせず返す。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回走らせ、base の木の結末は控え（cache。
     _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる。loop（_red_units）に在る名指しは赤を輪の
     赤の木で走らせ直して見て（_red_tree_probs。結末は同じ控えに _red_key の鍵で残す）、base の木では passed の時だけ拒む。赤の判定は輪と同じ
     tddloop.red_check の事実の文（行の detail は『base で 』か RED_TREE_HEAD を頭に付けて並べる）"""
@@ -214,10 +264,10 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
     finally:
         tddloop.restore_paths(repo, tree, tddloop.touched(repo, tree, tddloop.snapshot(repo)))   # 走らせて出来た物を消す
     if now is None:
-        return [], [f"{NO_RUN}（今の木で実行器が走らない: {'; '.join(why)}）"]
+        return [], [f"{NO_RUN}（今の木で実行器が走らない: {'; '.join(why)}）"], []
     red, why = _red_tree_probs(repo, rev, suite, [i for i in ids if tddloop._norm_id(i) in (loop or {})], loop or {}, work, cache)
     if red is None:
-        return [], [f"{NO_RUN}（輪の赤の木: {'; '.join(why)}）"]
+        return [], [f"{NO_RUN}（輪の赤の木: {'; '.join(why)}）"], []
     copy = sorted(set(_test_files(repo, rev, tree, ids)) | {tddloop.id_path(i) for i in ids})
     keys = _base_keys(repo, rev, suite, ids, copy)
     seen = tddloop.load_json(cache, {})
@@ -226,16 +276,19 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
     if need:
         base, why = _base_run(repo, rev, suite, need, copy, work)
         if base is None:
-            return [], [f"{NO_RUN}（base の木: {'; '.join(why)}）"]
+            return [], [f"{NO_RUN}（base の木: {'; '.join(why)}）"], []
         seen = {**tddloop.load_json(cache, {}), **{keys[i]: rules.match_case(i, base) for i in need}}
         tddloop.save_json(cache, seen)
-    rows = []
+    rows, guards = [], []
     for t in tests:
         c = rules.match_case(t["id"], now)
         if c is None or c["outcome"] != "passed":
             rows.append(_row("red_green", t["id"], f"今の木で {c['outcome'] if c else '一式の結末に居ない'}（受け入れのテストが緑でない）",
                              t["unit_keys"]))
         base = [seen[keys[t["id"]]]] if seen.get(keys[t["id"]]) else []   # base の木の結末のうちこのテストに当たる行（無ければ空）
+        if t.get("guard"):   # 守りのテスト: base の結末は抜けにせず控える
+            guards.append({"id": t["id"], "base": base[0]["outcome"] if base else "一式の結末に居ない"})
+            continue
         probs, _ = tddloop.red_check([t["id"]], base, None, None)
         if t["id"] in red:   # 赤は赤の木で見る。base の木では直す前から通る時だけ拒む
             if red[t["id"]]:
@@ -245,7 +298,7 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
             continue
         if probs:
             rows.append(_row("red_green", t["id"], "base で " + "；".join(probs), t["unit_keys"]))
-    return rows, []
+    return rows, [], guards
 
 
 def _red_key(repo: pathlib.Path, suite: str, test_id: str, u: dict) -> str:
@@ -360,7 +413,7 @@ def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool, ids=()) -> list[di
     if not files:
         return []
     limits = [p["limit"] for p in permits if "limit" in p and "test" not in p]   # 合意と裁定の範囲（裁定は 1 回目は空）
-    allowed = set(plan) | _ruled_ids(repo, rev, files, limits) | _removes_ids(b, repo, rev, files)
+    allowed = set(plan) | _ruled_ids(repo, rev, files, limits)
     return [_row("test_edits", i, EDITED) for i in tddloop.unnamed_edits(repo, rev, files, allowed)]
 
 
@@ -398,21 +451,6 @@ def _ruled_ids(repo, rev: str, files: list, limits: list) -> set:
     return out
 
 
-def _removes_ids(b, repo, rev: str, files: list) -> set:
-    """修正案の項目の removes（消す名）を base の本体で名指す、base のテストの関数の id（消す仕組みを縛るテストは変えざるを
-    得ない。run 6a51125d）。名は案の照らしと同じ探す語（planscope._lookup）を語の境（planscope._word）で探す"""
-    words = [planscope._word(n) for it in planmarks.plan_items(b) or [] if isinstance(it, dict)
-             for n in map(planscope._lookup, it.get("removes") or []) if n]
-    out = set()
-    for path in files if words else []:
-        try:
-            old = git(repo, "show", f"{rev}:{path}")
-        except Unreadable:
-            continue
-        out |= {i for i, body in tddloop.test_functions(old, path).items() if any(w.search(body) for w in words)}
-    return out
-
-
 def _old_spans(bad: list):
     """tddloop.hunks_outside の『a-b』『a』の並び → [(a, b)]。ほかの文（旧い姿が読めない）が在れば None"""
     out = []
@@ -428,9 +466,9 @@ def _row(gate: str, test_id: str, detail: str, keys=()) -> dict:
     return {"gate": gate, "id": test_id, "detail": detail, "unit_keys": list(keys)}
 
 
-def _record(b, mark: dict, rows: list, skipped: list) -> None:
-    """帳面に積む（同じ回の印・同じ中身の行と skipped は積み増さない）。積む物が無ければ書かない"""
-    if not rows and not skipped:
+def _record(b, mark: dict, rows: list, skipped: list, guards: list = ()) -> None:
+    """帳面に積む（同じ回の印・同じ中身の行と skipped と守りのテストの結末は積み増さない）。積む物が無ければ書かない"""
+    if not rows and not skipped and not guards:
         return
     path = b.work(LEDGER)
     try:
@@ -438,7 +476,9 @@ def _record(b, mark: dict, rows: list, skipped: list) -> None:
     except FileNotFoundError:
         doc = {}
     doc = {"rows": list(doc.get("rows") or []), "skipped": list(doc.get("skipped") or [])}
-    before = (len(doc["rows"]), len(doc["skipped"]))
+    if doc_guards := list(doc.get("guards") or []):
+        doc["guards"] = doc_guards
+    before = (len(doc["rows"]), len(doc["skipped"]), len(doc_guards))
     for r in rows:
         row = {**mark, **r}
         if row not in doc["rows"]:
@@ -447,7 +487,11 @@ def _record(b, mark: dict, rows: list, skipped: list) -> None:
         row = {**mark, "why": why}
         if row not in doc["skipped"]:
             doc["skipped"].append(row)
-    if (len(doc["rows"]), len(doc["skipped"])) == before:
+    for g in guards:
+        row = {**mark, **g}
+        if row not in doc.setdefault("guards", []):
+            doc["guards"].append(row)
+    if (len(doc["rows"]), len(doc["skipped"]), len(doc.get("guards") or [])) == before:
         return
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")

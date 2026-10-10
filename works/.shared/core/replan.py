@@ -92,6 +92,7 @@ import recount  # noqa: E402
 import rolekit  # noqa: E402
 import scopes  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
+import writes  # noqa: E402  （修正前の版のテストの中身）
 
 CLOSE_WHY = "同じ run の中で案の直しを終えられなかった（案の段に戻るのは 1 run に 1 回）"
 HALTED_WHY = "run が止まった（{by}: {reason}）ので、案の直しを終えなかった"
@@ -730,7 +731,7 @@ def answer(board_dir, repo, gate: dict | None, *, fix_notes="") -> dict:
             done = planmarks.amended(b)
             todo = {r["item"]: new_item(r) for r in taken if r["item"] not in done}
             if todo:
-                planmarks.amend(b, todo, pathlib.Path(repo))
+                planmarks.amend(b, todo, pathlib.Path(repo), base_tests=writes.base_test_texts(b, repo))
             conflict.set_replan(b, [i for r in taken for i in r.get("rows") or []], conflict.AMENDED)
             traced = _widen_traced(b)
             for r in taken:

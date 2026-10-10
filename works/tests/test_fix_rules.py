@@ -157,7 +157,7 @@ class TestSharedSource(unittest.TestCase):
             self.assertIn(w, faces)
 
     def test_every_rules_file_is_cut_into_sections(self):
-        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-ask-sub", "fix-consult-resume", "fix-lane", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
+        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-ask-sub", "fix-consult-resume", "fix-overflow-queued", "fix-overflow-resume", "fix-lane", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
                           (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end", "tdd-lane"])):

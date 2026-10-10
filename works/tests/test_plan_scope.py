@@ -73,28 +73,71 @@ class ProblemsCase(unittest.TestCase):
         self.assertEqual(note["unchecked"], ["平均の定義の注記", "古い注記の文"])
 
     def test_new_test_must_be_named_in_tests(self):
-        """tests に無い新しいテストは、そのファイルを申告した単位が無ければ拒む"""
+        """tests に無い新しいテストは拒み、記録の overflow に名指す（申告した単位が無くても同じ）。tests に名指せば拒否の行も
+        overflow も空"""
         base = "class TestStats:\n    def test_a(self):\n        pass\n"
         ch = {**STATS, "test_stats.py": (base, base + "    def test_extra(self):\n        pass\n")}
         it = item(allowed_paths=["stats.py", "test_stats.py"])
         got, note = planscope.problems([it], [ROW], ch)
         self.assertTrue(any("test_stats.py::TestStats::test_extra" in p and "tests にも無い" in p for p in got), got)
-        self.assertEqual(note.get("unproven"), [])
+        self.assertEqual([t for o in note.get("overflow") or [] for t in o["new_tests"]], ["test_stats.py::TestStats::test_extra"])
         named = item(tests=[{"id": "test_stats.py::TestStats::test_extra"}])
         rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
         got, note = planscope.problems([named], rows, ch)
-        self.assertEqual((got, note.get("unproven")), ([], []))
+        self.assertEqual((got, note.get("overflow")), ([], []))
 
     def test_new_test_in_unit_files_is_recorded_not_rejected(self):
-        """run 75d8ed4e: 人の関所の条件に合わせて、単位が申告したファイルに tests に無いテストを足した。拒まず、修正案の外で
-        足したテスト（赤を確かめていない）として記録の unproven に名指す"""
+        """run 75d8ed4e: 人の関所の条件に合わせて、単位が申告したファイルに tests に無いテストを足した。赤を確かめずに通さず、
+        拒否の行にして記録の overflow に（その id・項目・単位を）並べる。unproven の欄は無い"""
         base = "class TestStats:\n    def test_a(self):\n        pass\n"
         ch = {**STATS, "test_stats.py": (base, base + "    def test_extra(self):\n        pass\n")}
         rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
         it = item(allowed_paths=["stats.py", "test_stats.py"])
         got, note = planscope.problems([it], rows, ch)
-        self.assertEqual(got, [])
-        self.assertEqual(note.get("unproven"), ["test_stats.py::TestStats::test_extra"])
+        tid = "test_stats.py::TestStats::test_extra"
+        self.assertTrue(any(tid in p for p in got), got)
+        (over,) = note["overflow"]
+        self.assertEqual((over["item"], over["unit_key"], over["new_tests"]), (1, MEAN, [tid]))
+        self.assertIn(over["line"], got)
+        self.assertNotIn("unproven", note)
+
+    def test_new_test_outside_plan_is_overflow(self):
+        """単位が申告したファイルに、どの項目の tests にも無いテストを足すと、拒否の行に入り、記録の overflow にその id と項目の
+        番号と単位が並ぶ（応急処置の unproven の欄は無い）"""
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        ch = {**STATS, "test_stats.py": (base, base + "    def test_extra(self):\n        pass\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
+        got, note = planscope.problems([item(allowed_paths=["stats.py", "test_stats.py"])], rows, ch)
+        tid = "test_stats.py::TestStats::test_extra"
+        self.assertTrue(any(tid in p for p in got), got)
+        over = note.get("overflow")
+        self.assertEqual([(o["item"], o["unit_key"], o["new_tests"]) for o in over or []], [(1, MEAN, [tid])], note)
+        self.assertTrue(all(o["line"] in got for o in over), (over, got))
+        self.assertNotIn("unproven", note)
+
+    def test_outside_path_is_overflow_with_item(self):
+        """行の申告したパスが項目の allowed_paths の外なら、拒否の行と同じ文が overflow の line に入り、item はその単位の項目、
+        paths はそのパス"""
+        got, note = planscope.problems([ITEM], [{"unit_key": MEAN, "files": ["other.py"]}], {**STATS, "other.py": (None, "x = 1\n")})
+        line = next(p for p in got if MEAN in p and "other.py" in p and "項目 1" in p)
+        over = note.get("overflow")
+        self.assertEqual([(o["line"], o["item"], o["unit_key"], o["paths"]) for o in over or []], [(line, 1, MEAN, ["other.py"])], note)
+
+    def test_agreed_new_test_joins_item_tests(self):
+        """範囲の相談の合意（granted_new_tests）を持つ行を with_agreed に通した項目では、その新しいテストが項目の写しの tests に
+        印 agreed と red_kind つきで並び、tests に無いテストの拒否の行（6）にならない"""
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        ch = {**STATS, "test_stats.py": (base, base + "    def test_extra(self):\n        pass\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
+        tid = "test_stats.py::TestStats::test_extra"
+        agreed = [{"item": "1", "granted_paths": [], "granted_tests": [],
+                   "granted_new_tests": [{"id": tid, "red_kind": "assertion"}]}]
+        got = planscope.with_agreed([ITEM], agreed)
+        (row,) = got[0]["tests"]
+        self.assertEqual((row["id"], row["red_kind"]), (tid, "assertion"))
+        self.assertTrue(row.get("agreed"), row)
+        self.assertEqual(ITEM["tests"], [], "元の項目は変えない")
+        self.assertEqual(planscope.problems(got, rows, ch)[0], [])
 
     def test_named_test_missing_after_fix(self):
         it = item(tests=[{"id": "test_stats.py::TestStats::test_mean_of_two"}])

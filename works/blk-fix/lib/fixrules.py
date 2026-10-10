@@ -8,7 +8,9 @@
 - rules/brief.md: 要求の正本の決まり（節 brief-canon）。頭に並んだ brief（承認済みの修正案の項目を planbrief が切り出して凍結した物）を
   要求の正本とし、判定のファイルを背景に下げる。修正役と TDD の輪の役にだけ、頭の節の次にいつも載せる（裁定役と手直しの役には
   載せない。頭に brief の節が無い run では、節の 6 で判定のファイルが正本のまま）
-- rules/direct.md: 直す役（節 fix）の道。fix-head（役・読む物。run の値の穴 <<名>>）・fix-keep・fix-reply（返答の欄の書き方）
+- rules/direct.md: 直す役（節 fix）の道。fix-head（役・読む物。run の値の穴 <<名>>）・fix-keep・fix-reply（返答の欄の書き方）。
+  受け付けが見つけたはみ出しを相談に回した周の続き（fix-overflow-queued）と、その答えの後の続き（fix-overflow-resume）も、この道の節
+  （指示書は組み直さず、前に読んだ指示書を名指して前の返答と同じ JSON を返させる）
 - rules/tdd.md: TDD の輪の役（節 tdd）の道。tdd-head・tdd-remap（この輪での読み替え）・tdd-phase-<段>（今の段の約束だけ）・tdd-end
 - rules/ruler.md・principles.md: 食い違いの申し出の裁定役（節 rule。読むだけ）の道と、持ち主の決まり（裁定の拠り所）。
   修正役と TDD の輪の役の両方に、正本の core-conflict（緑にするために曲げず、食い違いとして返す）をいつも載せる
@@ -124,6 +126,7 @@ ASK_DRAFT = "draft-reply.json"   # 修正役が事前の確かめに渡す返答
 RIPPLE_LINE = ("波及の一覧: {path}（承認済みの修正案の項目が変える名の呼び出し元と試験。範囲に入っていない当たりを名指す。その当たりを"
                "直しで触る必要が出たら、書く前に上の範囲の相談で聞け）")
 RESUME_FILE = "consult-{pass_}-{turn}-resume.md"   # 範囲の相談の答えの後の続きの指示書（今の scope の周の作業ファイル）
+OVERFLOW_QUEUED_FILE = "consult-{pass_}-overflow-queued.md"   # 受け付けがはみ出しを相談に積んだ周の続きの指示書（同じ）
 ASK_WHY = "範囲の相談の控えが在る（相談の相手の会話の印の名 plan_session と承認済みの修正案の項目が在る run）"
 _sha = rulebook.sha
 _pick = rulebook.pick
@@ -498,10 +501,21 @@ def resume(b, path: pathlib.Path, got: dict, pass_: str) -> pathlib.Path:
     """範囲の相談の答えの後の続きの指示書（rules/direct.md の節 fix-consult-resume。答えのファイル・前の指示書 path・残りの枠）を
     今の scope の周の作業ファイル RESUME_FILE に書いてそのパスを返す。役は同じ会話の続きで起きる（印の旗 self-resume か
     continue=fix）ので決まりは貼り直さない。言語の 1 行（rolekit.lang_line）だけ足す"""
-    text = fill(sections(DIRECT)["fix-consult-resume"], {"answer_file": got["answer_file"], "prompt_file": str(path),
-                                                         "left": str(got["left"])})
+    # 受け付けが見つけたはみ出しの相談（答えの行の origin が accept）の答えには、はみ出し用の続き（戻すのは機械）を選ぶ
+    node = "fix-overflow-resume" if got.get("origin") == consult.ORIGIN_ACCEPT else "fix-consult-resume"
+    text = fill(sections(DIRECT)[node], {"answer_file": got["answer_file"], "prompt_file": str(path), "left": str(got["left"])})
     lang = rolekit.lang_line(b.state.get("inputs"))
     out = b.work(RESUME_FILE.format(pass_=pass_, turn=got["turn"]))
+    out.write_text(text.rstrip("\n") + "\n" + (f"\n{lang}\n" if lang else ""), encoding="utf-8")
+    return out
+
+
+def overflow_queued(b, path: pathlib.Path, pass_: str) -> pathlib.Path:
+    """受け付けがはみ出しを相談に積んだ周の続きの指示書（rules/direct.md の節 fix-overflow-queued。前の指示書 path）を今の scope の
+    周の作業ファイルに書いてそのパスを返す。指示書は組み直さない（役は同じ会話の続きで、作業ツリーを変えずに前の返答と同じ JSON を返す）"""
+    text = fill(sections(DIRECT)["fix-overflow-queued"], {"prompt_file": str(path)})
+    lang = rolekit.lang_line(b.state.get("inputs"))
+    out = b.work(OVERFLOW_QUEUED_FILE.format(pass_=pass_))
     out.write_text(text.rstrip("\n") + "\n" + (f"\n{lang}\n" if lang else ""), encoding="utf-8")
     return out
 
@@ -683,6 +697,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     lanes（lanes_text）を置く。
     範囲の相談の答えがまだ渡っていない周（consult.take。前の周の返答が consult を持ち、確かめの節が答えを書いた）は、指示書を
     組み直さずに答えのファイルを名指す続きの指示書（resume）だけを書き、iteration は前の回のまま（相談の周は受け付けの回に数えない）。
+    受け付けがはみ出しを相談に積んだ周（consult.queued）も組み直さず、前の返答と同じ JSON を返させる続きの指示書（overflow_queued）だけを書く。
     修正役が下請けを起こす単位（dispatched。輪が緑にした単位の外）が在れば、下請けを回す節（seat.g1_section。下請けのファイルは
     g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: 単位ごとに新しい会話）。輪が全部を緑にした周は借りたスキルの
     座（seat.section。型の穴は implementer_values）を載せる。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を
@@ -704,6 +719,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     if got is not None:   # 範囲の相談の答えの後の周: 同じ会話の続きに答えのファイルを名指すだけ（受け付けの回は数え直さない）
         m = b.mark_launched(nid, inst.get("attempts", 1))
         return {"prompt_file": str(resume(b, path, got, pass_)), "attempt": m["attempt"], "out_path": m["out_path"],
+                "node": nid, "already": m["already"], "iteration": max(1, iteration_next(path) - 1)}
+    if consult.queued(b, pass_):   # 受け付けがはみ出しを相談に積んだ周: 指示書を組み直さず、前の返答と同じ JSON を返させる（iteration は前の回のまま）
+        m = b.mark_launched(nid, inst.get("attempts", 1))
+        return {"prompt_file": str(overflow_queued(b, path, pass_)), "attempt": m["attempt"], "out_path": m["out_path"],
                 "node": nid, "already": m["already"], "iteration": max(1, iteration_next(path) - 1)}
     n = iteration_next(path)
     reject = last_reject(board_dir) if inst.get("launched_at") else ""

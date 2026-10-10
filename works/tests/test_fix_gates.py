@@ -26,8 +26,10 @@ sys.path.insert(0, str(TESTS))
 import test_blk_fix as tbf  # noqa: E402
 import test_blk_fix_tdd as tbt  # noqa: E402
 import conflict  # noqa: E402
+import consult  # noqa: E402
 import entry  # noqa: E402
 import fixgates  # noqa: E402
+import impact  # noqa: E402
 import planmarks  # noqa: E402
 import report  # noqa: E402
 
@@ -48,6 +50,27 @@ NO_JUNIT = "import sys\nsys.exit(0)\n"   # JUnit を書かない実行器
 _PLAN_REPLY = tbf.plan_reply   # 種の 1 項目の案。差し替えの中から呼ぶ（差し替えた名を呼ぶと自分を呼ぶ）
 REWRITE = {"id": THREE_ID, "behavior": "3 つの値の平均の期待", "old": "期待は 2", "new": "期待を 2.0 に書き換える",
            "limit": "test_stats.py:8"}
+
+
+def strings(v):
+    """入れ子の dict・list の中の文字列の全部"""
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict):
+        for x in v.values():
+            yield from strings(x)
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            yield from strings(x)
+
+
+def asked_row(paths=(), new_tests=(), decision="deny", granted_new_tests=(), **over):
+    """範囲の相談の確かめの行（conflict.ASKED_OP。受け付けが見つけたはみ出しを聞いた物。origin accept）"""
+    return {"id": 1, "at": "2026-10-10T00:00:00+09:00", "turn": 2, "pass": "first", "round": 1, "node": "plan-answer", "item": "1",
+            "unit_keys": [tbf.MEAN], "paths": list(paths), "tests": [], "new_tests": list(new_tests), "why": "案の外のはみ出しを聞いた",
+            "status": "answered", "decision": decision, "granted_paths": [], "granted_tests": [],
+            "granted_new_tests": list(granted_new_tests), "spec": "", "reason": "範囲の中で直せる", "notes": [], "out_of_scope": [],
+            "overrode_out_of_scope": [], "session": None, "origin": "accept", **over}
 
 
 def direct_fields(**over):
@@ -128,6 +151,33 @@ class TestRedGreen(FixGatesCase):
         self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
         self.edit_tree({"def clamp(x, lo, hi):": "def halve(x):\n    return x / 2\n\n\ndef clamp(x, lo, hi):"})
         self.assertEqual(self.problems(), [])
+
+    def agree(self, tid, red_kind):
+        """範囲の相談の合意（allow の行）で、項目 1 に新しいテスト tid が入った盤面にする"""
+        row = asked_row(new_tests=[tid], decision="allow", granted_new_tests=[{"id": tid, "red_kind": red_kind}])
+        entry.open_board(self.board, allow_halted=True).trace(conflict.ASKED_OP, **row)
+
+    def test_agreed_new_test_is_checked_red_green(self):
+        """範囲の相談の合意で項目に入った新しいテストは、項目が direct（受け入れのテストが無い）でも事後の関門の red_green が
+        確かめ、base で緑なら抜けの行になる"""
+        self.ready_with_fields(direct_fields())
+        self.agree(MEAN_ID, "assertion")
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        rows = self.problems()
+        self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
+        self.assertIn("base で緑", rows[0]["detail"])
+
+    def test_agreed_guard_test_needs_only_green_now(self):
+        """合意の red_kind が守りのテスト（GUARD_KIND）の新しいテストは、base で緑でも抜けの行にならない。今の木で赤なら抜けの行"""
+        self.ready_with_fields(direct_fields())
+        self.agree(MEAN_ID, planmarks.GUARD_KIND)
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        self.assertEqual(self.problems(), [], "base で緑でも守りのテストは抜けにならない")
+        self.edit_tests("    def test_mean_of_two(self):\n        self.assertEqual(clamp(5, 0, 10), 5)",
+                        "    def test_mean_of_two(self):\n        self.assertEqual(clamp(5, 0, 10), 6)")
+        rows = self.problems(attempt=2)
+        self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
+        self.assertIn("今の木", rows[0]["detail"])
 
     def test_not_green_now_is_a_miss(self):
         """受け入れのテストが base で正しく赤でも、今の木で緑でなければ行（直していない）"""
@@ -531,20 +581,36 @@ class TestTestEdits(FixGatesCase):
         self.rule(["test_stats.py:9"], amended=True)
         self.assertEqual(self.problems(pass_="first"), [])
 
-    def removes_plan(self, removes):
-        """修正案の項目の removes（消す名）を removes にした案で盤面を作る差し替え"""
-        def reply(narrows=()):
-            got = _PLAN_REPLY(narrows)
-            got["plan"][0]["removes"] = list(removes)
-            return got
-        return mock.patch.object(tbf, "plan_reply", reply)
+    CLAMP_TESTS = [("test_stats.py::TestStats::test_clamp_within_range", "test_stats.py:11"),
+                   ("test_stats.py::TestStats::test_clamp_above_range", "test_stats.py:14")]   # 本体で clamp を名指す種のテスト
+
+    def removes_fields(self, *, base_tests=None, rows=()):
+        """removes に stats.clamp を持つ direct の項目の欄を、種の木を相手に planmarks.split で作る（リポジトリの複製はまだ無い）。
+        base_tests を渡せば split が removes_tests を引き、rows を渡せばその行（{id, limit}）を欄にそのまま足す"""
+        it = {"unit_keys": [tbf.MEAN], "approach": "x" * 20, "adds": [], "removes": ["stats.clamp"], "shrink_first": "y" * 20,
+              "narrows": [], "route": "direct", "route_why": "既存の期待の書き換えだけの項目", "tests": [], "rewrite_tests": [],
+              "refactor": {"declared": False, "why": ""}}
+        kw = {} if base_tests is None else {"base_tests": base_tests}
+        _, fields = planmarks.split({"plan": [it]}, tbf.SEED, **kw)
+        if rows:
+            fields[0]["removes_tests"] = [{"id": i, "limit": lim} for i, lim in rows]
+        return fields
+
+    def test_removes_permit_is_a_test_permits_row(self):
+        """removes を名指すテストの許しは conflict.test_permits の行（test にテストの id、limit つき）として返り、凍結の検査が読む
+        ruled_test_limits にも同じ limit が入る（許しの元は test_permits の 1 本だけ）"""
+        b = self.ready_with_fields(self.removes_fields(rows=self.CLAMP_TESTS))
+        rows = [p for p in conflict.test_permits(b) if p.get("test") in dict(self.CLAMP_TESTS)]
+        self.assertEqual(sorted((p["test"], p["limit"]) for p in rows), sorted(self.CLAMP_TESTS))
+        self.assertTrue(all(p["id"] == f"{conflict.REMOVES_TEST_ID}-1" and p["why"] for p in rows), rows)
+        self.assertTrue({lim for _, lim in self.CLAMP_TESTS} <= set(conflict.ruled_test_limits(b)))
 
     def test_edit_of_test_naming_removes_passes(self):
         """run 6a51125d: 修正案の項目の removes（消す名）を本体で名指す既存のテストは、書き換え・消しを許す（消す仕組みを縛る
-        テストは変えざるを得ない）。名は planscope の探す語（:: と . で割った最後の段）で見る。removes を名指さないテストの
-        書き換えは今どおり拒む"""
-        with self.removes_plan(["stats.clamp"]):
-            self.ready_with_fields(direct_fields())
+        テストは変えざるを得ない）。許しは split が base の版のテストの本体から引いて凍結した欄の removes_tests（conflict.test_permits の
+        行）。removes を名指さないテストの書き換えは今までどおり拒む"""
+        base_tests = {"test_stats.py": (tbf.SEED / "test_stats.py").read_text(encoding="utf-8")}
+        self.ready_with_fields(self.removes_fields(base_tests=base_tests))
         self.edit_tests("self.assertEqual(clamp(15, 0, 10), 10)", "pass")   # test_clamp_above_range（clamp を名指す）の書き換え
         self.edit_tests("    def test_clamp_within_range(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n\n", "")   # 消し
         self.assertEqual(self.problems(), [])
@@ -730,20 +796,23 @@ class TestAcceptWiring(FixGatesCase):
         self.assertNotIn(fixgates.OUT_OF_DUTY, lines[0])
 
     def test_accept_traces_unproven_tests(self):
-        """修正案の外で足したテスト（案の照らしの記録の unproven。赤を確かめていない）は、受けた回の trace の SKIPPED_OP に
-        名指して載せ、報告が数える"""
+        """修正案の外で足したテスト（案の照らしの記録の overflow）は、赤を確かめずに SKIPPED_OP へ名指して受けず、はみ出しとして
+        相談に積む（受け付けは queued・done なし。相談の状態の queued にそのテストを new_tests として積む）"""
         self.fix_ready()
         self.edit_tree(tbf.FIXED)
         mod = self.accept_mod()
         tid = "test_stats.py::TestStats::test_extra"
-        note = {"checked": True, "unchecked": [], "items": [1], "unproven": [tid]}
-        with self.env(), mock.patch.object(mod, "check_plan_scope", return_value=([], note)):
-            got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
-        self.assertIs(got["ok"], True, got)
+        line = f"{tid} は修正案のどの項目の tests にも無いテストを足した"
+        note = {"checked": True, "unchecked": [], "items": [1],
+                "overflow": [{"line": line, "item": 1, "unit_key": tbf.MEAN, "paths": [], "new_tests": [tid]}]}
+        with self.env(), mock.patch.object(mod, "check_plan_scope", return_value=([line], note)):
+            got = mod.with_done(mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo))
+        self.assertIs(got.get("queued"), True, got)
+        self.assertIs(got["done"], False, got)
         b = entry.open_board(self.board, allow_halted=True)
-        self.assertEqual([r["why"] for r in report.trace_rows(b, fixgates.SKIPPED_OP)],
-                         [[f"修正案の外で足したテスト（赤を確かめていない）: {tid}"]])
-        self.assertIn(tid, report.gates_lines(b)[0])
+        self.assertEqual(report.trace_rows(b, fixgates.SKIPPED_OP), [], "応急処置の載せは外した")
+        (queued,) = consult.state(b, "first")["queued"]
+        self.assertEqual(queued["new_tests"], [tid])
 
     def test_accept_rejects_new_red_in_selected_test(self):
         """tdd-start が取った元の結末で、受け付けは変更に当たる試験を選んで回す（強み 6）。元で緑だった選んだ試験を赤にした直しは、
@@ -760,6 +829,179 @@ class TestAcceptWiring(FixGatesCase):
         self.assertIn("元で赤でなかった試験が赤", got["reason"])
         self.assertIn("test_clamp_within_range", got["reason"])
 
+    def overflow_ready(self, allowed=("stats.py",), **over):
+        """p3.fix が待つ盤面に、direct の項目 1（mean と clamp。範囲は allowed）を控え、stats.py を直した作業ツリーにする"""
+        self.fix_ready()
+        row = {**tbf.PLAN_FIELDS[0], "unit_keys": [tbf.MEAN, tbf.CLAMP], "route": "direct", "route_why": "見本。先にテストを書かない",
+               "tests": [], "allowed_paths": list(allowed), "out_of_scope": [], **over}
+        planmarks.save(self.board, entry.open_board(self.board).round, [row])
+        self.edit_tree(tbf.FIXED)
+
+    def overflow_reply(self):
+        """mean の行が、項目の範囲の外の notes.txt も申告した返答（notes.txt は作業ツリーに在る）"""
+        (self.repo / "notes.txt").write_text("控え\n", encoding="utf-8")
+        reply = tbf.load("fix2_ok")
+        reply["changes"][0]["files"] = ["stats.py", "notes.txt"]
+        return reply
+
+    def accept_done(self, mod, reply, iteration="1"):
+        with self.env(iteration):
+            return mod.with_done(mod.accept_fix(reply, self.board, "", self.repo))
+
+    def test_overflow_only_is_queued_not_rejected(self):
+        """単位が changes[].files に申告した範囲の外のパスだけがはみ出した返答は拒まない。受け付けは queued true・done false で、
+        相談の状態の queued にそのパスと項目を積む（積む周では戻さない）"""
+        self.overflow_ready()
+        got = self.accept_done(self.accept_mod(), self.overflow_reply())
+        self.assertIs(got.get("queued"), True, got)
+        self.assertEqual((got["ok"], got["done"]), (False, False), got)
+        b = entry.open_board(self.board, allow_halted=True)
+        (row,) = consult.state(b, "first")["queued"]
+        self.assertEqual((str(row["item"]), row["paths"]), ("1", ["notes.txt"]))
+        self.assertTrue((self.repo / "notes.txt").exists(), "積む周では戻さない")
+        self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
+
+    def test_denied_overflow_is_reverted_and_rest_accepted(self):
+        """受け付けが積んだ頼み（単位が申告したパス）が deny で答えられた後の受け付けは、そのパスだけを段の頭の木に戻し、
+        changes[].files からも外して、残りの直しを受ける。trace の ACCEPT_OVERFLOW_OP に戻したパスと patch が載る"""
+        self.overflow_ready()
+        reply = self.overflow_reply()
+        entry.open_board(self.board, allow_halted=True).trace(conflict.ASKED_OP, **asked_row(paths=["notes.txt"]))
+        got = self.accept_done(self.accept_mod(), reply)
+        self.assertIs(got["ok"], True, got)
+        self.assertFalse((self.repo / "notes.txt").exists(), "頼んだパスは段の頭の木に戻す")
+        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "残りの直しは残る")
+        self.assertNotIn("notes.txt", [f for c in got["changes"] for f in c["files"]])
+        b = entry.open_board(self.board, allow_halted=True)
+        (row,) = report.trace_rows(b, impact.ACCEPT_OVERFLOW_OP)
+        patches = [s for s in strings(row) if s.endswith(".patch")]
+        self.assertIn("notes.txt", list(strings(row)))
+        self.assertTrue(patches and pathlib.Path(patches[0]).is_file(), row)
+
+    def freeze_loop(self):
+        """TDD の輪が test_stats.py に受け入れのテスト test_mean_of_two を足して凍らせた後の形（輪の状態のファイルを返す）"""
+        import tddloop
+        self.overflow_ready(["stats.py", "test_stats.py"])
+        self.add_test_mean_of_two()
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py"]), "frozen_tree": tddloop.snapshot(self.repo),
+                                     "units": {tbf.MEAN: {"route": "tdd", "green": "ok", "tests": [MEAN_ID]}}}), encoding="utf-8")
+        return str(state)
+
+    def test_frozen_edit_outside_loop_tests_is_overflow(self):
+        """TDD の輪が凍らせたファイルの、輪の受け入れのテストでない既存のテストの関数の中だけを書き換えた返答は、拒まずに相談に
+        積む。輪の受け入れのテスト自身の書き換えと、関数の外（既存の import の行）の書き換えは、今どおり frozen の拒否の行"""
+        state = self.freeze_loop()
+        path = self.repo / "test_stats.py"
+        frozen = path.read_text(encoding="utf-8")
+        mod = self.accept_mod()
+        reply = tbf.load("fix2_ok")
+        edits = {"輪の受け入れのテスト": ("self.assertEqual(mean([2, 4]), 3)", "self.assertEqual(mean([2, 4]), 3.0)"),
+                 "関数の外の import": ("from stats import clamp, mean", "from stats import mean, clamp")}
+        for name, (old, new) in edits.items():
+            with self.subTest(name):
+                self.assertIn(old, frozen)
+                path.write_text(frozen.replace(old, new), encoding="utf-8")
+                with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_STATE": state}), \
+                        mock.patch.object(mod, "check_tests", return_value=([], "")):
+                    got = mod.with_done(mod.accept_fix(reply, self.board, "", self.repo))
+                self.assertIs(got["ok"], False, got)
+                self.assertNotIn("queued", got)
+                self.assertIn("凍った", got["reason"])
+        old, new = "self.assertEqual(clamp(5, 0, 10), 5)", "self.assertEqual(clamp(5, 0, 10), 5.0)"
+        self.assertIn(old, frozen)
+        path.write_text(frozen.replace(old, new), encoding="utf-8")
+        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_STATE": state}), \
+                mock.patch.object(mod, "check_tests", return_value=([], "")):
+            got = mod.with_done(mod.accept_fix(reply, self.board, "", self.repo))
+        self.assertIs(got.get("queued"), True, got)
+        self.assertIs(got["done"], False, got)
+
+    LOOP_TEST = ("    def test_mean_of_two(self):\n        self.assertEqual(mean([2, 4]), 3)\n\n")   # 輪が既存のテストの上に足す受け入れのテスト
+    CLAMP_EDIT = ("self.assertEqual(clamp(5, 0, 10), 5)", "self.assertEqual(clamp(5, 0, 10), 5.0)")
+
+    def freeze_loop_above(self):
+        """freeze_loop と同じだが、輪の受け入れのテストを既存のテストの上に足す（既存のテストの行が base と凍結の木でずれる）。
+        返りは (輪の状態のファイル, 凍結の木の test_stats.py の中身)"""
+        import tddloop
+        self.overflow_ready(["stats.py", "test_stats.py"], tests=[TEST_ROW])
+        self.edit_tests("class TestStats(unittest.TestCase):\n", "class TestStats(unittest.TestCase):\n" + self.LOOP_TEST)
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py"]), "frozen_tree": tddloop.snapshot(self.repo),
+                                     "units": {tbf.MEAN: {"route": "tdd", "green": "ok", "tests": [MEAN_ID]}}}), encoding="utf-8")
+        return str(state), (self.repo / "test_stats.py").read_text(encoding="utf-8")
+
+    def accept_frozen(self, state, reply=None):
+        mod = self.accept_mod()
+        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_STATE": state}), mock.patch.object(mod, "check_tests", return_value=([], "")):
+            return mod.with_done(mod.accept_fix(reply or tbf.load("fix2_ok"), self.board, "", self.repo))
+
+    def test_ask_lines_for_frozen_file_are_base_lines(self):
+        """凍ったファイルの関数の書き換えを相談に積む頼みの行は、輪の木でなく修正前の版の行（輪が上に足したテストで行がずれていても、
+        事後の関門の頼みと同じ読む木 1 つ）"""
+        state, frozen = self.freeze_loop_above()
+        self.assertEqual(planmarks.line_in(self.git("show", "HEAD:test_stats.py"), "test_stats.py::TestStats::test_clamp_within_range"), 11)
+        self.assertEqual(planmarks.line_in(frozen, "test_stats.py::TestStats::test_clamp_within_range"), 14, "輪の木では 3 行ずれる")
+        self.edit_tests(*self.CLAMP_EDIT)
+        got = self.accept_frozen(state)
+        self.assertIs(got.get("queued"), True, got)
+        (row,) = consult.state(entry.open_board(self.board, allow_halted=True), "first")["queued"]
+        self.assertEqual(row["tests"], ["test_stats.py:11"])
+
+    def test_agreed_permit_line_is_read_in_the_base_tree(self):
+        """相談で許したテストの書き換えの行は修正前の版の行で、凍結の検査は輪の木へ移して読む。輪が上に足したテストで行がずれても、
+        許した関数の書き換えは通り（事後の関門と同じ読み）、別の関数を許した行では通らず相談に積まれる"""
+        state, _ = self.freeze_loop_above()
+        self.edit_tests(*self.CLAMP_EDIT)
+        board = entry.open_board(self.board, allow_halted=True)
+        board.trace(conflict.ASKED_OP, **asked_row(decision="allow", tests=["test_stats.py:8"], granted_tests=["test_stats.py:8"]))
+        got = self.accept_frozen(state)
+        self.assertIs(got.get("queued"), True, f"別の関数（test_mean_of_three）を許した行では通らない: {got}")
+        board.trace(conflict.ASKED_OP, **asked_row(decision="allow", tests=["test_stats.py:11"], granted_tests=["test_stats.py:11"], id=2))
+        got = self.accept_frozen(state)
+        self.assertIs(got["ok"], True, f"許した関数（test_clamp_within_range。base の 11 行は輪の木の 14 行）は通る: {got}")
+        self.assertIn(self.CLAMP_EDIT[1], (self.repo / "test_stats.py").read_text(encoding="utf-8"), "許した書き換えは戻されない")
+        (row,) = report.trace_rows(entry.open_board(self.board, allow_halted=True), impact.ACCEPT_OVERFLOW_OP)
+        self.assertEqual(row["reverted"], [], row)
+
+    def test_agreed_permit_lets_the_test_be_deleted(self):
+        """許した既存のテストの関数を丸ごと消す直しは、前後の区切りの空行を含めて許しの幅の中（事後の関門も凍結の検査も通す）"""
+        state, _ = self.freeze_loop_above()
+        self.edit_tests("    def test_clamp_within_range(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n\n", "")
+        entry.open_board(self.board, allow_halted=True).trace(
+            conflict.ASKED_OP, **asked_row(decision="allow", tests=["test_stats.py:11"], granted_tests=["test_stats.py:11"]))
+        got = self.accept_frozen(state)
+        self.assertIs(got["ok"], True, got)
+
+    def test_unrevertable_overflow_is_rejected_not_dropped(self):
+        """答えが deny で、戻した後も同じ頼みの line が残るはみ出しは、黙って落とさず『はみ出しを戻せない』という成り立たない行で
+        拒まれる（同じ物を 2 度積まない）"""
+        self.fix_ready()
+        self.edit_tree(tbf.FIXED)
+        reply = self.overflow_reply()
+        entry.open_board(self.board, allow_halted=True).trace(conflict.ASKED_OP, **asked_row(paths=["notes.txt"]))
+        line = "notes.txt は項目 1 の allowed_paths の外"
+        note = {"checked": True, "unchecked": [], "items": [1],
+                "overflow": [{"line": line, "item": 1, "unit_key": tbf.MEAN, "paths": ["notes.txt"], "new_tests": []}]}
+        mod = self.accept_mod()
+        with self.env(), mock.patch.object(mod, "check_plan_scope", return_value=([line], note)):
+            got = mod.with_done(mod.accept_fix(reply, self.board, "", self.repo))
+        self.assertIs(got["ok"], False, got)
+        self.assertNotIn("queued", got)
+        self.assertIn("はみ出しを戻せない", got["reason"])
+        self.assertIn(line, got["reason"])
+        self.assertFalse(consult.queued(entry.open_board(self.board, allow_halted=True), "first"), "同じ物を 2 度積まない")
+
+    def test_last_attempt_overflow_is_not_parked(self):
+        """輪の最後の回（iteration 3）でも、はみ出しだけの返答は単位を止めず（PARKED_OP の行が無い）、相談に積んで done を立てない"""
+        self.overflow_ready()
+        got = self.accept_done(self.accept_mod(), self.overflow_reply(), iteration="3")
+        self.assertIs(got.get("queued"), True, got)
+        self.assertIs(got["done"], False, got)
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(report.trace_rows(b, conflict.ACCEPT_PARKED_OP), [])
+        self.assertTrue((self.repo / "notes.txt").exists())
+
     def test_clean_battery_lets_fix_through(self):
         """束が何も見つけなければ今までどおり受ける（修正案の欄の無い run・既存のテストを変えない直し）"""
         self.fix_ready()
@@ -770,6 +1012,32 @@ class TestAcceptWiring(FixGatesCase):
         self.assertIs(got["ok"], True, got)
         self.assertEqual(report.trace_rows(entry.open_board(self.board, allow_halted=True), fixgates.SKIPPED_OP), [],
                          "飛ばした物が無ければ trace に載せない")
+
+
+class TestAgreedPermitTrees(unittest.TestCase):
+    """範囲の相談の合意の範囲の行は修正前の版の行（読む木は 1 つ）。凍結の検査のように別の木を読む側へは conflict.agreed_permits が移す"""
+    BASE = "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1, 1)\n\n    def test_b(self):\n        self.assertEqual(2, 2)\n"
+    LOOP = BASE.replace("class T(unittest.TestCase):\n", "class T(unittest.TestCase):\n    def test_new(self):\n        self.assertEqual(0, 0)\n\n")
+
+    def limits(self, lim, *, source=True, base=True):
+        rows = [{"item": "1", "id": 1, "granted_tests": [lim], "reason": "許した"}]
+        src = {"t.py": self.LOOP}.get if source else None
+        old = {"t.py": self.BASE}.get if base else None
+        return [p["limit"] for p in conflict.agreed_permits(rows, source=src, base=old)]
+
+    def test_single_line_follows_the_function(self):
+        self.assertEqual(self.limits("t.py:8"), ["t.py:11"], "test_b の定義の行は 3 行ずれる")
+        self.assertEqual(self.limits("t.py:9"), ["t.py:11"], "関数の中の行も、その関数の定義の行へ")
+
+    def test_range_moves_both_ends_or_is_dropped(self):
+        self.assertEqual(self.limits("t.py:8-9"), ["t.py:11-12"])
+        self.assertEqual(self.limits("t.py:3-5"), [], "書き換わった行を含む範囲は移せない")
+
+    def test_whole_file_and_unread_trees(self):
+        self.assertEqual(self.limits("t.py"), ["t.py"], "ファイルだけの指しは木に依らない")
+        self.assertEqual(self.limits("t.py:8", source=False), ["t.py:8"], "読む木が修正前の版ならそのまま")
+        self.assertEqual(self.limits("t.py:8", base=False), [], "修正前の版が読めないなら許しを捨てる（広げない）")
+        self.assertEqual(self.limits("u.py:8"), [], "読む木に無いファイルの許しは捨てる")
 
 
 if __name__ == "__main__":

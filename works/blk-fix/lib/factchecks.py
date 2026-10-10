@@ -109,30 +109,47 @@ def _loop_states(board, state) -> list:
     return [p for p in tddloop.states(board) if p.resolve() != Path(state).resolve()] + [state]
 
 
-def check_frozen(board: Path, state: str, repo: Path, pass_: str, agreed=None) -> list:
+def check_frozen(board: Path, state: str, repo: Path, pass_: str, agreed=None, asks=None, base_rev: str = "") -> list:
     """手順 1b: 凍ったテストのファイル（tddloop.frozen_problems）を run の全部の輪で見た拒否の文。今の輪（state）は今どおり、前の輪
     （1 回目の修正の段の輪）は今の輪の状態の handoff の木（since）からの変更で見て、直した項目の単位（テストの変更の許しの単位の行。conflict.permitted_units）の前の
     輪の受け入れのテストの関数（tddloop.test_spans）の中の変更は通す。テストの変更の許し（conflict.ruled_test_limits）は輪ごとに、
     凍結の検査が比べる木で修正案の行を引き直す（今の輪は輪の後の木、前の輪は since の木。tddloop.frozen_source）。輪が赤→緑を
     確かめた書き換えは、どの輪の物でも許しから外す。今の輪が無い（2 回目の段の輪が走らなかった）時、前の輪は輪の後の木で見る。
     裁定の範囲は今の輪だけ pass_ で決め（1 回目の受け付けは含めない）、前の輪はいつも含める（前の段で裁いた fix_test_scope の
-    直しは、今の段の受け付けが first でも許し）。輪が 1 つも無ければ空。盤面は書かない"""
+    直しは、今の段の受け付けが first でも許し）。輪が 1 つも無ければ空。盤面は書かない。
+    範囲の相談の合意の範囲の行は修正前の版（writes.base_rev。base_rev は盤面に印が無い時の既定）の行で、凍結の検査が比べる木の行へ
+    移して読む（conflict.test_permits の base。読む木は 1 つ）。
+    asks に list を渡せば、相談に回せる凍ったファイル（範囲の外の塊が全部、輪の受け入れのテストでない既存のテストの関数の幅に
+    収まる物。tddloop.frozen_asks）の頼み {path, tests, line, ref} を足す（line は返す文のどれかと同じ。tests の行は修正前の版の行）"""
     loops = _loop_states(board, state)
     if not loops:
         return []
     b = entry.open_board(board)
     skip = [i for p in loops for i in tddloop.verified_rewrites(p)]
+    rev = writes.base_rev(b, base_rev)
+    before = tddloop.rev_source(repo, rev)
 
     def allowed(source, rulings):
-        return conflict.ruled_test_limits(b, rulings=rulings, source=source, skip_ids=skip, agreed_rows=agreed)
-    out = tddloop.frozen_problems(state, repo, allowed(tddloop.frozen_source(state, repo), pass_ == "ruled")) if state else []
+        return conflict.ruled_test_limits(b, rulings=rulings, source=source, skip_ids=skip, agreed_rows=agreed, base=before)
+    now = allowed(tddloop.frozen_source(state, repo), pass_ == "ruled") if state else []
+    out = tddloop.frozen_problems(state, repo, now) if state else []
+    if asks is not None and state:
+        try:
+            asks += tddloop.frozen_asks(state, repo, now, rev=rev)
+        except tddloop.Broken:   # 状態が読めないのは frozen_problems の側が拒む。頼みは作れないだけ
+            pass
     old = loops[:-1] if state else loops
     if old:
         since = tddloop.load_state(state).get("handoff") if state else None
         amended = conflict.permitted_units(b)
         for p in old:
-            out += tddloop.frozen_problems(p, repo, allowed(tddloop.frozen_source(p, repo, since=since), True), since=since,
-                                           skip_spans=tddloop.test_spans(p, amended))
+            lims, spans = allowed(tddloop.frozen_source(p, repo, since=since), True), tddloop.test_spans(p, amended)
+            out += tddloop.frozen_problems(p, repo, lims, since=since, skip_spans=spans)
+            if asks is not None:
+                try:
+                    asks += tddloop.frozen_asks(p, repo, lims, since, spans, rev=rev)
+                except tddloop.Broken:
+                    pass
     return out
 
 
@@ -173,6 +190,20 @@ def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: 
     return problems, note
 
 
+def split_overflow(texts, overflow) -> tuple:
+    """拒否の文 texts のうち、はみ出しの行（overflow の各行の line。planscope の記録・凍ったファイルの頼み・事後の関門の頼みの形）を
+    含む文（頭に reject_head が付いても外れない）を外す。返り (残りの文, 文が当たったはみ出し)。範囲の外の変更は、拒まずに相談に
+    回すか、機械が戻す物（修正の輪の受け付け）。修正役の並べの枝は枝の拒否に積まず、結末に名指して本線の受け付けに任せる"""
+    rest, hit = [], []
+    for text in texts:
+        rows = [o for o in overflow if isinstance(o, dict) and o.get("line") and o["line"] in text]
+        if rows:
+            hit += [o for o in rows if o not in hit]
+        else:
+            rest.append(text)
+    return rest, hit
+
+
 def declared_files(rows, repo) -> set:
     """changes の行の files を、リポジトリの根からの相対パスに揃えた集合"""
     out = set()
@@ -193,7 +224,7 @@ def precheck(cfg: dict, reply=None) -> dict:
     reply = reply if isinstance(reply, dict) else {"changes": []}
     agreed = conflict.agreed(entry.open_board(board, allow_halted=True))
     found = [("frozen", t) for t in check_frozen(board, state, repo, pass_ if pass_ in ("first", "ruled") else "first",
-                                                 agreed=agreed)]
+                                                 agreed=agreed, base_rev=base_rev)]
     wrote = check_writes(reply, board, base_rev, repo, state, log_repo=log_repo, since=since)
     found += [("writes", t) for t in wrote["problems"]]
     got = fix_unit_keys(wrote["reply"], board) if since is None else None   # 枝の返答は単位の名前で書く（番号の控えは修正役の物）

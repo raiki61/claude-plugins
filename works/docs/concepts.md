@@ -170,7 +170,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `plan-scope` 修正案の項目の範囲の照らし
 
 - 状態: 住処あり
-- 住処: `.shared/core/planrange.py`（項目の範囲 `inside`・`out_of_scope` の当たり `oos_hit`・`oos_hit_for`・範囲の相談の合意 `with_agreed`・許しのパス `permit_paths`・単位に結べないパスの外れ `outside`・盤面で照らす `check_paths`）
+- 住処: `.shared/core/planrange.py`（項目の範囲 `inside`・`out_of_scope` の当たり `oos_hit`・`oos_hit_for`・範囲の相談の合意 `with_agreed`（許したパスに加え、許した新しいテスト `granted_new_tests` も項目の `tests` に印 `agreed` つきで足す）・許しのパス `permit_paths`・単位に結べないパスの外れ `outside`・盤面で照らす `check_paths`）
 - 約束: 修正案の項目の欄 `allowed_paths`・`out_of_scope`（`blk-plan/schemas/plan-fields.schema.json`）
 - 知ってよい所: 住処と、glob の当て方の下回りと項目の欄の読みを持つ `.shared/core/planmarks.py`（`glob_match`・`test_paths`）。使う所は修正の受け付けの照らし `blk-fix/lib/planscope.py`（単位に結べる行と欠けの照らしはそちら）と手直しの受け付け `.shared/core/refix.py`（`check_paths`）で、どちらも住処を呼ぶ
 - 今: 同じ当て方を手で書く所が残る（`.shared/core/holeties.py`・`blk-fix/lib/consult.py`・`blk-plan/lib/ripple.py`。柵の表の既知の漏れ）。`.shared/core/protect.py` は守りのファイルの型を同じ下回りで当てる別の考え

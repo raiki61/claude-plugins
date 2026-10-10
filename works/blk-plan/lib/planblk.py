@@ -91,6 +91,7 @@ import rolekit  # noqa: E402
 import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
 import structmark  # noqa: E402
 import worldmark  # noqa: E402  （世界の解の行。修正案の頭の節と事前審査の外れの訳に添える比べ）
+import writes  # noqa: E402  （修正前の版のテストの中身）
 
 NODE_OF = {"plan": "p2.fix_plan", "plan-review": "p2.plan_review"}   # 役（YAML の役の節の id・印の名）→ 写しの graph の節
 ROLES = tuple(NODE_OF)
@@ -1219,7 +1220,7 @@ def with_plan_fields(run):
         gaps = planmarks.structure_gaps(named.get("plan"), planrange.answer_tables(b.dir))
         if gaps:
             return {"ok": False, "reason": planmarks.STRUCTURE_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
-        _, fields = planmarks.split(named, pathlib.Path(repo))
+        _, fields = planmarks.split(named, pathlib.Path(repo), base_tests=writes.base_test_texts(b, repo))
         bare, _ = planmarks.split(reply, pathlib.Path(repo))
         got = run(board, bare, repo)
         if got.get("ok") is True:

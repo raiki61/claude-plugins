@@ -392,7 +392,8 @@ def lane_step(board_dir, n, reply, repo, *, consulted: bool = False, base_rev: s
     if consulted:
         out = {"ok": False, "consulted": True, "reason": CONSULTED}
     else:
-        found, clean, claims = check(b, lst, it, reply, pathlib.Path(repo), base_rev, tdd_state, try_query)
+        over = []
+        found, clean, claims = check(b, lst, it, reply, pathlib.Path(repo), base_rev, tdd_state, try_query, overflow=over)
         if found:
             lst["tries"] += 1
             lst["reason"] = render_rejects(found)
@@ -400,7 +401,7 @@ def lane_step(board_dir, n, reply, repo, *, consulted: bool = False, base_rev: s
             if lst["tries"] >= GIVE_UP_AFTER:
                 _give_up(b, lst, tree, f"同じ項目の {GIVE_UP_AFTER} 回目の拒否: " + " / ".join(t for _, t in found)[:600])
         else:
-            _accept(b, lst, tree, reply, clean, claims)
+            _accept(b, lst, tree, reply, clean, claims, over)
             out = {"ok": True, "consulted": False, "reason": ""}
     if not lst["done"] and lst["iterations"] >= MAX_ITERATIONS:   # 回数の上限で輪を落とさない（R50）
         _stop(lst, tree, f"枝の輪の回数の上限（{MAX_ITERATIONS} 回）に届いた", b)
@@ -439,9 +440,12 @@ def _made(lst: dict) -> list:
         return []
 
 
-def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_state: str, try_query=None) -> tuple:
+def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_state: str, try_query=None, overflow=None) -> tuple:
     """枝の確かめ（受け付けの -4〜1d と 1c を単位の worktree に当てる。事後の関門の束と写しの型の照らしは修正役の輪の受け付けが、全部の
-    項目を合わせた作業ツリーで回す）。返り (拒否の行 [(id, 文)], bash_writes・consult・conflicts を外した返答, 通った申し出)"""
+    項目を合わせた作業ツリーで回す）。返り (拒否の行 [(id, 文)], bash_writes・consult・conflicts を外した返答, 通った申し出)。
+    はみ出しの行のうち案の外のテストと凍ったファイルの関数の中の書き換えは枝の拒否に積まず、overflow（list を渡せば）に足す——枝は
+    案の外のテストで項目を諦めず、本線の修正の輪の受け付けが合わせた作業ツリーで相談に回す。範囲の外のファイルは枝の役が範囲の
+    相談の節で頼めるので、今どおり拒む"""
     found = []
     if not isinstance(reply, dict):
         note(found, "shape", "返答が JSON のオブジェクトでない（決まりの「返答の欄」の形で返せ）")
@@ -452,7 +456,10 @@ def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_
         reply.pop(conflict.CONSULT_FIELD)
     # 書き込みの出どころと範囲は今の項目の頭から（同じ枝の前の項目が変えたファイルは、その項目の確かめが見た。run 97fd532f）
     tree, since, made, units = pathlib.Path(lst["tree"]), lst.get("head") or lst["base"], _made(lst), list(it["units"])
-    note(found, "frozen", factchecks.check_frozen(b.dir, tdd_state, tree, "first"))
+    asks = []
+    frozen = factchecks.check_frozen(b.dir, tdd_state, tree, "first", asks=asks, base_rev=base_rev)
+    frozen, over_frozen = factchecks.split_overflow(frozen, asks)
+    note(found, "frozen", frozen)
     wrote = factchecks.check_writes(reply, b.dir, base_rev, tree, tdd_state, log_repo=repo, since=since, made=made)
     note(found, "writes", wrote["problems"])
     reply = wrote["reply"]
@@ -470,9 +477,13 @@ def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_
                           for k in units if k not in keys + rest + claimed])
     note(found, "units", [f"申し出た単位を changes か not_done にも書いた: {k}（申し出た単位は直さない）"
                           for k in dict.fromkeys(claimed) if k in keys + rest])
-    scope, _ = factchecks.check_plan_scope(reply, keys, b.dir, base_rev, tree, tdd_state, "first", ask=bool(lst.get("ask")),
-                                           since=since, made=made)
+    scope, scope_note = factchecks.check_plan_scope(reply, keys, b.dir, base_rev, tree, tdd_state, "first", ask=bool(lst.get("ask")),
+                                                    since=since, made=made)
+    # 枝が拒まずに残すのは案の外のテスト（new_tests）だけ。範囲の外のファイルは枝の役が範囲の相談の節で頼める（fix-lane-consult）ので今どおり拒む
+    scope, over_scope = factchecks.split_overflow(scope, [o for o in (scope_note or {}).get("overflow") or [] if o.get("new_tests")])
     note(found, "scope", scope)
+    if overflow is not None:
+        overflow += [{k: v for k, v in o.items() if k != "ref"} for o in [*over_scope, *over_frozen]]
     if lst.get("tests"):
         # 版は枝の base（切った時の run の作業ツリー）: 枝の差分に当たる試験だけを選び、枝の base で既に赤い試験を新しい赤に数えない。
         # 項目の頭でなく枝の base なのは、同じ枝の前の項目の直しに当たる試験も回すため（後の項目が前の項目の試験を赤にすれば拒む）
@@ -490,8 +501,9 @@ def _next(lst: dict, tree: pathlib.Path) -> None:
         lst["head"] = tddloop.snapshot(tree)
 
 
-def _accept(b, lst: dict, tree: pathlib.Path, reply: dict, clean: dict, claims: list) -> None:
-    """通った返答を控え（REPLY_FILE。consult を外した役の返答そのもの）、項目の結末を積んで次の項目へ"""
+def _accept(b, lst: dict, tree: pathlib.Path, reply: dict, clean: dict, claims: list, overflow=()) -> None:
+    """通った返答を控え（REPLY_FILE。consult を外した役の返答そのもの）、項目の結末（overflow に、枝の確かめが拒まずに残したはみ出し）を
+    積んで次の項目へ"""
     j = lst["cur"] + 1
     it = lst["items"][lst["cur"]]
     out = b.work(REPLY_FILE.format(n=lst["n"], j=j))
@@ -505,7 +517,7 @@ def _accept(b, lst: dict, tree: pathlib.Path, reply: dict, clean: dict, claims: 
         "changed": [c["unit_key"] for c in clean.get("changes") or [] if isinstance(c, dict)],
         "not_done": [r["unit_key"] for r in clean.get("not_done") or [] if isinstance(r, dict)],
         "claimed": [c["unit_key"] for c in claims],
-        "files": sorted(factchecks.declared_files(clean.get("changes") or [], tree))})
+        "files": sorted(factchecks.declared_files(clean.get("changes") or [], tree)), "overflow": list(overflow)})
     _next(lst, tree)
 
 

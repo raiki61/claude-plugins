@@ -39,6 +39,7 @@ import conflict  # noqa: E402
 import consult  # noqa: E402
 import fixrules  # noqa: E402
 import prepkit  # noqa: E402
+import planrange  # noqa: E402
 import recount  # noqa: E402
 import scopes  # noqa: E402
 
@@ -125,6 +126,15 @@ class ScreenCase(unittest.TestCase):
         self.assertIsNone(consult.screen(ITEMS, "3", ["works/docs/flow.md"], [], WHY))
         self.assertIsNone(consult.screen(ITEMS, "3", [], ["works/README.md:3"], WHY))
 
+    def test_new_tests_only_request_is_not_refused(self):
+        """パスも書き換えの範囲も無く new_tests（足したい新しいテスト）だけを持つ頼みと、パスが全部範囲の中で new_tests を持つ頼みは
+        断らない（受け付けが見つけた案の外のテストの足しは、この形で聞く）"""
+        tid = "works/tests/test_lens.py::LensCase::test_extra"
+        self.assertIsNone(consult.screen(ITEMS, "3", [], [], WHY, new_tests=[tid]))
+        self.assertIsNone(consult.screen(ITEMS, "3", ["works/.shared/core/lens.py"], [], WHY, new_tests=[tid]),
+                          "パスがもう範囲の中でも、new_tests が在れば聞く")
+        self.assertIn("何も", consult.screen(ITEMS, "3", [], [], WHY, new_tests=[]), "new_tests も空なら今どおり断る")
+
     def test_allowed_but_out_of_scope_is_not_already_inside(self):
         """allowed_paths の glob に入っても、その項目の out_of_scope に当たるパスは範囲の中でない（受け付けが拒む）ので、
         「もう範囲の中」と断らずに聞く"""
@@ -159,6 +169,19 @@ class JudgeCase(unittest.TestCase):
                                     "reason": "変更の記録は直しに伴う"}, ["a.md"], ["t.py:3"])
         self.assertEqual((got["decision"], got["granted_paths"], got["granted_tests"]), ("allow", ["a.md"], ["t.py:3"]))
         self.assertTrue(any("b.md" in n for n in notes), notes)
+
+    def test_allow_grants_requested_new_tests_with_red_kind(self):
+        """allow の答えの new_tests のうち、頼んだ id だけが granted_new_tests に {id, red_kind} で残る。許したパスもテストの範囲も
+        無くても行は正しい allow。頼んでいない id は捨てて注記する"""
+        want = "works/tests/test_lens.py::LensCase::test_extra"
+        got, notes = consult.judge({"decision": "allow", "paths": [], "tests": [], "spec": "", "reason": "守りのテストとして足してよい",
+                                    "new_tests": [{"id": want, "red_kind": "assertion"},
+                                                  {"id": "works/tests/test_lens.py::LensCase::test_other", "red_kind": "assertion"}]},
+                                   [], [], new_tests=[want])
+        self.assertIsNotNone(got, notes)
+        self.assertEqual((got["decision"], got["granted_paths"], got["granted_tests"]), ("allow", [], []))
+        self.assertEqual(got["granted_new_tests"], [{"id": want, "red_kind": "assertion"}])
+        self.assertTrue(any("test_other" in n for n in notes), notes)
 
     def test_malformed_answers_are_invalid(self):
         for bad in ({"decision": "maybe", "reason": "x" * 12}, {"decision": "allow", "paths": [], "tests": [], "reason": "x" * 12},
@@ -247,6 +270,36 @@ class FlowCase(Base):
                                              "reason": "範囲の中で直せる"}]}, "first", "plan-answer")
         self.assertEqual([r["id"] for r in conflict.plan_asks(self.b)], [1, 2, 3])
         self.assertEqual(len(conflict.agreed(self.b)), 1, "deny は合意にならない")
+
+    def test_queued_overflow_is_asked_without_reply_consult(self):
+        """受け付けが見つけたはみ出し（consult.queue で積んだ頼み）は、返答に consult が無くても次の ask で頼みになり、指示書にパスと
+        new_tests が載り、確かめの行には origin accept が残る。積む周と相談の周で turns が 1 ずつ増え、残りが 2 未満なら積まない"""
+        self.plan_session()
+        tid = "works/tests/test_lens.py::LensCase::test_extra"
+        row = {**ask_row(), "new_tests": [tid]}
+        consult.queue(self.b, "first", [row])
+        self.assertTrue(consult.queued(self.b, "first"))
+        self.assertEqual(consult.state(self.b, "first")["turns"], 1, "積む周の分")
+        out = self.ask({"changes": []})
+        self.assertEqual((out["consulted"], out["go"], out["turn"]), (True, True, 2), "返答に consult が無くても頼みになる")
+        q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
+        for w in ("works/CHANGELOG.md", tid):
+            self.assertIn(w, q)
+        self.assertFalse(consult.queued(self.b, "first"), "頼みにした分は空にする")
+        answer = {"answers": [{"ask": 1, "decision": "allow", "paths": ["works/CHANGELOG.md"], "tests": [], "spec": "",
+                               "new_tests": [{"id": tid, "red_kind": "assertion"}], "reason": "案の外のテストも足してよい"}]}
+        got = consult.settle(self.b, answer, "first", "plan-answer")
+        (asked,) = conflict.plan_asks(self.b)
+        self.assertEqual((asked["origin"], asked["status"], asked["decision"]), ("accept", "answered", "allow"))
+        self.assertEqual(asked["granted_new_tests"], [{"id": tid, "red_kind": "assertion"}])
+        (agreed,) = conflict.agreed(self.b)
+        self.assertEqual(agreed["granted_new_tests"], [{"id": tid, "red_kind": "assertion"}])
+        self.assertIn("受け付けが見つけたはみ出し", pathlib.Path(got["answer_file"]).read_text(encoding="utf-8"))
+        # 残りが 2 未満なら積まない（積む周と相談の周の 2 周が要る）
+        consult.state_path(self.b, "first").write_text(json.dumps({"turns": consult.BUDGET - 1}), encoding="utf-8")
+        consult.queue(self.b, "first", [row])
+        self.assertFalse(consult.queued(self.b, "first"))
+        self.assertEqual(consult.state(self.b, "first")["turns"], consult.BUDGET - 1)
 
     def test_out_of_scope_reconsidered(self):
         """out_of_scope に当たる頼みは答えの節に聞く。allow の行は、その項目の out_of_scope を外した印（overrode_out_of_scope。
