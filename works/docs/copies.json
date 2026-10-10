@@ -501,7 +501,7 @@
    "試験の組み立ての繰り返し。相手: tests/test_blk_ci.py・tests/test_blk_eyes.py・tests/test_blk_purpose.py ほか 3 本"
   ],
   "tests/test_toolset.py": [
-   11,
+   10,
    "試験の組み立ての繰り返し。相手: tests/test_blk_purpose.py・tests/test_blk_ci.py・tests/test_blk_eyes.py ほか 4 本"
   ],
   "tests/test_use.py": [

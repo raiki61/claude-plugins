@@ -45,6 +45,7 @@ TWO_ID = "test_two.py::TestTwo::test_halve"
 TWO_FILE = ("import unittest\n\nfrom stats import halve\n\n\nclass TestTwo(unittest.TestCase):\n    def test_halve(self):\n"
             "        self.assertEqual(halve(4), 2)\n")   # base では読み込みで落ちる（halve が無い）新しいテストのファイル
 NO_JUNIT = "import sys\nsys.exit(0)\n"   # JUnit を書かない実行器
+_PLAN_REPLY = tbf.plan_reply   # 種の 1 項目の案。差し替えの中から呼ぶ（差し替えた名を呼ぶと自分を呼ぶ）
 REWRITE = {"id": THREE_ID, "behavior": "3 つの値の平均の期待", "old": "期待は 2", "new": "期待を 2.0 に書き換える",
            "limit": "test_stats.py:8"}
 
@@ -407,6 +408,26 @@ class TestTestEdits(FixGatesCase):
         self.rule(["test_stats.py:9"], amended=True)
         self.assertEqual(self.problems(pass_="first"), [])
 
+    def removes_plan(self, removes):
+        """修正案の項目の removes（消す名）を removes にした案で盤面を作る差し替え"""
+        def reply(narrows=()):
+            got = _PLAN_REPLY(narrows)
+            got["plan"][0]["removes"] = list(removes)
+            return got
+        return mock.patch.object(tbf, "plan_reply", reply)
+
+    def test_edit_of_test_naming_removes_passes(self):
+        """run 6a51125d: 修正案の項目の removes（消す名）を本体で名指す既存のテストは、書き換え・消しを許す（消す仕組みを縛る
+        テストは変えざるを得ない）。名は planscope の探す語（:: と . で割った最後の段）で見る。removes を名指さないテストの
+        書き換えは今どおり拒む"""
+        with self.removes_plan(["stats.clamp"]):
+            self.ready_with_fields(direct_fields())
+        self.edit_tests("self.assertEqual(clamp(15, 0, 10), 10)", "pass")   # test_clamp_above_range（clamp を名指す）の書き換え
+        self.edit_tests("    def test_clamp_within_range(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n\n", "")   # 消し
+        self.assertEqual(self.problems(), [])
+        self.edit_tests(*THREE_EDIT)   # test_mean_of_three は clamp を名指さない
+        self.assertEqual([(r["gate"], r["id"]) for r in self.problems()], [("test_edits", THREE_ID)])
+
     def rule(self, limits, *, amended=False):
         """裁定 fix_test_scope の行（範囲 limits）を置く。amended なら案を直した fix_plan_item の行も（2 回目の修正の段の盤面）"""
         rows = [{"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
@@ -584,6 +605,22 @@ class TestAcceptWiring(FixGatesCase):
         self.assertEqual(len(lines), 1, lines)
         self.assertIn("受け付け 1 回", lines[0])
         self.assertNotIn(fixgates.OUT_OF_DUTY, lines[0])
+
+    def test_accept_traces_unproven_tests(self):
+        """修正案の外で足したテスト（案の照らしの記録の unproven。赤を確かめていない）は、受けた回の trace の SKIPPED_OP に
+        名指して載せ、報告が数える"""
+        self.fix_ready()
+        self.edit_tree(tbf.FIXED)
+        mod = self.accept_mod()
+        tid = "test_stats.py::TestStats::test_extra"
+        note = {"checked": True, "unchecked": [], "items": [1], "unproven": [tid]}
+        with self.env(), mock.patch.object(mod, "check_plan_scope", return_value=([], note)):
+            got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], True, got)
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual([r["why"] for r in report.trace_rows(b, fixgates.SKIPPED_OP)],
+                         [[f"修正案の外で足したテスト（赤を確かめていない）: {tid}"]])
+        self.assertIn(tid, report.gates_lines(b)[0])
 
     def test_accept_rejects_new_red_in_selected_test(self):
         """tdd-start が取った元の結末で、受け付けは変更に当たる試験を選んで回す（強み 6）。元で緑だった選んだ試験を赤にした直しは、

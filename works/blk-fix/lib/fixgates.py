@@ -23,7 +23,8 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
 - test_edits: base から今の木で変わったテストのファイル（tddloop.is_test_file: 修正案の受け入れのテスト・書き換えの名指しのパスか名の慣習）のうち、base に在ったテストの関数
   （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのはテストの変更の許し（conflict.test_permits）の
   行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、範囲の相談の合意・裁定 fix_test_scope の範囲（裁定は裁定の後の
-  受け付けだけ）の中だけを変えた関数。案の直しの単位の行は見ない（前の輪が足したテストは base に無く、ここでは照らさない）。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
+  受け付けだけ）の中だけを変えた関数。ほかに、修正案の項目の removes（消す名）を base の本体で名指す関数も許す（_removes_ids。
+  消す仕組みを縛るテストは変えざるを得ない。run 6a51125d）。案の直しの単位の行は見ない（前の輪が足したテストは base に無く、ここでは照らさない）。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
   含む関数の全体に広げ、`<行>-<行>` は書いたとおり（base との差分の塊の旧い側の行が範囲の外なら、その塊に掛かる関数は
   許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部
 
@@ -50,7 +51,8 @@ import tempfile
 import conflict  # noqa: E402  （.shared/core。修正案の欄の控え・直す義務・テストの変更の許し）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
-import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行）
+import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行・案の項目の removes）
+import planscope  # noqa: E402  （同じブロックの lib。removes の名の探す語の読み口をそのまま使う）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の関門の読み口をそのまま使う）
 import writes  # noqa: E402  （.shared/core。修正前の版）
 from leftovers import Unreadable, git  # noqa: E402
@@ -274,7 +276,7 @@ def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool, ids=()) -> list[di
     if not files:
         return []
     limits = [p["limit"] for p in permits if "limit" in p and "test" not in p]   # 合意と裁定の範囲（裁定は 1 回目は空）
-    allowed = set(plan) | _ruled_ids(repo, rev, files, limits)
+    allowed = set(plan) | _ruled_ids(repo, rev, files, limits) | _removes_ids(b, repo, rev, files)
     return [_row("test_edits", i, EDITED) for i in tddloop.unnamed_edits(repo, rev, files, allowed)]
 
 
@@ -309,6 +311,21 @@ def _ruled_ids(repo, rev: str, files: list, limits: list) -> set:
             wide = tddloop.function_span(lines, line) if line else None
             if wide and not any(a <= wide[1] and wide[0] <= b for a, b in bad):
                 out.add(tid)
+    return out
+
+
+def _removes_ids(b, repo, rev: str, files: list) -> set:
+    """修正案の項目の removes（消す名）を base の本体で名指す、base のテストの関数の id（消す仕組みを縛るテストは変えざるを
+    得ない。run 6a51125d）。名は案の照らしと同じ探す語（planscope._lookup）を語の境（planscope._word）で探す"""
+    words = [planscope._word(n) for it in planmarks.plan_items(b) or [] if isinstance(it, dict)
+             for n in map(planscope._lookup, it.get("removes") or []) if n]
+    out = set()
+    for path in files if words else []:
+        try:
+            old = git(repo, "show", f"{rev}:{path}")
+        except Unreadable:
+            continue
+        out |= {i for i, body in tddloop.test_functions(old, path).items() if any(w.search(body) for w in words)}
     return out
 
 

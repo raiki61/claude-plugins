@@ -44,7 +44,7 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 1d. check_plan_scope: 承認済みの修正案の項目（planmarks.approved_items）と差分を照らす（planscope.check）。範囲（allowed_paths・
    out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
-   無いテストを足した・tests のテストが無い、を拒む。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
+   無いテストを足した（そのファイルを申告した単位が無い物。申告した単位が在れば拒まず記録の unproven に名指す）・tests のテストが無い、を拒む。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
    凍らせたファイルなら凍った後に変えた分だけで見る。
    外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。裁定の後
    （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。out_of_scope はテストの許しと
@@ -57,8 +57,8 @@ consulted: true} を出す（拒否の理由のファイルも最後の結果の
    本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
    （今の拒否の道。最後の回はほかの行と同じ決まりで単位に結ぶ）。盤面に done を書く 3 の前に置く
    （拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）。受けた回に束が赤緑を確かめずに飛ばした
-   理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）は盤面の trace の fixgates.SKIPPED_OP の行に載せる
-   （報告と最後の人の関所の文が数える）。2 回目の修正の段（同じブロックの 2 度目の include）の帳面はその scope の物で、
+   理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）と、1d の記録の unproven（修正案の外で足したテスト。
+   planscope.UNPROVEN）は盤面の trace の fixgates.SKIPPED_OP の行に載せる（報告と最後の人の関所の文が数える）。2 回目の修正の段（同じブロックの 2 度目の include）の帳面はその scope の物で、
    裁定の範囲は 1 回目の段の物をいつも許す（fixgates.problems が conflict.second_pass で引く）
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
    -3〜1e の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
@@ -555,7 +555,8 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
         if scope_note is not None:
             tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
-        if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
+        gaps += [f"{planscope.UNPROVEN}: {t}" for t in (scope_note or {}).get("unproven") or []]
+        if gaps:   # 束が赤緑を確かめずに受けた回・修正案の外で足したテスト（拒まないが、報告で見えるように）
             tb.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
         if rows:
             tb.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(tb, rows)))
