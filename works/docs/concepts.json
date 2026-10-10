@@ -351,6 +351,38 @@
     }
    ]
   },
+  "red-check": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "赤の引用の欄の名（test の段の返答の欄と単位の記録の欄）",
+     "pattern": "\\bred_quotes\\b",
+     "allowed": [
+      "blk-fix/lib/tddloop.py",
+      "blk-fix/rules/tdd.md",
+      "blk-fix/blk-fix.yaml",
+      ".shared/core/report.py"
+     ],
+     "known": {}
+    },
+    {
+     "what": "写しの赤の判定 red_problems を呼ぶ式（赤の事実の判定は red_check だけが呼び、輪・並べの締め・事後の関門は red_check を呼ぶ）",
+     "pattern": "\\bred_problems\\(",
+     "allowed": [
+      "blk-fix/lib/tddloop.py"
+     ],
+     "known": {}
+    },
+    {
+     "what": "引用を寄せた後の部分一致で照らす時の色の制御文字の除去（ESC[…m）",
+     "pattern": "\\\\x1b",
+     "allowed": [
+      ".shared/core/cite.py"
+     ],
+     "known": {}
+    }
+   ]
+  },
   "web-get": {
    "status": "住処あり",
    "fences": [
@@ -999,7 +1031,7 @@
        "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
       ],
       "blk-fix/lib/tddloop.py": [
-       12,
+       11,
        "散らばり（段 3 の Task 3.8 の数の歯止め。減らす向きだけ）: TDD の輪・実行器の口・試しの殻が実行器の名を持つ（計画 docs/plans/2026-10-09-lang-neutral-red.md）"
       ],
       "blk-plan/lib/ripple.py": [

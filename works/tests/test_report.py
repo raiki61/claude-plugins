@@ -1776,6 +1776,20 @@ class TddLinesCase(unittest.TestCase):
         self.assertIn(test_cmd, rows[0])
         self.assertNotIn("控えから使った結果", report.tdd_lines([(report.TDD_STAGES[0], TDD_RAN)])[0])
 
+    def test_tdd_unit_shows_red_quotes_stub_files_and_unchecked(self):
+        """人が報告と最後の関所で赤の理由の正しさを見るため、単位の行に名指しごとの引用と理由・仮の実装のファイル・引用を照らせなかった
+        名指しが載る（1 単位 1 行のまま）"""
+        unit = {"unit_key": "u-green", "route": "tdd", "why": "", "tests": ["t.py::test_a", "t.py::test_b"], "red": "ok", "green": "ok",
+                "refactor": "none", "gave_up": "",
+                "red_quotes": {"t.py::test_a": {"quote": "AssertionError: 6.0 != 3", "why": "分母を 1 つ少なく割るので期待どおりに落ちる"}},
+                "stub_files": ["stats.py"], "quote_unchecked": ["t.py::test_b"]}
+        rows = report.tdd_lines([(report.TDD_STAGES[0], {**TDD_RAN, "units": [unit]})])
+        self.assertEqual(len(rows), 2, rows)
+        for w in ("t.py::test_a", "AssertionError: 6.0 != 3", "分母を 1 つ少なく割るので期待どおりに落ちる", "stats.py", "t.py::test_b"):
+            self.assertIn(w, rows[1])
+        plain = report.tdd_lines([(report.TDD_STAGES[0], {**TDD_RAN, "units": [TDD_RAN["units"][0]]})])
+        self.assertNotIn("赤の引用", plain[1], "引用の無い単位の行は今どおり")
+
     def test_stage_without_loop_says_why(self):
         rows = report.tdd_lines([(report.TDD_STAGES[0], TDD_OFF)])
         self.assertEqual(len(rows), 1)

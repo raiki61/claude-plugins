@@ -4,6 +4,9 @@
 - inside(p, root): p が root の中か
 - problem(cite, repo, roots=()) -> str: 1 つの名指しの確かめ（通れば空）。相対のパスは作業ツリーの根から（外と .git は拒む）、
   絶対のパスは作業ツリーの中か roots（依頼のファイル・盤面の置き場）の中だけ。ファイルが在り、行がその中に在る
+- flat(s) -> str: 空白の並び（改行・タブ・連続する空白）を 1 つの空白に寄せ、色の制御文字（ESC[…m）を除いた文
+- quoted_in(quote, text) -> bool: 引いた文 quote が text の中に、flat で寄せた後の部分一致で在るか（空の引用は偽）。
+  テストの赤の引用が結末の失敗の文に在るかの照らしが使う（実行器の出力は改行・色の付き方が回ごとに違いうる）
 - sources_problem(text, repo, roots=(), quoted="") -> str: 決め手の文（decided_by）の出どころの確かめ（通れば空）。文の中の
   URL（http・https。形だけ見る。取りに行かない）・名指し `<パス>:<行>`（problem）・作業ツリーの中のパス（/ を含むか拡張子を持つ語で、
   在るファイル。フォルダだけは出どころに数えない）・依頼の引用「…」（文に「依頼」の語が在る時だけ。quoted＝依頼の文の中に字のまま
@@ -29,6 +32,7 @@ URL = re.compile(r"https?://[^\s）)」』、。,]+")
 QUOTE = re.compile(r"「([^」]{4,})」")
 TOKEN = re.compile(r"/?[A-Za-z0-9_.][A-Za-z0-9_./-]*(?::[1-9][0-9]*(?:-[1-9][0-9]*)?)?")
 REQUEST_WORD = "依頼"   # 引用「…」を依頼の文と照らすのは、この語が文に在る時だけ（出典の文書の引用は照らさない）
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 NO_SOURCE = "決め手の出どころが現物に無い（パス:行・URL・依頼の引用「…」・設計の決定の記録のパスのどれも書いていない）"
 
 
@@ -83,6 +87,17 @@ def lead_path(text: str) -> str:
     head = str(text or "").strip().split(None, 1)[0] if str(text or "").strip() else ""
     head = head.split("（", 1)[0].split(":", 1)[0]
     return head if "/" in head or "." in head else ""
+
+
+def flat(s) -> str:
+    """空白の並びを 1 つの空白に寄せ、色の制御文字（ESC[…m）を除く。文字列でなければ空"""
+    return " ".join(ANSI.sub("", s).split()) if isinstance(s, str) else ""
+
+
+def quoted_in(quote, text) -> bool:
+    """引いた文 quote が text の中に、flat で寄せた後の部分一致で在るか（寄せて空になる引用は偽）"""
+    q = flat(quote)
+    return bool(q) and q in flat(text)
 
 
 def _pathish(word: str) -> bool:

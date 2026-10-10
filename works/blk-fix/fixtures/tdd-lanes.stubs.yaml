@@ -268,8 +268,8 @@ collect:
       shared: []
       expect: []
     units:
-      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_mean_of_two": assertion}, test_cmd: ok, refactor_why: ""}
-      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_clamp_above_range"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_clamp_above_range": assertion}, test_cmd: ok, refactor_why: ""}
+      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_quotes: {"test_stats.py::TestStats::test_mean_of_two": {quote: "6.0 != 3", why: "mean が分母を len(xs) - 1 にしているので 6.0 になる（期待は 3）"}}, quote_unchecked: [], stub_files: [], test_cmd: ok, refactor_why: ""}
+      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_clamp_above_range"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_quotes: {"test_stats.py::TestStats::test_clamp_above_range": {quote: "99 != 10", why: "clamp が上限を超えた値をそのまま返すので 99 になる（期待は 10）"}}, quote_unchecked: [], stub_files: [], test_cmd: ok, refactor_why: ""}
 fix-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
   ok: true
   reads_file: ""

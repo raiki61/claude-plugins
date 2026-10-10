@@ -1905,12 +1905,28 @@ def _finish_fields(b, judged, outcome) -> dict:
     return out
 
 
+def _red_evidence(u: dict) -> str:
+    """単位の行に足す、赤の証拠の句（人が報告と最後の関所で赤の理由の正しさを見る）: 名指しごとの引用と理由（役の引用。引用が結末の
+    failure の文に在ることは輪が照らし済みで、理由の正しさは機械が見ない）・test の段が足した仮の実装のファイル（stub_files）・
+    引用を照らせなかった名指し（quote_unchecked。failure の文もログも空）"""
+    out = []
+    for test, q in (u.get("red_quotes") or {}).items():
+        if isinstance(q, dict):
+            out.append(f"赤の引用 {test}: 「{_one_line(q.get('quote', ''))[:200]}」（理由: {_one_line(q.get('why', ''))[:200]}）")
+    if u.get("stub_files"):
+        out.append(f"仮の実装 {', '.join(u['stub_files'])}")
+    if u.get("quote_unchecked"):
+        out.append(f"引用を照らせなかった名指し {', '.join(u['quote_unchecked'])}")
+    return "。" + "。".join(out) if out else ""
+
+
 def _tdd_unit(u: dict) -> str:
     """TDD の輪の 1 単位の結末の行（修正のブロックの出口 tdd の units の行。route は tdd・direct・parked）"""
     key, why = u.get("unit_key") or "（key 無し）", _one_line(u.get("why") or "")
     if u.get("route") == "tdd":
-        return (f"{key}: 赤 {u.get('red') or '—'}・緑 {u.get('green') or '—'}・整え {u.get('refactor') or '—'}"
-                f"（名指しのテスト {', '.join(u.get('tests') or []) or '無し'}）")
+        row = (f"{key}: 赤 {u.get('red') or '—'}・緑 {u.get('green') or '—'}・整え {u.get('refactor') or '—'}"
+               f"（名指しのテスト {', '.join(u.get('tests') or []) or '無し'}）")
+        return row + _red_evidence(u)
     if u.get("route") == "parked":
         return f"{key}: 食い違いで止めた（{why or '理由なし'}）"
     if u.get("gave_up"):

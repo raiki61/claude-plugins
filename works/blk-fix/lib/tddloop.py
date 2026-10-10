@@ -3,7 +3,7 @@
 節と関数:
 - tdd-start → start: 入力 tdd_suite（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線と同じ約束）が
   空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く。
-  承認済みの修正案の単位ごとの約束（plan_contract → planmarks.unit_contract。道・受け入れのテストと赤の種類）もここで 1 回だけ
+  承認済みの修正案の単位ごとの約束（plan_contract → planmarks.unit_contract。道・受け入れのテストと、案が狙う落ち方 red_kind。後者は役に見せるだけで機械は照らさない）もここで 1 回だけ
   組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run・平の run は空で、輪は約束の無い今の動きのまま）。
   run のテストのコマンド（線の入力 test_cmd）の関門（test_cmd_gate）もここで 1 回だけ決める: 空なら off、実行器のファイルが
   そのコマンドの文字列をそのまま含むなら same_as_suite（一式と同じなので 2 度走らせない）、ほかは 1 回走らせて緑なら on、
@@ -19,17 +19,20 @@
   合否・その回に起こした一式と test_cmd の数・秒）を積む（秒は書くだけで止める条件に使わない）
   - route: 直す義務の単位（_owed: 開いた単位から、答え待ち・ask_human で外れた単位と食い違いで止めた単位を除く）を全部 1 度だけ
     tdd か direct（理由 10 字以上）に振る。約束で tdd の単位は direct に振れない（出口は phase conflict の申し出）
-  - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）。
-    約束の在る単位は、受け入れのテストの id を全部名指し（走らせる前に見る）、各テストの赤の種類（red_kind。JUnit の failure の
-    type・message から機械が分ける）が宣言した名前（adds）の外の名前・import の失敗でなく、案が exception なら断言の失敗でない（_kind_problems。ほかの
-    例外の型・unknown は記録だけ）。direct_why でも direct に渡せない。
-    修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤（宣言した名前（names）の外の名前・import の失敗でない。
-    同じ _kind_problems に種類の宣言なしで、declared も渡す）を通す。
+  - test: 申告したテストのファイルの外のテストのファイル（is_test_file）に触れていない・赤の判定 red_check（名指しは failure で
+    落ち、error・一式に居ない・もう通る・飛ばされたは拒み、元で通っていた物は緑。言語に依らない事実だけ）。テストでないファイル
+    （これから足す名前の仮の実装）への書き込みは拒まず、単位の stub_files に残す。error・一式に居ないで拒む時は NOT_RAN の
+    1 行を足す（走る前の失敗は赤に数えず、直して走らせ直させる）。
+    約束の在る単位は、受け入れのテストの id を全部名指し（走らせる前に見る）、名指しごとの失敗の文の引用と理由（QUOTES_FIELD）を
+    結末の failure の文と照らす（red_check。照らす先の無い名指しは引用を求めず、単位の quote_unchecked に残す）。約束の無い単位は
+    引用を求めず、書かれていれば照らす。direct_why でも direct に渡せない。
+    修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤を通す。
     約束の在る単位は、名指しの外の既存のテストの本体（.py の test* 関数。_unnamed_edits）を書き換えたら拒む（走らせる前）。
     単位の頭で通っていたテストが飛ばされた・結末から消えたら拒む（_vanished_problems。単位の頭から変わったテストの
     ファイルのモジュールだけ。居ないは同じ選びの回に居た時だけ数える）。前の単位で赤→緑を確かめた id は名指しを
     強いず、書き換えさせない（_verified）
-    名指し全部の赤の種類を単位の red_kinds に残す
+    赤が通ったら、役の引用と理由を単位の red_quotes に、赤の時の木（snapshot）を red_tree に残す（red_tree は出口に出さない。
+    並べの締めと事後の関門が、仮の実装を含む赤をその木で確かめ直す）
   - 同じ修正案の項目の単位（together）: 受け入れのテストは項目の物で、項目の単位の全部の約束に載る。前の単位の段はそれを全部名指して
     緑にするので、項目を共にする後の単位（載る項目が全部前の単位の項目にも在る物）の直しも要る。支度はその単位を「今は直すな」・
     「この後の単位（今は手を付けるな）」に並べず、「今の単位と一緒に直す単位」の節に並べ、brief の行の単位にも入れる。前の単位が
@@ -79,7 +82,8 @@
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整えとその申告の理由・direct の理由・test_cmd の緑。輪の test_cmd の
   関門と理由・段ごとの呼び出しの記録 calls）
-赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
+赤の判定は red_check 1 つ（中で写しの rules（review-loop-tdd.py）の red_problems を呼ぶ。写さない）で、輪・並べの締め・
+事後の関門が同じ事実を見る。緑の判定は写しの green_problems を呼ぶ。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
 import ast
@@ -103,7 +107,7 @@ sys.dont_write_bytecode = True
 
 import adapter  # noqa: E402  （.shared/core。包みが会話を切る単位の鍵の置き場 session_key_path）
 import board  # noqa: E402
-import cite  # noqa: E402  （.shared/core。名指しの形）
+import cite  # noqa: E402  （.shared/core。名指しの形・引いた文が現物に在るかの照らし。寄せた後の部分一致 quoted_in）
 import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ・直す義務から外れた単位）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
@@ -123,6 +127,8 @@ RULES_GRAPH = "review-loop-tdd.json"
 PHASES = ("route", "test", "fix", "refactor", "lanes")   # lanes は並べの周（tddlanes。g3 の振り分けの直後に 1 回だけ。輪の外の節が回す）
 MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試験が縛る）。この周に届いたら残りを direct にして抜ける
 MIN_WHY = 10
+MIN_QUOTE = 3   # 赤の引用の下限（寄せた字数。1〜2 字の引用はどの失敗の文にも当たるので、照らす先が短くなければ拒む）
+QUOTES_FIELD = "red_quotes"   # test の段の返答の欄と単位の記録の欄の名: {名指しの id: {quote: 失敗の文, why: なぜ期待どおりの理由か}}
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 UNIT_NODE = "tdd"   # 輪の役の印の名（包みの adapter.KEYED_NODES の 1 つ。単位の切れ目で会話を切る）
 REST_NODE = "tdd-rest"   # 並べの後に残りの単位を順に回す輪 tdd-rest の役の印の名（同じ支度・確かめ。KEYED_NODES の 1 つ）
@@ -254,45 +260,85 @@ def run_suite(exe: str, repo, work: pathlib.Path, n, args=(), only=False, note=N
     return _unique([{**c, **fails.get(_key(c), NO_FAILURE)} for c in cases]), rc, []
 
 
-NO_FAILURE = {"fail_type": "", "fail_message": ""}
+NO_FAILURE = {"fail_message": "", "fail_text": ""}
 
 
 def _failure_attrs(text: str) -> dict:
-    """JUnit XML の testcase の鍵（_key）→ {fail_type, fail_message}（failure の子の type・message の属性。同じ鍵は最初の行。
-    failure の子の無い行は載せない）。写しの parse_junit は属性を返さないので、同じ XML を ElementTree で読み直す"""
+    """JUnit XML の testcase の鍵（_key）→ {fail_message, fail_text}（failure の子の message の属性と本文。同じ鍵は最初の行。
+    failure の子の無い行は載せない）。写しの parse_junit は属性を返さないので、同じ XML を ElementTree で読み直す（failure の
+    文を読む所はここ 1 か所）"""
     out = {}
     for tc in ET.fromstring(text).iter("testcase"):
         f = tc.find("failure")
         if f is not None:
             out.setdefault(_key({"classname": tc.get("classname") or "", "name": tc.get("name") or ""}),
-                           {"fail_type": f.get("type") or "", "fail_message": f.get("message") or ""})
+                           {"fail_message": f.get("message") or "", "fail_text": f.text or ""})
     return out
 
 
-KIND_UNKNOWN = "unknown"   # 実行器が failure に type も message も書かない（試験の SUITE・pytest でない JUnit）。拒まず記録だけ
-_ASSERT_NAMES = ("AssertionFailedError", "ComparisonFailure", "Failed")   # ほかに名前が AssertionError で終わる型（自前の子の型も）
-_NOT_RAISED = re.compile(r"DID NOT RAISE|\bnot raised\b|to be thrown, but nothing was thrown")   # 最後は JUnit 5 の assertThrows
-NAME_KINDS = ("NameError", "AttributeError", "ImportError", "ModuleNotFoundError")   # 名前・import の失敗（機能が無い・綴りの誤り）
-_HEAD_NAME = re.compile(r"^([A-Za-z_][\w.]*)(?::|$)")
-_MISSING = re.compile(r"""(?:has no attribute|cannot import name|No module named|\bname) '([^']+)'""")   # 無い名前の引用（CPython の message の形）
+# 走る前の失敗（読み込み・組み立ての失敗で名指しが一式の結末に居ない・error）の拒否に _test だけが足す 1 行。red_check と写しの
+# red_problems の文は事実だけで、事後の関門（fixgates）の行にもこの言い足しは入らない
+NOT_RAN = ("赤に数えない。テストの中の検査で落ちる形に書き直せるならそうし、これから足す名前の欠けで書き直せないなら最小の仮の実装を"
+           "足し、テスト自身の誤りならテストを直して、走らせ直せ")
 
 
-def red_kind(case: dict) -> str:
-    """結末の 1 行の赤の種類（上から先に当たった物）: type も message も空なら unknown／期待した例外が出ない（DID NOT RAISE・
-    not raised・JUnit 5 の to be thrown, but nothing was thrown）なら exception／message が assert で始まるか、例外の名前（type の
-    最後の . の後。type が空なら message の頭の『名前:』）が断言の失敗の型（名前が AssertionError で終わる型を含む）なら
-    assertion／ほかは例外の名前（NameError など。名前も無ければ unknown）"""
-    typ = (case.get("fail_type") or "").strip()
-    msg = (case.get("fail_message") or "").strip()
-    if not typ and not msg:
-        return KIND_UNKNOWN
-    if _NOT_RAISED.search(msg):
-        return "exception"
-    m = _HEAD_NAME.match(msg) if not typ else None
-    name = (typ or (m.group(1) if m else "")).rsplit(".", 1)[-1]
-    if msg.startswith("assert") or name.endswith("AssertionError") or name in _ASSERT_NAMES:
-        return "assertion"
-    return name or KIND_UNKNOWN
+def _quote_target(case: dict, log) -> str:
+    """赤の引用を照らす先: その testcase の failure の message と本文。どちらも空ならその回のログ（無い・読めなければ空）"""
+    text = " ".join(filter(None, [case.get("fail_message") or "", case.get("fail_text") or ""]))
+    if cite.flat(text):
+        return text
+    try:
+        return pathlib.Path(log).read_text(encoding="utf-8", errors="replace") if log else ""
+    except OSError:
+        return ""
+
+
+def _quote_problem(t: str, entry, target: str) -> str:
+    """名指し t の引用 entry（{quote, why}）を照らし先 target と照らした拒否の文（通れば空）"""
+    if not isinstance(entry, dict) or not isinstance(entry.get("quote"), str) or not isinstance(entry.get("why"), str):
+        return f"{t}: {QUOTES_FIELD} の値は {{quote（失敗の文）, why（理由）}}"
+    quote, shown = cite.flat(entry["quote"]), cite.flat(target)
+    if len(quote) < min(MIN_QUOTE, len(shown)):
+        return f"{t}: quote が短すぎる（{MIN_QUOTE} 字以上。結末の失敗の文をそのまま引け）"
+    if not cite.quoted_in(entry["quote"], target):
+        return f"{t}: quote が結末の失敗の文に無い——赤の時の失敗の文をそのまま引け（作り話の引用は通らない。空白・改行・色の違いは無視する）"
+    if _blank(entry["why"]):
+        return f"{t}: why（なぜ期待どおりの理由で落ちたか。機能が無いから・打ち間違いでない）を {MIN_WHY} 字以上で書け"
+    return ""
+
+
+def red_check(named: list, cases: list, code, baseline, quotes=None, log=None) -> tuple[list, list]:
+    """赤の判定の唯一の口（輪の test の段・並べの締めの確かめ直し・事後の関門が呼ぶ）——（問題の文, 引用を照らせなかった名指し）。
+    事実は言語に依らず、写しの red_problems が見る物だけ: 名指しが全部 failure で落ちる（error・一式に居ない・もう通る・飛ばされた
+    は拒む）・名指しの外は元（baseline）のまま・一式が 0 以外で終わる。返す文は事実だけで、言い足しは足さない。
+    quotes（{名指しの id: {quote, why}}。None は引用を見ない）が在れば、事実が通った failure の名指しごとに、quote が failure の
+    message と本文を寄せた文（cite.quoted_in）に在るか・短すぎないか（MIN_QUOTE）・why が MIN_WHY 字以上かを照らす。両方が空なら
+    役が引いた時だけ log（その回のログ）と照らす。照らす先が無い名指し（failure の文が空で、log にも文が無い）は引用が無くても拒まず、
+    unchecked に返す。failure の文が在る名指しは、quotes が渡されていれば引用が要る"""
+    probs = list(rules().red_problems(named, cases, code, baseline))
+    given = {_norm_id(k): v for k, v in (quotes or {}).items() if isinstance(k, str)}
+    unchecked = []
+    for t in named:
+        c = rules().match_case(t, cases)
+        if c is None or c["outcome"] != "failure":
+            continue
+        entry = given.get(_norm_id(t))
+        own = cite.flat(" ".join([c.get("fail_message") or "", c.get("fail_text") or ""]))
+        if entry is None:
+            if not own:
+                unchecked.append(t)
+            elif quotes is not None:
+                probs.append(f"{t}: 失敗の文の引用と理由が無い——{QUOTES_FIELD} に結末の failure の文をそのまま引き、なぜ期待どおりの"
+                             "理由で落ちたかを書け")
+            continue
+        target = _quote_target(c, log)
+        if not cite.flat(target):
+            unchecked.append(t)   # 引いたが照らす先が無い（ログも空）。拒まず、照らせなかったと残す
+            continue
+        bad = _quote_problem(t, entry, target)
+        if bad:
+            probs.append(bad)
+    return probs, unchecked
 
 
 def _key(c) -> str:
@@ -398,8 +444,8 @@ def _not_owed_why(st, k) -> str:
 
 def _unit(key, route, why="") -> dict:
     return {"unit_key": key, "route": route, "why": why, "tests": [], "test_files": [], "red": "", "green": "",
-            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", "red_kinds": {}, "test_cmd": "",
-            "refactor_why": ""}
+            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", QUOTES_FIELD: {},
+            "quote_unchecked": [], "stub_files": [], "red_tree": "", "test_cmd": "", "refactor_why": ""}
 
 
 def _light_units(raw: str) -> list:
@@ -540,8 +586,9 @@ def _test_cmd_problems(st, repo) -> list[str]:
 RETURN = {
     "route": '{"phase": "route", "units": [{"unit_key": "<単位の key>", "route": "tdd" か "direct", "why": "<direct の理由。10 字以上>"}]}',
     "test": '{"phase": "test", "unit_key": "<今の単位>", "test_files": ["<書いたテストのファイル>"], '
-            '"tests": ["<パス>::<クラス>::<テストの名前>"]}  （先にテストを書けないと分かったら {"phase": "test", '
-            '"unit_key": "<今の単位>", "direct_why": "<理由。10 字以上>"}）',
+            '"tests": ["<パス>::<クラス>::<テストの名前>"], "' + QUOTES_FIELD + '": {"<名指しの id>": {"quote": "<赤の時の失敗の文を'
+            '結末からそのまま>", "why": "<なぜ期待どおりの理由で落ちたか。10 字以上>"}}}  （結末に失敗の文が無い名指しは引かなくてよい。'
+            '先にテストを書けないと分かったら {"phase": "test", "unit_key": "<今の単位>", "direct_why": "<理由。10 字以上>"}）',
     "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>", '
            '"refactor": {"declared": true か false, "why": "<整える理由。declared が true なら 10 字以上>"}}',
     "refactor": '{"phase": "refactor", "unit_key": "<今の単位>", "what": "<何を整えたか。整える物が無ければそう書く>"}',
@@ -556,13 +603,10 @@ DO = {
     "route": "直す義務の単位を全部、ちょうど 1 度ずつ振り分けよ。tdd＝直す前に落ち、直した後に通るテストをリポジトリのテスト一式に"
              "書ける単位。direct＝先にテストを書けない単位（文書・指示書・注記・設定だけの直しなど）で、理由を 10 字以上で書く。"
              "この段では作業ツリーを変えるな。",
-    "test": "今の単位の欠陥を再現する、今は落ちるテストだけを書け（実装は直すな。テストのファイルの外を触るな。「今の単位と一緒に"
-            "直す単位」の節が在れば、その単位も今の単位に含める）。brief に受け入れの"
-            "テスト（tests）が在る単位は、その id の名前でテストを書いて名指しに入れ、brief の red_kind の形で落とせ（assertion＝断言の"
-            "失敗・exception＝期待した例外が出ない。宣言した名前（adds）の失敗は赤・宣言の外は赤に数えない）。案どおりに書いて赤にならない・赤の形が違うなら、"
-            "テストを曲げず phase conflict で申し出よ。brief に受け入れのテストが無い単位は、テストを今の版に在る名前だけで再現するか、"
-            "import をテストの中に入れよ。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていた"
-            "テストが通ることを確かめる（error・もう通る・飛ばされた、は拒む）。",
+    "test": "今の単位の欠陥を再現する、今は落ちるテストを書け（「今の単位と一緒に直す単位」の節が在れば、その単位も今の単位に含める）。"
+            "やり方は rules/tdd.md の test の段に従え。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていたテストが"
+            "通ることを確かめる（error・一式の結末に居ない・もう通る・飛ばされた、は拒む）。名指しごとの失敗の文の引用と理由は返答の欄 "
+            + QUOTES_FIELD + " に書け（機械は引用が結末の failure の文に在るかを照らす）。",
     "fix": "今の単位だけを直せ（「今の単位と一緒に直す単位」の節が在れば、その単位も）。テストのファイルは変えるな（凍っている。"
            "テストの誤りに気づいたら直さずに what に書け）。機械が一式を"
            "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。緑の後に整えたい所（重複・名前・不要になったコード）が"
@@ -768,16 +812,17 @@ def _run(st, repo, named=(), files=(), full=False):
     名指しは絶対パスの node id、files（根からの相対の試験のファイル）は絶対パスで実行器の後ろに足す（段の外に書いたテストも
     同じ 1 回で集める。段の中の名指しとの重なりは run_suite が 1 件にまとめる。後ろの引数を解かない実行器なら段の外の名指しは
     居ないままで、赤・緑の確認が今どおり拒む）。full でなければ合図 ONLY_ENV を付ける（後ろの試験だけ）。
-    last_run（消えたテストの照らしの元）: outcome・args（名指しと files）・whole（ファイルごと足したモジュール）・full"""
+    last_run（消えたテストの照らしの元）: outcome・args（名指しと files）・whole（ファイルごと足したモジュール）・full・log（この回の
+    ログのパス。赤の引用を役が引いた時の照らし先）"""
     pre = snapshot(repo)
-    cases, code, why = run_suite(st["exe"], repo, pathlib.Path(st["work"]), st["runs"],
-                                 _abs_ids(repo, named) + _abs_paths(repo, files), only=not full)
+    work, n = pathlib.Path(st["work"]), st["runs"]
+    cases, code, why = run_suite(st["exe"], repo, work, n, _abs_ids(repo, named) + _abs_paths(repo, files), only=not full)
     st["runs"] += 1
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
     if cases is None:
         raise _RunnerDown("; ".join(why))
     st["last_run"] = {"outcome": {_key(c): c["outcome"] for c in cases}, "args": [*named, *files],
-                      "whole": sorted({impact._mod(f) for f in files}), "full": bool(full)}
+                      "whole": sorted({impact._mod(f) for f in files}), "full": bool(full), "log": str(work / f"suite-{n}.log")}
     return cases, code
 
 
@@ -835,8 +880,8 @@ def _covered_by(st, k) -> list:
 def _close_covered(st) -> None:
     """順の今の単位が、同じ修正案の項目の前の単位の段で一緒に直されていれば（_covered_by）、段を回さずに閉じて次へ進む（続く限り）。
     閉じた単位は赤・緑とも ok で、名指しは約束の受け入れのテスト、テストのファイル・直したファイル・整え・test_cmd は一緒に直した
-    単位の物を写し（軽量で走らせなかった印 CMD_LIGHT は、閉じた単位も軽量の時だけ）、赤の種類は名指しを確かめた緑の単位の全部から
-    引き、covered_by にその単位を、why に一緒に直したことを書く"""
+    単位の物を写し（軽量で走らせなかった印 CMD_LIGHT は、閉じた単位も軽量の時だけ）、赤の引用（red_quotes）と照らせなかった名指し
+    （quote_unchecked）は名指しを確かめた緑の単位の全部から引き、covered_by にその単位を、why に一緒に直したことを書く"""
     while st["cur"] < len(st["queue"]):
         k = st["queue"][st["cur"]]
         by = _covered_by(st, k)
@@ -845,11 +890,13 @@ def _close_covered(st) -> None:
         src = st["units"][by[0]]
         tests = [t["id"] for t in _plan_tests(st, k)] + [i for i in _plan_rewrites(st, k)]
         want = {_norm_id(x) for x in tests}
-        kinds = {t: kd for v in st["units"].values() if v.get("route") == "tdd" and v.get("green") == "ok"
-                 for t, kd in (v.get("red_kinds") or {}).items() if _norm_id(t) in want}   # 確かめた単位の全部から
+        proven = [v for v in st["units"].values() if v.get("route") == "tdd" and v.get("green") == "ok"]   # 確かめた単位の全部から
+        quotes = {t: q for v in proven for t, q in (v.get(QUOTES_FIELD) or {}).items() if _norm_id(t) in want}
+        unchecked = sorted({t for v in proven for t in v.get("quote_unchecked") or [] if _norm_id(t) in want})
         st["units"][k].update(red="ok", green="ok", tests=tests, test_files=list(src.get("test_files") or []),
-                              test_hashes=dict(src.get("test_hashes") or {}), red_kinds=kinds,
-                              files=list(src.get("files") or []), refactor=src.get("refactor", ""),
+                              test_hashes=dict(src.get("test_hashes") or {}), quote_unchecked=unchecked,
+                              stub_files=list(src.get("stub_files") or []), files=list(src.get("files") or []),
+                              refactor=src.get("refactor", ""), **{QUOTES_FIELD: quotes},
                               refactor_why=src.get("refactor_why", ""), covered_by=by,
                               test_cmd="" if src.get("test_cmd") == CMD_LIGHT and k not in st.get("light", []) else src.get("test_cmd", ""),
                               what=f"同じ修正案の項目の単位 {'、'.join(by)} の段で一緒に直した",
@@ -1140,7 +1187,8 @@ def _vanished_problems(st, u, cases, args, repo) -> list[str]:
 
 def _declared_name(d) -> str:
     """adds の名 1 つが宣言する名前（'(' より前を見る）: <パス>::<名前> は :: の後の最後の . の後・.py のファイルの名・パスは
-    モジュールの名（__init__.py はディレクトリの名。拡張子 py と比べない。依頼 194c の receivers.py）・ほかは最後の . の後"""
+    モジュールの名（__init__.py はディレクトリの名。拡張子 py と比べない。依頼 194c の receivers.py）・ほかは最後の . の後。
+    修正案の範囲の照らし（planscope）が adds の名の解き方に使う（赤の判定は読まない）"""
     s = str(d).split("(", 1)[0].strip()
     if "::" in s:
         return s.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
@@ -1150,38 +1198,19 @@ def _declared_name(d) -> str:
     return s.rsplit(".", 1)[-1]
 
 
-def _declared_hit(case: dict, declared) -> bool:
-    """名前・import の失敗の message が引く『無い名前』（'x' の引用の末尾の . の後）が、案が足すと宣言した名前（_declared_name）に
-    完全一致するか。名前が引けない・declared が空なら False"""
-    m = _MISSING.search(case.get("fail_message") or "")
-    if not m:
-        return False
-    names = {_declared_name(d) for d in declared or ()}
-    return m.group(1).rsplit(".", 1)[-1] in names - {""}
-
-
-def _kind_problems(want: list, cases: list, declared=()) -> list:
-    """名指しの各テスト {id, red_kind（案の宣言。書き換えの名指しは None）} の赤の種類（red_kind）を照らし、拒む物の文。
-    拒むのは次の 2 つだけ（superpowers の TDD の『error でなく fail で落とす』）:
-    - 名前・import の失敗（NAME_KINDS）のうち、無い名前が declared（案が足すと宣言した名前）に無い物（綴りの誤り）
-    - 案が exception（期待した例外が出ない）なのに断言の失敗で落ちた
-    ほかの例外の型（今のコードが例外で落ちる種類のバグ）と、案が assertion で期待した例外が出ない赤は、記録だけで通す。
-    分からない（unknown）は通す"""
-    out = []
-    for t in want:
-        want_kind = t.get("red_kind")
-        c = rules().match_case(t["id"], cases)
-        got = red_kind(c) if c else KIND_UNKNOWN
-        if got in NAME_KINDS:
-            if _declared_hit(c, declared):
-                continue
-            plan = f"案 {want_kind}" if want_kind in planmarks.RED_KINDS else "案に種類の宣言なし"
-            out.append(f"{t['id']}: 赤の種類が狙いと違う（{plan}・実際 {got}）——宣言した名前（adds）の外の名前・import の失敗は狙いの赤でない"
-                       "（綴りの誤り）。テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
-        elif want_kind == "exception" and got == "assertion":
-            out.append(f"{t['id']}: 赤の種類が案と違う（案 {want_kind}・実際 {got}）——案は期待した例外が出ない赤。"
-                       "テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
-    return out
+def _quotes_of(reply, tests, required: bool):
+    """test の段の返答の欄 QUOTES_FIELD → (red_check に渡す引用か None, 記録する {名指しの id: {quote, why}}, 問題)。
+    欄が無いのは、約束の在る単位（required）なら {}（名指しごとの引用が要る。照らす先が無い名指しだけ red_check が除く）、
+    約束の無い単位なら None（引用を求めない）。在って {id: {quote, why}} の形でなければ問題"""
+    got = reply.get(QUOTES_FIELD)
+    if got is None:
+        return ({} if required else None), {}, []
+    if not isinstance(got, dict) or not all(isinstance(v, dict) for v in got.values()):
+        return None, {}, [f"{QUOTES_FIELD} は {{<名指しの id>: {{quote（失敗の文）, why（理由）}}}} の object"]
+    named = {_norm_id(t) for t in tests if isinstance(t, str)}
+    kept = {k: {"quote": str(v.get("quote", "")).strip(), "why": str(v.get("why", "")).strip()}
+            for k, v in got.items() if isinstance(k, str) and _norm_id(k) in named}
+    return got, kept, []
 
 
 def _test(st, reply, repo) -> list:
@@ -1212,11 +1241,16 @@ def _test(st, reply, repo) -> list:
         errs.append(f"承認済みの修正案の受け入れのテストを名指していない: {miss}——brief の tests の id の名前でテストを書き、tests に入れよ。"
                     "案の前提が誤りなら phase conflict で申し出よ")
     errs += [f"{i}: 承認済みの修正案が書き換えを名指した既存のテスト——書き換えて名指しに入れよ" for i in rws if _norm_id(i) not in named]
+    quotes, kept, bad = _quotes_of(reply, tests if ok_tests else [], _contract(st, u["unit_key"]) is not None)
+    errs += bad
     if errs:
         return errs
     extra = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(files) - set(st["suite_made"]))
-    if extra:
-        return [f"申告したテストのファイルの外に触れた: {extra[:5]}——この段はテストだけを書く（実装は次の段）"]
+    declared = declared_test_files(st) | set(files)
+    outside = [f for f in extra if is_test_file(f, declared)]
+    if outside:
+        return [f"申告したテストのファイルの外のテストのファイルに触れた: {outside[:5]}——test_files に申告するか、触れるな"]
+    stubs = [f for f in extra if f not in outside]   # テストでないファイル（これから足す名前の仮の実装）は拒まず、記録に残す
     if _contract(st, u["unit_key"]) is not None:
         bad = _syntax_problems(repo, files)
         if bad:
@@ -1226,13 +1260,14 @@ def _test(st, reply, repo) -> list:
             return [f"名指しの外の既存のテスト {frozen[:10]} の本体を書き換えた——書き換えてよいのは修正案の rewrite_tests の名指しだけ"
                     "（それ以外を変えるなら phase conflict で申し出よ）"]
     cases, code = _run(st, repo, tests)
-    probs = rules().red_problems(tests, cases, code, st["baseline"]) \
-        or _kind_problems(want + [{"id": i, "red_kind": None} for i in rws], cases, (_contract(st, u["unit_key"]) or {}).get("names") or ())
+    probs, unchecked = red_check(tests, cases, code, st["baseline"], quotes, st["last_run"]["log"])
+    if probs and any((c := rules().match_case(t, cases)) is None or c["outcome"] == "error" for t in tests):
+        probs.append(NOT_RAN)
     probs = probs or _vanished_problems(st, u, cases, tests, repo)
     if probs:
         return probs
-    kinds = {t: red_kind(rules().match_case(t, cases) or {}) for t in tests}
-    u.update(tests=tests, test_files=files, red="ok", test_hashes=hashes(repo, files), red_kinds=kinds, red_run=st["last_run"])
+    u.update(tests=tests, test_files=files, red="ok", test_hashes=hashes(repo, files), red_run=st["last_run"], red_tree=snapshot(repo),
+             quote_unchecked=unchecked, stub_files=stubs, **{QUOTES_FIELD: kept})
     st.update(phase="fix", tries=0, reason="")
     return []
 
@@ -2052,13 +2087,15 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
     return reds, []
 
 
-FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds",
-          "test_cmd", "refactor_why")
+FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", QUOTES_FIELD,
+          "quote_unchecked", "stub_files", "test_cmd", "refactor_why")
 
 
 def exit_fields(start_out: dict) -> dict:
     """出口の欄 tdd: {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor, gave_up, problems,
-    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・CMD_LIGHT＝軽量の単位
+    red_quotes（名指しの id → {quote: 赤の時の失敗の文の引用, why: 理由}。引用は結末の failure の文に在ることを red_check が
+    照らし済み）, quote_unchecked（failure の文もログも空で引用を照らせなかった名指し）, stub_files（test の段がテストでない
+    ファイルに書いた仮の実装）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・CMD_LIGHT＝軽量の単位
     なので走らせなかった・""）,
     refactor_why（整えの申告の理由）}]}。refactor は ""・skipped（申告が無く整えの段を飛ばした）・none・ok・reverted。
     ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} と calls（step 1 回ごとの
@@ -2087,9 +2124,8 @@ def exit_fields(start_out: dict) -> dict:
 
 
 # 事後の関門の束（同じブロックの fixgates。計画 220 Task 4）が輪と同じ決まりで読む口の公開の別名（輪の中の名は変えない。
-# 名指しの外の既存のテストの書き換え・赤の種類の照らし・名指しの node id・関数の幅・範囲の外の差分の塊。preflight F11・F13）
+# 名指しの外の既存のテストの書き換え・名指しの node id・関数の幅・範囲の外の差分の塊。preflight F11・F13）
 unnamed_edits = _unnamed_edits
-kind_problems = _kind_problems
 abs_ids = _abs_ids
 function_span = _function_span
 hunks_outside = _hunks_outside

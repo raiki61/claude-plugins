@@ -6,9 +6,8 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
 
 関門（GATES）:
 - red_green: 承認済みの修正案の欄（conflict.frozen_fields）の route が tdd の項目の受け入れのテスト tests[].id ごとに、今の木で
-  一式を走らせて passed、base の木で failure で、赤の種類が輪と同じ決まり（tddloop.kind_problems: 宣言した名前の外の名前・import
-  の失敗と、案が exception なのに断言の失敗を拒む。ほかの例外の型・unknown は通す。preflight F11）。宣言した名前は輪と同じく
-  テストを名指した項目の単位の約束の names（planmarks.unit_contract。単位の無い項目はその項目の adds）。欄の無い run は
+  一式を走らせて passed、base の木で failure（輪と同じ赤の判定 tddloop.red_check が返す事実の文: 言語に依らず、error・一式の結末に
+  居ない・もう通る・飛ばされたを拒む。文は『base で 』を頭に付けて行の detail に並べる）。欄の無い run は
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
@@ -62,7 +61,7 @@ LEDGER = "fix-gates.json"
 GATES = ("red_green", "test_edits")
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——受け入れのテストの事後の赤緑は確かめない"
 REJECT = "修正の後の木に、輪の中の関門が通さない物が在る（事後の関門の束）: "
-REDO = ("——並べた行を全部直してから、返答を丸ごと出し直せ（受け入れのテストは base で案の種類の赤・今の木で緑。名指しの外の"
+REDO = ("——並べた行を全部直してから、返答を丸ごと出し直せ（受け入れのテストは base で failure の赤・今の木で緑。名指しの外の"
         "既存のテストの本体は変えない。案の前提が誤りなら conflicts で申し出よ）")
 NO_RUN = "受け入れのテストの事後の赤緑を確かめられない"   # skipped の頭（実行器が走らない・base の木を作れない）
 EDITED = "名指しの外の既存のテストの本体を変えた・消した（変えてよいのは修正案の rewrite_tests の名指しと裁定 fix_test_scope の範囲だけ）"
@@ -144,9 +143,8 @@ def unchecked_whys(whys) -> list[str]:
 
 
 def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
-    """(route が tdd の項目のうち直す義務の単位を名指す物（unit_keys の無い項目も）の受け入れのテスト [{id, red_kind, unit_keys,
-    names}]（項目の順・id の重複は最初の物の種類で、単位は名指した項目の全部。names は宣言した名前: 名指した項目の adds と、
-    その単位の約束の names（planmarks.unit_contract。輪が単位ごとに _kind_problems へ渡す物と同じ））, 義務の外の項目を見なかった理由)"""
+    """(route が tdd の項目のうち直す義務の単位を名指す物（unit_keys の無い項目も）の受け入れのテスト [{id, unit_keys}]
+    （項目の順・id の重複は最初の物。単位は名指した項目の全部）, 義務の外の項目を見なかった理由)"""
     owed = conflict.owed_units_but_asked(b) if fields else set()
     out, why = {}, []
     for n, f in enumerate(fields or [], 1):
@@ -156,14 +154,10 @@ def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
         if keys and not set(keys) & owed:
             why.append(f"{OUT_OF_DUTY}: 修正案の項目 {n}（単位 {'、'.join(keys)}）")
             continue
-        names = [nm for nm in f.get("adds") or [] if isinstance(nm, str) and nm]
-        for k in keys:
-            names += (planmarks.unit_contract(fields, k) or {}).get("names") or []
         for t in f.get("tests") or []:
             if isinstance(t, dict) and isinstance(t.get("id"), str) and t["id"].strip():
-                got = out.setdefault(t["id"], {"id": t["id"], "red_kind": t.get("red_kind"), "unit_keys": [], "names": []})
+                got = out.setdefault(t["id"], {"id": t["id"], "unit_keys": []})
                 got["unit_keys"] += [k for k in keys if k not in got["unit_keys"]]
-                got["names"] += [nm for nm in names if nm not in got["names"]]
     return list(out.values()), why
 
 
@@ -175,7 +169,8 @@ def _test_files(repo, rev: str, tree: str, ids=()) -> list[str]:
 
 def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path) -> tuple[list, list]:
     """(行, 飛ばした理由)。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回走らせ、base の木の結末は控え（cache。
-    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる"""
+    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる。赤の判定は輪と同じ tddloop.red_check の
+    事実の文（行の detail は『base で 』を頭に付けて並べる）"""
     work.mkdir(parents=True, exist_ok=True)
     ids = [t["id"] for t in tests]
     tree = tddloop.snapshot(repo)
@@ -198,21 +193,14 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         tddloop.save_json(cache, seen)
     rows = []
     for t in tests:
-        def miss(detail):
-            rows.append(_row("red_green", t["id"], detail, t["unit_keys"]))
         c = rules.match_case(t["id"], now)
         if c is None or c["outcome"] != "passed":
-            miss(f"今の木で {c['outcome'] if c else '一式の結末に居ない'}（受け入れのテストが緑でない）")
+            rows.append(_row("red_green", t["id"], f"今の木で {c['outcome'] if c else '一式の結末に居ない'}（受け入れのテストが緑でない）",
+                             t["unit_keys"]))
         base = [seen[keys[t["id"]]]] if seen.get(keys[t["id"]]) else []   # base の木の結末のうちこのテストに当たる行（無ければ空）
-        c = rules.match_case(t["id"], base)
-        if c is None:
-            miss("base で一式の結末に居ない（読み込みで落ちたか、名指しが実行器の識別子と違う）")
-        elif c["outcome"] == "passed":
-            miss("base で緑（直す前に赤でないテストは修正の証拠にならない）")
-        elif c["outcome"] != "failure":
-            miss(f"base で {c['outcome']}（テストの中の検査で落ちる赤でない）")
-        elif tddloop.kind_problems([t], base, t.get("names") or ()):
-            miss(f"base で {tddloop.red_kind(c)}（案は {t.get('red_kind')}）")
+        probs, _ = tddloop.red_check([t["id"]], base, None, None)
+        if probs:
+            rows.append(_row("red_green", t["id"], "base で " + "；".join(probs), t["unit_keys"]))
     return rows, []
 
 

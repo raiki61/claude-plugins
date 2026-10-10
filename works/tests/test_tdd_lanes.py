@@ -708,7 +708,79 @@ class TestClosedUnitVerifiedByTwoUnits(ContractLaneCase):
         st = self.st()
         self.assertEqual(st["lanes"]["back"], {})
         self.assertEqual(st["units"][UX]["covered_by"], [UD])
-        self.assertEqual(sorted(st["units"][UX]["red_kinds"]), sorted([B_ID, D_ID]), "赤の種類は確かめた単位の全部から")
+        ux = st["units"][UX]
+        self.assertEqual(sorted({*ux["red_quotes"], *ux["quote_unchecked"]}), sorted([B_ID, D_ID]),
+                         "赤の引用（と照らせなかった名指し）は確かめた単位の全部から")
+
+
+NEG_TEST = "\n    def test_neg(self):\n        self.assertEqual(negate(2), -2)\n"
+NEG_ID = "test_a.py::TestA::test_neg"
+
+
+class TestStubRedTree(LaneCase):
+    """枝の単位が、これから足す名前の仮の実装（テストでないファイル）を足して赤を作った時: 単位の記録の赤の木にその仮の実装が入り、
+    締めの確かめ直しは記録の赤の木で名指しを回して再現を見る（単位の頭にテストのファイルだけを置く組み直しでは、仮の実装が無く
+    組み立てで落ちて再現しない）"""
+
+    def stub_red(self):
+        """テストが無い名前 negate を読むので、一式の結末に名指しが居ない回は拒まれる。仮の実装（0 を返すだけ）を足して出し直すと赤が通る"""
+        self.route()
+        tree = pathlib.Path(self.lane(UA)["tree"])
+        self.edit(tree, "test_a.py", "from a import double", "from a import double, negate")
+        (tree / "test_a.py").write_text((tree / "test_a.py").read_text(encoding="utf-8") + NEG_TEST, encoding="utf-8")
+        reply = {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": [NEG_ID]}
+        got = self.cmd(UA, reply)
+        self.assertFalse(got["ok"])
+        self.assertIn(tddloop.NOT_RAN, got["reason"])
+        (tree / "a.py").write_text((tree / "a.py").read_text(encoding="utf-8") + "\n\ndef negate(x):\n    return 0\n", encoding="utf-8")
+        got = self.cmd(UA, reply)
+        self.assertTrue(got["ok"], got)
+        lst = json.loads(pathlib.Path(self.lane(UA)["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["units"][UA]["stub_files"], ["a.py"])
+        return tree
+
+    def finish(self, tree):
+        self.edit(tree, "a.py", "return 0\n", "return -x\n")   # 仮の実装を本物に置き換える（fix の段）
+        got = self.cmd(UA, {"phase": "fix", "unit_key": UA, "files": ["a.py"], "what": "negate を本物にした"})
+        self.assertTrue(got["ok"], got)
+        self.red(UB)
+        self.green(UB)
+
+    def forge(self, tree, how):
+        """下請けが書ける控えの赤の木を差し替える。passing＝名指しが通る木（直した後の木）／other_file＝名指しが self.fail で落ちる
+        別のテストに差し替えた木"""
+        if how == "passing":
+            red = tddloop.snapshot(tree)
+        else:
+            good = (tree / "test_a.py").read_text(encoding="utf-8")
+            (tree / "test_a.py").write_text(good.replace("self.assertEqual(negate(2), -2)", "self.fail('偽の赤')"), encoding="utf-8")
+            red = tddloop.snapshot(tree)
+            (tree / "test_a.py").write_text(good, encoding="utf-8")
+        row = self.lane(UA)
+        lst = json.loads(pathlib.Path(row["state"]).read_text(encoding="utf-8"))
+        lst["units"][UA]["red_tree"] = red
+        pathlib.Path(row["state"]).write_text(json.dumps(lst, ensure_ascii=False), encoding="utf-8")
+
+    def test_close_rechecks_red_tree_with_stub(self):
+        """記録の赤の木で再現して当てる（merged）。赤の記録は下請けが書ける控えに在るので、赤の木を名指しが通る木に差し替えても、
+        別のテストに差し替えても、締めが見つけて当てずに順へ戻す"""
+        for n, (how, word) in enumerate([("", ""), ("passing", "再現しない"), ("other_file", "赤の木の中のテストのファイル")]):
+            with self.subTest(how or "genuine"):
+                if n:
+                    self.setUp()
+                tree = self.stub_red()
+                self.finish(tree)
+                if how:
+                    self.forge(tree, how)
+                self.join()
+                st = self.st()
+                if not how:
+                    self.assertEqual(st["lanes"]["back"], {})
+                    self.assertEqual({r["unit_key"]: r["outcome"] for r in st["lanes"]["out"]}, {UA: "merged", UB: "merged"})
+                    self.assertIn("return -x", (self.repo / "a.py").read_text(encoding="utf-8"))
+                else:
+                    self.assertIn(word, st["lanes"]["back"][UA]["why"])
+                    self.assertEqual((self.repo / "a.py").read_text(encoding="utf-8"), SEED["a.py"], "赤を確かめ直せない単位は当てない")
 
 
 class TestOverlap(LaneCase):

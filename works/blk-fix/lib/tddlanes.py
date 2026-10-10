@@ -38,7 +38,7 @@
   done, phase, merged, back, conflicts（盤面に積む申し出）}。出口は状態の lanes.joined にも残し、締めた後にもう 1 度呼ばれたら（resume）
   それを申し出を空にして返す（盤面・作業ツリーを動かさない）
 - settle(st, repo, try_query): 目録の順に枝を締める（単位ごとの申し出の確かめ・direct・赤の確かめ直し（_red_again。控えの赤の記録は
-  確かめの節の外でも書き換えうるので、単位の頭の木と赤の時のテストのファイルで名指しを回し直す）・書き込みの記録の突き合わせ・
+  確かめの節の外でも書き換えうるので、記録の赤の木（仮の実装を含む）で名指しを回し直す）・書き込みの記録の突き合わせ・
   3 方向で当てる（試験のファイルの挿しだけの食い違いは合わせる）・当てた中身と名指しのテストの照らし）、当てた後の木で緑をもう 1 度
   確かめ（重なりのファイルを起点に広げる。赤なら後の枝を落として 1 回だけ確かめ直す）、記録を写し、単位の worktree を片付けて順の段へ
   進める。run の作業ツリーに書かれた物は戻す（枝の役は包みの柵で書けないが、受け止めとして）。盤面に積む申し出の一覧を返す
@@ -522,10 +522,11 @@ def _record(u: dict) -> dict:
 
 
 def _red_again(st, row, lst, k, work) -> str:
-    """単位 k の赤を確かめ直す（控えの赤の記録は run ごとの置き場に在り、役の sandbox からも書ける）。単位の worktree を、単位の頭の木に
-    赤の時のテストのファイルだけを置いた姿にして名指しだけを回し、写しの red_problems と記録の赤の種類で照らす。赤の時の
-    テストのファイルは、枝の次の単位の頭の木（無ければ今の姿）の中身で、凍結の記録と同じ物。回した後は worktree を元の姿に
-    戻す。通れば空、記録どおりに落ちなければ戻す理由"""
+    """単位 k の赤を確かめ直す（控えの赤の記録は run ごとの置き場に在り、役の sandbox からも書ける）。単位の worktree を、記録の
+    赤の木（red_tree。仮の実装を含む）の姿にして名指しだけを回し、red_check の事実（名指しが failure で落ちる）で照らす。引用は
+    赤の回に照らし済みで、回ごとに変わる文（番地・秒・一時のパス）で誤って戻さないため、照らし直さない。赤の時のテストのファイルは
+    枝の次の単位の頭の木（無ければ今の姿）の中身で、凍結の記録と同じ物であり、戻した赤の木の中のテストのファイルも記録と同じで
+    あることを回す前に照らす。回した後は worktree を元の姿に戻す。通れば空、記録どおりに落ちなければ戻す理由"""
     tree = pathlib.Path(row["tree"])
     u = lst["units"][k]
     if u.get("covered_by"):   # 段を回さずに閉じた単位: 赤は枝で緑に届いた単位の名指しに在り、その単位の確かめ直しが見る
@@ -537,33 +538,29 @@ def _red_again(st, row, lst, k, work) -> str:
     keys = list(lst["queue"])
     i = keys.index(k)
     heads = lst.get("unit_heads") or {}
-    head = (lst.get("lane_base") or lst["unit_head"]) if i == 0 else heads.get(k)
     tests, files = list(u.get("tests") or []), list(u.get("test_files") or [])
     if not tests:
         return "赤の記録に名指しのテストが無い（赤を確かめ直せない）"
-    if not head:
-        return "単位の頭の木が控えに無い（赤を確かめ直せない）"
+    if not u.get("red_tree"):
+        return "赤の木が控えに無い（赤を確かめ直せない）"
     final = tddloop.snapshot(tree)
     src = next((heads[q] for q in keys[i + 1:] if q in heads), None)   # 閉じた単位は頭の木を持たない（木を変えない）ので飛ばす
     then = tddloop._tree_hashes(tree, src, files) if src else tddloop.hashes(tree, files)
-    if any(then[f] != (u.get("test_hashes") or {}).get(f) for f in files):
+    recorded = u.get("test_hashes") or {}
+    if any(then[f] != recorded.get(f) for f in files):
         return "テストのファイルの中身が赤の記録と違う（赤を確かめ直せない）"
     try:
-        tddloop.restore_paths(tree, head, set(tddloop.touched(tree, head, final)) - set(files))
-        if src:
-            tddloop.restore_paths(tree, src, files)
+        tddloop.restore(tree, u["red_tree"])
+        if any(h != recorded.get(f) for f, h in tddloop.hashes(tree, files).items()):
+            return "赤の木の中のテストのファイルが赤の記録と違う（赤を確かめ直せない）"
         cases, code, why = tddloop.run_suite(lst["exe"], tree, work, f"lane-{row['n']}-red-{i + 1}", tddloop.abs_ids(tree, tests),
                                              only=True)
     finally:
         tddloop.restore(tree, final)
     if cases is None:
         return "赤を確かめ直す実行器が走らない（" + "; ".join(why)[:300] + "）"
-    probs = tddloop.rules().red_problems(tests, cases, code, st["baseline"])
-    if not probs:
-        kinds = {t: tddloop.red_kind(tddloop.rules().match_case(t, cases) or {}) for t in tests}
-        probs = [f"{t}: 赤の種類 {kinds[t]}（記録は {kk}）" for t, kk in (u.get("red_kinds") or {}).items() if kinds.get(t) != kk]
-    return ("赤の記録を機械が確かめ直すと再現しない（単位の頭の木に赤の時のテストだけを置いて名指しを回した）: "
-            + probs[0][:300]) if probs else ""
+    probs, _ = tddloop.red_check(tests, cases, code, st["baseline"])
+    return ("赤の記録を機械が確かめ直すと再現しない（記録の赤の木で名指しを回した）: " + probs[0][:300]) if probs else ""
 
 
 def _apply_lanes(st, repo, ready, log, work, back, how) -> list:

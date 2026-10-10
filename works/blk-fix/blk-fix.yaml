@@ -139,7 +139,7 @@ nodes:
   # 単位ごとの TDD の輪（設計 2 節 3・案 (i)。graph は変えない）。役 tdd は輪のただ 1 つの AI の節（TA13）で、振り分け・
   # テスト・直し・整えを返す（C17）。fresh_context は false のままで、同じ単位の段は 1 つの会話を継ぎ、単位が替わる周だけ包みが
   # 新しい会話で起こす（tdd-prep が run ごとの置き場に書く単位の鍵。前の単位の物は指示書の引き継ぎの節で渡す。依頼 243 の 2）。
-  # 赤・緑は tdd-step が写しの red_problems・green_problems で決める。
+  # 赤は tdd-step が red_check（中で写しの red_problems）、緑は写しの green_problems で決める。
   # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は direct）、
   # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）。
   # 形 g3 で振り分けの後に範囲の引ける tdd の枝（項目を共にする単位の組）が 2 本以上なら、tdd-step が枝ごとの worktree を切って
@@ -2049,9 +2049,9 @@ nodes:
             count: {type: integer, minimum: 0}
             file: {type: string}
         # TDD の輪の結果 {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor,
-        # gave_up, problems, red_kinds, test_cmd, refactor_why}], test_cmd: {gate, note}, calls: [{n, phase, unit_key, ok, runs,
-        # secs}], reused?: {suite, test_cmd}}。reused は輪の頭で同じ run の中の控えから使い回した結果の出どころの句（使った物だけ）。
-        # 実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
+        # gave_up, problems, red_quotes, quote_unchecked, stub_files, test_cmd, refactor_why}], test_cmd: {gate, note}, calls: [{n,
+        # phase, unit_key, ok, runs, secs}], reused?: {suite, test_cmd}}。reused は輪の頭で同じ run の中の控えから使い回した結果の
+        # 出どころの句（使った物だけ）。実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
         tdd: {type: object}
         # 盤面の欄（〔線A計〕T17。recount.collect）: 受けた修正の返答のファイル・直せなかった単位の数・単位ごとの前後の件数・読んだ証拠
         fix_file: {type: string}

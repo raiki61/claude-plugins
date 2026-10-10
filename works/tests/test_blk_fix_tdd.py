@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -65,7 +66,7 @@ sys.exit(0 if all(k in (None, "skipped") for _, k in rows) else 1)
 '''
 
 # SUITE の写しで、pytest の JUnit に合わせる実行器: 断言の失敗も本体の例外も failure と書き、message に「<型>: <文>」を付ける
-# （pytest は本体の例外を failure と書く。赤の種類 tddloop.red_kind はこの message を読む）
+# （pytest は本体の例外を failure と書く。引用の照らし tddloop.red_check はこの message を読む）
 PYTEST_LIKE = '''
 import sys, unittest, xml.etree.ElementTree as ET
 sys.dont_write_bytecode = True
@@ -558,14 +559,22 @@ class TestUnitLoop(LoopCase):
         self.assertEqual(self.st()["phase"], "test")
 
     def test_red_rejects_touching_outside_test_files(self):
+        """test の段でテストでないファイルに書くことは拒まない。直しまで書いて名指しが通ると、書き込みでなく『もう通る』で拒む"""
         self.route()
         self.add_test(NEW_TEST)
         self.edit("stats.py", "len(xs) - 1", "len(xs)")
         got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
                          "tests": ["test_stats.py::TestStats::test_mean_of_two"]})
         self.assertFalse(got["ok"])
-        self.assertIn("stats.py", got["reason"])
-        self.assertIn("外", got["reason"])
+        self.assertIn("もう通る", got["reason"])
+        self.assertNotIn("外", got["reason"])
+        self.assertEqual(self.st()["phase"], "test")
+        (self.repo / "test_other.py").write_text("import unittest\n", encoding="utf-8")   # 宣言の外のテストのファイルへの書き込みは今どおり拒む
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                         "tests": ["test_stats.py::TestStats::test_mean_of_two"]})
+        self.assertFalse(got["ok"])
+        self.assertIn("test_other.py", got["reason"])
+        self.assertIn("テストのファイルの外", got["reason"])
 
     def test_red_rejects_wrong_unit(self):
         self.route()
@@ -691,6 +700,26 @@ class ContractCase(LoopCase):
         self.state = self.start["state_file"]
         self.assertEqual(sorted(pc.call_args[0][1]), sorted([MEAN, CLAMP]))
 
+    def quotes_for(self, tests):
+        """名指しを実行器で 1 回走らせ、結末の failure の文から赤の引用を作る（役が結末を読んで引く代わり）。{id: {quote, why}}。
+        failure の文の無い名指し（落ちていない・文を書かない実行器）は載せない"""
+        with tempfile.TemporaryDirectory() as td:
+            cases, _, why = tddloop.run_suite(str(self.suite), self.repo, pathlib.Path(td), "q", tddloop._abs_ids(self.repo, tests))
+        self.assertEqual(why, [])
+        out = {}
+        for t in tests:
+            c = tddloop.rules().match_case(t, cases) or {}
+            if c.get("fail_message"):
+                out[t] = {"quote": c["fail_message"], "why": "今のコードの欠陥で期待どおりに落ちた（打ち間違いではない）"}
+        return out
+
+    def step(self, reply):
+        """test の段の返答に red_quotes が無ければ、結末の failure の文から作って足す（red_quotes を書いた返答はそのまま。
+        failure の文を書かない実行器の結末からは作れず、{} を足す）"""
+        if isinstance(reply, dict) and reply.get("phase") == "test" and reply.get("tests") and tddloop.QUOTES_FIELD not in reply:
+            reply = {**reply, tddloop.QUOTES_FIELD: self.quotes_for(reply["tests"])}
+        return super().step(reply)
+
     def wrong_kind(self):
         """今のコードに無い名前を呼んで AttributeError で落ちるテスト（案は assertion）を書いて出す"""
         return self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID]})
@@ -733,42 +762,65 @@ class TestPlanContract(ContractCase):
                          "tests": ["./test_stats.py::TestStats::test_mean_of_two"]})
         self.assertTrue(got["ok"], got)
 
-    def test_red_kind_matches_and_is_recorded(self):
+    def test_red_quotes_are_required_and_recorded(self):
+        """約束の在る単位の test の段は、red_quotes の無い返答を拒む。結末の失敗の文（6.0 != 3）を引いた返答なら通し、単位の記録に残す"""
         self.route()
-        self.red()
-        self.assertEqual(self.st()["units"][MEAN]["red_kinds"], {MEAN_ID: "assertion"})
+        self.add_test(NEW_TEST)
+        reply = {"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID]}
+        got = self.step({**reply, tddloop.QUOTES_FIELD: {}})
+        self.assertFalse(got["ok"])
+        self.assertIn(MEAN_ID, got["reason"])
+        self.assertIn(tddloop.QUOTES_FIELD, got["reason"])
+        quotes = {MEAN_ID: {"quote": "6.0 != 3", "why": "mean が分母を 1 つ少なく割るので 6.0 になる（期待は 3）"}}
+        got = self.step({**reply, tddloop.QUOTES_FIELD: quotes})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["units"][MEAN][tddloop.QUOTES_FIELD], quotes)
+
+    def test_red_kind_matches_and_is_recorded(self):
+        """赤の記録は、機械が分けた種類でなく、役が返答に書いた引用と理由（結末の失敗の文に在ると照らし済み）がそのまま残る"""
+        self.route()
+        self.add_test(NEW_TEST)
+        quotes = {MEAN_ID: {"quote": "6.0 != 3", "why": "mean が分母を 1 つ少なく割るので 6.0 になる（期待は 3）"}}
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID],
+                         tddloop.QUOTES_FIELD: quotes})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["units"][MEAN][tddloop.QUOTES_FIELD], quotes)
+        self.assertEqual(self.st()["units"][MEAN]["quote_unchecked"], [])
 
     def test_red_rejects_wrong_kind(self):
+        """宣言の外の名前（AttributeError）で落ちた failure も機械は種類で拒まない。引用が結末の文に在れば赤として通り、引用が
+        単位の記録に残る（打ち間違いかは役の理由と報告の行で見る）"""
         self.route()
         self.add_test(WRONG_KIND_TEST)
         got = self.wrong_kind()
-        self.assertFalse(got["ok"])
-        for w in ("AttributeError", "assertion", "conflict"):
-            self.assertIn(w, got["reason"])
-        self.assertEqual(self.st()["phase"], "test")
+        self.assertTrue(got["ok"], got)
+        self.assertIn("AttributeError", self.st()["units"][MEAN][tddloop.QUOTES_FIELD][MEAN_ID]["quote"])
 
     def test_crash_red_with_assertion_plan_passes_and_is_recorded(self):
-        """今のコードが例外で落ちる種類のバグ（ZeroDivisionError）は、案が assertion でも拒まず種類を記録する"""
+        """今のコードが例外で落ちる種類のバグ（ZeroDivisionError）は、案が assertion でも拒まず、引いた失敗の文を記録する"""
         self.route()
         self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(mean([5]), 5)\n")
         got = self.wrong_kind()
         self.assertTrue(got["ok"], got)
-        self.assertEqual(self.st()["units"][MEAN]["red_kinds"], {MEAN_ID: "ZeroDivisionError"})
+        self.assertIn("ZeroDivisionError", self.st()["units"][MEAN][tddloop.QUOTES_FIELD][MEAN_ID]["quote"])
 
     def test_name_error_red_with_assertion_plan_rejected(self):
+        """NameError の failure も機械は種類で拒まず、引用が結末の文に在れば赤として通る"""
         self.route()
         self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(mean_of([2, 4]), 3)\n")
         got = self.wrong_kind()
-        self.assertFalse(got["ok"])
-        for w in ("NameError", "assertion", "conflict"):
-            self.assertIn(w, got["reason"])
+        self.assertTrue(got["ok"], got)
+        self.assertIn("NameError", self.st()["units"][MEAN][tddloop.QUOTES_FIELD][MEAN_ID]["quote"])
 
     def test_wrong_kind_three_times_gives_up_to_direct(self):
+        """結末に無い引用で 3 回拒まれ、direct に移って木が単位の頭に戻る（gave_up red）"""
         self.route()
         head = (self.repo / "test_stats.py").read_text(encoding="utf-8")
         self.add_test(WRONG_KIND_TEST)
+        made_up = {MEAN_ID: {"quote": "結末に無い作り話の失敗の文", "why": "期待どおりの理由で落ちたと思う（作り話）"}}
         for _ in range(tddloop.retry_max()):
-            got = self.wrong_kind()
+            got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID],
+                             tddloop.QUOTES_FIELD: made_up})
             self.assertFalse(got["ok"])
         self.assertTrue(got["done"], "tdd の単位が 1 つなので輪は済む")
         self.assertEqual((self.repo / "test_stats.py").read_text(encoding="utf-8"), head, "作業ツリーは単位の頭")
@@ -776,25 +828,44 @@ class TestPlanContract(ContractCase):
         self.assertEqual((u["route"], u["gave_up"]), ("direct", "red"))
 
     def test_unknown_kind_is_recorded_not_rejected(self):
-        """実行器が failure に message も type も書かない（SUITE）なら赤の種類は unknown。拒まず記録する"""
+        """実行器が failure に message も本文も書かず（SUITE）、ログも空なら、引用を照らす先が無い。引用なしに拒まず通し、
+        単位の quote_unchecked にその名指しを残す"""
         self.suite.write_text(SUITE, encoding="utf-8")
         self.route()
         self.red()
-        self.assertEqual(self.st()["units"][MEAN]["red_kinds"], {MEAN_ID: tddloop.KIND_UNKNOWN})
+        u = self.st()["units"][MEAN]
+        self.assertEqual((u[tddloop.QUOTES_FIELD], u["quote_unchecked"]), ({}, [MEAN_ID]))
+
+    def test_missing_named_test_then_stub_outside_test_files_passes(self):
+        """まだ無い名を読むテストで名指しが一式に居ない回は、NOT_RAN つきで拒まれる。仮の実装を足して出し直すと赤が通り、
+        単位の stub_files に仮の実装のファイルが残る"""
+        self.route()
+        self.edit("test_stats.py", "from stats import clamp, mean", "from stats import average, clamp, mean")
+        self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(average([2, 4]), 3)\n")
+        reply = {"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID]}
+        got = self.step(reply)
+        self.assertFalse(got["ok"])
+        self.assertIn("一式の結末に居ない", got["reason"])
+        self.assertIn(tddloop.NOT_RAN, got["reason"])
+        self.edit("stats.py", "def clamp(", "def average(xs):\n    return 0\n\n\ndef clamp(")   # 最小の仮の実装（形だけ）
+        got = self.step(reply)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["units"][MEAN]["stub_files"], ["stats.py"])
+        self.assertTrue(self.st()["units"][MEAN]["red_tree"])
 
 
 class TestNoContract(LoopCase):
     def test_no_contract_same_as_before(self):
-        """約束の無い run（LoopCase）は、名指しの名前も赤の種類も見ない"""
+        """約束の無い run（LoopCase）は、名指しの名前を見ず、red_quotes も求めない。引用を照らす先の無い名指しは quote_unchecked に残る"""
         self.assertEqual(self.st()["contract"], {})
         self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]), {}, "盤面の無い置き場は空")
         self.route()
         self.add_test(NEW_TEST.replace("test_mean_of_two", "test_other_name"))
-        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
-                         "tests": ["test_stats.py::TestStats::test_other_name"]})
+        other = "test_stats.py::TestStats::test_other_name"
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [other]})
         self.assertTrue(got["ok"], got)
-        self.assertEqual(self.st()["units"][MEAN]["red_kinds"],
-                         {"test_stats.py::TestStats::test_other_name": tddloop.KIND_UNKNOWN})
+        u = self.st()["units"][MEAN]
+        self.assertEqual((u[tddloop.QUOTES_FIELD], u["quote_unchecked"]), ({}, [other]))
 
     def test_board_without_fields_has_no_contract(self):
         """盤面が在っても欄の控えが無ければ（frozen_fields が None）約束は空"""
@@ -857,14 +928,14 @@ class TestPlanRewrites(ContractCase):
         self.assertIn("もう通る", got["reason"])
 
     def test_rewrite_name_error_red_is_rejected(self):
-        """書き換えが今のコードに無い名前で落ちる（NameError）赤は、狙いの赤でないので拒む"""
+        """書き換えが今のコードに無い名前で落ちる（NameError）赤も、機械は種類で拒まない。引用が結末の文に在れば赤として通り、
+        red_quotes が単位の記録に残る"""
         self.route(mean="direct", clamp="tdd")
         self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)", "self.assertEqual(clamp_to(15, 0, 10), 10)")
         got = self.step({"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [REWRITE]})
-        self.assertFalse(got["ok"])
-        for w in (REWRITE, "NameError", "conflict"):
-            self.assertIn(w, got["reason"])
-        self.assertEqual(self.st()["phase"], "test")
+        self.assertTrue(got["ok"], got)
+        self.assertIn("NameError", self.st()["units"][CLAMP][tddloop.QUOTES_FIELD][REWRITE]["quote"])
+        self.assertEqual(self.st()["phase"], "fix")
 
     def test_unnamed_edit_rejected_before_running(self):
         """名指しの外の書き換えは実行器を走らせる前に拒む"""
@@ -1431,125 +1502,126 @@ class TestContractBroken(LoopCase):
 
 
 class TestRedKind(unittest.TestCase):
-    def test_kinds(self):
-        def k(t, m):
-            return tddloop.red_kind({"fail_type": t, "fail_message": m})
-        self.assertEqual(k("", "assert 3.0 == 2"), "assertion")
-        self.assertEqual(k("", "AssertionError: 3.0 != 2"), "assertion")
-        self.assertEqual(k("", "AssertionError: ValueError not raised"), "exception")
-        self.assertEqual(k("", "Failed: DID NOT RAISE ValueError"), "exception")
-        self.assertEqual(k("", "NameError: name 'f' is not defined"), "NameError")
-        self.assertEqual(k("org.opentest4j.AssertionFailedError", "expected: <1>"), "assertion")
-        self.assertEqual(k("", ""), tddloop.KIND_UNKNOWN)
-        self.assertEqual(k("", "3.0 != 2"), tddloop.KIND_UNKNOWN)
-
-    def test_kinds_custom_assertion_and_junit5_not_thrown(self):
-        """名前が AssertionError で終わる型（自前の子の型）は assertion。JUnit 5 の『to be thrown, but nothing was thrown』は exception"""
-        def k(t, m):
-            return tddloop.red_kind({"fail_type": t, "fail_message": m})
-        self.assertEqual(k("", "MyAssertionError: 3.0 != 2"), "assertion")
-        self.assertEqual(k("pkg.CustomAssertionError", "m"), "assertion")
-        self.assertEqual(k("org.opentest4j.AssertionFailedError",
-                           "Expected java.lang.IllegalArgumentException to be thrown, but nothing was thrown."), "exception")
-
-    def test_kind_rule(self):
-        """赤の種類の照らし（_kind_problems）: 拒むのは名前・import の失敗の 4 つの型と、exception の案に断言の失敗だけ。
-        ほかの例外の型（落ちる種類のバグ）は記録だけで拒まない。案の red_kind が RED_KINDS の外なら見ない"""
-        def probs(declared, msg):
-            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
-                    "fail_type": "", "fail_message": msg}
-            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": declared}], [case])
-        self.assertEqual(probs("assertion", "ZeroDivisionError: division by zero"), [])
-        self.assertEqual(probs("assertion", "Failed: DID NOT RAISE ValueError"), [])
-        for name in ("NameError", "AttributeError", "ImportError", "ModuleNotFoundError"):
-            got = probs("assertion", f"{name}: x")
-            self.assertEqual(len(got), 1, name)
-            self.assertIn(name, got[0])
-            self.assertIn("conflict", got[0])
-            self.assertTrue(probs("exception", f"{name}: x"), name)
-        self.assertEqual(probs("exception", "Failed: DID NOT RAISE ValueError"), [])
-        self.assertEqual(probs("exception", "TypeError: bad operand"), [])
-        self.assertTrue(probs("exception", "AssertionError: 3.0 != 2"))
-        for declared in (None, "weird"):   # 宣言の無い名指し（書き換え）: 名前・import の失敗だけを拒む
-            self.assertTrue(probs(declared, "NameError: name 'f' is not defined"), declared)
-            self.assertEqual(probs(declared, "AssertionError: 3.0 != 2"), [], declared)
-            self.assertEqual(probs(declared, "Failed: DID NOT RAISE ValueError"), [], declared)
-
-    def test_kind_rule_declared_names(self):
-        """declared（adds の名前）に在る名前の NameError・AttributeError・ImportError・ModuleNotFoundError は拒まない。宣言の外・
-        名前の引けない message・declared が空は今どおり 1 行拒む。exception の案に断言の失敗の拒みは残る"""
-        def probs(declared, msg, want="assertion"):
-            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
-                    "fail_type": "", "fail_message": msg}
-            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": want}], [case], declared)
-        hits = ("AttributeError: module 'stats' has no attribute 'clamp'", "NameError: name 'clamp' is not defined",
-                "ImportError: cannot import name 'clamp' from 'stats' (/tmp/stats.py)", "ModuleNotFoundError: No module named 'stats.clamp'")
-        for msg in hits:
-            self.assertEqual(probs(["clamp"], msg), [], msg)
-            self.assertEqual(probs(["stats.clamp(xs, lo, hi)"], msg), [], msg)
-            self.assertEqual(len(probs(["clam"], msg)), 1, msg)
-            self.assertEqual(len(probs(["clampx", "mean"], msg)), 1, msg)
-            self.assertEqual(len(probs([], msg)), 1, msg)
-            self.assertEqual(len(probs((), msg, "exception")), 1, msg)
-        self.assertEqual(len(probs(["clamp"], "NameError: boom")), 1)
-        self.assertEqual(probs(["clamp"], "AssertionError: 3.0 != 2"), [])
-        self.assertTrue(probs(["clamp"], "AssertionError: 3.0 != 2", "exception"))
-        self.assertEqual(probs(["clamp"], "NameError: name 'clamp' is not defined", "exception"), [])
-
-    def test_kind_rule_declared_file_names(self):
-        """adds の名が .py のファイルの名・パス（新しいモジュール）なら、宣言した名前はモジュールの名（拡張子でない。依頼 194c で
-        receivers.py が 'py' と比べられ、宣言した赤が数えられなかった）。パッケージの __init__.py はディレクトリの名。<パス>::<名前> は
-        :: の後の名前。綴りの誤り（宣言の外の名前）の拒みは残る"""
-        def probs(declared, msg):
-            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
-                    "fail_type": "", "fail_message": msg}
-            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": "assertion"}], [case], declared)
-        mod = ("ModuleNotFoundError: No module named 'receivers'", "ModuleNotFoundError: No module named 'app.receivers'",
-               "ImportError: cannot import name 'receivers' from 'app' (/tmp/app/__init__.py)")
-        for msg in mod:
-            for d in ("receivers.py", "app/receivers.py", "app/receivers/__init__.py"):
-                self.assertEqual(probs([d], msg), [], (d, msg))
-            self.assertEqual(len(probs(["recievers.py"], msg)), 1, msg)                 # 綴りの違うファイルの名は当たらない
-            self.assertEqual(len(probs(["app/receivers.py::handle"], msg)), 1, msg)     # :: の後の名前だけを宣言する
-            self.assertEqual(len(probs(["docs/receivers.md"], msg)), 1, msg)            # .py でないパスはモジュールを宣言しない
-        handle = "ImportError: cannot import name 'handle' from 'app.receivers' (/tmp/app/receivers.py)"
-        for d in ("app/receivers.py::handle", "receivers.py::handle", "app/receivers.py::Receiver.handle", "receivers.handle"):
-            self.assertEqual(probs([d], handle), [], d)
-        self.assertEqual(len(probs(["receivers.py"], handle)), 1)                      # モジュールの宣言は中の名前を宣言しない
-        self.assertEqual(len(probs(["receivers.py"], "ModuleNotFoundError: No module named 'py'")), 1)   # 拡張子と比べない
-
-    def test_kind_rule_new_module_of_canonical(self):
-        """修正案の項目の adds が関数の名だけを書き、新しいモジュールを canonical の『<パス>.py（新設…）』で名指した形（依頼 194c の
-        nodeio.py）: 欄の控え（planmarks.split）から単位の約束の names を通すと、そのモジュールの import の失敗は宣言の赤。在る
-        ファイルに新設の関数を足す行はモジュールを宣言せず、綴りの違うモジュールは今どおり拒む"""
-        adds = [{"kind": "function", "name": "read_input", "canonical": "works/.shared/core/nodeio.py（新設。前の節の出力を読む口）"},
-                {"kind": "function", "name": "current_round", "canonical": "stats.py（新設。盤面の今の周を返す）"}]
-        with tempfile.TemporaryDirectory() as td:
-            (pathlib.Path(td) / "stats.py").write_text("", encoding="utf-8")
-            _, fields = planmarks.split({"plan": [{"unit_keys": ["u"], "adds": adds}]}, pathlib.Path(td))
-        names = planmarks.unit_contract(fields, "u")["names"]
-
-        def probs(msg):
-            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
-                    "fail_type": "", "fail_message": msg}
-            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": "assertion"}], [case], names)
-        self.assertEqual(probs("ModuleNotFoundError: No module named 'works.shared.core.nodeio'"), [])
-        self.assertEqual(probs("ImportError: cannot import name 'read_input' from 'nodeio'"), [])
-        self.assertEqual(len(probs("ModuleNotFoundError: No module named 'nodeoi'")), 1)
-        self.assertEqual(len(probs("ModuleNotFoundError: No module named 'stats'")), 1)
-
     def test_run_suite_rows_carry_failure_attrs(self):
-        """run_suite の結末の行に failure の子の type・message（無ければ空）"""
+        """run_suite の結末の行に failure の子の message と本文（無ければ空）。failure の無い行は空"""
         with tempfile.TemporaryDirectory() as td:
             work = pathlib.Path(td)
             exe = work / "suite.py"
             exe.write_text("import sys\nopen(sys.argv[1], 'w').write('<testsuite>"
-                           "<testcase classname=\"a\" name=\"t1\"><failure type=\"x.AssertionError\" message=\"m\"/></testcase>"
+                           "<testcase classname=\"a\" name=\"t1\"><failure type=\"x.AssertionError\" message=\"m\">trace\\nm</failure></testcase>"
                            "<testcase classname=\"a\" name=\"t2\"/></testsuite>')\nsys.exit(1)\n", encoding="utf-8")
             cases, _, why = tddloop.run_suite(str(exe), work, work, "attrs")
         self.assertEqual(why, [])
-        self.assertEqual([(c["name"], c["fail_type"], c["fail_message"]) for c in cases],
-                         [("t1", "x.AssertionError", "m"), ("t2", "", "")])
+        self.assertEqual([(c["name"], c["fail_message"], c["fail_text"]) for c in cases], [("t1", "m", "trace\nm"), ("t2", "", "")])
+        self.assertTrue(all("fail_type" not in c for c in cases))
+
+
+RC_ID = "test_a.py::TestA::test_x"
+RC_WHY = "Foo はこれから足す名前で、まだ無いので落ちる（打ち間違いではない）"
+
+
+def _junit(*rows) -> str:
+    """実行器が書く JUnit XML の文字列。rows は (テストの名前, 種類（failure・error・空は通る）, message, 本文)"""
+    root = ET.Element("testsuite")
+    for name, kind, message, body in rows:
+        tc = ET.SubElement(root, "testcase", classname="test_a.TestA", name=name)
+        if kind:
+            f = ET.SubElement(tc, kind)
+            if message:
+                f.set("message", message)
+            if body:
+                f.text = body
+    return ET.tostring(root, encoding="unicode")
+
+
+class TestRedCheck(unittest.TestCase):
+    """赤の判定 red_check（輪・並べの締め・事後の関門が呼ぶ 1 つの口）: 言語に依らない事実と、失敗の文の引用の照らし"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.td = pathlib.Path(self._tmp.name)
+
+    def suite(self, xml, out="", n="rc"):
+        """中に書いた実行器（JUnit を xml のとおりに書き、out を標準出力に出して exit 1）を run_suite で走らせた
+        （結末の行, 終了コード, その回のログのパス）"""
+        exe = self.td / f"runner-{n}.py"
+        exe.write_text(f"import sys\nsys.stdout.write({out!r})\nopen(sys.argv[1], 'w', encoding='utf-8').write({xml!r})\nsys.exit(1)\n",
+                       encoding="utf-8")
+        cases, code, why = tddloop.run_suite(str(exe), self.td, self.td, n)
+        self.assertEqual(why, [])
+        return cases, code, self.td / f"suite-{n}.log"
+
+    def check(self, xml, quote=None, why=RC_WHY, out="", **kw):
+        cases, code, log = self.suite(xml, out)
+        quotes = None if quote is None else {RC_ID: {"quote": quote, "why": why}}
+        return tddloop.red_check([RC_ID], cases, code, {}, kw.get("quotes", quotes), log)
+
+    def test_failure_with_any_language_text_is_red(self):
+        """failure の message が Python でない文でも、名指しが failure で落ち、引用がその文に在れば赤として通る"""
+        self.assertEqual(self.check(_junit(("test_x", "failure", "undefined: Foo", "")), "undefined: Foo"), ([], []))
+        self.assertEqual(self.check(_junit(("test_x", "failure", "undefined: Foo", ""))), ([], []), "引用を見ない呼びは事実だけ")
+
+    def test_error_and_missing_are_not_red_and_carry_facts_only(self):
+        """名指しが error か一式に居ない時は拒む。返す文は事実だけで、NOT_RAN の言い足しを含まない（言い足しは輪の _test だけ）"""
+        probs, _ = self.check(_junit(("test_x", "error", "ImportError: boom", "")))
+        self.assertEqual(len(probs), 1)
+        self.assertIn("error で落ちた", probs[0])
+        probs, _ = self.check(_junit(("test_other", "failure", "x", "")))
+        self.assertTrue(any("一式の結末に居ない" in p for p in probs), probs)
+        self.assertFalse(any(tddloop.NOT_RAN in p for p in probs))
+        probs, _ = self.check(_junit(("test_x", "", "", "")))
+        self.assertTrue(any("もう通る" in p for p in probs), probs)
+
+    def test_quote_absent_from_failure_is_rejected(self):
+        probs, _ = self.check(_junit(("test_x", "failure", "undefined: Foo", "")), "結末に無い作り話の文")
+        self.assertEqual(len(probs), 1)
+        self.assertIn(RC_ID, probs[0])
+        self.assertIn("結末の失敗の文に無い", probs[0])
+        probs, _ = self.check(_junit(("test_x", "failure", "undefined: Foo", "")), "")
+        self.assertIn(RC_ID, probs[0])
+        probs, _ = self.check(_junit(("test_x", "failure", "undefined: Foo", "")), quotes={})
+        self.assertIn("引用と理由が無い", probs[0], "約束の在る単位は、失敗の文が在る名指しに引用を求める")
+
+    def test_quote_matches_across_whitespace_and_color_codes(self):
+        """改行・連続する空白・色の制御文字だけが違う引用は通る。XML の属性に色の制御文字は書けないので、色の付くログに引いた物でも見る"""
+        xml = _junit(("test_x", "failure", "AssertionError:\n    6.0\t!=   3", ""))
+        self.assertEqual(self.check(xml, "AssertionError: 6.0 != 3"), ([], []))
+        self.assertEqual(self.check(xml, "AssertionError:   6.0 !=\n3"), ([], []))
+        bare = _junit(("test_x", "failure", "", ""))
+        self.assertEqual(self.check(bare, "AssertionError: 6.0 != 3", out="\x1b[31mAssertionError:\x1b[0m\n  6.0 != 3\n"), ([], []))
+
+    def test_quote_found_in_failure_body_when_message_empty(self):
+        """failure の message が空で本文に失敗の文が在る時、本文に在る引用は通る（本文を読む所は _failure_attrs の 1 か所）"""
+        xml = _junit(("test_x", "failure", "", "Traceback (most recent call last):\n  File x\nNameError: name 'Foo' is not defined"))
+        self.assertEqual(self.check(xml, "NameError: name 'Foo' is not defined"), ([], []))
+        probs, _ = self.check(xml, "ValueError: boom")
+        self.assertIn("結末の失敗の文に無い", probs[0])
+
+    def test_quote_checked_against_log_when_failure_has_no_text(self):
+        """failure に message も本文も無く、役が引いた時は、その回のログと照らす（ログに在れば通り、無ければ拒む）"""
+        xml = _junit(("test_x", "failure", "", ""))
+        out = "FAILED test_a.py::TestA::test_x - assert 6.0 == 3\n"
+        self.assertEqual(self.check(xml, "assert 6.0 == 3", out=out), ([], []))
+        probs, _ = self.check(xml, "ログに無い文", out=out)
+        self.assertIn("結末の失敗の文に無い", probs[0])
+
+    def test_nothing_to_quote_is_recorded_unchecked(self):
+        """failure の文もログも空の時は、引用が無くても拒まず、その名指しを unchecked に返す。引用を求めるのは文が在る名指しだけ"""
+        xml = _junit(("test_x", "failure", "", ""))
+        self.assertEqual(self.check(xml, quotes={}), ([], [RC_ID]))
+        self.assertEqual(self.check(xml), ([], [RC_ID]))
+        self.assertEqual(self.check(_junit(("test_x", "failure", "undefined: Foo", "")), "undefined: Foo")[1], [])
+
+    def test_short_why_and_trivial_quote_are_rejected(self):
+        """理由が MIN_WHY 字に満たない時と、引用が 1〜2 字（照らす先が長い時）の時は拒む。3 字からは通る"""
+        xml = _junit(("test_x", "failure", "AssertionError: 6.0 != 3 (mean が分母を間違えている)", ""))
+        probs, _ = self.check(xml, "AssertionError: 6.0 != 3", why="短い理由")
+        self.assertIn("why", probs[0])
+        for trivial in ("e", "6."):
+            probs, _ = self.check(xml, trivial)
+            self.assertIn("短すぎる", probs[0], trivial)
+        self.assertEqual(self.check(xml, "6.0"), ([], []))
 
 
 LINT = "import pathlib, sys\nsys.exit(1 if 'print(' in pathlib.Path('stats.py').read_text() else 0)\n"

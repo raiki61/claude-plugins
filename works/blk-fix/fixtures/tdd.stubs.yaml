@@ -186,8 +186,8 @@ collect:
       - {n: 2, phase: test, unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", ok: true, runs: 1, secs: 0.4}
       - {n: 3, phase: fix, unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", ok: true, runs: 2, secs: 0.9}
     units:
-      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_mean_of_two": assertion}, test_cmd: ok, refactor_why: ""}
-      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: [], red_kinds: {}, test_cmd: "", refactor_why: ""}
+      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_quotes: {"test_stats.py::TestStats::test_mean_of_two": {quote: "6.0 != 3", why: "mean が分母を len(xs) - 1 にしているので 6.0 になる（期待は 3）"}}, quote_unchecked: [], stub_files: [], test_cmd: ok, refactor_why: ""}
+      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: [], red_quotes: {}, quote_unchecked: [], stub_files: [], test_cmd: "", refactor_why: ""}
 fix-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
   ok: true
   reads_file: ""

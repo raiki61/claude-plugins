@@ -1,10 +1,10 @@
 """事後の関門の束（blk-fix/lib/fixgates.py。計画 220 Task 4）の検査。
 
 束は修正の受け付け（節 fix-accept・fix-ruled-accept）の最後の段で、修正の形に依らず base（修正前の版）から今の木までを相手に
-- red_green: 承認済みの修正案の tdd の項目の受け入れのテストが、今の木で緑・base で案の種類の赤か
+- red_green: 承認済みの修正案の tdd の項目の受け入れのテストが、今の木で緑・base で failure の赤か（輪と同じ tddloop.red_check の事実で見る）
 - test_edits: base に在った既存のテストの関数の本体を、名指し（修正案の rewrite_tests・裁定 fix_test_scope の範囲）の外で変えていないか
 を確かめる。盤面は test_blk_fix の BoardCase（本物の darkfactory の表・種の git）で作り、実行器は test_blk_fix_tdd の PYTEST_LIKE
-（赤の種類を message に書く）。種の stats.mean は len-1 で割る誤りを持つ。
+（失敗の文を message に書く）。種の stats.mean は len-1 で割る誤りを持つ。
 """
 import importlib.util
 import json
@@ -117,26 +117,16 @@ class TestRedGreen(FixGatesCase):
         self.add_test_that_passes_on_base("test_mean_of_two")
         rows = self.problems()
         self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
-        self.assertIn("base で緑", rows[0]["detail"])
+        self.assertTrue(rows[0]["detail"].startswith("base で "), rows[0]["detail"])
+        self.assertIn("もう通る", rows[0]["detail"])
         self.assertEqual(rows[0]["unit_keys"], [tbf.MEAN], "行は項目の単位を持つ（最後の回に unit_key で単位に結ぶ）")
 
     def test_wrong_red_kind_is_a_miss(self):
-        """新しいテストが base で NameError（機能が無い）——案は assertion。今の木では緑"""
+        """新しいテストが base で NameError（機能が無い）で落ちる failure でも、機械は赤の種類で拒まない。今の木で緑なら行は無い"""
         self.ready_with_fields()
         self.edit_tests("from stats import clamp, mean", "from stats import *  # noqa: F403")
         self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
         self.edit_tree({"def clamp(x, lo, hi):": "def halve(x):\n    return x / 2\n\n\ndef clamp(x, lo, hi):"})
-        rows = self.problems()
-        self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
-        for w in ("base で", "NameError", "assertion"):
-            self.assertIn(w, rows[0]["detail"])
-
-    def test_declared_name_error_is_the_wanted_red(self):
-        """base の NameError の無い名前が、項目の adds に宣言した名前なら『機能が無い』赤（輪の _kind_problems と同じ決まり。225）"""
-        self.ready_with_fields([{**FIELDS[0], "adds": ["halve"]}])
-        self.edit_tests("from stats import clamp, mean", "from stats import *  # noqa: F403")
-        self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
-        self.edit_tree(HALVE)
         self.assertEqual(self.problems(), [])
 
     def test_not_green_now_is_a_miss(self):
@@ -154,7 +144,8 @@ class TestRedGreen(FixGatesCase):
             self.edit_tree(HALVE)
             rows = self.problems()
             self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", TWO_ID)])
-            self.assertIn("base で一式の結末に居ない", rows[0]["detail"])
+            self.assertTrue(rows[0]["detail"].startswith("base で "), rows[0]["detail"])
+            self.assertIn("一式の結末に居ない", rows[0]["detail"])
         with self.subTest("base で error（failure でない赤）"):
             self.suite.write_text(tbt.SUITE, encoding="utf-8")   # 本体の例外を error と書く実行器
             (self.repo / "test_two.py").unlink()
@@ -162,8 +153,25 @@ class TestRedGreen(FixGatesCase):
             self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
             planmarks.save(self.board, entry.open_board(self.board).round, FIELDS)
             rows = self.problems(attempt=2)
-            self.assertEqual([(r["gate"], r["id"], r["detail"].split("（")[0]) for r in rows],
-                             [("red_green", MEAN_ID, "base で error")])
+            self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
+            self.assertTrue(rows[0]["detail"].startswith("base で "), rows[0]["detail"])
+            self.assertIn("error で落ちた", rows[0]["detail"])
+            self.assertNotIn(fixgates.tddloop.NOT_RAN, rows[0]["detail"], "言い足しは輪の呼び手だけで、事後の関門の行には入らない")
+
+    def test_base_row_carries_loop_red_check_text(self):
+        """base の木の行の detail は『base で 』と、輪と同じ red_check が同じ JUnit の行に返す事実の文で出来ている（NOT_RAN を含まない）"""
+        self.ready_with_fields()
+        self.suite.write_text(tbt.SUITE, encoding="utf-8")   # 本体の例外を error と書く実行器（base の木で mean の名指しが error）
+        self.edit_tests("from stats import clamp, mean", "from stats import *  # noqa: F403")
+        self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
+        self.edit_tree(HALVE)
+        rows = self.problems()
+        self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
+        row = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "error", "fail_message": "", "fail_text": ""}
+        probs, _ = fixgates.tddloop.red_check([MEAN_ID], [row], None, None)
+        self.assertEqual(rows[0]["detail"], "base で " + "；".join(probs))
+        self.assertIn("error で落ちた", rows[0]["detail"])
+        self.assertNotIn(fixgates.tddloop.NOT_RAN, rows[0]["detail"])
 
     def test_runner_inside_repo_runs_its_base_copy(self):
         """実行器が対象のリポジトリの中に在れば、base の木では worktree の中の base の版を走らせる"""
@@ -304,7 +312,8 @@ class TestBaseCache(FixGatesCase):
             second = self.problems(attempt=2)
         self.assertEqual([(r["gate"], r["id"], r["detail"]) for r in first],
                          [(r["gate"], r["id"], r["detail"]) for r in second])
-        self.assertIn("base で緑", second[0]["detail"])
+        self.assertTrue(second[0]["detail"].startswith("base で "), second[0]["detail"])
+        self.assertIn("もう通る", second[0]["detail"])
         self.assertEqual(calls["base"], 1)
 
     def test_changed_test_file_reruns_base(self):
@@ -318,7 +327,8 @@ class TestBaseCache(FixGatesCase):
             self.edit_tests("self.assertEqual(mean([2, 4]), 3)", "self.assertEqual(clamp(5, 0, 10), 5)")
             rows = self.problems(attempt=2)
         self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
-        self.assertIn("base で緑", rows[0]["detail"])
+        self.assertTrue(rows[0]["detail"].startswith("base で "), rows[0]["detail"])
+        self.assertIn("もう通る", rows[0]["detail"])
         self.assertEqual(calls["base"], 2)
 
     def test_other_base_rev_reruns_base(self):

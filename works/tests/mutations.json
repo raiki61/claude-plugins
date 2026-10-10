@@ -173,7 +173,7 @@
    "id": "td1",
    "title": "TDD の赤の段: 名指しのテストがもう通るなら拒む（red_problems）",
    "file": "blk-fix/lib/tddloop.py",
-   "old": "    probs = rules().red_problems(tests, cases, code, st[\"baseline\"])",
+   "old": "    probs = list(rules().red_problems(named, cases, code, baseline))",
    "new": "    probs = []",
    "tests": {
     "tests/test_blk_fix_tdd.py": [

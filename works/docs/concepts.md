@@ -60,6 +60,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `marks` | 返答の足し欄 | 住処あり |
 | `plan-scope` | 修正案の項目の範囲の照らし | 住処あり |
 | `test-files` | テストのファイルの見分け | 住処あり |
+| `red-check` | TDD の赤の判定（事実と失敗の文の引用） | 住処あり |
 | `web-get` | 機械の web の取得と run をまたぐ控え | 住処あり |
 | `world` | 世界の解（問題の類ごとの定石と、依頼の解き方との比べ） | 住処あり |
 | `stop-reasons` | 止めの理由 | 住処あり |
@@ -181,6 +182,14 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 - 約束: 文書の宣言は対象の git の属性 `linguist-documentation`（`impact` が読む）
 - 知ってよい所: 住処だけが名の型を書く。`blk-fix/lib/tddloop.py` の `PYTEST_FILE` は pytest の既定の python_files（実行器が pytest の時の名指しの型）で、同じ住処に置く。使う所（`blk-fix/lib/fixgates.py`・`blk-plan/lib/ripple.py`・`blk-fix/lib/planscope.py`）は住処の口を呼ぶ
 - 今: `.shared/core/entry.py` の `GATE_FILE_PATTERNS`（検証ゲートの定義のファイルの広めの型）は別の考えで、テストの名の型の字を含む（柵の表の既知の漏れ）。計画 `docs/plans/2026-10-09-lang-neutral-red.md`
+
+### `red-check` TDD の赤の判定（事実と失敗の文の引用）
+
+- 状態: 住処あり
+- 住処: `blk-fix/lib/tddloop.py` の `red_check`（赤の事実の判定。写しの `red_problems` を中で呼び、役の引用と理由の照らしを足す）と `QUOTES_FIELD`（test の段の返答の欄と単位の記録の欄の名）。引用を寄せた後の部分一致で照らす口は `.shared/core/cite.py` の `quoted_in`
+- 約束: 出口の欄 tdd の単位の行 `blk-fix/lib/tddloop.py` の `FIELDS` と、その型の注記 `blk-fix/blk-fix.yaml`。役の務めの置き場は `blk-fix/rules/tdd.md` の test の段（節 `tdd-phase-test`。引用と理由を書く務め・走る前の失敗の直し方）
+- 知ってよい所: 住処・`.shared/core/cite.py`・`blk-fix/rules/tdd.md`・`blk-fix/blk-fix.yaml`・`.shared/core/report.py`（出口 tdd の単位の行を読み、引用と理由を報告の行に並べる）。輪の test の段（`tddloop._test`）・並べの締め（`blk-fix/lib/tddlanes.py`）・事後の関門（`blk-fix/lib/fixgates.py`）は `red_check` を呼ぶだけで、赤の式を持たない
+- 今: 機械が見るのは言語に依らない事実（名指しが走った・failure で落ちた・名指しの外は元のまま）だけ。「期待どおりの理由で落ちたか（機能が無いから・打ち間違いでない）」は役が結末の失敗の文を引いて書き、機械は引用が結末の failure の文に在るかだけを照らす。理由の正しさは報告と最後の関所の単位の行で人が見る
 
 ### `carry-over` 次の run への持ち越し
 
