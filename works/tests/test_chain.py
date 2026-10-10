@@ -66,18 +66,6 @@ def dead_pid() -> int:
     return p.pid
 
 
-def run_checks(owner, cls, *names):
-    """cls（TestCase）の check_ で始まる確かめを、owner の部分試験として 1 本ずつ新しい準備で回す"""
-    for name in names:
-        with owner.subTest(check=name):
-            case = cls(name)
-            case.setUp()
-            try:
-                getattr(case, name)()
-            finally:
-                case.doCleanups()
-
-
 class Decide(unittest.TestCase):
     def go(self, rows, facts=None, **kw):
         facts = rows[-1] if facts is None else facts
@@ -88,9 +76,6 @@ class Decide(unittest.TestCase):
         got = self.go([row(1, core_chain.KIND_CLOSED)])
         self.assertEqual((got["act"], got["word"]), ("stop", "closed"))
         self.assertIn(got["word"], core_chain.STOPS)
-        # 同じ決めの残りの確かめ（種ごとの止め・止めの表）
-        self.check_halted_human_and_wait_kinds()
-        self.check_stops_table_is_not_stopby()
 
     def test_open_round_below_limit_goes_on(self):
         """結末の種が open で周の数が残り、木が前と違い残りの鍵も前と違えば、次の周へ進む"""
@@ -105,7 +90,7 @@ class Decide(unittest.TestCase):
                 got = self.go([row(1), row(2, kind)], rounds_max=2)
                 self.assertEqual((got["act"], got["word"]), ("stop", "rounds_reached"))
 
-    def check_halted_human_and_wait_kinds(self):
+    def test_halted_human_and_wait_kinds(self):
         """止まった周は halted、人が要る周は human で止まり、途中で落ちた周は止めずに待つ"""
         self.assertEqual(self.go([row(1, core_chain.KIND_HALTED)])["word"], "halted")
         self.assertEqual(self.go([row(1, core_chain.KIND_HUMAN)])["word"], "human")
@@ -155,16 +140,27 @@ class Decide(unittest.TestCase):
                 self.assertEqual(got["act"], want, got)
         got = core_chain.decide(doc_of([row(1)], pending=pend(dead, True)), None)
         self.assertEqual(got["word"], "launch_unbound")
-        self.assertEqual(core_chain.decide(doc_of([row(1)], stop={"word": "closed", "text": "t"}), None)["word"], "closed")
-        # 控えの口（init → launched → bound → step）の流れ。pending の読みと同じ決めを通る
-        run_checks(self, Shell, 'check_one_round_then_launch_and_idempotent_step', 'check_last_round_stops_and_records_stop', 'check_empty_diff_is_no_change', 'check_unwritten_diff_halts', 'check_launch_unbound_stop_clears_pending_so_clean_can_remove_the_chain', 'check_interrupted_round_is_not_recorded', 'check_facts_error_halts_and_other_run_is_none', 'check_plan_exports_env_and_ids_and_of_run', 'check_first_pr_is_carried_in_the_request_not_the_input', 'check_env_must_be_launch_names', 'check_held_flag_does_not_retake_the_lock')
 
-    def check_stops_table_is_not_stopby(self):
+    def test_relaunch_is_capped_and_names_the_child_log(self):
+        """起動の印の前で死んだ子は 1 度だけ起こし直す。切り離して起こした回数 tries が LAUNCH_TRIES に達した後に死ねば、子の出力の
+        置き場を添えて launch_failed で止める（wait を打つたびに際限なく起こし直さない）。生きている子は回数に依らず待つ"""
+        def pend(pid, tries):
+            return {"round": 2, "mark": "c-1-2", "pid": pid, "launched": False, "run": "", "from": "f", "request": "",
+                    "log": "/h/chains/c-1/round-2.log", "tries": tries}
+        dead = dead_pid()
+        self.assertEqual(core_chain.decide(doc_of([row(1)], pending=pend(dead, 1)), None)["act"], "launch")
+        got = core_chain.decide(doc_of([row(1)], pending=pend(dead, core_chain.LAUNCH_TRIES)), None)
+        self.assertEqual((got["act"], got["word"]), ("stop", "launch_failed"))
+        self.assertIn("/h/chains/c-1/round-2.log", got["text"])
+        self.assertEqual(core_chain.decide(doc_of([row(1)], pending=pend(os.getpid(), core_chain.LAUNCH_TRIES)), None)["act"], "wait")
+        self.assertEqual(core_chain.decide(doc_of([row(1)], stop={"word": "closed", "text": "t"}), None)["word"], "closed")
+
+    def test_stops_table_is_not_stopby(self):
         """鎖の止めの語は run の中の止めの理由（stopby）とは別の表"""
         import stopby
         self.assertFalse(set(core_chain.STOPS) & set(getattr(stopby, "REASONS", {})))
         self.assertEqual(set(core_chain.STOPS), {"rounds_reached", "closed", "halted", "human", "no_change", "same_items", "budget",
-                                            "cost_unread", "launch_unbound"})
+                                            "cost_unread", "launch_unbound", "launch_failed"})
 
 
 class NextRequest(unittest.TestCase):
@@ -182,9 +178,8 @@ class NextRequest(unittest.TestCase):
         self.assertEqual((parts["pr"], parts["issue"]), ([12], [3]))
         self.assertEqual(parts["answers"], first["answers"])
         self.assertEqual(len(core_chain.held_rows(prev)), 2)
-        self.check_without_first_request()
 
-    def check_without_first_request(self):
+    def test_without_first_request(self):
         """1 周目の依頼が無い（変更だけ）鎖は、前の周の残りだけで組む。1 周目の答えは無い"""
         got = core_chain.next_request({"findings": [FINDING], "prior_failures": []}, None)
         self.assertEqual(carry.parts(got)["answers"], [])
@@ -203,7 +198,6 @@ class Pick(unittest.TestCase):
         self.assertEqual(core_chain.pick([row(1, stopped=["w", "b", "t"])]), (None, [rows[0] | {"stopped": ["w", "b", "t"]}]))
         self.assertIsNone(core_chain.pick([row(1, result="")])[0])   # 結果を作れなかった周は採れない
 
-        run_checks(self, Fences, 'check_chain_names_no_outcome_word', 'check_layer_one_imports')
 
 class Render(unittest.TestCase):
     def test_unreadable_cost_is_named_not_zero(self):
@@ -233,10 +227,8 @@ class Render(unittest.TestCase):
         self.assertNotIn("閉じていない", core_chain.render(doc_of([row(1), row(2)], rounds_max=2, stop={"word": "x", "text": "t"})))
         closed = core_chain.render(doc_of([row(1, core_chain.KIND_CLOSED, r2=1)], stop={"word": "closed", "text": "t"}))
         self.assertNotIn("閉じていない", closed)
-        self.check_human_stop_says_how_to_restart_without_resume()
-        self.check_stopped_round_is_named_with_its_diff()
 
-    def check_human_stop_says_how_to_restart_without_resume(self):
+    def test_human_stop_says_how_to_restart_without_resume(self):
         """人が要るで止めた鎖は、続けずに下書きを見直して新しい鎖を起こす手順を書く（保留して続ける口は無い）"""
         rows = [row(1, held_rows=[carry.draft(FINDING, "purpose")], next_file="/b/next-request.json")]
         text = core_chain.render(doc_of(rows, stop={"word": "human", "text": core_chain.STOPS["human"]}))
@@ -244,7 +236,7 @@ class Render(unittest.TestCase):
         self.assertIn("/b/next-request.json", text)
         self.assertIn("運ばなかった下書きの行 1 件", text)
 
-    def check_stopped_round_is_named_with_its_diff(self):
+    def test_stopped_round_is_named_with_its_diff(self):
         text = core_chain.render(doc_of([row(1), row(2, stopped=["w", "by", "text"])], stop={"word": "halted", "text": "t"}))
         self.assertIn("止まった周 周 2", text)
         self.assertIn("/d/2.diff", text)
@@ -288,7 +280,7 @@ class Shell(unittest.TestCase):
         return self.call("--held", "step", f"--dir={self.dir}", f"--run={run}", f"--facts={facts}", f"--diff={d}",
                          f"--result={result}", "--result-tree=t1", f"--from-tree={'t1' if same else 't0'}")
 
-    def check_one_round_then_launch_and_idempotent_step(self):
+    def test_one_round_then_launch_and_idempotent_step(self):
         """1 周目の終わりに次の周を起こす行を返し、控えに pending（起動の基は周の結果）と次の依頼を残す。同じ run を 2 度渡しても 2 本目を起こさない"""
         self.init()
         self.call("launched", f"--dir={self.dir}", "--from=" + "f" * 40)
@@ -311,7 +303,30 @@ class Shell(unittest.TestCase):
         self.assertEqual(self.finish(1, "run-1", core_chain.KIND_OPEN), "follow\trun-2")
         self.assertTrue(self.call("pending", f"--dir={self.dir}").startswith("run-2\t"))
 
-    def check_last_round_stops_and_records_stop(self):
+    def test_two_dead_launches_stop_with_launch_failed(self):
+        """殻の口 pid は切り離して起こすたびに tries を 1 足す。起動の印の前で 2 度死ねば、打ち直した step は launch_failed で止まって
+        pending を外し、chain.md に子の出力の置き場と新しい鎖を起こす手順が出る"""
+        self.init()
+        self.call("launched", f"--dir={self.dir}", "--from=" + "f" * 40)
+        self.call("bound", f"--dir={self.dir}", "--run=run-1")
+        self.assertEqual(self.finish(1, "run-1", core_chain.KIND_OPEN), "launch\t2\tc-1-2")
+        log = str(self.tmp / "round-2.log")
+        self.call("--held", "pid", f"--dir={self.dir}", f"--pid={dead_pid()}", f"--log={log}")
+        self.assertEqual(core_chain.load(self.dir)["pending"]["tries"], 1)
+        self.assertEqual(self.finish(1, "run-1", core_chain.KIND_OPEN), "launch\t2\tc-1-2")   # 1 度目の死は起こし直す
+        self.call("--held", "pid", f"--dir={self.dir}", f"--pid={dead_pid()}", f"--log={log}")
+        self.assertEqual(core_chain.load(self.dir)["pending"]["tries"], 2)
+        out = self.finish(1, "run-1", core_chain.KIND_OPEN)
+        self.assertTrue(out.startswith("stop\tlaunch_failed\t"), out)
+        self.assertIn(log, out)
+        doc = core_chain.load(self.dir)
+        self.assertIsNone(doc["pending"])
+        self.assertEqual(doc["stop"]["word"], "launch_failed")
+        text = self.call("render", f"--dir={self.dir}")
+        self.assertIn(log, text)
+        self.assertIn("start --rounds", text)
+
+    def test_last_round_stops_and_records_stop(self):
         """周の数に達した周の step は stop を返して控えに止めの語を残し、pending を外す。pick は最後の周を返す"""
         self.init(rounds=2)
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
@@ -327,7 +342,7 @@ class Shell(unittest.TestCase):
         self.assertTrue((self.dir / core_chain.REPORT).is_file())
         self.assertIn("rounds_reached", text)
 
-    def check_empty_diff_is_no_change(self):
+    def test_empty_diff_is_no_change(self):
         """差分が無い周は結果を作らず、周の頭の版のまま no_change で止める（採れる周が無い）"""
         self.init()
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
@@ -335,7 +350,7 @@ class Shell(unittest.TestCase):
         self.assertEqual(out.split("\t")[:2], ["stop", "no_change"])
         self.assertEqual(self.call("pick", f"--dir={self.dir}"), "")
 
-    def check_unwritten_diff_halts(self):
+    def test_unwritten_diff_halts(self):
         """差分を書けなかった周（show_run の終了コードが 4）は結果を作らず halted で止め、理由を残す"""
         self.init()
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
@@ -345,7 +360,7 @@ class Shell(unittest.TestCase):
         self.assertEqual(out.split("\t")[:2], ["stop", "halted"])
         self.assertIn("差分を書けなかった", out)
 
-    def check_launch_unbound_stop_clears_pending_so_clean_can_remove_the_chain(self):
+    def test_launch_unbound_stop_clears_pending_so_clean_can_remove_the_chain(self):
         """Archon を起こした後で死に run が結ばれないまま終わった起動（launched で pid が死んでいる）は launch_unbound で止め、pending を外す
         （残すと clean が名指す run の無い拒みで二度と片付けられない）"""
         self.init()
@@ -358,7 +373,7 @@ class Shell(unittest.TestCase):
         doc = core_chain.load(self.dir)
         self.assertEqual((doc["pending"], doc["stop"]["word"]), (None, "launch_unbound"))
 
-    def check_interrupted_round_is_not_recorded(self):
+    def test_interrupted_round_is_not_recorded(self):
         """途中で落ちた周（種が wait）は周に足さず、pending も変えない。次の周が結ばれたと読ませる行（follow・launch）を返さない"""
         self.init()
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
@@ -367,7 +382,7 @@ class Shell(unittest.TestCase):
         self.assertEqual(out.split("\t")[0], "aborted")
         self.assertEqual(core_chain.load(self.dir), before)
 
-    def check_facts_error_halts_and_other_run_is_none(self):
+    def test_facts_error_halts_and_other_run_is_none(self):
         self.init()
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
         facts = self.tmp / "facts.json"
@@ -377,7 +392,7 @@ class Shell(unittest.TestCase):
         out = self.call("--held", "step", f"--dir={self.dir}", "--run=run-1", f"--facts={facts}")
         self.assertEqual(out.split("\t")[:2], ["stop", "halted"])
 
-    def check_plan_exports_env_and_ids_and_of_run(self):
+    def test_plan_exports_env_and_ids_and_of_run(self):
         """次の周の起動が読む plan は、控えの環境を export 行にし、対象・依頼・起動の基・印を変数に置く。of-run は run から鎖の id を引く"""
         self.init(env=("WORKS_USE_THICKNESS=a b", "WORKS_DESIGN_ONLY="))
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
@@ -391,7 +406,7 @@ class Shell(unittest.TestCase):
         rc = core_chain.main(["of-run", f"--home={self.tmp}", "--run=run-none"])
         self.assertEqual(rc, 1)
 
-    def check_first_pr_is_carried_in_the_request_not_the_input(self):
+    def test_first_pr_is_carried_in_the_request_not_the_input(self):
         """1 周目に名指した PR（init の --first-pr）は、次の周の依頼の pr 欄に載り（1 周目の依頼の pr と重ねても 1 本）、1 周目の依頼が
         無い鎖でも運ぶ"""
         for first in (str(self.first), ""):
@@ -405,7 +420,7 @@ class Shell(unittest.TestCase):
                 for stale in self.dir.glob("*"):
                     stale.unlink()
 
-    def check_env_must_be_launch_names(self):
+    def test_env_must_be_launch_names(self):
         """鎖の控えに持つ起動の環境は WORKS_USE_* か WORKS_DESIGN_ONLY の KEY=VALUE だけ（中身は読まない）"""
         for bad in ("PATH=/x", "WORKS_USE_X;touch y=1", "WORKS_USE_=1", "WORKS_USE_lower=1"):
             with self.subTest(env=bad), self.assertRaises(ValueError):
@@ -425,7 +440,7 @@ class Shell(unittest.TestCase):
                              "--use-sh=/u", "--pid=1", "--env=HOME=/x"])
         self.assertEqual(rc, 2)
 
-    def check_held_flag_does_not_retake_the_lock(self):
+    def test_held_flag_does_not_retake_the_lock(self):
         """殻が錠を持ったまま呼ぶ口（--held）は錠を取り直さず、持ち手が自分でも固まらない。錠は別の持ち手を待たせる"""
         self.init()
         self.call("bound", f"--dir={self.dir}", "--run=run-1")
@@ -442,14 +457,14 @@ class Shell(unittest.TestCase):
 
 
 class Fences(unittest.TestCase):
-    def check_chain_names_no_outcome_word(self):
+    def test_chain_names_no_outcome_word(self):
         """結末の語を字で持てるのは結末の住処 report.py だけ。鎖は種（OUTCOME_KINDS）だけを引く"""
         import report
         text = (CORE / "chain.py").read_text(encoding="utf-8")
         for word in report.OUTCOMES:
             self.assertIsNone(re.search(rf"[\"']{word}[\"']", text), word)
 
-    def check_layer_one_imports(self):
+    def test_layer_one_imports(self):
         """chain は標準ライブラリと同じ層 L1 の carry・promptsection（報告の見出しの宣言）だけを import する（層 L1）"""
         tree = ast.parse((CORE / "chain.py").read_text(encoding="utf-8"))
         names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}

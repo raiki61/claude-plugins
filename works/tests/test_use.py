@@ -1373,48 +1373,6 @@ class UseShell(unittest.TestCase):
         self.assertNotEqual(r.returncode, gate_rc, r.stdout)
         self.assertIn("running", r.stdout)
 
-    # ---- 周の鎖（偽の archon の流れは下の ChainShell の check_ が持ち、ここの試験名で回す）
-    def test_start_rounds_flag_and_refusals(self):
-        """--rounds と --budget-usd は位置引数より前で読まれる。0・1.5・x、--budget-usd の単独、負・数でない値、WORKS_DESIGN_ONLY=1・
-        WORKS_USE_FIX_FIXTURE との組は Archon を起こす前に 1 行で拒まれる。省略と 1 では鎖の控えを作らない。--rounds の start の終わりには
-        鎖を進める wait の行が出る"""
-        run_chain_checks(self, 'check_start_rounds_flag_and_refusals')
-
-    def test_chain_second_round_launch_args(self):
-        """1 周目が open で終わると、2 周目は start の道で起こされる。--from result_1・--input base=B0（1 本だけ・pr= 無し）・
-        launch_mark=<鎖>-2・空でない --base と、1 周目と同じ test_cmd・tdd_suite・入力を持つ。wait の殻に WORKS_DESIGN_ONLY=1 や別の
-        WORKS_USE_* が在っても、2 周目は 1 周目の入力で起きる。2 周目の run の控えが在り、--pr 12 の鎖では依頼の pr に 12 が在る"""
-        run_chain_checks(self, 'check_chain_second_round_launch_args')
-
-    def test_chain_unattended_next_round_is_detached(self):
-        """無人の鎖の 2 周目は切り離して起こされ、偽の archon の approve が遅くても wait は期限のうちに 3 か 6 で戻る。2 周目の run は
-        最後まで走り、打ち直した wait は子が生きている間 launch_unbound で止めない"""
-        run_chain_checks(self, 'check_chain_unattended_next_round_is_detached')
-
-    def test_chain_facts_read_events_of_done_run(self):
-        """鎖の 1 歩は、終わった run にも workflow get --verbose --events --json を打ち、鎖の控えの周の cost_read が真で、費用と分が数になる"""
-        run_chain_checks(self, 'check_chain_facts_read_events_of_done_run')
-
-    def test_chain_round_result_on_start_base(self):
-        """result_k は run-<k>.diff をその周の始めの記録の base_rev の木に当てて作られ（親は周の起点 from_k）、refs/works/chains/<鎖>/<k> で
-        守られる。--pr の 1 周目でも二重に当たらず、final.diff は B0 から採った周の結果までの差になる。始めの記録の base_rev が周の起点と
-        違う盤面（起点の 1 つ前）でも、木は base_rev の木・親は起点になる"""
-        run_chain_checks(self, 'check_chain_round_result_on_start_base')
-
-    def test_wait_exit_6_names_next_run(self):
-        """鎖が次の周を起こして期限のうちに結べた wait は、終了コード 6 で新しい run の id と次の行を出す。同じ run に wait を打ち直しても
-        2 本目を起こさない。止めた鎖は 5 と止めの 1 行を出す"""
-        run_chain_checks(self, 'check_wait_exit_6_names_next_run', 'check_chain_interrupted_round_does_not_claim_a_next_run')
-
-    def test_chain_answer_then_wait_launches_next(self):
-        """paused → answer → wait が終わりを見て次の周を起こす。2 周目の起動が Archon の前で落ちても、次の wait で鎖の控えから続けられる"""
-        run_chain_checks(self, 'check_chain_answer_then_wait_launches_next')
-
-    def test_apply_show_clean_chain_id(self):
-        """apply <鎖の id> は final.diff を今の apply と同じ確かめで当てる（消す行は許しが無ければ拒む）。show <鎖の id> は chain.md を出す。
-        clean <鎖の id> は、最後の周が生きていれば今の clean と同じ文で拒み、そうでなければ refs/works/chains/<鎖>/* と控えを消す"""
-        run_chain_checks(self, 'check_apply_show_clean_chain_id')
-
     # ---- show・check
     def test_show_writes_diff_under_use_home(self):
         t = self.target()
@@ -2209,7 +2167,7 @@ class ChainShell(unittest.TestCase):
         time.sleep(2)   # 子が最後に控えとログを書き終える間
 
     # ---- 旗
-    def check_start_rounds_flag_and_refusals(self):
+    def test_start_rounds_flag_and_refusals(self):
         """--rounds と --budget-usd は位置引数より前で読まれる。0・1.5・x、--budget-usd の単独、負・数でない値、WORKS_DESIGN_ONLY=1・
         WORKS_USE_FIX_FIXTURE との組は Archon を起こす前に 1 行で拒まれる。省略と 1 では鎖の控えを作らない。--rounds の start の終わりには
         鎖を進める wait の行が出る"""
@@ -2255,7 +2213,7 @@ class ChainShell(unittest.TestCase):
         first, second = self.runs_called()
         return first, second, self.chain_dir().name
 
-    def check_chain_second_round_launch_args(self):
+    def test_chain_second_round_launch_args(self):
         """1 周目が open で終わると、2 周目は start の道で起こされる。--from result_1・--input base=B0（1 本だけ・pr= 無し）・
         launch_mark=<鎖>-2・空でない --base と、1 周目と同じ test_cmd・tdd_suite・入力を持つ。wait の殻に WORKS_DESIGN_ONLY=1 や別の
         WORKS_USE_* が在っても、2 周目は 1 周目の入力で起きる。2 周目の run の控えが在り、--pr 12 の鎖では依頼の pr に 12 が在る"""
@@ -2290,7 +2248,7 @@ class ChainShell(unittest.TestCase):
         self.assertIn("base=main", self.inputs(first))
         self.assertEqual([i for i in self.inputs(second) if i.startswith("base=")], [f"base={git(t3, 'rev-parse', 'HEAD')}"])
 
-    def check_chain_unattended_next_round_is_detached(self):
+    def test_chain_unattended_next_round_is_detached(self):
         """無人の鎖の 2 周目は切り離して起こされ、偽の archon の approve が遅くても wait は期限のうちに 3 か 6 で戻る。2 周目の run は
         最後まで走り、打ち直した wait は子が生きている間 launch_unbound で止めない"""
         t = self.target()
@@ -2311,7 +2269,7 @@ class ChainShell(unittest.TestCase):
         self.assertIn(["workflow", "approve", "run-2"], verbs)   # 2 周目も 1 周目と同じ行で無人の承認と止めを通る
         self.assertIn(["workflow", "respond", "run-2"], verbs)
 
-    def check_chain_facts_read_events_of_done_run(self):
+    def test_chain_facts_read_events_of_done_run(self):
         """鎖の 1 歩は、終わった run にも workflow get --verbose --events --json を打ち、鎖の控えの周の cost_read が真で、費用と分が数になる"""
         t = self.target()
         self.start(t, "2")
@@ -2322,7 +2280,7 @@ class ChainShell(unittest.TestCase):
         row = self.chain_doc()["rounds"][0]
         self.assertEqual((row["cost"], row["cost_read"], row["minutes"], row["kind"]), (3.75, True, 21.5, "closed"))
 
-    def check_chain_interrupted_round_does_not_claim_a_next_run(self):
+    def test_chain_interrupted_round_does_not_claim_a_next_run(self):
         """途中で落ちた周（結末が interrupted）は周に足さず、次の周を結べたと言う終了コード 6 も返さない。起こし直しも止めもせず、
         控えの周と pending は変わらない"""
         t = self.target()
@@ -2336,7 +2294,7 @@ class ChainShell(unittest.TestCase):
         doc = self.chain_doc()
         self.assertEqual((doc["rounds"], doc["pending"]["run"], doc["stop"]), ([], "run-1", None))
 
-    def check_chain_round_result_on_start_base(self):
+    def test_chain_round_result_on_start_base(self):
         """result_k は run-<k>.diff をその周の始めの記録の base_rev の木に当てて作られ（親は周の起点 from_k）、refs/works/chains/<鎖>/<k> で
         守られる。--pr の 1 周目でも二重に当たらず、final.diff は B0 から採った周の結果までの差になる。始めの記録の base_rev が周の起点と
         違う盤面（起点の 1 つ前）でも、木は base_rev の木・親は起点になる"""
@@ -2367,7 +2325,7 @@ class ChainShell(unittest.TestCase):
         self.assertEqual(final, subprocess.run(["git", "-C", str(t), "diff", "--binary", old_head, result], capture_output=True, text=True).stdout)
         self.assertEqual(self.chain_doc()["original_base"], old_head)
 
-    def check_wait_exit_6_names_next_run(self):
+    def test_wait_exit_6_names_next_run(self):
         """鎖が次の周を起こして期限のうちに結べた wait は、終了コード 6 で新しい run の id と次の行を出す。同じ run に wait を打ち直しても
         2 本目を起こさない。止めた鎖は 5 と止めの 1 行を出す"""
         t = self.target()
@@ -2390,8 +2348,9 @@ class ChainShell(unittest.TestCase):
         self.assertEqual(self.chain_doc()["stop"]["word"], "closed")
         self.assertTrue((self.chain_dir() / "chain.md").is_file())
 
-    def check_chain_answer_then_wait_launches_next(self):
-        """paused → answer → wait が終わりを見て次の周を起こす。2 周目の起動が Archon の前で落ちても、次の wait で鎖の控えから続けられる"""
+    def test_chain_answer_then_wait_launches_next(self):
+        """paused → answer → wait が終わりを見て次の周を起こす。2 周目の起動が Archon の前で落ちた wait は 1 と子の出力の置き場を出し、
+        次の wait が鎖の控えから 1 度だけ起こし直して続けられる"""
         t = self.target()
         d1, _, _ = self.diffs(t)
         self.start(t, "2")
@@ -2400,17 +2359,40 @@ class ChainShell(unittest.TestCase):
         self.finish(1, diff=d1)
         git(t, "remote", "remove", "origin")   # 2 周目の start は origin が無いと Archon の前で拒む
         r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="60")
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("round-2.log", r.stdout)
         self.assertIn("wait", r.stdout)
         self.assertEqual(len(self.runs_called()), 1)
         pend = self.chain_doc()["pending"]
-        self.assertEqual((pend["round"], pend["launched"], pend["run"]), (2, False, ""))
+        self.assertEqual((pend["round"], pend["launched"], pend["run"], pend["tries"]), (2, False, "", 1))
         git(t, "remote", "add", "origin", str(self.tmp / "origin.git"))
         git(t, "update-ref", "refs/remotes/origin/main", "HEAD")
         r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="90")
         self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
         self.assertEqual(len(self.runs_called()), 2)
         self.assertEqual(len(self.chain_doc()["rounds"]), 1)
+
+    def test_chain_launch_failed_after_two_dead_launches(self):
+        """2 周目の起動が Archon の前で 2 度落ちると、打ち直した wait は起こし直さずに launch_failed で鎖を止め（5）、子の出力の置き場を
+        出す（wait を打つたびに際限なく起こし直さない）"""
+        t = self.target()
+        d1, _, _ = self.diffs(t)
+        self.start(t, "2")
+        r = self.use("answer", str(t), "run-1", "continue", "通す", "me")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.finish(1, diff=d1)
+        git(t, "remote", "remove", "origin")   # 2 周目の start は origin が無いと Archon の前で拒む
+        for tries in (1, 2):
+            r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="60")
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertEqual(self.chain_doc()["pending"]["tries"], tries)
+        r = self.use("wait", str(t), "run-1", WORKS_USE_WAIT_SECONDS="60")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("launch_failed", r.stdout)
+        self.assertIn("round-2.log", r.stdout)
+        doc = self.chain_doc()
+        self.assertEqual((doc["stop"]["word"], doc["pending"]), ("launch_failed", None))
+        self.assertEqual(len(self.runs_called()), 1)
 
     # ---- 取り込み・報告・片付け
     def fake_chain(self, t, *, final=None, run_status="completed", pending=None, stopped=False):
@@ -2437,7 +2419,7 @@ class ChainShell(unittest.TestCase):
             (board / "r1" / "final-gate-answer.json").write_text(json.dumps({"decision": "stop", "text": "守りのファイルは戻す"}))
         return cid, d
 
-    def check_apply_show_clean_chain_id(self):
+    def test_apply_show_clean_chain_id(self):
         """apply <鎖の id> は final.diff を今の apply と同じ確かめで当てる（消す行は許しが無ければ拒む）。show <鎖の id> は chain.md を出す。
         clean <鎖の id> は、最後の周が生きていれば今の clean と同じ文で拒み、そうでなければ refs/works/chains/<鎖>/* と控えを消す"""
         d1, _, _ = self.diffs(None)
@@ -2498,18 +2480,6 @@ class ChainShell(unittest.TestCase):
         for r in d["runs"]:
             r["status"] = status
         self.state.write_text(json.dumps(d))
-
-
-def run_chain_checks(owner, *names):
-    """ChainShell の check_ で始まる確かめを、owner の部分試験として 1 本ずつ新しい準備（家・偽の archon・後片付け）で回す"""
-    for name in names:
-        with owner.subTest(check=name):
-            case = ChainShell(name)
-            case.setUp()
-            try:
-                getattr(case, name)()
-            finally:
-                case.doCleanups()
 
 
 def datetime_plus(minutes: float) -> str:

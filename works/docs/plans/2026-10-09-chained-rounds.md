@@ -298,9 +298,9 @@ README の「足りない所」と「仕様」の線 B の行、`skills/works/SK
 **今の形（Interfaces）:**
 - Consumes: `carry.parts`・`carry.is_draft`・`carry.row_key`・`carry.write`（層 L1。chain は標準ライブラリと carry だけを import する）
 - Produces: `report.OUTCOME_KINDS: dict[str, str]`（結末の語 → `chain.KIND_CLOSED`・`KIND_HALTED`・`KIND_HUMAN`・`KIND_WAIT`・`KIND_OPEN`。4.3 の 2）と `report.round_facts(board_dir, events, run_doc) -> dict`（`outcome`・`kind`・`cost`・`cost_read`・`minutes`・`stopped`・`base_rev`・`r2`・`report_file`・`next_file`）
-- Produces: `chain.STOPS`（止めの語 → 1 行の文。語は `rounds_reached`・`closed`・`halted`・`human`・`no_change`・`same_items`・`budget`・`cost_unread`・`launch_unbound`。run の中の止めの理由 `stopby` とは別の表）
-- Produces: `chain.decide(doc, facts, budget=None) -> {act, word, text}`（`act` は `launch`・`wait`・`stop`・`follow`。`facts` が None なら起こした次の周の状態 `pending` を見る: 子の pid が生きていれば待ち、起動の印を置いて死んでいれば `launch_unbound`、起動の前で死んでいれば起こし直す）
-- Produces: `chain.next_request(prev_next_doc, first_doc) -> dict`・`chain.held_rows(next_doc)`・`chain.pick(rounds) -> (採る周, 飛ばした止まった周)`・`chain.render(doc) -> str`・鎖の控え `new_doc`・`load`・`save`・`add_round`（排他は `chain.json.lock` の `fcntl.flock`）
+- Produces: `chain.STOPS`（止めの語 → 1 行の文。語は `rounds_reached`・`closed`・`halted`・`human`・`no_change`・`same_items`・`budget`・`cost_unread`・`launch_unbound`・`launch_failed`。run の中の止めの理由 `stopby` とは別の表）
+- Produces: `chain.decide(doc, facts, budget=None) -> {act, word, text}`（`act` は `launch`・`wait`・`stop`・`follow`。`facts` が None なら起こした次の周の状態 `pending` を見る: 子の pid が生きていれば待ち、起動の印を置いて死んでいれば `launch_unbound`、起動の前で死んでいれば起こし直す。切り離して起こした回数 `tries` が `LAUNCH_TRIES`（2）に達していれば、子の出力の置き場を添えて `launch_failed` で止める）
+- Produces: `chain.next_request(prev_next_doc, first_doc) -> dict`・`chain.held_rows(next_doc)`・`chain.pick(rounds) -> (採る周, 飛ばした止まった周)`・`chain.render(doc) -> str`・鎖の控え `new_doc`・`load`・`save`（排他は `chain.json.lock` の `fcntl.flock`）
 - 殻の口: `python3 -I chain.py init|hold|launched|pid|bound|pending|plan|of-run|prep|step|pick|render`。殻は `wait` が終わりを見た所で周の結果の commit を作り（`use.sh` の `tree_commit`。参照 `refs/works/chains/<鎖>/<周>`）、`step` が決めた次の周を `start --chain-next <鎖の id>` で切り離して起こす（`step` から子の pid の書き込みまで殻が錠を持つ）
 
 - [x] 赤: `tests/test_chain.py`（`Decide`・`NextRequest`・`Pick`・`Render`・`Shell`・`Fences`）・`tests/test_report.py` の `test_every_outcome_has_a_chain_kind`・`test_round_facts_*`・`tests/test_use.py` の `ChainShell`

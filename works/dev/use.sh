@@ -95,9 +95,9 @@ if [ "${1:-}" = start ]; then
     case "$1" in
       --rounds)
         case "${2:-}" in
-          '' | *[!0-9]*) echo "use.sh: --rounds は 2 以上の整数（受けた値: ${2:-}）" >&2; exit 2 ;;
+          '' | *[!0-9]*) echo "use.sh: --rounds は 1 以上の整数（1 は鎖を作らない今の 1 周。周をつなぐのは 2 以上。受けた値: ${2:-}）" >&2; exit 2 ;;
         esac
-        [ "$2" -ge 1 ] || { echo "use.sh: --rounds は 2 以上の整数（受けた値: $2）" >&2; exit 2; }
+        [ "$2" -ge 1 ] || { echo "use.sh: --rounds は 1 以上の整数（1 は鎖を作らない今の 1 周。周をつなぐのは 2 以上。受けた値: $2）" >&2; exit 2; }
         ROUNDS=""
         [ "$2" -lt 2 ] || ROUNDS="$2"
         shift 2
@@ -631,7 +631,7 @@ pid_alive() {
 }
 
 # chain_wait_bound <鎖の控えの置き場>: 次の周の run が控えに結ばれる（pending の run が入る）のを、wait の期限（deadline）まで待つ。
-# 結ばれたら 0 と run の id を標準出力に出す。子の pid が死んで結ばれないまま・期限が来たら 1
+# 結ばれたら 0 と run の id を標準出力に出す。子の pid が死んで結ばれないままなら 2 と子の出力の置き場、期限が来たら 1
 chain_wait_bound() {
   while :; do
     _cb="$(python3 -I "$CHAIN_PY" pending --dir "$1")" || return 1
@@ -640,7 +640,7 @@ chain_wait_bound() {
       printf '%s\n' "$_cb_run"
       return 0
     fi
-    pid_alive "$(printf '%s' "$_cb" | cut -f2)" || return 1
+    pid_alive "$(printf '%s' "$_cb" | cut -f2)" || { printf '%s\n' "$(printf '%s' "$_cb" | cut -f6)"; return 2; }
     [ "$(date +%s)" -lt "$deadline" ] || return 1
     sleep 1
   done
@@ -649,7 +649,8 @@ chain_wait_bound() {
 # chain_step <鎖の id> <run-id> <周の事実のファイル> <差分を書いた show_run の終了コード>: 終わった周の run を鎖に足し、次の周を切り離して
 # 起こすか止めるかを進める（周の決めは chain.py。ここは git の手続きと切り離した起動だけ）。錠 <鎖>/chain.json.lock は周の結果を
 # 作ってから子の pid を控えに書くまで持ち続け（同じ run に wait を重ねて打っても 2 本目を起こさない）、待つ前に外す。
-# 終了コードの案は CHAIN_STATUS に置く（6 = 次の周を結んだ・5 = 止めた・3 = 結ぶのを待つうちに期限が来た・1 = 鎖を進められない）
+# 終了コードの案は CHAIN_STATUS に置く（6 = 次の周を結んだ・5 = 止めた・3 = 結ぶのを待つうちに期限が来た・1 = 鎖を進められない・
+# 次の周の起動が run を結ぶ前に落ちた）
 chain_step() {
   _cs_id="$1" _cs_rid="$2" _cs_facts="$3" _cs_dst="$4"   # 下の set -- が位置引数を使うので先に控える
   _cs_dir="$WORKS_USE_HOME/chains/$_cs_id"
@@ -727,13 +728,23 @@ chain_step() {
       ;;
   esac
   # 次の周の run が結ばれるのを期限まで待つ（錠は外した後。子が控えに run を書く）
-  if _cs_next="$(chain_wait_bound "$_cs_dir")"; then
-    echo "鎖 $_cs_id: 次の周を起こして結んだ。run ${_cs_next}。待つ: sh $WORKS_USE_SH wait $TARGET ${_cs_next}"
-    CHAIN_STATUS=6
-  else
-    echo "鎖 $_cs_id: 次の周の run はまだ結ばれていない（子の出力: $_cs_dir/round-*.log）。待つなら同じ行を打ち直す（起動が落ちていれば起こし直すか止める）: sh $WORKS_USE_SH wait $TARGET $_cs_rid"
-    CHAIN_STATUS=3
-  fi
+  _cs_wb=0
+  _cs_next="$(chain_wait_bound "$_cs_dir")" || _cs_wb=$?   # set -e の下なので終了コードは || で受ける
+  case $_cs_wb in
+    0)
+      echo "鎖 $_cs_id: 次の周を起こして結んだ。run ${_cs_next}。待つ: sh $WORKS_USE_SH wait $TARGET ${_cs_next}"
+      CHAIN_STATUS=6
+      ;;
+    2)
+      # 子が run を結ぶ前に落ちた。打ち直せば鎖の控えの決め（chain.py decide）が 1 度だけ起こし直し、2 度目も落ちれば鎖を止める
+      echo "鎖 $_cs_id: 次の周の起動が run を結ぶ前に落ちた（子の出力: ${_cs_next:-$_cs_dir/round-*.log}）。同じ行を打ち直すと、落ちたのが 1 度目なら起こし直し、2 度目なら鎖を止める: sh $WORKS_USE_SH wait $TARGET $_cs_rid"
+      CHAIN_STATUS=1
+      ;;
+    *)
+      echo "鎖 $_cs_id: 次の周の run はまだ結ばれていない（子の出力: $_cs_dir/round-*.log）。待つなら同じ行を打ち直す: sh $WORKS_USE_SH wait $TARGET $_cs_rid"
+      CHAIN_STATUS=3
+      ;;
+  esac
   return 0
 }
 

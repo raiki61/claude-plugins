@@ -1511,7 +1511,7 @@ class CostCase(unittest.TestCase):
         self.assertFalse(any("欄の形は未確認" in x for x in lines), lines)
 
     def test_round_facts_reads_cost_minutes_and_base_rev(self):
-        """round_facts は、費用の和（読めない節が在れば cost_read 偽）・workflow get の返りの started_at と completed_at からの分・
+        """round_facts は、費用の和（AI でない節の not_applicable は 0 と数え、ほかの理由で読めない節が在れば cost_read 偽）・workflow get の返りの started_at と completed_at からの分・
         始めの記録の base_rev・結末の種を返す。結末は報告の冒頭の起きたことの行の括弧の語から読み、R2 の作り直しの行の数も数える"""
         with tempfile.TemporaryDirectory() as td:
             board = pathlib.Path(td)
@@ -1525,6 +1525,9 @@ class CostCase(unittest.TestCase):
             provider = lambda v: {"data": {"spend": {"costUsd": {"source": "provider", "value": v}}}}  # noqa: E731
             events = [{"event_type": "node_completed", "step_name": "judge", **provider(1.5)},
                       {"event_type": "node_completed", "step_name": "fix", **provider(2.25)}]
+            # AI でない節（script・関所）は Archon が毎回 reason not_applicable で返す。費用 0 の節で、読めない節ではない
+            events.append({"event_type": "node_completed", "step_name": "h-final",
+                           "data": {"spend": {"costUsd": {"source": "unavailable", "reason": "not_applicable"}}}})
             run_doc = {**json.loads((TESTS / "events" / "get-finished.json").read_text(encoding="utf-8")),   # workflow get の返りの形
                        "started_at": "2026-09-26T12:00:00.000Z", "completed_at": "2026-09-26T12:21:30.000Z"}
             got = report.round_facts(board, events, run_doc)
@@ -1533,7 +1536,7 @@ class CostCase(unittest.TestCase):
             self.assertEqual(got["minutes"], 21.5)
             self.assertEqual((got["base_rev"], got["r2"], got["stopped"]), ("ab" * 20, 1, None))
             self.assertEqual(got["next_file"], str(board / carry.NEXT_REQUEST_FILE))
-            # 取れない節が 1 つでも在れば、和を 0 と読まず cost_read を偽にする。出来事も run の行も無ければ費用・分は None
+            # not_applicable でない理由で取れない節が 1 つでも在れば、和を 0 と読まず cost_read を偽にする。出来事も run の行も無ければ費用・分は None
             events.append({"event_type": "node_completed", "step_name": "report", "data": {"spend": {"costUsd": {"source": "unavailable"}}}})
             self.assertFalse(report.round_facts(board, events, run_doc)["cost_read"])
             nothing = report.round_facts(board, None, {})

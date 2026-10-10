@@ -452,8 +452,8 @@
    "status": "住処あり",
    "fences": [
     {
-     "what": "鎖の止めの語の字（rounds_reached・no_change・same_items・cost_unread・launch_unbound）。run の中の止めの理由 stopby の語とは別の表で、鎖の控えと鎖の報告にだけ出る",
-     "pattern": "\\b(rounds_reached|no_change|same_items|cost_unread|launch_unbound)\\b",
+     "what": "鎖の止めの語の字（rounds_reached・no_change・same_items・cost_unread・launch_unbound・launch_failed）。run の中の止めの理由 stopby の語とは別の表で、鎖の控えと鎖の報告にだけ出る",
+     "pattern": "\\b(rounds_reached|no_change|same_items|cost_unread|launch_unbound|launch_failed)\\b",
      "allowed": [
       ".shared/core/chain.py"
      ],

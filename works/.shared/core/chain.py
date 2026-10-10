@@ -13,7 +13,7 @@
   facts が None なら起こした次の周の状態（pending）を見る。act は launch・wait・aborted・stop・follow
 - next_request(prev_next_doc, first_doc) -> 次の周の依頼（carry.KEYS の形）・held_rows(next_doc) -> 運ばない下書きの行
 - pick(rounds) -> (採る周, 採らずに名指す止まった周の並び)・render(doc) -> chain.md の本文
-- new_doc・load・save・add_round: 鎖の控え（排他は <鎖>/chain.json.lock の fcntl.flock。board.py・scopes.py と同じ型）
+- new_doc・load・save: 鎖の控え（排他は <鎖>/chain.json.lock の fcntl.flock。board.py・scopes.py と同じ型）
 - 殻の口: init・hold・launched・pid・bound・pending・plan・of-run・prep・step・pick・render
 """
 import argparse
@@ -49,7 +49,9 @@ STOPS = {
     "budget": "次の周で費用の上限を越えうる",
     "cost_unread": "費用が読めない周が在り、上限を守れると言えない",
     "launch_unbound": "次の周の起動が run に結べないまま終わった",
+    "launch_failed": "次の周の起動が 2 回とも Archon を起こす前に落ちた",
 }
+LAUNCH_TRIES = 2   # 次の周を切り離して起こす回数の上限（起こし直しは 1 回まで。2 回目も落ちれば launch_failed で止める）
 
 FILE, LOCK, REPORT, FINAL = "chain.json", "chain.json.lock", "chain.md", "final.diff"
 REPORT_HEAD = promptsection.Section("# 鎖 {cid} の報告", human="人が読む鎖の報告 chain.md の見出し。役の指示書には貼らない")
@@ -87,7 +89,7 @@ def new_doc(chain_id: str, *, target: str, rounds: int, budget, request: str, te
             "test_cmd": test_cmd, "tdd_suite": tdd_suite, "env": list(env), "use_sh": use_sh, "first_run": "", "pr": pr,
             "original_base": "", "rounds": [], "stop": None,
             "pending": {"round": 1, "mark": f"{chain_id}-1", "pid": pid, "launched": False, "run": "", "from": mark_from,
-                        "request": request, "log": ""}}
+                        "request": request, "log": "", "tries": 0}}
 
 
 def load(chain_dir) -> dict:
@@ -108,15 +110,6 @@ def update(chain_dir, fn) -> dict:
         fn(doc)
         save(chain_dir, doc)
         return doc
-
-
-def add_round(chain_dir, row: dict) -> dict:
-    """終わった周の行を足し、pending を外す。同じ run の行が在れば足さない（wait の打ち直し）"""
-    def put(doc):
-        if all(r.get("run") != row.get("run") for r in doc["rounds"]):
-            doc["rounds"].append(row)
-            doc["pending"] = None
-    return update(chain_dir, put)
 
 
 # ---------------------------------------------------------------- 決め
@@ -148,7 +141,8 @@ def decide(doc: dict, facts, budget=None, *, alive=_alive) -> dict:
     """鎖の次の一手 {act, word, text}。facts が周の事実 {kind, same_tree, keys, next, cost, cost_read}（終わった周の行 doc["rounds"][-1]
     と同じ周）なら、見る順は 周の数 → 結末の種 → 人が要る → 進みが無い → 費用。どれにも当たらなければ launch。
     facts が None なら、起こした次の周の状態 doc["pending"] を見る: run が結ばれていれば follow、結ばれる前でも子の pid が生きていれば
-    wait（launched かに依らない）、pid が死んで起動の印を Archon の前で置いていれば（launched が偽）launch（起こし直す）、
+    wait（launched かに依らない）、pid が死んで起動の印を Archon の前で置いていれば（launched が偽）launch（起こし直す。切り離して
+    起こした回数 tries が LAUNCH_TRIES に達していれば、子の出力の置き場を添えて launch_failed で stop）、
     Archon を起こした後に死んで run が無ければ launch_unbound で stop。budget は費用の上限 USD（無ければ控えの budget_usd）"""
     if facts is None:
         pend = doc.get("pending")
@@ -162,6 +156,8 @@ def decide(doc: dict, facts, budget=None, *, alive=_alive) -> dict:
             return {"act": "wait", "word": "", "text": "次の周の起動が済むのを待つ"}
         if pend.get("launched"):
             return _stop("launch_unbound")
+        if int(pend.get("tries") or 0) >= LAUNCH_TRIES:
+            return _stop("launch_failed", f"子の出力 {pend.get('log') or '（無い）'}")
         return {"act": "launch", "word": "", "text": f"{pend.get('round')} 周目を起こし直す"}
     rows = doc.get("rounds") or []
     if len(rows) >= int(doc.get("rounds_max") or 0):
@@ -271,6 +267,11 @@ def render(doc: dict, *, final: bool = False) -> str:
                   f"1. 下書き {nxt or '（next-request.json）'} の draft・source の行を、採る物は印を消し、採らない物は消す",
                   f"2. 取り込むなら sh {use_sh} apply {target} {cid}",
                   f"3. 見直した依頼で sh {use_sh} start --rounds <周の数> {target} <依頼の JSON> を打つ"]
+    if stop.get("word") == "launch_failed":
+        lines += ["", "次の周の起動が落ちた。続けるなら:",
+                  f"1. {stop.get('text', '')} を読み、起動が落ちた訳を直す",
+                  f"2. 取り込むなら sh {use_sh} apply {target} {cid}",
+                  f"3. sh {use_sh} start --rounds <周の数> {target} <依頼の JSON> で新しい鎖を起こす"]
     for r in skipped:
         lines.append(f"止まった周 {r['n']} の差分: {r.get('diff') or '無し'}（{' '.join(str(x) for x in r['stopped'])}）")
     return "\n".join(lines) + "\n"
@@ -345,7 +346,7 @@ def _step(a) -> str:
                     req_file = str(pathlib.Path(d) / f"round-{pend['round'] + 1}-request.json")
                     carry.write(req_file, req)
                 doc["pending"] = {"round": pend["round"] + 1, "mark": f"{doc['id']}-{pend['round'] + 1}", "pid": None,
-                                  "launched": False, "run": "", "from": result, "request": req_file, "log": ""}
+                                  "launched": False, "run": "", "from": result, "request": req_file, "log": "", "tries": 0}
         else:
             got = decide(doc, None)
         if got["act"] == "stop" and not doc.get("stop"):
@@ -445,9 +446,10 @@ def _run(a) -> int:
         update(a.dir, mark)
         return 0
     if a.cmd == "pid":
-        def put(doc):
+        def put(doc):   # 切り離して起こした回数を数える（decide が LAUNCH_TRIES で起こし直しを止める）
             doc["pending"]["pid"] = a.pid
             doc["pending"]["log"] = a.log
+            doc["pending"]["tries"] = int(doc["pending"].get("tries") or 0) + 1
         update(a.dir, put)
         return 0
     if a.cmd == "bound":

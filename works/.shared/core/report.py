@@ -152,6 +152,7 @@ COST_FIELD_VERIFIED = True   # 欄の形を canary の run の出来事の実物
 # executionSpendSchema（packages/workflows/src/schemas/node-execution.ts）で {source: provider, value}（実物 tests/events/db-rows-plan.json）
 COST_FIELD = ("spend", "costUsd")
 COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
+COST_NOT_APPLICABLE = "not_applicable"   # AI でない節（script・関所）に Archon が毎回返す取れない理由。費用 0 の節で、読めない節ではない
 ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
 FOR_READERS = "人が読む報告の本文の見出し。役の指示書には貼らない"
@@ -1727,6 +1728,14 @@ def _event_cost(e) -> tuple:
     return None, f"{COST_FIELD_NAME} が{seen}。{ARCHON_VERSION} の前提"
 
 
+def _cost_not_applicable(e) -> bool:
+    """節の費用の欄が {source: unavailable, reason: not_applicable}（AI でない節。費用を持たない）か"""
+    v = e.get("data")
+    for k in COST_FIELD:
+        v = v.get(k) if isinstance(v, dict) else None
+    return isinstance(v, dict) and v.get("source") == "unavailable" and v.get("reason") == COST_NOT_APPLICABLE
+
+
 def _completed(events) -> list:
     return [e for e in events or [] if isinstance(e, dict) and e.get("event_type") == "node_completed"]
 
@@ -1826,7 +1835,7 @@ def header_outcome(board_dir) -> str:
 def round_facts(board_dir, events, run_doc) -> dict:
     """終わった周の事実（鎖が読む。盤面は書かない）: outcome（報告の冒頭の起きたことの行の結末の語。読めなければ空）・kind
     （OUTCOME_KINDS。止まりと言う記録は halted、結末が読めなければ halted）・cost（節の費用 cost_rows の和）・cost_read（費用が 1 つも
-    取れない・取れない節が在れば偽。0 と読まない）・minutes（run の行の started_at から completed_at）・stopped（stopped_run が止まりと
+    取れない・not_applicable（AI でない節）でない理由で取れない節が在れば偽。0 と読まない）・minutes（run の行の started_at から completed_at）・stopped（stopped_run が止まりと
     言えば [結末の語, by, 一言]）・base_rev（始めの記録の起点）・r2（次の依頼に残る独立の目 R2 の作り直しの行の数）・
     report_file・next_file（あれば）。events は workflow get の出来事、run_doc はその返り（run の行）"""
     d = pathlib.Path(board_dir)
@@ -1834,7 +1843,8 @@ def round_facts(board_dir, events, run_doc) -> dict:
     outcome = header_outcome(d)
     kind = chain.KIND_HALTED if stopped else OUTCOME_KINDS.get(outcome, chain.KIND_HALTED)
     rows = [r for r in cost_rows(events, []) if not r["aggregate"]]   # 起動の記録は継いだ会話の注記にだけ効き、和は変えない
-    read = bool(rows) and not [w for _, w in map(_event_cost, _completed(events)) if w]
+    # AI でない節の not_applicable は 0 と数え、ほかの理由で取れない節が在れば読めない（和を 0 と読まない）
+    read = bool(rows) and not [e for e in _completed(events) if _event_cost(e)[1] and not _cost_not_applicable(e)]
     cost = round(sum(r["actual"] for r in rows), 6) if rows else None
     nxt = d / carry.NEXT_REQUEST_FILE
     doc = _read_json(nxt, None)

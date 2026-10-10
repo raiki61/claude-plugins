@@ -193,7 +193,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `chain` 周の鎖（頼まれたら周をつなぎ、差分 1 本と報告 1 本で返す）
 
 - 状態: 住処あり
-- 住処: `.shared/core/chain.py`（層 L1。鎖の止めの語の表 `STOPS`、結末の種の語 `KIND_CLOSED`・`KIND_HALTED`・`KIND_HUMAN`・`KIND_WAIT`・`KIND_OPEN`、次の一手の決め `decide`、次の周の依頼 `next_request`、最後の差分に採る周 `pick`、報告 `render`、鎖の控え `<家>/chains/<鎖の id>/chain.json` の形と読み書き `new_doc`・`load`・`save`・`add_round`、殻の口 `init`・`hold`・`launched`・`pid`・`bound`・`pending`・`plan`・`of-run`・`prep`・`step`・`pick`・`render`）
+- 住処: `.shared/core/chain.py`（層 L1。鎖の止めの語の表 `STOPS`、結末の種の語 `KIND_CLOSED`・`KIND_HALTED`・`KIND_HUMAN`・`KIND_WAIT`・`KIND_OPEN`、次の一手の決め `decide`、次の周の依頼 `next_request`、最後の差分に採る周 `pick`、報告 `render`、鎖の控え `<家>/chains/<鎖の id>/chain.json` の形と読み書き `new_doc`・`load`・`save`、殻の口 `init`・`hold`・`launched`・`pid`・`bound`・`pending`・`plan`・`of-run`・`prep`・`step`・`pick`・`render`）
 - 約束: 結末の語から種を引く表 `OUTCOME_KINDS` と、終わった周の結末・種・費用・分・止まり・起点の版を返す口 `round_facts`（どちらも `.shared/core/report.py`。鎖は結末の語も費用の欄の名も持たず、この 2 つを受ける）
 - 知ってよい所: 住処だけが鎖の止めの語と控えの形を持つ。殻 `dev/use.sh` は旗（`--rounds`・`--budget-usd`・内部の `--chain-next`）を読んで住処に問い、git の手続き（周の結果の commit・最後の差分）と切り離した起動だけを持つ（鎖の控えの名はここで引く）。周の事実を書く口は `dev/lib.sh`（`works_dev_show_run` が環境 `WORKS_CHAIN_FACTS` の在る時だけ `report.round_facts` の返りを書く）。鎖の止めの語は run の中の止めの理由（`.shared/core/stopby.py`）とは別の考えで、鎖の控えと鎖の報告にだけ出る
 - 今: 持ち主の決め「指定があれば何周もつなげる」（2026-10-09）の外の鎖。各周は今と同じ 1 本の run で、線の YAML・写しの核は変えない。計画 `docs/plans/2026-10-09-chained-rounds.md`
