@@ -11,6 +11,7 @@
 - 枠: 部品（ブロック）1 つ。見出しの括弧は、線 `darkfactory/darkfactory.yaml` の節の id と、ブロックのファイル `blk-*`。
 - 四角: AI や機械が作業する所。黄色のひし形は人が確かめる所（関所。いつも止まるわけではなく、AI と機械で決めきれない物だけ聞く。人が止めた時は報告へ進む線は省いた）。灰色のひし形は機械が決める分かれ目。
 - 線の上の字: その部品を回す条件。字の無い線はいつも通る。
+- 斜めの付箋（点線でつながる黄色い箱）: その部品が受け取る物と渡す物（盤面のファイル・線の入力・指示書に貼る値）。今は手で書いた付箋で、宣言から機械で描く形に替える予定。
 - 太い線と「↺ ラリー」: 行ったり来たりする所。中身が往復するラリーは 5 か所（仕様の審査・計画の壁打ち・修正の TDD の輪と受け付け・差分の審査と手直し・報告と初見の目）。ほかに、図には描いていないが、AI の役は全部「答える → 機械の受け付けが形と出典を照らす → 外れなら理由をつけて同じ役に出し直させる（3 回まで）」の小さなラリーを持つ。
 - 省いた物: 部品と部品の間で毎回、機械が「次を回すか・飛ばすか」を決めている（線の h- で始まる節）。
 - 機能の切り替え: run の入力 `features_on`・`features_off` で、判定の裏取り（`judge_verify`）・事前審査の木（`review_tree`）・TDD の輪の並べ（`tdd_lanes`）・修正役の並べ（`fix_lanes`）・工程の地図（`graph_map`）・世界の解（`world`）を入れたり切ったりできる。既定は `judge_verify` が off、`review_tree` が auto、ほかは on。
@@ -132,11 +133,42 @@ flowchart TD
   R1 --> RS
   SC["どの部品の後でも：<br/>部品が宣言の外に書いたら<br/>盤面を止めて報告へ"] --> RP
 
+
+  %% 付箋：受け取る物と渡す物（盤面のファイル・線の入力・指示書に貼る値）
+  NE[/"受け取る：依頼のファイル・--base・--pr・<br/>run の入力（test_cmd・features など 17 個）<br/>渡す：start.json（入力の形）・pr.md・<br/>前の run の持ち越し（prior-failures-in.json）"/]
+  ST -.- NE
+  NPM[/"受け取る：依頼・差分の根（base_rev）<br/>渡す：premises.json（実測の札）"/]
+  PM1 -.- NPM
+  NPU[/"受け取る：依頼・前提の札・pr.md<br/>渡す：purpose.json（目的の文）・<br/>purpose-means.json（依頼の解き方）"/]
+  PU2 -.- NPU
+  NWO[/"受け取る：依頼・目的の文と means<br/>渡す：world.jsonl（類ごとの定石の行）・<br/>world-state.json（後の役が読む口）"/]
+  W4 -.- NWO
+  NMA[/"受け取る：差分・入口の控え<br/>渡す：記録の materials<br/>（過去の決定・目的の審査・P1 の所見）"/]
+  MA1 -.- NMA
+  NJU[/"指示書に貼る：目的の文・材料・<br/>問いの台帳・世界の解の行・人の方針<br/>渡す：judgment.json（根本の単位・<br/>処方・問い）・out-of-purpose.json"/]
+  J1 -.- NJU
+  NSA[/"受け取る：単位の一覧・方針・考えの地図<br/>渡す：structure-state.json<br/>（単位ごとの汚れる・汚れないと選んだ形）"/]
+  S2 -.- NSA
+  NPL[/"修正案の指示書に貼る：単位・判定の見立てと処方・<br/>構造の目の行・世界の解の行・持ち越し<br/>審査の指示書に貼る：修正案・単位・見立て・先例<br/>渡す：design.json（独立設計）・plan-fields.json<br/>（修正案）・gate-marks.json（関所の印）"/]
+  P3 -.- NPL
+  NFX[/"受け取る：judgment.json・修正案・<br/>申し送り・波及の一覧・test_cmd・単位の深さ<br/>渡す：作業ツリーの差分・changes.json・<br/>単位ごとの記録（fix-unit-rows.json）"/]
+  F3 -.- NFX
+  NRV[/"受け取る：差分・lens.json<br/>渡す：delta-verdicts.json（穴）→ 手直し"/]
+  RF -.- NRV
+  NMF[/"受け取る：差分の根と実の差分<br/>渡す：直した後の構造の行（段 B）"/]
+  MF1 -.- NMF
+  NEY[/"受け取る：独立設計（design-premises.json）・<br/>差分・記録<br/>渡す：eyes-exit.json（R1〜R4 の判定）"/]
+  E1 -.- NEY
+  NRP[/"受け取る：記録の全部<br/>渡す：report.md・report-ai.md・<br/>次の依頼の下書き（next-request.json）"/]
+  RP -.- NRP
+
   classDef plan fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3,color:#555
   classDef gate fill:#fff7e0,stroke:#c90
   classDef mdec fill:#eeeeee,stroke:#666
   classDef halt fill:#fdecec,stroke:#c33
   class PX1,PX2 plan
+  classDef note fill:#fffde8,stroke:#d4c46a,color:#444,font-size:12px
+  class NE,NPM,NPU,NWO,NMA,NJU,NSA,NPL,NFX,NRV,NMF,NEY,NRP note
   class SC halt
   class L,SP2,PG,RG,FG gate
   class P3,DEP,RD mdec
