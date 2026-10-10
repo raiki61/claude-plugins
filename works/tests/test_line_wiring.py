@@ -22,6 +22,8 @@ sys.dont_write_bytecode = True
 if str(ROOT / ".shared" / "core" / "graphloops") not in sys.path:
     sys.path.insert(0, str(ROOT / ".shared" / "core" / "graphloops"))   # 写しの engine（engine.schema）
 LINE = ROOT / "darkfactory"
+sys.path.append(str(ROOT / "dev"))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 NOT_STUBS = frozenset({"fixture", "exec-code"})   # 筋書きの鍵のうち stub でない物
 
 # 表（nodes.json）が役・任せ先（role・engine_run）に置いた節のうち、置き場（where）のブロックがまだラインに include されていない物
@@ -106,7 +108,7 @@ def stub_key_sets(files=None):
     out = collections.defaultdict(dict)
     for p in fixture_files() if files is None else files:
         folder = p.parent.parent.name
-        for key, stub in (load(p) or {}).items():
+        for key, stub in stubfold.load(p).items():
             if key in NOT_STUBS:
                 continue
             nid = owner.get(key, ("darkfactory", key)) if folder == "darkfactory" else (folder, key)
@@ -212,7 +214,7 @@ class FixtureStubKeysCase(unittest.TestCase):
         owner = line_stub_owner()
         for p in fixture_files():
             folder = p.parent.parent.name
-            for key, stub in (load(p) or {}).items():
+            for key, stub in stubfold.load(p).items():
                 if key in NOT_STUBS:
                     continue
                 nid = owner.get(key, ("darkfactory", key)) if folder == "darkfactory" else (folder, key)

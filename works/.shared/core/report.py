@@ -94,6 +94,7 @@ import stopby  # noqa: E402  （L1。止めの理由の住処）
 import script_io  # noqa: E402
 import startrec  # noqa: E402  （始めの記録の読み口と入口の文）
 import structmark  # noqa: E402
+import worldmark  # noqa: E402  （世界の解の行の住処。報告の節「世界の解」の行）
 import writes  # noqa: E402
 
 PACK = CORE.parents[1]
@@ -140,6 +141,7 @@ ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
 PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
 OUTSIDE_HEADING = "## 判定が目的の外とした所見"   # 1 件ずつの行（outpurpose.report_lines）。冒頭 1 は件数の行だけ（outpurpose.count_line）
+WORLD_HEADING = "## 世界の解"   # 依頼の行ごとの定石と依頼の解き方との比べ（worldmark.report_lines。控えの無い run は節を出さない）
 TDD_HEADING = "## TDD の輪の単位ごとの結末"   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
 TDD_STAGES = ("修正の段", "案を直した後の修正の段")   # build の tdd の並び（ラインの report の with の fix_tdd・refit_tdd の順）
 FREEZE_OFF_HEAD = "テストの凍結"   # 冒頭 2 の行の頭（TDD の輪を回していない修正の段は、凍結が効いていないと言う。freeze_lines）
@@ -1839,6 +1841,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     body += ["## 費用", "", *[f"- {r}" for r in head_cost(board_dir, rid, events=events, launches=launches)], ""]
     body += ["## 周の記録の検証器", "", f"- 終了コード: {gate['exit']}（受理 {report_accepts(b)}）",
              f"- 今の周の記録: {'済んだ' if gate['round_closed'] else '済んでいない'}", ""]
+    world = worldmark.report_lines(board_dir)   # 世界の解の段は判定の前（構造の目の前）に走る
+    if world:
+        body += [WORLD_HEADING, "", *world, ""]
     structure = structmark.report_lines(board_dir)
     if structure:
         body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]

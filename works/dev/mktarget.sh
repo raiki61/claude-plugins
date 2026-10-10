@@ -4,7 +4,7 @@
 # <dir> に使い捨ての git リポジトリを作る:
 #   - target-seed/ を種として写す（stats.py・test_stats.py。バグ入り）。
 #   - works/ を project pack として .archon/workflows/works/ に写す
-#     （tests/・dev/・docs/ は除く）。
+#     （tests/・dev/・docs/ は除く）。筋書きは共通の基と合わせた物にする（stubfold.py）。
 # 写し終えたら 1 回 commit し、作業ツリーが変わっていない状態にして、
 # <dir> の絶対パスを標準出力に 1 行出す。
 set -eu
@@ -42,6 +42,9 @@ find "$DIR" -name .git -prune -o \
 # works/ を project pack として写す。tests/・dev/・docs/ は除く（lib.sh）
 . "$DEV_DIR/lib.sh"
 works_dev_copy_pack "$WORKS_DIR" "$DIR/.archon/workflows/works"
+# 筋書きの共通の基（<工程>/fixtures/base.yaml）を写しの筋書きに合わせて基を消す。Archon の模擬実行は *.stubs.yaml を 1 本ずつ
+# 読み、基を読まない（合わせ方は stubfold.py）
+python3 "$DEV_DIR/stubfold.py" materialize "$DIR/.archon/workflows/works"
 
 # 利用者の git の設定（署名・hook）に左右されないように、この commit だけ切る
 git -C "$DIR" add -A

@@ -58,6 +58,7 @@ FAST = frozenset({
     "test_gatepolicy",      # 人の関所と無人の方針の住処の語・確かめ・読み・開くかの決め（一時の置き場のファイルだけ。git・子のプロセスなし）
     "test_startrec",        # 始めの記録の住処の読み口と入口の文（一時の置き場のファイルだけ。git・子のプロセスなし）
     "test_entry_block",     # 入口のブロックの置き場と約束（YAML と JSON を読むだけ。git・子のプロセスなし）
+    "test_copy_fence",      # 写しの柵（表 docs/copies.json）: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_concept_fences",  # 考えの住処の柵（地図 docs/concepts.md と表 docs/concepts.json）: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
@@ -105,6 +106,7 @@ FAST = frozenset({
     "test_toolset",         # 隔離した Claude の設定の組み立てと柵: 一時の置き場に写す・偽の claude（python）を子で起こす（git なし）
     "test_yaml_rules",      # YAML を読むだけ
     "test_line_wiring",     # ラインの配線（表の置き場の include）と筋書きの stub の鍵の揃い: YAML と JSON を読むだけ（git・子のプロセスなし）
+    "test_stubfold",        # 筋書きの共通の基の合わせ方（dev/stubfold.py）: テキストと YAML を読む・一時の置き場に写すだけ（子のプロセスは git show・log だけ）
     "test_line_inputs",     # 入力の名の集合と script の with の鍵（TA16）: YAML とスクリプトを読み、entry.check_inputs を直に呼び、LineRun を種の git を差し替えて組む（git・子のプロセスなし）
     "test_role_give_up",    # 役の輪が done で抜ける（R50）: YAML を読むだけ（git・子のプロセスなし）
     "test_protect",         # 守りのファイルの一覧: git ls-files を読む・種の git は gitkit の型の写し

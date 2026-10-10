@@ -109,6 +109,16 @@ class Files(unittest.TestCase):
             self.assertIn(n, got)
         self.assertEqual(worldmark.report_lines(self.dir / "none"), [])
 
+    def test_report_lines_name_cached_classes(self):
+        """控えから使った類は行ごとに名指す（数の行だけでは、どの定石が前の run の物かが分からない）"""
+        p = self.put([row(), row(finding=2, class_id="w2", cached=True, practice="前の定石")])
+        worldmark.write(self.dir, status="ok", reason="", world_file=str(p), classes=2, cached=1, skipped=0, dropped=0)
+        got = worldmark.report_lines(self.dir)
+        cached = [ln for ln in got if "前の定石" in ln]
+        fresh = [ln for ln in got if "最小の仮の実装" in ln]
+        self.assertTrue(cached and "控えから使った" in cached[0], got)
+        self.assertTrue(fresh and "控えから使った" not in fresh[0], got)
+
     def test_report_lines_failed_state(self):
         (self.dir / worldmark.STATE_FILE).write_text(json.dumps({"status": "failed", "reason": "言い直す役が 3 回拒まれた",
                                                                  "world_file": ""}), encoding="utf-8")

@@ -51,6 +51,8 @@ import hermetic  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
+sys.path.append(str(DEV))   # 筋書きの合わせ方（dev/stubfold.py）
+import stubfold  # noqa: E402
 
 BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
 _saved = {}
@@ -172,6 +174,12 @@ class TestDevShell(unittest.TestCase):
                 self.assertFalse((pack / d).exists())
             self.assertEqual(list(pack.rglob("__pycache__")), [])
             self.assertEqual(list(pack.rglob(".DS_Store")), [])
+            # 筋書きは共通の基と合わせた物で、基は写さない（Archon の模擬実行は *.stubs.yaml を 1 本ずつ読む。dev/stubfold.py）
+            self.assertEqual(list(pack.rglob("fixtures/base.yaml")), [])
+            line_fx = sorted((ROOT / "darkfactory" / "fixtures").glob("*.stubs.yaml"))
+            self.assertTrue(line_fx)
+            for p in line_fx:
+                self.assertEqual((pack / "darkfactory" / "fixtures" / p.name).read_text(encoding="utf-8"), stubfold.text(p), p.name)
             # 出どころの控え（run ごとの版の控え versions.json が読む）: 写した元の works の commit と手元の書き換えの有無
             src = json.loads((pack / ".works-source.json").read_text(encoding="utf-8"))
             self.assertEqual(src["rev"], git(ROOT, "rev-parse", "HEAD"))
