@@ -152,20 +152,53 @@ class TestRedGreen(FixGatesCase):
         self.edit_tree({"def clamp(x, lo, hi):": "def halve(x):\n    return x / 2\n\n\ndef clamp(x, lo, hi):"})
         self.assertEqual(self.problems(), [])
 
-    def agree(self, tid, red_kind):
+    def agree(self, tid, red_kind, **over):
         """範囲の相談の合意（allow の行）で、項目 1 に新しいテスト tid が入った盤面にする"""
-        row = asked_row(new_tests=[tid], decision="allow", granted_new_tests=[{"id": tid, "red_kind": red_kind}])
+        row = asked_row(new_tests=[tid], decision="allow", granted_new_tests=[{"id": tid, "red_kind": red_kind}], **over)
         entry.open_board(self.board, allow_halted=True).trace(conflict.ASKED_OP, **row)
 
     def test_agreed_new_test_is_checked_red_green(self):
         """範囲の相談の合意で項目に入った新しいテストは、項目が direct（受け入れのテストが無い）でも事後の関門の red_green が
         確かめ、base で緑なら抜けの行になる"""
         self.ready_with_fields(direct_fields())
-        self.agree(MEAN_ID, "assertion")
+        self.agree(MEAN_ID, planmarks.AGREED_RED)
         self.add_test_that_passes_on_base("test_mean_of_two")
         rows = self.problems()
         self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
-        self.assertIn("base で緑", rows[0]["detail"])
+        self.assertIn("もう通る", rows[0]["detail"])
+
+    def test_agreed_test_not_written_is_not_a_miss(self):
+        """合意で入ったテストは許しで義務でない: 修正役が書かなければ関門に入れない（一式の結末に居ないの行にしない）"""
+        self.ready_with_fields(direct_fields())
+        self.agree(MEAN_ID, planmarks.AGREED_RED, origin="gate")
+        self.edit_tree(MEAN_FIX)
+        self.assertEqual(self.problems(), [])
+
+    def test_agreed_test_written_under_other_name_is_not_a_miss(self):
+        """合意の id と別の名で書いた時も、合意の id は関門に入れない（別の名のテストは範囲の照らしのはみ出しの側）"""
+        self.ready_with_fields(direct_fields())
+        self.agree(MEAN_ID, planmarks.AGREED_RED, origin="gate")
+        self.add_test(tbt.NEW_TEST.replace("test_mean_of_two", "test_mean_pair"))
+        self.edit_tree(MEAN_FIX)
+        self.assertEqual(self.problems(), [])
+
+    def test_later_agreement_fixes_red_kind(self):
+        """同じ id を後の相談で守りのテストに直すと、後の合意が勝つ: base で緑でも抜けの行にならない"""
+        self.ready_with_fields(direct_fields())
+        self.agree(MEAN_ID, planmarks.AGREED_RED, origin="gate")
+        self.agree(MEAN_ID, planmarks.GUARD_KIND, id=2, turn=3)
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        self.assertEqual(self.problems(), [])
+
+    def test_agreed_red_green_row_is_marked_for_revert(self):
+        """合意のテストの red_green の行は印 agreed を持ち、overflow_asks がそのテストだけを戻す頼み（revert）にする"""
+        self.ready_with_fields(direct_fields())
+        self.agree(MEAN_ID, planmarks.AGREED_RED, origin="gate")
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        (row,) = self.problems()
+        self.assertTrue(row.get("agreed"), row)
+        (ask,) = fixgates.overflow_asks([row], self.repo, self.base, [{"item": 1, "allowed_paths": ["test_stats.py"]}])
+        self.assertEqual((ask["new_tests"], ask.get("revert")), ([MEAN_ID], True))
 
     def test_agreed_guard_test_needs_only_green_now(self):
         """合意の red_kind が守りのテスト（GUARD_KIND）の新しいテストは、base で緑でも抜けの行にならない。今の木で赤なら抜けの行"""
@@ -877,6 +910,60 @@ class TestAcceptWiring(FixGatesCase):
         patches = [s for s in strings(row) if s.endswith(".patch")]
         self.assertIn("notes.txt", list(strings(row)))
         self.assertTrue(patches and pathlib.Path(patches[0]).is_file(), row)
+
+    def gate_ready(self):
+        """直す前の関所で人が条件つきの continue を答え、direct の項目 1（範囲 stats.py・test_stats.py）が承認され、stats.py を
+        直した盤面。関所の条件の相談（本線の頼みの節）を回して答えの節の答えを確かめる関数を返す"""
+        import adapter
+        self.fix_ready(narrows=tbf.NARROWS, answer=("continue", "既存の clamp を壊さないことを確かめるテストを足してから直せ"))
+        row = {**tbf.PLAN_FIELDS[0], "unit_keys": [tbf.MEAN, tbf.CLAMP], "route": "direct", "route_why": "見本。先にテストを書かない",
+               "tests": [], "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}
+        planmarks.save(self.board, entry.open_board(self.board).round, [row])
+        self.edit_tree(tbf.FIXED)
+        home = self.tmp / "adapter-home"
+        path = adapter.session_path(self.repo, "plan", home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("11111111-2222-3333-4444-555555555555\n", encoding="utf-8")
+
+        def consult_gate(new_tests):
+            b = entry.open_board(self.board, allow_halted=True)
+            out = consult.ask(b, self.repo, {"changes": []}, "plan", "first", "plan-answer", home_dir=home)
+            self.assertEqual((out["consulted"], out["go"]), (True, True), out)
+            answer = {"answers": [{"ask": 1, "decision": "allow", "paths": [], "tests": [], "spec": "", "new_tests": new_tests,
+                                   "reason": "人の条件のテストを項目に足してよい"}]}
+            consult.settle(b, answer, "first", "plan-answer")
+            consult.take(b, "first")
+        return consult_gate
+
+    def test_gate_condition_consult_then_accept_passes(self):
+        """端から端まで: 関所の条件 → 本線の頼みの節が修正案の役に聞く → 守りのテストを許す → 修正役がそのテストを足す → 受け付けが
+        通り（案の外のテストの拒否にも欠けにもならない）、受けた回の trace が認めたテストの id と赤の種類を名指す"""
+        consult_gate = self.gate_ready()
+        guard = "test_stats.py::TestStats::test_clamp_kept"
+        consult_gate([{"id": guard, "red_kind": planmarks.GUARD_KIND}])
+        self.add_test_that_passes_on_base("test_clamp_kept")
+        got = self.accept_done(self.accept_mod(), tbf.load("fix2_ok"))
+        self.assertIs(got["ok"], True, got)
+        self.assertIn("def test_clamp_kept", (self.repo / "test_stats.py").read_text(encoding="utf-8"))
+        b = entry.open_board(self.board, allow_halted=True)
+        (row,) = report.trace_rows(b, impact.ACCEPT_OVERFLOW_OP)
+        self.assertEqual(row["gate_tests"], [f"{guard}（{planmarks.GUARD_KIND}）"])
+        self.assertTrue(any(guard in line for line in report.plan_ask_lines(b)), report.plan_ask_lines(b))
+
+    def test_gate_agreed_test_failing_red_green_is_reverted_alone(self):
+        """関所の条件の相談で赤を求めて許したテストが base で緑（赤緑が立たない）なら、受け付けはそのテストだけを戻して名指し、
+        残りの直しを受ける（単位の直しを取り下げない）"""
+        consult_gate = self.gate_ready()
+        tid = "test_stats.py::TestStats::test_clamp_kept"
+        consult_gate([{"id": tid, "red_kind": planmarks.AGREED_RED}])
+        self.add_test_that_passes_on_base("test_clamp_kept")
+        got = self.accept_done(self.accept_mod(), tbf.load("fix2_ok"))
+        self.assertIs(got["ok"], True, got)
+        self.assertNotIn("def test_clamp_kept", (self.repo / "test_stats.py").read_text(encoding="utf-8"), "合意のテストだけを戻す")
+        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "残りの直しは残る")
+        b = entry.open_board(self.board, allow_halted=True)
+        (row,) = report.trace_rows(b, impact.ACCEPT_OVERFLOW_OP)
+        self.assertEqual([x["new_tests"] for x in row["reverted"]], [[tid]])
 
     def freeze_loop(self):
         """TDD の輪が test_stats.py に受け入れのテスト test_mean_of_two を足して凍らせた後の形（輪の状態のファイルを返す）"""

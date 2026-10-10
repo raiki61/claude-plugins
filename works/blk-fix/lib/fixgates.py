@@ -26,8 +26,10 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   実行器が走らない・base の木を作れない時も skipped に理由（拒まない。輪の実行器が走らない時と同じく、回す側の事情で
   受け付けの回数を使わない）
   範囲の相談の合意で項目に入った新しいテスト（planrange.with_agreed が項目の tests に印 agreed つきで足す。granted_new_tests）は、
-  項目の route を問わず（direct でも）同じ関門に入れる。赤の種類が守りのテスト（planmarks.GUARD_KIND）なら今の木で緑だけを求め、
-  base の結末（base で何か）は帳面の guards に残す（base で緑でも抜けの行にしない。受けた回の trace が名指す）
+  項目の route を問わず（direct でも）同じ関門に入れる。合意は許しで義務でないので、今の木に定義が在る物だけを入れ（present）、
+  その行には印 agreed を付ける（落ちれば受け付けがそのテストだけを戻して名指す。overflow_asks）。赤の種類が守りのテスト
+  （planmarks.GUARD_KIND）なら今の木で緑だけを求め、base の結末（base で何か）は帳面の guards に残す（base で緑でも抜けの行に
+  しない。受けた回の trace が名指す）
 - test_edits: base から今の木で変わったテストのファイル（tddloop.is_test_file: 修正案の受け入れのテスト・書き換えの名指しのパスか名の慣習）のうち、base に在ったテストの関数
   （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのはテストの変更の許し（conflict.test_permits）の
   行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、修正案の項目の removes（消す名）を base の本体で名指す関数の id
@@ -90,14 +92,15 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     repo = pathlib.Path(repo)
     rev = writes.base_rev(b, base_rev)
     fields = conflict.frozen_fields(b)   # 先に読む（食い違いは BoardGap。下の conflict.test_permits はもう投げない）
-    tests, gaps = _accept_tests(b, fields)
+    tests, gaps = _accept_tests(b, fields, repo)
     rows, guards = [], []
     if tests and not suite:
         gaps.append(NO_SUITE)
     elif tests:
         got, why, guards = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b),
                                       _red_units(b.dir, repo))
-        rows += got
+        agreed = {t["id"] for t in tests if t.get("agreed")}
+        rows += [{**r, "agreed": True} if r["id"] in agreed else r for r in got]   # 合意のテストの行（受け付けがそのテストだけを戻す）
         gaps += why
     rows += _test_edits(b, repo, rev, pass_ == "ruled" or conflict.second_pass(b), [t["id"] for t in tests])
     _record(b, _mark(pass_, attempt), rows, gaps, guards)
@@ -127,12 +130,19 @@ def reject_line(row: dict) -> str:
 
 
 def overflow_asks(rows: list[dict], repo, rev: str, items) -> list[dict]:
-    """束の行のうち test_edits（EDITED。名指しの外の既存のテストの本体の書き換え）を、範囲の相談の頼み
-    [{item, tests: [<パス>:<base の定義の行>], line}] に直す（受け付けが相談に回す。line は行の拒否の文 reject_line）。item は
-    そのテストのファイルを結ぶ項目（planrange.owner）。base に定義の行が引けない行（消えた関数など）は頼みにしない
-    （成り立たない行のまま）"""
+    """束の行のうち、はみ出しとして受け付けが扱う物 [{item, tests, new_tests, line, revert}]（line は行の拒否の文 reject_line）:
+    - test_edits（EDITED。名指しの外の既存のテストの本体の書き換え）: 範囲の相談の頼み（tests: [<パス>:<base の定義の行>]）。
+      base に定義の行が引けない行（消えた関数など）は頼みにしない（成り立たない行のまま）
+    - 合意で入ったテストの red_green（行の印 agreed）: 聞き直さずにそのテストだけを戻す物（new_tests: [id]・revert: true。合意は
+      許しで義務でないので、赤緑が立たなければ戻して名指す）
+    item はそのテストのファイルを結ぶ項目（planrange.owner）"""
     out = []
     for r in rows:
+        if r.get("gate") == "red_green" and r.get("agreed"):
+            item = planrange.owner(tddloop.id_path(r["id"]), items)
+            out.append({"item": item.get("item") if item else None, "tests": [], "new_tests": [r["id"]], "line": reject_line(r),
+                        "revert": True})
+            continue
         if r.get("gate") != "test_edits":
             continue
         path = tddloop.id_path(r["id"])
@@ -143,7 +153,7 @@ def overflow_asks(rows: list[dict], repo, rev: str, items) -> list[dict]:
         if not line:
             continue
         item = planrange.owner(path, items)
-        out.append({"item": item.get("item") if item else None, "tests": [f"{path}:{line}"], "line": reject_line(r)})
+        out.append({"item": item.get("item") if item else None, "tests": [f"{path}:{line}"], "new_tests": [], "line": reject_line(r)})
     return out
 
 
@@ -193,11 +203,12 @@ def unchecked_whys(whys) -> list[str]:
     return [w for w in whys if isinstance(w, str) and not w.startswith(OUT_OF_DUTY)]
 
 
-def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
-    """(受け入れのテスト [{id, unit_keys, guard}]（項目の順・id の重複は最初の物。単位は名指した項目の全部。guard は守りのテスト
-    （赤の種類が planmarks.GUARD_KIND）か）, 義務の外の項目を見なかった理由)。見るのは、route が tdd の項目の tests と、範囲の相談の
-    合意で項目に入った新しいテスト（planrange.with_agreed。項目の route を問わない）のうち、直す義務の単位を名指す項目（unit_keys の
-    無い項目も）の物。凍結した欄は番号（item）を付けて with_agreed に通して読む"""
+def _accept_tests(b, fields, repo=None) -> tuple[list[dict], list[str]]:
+    """(受け入れのテスト [{id, unit_keys, guard, agreed}]（項目の順・id の重複は最初の物。単位は名指した項目の全部。guard は守りの
+    テスト（赤の種類が planmarks.GUARD_KIND）か、agreed は合意で入ったテストか）, 義務の外の項目を見なかった理由)。見るのは、route が
+    tdd の項目の tests と、範囲の相談の合意で項目に入った新しいテスト（planrange.with_agreed。項目の route を問わない）のうち、直す
+    義務の単位を名指す項目（unit_keys の無い項目も）の物。合意のテストは許しで義務でないので、今の木（repo）に定義が在る物だけ。
+    凍結した欄は番号（item）を付けて with_agreed に通して読む"""
     owed = conflict.owed_units_but_asked(b) if fields else set()
     numbered = [{**f, "item": n} if isinstance(f, dict) else f for n, f in enumerate(fields or [], 1)]
     seen = planrange.with_agreed([f for f in numbered if isinstance(f, dict)], conflict.agreed(b)) if fields else []
@@ -205,7 +216,8 @@ def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
     for n, f in enumerate(seen, 1):
         n = f.get("item") or n
         tdd = f.get("route") == "tdd"
-        rows = [t for t in f.get("tests") or [] if tdd or (isinstance(t, dict) and t.get("agreed"))]
+        rows = [t for t in f.get("tests") or [] if isinstance(t, dict) and (
+            present(repo, t.get("id")) if t.get("agreed") else tdd)]
         if not rows:
             continue
         keys = [k for k in f.get("unit_keys") or [] if isinstance(k, str)] if isinstance(f.get("unit_keys"), list) else []
@@ -214,9 +226,23 @@ def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
             continue
         for t in rows:
             if isinstance(t, dict) and isinstance(t.get("id"), str) and t["id"].strip():
-                got = out.setdefault(t["id"], {"id": t["id"], "unit_keys": [], "guard": t.get("red_kind") == planmarks.GUARD_KIND})
+                got = out.setdefault(t["id"], {"id": t["id"], "unit_keys": [], "guard": t.get("red_kind") == planmarks.GUARD_KIND,
+                                               "agreed": bool(t.get("agreed"))})
                 got["unit_keys"] += [k for k in keys if k not in got["unit_keys"]]
     return list(out.values()), why
+
+
+def present(repo, test_id) -> bool:
+    """名指し test_id の定義が今の木（repo の作業ツリー）のファイルに在るか（repo が無ければ在ると見る）"""
+    if repo is None:
+        return True
+    if not isinstance(test_id, str) or not test_id.strip():
+        return False
+    try:
+        text = (pathlib.Path(repo) / tddloop.id_path(test_id)).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return planmarks.line_in(text, test_id) is not None
 
 
 def _test_files(repo, rev: str, tree: str, ids=()) -> list[str]:

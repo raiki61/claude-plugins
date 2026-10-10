@@ -66,6 +66,7 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402
 import adapter  # noqa: E402   L2。包みの会話の id の置き場（session_path）と run ごとの置き場（run_place_of）
 import conflict  # noqa: E402   範囲の相談の trace の行（ASKED_OP）と頼みの欄（CONSULT_FIELD）
+import gatemarks  # noqa: E402   直す前の人の関所の節の名（GATE_NODE。関所の条件の相談の一言を引く）
 import graphmap  # noqa: E402   工程の地図の節の見出し（L1）
 import node_marker  # noqa: E402   答えの節の印
 import planmarks  # noqa: E402   glob の当て方の正本・承認済みの修正案の項目
@@ -109,7 +110,7 @@ ANSWER_SCHEMA = {
                             "type": "object", "additionalProperties": False,
                             "required": ["id", "red_kind"],
                             "properties": {"id": {"type": "string", "minLength": 1},
-                                           "red_kind": {"type": "string", "enum": [*planmarks.RED_KINDS, planmarks.GUARD_KIND]}},
+                                           "red_kind": {"type": "string", "enum": list(planmarks.AGREED_KINDS)}},
                         },
                     },
                     "spec": {"type": "string"},
@@ -150,8 +151,9 @@ QUESTION = promptsection.Section("""\
   頼まれた物の一覧が無い。条件が求める物を自分で挙げてよい。機械はリポジトリの根の外のパスだけ捨てる）
 - tests: 書き換えてよいテストの範囲（頼まれた物の中から。allow の時だけ。期待を実装に合わせるための書き換えは許すな）
 - new_tests: 足してよい新しいテスト（頼まれた物の中から。allow の時だけ。無ければ省く）。{{id, red_kind}} の並び。red_kind は
-  足す前の木で期待の種類（assertion＝断言の失敗・exception＝例外）の赤になるテストならその種類、足す前の木でも緑の守りの
-  テスト（人の条件の「X を壊さないことを確かめよ」の型）なら {guard}。期待を実装に合わせるための許しは出すな
+  足す前の木でテストの中の検査で落ちる赤（failure）になるテストなら {red}、足す前の木でも緑の守りのテスト（人の条件の「X を
+  壊さないことを確かめよ」の型）なら {guard}。同じ id をもう一度許せば後の答えが勝つ（種類の直し）。期待を実装に合わせるための
+  許しは出すな
 - spec: 直す側が従う仕様の補い（無ければ空）
 - reason: 決めた理由（{min_why} 字以上）
 """, source="fn:consult.question")
@@ -212,7 +214,7 @@ RECEIVES = receives(ANSWERERS, (recount.ROLE,))
 ORIGIN_ACCEPT = "accept"   # 頼みと確かめの行の origin: 受け付けが見つけて積んだ頼み（無い＝修正役が返答の consult に書いた頼み）
 ORIGIN_GATE = "gate"       # 同じ欄: 人の関所の continue の条件を機械が相談にした頼み（頼む物は無く、役が条件で要る物を決める）
 CONTINUE = "continue"
-KINDS = (*planmarks.RED_KINDS, planmarks.GUARD_KIND)   # 合意の新しいテストの赤の種類
+KINDS = planmarks.AGREED_KINDS   # 合意の新しいテストの赤の種類（赤か守りか）
 
 
 def _now() -> str:
@@ -440,7 +442,8 @@ def question(items: dict, asks: list) -> str:
                                      allowed=show(it.get("allowed_paths") or []), oos=show(oos),
                                      paths=show(a["paths"]), tests=show(a["tests"]), new_tests=show(a.get("new_tests") or []),
                                      oos_hits=_hits_text(hits, a["item"]), why=why))
-    return QUESTION.format(n=len(asks), asks="\n".join(parts).rstrip("\n"), min_why=MIN_WHY, guard=planmarks.GUARD_KIND)
+    return QUESTION.format(n=len(asks), asks="\n".join(parts).rstrip("\n"), min_why=MIN_WHY, guard=planmarks.GUARD_KIND,
+                           red=planmarks.AGREED_RED)
 
 
 # ---------------------------------------------------------------- 相手の会話
@@ -481,10 +484,11 @@ def left(b, pass_: str) -> int:
 
 
 def gate_notes(b) -> str:
-    """盤面の今の周の人の関所の continue の一言（process.human_items の note）を改行で並べた文（字のまま。無ければ空）"""
+    """盤面の今の周の直す前の人の関所（gatemarks.GATE_NODE）の continue の一言（process.human_items の note）を改行で並べた文
+    （字のまま。無ければ空。最後の関所などほかの節の一言は入れない）"""
     items = ((getattr(b, "record", None) or {}).get("process") or {}).get("human_items") or []
     return "\n".join(h["note"] for h in items if isinstance(h, dict) and h.get("round") == b.round and h.get("answer") == CONTINUE
-                     and isinstance(h.get("note"), str) and h["note"].strip())
+                     and h.get("node") == gatemarks.GATE_NODE and isinstance(h.get("note"), str) and h["note"].strip())
 
 
 def gate_asks(b, items: dict) -> list:
@@ -523,7 +527,8 @@ def ask(b, repo, reply, plan_session: str, pass_: str, node: str, home_dir=None)
     turns = int(st.get("turns") or 0)
     items = items_of(b)
     asks = [*(st.get("queued") or []), *(requests(reply) or [])] or None   # 受け付けが積んだ頼み（queue）も返答の consult と同じ道に載せる
-    if asks is None and turns < BUDGET:   # 人の関所の条件は、役が頼まなくても機械が相談にする（枠が尽きていれば聞かない）
+    if asks is None and turns < BUDGET and node in ANSWERERS:   # 人の関所の条件は、役が頼まなくても機械が相談にする（本線の段だけ。
+        # 並べの枝は案の外のテストを本線の受け付けへ回すので、枝ごとに全部の項目を重ねて聞かない。枠が尽きていれば聞かない）
         asks = gate_asks(b, items) or None
     if asks is None:
         return {"consulted": False, "go": False, "prompt_file": "", "turn": 0, "spent": False}

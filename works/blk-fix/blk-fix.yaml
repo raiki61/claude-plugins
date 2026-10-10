@@ -1180,7 +1180,7 @@ nodes:
                         required: [id, red_kind]
                         properties:
                           id: {type: string, minLength: 1}
-                          red_kind: {type: string, enum: [assertion, exception, guard]}
+                          red_kind: {type: string, enum: [red, guard]}
                     paths: {type: array, items: {type: string, minLength: 1}}
                     tests: {type: array, items: {type: string, minLength: 1}}
                     spec: {type: string}

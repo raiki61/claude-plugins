@@ -123,6 +123,31 @@ class ProblemsCase(unittest.TestCase):
         over = note.get("overflow")
         self.assertEqual([(o["line"], o["item"], o["unit_key"], o["paths"]) for o in over or []], [(line, 1, MEAN, ["other.py"])], note)
 
+    def agreed_items(self, *kinds, tid="test_stats.py::TestStats::test_extra"):
+        """項目 1 に、範囲の相談の合意で新しいテスト tid が入った写し（kinds の順に合意を重ねる）"""
+        rows = [{"item": "1", "granted_paths": [], "granted_tests": [], "granted_new_tests": [{"id": tid, "red_kind": k}]}
+                for k in kinds]
+        return planscope.with_agreed([item(allowed_paths=["stats.py", "test_stats.py"])], rows)
+
+    def test_agreed_test_not_written_is_not_missing(self):
+        """合意で入ったテストは許しで義務でない: 修正役が書かなくても『tests の X が修正の後の木に無い』の欠けにしない"""
+        rows = [{"unit_key": MEAN, "files": ["stats.py"]}]
+        self.assertEqual(planscope.problems(self.agreed_items("red"), rows, STATS)[0], [])
+
+    def test_agreed_test_written_under_other_name_is_overflow_not_missing(self):
+        """合意の id と別の名で書いたテストは、案の外のテスト（はみ出し。相談に回る）で、合意の id の欠けにはしない"""
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        ch = {**STATS, "test_stats.py": (base, base + "    def test_other(self):\n        pass\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
+        got, note = planscope.problems(self.agreed_items("red"), rows, ch)
+        self.assertFalse([p for p in got if "修正の後の木に無い" in p], got)
+        self.assertEqual([o["new_tests"] for o in note["overflow"]], [["test_stats.py::TestStats::test_other"]])
+
+    def test_later_agreement_wins_for_same_id(self):
+        """同じ id の合意を重ねると、後の合意の赤の種類が勝つ（相談で種類を直せる）"""
+        (row,) = self.agreed_items("red", "guard")[0]["tests"]
+        self.assertEqual(row["red_kind"], "guard")
+
     def test_agreed_new_test_joins_item_tests(self):
         """範囲の相談の合意（granted_new_tests）を持つ行を with_agreed に通した項目では、その新しいテストが項目の写しの tests に
         印 agreed と red_kind つきで並び、tests に無いテストの拒否の行（6）にならない"""
@@ -131,10 +156,10 @@ class ProblemsCase(unittest.TestCase):
         rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
         tid = "test_stats.py::TestStats::test_extra"
         agreed = [{"item": "1", "granted_paths": [], "granted_tests": [],
-                   "granted_new_tests": [{"id": tid, "red_kind": "assertion"}]}]
+                   "granted_new_tests": [{"id": tid, "red_kind": "red"}]}]
         got = planscope.with_agreed([ITEM], agreed)
         (row,) = got[0]["tests"]
-        self.assertEqual((row["id"], row["red_kind"]), (tid, "assertion"))
+        self.assertEqual((row["id"], row["red_kind"]), (tid, "red"))
         self.assertTrue(row.get("agreed"), row)
         self.assertEqual(ITEM["tests"], [], "元の項目は変えない")
         self.assertEqual(planscope.problems(got, rows, ch)[0], [])

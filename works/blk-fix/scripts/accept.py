@@ -511,7 +511,8 @@ def gather_overflow(scope_note, frozen, gates: list, board, base_rev, repo) -> l
     out += [{"line": a["line"], "item": (planrange.owner(a["path"], items) or {}).get("item"), "paths": [],
              "tests": list(a["tests"]), "new_tests": [], "ref": a.get("ref")} for a in frozen]
     rev = writes.base_rev(entry.open_board(board), base_rev)
-    out += [{"line": a["line"], "item": a["item"], "paths": [], "tests": list(a["tests"]), "new_tests": [], "ref": rev}
+    out += [{"line": a["line"], "item": a["item"], "paths": [], "tests": list(a["tests"]), "new_tests": list(a["new_tests"]),
+             "ref": rev, **({"revert": True} if a.get("revert") else {})}
             for a in fixgates.overflow_asks(gates, repo, rev, items)]
     return out
 
@@ -560,7 +561,7 @@ def settle_overflow(asks: list, found: list, whole: dict, board, base_rev, repo,
         return None
     fresh, back, waiting = [], [], False
     for a in asks:
-        if any(_covers(r, a) for r in answered):
+        if a.get("revert") or any(_covers(r, a) for r in answered):   # revert: 合意のテストが赤緑で落ちた（聞き直さず戻す）
             back.append(a)
         elif any(_covers(r, a) for r in pending):
             waiting = True
@@ -706,9 +707,13 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset(), reverted=fro
         if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
             tb.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
         agreed = [r.get("id") for r in conflict.agreed(tb) if r.get("origin") == consult.ORIGIN_ACCEPT]
+        gated = [f"{g['id']}（{g.get('red_kind')}）" for r in conflict.agreed(tb) if r.get("origin") == consult.ORIGIN_GATE
+                 for g in r.get("granted_new_tests") or [] if isinstance(g, dict) and fixgates.present(repo, g.get("id"))]
         guards = [f"{g['id']}: 守りのテスト（base で {g['base']}）" for g in fixgates.guards(board, pass_=pass_, attempt=attempt)]
-        if agreed or trail["reverted"] or guards:   # はみ出しを相談で認めた・機械が戻した・守りのテストを認めた（報告が 1 件ずつ名指す）
-            tb.trace(impact.ACCEPT_OVERFLOW_OP, node=recount.ROLE, agreed=agreed, reverted=trail["reverted"], guards=guards)
+        if agreed or trail["reverted"] or guards or gated:   # はみ出しを相談で認めた・機械が戻した・守りのテストを認めた・関所の
+            # 条件の相談で認めた新しいテストが今の木に在る（報告が 1 件ずつ名指す）
+            tb.trace(impact.ACCEPT_OVERFLOW_OP, node=recount.ROLE, agreed=agreed, reverted=trail["reverted"], guards=guards,
+                     gate_tests=gated)
         if rows:
             tb.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(tb, rows)))
         if absorbed["dropped"] or absorbed["absorbed"]:

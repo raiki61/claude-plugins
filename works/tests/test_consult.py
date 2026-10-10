@@ -37,6 +37,7 @@ sys.path.append(str(ROOT / "tests"))   # 試験の道具（prepkit）
 import adapter  # noqa: E402
 import conflict  # noqa: E402
 import consult  # noqa: E402
+import gatemarks  # noqa: E402
 import fixrules  # noqa: E402
 import prepkit  # noqa: E402
 import planrange  # noqa: E402
@@ -101,6 +102,9 @@ class Base(unittest.TestCase):
 
     def ask(self, r, plan_session="plan", pass_="first"):
         return consult.ask(self.b, self.repo, r, plan_session, pass_, "plan-answer", home_dir=self.home)
+
+
+GATE = gatemarks.GATE_NODE
 
 
 class ScreenCase(unittest.TestCase):
@@ -175,12 +179,12 @@ class JudgeCase(unittest.TestCase):
         無くても行は正しい allow。頼んでいない id は捨てて注記する"""
         want = "works/tests/test_lens.py::LensCase::test_extra"
         got, notes = consult.judge({"decision": "allow", "paths": [], "tests": [], "spec": "", "reason": "守りのテストとして足してよい",
-                                    "new_tests": [{"id": want, "red_kind": "assertion"},
-                                                  {"id": "works/tests/test_lens.py::LensCase::test_other", "red_kind": "assertion"}]},
+                                    "new_tests": [{"id": want, "red_kind": "red"},
+                                                  {"id": "works/tests/test_lens.py::LensCase::test_other", "red_kind": "red"}]},
                                    [], [], new_tests=[want])
         self.assertIsNotNone(got, notes)
         self.assertEqual((got["decision"], got["granted_paths"], got["granted_tests"]), ("allow", [], []))
-        self.assertEqual(got["granted_new_tests"], [{"id": want, "red_kind": "assertion"}])
+        self.assertEqual(got["granted_new_tests"], [{"id": want, "red_kind": "red"}])
         self.assertTrue(any("test_other" in n for n in notes), notes)
 
     def test_malformed_answers_are_invalid(self):
@@ -287,13 +291,13 @@ class FlowCase(Base):
             self.assertIn(w, q)
         self.assertFalse(consult.queued(self.b, "first"), "頼みにした分は空にする")
         answer = {"answers": [{"ask": 1, "decision": "allow", "paths": ["works/CHANGELOG.md"], "tests": [], "spec": "",
-                               "new_tests": [{"id": tid, "red_kind": "assertion"}], "reason": "案の外のテストも足してよい"}]}
+                               "new_tests": [{"id": tid, "red_kind": "red"}], "reason": "案の外のテストも足してよい"}]}
         got = consult.settle(self.b, answer, "first", "plan-answer")
         (asked,) = conflict.plan_asks(self.b)
         self.assertEqual((asked["origin"], asked["status"], asked["decision"]), ("accept", "answered", "allow"))
-        self.assertEqual(asked["granted_new_tests"], [{"id": tid, "red_kind": "assertion"}])
+        self.assertEqual(asked["granted_new_tests"], [{"id": tid, "red_kind": "red"}])
         (agreed,) = conflict.agreed(self.b)
-        self.assertEqual(agreed["granted_new_tests"], [{"id": tid, "red_kind": "assertion"}])
+        self.assertEqual(agreed["granted_new_tests"], [{"id": tid, "red_kind": "red"}])
         self.assertIn("受け付けが見つけたはみ出し", pathlib.Path(got["answer_file"]).read_text(encoding="utf-8"))
         # 残りが 2 未満なら積まない（積む周と相談の周の 2 周が要る）
         consult.state_path(self.b, "first").write_text(json.dumps({"turns": consult.BUDGET - 1}), encoding="utf-8")
@@ -307,26 +311,38 @@ class FlowCase(Base):
         合意（conflict.agreed）に入り、範囲の照らしが読む項目の tests に重なる。同じ周の同じ条件は 2 度聞かない"""
         self.plan_session()
         note = "既存の集計を壊さないことを確かめるテストを足してから直せ"
-        self.b.record = {"process": {"human_items": [{"round": 1, "kinds": ["final"], "answer": "continue", "note": note},
-                                                     {"round": 0, "kinds": ["final"], "answer": "continue", "note": "前の周の一言"}]}}
+        self.b.record = {"process": {"human_items": [
+            {"round": 1, "node": GATE, "kinds": ["final"], "answer": "continue", "note": note},
+            {"round": 0, "node": GATE, "kinds": ["final"], "answer": "continue", "note": "前の周の一言"},
+            {"round": 1, "node": "p4.final_gate", "kinds": ["final"], "answer": "continue", "note": "ほかの関所の一言"}]}}
         out = self.ask({"changes": []})
         self.assertEqual((out["consulted"], out["go"]), (True, True), "条件が在れば返答に consult が無くても聞く")
         q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(note, q)
         self.assertNotIn("前の周の一言", q)
+        self.assertNotIn("ほかの関所の一言", q, "直す前の関所の一言だけを条件にする")
         # 条件の相談だけの描きで、頼みの節（ASK_TEXT。入る条件は consult.question）は入らない
         prepkit.drawn(self, "plan-answer", q, off=("graphmap.render", "consult.question"))
         tid = "works/tests/test_lens.py::LensCase::test_total_is_kept"
         answer = {"answers": [{"ask": 1, "decision": "allow", "paths": [], "tests": [], "spec": "",
-                               "new_tests": [{"id": tid, "red_kind": "assertion"}], "reason": "人の条件のテストを項目に足してよい"}]}
+                               "new_tests": [{"id": tid, "red_kind": "red"}], "reason": "人の条件のテストを項目に足してよい"}]}
         consult.settle(self.b, answer, "first", "plan-answer")
         (agreed,) = conflict.agreed(self.b)
-        self.assertEqual(agreed["granted_new_tests"], [{"id": tid, "red_kind": "assertion"}])
+        self.assertEqual(agreed["granted_new_tests"], [{"id": tid, "red_kind": "red"}])
         (merged,) = planrange.with_agreed([{"item": agreed["item"], "allowed_paths": [], "tests": []}], [agreed])
         self.assertEqual([row["id"] for row in merged["tests"]], [tid], "合意した新しいテストは項目の tests と同じに読まれる")
         self.assertIsNotNone(consult.take(self.b, "first"))
         again = self.ask({"changes": []})
         self.assertEqual((again["consulted"], again["go"]), (False, False), "同じ周の同じ条件は 2 度聞かない")
+
+    def test_lane_does_not_ask_human_gate_condition(self):
+        """並べの枝の頼みの節（答えの節が枝の物）は、関所の条件を相談にしない（本線の段だけが聞く。枝ごとに全部の項目を重ねない）"""
+        self.plan_session()
+        self.b.record = {"process": {"human_items": [{"round": 1, "node": GATE, "kinds": ["final"], "answer": "continue",
+                                                      "note": "既存の集計を壊さないことを確かめるテストを足してから直せ"}]}}
+        out = consult.ask(self.b, self.repo, {"changes": []}, "plan", "first", "plan-answer-lane-1", home_dir=self.home)
+        self.assertEqual((out["consulted"], out["go"]), (False, False))
+        self.assertEqual(conflict.plan_asks(self.b), [])
 
     def test_out_of_scope_reconsidered(self):
         """out_of_scope に当たる頼みは答えの節に聞く。allow の行は、その項目の out_of_scope を外した印（overrode_out_of_scope。

@@ -89,6 +89,8 @@ RED_KINDS = ("assertion", "exception")
 # 範囲の相談の合意で入る新しいテストだけが使う赤の種類: 守りのテスト（base で緑でよい。人の条件「X を壊さないことを確かめよ」の型）。
 # 修正案の役の tests は今どおり赤を求めるので RED_KINDS には入れない
 GUARD_KIND = "guard"
+AGREED_RED = "red"   # 合意の新しいテストの赤の種類のもう 1 つ: base で赤（failure）を求める（落ち方は機械が照らさない。red_check の事実だけ）
+AGREED_KINDS = (AGREED_RED, GUARD_KIND)   # 範囲の相談の答えの new_tests の red_kind（赤か守りか）
 MIN_WHY = 10
 _WHY = {"type": "string", "minLength": MIN_WHY}
 MIN_DEVIATION = 20   # 構造の目の避け方・処方から外れる訳の字の下限

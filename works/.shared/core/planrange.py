@@ -84,7 +84,9 @@ def with_agreed(items: list[dict], agreed) -> list[dict]:
     allowed_paths の後ろに足した写し。許したテストの範囲のパス・許した新しいテストのファイル・許したパスは、その項目の写しの LIFTED
     にも並べ、字のまま同じパスに限ってその項目の out_of_scope から外す（oos_hit。案を書いた役が自分の外した物を考え直して許した。
     持ち主 2026-10-07）。許した新しいテスト {id, red_kind} は、その項目の写しの tests の後ろに印 agreed つきで足す（テストのファイルは
-    planmarks.test_paths で範囲に入る。案の外で足したテストの拒否の行に当たらず、事後の関門が赤緑を確かめる）。元の項目は変えない。
+    planmarks.test_paths で範囲に入る。案の外で足したテストの拒否の行に当たらず、今の木に在れば事後の関門が赤緑を確かめる）。印 agreed の
+    行は許しで義務ではない（修正役が書かなくても・別の名で書いても欠けにしない。planscope の欠けの照らしと fixgates が外す）。同じ id は
+    後の合意が前に勝つ。元の項目は変えない。
     ほかの項目は変えない。テストの書き換えの許しは conflict.test_permits が持つ"""
     more: dict = {}
     lift: dict = {}
@@ -98,9 +100,9 @@ def with_agreed(items: list[dict], agreed) -> list[dict]:
                  if got]
         fresh = [row for row in r.get("granted_new_tests") or [] if isinstance(row, dict) and isinstance(row.get("id"), str)
                  and row["id"].strip()]
-        for row in fresh:
-            if row["id"] not in [x["id"] for x in new_tests.setdefault(n, [])]:
-                new_tests[n].append({"id": row["id"], "red_kind": row.get("red_kind"), "agreed": True})
+        for row in fresh:   # 同じ id は後の合意が前に勝つ（赤の種類を相談で直せる）
+            new_tests[n] = [x for x in new_tests.setdefault(n, []) if x["id"] != row["id"]]
+            new_tests[n].append({"id": row["id"], "red_kind": row.get("red_kind"), "agreed": True})
         tests += [planmarks.test_paths({"tests": [row]})[0] for row in fresh if planmarks.test_paths({"tests": [row]})]
         for p in [*more.get(n, []), *tests]:
             p = posixpath.normpath(p)

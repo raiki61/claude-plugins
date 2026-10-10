@@ -408,6 +408,8 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             if not any(word.search(line) for line in removed_all) or _remains(raw, name, changes, diffs):
                 out.append(f"{who}: removes の {raw} が差分で消えていない（消した行に無いか、足した行に定義が残る）")
         for row in [] if skip else it.get("tests") or []:
+            if isinstance(row, dict) and row.get("agreed"):   # 合意で入ったテストは許しで義務でない（書かなくても欠けにしない）
+                continue
             tid = row.get("id") if isinstance(row, dict) else None
             key = _test_key(tid)
             if key is None:
