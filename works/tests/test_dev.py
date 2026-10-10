@@ -1652,6 +1652,22 @@ class TestHerdrContinue(unittest.TestCase):
         self.assertTrue(sent[1][1].startswith("pane report-agent pane-7 --source works-factory --agent works --state blocked"), sent)
         self.assertEqual(list(self.runs.glob("*.cont")), [])
 
+    def test_continue_rc_file_is_not_passed_to_archon(self):
+        """続きの口の終了の値の書き先 WORKS_CONTINUE_RC（続きごとに違うパス）は Archon に渡さず、口だけが Archon の値を書く。
+        渡すと run の節と試験の子まで継がれ、続きをまたぐ同じ試験の使い回しの鍵が割れる"""
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.status(r1="paused")
+        seen = self.tmp / "seen.txt"
+        self.archon.write_text("#!/bin/sh\n"
+                               f'case "$*" in "workflow runs --json") cat "{self.listed}"; exit 0 ;; esac\n'
+                               f'printf "%s" "${{WORKS_CONTINUE_RC-unset}}" > "{seen}"\n'
+                               "exit 5\n")
+        rc_file = self.tmp / "cont.rc"
+        r, _ = self.sh('works_dev_continue "$1" "$2" r1 workflow approve r1', WORKS_CONTINUE_RC=str(rc_file))
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertEqual(seen.read_text(), "unset")
+        self.assertEqual(rc_file.read_text().strip(), "5")
+
     def test_continue_exit_and_output_do_not_change_when_herdr_fails(self):
         self.ledger("r1", "pane-7", "/sock-a")
         self.status(r1="completed")

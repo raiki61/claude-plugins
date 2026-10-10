@@ -1683,6 +1683,27 @@ class TestTestCmdGate(LoopCase):
         with self.subTest("run_suite"):
             self.check_run_suite_reuses_green_suite_in_same_run()
 
+    def test_loop_head_reuses_test_cmd_step_of_entry_checks(self):
+        """入口の確かめ（engine の宣言の一式の後に test_cmd の段を足した物。entry._with_test_cmd）が緑で通った木で、同じ run の別の節
+        （Archon が節ごとに違う TYPED_ARTIFACTS_FILE を渡す）が輪の頭を決めると、test_cmd を起こさずに控えから使って関門を on にする"""
+        import entry
+        count = pathlib.Path(self._tmp.name) / "count"
+        green = f"echo 1 >> {count}; echo ok"
+        (self.repo / "lint.py").write_text(LINT, encoding="utf-8")
+        git(self.repo, "add", "lint.py")
+        git(self.repo, "commit", "-qm", "lint")
+        steps = [{"name": "unit", "argv": [sys.executable, "-c", "pass"]}]
+        with mock.patch.dict(os.environ, self.run_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            os.environ["TYPED_ARTIFACTS_FILE"] = "typed-entering.json"
+            rows = entry._with_test_cmd(None, green, {})(steps, self.repo, pathlib.Path(self._tmp.name) / "entering")
+            self.assertEqual([r["exit"] for r in rows], [0, 0])
+            os.environ["TYPED_ARTIFACTS_FILE"] = "typed-tdd-start.json"
+            self.head(green)
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+        self.assertEqual(len(count.read_text(encoding="utf-8").split()), 1)
+        self.assertIn("test_cmd", self.st()["reused"])
+
     def check_run_suite_reuses_green_suite_in_same_run(self):
         """実行器が緑の回は、同じ run の中で同じ木・同じ引数なら 2 度目は起こさず、JUnit XML を書き戻して同じ結末を返し、
         ログの末尾に出どころを書く。木が変われば走らせる"""

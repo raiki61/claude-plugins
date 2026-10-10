@@ -663,7 +663,8 @@ class TreeRunnerCase(StepCase):
                     doc = json.loads(path.read_text(encoding="utf-8"))
                 except ValueError:
                     continue
-                if isinstance(doc, dict) and doc.get("schema") == tree_run.REUSE_SCHEMA and "MARK-suite" in json.dumps(doc["material"]):
+                if (isinstance(doc, dict) and doc.get("schema") == tree_run.REUSE_SCHEMA and doc["material"]["group"]
+                        and "MARK-suite" in json.dumps(doc["material"])):   # 一式の控え（一式の外の呼びが引く控えは材料の group が空）
                     doc["out"] = "!!broken!!"
                     path.write_text(json.dumps(doc), encoding="utf-8")
                     hurt.append(path)
@@ -693,6 +694,45 @@ class TreeRunnerCase(StepCase):
         self.assertEqual((self.times("lint"), self.times("suite")), (2, 2))
         for r in rows:
             self.assertNotIn("reused", r)
+
+    def alone(self, step, tree, n):
+        """一式の外で段を 1 つ slotted_run で起こす（TDD の輪の頭の test_cmd と同じ呼び）——（終了コード, note）"""
+        note = {}
+        with open(self.tmp / f"alone{n}.log", "wb") as f:
+            rc, _ = tree_run.slotted_run(list(step["argv"]), tree_run.outside_env(os.environ), note=note, stdin=subprocess.DEVNULL,
+                                         stdout=f, stderr=subprocess.STDOUT, cwd=str(tree))
+        return rc, note
+
+    def test_kept_group_serves_single_call_of_its_step(self):
+        """全段が緑で木の変わらない一式を通した後、同じ木・同じ環境で段の 1 つを一式の外から呼ぶと、子を起こさずに控えから使う
+        （入口の確かめの一式の test_cmd の段を、TDD の輪の頭の test_cmd が使う形）。木が変われば走らせる"""
+        tree = self.git_tree()
+        steps = [self.counting_step("lint"), self.counting_step("suite")]
+        with mock.patch.dict(os.environ, self.reuse_env()):
+            os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+            tree_runner(steps, tree, self.tmp / "logs")
+            rc, note = self.alone(steps[1], tree, 1)
+            self.assertEqual((rc, self.times("suite")), (0, 1))
+            self.assertEqual(note["reused"]["from"], "run-a")
+            (tree / "new.txt").write_text("x", encoding="utf-8")
+            self.alone(steps[1], tree, 2)
+        self.assertEqual(self.times("suite"), 2)
+
+    def test_group_not_kept_serves_no_single_call(self):
+        """赤の混じった一式と、1 段目が .gitignore の外に作った物を 2 段目が消す一式（前後の木は同じ）は、段を一式の外から呼ぶ回にも
+        使わせない（置くのは全段が緑で、各段の前後の木が同じ回だけ）"""
+        tree = self.git_tree()
+        cases = {"red": [self.counting_step("lint", code=1), self.counting_step("suite")],
+                 "moved": [self.counting_step("lint", body="open('made.txt', 'w').write('x')"),
+                           self.counting_step("suite", body="import os; os.remove('made.txt')")]}
+        for name, steps in cases.items():
+            with self.subTest(name), mock.patch.dict(os.environ, self.reuse_env(f"run-{name}")):
+                os.environ.pop("GRAPHLOOPS_RERUN_CHECKS", None)
+                before = self.times("suite")
+                tree_runner(steps, tree, self.tmp / f"logs-{name}")
+                _, note = self.alone(steps[1], tree, name)
+                self.assertNotIn("reused", note)
+                self.assertEqual(self.times("suite"), before + 2)
 
     def test_partial_red_group_is_not_kept(self):
         """1 段目が赤・2 段目が緑の一式を通した後、同じ木で同じ一式を通すと 2 段目も走る（赤の混じった一式は置かれない）"""

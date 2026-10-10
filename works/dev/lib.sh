@@ -220,7 +220,8 @@ works_dev_ledger_dirs() {
 # <置き場>/<run-id>.cont（この殻が fd 9 で開いたまま flock で持つ）を置いてその run を running で集計し、Archon を呼び、印を外して run の今の状態で集計する
 # （herdr の手引きの「始まりに working、人が要る時に blocked」）。止められても印を外して集計し直す。終了の値は Archon の値
 # （集計の成否で変えない）。WORKS_CONTINUE_RC にファイルを渡せば Archon の終了の値をそこへ書く（切り離した呼び手が、後段の集計を
-# 待たずに早い失敗を見る）
+# 待たずに早い失敗を見る）。WORKS_CONTINUE_RC は Archon に渡さない（続きごとに違うパスで、run の節と試験の子まで継がれると、
+# 続きをまたぐ同じ試験の使い回しの鍵が割れる。tree_run.reuse_material）
 works_dev_continue() {
   _c_archon="$1"
   _c_runs="$2"
@@ -236,7 +237,7 @@ works_dev_continue() {
   works_dev_herdr_sync "$_c_archon" "$_c_runs" "$_c_rid=running"
   _c_rc=0
   # Archon の後に残る処理に鍵を継がせない
-  sh "$_c_archon" "$@" 9>&- || _c_rc=$?
+  (unset WORKS_CONTINUE_RC; exec sh "$_c_archon" "$@" 9>&-) || _c_rc=$?
   if [ -n "${WORKS_CONTINUE_RC:-}" ]; then
     echo "$_c_rc" >"$WORKS_CONTINUE_RC.tmp" && mv "$WORKS_CONTINUE_RC.tmp" "$WORKS_CONTINUE_RC"
   fi

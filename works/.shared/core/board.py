@@ -384,10 +384,10 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
     ps を待つ上限 PS_TIMEOUT を含む）、止めた後に LINGER（1 秒）待ってから tree_run.Stopped を投げる（ここでは捕まえない）。標準出力・標準エラーは log_dir/<段の番号>.out・.err に丸ごと。
     返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, started, exit, wall_s, tail}（started は段を起こした epoch 秒で、
     試験の報告が今の段の物かを checks_reply が見る。起こせなければ exit None と error。argv は包む前の宣言の形）。枠を取った段だけ wait_s（枠を待った秒）を足し、wall_s は待ちを除いた実行の時間のまま。
-    使い回しの単位は宣言の一式（段は前の段の副作用に依りうるので、段ごとには使い回さない）: 全段のログを開いた後に tree_run.replay_group が
+    使い回しの単位は宣言の一式（段は前の段の副作用に依りうるので、一式の中では段ごとには使い回さない）: 全段のログを開いた後に tree_run.replay_group が
     一式の控えを 1 度だけ引き、全段が同じ run の中で同じ木・同じ一式・同じ環境の緑なら、子を起こさず、段の junit（宣言していれば
-    cwd からのパス）を全部書き戻す。1 段でも外れれば全段を走らせ（tree_run.slotted_run）、全段が緑で木が変わらなければ一式を置く
-    （tree_run.keep_group）。段ごとの note の欄（出どころ・使い回せなかった理由）は tree_run.note_fields で行へ写す。
+    cwd からのパス）を全部書き戻す。1 段でも外れれば全段を走らせ（tree_run.slotted_run）、全段が緑で各段の前後の木が同じなら一式を置く
+    （tree_run.keep_group。一式の外の呼び（TDD の輪の頭の test_cmd など）が引く段ごとの控えも並べて置く）。段ごとの note の欄（出どころ・使い回せなかった理由）は tree_run.note_fields で行へ写す。
     engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる。
     子の環境は uv run の外の形で、PYTHONDONTWRITEBYTECODE=1 を立てる（works の決まり。engine の run_steps は環境をそのまま継ぐ）"""
     log_dir = pathlib.Path(log_dir)

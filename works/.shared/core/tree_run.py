@@ -432,6 +432,13 @@ REUSE_SUB = "test-reuse"                  # 試験の結果の控えの置き場
 REUSE_SCHEMA = "works-test-reuse/1"
 RERUN_ENV = "GRAPHLOOPS_RERUN_CHECKS"     # 本流の引かずに走らせる旗と同じ名。engine 側の環境に立てる（子には渡さない）
 NODE_ENV_PREFIXES = ("ARCHON_", "INPUTS_")   # 節ごとに変わる変数（Archon が節に立てる）。tests/hermetic.sh が試験の入口で落とすのと同じ接頭辞
+# Archon が exec の節に渡す run の約束の名（Archon v0.11.1 の .shared/node-env.ts の NODE_CONTRACT_ENV。正本は engine の
+# EXEC_NODE_ENVIRONMENT_NAMES で、pack は engine のコードを import できないので名を写す）。Archon 自身も対象の試験の命令には渡さない
+# （同じ所の projectEnvironment）。TYPED_ARTIFACTS_FILE は節ごとに違う。ARTIFACTS_DIR は子に残す（枠の印の置き場。鍵からは外す）
+NODE_CONTRACT_ENV = frozenset({
+    "STATE_DIR", "LOG_DIR", "ADOPTED_RUN_DIR", "WORKFLOW_ID", "BASE_BRANCH", "USER_MESSAGE", "ARGUMENTS",
+    "LOOP_USER_INPUT", "LOOP_PREV_OUTPUT", "REJECTION_REASON", "CONTEXT", "EXTERNAL_CONTEXT", "ISSUE_CONTEXT", "TYPED_ARTIFACTS_FILE",
+})
 # 指紋から外す環境変数: シェルの状態・接続と端末の識別子・起こした会話の識別子で、結果に効かない物だけ。迷う変数は入れる側に倒す
 IGNORED_ENV = frozenset({
     "_", "PWD", "OLDPWD", "SHLVL",
@@ -443,11 +450,13 @@ IGNORED_ENV = frozenset({
 
 
 def child_env(env) -> dict:
-    """slotted_run が子に渡す環境: 節ごとに変わる ARCHON_*・INPUTS_*、包みの家（webget.SHARED_ENV）、旗 RERUN_ENV を外す。
+    """slotted_run が子に渡す環境: 節ごとに変わる ARCHON_*・INPUTS_* と Archon の run の約束の名（NODE_CONTRACT_ENV）、
+    包みの家（webget.SHARED_ENV）、旗 RERUN_ENV を外す。
     外さないと、節が違うだけで指紋が割れるか、外した変数が結果を変えたまま同じ指紋に当たる。家は web の控えの置き場で試験に要らない。
     試験の結果の控えの置き場は盤面の下に移り、子は ARTIFACTS_DIR から辿れる
     （試験のコードが置き場のパスを知らないことは、偽の緑を書かせない守りには数えない）"""
-    return {k: v for k, v in env.items() if k not in (webget.SHARED_ENV, RERUN_ENV) and not k.startswith(NODE_ENV_PREFIXES)}
+    return {k: v for k, v in env.items()
+            if k not in (webget.SHARED_ENV, RERUN_ENV) and k not in NODE_CONTRACT_ENV and not k.startswith(NODE_ENV_PREFIXES)}
 
 
 def _tool(argv0, cwd, path):
@@ -522,11 +531,12 @@ def _sink(f, which, why):
 
 def new_group(steps, cwd) -> dict:
     """一式（宣言の段の並び）の使い回しの入れ物。steps は [{name, argv, outputs}]。sha は一式の宣言 [{argv, outputs}] の sha
-    （outputs は cwd からのパス）で、各段の材料の欄 group に入る——段を 1 つずつ呼ぶ呼び手の控えと材料が割れ、一式の控えは replay_group だけが引く。
+    （outputs は cwd からのパス）で、各段の材料の欄 group に入る——段を 1 つずつ呼ぶ呼び手の控えと材料が割れ、一式の控えは replay_group だけが引く
+    （段を 1 つずつ呼ぶ呼び手が引く控えは、一式を置く時に keep_group が別に置く）。
     pending は走らせた段の控えの下書き、failed は置かない理由。replay_group が木を取って tree に置く"""
     decl = [{"argv": list(s["argv"]), "outputs": [os.path.relpath(o, cwd) for o in s["outputs"]]} for s in steps]
     sha = hashlib.sha256(json.dumps(decl, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
-    return {"sha": sha, "steps": [dict(s) for s in steps], "tree": None, "cwd": str(cwd), "pending": [], "failed": [], "off": False}
+    return {"sha": sha, "steps": [dict(s) for s in steps], "tree": None, "pending": [], "failed": [], "off": False}
 
 
 def _plan(argv, env, outputs, popen_kw, note, group=None):
@@ -560,9 +570,14 @@ def _plan(argv, env, outputs, popen_kw, note, group=None):
         group["tree"] = tree
     child = child_env(env)
     material = {**reuse_material(argv, child, cwd, outputs, tree), "group": group["sha"] if group is not None else ""}
-    key = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    key = _key(material)
     return {"store": webget.Store(pathlib.Path(art) / script_io.BOARD_DIR / REUSE_SUB, REUSE_SCHEMA, math.inf), "name": key + ".json", "material": material, "key": key,
             "tree": tree, "cwd": cwd, "sinks": sinks, "run": run}
+
+
+def _key(material) -> str:
+    """控えの鍵（材料の sha256）。置き場の名にだけ使い、引く時は材料の完全一致を見る"""
+    return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def _load_entry(plan, outputs):
@@ -698,12 +713,13 @@ def _keep(plan, rc, started, wall, outputs, note, group=None):
     """緑（終了コード 0）で、走らせた前後の木が同じ回だけ控えに置く。置かない理由は note['reuse_off']。
     outputs は起こした時刻 started 以後に書かれた物だけを控える（前から残る古い報告は None。控えると書き戻しで新しい時刻を得て、
     報告の鮮度の確かめを通ってしまう）。
-    group が在れば置かずに group['pending'] へ積み（置くのは全段が済んだ後の keep_group）、置かない理由は group['failed'] へ"""
+    group が在れば置かずに group['pending'] へ積み（置くのは全段が済んだ後の keep_group）、置かない理由は group['failed'] へ
+    （一式の段も段ごとに前後の木を見る。途中で木が変わって後の段が戻した一式も置かない）"""
     refuse = group["failed"].append if group is not None else lambda text: _off(note, text)
     if rc != 0:
         refuse(f"終了コード {rc}（緑の回だけ控える）")
         return
-    moved = _tree_moved(plan) if group is None else ""
+    moved = _tree_moved(plan)
     if moved:
         refuse(moved)
         return
@@ -732,7 +748,11 @@ def _keep(plan, rc, started, wall, outputs, note, group=None):
 
 
 def keep_group(group, notes) -> None:
-    """一式の全段が済んだ後に呼ぶ。全段が終了コード 0 で、前後の木が同じ時だけ全段の控えを置く。置かなかった理由は、段ごとの
+    """一式の全段が済んだ後に呼ぶ。全段が終了コード 0 で、各段の前後の木が同じ時だけ全段の控えを置く。一式の控え（replay_group が
+    引く）と並べて、段ごとに一式の外の呼び（材料の欄 group が空。TDD の輪の頭の test_cmd など）が引く控えも置く。段の緑は前の段が
+    .gitignore の下に残した物の在る所で取れた物だが、引く呼びは同じ run の中で一式の後に起きるので、その物は普通そのまま在る
+    （.gitignore の下の物が鍵に入らないのは、一式の外どうしの控えと同じ限り）。逆に一式の外の控えで一式を埋めることはしない
+    （一式を引く回は前の段を走らせずに後の段を使うので、前の段の副作用が無いまま後の段の緑を使うことになる）。置かなかった理由は、段ごとの
     note（slotted_run に渡した物）の reuse_off に足す。置き場の無い run・木が取れなかった run は何も足さない"""
     why = _group_unkept(group)
     if why:
@@ -748,10 +768,11 @@ def _group_unkept(group) -> str:
         return "一式を控えない: " + "；".join(group["failed"])
     if len(group["pending"]) != len(group["steps"]):
         return f"一式を控えない: 起こせなかった段が在る（走った {len(group['pending'])}・宣言 {len(group['steps'])}）"
-    moved = _tree_moved({"cwd": group["cwd"], "tree": group["tree"]})
-    if moved:
-        return f"一式を控えない: {moved}"
-    bad = [b for b in (plan["store"].put(plan["name"], doc) for plan, doc in group["pending"]) if b]
+    puts = []
+    for plan, doc in group["pending"]:
+        alone = {**plan["material"], "group": ""}
+        puts += [(plan["store"], plan["name"], doc), (plan["store"], _key(alone) + ".json", {**doc, "material": alone})]
+    bad = [b for b in (store.put(name, doc) for store, name, doc in puts) if b]
     return f"一式を控えない: 控えに書けない（{bad[0]}）" if bad else ""
 
 

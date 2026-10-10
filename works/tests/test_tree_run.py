@@ -655,15 +655,20 @@ class SlotReuseCase(unittest.TestCase):
         self.assertIn("reused", note3)
 
     def test_per_node_vars_do_not_split_key_and_are_not_passed(self):
+        """節ごとに変わる変数（ARCHON_*・INPUTS_*・Archon が exec の節に渡す run の約束の名。TYPED_ARTIFACTS_FILE は節ごとに違う）は
+        鍵を割らず子にも渡らない。ARTIFACTS_DIR だけは子に残る"""
         show = ["sh", "-c", f'echo 1 >> {self.count}; env']
-        first = {**self.env, "ARCHON_NODE_EXECUTION": "a", "INPUTS_X": "1", "ARCHON_HOME": "/h"}
-        second = {**self.env, "ARCHON_NODE_EXECUTION": "b", "INPUTS_X": "2"}
+        first = {**self.env, "ARCHON_NODE_EXECUTION": "a", "INPUTS_X": "1", "ARCHON_HOME": "/h",
+                 "TYPED_ARTIFACTS_FILE": "/runs/r/typed-a.json", "WORKFLOW_ID": "r", "REJECTION_REASON": "x"}
+        second = {**self.env, "ARCHON_NODE_EXECUTION": "b", "INPUTS_X": "2",
+                  "TYPED_ARTIFACTS_FILE": "/runs/r/typed-b.json", "WORKFLOW_ID": "r"}
         _, out, _ = self.launch(show, env=first)
         _, _, note = self.launch(show, env=second)
         self.assertEqual(self.launched(), 1)
         self.assertIn("reused", note)
         seen = {line.split(b"=", 1)[0] for line in out.splitlines() if b"=" in line}
         self.assertFalse({n for n in seen if n.startswith((b"ARCHON_", b"INPUTS_"))}, seen)
+        self.assertFalse({b"TYPED_ARTIFACTS_FILE", b"WORKFLOW_ID", b"REJECTION_REASON"} & seen, seen)
         self.assertNotIn(webget.SHARED_ENV.encode(), seen)
         self.assertIn(b"ARTIFACTS_DIR", seen)
 

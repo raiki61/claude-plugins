@@ -581,7 +581,7 @@
    "id": "ru12",
    "title": "走らせている間に作業ツリーが変わった回（.gitignore の外に物を作る回）も緑の控えとして置く（次の同じ呼びが作る物を作らずに緑を使い回す）",
    "file": ".shared/core/tree_run.py",
-   "old": "    moved = _tree_moved(plan) if group is None else \"\"\n",
+   "old": "    moved = _tree_moved(plan)\n",
    "new": "    moved = \"\"\n",
    "tests": {
     "tests/test_tree_run.py": [
@@ -591,10 +591,10 @@
   },
   {
    "id": "ru13",
-   "title": "一式を置く前に、走らせている間に作業ツリーが変わったかを見ない（.gitignore の外に物を作る一式も置き、次の同じ一式が作る物を作らずに緑を使い回す）",
+   "title": "一式の段では、走らせている間に作業ツリーが変わったかを見ない（.gitignore の外に物を作る一式も置き、次の同じ一式が作る物を作らずに緑を使い回す）",
    "file": ".shared/core/tree_run.py",
-   "old": "    moved = _tree_moved({\"cwd\": group[\"cwd\"], \"tree\": group[\"tree\"]})\n",
-   "new": "    moved = \"\"\n",
+   "old": "    moved = _tree_moved(plan)\n",
+   "new": "    moved = _tree_moved(plan) if group is None else \"\"\n",
    "tests": {
     "tests/test_board_engine_run.py": [
      "TreeRunnerCase.test_group_that_changes_tree_is_not_kept"
