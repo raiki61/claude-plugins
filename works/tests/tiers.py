@@ -26,7 +26,8 @@ CPU の数までで、いちばん重いモジュールの 1 本が律速にな�
 `python3 tests/tiers.py jobs <段>` は並べる数を出すだけ（dev/tdd-suite.sh が同じ数で pytest を並べる。決めを写さない）。
 子の標準入力と標準出力は親との線で、子の試験の標準出力は標準エラーに寄せる（子ごとにまとめて、子が終わった順に写す）。
 -f は子ごとに効く。並べた子は段のモジュールだけを import する（1 本の時は discover が全部を import するので、段の外の
-モジュールの読み込みの失敗も error に出る。並べた時は出ない）。
+モジュールの読み込みの失敗も error に出る。並べた時は出ない）。並べた時のモジュールごとの秒には、子の中のモジュールの読み込みと
+並べた負荷の分が入る（重さの記録 shard-seconds.json は CI の行から取る）。
 
 heavy に置く物: 試験ごとに git のリポジトリを作る（git init・commit・mktarget・dogfood の clone）・uv run を起こす・
 Archon を起こす・golden を再生する・プロセスの木を起こす・決まった秒を待つ。短くても、これらを使うモジュールは heavy に置く
@@ -34,6 +35,7 @@ Archon を起こす・golden を再生する・プロセスの木を起こす・
 写しで配るだけなら、試験ごとに作るに当たらない。段は使う物の形で分ける（決まっていて、読めば確かめられる）。
 fast は秒の上限ではない（負荷の高い機械では fast の中の git・子のプロセスも遅れる）。
 """
+import importlib
 import json
 import os
 import pathlib
@@ -42,6 +44,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import unittest
 
 TESTS = pathlib.Path(__file__).resolve().parent
@@ -209,10 +212,9 @@ def jobs(environ, names, cpus):
 
 def tier_jobs(tier, names, environ):
     """段を並べる数。並べるのは fast だけ（heavy と全部は機械全体の重いテストの枠の 1 本の中で回るので 1 本のまま）"""
-    if tier != "fast":
-        return 1
     cpus = getattr(os, "process_cpu_count", os.cpu_count)() or 1
-    return jobs(environ, names, cpus)
+    n = jobs(environ, names, cpus)   # 形の確かめは段に依らない
+    return n if tier == "fast" else 1
 
 
 def modules():
@@ -376,8 +378,18 @@ class JobQueue:
         for name in self.rin:
             name = name.strip()
             if name:
-                self.loader.loadTestsFromName(name)(result)
+                self.load(name)(result)
             self.wout.write(JOB_READY + "\n")
+
+    def load(self, name):
+        """discover と同じ読み方: 読み込みの SkipTest はモジュールごとの見送り、ほかの例外は読み込みの失敗の 1 件"""
+        try:
+            module = importlib.import_module(name)
+        except unittest.SkipTest as e:
+            return unittest.loader._make_skipped_test(name, e, self.loader.suiteClass)
+        except Exception:
+            return unittest.loader._make_failed_import_test(name, self.loader.suiteClass)[0]
+        return self.loader.loadTestsFromModule(module, pattern=PATTERN)
 
 
 class JobLoader(unittest.TestLoader):
@@ -440,36 +452,20 @@ class Jobs:
         procs = []
 
         def work():
-            p = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).resolve()), "child", self.tier, *self.args],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 text=True, encoding="utf-8", errors="replace")
-            with lock:
-                procs.append(p)
-            err = []
-            reader = threading.Thread(target=lambda: err.append(p.stderr.read()))
-            reader.start()
-            doing, rest = None, ""
             try:
-                while True:
+                with subprocess.Popen([sys.executable, str(pathlib.Path(__file__).resolve()), "child", self.tier,
+                                       *self.args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      text=True, encoding="utf-8", errors="replace") as p:
                     with lock:
-                        doing = todo.pop(0) if todo else None
-                    if doing is None:
-                        break
-                    p.stdin.write(doing + "\n")
-                    p.stdin.flush()
-                    if p.stdout.readline() != JOB_READY + "\n":
-                        break
-                    doing = None
-                p.stdin.close()
-                rest = p.stdout.read()
-            except OSError:   # 子が先に終わって線が切れた
-                pass
-            p.wait()
-            reader.join()
-            with lock:
-                sys.stderr.write("".join(err))
-                sys.stderr.flush()
-                self._take(result, p.returncode, doing, rest)
+                        procs.append(p)
+                    doing, rest, err = self._drive(p, lock, todo)
+                with lock:
+                    sys.stderr.write(err)
+                    sys.stderr.flush()
+                    self._take(result, p.returncode, doing, rest)
+            except BaseException:   # 線の読み書き・結果の読みの思わぬ例外も黙らせない（流れの外の糸では投げても消える）
+                with lock:
+                    result.errors.append((_Done("tiers.job", "子のプロセスの扱い", None), traceback.format_exc()))
 
         threads = [threading.Thread(target=work) for _ in range(min(self.workers, len(todo)))]
         try:
@@ -478,21 +474,56 @@ class Jobs:
             for t in threads:
                 t.join()
         finally:
-            for p in procs:
-                if p.poll() is None:
-                    p.kill()
+            with lock:
+                stopped = bool(todo) and any(t.is_alive() for t in threads)
+                if stopped:
+                    todo.clear()   # 止められた（Ctrl-C など）: 残りを渡さない
+                for p in procs:
+                    if p.poll() is None:
+                        p.kill()
         if todo:
             result.errors.append((_Done("tiers.job", "子のプロセス", None),
                                   "子のプロセスが全部終わり、回らなかったモジュールが残った: " + ", ".join(todo)))
+
+    @staticmethod
+    def _drive(p, lock, todo):
+        """子にモジュールを 1 本ずつ渡し、尽きたら線を閉じて結果を読む。(回していたモジュール（終えたなら None）, 結果の線の残り,
+        標準エラー)。子の標準エラーは別の糸で読み、子が終わった後は残った孫が持ち続けても長くは待たない"""
+        err = []
+        reader = threading.Thread(target=lambda: err.extend(iter(lambda: os.read(p.stderr.fileno(), 65536), b"")),
+                                  daemon=True)
+        reader.start()
+        doing, rest = None, ""
+        try:
+            while True:
+                with lock:
+                    doing = todo.pop(0) if todo else None
+                if doing is None:
+                    break
+                p.stdin.write(doing + "\n")
+                p.stdin.flush()
+                if p.stdout.readline() != JOB_READY + "\n":
+                    break
+                doing = None
+            p.stdin.close()
+            rest = p.stdout.read()
+        except OSError:   # 子が先に終わって線が切れた
+            pass
+        p.wait()
+        reader.join(timeout=10)
+        return doing, rest, b"".join(err).decode("utf-8", "replace")
 
     @staticmethod
     def _take(result, rc, doing, rest):
         doc = None
         for line in rest.splitlines():
             if line.startswith(JOB_RESULT):
-                doc = json.loads(line[len(JOB_RESULT):])
+                try:
+                    doc = json.loads(line[len(JOB_RESULT):])
+                except ValueError:   # 書く途中で切れた行は、結果が無いのと同じに数える
+                    doc = None
         if doing is not None or doc is None or rc not in (0, 1, 5):
-            what = f"{doing} を回す間に" if doing is not None else ""
+            what = f" {doing} を回す間に" if doing is not None else ""
             result.errors.append((_Done("tiers.job", f"子のプロセス（{doing or '結果'}）", None),
                                   f"子のプロセスが{what}結果を返さずに終わった（終了コード {rc}）" if doc is None
                                   else f"子のプロセスが{what}終了コード {rc} で終わった"))

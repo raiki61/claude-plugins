@@ -259,6 +259,14 @@ class Skip(unittest.TestCase):
         if os.environ.get("FAKE_DIE") == "1":
             os._exit(0)   # 結果を返さずに子のプロセスが終わる
 """,
+    # 読み込みで落ちる・モジュールごと見送るモジュール（discover はどちらも 1 件の試験として数える）
+    "test_chain": """
+import os, unittest
+if os.environ.get("FAKE_IMPORT") == "error":
+    raise ValueError("読み込みで落ちる")
+if os.environ.get("FAKE_IMPORT") == "skip":
+    raise unittest.SkipTest("SKIP dash: モジュールごと")
+""",
 }
 
 
@@ -324,6 +332,7 @@ class JobsCase(unittest.TestCase):
         self.assertEqual((one.returncode, many.returncode), (0, 0), many.stderr)
         self.assertEqual(self.summary(many.stderr), (["5"], "OK (skipped=1)"))
         self.assertEqual(self.summary(many.stderr), self.summary(one.stderr))
+        self.assertNotIn("ResourceWarning", many.stderr)
         secs = next(l for l in many.stderr.splitlines() if l.startswith("モジュールごとの秒: "))
         self.assertEqual(sorted(re.findall(r"(test_\w+)=", secs)), ["test_cite", "test_core_copy", "test_gitkit"])
 
@@ -348,7 +357,25 @@ class JobsCase(unittest.TestCase):
     def test_job_that_dies_without_results_is_red(self):
         r, _ = self.run_tiers(WORKS_JOBS="3", FAKE_DIE="1")
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("test_gitkit", r.stderr)
+        self.assertIn("子のプロセスが test_gitkit を回す間に結果を返さずに終わった", r.stderr)
+
+    def test_import_error_and_module_skip_count_as_in_one_run(self):
+        for mode, last in (("error", "FAILED (errors=1, skipped=1)"), ("skip", "OK (skipped=2)")):
+            with self.subTest(mode):
+                one, _ = self.run_tiers(WORKS_JOBS="1", FAKE_IMPORT=mode)
+                many, _ = self.run_tiers(WORKS_JOBS="3", FAKE_IMPORT=mode)
+                self.assertEqual(self.summary(one.stderr), (["6"], last), one.stderr)
+                self.assertEqual(self.summary(many.stderr), self.summary(one.stderr), many.stderr)
+                self.assertEqual(many.returncode, one.returncode)
+                self.assertIn("test_chain", many.stderr)
+
+    def test_broken_result_line_is_red_not_lost(self):
+        """子の結果の行が読めない（書く途中で切れた）時も、黙って緑にせず error に数える"""
+        result = tiers.SkipGateResult(io.StringIO(), True, 0)
+        with contextlib.redirect_stderr(io.StringIO()):
+            tiers.Jobs._take(result, 0, None, tiers.JOB_RESULT + '{"run": 3, "err')
+        self.assertFalse(result.wasSuccessful())
+        self.assertIn("結果を返さずに終わった", result.errors[0][1])
 
     def test_bad_jobs_value_exits_2(self):
         for bad in ("0", "a", "-1", "1.5"):
@@ -371,6 +398,9 @@ class JobsCase(unittest.TestCase):
         self.assertGreater(top(n - 1), heaviest)
         self.assertEqual(tiers.jobs({"WORKS_JOBS": "1"}, names, 1000), 1)
         self.assertEqual(tiers.jobs({"WORKS_JOBS": "5"}, names, 2), 5)
+        self.assertEqual(tiers.tier_jobs("heavy", names, {"WORKS_JOBS": "5"}), 1)   # 重い段は並べない
+        with self.assertRaises(ValueError):
+            tiers.tier_jobs("heavy", names, {"WORKS_JOBS": "a"})   # 段に依らず形は確かめる
 
 
 class TierPathsCase(unittest.TestCase):
