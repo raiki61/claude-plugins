@@ -30,6 +30,7 @@ if str(_CORE) not in sys.path:
 
 import impact  # noqa: E402  （.shared/core。テストのファイルの名の慣習 is_test の正本）
 import planmarks  # noqa: E402
+import promptsection  # noqa: E402
 
 # 当たりのファイルがこの数を超える名は数だけ（run 195g の一番広い本物の波及は edge.py の入力の組を共有する 17 の節と試験で、
 # それは全部並べる。境は段 1 の run の当たりの数を見て直す。設計の 7 の 3）
@@ -41,8 +42,8 @@ _TEST_NAME = re.compile(r"^(test_|Test[A-Z_])")   # 試験の関数・クラス�
 _FILE_EXT = re.compile(r"\.(py|md|json|ya?ml|sh|js|ts|toml|txt)$")   # adds のファイルの名（変える名でない）
 NON_CODE_DIRS = (("docs", "plans"), ("docs-archive",), (".archon",))   # パスの段の並び（パスのどこに在っても）
 NON_CODE_FILES = ("CHANGELOG.md", "HANDOFF.md")
-HEAD = "## 波及の一覧（機械が git grep で引いた。項目が変える名の呼び出し元と試験）"
-UNITS_HEAD = "## 波及の一覧（機械が git grep で引いた。単位の key が名指す名の呼び出し元と試験。案を書く前に読め）"
+HEAD = promptsection.Section("## 波及の一覧（機械が git grep で引いた。項目が変える名の呼び出し元と試験）", source="fn:ripple.section")
+UNITS_HEAD = promptsection.Section("## 波及の一覧（機械が git grep で引いた。単位の key が名指す名の呼び出し元と試験。案を書く前に読め）", source="fn:ripple.units_section")
 SCOPE_ASK = ("覆っていない当たりは、項目の書いてよいパス（allowed_paths）・受け入れの試験（tests）・書き換える試験（rewrite_tests）の"
              "どれにも入っていない当たり。直しが触る物（呼び出し元を合わせる・字のままの値を断言する試験を書き換える）は、今その項目の"
              "allowed_paths か rewrite_tests に入れよ。案に入れた物は修正の時に範囲の相談なしで書ける（範囲の外は修正役が計画役に"
@@ -212,11 +213,16 @@ def _names_text(rows: list) -> list[str]:
     return out
 
 
+ITEM_HEAD = promptsection.Section("### 項目 {n}", source="fn:ripple.item_text")
+ITEM_KEYS_HEAD = promptsection.Section("### 項目 {n}（unit_keys: {keys}）", source="fn:ripple.item_text")
+UNIT_HEAD = promptsection.Section("### 単位 {unit_key}", source="fn:ripple.units_section")
+
+
 def item_text(doc: dict, n: int) -> str:
     it = next((x for x in (doc or {}).get("items") or [] if x.get("item") == n), None)
     if it is None:
-        return f"### 項目 {n}\n\n変える名は対象に見つからなかった（当たり無し）"
-    lines = [f"### 項目 {n}（unit_keys: {'、'.join(map(str, it['unit_keys']))}）", "", "変える名と当たり:"]
+        return f"{ITEM_HEAD.format(n=n)}\n\n変える名は対象に見つからなかった（当たり無し）"
+    lines = [ITEM_KEYS_HEAD.format(n=n, keys='、'.join(map(str, it['unit_keys']))), "", "変える名と当たり:"]
     lines += _names_text(it["names"]) or ["- 対象に在る名が無い"]
     lines += ["", "覆っていない当たり:"]
     lines += [f"- {h['id']}: {h['kind']} {h['at']}（名 {h['name']}）" for h in it["uncovered"]] or ["- 無い"]
@@ -243,5 +249,5 @@ def units_section(doc: dict) -> str:
         return f"{UNITS_HEAD}\n\n" + ERROR_NOTE.format(error=doc["error"])
     parts = [UNITS_HEAD, SCOPE_ASK]
     for u in doc.get("units") or []:
-        parts.append("\n".join([f"### 単位 {u['unit_key']}", *(_names_text(u["names"]) or ["- 対象に在る名が無い"])]))
+        parts.append("\n".join([UNIT_HEAD.format(unit_key=u['unit_key']), *(_names_text(u["names"]) or ["- 対象に在る名が無い"])]))
     return "\n\n".join(parts)

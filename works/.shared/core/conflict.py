@@ -82,6 +82,7 @@ import board as _board  # noqa: E402
 import cite  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
+import promptsection  # noqa: E402
 import scopes  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import startrec  # noqa: E402  （始めの記録の読み口）
@@ -566,6 +567,11 @@ def apply_rulings(b, rulings: dict, *, by: str) -> pathlib.Path:
     return write_rulings(b)
 
 
+RULINGS_TITLE = promptsection.Section(f"# {HEAD}の裁定（機械が書いた。裁いたのは読むだけの裁定役か機械）", source="fn:conflict.write_rulings")
+RULING_HEAD = promptsection.Section("## {id}: {unit_key}", source="fn:conflict.write_rulings")
+PREV_REPLY_HEAD = promptsection.Section("## 前の回の返答", source="fn:conflict.write_rulings")
+
+
 def write_rulings(b) -> pathlib.Path:
     """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。約束は裁定の decision で決まり、
     fix_plan_item の行のうち案を直した行（状態 AMENDED）は AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）、
@@ -578,7 +584,7 @@ def write_rulings(b) -> pathlib.Path:
     rows = [r for r in items(b) if r.get("ruling")]
     held, held_path = held_reply(b)
     accepted = _held_keys(held)
-    lines = [f"# {HEAD}の裁定（機械が書いた。裁いたのは読むだけの裁定役か機械）", ""]
+    lines = [RULINGS_TITLE, ""]
     promise = {
         "fix_test_scope": "テストが誤った動きを書いていると裁いた。テストを直してよいのは「範囲」に並べた所だけで、直したテストは"
                           "最後の人の関所に守りのファイルとして並ぶ。範囲の外のテストは変えるな・緩めるな。この単位も changes に 1 行を書け",
@@ -602,7 +608,7 @@ def write_rulings(b) -> pathlib.Path:
         said = (ACCEPTED_PROMISE.format(path=held_path) if r["unit_key"] in accepted
                 else LATE_REPLAN_PROMISE if second_pass(b) and state == WAITING
                 else {AMENDED: AMENDED_PROMISE, GAVE_UP: GAVE_UP_PROMISE}.get(state) or promise[ru['decision']])
-        lines += [f"## {r['id']}: {r['unit_key']}", "",
+        lines += [RULING_HEAD.format(id=r['id'], unit_key=r['unit_key']), "",
                   f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{said}",
                   f"- 裁定の文: {ru['text']}",
                   f"- 範囲: {', '.join(ru.get('limits') or []) or '（無い）'}",
@@ -619,7 +625,7 @@ def write_rulings(b) -> pathlib.Path:
                   f"- 申し出の種類: {r.get(KIND_FIELD) or '（無し）'}", ""]
     parked = b.work(PARKED_REPLY)
     if parked.is_file():
-        lines += ["## 前の回の返答", "",
+        lines += [PREV_REPLY_HEAD, "",
                   f"申し出を返した回の返答は {parked} に在る。ほかの単位の直しは作業ツリーに残っている。裁定に従って直し、"
                   "直す義務の単位の全部の changes を持つ返答を丸ごと出し直せ。直す義務の外の単位はすべて除く（直さない裁定 "
                   "ask_human の単位・fix_plan_item の単位（案の直しを待つ物も諦めた物も）・1 回目の修正の段で受け付けた単位。"

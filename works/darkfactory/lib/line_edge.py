@@ -65,6 +65,7 @@ import gatepolicy  # noqa: E402  （L1。人の関所と無人の方針の住処
 import halt  # noqa: E402
 import impact  # noqa: E402
 import planmarks  # noqa: E402
+import promptsection  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
 import querytest  # noqa: E402
@@ -652,12 +653,22 @@ def _stat(r) -> str:
     return f"+{r['added']} −{r['deleted']}" if r.get("added") is not None else "行数なし"
 
 
+PROTECTED_UNKNOWN_HEAD = promptsection.Section("## {head}（差分が一覧に触れていないとは言えない）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+PROTECTED_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。works 自身の試験・柵・受け付けの口。通すのは人の continue だけ）",
+                                            human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+CONFLICT_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。裁定役か機械が人に回した。単位は直さずに残した。通すのは人の continue だけ）",
+                                           human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+HANDOFF_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。通すのは人の continue だけ）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+UNPROVEN_ROWS_HEAD = promptsection.Section("## {head}（{count} 件。閉鎖の数え直しは例で試していない問いのまま）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+CLOSURE_ROWS_HEAD = promptsection.Section("## {head}（{count} 件）", human="最後の関所の文の節の見出し（人が読む。役の指示書には貼らない）")
+
+
 def _protected_text(rows, rev: str, err: str, repo) -> str:
     """最後の関所の文の冒頭 3 行の直後の節（触った守りのファイル・行数・規則・差分の見方。確かめられなければその理由）"""
     if err:
-        return (f"## {PROTECTED_UNKNOWN}（差分が一覧に触れていないとは言えない）\n\n- 理由: {err}\n"
+        return (f"{PROTECTED_UNKNOWN_HEAD.format(head=PROTECTED_UNKNOWN)}\n\n- 理由: {err}\n"
                 f"- 一覧: {protect.MANIFEST}\n\n")
-    lines = [f"## {PROTECTED_HEAD}（{len(rows)} 件。works 自身の試験・柵・受け付けの口。通すのは人の continue だけ）", ""]
+    lines = [PROTECTED_ROWS_HEAD.format(head=PROTECTED_HEAD, count=len(rows)), ""]
     lines += [f"- {x}" for x in protect.lines(rows)]
     lines += [f"- 差分: git -C {pathlib.Path(repo).resolve()} diff {rev[:12]} -- <パス>（未追跡は新しいファイル）",
               f"- 一覧: {protect.MANIFEST}", "", ""]
@@ -696,21 +707,21 @@ def _record_conflict(b, asks: list) -> None:
 
 def _conflict_text(asks: list) -> str:
     """最後の関所の文の節（裁定役か機械が人に回した食い違いの申し出。どの単位を直さずに残したか）"""
-    lines = [f"## {conflict.HEAD}（{len(asks)} 件。裁定役か機械が人に回した。単位は直さずに残した。通すのは人の continue だけ）", ""]
+    lines = [CONFLICT_ROWS_HEAD.format(head=conflict.HEAD, count=len(asks)), ""]
     lines += [f"- {x}" for x in asks]
     return "\n".join(lines + ["", ""])
 
 
 def _handoff_text(handoffs: list) -> str:
     """最後の関所の文の節（修正役が人に回した物。report.handoff_lines の行を全部）"""
-    lines = [f"## {report.HANDOFF_HEAD}（{len(handoffs)} 件。通すのは人の continue だけ）", ""]
+    lines = [HANDOFF_ROWS_HEAD.format(head=report.HANDOFF_HEAD, count=len(handoffs)), ""]
     lines += [f"- {x}" for x in handoffs]
     return "\n".join(lines + ["", ""])
 
 
 def _unproven_text(unproven: list) -> str:
     """最後の関所の文の節（判定者の問いを例で試していない単位。閉鎖の数え直しはその問いのまま）"""
-    lines = [f"## {querytest.UNPROVEN_HEAD}（{len(unproven)} 件。閉鎖の数え直しは例で試していない問いのまま）", ""]
+    lines = [UNPROVEN_ROWS_HEAD.format(head=querytest.UNPROVEN_HEAD, count=len(unproven)), ""]
     lines += [f"- {x}" for x in unproven]
     return "\n".join(lines + ["", ""])
 
@@ -718,7 +729,7 @@ def _unproven_text(unproven: list) -> str:
 def _closure_text(closure: list, head: str = querytest.CLOSURE_HEAD) -> str:
     """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、head の見出しに載せる単位。
     同じ run の中で直した修正案の項目の行も、見出し replan.AMEND_HEAD でこの形に並べる）"""
-    lines = [f"## {head}（{len(closure)} 件）", ""]
+    lines = [CLOSURE_ROWS_HEAD.format(head=head, count=len(closure)), ""]
     lines += [f"- {x}" for x in closure]
     return "\n".join(lines + ["", ""])
 

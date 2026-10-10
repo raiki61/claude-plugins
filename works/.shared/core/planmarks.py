@@ -57,6 +57,7 @@ if str(_GL) not in sys.path:
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import now  # noqa: E402
 import marks  # noqa: E402
+import promptsection  # noqa: E402
 
 NODES = marks.nodes("plan")
 NODE = NODES[0]
@@ -156,8 +157,9 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "機械は差分で次を探すので、adds の name は識別子（関数・欄・CLI・テストの名）で書き、新設の物の canonical には"
         "置くファイルのパスを書け。removes に識別子を書けば、差分で消えたかを見る。"
         + STRUCTURE_HEAD)
-REVIEW_HEAD = "## 修正案の項目の works の欄（機械が貼った）"
-DEVIATION_HEAD = "## 構造の目の避け方・判定の処方・世界の解から外れた訳（修正案の欄 structure から機械が並べた。訳が成り立つかを見よ）"
+REVIEW_HEAD = promptsection.Section("## 修正案の項目の works の欄（機械が貼った）", source="fn:planmarks.review_section")
+FIELDS_ITEM_HEAD = promptsection.Section("### 修正案の項目 {n}", source="fn:planmarks.review_section")
+DEVIATION_HEAD = promptsection.Section("## 構造の目の避け方・判定の処方・世界の解から外れた訳（修正案の欄 structure から機械が並べた。訳が成り立つかを見よ）", source="fn:planmarks.review_section")
 REVIEW_ASK = ("下は修正案の役が項目ごとに書いた works の欄（route・受け入れのテスト tests・書き換える既存のテスト rewrite_tests・"
               "整えの申告 refactor・書いてよいパス allowed_paths・触らない物 out_of_scope）。承認されると項目ごとの brief になり、"
               "修正役・TDD の役の要求の正本になる。受け入れのテストが"
@@ -942,7 +944,7 @@ def review_section(b, notes=None) -> str:
     fields = frozen(b)
     if fields is None:
         return ""
-    rows = [f"### 修正案の項目 {n}\n\n```json\n{json.dumps(f, ensure_ascii=False, indent=1)}\n```" for n, f in enumerate(fields, 1)]
+    rows = [f"{FIELDS_ITEM_HEAD.format(n=n)}\n\n```json\n{json.dumps(f, ensure_ascii=False, indent=1)}\n```" for n, f in enumerate(fields, 1)]
     devs = deviations(fields)
     head = ""
     if devs:

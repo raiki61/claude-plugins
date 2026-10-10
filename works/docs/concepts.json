@@ -722,7 +722,7 @@
    "status": "散らばり",
    "fences": [
     {
-     "what": "機械が指示書に貼る節の見出しの印（「機械が貼った」）",
+     "what": "印の字の数え（範囲の定義ではない。範囲は prompt-sections）",
      "pattern": "機械が貼った",
      "allowed": [],
      "known": {
@@ -763,6 +763,19 @@
        "散らばり（段 5 でまとめる）: 修正案の役に貼る束ね・独立設計・裏取りの節の見出し"
       ]
      }
+    }
+   ]
+  },
+  "prompt-sections": {
+   "status": "住処あり",
+   "fences": [
+    {
+     "what": "節の宣言の型と宣言を並べる口の定義（住処の外に写さない）。範囲の正本は ast の柵 test_machine_headings_are_declared_sections と地図の行",
+     "pattern": "\\bclass (Section|Receive)\\b|\\bdef declared_sections\\b",
+     "allowed": [
+      ".shared/core/promptsection.py"
+     ],
+     "known": {}
     }
    ]
   },

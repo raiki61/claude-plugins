@@ -54,6 +54,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 | `ai-launch` | AI の起こし方（模型・effort・道具・隔離） | 散らばり |
 | `ledger` | 費用と時間の帳簿 | 散らばり |
 | `prompt-assembly` | 指示書の組み立て | 散らばり |
+| `prompt-sections` | 指示書に機械が貼る節の見出しの宣言 | 住処あり |
 | `lanes` | 並べの枝 | 住処あり |
 | `marks` | 返答の足し欄 | 住処あり |
 | `plan-scope` | 修正案の項目の範囲の照らし | 住処あり |
@@ -256,8 +257,17 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `prompt-assembly` 指示書の組み立て
 
 - 状態: 散らばり
-- 今: 写しの指示書を描く所は `.shared/core/rolekit.py` の `render_body` 1 つだが、「頭の節 → `---` → 写しの本文 → 役の定義 → 前の拒否」の並べはブロックごとに組む（`blk-plan/lib/planblk.py` の `head`・`brief_head`、`blk-eyes/lib/eyes.py` の `prep`、`blk-judge/lib/judgebrief.py`、`blk-material/lib/material.py`、`blk-spec/lib/specblk.py`、`blk-report/lib/report_roles.py`、`.shared/core/rejudge.py`、`.shared/core/design.py`）。「機械が貼った」節の見出しも各所の定数
+- 今: 写しの指示書を描く所は `.shared/core/rolekit.py` の `render_body` 1 つだが、「頭の節 → `---` → 写しの本文 → 役の定義 → 前の拒否」の並べはブロックごとに組む（`blk-plan/lib/planblk.py` の `head`・`brief_head`、`blk-eyes/lib/eyes.py` の `prep`、`blk-judge/lib/judgebrief.py`、`blk-material/lib/material.py`、`blk-spec/lib/specblk.py`、`blk-report/lib/report_roles.py`、`.shared/core/rejudge.py`、`.shared/core/design.py`）。貼る節の見出しの宣言は考え `prompt-sections` に寄せた。印「機械が貼った」は AI 向けの慣わしで付け方がそろわないので、範囲の定義には使わない
 - 計画: まだ無い
+
+### `prompt-sections` 指示書に機械が貼る節の見出しの宣言
+
+- 状態: 住処あり
+- 住処: `.shared/core/promptsection.py`（層 L1。標準ライブラリだけ。節の宣言 `Section`——見出しの字そのものの str の子で、出どころ `source` と人向けの理由 `human` の欄を持つ——と、受け手の宣言 `Receive`（役の印の名・節の定数・入る条件を判じる関数の完全な名）、宣言を並べる口 `declared_sections`）
+- 約束: 受け手の側の表 `RECEIVES`（その役の指示書を組むブロックの lib のモジュール `blk-*/lib/*.py` の直下）。共有の定数は受け手も条件も持たず、受け手と条件は受け手の側の表だけが知る。出どころの 3 形は `input:<名>`（ブロックの入力。ブロックの lib の節だけ）・`board:<モジュール>.<定数>`（盤面のファイルの名を持つ定数を指し、字を写さない）・`fn:<モジュール>.<関数>`（節の中身を作る関数）
+- 知ってよい所: 住処だけ。見出しの定数は役の支度のモジュール（`blk-*/lib/*.py`・`blk-*/scripts/*.py`・`darkfactory/lib/*.py`・`darkfactory/scripts/*.py`・`.shared/core/*.py`）の直下で `promptsection.Section(...)` の最初の引数に置く。型と口の定義が住処の外に写されないことを柵が見る
+- 今: 範囲の正本は ast の柵 `tests/test_graphmap.py` の `RealLineCase.test_machine_headings_are_declared_sections`: 上のモジュールの docstring でない字面のうち、`#` の見出しの行を持つ物（f-string の穴の先に字が在る形も）は全部 `Section` の最初の引数に在る。見出しを貼るのでなく読む所（`re` の関数・文字列の照らしの method の引数・比べの項）は外す。穴を持つ見出しは `.format` の型にして呼び手が `X.format(...)` で埋める。宣言が解けること（`test_section_declarations_resolve`）と、受け手の表が現物と合うこと（`test_receives_match_the_code`）も同じ試験が見る
+- 計画: 無し
 
 ### `core-seams` 写しの核の差し替えの口
 

@@ -54,12 +54,14 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import conflict  # noqa: E402
 import entry  # noqa: E402
+import graphmap  # noqa: E402  （L1。工程の地図の節の見出し）
 from leftovers import Unreadable, git_names  # noqa: E402
 import consult  # noqa: E402  （同じブロックの lib。範囲の相談の控え・置き場・答え）
 import libdocs  # noqa: E402
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （項目の範囲: allowed_paths と受け入れのテストのファイル。並べる項目の分け方）
 import recount  # noqa: E402
+import replan  # noqa: E402  （修正の前の関所の条件と人の一言の節の見出し）
 import rolekit  # noqa: E402
 import rulebook  # noqa: E402
 from rulebook import EMPTY, MARK, Unfilled, fill, join, render, shared  # noqa: E402,F401
@@ -68,6 +70,7 @@ import seat as seatkit  # noqa: E402  （借りたスキルの座。引数の名
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import writes  # noqa: E402  （修正前の版。g1 の審査役の型の [BASE_SHA]）
 import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。g1 の審査役の差分のファイルの置き場）
+import promptsection  # noqa: E402
 from engine.util import Reject  # noqa: E402
 
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
@@ -86,7 +89,7 @@ OVERLAP_LINE = ("前の周は修正案の項目 {items} を並べ、同じファ
                 "なら、合わせた作業ツリーの上で、後の項目の直しを前の項目の直しに合わせて直せ（依頼 243 の並べの 3 段目）")
 RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {path} を、先に Read で全部読め。裁定に従って直し、返答を丸ごと出し直せ"
                 "（裁定の文そのものはここに貼らない）")
-HELD_HEAD = "## 1 回目の修正の段で受け付けた返答（機械が貼った）"
+HELD_HEAD = promptsection.Section("## 1 回目の修正の段で受け付けた返答（機械が貼った）", source="fn:fixrules.held_text")
 HELD_ASK = ("控え {path} を Read で読め。直す義務は上の「読む物」の「直す義務の単位の key」（案を直して戻った単位）だけで、"
             "控えの単位の行は機械が足す——changes と not_done に控えの単位を書くな。changes と not_done の外の欄（fix_closure・mechanism_changed・"
             "plan_faces など）は、1 回目と今回を合わせた差分の全体について書け（控えの値から始めよ）。")
@@ -286,12 +289,15 @@ def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason:
                       seat=seat)["text"]
 
 
+TDD_REJECT_HEAD = promptsection.Section("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）\n\n", source="fn:fixrules.tdd_render")
+
+
 def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, iteration=1, lang="", brief="", seat="") -> dict:
     """tdd_prompt の {text, head}（rulebook.render）。並び: 題 → [brief の節（planbrief.head_text）] → [拒んだ理由] → 決まり
     → 今の段の約束 → 今の段（tddloop が書く）→ 結び → [言語の 1 行（lang_at）]"""
     before = [title, *([brief] if brief else [])]
     if reason:
-        before.append("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）\n\n" + reason.rstrip("\n"))
+        before.append(TDD_REJECT_HEAD + reason.rstrip("\n"))
     after = [tdd_phase_rules(phase), phase_text.rstrip("\n"), sections(TDD)["tdd-end"]]
     return render("tdd", iteration, tdd_parts(values, kinds, seat), before=before, after=after, lang=lang)
 
@@ -580,19 +586,38 @@ def lanes_merged(b) -> set:
             for k in it.get("changed") or [] if isinstance(k, str)}
 
 
-LANES_TEXT = ("## 修正役の並べの枝の結末（機械が書いた）\n\n"
-              "この周は、範囲の在る修正案の項目を、修正役の前に並べの枝（項目ごとの新しい会話。単位の worktree）が直した。結末のファイル "
-              "{path} を Read で全部読め。\n\n"
-              "- 「当てた項目」の単位の直しは作業ツリーに在る（機械が 3 方向で当てた）。1 回目の周はその単位に下請けを起こさず、作り直さない。"
-              "changes には、その項目の枝の返答（結末のファイルが名指す JSON）の changes の行をそのまま写せ。受け付けがその単位を拒んだ"
-              "出し直しの周（と裁定の後）は、ほかの単位と同じに拒否が名指す項目の下請けを起こし直してよい（合わせた作業ツリーの上で直し、行も"
-              "書き直す）。"
-              "周の全体の欄（interactions・fix_closure・plan_faces・wrote_refs・差分の形の変化の申告）は、枝の返答の値を合わせ、作業ツリーの"
-              "差分の全体（枝の直しと、あなたが直した物）について書け\n"
-              "- 「順に戻した項目」は、ほかの直す義務の単位と同じにこの周で直す（下請けの項目に載る）。前の試みの差分が名指されていれば読み、"
-              "使える所は使え（作業ツリーには当たっていない）\n"
-              "- 「枝が直さなかった単位」（枝の返答の not_done）も直す義務のまま（下請けの項目に載る）\n"
-              "- 「止めた単位」（食い違いの申し出。機械が盤面に積んだ）は changes にも not_done にも書かない")
+LANES_TEXT = promptsection.Section("## 修正役の並べの枝の結末（機械が書いた）\n\n"
+                                   "この周は、範囲の在る修正案の項目を、修正役の前に並べの枝（項目ごとの新しい会話。単位の worktree）が直した。結末のファイル "
+                                   "{path} を Read で全部読め。\n\n"
+                                   "- 「当てた項目」の単位の直しは作業ツリーに在る（機械が 3 方向で当てた）。1 回目の周はその単位に下請けを起こさず、作り直さない。"
+                                   "changes には、その項目の枝の返答（結末のファイルが名指す JSON）の changes の行をそのまま写せ。受け付けがその単位を拒んだ"
+                                   "出し直しの周（と裁定の後）は、ほかの単位と同じに拒否が名指す項目の下請けを起こし直してよい（合わせた作業ツリーの上で直し、行も"
+                                   "書き直す）。"
+                                   "周の全体の欄（interactions・fix_closure・plan_faces・wrote_refs・差分の形の変化の申告）は、枝の返答の値を合わせ、作業ツリーの"
+                                   "差分の全体（枝の直しと、あなたが直した物）について書け\n"
+                                   "- 「順に戻した項目」は、ほかの直す義務の単位と同じにこの周で直す（下請けの項目に載る）。前の試みの差分が名指されていれば読み、"
+                                   "使える所は使え（作業ツリーには当たっていない）\n"
+                                   "- 「枝が直さなかった単位」（枝の返答の not_done）も直す義務のまま（下請けの項目に載る）\n"
+                                   "- 「止めた単位」（食い違いの申し出。機械が盤面に積んだ）は changes にも not_done にも書かない", source="fn:fixrules.lanes_text")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。核の節は、修正役の指示書を組む口が貼る
+RECEIVES = [
+    promptsection.Receive("fix", LANES_TEXT, "fixrules.lanes_text"),
+    promptsection.Receive("fix-ruled", HELD_HEAD, "fixrules.held_text"),
+    *(promptsection.Receive(role, TDD_REJECT_HEAD, "fixrules.tdd_render") for role in ("tdd", "tdd-rest")),
+    *(promptsection.Receive(role, head, "seat.section") for role in ("fix", "tdd") for head in (seatkit.HEAD, seatkit.PROMPT_HEAD)),
+    promptsection.Receive("fix", seatkit.G1_HEAD, "seat.g1_section"),
+    promptsection.Receive("fix", seatkit.G1_SUB_HEAD, "seat.g1_prompt"),
+    *(promptsection.Receive("fix-ruled", head, "conflict.write_rulings")
+      for head in (conflict.RULINGS_TITLE, conflict.RULING_HEAD, conflict.PREV_REPLY_HEAD)),
+    *(promptsection.Receive(role, head, "replan._notes") for role in ("fix", "fix-ruled")
+      for head in (replan.FIX_NOTES_HEAD, replan.NOTE_HEAD, replan.FACES_HEAD)),
+    *(promptsection.Receive(role, head, when) for role in ("fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3") for head, when in (
+        (libdocs.TITLE, "libdocs.section"), (libdocs.DOC_TITLE, "libdocs._local_text"),
+        (libdocs.FRAGMENT_HEAD, "libdocs._local_text"), (libdocs.LIB_HEAD, "libdocs._render"))),
+    *(promptsection.Receive(role, graphmap.HEAD, "graphmap.render") for role in (
+        "plan-answer", "plan-answer-ruled", "plan-answer-lane-1", "plan-answer-lane-2", "plan-answer-lane-3")),
+]
 
 
 def lanes_text(b) -> str:

@@ -47,12 +47,13 @@ import time
 import impact
 import libdocs_local
 import libdocs_web
+import promptsection
 import scopes
 import webget
 
 ENV_SWITCH = "WORKS_LIBDOCS_WEB"       # off で網に出ない（出ないことを節に書く）
 MAX_LIBS = 8                           # 1 回に引くライブラリの数の上限（超えた物は名前で言う）
-TITLE = "## ライブラリの文書（手元の版・公式）"
+TITLE = promptsection.Section("## ライブラリの文書（手元の版・公式）", source="fn:libdocs.section")
 CACHE_DIR = "libdocs"                  # 盤面の周の置き場の下の控えと文書のファイル（run をまたぐ控えも同じ名の置き場）
 # ライブラリごとの置き場の下の、手元の版の署名と説明のファイルの名（local-<中身の sha256 の頭 8 桁>.md）。中身は単位が使う名で
 # 変わり、並べの枝（同じ周の置き場を分け合う）が別の単位で同じライブラリを書くので、中身で名を分けて互いに上書きしない
@@ -322,10 +323,15 @@ def _lib_dir(lib: dict) -> str:
     return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}")
 
 
+DOC_TITLE = promptsection.Section("# {lib} {version}（手元の版。import せずに読んだ署名と説明）", source="fn:libdocs._local_text")
+FRAGMENT_HEAD = promptsection.Section("## {title}", source="fn:libdocs._local_text")
+LIB_HEAD = promptsection.Section("### {lib} {version}", source="fn:libdocs._render")
+
+
 def _local_text(lib: dict, local: dict) -> str:
-    head = [f"# {lib['search']} {local.get('version') or lib['version'] or '（版不明）'}（手元の版。import せずに読んだ署名と説明）",
+    head = [DOC_TITLE.format(lib=lib['search'], version=local.get('version') or lib['version'] or '（版不明）'),
             f"置き場: {local.get('where') or ''}"]
-    return "\n\n".join(["\n".join(head)] + [f"## {f['title']}\n出典: {f['source'] or '（無し）'}\n\n{f['text']}".rstrip()
+    return "\n\n".join(["\n".join(head)] + [f"{FRAGMENT_HEAD.format(title=f['title'])}\n出典: {f['source'] or '（無し）'}\n\n{f['text']}".rstrip()
                                              for f in local.get("fragments") or []]) + "\n"
 
 
@@ -378,7 +384,7 @@ def _render(rows: list) -> list:
         if not (saved["local"] or saved["official"]):
             continue
         lib = r["lib"]
-        block = [f"### {lib['search']} {lib['version'] or '（版の宣言なし）'}"]
+        block = [LIB_HEAD.format(lib=lib['search'], version=lib['version'] or '（版の宣言なし）')]
         if lib.get("uses"):
             block.append("- 単位が使う名: " + "、".join(lib["uses"][:8]) + (" ほか" if len(lib["uses"]) > 8 else ""))
         if saved["local"]:

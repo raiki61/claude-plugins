@@ -50,6 +50,7 @@ from engine.util import Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
 import entry  # noqa: E402
 import impact  # noqa: E402
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402
 
 NODE = "r2.design"
@@ -63,15 +64,15 @@ UNUSABLE = {"目的不明": "目的の出典が取れない（目的不明）—
             "狭めている": "目的の文を監査が『狭めている』と判定した——狭められた目的で独立設計を回さない"}
 HANDED_OP = "r2_design_handed"          # 控えを盤面へ渡した trace の行
 MISSING_OP = "r2_design_missing"        # 設計が無いまま先へ進んだ trace の行
-HUMAN_HEAD = "### 人の関所の答え"
+HUMAN_HEAD = promptsection.Section("### 人の関所の答え", source="fn:design.human_answers")
 HUMAN_ASK = ("人が関所で答えた前提（run の中で人が決めた物）。ほかの節より先に読め。答えが目的の文や前の要求を取り下げ・変えていれば、"
              "取り下げ・変えた後の要求を前提にせよ（取り下げた要求を固定の契約にしない）。設計が取り下げた要求を置いていても、"
              "そのことだけでは差にも前提の崩れにも数えず、答えに照らした目的で突き合わせよ。")
-DESIGN_PREMISE_HEAD = "## 人が決めた前提（機械が貼った）"
+DESIGN_PREMISE_HEAD = promptsection.Section("## 人が決めた前提（機械が貼った）", source="fn:design.prep")
 # 写しの指示書は 1 バイトも変えない（gl-prompts/COPIED_FROM）ので、入力を言う写しの文をこの節で読み替える
 DESIGN_PREMISE_REREAD = ("下の指示書の「渡すのは元の目的と実測した制約だけである」は、この run では、この節（人の関所の答え・"
                          "依頼が名指した設計書の節・対象のリポジトリの地図）も渡していると読み替えよ。")
-NAMED_HEAD = "### 依頼が名指した設計書の節"
+NAMED_HEAD = promptsection.Section("### 依頼が名指した設計書の節", source="fn:design.named_sections")
 NAMED_ASK = "依頼が名指した設計書の節の本文（依頼を固めた版のファイルから機械が抜いた）。目的の文と同じく依頼の一部として読め。"
 CODE_SPAN_ANCHOR = re.compile(r"`([^`\s]+\.[A-Za-z0-9]+#[^`\s]+)`")
 # 持ち主の地の文の名指し: 「`<path>` 3 節」「`<path>` の §3」（見出しの頭の番号で引く。パスは拡張子つき）
@@ -109,7 +110,10 @@ PREMISE_KINDS = ("human_answer", "named_section", "repo_map")
 # 対象のリポジトリの地図として根から読む名（関所の決め: 根の 2 つだけ。docs/ の下や README は読まない）。中身は分類せず丸ごと貼る。
 # AGENTS.md は blk-fix の fixrules.PROMPT_NAMES（役の指示書として読む名）とも重なる（core から blk-fix へは依らないので別に置く）
 MAP_NAMES = ("ARCHITECTURE.md", "AGENTS.md")
-MAP_HEAD = "### 対象のリポジトリの地図"
+MAP_HEAD = promptsection.Section("### 対象のリポジトリの地図", source="fn:design.repo_map")
+MAP_FILE_HEAD = promptsection.Section("#### {name}:1-{total}", source="fn:design.repo_map")
+NAMED_BODY_HEAD = promptsection.Section("#### {name}（{src}）", source="fn:design.named_sections")
+SLUG_LINE = promptsection.Section("# {title}", human="見出しのアンカーの重複を数えるために組む行（指示書には貼らない）")
 MAP_ASK = ("対象のリポジトリの根に在る地図の文書（依頼を固めた版のファイルから機械が貼った。見出しは出どころのパス:行）。"
            "依頼が名指していなくても、仕組みの中に既に在る実物（信用の起点・外との通信の経路・守る物）から設計を始めよ。")
 
@@ -313,7 +317,7 @@ def _section_lines(text, *, num="", anchor="", slugs=None, md_lines=None) -> tup
         hits = []
         if slugs is not None:
             for k, h in enumerate(heads):
-                before = "\n".join(f"# {x['title']}" for x in heads[:k])
+                before = "\n".join(SLUG_LINE.format(title=x['title']) for x in heads[:k])
                 if want in slugs(before + "\n# " + h["title"]) - slugs(before):
                     hits.append(h)
         if not hits:
@@ -379,7 +383,7 @@ def named_sections(b, repo) -> tuple:
             parts.append(f"- 依頼が名指したが引けなかった: {t}（{e}）")
             withheld.append({"kind": "named_section", "what": t, "why": str(e)})
             continue
-        parts.append(f"#### {t}（{src}）\n\n{body}")
+        parts.append(f"{NAMED_BODY_HEAD.format(name=t, src=src)}\n\n{body}")
         given.append({"kind": "named_section", "what": t})
         if rest:
             withheld.append({"kind": "named_section", "what": t, "why": f"{FILE_CAP} バイトを超えた残り（{rest}）"})
@@ -405,7 +409,7 @@ def repo_map(repo) -> tuple:
             withheld.append({"kind": "repo_map", "what": n, "why": "空のファイル"})
             continue
         cut = []
-        parts.append(f"#### {n}:1-{total}\n\n{cap_bytes(body, n, cut)}")
+        parts.append(f"{MAP_FILE_HEAD.format(name=n, total=total)}\n\n{cap_bytes(body, n, cut)}")
         given.append({"kind": "repo_map", "what": f"{n}:1-{total}"})
         if cut:   # 切った後の本文に丸ごと残った行の数の次の行から
             k = 1 + body.encode("utf-8")[:FILE_CAP].decode("utf-8", "ignore").count("\n")

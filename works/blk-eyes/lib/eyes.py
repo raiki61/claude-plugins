@@ -53,6 +53,7 @@ import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import structmark  # noqa: E402  （直しの後の実測の数）
@@ -86,13 +87,19 @@ GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ�
 # 省き、諦めた時は今どおり出口が盤面を止める
 GIVE_UP_SKIPS = frozenset({"r1.comment_candidates"})
 REJECT_HEADING = rolekit.REJECT_HEADING
-# R1・R3 の頭の観点（core の concepthome。{section} に直しの後の実測の数を入れる）と旗 concept-map（包みが地図の節を足す）
-CONCEPT_HEADS = {"r1.minimality": concepthome.R1_HEAD, "r3.coherence": concepthome.R3_HEAD}
-CONCEPT_FLAG = "concept-map"
+
+
+def concept_heads() -> dict:
+    """R1・R3 の頭の観点（core の concepthome。{section} に直しの後の実測の数を入れる）。R1 は最小の読み替え、R3 は考えの住処の観点"""
+    return {"r1.minimality": concepthome.R1_HEAD, "r3.coherence": concepthome.R3_HEAD}
+
+
+CONCEPT_HEADS = concept_heads()
+CONCEPT_FLAG = "concept-map"   # 包みが考えの住処の地図の節を system prompt に足す旗
 NO_AFTER = "直しの後の実測: 控えが無い（測っていない run）"
 R4_NODE = "r4.hidden_scope"   # 直す前の関所で人が通した狭まりを頭に貼る目（gatemarks.carried_section）
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
-PREMISE_HEAD = "## 独立設計を作った後に分かった前提（機械が貼った）"
+PREMISE_HEAD = promptsection.Section("## 独立設計を作った後に分かった前提（機械が貼った）", source="fn:eyes.premise_section")
 PREMISE_CHANGED = "設計の前提が変わった"
 PREMISE_ASK = ("独立設計はこの run の修正の前に、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節・対象のリポジトリの地図から作られた。下の前提のずれ（修正の中で申告された物）と、"
                "今の記録の制約のどれかが、設計の置いた前提を崩していれば、構造の突き合わせに進まず status を redesign-needed にし、"
@@ -102,7 +109,7 @@ PREMISE_ASK = ("独立設計はこの run の修正の前に、目的と実測�
 # 落ちた）。量の上限は置かない——役が Read で全体を読む。指示書の『累積差分』の囲みには、本文の代わりに置き場を名指す 1 行
 # （DIFF_POINTER）を描く
 DIFF_NODE = "r2.compare"
-DIFF_HEAD = "## 累積差分の渡し方（機械が貼った）"
+DIFF_HEAD = promptsection.Section("## 累積差分の渡し方（機械が貼った）", source="fn:eyes.diff_section")
 DIFF_POINTER_NAME = "r2-compare-diff.txt"   # 囲みに描く 1 行の置き場（入口の周の作業ファイル）
 DIFF_POINTER = "（累積差分の本文はここに貼らない。全体はファイル {path}。この指示書の頭の「累積差分の渡し方」のとおり Read で読む）"
 DIFF_ASK = ("累積差分は、大きさに依らず本文を貼らない（大きな差分を貼ると指示書が読める量を超える）。全体は次のファイルに在る: "
@@ -111,9 +118,26 @@ DIFF_ASK = ("累積差分は、大きさに依らず本文を貼らない（大�
             "- お前の道具は Read だけで、開いてよいのはこのファイルだけ。リポジトリや盤面のほかのファイルは開くな（独立設計と差分だけで"
             "突き合わせる。調査の経緯を読むと独立が崩れる）。\n"
             "- 読めなかったら（ファイルが無い・途中までしか読めない）、推し量って埋めずに reason にそう書け。")
-LATE_HEAD = "### 独立設計の後に来た人の答え（独立設計は見ていない）"
+LATE_HEAD = promptsection.Section("### 独立設計の後に来た人の答え（独立設計は見ていない）", source="fn:eyes.premise_section")
 LATE_ASK = ("上の人の関所の答えのうち、次の物は独立設計を作った後に来た。設計がこれを置いていないことを設計の漏れに数えず、"
             "答えに照らした目的で突き合わせよ。")
+DRIFT_HEAD = promptsection.Section("### 前提のずれ（修正の中の申告）", source="fn:eyes.premise_section")
+CONSTRAINT_HEAD = promptsection.Section("### 記録の制約", source="fn:eyes.premise_section")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。節の字と出どころは各定数の Section が持つ
+RECEIVES = [
+    promptsection.Receive("r2-compare", PREMISE_HEAD, "eyes.premise_section"),
+    promptsection.Receive("r2-compare", LATE_HEAD, "eyes.premise_section"),
+    promptsection.Receive("r2-compare", DRIFT_HEAD, "eyes.premise_section"),
+    promptsection.Receive("r2-compare", CONSTRAINT_HEAD, "eyes.premise_section"),
+    promptsection.Receive("r2-compare", DIFF_HEAD, "eyes.diff_section"),
+    promptsection.Receive("r1-minimality", concepthome.R1_HEAD, "eyes.concept_heads"),
+    promptsection.Receive("r3-coherence", concepthome.R3_HEAD, "eyes.concept_heads"),
+    promptsection.Receive("r4-scope", gatemarks.CARRIED_HEAD, "gatemarks.carried_section"),
+    *(promptsection.Receive(role, rolekit.ROLE_DEF_HEAD, "rolekit.with_role_definition") for role in ROLE_OF.values()),
+    *(promptsection.Receive(role, rolekit.REJECT_HEADING, "rolekit.with_reject") for role in ROLE_OF.values()),
+    *(promptsection.Receive(role, head, "concepthome.section") for role in ("r1-minimality", "r3-coherence")
+      for head in (concepthome.MAP_FOUND_HEAD, concepthome.MAP_NONE_HEAD)),
+]
 LOCK_NAME = "board.lock"
 SNAPSHOT_NAME = "eyes-snapshot.json"
 REJECTS_NAME = "eyes-rejects.json"
@@ -390,8 +414,8 @@ def premise_section(b, repo) -> tuple:
         decided += f"{LATE_HEAD}\n\n{LATE_ASK}\n\n{_lines(ledger['after_design'])}\n\n"
     ledger["given"] += [{"kind": "drift", "what": d} for d in drift] + [{"kind": "constraint", "what": c} for c in cons]
     return (f"{PREMISE_HEAD}\n\n{PREMISE_ASK}\n\n{decided}"
-            + f"### 前提のずれ（修正の中の申告）\n\n{_lines(drift)}\n\n"
-            f"### 記録の制約\n\n{_lines(cons)}"), {"node": PREMISE_NODE, **ledger}
+            + f"{DRIFT_HEAD}\n\n{_lines(drift)}\n\n"
+            f"{CONSTRAINT_HEAD}\n\n{_lines(cons)}"), {"node": PREMISE_NODE, **ledger}
 
 
 def _rejects(b, rnd, nid):

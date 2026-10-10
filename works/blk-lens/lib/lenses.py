@@ -25,6 +25,7 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402
 import entry  # noqa: E402
 import lens  # noqa: E402
+import promptsection  # noqa: E402
 import refix  # noqa: E402
 import rolekit  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
@@ -47,10 +48,19 @@ def input_name(row) -> str:
     return f"INPUTS_{key(row).upper()}"
 
 
+TASK_HEAD = promptsection.Section("## この節での仕事", source="fn:lenses.render")
+REPLY_HEAD = promptsection.Section("## 返答の書き方", source="fn:lenses.render")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。レンズごとの役の印の名は lens-<レンズの名>
+RECEIVES = [
+    promptsection.Receive(f"lens-{row['lens']}", head, when) for row in LENSES for head, when in (
+        (TASK_HEAD, "lenses.render"), (REPLY_HEAD, "lenses.render"), (rolekit.ROLE_DEF_HEAD, "lenses.render"))
+]
+
+
 def render(row, body: str, diff_file: str, files: list, lang: str) -> str:
     return "\n".join([
-        f"## お前の役の定義（{row['agent']}）", "", body.strip(), "", "---", "",
-        "## この節での仕事", "",
+        rolekit.ROLE_DEF_HEAD.format(agent=row['agent']), "", body.strip(), "", "---", "",
+        TASK_HEAD, "",
         f"お前は修正の後の局所レビューのレンズ（{row['lens']}）として、新しい会話で起きている。上の定義の観点だけで、"
         "この周の修正が作った差分を見る。修正を書いた役の会話も、判定の経緯も引き継いでいない。",
         "お前は読むだけの役。使えるのは Read・Grep・Glob だけで、作業ツリーを 1 文字も変えない。子（Agent）は起こせない——"
@@ -60,7 +70,7 @@ def render(row, body: str, diff_file: str, files: list, lang: str) -> str:
         "差分は起点であって線ではない——呼び元・読む側まで読め。指摘は変わったファイルの中の物だけを挙げる。"
         "指摘は差分の審査役が検算してから穴にする。",
         "",
-        "## 返答の書き方", "",
+        REPLY_HEAD, "",
         "- 指摘 1 件ごとに `findings` の 1 行: `where`（変わったファイルのパス。上の一覧の字のまま）・"
         "`cite`（そのファイルの今の姿に在る字列そのまま。4 字以上）・`why`（何が黙って失敗し、誰が気づけないか。20 字以上）。",
         "- 指摘が無いなら `findings` を空にし、`findings_none` に何を読んで無いと言えるかを書け。",

@@ -22,6 +22,7 @@ nodes:
           output_format:
             description: 'works-node: writer map'
             type: object
+            required: [plan, done]
         - id: write-accept
           script: accept
           depends_on: [writer]
@@ -38,6 +39,7 @@ nodes:
                 output_format:
                   description: 'works-node: reviser continue=writer map'
                   type: object
+                  required: [done]
   - id: peer-check
     description: '相手を確かめる [needs: peer]'
     script: peer

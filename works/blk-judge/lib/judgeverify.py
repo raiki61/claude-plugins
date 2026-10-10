@@ -29,6 +29,7 @@ import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。下�
 import entry  # noqa: E402
 import judgetake  # noqa: E402
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 from engine.schema import validate_schema  # noqa: E402  （board が写しの engine を sys.path に足した後）
@@ -53,25 +54,26 @@ NOT_GO = {"ok": True, "go": False, "prompt_file": ""}
 EMPTY_MERGE = {"ok": True, "verify_file": "", "verified": 0, "unverified": 0}
 WAITING = "裏取りの答えがまだ無い（束ね役が落ちたか、下請けを起こさなかった）"
 
-UNIT_HEAD = "## お前の単位: 単位 {n}"   # 下請けのファイルの共通の頭（全部の単位と相乗りで同じバイト）とその単位の節の境
+UNIT_HEAD = promptsection.Section("## お前の単位: 単位 {n}", source="fn:judgeverify.prep_on")   # 下請けのファイルの共通の頭（全部の単位と相乗りで同じバイト）とその単位の節の境
 ANSWER_AT = "Write の道具でファイル {answer} に書け"   # 下請けのファイルが答えの置き場を名指す句（answer_in が引く）
-TITLE = "# 判定の単位の裏取りの下請け"
+TITLE = promptsection.Section("# 判定の単位の裏取りの下請け", source="fn:judgeverify._head")
 SUB_HEAD = ("お前は判定の単位の裏取りの下請け（読むだけ。Read・Grep・Glob で根拠のコードを調べ、Write は最後の節が名指す答えの"
             "ファイルにだけ使う。Edit・Bash を使わず、作業ツリーを 1 文字も変えない）。判定役が人の修正依頼を根本の単位に切った。"
             "お前はその切り方を判定役とは別の目で確かめる。ほかのファイルの指示書を読みに行かなくてよい（根拠のコードは読め）。")
-RULES = ("## 決まり（全部の下請けで同じ）\n\n"
-         "- 直し方は書かない（案は別の役が作る）。\n"
-         "- 単位を消す・足す・ラベルを変える提案はしない。単位は直す義務で、この確かめでは減らない。根本でないと出ても、"
-         "申し送りとして案を書く役と報告に届くだけ。\n"
-         "- web（WebSearch・WebFetch）は根拠のコードで決まらない時だけ使う。判定の先行例の出典は開き直さない。\n"
-         "- why・evidence は見た事実（パス:行と、そこに在った物）で書く。推測は unsure にする。")
+RULES = promptsection.Section("## 決まり（全部の下請けで同じ）\n\n"
+                              "- 直し方は書かない（案は別の役が作る）。\n"
+                              "- 単位を消す・足す・ラベルを変える提案はしない。単位は直す義務で、この確かめでは減らない。根本でないと出ても、"
+                              "申し送りとして案を書く役と報告に届くだけ。\n"
+                              "- web（WebSearch・WebFetch）は根拠のコードで決まらない時だけ使う。判定の先行例の出典は開き直さない。\n"
+                              "- why・evidence は見た事実（パス:行と、そこに在った物）で書く。推測は unsure にする。", source="fn:judgeverify._head")
 UNIT_ASK = ("見ること: (1) 根本か（verdict）: この単位を直せば依頼の症状が消えるか。ほかの単位か単位に無い所の結果（症状の 1 つの"
             "現れ）でないか。root・not_root・unsure のどれか。not_root なら real_root に本当の根（見つけた所のパスと名と、そこが根と"
             "言える理由）を書く。単位どうしの重なりは別の下請けが見る。(2) 証拠（evidence_found・evidence）: 判定の理由が言う事実を根拠のコードで確かめたか。確かめた所と見た事を"
             "書く。(3) 場所（location_ok・location）: 単位の key が名指すパスと名が直す所か。違えば正しい場所を location に書く"
             "（合っていれば同じ場所）。答えは下の JSON Schema に合う JSON 1 つにして、" + ANSWER_AT + "（このファイルのほかに書かない）。"
             "書いたら最後のメッセージに 1 行だけ返せ: `単位 {n}: <verdict>`。\n\n```json\n{schema}\n```")
-SYNERGY_HEAD = "## お前の確かめ: 単位どうしの相乗り"
+VIEW_HEAD = promptsection.Section("## 判定者の見立て", source="fn:judgeverify._head")
+SYNERGY_HEAD = promptsection.Section("## お前の確かめ: 単位どうしの相乗り", source="fn:judgeverify.prep_on")
 SYNERGY_ASK = ("1 つの単位の中の確かめは別の下請けがする。お前は単位どうしの関わりだけを見る: duplicates（同じ根の別の現れ・同じ直しで"
                "閉じる）・relations（place で 2 つに分ける。same＝同じ行・同じ塊を変える、か片方の直しがもう片方の前提（名・型・"
                "呼び方）を変える。apart＝同じファイル・同じ試験のファイルの別の所（別の関数・別のクラス・別のクラスに足すテスト）を"
@@ -79,12 +81,12 @@ SYNERGY_ASK = ("1 つの単位の中の確かめは別の下請けがする。�
                "直さないともう片方を直せない・試せない）。単位は下の番号で名指す。無ければ空の配列にし、why に見た事と無い理由を"
                "書く。答えは下の JSON Schema に合う JSON 1 つにして、" + ANSWER_AT + "（このファイルのほかに書かない）。書いたら"
                "最後のメッセージに 1 行だけ返せ: `相乗り: 重複 <数>・関わり <数>・順番 <数>`。\n\n```json\n{schema}\n```")
-AGG = ("# 判定の単位の裏取りの束ね役（機械が書いた）\n\n"
-       "お前は束ね役。単位を自分で見ずに、下の下請けのファイルごとに Agent の道具で下請けを 1 つずつ起こせ。下請けの呼びは"
-       " 1 つのメッセージに全部並べよ（同時に走る）。subagent_type は全部 " + SUBAGENT_TYPE + "（ほかの型を使わない）。各下請けへの"
-       "頼みは「<ファイル> を Read で読み、その指示に従え」の 1 行でよい。下請けは読むだけで、答えはファイルに書き（どこに書くかは"
-       "ファイルが名指す。作業ツリーは変えない）、最後に 1 行の要約を返す。答えのファイルは機械が確かめてまとめるので、お前は"
-       "答えの中身を写さない。")
+AGG = promptsection.Section("# 判定の単位の裏取りの束ね役（機械が書いた）\n\n"
+                            "お前は束ね役。単位を自分で見ずに、下の下請けのファイルごとに Agent の道具で下請けを 1 つずつ起こせ。下請けの呼びは"
+                            " 1 つのメッセージに全部並べよ（同時に走る）。subagent_type は全部 " + SUBAGENT_TYPE + "（ほかの型を使わない）。各下請けへの"
+                            "頼みは「<ファイル> を Read で読み、その指示に従え」の 1 行でよい。下請けは読むだけで、答えはファイルに書き（どこに書くかは"
+                            "ファイルが名指す。作業ツリーは変えない）、最後に 1 行の要約を返す。答えのファイルは機械が確かめてまとめるので、お前は"
+                            "答えの中身を写さない。", source="fn:judgeverify.prep_on")
 AGG_REPLY = "下請けが全部返ったら、返答は次の JSON Schema に合う JSON だけにせよ（summary に下請けの 1 行の要約を並べる）:"
 
 
@@ -176,7 +178,7 @@ def _unit_row(u: dict) -> dict:
 
 def _head(judgment: dict) -> str:
     view = {k: judgment[k] for k in ("framing", "one_shot") if isinstance(judgment.get(k), str)}
-    return "\n\n".join(x for x in (TITLE, SUB_HEAD, RULES, f"## 判定者の見立て\n\n```json\n{json.dumps(view, ensure_ascii=False, indent=1)}\n```"
+    return "\n\n".join(x for x in (TITLE, SUB_HEAD, RULES, f"{VIEW_HEAD}\n\n```json\n{json.dumps(view, ensure_ascii=False, indent=1)}\n```"
                                    if view else "") if x)
 
 
@@ -188,6 +190,16 @@ def _initial(units: list) -> dict:
 def _clear(b) -> None:
     for name in (VERIFY_FILE, PLAN_FILE):
         b.work(name).unlink(missing_ok=True)
+
+
+ALL_UNITS_HEAD = promptsection.Section("### 単位の全部\n\n", source="fn:judgeverify.prep_on")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
+RECEIVES = [
+    promptsection.Receive("judge-verify", head, when) for head, when in (
+        (UNIT_HEAD, "judgeverify.prep_on"), (TITLE, "judgeverify._head"), (RULES, "judgeverify._head"), (VIEW_HEAD, "judgeverify._head"),
+        (SYNERGY_HEAD, "judgeverify.prep_on"), (AGG, "judgeverify.prep_on"), (ALL_UNITS_HEAD, "judgeverify.prep_on"))
+]
 
 
 def prep_on(b, judgment, repo, verify: str = "") -> dict:
@@ -217,7 +229,7 @@ def prep_on(b, judgment, repo, verify: str = "") -> dict:
         files.append(f"- 単位 {n}: {path}")
     syn = b.work(f"{BRIEF_DIR}/synergy.md")
     rows = "\n".join(f"- 単位 {n}: {json.dumps(_unit_row(u), ensure_ascii=False)}" for n, u in enumerate(units, 1))
-    syn.write_text("\n\n".join([head, SYNERGY_HEAD, "### 単位の全部\n\n" + rows,
+    syn.write_text("\n\n".join([head, SYNERGY_HEAD, ALL_UNITS_HEAD + rows,
                                 SYNERGY_ASK.format(answer=synergy_file(b), schema=json.dumps(synergy_schema(), ensure_ascii=False))])
                    + "\n", encoding="utf-8")
     files.append(f"- 相乗り: {syn}")

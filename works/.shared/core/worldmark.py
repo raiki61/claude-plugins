@@ -40,6 +40,7 @@ import pathlib
 import cite   # 依頼の引用「…」の形と語（決め手の出どころの照らしの住処）
 import marks  # 返答の足し欄の住処（種 means）
 import planmarks  # 修正案の欄 structure の答えの仕組み（答えの要る行の表 Need）
+import promptsection
 
 WORLD_FILE = "world.jsonl"
 STATE_FILE = "world-state.json"
@@ -54,7 +55,7 @@ VERSUS_FIELDS = ("proposed", "verdict", "challenge")
 ANSWER_KEY = "world"   # 修正案の項目の欄 structure の答えの行で類の id を持つ鍵
 SOURCE_PREFIX = "world:"   # 判定の先例の出どころで世界の行を指す頭の字（world:<類の id>）。ANSWER_KEY とは別の約束
 VERDICT_WORDS = {SAME: "定石と同じ", DIFFERS: "定石と違う", NONE: "依頼は解き方を示していない"}
-HEAD = "## 世界の解の行（依頼の行ごとの問題の類・世の中の定石・依頼の解き方との比べ）"
+HEAD = promptsection.Section("## 世界の解の行（依頼の行ごとの問題の類・世の中の定石・依頼の解き方との比べ）", source="fn:worldmark.section")
 PLAN_ASK = ("当たる所の在る行（答えの要る行）は、行ごとにどれかの項目が、定石に従う（{world: <類の id>, follows: true}）"
             "か、従わない訳（{world: <類の id>, deviation: <訳と出どころ>}）を項目の works の欄 structure に書け（どの項目も"
             "答えていない行は受け付けが拒む）。依頼の解き方は定石と比べて疑う案で、決め手にならない——依頼そのものを出どころにした外れは修正前の関所で人に回る。"

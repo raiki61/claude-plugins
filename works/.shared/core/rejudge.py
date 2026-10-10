@@ -43,6 +43,7 @@ from engine.util import TERMINAL_STATUS, AnswerReject, now, safe_name  # noqa: E
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import querytest  # noqa: E402
 import reads  # noqa: E402
 import rolekit  # noqa: E402
@@ -66,7 +67,9 @@ BEFORE_PREFIX = "rejudge-units-before-"
 # collect へ渡す（Archon は max_iterations に達した輪を failed にし、後ろの節を全部止めるため。裁定 R50）。
 # tests/test_blk_rejudge.py が YAML の max_iterations と同じかを見る
 GIVE_UP_AFTER = 3
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:rejudge.prep")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。この役の指示書を組むのはこのモジュール
+RECEIVES = [promptsection.Receive("rejudge", REJECT_HEADING, "rejudge.prep")]
 ADAPTER_HOME_ENV = "WORKS_ADAPTER_HOME"
 PROMPTS_COPY = rolekit.PROMPTS_COPY
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")

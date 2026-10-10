@@ -50,6 +50,7 @@ from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.util import Reject, dump, safe_name  # noqa: E402
 from engine.validator import agent_def as _engine_agent_def, env_root  # noqa: E402
 import entry  # noqa: E402
+import promptsection  # noqa: E402
 import script_io  # noqa: E402
 
 PROMPTS_COPY = _CORE / "gl-prompts"   # 写しと同じ commit から写した本線の指示書（graphloops/ と同じ並び）
@@ -201,15 +202,18 @@ def role_definition(b, nid) -> tuple:
     return d["body"], d["file"], ""
 
 
+ROLE_DEF_HEAD = promptsection.Section("## お前の役の定義（{agent}）", source="fn:rolekit.with_role_definition")
+
+
 def with_role_definition(b, nid, prompt: str) -> tuple:
     """描いた指示書の頭に役の定義を置く。返り (指示書, 定義のファイル, 無い時の知らせ)"""
     body, def_file, missing = role_definition(b, nid)
     if body:
-        prompt = f"## お前の役の定義（{agent_type_of(b, b.nodes[nid])}）\n\n{body}\n\n---\n\n{prompt}"
+        prompt = f"{ROLE_DEF_HEAD.format(agent=agent_type_of(b, b.nodes[nid]))}\n\n{body}\n\n---\n\n{prompt}"
     return prompt, def_file, missing
 
 
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:rolekit.with_reject")
 
 
 def with_reject(prompt: str, reason: str) -> str:

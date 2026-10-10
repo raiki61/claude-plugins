@@ -54,6 +54,7 @@ import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインのモジュール）
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 
@@ -67,7 +68,9 @@ FREEZE = "spec.freeze"
 GIVE_UP_AFTER = 3
 STOP_BY = stopby.declare("spec", "仕様の輪が諦めた・固まらなかった")   # collect が盤面を止める by
 GATE_BY = "human:spec-gate"             # 出口の approved_by（人が関所 spec-gate で承認した。境の節の MID_GATE_BY と同じ名づけ）
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:specblk.prep")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
+RECEIVES = [promptsection.Receive(role, REJECT_HEADING, "specblk.prep") for role in ("spec-write", "spec-review", "spec-revise")]
 REJECTS = "spec-rejects.json"           # 今の周の作業ファイル（b.work）
 SPEC_FILE = "spec.json"                 # 出口が書く record.process.spec の写し（b.work）
 PROMPTS = BLK / "prompts"               # 本線 a1202d0 の指示書の写し（COPIED_FROM）

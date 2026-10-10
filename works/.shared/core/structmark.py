@@ -26,11 +26,12 @@ import pathlib
 
 import concepthome
 import planmarks   # 修正案の外れの訳の文の住処（answer_line）
+import promptsection
 
 STATE_FILE = "structure-state.json"
 AFTER_FILE = "structure-after.json"
 MISSING = "構造の目の行なしで計画した"
-PLAN_HEAD = "## 構造の目の行（設計を知らない次の人が足す形が増えないかを別の目が見た判定。機械が貼った）"
+PLAN_HEAD = promptsection.Section("## 構造の目の行（設計を知らない次の人が足す形が増えないかを別の目が見た判定。機械が貼った）", source="fn:structmark.plan_section")
 DIRTY = "汚れる"           # 設計の行の verdict の語（約束は構造のブロックの設計の行の型の enum）
 ROUTE_UP = "人に上げる"    # 設計の行の route の語（同じ約束。関所の項目にする行。gatemarks が読む）
 PLAN_ASK = ("汚れると見た行の単位を持つ項目は、行ごとに避け方（chosen）に従うか、従わない訳を、項目の works の欄 structure に書け"

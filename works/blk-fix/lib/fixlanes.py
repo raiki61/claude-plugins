@@ -59,6 +59,7 @@ import fixrules  # noqa: E402  （修正役の決まりの組み立て・直す�
 import lanekit  # noqa: E402  （並べの枝の部品: 切る・印・指しの確かめ・当てる・記録の写し・申し出・片付け。TDD の輪の並べと共通）
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 import seat  # noqa: E402
@@ -270,6 +271,9 @@ def _ask(b, repo, values: dict, n: int, tree: pathlib.Path, base: str) -> tuple:
     return fixrules.ask_text(path, sys.executable) + (f"\n\n{fixrules.RIPPLE_LINE.format(path=ripple)}" if ripple else ""), str(path)
 
 
+LANE_TITLE = promptsection.Section("# 修正役の並べの枝 {n} の {j} 番目の項目（修正案の項目 {item}）", source="fn:fixlanes._item")
+
+
 def _item(b, repo, values, c, n, j, earlier, later, tree, base, docs, lang, ask, place) -> dict:
     """枝 n の j 番目の項目の決まりのファイルと審査役のファイルを書き、枝の控えの項目の行を返す。earlier・later は同じ枝の前・後の項目
     （審査の差分は枝の base からなので、前の項目の直しも入ると決まりと審査のファイルに書く）"""
@@ -283,7 +287,7 @@ def _item(b, repo, values, c, n, j, earlier, later, tree, base, docs, lang, ask,
     lane = fixrules.lane_text({"item": str(item), "units": "・".join(units), "tree": str(tree), "run_tree": str(repo),
                                "diff_cmd": seat.g1_diff_cmd(base, patch, str(tree)), "review_file": str(review),
                                "give_up": str(GIVE_UP_AFTER)}, later, earlier)
-    title = f"# 修正役の並べの枝 {n} の {j} 番目の項目（修正案の項目 {item}）"
+    title = LANE_TITLE.format(n=n, j=j, item=item)
     text = fixrules.render("fix", 1, fixrules.fix_parts(vals, fixrules.kinds_now(vals, repo), docs, seat_text, "", ask, "", lane),
                            before=[title, head] if head else [title], lang=lang)["text"]
     rules = b.work(RULES_FILE.format(n=n, j=j))
@@ -347,14 +351,20 @@ def _sync_since(lst: dict) -> None:
         _write(path, {**doc, "since": lst["head"]})
 
 
+NEXT_REJECT_HEAD = promptsection.Section("## 前の回の返答を機械が拒んだ理由（直して、返答を丸ごと出し直せ）", source="fn:fixlanes._next_text")
+READ_HEAD = promptsection.Section("## 読む物", source="fn:fixlanes._next_text")
+STEP_TITLE = promptsection.Section("# 修正役の並べの枝 {n} の {j} 番目の項目（修正案の項目 {item}・この項目の {tries} 回目）",
+                                   source="fn:fixlanes._next_text")
+
+
 def _next_text(lst: dict, it: dict) -> str:
     """回ごとの指示書（前の回を拒んだ理由と、項目の決まりのファイルの名指し）"""
     j = lst["cur"] + 1
     first = not lst["tries"] and not lst["reason"]
-    lines = [f"# 修正役の並べの枝 {lst['n']} の {j} 番目の項目（修正案の項目 {it['item']}・この項目の {lst['tries'] + 1} 回目）", ""]
+    lines = [STEP_TITLE.format(n=lst['n'], j=j, item=it['item'], tries=lst['tries'] + 1), ""]
     if lst["reason"]:
-        lines += ["## 前の回の返答を機械が拒んだ理由（直して、返答を丸ごと出し直せ）", "", lst["reason"].rstrip("\n"), ""]
-    lines += ["## 読む物", "",
+        lines += [NEXT_REJECT_HEAD, "", lst["reason"].rstrip("\n"), ""]
+    lines += [READ_HEAD, "",
               f"- この項目の決まり: {it['rules']}——" + ("この項目の最初の回。Read で全部読み、その指示に従え" if first else
                                                      "この項目の間は同じ中身（この会話で読んでいなければ Read で全部読め）"),
               "", "返すのは決まりの「返答の欄」の形の JSON だけ。"]
@@ -406,13 +416,16 @@ def note(found: list, check_id: str, texts) -> None:
             found.append((check_id, t))
 
 
+CHECK_HEAD = promptsection.Section("## {head}（確かめ {cid}・{count} 件）", source="fn:fixlanes.render_rejects")
+
+
 def render_rejects(found: list) -> str:
     """拒否の本文（REJECT_HEAD の後に、表 CHECKS の順に見出しと行）"""
     lines = [REJECT_HEAD]
     for cid, head in CHECKS.items():
         texts = list(dict.fromkeys(t for c, t in found if c == cid))
         if texts:
-            lines.append(f"## {head}（確かめ {cid}・{len(texts)} 件）")
+            lines.append(CHECK_HEAD.format(head=head, cid=cid, count=len(texts)))
             lines += ["  - " + t.replace("\n", "\n    ") for t in texts]
     return "\n".join(lines)
 
@@ -637,12 +650,27 @@ def _outcomes(man: dict, results: dict, back: dict, refused: dict, patched=None)
     return out
 
 
+SUMMARY_TITLE = promptsection.Section("# 修正役の並べの枝の結末（機械が書いた。締めの節 fix-join）", source="fn:fixlanes.summary_text")
+MERGED_HEAD = promptsection.Section("## 当てた項目（直しは run の作業ツリーに在る。changes に枝の返答の行を写す）", source="fn:fixlanes.summary_text")
+BACK_HEAD = promptsection.Section("## 順に戻した項目（この周で直す。下請けの項目に載る）", source="fn:fixlanes.summary_text")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。枝の役は自分の枝の指示書を、締めの後の修正役は結末の文を受ける
+_LANES = ("fix-lane-1", "fix-lane-2", "fix-lane-3")
+RECEIVES = [
+    *(promptsection.Receive(role, head, when) for role in _LANES for head, when in (
+        (LANE_TITLE, "fixlanes._item"), (NEXT_REJECT_HEAD, "fixlanes._next_text"), (READ_HEAD, "fixlanes._next_text"),
+        (STEP_TITLE, "fixlanes._next_text"), (CHECK_HEAD, "fixlanes.render_rejects"))),
+    *(promptsection.Receive(role, head, "fixlanes.summary_text") for role in ("fix", "fix-ruled")
+      for head in (SUMMARY_TITLE, MERGED_HEAD, BACK_HEAD)),
+]
+
+
 def summary_text(doc: dict) -> str:
     """修正役が読む結末の本文（fixrules.LANES_SUMMARY）"""
-    lines = ["# 修正役の並べの枝の結末（機械が書いた。締めの節 fix-join）", ""]
+    lines = [SUMMARY_TITLE, ""]
     merged = [i for i in doc["items"] if i["outcome"] == MERGED]
     back = [i for i in doc["items"] if i["outcome"] == BACK]
-    lines += ["## 当てた項目（直しは run の作業ツリーに在る。changes に枝の返答の行を写す）", ""]
+    lines += [MERGED_HEAD, ""]
     for i in merged or []:
         lines.append(f"- 項目 {i['item']}（枝 {i['lane']}）: 直した単位 {'・'.join(i['changed']) or '（無し）'}。枝の返答 {i['reply']}"
                      f"・変えたファイル {'・'.join(i['files']) or '（無し）'}")
@@ -654,7 +682,7 @@ def summary_text(doc: dict) -> str:
             lines.append(f"  - 申し出が当てた後の作業ツリーで確かめを通らなかった単位（直す義務のまま）: {k}（{why}）")
     if not merged:
         lines.append("- 無い")
-    lines += ["", "## 順に戻した項目（この周で直す。下請けの項目に載る）", ""]
+    lines += ["", BACK_HEAD, ""]
     for i in back or []:
         lines.append(f"- 項目 {i['item']}（枝 {i['lane']}）: {i['why'] or '理由の記録が無い'}"
                      + (f"。前の試みの差分（作業ツリーには当たっていない）: {i['patch']}" if i["patch"] else ""))

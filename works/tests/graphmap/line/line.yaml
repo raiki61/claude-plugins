@@ -39,3 +39,4 @@ nodes:
     with:
       lanes: $start.output.lanes
       peer: 'on'
+      body: $doing.output.body

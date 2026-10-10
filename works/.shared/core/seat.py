@@ -51,6 +51,7 @@ if str(_CORE) not in sys.path:
 
 import adapter  # noqa: E402  （L2。検索語の規律の塊 query_rule を下請けのファイルに載せる）
 import conflict  # noqa: E402  （同じ L3。申し出の種類の語 DIV_KINDS と状態の語の読み替え WORD）
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
@@ -69,8 +70,8 @@ VERDICT_SEAM = "task-review"
 VERDICT_WORDS = {"compliance_pass": ("compliance", "pass"), "compliance_fail": ("compliance", "fail"),
                  "compliance_unverifiable": ("compliance", "unverifiable"),
                  "quality_pass": ("quality", "pass"), "quality_fail": ("quality", "fail")}
-WORDS_HEAD = ("### 判定の語の欄（型の語がどの欄のどの値に当たるかを示すだけ。欄の値は commands/delta-review.md の『2 つの判定』の"
-              "決まりで返答の行から決まり、この表と食い違えば指示書が勝つ）")
+WORDS_HEAD = promptsection.Section("### 判定の語の欄（型の語がどの欄のどの値に当たるかを示すだけ。欄の値は commands/delta-review.md の『2 つの判定』の"
+                                   "決まりで返答の行から決まり、この表と食い違えば指示書が勝つ）", source="fn:seat.words_table")
 # 表の後ろの注の行（型の語に依らずに欄の値が決まる場合。deltamarks.gaps の決まり）: (場合, 欄の値)
 NOTE_ROWS = (("材料の plan_items が空", "`compliance.verdict`: `not_applicable`"),
              ("準拠の行に結ばれない穴が faces に 1 つでも在る", "`quality.verdict`: `fail`"))
@@ -92,7 +93,7 @@ DIVERGENCE_HINT = "\n".join([
     f"食い違いの申し出 conflicts の 1 件で返す。`{conflict.KIND_FIELD}` は起きた場面で次のどれか（欄の決まりは指示書の"
     "『食い違いの申し出』の節）:",
     *(f"- `{k}`: {DIVERGENCE_SCENES[k]}" for k in conflict.DIV_KINDS)])
-HEAD = "## 借りたスキルの座"
+HEAD = promptsection.Section("## 借りたスキルの座", source="fn:seat.section")
 SCENE = "works の修正の段。流れ・機械の関門・commit は線が持つ。TDD の輪で直した単位は輪の要約に在る"
 NO_REPORT_FILE = "ファイルに書かない。返答は指示書の『返答の欄』の JSON"
 WINS = "この指示書の段の約束（返す JSON・機械の関門・段の順）と下の読み替えは、借りた文に勝つ"   # どちらの種類の座も同じ 1 段落
@@ -101,13 +102,14 @@ WINS_OF = {"review": "役の指示書 commands/delta-review.md の約束（返�
                      "借りた文に勝つ"}
 SKILL_LEAD = "Skill の道具で `{skill}` を読み、その手順で進めよ。"   # skill の座だけが WINS の前に足す 1 文
 APPLIES, NOT_APPLIES = "効く所:", "効かない所（従わない）:"
-PROMPT_HEAD = "### 下請けの型（superpowers の {file}。works の節で包んだ物）"
+PROMPT_HEAD = promptsection.Section("### 下請けの型（superpowers の {file}。works の節で包んだ物）", source="fn:seat.section")
 ITEM = "superpowers"   # borrow.json の借りる物の名
 
 # 下請けを回す修正役の節（依頼 243 の 2）
-G1_HEAD = "## 下請けを回す"
+G1_HEAD = promptsection.Section("## 下請けを回す", source="fn:seat.g1_section")
 # 2 つ目からの項目の実装役の prompt の後ろに修正役が足す節の見出し（前の項目の会話の履歴の代わりの引き継ぎ。依頼 243 の 2）
-G1_HANDOFF_HEAD = "## 前の項目の引き継ぎ（修正役が前の項目の実装役の報告から書いた物）"
+G1_HANDOFF_HEAD = promptsection.Section("## 前の項目の引き継ぎ（修正役が前の項目の実装役の報告から書いた物）",
+                                        human="修正役が下請けの頼みに自分で足す節の見出し（機械は貼らず、手順の文が名指す）")
 # 修正役の節に載る 1 段落（修正役の前に TDD の輪が単位を直す。輪で直した単位は項目に載らない。fixrules.prep）
 G1_LOOP_NOTE = ("TDD の輪で直した単位（輪の要約のファイルの「輪で直した単位」）は下の項目に載らない。その単位には下請けを"
                 "起こさず、指示書の『読む物』の TDD の輪の結果のとおり changes に 1 行を書く")
@@ -157,7 +159,7 @@ G1_OVERRIDES = ("下の読み替えの DISPATCH（下請けを起こさない・
                 "下請けを起こす。下請けがさらに下請けを起こすことは無い（どちらの型も禁じる）。読み替えの頭の行の「その prompt に、"
                 "このファイル … を Read せよと書け」も下請けには書かない: 下請けのファイルの末尾の works の決まりが、その代わりに"
                 "下請けの読み替えを持つ")
-G1_SUB_HEAD = "## works の決まり（下請け。上の型の文にも、読み替え unattended.md にも勝つ）"
+G1_SUB_HEAD = promptsection.Section("## works の決まり（下請け。上の型の文にも、読み替え unattended.md にも勝つ）", source="fn:seat.g1_prompt")
 G1_SUB_RULES = (
     "読み替え（.shared/borrow/unattended.md）を読んでも、ぶつかる所はこの決まりが勝つ。審査役も Bash で git の差分を読んでよい"
     "（読み替えの GIT-RANGE の「審査役は Bash を持たない」はこの下請けに当たらない）。",

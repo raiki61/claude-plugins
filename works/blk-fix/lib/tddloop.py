@@ -113,6 +113,7 @@ import seat  # noqa: E402  （.shared/core。借りたスキルの座）
 import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
 import leftovers  # noqa: E402
+import promptsection  # noqa: E402
 from leftovers import Unreadable, git, git_names  # noqa: E402
 
 RULES_GRAPH = "review-loop-tdd.json"
@@ -571,7 +572,7 @@ def _briefs(board_dir: pathlib.Path) -> list:
 
 # 前に済んだ単位の引き継ぎ（依頼 243 の 2）。単位ごとに新しい会話で起こしても、前の単位が何を変えたかを会話の履歴でなく
 # 機械が状態から書いて渡す（prep の今の単位の節の後。並べの枝の 2 つ目からの単位の決まりのファイルにも）
-HANDOFF_HEAD = "## 前の単位の引き継ぎ（機械が状態から書いた物）"
+HANDOFF_HEAD = promptsection.Section("## 前の単位の引き継ぎ（機械が状態から書いた物）", source="fn:tddloop.handoff_lines")
 
 
 def handoff_lines(st) -> list:
@@ -602,7 +603,7 @@ def handoff_lines(st) -> list:
 
 
 # 今の単位と一緒に直す単位（同じ修正案の項目の後の単位。together）の節の見出し（prep と並べの枝の単位の決まりのファイル）
-TOGETHER_HEAD = "## 今の単位と一緒に直す単位（同じ修正案の項目。1 つの brief と 1 つのやり方を共にする）"
+TOGETHER_HEAD = promptsection.Section("## 今の単位と一緒に直す単位（同じ修正案の項目。1 つの brief と 1 つのやり方を共にする）", source="fn:tddloop._together_lines")
 
 
 def _items(st, k) -> set:
@@ -634,6 +635,14 @@ def _together_lines(st, k) -> list:
             "これらの単位を閉じる（別の段は来ない）。", ""] + [f"- {q}" for q in keys] + [""]
 
 
+DO_HEAD = promptsection.Section("## この段ですること", source="fn:tddloop.prep")
+DUTY_HEAD = promptsection.Section("## 直す義務の単位", source="fn:tddloop.prep")
+NOW_HEAD = promptsection.Section("## 今の単位", source="fn:tddloop.prep")
+RUN_HEAD = promptsection.Section("## テストの回し方", source="fn:tddloop.prep")
+REPLY_HEAD = promptsection.Section("## 返す JSON", source="fn:tddloop.prep")
+STEP_TITLE = promptsection.Section("# TDD の輪の指示書（{count} 回目・段 {phase}）", source="fn:tddloop.prep")
+
+
 def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
     置き場の next.md に書き、{prompt_file} を返す。
@@ -652,18 +661,18 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     path = pathlib.Path(st["work"]) / PROMPT
     briefs = _briefs(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     phase = st["phase"]
-    title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
-    lines = ["## この段ですること", "", DO[phase], ""]
+    title = STEP_TITLE.format(count=st['iterations'] + 1, phase=phase)
+    lines = [DO_HEAD, "", DO[phase], ""]
     if phase in ("fix", "refactor") and st.get("test_cmd_gate") == GATE_ON and _cur(st)["unit_key"] not in st.get("light", []):
         lines += [f"緑の後に機械が run の test_cmd（`{st['test_cmd']}`）も走らせる。これも緑にせよ。", ""]
     if phase == "route":
-        lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
+        lines += [DUTY_HEAD, ""] + [f"- {k}" for k in _owed(st)] + [""]
         brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
     else:
         u = st["units"][st["queue"][st["cur"]]]
         both = together(st, u["unit_key"])
         brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]), [u["unit_key"], *both])
-        lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
+        lines += [NOW_HEAD, "", f"- {u['unit_key']}", ""]
         lines += _together_lines(st, u["unit_key"])
         back = ((st.get("lanes") or {}).get("back") or {}).get(u["unit_key"])
         if back:
@@ -675,11 +684,11 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
         left = [q for q in st["queue"][st["cur"] + 1:] if q not in both]
         if left:
             lines += ["この後の tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]
-    lines += ["## テストの回し方", "",
+    lines += [RUN_HEAD, "",
               f"リポジトリの根で `{st['exe']} <JUnit XML の書き先>`（書き先は /tmp の下など作業ツリーの外に）。"
               "機械は名指しを実行器の後ろに絶対パスの node id で足して回す（実行器の既定の一覧の外に書いたテストも載る）。"
               "自分で回す時も同じ形で足せる。", "",
-              "## 返す JSON", "", RETURN[phase], "", RETURN_CONFLICT]
+              REPLY_HEAD, "", RETURN[phase], "", RETURN_CONFLICT]
     vals = {**{k: "" for k in fixrules.TDD_VALUES}, **(values or {}),
             "open_units": json.dumps(_owed(st), ensure_ascii=False)}
     n = st["iterations"] + 1
@@ -1447,16 +1456,34 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     return out
 
 
+RESULT_TITLE = promptsection.Section("# TDD の輪の結果（機械が書いた）", source="fn:tddloop._finish")
+FIXED_HEAD = promptsection.Section("## 輪で直した単位（直さず、changes に 1 行を書け。テストのファイルは変えるな——受け付けが拒む。"
+                                   "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外。修正案の rewrite_tests の名指しは輪で書き換えて凍結した）",
+                                   source="fn:tddloop._finish")
+CONFLICT_HEAD = promptsection.Section("## 食い違いで止めた単位（直すな。輪の後に裁定役が裁き、裁定が理由のファイルで届く）", source="fn:tddloop._finish")
+OUT_HEAD = promptsection.Section("## 直す義務から外れた単位（直すな。not_done に理由を書け）", source="fn:tddloop._finish")
+DIRECT_HEAD = promptsection.Section("## direct の単位（ここで直せ）", source="fn:tddloop._finish")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。輪の役は回ごとの指示書を、輪の後の修正役は輪の結果を受ける
+RECEIVES = [
+    *(promptsection.Receive(role, head, when) for role in ("tdd", "tdd-rest") for head, when in (
+        (DO_HEAD, "tddloop.prep"), (DUTY_HEAD, "tddloop.prep"), (NOW_HEAD, "tddloop.prep"), (RUN_HEAD, "tddloop.prep"),
+        (REPLY_HEAD, "tddloop.prep"), (STEP_TITLE, "tddloop.prep"), (HANDOFF_HEAD, "tddloop.handoff_lines"),
+        (TOGETHER_HEAD, "tddloop._together_lines"))),
+    *(promptsection.Receive(role, head, "tddloop._finish") for role in ("fix", "fix-ruled")
+      for head in (RESULT_TITLE, FIXED_HEAD, CONFLICT_HEAD, OUT_HEAD, DIRECT_HEAD)),
+]
+
+
 def _finish(st, repo) -> None:
     """輪の後の修正役へ渡す summary.md と、凍ったテストのファイルの控え（frozen）"""
     passed = [st["units"][k] for k in st["order"] if st["units"][k]["route"] == "tdd"]
     st["frozen"] = hashes(repo, sorted({f for u in passed for f in u["test_files"]}))
     st["frozen_tree"] = snapshot(repo)
-    lines = ["# TDD の輪の結果（機械が書いた）", ""]
+    lines = [RESULT_TITLE, ""]
     if st["note"]:
         lines += [f"輪を途中で抜けた: {st['note']}", ""]
-    lines += ["## 輪で直した単位（直さず、changes に 1 行を書け。テストのファイルは変えるな——受け付けが拒む。"
-              "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外。修正案の rewrite_tests の名指しは輪で書き換えて凍結した）", ""]
+    lines += [FIXED_HEAD, ""]
     for u in passed:
         lines += [f"- {u['unit_key']}", f"  - 名指しのテスト（機械が赤→緑を確かめた）: {', '.join(u['tests'])}",
                   f"  - テストのファイル: {', '.join(u['test_files'])}", f"  - 直したファイル: {', '.join(u['files'])}",
@@ -1464,12 +1491,12 @@ def _finish(st, repo) -> None:
                   f"  - 整え: {u['refactor']}" + (f"（{u['refactor_why']}）" if u.get("refactor_why") else "")]
     parked = st.get("parked", [])
     if parked:
-        lines += ["", "## 食い違いで止めた単位（直すな。輪の後に裁定役が裁き、裁定が理由のファイルで届く）", ""]
+        lines += ["", CONFLICT_HEAD, ""]
         lines += [f"- {k}: {st.get('parked_why', {}).get(k, '')}" for k in parked]
     if st.get("excused"):
-        lines += ["", "## 直す義務から外れた単位（直すな。not_done に理由を書け）", ""]
+        lines += ["", OUT_HEAD, ""]
         lines += [f"- {k}: {why}" for k, why in st["excused"].items()]
-    lines += ["", "## direct の単位（ここで直せ）", ""]
+    lines += ["", DIRECT_HEAD, ""]
     lines += [f"- {st['units'][k]['unit_key']}: {st['units'][k]['why']}" for k in st["order"] if st["units"][k]["route"] == "direct"]
     (pathlib.Path(st["work"]) / SUMMARY).write_text("\n".join(lines) + "\n", encoding="utf-8")
 

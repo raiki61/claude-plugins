@@ -52,17 +52,48 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
 import planmarks  # noqa: E402
+import promptsection  # noqa: E402
 import structmark  # noqa: E402
 
 LEDGER = "briefs.json"
 NAME = "brief-{n}.md"
-HEAD = "## 要求の正本（brief）"
+HEAD = promptsection.Section("## 要求の正本（brief）", source="fn:planbrief.head_text")
 RESTORED_OP = "brief_restored"
 CUT_OP = "brief_cut"   # 周の 1 回目の cut と切り直しの印（trace）
 RECUT_OP = "brief_recut"   # 差し替えの印の後の切り直しの印 {round, items: [番号…]}（trace。直後に CUT_OP の行）
 BACKGROUND = "背景（参照。brief と食い違えば brief が勝つ。brief が誤りと見たら申し出よ）"
 READ_ALL = "まず Read で全部読め。下の決まりの『brief の決まり（要求の正本と背景）』に従え"
 NONE = "無し"
+_FN = "fn:planbrief.render"
+TITLE = promptsection.Section("# 要求の正本: 修正案の項目 {n}", source=_FN)
+UNITS_HEAD = promptsection.Section("## 直す単位", source=_FN)
+APPROACH_HEAD = promptsection.Section("## やり方（approach）", source=_FN)
+ADDS_HEAD = promptsection.Section("## 足す物（adds）", source=_FN)
+REMOVES_HEAD = promptsection.Section("## 消す物（removes）", source=_FN)
+SHRINK_HEAD = promptsection.Section("## 足さずに閉じる形（shrink_first）", source=_FN)
+NARROWS_HEAD = promptsection.Section("## 狭める能力（narrows）", source=_FN)
+ROUTE_HEAD = promptsection.Section("## 直し方の道（route）", source=_FN)
+TESTS_HEAD = promptsection.Section("## 受け入れのテスト（tests）", source=_FN)
+REWRITE_HEAD = promptsection.Section("## 書き換えてよい既存のテスト（rewrite_tests）", source=_FN)
+REFACTOR_HEAD = promptsection.Section("## 整えの申告（refactor）", source=_FN)
+ALLOWED_HEAD = promptsection.Section("## 書いてよいパス（allowed_paths）", source=_FN)
+OUT_OF_SCOPE_HEAD = promptsection.Section("## 触らない物（out_of_scope）", source=_FN)
+PURPOSE_HEAD = promptsection.Section("## 目的の文（凍結）", source=_FN)
+STRUCTURE_ROW_HEAD = promptsection.Section("## 構造の目の行", source=_FN)
+STRUCTURE_HEAD = promptsection.Section("## 構造の目の行と処方への答え（structure）", source=_FN)
+BACKGROUND_HEAD = promptsection.Section(f"## {BACKGROUND}", source=_FN)
+UNIT_HEAD = promptsection.Section("### {key}", source="fn:planbrief._unit")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。brief の節は、直す役の全部（枝・輪・裁定の後の役）の頭に貼る
+_BRIEFED = ("fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3", "tdd", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "tdd-rest")
+RECEIVES = [
+    *(promptsection.Receive(role, head, "planbrief.render") for role in _BRIEFED for head in (
+        TITLE, UNITS_HEAD, APPROACH_HEAD, ADDS_HEAD, REMOVES_HEAD, SHRINK_HEAD, NARROWS_HEAD, ROUTE_HEAD, TESTS_HEAD, REWRITE_HEAD,
+        REFACTOR_HEAD, ALLOWED_HEAD, OUT_OF_SCOPE_HEAD, PURPOSE_HEAD, STRUCTURE_ROW_HEAD, STRUCTURE_HEAD, BACKGROUND_HEAD)),
+    *(promptsection.Receive(role, UNIT_HEAD, "planbrief._unit") for role in _BRIEFED),
+    *(promptsection.Receive(role, HEAD, "planbrief.head_text") for role in _BRIEFED),
+    *(promptsection.Receive(role, structmark.PLAN_HEAD, "structmark.plan_section") for role in _BRIEFED),
+]
 UNSCOPED = "無し（この案は範囲を決めていない。範囲では縛らない）"   # 範囲の欄の無い項目（依頼 218 より前の案）の範囲の節
 NOT_NOW = "今は直すな"   # brief の行で、項目の単位のうち今直す単位でない物の頭（head_text）
 
@@ -138,9 +169,9 @@ def _refactor(fields: dict) -> str:
 def _unit(key: str, units: dict) -> str:
     u = units.get(key)
     if not isinstance(u, dict):
-        return f"### {key}\n\n判定の記録に無い単位"
+        return f"{UNIT_HEAD.format(key=key)}\n\n判定の記録に無い単位"
     rx = u.get("prescriptions")
-    head = f"### {key}\n\n- label: {u.get('label')}\n- disposition: {u.get('disposition') or NONE}\n- reason: {u.get('reason')}\n"
+    head = f"{UNIT_HEAD.format(key=key)}\n\n- label: {u.get('label')}\n- disposition: {u.get('disposition') or NONE}\n- reason: {u.get('reason')}\n"
     return head + (f"- prescriptions:\n\n```json\n{_json(rx)}\n```" if rx else f"- prescriptions: {NONE}")
 
 
@@ -149,23 +180,23 @@ def render(n: int, item: dict, fields: dict, units: dict, purpose: str, structur
     units は判定の単位の key → 単位、purpose は凍結した目的の文、structure は構造の目の節（structmark.plan_section。空なら無し）"""
     keys = [k for k in item.get("unit_keys") or [] if isinstance(k, str)]
     parts = [
-        f"# 要求の正本: 修正案の項目 {n}",
-        "## 直す単位\n\n" + _bullets(keys, str),
-        f"## やり方（approach）\n\n{item.get('approach') or NONE}",
-        "## 足す物（adds）\n\n" + _bullets(item.get("adds") or [], _add),
-        "## 消す物（removes）\n\n" + _bullets(item.get("removes") or [], str),
-        f"## 足さずに閉じる形（shrink_first）\n\n{item.get('shrink_first') or NONE}",
-        "## 狭める能力（narrows）\n\n" + _bullets(item.get("narrows") or [], _narrow),
-        "## 直し方の道（route）\n\n" + _route(fields),
-        "## 受け入れのテスト（tests）\n\n" + _bullets(fields.get("tests") or [], _test),
-        "## 書き換えてよい既存のテスト（rewrite_tests）\n\n" + _bullets(fields.get("rewrite_tests") or [], _rewrite),
-        "## 整えの申告（refactor）\n\n" + _refactor(fields),
-        "## 書いてよいパス（allowed_paths）\n\n" + _scoped(fields, "allowed_paths", str),
-        "## 触らない物（out_of_scope）\n\n" + _scoped(fields, "out_of_scope", _scope),
-        f"## 目的の文（凍結）\n\n{purpose or NONE}",
-        structure or f"## 構造の目の行\n\n{NONE}",
-        "## 構造の目の行と処方への答え（structure）\n\n" + _bullets(fields.get("structure") or [], planmarks.answer_line),
-        f"## {BACKGROUND}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),
+        TITLE.format(n=n),
+        f"{UNITS_HEAD}\n\n" + _bullets(keys, str),
+        f"{APPROACH_HEAD}\n\n{item.get('approach') or NONE}",
+        f"{ADDS_HEAD}\n\n" + _bullets(item.get("adds") or [], _add),
+        f"{REMOVES_HEAD}\n\n" + _bullets(item.get("removes") or [], str),
+        f"{SHRINK_HEAD}\n\n{item.get('shrink_first') or NONE}",
+        f"{NARROWS_HEAD}\n\n" + _bullets(item.get("narrows") or [], _narrow),
+        f"{ROUTE_HEAD}\n\n" + _route(fields),
+        f"{TESTS_HEAD}\n\n" + _bullets(fields.get("tests") or [], _test),
+        f"{REWRITE_HEAD}\n\n" + _bullets(fields.get("rewrite_tests") or [], _rewrite),
+        f"{REFACTOR_HEAD}\n\n" + _refactor(fields),
+        f"{ALLOWED_HEAD}\n\n" + _scoped(fields, "allowed_paths", str),
+        f"{OUT_OF_SCOPE_HEAD}\n\n" + _scoped(fields, "out_of_scope", _scope),
+        f"{PURPOSE_HEAD}\n\n{purpose or NONE}",
+        structure or f"{STRUCTURE_ROW_HEAD}\n\n{NONE}",
+        f"{STRUCTURE_HEAD}\n\n" + _bullets(fields.get("structure") or [], planmarks.answer_line),
+        f"{BACKGROUND_HEAD}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),
     ]
     return "\n\n".join(parts) + "\n"
 

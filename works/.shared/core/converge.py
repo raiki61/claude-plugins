@@ -49,6 +49,7 @@ import os
 import shutil
 
 import marks
+import promptsection
 
 RECORD = "plan-converge.json"
 PASS_DIR = "plan-converge"
@@ -472,8 +473,12 @@ def _keys(keys) -> str:
     return "、".join(keys) if keys else NONE
 
 
+FACE_HEAD = promptsection.Section("### {key}", source="fn:converge._face_text")
+PASS_HEAD = promptsection.Section("## {n} 往復目の block", source="fn:converge.review_section")
+
+
 def _face_text(f: dict) -> str:
-    return "\n".join([f"### {f['key']}", *(f"- {n}: {f[n]}" for n in FACE_KEYS[1:])])
+    return "\n".join([FACE_HEAD.format(key=f['key']), *(f"- {n}: {f[n]}" for n in FACE_KEYS[1:])])
 
 
 def revise_section(b) -> str:
@@ -502,7 +507,7 @@ def review_section(b) -> str:
     replies = [p.get("answers", []) for p in passes[1:]] + [doc["open"].get("answers", [])]
     parts = [REREVIEW_ASK]
     for p, answers in zip(passes, replies):
-        parts.append(f"## {p['pass']} 往復目の block")
+        parts.append(PASS_HEAD.format(n=p['pass']))
         parts += [_face_text(f) for f in p["faces"]] or [NONE]
         parts.append("修正案の役の答え:\n" + ("\n".join(f"- {a.get('key')}: {a.get('handled')}（{a.get('how')}）"
                                                       for a in answers) or NONE))

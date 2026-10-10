@@ -86,6 +86,7 @@ import gatepolicy  # noqa: E402  （L1。無人の run か）
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
 import planrange  # noqa: E402  （修正案の欄 structure の答えの要る行の表）
+import promptsection  # noqa: E402
 import reads  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
@@ -119,15 +120,17 @@ REVIEW_ASK_REPLAN = ("下は承認済みの修正案の項目の前の形と、�
                      "挙げ直さない。穴は faces に挙げよ。")
 REPLAN_REJECT = "直した項目の返答に誤りが在る（下の行を全部直して出し直せ）:"
 REVIEW_REJECT = "事前審査の返答の型が合わない（下の行を全部直して出し直せ）:"
-ITEM_HEAD = "## 直す項目 {n}（承認済みの修正案の項目の番号）"
-OLD_HEAD = "### 前の項目（承認済み。機械が貼った）"
-NEW_HEAD = "### 直した項目（修正案の役が返した形。機械が貼った）"
-ROW_HEAD = "### 修正の段の申し出と裁定（{id}）"
+ITEM_HEAD = promptsection.Section("## 直す項目 {n}（承認済みの修正案の項目の番号）", source="fn:replan._section")
+OLD_HEAD = promptsection.Section("### 前の項目（承認済み。機械が貼った）", source="fn:replan._section")
+NEW_HEAD = promptsection.Section("### 直した項目（修正案の役が返した形。機械が貼った）", source="fn:replan._section")
+ROW_HEAD = promptsection.Section("### 修正の段の申し出と裁定（{id}）", source="fn:replan._section")
 MAX_TYPE_ERRORS = 10   # 型の外れを並べる行の数（accept の型の拒否と同じ数。残りは件数）
 
 GATE_FILE = "replan-gate.md"       # 関所 replan-gate の文（今の周の作業ファイル）
 NOTES_FILE = "replan-notes.md"     # 修正の前の関所の条件・人の一言と、採った項目の事前審査の穴のうち人に聞く種類でない物（修正役に届ける）
-FIX_NOTES_HEAD = "## 修正の前の関所（policy-gate）で人が答えた条件（1 回目の修正の段と同じく、この段にも効く）"
+FIX_NOTES_HEAD = promptsection.Section("## 修正の前の関所（policy-gate）で人が答えた条件（1 回目の修正の段と同じく、この段にも効く）", source="fn:replan._notes")
+NOTE_HEAD = promptsection.Section("## 人の一言（関所 replan-gate）", source="fn:replan._notes")
+FACES_HEAD = promptsection.Section("## 直した項目 {item}（単位 {units}）の事前審査の穴", source="fn:replan._notes")
 HUMAN_KIND = "replan"              # process.human_items の行の kinds（node は stopby.REPLAN）
 GATE_BY = "human:replan-gate"      # 関所の stop で止めた盤面の by
 PLAN_GAVE_UP_WHY = "修正案の役の直しが 3 回とも拒まれた: {reason}"
@@ -141,7 +144,7 @@ GATE_HEAD = ("案の項目を run の中で直した（{k} 件。人に聞くの
 GATE_DECIDE = "決めてほしいこと: 直した項目を使って修正に戻るか、run を止めるか（止めても 1 回目に直した単位の差分は報告に残る）"
 GATE_HOW = ('答え方: continue "<一言>" で直した項目を使って修正に戻る。stop "<理由>" で run を止める。'
             "approve は continue、reject は stop と同じ")
-GATE_ITEM_HEAD = "## 人に聞く直した項目 {n}（単位 {units}）"
+GATE_ITEM_HEAD = promptsection.Section("## 人に聞く直した項目 {n}（単位 {units}）", human="関所の文の見出し（人が読む。役の指示書には貼らない）")
 DECISIONS = {"continue": "continue", "approve": "continue", "stop": "stop", "reject": "stop"}   # 関所の答えの語 → 当て方
 WIDEN_OP = "replan_widened_unattended"   # 無人の run で範囲を広げるだけの直しを聞かずに通した trace の行 {round, item, units, allowed_paths, out_of_scope}
 WIDEN_LINE = "直した——無人の run なので人に聞かずに範囲を広げた（{what}）"
@@ -667,11 +670,11 @@ def _notes(b, note: str, taken: list, fix_notes="") -> str:
     prior_text = prior.read_text(encoding="utf-8").strip() if prior is not None and prior.is_file() else ""
     parts = [f"{FIX_NOTES_HEAD}\n\n{prior_text}\n"] if prior_text else []
     if note:
-        parts.append(f"## 人の一言（関所 replan-gate）\n\n{note}\n")
+        parts.append(f"{NOTE_HEAD}\n\n{note}\n")
     for row in taken:
         faces = [f for f in (row.get("review") or {}).get("faces") or [] if isinstance(f, dict) and f.get("kind") not in kinds]
         if faces:
-            parts.append(f"## 直した項目 {row['item']}（単位 {_units(row)}）の事前審査の穴\n\n"
+            parts.append(f"{FACES_HEAD.format(item=row['item'], units=_units(row))}\n\n"
                          + "\n".join(f"- [{f.get('kind')}] {f.get('key')}（{f.get('where')}）: {f.get('why')}" for f in faces)
                          + "\n")
     if not parts:

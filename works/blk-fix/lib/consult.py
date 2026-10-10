@@ -65,6 +65,7 @@ import adapter  # noqa: E402   L2。包みの会話の id の置き場（session
 import conflict  # noqa: E402   範囲の相談の trace の行（ASKED_OP）と頼みの欄（CONSULT_FIELD）
 import node_marker  # noqa: E402   答えの節の印
 import planmarks  # noqa: E402   glob の当て方の正本・承認済みの修正案の項目
+import promptsection  # noqa: E402
 import script_io  # noqa: E402   L1。今の scope の根
 
 PEER = "fix-planner"        # 答えの節が継ぐ会話のブロックの中の名（alias が入力 plan_session の会話の id をこの名で写す）
@@ -115,7 +116,7 @@ def answer_format(name: str, fork: bool = False) -> dict:
     return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER, flags=(("fork",) if fork else ()) + (MAP_FLAG,))
 
 
-QUESTION = """\
+QUESTION = promptsection.Section("""\
 # 範囲の相談（修正の段から）
 
 あなたがこの会話で書いた修正案を、別の役が直している。直している側から、範囲の相談が {n} 件来た。範囲を広げるかは仕様の判断で、
@@ -134,9 +135,9 @@ QUESTION = """\
 - tests: 書き換えてよいテストの範囲（頼まれた物の中から。allow の時だけ。期待を実装に合わせるための書き換えは許すな）
 - spec: 直す側が従う仕様の補い（無ければ空）
 - reason: 決めた理由（{min_why} 字以上）
-"""
+""", source="fn:consult.question")
 
-ASK_TEXT = """\
+ASK_TEXT = promptsection.Section("""\
 ## 相談 {n}: 項目 {item}（単位: {units}）
 
 - 項目の今の範囲（allowed_paths）: {allowed}
@@ -145,13 +146,22 @@ ASK_TEXT = """\
 - 書き換えたい既存のテストの範囲（<パス> か <パス>:<行>）: {tests}
 {oos_hits}- 理由（直している側の文）:
 {why}
-"""
+""", source="fn:consult.question")
 
-ANSWER_HEAD = """\
+ANSWER_HEAD = promptsection.Section("""\
 # 範囲の相談の答え（相談の周 {turn}）
 
 前の返答の consult に、修正案を書いた役が答えた（機械が確かめて盤面に残した）。相談ごとの答え:
-"""
+""", source="fn:consult.answer_text")
+ANSWER_ROW_HEAD = promptsection.Section("## 相談（項目 {item}・パス {paths}・テスト {tests}）", source="fn:consult.answer_text")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。相談を受ける修正案の役の会話と、答えを読む修正役
+_ANSWERERS = ("plan-answer", "plan-answer-ruled", "plan-answer-lane-1", "plan-answer-lane-2", "plan-answer-lane-3")
+_ASKERS = ("fix", "fix-lane-1", "fix-lane-2", "fix-lane-3")
+RECEIVES = [
+    *(promptsection.Receive(role, head, "consult.question") for role in _ANSWERERS for head in (QUESTION, ASK_TEXT)),
+    *(promptsection.Receive(role, head, "consult.answer_text") for role in _ASKERS for head in (ANSWER_HEAD, ANSWER_ROW_HEAD)),
+]
 
 
 def _now() -> str:
@@ -491,8 +501,8 @@ def answer_text(turn: int, rows: list) -> str:
     """修正役が読む答えのファイルの本文（相談ごとに 1 節）"""
     lines = [ANSWER_HEAD.format(turn=turn)]
     for r in rows:
-        head = f"## 相談（項目 {r.get('item') or '（無し）'}・パス {('・'.join(r.get('paths') or [])) or '（無し）'}・テスト " \
-               f"{('・'.join(r.get('tests') or [])) or '（無し）'}）"
+        head = ANSWER_ROW_HEAD.format(item=r.get('item') or '（無し）', paths=('・'.join(r.get('paths') or [])) or '（無し）',
+                                      tests=('・'.join(r.get('tests') or [])) or '（無し）')
         if r["status"] == ANSWERED:
             body = [f"- 答え: {r['decision']}"]
             if r["decision"] == ALLOW:

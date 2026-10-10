@@ -36,6 +36,7 @@ if str(_CORE) not in sys.path:
 import carry  # noqa: E402  （依頼の容器の形の住処）
 import script_io  # noqa: E402  （切り替えの入力の語 on・off の読み口）
 import board  # noqa: E402  （置き場の控えの欠けを投げる例外の住処）
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402  （出し直しの輪の拒否の控えと指示書の頭）
 import webget  # noqa: E402  （網の口）
 import worldmark  # noqa: E402  （世界の解の行の住処）
@@ -166,13 +167,18 @@ def _finding_lines(findings) -> list:
     return out
 
 
+FINDINGS_HEAD = promptsection.Section("## 依頼の行（機械が依頼のファイルから抜いた物。これが渡された物の全部）", source="fn:worldblk.classes_prep")
+PURPOSE_HEAD = promptsection.Section("## 目的の文", source="fn:worldblk.classes_prep")
+REPLY_HEAD = promptsection.Section("## 返し方", source="fn:worldblk.classes_prep")
+
+
 def classes_prep(out) -> dict:
     doc = _need(out, INTAKE)
-    lines = ["## 依頼の行（機械が依頼のファイルから抜いた物。これが渡された物の全部）", "", *_finding_lines(doc["findings"]), "",
-             "## 目的の文", "", doc["purpose_text"] or "（渡されていない）", ""]
+    lines = [FINDINGS_HEAD, "", *_finding_lines(doc["findings"]), "",
+             PURPOSE_HEAD, "", doc["purpose_text"] or "（渡されていない）", ""]
     if doc["means"]:
         lines += ["依頼が示した解き方（目的の文から分けた物）:", *[f"- {m}" for m in doc["means"]], ""]
-    lines += ["## 返し方", "",
+    lines += [REPLY_HEAD, "",
               f"- classes に、依頼の行の全部へ 1 つずつ（finding は上の行の番号 1〜{len(doc['findings'])}）",
               "- problem: 依頼の行を、依頼が示した解き方と対象の名（パス・ファイル・関数・欄・環境変数・部品の名・run の id）を外し、"
               "実務家がする作業の言葉で言い直した問題の類の 1 文",
@@ -268,6 +274,17 @@ def _judge_rows(out) -> list:
             for r in rows if r["class_id"] in pl["taken"]]
 
 
+PROBLEMS_HEAD = promptsection.Section("## 問題の類と依頼の解き方（機械が言い直しの返答から抜いた物。これが渡された物の全部）", source="fn:worldblk.judge_prep")
+CLASS_HEAD = promptsection.Section("### 類 {class_id}", source="fn:worldblk.judge_prep")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
+RECEIVES = [
+    *(promptsection.Receive(role, rolekit.REJECT_HEADING, "rolekit.with_reject") for role in ("world-classes", "world-judge")),
+    *(promptsection.Receive("world-classes", head, "worldblk.classes_prep") for head in (FINDINGS_HEAD, PURPOSE_HEAD, REPLY_HEAD)),
+    *(promptsection.Receive("world-judge", head, "worldblk.judge_prep") for head in (PROBLEMS_HEAD, CLASS_HEAD, REPLY_HEAD)),
+]
+
+
 def judge_prep(out) -> dict:
     out = pathlib.Path(out)
     if not (out / JUDGE_INPUT).is_file():
@@ -277,13 +294,13 @@ def judge_prep(out) -> dict:
     by_class = {}
     for r in rows:
         by_class.setdefault(r["class_id"], []).append(r)
-    lines = ["## 問題の類と依頼の解き方（機械が言い直しの返答から抜いた物。これが渡された物の全部）", ""]
+    lines = [PROBLEMS_HEAD, ""]
     for cid, group in by_class.items():
         first = group[0]
-        lines += [f"### 類 {cid}", "", f"- 問題の類: {first['problem']}", f"- 作業: {first['activity']}",
+        lines += [CLASS_HEAD.format(class_id=cid), "", f"- 問題の類: {first['problem']}", f"- 作業: {first['activity']}",
                   *[f"- 検索語: {q}" for q in first["queries"]],
                   *[f"- 依頼の行 {r['finding']} の依頼の解き方: {r['proposed'] or '（示していない）'}" for r in group], ""]
-    lines += ["## 返し方", ""]
+    lines += [REPLY_HEAD, ""]
     if web:
         lines += ["- 検索語で世の中の定石を探し（検索語を足してよいが、対象の名を入れない）、取得の道具で取得したページから抜き書きを運ぶ",
                   "- excerpts に {id, url, excerpt} を並べる。id は x1・x2 … の名前で、返答の中で重ねない",

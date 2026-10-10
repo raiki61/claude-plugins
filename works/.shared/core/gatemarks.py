@@ -90,6 +90,7 @@ import gatepolicy   # 無人の run か（人の関所と無人の方針の住�
 import converge
 import marks
 import planmarks   # 修正案の欄 structure（汚れる行への答え）
+import promptsection
 import scopes
 import startrec   # 始めの記録（盤面の r1/start.json）の読み口
 import structmark  # 構造の目の行（汚れる・人に上げる）
@@ -162,7 +163,7 @@ R4_GATE_NODE = "r4.human_gate"
 # 修正前の関所の行の頭（plan_gate_items と写しの _plan_gate_items が組む形）。r4_gate_items が種類と本文に分ける
 NARROW_HEAD = re.compile(r"修正案 \d+ が狭める能力: ")
 FACE_HEAD = re.compile(r"事前審査の穴 \[([^\]]+)\] [^\n]*?: ")
-CARRIED_HEAD = "## 直す前の関所で人が通した狭まり（機械が貼った）"
+CARRIED_HEAD = promptsection.Section("## 直す前の関所で人が通した狭まり（機械が貼った）", source="fn:gatemarks.carried_section")
 CARRIED_ASK = ("下の行は、直す前の関所で人が通すと答えた（continue）。同じ能力の消えを capability_inventory.lost に、同じ方針との"
                "ぶつかりを policy_conflicts に書くなら、[ ] の種類（regression は lost・policy は policy_conflicts）に合わせ、本文を"
                "一字も変えずに写せ。通した条件を超える消え・別の能力は自分の言葉で書け")

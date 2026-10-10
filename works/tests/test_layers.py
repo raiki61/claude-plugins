@@ -59,6 +59,7 @@ MOD = {
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
     "unittrees": (1, None),   # 修正の単位ごとの小さい git worktree（切る・差分・当てる・片付け。works の物を何も知らない）
     "concepthome": (1, None),  # 判断の 1 軸と考えの住処の観点の文・地図と柵の表の探し方（包みの差し込みの表・blk-plan・blk-eyes・blk-structure が使う。標準ライブラリだけ）
+    "promptsection": (1, None),  # 役の指示書に機械が貼る節の見出しの宣言（Section・Receive・declared_sections。標準ライブラリだけ）
     "gatepolicy": (1, None),  # 人の関所と無人の方針の住処（語・既定・入口の確かめ・始めの記録からの読み・最後の関所を開くか。startrec だけを使う）
     "cite": (1, None),        # 名指しと決め手の出どころが現物に在るかの照らし（conflict と gatemarks が読む。標準ライブラリだけ）
     "marks": (1, None),       # 返答の足し欄の住処（役の型に欄を足す・返答から外す・盤面の控えの置き場と読み書き。標準ライブラリだけ）

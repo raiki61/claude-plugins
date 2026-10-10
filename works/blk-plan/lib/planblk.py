@@ -79,6 +79,7 @@ import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import planrange  # noqa: E402  （修正案の欄 structure の答えの要る行の表）
+import promptsection  # noqa: E402
 import reads  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
@@ -127,7 +128,7 @@ AGENT_OP = "plan_review_agents"         # 読んだ証拠の節が盤面の trac
 # 下請けの型は 1 つ（答えのファイルを Write で書ける型。読むだけの Explore は Write を持たない。run 68f35d6b は往復 1 が
 # general-purpose・往復 2・3 が Explore で、型ごとに道具と深さが違った）
 SUBAGENT_TYPE = "general-purpose"
-AGG_HEAD = "## 束ね役の頼み（項目ごとの下請けを並べる。機械が貼った）"
+AGG_HEAD = promptsection.Section("## 束ね役の頼み（項目ごとの下請けを並べる。機械が貼った）", source="fn:planblk.tree_part")
 AGG_ASK = ("お前は束ね役。案の項目を自分で見ずに、下の下請けのファイルごとに Agent の道具で下請けを 1 つずつ起こせ。下請けの呼びは"
            " 1 つのメッセージに全部並べよ（同時に走る）。subagent_type は全部 " + SUBAGENT_TYPE + "（相乗りの審査も同じ。ほかの型を"
            "使わない）。各下請けへの頼みは「<ファイル> を Read で読み、その指示に従え」の 1 行でよい。"
@@ -142,35 +143,35 @@ AGG_SYNERGY = ("開いた項目の全部が clean なら、同じ往復の最後
 OPEN_HEAD = "開いた項目の下請けのファイル:"
 DONE_HEAD = "済んだ下請け（答えのファイルが機械の確かめを通った。起こし直さない）:"
 REDO_HEAD = "起こし直す下請け（答えのファイルが無いか、機械の確かめを通らなかった。この下請けだけを起こす）:"
-BRIEF_TITLE = "# 事前審査の下請け"
-ITEM_HEAD = "## お前の項目: 項目 {n}"   # 下請けのファイルの共通の頭（全部の項目で同じバイト。プロンプトのキャッシュ）と項目の節の境
+BRIEF_TITLE = promptsection.Section("# 事前審査の下請け", source="fn:planblk.brief_head")
+ITEM_HEAD = promptsection.Section("## お前の項目: 項目 {n}", source="fn:planblk.tree_part")   # 下請けのファイルの共通の頭（全部の項目で同じバイト。プロンプトのキャッシュ）と項目の節の境
 SUB_HEAD = ("お前は修正案の事前審査の下請け（読むだけ。Read・Grep・Glob と web の道具で調べ、Write は下の答えのファイルにだけ使う。"
             "Edit・Bash を使わず、作業ツリーを 1 文字も変えない）。審査の決まり・独立設計・判定者の見立てはこのファイルの頭に、"
             "お前の項目の案・単位・波及の一覧は最後の節に在る。ほかのファイルの指示書を読みに行かなくてよい（根拠のコードは読め）。")
 RULES_FROM = "\nリポジトリ: "   # 描いた事前審査の指示書のうち、下請けに貼る審査の決まりの頭（そこから末尾まで）
 RULES_MISSING = "審査の決まりを切り出せなかった。指示書 {main} の『見ること』『返し方』『人の方針』を Read で読め（そこの束ね役の頼みと返す型はお前への指示でない）"
-SUB_FORMAT = ("## 答え方（全部の下請けで同じ）\n\n項目の下請けは、覆っていない当たりの全部に covered（この項目の範囲で覆っている。"
-              "どこで）・no_effect（影響しない。理由）・block（穴。faces に severity block で挙げる）のどれかで答える（why は当たり"
-              "ごとに 10 字以上。『同上』で済ませない）。faces の unit_keys は項目の unit_keys を字のまま写す（no の整数でなく）。"
-              "resolved は前の往復の block のうち消えた key（無ければ []）。答えは下の JSON Schema に合う JSON 1 つにして、"
-              "最後の節が名指すファイルに Write で書く（そのファイルのほかに書かない。書き直す時も同じファイル）。書いたら最後の"
-              "メッセージに 1 行だけ返す（答えの中身を写さない）。\n\n```json\n{schema}\n```")
+SUB_FORMAT = promptsection.Section("## 答え方（全部の下請けで同じ）\n\n項目の下請けは、覆っていない当たりの全部に covered（この項目の範囲で覆っている。"
+                                   "どこで）・no_effect（影響しない。理由）・block（穴。faces に severity block で挙げる）のどれかで答える（why は当たり"
+                                   "ごとに 10 字以上。『同上』で済ませない）。faces の unit_keys は項目の unit_keys を字のまま写す（no の整数でなく）。"
+                                   "resolved は前の往復の block のうち消えた key（無ければ []）。答えは下の JSON Schema に合う JSON 1 つにして、"
+                                   "最後の節が名指すファイルに Write で書く（そのファイルのほかに書かない。書き直す時も同じファイル）。書いたら最後の"
+                                   "メッセージに 1 行だけ返す（答えの中身を写さない）。\n\n```json\n{schema}\n```", source="fn:planblk.brief_head")
 ANSWER_AT = "Write の道具でファイル {answer} に書け"   # 下請けのファイルが答えの置き場を名指す句（answer_in が引く）
-DIFF_HEAD = "## 前の往復からのこの項目の案の差分（見るのはこの差分と前の block の行き先だけ）"
+DIFF_HEAD = promptsection.Section("## 前の往復からのこの項目の案の差分（見るのはこの差分と前の block の行き先だけ）", source="fn:planblk._diff_part")
 DIFF_ASK = ("前の往復でこの項目を見た審査は、下の前の block のほかに直しへ進めない穴を挙げなかった。今の往復で見るのは (1) 前の block が"
             "消えたか（消えたなら resolved、残れば同じ key で faces に block）と (2) 下の差分（- が前・+ が今）が作る新しい穴だけ。"
             "差分の外の所を見直して新しい穴を探さない。穴の重さの決まり（block か suggest か）は変えない。")
-CARRIED_HEAD = "## 前の往復で答えた当たり（機械が答えを引き継ぐ。hits に入れなくてよい。差分で答えが変わる物だけ入れ直せ）"
+CARRIED_HEAD = promptsection.Section("## 前の往復で答えた当たり（機械が答えを引き継ぐ。hits に入れなくてよい。差分で答えが変わる物だけ入れ直せ）", source="fn:planblk._carried_part")
 # 先行例の出典の確かめ（見ること 8）は run の中で 1 度だけ: 開く下請けを出典ごとに 1 つに決め、受け付けがその答えの確かめを
 # scope の根の PRECEDENT_CACHE に控え、後の往復・後の周の下請けには控えを貼って開かせない（run 68f35d6b は同じ 2 つの出典を
 # 往復ごとに WebFetch で開き直した）
 PRECEDENT_CACHE = "precedent-checks.json"
-PRECEDENT_HEAD = "## この項目の先行例の出典（判定者の先行例のうち adopt・adapt。見ること 8）"
+PRECEDENT_HEAD = promptsection.Section("## この項目の先行例の出典（判定者の先行例のうち adopt・adapt。見ること 8）", source="fn:planblk._precedent_part")
 PRECEDENT_FETCH = "WebFetch で 1 度だけ開いて確かめ、答えの precedents に {id, found（在り単位の問題に当たっているか）, quote（確かめた一文）} の行を書け"
 PRECEDENT_CACHED = "確かめ済み（控えのとおり。WebFetch で開き直さない。この控えで判定せよ）"
 PRECEDENT_OTHER = "この往復は項目 {m} の下請けが開く（お前は開かない。この出典の穴は項目 {m} の下請けが挙げる）"
 PRECEDENT_VERDICTS = ("adopt", "adapt")
-ERRORS_HEAD = "## 前の答えの誤り（機械の確かめ。この誤りだけを直して同じファイルに書き直せ）"
+ERRORS_HEAD = promptsection.Section("## 前の答えの誤り（機械の確かめ。この誤りだけを直して同じファイルに書き直せ）", source="fn:planblk._errors_part")
 SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が固まる（直しへ進めない穴が無い）まで深く見よ。ほかの項目の穴は挙げない"
                 "（項目どうしの関わりは別の下請けが見る）。答えは頭の『答え方』の型で、" + ANSWER_AT + "。書いたら最後のメッセージに"
                 " 1 行だけ返せ: `項目 {n}: clean` か `項目 {n}: block <key>、<key>`。")
@@ -185,9 +186,9 @@ LATER_NODES = ("p2.human_gate", "p3.lane_merge")   # 役の節 2 つを戻す前
 PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
 STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
              "単位を開く")
-PLAN_SLOTS_HEAD = ("## 案に入れてよい単位の no（機械が受け付けと同じ述語から作った。下の本文の『今の周に直す単位』の見出しと、"
-                   "one_shot_closes に載る単位より、この節が優先する）")
-DESIGN_HEAD = "## 独立設計（修正案を見ない別の目が、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作った理想解。機械が貼った）"
+PLAN_SLOTS_HEAD = promptsection.Section("## 案に入れてよい単位の no（機械が受け付けと同じ述語から作った。下の本文の『今の周に直す単位』の見出しと、"
+                                        "one_shot_closes に載る単位より、この節が優先する）", source="fn:planblk.plan_slots_section")
+DESIGN_HEAD = promptsection.Section("## 独立設計（修正案を見ない別の目が、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作った理想解。機械が貼った）", source="fn:planblk.design_only")
 DESIGN_ASK = ("修正案をこの設計と構造で突き合わせよ——何を固定し何を派生と見るか・どこに継ぎ目を置くか・目的の当事者が日常で回す"
               "動線が閉じるか。構造の本質的な食い違いは faces に kind contract_drift・severity block で挙げ、why を"
               "『独立設計との構造の食い違い: 』で始めよ。表現の違い・設計が触れていない所は食い違いでない（設計は判定の単位も"
@@ -320,9 +321,12 @@ def plan_slots_section(b) -> str:
             f"- 入れてはいけない no（受け付けが拒む）: {'、'.join(shut) or '無し'}")
 
 
-PRESCRIPTION_HEAD = "## 判定の処方（判定役が単位ごとに書いた直し方の案。零処方から並ぶ。機械が判定の記録から貼った）"
+PRESCRIPTION_HEAD = promptsection.Section("## 判定の処方（判定役が単位ごとに書いた直し方の案。零処方から並ぶ。機械が判定の記録から貼った）", source="fn:planblk.prescription_section")
 PRESCRIPTION_ASK = ("案は単位の処方を採れ。採らない処方が在れば、その単位を持つ項目の works の欄 structure に "
                     "{prescription: <単位の key>, deviation: <採らない訳>} を書け（処方の関係・条件を黙って落とさない）。")
+
+
+PRESCRIPTION_UNIT_HEAD = promptsection.Section("### {key}", source="fn:planblk.prescription_section")
 
 
 def prescription_section(b) -> str:
@@ -330,7 +334,7 @@ def prescription_section(b) -> str:
     写しの指示書は単位を名前と label と区分だけで描き、処方を渡さない（利用者の声 D2）"""
     owed, opened, units = plan_slots(b)
     given = planmarks.prescriptions(b)
-    rows = [f"### {k}\n\n" + "\n".join(f"{i}. {x}" for i, x in enumerate(given[k], 1))
+    rows = [f"{PRESCRIPTION_UNIT_HEAD.format(key=k)}\n\n" + "\n".join(f"{i}. {x}" for i, x in enumerate(given[k], 1))
             for k in units if k in owed | opened and k in given]
     return f"{PRESCRIPTION_HEAD}\n\n{PRESCRIPTION_ASK}\n\n" + "\n\n".join(rows) if rows else ""
 
@@ -491,7 +495,7 @@ def _ripple_of(b, k: int):
     return _read_json(b.work(RIPPLE_PASS.format(k=k)))
 
 
-VERIFY_HEAD = "## 判定の単位の裏取り（判定とは別の目が単位ごとに確かめた申し送り。機械が貼った）"
+VERIFY_HEAD = promptsection.Section("## 判定の単位の裏取り（判定とは別の目が単位ごとに確かめた申し送り。機械が貼った）", source="fn:planblk.verify_part")
 VERIFY_ASK = ("単位は直す義務で、この申し送りでは減らない。根本でない・場所が違う・証拠が無いと出た単位も、案から外せない（受け付けが"
               "拒む）。そういう単位は本当の根の単位と同じ項目にまとめるか、approach に申し送りへの答え（どう扱うか）を書け。"
               "重複・同じ所の関わり・順番は項目の組み方に使え（頭の『項目の組み方』の決まりに従う）。別の所の関わり（同じファイルの"
@@ -558,6 +562,9 @@ def _item_rows(b) -> list:
             for r, f in zip(rows + [{}] * (len(fields) - len(rows)), fields + [{}] * (len(rows) - len(fields)))]
 
 
+HISTORY_HEAD = promptsection.Section(f"## この項目の前の往復の block（{converge.REREVIEW_ASK}）", source="fn:planblk._item_history")
+
+
 def _item_history(b, unit_keys: list) -> str:
     """前の往復でこの項目に挙がった block と修正案の役の答え（下請けのファイルに貼る）"""
     doc = converge.read(b)
@@ -574,7 +581,7 @@ def _item_history(b, unit_keys: list) -> str:
                   if isinstance(a, dict) and a.get("key") in keys]
     if not lines:
         return ""
-    return "\n".join([f"## この項目の前の往復の block（{converge.REREVIEW_ASK}）", *lines])
+    return "\n".join([HISTORY_HEAD, *lines])
 
 
 def answers_dir(b, k: int) -> pathlib.Path:
@@ -924,6 +931,13 @@ def _opened(b, rows: list) -> list:
     return [n for n in (converge.open_items(b) if plan else range(1, len(rows) + 1)) if n <= len(rows)]
 
 
+SYNERGY_HEAD = promptsection.Section("## お前の審査: 相乗りの審査", source="fn:planblk.tree_part")
+ITEM_PLAN_HEAD = promptsection.Section("### 項目 {n} の案", source="fn:planblk.tree_part")
+ITEM_UNITS_HEAD = promptsection.Section("### 項目 {n} の単位（判定）", source="fn:planblk.tree_part")
+ALL_ITEMS_HEAD = promptsection.Section("### 項目の全部（閉じた項目も含む）", source="fn:planblk.tree_part")
+OVERLAPS_HEAD = promptsection.Section("### 項目どうしの重なり（機械が範囲と波及の一覧から引いた）", source="fn:planblk.tree_part")
+
+
 def tree_part(b, main_prompt: pathlib.Path) -> str:
     """束ね役の頼みの節。開いた項目ごとの下請けのファイルと（項目が 2 つ以上なら）相乗りの審査のファイルを今の往復の
     ITEMS_DIR に書き、その置き場を並べる（下請けの答えの置き場 answers_dir も作る）。下請けのファイルは共通の頭（brief_head）と
@@ -952,8 +966,8 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
         it = rows[n - 1]
         body = "\n\n".join(x for x in (
             head, ITEM_HEAD.format(n=n), SUB_ITEM_ASK.format(n=n, answer=answer_file(b, k, n)),
-            f"### 項目 {n} の案\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
-            f"### 項目 {n} の単位（判定）\n\n```json\n{json.dumps(_item_units(b, it.get('unit_keys')), ensure_ascii=False, indent=1)}\n```",
+            f"{ITEM_PLAN_HEAD.format(n=n)}\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
+            f"{ITEM_UNITS_HEAD.format(n=n)}\n\n```json\n{json.dumps(_item_units(b, it.get('unit_keys')), ensure_ascii=False, indent=1)}\n```",
             _precedent_part(pre.get(n) or [], n), ripple.section(doc, n), _carried_part(b, n, doc), _item_history(b, it.get("unit_keys") or []),
             _diff_part(b, n), _errors_part(n, answer_file(b, k, n), errs) if errs else "") if x)
         path.write_text(body + "\n", encoding="utf-8")
@@ -974,10 +988,10 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
                   f"{json.dumps(it, ensure_ascii=False)}" for n, it in enumerate(rows, 1)]
         over = "\n".join(f"- {o['at']}: 項目 {', '.join(map(str, o['items']))}" for o in doc.get("overlaps") or []) or "- 無い"
         syn.write_text("\n\n".join([
-            head, "## お前の審査: 相乗りの審査",
+            head, SYNERGY_HEAD,
             SUB_SYNERGY_ASK.format(answer=synergy_file(b, k), schema=json.dumps(synergy_schema(), ensure_ascii=False)),
-            "### 項目の全部（閉じた項目も含む）\n\n" + "\n".join(states),
-            "### 項目どうしの重なり（機械が範囲と波及の一覧から引いた）\n\n" + over]) + "\n", encoding="utf-8")
+            f"{ALL_ITEMS_HEAD}\n\n" + "\n".join(states),
+            f"{OVERLAPS_HEAD}\n\n" + over]) + "\n", encoding="utf-8")
         parts.append(AGG_SYNERGY.format(path=syn))
     return "\n\n".join(parts)
 
@@ -1390,3 +1404,69 @@ def collect(board_dir, replan: str = "", repo=None) -> dict:
     idx = b.work(READS_INDEX)
     out["reads_file"] = str(idx) if idx.exists() else ""
     return out
+
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。節の字と出どころは各定数の Section が持つ
+_WRITERS = ("plan", "plan-revise")
+_ROLES = (*_WRITERS, "plan-review", "r2-design")
+RECEIVES = [
+    *(promptsection.Receive(role, head, when) for role in _WRITERS for head, when in (
+        (PLAN_SLOTS_HEAD, "planblk.plan_slots_section"),
+        (PRESCRIPTION_HEAD, "planblk.prescription_section"),
+        (PRESCRIPTION_UNIT_HEAD, "planblk.prescription_section"),
+        (VERIFY_HEAD, "planblk.verify_part"),
+        (ripple.UNITS_HEAD, "ripple.units_section"),
+        (ripple.UNIT_HEAD, "ripple.units_section"),
+        (structmark.PLAN_HEAD, "structmark.plan_section"),
+        (carry.PRIOR_HEAD, "carry.prior_section"),
+        (converge.FACE_HEAD, "converge._face_text"))),
+    promptsection.Receive("plan", worldmark.HEAD, "worldmark.section"),
+    promptsection.Receive("plan", replan_mod.ITEM_HEAD, "replan._section"),
+    promptsection.Receive("plan", replan_mod.OLD_HEAD, "replan._section"),
+    promptsection.Receive("plan", replan_mod.ROW_HEAD, "replan._section"),
+    *(promptsection.Receive("plan-review", head, when) for head, when in (
+        (DESIGN_HEAD, "planblk.design_only"),
+        (planmarks.REVIEW_HEAD, "planmarks.review_section"),
+        (planmarks.FIELDS_ITEM_HEAD, "planmarks.review_section"),
+        (planmarks.DEVIATION_HEAD, "planmarks.review_section"),
+        (AGG_HEAD, "planblk.tree_part"),
+        (ITEM_HEAD, "planblk.tree_part"),
+        (SYNERGY_HEAD, "planblk.tree_part"),
+        (ITEM_PLAN_HEAD, "planblk.tree_part"),
+        (ITEM_UNITS_HEAD, "planblk.tree_part"),
+        (ALL_ITEMS_HEAD, "planblk.tree_part"),
+        (OVERLAPS_HEAD, "planblk.tree_part"),
+        (BRIEF_TITLE, "planblk.brief_head"),
+        (SUB_FORMAT, "planblk.brief_head"),
+        (DIFF_HEAD, "planblk._diff_part"),
+        (CARRIED_HEAD, "planblk._carried_part"),
+        (PRECEDENT_HEAD, "planblk._precedent_part"),
+        (ERRORS_HEAD, "planblk._errors_part"),
+        (HISTORY_HEAD, "planblk._item_history"),
+        (ripple.HEAD, "ripple.section"),
+        (ripple.ITEM_HEAD, "ripple.item_text"),
+        (ripple.ITEM_KEYS_HEAD, "ripple.item_text"),
+        (converge.PASS_HEAD, "converge.review_section"),
+        (converge.FACE_HEAD, "converge._face_text"),
+        (replan_mod.ITEM_HEAD, "replan._section"),
+        (replan_mod.OLD_HEAD, "replan._section"),
+        (replan_mod.ROW_HEAD, "replan._section"),
+        (replan_mod.NEW_HEAD, "replan._section"))),
+    *(promptsection.Receive(role, head, when) for role in ("plan", "plan-review") for head, when in (
+        (libdocs.TITLE, "libdocs.section"),
+        (libdocs.DOC_TITLE, "libdocs._local_text"),
+        (libdocs.FRAGMENT_HEAD, "libdocs._local_text"),
+        (libdocs.LIB_HEAD, "libdocs._render"))),
+    *(promptsection.Receive("r2-design", head, when) for head, when in (
+        (design.DESIGN_PREMISE_HEAD, "design.prep"),
+        (design.HUMAN_HEAD, "design.human_answers"),
+        (design.NAMED_HEAD, "design.named_sections"),
+        (design.NAMED_BODY_HEAD, "design.named_sections"),
+        (design.MAP_HEAD, "design.repo_map"),
+        (design.MAP_FILE_HEAD, "design.repo_map"))),
+    *(promptsection.Receive(role, head, when) for role in _ROLES for head, when in (
+        (rolekit.ROLE_DEF_HEAD, "rolekit.with_role_definition"),
+        (rolekit.REJECT_HEADING, "rolekit.with_reject"))),
+    *(promptsection.Receive(role, head, "concepthome.section") for role in ("plan", "plan-review")
+      for head in (concepthome.MAP_FOUND_HEAD, concepthome.MAP_NONE_HEAD)),
+]

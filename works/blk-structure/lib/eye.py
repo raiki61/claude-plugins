@@ -29,6 +29,7 @@ _CORE = pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 import concepthome  # noqa: E402  （判断の 1 軸と目の問いの文の住処）
+import promptsection  # noqa: E402
 
 EYE_FILE = "eye.json"
 PROMPT_FILE = "eye-prompt-{n}.md"
@@ -117,13 +118,22 @@ def view(doc: dict) -> dict:
     return out
 
 
+REJECT_HEAD = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:eye.render")
+ASK_HEAD = promptsection.Section("## 問い", source="fn:eye.render")
+SHAPES_HEAD = promptsection.Section("## 見る形（番号で答える）", source="fn:eye.render")
+REPLY_HEAD = promptsection.Section("## 返し方", source="fn:eye.render")
+UNITS_HEAD = promptsection.Section("## 単位と実測（structure.json から機械が抜いた物。これが渡された物の全部）", source="fn:eye.render")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
+RECEIVES = [promptsection.Receive("structure-eye", head, "eye.render") for head in (REJECT_HEAD, ASK_HEAD, SHAPES_HEAD, REPLY_HEAD, UNITS_HEAD)]
+
+
 def render(doc: dict, rejected: str = "") -> str:
     lines = []
     if rejected:
-        lines += ["## 前の回の受け付けが拒んだ理由", "", rejected, "", "ここを直した返答を丸ごと出し直せ（直した所だけを返すな）。", ""]
-    lines += ["## 問い", "", concepthome.EYE_ASK, "",
-              "## 見る形（番号で答える）", "", *[f"{i}. {f}" for i, f in enumerate(FORMS, 1)], "",
-              "## 返し方", "",
+        lines += [REJECT_HEAD, "", rejected, "", "ここを直した返答を丸ごと出し直せ（直した所だけを返すな）。", ""]
+    lines += [ASK_HEAD, "", concepthome.EYE_ASK, "",
+              SHAPES_HEAD, "", *[f"{i}. {f}" for i, f in enumerate(FORMS, 1)], "",
+              REPLY_HEAD, "",
               "- 下の単位の全部に 1 行ずつ（汚れないと見た単位も黙って通さない）。unit_id は単位の id をそのまま写す",
               f"- verdict は {'・'.join(VERDICTS)} のどちらか。faces は当たった形の番号（汚れるなら 1 つ以上）",
               "- evidence は根拠にした実測の欄を、下の JSON（units の配列と timing）の中を指す JSON Pointer（RFC 6901。例 /units/0/measure）で"
@@ -138,7 +148,7 @@ def render(doc: dict, rejected: str = "") -> str:
               "- 単位の concepts.rows は単位のファイルに当たる考えの地図の行、concepts.places は単位のファイルに在る考えの語の行の数"
               "（home は住処か知ってよい所か・known_places はその考えを知る場所の数）。rules は対象の方針と根の地図の文書",
               f"- duplicates は先頭 {DUP_SHOWN} 件だけを載せた。duplicates_total が在れば、それが全件の数", "",
-              "## 単位と実測（structure.json から機械が抜いた物。これが渡された物の全部）", "",
+              UNITS_HEAD, "",
               "```json", json.dumps(view(doc), ensure_ascii=False, separators=(",", ":")), "```"]
     return "\n".join(lines) + "\n"
 

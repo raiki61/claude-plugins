@@ -27,6 +27,7 @@ import subprocess
 import board  # noqa: E402  （差分の測り diff_of。写しの engine を sys.path に足す）
 import carry  # noqa: E402  （依頼の容器の形 parts）
 import ghreads  # noqa: E402  （run の中の gh の読み出し・盤面の github.json）
+import promptsection  # noqa: E402
 from engine.util import Reject  # noqa: E402
 
 EMPTY_REFUSED = "直す物も審査する物も無い"   # 差分が空で依頼の行も空の入力を拒む文の頭
@@ -130,6 +131,13 @@ def build(inp: dict, repo: pathlib.Path) -> dict:
             "spec": bool(inp.get("spec"))}
 
 
+REQUEST_HEAD = promptsection.Section("## 依頼", source="fn:entryshape.request_text")
+PR_TEXT_HEAD = promptsection.Section("## PR #{number} の題と本文", source="fn:entryshape.request_text")
+PR_TITLE = promptsection.Section("# PR #{number}", source="fn:entryshape.write_pr_file")
+PR_SUBJECT_HEAD = promptsection.Section("## 題", source="fn:entryshape.write_pr_file")
+PR_BODY_HEAD = promptsection.Section("## 本文", source="fn:entryshape.write_pr_file")
+
+
 def request_text(inp: dict) -> str:
     """盤面の依頼の文（DiskBoard.begin の request_text。固定材料の依頼の sha256 もこの文で照らす）。依頼のファイルの文と PR の題・
     本文の在る物を並べる: 両方なら見出し「## 依頼」「## PR #N の題と本文」つき、片方だけならその文のまま（固定材料の sha256 を
@@ -138,7 +146,7 @@ def request_text(inp: dict) -> str:
     pr_text = "\n\n".join(x for x in (pr["title"], pr["body"]) if x) if pr else ""
     req = inp["request_text"]
     if req and pr_text:
-        return f"## 依頼\n\n{req.strip()}\n\n## PR #{pr['number']} の題と本文\n\n{pr_text}\n"
+        return f"{REQUEST_HEAD}\n\n{req.strip()}\n\n{PR_TEXT_HEAD.format(number=pr['number'])}\n\n{pr_text}\n"
     if req or pr_text:
         return req or pr_text
     base = inp.get("base") or {"label": "HEAD"}
@@ -188,7 +196,8 @@ def write_pr_file(board_dir: pathlib.Path, inp: dict) -> str:
     if not pr:
         return ""
     path = pathlib.Path(board_dir) / PR_FILE
-    text = f"# PR #{pr['number']}\n\n## 題\n\n{pr['title'] or '（空）'}\n\n## 本文\n\n{pr['body'] or '（空）'}\n"
+    text = (f"{PR_TITLE.format(number=pr['number'])}\n\n{PR_SUBJECT_HEAD}\n\n{pr['title'] or '（空）'}\n\n"
+            f"{PR_BODY_HEAD}\n\n{pr['body'] or '（空）'}\n")
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)

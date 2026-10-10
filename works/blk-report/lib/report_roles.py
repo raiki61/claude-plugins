@@ -42,6 +42,7 @@ from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import report  # noqa: E402
 import rolekit  # noqa: E402
 
@@ -71,8 +72,9 @@ TEXT_SCHEMA = {"type": "object", "required": ["text"], "additionalProperties": F
 # 輪（loop_group）の max_iterations と同じ数。受け付けがこの数だけ拒んだら諦めの印（done）を出し、輪を失敗で抜けさせずに
 # 後ろへ渡す（裁定 R50）。tests/test_blk_report.py が YAML の max_iterations と同じかを見る
 GIVE_UP_AFTER = 3
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
-MACHINE_HEADING = "## 機械が盤面から組んだ事実（AI は書き換えていない）"
+REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:report_roles.prep")
+FOR_READERS = "人が読む報告の本文の見出し。役の指示書には貼らない"
+MACHINE_HEADING = promptsection.Section("## 機械が盤面から組んだ事実（AI は書き換えていない）", human=FOR_READERS)
 CELL_LIMIT = 50   # 表のセルの字数の上限（`コード` の部分を除く）。持ち主の決まり「セルには数語だけ」
 REPORT_NAME = "report-ai.md"            # 盤面の根。線 A の機械の報告（report.md）とは別の名前
 FACTS_NAME = "report-facts.md"          # 今の周の作業ファイル: 書き手に渡した数の出どころ
@@ -91,16 +93,22 @@ TERMS_NAME = "report-terms.json"        # 今の周の作業ファイル: 書き
 SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツリーの写し（読むだけの役の比べ）
 # pack の語の定義の一覧（terms: [{term, definition}]）
 GLOSSARY = _BLK / "glossary.json"
-GLOSSARY_HEADING = "## 語の定義（機械が付けた。本文の外）"
+FAILED_TITLE = promptsection.Section("# 報告（AI の報告を最後まで作れなかった）", human=FOR_READERS)
+VALIDATOR_TAIL_HEAD = promptsection.Section("## 検証器の出力の末尾（exit {code}）", human=FOR_READERS)
+GLOSSARY_HEADING = promptsection.Section("## 語の定義（機械が付けた。本文の外）", human=FOR_READERS)
 CELL_REASON = ("表のセルに説明の文を入れない（書式の決まり: 表は状態・件数・日付など数語の値の一覧だけ。端末の表は列ごとに"
                f"幅を割るので、長いセルは細切れに折り返されて読めない）。「。」を含むか {CELL_LIMIT} 字を超えるセルが在る——"
                "表をやめて箇条書きか散文にするか、セルを数語に縮めて説明は表の外に書け:\n")
-WRITE_NOTE = ("\n\n---\n## works: 数の出どころ（盤面から機械が組んだ事実）\n\n"
-              "事実のファイル: {path}\n\n"
-              "- 報告に書く数（周・単位・問い・検証器の終了コード・初見検査の件数など）は、このファイルに在る物はこのファイルと同じ値にしろ。"
-              "このファイルに無い数を書くなら、記録のどの欄から数えたかを添えろ\n"
-              "- このファイルは報告の最後に機械がそのまま付ける。写し直すな（同じ数の一覧を本文に並べ直さない）。本文は、その事実の上に"
-              "何が起きたか・何を決めればよいかを足す\n")
+WRITE_NOTE = promptsection.Section("\n\n---\n## works: 数の出どころ（盤面から機械が組んだ事実）\n\n"
+                                   "事実のファイル: {path}\n\n"
+                                   "- 報告に書く数（周・単位・問い・検証器の終了コード・初見検査の件数など）は、このファイルに在る物はこのファイルと同じ値にしろ。"
+                                   "このファイルに無い数を書くなら、記録のどの欄から数えたかを添えろ\n"
+                                   "- このファイルは報告の最後に機械がそのまま付ける。写し直すな（同じ数の一覧を本文に並べ直さない）。本文は、その事実の上に"
+                                   "何が起きたか・何を決めればよいかを足す\n", source="fn:report_roles.prep")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）
+RECEIVES = [
+    *(promptsection.Receive(role, head, "report_roles.prep") for role in (WRITE, WRITE_COLD) for head in (REJECT_HEADING, WRITE_NOTE)),
+]
 
 
 def _node(role) -> str:
@@ -554,10 +562,10 @@ def collect(board_dir, machine_report="") -> dict:
     if out["ok"]:
         body = _text_of(b, NODE_OF[WRITE]).strip()
     else:
-        parts = [f"# 報告（AI の報告を最後まで作れなかった）\n\n{out['reason']}"]
+        parts = [f"{FAILED_TITLE}\n\n{out['reason']}"]
         if invalid:
             tail = "\n".join(str(invalid.get("out") or "").splitlines()[-30:])
-            parts.append(f"## 検証器の出力の末尾（exit {invalid.get('exit')}）\n\n```text\n{tail}\n```")
+            parts.append(f"{VALIDATOR_TAIL_HEAD.format(code=invalid.get('exit'))}\n\n```text\n{tail}\n```")
         body = "\n\n".join(parts)
     mark = _read_json(b.work(COLD_MARK_NAME))
     if out["ok"] and mark:

@@ -6,6 +6,7 @@
   ".shared/core/gl-prompts/**": "本流の写し（COPIED_FROM が元の版とのバイトの一致を縛る。写しであることが約束）",
   ".shared/borrow/**": "借りる物の固定の写し（borrow.json の sha256 が元との一致を縛る）",
   "darkfactory/darkfactory.graph.json": "工程の YAML から作った物（dev/graphmap_build.py。手で書かない）",
+  "docs/darkfactory-design.md": "工程の YAML・Section・manifest から作った物（dev/graphmap_build.py。手で書かない）",
   "tests/boards/**": "記録した盤面の手本（試験の材料。書き換えない）",
   "tests/events/**": "記録した出来事の流れ（試験の材料）",
   "tests/adapter/**": "記録した起動の引数と返り（試験の材料）",

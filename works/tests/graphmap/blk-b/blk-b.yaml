@@ -18,6 +18,7 @@ nodes:
           output_format:
             description: 'works-node: lane-1 lane'
             type: object
+            required: [done]
   - id: lane-loop-2
     description: '枝 2 の輪 [needs: lanes]'
     depends_on: [fork]
@@ -32,6 +33,7 @@ nodes:
           output_format:
             description: 'works-node: lane-2 lane'
             type: object
+            required: [done]
   - id: join
     description: '枝を 3 方向で合わせる [needs: lanes]'
     script: join
@@ -50,6 +52,7 @@ nodes:
           output_format:
             description: 'works-node: fixer self-resume'
             type: object
+            required: [ask, done]
         - id: answer
           description: '相談に答える（書いた会話の続き）'
           prompt: 答えよ
@@ -58,6 +61,7 @@ nodes:
           output_format:
             description: 'works-node: answer continue=peer-writer map'
             type: object
+            required: [answer]
         - id: fix-accept
           script: accept
           depends_on: [answer]

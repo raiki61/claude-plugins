@@ -88,6 +88,7 @@ import forge  # noqa: E402
 import holeties  # noqa: E402
 import leftovers  # noqa: E402
 import lens  # noqa: E402
+import promptsection  # noqa: E402
 import reads  # noqa: E402
 import refix  # noqa: E402  （差分の審査の穴の枝の名札 hole_ties・項目 tie_items）
 import scopes  # noqa: E402
@@ -141,10 +142,11 @@ COST_FIELD = ("spend", "costUsd")
 COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
 ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
-PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
-OUTSIDE_HEADING = "## 判定が目的の外とした所見"   # 1 件ずつの行（outpurpose.report_lines）。冒頭 1 は件数の行だけ（outpurpose.count_line）
-WORLD_HEADING = "## 世界の解"   # 依頼の行ごとの定石と依頼の解き方との比べ（worldmark.report_lines。控えの無い run は節を出さない）
-TDD_HEADING = "## TDD の輪の単位ごとの結末"   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
+FOR_READERS = "人が読む報告の本文の見出し。役の指示書には貼らない"
+PRIOR_HEADING = promptsection.Section("## 次の run に引き継ぐ落ちた理由", human=FOR_READERS)
+OUTSIDE_HEADING = promptsection.Section("## 判定が目的の外とした所見", human=FOR_READERS)   # 1 件ずつの行（outpurpose.report_lines）。冒頭 1 は件数の行だけ（outpurpose.count_line）
+WORLD_HEADING = promptsection.Section("## 世界の解", human=FOR_READERS)   # 依頼の行ごとの定石と依頼の解き方との比べ（worldmark.report_lines。控えの無い run は節を出さない）
+TDD_HEADING = promptsection.Section("## TDD の輪の単位ごとの結末", human=FOR_READERS)   # keep-essence の 11（修正のブロックの出口 tdd を、修正の段ごとに単位の行で）
 TDD_STAGES = ("修正の段", "案を直した後の修正の段")   # build の tdd の並び（ラインの report の with の fix_tdd・refit_tdd の順）
 FREEZE_OFF_HEAD = "テストの凍結"   # 冒頭 2 の行の頭（TDD の輪を回していない修正の段は、凍結が効いていないと言う。freeze_lines）
 ACCEPT_WHERE = "受け付け"                  # prior_failures の受け付けの行の where の頭
@@ -168,7 +170,13 @@ REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口�
 REJUDGE_WHERE = "判定（再審の結果）"           # 次の run の依頼の再審の結果の行の where
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
-HEADINGS = ("## 1. 人が決めること", "## 2. 入口・段・決めた人", "## 3. 止めたか", "## 4. 読んだ証拠と包み", "## 5. 見る所")
+DECISIONS_HEADING = promptsection.Section("## 1. 人が決めること", human=FOR_READERS)
+ENTRY_HEADING = promptsection.Section("## 2. 入口・段・決めた人", human=FOR_READERS)
+STOP_HEADING = promptsection.Section("## 3. 止めたか", human=FOR_READERS)
+READS_HEADING = promptsection.Section("## 4. 読んだ証拠と包み", human=FOR_READERS)
+WHERE_HEADING = promptsection.Section("## 5. 見る所", human=FOR_READERS)
+HEADINGS = (DECISIONS_HEADING, ENTRY_HEADING, STOP_HEADING, READS_HEADING, WHERE_HEADING)
+TITLE_HEADING = promptsection.Section("# 報告（run {run}）", human=FOR_READERS)
 WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review",
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
@@ -894,6 +902,9 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
                            other=f"次の run に渡す物: {len(next_items or [])} 件")
 
 
+HEADING_MARK = promptsection.Section("## ", human="見出しの印の字（貼らず、見出しの定数から剥ぐ計算にだけ使う）")
+
+
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit と fixed_needs_check の時の残り（left＝residue の返り）の各行・
@@ -995,7 +1006,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     n = len(next_items or [])
     lines += always_rows(b, left=left)
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
-    outside = outpurpose.count_line(b.dir, next_file, OUTSIDE_HEADING.removeprefix("## "))
+    outside = outpurpose.count_line(b.dir, next_file, OUTSIDE_HEADING.removeprefix(HEADING_MARK))
     if outside:
         lines.append(outside)
     drafts = gatemarks.draft_line(gatemarks.answer_drafts(b), next_file)
@@ -1871,6 +1882,14 @@ def freeze_lines(stages) -> list:
             for name, tdd in stages if isinstance(tdd, dict) and not tdd.get("ran")]
 
 
+MODEL_HEADING = promptsection.Section("## 模型", human=FOR_READERS)
+COST_HEADING = promptsection.Section("## 費用", human=FOR_READERS)
+VERIFIER_HEADING = promptsection.Section("## 周の記録の検証器", human=FOR_READERS)
+STRUCTURE_HEADING = promptsection.Section("## 構造の目", human=FOR_READERS)
+UNSEEN_LENS_HEADING = promptsection.Section("## 未確認のレンズ", human=FOR_READERS)
+ANOMALY_HEADING = promptsection.Section("## 仕組みの異常", human=FOR_READERS)
+
+
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
           failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "",
@@ -1912,23 +1931,23 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
         _write_json(board_dir / NO_TURN_FILE, dead)
     rid = run_id or _start_doc(b, start).get("run_id") or ""
-    body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
+    body = [TITLE_HEADING.format(run=rid or '—'), "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
              head_entry(b, start, cleaned_runs=cleaned_runs, depth_lines=depth_lines, tdd=list(zip(TDD_STAGES, tdd))), head_stop(b, interrupted=interrupted, failed=failed, retried=retried, absorbed=absorbed),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]
     launches = _live_launches(board_dir, launches, b)
-    body += ["## 模型", "", *[f"- {r}" for r in head_models(board_dir, launches)], ""]
-    body += ["## 費用", "", *[f"- {r}" for r in head_cost(board_dir, rid, events=events, launches=launches)], ""]
-    body += ["## 周の記録の検証器", "", f"- 終了コード: {gate['exit']}（受理 {report_accepts(b)}）",
+    body += [MODEL_HEADING, "", *[f"- {r}" for r in head_models(board_dir, launches)], ""]
+    body += [COST_HEADING, "", *[f"- {r}" for r in head_cost(board_dir, rid, events=events, launches=launches)], ""]
+    body += [VERIFIER_HEADING, "", f"- 終了コード: {gate['exit']}（受理 {report_accepts(b)}）",
              f"- 今の周の記録: {'済んだ' if gate['round_closed'] else '済んでいない'}", ""]
     world = worldmark.report_lines(board_dir)   # 世界の解の段は判定の前（構造の目の前）に走る
     if world:
         body += [WORLD_HEADING, "", *world, ""]
     structure = structmark.report_lines(board_dir)
     if structure:
-        body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
+        body += [STRUCTURE_HEADING, "", *[f"- {r}" for r in structure], ""]
     loops = tdd_lines(zip(TDD_STAGES, tdd))
     if loops:
         body += [TDD_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in loops], ""]
@@ -1937,8 +1956,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     if outside:
         body += [OUTSIDE_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in outside], ""]
     # 局所レビュー（P1）の fork のレンズの戻した・見ていない（diverted）を先に、修正の後のレンズ（lens）を後に
-    body += ["## 未確認のレンズ", "", *[f"- {r}" for r in [*diverted.report_lines(board_dir), *lens.report_lines(b)]], ""]
-    body += ["## 仕組みの異常", "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]
+    body += [UNSEEN_LENS_HEADING, "", *[f"- {r}" for r in [*diverted.report_lines(board_dir), *lens.report_lines(b)]], ""]
+    body += [ANOMALY_HEADING, "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True
     return {**_finish_fields(b, judged, outcome), "report_file": str(rep_p), "next_request_file": str(req_p),

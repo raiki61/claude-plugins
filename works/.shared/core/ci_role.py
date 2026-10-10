@@ -63,6 +63,7 @@ from engine.rules import validator_module  # noqa: E402
 from engine.util import AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import script_io  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 from rolekit import parse_reply, script_main  # noqa: E402,F401  （スクリプトの入口と返答の読み方は共通の rolekit）
@@ -74,7 +75,9 @@ OUTPUT_FORMAT = node_marker.mark(role_schema(NODES[0]), ROLE, flags=(NO_TREE_WRI
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（tests/test_blk_ci.py が YAML と突き合わせる）
 NO_ADAPTER_NOTE = ("包み無し（adapter: optional）: CI の任せ先の役は graphloops の任せ先と同じ守り（sandbox だけ。作業ツリーの柵は"
                    "無い）で走った")
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:ci_role.prep")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。この役の指示書を組むのはこのモジュール
+RECEIVES = [promptsection.Receive(ROLE, REJECT_HEADING, "ci_role.prep")]
 COPY_PREFIX = "works-ci-"               # 写しの置き場（一時の置き場の直下の <COPY_PREFIX><節>-XXXX）の頭。出口はこの形の物だけ消す
 PROMPTS = PACK / "blk-ci" / "prompts"
 REJECTS = "ci-rejects.json"

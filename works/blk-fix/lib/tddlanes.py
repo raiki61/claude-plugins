@@ -66,6 +66,7 @@ import entry  # noqa: E402
 import fixrules  # noqa: E402  （項目の範囲 item_ranges・決まりのファイルの組み立て）
 import lanekit  # noqa: E402  （並べの枝の部品: 切る・印・指しの確かめ・当てる・記録の写し・片付け。修正役の並べと共通）
 import planbrief  # noqa: E402
+import promptsection  # noqa: E402
 import seat  # noqa: E402  （借りたスキルの座）
 import tddloop  # noqa: E402
 import unitlanes  # noqa: E402  （分け方 lanes・切る plant・patch の行先 _names・中身の比べ _same。1 段目の物をそのまま）
@@ -253,7 +254,7 @@ def lane_prep(state_file, n, values: dict | None = None) -> dict:
         raise tddloop.Broken(f"TDD の輪の座を組めない: {e}") from None
     brief_file = pathlib.Path(row["files"][j - 1])
     text = fixrules.tdd_lane_render(vals, unit_text(st, row, j, lst),
-                                    title=f"# TDD の輪の並べの 1 単位（枝 {row['n']} の {j} 番目・単位 {k}）",
+                                    title=UNIT_TITLE.format(n=row['n'], j=j, k=k),
                                     brief=planbrief.head_text(planbrief.for_units(briefs, [k]), [k, *tddloop.together(lst, k)]),
                                     seat=seat_text,
                                     lang=fixrules.lang_at(board_dir))
@@ -264,24 +265,35 @@ def lane_prep(state_file, n, values: dict | None = None) -> dict:
     return {"prompt_file": str(prompt), "go": True}
 
 
+NEXT_REJECT_HEAD = promptsection.Section("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）", source="fn:tddlanes._next_text")
+READ_HEAD = promptsection.Section("## 読む物", source="fn:tddlanes._next_text")
+NOW_HEAD = promptsection.Section("## 今の単位と段", source="fn:tddlanes._next_text")
+DO_HEAD = promptsection.Section("## この段ですること", source="fn:tddlanes._next_text")
+REPLY_HEAD = promptsection.Section("## 返す JSON", source="fn:tddlanes._next_text")
+STEP_TITLE = promptsection.Section("# TDD の輪の並べの回ごとの指示書（枝 {n} の {j} 番目の単位・{count} 回目・段 {phase}）",
+                                   source="fn:tddlanes._next_text")
+UNIT_TITLE = promptsection.Section("# TDD の輪の並べの 1 単位（枝 {n} の {j} 番目・単位 {k}）", source="fn:tddlanes.lane_prep")
+PHASE_HEAD = promptsection.Section("### 段 {phase}", source="fn:tddlanes.unit_text")
+
+
 def _next_text(row: dict, lst: dict, j: int, k: str, brief_file: pathlib.Path) -> str:
     """回ごとの指示書（今の段・前の回を拒んだ理由・決まりのファイルの名指し）"""
     phase = lst["phase"]
     u = lst["units"][k]
     fresh = phase == "test" and not lst["tries"] and not u.get("tests")
-    lines = [f"# TDD の輪の並べの回ごとの指示書（枝 {row['n']} の {j} 番目の単位・{lst['iterations'] + 1} 回目・段 {phase}）", ""]
+    lines = [STEP_TITLE.format(n=row['n'], j=j, count=lst['iterations'] + 1, phase=phase), ""]
     if lst["reason"]:
-        lines += ["## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）", "", lst["reason"].rstrip("\n"), ""]
-    lines += ["## 読む物", "",
+        lines += [NEXT_REJECT_HEAD, "", lst["reason"].rstrip("\n"), ""]
+    lines += [READ_HEAD, "",
               f"- この単位の決まり: {brief_file}——" + ("この単位の最初の回。Read で全部読め" if fresh else
                                                      "この単位の間は書き直さない（この会話で読んでいなければ Read で全部読め）"),
-              "", "## 今の単位と段", "", f"- 単位: {k}", f"- 段: {phase}", "",
-              "## この段ですること", "", tddloop.DO[phase], ""]
+              "", NOW_HEAD, "", f"- 単位: {k}", f"- 段: {phase}", "",
+              DO_HEAD, "", tddloop.DO[phase], ""]
     if phase in ("fix", "refactor") and lst.get("test_cmd_gate") == tddloop.GATE_ON and k not in lst.get("light", []):
         lines += [f"緑の後に機械が run の test_cmd（`{lst['test_cmd']}`）も単位の worktree で走らせる。これも緑にせよ。", ""]
     if u.get("tests"):
         lines += [f"- 名指しのテスト: {', '.join(u['tests'])}", f"- テストのファイル（凍っている）: {', '.join(u['test_files'])}", ""]
-    lines += ["## 返す JSON", "", tddloop.RETURN[phase], "",
+    lines += [REPLY_HEAD, "", tddloop.RETURN[phase], "",
               tddloop.RETURN_CONFLICT.replace("（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）", "（今の単位）"), "",
               "返すのは上の形の JSON だけ。"]
     return "\n".join(lines) + "\n"
@@ -673,6 +685,23 @@ def _green_after(st, repo, pre: str, units: list, shared=()) -> list:
 
 
 
+RULES_HEAD = promptsection.Section("## この単位の決まり（機械が書いた）", source="fn:tddlanes.unit_text")
+STEPS_HEAD = promptsection.Section("## 段の進め方", source="fn:tddlanes.unit_text")
+PHASES_HEAD = promptsection.Section("## 段ごとの仕事と返す JSON", source="fn:tddlanes.unit_text")
+CONFLICT_HEAD = promptsection.Section("### 食い違いの申し出（どの段でも）", source="fn:tddlanes.unit_text")
+RUN_HEAD = promptsection.Section("## テストの回し方", source="fn:tddlanes.unit_text")
+
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。並べの枝の輪の役は、枝の指示書と単位の決まりのファイルを受ける
+RECEIVES = [
+    *(promptsection.Receive(role, head, when) for role in ("tdd-lane-1", "tdd-lane-2", "tdd-lane-3") for head, when in (
+        (NEXT_REJECT_HEAD, "tddlanes._next_text"), (READ_HEAD, "tddlanes._next_text"), (NOW_HEAD, "tddlanes._next_text"),
+        (DO_HEAD, "tddlanes._next_text"), (REPLY_HEAD, "tddlanes._next_text"), (STEP_TITLE, "tddlanes._next_text"),
+        (UNIT_TITLE, "tddlanes.lane_prep"), (PHASE_HEAD, "tddlanes.unit_text"), (RULES_HEAD, "tddlanes.unit_text"),
+        (STEPS_HEAD, "tddlanes.unit_text"), (PHASES_HEAD, "tddlanes.unit_text"), (CONFLICT_HEAD, "tddlanes.unit_text"),
+        (RUN_HEAD, "tddlanes.unit_text"), (tddloop.HANDOFF_HEAD, "tddloop.handoff_lines"))),
+]
+
+
 # ---------------------------------------------------------------- 単位の決まりのファイル（節 tdd-lane-prep-<n>）
 def unit_text(st: dict, row: dict, j: int = 1, lst: dict | None = None) -> str:
     """単位の決まりのファイルの「この単位の決まり」の節（機械が書く。fixrules.tdd_lane_render の lane_text）。j は枝の中の単位の番"""
@@ -680,7 +709,7 @@ def unit_text(st: dict, row: dict, j: int = 1, lst: dict | None = None) -> str:
     k = row["unit_keys"][j - 1]
     both = tddloop.together(lst, k)
     later = [q for q in row["unit_keys"][j:] if q not in both]
-    lines = ["## この単位の決まり（機械が書いた）", "",
+    lines = [RULES_HEAD, "",
              f"- 単位: {k}（並べの枝 {row['n']} の {j} 番目）",
              f"- 作業ツリー: あなたの cwd（単位の worktree {row['tree']}）。読む・書く・試験を回すのは全部この中。名指しのパスはこの"
              f"根からの相対。run の作業ツリー（{lanes_repo(st)}）とほかの枝の worktree は書かない（包みの柵が拒む）"]
@@ -691,17 +720,17 @@ def unit_text(st: dict, row: dict, j: int = 1, lst: dict | None = None) -> str:
     if j > 1:
         hand = tddloop.handoff_lines(lst)
         lines += [ln.replace("作業ツリーに在る（緑の木）", "この worktree に在る（緑の木）") for ln in hand] if hand else []
-    lines += ["## 段の進め方", "",
+    lines += [STEPS_HEAD, "",
               "1. 段は test → fix →（申告した時と brief で申告した単位だけ）refactor。回ごとに機械が回ごとの指示書（今の段・前の回を"
               "拒んだ理由）を書く。その段の仕事をして、その段の返す JSON だけを返せ。",
               "2. 機械が拒めば、次の回の指示書に理由が載る。直して同じ段の返答を丸ごと出し直せ（同じ段の 3 回目の拒否で機械が諦める）。",
               "3. 単位が済めば、この会話は終わる（枝の次の単位は新しい会話で直す）。", "",
-              "## 段ごとの仕事と返す JSON", ""]
+              PHASES_HEAD, ""]
     for p in fixrules.LANE_PHASES:
-        lines += [f"### 段 {p}", "", tddloop.DO[p], "", tddloop.RETURN[p], ""]
-    lines += ["### 食い違いの申し出（どの段でも）", "",
+        lines += [PHASE_HEAD.format(phase=p), "", tddloop.DO[p], "", tddloop.RETURN[p], ""]
+    lines += [CONFLICT_HEAD, "",
               tddloop.RETURN_CONFLICT.replace("（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）", "（今の単位）"), "",
-              "## テストの回し方", "",
+              RUN_HEAD, "",
               f"cwd（単位の worktree の根）で `{lst['exe']} <JUnit XML の書き先>`（書き先は worktree の外の /tmp の下など）。"
               "機械は名指しを実行器の後ろに絶対パスの node id で足して回す。", ""]
     return "\n".join(lines)

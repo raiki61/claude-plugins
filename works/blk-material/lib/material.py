@@ -54,6 +54,7 @@ from engine.commands import _refuse_halted  # noqa: E402  （entry.take と同�
 from engine.util import TERMINAL_STATUS, AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import promptsection  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 import stopby  # noqa: E402  （L1。止めの理由の住処）
@@ -126,47 +127,53 @@ SETTING_SOURCES = dict.fromkeys(POSTURE, ("user",))
 
 GIVE_UP_AFTER = 3                        # 輪の max_iterations と同じ数（試験が YAML と突き合わせる）
 # 写しの指示書（書き換えない）は呼び出しの失敗を awaiting_human にせよと言い、受け付け（_lens_gap）はそれを必須のレンズで拒む
-LENS_RETRY_NOTE = ("## 必須のレンズの呼び出しの失敗（works の受け付けより。上の指示書の読み替え）\n\n"
-                   "上の『skill の呼び出し自体が失敗したら…material を awaiting_human にして理由を書け』は、`required` が false の"
-                   "レンズにだけ当てる。`required` が true のレンズの呼び出しが失敗したら、この回のうちに起こし直して "
-                   "`invoked: true` を書け。起こせないまま返すなら `failed` に理由を書き、material を awaiting_human にするな——"
-                   f"受け付けが拒んで同じ会話で起こし直させ、拒みが {GIVE_UP_AFTER} 回に届いた時と、レンズのプラグインが隔離した"
-                   "設定に無い時だけ人に渡す。\n\n"
-                   "上の『直前の周から対象差分にロジック変更が無いなら /simplify の再実行は持ち越してよい』は狭めて読め: "
-                   "`simplify_carried: true` を受けるのは、この周の頭に固めた版が前の周の頭の版と 1 ファイルも違わない周だけ。"
-                   "どれかのファイルが変わった周（ロジックでない変更でも）と 1 周目は `/simplify` を起こして `invoked: true` を書け。")
+LENS_RETRY_NOTE = promptsection.Section("## 必須のレンズの呼び出しの失敗（works の受け付けより。上の指示書の読み替え）\n\n"
+                                        "上の『skill の呼び出し自体が失敗したら…material を awaiting_human にして理由を書け』は、`required` が false の"
+                                        "レンズにだけ当てる。`required` が true のレンズの呼び出しが失敗したら、この回のうちに起こし直して "
+                                        "`invoked: true` を書け。起こせないまま返すなら `failed` に理由を書き、material を awaiting_human にするな——"
+                                        f"受け付けが拒んで同じ会話で起こし直させ、拒みが {GIVE_UP_AFTER} 回に届いた時と、レンズのプラグインが隔離した"
+                                        "設定に無い時だけ人に渡す。\n\n"
+                                        "上の『直前の周から対象差分にロジック変更が無いなら /simplify の再実行は持ち越してよい』は狭めて読め: "
+                                        "`simplify_carried: true` を受けるのは、この周の頭に固めた版が前の周の頭の版と 1 ファイルも違わない周だけ。"
+                                        "どれかのファイルが変わった周（ロジックでない変更でも）と 1 周目は `/simplify` を起こして `invoked: true` を書け。", source="fn:material.prep")
 # 写しの指示書と graph の note（/code-review に --comment も --fix も付けるな）の読み替え。包みの旗 text-reply の起動（この役の印。
 # .shared/core/adapter.py の頭の 21）では fork に返答の道具が無いので、/code-review は所見を本文で返す。返答の道具が残った形（包みを
 # 外した run など）では fork の所見は親に届かない（実測は .shared/core/diverted.py の頭）ので、受け付けが空の行を『見ていない』と書く。
 # どちらの形でも役には起こし直させず、旗の綴りを args に書かせない
-LENS_FORK_NOTE = ("## /code-review の返り方（works の受け付けより。上の指示書の読み替え）\n\n"
-                  "/code-review は別の会話（fork）で走る。所見を本文で返したら、それを /code-review の行の `items` に写せ"
-                  "（どの所見も落とさない）。Skill の結果が『Skill execution completed』だけで所見の本文が無い時は、fork が所見を"
-                  "別の口（返答の道具）に書いて親に届かなかった形で、works の受け付けがこの行を『見ていない』と報告に出す。"
-                  "どちらでも /code-review を起こし直すな（同じ形で返り、時間だけ掛かる）。本文が無かった行は "
-                  "`items` を空、`invoked: true` にして、`failed` に『本文が届かなかった』と渡した対象を書け"
-                  "（『起こしたが所見なし』と書くな——見ていない物を 0 件に見せる）。\n\n"
-                  "args に旗の綴り（`--comment`・`--fix`）を書くな——『付けない』と否定の文の中に書いても skill は旗として読む"
-                  "（実測: 『--comment も --fix も付けない』の --fix が旗に取られた）。修正を禁じるのは『作業ツリーを変えるな』の文で言え。")
+LENS_FORK_NOTE = promptsection.Section("## /code-review の返り方（works の受け付けより。上の指示書の読み替え）\n\n"
+                                       "/code-review は別の会話（fork）で走る。所見を本文で返したら、それを /code-review の行の `items` に写せ"
+                                       "（どの所見も落とさない）。Skill の結果が『Skill execution completed』だけで所見の本文が無い時は、fork が所見を"
+                                       "別の口（返答の道具）に書いて親に届かなかった形で、works の受け付けがこの行を『見ていない』と報告に出す。"
+                                       "どちらでも /code-review を起こし直すな（同じ形で返り、時間だけ掛かる）。本文が無かった行は "
+                                       "`items` を空、`invoked: true` にして、`failed` に『本文が届かなかった』と渡した対象を書け"
+                                       "（『起こしたが所見なし』と書くな——見ていない物を 0 件に見せる）。\n\n"
+                                       "args に旗の綴り（`--comment`・`--fix`）を書くな——『付けない』と否定の文の中に書いても skill は旗として読む"
+                                       "（実測: 『--comment も --fix も付けない』の --fix が旗に取られた）。修正を禁じるのは『作業ツリーを変えるな』の文で言え。", source="fn:material.prep")
 # 写しの指示書の素材の書き方は not_applicable（条件に当たらない）を並べるが、受け付け（写しの check_record と works の差し替え
 # entry.role_judged_na_works）は、走った節の applies_cond が真なら拒み（役の判定を受ける差し替えが立つ時を除く）、applies_cond を
 # 持たない節は graph が na_self_ok を宣言した時だけ受ける。役はそれを知らないので、prep が節の条件とこの周の真偽を書く（_na_note）
-NA_HEADING = "## 『条件に当たらない』（not_applicable）を書けるか（works の受け付けより。上の指示書の読み替え）"
+NA_HEADING = promptsection.Section("## 『条件に当たらない』（not_applicable）を書けるか（works の受け付けより。上の指示書の読み替え）", source="fn:material._na_note")
 NA_REFUSED = ("`not_applicable` は受け付けが拒む——見た結果を found・clean で、確かめられなかったなら not_run（理由つき）で"
               "書け。")
 # 所見の場所（返答の行の where）の <パス>:<行> は、作業ツリーのファイルの行で書かせる。レンズは差分のファイルを読むので、差分の
 # 行番号を書くことがある（利用者の run f6eaf0a0: 92 行のファイルに :184）。受け付けが在るファイルの行の外れを拒んで同じ会話で
 # 出し直させ（輪の fresh_context: false）、出し直しが上限に届く回は止めずに受けて場所に LOCATION_MARK を付ける
-LOCATION_NOTE = ("## 所見の場所の書き方（works の受け付けより）\n\n"
-                 "所見の場所（`where`）の `<パス>:<行>` は、作業ツリーの今のファイルの行番号で書け。差分のファイル（patch）の中の"
-                 "行番号を書くな——差分の行はファイルの行と違い、人が場所を開けない。差分で見つけた所見は、ファイルを読める役ならそのファイルを"
-                 "Read して行を確かめてから書け（読めない役は、確かめられない行番号を書かずにパスと関数名などで書け）。受け付けは、在るファイルの行の外を指す場所を拒んで出し直させる。")
+LOCATION_NOTE = promptsection.Section("## 所見の場所の書き方（works の受け付けより）\n\n"
+                                      "所見の場所（`where`）の `<パス>:<行>` は、作業ツリーの今のファイルの行番号で書け。差分のファイル（patch）の中の"
+                                      "行番号を書くな——差分の行はファイルの行と違い、人が場所を開けない。差分で見つけた所見は、ファイルを読める役ならそのファイルを"
+                                      "Read して行を確かめてから書け（読めない役は、確かめられない行番号を書かずにパスと関数名などで書け）。受け付けは、在るファイルの行の外を指す場所を拒んで出し直させる。", source="fn:material.prep")
 LOCATION_HEAD = "所見の場所の行がファイルに無い（差分の行番号を書いていないか。作業ツリーのファイルの行で書き直せ）"
 LOCATION_MARK = "（works の受け付け: この行はファイルに無い——差分の行番号の疑い）"
 CITE_IN_WHERE = re.compile(r"(?P<path>[^\s:：（()、,]*):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?")
 STOP_BY = stopby.declare("material", "素材集めの役の返答を受けられなかった（3 回とも拒まれた・回した後も待っている）")
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+REJECT_HEADING = promptsection.Section("## 前の回の受け付けが拒んだ理由", source="fn:material.prep")
+# 受け手の宣言（役の印の名 ← 節 ← 入る条件を判じる関数）。素材集めの役は全部、同じ読み替えと拒否の理由を受ける
+RECEIVES = [
+    *(promptsection.Receive(role, head, "material.prep") for role in ROLES
+      for head in (LENS_RETRY_NOTE, LENS_FORK_NOTE, LOCATION_NOTE, REJECT_HEADING)),
+    *(promptsection.Receive(role, NA_HEADING, "material._na_note") for role in ROLES),
+]
 READONLY_MOVED = "読むだけの役が作業ツリーを変えた: "
 PURPOSE_MISSING = "（目的の文はこの run に無い——目的の節 p0.purpose がこのラインに無く、目的のファイルも渡されていない。目的を推し量って補うな）"
 SNAPSHOT = "material-snapshot.json"
