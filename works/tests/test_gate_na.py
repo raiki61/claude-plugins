@@ -48,7 +48,7 @@ class SignalsCase(unittest.TestCase):
     def test_gate_files_are_signals(self):
         for f in ("tests/test_calc.py", "test_calc.py", "calc_test.go", "src/calc.test.ts", "conftest.py",
                   ".github/workflows/ci.yml", ".gitlab-ci.yml", ".pre-commit-config.yaml", ".husky/pre-commit",
-                  ".review-checks.json", "pyproject.toml", "Makefile", "package.json", ".eslintrc.json"):
+                  ".review-checks.json", ".works-checks.json", "pyproject.toml", "Makefile", "package.json", ".eslintrc.json"):
             with self.subTest(f):
                 got = entry.gate_signals(["calc.py", f], "")
                 self.assertEqual(len(got), 1, got)

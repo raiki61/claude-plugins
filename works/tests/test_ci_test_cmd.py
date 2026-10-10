@@ -4,6 +4,7 @@
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -12,6 +13,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
 import board  # noqa: E402
 import entry  # noqa: E402
+from engine import declared  # noqa: E402  （写しの宣言の読み手。board が写しの engine を sys.path に足す）
 
 
 REUSED = {"at": 1_700_000_000.0, "took_s": 1.5, "key": "k" * 64, "entry": "/store/k.json", "from": "run-a"}
@@ -47,7 +49,7 @@ class _Board:
         self.state = {"inputs": {"cwd": str(self.tmp)}}
         self.given = None
 
-    def run_engine(self, nid, *, runner=None):
+    def run_engine(self, nid, *, runner=None, changed=None):
         runs = runner(self.steps, self.tmp, self.tmp / "logs" / nid)
         if self.reject:
             self.rd["instances"][nid]["engine_fallback"] = "受け付けが拒んだ"
@@ -161,6 +163,95 @@ class LaunchHowRecordedCase(unittest.TestCase):
         b, got = self.run_ci(1, reject=True)
         self.assertEqual((got["by"], got["how"]), ("role", "shell"))
         self.assertIn("bash -c 'a | b'（起こし方 shell）", b.given["material"]["detail"])
+
+
+class OutOfScopeLineCase(unittest.TestCase):
+    """範囲の外で回さなかった段（最後のテストの出口の skipped_steps）は、報告の行の走らせなかった側に段の名と範囲で出る"""
+
+    def test_skipped_steps_are_named_with_their_ignored_paths(self):
+        tests = {"ok": True, "green": True, "by": "engine", "suites": [{"name": "near", "exit": 0}],
+                 "skipped_steps": [{"name": "far", "paths_ignore": ["works/", "docs"]}]}
+        ran, unrun = entry.suites_line(tests).split("／走らせなかった: ")
+        self.assertNotIn("far", ran)
+        self.assertIn("範囲の外で回さなかった段 far（変更が全部 works/・docs の下で、段が見ない所）", unrun)
+
+
+class BaselineScopeLineCase(unittest.TestCase):
+    """修正前のテストの行（entry.baseline_line）は、入口で範囲の外で回さなかった段を、修正前が緑でも赤でも名指す。外した段は
+    素材の文からでなく、入口の確かめの記録（process.checks の p0.local_checks の skipped_steps）から読む——赤の段のログに同じ字が
+    在っても、外していない段を外したと言わない"""
+    SKIPPED = [{"name": "far", "paths_ignore": ["works/"]}]
+    WORD = "範囲の外で回さなかった段: far（変更が全部 works/ の下で、段が見ない所）"
+
+    def line(self, m, skipped):
+        base = board._skipped_note(skipped, {"reply": {"material": m}})["reply"]["material"]
+        checks = {"p0.local_checks": {"round": 1, "by": "engine", **({"skipped_steps": skipped} if skipped else {})}}
+        return entry.baseline_line(types.SimpleNamespace(record={"process": {"baseline_checks": base, "checks": checks}}))
+
+    def test_baseline_line_names_skipped_steps_for_every_status(self):
+        for m in ({"status": "clean", "checked": "near: exit 0"}, {"status": "found", "count": 1, "detail": "near: exit 1"}):
+            with self.subTest(m["status"]):
+                self.assertIn(self.WORD, self.line(m, self.SKIPPED))
+
+    def test_log_with_the_same_words_is_not_a_skipped_step(self):
+        m = {"status": "found", "count": 1, "detail": f"near: exit 1 ／ near の末尾: AssertionError: {self.WORD} not found"}
+        self.assertNotIn("範囲の外で回さなかった段", self.line(m, []))
+
+
+class RepoDeclarationScopeCase(unittest.TestCase):
+    """このリポジトリの works の範囲の宣言（ルートの board.SCOPE_DECL）: 宣言 .review-checks.json の graphloops の試験の段は works/ を
+    見ない——works の直し（変更が全部 works/ の下）では回さず、graphloops/ や works/ の外に触れた変更では今どおり回す。root pytest の
+    段は範囲を持たず常に回す"""
+
+    def skipped(self, changed):
+        got = declared.read(ROOT.parent)
+        self.assertNotIn("error", got)
+        ignores, why = board.read_scope(ROOT.parent, got["steps"])
+        self.assertIsNone(why)
+        return [s["name"] for s in board.skipped_steps(got["steps"], ignores, lambda: changed)]
+
+    def test_works_only_change_skips_graphloops_suite(self):
+        self.assertEqual(self.skipped(["works/.shared/core/entry.py", "works/CHANGELOG.md"]), ["pytest"])
+
+    def test_change_outside_works_runs_graphloops_suite(self):
+        for changed in (["graphloops/engine/declared.py"], ["works/CHANGELOG.md", "graphloops/CHANGELOG.md"], ["README.md"]):
+            with self.subTest(changed):
+                self.assertEqual(self.skipped(changed), [])
+
+
+class ScopeDeclarationShapeCase(unittest.TestCase):
+    """works の範囲の宣言の読み手 board.read_scope: 無ければ空（全段を回す）。書式の誤り・宣言の段に無い名は、宣言の名を
+    名指した理由で返す（黙って効かない宣言にしない）"""
+    STEPS = [{"name": "pytest", "argv": ["x"]}, {"name": "root", "argv": ["y"]}]
+
+    def read(self, text):
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, d, ignore_errors=True)
+        if text is not None:
+            (d / board.SCOPE_DECL).write_text(text, encoding="utf-8")
+        return board.read_scope(d, self.STEPS)
+
+    def test_absent_declaration_scopes_nothing(self):
+        self.assertEqual(self.read(None), ({}, None))
+
+    def test_good_declaration_maps_step_to_ignored_paths(self):
+        self.assertEqual(self.read('{"pytest": {"paths_ignore": ["works/", "docs"]}}'), ({"pytest": ["works/", "docs"]}, None))
+
+    def test_bad_shapes_are_named(self):
+        for bad in ("{", "[]", '{"pytest": ["works/"]}', '{"pytest": {}}', '{"pytest": {"paths_ignore": ["works/"], "x": 1}}',
+                    '{"pytest": {"paths_ignore": "works/"}}', '{"pytest": {"paths_ignore": 3}}', '{"pytest": {"paths_ignore": []}}',
+                    '{"pytest": {"paths_ignore": [""]}}', '{"pytest": {"paths_ignore": ["/abs"]}}',
+                    '{"pytest": {"paths_ignore": ["../x"]}}', '{"pytest": {"paths_ignore": ["./"]}}', '{"pytest": {"paths_ignore": [3]}}'):
+            with self.subTest(bad):
+                ignores, why = self.read(bad)
+                self.assertIsNone(ignores)
+                self.assertIn(board.SCOPE_DECL, why)
+
+    def test_undeclared_step_name_is_named(self):
+        ignores, why = self.read('{"pytset": {"paths_ignore": ["works/"]}}')
+        self.assertIsNone(ignores)
+        self.assertIn("pytset", why)
+        self.assertIn(".review-checks.json", why)
 
 
 class EnvFailureLineCase(unittest.TestCase):

@@ -51,16 +51,21 @@ def git(repo, *args) -> str:
                           env=git_env()).stdout.strip()
 
 
-def seed_repo(into: pathlib.Path, *, declared: bool = False, broken_declaration: bool = False) -> pathlib.Path:
+def seed_repo(into: pathlib.Path, *, declared: bool = False, broken_declaration: bool = False, declaration: dict | None = None,
+              scope: dict | None = None) -> pathlib.Path:
     """into に種（stats.py・test_stats.py）を写し、git の初めの commit を作って、その置き場の絶対パスを返す。
-    declared なら .review-checks.json（suite 1 段）も、broken_declaration なら書式の誤った宣言も同じ commit に入れる"""
+    declared なら .review-checks.json（suite 1 段。declaration を渡せばその本文）も、broken_declaration なら書式の誤った宣言も、
+    scope なら works の範囲の宣言（board.SCOPE_DECL）も同じ commit に入れる"""
     if declared and broken_declaration:
         raise ValueError("declared と broken_declaration は片方だけ")
     into = pathlib.Path(into)
     shutil.copytree(SEED, into, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
-    decl = DECLARATION if declared else BROKEN_DECLARATION if broken_declaration else None
+    decl = (declaration or DECLARATION) if declared else BROKEN_DECLARATION if broken_declaration else None
     if decl is not None:
         (into / ".review-checks.json").write_text(json.dumps(decl, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if scope is not None:
+        import board
+        (into / board.SCOPE_DECL).write_text(json.dumps(scope, ensure_ascii=False) + "\n", encoding="utf-8")
     git(into, "init", "-q")
     git(into, "add", "-A")
     git(into, "commit", "-q", "-m", "seed")

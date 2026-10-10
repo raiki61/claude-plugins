@@ -123,7 +123,8 @@ class ScriptLine:
     """線を本物のスクリプトで回す。replies[<ブロック>/<節>] か replies[<節>] は役の返答（dict か f(attempt) -> dict）。
     bad_first に在る役（同じ鍵）は 1 回目に bad の返答を返す（受け付けの拒否の出口を通す）。edits[<鍵>] は役が作業ツリーに
     当てる変更（repo を受ける関数。返答の前に毎回当てる）。gates[<関所>] は関所の答え。stop_at の境の節の前に止め札を置く。
-    declared が偽なら種にテストの宣言（.review-checks.json）を置かない（CI の任せ先の役 blk-ci が回る）。
+    declared が偽なら種にテストの宣言（.review-checks.json）を置かない（CI の任せ先の役 blk-ci が回る）。declaration・scope は種の
+    宣言の本文と works の範囲の宣言（linekit.seed_repo）。
     sessions なら start の後に包みの家へ判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run）。
     inputs に無いラインの入力は yaml の inputs の default に落ちる（adapter だけ optional——この器は包みを通さずに回す）。
     runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）。
@@ -137,14 +138,14 @@ class ScriptLine:
 
     def __init__(self, tmp, *, replies=None, gates=None, inputs=None, edits=None, bad_first=(), bad=None, stop_at=None,
                  declared=True, sessions=False, watch: Callable[[str, str], None] | None = None, github=False,
-                 writes=False):
+                 writes=False, declaration=None, scope=None):
         self.tmp = pathlib.Path(tmp)
         self.watch = watch
         self.replies, self.gates, self.edits = replies or {}, gates or {}, edits or {}
         self.bad_first, self.bad = set(bad_first), bad if bad is not None else {}
         self.stop_at = stop_at
         self.sessions = sessions
-        self.repo = linekit.seed_repo(self.tmp / "repo", declared=declared)
+        self.repo = linekit.seed_repo(self.tmp / "repo", declared=declared, declaration=declaration, scope=scope)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True, exist_ok=True)
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")

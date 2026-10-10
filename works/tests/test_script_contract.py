@@ -187,6 +187,10 @@ def lane_edit(key):
     return edit
 
 
+SCOPED_DECL = {"suite": [*linekit.DECLARATION["suite"], {"name": "far", "argv": ["python3", "-c", "pass"]}]}
+SCOPED_SCOPE = {"far": {"paths_ignore": ["stats.py"]}}
+
+
 def scenarios(tmp: pathlib.Path) -> dict:
     """筋書きの名 → ScriptLine の引数"""
     suite = tmp / "suite.py"
@@ -242,6 +246,9 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "plan-converge-stuck": dict(replies={**line_replies(), "plan-review": CONVERGE_BLOCK, "plan-revise": converge_revise()},
                                     edits=edits, gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}}),
         "policy-stop": dict(replies=line_replies(), edits=edits, gates={"policy-gate": {"decision": "stop", "text": "範囲が広い"}}),
+        # works の範囲の宣言: 宣言の段 far は stats.py を見ないので、stats.py だけを直す run の修正前の確かめと最後のテストは far を
+        # 回さず、最後のテストの出口に skipped_steps（出力の型を通る）が出る
+        "scoped": dict(replies=line_replies(), edits=edits, declaration=SCOPED_DECL, scope=SCOPED_SCOPE),
         "stop-flag": dict(replies=line_replies(), edits=edits, stop_at="h-review"),
         # 食い違いの申し出: 1 回目の修正役が mean を申し出て parked → 裁定役（1 回目は拒む）が fix_code_as → 2 回目の修正役が全部を直す
         "conflict": dict(replies={**line_replies(), "fix": conflict_fix(), "rule": RULING_CODE, "fix-ruled": line_replies()["fix"]},
@@ -256,7 +263,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
     }
 
 
-OUTCOMES = {"spec": "fixed", "plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
+OUTCOMES = {"scoped": "fixed", "spec": "fixed", "plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
             "material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed", "tdd-lanes": "fixed", "fix-lanes": "fixed",
             "rejudge-no-session": "stopped_by_line",
@@ -354,6 +361,13 @@ class ScriptContractCase(unittest.TestCase):
         self.assertIs(stopped["out"]["h-rejudge"]["stop"], True)
         for key in ("blk-rejudge/collect", "blk-tests/run", "blk-eyes/eyes-collect"):
             self.assertNotIn(key, stopped["trail"])
+
+    def test_scope_skips_declared_step_in_final_tests(self):
+        """works の範囲の宣言が効いた run の最後のテスト（blk-tests/run）は、外した段を出口の skipped_steps に名と範囲で出す
+        （出力の型に無い欄で Archon が節を落とさない——型は test_every_script_stdout_matches_output_format が見る）"""
+        final = next(r for r in self.got["scoped"]["runs"] if (r["block"], r["node"]) == ("blk-tests", "run"))
+        self.assertEqual(final["out"]["skipped_steps"], [{"name": "far", "paths_ignore": ["stats.py"]}])
+        self.assertEqual([s["name"] for s in final["out"]["suites"]], ["suite"])
 
     def test_every_script_signature_ran(self):
         """線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・型) の組で

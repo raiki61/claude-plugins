@@ -12,7 +12,7 @@ green は p4.ci が置いた素材 materials.local_checks の status が clean �
 任せ先に落ちて cmd も空（run_ci の role_needed）なら、素材を読まずに green: false・by: role_needed・log は空——p4.ci は
 任せ先に落ちたまま待つ（任せ先の役を回すのはラインの仕事。裁定 R52）。run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
 出口: {ok, green, log, suites（段ごとの {name, exit, how}。起こせない（exit None）段には launch も）, by（engine・role・role_needed）}
-と、在れば test_cmd_same_as・test_cmd_how。赤で止めない（ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事。
+と、在れば test_cmd_same_as・test_cmd_how・skipped_steps（範囲の宣言で、変更が全部 paths_ignore の下に在り回さなかった段の {name, paths_ignore}。run_ci の返りのまま）。赤で止めない（ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事。
 
 走らせるのは engine の tree_runner と tree_run（.shared/core）——自分のプロセスグループで起こし、run が止められたら（SIGINT・
 SIGTERM・SIGHUP、直下の親の uv が消えた）テストが背景に起こした孫まで木ごと止める。止められた回は木を止め終えてから、出口を
@@ -74,8 +74,9 @@ def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
     same = {"test_cmd_same_as": ci["same_as"]} if ci.get("same_as") else {}
     cmd_how = next((r.get("how") for r in runs if r["name"] == TEST_CMD_STEP), None) if ci["by"] == "engine" else ci.get("how")
     how = {"test_cmd_how": cmd_how} if cmd_how and not same else {}
+    scope = {"skipped_steps": ci["skipped_steps"]} if ci.get("skipped_steps") else {}
     return {"ok": True, "green": material.get("status") == "clean", "log": ci["log"], "suites": suites, "by": ci["by"],
-            **same, **how}
+            **same, **how, **scope}
 
 
 def main() -> int:

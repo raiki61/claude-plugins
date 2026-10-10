@@ -1,0 +1,3 @@
+{
+  "pytest": {"paths_ignore": ["works/"]}
+}

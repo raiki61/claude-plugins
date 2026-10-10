@@ -25,7 +25,7 @@ from test_board_steps import TABLE, StepCase, first_step, kind_steps, tok, trace
 import entry  # noqa: E402
 import gitkit  # noqa: E402
 import tree_run  # noqa: E402
-from board import CORE_DIR, BoardGap, tree_runner  # noqa: E402
+from board import CORE_DIR, SCOPE_DECL, BoardGap, tree_runner  # noqa: E402
 from engine import declared  # noqa: E402
 from engine.commands import engine_run_refusal  # noqa: E402
 from engine.role_run import run_steps as engine_run_steps  # noqa: E402
@@ -442,6 +442,104 @@ class RunEngineCase(EngineRunCase):
             self.assertEqual(rd["instances"][nid]["status"], i["status"], nid)
             self.assertEqual(rd["instances"][nid].get("engine_fallback"), i.get("engine_fallback"), nid)
         self.assertEqual(got["fallback"], wrd["instances"]["p0.local_checks"]["engine_fallback"])
+
+
+# works の範囲の宣言（board.SCOPE_DECL）: far の段は works/ を見ない（このリポジトリの宣言で graphloops の試験の段が持つ形）
+SCOPED = [{"name": "far", "argv": ["python3", "-c", "print('far ran')"]},
+          {"name": "near", "argv": ["python3", "-c", "print('near ran')"]}]
+SCOPE = {"far": {"paths_ignore": ["works/"]}}
+FAR_SKIPPED = [{"name": "far", "paths_ignore": ["works/"]}]
+
+
+class ScopedStepsCase(EngineRunCase):
+    """run_engine の changed（変更のパスを返す口）と、対象のルートの works の範囲の宣言（board.SCOPE_DECL）: 変更が全部段の
+    paths_ignore の下なら段を回さず、素材と返りに範囲の外で回さなかった段を名と範囲で出す。変更が外に 1 本でも在る・測れない
+    （None）・口が無い・全段が外れる回は全段を回す。宣言の誤り・宣言の段に無い名は走らせずに名指して返す"""
+
+    def scoped_board(self, decl=SCOPED, scope=SCOPE):
+        b = self.ci_board(decl=decl)
+        if scope is not None:
+            (self.repo(b) / SCOPE_DECL).write_text(json.dumps(scope), encoding="utf-8")
+        return b
+
+    def run_scoped(self, changed, decl=SCOPED, scope=SCOPE):
+        b = self.scoped_board(decl, scope)
+        got = b.run_engine("p4.ci", changed=changed)
+        self.assertTrue(got["ok"], got)
+        return b, got
+
+    def test_change_all_under_ignored_skips_step_and_names_it(self):
+        b, got = self.run_scoped(lambda: ["works/a.py", "works/b/c.py"])
+        self.assertEqual([r["name"] for r in got["runs"]], ["near"])
+        self.assertEqual(got["skipped_steps"], FAR_SKIPPED)
+        m = b.record["materials"]["local_checks"]
+        self.assertEqual(m["status"], "clean")
+        self.assertIn("範囲の外で回さなかった段: far（変更が全部 works/ の下で、段が見ない所）", m["checked"])
+        self.assertEqual([r["name"] for r in b.record["process"]["checks"]["p4.ci"]["runs"]], ["near"])
+        on_disk = json.loads((b.dir / "record.json").read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["process"]["checks"]["p4.ci"]["skipped_steps"], FAR_SKIPPED)   # 修正前のテストの行が読む記録
+        self.assertEqual(next(r for r in trace_ops(b) if r["op"] == "engine_run")["skipped_steps"], FAR_SKIPPED)
+
+    def test_change_outside_ignored_runs_every_step(self):
+        for changed in (["works/a.py", "graphloops/b.py"], ["graphloops/b.py"], ["worksX/a.py"]):
+            with self.subTest(changed):
+                b, got = self.run_scoped(lambda: changed)
+                self.assertEqual([r["name"] for r in got["runs"]], ["far", "near"])
+                self.assertNotIn("skipped_steps", got)
+                self.assertNotIn("範囲の外", b.record["materials"]["local_checks"]["checked"])
+
+    def test_unmeasured_change_runs_every_step(self):
+        """変更が測れない（口が None を返す）・口が無い回は絞らない"""
+        for changed in (lambda: None, None):
+            with self.subTest(changed):
+                _, got = self.run_scoped(changed)
+                self.assertEqual([r["name"] for r in got["runs"]], ["far", "near"])
+
+    def test_changed_is_not_asked_without_scope_declaration(self):
+        """範囲の宣言が無いリポジトリでは変更を測らない（測る口を呼ばない）で全段を回す"""
+        _, got = self.run_scoped(lambda: self.fail("変更を測った"), scope=None)
+        self.assertEqual([r["name"] for r in got["runs"]], ["far", "near"])
+
+    def test_every_step_out_of_scope_runs_them_all(self):
+        """宣言の全段が範囲の外になる変更では絞らない——1 段も回さない緑（何も確かめていない clean）を作らない"""
+        b, got = self.run_scoped(lambda: ["works/a.py"], decl=[SCOPED[0]])
+        self.assertEqual([r["name"] for r in got["runs"]], ["far"])
+        self.assertNotIn("skipped_steps", got)
+        self.assertNotIn("範囲の外", b.record["materials"]["local_checks"]["checked"])
+
+    def test_red_material_names_skipped_step_too(self):
+        decl = [SCOPED[0], {"name": "near", "argv": RED[0]["argv"]}]
+        b, _ = self.run_scoped(lambda: ["works/a.py"], decl=decl)
+        m = b.record["materials"]["local_checks"]
+        self.assertEqual(m["status"], "found")
+        self.assertIn("範囲の外で回さなかった段: far", m["detail"])
+
+    def test_scope_without_review_declaration_stops(self):
+        """対象の宣言 .review-checks.json が無いリポジトリに範囲の宣言が在れば、任せ先に落とさず名指して止める（範囲の宣言が
+        黙って効かない）。盤面は書かない"""
+        b = self.scoped_board(decl=None)
+        before = disk_bytes(b)
+        with self.assertRaises(entry.CiRefused) as cm:
+            entry.run_ci(b, "p4.ci", test_cmd="")
+        self.assertIn(SCOPE_DECL, str(cm.exception))
+        self.assertIn(DECL, str(cm.exception))
+        self.assertEqual(disk_bytes(b), before)
+
+    def test_scope_naming_an_undeclared_step_stops_before_running(self):
+        """範囲の宣言が .review-checks.json に無い段の名を持てば、何も走らせず盤面を書かずに名指して返す（黙って効かない宣言にしない）。
+        entry.run_ci はこれを CiRefused にする（入口は AI の前で止まり、最後のテストは理由を出して終わる）"""
+        b = self.scoped_board(scope={"nope": {"paths_ignore": ["works/"]}})
+        before = disk_bytes(b)
+        got = b.run_engine("p4.ci", runner=never, changed=lambda: ["works/a.py"])
+        self.assertEqual(got.get("ok"), False)
+        self.assertNotIn("relaunch", got)
+        self.assertNotIn("fallback", got)
+        self.assertIn("nope", got["why"])
+        self.assertIn(SCOPE_DECL, got["why"])
+        self.assertEqual(disk_bytes(b), before)
+        with self.assertRaises(entry.CiRefused) as cm:
+            entry.run_ci(self.scoped_board(scope={"nope": {"paths_ignore": ["works/"]}}), "p4.ci", test_cmd="")
+        self.assertIn("nope", str(cm.exception))
 
 
 class ParallelPrCase(EngineRunCase):

@@ -49,3 +49,13 @@ nodes:
         test_cmd_same_as: {type: string}
         # test_cmd を宣言の段と別に走らせた時、走った時の起こし方（run_ci の返り。読む時に規則で作り直さない）
         test_cmd_how: {type: string, enum: [direct, shell]}
+        # works の範囲の宣言（.works-checks.json）で、変更が全部段の paths_ignore の下に在り回さなかった段（run_ci の返りのまま）
+        skipped_steps:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, paths_ignore]
+            properties:
+              name: {type: string}
+              paths_ignore: {type: array, items: {type: string}}

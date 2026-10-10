@@ -67,7 +67,7 @@ for _p in (_GL, CORE):   # 写しの engine（graphloops/engine）と、works �
         sys.path.insert(0, str(_p))
 
 import engine.util as _util  # noqa: E402
-from engine import pointers as _pointers  # noqa: E402
+from engine import declared, pointers as _pointers  # noqa: E402
 from engine.advance import ENGINE_HELPERS, helper_argv, load_item, open_next_round, run_driver_node  # noqa: E402
 from engine.board import Board as _EngineBoard, empty_round, refuse_expression_conds  # noqa: E402
 from engine.commands import (CONFLICT_RETRIES, STOPPED_BY, _refuse_halted, choice_input_errors, engine_run_refusal,  # noqa: E402
@@ -445,6 +445,76 @@ def _reused_note(runs: list, reply: dict) -> dict:
         return reply
     note = "控えから使った段: " + "・".join(used)
     return {**reply, "reply": {**reply["reply"], "material": {**material, "checked": f"{material['checked']} ／ {note}"}}}
+
+
+# works の範囲の宣言: 対象のルートのこのファイル {段の名: {"paths_ignore": [ルートからのファイルかフォルダのパス, …]}} が、対象の宣言
+# （declared.DECL_NAME。graphloops の engine と共有する）の段ごとに、段が見ない所を足す。対象の宣言には触らない（works は元の
+# graphloops の読み手を変えない）。CI の paths-ignore と同じ考えで、glob でなくパスの頭が一致する物をその下と読む
+SCOPE_DECL = ".works-checks.json"
+
+
+def read_scope(root, steps: list) -> tuple:
+    """対象のルートの範囲の宣言を読む ——（{段の名: paths_ignore}, 誤り）。無ければ（{}, None）。書式の誤り・steps（対象の宣言の段）に
+    無い名は（None, 宣言の名を名指した理由）——黙って効かない宣言にしない"""
+    path = pathlib.Path(root) / SCOPE_DECL
+    if not path.is_file():
+        return {}, None
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        return None, f"範囲の宣言 {SCOPE_DECL} が読めない（{type(e).__name__}: {e}）"
+
+    def rel(x):
+        q = pathlib.PurePosixPath(x) if isinstance(x, str) and x else None
+        return q is not None and not q.is_absolute() and ".." not in q.parts and str(q) != "."
+    if not isinstance(d, dict) or not all(isinstance(v, dict) and set(v) == {"paths_ignore"} and isinstance(v["paths_ignore"], list)
+                                          and v["paths_ignore"] and all(rel(x) for x in v["paths_ignore"]) for v in d.values()):
+        return None, (f"範囲の宣言 {SCOPE_DECL} は {{段の名: {{\"paths_ignore\": [ルートからの相対パス, …]}}}} だけ"
+                      "（空・絶対・.. を含む・ルートの丸ごとのパスは読まない）")
+    unknown = sorted(set(d) - {s["name"] for s in steps})
+    if unknown:
+        return None, (f"範囲の宣言 {SCOPE_DECL} の段 {unknown} が対象の宣言 {declared.DECL_NAME} の段"
+                      f"（{[s['name'] for s in steps]}）に無い")
+    return {k: list(v["paths_ignore"]) for k, v in d.items()}, None
+
+
+def skipped_steps(steps: list, ignores: dict, changed) -> list:
+    """宣言の段のうち、変更が全部その段の paths_ignore（ignores[段の名]。段が見ない所）の下に在る段 ——[{name, paths_ignore}]。
+    changed は変更のパス（ルートから）を返す口で、範囲を持つ段が在る時だけ呼ぶ。口が無い・None か空を返した（変更を測れない）
+    なら []——測れない時は絞らない（多く走らせる側は赤を見逃さない）。全段が外れる時も []——1 段も回さない緑（何も確かめて
+    いない clean）を作らない"""
+    scoped = [s["name"] for s in steps if ignores.get(s["name"])]
+    files = changed() if scoped and changed else None
+    if not files:
+        return []
+
+    def under(f, ignore):
+        return any(f == p or f.startswith(p + "/") for p in (str(pathlib.PurePosixPath(x)) for x in ignore))
+    out = [{"name": n, "paths_ignore": list(ignores[n])} for n in scoped if all(under(f, ignores[n]) for f in files)]
+    return out if len(out) < len(steps) else []
+
+
+def scope_word(s: dict) -> str:
+    """範囲の外で回さなかった段 {name, paths_ignore} の名と範囲（素材の文と最後のテストの報告の行が同じ字で出す）"""
+    return f"{s['name']}（変更が全部 {'・'.join(s['paths_ignore'])} の下で、段が見ない所）"
+
+
+def skipped_text(skipped: list) -> str:
+    """範囲の外で回さなかった段の一覧の句（素材の文と修正前のテストの行が同じ字で出す）"""
+    return "範囲の外で回さなかった段: " + "・".join(scope_word(s) for s in skipped)
+
+
+def _skipped_note(skipped: list, reply: dict) -> dict:
+    """返答の素材の文（clean の checked・found の detail・走らせられない回の reason）の末尾に、範囲の外で回さなかった段を名と範囲で
+    足す（_reused_note と同じく、写しの checks_reply は直さずに受け付けの前で足す）。一覧そのものは run_engine が記録の
+    process.checks[節].skipped_steps に置く（修正前のテストの行 baseline_line は文でなくそこから読む——赤の段のログに同じ字が
+    在っても取り違えない）。回さなかった段が無い・任せ先へ落ちる返答は変えない"""
+    material = (reply.get("reply") or {}).get("material") or {}
+    key = next((k for k in ("checked", "detail", "reason") if isinstance(material.get(k), str)), None)
+    if not skipped or key is None:
+        return reply
+    note = skipped_text(skipped)
+    return {**reply, "reply": {**reply["reply"], "material": {**material, key: f"{material[key]} ／ {note}"}}}
 
 
 # ---------------------------------------------------------------- p0.base の返答を機械が組む
@@ -1247,7 +1317,7 @@ class DiskBoard(_EngineBoard):
         return p
 
     # -- engine が走らせる節（仕様 4.3）
-    def run_engine(self, nid: str, *, runner=None, plan=None) -> dict:
+    def run_engine(self, nid: str, *, runner=None, plan=None, changed=None) -> dict:
         """engine が走らせる節（graph の engine_run）を、engine の「出す時の計画」と launch（launch_engine_run）を 1 つに
         つないだ順で走らせ、受け付けまで済ませる（settle しない）。返り {ok, node, fallback?, blocked?, runs?, why?, relaunch?}。
         1. 計画: plan を渡されなければ RL の ENGINE_RUNS[builtin].plan（渡すのは撮った計画を差し込む試験）。形は 4 つ——
@@ -1256,7 +1326,10 @@ class DiskBoard(_EngineBoard):
         2. steps・helper は走らせる直前に engine の engine_run_refusal（対象のルートの宣言と sha の照合）を当てる。拒めば
            {ok: False, why, relaunch: True} を返し、盤面は書かず、節は待ちのまま（呼び直す＝今の宣言で計画し直す）
         3. runner(steps, cwd=リポジトリのルート, log_dir=runs/r<N>/<id>.a<k>/。k は空いた最初の番号)（既定は tree_runner）。tree_run.Stopped は
-           盤面を書かずに投げ直す（Archon の取り消し・Ctrl-C。節は待ちのまま）
+           盤面を書かずに投げ直す（Archon の取り消し・Ctrl-C。節は待ちのまま）。宣言の段（helper でない計画）は対象のルートの
+           範囲の宣言（SCOPE_DECL。read_scope）と照らす: 誤り・宣言の段に無い名なら走らせず盤面を書かずに {ok: False, why}。
+           changed（変更のパスを返す口）を渡されれば、変更が全部段の paths_ignore の下に在る段（skipped_steps）は runner に渡さず、
+           素材の文と返りの skipped_steps・trace に名と範囲で残す
         4. RL の ENGINE_RUNS[builtin].reply → 返りが fallback なら 7。そうでなければ instance に engine と同じ mode・launch を
            置いて _accept_engine_reply。受け付けが拒めば（AnswerReject）7
         7. 任せ先へ落とす（_fall_back）: 記憶を捨ててディスクから読み直し、self に入れ直し、RL の fallback（checks_fallback は
@@ -1295,7 +1368,7 @@ class DiskBoard(_EngineBoard):
         else:
             steps = plan.get("steps") or []
         launch = {"kind": "engine_run", "builtin": builtin, "steps": steps, "sha": plan.get("sha"), "blocked": plan.get("blocked")}
-        runs = []
+        runs, skipped = [], []
         if not launch["blocked"]:
             root = _util.repo_root()
             if not root:
@@ -1303,12 +1376,20 @@ class DiskBoard(_EngineBoard):
             why = engine_run_refusal({"launch": {"steps": steps, "sha": launch["sha"]}}, root)
             if why:
                 return {"ok": False, "node": nid, "why": why, "relaunch": True}
+            ignores, why = ({}, None) if "helper" in plan else read_scope(root, steps)
+            if why:
+                return {"ok": False, "node": nid, "why": why}
+            skipped = skipped_steps(steps, ignores, changed)
+            off = {s["name"] for s in skipped}
             log_dir = self._log_dir(nid)
-            runs = (runner or tree_runner)(steps, pathlib.Path(root), log_dir)
+            runs = (runner or tree_runner)([s for s in steps if s["name"] not in off], pathlib.Path(root), log_dir)
             self.trace("engine_run", instance=nid, node=nid,
                        runs=[{**{k: r.get(k) for k in ("name", "exit", "wall_s", "error")},
-                              **{k: r[k] for k in ("wait_s", *tree_run.NOTE_KEYS) if k in r}} for r in runs])
-        reply = _reused_note(runs, er["reply"](self, nid, launch, runs))
+                              **{k: r[k] for k in ("wait_s", *tree_run.NOTE_KEYS) if k in r}} for r in runs],
+                       **({"skipped_steps": skipped} if skipped else {}))
+        reply = _skipped_note(skipped, _reused_note(runs, er["reply"](self, nid, launch, runs)))
+        if skipped:   # 写しの checks_reply が置いたこの節の記録に、外した段の一覧を足す（baseline_line が読む）
+            self.record["process"]["checks"][nid]["skipped_steps"] = skipped
         if "fallback" in reply:
             return self._fall_back(nid, er, reply["fallback"], {"runs": runs})
         inst["mode"], inst["launch"] = "engine_run", launch
@@ -1317,7 +1398,8 @@ class DiskBoard(_EngineBoard):
             self._accept_engine_reply(nid, reply["reply"])
         except AnswerReject as ex:
             return self._fall_back(nid, er, f"engine が組んだ返答を受け付けが拒んだ（{str(ex)[:400]}）", {"runs": runs})
-        return {"ok": True, "node": nid, "runs": runs, **({"blocked": launch["blocked"]} if launch["blocked"] else {})}
+        return {"ok": True, "node": nid, "runs": runs, **({"blocked": launch["blocked"]} if launch["blocked"] else {}),
+                **({"skipped_steps": skipped} if skipped else {})}
 
     def _log_dir(self, nid: str) -> pathlib.Path:
         """走らせた語のログの置き場 runs/r<N>/<id>.a<k>/（engine と同じ名前）。k は空いている最初の番号——engine は instance の

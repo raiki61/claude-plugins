@@ -337,6 +337,44 @@ class TestTestsModes(ER.EngineRunCase):
         self.assertEqual(after.record["process"]["checks"]["p4.ci"]["by"], "engine")
         self.assertEqual(after.record["materials"]["local_checks"]["status"], "clean")
 
+    def scoped_final(self, touched):
+        """宣言 ER.SCOPED と works の範囲の宣言 ER.SCOPE（far は works/ を見ない段）の最後のテスト（run_final と本物の run_ci）を、
+        基の版を今の木に固めて P1 の差分を空にした盤面（判定から入る run の形）で、touched（ルートからのパス）だけを修正が書いた木で回す"""
+        b = self.mode_board(decl=ER.SCOPED)
+        repo = self.repo(b)
+        (repo / ER.SCOPE_DECL).write_text(json.dumps(ER.SCOPE), encoding="utf-8")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+        b.record["base"] = git(repo, "rev-parse", "HEAD")
+        pathlib.Path(b.loop_state["changed_files_file"]).write_text("", encoding="utf-8")
+        for rel in touched:
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text("x = 1\n", encoding="utf-8")
+        return load_run_tests().run_final(b, "", run_ci=real_entry.run_ci, refused=real_entry.CiRefused)
+
+    def test_final_skips_step_whose_ignored_paths_hold_every_change(self):
+        """修正が works/ の下だけを変えた run の最後のテストは、works/ を見ない段（graphloops の試験の形）を回さず、出口の
+        skipped_steps と報告の行に段の名と範囲を出す"""
+        out = self.scoped_final(["works/a.py"])
+        self.assertEqual((out["green"], [s["name"] for s in out["suites"]]), (True, ["near"]))
+        self.assertEqual(out["skipped_steps"], ER.FAR_SKIPPED)
+        self.assertIn("範囲の外で回さなかった段 far（変更が全部 works/ の下で、段が見ない所）",
+                      real_entry.suites_line(out).split("走らせなかった: ")[1])
+
+    def test_final_does_not_count_archon_workspace_as_change(self):
+        """Archon が run の作業ツリーに写す .archon/ の下（leftovers.ARCHON_PREFIX。自分食いの run では pack の写し）は修正の変更に
+        数えない——数えると works/ だけを直した run でも works/ を見ない段が回る"""
+        out = self.scoped_final(["works/a.py", ".archon/workflows/works/line.yaml"])
+        self.assertEqual(out["skipped_steps"], ER.FAR_SKIPPED)
+
+    def test_final_runs_step_when_change_touches_outside_ignored(self):
+        """修正が graphloops/ に触れた run（works/ と一緒でも）の最後のテストは、今どおり全段を回す"""
+        for touched in (["graphloops/b.py"], ["works/a.py", "graphloops/b.py"]):
+            with self.subTest(touched):
+                out = self.scoped_final(touched)
+                self.assertEqual([s["name"] for s in out["suites"]], ["far", "near"])
+                self.assertNotIn("skipped_steps", out)
+
     def test_final_red_suite_is_ok(self):
         b = self.mode_board(decl=ER.RED)
         rc, out, err = self.call(b, "")

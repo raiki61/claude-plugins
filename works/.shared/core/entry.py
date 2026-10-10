@@ -48,6 +48,7 @@ from engine.schema import validate_schema  # noqa: E402
 import engine.util as _util  # noqa: E402
 from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ入口の拒み。写しの engine の関数）
 from engine.role_run import _tail  # noqa: E402  （素材の detail に写すログの末尾。board.py と同じ写しの engine の関数）
+from engine import declared  # noqa: E402  （対象の宣言の名 DECL_NAME。写しの engine の読み手）
 from engine.rules import cond_reads  # noqa: E402
 from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
@@ -58,6 +59,7 @@ import flow_adapter  # noqa: E402
 import forge  # noqa: E402
 import gatemarks  # noqa: E402
 import gatepolicy  # noqa: E402  （L1。人の関所と無人の方針の住処。入口の語の確かめ）
+import leftovers  # noqa: E402  （.archon/ の下は修正の変更でない決まりの 1 本 ARCHON_PREFIX）
 import entryshape  # noqa: E402  （入口の変換。入口の種類に触れるのはここだけ）
 import ghreads  # noqa: E402
 import policy  # noqa: E402
@@ -220,6 +222,7 @@ GATE_FILE_PATTERNS = (
     r"^\.husky/", r"(^|/)lefthook\.ya?ml$", r"(^|/)\.?githooks/", r"(^|/)hooks/", r"(^|/)\.review-checks\.json$",
     r"(^|/)(tox\.ini|noxfile\.py|pytest\.ini|setup\.cfg|pyproject\.toml|Makefile|justfile|package\.json)$",
     r"(^|/)(\.flake8|mypy\.ini|\.?ruff\.toml|\.pylintrc|\.eslintrc[^/]*|eslint\.config\.[^/]+|\.shellcheckrc|\.golangci\.ya?ml)$",
+    rf"(^|/){re.escape(board.SCOPE_DECL)}$",   # works の範囲の宣言（宣言の段を外す所を決める）
 )
 _GATE_FILES = tuple(re.compile(p) for p in GATE_FILE_PATTERNS)
 _ASSERT_LINE = re.compile(r"^[+-](?![+-]{2} ).*\bassert", re.M)   # 足す・消す行（ファイルの頭の +++ / --- を除く）
@@ -783,6 +786,9 @@ def role_ci_status(b, tests: dict | None) -> str | None:
     return ((b.record.get("materials") or {}).get("local_checks") or {}).get("status") or ""
 
 
+BASELINE_NODE = "p0.local_checks"   # 修正前の CI の節（写しの graph が素材を process.baseline_checks に残す）
+
+
 def baseline_line(b) -> str:
     """修正前の CI（P0 の結果。写しの graph が process.baseline_checks に残し、materials.local_checks は P4 で書き直される）の 1 行。
     報告の冒頭と最後の関所が最後のテストの行と並べて出す——最後の赤が修正の後に出た赤か、基の版からの赤かを人が見分ける手がかり。
@@ -803,14 +809,16 @@ def baseline_line(b) -> str:
         return (f"修正前のテスト: {word}（{told}）——最後のテストの赤は修正の後に出た赤でありうる"
                 "（同じ一式とは限らない。最後のテストの一式と照らして決める）")
     if status == "found":
-        return (f"修正前のテスト: {word}（{told}）——最後のテストの赤は修正前から在りうる"
+        skipped = ((process.get("checks") or {}).get(BASELINE_NODE) or {}).get("skipped_steps") or []
+        scoped = f"・{board.skipped_text(skipped)}" if skipped else ""   # found の素材の文（detail）は出さないので、記録から足す
+        return (f"修正前のテスト: {word}（{told}{scoped}）——最後のテストの赤は修正前から在りうる"
                 "（同じ一式とは限らない。最後のテストの一式と照らして決める）")
     return f"修正前のテスト: {word}（{told}・{base.get('reason') or '理由なし'}）"
 
 
 def suites_line(tests: dict | None, *, role_status: str | None = None) -> str:
-    """最後のテスト（blk-tests の final の出口 {suites, by, test_cmd_same_as, test_cmd_how}）が走らせた一式・環境で起こせなかった段・
-    走らせなかった物の 1 行。起こし方（段の how か、test_cmd の段なら test_cmd_how の direct・shell）が在れば添える。報告の冒頭と最後の関所が同じ物を出す（何を根拠にした緑かを人に見せる。無い物はログからは読めない）。
+    """最後のテスト（blk-tests の final の出口 {suites, by, test_cmd_same_as, test_cmd_how, skipped_steps}）が走らせた一式・環境で起こせなかった段・
+    走らせなかった物（範囲の外で回さなかった段を名と範囲で含む）の 1 行。起こし方（段の how か、test_cmd の段なら test_cmd_how の direct・shell）が在れば添える。報告の冒頭と最後の関所が同じ物を出す（何を根拠にした緑かを人に見せる。無い物はログからは読めない）。
     role_status は role_ci_status の返り。走らせたと書くのは素材が clean・found の時だけ（not_run などは走らせなかった側に）"""
     tests = tests or {}
     by = tests.get("by")
@@ -827,7 +835,7 @@ def suites_line(tests: dict | None, *, role_status: str | None = None) -> str:
     direct_broken = any(k == "broken" and s.get("how") == "direct" for s, k in zip(suites, kinds))
     if same:
         ran.append(f"{TEST_CMD_STEP}（宣言の段 {same} と同じコマンドなので 1 度だけ走らせた）")
-    unrun = []
+    unrun = [f"範囲の外で回さなかった段 {board.scope_word(s)}" for s in tests.get("skipped_steps") or []]
     if by == "engine" and not suites:
         unrun.append(f"宣言の段・{TEST_CMD_STEP}（宣言が読めないので engine が走らせなかった）")
     elif by == "engine" and not same and not any(s.get("name") == TEST_CMD_STEP for s in suites):
@@ -853,7 +861,12 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     - test_cmd が在れば、宣言が在っても捨てない: engine が宣言の段を走らせた後に test_cmd の段（TEST_CMD_STEP）を足し
       （_with_test_cmd）、素材は runs の全部から組まれる——宣言の一式と test_cmd の両方が緑の時だけ clean（AND の合成）。
       test_cmd が宣言の段と同じコマンドなら 1 度だけ走らせ、返りの same_as にその段の名
-    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, runs: 段ごとの {name, exit, how, reused?, reuse_off?}, same_as?}。
+    - 範囲の宣言（board.SCOPE_DECL）の paths_ignore は、この run の変更（scope_changed）と照らす: 変更が全部その下に在る段は回さない
+      （board の skipped_steps）。範囲の宣言の誤り・対象の宣言に無い段の名は run_engine が走らせずに返し、ここで CiRefused になる。
+      範囲の宣言が在るのに対象の宣言が無い（任せ先に落ちて範囲が効かない）回も、走らせる前に CiRefused。test_cmd が外した段と
+      同じコマンドなら、test_cmd の段として走る（入力で名指した一式は外さない）
+    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, runs: 段ごとの {name, exit, how, reused?, reuse_off?}, same_as?,
+      skipped_steps?（範囲の外で回さなかった段の {name, paths_ignore}）}。
       how は _with_test_cmd が起こす前に決めて走った行に写した値のまま。reused は同じ run の中の控えから使い回した段の出どころ、
       reuse_off は使い回せなかった理由（tree_run.slotted_run の note と同じ形。欄は tree_run.note_fields が写す）
     - fallback（宣言が無い・engine の返答を受け付けが拒んだ）で任せ先に落ちた: test_cmd が在れば _ci_by_cmd（起こした印 →
@@ -862,18 +875,24 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
       呼び手が任せ先の役を回して渡す」だけ——**前の結果（記録に残る p0 の local_checks など）を使ってよい、ではない**。
       節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは blk-ci。役が渡した後の続きは resume_after_ci——blk-ci の collect が呼ぶ）
     - ok: False で relaunch も fallback も無い（why だけ。対象の根が引けない）→ CiRefused"""
+    root = _util.repo_root()
+    if root and (pathlib.Path(root) / board.SCOPE_DECL).is_file() and not (pathlib.Path(root) / declared.DECL_NAME).is_file():
+        raise CiRefused(f"{nid}: 範囲の宣言 {board.SCOPE_DECL} が在るのに、それが段を名指す対象の宣言 {declared.DECL_NAME} が無い"
+                        "——範囲の宣言が効かない（宣言を置くか、範囲の宣言を消す）")
     note = {}
     runner = _with_test_cmd(runner, test_cmd, note)
-    got = b.run_engine(nid, runner=runner)
+    changed = lambda: scope_changed(b)   # noqa: E731  （範囲の宣言を持つ段が在る時だけ run_engine が呼ぶ）
+    got = b.run_engine(nid, runner=runner, changed=changed)
     if got.get("relaunch"):
-        got = b.run_engine(nid, runner=runner)
+        got = b.run_engine(nid, runner=runner, changed=changed)
         if got.get("relaunch"):
             raise CiRefused(f"{nid}: 宣言が計画の後に 2 度変わった（呼び直しても同じ）: {got.get('why')}")
     if got.get("ok"):
         same = {"same_as": note["same_as"]} if note.get("same_as") else {}
         runs = got.get("runs") or []
         rows = [{**{k: r.get(k) for k in ("name", "exit", "how")}, **tree_run.note_fields(r)} for r in runs]
-        return {"by": "engine", "log": str(_engine_log(b, nid, runs)), "runs": rows, **same}
+        skipped = {"skipped_steps": got["skipped_steps"]} if got.get("skipped_steps") else {}
+        return {"by": "engine", "log": str(_engine_log(b, nid, runs)), "runs": rows, **same, **skipped}
     if "fallback" not in got:
         raise CiRefused(f"{nid} を engine で走らせられない: {got.get('why')}")
     if not _fell_back(b, nid):
@@ -883,6 +902,24 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     ran = next((r for r in got.get("runs") or [] if r.get("name") in (TEST_CMD_STEP, note.get("same_as"))
                 and r.get("exit") is not None), None)
     return _ci_by_cmd(b, nid, test_cmd, ran=ran)
+
+
+def scope_changed(b) -> list | None:
+    """範囲の宣言（board.SCOPE_DECL）の paths_ignore と照らす、この run の変更（ルートからのパス）: 基の版（record の base）から今の作業ツリーまでに触った
+    ファイル（accept.touched_files。追跡の変更・消した物・未追跡）と、写しの RL の _pr_files（P1 の頭の差分。差分が空の周は依頼の
+    where が名指す追跡中のパス）の和から、.archon/ の下（leftovers.ARCHON_PREFIX。Archon の置き場で修正の変更でない）を除いた物。
+    修正の前に回す入口の確かめ（p0.local_checks）では、判定から入る run の変更は依頼の where が決める——修正が後で where の外へ
+    広がれば、最後のテストはその変更で照らすので、入口で回さなかった段も最後には回る（その段の修正前の結果は無く、修正前の
+    テストの行に範囲の外で回さなかったと出る）。ルートが引けない・git が落ちた・空は None（絞らない）"""
+    root = _util.repo_root()
+    if not root:
+        return None
+    base = b.record.get("base")
+    try:
+        files = set(accept.touched_files(pathlib.Path(root), base) if base else ()) | set(b.rules._pr_files(b))
+    except Reject:
+        return None
+    return sorted(f for f in files if not f.startswith(leftovers.ARCHON_PREFIX)) or None
 
 
 def _ci_by_cmd(b, nid: str, test_cmd: str, *, ran: dict | None = None) -> dict:

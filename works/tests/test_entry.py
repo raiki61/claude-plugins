@@ -892,7 +892,7 @@ class _StubBoard:
         self.tmp = pathlib.Path(tmp)
         self.record = {"materials": {"local_checks": {"status": "clean", "checked": "偽"}}}
 
-    def run_engine(self, nid, *, runner=None):
+    def run_engine(self, nid, *, runner=None, changed=None):
         self.calls += 1
         return self.replies.pop(0)
 
