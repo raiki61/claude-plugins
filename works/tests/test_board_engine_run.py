@@ -469,11 +469,13 @@ class ParallelPrCase(EngineRunCase):
 
 class TreeRunnerCase(StepCase):
     def test_tree_runner_shape(self):
-        """tree_runner の行の鍵 == engine の run_steps の行の鍵（起こせない argv では exit None と error）"""
+        """tree_runner の行の鍵 == engine の run_steps の行の鍵（起こせない argv では exit None と error）。機械の試験の枠は
+        取らせない（枠を取った段は wait_s と枠の文が付き、機械の空き具合で行が変わる）"""
         steps = [{"name": "ok", "argv": [sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)"]},
                  {"name": "red", "argv": [sys.executable, "-c", "import sys; sys.exit(4)"]},
                  {"name": "gone", "argv": [str(self.tmp / "no-such-command")]}]
-        mine = tree_runner(steps, self.tmp, self.tmp / "mine")
+        with mock.patch.dict(os.environ, {"WORKS_TESTSLOT": ""}):
+            mine = tree_runner(steps, self.tmp, self.tmp / "mine")
         theirs = engine_run_steps(steps, self.tmp, self.tmp / "theirs")
         self.assertEqual([list(r) for r in mine], [list(r) for r in theirs])
         for a, b in zip(mine, theirs):

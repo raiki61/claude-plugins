@@ -21,7 +21,7 @@
   当たる柵ごとの行の数・住処（allowed）か・その考えを知る場所の数（持ち主のフォルダの中で exclude の外の全部。住処を含む）
 - scan_change(repo, base_rev, table, base="") -> [{concept, what, path, before, after}]: base_rev と今の作業ツリーの間で変わった
   ファイル（持ち主のフォルダの中だけ）を各柵で数え、住処の外で行の数が増えた物（path は repo からの相対）
-- main_table(root, ref=MAIN_REF)・growth(main, now): 散らばり（住処の無い考え）の柵は知ってよい所が空で、今の知る場所を全部
+- fork_ref(root, ref=MAIN_REF)・main_table(root, ref=MAIN_REF)・growth(main, now): 散らばり（住処の無い考え）の柵は知ってよい所が空で、今の知る場所を全部
   既知の漏れに置く数の歯止め。表そのものも増えない: main の表（ref の同じパス）と比べ、考えごとの既知の漏れの件数の和が増えた・
   main に無いパスが出た所を growth が名指す（main で柵を持たない考えは比べない）
 
@@ -48,6 +48,14 @@ CODE = re.compile(r"`([^`]+)`")
 def load(root):
     """柵の表（root の docs/concepts.json）"""
     return json.loads((pathlib.Path(root) / TABLE).read_text(encoding="utf-8"))
+
+
+def fork_ref(root, ref=MAIN_REF):
+    """表を比べる版: HEAD と ref の分かれ目（git merge-base）。枝は分かれた時の main より増やさない——分かれた後に main が
+    下げた数は、main へ入れる時（分かれ目が main の頭になる）に比べる。分かれ目を引けなければ ref のまま（引けない訳は
+    main_table が名指す）"""
+    got = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", ref], capture_output=True, text=True)
+    return got.stdout.strip() if got.returncode == 0 and got.stdout.strip() else ref
 
 
 def main_table(root, ref=MAIN_REF):

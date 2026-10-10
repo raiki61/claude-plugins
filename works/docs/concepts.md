@@ -239,7 +239,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 
 ## 散らばり
 
-散らばりの考えは、どれも数の歯止めを持つ: 表 `docs/concepts.json` に語の形（`pattern`）と今の知る場所（`known`。ファイル → 行の数と理由）を置き、知ってよい所（`allowed`）は空。試験 `tests/test_concept_fences.py` が、今の木の数が表とちょうど揃うこと（増えても減っても赤）と、考えごとの既知の漏れの件数の和が main の表（`origin/main` の同じファイル）より増えず、main に無いパスも出ないことを見る（main の表が引けない時は名前つきで見送る。CI の works の job は全履歴で取るので見送らない）。まとめる計画は `docs/plans/2026-10-09-clean-whole.md` の段 5。
+散らばりの考えは、どれも数の歯止めを持つ: 表 `docs/concepts.json` に語の形（`pattern`）と今の知る場所（`known`。ファイル → 行の数と理由）を置き、知ってよい所（`allowed`）は空。試験 `tests/test_concept_fences.py` が、今の木の数が表とちょうど揃うこと（増えても減っても赤）と、考えごとの既知の漏れの件数の和が main から分かれた所の表（HEAD と `origin/main` の分かれ目の同じファイル。`conceptfence.fork_ref`）より増えず、main に無いパスも出ないことを見る（main の表が引けない時は名前つきで見送る。CI の works の job は全履歴で取るので見送らない）。まとめる計画は `docs/plans/2026-10-09-clean-whole.md` の段 5。
 
 ### `ai-launch` AI の起こし方（模型・effort・道具・隔離）
 

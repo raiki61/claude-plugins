@@ -116,14 +116,17 @@ class TableHolds(unittest.TestCase):
 
 
 class NotAboveMain(unittest.TestCase):
-    """表の既知の行の数の和が main の表（origin/main の docs/copies.json）より増えない。main に表が無ければ初めて掛ける柵なので比べない"""
+    """表の既知の行の数の和が、main から分かれた所の表（HEAD と origin/main の分かれ目の docs/copies.json）より増えない。
+    run の途中で main が数を下げても run の直しの赤にしない（main へ入れる時は分かれ目が main の頭）。main に表が無ければ
+    初めて掛ける柵なので比べない"""
 
     def test_known_not_above_main(self):
         m = cpf()
         if subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--verify", f"{m.MAIN_REF}^{{commit}}"],
                           capture_output=True).returncode != 0:
             self.skipTest(f"SKIP git-history: {m.MAIN_REF} を引けない（浅い clone か ref が無い）")
-        self.assertEqual(m.growth(m.main_table(ROOT, TABLE), m.load(ROOT / TABLE)), [])
+        import conceptfence
+        self.assertEqual(m.growth(m.main_table(ROOT, TABLE, conceptfence.fork_ref(ROOT)), m.load(ROOT / TABLE)), [])
 
 
 if __name__ == "__main__":

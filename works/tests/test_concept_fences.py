@@ -94,14 +94,14 @@ class FencesHold(unittest.TestCase):
 
 
 class NotAboveMain(unittest.TestCase):
-    """表そのものが増えない: 考えごとの既知の漏れは、main の表（origin/main の docs/concepts.json）より件数の和が増えず、
+    """表そのものが増えない: 考えごとの既知の漏れは、main から分かれた所の表（HEAD と origin/main の分かれ目の docs/concepts.json）より件数の和が増えず、
     main に無いパスも出ない（計画 docs/plans/2026-10-09-clean-whole.md の Task 3.2）。main で柵を持たない考え（柵を
     初めて掛ける差分）は比べない。main の表が読めない（浅い clone・ref が無い）時は名前つきで見送る（CI の works の job は
     全履歴で取るので見送らない。見送りは FAIL_ON_SKIP=1 で赤）"""
 
     def test_known_not_above_main(self):
         m = cf()
-        main, why = m.main_table(ROOT)
+        main, why = m.main_table(ROOT, m.fork_ref(ROOT))
         if main is None:
             self.skipTest(f"SKIP git-history: main の柵の表を引けない（{m.MAIN_REF}。浅い clone か ref が無い）: {why}")
         self.assertEqual(m.growth(main, m.load(ROOT)), [])
