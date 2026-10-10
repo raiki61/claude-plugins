@@ -412,6 +412,18 @@ class ScriptCase(unittest.TestCase):
         got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
         self.assertEqual((got["ok"], got["done"]), (True, True))
 
+    def test_standalone_accept_refuses_unknown_world_source(self):
+        """盤面の無い単独の run の受け付けも、先例の出どころが実在しない世界の行 world:<id> を指す返答を拒み、判定を書かない"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        doc = load("judge_ok")
+        doc["precedents"][0]["source"] = "world:w-000000000000"
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(doc, ensure_ascii=False), INPUTS_BASE_REV="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], False, got)
+        self.assertIn("w-000000000000", got["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
     def test_accept_passes_with_untracked_request_in_repo(self):
         # Ruling R14: 依頼のファイルが対象の中で未追跡でも、intake の時から作業ツリーが変わっていなければ通す
         shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
@@ -529,6 +541,22 @@ class ScriptCase(unittest.TestCase):
         r = self.run_script("collect")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("judgment.json", r.stderr)
+
+
+class WorldSourceCase(unittest.TestCase):
+    """線の盤面の判定の受け付け（judgetake.take）は、先例の出どころ world:<id> が実在の世界の行を指すかを盤面へ渡す前に照らす"""
+
+    def test_take_refuses_unknown_world_source(self):
+        import judgetake
+        doc = load("judge_ok")
+        doc["precedents"][0]["source"] = "world:w-none"
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                got = judgetake.take(pathlib.Path(tmp), doc, pathlib.Path(tmp))
+            except Exception as e:   # 前段で拒まずに盤面を開きに行った
+                got = {"ok": True, "reason": f"拒まなかった（盤面を開きに行って {type(e).__name__}）"}
+        self.assertIs(got["ok"], False, got)
+        self.assertIn("w-none", got["reason"])
 
 
 class QueryExamplesCase(unittest.TestCase):

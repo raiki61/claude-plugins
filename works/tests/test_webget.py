@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
 import webget  # noqa: E402
 
-SCHEMA = "works-test/1"
+STORE_SCHEMA = "works-test/1"
 T = 1_800_000_000.0
 
 
@@ -27,57 +27,53 @@ class StoreCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self._tmp.name) / "cache"
-        self.store = webget.Store(self.root, SCHEMA, 100.0)
+        self.store = webget.Store(self.root, STORE_SCHEMA, 100.0)
 
     def tearDown(self):
         self._tmp.cleanup()
 
     def test_store_put_then_get_within_ttl(self):
-        doc = {"schema": SCHEMA, "status": "ok", "body": "x", "at": T}
+        doc = {"schema": STORE_SCHEMA, "status": "ok", "body": "x", "at": T}
         self.assertEqual(self.store.put("a.json", doc), "")
         self.assertEqual(self.store.get("a.json", T + 99, ("ok",)), doc)
         self.assertEqual(list(self.root.glob(".tmp-*")), [], "一時のファイルを残さない")
 
     def test_store_get_expired_is_none(self):
-        self.store.put("a.json", {"schema": SCHEMA, "status": "ok", "at": T})
+        self.store.put("a.json", {"schema": STORE_SCHEMA, "status": "ok", "at": T})
         self.assertIsNone(self.store.get("a.json", T + 100, ("ok",)), "ttl ちょうどは切れ")
         self.assertIsNone(self.store.get("a.json", T - 1, ("ok",)), "先の時刻の控えは使わない")
 
     def test_store_get_other_schema_or_status_or_time_is_none(self):
         self.store.put("s.json", {"schema": "other/1", "status": "ok", "at": T})
-        self.store.put("e.json", {"schema": SCHEMA, "status": "error", "at": T})
-        self.store.put("b.json", {"schema": SCHEMA, "status": "ok", "at": True})
+        self.store.put("e.json", {"schema": STORE_SCHEMA, "status": "error", "at": T})
+        self.store.put("b.json", {"schema": STORE_SCHEMA, "status": "ok", "at": True})
         (self.root / "broken.json").write_text("{x", encoding="utf-8")
         for name in ("s.json", "e.json", "b.json", "broken.json", "absent.json"):
             with self.subTest(name=name):
                 self.assertIsNone(self.store.get(name, T + 1, ("ok", "not_found")))
 
     def test_store_get_without_statuses_takes_any_status(self):
-        self.store.put("e.json", {"schema": SCHEMA, "status": "error", "at": T})
+        self.store.put("e.json", {"schema": STORE_SCHEMA, "status": "error", "at": T})
         self.assertIsNotNone(self.store.get("e.json", T + 1))
 
     def test_store_names_lists_fresh_docs_only(self):
-        """names: 置き場の名のうち get が返す物（schema・状態・期限が揃う）だけ。一時のファイルと読めない物は数えない"""
-        self.store.put("b.json", {"schema": SCHEMA, "status": "ok", "at": T})
-        self.store.put("a.json", {"schema": SCHEMA, "status": "ok", "at": T})
-        self.store.put("old.json", {"schema": SCHEMA, "status": "ok", "at": T - 1000})
-        self.store.put("err.json", {"schema": SCHEMA, "status": "error", "at": T})
-        (self.root / ".tmp-x.json").write_text("{}", encoding="utf-8")
-        (self.root / "bad.json").write_text("{", encoding="utf-8")
-        self.assertEqual(self.store.names(T + 1, ("ok",)), ["a.json", "b.json"])
-        self.assertEqual(webget.Store(None, SCHEMA, 100.0).names(T), [])
-        self.assertEqual(webget.Store(self.root / "none", SCHEMA, 100.0).names(T), [])
+        """names は無い（使う所が無くなった）。get は今までどおり期限の内の控えだけを返す"""
+        self.assertFalse(hasattr(webget.Store, "names"))
+        self.store.put("a.json", {"schema": STORE_SCHEMA, "status": "ok", "at": T})
+        self.store.put("old.json", {"schema": STORE_SCHEMA, "status": "ok", "at": T - 1000})
+        self.assertIsNotNone(self.store.get("a.json", T + 1, ("ok",)))
+        self.assertIsNone(self.store.get("old.json", T + 1, ("ok",)))
 
     def test_store_put_unwritable_returns_reason(self):
         self.root.parent.mkdir(parents=True, exist_ok=True)
         self.root.write_text("a file, not a folder", encoding="utf-8")
-        why = self.store.put("a.json", {"schema": SCHEMA, "status": "ok", "at": T})
+        why = self.store.put("a.json", {"schema": STORE_SCHEMA, "status": "ok", "at": T})
         self.assertTrue(why.startswith("a.json: "), why)
         self.assertNotIn("\n", why)
 
     def test_store_without_root_reads_and_writes_nothing(self):
-        none = webget.Store(None, SCHEMA, 100.0)
-        self.assertEqual(none.put("a.json", {"schema": SCHEMA, "status": "ok", "at": T}), "")
+        none = webget.Store(None, STORE_SCHEMA, 100.0)
+        self.assertEqual(none.put("a.json", {"schema": STORE_SCHEMA, "status": "ok", "at": T}), "")
         self.assertIsNone(none.get("a.json", T))
         self.assertFalse(self.root.exists())
 

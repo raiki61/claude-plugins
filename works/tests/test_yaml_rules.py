@@ -123,7 +123,7 @@ WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役
                *(("blk-fix", "blk-fix.yaml", f"plan-answer-lane-{n}") for n in (1, 2, 3)),
                ("blk-rejudge", "blk-rejudge.yaml", "rejudge"),
                ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"),
-               ("blk-world", "blk-world.yaml", "world-collect"))   # 世界の解の定石を集める役（web の検索と取得だけ。読む道具も使わない）
+               ("blk-world", "blk-world.yaml", "world-judge"))   # 世界の解の web の役（定石を集めて判断する。web の検索と取得だけ。読む道具も使わない）
 # 事前審査の束ね役（線の木の段 1）: 読む道具と web に、項目ごとの下請けを並べて起こす Agent と、下請けが答えのファイルを盤面の外の
 # run ごとの置き場に書く Write を足す。作業ツリーは書かないので mutates_checkout: false を保つ（keep_checkout。変われば Archon が
 # 節を落とし、受け付けも拒む）

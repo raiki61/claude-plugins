@@ -357,8 +357,7 @@ def _unit_file_paths(u: dict, repo) -> tuple:
 
 def structure_units(b, carried: dict, repo) -> str:
     """判定の直す義務の単位（carried の judgment_file・open_units）を blk-structure の入力の契約 {id, paths, summary} に写して
-    b.work(STRUCTURE_UNITS_FILE) に書き、そのパスを返す。summary は単位の reason で、尾に単位のパスと重なる世界の解の行の要点
-    （worldmark.unit_note。盤面の根の控えが指す行）を足す。paths が 1 本も残らない単位は写さない（stage_a.read_units は 1 行でも
+    b.work(STRUCTURE_UNITS_FILE) に書き、そのパスを返す。summary は単位の reason だけ。paths が 1 本も残らない単位は写さない（stage_a.read_units は 1 行でも
     paths が空ならファイル全体を落とす）。写さなかった単位と捨てたパスは trace の STRUCTURE_UNITS_OP の 1 行に残す"""
     try:
         doc = json.loads(pathlib.Path(carried["judgment_file"]).read_text(encoding="utf-8"))
@@ -366,7 +365,6 @@ def structure_units(b, carried: dict, repo) -> str:
     except (OSError, ValueError, TypeError):
         doc, keys = {}, set()
     rows, skipped, dropped = [], [], []
-    world = worldmark.board_rows(b.dir)
     for u in (doc.get("units") if isinstance(doc, dict) else None) or []:
         if not isinstance(u, dict) or u.get("key") not in keys:
             continue
@@ -376,8 +374,7 @@ def structure_units(b, carried: dict, repo) -> str:
             skipped.append(u["key"])
             continue
         reason = u.get("reason") if isinstance(u.get("reason"), str) else ""
-        note = worldmark.unit_note(world, paths)   # 単位のパスと類の where が重なる世界の解の行の要点（無ければ ""）
-        rows.append({"id": u["key"], "paths": paths, "summary": f"{reason} {note}".strip() if note else reason})
+        rows.append({"id": u["key"], "paths": paths, "summary": reason})
     if skipped or dropped:
         b.trace(STRUCTURE_UNITS_OP, units=skipped, paths=dropped, round=b.round)
     _write_json(b.work(STRUCTURE_UNITS_FILE), rows)
@@ -422,7 +419,7 @@ def structure_edge(board_dir, structured, plan_go=True) -> dict:
     return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall}
 
 
-WORLD_COUNTS = ("classes", "cached", "skipped", "dropped")   # 世界の解のブロックの出口の数の欄（控えにそのまま写す）
+WORLD_COUNTS = ("classes", "dropped")   # 世界の解のブロックの出口の数の欄（控えにそのまま写す）
 
 
 def world_edge(board_dir, worlded, due=True) -> dict:

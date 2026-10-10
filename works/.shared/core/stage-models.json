@@ -39,7 +39,7 @@
     "blk-premises/premises": "light",
     "blk-purpose/purpose": "light",
     "blk-report/report-write": "light",
-    "blk-world/world-collect": "light"
+    "blk-world/world-judge": "light"
   },
   "notes": {
     "blk-spec/spec-write": "受け入れ条件のテストも書くが、主は仕様（要件）を書く役",
@@ -48,6 +48,6 @@
     "blk-fix/plan-answer-ruled": "裁定の後の 2 回目の修正の段の範囲の相談の答えの節（plan-answer と同じ）",
     "blk-fix/fix-lane-1": "修正役の並べの枝の役（枝の項目を 1 つずつ直す修正役。fix と同じ組。fix-lane-2・3 も同じ）",
     "blk-fix/plan-answer-lane-1": "修正役の並べの枝の範囲の相談の答えの節（修正案を書いた役の会話の写し。plan-answer と同じ組。2・3 も同じ）",
-    "blk-world/world-collect": "世界の解の定石の抜き書きを web から集めて運ぶ役（要約も評価もしない。判断は道具ゼロの opus の役。持ち主 2026-09-29「WEBからとってきてまとめるところは」sonnet でよい）"
+    "blk-world/world-judge": "世界の解の定石を web から集めてまとめ、依頼の解き方との比べを判断する役（web の検索と取得だけ。持ち主の許し（安い模型を使ってよい）。割り方は設計書 5 節の選択）"
   }
 }
