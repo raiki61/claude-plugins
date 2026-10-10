@@ -840,7 +840,8 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     同じ食い違いの申し出の行（conflict.human_lines）。文は b.work(FINAL_GATE_FILE) にも。残りは report.rest_outside_validator を 1 度だけ作り（検証器は
     数えない）、exit_problem は渡さない: ok でない目の出口は eyes.collect が b.stop し、この関所は開かない"""
     eyes = _eyes(b)
-    absorbed = report.absorbed_falls(reads.events_for(run_id), pathlib.Path(__file__).resolve().parents[2], ("h-final",))
+    absorbed = report.absorbed_falls(reads.events_for(run_id), pathlib.Path(__file__).resolve().parents[2],
+                                     seen=("eyeing",))   # 目の段の落ちは目の欄（結果が無い目）が数える
     rest = report.rest_outside_validator(b, tests=tests, counts=eyes.counts, absorbed=absorbed)
     head = rest.tests_word
     left = rejudge.unsettled(b)

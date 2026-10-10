@@ -24,6 +24,7 @@
 - events_for(run_id) -> list | None
 - failed_nodes(events, *, after=()) -> [{node, error}]（最後の状態が落ちた節。下流の節 after は除く。機械の報告の冒頭 3）
 - retried_nodes(events, *, after=()) -> [{node, failures, error}]（前の試みで落ち、後で済んだ節。冒頭 3 の試みの記録）
+- within(name, nodes) -> bool（出来事の上の節の名 name が nodes のどれかか、その中の節 `<節>__…`・`<節>.…` か）
 - node_path(include, loop, node) -> str
 - tool_count(events, node_path, tool) -> int・tool_inputs(events, node_path, tool) -> [tool_input]（節の道具の呼びの数と入力。
   事前審査の束ね役の下請けの数と型を測る）
@@ -115,12 +116,15 @@ def events_for(run_id: str):
 NODE_STATES = ("node_started", "node_completed", "node_failed", "node_skipped", "node_skipped_prior_success")
 
 
+def within(name: str, nodes) -> bool:
+    """出来事の上の節の名 name が nodes のどれかと同じか、その中の節（`<名>__`・`<名>.` で始まる）か"""
+    return any(name == a or name.startswith((f"{a}__", f"{a}.")) for a in nodes)
+
+
 def _node_rows(events, after) -> list:
-    """節の状態の出来事（出来事の順）。after に挙げた節（名前が同じか `<名>__`・`<名>.` で始まる節）は除く"""
-    def later(name):
-        return any(name == a or name.startswith((f"{a}__", f"{a}.")) for a in after)
+    """節の状態の出来事（出来事の順）。after に挙げた節とその中の節（within）は除く"""
     return [e for e in events or [] if isinstance(e, dict) and e.get("event_type") in NODE_STATES
-            and e.get("step_name") and not later(e["step_name"])]
+            and e.get("step_name") and not within(e["step_name"], after)]
 
 
 def _error(e) -> str:

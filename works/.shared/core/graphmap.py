@@ -15,6 +15,7 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - graph_path(pack, rel) -> Path: 入口の YAML の隣の地図の元のファイル（<stem>.graph.json）
 - load(path) -> dict: 地図の元を読む（形が違えば ValueError）
 - stale(graph, base) -> [相対パス]: sources の sha256 と今のファイルが違う（無い）物。空なら新しい
+- one_graph(pack, has) -> dict: pack の入口ごとの地図の元のうち has(地図の元) が真のちょうど 1 本（古い・読めない・本数が違えば ValueError）
 - markers(graph) -> {印の名: [(工程の名, 節の id)]}
 - seat(graph, name) -> (根の印の名, 会話を共にする印の名の集合)
 - render(graph, name, off=None, budget=MAP_BUDGET) -> str: 印 name の節を ★ にした地図の文。off は切った切り替えの語の集合
@@ -238,6 +239,26 @@ def stale(graph: dict, base: pathlib.Path) -> List[str]:
         except OSError:
             out.append(rel)
     return out
+
+
+def one_graph(pack: pathlib.Path, has: Callable[[dict], bool]) -> dict:
+    """pack の入口（archon-plugin.json の entrypoints）ごとの地図の元（無い入口は飛ばす）のうち has が真の物。ちょうど 1 本で、
+    元の YAML から書き直されていない（stale が空）時だけ返す。読めない・本数が違う・古ければ ValueError"""
+    found = []
+    for _name, rel in sorted(entrypoints(pack).items()):
+        path = graph_path(pack, rel)
+        if not path.is_file():
+            continue
+        g = load(path)
+        if has(g):
+            found.append((path, g))
+    if len(found) != 1:
+        raise ValueError(f"当たる地図の元が {len(found)} 本（ちょうど 1 本の時だけ読む）")
+    path, g = found[0]
+    old = stale(g, pack)
+    if old:
+        raise ValueError(f"地図の元 {path.name} が YAML より古い（{', '.join(old)}。dev/graphmap_build.py の build で書き直す）")
+    return g
 
 
 def _walk(nodes: Sequence[dict]) -> Iterable[dict]:
