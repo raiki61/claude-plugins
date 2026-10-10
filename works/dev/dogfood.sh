@@ -34,8 +34,9 @@
 # 起動ごとの写し（requests/）は起動の記録で、残っていても次の起動を妨げない。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
-# 認証の確かめの後・clone の前に 1 回、superpowers の手元・marketplace の一覧・上流の tag の版を写しと比べて知らせる（toolset.py newer。止めない。
-# 上流に届かない・読めない所は「確かめられなかった」と出す）。
+# 起動の仕事（clone・pack の commit・workflow run・続きの行）が全部済んだ最後に 1 回、superpowers の手元・marketplace の一覧・上流の tag の版を
+# 写しと比べて知らせる（toolset.py newer。止めない。上流に届かない・読めない所は「確かめられなかった」と出す）。上流の tag は網で読み、
+# 止まった通信を切る期限は持たない（待つ。止まったら Ctrl-C で切ってよい）ので、起動の成果を塞がない最後に置く。
 # 開発の家の既定と CLAUDE_BIN_PATH は launch.py env が解き、隔離の前に渡す。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
 set -eu
@@ -137,7 +138,6 @@ if [ "$#" -ge 3 ]; then
 else
   DIR="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/works-dogfood.XXXXXX")" && pwd -P)"
 fi
-python3 "$DEV_DIR/toolset.py" newer --user-config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >&2 || echo "dogfood.sh: superpowers の新しい版の確かめが終了コード $? で落ちた（run の起動は続ける）" >&2
 REPO="$DIR/repo"
 ORIGIN="$DIR/origin.git"
 # 写しの名は起動ごとに一意（use.sh と同じ印）。<dir> を使い直しても、一覧に残る前の起動の run と結びの候補が重ならない
@@ -215,5 +215,8 @@ if [ "$show_status" -eq 0 ]; then
   works_dev_show_synced dogfood.sh "$ARCHON" "$REPO" "$SRC" || _show_rc=$?
   show_status=$_show_rc
 fi
+# 起動の仕事が済んだ後の最後。読む前に待つことを言う（落ちても終了コードは変えない）
+echo "dogfood.sh: 上流の tag を読む（網を待つ。止まったら Ctrl-C で切ってよい。起動は済んでいる）" >&2
+python3 "$DEV_DIR/toolset.py" newer --user-config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >&2 || echo "dogfood.sh: superpowers の新しい版の確かめが終了コード $? で落ちた（起動は済んでいる）" >&2
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"
