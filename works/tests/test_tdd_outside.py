@@ -250,6 +250,51 @@ class TestAcceptOutsideTier(OutsideCase):
         tddloop.selected_problems(state, self.repo, "HEAD~0")
         self.assertEqual(len(copies()), 2, "版が変われば走らせ直す")
 
+    def test_base_copy_args_lie_under_real_cwd(self):
+        """版の写しの回で実行器に渡す絶対パスの引数は、実行器の起こし場所（os.getcwd() が返す実のパス）の下に在る。
+        一時の置き場の根が symlink を経ても、名指しの絶対パスの綴りと、実行器が起こし場所から解く相対の段のファイルの綴りが
+        分かれると、引数どうしの共通の祖先が「/」に落ち、pytest の rootdir が変わって写しの結末の鍵が今の木の鍵と合わなくなる"""
+        self.write(OUTSIDE, OUTSIDE_PASSING)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "段の外の試験")
+        log = self.tmp / "runs.jsonl"
+        state = self.begin("import json, os, sys\nopen(%r, 'a').write(json.dumps([os.getcwd(), sys.argv[2:]]) + '\\n')\n"
+                           % str(log) + RUNNER)
+        self.write(OUTSIDE, OUTSIDE_PASSING.replace("1 + 1, 2", "1 + 1, 3"))
+        real, link = self.tmp / "real-tmp", self.tmp / "link-tmp"
+        real.mkdir()
+        link.symlink_to(real)
+        with mock.patch.object(tempfile, "tempdir", str(link)):
+            first = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertTrue(first[0], first)
+        rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        copies = [(cwd, args) for cwd, args in rows if pathlib.Path(cwd) != self.repo.resolve()]
+        self.assertEqual(len(copies), 1, "版の写しで 1 回走る")
+        cwd, args = copies[0]
+        paths = [a.partition("::")[0] for a in args if a.startswith("/")]
+        self.assertTrue(paths, f"版の写しの回に絶対パスの引数が無い: {args}")
+        self.assertTrue(pathlib.Path(cwd).is_relative_to(real.resolve()), f"版の写しが実の置き場の下に無い: {cwd}")
+        for p in paths:
+            self.assertTrue(pathlib.Path(p).is_relative_to(cwd), f"引数 {p} が起こし場所 {cwd} の下に無い（symlink の綴りのまま）")
+
+    def test_base_reds_left_out_are_named_in_note(self):
+        """版の写しでも赤だったので新しい赤から外した試験は、黙って外さず、件数と名を知らせに出す。外した物が無い時は足さない"""
+        failing = OUTSIDE_PASSING.replace("1 + 1, 2", "1 + 1, 3")
+        self.write(OUTSIDE, failing)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "版でも赤の段の外の試験")
+        state = self.begin()
+        self.write(OUTSIDE, failing + "\n# 版と同じく赤のまま\n")
+        probs, note = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertEqual(probs, [], "版でも赤の試験は新しい赤に数えない")
+        self.assertIn("新しい赤なし", note)
+        self.assertIn("版の写しでも赤だったので外した 1 件", note)
+        self.assertIn("test_sum", note, "外した試験の名を出す")
+
+        self.write(OUTSIDE, OUTSIDE_PASSING)
+        _, quiet = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertNotIn("外した", quiet, "外した物が 0 件なら何も足さない")
+
     def test_zero_selected_cases_are_not_reported_as_no_new_red(self):
         state = self.begin(EMPTY_RUNNER)
         p = self.repo / "stats.py"

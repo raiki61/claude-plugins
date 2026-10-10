@@ -2063,7 +2063,7 @@ def selected_problems(state_file, repo, rev) -> tuple:
     3 の 1。届いただけの段の外の試験は手元で走らせない）。実行器の既定の一式の中は -k で選んだ全部のモジュールに絞る。
     実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も走らなかった時は赤にせず知らせだけ。
     元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す（版の写しの結末は _base_reds が盤面の根に控え、
-    受け付けの回をまたいで使い回す）"""
+    受け付けの回をまたいで使い回す）。外した鍵は黙って捨てず、件数と名（頭の 20 件）を赤の行か知らせに出す"""
     if not state_file:
         return [], NO_SUITE
     st = _load(state_file)
@@ -2107,9 +2107,12 @@ def selected_problems(state_file, repo, rev) -> tuple:
         if old is None:
             tail = f"。元の結末に無い {len(fresh)} 件は版の姿で比べられず赤のまま（{'; '.join(why)}）"
         else:
+            left_out = [k for k in red if k in old]
             red = [k for k in red if k not in old]
+            if left_out:
+                tail = f"。版の写しでも赤だったので外した {len(left_out)} 件: {', '.join(left_out[:20])}"
     if not red:
-        return [], f"{what}: {len(cases)} 件で新しい赤なし{ci}"
+        return [], f"{what}: {len(cases)} 件で新しい赤なし{ci}{tail}"
     # 行はテストのファイルごと（修正の受け付けが最後の回にパスで単位に結ぶ）。頭に選んだファイルの一覧を置かない（ほかの
     # ファイルの赤の行がそのパスを名指して、関わらない単位に結ばないように）
     label = "一式" if sel["run_all"] else f"選んだ試験（-k {kexpr[:300]}）"
@@ -2214,7 +2217,7 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
         if isinstance(r, dict) and {k: r.get(k) for k in key} == key and set(files) <= set(r.get("files") or []):
             return set(r.get("reds") or []), []
     with tempfile.TemporaryDirectory(prefix="works-tdd-rev-") as td:
-        copy = pathlib.Path(td) / "repo"
+        copy = pathlib.Path(td).resolve() / "repo"   # 実行器の起こし場所（実のパス）と引数の綴りをそろえる
         try:
             tar = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev], capture_output=True, check=True).stdout
             with tarfile.open(fileobj=io.BytesIO(tar)) as t:
