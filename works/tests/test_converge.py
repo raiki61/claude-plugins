@@ -73,7 +73,7 @@ class DecideCase(unittest.TestCase):
         self.assertEqual(converge.decide([{"blocks": ["a"]}, {"blocks": ["b"]}, {"blocks": ["a"]}]),
                          converge.PERSISTED)   # 消えた穴がまた出た
 
-    def test_fence_with_new_blocks_is_unsettled(self):
+    def test_decreasing_blocks_go_on_regardless_of_pass_count(self):
         """開いた数が 3 → 2 → 1 と減り続ける列は、往復の数に依らず続く（AGAIN）"""
         passes = [{"blocks": ["a", "b", "c"]}, {"blocks": ["d", "e"]}, {"blocks": ["f"]}]
         self.assertEqual(converge.decide(passes), converge.AGAIN)
@@ -153,8 +153,8 @@ class RecordCase(BoardCase):
                 self.assertEqual(self.record(keys)["outcome"], converge.AGAIN)
                 self.assertEqual(converge.held(self.b)["pass"], k)
 
-    def test_unsettled_at_fence(self):
-        """開いた数が減り続ける 3 往復目は、輪の上限の周（at_cap）として記録した時だけ止まる（UNSETTLED・capped。held が None）"""
+    def test_decreasing_pass_stops_only_at_loop_cap(self):
+        """開いた数が減り続ける 3 往復目は、輪の安全の上限の周（at_cap）として記録した時だけ止まる（UNSETTLED・capped。held が None）"""
         self.record(["a", "b", "c"])
         self.record(["d", "e"])
         row = self.record(["f"], at_cap=True)
@@ -261,9 +261,9 @@ class TextCase(BoardCase):
         self.assertNotIn("開いた block の数", why)
 
     def test_capped_pass_stops_with_cap_reason(self):
-        """輪の上限の周（at_cap）に着いて、まだ AGAIN だった往復は UNSETTLED で止まり、行に capped が立つ。関所の理由は上限に届いた
-        事実と往復ごとの数だけを言い（減らなかったとも異常とも言わない）、頭の行の結末の名札も減らないと言わない。CLEAN と
-        PERSISTED の往復は at_cap でもそのまま"""
+        """輪の安全の上限の周（at_cap）に着いて、まだ AGAIN だった往復は UNSETTLED で止まり、行に capped が立つ。関所の理由は上限に
+        届いた事実を仕組みの異常として言い（減り続ける往復は普通は届かない。持ち主が関所で通した答え (a)）、往復ごとの数を添える。
+        減らなかったとは言わず、頭の行の結末の名札も減らないと言わない。CLEAN と PERSISTED の往復は at_cap でもそのまま"""
         self.record(["key-a1", "key-a2"])
         row = self.record(["key-b1"], at_cap=True)
         self.assertEqual((row["outcome"], row["capped"]), (converge.UNSETTLED, True))
@@ -272,7 +272,7 @@ class TextCase(BoardCase):
         self.assertTrue(why.startswith(converge.UNSETTLED_WHY.split("（往復ごとに")[0].format(n=2)), why)
         self.assertIn(converge.CAP_WHY.format(n=2, counts="1 往復目 2 → 2 往復目 1"), why)
         self.assertNotIn("前の往復より減らなかった", why)
-        self.assertNotIn("異常", why)
+        self.assertIn("仕組みの異常", why)
         head = converge.lines(self.b)[0]
         self.assertNotIn("減らない", head)
         self.assertIn("（記録の名 unsettled）", head)
@@ -515,8 +515,8 @@ class ItemsCase(BoardCase):
         self.assertEqual(self.states(got), [converge.HELD, converge.CLOSED])
         self.assertEqual(got["outcome"], converge.PERSISTED)
 
-    def test_fence_with_held_item_is_persisted_and_without_is_unsettled(self):
-        """開いた数が減り続ける 3 往復目は、輪の上限の周（at_cap）として記録した時だけ止まる。止まる時の抜け方は、保留の項目が
+    def test_loop_cap_with_held_item_is_persisted_and_without_is_unsettled(self):
+        """開いた数が減り続ける 3 往復目は、輪の安全の上限の周（at_cap）として記録した時だけ止まる。止まる時の抜け方は、保留の項目が
         在れば PERSISTED・無ければ UNSETTLED（at_cap でなければ AGAIN）"""
         held_passes = ([face("key-a1", units=["u1"]), *[face(f"key-b{n}", units=["u2"]) for n in (1, 2, 3)]],
                        [face("key-a1", units=["u1"]), face("key-b4", units=["u2"]), face("key-b5", units=["u2"])],

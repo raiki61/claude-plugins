@@ -97,7 +97,7 @@ MOD = {
     "seat": (3, None),        # 借りたスキルの座（節を役の指示書に載せる文を組む。blk-fix の支度が使う）
     "planmarks": (3, None),   # 修正案の項目の works の欄（受け入れのテスト・書き換える既存のテスト・整えの申告）の型・検査・盤面の控え（accept の役の型・blk-plan・conflict・blk-fix が使う）
     "planrange": (3, None),   # 承認済みの修正案の項目の範囲で変わったパスを照らす決まり（blk-fix の planscope と手直しの受け付け refix が使う）
-    "converge": (3, None),    # 事前審査の壁打ち（依頼 231）の決まり・往復の控え・役の型の欄・関所と報告の文（標準ライブラリだけ。gatemarks・修正案のブロックが使う）
+    "converge": (3, None),    # 事前審査の壁打ち（依頼 231）の決まり・往復の控え・役の型の欄・関所と報告の文（標準ライブラリと marks・promptsection・写しの engine の型の検査だけ。gatemarks・修正案のブロックが使う）
     "replan": (3, None),      # 同じ run の中の案の直し（依頼 226）: 待つ fix_plan_item の行を締めて ask_human の道に載せる（境の節 h-rejudge と報告が使う）
     "holeties": (3, None),    # 差分の審査の穴の枝の名札（純粋な関数。refix が集め、手直しの支度・報告・最後の関所の文が読む）
     "deltamarks": (3, None),  # 差分の審査の返答の準拠と品質の 2 判定の欄の型・検査・盤面の外の控え（accept の役の型・refix の審査の受け付けが使う）

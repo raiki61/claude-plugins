@@ -43,8 +43,8 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
   前の往復の block を審査が suggest に下げた key も名指す）
 
 役の型に欄を足す・返答から外す手順は住処 marks（種 converge）に任せる。外した欄は足し欄の控えでなく、この往復の控えに置く。
-盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリと住処 marks（L1）だけを import する（gatemarks がこのモジュールを
-読み、entry が gatemarks を読むので、entry・rolekit・gatemarks を import すると輪になる）。
+盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリと住処 marks（L1）と写しの engine の型の検査（engine.schema。L0）
+だけを import する（gatemarks がこのモジュールを読み、entry が gatemarks を読むので、entry・rolekit・gatemarks を import すると輪になる）。
 """
 from __future__ import annotations
 
@@ -52,10 +52,17 @@ import copy
 import hashlib
 import json
 import os
+import pathlib
 import shutil
+import sys
 
-import marks
-import promptsection
+_GL = pathlib.Path(__file__).resolve().parent / "graphloops"
+if str(_GL) not in sys.path:
+    sys.path.insert(0, str(_GL))
+
+from engine.schema import validate_schema  # noqa: E402
+import marks  # noqa: E402
+import promptsection  # noqa: E402
 
 RECORD = "plan-converge.json"
 PASS_DIR = "plan-converge"
@@ -92,7 +99,8 @@ PERSISTED_WHY = ("事前審査（記録の名 p2.plan_review）の同じ block �
 UNSETTLED_WHY = ("事前審査（記録の名 p2.plan_review）の block が、壁打ち {n} 往復でも消えない（往復ごとに別の穴が出た。"
                  "最後の block: {keys}。往復ごとの案と審査: {path}）")
 COUNTS_WHY = "開いた block の数: {counts}（前の往復より減らなかった）"
-CAP_WHY = "壁打ちの輪の静的な上限 {n} 往復に届いた。開いた block は減り続けていた（往復ごとの開いた数: {counts}）"
+CAP_WHY = ("壁打ちの輪の安全の上限 {n} 往復に届いた（減り続ける往復は普通は届かないので、仕組みの異常として止めた）。"
+           "開いた block は減り続けていた（往復ごとの開いた数: {counts}）")
 LINE_HEAD = ("事前審査の壁打ち: {n} 往復・抜け方は{word}（記録の名 {outcome}）・続いた block: {persists}・{share}"
              "（往復ごとの案と審査: {path}）")
 # 1 回目の割合の分母に言い換えを入れないのは、言い換えが 1 回目の block の言い直しで新しい穴でないから。持ち込みを 1 回目の割合の
@@ -227,9 +235,8 @@ def _attributed(units: list, items: list) -> list[int]:
 
 
 def _claim(c) -> bool:
-    """申告の行の入口のふるい（dict で、origin が申告してよい語で、key と of が文字列）"""
-    return (isinstance(c, dict) and c.get("origin") in CLAIMED and isinstance(c.get("key"), str)
-            and isinstance(c.get("of", ""), str))
+    """申告の行の入口のふるい（ORIGIN_SCHEMA の行の型に合う）"""
+    return not validate_schema(c, ORIGIN_SCHEMA["items"])
 
 
 def _origins(new: list, claimed: list, *, rows: list, prev: list, face_units: dict, earlier: set, earlier_units: dict,
@@ -681,7 +688,7 @@ def stuck_reason(b) -> str:
     # 同じ block が続いて止めた PERSISTED は数の比べで止めたのでないから、数の句を付けない
     stopped_open = doc["outcome"] == UNSETTLED or any(it.get("state") == OPEN for it in last.get("items") or [])
     counts = " → ".join(f"{p['pass']} 往復目 {len(_open_blocks(p))}" for p in passes)
-    if last.get("capped"):   # 輪の上限の周で止めた往復は減り続けていた: 上限に届いた事実だけを言う
+    if last.get("capped"):   # 輪の安全の上限の周で止めた往復は減り続けていた: 減らなかったと言わず、上限に届いた異常を言う
         why += "。" + CAP_WHY.format(n=len(passes), counts=counts)
     elif stopped_open and not_fewer(passes):
         why += "。" + COUNTS_WHY.format(counts=counts)
