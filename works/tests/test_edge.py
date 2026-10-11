@@ -435,7 +435,8 @@ class FinalGateCase(EdgeBase):
                        encoding="utf-8")
         why = "既存の呼び手が 3 つあり、今回は 1 か所に寄せると範囲が広がりすぎる"
         with mock.patch.object(line_edge.planmarks, "read", return_value=[{"structure": [{"row": "u", "deviation": why}]}]):
-            got = line_edge.after_edge(self.board, {"ok": True, "after_file": str(art), "status": "ok", "reason": ""})
+            got = line_edge.after_edge(self.board, {"ok": True, "after_file": {"type": "archon_artifact", "run_id": "run-1", "path": art.name}, "status": "ok",
+                                                    "reason": ""}, self.tmp)
         self.assertEqual(got["status"], "ok", got)
         text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
         self.assertIn("考えの住処: outcome（結末の語）を知る場所が src/edge.py で増えた（1 → 2 行）", text)
@@ -449,7 +450,8 @@ class FinalGateCase(EdgeBase):
         up = {"concept": "outcome", "what": "結末の語", "path": "src/edge.py", "before": 1, "after": 2}
         art.write_text(json.dumps({"status": "ok", "reason": "", "changed": ["src/edge.py"], "tables": ["docs/concepts.json"],
                                    "fence_up": [up], "new_names": [], "dup_blocks_added": 0}), encoding="utf-8")
-        line_edge.after_edge(self.board, {"ok": True, "after_file": str(art), "status": "ok", "reason": ""})
+        line_edge.after_edge(self.board, {"ok": True, "after_file": {"type": "archon_artifact", "run_id": "run-1", "path": art.name}, "status": "ok", "reason": ""},
+                             self.tmp)
         got = self.edge("final", tests=tests, final_gate="when_needed")
         self.assertTrue(got["ask"], got)
         self.assertIn("考えの住処の柵の数が増えた", got["gate_text"])
@@ -457,9 +459,18 @@ class FinalGateCase(EdgeBase):
     def test_after_edge_without_block_exit_marks_failed(self):
         """直しの後の構造のブロックが飛ばされた・落ちた周も節を落とさず、控えに failed と理由を残す"""
         self.premised()
-        got = line_edge.after_edge(self.board, None)
+        got = line_edge.after_edge(self.board, None, self.tmp)
         self.assertEqual((got["ok"], got["status"]), (True, "failed"))
         self.assertTrue(got["reason"].strip())
+
+    def test_after_edge_reads_only_the_pointer(self):
+        """after.json は出口の指し札で受ける。字のパス（前の形）は受けず、failed と理由を残す（受け手はパスを組まない）"""
+        self.premised()
+        art = self.tmp / "after.json"
+        art.write_text(json.dumps({"status": "ok", "reason": ""}), encoding="utf-8")
+        got = line_edge.after_edge(self.board, {"ok": True, "after_file": str(art), "status": "ok", "reason": ""}, self.tmp)
+        self.assertEqual((got["ok"], got["status"]), (True, "failed"))
+        self.assertIn("archon_artifact", got["reason"])
 
     def test_final_gate_words_live_in_home(self):
         """最後の関所の開き方の語は住処 gatepolicy の 1 か所（入口も境の節も自分の表を持たない。C18。mid_gate は無い）"""

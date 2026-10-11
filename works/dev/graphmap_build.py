@@ -8,6 +8,7 @@ pack の宣言 archon-plugin.json の entrypoints の入口ごとに、部品 .s
 受け手の表の行（各モジュールの RECEIVES。読み口は core の graphmap.receive_rows）から design で設計図を組む（入口の名を
 省けば全部）。build は書き、check は書かずに、今の YAML と宣言から組んだ物と字で違う（か無い）ファイルを名指して終了コード 1 で抜ける。
 YAML か宣言を替えたら build で書き直す（包みは古い元の地図を足さない。試験 tests/test_graphmap.py が古い元と古い設計図を赤にする）。
+build も check も、入口ごとに読み書きの宣言（節の _meta）を持たない実行する節の数を標準出力に 1 行出す（graphmap.undeclared）。
 pack のモジュールは標準ライブラリだけなので、YAML を読む PyYAML はこの道具が渡す。
 
 設計図は役と情報の流れの文書: 工程ごとに mermaid の素の flowchart（名前・入れ子・順・渡る物だけ）と、細目の表（何をするか・
@@ -206,6 +207,8 @@ def main(argv) -> int:
     bad = 0
     for name in names:
         graph = graphmap.build(pack / eps[name], resolve, pack, yaml.safe_load)
+        left = sum(len(v) for v in graphmap.undeclared(graph).values())
+        print(f"graphmap_build: {graphmap.graph_path(pack, eps[name]).relative_to(pack)}: 読み書きの宣言の無い節 {left}（節の _meta。nodemeta）")
         for out, text in ((graphmap.graph_path(pack, eps[name]), graphmap.dumps(graph)),
                           (design_path(pack, name), design(graph, rows))):
             if argv[0] == "build":

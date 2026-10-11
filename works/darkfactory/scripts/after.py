@@ -8,7 +8,7 @@
 
 読む環境変数（Archon が節の with: から渡す）:
 - INPUTS_MEASURED: 直しの後の構造のブロックの出口の JSON（`{from: …, if_skipped: null}`。飛ばされた・落ちた節は文字列 null か空）
-- ARTIFACTS_DIR（空も欠け。盤面は その下の board/）
+- ARTIFACTS_DIR（空も欠け。盤面は その下の board/。ブロックの出口の指し札もこの下に解く）
 出口:
 - {ok, status: ok|failed, reason} を 1 行の JSON で出して 0。ブロックの落ちも自分の読み書きの失敗も status failed と理由で返す
   （節を落とさない。線を止めない）
@@ -47,7 +47,7 @@ def main() -> int:
         return 2
     import line_edge
     board = Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
-    script_io._emit(line_edge.after_edge(board, measured))
+    script_io._emit(line_edge.after_edge(board, measured, Path(os.environ[script_io.ARTIFACTS_ENV])))
     return 0
 
 

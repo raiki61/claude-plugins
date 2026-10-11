@@ -44,6 +44,7 @@ FAST = frozenset({
     "test_core_verbatim",   # 写しと元の commit のバイト一致（git show で読むだけ。リポジトリを作らない）
     "test_core_sync",       # 写し直しの道具: 偽の正本の git はモジュールに 1 回だけ作り、試験は道具を子で起こして git show で読むだけ
     "test_scopes",          # 部品の置き場（依頼 239）: flow_adapter の env の読みと manifest の照らし（一時の置き場のファイルだけ）
+    "test_nodemeta",        # 節ごとの読み書きの宣言の形・YAML から落とす口・照らし・測る道具（YAML と manifest を読む・子のプロセスは python3 1 本。git なし）
     "test_gitkit",          # gitkit の型を 1 回作って 2 回写す
     "test_unittrees",       # 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
     "test_tdd_lane_wiring", # TDD の輪の並べの節の配線（YAML・筋書き・状態の JSON を読むだけ。git・子のプロセスなし）

@@ -15,7 +15,8 @@ new_names: [{name, sites}], dup_blocks_added: int, timing: {秒（lib/eye の WA
 - 差分の前の像は、対象を変えない一時の clone（--shared。対象の .git は書き換えない）を直しの前の版で取り出した物。差分は
   `git diff --binary <版>` と、まだ追跡されていないファイルの足しの patch
 - 実測が落ちても線を止めない（status: failed と reason。0 で終える）
-- {"after_file"} を 1 行出して 0。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
+- {"after_file": after.json の指し札（core の script_io.artifact_pointer。{type: archon_artifact, run_id, path}）} を 1 行出して 0。
+  ARTIFACTS_DIR・WORKFLOW_ID が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
 """
 import json
 import os
@@ -32,6 +33,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 import concepthome  # noqa: E402
 import conceptfence  # noqa: E402
+import script_io  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import eye  # noqa: E402  （ブロックの時間の欄の名 WALL と stamp）
 
@@ -130,8 +132,9 @@ def run(root: Path, base: str) -> dict:
 
 def main() -> int:
     art = os.environ.get(ARTIFACTS_ENV)
-    if not art:
-        print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
+    missing = [n for n in (ARTIFACTS_ENV, script_io.RUN_ENV) if not os.environ.get(n)]
+    if missing:
+        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
     t0 = time.monotonic()
     out_dir = Path(art) / OUT_DIR
@@ -142,7 +145,7 @@ def main() -> int:
     after = out_dir / AFTER_FILE
     after.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({"after_file": str(after)}, ensure_ascii=False), flush=True)
+    print(json.dumps({"after_file": script_io.artifact_pointer(after)}, ensure_ascii=False), flush=True)
     return 0
 
 

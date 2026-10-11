@@ -3,6 +3,7 @@ description: 書く部品
 nodes:
   - id: prep
     script: prep
+    _meta: {reads: ['file:board/r*/in.json'], writes: []}
   - id: write-loop
     description: |
       書く輪
@@ -25,6 +26,9 @@ nodes:
         - id: write-accept
           script: accept
           depends_on: [writer]
+          _meta:
+            reads: []
+            writes: ['record:state.works']
         - id: revise-loop
           description: '直しの輪'
           depends_on: [write-accept]

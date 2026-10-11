@@ -4,8 +4,9 @@
 # ///
 """構造のブロックの出口を組む。段 A が書いた structure.json（INPUTS_STRUCTURE_FILE）と design.jsonl（INPUTS_DESIGN_FILE）を
 確かめ、構造の目の輪の出口（INPUTS_EYE。輪が飛ばされた・落ちた周は null）と、目を起こす周だったか（INPUTS_EYE_DUE）を突き合わせ、
-{ok, structure_file, design_file, after_file, status, reason, 秒（lib/eye の WALL）} を 1 行出して 0。後段が読んでよいのはこの 3 本のファイルだけ
-（after_file は直しの後の段（INPUTS_AFTER_DUE が true）の周の段 B の after.json。ほかの周は空）。
+{ok, structure_file, design_file, after_file?, status, reason, 秒（lib/eye の WALL）} を 1 行出して 0。後段が読んでよいのはこの 3 本のファイルだけ
+（after_file は直しの後の段（INPUTS_AFTER_DUE が true）の周の段 B の after.json の指し札（INPUTS_AFTER の after_file。run の置き場
+ARTIFACTS_DIR の下に core の script_io.artifact_file で解いて読めた時だけ、そのまま運ぶ）。ほかの周は欄を出さない）。
 
 - ok は実測や目が落ちても true（status: failed と reason で分かる。線を止めない）。failed は、実測が落ちた・目を起こす周なのに
   輪の出口が無い（目の会話が落ちた）・目の返答が 3 回とも受け付けで拒まれた周
@@ -19,7 +20,9 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))
 import eye  # noqa: E402
+import script_io  # noqa: E402
 
 STRUCTURE_ENV = "INPUTS_STRUCTURE_FILE"
 DESIGN_ENV = "INPUTS_DESIGN_FILE"
@@ -66,22 +69,25 @@ def main() -> int:
         return 1
     kept = eye.state(structure.parent)
     status, reason = outcome(doc, os.environ.get(EYE_DUE_ENV, "").strip() == "true", _eye_exit(), kept)
-    after_file = ""
+    after = {}
     if os.environ.get(AFTER_DUE_ENV, "").strip() == "true":
-        got = _eye_exit(AFTER_ENV) or {}
-        after_file = str(got.get("after_file") or "")
-        if not after_file:
+        pointer = (_eye_exit(AFTER_ENV) or {}).get("after_file")
+        if not pointer:
             status, reason = "failed", "直しの後の実測の節が落ちたか走らなかった（出口が無い）"
         else:
             try:
-                a = json.loads(Path(after_file).read_text(encoding="utf-8"))
+                root = os.environ.get(script_io.ARTIFACTS_ENV)
+                if not root:
+                    raise ValueError(f"環境変数 {script_io.ARTIFACTS_ENV} が無い（指し札を解く run の置き場が分からない）")
+                a = json.loads(script_io.artifact_file(pointer, root).read_text(encoding="utf-8"))
                 wall += eye.wall(a)
+                after = {"after_file": pointer}
                 if a.get("status") != "ok":
                     status, reason = "failed", f"直しの後の実測: {a.get('reason') or '理由の記録が無い'}"
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError) as e:
+            except (OSError, UnicodeDecodeError, ValueError, AttributeError) as e:
                 status, reason = "failed", f"直しの後の実測の after.json が読めない: {e}"
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({"ok": True, "structure_file": str(structure), "design_file": str(design), "after_file": after_file,
+    print(json.dumps({"ok": True, "structure_file": str(structure), "design_file": str(design), **after,
                       "status": status,
                       "reason": reason, eye.WALL: round(wall + eye.wall(kept), 3)}, ensure_ascii=False), flush=True)
     return 0

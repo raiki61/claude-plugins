@@ -16,8 +16,14 @@ import unittest
 from gitkit import GIT_ID
 from hermetic import child_env
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+TESTS = pathlib.Path(__file__).resolve().parent
+ROOT = TESTS.parent
 SCRIPT = ROOT / "blk-structure" / "scripts" / "measure.py"
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import nodemeta  # noqa: E402
+import nodeio_probe  # noqa: E402
+import scopes  # noqa: E402
 SINCE = "2020-06-01"
 
 BLOCK = ["alpha = compute(1)", "beta = compute(2)", "gamma = alpha + beta", "delta = gamma * 2",
@@ -441,9 +447,17 @@ class BlockCase(unittest.TestCase):
         def script(n):
             e = dict(env)
             e.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
-            p = subprocess.run([sys.executable, str(BLOCK_DIR / "scripts" / f"{n['script']}.py")], cwd=str(root), env=e,
+            log = self.tmp / f"io-{n['id']}.json"
+            p = subprocess.run([sys.executable, str(TESTS / "nodeio_probe.py"), str(BLOCK_DIR / "scripts" / f"{n['script']}.py")],
+                               cwd=str(root), env={**e, nodeio_probe.LOG_ENV: str(log)},
                                capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
             self.assertEqual(p.returncode, 0, f"節 {n['id']} が落ちた: {p.stderr[-1500:]}")
+            # 実際の読み書き（run の置き場の下）は節の宣言 _meta の中（入力で名指されたファイルの読みは配線の宣言として通す）
+            self.assertIn(nodemeta.KEY, n, f"節 {n['id']} に読み書きの宣言が無い")
+            seen = json.loads(log.read_text(encoding="utf-8"))
+            named = [v for k, v in e.items() if k.startswith("INPUTS_")]
+            self.assertEqual(scopes.node_io_gaps(nodemeta.parse(n[nodemeta.KEY], n["id"]), reads=set(seen["reads"]),
+                                                 writes=set(seen["writes"]), named=named, root=str(art)), [], n["id"])
             out = json.loads(p.stdout)
             if "output_format" in n:
                 self.assertEqual(validate_schema(out, n["output_format"]), [], n["id"])
@@ -506,6 +520,7 @@ class BlockCase(unittest.TestCase):
         out = self.run_block(self.units([{"id": "u-7", "paths": ["a.txt"], "summary": "直す所"}]), self.repo(), reply=reply)
         self.assertIs(out["ok"], True)
         self.assertEqual(out["status"], "ok", out)
+        self.assertNotIn("after_file", out)   # 直しの後の段でない周は指し札を出さない（指す物が無い）
         structure = json.loads(pathlib.Path(out["structure_file"]).read_text(encoding="utf-8"))
         self.assertIn("u-7", json.dumps(structure, ensure_ascii=False))
         self.assertIn("a.txt", json.dumps(structure, ensure_ascii=False))
@@ -628,7 +643,9 @@ class AfterCase(unittest.TestCase):
         out = self.run_block(self.tmp / "no-units.json", repo, base_rev=base)
         self.assertIs(out["ok"], True)
         self.assertEqual(pathlib.Path(out["design_file"]).stat().st_size, 0)
-        return json.loads(pathlib.Path(out["after_file"]).read_text(encoding="utf-8"))
+        # after.json は出口の指し札で渡る（段 B が作り、出口がそのまま運ぶ。受け手は run の置き場の下に解く）
+        self.assertEqual(out["after_file"], {"type": "archon_artifact", "run_id": "run-structure", "path": "structure/after.json"})
+        return json.loads((self.tmp / "art" / out["after_file"]["path"]).read_text(encoding="utf-8"))
 
     def test_after_stage_counts_real_diff(self):
         repo = self.target()

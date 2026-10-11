@@ -683,7 +683,7 @@ class LineRun:
         プロセスで回す（ARTIFACTS_DIR は盤面の置き場の親。cwd は対象）。目の返答は replies["structure-eye"] か、実測できた単位
         ごとの汚れないの 1 行（structure_eye_reply）"""
         after = "base_rev" in (self.row.get("with") or {})   # 直しの後の 2 度目の include（段 B だけ）
-        env = hermetic.child_env(ARTIFACTS_DIR=str(self.board.parent), PYTHONDONTWRITEBYTECODE="1",
+        env = hermetic.child_env(ARTIFACTS_DIR=str(self.board.parent), WORKFLOW_ID="run-linekit", PYTHONDONTWRITEBYTECODE="1",
                                  INPUTS_UNITS="" if after else self.out["h-plan"]["structure_units_file"], INPUTS_ROOT="",
                                  INPUTS_POLICY_PATH="" if after else self.out["entering"].get("policy_path") or "",
                                  INPUTS_BASE_REV=self.out["entering"].get("base_rev") or "" if after else "")
@@ -874,7 +874,7 @@ class LineRun:
                                                          self.out["h-plan"].get("go") is not False)
                 self.trail.append(nid)
             elif nid == "h-after":
-                self.out[nid] = line_edge.after_edge(self.board, self._src(row["with"]["measured"]))
+                self.out[nid] = line_edge.after_edge(self.board, self._src(row["with"]["measured"]), self.board.parent)
                 self.trail.append(nid)
             elif row["kind"] == "approval":
                 if self._when(row):

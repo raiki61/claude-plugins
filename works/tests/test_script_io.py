@@ -238,6 +238,48 @@ class ScriptIoCase(unittest.TestCase):
         self.assertIn("ARTIFACTS_DIR", err)
 
 
+class PointerCase(unittest.TestCase):
+    """出口で渡すファイルの指し札（artifact_pointer）と、受け手が解く口（artifact_file）"""
+
+    def _with(self, env: dict):
+        """os.environ を env だけにして返す文脈（試験の外の値を混ぜない）"""
+        return mock.patch.dict(os.environ, env, clear=True)
+
+    def test_artifact_pointer_names_the_file_under_this_run(self):
+        """出口で渡すファイルの指し札は Archon v0.11.1 の形 {type: archon_artifact, run_id, path}（path は run の置き場からの相対。
+        Archon は出した節で run の id・置き場の中・在る空でない普通のファイルを確かめる。artifact-pointer.ts）"""
+        with tempfile.TemporaryDirectory() as d:
+            art = pathlib.Path(d) / "art"
+            (art / "structure").mkdir(parents=True)
+            f = art / "structure" / "after.json"
+            f.write_text("{}", encoding="utf-8")
+            with self._with({"ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-1"}):
+                self.assertEqual(script_io.artifact_pointer(f),
+                                 {"type": "archon_artifact", "run_id": "run-1", "path": "structure/after.json"})
+            for env, path in (({"ARTIFACTS_DIR": str(art)}, f),                           # run の id が無い
+                              ({"WORKFLOW_ID": "run-1"}, f),                               # 置き場が無い
+                              ({"ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-1"}, pathlib.Path(d) / "x.json")):   # 外
+                with self.subTest(env=sorted(env), path=path.name), self._with(env), self.assertRaises(ValueError):
+                    script_io.artifact_pointer(path)
+
+    def test_artifact_file_resolves_a_pointer_under_the_root(self):
+        """受け手は指し札を run の置き場の下のパスに解く（自分でパスを組まない）。形の違い・置き場の外は ValueError"""
+        root = pathlib.Path("/art")
+        good = {"type": "archon_artifact", "run_id": "run-1", "path": "structure/after.json"}
+        self.assertEqual(script_io.artifact_file(good, root), root / "structure" / "after.json")
+        for bad in ({**good, "type": "file"}, {**good, "run_id": ""}, {**good, "path": ""}, {**good, "path": "/etc/x"},
+                    {**good, "path": "a/../../x"}, "structure/after.json", None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                script_io.artifact_file(bad, root)
+        with tempfile.TemporaryDirectory() as d:   # 置き場の中のリンクで外へ出る物も拒む（解いてから照らす）
+            art = pathlib.Path(d) / "art"
+            art.mkdir()
+            (pathlib.Path(d) / "secret.json").write_text("{}", encoding="utf-8")
+            (art / "link.json").symlink_to(pathlib.Path(d) / "secret.json")
+            with self.assertRaises(ValueError):
+                script_io.artifact_file({**good, "path": "link.json"}, art)
+
+
 class SwitchCase(unittest.TestCase):
     """部品の切り替えの入力（線の features_off がブロックへ写す on・off）: 空・None・文字列 null・on は真、off は偽、ほかは
     名を言って ValueError（黙って倒さない）"""

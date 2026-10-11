@@ -261,14 +261,6 @@
    12,
    "コードの繰り返し"
   ],
-  "blk-structure/scripts/collect.py": [
-   10,
-   "コードの繰り返し"
-  ],
-  "blk-structure/scripts/eye_accept.py": [
-   10,
-   "コードの繰り返し"
-  ],
   "blk-world/fixtures/offline.stubs.yaml": [
    38,
    "筋書きの stub（同じ節の返りを別の筋書き・別の段の筋書きが持つ。筋書きの値は鍵ごと丸ごと置き替えるので、1 欄だけ違う stub も全体を持つ）"

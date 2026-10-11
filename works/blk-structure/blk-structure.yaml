@@ -7,7 +7,7 @@ description: |
   当たっても決めきれない行は行き先「人に上げる」で残す（人に聞くのは線の側の関所）。入力 base_rev（直しの前の版）が在る周は
   直しの後の段だけを回し、その版と今の作業ツリーの差分を段 B が測る（計画 2026-10-09-clean-whole の Task 2.5）。
   出力は 3 本だけ宣言する: 実測の structure.json と、設計の行の design.jsonl（目を起こさない周・目が落ちた周は 0 バイト）と、
-  直しの後の実測の after.json（直しの後の段だけ。ほかの周は空の名）。後段が読んでよいのはこの 3 本だけ。実測や目が落ちても
+  直しの後の実測の after.json（直しの後の段だけ。Archon の指し札で渡す。ほかの周は欄が無い）。後段が読んでよいのはこの 3 本だけ。実測や目が落ちても
   線を止めない（出口の status: failed と reason に残し、ok は true）。段の時間は structure.json の timing と、目の控え eye.json と
   after.json の timing に残す。
   入力の契約は判定の単位・対象の根・方針の文書と、直しの後の段の直しの前の版の 4 つで、この契約を満たすラインなら include で差し込める。
@@ -40,6 +40,11 @@ nodes:
       root: $INPUTS.root
       policy_path: $INPUTS.policy_path
       base_rev: $INPUTS.base_rev
+    # 読み書きの宣言（run の置き場から。入力で受けたパスの読みは書かない。nodemeta）。直しの後の段は after/ の下に置く
+    _meta:
+      reads: []
+      writes: [file:structure/structure.json, file:structure/design.jsonl, file:structure/eye.json,
+               file:structure/after/structure.json, file:structure/after/design.jsonl, file:structure/after/eye.json]
     output_format:
       type: object
       properties:
@@ -60,11 +65,19 @@ nodes:
     with:
       base_rev: $INPUTS.base_rev
       root: $INPUTS.root
+    _meta: {reads: [], writes: [file:structure/after.json]}
     output_format:
       type: object
       additionalProperties: false
       properties:
-        after_file: {type: string}
+        # after.json の指し札（script_io.artifact_pointer。Archon が出した節で、この run の置き場の在る空でないファイルか確かめる）
+        after_file: &after_pointer
+          type: object
+          required: [type, run_id, path]
+          properties:
+            type: {type: string, enum: [archon_artifact]}
+            run_id: {type: string}
+            path: {type: string}
       required: [after_file]
 
   # 構造の目の輪。実測が済み、測れた単位が在る周だけ起こす。拒否の後は同じ会話で出し直させ、
@@ -83,6 +96,7 @@ nodes:
           timeout: 1728000000
           with:
             structure_file: $stage-a.output.structure_file
+          _meta: {reads: [file:structure/eye.json], writes: [file:structure/eye.json, file:structure/eye-prompt-*.md]}
           output_format:
             type: object
             additionalProperties: false
@@ -102,6 +116,7 @@ nodes:
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           effort: high        # 役の前付け（core/agents/blind-judge.md）と同じ値。段は前付けを読まない（tests/test_tool_parity.py が一致を見る）
           idle_timeout: 1728000000
+          _meta: {reads: [], writes: []}   # 道具ゼロ（見るのは prep が貼った指示書だけ）
           # 行の形は design-row.schema.json から route_reason を除いた物（受け付けが行き先の訳を足す。route を書かなければ「自分で決める」）
           output_format:
             description: 'works-node: structure-eye isolated'
@@ -143,6 +158,7 @@ nodes:
             structure_file: $stage-a.output.structure_file
             design_file: $stage-a.output.design_file
             reply: {from: "$structure-eye.output"}
+          _meta: {reads: [file:structure/eye.json], writes: [file:structure/eye.json, file:structure/design.jsonl]}
           output_format:
             type: object
             additionalProperties: false
@@ -168,14 +184,15 @@ nodes:
       eye: {from: "$structure-eye-loop.output", if_skipped: null}
       after_due: $stage-a.output.after
       after: {from: "$stage-b.output", if_skipped: null}
+    _meta: {reads: [file:structure/eye.json, file:structure/after/eye.json], writes: []}
     output_format:
       type: object
       properties:
         ok: {type: boolean}
         structure_file: {type: string}
         design_file: {type: string}
-        after_file: {type: string}
+        after_file: *after_pointer   # 直しの後の段の周だけ（段 B の指し札をそのまま運ぶ）
         status: {type: string, enum: [ok, failed]}
         reason: {type: string}
         wall_s: {type: number}
-      required: [ok, structure_file, design_file, after_file, status, reason, wall_s]
+      required: [ok, structure_file, design_file, status, reason, wall_s]

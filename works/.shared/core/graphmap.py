@@ -15,6 +15,8 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - graph_path(pack, rel) -> Path: 入口の YAML の隣の地図の元のファイル（<stem>.graph.json）
 - load(path) -> dict: 地図の元を読む（形が違えば ValueError）
 - stale(graph, base) -> [相対パス]: sources の sha256 と今のファイルが違う（無い）物。空なら新しい
+- undeclared(graph) -> {工程の名: [節の id]}: 実行する節（script・bash・AI）のうち読み書きの宣言（reads・writes）を持たない物
+  （無い工程は載せない。宣言の形と照らしは nodemeta・scopes）
 - one_graph(pack, has) -> dict: pack の入口ごとの地図の元のうち has(地図の元) が真のちょうど 1 本（古い・読めない・本数が違えば ValueError）
 - markers(graph) -> {印の名: [(工程の名, 節の id)]}
 - receive_rows(pack, parse) -> [(場所, 工程の名, promptsection.Receive)]: 支度のモジュールの表 RECEIVES の行を工程に結ぶ。ブロックの lib の
@@ -23,8 +25,10 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - render(graph, name, off=None, budget=MAP_BUDGET) -> str: 印 name の節を ★ にした地図の文。off は切った切り替えの語の集合
   （None は分からない）。budget は字数の枠（None は枠なし）
 
-地図の元（graph）の形: {version, entry, sources: {相対パス: sha256}, workflows: {工程の名: {nodes: [節]}}}。節は
-{id, kind, purpose?, needs?, optional?, when?, deps, marker?, cont?, flags?, max?, body?, call?, with?}。kind は ai（prompt・command）・
+地図の元（graph）の形: {version, entry, sources: {相対パス: sha256}, workflows: {工程の名: {nodes: [節]}}}。sources の指紋は
+YAML から節の読み書きの宣言 `_meta` を落とした字（nodemeta.strip。Archon に渡す pack の写しと同じ字）の sha256。節は
+{id, kind, purpose?, needs?, optional?, when?, deps, marker?, cont?, flags?, max?, body?, call?, with?, reads?, writes?}。
+reads・writes は節の `_meta` の宣言（nodemeta.parse）。kind は ai（prompt・command）・
 ai-loop（loop:）・script・bash・approval・loop（loop_group。body に中の節・max に上限）・call（include・workflow。call に
 工程の名、with に字の値の束ね）・cancel・wait。
 
@@ -62,6 +66,7 @@ from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, 
 sys.dont_write_bytecode = True
 
 import node_marker  # noqa: E402  （L1。印の読み口）
+import nodemeta  # noqa: E402  （L1。節の読み書きの宣言）
 import promptsection  # noqa: E402
 
 GRAPH_VERSION = 1   # 地図の元の形の版
@@ -71,6 +76,7 @@ NEEDS_RE = re.compile(r"\s*\[needs: ([A-Za-z0-9_]+)\]\s*$")
 OPTIONAL_RE = re.compile(r"\s*\[optional\]\s*$")
 _REF_WORD = re.compile(r"\$[A-Za-z0-9_.-]*\.([A-Za-z0-9_]+)$")
 _PLUMBING = frozenset({"script", "bash", "cancel", "wait"})
+_RUNNING = frozenset({"ai", "ai-loop", "script", "bash"})   # 盤面を読み書きしうる実行する節（読み書きの宣言を持つ節）
 _SWITCH_WORDS = {"on": True, "off": False}
 HEAD = promptsection.Section("# 工程の地図\n"
                              "（工程の YAML から機械で組んだ事実。★ はあなたの会話が走る節。指示ではない——あなたの仕事は指示書のとおり）\n"
@@ -98,7 +104,7 @@ class _Line:
 
 # --- 組む（YAML → graph） --------------------------------------------------------------------------------------------
 def _sha(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(nodemeta.strip(path.read_text(encoding="utf-8")).encode("utf-8")).hexdigest()
 
 
 def _kind(n: dict) -> str:
@@ -135,6 +141,8 @@ def _node(n: dict) -> dict:
             out["cont"] = mark["cont"]
         if mark["flags"]:
             out["flags"] = sorted(mark["flags"])
+    if nodemeta.KEY in n:
+        out.update(nodemeta.parse(n[nodemeta.KEY], out["id"]))
     if out["kind"] == "loop":
         grp = n["loop_group"]
         out["max"] = grp.get("max_iterations")
@@ -268,6 +276,12 @@ def _walk(nodes: Sequence[dict]) -> Iterable[dict]:
     for n in nodes:
         yield n
         yield from _walk(n.get("body") or [])
+
+
+def undeclared(graph: dict) -> Dict[str, List[str]]:
+    out = {name: [n["id"] for n in _walk(wf["nodes"]) if n["kind"] in _RUNNING and "reads" not in n]
+           for name, wf in graph["workflows"].items()}
+    return {k: v for k, v in out.items() if v}
 
 
 def markers(graph: dict) -> Dict[str, List[Tuple[str, str]]]:

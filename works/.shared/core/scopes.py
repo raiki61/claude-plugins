@@ -28,6 +28,13 @@
   scope の根は、盤面を開く前に書いたその scope の物として通す）
 - reads_outside(board_dir, window, pack): 窓の間の読んだ証拠のうち、宣言の外の盤面のパス（落とさない。外れ D4）
 - missing_required(board_dir, window, pack): 窓の終わりに無い必須の出力（止めない。trace と報告に載せる）
+- node_meta_errors(meta, where): 節の読み書きの宣言（nodemeta.parse の返り）の file: の型の形の誤り（manifest の名と同じ決まり）
+- node_io_gaps(meta, *, reads, writes, named, root): 節が実際に読み書きした run の置き場からの相対パスのうち、宣言の外の物の文。
+  共有の記録（board/record.json・state.json）は record:<そのファイル>.<欄> の宣言を要る（欄までは見ない）。入力 named（with: で
+  受けた値の字）がパス（相対か root からの絶対）を名指すファイルの読みは線の配線の宣言として通す。書きは名指されても通さない
+- manifest_gaps(manifest, metas): manifest と節の宣言の盤面の公開の名の食い違いの文（両向き）。consumes・produces の名を
+  どの節の宣言も盤面のその置き場で読み書きしない物と、宣言が盤面の公開の置き場（scope の根の私物 board/*/… と共有の記録の外）を
+  読み書きするのに manifest の consumes・produces に名が無い物
 - window_key(scope): 窓の鍵（fan_out の子は同じ fan の子の全部に当たる形 <fan の節>--*。ほかは scope のまま）
 - enter(board_dir, round_, scope, block): 盤面を開く口が節の中で呼ぶ。窓の鍵が替われば前の窓を照らして誤りを返し（呼び手が
   盤面を止める）、必須の出力の欠けと宣言の外の読みを trace に積み、今の鍵の窓 scope-window.json を開く
@@ -62,6 +69,8 @@ from board import SAVE_LOCK, BoardGap, name_matches  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import now  # noqa: E402
 import halt  # noqa: E402
+import nodemeta  # noqa: E402
+from script_io import BOARD_DIR  # noqa: E402
 
 PACK = _CORE.parents[1]                       # works/（.shared/core の 2 つ上）
 MANIFEST = "manifest.json"                    # owner のフォルダの宣言のファイル
@@ -580,3 +589,62 @@ def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> list[
             return errs
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+# --- 節ごとの読み書きの宣言（nodemeta の _meta）の照らし ---------------------------------------------------------------
+_FILE = "file:"
+_RECORD_FILES = {f"{BOARD_DIR}/{r}.json": r for r in nodemeta.RECORDS}   # 盤面の共有の記録 → record: の頭
+
+
+def node_meta_errors(meta: dict, where: str) -> list[str]:
+    return [e for f in nodemeta.FIELDS for x in meta[f] if x.startswith(_FILE)
+            for e in _name_errors(x[len(_FILE):], f"{where}.{nodemeta.KEY}.{f}")]
+
+
+def _named(rel: str, named, root) -> bool:
+    full = str(pathlib.Path(root) / rel) if root else ""
+    return any(v and (s == v or f'"{v}"' in s) for s in named for v in (rel, full))
+
+
+def node_io_gaps(meta: dict, *, reads, writes, named=(), root="") -> list[str]:
+    gaps = []
+    for field, seen in (("reads", reads), ("writes", writes)):
+        pats = [x[len(_FILE):] for x in meta[field] if x.startswith(_FILE)]
+        recs = {x.split(":", 1)[1].split(".", 1)[0] for x in meta[field] if not x.startswith(_FILE)}
+        word = "読み" if field == "reads" else "書き"
+        for rel in sorted(seen):
+            rec = _RECORD_FILES.get(rel)
+            if rec is not None:
+                if rec not in recs:
+                    gaps.append(f"{rel} の{word}が宣言 {nodemeta.KEY}.{field} に無い（record:{rec}.<欄> で宣言する）")
+            elif not (field == "reads" and _named(rel, named, root)) and not any(matches(rel, p) for p in pats):
+                gaps.append(f"{rel} の{word}が宣言 {nodemeta.KEY}.{field} に無い")
+    return gaps
+
+
+def _board_pattern(row: dict) -> str:
+    """manifest の produces の行が盤面に置く場所の型（run の置き場から。per_include は scope の段 *、at が round は周の段 r*）"""
+    return "/".join([BOARD_DIR] + (["*"] if row.get("per_include") else []) + ([] if row.get("at") == "root" else ["r*"])
+                    + [row["name"]])
+
+
+def manifest_gaps(manifest_doc: dict, metas: list) -> list[str]:
+    reads = {x for m in metas for x in m["reads"]}
+    writes = {x for m in metas for x in m["writes"]}
+    gaps = []
+    for row in manifest_doc.get("consumes") or ():
+        want = {_FILE + _board_pattern(row), _FILE + _board_pattern({**row, "at": "root"})}
+        if not want & reads:
+            gaps.append(f"consumes の {row['name']} を読む節の宣言が無い（{' か '.join(sorted(want))}）")
+    produced = {_FILE + _board_pattern(row) for row in manifest_doc.get("produces") or ()}
+    consumed = {_FILE + _board_pattern({**row, "at": at}) for row in manifest_doc.get("consumes") or () for at in ("round", "root")}
+    for row in manifest_doc.get("produces") or ():
+        want = _FILE + _board_pattern(row)
+        if want not in writes:
+            gaps.append(f"produces の {row['name']} を書く節の宣言が無い（{want}）")
+    for field, seen, allowed in (("reads", reads, produced | consumed), ("writes", writes, produced)):
+        for x in sorted(seen - allowed):
+            head, _, rel = x.partition(_FILE + BOARD_DIR + "/")
+            if not head and rel and rel.split("/")[0] != "*" and not shared(rel):
+                gaps.append(f"宣言の {field} の {x} は盤面の公開の置き場なのに manifest に名が無い")
+    return gaps

@@ -17,7 +17,7 @@
   "blk-rejudge/blk-rejudge.yaml": "f57cebd041ab5cc44aeb0a896e676e09b439e75544509e47dd0f52d77bb37225",
   "blk-report/blk-report.yaml": "c82bb18a2c08d4e1fc28d6d79a6d4406d81b2647fa0d6d4cd9ea76bf0cd3c04b",
   "blk-spec/blk-spec.yaml": "844582feffafd75434fd0dcd8a4a8d67e60a8aa997c9c8c6f23e0e85158db152",
-  "blk-structure/blk-structure.yaml": "690a67b4422c4ccb600bf30539724d2c0bd9a2ffecdae46dbf46c366cd8840e1",
+  "blk-structure/blk-structure.yaml": "4ef83a9c99ff3e06f805759b2b184fbeeae502f589722dabed5d495d41c7b44d",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
   "blk-world/blk-world.yaml": "45bd1e1c63000855e0092db5bc53c950c472ed39125c8d0264ddb7f3700d1ef6",
   "darkfactory/darkfactory.yaml": "2a51ee73babdcf35b3c53309b351da12141ae80cacf8e0b48ada7990c2b31ced"
@@ -2394,7 +2394,16 @@
     {
      "deps": [],
      "id": "stage-a",
-     "kind": "script"
+     "kind": "script",
+     "reads": [],
+     "writes": [
+      "file:structure/structure.json",
+      "file:structure/design.jsonl",
+      "file:structure/eye.json",
+      "file:structure/after/structure.json",
+      "file:structure/after/design.jsonl",
+      "file:structure/after/eye.json"
+     ]
     },
     {
      "deps": [
@@ -2402,14 +2411,25 @@
      ],
      "id": "stage-b",
      "kind": "script",
-     "when": "$stage-a.output.after == true"
+     "reads": [],
+     "when": "$stage-a.output.after == true",
+     "writes": [
+      "file:structure/after.json"
+     ]
     },
     {
      "body": [
       {
        "deps": [],
        "id": "structure-eye-prep",
-       "kind": "script"
+       "kind": "script",
+       "reads": [
+        "file:structure/eye.json"
+       ],
+       "writes": [
+        "file:structure/eye.json",
+        "file:structure/eye-prompt-*.md"
+       ]
       },
       {
        "deps": [
@@ -2421,14 +2441,23 @@
        "id": "structure-eye",
        "kind": "ai",
        "marker": "structure-eye",
-       "purpose": "構造の目: 直しの単位ごとに、直しがコードの構造を汚すかを判定して返す（道具なし）"
+       "purpose": "構造の目: 直しの単位ごとに、直しがコードの構造を汚すかを判定して返す（道具なし）",
+       "reads": [],
+       "writes": []
       },
       {
        "deps": [
         "structure-eye"
        ],
        "id": "structure-eye-accept",
-       "kind": "script"
+       "kind": "script",
+       "reads": [
+        "file:structure/eye.json"
+       ],
+       "writes": [
+        "file:structure/eye.json",
+        "file:structure/design.jsonl"
+       ]
       }
      ],
      "deps": [
@@ -2446,7 +2475,12 @@
       "stage-b"
      ],
      "id": "collect",
-     "kind": "script"
+     "kind": "script",
+     "reads": [
+      "file:structure/eye.json",
+      "file:structure/after/eye.json"
+     ],
+     "writes": []
     }
    ]
   },

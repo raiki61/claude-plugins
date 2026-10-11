@@ -835,12 +835,11 @@ structure-eye-accept:
   reason: ''
   attempt: 1
 structuring__stage-b:
-  after_file: ''
+  after_file: {type: archon_artifact, run_id: dry-run, path: structure/after.json}
 structuring__collect:
   ok: true
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
-  after_file: ''
   status: ok
   reason: ''
   wall_s: 0.1
@@ -2022,12 +2021,12 @@ measuring-after__stage-a:
   eye: false
   after: true
 measuring-after__stage-b:
-  after_file: structure/after.json
+  after_file: {type: archon_artifact, run_id: dry-run, path: structure/after.json}
 measuring-after__collect:
   ok: true
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
-  after_file: structure/after.json
+  after_file: {type: archon_artifact, run_id: dry-run, path: structure/after.json}
   status: ok
   reason: ''
   wall_s: 0.1

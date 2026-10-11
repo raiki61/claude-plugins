@@ -51,6 +51,7 @@ import graphmap  # noqa: E402
 import graphmap_build  # noqa: E402
 import hermetic  # noqa: E402
 import node_marker  # noqa: E402
+import nodemeta  # noqa: E402
 import promptsection  # noqa: E402
 
 
@@ -181,8 +182,11 @@ class BuildCase(unittest.TestCase):
         self.assertEqual(self.g["entry"], "line")
         self.assertEqual(set(self.g["workflows"]), {"line", "blk-a", "blk-b"})
         self.assertEqual(set(self.g["sources"]), {"line/line.yaml", "blk-a/blk-a.yaml", "blk-b/blk-b.yaml"})
-        for rel, sha in self.g["sources"].items():
-            self.assertEqual(sha, hashlib.sha256((SEED / rel).read_bytes()).hexdigest())
+        for rel, sha in self.g["sources"].items():   # 指紋は節の宣言 _meta を落とした字から（Archon に渡す写しと同じ指紋）
+            text = (SEED / rel).read_text(encoding="utf-8")
+            self.assertEqual(sha, hashlib.sha256(nodemeta.strip(text).encode("utf-8")).hexdigest())
+        self.assertNotEqual(self.g["sources"]["blk-a/blk-a.yaml"],
+                            hashlib.sha256((SEED / "blk-a" / "blk-a.yaml").read_bytes()).hexdigest())
 
     def test_node_kinds_and_fields(self):
         line = self.g["workflows"]["line"]["nodes"]
@@ -203,6 +207,25 @@ class BuildCase(unittest.TestCase):
         lane = find(self.g["workflows"]["blk-b"]["nodes"], "lane-1")
         self.assertEqual((lane["kind"], lane["flags"]), ("ai", ["lane"]))   # command も AI
         self.assertNotIn("purpose", find(self.g["workflows"]["blk-a"]["nodes"], "prep"))
+
+    def test_io_declarations_ride_on_the_nodes(self):
+        """節の読み書きの宣言 _meta は地図の元の節の reads・writes に載る（輪の中も）。宣言の無い節には欄が無い"""
+        blk = self.g["workflows"]["blk-a"]["nodes"]
+        self.assertEqual((find(blk, "prep")["reads"], find(blk, "prep")["writes"]), (["file:board/r*/in.json"], []))
+        accept = find(find(blk, "write-loop")["body"], "write-accept")
+        self.assertEqual((accept["reads"], accept["writes"]), ([], ["record:state.works"]))
+        self.assertNotIn("reads", find(blk, "peer-check"))
+
+    def test_undeclared_counts_running_nodes_only(self):
+        """未宣言の節は実行する節（script・bash・AI）だけを数える（輪・呼び・関所は数えない）"""
+        g = {"workflows": {"w": {"nodes": [
+            {"id": "s", "kind": "script", "deps": [], "reads": [], "writes": []},
+            {"id": "a", "kind": "ai", "deps": []},
+            {"id": "gate", "kind": "approval", "deps": []},
+            {"id": "call", "kind": "call", "deps": [], "call": "x", "with": {}},
+            {"id": "lp", "kind": "loop", "deps": [], "max": 3, "body": [{"id": "b", "kind": "bash", "deps": []},
+                                                                      {"id": "l", "kind": "ai-loop", "deps": []}]}]}}}
+        self.assertEqual(graphmap.undeclared(g), {"w": ["a", "b", "l"]})
 
     def test_needs_tag_is_split_from_the_purpose(self):
         fork = find(self.g["workflows"]["blk-b"]["nodes"], "fork")
@@ -541,10 +564,17 @@ class StaleCase(unittest.TestCase):
                                             capture_output=True, text=True, encoding="utf-8",
                                             env=hermetic.child_env(PYTHONDONTWRITEBYTECODE="1"))
             self.assertEqual(run("check").returncode, 1)   # まだ書いていない
-            self.assertEqual(run("build").returncode, 0)
+            built = run("build")
+            self.assertEqual(built.returncode, 0)
+            self.assertIn("読み書きの宣言の無い節 14", built.stdout)   # 種の実行する節 16 のうち prep・write-accept だけ宣言
             self.assertEqual(run("check").returncode, 0)
             g = graphmap.load(pack / "line" / "line.graph.json")
             self.assertEqual(graphmap.stale(g, pack), [])
+            a = pack / "blk-a" / "blk-a.yaml"   # 宣言だけを替える: Archon に渡る字は同じ（stale でない）が、地図の元は古い
+            a.write_text(a.read_text(encoding="utf-8").replace("r*/in.json", "r*/in2.json"), encoding="utf-8")
+            self.assertEqual(graphmap.stale(g, pack), [])
+            self.assertEqual(run("check").returncode, 1)
+            a.write_text(a.read_text(encoding="utf-8").replace("r*/in2.json", "r*/in.json"), encoding="utf-8")
             p = pack / "blk-b" / "blk-b.yaml"
             p.write_text(p.read_text(encoding="utf-8").replace("枝 1 の役", "枝 1 の役（替えた）"), encoding="utf-8")
             self.assertEqual(graphmap.stale(g, pack), ["blk-b/blk-b.yaml"])

@@ -15,6 +15,9 @@ works_dev_copy_pack() {
     cp -R "$_entry" "$2/"
   done
   find "$2" \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 | xargs -0 rm -rf
+  # 節の読み書きの宣言 _meta は Archon が知らない鍵（節ごとに node_unknown_key_ignored の警告）なので、写しの工程の YAML から落とす
+  # （写しの中の .shared/core/nodemeta.py。地図の元の指紋は落とした字から取るので写しでも古くならない）
+  python3 -I "$2/.shared/core/nodemeta.py" strip "$2"
   # 出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}）。run ごとの版の控え versions.json（線の start が
   # .shared/core/versions.py で書く）が読む。写しは git を持たないので、写す時に元の commit と手元の書き換えの有無を残す。
   # rev・dirty は、元の works がその git のリポジトリで追跡されている時だけ引く（プラグインのキャッシュ（git の外）から写した時と、

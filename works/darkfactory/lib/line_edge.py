@@ -21,8 +21,9 @@
 - world_edge(board_dir, worlded, due): h-world（世界の解の境の節。darkfactory/scripts/world.py の中身。計画 world-solution の W7）。
   世界の解のブロックの出口を確かめ、盤面の根の控え（core の worldmark）を書く。判定はこの節を待ち、判定の支度・修正案の頭・関所は
   控えから行を読む。段が落ちても線を止めない
-- after_edge(board_dir, measured): 直しの後の構造の境（darkfactory/scripts/after.py の中身。計画 2026-10-09-clean-whole の
-  Task 2.5）。直しの後に 2 度目に差し込んだ構造のブロックの出口（after.json）に、修正案の外れの訳（planmarks.deviations）を
+- after_edge(board_dir, measured, root): 直しの後の構造の境（darkfactory/scripts/after.py の中身。計画 2026-10-09-clean-whole の
+  Task 2.5）。直しの後に 2 度目に差し込んだ構造のブロックの出口の指し札 after_file が指す after.json（run の置き場 root の下に
+  script_io.artifact_file で解く。パスを自分で組まない）に、修正案の外れの訳（planmarks.deviations）を
   足して盤面の根の控え（structmark.write_after）を書く。報告・最後の関所・独立の目の頭・結末の残りがその控えを読む
 - trace_empty_fix(b): 機械が p3.fix の空の返答を渡した印（trace の記録。entry.trace_empty_fix の別名）
 - 固定材料（core の fixture。計画 220 Task 5）: h-fix は go の後、1 周目なら盤面を $ARTIFACTS_DIR/fix-fixture へ写す
@@ -74,6 +75,7 @@ import rejudge  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
+import script_io  # noqa: E402  （L1。ブロックの出口の指し札を解く口）
 import startrec  # noqa: E402  （始めの記録の読み口）
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import structmark  # noqa: E402
@@ -451,16 +453,17 @@ def world_edge(board_dir, worlded, due=True) -> dict:
     return {"ok": True, "status": status, "reason": why, "world_file": world_file if status == "ok" else ""}
 
 
-def after_edge(board_dir, measured) -> dict:
-    """直しの後の構造の境: 構造のブロックの出口 measured（飛ばされた・落ちた周は None）の after.json と、今の周の修正案の外れの訳を
-    盤面の根の控え（structmark.write_after）に書く。読み書きの失敗も節の失敗にせず status failed と理由で返す（線を止めない）"""
+def after_edge(board_dir, measured, root) -> dict:
+    """直しの後の構造の境: 構造のブロックの出口 measured（飛ばされた・落ちた周は None）の指し札 after_file が指す after.json（run の
+    置き場 root の下）と、今の周の修正案の外れの訳を盤面の根の控え（structmark.write_after）に書く。読み書きの失敗・指し札でない
+    after_file も節の失敗にせず status failed と理由で返す（線を止めない）"""
     got = measured if isinstance(measured, dict) else {}
     after, why = {}, ""
     if not got:
         why = "直しの後の構造のブロックの節が落ちたか走らなかった（出口が無い）"
     else:
         try:
-            after = json.loads(pathlib.Path(str(got.get("after_file") or "")).read_text(encoding="utf-8"))
+            after = json.loads(script_io.artifact_file(got.get("after_file"), root).read_text(encoding="utf-8"))
             if not isinstance(after, dict):
                 raise ValueError("after.json が JSON のオブジェクトでない")
         except (OSError, UnicodeDecodeError, ValueError) as e:

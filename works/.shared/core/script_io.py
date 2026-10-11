@@ -24,6 +24,13 @@ reason は記録のために残す。
 $ が無くても、リンクの先や相対パスの cwd から現れうる）だけ、標準エラーに名前を出して 2
 （標準出力には何も出さない）。
 
+artifact_pointer(path) は出口で渡すファイル（run の置き場 ARTIFACTS_DIR の下）の Archon の指し札 {type: archon_artifact, run_id, path}
+（run_id は WORKFLOW_ID、path は置き場からの相対）を作る口。Archon v0.11.1 は出口の型（output_format）を持つ節の出口の指し札を、
+出した節で確かめる（自分の run の id・置き場の中・在る空でない普通のファイル。artifact-pointer.ts の validateArtifactPointers）。
+置き場・run の id が無い・path が置き場の外は ValueError。artifact_file(pointer, root) は受け手が指し札を run の置き場 root の
+下のパスに解く口（受け手はパスを自分で組まない）。形が違う・置き場の外を指す（中のリンクを解いた先で照らす）なら ValueError。
+run の id は出した節で Archon が確かめた値のまま運ばれる（読み手では照らさない）。
+
 switch_on(value, name) は部品の切り替えの入力（on・off。空は on）を真偽に読む口（線が run ごとに機能を切って比べる。ほかの語は ValueError）。
 switch_auto(value, name) は自動を持つ切り替え（on・off・auto）を真・偽・None（auto）に読む口。
 
@@ -68,6 +75,8 @@ import flow_adapter  # noqa: E402  （流れの道具の口。層 L1・標準ラ
 
 BASE_REV_ENV = "INPUTS_BASE_REV"
 ARTIFACTS_ENV = flow_adapter.ARTIFACTS_ENV
+RUN_ENV = "WORKFLOW_ID"            # 今の run の id（Archon がどの節にも渡す。指し札の run_id）
+POINTER_TYPE = "archon_artifact"   # Archon の指し札の印（v0.11.1 の schemas/artifact-pointer.ts の ARTIFACT_POINTER_TYPE）
 BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
 ACCEPT_LAST = "accept-last.json"   # scope の根の受け付けの最後の結果 {<fn の名>: {ok, reason_file, reason, at}}（note_last が上書き）
@@ -75,6 +84,27 @@ ACCEPT_LAST = "accept-last.json"   # scope の根の受け付けの最後の結�
 
 SWITCH_ON, SWITCH_OFF = "on", "off"   # 部品の切り替えの入力の語（線が run ごとに機能を切る口。空は on）
 SWITCH_AUTO = "auto"                  # 自動を持つ切り替え（switch_auto）だけが受ける語（部品が自分の材料で on・off を決める）
+
+
+def artifact_pointer(path) -> dict:
+    root, run_id = flow_adapter.artifact_root(), os.environ.get(RUN_ENV, "")
+    if root is None or not run_id:
+        raise ValueError(f"指し札を作れない: 環境変数 {ARTIFACTS_ENV}・{RUN_ENV} の空でない値が要る")
+    full, base = pathlib.Path(path).resolve(), root.resolve()
+    if not full.is_relative_to(base):
+        raise ValueError(f"指し札を作れない: {path} が run の置き場 {root} の外")
+    return {"type": POINTER_TYPE, "run_id": run_id, "path": full.relative_to(base).as_posix()}
+
+
+def artifact_file(pointer, root) -> pathlib.Path:
+    rel = pointer.get("path") if isinstance(pointer, dict) else None
+    if (not isinstance(pointer, dict) or pointer.get("type") != POINTER_TYPE or not isinstance(pointer.get("run_id"), str)
+            or not pointer["run_id"] or not isinstance(rel, str) or not rel):
+        raise ValueError(f"Archon の指し札（{{type: {POINTER_TYPE}, run_id, path}}）でない: {pointer!r}")
+    full = pathlib.Path(root).joinpath(*pathlib.PurePosixPath(rel).parts)
+    if not full.resolve().is_relative_to(pathlib.Path(root).resolve()):
+        raise ValueError(f"指し札の path {rel!r} が run の置き場の外を指す（解いた先で照らす）")
+    return full
 
 
 def switch_on(value, name: str) -> bool:

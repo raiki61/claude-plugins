@@ -53,6 +53,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
 sys.path.insert(0, str(DEV))   # 筋書きの合わせ方（dev/stubfold.py）
 import stubfold  # noqa: E402
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import graphmap  # noqa: E402
 
 BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
 _saved = {}
@@ -180,6 +182,17 @@ class TestDevShell(unittest.TestCase):
             self.assertTrue(line_fx)
             for p in line_fx:
                 self.assertEqual((pack / "darkfactory" / "fixtures" / p.name).read_text(encoding="utf-8"), stubfold.text(p), p.name)
+            # 節の読み書きの宣言 _meta は Archon に渡す前に落とす（Archon は知らない鍵ごとに警告を出す。nodemeta.strip）。
+            # 地図の元の指紋は落とした字から取るので、写しでも古くない（包みが地図を足す）
+            import yaml
+
+            def has_meta(path):   # 読んだ後の形のどこかに鍵 _meta が在るか（引用した鍵も同じ鍵）
+                return '"_meta":' in json.dumps(yaml.safe_load(path.read_text(encoding="utf-8")), ensure_ascii=False)
+            flows = [p for p in pack.glob("*/*.yaml") if p.stem == p.parent.name]
+            self.assertTrue(has_meta(ROOT / "blk-structure" / "blk-structure.yaml"))
+            self.assertEqual([p.parent.name for p in flows if has_meta(p)], [])
+            for name, rel in graphmap.entrypoints(pack).items():
+                self.assertEqual(graphmap.stale(graphmap.load(graphmap.graph_path(pack, rel)), pack), [], name)
             # 出どころの控え（run ごとの版の控え versions.json が読む）: 写した元の works の commit と手元の書き換えの有無
             src = json.loads((pack / ".works-source.json").read_text(encoding="utf-8"))
             self.assertEqual(src["rev"], git(ROOT, "rev-parse", "HEAD"))
@@ -833,8 +846,8 @@ class TestDevShell(unittest.TestCase):
     def _run_check(self, fail_on="", works_layout=None):
         """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す。
 
-        works_layout を渡せば、works/dev を TMPDIR の下の works/dev に写し、works/ の下に
-        {相対パス: 中身} の物だけを置いた写しの check.sh を回す。
+        works_layout を渡せば、works/dev と節の宣言を落とす道具 .shared/core/nodemeta.py を TMPDIR の下の works/ に写し、
+        works/ の下に {相対パス: 中身} の物だけを置いた写しの check.sh を回す。
         """
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
@@ -842,6 +855,9 @@ class TestDevShell(unittest.TestCase):
             if works_layout is not None:
                 works = tmp / "works"
                 shutil.copytree(DEV, works / "dev")
+                # pack を写す口（dev/lib.sh の works_dev_copy_pack）が写しの YAML から節の宣言を落とすのに使う道具
+                (works / ".shared" / "core").mkdir(parents=True)
+                shutil.copy2(ROOT / ".shared" / "core" / "nodemeta.py", works / ".shared" / "core" / "nodemeta.py")
                 for rel, text in works_layout.items():
                     (works / rel).parent.mkdir(parents=True, exist_ok=True)
                     (works / rel).write_text(text)
