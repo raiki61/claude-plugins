@@ -4,6 +4,9 @@ TDD の輪の並べ（tddlanes。docs/plans/2026-10-07-lane-nodes.md）と修正
 
   <段>-fork（枝を切る）→ <段>-lane-loop-<n>（支度 → 枝の役（旗 lane）→ … → 確かめ）×MAX_LANES → <段>-join（締める）→ 順の輪
 
+枝は最初に 1 組ずつ持ち、入らなかった組は盤面の待ちの列に並ぶ。枝の確かめは枝の組が尽きると列から次の組を取り（queue_put・take。
+錠の中で取るので 2 本の枝が同じ組を取らない）、列が空なら枝の輪を抜ける。順の輪が受けるのは締めが戻した物と、枝に入らない物だけ
+
 段が持つのは、何を枝に分けるか（TDD は項目を共にする単位の組、修正役は単位を共にする修正案の項目の組）・枝の役の指示書・枝の
 確かめ（TDD は tddloop.step の赤・緑、修正役は受け付けと同じ事実の確かめと範囲の相談）・当てた後の確かめ（TDD は合わせた木の緑と
 意味の食い違いの逃げ道、修正役は修正の輪の受け付け）だけ。ここはそれ以外を持つ:
@@ -33,9 +36,18 @@ TDD の輪の並べ（tddlanes。docs/plans/2026-10-07-lane-nodes.md）と修正
 - claim_problems(claims, repo, board_dir, owed, try_query, briefs): 食い違いの申し出（1 件か並び）の機械の確かめ（conflict.problems）
 - park(board, claims, source): 確かめた申し出を盤面の控えに積む（conflict.park。裁定の輪が読む）
 - remove(repo, trees): 単位の worktree と守りの参照を片付ける（git が断った物は理由を返し、次の plant の sweep に任せる）
+- queue_put(path, grps): 待ちの列（盤面のファイル {pending: [組], taken: {枝: [組]}}）を書く。組は id の並び
+- take(path, n, fits=None): 枝 n が列から組を 1 つ取る（fits(組) が真の最初の組。fits が無ければ頭の組）。列の錠（queue_lock）の
+  中で読み・書きする。返りは取った組（無ければ []）。取った組は返す前に列の taken に書く（枝の控えに足す前に止まっても、ほかの枝が
+  もう 1 度取らない。締めは taken の組で枝の控えに無い物を戻す）
+- taken(path, n)・pending(path): 枝 n が取った id の並び（取った順）・列に残った組（締めが読む）
+- queue_lock(path): 列の錠のファイル（fcntl.flock。待つ上限は持たない）
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import json
 import pathlib
 import sys
 from typing import NamedTuple
@@ -218,3 +230,51 @@ def remove(repo, trees) -> list:
         except (unittrees.UnitTreeError, OSError) as e:
             left.append(f"{t}: {' '.join(str(e).split())[:200]}")
     return left
+
+
+def queue_lock(path) -> pathlib.Path:
+    """待ちの列の錠のファイル（頭の注記）"""
+    path = pathlib.Path(path)
+    return path.with_name(path.name + ".lock")
+
+
+@contextlib.contextmanager
+def _locked(path):
+    with open(queue_lock(path), "a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _queue(path) -> dict:
+    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
+def queue_put(path, grps) -> None:
+    """待ちの列を書く（頭の注記）"""
+    tddloop.save_json(pathlib.Path(path), {"pending": [list(g) for g in grps], "taken": {}})
+
+
+def take(path, n, fits=None) -> list:
+    """枝 n が列から組を 1 つ取る（頭の注記）"""
+    with _locked(path):
+        doc = _queue(path)
+        i = next((i for i, g in enumerate(doc["pending"]) if fits is None or fits(g)), None)
+        if i is None:
+            return []
+        g = doc["pending"].pop(i)
+        doc["taken"].setdefault(str(n), []).append(g)
+        tddloop.save_json(pathlib.Path(path), doc)
+    return g
+
+
+def taken(path, n) -> list:
+    """枝 n が取った id の並び（取った順）"""
+    return [i for g in _queue(path)["taken"].get(str(n), []) for i in g]
+
+
+def pending(path) -> list:
+    """列に残った組"""
+    return _queue(path)["pending"]

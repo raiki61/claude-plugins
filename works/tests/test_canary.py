@@ -153,7 +153,7 @@ LARGE_LANE_TESTS = {
 }
 LARGE_LANE_NAMES = {"median": "test_median_even", "pad_left": "test_pad_left_fills_left", "c_to_f": "test_c_to_f_boiling"}
 # canary.sh --request lanes2（canary-seed-lanes2/ と canary-request-lanes2.json）: 4 つの別々のファイルの docstring の欠け。4 項目を枝 3 本に
-# 配れば 1 本の枝が 2 項目を順に直し、後の項目の out_of_scope に前の項目のファイルが在る（run 97fd532f の形）
+# 配れば 4 つ目は待ちの列に並び、先に空いた枝が 2 項目目として順に直し、後の項目の out_of_scope に前の項目のファイルが在る（run 97fd532f の形）
 SEED_LANES2 = ROOT / "dev" / "canary-seed-lanes2"
 REQUEST_LANES2 = ROOT / "dev" / "canary-request-lanes2.json"
 LANES2_GAPS = ["stats.py:mode", "units.py:km_to_miles", "money.py:split_even", "slugs.py:slugify"]
@@ -592,10 +592,10 @@ class Lanes2SeedTest(unittest.TestCase):
             for word in ("route", "direct", "tdd", "TDD", "テストを先に", "並べ", "枝", "CHANGELOG"):
                 self.assertNotIn(word, json.dumps(it, ensure_ascii=False), it["where"])
 
-    def test_four_items_put_two_in_one_lane(self):
-        """修正役の並べの配り方（fixlanes.assign）は 4 項目（単位を共にしない）を 3 本の枝に配り、1 本の枝が 2 項目を持つ"""
-        lanes, rest = canary_check.fixlanes.assign([[1], [2], [3], [4]])
-        self.assertEqual((lanes, rest), ([[1, 4], [2], [3]], []))
+    def test_four_items_leave_one_for_the_first_free_lane(self):
+        """修正役の並べの配り方（fixlanes.assign）は 4 項目（単位を共にしない）を 3 本の枝に 1 つずつ配り、4 つ目を待ちの列に置く
+        （先に空いた枝が 2 項目目として取る）"""
+        self.assertEqual(canary_check.fixlanes.assign([[1], [2], [3], [4]]), ([[1], [2], [3]], [[4]], []))
         self.assertEqual(len(LANES2_GAPS), canary_check.fixlanes.MAX_LANES + 1)
 
 
@@ -1119,6 +1119,44 @@ class CheckTest(unittest.TestCase):
         k = canary_check.check(RUN, {}, [], self.board)["features"]["k_lane_chain"]
         self.assertEqual(k["status"], "no")
         self.assertIn("項目が 2 つ以上の枝が無い", k["why"])
+
+    def test_lane_chain_counts_groups_taken_from_the_queue(self):
+        """(k): 植えた時は 1 本に 1 組でも、空いた枝が待ちの列から取った項目は締めの行（outcomes の lane）で同じ枝の 2 つ目に数える"""
+        make_db(self.db, self.out_root, [])
+        planted = [{"lanes": 3, "items": {"1": [1], "2": [2], "3": [3]}, "queued": [[4]], "rest": [], "expect": []}]
+        merged = [{"item": i, "lane": n, "outcome": "merged", "why": ""} for i, n in ((1, 1), (4, 1), (2, 2), (3, 3))]
+        make_board(self.board, planted=planted, fix_lanes={"lanes": 3, "merged": [1, 4, 2, 3], "back": [], "shared": [],
+                                                           "union": [], "outcomes": merged})
+        doc = canary_check.check(RUN, {}, [], self.board)
+        self.assertEqual(doc["features"]["k_lane_chain"]["status"], "yes", doc["features"]["k_lane_chain"])
+        self.assertEqual(doc["lane_chain"]["chains"], {"1": [1, 4]})
+        make_board(self.board, planted=planted)
+        k = canary_check.check(RUN, {}, [], self.board)["features"]["k_lane_chain"]
+        self.assertEqual(k["status"], "attempted")
+        self.assertIn("締めの行が無い", k["why"])
+
+    def test_lane_chain_waits_for_the_settle_after_the_last_planting(self):
+        """(k): 前の周が鎖の無いまま締め、後の周が列つきで植えて締めていなければ attempted（前の周の締めの行で no にしない）"""
+        make_db(self.db, self.out_root, [])
+        single = [{"item": 1, "lane": 1, "outcome": "merged", "why": ""}, {"item": 2, "lane": 2, "outcome": "merged", "why": ""}]
+        make_board(self.board, planted=[{"lanes": 2, "items": {"1": [1], "2": [2]}, "queued": [], "rest": [], "expect": []}],
+                   fix_lanes={"lanes": 2, "merged": [1, 2], "back": [], "shared": [], "union": [], "outcomes": single})
+        trace = self.board / "trace.jsonl"
+        later = {"t": "x", "op": "fix_lanes_planted", "node": "fix-fork", "lanes": 3, "items": {"1": [1], "2": [2], "3": [3]},
+                 "queued": [[4]], "rest": [], "expect": [], "scope": "fixing"}
+        trace.write_text(trace.read_text(encoding="utf-8") + json.dumps(later, ensure_ascii=False) + "\n", encoding="utf-8")
+        k = canary_check.check(RUN, {}, [], self.board)["features"]["k_lane_chain"]
+        self.assertEqual(k["status"], "attempted", k)
+
+    def test_tdd_lane_rows_include_units_taken_from_the_queue(self):
+        """TDD の輪の枝の行の項目は、締めた周は締めの結末（lanes.out の lane。待ちの列から取った単位も）から引く"""
+        lanes = {**FULL_LANES, "rows": [{"n": 1, "unit_keys": [U_MEAN]}, {"n": 2, "unit_keys": ["u3"]}],
+                 "out": [{"unit_key": U_MEAN, "outcome": "merged", "lane": 1, "merge": "clean"},
+                         {"unit_key": "u3", "outcome": "merged", "lane": 2, "merge": "clean"},
+                         {"unit_key": U_INITIALS, "outcome": "merged", "lane": 1, "merge": "clean"}]}
+        make_board(self.board, lanes=lanes)
+        rows = canary_check.tdd_lanes(self.board, [{**it, "item": n} for n, it in enumerate(ITEMS, 1)])[0]["rows"]
+        self.assertEqual([(r["lane"], r["items"]) for r in rows], [(1, [1, 2]), (2, [])])
 
     def test_fixer_lanes_count_for_parallel_and_overlap(self):
         """修正役の並べの枝の輪（fix-lane-loop-<n> と中の節）が同時に 2 本以上走り、締めの行の枝が 2 本以上なら (a) の yes。締めの行の

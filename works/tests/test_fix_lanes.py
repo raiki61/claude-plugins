@@ -143,7 +143,7 @@ class TestFork(LaneBoard):
             self.assertIn(str(tree), review, "審査の下請けは枝の単位の worktree で読む")
         trace = [json.loads(ln) for ln in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
         planted = [r for r in trace if r.get("op") == fixlanes.PLANTED_OP]
-        self.assertEqual((planted[-1]["lanes"], planted[-1]["items"]), (2, {"1": [1], "2": [2]}))
+        self.assertEqual((planted[-1]["lanes"], planted[-1]["items"], planted[-1]["queued"]), (2, {"1": [1], "2": [2]}, []))
 
     def test_no_writes_record_means_no_lanes(self):
         self.log.unlink()
@@ -156,7 +156,7 @@ class TestFork(LaneBoard):
         self.assertEqual(self.fork(switch="off")["why"], fixlanes.OFF)
         got = self.fork(green={MEAN})
         self.assertFalse(got["go"], "TDD の輪が緑にした単位の項目は枝に入らない（残りは 1 項目）")
-        self.assertIn("2 本に満たない", got["why"])
+        self.assertIn("2 つに満たない", got["why"])
 
 
 class TestOneItem(LaneBoard):
@@ -165,7 +165,7 @@ class TestOneItem(LaneBoard):
     def test_one_item_stays_serial(self):
         got = self.fork()
         self.assertFalse(got["go"], got)
-        self.assertIn("枝 1", got["why"])
+        self.assertIn("組 1", got["why"])
 
 
 class TestLane(LaneBoard):
@@ -269,6 +269,108 @@ class OverflowCase(LaneBoard):
         self.assertIn(tid, json.dumps(result.get("overflow"), ensure_ascii=False))
 
 
+class TestQueue(LaneBoard):
+    """枝に入らなかった組は盤面の待ちの列に並び、項目が尽きた枝が次の組を取る（修正の輪には回さない）。種の盤面は単位が 2 つ
+    なので、配り方 assign を枝 1 本と列 1 組に差し替える"""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(fixlanes, "assign", return_value=([[1]], [[2]], []))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def man(self):
+        return json.loads(entry.open_board(self.board).work(fixlanes.MANIFEST).read_text(encoding="utf-8"))
+
+    def trace(self, op):
+        rows = [json.loads(ln) for ln in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+        return [r for r in rows if r.get("op") == op]
+
+    def first(self):
+        self.forked()
+        self.edit(1, MEAN_FIX)
+        return self.step(1, lane_reply(MEAN))
+
+    def test_overflow_groups_wait_in_the_queue(self):
+        self.assertEqual(self.forked()["lanes"], 1)
+        man = self.man()
+        self.assertEqual(([(r["n"], r["items"]) for r in man["lanes"]], man["rest"]), ([(1, [1])], []))
+        self.assertEqual(pathlib.Path(man["queue"]).parent, entry.open_board(self.board).work(fixlanes.MANIFEST).parent,
+                         "列は盤面の周の作業ファイル（役は書けない）")
+        self.assertEqual(lanekit.pending(man["queue"]), [[2]])
+        self.assertEqual(self.trace(fixlanes.PLANTED_OP)[-1]["queued"], [[2]])
+
+    def test_a_free_lane_takes_the_next_group(self):
+        got = self.first()
+        self.assertEqual((got["ok"], got["done"]), (True, False), "項目が尽きた枝は列の次の組へ（枝の輪は続く）")
+        st = self.state(1)
+        self.assertEqual(([it["item"] for it in st["items"]], st["cur"]), ([1, 2], 1))
+        self.assertEqual(lanekit.taken(self.man()["queue"], 1), [2])
+        rules = pathlib.Path(st["items"][1]["rules"]).read_text(encoding="utf-8")
+        self.assertIn(fixrules.LANE_EARLIER.format(items="1"), rules, "取った項目の決まりは枝の前の項目を名指す")
+        self.assertIn(CLAMP, rules)
+        self.assertIn(fixrules.REVIEW_EARLIER.format(items="1"), pathlib.Path(st["items"][1]["review"]).read_text(encoding="utf-8"))
+        prompt = pathlib.Path(fixlanes.lane_prep(self.board, 1)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(st["items"][1]["rules"], prompt)
+        key = pathlib.Path(adapter.session_key_path(str(self.board), "fix-lane-1")).read_text(encoding="utf-8").strip()
+        self.assertTrue(key.endswith(":lane-1:item-2"), "取った項目も新しい会話で起こす鍵")
+        self.edit(1, CLAMP_FIX)
+        got = self.step(1, lane_reply(CLAMP))
+        self.assertEqual((got["ok"], got["done"]), (True, True), "列が空なら枝の輪を抜ける")
+        out = fixlanes.join(self.board, self.repo)
+        self.assertEqual((out["merged"], out["back"]), ([1, 2], []))
+        self.assertEqual([(o["item"], o["lane"]) for o in self.trace(fixlanes.SETTLED_OP)[-1]["outcomes"]], [(1, 1), (2, 1)])
+        text = (self.repo / "stats.py").read_text(encoding="utf-8")
+        self.assertIn(MEAN_FIX[1], text)
+        self.assertIn(CLAMP_FIX[1], text)
+
+    def test_full_lane_does_not_take_and_the_rest_goes_to_the_fix_loop(self):
+        """枝の項目は MAX_ITEMS まで（枝の輪の max_iterations の元）。入らない組は列に残り、締めの後に修正の輪が直す"""
+        with mock.patch.object(fixlanes, "MAX_ITEMS", 1):
+            got = self.first()
+        self.assertEqual((got["ok"], got["done"]), (True, True))
+        self.assertEqual(lanekit.pending(self.man()["queue"]), [[2]])
+        out = fixlanes.join(self.board, self.repo)
+        self.assertEqual((out["merged"], out["back"]), ([1], []))
+        b = entry.open_board(self.board)
+        self.assertEqual(json.loads(b.work(fixrules.LANES_RECORD).read_text(encoding="utf-8"))["rest"], [2])
+        self.assertIn("枝に入らなかった範囲の在る項目（修正役が順に直す）: 2", b.work(fixrules.LANES_SUMMARY).read_text(encoding="utf-8"))
+        self.assertEqual(fixrules.lanes_merged(b), {MEAN}, "列に残った項目の単位は直す義務のまま")
+
+    def test_taken_but_unfinished_group_goes_back(self):
+        self.first()
+        out = fixlanes.join(self.board, self.repo)
+        self.assertEqual((out["merged"], out["back"]), ([1], [2]), "取って回し終えなかった項目は修正の輪へ")
+
+    def test_resume_mid_taken_item_continues_it(self):
+        """Archon の resume は済んでいない枝の輪を 1 周目から回し直す: 取った項目の途中の枝は、支度がその項目の指示書を書く"""
+        self.first()
+        st = self.state(1)
+        prompt = pathlib.Path(fixlanes.lane_prep(self.board, 1)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(st["items"][1]["rules"], prompt)
+
+    def test_failed_take_keeps_the_accepted_item(self):
+        """取った組の決まりのファイルを組めずに確かめの節が落ちても、この回に受けた項目の結末は枝の控えに残る（取った組は締めが戻す）"""
+        self.forked()
+        self.edit(1, MEAN_FIX)
+        with mock.patch.object(fixlanes, "_item", side_effect=ValueError("組めない")):
+            with self.assertRaises(ValueError):
+                self.step(1, lane_reply(MEAN))
+        st = self.state(1)
+        self.assertEqual(([r["outcome"] for r in st["results"]], st["done"]), ([fixlanes.ACCEPTED], True))
+        out = fixlanes.join(self.board, self.repo)
+        self.assertEqual((out["merged"], out["back"]), ([1], [2]))
+
+    def test_group_taken_but_not_added_goes_back(self):
+        """列から取った（記録した）後、枝の控えに足す前に止まった組は、締めが修正の輪へ戻す（2 本の枝が同じ組を持たない）"""
+        self.forked()
+        self.assertEqual(lanekit.take(self.man()["queue"], 1), [2])   # 枝 1 の確かめが取った直後に止まった
+        self.edit(1, MEAN_FIX)
+        self.assertEqual(self.step(1, lane_reply(MEAN))["done"], True, "列は空（取った組は枝の控えに無い）")
+        out = fixlanes.join(self.board, self.repo)
+        self.assertEqual((out["merged"], out["back"]), ([1], [2]))
+
+
 class TestJoin(LaneBoard):
     def both(self, second=CLAMP_FIX):
         self.forked()
@@ -338,7 +440,7 @@ class TestChainedItems(LaneBoard):
     新しい会話になり、枝の差分は次の項目の直しだけ"""
 
     def test_second_item_follows_a_given_up_first(self):
-        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [])):
+        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [], [])):
             self.forked()
         first = fixlanes.lane_prep(self.board, 1)
         key = pathlib.Path(adapter.session_key_path(str(self.board), "fix-lane-1"))
@@ -394,7 +496,7 @@ class TestItemStartPoint(LaneBoard):
         return {**super().values(), "plan_session": "plan-session-id"}   # 範囲の相談の控え（事前の確かめの since）を書く
 
     def first_item(self):
-        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [])):
+        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [], [])):
             self.forked()
         self.edit(1, MEAN_FIX)
         tests = self.tree(1) / "test_stats.py"
@@ -439,7 +541,7 @@ class TestItemStartPoint(LaneBoard):
     def test_second_items_rules_and_review_name_the_earlier_item(self):
         """2 つ目の項目の決まりと審査のファイルは、同じ枝の前の項目の直しが木と審査の差分に在ることを言う（審査役が前の項目の変更を
         範囲の外と指摘して修正役が戻すと、項目の頭からの変更になって自分の out_of_scope に当たる）。1 つ目の項目には無い"""
-        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [])):
+        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [], [])):
             self.forked()
         first, second = self.state(1)["items"]
         early = fixrules.LANE_EARLIER.format(items="1")

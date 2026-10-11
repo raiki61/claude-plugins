@@ -77,11 +77,11 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   （gave_up）・誤りの result（error）・決めの無い起動・包みが拒んだ起動（mode refused。旗の有無を数えない）が在れば attempted。
   旗の無い起動・返答の道具の跡が在る・子を起こした起動が無い・記録が読めないなら no（起動が無いのが依頼から始めた run なら
   not_exercised。上）
-- (k) lane_chain（修正役の並べの 1 本の枝が 2 つ以上の項目を順に直したか。canary-request-lanes2.json の狙い。run 97fd532f）: 植えた枝
-  （trace の fix_lanes_planted の items）のうち項目が 2 つ以上の枝と、締めの行（fix_lanes_settled の outcomes）の項目ごとの結末を出す。
-  通ったと言う決まり: 2 項目以上の枝が在り、その枝の 2 つ目からの項目が全部 merged（項目の頭から照らして当たった）。2 項目以上の枝が
-  無ければ no（植えた枝の項目か fix-fork の理由を添える）、在って 2 つ目からの項目が戻った・締めの行が無いなら attempted（戻った項目と
-  理由を名指す）
+- (k) lane_chain（修正役の並べの 1 本の枝が 2 つ以上の項目を順に直したか。canary-request-lanes2.json の狙い。run 97fd532f）: 締めの行
+  （fix_lanes_settled の outcomes。枝ごとの項目は切った時の組と、空いた枝が待ちの列から取った組）のうち項目が 2 つ以上の枝と、
+  項目ごとの結末を出す。通ったと言う決まり: 2 項目以上の枝が在り、その枝の 2 つ目からの項目が全部 merged（項目の頭から照らして
+  当たった）。2 項目以上の枝が無ければ no（植えた枝の項目か fix-fork の理由を添える）、在って 2 つ目からの項目が戻った・2 項目以上の
+  枝を見込んで植えた（植えた枝の項目が 2 つ以上か、待ちの列 queued が在る）のに締めの行が無いなら attempted（戻った項目と理由を名指す）
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -315,18 +315,20 @@ def item_units(board: pathlib.Path, items: list, trace: list, events: list) -> t
 
 def tdd_lanes(board: pathlib.Path, items: list = ()) -> list:
     """TDD の輪の並べの周ごと（盤面の tdd-<k>/state.json の lanes。並べた輪だけ）[{loop, lanes, rows, units, shared, expect}]。
-    rows は枝ごと {lane, items（枝の単位を持つ修正案の項目）, files（当てる時に控えた枝の差分 tdd-<k>/lanes/item-<n>.patch の
-    ファイル。控えが無ければ None）}"""
+    rows は枝ごと {lane, items（枝の単位を持つ修正案の項目。締めた周は締めの結末 lanes.out の枝の単位（待ちの列から取った単位も）、
+    締めの前は切った時の組）, files（当てる時に控えた枝の差分 tdd-<k>/lanes/item-<n>.patch のファイル。控えが無ければ None）}"""
     out = []
     for st_path, st in _tdd_states(board):
         lanes = st.get("lanes")
         if not isinstance(lanes, dict) or not lanes.get("rows"):
             continue
+        settled = [u for u in lanes.get("out") or [] if isinstance(u, dict)]
         rows = []
         for r in lanes["rows"]:
             r = r if isinstance(r, dict) else {}
             n = r.get("n")
-            rows.append({"lane": n, "items": _lane_items(r.get("unit_keys"), list(items)),
+            keys = [u.get("unit_key") for u in settled if u.get("lane") == n] if settled else r.get("unit_keys")
+            rows.append({"lane": n, "items": _lane_items(keys, list(items)),
                          "files": diff_files(st_path.parent / tddlanes.KEPT / f"item-{n}.patch")})
         out.append({"loop": str(st_path.parent.relative_to(board)), "lanes": len(lanes["rows"]), "rows": rows,
                     "units": [{k: u.get(k) for k in ("lane", "outcome", "merge")} for u in lanes.get("out") or []
@@ -513,25 +515,37 @@ def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list |
     return {"status": YES if yes else ATTEMPTED, "why": "・".join(facts)}, got
 
 
+def _chains(settled: dict) -> dict:
+    """締めの行の outcomes の枝ごとの項目（outcomes の順）のうち 2 つ以上の枝 {枝: [項目]}"""
+    by = {}
+    for o in settled.get("outcomes") or []:
+        if isinstance(o, dict):
+            by.setdefault(str(o.get("lane")), []).append(o.get("item"))
+    return {n: v for n, v in by.items() if len(v) >= 2}
+
+
 def lane_chain(trace: list) -> tuple[dict, dict]:
-    """((k) の判じ {status, why}, 出す証拠 {chains: {枝: [項目]}, outcomes: [{item, lane, outcome, why}]})。植えた行が 2 度以上
-    在れば（修正の輪の後の周など）、2 項目以上の枝を持つ一番後の行と、その後の締めの行を見る"""
-    planted = [(k, r) for k, r in enumerate(trace) if r.get("op") == fixlanes.PLANTED_OP]
-    chained = [(k, r) for k, r in planted
-               if any(isinstance(v, list) and len(v) >= 2 for v in (r.get("items") or {}).values())]
+    """((k) の判じ {status, why}, 出す証拠 {chains: {枝: [項目]}, outcomes: [{item, lane, outcome, why}]})。締めの行が 2 度以上
+    在れば（修正の輪の後の周など）、2 項目以上の枝を持つ一番後の行を見る"""
+    planted = [r for r in trace if r.get("op") == fixlanes.PLANTED_OP]
+    settled_rows = [r for r in trace if r.get("op") == fixlanes.SETTLED_OP]
+    chained = [r for r in settled_rows if _chains(r)]
     if not chained:
+        last = max((k for k, r in enumerate(trace) if r.get("op") == fixlanes.SETTLED_OP), default=-1)
+        hoped = [r for r in trace[last + 1:] if r.get("op") == fixlanes.PLANTED_OP and r.get("lanes") and (r.get("queued") or any(
+            isinstance(v, list) and len(v) >= 2 for v in (r.get("items") or {}).values()))]
+        if hoped:
+            return {"status": ATTEMPTED, "why": f"2 項目以上の枝を見込んで植えた（{hoped[-1].get('items')}・待ちの列 "
+                                                f"{hoped[-1].get('queued') or []}）が締めの行が無い"}, {"chains": {}, "outcomes": []}
         seen = [f"{r.get('items')}" if r.get("lanes") else f"植えなかった（{r.get('why') or '理由の記録が無い'}）"
-                for _, r in planted]
+                for r in planted]
         return {"status": NO, "why": "項目が 2 つ以上の枝が無い（" + ("・".join(seen) or "fix-fork の行が無い") + "）"}, \
             {"chains": {}, "outcomes": []}
-    at, row = chained[-1]
-    chains = {str(n): list(v) for n, v in (row.get("items") or {}).items() if isinstance(v, list) and len(v) >= 2}
-    settled = next((r for r in trace[at + 1:] if r.get("op") == fixlanes.SETTLED_OP), None)
-    outs = [{k: o.get(k) for k in ("item", "lane", "outcome", "why")} for o in (settled or {}).get("outcomes") or []
+    settled = chained[-1]
+    chains = _chains(settled)
+    outs = [{k: o.get(k) for k in ("item", "lane", "outcome", "why")} for o in settled.get("outcomes") or []
             if isinstance(o, dict)]
     got = {"chains": chains, "outcomes": outs}
-    if settled is None:
-        return {"status": ATTEMPTED, "why": f"2 項目以上の枝 {chains} を植えたが締めの行が無い"}, got
     by = {(str(o.get("lane")), o.get("item")): o for o in outs}
     later = [(n, i) for n, items in chains.items() for i in items[1:]]
     bad = [(n, i, by.get((n, i)) or {}) for n, i in later if (by.get((n, i)) or {}).get("outcome") != fixlanes.MERGED]

@@ -8,9 +8,12 @@
 - 項目: 承認済みの修正案の項目（planbrief の brief の行）。枝で直すのは、修正役が下請けを起こす単位（fixrules.dispatched。TDD の
   輪が緑にした単位を除く）を持ち、範囲（fixrules.item_ranges）の在る項目だけ。項目の単位は今の直す義務と重なる物だけ
 - 組（groups）: 単位を共にする項目どうし（1 つの単位を 2 本の枝が直さない）。組は 1 本の枝に入る
-- 枝: 単位の worktree 1 本と、そこで順に直す項目の並び（MAX_ITEMS まで）。枝は MAX_LANES 本まで（YAML の枝の輪の数）。枝に入らない
-  組の項目は修正役の輪が順に直す。枝の中の項目が替わると包みが新しい会話で起こす（支度が書く単位の鍵。adapter.KEYED_NODES）
-- 目録（MANIFEST）: 今の scope の周の作業ファイル {repo, base, place, union, expect, lanes: [{n, tree, git, state, items}], rest, why}
+- 枝: 単位の worktree 1 本と、そこで順に直す項目の並び（MAX_ITEMS まで）。枝は MAX_LANES 本まで（YAML の枝の輪の数）。最初は
+  1 本に 1 組で、入らなかった組は待ちの列に並び、項目が尽きた枝が入る組を取る（lanekit.take）。MAX_ITEMS より大きい組と、締めの時に
+  列に残った組の項目は修正役の輪が順に直す。枝の中の項目が替わると包みが新しい会話で起こす（支度が書く単位の鍵。adapter.KEYED_NODES）
+- 目録（MANIFEST）: 今の scope の周の作業ファイル {repo, base, place, union, expect, lanes: [{n, tree, git, state, items}], rest, queue,
+  ctx}。lanes の items は切った時の組。queue は待ちの列（QUEUE。lanekit.queue_put）、ctx は列の項目の決まりのファイルを取った時に
+  組む元 {values, docs, lang, cands}（切った時と同じ中身）
 - 枝の控え（LANE_STATE）: 今の scope の周の作業ファイル（盤面。役は書けない）{n, tree, git, base, head, items: [{item, units, brief,
   rules, review, patch}], cur, tries, iterations, reason, done, note, results, claims, declared, tests, ask, ask_config}。head は今の項目の頭の
   木（切った時は base の木。項目を受けた・諦めた後に取り直す）。枝の確かめの書き込みの出どころと範囲は head から照らす（同じ枝の前の
@@ -20,7 +23,7 @@
 - 結末（締め）: merged（枝の差分を当てた項目）・serial（戻した。修正役の輪が直す）。食い違いの申し出で止めた単位は盤面に積む
 
 口:
-- groups(rows)・assign(groups): 分け方（純粋）
+- groups(rows)・assign(groups): 分け方（純粋。assign は最初の枝・待ちの列・修正の輪へ回す項目）
 - candidates(b, values, green): 枝で直してよい項目の行と、直す義務に揃えた値
 - fork(board_dir, repo, values, green, switch): 節 fix-fork。並べる枝が 2 本以上なら単位の worktree を切り、枝の控え・項目の決まりの
   ファイル・審査役のファイル・範囲の相談の控えを書いて {go, lanes, lane_<n>, why}。前に切った枝の締めの結末は消す
@@ -29,10 +32,10 @@
   記録していない枝の輪を回し直した）何も書かずに {prompt_file: "", go: false}（役と相談の節は飛ぶ）
 - lane_step(board_dir, n, reply, repo, ...): 節 fix-lane-step-<n>。範囲の相談の周は数えるだけ。ほかは受け付けと同じ事実の確かめ
   （check）を単位の worktree に当て、通れば次の項目へ、同じ項目の GIVE_UP_AFTER 回目の拒否で項目を諦める（差分を控えて木を項目の頭に
-  戻す）。{ok, done, consulted, reason, item}。枝が済んでいて返答が None（役が飛ばされた周）なら何も動かさずに done
+  戻す）。項目が尽きたら（止めていなければ）待ちの列から入る組を取る（_take）。{ok, done, consulted, reason, item}。枝が済んでいて返答が None（役が飛ばされた周）なら何も動かさずに done
 - check(...): 枝の確かめの中身（拒否の行 [(id, 文)]・bash_writes と consult と conflicts を外した返答・通った申し出）
 - join(board_dir, repo, try_query): 節 fix-join。枝ごとに差分を run の作業ツリーへ 3 方向で当て（試験のファイルの挿しだけの食い違いは
-  合わせる）、書き込みの記録を写し、申し出を確かめ直して盤面に積み、結末（fixrules.LANES_RECORD・LANES_SUMMARY）と trace を書いて
+  合わせる。枝の項目は切った時の組と列から取った組）、書き込みの記録を写し、申し出を確かめ直して盤面に積み、結末（fixrules.LANES_RECORD・LANES_SUMMARY）と trace を書いて
   単位の worktree を片付ける。{ok, merged, back, parked, shared, union}。出口は結末の joined にも残し、結末が在れば（締めた後に resume が
   もう 1 度呼んだ）作業ツリーを戻さず、残った単位の worktree だけ片付けてそれを返す
 """
@@ -71,13 +74,14 @@ import writes  # noqa: E402
 from board import BoardGap  # noqa: E402
 
 MAX_LANES = lanekit.MAX_LANES   # 枝の輪の数（YAML の fix-lane-loop-1..3・包みの adapter.KEYED_NODES の fix-lane-<n>。試験が縛る）
-MAX_ITEMS = 3        # 1 本の枝が順に直す項目の数の上限（後ろの組は修正役の輪が順に直す）
+MAX_ITEMS = 3        # 1 本の枝が順に直す項目の数の上限（列から取った組も含める。入らない組は列に残り、修正役の輪が直す）
 GIVE_UP_AFTER = 3    # 同じ項目の何回目の拒否で諦めるか（scripts/accept.py の GIVE_UP_AFTER と同じ。試験が縛る）
 MAX_ITERATIONS = MAX_ITEMS * GIVE_UP_AFTER + consult.BUDGET   # 枝の輪の max_iterations（項目ごとの拒否の回と範囲の相談の枠の和）
 LANE_NODE = "fix-lane-{n}"            # 枝 n の役の節の印の名
 ANSWER_NODE = "plan-answer-lane-{n}"  # 枝 n の範囲の相談の答えの節の名
 PASS = "lane-{n}"                      # 枝 n の範囲の相談の段の名（consult の状態・答えのファイルの名と枠を枝ごとに分ける）
 MANIFEST = "fix-lanes.json"
+QUEUE = "fix-lanes-queue.json"   # 待ちの列（今の scope の周の作業ファイル。lanekit.queue_put）
 LANE_STATE = "fix-lane-{n}.json"
 RULES_FILE = "fix-lane-{n}-{j}.md"
 BRIEFS_FILE = "fix-lane-{n}-{j}-briefs.md"   # 座の型の [BRIEF_FILE]（fixrules.implementer_values）
@@ -143,16 +147,10 @@ def groups(rows) -> list:
 
 
 def assign(grps, lanes: int = MAX_LANES, per: int = MAX_ITEMS) -> tuple:
-    """組を枝に配る: 組の順に、入る余地の在る枝のうち項目の一番少ない枝（同じなら番号の小さい枝）へ。per より大きい組と、どの枝にも
-    入らない組は残り。返り (枝ごとの項目の並び（空の枝は除く。番号は 1 から詰まる）, 残りの項目)"""
-    out, rest = [[] for _ in range(lanes)], []
-    for g in grps:
-        room = [i for i in range(lanes) if len(out[i]) + len(g) <= per]
-        if not room:
-            rest += g
-            continue
-        out[min(room, key=lambda i: (len(out[i]), i))] += g
-    return [x for x in out if x], rest
+    """組を配る: per より大きい組は残り（1 本の枝に入らない）。ほかの組は順に、頭の lanes 組が 1 本に 1 組の枝、後ろは待ちの列。
+    返り (枝ごとの項目の並び（番号は 1 から）, 待ちの列の組の並び, 残りの項目)"""
+    fit = [list(g) for g in grps if len(g) <= per]
+    return fit[:lanes], fit[lanes:], [i for g in grps if len(g) > per for i in g]
 
 
 # ---------------------------------------------------------------- 枝を切る（節 fix-fork）
@@ -175,7 +173,7 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
     並べずに go: false（修正役の支度が今どおり止める）"""
     on = script_io.switch_on(switch, "fix_lanes")   # 知らない語は ValueError（節は 2）
     out = {**lanekit.fork_out([]), "why": ""}
-    why, cands, lanes, rest = ("" if on else OFF), [], [], []
+    why, cands, lanes, queued, rest = ("" if on else OFF), [], [], [], []
     try:
         b = entry.open_board(pathlib.Path(board_dir))
     except BoardGap as e:
@@ -192,14 +190,14 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
             cands, values = candidates(b, values, green)
         except BoardGap as e:
             return {**out, "why": f"直す義務か brief が引けない（{' '.join(str(e).split())}）"}
-        lanes, rest = assign(groups([(c["item"], c["units"]) for c in cands]))
-        if len(lanes) < 2:
-            why = f"並べる枝が 2 本に満たない（範囲の在る項目 {len(cands)}・枝 {len(lanes)}）"
+        lanes, queued, rest = assign(groups([(c["item"], c["units"]) for c in cands]))
+        if len(lanes) + len(queued) < 2:
+            why = f"並べる組が 2 つに満たない（範囲の在る項目 {len(cands)}・組 {len(lanes) + len(queued)}）"
     if why:
         b.trace(PLANTED_OP, node="fix-fork", lanes=0, why=why)
         return {**out, "why": why}
     try:
-        rows = _plant(b, repo, values, cands, lanes, rest)
+        rows = _plant(b, repo, values, cands, lanes, queued, rest)
     except Exception as e:   # 枝を切れない・項目のファイルを組めない: 並べずに修正の輪へ（切った worktree は片付ける）
         why = f"枝を切れない（{type(e).__name__}: {' '.join(str(e).split())[:300]}）——修正の輪が順に直す"
         try:
@@ -208,8 +206,8 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
             pass
         b.trace(PLANTED_OP, node="fix-fork", lanes=0, why=why)
         return {**out, "why": why}
-    b.trace(PLANTED_OP, node="fix-fork", lanes=len(rows), items={str(r["n"]): r["items"] for r in rows}, rest=rest,
-            expect=_expect(cands, lanes))
+    b.trace(PLANTED_OP, node="fix-fork", lanes=len(rows), items={str(r["n"]): r["items"] for r in rows}, queued=queued,
+            rest=rest, expect=_expect(cands, lanes))
     return {**lanekit.fork_out([r["n"] for r in rows]), "why": ""}
 
 
@@ -219,11 +217,12 @@ def _expect(cands, lanes) -> list:
     return unitlanes.expect([(n, sorted({g for i in items for g in by[i]})) for n, items in enumerate(lanes, 1)])
 
 
-def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest) -> list:
-    """単位の worktree を切り、枝の控え・項目の決まりのファイル・審査役のファイル・範囲の相談の控え・試験の状態の写しと目録を書く"""
+def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, queued, rest) -> list:
+    """単位の worktree を切り、枝の控え・項目の決まりのファイル・審査役のファイル・範囲の相談の控え・試験の状態の写しと目録と待ちの列を
+    書く"""
     place = script_io.scope_dir(pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))) / PLACE
     ns = list(range(1, len(lanes) + 1))
-    picked = [i for items in lanes for i in items]
+    picked = [i for items in [*lanes, *queued] for i in items]
     union = fixrules.test_files(b, picked)
     manifest = b.work(MANIFEST)
     trees = lanekit.plant(repo, ns, place, manifest, union)
@@ -246,8 +245,12 @@ def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest) -> list:
                        "done": False, "note": "", "results": [], "claims": [], "declared": [], "tests": tests, "ask": bool(ask),
                        "ask_config": ask_config})
         rows.append({"n": n, "tree": str(tree), "git": trees[n]["git"], "state": str(state), "items": list(items)})
+    queue = b.work(QUEUE)
+    lanekit.queue_put(queue, queued)
+    waiting = {i for g in queued for i in g}
     _write(manifest, {"repo": str(repo), "base": base, "place": str(place), "union": union, "expect": _expect(cands, lanes),
-                      "lanes": rows, "rest": rest})
+                      "lanes": rows, "rest": rest, "queue": str(queue),
+                      "ctx": {"values": values, "docs": docs, "lang": lang, "cands": [c for c in cands if c["item"] in waiting]}})
     return rows
 
 
@@ -268,8 +271,13 @@ def _ask(b, repo, values: dict, n: int, tree: pathlib.Path, base: str) -> tuple:
            "pass": PASS.format(n=n), "base_rev": values.get("base_rev") or "", "tdd_state": values.get("tdd_state") or "",
            "items": consult.items_doc(items)}
     path = consult.write_config(consult.place_of(b.dir) / f"lane-{n}", doc)
+    return _ask_text(path, values), str(path)
+
+
+def _ask_text(path, values: dict) -> str:
+    """範囲の相談と事前の確かめの節（控え path を名指す。波及の一覧が在ればその 1 行も）。切る時と列から取る時"""
     ripple = (values.get("ripple_file") or "").strip()
-    return fixrules.ask_text(path, sys.executable) + (f"\n\n{fixrules.RIPPLE_LINE.format(path=ripple)}" if ripple else ""), str(path)
+    return fixrules.ask_text(path, sys.executable) + (f"\n\n{fixrules.RIPPLE_LINE.format(path=ripple)}" if ripple else "")
 
 
 LANE_TITLE = promptsection.Section("# 修正役の並べの枝 {n} の {j} 番目の項目（修正案の項目 {item}）", source="fn:fixlanes._item")
@@ -405,8 +413,28 @@ def lane_step(board_dir, n, reply, repo, *, consulted: bool = False, base_rev: s
             out = {"ok": True, "consulted": False, "reason": ""}
     if not lst["done"] and lst["iterations"] >= MAX_ITERATIONS:   # 回数の上限で輪を落とさない（R50）
         _stop(lst, tree, f"枝の輪の回数の上限（{MAX_ITERATIONS} 回）に届いた", b)
-    _write(path, lst)
+    _write(path, lst)   # この回の結末を、列から取る前に残す（取った組の決まりのファイルを組めずに落ちても、受けた項目は消えない）
+    if lst["done"] and not lst["note"]:   # 項目が尽きた（止めていない）
+        _take(b, lst, pathlib.Path(repo), tree)
+        _write(path, lst)
     return {**out, "done": lst["done"], "item": it["item"]}
+
+
+def _take(b, lst: dict, repo: pathlib.Path, tree: pathlib.Path) -> None:
+    """項目が尽きた枝が待ちの列から入る組（枝の項目が MAX_ITEMS を超えない組。枝の輪の max_iterations の元）を取り、項目の決まりの
+    ファイルと審査のファイルを切った時と同じ元（目録の ctx）で書いて枝の控えの後ろに足す（頭の木を取り直す）。取れなければ済みのまま"""
+    man = _read(b.work(MANIFEST))
+    got = lanekit.take(man["queue"], lst["n"], fits=lambda g: len(lst["items"]) + len(g) <= MAX_ITEMS)
+    if not got:
+        return
+    ctx = man["ctx"]
+    seat.pinned()   # 写しの照合を項目のファイルの書き込みより前に（_plant と同じ）
+    by = {c["item"]: c for c in ctx["cands"]}
+    ask = _ask_text(lst["ask_config"], ctx["values"]) if lst.get("ask_config") else ""
+    earlier = [it["item"] for it in lst["items"]]
+    lst["items"] += [_item(b, repo, ctx["values"], by[i], lst["n"], len(earlier) + j, [*earlier, *got[:j - 1]], got[j:], tree,
+                           lst["base"], ctx["docs"], ctx["lang"], ask, pathlib.Path(man["place"])) for j, i in enumerate(got, 1)]
+    lst.update(done=False, head=tddloop.snapshot(tree))
 
 
 def note(found: list, check_id: str, texts) -> None:
@@ -561,12 +589,13 @@ def join(board_dir, repo, try_query=None) -> dict:
     base = man["base"]
     stray = lanekit.revert_strays(repo, base)   # 枝の役は run の作業ツリーを書けない（包みの柵）。書かれていれば戻す（受け止め）
     results, ready, back = {}, [], {}
+    items_of = {row["n"]: [*row["items"], *lanekit.taken(man["queue"], row["n"])] for row in man["lanes"]}
     for row in man["lanes"]:
         n = row["n"]
         try:
             lst = _read(row["state"])
         except Broken as e:
-            for i in row["items"]:
+            for i in items_of[n]:
                 back[i] = {"why": f"枝の控えが読めない（{e}）", "lane": n}
             continue
         tree = pathlib.Path(lst["tree"])
@@ -578,7 +607,7 @@ def join(board_dir, repo, try_query=None) -> dict:
             results[r["item"]] = {**r, "lane": n}
         acc = [r for r in lst["results"] if r["outcome"] == ACCEPTED]
         if broken:
-            for i in row["items"]:
+            for i in items_of[n]:
                 back[i] = {"why": broken, "lane": n}
         elif acc:
             ready.append((row, lst, acc))
@@ -603,12 +632,13 @@ def join(board_dir, repo, try_query=None) -> dict:
     shared = lanekit.shared([patch for _, patch in applied])
     lanekit.carry(log, repo, applied, shared)
     parked, refused = _park(b, repo, [lst for _, lst, acc in ready if not any(r["item"] in back for r in acc)], try_query)
-    items = _outcomes(man, results, back, refused, patched)
+    items = _outcomes(man, items_of, results, back, refused, patched)
     merged = [i["item"] for i in items if i["outcome"] == MERGED]
     backs = [i["item"] for i in items if i["outcome"] == BACK]
     out = {"ok": True, "merged": merged, "back": backs, "parked": len(parked), "shared": shared, "union": union_got}
     doc = {"lanes": len(man["lanes"]), "base": base, "shared": shared, "union": union_got, "reverted": stray,
-           "parked": [c["unit_key"] for c in parked], "rest": man.get("rest") or [], "items": items, JOINED: out}
+           "parked": [c["unit_key"] for c in parked],
+           "rest": [*man["rest"], *(i for g in lanekit.pending(man["queue"]) for i in g)], "items": items, JOINED: out}
     b.work(fixrules.LANES_SUMMARY).write_text(summary_text(doc), encoding="utf-8")
     _write(b.work(fixrules.LANES_RECORD), doc)   # 結末は最後に（在れば締めた印。resume の締めはこれを返す）
     b.trace(SETTLED_OP, node="fix-join", lanes=len(man["lanes"]), merged=merged, back=backs, parked=doc["parked"],
@@ -639,13 +669,13 @@ def _park(b, repo, lanes, try_query) -> tuple:
     return good, refused
 
 
-def _outcomes(man: dict, results: dict, back: dict, refused: dict, patched=None) -> list:
-    """目録の順に項目ごとの結末 [{item, lane, outcome, units, changed, not_done, claimed, files, patched, reply, why, patch, refused}]。
-    patched は当てた枝の差分のパス（同じ枝の項目は同じ並び）"""
+def _outcomes(man: dict, items_of: dict, results: dict, back: dict, refused: dict, patched=None) -> list:
+    """目録の枝の順に項目ごとの結末 [{item, lane, outcome, units, changed, not_done, claimed, files, patched, reply, why, patch, refused}]。
+    items_of は枝 → 項目（切った時の組と列から取った組）。patched は当てた枝の差分のパス（同じ枝の項目は同じ並び）"""
     patched = patched or {}
     out = []
     for row in man["lanes"]:
-        for i in row["items"]:
+        for i in items_of[row["n"]]:
             r = results.get(i) or {"outcome": NOT_RUN, "why": "枝の控えに結末が無い"}
             row_out = {"item": i, "lane": row["n"], "units": [], "changed": [], "not_done": [], "claimed": [], "files": [],
                        "patched": [], "reply": "", "why": "", "patch": "", "refused": {}}

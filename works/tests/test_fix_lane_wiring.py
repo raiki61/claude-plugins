@@ -138,14 +138,14 @@ class TestPure(unittest.TestCase):
     def test_groups_join_items_through_units(self):
         self.assertEqual(fixlanes.groups([(1, ["a"]), (2, ["b"]), (3, ["a", "c"]), (4, ["c"]), (5, ["d"])]), [[1, 3, 4], [2], [5]])
 
-    def test_assign_spreads_groups_and_leaves_the_rest(self):
-        lanes, rest = fixlanes.assign([[1], [2], [3], [4]])
-        self.assertEqual((lanes, rest), ([[1, 4], [2], [3]], []))
-        lanes, rest = fixlanes.assign([[1, 2, 3, 4], [5], [6]])
-        self.assertEqual((lanes, rest), ([[5], [6]], [1, 2, 3, 4]), "1 本の枝に入らない組は修正の輪が順に直す")
-        lanes, rest = fixlanes.assign([[n] for n in range(1, 11)])
-        self.assertEqual(sum(len(x) for x in lanes), fixlanes.MAX_LANES * fixlanes.MAX_ITEMS)
-        self.assertEqual(rest, [10])
+    def test_assign_gives_each_lane_one_group_and_queues_the_rest(self):
+        self.assertEqual(fixlanes.assign([[1], [2], [3], [4]]), ([[1], [2], [3]], [[4]], []),
+                         "枝に入らなかった組は待ちの列（空いた枝が取る。修正の輪に回さない）")
+        self.assertEqual(fixlanes.assign([[1, 2, 3, 4], [5], [6]]), ([[5], [6]], [], [1, 2, 3, 4]),
+                         "1 本の枝に入らない組は修正の輪が順に直す")
+        lanes, queue, rest = fixlanes.assign([[n] for n in range(1, 11)])
+        self.assertEqual((len(lanes), len(queue), rest), (fixlanes.MAX_LANES, 10 - fixlanes.MAX_LANES, []))
+        self.assertEqual(fixlanes.assign([[1], [2, 3], [4], [5, 6]])[1], [[5, 6]], "組は割らずに列に並ぶ")
         self.assertEqual(fixlanes.assign([[1, 2]])[0], [[1, 2]], "単位を共にする項目は 1 本の枝（枝 1 本は並べない）")
 
     def test_reject_text_lists_checks_in_order(self):

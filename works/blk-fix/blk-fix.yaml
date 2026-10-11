@@ -3,16 +3,18 @@ description: |
   修正のブロック（support workflow。ラインから include で使う）。
   修正役の前に git が無視するファイルを控え（ignored-before）、テストの実行器（入力 tdd_suite）が在る run だけ単位ごとの
   TDD の輪を回し（tdd-start → tdd-loop。振り分け → 単位ごとにテスト・赤（機械）・直し・緑（機械）・整え・確かめ直し（機械）。
-  実行器が無い run は輪を飛ばし、今と同じに動く。既定の形 g3 では、振り分けの直後に書いてよい範囲の引ける tdd の単位の枝（修正案の
-  項目を共にする単位の組）が 2 本以上あれば、確かめの節が枝ごとに小さい worktree を切って輪を抜け、枝ごとの輪（tdd-lane-loop-<n>。
-  3 本まで。枝の役の節を包みが枝の worktree を cwd に起こす）が同時に回り（枝の中は順に、単位ごとに新しい会話で）、確かめの節が段ごとに
-  赤・緑を確かめる。締めの節 tdd-join が差分を作業ツリーへ 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位・枝に入らな
-  かった単位は輪 tdd-rest-loop が順に回す。依頼 243 の並べ。範囲が重なる枝も並べる）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
+  実行器が無い run は輪を飛ばし、今と同じに動く。既定の形 g3 では、振り分けの直後に書いてよい範囲の引ける tdd の単位の組（修正案の
+  項目を共にする単位）が 2 つ以上あれば、確かめの節が枝ごとに小さい worktree を切って輪を抜け、枝ごとの輪（tdd-lane-loop-<n>。
+  3 本まで。枝の役の節を包みが枝の worktree を cwd に起こす）が同時に回り（枝の中は順に、単位ごとに新しい会話で。枝は最初に 1 組ずつ
+  持ち、入らなかった組は待ちの列に並んで、組が尽きた枝が取る）、確かめの節が段ごとに赤・緑を確かめる。締めの節 tdd-join が差分を
+  作業ツリーへ 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位・列に残った単位は輪 tdd-rest-loop が順に回す。依頼 243 の
+  並べ。範囲が重なる組も並べる）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
   changes に行を書くだけ。残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
-  下請けを Agent で起こす。依頼 243 の 2。修正の輪の前に、書いてよい範囲の在る項目（重なってもよい）が単位を共にしない 2 本以上の
-  枝に分かれれば、節 fix-fork が枝ごとに小さい worktree を切り、枝の輪 fix-lane-loop-<n>（3 本まで。枝の役の節を包みが枝の worktree を
-  cwd に起こす。項目ごとに新しい会話。範囲の相談と受け付けと同じ事実の確かめを枝の中で回す）が同時に直し、締めの節 fix-join が差分を
-  作業ツリーへ 3 方向で当てる。当たらない枝・諦めた項目・枝に入らなかった項目は修正の輪が順に直す。依頼 243 の並べの 5 段目。
+  下請けを Agent で起こす。依頼 243 の 2。修正の輪の前に、書いてよい範囲の在る項目（重なってもよい）が単位を共にしない 2 つ以上の
+  組に分かれれば、節 fix-fork が枝ごとに小さい worktree を切り、枝の輪 fix-lane-loop-<n>（3 本まで。最初は 1 本に 1 組で、入らなかった
+  組は待ちの列に並び、項目が尽きた枝が取る。1 本の枝は 3 項目まで。枝の役の節を包みが枝の worktree を cwd に起こす。項目ごとに新しい
+  会話。範囲の相談と受け付けと同じ事実の確かめを枝の中で回す）が同時に直し、締めの節 fix-join が差分を作業ツリーへ 3 方向で当てる。
+  当たらない枝・諦めた項目・枝に入らない項目・列に残った項目は修正の輪が順に直す。依頼 243 の並べの 5 段目。
   docs/plans/2026-10-07-fix-lane-nodes.md。入力 tdd_lanes・fix_lanes が off なら、それぞれ輪の並べの周・修正役の並べを使わずに順に回す）、
   2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（.shared/core/writerules/common.md）と道ごとの決まりと
   run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
@@ -142,7 +144,7 @@ nodes:
   # 赤は tdd-step が red_check（中で写しの red_problems）、緑は写しの green_problems で決める。
   # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は食い違いの申し出で止めて裁定に回す）、
   # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）。
-  # 形 g3 で振り分けの後に範囲の引ける tdd の枝（項目を共にする単位の組）が 2 本以上なら、tdd-step が枝ごとの worktree を切って
+  # 形 g3 で振り分けの後に範囲の引ける tdd の組（項目を共にする単位）が 2 つ以上なら、tdd-step が枝ごとの worktree を切って
   # 段を lanes にし、輪はそこで抜ける（tdd-step が done を立てる。出口の phase は lanes）。並べの周は輪の外の節が回す: tdd-fork → 枝の輪 tdd-lane-loop-<n>
   # （枝ごとに AI の節。同時に走る）→ tdd-join（差分を 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位を順に戻す）→
   # 残りの順の単位を回す輪 tdd-rest-loop（この輪と同じ支度・確かめ）。docs/plans/2026-10-07-lane-nodes.md
@@ -269,7 +271,7 @@ nodes:
   # 並べの枝の輪を起こすか（輪 tdd-loop の状態の段が lanes の時だけ go と lane_<n>）。実行器の無い run（tdd-loop が飛ぶ）でも
   # 走って go: false を返す（tdd-join の when: がいつも引ける）
   - id: tdd-fork
-    description: '範囲の引ける枝（項目を共にする単位の組）が 2 本以上なら、枝ごとに worktree を切って並べる [needs: tdd_lanes]'
+    description: '範囲の引ける組（項目を共にする単位）が 2 つ以上なら、枝ごとに worktree を切って並べる [needs: tdd_lanes]'
     script: tdd_fork
     runtime: uv
     depends_on: [tdd-start, tdd-loop]
@@ -292,8 +294,10 @@ nodes:
   # 置かない——Archon v0.11.1 はその節と同じ層を順に回す）。役 tdd-lane-<n> は枝のただ 1 つの AI の節で、包みが印の旗 lane を見て
   # 枝の単位の worktree（tdd-lane-prep-<n> が盤面の tdd-lane-trees/ に書いた印。役の文からは取らない）を cwd に起こし、run の worktree と
   # ほかの枝の worktree を柵に足す。fresh_context は false のままで、同じ単位の段は 1 つの会話を継ぎ、単位が替わる周だけ包みが
-  # 新しい会話で起こす（支度が書く単位の鍵）。赤・緑は tdd-lane-step-<n> が tddloop.step を枝の worktree で回して決める。枝の単位が
-  # 全部済むか、拒否・実行器の止まりで諦めれば done で抜ける（回数の上限で落とさない。R50）
+  # 新しい会話で起こす（支度が書く単位の鍵）。赤・緑は tdd-lane-step-<n> が tddloop.step を枝の worktree で回して決める。枝の組が
+  # 尽きれば確かめの節が待ちの列から次の組を取って続け（max_iterations は枝の控えの回数の上限 tddloop.MAX_ITERATIONS と同じで、
+  # 列から取った組も含めた枝の全部の周。届いた枝は取らない）、取る組も無いか、申し出・実行器の止まり・回数の上限で止めれば done で
+  # 抜ける（回数の上限で落とさない。R50）
   - id: tdd-lane-loop-1
     description: '枝 1 の TDD の輪（枝の worktree で、枝の単位を順に） [needs: tdd_lanes]'
     depends_on: [tdd-fork]
@@ -564,7 +568,7 @@ nodes:
         merged: {type: integer, minimum: 0}
         back: {type: integer, minimum: 0}
 
-  # 並べの後に残った順の単位（枝に入らなかった単位・戻した単位）を回す輪。tdd-loop と同じ支度・確かめ・段で、役 tdd-rest は
+  # 並べの後に残った順の単位（範囲の引けない単位・待ちの列に残った単位・戻した単位）を回す輪。tdd-loop と同じ支度・確かめ・段で、役 tdd-rest は
   # 役 tdd と同じ形（印の名だけ違う。包みが単位の切れ目で会話を切る）
   - id: tdd-rest-loop
     description: '並べで済まなかった単位を順に回す TDD の輪 [needs: tdd_lanes]'
@@ -632,12 +636,12 @@ nodes:
               phase: {type: string}
 
   # 修正役の並べの枝を切るか（docs/plans/2026-10-07-fix-lane-nodes.md。依頼 243 の並べの 5 段目）。既定の形 g3 で、修正役が下請けを
-  # 起こす単位（TDD の輪が緑にした単位を除く）を持つ範囲の在る修正案の項目が、単位を共にしない 2 本以上の枝に分かれれば（書き込みの
-  # 記録の在る run だけ。包みの無い起動は旗 lane が効かない）、単位の worktree を切って枝の控え・項目の決まりのファイルを書き go と
+  # 起こす単位（TDD の輪が緑にした単位を除く）を持つ範囲の在る修正案の項目が、単位を共にしない 2 つ以上の組に分かれれば（書き込みの
+  # 記録の在る run だけ。包みの無い起動は旗 lane が効かない）、単位の worktree を切って枝の控え・項目の決まりのファイル・待ちの列を書き go と
   # lane_<n>。ほかは go: false（修正の輪が今どおり全部の項目を直す）。入力 fix_lanes が off でも go: false。実行器の無い run（TDD の輪が
   # 飛ぶ）でも走る
   - id: fix-fork
-    description: '範囲の在る項目が単位を共にしない枝 2 本以上なら並べる [needs: fix_lanes]'
+    description: '範囲の在る項目が単位を共にしない組 2 つ以上なら並べる [needs: fix_lanes]'
     script: fix_fork
     runtime: uv
     depends_on: [tdd-start, tdd-loop, tdd-fork, tdd-join, tdd-rest-loop]
@@ -671,13 +675,14 @@ nodes:
   # 包みが印の旗 lane で枝の単位の worktree を cwd に起こし、run の worktree とほかの枝の worktree を柵に足す。旗 self-resume で範囲の
   # 相談の答えの節の後も自分の会話に戻る）。範囲の相談は修正の輪と同じ 3 節（頼み → 答え（修正案を書いた役の会話の写し）→ 確かめ）で、
   # 枝ごとの段 lane-<n>。確かめの節 fix-lane-step-<n> は受け付けと同じ事実の確かめを単位の worktree に当て、同じ項目の 3 回目の拒否で
-  # 項目を諦めて（差分を盤面に控える）次の項目へ。項目が尽きるか回数の上限で done
+  # 項目を諦めて（差分を盤面に控える）次の項目へ。項目が尽きれば待ちの列から入る組（枝の項目が 3 つを超えない組）を取って続け、
+  # 取る組も無いか回数の上限で done
   - id: fix-lane-loop-1
     description: '枝 1 の修正役の輪（項目を順に・範囲の相談つき） [needs: fix_lanes]'
     depends_on: [fix-fork]
     when: "$fix-fork.output.lane_1 == true"
     loop_group:
-      max_iterations: 18   # 項目 3 つの受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
+      max_iterations: 18   # 項目 3 つ（列から取った組も含めた枝の項目の上限）の受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
       fresh_context: false
       until_bash: test $fix-lane-step-1.output.done = true   # 枝の項目が尽きた・回数の上限（max_iterations で落とさない。R50）
       nodes:
@@ -1234,7 +1239,7 @@ nodes:
     depends_on: [fix-fork]
     when: "$fix-fork.output.lane_2 == true"
     loop_group:
-      max_iterations: 18   # 項目 3 つの受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
+      max_iterations: 18   # 項目 3 つ（列から取った組も含めた枝の項目の上限）の受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
       fresh_context: false
       until_bash: test $fix-lane-step-2.output.done = true   # 枝の項目が尽きた・回数の上限（max_iterations で落とさない。R50）
       nodes:
@@ -1375,7 +1380,7 @@ nodes:
     depends_on: [fix-fork]
     when: "$fix-fork.output.lane_3 == true"
     loop_group:
-      max_iterations: 18   # 項目 3 つの受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
+      max_iterations: 18   # 項目 3 つ（列から取った組も含めた枝の項目の上限）の受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
       fresh_context: false
       until_bash: test $fix-lane-step-3.output.done = true   # 枝の項目が尽きた・回数の上限（max_iterations で落とさない。R50）
       nodes:

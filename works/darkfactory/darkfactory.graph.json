@@ -5,7 +5,7 @@
   "blk-delta/blk-delta.yaml": "f7b47c9faac845c696939a7918be3854dfa7bdbc55fb72c813f5fc851ccd60ef",
   "blk-entry/blk-entry.yaml": "c28e4b7209157ddaa3d349ae3d661a9d91accebdad268d58987369506deeb995",
   "blk-eyes/blk-eyes.yaml": "e1d52845e7e48cbc6d416ea5d35123aec2eb1f112d47f284049a977cbff03ab2",
-  "blk-fix/blk-fix.yaml": "4a9856d12666a0ee9a72b806473e99967f603a6a4476acac377be96976e4c9e8",
+  "blk-fix/blk-fix.yaml": "2ca30eb19db6fb400c0fec3544660523a4a6d27d16f20d7101bc3c8232fd1bea",
   "blk-judge/blk-judge.yaml": "36b7316d8232e52179053cd144f1ace1b1f0c469f5cfa6967159c531d5a1899e",
   "blk-lens/blk-lens.yaml": "20704cad5cbb886154070063fb62a0cf830c0f7b3c68f0856f3d6a1e2ecfb63f",
   "blk-material/blk-material.yaml": "fa382cd81a6574237af642bca074058f31f9e6829185393dba8063b4df31df2f",
@@ -477,7 +477,7 @@
      "id": "tdd-fork",
      "kind": "script",
      "needs": "tdd_lanes",
-     "purpose": "範囲の引ける枝（項目を共にする単位の組）が 2 本以上なら、枝ごとに worktree を切って並べる"
+     "purpose": "範囲の引ける組（項目を共にする単位）が 2 つ以上なら、枝ごとに worktree を切って並べる"
     },
     {
      "body": [
@@ -656,7 +656,7 @@
      "id": "fix-fork",
      "kind": "script",
      "needs": "fix_lanes",
-     "purpose": "範囲の在る項目が単位を共にしない枝 2 本以上なら並べる"
+     "purpose": "範囲の在る項目が単位を共にしない組 2 つ以上なら並べる"
     },
     {
      "body": [

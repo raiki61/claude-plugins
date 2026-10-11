@@ -3,7 +3,7 @@ docs/plans/2026-10-07-overlap-lanes.md・docs/plans/2026-10-07-lane-nodes.md）�
 
 - 分け方: 形 g3 の輪で、振り分けの後に範囲（tddlanes.ranges。試験では差し替え）の引ける tdd の枝（修正案の項目を共にする単位の組。
   tddlanes.items_of も差し替え）が 2 本以上なら、枝の worktree を run ごとの置き場の下に切って段 lanes へ進む（輪 tdd-loop はここで
-  抜ける）。範囲が重なっても並べる。2 本未満・形 af・範囲の引けない単位は今どおり順。枝は MAX_LANES 本まで（後ろの枝の単位は順）
+  抜ける）。範囲が重なっても並べる。2 本未満・形 af・範囲の引けない単位は今どおり順。枝は MAX_LANES 本まで（後ろの組は待ちの列に並び、組が尽きた枝が取る）
 - 枝の輪を起こすか（tdd-fork。tddlanes.fork）: 段 lanes の状態でだけ go と lane_<n>
 - 枝の支度（tdd-lane-prep-<n>。tddlanes.lane_prep）: 単位の決まりのファイル（全文・単位の間は同じ）と回ごとの指示書、包みが読む
   2 つの印（単位の鍵・単位の worktree）
@@ -35,6 +35,7 @@ sys.path.insert(0, str(TESTS))
 
 from gitkit import git  # noqa: E402
 import adapter  # noqa: E402
+import lanekit  # noqa: E402
 import prepkit  # noqa: E402
 import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
@@ -45,14 +46,18 @@ from test_blk_fix_tdd import SUITE, run_script  # noqa: E402
 UA = "a.py double: x + x + 1 を返す"
 UB = "b.py triple: x * 3 + 1 を返す"
 UD = "d.py quad: x * 4 + 1 を返す"
+UF = "f.py quint: x * 5 + 1 を返す"
 SEED = {
     "a.py": "def double(x):\n    return x + x + 1\n",
     "b.py": "from a import double\n\n\ndef triple(x):\n    return x * 3 + 1\n",
     "c.py": "SHARED = 1\n",
     "d.py": "def quad(x):\n    return x * 4 + 1\n",
+    "f.py": "def quint(x):\n    return x * 5 + 1\n",
     "e.py": "".join(f"E{i} = {i}\n" for i in range(1, 9)),
     "test_d.py": "import unittest\nfrom d import quad\n\n\nclass TestD(unittest.TestCase):\n    def test_zero(self):\n"
                  "        self.assertIsInstance(quad(1), int)\n",
+    "test_f.py": "import unittest\nfrom f import quint\n\n\nclass TestF(unittest.TestCase):\n    def test_zero(self):\n"
+                 "        self.assertIsInstance(quint(1), int)\n",
     "test_ab.py": "import unittest\nfrom a import double\nfrom b import triple\n",
     "test_a.py": "import unittest\nfrom a import double\n\n\nclass TestA(unittest.TestCase):\n    def test_zero(self):\n"
                  "        self.assertIsInstance(double(1), int)\n",
@@ -62,8 +67,10 @@ SEED = {
 A_TEST = "\n    def test_two(self):\n        self.assertEqual(double(2), 4)\n"
 B_TEST = "\n    def test_two(self):\n        self.assertEqual(triple(2), 6)\n"
 D_TEST = "\n    def test_two(self):\n        self.assertEqual(quad(2), 8)\n"
+F_TEST = "\n    def test_two(self):\n        self.assertEqual(quint(2), 10)\n"
 A_ID, B_ID, D_ID = "test_a.py::TestA::test_two", "test_b.py::TestB::test_two", "test_d.py::TestD::test_two"
-RANGES = {UA: ["a.py", "test_a.py"], UB: ["b.py", "test_b.py"], UD: ["d.py", "test_d.py"]}
+F_ID = "test_f.py::TestF::test_two"
+RANGES = {UA: ["a.py", "test_a.py"], UB: ["b.py", "test_b.py"], UD: ["d.py", "test_d.py"], UF: ["f.py", "test_f.py"]}
 
 
 class LaneCase(unittest.TestCase):
@@ -110,7 +117,15 @@ class LaneCase(unittest.TestCase):
         return got
 
     def lane(self, key):
-        return next(r for r in self.st()["lanes"]["rows"] if key in r["unit_keys"])
+        """単位 key を持つ枝の目録の行（枝が待ちの列から取った単位は枝の控えの queue に在る）"""
+        return next(r for r in self.st()["lanes"]["rows"] if key in self.lane_state(r)["queue"])
+
+    def unit_file(self, row, j):
+        """枝の j 番目の単位の決まりのファイル（盤面の tdd-<k>/lane-<n>-<j>.md）"""
+        return pathlib.Path(self.st()["work"]) / tddlanes.LANE_FILE.format(n=row["n"], j=j)
+
+    def lane_state(self, row):
+        return json.loads(pathlib.Path(row["state"]).read_text(encoding="utf-8"))
 
     def edit(self, root, name, old, new):
         p = pathlib.Path(root) / name
@@ -130,7 +145,8 @@ class LaneCase(unittest.TestCase):
 
     def red(self, key):
         tree = self.lane(key)["tree"]
-        name, body, tid = {UA: ("test_a.py", A_TEST, A_ID), UB: ("test_b.py", B_TEST, B_ID), UD: ("test_d.py", D_TEST, D_ID)}[key]
+        name, body, tid = {UA: ("test_a.py", A_TEST, A_ID), UB: ("test_b.py", B_TEST, B_ID), UD: ("test_d.py", D_TEST, D_ID),
+                            UF: ("test_f.py", F_TEST, F_ID)}[key]
         (pathlib.Path(tree) / name).write_text((pathlib.Path(tree) / name).read_text(encoding="utf-8") + body, encoding="utf-8")
         got = self.cmd(key, {"phase": "test", "unit_key": key, "test_files": [name], "tests": [tid]})
         self.assertTrue(got["ok"], got)
@@ -140,7 +156,7 @@ class LaneCase(unittest.TestCase):
     def green(self, key, new=None):
         tree = self.lane(key)["tree"]
         name, old, fixed = {UA: ("a.py", "x + x + 1", "x + x"), UB: ("b.py", "x * 3 + 1", "x * 3"),
-                            UD: ("d.py", "x * 4 + 1", "x * 4")}[key]
+                            UD: ("d.py", "x * 4 + 1", "x * 4"), UF: ("f.py", "x * 5 + 1", "x * 5")}[key]
         self.edit(tree, name, old, new or fixed)
         got = self.cmd(key, {"phase": "fix", "unit_key": key, "files": [name], "what": "余計な 1 を消した"})
         self.assertTrue(got["ok"], got)
@@ -156,7 +172,6 @@ class TestPlan(LaneCase):
         st = self.st()
         rows = st["lanes"]["rows"]
         self.assertEqual([r["unit_keys"] for r in rows], [[UA], [UB]])
-        self.assertEqual([len(r["files"]) for r in rows], [1, 1])
         place = pathlib.Path(self.board).parent / "run-place"
         for r in rows:
             self.assertTrue(pathlib.Path(r["tree"]).is_dir())
@@ -516,10 +531,11 @@ class TestOneItemLane(LaneCase):
         self.assertEqual(lst["queue"][lst["cur"]], UD)
         self.assertEqual(sorted(lst["unit_heads"]), sorted([UB, UD]), "単位ごとの頭の木を控えに残す")
         out = tddlanes.lane_prep(self.state, row["n"])
-        brief = pathlib.Path(row["files"][1]).read_text(encoding="utf-8")
+        brief_file = str(self.unit_file(row, 2))
+        brief = pathlib.Path(brief_file).read_text(encoding="utf-8")
         self.assertIn(tddloop.HANDOFF_HEAD, brief, "2 番目の単位の決まりのファイルに前の単位の引き継ぎ")
         self.assertIn(UB, brief.split(tddloop.HANDOFF_HEAD, 1)[1])
-        self.assertIn(row["files"][1], pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertIn(brief_file, pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8"))
         key = pathlib.Path(adapter.session_key_path(str(self.board), tddlanes.LANE_NODE.format(n=row["n"])))
         self.assertTrue(key.read_text(encoding="utf-8").strip().endswith(f":lane-{row['n']}:{UD}"),
                         "単位が替わると包みが新しい会話で起こす鍵")
@@ -595,7 +611,7 @@ class TestOneItemLaneWithContract(LaneCase):
         row = self.lane(UB)
         self.assertEqual(row["unit_keys"], [UB, UD])
         tddlanes.lane_prep(self.state, row["n"])
-        rules = pathlib.Path(row["files"][0]).read_text(encoding="utf-8")
+        rules = self.unit_file(row, 1).read_text(encoding="utf-8")
         self.assertNotIn("この枝の後の単位（今は手を付けるな", rules, "同じ項目の後の単位を後回しにさせない")
         self.assertIn(tddloop.TOGETHER_HEAD, rules)
         self.assertIn(UD, rules.split(tddloop.TOGETHER_HEAD, 1)[1].split("\n## ", 1)[0])
@@ -856,9 +872,9 @@ class TestPrep(LaneCase):
             turn = pathlib.Path(out["prompt_file"])
             self.assertEqual(turn.parent, pathlib.Path(st["work"]), "回ごとの指示書は盤面の tdd-<k>/ の下（共有の記録 tdd-*/**）")
             text = turn.read_text(encoding="utf-8")
-            for w in (r["files"][0], "段: test", r["unit_keys"][0], tddloop.RETURN["test"]):
+            for w in (str(self.unit_file(r, 1)), "段: test", r["unit_keys"][0], tddloop.RETURN["test"]):
                 self.assertIn(w, text)
-            sub = pathlib.Path(r["files"][0]).read_text(encoding="utf-8")
+            sub = self.unit_file(r, 1).read_text(encoding="utf-8")
             for w in (r["unit_keys"][0], r["tree"], "**test**", "**fix**", "**refactor**", "## 並べの枝の役の読み替え"):
                 self.assertIn(w, sub)
             for w in ("段のコマンド", "Agent で起こした", "reply.json"):
@@ -905,19 +921,122 @@ class TestFork(LaneCase):
         got = tddlanes.fork(self.state)
         self.assertEqual(got, {"go": True, "lanes": 3, "lane_1": True, "lane_2": True, "lane_3": True})
 
-    def test_lanes_are_capped_and_the_rest_stays_serial(self):
+
+class TestQueue(LaneCase):
+    """枝に入らなかった組は盤面の待ちの列に並び、組が尽きた枝が列から次の組を取る（順の輪 tdd-rest には回さない）。組は割らない"""
+    UNITS = (UA, UB, UD, UF)
+
+    def queue(self):
+        return self.st()["lanes"]["queue"]
+
+    def test_overflow_groups_wait_in_the_queue(self):
+        self.route()
+        st = self.st()
+        self.assertEqual([r["unit_keys"] for r in st["lanes"]["rows"]], [[UA], [UB], [UD]], f"枝は {tddlanes.MAX_LANES} 本")
+        self.assertEqual(pathlib.Path(self.queue()).parent, pathlib.Path(st["work"]), "列は盤面の tdd-<k>/ の下（役は書けない）")
+        self.assertEqual(lanekit.pending(self.queue()), [[UF]], "4 本目の組は待ちの列")
+
+    def test_a_free_lane_takes_the_next_group(self):
+        self.route()
+        self.red(UB)
+        got = self.green(UB)
+        self.assertEqual((got["done"], got["phase"]), (False, "test"), "組が尽きた枝は列の次の組へ（枝の輪は続く）")
+        row = self.lane(UF)
+        self.assertEqual(row["n"], 2)
+        lst = self.lane_state(row)
+        self.assertEqual((lst["queue"], lst["queue"][lst["cur"]]), ([UB, UF], UF))
+        self.assertIn(UF, lst["unit_heads"], "取った単位の頭の木を控えに残す（締めの赤の確かめ直しが使う）")
+        self.assertEqual((lanekit.taken(self.queue(), 2), lanekit.pending(self.queue())), ([UF], []))
+        out = tddlanes.lane_prep(self.state, 2)
+        self.assertIn(UF, pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8"))
+        key = pathlib.Path(adapter.session_key_path(str(self.board), tddlanes.LANE_NODE.format(n=2)))
+        self.assertTrue(key.read_text(encoding="utf-8").strip().endswith(f":lane-2:{UF}"), "取った単位も新しい会話で起こす鍵")
+        self.red(UF)
+        self.assertEqual(self.green(UF)["done"], True, "列が空なら枝の輪を抜ける")
+        for k in (UA, UD):
+            self.red(k)
+            self.assertTrue(self.green(k)["done"])
+        got = self.join()
+        self.assertEqual((got["go"], got["merged"], got["back"]), (False, 4, 0), got)
+        st = self.st()
+        self.assertEqual({r["unit_key"]: r["lane"] for r in st["lanes"]["out"]}, {UA: 1, UB: 2, UF: 2, UD: 3})
+        self.assertEqual((self.repo / "f.py").read_text(encoding="utf-8"), SEED["f.py"].replace("x * 5 + 1", "x * 5"))
+
+    def test_only_one_lane_takes_a_group(self):
+        self.route()
+        self.red(UA)
+        self.assertEqual(self.green(UA)["done"], False, "先に空いた枝 1 が取る")
+        self.red(UB)
+        self.assertEqual(self.green(UB)["done"], True, "列が空なので枝 2 は抜ける")
+        self.assertEqual((lanekit.taken(self.queue(), 1), lanekit.taken(self.queue(), 2)), ([UF], []))
+
+    def test_lane_without_budget_does_not_take(self):
+        """枝の控えの回数が上限（YAML の枝の輪の max_iterations と同じ tddloop.MAX_ITERATIONS）に届いた枝は取らない（輪を上限で
+        落とさない。R50）"""
+        self.route()
+        self.red(UA)
+        row = self.lane(UA)
+        lst = self.lane_state(row)
+        lst["iterations"] = tddloop.MAX_ITERATIONS - 1
+        tddloop._save(pathlib.Path(row["state"]), lst)
+        self.assertEqual(self.green(UA)["done"], True)
+        self.assertEqual(lanekit.pending(self.queue()), [[UF]])
+
+    def test_lane_without_room_for_the_group_does_not_take(self):
+        """残りの周が組の単位の最少の周（tddlanes.UNIT_TURNS × 単位の数）に足りない枝は取らない（取っても回数の上限で諦めて順に戻る）"""
+        self.route()
+        self.red(UA)
+        row = self.lane(UA)
+        lst = self.lane_state(row)
+        lst["iterations"] = tddloop.MAX_ITERATIONS - tddlanes.UNIT_TURNS
+        tddloop._save(pathlib.Path(row["state"]), lst)
+        self.assertEqual(self.green(UA)["done"], True)
+        self.assertEqual(lanekit.pending(self.queue()), [[UF]])
+
+    def test_untaken_and_unfinished_groups_go_to_the_serial_loop(self):
+        """締めの時に列に残った組と、枝が取って済まなかった組は、順の輪が回す"""
+        self.route()
+        self.red(UA)
+        self.green(UA)
+        got = self.join()
+        self.assertEqual((got["go"], got["merged"]), (True, 1))
+        st = self.st()
+        self.assertEqual(st["queue"], [UB, UD, UF], "順の輪は残りを回す")
+        self.assertEqual({r["unit_key"]: (r["lane"], r["outcome"]) for r in st["lanes"]["out"]},
+                         {UA: (1, "merged"), UF: (1, "serial"), UB: (2, "serial"), UD: (3, "serial")})
+
+    def test_resume_mid_taken_group_continues_it(self):
+        """Archon の resume は済んでいない枝の輪を 1 周目から回し直す: 取った組の途中の枝は、支度が取った単位の今の段から続ける"""
+        self.route()
+        self.red(UA)
+        self.green(UA)
+        self.red(UF)
+        out = tddlanes.lane_prep(self.state, 1)
+        self.assertIs(out["go"], True)
+        text = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(UF, text)
+        self.assertIn("段: fix", text)
+
+    def test_group_taken_but_not_added_goes_back(self):
+        """列から取った（記録した）後、枝の控えに足す前に止まった組は、締めが順に戻す（2 本の枝が同じ組を持たない）"""
+        self.route()
+        self.assertEqual(lanekit.take(self.queue(), 3), [UF])   # 枝 3 の確かめが取った直後に止まった
+        got = self.join()
+        self.assertEqual(got["merged"], 0)
+        st = self.st()
+        self.assertIn(UF, st["queue"])
+        self.assertIn("枝の控えに無い", st["lanes"]["back"][UF]["why"])
+        self.assertEqual(next(r for r in st["lanes"]["out"] if r["unit_key"] == UF)["lane"], 3)
+
+    def test_queued_group_is_not_split(self):
+        units = ("e.py: 4 本目の 1", "e.py: 4 本目の 2")
+        self.ITEMS = {units[0]: [7], units[1]: [7]}
+        self.UNITS = (UA, UB, UD, *units)
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(list(self.UNITS), ensure_ascii=False))
+        self.state = self.start["state_file"]
         with mock.patch.object(tddlanes, "ranges", side_effect=lambda board_dir, keys: {k: RANGES.get(k, ["e.py"]) for k in keys}):
             self.route()
-        st = self.st()
-        self.assertEqual([r["unit_keys"] for r in st["lanes"]["rows"]], [[UA], [UB], [UD]], f"枝は {tddlanes.MAX_LANES} 本まで")
-        self.assertEqual(len(st["lanes"]["rows"]), tddlanes.MAX_LANES)
-        for k in (UA, UB, UD):
-            self.red(k)
-            self.green(k)
-        got = self.join()
-        self.assertEqual((got["go"], got["phase"]), (True, "test"))
-        st = self.st()
-        self.assertEqual(st["queue"][st["cur"]], "e.py: 4 本目の枝", "枝に入らなかった単位は順の輪 tdd-rest が回す")
+        self.assertEqual(lanekit.pending(self.queue()), [list(units)], "項目を共にする単位は 1 組のまま列に並ぶ")
 
 
 class TestScripts(LaneCase):

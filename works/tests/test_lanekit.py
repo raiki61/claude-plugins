@@ -148,6 +148,57 @@ class ReceivesFollowTheCount(unittest.TestCase):
                 self.assertEqual(got.get(role), first, f"枝の数 {n} で {role} が枝 1 と同じ節を受けない")
 
 
+class Queue(unittest.TestCase):
+    """待ちの列: 最初の枝に入らなかった組を盤面に置き、空いた枝が錠の中で 1 組ずつ取る（組は割らない・同じ組を 2 本の枝が取らない）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = pathlib.Path(self._tmp.name) / "queue.json"
+
+    def test_take_gives_whole_groups_in_order(self):
+        lanekit.queue_put(self.path, [["u4", "u5"], ["u6"]])
+        self.assertEqual(lanekit.take(self.path, 2), ["u4", "u5"], "組は割らずに 1 本の枝へ")
+        self.assertEqual(lanekit.take(self.path, 1), ["u6"])
+        self.assertEqual(lanekit.take(self.path, 3), [], "列が空なら何も取らない")
+        self.assertEqual((lanekit.taken(self.path, 2), lanekit.taken(self.path, 1), lanekit.taken(self.path, 3)),
+                         (["u4", "u5"], ["u6"], []))
+        self.assertEqual(lanekit.pending(self.path), [])
+
+    def test_take_skips_groups_that_do_not_fit(self):
+        lanekit.queue_put(self.path, [[4, 5, 6], [7]])
+        self.assertEqual(lanekit.take(self.path, 1, fits=lambda g: len(g) <= 1), [7], "入らない組は列に残し、次の組を取る")
+        self.assertEqual(lanekit.pending(self.path), [[4, 5, 6]])
+        self.assertEqual(lanekit.take(self.path, 1, fits=lambda g: len(g) <= 1), [])
+
+    def test_take_waits_for_the_lock(self):
+        """同時に走る枝の確かめの節（別のプロセス）が同じ組を取らない: 取りは列の錠の中で読み・書きする"""
+        import fcntl
+        import threading
+        lanekit.queue_put(self.path, [["u4"]])
+        got = []
+        with open(lanekit.queue_lock(self.path), "a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            t = threading.Thread(target=lambda: got.append(lanekit.take(self.path, 1)))
+            t.start()
+            t.join(0.3)
+            self.assertTrue(t.is_alive(), "錠を持つ者が居る間は取らない")
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        t.join()
+        self.assertEqual(got, [["u4"]])
+
+    def test_no_group_is_taken_twice(self):
+        """別のプロセス 3 本が同じ列を空になるまで取り合っても、どの組もちょうど 1 本の枝が取る"""
+        lanekit.queue_put(self.path, [[i] for i in range(60)])
+        drain = ("import sys; sys.path[:0] = sys.argv[3:]; import lanekit\n"
+                 "while lanekit.take(sys.argv[1], sys.argv[2]):\n    pass\n")
+        lib = [str(ROOT / "blk-fix" / "lib"), str(ROOT / ".shared" / "core")]
+        procs = [subprocess.Popen([sys.executable, "-B", "-c", drain, str(self.path), str(n), *lib]) for n in (1, 2, 3)]
+        self.assertEqual([p.wait() for p in procs], [0, 0, 0])
+        got = [i for n in (1, 2, 3) for i in lanekit.taken(self.path, n)]
+        self.assertEqual(sorted(got), list(range(60)), "どの組もちょうど 1 本の枝が取る")
+
+
 class ForkOut(unittest.TestCase):
     def test_empty_matches_stage_fork(self):
         self.assertEqual(tddlanes.fork(""), lanekit.fork_out([]))
