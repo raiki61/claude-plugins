@@ -181,11 +181,6 @@ def design(graph: dict, rows) -> str:
     return "\n".join(out)
 
 
-def design_path(pack: pathlib.Path, name: str) -> pathlib.Path:
-    """入口 name の設計図のファイル（<pack>/docs/<入口の名>-design.md）"""
-    return pathlib.Path(pack) / "docs" / f"{name}-design.md"
-
-
 def main(argv) -> int:
     for stream in (sys.stdout, sys.stderr):   # 場所の設定が ASCII・cp1252 でも日本語の行で落ちない
         if hasattr(stream, "reconfigure"):
@@ -210,7 +205,7 @@ def main(argv) -> int:
         left = sum(len(v) for v in graphmap.undeclared(graph).values())
         print(f"graphmap_build: {graphmap.graph_path(pack, eps[name]).relative_to(pack)}: 読み書きの宣言の無い節 {left}（節の _meta。nodemeta）")
         for out, text in ((graphmap.graph_path(pack, eps[name]), graphmap.dumps(graph)),
-                          (design_path(pack, name), design(graph, rows))):
+                          (graphmap.design_path(pack, name), design(graph, rows))):
             if argv[0] == "build":
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(text, encoding="utf-8")

@@ -720,6 +720,42 @@
      "GaveUpRulingCase.test_fix_code_as_on_machine_claim_needs_grounds"
     ]
    }
+  },
+  {
+   "id": "o1",
+   "title": "壁打ちの出自の既定: 前の往復の案に無い項目と既存の項目の両方に当たる新しい block を、全部が新しい項目の時と同じく introduced にする（all を any にする）",
+   "file": ".shared/core/converge.py",
+   "old": "ORIGIN_INTRODUCED if all(i not in before for i in ids)",
+   "new": "ORIGIN_INTRODUCED if any(i not in before for i in ids)",
+   "tests": {
+    "tests/test_converge.py": [
+     "ItemsCase.test_block_on_new_and_old_items_rejects_missed_claim"
+    ]
+   }
+  },
+  {
+   "id": "o6",
+   "title": "壁打ちの出自: 1 往復目の block にも出自を付ける（1 往復目の origins は空）",
+   "file": ".shared/core/converge.py",
+   "old": "] if passes else [], origins if isinstance(origins, list) else [],",
+   "new": "], origins if isinstance(origins, list) else [],",
+   "tests": {
+    "tests/test_converge.py": [
+     "ItemsCase.test_missed_claim_on_changed_item_falls_back"
+    ]
+   }
+  },
+  {
+   "id": "nf1",
+   "title": "壁打ちの止め時: 開いた block の数に保留の項目の block も数える（保留への移りで前の往復の数が下がらなくなる）",
+   "file": ".shared/core/converge.py",
+   "old": "    mine = {k for it in row[\"items\"] if it.get(\"state\") == OPEN for k in it.get(\"blocks\") or []}",
+   "new": "    mine = {k for it in row[\"items\"] if it.get(\"state\") in (OPEN, HELD) for k in it.get(\"blocks\") or []}",
+   "tests": {
+    "tests/test_converge.py": [
+     "ItemsCase.test_hold_is_not_counted_as_open_for_decay"
+    ]
+   }
   }
  ],
  "dropped": [

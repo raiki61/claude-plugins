@@ -1251,19 +1251,6 @@ def _vanished_problems(st, u, cases, args, repo) -> list[str]:
             "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
 
 
-def _declared_name(d) -> str:
-    """adds の名 1 つが宣言する名前（'(' より前を見る）: <パス>::<名前> は :: の後の最後の . の後・.py のファイルの名・パスは
-    モジュールの名（__init__.py はディレクトリの名。拡張子 py と比べない。依頼 194c の receivers.py）・ほかは最後の . の後。
-    修正案の範囲の照らし（planscope）が adds の名の解き方に使う（赤の判定は読まない）"""
-    s = str(d).split("(", 1)[0].strip()
-    if "::" in s:
-        return s.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
-    if s.endswith(".py"):
-        p = posixpath.normpath(s[:-3])
-        return posixpath.basename(posixpath.dirname(p)) if posixpath.basename(p) == "__init__" else posixpath.basename(p)
-    return s.rsplit(".", 1)[-1]
-
-
 def _quotes_of(reply, tests, required: bool):
     """test の段の返答の欄 QUOTES_FIELD → (red_check に渡す引用か None, 記録する {名指しの id: {quote, why}}, 問題)。
     欄が無いのは、約束の在る単位（required）なら {}（名指しごとの引用が要る。照らす先が無い名指しだけ red_check が除く）、

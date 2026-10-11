@@ -827,7 +827,8 @@ def drift_review(key: str, resolved=()) -> dict:
 
 class ConvergeLineCase(LineBase):
     """事前審査の壁打ち（依頼 231）を線で通す: 184i の型（2 往復目に block が消えて直しへ）・止まる型（同じ block が続く・
-    柵の往復でも消えない → 修正前の関所が修正に進まない行で開く）・無人の run（止まって報告へ）"""
+    開いた block が減らない・輪の上限の周でも残る → 修正前の関所が修正に進まない行で開く。止め時は converge.decide）・無人の run
+    （止まって報告へ）"""
 
     def record(self, got) -> dict:
         return converge.read(entry.open_board(got["board_dir"], allow_halted=True))
@@ -895,16 +896,40 @@ class ConvergeLineCase(LineBase):
         self.assertEqual(self.record(got)["outcome"], converge.PERSISTED)
 
     def test_new_blocks_each_pass_unsettled_at_fence(self):
-        """往復ごとに別の key の block（前の block は resolved）→ 柵の 3 往復で unsettled。関所の行の理由は UNSETTLED_WHY の頭"""
-        keys = ["契約のずれ: 1 往復目の穴", "契約のずれ: 2 往復目の穴", "契約のずれ: 3 往復目の穴"]
+        """往復ごとに別の key の block が 1 件ずつ出る（前の block は resolved）→ 2 往復目で開いた数が減らないので unsettled。
+        関所の行の理由は UNSETTLED_WHY の頭"""
+        keys = ["契約のずれ: 1 往復目の穴", "契約のずれ: 2 往復目の穴"]
         r = replies()
         r["plan-review"] = [drift_review(k, resolved=keys[:i]) for i, k in enumerate(keys)]
         got = self.run_line(replies=r, gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}})
         doc = self.record(got)
-        self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.AGAIN, converge.UNSETTLED])
-        why = converge.UNSETTLED_WHY.split("（往復ごとに")[0].format(n=3)
+        self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.UNSETTLED])
+        why = converge.UNSETTLED_WHY.split("（往復ごとに")[0].format(n=2)
         self.assertIn(f"{gatemarks.STUCK_ITEM}。理由: {why}", got["out"]["h-gate"]["gate_text"])
         self.assertNotIn("設計だけの run", got["out"]["h-gate"]["gate_text"])   # 普通の run に設計だけの語を出さない（f2）
+        self.assertNotIn("fixing", got["trail"])
+        self.assertEqual(got["outcome"], "stopped_by_human")
+
+    def test_capped_decay_stops_at_loop_max(self):
+        """開いた block が 2 → 1 と減り続けていても、壁打ちの輪の静的な上限（ここでは 2 往復に差し替える）に着いた往復は止まる:
+        往復の抜け方は again → unsettled で、最後の行に capped が在る。修正前の関所の行の理由は上限に届いた事実を言い、関所が
+        修正に進まない行で開く"""
+        sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
+        import planblk
+        keys = ["契約のずれ: 1 往復目の穴", "契約のずれ: 1 往復目のもう 1 つの穴", "契約のずれ: 2 往復目の穴"]
+        first = drift_review(keys[0])
+        first["faces"].append({**first["faces"][0], "key": keys[1]})
+        r = replies()
+        r["plan-review"] = [first, drift_review(keys[2], resolved=keys[:2])]
+        with mock.patch.object(planblk, "CONVERGE_LOOP_MAX", 2):
+            got = self.run_line(replies=r, gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}})
+        doc = self.record(got)
+        self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.UNSETTLED])
+        self.assertIs(doc["passes"][-1].get("capped"), True)
+        self.assertNotIn("capped", doc["passes"][0])
+        text = got["out"]["h-gate"]["gate_text"]
+        self.assertIn(f"{gatemarks.STUCK_ITEM}。理由: {converge.UNSETTLED_WHY.split('（往復ごとに')[0].format(n=2)}", text)
+        self.assertIn(converge.CAP_WHY.split("（")[0].format(n=2), text)
         self.assertNotIn("fixing", got["trail"])
         self.assertEqual(got["outcome"], "stopped_by_human")
 

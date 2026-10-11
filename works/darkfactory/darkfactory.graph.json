@@ -9,7 +9,7 @@
   "blk-judge/blk-judge.yaml": "36b7316d8232e52179053cd144f1ace1b1f0c469f5cfa6967159c531d5a1899e",
   "blk-lens/blk-lens.yaml": "20704cad5cbb886154070063fb62a0cf830c0f7b3c68f0856f3d6a1e2ecfb63f",
   "blk-material/blk-material.yaml": "fa382cd81a6574237af642bca074058f31f9e6829185393dba8063b4df31df2f",
-  "blk-plan/blk-plan.yaml": "bd047150e25659c9417236a5df7fb2e5b8e4e4eb6d2f78e340e06bbfb5bf4e80",
+  "blk-plan/blk-plan.yaml": "a01c66467b03adc84627a2745a23c89ed19c181d9bacaae47e8a5a4e757fc8f4",
   "blk-pr/blk-pr.yaml": "045851b2c509c64e4dae75e9175a2987f35240ab3834f81537715b6354085a93",
   "blk-premises/blk-premises.yaml": "041f26cea73a6877aeb43d9912a08089e0655788f7708a6368a39c000194841c",
   "blk-purpose/blk-purpose.yaml": "17149bcd709ee14be659f8bb5b067ad336888de6ac16726f9f41fe8fa83e1134",
@@ -20,7 +20,7 @@
   "blk-structure/blk-structure.yaml": "4ef83a9c99ff3e06f805759b2b184fbeeae502f589722dabed5d495d41c7b44d",
   "blk-tests/blk-tests.yaml": "e472f62d4960b592a24ef0274042ef19b0099eb6737691e02650125a574ba000",
   "blk-world/blk-world.yaml": "45bd1e1c63000855e0092db5bc53c950c472ed39125c8d0264ddb7f3700d1ef6",
-  "darkfactory/darkfactory.yaml": "2a51ee73babdcf35b3c53309b351da12141ae80cacf8e0b48ada7990c2b31ced"
+  "darkfactory/darkfactory.yaml": "2cd776293e460f2f61a8e3bdc20be3d70a6f4abfff97e43132975606f6b17bd3"
  },
  "version": 1,
  "workflows": {
@@ -1833,7 +1833,7 @@
      ],
      "id": "converge-loop",
      "kind": "loop",
-     "max": 3,
+     "max": 20,
      "purpose": "壁打ち: 事前審査が block を挙げたら案を直し、審査し直す"
     },
     {

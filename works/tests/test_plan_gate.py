@@ -651,7 +651,7 @@ class ConvergeGateCase(GateBase):
         faces = [{"key": k, "kind": "regression", "where": "stats.py", "why": "穴", "severity": "block"} for k in blocks]
         reviews = {converge.CLEAN: [[]], converge.AGAIN: [faces], converge.PERSISTED: [faces, faces]}[outcome]
         for review in reviews:
-            row = converge.record_pass(fake, {"faces": review}, resolved=[], fence=9, files={})
+            row = converge.record_pass(fake, {"faces": review}, resolved=[], files={})
         self.assertEqual(row["outcome"], outcome)
 
     start = DesignOnlyCase.start
@@ -706,7 +706,7 @@ class ConvergeGateCase(GateBase):
         fake = types.SimpleNamespace(round=1, dir=self.tmp, work=lambda name: self.tmp / name, trace=lambda op, **kw: None)
         face = {"key": "b-key-002", "kind": "regression", "where": "stats.py", "why": "別の穴", "severity": "block"}
         for _ in range(2):
-            converge.record_pass(fake, {"faces": [face]}, resolved=[], fence=9, files={})
+            converge.record_pass(fake, {"faces": [face]}, resolved=[], files={})
         self.assertEqual(converge.read(fake)["outcome"], converge.PERSISTED)
         again = gatemarks.plan_gate_items(b)   # 別の key で止まった: 理由が変わったのでもう一度聞く
         self.assertEqual([k for k, _ in again], ["design_only"])

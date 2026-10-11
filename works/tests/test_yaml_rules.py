@@ -40,7 +40,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る。
   3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪・並べの後の順の輪・並べの枝の輪: 単位の数が run ごとに違う。抜けるのは
-  until_bash の印で、上限に届く周で機械が印を立てる。R50）
+  until_bash の印で、上限に届く周で機械が印を立てる。R50。blk-plan の壁打ちの輪 converge-loop も表に在る: 上限は静的な値）
 - loop_group の本体（入れ子の輪も）に approval の節を置かない（Archon #3532: 本体が関所で終わる輪の再開は止まった回の会話を
   引き継がない。関所は輪の外の最上段に置き、答えは with の from で後ろの節へ渡す）
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
@@ -78,7 +78,10 @@ LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40, ("blk-fix", "blk-fix.ya
             **{("blk-fix", "blk-fix.yaml", f"tdd-lane-loop-{n}"): 40 for n in (1, 2, 3)},
             ("blk-fix", "blk-fix.yaml", "fix-loop"): 12, ("blk-fix", "blk-fix.yaml", "fix-ruled-loop"): 12,
             # 修正役の並べの枝の輪: 項目 3 つの拒否の 3 回ずつと範囲の相談の周の枠の和（blk-fix/lib/fixlanes.py の MAX_ITERATIONS）
-            **{("blk-fix", "blk-fix.yaml", f"fix-lane-loop-{n}"): 18 for n in (1, 2, 3)}}
+            **{("blk-fix", "blk-fix.yaml", f"fix-lane-loop-{n}"): 18 for n in (1, 2, 3)},
+            # 壁打ちの外の輪: blk-plan/lib/planblk.py の CONVERGE_LOOP_MAX と同じ値（tests/test_blk_plan.py が突き合わせる）。
+            # 往復の止め時は converge.decide が決め、この上限の周は record_pass の at_cap が止める
+            ("blk-plan", "blk-plan.yaml", "converge-loop"): 20}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}

@@ -14,8 +14,8 @@ marks（種 plan。役の型にだけ欄を足し、受け付けが盤面へ渡�
   （範囲の相談の合意の行は修正前の版の行で、凍結の検査が読む木へはこの 2 つで移す）
 - split(reply, repo, base_tests=)・save(board, rnd, fields)・read(b)・rewrites(b)・removes_permits(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び・
   removes を本体で名指す既存のテストの並び（base_tests は修正前の版のテストの中身。split が欄 removes_tests に置く許しの行）
-- IDENT・search_word(name)・word_re(name)・test_functions(src, path): adds・removes の名を差分や本体で探す語の決まり・テストの関数の源の引き
-  （blk-fix の planscope・tddloop と split が同じ物を呼ぶ）
+- IDENT・search_word(name)・module_name(name)・declared_name(d)・word_re(name)・test_functions(src, path): adds・removes の名を差分や本体で探す語の決まり
+  （1 行の読み方）・テストの関数の源の引き（blk-fix の planscope・tddloop・blk-plan の ripple と split が同じ物を呼ぶ）
 - unit_contract(fields, key): 1 つの単位の約束（その単位を名指す項目の道・受け入れのテスト・書き換えの id・整えの申告を合わせた物。TDD の輪が読む）
 - 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
@@ -168,6 +168,8 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         f"{MIN_WHY} 字以上。無ければ空の並び）。修正の受け付けは差分をこの範囲と照らし、外れたら同じ brief で返す。"
         "機械は差分で次を探すので、adds の name は識別子（関数・欄・CLI・テストの名）で書き、新設の物の canonical には"
         "置くファイルのパスを書け。removes に識別子を書けば、差分で消えたかを見る。"
+        # HEAD の removes の句: 波及の一覧の kind removed の当たりを、案の範囲で先に覆わせる（覆わない当たりは事前審査が答える）
+        "消す名を名指すファイルは allowed_paths に入れよ。入れない当たりは事前審査の下請けが答える。"
         + STRUCTURE_HEAD)
 REVIEW_HEAD = promptsection.Section("## 修正案の項目の works の欄（機械が貼った）", source="fn:planmarks.review_section")
 FIELDS_ITEM_HEAD = promptsection.Section("### 修正案の項目 {n}", source="fn:planmarks.review_section")
@@ -323,6 +325,27 @@ def search_word(name) -> str | None:
         return None
     last = re.split(r"::|\.", name)[-1]
     return last or None
+
+
+def declared_name(d) -> str:
+    """adds・removes の名 1 つが宣言する名前（'(' より前を見る）: <パス>::<名前> は :: の後の最後の . の後・.py のファイルの名・パスは
+    モジュールの名（__init__.py はディレクトリの名。拡張子 py と比べない。receivers.py は receivers）・ほかは最後の . の後"""
+    s = str(d).split("(", 1)[0].strip()
+    if "::" in s:
+        return s.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+    if s.endswith(".py"):
+        p = posixpath.normpath(s[:-3])
+        return posixpath.basename(posixpath.dirname(p)) if posixpath.basename(p) == "__init__" else posixpath.basename(p)
+    return s.rsplit(".", 1)[-1]
+
+
+def module_name(name) -> str | None:
+    """.py のファイルの名（/ も :: も無い）が宣言するモジュールの名（declared_name。receivers.py は receivers で、拡張子 py ではない）。
+    ほかの名と、モジュールの名が引けない名（__init__.py だけ・app.receivers.py のように拡張子の前に . を含みファイルに結べない名）は None"""
+    if not isinstance(name, str) or not IDENT.match(name) or "/" in name or "::" in name or not name.endswith(".py") \
+            or "." in name[:-3]:
+        return None
+    return declared_name(name) or None
 
 
 def word_re(name: str):
@@ -700,7 +723,7 @@ def _declared(adds, repo: pathlib.Path) -> list[str]:
 
 
 def split(reply: dict, repo: pathlib.Path, *, base_tests: dict | None = None) -> tuple[dict, list[dict]]:
-    """（works の欄を外した返答の写し, 項目と同じ並びの欄）。欄の行は外した欄に、項目の unit_keys の写しと、宣言した名前 adds
+    """（works の欄を外した返答の写し, 項目と同じ並びの欄）。欄の行は外した欄に、項目の unit_keys・removes の写しと、宣言した名前 adds
     （_declared: adds の name と、canonical が新設の無いモジュールを名指す行のパス）と、rewrite_tests の各行の書き換えてよい範囲
     limit（"<パス>:<定義の行>"。引けない行には付けない）を足した物。gaps を通った返答に使う。
     base_tests（パス → 修正前の版のテストのファイルの中身）を渡せば、項目の removes を本体で名指すテストの行 removes_tests
@@ -712,6 +735,7 @@ def split(reply: dict, repo: pathlib.Path, *, base_tests: dict | None = None) ->
             continue
         got["unit_keys"] = copy.deepcopy(it.get("unit_keys") or [])
         got["adds"] = _declared(it.get("adds"), repo)
+        got["removes"] = copy.deepcopy(it.get("removes") or [])
         for row in got.get("rewrite_tests") or []:
             lim = _limit(repo, _id_of(row)) if _id_of(row) else None
             if lim:

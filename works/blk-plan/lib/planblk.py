@@ -34,14 +34,18 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             下請けは答えを盤面の外の run ごとの置き場（answers_dir。盤面は守る場所で役が書けない）の機械が決めたファイルに Write で
             書く。受け付け（tree_merge）がそのファイルを項目ごとに確かめ（型・覆っていない当たりの全部の答え・自分の項目の単位だけ・
             前の block の行き先・独立設計が立つ時は穴の引用と対応表 design_map。design_gaps）、faces・shrink・resolved・当たりの答え・
-            相乗りを審査の返答にまとめる（相乗りの審査の答えは穴の引用だけを照らす）。束ね役の返答は項目ごとの判定の
+            相乗り・出自の申告（origins）を審査の返答にまとめる（相乗りの審査の答えは穴の引用だけを照らす）。束ね役の返答は項目ごとの判定の
             要約（converge.ITEMS）だけで、答えのファイルと食い違えば拒む。確かめを通らない項目は、出し直しの支度がその項目の下請けの
             ファイルにだけ機械の読める誤りの一覧（ERRORS_HEAD）を貼って起こし直させ、通った項目は起こし直さない。
             修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が返した開いた項目の行に閉じた・保留の項目の前の往復の行を差し込んで全体にし（converge.splice）、閉じた項目を変えた
             行・開いた項目の行の欠けは拒む（CLOSED_REJECT）。
             入力 review_tree が off（script_io.switch_auto）なら支度は木の節（tree_part）を書かず、今の往復の下請けの置き場
-            （ITEMS_DIR）が無いので受け付けは木のまとめを飛ばす（_tree_off。審査役 1 つの返答をそのまま受ける）。auto なら
-            往復ごとに開いた項目が TREE_AUTO_MIN（2）以上の時だけ木にし、1 つ以下の往復は off と同じ道
+            （ITEMS_DIR）が無いので受け付けは木のまとめを飛ばす（_tree_off。審査役 1 つの返答をそのまま受け、出自の申告 origins だけ
+            型 converge.ORIGIN_SCHEMA で確かめて外れは REVIEW_REJECT の頭で出し直させる）。審査役 1 つの
+            指示書は、1 往復目は案の全体を審査させ、2 往復目からは single_part の節で再審査と出自の頼み、開いた項目の差分と波及に絞る（約束の欄が変わった項目と
+            変更が大きい項目は _diff_part が全部の審査に戻す。木の道と同じ決まり）。木の道の出自の頼みは下請けのファイルと相乗りの
+            ファイルだけが持つ（束ね役の指示書には貼らない）。auto なら往復ごとに開いた項目が TREE_AUTO_MIN（2）以上の時だけ木にし、
+            1 つ以下の往復は off と同じ道
 - 裏取りの申し送り: 入力 verify_file（判定の単位ごとの裏取りと単位どうしの相乗りの JSON。形は verify_part）が在れば、修正案の役の
             頭に貼る（verify_part）。単位は直す義務で申し送りでは減らないので、根本でないと出た単位も案から外させない
 - reads:    役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
@@ -105,7 +109,10 @@ ISOLATED_FLAG = "isolated"  # 道具ゼロの役の印の旗（包みが Git の
 MAP_FLAG = "map"            # 工程の地図の旗（包みが system prompt に全体のグラフとこの会話の居場所を足す。修正案の役の会話の節に付ける）
 CONCEPT_FLAG = "concept-map"   # 考えの住処の地図の旗（包みが system prompt に地図の節を足す。修正案・事前審査の役に付ける）
 STOP_BY = stopby.declare("plan", "修正案の段が止めた（輪が諦めた・行き止まりの単位・控えを置けない）")
-GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER   # 輪の max_iterations と同じ数（tests/test_blk_plan.py が YAML と突き合わせる）
+GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER   # 役の輪の max_iterations と同じ数（tests/test_blk_plan.py が YAML と突き合わせる）
+# 壁打ちの輪 converge-loop の max_iterations（Archon が静的な値を要る。tests/test_blk_plan.py が YAML と突き合わせる）。往復の止め時の
+# 決まりではない（それは converge.decide）。この周の往復の抜け方が again なら、輪が尽きる前に with_converge が at_cap で止める
+CONVERGE_LOOP_MAX = 20
 READS_INDEX = reads.index_name("plan")
 NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入力の既定の空と、ラインが渡す文字列 null）
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
@@ -143,7 +150,7 @@ AGG_ASK = ("お前は束ね役。案の項目を自分で見ずに、下の下�
            "下請けは読むだけで、答えはファイルに書き（どこに書くかはファイルが名指す。作業ツリーは変えない。変われば受け付けが拒む）、"
            "最後に 1 行の要約を返す。答えのファイルは受け付け（機械）が確かめてまとめるので、お前は答えの中身を写さない。")
 AGG_MERGE = ("下請けが全部返ったら、返答は次の形だけにせよ（受け付けが答えのファイルと突き合わせ、食い違えば拒む）: faces と shrink は"
-             "空の配列、reason にこの往復のまとめ（20 字以上）、items に開いた項目ごとに 1 行 {item, verdict（下請けの要約が clean なら"
+             "空の配列、origins は書かない（出自は下請けの答えのファイルに書く）、reason にこの往復のまとめ（20 字以上）、items に開いた項目ごとに 1 行 {item, verdict（下請けの要約が clean なら"
              " clean、block なら block）, blocks（下請けの要約の block の key ごとに {key, why（一言）}。clean なら []）}。"
              "閉じた項目・保留の項目の行は入れない。前の拒否の理由が済んだ項目の答えの中身を名指していれば、その項目の下請けを起こし"
              "直して理由のファイルを読ませ、答えのファイルを直させよ。")
@@ -165,10 +172,19 @@ SUB_FORMAT = promptsection.Section("## 答え方（全部の下請けで同じ�
                                    "最後の節が名指すファイルに Write で書く（そのファイルのほかに書かない。書き直す時も同じファイル）。書いたら最後の"
                                    "メッセージに 1 行だけ返す（答えの中身を写さない）。\n\n```json\n{schema}\n```", source="fn:planblk.brief_head")
 ANSWER_AT = "Write の道具でファイル {answer} に書け"   # 下請けのファイルが答えの置き場を名指す句（answer_in が引く）
-DIFF_HEAD = promptsection.Section("## 前の往復からのこの項目の案の差分（見るのはこの差分と前の block の行き先だけ）", source="fn:planblk._diff_part")
+DIFF_HEAD = promptsection.Section("## 前の往復からのこの項目の案の差分", source="fn:planblk._diff_part")
 DIFF_ASK = ("前の往復でこの項目を見た審査は、下の前の block のほかに直しへ進めない穴を挙げなかった。今の往復で見るのは (1) 前の block が"
             "消えたか（消えたなら resolved、残れば同じ key で faces に block）と (2) 下の差分（- が前・+ が今）が作る新しい穴だけ。"
             "差分の外の所を見直して新しい穴を探さない。穴の重さの決まり（block か suggest か）は変えない。")
+# 約束の欄（allowed_paths・tests の behavior など。直しが触れる物や確かめる物を変え、行の差分に現れない読み直しを要る）が変わった
+# 項目と、前の往復の行から違う字の割合（置き換えた行は共通の頭と尾を除いた字、足した・消した行は全部の字。関所の決め手の欄を
+# 外した前と今の JSON の字数の和に対する割合）がこれを超えた項目は、差分に絞らず全部を審査する。約束の欄が変わった時は
+# DIFF_FULL_ASK の前に変わった欄の名を言う
+DIFF_FULL_SHARE = 0.25
+DIFF_FULL_ASK = ("この項目は前の往復から大きく変わった（下の差分は変わった所の目安）。差分に絞らず、この項目の案の全部を審査せよ。"
+                 "前の block が消えたかも見る（消えたなら resolved、残れば同じ key で faces に block）。穴の重さの決まり（block か "
+                 "suggest か）は変えない。")
+REST_HEAD = "審査しない項目（前の往復で閉じた・保留にした）:"
 CARRIED_HEAD = promptsection.Section("## 前の往復で答えた当たり（機械が答えを引き継ぐ。hits に入れなくてよい。差分で答えが変わる物だけ入れ直せ）", source="fn:planblk._carried_part")
 # 先行例の出典の確かめ（見ること 8）は run の中で 1 度だけ: 開く下請けを出典ごとに 1 つに決め、受け付けがその答えの確かめを
 # scope の根の PRECEDENT_CACHE に控え、後の往復・後の周の下請けには控えを貼って開かせない（run 68f35d6b は同じ 2 つの出典を
@@ -587,10 +603,12 @@ def _item_rows(b) -> list:
 
 
 HISTORY_HEAD = promptsection.Section(f"## この項目の前の往復の block（{converge.REREVIEW_ASK}）", source="fn:planblk._item_history")
+HISTORY_BARE_HEAD = promptsection.Section("## この項目の前の往復の block", source="fn:planblk._item_history")   # 頼みの文を付けない形（single_part）
 
 
-def _item_history(b, unit_keys: list) -> str:
-    """前の往復でこの項目に挙がった block と修正案の役の答え（下請けのファイルに貼る）"""
+def _item_history(b, unit_keys: list, asks: bool = True) -> str:
+    """前の往復でこの項目に挙がった block と修正案の役の答え（下請けのファイルに貼る）。asks が偽なら頼みの文
+    （REREVIEW_ASK・ORIGIN_ASK）は付けない（審査役 1 つの指示書は single_part が先に貼っている）"""
     doc = converge.read(b)
     mine = {str(k) for k in unit_keys}
     lines = []
@@ -603,9 +621,10 @@ def _item_history(b, unit_keys: list) -> str:
                 lines.append(f"- {p['pass']} 往復目の block {f['key']}: {f.get('why')}（{f.get('where')}）")
         lines += [f"  - 修正案の役の答え {a.get('key')}: {a.get('handled')}（{a.get('how')}）" for a in answers
                   if isinstance(a, dict) and a.get("key") in keys]
-    if not lines:
+    if not doc["passes"]:
         return ""
-    return "\n".join([HISTORY_HEAD, *lines])
+    ask = [HISTORY_HEAD if asks else HISTORY_BARE_HEAD, *lines] if lines else []
+    return "\n".join([*ask, *([converge.ORIGIN_ASK] if asks else [])])
 
 
 def answers_dir(b, k: int) -> pathlib.Path:
@@ -647,6 +666,7 @@ def item_schema() -> dict:
                            "hits": copy.deepcopy(converge.HITS_SCHEMA), "faces": faces, "shrink": shrink,
                            "resolved": {"type": "array", "items": {"type": "string"}},
                            converge.DESIGN_MAP: copy.deepcopy(converge.DESIGN_MAP_SCHEMA),
+                           converge.ORIGINS: copy.deepcopy(converge.ORIGIN_SCHEMA),
                            "precedents": {"type": "array", "items": {
                                "type": "object", "additionalProperties": False, "required": ["id", "found", "quote"],
                                "properties": {"id": {"type": "string"}, "found": {"type": "boolean"},
@@ -744,7 +764,8 @@ def synergy_schema() -> dict:
     """相乗りの審査の下請けの答えのファイルの型"""
     faces, _ = _faces_schema()
     return {"type": "object", "additionalProperties": False, "required": ["why", "faces"],
-            "properties": {"why": {"type": "string", "minLength": 10}, "faces": faces}}
+            "properties": {"why": {"type": "string", "minLength": 10}, "faces": faces,
+                           converge.ORIGINS: copy.deepcopy(converge.ORIGIN_SCHEMA)}}
 
 
 def _load(path: pathlib.Path, schema: dict) -> tuple:
@@ -850,13 +871,16 @@ def _tree_off(b, k: int, rip: dict) -> bool:
 
 def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
     """事前審査の受け付けの木のまとめ（機械）。束ね役の返答の外した写し bare・束ね役の欄 tree・束ね役の resolved から、
-    {review（盤面へ渡す返答）, resolved, synergy（相乗りの審査の face の key）, hits（{項目: 当たりの答え}）, files（往復の控えに
-    写す答えのファイル）, gaps（拒む理由の行。在れば他は使わない）} を返す。木にしない案は束ね役の返答のまま"""
+    {review（盤面へ渡す返答）, resolved, synergy（相乗りの審査の face の key）, hits（{項目: 当たりの答え}）, origins（新しい block の
+    出自の申告の行。下請けの答えの物を集める）, files（往復の控えに写す答えのファイル）, gaps（拒む理由の行。在れば他は使わない）}
+    を返す。木にしない案は審査役 1 つの返答のまま（出自の申告はその欄 origins。型 converge.ORIGIN_SCHEMA で確かめ、外れは gaps）"""
     k = converge.pass_no(b)
     rip = _ripple_of(b, k) or {}
     base = {"review": bare, "resolved": resolved, "synergy": [], "hits": {}, "files": {}, "gaps": []}
     if _tree_off(b, k, rip):
-        return {**base, "off": True}
+        said = tree.get(converge.ORIGINS)
+        errs = [] if said is None else validate_schema(said, converge.ORIGIN_SCHEMA, f"$.{converge.ORIGINS}")
+        return {**base, "off": True, "origins": [] if errs else list(said or []), "gaps": [f"型の外れ: {e}" for e in errs]}
     plan = converge.read(b)["plan"]
     opened = converge.open_items(b)
     gaps, answers = [], {}
@@ -871,8 +895,8 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
         gaps += [f"{where}: {e}" for e in errs]
         if got is not None:
             answers[n] = got
-    if bare.get("faces") or bare.get("shrink"):
-        gaps.append("束ね役の faces・shrink は空にする（項目の穴は下請けの答えのファイルから機械がまとめる。写さない）")
+    if bare.get("faces") or bare.get("shrink") or tree.get(converge.ORIGINS):
+        gaps.append("束ね役の faces・shrink・origins は空にする（項目の穴は下請けの答えのファイルから機械がまとめる。写さない）")
     rows = tree.get(converge.ITEMS)
     rows = [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
     for n in opened:
@@ -915,6 +939,7 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
         files[SYNERGY_FILE] = str(synergy_file(b, k))
     return {"review": review, "resolved": list(dict.fromkeys(x for n in opened for x in answers[n]["resolved"])),
             "synergy": [f["key"] for f in (syn or {}).get("faces") or []],
+            "origins": [o for x in [*(answers[n] for n in opened), syn or {}] for o in x.get(converge.ORIGINS) or []],
             "hits": {n: _hit_rows(b, n, rip, answers[n]["hits"]) for n in opened}, "files": files, "gaps": [],
             "precedents": (precedent_plan(b, opened), answers, k)}
 
@@ -958,16 +983,31 @@ def _item_units(b, unit_keys) -> list:
 
 
 def _diff_part(b, n: int) -> str:
-    """2 往復目から: 前の往復のこの項目の案の行と今の行の差分（unified diff）と DIFF_ASK。前の行が無ければ空（全部を見る）"""
+    """2 往復目から: 前の往復のこの項目の案の行と今の行の差分（unified diff）と DIFF_ASK。関所の決め手の欄を外した行で、約束の欄が
+    変わった項目（変わった欄の名を言う）と、変わった字の割合が DIFF_FULL_SHARE を超えた項目は、差分に絞らず DIFF_FULL_ASK。
+    字の数えは行の単位の比べで、置き換えた行の組は共通の頭と尾を除いた字だけ数える。貼る差分は決め手の欄も含む生の行。
+    前の行が無ければ空（全部を見る）"""
     old = converge.prev_row(b, n)
     plan = converge.read(b).get("plan") or []
     new = plan[n - 1].get("row") if 1 <= n <= len(plan) else None
     if old is None or new is None:
         return ""
-    lines = list(difflib.unified_diff(json.dumps(old, ensure_ascii=False, indent=1, sort_keys=True).splitlines(),
-                                      json.dumps(new, ensure_ascii=False, indent=1, sort_keys=True).splitlines(),
-                                      "前の往復", "今の往復", lineterm="", n=2))
-    return f"{DIFF_HEAD}\n\n{DIFF_ASK}\n\n```diff\n" + ("\n".join(lines) or "（変わっていない）") + "\n```"
+    dump = lambda row: json.dumps(row, ensure_ascii=False, indent=1, sort_keys=True).splitlines()
+    lines = list(difflib.unified_diff(dump(old), dump(new), "前の往復", "今の往復", lineterm="", n=2))
+    bare_old, bare_new = gatemarks.split(planmarks.NODE, {"plan": [old, new]})[0]["plan"]
+    fields = planmarks.contract_diff(bare_old, bare_new)
+    before, after = dump(bare_old), dump(bare_new)
+    changed = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes():
+        gone, came = "\n".join(before[i1:i2]), "\n".join(after[j1:j2])
+        head = len(os.path.commonprefix([gone, came]))
+        tail = len(os.path.commonprefix([gone[head:][::-1], came[head:][::-1]]))
+        changed += 0 if tag == "equal" else len(gone) + len(came) - 2 * (head + tail)
+    if fields or changed > DIFF_FULL_SHARE * (len("\n".join(before)) + len("\n".join(after))):
+        ask = (f"約束の欄（{'・'.join(fields)}）が変わった。" if fields else "") + DIFF_FULL_ASK
+    else:
+        ask = DIFF_ASK
+    return f"{DIFF_HEAD}\n\n{ask}\n\n```diff\n" + ("\n".join(lines) or "（変わっていない）") + "\n```"
 
 
 def _carried_part(b, n: int, rip: dict) -> str:
@@ -993,6 +1033,19 @@ ITEM_PLAN_HEAD = promptsection.Section("### 項目 {n} の案", source="fn:planb
 ITEM_UNITS_HEAD = promptsection.Section("### 項目 {n} の単位（判定）", source="fn:planblk.tree_part")
 ALL_ITEMS_HEAD = promptsection.Section("### 項目の全部（閉じた項目も含む）", source="fn:planblk.tree_part")
 OVERLAPS_HEAD = promptsection.Section("### 項目どうしの重なり（機械が範囲と波及の一覧から引いた）", source="fn:planblk.tree_part")
+OPENED_HEAD = promptsection.Section("## 開いた項目 {n}", source="fn:planblk.single_part")
+
+
+def _last_by_n(b) -> dict:
+    """最後の往復の項目の行を番号で引く表（往復が無ければ空）"""
+    passes = converge.read(b)["passes"]
+    return {it["n"]: it for it in (passes[-1].get("items") or [])} if passes else {}
+
+
+def _rest_part(last: dict, count: int, opened: list) -> str:
+    """REST_HEAD の下に、開いた項目でない項目（前の往復で閉じた・保留にした）を state つきで並べた節。無ければ空"""
+    rest = [f"- 項目 {n}（{last[n]['state']}）" for n in range(1, count + 1) if n not in opened and n in last]
+    return REST_HEAD + "\n" + "\n".join(rest) if rest else ""
 
 
 def tree_part(b, main_prompt: pathlib.Path) -> str:
@@ -1029,16 +1082,14 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
             _diff_part(b, n), _errors_part(n, answer_file(b, k, n), errs) if errs else "") if x)
         path.write_text(body + "\n", encoding="utf-8")
         todo.append(f"- 項目 {n}: {path}")
-    last = {it["n"]: it for it in (converge.read(b)["passes"][-1].get("items") or [])} if converge.read(b)["passes"] else {}
+    last = _last_by_n(b)
     parts = [AGG_HEAD, AGG_ASK]
     if done:
         parts.append(DONE_HEAD + "\n" + "\n".join(done))
     if todo:
         parts.append((REDO_HEAD if done or retry else OPEN_HEAD) + "\n" + "\n".join(todo))
-    rest = [f"- 項目 {n}（{last[n]['state']}）" for n in range(1, len(rows) + 1) if n not in opened and n in last]
-    if rest:
-        parts.append("審査しない項目（前の往復で閉じた・保留にした）:\n" + "\n".join(rest))
-    parts.append(AGG_MERGE)
+    rest = _rest_part(last, len(rows), opened)
+    parts += [rest, AGG_MERGE] if rest else [AGG_MERGE]
     if len(rows) >= 2:
         syn = folder / "synergy.md"
         states = [f"- 項目 {n}（{(last.get(n) or {}).get('state', converge.OPEN)}）: "
@@ -1047,9 +1098,43 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
         syn.write_text("\n\n".join([
             head, SYNERGY_HEAD,
             SUB_SYNERGY_ASK.format(answer=synergy_file(b, k), schema=json.dumps(synergy_schema(), ensure_ascii=False)),
+            *([converge.ORIGIN_ASK] if k > 1 else []),
             f"{ALL_ITEMS_HEAD}\n\n" + "\n".join(states),
             f"{OVERLAPS_HEAD}\n\n" + over]) + "\n", encoding="utf-8")
         parts.append(AGG_SYNERGY.format(path=syn))
+    return "\n\n".join(parts)
+
+
+def single_part(b) -> str:
+    """審査役 1 つの指示書の 2 往復目からの節（木にしない往復）: 頭に再審査と出自の頼み（converge.review_section と ORIGIN_ASK。
+    出自を書くのはこの審査役）、項目の控えが在れば開いた項目ごとに、前の往復の block と答え（_item_history）と前の
+    往復からの案の差分（_diff_part）、開いた項目と範囲・当たりが重なる閉じた・保留の項目（波及の一覧の overlaps）、
+    REST_HEAD の下の審査しない項目。前の往復が無ければ空（1 往復目は案の全体を審査する）"""
+    doc = converge.read(b)
+    if not doc["passes"]:
+        return ""
+    asks = "\n\n".join([converge.review_section(b), converge.ORIGIN_ASK])
+    rows = _item_rows(b)
+    if not rows or not doc.get("plan"):
+        return asks
+    opened = _opened(b, rows)
+    rip = _ripple_of(b, converge.pass_no(b)) or {}
+    near: dict = {}
+    for o in rip.get("overlaps") or []:
+        mine = sorted(set(o["items"]) & set(opened))
+        for m in o["items"] if mine else []:
+            if m not in opened:
+                near.setdefault(m, (o["at"], mine))
+    parts = [asks]
+    for n in opened:
+        parts += [x for x in (OPENED_HEAD.format(n=n), _item_history(b, rows[n - 1].get("unit_keys") or [], asks=False),
+                              _diff_part(b, n)) if x]
+    rest = _rest_part(_last_by_n(b), len(rows), opened)
+    if rest:
+        parts.append(rest)
+    if near:
+        parts.append("波及として見る項目（上の審査しない項目のうち、開いた項目と範囲・当たりが重なる物。開いた項目の直しがこれを壊していないかだけ見る）:\n"
+                     + "\n".join(f"- 項目 {m}: {at} が開いた項目 {', '.join(map(str, ns))} と重なる" for m, (at, ns) in sorted(near.items())))
     return "\n\n".join(parts)
 
 
@@ -1090,7 +1175,8 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
     go: false なので届かない）。replan なら core の replan.prep に、頭（head。修正案の頭は planmarks.HEAD を含む）と、事前審査
     なら独立設計の節だけ（design_only）を渡す。verify_file（判定の単位の裏取りの申し送り）は修正案の役の頭にだけ貼る（verify_part。
     直しの役は修正案の役の会話の続きなので、もう読んでいる）。review_tree（入力の切り替えの語 on・off・auto。空は on）が off なら
-    事前審査の指示書に木の節（tree_part）を載せない（審査役 1 つが案の全体を審査する。受け付けは _tree_off で木のまとめを飛ばす）。
+    事前審査の指示書に木の節（tree_part）を載せない（審査役 1 つが審査する。1 往復目は案の全体、2 往復目からは single_part の節で
+    開いた項目の差分と波及に絞る。受け付けは _tree_off で木のまとめを飛ばす）。
     auto なら往復ごとに、開いた項目（_opened）が TREE_AUTO_MIN 以上の時だけ木の節を載せる"""
     tree = script_io.switch_auto(review_tree, "review_tree")   # 知らない語は役を問わず指示書を書く前に落とす
     if role == REVISE_ROLE:
@@ -1110,7 +1196,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
     main = b.work(rolekit.prompt_name(nid))
     if role == "plan-review" and tree is None:
         tree = len(_opened(b, _item_rows(b))) >= TREE_AUTO_MIN
-    part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main) if tree else "")
+    part = "\n\n".join(x for x in ((design_section(b), tree_part(b, main) if tree else single_part(b))
                                     if role == "plan-review"
                                     else (prior_part(b, role), structmark.plan_section(b.dir),
                                           world_part(b) if role == "plan" else "",
@@ -1179,12 +1265,15 @@ def with_converge(run):
     """事前審査の take の包み（依頼 231 の壁打ち）。run は take("plan-review", settle=False)。どの往復も盤面が settle なしで
     受けてから往復を記録する（again の返答も作業ツリーの比べと盤面の受け付けを通る）:
     1. 形の崩れた返答（dict でない・faces が list でない）は run に渡す（entry.take が拒み、出し直しの道に乗せる）
-    2. 壁打ちの欄 resolved と束ね役の欄 items を外し、下請けの答えのファイルを確かめて返答にまとめる（tree_merge。誤りが在れば
-       盤面へ渡さずに拒む。木にしない往復は返答 1 つが審査の答えなので、独立設計が立つ時の穴の引用と束ね役の欄に外した design_map を
-       ここで design_gaps に掛け、誤りが在れば DESIGN_QUOTE_REJECT で拒む）。前の往復の block の行き先の欠けと誤り
+    2. 壁打ちの欄 resolved と束ね役の欄 items・出自の欄 origins を外し、下請けの答えのファイルを確かめて返答にまとめる（tree_merge。
+       誤りが在れば盤面へ渡さずに拒む。木にしない往復は返答 1 つが審査の答えなので、出自の申告 origins の型の外れは
+       replan_mod.REVIEW_REJECT で拒み、独立設計が立つ時の穴の引用と束ね役の欄に外した
+       design_map をここで design_gaps に掛け、誤りが在れば DESIGN_QUOTE_REJECT で拒む）。前の往復の block の行き先の欠けと誤り
        （converge.resolved_gaps。face は名前に戻して読む）が在れば拒む
     3. 外した返答を run に渡す。拒まれたら往復を記録せずに拒否を返す
-    4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す）。
+    4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す。出自の申告は
+       record_pass が控えの事実で照らして、新しい block の出自を往復の行に置く。この往復が壁打ちの輪の最後の周（CONVERGE_LOOP_MAX）
+       なら at_cap を渡し、record_pass が again の往復をその周で止める）。
        記録できなければ盤面を止めて BoardGap（revise_take の答えの控えと同じ）
     5. 抜け方が again なら、今の周の役の節 2 つの拒否の控えを往復の行へ移し（出し直しを往復ごとに数え直す）、役の節 2 つを
        戻す（rewind_roles）。返りの again が真（受け付けは done で、事前審査の輪を抜ける）
@@ -1197,7 +1286,8 @@ def with_converge(run):
         b0 = entry.open_board(pathlib.Path(board))
         merged = tree_merge(b0, bare, tree, resolved)
         if merged["gaps"]:
-            return {"ok": False, "reason": TREE_REJECT + "\n" + "\n".join(f"  - {g}" for g in merged["gaps"])}
+            head = replan_mod.REVIEW_REJECT if merged.get("off") else TREE_REJECT   # 審査役 1 つの返答に束ね役も下請けも居ない
+            return {"ok": False, "reason": head + "\n" + "\n".join(f"  - {g}" for g in merged["gaps"])}
         if merged.get("off"):
             gaps = design_gaps(b0, merged["review"].get("faces"), converge.open_items(b0), tree.get(converge.DESIGN_MAP) or [])
             if gaps:
@@ -1220,8 +1310,8 @@ def with_converge(run):
         try:
             if merged.get("precedents"):
                 save_precedents(b, *merged["precedents"])
-            row = converge.record_pass(b, named, resolved=resolved, fence=GIVE_UP_AFTER, files=files,
-                                       synergy=merged["synergy"], hits=merged["hits"])
+            row = converge.record_pass(b, named, resolved=resolved, files=files, synergy=merged["synergy"], hits=merged["hits"],
+                                       origins=merged["origins"], at_cap=converge.pass_no(b) >= CONVERGE_LOOP_MAX)
         except Exception as e:   # 書けない: 盤面は受けたが往復の行が無い（settle もしない）まま節を抜けさせない
             raise BoardGap(rolekit.halt_unsaved(board, converge.RECORD, e, by=STOP_BY)) from None
         if row["outcome"] == converge.AGAIN:
@@ -1488,7 +1578,8 @@ RECEIVES = [
         DESIGN_HEAD, planmarks.REVIEW_HEAD, planmarks.FIELDS_ITEM_HEAD, planmarks.DEVIATION_HEAD, AGG_HEAD, ITEM_HEAD, SYNERGY_HEAD,
         ITEM_PLAN_HEAD, ITEM_UNITS_HEAD, ALL_ITEMS_HEAD, OVERLAPS_HEAD, BRIEF_TITLE, SUB_FORMAT, DIFF_HEAD, CARRIED_HEAD, PRECEDENT_HEAD,
         ERRORS_HEAD, HISTORY_HEAD, ripple.HEAD, ripple.ITEM_HEAD, ripple.ITEM_KEYS_HEAD, converge.PASS_HEAD, converge.FACE_HEAD,
-        replan_mod.ITEM_HEAD, replan_mod.OLD_HEAD, replan_mod.ROW_HEAD, replan_mod.NEW_HEAD)),
+        replan_mod.ITEM_HEAD, replan_mod.OLD_HEAD, replan_mod.ROW_HEAD, replan_mod.NEW_HEAD, OPENED_HEAD)),
+    promptsection.Receive("plan-review", HISTORY_BARE_HEAD, "planblk.single_part"),   # 審査役 1 つの道の 2 往復目から
     *(promptsection.Receive(role, head) for role in ("plan", "plan-review")
       for head in (libdocs.TITLE, libdocs.DOC_TITLE, libdocs.FRAGMENT_HEAD, libdocs.LIB_HEAD)),
     *(promptsection.Receive(DESIGN_ROLE, head) for head in (

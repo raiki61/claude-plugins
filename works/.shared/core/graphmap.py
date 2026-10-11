@@ -13,6 +13,9 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - pack_resolver(pack, parse) -> resolve: pack の直下のフォルダの <d>/<d>.yaml を工程の名（YAML の name:）で引く既定の resolve
 - entrypoints(pack) -> {名: YAML の相対パス}: pack の宣言 archon-plugin.json の entrypoints
 - graph_path(pack, rel) -> Path: 入口の YAML の隣の地図の元のファイル（<stem>.graph.json）
+- design_path(pack, name) -> Path: 入口 name の設計図のファイル（<pack>/docs/<入口の名>-design.md）
+- map_sources(root) -> ({YAML の root からの相対: [生成物の root からの相対]}, [読めなかった物の行]): root の下の隠しでないフォルダの pack
+  ごとに、読める地図の元の sources の YAML から、その地図の元と設計図（作り直して書き替わる生成物）への表と、読めなかった宣言・地図の元の理由
 - load(path) -> dict: 地図の元を読む（形が違えば ValueError）
 - stale(graph, base) -> [相対パス]: sources の sha256 と今のファイルが違う（無い）物。空なら新しい
 - undeclared(graph) -> {工程の名: [節の id]}: 実行する節（script・bash・AI）のうち読み書きの宣言（reads・writes）を持たない物
@@ -58,6 +61,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pathlib
 import re
 import sys
@@ -72,6 +76,7 @@ import promptsection  # noqa: E402
 GRAPH_VERSION = 1   # 地図の元の形の版
 GRAPH_SUFFIX = ".graph.json"
 PACK_FILE = "archon-plugin.json"
+DESIGN_FILE = "docs/{name}-design.md"   # pack の下の設計図の名付け（入口の名で埋める。対象のリポジトリの決まった名）
 NEEDS_RE = re.compile(r"\s*\[needs: ([A-Za-z0-9_]+)\]\s*$")
 OPTIONAL_RE = re.compile(r"\s*\[optional\]\s*$")
 _REF_WORD = re.compile(r"\$[A-Za-z0-9_.-]*\.([A-Za-z0-9_]+)$")
@@ -222,6 +227,12 @@ def graph_path(pack: pathlib.Path, rel: str) -> pathlib.Path:
     return p.with_name(p.stem + GRAPH_SUFFIX)
 
 
+def design_path(pack: pathlib.Path, name: str) -> pathlib.Path:
+    """入口 name の設計図のファイル（<pack>/docs/<入口の名>-design.md）。対象のリポジトリの中の pack が持つ設計図を名指す口で、
+    名付けを知る場所はここ 1 か所（dev/graphmap_build.py・map_sources・試験が呼ぶ）"""
+    return pathlib.Path(pack) / DESIGN_FILE.format(name=name)
+
+
 def dumps(graph: dict) -> str:
     """地図の元のファイルの字（決まった並び。build の後に書く物と check が比べる物は同じ）"""
     return json.dumps(graph, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
@@ -270,6 +281,46 @@ def one_graph(pack: pathlib.Path, has: Callable[[dict], bool]) -> dict:
     if old:
         raise ValueError(f"地図の元 {path.name} が YAML より古い（{', '.join(old)}。dev/graphmap_build.py の build で書き直す）")
     return g
+
+
+def _inside(root: pathlib.Path, path: pathlib.Path) -> str:
+    """path を root からの相対（. や .. をたたんだ形）にする。root の外を指すなら ValueError"""
+    rel = pathlib.PurePosixPath(os.path.normpath(path.relative_to(root).as_posix()))
+    if rel.is_absolute() or rel.parts[:1] == ("..",):
+        raise ValueError(f"{path} は {root} の外を指す")
+    return rel.as_posix()
+
+
+def map_sources(root: pathlib.Path) -> Tuple[Dict[str, List[str]], List[str]]:
+    """(表, 読めなかった物): root の下の隠しでないフォルダの pack（archon-plugin.json が在る）ごとに、入口の地図の元が読めれば、その
+    sources の YAML（root からの相対）→ その地図の元と設計図（root からの相対）の表。YAML を替えると書き直す生成物を引く。
+    読めなかった宣言・地図の元・root の外を指す sources は表に載せず、`<pack の相対>/<入口>: 理由` の行で返す（呼び元が黙って落とさない
+    ため）。root の一覧が引けない（OSError）時は空の表を返さず、そのまま上げる"""
+    root = pathlib.Path(root)
+    out: Dict[str, List[str]] = {}
+    unread: List[str] = []
+    packs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".") and (p / PACK_FILE).is_file())
+    for pack in packs:
+        here = pack.relative_to(root).as_posix()
+        try:
+            eps = entrypoints(pack)
+        except ValueError as e:
+            unread.append(f"{here}/{PACK_FILE}: {e}")
+            continue
+        for name, rel in sorted(eps.items()):
+            if not graph_path(pack, rel).is_file():   # 地図の元をまだ作っていない入口は、読めない物でなく生成物が無いだけ
+                continue
+            try:
+                graph = load(graph_path(pack, rel))
+                made = [p.relative_to(root).as_posix() for p in (graph_path(pack, rel), design_path(pack, name))]
+                srcs = [_inside(root, pack / src) for src in sorted(graph["sources"])]
+            except ValueError as e:
+                unread.append(f"{here}/{rel}: {e}")
+                continue
+            for src in srcs:
+                files = out.setdefault(src, [])
+                files += [m for m in made if m not in files]
+    return out, unread
 
 
 def _walk(nodes: Sequence[dict]) -> Iterable[dict]:

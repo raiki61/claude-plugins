@@ -1086,7 +1086,7 @@ class HeadCase(ReportBase):
         self.assertEqual(converge.lines(b), [])
         face = {"key": "a-key-001", "kind": "regression", "where": "stats.py", "why": "穴", "severity": "block"}
         for _ in range(2):
-            converge.record_pass(b, {"faces": [face]}, resolved=[], fence=9, files={})
+            converge.record_pass(b, {"faces": [face]}, resolved=[], files={})
         want = converge.lines(b)
         self.assertEqual(len(want), 3)
         lines = report.head_decisions(b, {"accepted": True, "round_closed": True})

@@ -534,7 +534,7 @@ flowchart TD
   subgraph L_plan_loop["⟳3 plan-loop"]
     N_plan["plan"]
   end
-  subgraph L_converge_loop["⟳3 converge-loop"]
+  subgraph L_converge_loop["⟳20 converge-loop"]
     subgraph L_plan_revise_loop["⟳3 plan-revise-loop"]
       N_plan_revise["plan-revise"]
     end
@@ -553,11 +553,11 @@ flowchart TD
 | r2-design | AI | 独立設計の役（道具ゼロ） | 8 | - |
 | plan-loop | ⟳3 | 修正案の輪（受け付けに通るまで出し直す） | - | - |
 | plan | AI | 修正案の役: 判定の単位を直す項目（書いてよい範囲・テスト）に分ける | 22 | - |
-| converge-loop | ⟳3 | 壁打ち: 事前審査が block を挙げたら案を直し、審査し直す | - | - |
+| converge-loop | ⟳20 | 壁打ち: 事前審査が block を挙げたら案を直し、審査し直す | - | - |
 | plan-revise-loop | ⟳3 | 案の直しの輪 | - | - |
 | plan-revise | AI | block に答えて案を直す（修正案の会話の続き） | 14 | - |
 | plan-review-loop | ⟳3 | 事前審査の輪 | - | - |
-| plan-review | AI | 事前審査の役（review_tree が on か、auto で開いた項目が 2 つ以上なら項目ごとの下請けと相乗りの審査） | 35 | - |
+| plan-review | AI | 事前審査の役（review_tree が on か、auto で開いた項目が 2 つ以上なら項目ごとの下請けと相乗りの審査） | 37 | - |
 
 | 機械が貼る節 | 出どころ | 受ける役 | 入る条件 |
 | --- | --- | --- | --- |
@@ -573,6 +573,7 @@ flowchart TD
 | お前の役の定義（{agent}） | fn:rolekit.with_role_definition | plan・plan-review・plan-revise・r2-design | rolekit.with_role_definition |
 | お前の項目: 項目 {n} | fn:planblk.tree_part | plan-review | planblk.tree_part |
 | この項目の先行例の出典（判定者の先行例のうち adopt・adapt。見ること 8） | fn:planblk._precedent_part | plan-review | planblk._precedent_part |
+| この項目の前の往復の block | fn:planblk._item_history | plan-review | planblk.single_part |
 | この項目の前の往復の block（下は前の往復で挙がった block と、修正案の役の答え（fixed＝直した・disputed＝異を唱えた）。今の案を読み、前の block の key ごとに、穴が消えたなら resolved にその key を入れ、残っていれば同じ key のまま faces に severity block で挙げ直せ（同じ穴に別の key を付けない。key は一字も変えずに写す）。新しい穴は新しい key で挙げよ。前の block が 1 つでも block のまま残ると、案は直しへ進まず人の関所で止まる。） | fn:planblk._item_history | plan-review | planblk._item_history |
 | ライブラリの文書（手元の版・公式） | fn:libdocs.section | plan・plan-review | libdocs.section |
 | 世界の解の行（依頼の行ごとの問題の類・世の中の定石・依頼の解き方との比べ） | fn:worldmark.section | plan | worldmark.section |
@@ -588,7 +589,7 @@ flowchart TD
 | 前の run で最後まで通らなかった物（機械が貼った。受け付けの拒否の行は直す穴ではない——同じ所で落ちない返答を出すための注意） | fn:carry.prior_section | plan・plan-revise | carry.prior_section |
 | 前の周の独立の目が作り直しを要ると言った物——直す穴。この周の先頭で直す | fn:carry.prior_section | plan・plan-revise | carry.prior_section |
 | 前の回の受け付けが拒んだ理由 | fn:rolekit.with_reject | plan・plan-review・plan-revise・r2-design | rolekit.with_reject |
-| 前の往復からのこの項目の案の差分（見るのはこの差分と前の block の行き先だけ） | fn:planblk._diff_part | plan-review | planblk._diff_part |
+| 前の往復からのこの項目の案の差分 | fn:planblk._diff_part | plan-review | planblk._diff_part |
 | 前の往復で答えた当たり（機械が答えを引き継ぐ。hits に入れなくてよい。差分で答えが変わる物だけ入れ直せ） | fn:planblk._carried_part | plan-review | planblk._carried_part |
 | 前の答えの誤り（機械の確かめ。この誤りだけを直して同じファイルに書き直せ） | fn:planblk._errors_part | plan-review | planblk._errors_part |
 | 前の項目（承認済み。機械が貼った） | fn:replan._section | plan・plan-review | replan._section |
@@ -607,6 +608,7 @@ flowchart TD
 | 答え方（全部の下請けで同じ） | fn:planblk.brief_head | plan-review | planblk.brief_head |
 | 考えの住処の地図 | fn:concepthome.section | plan・plan-review・plan-revise | concepthome.section |
 | 考えの住処の地図（機械が追跡されたファイルから探した。先に Read で読め） | fn:concepthome.section | plan・plan-review・plan-revise | concepthome.section |
+| 開いた項目 {n} | fn:planblk.single_part | plan-review | planblk.single_part |
 | 項目 {n} | fn:ripple.item_text | plan-review | ripple.item_text |
 | 項目 {n} の単位（判定） | fn:planblk.tree_part | plan-review | planblk.tree_part |
 | 項目 {n} の案 | fn:planblk.tree_part | plan-review | planblk.tree_part |

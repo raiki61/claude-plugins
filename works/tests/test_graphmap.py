@@ -620,7 +620,7 @@ class RealLineCase(unittest.TestCase):
         rows = [(wf, row) for _, wf, row in graphmap.receive_rows(ROOT, yaml.safe_load)]
         for name, rel in graphmap.entrypoints(ROOT).items():
             with self.subTest(name):
-                path = graphmap_build.design_path(ROOT, name)
+                path = graphmap.design_path(ROOT, name)
                 self.assertTrue(path.is_file(), f"{path} が無い")
                 self.assertEqual(path.read_text(encoding="utf-8"), graphmap_build.design(graphmap.load(graphmap.graph_path(ROOT, rel)), rows),
                                  f"{path.name} が古い。`uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で書き直す")

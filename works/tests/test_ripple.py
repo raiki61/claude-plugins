@@ -12,6 +12,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
@@ -22,8 +23,10 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
 import gitkit  # noqa: E402
+import graphmap  # noqa: E402
 import line_edge  # noqa: E402
 import planblk  # noqa: E402
+import planmarks  # noqa: E402
 import ripple  # noqa: E402
 
 SEED = {
@@ -61,6 +64,14 @@ def fields(unit_keys=(KEY,), adds=(), allowed=("works/report.py",), tests=(), re
             "tests": [{"id": t} for t in tests], "rewrite_tests": [{"id": t} for t in rewrites], "out_of_scope": []}
 
 
+def split_fields(unit_keys=(KEY,), removes=(), adds=(), allowed=("works/report.py",)):
+    """修正案の項目を planmarks.split で欄にした物（盤面の plan-fields.json の項目の欄の形）"""
+    item = {"unit_keys": list(unit_keys), "approach": "x" * 20, "adds": [{"name": a, "kind": "function", "canonical": "works/report.py"} for a in adds], "removes": list(removes),
+            "shrink_first": "y" * 20, "narrows": [], "route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [],
+            "refactor": {"declared": False, "why": ""}, "allowed_paths": list(allowed), "out_of_scope": []}
+    return planmarks.split({"plan": [item]}, pathlib.Path("."))[1][0]
+
+
 class RippleCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -70,6 +81,150 @@ class RippleCase(unittest.TestCase):
 
     def uncovered(self, doc, n=1):
         return [(h["kind"], h["at"]) for h in ripple.uncovered(doc, n)]
+
+    def repo_with(self, extra: dict, base=SEED) -> pathlib.Path:
+        """base の種に extra（パス → 中身）を足した種を commit した別のリポジトリ"""
+        src = pathlib.Path(self._tmp.name) / "src"
+        shutil.rmtree(src, ignore_errors=True)
+        for name, text in {**base, **extra}.items():
+            p = src / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+        repo = pathlib.Path(self._tmp.name) / "repo2"
+        shutil.rmtree(repo, ignore_errors=True)
+        gitkit.committed_copy(repo, src)
+        return repo
+
+    def test_removes_names_hits_are_uncovered(self):
+        """消す名（removes）も名として引く: 識別子は探す語、.py のファイルの名はモジュールの名。残る名指しは kind removed で名指す"""
+        f = split_fields(removes=["report.always_rows", "final.py"])
+        self.assertEqual(f.get("removes"), ["report.always_rows", "final.py"])
+        doc = ripple.build(self.repo, [f])
+        self.assertEqual([r["name"] for r in doc["items"][0]["names"]], ["always_rows", "final"])
+        self.assertIn(("removed", "works/final.py:1"), self.uncovered(doc))
+
+    def test_removed_and_changed_name_on_same_line_both_listed(self):
+        """変える名と消す名が同じ行・同じ試験の関数に当たれば、変える名の行（code・test）と消す名の行（removed・removed_test）が両方残る"""
+        doc = ripple.build(self.repo, [split_fields(removes=["report.always_rows"])])
+        got = self.uncovered(doc)
+        for kind, at in (("code", "works/final.py:1"), ("removed", "works/final.py:1"),
+                         ("test", "works/tests/test_report.py::TestReport::test_rows"),
+                         ("removed_test", "works/tests/test_report.py::TestReport::test_rows")):
+            self.assertIn((kind, at), got)
+        only_changed = self.uncovered(ripple.build(self.repo, [split_fields()]))
+        self.assertFalse([h for h in only_changed if h[0].startswith("removed")], only_changed)
+        rewritten = split_fields(removes=["report.always_rows"])
+        rewritten["rewrite_tests"] = [{"id": "works/tests/test_report.py::TestReport::test_rows"}]
+        got = self.uncovered(ripple.build(self.repo, [rewritten]))
+        self.assertNotIn(("removed_test", "works/tests/test_report.py::TestReport::test_rows"), got)
+
+    def test_removed_name_hits_in_plan_docs_are_counted(self):
+        """消す名に限り docs/plans の行も数える（CHANGELOG・.archon は今どおり捨てる）。足す名では docs/plans を数えない"""
+        got = self.uncovered(ripple.build(self.repo, [split_fields(removes=["always_rows"])]))
+        self.assertIn(("removed", "works/docs/plans/2026-10-01-x.md:1"), got)
+        self.assertFalse([h for h in got if "CHANGELOG" in h[1] or h[1].startswith(".archon/")], got)
+        added = self.uncovered(ripple.build(self.repo, [split_fields(unit_keys=[], adds=["always_rows"])]))
+        self.assertFalse([h for h in added if "docs/plans" in h[1]], added)
+        self.assertIn(("code", "works/final.py:1"), added)
+        both = self.uncovered(ripple.build(self.repo, [split_fields(removes=["always_rows"])]))
+        self.assertNotIn(("code", "works/docs/plans/2026-10-01-x.md:1"), both)
+
+    def test_plan_docs_do_not_make_a_removed_name_common(self):
+        """消す名の当たりに数え入れる計画書の数で、多い名（数だけ）に落とさない: 本体と試験の当たりのファイルの数だけで決める"""
+        repo = self.repo_with({"works/docs/plans/2026-10-02-y.md": "EDGE_INPUTS の話\n"})
+        f = split_fields(unit_keys=["works/edge.py+EDGE_INPUTS: 入力の組"], removes=["EDGE_INPUTS"], allowed=("works/edge.py",))
+        row = ripple.build(repo, [f], common_files=3)["items"][0]["names"][0]
+        self.assertEqual((row["common"], row["files"]), (False, 4))
+        self.assertIn(("removed", "works/n1.py:1"), self.uncovered(ripple.build(repo, [f], common_files=3)))
+
+    def test_removed_path_hits_are_uncovered(self):
+        """消すファイルのパスは、パスの字のままの名指しと、.py ならモジュールの名の import も残りとして名指す"""
+        repo = self.repo_with({"works/README.md": "道具は works/old_tool.py\n", "works/user.py": "import old_tool\n"})
+        f = split_fields(unit_keys=["works/old_tool.py: 古い道具を消す"], removes=["works/old_tool.py"], allowed=("works/old_tool.py",))
+        got = self.uncovered(ripple.build(repo, [f]))
+        self.assertIn(("removed", "works/README.md:1"), got)
+        self.assertIn(("removed", "works/user.py:1"), got)
+        self.assertEqual([h for h in got if h[0] != "removed"], [])
+
+    def test_removed_non_python_path_uses_file_name(self):
+        """.py でないパスは、最後の段のファイルの名も名にする"""
+        repo = self.repo_with({"works/docs/old-notes.md": "古い\n", "works/README.md": "メモは old-notes.md にある\n"})
+        f = split_fields(unit_keys=["x: y"], removes=["works/docs/old-notes.md"], allowed=("works/docs/old-notes.md",))
+        self.assertIn(("removed", "works/README.md:1"), self.uncovered(ripple.build(repo, [f])))
+
+    def graph_repo(self):
+        return self.repo_with({
+            "works/archon-plugin.json": json.dumps({"entrypoints": {"line": "line/line.yaml"}}),
+            "works/line/line.yaml": "name: line\n",
+            "works/blk-a/blk-a.yaml": "name: blk-a\n",
+            "works/line/line.graph.json": json.dumps({"version": graphmap.GRAPH_VERSION, "entry": "line", "workflows": {"line": {"nodes": []}},
+                                                      "sources": {"line/line.yaml": "0", "blk-a/blk-a.yaml": "0"}}),
+            "works/docs/line-design.md": "# line の設計図\n"})
+
+    def test_graph_source_in_scope_without_map_is_uncovered(self):
+        """範囲が工程の YAML を含むのに、その YAML から組む地図の元と設計図が範囲に無ければ kind graph で名指す（name は YAML）"""
+        repo = self.graph_repo()
+        doc = ripple.build(repo, [split_fields(allowed=("works/blk-a/**",))])
+        rows = [(h["kind"], h["at"], h["name"]) for h in ripple.uncovered(doc, 1)]
+        self.assertEqual(sorted(h for h in rows if h[0] == "graph"),
+                         [("graph", "works/docs/line-design.md", "works/blk-a/blk-a.yaml"),
+                          ("graph", "works/line/line.graph.json", "works/blk-a/blk-a.yaml")])
+        both = split_fields(allowed=("works/blk-a/**", "works/line/line.graph.json", "works/docs/line-design.md"))
+        self.assertEqual([h for h in self.uncovered(ripple.build(repo, [both])) if h[0] == "graph"], [])
+        elsewhere = split_fields(allowed=("works/other/**",))
+        self.assertEqual([h for h in self.uncovered(ripple.build(repo, [elsewhere])) if h[0] == "graph"], [])
+        self.assertEqual([h for h in self.uncovered(ripple.build(self.repo, [split_fields(allowed=("works/**",))])) if h[0] == "graph"], [])
+
+    def test_unreadable_map_is_reported_not_dropped(self):
+        """読めない地図の元（壊れた JSON）は黙って落とさず、一覧の unread_maps に理由の行で残して節に出す"""
+        broken = self.repo_with({"works/archon-plugin.json": json.dumps({"entrypoints": {"line": "line/line.yaml"}}),
+                                 "works/line/line.yaml": "name: line\n", "works/line/line.graph.json": "{not json"})
+        doc = ripple.build(broken, [split_fields(allowed=("works/line/**",))])
+        self.assertEqual(doc["error"], "")
+        self.assertEqual(len(doc["unread_maps"]), 1, doc["unread_maps"])
+        self.assertTrue(doc["unread_maps"][0].startswith("works/line/line.yaml: "), doc["unread_maps"])
+        text = ripple.section(doc, 1)
+        self.assertIn(ripple.UNREAD_NOTE, text)
+        self.assertIn(doc["unread_maps"][0], text)
+
+    def test_map_source_outside_root_is_reported(self):
+        """root の外を指す sources を持つ地図の元も、読めなかった物として残す"""
+        outside = self.repo_with({"works/archon-plugin.json": json.dumps({"entrypoints": {"line": "line/line.yaml"}}),
+                                  "works/line/line.yaml": "name: line\n",
+                                  "works/line/line.graph.json": json.dumps({"version": graphmap.GRAPH_VERSION, "entry": "line",
+                                                                          "workflows": {"line": {"nodes": []}},
+                                                                          "sources": {"../../elsewhere.yaml": "0"}})})
+        self.assertEqual(len(ripple.build(outside, [split_fields()])["unread_maps"]), 1)
+
+    def test_unmade_map_is_not_unreadable(self):
+        """地図の元をまだ作っていない入口は読めない物に数えない"""
+        unmade = self.repo_with({"works/archon-plugin.json": json.dumps({"entrypoints": {"line": "line/line.yaml"}}),
+                                 "works/line/line.yaml": "name: line\n"})
+        doc = ripple.build(unmade, [split_fields()])
+        self.assertEqual(doc["unread_maps"], [])
+        self.assertNotIn(ripple.UNREAD_NOTE, ripple.section(doc, 1))
+
+    def test_unlistable_root_is_error_not_empty_table(self):
+        """root の一覧が引けない（OSError）時は空の表にせず、一覧の error に理由を書く"""
+        with mock.patch.object(pathlib.Path, "iterdir", side_effect=PermissionError("denied")):
+            doc = ripple.build(self.repo, [split_fields()])
+        self.assertIn("denied", doc["error"])
+        self.assertEqual(doc["items"], [])
+        self.assertIn(ripple.ERROR_NOTE.format(error=doc["error"]), ripple.section(doc, 1))
+
+    def test_item_text_marks_removed_name_hits(self):
+        """消す名の当たりの行には、消した後に壊れる参照である印を出す。kind graph の行には、生成物を範囲に入れて作り直す手を書けと出す"""
+        doc = ripple.build(self.repo, [split_fields(removes=["report.always_rows"])])
+        text = ripple.section(doc, 1)
+        marked = [x for x in text.splitlines() if x.startswith("- h") and " removed" in x]
+        self.assertTrue(marked, text)
+        self.assertTrue(all("消す名の残り" in x for x in marked), marked)
+        plain = next(x for x in text.splitlines() if x.startswith("- h") and " code " in x)
+        self.assertNotIn("消す名の残り", plain)
+        gtext = ripple.section(ripple.build(self.graph_repo(), [split_fields(allowed=("works/blk-a/**",))]), 1)
+        graph_lines = [x for x in gtext.splitlines() if x.startswith("- h") and " graph " in x]
+        self.assertTrue(graph_lines, gtext)
+        self.assertTrue(all("作り直す手を approach に書け" in x for x in graph_lines), graph_lines)
 
     def test_names_from_unit_key_and_adds(self):
         """単位の key の `+` の後から `:` までの ASCII の名と、adds の名の ASCII の語（日本語の語は名でない）"""

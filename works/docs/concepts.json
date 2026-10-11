@@ -323,10 +323,6 @@
       "blk-fix/lib/consult.py": [
        3,
        "範囲の相談の事前の確かめ（_inside・out_of_scope の当たり）が planrange.inside・oos_hit と同じ当て方を手で書く（住処の前からの物。後で寄せる）"
-      ],
-      "blk-plan/lib/ripple.py": [
-       1,
-       "波及の照らし _covered が項目の範囲の当て方（planrange.inside と同じ）を手で書く（案を書く段は承認の前の案を読む。後で寄せる）"
       ]
      }
     }

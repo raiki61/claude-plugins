@@ -11,17 +11,18 @@ description: |
   出口の asks_human・gate_kinds に出る（関所そのものはラインが開く）。検査の計画の欄は持たない（Phase 3）。
   壁打ち（依頼 231。core の converge）: 事前審査は外の輪 converge-loop の中に居る。事前審査が block（直しへ進めない穴）を挙げたら、
   直しの役（plan-revise。修正案の役の会話の続き continue=plan で、盤面の節は p2.fix_plan）に返して案を直させ、新しい会話の
-  事前審査に掛け直す（輪の中の輪）。抜けるのは converge-check の done（block が無い・同じ block が続いた・柵の往復・役の諦め・
-  盤面が止まった。外の輪も max_iterations で落とさない）。block が残ったまま止まった案は、ラインの修正前の関所が設計だけの行で止める。
+  事前審査に掛け直す（輪の中の輪）。抜けるのは converge-check の done（往復の止め時は core の converge.decide が決め、
+  ほかに役の諦め・盤面が止まった時。外の輪も max_iterations で落とさない）。block が残ったまま止まった案は、ラインの修正前の関所が設計だけの行で止める。
   受け付けは写しの schema・post_check・記録の検査をそのまま当て、役を起こす前と後で作業ツリー（porcelain・差分・git が無視する
   パス・HEAD・枝）が変わっていれば拒む。拒否の理由は盤面のファイルに書き、次の回の指示書の頭の 1 行がそのパスを名指す
   （$LOOP_PREV で貼らない。裁定 R44）。3 回とも拒まれたら輪を抜け（max_iterations で落とさない。裁定 R50）、collect が盤面を止める。
   線の木の段 1（設計 docs/plans/2026-10-06-tree-line.md）: 波及の一覧の節（plan-ripple・review-ripple）が、変える名の呼び出し元と
   試験を引いて範囲に入っていない当たりを名指す。事前審査の役は束ね役で、項目ごとの下請けを Agent で並べて起こし、全部の項目が
   clean の往復の最後に相乗りの審査の下請けを 1 つ起こす。block の無い項目は閉じ（直しの役が変えれば拒む）、同じ block が続いた
-  項目は保留にしてほかの項目を柵まで進める。
+  項目は保留にしてほかの項目を進める（止め時は converge.decide）。
   入力 verify_file（判定の単位の裏取りの申し送り）が在れば、修正案の役の指示書の頭に貼る（単位は直す義務のまま）。
-  入力 review_tree が off なら事前審査の木を使わず、審査役 1 つが案の全体を審査する（項目が 1 つの案の木の外の道と同じ受け付け）。
+  入力 review_tree が off なら事前審査の木を使わず、審査役 1 つが審査する（1 往復目は案の全体、2 往復目からは開いた項目の差分と
+  波及。項目が 1 つの案の木の外の道と同じ受け付け）。
   auto なら往復ごとに、開いた項目が 2 つ以上の時だけ木にし、1 つ以下の往復は off と同じ道。
   出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。
   入力 replan の時は、波及の一覧の節は作らず、出口 collect が直した項目を差し替えた欄で一覧を作り直し（今の周の ripple/replan.json）、
@@ -49,7 +50,7 @@ inputs:
     description: >-
       事前審査の項目ごとの木（束ね役が項目ごとの下請けと相乗りの審査の下請けを起こす形）を使うか。on（このブロックでは空も on）・
       off・auto のどれか。ラインから起こす時は start が機能の既定を渡す（review_tree は既定で auto）。auto なら往復ごとに開いた項目（前の往復で閉じた・保留にした項目を除く）を数え、2 つ以上なら on、1 つ以下なら off。
-      off なら事前審査の支度が下請けのファイルと束ね役の頼みを書かず、審査役 1 つが案の全体を審査して返答の faces・shrink に
+      off なら事前審査の支度が下請けのファイルと束ね役の頼みを書かず、審査役 1 つが審査して（1 往復目は案の全体、2 往復目からは開いた項目の差分と波及）返答の faces・shrink に
       そのまま書く（受け付けは木のまとめを飛ばし、返答を今どおりの写しの規則と壁打ちで受ける。項目の閉じ・保留は faces の
       単位から今どおり引く）。ほかの役の支度は読まない。ほかの語は支度が 2 で落ちる
 
@@ -533,14 +534,14 @@ nodes:
               out_file: {type: string}
 
   # 壁打ち: 事前審査が block を挙げたら修正案の役に同じ会話で返して直させ、新しい会話で審査し直す（依頼 231。core の converge）。
-  # 抜けるのは converge-check の done（block が無い・同じ block が続いた・柵の往復・役の諦め・盤面が止まった）。max_iterations で
+  # 抜けるのは converge-check の done（往復の止め時は core の converge.decide。ほかに役の諦め・盤面が止まった）。max_iterations で
   # 落とさない（R50）。独立設計と最初の修正案はこの輪の外で先に 1 度だけ回る（独立設計は案を見ない）
   - id: converge-loop
     description: '壁打ち: 事前審査が block を挙げたら案を直し、審査し直す'
     depends_on: [plan-snap, plan-loop]
     trigger_rule: none_failed_min_one_success
     loop_group:
-      max_iterations: 3
+      max_iterations: 20   # planblk.CONVERGE_LOOP_MAX（Archon が静的な値を要る。止め時の決まりではない。tests/test_blk_plan.py が突き合わせる）
       fresh_context: true
       until_bash: test $converge-check.output.done = true
       nodes:
@@ -744,7 +745,8 @@ nodes:
                 # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review と、壁打ちの任意の欄
                 # resolved（前の往復の block のうち消えた key）・束ね役の任意の欄 items（項目ごとの判定の要約。当たりの答えと
                 # 相乗りは下請けの答えのファイルから受け付けがまとめる）・独立設計との対応表の任意の欄 design_map（項目の adds の name ごとの
-                # 1 行。独立設計が立つ run で受け付けが照らす）（converge.with_fields）を足した物）を貼った物
+                # 1 行。独立設計が立つ run で受け付けが照らす）・新しい block の出自の任意の欄 origins（審査役 1 つの道の申告。木の道では
+                # 束ね役は書かず、下請けの答えの origins を受け付けが集める）（converge.with_fields）を足した物）を貼った物
                 output_format:
                   description: 'works-node: plan-review concept-map'
                   type: object
@@ -931,6 +933,25 @@ nodes:
                           why:
                             type: string
                             minLength: 10
+                    origins:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - key
+                        - origin
+                        properties:
+                          key:
+                            type: string
+                          origin:
+                            type: string
+                            enum:
+                            - missed
+                            - introduced
+                            - rephrased
+                          of:
+                            type: string
               - id: plan-review-accept
                 script: accept
                 runtime: uv

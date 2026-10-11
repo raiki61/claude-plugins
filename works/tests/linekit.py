@@ -673,7 +673,7 @@ class LineRun:
         if planblk._pending(entry.open_board(self.board), "p2.fix_plan"):   # 節 plan-ripple（when は plan-snap の go）
             planblk.make_ripple(self.board, self.repo, "units")
         self._plan_role("plan", lambda: self._nth("plan", 0))
-        for k in range(planblk.GIVE_UP_AFTER):   # converge-loop の max_iterations（tests/test_blk_plan.py が YAML と突き合わせる）
+        for k in range(planblk.CONVERGE_LOOP_MAX):   # converge-loop の max_iterations（tests/test_blk_plan.py が YAML と突き合わせる）
             # 直しの役は 2 往復目から（1 往復目は snap が go 偽）。k 番目の往復の直しは replies["plan-revise"] の k-1 番目
             self._plan_role(planblk.REVISE_ROLE, lambda: self._nth("plan-revise", k - 1) if "plan-revise" in self.replies
                             else self._revise_body())

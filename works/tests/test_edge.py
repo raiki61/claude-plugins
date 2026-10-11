@@ -416,7 +416,7 @@ class FinalGateCase(EdgeBase):
         b = entry.open_board(self.board, allow_halted=True)
         face = {"key": "a-key-001", "kind": "regression", "where": "stats.py", "why": "穴", "severity": "block"}
         for _ in range(2):
-            converge.record_pass(b, {"faces": [face]}, resolved=[], fence=9, files={})
+            converge.record_pass(b, {"faces": [face]}, resolved=[], files={})
         text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
         lines = text.splitlines()
         self.assertTrue(any(x.startswith("- 事前審査の壁打ち: ") for x in lines), text)

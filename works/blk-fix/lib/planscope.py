@@ -27,8 +27,8 @@
 - 識別子の形（planmarks.IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
   日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
   止めない）
-- モジュールの名（_module）: / も :: も無い .py のファイルの名（receivers.py）は、拡張子 py の語でなくモジュールの名
-  （tddloop._declared_name。0.2.41 の名の規則）で見る。adds はそのモジュールの .py のファイル（パッケージの __init__.py も）を
+- モジュールの名（planmarks.module_name）: / も :: も無い .py のファイルの名（receivers.py）は、拡張子 py の語でなくモジュールの名
+  （planmarks.declared_name。0.2.41 の名の規則）で見る。adds はそのモジュールの .py のファイル（パッケージの __init__.py も）を
   新設したか足した行を持つ、removes はそのファイルが消えた、を差分で確かめる（ファイルの中身は自分の名を書かないので語では
   探さない）。拡張子の前に . を含む名（app.receivers.py）はファイルに結べないので unchecked
 - docstring（DOC）: 最後の段が __doc__ の adds（stats.mode.__doc__）は、足した行の語に加えて、その前の段の def・class（名が
@@ -155,19 +155,9 @@ def _definition(name: str):
     return re.compile(rf"^[ \t]*(?:[a-z]+[ \t]+)*(?:def|class)[ \t]+{n}\b|^{n}\s*=|^(?:function\s+)?{n}\s*\(\)")
 
 
-def _module(name) -> str | None:
-    """.py のファイルの名（/ も :: も無い）が宣言するモジュールの名（tddloop._declared_name。0.2.41 の名の規則: receivers.py は
-    receivers で、拡張子 py ではない）。ほかの名と、モジュールの名が引けない名（__init__.py だけ・app.receivers.py のように
-    拡張子の前に . を含みファイルに結べない名）は None"""
-    if not isinstance(name, str) or not planmarks.IDENT.match(name) or "/" in name or "::" in name or not name.endswith(".py") \
-            or "." in name[:-3]:
-        return None
-    return tddloop._declared_name(name) or None
-
-
 def _module_files(mod: str, changes: dict) -> list[str]:
     """変わったパスのうち、モジュール mod の .py のファイル（モジュールの名が mod。パッケージの __init__.py はディレクトリの名）"""
-    return [p for p in changes if p.endswith(".py") and tddloop._declared_name(p) == mod]
+    return [p for p in changes if p.endswith(".py") and planmarks.declared_name(p) == mod]
 
 
 def _defined_names(src: str | None):
@@ -301,7 +291,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
     4. adds: 探す語（planmarks.search_word）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing。語が __doc__ なら、
        名の def・class の docstring を差分で足していても在る。_doc_added）。canonical の文に
-       変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）。.py のファイルの名（_module）は
+       変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）。.py のファイルの名（planmarks.module_name）は
        そのモジュールのファイルを新設したか、足した行を持つ
     5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない。.py のファイルの名は
        そのモジュールのファイルが消えた
@@ -370,7 +360,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             raw = add.get("name") if isinstance(add, dict) else None
             if not isinstance(raw, str):
                 continue
-            mod = _module(raw)
+            mod = planmarks.module_name(raw)
             if mod is not None:
                 if not skip and not any(changes[p][1] is not None and (changes[p][0] is None or diffs[p][0])
                                         for p in _module_files(mod, changes)):
@@ -393,7 +383,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
         for raw in it.get("removes") or []:
             if not isinstance(raw, str):
                 continue
-            mod = _module(raw)
+            mod = planmarks.module_name(raw)
             if mod is not None:
                 if not skip and not any(changes[p][1] is None for p in _module_files(mod, changes)):
                     out.append(f"{who}: removes の {raw} のモジュールのファイル（{mod}）が差分で消えていない")
