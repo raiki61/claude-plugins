@@ -1564,16 +1564,16 @@ class UseShell(unittest.TestCase):
         self.assertTrue(any("cost_usd" in l and "合計" in l and "0.42" in l and "途中" in l for l in out.splitlines()), out)
 
     # ---- 走っている run の持ち主（Archon が metadata.execution_owner に刻む host・pid）
-    def owner_run(self, *, minutes_quiet, owner="here", pid=4242, procs=None, boot_minutes_ago=180, **run):
+    def owner_run(self, *, minutes_quiet, owner="here", pid=4242, procs=None, boot_minutes_ago=180, inputs=None, **run):
         """持ち主の判定に要る材料を置く。process の開始と居るかは PATH の頭に置く偽の ps（`ps -o etime= -p <pid>` に procs の経過を返す。
         載せない pid は居ない）、機械の起動は偽の sysctl（kern.boottime）で差し替える。実の process・実の起動には頼らない。
-        owner は here（この機械の host）・other（別の host）・None（記録なし）。返りは show に渡す env"""
+        owner は here（この機械の host）・other（別の host）・None（記録なし）。inputs は run の入力に重ねる。返りは show に渡す env"""
         import datetime   # 先頭の import 群は test_dev_model.py と同じ並びのまま保つ
         import socket
         now = datetime.datetime.now(datetime.timezone.utc)
         stamp = lambda ago: (now - datetime.timedelta(minutes=ago)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         meta = {"inputs": {"request": str(self.request), "test_cmd": "pytest -q", "tdd_suite": "", "launch_mark": "m1",
-                           "cleaned_runs": "[]"}}
+                           "cleaned_runs": "[]", **(inputs or {})}}
         if owner:
             meta["execution_owner"] = {"host": socket.gethostname() if owner == "here" else "other-host.example", "pid": pid, "uid": 501}
         run = {"status": "running", "working_path": "/wt/run-1", "output_root": str(self.out), "started_at": stamp(minutes_quiet + 60),
@@ -1657,6 +1657,16 @@ class UseShell(unittest.TestCase):
                 self.assertEqual(self.lines_with(out, "関所に殻で答える") + self.lines_with(out, "止める（関所で待つ run は"), [], out)
                 self.assertEqual(self.lines_with(out, "殻で進める"), [], out)
 
+    def test_show_owner_gone_restart_line_for_run_without_request(self):
+        """依頼を - で省いて起こした run（入力 request が空）でも、起こし直す案内は取れないと言わず、依頼を - と出して渡した入力を並べる。
+        run の基の版の行は、案内の入力の行と食い違う「旗を渡さない」の文を出さない"""
+        out = self.show_owner(minutes_quiet=2, procs={}, inputs={"request": "", "base": "abc123"})
+        (guide,) = self.lines_with(out, "起こし直す")
+        self.assertIn("元の依頼 -（依頼を省いて起こした run）", guide)
+        self.assertIn("base=abc123", guide)
+        self.assertNotIn("取れない", guide)
+        self.assertNotIn("渡さない", out)
+
     def test_show_owner_lost_after_reboot(self):
         """機械が最後の動きの後に起こし直された run は、記録の pid が居ても開始が起動より前（または居ない）なら持ち主が消えた。
         pid が居てその開始が起動より後なら、続きを回したばかりかもしれないので、取り消しの行を残したまま記録を閉じる道も並べて
@@ -1675,6 +1685,7 @@ class UseShell(unittest.TestCase):
                     self.assertNotIn("持ち主が消えた", out)
                     self.assertIn("持ち主: 確かめられない（最後の動き", out)
                     self.assertIn("続きを回したばかりなら生きている事もある。少し後に show を打ち直す", out)
+                    self.assertIn("打ち直しても変わらなければ", out)
                     self.assertEqual(len(self.lines_with(out, "workflow cancel run-1")), 1, out)
                     self.assertEqual(len(self.lines_with(out, "workflow abandon run-1")), 1, out)
                     self.assertEqual(len(self.lines_with(out, "起こし直す")), 1, out)

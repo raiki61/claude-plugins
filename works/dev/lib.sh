@@ -613,17 +613,18 @@ window = bool(owner) and owner[2]
 def closing_lines():
     print("記録を閉じる（abandon。Archon の記録を cancelled にする。cancelled になれば use.sh の show・wait が差分を書いて片付ける。"
           "報告は report.sh で組む）:", then("abandon", r.get("id")))
-    inputs = meta.get("inputs") if isinstance(meta.get("inputs"), dict) else {}
-    request = inputs.get("request")
-    given = ["{}={}".format(k, v) for k, v in inputs.items() if k not in ("request", "launch_mark", "cleaned_runs")]
-    if isinstance(request, str) and request:
+    inputs = meta.get("inputs")
+    if isinstance(inputs, dict) and isinstance(inputs.get("request"), str):
+        # 入力 request が空なのは start が依頼を - で受けた run（依頼のパスを作らない）
+        given = ["{}={}".format(k, v) for k, v in inputs.items() if k not in ("request", "launch_mark", "cleaned_runs")]
         print("起こし直す（同じ旗・環境で use.sh start を打つ）: 元の依頼 {}・渡した入力 {}".format(
-            shlex.quote(request), " ".join(shlex.quote(g) for g in given) or "無い"))
+            shlex.quote(inputs["request"]) if inputs["request"] else "-（依頼を省いて起こした run）",
+            " ".join(shlex.quote(g) for g in given) or "無い"))
     else:
-        print("起こし直す: 取れない（run の metadata.inputs に依頼のパスが無い）")
+        print("起こし直す: 取れない（run の metadata.inputs に依頼の欄が無い）")
     if base:
         head = subprocess.run(["git", "-C", os.environ["DIR"], "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        print("run の基の版 {}。start は対象の今の姿から切る。差分の根の名指し（start の base の旗）は渡さない{}".format(
+        print("run の基の版 {}。start は対象の今の姿から切る{}".format(
             base[:12], "（対象の今の HEAD は {} で、基の版と違う）".format(head[:12]) if head and head != base else ""))
     else:
         print("run の基の版: 取れない（start の控えに base_rev が無い）")
@@ -648,8 +649,8 @@ if not os.environ.get("WORKS_USE_SH") and not lost:
 if status in ("failed", "paused"):
     print("失敗や中断から続ける:", then("resume", r.get("id")))
 if window:
-    print("機械が起こし直された後で持ち主を確かめられない。続きを回したばかりなら生きている事もある（少し後に show を打ち直す）。"
-          "消えたと分かった時の取れる道:")
+    print("機械が起こし直された後で持ち主を確かめられない。続きを回したばかりなら生きている事もある（少し後に show を打ち直す。"
+          "打ち直しても変わらなければ、下の道で閉じる）。消えたと分かった時の取れる道:")
     closing_lines()
 if redo:
     print("差分だけを書き直す（Archon の生のコマンドで続けた後）:", redo, r.get("id"))
