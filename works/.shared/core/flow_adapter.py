@@ -25,6 +25,7 @@ scope の出どころ（測り M1。Archon v0.11.1 で 2026-10-03 に実測）:
 口の内に入れる物（Archon に固く結び付いた所。乗り換えたらここだけ書き直す。設計 §6）:
 - include の名・入れ子の道・fan_out の子の道の取り方（current_scope・fan_node）
 - ARTIFACTS_DIR（または今の盤面の根）の場所（artifact_root）
+- run の id の環境変数（RUN_ENV）と Archon の指し札の印（POINTER_TYPE。出口の指し札を作る・解く口は script_io）
 - 再開した時の振る舞い（同じ節を走り直しても scope が同じになること。形 A は step の名から引くので同じ）
 口の外に残る物（Archon 固有だが、乗り換える時に書き直す物として並べるだけ）:
 - workflow の YAML 本体（blk-*.yaml の include・節の書き方）
@@ -46,6 +47,8 @@ import re
 NODE_EXECUTION_ENV = "ARCHON_NODE_EXECUTION"   # 形 A の出どころ（JSON。欄 path が include の名を頭に持つ step の名）
 INCLUDE_SEP = "__"                             # Archon が include の名と節の名をつなぐ字
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
+RUN_ENV = "WORKFLOW_ID"                        # 今の run の id（Archon がどの節にも渡す。指し札の run_id）
+POINTER_TYPE = "archon_artifact"               # Archon の指し札の印（v0.11.1 の schemas/artifact-pointer.ts の ARTIFACT_POINTER_TYPE）
 # scope の名の決まり（盤面の board.SCOPE_RULE と同じ字の組。board はこのモジュールを読まないので字で持つ）: 英字で始まり英数字・_・-
 # だけで、周の置き場 r<N> と紛れない名
 SCOPE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")

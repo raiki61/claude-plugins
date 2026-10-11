@@ -1,10 +1,10 @@
 """節ごとの読み書きの宣言 `_meta: {reads, writes}`（.shared/core/nodemeta.py）と、その照らし（.shared/core/scopes.py の
-node_io_gaps・manifest_gaps）の検査。
+node_io_gaps）の検査。
 
 - StripCase: Archon に渡す前に YAML の字から `_meta` を落とす（流れの形・塊の形・輪の中・塊の字の中の字は落とさない）
 - ParseCase: 宣言の形（reads・writes の 2 つの並びで、要素は file:<run の置き場からの型> か record:<record|state>.<欄>）
-- GapCase: 実際の読み書き（run の置き場からの相対パス）が宣言の外に出た所と、manifest と宣言の公開の名の食い違い（両向き）
-- PackCase: 本物の pack の宣言が読め、宣言を持つ工程は実行する節の全部が宣言を持ち、名の形と manifest が合う
+- GapCase: 実際の読み書き（run の置き場からの相対パス）が宣言の外に出た所
+- PackCase: 本物の pack の工程を strip しても宣言の外は変わらず、宣言が読め、宣言を持つ工程は実行する節の全部が宣言を持つ
 - ProbeCase: 実際の読み書きを測る道具 tests/nodeio_probe.py が拾う物（子のプロセスは python3 1 本）
 
 YAML を読み、git を使わない。実際の読み書きを測って宣言に照らすのは、ブロックを通しで回す試験
@@ -80,6 +80,43 @@ nodes:
 """
 
 
+# 宣言の塊の中に鍵より浅いコメント行が在る形（コメントで止まると、続く writes: が上の写像 with: に入る）
+SHALLOW_COMMENT = """\
+nodes:
+  - id: a
+    script: a
+    with:
+      root: x
+    _meta:
+      reads: []
+    # 宣言の中の説明
+      writes: [file:a]
+    timeout: 1
+"""
+# 引用した字が行をまたぎ、中の行が `_meta:` で始まる形（字の中なので落とさない）
+QUOTED = """\
+nodes:
+  - id: a
+    prompt: "一行目
+      _meta: 字のまま"
+    script: a
+    _meta: {reads: [], writes: []}
+  - id: b
+    prompt: 'それは ''引用'' の字
+      _meta: これも字'
+    script: b
+"""
+
+
+def drop(v):
+    """読んだ形から鍵 _meta を全部外した物（strip が字で落とした後に読んだ形と同じはず）"""
+    if isinstance(v, dict):
+        return {k: drop(x) for k, x in v.items() if k != nodemeta.KEY}
+    if isinstance(v, list):
+        return [drop(x) for x in v]
+    return v
+
+
 class StripCase(unittest.TestCase):
     def test_flow_meta_line_is_dropped(self):
         self.assertEqual(nodemeta.strip(FLOW), FLOW_STRIPPED)
@@ -106,13 +143,7 @@ class StripCase(unittest.TestCase):
             nodemeta.strip("nodes:\n  - _meta: {reads: [], writes: []}\n    id: a\n")
 
     def test_stripped_yaml_is_the_source_without_meta(self):
-        def drop(v):
-            if isinstance(v, dict):
-                return {k: drop(x) for k, x in v.items() if k != nodemeta.KEY}
-            if isinstance(v, list):
-                return [drop(x) for x in v]
-            return v
-        for text in (FLOW, BLOCK):
+        for text in (FLOW, BLOCK, SHALLOW_COMMENT, QUOTED):
             with self.subTest(text=text[:40]):
                 self.assertEqual(yaml.safe_load(nodemeta.strip(text)), drop(yaml.safe_load(text)))
 
@@ -166,31 +197,6 @@ class GapCase(unittest.TestCase):
         got = scopes.node_io_gaps({"reads": ["file:board/record.json"], "writes": []}, reads={"board/record.json"}, writes=set())
         self.assertEqual(len(got), 1, got)
         self.assertIn("record:record.", got[0])
-
-    def test_manifest_names_need_a_declaring_node(self):
-        man = {"owner": "blk-x", "consumes": [{"name": "lens.json"}],
-               "produces": [{"name": "delta.json", "format": "json", "schema": "s.json"},
-                            {"name": "reads-x.json", "format": "json", "schema": "s.json", "per_include": True},
-                            {"name": "top.md", "format": "md", "at": "root"}]}
-        full = [{"reads": ["file:board/r*/lens.json"], "writes": ["file:board/r*/delta.json"]},
-                {"reads": [], "writes": ["file:board/*/r*/reads-x.json", "file:board/top.md"]}]
-        self.assertEqual(scopes.manifest_gaps(man, full), [])
-        got = scopes.manifest_gaps(man, [full[1]])
-        self.assertEqual(len(got), 2, got)
-        self.assertIn("lens.json", got[0])
-        self.assertIn("delta.json", got[1])
-
-    def test_public_board_files_in_declarations_need_the_manifest(self):
-        """宣言が盤面の公開の置き場を読み書きするなら manifest に名が要る（逆向き）。scope の根の私物と共有の記録は要らない"""
-        man = {"owner": "blk-x", "consumes": [], "produces": [{"name": "delta.json", "format": "json", "schema": "s.json"}]}
-        ok = [{"reads": ["file:board/r*/delta.json", "file:board/*/r*/mine.json"],
-               "writes": ["file:board/r*/delta.json", "file:board/*/note.md", "file:board/trace.jsonl", "file:structure/x.json"]}]
-        self.assertEqual(scopes.manifest_gaps(man, ok), [])
-        bad = [{"reads": ["file:board/r*/lens.json"], "writes": ["file:board/r*/delta.json", "file:board/r*/extra.json"]}]
-        got = scopes.manifest_gaps(man, bad)
-        self.assertEqual(len(got), 2, got)
-        self.assertIn("lens.json", got[0])
-        self.assertIn("extra.json", got[1])
 
 
 class ProbeCase(unittest.TestCase):
@@ -251,6 +257,13 @@ def _workflows():
 class PackCase(unittest.TestCase):
     """本物の pack の宣言"""
 
+    def test_strip_keeps_every_real_workflow_but_the_declarations(self):
+        """本物の工程の YAML の全部で、strip した字を読んだ形は、元を読んで _meta を外した形と同じ（Archon に渡る物が変わらない）"""
+        for path, _doc in _workflows():
+            with self.subTest(workflow=path.parent.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(yaml.safe_load(nodemeta.strip(text)), drop(yaml.safe_load(text)))
+
     def test_declarations_parse_and_name_valid_patterns(self):
         for path, doc in _workflows():
             for n in _deep(doc["nodes"]):
@@ -271,14 +284,6 @@ class PackCase(unittest.TestCase):
         for name in declared:
             with self.subTest(workflow=name):
                 self.assertEqual(left.get(name, []), [])
-
-    def test_declared_blocks_agree_with_their_manifest(self):
-        """宣言を持つブロックの manifest の consumes・produces の名は、どれかの節の宣言が読み書きする"""
-        for path, doc in _workflows():
-            metas = [nodemeta.parse(n[nodemeta.KEY], n["id"]) for n in _deep(doc["nodes"]) if nodemeta.KEY in n]
-            if metas and (path.parent / scopes.MANIFEST).is_file():
-                with self.subTest(block=path.parent.name):
-                    self.assertEqual(scopes.manifest_gaps(scopes.manifest(path.parent), metas), [])
 
 
 if __name__ == "__main__":

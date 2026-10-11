@@ -111,10 +111,10 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `scope` 部品の置き場と宣言
 
 - 状態: 住処あり
-- 住処: `.shared/core/scopes.py`（manifest を読んで照らす・公開の名・持ち主。宣言のファイルの名は `MANIFEST`。節ごとの読み書きの宣言の照らし `node_io_gaps`・`manifest_gaps`）
+- 住処: `.shared/core/scopes.py`（manifest を読んで照らす・公開の名・持ち主。宣言のファイルの名は `MANIFEST`。節ごとの読み書きの宣言の照らし `node_io_gaps`）
 - 約束: `.shared/core/manifest.schema.json` と、ブロックとラインごとの `manifest.json`。節ごとの読み書きの宣言は工程の YAML の節の隣の `_meta: {reads: [...], writes: [...]}`（形の口は `.shared/core/nodemeta.py`。要素は `file:<run の置き場からの型>` と `record:<record|state>.<欄>`）
 - 知ってよい所: 住処・`.shared/core/entry.py`（盤面を開く口が scope を登録する）
-- 節の宣言の型: 入力（`with:`）で受けたパスの読みは線の配線が宣言しているので `_meta` に書かず、書きは全部書く。宣言を 1 つでも持つ工程は実行する節の全部に書く（勘で一部だけ埋めない）。manifest の consumes・produces の名と、宣言が読み書きする盤面の公開の置き場（scope の根の私物と共有の記録の外）は両向きで揃う（`manifest_gaps`）。Archon v0.11.1 は節の知らない鍵を落として警告するので、pack を写す 1 つの口 `dev/lib.sh` の `works_dev_copy_pack` が `nodemeta.strip` で落としてから渡す。地図の元（`graphmap`）の節は宣言を `reads`・`writes` に載せ、`dev/graphmap_build.py` が宣言の無い節の数を出す。実際の読み書きとの一致は、ブロックを通しで回す試験が監査の口で測って縛る（今は `blk-structure`。`tests/test_blk_structure.py` の `run_block` と `tests/nodeio_probe.py`）
+- 節の宣言の型: 入力（`with:`）で受けたパスの読みは線の配線が宣言しているので `_meta` に書かず、書きは全部書く。宣言を 1 つでも持つ工程は実行する節の全部に書く（勘で一部だけ埋めない）。manifest の consumes・produces と宣言の関係（manifest を宣言から導くか）は、盤面のファイルを持つブロックを宣言する次の段で決める（今宣言した `blk-structure` は盤面の外にだけ書き、manifest は空）。Archon v0.11.1 は節の知らない鍵を落として警告するので、pack を写す 1 つの口 `dev/lib.sh` の `works_dev_copy_pack` が `nodemeta.strip` で落としてから渡す。地図の元（`graphmap`）の節は宣言を `reads`・`writes` に載せ、`dev/graphmap_build.py` が宣言の無い節の数を出す。実際の読み書きとの一致は、ブロックを通しで回す試験が監査の口で測って縛る（今は `blk-structure`。`tests/test_blk_structure.py` の `run_block` と `tests/nodeio_probe.py`）
 - 受け渡しの型（パスは出口で渡す）: ブロックの間で run の置き場のファイルを渡す時、受け手はパスを自分で組まない。出す節が出口に Archon の指し札 `{type: archon_artifact, run_id, path}`（path は run の置き場からの相対）を `.shared/core/script_io.py` の `artifact_pointer` で置き、出口の型（`output_format`）に指し札の形を書く。Archon は出口の型を持つ節の指し札を出した節で確かめる（自分の run の id・置き場の中・在る空でない普通のファイル。v0.11.1 の `artifact-pointer.ts`）。運ぶ節（ブロックの出口）はそのまま運び、受け手は `script_io.artifact_file` で run の置き場の下に解く。空になりうるファイルは指せない（Archon が拒む）。型つきの出口の写し `output_type`（`nodes/<id>.md` と `.meta.json`）は節の出口の文を種類で引く物で、ファイルの受け渡しには使わない。今の実例は直しの後の実測 `after.json`（`blk-structure` の段 B → 出口 `collect` → 線の `h-after`）
 
 ### `reads` 読んだ証拠

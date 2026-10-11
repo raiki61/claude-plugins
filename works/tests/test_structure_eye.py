@@ -209,6 +209,19 @@ class CollectCase(unittest.TestCase):
         self.assertEqual(out["wall_s"], 2.75)
 
 
+class StageBEnvCase(unittest.TestCase):
+    def test_missing_run_id_is_a_wiring_error(self):
+        """段 B は after.json の指し札を出すので、run の id（WORKFLOW_ID）が無ければ配線の誤りとして名を言って 2（空の出口を出さない）"""
+        with tempfile.TemporaryDirectory() as d:
+            env = child_env(ARTIFACTS_DIR=str(pathlib.Path(d) / "art"), INPUTS_BASE_REV="", INPUTS_ROOT=d,
+                            PYTHONDONTWRITEBYTECODE="1")
+            env.pop("WORKFLOW_ID", None)
+            p = subprocess.run([sys.executable, str(BLOCK / "scripts" / "stage_b.py")], cwd=d, env=env, capture_output=True,
+                               text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual((p.returncode, p.stdout), (2, ""), p.stderr)
+        self.assertIn("WORKFLOW_ID", p.stderr)
+
+
 def line_nodes() -> dict:
     return {n["id"]: n for n in yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))["nodes"]}
 

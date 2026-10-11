@@ -132,9 +132,8 @@ def run(root: Path, base: str) -> dict:
 
 def main() -> int:
     art = os.environ.get(ARTIFACTS_ENV)
-    missing = [n for n in (ARTIFACTS_ENV, script_io.RUN_ENV) if not os.environ.get(n)]
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
+    if not art:
+        print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
         return 2
     t0 = time.monotonic()
     out_dir = Path(art) / OUT_DIR
@@ -145,7 +144,12 @@ def main() -> int:
     after = out_dir / AFTER_FILE
     after.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({"after_file": script_io.artifact_pointer(after)}, ensure_ascii=False), flush=True)
+    try:
+        pointer = script_io.artifact_pointer(after)
+    except ValueError as e:   # run の id が無い（配線の誤り）
+        print(f"stage_b.py: {e}", file=sys.stderr)
+        return 2
+    print(json.dumps({"after_file": pointer}, ensure_ascii=False), flush=True)
     return 0
 
 
