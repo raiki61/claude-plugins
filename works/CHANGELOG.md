@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- `use.sh show` が、走っている run の `alive` を最後の動きからの 30 分だけで決めていた（Mac の停止などで run を回していた process が消えた run と、長い節で静かなだけの生きた run を見分けられず、消えた run にも Archon が受けない resume・cancel の行を勧めていた）のを直した。Archon が run の metadata.execution_owner に刻む持ち主（host・pid）が、この機械で最後の動きより前に起きた同じ process として居るかで決め（持ち主が生きていれば静かでも true、消えていれば false）、`持ち主:` の行に生きている・消えた・確かめられないと理由を出す。別の host・記録の無い古い run・番号が使い回されたかもしれない run は確かめられないと言い、その時だけ今までの 30 分の印を使う。持ち主が消えた run には承認・取り消し・続けるの行を出さず、記録を閉じる `abandon` の行と起こし直す案内（元の依頼・渡した入力・run の基の版）を出す。`resume` の行は Archon が受ける failed・paused の run にだけ出す。Archon v0.11 が run に持ち主の host・pid を刻むようになったので、時刻だけで決める前の決めを見直した。
+
 ## [0.2.64] - 2026-10-11
 
 ### Added

@@ -391,8 +391,11 @@ works_dev_ledger_bind() {
 # その値、続きが通れば書き直しの値）。その口だけを打つ行も出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
-# 走っている節・alive（最後の動きから 30 分以内か）・試験の枠を待っているか（盤面の testslot.json）・節ごとの費用 cost_usd
-# （report.head_cost。報告の費用の行と同じ）も出す。
+# 走っている節・alive・持ち主（Archon が run の metadata.execution_owner に刻む host・pid が、この機械で今も同じ process として居るか。
+# alive はこれで決め、確かめられない時だけ最後の動きから 30 分以内かで決める）・試験の枠を待っているか（盤面の testslot.json）・
+# 節ごとの費用 cost_usd（report.head_cost。報告の費用の行と同じ）も出す。
+# 続きの行は Archon が受ける状態の物だけ出す: resume は failed・paused の run だけ。持ち主が消えた running・pending の run には
+# approve・respond・reject・cancel・resume の行を出さず、記録を閉じる abandon の行と起こし直す案内を出す。
 # 環境 WORKS_CHAIN_FACTS にパスが在る時だけ（周の鎖の wait の 1 歩が付ける）、終わった run にも同じ workflow get を 1 回打ち、
 # 出来事と返りを report.round_facts に渡して、返った周の事実（結末・種・費用・分・止まり・起点の版）をそのパスに書く。無ければ何もしない。
 # WORKS_DEV_HOME・CLAUDE_BIN_PATH を export 済み（WORKS_DEV_MODEL は明示した時だけ）で、guard.sh を読み DEV_DIR（works/dev）を置いた殻から呼ぶ。
@@ -409,30 +412,108 @@ works_dev_show_run() {
   # shellcheck disable=SC2016  # python の中の $? は、出す続きの行が打たれる殻で展開する字
   printf '%s\n' "$_row" |
     IS_DONE="$_is_done" CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" REDO="$_redo" \
-    CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 python3 -c '
-import json, os, shlex, subprocess, sys
+    DEV_PATH="${DEV_DIR:-}" CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import glob, json, os, re, shlex, socket, subprocess, sys
 exec(os.environ["SLOT_PY"])
 r = json.load(sys.stdin)
 item = os.environ.get("WORKS_KEYCHAIN_ITEM", "")
 go = os.environ["GO"]
 board = run_board(r)
 wp = r.get("working_path") or ""
+# run の行の metadata（JSON の文字列でも読む）は起動の殻と同じ読み口 launch._run_meta で読む。import できなければ空で、
+# 読めなかった訳を meta_err に残して画面に出す（持ち主・費用・入力が黙って「取れない」に見えないように）
+run_meta = lambda row: {}
+meta_err = ""
+try:
+    sys.path.insert(0, os.environ["DEV_PATH"])
+    import launch
+    run_meta = launch._run_meta
+except Exception as err:
+    meta_err = "{}: {}".format(type(err).__name__, err)
+meta = run_meta(r)
+# 周の頭の版（start の控え r<N>/start.json の base_rev。一番後の周の物）。起こし直す案内と差分の段が読む
+base = ""
+for p in sorted(glob.glob(os.path.join(board, "r*", "start.json"))):
+    try:
+        with open(p, encoding="utf-8") as f:
+            base = json.load(f).get("base_rev") or base
+    except (OSError, ValueError):
+        pass
+def boot_time():
+    """機械の起動の時刻（エポック秒）。macOS は sysctl kern.boottime、Linux は /proc/stat の btime。読めなければ None"""
+    try:
+        got = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True, timeout=10)
+        m = re.search(r"sec = (\d+)", got.stdout)
+        if m:
+            return float(m.group(1))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        with open("/proc/stat", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("btime "):
+                    return float(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+def run_owner(meta, last):
+    """Archon が run の metadata.execution_owner に刻む持ち主（host・pid）が今も居るかを (状態, 理由, 窓) で返す。
+    状態は alive（居る）・lost（消えた）・unknown（確かめられない）。窓は、機械が最後の動きの後に起こし直されたのに記録の pid が
+    居て、その開始が起動より後の時だけ True（続きを回したばかりの持ち主かもしれない。状態は unknown で、取り消しの行を残したまま
+    記録を閉じる道も出す）。Archon は続きのたびに execution_owner を刻み直すので、今の持ち主の開始は最後の動きより前に起きている
+    （run の started_at は使わない）。process の開始と居るかは role_run._started_at が読む（番号の使い回しも開始時刻で見分ける）"""
+    owner = meta.get("execution_owner")
+    host = owner.get("host") if isinstance(owner, dict) else None
+    pid = owner.get("pid") if isinstance(owner, dict) else None
+    if not (isinstance(host, str) and host and isinstance(pid, int) and not isinstance(pid, bool) and pid > 0):
+        return "unknown", "記録が無い", False
+    if host != socket.gethostname():
+        return "unknown", "別の host {} の run。その機械で show を打つ".format(host), False
+    if last is None:
+        return "unknown", "最後の動きの時刻が無い", False
+    try:
+        sys.path.insert(0, os.environ["CORE_DIR"])
+        from graphloops.engine import role_run
+    except Exception as err:
+        return "unknown", "process の開始を読む role_run を読めない: {}".format(err), False
+    started = role_run._started_at(pid)
+    boot = boot_time()
+    seen_at = last.strftime("%Y-%m-%d %H:%M:%SZ")
+    rebooted = boot is not None and boot > last.timestamp() + role_run.REUSE_SLACK
+    if started == role_run.GONE:
+        return "lost", ("最後の動き {} の後に機械が起こし直され、pid {} もこの機械に居ない".format(seen_at, pid) if rebooted
+                        else "記録の持ち主 host {}・pid {} がこの機械に居ない".format(host, pid)), False
+    if rebooted:
+        if isinstance(started, float) and started <= boot:
+            return "lost", "最後の動き {} の後に機械が起こし直された（pid {} の開始は起動より前）".format(seen_at, pid), False
+        return "unknown", ("最後の動き {} の後に機械が起こし直された。pid {} は在り、開始が起動の後（か読めない）なので、"
+                           "続きを回したばかりなら生きている事もある。少し後に show を打ち直す".format(seen_at, pid)), True
+    if isinstance(started, float) and started <= last.timestamp() + role_run.REUSE_SLACK:
+        return "alive", "記録の持ち主 host {}・pid {} が居て、開始は最後の動きより前".format(host, pid), False
+    return "unknown", "pid {} は在るが、同じ process か確かめられない（開始が最後の動きより後か読めない）".format(pid), False
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
+if meta_err:
+    print("注意: run の metadata の読み口 launch を読めない（{}）。持ち主・費用・入力は run の記録が在っても取れない".format(meta_err))
 # 経過・生きているか・走っている節・節ごとの費用。欄名は本流 graphloops [0.23.0] の status（launched_min・alive・cost_usd）
 now = datetime.datetime.now(datetime.timezone.utc)
 began = when(r.get("started_at"))
 print("launched_min:", "{}（Archon の run の started_at から今までの分）".format(int((now - began).total_seconds() // 60))
       if began else "取れない（run に started_at が無い）")
 status = r.get("status") or ""
+owner = None
 if status in ("running", "pending"):
     # 走っている run だけ出来事を 1 回引く（関所で待つ・終わった run は報告と関所の文が費用と節を出す）
     got = subprocess.run(["sh", os.environ["ARCHON_SH"], "workflow", "get", r.get("id") or "", "--verbose", "--events", "--json"],
                          env=dict(os.environ, WORKS_DEV_NO_AUTH="1"), capture_output=True, text=True)
     try:
-        events = json.loads(got.stdout).get("events")
+        got_doc = json.loads(got.stdout)
+        events = got_doc.get("events")
     except (ValueError, AttributeError):
-        events = None
+        got_doc, events = {}, None
+    # 一覧の行の metadata に持ち主の記録が無ければ、今打った workflow get の返りの metadata を材料にする
+    if not isinstance(meta.get("execution_owner"), dict) and isinstance(got_doc, dict):
+        meta = dict(meta, execution_owner=run_meta(got_doc).get("execution_owner"))
     if not isinstance(events, list):
         print("走っている節・節ごとの費用: 取れない（archon workflow get の出来事を読めない。終了コード {}）".format(got.returncode))
         events = []
@@ -456,15 +537,26 @@ if status in ("running", "pending"):
         print("試験の枠: 待っている（{} 分・置き場 {}。空くまで期限なしで待つ）".format(m["minutes"], m.get("slots")))
     elif m:
         print("試験の枠: 中（{} 分前に取った・置き場 {}）".format(m["minutes"], m.get("slots")))
-    # 生きているか: 最後の動き（run の行の last_activity_at か最後の出来事）が STALE_MIN 分より新しい。Archon の行は子の pid を出さない
+    # 生きているか: 持ち主（metadata.execution_owner の host・pid）が居るかが決める。持ち主が生きていれば静かでも true、消えていれば
+    # false。確かめられない時（記録が無い・別の host・同じ process と言えない）だけ、最後の動き（run の行の last_activity_at か
+    # 最後の出来事）が STALE_MIN 分より新しいかで決める
     STALE_MIN = 30
     seen = [t for t in [when(r.get("last_activity_at"))] + [when(e.get("created_at")) for e in events if isinstance(e, dict)] if t]
-    if seen:
-        quiet = int((now - max(seen)).total_seconds() // 60)
-        print("alive: {}（最後の動きから {} 分。{} 分を超えて動きが無ければ false）".format(
+    last = max(seen) if seen else None
+    quiet = int((now - last).total_seconds() // 60) if last else None
+    owner = run_owner(meta, last)
+    state, why = owner[0], owner[1]
+    if state == "alive":
+        print("alive: true（持ち主が生きている。最後の動きから {} 分{}）".format(
+            quiet, "。{} 分を超えて静かだが持ち主が居るので true".format(STALE_MIN) if quiet > STALE_MIN else ""))
+    elif state == "lost":
+        print("alive: false（持ち主が消えた。最後の動きから {} 分）".format(quiet))
+    elif last:
+        print("alive: {}（最後の動きから {} 分。{} 分を超えて動きが無ければ false。持ち主を確かめられないので時刻だけで決めた）".format(
             "true" if quiet <= STALE_MIN else "false", quiet, STALE_MIN))
     else:
         print("alive: 取れない（run に動きの時刻が無い）")
+    print("持ち主: {}（{}）".format({"alive": "生きている", "lost": "消えた"}.get(state, "確かめられない"), why))
     # 節ごとの費用は報告の費用の行そのもの（report.head_cost を import する。写さない）: 取れない節の件数と理由・
     # 1 つも取れない時の「取れない」・欄の形が未確認の印・合計は途中の節の和（run の和は読まない）まで報告と同じ
     if events:
@@ -476,7 +568,7 @@ if status in ("running", "pending"):
         except Exception as err:
             print("cost_usd: 取れない（report を読めない: {}）".format(err))
 else:
-    cost = (r.get("metadata") or {}).get("total_cost_usd")
+    cost = meta.get("total_cost_usd")
     print("今までの費用:", "{} USD（Archon の run の metadata.total_cost_usd。目安で、正は報告の費用の行）".format(cost)
           if isinstance(cost, (int, float)) else "取れない（run に total_cost_usd が無い）")
 # 周の鎖が読む周の事実（WORKS_CHAIN_FACTS のパスが在る時だけ）: 終わった run にも走っている run と同じ workflow get を 1 回打ち、
@@ -513,22 +605,55 @@ def then(*words):
     # 続きの後に差分を書き直す。続きの終了の値は隠さない（落ちればその値、通れば書き直しの値）。exit は子の殻で打つ
     line = " ".join([go, *words])
     return line + "; works_rc=$?; {} {}; (exit $((works_rc ? works_rc : $?)))".format(redo, r.get("id")) if redo else line
-print("進める（承認するとその場で続きを回す）:", then("approve", r.get("id")))
+# 持ち主が消えた run（lost）に Archon の approve・respond・reject・cancel・resume は効かない（拒まれる）ので、その行は出さず、
+# 取れる道（記録を閉じる abandon・起こし直す案内）だけを出す。続きの行は resume のほか状態でも絞る（Archon は failed か paused の run
+# にだけ resume を受ける）。持ち主を確かめられない run（unknown）は今の行を保ち、窓（機械が起こし直された後に pid が居る）では取れる道も並べる
+lost = bool(owner) and owner[0] == "lost"
+window = bool(owner) and owner[2]
+def closing_lines():
+    print("記録を閉じる（abandon。Archon の記録を cancelled にする。cancelled になれば use.sh の show・wait が差分を書いて片付ける。"
+          "報告は report.sh で組む）:", then("abandon", r.get("id")))
+    inputs = meta.get("inputs") if isinstance(meta.get("inputs"), dict) else {}
+    request = inputs.get("request")
+    given = ["{}={}".format(k, v) for k, v in inputs.items() if k not in ("request", "launch_mark", "cleaned_runs")]
+    if isinstance(request, str) and request:
+        print("起こし直す（同じ旗・環境で use.sh start を打つ）: 元の依頼 {}・渡した入力 {}".format(
+            shlex.quote(request), " ".join(shlex.quote(g) for g in given) or "無い"))
+    else:
+        print("起こし直す: 取れない（run の metadata.inputs に依頼のパスが無い）")
+    if base:
+        head = subprocess.run(["git", "-C", os.environ["DIR"], "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        print("run の基の版 {}。start は対象の今の姿から切る。差分の根の名指し（start の base の旗）は渡さない{}".format(
+            base[:12], "（対象の今の HEAD は {} で、基の版と違う）".format(head[:12]) if head and head != base else ""))
+    else:
+        print("run の基の版: 取れない（start の控えに base_rev が無い）")
+if lost:
+    print("持ち主が消えた（{}）。Archon は approve・respond・reject・cancel・resume をこの run に受けない。取れる道:".format(owner[1]))
+    closing_lines()
+else:
+    print("進める（承認するとその場で続きを回す）:", then("approve", r.get("id")))
 if os.environ.get("WORKS_USE_SH"):
-    print("殻で進める（切り離して承認し、すぐ戻る）:", "sh {} approve {} {}".format(
-        shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id")))
+    if not lost:
+        print("殻で進める（切り離して承認し、すぐ戻る）:", "sh {} approve {} {}".format(
+            shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id")))
     print("待って状態を見る（決まった時間で戻る。まだ走っていれば打ち直す）:", "sh {} wait {} {}".format(
         shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id")))
-print("取り消す（走っている run を Archon の cancel で止める。報告は report.sh で組む）:", then("cancel", r.get("id")))
+if not lost:
+    print("取り消す（走っている run を Archon の cancel で止める。報告は report.sh で組む）:", then("cancel", r.get("id")))
 # use.sh からなら、関所の答えと止めるのは殻の answer・stop だけを出す（生の respond・reject は答えた者の記録と run の控えを通らない）
-if not os.environ.get("WORKS_USE_SH"):
+if not os.environ.get("WORKS_USE_SH") and not lost:
     print("関所に一言で答えて進める:", then("respond", r.get("id"), "continue", shlex.quote("<通す範囲と条件>")))
     print("関所で止める（報告は出る）:", then("respond", r.get("id"), "stop", shlex.quote("<理由>")))
     print("止める:", then("reject", r.get("id")))
-print("失敗や中断から続ける:", then("resume", r.get("id")))
+if status in ("failed", "paused"):
+    print("失敗や中断から続ける:", then("resume", r.get("id")))
+if window:
+    print("機械が起こし直された後で持ち主を確かめられない。続きを回したばかりなら生きている事もある（少し後に show を打ち直す）。"
+          "消えたと分かった時の取れる道:")
+    closing_lines()
 if redo:
     print("差分だけを書き直す（Archon の生のコマンドで続けた後）:", redo, r.get("id"))
-if os.environ.get("WORKS_USE_SH"):
+if os.environ.get("WORKS_USE_SH") and not lost:
     use = "sh {} {{}} {} {}".format(shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id"))
     print("関所に殻で答える（人が決める関所は依頼者に聞き、答えた者を残す）:", use.format("answer"), "continue",
           shlex.quote("<通す範囲と条件>"), shlex.quote("<答えた者>"))
@@ -566,14 +691,7 @@ if os.environ["BRING_BACK"]:
     # 修正の差分は run の worktree の今の姿と周の頭の版（start の控え r<N>/start.json の base_rev）の差（未追跡も入れる。
     # 盤面の fix.diff は審査の段の物で、手直しの後の姿を持たないので読まない）。一時の index で数え、worktree の index は動かさない。
     # 一時の index は worktree の HEAD の木から始める（空から add -A すると、.gitignore に当たるのに追跡している物が消す行になる）
-    import glob, tempfile
-    base = ""
-    for p in sorted(glob.glob(os.path.join(board, "r*", "start.json"))):
-        try:
-            with open(p, encoding="utf-8") as f:
-                base = json.load(f).get("base_rev") or base
-        except (OSError, ValueError):
-            pass
+    import tempfile
     diff_dir = os.environ["DIFF_DIR"] or os.path.dirname(os.path.abspath(os.environ["DIR"]))
     os.makedirs(diff_dir, exist_ok=True)
     diff = os.path.join(diff_dir, "run-{}.diff".format(r.get("id")))

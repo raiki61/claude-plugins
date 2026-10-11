@@ -1563,6 +1563,179 @@ class UseShell(unittest.TestCase):
         self.assertTrue(any("cost_usd" in l and "取れない節" in l and "no-usage" in l for l in out.splitlines()), out)
         self.assertTrue(any("cost_usd" in l and "合計" in l and "0.42" in l and "途中" in l for l in out.splitlines()), out)
 
+    # ---- 走っている run の持ち主（Archon が metadata.execution_owner に刻む host・pid）
+    def owner_run(self, *, minutes_quiet, owner="here", pid=4242, procs=None, boot_minutes_ago=180, **run):
+        """持ち主の判定に要る材料を置く。process の開始と居るかは PATH の頭に置く偽の ps（`ps -o etime= -p <pid>` に procs の経過を返す。
+        載せない pid は居ない）、機械の起動は偽の sysctl（kern.boottime）で差し替える。実の process・実の起動には頼らない。
+        owner は here（この機械の host）・other（別の host）・None（記録なし）。返りは show に渡す env"""
+        import datetime   # 先頭の import 群は test_dev_model.py と同じ並びのまま保つ
+        import socket
+        now = datetime.datetime.now(datetime.timezone.utc)
+        stamp = lambda ago: (now - datetime.timedelta(minutes=ago)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        meta = {"inputs": {"request": str(self.request), "test_cmd": "pytest -q", "tdd_suite": "", "launch_mark": "m1",
+                           "cleaned_runs": "[]"}}
+        if owner:
+            meta["execution_owner"] = {"host": socket.gethostname() if owner == "here" else "other-host.example", "pid": pid, "uid": 501}
+        run = {"status": "running", "working_path": "/wt/run-1", "output_root": str(self.out), "started_at": stamp(minutes_quiet + 60),
+               "last_activity_at": stamp(minutes_quiet), "metadata": meta, **run}
+        self.set_runs(**run)
+        bin_ = self.tmp / "owner-bin"
+        bin_.mkdir(exist_ok=True)
+        table = "".join(f"  {p}) echo '{etime}' ;;\n" for p, etime in (procs or {}).items())
+        (bin_ / "ps").write_text(f'#!/bin/sh\n[ "$2" = etime= ] || exit 1\ncase "$4" in\n{table}  *) exit 1 ;;\nesac\n')
+        boot = int((now - datetime.timedelta(minutes=boot_minutes_ago)).timestamp())
+        (bin_ / "sysctl").write_text(f'#!/bin/sh\necho "{{ sec = {boot}, usec = 0 }} Mon Jan  1 00:00:00 2024"\n')
+        for name in ("ps", "sysctl"):
+            (bin_ / name).chmod(0o755)
+        return {"PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", "CLAUDE_CODE_OAUTH_TOKEN": None}
+
+    def show_owner(self, **kw):
+        env = self.owner_run(**kw)
+        if not hasattr(self, "owner_target"):
+            self.owner_target = self.target()
+        r = self.use("show", str(self.owner_target), "run-1", **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout
+
+    def lines_with(self, out, *words):
+        return [l for l in out.splitlines() if all(w in l for w in words)]
+
+    def test_show_owner_alive_on_this_host_keeps_quiet_run_alive(self):
+        """持ち主が（この機械の host の）最後の動きより前に起きた process として居れば、45 分静かでも alive は true で、持ち主は
+        生きている。静けさの分も添え、承認・取り消しの行は今のまま出る"""
+        out = self.show_owner(minutes_quiet=45, procs={4242: "50:00"})
+        self.assertRegex(out, r"alive: true（持ち主が生きている。最後の動きから 4[56] 分")
+        self.assertIn("30 分を超えて静かだが持ち主が居るので true", out)
+        self.assertIn("持ち主: 生きている", out)
+        for verb in ("approve", "cancel"):
+            self.assertEqual(len(self.lines_with(out, f"workflow {verb} run-1")), 1, out)
+        self.assertEqual(self.lines_with(out, "workflow abandon"), [])
+        self.assertNotIn("持ち主が消えた", out)
+
+    def test_show_owner_restamped_after_continue_is_alive(self):
+        """続きで刻み直された持ち主（開始は run の started_at より後で、最後の動きより前）は alive true・持ち主は生きている。
+        承認・取り消しの行が残る"""
+        out = self.show_owner(minutes_quiet=1, procs={4242: "10:00"})   # run の起動は 61 分前、持ち主は 10 分前の process
+        self.assertIn("alive: true（持ち主が生きている", out)
+        self.assertIn("持ち主: 生きている", out)
+        for verb in ("approve", "cancel"):
+            self.assertEqual(len(self.lines_with(out, f"workflow {verb} run-1")), 1, out)
+        # 一覧の行に持ち主の記録が無くても、同じ時に引く workflow get の返りの metadata に在ればそれを使う
+        env = self.owner_run(minutes_quiet=1, procs={4242: "10:00"})
+        row = json.loads(self.runs.read_text())["runs"][0]
+        got = dict(row, metadata={"execution_owner": row["metadata"].pop("execution_owner")}, events=[])
+        self.runs.write_text(json.dumps({"runs": [row]}))
+        get_json = self.tmp / "get.json"
+        get_json.write_text(json.dumps(got))
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; "workflow get run-1"*) cat "{get_json}" ;; esac\n'
+            "exit 0\n")
+        r = self.use("show", str(self.owner_target), "run-1", **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("持ち主: 生きている", r.stdout)
+
+    def test_show_owner_gone_on_this_host_offers_abandon_and_restart_only(self):
+        """この機械の host で居ない pid なら、running でも pending でも alive false・持ち主が消えた。取れる道だけを出す: continue.sh を通る
+        workflow abandon の行と、起こし直す案内（依頼のパスと渡した入力。start が組む launch_mark・cleaned_runs は並べない）。
+        Archon が拒む resume・cancel・approve・respond・reject の行と、殻の approve・answer・stop の行は出さない"""
+        for status in ("running", "pending"):
+            with self.subTest(status):
+                out = self.show_owner(minutes_quiet=2, procs={}, status=status)
+                self.assertIn("alive: false（持ち主が消えた", out)
+                self.assertIn("持ち主が消えた（記録の持ち主 host ", out)
+                (abandon,) = self.lines_with(out, "workflow abandon run-1")
+                self.assertIn("continue.sh", abandon)
+                self.assertIn("cancelled になれば use.sh の show・wait が差分を書いて片付ける", out)
+                (guide,) = self.lines_with(out, "起こし直す")
+                self.assertIn(str(self.request), guide)
+                self.assertIn("test_cmd=pytest", guide)
+                self.assertNotIn("launch_mark", guide)
+                self.assertNotIn("cleaned_runs", guide)
+                for verb in ("resume", "cancel", "approve", "respond", "reject"):
+                    self.assertEqual(self.lines_with(out, f"workflow {verb} "), [], (verb, out))
+                self.assertEqual(self.lines_with(out, "関所に殻で答える") + self.lines_with(out, "止める（関所で待つ run は"), [], out)
+                self.assertEqual(self.lines_with(out, "殻で進める"), [], out)
+
+    def test_show_owner_lost_after_reboot(self):
+        """機械が最後の動きの後に起こし直された run は、記録の pid が居ても開始が起動より前（または居ない）なら持ち主が消えた。
+        pid が居てその開始が起動より後なら、続きを回したばかりかもしれないので、取り消しの行を残したまま記録を閉じる道も並べて
+        消えたとは言わない。起動の時刻は偽の sysctl で、process の開始は偽の ps で差し替える"""
+        old = "2000-01-01T00:00:00.000Z"
+        for name, procs, lost in (("開始が起動より前", {4242: "2-00:00:00"}, True), ("pid が居ない", {}, True),
+                                  ("開始が起動より後", {4242: "10:00"}, False)):
+            with self.subTest(name):
+                out = self.show_owner(minutes_quiet=120, boot_minutes_ago=60, procs=procs)
+                if lost:
+                    self.assertIn("alive: false（持ち主が消えた", out)
+                    self.assertRegex(out, r"持ち主が消えた（最後の動き \S+ \S+ の後に機械が起こし直され")
+                    self.assertEqual(self.lines_with(out, "workflow cancel "), [], out)
+                    self.assertEqual(len(self.lines_with(out, "workflow abandon run-1")), 1, out)
+                else:
+                    self.assertNotIn("持ち主が消えた", out)
+                    self.assertIn("持ち主: 確かめられない（最後の動き", out)
+                    self.assertIn("続きを回したばかりなら生きている事もある。少し後に show を打ち直す", out)
+                    self.assertEqual(len(self.lines_with(out, "workflow cancel run-1")), 1, out)
+                    self.assertEqual(len(self.lines_with(out, "workflow abandon run-1")), 1, out)
+                    self.assertEqual(len(self.lines_with(out, "起こし直す")), 1, out)
+        # 最後の動きが 2000 年のまま（出来事も無い）でも、機械が起こし直された後に消えた pid は消えたと言う
+        out = self.show_owner(minutes_quiet=120, boot_minutes_ago=60, procs={}, last_activity_at=old, started_at=old)
+        self.assertIn("持ち主が消えた（最後の動き 2000-01-01 00:00:00Z の後に機械が起こし直され", out)
+
+    def test_show_owner_pid_reused_is_not_alive(self):
+        """記録の pid に、最後の動きより後に起きた process が居る時は、持ち主が生きているとは言わない（番号の使い回しかもしれない）。
+        持ち主は確かめられないと言い、alive は時刻だけで決めたと添え、承認・取り消しの行は今のまま出る"""
+        out = self.show_owner(minutes_quiet=10, procs={4242: "05:00"})
+        self.assertIn("持ち主: 確かめられない（pid 4242 は在るが、同じ process か確かめられない", out)
+        self.assertNotIn("持ち主が生きている", out)
+        self.assertNotIn("持ち主が消えた", out)
+        self.assertIn("持ち主を確かめられないので時刻だけで決めた", out)
+        self.assertEqual(len(self.lines_with(out, "workflow cancel run-1")), 1, out)
+
+    def test_show_owner_unknown_says_it_cannot_tell(self):
+        """別の host の持ち主・記録の無い run は、持ち主を確かめられないと言う。30 分の印は残し、消えたとは言わず、取り消しの行は残し、
+        running の run に resume の行は出さない"""
+        for owner, want in (("other", "持ち主: 確かめられない（別の host other-host.example"), (None, "持ち主: 確かめられない（記録が無い）")):
+            with self.subTest(owner=owner):
+                out = self.show_owner(minutes_quiet=45, owner=owner, procs={4242: "50:00"})
+                self.assertIn(want, out)
+                self.assertIn("alive: false（最後の動きから 4", out)
+                self.assertIn("30 分を超えて動きが無ければ false", out)
+                self.assertNotIn("持ち主が消えた", out)
+                self.assertEqual(len(self.lines_with(out, "workflow cancel run-1")), 1, out)
+                self.assertEqual(self.lines_with(out, "workflow resume "), [], out)
+                self.assertEqual(self.lines_with(out, "workflow abandon"), [], out)
+
+    def test_show_says_when_run_metadata_reader_cannot_be_loaded(self):
+        """run の metadata の読み口 launch を読めない時は、持ち主・費用が黙って「取れない」に見えないように、訳を画面に出す。
+        読めれば出ない"""
+        block = self.tmp / "block-launch"
+        block.mkdir()
+        (block / "sitecustomize.py").write_text(
+            "import sys\n"
+            "class _Block:\n"
+            "    def find_spec(self, name, path=None, target=None):\n"
+            "        if name == 'launch':\n"
+            "            raise ImportError('launch を読めない（試験の差し替え）')\n"
+            "sys.meta_path.insert(0, _Block())\n")
+        env = self.owner_run(minutes_quiet=1, procs={4242: "10:00"})
+        target = self.target()
+        r = self.use("show", str(target), "run-1", **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("読み口 launch を読めない", r.stdout)
+        r = self.use("show", str(target), "run-1", PYTHONPATH=str(block), **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        (note,) = self.lines_with(r.stdout, "読み口 launch を読めない")
+        self.assertIn("launch を読めない（試験の差し替え）", note)
+        self.assertIn("持ち主: 確かめられない（記録が無い）", r.stdout)
+
+    def test_show_resume_line_only_for_failed_or_paused(self):
+        """resume の行は、Archon が受ける状態（failed・paused）の run にだけ出る。running・pending・completed・cancelled には出ない"""
+        for status in ("failed", "paused", "running", "pending", "completed", "cancelled"):
+            with self.subTest(status):
+                out = self.show_owner(minutes_quiet=1, owner=None, status=status)
+                self.assertEqual(len(self.lines_with(out, "workflow resume run-1")), int(status in ("failed", "paused")), out)
+
     def test_apply_brings_run_diff_into_target(self):
         t = self.target()
         wt = self.tmp / "wt"
