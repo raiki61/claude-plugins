@@ -221,6 +221,18 @@ class StageBEnvCase(unittest.TestCase):
         self.assertEqual((p.returncode, p.stdout), (2, ""), p.stderr)
         self.assertIn("WORKFLOW_ID", p.stderr)
 
+    def test_missing_run_id_stops_before_measuring(self):
+        """直しの前の版が在って実測の道に入る入力でも、run の id が無ければ実測と書き出しの前に止まり、after.json も structure/ も残さない"""
+        with tempfile.TemporaryDirectory() as d:
+            art = pathlib.Path(d) / "art"
+            env = child_env(ARTIFACTS_DIR=str(art), INPUTS_BASE_REV="deadbeef", INPUTS_ROOT=d, PYTHONDONTWRITEBYTECODE="1")
+            env.pop("WORKFLOW_ID", None)
+            p = subprocess.run([sys.executable, str(BLOCK / "scripts" / "stage_b.py")], cwd=d, env=env, capture_output=True,
+                               text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+            left = ((art / "structure" / "after.json").exists(), (art / "structure").exists())
+        self.assertEqual((p.returncode, p.stdout, left), (2, "", (False, False)), p.stderr)
+        self.assertIn("WORKFLOW_ID", p.stderr)
+
 
 def line_nodes() -> dict:
     return {n["id"]: n for n in yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))["nodes"]}

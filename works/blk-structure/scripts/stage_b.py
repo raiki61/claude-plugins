@@ -16,7 +16,8 @@ new_names: [{name, sites}], dup_blocks_added: int, timing: {秒（lib/eye の WA
   `git diff --binary <版>` と、まだ追跡されていないファイルの足しの patch
 - 実測が落ちても線を止めない（status: failed と reason。0 で終える）
 - {"after_file": after.json の指し札（core の script_io.artifact_pointer。{type: archon_artifact, run_id, path}）} を 1 行出して 0。
-  ARTIFACTS_DIR・WORKFLOW_ID が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
+  ARTIFACTS_DIR・WORKFLOW_ID が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2。実測と after.json の書き出しの前に
+  止まり、何も書かない
 """
 import json
 import os
@@ -135,20 +136,20 @@ def main() -> int:
     if not art:
         print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
         return 2
-    t0 = time.monotonic()
     out_dir = Path(art) / OUT_DIR
+    after = out_dir / AFTER_FILE
+    try:   # 重い実測と書き出しの前に、run の id が無い配線の誤りで止まる（指し札はファイルの在る無しを見ない）
+        pointer = script_io.artifact_pointer(after)
+    except ValueError as e:
+        print(f"stage_b.py: {e}", file=sys.stderr)
+        return 2
+    t0 = time.monotonic()
     out_dir.mkdir(parents=True, exist_ok=True)
     root = Path(os.environ.get(ROOT_ENV) or ".").resolve()
     doc = run(root, os.environ.get(BASE_ENV, "").strip())
     eye.stamp(doc, t0)
-    after = out_dir / AFTER_FILE
     after.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    try:
-        pointer = script_io.artifact_pointer(after)
-    except ValueError as e:   # run の id が無い（配線の誤り）
-        print(f"stage_b.py: {e}", file=sys.stderr)
-        return 2
     print(json.dumps({"after_file": pointer}, ensure_ascii=False), flush=True)
     return 0
 
