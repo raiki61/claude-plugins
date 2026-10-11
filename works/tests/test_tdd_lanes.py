@@ -993,6 +993,29 @@ class TestQueue(LaneCase):
         self.assertEqual(self.green(UA)["done"], True)
         self.assertEqual(lanekit.pending(self.queue()), [[UF]])
 
+    def test_lane_stopped_by_a_claim_does_not_take(self):
+        """食い違いの申し出で止めた枝（枝の後の単位は締めが順に戻す）は列から取らない"""
+        self.route()
+        got = self.cmd(UB, {"phase": "conflict", "unit_key": UB, "between": ["b.py:1", "b.py:2"],
+                            "why_both_cannot_hold": "判定と依頼が b.py の戻り値で食い違う", "which_is_right": "request",
+                            "kind": "brief_vs_judgment"})
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        self.assertEqual((lanekit.pending(self.queue()), lanekit.taken(self.queue(), 2)), ([[UF]], []))
+
+    def test_lane_stopped_by_the_runner_does_not_take(self):
+        """実行器が走らずに止めた枝（tddloop._abort が理由を note に置く）は、回数が残っていても列から取らない"""
+        self.route()
+        row = self.lane(UA)
+        lst = self.lane_state(row)
+        lst["exe"] = str(pathlib.Path(self.board).parent / "no-such-runner")
+        tddloop._save(pathlib.Path(row["state"]), lst)
+        tree = pathlib.Path(row["tree"])
+        (tree / "test_a.py").write_text((tree / "test_a.py").read_text(encoding="utf-8") + A_TEST, encoding="utf-8")
+        got = self.cmd(UA, {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": [A_ID]})
+        self.assertEqual(got["done"], True, got)
+        self.assertTrue(self.lane_state(row)["note"])
+        self.assertEqual((lanekit.pending(self.queue()), lanekit.taken(self.queue(), 1)), ([[UF]], []))
+
     def test_untaken_and_unfinished_groups_go_to_the_serial_loop(self):
         """締めの時に列に残った組と、枝が取って済まなかった組は、順の輪が回す"""
         self.route()

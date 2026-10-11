@@ -337,6 +337,15 @@ class TestQueue(LaneBoard):
         self.assertIn("枝に入らなかった範囲の在る項目（修正役が順に直す）: 2", b.work(fixrules.LANES_SUMMARY).read_text(encoding="utf-8"))
         self.assertEqual(fixrules.lanes_merged(b), {MEAN}, "列に残った項目の単位は直す義務のまま")
 
+    def test_lane_stopped_by_the_cap_does_not_take(self):
+        """回数の上限で止めた枝（_stop が理由を note に置く）は、項目の数が入っても列から取らない"""
+        self.forked()
+        for _ in range(fixlanes.MAX_ITERATIONS):
+            got = self.step(1, {}, consulted=True)
+        self.assertEqual(got["done"], True)
+        self.assertTrue(self.state(1)["note"])
+        self.assertEqual((lanekit.pending(self.man()["queue"]), lanekit.taken(self.man()["queue"], 1)), ([[2]], []))
+
     def test_taken_but_unfinished_group_goes_back(self):
         self.first()
         out = fixlanes.join(self.board, self.repo)
