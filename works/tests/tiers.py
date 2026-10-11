@@ -437,6 +437,13 @@ class JobRunner(SkipGateRunner):
         return result
 
 
+def _job_error(result, who, text):
+    """子の扱いの失敗を error の 1 件にし、回した試験の 1 本に数える（discover の読み込みの失敗と同じ。数えないと、ほかの子が
+    0 件の時に Python 3.12 の unittest が成否より先に『0 件』の終了コード 5 を返し、赤が『選んだ試験が無い』に見える）"""
+    result.errors.append((_Done("tiers.job", who, None), text))
+    result.testsRun += 1
+
+
 class Jobs:
     """子のプロセス（`tiers.py child <段> [unittest の引数]`）を workers 本起こし、モジュールを重い順に、手の空いた子へ 1 本ずつ渡す。
     子の結果は親の result に足し、子の出力は子が終わった順に子ごとにまとめて標準エラーへ写す。結果を返さずに終わった子は、
@@ -465,7 +472,7 @@ class Jobs:
                     self._take(result, p.returncode, doing, rest)
             except BaseException:   # 線の読み書き・結果の読みの思わぬ例外も黙らせない（流れの外の糸では投げても消える）
                 with lock:
-                    result.errors.append((_Done("tiers.job", "子のプロセスの扱い", None), traceback.format_exc()))
+                    _job_error(result, "子のプロセスの扱い", traceback.format_exc())
 
         threads = [threading.Thread(target=work) for _ in range(min(self.workers, len(todo)))]
         try:
@@ -482,8 +489,7 @@ class Jobs:
                     if p.poll() is None:
                         p.kill()
         if todo:
-            result.errors.append((_Done("tiers.job", "子のプロセス", None),
-                                  "子のプロセスが全部終わり、回らなかったモジュールが残った: " + ", ".join(todo)))
+            _job_error(result, "子のプロセス", "子のプロセスが全部終わり、回らなかったモジュールが残った: " + ", ".join(todo))
 
     @staticmethod
     def _drive(p, lock, todo):
@@ -524,9 +530,9 @@ class Jobs:
                     doc = None
         if doing is not None or doc is None or rc not in (0, 1, 5):
             what = f" {doing} を回す間に" if doing is not None else ""
-            result.errors.append((_Done("tiers.job", f"子のプロセス（{doing or '結果'}）", None),
-                                  f"子のプロセスが{what}結果を返さずに終わった（終了コード {rc}）" if doc is None
-                                  else f"子のプロセスが{what}終了コード {rc} で終わった"))
+            _job_error(result, f"子のプロセス（{doing or '結果'}）",
+                       f"子のプロセスが{what}結果を返さずに終わった（終了コード {rc}）" if doc is None
+                       else f"子のプロセスが{what}終了コード {rc} で終わった")
         if doc is None:
             return
         result.testsRun += doc["run"]

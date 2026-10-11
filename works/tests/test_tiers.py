@@ -359,6 +359,13 @@ class JobsCase(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("子のプロセスが test_gitkit を回す間に結果を返さずに終わった", r.stderr)
 
+    def test_every_job_dying_is_red_not_no_tests(self):
+        """-k で選んだ試験を回す子が死に、ほかの子は 0 件でも、終了コードは 1（0 件の 5 にしない。Python 3.12 の unittest は
+        成否より先に『回した数が 0 で見送りも 0』を見るので、作った error も 1 件の試験に数える。discover の読み込みの失敗と同じ）"""
+        r, _ = self.run_tiers("-k", "Skip.test_pass", WORKS_JOBS="3", FAKE_DIE="1")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("子のプロセスが test_gitkit を回す間に結果を返さずに終わった", r.stderr)
+
     def test_import_error_and_module_skip_count_as_in_one_run(self):
         for mode, last in (("error", "FAILED (errors=1, skipped=1)"), ("skip", "OK (skipped=2)")):
             with self.subTest(mode):
