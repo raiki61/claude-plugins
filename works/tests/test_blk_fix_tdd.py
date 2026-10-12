@@ -161,7 +161,8 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(g["max_iterations"], tddloop.MAX_ITERATIONS)
         from test_yaml_rules import LOOP_MAX
         # 表のほかの行は修正の輪 2 つ（受け付けの 3 回と範囲の相談の枠の和。tests/test_consult.py が見る）
-        tdd_max = {k[2]: v for k, v in LOOP_MAX.items() if not k[2].startswith("fix-")}   # 修正の輪と修正役の並べの枝の輪を除く
+        # blk-fix の輪だけを見る（他のブロックの輪も表に載る）。修正の輪と修正役の並べの枝の輪を除く
+        tdd_max = {k[2]: v for k, v in LOOP_MAX.items() if k[0] == "blk-fix" and not k[2].startswith("fix-")}
         self.assertEqual(set(tdd_max.values()), {tddloop.MAX_ITERATIONS})
         self.assertEqual(set(tdd_max), {"tdd-loop", "tdd-rest-loop", "tdd-lane-loop-1", "tdd-lane-loop-2", "tdd-lane-loop-3"})
         self.assertIs(g["fresh_context"], False, "テスト→直す→整えるを同じ会話で（C17）")
