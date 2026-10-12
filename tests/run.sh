@@ -3552,10 +3552,17 @@ TOKEN = r"`([A-Z][A-Z0-9_]{2,})`"
 # （実測: `comment-ratio.sh` に触れた行の `EXPECTED_CHECKS` が「そのファイルに無い」と出た）。
 PAIR = r"`([A-Za-z0-9_.-]+\.(?:py|sh))`\s*(?:の)?\s*`([A-Z][A-Z0-9_]{2,})`"
 
+def defined(text):
+    """行頭の代入が定める大文字の名。**組の代入（`A, B = 1, 2`）も定義に数える**——1 つずつの代入だけを見ていたとき、
+    chain.py の `KIND_CLOSED, KIND_HALTED, … = …` を名指した concepts.md が「在るべき場所に無い」と出た（定義は在った）"""
+    return {n.strip() for m in re.findall(r"^([A-Z][A-Z0-9_]*(?:\s*,\s*[A-Z][A-Z0-9_]*)*)\s*=(?!=)", text, re.M)
+            for n in m.split(",")}
+assert defined("A_B, C_D = 1, 2\nE_F = 3\nG_H == 4\n") == {"A_B", "C_D", "E_F"}, "自己検査: 定義の拾い方が組の代入を外す"
+
 by_file = {}
 for p in CODE:
     # 同じ名前のファイル（tests/run.sh と graphloops/tests/run.sh）は和で持つ——上書きすると先に読んだ方の定数が消える
-    by_file.setdefault(p.name, set()).update(re.findall(r"^([A-Z][A-Z0-9_]*)\s*=", p.read_text(encoding="utf-8"), re.M))
+    by_file.setdefault(p.name, set()).update(defined(p.read_text(encoding="utf-8")))
 names = set().union(*by_file.values())
 # works の WORKS_ で始まる名は環境変数で、殻と python が `${WORKS_X:-}`・`os.environ.get("WORKS_X")` の形で読むので、代入の行が
 # 無いことが多い。works のコード（.py・.sh・.yaml）のどこかに字で在れば実在と見る（除外の表に 1 つずつ足さない）

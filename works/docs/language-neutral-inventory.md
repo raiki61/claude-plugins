@@ -97,11 +97,11 @@
 ## 4. 修正の TDD の輪（blk-fix/lib/tddloop.py）
 
 ### 4-1 (A) 赤の種類の見分けが CPython の例外の名前（既知・依頼 228b。2026-10-10 に塞いだ。下の場所は塞ぐ前）— M
-- 場所: `tddloop.py:234-239`（`KIND_UNKNOWN`・`_ASSERT_NAMES`・`_NOT_RAISED`・`NAME_KINDS`・`_HEAD_NAME`・`_MISSING`）, `tddloop.py:242-257`（`red_kind`）, `tddloop.py:825-856`（`_declared_hit`・`_kind_problems`）, `blk-fix/rules/tdd.md:37-41`。
+- 場所: `tddloop.py:234-239`（KIND_UNKNOWN・`_ASSERT_NAMES`・`_NOT_RAISED`・NAME_KINDS・`_HEAD_NAME`・`_MISSING`）, `tddloop.py:242-257`（`red_kind`）, `tddloop.py:825-856`（`_declared_hit`・`_kind_problems`）, `blk-fix/rules/tdd.md:37-41`。
 - 決め打ち: 「機能が無い」赤は `NameError`・`AttributeError`・`ImportError`・`ModuleNotFoundError`、無い名前は CPython の message の形 `has no attribute 'x'` などから引く。
 - Go/TS/Rust/Java: Go の `undefined: Foo`・TS の TS2305（名前が無いという意味のエラー番号）・Java の `cannot find symbol` は名前で見分けられず、`unknown` か例外名のまま「記録だけで通す」側に落ちる（綴りの誤りの拒否が黙って効かない）。
 - 保つ強み: 1。
-- 塞いだ形（2026-10-10）: 赤の判定を `tddloop.red_check` の 1 か所にし、字面の分類（`red_kind`・`NAME_KINDS`）と綴りの照らしを無くした。機械が見るのは「名指しのテストが走った・failure で落ちた・名指しの外は元のまま・直した後に通る」という JUnit の事実だけ。赤の理由（機能が無い／綴りの誤り／準備の失敗）は、役が失敗の文をそのまま引いて理由を書き、機械は引用がその回の結末に在るかだけを照らす。理由の正しさは、引用と理由が報告の単位の行に載り、人が見る（最後の関所の文には載らない。報告は最後の関所の後に書かれる）（superpowers の test-driven-development の Verify RED に寄せた形。専用の赤の読み手の役は起こさない）。
+- 塞いだ形（2026-10-10）: 赤の判定を `tddloop.red_check` の 1 か所にし、字面の分類（`red_kind`・NAME_KINDS）と綴りの照らしを無くした。機械が見るのは「名指しのテストが走った・failure で落ちた・名指しの外は元のまま・直した後に通る」という JUnit の事実だけ。赤の理由（機能が無い／綴りの誤り／準備の失敗）は、役が失敗の文をそのまま引いて理由を書き、機械は引用がその回の結末に在るかだけを照らす。理由の正しさは、引用と理由が報告の単位の行に載り、人が見る（最後の関所の文には載らない。報告は最後の関所の後に書かれる）（superpowers の test-driven-development の Verify RED に寄せた形。専用の赤の読み手の役は起こさない）。
 
 ### 4-2 (A) 名指しと JUnit の行の照らしが pytest の classname 前提 — 束 D1、M〜L
 - 場所: graphloops の写し `review-loop-tdd.py:52-68`（`_id_parts`・`match_case`）, `tddloop.py:260-261`（`_key`）, `tddloop.py:653-657`（`_norm_id`）, `tddloop.py:716-718`（`_id_base` が parametrize の `[…]` を落とす）, `tddloop.py:797`・`845`・`901`・`906`・`925`（`rules().match_case`・`red_problems`・`green_problems` を呼ぶ所）。
@@ -271,7 +271,7 @@
 
 - **Python の import の地図で試験を絞る力**（`impact.py` の `_py_facts`・`_Modules`）: 一式を回すか宣言の絞りに替えると、Python の対象で受け付けが遅くなり、「手元で回さなかった試験」の名前の精度も落ちる。
 - **「failure であって error でない」を機械だけで決める力**（保つ強み 1 の文面）: 文面は変えず、走る前の失敗は赤と数えずに走らせ直す形に置き換えた（2026-10-10）。理由の判定は役の引用と理由に移り、機械が引用の実在を照らす（自己申告には戻らない）。
-- **綴りの誤りを機械が名前で弾く力**（`NAME_KINDS`＋案の `adds` との完全一致）: 引用の照らしと、報告の単位の行に置き換えた（2026-10-10）。
+- **綴りの誤りを機械が名前で弾く力**（NAME_KINDS＋案の `adds` との完全一致）: 引用の照らしと、報告の単位の行に置き換えた（2026-10-10）。
 - **1 行の指しを関数の全体に広げる力**（`_function_span`）と、**既存のテストの本体の書き換えを関数の単位で正確に見る力**（`test_functions`・`_unnamed_edits`）: 塊の単位＋読み手に替わる。明示の範囲を案に書かせる手間が増える。
 - **adds・removes の定義を ast で正確に見る力**（`_defined_names`）: 字の事実＋読み手に替わる。
 - **ライブラリの文書を機械が先に引く力**（libdocs の Python・JS の部分）: 役に引かせる形にすると、支度の段の決まった取り方（同じ入力で同じ節）が失われる。
