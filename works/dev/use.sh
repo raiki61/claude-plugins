@@ -665,7 +665,7 @@ chain_step() {
   # 周の結果: その周の起点の木に run-<id>.diff を当て、前の周の結果を親にした commit。参照で守る（run の worktree が片付いた後も、
   # 次の周の起点と最後の差分がここから届く）。差分が無い周（空の差分）は結果を作らない（chain.py が進みの無い周と読む）
   set -- --unwritten "" --diff "$_cs_diff"
-  if [ "$_cs_round" = done ]; then
+  if [ "$_cs_round" = "done" ]; then
     : # 同じ run に wait を打ち直した: 周は足してあるので、結果も作らず控えの今の姿で決め直す
   elif [ "$_cs_dst" -ne 0 ]; then
     set -- --unwritten "差分を書けなかった（works_dev_show_run が終了コード $_cs_dst）" --diff "$_cs_diff"
