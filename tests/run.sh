@@ -1855,7 +1855,8 @@ def stale(repo, plugins):
         # 今の版を持つ commit が続く一番古い物が、版をその値にした commit。作業ツリーの版がどの commit にも無ければ上げ途中で、据え置きでない
         bump = None
         for c in git(repo, "log", "--format=%H", "--", pjpath).split():
-            if json.loads(git(repo, "show", f"{c}:{pjpath}")).get("version") != pj.get("version"):
+            # ./ を付けて -C の場所からの相対にする（別のリポジトリの下に取り込まれても同じ物を指す）
+            if json.loads(git(repo, "show", f"{c}:./{pjpath}")).get("version") != pj.get("version"):
                 break
             bump = c
         if bump is None:

@@ -6,6 +6,16 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-13
+
+### Changed
+
+- 調べ役（investigator）のモデルと effort を、sonnet・medium から haiku・xhigh に変えた。Artificial Analysis の総合ランキング（2026-10-13）で、Haiku 5.5 の xhigh は Sonnet 5.5 の medium と同じ総合点（41）を、1 タスクあたり約 4 分の 1 の費用（$0.12 と $0.48）で出す。Anthropic は Haiku 5.5 のシステムカードで、検索なしで答える事実性の試験では、ほかの最近のモデルより多くハルシネーションしたと書いているので、判断の重い調べは、呼ぶ側がモデルを上書きして上の系統で走らせてよい。
+
+### Fixed
+
+- `docs/customize.md` の「役割 agent を変える」が、環境変数 `CLAUDE_CODE_SUBAGENT_MODEL` は定義より優先されると書いていた。今の Claude Code では、この変数は既定にとどまり、定義や呼び出しの指定が勝つ。全部をそろえるには `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` も `1` にする、と直した。
+
 ## [0.41.1] - 2026-09-29
 
 ### Changed

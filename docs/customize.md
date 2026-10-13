@@ -32,7 +32,7 @@
 
 **手順書にモデル名を書き戻さないこと。** `tests/run.sh` がモデル名の出現（`model:` の形でも散文でも）と `general-purpose` の復活を検知して落ちる。
 
-モデルや effort を変えたいときは、この plugin を fork して `agents/<役割>.md` の frontmatter を直す。手順書は `convergence-loops:` 付きの識別子で役を指すので、対象リポジトリの `.claude/agents/` に同名の定義を置いても上書きにならない。全 subagent のモデルだけを一括で差し替えたいなら環境変数 `CLAUDE_CODE_SUBAGENT_MODEL` が定義より優先される（effort と道具は定義のまま）。
+モデルや effort を変えたいときは、この plugin を fork して `agents/<役割>.md` の frontmatter を直す。手順書は `convergence-loops:` 付きの識別子で役を指すので、対象リポジトリの `.claude/agents/` に同名の定義を置いても上書きにならない。全 subagent のモデルだけを一括で差し替えたいなら、環境変数 `CLAUDE_CODE_SUBAGENT_MODEL` に加えて `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` を置く（effort と道具は定義のまま）。`CLAUDE_CODE_SUBAGENT_MODEL` だけでは既定にとどまり、定義の `model` と呼び出しの指定が勝つ（[公式の文書の Choose a model](https://code.claude.com/docs/en/sub-agents)）。
 
 **遮断系（`cold-reader` / `blind-judge`）の `tools: []` を消さないこと。** 空にすると道具なしで起動する（実測 2026-08-21・Claude Code 2.1.238・`claude -p` で `tools: []` の agent にファイルを読ませようとして失敗、`tools: Read` なら読めた）。`tools` の行ごと消すと全道具を継承し、「読むな」が言い渡しに戻る。
 
