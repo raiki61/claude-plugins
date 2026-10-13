@@ -23,7 +23,7 @@ works-factory は、直してほしい事（修正依頼か GitHub の issue）�
 
 殻はこのプラグインの `bin/works-factory`。Claude Code が入れたプラグインの置き場（`${CLAUDE_PLUGIN_ROOT}`）に在る。
 
-- 初回は、止めた commit（プラグインの `PIN` に書いた 40 桁）の raiki61/works-factory を、`${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取ってくる。2 回目からは取り置きを使う。
+- 初回は、止めた commit（`${CLAUDE_PLUGIN_ROOT}/PIN` に書いた 40 桁）の raiki61/works-factory を、`${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取ってくる。2 回目からは取り置きを使う。
 - 引数は、そのまま工場の殻（取り置いた works-factory の `bin/works-factory`）に渡る。工場の殻は Archon の命令の引数をそのまま受ける（旗は命令の後ろに置く）。
 - `apply` だけは、差分を当てる口（工場の `bin/apply`）に渡る。
 

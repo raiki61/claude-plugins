@@ -11,4 +11,4 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 ### Added
 
 - `/works-factory` スキル: 今いるリポジトリを対象に、修正依頼を works-factory（raiki61/works-factory）へ回す入口。今の `/works` には触らず、並べて置く（持ち主の決め `coexist-before-switch`）。
-- 殻 `bin/works-factory`: 止めた commit（`PIN`。raiki61/works-factory の 909588a9）を `${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取り置き、その殻に引数をそのまま渡す。`apply` は差分を当てる口 `bin/apply` に渡す。
+- 殻 `bin/works-factory`: 止めた commit（`works-factory/PIN`。raiki61/works-factory の 909588a9）を `${XDG_CACHE_HOME:-~/.cache}/works-factory-plugin/<commit>` に取り置き、その殻に引数をそのまま渡す。`apply` は差分を当てる口 `bin/apply` に渡す。
