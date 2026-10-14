@@ -5,6 +5,8 @@
 `CLAUDE_CONFIG_DIR=… claude` の形は使わない。持ち主の claude はシェル関数で、既定のアカウントのトークンを入れてから起こすので、
 設定のフォルダを替えても既定のアカウントで動いてしまう。herdr の agent start も使わない（素の claude を起こし、アカウントを選べない）。
 起こした後に、そのペインに会話が見えることを herdr から読み戻してから返す（送ったつもりで起きていない、を返さない）。
+打ち込む前に、ペインの前にシェルだけが居ることを確かめる。vim・dev server・別の会話が残っていれば打ち込まない（pane_busy）。
+起こした後に確認の画面（フォルダの信頼・ログインなど）で止まったら、blocked で返し、/catchup は送らない。
 
 使い方: python3 nodes/launch.py --plan <plan の JSON> --number <PR 番号> --pane <ペイン ID> [--out <パス>]
 """
@@ -22,11 +24,18 @@ def start(row, pane, h=herdr):
     command = row["account"]["command"]
     result = {"number": row["number"], "pane": pane, "status": "launch_failed", "detail": None}
     try:
+        if not h.shell_in_front(pane):
+            result.update(status="pane_busy", detail="作業場のペインの前で、シェルではない物が動いている（打ち込まない。そのペインを空けてから打ち直す）")
+            return result
         h.run(pane, command)
-        h.wait_ready(pane)
+        state = h.wait_ready(pane)
         seen = h.agent(pane)
     except h.HerdrError as e:
         result["detail"] = str(e)
+        return result
+    if state == "blocked":
+        result.update(status="blocked", detail="起こした後に確認の画面で止まっている（フォルダの信頼・ログインなど）。"
+                                               "そのペインで答えてから /catchup を送る")
         return result
     if seen.get("agent") != "claude":
         result["detail"] = f"起こした後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"

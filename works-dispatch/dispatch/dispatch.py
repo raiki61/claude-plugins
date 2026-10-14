@@ -307,7 +307,7 @@ def main(argv=None, ports=None):
             if got["status"] == "ready":
                 ready.append((r, prov["pane"]))
             else:
-                results[r["number"]] = "launch_failed"
+                results[r["number"]] = got["status"]
                 notes.append(f"#{r['number']}: {got['detail']}")
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:

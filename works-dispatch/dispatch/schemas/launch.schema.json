@@ -9,7 +9,7 @@
       "properties": {
         "number": {"type": "integer"},
         "pane": {"type": "string"},
-        "status": {"type": "string", "enum": ["ready", "launch_failed"]},
+        "status": {"type": "string", "enum": ["ready", "launch_failed", "pane_busy", "blocked"]},
         "detail": {"type": ["string", "null"]}
       }
     }

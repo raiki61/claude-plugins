@@ -11,8 +11,10 @@ from nodes import launch, turn
 class FakeHerdr:
     HerdrError = real_herdr.HerdrError
 
-    def __init__(self, agent=None, run_error=None, prompts=None, prompt_error=None):
+    def __init__(self, agent=None, run_error=None, prompts=None, prompt_error=None, shell=True, ready="idle"):
         self.calls = []
+        self._shell = shell
+        self._ready = ready
         self._agent = agent if agent is not None else {"agent": "claude", "agent_status": "idle"}
         self._run_error = run_error
         self._prompts = list(prompts or [])
@@ -23,9 +25,13 @@ class FakeHerdr:
         if self._run_error:
             raise real_herdr.HerdrError(["herdr", "pane", "run"], self._run_error)
 
+    def shell_in_front(self, pane):
+        self.calls.append(("shell_in_front", pane))
+        return self._shell
+
     def wait_ready(self, pane):
         self.calls.append(("wait_ready", pane))
-        return "idle"
+        return self._ready
 
     def agent(self, pane):
         self.calls.append(("agent", pane))
@@ -48,7 +54,7 @@ class Launch(unittest.TestCase):
         h = FakeHerdr()
         got = launch.start(ROW, "wB:p1", h)
         self.assertEqual(got["status"], "ready")
-        self.assertEqual(h.calls[0], ("run", "wB:p1", "claude-x"))
+        self.assertEqual(h.calls[:2], [("shell_in_front", "wB:p1"), ("run", "wB:p1", "claude-x")])
         self.assertIn(("agent", "wB:p1"), h.calls)
 
     def test_no_conversation_on_read_back_is_launch_failed(self):
@@ -60,7 +66,23 @@ class Launch(unittest.TestCase):
         self.assertEqual(got["status"], "launch_failed")
         self.assertIn("pane_not_found", got["detail"])
 
+    def test_pane_with_something_else_in_front_is_not_typed_into(self):
+        # 使い直すペインに vim・dev server・別の会話が残っていれば、起動のコマンドをそこへ打ち込まない
+        h = FakeHerdr(shell=False)
+        got = launch.start(ROW, "wB:p1", h)
+        self.assertEqual(got["status"], "pane_busy")
+        self.assertNotIn("run", [c[0] for c in h.calls])
+
+    def test_confirmation_screen_after_start_is_blocked_not_a_hang(self):
+        # フォルダの信頼・ログインの画面で止まったら、待ち続けずに blocked で返す（そのペインで人が答える）
+        got = launch.start(ROW, "wB:p1", FakeHerdr(ready="blocked"))
+        self.assertEqual(got["status"], "blocked")
+        self.assertIn("確認", got["detail"])
+
     def test_output_matches_schema(self):
+        for h in (FakeHerdr(), FakeHerdr(shell=False), FakeHerdr(ready="blocked")):
+            out = {"schema": 1, "launch": launch.start(ROW, "wB:p1", h)}
+            self.assertEqual(schemacheck.check(out, schemacheck.schema("launch")), [])
         out = {"schema": 1, "launch": launch.start(ROW, "wB:p1", FakeHerdr())}
         self.assertEqual(schemacheck.check(out, schemacheck.schema("launch")), [])
 

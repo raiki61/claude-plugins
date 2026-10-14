@@ -142,6 +142,12 @@ class Herdr(unittest.TestCase):
         self.assertEqual(seen, [["herdr", "pane", "report-metadata", "w1:p1", "--source", "claude-activity",
                                  "--ttl-ms", "3600000", "--token", "act=Read b.py"]])
 
+    def test_wait_ready_also_ends_on_a_confirmation_screen(self):
+        # --until を付けない agent wait は idle・done・blocked のどれでも返る（herdr agent wait --help）
+        f = Fake(ok({"id": "x", "result": {"type": "agent_waited", "agent": {"agent_status": "blocked"}}}))
+        self.assertEqual(herdr.wait_ready("wB:p1", runner=f, pause=lambda: None), "blocked")
+        self.assertEqual(f.calls[0][0], ["herdr", "agent", "wait", "wB:p1"])
+
     def test_methods_from_schema(self):
         schema = {"schemas": {"request": {"oneOf": [
             {"properties": {"method": {"const": "agent.prompt"}}},

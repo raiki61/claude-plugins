@@ -118,14 +118,17 @@ def run(pane, command, runner=_default_runner):
     _call(["herdr", "pane", "run", pane, command], runner, quiet_ok=True)
 
 
-def _shell_in_front(pane, runner):
+def shell_in_front(pane, runner=_default_runner):
     """ペインの前にシェルだけが居るか（起こしたコマンドがまだ始まっていない・もう終わった）。"""
     info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
     return info.get("foreground_process_group_id") == info.get("shell_pid")
 
 
 def wait_ready(pane, runner=_default_runner, pause=lambda: time.sleep(0.5)):
-    """起こした直後に、会話が見つかって入力を待つまで待ち、状態を返す。
+    """起こした直後に、会話が見つかって入力を待つか、確認の画面（フォルダの信頼・ログインなど）で止まるまで待ち、状態を返す。
+
+    agent wait に --until を付けないと、idle・done・blocked のどれでも返る（herdr agent wait --help）。idle だけを待つと、
+    確認の画面で止まった会話を永久に待ち、後ろの PR の起動まで止まる。
 
     herdr の agent wait は、まだ会話を見つけていないペインでは待たずに agent_not_found を返す（2026-10-14 に herdr 0.9.3 で見た）。
     そのときはペインの前のプロセスを見て、起こすコマンドが動いている間か、まだ始まっていない間は待ち直す。
@@ -134,12 +137,12 @@ def wait_ready(pane, runner=_default_runner, pause=lambda: time.sleep(0.5)):
     started = False
     while True:
         try:
-            got = _call(["herdr", "agent", "wait", pane, "--until", "idle"], runner)
+            got = _call(["herdr", "agent", "wait", pane], runner)
             return got.get("agent", {}).get("agent_status", "idle")
         except HerdrError as e:
             if e.detail != "agent_not_found":
                 raise
-        if _shell_in_front(pane, runner):
+        if shell_in_front(pane, runner):
             if started:
                 raise HerdrError(["herdr", "agent", "wait", pane], "起こすコマンドが終わり、会話が始まらなかった")
         else:

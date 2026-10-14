@@ -108,6 +108,9 @@ class FakeHerdr:
         if pane in self._fail:
             raise real_herdr.HerdrError(["herdr", "pane", "run"], "pane_not_found")
 
+    def shell_in_front(self, pane):
+        return True
+
     def wait_ready(self, pane):
         return "idle"
 
