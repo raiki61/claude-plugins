@@ -6,6 +6,8 @@
 
 import os
 import tomllib
+
+from vendor import claude_auth
 from typing import NamedTuple
 
 DEFAULT_PATH = "~/.config/works/dispatch.toml"
@@ -131,7 +133,8 @@ def effective_config_dir(account, env=os.environ):
     """そのアカウントの Claude Code の設定のフォルダ。設定に書かなければ、利用者の CLAUDE_CONFIG_DIR、無ければ ~/.claude。
 
     アカウントを切り替えない人は config_dir を書かない。その人の Claude Code がふだん使うフォルダを、そのまま指す。
+    決め方の正本はリポジトリ直下の scripts/claude_auth.py の config_dir で、ここは写し（vendor/claude_auth.py）を呼ぶだけ。
     """
     if account.config_dir:
         return account.config_dir
-    return env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    return claude_auth.config_dir(env)

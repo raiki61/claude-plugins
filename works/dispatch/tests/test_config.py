@@ -101,10 +101,13 @@ class EffectiveConfigDir(unittest.TestCase):
     def test_named_dir_wins(self):
         self.assertEqual(config.effective_config_dir(config.Account("a", "c", "/d"), {"CLAUDE_CONFIG_DIR": "/x"}), "/d")
 
-    def test_unset_follows_the_users_env_then_home(self):
+    def test_unset_follows_the_repository_common_rule(self):
+        # 決め方の正本はリポジトリ直下の scripts/claude_auth.py の config_dir（写しは vendor/claude_auth.py）
+        from vendor import claude_auth
         acct = config.Account("default", "claude", None)
-        self.assertEqual(config.effective_config_dir(acct, {"CLAUDE_CONFIG_DIR": "/x"}), "/x")
-        self.assertEqual(config.effective_config_dir(acct, {"HOME": "/h"}), "/h/.claude")
+        for env in ({"CLAUDE_CONFIG_DIR": "/x"}, {}):
+            with self.subTest(env=env):
+                self.assertEqual(config.effective_config_dir(acct, env), claude_auth.config_dir(env))
 
 
 class PickRepo(unittest.TestCase):
