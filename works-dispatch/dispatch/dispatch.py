@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import claudex  # noqa: E402
@@ -85,6 +86,27 @@ def gone_plugin_paths(texts):
             if not os.path.isfile(path) and path not in found:
                 found.append(path)
     return found
+
+
+def _leaves(value):
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return [s for v in value for s in _leaves(v)]
+    return [value] if isinstance(value, str) else []
+
+
+def setting_strings(path):
+    """設定のファイル（.json か .toml）の中の文字列を、書くときのエスケープ（\\ など）を解いて返す。
+    その形で読めなければ中身をそのまま 1 つ、ファイルが無ければ空。"""
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    try:
+        return _leaves(json.loads(text) if str(path).endswith(".json") else tomllib.loads(text))
+    except ValueError:
+        return [text]
 
 
 MARK = "@@CLAUDE_CONFIG_DIR="
@@ -179,15 +201,10 @@ class Ports:
                                  f"一度 {repo.source} で {a.command} を起こし、信頼すると出なくなる）")
             if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
-        texts = []
         home = self.env.get("HOME") or os.path.expanduser("~")
         herdr_toml = pathlib.Path(self.env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
-        for f in [herdr_toml] + [pathlib.Path(config.effective_config_dir(a, self.account_env)) / "settings.json" for a in cfg.accounts]:
-            try:
-                texts.append(f.read_text(encoding="utf-8"))
-            except OSError:
-                pass
-        for path in gone_plugin_paths(texts):
+        files = [herdr_toml] + [pathlib.Path(config.effective_config_dir(a, self.account_env)) / "settings.json" for a in cfg.accounts]
+        for path in gone_plugin_paths([s for f in files for s in setting_strings(f)]):
             notes.append(f"herdr の設定かフックが、もう無いスクリプトを指している: {path}（プラグインの更新で場所が変わった。"
                          "SKILL.md の任意の手順で行を出し直す）")
         for repo in cfg.repos:

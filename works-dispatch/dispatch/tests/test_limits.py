@@ -5,9 +5,11 @@
 import ast
 import json
 import pathlib
+import shlex
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 
 from . import DISPATCH
@@ -211,6 +213,13 @@ class HerdrConfig(unittest.TestCase):
             self.assertIn("--accounts /l/accounts.json", line)
             self.assertNotIn("--config", line)
 
+    def test_lines_stay_valid_toml_when_paths_have_backslashes(self):
+        # Windows のパスは \ を含む。TOML の "…" の中では \ がエスケープの始まりなので、そのまま埋めると herdr が設定を読めない
+        script, snap = r"D:\a\p\limits.py", r"C:\Users\me\lim\accounts.json"
+        for line in limits.herdr_entries(accounts(1), script, snap):
+            command = tomllib.loads("x = [" + line + "]")["x"][0]["command"]
+            self.assertIn(f"{shlex.quote(script)} --accounts {shlex.quote(snap)}", command)
+
     def test_snapshot_round_trips_what_show_probe_and_record_need(self):
         accts = (config.Account("main", "claude"),
                  config.Account("p1", "claude-p1", "~/.claude-p1", "kc-p1"),
@@ -233,7 +242,8 @@ class HerdrConfig(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         snap = d / "lim" / "accounts.json"
         self.assertEqual([a.name for a in limits.read_snapshot(snap)[0]], ["p1"])
-        self.assertIn(f"--accounts {snap}", out.stdout)
+        command = tomllib.loads(out.stdout)["tab_bar_right"][0]["command"]
+        self.assertIn(f"--accounts {shlex.quote(str(snap))}", command)
 
     def test_show_and_probe_run_where_tomllib_is_missing(self):
         d = pathlib.Path(tempfile.mkdtemp())

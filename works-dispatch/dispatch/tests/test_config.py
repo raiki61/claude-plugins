@@ -99,7 +99,7 @@ class Load(unittest.TestCase):
         self.assertIn("limits", str(e.exception))
 
     def test_tilde_is_expanded(self):
-        body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "%s/second.md"\n'
+        body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'%s/second.md\'\n'
                 'source = "~/x"\nclone_root = "~/y"\n') % self.d
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual((cfg.repos[0].source, cfg.repos[0].clone_root),

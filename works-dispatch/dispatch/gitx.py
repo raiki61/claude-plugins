@@ -6,8 +6,8 @@
 import re
 import subprocess
 
-# git@host:o/r.git・ssh://git@host/o/r.git・https://host/o/r(.git) の末尾 2 つを OWNER/NAME として取る
-_REPO = re.compile(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$")
+# git@host:o/r.git・ssh://git@host/o/r.git・https://host/o/r(.git)・手元のパス（Windows では C:\…\o\r.git）の末尾 2 つを OWNER/NAME として取る
+_REPO = re.compile(r"[:/\\]([^/:\\]+)[/\\]([^/\\]+?)(?:\.git)?[/\\]?$")
 
 
 def _default_runner(argv, env=None):

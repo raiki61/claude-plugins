@@ -297,7 +297,8 @@ class RealPorts(unittest.TestCase):
         session = {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}
         ports = quiet_ports(env=session, login_config_dir=lambda: None)
         self.assertEqual(claudex.trust_file(None, ports.account_env), os.path.join("/h", ".claude.json"))
-        self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env), "/h/.claude")
+        self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env),
+                         str(pathlib.Path("/h", ".claude")))
         ports = quiet_ports(env=session, login_config_dir=lambda: "/h/.claude-mine")
         self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env), "/h/.claude-mine")
         self.assertEqual(session["CLAUDE_CONFIG_DIR"], "/h/.claude-p2")  # 渡した環境は壊さない
@@ -314,7 +315,8 @@ class RealPorts(unittest.TestCase):
         def run2(a, **kw):
             argv.append(a)
             return run(a, **kw)
-        self.assertEqual(dispatch._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run2), "/h/.claude-x")
+        self.assertEqual(dispatch._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run2, posix=True),
+                         "/h/.claude-x")
         self.assertNotIn("CLAUDE_CONFIG_DIR", seen[0])
         # ペインのシェルと同じく、ログインのシェルの設定（.zprofile・.bash_profile）も、対話のシェルの設定も読ませる
         self.assertEqual(argv[0][:2], ["/bin/zsh", "-lic"])
@@ -338,6 +340,19 @@ class RealPorts(unittest.TestCase):
     def test_gone_plugin_paths_with_backslashes_are_found(self):
         gone = r"C:\Users\me\.claude\plugins\cache\m\works-dispatch\0.1.0\dispatch\limits.py"
         self.assertEqual(dispatch.gone_plugin_paths([f'command = "py {gone} --accounts x show a"']), [gone])
+
+    def test_gone_plugin_paths_inside_escaped_json_and_toml_strings_are_read_unescaped(self):
+        # settings.json と herdr の TOML は、文字列の中の \ を \\ と書く。書かれた形のままでは、パスが別物になる
+        gone = r"C:\Users\me\.claude\plugins\cache\m\works-dispatch\0.1.0\dispatch\activity.py"
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"command": f"py {gone}"}]}]}}), encoding="utf-8")
+        (d / "config.toml").write_text('[ui]\ntab_bar_right = [{ command = "py %s" }]\n' % gone.replace("\\", "\\\\"), encoding="utf-8")
+        for f in ("settings.json", "config.toml"):
+            with self.subTest(f=f):
+                self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / f)), [gone])
+        (d / "broken.toml").write_text(f'{{ command = "py {gone}" }},\n', encoding="utf-8")
+        self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / "broken.toml")), [gone])  # 読めない形はそのまま
+        self.assertEqual(dispatch.setting_strings(d / "missing.json"), [])
 
     def test_real_ports_carry_the_herdr_and_git_modules(self):
         # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう
@@ -515,11 +530,11 @@ class Init(unittest.TestCase):
 
     def test_never_overwrites_an_existing_config(self):
         run_main(["--config", self.cfg, "--init", "--repo", "o/r", "--source", self.src], FakePorts([]))
-        before = pathlib.Path(self.cfg).read_text()
+        before = pathlib.Path(self.cfg).read_text(encoding="utf-8")
         rc, out = run_main(["--config", self.cfg, "--init", "--repo", "o/x", "--source", self.src], FakePorts([]))
         self.assertEqual(rc, 1)
         self.assertIn("上書きしない", out)
-        self.assertEqual(pathlib.Path(self.cfg).read_text(), before)
+        self.assertEqual(pathlib.Path(self.cfg).read_text(encoding="utf-8"), before)
 
     def test_needs_repo_and_source(self):
         rc, out = run_main(["--config", self.cfg, "--init"], FakePorts([]))

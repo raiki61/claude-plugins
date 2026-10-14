@@ -342,8 +342,12 @@ def herdr_entries(accounts, script, snapshot_path):
     if len(shown) + 1 > HERDR_MAX_ENTRIES:
         raise ValueError(f"herdr のタブ欄に並べられるのは {HERDR_MAX_ENTRIES - 1} アカウントまで（{len(shown)} ある）")
     show, probe = [line for line in TEMPLATE.read_text(encoding="utf-8").splitlines() if line.startswith("{{")]
-    q = {"script": shlex.quote(script), "accounts": shlex.quote(str(snapshot_path))}
-    return [show.format(name=shlex.quote(a.name), **q) for a in shown] + [probe.format(**q)]
+
+    def fill(s):
+        # 雛形の command は TOML の "…" の中なので、埋める値の \ と " をエスケープする（Windows のパスは \ を含む）
+        return shlex.quote(s).replace("\\", "\\\\").replace('"', '\\"')
+    q = {"script": fill(script), "accounts": fill(str(snapshot_path))}
+    return [show.format(name=fill(a.name), **q) for a in shown] + [probe.format(**q)]
 
 
 def main(argv=None, env=os.environ, stdin=sys.stdin):

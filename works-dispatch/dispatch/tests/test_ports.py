@@ -169,7 +169,7 @@ class Git(unittest.TestCase):
 
     def test_origin_repo_forms(self):
         for url in ("git@github.com:o/r.git", "https://github.com/o/r", "https://github.com/o/r.git",
-                    "ssh://git@github.com/o/r.git", "git@github.com-alias:o/r.git"):
+                    "ssh://git@github.com/o/r.git", "git@github.com-alias:o/r.git", "/tmp/o/r.git", "C:\\tmp\\o\\r.git"):
             with self.subTest(url=url):
                 self.assertEqual(gitx.origin_repo("/r", runner=Fake((0, url + "\n", ""))), "o/r")
         self.assertIsNone(gitx.origin_repo("/r", runner=Fake((2, "", "no remote"))))
@@ -241,7 +241,7 @@ class Claude(unittest.TestCase):
         # 2026-10-14 に手元の 4 アカウントで見た実物: CLAUDE_CONFIG_DIR を入れて起こすアカウントは <そのフォルダ>/.claude.json、
         # 入れずに起こすアカウントは ~/.claude.json に、信頼したフォルダを記録している
         self.assertEqual(claudex.trust_file("/c/p2", {"HOME": "/h"}), os.path.join("/c/p2", ".claude.json"))
-        self.assertEqual(claudex.trust_file(None, {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), "/x/.claude.json")
+        self.assertEqual(claudex.trust_file(None, {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), os.path.join("/x", ".claude.json"))
         self.assertEqual(claudex.trust_file(None, {"HOME": "/h"}), os.path.join("/h", ".claude.json"))
 
     def trust_world(self, projects):
