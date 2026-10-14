@@ -1,10 +1,10 @@
 """写し直しの道具 dev/core-sync.py の検査（sync と --check）。
 
 偽の正本（使い捨ての git に commit を積んだ物。モジュールに 1 回だけ作り、試験は git show で読むだけ）と、
-偽の works の置き場（git なし。台帳 5 つと写しだけ）で回す。本物の写し直しはしない。
+偽の works の置き場（git なし。台帳 6 つと写しだけ）で回す。本物の写し直しはしない。
 - --check: 写しが台帳の 1 行目の commit と手直し（COPIED_FROM の ! 行）から作ったバイトと同じで、graphloops を元にする
   4 つの台帳の commit が揃っていれば 0。1 バイトの書き換え・台帳の commit の割れは 1。何も書かない
-- sync <rev>: graphloops の 4 つの台帳の写しを <rev> から取り直し、手直しを当て、台帳の 1 行目を替える（changemap の台帳は触らない）。
+- sync <rev>: graphloops の 4 つの台帳の写しを <rev> から取り直し、手直しを当て、台帳の 1 行目を替える（changemap と plugins の台帳は触らない）。
   import と graph の $ref がたどる物が台帳に無ければ、動かなくなるまでたどって同じバイトで写し、台帳に注記つきの行で足す。
   手直しが当たらない・足す物の写し先に台帳に載らない works 自身のファイルが在る、のどちらかなら何も書かずに 1
 """
@@ -34,6 +34,7 @@ BASE = {
     "graphloops/prompts/review-loop/spec.write.md": "仕様 1\n",
     "graphloops/prompts/review-loop/report.md": "報告 1\n",
     "attention/scripts/lib/changemap.py": "TIMEOUT = 15\n",
+    "convergence-loops/agents/judge.md": "役 1\n",
 }
 # 台帳の写しのパス（works の根から）と元のパス（正本の根から）
 COPIES = {
@@ -45,6 +46,7 @@ COPIES = {
     "blk-spec/prompts/spec.write.md": "graphloops/prompts/review-loop/spec.write.md",
     "blk-report/prompts/review-loop/report.md": "graphloops/prompts/review-loop/report.md",
     ".shared/core/changemap.py": "attention/scripts/lib/changemap.py",
+    ".shared/core/agents/judge.md": "convergence-loops/agents/judge.md",
 }
 GL_LEDGERS = (".shared/core/COPIED_FROM", ".shared/core/gl-prompts/COPIED_FROM",
               "blk-spec/prompts/COPIED_FROM", "blk-report/prompts/COPIED_FROM")
@@ -111,6 +113,7 @@ def make_works(dest):
         "blk-spec/prompts/COPIED_FROM": [f"{a}  graphloops 0.1.0 の仕様の道の指示書", "spec.write.md"],
         "blk-report/prompts/COPIED_FROM": [f"{a}  graphloops 0.1.0 の最終報告の指示書", "review-loop/report.md"],
         ".shared/core/COPIED_FROM.changemap": [f"{a}  attention の変更の地図", "changemap.py  attention/scripts/lib/changemap.py"],
+        ".shared/core/COPIED_FROM.plugins": [f"{a}  plugin の写し", "agents/judge.md  convergence-loops/agents/judge.md"],
     }
     for rel, lines in ledgers.items():
         p = dest / rel
@@ -199,8 +202,9 @@ class CoreSyncSyncCase(unittest.TestCase):
                 self.assertTrue(REV["b"].startswith(head), new[0])
                 self.assertIn("0.2.0", new[0])
                 self.assertEqual(new[1:], old[1:], "一覧と手直しの行は残す")
-        # 別の系統（attention）の台帳と写しは触らない
-        for rel in (".shared/core/COPIED_FROM.changemap", ".shared/core/changemap.py"):
+        # 別の系統（attention・plugin）の台帳と写しは触らない
+        for rel in (".shared/core/COPIED_FROM.changemap", ".shared/core/changemap.py",
+                    ".shared/core/COPIED_FROM.plugins", ".shared/core/agents/judge.md"):
             self.assertEqual((self.w / rel).read_bytes(), before[rel], rel)
         rc, out = run(self.w, "--check")
         self.assertEqual(rc, 0, out)

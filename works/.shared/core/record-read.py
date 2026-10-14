@@ -45,7 +45,7 @@ import time
 
 
 def boards(cwd):
-    """**works の包みの写しで替えたのはこの関数だけ**（元は graphloops a1202d0:graphloops/hooks/record-read.py）。
+    """**works の包みの写しで替えたのはこの関数だけ**（元は graphloops/hooks/record-read.py。台帳 COPIED_FROM.plugins の注記）。
 
     元は cwd の `.git` を上へ辿って、いま回っている graphloops の run の盤面を探した。works では Claude の子の env に
     ARTIFACTS_DIR が来ず、盤面の場所をフックから引けないので、包み（claude-adapter）が cwd ごとに分けた置き場を

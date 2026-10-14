@@ -39,6 +39,7 @@ LEDGERS = (
     ("blk-spec/prompts/COPIED_FROM", "graphloops/prompts/review-loop/"),
     ("blk-report/prompts/COPIED_FROM", "graphloops/prompts/"),
     (".shared/core/COPIED_FROM.changemap", None),
+    (".shared/core/COPIED_FROM.plugins", None),
 )
 GRAPH_REFS = ("$ref", "extends")
 

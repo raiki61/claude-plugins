@@ -1,0 +1,11 @@
+f579b08b  plugin の写し（役の定義を convergence-loops から。graphloops の engine の写し COPIED_FROM とは別の commit から写す）
+agents/judge.md  convergence-loops/agents/judge.md  # 役の定義を pack に持つ（run 31）: 隔離した CLAUDE_CONFIG_DIR に convergence-loops が無く、engine の agent_def が引けずに独立の目の支度が BoardGap で落ちた。本線の engine は隣の plugin の agents/ を読むので、同じ定義を core/agents/ に写し rolekit.agent_def が引く
+agents/blind-judge.md  convergence-loops/agents/blind-judge.md  # 同上
+agents/inspector.md  convergence-loops/agents/inspector.md  # 同上
+agents/investigator.md  convergence-loops/agents/investigator.md  # 同上
+agents/cold-reader.md  convergence-loops/agents/cold-reader.md  # 同上
+# 一部だけを写した物（ファイルの一部なのでバイト一致では照らせない。元を直したら、ここに挙げた所も見直す）:
+#   record-read.py（boards() だけを替えた写し）  ← graphloops/hooks/record-read.py の a1202d0（boards() は、包み（claude-adapter）が cwd ごとに分けて 1 つ目の引数で渡す置き場を読む。works の子の env に ARTIFACTS_DIR が来ないため。boards() の外の一致は tests/test_adapter.py の test_record_read_copy_differs_only_in_sink が縛る）
+#   tree_run.py の _answers・_ps_all・_tree_members・_stop_tree  ← graphloops/engine/role_run.py の同じ名の関数（9f91687 = graphloops 0.21.1）。tree_run の _tool は graphloops/engine/checks_cache.py の _tool とほぼ同じで、os.sep を見ない
+#   blk-ci/prompts/p0.local_checks.md・p4.ci.md  ← graphloops/prompts/review-loop/ の同じ名の指示書を元に書き直した物（一致は数行）
+# 行の形は「写しのパス（この置き場から）  元のパス（git show <1 行目の commit>:<元のパス>）」。写しは直さない（手直しは ! 行に載せた物だけ。形は .shared/core/copyledger.py）。確かめは works/dev/core-sync.py --check（sync はこの台帳を触らない。元を直したら、写しを直し 1 行目を元を直した commit に替える）

@@ -64,7 +64,7 @@ class TestCoreCopy(unittest.TestCase):
 
     def test_role_definitions_resolve_from_pack_without_plugins(self):
         """graph の plugin の役（回す側・driver・別 plugin の役を除く全部）の定義は、plugin の無い CLAUDE_CONFIG_DIR と
-        <PLUGIN>_ROOT の無い環境（dogfood の隔離）でも、pack の写し（core/agents/。COPIED_FROM に並び、元の commit とバイト一致）
+        <PLUGIN>_ROOT の無い環境（dogfood の隔離）でも、pack の写し（core/agents/。COPIED_FROM.plugins に並び、元の commit とバイト一致）
         から rolekit.agent_def で引ける（run 31: 隔離した設定に convergence-loops が無く、独立の目の支度が BoardGap で落ちた）。
         引いた後に置き場の環境変数を残さない（対象の試験の子へ漏らさない）"""
         roles = set()
@@ -74,7 +74,7 @@ class TestCoreCopy(unittest.TestCase):
             roles |= {n["run_by"] for n in g.get("nodes", {}).values()   # 上書きだけの節は run_by を持たない
                       if n.get("run_by") and not n.get("agent_type") and n["run_by"] not in runners | {"driver"}}
         self.assertEqual(roles, {"judge", "blind-judge", "inspector", "investigator", "cold-reader"})
-        listed = [rel for rel, _ in copyledger.read(CORE / "COPIED_FROM").rows]
+        listed = [rel for rel, _ in copyledger.read(CORE / "COPIED_FROM.plugins").rows]
         for r in sorted(roles):
             self.assertIn(f"agents/{r}.md", listed)
         code = ("import json, os, sys; sys.path.insert(0, sys.argv[1]); import rolekit\n"
@@ -151,6 +151,19 @@ class TestCoreCopy(unittest.TestCase):
                 src = subprocess.run(["git", "-C", str(ROOT), "show", f"{commit}:{rel}"],
                                      capture_output=True, check=True).stdout
                 self.assertEqual((CORE / rel).read_bytes(), expected_copy(rel, src))
+
+    def test_plugin_copies_are_byte_identical_to_the_commit(self):
+        """COPIED_FROM.plugins に並ぶ写し（役の定義）は、1 行目の commit の 2 列目のパスの中身とバイト単位で同じ（! 行の手直しが
+        在ればそれを当てた物。手直しの在る写しは行の注記に『works の手直し』と書く）"""
+        led = copyledger.read(CORE / "COPIED_FROM.plugins")
+        rows = {ln.split()[0]: ln for ln in led.path.read_text(encoding="utf-8").splitlines()[1:] if ln.split()}
+        for rel, src in led.rows:
+            with self.subTest(rel):
+                self.assertIsNotNone(src, "2 列目（元のパス）が無い")
+                data = subprocess.run(["git", "-C", str(ROOT), "show", f"{led.commit}:{src}"],
+                                      capture_output=True, check=True).stdout
+                self.assertEqual((CORE / rel).read_bytes(), copyledger.apply(led, rel, data))
+                self.assertEqual("works の手直し" in rows[rel], rel in led.deviations)
 
     def test_main_auth_copy_names_works_core_as_a_copy(self):
         """本流の認証の写し（.shared/core/claude_auth.py）が在り、その本文（正本と同じバイト）の写し先の一覧が works/.shared/core/ を名指す。

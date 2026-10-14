@@ -176,7 +176,7 @@ def compose(parts, *, reject_file: str = "") -> str:
 def agent_def(agent_type: str):
     """engine の agent_def と同じ返り（無ければ None）。本線の engine は隣に並ぶ plugin の agents/<役>.md を読むが、pack の engine の
     隣は plugin でないので、写しの plugin（AGENTS_PLUGIN）の役は、置き場 <PLUGIN>_ROOT が明示されていなければ pack の写し
-    （core/agents/。COPIED_FROM）を指して引く——利用者の plugin のキャッシュに依らない（run 31: 隔離した CLAUDE_CONFIG_DIR に
+    （core/agents/。COPIED_FROM.plugins）を指して引く——利用者の plugin のキャッシュに依らない（run 31: 隔離した CLAUDE_CONFIG_DIR に
     convergence-loops が無く、独立の目の支度が BoardGap で落ちた）。明示された置き場と別 plugin の役は engine の探し方のまま。
     置き場の環境変数はこの呼びの間だけ置く（後で起こす子のプロセス——対象の試験など——へ漏らさない）"""
     plugin = agent_type.rpartition(":")[0]

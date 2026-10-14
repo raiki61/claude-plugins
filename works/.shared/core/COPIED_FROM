@@ -31,11 +31,6 @@ graphloops/rules/review-loop-tdd.py  # 修正の段の TDD で足した。works 
 graphloops/prompts/review-loop/tdd/p3.delta_review.md  # 修正の段の TDD で足した: TDD 版の graph の指示書（graph の置き場からの相対 ../prompts/）
 graphloops/prompts/review-loop/tdd/p3.fix.md  # 同上
 graphloops/prompts/review-loop/tdd/p3.tdd_tests.md  # 同上
-agents/judge.md  # 役の定義を pack に持つ（run 31）: 隔離した CLAUDE_CONFIG_DIR に convergence-loops が無く、engine の agent_def が引けずに独立の目の支度が BoardGap で落ちた。本線の engine は隣の plugin の agents/ を読むので、同じ commit の定義を core/agents/ に写し rolekit.agent_def が引く
-agents/blind-judge.md  # 同上
-agents/inspector.md  # 同上
-agents/investigator.md  # 同上
-agents/cold-reader.md  # 同上
 ! {"path": "graphloops/engine/declared.py", "old": "STEP_KEYS = (\"name\", \"argv\")\n", "new": "STEP_KEYS = (\"name\", \"argv\")\nSTEP_OPTIONAL_KEYS = (\"junit\",)   # 段の任意の鍵: 段が書く試験の報告（JUnit XML）の、リポジトリのルートからの相対パス。段が走ったかを件数で見る\n", "why": "宣言の段に任意の鍵 junit（試験の報告 JUnit XML の相対パス）を足す。段が走ったかを終了コードでなく報告の件数で見るため（checks_reply が読む）"}
 ! {"path": "graphloops/engine/declared.py", "old": "def parse(text):\n    \"\"\"宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv}]。誤りがあれば steps は None\"\"\"\n", "new": "def parse(text):\n    \"\"\"宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv[, junit]}]。誤りがあれば steps は None\"\"\"\n", "why": "宣言の段に任意の鍵 junit（試験の報告 JUnit XML の相対パス）を足す。段が走ったかを終了コードでなく報告の件数で見るため（checks_reply が読む）"}
 ! {"path": "graphloops/engine/declared.py", "old": "    for i, s in enumerate(suite):\n        if not isinstance(s, dict) or set(s) != set(STEP_KEYS):\n            return None, f\"suite[{i}] は {{{', '.join(STEP_KEYS)}}} だけ\"\n", "new": "    for i, s in enumerate(suite):\n        if not isinstance(s, dict) or not set(STEP_KEYS) <= set(s) <= set(STEP_KEYS + STEP_OPTIONAL_KEYS):\n            return None, f\"suite[{i}] は {{{', '.join(STEP_KEYS)}}}（必須）と {{{', '.join(STEP_OPTIONAL_KEYS)}}}（任意）だけ\"\n", "why": "宣言の段に任意の鍵 junit（試験の報告 JUnit XML の相対パス）を足す。段が走ったかを終了コードでなく報告の件数で見るため（checks_reply が読む）"}
