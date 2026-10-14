@@ -5,7 +5,7 @@
 流れ（どのノードの次に何を呼ぶか）を持つのはこのファイルだけ。ノードは流れを知らない（D3）。
 1. 始める前の確かめ。足りない物があれば全部並べて、何も起こさずに終了の値 2 で止まる
 2. prs → sessions → accounts → assign（ここまで外には書かない。--dry-run はここで、作業場を作るか使い直すかを報告して終える）
-3. provision と launch を PR ごとに順に全部先に済ませ、turn を PR ごとに並べて走らせる（1 件の /catchup が長くても、ほかが遅れない）
+3. provision・信頼の印（元の clone を信頼済みのアカウントなら clone にも付ける）・launch を PR ごとに順に全部先に済ませ、turn を PR ごとに並べて走らせる（1 件の /catchup が長くても、ほかが遅れない）
 4. report
 止まっている（blocked）・会話が開いている（already_open）などは誤りではないので、終了の値は 0。
 
@@ -155,6 +155,10 @@ class Ports:
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
 
+    def trust(self, account, source, clone):
+        """元の clone を信頼済みのアカウントなら、clone にも信頼の印を付ける（claudex.inherit_trust）。"""
+        return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.env), source, clone)
+
     def now(self):
         return time.time()
 
@@ -213,6 +217,14 @@ def main(argv=None, ports=None):
             if prov["status"] != "ready":
                 results[r["number"]] = "provision_failed"
                 continue
+            try:
+                trusted = ports.trust(r["account"], repo.source, prov["path"])
+            except OSError as e:
+                trusted = f"書けない（{e}）"
+            if trusted not in ("inherited", "already"):
+                notes.append(f"#{r['number']}: アカウント {r['account']['name']} は元の clone を信頼していないので、"
+                             "Claude Code がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
+                             f"#{r['number']}: 信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
             got = launch.start(r, prov["pane"], ports.herdr)
             if got["status"] == "ready":
                 ready.append((r, prov["pane"]))

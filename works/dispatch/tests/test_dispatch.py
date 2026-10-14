@@ -5,6 +5,7 @@ import io
 import json
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -142,6 +143,16 @@ class FakePorts(dispatch.Ports):
     def now(self):
         return 0
 
+    trust_outcome = "inherited"
+
+    def trust(self, account, source, clone):
+        self.herdr.writes.append(("trust", account["name"], source, clone))
+        return self.trust_outcome
+
+
+def gitx_source(cfg_path):
+    return config.load(cfg_path, env={}).repos[0].source
+
 
 def pr(n):
     return {"number": n, "title": f"t{n}", "head": f"feat/{n}", "url": f"u{n}", "role": "implementer", "days": 0}
@@ -205,11 +216,20 @@ class Main(unittest.TestCase):
         self.assertEqual(gitx.origin_repo(path), "o/r")
         self.assertEqual(ports.herdr.writes, [
             ("create_workspace", path, "r-pr-1"),
+            ("trust", "a1", gitx_source(self.cfg), path),
             ("run", "P0", "claude-a1"),
             ("prompt", "P0", "/catchup 1", True),
             ("prompt", "P0", "二手目", False),
         ])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
+
+    def test_untrusted_source_still_launches_and_says_the_dialog_will_show(self):
+        ports = FakePorts([pr(1)])
+        ports.trust_outcome = "source_untrusted"
+        rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
+        self.assertEqual(rc, 0)
+        self.assertIn("#1: アカウント a1 は元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す", out)
+        self.assertIn(("run", "P0", "claude-a1"), ports.herdr.writes)
 
     def test_no_second_sends_only_catchup(self):
         ports = FakePorts([pr(1)])
@@ -248,6 +268,13 @@ class Main(unittest.TestCase):
 
 
 class RealPorts(unittest.TestCase):
+    def test_real_trust_writes_in_the_accounts_config_file(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / ".claude.json").write_text(json.dumps({"projects": {"/s": {"hasTrustDialogAccepted": True}}}))
+        ports = dispatch.Ports(env={"HOME": "/nowhere"})
+        self.assertEqual(ports.trust({"name": "p2", "config_dir": str(d)}, "/s", "/s-pr-1"), "inherited")
+        self.assertTrue(json.loads((d / ".claude.json").read_text())["projects"]["/s-pr-1"]["hasTrustDialogAccepted"])
+
     def test_real_ports_carry_the_herdr_and_git_modules(self):
         # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう
         ports = dispatch.Ports()

@@ -5,7 +5,9 @@ herdr の出力の形は 2026-10-14 に手元の herdr 0.9.3 で読んだ実物�
 
 import json
 import os
+import stat
 import subprocess
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -168,6 +170,51 @@ class Claude(unittest.TestCase):
         f = Fake(ok([]))
         claudex.sessions(None, runner=f, base_env={"PATH": "/bin"})
         self.assertNotIn("CLAUDE_CONFIG_DIR", f.calls[0][1])
+
+    def test_trust_file_follows_where_claude_code_keeps_its_global_config(self):
+        # 2026-10-14 に手元の 4 アカウントで見た実物: CLAUDE_CONFIG_DIR を入れて起こすアカウントは <そのフォルダ>/.claude.json、
+        # 入れずに起こすアカウントは ~/.claude.json に、信頼したフォルダを記録している
+        self.assertEqual(claudex.trust_file("/c/p2", {"HOME": "/h"}), "/c/p2/.claude.json")
+        self.assertEqual(claudex.trust_file(None, {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), "/x/.claude.json")
+        self.assertEqual(claudex.trust_file(None, {"HOME": "/h"}), "/h/.claude.json")
+
+    def trust_world(self, projects):
+        d = tempfile.mkdtemp()
+        f = os.path.join(d, ".claude.json")
+        with open(f, "w") as fh:
+            json.dump({"numStartups": 3, "projects": projects}, fh)
+        os.chmod(f, 0o600)
+        return f
+
+    def test_clone_inherits_trust_from_a_trusted_source(self):
+        f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True, "allowedTools": []},
+                              "/src/r-pr-7": {"lastCost": 1}})
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7"), "inherited")
+        got = json.load(open(f))
+        self.assertEqual(got["projects"]["/src/r-pr-7"], {"lastCost": 1, "hasTrustDialogAccepted": True})
+        self.assertEqual(got["numStartups"], 3)
+        self.assertEqual(stat.S_IMODE(os.stat(f).st_mode), 0o600)
+
+    def test_untrusted_source_writes_nothing(self):
+        f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": False}})
+        before = open(f).read()
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7"), "source_untrusted")
+        self.assertEqual(open(f).read(), before)
+
+    def test_already_trusted_clone_writes_nothing(self):
+        f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True},
+                              "/src/r-pr-7": {"hasTrustDialogAccepted": True}})
+        before = os.stat(f).st_mtime_ns
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7"), "already")
+        self.assertEqual(os.stat(f).st_mtime_ns, before)
+
+    def test_missing_or_broken_file_writes_nothing(self):
+        d = tempfile.mkdtemp()
+        self.assertEqual(claudex.inherit_trust(os.path.join(d, ".claude.json"), "/s", "/p"), "no_file")
+        broken = os.path.join(d, "b.json")
+        open(broken, "w").write("{not json")
+        self.assertEqual(claudex.inherit_trust(broken, "/s", "/p"), "no_file")
+        self.assertEqual(open(broken).read(), "{not json")
 
     def test_non_json_is_an_error(self):
         with self.assertRaises(claudex.ClaudeError):
