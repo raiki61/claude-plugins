@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": ["schema", "slots"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["workspace", "pane", "path", "branch", "free", "reason"],
+        "properties": {
+          "workspace": {"type": "string"},
+          "pane": {"type": ["string", "null"]},
+          "path": {"type": "string"},
+          "branch": {"type": ["string", "null"]},
+          "free": {"type": "boolean"},
+          "reason": {"type": ["string", "null"], "enum": [null, "no_pane", "path_mismatch", "agent", "session", "dirty"]}
+        }
+      }
+    }
+  }
+}
