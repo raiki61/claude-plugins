@@ -6,6 +6,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-15
+
+### Fixed
+
+- herdr のタブ欄に貼った `limits.py` の行が、macOS で起動できずに何も出さなかった。herdr がタブ欄のコマンドに渡す PATH では、`python3` が OS に付いてくる Python 3.9 になり、設定の TOML を読む `tomllib`（3.11 から）が無い。`limits.py herdr-config` がアカウントの一覧の写し（`<limits_dir>/accounts.json`）を書き、タブ欄の行は TOML の代わりにそれを読むようにした。行は PATH の `python3` か `python` を使い、マシンごとの絶対パスは書かない。前の版の行を貼った人は、`herdr-config` を走らせ直して行を貼り直す。
+
 ## [0.1.2] - 2026-10-15
 
 ### Fixed

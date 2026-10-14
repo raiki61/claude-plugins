@@ -2,12 +2,15 @@
 {"five_hour": {used_percentage, resets_at, updated_at}, "seven_day": {...}, "updated_at", "source"?}。
 アカウントの数と名前は dispatch の設定から読み、1 つでも 7 つでも同じに動く。API と Keychain は偽物にする。"""
 
+import ast
 import json
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
-from . import DISPATCH  # noqa: F401
+from . import DISPATCH
 import config
 import limits
 
@@ -187,22 +190,75 @@ class HerdrConfig(unittest.TestCase):
     def test_one_entry_per_account_plus_one_probe(self):
         for n in (1, 7):
             with self.subTest(accounts=n):
-                lines = limits.herdr_entries(accounts(n), "/p/limits.py", "/c/dispatch.toml")
+                lines = limits.herdr_entries(accounts(n), "/p/limits.py", "/l/accounts.json")
                 self.assertEqual(len(lines), n + 1)
                 self.assertIn("show a0", lines[0])
-                self.assertIn("--config /c/dispatch.toml", lines[0])
+                self.assertIn("--accounts /l/accounts.json", lines[0])
                 self.assertIn("probe", lines[-1])
 
     def test_account_without_usage_window_gets_no_entry(self):
         accts = accounts(2) + (config.Account("local", "claude-ollama", None, None, False),)
-        lines = limits.herdr_entries(accts, "/p/limits.py", "/c/d.toml")
+        lines = limits.herdr_entries(accts, "/p/limits.py", "/l/accounts.json")
         self.assertEqual(len(lines), 3)
         self.assertNotIn("local", "\n".join(lines))
+
+    def test_lines_take_python_from_path_and_do_not_read_the_toml(self):
+        # herdr がタブ欄のコマンドに渡す PATH は、ログインのシェルの PATH と違う（macOS では OS に付いてくる 3.9 が先に来た）。
+        # 絶対パスはマシンごとに違うので書かず、このリポジトリのフックと同じく PATH の python3 か python を使う。
+        # そのため、タブ欄から呼ぶ道は TOML（tomllib は 3.11 から）を読まず、herdr-config が書いた JSON の写しを読む
+        for line in limits.herdr_entries(accounts(2), "/p/limits.py", "/l/accounts.json"):
+            self.assertIn("command -v python3 || command -v python", line)
+            self.assertIn("--accounts /l/accounts.json", line)
+            self.assertNotIn("--config", line)
+
+    def test_snapshot_round_trips_what_show_probe_and_record_need(self):
+        accts = (config.Account("main", "claude"),
+                 config.Account("p1", "claude-p1", "~/.claude-p1", "kc-p1"),
+                 config.Account("local", "claude-ollama", None, None, False))
+        d = pathlib.Path(tempfile.mkdtemp())
+        path = d / "accounts.json"
+        limits.write_snapshot(path, accts, "/l")
+        got, limits_dir = limits.read_snapshot(path)
+        self.assertEqual(limits_dir, "/l")
+        self.assertEqual([(a.name, a.config_dir, a.keychain_service, a.limits) for a in got],
+                         [("main", None, None, True), ("p1", "~/.claude-p1", "kc-p1", True), ("local", None, None, False)])
+
+    def test_herdr_config_writes_the_snapshot_next_to_the_records(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        toml = d / "dispatch.toml"
+        toml.write_text(f'limits_dir = "{d / "lim"}"\naccounts = [{{ name = "p1", command = "claude-p1", config_dir = "/h/.claude-p1" }}]\n'
+                        f'[[repos]]\nrepo = "o/r"\nsource = "{d}"\nclone_root = "{d}"\nsecond_prompt_file = "{toml}"\n', encoding="utf-8")
+        out = subprocess.run([sys.executable, str(DISPATCH / "limits.py"), "--config", str(toml), "herdr-config"],
+                             capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        snap = d / "lim" / "accounts.json"
+        self.assertEqual([a.name for a in limits.read_snapshot(snap)[0]], ["p1"])
+        self.assertIn(f"--accounts {snap}", out.stdout)
+
+    def test_show_and_probe_run_where_tomllib_is_missing(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        limits.write_snapshot(d / "accounts.json", accounts(1), str(d))
+        fresh = {"five_hour": win(5, NOW + 3600, NOW), "seven_day": win(40, NOW + 86400, NOW)}
+        (d / "a0.json").write_text(json.dumps(fresh), encoding="utf-8")
+        code = ("import sys, time; sys.modules['tomllib'] = None; time.time = lambda: %d\n"
+                "sys.path.insert(0, %r); import limits\n"
+                "assert limits.main(['--accounts', %r, 'show', 'a0']) == 0\n"
+                "assert limits.main(['--accounts', %r, 'probe']) == 0\n"
+                "assert 'config' not in sys.modules") % (NOW, str(DISPATCH), str(d / "accounts.json"), str(d / "accounts.json"))
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertTrue(out.stdout.startswith("a0 5h 5%"), out.stdout)
+
+    def test_tab_bar_path_reads_as_python_3_9(self):
+        # macOS に付いてくる python3 は 3.9。タブ欄から呼ぶファイルは、その文法で読めること
+        for rel in ("limits.py", "vendor/claude_auth.py"):
+            with self.subTest(file=rel):
+                ast.parse((DISPATCH / rel).read_text(encoding="utf-8"), feature_version=(3, 9))
 
     def test_more_than_herdr_allows_is_refused(self):
         # herdr の tab_bar_right は 16 個まで。アカウントの表示と取り直しの 1 個で 15 アカウントまで
         with self.assertRaises(ValueError):
-            limits.herdr_entries(accounts(16), "/p/limits.py", "/c/d.toml")
+            limits.herdr_entries(accounts(16), "/p/limits.py", "/l/accounts.json")
 
 
 if __name__ == "__main__":

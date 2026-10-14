@@ -1,5 +1,7 @@
-# limits.py herdr-config が 1 行目をアカウントごとに、2 行目を 1 回だけ使う雛形。{script}・{config}・{name} を埋める。
+# limits.py herdr-config が 1 行目をアカウントごとに、2 行目を 1 回だけ使う雛形。{script}・{accounts}・{name} を埋める。
+# Python は、このリポジトリのフックと同じく PATH の python3 か python を使う（マシンごとに違う絶対パスは書かない）。
+# {accounts} はアカウントの写し（JSON）。herdr の PATH の python3 は古いことがあるので、TOML を読まない道を呼ぶ。
 # 打ち切りの秒は herdr の設定の値で、limits.py は自分では打ち切らない。
 # 表示（show）は控えを読むだけなので短く打ち切る。取り直し（probe）はアカウントの数だけ順に API へ問い合わせるので長く取る。
-{{ type = "command", command = "python3 {script} --config {config} show {name}", interval_seconds = 30, timeout_seconds = 5 }},
-{{ type = "command", command = "python3 {script} --config {config} probe", interval_seconds = 300, timeout_seconds = 120 }},
+{{ type = "command", command = "PY=$(command -v python3 || command -v python); \"$PY\" {script} --accounts {accounts} show {name}", interval_seconds = 30, timeout_seconds = 5 }},
+{{ type = "command", command = "PY=$(command -v python3 || command -v python); \"$PY\" {script} --accounts {accounts} probe", interval_seconds = 300, timeout_seconds = 120 }},

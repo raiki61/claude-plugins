@@ -12,15 +12,20 @@
 - record: Claude Code の statusline に渡る JSON の rate_limits を取り込む。使っているアカウントの 5 時間の枠がすぐ動く。
 
 使い方:
-  python3 limits.py [--config <パス>] show <名前>   … 控えを読んで 1 行出す（herdr のタブ欄が呼ぶ）
-  python3 limits.py [--config <パス>] probe         … 取り直しが要るアカウントだけ API に問い合わせる
-  python3 limits.py [--config <パス>] record        … statusline の JSON を標準入力から読んで控えに取り込む
-  python3 limits.py [--config <パス>] herdr-config  … herdr の config.toml の [ui] に置く tab_bar_right を出す
+  python3 limits.py [--config <パス> | --accounts <写し>] show <名前>   … 控えを読んで 1 行出す（herdr のタブ欄が呼ぶ）
+  python3 limits.py [--config <パス> | --accounts <写し>] probe         … 取り直しが要るアカウントだけ API に問い合わせる
+  python3 limits.py [--config <パス> | --accounts <写し>] record        … statusline の JSON を標準入力から読んで控えに取り込む
+  python3 limits.py [--config <パス>] herdr-config  … アカウントの写しを書き、herdr の config.toml の [ui] に置く tab_bar_right を出す
+
+アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブ欄から呼ぶ道は
+設定の TOML を読まずにこれを読む。herdr がタブ欄のコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
+TOML を読む tomllib（3.11 から）が無いため。タブ欄から呼ぶ道（このファイルと vendor/claude_auth.py）は 3.9 の文法で書く。
 
 こちらからは打ち切らない。herdr のタブ欄から呼ぶときは、herdr の設定の秒（雛形 templates/herdr-tab-bar.toml）が打ち切る。
 """
 
 import argparse
+import collections
 import datetime
 import http.client
 import json
@@ -34,8 +39,11 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import config  # noqa: E402
 from vendor import claude_auth  # noqa: E402
+
+# 写しから読んだアカウント。dispatch の設定の Account と同じ名前の欄を持つ（config は tomllib を引くので、ここでは import しない）
+Snap = collections.namedtuple("Snap", "name command config_dir keychain_service limits")
+SNAPSHOT_NAME = "accounts.json"
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -308,55 +316,87 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch):
         stamp.write_text(str(now), encoding="utf-8")
 
 
-def herdr_entries(accounts, script, config_path):
+def write_snapshot(path, accounts, limits_dir):
+    """タブ欄から呼ぶ道が読むアカウントの写しを書く。"""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write(path, {"schema": 1, "limits_dir": str(limits_dir),
+                  "accounts": [{"name": a.name, "command": a.command, "config_dir": a.config_dir,
+                                "keychain_service": a.keychain_service, "limits": a.limits} for a in accounts]})
+
+
+def read_snapshot(path):
+    """(アカウントの並び, limits_dir)。写しが読めなければ ValueError。"""
+    try:
+        raw = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        accts = tuple(Snap(a["name"], a.get("command"), a.get("config_dir"), a.get("keychain_service"), a.get("limits", True))
+                      for a in raw["accounts"])
+        return accts, raw["limits_dir"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise ValueError(f"アカウントの写し {path} が読めない（{e}）。limits.py herdr-config を走らせ直す") from e
+
+
+def herdr_entries(accounts, script, snapshot_path):
     """herdr の tab_bar_right に並べる行。使用率の枠のあるアカウントごとに表示を 1 つ、最後に取り直しを 1 つ。"""
     shown = [a for a in accounts if a.limits]
     if len(shown) + 1 > HERDR_MAX_ENTRIES:
         raise ValueError(f"herdr のタブ欄に並べられるのは {HERDR_MAX_ENTRIES - 1} アカウントまで（{len(shown)} ある）")
     show, probe = [line for line in TEMPLATE.read_text(encoding="utf-8").splitlines() if line.startswith("{{")]
-    q = {"script": shlex.quote(script), "config": shlex.quote(config_path)}
+    q = {"script": shlex.quote(script), "accounts": shlex.quote(str(snapshot_path))}
     return [show.format(name=shlex.quote(a.name), **q) for a in shown] + [probe.format(**q)]
 
 
 def main(argv=None, env=os.environ, stdin=sys.stdin):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
+    ap.add_argument("--accounts", help="herdr-config が書いたアカウントの写し。渡すと設定の TOML を読まない")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("show").add_argument("name")
     sub.add_parser("probe")
     sub.add_parser("record")
     sub.add_parser("herdr-config")
     a = ap.parse_args(argv)
-    try:
-        cfg = config.load(a.config, env)
-    except config.ConfigError as e:
-        print(e, file=sys.stderr)
-        return 1
+    if a.accounts and a.cmd != "herdr-config":
+        try:
+            accts, limits_dir = read_snapshot(a.accounts)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 1
+    else:
+        import config  # TOML を読む道だけが引く（tomllib は 3.11 から）
+        try:
+            cfg = config.load(a.config, env)
+        except config.ConfigError as e:
+            print(e, file=sys.stderr)
+            return 1
+        accts, limits_dir = cfg.accounts, cfg.limits_dir
     now = time.time()
     if a.cmd == "show":
-        line = render(a.name, _read(pathlib.Path(cfg.limits_dir) / f"{a.name}.json"), now)
+        line = render(a.name, _read(pathlib.Path(limits_dir) / f"{a.name}.json"), now)
         if line:
             print(line)
     elif a.cmd == "probe":
-        probe_all(cfg.accounts, cfg.limits_dir, env, now)
+        probe_all(accts, limits_dir, env, now)
     elif a.cmd == "record":
         try:
             rate_limits = json.load(stdin).get("rate_limits")
         except (ValueError, AttributeError):
             return 0  # statusline の入力が読めない回は書かない。statusline の表示を止めない
-        name = account_for(cfg.accounts, env)
-        acct = next((x for x in cfg.accounts if x.name == name), None)
+        name = account_for(accts, env)
+        acct = next((x for x in accts if x.name == name), None)
         if acct is None or not acct.limits:
             return 0
-        path = pathlib.Path(cfg.limits_dir) / f"{name}.json"
+        path = pathlib.Path(limits_dir) / f"{name}.json"
         snap = merge_statusline(_read(path), rate_limits, now)
         if snap is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
             _write(path, snap)
     else:
         try:
-            lines = herdr_entries(cfg.accounts, str(HERE / "limits.py"), config.path_of(a.config, env))
-        except ValueError as e:
+            snapshot = pathlib.Path(limits_dir) / SNAPSHOT_NAME
+            lines = herdr_entries(accts, str(HERE / "limits.py"), snapshot)
+            write_snapshot(snapshot, accts, limits_dir)
+        except (ValueError, OSError) as e:
             print(e, file=sys.stderr)
             return 1
         print("tab_bar_right = [")

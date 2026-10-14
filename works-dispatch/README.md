@@ -22,6 +22,8 @@
 - 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）の 4 つ。
 - 流れの外に、任意の道具が 2 つある。どちらも dispatch の設定のアカウントを読む。
   - `limits.py`: 使用率の控えを作って読む。控えが古いアカウントにだけ API を問い合わせ（probe）、statusline の値を取り込み（record）、herdr のタブ欄に 1 行ずつ出す（show）。取り直しの規則は、持ち主が先に作った `limits.sh` と `statusline.sh` から写した。herdr の打ち切りの秒は、コードの外の雛形 `templates/herdr-tab-bar.toml` に置く（D5）。
+    - herdr のタブ欄から呼ぶ道（show と probe）は、設定の TOML を読まず、`herdr-config` が書くアカウントの写し（`<limits_dir>/accounts.json`）を読む。herdr がタブ欄のコマンドに渡す PATH は、ログインのシェルの PATH と違い、macOS では OS に付いてくる Python 3.9 が `python3` になった（2026-10-15 に実物で確かめた）。TOML を読む `tomllib` は 3.11 からなので、そのままでは起動できない。
+    - 行には、マシンごとに違う Python の絶対パスを書かない。ほかのプラグインのフックと同じく、PATH の `python3` か `python` を使う。その代わり、タブ欄から呼ぶファイル（`limits.py` と `vendor/claude_auth.py`）は 3.9 の文法で書き、試験（`test_tab_bar_path_reads_as_python_3_9`）が縛る。
   - `activity.py`: Claude Code のフックから、herdr のサイドバーの印 `$act` に作業内容を送る。
 - 柵 D1〜D8 は、試験 `dispatch/tests/test_rules.py` が構文木と文字で見る。中身は設計書の 4 節にある。
   - D1: works（darkfactory）の部品（`works/.shared/` など）を読まない。入れたプラグインはほかのプラグインのフォルダを引けないため。
