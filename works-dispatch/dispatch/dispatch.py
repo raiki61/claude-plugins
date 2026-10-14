@@ -402,7 +402,8 @@ def _clean(cfg, repo, apply, ports):
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
     root = repo.clone_root
     folders = [os.path.join(root, n) for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
-    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo, n), cwds, ports.is_clean, ports.unpushed)
+    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo, n), cwds, ports.is_clean, ports.unpushed,
+                            origin=ports.origin)
     if not rows:
         print("PR ごとの clone は無い")
         return 0

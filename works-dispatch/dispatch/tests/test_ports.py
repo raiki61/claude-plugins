@@ -155,11 +155,11 @@ class Git(unittest.TestCase):
         self.assertIsNone(gitx.branch("/r", runner=Fake((0, "\n", ""))))
         self.assertIsNone(gitx.branch("/r", runner=Fake((128, "", "not a git repository"))))
 
-    def test_is_clean_ignores_untracked(self):
-        f = Fake((0, "", ""))
-        self.assertTrue(gitx.is_clean("/r", runner=f))
-        self.assertIn("--untracked-files=no", f.calls[0][0])
+    def test_is_clean_reads_porcelain_status(self):
+        self.assertTrue(gitx.is_clean("/r", runner=Fake((0, "", ""))))
         self.assertFalse(gitx.is_clean("/r", runner=Fake((0, " M a.py\n", ""))))
+        self.assertFalse(gitx.is_clean("/r", runner=Fake((0, "?? new.py\n", ""))))
+        self.assertFalse(gitx.is_clean("/r", runner=Fake((128, "", "not a git repository"))))
 
     def test_origin_repo_forms(self):
         for url in ("git@github.com:o/r.git", "https://github.com/o/r", "https://github.com/o/r.git",

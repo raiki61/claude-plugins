@@ -2,10 +2,11 @@
 """clean ノード: PR ごとの clone のうち、消してよいものを選び、消す（設計書 3 節の片付け）。外に書く。
 
 消してよいのは、次の全部を満たすフォルダだけ。
-- `<clone_root>/<リポジトリの名前>-pr-<番号>` の形の名前である
+- `<clone_root>/<リポジトリの名前>-pr-<番号>` の形の名前で、origin がこのリポジトリである（同じ名前の別のリポジトリの clone に触らない）
 - その PR が閉じている（MERGED か CLOSED）。状態が読めなければ消さない
 - そのフォルダかその下を作業フォルダにする会話が、どのアカウントにも無い（会話を閉じるのは持ち主だけ）
-- 未コミットの変更も、手元にしか無い commit も無い
+- 未コミットの変更も、git にまだ足していない新しいファイルも、手元にしか無い commit（枝に乗っていない HEAD の上を含む）も、stash も無い
+パスはリンクを辿った実際のパスで比べる（clone_root がリンクでも、会話の作業フォルダを見落とさない）。
 消す時は、そのフォルダを作業フォルダにするペインに会話が無ければ、herdr の作業場を先に閉じてからフォルダを消し、消えたことを読み戻す。
 会話のあるペインの作業場は閉じない。
 
@@ -25,11 +26,12 @@ FINISHED = ("MERGED", "CLOSED")
 
 
 def _inside(cwd, path):
-    c, p = pathlib.PurePath(cwd), pathlib.PurePath(path)
+    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
     return c == p or p in c.parents
 
 
-def candidates(repo, folders, pr_state, open_cwds, is_clean, unpushed):
+def candidates(repo, folders, pr_state, open_cwds, is_clean, unpushed, origin=None):
+    """origin(path) は clone の origin の OWNER/NAME（None は照らさない）。"""
     pattern = re.compile(rf"^{re.escape(repo.repo.split('/')[-1])}-pr-(\d+)$")
     rows = []
     for path in sorted(folders):
@@ -37,6 +39,9 @@ def candidates(repo, folders, pr_state, open_cwds, is_clean, unpushed):
         if not m:
             continue
         n = int(m.group(1))
+        if origin is not None and origin(path) != repo.repo:
+            rows.append({"path": path, "number": n, "state": None, "removable": False, "reason": "other_repo"})
+            continue
         state = pr_state(n)
         reason = None
         if state is None:

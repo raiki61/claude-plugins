@@ -61,6 +61,61 @@ class Unpushed(unittest.TestCase):
         git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "local")
         self.assertTrue(gitx.unpushed(path))
 
+    def world(self):
+        from .test_provision import make_world
+        src, root = make_world()
+        path = str(pathlib.Path(root, "r-pr-1"))
+        git("clone", "-q", src, path)
+        return path
+
+    def test_new_file_not_yet_added_is_not_clean(self):
+        # 会話が書いた新しいファイルは、git に足す前でも作業である。消すと戻せない
+        path = self.world()
+        self.assertTrue(gitx.is_clean(path))
+        pathlib.Path(path, "new.py").write_text("x = 1\n")
+        self.assertFalse(gitx.is_clean(path))
+
+    def test_ignored_file_alone_stays_clean(self):
+        # git が追わない手元だけのファイル（.env.local など）は、写し元から作り直せる
+        path = self.world()
+        with open(pathlib.Path(path, ".git", "info", "exclude"), "a") as f:
+            f.write(".env.local\n")
+        pathlib.Path(path, ".env.local").write_text("A=1\n")
+        self.assertTrue(gitx.is_clean(path))
+
+    def test_stash_counts_as_unpushed(self):
+        path = self.world()
+        pathlib.Path(path, "draft.py").write_text("x = 1\n")
+        git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "stash", "push", "-q", "--include-untracked")
+        self.assertTrue(gitx.is_clean(path))
+        self.assertTrue(gitx.unpushed(path))
+
+    def test_commit_on_a_detached_head_counts_as_unpushed(self):
+        path = self.world()
+        git("-C", path, "checkout", "-q", "--detach")
+        git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "loose")
+        self.assertTrue(gitx.unpushed(path))
+
+
+class Paths(unittest.TestCase):
+    def test_conversation_behind_a_symlinked_clone_root_still_keeps_the_folder(self):
+        # clone_root がリンク（~/src → 別のボリューム）で、claude agents が実際のパスを返しても、会話のある clone は残す
+        import os
+        import tempfile
+        real = pathlib.Path(tempfile.mkdtemp()).resolve()
+        (real / "r-pr-1").mkdir()
+        link = pathlib.Path(tempfile.mkdtemp()) / "src"
+        os.symlink(real, link)
+        repo = Repo("o/r", "s", "/src/r", str(link), ())
+        rows = clean.candidates(repo, [str(link / "r-pr-1")], lambda n: "MERGED", {str(real / "r-pr-1")},
+                                lambda p: True, lambda p: False)
+        self.assertEqual(rows[0]["reason"], "session")
+
+    def test_clone_of_another_repo_with_the_same_name_is_not_touched(self):
+        rows = clean.candidates(REPO, folders("r-pr-1"), lambda n: "MERGED", set(), lambda p: True, lambda p: False,
+                                origin=lambda p: "someone-else/r")
+        self.assertEqual((rows[0]["removable"], rows[0]["reason"]), (False, "other_repo"))
+
 
 class Main(unittest.TestCase):
     def setUp(self):

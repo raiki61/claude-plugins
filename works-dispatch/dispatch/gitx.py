@@ -29,8 +29,11 @@ def branch(cwd, runner=_default_runner):
 
 
 def is_clean(cwd, runner=_default_runner):
-    """追跡しているファイルに未コミットの変更が無いか。追跡していないファイルは見ない（/catchup が枝を移る条件と同じ）。"""
-    out = _git(cwd, ["status", "--porcelain", "--untracked-files=no"], runner)
+    """未コミットの変更も、git にまだ足していない新しいファイルも無いか。読めない時は、汚れているとみなす（消さない側に倒す）。
+
+    .gitignore に当たるファイル（.env.local など、写し元から作り直せる手元だけのファイル）は数えない。
+    """
+    out = _git(cwd, ["status", "--porcelain"], runner)
     return out == ""
 
 
@@ -66,9 +69,13 @@ def fetch(path, runner=_default_runner):
 
 
 def unpushed(cwd, runner=_default_runner):
-    """手元にしか無い commit（どの remote の枝にも入っていない commit）があるか。読めない時は、有るとみなす（消さない側に倒す）。"""
-    out = _git(cwd, ["log", "--branches", "--not", "--remotes", "--oneline"], runner)
-    return out is None or out != ""
+    """手元にしか無い作業があるか。読めない時は、有るとみなす（消さない側に倒す）。
+
+    どの remote の枝にも入っていない commit（枝の上と、枝に乗っていない HEAD の上）と、stash を数える。
+    """
+    out = _git(cwd, ["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"], runner)
+    stash = _git(cwd, ["stash", "list"], runner)
+    return out is None or out != "" or stash is None or stash != ""
 
 
 def ignored_files(cwd, runner=_default_runner):
