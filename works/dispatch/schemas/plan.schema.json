@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "required": ["schema", "plan"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["number", "title", "head", "url", "outcome", "account", "slot"],
+        "properties": {
+          "number": {"type": "integer"},
+          "title": {"type": "string"},
+          "head": {"type": "string"},
+          "url": {"type": ["string", "null"]},
+          "outcome": {"type": "string", "enum": ["assigned", "already_open", "no_account", "no_slot"]},
+          "account": {"type": ["object", "null"]},
+          "slot": {"type": ["object", "null"]}
+        }
+      }
+    }
+  }
+}
