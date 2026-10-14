@@ -1,6 +1,6 @@
 # gates — 門番フック集
 
-外に出る操作を、検査が通るまで止める PreToolUse フックを配る。現在の門番は 2 本——coldread(通じやすさ)と destgate(宛先の許可制)。
+外に出る操作を、検査が通るまで止めるフックを配る。現在の門番は 2 本——coldread(通じやすさ)と destgate(宛先の許可制)。coldread は gh への投稿を書く前に止め、手元の文書(md など)は書いた後に読んでターンの終わりに指摘を返す(止めない)。
 
 版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（tag の名前と付ける commit・変更の記録を書き足す段）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
 
@@ -61,7 +61,7 @@ file と行・元の指摘・これまでの返信が同じ画面に見えてい
 medium)・`COLDREAD_MIN_LEN`(これ未満のコマンドは素通し。既定 400)・`COLDREAD_MAX_LEN`
 (これを超えるコマンドは解析せず止める。既定 100000)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で
 OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(coldreader の差し替え)・
-`COLDREAD_GH_CMD`(画面を取る gh の差し替え。テスト用)。
+`COLDREAD_GH_CMD`(画面を取る gh の差し替え。テスト用)。手元の文書の側は下の節。
 
 ## 網の射程(正直な限界)
 
@@ -113,6 +113,28 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 - 値が本文でないものは coldreader(外部プロセス)へ送らない: `gh secret set --body`・
   `gh variable set --body`(値は秘密そのもの)、`gh api --input` の JSON(`.body` を持つときだけ
   その中身を読ませ、持たない JSON は送らない)
+
+## coldread — 手元の文書(書いた後に読み、止めずに指摘を返す)
+
+拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を Write・Edit・MultiEdit で書くと、PostToolUse のフックが
+パスを記録するだけで終わる。ターンの終わり(Stop のフック)に、そのターンで書いた文書を 1 本 1 回だけ、
+投稿と同じ依頼文(`coldread-gate.py` の `COLD_PROMPT`。初見で読む観点の正本はこの 1 か所)で coldreader に読ませる。
+詰まりか推測で埋めた箇所が在れば、Stop の `additionalContext` で指摘を返して会話を続けさせる(書き込みは取り消さない)。
+
+- 投稿は出したら取り消せないので書く前に止める。手元の文書は書いた後でも直せるので止めない。書くたびに読ませると、
+  Edit のたびに待たされ、同じ文書を何度も読む
+- 読み手は投稿より安いモデル(既定 haiku。`COLDREAD_DOC_MODEL` で替える)。投稿の読み手は sonnet のまま
+- 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
+  前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
+- 直した文書はまた次のターンの終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
+  そのまま終えてよい。連続で返すのは Claude Code が 8 回で打ち切る
+- 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
+- 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった)
+- 手で 1 本を読ませる口: `python3 hooks/coldread-gate.py read <パス>`(詰まりが在れば終了コード 1)。
+  依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
+
+前は別の plugin の coldwrite が、Write の前に prompt 型フックで読んで書き込みを止めていた。prompt 型フックは道具に渡した
+中身しか見ないので、Edit では差し替えた数行しか読めず、文書の全体を読めなかった。gates に移して coldwrite は退いた。
 
 リポジトリ全体の文書の初読検査は convergence-loops の `/firstread-loop`(重い姉)。
 こちらは単体で読まれる短文向けの軽い妹で、フックなので呼ばなくても効く。

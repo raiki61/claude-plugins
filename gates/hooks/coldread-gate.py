@@ -89,6 +89,8 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
                              CLAUDE_CONFIG_DIR の末尾から推定: ~/.claude-p1 → claude-code-oauth-p1)
 """
+import concurrent.futures
+import hashlib
 import json
 import os
 import re
@@ -174,6 +176,12 @@ SHORT_TEXT_FLAGS = {
 }
 # 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
 GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
+# `gh api` は自分の旗を endpoint の前にも置ける(gh 2.102.0 の `gh api --help` の FLAGS)。知らない旗として None に倒すと、
+# 読むだけの `gh api --allow-escape-sequences <endpoint>` まで「検査できない」で止まった(2026-10-15 に実測)。
+# 値を取る旗は値ごと読み飛ばす。ここに無い旗は今までどおり None(検査できない側)に倒す
+API_VALUE_FLAGS = {"--cache", "-F", "--field", "-H", "--header", "--hostname", "--input", "-q", "--jq",
+                   "-X", "--method", "-p", "--preview", "-f", "--raw-field", "-t", "--template"}
+API_BOOL_FLAGS = {"--allow-escape-sequences", "-i", "--include", "--paginate", "--silent", "--slurp", "--verbose"}
 WRAPPERS = {"env", "command", "exec", "nohup", "time"}
 # シェルの予約語。単純コマンドの先頭語になりうるが、コマンド名ではないので読み飛ばす。
 # 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
@@ -452,6 +460,17 @@ def subcommand(args):
                for f in GLOBAL_VALUE_FLAGS):
             i += 1
             continue
+        if words == ["api"] and tok.startswith("-") and tok != "-":
+            name = tok.split("=", 1)[0]
+            if name in API_BOOL_FLAGS:
+                i += 1
+                continue
+            if name in API_VALUE_FLAGS:
+                i += 1 if "=" in tok else 2
+                continue
+            if not tok.startswith("--") and tok[:2] in API_VALUE_FLAGS:   # -XPOST・-fbody=… の融合形
+                i += 1
+                continue
         if tok.startswith("-") and tok != "-":
             return None
         words.append(tok)
@@ -1049,6 +1068,26 @@ NONE_RE = re.compile(r"^(?:なし|無し|ない|無い|特になし|特に無し
                      r"\s*(?:[（(][^）)]*[）)])?\s*[。．.]?\s*$", re.I)
 
 
+def report_shaped(out):
+    """読み役の出力が報告の形(CLEAN かラベル行)をしているか。していなければ検査できていない(認証切れはこの形で出る)。"""
+    return "CLEAN" in out or any(LABEL_RE.match(line.strip()) for line in out.splitlines())
+
+
+def sort_findings(out):
+    """読み役の出力をラベルごとの行に仕分ける。
+
+    ラベルはコロンまで見る。行頭の語だけで拾うと「詰まりは無い」のような地の文が
+    詰まりに数えられ、指摘ゼロの本文が deny になる(補完の追加で自由文の行が増えたため)。
+    """
+    found = {label: [] for label in LABELS}
+    for line in out.splitlines():
+        line = line.strip()
+        m = LABEL_RE.match(line)
+        if m and not NONE_RE.match(line[m.end():].strip()):
+            found[m.group(1)].append(line)
+    return found
+
+
 def section(head: str, items: list) -> str:
     """見出し付きの節。中身が無ければ空文字("".join の側で節ごと落ちる)。"""
     return head + "\n" + "\n".join(items) if items else ""
@@ -1161,7 +1200,7 @@ VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s
                 "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
 
 
-def reader_argv(claude_bin):
+def reader_argv(claude_bin, model=None):
     """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。
 
     **本文は argv に載せない**(依頼文+本文は stdin で渡す)。載せていた頃は 2 つ問題が在った:
@@ -1174,7 +1213,7 @@ def reader_argv(claude_bin):
     graphloops の graph(774,021 バイトを stdin で通した実測。docs/loop-contract.md の T 節)。
     """
     return [claude_bin, "-p",
-            "--model", os.environ.get("COLDREAD_MODEL", "sonnet"),
+            "--model", model or os.environ.get("COLDREAD_MODEL", "sonnet"),
             "--effort", os.environ.get("COLDREAD_EFFORT", "medium"),
             # 読み役は本文を読んで報告するだけで道具は要らない。検査対象の文章そのものを
             # 渡すので、本文に紛れた指示で読み役が動く経路をここで断つ("" で全道具を無効化)。
@@ -1197,8 +1236,8 @@ def _child_text(raw, strict=True):
     return (raw or b"").decode("utf-8", "strict" if strict else "replace").replace("\r\n", "\n")
 
 
-def run_reader(prompt: str):
-    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。失敗は例外。"""
+def run_reader(prompt: str, model=None):
+    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
     note = None  # 採った認証の段。差し替えの枝では認証に触らないので None のまま
     if override:
@@ -1221,7 +1260,7 @@ def run_reader(prompt: str):
         claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
-            reader_argv(claude_bin), input=prompt.encode("utf-8"),
+            reader_argv(claude_bin, model), input=prompt.encode("utf-8"),
             capture_output=True, timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
@@ -1399,7 +1438,7 @@ def main() -> None:
     # could not be refreshed』の 1 行を**標準出力に・終了コード 0 で**返した。rc も空出力も踏まないので
     # ここまで素通りし、ラベルが 1 つも無いまま allow に落ちていた(＝検査せずに投稿が出る fail-open)。
     # 依頼文が許す出力は CLEAN かラベル行の 2 種類だけなので、どちらでもなければ「検査できない」として止める。
-    if "CLEAN" not in out and not any(LABEL_RE.match(line.strip()) for line in out.splitlines()):
+    if not report_shaped(out):
         record("deny\treader-shape")
         deny(
             "外部投稿ゲート: coldreader の出力が報告の形(CLEAN かラベル行)をしていない: %r\n" % out[:150]
@@ -1407,14 +1446,7 @@ def main() -> None:
             + ESCAPE_NOTE
         )
 
-    # ラベルはコロンまで見る。行頭の語だけで拾うと「詰まりは無い」のような地の文が
-    # 詰まりに数えられ、指摘ゼロの本文が deny になる(補完の追加で自由文の行が増えたため)。
-    found = {label: [] for label in LABELS}
-    for line in out.splitlines():
-        line = line.strip()
-        m = LABEL_RE.match(line)
-        if m and not NONE_RE.match(line[m.end():].strip()):
-            found[m.group(1)].append(line)
+    found = sort_findings(out)
     blocking, questions, fills, redundant, traced = (
         found["詰まり"], found["疑問"], found["補完"], found["冗長"], found["なぞり"])
 
@@ -1492,5 +1524,191 @@ def main() -> None:
     )
 
 
+# ---- 手元の文書(書いた後に記録し、ターンの終わりにまとめて読む) -----------------------------
+# gh への投稿は出したら取り消せないので、書く前に止める(上の main)。手元の文書は書いた後でも直せるので止めない。
+# 書くたびに読み手を起こすと、Edit のたびに待たされ、同じ文書を何度も読む(Vale も書いた後に走らせ、止めずに指摘を返す)。
+# だから Write・Edit の後(PostToolUse)は読んだ文書の名前を記録するだけにし、ターンの終わり(Stop)に、そのターンで
+# 書いた文書を 1 本 1 回だけ読ませ、詰まりが在れば止めずに指摘を返して直させる(Stop の additionalContext は会話を続けさせ、
+# Claude Code が連続 8 回で打ち切る)。読み手と観点は投稿と同じ COLD_PROMPT で、正本はこの 1 か所。
+# 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)にする。
+DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
+DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
+DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
+DOC_WORKERS = 4      # 1 ターンに書いた文書を並べて読む数。Stop のフックの timeout(300s)に、読み役 1 回(210s)で収める
+DOC_SEEN_KEEP = 5000  # 読んだ中身のハッシュを覚える数
+DOC_DIR = os.path.join(STATE_DIR, "docs")
+DOC_LOG = os.path.join(STATE_DIR, "docs.log")
+DOC_SEEN = os.path.join(DOC_DIR, "seen")
+# 1 行目にこの印が在る文書は読まない(書き手が意図して置く逃げ道。印がファイルに残るので記録は要らない)。
+# coldwrite(このゲートに移る前の、書く前に止める門番)の印もそのまま効かせる
+DOC_SKIP_MARKS = ("coldread:skip", "coldwrite:skip")
+
+
+def docs_off():
+    """手元の文書の門番だけを切る(投稿の門番は残す)。"""
+    return os.environ.get("COLDREAD_DOCS_OFF") == "1"
+
+
+def _pending(session):
+    return os.path.join(DOC_DIR, "%s.pending" % re.sub(r"[^A-Za-z0-9_-]", "_", session or "nosession"))
+
+
+def docs_record(payload):
+    """PostToolUse(Write・Edit・MultiEdit): 書いた文書のパスをこのセッションの待ちの一覧に足す。読まない・止めない。"""
+    path = (payload.get("tool_input") or {}).get("file_path") or ""
+    if not path.lower().endswith(DOC_EXTS):
+        return
+    try:
+        os.makedirs(DOC_DIR, exist_ok=True)
+        with open(_pending(str(payload.get("session_id") or "")), "a", encoding="utf-8") as f:
+            f.write(os.path.abspath(path) + "\n")
+    except OSError:
+        pass
+
+
+def _seen():
+    return set(_seen_list())
+
+
+def _remember(digests):
+    if not digests:
+        return
+    try:
+        lines = [*_seen_list(), *digests][-DOC_SEEN_KEEP:]
+        tmp = DOC_SEEN + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        os.replace(tmp, DOC_SEEN)
+    except OSError:
+        pass
+
+
+def _seen_list():
+    try:
+        with open(DOC_SEEN, encoding="utf-8") as f:
+            return f.read().split()
+    except OSError:
+        return []
+
+
+def doc_to_read(path, seen):
+    """読むなら (本文, 中身のハッシュ)、読まないなら (None, 理由)。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        return None, "読めない(%s)" % type(e).__name__
+    first = text.split("\n", 1)[0]
+    if any(mark in first for mark in DOC_SKIP_MARKS):
+        return None, "1 行目に逃げ道の印"
+    if len(text) < DOC_MIN_LEN:
+        return None, "%d 字(%d 字未満は読まない)" % (len(text), DOC_MIN_LEN)
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if digest in seen:
+        return None, "同じ中身を前に読んだ"
+    return text, digest
+
+
+def read_doc(text):
+    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。"""
+    out = run_reader(COLD_PROMPT + text, model=DOC_MODEL)
+    if not report_shaped(out):
+        raise RuntimeError("報告の形(CLEAN かラベル行)をしていない: %r" % out[:150])
+    return sort_findings(out)
+
+
+def doc_feedback(path, found):
+    """1 本の文書の指摘を、直してほしい順の節にする(詰まりも補完も無ければ空)。"""
+    if not (found["詰まり"] or found["補完"]):
+        return ""
+    return "\n".join(filter(None, (
+        "■ %s" % path,
+        section("詰まり(直す):", found["詰まり"]),
+        section("coldreader が推測で埋めた箇所(意図と違うなら直す):", found["補完"]),
+        section("残った疑問(反映するかは判断してよい):", found["疑問"]),
+    )))
+
+
+def docs_check(payload):
+    """Stop: このセッションで書いた文書を 1 本 1 回だけ読ませ、指摘が在れば止めずに返して直させる。"""
+    session = str(payload.get("session_id") or "")
+    pending = _pending(session)
+    try:
+        with open(pending, encoding="utf-8") as f:
+            paths = list(dict.fromkeys(line.strip() for line in f if line.strip()))
+        os.remove(pending)
+    except OSError:
+        return
+    seen = _seen()
+    todo = []
+    for path in paths:
+        text, why = doc_to_read(path, seen)
+        if text is None:
+            log_line(DOC_LOG, "skip\t%s\tsid=%s\t%s" % (why, session[:8], path))
+        else:
+            todo.append((path, text, why))
+    if not todo:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
+        futures = {pool.submit(read_doc, text): (path, text, digest) for path, text, digest in todo}
+    notes, read, down = [], [], []
+    for fut, (path, text, digest) in futures.items():
+        try:
+            found = fut.result()
+        except Exception as exc:
+            log_line(DOC_LOG, "reader-down\t%s\tsid=%s\t%s" % (str(exc)[:150].replace("\n", " "), session[:8], path))
+            down.append(path)
+            continue
+        read.append(digest)
+        note = doc_feedback(path, found)
+        log_line(DOC_LOG, "%s\t%d\tsid=%s\t%s" % ("finding" if note else "clean", len(text), session[:8], path))
+        if note:
+            notes.append(note)
+    _remember(read)
+    if not notes and not down:
+        return
+    head = ("coldread(文脈を持たない初見の読み手 coldreader、モデル %s)が、このターンで書いた文書を読んだ。" % DOC_MODEL
+            + ("詰まった箇所を直すこと(直した文書はターンの終わりにまた読まれる。直さずに残すと判断したものは、"
+               "そのまま終えてよい——同じ中身は読み直さない):" if notes else ""))
+    tail = ("読み手を起こせず読めなかった文書(%s)。手で読ませるなら python3 %s read <パス>。"
+            % ("・".join(down), os.path.abspath(__file__))) if down else ""
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "Stop",
+        "additionalContext": "\n\n".join(filter(None, (head, *notes, tail, VERSION_NOTE))),
+    }}, ensure_ascii=False))
+
+
+def read_now(path):
+    """手で 1 本を読ませる(記録もハッシュも見ない)。指摘を出し、詰まりが在れば 1 で終わる。"""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    found = read_doc(text)
+    body = doc_feedback(path, found)
+    print(body or "CLEAN(詰まりも補完も無い)" + ("\n" + section("残った疑問:", found["疑問"]) if found["疑問"] else ""))
+    return 1 if found["詰まり"] else 0
+
+
+def hook_main(mode):
+    """手元の文書の口。フックの入力は JSON の stdin。失敗しても書き手の作業を止めない(手元の文書は書いた後でも直せる)。"""
+    if docs_off() or os.environ.get("COLDREAD_IN_READER") == "1":
+        return
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return
+    (docs_record if mode == "docs-record" else docs_check)(payload)
+
+
 if __name__ == "__main__":
-    main()
+    MODE = sys.argv[1] if len(sys.argv) > 1 else ""
+    if MODE in ("docs-record", "docs-check"):
+        hook_main(MODE)
+    elif MODE == "read" and len(sys.argv) == 3:
+        sys.exit(read_now(sys.argv[2]))
+    elif MODE == "prompt":
+        # 初見で読む観点の正本はこの 1 か所(COLD_PROMPT)。手で読み手を立てるときも、これを依頼文にする
+        sys.stdout.write(COLD_PROMPT)
+    elif MODE:
+        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | read <パス> | prompt](引数なしは投稿の門番)")
+    else:
+        main()

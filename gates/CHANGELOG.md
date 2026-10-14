@@ -6,6 +6,16 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Added
+
+- 手元の文書の初見検査（coldwrite から移した）。拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を Write・Edit・MultiEdit で書くと、PostToolUse のフックがパスを記録し、ターンの終わり（Stop のフック）に、そのターンで書いた文書を 1 本 1 回だけ coldreader に読ませる。詰まりか推測で埋めた箇所が在れば、止めずに指摘を返して会話を続けさせる。読み手のモデルは既定で haiku（`COLDREAD_DOC_MODEL`）、投稿の読み手は sonnet のまま。300 字未満・1 行目に `coldread:skip` か `coldwrite:skip` の印・前に読んだのと同じ中身は読まない。手元の文書の門番だけを切るのは `COLDREAD_DOCS_OFF=1`。
+- `coldread-gate.py read <パス>`（手で 1 本を読ませる。詰まりが在れば終了コード 1）と `coldread-gate.py prompt`（依頼文を出す）。
+
+### Changed
+
+- skill『coldread』の手で検査する手順は、依頼文を写して持たず、`coldread-gate.py read` を呼ぶ。初見で読む観点の正本は `coldread-gate.py` の 1 か所になった。
+
+
 ## [0.11.6] - 2026-10-15
 
 ### Changed

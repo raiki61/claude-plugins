@@ -2469,6 +2469,16 @@ expect_output 0 "詰まり" "release create -n 短縮形も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh release create v1 -n '$CR_BODY $CR_PAD'"
 expect_output 0 "詰まり" "gh api -f body= も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
+# gh api は自分の旗を endpoint の前に置ける。読むだけの形を「サブコマンドを特定できない」で止めない（2026-10-15 に実測した誤り）。
+# 前に旗を置いた投稿は、旗の値ごと読み飛ばしたうえで網に入る
+expect_output 0 "ALLOW_EMPTY" "gh api の読み取りは、endpoint の前に値を取らない旗が在っても素通し" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "for j in 1 2; do gh api --allow-escape-sequences repos/o/r/actions/jobs/\$j/logs > w\$j.log; done # $CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "gh api の読み取りは、endpoint の前に値を取る旗が在っても素通し" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api -X GET --jq .name --paginate repos/o/r/actions/jobs/1 # $CR_PAD"
+expect_output 0 "詰まり" "endpoint の前に旗を置いた gh api の投稿も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api --silent -XPOST repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
+expect_output 0 "取り出せない" "gh api の知らない旗は今までどおり検査できない側に倒す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api --no-such-flag repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
 CR_JSON_POST="gh api repos/o/r/issues/1/comments --input - <<'EOF'
 {\"body\": \"$CR_BODY $CR_PAD\"}
 EOF"
@@ -2501,27 +2511,111 @@ expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いし�
 # 検査できない本文は fail-closed で止める
 # 表そのものを走査して、各項目が実際に効いていることを確かめる(表が増えれば検査も増える)
 expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "$ROOT/tests/coldread-table-case.py"
-expect_output 0 "COLDWRITE_CFG_OK" "coldwrite の宣言設定が 4 箇所で一致している" "$PY_BIN" "$ROOT/tests/coldwrite-config-check.py"
-# 壊すと落ちることまで確かめる(fail-open 対策)。検査対象の 4 箇所だけを作業場に写し、
-# continueOnBlock を全ハンドラから消した hooks.json で赤くなるか
-CW_WORK="$WORK/coldwrite-broken"
-mkdir -p "$CW_WORK/coldwrite/hooks" "$CW_WORK/coldwrite/.claude-plugin" "$CW_WORK/.claude-plugin" "$CW_WORK/tests"
-cp "$ROOT/coldwrite/README.md" "$CW_WORK/coldwrite/README.md"
-cp "$ROOT/coldwrite/.claude-plugin/plugin.json" "$CW_WORK/coldwrite/.claude-plugin/plugin.json"
-cp "$ROOT/.claude-plugin/marketplace.json" "$CW_WORK/.claude-plugin/marketplace.json"
-cp "$ROOT/README.md" "$CW_WORK/README.md"
-cp "$ROOT/tests/coldwrite-config-check.py" "$CW_WORK/tests/coldwrite-config-check.py"
-"$PY_BIN" - "$ROOT/coldwrite/hooks/hooks.json" "$CW_WORK/coldwrite/hooks/hooks.json" <<'PY'
-import json, sys
+# 手元の文書の口（書いた後に記録し、ターンの終わりにまとめて読む）。読み手は差し替え（COLDREAD_READER_CMD）で、
+# 呼ばれた回数と渡った依頼文をファイルに残させて数える——指摘を返すかだけを見ると、読まずに通す形も緑になる
+expect_output 0 "DOCS_GATE_OK" "coldread の手元の文書: 文書だけを記録し、ターンの終わりに 1 本 1 回だけ投稿と同じ依頼文で読み、指摘を止めずに返す" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-gate" <<'PY'
+import importlib.util, json, os, pathlib, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-for h in d["hooks"]["PreToolUse"][0]["hooks"]:
-    h.pop("continueOnBlock", None)
-json.dump(d, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls = work / "cfg", work / "calls"
+calls.mkdir()
+spec = importlib.util.spec_from_file_location("gate_docs", gate)
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+
+def run(mode, payload, reader=None, **env):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), **env)
+    if reader:
+        e["COLDREAD_READER_CMD"] = reader
+    r = subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+# 読み手の差し替え: 呼ばれるたびに受けた依頼文を calls/ に 1 本ずつ残し、決まった報告を返す
+def stub(report):
+    return ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; printf "%s\n"' % (calls, calls, report))
+FIND = stub("詰まり: 『例の方針』が何か分からない\\n補完: 方針は決まっていると読んだ")
+CLEAN = stub("CLEAN")
+
+def doc(name, text):
+    f = work / name
+    f.write_text(text, encoding="utf-8")
+    return str(f)
+
+long_text = "# 手順\n\n" + "例の方針どおりに進める。" * 40
+a = doc("a.md", long_text)
+b = doc("b.txt", "短い")
+c = doc("c.md", "coldwrite:skip\n" + "あ" * 400)
+d = doc("d.rst", "coldread:skip\n" + "あ" * 400)
+code = doc("e.py", "x = 1\n" * 200)
+for f in (a, b, c, d, code):
+    run("docs-record", {"session_id": "s1", "tool_input": {"file_path": f}})
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})   # 同じ文書を 2 度書いても読むのは 1 回
+pending = (cfg / "coldread-gate/docs/s1.pending").read_text(encoding="utf-8").split()
+assert code not in pending and a in pending, f"記録が文書の拡張子だけを拾っていない: {pending}"
+
+out = json.loads(run("docs-check", {"session_id": "s1"}, FIND))
+ctx = out["hookSpecificOutput"]
+assert ctx["hookEventName"] == "Stop" and "decision" not in out, f"止めずに続けさせる形でない: {out}"
+assert "例の方針" in ctx["additionalContext"] and a in ctx["additionalContext"], ctx
+got = sorted(calls.iterdir())
+assert len(got) == 1, f"読んだのは a.md の 1 本だけのはず（300 字未満・2 つの印・同じ文書の 2 度目は読まない）: {len(got)} 回"
+prompt = got[0].read_text(encoding="utf-8")
+assert prompt == g.COLD_PROMPT + long_text, "投稿と同じ依頼文（COLD_PROMPT）に本文を足した物が読み手に渡っていない"
+assert not (cfg / "coldread-gate/docs/s1.pending").exists(), "読んだ後に待ちの一覧が残る（次のターンにまた読む）"
+
+# 同じ中身は読み直さない。変えたら読む
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})
+assert run("docs-check", {"session_id": "s1"}, FIND) == "" and len(list(calls.iterdir())) == 1, "同じ中身を読み直した"
+pathlib.Path(a).write_text(long_text + "\n直した。", encoding="utf-8")
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})
+assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 2, "直した文書を読まないか、CLEAN で何かを返した"
+
+# 読み手が起きなくても作業は止めない（終了コード 0）。読めなかった文書を名指す
+pathlib.Path(a).write_text(long_text + "\n2 度目。", encoding="utf-8")
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})
+down = json.loads(run("docs-check", {"session_id": "s1"}, "cat >/dev/null; exit 3"))
+assert "読めなかった" in down["hookSpecificOutput"]["additionalContext"], down
+# 報告の形でない出力（認証切れ）を CLEAN と読まない
+pathlib.Path(a).write_text(long_text + "\n3 度目。", encoding="utf-8")
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})
+odd = json.loads(run("docs-check", {"session_id": "s1"}, "cat >/dev/null; echo 'Failed to authenticate'"))
+assert "読めなかった" in odd["hookSpecificOutput"]["additionalContext"], odd
+
+# 切る口と、読み手の中での入れ子
+run("docs-record", {"session_id": "s2", "tool_input": {"file_path": a}}, COLDREAD_DOCS_OFF="1")
+run("docs-record", {"session_id": "s3", "tool_input": {"file_path": a}}, COLDREAD_IN_READER="1")
+assert not any((cfg / "coldread-gate/docs").glob("s[23].pending")), "COLDREAD_DOCS_OFF か読み手の中で記録した"
+
+# 読み手のモデル: 手元の文書は既定 haiku、投稿は既定 sonnet
+argv = g.reader_argv("claude", g.DOC_MODEL)
+assert argv[argv.index("--model") + 1] == "haiku" and g.reader_argv("claude")[3] == "sonnet", (argv, g.reader_argv("claude"))
+
+# フックの宣言: 書いた後は記録だけ、ターンの終わりに読む
+hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
+post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "Write|Edit|MultiEdit" for h in grp["hooks"]]
+stop = [h for grp in hooks.get("Stop", []) for h in grp["hooks"]]
+assert any(h["command"].endswith("coldread-gate.py\" docs-record") for h in post), post
+assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) >= 250 for h in stop), stop
+
+# 初見で読む観点の正本は 1 か所。skill の手順は依頼文を写して持たない
+skill = (root / "gates/skills/coldread/SKILL.md").read_text(encoding="utf-8")
+views = [ln.split(")", 1)[1].strip() for ln in g.COLD_PROMPT.splitlines() if ln[:1] == "(" and ")" in ln]
+assert len(views) == 5, f"COLD_PROMPT の観点の行を拾えない（柵が空回り）: {views}"
+copied = [v for v in views if v in skill]
+assert not copied, f"skill『coldread』が依頼文の観点を写して持っている: {copied}"
+assert "coldread-gate.py\" read" in skill, "skill『coldread』の手で検査する手順が、ゲートの read の口を呼んでいない"
+r = subprocess.run([sys.executable, str(gate), "prompt"], capture_output=True)
+assert r.stdout.decode("utf-8") == g.COLD_PROMPT, "prompt の口が COLD_PROMPT をそのまま出していない"
+print("DOCS_GATE_OK")
 PY
-expect_output 1 "continueOnBlock" "coldwrite: continueOnBlock を消すと赤くなる" "$PY_BIN" "$CW_WORK/tests/coldwrite-config-check.py"
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body='$CR_BODY $CR_PAD'"
@@ -2824,7 +2918,7 @@ expect_output 0 "READER_ARGV_OK" "読み役の起動引数は遮断の旗を持�
     "$PY_BIN" -c "$CR_LOAD"$'\n''import inspect
 a = g.reader_argv("claude")
 flags = all(f in a and a[a.index(f) + 1] == "" for f in ("--setting-sources", "--tools"))
-body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin"]
+body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", "model"]   # 本文を受ける引数を持たない（モデルは手元の文書の読み手が替える）
 print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
