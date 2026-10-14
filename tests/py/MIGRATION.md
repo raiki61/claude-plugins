@@ -159,7 +159,7 @@
 | 2 | 記録のディレクトリでないものを渡したら 1 と区別して落ちる | ディレクトリでない | does-not-exist | test_review_record.py::test_validator[does-not-exist] |
 | 2 | 読めない記録は 1 と区別して落ちる | 開けない | unreadable | test_review_record.py::test_validator[unreadable] |
 | 2 | 引数なしは 1 と区別して落ちる | （終了コードだけ） | （引数なし） | test_review_record.py::test_validator[no-args] |
-| 2 | 引数が多すぎる場合も 1 と区別して落ちる | （終了コードだけ） | tmpl-12 repo:templates/round-1.example.json | test_review_record.py::test_validator[too-many-args] |
+| 2 | 引数が多すぎる場合も 1 と区別して落ちる | （終了コードだけ） | tmpl-12 repo:convergence-loops/templates/round-1.example.json | test_review_record.py::test_validator[too-many-args] |
 | 2 | 深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる） | （終了コードだけ） | deep | test_review_record.py::test_validator_in_child[deep] |
 <!-- ledger:end -->
 

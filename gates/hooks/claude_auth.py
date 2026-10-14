@@ -4,11 +4,10 @@
 **この本文は複数のプラグインに写しで在る**。**正本はリポジトリ直下の `scripts/claude_auth.py`**で、
 写しは `gates/hooks/` と `graphloops/scripts/` と `works/.shared/core/` と `works-dispatch/dispatch/vendor/`（2026-10-14 時点）。
 
-実行時に跨いで読む道は在る——`convergence-loops` はリポジトリ全体が配られるので、キャッシュ越しに
-1 本を共有できる（実測 2026-09-15: `~/.claude/plugins/cache/raiki61/convergence-loops/<版>/` に
-`gates/ graphloops/ scripts/ …` が丸ごと在った）。**それを採っていない**のは、キャッシュから拾えるのが
-「いちばん新しい版」だからで、gates の版と認証コードの版が黙ってずれる組み合わせが起こる。
-認証は静かに壊れる場所（実測: 認証切れは終了コード 0 の 1 行で返る）なので、ここに版のずれを持ち込まない。
+実行時に跨いで読む道は無い——キャッシュに写るのはプラグインごとに自分のフォルダだけである。`convergence-loops` が
+リポジトリの根を配っていた間（0.43 まで。実測 2026-09-15: キャッシュに `gates/ graphloops/ scripts/ …` が丸ごと在った）も、
+その道は採らなかった。キャッシュから拾えるのが「いちばん新しい版」で、gates の版と認証コードの版が黙ってずれる組み合わせが
+起こるからである。認証は静かに壊れる場所（実測: 認証切れは終了コード 0 の 1 行で返る）なので、ここに版のずれを持ち込まない。
 
 直すのは正本 1 か所、配るのは `python3 scripts/shared-copies.py --sync scripts/claude_auth.py`。
 同一性は `tests/run.sh` の柵が見る——**どれか 1 つだけ直すと赤くなる**。

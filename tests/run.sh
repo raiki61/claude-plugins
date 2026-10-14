@@ -15,6 +15,7 @@ fi
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CL="$ROOT/convergence-loops"   # convergence-loops の置き場（marketplace.json の source が指す）
 # 置き場は TMPDIR から明示で取る——macOS の mktemp -d（型なし）は TMPDIR を見ずに利用者の一時ディレクトリ（/var/folders/…）へ
 # 作る（実測 2026-09-25・macOS 26.6.2）。engine が sandbox の中で起こす役（investigator）が書けるのは TMPDIR だけなので、
 # 型なしのままだとこの台本が mkdtemp の Operation not permitted で崩れる
@@ -265,7 +266,7 @@ def clone(x):
 
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 templates = {
-    n: json.loads((root / f"templates/{n}.example.json").read_text(encoding="utf-8"))
+    n: json.loads((root / "convergence-loops" / f"templates/{n}.example.json").read_text(encoding="utf-8"))
     for n in ("round-1", "round-2", "round-3")
 }
 
@@ -779,9 +780,9 @@ PY
 }
 
 echo "review-record.py"
-R1="$ROOT/templates/round-1.example.json"   # 下の「引数が多すぎる」の腕で 2 つ目の引数に使う
+R1="$CL/templates/round-1.example.json"   # 下の「引数が多すぎる」の腕で 2 つ目の引数に使う
 # 変数に詰めて展開すると、python のパスにスペースがあるだけで壊れる（Windows で起きる）。
-RECORD="$ROOT/scripts/review-record.py"
+RECORD="$CL/scripts/review-record.py"
 
 
 write_broken_records || { echo "  FAIL 壊した記録を作れない"; fail=1; }
@@ -1099,8 +1100,8 @@ expect_exit 2 "深いネストの JSON も 1 と区別して落ちる（経路�
     "$PY_BIN" "$RECORD" "$WORK/deep"
 
 echo "research-record.py"
-RR="$ROOT/scripts/research-record.py"
-RR_EX="$ROOT/templates/research-record.example.json"
+RR="$CL/scripts/research-record.py"
+RR_EX="$CL/templates/research-record.example.json"
 
 expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを品質・飽和と名乗らない" \
     "$PY_BIN" "$RR" "$RR_EX"
@@ -1117,7 +1118,7 @@ for _s in (sys.stdout, sys.stderr):
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-base = json.loads((root / "templates/research-record.example.json").read_text(encoding="utf-8"))
+base = json.loads((root / "convergence-loops" / "templates/research-record.example.json").read_text(encoding="utf-8"))
 
 NOT_RUN = {"status": "not_run", "reason": "収束しないまま報告の仕上げに来た"}
 
@@ -1259,8 +1260,8 @@ expect_exit 2 "深いネストの研究記録も 1 と区別して落ちる（�
     "$PY_BIN" "$RR" "$WORK/deep.json"
 
 echo "doctor-record.py"
-DR="$ROOT/scripts/doctor-record.py"
-DR_EX="$ROOT/templates/doctor-record.example.json"
+DR="$CL/scripts/doctor-record.py"
+DR_EX="$CL/templates/doctor-record.example.json"
 
 expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを品質・飽和と名乗らない（診断記録）" \
     "$PY_BIN" "$DR" "$DR_EX"
@@ -1274,7 +1275,7 @@ for _s in (sys.stdout, sys.stderr):
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-base = json.loads((root / "templates/doctor-record.example.json").read_text(encoding="utf-8"))
+base = json.loads((root / "convergence-loops" / "templates/doctor-record.example.json").read_text(encoding="utf-8"))
 
 UNVERIFIED = {
     "key": "断面から生えた新候補（次ラウンド対象）",
@@ -1354,7 +1355,7 @@ expect_exit 2 "深いネストの診断記録も 1 と区別して落ちる（�
     "$PY_BIN" "$DR" "$WORK/deep.json"
 
 echo "firstread-record.py"
-FR="$ROOT/scripts/firstread-record.py"
+FR="$CL/scripts/firstread-record.py"
 
 # `pre_answers` は実在パスを要求する（**頭の中に置くのを許さない**のがこの欄の趣旨）。
 # テンプレートは雛形であって実行可能な記録ではないので、ここで実在パスへ差し替える。
@@ -1372,7 +1373,7 @@ pre = work / "pre-answers.md"
 pre.write_text("先に書いた答え（読み役の答えを見る前に書いたもの）\n", encoding="utf-8")
 
 def read(n):
-    r = json.loads((root / f"templates/firstread-round-{n}.example.json").read_text(encoding="utf-8"))
+    r = json.loads((root / "convergence-loops" / f"templates/firstread-round-{n}.example.json").read_text(encoding="utf-8"))
     r["pre_answers"] = str(pre)
     return r
 
@@ -1481,7 +1482,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '不変条件を共有する箇所を先に全部挙げ' in t, '閉鎖の実証が「1 つ」で止まってよい文面に戻っている'
 assert '条件の腕ごとに 1 つずつ' in t, 'ゲートの赤の確認が腕ごとを要求していない'
 assert '退行を 1 つ注入して' not in t, '古い「退行を 1 つ」の文面が残っている'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 実走で出た 3 つの穴（別セッションと私が独立に踏んだ）。道具を渡して隔離を指示に落とす・品質の
 # 道具が木を動かす・仕掛けが壊れて全腕が同じ色に出る、のどれも「空振りが合格に見える」形。
 expect_output 0 "ok" "実走で出た 3 つの穴（貼れない差分・品質の道具・対照の緑）が手順書に書いてある" "$PY_BIN" -c "
@@ -1490,7 +1491,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert 'この役に道具を渡して解決するな——貼る側を割れ' in t, '貼り切れない差分の扱いが無い（道具を渡す形に倒れる）'
 assert 'P1 では指摘だけ返す形で呼べ' in t, '品質の道具が P1 で木を動かす形のまま'
 assert '壊していない写しでも 1 本走らせて緑を確認しろ' in t, '対照の緑が無い（仕掛けの空振りを合格と読める）'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 「見つけた周に直したものをどう書くか」が無いと、実行者は「直したのに阻害が残る」を不具合と読んで
 # ラベルを軽い側へ倒す＝writer が採点する形になる（実測: 別の実行者が、どこにも書かれていない慣習として
 # その倒し方を踏襲していた）。設計どおりだと明記した一文が落ちないよう縛る。
@@ -1499,7 +1500,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '見つけた周の記録は、その周に直していても判定どおり書け' in t, '直した周の記録の書き方が無い'
 assert '直した周が阻害要因ありで終わるのは設計どおり' in t, '阻害が残るのが設計どおりだと書かれていない'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 入口の説明（README）と手順書がずれると、読者はもう無い検証を信じたまま使う。実測: 手順書を
 # 差し替えたのに README だけ旧方式の現在形（「剥がした写しを精読させ、削る」）で残っていた——
 # 柵が手順書にしか掛かっておらず、README は素通りだった。
@@ -1508,7 +1509,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '剥がした写しを精読' not in t, 'README が落とした仕掛けを現在形で説明している'
 assert '同じ内容がどこにあるかを名指しさせ' in t, 'README が今の前段を説明していない'
-print('ok')" "$ROOT/README.md"
+print('ok')" "$CL/README.md"
 # 前段が取れないと R1 の verdict ごと not_run に倒す形は、not_run が阻害要因なので「安全側に
 # 倒したつもりが収束不能」になる（実測）。前段の仕掛けを差し替えたときにこの規定も一緒に落ちた——
 # 仕掛けが変わっても壊れ方は同じなので、一般の形で縛り直す。
@@ -1517,7 +1518,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert 'verdict まで \`not_run\` に倒すな' in t, '前段の失敗で verdict ごと倒す形に戻っている'
 assert '収束できなかった' in t, '倒すと収束不能になる実測が落ちている'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 「差分だけを見るな」は依頼者の逐語（「差分にしか触れないのはダメ」）に対する規定で、0.22.0 まで
 # R1 前段に在った。自作の仕掛けを消したときに一文ごと落ちた——**視野を狭めるなと書いた同じ差分で、
 # 視野を狭める削除をしていた**。落ちても何も赤くならなかったので、ここで縛る。
@@ -1527,7 +1528,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '「どこまで見るか」の線ではない' in t, '対象差分を視野の線と読める状態に戻っている'
 assert '差分だけを貼って済ませるな' in t, 'リポジトリを読める役に差分だけを渡す禁止が無い'
 assert '理解に要る限り依存先・近傍・呼び元まで読ませろ' in t, '差分の外まで読ませる指示が無い'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 集める側で範囲を切ると、切った外は判定役の目に一度も入らない。実測: 「import している依存に
 # 限れ」と書いていたため、自分で依存に宣言していた役が集合の外に落ち、3 ラウンド続けて
 # 「再発明は該当なし」が返った。柵を動かすのでなく、柵をやめて範囲の申告に替えたことを縛る。
@@ -1537,7 +1538,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '探す役に「ここは見るな」の線を writer が引くな' in t, '集める側で範囲を切らない規律が無い'
 assert '見た範囲と、見ていない範囲を返させろ' in t, '範囲の申告を求めていない'
 assert '限れ**——差分から機械的に導ける集合で' not in t, '古い「import している依存に限れ」が残っている'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 人はラウンドの間ずっと別の作業をしていて、報告を読む時点で文脈を持っていない。内部の語彙で
 # 書かれた問いは決められないし、急ぎと後回しを混ぜて並べるとどれも決まらない。この規定が
 # 落ちると、聞く側は書けたつもりで出し、聞かれた側は初見で読めないまま放置になる。
@@ -1548,7 +1549,7 @@ assert 'ループを見ていない人が初見で読んで決められる形' i
 assert '急ぐものと後でよいものを分け、件数を先に言え' in t, '急ぎと後回しを分ける要求が無い'
 assert '内部の語彙を使わずに言えないなら、まだ問いになっていない' in t, '内部語彙の禁止が無い'
 assert 'cold-reader' in t and '人に聞くところの本文だけ' in t, '出す前に文脈ゼロの読み手に当てる検査が無い'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # この規定が落ちると、writer が「もう聞くしかない」と決めてループを止める形に戻る
 # （なぜ立った周に聞かないかの実測は、手順書の「停止条件」が正本）。
 expect_output 0 "ok" "人に聞く候補を立った周に聞かず、台帳に載せて次の周の judge に再審させる規定が手順書に在る" "$PY_BIN" -c "
@@ -1561,7 +1562,7 @@ assert 'ユーザーに判断を仰げ' not in t, '停止条件が「立った�
 assert 'ループが自分で決めたこと' in t, 'ループが決めた問いを人が覆せる形で見せる規定が無い'
 assert '台帳全体を並べて枝同士を見ろ' in t, '問い同士のシナジー（横断の突合）を見る段が無い'
 assert 'ask_human' not in t, '0.27 までの unit.ask_human が手順書に残っている'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # **観点の正本（REVIEW.md）も対象に入れる。** 0.28.0 ではここだけ柵の外で、手順書が split の正本として
 # 名指ししている段が 0.27 の機構（人に諮る印・ループは止めず最終報告で聞く）のまま残っていた——
 # 正本どおりに書くと記録が不正になる形が、唯一見られていないファイルに残っていた。
@@ -1574,7 +1575,7 @@ for f in sys.argv[1:]:
     t = pathlib.Path(f).read_text(encoding='utf-8')
     assert '問いの台帳' in t, f + ' が問いの台帳を説明していない'
     assert 'ask_human' not in t, f + ' に 0.27 までの ask_human が残っている'
-print('ok')" "$ROOT/README.md" "$ROOT/docs/customize.md" "$ROOT/REVIEW.md"
+print('ok')" "$CL/README.md" "$CL/docs/customize.md" "$CL/REVIEW.md"
 # R1 の前段は、既に依存に入っている comment-analyzer に寄せた。呼び出し時に足す 3 つが
 # 落ちると、削除の提案が意見のままになり（在り処を名指ししない）、迷ったときに残す側へ倒れる
 # （残す判断に義務が無い）。自作の剥がす仕掛けに戻っていないことも同時に縛る。
@@ -1585,7 +1586,7 @@ assert 'comment-analyzer' in t, 'R1 の前段が既存の役に寄せられて�
 assert '同じ内容がどこにあるかを名指しさせる' in t, '削除候補に在り処を名指しさせる要求が無い'
 assert '運んでいる事実を一文で言わせる' in t, '残す判断の側に義務が無い（残す側に倒れる）'
 assert 'strip-comments' not in t, '自作の剥がす仕掛けに戻っている'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # 「過去の [block] が記録から消えた」は機械が数えられない（和なら永久に残り、隣接なら 1
 # ラウンドで会計から落ちる。どちらも実測）。数えない代わりに judge に振り分けさせる義務が
 # 手順書から落ちると、未閉鎖の [block] が無言で記録から抜ける（実測 3 件）。
@@ -1594,7 +1595,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '同じルーターを、過去ラウンドの \`[block]\` キーにも課せ' in t, '過去の [block] の振り分けが judge の義務になっていない'
 assert '機械はこの一覧を数えない' in t, '数えない理由が書かれていない（次に「積め」と直される）'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 # ゲートの赤の確認を共有の木でやると、同時に読んでいる役が壊れた瞬間を踏む。順序の約束は
 # 守ったかを確かめられないので、写しの上で壊す形に固定した。戻ると赤くする。
 expect_output 0 "ok" "ゲートの赤の確認が、本物でなく写しの上で壊すことを要求している" "$PY_BIN" -c "
@@ -1603,7 +1604,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '腕ごとにリポジトリの写しを' in t and 'の下に作り、写しの上で壊して' in t, '写しの上で壊す指示が無い'
 assert 'mktemp -d' in t, '写しの置き場所が指定されていない（リポジトリ内に作ると突合が汚れる）'
 assert '並行起動した grader が全部返ったあとに行え' not in t, '順序の約束だけで塞ぐ古い文面が残っている'
-print('ok')" "$ROOT/commands/review-loop.md"
+print('ok')" "$CL/commands/review-loop.md"
 
 # Python の docstring 判定を、綴りでなく**判定結果**で突く。以前は剥がす側（自作の
 # strip-comments.py）と条件が同じかを正規表現で見ていたが、剥がす側ごと落としたので、
@@ -1621,7 +1622,7 @@ DSBASE=$(git -C "$DSREPO" rev-parse HEAD)
 # 数える側: 追加 7 行のうち注釈は 4 行（module docstring 1・関数 docstring 2・# 行 1）。
 # 代入の右辺の文字列は注釈ではない。
 expect_output 0 "追加行 7 / 注釈 4 (57%)" "数える側の docstring 判定（代入の文字列は注釈にしない）" \
-    bash -c "cd '$DSREPO' && bash '$ROOT/scripts/comment-ratio.sh' '$DSBASE'"
+    bash -c "cd '$DSREPO' && bash '$CL/scripts/comment-ratio.sh' '$DSBASE'"
 
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
@@ -1638,45 +1639,45 @@ mkdir -p "$REPO"
 ) >/dev/null 2>&1
 BASE=$(git -C "$REPO" rev-parse HEAD)
 expect_output 0 "追加行 4 / 注釈 3 (75%)" "Python と C 系の注釈を数える" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' '$BASE'"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' '$BASE'"
 expect_output 0 "scalars: added_lines=4 comment_lines=3 comment_ratio_pct=75" "規模の数値を名前つきで出す（写す側が名付けない）" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' '$BASE'"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' '$BASE'"
 
 # 対象言語の追加行が無い正常系。**$ROOT でなく使い捨てリポジトリで測る**——$ROOT だと
 # 開発中の未コミット変更の有無で結果が変わり、検査が環境依存になる。
 git -C "$REPO" commit -qm change >/dev/null 2>&1
 expect_output 0 "追加行なし" "対象言語の追加行が無ければそう言う" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD"
 expect_output 0 "scalars: added_lines=0 comment_lines=0" "追加行が無い回も規模の数値を名前つきで出す（比は定義できないので出さない）" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD"
 
 # 未追跡の対象言語ファイルは計測漏れ。**止めるのは「計測漏れの 0」と「本当に 0」が
 # 原理的に区別できない場合だけ**——数えられているなら列挙して見せる（無関係な下書きで
 # P4 が毎回止まると、手順そのものが成立しない）。
 printf 'y = 2\n' > "$REPO/untracked.py"
 expect_output 2 "計測漏れと区別できない" "追加行が無く未追跡の対象ファイルがあれば落ちる" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD"
 expect_output 0 "未計測（未追跡・差分に載っていない）: untracked.py" \
     "数えられるなら止めずに未計測分を列挙する" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' '$BASE'"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' '$BASE'"
 # ref 間比較は作業ツリーを見ないので、未追跡ファイルが在っても対象外（短絡が効いているか）。
 expect_output 0 "追加行なし" "ref を指定した比較では未追跡ファイルを見ない" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD HEAD"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD HEAD"
 rm -f "$REPO/untracked.py"
 
 # 計測不成立は必ず 2。**旧版はここが exit 1 だった**（`raise SystemExit(str)` の既定）ので、
 # 「測れなかった」と「注釈 0%」が終了コードで区別できなかった。
 # 引数の誤りも計測不成立なので 2。bash の `${1:?...}` は exit 1 になるため使えない。
 expect_output 2 "usage" "引数なしは 1 と区別して落ちる" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh'"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh'"
 expect_output 2 "usage" "引数が多すぎる場合も 1 と区別して落ちる" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD HEAD extra"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD HEAD extra"
 expect_output 2 "が失敗" "不正な ref は 1 と区別して落ちる" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 printf 'def f(\n' > "$REPO/broken.py"
 git -C "$REPO" add -A >/dev/null 2>&1
 expect_output 2 "解析できない（構文エラー）" "解析できない Python は 1 と区別して落ちる" \
-    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+    bash -c "cd '$REPO' && bash '$CL/scripts/comment-ratio.sh' HEAD"
 git -C "$REPO" rm -q -f --cached broken.py >/dev/null 2>&1
 rm -f "$REPO/broken.py"
 
@@ -1709,7 +1710,7 @@ for key in ("name", "owner", "plugins"):
     assert key in mk, f"marketplace.json に {key} が無い"
 assert isinstance(mk["owner"], dict) and mk["owner"].get("name"), "owner は name を持つ object"
 assert mk["plugins"], "plugins が空"
-pl = json.loads((root/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+pl = json.loads((root/"convergence-loops/.claude-plugin/plugin.json").read_text(encoding="utf-8"))
 for key in ("name", "version", "description"):
     assert key in pl, f"plugin.json に {key} が無い"
 
@@ -1729,13 +1730,15 @@ def _bad_version(d):
 assert _bad_version({}) and _bad_version({"version": ""}) and _bad_version({"version": "1.2"}) \
     and _bad_version({"version": "v1.2.3"}), "版の柵が、宣言の欠けや形の違いを拾えていない"
 assert _bad_version({"version": "0.15.0"}) is None, "版の柵が、正しい宣言まで拾っている"
-# **配る plugin の一覧は marketplace.json の plugins[] から導く。** `*/.claude-plugin` の glob だけでは、根が ./ の
-# plugin（リポジトリのルート）が網から落ちる。glob の列挙も残し、一覧に無い置き場も今どおり照らす。
+# **配る plugin の一覧は marketplace.json の plugins[] から導く。** glob の列挙も残し、一覧に無い置き場も照らす。
 _dist = {}
 for p in mk["plugins"]:
     src = p.get("source")
     assert isinstance(src, str) and src.startswith("./"), \
         f"marketplace.json の {p.get('name')} の source が ./ で始まる置き場でない: {src!r}（検査は手元の置き場だけを照らせる）"
+    # 根を source にすると、キャッシュに写るのがリポジトリの木の全部になる（他の plugin・tests/・docs/ まで。2026-10-15 に 1 版 35MB を実測）
+    assert (root/src).resolve() != root.resolve(), \
+        f"marketplace.json の {p.get('name')} の source がリポジトリの根を指している: {src!r}（plugin は自分のフォルダに置く）"
     _dist[p["name"]] = (root/src).resolve()
 for sub in sorted({*_dist.values(), *(p2.parent.parent.resolve() for p2 in root.glob("*/.claude-plugin/plugin.json"))}):
     _pj = (sub/".claude-plugin/plugin.json").relative_to(root.resolve()).as_posix()
@@ -1799,7 +1802,7 @@ for p in mk["plugins"]:
 # 解決できない環境ではプラグイン自体がロードされず、導入コマンドに到達しない）。
 # **語の間の空白は緩めて見る**——`claude plugin \`＋改行＋`  install` のように整形を
 # 変えるだけで完全一致は外れ、検査が素通りする。
-body = (root/"commands/review-loop.md").read_text(encoding="utf-8")
+body = (root/"convergence-loops/commands/review-loop.md").read_text(encoding="utf-8")
 install_cmd = re.compile(r"claude\s+plugin\s+(?:\S+\s+)*install")
 assert not install_cmd.search(body), \
     "review-loop.md に自作の導入コマンドが戻っている（依存は plugin.json の dependencies が正本）"
@@ -1815,7 +1818,7 @@ assert not bare_gh, "gh の呼び出しに -R が無い行がある: " + " / ".j
 
 # テンプレートは写される前提で読まれる。手順書 P0-5 が「恒真になる」と禁じた `gh repo view` の
 # 突き合わせが実例に載っていると、手順書側の禁止が無効になる（実際に載っていた）。
-for t in sorted((root/"templates").glob("round-*.example.json")):
+for t in sorted((root/"convergence-loops/templates").glob("round-*.example.json")):
     assert "gh repo view" not in t.read_text(encoding="utf-8"), \
         f"{t.name} が手順書の禁じ手（gh repo view で owner/repo を確認）を実例として見せている"
 PY
@@ -1835,30 +1838,10 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
-# 根が ./ の plugin（リポジトリのルート）はルートの木を丸ごと中身にしない——他の plugin の置き場・tests/・docs/ も入るので、
-# 部品の既定の置き場（commands・agents・skills・hooks）と、手順書が呼ぶ scripts と、宣言の .claude-plugin に絞る。
-# .claude-plugin のうち marketplace.json は catalog で、どの plugin の版上げでも変わるので外す（入れると他の plugin を上げるたびに根が赤）。
-# plugin.json が部品の置き場を宣言していれば足す（公式の plugin.json の path の欄）
-ROOT_SCOPE = ("commands", "agents", "skills", "hooks", "scripts", ".claude-plugin", ":(exclude).claude-plugin/marketplace.json")
-DECL_KEYS = ("commands", "agents", "skills", "hooks", "mcpServers", "outputStyles", "lspServers")
-
 def git(repo, *a):
     r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8")
     assert r.returncode == 0, f"git {' '.join(a)} が失敗（{r.returncode}）: {r.stderr.strip()}"
     return r.stdout
-
-def scope(src, pj, others):
-    """plugin の中身の置き場（リポジトリの根からの posix の相対パス）。src は marketplace.json の source を正規化した物"""
-    if src != ".":
-        return [src]
-    paths = set(ROOT_SCOPE)
-    for k in DECL_KEYS:
-        v = pj.get(k)
-        for x in ([v] if isinstance(v, str) else v if isinstance(v, list) else []):
-            p = posixpath.normpath(x) if isinstance(x, str) and x.startswith("./") else "."
-            if p != "." and p.split("/")[0] != "tests" and not any(p == o or p.startswith(o + "/") for o in others):
-                paths.add(p)
-    return sorted(paths)
 
 def stale(repo, plugins):
     """版が据え置きの plugin の {名前: 版を最後に変えた commit より後に置き場を変えた commit の短い id の一覧}。
@@ -1866,7 +1849,7 @@ def stale(repo, plugins):
     srcs = {p["name"]: posixpath.normpath(p["source"]) for p in plugins}
     out = {}
     for name, src in sorted(srcs.items()):
-        pjpath = posixpath.join(src, ".claude-plugin/plugin.json") if src != "." else ".claude-plugin/plugin.json"
+        pjpath = posixpath.join(src, ".claude-plugin/plugin.json")
         pj = json.loads((pathlib.Path(repo) / pjpath).read_text(encoding="utf-8"))
         # 今の版を持つ commit が続く一番古い物が、版をその値にした commit。作業ツリーの版がどの commit にも無ければ上げ途中で、据え置きでない
         bump = None
@@ -1877,14 +1860,13 @@ def stale(repo, plugins):
             bump = c
         if bump is None:
             continue
-        others = [s for n, s in srcs.items() if n != name and s != "."]
-        after = git(repo, "log", "--format=%h", f"{bump}..HEAD", "--", *scope(src, pj, others)).split()
+        after = git(repo, "log", "--format=%h", f"{bump}..HEAD", "--", src).split()
         if after:
             out[name] = after
     return out
 
-# **柵そのものを標本で測る**（据え置きが今 0 件でも、柵が生きていることを毎回踏む）。根が ./ の plugin と置き場を持つ plugin の 2 本で、
-# 根の中身の外（tests/・docs/・catalog・他の plugin の置き場）の変更は根の据え置きに数えず、中身の変更は数え、版を上げれば消える
+# **柵そのものを標本で測る**（据え置きが今 0 件でも、柵が生きていることを毎回踏む）。置き場を持つ plugin の 2 本で、
+# 置き場の外（tests/・docs/・catalog・他の plugin の置き場）の変更は据え置きに数えず、中身の変更は数え、版を上げれば消える
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     t = pathlib.Path(d)
     def put(rel, text):
@@ -1894,24 +1876,24 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         git(t, "add", "-A")
         git(t, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "x")
     git(t, "init", "-q")
-    pls = [{"name": "top", "source": "./"}, {"name": "sub", "source": "./sub"}]
-    for rel in (".claude-plugin/plugin.json", "sub/.claude-plugin/plugin.json"):
+    pls = [{"name": "one", "source": "./one"}, {"name": "two", "source": "./two"}]
+    for rel in ("one/.claude-plugin/plugin.json", "two/.claude-plugin/plugin.json"):
         put(rel, '{"version": "0.1.0"}')
-    for rel in ("scripts/a.py", "tests/t.sh", "docs/d.md", "sub/x.md"):
+    for rel in ("one/scripts/a.py", "tests/t.sh", "docs/d.md", "two/x.md"):
         put(rel, "1")
     commit()
     assert stale(t, pls) == {}, f"柵が、版を付けたばかりの plugin を据え置きと拾う: {stale(t, pls)}"
     put(".claude-plugin/marketplace.json", "{}")
-    for rel in ("tests/t.sh", "docs/d.md", "sub/x.md"):
+    for rel in ("tests/t.sh", "docs/d.md", "two/x.md"):
         put(rel, "2")
     commit()
     got = stale(t, pls)
-    assert set(got) == {"sub"}, f"柵が、置き場の中の変更を拾わないか、根の中身の外（tests/・docs/・catalog・他の plugin）の変更を根の据え置きに数える: {got}"
-    put("scripts/a.py", "2")
+    assert set(got) == {"two"}, f"柵が、置き場の中の変更を拾わないか、置き場の外（tests/・docs/・catalog・他の plugin）の変更を据え置きに数える: {got}"
+    put("one/scripts/a.py", "2")
     commit()
-    assert set(stale(t, pls)) == {"top", "sub"}, f"柵が、根の中身（scripts）の変更を拾わない: {stale(t, pls)}"
-    put(".claude-plugin/plugin.json", '{"version": "0.1.1"}')
-    put("sub/.claude-plugin/plugin.json", '{"version": "0.1.1"}')
+    assert set(stale(t, pls)) == {"one", "two"}, f"柵が、置き場の中の scripts の変更を拾わない: {stale(t, pls)}"
+    put("one/.claude-plugin/plugin.json", '{"version": "0.1.1"}')
+    put("two/.claude-plugin/plugin.json", '{"version": "0.1.1"}')
     commit()
     assert stale(t, pls) == {}, f"柵が、版を上げた後も据え置きと拾う: {stale(t, pls)}"
 
@@ -1946,7 +1928,7 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
-review = (root/"REVIEW.md").read_text(encoding="utf-8")
+review = (root/"convergence-loops/REVIEW.md").read_text(encoding="utf-8")
 known = set(re.findall(r"^##+ (.+)$", review, re.M)) | set(re.findall(r"\*\*(.+?)\*\*", review))
 # **「実在する」の定義が崩れていないことも見る。** 見出しと太字の集合を本文 1 個に潰すと、
 # 照合が本文への部分一致に戻って節を丸ごと削っても緑になる（今周それを 1 度やった）。
@@ -1957,7 +1939,7 @@ missing, found = set(), 0
 # 文書だけが消えた名前を指す——機械のコメントから引く箇所が増えたのに対象が commands /
 # agents だけで、実在しない見出しを引いた行が 1 周素通りした。backtick も任意にする。
 SCAN = [f for f in sorted(root.rglob("*.md")) if ".git" not in f.parts] + \
-       sorted((root/"scripts").glob("*.py"))
+       sorted((root/"convergence-loops/scripts").glob("*.py"))
 assert len(SCAN) >= 28, f"走査対象が {len(SCAN)} 件しかない（28 件以上を期待）"
 for f in SCAN:
     body = f.read_text(encoding="utf-8")
@@ -2014,7 +1996,7 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 cmds = []
-for d in ("commands", "graphloops/commands"):
+for d in ("convergence-loops/commands", "graphloops/commands"):
     found = sorted((pathlib.Path(sys.argv[1]) / d).glob("*.md"))
     assert found, f"{d} に手順書が無い（走査の母数が 0）"
     cmds += found
@@ -2043,7 +2025,7 @@ root = pathlib.Path(sys.argv[1])
 BLIND = {"cold-reader", "blind-judge"}
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 agents = {}
-for f in sorted((root / "agents").glob("*.md")):
+for f in sorted((root / "convergence-loops/agents").glob("*.md")):
     m = re.match(r"---\n(.*?)\n---\n", f.read_text(encoding="utf-8"), re.S)
     assert m, f"{f.name}: frontmatter が無い"
     fm = dict(re.findall(r"^([a-zA-Z-]+):[ \t]*(.*)$", m.group(1), re.M))
@@ -2071,7 +2053,7 @@ for n in sorted(BLIND):
 OUTBOUND = {"Bash", "WebSearch", "WebFetch"}
 WEB_RULE = "- **検索語に対象の名前を載せるな。**"
 rule_blocks = {}
-for f in sorted((root / "agents").glob("*.md")):
+for f in sorted((root / "convergence-loops/agents").glob("*.md")):
     if not OUTBOUND & set(agents[f.stem]):
         continue
     lines = f.read_text(encoding="utf-8").splitlines()
@@ -2086,8 +2068,8 @@ assert len(set(rule_blocks.values())) == 1, "検索語の規律の字面が役�
 # 存在検査は手順書と文書のどこに識別子が出ても効かせる。使用検査（孤児の検出）は手順書だけ——
 # README は全役の一覧表を持つので、含めると孤児が原理的に出なくなる。手順書側の語彙宣言行
 # （「以降 `X` と書いたものは…」）も全役を列挙するので、同じ理由で使用に数えない。
-commands = list((root / "commands").glob("*.md"))
-for f in [*commands, root / "docs" / "customize.md", root / "README.md"]:
+commands = list((root / "convergence-loops/commands").glob("*.md"))
+for f in [*commands, root / "convergence-loops/docs/customize.md", root / "convergence-loops/README.md"]:
     for name in re.findall(r"convergence-loops:([a-z][a-z-]*)", f.read_text(encoding="utf-8")):
         assert name in agents, f"{f.name}: 存在しない役割 convergence-loops:{name} を参照している"
 referenced = set()
@@ -2119,7 +2101,7 @@ root = pathlib.Path(sys.argv[1])
 # 特定プロジェクト由来の名前が観点側に残ると、そのリポジトリでしか意味を持たない写しになる。
 banned = re.compile(r"FastAPI|next-intl|config_kit|DeepAgents|asyncio_mode|guided-resolver")
 hits = []
-for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *(root/"agents").glob("*.md"), *(root/"docs").glob("*.md")]:
+for f in [*(root/"convergence-loops").glob("*.md"), *(root/"convergence-loops/commands").glob("*.md"), *(root/"convergence-loops/agents").glob("*.md"), *(root/"convergence-loops/docs").glob("*.md")]:
     for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
         if banned.search(line):
             hits.append(f"{f.name}:{i}")
@@ -2179,7 +2161,7 @@ for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pyt
     assert tool.search(probe), f"柵が {probe!r} を拾わない——境界か導く元が壊れた"
 for probe in ("pre-commit の hook", "x-mutate.py-y", "a-reuse"):
     assert not tool.search(probe), f"柵が道具名でない {probe!r} を拾う（{tool.search(probe).group(0)}）"
-texts = [root/"REVIEW.md", *sorted((root/"commands").glob("*.md")), *sorted((root/"agents").glob("*.md"))]
+texts = [root/"convergence-loops/REVIEW.md", *sorted((root/"convergence-loops/commands").glob("*.md")), *sorted((root/"convergence-loops/agents").glob("*.md"))]
 for d in ("graphloops/prompts", "graphloops/graphs", "graphloops/commands"):
     texts += [f for f in sorted((root/d).rglob("*")) if f.is_file()]
 # engine が組んで役へ渡す値も同じ面——文字列の定数を見る（注記と docstring は役に渡らないので外す）
@@ -5155,10 +5137,10 @@ m = re.search(r'python-version:\s*"([0-9.]+)"', wf)
 if not m:
     print("NG .github/workflows/test.yml に python-version の固定が無い"); sys.exit(1)
 ci = m.group(1)
-readme = (root / "README.md").read_text(encoding="utf-8")
+readme = (root / "convergence-loops/README.md").read_text(encoding="utf-8")
 want = [ln for ln in readme.splitlines() if "**必須**" in ln]
 if not want:
-    print("NG README.md に「**必須**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
+    print("NG convergence-loops/README.md に「**必須**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
 # **一致箇所が 1 つであることまで見る。** `want[0]` だけを見ていたので、宣言が 2 行に増えた周は
 # 2 行目が誰にも測られないまま食い違える——「最初の一致だけを見る」は母数を 1 に決め打つのと同じ。
 if len(want) != 1:
@@ -5190,7 +5172,7 @@ print("PY_FLOOR_OK")
 PYFLOOR
 expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI が測る python-version が一致する（片方だけ動かすと赤）" \
     "$PY_BIN" "$WORK/py-floor.py" "$ROOT"
-mkdir -p "$WORK/pyf/.github/workflows" && cp "$ROOT/README.md" "$WORK/pyf/" && cp "$ROOT/.github/workflows/test.yml" "$WORK/pyf/.github/workflows/" \
+mkdir -p "$WORK/pyf/.github/workflows" && mkdir -p "$WORK/pyf/convergence-loops" && cp "$CL/README.md" "$WORK/pyf/convergence-loops/" && cp "$ROOT/.github/workflows/test.yml" "$WORK/pyf/.github/workflows/" \
     && printf 'jobs:\n  m:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: "3.11"\n' > "$WORK/pyf/.github/workflows/other.yml"
 expect_output 1 "NG other.yml の python-version 3.11" "test.yml 以外の workflow の python-version も README の下限と突き合わせる" \
     "$PY_BIN" "$WORK/py-floor.py" "$WORK/pyf"
@@ -5359,7 +5341,7 @@ for s in m.group(1).split(","):
     h = subprocess.run([sys.executable, str(loop), s, "--help"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=60)
     real[s] = set(re.findall(r"(--[a-z][a-z-]+)", h.stdout))
-docs = sorted((root / "commands").glob("*.md")) + sorted((root / "graphloops/commands").glob("*.md"))
+docs = sorted((root / "convergence-loops/commands").glob("*.md")) + sorted((root / "graphloops/commands").glob("*.md"))
 if not docs:
     print("NG 手順書が 1 本も見つからない（走査の母数が 0）")
     sys.exit(1)
@@ -5681,7 +5663,7 @@ for r in rules:
         continue
     reads.append(r.stem)
     loop = r.stem[:-5] if r.stem.endswith("-loop") else r.stem
-    v = root / "scripts" / f"{loop}-record.py"
+    v = root / "convergence-loops/scripts" / f"{loop}-record.py"
     if not v.is_file():
         print(f"NG {r.relative_to(root)} は検証器の出力を行頭で読むのに、{v.relative_to(root)} が無い")
         bad = 1
@@ -5739,7 +5721,7 @@ for _s in (sys.stdout, sys.stderr):
 root = pathlib.Path(sys.argv[1])
 # **同型部分は record_common.py に寄せた**（2026-09-15）。順序の不変条件はそこに 1 回だけ在るので、
 # 走査は scripts/*.py 全部から導く——検証器側に写しが戻ってきた周も、この柵が拾う。
-vals = sorted((root / "scripts").glob("*.py"))
+vals = sorted((root / "convergence-loops/scripts").glob("*.py"))
 if not vals:
     print("NG 検証器が 1 本も無い（走査の母数が 0）")
     sys.exit(1)

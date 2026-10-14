@@ -2,7 +2,7 @@
 
 - engine を import できるように graphloops/ を sys.path の先頭に足す。mutmut は graphloops/ を graphloops/mutants/ に
   写して走らせるので、この置き場から 2 つ上（写しの側の graphloops/）を足せば、壊した写しの engine を読む
-- 検証器（リポジトリの根の scripts/review-record.py）は、根を上へ辿って探す（mutants/ の写しからも同じ根に届く）
+- 検証器（リポジトリの根の convergence-loops/scripts/review-record.py）は、根を上へ辿って探す（mutants/ の写しからも同じ根に届く）
 - 柵（飛ばしは失敗・件数の突合・台本の検査の件数と到達）は fence.py。件数の定数はここに置く（tests/run.sh の ratchet.py が
   検査の置き場の大文字の整数の定数を拾い、突合の行が 1 か所で緩んでいないかを見る）
 - 盤面を端から端まで回す台本（graphloops/tests/simulate.py・simulate_review.py）を pytest から回す土台（fixture・選択肢
@@ -23,9 +23,9 @@ import pytest
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parents[1]
 sys.path.insert(0, str(PLUGIN))
-REPO = next((p for p in PLUGIN.parents if (p / "scripts" / "review-record.py").is_file()), None)
+REPO = next((p for p in PLUGIN.parents if (p / "convergence-loops" / "scripts" / "review-record.py").is_file()), None)
 if REPO is None:
-    raise RuntimeError(f"{PLUGIN} の上に scripts/review-record.py が無い——リポジトリの根が見つからない")
+    raise RuntimeError(f"{PLUGIN} の上に convergence-loops/scripts/review-record.py が無い——リポジトリの根が見つからない")
 
 pytest_plugins = ("pytester", "glharness", "waves", "scenes", "ledger")
 # 止める猶予の環境変数（engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を走らせると値を継ぎ、
@@ -37,7 +37,7 @@ _spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" 
 graphcheck = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(graphcheck)
 REVIEW_GRAPH_PATH = PLUGIN / "graphs" / "review-loop.json"
-REVIEW_VALIDATOR = REPO / "scripts" / "review-record.py"
+REVIEW_VALIDATOR = REPO / "convergence-loops" / "scripts" / "review-record.py"
 
 
 @pytest.fixture(scope="module")

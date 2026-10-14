@@ -8,8 +8,8 @@ import pytest
 from conftest import PLUGIN, REPO, graphcheck
 from engine.schema import graph_text, inline_block_refs, load_graph
 
-REVIEW_VALIDATOR = REPO / "scripts" / "review-record.py"
-RESEARCH_VALIDATOR = REPO / "scripts" / "research-record.py"
+REVIEW_VALIDATOR = REPO / "convergence-loops" / "scripts" / "review-record.py"
+RESEARCH_VALIDATOR = REPO / "convergence-loops" / "scripts" / "research-record.py"
 
 
 def read(p):

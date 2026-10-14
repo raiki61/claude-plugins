@@ -14,7 +14,7 @@
   "--dir",
   "<RUN>",
   "--validator",
-  "<ROOT>/scripts/research-record.py",
+  "<ROOT>/convergence-loops/scripts/research-record.py",
   "--thickness",
   "軽量"
  ],

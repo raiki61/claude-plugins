@@ -36,7 +36,7 @@ for _s in (sys.stdout, sys.stderr):
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parent
 LOOP = PLUGIN / "scripts" / "loop.py"
-VALIDATOR = PLUGIN.parent / "scripts" / "review-record.py"
+VALIDATOR = PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py"
 PY = sys.executable
 BIG_ROWS = 3000  # 「1 ファイルが大きい」材料の行数（約 180 KB。旧実装ならここで 4 片以上に割れていた）
 fails, ran = [], 0

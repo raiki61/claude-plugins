@@ -771,7 +771,7 @@
   {
    "id": "n01",
    "title": "表: 状態ごとに要る欄を貼る（1）",
-   "file": "scripts/review-record.py",
+   "file": "convergence-loops/scripts/review-record.py",
    "suite": "root",
    "old": "        \"question_status\": \"／\".join(",
    "new": "        \"question_status_x\": \"／\".join(",
@@ -780,7 +780,7 @@
   {
    "id": "n02",
    "title": "表: 開いたユニットを出どころにできない種類を貼る（1）",
-   "file": "scripts/review-record.py",
+   "file": "convergence-loops/scripts/review-record.py",
    "suite": "root",
    "old": "        \"no_open_origin\": \"・\".join(NO_OPEN_ORIGIN)",
    "new": "        \"no_open_origin_x\": \"・\".join(NO_OPEN_ORIGIN)",
@@ -831,7 +831,7 @@
   {
    "id": "n06",
    "title": "規模の数値を名前つきで出す（5）",
-   "file": "scripts/comment-ratio.sh",
+   "file": "convergence-loops/scripts/comment-ratio.sh",
    "suite": "root",
    "old": "    print(f\"scalars: added_lines={total}",
    "new": "    print(f\"scalar: added_lines={total}",
@@ -2857,7 +2857,7 @@
   {
    "id": "OA1",
    "title": "人待ちの出どころの規則は検証器の 1 本",
-   "file": "scripts/review-record.py",
+   "file": "convergence-loops/scripts/review-record.py",
    "suite": "graphloops",
    "old": "    return bool(m) and m.get(\"status\") != \"awaiting_human\"",
    "new": "    return False",
@@ -4897,7 +4897,7 @@
   {
    "id": "TN4",
    "title": "道具名の柵: 配布する観点（REVIEW.md）に腕の一覧の名前が紛れ込めば赤",
-   "file": "REVIEW.md",
+   "file": "convergence-loops/REVIEW.md",
    "suite": "root",
    "old": "**腕の一覧と実行器を持つリポジトリでは、それで撃て**",
    "new": "**腕の一覧（tests/mutations.json）と実行器を持つリポジトリでは、それで撃て**",
@@ -5503,7 +5503,7 @@
   {
    "id": "WP1",
    "title": "外へ問い合わせを出せる役は検索語の規律を持つ",
-   "file": "agents/judge.md",
+   "file": "convergence-loops/agents/judge.md",
    "suite": "root",
    "expect": "役割 agent の定義と手順書の参照が整合する",
    "old": "- **検索語に対象の名前を載せるな。**",
@@ -5512,7 +5512,7 @@
   {
    "id": "WP2",
    "title": "検索語の規律の字面は役ごとに割れない",
-   "file": "agents/investigator.md",
+   "file": "convergence-loops/agents/investigator.md",
    "suite": "root",
    "expect": "役割 agent の定義と手順書の参照が整合する",
    "old": "どちらか見分けられない名前は持ち主の名前として扱う。",
@@ -6141,7 +6141,7 @@
   {
    "id": "ES5",
    "title": "重い工程のコマンドは description で起動を人の指示に限る（commands の側）",
-   "file": "commands/review-loop.md",
+   "file": "convergence-loops/commands/review-loop.md",
    "suite": "root",
    "old": "——AI は自分から起動せず、実装完了時",
    "new": "——実装完了時",

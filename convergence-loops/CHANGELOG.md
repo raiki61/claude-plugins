@@ -2,7 +2,7 @@
 
 convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/firstread-loop` と、役割 agent・記録の検証器）の版ごとの、利用者に効く違いを新しい順に並べる。この記録は convergence-loops の物で、marketplace 全体の記録ではない。ほかの plugin の記録は、それぞれの置き場（`gates/`・`coldwrite/`・`attention/`・`graphloops/`）の `CHANGELOG.md` に在る。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
 
-版を名指しする git の tag（例: `convergence-loops--v0.40.0`）の名前の決まり・付け方・付ける commit の一覧への案内と、この記録を書き足す段は、[docs/releasing.md](docs/releasing.md) に在る。0.1.0〜0.7.2 は plugin の名前が review-loops だった版で、この記録には版を残すが tag は付かない。0.39.0 は出していない。
+版を名指しする git の tag（例: `convergence-loops--v0.40.0`）の名前の決まり・付け方・付ける commit の一覧への案内と、この記録を書き足す段は、[docs/releasing.md](../docs/releasing.md) に在る。0.1.0〜0.7.2 は plugin の名前が review-loops だった版で、この記録には版を残すが tag は付かない。0.39.0 は出していない。
 
 ## [Unreleased]
 

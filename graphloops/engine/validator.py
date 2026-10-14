@@ -30,17 +30,19 @@ def env_root(plugin):
     return plugin.upper().replace("-", "_") + "_ROOT"
 
 
-def _sibling_is(plugin):
-    """この plugin と同じリポジトリに並ぶ plugin か（親の plugin.json の name で見る）。"""
-    p = PLUGIN_ROOT.parent / ".claude-plugin" / "plugin.json"
+def _sibling(plugin):
+    """同じリポジトリに並ぶ plugin の根（`<リポジトリ>/<plugin>/`。その plugin.json の name で確かめる）。並んでいなければ None。
+    キャッシュの中では plugin ごとに `<marketplace>/<plugin>/<版>/` に置かれるので、隣には並ばない（キャッシュから探す）。"""
+    root = PLUGIN_ROOT.parent / plugin
+    p = root / ".claude-plugin" / "plugin.json"
     try:
-        return json.loads(p.read_text(encoding="utf-8")).get("name") == plugin
+        return root if json.loads(p.read_text(encoding="utf-8")).get("name") == plugin else None
     except OSError:
-        return False  # 無い＝並んでいない
+        return None  # 無い＝並んでいない
     except ValueError as e:
-        # 壊れている≠無い。黙って False にすると同じリポジトリの検証器を飛ばしてキャッシュの別版を読む
+        # 壊れている≠無い。黙って None にすると同じリポジトリの検証器を飛ばしてキャッシュの別版を読む
         print(f"警告: {p} が読めない（{e}）——同梱の plugin として扱えず、キャッシュから探す", file=sys.stderr)
-        return False
+        return None
 
 
 def find_plugin_path(rel, plugin, explicit=None, kind="file"):
@@ -63,8 +65,9 @@ def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     env = os.environ.get(env_root(plugin))
     if env and ok(pathlib.Path(env) / rel):
         return str((pathlib.Path(env) / rel).resolve())
-    if _sibling_is(plugin) and ok(PLUGIN_ROOT.parent / rel):
-        return str((PLUGIN_ROOT.parent / rel).resolve())
+    sib = _sibling(plugin)
+    if sib and ok(sib / rel):
+        return str((sib / rel).resolve())
     # キャッシュは**実行中のプロファイル 1 つ**だけ見る（CLAUDE_CONFIG_DIR、既定は ~/.claude）。
     # 以前は ~/.claude* を横断していたので、別プロファイル・別マーケットプレイスの同名プラグインが
     # 版の大小だけで選ばれ、動いている出所と無関係なコードが importlib でこのプロセスに読み込まれた。

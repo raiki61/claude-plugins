@@ -369,7 +369,7 @@ class Shrinker:
 def protected_strings():
     """規則・graph・検証器・engine が字面で持つ文字列（語彙・節の名前・欄の名前）。これは置き換えの候補にしない"""
     got = set()
-    for p in list((ga.PLUGIN / "rules").glob("*.py")) + list((ga.PLUGIN / "engine").glob("*.py")) + list((ga.ROOT / "scripts").glob("*-record.py")) + [ga.ROOT / "scripts" / "record_common.py"]:
+    for p in list((ga.PLUGIN / "rules").glob("*.py")) + list((ga.PLUGIN / "engine").glob("*.py")) + list((ga.ROOT / "convergence-loops" / "scripts").glob("*-record.py")) + [ga.ROOT / "convergence-loops" / "scripts" / "record_common.py"]:
         for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
             if isinstance(n, ast.Constant) and isinstance(n.value, str):
                 got.add(n.value)

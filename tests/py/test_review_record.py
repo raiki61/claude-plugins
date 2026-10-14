@@ -22,7 +22,7 @@ from review_record_cases import ANY, CASES, Case
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-VALIDATOR = REPO / "scripts" / "review-record.py"
+VALIDATOR = REPO / "convergence-loops" / "scripts" / "review-record.py"
 
 
 @pytest.fixture(scope="session")
@@ -204,11 +204,12 @@ def test_coverage_proof_deselected_nothing_stops():
 
 @pytest.mark.parametrize("change", ["validator", "script-before-end", "templates", "script-after-end"])
 def test_coverage_proof_digest_tracks_inputs(tmp_path, change):
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "templates" / "sub").mkdir(parents=True)
+    cl = tmp_path / "convergence-loops"
+    (cl / "scripts").mkdir(parents=True)
+    (cl / "templates" / "sub").mkdir(parents=True)
     (tmp_path / "tests").mkdir()
-    files = {"validator": tmp_path / "scripts" / "review-record.py", "templates": tmp_path / "templates" / "sub" / "r.json"}
-    for f in [*files.values(), tmp_path / "scripts" / "record_common.py"]:
+    files = {"validator": cl / "scripts" / "review-record.py", "templates": cl / "templates" / "sub" / "r.json"}
+    for f in [*files.values(), cl / "scripts" / "record_common.py"]:
         f.write_text("x\n", encoding="utf-8")
     script = tmp_path / "tests" / "run.sh"
     lines = ["head", ledger.SECTION[0], "body", ledger.SECTION[1], "tail"]

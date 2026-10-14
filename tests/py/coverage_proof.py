@@ -30,7 +30,7 @@ import ledger
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-TARGETS = [REPO / "scripts" / "review-record.py", REPO / "scripts" / "record_common.py"]
+TARGETS = [REPO / "convergence-loops" / "scripts" / "review-record.py", REPO / "convergence-loops" / "scripts" / "record_common.py"]
 # 先に sys.path の後ろの sitecustomize を走らせる（Homebrew の python はそれで site-packages を足す。覆うと pytest が消える）。
 # 検証器の起動だけに、読む記録の引数で文脈の名前を付ける（台帳の Row.args と同じ形: <work> の下は素の名前・根の下は repo:）
 SITE = r'''import importlib.machinery, importlib.util, os, sys
@@ -76,7 +76,7 @@ def inputs_digest(root, extra):
     """旧い側の測りが依る入力（旧い側が回す台本の範囲・検証器・雛形と extra の文字列）のハッシュ"""
     lines = (root / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
     _, b = ledger.bounds(lines)
-    files = [root / "scripts" / t.name for t in TARGETS] + sorted(p for p in (root / "templates").rglob("*") if p.is_file())
+    files = [root / "convergence-loops" / "scripts" / t.name for t in TARGETS] + sorted(p for p in (root / "convergence-loops" / "templates").rglob("*") if p.is_file())
     parts = [("tests/run.sh", "\n".join(lines[:b]).encode("utf-8")),
              *((f.relative_to(root).as_posix(), f.read_bytes()) for f in files),
              *((f"extra{i}", e.encode("utf-8")) for i, e in enumerate(extra))]

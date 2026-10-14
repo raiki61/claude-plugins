@@ -136,7 +136,7 @@ def review(tmp_path):
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "base")
     d = tmp_path / "st"
-    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REPO / "scripts" / "review-record.py"),
+    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REPO / "convergence-loops" / "scripts" / "review-record.py"),
              "--no-engine-runners")
     assert r.returncode == 0, r.stderr
     return repo, d

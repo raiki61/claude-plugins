@@ -21,8 +21,8 @@ REVIEW = load_graph(PLUGIN / "graphs" / "review-loop.json")[0]
 RESEARCH_PATH = PLUGIN / "graphs" / "research-loop.json"
 RESEARCH = load_graph(RESEARCH_PATH)[0]
 RULES = load_rules(RESEARCH_PATH, RESEARCH)
-VALIDATOR = REPO / "scripts" / "research-record.py"
-EXAMPLE = json.loads((REPO / "templates" / "research-record.example.json").read_text(encoding="utf-8"))
+VALIDATOR = REPO / "convergence-loops" / "scripts" / "research-record.py"
+EXAMPLE = json.loads((REPO / "convergence-loops" / "templates" / "research-record.example.json").read_text(encoding="utf-8"))
 
 
 def test_after_stop_only_the_report_side_runs():

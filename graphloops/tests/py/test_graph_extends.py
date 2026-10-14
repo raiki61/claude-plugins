@@ -147,7 +147,7 @@ def test_graphcheck_rejects_an_overlay_that_drops_base_items(tmp_path, patch, wo
         over["nodes"][nid] = v if v is None or nid not in over["nodes"] else {**over["nodes"][nid], **v}
     write(tmp_path / "graphs" / "review-loop-tdd.json", over)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REPO / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
     assert not ok and any(words in l for l in lines)
 
 
@@ -171,7 +171,7 @@ def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     leaf = write(tmp_path / "graphs" / "review-loop-chain.json", {"extends": "review-loop-tdd.json", "nodes": patch})
     lines = []
-    ok = graphcheck.check(leaf, REPO / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(leaf, REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
     if words is None:
         assert ok, [l for l in lines if l.startswith("NG")][:5]
     else:
@@ -192,7 +192,7 @@ def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patc
         over[k] = {**over[k], **v} if isinstance(v, dict) and isinstance(over.get(k), dict) else v
     write(tmp_path / "graphs" / "review-loop-tdd.json", over)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REPO / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop-tdd.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
     assert not ok and any(words in l for l in lines), lines[-5:]
 
 
@@ -212,7 +212,7 @@ def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
     g["nodes"][node].update({k: v for k, v in patch.items() if v is not None})
     write(tmp_path / "graphs" / "review-loop.json", g)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
     assert not ok and any(words in l for l in lines), lines[-5:]
 
 
@@ -227,7 +227,7 @@ def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
     g["nodes"]["p4.ci"]["cond"] = "bad_cond"
     write(tmp_path / "graphs" / "review-loop.json", g)
     lines = []
-    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "scripts" / "review-record.py", emit=lines.append)
+    ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
     assert not ok and any("読む欄 'out.p9.nowhere' の節が無い" in l for l in lines), lines[-5:]
 
 

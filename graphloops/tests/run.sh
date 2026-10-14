@@ -41,7 +41,7 @@ for gf in "$ROOT"/graphloops/graphs/*.json; do
     [ -z "$shard" ] || [ "$shard" = 0 ] || break
     # 検証器は名前の -loop より前で引く（差し替えの版 review-loop-tdd.json も元と同じ review-record.py を使う）
     name="$(basename "$gf")"; g="${name%%-loop*}"
-    v="$ROOT/scripts/$g-record.py"
+    v="$ROOT/convergence-loops/scripts/$g-record.py"
     # 在る graph を全部、検証器つきで回す（本数は上の for が graphs/ から導く——ここに数を書くと、
     # graph を足し引きした周に散文だけが古くなる）。落ちたら理由（NG 行）を出す——検証器なしで回し直して緑にする分岐は
     # 置かない（以前あった review 専用のフォールバックは、欄の突合が落ちた理由を見ずに飲んでいた）。
