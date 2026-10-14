@@ -1,0 +1,5 @@
+# limits.py herdr-config が 1 行目をアカウントごとに、2 行目を 1 回だけ使う雛形。{script}・{config}・{name} を埋める。
+# 打ち切りの秒は herdr の設定の値で、limits.py は自分では打ち切らない。
+# 表示（show）は控えを読むだけなので短く打ち切る。取り直し（probe）はアカウントの数だけ順に API へ問い合わせるので長く取る。
+{{ type = "command", command = "python3 {script} --config {config} show {name}", interval_seconds = 30, timeout_seconds = 5 }},
+{{ type = "command", command = "python3 {script} --config {config} probe", interval_seconds = 300, timeout_seconds = 120 }},
