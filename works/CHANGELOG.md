@@ -6,6 +6,16 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.66] - 2026-10-15
+
+### Fixed
+
+- 起動の殻が Claude Code 自身の Keychain の項目から鍵を探すとき、設定のフォルダを分けたアカウントでも、足し書きの無い項目 `Claude Code-credentials`（既定のアカウントの鍵）を候補に入れていた。そのアカウントの項目が無いと、黙って既定のアカウントの鍵で run が動いた。足し書きの無い項目は、設定のフォルダが既定（`~/.claude`）のときだけ試す。
+
+### Changed
+
+- 同じ本文で 7 か所に在った JSON の書き込みを、共通の部品 `.shared/core/jsonfile.py` の `write_json` 1 つに寄せた。振る舞いは変わらない。
+
 ## [0.2.65] - 2026-10-12
 
 ### Added

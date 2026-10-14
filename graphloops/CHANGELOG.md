@@ -6,6 +6,12 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-10-15
+
+### Changed
+
+- 写しの `scripts/claude_auth.py` を、正本（リポジトリのルートの `scripts/claude_auth.py`）の convergence-loops 0.43.1 の変更に合わせた。graphloops の振る舞いは変わらない。
+
 ## [0.24.1] - 2026-09-29
 
 ### Changed

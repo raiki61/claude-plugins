@@ -6,6 +6,12 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.11.6] - 2026-10-15
+
+### Changed
+
+- coldread と destgate が、Claude Code の設定のフォルダを、写しの共通の部品 `hooks/claude_auth.py` の `config_dir` で決めるようにした。決まるフォルダは今までと同じ。写しの `hooks/claude_auth.py` は、正本（リポジトリの `scripts/claude_auth.py`）の 0.43.1 の変更に合わせた。
+
 ## [0.11.5] - 2026-09-29
 
 ### Changed

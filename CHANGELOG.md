@@ -6,6 +6,16 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-10-15
+
+### Added
+
+- 共通の部品 `scripts/claude_auth.py` に、アカウントの鍵を探す `account_token` を足した。鍵の置き方（Claude Code 自身が保存した Keychain の項目・自分で名前を決めた Keychain の項目・環境変数）に依らず、1 つの口で探す。works と works-dispatch が写しで使う。
+
+### Fixed
+
+- `scripts/claude_auth.py` の `config_dir` が、既定の設定のフォルダ（`~/.claude`）を、渡した環境の `HOME` で決めるようにした。今までは、動いているプロセス自身の家で決めていた。
+
 ## [0.43.0] - 2026-10-14
 
 ### Changed
