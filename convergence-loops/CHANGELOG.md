@@ -6,6 +6,13 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-15
+
+### Changed
+
+- plugin の置き場をリポジトリの根から `convergence-loops/` に移した。プラグインのキャッシュに写るのは convergence-loops の木だけになった（前はリポジトリの木の全部）。コマンドと役の使い方は変わらない。
+- 役の定義の judge と investigator で、judge が持たない Bash を挙げていた例を直した（web の検索・ページの取得、shell を持つ役ならコマンドからの通信）。役の定義 5 本の frontmatter に、写しの在り処を示す注記の行を足した。
+
 ## [0.43.1] - 2026-10-15
 
 ### Added

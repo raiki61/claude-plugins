@@ -6,6 +6,12 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-10-15
+
+### Changed
+
+- `/what-am-i-doing` が設定のフォルダ（`CLAUDE_CONFIG_DIR`、無ければ `~/.claude`）を決める式を、リポジトリの共通の部品 `claude_auth` の写しから読むようにした。振る舞いは変わらない。
+
 ## [0.26.0] - 2026-10-15
 
 ### Added

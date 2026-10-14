@@ -6,6 +6,12 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-15
+
+### Changed
+
+- 変更の記録の冒頭の、版の出し方の案内を直した（git の tag は作らない）。利用者に効く違いは無い。
+
 ## [0.1.6] - 2026-10-15
 
 ### Changed

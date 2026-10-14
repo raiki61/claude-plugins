@@ -6,6 +6,13 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.24.3] - 2026-10-15
+
+### Changed
+
+- 設定のフォルダ（`CLAUDE_CONFIG_DIR`）の決め方を、engine の 1 か所（共通の部品 `claude_auth` の写し）に寄せた。振る舞いは変わらない。
+- 隣の plugin の convergence-loops を、`<リポジトリ>/convergence-loops/.claude-plugin/plugin.json` の name で確かめるようにした（convergence-loops の置き場がリポジトリの根から移ったため）。
+
 ## [0.24.2] - 2026-10-15
 
 ### Changed

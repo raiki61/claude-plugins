@@ -6,6 +6,13 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.68] - 2026-10-15
+
+### Changed
+
+- 役の定義の写し（`.shared/core/agents/`）を convergence-loops の今の定義にそろえ、写しの台帳を `COPIED_FROM.plugins` に分けた。利用者に効く違いは、独立の目に渡す役の定義の例の文だけ。
+- carry と chain の JSON の書き出しを jsonfile の 1 か所にまとめた。振る舞いは変わらない。
+
 ## [0.2.67] - 2026-10-15
 
 ### Changed

@@ -6,6 +6,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-15
+
+### Changed
+
+- 写した共通の部品（`dispatch/vendor/claude_auth.py`）の注記と、変更の記録の冒頭の案内を直した。利用者に効く違いは無い。
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
