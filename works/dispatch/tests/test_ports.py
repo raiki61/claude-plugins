@@ -80,6 +80,11 @@ class Herdr(unittest.TestCase):
         herdr.run("wB:p1", "claude-x", runner=f)
         self.assertEqual(f.calls[0][0], ["herdr", "pane", "run", "wB:p1", "claude-x"])
 
+    def test_write_commands_accept_empty_output(self):
+        # 2026-10-14 に手元の herdr 0.9.3 で見た実物: pane run と workspace close は、成功しても何も出さない
+        herdr.run("wB:p1", "claude-x", runner=Fake((0, "", "")))
+        herdr.close_workspace("wB", runner=Fake((0, "", "")))
+
     def test_agent_reads_one_pane(self):
         f = Fake(ok({"id": "x", "result": {"type": "agent_info", "agent": {"agent": "claude", "agent_status": "idle"}}}))
         self.assertEqual(herdr.agent("wB:p1", runner=f)["agent"], "claude")

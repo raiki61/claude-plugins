@@ -32,12 +32,15 @@ def _error_code(text):
     return err.get("code") if isinstance(err, dict) else None
 
 
-def _call(argv, runner):
-    """herdr を呼び、成功なら result を返す。失敗は (code, 文) を持つ HerdrError。"""
+def _call(argv, runner, quiet_ok=False):
+    """herdr を呼び、成功なら result を返す。失敗は (code, 文) を持つ HerdrError。
+    quiet_ok は、成功しても何も出さない書く口（pane run・workspace close）のためのもの。"""
     p = runner(argv)
     if p.returncode != 0:
         code = _error_code(p.stdout) or _error_code(p.stderr)
         raise HerdrError(argv, code or (p.stderr or p.stdout).strip()[:300])
+    if quiet_ok and not p.stdout.strip():
+        return {}
     try:
         return json.loads(p.stdout).get("result", {})
     except (ValueError, AttributeError):
@@ -85,7 +88,7 @@ def methods(runner=_default_runner):
 
 def run(pane, command, runner=_default_runner):
     """ペインのシェルにコマンドを打ち込み、Enter まで送る。書く口その 1。"""
-    _call(["herdr", "pane", "run", pane, command], runner)
+    _call(["herdr", "pane", "run", pane, command], runner, quiet_ok=True)
 
 
 def wait_ready(pane, runner=_default_runner):
@@ -125,4 +128,4 @@ def create_workspace(cwd, label, runner=_default_runner):
 
 def close_workspace(workspace_id, runner=_default_runner):
     """herdr の作業場を閉じる。書く口。"""
-    _call(["herdr", "workspace", "close", workspace_id], runner)
+    _call(["herdr", "workspace", "close", workspace_id], runner, quiet_ok=True)
