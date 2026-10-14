@@ -16,10 +16,10 @@
 import os
 import pathlib
 import re
-import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import gitx  # noqa: E402
 import herdr  # noqa: E402
 
 FINISHED = ("MERGED", "CLOSED")
@@ -67,7 +67,7 @@ def remove(row, h=herdr):
                 h.close_workspace(p["workspace_id"])
                 out["closed_workspace"] = p["workspace_id"]
                 break
-        shutil.rmtree(path)
+        gitx.remove_clone(path)
     except (h.HerdrError, OSError) as e:
         out["detail"] = str(e)
     out["removed"] = not os.path.exists(path)

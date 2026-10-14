@@ -151,6 +151,14 @@ class Main(unittest.TestCase):
         self.assertTrue(pathlib.Path(self.root, "r-pr-2").exists())
         self.assertEqual(h.writes, [("close_workspace", "W0")])
 
+    def test_apply_returns_1_when_a_folder_could_not_be_removed(self):
+        import unittest.mock
+        with unittest.mock.patch("gitx.remove_clone", side_effect=PermissionError(13, "denied")):
+            rc, out = self.run_clean(["--clean", "--apply"], self.ports(herdr=FakeHerdr()))
+        self.assertEqual(rc, 1)
+        self.assertIn("消せなかった", out)
+        self.assertTrue(pathlib.Path(self.root, "r-pr-1").exists())
+
     def test_apply_does_not_close_a_workspace_whose_pane_has_a_conversation(self):
         h = FakeHerdr()
         h.create_workspace(str(pathlib.Path(self.root, "r-pr-1")), "r-pr-1")

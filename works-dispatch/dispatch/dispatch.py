@@ -450,10 +450,12 @@ def _clean(cfg, repo, apply, ports):
         if any(r["removable"] for r in rows):
             print("消すには --clean --apply を付けて打ち直す")
         return 0
+    failed = 0
     for r in (r for r in rows if r["removable"]):
         got = clean.remove(r, ports.herdr)
         print(f"#{r['number']} {'消した' if got['removed'] else '消せなかった: ' + (got['detail'] or '')}")
-    return 0
+        failed += not got["removed"]
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

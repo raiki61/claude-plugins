@@ -27,6 +27,7 @@ WRITES = {
     "clone": {"nodes/provision.py"},
     "set_origin": {"nodes/provision.py"},
     "fetch": {"nodes/provision.py"},
+    "remove_clone": {"nodes/provision.py", "nodes/clean.py"},
     "report_activity": {"activity.py"},
 }
 PORTS = {"herdr.py", "gitx.py"}

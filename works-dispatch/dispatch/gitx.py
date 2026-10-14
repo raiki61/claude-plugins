@@ -1,10 +1,14 @@
 """git への口。dispatch で git を呼ぶのはこの 1 か所だけ。
 
-書く関数は clone・set_origin・fetch の 3 つで、呼んでよいのは provision のノードだけ（D4。柵が構文木で見る）。
+書く関数は clone・set_origin・fetch・remove_clone の 4 つで、呼んでよいのは provision のノード（remove_clone は clean のノードも）だけ（D4。柵が構文木で見る）。
 """
 
+import os
 import re
+import shutil
+import stat
 import subprocess
+import sys
 
 # git@host:o/r.git・ssh://git@host/o/r.git・https://host/o/r(.git)・手元のパス（Windows では C:\…\o\r.git）の末尾 2 つを OWNER/NAME として取る
 _REPO = re.compile(r"[:/\\]([^/:\\]+)[/\\]([^/\\]+?)(?:\.git)?[/\\]?$")
@@ -66,6 +70,17 @@ def set_origin(path, url, runner=_default_runner):
 
 def fetch(path, runner=_default_runner):
     _must(["git", "-C", path, "fetch", "--quiet", "origin"], runner)
+
+
+def remove_clone(path):
+    """clone のフォルダを消す。Windows の git は .git/objects/ の中を読み取り専用で作り、そのままでは消せない
+    （shutil.rmtree が PermissionError で止まる）ので、読み取り専用を外して消し直す（Python の shutil の文書の rmtree の例と同じ形）。"""
+    def retry(func, p, _exc):
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+
+    # onexc は 3.12 から。それより前（macOS に付いてくる 3.9 など）は onerror で同じことをする
+    shutil.rmtree(path, **({"onexc": retry} if sys.version_info >= (3, 12) else {"onerror": retry}))
 
 
 def unpushed(cwd, runner=_default_runner):

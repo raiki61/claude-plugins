@@ -218,6 +218,34 @@ class GitIgnored(unittest.TestCase):
         self.assertEqual(gitx.ignored_files(src), ["frontend/.env.local"])
 
 
+class RemoveClone(unittest.TestCase):
+    def test_read_only_files_are_made_writable_and_removed(self):
+        # Windows の git は .git/objects/ の中を読み取り専用で作り、読み取り専用のファイルは消せない。その OS の振る舞いをまねる
+        root = pathlib.Path(tempfile.mkdtemp()) / "r-pr-1"
+        (root / ".git" / "objects" / "ab").mkdir(parents=True)
+        obj = root / ".git" / "objects" / "ab" / "cdef"
+        obj.write_text("x")
+        os.chmod(obj, stat.S_IREAD)
+        real = os.unlink
+
+        def windows_unlink(path, *a, **kw):
+            if not os.stat(path, *a, **kw).st_mode & stat.S_IWRITE:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real(path, *a, **kw)
+
+        with unittest.mock.patch("os.unlink", windows_unlink):
+            gitx.remove_clone(str(root))
+        self.assertFalse(root.exists())
+
+    def test_a_folder_that_cannot_be_removed_raises(self):
+        with unittest.mock.patch("os.chmod"), unittest.mock.patch("os.unlink", side_effect=PermissionError(13, "denied")):
+            root = pathlib.Path(tempfile.mkdtemp()) / "r"
+            root.mkdir()
+            (root / "a").write_text("x")
+            with self.assertRaises(OSError):
+                gitx.remove_clone(str(root))
+
+
 class Claude(unittest.TestCase):
     LISTED = [{"pid": 1, "cwd": "/r/work0", "kind": "interactive", "sessionId": "s1", "name": "n", "status": "idle"}]
 
