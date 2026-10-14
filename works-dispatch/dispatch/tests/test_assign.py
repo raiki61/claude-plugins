@@ -1,5 +1,6 @@
 """assign ノード: PR ごとに結末を 1 つ決める（設計書 2 節の 4）。"""
 
+import os
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -46,7 +47,7 @@ class Plan(unittest.TestCase):
     def test_all_go_to_the_first_eligible_account_with_their_clone_path(self):
         rows = assign.plan(REPO, [pr(1), pr(2)], set(), set(), [acct("x", eligible=False), acct("a"), acct("b")])
         self.assertEqual([(r["account"]["name"], r["clone_path"]) for r in rows],
-                         [("a", "/clones/r-pr-1"), ("a", "/clones/r-pr-2")])
+                         [("a", os.path.join("/clones", "r-pr-1")), ("a", os.path.join("/clones", "r-pr-2"))])
 
     def test_order_follows_prs(self):
         rows = assign.plan(REPO, [pr(5), pr(3), pr(4)], set(), set(), [acct("a")])

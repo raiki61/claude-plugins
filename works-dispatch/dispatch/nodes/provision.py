@@ -91,8 +91,11 @@ def prepare(row, repo, h=herdr, g=gitx):
         out["detail"] = "／".join(notes + [str(e)])
         return out
 
-    if g.origin_repo(path) != repo.repo or seen is None:
-        out["detail"] = "／".join(notes + ["作った後の読み戻しで、clone かペインが見えない"])
+    got_origin = g.origin_repo(path)
+    misses = ([f"作った後の読み戻しで、clone の origin が {got_origin}（{repo.repo} のはず）"] if got_origin != repo.repo else []) + \
+             ([f"作った後の読み戻しで、作業フォルダが {path} のペインが herdr に見えない"] if seen is None else [])
+    if misses:
+        out["detail"] = "／".join(notes + misses)
         return out
     out.update(pane=seen.get("pane_id"), workspace=seen.get("workspace_id"), status="ready",
                detail="／".join(notes) or None)

@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -43,7 +44,7 @@ class Prs(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": [{"number": 1}]}), "")
 
         self.assertEqual(prs_node.read("o/r", runner=runner), [{"number": 1}])
-        self.assertTrue(calls[0][1].endswith("vendor/whose-turn.py"))
+        self.assertTrue(pathlib.PurePath(calls[0][1]).as_posix().endswith("vendor/whose-turn.py"))
         self.assertEqual(calls[0][2:], ["--repo", "o/r", "--json"])
 
     def test_read_passes_env_to_whose_turn(self):
@@ -70,13 +71,13 @@ def make_cfg():
     d = pathlib.Path(root).parent
     (d / "second.md").write_text("二手目", encoding="utf-8")
     (d / "c.toml").write_text(f"""
-limits_dir = "{d}/limits"
-accounts = [{{ name = "a1", command = "claude-a1", config_dir = "{d}/c1" }}]
+limits_dir = '{d}/limits'
+accounts = [{{ name = "a1", command = "claude-a1", config_dir = '{d}/c1' }}]
 [[repos]]
 repo = "o/r"
-second_prompt_file = "{d}/second.md"
-source = "{src}"
-clone_root = "{root}"
+second_prompt_file = '{d}/second.md'
+source = '{src}'
+clone_root = '{root}'
 copy_files = ["frontend/.env.local"]
 """, encoding="utf-8")
     return str(d / "c.toml"), root
@@ -295,7 +296,7 @@ class RealPorts(unittest.TestCase):
         # 作業場のペインで起こす config_dir 無しのアカウントのフォルダではない。ペインの新しいログインのシェルが持つ値を使う
         session = {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}
         ports = quiet_ports(env=session, login_config_dir=lambda: None)
-        self.assertEqual(claudex.trust_file(None, ports.account_env), "/h/.claude.json")
+        self.assertEqual(claudex.trust_file(None, ports.account_env), os.path.join("/h", ".claude.json"))
         self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env), "/h/.claude")
         ports = quiet_ports(env=session, login_config_dir=lambda: "/h/.claude-mine")
         self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env), "/h/.claude-mine")
@@ -321,6 +322,22 @@ class RealPorts(unittest.TestCase):
         def empty(argv, **kw):
             return subprocess.CompletedProcess(argv, 0, "@@CLAUDE_CONFIG_DIR=@@\n", "")
         self.assertIsNone(dispatch._login_config_dir({}, empty))
+
+    def test_without_a_posix_shell_commands_are_looked_up_on_path(self):
+        # Windows（herdr の native 版）には -lic で起こす POSIX のシェルが無い。PATH の上で探す
+        def boom(*a, **kw):
+            raise AssertionError("シェルを起こした")
+        self.assertTrue(dispatch._shell_has("claude-p1", env={}, runner=boom, which=lambda c: "C:/bin/" + c, posix=False))
+        self.assertFalse(dispatch._shell_has("claude-p1", env={}, runner=boom, which=lambda c: None, posix=False))
+
+    def test_without_a_posix_shell_the_pane_uses_the_default_folder(self):
+        def boom(*a, **kw):
+            raise AssertionError("シェルを起こした")
+        self.assertIsNone(dispatch._login_config_dir({"CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, boom, posix=False))
+
+    def test_gone_plugin_paths_with_backslashes_are_found(self):
+        gone = r"C:\Users\me\.claude\plugins\cache\m\works-dispatch\0.1.0\dispatch\limits.py"
+        self.assertEqual(dispatch.gone_plugin_paths([f'command = "py {gone} --accounts x show a"']), [gone])
 
     def test_real_ports_carry_the_herdr_and_git_modules(self):
         # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう
@@ -429,7 +446,8 @@ class Preflight(unittest.TestCase):
                                gh_env=lambda repo: {"GH_TOKEN": f"token-of-{repo.gh_user}"})
         problems, _ = ports.preflight(cfg)
         self.assertEqual(seen, [{"GH_TOKEN": "token-of-me-at-work"}])
-        self.assertNotIn("gh", "\n".join(problems))
+        # 一時のフォルダの名前に gh の 2 文字が混ざることがあるので、gh の問題の文の形で見る
+        self.assertEqual([p for p in problems if p.startswith("gh ") or "gh が" in p or "gh のアカウント" in p], [])
 
     def test_gh_user_without_a_token_is_a_problem(self):
         cfg_path, root = make_cfg()

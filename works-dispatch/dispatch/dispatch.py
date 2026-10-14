@@ -24,6 +24,7 @@ import os
 import pathlib
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -45,10 +46,20 @@ for _s in (sys.stdout, sys.stderr):
 HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.create"}
 
 
-def _shell_has(cmd):
-    """作業場と同じ種類のシェル（利用者のログインかつ対話のシェル。-lic）で、そのコマンドが見つかるか。シェルの関数も数える。"""
-    shell = os.environ.get("SHELL") or "/bin/sh"
-    p = subprocess.run([shell, "-lic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+def _posix_shell(env, posix=None):
+    """作業場のペインと同じログインのシェル。POSIX のシェルの無い所（Windows の native の herdr）では None。"""
+    if not (os.name != "nt" if posix is None else posix):
+        return None
+    return env.get("SHELL") or "/bin/sh"
+
+
+def _shell_has(cmd, env=os.environ, runner=subprocess.run, which=shutil.which, posix=None):
+    """作業場と同じ種類のシェル（利用者のログインかつ対話のシェル。-lic）で、そのコマンドが見つかるか。シェルの関数も数える。
+    POSIX のシェルが無ければ、PATH の上で探す。"""
+    shell = _posix_shell(env, posix)
+    if shell is None:
+        return which(cmd) is not None
+    p = runner([shell, "-lic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode == 0
 
 
@@ -62,7 +73,7 @@ def _gh_ok(repo, env=None):
 
 
 # タブ欄の行とサイドバーのフックが指す、このプラグインのスクリプト。プラグインを更新すると、入った場所（版ごとのフォルダ）が変わる
-PLUGIN_SCRIPT = re.compile(r"""[^\s"'=]+/dispatch/(?:limits|activity)\.py""")
+PLUGIN_SCRIPT = re.compile(r"""[^\s"'=]+[/\\]dispatch[/\\](?:limits|activity)\.py""")
 
 
 def gone_plugin_paths(texts):
@@ -79,15 +90,18 @@ def gone_plugin_paths(texts):
 MARK = "@@CLAUDE_CONFIG_DIR="
 
 
-def _login_config_dir(env=os.environ, runner=subprocess.run):
+def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
     """作業場のペインで新しく起きるログインのシェルが持つ CLAUDE_CONFIG_DIR（無ければ None）。
 
     config_dir を書かないアカウントは、ペインのシェルで素のまま起きる。dispatch を走らせている会話の CLAUDE_CONFIG_DIR は
     その会話のアカウントのもので、ペインのものではないので、渡さずにシェルを起こし、シェルの設定が入れる値だけを読む。
     シェルが起動のときに出す挨拶などと混ざらないよう、印で挟んだ所だけを読む。
+    POSIX のシェルが無い所（Windows）では、ペインのシェルの値を外から読む手が無いので、既定のフォルダ（None）とする。
     """
+    shell = _posix_shell(env, posix)
+    if shell is None:
+        return None
     child = {k: v for k, v in env.items() if k != "CLAUDE_CONFIG_DIR"}
-    shell = env.get("SHELL") or "/bin/sh"
     p = runner([shell, "-lic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, encoding="utf-8", errors="replace", env=child)
     for line in (p.stdout or "").splitlines():
         if line.startswith(MARK) and line.endswith("@@"):

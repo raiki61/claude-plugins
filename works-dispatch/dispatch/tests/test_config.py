@@ -22,19 +22,19 @@ def write(dirpath, name, body):
 
 FULL = """
 limit_percent = 95
-limits_dir = "{d}/limits"
+limits_dir = '{d}/limits'
 accounts = [
-  {{ name = "main", command = "claude",   config_dir = "{d}/c0" }},
-  {{ name = "a1",   command = "claude-a", config_dir = "{d}/c1" }},
+  {{ name = "main", command = "claude",   config_dir = '{d}/c0' }},
+  {{ name = "a1",   command = "claude-a", config_dir = '{d}/c1' }},
 ]
 
 [[repos]]
 repo = "o/r"
-second_prompt_file = "{d}/second.md"
-source = "{d}/src"
-clone_root = "{d}/clones"
+second_prompt_file = '{d}/second.md'
+source = '{d}/src'
+clone_root = '{d}/clones'
 copy_files = ["frontend/.env.local", "deploy/local/secrets.local.yaml"]
-copy_from = "{d}/keep"
+copy_from = '{d}/keep'
 gh_user = "me-at-work"
 """
 
@@ -63,7 +63,7 @@ class Load(unittest.TestCase):
         self.assertEqual(config.copy_root(repo), f"{self.d}/keep")
 
     def test_defaults_without_accounts_or_limits(self):
-        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n'
+        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\nclone_root = "c"\n'
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual(cfg.accounts, (config.Account("default", "claude", None),))
         self.assertEqual(cfg.repos[0].copy_files, ())
@@ -79,9 +79,9 @@ class Load(unittest.TestCase):
         # アカウントの持ち方は人で違う。claude そのまま／設定のフォルダ＋自分で作った Keychain の項目／使用率の枠の無いもの（Ollama・Foundry など）
         body = (f'accounts = [\n'
                 f'  {{ name = "main", command = "claude" }},\n'
-                f'  {{ name = "w", command = "claude-w", config_dir = "{self.d}/w", keychain_service = "my-item" }},\n'
+                f'  {{ name = "w", command = "claude-w", config_dir = \'{self.d}/w\', keychain_service = "my-item" }},\n'
                 f'  {{ name = "local", command = "claude-ollama", limits = false }},\n'
-                f']\n[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n')
+                f']\n[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\nclone_root = "c"\n')
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual(cfg.accounts, (
             config.Account("main", "claude"),
@@ -92,7 +92,7 @@ class Load(unittest.TestCase):
 
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
-                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n')
+                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\nclone_root = "c"\n')
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         self.assertIn("keychain_service", str(e.exception))
@@ -147,7 +147,7 @@ class PickRepo(unittest.TestCase):
     def test_first_repo_by_default_and_named_repo(self):
         d = tempfile.mkdtemp()
         write(d, "second.md", "x")
-        body = "".join(f'[[repos]]\nrepo = "{r}"\nsecond_prompt_file = "{d}/second.md"\nsource = "s"\nclone_root = "c"\n'
+        body = "".join(f'[[repos]]\nrepo = "{r}"\nsecond_prompt_file = \'{d}/second.md\'\nsource = "s"\nclone_root = "c"\n'
                        for r in ("o/a", "o/b"))
         cfg = config.load(write(d, "c.toml", body), env={})
         self.assertEqual(config.pick_repo(cfg, None).repo, "o/a")

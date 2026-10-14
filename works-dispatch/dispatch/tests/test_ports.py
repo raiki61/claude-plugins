@@ -240,9 +240,9 @@ class Claude(unittest.TestCase):
     def test_trust_file_follows_where_claude_code_keeps_its_global_config(self):
         # 2026-10-14 に手元の 4 アカウントで見た実物: CLAUDE_CONFIG_DIR を入れて起こすアカウントは <そのフォルダ>/.claude.json、
         # 入れずに起こすアカウントは ~/.claude.json に、信頼したフォルダを記録している
-        self.assertEqual(claudex.trust_file("/c/p2", {"HOME": "/h"}), "/c/p2/.claude.json")
+        self.assertEqual(claudex.trust_file("/c/p2", {"HOME": "/h"}), os.path.join("/c/p2", ".claude.json"))
         self.assertEqual(claudex.trust_file(None, {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), "/x/.claude.json")
-        self.assertEqual(claudex.trust_file(None, {"HOME": "/h"}), "/h/.claude.json")
+        self.assertEqual(claudex.trust_file(None, {"HOME": "/h"}), os.path.join("/h", ".claude.json"))
 
     def trust_world(self, projects):
         d = tempfile.mkdtemp()
@@ -259,7 +259,8 @@ class Claude(unittest.TestCase):
         got = json.load(open(f))
         self.assertEqual(got["projects"]["/src/r-pr-7"], {"lastCost": 1, "hasTrustDialogAccepted": True})
         self.assertEqual(got["numStartups"], 3)
-        self.assertEqual(stat.S_IMODE(os.stat(f).st_mode), 0o600)
+        if os.name != "nt":  # Windows のファイルには POSIX の権限のビットが無い（読み取り専用かどうかだけ）
+            self.assertEqual(stat.S_IMODE(os.stat(f).st_mode), 0o600)
 
     def test_untrusted_source_writes_nothing(self):
         f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": False}})
@@ -308,7 +309,8 @@ class Claude(unittest.TestCase):
     def test_catchup_command_expands_home(self):
         d = self.plugins([("attention@m", "user", "attention", True)])
         home, rest = os.path.split(d)
-        with unittest.mock.patch.dict(os.environ, {"HOME": home}):
+        # ~ を広げる元は、Windows では USERPROFILE、ほかでは HOME
+        with unittest.mock.patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):
             self.assertEqual(claudex.catchup_commands(f"~/{rest}"), ["/attention:catchup"])
 
     def test_project_scoped_plugins_do_not_count(self):

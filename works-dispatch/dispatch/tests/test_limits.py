@@ -151,7 +151,7 @@ class ProbeAll(unittest.TestCase):
         def down(tok):
             raise OSError("接続できない")
         self.assertEqual(len(self.run_probe(accounts(1), fetch=down)), 1)
-        self.assertIn("接続できない", (self.dir / "probe.log").read_text())
+        self.assertIn("接続できない", (self.dir / "probe.log").read_text(encoding="utf-8"))
         self.assertFalse((self.dir / "a0.json").exists())
 
     def test_shared_keychain_override_does_not_apply_to_every_account(self):
@@ -171,15 +171,15 @@ class ProbeAll(unittest.TestCase):
             return HEADERS
         self.run_probe(accounts(2), fetch=flaky)
         self.assertEqual(len(asked), 2)
-        self.assertIn("a0", (self.dir / "probe.log").read_text())
+        self.assertIn("a0", (self.dir / "probe.log").read_text(encoding="utf-8"))
         self.assertTrue((self.dir / "a1.json").is_file())
 
     def test_fresh_account_is_skipped_and_failure_is_logged_and_waits(self):
         (self.dir / "a0.json").write_text(json.dumps({"five_hour": win(1, NOW + 60), "seven_day": win(1, NOW + 60)}))
         asked = self.run_probe(accounts(2), token=lambda user_config, explicit: (None, "keychain-miss"))
         self.assertEqual(asked, [])
-        self.assertIn("a1", (self.dir / "probe.log").read_text())
-        self.assertIn("keychain-miss", (self.dir / "probe.log").read_text())
+        self.assertIn("a1", (self.dir / "probe.log").read_text(encoding="utf-8"))
+        self.assertIn("keychain-miss", (self.dir / "probe.log").read_text(encoding="utf-8"))
         self.assertFalse((self.dir / "a1.json").exists())
         # 失敗の後は、待ちの間は投げ直さない
         again = self.run_probe(accounts(2))
@@ -226,8 +226,8 @@ class HerdrConfig(unittest.TestCase):
     def test_herdr_config_writes_the_snapshot_next_to_the_records(self):
         d = pathlib.Path(tempfile.mkdtemp())
         toml = d / "dispatch.toml"
-        toml.write_text(f'limits_dir = "{d / "lim"}"\naccounts = [{{ name = "p1", command = "claude-p1", config_dir = "/h/.claude-p1" }}]\n'
-                        f'[[repos]]\nrepo = "o/r"\nsource = "{d}"\nclone_root = "{d}"\nsecond_prompt_file = "{toml}"\n', encoding="utf-8")
+        toml.write_text(f'limits_dir = \'{d / "lim"}\'\naccounts = [{{ name = "p1", command = "claude-p1", config_dir = "/h/.claude-p1" }}]\n'
+                        f'[[repos]]\nrepo = "o/r"\nsource = \'{d}\'\nclone_root = \'{d}\'\nsecond_prompt_file = \'{toml}\'\n', encoding="utf-8")
         out = subprocess.run([sys.executable, str(DISPATCH / "limits.py"), "--config", str(toml), "herdr-config"],
                              capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(out.returncode, 0, out.stderr)

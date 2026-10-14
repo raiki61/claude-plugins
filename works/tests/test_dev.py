@@ -342,7 +342,9 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(args, "find-generic-password -s Claude Code-credentials -w")
         self.assertIn("sha256", result.stderr)
         result, home, args = self._run_archon_sh_with_fake_security(fake_token="", CLAUDE_CONFIG_DIR=cfg)
-        self.assertEqual(args, "find-generic-password -s Claude Code-credentials -w")   # 導いた 2 つを試した最後
+        # 既定のフォルダ（~/.claude）でない設定のフォルダでは、足し書きの無い項目（既定のアカウントの鍵）を試さない。
+        # 試すと、そのアカウントの項目が無いときに黙って別のアカウントの鍵で動く。最後に試すのは導いた項目
+        self.assertEqual(args, f"find-generic-password -s {own} -w")
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("sha256", result.stderr)  # 実行ファイルの確かめより前で止まる
         lines = result.stderr.strip().splitlines()
