@@ -6,6 +6,13 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-14
+
+### Changed
+
+- `works-factory/PIN` を raiki61/works-factory の 53213e16 に上げた。試験が走らなかった時に報告の冒頭で名指す・試験のコマンドの環境を利用者が明示した時だけ家の設定に戻す・全部の AI ノードの出し直し・認証の案内・公開ベンチの台の直しが入る。
+- スキルに、試験が家の設定を要る時の 2 つの道（手元で回す・`WORKS_FACTORY_TARGET_USER_ENV=1` を付ける）と、付けると資格に届くことを書いた。
+
 ## [0.1.3] - 2026-10-14
 
 ### Fixed
