@@ -37,6 +37,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import config  # noqa: E402
 from vendor import claude_auth  # noqa: E402
 
+# Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 HERE = pathlib.Path(__file__).resolve().parent
 TEMPLATE = HERE / "templates" / "herdr-tab-bar.toml"
 

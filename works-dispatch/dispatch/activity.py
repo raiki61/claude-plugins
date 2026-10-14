@@ -20,6 +20,11 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import herdr  # noqa: E402
 
+# Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
+for _s in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 TTL_MS = 3600000  # 送った印が消えるまで。会話が止まったまま 1 時間たてば、古い作業内容を出し続けない
 INJECTED = re.compile(r"<(system-reminder|task-notification)>.*?</\1>", re.S)
 

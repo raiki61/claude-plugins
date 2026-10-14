@@ -36,6 +36,11 @@ import gitx  # noqa: E402
 import herdr  # noqa: E402
 from nodes import accounts, assign, clean, launch, provision, prs, report, sessions, turn  # noqa: E402
 
+# Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 # 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）
 HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.create"}
 
