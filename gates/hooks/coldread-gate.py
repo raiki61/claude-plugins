@@ -1706,8 +1706,10 @@ if __name__ == "__main__":
     elif MODE == "read" and len(sys.argv) == 3:
         sys.exit(read_now(sys.argv[2]))
     elif MODE == "prompt":
-        # 初見で読む観点の正本はこの 1 か所(COLD_PROMPT)。手で読み手を立てるときも、これを依頼文にする
-        sys.stdout.write(COLD_PROMPT)
+        # 初見で読む観点の正本はこの 1 か所(COLD_PROMPT)。手で読み手を立てるときも、これを依頼文にする。
+        # バイトで出す(Windows の文字の出力は改行を \r\n に替え、正本と同じバイトにならない)
+        sys.stdout.flush()
+        sys.stdout.buffer.write(COLD_PROMPT.encode("utf-8"))
     elif MODE:
         sys.exit("使い方: coldread-gate.py [docs-record | docs-check | read <パス> | prompt](引数なしは投稿の門番)")
     else:
