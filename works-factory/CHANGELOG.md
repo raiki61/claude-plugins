@@ -6,6 +6,13 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-14
+
+### Changed
+
+- `works-factory/PIN` を raiki61/works-factory の bfc23c48 に上げた。run の作業ツリーを対象の今の姿（commit していない変更を含む）から切る・一部の CI の系統が回せない時も回せた系統で進む・手元を指す `test_cmd` を起こす前に止める・「試験が走らなかった」を証拠が在る時だけ言う、が入る。
+- スキルの起動の説明を、上の作業ツリーの起点と `test_cmd` の確かめに合わせた。
+
 ## [0.1.4] - 2026-10-14
 
 ### Changed
