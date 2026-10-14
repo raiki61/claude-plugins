@@ -10,6 +10,7 @@ import unittest
 
 from . import DISPATCH  # noqa: F401
 from .test_provision import make_world
+import claudex
 import config
 import dispatch
 import ghx
@@ -350,6 +351,20 @@ class Preflight(unittest.TestCase):
         problems, _ = ports.preflight(cfg)
         self.assertIn("gh のアカウント me-at-work の鍵を取り出せない", "\n".join(problems))
 
+    def test_source_not_trusted_by_an_account_is_noted(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        cdir = pathlib.Path(cfg.accounts[0].config_dir)
+        cdir.mkdir(parents=True, exist_ok=True)
+        (cdir / ".claude.json").write_text(json.dumps({"projects": {}}))
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                               gh_ok=lambda repo, env=None: True)
+        _, notes = ports.preflight(cfg)
+        self.assertIn(f"アカウント a1 は {cfg.repos[0].source} を信頼していない", "\n".join(notes))
+        (cdir / ".claude.json").write_text(json.dumps({"projects": {cfg.repos[0].source: {"hasTrustDialogAccepted": True}}}))
+        _, notes = ports.preflight(cfg)
+        self.assertNotIn("信頼していない", "\n".join(notes))
+
     def test_copy_files_are_looked_for_in_copy_from(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
@@ -371,3 +386,66 @@ class Preflight(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Init(unittest.TestCase):
+    def setUp(self):
+        self.src, self.root = make_world()
+        self.cfg = str(pathlib.Path(self.root).parent / "conf" / "dispatch.toml")
+
+    def test_writes_a_config_that_loads_with_the_sources_local_files(self):
+        rc, out = run_main(["--config", self.cfg, "--init", "--repo", "o/r", "--source", self.src], FakePorts([]))
+        self.assertEqual(rc, 0, out)
+        cfg = config.load(self.cfg, env={})
+        repo = cfg.repos[0]
+        self.assertEqual((repo.repo, repo.source), ("o/r", self.src))
+        self.assertEqual(repo.clone_root, str(pathlib.Path(self.src).parent))
+        self.assertEqual(repo.copy_files, ("frontend/.env.local",))
+        self.assertTrue(pathlib.Path(self.cfg).with_name("dispatch-second-prompt.md").is_file())
+        self.assertIn("--check", out)
+
+    def test_never_overwrites_an_existing_config(self):
+        run_main(["--config", self.cfg, "--init", "--repo", "o/r", "--source", self.src], FakePorts([]))
+        before = pathlib.Path(self.cfg).read_text()
+        rc, out = run_main(["--config", self.cfg, "--init", "--repo", "o/x", "--source", self.src], FakePorts([]))
+        self.assertEqual(rc, 1)
+        self.assertIn("上書きしない", out)
+        self.assertEqual(pathlib.Path(self.cfg).read_text(), before)
+
+    def test_needs_repo_and_source(self):
+        rc, out = run_main(["--config", self.cfg, "--init"], FakePorts([]))
+        self.assertEqual(rc, 2)
+        self.assertIn("--repo", out)
+
+
+class Check(unittest.TestCase):
+    def setUp(self):
+        self.cfg, self.root = make_cfg()
+
+    def test_without_config_points_to_init(self):
+        missing = str(pathlib.Path(self.root).parent / "none.toml")
+        rc, out = run_main(["--config", missing, "--check"], FakePorts([]))
+        self.assertEqual(rc, 2)
+        self.assertIn("--init", out)
+
+    def test_all_good_says_so_and_writes_nothing(self):
+        ports = FakePorts([])
+        rc, out = run_main(["--config", self.cfg, "--check"], ports)
+        self.assertEqual(rc, 0)
+        self.assertIn("足りない物は無い", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_problems_and_notes_are_listed(self):
+        rc, out = run_main(["--config", self.cfg, "--check"], FakePorts([], problems=["herdr に届かない"]))
+        self.assertEqual(rc, 2)
+        self.assertIn("- herdr に届かない", out)
+
+    def test_claude_agents_failure_is_a_problem(self):
+        ports = FakePorts([])
+
+        def broken(config_dir):
+            raise claudex.ClaudeError("claude agents --json（x）: unknown command")
+        ports.list_sessions = broken
+        rc, out = run_main(["--config", self.cfg, "--check"], ports)
+        self.assertEqual(rc, 2)
+        self.assertIn("claude agents --json", out)

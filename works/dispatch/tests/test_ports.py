@@ -181,6 +181,16 @@ class Gh(unittest.TestCase):
         self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
 
 
+class GitIgnored(unittest.TestCase):
+    def test_ignored_files_lists_files_and_skips_whole_ignored_folders(self):
+        from .test_provision import make_world
+        src, _ = make_world()
+        (pathlib.Path(src) / "node_modules" / "x").mkdir(parents=True)
+        (pathlib.Path(src) / "node_modules" / "x" / "a.js").write_text("")
+        (pathlib.Path(src) / ".gitignore").write_text("frontend/.env.local\nnode_modules/\n")
+        self.assertEqual(gitx.ignored_files(src), ["frontend/.env.local"])
+
+
 class Claude(unittest.TestCase):
     LISTED = [{"pid": 1, "cwd": "/r/work0", "kind": "interactive", "sessionId": "s1", "name": "n", "status": "idle"}]
 

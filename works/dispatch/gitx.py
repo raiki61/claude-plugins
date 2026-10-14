@@ -69,3 +69,9 @@ def unpushed(cwd, runner=_default_runner):
     """手元にしか無い commit（どの remote の枝にも入っていない commit）があるか。読めない時は、有るとみなす（消さない側に倒す）。"""
     out = _git(cwd, ["log", "--branches", "--not", "--remotes", "--oneline"], runner)
     return out is None or out != ""
+
+
+def ignored_files(cwd, runner=_default_runner):
+    """git が追わないファイル（.gitignore に当たるもの）。丸ごと無視したフォルダ（node_modules など）は中を数えない。"""
+    out = _git(cwd, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], runner)
+    return sorted(line for line in (out or "").splitlines() if line and not line.endswith("/"))

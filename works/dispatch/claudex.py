@@ -110,3 +110,13 @@ def catchup_commands(config_dir):
             if name:
                 found.add(f"/{name}:catchup")
     return sorted(found)
+
+
+def is_trusted(path_of_file, folder):
+    """そのアカウントがフォルダ（リポジトリの根）を信頼済みか。ファイルが読めなければ偽。"""
+    try:
+        with open(path_of_file, encoding="utf-8") as f:
+            projects = json.load(f).get("projects") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool((projects.get(folder) or {}).get("hasTrustDialogAccepted"))

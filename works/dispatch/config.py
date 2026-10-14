@@ -55,13 +55,18 @@ def _str(d, key, where, problems):
     return v
 
 
+def path_of(path=None, env=os.environ):
+    """設定のファイルの場所。引数 → 環境変数 WORKS_DISPATCH_CONFIG → 既定の順。"""
+    return _path(path or env.get(ENV) or DEFAULT_PATH)
+
+
 def load(path=None, env=os.environ):
-    path = _path(path or env.get(ENV) or DEFAULT_PATH)
+    path = path_of(path, env)
     try:
         with open(path, "rb") as f:
             raw = tomllib.load(f)
     except FileNotFoundError:
-        raise ConfigError(f"設定のファイルが無い: {path}（形は works/docs/specs/2026-10-14-catchup-dispatch-design.md の 5 節）")
+        raise ConfigError(f"設定のファイルが無い: {path}（python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> で下書きを作る）")
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"設定のファイルを TOML として読めない: {path}（{e}）")
 

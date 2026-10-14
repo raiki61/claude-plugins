@@ -22,6 +22,7 @@ import concurrent.futures
 import json
 import os
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
@@ -97,6 +98,10 @@ class Ports:
             if len(found) != 1:
                 problems.append(f"アカウント {a.name}（{cdir}）で /catchup の命令が 1 つに決まらない"
                                 f"（commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
+            for repo in cfg.repos:
+                if not claudex.is_trusted(claudex.trust_file(a.config_dir, self.env), repo.source):
+                    notes.append(f"アカウント {a.name} は {repo.source} を信頼していない（PR ごとの作業場で毎回フォルダの信頼の確認が出る。"
+                                 f"一度 {repo.source} で {a.command} を起こし、信頼すると出なくなる）")
             if not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
         for repo in cfg.repos:
@@ -170,10 +175,15 @@ def main(argv=None, ports=None):
     ap.add_argument("--pr", type=int, action="append", metavar="N",
                     help="自分の番の一覧を使わず、この番号の PR だけを開く（繰り返して複数）")
     ap.add_argument("--no-second", action="store_true", help="2 ターン目の文を送らず、/catchup だけで止める")
+    ap.add_argument("--init", action="store_true", help="設定の下書きを書く（--repo と --source が要る。有れば上書きしない）")
+    ap.add_argument("--source", help="--init と一緒に: そのリポジトリの代表の clone")
+    ap.add_argument("--check", action="store_true", help="始める前の確かめだけを走らせ、足りない物と直し方を出す")
     ap.add_argument("--clean", action="store_true", help="PR ごとの clone のうち消してよいものを並べる")
     ap.add_argument("--apply", action="store_true", help="--clean と一緒に: 並べたものを本当に消す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
+    if a.init:
+        return _init(a, ports)
 
     try:
         cfg = config.load(a.config, os.environ)
@@ -186,6 +196,8 @@ def main(argv=None, ports=None):
         return 2
     if a.clean:
         return _clean(cfg, repo, a.apply, ports)
+    if a.check:
+        return _check(cfg, ports)
     problems, notes = ports.preflight(cfg)
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
@@ -239,6 +251,79 @@ def main(argv=None, ports=None):
                 results.update({n: f.result() for n, f in futures.items()})
 
     print("\n".join(report.lines(the_plan, results, notes)))
+    return 0
+
+
+def _check(cfg, ports):
+    problems, notes = ports.preflight(cfg)
+    for acc in cfg.accounts:
+        try:
+            ports.list_sessions(acc.config_dir)
+        except claudex.ClaudeError as e:
+            problems.append(f"アカウント {acc.name}: {e}（開いている会話を読む claude agents --json が通らない。Claude Code を新しくする）")
+    print("\n".join(notes))
+    if problems:
+        print("足りない物:")
+        print("\n".join(f"- {p}" for p in problems))
+        return 2
+    print("始める前の確かめ: 足りない物は無い")
+    return 0
+
+
+# 代表の clone の、git が追わないファイルのうち、PR ごとの clone へ写す候補（環境変数・手元だけの設定）
+LOCAL_FILE = re.compile(r"(^|/)\.env[^/]*$|\.local(\.[^/]+)?$")
+
+
+def _init(a, ports):
+    if not (a.repo and a.source):
+        print("止めた: --init には --repo OWNER/NAME と --source <代表の clone> が要る")
+        return 2
+    path = config.path_of(a.config, os.environ)
+    if os.path.exists(path):
+        print(f"設定はもうある: {path}（上書きしない。足すなら手で書く）")
+        return 1
+    source = os.path.abspath(os.path.expanduser(a.source))
+    local = [f for f in ports.git.ignored_files(source) if LOCAL_FILE.search(f)]
+    second = os.path.join(os.path.dirname(path), "dispatch-second-prompt.md")
+    home = ports.env.get("HOME") or os.path.expanduser("~")
+    seen = sorted("~/" + n for n in os.listdir(home)
+                  if n.startswith(".claude") and os.path.isfile(os.path.join(home, n, "plugins", "installed_plugins.json")))
+    q = json.dumps
+    lines = [
+        "# works の dispatch の設定（--init が書いた下書き）。直したら --check で確かめる。",
+        "# 欄の意味: works の README の「dispatch」の節",
+        "",
+        "limit_percent = 95                      # 週か 5 時間の使用率がこれを超えるアカウントは使わない",
+        '# limits_dir = "~/.cache/claude-limits"   # アカウントごとの使用率の控え（<name>.json）。無ければ使用率は見ない',
+        "",
+        "# アカウントを切り替えないなら accounts は書かない（claude を 1 つだけ使う）。",
+        "# 切り替えるなら、名前・そのアカウントで Claude Code を起こすコマンド・そのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダを並べる:",
+        "# accounts = [",
+        '#   { name = "main", command = "claude" },',
+        '#   { name = "sub",  command = "<別のアカウントで起こすコマンド>", config_dir = "~/.claude-sub" },',
+        "# ]",
+        f"# この機械で見つかった Claude Code の設定のフォルダ: {', '.join(seen) or '無し'}",
+        "",
+        "[[repos]]",
+        f"repo = {q(a.repo)}",
+        f"second_prompt_file = {q(second)}   # 2 ターン目に送る文。空のままだと --check が止める",
+        f"source = {q(source)}   # 代表の clone。PR ごとの clone はここから作る",
+        f"clone_root = {q(os.path.dirname(source))}   # PR ごとの clone を置く場所（<clone_root>/<名前>-pr-<番号>）",
+        "copy_files = [   # git が追わない手元だけのファイル。代表の clone で見つかった候補",
+        *[f"  {q(f)}," for f in local],
+        "]",
+        '# copy_from = "<フォルダ>"   # copy_files を写す元。省けば代表の clone から',
+        '# gh_user = "<ログイン名>"   # gh の有効なアカウントでこのリポジトリを読めないときだけ',
+        "",
+    ]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    if not os.path.exists(second):
+        open(second, "w", encoding="utf-8").close()
+    print(f"書いた: {path}")
+    print(f"2 ターン目の文: {second}（空。送りたい文を書く）")
+    print("次: python3 dispatch.py --check")
     return 0
 
 
