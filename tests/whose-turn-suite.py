@@ -1481,5 +1481,48 @@ class Links(unittest.TestCase):
             self.line_after(lines, "    #1 "), "      https://example.invalid/pull/1"
         )
 
+class Json(unittest.TestCase):
+    """--json は「自分の番」の節と同じ集合・同じ順を、機械が読む形で出す（works の dispatch が読む）"""
+
+    def test_json_lists_my_turn_prs_with_head_and_role(self):
+        mine = pr(number=7, title="直す", headRefName="feat/7", author={"login": "bob"}, isDraft=True)
+        theirs = pr(number=8, headRefName="feat/8", author={"login": "bob"},
+                    reviewRequests=requests(user("alice")))
+        out = json.loads(report(mine, theirs, who="bob", args=("--json",)))
+        self.assertEqual(out["schema"], 1)
+        self.assertEqual(out["repo"], "o/n")
+        self.assertEqual(out["login"], "bob")
+        self.assertEqual([p["number"] for p in out["prs"]], [7])
+        got = out["prs"][0]
+        self.assertEqual(got["head"], "feat/7")
+        self.assertEqual(got["role"], "implementer")
+        self.assertEqual(got["title"], "直す")
+        self.assertEqual(got["url"], "https://example.invalid/pull/7")
+        self.assertIsInstance(got["days"], int)
+
+    def test_json_role_is_reviewer_for_others_pr(self):
+        p = pr(number=9, author={"login": "alice"}, reviewRequests=requests(user("bob")))
+        out = json.loads(report(p, who="bob", args=("--json",)))
+        self.assertEqual([(x["number"], x["role"]) for x in out["prs"]], [(9, "reviewer")])
+
+    def test_json_matches_text_report_set_and_order(self):
+        prs = [pr(number=n, author={"login": "bob"}, isDraft=True, createdAt=t)
+               for n, t in ((3, T2), (4, T0), (5, T1))]
+        text = report(*prs, who="bob")
+        head = text.partition("## 相手の番")[0]
+        order = [int(m) for m in re.findall(r"^  #(\d+)", head, re.M)]
+        out = json.loads(report(*prs, who="bob", args=("--json",)))
+        self.assertEqual([x["number"] for x in out["prs"]], order)
+
+    def test_json_refuses_all_materials_out(self):
+        for extra in ("--all", "--materials", "--out"):
+            with self.subTest(extra=extra):
+                err = io.StringIO()
+                with self.assertRaises(SystemExit) as e, contextlib.redirect_stderr(err):
+                    flow.main(["bob", "--repo", "o/n", "--json", extra])
+                self.assertEqual(e.exception.code, 2)
+                self.assertIn("一緒に使えない", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

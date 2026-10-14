@@ -68,10 +68,14 @@
 
 ```
 python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] [--all] [--materials] [--out]
+python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json
 ```
 
+`--json` は「自分の番」の PR だけを、ほかの道具が読む JSON で出す（番号・URL・タイトル・head の枝・役割・日数。
+集合と並びは報告の「自分の番」の節と同じ）。
+
 判定の定義と見ていないものは `--help` にある。判定は純粋関数で、`tests/whose-turn-suite.py` が規則を
-1 行ずつ固定している（111 件）。時刻は見出しも行も全部ローカル時刻で出す。
+1 行ずつ固定している（115 件）。時刻は見出しも行も全部ローカル時刻で出す。
 
 このコマンドだけ sonnet で走る（コマンド定義の `model`）。AI の仕事は材料を規則に当てはめて
 仕分けることで、上位モデルの推論は要らず、毎日回す前提で軽くしてある。
