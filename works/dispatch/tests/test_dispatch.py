@@ -86,6 +86,10 @@ class FakeHerdr:
         self.writes.append(("create_workspace", cwd, label))
         return {"workspace_id": f"W{n}", "pane_id": f"P{n}"}
 
+    def close_workspace(self, workspace_id):
+        self.writes.append(("close_workspace", workspace_id))
+        self._panes = [p for p in self._panes if p["workspace_id"] != workspace_id]
+
     def run(self, pane, command):
         self.writes.append(("run", pane, command))
         if pane in self._fail:

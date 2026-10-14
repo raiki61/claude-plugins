@@ -9,7 +9,9 @@
 4. report
 止まっている（blocked）・会話が開いている（already_open）などは誤りではないので、終了の値は 0。
 
-使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--dry-run]
+片付け（--clean）は、PR ごとの clone のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
+
+使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--dry-run | --clean [--apply]]
 """
 
 import argparse
@@ -25,9 +27,10 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import claudex  # noqa: E402
 import config  # noqa: E402
+import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
-from nodes import accounts, assign, launch, provision, prs, report, sessions, turn  # noqa: E402
+from nodes import accounts, assign, clean, launch, provision, prs, report, sessions, turn  # noqa: E402
 
 # 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）
 HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.create"}
@@ -113,6 +116,12 @@ class Ports:
     def is_clean(self, cwd):
         return gitx.is_clean(cwd)
 
+    def unpushed(self, cwd):
+        return gitx.unpushed(cwd)
+
+    def pr_state(self, repo, number):
+        return ghx.pr_state(repo, number)
+
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
 
@@ -125,6 +134,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--config")
     ap.add_argument("--repo")
     ap.add_argument("--dry-run", action="store_true", help="割り振りの案までを決めて報告し、何も起こさない")
+    ap.add_argument("--clean", action="store_true", help="PR ごとの clone のうち消してよいものを並べる")
+    ap.add_argument("--apply", action="store_true", help="--clean と一緒に: 並べたものを本当に消す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
 
@@ -134,6 +145,11 @@ def main(argv=None, ports=None):
     except config.ConfigError as e:
         print(f"止めた: {e}")
         return 2
+    if a.apply and not a.clean:
+        print("止めた: --apply は --clean と一緒にだけ使う")
+        return 2
+    if a.clean:
+        return _clean(cfg, repo, a.apply, ports)
     problems, notes = ports.preflight(cfg)
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
@@ -173,6 +189,28 @@ def main(argv=None, ports=None):
                 results.update({n: f.result() for n, f in futures.items()})
 
     print("\n".join(report.lines(the_plan, results, notes)))
+    return 0
+
+
+def _clean(cfg, repo, apply, ports):
+    listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
+    cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
+    root = repo.clone_root
+    folders = [os.path.join(root, n) for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
+    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo.repo, n), cwds, ports.is_clean, ports.unpushed)
+    if not rows:
+        print("PR ごとの clone は無い")
+        return 0
+    for r in rows:
+        mark = "消せる" if r["removable"] else f"残す（{r['reason']}）"
+        print(f"#{r['number']} {os.path.basename(r['path'])}  {r['state'] or '-'}  {mark}")
+    if not apply:
+        if any(r["removable"] for r in rows):
+            print("消すには --clean --apply を付けて打ち直す")
+        return 0
+    for r in (r for r in rows if r["removable"]):
+        got = clean.remove(r, ports.herdr)
+        print(f"#{r['number']} {'消した' if got['removed'] else '消せなかった: ' + (got['detail'] or '')}")
     return 0
 
 

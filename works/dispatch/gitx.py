@@ -63,3 +63,9 @@ def set_origin(path, url, runner=_default_runner):
 
 def fetch(path, runner=_default_runner):
     _must(["git", "-C", path, "fetch", "--quiet", "origin"], runner)
+
+
+def unpushed(cwd, runner=_default_runner):
+    """手元にしか無い commit（どの remote の枝にも入っていない commit）があるか。読めない時は、有るとみなす（消さない側に倒す）。"""
+    out = _git(cwd, ["log", "--branches", "--not", "--remotes", "--oneline"], runner)
+    return out is None or out != ""
