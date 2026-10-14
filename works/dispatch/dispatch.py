@@ -95,8 +95,8 @@ class Ports:
             if not os.path.isdir(repo.clone_root):
                 problems.append(f"{repo.repo}: clone を置く場所 {repo.clone_root} が無い")
             for rel in repo.copy_files:
-                if not os.path.isfile(os.path.join(repo.source, rel)):
-                    notes.append(f"{repo.repo}: 写すファイルが元の clone に無い: {rel}")
+                if not os.path.isfile(os.path.join(config.copy_root(repo), rel)):
+                    notes.append(f"{repo.repo}: 写すファイルが {config.copy_root(repo)} に無い: {rel}")
         if not self._gh_ok():
             problems.append("gh が使えない（gh auth status が失敗）。whose-turn が GitHub を読めない")
         return problems, notes

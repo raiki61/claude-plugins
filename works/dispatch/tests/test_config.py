@@ -34,6 +34,7 @@ second_prompt_file = "{d}/second.md"
 source = "{d}/src"
 clone_root = "{d}/clones"
 copy_files = ["frontend/.env.local", "deploy/local/secrets.local.yaml"]
+copy_from = "{d}/keep"
 """
 
 
@@ -56,12 +57,17 @@ class Load(unittest.TestCase):
         self.assertEqual(repo.source, f"{self.d}/src")
         self.assertEqual(repo.clone_root, f"{self.d}/clones")
         self.assertEqual(repo.copy_files, ("frontend/.env.local", "deploy/local/secrets.local.yaml"))
+        self.assertEqual(repo.copy_from, f"{self.d}/keep")
+        self.assertEqual(config.copy_root(repo), f"{self.d}/keep")
 
     def test_defaults_without_accounts_or_limits(self):
         body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n'
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual(cfg.accounts, (config.Account("default", "claude", None),))
         self.assertEqual(cfg.repos[0].copy_files, ())
+        # copy_from を書かなければ、元の clone から写す
+        self.assertIsNone(cfg.repos[0].copy_from)
+        self.assertEqual(config.copy_root(cfg.repos[0]), cfg.repos[0].source)
         self.assertEqual(cfg.limit_percent, 95)
         self.assertEqual(cfg.limits_dir, os.path.expanduser("~/.cache/claude-limits"))
 

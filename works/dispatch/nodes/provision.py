@@ -54,9 +54,9 @@ def prepare(row, repo, h=herdr, g=gitx):
             g.fetch(path)
             out["created"] = True
             for rel in repo.copy_files:
-                src = os.path.join(repo.source, rel)
+                src = os.path.join(config.copy_root(repo), rel)
                 if not os.path.isfile(src):
-                    notes.append(f"写すファイルが元の clone に無い: {rel}")
+                    notes.append(f"写すファイルが {config.copy_root(repo)} に無い: {rel}")
                     continue
                 os.makedirs(os.path.dirname(os.path.join(path, rel)), exist_ok=True)
                 shutil.copy2(src, os.path.join(path, rel))

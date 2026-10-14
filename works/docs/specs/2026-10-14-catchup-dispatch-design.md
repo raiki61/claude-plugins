@@ -93,7 +93,7 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 作業場を用意するのは provision のノードで、外に書く（フォルダを作る・herdr の作業場を開く）。
 
 - clone のフォルダは `<clone_root>/<リポジトリの名前>-pr-<番号>`（例 `~/src/guided-resolver-pr-1234`）。フォルダの名前だけで、どの PR の作業場かが決まる。
-- 無ければ作る: 設定の元の clone（`source`）から `git clone` し、origin を元の clone の origin の URL へ向け直し、`git fetch origin` する。設定の `copy_files`（git が追わない手元だけのファイル。例 `frontend/.env.local`）を元の clone から写す。依存（仮想環境・`node_modules`）は入れない。`/catchup` と 2 ターン目は主に読む仕事で、試験を走らせる段になってから、その会話の中で入れれば足りる。
+- 無ければ作る: 設定の元の clone（`source`）から `git clone` し、origin を元の clone の origin の URL へ向け直し、`git fetch origin` する。設定の `copy_files`（git が追わない手元だけのファイル。例 `frontend/.env.local`）を、`copy_from` のフォルダ（省けば元の clone）から写す。依存（仮想環境・`node_modules`）は入れない。`/catchup` と 2 ターン目は主に読む仕事で、試験を走らせる段になってから、その会話の中で入れれば足りる。
 - 有れば使い直す: そのフォルダが同じリポジトリの clone なら、`git fetch origin` だけして使う。PR が開いている間は、レビューで返した後の再レビューなども同じ作業場に戻る。
 - 枝を PR の枝へ移すのは `/catchup` に任せる（`/catchup <番号>` は、その PR の枝へ移り、手元に無ければ origin から取って作る）。
 - herdr の作業場は、その clone のフォルダを作業フォルダにするペインを探して使う。無ければ `herdr workspace create --cwd <フォルダ> --label <フォルダの名前> --no-focus` で開く。名前（label）は人が見るためだけのもので、探すのには使わない。herdr の作業場の名前は重なっても止められず（利用者の報告 Discussion #3567「not unique by contract」）、作業場の ID は herdr を立ち上げ直すたびに変わるため。名前は数字で始めない（herdr はエージェントの表示名にチケットの番号で始まる名前を受け付けなかった、という報告がある。Discussion #3284）。
@@ -148,11 +148,12 @@ repo = "<owner>/guided-resolver"
 second_prompt_file = "~/.config/works/dispatch-second-prompt.md"   # 2 ターン目の文（複数行）
 source = "~/src/guided-resolver"        # 元の clone。PR ごとの clone はここから作る（中身をハードリンクで共有する）
 clone_root = "~/src"                    # PR ごとの clone を置く場所（<clone_root>/guided-resolver-pr-<番号>）
-copy_files = [                          # git が追わない手元だけのファイル。元の clone から写す
+copy_files = [                          # git が追わない手元だけのファイル（リポジトリの中の相対パス）
   "frontend/.env.local",
   "deploy/local/secrets.local.yaml",
   "deploy/local/real-data.local.yaml",
 ]
+copy_from = "~/.config/claude/repos/guided-resolver"   # copy_files を写す元のフォルダ。省けば元の clone から写す
 ```
 
 2 ターン目の文は複数行なので、別のファイルに置く。持ち主の今の文は、木を探るように指摘を深掘りすること、世の中の解と照らすこと、自作の領域に踏み込んでいないかを疑うこと、未確認の領域を残さないこと、を求める 4 段の文。
@@ -167,7 +168,7 @@ copy_files = [                          # git が追わない手元だけのフ�
 - アカウントの起動のコマンドが、作業場のシェルで見つかる（利用者のログインのシェルに `command -v <コマンド>` を対話の形で聞く。シェルの関数も数える）。
 - `/catchup` を持つ attention が、各アカウントの設定のフォルダに入っている（`<設定のフォルダ>/plugins/installed_plugins.json` に `attention@` で始まる名がある）。2026-10-14 には 4 つとも入っていた。
 - `gh` が使える（whose-turn と、片付けの PR の状態の確かめが使う）。
-- 元の clone（`source`）が、対象のリポジトリの clone である（origin が `repo` と同じ）。`clone_root` が有る。`copy_files` が元の clone に有る（無いものは止めずに 1 行出す）。
+- 元の clone（`source`）が、対象のリポジトリの clone である（origin が `repo` と同じ）。`clone_root` が有る。`copy_files` が写す元（`copy_from`、省けば元の clone）に有る（無いものは止めずに 1 行出す）。
 
 `--dry-run` を付けると、assign まで走らせて report を出し、何も起こさずに終わる。作業場を作るか使い直すかも、フォルダの有無から報告する。
 

@@ -79,6 +79,15 @@ class Prepare(unittest.TestCase):
         self.assertEqual(got["pane"], "N1:p1")
         self.assertIn("deploy/missing.yaml", got["detail"])
 
+    def test_copy_from_takes_files_from_that_folder_not_the_source(self):
+        keep = pathlib.Path(self.root).parent / "keep"
+        (keep / "frontend").mkdir(parents=True)
+        (keep / "frontend" / ".env.local").write_text("KEPT=1\n")
+        repo = self.repo._replace(copy_from=str(keep))
+        got = provision.prepare(self.row, repo, FakeHerdr(), gitx)
+        self.assertEqual(got["status"], "ready", got)
+        self.assertEqual((pathlib.Path(self.row["clone_path"]) / "frontend" / ".env.local").read_text(), "KEPT=1\n")
+
     def test_second_time_reuses_clone_and_existing_pane(self):
         h = FakeHerdr()
         provision.prepare(self.row, self.repo, h, gitx)

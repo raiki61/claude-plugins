@@ -31,7 +31,8 @@ class Repo(NamedTuple):
     second_prompt: str  # 2 ターン目の文（second_prompt_file の中身）
     source: str  # 元の clone。PR ごとの clone はここから作る
     clone_root: str  # PR ごとの clone を置く場所
-    copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（元の clone からの相対パス）
+    copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（リポジトリの中の相対パス）
+    copy_from: str | None = None  # copy_files を写す元のフォルダ。None は元の clone
 
 
 class Config(NamedTuple):
@@ -105,7 +106,12 @@ def load(path=None, env=os.environ):
         if not isinstance(copy, list) or not all(isinstance(c, str) for c in copy):
             problems.append(f"{where}: copy_files が文字列の並びで無い")
             copy = []
-        repos.append(Repo(name, prompt, _path(source) if source else None, _path(root) if root else None, tuple(copy)))
+        copy_from = r.get("copy_from")
+        if copy_from is not None and not isinstance(copy_from, str):
+            problems.append(f"{where}: copy_from が文字列で無い")
+            copy_from = None
+        repos.append(Repo(name, prompt, _path(source) if source else None, _path(root) if root else None, tuple(copy),
+                          _path(copy_from) if copy_from else None))
     if not raw.get("repos"):
         problems.append("repos が 1 つも無い")
 
@@ -122,6 +128,11 @@ def pick_repo(cfg, name):
         if r.repo == name:
             return r
     raise ConfigError(f"設定の repos に {name} が無い")
+
+
+def copy_root(repo):
+    """copy_files を写す元のフォルダ。copy_from が無ければ元の clone。"""
+    return repo.copy_from or repo.source
 
 
 def clone_path(repo, number):

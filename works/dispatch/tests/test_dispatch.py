@@ -225,6 +225,16 @@ class Preflight(unittest.TestCase):
         self.assertNotIn("attention", "\n".join(problems))
         self.assertNotIn("attention", "\n".join(notes))
 
+    def test_copy_files_are_looked_for_in_copy_from(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        empty = pathlib.Path(root).parent / "keep"
+        empty.mkdir()
+        cfg = cfg._replace(repos=(cfg.repos[0]._replace(copy_from=str(empty)),))
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda: True)
+        _, notes = ports.preflight(cfg)
+        self.assertIn(f"写すファイルが {empty} に無い: frontend/.env.local", "\n".join(notes))
+
     def test_source_of_another_repo_is_a_problem(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
