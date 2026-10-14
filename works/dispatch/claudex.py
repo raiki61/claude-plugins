@@ -80,3 +80,33 @@ def inherit_trust(path_of_file, source, clone):
             os.unlink(tmp)
         raise
     return "inherited"
+
+
+def catchup_commands(config_dir):
+    """そのアカウントで /catchup を受ける命令の名前（例 /attention:catchup）を、入っているプラグインから組み立てて返す。
+
+    プラグインの命令は「/<plugin.json の名前>:<命令のファイル名>」で呼ぶ。人が画面で /catchup と打つと補完がプラグイン名を足すが、
+    herdr は文字をそのまま送るので、名前を組み立てて送る。プラグイン名を固定の文字で持たず、commands/catchup.md を持つものを探す。
+    数えるのはアカウント全体に入れたもの（scope が user）だけ。project の入れ方は、その projectPath の中の会話にしか効かない。
+    """
+    try:
+        with open(os.path.join(config_dir, "plugins", "installed_plugins.json"), encoding="utf-8") as f:
+            record = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return []
+    found = set()
+    for entries in (record.get("plugins") or {}).values() if isinstance(record, dict) else ():
+        for e in entries if isinstance(entries, list) else [entries]:
+            if not isinstance(e, dict) or e.get("scope") != "user":
+                continue
+            path = e.get("installPath") or ""
+            if not os.path.isfile(os.path.join(path, "commands", "catchup.md")):
+                continue
+            try:
+                with open(os.path.join(path, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+                    name = json.load(f).get("name")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if name:
+                found.add(f"/{name}:catchup")
+    return sorted(found)

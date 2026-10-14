@@ -7,8 +7,9 @@
 `/catchup <番号>` だけを待たずに送って終える。blocked（許可の確認などで止まっている）と
 stalled（送って動き出さなかった。herdr の組み込みの見張りの結末）なら送らない。こちらからは期限を足さない。
 
-送るのはプラグイン名つきの `/attention:catchup <番号>`。人が画面で `/catchup` と打つと補完がプラグイン名を足すが、
-herdr は打った文字をそのまま送るので、`/catchup` のままだと Claude Code が「Unknown command」と返す（2026-10-14 に 2.1.299 で見た）。
+送るのはプラグイン名つきの `/<プラグイン名>:catchup <番号>`（名前の組み立ては claudex.catchup_commands）。人が画面で `/catchup` と
+打つと補完がプラグイン名を足すが、herdr は打った文字をそのまま送るので、`/catchup` のままだと Claude Code が「Unknown command」と
+返す（2026-10-14 に 2.1.299 で見た）。
 
 使い方: python3 nodes/turn.py --pane <ペイン ID> --text <文> [--wait] [--out <パス>]
 """
@@ -31,12 +32,13 @@ def send(pane, text, wait, h=herdr):
         return {"pane": pane, "status": "failed", "detail": str(e)}
 
 
-def catchup_then_second(number, pane, second, h=herdr):
-    """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。"""
+def catchup_then_second(number, pane, second, h=herdr, *, catchup):
+    """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。
+    catchup は送る命令の名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。"""
     if second is None:
-        only = send(pane, f"/attention:catchup {number}", False, h)
+        only = send(pane, f"{catchup} {number}", False, h)
         return "sent" if only["status"] == "sent" else "send_failed"
-    first = send(pane, f"/attention:catchup {number}", True, h)
+    first = send(pane, f"{catchup} {number}", True, h)
     if first["status"] == "failed":
         return "send_failed"
     if first["status"] not in FINISHED:

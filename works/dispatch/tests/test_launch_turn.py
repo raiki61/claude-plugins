@@ -39,6 +39,7 @@ class FakeHerdr:
 
 
 ROW = {"number": 7, "clone_path": "/c/r-pr-7", "account": {"name": "p1", "command": "claude-x"}}
+CATCHUP = "/attention:catchup"
 SECOND = "1. 深掘り\n2. 世の中の解 'x' $y"
 
 
@@ -67,29 +68,34 @@ class Launch(unittest.TestCase):
 class Turn(unittest.TestCase):
     def test_idle_after_catchup_sends_second_without_waiting(self):
         h = FakeHerdr(prompts=["idle", "sent"])
-        self.assertEqual(turn.catchup_then_second(7, "wB:p1", SECOND, h), "sent")
+        self.assertEqual(turn.catchup_then_second(7, "wB:p1", SECOND, h, catchup=CATCHUP), "sent")
         self.assertEqual(h.calls, [("prompt", "wB:p1", "/attention:catchup 7", True), ("prompt", "wB:p1", SECOND, False)])
 
     def test_without_second_sends_only_catchup_and_does_not_wait(self):
         h = FakeHerdr(prompts=["sent"])
-        self.assertEqual(turn.catchup_then_second(7, "wB:p1", None, h), "sent")
+        self.assertEqual(turn.catchup_then_second(7, "wB:p1", None, h, catchup=CATCHUP), "sent")
         self.assertEqual(h.calls, [("prompt", "wB:p1", "/attention:catchup 7", False)])
 
+    def test_sends_the_catchup_command_it_is_given(self):
+        h = FakeHerdr(prompts=["sent"])
+        turn.catchup_then_second(7, "p", None, h, catchup="/watch:catchup")
+        self.assertEqual(h.calls, [("prompt", "p", "/watch:catchup 7", False)])
+
     def test_done_also_sends_second(self):
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompts=["done", "sent"])), "sent")
+        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompts=["done", "sent"]), catchup=CATCHUP), "sent")
 
     def test_blocked_does_not_send_second(self):
         h = FakeHerdr(prompts=["blocked"])
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h), "blocked")
+        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP), "blocked")
         self.assertEqual(len(h.calls), 1)
 
     def test_stalled_does_not_send_second(self):
         h = FakeHerdr(prompts=["stalled"])
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h), "stalled")
+        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP), "stalled")
         self.assertEqual(len(h.calls), 1)
 
     def test_herdr_error_is_send_failed(self):
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompt_error="boom")), "send_failed")
+        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompt_error="boom"), catchup=CATCHUP), "send_failed")
 
     def test_send_returns_schema_shaped_result(self):
         out = {"schema": 1, "turn": turn.send("p", "x", True, FakeHerdr(prompts=["blocked"]))}

@@ -8,6 +8,7 @@
 import ast
 import json
 import pathlib
+import re
 
 SKIP = ("tests", "vendor")
 
@@ -30,7 +31,10 @@ WRITES = {
 PORTS = {"herdr.py", "gitx.py"}
 
 # D6: 持ち主の環境の字
-OWNER_ENV = ("raiki61", "claude-code-oauth-", "/Users/", "claude-p")
+OWNER_ENV = ("raiki61", "claude-code-oauth-", "/Users/")
+# 持ち主のアカウントの起動のコマンド（claude-p1 など）。「claude-p」だけで探すと、Claude Code のプラグインの
+# 決まったフォルダ名 .claude-plugin まで捕まえるので、後ろに数字が続くものだけを見る
+OWNER_COMMAND = re.compile(r"claude-p\d")
 
 
 def _files(root, pattern):
@@ -107,8 +111,13 @@ def d5_no_timeout(root):
 
 
 def d6_no_owner_env(root):
-    return [f"D6 {e}（持ち主の環境の値は設定で渡す）"
-            for pattern in ("*.py", "*.json") for e in _text_hits(root, OWNER_ENV, pattern)]
+    hits = [e for pattern in ("*.py", "*.json") for e in _text_hits(root, OWNER_ENV, pattern)]
+    for pattern in ("*.py", "*.json"):
+        for rel, p in _files(root, pattern):
+            m = OWNER_COMMAND.search(p.read_text(encoding="utf-8"))
+            if m:
+                hits.append(f"{rel}: 「{m.group(0)}」がある")
+    return [f"D6 {e}（持ち主の環境の値は設定で渡す）" for e in hits]
 
 
 def d8_schemas(root):

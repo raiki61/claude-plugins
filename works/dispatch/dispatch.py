@@ -55,15 +55,6 @@ def _gh_ok(repo, env=None):
         return False
 
 
-def _has_attention(config_dir):
-    p = pathlib.Path(config_dir) / "plugins" / "installed_plugins.json"
-    try:
-        names = json.loads(p.read_text(encoding="utf-8")).get("plugins", {})
-    except (OSError, ValueError, AttributeError):
-        return False
-    return any(str(k).startswith("attention@") for k in names)
-
-
 class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
@@ -102,8 +93,10 @@ class Ports:
             if not self._shell_has(a.command):
                 problems.append(f"アカウント {a.name} の起動のコマンド {a.command} がシェルで見つからない")
             cdir = config.effective_config_dir(a, self.env)
-            if not _has_attention(cdir):
-                problems.append(f"アカウント {a.name}（{cdir}）に attention プラグインが入っていない（/catchup が無い）")
+            found = claudex.catchup_commands(cdir)
+            if len(found) != 1:
+                problems.append(f"アカウント {a.name}（{cdir}）で /catchup の命令が 1 つに決まらない"
+                                f"（commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
             if not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
         for repo in cfg.repos:
@@ -154,6 +147,12 @@ class Ports:
 
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
+
+    def catchup_command(self, config_dir):
+        """そのアカウントで送る catchup の命令の名前。始める前の確かめで 1 つに決まることを見てある。"""
+        cdir = config.effective_config_dir(config.Account("", "", config_dir), self.env)
+        found = claudex.catchup_commands(cdir)
+        return found[0] if len(found) == 1 else None
 
     def trust(self, account, source, clone):
         """元の clone を信頼済みのアカウントなら、clone にも信頼の印を付ける（claudex.inherit_trust）。"""
@@ -234,7 +233,8 @@ def main(argv=None, ports=None):
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                 futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane,
-                                                    None if a.no_second else repo.second_prompt, ports.herdr)
+                                                    None if a.no_second else repo.second_prompt, ports.herdr,
+                                                    catchup=ports.catchup_command(r["account"].get("config_dir")))
                            for r, pane in ready}
                 results.update({n: f.result() for n, f in futures.items()})
 

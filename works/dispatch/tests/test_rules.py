@@ -77,6 +77,11 @@ class EachFenceCatches(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertCaught(fences.d6_no_owner_env, {"x.py": f"V = '{word}'\n"})
 
+    def test_d6_does_not_catch_the_official_plugin_folder_name(self):
+        # .claude-plugin は Claude Code のプラグインの決まったフォルダ名で、持ち主の環境の値ではない
+        self.assertEqual(fences.d6_no_owner_env(tree({"x.py": "P = '.claude-plugin/plugin.json'\n"})), [])
+        self.assertCaught(fences.d6_no_owner_env, {"x.py": "C = 'claude-p12'\n"})
+
     def test_d8_schema_shape(self):
         self.assertCaught(fences.d8_schemas, {"schemas/a.schema.json": "{not json"})
         self.assertCaught(fences.d8_schemas, {"schemas/a.schema.json": json.dumps({"type": "object"})})

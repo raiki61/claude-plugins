@@ -5,6 +5,7 @@ herdr の出力の形は 2026-10-14 に手元の herdr 0.9.3 で読んだ実物�
 
 import json
 import os
+import pathlib
 import stat
 import subprocess
 import tempfile
@@ -242,6 +243,36 @@ class Claude(unittest.TestCase):
         open(broken, "w").write("{not json")
         self.assertEqual(claudex.inherit_trust(broken, "/s", "/p"), "no_file")
         self.assertEqual(open(broken).read(), "{not json")
+
+    @staticmethod
+    def plugins(entries):
+        """entries: [(キー, scope, plugin.json の名前, catchup を持つか)]。アカウントの設定のフォルダを返す。"""
+        d = pathlib.Path(tempfile.mkdtemp())
+        record = {}
+        for key, scope, name, has in entries:
+            path = d / "plugins" / "cache" / key / "1.0.0"
+            (path / ".claude-plugin").mkdir(parents=True)
+            (path / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": name}))
+            if has:
+                (path / "commands").mkdir()
+                (path / "commands" / "catchup.md").write_text("---\n---\n")
+            record.setdefault(key, []).append({"scope": scope, "installPath": str(path)})
+        (d / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": record}))
+        return str(d)
+
+    def test_catchup_command_is_named_after_the_plugin_that_ships_it(self):
+        d = self.plugins([("attention@m", "user", "attention", True), ("works@m", "user", "works", False)])
+        self.assertEqual(claudex.catchup_commands(d), ["/attention:catchup"])
+
+    def test_catchup_command_follows_a_renamed_plugin(self):
+        self.assertEqual(claudex.catchup_commands(self.plugins([("watch@m", "user", "watch", True)])), ["/watch:catchup"])
+
+    def test_project_scoped_plugins_do_not_count(self):
+        # project の入れ方は、その projectPath の中で起こした会話にしか効かない
+        self.assertEqual(claudex.catchup_commands(self.plugins([("attention@m", "project", "attention", True)])), [])
+
+    def test_no_plugins_record_means_no_command(self):
+        self.assertEqual(claudex.catchup_commands(tempfile.mkdtemp()), [])
 
     def test_non_json_is_an_error(self):
         with self.assertRaises(claudex.ClaudeError):

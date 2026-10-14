@@ -145,6 +145,9 @@ class FakePorts(dispatch.Ports):
 
     trust_outcome = "inherited"
 
+    def catchup_command(self, config_dir):
+        return "/attention:catchup"
+
     def trust(self, account, source, clone):
         self.herdr.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
@@ -291,7 +294,8 @@ class Preflight(unittest.TestCase):
         text = "\n".join(problems)
         self.assertIn("agent.prompt", text)
         self.assertIn("claude-a1", text)
-        self.assertIn("attention", text)
+        self.assertIn("アカウント a1", text)
+        self.assertIn("catchup", text)
         self.assertNotIn("元の clone", text)  # 元の clone は o/r の clone なので通る
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
 
@@ -299,14 +303,19 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         home = pathlib.Path(root).parent / "home"
-        (home / ".claude" / "plugins").mkdir(parents=True)
-        (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"attention@x": []}}))
+        plugin = home / ".claude" / "plugins" / "cache" / "attention" / "1.0.0"
+        (plugin / ".claude-plugin").mkdir(parents=True)
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "attention"}))
+        (plugin / "commands").mkdir()
+        (plugin / "commands" / "catchup.md").write_text("")
+        (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+            json.dumps({"plugins": {"attention@x": [{"scope": "user", "installPath": str(plugin)}]}}))
         cfg = cfg._replace(accounts=(config.Account("default", "claude", None),))
         ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True,
                                env={"HOME": str(home)})
         problems, notes = ports.preflight(cfg)
-        self.assertNotIn("attention", "\n".join(problems))
-        self.assertNotIn("attention", "\n".join(notes))
+        self.assertNotIn("catchup", "\n".join(problems))
+        self.assertNotIn("catchup", "\n".join(notes))
 
     def test_repo_that_gh_cannot_read_is_a_problem(self):
         cfg_path, root = make_cfg()
