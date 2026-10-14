@@ -33,6 +33,7 @@ class Repo(NamedTuple):
     clone_root: str  # PR ごとの clone を置く場所
     copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（リポジトリの中の相対パス）
     copy_from: str | None = None  # copy_files を写す元のフォルダ。None は元の clone
+    gh_user: str | None = None  # このリポジトリを読む gh のアカウント。None はその人の今の設定（有効なアカウントか GH_TOKEN）
 
 
 class Config(NamedTuple):
@@ -110,8 +111,12 @@ def load(path=None, env=os.environ):
         if copy_from is not None and not isinstance(copy_from, str):
             problems.append(f"{where}: copy_from が文字列で無い")
             copy_from = None
+        gh_user = r.get("gh_user")
+        if gh_user is not None and not isinstance(gh_user, str):
+            problems.append(f"{where}: gh_user が文字列で無い")
+            gh_user = None
         repos.append(Repo(name, prompt, _path(source) if source else None, _path(root) if root else None, tuple(copy),
-                          _path(copy_from) if copy_from else None))
+                          _path(copy_from) if copy_from else None, gh_user or None))
     if not raw.get("repos"):
         problems.append("repos が 1 つも無い")
 

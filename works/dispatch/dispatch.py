@@ -43,9 +43,11 @@ def _shell_has(cmd):
     return p.returncode == 0
 
 
-def _gh_ok():
+def _gh_ok(repo, env=None):
+    """gh がそのリポジトリを読めるか。ログインしていても、有効なアカウントが読めないリポジトリはある。"""
     try:
-        return subprocess.run(["gh", "auth", "status"], capture_output=True, text=True).returncode == 0
+        return subprocess.run(["gh", "repo", "view", repo, "--json", "name"],
+                              capture_output=True, text=True, env=env).returncode == 0
     except FileNotFoundError:
         return False
 
@@ -62,11 +64,23 @@ def _has_attention(config_dir):
 class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
-    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None):
+    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None):
         self._herdr_methods = herdr_methods or herdr.methods
         self._shell_has = shell_has or _shell_has
         self._gh_ok = gh_ok or _gh_ok
         self.env = os.environ if env is None else env
+        self._gh_env = gh_env
+        self._gh_envs = {}
+
+    def gh_env(self, repo):
+        """そのリポジトリで gh を呼ぶ子の環境。gh_user が無ければ None（このプロセスの環境のまま）。鍵はアカウントごとに 1 度だけ取り出す。"""
+        if self._gh_env:
+            return self._gh_env(repo)
+        if not repo.gh_user:
+            return None
+        if repo.gh_user not in self._gh_envs:
+            self._gh_envs[repo.gh_user] = ghx.env_for(repo.gh_user, dict(self.env))
+        return self._gh_envs[repo.gh_user]
         self.herdr = herdr
         self.git = gitx
 
@@ -97,12 +111,19 @@ class Ports:
             for rel in repo.copy_files:
                 if not os.path.isfile(os.path.join(config.copy_root(repo), rel)):
                     notes.append(f"{repo.repo}: 写すファイルが {config.copy_root(repo)} に無い: {rel}")
-        if not self._gh_ok():
-            problems.append("gh が使えない（gh auth status が失敗）。whose-turn が GitHub を読めない")
+        for repo in cfg.repos:
+            try:
+                env = self.gh_env(repo)
+            except ghx.GhError as e:
+                problems.append(f"{repo.repo}: {e}")
+                continue
+            if not self._gh_ok(repo.repo, env):
+                problems.append(f"gh が {repo.repo} を読めない。whose-turn が自分の番の PR を集められない"
+                                "（gh auth status で、このリポジトリを読めるアカウントが有効かを確かめる）")
         return problems, notes
 
     def fetch_prs(self, repo):
-        return prs.read(repo)
+        return prs.read(repo.repo, env=self.gh_env(repo))
 
     def list_sessions(self, config_dir):
         return claudex.sessions(config_dir)
@@ -120,7 +141,10 @@ class Ports:
         return gitx.unpushed(cwd)
 
     def pr_state(self, repo, number):
-        return ghx.pr_state(repo, number)
+        try:
+            return ghx.pr_state(repo.repo, number, env=self.gh_env(repo))
+        except ghx.GhError:
+            return None  # 読めないものは消さない側に倒す
 
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
@@ -156,8 +180,12 @@ def main(argv=None, ports=None):
         print("\n".join(f"- {p}" for p in problems))
         return 2
 
-    my_prs = ports.fetch_prs(repo.repo)
-    listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
+    try:
+        my_prs = ports.fetch_prs(repo)
+        listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
+    except (prs.PrsError, claudex.ClaudeError, ghx.GhError) as e:
+        print(f"止めた: {e}")
+        return 1
     sess = sessions.collect(listed, ports.branch, ports.origin)
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, [x.name for x in cfg.accounts]),
                            cfg.limit_percent, ports.now())
@@ -197,7 +225,7 @@ def _clean(cfg, repo, apply, ports):
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
     root = repo.clone_root
     folders = [os.path.join(root, n) for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
-    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo.repo, n), cwds, ports.is_clean, ports.unpushed)
+    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo, n), cwds, ports.is_clean, ports.unpushed)
     if not rows:
         print("PR ごとの clone は無い")
         return 0

@@ -35,6 +35,7 @@ source = "{d}/src"
 clone_root = "{d}/clones"
 copy_files = ["frontend/.env.local", "deploy/local/secrets.local.yaml"]
 copy_from = "{d}/keep"
+gh_user = "me-at-work"
 """
 
 
@@ -58,6 +59,7 @@ class Load(unittest.TestCase):
         self.assertEqual(repo.clone_root, f"{self.d}/clones")
         self.assertEqual(repo.copy_files, ("frontend/.env.local", "deploy/local/secrets.local.yaml"))
         self.assertEqual(repo.copy_from, f"{self.d}/keep")
+        self.assertEqual(repo.gh_user, "me-at-work")
         self.assertEqual(config.copy_root(repo), f"{self.d}/keep")
 
     def test_defaults_without_accounts_or_limits(self):
@@ -67,6 +69,8 @@ class Load(unittest.TestCase):
         self.assertEqual(cfg.repos[0].copy_files, ())
         # copy_from を書かなければ、元の clone から写す
         self.assertIsNone(cfg.repos[0].copy_from)
+        # gh_user を書かなければ、gh はその人の今の設定（有効なアカウントか GH_TOKEN）で動く
+        self.assertIsNone(cfg.repos[0].gh_user)
         self.assertEqual(config.copy_root(cfg.repos[0]), cfg.repos[0].source)
         self.assertEqual(cfg.limit_percent, 95)
         self.assertEqual(cfg.limits_dir, os.path.expanduser("~/.cache/claude-limits"))

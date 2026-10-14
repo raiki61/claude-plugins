@@ -10,6 +10,7 @@ import unittest
 
 from . import DISPATCH  # noqa: F401
 import claudex
+import ghx
 import gitx
 import herdr
 
@@ -109,6 +110,27 @@ class Git(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertEqual(gitx.origin_repo("/r", runner=Fake((0, url + "\n", ""))), "o/r")
         self.assertIsNone(gitx.origin_repo("/r", runner=Fake((2, "", "no remote"))))
+
+
+class Gh(unittest.TestCase):
+    def test_env_for_user_puts_that_accounts_token_in_a_copy(self):
+        base = {"PATH": "/bin", "GH_TOKEN": "personal"}
+        f = Fake((0, "work-token\n", ""))
+        env = ghx.env_for("me-at-work", base, runner=f)
+        self.assertEqual(f.calls[0][0], ["gh", "auth", "token", "--user", "me-at-work"])
+        self.assertEqual(env["GH_TOKEN"], "work-token")
+        self.assertEqual(env["PATH"], "/bin")
+        self.assertEqual(base["GH_TOKEN"], "personal")
+
+    def test_env_for_unknown_user_raises(self):
+        with self.assertRaises(ghx.GhError) as e:
+            ghx.env_for("nobody", {}, runner=Fake((1, "", "no account found for nobody")))
+        self.assertIn("nobody", str(e.exception))
+
+    def test_pr_state_runs_with_the_given_env(self):
+        f = Fake(ok({"state": "MERGED"}))
+        self.assertEqual(ghx.pr_state("o/r", 7, runner=f, env={"GH_TOKEN": "t"}), "MERGED")
+        self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
 
 
 class Claude(unittest.TestCase):

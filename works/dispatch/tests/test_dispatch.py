@@ -11,6 +11,7 @@ from . import DISPATCH  # noqa: F401
 from .test_provision import make_world
 import config
 import dispatch
+import ghx
 import gitx
 import herdr as real_herdr
 from nodes import prs as prs_node
@@ -42,6 +43,16 @@ class Prs(unittest.TestCase):
         self.assertEqual(prs_node.read("o/r", runner=runner), [{"number": 1}])
         self.assertTrue(calls[0][1].endswith("vendor/whose-turn.py"))
         self.assertEqual(calls[0][2:], ["--repo", "o/r", "--json"])
+
+    def test_read_passes_env_to_whose_turn(self):
+        seen = []
+
+        def runner(argv, env=None):
+            seen.append(env)
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": []}), "")
+
+        prs_node.read("o/r", runner=runner, env={"GH_TOKEN": "t"})
+        self.assertEqual(seen, [{"GH_TOKEN": "t"}])
 
     def test_read_failure_raises(self):
         def runner(argv, env=None):
@@ -110,7 +121,7 @@ class FakePorts(dispatch.Ports):
     """本物の Ports の読む口のうち、claude・gh・whose-turn を偽物にする。git は本物（一時のフォルダ）、herdr は偽物。"""
 
     def __init__(self, prs, problems=(), herdr=None):
-        super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda: True)
+        super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         self._prs = prs
         self._problems = list(problems)
         self.herdr = herdr or FakeHerdr()
@@ -169,6 +180,17 @@ class Main(unittest.TestCase):
         self.assertEqual(ports.herdr.writes, [])
         self.assertIn("herdr に届かない", out)
 
+    def test_unreadable_prs_stop_with_one_line_not_a_traceback(self):
+        ports = FakePorts([])
+
+        def boom(repo):
+            raise prs_node.PrsError("whose-turn --json（o/r）が読めない: Could not resolve")
+        ports.fetch_prs = boom
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertEqual(rc, 1)
+        self.assertIn("止めた: whose-turn --json（o/r）が読めない", out)
+        self.assertEqual(ports.herdr.writes, [])
+
     def test_no_prs_does_nothing(self):
         ports = FakePorts([])
         rc, out = run_main(["--config", self.cfg], ports)
@@ -203,7 +225,7 @@ class Preflight(unittest.TestCase):
     def test_reports_missing_herdr_methods_command_attention_source_and_notes_limits(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
-        ports = dispatch.Ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda: True)
+        ports = dispatch.Ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
         problems, notes = ports.preflight(cfg)
         text = "\n".join(problems)
         self.assertIn("agent.prompt", text)
@@ -219,11 +241,44 @@ class Preflight(unittest.TestCase):
         (home / ".claude" / "plugins").mkdir(parents=True)
         (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"attention@x": []}}))
         cfg = cfg._replace(accounts=(config.Account("default", "claude", None),))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda: True,
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True,
                                env={"HOME": str(home)})
         problems, notes = ports.preflight(cfg)
         self.assertNotIn("attention", "\n".join(problems))
         self.assertNotIn("attention", "\n".join(notes))
+
+    def test_repo_that_gh_cannot_read_is_a_problem(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        asked = []
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                               gh_ok=lambda repo, env=None: asked.append(repo) or False)
+        problems, _ = ports.preflight(cfg)
+        self.assertEqual(asked, ["o/r"])
+        self.assertIn("gh が o/r を読めない", "\n".join(problems))
+
+    def test_gh_check_uses_the_repos_gh_user_token(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        cfg = cfg._replace(repos=(cfg.repos[0]._replace(gh_user="me-at-work"),))
+        seen = []
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                               gh_ok=lambda repo, env=None: seen.append(env) or True,
+                               gh_env=lambda repo: {"GH_TOKEN": f"token-of-{repo.gh_user}"})
+        problems, _ = ports.preflight(cfg)
+        self.assertEqual(seen, [{"GH_TOKEN": "token-of-me-at-work"}])
+        self.assertNotIn("gh", "\n".join(problems))
+
+    def test_gh_user_without_a_token_is_a_problem(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+
+        def no_token(repo):
+            raise ghx.GhError("gh のアカウント me-at-work の鍵を取り出せない")
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                               gh_ok=lambda repo, env=None: True, gh_env=no_token)
+        problems, _ = ports.preflight(cfg)
+        self.assertIn("gh のアカウント me-at-work の鍵を取り出せない", "\n".join(problems))
 
     def test_copy_files_are_looked_for_in_copy_from(self):
         cfg_path, root = make_cfg()
@@ -231,7 +286,7 @@ class Preflight(unittest.TestCase):
         empty = pathlib.Path(root).parent / "keep"
         empty.mkdir()
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(copy_from=str(empty)),))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda: True)
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
         self.assertIn(f"写すファイルが {empty} に無い: frontend/.env.local", "\n".join(notes))
 
@@ -239,7 +294,7 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(repo="o/other"),))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda: True)
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         problems, _ = ports.preflight(cfg)
         self.assertIn("元の clone", "\n".join(problems))
 

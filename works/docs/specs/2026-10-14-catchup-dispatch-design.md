@@ -154,6 +154,7 @@ copy_files = [                          # git が追わない手元だけのフ�
   "deploy/local/real-data.local.yaml",
 ]
 copy_from = "~/.config/claude/repos/guided-resolver"   # copy_files を写す元のフォルダ。省けば元の clone から写す
+gh_user = "<会社の GitHub のログイン名>"   # このリポジトリを読む gh のアカウント。省けばその人の今の設定。鍵は gh auth token --user で取り出して子の GH_TOKEN にだけ入れ、gh auth switch はしない
 ```
 
 2 ターン目の文は複数行なので、別のファイルに置く。持ち主の今の文は、木を探るように指摘を深掘りすること、世の中の解と照らすこと、自作の領域に踏み込んでいないかを疑うこと、未確認の領域を残さないこと、を求める 4 段の文。
@@ -168,7 +169,7 @@ copy_from = "~/.config/claude/repos/guided-resolver"   # copy_files を写す元
 - アカウントの起動のコマンドが、作業場のシェルで見つかる（利用者のログインのシェルに `command -v <コマンド>` を対話の形で聞く。シェルの関数も数える）。
 - `/catchup` を持つ attention が、各アカウントの設定のフォルダに入っている（`<設定のフォルダ>/plugins/installed_plugins.json` に `attention@` で始まる名がある）。2026-10-14 には 4 つとも入っていた。
 - `gh` が使える（whose-turn と、片付けの PR の状態の確かめが使う）。
-- 元の clone（`source`）が、対象のリポジトリの clone である（origin が `repo` と同じ）。`clone_root` が有る。`copy_files` が写す元（`copy_from`、省けば元の clone）に有る（無いものは止めずに 1 行出す）。
+- 元の clone（`source`）が、対象のリポジトリの clone である（origin が `repo` と同じ）。`clone_root` が有る。`copy_files` が写す元（`copy_from`、省けば元の clone）に有る（無いものは止めずに 1 行出す）。gh が `repo` を読める（`gh_user` が有れば、そのアカウントの鍵で `gh repo view` が通る）。
 
 `--dry-run` を付けると、assign まで走らせて report を出し、何も起こさずに終わる。作業場を作るか使い直すかも、フォルダの有無から報告する。
 

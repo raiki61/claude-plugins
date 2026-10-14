@@ -27,9 +27,10 @@ def _default_runner(argv, env=None):
     return subprocess.run(argv, capture_output=True, text=True, env=env)
 
 
-def read(repo, runner=_default_runner):
+def read(repo, runner=_default_runner, env=None):
+    """env は gh のアカウントを替えるときだけ渡す（GH_TOKEN 入り）。None はこのプロセスの環境のまま。"""
     argv = [sys.executable, str(WHOSE_TURN), "--repo", repo, "--json"]
-    p = runner(argv)
+    p = runner(argv, env=env)
     try:
         out = json.loads(p.stdout) if p.returncode == 0 else None
     except ValueError:
