@@ -211,6 +211,32 @@ class Main(unittest.TestCase):
         ])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
 
+    def test_no_second_sends_only_catchup(self):
+        ports = FakePorts([pr(1)])
+        rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
+        self.assertEqual(rc, 0)
+        self.assertEqual([w for w in ports.herdr.writes if w[0] == "prompt"], [("prompt", "P0", "/catchup 1", False)])
+        self.assertTrue(by_number(out)["#1"].endswith("sent"))
+
+    def test_pr_opens_only_the_named_prs_without_whose_turn(self):
+        ports = FakePorts([pr(1), pr(2)])
+        ports.fetch_prs = lambda repo: self.fail("--pr では whose-turn を呼ばない")
+        ports.pr_info = lambda repo, n: pr(n)
+        rc, out = run_main(["--config", self.cfg, "--pr", "5", "--dry-run"], ports)
+        self.assertEqual(rc, 0)
+        self.assertEqual(list(by_number(out)), ["#5"])
+
+    def test_pr_that_cannot_be_read_stops_with_one_line(self):
+        ports = FakePorts([])
+
+        def no_pr(repo, n):
+            raise ghx.GhError(f"#{n} を読めない")
+        ports.pr_info = no_pr
+        rc, out = run_main(["--config", self.cfg, "--pr", "99999"], ports)
+        self.assertEqual(rc, 1)
+        self.assertIn("止めた: #99999 を読めない", out)
+        self.assertEqual(ports.herdr.writes, [])
+
     def test_one_launch_failure_does_not_stop_the_other(self):
         ports = FakePorts([pr(1), pr(2)], herdr=FakeHerdr(fail_run_for={"P0"}))
         rc, out = run_main(["--config", self.cfg], ports)

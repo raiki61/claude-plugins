@@ -11,7 +11,10 @@
 
 片付け（--clean）は、PR ごとの clone のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
 
-使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--dry-run | --clean [--apply]]
+--pr N は自分の番の一覧（whose-turn）を使わず、指した PR だけを開く。止めている実装や、見に行くだけの PR に使う。
+--no-second は 2 ターン目の文を送らず、/catchup だけで止める。
+
+使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ...] [--no-second] [--dry-run | --clean [--apply]]
 """
 
 import argparse
@@ -140,6 +143,9 @@ class Ports:
     def unpushed(self, cwd):
         return gitx.unpushed(cwd)
 
+    def pr_info(self, repo, number):
+        return ghx.pr_info(repo.repo, number, env=self.gh_env(repo))
+
     def pr_state(self, repo, number):
         try:
             return ghx.pr_state(repo.repo, number, env=self.gh_env(repo))
@@ -158,6 +164,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--config")
     ap.add_argument("--repo")
     ap.add_argument("--dry-run", action="store_true", help="割り振りの案までを決めて報告し、何も起こさない")
+    ap.add_argument("--pr", type=int, action="append", metavar="N",
+                    help="自分の番の一覧を使わず、この番号の PR だけを開く（繰り返して複数）")
+    ap.add_argument("--no-second", action="store_true", help="2 ターン目の文を送らず、/catchup だけで止める")
     ap.add_argument("--clean", action="store_true", help="PR ごとの clone のうち消してよいものを並べる")
     ap.add_argument("--apply", action="store_true", help="--clean と一緒に: 並べたものを本当に消す")
     a = ap.parse_args(argv)
@@ -181,7 +190,7 @@ def main(argv=None, ports=None):
         return 2
 
     try:
-        my_prs = ports.fetch_prs(repo)
+        my_prs = [ports.pr_info(repo, n) for n in a.pr] if a.pr else ports.fetch_prs(repo)
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
     except (prs.PrsError, claudex.ClaudeError, ghx.GhError) as e:
         print(f"止めた: {e}")
@@ -213,7 +222,8 @@ def main(argv=None, ports=None):
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                 futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane,
-                                                    repo.second_prompt, ports.herdr) for r, pane in ready}
+                                                    None if a.no_second else repo.second_prompt, ports.herdr)
+                           for r, pane in ready}
                 results.update({n: f.result() for n, f in futures.items()})
 
     print("\n".join(report.lines(the_plan, results, notes)))

@@ -127,6 +127,18 @@ class Gh(unittest.TestCase):
             ghx.env_for("nobody", {}, runner=Fake((1, "", "no account found for nobody")))
         self.assertIn("nobody", str(e.exception))
 
+    def test_pr_info_reads_one_pr_in_the_shape_whose_turn_gives(self):
+        f = Fake(ok({"number": 7, "title": "直す", "headRefName": "feat/7", "url": "u7"}))
+        got = ghx.pr_info("o/r", 7, runner=f, env={"GH_TOKEN": "t"})
+        self.assertEqual(got, {"number": 7, "title": "直す", "head": "feat/7", "url": "u7"})
+        self.assertEqual(f.calls[0][0], ["gh", "pr", "view", "7", "--repo", "o/r", "--json", "number,title,headRefName,url"])
+        self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
+
+    def test_pr_info_unreadable_raises(self):
+        with self.assertRaises(ghx.GhError) as e:
+            ghx.pr_info("o/r", 99999, runner=Fake((1, "", "no pull requests found")))
+        self.assertIn("#99999", str(e.exception))
+
     def test_pr_state_runs_with_the_given_env(self):
         f = Fake(ok({"state": "MERGED"}))
         self.assertEqual(ghx.pr_state("o/r", 7, runner=f, env={"GH_TOKEN": "t"}), "MERGED")

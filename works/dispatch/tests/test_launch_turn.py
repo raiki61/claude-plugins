@@ -70,6 +70,11 @@ class Turn(unittest.TestCase):
         self.assertEqual(turn.catchup_then_second(7, "wB:p1", SECOND, h), "sent")
         self.assertEqual(h.calls, [("prompt", "wB:p1", "/catchup 7", True), ("prompt", "wB:p1", SECOND, False)])
 
+    def test_without_second_sends_only_catchup_and_does_not_wait(self):
+        h = FakeHerdr(prompts=["sent"])
+        self.assertEqual(turn.catchup_then_second(7, "wB:p1", None, h), "sent")
+        self.assertEqual(h.calls, [("prompt", "wB:p1", "/catchup 7", False)])
+
     def test_done_also_sends_second(self):
         self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompts=["done", "sent"])), "sent")
 

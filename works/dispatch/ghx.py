@@ -29,6 +29,18 @@ def env_for(user, base_env, runner=_default_runner):
     return {**base_env, "GH_TOKEN": token}
 
 
+def pr_info(repo, number, runner=_default_runner, env=None):
+    """1 件の PR を、whose-turn --json の 1 件と同じ名前の欄（number・title・head・url）で返す。読めなければ GhError。"""
+    p = runner(["gh", "pr", "view", str(number), "--repo", repo, "--json", "number,title,headRefName,url"], env=env)
+    try:
+        got = json.loads(p.stdout) if p.returncode == 0 else None
+    except ValueError:
+        got = None
+    if not isinstance(got, dict) or "headRefName" not in got:
+        raise GhError(f"{repo} の #{number} を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    return {"number": got["number"], "title": got["title"], "head": got["headRefName"], "url": got.get("url")}
+
+
 def pr_state(repo, number, runner=_default_runner, env=None):
     """OPEN・MERGED・CLOSED のどれか。読めない時は None（片付けは消さない側に倒す）。"""
     p = runner(["gh", "pr", "view", str(number), "--repo", repo, "--json", "state"], env=env)

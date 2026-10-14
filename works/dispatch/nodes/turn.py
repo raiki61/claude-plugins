@@ -3,7 +3,8 @@
 
 1 ターン目の `/catchup <番号>` は待ち付きで送る。herdr の agent prompt --wait は、送った後に動き出したのを見てから止まるまで待つ。
 `herdr agent wait` だけで待たないのは、それがターンの区切りを追わず、始まる前の idle に当たりうるため。
-2 ターン目は、1 ターン目が idle か done で終えた時だけ、待たずに送る。blocked（許可の確認などで止まっている）と
+2 ターン目は、1 ターン目が idle か done で終えた時だけ、待たずに送る。2 ターン目の文が無ければ（--no-second）、
+`/catchup <番号>` だけを待たずに送って終える。blocked（許可の確認などで止まっている）と
 stalled（送って動き出さなかった。herdr の組み込みの見張りの結末）なら送らない。こちらからは期限を足さない。
 
 使い方: python3 nodes/turn.py --pane <ペイン ID> --text <文> [--wait] [--out <パス>]
@@ -28,7 +29,10 @@ def send(pane, text, wait, h=herdr):
 
 
 def catchup_then_second(number, pane, second, h=herdr):
-    """結末の語 sent・blocked・stalled・send_failed のどれかを返す。"""
+    """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。"""
+    if second is None:
+        only = send(pane, f"/catchup {number}", False, h)
+        return "sent" if only["status"] == "sent" else "send_failed"
     first = send(pane, f"/catchup {number}", True, h)
     if first["status"] == "failed":
         return "send_failed"
