@@ -302,7 +302,18 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 - [ ] **Step 4:** 違えば外への口だけを直し、試験を実物に合わせて足す。直したら Step 3 をもう一度。
 - [ ] **Step 5: Commit** — `git commit -m "fix(works): dispatch の外への口を手元の herdr と Claude Code の振る舞いに合わせる"`（直した時だけ）
 
-### Task 13: `/works:dispatch` と文書
+### Task 13: 前提の文書・セットアップ（`init` と `check`）・`/works:dispatch` の入口
+
+持ち主の頼み（2026-10-14「そういう前提みたいなのをそのプラグインに書いておかないといけないし、セットアップみたいなスキルもいるんじゃないの」）。
+
+- 前提（herdr が動いている／`claude agents --json` を持つ Claude Code／各アカウントに attention／対象を読める gh／リポジトリごとの代表 clone が既定の枝にいる／アカウントごとの起動のコマンド／使用率の控えは任意）を、README と手順書に書き、7 つとも `check` でも確かめる（今の preflight に、Claude Code の版と、代表 clone の枝を足す）。
+- `dispatch.py init --repo <OWNER/NAME> --source <代表 clone>`: 設定が無い時だけ下書きを書く（有れば上書きせず足す分を出す）。アカウントは `claude agents --json` が通る設定のフォルダの候補をコメントで並べ、起動のコマンドは人が書く。`copy_files` は代表 clone の追わない小さな設定のファイル（`.env*`・`*.local.*` など。依存と生成物のフォルダは除く）を候補で並べる。2 ターン目の文のファイルは空の雛形。
+- `dispatch.py check`: 始める前の確かめを単独で走らせ、足りない物と直し方を 1 行ずつ出す。
+- `/works:dispatch` は割り振り、`/works:dispatch setup` は `init` と `check` を走らせて出力をそのまま見せる。どちらも判断させない。
+
+元の Task 13 の中身（以下）も含む。
+
+### Task 13（元の中身）: `/works:dispatch` と文書
 
 振る舞いが Task 12 で決まってから書く。先に書くと、実物と食い違う。
 
