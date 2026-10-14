@@ -36,6 +36,36 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
 2. 書かれた設定（既定は `~/.config/works-dispatch/dispatch.toml`）を、利用者が埋める。埋めるのは、2 ターン目の文のファイルと、アカウントを切り替える人だけ `accounts` である。
 3. `--check` を、足りない物が出なくなるまで走らせる。
 
+### アカウントの書き方
+
+アカウントの数に決まりは無く、1 つでも 7 つでも同じ形で書く（herdr のタブ欄に使用率を並べられるのは 15 個まで）。持ち方は人で違うので、次の 3 通りを 1 つの設定に混ぜてよい。
+
+- **`claude` をそのまま使う。** `accounts` を書かない。`claude` 1 つで動き、鍵は Claude Code 自身が保存したものを使う。
+- **設定のフォルダを分ける。** アカウントごとに、`name`（使用率の控えの名前）、`command`（そのアカウントで Claude Code を起こすシェルのコマンド）、`config_dir`（そのコマンドが `CLAUDE_CONFIG_DIR` に入れるフォルダ）を書く。コマンドが `CLAUDE_CONFIG_DIR` を入れないなら、`config_dir` は書かない。鍵を自分で決めた名前の Keychain の項目に置いたなら、その名前を `keychain_service` に書く。
+- **使用率の枠が無い（Ollama、Foundry など）。** `limits = false` を足す。使用率では外さず、使用率の分かるアカウントの後ろに並べる。
+
+## 任意: herdr の見た目を整える
+
+dispatch はこれが無くても動く。PR ごとの作業場が増えたときに、どのアカウントに余裕があり、どの会話が何をしているかを見やすくする。
+
+1. **herdr の連携を、アカウントごとに入れる。** `--check` が、入っていないアカウントについて、入れるコマンド（`CLAUDE_CONFIG_DIR=<フォルダ> herdr integration install claude`）を出す。herdr を立ち上げ直したときに、会話を戻すのに使われる。
+2. **タブ欄に、アカウントごとの使用率を出す。** 次のコマンドが出す行を、herdr の設定（`~/.config/herdr/config.toml`）の `[ui]` に貼る。アカウントごとに表示が 1 つ（例: `p1 5h 38% 1h4m  7d 32% 2d4h`）と、5 分ごとに控えを取り直す行が 1 つ並ぶ。取り直しは、使っていないアカウントの控えが古くなったときだけ、出力 0 トークンの問い合わせを 1 回投げる。
+
+   ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" herdr-config
+   ```
+
+   使用率の控えは、dispatch がアカウントを選ぶのにも使う。Claude Code の statusline のコマンドから、受けた JSON を `limits.py record` の標準入力にも渡すと、使っているアカウントの 5 時間の枠がすぐ動く。社内のプロキシの内側では、herdr を起こすシェルに `HTTPS_PROXY` が要る。失敗は `~/.cache/claude-limits/probe.log` に残る。
+3. **サイドバーに、会話ごとの作業内容を出す。** Claude Code の設定（各アカウントの `settings.json`）の `hooks` の `UserPromptSubmit`・`PreToolUse`・`Stop`・`Notification` に、次のコマンドを置く。作業中は動いているツールを、ターンが終わると直前に頼んだ内容を出す。
+
+   ```
+   python3 <プラグインの場所>/dispatch/activity.py
+   ```
+
+   プラグインの場所は、`echo "${CLAUDE_PLUGIN_ROOT}"` で分かる。そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く。
+
+2 と 3 の行は、プラグインの入った場所（版ごとのフォルダ）を指す。プラグインを更新すると、そのフォルダが消えることがある。消えた場所を指していれば `--check` が知らせるので、そのときは行を出し直す。
+
 ## 使い方: `/works-dispatch:dispatch <引数>`
 
 - 引数なし: 自分の番の PR を全部開く。

@@ -134,13 +134,16 @@ limit_percent = 95                      # 使用率がこれを超えたアカ�
 limits_dir = "~/.cache/claude-limits"   # 使用率の控えの置き場
 
 # name は使用率の控えのファイル名、command はそのアカウントで claude を起こすシェルのコマンド、
-# config_dir はそのアカウントの Claude Code の設定のフォルダ（会話を集めるのと、始める前の確かめで attention を
-# 探すのに使う。省くと Claude Code の既定のフォルダ）
+# config_dir はそのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダ（会話を集めるのと、信頼の記録と attention を
+# 探すのに使う。入れないコマンドなら書かない。そのときは作業場のペインの新しいログインのシェルの値か ~/.claude）。
+# keychain_service は鍵を置いた Keychain の項目の名前（省けば共通の scripts/claude_auth.py の決まりで探す）。
+# limits = false は使用率の枠の無いアカウント（Ollama・Foundry など）で、控えを読まず使用率で外さない
 accounts = [
-  { name = "main", command = "claude",    config_dir = "~/.claude" },
+  { name = "main", command = "claude" },
   { name = "p1",   command = "claude-p1", config_dir = "~/.claude-p1" },
   { name = "p2",   command = "claude-p2", config_dir = "~/.claude-p2" },
   { name = "p3",   command = "claude-p3", config_dir = "~/.claude-p3" },
+  { name = "local", command = "claude-ollama", config_dir = "~/.claude-ollama", limits = false },
 ]
 
 [[repos]]
