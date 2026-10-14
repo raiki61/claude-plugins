@@ -34,10 +34,15 @@ works-factory は、直してほしい事（修正依頼か GitHub の issue）�
 ## 2. 起動する
 
 ```
-WF workflow run works-factory-line --cwd <対象のリポジトリ> --input request=<依頼>
+WF workflow run works-factory-line --cwd <対象のリポジトリ> --input request=<依頼のファイル> [--input test_cmd=<試験のコマンド>] [--from <枝か commit>]
 ```
 
-- 依頼は、直してほしい事の文か、GitHub の issue の URL。
+- `request` に渡すのは、依頼を書いた JSON のファイルのパス。文をそのまま渡すと、ファイル名として読まれて止まる。
+  - 形: `{"findings": [{"where": "<ファイル:行>", "text": "<何が困っているか・どうなってほしいか>"}], "pr": [<番号>], "issue": [<番号>]}`。`pr`・`issue` は省ける。
+  - `text` には問題と目的を書き、直し方は書かない。直し方の案が在れば、`text` の中に「案: …」と分けて添える（工場は案を世の中の定石と比べる）。
+  - 欄の全部は、取り置いた works-factory の `lib/carry.py` の頭に在る。
+- run の作業ツリーは、`--from` を付けないと既定の枝（main など）から切られる。PR の枝や手元の枝を直す時は、`--from <その枝>` を付ける。
+- `test_cmd` は、工場の中で走らせる試験のコマンド。省くと、工場の AI が CI の定義を読んで回す。回せない系統（データベースや docker が要る物）が在ると、そこで止まることがある。
 - 起動は長くかかるので、Claude Code の Bash の run_in_background で起こし、終わりの知らせで次の手を打つ。`nohup` や `&` で切り離さない（知らせが来ないので、承認ノードで止まった run に気づけない）。
 - run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、どの命令にも `--cwd <対象>` を付ける。
 - 何周もつなぐ時（周の鎖）: `WF workflow run works-factory-chain --cwd <対象> --input rounds=<1〜5> --input request=<依頼>`（費用の上限は `--input budget_usd=<USD>`）。1 周が子の run 1 本で、残りが在れば次の周を起こす。周の中の承認ノードには子の run の id で答える（`WF workflow status --cwd <対象>` で見る）。当てるのは鎖の run（`WF apply <鎖の run> --cwd <対象>`）で、採る周までの最後の差分と、周ごとの表 `chain.md` が置き場に出る。
