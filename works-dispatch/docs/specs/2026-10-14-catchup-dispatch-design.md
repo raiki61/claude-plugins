@@ -108,26 +108,26 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 
 倣う先は works-factory で、同じリポジトリの darkfactory（旧 works）の作りではない。持ち主の言葉は「works と新工場は少し作り方が違うので、引っ張られないようにしてね旧に」（2026-10-14）。決まりは 1 つずつ試験と対にし、試験で縛れないものは「人が見る」と書く。
 
-- **D1 旧 works の部品に頼らない。** `works/dispatch/` は、`works/.shared/`・`works/dev/`・`works/darkfactory/`・`works/blk-*` のファイルを読まず、import もしない。darkfactory は works-factory に置き換わったら外されるので、頼ると一緒に壊れる。機械: `works/dispatch/` の字にそれらのパスが無い。
-- **D2 処理は Python に置き、シェルの文字列に Python を埋めない。** 旧 works は起動の処理を sh の関数と、sh の文字列に埋めた Python に持ち、写しが食い違った。入口も Python にする。機械: `works/dispatch/` に `.sh` が無い。
-- **D3 ノードは流れを知らない。** ノードは引数と JSON のファイルのパスで受け、JSON で返す。どのノードの次に何を呼ぶかは、入口の `works/dispatch/dispatch.py` だけが持つ（works-factory の、流れはグラフだけが持ち助け手は流れを知らない、の形）。機械: `works/dispatch/nodes/` のファイルがほかのノードを import しない。
+- **D1 旧 works の部品に頼らない。** `works-dispatch/dispatch/` は、`works/.shared/`・`works/dev/`・`works/darkfactory/`・`works/blk-*` のファイルを読まず、import もしない。darkfactory は works-factory に置き換わったら外されるので、頼ると一緒に壊れる。機械: `works-dispatch/dispatch/` の字にそれらのパスが無い。
+- **D2 処理は Python に置き、シェルの文字列に Python を埋めない。** 旧 works は起動の処理を sh の関数と、sh の文字列に埋めた Python に持ち、写しが食い違った。入口も Python にする。機械: `works-dispatch/dispatch/` に `.sh` が無い。
+- **D3 ノードは流れを知らない。** ノードは引数と JSON のファイルのパスで受け、JSON で返す。どのノードの次に何を呼ぶかは、入口の `works-dispatch/dispatch/dispatch.py` だけが持つ（works-factory の、流れはグラフだけが持ち助け手は流れを知らない、の形）。機械: `works-dispatch/dispatch/nodes/` のファイルがほかのノードを import しない。
 - **D4 外に書くのは決まったノードだけで、書いた後に読み戻す。** provision・launch・turn と、片付けの clean。機械: Python の構文木で見る。`subprocess` を import するのは外への口（`herdr.py`・`gitx.py`・`claudex.py`・`ghx.py`）と、whose-turn を呼ぶ prs のノードと、始める前の確かめを持つ入口だけ。herdr に書く関数（`run`・`prompt`・`create_workspace`・`close_workspace`）と、git に書く関数（`clone`・`set_origin`・`fetch`）を呼ぶのは、その 4 つのノードだけ（どのノードがどれを呼ぶかは柵の表に書く）。字の書き方を変えても逃げられないようにするため、字では探さない。読み戻しは人が見る。
-- **D5 こちらから期限を足さない。** 機械: `works/dispatch/` に `timeout` の字が無い（herdr の組み込みの見張りの結末の語 `agent_prompt_stalled` は除く）。
-- **D6 持ち主の環境の値をリポジトリに書かない。** アカウントの名前、起動のコマンド、置き場のパス、使用率の控えの場所は、設定のファイルで渡す（works-factory の「既定の道は普通の利用者の環境でそのまま動く」と同じ）。機械: `works/dispatch/` に `raiki61`・`claude-code-oauth-`・`/Users/`・`claude-p` の字が無い。
+- **D5 こちらから期限を足さない。** 機械: `works-dispatch/dispatch/` に `timeout` の字が無い（herdr の組み込みの見張りの結末の語 `agent_prompt_stalled` は除く）。
+- **D6 持ち主の環境の値をリポジトリに書かない。** アカウントの名前、起動のコマンド、置き場のパス、使用率の控えの場所は、設定のファイルで渡す（works-factory の「既定の道は普通の利用者の環境でそのまま動く」と同じ）。機械: `works-dispatch/dispatch/` に `raiki61`・`claude-code-oauth-`・`/Users/`・`claude-p` の字が無い。
 - **D7 普通の利用者の環境でもそのまま動く。** 設定にアカウントが無ければ、`claude` 1 つだけのアカウントとして扱う。使用率の控えが無いアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（判断）。人が見る。
-- **D8 出力の形は schema に書き、試験がそれで照らす。** 機械: 各ノードの試験の出力が `works/dispatch/schemas/<名>.schema.json` に合う。
+- **D8 出力の形は schema に書き、試験がそれで照らす。** 機械: 各ノードの試験の出力が `works-dispatch/dispatch/schemas/<名>.schema.json` に合う。
 
 ほかの決まり:
 
-- 各ノードは `works/dispatch/nodes/<名>.py` の単独のコマンド。入力は引数と JSON のファイルのパス、出力は JSON を標準出力か `--out <パス>` に書く。標準ライブラリだけで書く。
+- 各ノードは `works-dispatch/dispatch/nodes/<名>.py` の単独のコマンド。入力は引数と JSON のファイルのパス、出力は JSON を標準出力か `--out <パス>` に書く。標準ライブラリだけで書く。
 - 各出力の頭に `schema: 1` を置き、読む側は知らない版を読んだら止まる。
-- herdr を呼ぶのは `works/dispatch/herdr.py` の 1 か所だけ。git と Claude Code（`claude agents --json`）も同じく 1 か所ずつ（`gitx.py`・`claudex.py`）に寄せる。herdr は互換を約束していない（herdr の文書は、手元の版の API を `herdr api schema` で確かめるよう求めている）ので、壊れたら直すのはこの 1 か所になる。
-- `works/skills/dispatch/SKILL.md`: `/works:dispatch` の入口。`dispatch.py` を 1 回走らせ、出た報告をそのまま見せるだけ。判断はさせない。`dispatch.py` は端末から直に打っても同じに動く。
+- herdr を呼ぶのは `works-dispatch/dispatch/herdr.py` の 1 か所だけ。git と Claude Code（`claude agents --json`）も同じく 1 か所ずつ（`gitx.py`・`claudex.py`）に寄せる。herdr は互換を約束していない（herdr の文書は、手元の版の API を `herdr api schema` で確かめるよう求めている）ので、壊れたら直すのはこの 1 か所になる。
+- `works/skills/dispatch/SKILL.md`: `/works-dispatch:dispatch` の入口。`dispatch.py` を 1 回走らせ、出た報告をそのまま見せるだけ。判断はさせない。`dispatch.py` は端末から直に打っても同じに動く。
 - `whose-turn.py` の場所: works は attention をそのまま呼べない（プラグインは 1 つずつ配られ、ほかのプラグインのフォルダは手元に無いことがある）。このリポジトリの写しの仕組み（`scripts/shared-copies.py`。正本を 1 つ持ち、写しが割れたら試験が赤になる）で、正本の attention から works へ写す。写すのは `whose-turn.py` と、それが読む部品（`attention/scripts/lib/outfile.py`）。
 
 ## 5. 設定
 
-`~/.config/works/dispatch.toml`（パスは環境変数 `WORKS_DISPATCH_CONFIG` で替えられる）。スクリプトに環境の値を書かない。
+`~/.config/works-dispatch/dispatch.toml`（パスは環境変数 `WORKS_DISPATCH_CONFIG` で替えられる）。スクリプトに環境の値を書かない。
 
 ```toml
 limit_percent = 95                      # 使用率がこれを超えたアカウントは選ばない
@@ -145,7 +145,7 @@ accounts = [
 
 [[repos]]
 repo = "<owner>/guided-resolver"
-second_prompt_file = "~/.config/works/dispatch-second-prompt.md"   # 2 ターン目の文（複数行）
+second_prompt_file = "~/.config/works-dispatch/dispatch-second-prompt.md"   # 2 ターン目の文（複数行）
 source = "~/src/guided-resolver"        # 元の clone。PR ごとの clone はここから作る（中身をハードリンクで共有する）
 clone_root = "~/src"                    # PR ごとの clone を置く場所（<clone_root>/guided-resolver-pr-<番号>）
 copy_files = [                          # git が追わない手元だけのファイル（リポジトリの中の相対パス）
@@ -184,7 +184,7 @@ gh_user = "<会社の GitHub のログイン名>"   # このリポジトリを�
 
 ## 8. 確かめ方
 
-- 試験は `works/dispatch/tests/` に置き、旧 works の試験の殻（`works/tests/run.sh`）には載せない（D1）。CI で回す道は、リポジトリの根の試験の殻から呼ぶ形にし、計画で決める。
+- 試験は `works-dispatch/dispatch/tests/` に置き、旧 works の試験の殻（`works/tests/run.sh`）には載せない（D1）。CI で回す道は、リポジトリの根の試験の殻から呼ぶ形にし、計画で決める。
 - 判断のノード（accounts・assign・report と、片付けの候補の判定）は、速い段の単体テストで確かめる。外とのやりとりは偽物に差し替える。出力は schema で照らす。
 - provision と clean は、一時のフォルダに作った小さな git のリポジトリを元の clone に見立てて、本物の git で試す（herdr だけ偽物）。
 - 外とのやりとりは、手元の herdr で `--dry-run` を走らせ、持ち主の今の作業場の一覧と照らして確かめる。実際に起こすのは、持ち主が見ている前で 1 件だけ試す。

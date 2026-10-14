@@ -56,7 +56,7 @@ GitHub から取れる範囲で全部、決定的に集める。判断（返信�
 Bash の出力に乗って、また退避される。
 """
 
-# この本文は複数のプラグインに写しで在る。正本は attention/scripts/whose-turn.py、写しは works/dispatch/vendor/whose-turn.py。
+# この本文は複数のプラグインに写しで在る。正本は attention/scripts/whose-turn.py、写しは works-dispatch/dispatch/vendor/whose-turn.py。
 # 直すのは正本だけで、配るのは python3 scripts/shared-copies.py --sync attention/scripts/whose-turn.py。
 
 import argparse

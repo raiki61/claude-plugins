@@ -53,6 +53,12 @@
       "description": "修正の工場 works-factory（raiki61/works-factory。Archon の上に載る pack）の Claude Code 側の薄い入口。/works-factory スキルが、今いるリポジトリを対象に修正依頼を工場へ回す（起動・承認ノードでの答え方・差分の当て方）。工場は止めた commit を取り置いて使う。今の /works と並べて置く。",
       "source": "./works-factory",
       "strict": false
+    },
+    {
+      "name": "works-dispatch",
+      "description": "自分の番の PR（attention の whose-turn）を、PR ごとの作業場（clone と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で /catchup と設定の 2 ターン目の文を送る /works-dispatch:dispatch スキル。AI を使わないスクリプトで、開いている会話は閉じない。",
+      "source": "./works-dispatch",
+      "strict": false
     }
   ]
 }

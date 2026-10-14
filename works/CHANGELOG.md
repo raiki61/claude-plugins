@@ -6,10 +6,6 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
-### Added
-
-- ライン dispatch と `/works:dispatch` スキル。自分の番の PR（attention の whose-turn）を、PR ごとの作業場（代表の clone から作る `<名前>-pr-<番号>` の clone と、同じ名前の herdr の作業場）に開き、週の使用率のリセットが近いアカウント（95% を超えるものは外す）で Claude Code を起こして、`/<プラグイン名>:catchup <番号>` と設定の 2 ターン目の文を送る。AI は使わない。開いている会話は閉じず、同じリポジトリとブランチの会話が開いていれば飛ばす。引数は `--dry-run`・`--pr N`・`--no-second`・`--clean [--apply]`・`--init`・`--check`。前提と、試しの実行で確かめた外の道具の振る舞いは README の「dispatch」の節に在る。
-
 ## [0.2.65] - 2026-10-12
 
 ### Added

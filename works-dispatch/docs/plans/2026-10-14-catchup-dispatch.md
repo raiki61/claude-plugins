@@ -4,20 +4,20 @@
 
 **Goal:** `/whose-turn` の自分の番の PR を、空いている herdr の作業場に、選んだアカウントの Claude Code で起こし、`/catchup <番号>` と 2 ターン目の文を送るところまでを、AI を使わずにスクリプトでやる。
 
-**Architecture:** `works/dispatch/` に、JSON で入出力する 8 つのノード（prs・sessions・accounts・slots・assign・launch・turn・report）を置き、入口の `dispatch.py` だけが流れを持つ。外とのやりとりは `herdr.py`・`gitx.py`・`claudex.py` の 3 つの口に寄せ、判断のノードは純粋な関数にする。開いている会話は、Claude Code の公式の口 `claude agents --json` で集め、`(リポジトリ, 枝)` の組で PR と突き合わせる。`whose-turn.py` は attention を正本に、リポジトリの写しの仕組みで works へ写す。決まりの柵と CI への載せは最初（Task 3）に張り、以後のタスクはその下で作る。
+**Architecture:** `works-dispatch/dispatch/` に、JSON で入出力する 8 つのノード（prs・sessions・accounts・slots・assign・launch・turn・report）を置き、入口の `dispatch.py` だけが流れを持つ。外とのやりとりは `herdr.py`・`gitx.py`・`claudex.py` の 3 つの口に寄せ、判断のノードは純粋な関数にする。開いている会話は、Claude Code の公式の口 `claude agents --json` で集め、`(リポジトリ, 枝)` の組で PR と突き合わせる。`whose-turn.py` は attention を正本に、リポジトリの写しの仕組みで works へ写す。決まりの柵と CI への載せは最初（Task 3）に張り、以後のタスクはその下で作る。
 
 **Tech Stack:** Python 3.12（CI の版。`tomllib` を使う）、標準ライブラリだけ、`unittest`、`ast`（柵）。外の道具は herdr 0.9.x、Claude Code（`claude agents --json`）、git、gh。
 
-**Spec:** `works/docs/specs/2026-10-14-catchup-dispatch-design.md`（以下、設計書）。作る前に全部読む。節の番号はそこを指す。
+**Spec:** `works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md`（以下、設計書）。作る前に全部読む。節の番号はそこを指す。
 
 ## Global Constraints
 
 - 標準ライブラリだけで書く。`shell=True` を使わない（文は argv で渡す）。
-- 設計書 4 節の D1〜D8 を守る。D1: `works/dispatch/` は `works/.shared/`・`works/dev/`・`works/darkfactory/`・`works/blk-*` を読まず import しない。D2: `works/dispatch/` に `.sh` を置かない。D5: こちらから期限を足さない（`timeout` の字を書かない。herdr の結末の語 `agent_prompt_stalled` は除く）。D6: `raiki61`・`claude-code-oauth-`・`/Users/`・`claude-p` の字を `works/dispatch/` に書かない（`vendor/` の写しは除く）。
-- 設定のパスの既定は `~/.config/works/dispatch.toml`、環境変数 `WORKS_DISPATCH_CONFIG` で替える。`limit_percent` の既定は 95、`limits_dir` の既定は `~/.cache/claude-limits`。
+- 設計書 4 節の D1〜D8 を守る。D1: `works-dispatch/dispatch/` は `works/.shared/`・`works/dev/`・`works/darkfactory/`・`works/blk-*` を読まず import しない。D2: `works-dispatch/dispatch/` に `.sh` を置かない。D5: こちらから期限を足さない（`timeout` の字を書かない。herdr の結末の語 `agent_prompt_stalled` は除く）。D6: `raiki61`・`claude-code-oauth-`・`/Users/`・`claude-p` の字を `works-dispatch/dispatch/` に書かない（`vendor/` の写しは除く）。
+- 設定のパスの既定は `~/.config/works-dispatch/dispatch.toml`、環境変数 `WORKS_DISPATCH_CONFIG` で替える。`limit_percent` の既定は 95、`limits_dir` の既定は `~/.cache/claude-limits`。
 - すべての JSON の出力は頭に `"schema": 1` を持つ。読む側は `schema` が 1 でなければ止まる。
 - 結末の語は `sent`・`blocked`・`stalled`・`already_open`・`no_slot`・`no_account`・`launch_failed`・`send_failed` の 8 つだけ（設計書 2 節の 6 つに、起こせなかった時の `launch_failed` と、送る命令が誤りを返した時の `send_failed` を足す。設計書もこの 8 つに直す）。
-- 試験は `works/dispatch/tests/` に置き、旧 works の `works/tests/run.sh` には載せない。CI へは根の `tests/run.sh` から載せる（Task 3）。
+- 試験は `works-dispatch/dispatch/tests/` に置き、旧 works の `works/tests/run.sh` には載せない。CI へは根の `tests/run.sh` から載せる（Task 3）。
 - 版上げ（attention・works の `plugin.json` と marketplace の `metadata.version`）は枝の最後の commit にする（リポジトリの直下の `CLAUDE.md` の「出荷」）。タグは作らない。
 - 手元の試験は `nice -n 19` で回し、重い段は回さない（同じ `CLAUDE.md` の「試験」）。
 
@@ -72,10 +72,10 @@ class Json(unittest.TestCase):
 
 **Files:**
 - Modify: `attention/scripts/whose-turn.py`・`attention/scripts/lib/outfile.py`（docstring に `scripts/shared-copies.py` の印の 1 文「この本文は複数のプラグインに写しで在る」と、正本がどちらかの 1 文を足す）
-- Create: `works/dispatch/vendor/whose-turn.py`・`works/dispatch/vendor/lib/outfile.py`（`python3 scripts/shared-copies.py --sync attention/scripts/whose-turn.py` などで作る。手で写さない）
+- Create: `works-dispatch/dispatch/vendor/whose-turn.py`・`works-dispatch/dispatch/vendor/lib/outfile.py`（`python3 scripts/shared-copies.py --sync attention/scripts/whose-turn.py` などで作る。手で写さない）
 
 **Interfaces:**
-- Produces: `works/dispatch/vendor/whose-turn.py`（Task 1 の `--json` を持つ写し）。
+- Produces: `works-dispatch/dispatch/vendor/whose-turn.py`（Task 1 の `--json` を持つ写し）。
 
 - [ ] **Step 1: 写しの柵が今は緑なのを見る** — `python3 scripts/shared-copies.py` → 終了コード 0。
 - [ ] **Step 2: 印を足して、写し先を作り、`--sync` で配る。** 写し先のフォルダが無いと `--sync` が写し先を作らないなら、先に空のファイルを置いてから `--sync` する（`scripts/shared-copies.py` の `sync()` を読んで決める）。
@@ -85,13 +85,13 @@ class Json(unittest.TestCase):
 ### Task 3: 土台（決まりの柵・CI・設定・JSON の入出力・schema の照らし）
 
 **Files:**
-- Create: `works/dispatch/tests/test_rules.py`（決まりの柵。この Task で最初に作り、以後のタスクはずっとこの下で作る）
-- Modify: `tests/run.sh`（dispatch の試験を 1 行で載せる: `expect_output 0 "OK" "works/dispatch: 試験と決まりの柵" "$PY_BIN" -m unittest discover -s "$ROOT/works/dispatch/tests" -t "$ROOT"`。attention/whose-turn の段の近くに置く）
-- Create: `works/dispatch/config.py`・`works/dispatch/jsonio.py`・`works/dispatch/schemas/`（以後のノードの schema を置く場所）
-- Create: `works/dispatch/tests/__init__.py`・`works/dispatch/tests/schemacheck.py`・`works/dispatch/tests/test_config.py`
+- Create: `works-dispatch/dispatch/tests/test_rules.py`（決まりの柵。この Task で最初に作り、以後のタスクはずっとこの下で作る）
+- Modify: `tests/run.sh`（dispatch の試験を 1 行で載せる: `expect_output 0 "OK" "works-dispatch/dispatch: 試験と決まりの柵" "$PY_BIN" -m unittest discover -s "$ROOT/works-dispatch/dispatch/tests" -t "$ROOT"`。attention/whose-turn の段の近くに置く）
+- Create: `works-dispatch/dispatch/config.py`・`works-dispatch/dispatch/jsonio.py`・`works-dispatch/dispatch/schemas/`（以後のノードの schema を置く場所）
+- Create: `works-dispatch/dispatch/tests/__init__.py`・`works-dispatch/dispatch/tests/schemacheck.py`・`works-dispatch/dispatch/tests/test_config.py`
 
 **柵（`test_rules.py`）の中身:** 設計書 4 節の D1〜D6・D8 の「機械」の行を試験にする（D7 は人が見る）。照らしから `vendor/` と `tests/` を外す。字で探すのは D1・D2・D5・D6 だけで、構造の決まりは Python の構文木（`ast`）で見る。
-- D3: `works/dispatch/nodes/*.py` の import に、ほかのノードの名が無い。
+- D3: `works-dispatch/dispatch/nodes/*.py` の import に、ほかのノードの名が無い。
 - D4: `subprocess` を import してよいのは `herdr.py`・`gitx.py`・`claudex.py`・`nodes/prs.py`・`dispatch.py`（始める前の確かめ）だけ。`herdr.run` と `herdr.prompt` を呼んでよいのは `nodes/launch.py` と `nodes/turn.py` だけ（`ast.Attribute` の `herdr.run`・`herdr.prompt` と、`from herdr import run, prompt` の両方を見る）。
 - D8: `schemas/` の各ファイルが JSON として読め、`"type": "object"` で `schema` を `required` に持つ。各ノードの試験が出力をそれで照らすのは、ノードのタスクの試験が持つ。
 - 柵が張りぼてでないことを見るため、この Task の試験に「わざと破った小さな木を一時フォルダに作ると、その柵の関数が誤りを返す」を 1 つずつ書く（柵の関数は、照らす根のパスを引数で受ける形にする）。
@@ -99,22 +99,22 @@ class Json(unittest.TestCase):
 **Interfaces:**
 - Produces:
   - `config.Account = NamedTuple(name: str, command: str, config_dir: str | None = None)`（`config_dir` は、そのアカウントの Claude Code の設定のフォルダ。会話を集める `claude agents --json` と、始める前の attention の確かめに使う。None は Claude Code の既定のフォルダで、`CLAUDE_CONFIG_DIR` を付けずに呼ぶ）、`config.Slot = NamedTuple(workspace: str, path: str)`、`config.Repo = NamedTuple(repo: str, second_prompt: str, slots: tuple[Slot, ...])`、`config.Config = NamedTuple(limit_percent: int, limits_dir: str, accounts: tuple[Account, ...], repos: tuple[Repo, ...])`。
-  - `config.load(path: str | None = None, env: Mapping = os.environ) -> Config`。パスは引数 → `WORKS_DISPATCH_CONFIG` → `~/.config/works/dispatch.toml`。`~` は展開する。`second_prompt_file` を読んで `second_prompt` に入れる。`accounts` が無ければ `(Account("default", "claude"),)`（D7）。形が違えば `config.ConfigError` を、何が足りないかの全部を 1 つの文にして上げる。
+  - `config.load(path: str | None = None, env: Mapping = os.environ) -> Config`。パスは引数 → `WORKS_DISPATCH_CONFIG` → `~/.config/works-dispatch/dispatch.toml`。`~` は展開する。`second_prompt_file` を読んで `second_prompt` に入れる。`accounts` が無ければ `(Account("default", "claude"),)`（D7）。形が違えば `config.ConfigError` を、何が足りないかの全部を 1 つの文にして上げる。
   - `jsonio.dump(obj: dict, out: str | None) -> None`（`schema` が無ければ 1 を足す。`out` が None なら標準出力）、`jsonio.load(path: str) -> dict`（`schema != 1` なら `jsonio.SchemaVersionError`）。
   - `tests/schemacheck.check(obj, schema: dict) -> list[str]`（誤りの一覧。`type`・`required`・`properties`・`items`・`enum` だけを解く小さな照らし。外のパッケージを入れない）。
 
 - [ ] **Step 0: 柵を先に作る。** `test_rules.py` を書き、わざと破った木で各柵が誤りを返すことと、今の木（まだほぼ空）で緑なことを見る。`tests/run.sh` に載せ、`GL_TEST_ONLY` で dispatch の 1 行だけ回して緑を見る（`tests/run.sh` の頭の説明の通り、手元で一式は回さない）。
 - [ ] **Step 1: 失敗する試験を書く** — `test_config.py`: 設計書 5 節の TOML（4 アカウント・1 リポジトリ・slots 2 つ）を一時ファイルに書いて `load()` すると `Config(limit_percent=95, ...)` になる／`accounts` の無い TOML で `accounts == (Account("default", "claude"),)`／`second_prompt_file` が無いと `ConfigError` の文にそのパスが入る／`WORKS_DISPATCH_CONFIG` が引数の無い時に効く／`jsonio.load` が `{"schema": 2}` で `SchemaVersionError`。
-- [ ] **Step 2: 走らせて落ちるのを見る** — `nice -n 19 python3 -m unittest discover -s works/dispatch/tests -t . -v` → import の誤り。
-- [ ] **Step 3: 実装する。** 試験からの import は、`works/dispatch/tests/__init__.py` で `works/dispatch` を `sys.path` の頭に入れて、`import config` の形で行う（`works/dispatch` はパッケージにしない。ノードを単独のコマンドとしても走らせるため）。
+- [ ] **Step 2: 走らせて落ちるのを見る** — `nice -n 19 python3 -m unittest discover -s works-dispatch/dispatch/tests -t . -v` → import の誤り。
+- [ ] **Step 3: 実装する。** 試験からの import は、`works-dispatch/dispatch/tests/__init__.py` で `works-dispatch/dispatch` を `sys.path` の頭に入れて、`import config` の形で行う（`works-dispatch/dispatch` はパッケージにしない。ノードを単独のコマンドとしても走らせるため）。
 - [ ] **Step 4: 通す** — 同じ命令 → `OK`。
 - [ ] **Step 5: Commit** — `git commit -m "feat(works): dispatch の決まりの柵・CI への載せ・設定と JSON の入出力の土台"`
 
 ### Task 4: accounts ノード
 
 **Files:**
-- Create: `works/dispatch/nodes/accounts.py`・`works/dispatch/schemas/accounts.schema.json`
-- Test: `works/dispatch/tests/test_accounts.py`
+- Create: `works-dispatch/dispatch/nodes/accounts.py`・`works-dispatch/dispatch/schemas/accounts.schema.json`
+- Test: `works-dispatch/dispatch/tests/test_accounts.py`
 
 **Interfaces:**
 - Consumes: `config.Account`、`jsonio`。
@@ -148,8 +148,8 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 ### Task 5: 外への口（herdr・git・Claude Code）
 
 **Files:**
-- Create: `works/dispatch/herdr.py`・`works/dispatch/gitx.py`・`works/dispatch/claudex.py`
-- Test: `works/dispatch/tests/test_herdr.py`・`works/dispatch/tests/test_gitx.py`・`works/dispatch/tests/test_claudex.py`
+- Create: `works-dispatch/dispatch/herdr.py`・`works-dispatch/dispatch/gitx.py`・`works-dispatch/dispatch/claudex.py`
+- Test: `works-dispatch/dispatch/tests/test_herdr.py`・`works-dispatch/dispatch/tests/test_gitx.py`・`works-dispatch/dispatch/tests/test_claudex.py`
 
 **Interfaces:**
 - 3 つとも、呼び出しを `runner(argv: list[str]) -> subprocess.CompletedProcess` で受ける（既定は `subprocess.run(argv, capture_output=True, text=True)`）。試験は偽物の runner を渡す。
@@ -173,8 +173,8 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 ### Task 6: sessions ノードと slots ノード（固定の作業場）
 
 **Files:**
-- Create: `works/dispatch/nodes/sessions.py`・`works/dispatch/nodes/slots.py`・`works/dispatch/schemas/sessions.schema.json`・`works/dispatch/schemas/slots.schema.json`
-- Test: `works/dispatch/tests/test_sessions.py`・`works/dispatch/tests/test_slots_contract.py`
+- Create: `works-dispatch/dispatch/nodes/sessions.py`・`works-dispatch/dispatch/nodes/slots.py`・`works-dispatch/dispatch/schemas/sessions.schema.json`・`works-dispatch/dispatch/schemas/slots.schema.json`
+- Test: `works-dispatch/dispatch/tests/test_sessions.py`・`works-dispatch/dispatch/tests/test_slots_contract.py`
 
 **Interfaces:**
 - Consumes: `claudex.sessions`・`herdr.panes`・`herdr.workspace_labels`・`gitx.branch`・`gitx.origin_repo`・`gitx.is_clean`、`config.Repo`・`config.Account`。
@@ -193,8 +193,8 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 ### Task 7: assign ノード
 
 **Files:**
-- Create: `works/dispatch/nodes/assign.py`・`works/dispatch/schemas/plan.schema.json`
-- Test: `works/dispatch/tests/test_assign.py`
+- Create: `works-dispatch/dispatch/nodes/assign.py`・`works-dispatch/dispatch/schemas/plan.schema.json`
+- Test: `works-dispatch/dispatch/tests/test_assign.py`
 
 **Interfaces:**
 - Consumes: Task 1 の `prs`、Task 6・Task 4 の出力の dict の並び。
@@ -209,8 +209,8 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 ### Task 8: launch ノードと turn ノード
 
 **Files:**
-- Create: `works/dispatch/nodes/launch.py`・`works/dispatch/nodes/turn.py`・`works/dispatch/schemas/launch.schema.json`・`works/dispatch/schemas/turn.schema.json`
-- Test: `works/dispatch/tests/test_launch_turn.py`
+- Create: `works-dispatch/dispatch/nodes/launch.py`・`works-dispatch/dispatch/nodes/turn.py`・`works-dispatch/dispatch/schemas/launch.schema.json`・`works-dispatch/dispatch/schemas/turn.schema.json`
+- Test: `works-dispatch/dispatch/tests/test_launch_turn.py`
 
 **Interfaces:**
 - Consumes: `herdr.run`・`herdr.wait_ready`・`herdr.prompt`・`herdr.panes`。
@@ -229,13 +229,13 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 ### Task 9: report ノードと入口（`dispatch.py`）
 
 **Files:**
-- Create: `works/dispatch/nodes/report.py`・`works/dispatch/dispatch.py`・`works/dispatch/nodes/prs.py`
-- Test: `works/dispatch/tests/test_report.py`・`works/dispatch/tests/test_dispatch.py`
+- Create: `works-dispatch/dispatch/nodes/report.py`・`works-dispatch/dispatch/dispatch.py`・`works-dispatch/dispatch/nodes/prs.py`
+- Test: `works-dispatch/dispatch/tests/test_report.py`・`works-dispatch/dispatch/tests/test_dispatch.py`
 
 **Interfaces:**
 - Consumes: 全ノード。
 - Produces:
-  - `prs.fetch(repo: str, runner=...) -> dict`: `python3 <works/dispatch/vendor/whose-turn.py> --repo <repo> --json` を走らせて読む。`main(argv)`。
+  - `prs.fetch(repo: str, runner=...) -> dict`: `python3 <works-dispatch/dispatch/vendor/whose-turn.py> --repo <repo> --json` を走らせて読む。`main(argv)`。
   - `report.lines(plan: list[dict], results: dict[int, str], notes: list[str]) -> list[str]`: 頭に notes（控えの無いアカウントなど）、PR ごとに 1 行 `#<番号> <タイトル>  <workspace|->  <アカウント|->  <結末>`、PR が 0 件なら `自分の番の PR は無い` の 1 行。
   - `dispatch.preflight(cfg, h=herdr, runner=...) -> list[str]`: 設計書 6 節の確かめ。足りない物の文の一覧（空なら進む）。使用率の控えが無いアカウントは止めずに notes へ。アカウントのコマンドは `zsh -ic 'whence <cmd>'`、attention は各アカウントの設定のフォルダの `plugins/installed_plugins.json`。`config_dir` が None のアカウントは、attention の確かめを飛ばして notes に 1 行出す。
   - `dispatch.main(argv) -> int`: `--config`・`--repo`（省略時は設定の最初の repo）・`--dry-run`。流れは設計書 2 節。launch は全部先に、turn は `concurrent.futures.ThreadPoolExecutor` で PR ごとに並べる。終了コード: 確かめが足りなければ 2、それ以外は 0（`blocked` や `no_slot` は誤りではない）。
@@ -253,15 +253,15 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 ### Task 10: 作業場を PR ごとの clone に替える
 
 **Files:**
-- Modify: `works/dispatch/config.py`（`Repo` から `slots` を外し、`source: str`・`clone_root: str`・`copy_files: tuple[str, ...]` を足す。`source` と `clone_root` は必須、`copy_files` は省略可）
-- Modify: `works/dispatch/gitx.py`（書く関数 `clone(source, path)`・`set_origin(path, url)`・`fetch(path)` を足す。`origin_url(cwd) -> str | None` も足す）
-- Create: `works/dispatch/nodes/provision.py`・`works/dispatch/schemas/provision.schema.json`
-- Modify: `works/dispatch/herdr.py`（書く関数 `create_workspace(cwd, label) -> dict`（`herdr workspace create --cwd <cwd> --label <label> --no-focus`。返り値は作った作業場と最初のペイン）と `close_workspace(workspace_id)` を足す）
-- Modify: `works/dispatch/nodes/assign.py`（slots を受けず、`clone_path` を案に付ける。`already_open` は (リポジトリ, 枝) の組か、PR の clone のフォルダの下の会話）
-- Modify: `works/dispatch/dispatch.py`（slots の代わりに provision を launch の前に呼ぶ。`--dry-run` の報告に作るか使い直すかを出す）
-- Delete: `works/dispatch/nodes/slots.py`・`works/dispatch/schemas/slots.schema.json`（`pick_repo` は `config.py` へ移す）
-- Modify: `works/dispatch/tests/fences.py`（D4 の表: 書く関数と、呼んでよいノードの対応）
-- Test: `works/dispatch/tests/test_provision.py`、既存の試験を合わせて直す
+- Modify: `works-dispatch/dispatch/config.py`（`Repo` から `slots` を外し、`source: str`・`clone_root: str`・`copy_files: tuple[str, ...]` を足す。`source` と `clone_root` は必須、`copy_files` は省略可）
+- Modify: `works-dispatch/dispatch/gitx.py`（書く関数 `clone(source, path)`・`set_origin(path, url)`・`fetch(path)` を足す。`origin_url(cwd) -> str | None` も足す）
+- Create: `works-dispatch/dispatch/nodes/provision.py`・`works-dispatch/dispatch/schemas/provision.schema.json`
+- Modify: `works-dispatch/dispatch/herdr.py`（書く関数 `create_workspace(cwd, label) -> dict`（`herdr workspace create --cwd <cwd> --label <label> --no-focus`。返り値は作った作業場と最初のペイン）と `close_workspace(workspace_id)` を足す）
+- Modify: `works-dispatch/dispatch/nodes/assign.py`（slots を受けず、`clone_path` を案に付ける。`already_open` は (リポジトリ, 枝) の組か、PR の clone のフォルダの下の会話）
+- Modify: `works-dispatch/dispatch/dispatch.py`（slots の代わりに provision を launch の前に呼ぶ。`--dry-run` の報告に作るか使い直すかを出す）
+- Delete: `works-dispatch/dispatch/nodes/slots.py`・`works-dispatch/dispatch/schemas/slots.schema.json`（`pick_repo` は `config.py` へ移す）
+- Modify: `works-dispatch/dispatch/tests/fences.py`（D4 の表: 書く関数と、呼んでよいノードの対応）
+- Test: `works-dispatch/dispatch/tests/test_provision.py`、既存の試験を合わせて直す
 
 **Interfaces:**
 - `provision.clone_path(repo: Repo, number: int) -> str`: `<clone_root>/<repo の名前の後ろ半分>-pr-<番号>`。
@@ -271,16 +271,16 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 - [ ] **Step 1: 失敗する試験を書く。** `test_provision.py` は一時のフォルダに本物の git のリポジトリを作り、元の clone に見立てる（origin は `https://github.com/o/r.git` にしておく）: 無ければ作り、作った clone の origin が元の clone の origin の URL で、`copy_files` が写り、偽物の herdr に `create_workspace(path, "r-pr-7")` が 1 回呼ばれる／2 回目は作らずに使い直し（`created == False`）、ペインが有れば `create_workspace` を呼ばない／同じ名前のフォルダが別のリポジトリなら `provision_failed` で、中身を変えない／`copy_files` の無いファイルは飛ばして `detail` に名を出す。`test_assign.py` を新しい形に直し、会話の cwd が clone のフォルダの下なら `already_open` を足す。`test_rules.py` に、provision の外で `gitx.clone` を呼ぶと D4 が赤、を足す。
 - [ ] **Step 2: 落ちるのを見る。**
 - [ ] **Step 3: 実装する。**
-- [ ] **Step 4: 一式を通す。** `nice -n 19 python3 -m unittest discover -s works/dispatch/tests -t .` → OK。
+- [ ] **Step 4: 一式を通す。** `nice -n 19 python3 -m unittest discover -s works-dispatch/dispatch/tests -t .` → OK。
 - [ ] **Step 5: Commit** — `git commit -m "feat(works): dispatch の作業場を PR ごとの clone にする（固定の作業場をやめる）"`
 
 ### Task 11: 片付け（`dispatch.py --clean`）
 
 **Files:**
-- Create: `works/dispatch/nodes/clean.py`・`works/dispatch/ghx.py`（`pr_state(repo, number) -> str`。`gh pr view <番号> --repo <repo> --json state`）
-- Modify: `works/dispatch/gitx.py`（`unpushed(cwd) -> bool`: 手元にしか無い commit があるか。`git log --branches --not --remotes --oneline` が空でないか）
-- Modify: `works/dispatch/dispatch.py`（`--clean` と `--apply`）
-- Test: `works/dispatch/tests/test_clean.py`
+- Create: `works-dispatch/dispatch/nodes/clean.py`・`works-dispatch/dispatch/ghx.py`（`pr_state(repo, number) -> str`。`gh pr view <番号> --repo <repo> --json state`）
+- Modify: `works-dispatch/dispatch/gitx.py`（`unpushed(cwd) -> bool`: 手元にしか無い commit があるか。`git log --branches --not --remotes --oneline` が空でないか）
+- Modify: `works-dispatch/dispatch/dispatch.py`（`--clean` と `--apply`）
+- Test: `works-dispatch/dispatch/tests/test_clean.py`
 
 **Interfaces:**
 - `clean.candidates(repo: Repo, folders: list[str], pr_state, open_cwds, is_clean, unpushed) -> list[dict]`: `<clone_root>` の `<名前>-pr-<番号>` のフォルダごとに `{"path", "number", "removable": bool, "reason"}`。消してよいのは、PR が `MERGED` か `CLOSED`、そのフォルダの下の会話が無い、未コミットの変更が無い、手元にしか無い commit が無い、の全部を満たす時だけ。
@@ -296,24 +296,24 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 
 試験では縛れないことを、持ち主が見ている前で決める（設計書 9 節）。持ち主の許しなしに herdr の書く命令を走らせない。
 
-- [ ] **Step 1:** `~/.config/works/dispatch.toml` と 2 ターン目の文のファイルを、持ち主の値で作る（リポジトリには入れない）。
-- [ ] **Step 2:** `python3 works/dispatch/dispatch.py --dry-run` を、guided-resolver を読める gh のアカウントのシェルで走らせ、案を持ち主と見る。
+- [ ] **Step 1:** `~/.config/works-dispatch/dispatch.toml` と 2 ターン目の文のファイルを、持ち主の値で作る（リポジトリには入れない）。
+- [ ] **Step 2:** `python3 works-dispatch/dispatch/dispatch.py --dry-run` を、guided-resolver を読める gh のアカウントのシェルで走らせ、案を持ち主と見る。
 - [ ] **Step 3:** 持ち主が選んだ PR 1 件で本当に走らせる。見ること: clone を作る時間、herdr の作業場が開くか、`wait_ready` が会話の見つかる前のペインで待てるか、複数行の 2 ターン目の文が 1 つの文として届くか、起こした会話が `claude agents --json` に選んだアカウントで出るか。
 - [ ] **Step 4:** 違えば外への口だけを直し、試験を実物に合わせて足す。直したら Step 3 をもう一度。
 - [ ] **Step 5: Commit** — `git commit -m "fix(works): dispatch の外への口を手元の herdr と Claude Code の振る舞いに合わせる"`（直した時だけ）
 
-### Task 13: 前提の文書・セットアップ（`init` と `check`）・`/works:dispatch` の入口
+### Task 13: 前提の文書・セットアップ（`init` と `check`）・`/works-dispatch:dispatch` の入口
 
 持ち主の頼み（2026-10-14「そういう前提みたいなのをそのプラグインに書いておかないといけないし、セットアップみたいなスキルもいるんじゃないの」）。
 
 - 前提（herdr が動いている／`claude agents --json` を持つ Claude Code／各アカウントに attention／対象を読める gh／リポジトリごとの代表 clone が既定の枝にいる／アカウントごとの起動のコマンド／使用率の控えは任意）を、README と手順書に書き、7 つとも `check` でも確かめる（今の preflight に、Claude Code の版と、代表 clone の枝を足す）。
 - `dispatch.py init --repo <OWNER/NAME> --source <代表 clone>`: 設定が無い時だけ下書きを書く（有れば上書きせず足す分を出す）。アカウントは `claude agents --json` が通る設定のフォルダの候補をコメントで並べ、起動のコマンドは人が書く。`copy_files` は代表 clone の追わない小さな設定のファイル（`.env*`・`*.local.*` など。依存と生成物のフォルダは除く）を候補で並べる。2 ターン目の文のファイルは空の雛形。
 - `dispatch.py check`: 始める前の確かめを単独で走らせ、足りない物と直し方を 1 行ずつ出す。
-- `/works:dispatch` は割り振り、`/works:dispatch setup` は `init` と `check` を走らせて出力をそのまま見せる。どちらも判断させない。
+- `/works-dispatch:dispatch` は割り振り、`/works-dispatch:dispatch setup` は `init` と `check` を走らせて出力をそのまま見せる。どちらも判断させない。
 
 元の Task 13 の中身（以下）も含む。
 
-### Task 13（元の中身）: `/works:dispatch` と文書
+### Task 13（元の中身）: `/works-dispatch:dispatch` と文書
 
 振る舞いが Task 12 で決まってから書く。先に書くと、実物と食い違う。
 
@@ -324,9 +324,9 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 **Interfaces:**
 - `SKILL.md` の中身は、`python3 ${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py $ARGUMENTS` を走らせ、出力をそのまま見せる、だけ。判断も言い換えもさせない。`model:` は書かない。
 
-- [ ] **Step 1: SKILL.md を書き、`/works:dispatch --dry-run` を持ち主の会話で 1 回打って、報告がそのまま出るのを見る。**
+- [ ] **Step 1: SKILL.md を書き、`/works-dispatch:dispatch --dry-run` を持ち主の会話で 1 回打って、報告がそのまま出るのを見る。**
 - [ ] **Step 2: README・plugin.json の description・2 つの CHANGELOG を書く。**
-- [ ] **Step 3: Commit** — `git commit -m "feat(works): /works:dispatch の入口と文書"`
+- [ ] **Step 3: Commit** — `git commit -m "feat(works): /works-dispatch:dispatch の入口と文書"`
 
 ### Task 14: 版上げ（枝の最後の commit）
 

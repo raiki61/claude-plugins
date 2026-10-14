@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """自分の番の PR ごとに作業場（元の clone から作る clone と herdr の作業場）を用意し、選んだアカウントの Claude Code で起こし、
-1 ターン目に `/catchup <番号>`、2 ターン目に設定の文を送る。AI は使わない（設計書 works/docs/specs/2026-10-14-catchup-dispatch-design.md）。
+1 ターン目に `/catchup <番号>`、2 ターン目に設定の文を送る。AI は使わない（設計書 works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md）。
 
 流れ（どのノードの次に何を呼ぶか）を持つのはこのファイルだけ。ノードは流れを知らない（D3）。
 1. 始める前の確かめ。足りない物があれば全部並べて、何も起こさずに終了の値 2 で止まる
@@ -291,7 +291,7 @@ def _init(a, ports):
     q = json.dumps
     lines = [
         "# works の dispatch の設定（--init が書いた下書き）。直したら --check で確かめる。",
-        "# 欄の意味: works の README の「dispatch」の節",
+        "# 欄の意味: works-dispatch プラグインの README",
         "",
         "limit_percent = 95                      # 週か 5 時間の使用率がこれを超えるアカウントは使わない",
         '# limits_dir = "~/.cache/claude-limits"   # アカウントごとの使用率の控え（<name>.json）。無ければ使用率は見ない',

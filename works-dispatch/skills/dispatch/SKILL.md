@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: 自分の番の PR（attention プラグインの /whose-turn が「自分の番」に並べるもの）を、PR ごとの作業場（git の clone と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code を起こして、/catchup（その PR のどこで止まっていたかを出す attention の命令）と、設定のファイルに書いた 2 ターン目の文を送る。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」と言われたときに使う。初めて使う人は「/works:dispatch setup」。
+description: 自分の番の PR（attention プラグインの /whose-turn が「自分の番」に並べるもの）を、PR ごとの作業場（git の clone と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code を起こして、/catchup（その PR のどこで止まっていたかを出す attention の命令）と、設定のファイルに書いた 2 ターン目の文を送る。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」と言われたときに使う。初めて使う人は「/works-dispatch:dispatch setup」。
 ---
 
 # dispatch
@@ -25,7 +25,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
 - gh でそのリポジトリを読める。普段の gh のアカウントで読めなければ、設定の `gh_user` に読めるアカウントを書く。
 - リポジトリごとに代表の clone がある。各アカウントで一度そこで Claude Code を起こし、フォルダを信頼しておく。信頼していないと、PR ごとの作業場で毎回、信頼の確認が出る。
 
-## 初めて: `/works:dispatch setup`
+## 初めて: `/works-dispatch:dispatch setup`
 
 1. 今いるリポジトリについて、設定の下書きを書く。`--repo` は origin の `OWNER/NAME`、`--source` は今いる clone の根にする。
 
@@ -33,10 +33,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
    python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init --repo OWNER/NAME --source <代表の clone>
    ```
 
-2. 書かれた設定（既定は `~/.config/works/dispatch.toml`）を、利用者が埋める。埋めるのは、2 ターン目の文のファイルと、アカウントを切り替える人だけ `accounts` である。
+2. 書かれた設定（既定は `~/.config/works-dispatch/dispatch.toml`）を、利用者が埋める。埋めるのは、2 ターン目の文のファイルと、アカウントを切り替える人だけ `accounts` である。
 3. `--check` を、足りない物が出なくなるまで走らせる。
 
-## 使い方: `/works:dispatch <引数>`
+## 使い方: `/works-dispatch:dispatch <引数>`
 
 - 引数なし: 自分の番の PR を全部開く。
 - `--dry-run`: 何も起こさず、どの PR をどのアカウント・どの作業場で開くかだけを出す。

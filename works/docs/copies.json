@@ -5,7 +5,6 @@
   ".shared/core/graphloops/**": "本流の写し（COPIED_FROM が元の版とのバイトの一致を縛る。写しであることが約束）",
   ".shared/core/gl-prompts/**": "本流の写し（COPIED_FROM が元の版とのバイトの一致を縛る。写しであることが約束）",
   ".shared/borrow/**": "借りる物の固定の写し（borrow.json の sha256 が元との一致を縛る）",
-  "dispatch/vendor/**": "共通の正本の写し（scripts/shared-copies.py が正本とのバイトの一致を縛る。dispatch は柵 D1 で .shared を読めないので写しを持つ）",
   "darkfactory/darkfactory.graph.json": "工程の YAML から作った物（dev/graphmap_build.py。手で書かない）",
   "docs/darkfactory-design.md": "工程の YAML・節の宣言・受け手の表から作った物（dev/graphmap_build.py。手で書かない）",
   "tests/boards/**": "記録した盤面の手本（試験の材料。書き換えない）",

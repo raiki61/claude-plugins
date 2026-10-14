@@ -38,6 +38,6 @@ def check(obj, schema, where="$"):
 
 
 def schema(name):
-    """works/dispatch/schemas/<name>.schema.json を読む。"""
+    """works-dispatch/dispatch/schemas/<name>.schema.json を読む。"""
     p = pathlib.Path(__file__).resolve().parent.parent / "schemas" / f"{name}.schema.json"
     return json.loads(p.read_text(encoding="utf-8"))

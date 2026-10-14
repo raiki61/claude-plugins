@@ -1,6 +1,6 @@
 """dispatch の設定（TOML）を読む。持ち主の環境の値（アカウント・起動のコマンド・置き場）はここから入り、コードには書かない（設計書 D6）。
 
-置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works/dispatch.toml の順。形は設計書 5 節。
+置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works-dispatch/dispatch.toml の順。形は設計書 5 節。
 アカウントを書かなければ、`claude` 1 つだけのアカウントとして扱う（D7。普通の利用者の環境でもそのまま動く）。
 """
 
@@ -10,7 +10,7 @@ import tomllib
 from vendor import claude_auth
 from typing import NamedTuple
 
-DEFAULT_PATH = "~/.config/works/dispatch.toml"
+DEFAULT_PATH = "~/.config/works-dispatch/dispatch.toml"
 ENV = "WORKS_DISPATCH_CONFIG"
 DEFAULT_LIMIT = 95
 DEFAULT_LIMITS_DIR = "~/.cache/claude-limits"
