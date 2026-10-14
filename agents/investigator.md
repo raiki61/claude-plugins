@@ -1,8 +1,8 @@
 ---
 name: investigator
 description: リポジトリの履歴と外（git・gh・web）まで探しに行く読み取り役。shell は持つが、変更は禁止。
-model: haiku
-effort: xhigh
+model: sonnet
+effort: medium
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
 ---
 

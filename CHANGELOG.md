@@ -6,6 +6,12 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-14
+
+### Changed
+
+- 調べ役（investigator）のモデルと effort を、haiku・xhigh から sonnet・medium に戻した。0.42.0 で替えた根拠は総合ランキングの点で、調べ役がこの plugin の手順の中でしている仕事（/research-loop で主張を一次情報と照らす checker、/review-loop の外部標準照合の採点、/doctor-loop の比較）は、どれも原典と照らして判定する仕事である。根拠の文書を渡して「この文は文書に支えられているか」を判定させた MiniCheck の論文（Tang ほか、2024）では、大きいモデルに近づいたのは照合の専用に学習させた小さいモデルで、最前線でない汎用の LLM は下回った。手順書は呼ぶ側でモデルを書かない決まりなので、0.42.0 の記録が書いた「判断の重い調べは呼ぶ側が上書きしてよい」は、この plugin の手順の中では使えなかった。
+
 ## [0.42.0] - 2026-10-13
 
 ### Changed
