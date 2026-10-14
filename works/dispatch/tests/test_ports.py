@@ -87,6 +87,33 @@ class Herdr(unittest.TestCase):
         herdr.run("wB:p1", "claude-x", runner=Fake((0, "", "")))
         herdr.close_workspace("wB", runner=Fake((0, "", "")))
 
+    NOT_FOUND = (1, json.dumps({"id": "x", "error": {"code": "agent_not_found", "message": "agent target p not found"}}), "")
+
+    @staticmethod
+    def procs(shell_in_front):
+        # 2026-10-14 に手元の herdr 0.9.3 で読んだ pane process-info の形。シェルが前に居れば前の組はシェルの pid
+        return ok({"id": "x", "result": {"type": "pane_process_info", "process_info": {
+            "pane_id": "p", "shell_pid": 10, "foreground_process_group_id": 10 if shell_in_front else 20,
+            "foreground_processes": [{"pid": 10, "argv0": "bash"}] if shell_in_front else [{"pid": 21, "argv0": "claude"}]}}})
+
+    IDLE = ok({"id": "x", "result": {"type": "agent_status", "agent": {"agent_status": "idle"}}})
+
+    def test_wait_ready_waits_through_not_found_while_the_command_runs(self):
+        # 起こした直後は herdr がまだ会話を見つけておらず、agent wait は待たずに agent_not_found を返す
+        f = Fake(self.NOT_FOUND, self.procs(False), self.NOT_FOUND, self.procs(False), self.IDLE)
+        self.assertEqual(herdr.wait_ready("p", runner=f, pause=lambda: None), "idle")
+        self.assertEqual(f.calls[1][0], ["herdr", "pane", "process-info", "--pane", "p"])
+
+    def test_wait_ready_also_waits_before_the_command_has_started(self):
+        f = Fake(self.NOT_FOUND, self.procs(True), self.NOT_FOUND, self.procs(False), self.IDLE)
+        self.assertEqual(herdr.wait_ready("p", runner=f, pause=lambda: None), "idle")
+
+    def test_wait_ready_stops_when_the_command_ended_without_a_conversation(self):
+        f = Fake(self.NOT_FOUND, self.procs(False), self.NOT_FOUND, self.procs(True))
+        with self.assertRaises(herdr.HerdrError) as e:
+            herdr.wait_ready("p", runner=f, pause=lambda: None)
+        self.assertIn("会話が始まらなかった", str(e.exception))
+
     def test_agent_reads_one_pane(self):
         f = Fake(ok({"id": "x", "result": {"type": "agent_info", "agent": {"agent": "claude", "agent_status": "idle"}}}))
         self.assertEqual(herdr.agent("wB:p1", runner=f)["agent"], "claude")
