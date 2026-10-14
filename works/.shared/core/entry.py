@@ -70,6 +70,7 @@ import startrec  # noqa: E402  （L1。始めの記録 r1/start.json の置き�
 import script_io  # noqa: E402  （L1。機能の切り替えの語 SWITCH_ON・SWITCH_OFF）
 import ticket  # noqa: E402
 import tree_run  # noqa: E402
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 PACK = pathlib.Path(__file__).resolve().parents[2]   # works/（Archon は run ごとに pack を写すので、今の写しの置き場）
 TABLE_NAME = "nodes.json"
@@ -1028,12 +1029,6 @@ def declared_adapter(b) -> str:
     if not isinstance(mode, str) or mode not in ADAPTER_MODES:
         raise ValueError(f"start の控え {path} の adapter={mode!r} は宣言の語（空か optional）でない")
     return mode
-
-
-def _write_json(path: pathlib.Path, doc: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def _kept(inp: dict) -> dict:

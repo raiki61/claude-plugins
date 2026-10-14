@@ -98,7 +98,7 @@ run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/ve
 正本は試験 `works/tests/test_layers.py`（裁定 R59）。下は要約で、食い違えば試験が正しい。上の層は下の層だけを知ってよい（import も、ライン・include の id・ほかのブロックの名前を文字列で書くことも）。
 
 - L0 写し: `.shared/core/graphloops`・`.shared/core/scripts`。works の物を何も知らない
-- L1 基礎: `tree_run`・`script_io`・`node_marker`・`graphmap`（工程の地図）
+- L1 基礎: `tree_run`・`script_io`・`node_marker`・`graphmap`（工程の地図）・`jsonfile`（書きかけを見せない JSON の書き口）
 - L2 包み: `adapter`・`ticket`・`claude-adapter`・`record-read.py`・`record-write.py`・`no-post-bin/works-gh`
 - L3 盤面と受け付け: `board`・`accept`・`policy`・`entry`（共有の部分）・`halt`（止め札）・`refix`・`recount`
 - L4 ブロックのモジュール: 使うブロックが 1 つのモジュール（`ci_role`・`purpose`・`rejudge`・`prcheck`、`<blk>/lib/`）。持ち主のブロックとラインだけが使う

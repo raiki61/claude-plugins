@@ -97,6 +97,7 @@ import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
 import structmark  # noqa: E402
 import worldmark  # noqa: E402  （世界の解の行。修正案の頭の節と事前審査の外れの訳に添える比べ）
 import writes  # noqa: E402  （修正前の版のテストの中身）
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 NODE_OF = {"plan": "p2.fix_plan", "plan-review": "p2.plan_review"}   # 役（YAML の役の節の id・印の名）→ 写しの graph の節
 ROLES = tuple(NODE_OF)
@@ -1470,12 +1471,6 @@ def main_accept(role: str, replan: str = "") -> int:
                                    ("INPUTS_REPLY",), fence=True, take="plan")
     nid, kw = _accept_args(role)
     return rolekit.main_accept(nid, give_up_after=GIVE_UP_AFTER, **kw)
-
-
-def _write_json(path: pathlib.Path, doc) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def collect_reads(board_dir, repo, run_id: str, replan: str = "") -> dict:

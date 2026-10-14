@@ -72,6 +72,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
+from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/catchup と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -195,35 +196,6 @@ def local_time(ts, fmt="%m-%d %H:%M"):
 
 
 # ---- 取得 ------------------------------------------------------------------
-
-
-GH_TIMEOUT_SEC = 60  # 外部コマンドを無制限に待たない（隣の what-am-i-doing.py と同じ規約）
-
-
-def gh(*args):
-    exe = shutil.which("gh")
-    if not exe:
-        sys.exit("gh が見つからない（PATH に通す）")
-    # GraphQL の 504 は過負荷時に単発で出る（実測）。1 回だけ再試行し、2 回目も落ちたら赤で止める
-    for attempt in (1, 2):
-        try:
-            r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと GraphQL のカーソルだけ
-                # encoding を明示する——Windows の既定は cp1252 で、日本語を含む子の出力が
-                # UnicodeDecodeError で落ちる（実測 2026-09-13: CI の windows-latest）
-                # timeout: 判定にそのまま使う外部コマンドを無制限に待たない（決着済みの規約 issue #5）。
-                # 504 と同じ「単発の過負荷」なので、再試行の腕に相乗りさせる
-                [exe, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=GH_TIMEOUT_SEC,
-            )
-        except subprocess.TimeoutExpired:
-            if attempt == 2:
-                sys.exit(f"gh {' '.join(args[:2])} が {GH_TIMEOUT_SEC} 秒で返らない")
-            continue
-        if r.returncode == 0:
-            return r.stdout
-        if "504" not in r.stderr or attempt == 2:
-            sys.exit(f"gh {' '.join(args[:2])} が失敗: {r.stderr.strip()}")
-    return None
 
 
 def fetch_all(query, owner, name, field):

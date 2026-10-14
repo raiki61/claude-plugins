@@ -56,6 +56,7 @@ import entry  # noqa: E402
 import fixture  # noqa: E402
 import flow_adapter  # noqa: E402
 import script_io  # noqa: E402
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 EVENTS_VERIFIED = True   # tool_called の Read の形を実物の行で確かめた（tests/events/db-rows-plan.json。2026-10-09）
 WEB_EVENTS_VERIFIED = True   # tool_called の WebFetch・WebSearch の形を実物の行で確かめた（tests/events/db-rows-web.json。2026-10-09）
@@ -229,12 +230,6 @@ def _read_paths(events, node_path: str) -> set:
 
 
 # ---------------------------------------------------------------- 集める
-def _write_json(path: pathlib.Path, doc) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-
-
 def collect(board_dir, role: str, node_path: str, must_read: list, events, *, repo=None) -> dict:
     """機械が役 role に渡したパス must_read の 1 つずつについて、フックの状態（hook_evidence の 5 つ）と出来事の有無を
     今の周の reads-<役>.json に {role, node_path, rows: [{path, hook, event}], sources: {hook, events}, missing} で書き、
