@@ -3,7 +3,7 @@
 import json
 import sys
 
-VERSION = 1
+SCHEMA_VERSION = 1
 
 
 class SchemaVersionError(Exception):
@@ -12,7 +12,7 @@ class SchemaVersionError(Exception):
 
 def dump(obj, out):
     """obj を JSON で書く。out が None なら標準出力。schema が無ければ 1 を足す。"""
-    body = {"schema": VERSION, **obj} if "schema" not in obj else obj
+    body = {"schema": SCHEMA_VERSION, **obj} if "schema" not in obj else obj
     text = json.dumps(body, ensure_ascii=False, indent=2) + "\n"
     if out is None:
         sys.stdout.write(text)
@@ -24,7 +24,7 @@ def dump(obj, out):
 def load(path):
     with open(path, encoding="utf-8") as f:
         obj = json.load(f)
-    if not isinstance(obj, dict) or obj.get("schema") != VERSION:
+    if not isinstance(obj, dict) or obj.get("schema") != SCHEMA_VERSION:
         got = obj.get("schema") if isinstance(obj, dict) else type(obj).__name__
-        raise SchemaVersionError(f"{path}: schema が {VERSION} で無い（{got}）")
+        raise SchemaVersionError(f"{path}: schema が {SCHEMA_VERSION} で無い（{got}）")
     return obj

@@ -35,7 +35,7 @@ def read(repo, runner=_default_runner, env=None):
         out = json.loads(p.stdout) if p.returncode == 0 else None
     except ValueError:
         out = None
-    if not isinstance(out, dict) or out.get("schema") != jsonio.VERSION:
+    if not isinstance(out, dict) or out.get("schema") != jsonio.SCHEMA_VERSION:
         raise PrsError(f"whose-turn --json（{repo}）が読めない: {(p.stderr or p.stdout).strip()[:300]}")
     return out["prs"]
 

@@ -3518,6 +3518,10 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "UV_CACHE_DIR", "TMPDIR",
                   # 外の道具（mise・gh）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN",
+                  # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
+                  "HTTPS_PROXY",
+                  # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
+                  "WORKS_DISPATCH_CONFIG",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP"}
 # HEAD と CLAUDE_CONFIG_DIR は表から外した——works の python・shell が同じ名前を定数に持つので定義の在る
@@ -3545,7 +3549,7 @@ NAMED_IN = tuple(
     and ".shared/borrow/superpowers/" not in p.as_posix()
     # works の計画と変更の記録は書いた日の名指しを残す歴史の文書なので柵の外（後で名を替えても書き直さない。2026-10-09 の掃除:
     # この 2 つだけを直す commit が名を足すだけで、本物の食い違いを 1 件も捕まえなかった）
-    and not p.relative_to(root).as_posix().startswith("works/docs/plans/")
+    and not p.relative_to(root).as_posix().startswith(("works/docs/plans/", "works-dispatch/docs/plans/"))
     and p.relative_to(root).as_posix() != "works/CHANGELOG.md"
 ) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
