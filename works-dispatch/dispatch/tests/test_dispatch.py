@@ -150,8 +150,23 @@ class FakePorts(dispatch.Ports):
     def list_sessions(self, config_dir):
         return []
 
+    limits_seq = None  # 読むたびに 1 つずつ返す控え（None なら全部「控え無し」）
+
     def read_limits(self, limits_dir, names):
+        if self.limits_seq:
+            return self.limits_seq.pop(0)
         return {n: None for n in names}
+
+    def refresh_limits(self, cfg, names):
+        self.refreshed = getattr(self, "refreshed", []) + [list(names)]
+
+    cost_history = {"seven_day": [], "five_hour": []}
+
+    def load_cost(self, limits_dir):
+        return self.cost_history
+
+    def save_cost(self, limits_dir, samples):
+        self.saved_cost = samples
 
     def now(self):
         return 0
@@ -188,6 +203,30 @@ def by_number(out):
 class Main(unittest.TestCase):
     def setUp(self):
         self.cfg, self.root = make_cfg()
+
+    def test_usage_is_refreshed_before_and_after_and_the_cost_is_learned(self):
+        # 全部の PR は同時に走るので、始める前の使用率で件数を決め、/catchup が終わった後の使用率との差で 1 件あたりを覚える
+        ports = FakePorts([pr(1), pr(2)])
+        win = lambda u: {"used_percentage": u, "resets_at": 10**10}
+        ports.limits_seq = [{"a1": {"seven_day": win(40), "five_hour": win(5)}},
+                            {"a1": {"seven_day": win(41), "five_hour": win(9)}}]
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(ports.refreshed, [["a1"], ["a1"]])
+        self.assertEqual(ports.saved_cost, {"seven_day": [1.0], "five_hour": [2.5]})
+        self.assertIn("1 件あたりの使用率をまだ測っていない", out)
+
+    def test_measured_cost_is_named_in_the_report(self):
+        ports = FakePorts([pr(1)])
+        ports.cost_history = {"seven_day": [0.5, 0.7, 0.9], "five_hour": [2.0]}
+        rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
+        self.assertIn("1 件あたりの使用率の見積もり（3 回の測りの中央値）: 週 0.7%・5 時間 2.0%", out)
+
+    def test_dry_run_does_not_ask_for_fresh_usage(self):
+        ports = FakePorts([pr(1)])
+        run_main(["--config", self.cfg, "--dry-run"], ports)
+        self.assertFalse(hasattr(ports, "refreshed"))
+        self.assertFalse(hasattr(ports, "saved_cost"))
 
     def test_dry_run_writes_nothing_and_says_create_or_reuse(self):
         pathlib.Path(self.root, "r-pr-2").mkdir()

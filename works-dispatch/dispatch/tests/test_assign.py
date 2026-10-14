@@ -15,8 +15,13 @@ def pr(n, head=None):
     return {"number": n, "title": f"t{n}", "head": head or f"feat/{n}", "url": f"u{n}", "role": "implementer", "days": 1}
 
 
-def acct(name, eligible=True):
-    return {"name": name, "command": f"c-{name}", "config_dir": None, "eligible": eligible}
+def acct(name, eligible=True, seven=None, five=None, known=True):
+    return {"name": name, "command": f"c-{name}", "config_dir": None, "eligible": eligible, "known": known,
+            "seven_day": {"used": seven, "resets_at": None}, "five_hour": {"used": five, "resets_at": None}}
+
+
+def names(rows):
+    return [(r["account"] or {}).get("name") for r in rows]
 
 
 def outcomes(rows):
@@ -44,10 +49,38 @@ class Plan(unittest.TestCase):
         rows = assign.plan(REPO, [pr(1), pr(2)], set(), set(), [acct("a", eligible=False)])
         self.assertEqual([r["outcome"] for r in rows], ["no_account", "no_account"])
 
-    def test_all_go_to_the_first_eligible_account_with_their_clone_path(self):
-        rows = assign.plan(REPO, [pr(1), pr(2)], set(), set(), [acct("x", eligible=False), acct("a"), acct("b")])
+    def test_without_a_measured_cost_prs_are_dealt_one_by_one(self):
+        # 1 件あたりの使用率をまだ測っていないうちは、1 つのアカウントに寄せない。順の頭から 1 件ずつ配る
+        rows = assign.plan(REPO, [pr(1), pr(2), pr(3)], set(), set(), [acct("x", eligible=False), acct("a"), acct("b")])
         self.assertEqual([(r["account"]["name"], r["clone_path"]) for r in rows],
-                         [("a", os.path.join("/clones", "r-pr-1")), ("a", os.path.join("/clones", "r-pr-2"))])
+                         [("a", os.path.join("/clones", "r-pr-1")), ("b", os.path.join("/clones", "r-pr-2")),
+                          ("a", os.path.join("/clones", "r-pr-3"))])
+
+    def test_the_soonest_account_takes_what_fits_below_the_limit(self):
+        # 週 89%・1 件 1% なら、95% に届かずに入るのは 5 件（89 + 5 = 94）。あふれた分は次のアカウントへ
+        accts = [acct("a", seven=89, five=5), acct("b", seven=40, five=5)]
+        rows = assign.plan(REPO, [pr(n) for n in range(1, 8)], set(), set(), accts, 95, {"seven_day": 1.0, "five_hour": 0.5})
+        self.assertEqual(names(rows), ["a"] * 5 + ["b"] * 2)
+
+    def test_the_five_hour_window_also_caps(self):
+        accts = [acct("a", seven=10, five=90), acct("b", seven=10, five=0)]
+        rows = assign.plan(REPO, [pr(n) for n in range(1, 5)], set(), set(), accts, 95, {"seven_day": 0.1, "five_hour": 2.0})
+        self.assertEqual(names(rows), ["a", "a", "b", "b"])
+
+    def test_account_with_unknown_usage_takes_the_rest(self):
+        accts = [acct("a", seven=93, five=0), acct("local", known=False)]
+        rows = assign.plan(REPO, [pr(n) for n in range(1, 4)], set(), set(), accts, 95, {"seven_day": 1.0})
+        self.assertEqual(names(rows), ["a", "local", "local"])
+
+    def test_when_every_account_is_full_the_rest_gets_no_account(self):
+        accts = [acct("a", seven=93, five=0)]
+        rows = assign.plan(REPO, [pr(1), pr(2)], set(), set(), accts, 95, {"seven_day": 1.0})
+        self.assertEqual([r["outcome"] for r in rows], ["assigned", "no_account"])
+
+    def test_open_conversations_take_no_slot(self):
+        accts = [acct("a", seven=93, five=0), acct("b", seven=10, five=0)]
+        rows = assign.plan(REPO, [pr(1), pr(2)], {("o/r", "feat/1")}, set(), accts, 95, {"seven_day": 1.0})
+        self.assertEqual(outcomes(rows), [(1, "already_open", None), (2, "assigned", "a")])
 
     def test_order_follows_prs(self):
         rows = assign.plan(REPO, [pr(5), pr(3), pr(4)], set(), set(), [acct("a")])

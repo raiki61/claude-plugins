@@ -18,6 +18,7 @@
 """
 
 import argparse
+import collections
 import concurrent.futures
 import json
 import os
@@ -36,7 +37,8 @@ import config  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
-from nodes import accounts, assign, clean, launch, provision, prs, report, sessions, turn  # noqa: E402
+import limits  # noqa: E402
+from nodes import accounts, assign, clean, cost, launch, provision, prs, report, sessions, turn  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -110,6 +112,7 @@ def setting_strings(path):
 
 
 MARK = "@@CLAUDE_CONFIG_DIR="
+COST_FILE = "dispatch-cost.json"  # 1 件あたりの使用率の測り（cost ノード）。使用率の控えと同じ置き場
 
 
 def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
@@ -256,6 +259,16 @@ class Ports:
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
 
+    def refresh_limits(self, cfg, names):
+        """名指したアカウントの使用率を、控えの古さに依らず API に問い合わせて取り直す（出力 0 トークン。失敗は probe.log）。"""
+        limits.probe_all([a for a in cfg.accounts if a.name in names], cfg.limits_dir, self.env, self.now(), force=True)
+
+    def load_cost(self, limits_dir):
+        return cost.load(pathlib.Path(limits_dir) / COST_FILE)
+
+    def save_cost(self, limits_dir, samples):
+        cost.save(pathlib.Path(limits_dir) / COST_FILE, samples)
+
     def catchup_command(self, config_dir):
         """そのアカウントで送る catchup の命令の名前。始める前の確かめで 1 つに決まることを見てある。"""
         cdir = config.effective_config_dir(config.Account("", "", config_dir), self.account_env)
@@ -268,6 +281,15 @@ class Ports:
 
     def now(self):
         return time.time()
+
+
+def _cost_note(est, limit_percent):
+    if est is None:
+        return ("1 件あたりの使用率をまだ測っていないので、選べるアカウントに 1 件ずつ順に配った"
+                "（今回の /catchup の前後で測って覚え、次からはアカウントの残りに合わせて入れる）")
+    parts = [f"{label} {round(est[w], 2)}%" for w, label in (("seven_day", "週"), ("five_hour", "5 時間")) if w in est]
+    return (f"1 件あたりの使用率の見積もり（{est['runs']} 回の測りの中央値）: {'・'.join(parts)}。"
+            f"各アカウントに、使用率が {limit_percent}% に届かない件数まで入れた")
 
 
 def main(argv=None, ports=None):
@@ -314,9 +336,16 @@ def main(argv=None, ports=None):
         print(f"止めた: {e}")
         return 1
     sess = sessions.collect(listed, ports.branch, ports.origin)
-    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, [x.name for x in cfg.accounts if x.limits]),
-                           cfg.limit_percent, ports.now())
-    the_plan = assign.plan(repo, my_prs, sessions.open_keys(sess), {s["cwd"] for s in sess if s["cwd"]}, ranked)
+    metered = [x.name for x in cfg.accounts if x.limits]
+    if not a.dry_run:
+        ports.refresh_limits(cfg, metered)
+    before = ports.read_limits(cfg.limits_dir, metered)
+    ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now())
+    est = cost.estimate(ports.load_cost(cfg.limits_dir))
+    the_plan = assign.plan(repo, my_prs, sessions.open_keys(sess), {s["cwd"] for s in sess if s["cwd"]}, ranked,
+                           cfg.limit_percent, est)
+    if any(r["outcome"] in ("assigned", "no_account") for r in the_plan):
+        notes.append(_cost_note(est, cfg.limit_percent))
 
     results = {}
     assigned = [r for r in the_plan if r["outcome"] == "assigned"]
@@ -352,6 +381,11 @@ def main(argv=None, ports=None):
                                                     catchup=ports.catchup_command(r["account"].get("config_dir")))
                            for r, pane in ready}
                 results.update({n: f.result() for n, f in futures.items()})
+            counts = collections.Counter(r["account"]["name"] for r, _ in ready)
+            measured = [n for n in counts if n in metered]
+            if measured:
+                ports.refresh_limits(cfg, measured)
+                ports.save_cost(cfg.limits_dir, cost.samples(before, ports.read_limits(cfg.limits_dir, measured), counts))
 
     print("\n".join(report.lines(the_plan, results, notes)))
     return 0

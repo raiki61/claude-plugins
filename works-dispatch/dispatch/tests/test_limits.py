@@ -149,6 +149,16 @@ class ProbeAll(unittest.TestCase):
         self.assertEqual(len(self.run_probe(accts)), 1)
         self.assertFalse((self.dir / "local.json").exists())
 
+    def test_force_asks_even_for_fresh_accounts(self):
+        # dispatch が始める前と /catchup の後に、今の値を取るために使う。古さと、試み直しの待ちを見ない
+        fresh = {"five_hour": win(5, NOW + 3600), "seven_day": win(40, NOW + 86400)}
+        (self.dir / "a0.json").write_text(json.dumps(fresh), encoding="utf-8")
+        (self.dir / ".probe-a0").write_text(str(NOW), encoding="utf-8")
+        asked = []
+        limits.probe_all(accounts(1), self.dir, {}, NOW, token=lambda c, e: ("tok", "x"),
+                         fetch=lambda tok: asked.append(tok) or HEADERS, force=True)
+        self.assertEqual(asked, ["tok"])
+
     def test_network_failure_is_logged(self):
         def down(tok):
             raise OSError("接続できない")

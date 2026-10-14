@@ -13,7 +13,8 @@
   - prs: 自分の番の PR を集める。
   - sessions: 開いている会話を読む。
   - accounts: アカウントを使用率で並べる。
-  - assign: PR をアカウントと作業場に割り振る。
+  - assign: PR をアカウントと作業場に割り振る。全部の PR は同時に走るので、始める前に、各アカウントの使用率の残りと 1 件あたりの使用率から件数を決める。
+  - cost: 1 件あたりの使用率を測って覚える。dispatch が始める前と全部の `/catchup` の後に使用率を API に問い合わせ（出力 0 トークン）、差を開いた件数で割る。週の使用率は statusline からは枠の中で動かない（`limits.py` の record の決まり）ので、問い合わせで取る。
   - provision: clone と herdr の作業場を、無ければ作り、有れば使い直す。
   - launch: Claude Code を起こす。
   - turn: `/catchup` と 2 ターン目の文を送る。

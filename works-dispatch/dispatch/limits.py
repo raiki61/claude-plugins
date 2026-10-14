@@ -279,8 +279,9 @@ def probe_env(env):
     return {k: v for k, v in env.items() if k != "CLAUDE_KEYCHAIN_SERVICE"}
 
 
-def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch):
+def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=False):
     """取り直しの要るアカウントだけ、順に問い合わせて控えを書く。失敗は probe.log に残し、黙って落とさない。
+    force は古さと試み直しの待ちを見ずに全部に問い合わせる（dispatch が、始める前と /catchup の後の今の値を取るのに使う）。
 
     token(user_config, explicit) は (トークン, 出どころ) か (None, 探した所) を返す。既定は scripts/claude_auth.py の account_token。
     試みた時刻を .probe-<名前> に残し、失敗しても PROBE_RETRY_MIN の間は投げ直さない。時刻は試みた後に書く。
@@ -291,14 +292,14 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch):
     d = pathlib.Path(limits_dir)
     d.mkdir(parents=True, exist_ok=True)
     for a in accounts:
-        if not a.limits or not need_probe(_read(d / f"{a.name}.json"), now):
+        if not a.limits or not (force or need_probe(_read(d / f"{a.name}.json"), now)):
             continue
         stamp = d / f".probe-{a.name}"
         try:
             last = float(stamp.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             last = None
-        if last is not None and now - last < PROBE_RETRY_MIN * 60:
+        if not force and last is not None and now - last < PROBE_RETRY_MIN * 60:
             continue
         tok, note = token(a.config_dir, a.keychain_service)
         if not tok:

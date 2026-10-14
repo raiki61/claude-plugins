@@ -4,8 +4,13 @@
 決める順:
 1. 会話が開いていれば already_open。(対象のリポジトリ, PR の head の枝) の組の会話か、その PR の clone のフォルダかその下を
    作業フォルダにする会話があるとき。作業場もアカウントも取らない（会話を閉じるのは持ち主だけ）。
-2. 選べるアカウントが無ければ no_account。選べるなら、全部の PR を順の先頭のアカウントに入れる
-   （控えは実行の途中で更新されず、持ち主の決め「切り替わりの近い枠から使い切る」とも同じ向きなので、散らさない）。
+2. 開く PR を、選べるアカウントに順の頭から割り振る。全部の PR は同時に走るので、始める前に件数を決める。
+   - 1 件あたりの使用率（cost ノードが測って覚えた見積もり）があれば、各アカウントに、上限（limit_percent）に届かずに
+     入る件数まで入れ、あふれた分を次のアカウントへ回す（持ち主の決め「切り替わりの近い枠から使い切る」）。
+     件数は、週と 5 時間の枠ごとに「使用率 + 件数 × 1 件あたり < 上限」を満たす最大の数の、小さい方。
+     使用率の分からないアカウント（控えが無い・使用率の枠が無い）は、件数で縛らない。
+   - まだ測っていなければ、1 つのアカウントに寄せず、選べるアカウントに 1 件ずつ順に配る（入れすぎない側に倒す）。
+   - どのアカウントにも入らない PR は no_account。
 3. どれにも当たらなければ assigned で、アカウントと、その PR の clone のフォルダを付ける。
 並びは prs の順のまま。
 
@@ -13,6 +18,7 @@
 """
 
 import argparse
+import math
 import os
 import pathlib
 import sys
@@ -27,8 +33,39 @@ def _inside(cwd, path):
     return c == p or p in c.parents
 
 
-def plan(repo, prs, open_keys, open_cwds, accounts):
-    account = next((a for a in accounts if a.get("eligible")), None)
+WINDOWS = ("seven_day", "five_hour")
+
+
+def _capacity(account, limit_percent, cost):
+    """そのアカウントに、上限に届かずに入る件数。縛れないなら math.inf。"""
+    if not account.get("known", True):
+        return math.inf
+    caps = []
+    for w in WINDOWS:
+        used, each = (account.get(w) or {}).get("used"), (cost or {}).get(w)
+        if isinstance(used, (int, float)) and isinstance(each, (int, float)) and each > 0:
+            caps.append(max(math.ceil((limit_percent - used) / each) - 1, 0))
+    return min(caps) if caps else math.inf
+
+
+def _spread(accounts, n, limit_percent, cost):
+    """開く n 件に、順にアカウントを 1 つずつ（入らなければ None）。"""
+    eligible = [a for a in accounts if a.get("eligible")]
+    if not eligible:
+        return [None] * n
+    if cost is None:
+        return [eligible[i % len(eligible)] for i in range(n)]
+    out = []
+    for a in eligible:
+        cap = _capacity(a, limit_percent, cost)
+        while len(out) < n and cap > 0:
+            out.append(a)
+            cap -= 1
+    return out + [None] * (n - len(out))
+
+
+def plan(repo, prs, open_keys, open_cwds, accounts, limit_percent=95, cost=None):
+    """cost は {枠: 1 件あたりの使用率}（cost ノードの estimate）。None はまだ測っていない。"""
     rows = []
     for p in prs:
         path = config.clone_path(repo, p["number"])
@@ -36,11 +73,13 @@ def plan(repo, prs, open_keys, open_cwds, accounts):
                "outcome": "assigned", "account": None, "clone_path": path}
         if (repo.repo, p["head"]) in open_keys or any(_inside(c, path) for c in open_cwds if c):
             row["outcome"] = "already_open"
-        elif account is None:
+        rows.append(row)
+    to_open = [r for r in rows if r["outcome"] == "assigned"]
+    for row, account in zip(to_open, _spread(accounts, len(to_open), limit_percent, cost)):
+        if account is None:
             row["outcome"] = "no_account"
         else:
             row["account"] = account
-        rows.append(row)
     return rows
 
 
