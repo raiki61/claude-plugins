@@ -24,6 +24,8 @@ class Account(NamedTuple):
     name: str  # 使用率の控えのファイル名（<limits_dir>/<name>.json）
     command: str  # そのアカウントで Claude Code を起こすシェルのコマンド
     config_dir: str | None = None  # Claude Code の設定のフォルダ。None は既定のフォルダ
+    keychain_service: str | None = None  # 鍵を置いた Keychain の項目の名前。None は共通の決まり（scripts/claude_auth.py）で探す
+    limits: bool = True  # 使用率の枠があるか。false は Ollama・Foundry のような枠の無いアカウントで、控えを読まず使用率で外さない
 
 
 class Repo(NamedTuple):
@@ -90,7 +92,15 @@ def load(path=None, env=os.environ):
         if cdir is not None and not isinstance(cdir, str):
             problems.append(f"{where}: config_dir が文字列で無い")
             cdir = None
-        accounts.append(Account(name, command, _path(cdir) if cdir else None))
+        service = a.get("keychain_service")
+        if service is not None and not isinstance(service, str):
+            problems.append(f"{where}: keychain_service が文字列で無い")
+            service = None
+        has_limits = a.get("limits", True)
+        if not isinstance(has_limits, bool):
+            problems.append(f"{where}: limits が true か false で無い")
+            has_limits = True
+        accounts.append(Account(name, command, _path(cdir) if cdir else None, service or None, has_limits))
     if not raw.get("accounts"):
         accounts = [Account("default", "claude", None)]
 

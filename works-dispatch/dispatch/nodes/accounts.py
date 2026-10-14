@@ -5,6 +5,7 @@
 - 切り替わりの時刻（resets_at）が過ぎた枠は、切り替わった後なので使用率 0 とみなす。
 - 選べるものを、週の枠の切り替わりの近い順 → 週の使用率の低い順 → 設定の順に並べる。
 - 控えが無い・読めないアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（D7）。
+- 使用率の枠の無いアカウント（設定の limits = false。Ollama・Foundry など）は控えを読まず、控えの無いものと同じに扱う。
 
 使い方: python3 nodes/accounts.py [--config <パス>] [--out <パス>] [--now <Unix 時刻>]
 """
@@ -38,7 +39,7 @@ def _window(raw, now):
 def rank(accounts, limits, limit_percent, now):
     rows = []
     for i, a in enumerate(accounts):
-        raw = limits.get(a.name)
+        raw = limits.get(a.name) if a.limits else None
         known = isinstance(raw, dict)
         w = {k: _window(raw.get(k) if known else None, now) for k in WINDOWS}
         over = [k for k in WINDOWS if w[k]["used"] is not None and w[k]["used"] > limit_percent]
@@ -86,7 +87,7 @@ def main(argv=None):
     ap.add_argument("--now", type=float, help="時刻を固定する（試験用）。省くと今")
     a = ap.parse_args(argv)
     cfg = config.load(a.config, os.environ)
-    lim = read_limits(cfg.limits_dir, [x.name for x in cfg.accounts])
+    lim = read_limits(cfg.limits_dir, [x.name for x in cfg.accounts if x.limits])
     jsonio.dump({"accounts": rank(cfg.accounts, lim, cfg.limit_percent, a.now or time.time())}, a.out)
     return 0
 

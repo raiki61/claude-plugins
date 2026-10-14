@@ -80,6 +80,16 @@ class Rank(unittest.TestCase):
         self.assertTrue(by(got, "p1")["eligible"])
         self.assertFalse(by(got, "p1")["known"])
 
+    def test_account_without_usage_window_is_eligible_after_measured_ones(self):
+        # 使用率の枠の無いアカウント（Ollama・Foundry など）は控えを読まない。古い控えが残っていても使用率で外さない
+        accts = ACCTS[:2] + (Account("local", "claude-ollama", None, None, False), Account("p9", "c9"))
+        lim = limits()
+        lim["local"] = {"seven_day": {"used_percentage": 99, "resets_at": NOW + 60}, "five_hour": None}
+        got = accounts.rank(accts, lim, 95, NOW)
+        self.assertEqual(names(got), ["main", "p1", "local", "p9"])
+        self.assertTrue(by(got, "local")["eligible"])
+        self.assertIsNone(by(got, "local")["seven_day"]["used"])
+
     def test_output_matches_schema(self):
         out = {"schema": 1, "accounts": accounts.rank(ACCTS, limits(), 95, NOW)}
         self.assertEqual(schemacheck.check(out, schemacheck.schema("accounts")), [])

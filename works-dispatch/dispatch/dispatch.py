@@ -102,7 +102,7 @@ class Ports:
                 if not claudex.is_trusted(claudex.trust_file(a.config_dir, self.env), repo.source):
                     notes.append(f"アカウント {a.name} は {repo.source} を信頼していない（PR ごとの作業場で毎回フォルダの信頼の確認が出る。"
                                  f"一度 {repo.source} で {a.command} を起こし、信頼すると出なくなる）")
-            if not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
+            if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
         for repo in cfg.repos:
             if gitx.origin_repo(repo.source) != repo.repo:
@@ -211,7 +211,7 @@ def main(argv=None, ports=None):
         print(f"止めた: {e}")
         return 1
     sess = sessions.collect(listed, ports.branch, ports.origin)
-    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, [x.name for x in cfg.accounts]),
+    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, [x.name for x in cfg.accounts if x.limits]),
                            cfg.limit_percent, ports.now())
     the_plan = assign.plan(repo, my_prs, sessions.open_keys(sess), {s["cwd"] for s in sess if s["cwd"]}, ranked)
 

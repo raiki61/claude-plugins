@@ -300,6 +300,14 @@ class Preflight(unittest.TestCase):
         self.assertNotIn("元の clone", text)  # 元の clone は o/r の clone なので通る
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
 
+    def test_account_without_usage_window_gets_no_missing_limits_note(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        cfg = cfg._replace(accounts=tuple(a._replace(limits=False) for a in cfg.accounts))
+        ports = dispatch.Ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
+        problems, notes = ports.preflight(cfg)
+        self.assertNotIn("使用率の控え", "\n".join(notes))
+
     def test_single_account_user_is_checked_in_the_default_folder(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})

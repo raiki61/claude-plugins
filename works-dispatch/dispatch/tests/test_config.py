@@ -75,6 +75,29 @@ class Load(unittest.TestCase):
         self.assertEqual(cfg.limit_percent, 95)
         self.assertEqual(cfg.limits_dir, os.path.expanduser("~/.cache/claude-limits"))
 
+    def test_account_kinds(self):
+        # アカウントの持ち方は人で違う。claude そのまま／設定のフォルダ＋自分で作った Keychain の項目／使用率の枠の無いもの（Ollama・Foundry など）
+        body = (f'accounts = [\n'
+                f'  {{ name = "main", command = "claude" }},\n'
+                f'  {{ name = "w", command = "claude-w", config_dir = "{self.d}/w", keychain_service = "my-item" }},\n'
+                f'  {{ name = "local", command = "claude-ollama", limits = false }},\n'
+                f']\n[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n')
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertEqual(cfg.accounts, (
+            config.Account("main", "claude"),
+            config.Account("w", "claude-w", f"{self.d}/w", "my-item"),
+            config.Account("local", "claude-ollama", None, None, False),
+        ))
+        self.assertTrue(cfg.accounts[0].limits)
+
+    def test_account_field_types_are_checked(self):
+        body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
+                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n')
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", body), env={})
+        self.assertIn("keychain_service", str(e.exception))
+        self.assertIn("limits", str(e.exception))
+
     def test_tilde_is_expanded(self):
         body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "%s/second.md"\n'
                 'source = "~/x"\nclone_root = "~/y"\n') % self.d
