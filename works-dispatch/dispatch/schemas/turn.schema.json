@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": ["schema", "turn"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "turn": {
+      "type": "object",
+      "required": ["pane", "status", "detail"],
+      "properties": {
+        "pane": {"type": "string"},
+        "status": {"type": "string", "enum": ["idle", "done", "blocked", "stalled", "sent", "failed"]},
+        "detail": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": ["schema", "sessions"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["account", "session_id", "cwd", "status", "repo", "branch"],
+        "properties": {
+          "account": {"type": "string"},
+          "session_id": {"type": ["string", "null"]},
+          "cwd": {"type": ["string", "null"]},
+          "status": {"type": ["string", "null"]},
+          "repo": {"type": ["string", "null"]},
+          "branch": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

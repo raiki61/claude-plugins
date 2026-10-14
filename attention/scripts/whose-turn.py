@@ -56,6 +56,9 @@ GitHub から取れる範囲で全部、決定的に集める。判断（返信�
 Bash の出力に乗って、また退避される。
 """
 
+# この本文は複数のプラグインに写しで在る。正本は attention/scripts/whose-turn.py、写しは works-dispatch/dispatch/vendor/whose-turn.py。
+# 直すのは正本だけで、配るのは python3 scripts/shared-copies.py --sync attention/scripts/whose-turn.py。
+
 import argparse
 import concurrent.futures
 import datetime as dt
@@ -1111,12 +1114,21 @@ def parser():
         action="store_true",
         help="末尾に、呼びかけの投稿と、返す番があるスレッドの最後の発言の全文を判定の材料として付ける（印より下は貼らない前提。gh で読み直さずに済む）",
     )
+    ap.add_argument(
+        "--json",
+        action="store_true",
+        help="「自分の番」の PR だけを機械が読む JSON で出す（番号・URL・タイトル・head の枝・役割・日数）。"
+        "集合と並びは報告の「自分の番」の節と同じ。--all・--materials・--out と一緒に使えない",
+    )
     outfile.add_flag(ap)
     return ap
 
 
 def main(argv=None):
-    a = parser().parse_args(argv)
+    ap = parser()
+    a = ap.parse_args(argv)
+    if a.json and (a.all or a.materials or a.out):
+        ap.error("--json は --all・--materials・--out と一緒に使えない")
 
     if not a.out:
         return report(a)
@@ -1251,6 +1263,28 @@ def report(a):
             )
             lines.append(f"{indent}    {i['url']}")
         return lines
+
+    if a.json:
+        keep_mine = dict(BUCKETS)["自分の番"]
+        rows = [r for r in pr_rows(me) if keep_mine(r[0])]
+        print(json.dumps({
+            "schema": 1,
+            "repo": repo,
+            "login": me,
+            "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "prs": [
+                {
+                    "number": n,
+                    "url": by_number[n]["url"],
+                    "title": by_number[n]["title"],
+                    "head": by_number[n]["headRefName"],
+                    "role": "implementer" if login(by_number[n]["author"]) == me else "reviewer",
+                    "days": days(since),
+                }
+                for _, since, n in rows
+            ],
+        }, ensure_ascii=False, indent=2))
+        return
 
     print(
         f"# 残件 — {repo} — {'全員' if a.all else me} — {now.astimezone(LOCAL_TZ):%Y-%m-%d %H:%M %Z}"

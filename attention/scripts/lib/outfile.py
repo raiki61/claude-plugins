@@ -11,6 +11,9 @@ Claude Code の Bash は 1 回あたりの出力に上限（約 30,000 バイト
 また退避される。
 """
 
+# この本文は複数のプラグインに写しで在る。正本は attention/scripts/lib/outfile.py、写しは works-dispatch/dispatch/vendor/lib/outfile.py。
+# 直すのは正本だけで、配るのは python3 scripts/shared-copies.py --sync attention/scripts/lib/outfile.py。
+
 import contextlib
 import datetime as dt
 import tempfile

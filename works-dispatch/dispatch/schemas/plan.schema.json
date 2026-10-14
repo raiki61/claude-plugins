@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "required": ["schema", "plan"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["number", "title", "head", "url", "outcome", "account", "clone_path"],
+        "properties": {
+          "number": {"type": "integer"},
+          "title": {"type": "string"},
+          "head": {"type": "string"},
+          "url": {"type": ["string", "null"]},
+          "outcome": {"type": "string", "enum": ["assigned", "already_open", "no_account"]},
+          "account": {"type": ["object", "null"]},
+          "clone_path": {"type": "string"}
+        }
+      }
+    }
+  }
+}

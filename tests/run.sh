@@ -2200,7 +2200,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=596
+EXPECTED_CHECKS=598
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3201,10 +3201,16 @@ expect_output 1 "使い方" \
 # ---- attention/whose-turn: open 全件から誰の番か ----
 # GitHub には触らない。判定は純粋関数で、固定の材料が規則を 1 行ずつ固定する
 WT="$ROOT/attention/scripts/whose-turn.py"
-expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 111 件。時刻はローカル、検査は UTC 固定）" \
+expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 115 件。時刻はローカル、検査は UTC 固定）" \
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
+
+# ---- works-dispatch/dispatch: 自分の番の PR を herdr の作業場に広げるライン ----
+# 旧 works の試験の殻（works/tests/run.sh）には載せない（設計書 works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md の D1）。
+# 試験と、設計書 4 節の決まりの柵（works-dispatch/dispatch/tests/test_rules.py）を 1 本で回す。herdr・gh・claude には触らない
+expect_output 0 "OK" "works-dispatch/dispatch: ノードの試験と決まりの柵（D1〜D6・D8）" \
+    "$PY_BIN" -B -m unittest discover -s "$ROOT/works-dispatch/dispatch/tests" -t "$ROOT"
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \
     "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
@@ -3512,6 +3518,10 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "UV_CACHE_DIR", "TMPDIR",
                   # 外の道具（mise・gh）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN",
+                  # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
+                  "HTTPS_PROXY",
+                  # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
+                  "WORKS_DISPATCH_CONFIG",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP"}
 # HEAD と CLAUDE_CONFIG_DIR は表から外した——works の python・shell が同じ名前を定数に持つので定義の在る
@@ -3539,7 +3549,7 @@ NAMED_IN = tuple(
     and ".shared/borrow/superpowers/" not in p.as_posix()
     # works の計画と変更の記録は書いた日の名指しを残す歴史の文書なので柵の外（後で名を替えても書き直さない。2026-10-09 の掃除:
     # この 2 つだけを直す commit が名を足すだけで、本物の食い違いを 1 件も捕まえなかった）
-    and not p.relative_to(root).as_posix().startswith("works/docs/plans/")
+    and not p.relative_to(root).as_posix().startswith(("works/docs/plans/", "works-dispatch/docs/plans/"))
     and p.relative_to(root).as_posix() != "works/CHANGELOG.md"
 ) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
@@ -5220,6 +5230,7 @@ NOT_RATCHET = {
     "TAIL": "tests/mutate.py が --deadline-at の期限の手前に残す幅（秒）。件数の突合ではない",
     "STOP_GRACE": "tests/mutate.py が止める信号で子のグループへ送る信号の間の猶予（秒）。件数の突合ではない",
     "ARGV_MAX": "tests/mutate.py が pytest の node id を並べる引数の字数の上限（超えればテストのファイル単位に落とす）。件数の突合ではない",
+    "NOW": "works-dispatch の試験が固定する今の時刻（Unix 時刻）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []
@@ -5695,6 +5706,9 @@ expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループ
 # 直す側と見る側が別々に古くなる。走査対象は印から導く（名前を手で並べない）。
 expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(認証の段)が、写し先を持ちバイト単位で同一" \
     "$PY_BIN" "$ROOT/scripts/shared-copies.py"
+# 共有の認証の部品のうち、アカウントの OAuth トークンを探す口（account_token）。Keychain と資格情報のファイルは偽物
+expect_output 0 "OK" "共有の認証の部品: アカウントのトークンを、作った項目・Claude Code の項目・資格情報のファイルの順に探す" \
+    "$PY_BIN" -B "$ROOT/tests/claude-auth-suite.py"
 
 # **検証器の同型部分は、順序まで揃っていること。** 検証器は 1 本ずつ配る前提で共有モジュールを持たないので
 # `_rows`（表の組み立て）と `fail`（exit 2 で落とす口）が各本に写される。**写しは中身でなく順序で割れた**
