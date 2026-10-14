@@ -56,11 +56,49 @@ def _gh_ok(repo, env=None):
         return False
 
 
+# タブ欄の行とサイドバーのフックが指す、このプラグインのスクリプト。プラグインを更新すると、入った場所（版ごとのフォルダ）が変わる
+PLUGIN_SCRIPT = re.compile(r"""[^\s"'=]+/dispatch/(?:limits|activity)\.py""")
+
+
+def gone_plugin_paths(texts):
+    """設定の文字列のなかの、このプラグインのスクリプトを指すパスのうち、もう無いもの（重なりは 1 つ）。"""
+    found = []
+    for text in texts:
+        for m in PLUGIN_SCRIPT.findall(text):
+            path = os.path.expanduser(m)
+            if not os.path.isfile(path) and path not in found:
+                found.append(path)
+    return found
+
+
+MARK = "@@CLAUDE_CONFIG_DIR="
+
+
+def _login_config_dir(env=os.environ, runner=subprocess.run):
+    """作業場のペインで新しく起きるログインのシェルが持つ CLAUDE_CONFIG_DIR（無ければ None）。
+
+    config_dir を書かないアカウントは、ペインのシェルで素のまま起きる。dispatch を走らせている会話の CLAUDE_CONFIG_DIR は
+    その会話のアカウントのもので、ペインのものではないので、渡さずにシェルを起こし、シェルの設定が入れる値だけを読む。
+    シェルが起動のときに出す挨拶などと混ざらないよう、印で挟んだ所だけを読む。
+    """
+    child = {k: v for k, v in env.items() if k != "CLAUDE_CONFIG_DIR"}
+    shell = env.get("SHELL") or "/bin/sh"
+    p = runner([shell, "-ic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, env=child)
+    for line in (p.stdout or "").splitlines():
+        if line.startswith(MARK) and line.endswith("@@"):
+            return line[len(MARK):-2] or None
+    return None
+
+
 class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
-    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None):
+    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None, herdr_integration=None,
+                 login_config_dir=None):
         self._herdr_methods = herdr_methods or herdr.methods
+        self._herdr_integration = herdr_integration or (lambda cdir: herdr.claude_integration(cdir, dict(self.env)))
+        self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
+        self._account_env = None
         self._shell_has = shell_has or _shell_has
         self._gh_ok = gh_ok or _gh_ok
         self.env = os.environ if env is None else env
@@ -68,6 +106,17 @@ class Ports:
         self._gh_envs = {}
         self.herdr = herdr
         self.git = gitx
+
+    @property
+    def account_env(self):
+        """アカウントの設定のフォルダを決めるための環境。CLAUDE_CONFIG_DIR だけを、ペインの新しいログインのシェルの値に替える（_login_config_dir）。"""
+        if self._account_env is None:
+            env = {k: v for k, v in self.env.items() if k != "CLAUDE_CONFIG_DIR"}
+            found = self._login_config_dir()
+            if found:
+                env["CLAUDE_CONFIG_DIR"] = os.path.expanduser(found)
+            self._account_env = env
+        return self._account_env
 
     def gh_env(self, repo):
         """そのリポジトリで gh を呼ぶ子の環境。gh_user が無ければ None（このプロセスの環境のまま）。鍵はアカウントごとに 1 度だけ取り出す。"""
@@ -93,17 +142,35 @@ class Ports:
         for a in cfg.accounts:
             if not self._shell_has(a.command):
                 problems.append(f"アカウント {a.name} の起動のコマンド {a.command} がシェルで見つからない")
-            cdir = config.effective_config_dir(a, self.env)
+            cdir = config.effective_config_dir(a, self.account_env)
+            try:
+                state = self._herdr_integration(cdir)
+            except (herdr.HerdrError, OSError) as e:
+                state = f"読めない（{e}）"
+            if not state.startswith("current"):
+                notes.append(f"アカウント {a.name} に herdr の連携が入っていない: {state}（作業中の判定は無くても動く。"
+                             f"herdr を立ち上げ直したときに会話を戻すのに要る。入れる: CLAUDE_CONFIG_DIR={cdir} herdr integration install claude）")
             found = claudex.catchup_commands(cdir)
             if len(found) != 1:
                 problems.append(f"アカウント {a.name}（{cdir}）で /catchup の命令が 1 つに決まらない"
                                 f"（commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
             for repo in cfg.repos:
-                if not claudex.is_trusted(claudex.trust_file(a.config_dir, self.env), repo.source):
+                if not claudex.is_trusted(claudex.trust_file(a.config_dir, self.account_env), repo.source):
                     notes.append(f"アカウント {a.name} は {repo.source} を信頼していない（PR ごとの作業場で毎回フォルダの信頼の確認が出る。"
                                  f"一度 {repo.source} で {a.command} を起こし、信頼すると出なくなる）")
             if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
+        texts = []
+        home = self.env.get("HOME") or os.path.expanduser("~")
+        herdr_toml = pathlib.Path(self.env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
+        for f in [herdr_toml] + [pathlib.Path(config.effective_config_dir(a, self.account_env)) / "settings.json" for a in cfg.accounts]:
+            try:
+                texts.append(f.read_text(encoding="utf-8"))
+            except OSError:
+                pass
+        for path in gone_plugin_paths(texts):
+            notes.append(f"herdr の設定かフックが、もう無いスクリプトを指している: {path}（プラグインの更新で場所が変わった。"
+                         "SKILL.md の任意の手順で行を出し直す）")
         for repo in cfg.repos:
             if gitx.origin_repo(repo.source) != repo.repo:
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
@@ -127,7 +194,7 @@ class Ports:
         return prs.read(repo.repo, env=self.gh_env(repo))
 
     def list_sessions(self, config_dir):
-        return claudex.sessions(config_dir)
+        return claudex.sessions(config_dir, base_env=self.account_env)
 
     def branch(self, cwd):
         return gitx.branch(cwd)
@@ -155,13 +222,13 @@ class Ports:
 
     def catchup_command(self, config_dir):
         """そのアカウントで送る catchup の命令の名前。始める前の確かめで 1 つに決まることを見てある。"""
-        cdir = config.effective_config_dir(config.Account("", "", config_dir), self.env)
+        cdir = config.effective_config_dir(config.Account("", "", config_dir), self.account_env)
         found = claudex.catchup_commands(cdir)
         return found[0] if len(found) == 1 else None
 
     def trust(self, account, source, clone):
         """元の clone を信頼済みのアカウントなら、clone にも信頼の印を付ける（claudex.inherit_trust）。"""
-        return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.env), source, clone)
+        return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone)
 
     def now(self):
         return time.time()

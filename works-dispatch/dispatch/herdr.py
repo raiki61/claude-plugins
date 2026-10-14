@@ -3,7 +3,7 @@
 herdr は版が 0.x で互換を約束していない。herdr の文書は、手元の版の API を `herdr api schema` で確かめるよう求めている。
 出力の形が変わって壊れたら、直すのはこのファイルだけになる。出力の形は 2026-10-14 に herdr 0.9.3 の実物で読んだ。
 
-書く関数は run・prompt・create_workspace・close_workspace で、呼んでよいノードは柵（tests/fences.py の D4 の表）が構文木で見る。
+書く関数は run・prompt・create_workspace・close_workspace・report_activity で、呼んでよいノードは柵（tests/fences.py の D4 の表）が構文木で見る。
 """
 
 import json
@@ -85,6 +85,32 @@ def methods(runner=_default_runner):
 
     walk(json.loads(p.stdout))
     return found
+
+
+def claude_integration(config_dir, env, runner=_default_runner):
+    """その設定のフォルダの Claude Code に、herdr の連携のフックが入っているか（`herdr integration status` の claude の行の状態）。
+
+    herdr は CLAUDE_CONFIG_DIR に従って <フォルダ>/hooks/herdr-agent-state.sh を見る。返すのは "current (v10)" や "not installed" の字。
+    """
+    argv = ["herdr", "integration", "status"]
+    p = runner(argv, env={**env, "CLAUDE_CONFIG_DIR": config_dir})
+    if p.returncode != 0:
+        raise HerdrError(argv, (p.stderr or p.stdout).strip()[:300])
+    for line in p.stdout.splitlines():
+        if line.startswith("claude:"):
+            return line[len("claude:"):].split(" (/")[0].strip()
+    raise HerdrError(argv, f"claude の行が無い: {p.stdout[:200]!r}")
+
+
+def _spawn(argv):
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+def report_activity(pane, text, ttl_ms, spawn=_spawn):
+    """ペインのサイドバーの印 $act に text を送る。終わりを待たずに手放す（フックから呼ぶので、ツールの呼び出しを待たせない）。"""
+    spawn(["herdr", "pane", "report-metadata", pane, "--source", "claude-activity",
+           "--ttl-ms", str(ttl_ms), "--token", f"act={text}"])
 
 
 def run(pane, command, runner=_default_runner):

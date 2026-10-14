@@ -121,6 +121,27 @@ class Herdr(unittest.TestCase):
         self.assertEqual(herdr.agent("wB:p1", runner=f)["agent"], "claude")
         self.assertEqual(f.calls[0][0], ["herdr", "agent", "get", "wB:p1"])
 
+    def test_claude_integration_reads_the_claude_line_in_the_accounts_folder(self):
+        # 2026-10-14 の herdr 0.9.3 の実物。CLAUDE_CONFIG_DIR に従って <cfg>/hooks/herdr-agent-state.sh を見る
+        out = ("pi: not installed (/h/.pi/agent/extensions/herdr-agent-state.ts)\n"
+               "claude: current (v10) (/h/.claude-w/hooks/herdr-agent-state.sh)\n"
+               "codex: not installed (/h/.codex/herdr-agent-state.sh)\n")
+        f = Fake((0, out, ""))
+        self.assertEqual(herdr.claude_integration("/h/.claude-w", {"PATH": "/bin"}, runner=f), "current (v10)")
+        argv, env = f.calls[0]
+        self.assertEqual(argv, ["herdr", "integration", "status"])
+        self.assertEqual(env, {"PATH": "/bin", "CLAUDE_CONFIG_DIR": "/h/.claude-w"})
+        f = Fake((0, "claude: not installed (/h/.claude/hooks/herdr-agent-state.sh)\n", ""))
+        self.assertEqual(herdr.claude_integration("/h/.claude", {}, runner=f), "not installed")
+        with self.assertRaises(herdr.HerdrError):
+            herdr.claude_integration("/h/.claude", {}, runner=Fake((0, "pi: current\n", "")))
+
+    def test_report_activity_hands_off_the_sidebar_token(self):
+        seen = []
+        herdr.report_activity("w1:p1", "Read b.py", 3600000, spawn=seen.append)
+        self.assertEqual(seen, [["herdr", "pane", "report-metadata", "w1:p1", "--source", "claude-activity",
+                                 "--ttl-ms", "3600000", "--token", "act=Read b.py"]])
+
     def test_methods_from_schema(self):
         schema = {"schemas": {"request": {"oneOf": [
             {"properties": {"method": {"const": "agent.prompt"}}},

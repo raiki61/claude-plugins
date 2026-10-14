@@ -119,11 +119,19 @@ class FakeHerdr:
         return "idle" if wait else "sent"
 
 
+# 試験の Ports が本物の herdr とログインのシェルを呼ばないための偽物（試験の中で上書きするものはそちらが勝つ）
+QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None}
+
+
+def quiet_ports(**kw):
+    return dispatch.Ports(**{**QUIET, **kw})
+
+
 class FakePorts(dispatch.Ports):
     """本物の Ports の読む口のうち、claude・gh・whose-turn を偽物にする。git は本物（一時のフォルダ）、herdr は偽物。"""
 
     def __init__(self, prs, problems=(), herdr=None):
-        super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda repo, env=None: True, **QUIET)
         self._prs = prs
         self._problems = list(problems)
         self.herdr = herdr or FakeHerdr()
@@ -279,6 +287,31 @@ class RealPorts(unittest.TestCase):
         self.assertEqual(ports.trust({"name": "p2", "config_dir": str(d)}, "/s", "/s-pr-1"), "inherited")
         self.assertTrue(json.loads((d / ".claude.json").read_text())["projects"]["/s-pr-1"]["hasTrustDialogAccepted"])
 
+    def test_account_without_config_dir_follows_a_fresh_login_shell_not_this_session(self):
+        # dispatch はふつう、別のアカウントの Claude Code の会話の中から走る。その会話の CLAUDE_CONFIG_DIR は、
+        # 作業場のペインで起こす config_dir 無しのアカウントのフォルダではない。ペインの新しいログインのシェルが持つ値を使う
+        session = {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}
+        ports = quiet_ports(env=session, login_config_dir=lambda: None)
+        self.assertEqual(claudex.trust_file(None, ports.account_env), "/h/.claude.json")
+        self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env), "/h/.claude")
+        ports = quiet_ports(env=session, login_config_dir=lambda: "/h/.claude-mine")
+        self.assertEqual(config.effective_config_dir(config.Account("main", "claude"), ports.account_env), "/h/.claude-mine")
+        self.assertEqual(session["CLAUDE_CONFIG_DIR"], "/h/.claude-p2")  # 渡した環境は壊さない
+
+    def test_login_config_dir_reads_only_the_marked_value(self):
+        # ログインのシェルは、起動のときに挨拶などを出すことがある。印で挟んだ所だけを読む。今の会話の値は渡さない
+        seen = []
+
+        def run(argv, **kw):
+            seen.append(kw["env"])
+            return subprocess.CompletedProcess(argv, 0, "welcome!\n@@CLAUDE_CONFIG_DIR=/h/.claude-x@@\n", "")
+        self.assertEqual(dispatch._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run), "/h/.claude-x")
+        self.assertNotIn("CLAUDE_CONFIG_DIR", seen[0])
+
+        def empty(argv, **kw):
+            return subprocess.CompletedProcess(argv, 0, "@@CLAUDE_CONFIG_DIR=@@\n", "")
+        self.assertIsNone(dispatch._login_config_dir({}, empty))
+
     def test_real_ports_carry_the_herdr_and_git_modules(self):
         # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう
         ports = dispatch.Ports()
@@ -290,7 +323,7 @@ class Preflight(unittest.TestCase):
     def test_reports_missing_herdr_methods_command_attention_source_and_notes_limits(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
-        ports = dispatch.Ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
         problems, notes = ports.preflight(cfg)
         text = "\n".join(problems)
         self.assertIn("agent.prompt", text)
@@ -304,9 +337,49 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(accounts=tuple(a._replace(limits=False) for a in cfg.accounts))
-        ports = dispatch.Ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
         problems, notes = ports.preflight(cfg)
         self.assertNotIn("使用率の控え", "\n".join(notes))
+
+    def test_missing_herdr_integration_is_a_note_with_the_install_command(self):
+        # Claude Code の作業中の判定は herdr が画面から読むので、連携のフックが無くても動く。フックは会話の識別子を herdr に渡し、
+        # herdr を立ち上げ直したときの会話の再開に使われる。止めずに、入れるコマンドを 1 行出す
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        cfg = cfg._replace(accounts=cfg.accounts + (config.Account("a2", "claude-a2", f"{root}/c2"),))
+        ports = quiet_ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: True, gh_ok=lambda repo, env=None: True,
+                               herdr_integration=lambda cdir: "current (v10)" if cdir.endswith("c2") else "not installed")
+        problems, notes = ports.preflight(cfg)
+        text = "\n".join(notes)
+        cdir = config.effective_config_dir(cfg.accounts[0], {})
+        self.assertIn(f"CLAUDE_CONFIG_DIR={cdir} herdr integration install claude", text)
+        self.assertNotIn("integration", "\n".join(problems))
+        self.assertEqual(text.count("integration install"), 1)
+
+    def test_herdr_and_hook_settings_pointing_at_a_gone_plugin_folder_are_noted(self):
+        # タブ欄の行とサイドバーのフックは、プラグインの入った場所（版ごとのフォルダ）を指す。更新で消えると、
+        # herdr は欄を黙って消し、フックは黙って何もしなくなるので、始める前の確かめで見つける
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        home = pathlib.Path(root).parent / "home"
+        live = pathlib.Path(root) / "plugin" / "1.1.0" / "dispatch"
+        live.mkdir(parents=True)
+        (live / "limits.py").write_text("")
+        gone = pathlib.Path(root) / "plugin" / "1.0.0" / "dispatch"
+        herdr_cfg = home / ".config" / "herdr" / "config.toml"
+        herdr_cfg.parent.mkdir(parents=True)
+        herdr_cfg.write_text(f'{{ command = "python3 {live}/limits.py --config x show a" }},\n'
+                             f'{{ command = "python3 {gone}/limits.py --config x probe" }},\n')
+        settings = pathlib.Path(cfg.accounts[0].config_dir) / "settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"command": f"python3 {gone}/activity.py"}]}]}}))
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                            gh_ok=lambda repo, env=None: True, env={"HOME": str(home)})
+        problems, notes = ports.preflight(cfg)
+        text = "\n".join(notes)
+        self.assertIn(f"{gone}/limits.py", text)
+        self.assertIn(f"{gone}/activity.py", text)
+        self.assertNotIn(f"{live}/limits.py", text)
 
     def test_single_account_user_is_checked_in_the_default_folder(self):
         cfg_path, root = make_cfg()
@@ -320,7 +393,7 @@ class Preflight(unittest.TestCase):
         (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
             json.dumps({"plugins": {"attention@x": [{"scope": "user", "installPath": str(plugin)}]}}))
         cfg = cfg._replace(accounts=(config.Account("default", "claude", None),))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True,
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True,
                                env={"HOME": str(home)})
         problems, notes = ports.preflight(cfg)
         self.assertNotIn("catchup", "\n".join(problems))
@@ -330,7 +403,7 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         asked = []
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: asked.append(repo) or False)
         problems, _ = ports.preflight(cfg)
         self.assertEqual(asked, ["o/r"])
@@ -341,7 +414,7 @@ class Preflight(unittest.TestCase):
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(gh_user="me-at-work"),))
         seen = []
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: seen.append(env) or True,
                                gh_env=lambda repo: {"GH_TOKEN": f"token-of-{repo.gh_user}"})
         problems, _ = ports.preflight(cfg)
@@ -354,7 +427,7 @@ class Preflight(unittest.TestCase):
 
         def no_token(repo):
             raise ghx.GhError("gh のアカウント me-at-work の鍵を取り出せない")
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: True, gh_env=no_token)
         problems, _ = ports.preflight(cfg)
         self.assertIn("gh のアカウント me-at-work の鍵を取り出せない", "\n".join(problems))
@@ -365,7 +438,7 @@ class Preflight(unittest.TestCase):
         cdir = pathlib.Path(cfg.accounts[0].config_dir)
         cdir.mkdir(parents=True, exist_ok=True)
         (cdir / ".claude.json").write_text(json.dumps({"projects": {}}))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
         self.assertIn(f"アカウント a1 は {cfg.repos[0].source} を信頼していない", "\n".join(notes))
@@ -379,7 +452,7 @@ class Preflight(unittest.TestCase):
         empty = pathlib.Path(root).parent / "keep"
         empty.mkdir()
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(copy_from=str(empty)),))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
         self.assertIn(f"写すファイルが {empty} に無い: frontend/.env.local", "\n".join(notes))
 
@@ -387,7 +460,7 @@ class Preflight(unittest.TestCase):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         cfg = cfg._replace(repos=(cfg.repos[0]._replace(repo="o/other"),))
-        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
         problems, _ = ports.preflight(cfg)
         self.assertIn("元の clone", "\n".join(problems))
 
