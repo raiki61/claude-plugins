@@ -65,6 +65,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/what-am-i-doing と共用
 from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/whose-turn と共用
+from ghcli import GH_TIMEOUT_SEC, gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn と共用
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
@@ -162,34 +163,8 @@ query($owner:String!,$name:String!,$num:Int!){
 
 # ---- 取得 ------------------------------------------------------------------
 
-# 外部コマンドを無制限に待たない（決着済みの規約 issue #5。隣の what-am-i-doing.py と同じ形）
-GH_TIMEOUT_SEC = 60
+# 外部コマンドを無制限に待たない（決着済みの規約 issue #5。隣の what-am-i-doing.py と同じ形）。gh の秒は lib/ghcli.py
 GIT_TIMEOUT_SEC = 20
-
-
-def gh(*args):
-    exe = shutil.which("gh")
-    if not exe:
-        sys.exit("gh が見つからない（PATH に通す）")
-    # GraphQL の 504 は過負荷時に単発で出る。1 回だけ再試行し、2 回目も落ちたら赤で止める
-    for attempt in (1, 2):
-        try:
-            # 復号を UTF-8 に固定する。text=True だけだと Windows では locale の code page で復号し、
-            # 日本語のタイトルや本文が化けるか UnicodeDecodeError で落ちる
-            r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと番号だけ
-                [exe, *args], capture_output=True, encoding="utf-8", errors="replace",
-                timeout=GH_TIMEOUT_SEC,
-            )
-        except subprocess.TimeoutExpired:
-            # 504 と同じ「単発の過負荷」として、再試行の腕に相乗りさせる
-            if attempt == 2:
-                sys.exit(f"gh {' '.join(args[:2])} が {GH_TIMEOUT_SEC} 秒で返らない")
-            continue
-        if r.returncode == 0:
-            return r.stdout
-        if "504" not in r.stderr or attempt == 2:
-            sys.exit(f"gh {' '.join(args[:2])} が失敗: {r.stderr.strip()}")
-    return None
 
 
 def local_email():
