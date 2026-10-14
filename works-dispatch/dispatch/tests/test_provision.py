@@ -19,7 +19,7 @@ from nodes import provision
 
 
 def git(*args, cwd=None):
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 def make_world():

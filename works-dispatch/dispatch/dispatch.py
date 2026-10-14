@@ -43,7 +43,7 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
 def _shell_has(cmd):
     """作業場と同じ種類のシェル（利用者のログインかつ対話のシェル。-lic）で、そのコマンドが見つかるか。シェルの関数も数える。"""
     shell = os.environ.get("SHELL") or "/bin/sh"
-    p = subprocess.run([shell, "-lic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True)
+    p = subprocess.run([shell, "-lic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode == 0
 
 
@@ -51,7 +51,7 @@ def _gh_ok(repo, env=None):
     """gh がそのリポジトリを読めるか。ログインしていても、有効なアカウントが読めないリポジトリはある。"""
     try:
         return subprocess.run(["gh", "repo", "view", repo, "--json", "name"],
-                              capture_output=True, text=True, env=env).returncode == 0
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", env=env).returncode == 0
     except FileNotFoundError:
         return False
 
@@ -83,7 +83,7 @@ def _login_config_dir(env=os.environ, runner=subprocess.run):
     """
     child = {k: v for k, v in env.items() if k != "CLAUDE_CONFIG_DIR"}
     shell = env.get("SHELL") or "/bin/sh"
-    p = runner([shell, "-lic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, env=child)
+    p = runner([shell, "-lic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, encoding="utf-8", errors="replace", env=child)
     for line in (p.stdout or "").splitlines():
         if line.startswith(MARK) and line.endswith("@@"):
             return line[len(MARK):-2] or None

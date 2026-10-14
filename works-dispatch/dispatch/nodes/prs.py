@@ -24,7 +24,7 @@ class PrsError(Exception):
 
 
 def _default_runner(argv, env=None):
-    return subprocess.run(argv, capture_output=True, text=True, env=env)
+    return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
 
 
 def read(repo, runner=_default_runner, env=None):
