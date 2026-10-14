@@ -1681,6 +1681,22 @@ git -C "$REPO" rm -q -f --cached broken.py >/dev/null 2>&1
 rm -f "$REPO/broken.py"
 
 echo "マニフェストと参照の整合"
+# 根の README の表は marketplace.json の要約。プラグインを足した周に表を忘れると、数と表がずれたまま残った
+# （実測 2026-10-14: 「配るプラグインは 5 本」のまま works・works-factory・works-dispatch が載っていなかった）
+expect_output 0 "README_PLUGINS_OK" "根の README の表と本数が、marketplace.json のプラグインと揃う" "$PY_BIN" - "$ROOT" <<'PY'
+import json, re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root = pathlib.Path(sys.argv[1])
+names = [p["name"] for p in json.loads((root/".claude-plugin/marketplace.json").read_text(encoding="utf-8"))["plugins"]]
+readme = (root/"README.md").read_text(encoding="utf-8")
+rows = re.findall(r"^\| \*\*([^*]+)\*\* \|", readme, re.M)
+count = re.search(r"配るプラグインは (\d+) 本", readme)
+assert sorted(rows) == sorted(names), f"README の表 {sorted(rows)} と marketplace.json {sorted(names)} が違う"
+assert count and int(count.group(1)) == len(names), f"README の本数 {count and count.group(1)} と marketplace.json の {len(names)} 本が違う"
+print("README_PLUGINS_OK", len(names))
+PY
 expect_exit 0 "marketplace.json / plugin.json が必須の欄を持つ" "$PY_BIN" - "$ROOT" <<'PY'
 import json, re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
@@ -2200,7 +2216,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=598
+EXPECTED_CHECKS=599
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

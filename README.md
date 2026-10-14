@@ -2,7 +2,7 @@
 
 [![test](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml)
 
-raiki61 のプラグインマーケットプレイス。配るプラグインは 5 本で、並列の関係にある。
+raiki61 のプラグインマーケットプレイス。配るプラグインは 8 本で、並列の関係にある。一覧の正本は `.claude-plugin/marketplace.json` で、下の表はその要約である。
 
 | プラグイン | 何を配るか | 効き方 |
 |---|---|---|
@@ -11,6 +11,9 @@ raiki61 のプラグインマーケットプレイス。配るプラグインは
 | **coldwrite** | 書かれる文書の門番(試作)。Write される散文の拡張子(md/mdx/adoc/asciidoc/rst/txt)を coldreader(文脈を持たない初見の読み手)が書き込み前に読み、詰まりが直るまで止める | 有効化した環境で常時効く（フック）→ [coldwrite/README.md](coldwrite/README.md) |
 | **attention** | 並行作業を見渡して戻るための道具 3 本。open 全件から誰の番かを出す /whose-turn、1 件の PR / issue に戻る /catchup（該当ブランチへ移る。手元に無ければ origin から取る。説明の後ろに系の前後の絵）、いま居るセッションが何のスレッドだったかを思い出す /what-am-i-doing | 呼んだときに効く（コマンド）→ [attention/README.md](attention/README.md) |
 | **graphloops** | 収束ループのグラフ実行版。convergence-loops の 4 ループを「節＋依存＋周回条件」の JSON に写し、機械が盤面・波・遮断・件数・収束を持って回す。実行版は /research-graph（/research-loop の実行版）と /review-graph（/review-loop の実行版）の 2 本（既存のコマンドは残し、本体は隣に置く。触った範囲は graphloops/README.md） | 呼んだときに効く（コマンド）→ [graphloops/README.md](graphloops/README.md) |
+| **works** | 人の修正依頼を、今いるリポジトリを対象に、Archon（AI の作業の流れを回す外の道具）の上の生産ライン darkfactory に回す /works スキル | 呼んだときに効く（スキル）→ [works/README.md](works/README.md) |
+| **works-factory** | 修正の工場 works-factory（別のリポジトリ raiki61/works-factory）へ依頼を回す /works-factory スキル。/works と並べて置く | 呼んだときに効く（スキル） |
+| **works-dispatch** | 自分の番の PR を、PR ごとの作業場（clone と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で /catchup と 2 ターン目の文を送る /works-dispatch:dispatch スキル。AI を使わない | 呼んだときに効く（スキル）→ [works-dispatch/README.md](works-dispatch/README.md) |
 
 convergence-loops・gates・coldwrite・graphloops の 4 本は規律（読み役は毎回新規・文脈遮断・点数を測らない）を
 共有するが、別々に有効化する——ループ集を入れたら投稿や書き込みの挙動が黙って変わる、を避けるため。
