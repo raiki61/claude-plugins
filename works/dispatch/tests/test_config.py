@@ -31,10 +31,9 @@ accounts = [
 [[repos]]
 repo = "o/r"
 second_prompt_file = "{d}/second.md"
-slots = [
-  {{ workspace = "work0", path = "{d}/r0" }},
-  {{ workspace = "work1", path = "{d}/r1" }},
-]
+source = "{d}/src"
+clone_root = "{d}/clones"
+copy_files = ["frontend/.env.local", "deploy/local/secrets.local.yaml"]
 """
 
 
@@ -54,33 +53,37 @@ class Load(unittest.TestCase):
         repo = cfg.repos[0]
         self.assertEqual(repo.repo, "o/r")
         self.assertEqual(repo.second_prompt, "1. 深掘りして\n2. 世の中の解と照らして\n")
-        self.assertEqual(repo.slots, (config.Slot("work0", f"{self.d}/r0"), config.Slot("work1", f"{self.d}/r1")))
+        self.assertEqual(repo.source, f"{self.d}/src")
+        self.assertEqual(repo.clone_root, f"{self.d}/clones")
+        self.assertEqual(repo.copy_files, ("frontend/.env.local", "deploy/local/secrets.local.yaml"))
 
     def test_defaults_without_accounts_or_limits(self):
-        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nslots = []\n'
+        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "{self.d}/second.md"\nsource = "s"\nclone_root = "c"\n'
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual(cfg.accounts, (config.Account("default", "claude", None),))
+        self.assertEqual(cfg.repos[0].copy_files, ())
         self.assertEqual(cfg.limit_percent, 95)
         self.assertEqual(cfg.limits_dir, os.path.expanduser("~/.cache/claude-limits"))
 
     def test_tilde_is_expanded(self):
         body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "%s/second.md"\n'
-                'slots = [{ workspace = "w", path = "~/x" }]\n') % self.d
+                'source = "~/x"\nclone_root = "~/y"\n') % self.d
         cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual(cfg.repos[0].slots[0].path, os.path.expanduser("~/x"))
+        self.assertEqual((cfg.repos[0].source, cfg.repos[0].clone_root),
+                         (os.path.expanduser("~/x"), os.path.expanduser("~/y")))
 
     def test_missing_second_prompt_file_names_the_path(self):
-        body = '[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "/nope/second.md"\nslots = []\n'
+        body = '[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "/nope/second.md"\nsource = "s"\nclone_root = "c"\n'
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         self.assertIn("/nope/second.md", str(e.exception))
 
     def test_every_problem_is_listed_at_once(self):
-        body = '[[repos]]\nslots = "x"\n'
+        body = '[[repos]]\ncopy_files = "x"\n'
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         msg = str(e.exception)
-        for word in ("repo", "second_prompt_file", "slots"):
+        for word in ("repo", "second_prompt_file", "source", "clone_root", "copy_files"):
             self.assertIn(word, msg)
 
     def test_env_var_is_used_without_argument(self):
@@ -92,6 +95,19 @@ class Load(unittest.TestCase):
         with self.assertRaises(config.ConfigError) as e:
             config.load(f"{self.d}/none.toml", env={})
         self.assertIn("none.toml", str(e.exception))
+
+
+class PickRepo(unittest.TestCase):
+    def test_first_repo_by_default_and_named_repo(self):
+        d = tempfile.mkdtemp()
+        write(d, "second.md", "x")
+        body = "".join(f'[[repos]]\nrepo = "{r}"\nsecond_prompt_file = "{d}/second.md"\nsource = "s"\nclone_root = "c"\n'
+                       for r in ("o/a", "o/b"))
+        cfg = config.load(write(d, "c.toml", body), env={})
+        self.assertEqual(config.pick_repo(cfg, None).repo, "o/a")
+        self.assertEqual(config.pick_repo(cfg, "o/b").repo, "o/b")
+        with self.assertRaises(config.ConfigError):
+            config.pick_repo(cfg, "o/z")
 
 
 class JsonIO(unittest.TestCase):

@@ -27,7 +27,7 @@ def _default_runner(argv, env=None):
     return subprocess.run(argv, capture_output=True, text=True, env=env)
 
 
-def fetch(repo, runner=_default_runner):
+def read(repo, runner=_default_runner):
     argv = [sys.executable, str(WHOSE_TURN), "--repo", repo, "--json"]
     p = runner(argv)
     try:
@@ -44,7 +44,7 @@ def main(argv=None):
     ap.add_argument("--repo", required=True)
     ap.add_argument("--out")
     a = ap.parse_args(argv)
-    jsonio.dump({"prs": fetch(a.repo)}, a.out)
+    jsonio.dump({"prs": read(a.repo)}, a.out)
     return 0
 
 

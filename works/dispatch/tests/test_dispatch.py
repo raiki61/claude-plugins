@@ -1,16 +1,17 @@
-"""report ノードと入口（dispatch.py）。外への口を全部偽物にして、流れを回す。"""
+"""report ノードと入口（dispatch.py）。git は一時のフォルダの本物、herdr・claude・gh は偽物で、流れを回す。"""
 
 import contextlib
 import io
 import json
 import pathlib
 import subprocess
-import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
+from .test_provision import make_world
 import config
 import dispatch
+import gitx
 import herdr as real_herdr
 from nodes import prs as prs_node
 from nodes import report
@@ -21,105 +22,73 @@ class Report(unittest.TestCase):
         self.assertEqual(report.lines([], {}, []), ["自分の番の PR は無い"])
 
     def test_notes_come_first_and_one_line_per_pr(self):
-        plan = [{"number": 7, "title": "直す", "outcome": "assigned", "slot": {"workspace": "work8"}, "account": {"name": "p1"}},
-                {"number": 9, "title": "見る", "outcome": "no_slot", "slot": None, "account": None}]
+        plan = [{"number": 7, "title": "直す", "outcome": "assigned", "clone_path": "/c/r-pr-7", "account": {"name": "p1"}},
+                {"number": 9, "title": "見る", "outcome": "already_open", "clone_path": "/c/r-pr-9", "account": None}]
         got = report.lines(plan, {7: "sent"}, ["使用率の控えが無い: p3"])
         self.assertEqual(got[0], "使用率の控えが無い: p3")
         self.assertEqual(len(got), 3)
-        self.assertIn("#7", got[1])
-        self.assertIn("work8", got[1])
-        self.assertIn("p1", got[1])
-        self.assertTrue(got[1].endswith("sent"))
-        self.assertTrue(got[2].endswith("no_slot"))
+        self.assertEqual(got[1], "#7 直す  r-pr-7  p1  sent")
+        self.assertEqual(got[2], "#9 見る  -  -  already_open")
 
 
 class Prs(unittest.TestCase):
-    def test_fetch_runs_vendored_whose_turn_with_json(self):
+    def test_read_runs_vendored_whose_turn_with_json(self):
         calls = []
 
         def runner(argv, env=None):
             calls.append(argv)
             return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": [{"number": 1}]}), "")
 
-        self.assertEqual(prs_node.fetch("o/r", runner=runner), [{"number": 1}])
+        self.assertEqual(prs_node.read("o/r", runner=runner), [{"number": 1}])
         self.assertTrue(calls[0][1].endswith("vendor/whose-turn.py"))
         self.assertEqual(calls[0][2:], ["--repo", "o/r", "--json"])
 
-    def test_fetch_failure_raises(self):
+    def test_read_failure_raises(self):
         def runner(argv, env=None):
             return subprocess.CompletedProcess(argv, 1, "", "gh: not logged in")
 
         with self.assertRaises(prs_node.PrsError) as e:
-            prs_node.fetch("o/r", runner=runner)
+            prs_node.read("o/r", runner=runner)
         self.assertIn("not logged in", str(e.exception))
 
 
-def make_cfg(d):
-    p = pathlib.Path(d)
-    (p / "second.md").write_text("二手目", encoding="utf-8")
-    (p / "c.toml").write_text(f"""
+def make_cfg():
+    src, root = make_world()
+    d = pathlib.Path(root).parent
+    (d / "second.md").write_text("二手目", encoding="utf-8")
+    (d / "c.toml").write_text(f"""
 limits_dir = "{d}/limits"
 accounts = [{{ name = "a1", command = "claude-a1", config_dir = "{d}/c1" }}]
 [[repos]]
 repo = "o/r"
 second_prompt_file = "{d}/second.md"
-slots = [{{ workspace = "w0", path = "{d}/w0" }}, {{ workspace = "w1", path = "{d}/w1" }}]
+source = "{src}"
+clone_root = "{root}"
+copy_files = ["frontend/.env.local"]
 """, encoding="utf-8")
-    return str(p / "c.toml")
+    return str(d / "c.toml"), root
 
 
-class FakePorts:
-    """dispatch.Ports と同じ名前の口を持つ偽物。"""
+class FakeHerdr:
+    HerdrError = real_herdr.HerdrError
 
-    def __init__(self, d, prs, problems=(), launch_fail=()):
-        self.d = d
-        self._prs = prs
-        self._problems = list(problems)
-        self._launch_fail = set(launch_fail)
+    def __init__(self, fail_run_for=()):
+        self._panes = []
+        self._fail = set(fail_run_for)
         self.writes = []
 
-    # 読む口
-    def preflight(self, cfg):
-        return list(self._problems), []
-
-    def fetch_prs(self, repo):
-        return self._prs
-
-    def list_sessions(self, config_dir):
-        return []
-
-    def branch(self, cwd):
-        return None
-
-    def origin(self, cwd):
-        return None
-
-    def is_clean(self, cwd):
-        return True
-
     def panes(self):
-        return [{"pane_id": "P0", "workspace_id": "W0", "cwd": f"{self.d}/w0", "agent": None},
-                {"pane_id": "P1", "workspace_id": "W1", "cwd": f"{self.d}/w1", "agent": None}]
+        return list(self._panes)
 
-    def labels(self):
-        return {"W0": "w0", "W1": "w1"}
-
-    def read_limits(self, limits_dir, names):
-        return {n: None for n in names}
-
-    def now(self):
-        return 0
-
-    # 書く口（herdr の形）。dispatch は ports.herdr を launch と turn に渡す
-    @property
-    def herdr(self):
-        return self
-
-    HerdrError = real_herdr.HerdrError
+    def create_workspace(self, cwd, label):
+        n = len(self._panes)
+        self._panes.append({"pane_id": f"P{n}", "workspace_id": f"W{n}", "cwd": cwd, "agent": None})
+        self.writes.append(("create_workspace", cwd, label))
+        return {"workspace_id": f"W{n}", "pane_id": f"P{n}"}
 
     def run(self, pane, command):
         self.writes.append(("run", pane, command))
-        if pane in self._launch_fail:
+        if pane in self._fail:
             raise real_herdr.HerdrError(["herdr", "pane", "run"], "pane_not_found")
 
     def wait_ready(self, pane):
@@ -133,6 +102,32 @@ class FakePorts:
         return "idle" if wait else "sent"
 
 
+class FakePorts(dispatch.Ports):
+    """本物の Ports の読む口のうち、claude・gh・whose-turn を偽物にする。git は本物（一時のフォルダ）、herdr は偽物。"""
+
+    def __init__(self, prs, problems=(), herdr=None):
+        super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda: True)
+        self._prs = prs
+        self._problems = list(problems)
+        self.herdr = herdr or FakeHerdr()
+        self.git = gitx
+
+    def preflight(self, cfg):
+        return list(self._problems), []
+
+    def fetch_prs(self, repo):
+        return self._prs
+
+    def list_sessions(self, config_dir):
+        return []
+
+    def read_limits(self, limits_dir, names):
+        return {n: None for n in names}
+
+    def now(self):
+        return 0
+
+
 def pr(n):
     return {"number": n, "title": f"t{n}", "head": f"feat/{n}", "url": f"u{n}", "role": "implementer", "days": 0}
 
@@ -144,59 +139,82 @@ def run_main(argv, ports):
     return rc, buf.getvalue()
 
 
+def by_number(out):
+    return {l.split()[0]: l for l in out.splitlines() if l.startswith("#")}
+
+
 class Main(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.cfg = make_cfg(self.d)
+        self.cfg, self.root = make_cfg()
 
-    def test_dry_run_writes_nothing(self):
-        ports = FakePorts(self.d, [pr(1), pr(2)])
+    def test_dry_run_writes_nothing_and_says_create_or_reuse(self):
+        pathlib.Path(self.root, "r-pr-2").mkdir()
+        ports = FakePorts([pr(1), pr(2)])
         rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertEqual(rc, 0)
-        self.assertEqual(ports.writes, [])
-        self.assertIn("#1", out)
-        self.assertIn("w0", out)
+        self.assertEqual(ports.herdr.writes, [])
+        self.assertFalse(pathlib.Path(self.root, "r-pr-1").exists())
+        lines = by_number(out)
+        self.assertTrue(lines["#1"].endswith("create"))
+        self.assertTrue(lines["#2"].endswith("reuse"))
 
     def test_preflight_problem_stops_before_anything(self):
-        ports = FakePorts(self.d, [pr(1)], problems=["herdr に届かない"])
+        ports = FakePorts([pr(1)], problems=["herdr に届かない"])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 2)
-        self.assertEqual(ports.writes, [])
+        self.assertEqual(ports.herdr.writes, [])
         self.assertIn("herdr に届かない", out)
 
     def test_no_prs_does_nothing(self):
-        ports = FakePorts(self.d, [])
+        ports = FakePorts([])
         rc, out = run_main(["--config", self.cfg], ports)
-        self.assertEqual((rc, ports.writes), (0, []))
+        self.assertEqual((rc, ports.herdr.writes), (0, []))
         self.assertIn("自分の番の PR は無い", out)
 
-    def test_one_launch_failure_does_not_stop_the_other(self):
-        ports = FakePorts(self.d, [pr(1), pr(2)], launch_fail={"P0"})
+    def test_creates_clone_then_launches_and_sends_two_turns(self):
+        ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0)
-        lines = {l.split()[0]: l for l in out.splitlines() if l.startswith("#")}
+        path = str(pathlib.Path(self.root, "r-pr-1"))
+        self.assertEqual(gitx.origin_repo(path), "o/r")
+        self.assertEqual(ports.herdr.writes, [
+            ("create_workspace", path, "r-pr-1"),
+            ("run", "P0", "claude-a1"),
+            ("prompt", "P0", "/catchup 1", True),
+            ("prompt", "P0", "二手目", False),
+        ])
+        self.assertTrue(by_number(out)["#1"].endswith("sent"))
+
+    def test_one_launch_failure_does_not_stop_the_other(self):
+        ports = FakePorts([pr(1), pr(2)], herdr=FakeHerdr(fail_run_for={"P0"}))
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertEqual(rc, 0)
+        lines = by_number(out)
         self.assertTrue(lines["#1"].endswith("launch_failed"))
         self.assertTrue(lines["#2"].endswith("sent"))
-        self.assertIn(("prompt", "P1", "/catchup 2", True), ports.writes)
-        self.assertIn(("prompt", "P1", "二手目", False), ports.writes)
-        self.assertIn(("run", "P1", "claude-a1"), ports.writes)
+        self.assertIn(("prompt", "P1", "/catchup 2", True), ports.herdr.writes)
 
 
 class Preflight(unittest.TestCase):
-    def test_reports_missing_herdr_methods_command_attention_and_limits(self):
-        d = tempfile.mkdtemp()
-        cfg = config.load(make_cfg(d), env={})
-        ports = dispatch.Ports(
-            herdr_methods=lambda: {"pane.list"},
-            shell_has=lambda cmd: False,
-            gh_ok=lambda: True,
-        )
+    def test_reports_missing_herdr_methods_command_attention_source_and_notes_limits(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        ports = dispatch.Ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda: True)
         problems, notes = ports.preflight(cfg)
         text = "\n".join(problems)
         self.assertIn("agent.prompt", text)
         self.assertIn("claude-a1", text)
         self.assertIn("attention", text)
+        self.assertNotIn("元の clone", text)  # 元の clone は o/r の clone なので通る
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
+
+    def test_source_of_another_repo_is_a_problem(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        cfg = cfg._replace(repos=(cfg.repos[0]._replace(repo="o/other"),))
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda: True)
+        problems, _ = ports.preflight(cfg)
+        self.assertIn("元の clone", "\n".join(problems))
 
 
 if __name__ == "__main__":

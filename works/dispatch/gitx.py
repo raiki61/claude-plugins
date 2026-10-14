@@ -1,4 +1,7 @@
-"""git への口。dispatch で git を呼ぶのはこの 1 か所だけ。読むだけで、書かない。"""
+"""git への口。dispatch で git を呼ぶのはこの 1 か所だけ。
+
+書く関数は clone・set_origin・fetch の 3 つで、呼んでよいのは provision のノードだけ（D4。柵が構文木で見る）。
+"""
 
 import re
 import subprocess
@@ -9,6 +12,10 @@ _REPO = re.compile(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$")
 
 def _default_runner(argv, env=None):
     return subprocess.run(argv, capture_output=True, text=True, env=env)
+
+
+class GitError(Exception):
+    pass
 
 
 def _git(cwd, args, runner):
@@ -32,3 +39,27 @@ def origin_repo(cwd, runner=_default_runner):
     url = _git(cwd, ["remote", "get-url", "origin"], runner)
     m = _REPO.search(url) if url else None
     return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def origin_url(cwd, runner=_default_runner):
+    """origin の URL そのもの。無ければ None。"""
+    return _git(cwd, ["remote", "get-url", "origin"], runner)
+
+
+def _must(argv, runner):
+    p = runner(argv)
+    if p.returncode != 0:
+        raise GitError(f"{' '.join(argv[:4])}: {(p.stderr or p.stdout).strip()[:300]}")
+
+
+def clone(source, path, runner=_default_runner):
+    """手元の clone から clone する。手元のパスからの clone は、中身（.git/objects/）をハードリンクで共有する（git-clone の --local）。"""
+    _must(["git", "clone", "--quiet", source, path], runner)
+
+
+def set_origin(path, url, runner=_default_runner):
+    _must(["git", "-C", path, "remote", "set-url", "origin", url], runner)
+
+
+def fetch(path, runner=_default_runner):
+    _must(["git", "-C", path, "fetch", "--quiet", "origin"], runner)

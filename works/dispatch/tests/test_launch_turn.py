@@ -38,29 +38,29 @@ class FakeHerdr:
         return self._prompts.pop(0) if self._prompts else ("idle" if wait else "sent")
 
 
-ROW = {"number": 7, "slot": {"workspace": "work8", "pane": "wB:p1"}, "account": {"name": "p1", "command": "claude-x"}}
+ROW = {"number": 7, "clone_path": "/c/r-pr-7", "account": {"name": "p1", "command": "claude-x"}}
 SECOND = "1. 深掘り\n2. 世の中の解 'x' $y"
 
 
 class Launch(unittest.TestCase):
     def test_runs_account_command_in_slot_pane_and_reads_back(self):
         h = FakeHerdr()
-        got = launch.start(ROW, h)
+        got = launch.start(ROW, "wB:p1", h)
         self.assertEqual(got["status"], "ready")
         self.assertEqual(h.calls[0], ("run", "wB:p1", "claude-x"))
         self.assertIn(("agent", "wB:p1"), h.calls)
 
     def test_no_conversation_on_read_back_is_launch_failed(self):
-        got = launch.start(ROW, FakeHerdr(agent={"agent": None, "agent_status": "unknown"}))
+        got = launch.start(ROW, "wB:p1", FakeHerdr(agent={"agent": None, "agent_status": "unknown"}))
         self.assertEqual(got["status"], "launch_failed")
 
     def test_herdr_error_is_launch_failed(self):
-        got = launch.start(ROW, FakeHerdr(run_error="pane_not_found"))
+        got = launch.start(ROW, "wB:p1", FakeHerdr(run_error="pane_not_found"))
         self.assertEqual(got["status"], "launch_failed")
         self.assertIn("pane_not_found", got["detail"])
 
     def test_output_matches_schema(self):
-        out = {"schema": 1, "launch": launch.start(ROW, FakeHerdr())}
+        out = {"schema": 1, "launch": launch.start(ROW, "wB:p1", FakeHerdr())}
         self.assertEqual(schemacheck.check(out, schemacheck.schema("launch")), [])
 
 

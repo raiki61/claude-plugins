@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": ["schema", "provision"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "provision": {
+      "type": "object",
+      "required": ["number", "path", "pane", "workspace", "created", "status", "detail"],
+      "properties": {
+        "number": {"type": "integer"},
+        "path": {"type": "string"},
+        "pane": {"type": ["string", "null"]},
+        "workspace": {"type": ["string", "null"]},
+        "created": {"type": "boolean"},
+        "status": {"type": "string", "enum": ["ready", "provision_failed"]},
+        "detail": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

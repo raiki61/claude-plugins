@@ -3,7 +3,7 @@
 herdr は版が 0.x で互換を約束していない。herdr の文書は、手元の版の API を `herdr api schema` で確かめるよう求めている。
 出力の形が変わって壊れたら、直すのはこのファイルだけになる。出力の形は 2026-10-14 に herdr 0.9.3 の実物で読んだ。
 
-書く関数は run と prompt の 2 つだけで、呼んでよいのは launch と turn のノードだけ（D4。柵が構文木で見る）。
+書く関数は run・prompt・create_workspace・close_workspace で、呼んでよいノードは柵（tests/fences.py の D4 の表）が構文木で見る。
 """
 
 import json
@@ -113,3 +113,16 @@ def prompt(target, text, wait, runner=_default_runner):
     if not wait:
         return "sent"
     return result.get("agent", {}).get("agent_status", "idle")
+
+
+def create_workspace(cwd, label, runner=_default_runner):
+    """作業フォルダを cwd にして herdr の作業場を開く（前に出さない）。{"workspace_id", "pane_id"} を返す。書く口。"""
+    r = _call(["herdr", "workspace", "create", "--cwd", cwd, "--label", label, "--no-focus"], runner)
+    ws = r.get("workspace", {})
+    pane = r.get("root_pane", {})
+    return {"workspace_id": ws.get("workspace_id"), "pane_id": pane.get("pane_id")}
+
+
+def close_workspace(workspace_id, runner=_default_runner):
+    """herdr の作業場を閉じる。書く口。"""
+    _call(["herdr", "workspace", "close", workspace_id], runner)

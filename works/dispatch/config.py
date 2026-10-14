@@ -24,15 +24,12 @@ class Account(NamedTuple):
     config_dir: str | None = None  # Claude Code の設定のフォルダ。None は既定のフォルダ
 
 
-class Slot(NamedTuple):
-    workspace: str  # herdr の workspace の名前
-    path: str  # その作業場の clone のパス
-
-
 class Repo(NamedTuple):
     repo: str  # OWNER/NAME
     second_prompt: str  # 2 ターン目の文（second_prompt_file の中身）
-    slots: tuple[Slot, ...]
+    source: str  # 元の clone。PR ごとの clone はここから作る
+    clone_root: str  # PR ごとの clone を置く場所
+    copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（元の clone からの相対パス）
 
 
 class Config(NamedTuple):
@@ -100,23 +97,31 @@ def load(path=None, env=os.environ):
                     prompt = f.read()
             except OSError as e:
                 problems.append(f"{where}: second_prompt_file を読めない: {_path(pfile)}（{e.strerror}）")
-        slots = []
-        raw_slots = r.get("slots")
-        if not isinstance(raw_slots, list):
-            problems.append(f"{where}: slots が並びで無い")
-            raw_slots = []
-        for j, s in enumerate(raw_slots):
-            w = f"{where}.slots[{j}]"
-            if not isinstance(s, dict):
-                problems.append(f"{w} が表で無い")
-                continue
-            ws, sp = _str(s, "workspace", w, problems), _str(s, "path", w, problems)
-            if ws and sp:
-                slots.append(Slot(ws, _path(sp)))
-        repos.append(Repo(name, prompt, tuple(slots)))
+        source = _str(r, "source", where, problems)
+        root = _str(r, "clone_root", where, problems)
+        copy = r.get("copy_files", [])
+        if not isinstance(copy, list) or not all(isinstance(c, str) for c in copy):
+            problems.append(f"{where}: copy_files が文字列の並びで無い")
+            copy = []
+        repos.append(Repo(name, prompt, _path(source) if source else None, _path(root) if root else None, tuple(copy)))
     if not raw.get("repos"):
         problems.append("repos が 1 つも無い")
 
     if problems:
         raise ConfigError(f"設定の形が違う（{path}）: " + "／".join(problems))
     return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos))
+
+
+def pick_repo(cfg, name):
+    """名前の repo を返す。名前が None なら設定の最初の repo。"""
+    if name is None:
+        return cfg.repos[0]
+    for r in cfg.repos:
+        if r.repo == name:
+            return r
+    raise ConfigError(f"設定の repos に {name} が無い")
+
+
+def clone_path(repo, number):
+    """PR ごとの clone のフォルダ: <clone_root>/<リポジトリの名前>-pr-<番号>。herdr の作業場の名前もこの最後の部分にそろえる。"""
+    return os.path.join(repo.clone_root, f"{repo.repo.split('/')[-1]}-pr-{number}")

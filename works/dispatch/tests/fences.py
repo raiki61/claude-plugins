@@ -1,7 +1,8 @@
 """設計書 4 節の決まり D1〜D6・D8 を照らす柵。各関数は照らす根（`works/dispatch` か、試験の一時の木）を受け、誤りの文の一覧を返す。
 
 `tests/` と `vendor/`（attention から写した whose-turn）は照らさない。試験は破った例を字で持ち、写しは正本の決まりに従うため。
-字で探すのは D1・D2・D5・D6 だけで、構造の決まり（D3・D4）は Python の構文木で見る。字の書き方を変えても逃げられないようにするため。
+字で探すのは D1・D2・D5・D6 だけで、構造の決まり（D3・D4）は Python の構文木で見る。
+書く関数は、口を引数で渡されて呼ぶ形（h.run(...)）も名前で数える。字の書き方を変えても逃げられないようにするため。
 """
 
 import ast
@@ -14,10 +15,19 @@ SKIP = ("tests", "vendor")
 OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 
 # D4: subprocess を import してよい所（外への口・whose-turn を呼ぶ prs・始める前の確かめを持つ入口）
-SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "nodes/prs.py", "dispatch.py"}
-# D4: herdr に書く関数と、それを呼んでよいノード
-HERDR_WRITES = {"run", "prompt"}
-HERDR_WRITERS = {"nodes/launch.py", "nodes/turn.py"}
+SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "nodes/prs.py", "dispatch.py"}
+# D4: 外に書く関数（herdr と git の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
+# 口そのもの（herdr.py・gitx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
+WRITES = {
+    "run": {"nodes/launch.py"},
+    "prompt": {"nodes/turn.py"},
+    "create_workspace": {"nodes/provision.py"},
+    "close_workspace": {"nodes/clean.py"},
+    "clone": {"nodes/provision.py"},
+    "set_origin": {"nodes/provision.py"},
+    "fetch": {"nodes/provision.py"},
+}
+PORTS = {"herdr.py", "gitx.py"}
 
 # D6: 持ち主の環境の字
 OWNER_ENV = ("raiki61", "claude-code-oauth-", "/Users/", "claude-p")
@@ -73,27 +83,22 @@ def d4_outward(root):
     out = []
     for rel, p in _files(root, "*.py"):
         tree = ast.parse(p.read_text(encoding="utf-8"))
-        herdr_names = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                for a in node.names:
-                    if a.name == "subprocess" and rel not in SUBPROCESS_OK:
-                        out.append(f"D4 {rel}: subprocess を import している（外への口の外）")
-                    if a.name == "herdr":
-                        herdr_names.add(a.asname or "herdr")
+                if any(a.name == "subprocess" for a in node.names) and rel not in SUBPROCESS_OK:
+                    out.append(f"D4 {rel}: subprocess を import している（外への口の外）")
             elif isinstance(node, ast.ImportFrom):
                 if node.module == "subprocess" and rel not in SUBPROCESS_OK:
                     out.append(f"D4 {rel}: subprocess から import している（外への口の外）")
-                if node.module == "herdr" and rel not in HERDR_WRITERS:
+                if node.module in ("herdr", "gitx"):
                     for a in node.names:
-                        if a.name in HERDR_WRITES:
-                            out.append(f"D4 {rel}: herdr の書く関数 {a.name} を取り込んでいる（launch と turn の外）")
-        if rel in HERDR_WRITERS:
-            continue
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Attribute) and node.attr in HERDR_WRITES
-                    and isinstance(node.value, ast.Name) and node.value.id in herdr_names):
-                out.append(f"D4 {rel}: herdr.{node.attr} を使っている（launch と turn の外）")
+                        if a.name in WRITES and rel not in WRITES[a.name]:
+                            out.append(f"D4 {rel}: 書く関数 {a.name} を取り込んでいる（{sorted(WRITES[a.name])} の外）")
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and rel not in PORTS:
+                f = node.func
+                if f.attr in WRITES and not (isinstance(f.value, ast.Name) and f.value.id == "subprocess"):
+                    if rel not in WRITES[f.attr]:
+                        out.append(f"D4 {rel}: 書く関数 {f.attr} を呼んでいる（{sorted(WRITES[f.attr])} の外）")
     return out
 
 

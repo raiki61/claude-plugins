@@ -53,9 +53,19 @@ class EachFenceCatches(unittest.TestCase):
         self.assertCaught(fences.d4_outward, {"nodes/report.py": "import herdr as h\nh.prompt('p', 't', False)\n"})
         self.assertCaught(fences.d4_outward, {"nodes/report.py": "from herdr import prompt\n"})
 
+    def test_d4_write_through_an_injected_port_outside_its_node(self):
+        self.assertCaught(fences.d4_outward, {"nodes/report.py": "def f(h):\n    h.create_workspace('/c', 'x')\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/assign.py": "def f(g):\n    g.clone('/s', '/c')\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/launch.py": "def f(h):\n    h.prompt('p', 't', True)\n"})
+        self.assertCaught(fences.d4_outward, {"dispatch.py": "from gitx import fetch\n"})
+
+    def test_d4_subprocess_run_is_not_a_herdr_write(self):
+        self.assertEqual(fences.d4_outward(tree({"dispatch.py": "import subprocess\nsubprocess.run(['x'])\n"})), [])
+
     def test_d4_allows_launch_and_turn(self):
         ok = {"nodes/launch.py": "import herdr\nherdr.run('p', 'c')\n",
-              "nodes/turn.py": "import herdr\nherdr.prompt('p', 't', True)\n",
+              "nodes/turn.py": "def f(h):\n    h.prompt('p', 't', True)\n",
+              "nodes/provision.py": "def f(h, g):\n    g.clone('s', 'p')\n    g.fetch('p')\n    h.create_workspace('p', 'l')\n",
               "herdr.py": "import subprocess\n"}
         self.assertEqual(fences.d4_outward(tree(ok)), [])
 
