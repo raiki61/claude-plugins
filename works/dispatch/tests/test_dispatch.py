@@ -218,7 +218,7 @@ class Main(unittest.TestCase):
             ("create_workspace", path, "r-pr-1"),
             ("trust", "a1", gitx_source(self.cfg), path),
             ("run", "P0", "claude-a1"),
-            ("prompt", "P0", "/catchup 1", True),
+            ("prompt", "P0", "/attention:catchup 1", True),
             ("prompt", "P0", "二手目", False),
         ])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
@@ -235,7 +235,7 @@ class Main(unittest.TestCase):
         ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
-        self.assertEqual([w for w in ports.herdr.writes if w[0] == "prompt"], [("prompt", "P0", "/catchup 1", False)])
+        self.assertEqual([w for w in ports.herdr.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 1", False)])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
 
     def test_pr_opens_only_the_named_prs_without_whose_turn(self):
@@ -264,7 +264,7 @@ class Main(unittest.TestCase):
         lines = by_number(out)
         self.assertTrue(lines["#1"].endswith("launch_failed"))
         self.assertTrue(lines["#2"].endswith("sent"))
-        self.assertIn(("prompt", "P1", "/catchup 2", True), ports.herdr.writes)
+        self.assertIn(("prompt", "P1", "/attention:catchup 2", True), ports.herdr.writes)
 
 
 class RealPorts(unittest.TestCase):

@@ -62,7 +62,7 @@ class Herdr(unittest.TestCase):
 
     def test_prompt_wait_returns_final_status(self):
         f = Fake(ok({"id": "x", "result": {"type": "agent_prompted", "agent": {"agent_status": "idle"}}}))
-        self.assertEqual(herdr.prompt("wB:p1", "/catchup 7", wait=True, runner=f), "idle")
+        self.assertEqual(herdr.prompt("wB:p1", "/attention:catchup 7", wait=True, runner=f), "idle")
         self.assertIn("--wait", f.calls[0][0])
 
     def test_prompt_stalled_is_a_status_not_an_error(self):
