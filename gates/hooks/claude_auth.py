@@ -57,7 +57,7 @@ TOKEN_PREFIX = "sk-ant-oat01-"
 
 
 def config_dir(env):
-    return env.get("CLAUDE_CONFIG_DIR") or str(pathlib.Path.home() / ".claude")
+    return env.get("CLAUDE_CONFIG_DIR") or str(pathlib.Path(env.get("HOME") or pathlib.Path.home()) / ".claude")
 
 
 def keychain_service(cfg, env, explicit=None):

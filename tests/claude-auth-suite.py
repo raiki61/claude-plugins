@@ -34,6 +34,13 @@ def keychain(items):
     return run
 
 
+class ConfigDir(unittest.TestCase):
+    def test_default_folder_is_under_the_given_home(self):
+        # 渡した環境の HOME を使う（account_token と同じ）。呼ぶ側が別の利用者や試験の家を渡せる
+        self.assertEqual(claude_auth.config_dir({"HOME": "/h"}), "/h/.claude")
+        self.assertEqual(claude_auth.config_dir({"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), "/x")
+
+
 class AccountToken(unittest.TestCase):
     def test_named_item_comes_first(self):
         run = keychain({"my-item": TOK})
