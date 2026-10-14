@@ -57,6 +57,26 @@ class FakeHerdr:
         return {"workspace_id": pane["workspace_id"], "pane_id": pane["pane_id"]}
 
 
+class FlakyGit:
+    """本物の gitx に任せ、clone だけ初めの fail_times 回は作りかけの .git を残して落ちる。"""
+    GitError = gitx.GitError
+
+    def __init__(self, fail_times):
+        self._left = fail_times
+        self.clones = 0
+
+    def __getattr__(self, name):
+        return getattr(gitx, name)
+
+    def clone(self, source, path):
+        self.clones += 1
+        if self._left:
+            self._left -= 1
+            os.makedirs(os.path.join(path, ".git"))
+            raise gitx.GitError("git clone: BUG: refs/files-backend.c:3050: initial ref transaction called with existing refs")
+        return gitx.clone(source, path)
+
+
 class Prepare(unittest.TestCase):
     def setUp(self):
         self.src, self.root = make_world()
@@ -87,6 +107,22 @@ class Prepare(unittest.TestCase):
         got = provision.prepare(self.row, repo, FakeHerdr(), gitx)
         self.assertEqual(got["status"], "ready", got)
         self.assertEqual((pathlib.Path(self.row["clone_path"]) / "frontend" / ".env.local").read_text(), "KEPT=1\n")
+
+    def test_clone_that_fails_once_leaves_no_half_folder_and_is_retried(self):
+        # git の clone は、まれに作りかけの .git だけを残して落ちる（2026-10-14 に手元の git 2.50.1 で
+        # 「BUG: refs/files-backend.c:3050: initial ref transaction called with existing refs」を 20 回に数回見た）
+        g = FlakyGit(fail_times=1)
+        got = provision.prepare(self.row, self.repo, FakeHerdr(), g)
+        self.assertEqual(got["status"], "ready", got)
+        self.assertEqual(g.clones, 2)
+        self.assertEqual(gitx.origin_repo(self.row["clone_path"]), "o/r")
+
+    def test_clone_that_keeps_failing_removes_the_half_folder(self):
+        g = FlakyGit(fail_times=2)
+        got = provision.prepare(self.row, self.repo, FakeHerdr(), g)
+        self.assertEqual(got["status"], "provision_failed")
+        self.assertIn("initial ref transaction", got["detail"])
+        self.assertFalse(os.path.exists(self.row["clone_path"]))
 
     def test_second_time_reuses_clone_and_existing_pane(self):
         h = FakeHerdr()

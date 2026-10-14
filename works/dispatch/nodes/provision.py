@@ -38,6 +38,17 @@ def _pane_for(path, panes):
     return next((p for p in panes if _same(p.get("cwd"), path)), None)
 
 
+def _clone(g, source, path):
+    """clone を 1 回だけやり直す。git の clone は、まれに作りかけの .git だけを残して落ちる
+    （2026-10-14 に手元の git 2.50.1 で「BUG: refs/files-backend.c:3050: initial ref transaction called with existing refs」を
+    20 回に数回見た。git の原典は、clone の最初の書き込みを「空で、ほかのプロセスが動いていない」前提に置く）。"""
+    try:
+        g.clone(source, path)
+    except gitx.GitError:
+        shutil.rmtree(path, ignore_errors=True)
+        g.clone(source, path)
+
+
 def prepare(row, repo, h=herdr, g=gitx):
     path = row["clone_path"]
     out = {"number": row["number"], "path": path, "pane": None, "workspace": None,
@@ -49,9 +60,14 @@ def prepare(row, repo, h=herdr, g=gitx):
             if not url:
                 out["detail"] = f"元の clone {repo.source} に origin が無い"
                 return out
-            g.clone(repo.source, path)
-            g.set_origin(path, url)
-            g.fetch(path)
+            try:
+                _clone(g, repo.source, path)
+                g.set_origin(path, url)
+                g.fetch(path)
+            except (gitx.GitError, OSError):
+                # 作りかけを残すと、次の回にそれを「別のリポジトリのフォルダ」とみなし、ずっと触らなくなる
+                shutil.rmtree(path, ignore_errors=True)
+                raise
             out["created"] = True
             for rel in repo.copy_files:
                 src = os.path.join(config.copy_root(repo), rel)
