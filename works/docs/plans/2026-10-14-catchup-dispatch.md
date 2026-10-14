@@ -246,33 +246,78 @@ def test_missing_or_broken_limits_go_last_but_eligible(self): ...  # limits["p1"
 - [ ] **Step 4: 通す。**
 - [ ] **Step 5: Commit** — `git commit -m "feat(works): dispatch の report と入口（--dry-run）"`
 
-### Task 10: 持ち主の前で、手元の herdr と Claude Code で確かめる
+## 改訂（2026-10-14、Task 9 の後）: 固定の作業場から PR ごとの clone へ
+
+持ち主が決めた（「0~10個たくわえるんじゃなくて」）。設計書 3 節を書き直した。Task 6 の slots（固定の作業場）は使わなくなるので、Task 10 で外す。結末の語は `no_slot` をやめ、`provision_failed` を足す。
+
+### Task 10: 作業場を PR ごとの clone に替える
+
+**Files:**
+- Modify: `works/dispatch/config.py`（`Repo` から `slots` を外し、`source: str`・`clone_root: str`・`copy_files: tuple[str, ...]` を足す。`source` と `clone_root` は必須、`copy_files` は省略可）
+- Modify: `works/dispatch/gitx.py`（書く関数 `clone(source, path)`・`set_origin(path, url)`・`fetch(path)` を足す。`origin_url(cwd) -> str | None` も足す）
+- Create: `works/dispatch/nodes/provision.py`・`works/dispatch/schemas/provision.schema.json`
+- Modify: `works/dispatch/herdr.py`（書く関数 `create_workspace(cwd, label) -> dict`（`herdr workspace create --cwd <cwd> --label <label> --no-focus`。返り値は作った作業場と最初のペイン）と `close_workspace(workspace_id)` を足す）
+- Modify: `works/dispatch/nodes/assign.py`（slots を受けず、`clone_path` を案に付ける。`already_open` は (リポジトリ, 枝) の組か、PR の clone のフォルダの下の会話）
+- Modify: `works/dispatch/dispatch.py`（slots の代わりに provision を launch の前に呼ぶ。`--dry-run` の報告に作るか使い直すかを出す）
+- Delete: `works/dispatch/nodes/slots.py`・`works/dispatch/schemas/slots.schema.json`（`pick_repo` は `config.py` へ移す）
+- Modify: `works/dispatch/tests/fences.py`（D4 の表: 書く関数と、呼んでよいノードの対応）
+- Test: `works/dispatch/tests/test_provision.py`、既存の試験を合わせて直す
+
+**Interfaces:**
+- `provision.clone_path(repo: Repo, number: int) -> str`: `<clone_root>/<repo の名前の後ろ半分>-pr-<番号>`。
+- `provision.prepare(row: dict, repo: Repo, h=herdr, g=gitx) -> dict`: `{"number", "path", "pane", "workspace", "created": bool, "status": "ready"|"provision_failed", "detail"}`。フォルダが無ければ clone・origin の向け直し・fetch・`copy_files` の写し。有れば、その origin が対象のリポジトリかを確かめて fetch だけ。違うリポジトリなら `provision_failed`（上書きしない）。herdr の作業場は、cwd がそのフォルダのペインを `h.panes()` から探し、無ければ `h.create_workspace(path, <フォルダの名前>)`。最後に、フォルダが git の clone で origin が対象のリポジトリであること、ペインが有ることを読み戻す。
+- `assign.plan(repo: Repo, prs, open_keys, open_cwds: set[str], accounts) -> list[dict]`: 1 件 `{"number", "title", "head", "url", "outcome": "assigned"|"already_open"|"no_account", "account", "clone_path"}`。
+
+- [ ] **Step 1: 失敗する試験を書く。** `test_provision.py` は一時のフォルダに本物の git のリポジトリを作り、元の clone に見立てる（origin は `https://github.com/o/r.git` にしておく）: 無ければ作り、作った clone の origin が元の clone の origin の URL で、`copy_files` が写り、偽物の herdr に `create_workspace(path, "r-pr-7")` が 1 回呼ばれる／2 回目は作らずに使い直し（`created == False`）、ペインが有れば `create_workspace` を呼ばない／同じ名前のフォルダが別のリポジトリなら `provision_failed` で、中身を変えない／`copy_files` の無いファイルは飛ばして `detail` に名を出す。`test_assign.py` を新しい形に直し、会話の cwd が clone のフォルダの下なら `already_open` を足す。`test_rules.py` に、provision の外で `gitx.clone` を呼ぶと D4 が赤、を足す。
+- [ ] **Step 2: 落ちるのを見る。**
+- [ ] **Step 3: 実装する。**
+- [ ] **Step 4: 一式を通す。** `nice -n 19 python3 -m unittest discover -s works/dispatch/tests -t .` → OK。
+- [ ] **Step 5: Commit** — `git commit -m "feat(works): dispatch の作業場を PR ごとの clone にする（固定の作業場をやめる）"`
+
+### Task 11: 片付け（`dispatch.py --clean`）
+
+**Files:**
+- Create: `works/dispatch/nodes/clean.py`・`works/dispatch/ghx.py`（`pr_state(repo, number) -> str`。`gh pr view <番号> --repo <repo> --json state`）
+- Modify: `works/dispatch/gitx.py`（`unpushed(cwd) -> bool`: 手元にしか無い commit があるか。`git log --branches --not --remotes --oneline` が空でないか）
+- Modify: `works/dispatch/dispatch.py`（`--clean` と `--apply`）
+- Test: `works/dispatch/tests/test_clean.py`
+
+**Interfaces:**
+- `clean.candidates(repo: Repo, folders: list[str], pr_state, open_cwds, is_clean, unpushed) -> list[dict]`: `<clone_root>` の `<名前>-pr-<番号>` のフォルダごとに `{"path", "number", "removable": bool, "reason"}`。消してよいのは、PR が `MERGED` か `CLOSED`、そのフォルダの下の会話が無い、未コミットの変更が無い、手元にしか無い commit が無い、の全部を満たす時だけ。
+- `clean.remove(row, h=herdr) -> dict`: フォルダを消し、そのフォルダのペインに会話が無ければ herdr の作業場を閉じる。消した後にフォルダが無いことを読み戻す。
+
+- [ ] **Step 1: 失敗する試験を書く** — 開いている PR は消さない／会話の有るフォルダは消さない／未コミットか手元だけの commit が有れば消さない／条件を全部満たせば候補／`--clean` だけでは何も消さず候補を並べる／`--clean --apply` で候補だけを消し、会話の有るペインの herdr の作業場は閉じない。
+- [ ] **Step 2: 落ちるのを見る。**
+- [ ] **Step 3: 実装する。**
+- [ ] **Step 4: 通す。**
+- [ ] **Step 5: Commit** — `git commit -m "feat(works): dispatch の片付け（--clean。既定は候補を並べるだけ）"`
+
+### Task 12: 持ち主の前で、手元の herdr と Claude Code で確かめる
 
 試験では縛れないことを、持ち主が見ている前で決める（設計書 9 節）。持ち主の許しなしに herdr の書く命令を走らせない。
 
 - [ ] **Step 1:** `~/.config/works/dispatch.toml` と 2 ターン目の文のファイルを、持ち主の値で作る（リポジトリには入れない）。
-- [ ] **Step 2:** 読むだけの確かめを先に済ませる。`config_dir` を `~/.claude` と明示した時と、付けない時で、`claude agents --json` が同じ一覧を返すか。違えば、既定のアカウントの設定の `config_dir` を省く形を README に書く。
-- [ ] **Step 3:** `python3 works/dispatch/dispatch.py --dry-run` を走らせ、割り振りの案を持ち主の今の作業場の一覧と照らす。
-- [ ] **Step 4:** 持ち主が選んだ空きの作業場 1 つで、PR 1 件だけ本当に走らせる。見ること: `wait_ready` が会話の見つかる前のペインで待てるか、`agent prompt` の対象にペイン ID が通るか、複数行の 2 ターン目の文が 1 つの文として届くか、起こした会話が `claude agents --json` の一覧に選んだアカウントで出るか。
-- [ ] **Step 5:** 違えば外への口（`herdr.py`・`claudex.py`）だけを直し、Task 5 の試験を実物に合わせて足す。直したら Step 4 をもう一度。
-- [ ] **Step 6: Commit** — `git commit -m "fix(works): dispatch の外への口を手元の herdr と Claude Code の振る舞いに合わせる"`（直した時だけ）
+- [ ] **Step 2:** `python3 works/dispatch/dispatch.py --dry-run` を、guided-resolver を読める gh のアカウントのシェルで走らせ、案を持ち主と見る。
+- [ ] **Step 3:** 持ち主が選んだ PR 1 件で本当に走らせる。見ること: clone を作る時間、herdr の作業場が開くか、`wait_ready` が会話の見つかる前のペインで待てるか、複数行の 2 ターン目の文が 1 つの文として届くか、起こした会話が `claude agents --json` に選んだアカウントで出るか。
+- [ ] **Step 4:** 違えば外への口だけを直し、試験を実物に合わせて足す。直したら Step 3 をもう一度。
+- [ ] **Step 5: Commit** — `git commit -m "fix(works): dispatch の外への口を手元の herdr と Claude Code の振る舞いに合わせる"`（直した時だけ）
 
-### Task 11: `/works:dispatch` と文書
+### Task 13: `/works:dispatch` と文書
 
-振る舞いが Task 10 で決まってから書く。先に書くと、実物と食い違う。
+振る舞いが Task 12 で決まってから書く。先に書くと、実物と食い違う。
 
 **Files:**
 - Create: `works/skills/dispatch/SKILL.md`
-- Modify: `works/README.md`（dispatch のラインの節: 何をするか、設定の書き方、`--dry-run`、herdr と Claude Code の版の前提）・`works/.claude-plugin/plugin.json` の `description`（darkfactory だけの説明から、2 本のラインの説明へ）・`works/CHANGELOG.md` と `attention/CHANGELOG.md` の `[Unreleased]`
+- Modify: `works/README.md`（dispatch のラインの節: 何をするか、設定の書き方、`--dry-run`、`--clean`、herdr と Claude Code の版の前提）・`works/.claude-plugin/plugin.json` の `description`・`works/CHANGELOG.md` と `attention/CHANGELOG.md` の `[Unreleased]`
 
 **Interfaces:**
 - `SKILL.md` の中身は、`python3 ${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py $ARGUMENTS` を走らせ、出力をそのまま見せる、だけ。判断も言い換えもさせない。`model:` は書かない。
 
 - [ ] **Step 1: SKILL.md を書き、`/works:dispatch --dry-run` を持ち主の会話で 1 回打って、報告がそのまま出るのを見る。**
-- [ ] **Step 2: README・plugin.json の description・2 つの CHANGELOG を書く。** `tests/run.sh` の中の plugin の形の検査の行を `GL_TEST_ONLY` で回して緑を見る。
+- [ ] **Step 2: README・plugin.json の description・2 つの CHANGELOG を書く。**
 - [ ] **Step 3: Commit** — `git commit -m "feat(works): /works:dispatch の入口と文書"`
 
-### Task 12: 版上げ（枝の最後の commit）
+### Task 14: 版上げ（枝の最後の commit）
 
 - [ ] **Step 1:** `VERSION_BUMP_STRICT=1` で全段の試験を回す（リポジトリの直下の `CLAUDE.md` の「出荷」の 1。重い段を含むので、持ち主に回してよいか先に聞く）。
 - [ ] **Step 2:** `[Unreleased]` を版に。attention は `0.26.0`（機能の追加）、works は `0.3.0`（ラインの追加）、marketplace の `metadata.version` を 1 つ上げる。
