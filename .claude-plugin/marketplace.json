@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "レビュー・調査・診断ループと外部投稿ゲートのプラグイン",
-    "version": "0.81.68"
+    "version": "0.82.0"
   },
   "allowCrossMarketplaceDependenciesOn": [
     "claude-plugins-official",
@@ -46,6 +46,12 @@
       "name": "works",
       "description": "人の修正依頼を、今いるリポジトリを対象に生産ライン darkfactory（Archon の上で 判定 → 修正 → 審査 → 最後のテスト → 人の関所 → 報告）に回す /works スキル。起動はプラグインの中の dev/use.sh（Archon と AI の役を隔離した家で起こす。リポジトリの clone は要らない）。",
       "source": "./works",
+      "strict": false
+    },
+    {
+      "name": "works-factory",
+      "description": "修正の工場 works-factory（raiki61/works-factory。Archon の上に載る pack）の Claude Code 側の薄い入口。/works-factory スキルが、今いるリポジトリを対象に修正依頼を工場へ回す（起動・承認ノードでの答え方・差分の当て方）。工場は止めた commit を取り置いて使う。今の /works と並べて置く。",
+      "source": "./works-factory",
       "strict": false
     }
   ]

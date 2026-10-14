@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# works-factory の薄い入口。止めた commit（隣の PIN）の raiki61/works-factory を取り置きに用意し、その殻 bin/works-factory
+# （apply なら bin/apply）に引数をそのまま渡す。認証・隔離・Archon の取り寄せは向こうの殻が持つので、ここでは何もしない。
+# 使い方: works-factory <Archon の CLI の引数…> ／ works-factory apply <run> --cwd <対象>
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+pin=$(tr -d '[:space:]' < "$here/PIN")
+case "$pin" in
+  *[!0-9a-f]*|"") echo "works-factory: PIN が 40 桁の commit でない: $pin" >&2; exit 2 ;;
+esac
+[ "${#pin}" -eq 40 ] || { echo "works-factory: PIN が 40 桁の commit でない: $pin" >&2; exit 2; }
+
+repo=${WORKS_FACTORY_PLUGIN_REPO:-https://github.com/raiki61/works-factory.git}
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/works-factory-plugin
+dir=$cache/$pin
+
+if [ ! -x "$dir/bin/works-factory" ]; then
+  command -v git >/dev/null 2>&1 || { echo "works-factory: git が要る" >&2; exit 2; }
+  mkdir -p "$cache"
+  tmp=$(mktemp -d "$cache/.fetch.XXXXXX")
+  trap 'rm -rf "${tmp:?}"' EXIT
+  git -C "$tmp" init -q
+  git -C "$tmp" fetch -q --depth 1 "$repo" "$pin"
+  git -C "$tmp" -c advice.detachedHead=false checkout -q FETCH_HEAD
+  [ "$(git -C "$tmp" rev-parse HEAD)" = "$pin" ] || { echo "works-factory: 取った commit が PIN と違う" >&2; exit 2; }
+  rm -rf "${dir:?}"
+  mv "$tmp" "$dir"
+  trap - EXIT
+fi
+
+if [ "${1:-}" = apply ]; then
+  shift
+  exec python3 "$dir/bin/apply" "$@"
+fi
+exec python3 "$dir/bin/works-factory" "$@"
