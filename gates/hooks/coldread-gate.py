@@ -110,7 +110,7 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import claude_auth  # noqa: E402
 
-CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+CONFIG_DIR = claude_auth.config_dir(os.environ)   # 決め方の正本は共通の claude_auth（リポジトリの scripts/ から写す）
 STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")

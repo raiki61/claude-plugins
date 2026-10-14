@@ -29,7 +29,7 @@ _spec = importlib.util.spec_from_file_location(
 cr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cr)
 
-CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+CONFIG_DIR = cr.CONFIG_DIR   # 隣の coldread-gate と同じ置き場（決め方の正本は共通の claude_auth）
 STATE_DIR = os.path.join(CONFIG_DIR, "destgate")
 ALLOWLIST = os.path.join(STATE_DIR, "allowlist")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")
