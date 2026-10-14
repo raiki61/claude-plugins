@@ -6,6 +6,12 @@ works-factory の Claude Code 側の入口（`/works-factory` スキルと殻 `b
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-14
+
+### Changed
+
+- スキルに、keychain の項目の名を Claude Code の `settings.json` の `env` に `WORKS_FACTORY_KEYCHAIN_ITEM=<項目の名>` に当たる組を書いて渡す道と、「認証が無い」で止まった時に項目の名を推して試さず人に聞くことを書いた。
+
 ## [0.1.1] - 2026-10-14
 
 ### Changed
