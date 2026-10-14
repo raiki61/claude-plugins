@@ -104,6 +104,7 @@ import startrec  # noqa: E402  （始めの記録の読み口と入口の文）
 import structmark  # noqa: E402
 import worldmark  # noqa: E402  （世界の解の行の住処。報告の節「世界の解」の行）
 import writes  # noqa: E402
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 PACK = CORE.parents[1]
 OUTCOMES = ("fixed", "fixed_needs_check", "no_fix_needed", "round_limit", "stopped_by_request", "stopped_by_human", "stopped_by_line",
@@ -214,12 +215,6 @@ def _read_json(path: pathlib.Path, default=None):
         return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
-
-
-def _write_json(path: pathlib.Path, doc) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def _write_text(path: pathlib.Path, text: str) -> None:

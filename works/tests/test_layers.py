@@ -2,7 +2,7 @@
 
 層（下から。上の層は下の層だけを知ってよい）:
 - L0 写し: .shared/core/graphloops・.shared/core/scripts（works の物を何も知らない）
-- L1 基礎: tree_run・script_io・node_marker
+- L1 基礎: tree_run・script_io・node_marker・jsonfile
 - L2 包み: adapter・ticket・claude-adapter・record-read.py・no-post-bin/works-gh
 - L3 盤面と受け付け: board・accept・policy・entry（共有の部分）・halt（止め札）・refix・recount・rolekit（役の節の共通の口）・protect（守りのファイル）
 - L4 ブロックのモジュール: 持ち主のブロックが 1 つのモジュール（core に在る物は MOD の表・<blk>/lib/*.py）
@@ -44,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # core のモジュールの層と持ち主（.shared/core からの相対。.py は除く）。表に無い core のモジュールは unassigned で赤
 MOD = {
-    "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None),
+    "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None), "jsonfile": (1, None),
     "answer": (1, None),      # 関所の文の答えの行（起動の殻が env に置いた頭で組む。works の物を何も知らない）
     "hold_lock": (1, None),   # 殻が開いた fd を flock で取る（dev/lib.sh の続き中の印。works の物を何も知らない）
     "changemap": (1, None),   # attention の変更の地図の部品の写し（COPIED_FROM.changemap。works の物を何も知らない）

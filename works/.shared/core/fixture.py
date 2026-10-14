@@ -41,6 +41,7 @@ import shutil
 import subprocess
 
 import startrec  # （L1。始めの記録の置き場と読み口）
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 DIR = "fix-fixture"             # $ARTIFACTS_DIR の下（盤面の隣）
 MANIFEST = "fixture.json"       # DIR の下の控え
@@ -116,12 +117,6 @@ def _commits(board: pathlib.Path, repo, head: str) -> dict:
     names = [f"{n}^{{commit}}" for n in sorted({m for _, text in _texts(board) for m in HEX40.findall(text)} - {head})]
     lack = _lacking(repo, names)
     return {n[:40]: _git(repo, "rev-parse", f"{n[:40]}^{{tree}}") for n in names if n not in lack}
-
-
-def _write_json(path: pathlib.Path, doc: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def adopted(board_dir) -> dict | None:

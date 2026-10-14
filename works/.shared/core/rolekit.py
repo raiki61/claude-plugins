@@ -52,6 +52,7 @@ from engine.validator import agent_def as _engine_agent_def, env_root  # noqa: E
 import entry  # noqa: E402
 import promptsection  # noqa: E402
 import script_io  # noqa: E402
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 PROMPTS_COPY = _CORE / "gl-prompts"   # 写しと同じ commit から写した本線の指示書（graphloops/ と同じ並び）
 AGENTS_PLUGIN = "convergence-loops"    # core/agents/ に写した役の定義の plugin（写しの graph の plugin。tests/test_core_copy.py）
@@ -231,12 +232,6 @@ def _read_json(path: pathlib.Path, default):
         return default
     except (OSError, ValueError) as e:
         raise BoardGap(f"{path} が読めない: {e}") from None
-
-
-def _write_json(path: pathlib.Path, doc) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def rejects(b, nid: str) -> list:

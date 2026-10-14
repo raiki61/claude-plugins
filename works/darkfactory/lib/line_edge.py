@@ -80,6 +80,7 @@ import startrec  # noqa: E402  （始めの記録の読み口）
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import structmark  # noqa: E402
 import worldmark  # noqa: E402  （世界の解の行と控えの住処）
+from jsonfile import write_json as _write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
@@ -174,12 +175,6 @@ def _verify_file(b) -> str:
     """今の周の判定の単位の裏取りの申し送りの置き場（無ければ空。単位が 2 つ未満の周は判定のブロックが置かない）"""
     p = b.work(VERIFY_FILE)
     return str(p) if p.is_file() else ""
-
-
-def _write_json(path: pathlib.Path, doc) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def _write_text(path: pathlib.Path, text: str) -> None:
