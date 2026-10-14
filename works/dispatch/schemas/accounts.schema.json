@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": ["schema", "accounts"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command", "config_dir", "seven_day", "five_hour", "known", "eligible", "reason"],
+        "properties": {
+          "name": {"type": "string"},
+          "command": {"type": "string"},
+          "config_dir": {"type": ["string", "null"]},
+          "seven_day": {"type": "object", "required": ["used", "resets_at"],
+                        "properties": {"used": {"type": ["number", "null"]}, "resets_at": {"type": ["integer", "null"]}}},
+          "five_hour": {"type": "object", "required": ["used", "resets_at"],
+                        "properties": {"used": {"type": ["number", "null"]}, "resets_at": {"type": ["integer", "null"]}}},
+          "known": {"type": "boolean"},
+          "eligible": {"type": "boolean"},
+          "reason": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

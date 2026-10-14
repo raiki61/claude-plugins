@@ -6,13 +6,13 @@
 import json
 import pathlib
 
-TYPES = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
+TYPES = {"object": dict, "array": list, "string": str, "integer": int, "number": (int, float), "boolean": bool, "null": type(None)}
 
 
 def _is(v, t):
     if isinstance(t, list):
         return any(_is(v, x) for x in t)
-    if t == "integer" and isinstance(v, bool):
+    if t in ("integer", "number") and isinstance(v, bool):
         return False
     return isinstance(v, TYPES[t])
 
