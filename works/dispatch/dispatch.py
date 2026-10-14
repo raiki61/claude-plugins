@@ -74,6 +74,8 @@ class Ports:
         self.env = os.environ if env is None else env
         self._gh_env = gh_env
         self._gh_envs = {}
+        self.herdr = herdr
+        self.git = gitx
 
     def gh_env(self, repo):
         """そのリポジトリで gh を呼ぶ子の環境。gh_user が無ければ None（このプロセスの環境のまま）。鍵はアカウントごとに 1 度だけ取り出す。"""
@@ -84,8 +86,6 @@ class Ports:
         if repo.gh_user not in self._gh_envs:
             self._gh_envs[repo.gh_user] = ghx.env_for(repo.gh_user, dict(self.env))
         return self._gh_envs[repo.gh_user]
-        self.herdr = herdr
-        self.git = gitx
 
     def preflight(self, cfg):
         problems, notes = [], []

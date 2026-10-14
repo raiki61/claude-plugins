@@ -247,6 +247,14 @@ class Main(unittest.TestCase):
         self.assertIn(("prompt", "P1", "/catchup 2", True), ports.herdr.writes)
 
 
+class RealPorts(unittest.TestCase):
+    def test_real_ports_carry_the_herdr_and_git_modules(self):
+        # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう
+        ports = dispatch.Ports()
+        self.assertIs(ports.herdr, real_herdr)
+        self.assertIs(ports.git, gitx)
+
+
 class Preflight(unittest.TestCase):
     def test_reports_missing_herdr_methods_command_attention_source_and_notes_limits(self):
         cfg_path, root = make_cfg()
