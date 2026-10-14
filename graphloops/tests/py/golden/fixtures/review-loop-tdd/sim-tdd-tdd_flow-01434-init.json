@@ -12,7 +12,7 @@
   "--dir",
   "<RUN>",
   "--validator",
-  "<ROOT>/scripts/review-record.py"
+  "<ROOT>/convergence-loops/scripts/review-record.py"
  ],
  "files": {},
  "repo": {},

@@ -61,7 +61,7 @@
    "inputs": {
     "request": "_s24_xxxx",
     "cwd": "<REPO>",
-    "review_md": "<ROOT>/REVIEW.md"
+    "review_md": "<ROOT>/convergence-loops/REVIEW.md"
    },
    "outputs": {
     "p0.base": {

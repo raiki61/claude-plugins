@@ -82,7 +82,7 @@
  },
  "command": {
   "exit": 0,
-  "out": "{\n \"validator\": {\n  \"exit\": 1,\n  \"out\": \"収束を妨げるもの 3 件:\\n  - [block] 未解消: _s15_xxxxxxxxxxxxxxxxxxxx\\n  - [suggest] do-now 未対応: _s21_xxxxxxxxxxxxx\\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）\",\n  \"validator\": \"<ROOT>/scripts/review-record.py\"\n },\n \"record\": \"<RUN>/record.json\",\n \"traces\": {}\n}\n",
+  "out": "{\n \"validator\": {\n  \"exit\": 1,\n  \"out\": \"収束を妨げるもの 3 件:\\n  - [block] 未解消: _s15_xxxxxxxxxxxxxxxxxxxx\\n  - [suggest] do-now 未対応: _s21_xxxxxxxxxxxxx\\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）\",\n  \"validator\": \"<ROOT>/convergence-loops/scripts/review-record.py\"\n },\n \"record\": \"<RUN>/record.json\",\n \"traces\": {}\n}\n",
   "err": ""
  },
  "record": {

@@ -16,7 +16,7 @@ from engine.util import Reject
 GRAPH = PLUGIN / "graphs" / "review-loop.json"
 G = load_graph(GRAPH)[0]
 RULES = load_rules(GRAPH, G)
-VALIDATOR = str(REPO / "scripts" / "review-record.py")
+VALIDATOR = str(REPO / "convergence-loops" / "scripts" / "review-record.py")
 
 
 def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, inputs=None, rnd=1, max_rounds=5, hist=None):

@@ -63,7 +63,7 @@
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
 使い方:
-    python3 graphloops/scripts/graphcheck.py graphloops/graphs/research-loop.json [scripts/research-record.py]
+    python3 graphloops/scripts/graphcheck.py graphloops/graphs/research-loop.json [convergence-loops/scripts/research-record.py]
 
 第 2 引数を省くと JSON の record.validator_path を、graph の plugin の置き場から探す。
 

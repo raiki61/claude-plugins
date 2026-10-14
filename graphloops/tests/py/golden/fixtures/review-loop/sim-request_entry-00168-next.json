@@ -97,7 +97,7 @@
    "thickness": null,
    "inputs": {
     "cwd": "<REPO>",
-    "review_md": "<ROOT>/REVIEW.md"
+    "review_md": "<ROOT>/convergence-loops/REVIEW.md"
    },
    "outputs": {
     "p0.base": {

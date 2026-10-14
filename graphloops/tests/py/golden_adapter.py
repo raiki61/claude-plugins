@@ -56,7 +56,7 @@ def graph_path(loop):
 
 
 def validator_path(loop):
-    return ROOT / "scripts" / ("research-record.py" if loop == "research-loop" else "review-record.py")
+    return ROOT / "convergence-loops" / "scripts" / ("research-record.py" if loop == "research-loop" else "review-record.py")
 
 
 def load_rules(loop):

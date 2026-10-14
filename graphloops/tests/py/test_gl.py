@@ -115,7 +115,7 @@ def research_board(tmp_path, instances, thickness=None):
     b = make(tmp_path, 1, [rd(1, done=("p0.clusters", "p0.terms", "p0.generation"), instances=instances)], graph=RESEARCH_GRAPH_PATH,
              record={"materials": {}, "claims": [{"id": c} for c in ("a1", "a2", "b1", "b2")], "clusters": [], "gates": {}, "process": {}})
     st = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
-    st.update({"validator": str(REPO / "scripts" / "research-record.py"), "loop_name": "research-loop", "thickness": thickness})
+    st.update({"validator": str(REPO / "convergence-loops" / "scripts" / "research-record.py"), "loop_name": "research-loop", "thickness": thickness})
     (b.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     return Board(b.dir)
 

@@ -22,7 +22,7 @@ BEGIN, END = "<!-- ledger:begin -->", "<!-- ledger:end -->"
 SECTION = ('echo "review-record.py"', 'echo "research-record.py"')
 # ran を 0 のまま見るのは、expect_output を通らずに手で数える検査（ここの読み取りが拾わない形）を止めるため
 STUB = r"""set -uo pipefail
-ROOT=@ROOT@; WORK=@WORK@; PY_BIN=@PY@
+ROOT=@ROOT@; CL=@ROOT@/convergence-loops; WORK=@WORK@; PY_BIN=@PY@
 fail=0 ran=0
 ANY_OUTPUT='__any_output__'
 emit() { printf '%s\x1e' "$@"; printf '\x1d'; }
@@ -31,7 +31,7 @@ expect_exit() { emit "$1" "$ANY_OUTPUT" "${@:2}"; }
 write_broken_records() { :; }
 echo() { :; }
 """
-VALIDATOR = "@ROOT@/scripts/review-record.py"
+VALIDATOR = "@ROOT@/convergence-loops/scripts/review-record.py"
 Row = collections.namedtuple("Row", "exit want was args")
 
 

@@ -326,7 +326,7 @@ CASES = [
          "読めない記録は 1 と区別して落ちる"),
     Case("no-args", (), 2, ANY,
          "引数なしは 1 と区別して落ちる"),
-    Case("too-many-args", ("tmpl-12", "repo:templates/round-1.example.json"), 2, ANY,
+    Case("too-many-args", ("tmpl-12", "repo:convergence-loops/templates/round-1.example.json"), 2, ANY,
          "引数が多すぎる場合も 1 と区別して落ちる"),
     Case("deep", ("deep",), 2, ANY,
          "深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる）", where="smoke"),

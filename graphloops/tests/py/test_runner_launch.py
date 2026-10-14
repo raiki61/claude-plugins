@@ -1037,7 +1037,7 @@ def test_init_default_lets_the_engine_launch_runner_nodes_and_the_opt_out_keeps_
     git(repo, "commit", "-qm", "base")
     d = tmp_path / "st"
     r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d),
-             "--validator", str(REPO / "scripts" / "review-record.py"), *flags)
+             "--validator", str(REPO / "convergence-loops" / "scripts" / "review-record.py"), *flags)
     assert r.returncode == 0, r.stderr
     st = json.loads((d / "state.json").read_text(encoding="utf-8"))
     assert (st.get("engine_runners") or {}).get("by") == by
@@ -1062,7 +1062,7 @@ def test_research_init_gets_no_runner_notice_by_default(tmp_path):
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "base")
     args = ["init", "--loop", "research-loop", "--request", "q", "--document", str(repo / "m.md"),
-            "--validator", str(REPO / "scripts" / "research-record.py")]
+            "--validator", str(REPO / "convergence-loops" / "scripts" / "research-record.py")]
     r = loop(repo, *args, "--dir", str(tmp_path / "a"))
     assert r.returncode == 0 and "engine-runners" not in r.stderr + r.stdout, r.stderr
     assert "engine_runners" not in json.loads((tmp_path / "a" / "state.json").read_text(encoding="utf-8"))
@@ -1082,7 +1082,7 @@ def real_board(tmp_path, monkeypatch):
     git(repo, "commit", "-qm", "base")
     (repo / "a.py").write_text("x = 2\n", encoding="utf-8")
     d = tmp_path / "st"
-    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REPO / "scripts" / "review-record.py"),
+    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REPO / "convergence-loops" / "scripts" / "review-record.py"),
              "--no-engine-runners")
     assert r.returncode == 0, r.stderr
     monkeypatch.setattr(util, "GIT_CWD", str(repo))

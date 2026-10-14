@@ -58,6 +58,16 @@ def source(prefix, rel, src):
     return src if prefix is None else prefix + rel
 
 
+# convergence-loops は 0.44.0 でリポジトリの根から convergence-loops/ へ移った（それまで marketplace の source が ./ だった）。
+# 台帳の行は写し先のパス（移る前の元のパスと同じ）で持ち、元の commit のその場所に無ければ、移った先を引く
+MOVED = "convergence-loops/"
+
+
+def locate(up, rev, path):
+    """元の commit の中で path を引く場所（移った後の commit なら convergence-loops/ の下）。"""
+    return MOVED + path if not exists(up, rev, path) and exists(up, rev, MOVED + path) else path
+
+
 def check(works, up) -> list:
     out = []
     commits = {}
@@ -75,9 +85,10 @@ def check(works, up) -> list:
             commits[name] = full
         for rel, src in led.rows:
             where = f"{pathlib.PurePosixPath(name).parent / rel}"
-            data = copyledger.show(up, full, source(prefix, rel, src))
+            s = locate(up, full, source(prefix, rel, src))
+            data = copyledger.show(up, full, s)
             if data is None:
-                out.append(f"{where}: 元 {led.commit}:{source(prefix, rel, src)} が無い")
+                out.append(f"{where}: 元 {led.commit}:{s} が無い")
                 continue
             try:
                 want = copyledger.apply(led, rel, data)
@@ -87,7 +98,7 @@ def check(works, up) -> list:
             p = led.base / rel
             if not p.is_file() or p.read_bytes() != want:
                 out.append(f"{where}: 写しが {led.commit} の元（と台帳の手直し）と違う"
-                           f"（直し方: git show {led.commit}:{source(prefix, rel, src)} で戻すか、sync で取り直す）")
+                           f"（直し方: git show {led.commit}:{s} で戻すか、sync で取り直す）")
     if len(set(commits.values())) > 1:
         first = next(iter(commits.values()))
         for name, c in commits.items():
@@ -173,7 +184,7 @@ def sync(works, up, rev, version, skip_goldens) -> int:
             continue
         heads[name] = (led, new_head(led.head, short, version, led.commit))
         for rel, src in led.rows:
-            s = source(prefix, rel, src)
+            s = locate(up, full, source(prefix, rel, src))
             data = copyledger.show(up, full, s)
             if data is None:
                 problems.append(f"{name}: {rel} の元 {s} が {short} に無い（台帳の行を直す）")
@@ -194,6 +205,7 @@ def sync(works, up, rev, version, skip_goldens) -> int:
             queue.append((n, fetched[n]))
             name, prefix = next((nm, px) for nm, px in LEDGERS if px is not None and n.startswith(px))
             led, rel = heads[name][0], n[len(prefix):]
+            rel = rel[len(MOVED):] if prefix == "" and rel.startswith(MOVED) else rel   # 写し先は移る前と同じ形
             p = led.base / rel
             if p in writes or (p.exists() and p not in listed):
                 problems.append(f"{s} がたどる {n} の写し先 {p.relative_to(works)} に、台帳に無い works のファイルが在る"

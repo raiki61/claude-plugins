@@ -168,7 +168,7 @@ def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tm
     (elsewhere / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
     monkeypatch.setattr(util, "GIT_CWD", str(elsewhere))
     r = inproc(["init", "--loop", "review-loop", "--request", "検査", "--dir", str(tmp_path / "st"), "--no-engine-runners",
-                "--validator", str(PLUGIN.parent / "scripts" / "review-record.py")], cwd=here)
+                "--validator", str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py")], cwd=here)
     assert r.returncode == 0, r.stderr
     assert ".review-checks.json が無い" in r.stderr
 
@@ -181,7 +181,7 @@ def test_convergence_loops_dependency_floor_is_met_by_the_repo():
            if d["name"] == "convergence-loops"]
     assert len(dep) == 1 and dep[0]["version"].startswith(">=")
     floor = intake.version_key(re.sub(r"^[<>=^~ ]+", "", dep[0]["version"]))
-    cl = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    cl = json.loads((REPO / "convergence-loops" / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert cl["name"] == "convergence-loops" and floor <= intake.version_key(cl["version"])
 
 

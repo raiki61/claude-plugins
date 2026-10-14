@@ -42,7 +42,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parent
 LOOP = PLUGIN / "scripts" / "loop.py"
 GRAPHCHECK = PLUGIN / "scripts" / "graphcheck.py"
-VALIDATOR = PLUGIN.parent / "scripts" / "research-record.py"
+VALIDATOR = PLUGIN.parent / "convergence-loops" / "scripts" / "research-record.py"
 PY = sys.executable
 
 # **読了の標本の作り方は rules が正本**（台本に数を写すと、engine だけ変えたとき検査が黙って緩む）。
@@ -1111,7 +1111,7 @@ def test_graphcheck():
     broken(lambda b: b["record"].__setitem__("report_accepts_exit", ["0"]), "report_accepts_exit", "report_accepts_exit に整数でない値を書いた graph は落ちる")
     # 同じ context を継ぐ節: 役が一致し、遮断系でないこと（review graph で見る）
     rg = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
-    rv = str(PLUGIN.parent / "scripts" / "review-record.py")
+    rv = str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py")
     for i, (mut, want, desc) in enumerate((
             (lambda b: b["nodes"]["p2.history"].__setitem__("run_by", "inspector"), "役が違う", "same_context_as の役と自分の役が違う graph は落ちる"),
             (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"),
@@ -1284,7 +1284,7 @@ def test_resolve_dir():
     check(r.returncode == 0 and d0.parts[-4:-1] == (".git", "graphloops", "research-loop"), f"--dir を省いた init は .git の下に盤面を作る（{d0}）")
     r = call("status")
     check(r.returncode == 0 and json.loads(r.stdout)["loop"] == "research-loop", "run が 1 本なら --dir 無しで解決する")
-    r = call("init", "--loop", "review-loop", "--request", "r", "--validator", str(PLUGIN.parent / "scripts" / "review-record.py"))
+    r = call("init", "--loop", "review-loop", "--request", "r", "--validator", str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py"))
     check(r.returncode == 0, "別のループも同じリポジトリに init できる")
     r = call("status")
     check(r.returncode == 2 and "--dir で指せ" in r.stderr and "research-loop" in r.stderr and "review-loop" in r.stderr, "run が 2 本並ぶと --dir 無しは exit 2（新しい方を黙って選ばない）")
@@ -3292,7 +3292,7 @@ def test_plugin_path_ambiguity():
         (d / "scripts").mkdir(parents=True)
         shutil.copy(VALIDATOR, d / "scripts" / "research-record.py")
         (d / "agents").mkdir()
-        shutil.copy(PLUGIN.parent / "agents" / "cold-reader.md", d / "agents" / "cold-reader.md")
+        shutil.copy(PLUGIN.parent / "convergence-loops" / "agents" / "cold-reader.md", d / "agents" / "cold-reader.md")
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(cfg)}
     run = Run("ambig")
     d2 = run.tmp / "s2"

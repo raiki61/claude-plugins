@@ -179,7 +179,7 @@ def test_init_removes_run_dir_when_on_init_refuses(tmp_path, monkeypatch, capsys
     d = tmp_path / "run"
     a = argparse.Namespace(loop="research-loop", graph=None, request="この見立ては正しいか", document=str(doc), input=None,
                            thickness=None, decider=None, unattended=False, stop_after_round=None, dir=str(d),
-                           validator=str(REPO / "scripts" / "research-record.py"), lang=None)
+                           validator=str(REPO / "convergence-loops" / "scripts" / "research-record.py"), lang=None)
     with pytest.raises(SystemExit):
         commands.cmd_init(a)
     assert "入口が拒んだ" in capsys.readouterr().err   # 置き場を作った後の入口で止まった（手前の検査で止まったのではない）
@@ -227,7 +227,7 @@ def research_run(tmp_path, monkeypatch):
     d = tmp_path / "run"
     commands.cmd_init(argparse.Namespace(loop="research-loop", graph=None, request="この見立ては正しいか", document=str(doc), input=None,
                                          thickness=None, decider=None, unattended=False, stop_after_round=None, dir=str(d),
-                                         validator=str(REPO / "scripts" / "research-record.py"), lang=None))
+                                         validator=str(REPO / "convergence-loops" / "scripts" / "research-record.py"), lang=None))
     return str(d)
 
 

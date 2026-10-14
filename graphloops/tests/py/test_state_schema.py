@@ -176,7 +176,7 @@ def test_graphcheck_rejects_loop_shape(sandbox, breaks, want):
 def test_graphcheck_passes_the_shipped_loop_shapes():
     for name, validator in (("review-loop", "review"), ("review-loop-tdd", "review"), ("research-loop", "research")):
         lines = []
-        assert graphcheck.check(PLUGIN / "graphs" / f"{name}.json", str(REPO / "scripts" / f"{validator}-record.py"), emit=lines.append), \
+        assert graphcheck.check(PLUGIN / "graphs" / f"{name}.json", str(REPO / "convergence-loops" / "scripts" / f"{validator}-record.py"), emit=lines.append), \
             [l for l in lines if str(l).startswith("NG")]
 
 
@@ -210,7 +210,7 @@ def check_at(place, name, g, validator):
     p = place / "graphs" / f"{name}.json"
     p.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     lines = []
-    ok = graphcheck.check(p, str(REPO / "scripts" / f"{validator}-record.py"), emit=lines.append)
+    ok = graphcheck.check(p, str(REPO / "convergence-loops" / "scripts" / f"{validator}-record.py"), emit=lines.append)
     return ok, "\n".join(map(str, lines))
 
 

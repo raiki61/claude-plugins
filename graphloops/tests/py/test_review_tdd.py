@@ -143,7 +143,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
 
 # --- テストだけを書く段の返答の検査（tdd_tests_output）: 直す義務の単位を全部 1 度だけ tdd か direct に振る
 UNITS = [{"key": "u-block", "label": "block"}, {"key": "u-donow", "label": "suggest", "disposition": "do-now"}]
-BOARD = types.SimpleNamespace(state={"validator": str(REPO / "scripts" / "review-record.py")},
+BOARD = types.SimpleNamespace(state={"validator": str(REPO / "convergence-loops" / "scripts" / "review-record.py")},
                               record={"units": UNITS, "questions": []}, loop_state={}, round=1)
 BOARD.ctx = lambda: {"record": BOARD.record, "round": BOARD.round, "loop": BOARD.loop_state}
 BOARD.view = types.MethodType(Board.view, BOARD)   # engine の読み口の組み立てそのもの（ctx に無い頭は見せない）
@@ -345,7 +345,7 @@ def test_tdd_effect_reads_an_unfired_lane_as_unmeasured(tmp_path):
     import json
     res = tmp_path / "lane.json"
     res.write_text(json.dumps({"rev": "a" * 40, "arms": [], "handled": [], "patch": "", "suite": {"command": "x", "exit": 0}}), encoding="utf-8")
-    b = types.SimpleNamespace(round=2, dir=tmp_path, state={"validator": str(REPO / "scripts" / "review-record.py")},
+    b = types.SimpleNamespace(round=2, dir=tmp_path, state={"validator": str(REPO / "convergence-loops" / "scripts" / "review-record.py")},
                               nodes=load_graph(GRAPH)[0]["nodes"],
                               record={"process": {"tdd": {"rounds": {"1": {}}}}},
                               loop_state={"lanes": {"a" * 40: {"round": 1, "rev": "a" * 40, "result": str(res), "state": "merged"}}})

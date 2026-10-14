@@ -393,7 +393,7 @@ def test_graphcheck_background_delegate_without_reads_is_ng_not_a_crash(tmp_path
     path = tmp_path / "graphs" / "review-loop.json"
     path.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     lines = []
-    ok = gc.check(path, str(REPO / "scripts" / "review-record.py"), emit=lines.append)
+    ok = gc.check(path, str(REPO / "convergence-loops" / "scripts" / "review-record.py"), emit=lines.append)
     out = "\n".join(map(str, lines))
     assert not ok and "背景の任せ先は delegate.result_to" in out, out[-300:]
 

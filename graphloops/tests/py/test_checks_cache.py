@@ -230,7 +230,7 @@ RULES = load_rules(PLUGIN / "graphs" / "review-loop.json", load_graph(PLUGIN / "
 def test_checks_reply_names_reuse_with_time_and_run(tmp_path):
     import types
     b = types.SimpleNamespace(round=1, record={"process": {}, "materials": {}, "questions": []},
-                              state={"validator": str(REPO / "scripts" / "review-record.py")})
+                              state={"validator": str(REPO / "convergence-loops" / "scripts" / "review-record.py")})
     reused = {"at": "2026-09-27T09:00:00+09:00", "wall_s": 1200.5, "key": "k", "entry": "/c/k", "from": "/board/runs/r1/p0.local_checks.a1"}
     runs = [{"name": "suite", "argv": ["x"], "exit": 0, "wall_s": 0.1, "out": "o", "err": "e", "tail": "", "reused": reused, "cache": "使い回し"}]
     m = RULES.checks_reply(b, "p4.ci", {"sha": "0" * 64}, runs)["reply"]["material"]
