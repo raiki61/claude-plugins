@@ -60,9 +60,17 @@ class Rank(unittest.TestCase):
         self.assertFalse(by(got, "p2")["eligible"])
         self.assertIn("five_hour", by(got, "p2")["reason"])
 
-    def test_exactly_limit_is_eligible(self):
+    def test_reaching_limit_is_excluded(self):
+        # 使用率は 1% 刻みの整数で届くので、95 は 95.0〜95.9% のどれか。上限に届いた物は外す
         lim = limits()
         lim["main"]["seven_day"]["used_percentage"] = 95
+        row = by(accounts.rank(ACCTS, lim, 95, NOW), "main")
+        self.assertFalse(row["eligible"])
+        self.assertIn("seven_day が 95% で上限 95% に達した", row["reason"])
+
+    def test_just_below_limit_is_eligible(self):
+        lim = limits()
+        lim["main"]["seven_day"]["used_percentage"] = 94
         self.assertTrue(by(accounts.rank(ACCTS, lim, 95, NOW), "main")["eligible"])
 
     def test_past_reset_counts_as_zero(self):

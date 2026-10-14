@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """accounts ノード: 使用率の控えから、選べるアカウントとその順を決める（設計書 2 節の 3）。外には書かない。
 
-- 週の枠（seven_day）か 5 時間の枠（five_hour）の使用率が上限を超えたアカウントは選ばない。ちょうど上限は選べる。
+- 週の枠（seven_day）か 5 時間の枠（five_hour）の使用率が上限に達したアカウントは選ばない。使用率は 1% 刻みの整数で届き、ちょうど上限の値は上限を超えている見込みがあるので、上限ちょうども選ばない。
 - 切り替わりの時刻（resets_at）が過ぎた枠は、切り替わった後なので使用率 0 とみなす。
 - 選べるものを、週の枠の切り替わりの近い順 → 週の使用率の低い順 → 設定の順に並べる。
 - 控えが無い・読めないアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（D7）。
@@ -42,7 +42,7 @@ def rank(accounts, limits, limit_percent, now):
         raw = limits.get(a.name) if a.limits else None
         known = isinstance(raw, dict)
         w = {k: _window(raw.get(k) if known else None, now) for k in WINDOWS}
-        over = [k for k in WINDOWS if w[k]["used"] is not None and w[k]["used"] > limit_percent]
+        over = [k for k in WINDOWS if w[k]["used"] is not None and w[k]["used"] >= limit_percent]
         rows.append({
             "name": a.name,
             "command": a.command,
@@ -51,7 +51,7 @@ def rank(accounts, limits, limit_percent, now):
             "five_hour": w["five_hour"],
             "known": known,
             "eligible": not over,
-            "reason": "、".join(f"{k} が {w[k]['used']}% で上限 {limit_percent}% を超える" for k in over) or None,
+            "reason": "、".join(f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over) or None,
             "_order": i,
         })
     rows.sort(key=lambda r: (

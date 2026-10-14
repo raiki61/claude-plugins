@@ -365,7 +365,7 @@ def _init(a, ports):
         "# works の dispatch の設定（--init が書いた下書き）。直したら --check で確かめる。",
         "# 欄の意味: works-dispatch プラグインの README",
         "",
-        "limit_percent = 95                      # 週か 5 時間の使用率がこれを超えるアカウントは使わない",
+        "limit_percent = 95                      # 週か 5 時間の使用率がこれに達したアカウントは使わない",
         '# limits_dir = "~/.cache/claude-limits"   # アカウントごとの使用率の控え（<name>.json）。無ければ使用率は見ない',
         "",
         "# アカウントを切り替えないなら accounts は書かない（claude を 1 つだけ使う）。",
