@@ -10,6 +10,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 from . import DISPATCH  # noqa: F401
 import claudex
@@ -266,6 +267,12 @@ class Claude(unittest.TestCase):
 
     def test_catchup_command_follows_a_renamed_plugin(self):
         self.assertEqual(claudex.catchup_commands(self.plugins([("watch@m", "user", "watch", True)])), ["/watch:catchup"])
+
+    def test_catchup_command_expands_home(self):
+        d = self.plugins([("attention@m", "user", "attention", True)])
+        home, rest = os.path.split(d)
+        with unittest.mock.patch.dict(os.environ, {"HOME": home}):
+            self.assertEqual(claudex.catchup_commands(f"~/{rest}"), ["/attention:catchup"])
 
     def test_project_scoped_plugins_do_not_count(self):
         # project の入れ方は、その projectPath の中で起こした会話にしか効かない

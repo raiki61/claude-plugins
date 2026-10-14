@@ -90,7 +90,7 @@ def catchup_commands(config_dir):
     数えるのはアカウント全体に入れたもの（scope が user）だけ。project の入れ方は、その projectPath の中の会話にしか効かない。
     """
     try:
-        with open(os.path.join(config_dir, "plugins", "installed_plugins.json"), encoding="utf-8") as f:
+        with open(os.path.join(os.path.expanduser(config_dir), "plugins", "installed_plugins.json"), encoding="utf-8") as f:
             record = json.load(f)
     except (OSError, ValueError, TypeError):
         return []
