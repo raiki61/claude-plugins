@@ -4,6 +4,7 @@ description: 呼び出し側と別 context で採点する読み取り専用の�
 model: sonnet
 effort: medium
 tools: Read, Glob, Grep
+# この本文は複数のプラグインに写しで在る（正本は convergence-loops/agents/。写しは works/.shared/core/agents/。配るのは python3 scripts/shared-copies.py --sync <正本>）
 ---
 
 お前は inspector。このループを回している側とは別の context に居る採点者である。

@@ -33,6 +33,7 @@ if _HERE not in sys.path:   # 置き場を sys.path に持たない起こし方�
     sys.path.append(_HERE)
 
 import carry  # noqa: E402
+from jsonfile import write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 import promptsection  # noqa: E402
 
 KIND_CLOSED, KIND_HALTED, KIND_HUMAN, KIND_WAIT, KIND_OPEN = "closed", "halted", "human", "wait", "open"
@@ -100,7 +101,7 @@ def load(chain_dir) -> dict:
 
 
 def save(chain_dir, doc: dict) -> None:
-    carry.write(path(chain_dir), doc)
+    write_json(path(chain_dir), doc)
 
 
 def update(chain_dir, fn) -> dict:
@@ -344,7 +345,7 @@ def _step(a) -> str:
                 req_file = ""
                 if any(req.get(k) for k in req):
                     req_file = str(pathlib.Path(d) / f"round-{pend['round'] + 1}-request.json")
-                    carry.write(req_file, req)
+                    write_json(pathlib.Path(req_file), req)
                 doc["pending"] = {"round": pend["round"] + 1, "mark": f"{doc['id']}-{pend['round'] + 1}", "pid": None,
                                   "launched": False, "run": "", "from": result, "request": req_file, "log": "", "tries": 0}
         else:

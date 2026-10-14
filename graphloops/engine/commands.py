@@ -1,7 +1,6 @@
 """回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record。"""
 import copy
 import datetime
-import functools
 import json
 import os
 import pathlib
@@ -24,7 +23,7 @@ from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import (ANSWER_ACTIONS, HANDOFF_DEFECTS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS,
+from .util import (ANSWER_ACTIONS, HANDOFF_DEFECTS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, claude_auth, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS,
                    copy_worktree, defects_only, die, dump, find_attempt, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain,
                    protected_paths, read_input_json,
                    read_json, repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json, write_lane_failed)
@@ -1140,21 +1139,11 @@ def launch_cause(r, kind):
     stage = AUTH_STAGE.search(r.get("stderr") or "")
     if stage is None:
         return "launch_auth_unread", "role_run.run_role"
-    return ("launch_child_failed" if _claude_auth().added(stage.group(1)) else "launch_auth"), "role_run.run_role"
+    return ("launch_child_failed" if claude_auth().added(stage.group(1)) else "launch_auth"), "role_run.run_role"
 
 
 # 前置の層が標準エラーに書く段の名前: 頭の行と、子が落ちた回の末尾の行（運ばれるのは末尾の 600 字なので、頭が切れても末尾に残る）
 AUTH_STAGE = re.compile(r"with-auth: (?:auth=|子が rc=-?\d+ で落ちた。認証は )(\S+)")
-
-
-@functools.lru_cache(maxsize=None)
-def _claude_auth():
-    """同梱の認証の段（scripts/claude_auth.py）。足せたかの判定はその added だけが持つ。"""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("graphloops_claude_auth", PLUGIN_ROOT / "scripts" / "claude_auth.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 @intake.quiet

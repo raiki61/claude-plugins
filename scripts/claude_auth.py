@@ -2,7 +2,7 @@
 """別プロセスの claude を起こすときに、**認証だけ**を子の環境へ足す。起動そのものは呼ぶ側が持つ。
 
 **この本文は複数のプラグインに写しで在る**。**正本はリポジトリ直下の `scripts/claude_auth.py`**で、
-写しは `gates/hooks/` と `graphloops/scripts/` と `works/.shared/core/` と `works-dispatch/dispatch/vendor/`（2026-10-14 時点）。
+写しは `gates/hooks/` と `graphloops/scripts/` と `works/.shared/core/` と `works-dispatch/dispatch/vendor/` と `attention/scripts/lib/`（2026-10-15 時点）。
 
 実行時に跨いで読む道は無い——キャッシュに写るのはプラグインごとに自分のフォルダだけである。`convergence-loops` が
 リポジトリの根を配っていた間（0.43 まで。実測 2026-09-15: キャッシュに `gates/ graphloops/ scripts/ …` が丸ごと在った）も、

@@ -4,6 +4,7 @@ description: 文脈を遮断した初見の読み手。道具を一切持たず�
 model: sonnet
 effort: medium
 tools: []
+# この本文は複数のプラグインに写しで在る（正本は convergence-loops/agents/。写しは works/.shared/core/agents/。配るのは python3 scripts/shared-copies.py --sync <正本>）
 ---
 
 お前は cold-reader。文脈を持たない初見の読み手である。

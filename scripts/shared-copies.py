@@ -6,8 +6,10 @@
 リポジトリの他の場所は無い)。だから実行時に 1 か所を共有する道が無く、**写して配るしかない**。
 代わりに、写しが割れたら赤くなる柵をここに置く。
 
-**走査対象は印から導く**(名前を手で並べない)。docstring に `MARK` の 1 文を持つ `.py` を集め、
-同じファイル名のものを 1 組として見る。3 つ目の写しを作った周に、誰も見ない写しが増える形にしない。
+**走査対象は印から導く**(名前を手で並べない)。docstring に `MARK` の 1 文を持つ `.py` と、frontmatter(先頭の
+`---` の間)の YAML の注記の行に `MARK` を持つ `.md` を集め、同じファイル名のものを 1 組として見る。3 つ目の写しを
+作った周に、誰も見ない写しが増える形にしない。`.md` は frontmatter の中だけを見る——役の定義(agents/*.md)は本文が
+そのまま役への指示になるので、印を本文に置かない。本文で印の文言に触れる文書(この道具の説明など)を写しに数えない。
 
 使い方:
     python3 scripts/shared-copies.py                     # 確かめる(tests/run.sh がこれを呼ぶ)
@@ -29,14 +31,25 @@ SELF = pathlib.Path(__file__).resolve()  # 印を**データとして**持つの
 MARK = "この本文は複数のプラグインに写しで在る"
 
 
+def marked(p):
+    """p が写しだと名乗っているか(.py は本文のどこか、.md は frontmatter の中)。"""
+    text = p.read_text(encoding="utf-8")
+    if p.suffix == ".md":
+        if not text.startswith("---\n"):
+            return False
+        end = text.find("\n---", 4)
+        text = text[4:end] if end != -1 else ""
+    return MARK in text
+
+
 def groups():
     """印を持つ本文を、ファイル名ごとの組にして返す。"""
     out = {}
-    for p in sorted(ROOT.rglob("*.py")):
+    for p in sorted([*ROOT.rglob("*.py"), *ROOT.rglob("*.md")]):
         if ".git" in p.parts or "__pycache__" in p.parts or p.resolve() == SELF:
             continue
         try:
-            if MARK in p.read_text(encoding="utf-8"):
+            if marked(p):
                 out.setdefault(p.name, []).append(p)
         except (OSError, UnicodeDecodeError):
             continue
@@ -72,7 +85,7 @@ def sync(src, gs):
     src = pathlib.Path(src).resolve()
     ps = gs.get(src.name, [])
     if src not in ps:
-        print(f"NG {src} は写しの組に無い(印『{MARK}』を持つ .py を指せ)")
+        print(f"NG {src} は写しの組に無い(印『{MARK}』を持つ .py か、frontmatter に持つ .md を指せ)")
         return 2
     wrote = [p for p in ps if p != src and p.read_bytes() != src.read_bytes()]
     for p in wrote:

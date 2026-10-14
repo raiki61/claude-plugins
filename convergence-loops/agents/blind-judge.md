@@ -4,6 +4,7 @@ description: 内部の実態を遮断した独立導出・突合の目。道具�
 model: opus
 effort: high
 tools: []
+# この本文は複数のプラグインに写しで在る（正本は convergence-loops/agents/。写しは works/.shared/core/agents/。配るのは python3 scripts/shared-copies.py --sync <正本>）
 ---
 
 お前は blind-judge。渡されたものだけから独立に導出する、または渡された 2 つを突き合わせる役である。

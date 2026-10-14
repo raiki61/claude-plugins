@@ -9,7 +9,7 @@ import sys
 
 from .intake import version_key
 from .rules import hook
-from .util import PLUGIN_ROOT, die
+from .util import PLUGIN_ROOT, claude_config_dir, die
 
 VALIDATOR_TIMEOUT = 600  # 秒
 
@@ -71,7 +71,7 @@ def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     # キャッシュは**実行中のプロファイル 1 つ**だけ見る（CLAUDE_CONFIG_DIR、既定は ~/.claude）。
     # 以前は ~/.claude* を横断していたので、別プロファイル・別マーケットプレイスの同名プラグインが
     # 版の大小だけで選ばれ、動いている出所と無関係なコードが importlib でこのプロセスに読み込まれた。
-    cfg = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or (pathlib.Path.home() / ".claude"))
+    cfg = pathlib.Path(claude_config_dir())
     hits = glob.glob(str(cfg / "plugins" / "cache" / "*" / plugin / "*" / rel))
     depth = len(pathlib.Path(rel).parts)
 

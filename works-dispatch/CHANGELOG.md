@@ -2,7 +2,7 @@
 
 works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスクリプト）の版ごとの、利用者に効く違いを新しい順に並べる。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
 
-版を名指しする git の tag の名前の決まり・付け方と、この記録を書き足す段は、リポジトリのルートの `docs/releasing.md` に在る。0.1.0 は出していない。作った時に付けた版の後に変更を積んだので、初めて出す版を 0.1.1 にした。
+版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。0.1.0 は出していない。作った時に付けた版の後に変更を積んだので、初めて出す版を 0.1.1 にした。
 
 ## [Unreleased]
 

@@ -1,6 +1,8 @@
 """engine の小道具——時刻・hash・JSON の読み書き・git・path の辿り方。ループの中身を知らない。"""
 import datetime
+import functools
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -10,6 +12,20 @@ import subprocess
 import sys
 
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+@functools.lru_cache(maxsize=None)
+def claude_auth():
+    """同梱の認証の部品（scripts/claude_auth.py。リポジトリの scripts/ の写しで、設定のフォルダの決め方の正本もここ）。"""
+    spec = importlib.util.spec_from_file_location("graphloops_claude_auth", PLUGIN_ROOT / "scripts" / "claude_auth.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def claude_config_dir():
+    """今の Claude Code の設定のフォルダ（CLAUDE_CONFIG_DIR、無ければ HOME の .claude）。決め方は claude_auth.config_dir の 1 か所。"""
+    return claude_auth().config_dir(os.environ)
 # 役の名前・段の名前・道具の名前・プラグイン名は engine に書かない——graph の runners / thickness.tiers / deliver.path_tools / plugin が正本
 
 
@@ -635,7 +651,7 @@ def protected_paths(extra=()):
     got += [line[len("worktree "):] for line in wl.splitlines() if line.startswith("worktree ")]
     home = pathlib.Path.home()
     got += [str(home / x) for x in HOME_PROTECTED]
-    got += [str(PLUGIN_ROOT), os.environ.get("CLAUDE_CONFIG_DIR") or str(home / ".claude"), *map(str, extra)]
+    got += [str(PLUGIN_ROOT), claude_config_dir(), *map(str, extra)]
     return sorted({q for p in got for q in (os.path.abspath(p), os.path.realpath(p))})
 
 

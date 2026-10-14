@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 変更ファイルの木。/catchup と共用
+import claude_auth  # noqa: E402 — 設定のフォルダの決め方（リポジトリの scripts/ の写し）
 from stance import stance  # noqa: E402 — 立場の判定。/catchup と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
 
@@ -127,8 +128,7 @@ def role_on(cwd, number=None):
 
 def transcript_path(session_id, cwd):
     """記録の実体を探す。session id が取れれば一意、取れなければ最新にする。"""
-    config = pathlib.Path(
-        os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
+    config = pathlib.Path(claude_auth.config_dir(os.environ))
     folder = config / "projects" / str(cwd).replace("/", "-")
     if not folder.is_dir():
         return None

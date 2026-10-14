@@ -507,11 +507,11 @@ def transcript_path():
     """回す側のセッションの転写と、**見つからなかったときの理由**（見つかれば理由は None）。
 
     スラグ（置き場の名前）の作り方はハーネスの持ち物なので写さない。session id のファイルを glob で探す。
-    **CLAUDE_CONFIG_DIR の既定は ~/.claude**——このリポジトリで同じ env を読む他の 7 か所と同じ形。
+    設定のフォルダは engine の claude_config_dir（INJECT。決め方の正本は scripts/claude_auth.py の config_dir）。
     既定を持たなかったとき、旗を渡さない配置では柵が毎回空振りし、それが誰にも見えなかった。
     """
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    cfg = claude_config_dir()
     if not sid:
         return None, "CLAUDE_CODE_SESSION_ID が無い（engine を起こした session が分からない）"
     try:

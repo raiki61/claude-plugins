@@ -1,46 +1,40 @@
 # 版を出す手順
 
-このリポジトリ（marketplace）で plugin の版を出すときの段を書く。配る plugin の全部（convergence-loops・gates・coldwrite・attention・graphloops）に同じ段が当たる。保守する人向けの文書で、利用者が読む物ではない。いつ出すか（頻度）は [ADR 0022](adr/0022-release-often.md)、tag と変更の記録の形を選んだ理由と、過去の版に付ける tag の一覧は [ADR 0066](adr/0066-release-tags-and-changelog.md) に在る。
+このリポジトリ（marketplace）で plugin の版を出すときの段を書く。配る plugin の全部（`.claude-plugin/marketplace.json` の `plugins[]` に並ぶ 8 本。退いた coldwrite も、フックを持たない最後の版を届けるために一覧に残している）に同じ段が当たる。保守する人向けの文書で、利用者が読む物ではない。いつ出すか（頻度）は [ADR 0022](adr/0022-release-often.md) に在る。
 
 ## 平易版（3 行）
 
-- 版を上げる commit で、その plugin の版の番号・marketplace の版の番号・その plugin の変更の記録（`CHANGELOG.md`）の 3 つを一緒に直す。
-- main に入ったその commit に、`<plugin の名前>--v<版>` の名前の tag を付ける。tag を作って push するのは人。
+- 版を上げる commit で、その plugin の版の番号・marketplace の版の番号・その plugin の変更の記録（`CHANGELOG.md`）の 3 つを一緒に直し、その commit を枝の最後に置く。
+- 出荷は main への push と、main の CI の緑で終わる。git の tag は作らない（持ち主の決め 2026-09-29「タグはつくりません」）。
 - 作業枝では、利用者に効く違いをその plugin の変更の記録の `## [Unreleased]` に書き足していく。
 
 ## 置き場
 
-どの plugin の置き場も、`.claude-plugin/marketplace.json` の `plugins[]` の `source` が指す plugin の根から決まる（一覧の正本はこの 1 か所で、ここに plugin ごとの表は写さない）。`source` が `./` の plugin（convergence-loops）は、リポジトリのルートが根になる。
+どの plugin の置き場も、`.claude-plugin/marketplace.json` の `plugins[]` の `source` が指す plugin の根から決まる（一覧の正本はこの 1 か所で、ここに plugin ごとの表は写さない）。どの plugin も自分のフォルダを根に持ち、リポジトリの根を `source` にしない（根を配ると、キャッシュに写るのがリポジトリの木の全部になる。`tests/run.sh` が赤にする）。
 
 - plugin の版: `<根>/.claude-plugin/plugin.json` の `version`。
 - 変更の記録: `<根>/CHANGELOG.md`。プラグインのキャッシュに入るのは根の下の木だけなので、根に置く。
-- marketplace の版: `.claude-plugin/marketplace.json` の `metadata.version`。catalog（plugin の一覧）の版で、plugin の版を上げるたびに一緒に上げる（これまでも大半の版上げで一緒に上げてきたが、上げなかった版もある）。
+- marketplace の版: `.claude-plugin/marketplace.json` の `metadata.version`。catalog（plugin の一覧）の版で、plugin の版を上げるたびに一緒に上げる。
 
 ## 作業枝で
 
 - 利用者に効く違い（足した口・変えた動き・直した不具合）を、その plugin の `<根>/CHANGELOG.md` の `## [Unreleased]` の下の節（Added・Changed・Fixed など）に 1 行ずつ書き足す。1 つの変更が複数の plugin に効くなら、それぞれの記録に書く。
-- commit の id と作業枝の名前は書かない。作業枝の commit は main に入るときに作り直されるので、id は main から辿れない。この記録は利用者の手元（プラグインのキャッシュ）に届き、そこには git の履歴が無い。
+- commit の id と作業枝の名前は書かない。この記録は利用者の手元（プラグインのキャッシュ）に届き、そこには git の履歴が無い。
 
 ## 版を上げる
 
-1. `<根>/.claude-plugin/plugin.json` の `version` と、`.claude-plugin/marketplace.json` の `metadata.version` を上げる。
-2. 同じ commit で、`<根>/CHANGELOG.md` の `## [Unreleased]` の中身を、新しい見出し `## [<版>] - <YYYY-MM-DD>` の下へ移す。`## [Unreleased]` の見出しは空で残す。
-3. 版を上げる commit を作る。件名の形は `chore(<plugin の名前>): 版を上げる（<plugin の名前> <版> / marketplace <版>）`（graphloops が 0.20.0 から使っている形。それより前と、ほかの plugin の過去の版は、機能の commit の件名に版を括弧で添えていた）。
-4. その commit を main に入れる。
+1. 全段の試験を、手元でも `VERSION_BUMP_STRICT=1 bash tests/run.sh` で回す（版上げの順の検査は、main と release/* の CI でだけ厳しくなるため）。
+2. `<根>/.claude-plugin/plugin.json` の `version` と、`.claude-plugin/marketplace.json` の `metadata.version` を上げる。
+3. 同じ commit で、`<根>/CHANGELOG.md` の `## [Unreleased]` の中身を、新しい見出し `## [<版>] - <YYYY-MM-DD>` の下へ移す。`## [Unreleased]` の見出しは空で残す。
+4. 版を上げる commit を作る。件名の形は `chore(<plugin の名前>): 版を上げる（<plugin の名前> <版> / marketplace <版>）`。
+5. その commit を枝の最後に置いたまま main に入れ、push し、`gh run list` で main の CI の緑を確かめる。版上げの後に plugin の中身を変える commit を積むと、main の CI が赤になる（中身を変えたのに版が据え置きの plugin を、`tests/run.sh` が赤にする）。
 
-1 つの commit で複数の plugin の版を上げるときは、上げた plugin のそれぞれで 1 と 2 をする（記録の見出しは plugin ごとに足す）。件名には上げた plugin を全部並べる。
+1 つの commit で複数の plugin の版を上げるときは、上げた plugin のそれぞれで 2 と 3 をする（記録の見出しは plugin ごとに足す）。件名には上げた plugin を全部並べる。
 
 `tests/run.sh` は、marketplace.json の一覧に在る全部の plugin について、`plugin.json` の今の版の見出し（`## [<版>] - <YYYY-MM-DD>`）がその plugin の `CHANGELOG.md` に在ることを確かめる。見るのは見出しが在ることまでで、中身が `## [Unreleased]` に残ったままの形は見ない。
 
-## tag を付ける
+## tag を作らない理由と、依存の版の範囲
 
-- 名前は `<plugin の名前>--v<版>`（例: `gates--v0.11.3`・`graphloops--v0.21.1`）。Claude Code の公式の形に従う（[公式の文書の Create a release tag](https://code.claude.com/docs/en/plugins/dependencies)）。1 つのリポジトリの複数の plugin が、それぞれの版の歴を持てる形である。
-- 付ける commit は、main に入った版上げの commit。その commit の `<根>/.claude-plugin/plugin.json` の `name` と `version` が、tag の名前の plugin と版に一致していること。1 つの commit で複数の plugin の版を上げたなら、その commit に plugin ごとの tag をそれぞれ付ける。
-- marketplace の版（`metadata.version`）には tag を付けない。catalog ごと固定したい利用者は、plugin の tag をそのまま ref に渡せば、その commit の catalog 全体を固定できる。
-- tag を作って push するのは人（外への書き込み）。作り方:
-  - 版上げの commit が今の HEAD なら、公式の `claude plugin tag` で作る（作る前に、版の一致・作業ツリーがきれいなこと・同じ名前の tag が無いことを確かめる）。plugin の根で打つ。根が `./` の plugin（convergence-loops）はリポジトリのルートから打つ。
-  - 過去の commit に付けるなら `git tag <plugin の名前>--v<版> <commit>`。付ける commit の一覧は [ADR 0066](adr/0066-release-tags-and-changelog.md) の「結果」に在る。
-  - 作ったら `git push origin <plugin の名前>--v<版>`。
-- 一度 push した tag は動かさない・消さない。tag で固定して入れている利用者が壊れる。
-- どの版に tag が在るかは、リポジトリの tag の一覧（GitHub の tags か `git ls-remote --tags origin`）で確かめる。
-- graphloops は `dependencies` に convergence-loops の版の範囲（下限）を書いている。範囲を書いた依存は、範囲を満たす tag のうち最も高い版から入る（[公式の文書](https://code.claude.com/docs/en/plugins/dependencies)）。convergence-loops の版を上げたら tag を付け遅れない——付けるまで、graphloops と一緒に入れた利用者には前の tag の版が入る。下限を上げるのは、graphloops が新しい版の口を呼ぶようになったときだけ。
+- graphloops は `dependencies` に convergence-loops の版の範囲（下限）を書いている。Claude Code の文書は、範囲に合う git の tag から入れると書くが、相対パスの plugin（このリポジトリの全部）で範囲に合う tag が無いときは、marketplace の今の写しを使い、読み込むときに範囲を確かめ、外れていれば依存する側を無効のままにする（[公式の文書](https://code.claude.com/docs/en/plugins/dependencies)）。tag を作らないこのリポジトリでは、依存は main の今の版で解決する。
+- だから graphloops の下限を上げるのは、graphloops が新しい版の口を呼ぶようになったときだけにし、上げるなら同じ main に convergence-loops のその版が先に入っていること。下限が main の版より上だと、graphloops が読み込まれない。`graphloops/tests/py/test_intake.py` が、下限がリポジトリの convergence-loops の版以下であることを確かめる。
+- [ADR 0066](adr/0066-release-tags-and-changelog.md) は tag の名前の形（`<plugin の名前>--v<版>`）と付ける commit を決めたが、tag は 1 つも作っていない（2026-10-15 に `git ls-remote --tags origin` で 0 件）。この文書がその決めを置き換える。

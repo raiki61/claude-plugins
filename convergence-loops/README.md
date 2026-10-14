@@ -6,7 +6,7 @@
 
 収束するまで回す 4 つのループを配る。
 
-版ごとの変更は [CHANGELOG.md](CHANGELOG.md)（convergence-loops の記録。ほかの plugin の記録は、それぞれの置き場の CHANGELOG.md）に在る。版の出し方（tag の名前と付ける commit・変更の記録を書き足す段）は [docs/releasing.md](../docs/releasing.md)。
+版ごとの変更は [CHANGELOG.md](CHANGELOG.md)（convergence-loops の記録。ほかの plugin の記録は、それぞれの置き場の CHANGELOG.md）に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)。
 
 - **`/review-loop`** — 実装したコード変更を、レビューと修正を繰り返して収束させる
 - **`/research-loop`** — 設計・手法・技術選定の見立てを、業界 / 学界の一次情報で校正してからドメインに最適化する

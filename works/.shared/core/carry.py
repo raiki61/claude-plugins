@@ -33,7 +33,6 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
 import argparse
 import functools
 import json
-import os
 import pathlib
 import sys
 
@@ -46,6 +45,7 @@ if str(_HERE) not in sys.path:   # 同じ置き場の promptsection
 
 from engine.schema import validate_schema  # noqa: E402
 import promptsection  # noqa: E402
+from jsonfile import write_json  # noqa: E402  （L1。書きかけを見せない JSON の書き口）
 
 # 依頼の容器の欄の名
 FINDINGS, PR, ISSUE, ANSWERS, PRIOR = "findings", "pr", "issue", "answers", "prior_failures"
@@ -203,14 +203,6 @@ def row_key(row: dict) -> str:
     return f"{squeeze(row.get('where'))}\t{squeeze(str(row.get('text') or '').split('（', 1)[0])}"
 
 
-def write(path, doc) -> None:
-    """JSON を一時の名に書いて os.replace で一度に置く（indent 2・字のまま・末尾の改行）"""
-    path = pathlib.Path(path)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-
-
 def _checked(doc, name: str, what: str):
     errs = errors(doc, name)
     if errs:
@@ -225,15 +217,15 @@ def save(board_dir, doc: dict, prior: list) -> tuple:
     d = pathlib.Path(board_dir)
     _checked(prior, PRIOR_SCHEMA, PRIOR_FAILURES_FILE)
     _checked(doc, NEXT_SCHEMA, NEXT_REQUEST_FILE)
-    write(d / PRIOR_FAILURES_FILE, prior)
-    write(d / NEXT_REQUEST_FILE, doc)
+    write_json(d / PRIOR_FAILURES_FILE, prior)
+    write_json(d / NEXT_REQUEST_FILE, doc)
     return d / NEXT_REQUEST_FILE, d / PRIOR_FAILURES_FILE
 
 
 def place_prior(board_dir, rows: list) -> None:
     """依頼の prior_failures を盤面の根の PRIOR_IN_FILE に置く（行が無くても空の配列。PRIOR_SCHEMA に照らす。読み手は manifest の
     consumes で宣言したブロックだけ）"""
-    write(pathlib.Path(board_dir) / PRIOR_IN_FILE, _checked(list(rows), PRIOR_SCHEMA, PRIOR_IN_FILE))
+    write_json(pathlib.Path(board_dir) / PRIOR_IN_FILE, _checked(list(rows), PRIOR_SCHEMA, PRIOR_IN_FILE))
 
 
 def is_redesign(row) -> bool:
@@ -296,7 +288,7 @@ def _carry_cli(request: str, failed: str, out: str) -> int:
     except (OSError, ValueError) as e:
         print(f"carry carry-ci: {' '.join(str(e).split())}", file=sys.stderr)
         return 2
-    write(out, got)
+    write_json(pathlib.Path(out), got)
     return 0
 
 

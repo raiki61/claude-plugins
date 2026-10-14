@@ -465,11 +465,11 @@ class Fences(unittest.TestCase):
             self.assertIsNone(re.search(rf"[\"']{word}[\"']", text), word)
 
     def test_layer_one_imports(self):
-        """chain は標準ライブラリと同じ層 L1 の carry・promptsection（報告の見出しの宣言）だけを import する（層 L1）"""
+        """chain は標準ライブラリと同じ層 L1 の carry・promptsection（報告の見出しの宣言）・jsonfile（JSON の書き口）だけを import する（層 L1）"""
         tree = ast.parse((CORE / "chain.py").read_text(encoding="utf-8"))
         names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-        self.assertLessEqual(names - set(sys.stdlib_module_names), {"carry", "promptsection"})
+        self.assertLessEqual(names - set(sys.stdlib_module_names), {"carry", "promptsection", "jsonfile"})
 
 
 if __name__ == "__main__":
