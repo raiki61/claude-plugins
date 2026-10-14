@@ -38,6 +38,7 @@ WF workflow run works-factory-line --cwd <対象のリポジトリ> --input requ
 - 依頼は、直してほしい事の文か、GitHub の issue の URL。
 - 起動は長くかかるので、Claude Code の Bash の run_in_background で起こし、終わりの知らせで次の手を打つ。`nohup` や `&` で切り離さない（知らせが来ないので、承認ノードで止まった run に気づけない）。
 - run の記録（Archon の家）は対象のリポジトリごとに分かれる。対象の外から打つ時は、どの命令にも `--cwd <対象>` を付ける。
+- 何周もつなぐ時（周の鎖）: `WF workflow run works-factory-chain --cwd <対象> --input rounds=<1〜5> --input request=<依頼>`（費用の上限は `--input budget_usd=<USD>`）。1 周が子の run 1 本で、残りが在れば次の周を起こす。周の中の承認ノードには子の run の id で答える（`WF workflow status --cwd <対象>` で見る）。当てるのは鎖の run（`WF apply <鎖の run> --cwd <対象>`）で、採る周までの最後の差分と、周ごとの表 `chain.md` が置き場に出る。
 
 ## 3. 承認ノードで答える
 
