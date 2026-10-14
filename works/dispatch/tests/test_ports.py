@@ -121,12 +121,14 @@ class Claude(unittest.TestCase):
         self.assertEqual(argv, ["claude", "agents", "--json"])
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], os.path.expanduser("~/acct"))
 
-    def test_sessions_without_config_dir_drops_inherited_one(self):
+    def test_sessions_without_config_dir_keeps_the_users_own_setting(self):
+        # アカウントを切り替えない人: 設定に config_dir を書かない。その人の CLAUDE_CONFIG_DIR（有れば）をそのまま使う
         f = Fake(ok([]))
         claudex.sessions(None, runner=f, base_env={"CLAUDE_CONFIG_DIR": "/x", "PATH": "/bin"})
-        env = f.calls[0][1]
-        self.assertNotIn("CLAUDE_CONFIG_DIR", env)
-        self.assertEqual(env["PATH"], "/bin")
+        self.assertEqual(f.calls[0][1]["CLAUDE_CONFIG_DIR"], "/x")
+        f = Fake(ok([]))
+        claudex.sessions(None, runner=f, base_env={"PATH": "/bin"})
+        self.assertNotIn("CLAUDE_CONFIG_DIR", f.calls[0][1])
 
     def test_non_json_is_an_error(self):
         with self.assertRaises(claudex.ClaudeError):

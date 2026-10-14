@@ -62,10 +62,11 @@ def _has_attention(config_dir):
 class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
-    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None):
+    def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None):
         self._herdr_methods = herdr_methods or herdr.methods
         self._shell_has = shell_has or _shell_has
         self._gh_ok = gh_ok or _gh_ok
+        self.env = os.environ if env is None else env
         self.herdr = herdr
         self.git = gitx
 
@@ -83,10 +84,9 @@ class Ports:
         for a in cfg.accounts:
             if not self._shell_has(a.command):
                 problems.append(f"アカウント {a.name} の起動のコマンド {a.command} がシェルで見つからない")
-            if a.config_dir is None:
-                notes.append(f"アカウント {a.name} は config_dir が無いので、/catchup を持つ attention が入っているかを確かめていない")
-            elif not _has_attention(a.config_dir):
-                problems.append(f"アカウント {a.name}（{a.config_dir}）に attention プラグインが入っていない（/catchup が無い）")
+            cdir = config.effective_config_dir(a, self.env)
+            if not _has_attention(cdir):
+                problems.append(f"アカウント {a.name}（{cdir}）に attention プラグインが入っていない（/catchup が無い）")
             if not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
         for repo in cfg.repos:

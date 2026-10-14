@@ -97,6 +97,16 @@ class Load(unittest.TestCase):
         self.assertIn("none.toml", str(e.exception))
 
 
+class EffectiveConfigDir(unittest.TestCase):
+    def test_named_dir_wins(self):
+        self.assertEqual(config.effective_config_dir(config.Account("a", "c", "/d"), {"CLAUDE_CONFIG_DIR": "/x"}), "/d")
+
+    def test_unset_follows_the_users_env_then_home(self):
+        acct = config.Account("default", "claude", None)
+        self.assertEqual(config.effective_config_dir(acct, {"CLAUDE_CONFIG_DIR": "/x"}), "/x")
+        self.assertEqual(config.effective_config_dir(acct, {"HOME": "/h"}), "/h/.claude")
+
+
 class PickRepo(unittest.TestCase):
     def test_first_repo_by_default_and_named_repo(self):
         d = tempfile.mkdtemp()

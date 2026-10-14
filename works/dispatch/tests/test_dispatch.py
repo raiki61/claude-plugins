@@ -212,6 +212,19 @@ class Preflight(unittest.TestCase):
         self.assertNotIn("元の clone", text)  # 元の clone は o/r の clone なので通る
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
 
+    def test_single_account_user_is_checked_in_the_default_folder(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        home = pathlib.Path(root).parent / "home"
+        (home / ".claude" / "plugins").mkdir(parents=True)
+        (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"attention@x": []}}))
+        cfg = cfg._replace(accounts=(config.Account("default", "claude", None),))
+        ports = dispatch.Ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda: True,
+                               env={"HOME": str(home)})
+        problems, notes = ports.preflight(cfg)
+        self.assertNotIn("attention", "\n".join(problems))
+        self.assertNotIn("attention", "\n".join(notes))
+
     def test_source_of_another_repo_is_a_problem(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})

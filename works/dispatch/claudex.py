@@ -21,7 +21,7 @@ def _default_runner(argv, env=None):
 
 def sessions(config_dir, runner=_default_runner, base_env=None):
     env = dict(os.environ if base_env is None else base_env)
-    env.pop("CLAUDE_CONFIG_DIR", None)
+    # config_dir が無い（アカウントを切り替えない人）なら、その人の CLAUDE_CONFIG_DIR（有れば）をそのまま使う
     if config_dir:
         env["CLAUDE_CONFIG_DIR"] = os.path.expanduser(config_dir)
     argv = ["claude", "agents", "--json"]

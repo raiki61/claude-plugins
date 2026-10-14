@@ -125,3 +125,13 @@ def pick_repo(cfg, name):
 def clone_path(repo, number):
     """PR ごとの clone のフォルダ: <clone_root>/<リポジトリの名前>-pr-<番号>。herdr の作業場の名前もこの最後の部分にそろえる。"""
     return os.path.join(repo.clone_root, f"{repo.repo.split('/')[-1]}-pr-{number}")
+
+
+def effective_config_dir(account, env=os.environ):
+    """そのアカウントの Claude Code の設定のフォルダ。設定に書かなければ、利用者の CLAUDE_CONFIG_DIR、無ければ ~/.claude。
+
+    アカウントを切り替えない人は config_dir を書かない。その人の Claude Code がふだん使うフォルダを、そのまま指す。
+    """
+    if account.config_dir:
+        return account.config_dir
+    return env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
