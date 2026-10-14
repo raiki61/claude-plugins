@@ -21,12 +21,9 @@ import sys
 sys.dont_write_bytecode = True   # python3 -I は PYTHONDONTWRITEBYTECODE を見ないので、pack に __pycache__ を作らない
 
 import argparse  # noqa: E402
-import hashlib  # noqa: E402
-import json  # noqa: E402
 import os  # noqa: E402
 import pathlib  # noqa: E402
 import subprocess  # noqa: E402
-import unicodedata  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))   # -I はスクリプトのフォルダを sys.path に入れない
 import claude_auth  # noqa: E402
@@ -44,31 +41,6 @@ def user_runner(user_home):
     """security を利用者の HOME で起こす runner（写しの read_keychain に渡す）"""
     def run(args, **kw):
         return subprocess.run(args, env={**os.environ, "HOME": user_home}, **kw)
-    return run
-
-
-def claude_code_items(user_config):
-    """Claude Code 自身が keychain に認証を置く項目の名の候補（先に試す物から）。CLAUDE_CONFIG_DIR を設定した Claude Code は
-    `Claude Code-credentials-<その値（NFC）の sha256 の頭 8 桁>` に置き、無ければ `Claude Code-credentials`"""
-    items = []
-    if user_config:
-        digest = hashlib.sha256(unicodedata.normalize("NFC", user_config).encode("utf-8")).hexdigest()[:8]
-        items.append("Claude Code-credentials-" + digest)
-    items.append("Claude Code-credentials")
-    return items
-
-
-def login_json_runner(runner):
-    """Claude Code の項目の値は JSON（claudeAiOauth.accessToken）かトークンそのもの。JSON ならトークンだけに替えて返す runner
-    （時間切れ・例外・sk-ant-oat01- の検査は写しの read_keychain に任せる）"""
-    def run(args, **kw):
-        p = runner(args, **kw)
-        raw = (p.stdout or "").strip()
-        try:
-            tok = ((json.loads(raw) or {}).get("claudeAiOauth") or {}).get("accessToken") or ""
-        except (ValueError, AttributeError):
-            return p
-        return subprocess.CompletedProcess(args, getattr(p, "returncode", 0), stdout=tok if isinstance(tok, str) else "")
     return run
 
 
@@ -90,11 +62,11 @@ def resolve(env, user_home, user_config, platform=sys.platform, runner=None):
             return got, name, None
         return got, "keychain の項目 %s（CLAUDE_KEYCHAIN_SERVICE か設定の置き場から導いた名）" % note[len("keychain("):-1], None
     if platform == "darwin":
-        for service in claude_code_items(user_config):
-            tok, _ = claude_auth.read_keychain(service, login_json_runner(runner))
+        for service in claude_auth.claude_code_items(user_config):
+            tok, _ = claude_auth.read_keychain(service, claude_auth.login_json_runner(runner))
             if tok:
                 return {"CLAUDE_CODE_OAUTH_TOKEN": tok}, "Claude Code の keychain の項目 " + service, None
-    return None, None, "%s、Claude Code の keychain の項目 %s にも無い" % (note, " ".join(claude_code_items(user_config)))
+    return None, None, "%s、Claude Code の keychain の項目 %s にも無い" % (note, " ".join(claude_auth.claude_code_items(user_config)))
 
 
 def child_env(env, got, named):

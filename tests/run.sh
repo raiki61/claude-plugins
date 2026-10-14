@@ -5701,6 +5701,9 @@ expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループ
 # 直す側と見る側が別々に古くなる。走査対象は印から導く（名前を手で並べない）。
 expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(認証の段)が、写し先を持ちバイト単位で同一" \
     "$PY_BIN" "$ROOT/scripts/shared-copies.py"
+# 共有の認証の部品のうち、アカウントの OAuth トークンを探す口（account_token）。Keychain と資格情報のファイルは偽物
+expect_output 0 "OK" "共有の認証の部品: アカウントのトークンを、作った項目・Claude Code の項目・資格情報のファイルの順に探す" \
+    "$PY_BIN" -B "$ROOT/tests/claude-auth-suite.py"
 
 # **検証器の同型部分は、順序まで揃っていること。** 検証器は 1 本ずつ配る前提で共有モジュールを持たないので
 # `_rows`（表の組み立て）と `fail`（exit 2 で落とす口）が各本に写される。**写しは中身でなく順序で割れた**
