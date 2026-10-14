@@ -6,6 +6,10 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Added
+
+- `whose-turn.py --json`。「自分の番」の節の PR だけを、機械が読む JSON（`{"schema": 1, "repo", "login", "generated_at", "prs": [{number, url, title, head, role, days}]}`）で出す。`--all`・`--materials`・`--out` とは一緒に使えない。works の dispatch が使う。
+
 ## [0.25.2] - 2026-09-27
 
 ### Added
