@@ -22,6 +22,7 @@
 
 import argparse
 import datetime
+import http.client
 import json
 import math
 import os
@@ -260,6 +261,11 @@ def fetch(tok):
         return _header_text(e.headers)
 
 
+def probe_env(env):
+    """鍵を探すときの環境。シェル全体に効く上書き CLAUDE_KEYCHAIN_SERVICE を外す（残すと全アカウントが同じ鍵になる）。"""
+    return {k: v for k, v in env.items() if k != "CLAUDE_KEYCHAIN_SERVICE"}
+
+
 def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch):
     """取り直しの要るアカウントだけ、順に問い合わせて控えを書く。失敗は probe.log に残し、黙って落とさない。
 
@@ -268,7 +274,7 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch):
     """
     if token is None:
         def token(user_config, explicit):
-            return claude_auth.account_token(user_config, env, explicit)
+            return claude_auth.account_token(user_config, probe_env(env), explicit)
     d = pathlib.Path(limits_dir)
     d.mkdir(parents=True, exist_ok=True)
     for a in accounts:
@@ -287,8 +293,8 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch):
         else:
             try:
                 snap = from_headers(fetch(tok), now)
-            except OSError as e:
-                _log(d, f"{a.name}: 通信に失敗（プロキシの設定か通信断）: {e}")
+            except (OSError, http.client.HTTPException) as e:
+                _log(d, f"{a.name}: 通信に失敗（プロキシの設定か通信断）: {e!r}")
             else:
                 if snap is None:
                     _log(d, f"{a.name}: 応答に ratelimit のヘッダが無い（鍵の期限切れか、使用率の枠の無いアカウント）")

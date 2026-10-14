@@ -62,11 +62,11 @@ def resolve(env, user_home, user_config, platform=sys.platform, runner=None):
             return got, name, None
         return got, "keychain の項目 %s（CLAUDE_KEYCHAIN_SERVICE か設定の置き場から導いた名）" % note[len("keychain("):-1], None
     if platform == "darwin":
-        for service in claude_auth.claude_code_items(user_config):
+        for service in claude_auth.claude_code_items(user_config, user_home):
             tok, _ = claude_auth.read_keychain(service, claude_auth.login_json_runner(runner))
             if tok:
                 return {"CLAUDE_CODE_OAUTH_TOKEN": tok}, "Claude Code の keychain の項目 " + service, None
-    return None, None, "%s、Claude Code の keychain の項目 %s にも無い" % (note, " ".join(claude_auth.claude_code_items(user_config)))
+    return None, None, "%s、Claude Code の keychain の項目 %s にも無い" % (note, " ".join(claude_auth.claude_code_items(user_config, user_home)))
 
 
 def child_env(env, got, named):

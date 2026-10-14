@@ -151,6 +151,26 @@ class ProbeAll(unittest.TestCase):
         self.assertIn("接続できない", (self.dir / "probe.log").read_text())
         self.assertFalse((self.dir / "a0.json").exists())
 
+    def test_shared_keychain_override_does_not_apply_to_every_account(self):
+        # CLAUDE_KEYCHAIN_SERVICE はシェル全体に効く上書きで、残すと全アカウントが同じ鍵（同じ使用率）になる。
+        # 既定の鍵の探し方（probe_all が account_token に渡す環境）からは外す。アカウントごとの名前は keychain_service で書く
+        env = limits.probe_env({"HOME": "/h", "CLAUDE_KEYCHAIN_SERVICE": "one-item"})
+        self.assertEqual(env, {"HOME": "/h"})
+
+    def test_http_level_failure_is_logged_and_the_next_account_still_probed(self):
+        import http.client
+        asked = []
+
+        def flaky(tok):
+            asked.append(tok)
+            if len(asked) == 1:
+                raise http.client.IncompleteRead(b"")
+            return HEADERS
+        self.run_probe(accounts(2), fetch=flaky)
+        self.assertEqual(len(asked), 2)
+        self.assertIn("a0", (self.dir / "probe.log").read_text())
+        self.assertTrue((self.dir / "a1.json").is_file())
+
     def test_fresh_account_is_skipped_and_failure_is_logged_and_waits(self):
         (self.dir / "a0.json").write_text(json.dumps({"five_hour": win(1, NOW + 60), "seven_day": win(1, NOW + 60)}))
         asked = self.run_probe(accounts(2), token=lambda user_config, explicit: (None, "keychain-miss"))

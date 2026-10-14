@@ -95,15 +95,19 @@ def read_keychain(service, runner=subprocess.run):
     return tok, "keychain"
 
 
-def claude_code_items(user_config):
+def claude_code_items(user_config, home=None):
     """Claude Code 自身が Keychain に認証を置く項目の名の候補（先に試す物から）。CLAUDE_CONFIG_DIR を設定した Claude Code は
     `Claude Code-credentials-<その値（NFC）の sha256 の頭 8 桁>` に置き、無ければ `Claude Code-credentials`。
-    user_config は Claude Code を起こすときの CLAUDE_CONFIG_DIR の値（入れずに起こすなら None）。"""
-    items = []
-    if user_config:
-        digest = hashlib.sha256(unicodedata.normalize("NFC", user_config).encode("utf-8")).hexdigest()[:8]
-        items.append("Claude Code-credentials-" + digest)
-    items.append("Claude Code-credentials")
+    user_config は Claude Code を起こすときの CLAUDE_CONFIG_DIR の値（入れずに起こすなら None）。
+    足し書きの無い項目は既定のアカウントの物なので、user_config が既定のフォルダ（<home>/.claude）のときだけ候補に足す。
+    別のフォルダのアカウントがそれを読むと、黙って別のアカウントの鍵で動く。"""
+    if not user_config:
+        return ["Claude Code-credentials"]
+    digest = hashlib.sha256(unicodedata.normalize("NFC", user_config).encode("utf-8")).hexdigest()[:8]
+    items = ["Claude Code-credentials-" + digest]
+    default = os.path.join(home or str(pathlib.Path.home()), ".claude")
+    if os.path.normpath(os.path.expanduser(user_config)) == os.path.normpath(default):
+        items.append("Claude Code-credentials")
     return items
 
 
@@ -138,7 +142,7 @@ def account_token(user_config, env, explicit=None, platform=sys.platform, runner
     cfg = user_config or str(pathlib.Path(env.get("HOME") or pathlib.Path.home()) / ".claude")
     tried = []
     if platform == "darwin":
-        for service in [keychain_service(cfg, env, explicit)] + claude_code_items(user_config):
+        for service in [keychain_service(cfg, env, explicit)] + claude_code_items(user_config, env.get("HOME")):
             tok, note = read_keychain(service, login_json_runner(runner))
             if tok:
                 return tok, "keychain(%s)" % service

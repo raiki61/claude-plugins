@@ -61,7 +61,18 @@ class AccountToken(unittest.TestCase):
     def test_default_folder_uses_the_plain_item(self):
         # CLAUDE_CONFIG_DIR を入れずに起こす claude は、名前に足し書きの無い項目を使う
         self.assertEqual(claude_auth.claude_code_items(None), ["Claude Code-credentials"])
-        self.assertEqual(len(claude_auth.claude_code_items("/h/.claude-x")), 2)
+        # 既定のフォルダを名指したときだけ、足し書きの無い項目も試す
+        self.assertEqual(claude_auth.claude_code_items("/h/.claude", home="/h")[1:], ["Claude Code-credentials"])
+
+    def test_other_folder_never_falls_back_to_the_default_accounts_item(self):
+        # 足し書きの無い項目は既定のアカウントの物。別のフォルダのアカウントがそれを読むと、別のアカウントの鍵で動く
+        items = claude_auth.claude_code_items("/h/.claude-x", home="/h")
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0].startswith("Claude Code-credentials-"))
+        login = json.dumps({"claudeAiOauth": {"accessToken": TOK}})
+        tok, note = claude_auth.account_token("/h/.claude-x", {"HOME": "/h"}, None, "darwin",
+                                              keychain({"Claude Code-credentials": login}))
+        self.assertIsNone(tok)
 
     def test_credentials_file_when_there_is_no_keychain(self):
         d = pathlib.Path(tempfile.mkdtemp())
