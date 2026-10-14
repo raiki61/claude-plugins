@@ -41,9 +41,9 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
 
 
 def _shell_has(cmd):
-    """作業場と同じ種類のシェル（利用者のログインのシェル）で、そのコマンドが見つかるか。シェルの関数も数える。"""
+    """作業場と同じ種類のシェル（利用者のログインかつ対話のシェル。-lic）で、そのコマンドが見つかるか。シェルの関数も数える。"""
     shell = os.environ.get("SHELL") or "/bin/sh"
-    p = subprocess.run([shell, "-ic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True)
+    p = subprocess.run([shell, "-lic", f"command -v {shlex.quote(cmd)}"], capture_output=True, text=True)
     return p.returncode == 0
 
 
@@ -83,7 +83,7 @@ def _login_config_dir(env=os.environ, runner=subprocess.run):
     """
     child = {k: v for k, v in env.items() if k != "CLAUDE_CONFIG_DIR"}
     shell = env.get("SHELL") or "/bin/sh"
-    p = runner([shell, "-ic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, env=child)
+    p = runner([shell, "-lic", f'printf "\\n{MARK}%s@@\\n" "${{CLAUDE_CONFIG_DIR-}}"'], capture_output=True, text=True, env=child)
     for line in (p.stdout or "").splitlines():
         if line.startswith(MARK) and line.endswith("@@"):
             return line[len(MARK):-2] or None

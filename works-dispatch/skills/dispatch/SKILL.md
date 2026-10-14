@@ -17,6 +17,8 @@ AI は使わない。このスキルは下のスクリプトを走らせ、出�
 python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
 ```
 
+PR を開く回（引数なし・`--pr`）は、Bash の道具の `run_in_background` で走らせ、終わりの知らせが来てから出力を見せる。dispatch は各 PR の `/catchup` が終わるのを待ってから 2 ターン目を送るので、数分かかる。前で走らせると、Bash の道具の時間の上限で止められ、2 ターン目も報告も出ない。`--dry-run`・`--check`・`--clean`・`--init` はすぐ終わるので、前で走らせてよい。
+
 ## 前提（`--check` が全部確かめる）
 
 - [herdr](https://herdr.dev)（端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具）が動いている。
@@ -56,13 +58,13 @@ dispatch はこれが無くても動く。PR ごとの作業場が増えたと�
    ```
 
    使用率の控えは、dispatch がアカウントを選ぶのにも使う。Claude Code の statusline のコマンドから、受けた JSON を `limits.py record` の標準入力にも渡すと、使っているアカウントの 5 時間の枠がすぐ動く。社内のプロキシの内側では、herdr を起こすシェルに `HTTPS_PROXY` が要る。失敗は `~/.cache/claude-limits/probe.log` に残る。
-3. **サイドバーに、会話ごとの作業内容を出す。** Claude Code の設定（各アカウントの `settings.json`）の `hooks` の `UserPromptSubmit`・`PreToolUse`・`Stop`・`Notification` に、次のコマンドを置く。作業中は動いているツールを、ターンが終わると直前に頼んだ内容を出す。
+3. **サイドバーに、会話ごとの作業内容を出す。** 作業中は動いているツールを、ターンが終わると直前に頼んだ内容を出す。次のコマンドが出す `hooks` の塊を、各アカウントの Claude Code の設定（`settings.json`）に足す。すでに `hooks` があれば、出来事ごとの並びに足す。
 
    ```
-   python3 <プラグインの場所>/dispatch/activity.py
+   python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/activity.py" settings
    ```
 
-   プラグインの場所は、`echo "${CLAUDE_PLUGIN_ROOT}"` で分かる。そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く。
+   そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く。
 
 2 と 3 の行は、プラグインの入った場所（版ごとのフォルダ）を指す。プラグインを更新すると、そのフォルダが消えることがある。消えた場所を指していれば `--check` が知らせるので、そのときは行を出し直す。
 
@@ -72,10 +74,11 @@ dispatch はこれが無くても動く。PR ごとの作業場が増えたと�
 - `--dry-run`: 何も起こさず、どの PR をどのアカウント・どの作業場で開くかだけを出す。
 - `--pr N`: 指した番号の PR だけを開く。複数なら `--pr` を重ねる。止めている実装や、見に行くだけの PR に使う。
 - `--no-second`: `/catchup` だけで止め、2 ターン目の文を送らない。
-- `--clean`: 消してよい作業場を並べる。消してよいのは、PR が閉じていて、会話が無く、push していない変更も無いものだけ。`--clean --apply` で本当に消す。
+- `--clean`: 消してよい作業場を並べる。消してよいのは、PR が閉じていて、会話が無く、未コミットの変更・git に足していないファイル・push していない commit・stash のどれも無いものだけ。`--clean --apply` で本当に消す。
 - `--check`: 前提だけを確かめる。
 
 ## しないこと
 
 - 開いている会話は閉じない。同じリポジトリとブランチの会話が開いていれば、その PR は飛ばす。
+- シェルではない物（エディタ・dev server・別の会話）が前に居るペインには打ち込まない（`pane_busy`）。起こした Claude Code が信頼やログインの確認の画面で止まったら、`/catchup` を送らずに `blocked` と報告する。
 - 依存（`.venv`・`node_modules`）は入れない。試験を走らせる段になってから、その会話の中で入れる。

@@ -5,8 +5,9 @@ PR ごとの作業場がいくつも並ぶと、サイドバーの作業場の�
 herdr の端末のタイトルは会話の始めに一度だけ付く名前で、そのあと変わらないので、見分けには使えない。
 作業中は動いているツール、ターンが終わったら直前に頼まれた内容を、herdr のペインの印（カスタムのトークン $act）として送る。
 
-使い方: Claude Code の設定（settings.json）の hooks の UserPromptSubmit・PreToolUse・Stop・Notification に
-`python3 <このファイル>` を置き、herdr の設定の [ui.sidebar.agents.rows_by_agent] の claude の行に $act を置く（SKILL.md）。
+使い方: `python3 <このファイル> settings` が、Claude Code の設定（settings.json）に足す hooks の塊（UserPromptSubmit・PreToolUse・
+Stop・Notification で `python3 <このファイル>` を呼ぶ）を JSON で出す。herdr の設定の [ui.sidebar.agents.rows_by_agent] の claude の行に
+$act を置く（SKILL.md）。引数なしで起こすと、フックとして標準入力の 1 回ぶんを処理する。
 herdr の外で動く会話では何もしない。herdr への送信は待たずに手放し、ツールの呼び出しを待たせない。
 """
 
@@ -87,7 +88,19 @@ def handle(text, env, send=herdr.report_activity):
         send(pane, line, TTL_MS)
 
 
+EVENTS = ("UserPromptSubmit", "PreToolUse", "Stop", "Notification")
+
+
+def settings(script):
+    """settings.json に足す hooks の塊。PreToolUse は全部のツールに当てる（matcher は空）。"""
+    hook = [{"type": "command", "command": f"python3 {script}"}]
+    return {"hooks": {e: [{"matcher": "", "hooks": hook} if e == "PreToolUse" else {"hooks": hook}] for e in EVENTS}}
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["settings"]:
+        print(json.dumps(settings(str(pathlib.Path(__file__).resolve())), ensure_ascii=False, indent=2))
+        sys.exit(0)
     try:
         handle(sys.stdin.read(), os.environ)
     except Exception:  # noqa: BLE001 — サイドバーの表示のために、Claude Code の作業を止めない

@@ -11,5 +11,5 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 - `/works-dispatch:dispatch` スキルと `dispatch/dispatch.py`。自分の番の PR（attention の whose-turn）を、PR ごとの作業場（代表の clone から作る `<名前>-pr-<番号>` の clone と、同じ名前の herdr の作業場）に開き、週の使用率のリセットが近いアカウント（95% を超えるものは外す）で Claude Code を起こして、`/<プラグイン名>:catchup <番号>` と設定の 2 ターン目の文を送る。AI は使わない。開いている会話は閉じず、同じリポジトリとブランチの会話が開いていれば飛ばす。引数は `--dry-run`・`--pr N`・`--no-second`・`--clean [--apply]`・`--init`・`--check`。前提と、試しの実行で確かめた外の道具の振る舞いは README に在る。
 - アカウントの書き方を 3 通りにした。`claude` をそのまま使う形、設定のフォルダを分ける形（鍵の Keychain の項目の名前を `keychain_service` で上書きできる）、使用率の枠の無い形（`limits = false`。Ollama・Foundry など）。数に決まりは無い。
 - `dispatch/limits.py`（任意）。アカウントごとの使用率の控えを作り、herdr のタブ欄に 1 行ずつ出す。`herdr-config` が herdr の設定に貼る行を出す。
-- `dispatch/activity.py`（任意）。Claude Code のフックから、herdr のサイドバーに会話ごとの作業内容を出す。
+- `dispatch/activity.py`（任意）。Claude Code のフックから、herdr のサイドバーに会話ごとの作業内容を出す。`activity.py settings` が settings.json に足す hooks の塊を出す。
 - `--check` が、アカウントごとの herdr の連携と、herdr の設定やフックが消えたプラグインのフォルダを指していないかも見る。

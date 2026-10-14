@@ -55,5 +55,15 @@ class Handle(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
 
+class Settings(unittest.TestCase):
+    def test_prints_the_hooks_block_for_settings_json(self):
+        got = activity.settings("/p/dispatch/activity.py")
+        hooks = got["hooks"]
+        self.assertEqual(sorted(hooks), ["Notification", "PreToolUse", "Stop", "UserPromptSubmit"])
+        for rows in hooks.values():
+            self.assertEqual(rows[0]["hooks"], [{"type": "command", "command": "python3 /p/dispatch/activity.py"}])
+        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

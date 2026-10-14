@@ -308,8 +308,15 @@ class RealPorts(unittest.TestCase):
         def run(argv, **kw):
             seen.append(kw["env"])
             return subprocess.CompletedProcess(argv, 0, "welcome!\n@@CLAUDE_CONFIG_DIR=/h/.claude-x@@\n", "")
-        self.assertEqual(dispatch._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run), "/h/.claude-x")
+        argv = []
+
+        def run2(a, **kw):
+            argv.append(a)
+            return run(a, **kw)
+        self.assertEqual(dispatch._login_config_dir({"SHELL": "/bin/zsh", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, run2), "/h/.claude-x")
         self.assertNotIn("CLAUDE_CONFIG_DIR", seen[0])
+        # ペインのシェルと同じく、ログインのシェルの設定（.zprofile・.bash_profile）も、対話のシェルの設定も読ませる
+        self.assertEqual(argv[0][:2], ["/bin/zsh", "-lic"])
 
         def empty(argv, **kw):
             return subprocess.CompletedProcess(argv, 0, "@@CLAUDE_CONFIG_DIR=@@\n", "")
