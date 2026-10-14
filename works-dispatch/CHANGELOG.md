@@ -6,6 +6,18 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-15
+
+### Fixed
+
+- Windows で、`--clean --apply` が PR ごとの clone を消せなかった。Windows の git は `.git/objects/` の中を読み取り専用で作るので、そのままでは消せない。読み取り専用を外して消し直す。作業場を作りかけで失敗したときの片付けも同じ理由で作りかけを残し、次の回にそれを別のリポジトリのフォルダとみなしていた。これも直した。
+- Windows で、作業場のペインのシェルを POSIX のシェル（`/bin/sh`）で起こそうとして落ちていた。POSIX のシェルが無ければ、コマンドは PATH の上で探し、ペインは既定のフォルダとみなす。
+- Windows の `\` の区切りのパスで、消えたプラグインのパスの検出（`--check`）が古いパスを見落とすか、別のパスを報告していた。手元のパスの origin から OWNER/NAME を取れず、作った clone の読み戻しが落ちていた。`limits.py herdr-config` が出す行も、`\` を含むパスで herdr の TOML を壊していた。
+
+### Changed
+
+- `--clean --apply` は、1 件でも消せなければ終了コード 1 で終わる（前は 0）。
+
 ## [0.1.3] - 2026-10-15
 
 ### Fixed
