@@ -217,6 +217,11 @@ class FakePorts(dispatch.Ports):
         return 0
 
     trust_outcome = "inherited"
+    opened = None   # open_pages に渡された番号（呼ばれなければ None）
+
+    def open_pages(self, repo, numbers):
+        self.opened = list(numbers)
+        return f"開いた: {numbers}" if numbers else None
 
     def catchup_command(self, config_dir):
         return "/attention:catchup"
@@ -279,6 +284,19 @@ class Main(unittest.TestCase):
         self.assertEqual(ports.refreshed, [["a1"], ["a1"]])
         self.assertEqual(ports.saved_cost, {"seven_day": [1.0], "five_hour": [2.5]})
         self.assertIn("1 件あたりの使用率をまだ測っていない", out)
+
+    def test_sent_pages_are_opened_once_after_all_are_sent(self):
+        # 起こした会話には開かせない（ATTENTION_CATCHUP_OPEN=0）ので、送り終えた件のページを dispatch が 1 回開く
+        ports = FakePorts([pr(1), pr(2)])
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(sorted(ports.opened), [1, 2])
+        self.assertIn("開いた: ", out)
+
+    def test_dry_run_opens_nothing(self):
+        ports = FakePorts([pr(1)])
+        run_main(["--config", self.cfg, "--dry-run"], ports)
+        self.assertIsNone(ports.opened)
 
     def test_measured_cost_is_named_in_the_report(self):
         ports = FakePorts([pr(1)])

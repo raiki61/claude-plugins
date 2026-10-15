@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 全件を送り終えた後に、送った PR の `/catchup` のページを、生きている VS Code の窓にタブで開くようにした。起こした会話ごとには開かない（`ATTENTION_CATCHUP_OPEN=0`）ので、これまではページが書かれても目の前に出ず、一覧のページのリンクは SSH 越しの VS Code で辿れなかった。
+
 ## [0.3.3] - 2026-10-15
 
 ### Changed

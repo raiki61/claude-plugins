@@ -17,7 +17,7 @@ SKIP = ("tests", "vendor")
 OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 
 # D4: subprocess を import してよい所（外への口・whose-turn を呼ぶ prs・始める前の確かめを持つ入口）
-SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "nodes/prs.py", "dispatch.py"}
+SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "nodes/prs.py", "dispatch.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
 WRITES = {
