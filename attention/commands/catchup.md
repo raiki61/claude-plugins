@@ -114,7 +114,7 @@ allowed-tools: Bash, Read, Write
    - 会話に GitHub に無い依頼（口頭・チャットのレビュー依頼など）が出ていれば、立場は会話の側を信じて書く（私が動かせる）。GitHub に依頼が無いことは 1 文添える
    - 取り込みが「GitHub が判定中（UNKNOWN）」なら `gh pr view <番号> --json mergeable -q .mergeable` を 1 回だけ引き直す（機械を丸ごとは呼び直さない）。まだ UNKNOWN なら「衝突の有無は GitHub が判定中（未確認）」と書く
 4. **欄の JSON を書く**（下の「欄」）。置き場は、描く材料の path の `.json` を `-fields.json` に替えた path（同じ一時の階層）。Write で書く。
-5. **描く**: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/catchup.py --render <描く材料の path> <欄の JSON の path>`。欄に直す所があれば、機械が 1 件 1 行で言って終了コード 2 で止まる——直して呼び直す。
+5. **描く**: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/catchup.py --render <描く材料の path> <欄の JSON の path>`。欄に直す所があれば、機械が 1 件 1 行で言って終了コード 2 で止まる——直して呼び直す。機械が `--out` のときに「描く材料を組めなかった」と言っていれば、ページは描けない——欄に書くはずだった中身（`headline`・`where`・`turn`・`next`）を端末に短く返し、ページを描けなかったことと機械の言い分を 1 文添える。
 6. **返答**: 機械が標準出力に出した 2 行——ページの path と 1 行の要約——だけを、そのまま返す。説明・指摘・差分を端末に書き足さない（ページに在る）。全文を求められたときだけ、報告のファイルを 1 文字も変えずにコードブロックで貼る。
 
 ## 欄（AI が書く JSON）
