@@ -11,6 +11,7 @@ remove_worktree）。ノードは「枝の場所」の言葉だけで書き、he
 """
 
 import json
+import os
 import subprocess
 import time
 
@@ -175,9 +176,16 @@ def prompt(target, text, wait, runner=_default_runner, until=()):
     return result.get("agent", {}).get("agent_status", "idle")
 
 
+def _norm(path):
+    """herdr から受け取ったパスを、ここで 1 回だけ os.path.normpath にそろえる。中ではそろえた形だけを使う。
+    herdr が返すのは git の worktree list と同じ `/` 区切りで、Windows では os.path.join で作るパス（`\` 区切り）と字が
+    食い違い、同じ場所を別物とみなしていた（2026-10-15 の CI の windows の組）。比べる所は realpath を使うので、それとも矛盾しない。"""
+    return os.path.normpath(path) if path else path
+
+
 def _place(worktree):
     """herdr の worktree の 1 件を、場所の言葉（path・branch・linked・workspace・prunable）にする。"""
-    return {"path": worktree.get("path"), "branch": None if worktree.get("is_detached") else worktree.get("branch"),
+    return {"path": _norm(worktree.get("path")), "branch": None if worktree.get("is_detached") else worktree.get("branch"),
             "linked": bool(worktree.get("is_linked_worktree")), "workspace": worktree.get("open_workspace_id"),
             "prunable": bool(worktree.get("is_prunable"))}
 
@@ -192,7 +200,7 @@ def worktrees(source, runner=_default_runner):
 def _opened(result):
     """worktree create・open の結果から {path, branch, workspace_id, pane_id}。"""
     wt = result.get("worktree", {})
-    return {"path": wt.get("path"), "branch": wt.get("branch"),
+    return {"path": _norm(wt.get("path")), "branch": wt.get("branch"),
             "workspace_id": (result.get("workspace") or {}).get("workspace_id") or wt.get("open_workspace_id"),
             "pane_id": (result.get("root_pane") or {}).get("pane_id")}
 
@@ -222,7 +230,7 @@ def remove_worktree(source, path, label, runner=_default_runner):
     ws = _opened(_call(["herdr", "worktree", "open", "--cwd", source, "--path", path, "--label", label, "--no-focus"],
                        runner))["workspace_id"]
     got = _call(["herdr", "worktree", "remove", "--workspace", ws], runner)
-    return {"path": got.get("path"), "workspace_id": got.get("workspace_id")}
+    return {"path": _norm(got.get("path")), "workspace_id": got.get("workspace_id")}
 
 
 def close_workspace(workspace_id, runner=_default_runner):

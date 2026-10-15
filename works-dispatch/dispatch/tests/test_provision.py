@@ -126,7 +126,8 @@ class WorktreeHerdr:
         out, cur = [], None
         for line in git("-C", source, "worktree", "list", "--porcelain").splitlines() + [""]:
             if line.startswith("worktree "):
-                cur = {"path": line[len("worktree "):], "branch": None, "prunable": False}
+                # herdr アダプタと同じく、外（git）から受け取ったパスを入口で 1 回だけ normpath にそろえる
+                cur = {"path": os.path.normpath(line[len("worktree "):]), "branch": None, "prunable": False}
             elif line.startswith("branch refs/heads/") and cur:
                 cur["branch"] = line[len("branch refs/heads/"):]
             elif line.startswith("prunable") and cur:
@@ -145,7 +146,7 @@ class WorktreeHerdr:
 
     def create_worktree(self, source, branch, base, label):
         self.writes.append(("create_worktree", branch, label))
-        path = os.path.join(self.root, re.sub(r"[^A-Za-z0-9._-]", "-", branch))
+        path = os.path.normpath(os.path.join(self.root, re.sub(r"[^A-Za-z0-9._-]", "-", branch)))
         has = subprocess.run(["git", "-C", source, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
                              capture_output=True).returncode == 0
         p = subprocess.run(["git", "-C", source, "worktree", "add", "-q", *([path, branch] if has else ["-b", branch, path, base])],

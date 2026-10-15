@@ -200,6 +200,18 @@ class HerdrWorktree(unittest.TestCase):
              "prunable": False}])
         self.assertEqual(f.calls[0][0], ["herdr", "worktree", "list", "--cwd", "/s/repo"])
 
+    def test_paths_from_herdr_are_normalized_once_at_the_entry(self):
+        # herdr は git と同じく `/` 区切りで返す。Windows では os.path.join のパスと字が食い違うので、入口で normpath にそろえる
+        raw = "/h/.herdr/worktrees/repo/./feat-a/"
+        got = {**WT_LIST, "result": {**WT_LIST["result"], "worktrees": [{**WT_LIST["result"]["worktrees"][1], "path": raw}]}}
+        self.assertEqual(herdr.worktrees("/s/repo", runner=Fake(ok(got)))[0]["path"], os.path.normpath(raw))
+        made = {**WT_CREATE, "result": {**WT_CREATE["result"], "worktree": {**WT_CREATE["result"]["worktree"], "path": raw}}}
+        self.assertEqual(herdr.create_worktree("/s/repo", "feat-a", "origin/feat-a", "repo/feat-a", runner=Fake(ok(made)))["path"],
+                         os.path.normpath(raw))
+        gone = {**WT_REMOVE, "result": {**WT_REMOVE["result"], "path": raw}}
+        self.assertEqual(herdr.remove_worktree("/s/repo", "/p", "repo/x", runner=Fake(ok(WT_OPEN), ok(gone)))["path"],
+                         os.path.normpath(raw))
+
     def test_detached_checkout_has_no_branch(self):
         got = {**WT_LIST, "result": {**WT_LIST["result"], "worktrees": [
             {**WT_LIST["result"]["worktrees"][1], "branch": None, "is_detached": True}]}}
