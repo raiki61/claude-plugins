@@ -1,9 +1,13 @@
 """herdr への口。dispatch で herdr を呼ぶのはこの 1 か所だけ（設計書 4 節）。
 
 herdr は版が 0.x で互換を約束していない。herdr の文書は、手元の版の API を `herdr api schema` で確かめるよう求めている。
-出力の形が変わって壊れたら、直すのはこのファイルだけになる。出力の形は 2026-10-14 に herdr 0.9.3 の実物で読んだ。
+出力の形が変わって壊れたら、直すのはこのファイルだけになる。出力の形は 2026-10-14 と 2026-10-15 に herdr 0.9.3 の実物で読んだ。
 
-書く関数は run・prompt・create_workspace・close_workspace・report_activity で、呼んでよいノードは柵（tests/fences.py の D4 の表）が構文木で見る。
+作業場の場所（元の clone の git worktree）も、作る・並べる・開く・消すをここに寄せる（worktrees・create_worktree・open_worktree・
+remove_worktree）。ノードは「枝の場所」の言葉だけで書き、herdr の worktree の口の形を知らない。
+
+書く関数は run・prompt・create_worktree・open_worktree・remove_worktree・close_workspace・report_activity で、
+呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
 import json
@@ -171,12 +175,54 @@ def prompt(target, text, wait, runner=_default_runner, until=()):
     return result.get("agent", {}).get("agent_status", "idle")
 
 
-def create_workspace(cwd, label, runner=_default_runner):
-    """作業フォルダを cwd にして herdr の作業場を開く（前に出さない）。{"workspace_id", "pane_id"} を返す。書く口。"""
-    r = _call(["herdr", "workspace", "create", "--cwd", cwd, "--label", label, "--no-focus"], runner)
-    ws = r.get("workspace", {})
-    pane = r.get("root_pane", {})
-    return {"workspace_id": ws.get("workspace_id"), "pane_id": pane.get("pane_id")}
+def _place(worktree):
+    """herdr の worktree の 1 件を、場所の言葉（path・branch・linked・workspace・prunable）にする。"""
+    return {"path": worktree.get("path"), "branch": None if worktree.get("is_detached") else worktree.get("branch"),
+            "linked": bool(worktree.get("is_linked_worktree")), "workspace": worktree.get("open_workspace_id"),
+            "prunable": bool(worktree.get("is_prunable"))}
+
+
+def worktrees(source, runner=_default_runner):
+    """元の clone（source）の worktree を全部（元の clone 自身も linked=False で入る）。読むだけで、作業場は開かない
+    （2026-10-15 に herdr 0.9.3 で、herdr で開いていないリポジトリに打っても作業場が増えないことを見た）。"""
+    got = _call(["herdr", "worktree", "list", "--cwd", source], runner)
+    return [_place(w) for w in got.get("worktrees", [])]
+
+
+def _opened(result):
+    """worktree create・open の結果から {path, branch, workspace_id, pane_id}。"""
+    wt = result.get("worktree", {})
+    return {"path": wt.get("path"), "branch": wt.get("branch"),
+            "workspace_id": (result.get("workspace") or {}).get("workspace_id") or wt.get("open_workspace_id"),
+            "pane_id": (result.get("root_pane") or {}).get("pane_id")}
+
+
+def create_worktree(source, branch, base, label, runner=_default_runner):
+    """元の clone から枝の worktree を作り、herdr の作業場を開く（前に出さない）。書く口。
+
+    置き場は herdr の既定（設定の worktrees.directory の下の <リポジトリ>/<枝の slug>）に任せる。手元に同じ名前の枝が有ればそれを開き、
+    無ければ base から作る。元の clone が herdr で開いていなければ、herdr はその作業場も開く（2026-10-15 に 0.9.3 で見た）。
+    --trust-repository は付けない。自分の持ち物のリポジトリでは要らなかった（2026-10-15 に 0.9.3 で見た）。herdr の文書は、
+    持ち主が確かめたリポジトリにだけ付けるよう求めている。"""
+    return _opened(_call(["herdr", "worktree", "create", "--cwd", source, "--branch", branch, "--base", base,
+                          "--label", label, "--no-focus"], runner))
+
+
+def open_worktree(source, path, label, runner=_default_runner):
+    """在る worktree の herdr の作業場を開く（もう開いていれば、その作業場を返す）。書く口。
+    --path だけでは worktree_not_found になり、元の clone を --cwd で渡すと通った（2026-10-15 に 0.9.3 で見た）。"""
+    return _opened(_call(["herdr", "worktree", "open", "--cwd", source, "--path", path, "--label", label, "--no-focus"],
+                         runner))
+
+
+def remove_worktree(source, path, label, runner=_default_runner):
+    """worktree の checkout を消し、その作業場も閉じる。書く口。herdr の remove は作業場の ID で指すので、開いていなければ開いてから消す。
+    --force は付けない。未コミットの変更か git に足していないファイルが有れば、herdr は dirty_worktree_requires_force で断る
+    （2026-10-15 に 0.9.3 で見た）。手元の枝は消さない（herdr も残す）。{path, workspace_id} を返す。"""
+    ws = _opened(_call(["herdr", "worktree", "open", "--cwd", source, "--path", path, "--label", label, "--no-focus"],
+                       runner))["workspace_id"]
+    got = _call(["herdr", "worktree", "remove", "--workspace", ws], runner)
+    return {"path": got.get("path"), "workspace_id": got.get("workspace_id")}
 
 
 def close_workspace(workspace_id, runner=_default_runner):

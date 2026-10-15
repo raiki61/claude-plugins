@@ -1,6 +1,5 @@
 """assign ノード: PR ごとに結末を 1 つ決める（設計書 2 節の 4）。"""
 
-import os
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -8,7 +7,8 @@ from . import schemacheck
 from config import Repo
 from nodes import assign
 
-REPO = Repo("o/r", "s", "/src/r", "/clones", ())
+REPO = Repo("o/r", "s", "/src/r", ())
+PLACES = {"feat/1": "/w/r/feat-1", "feat/10": "/w/r/feat-10"}
 
 
 def pr(n, head=None):
@@ -33,13 +33,19 @@ class Plan(unittest.TestCase):
         rows = assign.plan(REPO, [pr(1), pr(2)], {("o/r", "feat/1")}, set(), [acct("a")])
         self.assertEqual(outcomes(rows), [(1, "already_open", None), (2, "assigned", "a")])
 
-    def test_open_conversation_inside_the_pr_clone(self):
-        rows = assign.plan(REPO, [pr(1)], set(), {"/clones/r-pr-1/backend"}, [acct("a")])
+    def test_open_conversation_inside_the_branch_place(self):
+        rows = assign.plan(REPO, [pr(1)], set(), {"/w/r/feat-1/backend"}, [acct("a")], places=PLACES)
         self.assertEqual(rows[0]["outcome"], "already_open")
 
     def test_conversation_in_a_similar_folder_does_not_count(self):
-        rows = assign.plan(REPO, [pr(1)], set(), {"/clones/r-pr-10"}, [acct("a")])
+        rows = assign.plan(REPO, [pr(1)], set(), {"/w/r/feat-10"}, [acct("a")], places=PLACES)
         self.assertEqual(rows[0]["outcome"], "assigned")
+
+    def test_rows_carry_the_place_kind_and_fork(self):
+        issue = {"number": 12, "kind": "issue", "title": "t", "head": None, "url": "i12"}
+        rows = assign.plan(REPO, [pr(1), {**pr(2), "fork": True}, issue], set(), set(), [acct("a")], places=PLACES)
+        self.assertEqual([(r["kind"], r["path"], r["fork"]) for r in rows],
+                         [("pr", "/w/r/feat-1", False), ("pr", None, True), ("issue", None, False)])
 
     def test_same_branch_name_in_another_repo_does_not_count(self):
         rows = assign.plan(REPO, [pr(1, "main")], {("o/other", "main")}, set(), [acct("a")])
@@ -52,9 +58,7 @@ class Plan(unittest.TestCase):
     def test_without_a_measured_cost_prs_are_dealt_one_by_one(self):
         # 1 件あたりの使用率をまだ測っていないうちは、1 つのアカウントに寄せない。順の頭から 1 件ずつ配る
         rows = assign.plan(REPO, [pr(1), pr(2), pr(3)], set(), set(), [acct("x", eligible=False), acct("a"), acct("b")])
-        self.assertEqual([(r["account"]["name"], r["clone_path"]) for r in rows],
-                         [("a", os.path.join("/clones", "r-pr-1")), ("b", os.path.join("/clones", "r-pr-2")),
-                          ("a", os.path.join("/clones", "r-pr-3"))])
+        self.assertEqual([r["account"]["name"] for r in rows], ["a", "b", "a"])
 
     def test_the_soonest_account_takes_what_fits_below_the_limit(self):
         # 週 89%・1 件 1% なら、95% に届かずに入るのは 5 件（89 + 5 = 94）。あふれた分は次のアカウントへ
@@ -87,7 +91,8 @@ class Plan(unittest.TestCase):
         self.assertEqual([r["number"] for r in rows], [5, 3, 4])
 
     def test_output_matches_schema(self):
-        rows = assign.plan(REPO, [pr(1), pr(2)], {("o/r", "feat/2")}, set(), [acct("a")])
+        issue = {"number": 12, "kind": "issue", "title": "t", "head": None, "url": "i12"}
+        rows = assign.plan(REPO, [pr(1), pr(2), issue], {("o/r", "feat/2")}, set(), [acct("a")], places=PLACES)
         self.assertEqual(schemacheck.check({"schema": 1, "plan": rows}, schemacheck.schema("plan")), [])
 
 

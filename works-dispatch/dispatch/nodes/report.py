@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """report ノード: 報告の行を作る純粋な関数（設計書 2 節の 8）。外には書かない。
 
-頭に注記（使用率の控えが無いアカウントなど）、続けて PR ごとに 1 行: `#<番号> <タイトル>  <作業場のフォルダの名前>  <アカウント>  <結末>`。
+頭に注記（使用率の控えが無いアカウントなど）、続けて 1 件 1 行: `#<番号> <タイトル>  <枝>  <アカウント>  <結末>`。
+issue から始めたもの（kind が issue）は `issue #<番号> …` で始める。まだ枝が無ければ枝の欄は `-`。
 結末の語は sent・refreshed・blocked・stalled・already_open・no_news・busy・dirty・unpushed・own_unreviewed・close_failed・
-no_account・provision_failed・pane_busy・launch_failed・send_failed と、--dry-run の create（作業場を作る）・reuse（使い直す）・refresh（送り直す）。
+no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed と、--dry-run の create（作業場を作る）・
+reuse（使い直す）・refresh（送り直す）。
 PR が 0 件なら「自分の番の PR は無い」の 1 行。
 
 使い方: python3 nodes/report.py --plan <plan の JSON> [--results <番号→結末の JSON>]
@@ -30,9 +32,9 @@ def lines(plan, results, notes):
     if not plan:
         return out + [NONE]
     for r in plan:
-        where = pathlib.PurePath(r["clone_path"]).name if r.get("outcome") == "assigned" else "-"
+        head = "issue " if r.get("kind") == "issue" else ""
         who = (r.get("account") or {}).get("name") or "-"
-        out.append(f"#{r['number']} {r['title']}  {where}  {who}  {results.get(r['number'], r['outcome'])}")
+        out.append(f"{head}#{r['number']} {r['title']}  {r.get('head') or '-'}  {who}  {results.get(r['number'], r['outcome'])}")
     return out
 
 

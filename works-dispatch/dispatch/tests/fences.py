@@ -17,20 +17,27 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 
 # D4: subprocess を import してよい所（外への口・whose-turn を呼ぶ prs・始める前の確かめを持つ入口）
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "nodes/prs.py", "dispatch.py"}
-# D4: 外に書く関数（herdr と git の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
-# 口そのもの（herdr.py・gitx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
+# D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
+# 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
 WRITES = {
+    # herdr: 会話を起こす・送る
     "run": {"nodes/launch.py"},
     "prompt": {"nodes/turn.py"},
-    "create_workspace": {"nodes/provision.py"},
+    # herdr: 枝の場所（元の clone の git worktree）を作る・開く・消す、作業場を畳む
+    "create_worktree": {"nodes/provision.py"},
+    "open_worktree": {"nodes/provision.py"},
+    "remove_worktree": {"nodes/clean.py"},
     "close_workspace": {"nodes/clean.py"},
-    "clone": {"nodes/provision.py"},
-    "set_origin": {"nodes/provision.py"},
+    # git: origin の枝を取る・早送りする・手元の枝を消す
     "fetch": {"nodes/provision.py"},
-    "remove_clone": {"nodes/provision.py", "nodes/clean.py"},
+    "fast_forward": {"nodes/provision.py"},
+    "delete_branch": {"nodes/clean.py"},
+    # gh: issue に枝を結ぶ（GitHub に枝を作る）
+    "issue_develop": {"nodes/provision.py"},
+    # herdr: サイドバーの印
     "report_activity": {"activity.py"},
 }
-PORTS = {"herdr.py", "gitx.py"}
+PORTS = {"herdr.py", "gitx.py", "ghx.py"}
 
 # D6: 持ち主の環境の字
 OWNER_ENV = ("raiki61", "claude-code-oauth-", "/Users/")
@@ -96,7 +103,7 @@ def d4_outward(root):
             elif isinstance(node, ast.ImportFrom):
                 if node.module == "subprocess" and rel not in SUBPROCESS_OK:
                     out.append(f"D4 {rel}: subprocess から import している（外への口の外）")
-                if node.module in ("herdr", "gitx"):
+                if node.module in ("herdr", "gitx", "ghx"):
                     for a in node.names:
                         if a.name in WRITES and rel not in WRITES[a.name]:
                             out.append(f"D4 {rel}: 書く関数 {a.name} を取り込んでいる（{sorted(WRITES[a.name])} の外）")

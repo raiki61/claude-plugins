@@ -32,7 +32,6 @@ accounts = [
 repo = "o/r"
 second_prompt_file = '{d}/second.md'
 source = '{d}/src'
-clone_root = '{d}/clones'
 copy_files = ["frontend/.env.local", "deploy/local/secrets.local.yaml"]
 copy_from = '{d}/keep'
 gh_user = "me-at-work"
@@ -56,14 +55,13 @@ class Load(unittest.TestCase):
         self.assertEqual(repo.repo, "o/r")
         self.assertEqual(repo.second_prompt, "1. 深掘りして\n2. 世の中の解と照らして\n")
         self.assertEqual(repo.source, f"{self.d}/src")
-        self.assertEqual(repo.clone_root, f"{self.d}/clones")
         self.assertEqual(repo.copy_files, ("frontend/.env.local", "deploy/local/secrets.local.yaml"))
         self.assertEqual(repo.copy_from, f"{self.d}/keep")
         self.assertEqual(repo.gh_user, "me-at-work")
         self.assertEqual(config.copy_root(repo), f"{self.d}/keep")
 
     def test_defaults_without_accounts_or_limits(self):
-        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\nclone_root = "c"\n'
+        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual(cfg.accounts, (config.Account("default", "claude", None),))
         self.assertEqual(cfg.repos[0].copy_files, ())
@@ -81,7 +79,7 @@ class Load(unittest.TestCase):
                 f'  {{ name = "main", command = "claude" }},\n'
                 f'  {{ name = "w", command = "claude-w", config_dir = \'{self.d}/w\', keychain_service = "my-item" }},\n'
                 f'  {{ name = "local", command = "claude-ollama", limits = false }},\n'
-                f']\n[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\nclone_root = "c"\n')
+                f']\n[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
         cfg = config.load(write(self.d, "c.toml", body), env={})
         self.assertEqual(cfg.accounts, (
             config.Account("main", "claude"),
@@ -92,7 +90,7 @@ class Load(unittest.TestCase):
 
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
-                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\nclone_root = "c"\n')
+                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         self.assertIn("keychain_service", str(e.exception))
@@ -100,13 +98,21 @@ class Load(unittest.TestCase):
 
     def test_tilde_is_expanded(self):
         body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'%s/second.md\'\n'
-                'source = "~/x"\nclone_root = "~/y"\n') % self.d
+                'source = "~/x"\ncopy_from = "~/y"\n') % self.d
         cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual((cfg.repos[0].source, cfg.repos[0].clone_root),
+        self.assertEqual((cfg.repos[0].source, cfg.repos[0].copy_from),
                          (os.path.expanduser("~/x"), os.path.expanduser("~/y")))
 
+    def test_clone_root_left_from_the_previous_version_is_ignored(self):
+        # 前の版は PR ごとの clone を <clone_root>/<名前>-pr-<番号> に作った。今は herdr の worktree の置き場に任せるので読まない。
+        # 知らない鍵はほかと同じく読み飛ばす（止めない）
+        body = (f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\n'
+                'source = "s"\nclone_root = "~/src"\n')
+        cfg = config.load(write(self.d, "c.toml", body), env={})
+        self.assertFalse(hasattr(cfg.repos[0], "clone_root"))
+
     def test_missing_second_prompt_file_names_the_path(self):
-        body = '[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "/nope/second.md"\nsource = "s"\nclone_root = "c"\n'
+        body = '[[repos]]\nrepo = "o/r"\nsecond_prompt_file = "/nope/second.md"\nsource = "s"\n'
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         self.assertIn("/nope/second.md", str(e.exception))
@@ -116,7 +122,7 @@ class Load(unittest.TestCase):
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         msg = str(e.exception)
-        for word in ("repo", "second_prompt_file", "source", "clone_root", "copy_files"):
+        for word in ("repo", "second_prompt_file", "source", "copy_files"):
             self.assertIn(word, msg)
 
     def test_env_var_is_used_without_argument(self):
@@ -147,7 +153,7 @@ class PickRepo(unittest.TestCase):
     def test_first_repo_by_default_and_named_repo(self):
         d = tempfile.mkdtemp()
         write(d, "second.md", "x")
-        body = "".join(f'[[repos]]\nrepo = "{r}"\nsecond_prompt_file = \'{d}/second.md\'\nsource = "s"\nclone_root = "c"\n'
+        body = "".join(f'[[repos]]\nrepo = "{r}"\nsecond_prompt_file = \'{d}/second.md\'\nsource = "s"\n'
                        for r in ("o/a", "o/b"))
         cfg = config.load(write(d, "c.toml", body), env={})
         self.assertEqual(config.pick_repo(cfg, None).repo, "o/a")

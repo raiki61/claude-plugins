@@ -1,6 +1,7 @@
 """dispatch の設定（TOML）を読む。持ち主の環境の値（アカウント・起動のコマンド・置き場）はここから入り、コードには書かない（設計書 D6）。
 
 置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works-dispatch/dispatch.toml の順。形は設計書 5 節。
+知らない鍵は読み飛ばす（前の版の clone_root が残っていても止めない）。
 アカウントを書かなければ、`claude` 1 つだけのアカウントとして扱う（D7。普通の利用者の環境でもそのまま動く）。
 """
 
@@ -31,8 +32,7 @@ class Account(NamedTuple):
 class Repo(NamedTuple):
     repo: str  # OWNER/NAME
     second_prompt: str  # 2 ターン目の文（second_prompt_file の中身）
-    source: str  # 元の clone。PR ごとの clone はここから作る
-    clone_root: str  # PR ごとの clone を置く場所
+    source: str  # 元の clone。枝ごとの worktree はここから作る（置き場は herdr の worktrees.directory）
     copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（リポジトリの中の相対パス）
     copy_from: str | None = None  # copy_files を写す元のフォルダ。None は元の clone
     gh_user: str | None = None  # このリポジトリを読む gh のアカウント。None はその人の今の設定（有効なアカウントか GH_TOKEN）
@@ -117,7 +117,6 @@ def load(path=None, env=os.environ):
             except OSError as e:
                 problems.append(f"{where}: second_prompt_file を読めない: {_path(pfile)}（{e.strerror}）")
         source = _str(r, "source", where, problems)
-        root = _str(r, "clone_root", where, problems)
         copy = r.get("copy_files", [])
         if not isinstance(copy, list) or not all(isinstance(c, str) for c in copy):
             problems.append(f"{where}: copy_files が文字列の並びで無い")
@@ -130,7 +129,7 @@ def load(path=None, env=os.environ):
         if gh_user is not None and not isinstance(gh_user, str):
             problems.append(f"{where}: gh_user が文字列で無い")
             gh_user = None
-        repos.append(Repo(name, prompt, _path(source) if source else None, _path(root) if root else None, tuple(copy),
+        repos.append(Repo(name, prompt, _path(source) if source else None, tuple(copy),
                           _path(copy_from) if copy_from else None, gh_user or None))
     if not raw.get("repos"):
         problems.append("repos が 1 つも無い")
@@ -153,11 +152,6 @@ def pick_repo(cfg, name):
 def copy_root(repo):
     """copy_files を写す元のフォルダ。copy_from が無ければ元の clone。"""
     return repo.copy_from or repo.source
-
-
-def clone_path(repo, number):
-    """PR ごとの clone のフォルダ: <clone_root>/<リポジトリの名前>-pr-<番号>。herdr の作業場の名前もこの最後の部分にそろえる。"""
-    return os.path.join(repo.clone_root, f"{repo.repo.split('/')[-1]}-pr-{number}")
 
 
 def effective_config_dir(account, env=os.environ):

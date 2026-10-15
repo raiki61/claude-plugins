@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""自分の番の PR ごとに作業場（元の clone から作る clone と herdr の作業場）を用意し、選んだアカウントの Claude Code で起こし、
+"""自分の番の PR ごとに、その枝の作業場（元の clone の git worktree と herdr の作業場）を用意し、選んだアカウントの Claude Code で起こし、
 1 ターン目に `/catchup <番号>`、2 ターン目に設定の文を送る。AI は使わない（設計書 works-dispatch/docs/specs/2026-10-14-catchup-dispatch-design.md）。
 
 流れ（どのノードの次に何を呼ぶか）を持つのはこのファイルだけ。ノードは流れを知らない（D3）。
 1. 始める前の確かめ。足りない物があれば全部並べて、何も起こさずに終了の値 2 で止まる
-2. prs → sessions → accounts → assign（ここまで外には書かない。--dry-run はここで、作業場を作るか使い直すかを報告して終える）
-3. provision・信頼の印（元の clone を信頼済みのアカウントなら clone にも付ける）・launch を PR ごとに順に全部先に済ませ、turn を PR ごとに並べて走らせる（1 件の /catchup が長くても、ほかが遅れない）
+2. prs → sessions → （一覧で回すときは fresh）→ accounts → assign（ここまで外には書かない。--dry-run はここで、作業場を作るか使い直すかを
+   報告して終える）
+3. provision・信頼の印（元の clone を信頼済みのアカウントなら worktree にも付ける）・launch を 1 件ずつ順に全部先に済ませ、turn を 1 件ずつ
+   並べて走らせる（1 件の /catchup が長くても、ほかが遅れない）
 4. report
 止まっている（blocked）・会話が開いている（already_open）などは誤りではないので、終了の値は 0。
 
-一覧で回すとき（--pr 無し）は、2 の前に fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
-送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じフォルダに立て直す。
-最後に、閉じた PR の clone を片付ける（_tidy。--dry-run は並べるだけ）。
+一覧で回すとき（--pr・--issue 無し）は、2 の fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
+送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じ場所に立て直す。
+最後に、閉じた PR の場所を片付ける（_tidy。--dry-run は並べるだけ）。
 
-片付け（--clean）は、PR ごとの clone のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
+片付け（--clean）は、元の clone の linked worktree のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
 
 --pr N は自分の番の一覧（whose-turn）を使わず、指した PR だけを開く。止めている実装や、見に行くだけの PR に使う。
+--issue N は、issue に結んだ枝の場所を開き（枝が無ければ GitHub に作って issue に結ぶ）、1 ターン目の /catchup N まで送って止める。
 --no-second は 2 ターン目の文を送らず、/catchup だけで止める。
 
-使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ...] [--no-second] [--dry-run | --clean [--apply]]
+使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ... | --issue N] [--no-second] [--dry-run | --clean [--apply]]
 """
 
 import argparse
@@ -50,7 +53,8 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 # 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）
-HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.create"}
+HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.close",
+                 "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
 
 
 def _posix_shell(env, posix=None):
@@ -143,7 +147,7 @@ class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
     def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None, herdr_integration=None,
-                 login_config_dir=None):
+                 login_config_dir=None, worktrees=None):
         self._herdr_methods = herdr_methods or herdr.methods
         self._herdr_integration = herdr_integration or (lambda cdir: herdr.claude_integration(cdir, dict(self.env)))
         self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
@@ -153,8 +157,10 @@ class Ports:
         self.env = os.environ if env is None else env
         self._gh_env = gh_env
         self._gh_envs = {}
+        self._worktrees = worktrees
         self.herdr = herdr
         self.git = gitx
+        self.gh = ghx
 
     @property
     def account_env(self):
@@ -205,7 +211,7 @@ class Ports:
                                 f"（commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
             for repo in cfg.repos:
                 if not claudex.is_trusted(claudex.trust_file(a.config_dir, self.account_env), repo.source):
-                    notes.append(f"アカウント {a.name} は {repo.source} を信頼していない（PR ごとの作業場で毎回フォルダの信頼の確認が出る。"
+                    notes.append(f"アカウント {a.name} は {repo.source} を信頼していない（枝ごとの作業場で毎回フォルダの信頼の確認が出る。"
                                  f"一度 {repo.source} で {a.command} を起こし、信頼すると出なくなる）")
             if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
@@ -218,8 +224,11 @@ class Ports:
         for repo in cfg.repos:
             if gitx.origin_repo(repo.source) != repo.repo:
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
-            if not os.path.isdir(repo.clone_root):
-                problems.append(f"{repo.repo}: clone を置く場所 {repo.clone_root} が無い")
+            else:
+                try:
+                    self.places(repo)
+                except (herdr.HerdrError, OSError) as e:
+                    problems.append(f"{repo.repo}: herdr が元の clone {repo.source} の worktree を並べられない（{e}）")
             for rel in repo.copy_files:
                 if not os.path.isfile(os.path.join(config.copy_root(repo), rel)):
                     notes.append(f"{repo.repo}: 写すファイルが {config.copy_root(repo)} に無い: {rel}")
@@ -255,11 +264,33 @@ class Ports:
     def pr_info(self, repo, number):
         return ghx.pr_info(repo.repo, number, env=self.gh_env(repo))
 
-    def pr_state(self, repo, number):
+    def places(self, repo):
+        """元の clone の worktree の並び（herdr アダプタの worktrees。元の clone 自身も linked=False で入る）。"""
+        if self._worktrees:
+            return self._worktrees(repo.source)
+        return self.herdr.worktrees(repo.source)
+
+    def stashed(self, cwd, branch):
+        return gitx.stashed(cwd, branch)
+
+    def head_sha(self, cwd):
+        return gitx.head_sha(cwd)
+
+    def pr_for_branch(self, repo, branch):
+        """その枝の PR（{number, state, head_sha}・None）。読めなければ clean.Unknown（片付けは消さない側に倒す）。"""
         try:
-            return ghx.pr_state(repo.repo, number, env=self.gh_env(repo))
-        except ghx.GhError:
-            return None  # 読めないものは消さない側に倒す
+            return ghx.pr_for_branch(repo.repo, branch, env=self.gh_env(repo))
+        except ghx.GhError as e:
+            raise clean.Unknown(str(e))
+
+    def issue_info(self, repo, number):
+        return ghx.issue_info(repo.repo, number, env=self.gh_env(repo))
+
+    def issue_branches(self, repo, number):
+        return ghx.issue_branches(repo.repo, number, env=self.gh_env(repo))
+
+    def default_branch(self, repo):
+        return ghx.default_branch(repo.repo, env=self.gh_env(repo))
 
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
@@ -281,7 +312,7 @@ class Ports:
         return found[0] if len(found) == 1 else None
 
     def trust(self, account, source, clone):
-        """元の clone を信頼済みのアカウントなら、clone にも信頼の印を付ける（claudex.inherit_trust）。"""
+        """元の clone を信頼済みのアカウントなら、枝の場所（worktree）にも信頼の印を付ける（claudex.inherit_trust）。"""
         return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone)
 
     def activity(self, repo, number):
@@ -342,6 +373,29 @@ def _cost_note(est, limit_percent):
             f"各アカウントに、使用率が {limit_percent}% に届かない件数まで入れた")
 
 
+def _branch_places(places):
+    """worktree の並びから {枝: 場所のパス}（linked worktree だけ）。"""
+    return {p["branch"]: p["path"] for p in places if p.get("linked") and p.get("branch") and not p.get("prunable")}
+
+
+def _issue_item(repo, number, ports, notes):
+    """--issue の 1 件を、prs の 1 件と同じ形（kind が issue）にする。枝は issue に結んだ枝（2 本以上なら最初の 1 本）。
+    結んだ枝が見えなければ、issue を閉じる開いた PR の枝（枝から PR を作ると、GitHub は枝の結びつきを PR に置き換える）。
+    どちらも無ければ head は None で、provision の前に GitHub に枝を作って結ぶ。"""
+    info = ports.issue_info(repo, number)
+    branches = ports.issue_branches(repo, number)
+    head = branches[0] if branches else None
+    if branches[1:]:
+        notes.append(f"issue #{number}: 結んだ枝がほかにも有る（使ったのは {head}）: {', '.join(branches[1:])}")
+    for n in ([] if head else info["prs"]):
+        pr = ports.pr_info(repo, n)
+        if pr.get("state") == "OPEN" and not pr.get("fork"):
+            head = pr["head"]
+            notes.append(f"issue #{number}: 結んだ枝は見えないので、issue を閉じる PR #{n} の枝 {head} を使う")
+            break
+    return {"number": number, "kind": "issue", "title": info["title"], "head": head, "url": info.get("url")}
+
+
 def main(argv=None, ports=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
@@ -349,11 +403,13 @@ def main(argv=None, ports=None):
     ap.add_argument("--dry-run", action="store_true", help="割り振りの案までを決めて報告し、何も起こさない")
     ap.add_argument("--pr", type=int, action="append", metavar="N",
                     help="自分の番の一覧を使わず、この番号の PR だけを開く（繰り返して複数）")
+    ap.add_argument("--issue", type=int, metavar="N",
+                    help="この issue に結んだ枝の場所を開き（無ければ枝を作って結ぶ）、/catchup N まで送って止める")
     ap.add_argument("--no-second", action="store_true", help="2 ターン目の文を送らず、/catchup だけで止める")
     ap.add_argument("--init", action="store_true", help="設定の下書きを書く（--repo と --source が要る。有れば上書きしない）")
     ap.add_argument("--source", help="--init と一緒に: そのリポジトリの代表の clone")
     ap.add_argument("--check", action="store_true", help="始める前の確かめだけを走らせ、足りない物と直し方を出す")
-    ap.add_argument("--clean", action="store_true", help="PR ごとの clone のうち消してよいものを並べる")
+    ap.add_argument("--clean", action="store_true", help="元の clone の worktree のうち消してよいものを並べる")
     ap.add_argument("--apply", action="store_true", help="--clean と一緒に: 並べたものを本当に消す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
@@ -369,6 +425,9 @@ def main(argv=None, ports=None):
     if a.apply and not a.clean:
         print("止めた: --apply は --clean と一緒にだけ使う")
         return 2
+    if a.issue is not None and a.pr:
+        print("止めた: --issue と --pr は一緒に使えない（1 回に 1 つの入口）")
+        return 2
     if a.clean:
         return _clean(cfg, repo, a.apply, ports)
     if a.check:
@@ -379,16 +438,22 @@ def main(argv=None, ports=None):
         print("\n".join(f"- {p}" for p in problems))
         return 2
 
+    listing = a.issue is None and not a.pr   # 一覧で回す（送り直しと片付けもする）
     try:
-        my_prs = [ports.pr_info(repo, n) for n in a.pr] if a.pr else ports.fetch_prs(repo)
+        if a.issue is not None:
+            my_prs = [_issue_item(repo, a.issue, ports, notes)]
+        else:
+            my_prs = [ports.pr_info(repo, n) for n in a.pr] if a.pr else ports.fetch_prs(repo)
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
-    except (prs.PrsError, claudex.ClaudeError, ghx.GhError) as e:
+        found = ports.places(repo)
+    except (prs.PrsError, claudex.ClaudeError, ghx.GhError, herdr.HerdrError) as e:
         print(f"止めた: {e}")
         return 1
+    places = _branch_places(found)
     sess = sessions.collect(listed, ports.branch, ports.origin)
     # 自分が作者でレビュアーの付いていない PR は、一覧からは開かない（--pr で指したものは開く）
     held, acts = [], {}
-    if not a.pr:
+    if listing:
         kept = []
         for p in my_prs:
             if p.get("role") == "implementer":
@@ -397,16 +462,16 @@ def main(argv=None, ports=None):
                 except ghx.GhError as e:
                     notes.append(f"#{p['number']}: {e}（レビュアーの有無が分からないので開く）")
                 if p["number"] in acts and fresh.own_unreviewed(p, acts[p["number"]]):
-                    held.append(_held_row(repo, p, "own_unreviewed"))
+                    held.append(_held_row(p, "own_unreviewed", places))
                     continue
             kept.append(p)
         my_prs = kept
-    # clone の中で会話が開いている PR: 自分以外の動きが前に送った時より後に有れば、会話とペインを畳んで新しく立て直す
+    # 枝の場所の中で会話が開いている PR: 自分以外の動きが前に送った時より後に有れば、会話とペインを畳んで新しく立て直す
     sent = ports.load_sent(cfg.limits_dir)
     refresh, verdicts = {}, {}
-    for p in my_prs:
-        path = config.clone_path(repo, p["number"])
-        inside = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], path)]
+    for p in (my_prs if listing else []):
+        path = places.get(p["head"])
+        inside = [x for x in sess if x["cwd"] and path and fresh.inside(x["cwd"], path)]
         if not inside:
             continue
         try:
@@ -428,112 +493,151 @@ def main(argv=None, ports=None):
     ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now())
     est = cost.estimate(ports.load_cost(cfg.limits_dir))
     the_plan = assign.plan(repo, my_prs, sessions.open_keys(staying), {s["cwd"] for s in staying if s["cwd"]}, ranked,
-                           cfg.limit_percent, est)
+                           cfg.limit_percent, est, places)
     if any(r["outcome"] in ("assigned", "no_account") for r in the_plan):
         notes.append(_cost_note(est, cfg.limit_percent))
 
     results = {n: v for n, v in verdicts.items()}
     assigned = [r for r in the_plan if r["outcome"] == "assigned"]
+    # fork の PR（head が別のリポジトリ）は作業場を作らない。whose-turn の一覧は fork かを持たないので、開く PR だけ問う
+    for r in assigned:
+        if r["kind"] == "pr" and not a.pr:
+            try:
+                r["fork"] = bool(ports.pr_info(repo, r["number"]).get("fork"))
+            except ghx.GhError as e:
+                notes.append(f"#{r['number']}: fork の PR かを読めない（{e}）")
     if a.dry_run:
-        results.update({r["number"]: "refresh" if r["number"] in refresh else provision.would(repo, r["number"]) for r in assigned})
+        for r in assigned:
+            results[r["number"]] = "refresh" if r["number"] in refresh else provision.would(r, found)
+            if r["kind"] == "issue" and not r["head"]:
+                notes.append(f"issue #{r['number']}: 結んだ枝が無いので、既定の枝から枝を作って issue に結ぶ（gh issue develop）")
     else:
         ready = []
         for r in assigned:
             if r["number"] in refresh:
-                # 古い会話を終え、そのペインの作業場を畳む（フォルダは残し、下の provision が新しい作業場を開く）
-                pane = _pane_at(ports.herdr, r["clone_path"])
+                # 古い会話を終え、そのペインの作業場を畳む（checkout は残し、下の provision が同じ場所を開き直す）
+                pane = _pane_at(ports.herdr, r["path"])
                 closed = turn.close_session(pane, ports.herdr) if pane else "close_failed"
                 if closed != "closed":
                     results[r["number"]] = "close_failed"
                     notes.append(f"#{r['number']}: 送り直す前に古い会話を終えられなかった（ペイン {pane or '無し'}）")
                     continue
                 try:
-                    clean.release(r["clone_path"], ports.herdr)
+                    clean.release(r["path"], ports.herdr)
                 except ports.herdr.HerdrError as e:
                     notes.append(f"#{r['number']}: 古い作業場を閉じられなかった（{e}）")
+            if r["kind"] == "issue" and not r["head"]:
+                try:
+                    linked = provision.link_branch(repo, r["number"], ports.default_branch(repo), ports.gh, ports.gh_env(repo))
+                except ghx.GhError as e:
+                    linked, why = [], str(e)
+                else:
+                    why = "結んだ後の読み戻しで、issue に結んだ枝が見えない"
+                if not linked:
+                    results[r["number"]] = "provision_failed"
+                    notes.append(f"issue #{r['number']}: 枝を結べなかった（{why}）")
+                    continue
+                r["head"] = linked[0]
             prov = provision.prepare(r, repo, ports.herdr, ports.git)
+            name = _name(r)
             if prov["detail"]:
-                notes.append(f"#{r['number']}: {prov['detail']}")
+                notes.append(f"{name}: {prov['detail']}")
             if prov["status"] != "ready":
-                results[r["number"]] = "provision_failed"
+                results[r["number"]] = prov["status"]
                 continue
+            r["path"] = prov["path"]
             try:
                 trusted = ports.trust(r["account"], repo.source, prov["path"])
             except OSError as e:
                 trusted = f"書けない（{e}）"
             if trusted not in ("inherited", "already"):
-                notes.append(f"#{r['number']}: アカウント {r['account']['name']} は元の clone を信頼していないので、"
+                notes.append(f"{name}: アカウント {r['account']['name']} は元の clone を信頼していないので、"
                              "Claude Code がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
-                             f"#{r['number']}: 信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
+                             f"{name}: 信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
             got = launch.start(r, prov["pane"], ports.herdr)
             if got["status"] == "ready":
                 ready.append((r, prov["pane"]))
             else:
                 results[r["number"]] = got["status"]
-                notes.append(f"#{r['number']}: {got['detail']}")
+                notes.append(f"{name}: {got['detail']}")
+        # issue から始めたものは 1 ターン目の /catchup まで（2 ターン目の文は PR のレビューの文なので送らない）
+        second = {r["number"]: None if (a.no_second or r["kind"] == "issue") else repo.second_prompt for r, _ in ready}
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
-                futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane,
-                                                    None if a.no_second else repo.second_prompt, ports.herdr,
+                futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane, second[r["number"]], ports.herdr,
                                                     catchup=ports.catchup_command(r["account"].get("config_dir")),
-                                                    state=(lambda r=r: ports.state(r["account"].get("config_dir"), r["clone_path"])))
+                                                    state=(lambda r=r: ports.state(r["account"].get("config_dir"), r["path"])))
                            for r, pane in ready}
                 results.update({n: f.result() for n, f in futures.items()})
             for r, _ in ready:
-                if results.get(r["number"]) == "sent":
+                if results.get(r["number"]) == "sent" and r["kind"] == "pr":
                     sent[_key(repo, r["number"])] = ports.now()
                     if r["number"] in refresh:
                         results[r["number"]] = "refreshed"
             ports.save_sent(cfg.limits_dir, sent)
-            counts = collections.Counter(r["account"]["name"] for r, _ in ready)
+            # 1 件あたりの使用率は、/catchup の終わりまで待った件だけで測る（待たずに送った件は、測る時にまだ使っていない）
+            counts = collections.Counter(r["account"]["name"] for r, _ in ready if second[r["number"]] is not None)
             measured = [n for n in counts if n in metered]
             if measured:
                 ports.refresh_limits(cfg, measured)
                 ports.save_cost(cfg.limits_dir, cost.samples(before, ports.read_limits(cfg.limits_dir, measured), counts))
 
-    if not a.pr:
-        notes += _tidy(cfg, repo, ports, a.dry_run)
+    if listing:
+        notes += _tidy(cfg, repo, ports, a.dry_run, found)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
 
 
-def _held_row(repo, p, outcome):
-    return {"number": p["number"], "title": p["title"], "head": p["head"], "url": p.get("url"), "outcome": outcome,
-            "account": None, "clone_path": config.clone_path(repo, p["number"])}
+def _name(row):
+    return f"{'issue ' if row.get('kind') == 'issue' else ''}#{row['number']}"
 
 
-def _tidy(cfg, repo, ports, dry_run):
-    """閉じた PR（MERGED・CLOSED）の clone を片付ける（一覧で回すときだけ）。名前が <リポジトリの名前>-pr-<番号> で origin がこの
-    リポジトリの clone だけを見る（clean.candidates）。会話が開いていても、手すきで変更も手元だけの commit も無ければ、会話を終えてから
-    消す。作業中・変更の有る会話は残す。返すのは報告の頭に置く行。"""
+def _held_row(p, outcome, places):
+    return {"number": p["number"], "kind": "pr", "title": p["title"], "head": p["head"], "url": p.get("url"), "fork": False,
+            "outcome": outcome, "account": None, "path": places.get(p["head"])}
+
+
+def _where(r):
+    return f"#{r['number']} {r['branch']}" if r["number"] is not None else f"- {r['branch'] or '（枝無し）'}"
+
+
+def _tidy(cfg, repo, ports, dry_run, found):
+    """閉じた PR（MERGED・CLOSED）の枝の場所を片付ける（一覧で回すときだけ）。元の clone の linked worktree だけを見る（clean.candidates）。
+    会話が開いていても、手すきで変更も手元だけの commit も無ければ、会話を終えてから消す。作業中・手元の作業の有る場所は残して名指す。
+    返すのは報告の頭に置く行。"""
     listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
     sess = sessions.collect(listed, ports.branch, ports.origin)
-    root = repo.clone_root
-    folders = [os.path.join(root, n) for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
-    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo, n), {x["cwd"] for x in sess if x["cwd"]},
-                            ports.is_clean, ports.unpushed, origin=ports.origin)
+    rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), {x["cwd"] for x in sess if x["cwd"]},
+                            ports.is_clean, ports.stashed, ports.head_sha)
     out = []
     for r in rows:
-        if r["reason"] == "session" and r["state"] in clean.FINISHED:
+        finished = r["state"] in clean.FINISHED
+        if r["reason"] == "session" and finished:
             mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
-            if any(x["status"] != "idle" for x in mine) or not ports.is_clean(r["path"]) or ports.unpushed(r["path"]):
-                out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR だが、会話が作業中か変更が有るので残した")
+            local = (not ports.is_clean(r["path"]) or ports.stashed(r["path"], r["branch"])
+                     or ports.head_sha(r["path"]) != r["pr_head"])
+            if any(x["status"] != "idle" for x in mine) or local:
+                out.append(f"{_where(r)}: 閉じた PR だが、会話が作業中か手元の作業が有るので残した")
                 continue
             if dry_run:
-                out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR なので、会話を終えて片付ける")
+                out.append(f"{_where(r)}: 閉じた PR なので、会話を終えて片付ける")
                 continue
             pane = _pane_at(ports.herdr, r["path"])
             if not pane or turn.close_session(pane, ports.herdr) != "closed":
-                out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR の会話を終えられなかったので残した")
+                out.append(f"{_where(r)}: 閉じた PR の会話を終えられなかったので残した")
                 continue
             r = {**r, "removable": True, "reason": None}
+        if finished and r["reason"] in ("dirty", "unpushed"):
+            out.append(f"{_where(r)}: 閉じた PR だが、手元の作業が有るので残した")
+            continue
         if not r["removable"]:
             continue
         if dry_run:
-            out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR なので片付ける")
+            out.append(f"{_where(r)}: 閉じた PR なので片付ける")
             continue
-        got = clean.remove(r, ports.herdr)
-        out.append(f"#{r['number']} {os.path.basename(r['path'])}: " + ("片付けた" if got["removed"] else f"片付けられなかった（{got['detail']}）"))
+        got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git)
+        out.append(f"{_where(r)}: " + ("片付けた" if got["removed"] and got["branch_deleted"] else
+                                       f"片付けた（{got['detail']}）" if got["removed"] else f"片付けられなかった（{got['detail']}）"))
     return out
 
 
@@ -593,8 +697,7 @@ def _init(a, ports):
         "[[repos]]",
         f"repo = {q(a.repo)}",
         f"second_prompt_file = {q(second)}   # 2 ターン目に送る文。空のままだと --check が止める",
-        f"source = {q(source)}   # 代表の clone。PR ごとの clone はここから作る",
-        f"clone_root = {q(os.path.dirname(source))}   # PR ごとの clone を置く場所（<clone_root>/<名前>-pr-<番号>）",
+        f"source = {q(source)}   # 代表の clone。枝ごとの worktree はここから作る（置き場は herdr の worktrees.directory）",
         "copy_files = [   # git が追わない手元だけのファイル。代表の clone で見つかった候補",
         *[f"  {q(f)}," for f in local],
         "]",
@@ -616,24 +719,26 @@ def _init(a, ports):
 def _clean(cfg, repo, apply, ports):
     listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
-    root = repo.clone_root
-    folders = [os.path.join(root, n) for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
-    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo, n), cwds, ports.is_clean, ports.unpushed,
-                            origin=ports.origin)
+    try:
+        found = ports.places(repo)
+    except herdr.HerdrError as e:
+        print(f"止めた: {e}")
+        return 1
+    rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha)
     if not rows:
-        print("PR ごとの clone は無い")
+        print(f"元の clone {repo.source} の worktree は無い")
         return 0
     for r in rows:
         mark = "消せる" if r["removable"] else f"残す（{r['reason']}）"
-        print(f"#{r['number']} {os.path.basename(r['path'])}  {r['state'] or '-'}  {mark}")
+        print(f"{_where(r)}  {r['state'] or '-'}  {mark}")
     if not apply:
         if any(r["removable"] for r in rows):
             print("消すには --clean --apply を付けて打ち直す")
         return 0
     failed = 0
     for r in (r for r in rows if r["removable"]):
-        got = clean.remove(r, ports.herdr)
-        print(f"#{r['number']} {'消した' if got['removed'] else '消せなかった: ' + (got['detail'] or '')}")
+        got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git)
+        print(f"{_where(r)} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
         failed += not got["removed"]
     return 1 if failed else 0
 

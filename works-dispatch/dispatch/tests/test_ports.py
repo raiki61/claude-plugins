@@ -1,6 +1,7 @@
 """外への口（herdr・git・Claude Code）。本物の道具は呼ばず、偽物の runner が受けた argv と環境を見る。
 
-herdr の出力の形は 2026-10-14 に手元の herdr 0.9.3 で読んだ実物（`pane list`・`workspace list`・`agent get`・`api schema --json`）に合わせた。
+herdr の出力の形は 2026-10-14 に手元の herdr 0.9.3 で読んだ実物（`pane list`・`workspace list`・`agent get`・`api schema --json`）と、
+2026-10-15 に同じ版で一時の git リポジトリに打って読んだ `worktree list`・`create`・`open`・`remove` の実物に合わせた。
 """
 
 import json
@@ -155,6 +156,88 @@ class Herdr(unittest.TestCase):
         self.assertEqual(herdr.methods(runner=Fake(ok(schema))), {"agent.prompt", "pane.run"})
 
 
+# 2026-10-15 に herdr 0.9.3 で読んだ実物の写し（パスとリポジトリの鍵だけを短くした。scroll と tab は中身を略した）
+WT_CREATE = {"id": "cli:worktree:create", "result": {
+    "root_pane": {"agent_status": "unknown", "cwd": "/h/.herdr/worktrees/repo/feat-a", "focused": False,
+                  "foreground_cwd": "/h/.herdr/worktrees/repo/feat-a", "pane_id": "w1B:p1", "revision": 0, "scroll": {},
+                  "tab_id": "w1B:t1", "terminal_id": "term_1", "workspace_id": "w1B"},
+    "tab": {}, "type": "worktree_created",
+    "workspace": {"active_tab_id": "w1B:t1", "agent_status": "unknown", "focused": False, "label": "repo/feat-a", "number": 20,
+                  "pane_count": 1, "tab_count": 1, "workspace_id": "w1B",
+                  "worktree": {"checkout_path": "/h/.herdr/worktrees/repo/feat-a", "is_linked_worktree": True,
+                               "repo_key": "/s/repo/.git", "repo_name": "repo", "repo_root": "/s/repo"}},
+    "worktree": {"branch": "feat-a", "is_bare": False, "is_detached": False, "is_linked_worktree": True, "is_prunable": False,
+                 "label": "repo", "open_workspace_id": "w1B", "path": "/h/.herdr/worktrees/repo/feat-a"}}}
+WT_OPEN = {"id": "cli:worktree:open", "result": {
+    "already_open": False,
+    "root_pane": {"agent_status": "unknown", "cwd": "/h/.herdr/worktrees/repo/feat-a", "pane_id": "w1F:p1", "workspace_id": "w1F"},
+    "tab": {}, "type": "worktree_opened",
+    "workspace": {"label": "repo/feat-a", "workspace_id": "w1F"},
+    "worktree": {"branch": "feat-a", "is_bare": False, "is_detached": False, "is_linked_worktree": True, "is_prunable": False,
+                 "label": "repo", "open_workspace_id": "w1F", "path": "/h/.herdr/worktrees/repo/feat-a"}}}
+WT_LIST = {"id": "cli:worktree:list", "result": {
+    "source": {"repo_key": "/s/repo/.git", "repo_name": "repo", "repo_root": "/s/repo", "source_checkout_path": "/s/repo",
+               "source_workspace_id": "w1"},
+    "type": "worktree_list",
+    "worktrees": [
+        {"branch": "main", "is_bare": False, "is_detached": False, "is_linked_worktree": False, "is_prunable": False,
+         "label": "repo", "open_workspace_id": "w1", "path": "/s/repo"},
+        {"branch": "feat-a", "is_bare": False, "is_detached": False, "is_linked_worktree": True, "is_prunable": False,
+         "label": "repo", "path": "/h/.herdr/worktrees/repo/feat-a"}]}}
+WT_REMOVE = {"id": "cli:worktree:remove", "result": {"forced": False, "path": "/h/.herdr/worktrees/repo/feat-a",
+                                                     "type": "worktree_removed", "workspace_id": "w1F"}}
+WT_DIRTY = (1, "", json.dumps({"error": {"code": "dirty_worktree_requires_force",
+                                         "message": "fatal: '/h/.herdr/worktrees/repo/feat-a' contains modified or untracked files, "
+                                                    "use --force to delete it"}, "id": "cli:worktree:remove"}))
+
+
+class HerdrWorktree(unittest.TestCase):
+    def test_list_reads_places_in_branch_words(self):
+        f = Fake(ok(WT_LIST))
+        self.assertEqual(herdr.worktrees("/s/repo", runner=f), [
+            {"path": "/s/repo", "branch": "main", "linked": False, "workspace": "w1", "prunable": False},
+            {"path": "/h/.herdr/worktrees/repo/feat-a", "branch": "feat-a", "linked": True, "workspace": None,
+             "prunable": False}])
+        self.assertEqual(f.calls[0][0], ["herdr", "worktree", "list", "--cwd", "/s/repo"])
+
+    def test_detached_checkout_has_no_branch(self):
+        got = {**WT_LIST, "result": {**WT_LIST["result"], "worktrees": [
+            {**WT_LIST["result"]["worktrees"][1], "branch": None, "is_detached": True}]}}
+        self.assertIsNone(herdr.worktrees("/s/repo", runner=Fake(ok(got)))[0]["branch"])
+
+    def test_create_passes_branch_base_label_without_focus_or_trust(self):
+        f = Fake(ok(WT_CREATE))
+        got = herdr.create_worktree("/s/repo", "feat-a", "origin/feat-a", "repo/feat-a", runner=f)
+        self.assertEqual(got, {"path": "/h/.herdr/worktrees/repo/feat-a", "branch": "feat-a", "workspace_id": "w1B",
+                               "pane_id": "w1B:p1"})
+        self.assertEqual(f.calls[0][0], ["herdr", "worktree", "create", "--cwd", "/s/repo", "--branch", "feat-a",
+                                         "--base", "origin/feat-a", "--label", "repo/feat-a", "--no-focus"])
+
+    def test_open_names_the_source_and_the_path(self):
+        # --path だけでは worktree_not_found になり、元の clone を --cwd で渡すと通った（2026-10-15 に 0.9.3 で見た）
+        f = Fake(ok(WT_OPEN))
+        got = herdr.open_worktree("/s/repo", "/h/.herdr/worktrees/repo/feat-a", "repo/feat-a", runner=f)
+        self.assertEqual((got["workspace_id"], got["pane_id"]), ("w1F", "w1F:p1"))
+        self.assertEqual(f.calls[0][0], ["herdr", "worktree", "open", "--cwd", "/s/repo", "--path",
+                                         "/h/.herdr/worktrees/repo/feat-a", "--label", "repo/feat-a", "--no-focus"])
+
+    def test_remove_opens_then_removes_by_workspace_without_force(self):
+        f = Fake(ok(WT_OPEN), ok(WT_REMOVE))
+        got = herdr.remove_worktree("/s/repo", "/h/.herdr/worktrees/repo/feat-a", "repo/feat-a", runner=f)
+        self.assertEqual(got, {"path": "/h/.herdr/worktrees/repo/feat-a", "workspace_id": "w1F"})
+        self.assertEqual(f.calls[1][0], ["herdr", "worktree", "remove", "--workspace", "w1F"])
+        self.assertNotIn("--force", f.calls[1][0])
+
+    def test_remove_of_a_dirty_place_raises_with_herdrs_code(self):
+        with self.assertRaises(herdr.HerdrError) as e:
+            herdr.remove_worktree("/s/repo", "/p", "repo/x", runner=Fake(ok(WT_OPEN), WT_DIRTY))
+        self.assertEqual(e.exception.detail, "dirty_worktree_requires_force")
+
+    def test_workspace_close_now_answers_ok(self):
+        # 2026-10-15 の 0.9.3 では workspace close は {"result": {"type": "ok"}} を返した（10-14 は何も出さなかった）
+        herdr.close_workspace("w1D", runner=Fake(ok({"id": "cli:workspace:close", "result": {"type": "ok"}})))
+
+
 class Git(unittest.TestCase):
     def test_branch_and_detached(self):
         self.assertEqual(gitx.branch("/r", runner=Fake((0, "feat/7\n", ""))), "feat/7")
@@ -191,10 +274,11 @@ class Gh(unittest.TestCase):
         self.assertIn("nobody", str(e.exception))
 
     def test_pr_info_reads_one_pr_in_the_shape_whose_turn_gives(self):
-        f = Fake(ok({"number": 7, "title": "直す", "headRefName": "feat/7", "url": "u7"}))
+        f = Fake(ok({"number": 7, "title": "直す", "headRefName": "feat/7", "url": "u7", "state": "OPEN", "isCrossRepository": True}))
         got = ghx.pr_info("o/r", 7, runner=f, env={"GH_TOKEN": "t"})
-        self.assertEqual(got, {"number": 7, "title": "直す", "head": "feat/7", "url": "u7"})
-        self.assertEqual(f.calls[0][0], ["gh", "pr", "view", "7", "--repo", "o/r", "--json", "number,title,headRefName,url"])
+        self.assertEqual(got, {"number": 7, "title": "直す", "head": "feat/7", "url": "u7", "state": "OPEN", "fork": True})
+        self.assertEqual(f.calls[0][0], ["gh", "pr", "view", "7", "--repo", "o/r", "--json",
+                                         "number,title,headRefName,url,state,isCrossRepository"])
         self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
 
     def test_pr_info_unreadable_raises(self):
@@ -202,10 +286,84 @@ class Gh(unittest.TestCase):
             ghx.pr_info("o/r", 99999, runner=Fake((1, "", "no pull requests found")))
         self.assertIn("#99999", str(e.exception))
 
-    def test_pr_state_runs_with_the_given_env(self):
-        f = Fake(ok({"state": "MERGED"}))
-        self.assertEqual(ghx.pr_state("o/r", 7, runner=f, env={"GH_TOKEN": "t"}), "MERGED")
+    def test_pr_for_branch_prefers_the_open_pr_of_this_repo(self):
+        # 2026-10-15 に gh 2.102.0 で読んだ gh pr list --json の形（fork の PR は isCrossRepository が true）
+        listed = [{"number": 9, "state": "OPEN", "headRefOid": "f" * 40, "isCrossRepository": True},
+                  {"number": 8, "state": "MERGED", "headRefOid": "b" * 40, "isCrossRepository": False},
+                  {"number": 7, "state": "OPEN", "headRefOid": "a" * 40, "isCrossRepository": False}]
+        f = Fake(ok(listed))
+        self.assertEqual(ghx.pr_for_branch("o/r", "feat/7", runner=f, env={"GH_TOKEN": "t"}),
+                         {"number": 7, "state": "OPEN", "head_sha": "a" * 40})
+        self.assertEqual(f.calls[0][0][:7], ["gh", "pr", "list", "--repo", "o/r", "--head", "feat/7"])
         self.assertEqual(f.calls[0][1], {"GH_TOKEN": "t"})
+        self.assertEqual(ghx.pr_for_branch("o/r", "x", runner=Fake(ok(listed[:2])))["number"], 8)
+        self.assertIsNone(ghx.pr_for_branch("o/r", "x", runner=Fake(ok([]))))
+        with self.assertRaises(ghx.GhError):
+            ghx.pr_for_branch("o/r", "x", runner=Fake((1, "", "HTTP 502")))
+
+    def test_issue_branches_reads_one_branch_per_line(self):
+        f = Fake((0, "12-fix-login\thttps://github.com/o/r/tree/12-fix-login\nmore\thttps://github.com/o/r/tree/more\n", ""))
+        self.assertEqual(ghx.issue_branches("o/r", 12, runner=f), ["12-fix-login", "more"])
+        self.assertEqual(f.calls[0][0], ["gh", "issue", "develop", "--list", "12", "--repo", "o/r"])
+        self.assertEqual(ghx.issue_branches("o/r", 12, runner=Fake((0, "BRANCH  URL\nx  u\n", ""))), ["x"])
+        self.assertEqual(ghx.issue_branches("o/r", 12, runner=Fake((0, "", ""))), [])
+
+    def test_issue_develop_makes_the_branch_from_the_base_with_the_given_env(self):
+        f = Fake((0, "github.com/o/r/tree/12-fix-login\n", ""))
+        ghx.issue_develop("o/r", 12, "main", runner=f, env={"GH_TOKEN": "t"})
+        self.assertEqual(f.calls[0], (["gh", "issue", "develop", "12", "--repo", "o/r", "--base", "main"], {"GH_TOKEN": "t"}))
+        with self.assertRaises(ghx.GhError):
+            ghx.issue_develop("o/r", 12, "main", runner=Fake((1, "", "not permitted")))
+
+    def test_issue_info_keeps_only_closing_prs_of_this_repo(self):
+        # 2026-10-15 に gh 2.102.0 で cli/cli の issue を読んだ closedByPullRequestsReferences の形
+        ref = lambda n, owner, name: {"id": "PR_x", "number": n, "url": f"u{n}",
+                                      "repository": {"id": "R", "name": name, "owner": {"id": "O", "login": owner}}}
+        f = Fake(ok({"number": 12, "title": "直す", "url": "i12", "state": "OPEN",
+                     "closedByPullRequestsReferences": [ref(3, "o", "r"), ref(4, "x", "r")]}))
+        self.assertEqual(ghx.issue_info("o/r", 12, runner=f),
+                         {"number": 12, "title": "直す", "url": "i12", "state": "OPEN", "prs": [3]})
+
+    def test_default_branch(self):
+        f = Fake((0, "main\n", ""))
+        self.assertEqual(ghx.default_branch("o/r", runner=f), "main")
+        self.assertEqual(f.calls[0][0][:4], ["gh", "repo", "view", "o/r"])
+
+
+class GitWorktree(unittest.TestCase):
+    """fetch・早送り・手元の枝を消す、を本物の git で。"""
+
+    def setUp(self):
+        from .test_provision import git, make_world
+        self.git = git
+        self.src, root = make_world()
+        self.path = os.path.join(root, "feat-1")
+        git("-C", self.src, "worktree", "add", "-q", "-b", "feat/1", self.path, "origin/feat/1")
+
+    def test_fetch_of_a_branch_missing_on_origin_raises(self):
+        with self.assertRaises(gitx.GitError):
+            gitx.fetch(self.src, "nowhere")
+
+    def test_fast_forward_moves_only_when_behind(self):
+        from .test_provision import advance
+        self.assertEqual(gitx.fast_forward(self.path, "feat/1"), "current")
+        theirs = advance(self.src, "feat/1")
+        self.assertEqual(gitx.fast_forward(self.path, "feat/1"), "updated")
+        self.assertEqual(gitx.head_sha(self.path), theirs)
+        self.git("-C", self.path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "mine")
+        mine = gitx.head_sha(self.path)
+        advance(self.src, "feat/1")
+        self.assertEqual(gitx.fast_forward(self.path, "feat/1"), "local_only")
+        self.assertEqual(gitx.head_sha(self.path), mine)
+
+    def test_delete_branch_only_when_the_tip_is_the_expected_one(self):
+        sha = gitx.head_sha(self.path)
+        with self.assertRaises(gitx.GitError):   # どこかの worktree が開いている枝は git が断る
+            gitx.delete_branch(self.src, "feat/1", sha)
+        self.git("-C", self.src, "worktree", "remove", self.path)
+        self.assertEqual(gitx.delete_branch(self.src, "feat/1", "b" * 40), "moved")
+        self.assertEqual(gitx.delete_branch(self.src, "feat/1", sha), "deleted")
+        self.assertEqual(gitx.delete_branch(self.src, "feat/1", sha), "absent")
 
 
 class GitIgnored(unittest.TestCase):
@@ -216,34 +374,6 @@ class GitIgnored(unittest.TestCase):
         (pathlib.Path(src) / "node_modules" / "x" / "a.js").write_text("")
         (pathlib.Path(src) / ".gitignore").write_text("frontend/.env.local\nnode_modules/\n")
         self.assertEqual(gitx.ignored_files(src), ["frontend/.env.local"])
-
-
-class RemoveClone(unittest.TestCase):
-    def test_read_only_files_are_made_writable_and_removed(self):
-        # Windows の git は .git/objects/ の中を読み取り専用で作り、読み取り専用のファイルは消せない。その OS の振る舞いをまねる
-        root = pathlib.Path(tempfile.mkdtemp()) / "r-pr-1"
-        (root / ".git" / "objects" / "ab").mkdir(parents=True)
-        obj = root / ".git" / "objects" / "ab" / "cdef"
-        obj.write_text("x")
-        os.chmod(obj, stat.S_IREAD)
-        real = os.unlink
-
-        def windows_unlink(path, *a, **kw):
-            if not os.stat(path, *a, **kw).st_mode & stat.S_IWRITE:
-                raise PermissionError(13, "Access is denied", str(path))
-            return real(path, *a, **kw)
-
-        with unittest.mock.patch("os.unlink", windows_unlink):
-            gitx.remove_clone(str(root))
-        self.assertFalse(root.exists())
-
-    def test_a_folder_that_cannot_be_removed_raises(self):
-        with unittest.mock.patch("os.chmod"), unittest.mock.patch("os.unlink", side_effect=PermissionError(13, "denied")):
-            root = pathlib.Path(tempfile.mkdtemp()) / "r"
-            root.mkdir()
-            (root / "a").write_text("x")
-            with self.assertRaises(OSError):
-                gitx.remove_clone(str(root))
 
 
 class Claude(unittest.TestCase):

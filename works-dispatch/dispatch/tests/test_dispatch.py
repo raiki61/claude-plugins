@@ -10,13 +10,14 @@ import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
-from .test_provision import make_world
+from .test_provision import WorktreeHerdr, make_world
 import claudex
 import config
 import dispatch
 import ghx
 import gitx
 import herdr as real_herdr
+from nodes import clean
 from nodes import prs as prs_node
 from nodes import report
 
@@ -26,13 +27,18 @@ class Report(unittest.TestCase):
         self.assertEqual(report.lines([], {}, []), ["自分の番の PR は無い"])
 
     def test_notes_come_first_and_one_line_per_pr(self):
-        plan = [{"number": 7, "title": "直す", "outcome": "assigned", "clone_path": "/c/r-pr-7", "account": {"name": "p1"}},
-                {"number": 9, "title": "見る", "outcome": "already_open", "clone_path": "/c/r-pr-9", "account": None}]
-        got = report.lines(plan, {7: "sent"}, ["使用率の控えが無い: p3"])
+        plan = [{"number": 7, "kind": "pr", "title": "直す", "head": "feat/7", "outcome": "assigned", "path": "/w/feat-7",
+                 "account": {"name": "p1"}},
+                {"number": 9, "kind": "pr", "title": "見る", "head": "feat/9", "outcome": "already_open", "path": None,
+                 "account": None},
+                {"number": 12, "kind": "issue", "title": "直したい", "head": "12-fix", "outcome": "assigned", "path": None,
+                 "account": {"name": "p2"}}]
+        got = report.lines(plan, {7: "sent", 12: "sent"}, ["使用率の控えが無い: p3"])
         self.assertEqual(got[0], "使用率の控えが無い: p3")
-        self.assertEqual(len(got), 3)
-        self.assertEqual(got[1], "#7 直す  r-pr-7  p1  sent")
-        self.assertEqual(got[2], "#9 見る  -  -  already_open")
+        self.assertEqual(len(got), 4)
+        self.assertEqual(got[1], "#7 直す  feat/7  p1  sent")
+        self.assertEqual(got[2], "#9 見る  feat/9  -  already_open")
+        self.assertEqual(got[3], "issue #12 直したい  12-fix  p2  sent")
 
 
 class Prs(unittest.TestCase):
@@ -67,6 +73,7 @@ class Prs(unittest.TestCase):
 
 
 def make_cfg():
+    """(設定のパス, worktree の置き場) を返す。元の clone は gitx_source(設定のパス)。"""
     src, root = make_world()
     d = pathlib.Path(root).parent
     (d / "second.md").write_text("二手目", encoding="utf-8")
@@ -77,33 +84,18 @@ accounts = [{{ name = "a1", command = "claude-a1", config_dir = '{d}/c1' }}]
 repo = "o/r"
 second_prompt_file = '{d}/second.md'
 source = '{src}'
-clone_root = '{root}'
 copy_files = ["frontend/.env.local"]
 """, encoding="utf-8")
     return str(d / "c.toml"), root
 
 
-class FakeHerdr:
-    HerdrError = real_herdr.HerdrError
+class FakeHerdr(WorktreeHerdr):
+    """場所の口は本物の git worktree（WorktreeHerdr）、会話の口は手元の表。"""
 
-    def __init__(self, fail_run_for=()):
-        self._panes = []
+    def __init__(self, fail_run_for=(), root=None):
+        super().__init__(root)
         self._fail = set(fail_run_for)
-        self.writes = []
         self.talking = set()   # 前に会話が居るペイン（/exit を受けるとシェルに戻る）
-
-    def panes(self):
-        return list(self._panes)
-
-    def create_workspace(self, cwd, label):
-        n = len(self._panes)
-        self._panes.append({"pane_id": f"P{n}", "workspace_id": f"W{n}", "cwd": cwd, "agent": None})
-        self.writes.append(("create_workspace", cwd, label))
-        return {"workspace_id": f"W{n}", "pane_id": f"P{n}"}
-
-    def close_workspace(self, workspace_id):
-        self.writes.append(("close_workspace", workspace_id))
-        self._panes = [p for p in self._panes if p["workspace_id"] != workspace_id]
 
     def run(self, pane, command):
         self.writes.append(("run", pane, command))
@@ -130,7 +122,7 @@ class FakeHerdr:
 
 
 # 試験の Ports が本物の herdr とログインのシェルを呼ばないための偽物（試験の中で上書きするものはそちらが勝つ）
-QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None}
+QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None, "worktrees": lambda source: []}
 
 
 def quiet_ports(**kw):
@@ -146,6 +138,9 @@ class FakePorts(dispatch.Ports):
         self._problems = list(problems)
         self.herdr = herdr or FakeHerdr()
         self.git = gitx
+        self.gh = FakeGh(self)
+        self.issues = {}
+        self.source = None   # 元の clone（FakeGh が origin に枝を作るのに使う）
 
     def preflight(self, cfg):
         return list(self._problems), []
@@ -163,10 +158,31 @@ class FakePorts(dispatch.Ports):
     def activity(self, repo, number):
         return self.acts.get(number, {"reviewers": True, "last_other": None})
 
-    states = {}   # 番号 → PR の状態（片付け。無ければ読めない＝消さない）
+    branch_prs = {}   # 枝 → その枝の PR（{number, state, head_sha}。片付け）。"unknown" は読めない＝消さない。無ければ PR が無い
 
-    def pr_state(self, repo, number):
-        return self.states.get(number)
+    def pr_for_branch(self, repo, branch):
+        got = self.branch_prs.get(branch)
+        if got == "unknown":
+            raise clean.Unknown("読めない")
+        return got
+
+    def places(self, repo):
+        return self.herdr.worktrees(repo.source)
+
+    def pr_info(self, repo, number):
+        return {**pr(number), "state": "OPEN", "fork": False}
+
+    # issues: issue の番号 → {title, branches, prs}（インスタンスごと）
+
+    def issue_info(self, repo, number):
+        i = self.issues[number]
+        return {"number": number, "title": i["title"], "url": f"i{number}", "state": "OPEN", "prs": i.get("prs", [])}
+
+    def issue_branches(self, repo, number):
+        return list(self.issues[number].get("branches", []))
+
+    def default_branch(self, repo):
+        return "main"
 
     limits_seq = None  # 読むたびに 1 つずつ返す控え（None なら全部「控え無し」）
 
@@ -197,6 +213,25 @@ class FakePorts(dispatch.Ports):
     def trust(self, account, source, clone):
         self.herdr.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
+
+
+class FakeGh:
+    """issue に枝を結ぶ書く口の偽物。結ぶと、ports.issues のその issue に枝が 1 本増え、origin にも枝ができる。"""
+
+    def __init__(self, ports):
+        self.ports = ports
+        self.developed = []
+
+    def issue_develop(self, repo, number, base, env=None):
+        self.developed.append((repo, number, base))
+        name = f"{number}-fix"
+        self.ports.issues[number].setdefault("branches", []).append(name)
+        src = self.ports.source
+        subprocess.run(["git", "-C", src, "push", "-q", "origin", f"refs/remotes/origin/{base}:refs/heads/{name}"],
+                       check=True, capture_output=True)
+
+    def issue_branches(self, repo, number, env=None):
+        return self.ports.issue_branches(None, number)
 
 
 def gitx_source(cfg_path):
@@ -247,15 +282,19 @@ class Main(unittest.TestCase):
         self.assertFalse(hasattr(ports, "saved_cost"))
 
     def test_dry_run_writes_nothing_and_says_create_or_reuse(self):
-        pathlib.Path(self.root, "r-pr-2").mkdir()
-        ports = FakePorts([pr(1), pr(2)])
+        src = gitx_source(self.cfg)
+        subprocess.run(["git", "-C", src, "worktree", "add", "-q", "-b", "feat/2", f"{self.root}/feat-2", "origin/feat/2"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", src, "checkout", "-q", "-b", "feat/3", "origin/feat/3"], check=True, capture_output=True)
+        ports = FakePorts([pr(1), pr(2), pr(3)])
         rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertEqual(rc, 0)
         self.assertEqual(ports.herdr.writes, [])
-        self.assertFalse(pathlib.Path(self.root, "r-pr-1").exists())
+        self.assertEqual(len(ports.herdr.worktrees(src)), 2)
         lines = by_number(out)
         self.assertTrue(lines["#1"].endswith("create"))
         self.assertTrue(lines["#2"].endswith("reuse"))
+        self.assertTrue(lines["#3"].endswith("branch_busy"))
 
     def test_preflight_problem_stops_before_anything(self):
         ports = FakePorts([pr(1)], problems=["herdr に届かない"])
@@ -281,14 +320,15 @@ class Main(unittest.TestCase):
         self.assertEqual((rc, ports.herdr.writes), (0, []))
         self.assertIn("自分の番の PR は無い", out)
 
-    def test_creates_clone_then_launches_and_sends_two_turns(self):
+    def test_creates_the_branch_place_then_launches_and_sends_two_turns(self):
         ports = FakePorts([pr(1)])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0)
-        path = str(pathlib.Path(self.root, "r-pr-1"))
-        self.assertEqual(gitx.origin_repo(path), "o/r")
+        place = [w for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["linked"]]
+        self.assertEqual([w["branch"] for w in place], ["feat/1"])
+        path = place[0]["path"]
         self.assertEqual(ports.herdr.writes, [
-            ("create_workspace", path, "r-pr-1"),
+            ("create_worktree", "feat/1", "r/feat/1"),
             ("trust", "a1", gitx_source(self.cfg), path),
             ("run", "P0", "claude-a1"),
             ("prompt", "P0", "/attention:catchup 1", True),
@@ -330,6 +370,23 @@ class Main(unittest.TestCase):
         self.assertIn("止めた: #99999 を読めない", out)
         self.assertEqual(ports.herdr.writes, [])
 
+    def test_fork_pr_from_the_list_is_provision_failed_and_nothing_is_made(self):
+        ports = FakePorts([pr(1)])
+        ports.pr_info = lambda repo, n: {**pr(n), "state": "OPEN", "fork": True}
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertTrue(by_number(out)["#1"].endswith("provision_failed"), out)
+        self.assertIn("fork の PR", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_branch_open_in_the_source_clone_is_branch_busy(self):
+        src = gitx_source(self.cfg)
+        subprocess.run(["git", "-C", src, "checkout", "-q", "-b", "feat/1", "origin/feat/1"], check=True, capture_output=True)
+        ports = FakePorts([pr(1)])
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertTrue(by_number(out)["#1"].endswith("branch_busy"), out)
+        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(gitx.branch(src), "feat/1")
+
     def test_one_launch_failure_does_not_stop_the_other(self):
         ports = FakePorts([pr(1), pr(2)], herdr=FakeHerdr(fail_run_for={"P0"}))
         rc, out = run_main(["--config", self.cfg], ports)
@@ -338,6 +395,66 @@ class Main(unittest.TestCase):
         self.assertTrue(lines["#1"].endswith("launch_failed"))
         self.assertTrue(lines["#2"].endswith("sent"))
         self.assertIn(("prompt", "P1", "/attention:catchup 2", True), ports.herdr.writes)
+
+
+class Issue(unittest.TestCase):
+    """--issue N: issue に結んだ枝の場所を開き、1 ターン目の /catchup N まで送って止める。"""
+
+    def setUp(self):
+        self.cfg, self.root = make_cfg()
+
+    def ports(self, **issue):
+        ports = FakePorts([])
+        ports.fetch_prs = lambda repo: self.fail("--issue では whose-turn を呼ばない")
+        ports.source = gitx_source(self.cfg)
+        ports.issues = {12: {"title": "ログインを直す", **issue}}
+        return ports
+
+    def line(self, out):
+        return next(l for l in out.splitlines() if l.startswith("issue #12 "))
+
+    def test_linked_branch_is_opened_and_only_the_first_turn_is_sent(self):
+        ports = self.ports(branches=["feat/5", "feat/6"])
+        rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.line(out), "issue #12 ログインを直す  feat/5  a1  sent")
+        self.assertEqual([w for w in ports.herdr.writes if w[0] == "prompt"], [("prompt", "P0", "/attention:catchup 12", False)])
+        self.assertIn("ほかにも有る（使ったのは feat/5）: feat/6", out)
+        self.assertEqual(ports.gh.developed, [])
+        self.assertFalse(hasattr(ports, "saved_cost"))   # 待たずに送った件では 1 件あたりの使用率を測らない
+
+    def test_without_a_linked_branch_one_is_made_from_the_default_branch_and_read_back(self):
+        ports = self.ports()
+        rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
+        self.assertEqual(ports.gh.developed, [("o/r", 12, "main")])
+        self.assertEqual(self.line(out), "issue #12 ログインを直す  12-fix  a1  sent")
+        self.assertIn(("create_worktree", "12-fix", "r/12-fix"), ports.herdr.writes)
+
+    def test_branch_replaced_by_its_pr_is_found_through_the_pr(self):
+        # issue に結んだ枝から PR を作ると、GitHub は枝の結びつきを PR に置き換える。枝を作り直さず、PR の枝を使う
+        ports = self.ports(prs=[3])
+        rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
+        self.assertEqual(ports.gh.developed, [])
+        self.assertEqual(self.line(out), "issue #12 ログインを直す  feat/3  a1  sent")
+
+    def test_dry_run_makes_no_branch(self):
+        ports = self.ports()
+        rc, out = run_main(["--config", self.cfg, "--issue", "12", "--dry-run"], ports)
+        self.assertEqual(ports.gh.developed, [])
+        self.assertEqual(ports.herdr.writes, [])
+        self.assertEqual(self.line(out), "issue #12 ログインを直す  -  a1  create")
+        self.assertIn("gh issue develop", out)
+
+    def test_issue_and_pr_together_stop(self):
+        rc, out = run_main(["--config", self.cfg, "--issue", "12", "--pr", "1"], self.ports())
+        self.assertEqual(rc, 2)
+        self.assertIn("--issue と --pr は一緒に使えない", out)
+
+    def test_issue_does_not_tidy(self):
+        ports = self.ports(branches=["feat/5"])
+        ports.pr_for_branch = lambda repo, b: self.fail("--issue では片付けない")
+        rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
+        self.assertEqual(rc, 0, out)
 
 
 class RealPorts(unittest.TestCase):
@@ -556,6 +673,17 @@ class Preflight(unittest.TestCase):
         _, notes = ports.preflight(cfg)
         self.assertIn(f"写すファイルが {empty} に無い: frontend/.env.local", "\n".join(notes))
 
+    def test_herdr_that_cannot_list_the_sources_worktrees_is_a_problem(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+
+        def broken(source):
+            raise real_herdr.HerdrError(["herdr", "worktree", "list"], "not_a_git_repository")
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                            gh_ok=lambda repo, env=None: True, worktrees=broken)
+        problems, _ = ports.preflight(cfg)
+        self.assertIn("worktree を並べられない（herdr worktree list: not_a_git_repository）", "\n".join(problems))
+
     def test_source_of_another_repo_is_a_problem(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
@@ -580,7 +708,7 @@ class Init(unittest.TestCase):
         cfg = config.load(self.cfg, env={})
         repo = cfg.repos[0]
         self.assertEqual((repo.repo, repo.source), ("o/r", self.src))
-        self.assertEqual(repo.clone_root, str(pathlib.Path(self.src).parent))
+        self.assertNotIn("clone_root", pathlib.Path(self.cfg).read_text(encoding="utf-8"))  # 置き場は herdr の既定に任せる
         self.assertEqual(repo.copy_files, ("frontend/.env.local",))
         self.assertTrue(pathlib.Path(self.cfg).with_name("dispatch-second-prompt.md").is_file())
         self.assertIn("--check", out)

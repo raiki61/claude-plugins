@@ -48,11 +48,11 @@ def trust_file(config_dir, env):
 
 
 def inherit_trust(path_of_file, source, clone):
-    """元の clone が信頼済みなら、そこから作った clone にも信頼の印を付ける。結末の語を返す:
+    """元の clone が信頼済みなら、そこから作った作業場（clone は、元の clone の worktree のパス）にも信頼の印を付ける。結末の語を返す:
     inherited（付けた）・already（もう付いている）・source_untrusted（元が信頼されていない。確認がふつうに出る）・no_file。
 
     Claude Code の文書は、確認を出さずに信頼する手として、.claude.json の projects["<リポジトリの根>"].hasTrustDialogAccepted を
-    true にすることを書いている。信頼はリポジトリの根ごとで、親のフォルダの信頼は中の clone に効かない。
+    true にすることを書いている。信頼はリポジトリの根ごとで、親のフォルダの信頼は中の checkout に効かない。
     同じアカウントのほかの会話もこのファイルを書くので、一時ファイルに書いてから差し替える（壊さない）。
     ほかの会話が古い中身で上書きして印が消えても、確認がふつうに出るだけで済む。"""
     try:

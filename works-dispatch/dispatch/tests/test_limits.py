@@ -246,7 +246,7 @@ class HerdrConfig(unittest.TestCase):
         d = pathlib.Path(tempfile.mkdtemp())
         toml = d / "dispatch.toml"
         toml.write_text(f'limits_dir = \'{d / "lim"}\'\naccounts = [{{ name = "p1", command = "claude-p1", config_dir = "/h/.claude-p1" }}]\n'
-                        f'[[repos]]\nrepo = "o/r"\nsource = \'{d}\'\nclone_root = \'{d}\'\nsecond_prompt_file = \'{toml}\'\n', encoding="utf-8")
+                        f'[[repos]]\nrepo = "o/r"\nsource = \'{d}\'\nsecond_prompt_file = \'{toml}\'\n', encoding="utf-8")
         out = subprocess.run([sys.executable, str(DISPATCH / "limits.py"), "--config", str(toml), "herdr-config"],
                              capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(out.returncode, 0, out.stderr)

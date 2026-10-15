@@ -1,21 +1,80 @@
 {
   "type": "object",
-  "required": ["schema", "plan"],
+  "required": [
+    "schema",
+    "plan"
+  ],
   "properties": {
-    "schema": {"type": "integer", "enum": [1]},
+    "schema": {
+      "type": "integer",
+      "enum": [
+        1
+      ]
+    },
     "plan": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["number", "title", "head", "url", "outcome", "account", "clone_path"],
+        "required": [
+          "number",
+          "kind",
+          "title",
+          "head",
+          "url",
+          "fork",
+          "outcome",
+          "account",
+          "path"
+        ],
         "properties": {
-          "number": {"type": "integer"},
-          "title": {"type": "string"},
-          "head": {"type": "string"},
-          "url": {"type": ["string", "null"]},
-          "outcome": {"type": "string", "enum": ["assigned", "already_open", "no_account"]},
-          "account": {"type": ["object", "null"]},
-          "clone_path": {"type": "string"}
+          "number": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pr",
+              "issue"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "head": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fork": {
+            "type": "boolean"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "assigned",
+              "already_open",
+              "no_account"
+            ]
+          },
+          "account": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     }

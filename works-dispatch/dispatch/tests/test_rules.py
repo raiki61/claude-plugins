@@ -54,8 +54,12 @@ class EachFenceCatches(unittest.TestCase):
         self.assertCaught(fences.d4_outward, {"nodes/report.py": "from herdr import prompt\n"})
 
     def test_d4_write_through_an_injected_port_outside_its_node(self):
-        self.assertCaught(fences.d4_outward, {"nodes/report.py": "def f(h):\n    h.create_workspace('/c', 'x')\n"})
-        self.assertCaught(fences.d4_outward, {"nodes/assign.py": "def f(g):\n    g.clone('/s', '/c')\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/report.py": "def f(h):\n    h.create_worktree('/s', 'b', 'o/b', 'x')\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/assign.py": "def f(h):\n    h.remove_worktree('/s', '/p', 'x')\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/turn.py": "def f(g):\n    g.delete_branch('/s', 'b', 'sha')\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/clean.py": "def f(gh):\n    gh.issue_develop('o/r', 1, 'main')\n"})
+        self.assertCaught(fences.d4_outward, {"dispatch.py": "from ghx import issue_develop\n"})
+        self.assertCaught(fences.d4_outward, {"nodes/assign.py": "def f(g):\n    g.fast_forward('/c', 'b')\n"})
         self.assertCaught(fences.d4_outward, {"nodes/launch.py": "def f(h):\n    h.prompt('p', 't', True)\n"})
         self.assertCaught(fences.d4_outward, {"dispatch.py": "from gitx import fetch\n"})
 
@@ -65,8 +69,11 @@ class EachFenceCatches(unittest.TestCase):
     def test_d4_allows_launch_and_turn(self):
         ok = {"nodes/launch.py": "import herdr\nherdr.run('p', 'c')\n",
               "nodes/turn.py": "def f(h):\n    h.prompt('p', 't', True)\n",
-              "nodes/provision.py": "def f(h, g):\n    g.clone('s', 'p')\n    g.fetch('p')\n    h.create_workspace('p', 'l')\n",
-              "herdr.py": "import subprocess\n"}
+              "nodes/provision.py": ("def f(h, g, gh):\n    g.fetch('s', 'b')\n    h.create_worktree('s', 'b', 'o/b', 'l')\n"
+                                     "    h.open_worktree('s', 'p', 'l')\n    g.fast_forward('p', 'b')\n"
+                                     "    gh.issue_develop('o/r', 1, 'main')\n"),
+              "nodes/clean.py": "def f(h, g):\n    h.remove_worktree('s', 'p', 'l')\n    g.delete_branch('s', 'b', 'x')\n",
+              "herdr.py": "import subprocess\n", "ghx.py": "def issue_develop(r, n, b):\n    pass\n"}
         self.assertEqual(fences.d4_outward(tree(ok)), [])
 
     def test_d5_timeout(self):

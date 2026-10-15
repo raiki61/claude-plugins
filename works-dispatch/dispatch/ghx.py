@@ -1,4 +1,7 @@
-"""gh への口（片付けで PR の状態を読む・アカウントの鍵を取り出す）。dispatch で gh を直に呼ぶのはこの 1 か所だけ。読むだけで、書かない。
+"""gh への口（PR と issue を読む・アカウントの鍵を取り出す・issue に枝を結ぶ）。dispatch で gh を直に呼ぶのはこの 1 か所だけ。
+
+書く関数は issue_develop 1 つ（GitHub に枝を作って issue に結ぶ）で、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が
+構文木で見る。持ち主が --issue で指したときだけ呼ばれる。
 
 自分の番の PR の一覧は gh を直に呼ばず、写した whose-turn に任せる（nodes/prs.py）。
 
@@ -31,15 +34,81 @@ def env_for(user, base_env, runner=_default_runner):
 
 
 def pr_info(repo, number, runner=_default_runner, env=None):
-    """1 件の PR を、whose-turn --json の 1 件と同じ名前の欄（number・title・head・url）で返す。読めなければ GhError。"""
-    p = runner(["gh", "pr", "view", str(number), "--repo", repo, "--json", "number,title,headRefName,url"], env=env)
+    """1 件の PR を、whose-turn --json の 1 件と同じ名前の欄（number・title・head・url）に、状態（state）と fork の PR か（fork。
+    head が別のリポジトリ）を足して返す。読めなければ GhError。"""
+    p = runner(["gh", "pr", "view", str(number), "--repo", repo, "--json",
+                "number,title,headRefName,url,state,isCrossRepository"], env=env)
     try:
         got = json.loads(p.stdout) if p.returncode == 0 else None
     except ValueError:
         got = None
     if not isinstance(got, dict) or "headRefName" not in got:
         raise GhError(f"{repo} の #{number} を読めない: {(p.stderr or p.stdout).strip()[:200]}")
-    return {"number": got["number"], "title": got["title"], "head": got["headRefName"], "url": got.get("url")}
+    return {"number": got["number"], "title": got["title"], "head": got["headRefName"], "url": got.get("url"),
+            "state": got.get("state"), "fork": bool(got.get("isCrossRepository"))}
+
+
+def pr_for_branch(repo, branch, runner=_default_runner, env=None):
+    """その枝を head にする、このリポジトリの PR（fork の PR は数えない）。開いているものが有ればそれ、無ければいちばん新しいもの。
+    {number, state, head_sha} か、PR が無ければ None。読めなければ GhError（片付けは消さない側に倒す）。"""
+    p = runner(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "20",
+                "--json", "number,state,headRefOid,isCrossRepository"], env=env)
+    try:
+        got = json.loads(p.stdout) if p.returncode == 0 else None
+    except ValueError:
+        got = None
+    if not isinstance(got, list):
+        raise GhError(f"{repo} の枝 {branch} の PR を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    mine = [x for x in got if isinstance(x, dict) and not x.get("isCrossRepository")]
+    pick = next((x for x in mine if x.get("state") == "OPEN"), mine[0] if mine else None)
+    return None if pick is None else {"number": pick.get("number"), "state": pick.get("state"),
+                                      "head_sha": pick.get("headRefOid")}
+
+
+def default_branch(repo, runner=_default_runner, env=None):
+    """リポジトリの既定の枝の名前。読めなければ GhError。"""
+    p = runner(["gh", "repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], env=env)
+    name = p.stdout.strip()
+    if p.returncode != 0 or not name:
+        raise GhError(f"{repo} の既定の枝を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    return name
+
+
+def issue_info(repo, number, runner=_default_runner, env=None):
+    """1 件の issue の {number, title, url, state, prs}。prs は、その issue を閉じる PR（Development の欄）の番号のうち、
+    このリポジトリのもの。issue に結んだ枝から PR を作ると、GitHub は枝の結びつきを外して PR に置き換える（GitHub の文書
+    「Creating a branch to work on an issue」）ので、枝が見えなくなった issue は、この PR から枝を辿る。読めなければ GhError。"""
+    p = runner(["gh", "issue", "view", str(number), "--repo", repo, "--json",
+                "number,title,url,state,closedByPullRequestsReferences"], env=env)
+    try:
+        got = json.loads(p.stdout) if p.returncode == 0 else None
+    except ValueError:
+        got = None
+    if not isinstance(got, dict) or "title" not in got:
+        raise GhError(f"{repo} の issue #{number} を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    owner, name = repo.split("/", 1)
+    prs = [r.get("number") for r in got.get("closedByPullRequestsReferences") or []
+           if isinstance(r, dict) and (r.get("repository") or {}).get("name") == name
+           and ((r.get("repository") or {}).get("owner") or {}).get("login") == owner]
+    return {"number": got["number"], "title": got["title"], "url": got.get("url"), "state": got.get("state"), "prs": prs}
+
+
+def issue_branches(repo, number, runner=_default_runner, env=None):
+    """issue に結んだ枝の名前の並び（`gh issue develop --list`）。読めなければ GhError。
+    端末でないときの gh の表は、見出しを付けずに 1 行 1 枝を「枝<TAB>URL」で出す。見出し（BRANCH）が来ても読み飛ばす。"""
+    p = runner(["gh", "issue", "develop", "--list", str(number), "--repo", repo], env=env)
+    if p.returncode != 0:
+        raise GhError(f"{repo} の issue #{number} に結んだ枝を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    names = [line.split()[0] for line in p.stdout.splitlines() if line.strip()]
+    return [n for n in names if n != "BRANCH"]
+
+
+def issue_develop(repo, number, base, runner=_default_runner, env=None):
+    """GitHub に、base から枝を作って issue に結ぶ（`gh issue develop <番号> --base <base>`）。書く口。枝の名前は gh の既定に任せ、
+    作った後に issue_branches で読み戻す（ここでは返さない）。失敗は GhError。"""
+    p = runner(["gh", "issue", "develop", str(number), "--repo", repo, "--base", base], env=env)
+    if p.returncode != 0:
+        raise GhError(f"{repo} の issue #{number} に枝を結べない: {(p.stderr or p.stdout).strip()[:200]}")
 
 
 def login(runner=_default_runner, env=None):
@@ -94,14 +163,3 @@ def pr_activity(repo, number, me, runner=_default_runner, env=None):
     people = [r for r in nodes("reviews") if human(r.get("author")) and who(r.get("author")) not in (author, None)]
     asked = [q for q in nodes("reviewRequests") if ((q.get("requestedReviewer") or {}).get("__typename")) in ("User", "Team")]
     return {"reviewers": bool(asked or people), "last_other": max([t for t in times if t is not None], default=None)}
-
-
-def pr_state(repo, number, runner=_default_runner, env=None):
-    """OPEN・MERGED・CLOSED のどれか。読めない時は None（片付けは消さない側に倒す）。"""
-    p = runner(["gh", "pr", "view", str(number), "--repo", repo, "--json", "state"], env=env)
-    if p.returncode != 0:
-        return None
-    try:
-        return json.loads(p.stdout).get("state")
-    except (ValueError, AttributeError):
-        return None

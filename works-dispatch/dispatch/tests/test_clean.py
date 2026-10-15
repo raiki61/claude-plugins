@@ -1,127 +1,185 @@
-"""片付け（clean ノードと dispatch.py --clean）。消してよいのは、PR が閉じていて、会話が無く、手元にしか無い変更も無い clone だけ。"""
+"""片付け（clean ノードと dispatch.py --clean）。消してよいのは、元の clone の linked worktree のうち、枝の PR が閉じていて、会話が無く、
+手元の作業も無く、手元の枝の先頭が PR の head と同じ場所だけ。"""
 
 import contextlib
 import io
+import os
 import pathlib
-import subprocess
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
-from .test_dispatch import FakeHerdr, FakePorts, make_cfg
-from .test_provision import git
+from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg
+from .test_provision import git, make_world
 import dispatch
 import gitx
-from config import Repo
 from nodes import clean
 
-REPO = Repo("o/r", "s", "/src/r", "/clones", ())
+
+def place(path, branch, linked=True):
+    return {"path": path, "branch": branch, "linked": linked, "workspace": None, "prunable": False}
 
 
-def folders(*names):
-    return [f"/clones/{n}" for n in names]
+SHA = "a" * 40
 
 
 class Candidates(unittest.TestCase):
-    def rows(self, names, states, open_cwds=(), dirty=(), unpushed=()):
-        return clean.candidates(REPO, folders(*names), lambda n: states[n], set(open_cwds),
-                                lambda p: p not in dirty, lambda p: p in unpushed)
+    def rows(self, places, prs, open_cwds=(), dirty=(), stashed=(), heads=None):
+        def pr_for(branch):
+            got = prs.get(branch)
+            if got == "unknown":
+                raise clean.Unknown("x")
+            return got
+        return clean.candidates(places, pr_for, set(open_cwds), lambda p: p not in dirty,
+                                lambda p, b: p in stashed, lambda p: (heads or {}).get(p, SHA))
 
-    def test_only_pr_folders_of_this_repo_are_looked_at(self):
-        rows = self.rows(["r-pr-1", "other-pr-2", "r-pr-x", "r"], {1: "MERGED"})
-        self.assertEqual([r["number"] for r in rows], [1])
+    def merged(self, n=1, state="MERGED"):
+        return {"number": n, "state": state, "head_sha": SHA}
+
+    def test_only_linked_worktrees_are_looked_at(self):
+        rows = self.rows([place("/s", "main", linked=False), place("/w/a", "a")], {"a": self.merged(), "main": self.merged()})
+        self.assertEqual([r["path"] for r in rows], ["/w/a"])
 
     def test_closed_or_merged_without_session_or_local_work_is_removable(self):
-        rows = self.rows(["r-pr-1", "r-pr-2"], {1: "MERGED", 2: "CLOSED"})
-        self.assertEqual([r["removable"] for r in rows], [True, True])
+        rows = self.rows([place("/w/a", "a"), place("/w/b", "b")], {"a": self.merged(1), "b": self.merged(2, "CLOSED")})
+        self.assertEqual([(r["number"], r["removable"]) for r in rows], [(1, True), (2, True)])
+
+    def test_branch_without_a_pr_is_kept(self):
+        # issue から始めて PR をまだ作っていない枝は消さない
+        row = self.rows([place("/w/12-fix", "12-fix")], {})[0]
+        self.assertEqual((row["removable"], row["reason"]), (False, "no_pr"))
+
+    def test_detached_checkout_is_kept(self):
+        self.assertEqual(self.rows([place("/w/x", None)], {})[0]["reason"], "no_branch")
 
     def test_open_pr_is_kept(self):
-        row = self.rows(["r-pr-1"], {1: "OPEN"})[0]
+        row = self.rows([place("/w/a", "a")], {"a": self.merged(state="OPEN")})[0]
         self.assertEqual((row["removable"], row["reason"]), (False, "pr_open"))
 
     def test_folder_with_a_conversation_is_kept(self):
-        row = self.rows(["r-pr-1"], {1: "MERGED"}, open_cwds=["/clones/r-pr-1/backend"])[0]
+        row = self.rows([place("/w/a", "a")], {"a": self.merged()}, open_cwds=["/w/a/backend"])[0]
         self.assertEqual((row["removable"], row["reason"]), (False, "session"))
 
-    def test_uncommitted_or_unpushed_work_is_kept(self):
-        self.assertEqual(self.rows(["r-pr-1"], {1: "MERGED"}, dirty=["/clones/r-pr-1"])[0]["reason"], "dirty")
-        self.assertEqual(self.rows(["r-pr-1"], {1: "MERGED"}, unpushed=["/clones/r-pr-1"])[0]["reason"], "unpushed")
+    def test_uncommitted_stashed_or_moved_work_is_kept(self):
+        pr = {"a": self.merged()}
+        self.assertEqual(self.rows([place("/w/a", "a")], pr, dirty=["/w/a"])[0]["reason"], "dirty")
+        self.assertEqual(self.rows([place("/w/a", "a")], pr, stashed=["/w/a"])[0]["reason"], "unpushed")
+        self.assertEqual(self.rows([place("/w/a", "a")], pr, heads={"/w/a": "b" * 40})[0]["reason"], "unpushed")
 
-    def test_unknown_pr_state_is_kept(self):
-        row = self.rows(["r-pr-1"], {1: None})[0]
+    def test_unknown_pr_is_kept(self):
+        row = self.rows([place("/w/a", "a")], {"a": "unknown"})[0]
         self.assertEqual((row["removable"], row["reason"]), (False, "pr_state_unknown"))
 
+    def test_conversation_behind_a_symlink_still_keeps_the_place(self):
+        real = pathlib.Path(tempfile.mkdtemp()).resolve()
+        (real / "a").mkdir()
+        link = pathlib.Path(tempfile.mkdtemp()) / "w"
+        os.symlink(real, link)
+        rows = self.rows([place(str(link / "a"), "a")], {"a": self.merged()}, open_cwds=[str(real / "a")])
+        self.assertEqual(rows[0]["reason"], "session")
 
-class Unpushed(unittest.TestCase):
-    def test_commit_only_here_counts(self):
-        from .test_provision import make_world
-        src, root = make_world()
-        path = str(pathlib.Path(root, "r-pr-1"))
-        git("clone", "-q", src, path)
-        self.assertFalse(gitx.unpushed(path))
-        git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "local")
-        self.assertTrue(gitx.unpushed(path))
+
+class LocalWork(unittest.TestCase):
+    """worktree は枝と stash を元の clone と共有する。判定はその場所の HEAD とその枝に絞る。"""
 
     def world(self):
-        from .test_provision import make_world
         src, root = make_world()
-        path = str(pathlib.Path(root, "r-pr-1"))
-        git("clone", "-q", src, path)
-        return path
+        path = str(pathlib.Path(root, "feat-1"))
+        git("-C", src, "worktree", "add", "-q", "-b", "feat/1", path, "origin/feat/1")
+        return src, path
+
+    def commit(self, cwd, msg="local"):
+        git("-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", msg)
+
+    def test_commit_only_here_counts(self):
+        src, path = self.world()
+        self.assertFalse(gitx.unpushed(path))
+        self.commit(path)
+        self.assertTrue(gitx.unpushed(path))
+
+    def test_local_commits_in_the_source_clone_do_not_count_here(self):
+        src, path = self.world()
+        self.commit(src)   # 元の clone の main にだけ手元の commit
+        self.assertFalse(gitx.unpushed(path))
 
     def test_new_file_not_yet_added_is_not_clean(self):
-        # 会話が書いた新しいファイルは、git に足す前でも作業である。消すと戻せない
-        path = self.world()
+        src, path = self.world()
         self.assertTrue(gitx.is_clean(path))
         pathlib.Path(path, "new.py").write_text("x = 1\n")
         self.assertFalse(gitx.is_clean(path))
 
     def test_ignored_file_alone_stays_clean(self):
-        # git が追わない手元だけのファイル（.env.local など）は、写し元から作り直せる
-        path = self.world()
-        with open(pathlib.Path(path, ".git", "info", "exclude"), "a") as f:
-            f.write(".env.local\n")
-        pathlib.Path(path, ".env.local").write_text("A=1\n")
+        src, path = self.world()
+        pathlib.Path(path, "frontend").mkdir()
+        pathlib.Path(path, "frontend", ".env.local").write_text("A=1\n")
         self.assertTrue(gitx.is_clean(path))
 
-    def test_stash_counts_as_unpushed(self):
-        path = self.world()
+    def test_stash_counts_only_on_its_own_branch(self):
+        src, path = self.world()
         pathlib.Path(path, "draft.py").write_text("x = 1\n")
         git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "stash", "push", "-q", "--include-untracked")
         self.assertTrue(gitx.is_clean(path))
         self.assertTrue(gitx.unpushed(path))
+        self.assertTrue(gitx.stashed(path, "feat/1"))
+        self.assertFalse(gitx.stashed(src, "main"))   # stash は共有だが、別の枝の物は数えない
+        self.assertFalse(gitx.unpushed(src))
 
     def test_commit_on_a_detached_head_counts_as_unpushed(self):
-        path = self.world()
+        src, path = self.world()
         git("-C", path, "checkout", "-q", "--detach")
-        git("-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "loose")
+        self.commit(path, "loose")
         self.assertTrue(gitx.unpushed(path))
 
 
-class Paths(unittest.TestCase):
-    def test_conversation_behind_a_symlinked_clone_root_still_keeps_the_folder(self):
-        # clone_root がリンク（~/src → 別のボリューム）で、claude agents が実際のパスを返しても、会話のある clone は残す
-        import os
-        import tempfile
-        real = pathlib.Path(tempfile.mkdtemp()).resolve()
-        (real / "r-pr-1").mkdir()
-        link = pathlib.Path(tempfile.mkdtemp()) / "src"
-        os.symlink(real, link)
-        repo = Repo("o/r", "s", "/src/r", str(link), ())
-        rows = clean.candidates(repo, [str(link / "r-pr-1")], lambda n: "MERGED", {str(real / "r-pr-1")},
-                                lambda p: True, lambda p: False)
-        self.assertEqual(rows[0]["reason"], "session")
+class Remove(unittest.TestCase):
+    def setUp(self):
+        self.src, self.root = make_world()
+        self.h = FakeHerdr(root=self.root)
+        self.path = self.h.create_worktree(self.src, "feat/1", "origin/feat/1", "r/feat/1")["path"]
+        self.h.writes.clear()
 
-    def test_clone_of_another_repo_with_the_same_name_is_not_touched(self):
-        rows = clean.candidates(REPO, folders("r-pr-1"), lambda n: "MERGED", set(), lambda p: True, lambda p: False,
-                                origin=lambda p: "someone-else/r")
-        self.assertEqual((rows[0]["removable"], rows[0]["reason"]), (False, "other_repo"))
+    def row(self, head=None):
+        return {"path": self.path, "branch": "feat/1", "pr_head": head or gitx.head_sha(self.path)}
+
+    def test_removes_the_place_its_workspace_and_the_local_branch(self):
+        got = clean.remove(self.row(), self.src, "r/feat/1", self.h, gitx)
+        self.assertEqual((got["removed"], got["branch_deleted"], got["detail"]), (True, True, None))
+        self.assertFalse(os.path.exists(self.path))
+        self.assertEqual(self.h.panes(), [])
+        self.assertEqual(git("-C", self.src, "branch", "--list", "feat/1"), "")
+
+    def test_branch_whose_tip_moved_is_kept(self):
+        got = clean.remove(self.row("b" * 40), self.src, "r/feat/1", self.h, gitx)
+        self.assertTrue(got["removed"])
+        self.assertFalse(got["branch_deleted"])
+        self.assertIn("feat/1", git("-C", self.src, "branch", "--list", "feat/1"))
+
+    def test_dirty_place_is_not_forced(self):
+        pathlib.Path(self.path, "new.py").write_text("x\n")
+        got = clean.remove(self.row(), self.src, "r/feat/1", self.h, gitx)
+        self.assertFalse(got["removed"])
+        self.assertIn("dirty_worktree_requires_force", got["detail"])
+        self.assertTrue(os.path.exists(self.path))
+        self.assertIn("feat/1", git("-C", self.src, "branch", "--list", "feat/1"))
+
+    def test_release_closes_only_the_pane_on_exactly_that_folder(self):
+        h = FakeHerdr()
+        a = h.open_at("/c/feat-1")
+        h.open_at("/c/feat-1/sub")
+        h.open_at("/c/other")
+        self.assertEqual(clean.release("/c/feat-1", h), a["workspace_id"])
+        self.assertEqual(h.writes, [("close_workspace", a["workspace_id"])])
 
 
 class Main(unittest.TestCase):
     def setUp(self):
         self.cfg, self.root = make_cfg()
-        for n in (1, 2):
-            git("clone", "-q", str(pathlib.Path(self.root).parent / "o" / "r.git"), str(pathlib.Path(self.root, f"r-pr-{n}")))
+        self.src = gitx_source(self.cfg)
+        self.h = FakeHerdr(root=self.root)
+        self.paths = {n: self.h.create_worktree(self.src, f"feat/{n}", f"origin/feat/{n}", f"r/feat/{n}")["path"]
+                      for n in (1, 2, 3)}
+        self.h.close_workspace("W0")
+        self.h.writes.clear()
 
     def run_clean(self, argv, ports):
         buf = io.StringIO()
@@ -129,43 +187,46 @@ class Main(unittest.TestCase):
             rc = dispatch.main(["--config", self.cfg, *argv], ports=ports)
         return rc, buf.getvalue()
 
-    def ports(self, herdr=None):
-        p = FakePorts([], herdr=herdr)
-        p.pr_state = lambda repo, n: {1: "MERGED", 2: "OPEN"}[n]
+    def ports(self):
+        p = FakePorts([], herdr=self.h)
+        p.branch_prs = {"feat/1": {"number": 1, "state": "MERGED", "head_sha": gitx.head_sha(self.paths[1])},
+                        "feat/2": {"number": 2, "state": "OPEN", "head_sha": gitx.head_sha(self.paths[2])}}
         return p
 
     def test_clean_without_apply_removes_nothing(self):
         rc, out = self.run_clean(["--clean"], self.ports())
         self.assertEqual(rc, 0)
-        self.assertTrue(pathlib.Path(self.root, "r-pr-1").exists())
-        self.assertIn("r-pr-1", out)
+        self.assertTrue(os.path.exists(self.paths[1]))
+        self.assertIn("#1 feat/1  MERGED  消せる", out)
+        self.assertIn("#2 feat/2  OPEN  残す（pr_open）", out)
+        self.assertIn("- feat/3  -  残す（no_pr）", out)
         self.assertIn("--apply", out)
+        self.assertEqual(self.h.writes, [])
 
-    def test_apply_removes_only_candidates_and_closes_their_empty_workspace(self):
-        h = FakeHerdr()
-        h.create_workspace(str(pathlib.Path(self.root, "r-pr-1")), "r-pr-1")
-        h.writes.clear()
-        rc, out = self.run_clean(["--clean", "--apply"], self.ports(herdr=h))
-        self.assertEqual(rc, 0)
-        self.assertFalse(pathlib.Path(self.root, "r-pr-1").exists())
-        self.assertTrue(pathlib.Path(self.root, "r-pr-2").exists())
-        self.assertEqual(h.writes, [("close_workspace", "W0")])
+    def test_apply_removes_only_candidates_opening_a_closed_workspace_first(self):
+        rc, out = self.run_clean(["--clean", "--apply"], self.ports())
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(self.paths[1]))
+        self.assertTrue(os.path.exists(self.paths[2]))
+        self.assertTrue(os.path.exists(self.paths[3]))
+        self.assertEqual(self.h.writes, [("remove_worktree", self.paths[1])])
+        self.assertTrue(os.path.exists(self.src))
 
-    def test_apply_returns_1_when_a_folder_could_not_be_removed(self):
-        import unittest.mock
-        with unittest.mock.patch("gitx.remove_clone", side_effect=PermissionError(13, "denied")):
-            rc, out = self.run_clean(["--clean", "--apply"], self.ports(herdr=FakeHerdr()))
+    def test_apply_returns_1_when_a_place_could_not_be_removed(self):
+        pathlib.Path(self.paths[1], "new.py").write_text("x\n")
+        ports = self.ports()
+        ports.is_clean = lambda p: True   # 候補の判定の後に手元の作業が増えた形
+        rc, out = self.run_clean(["--clean", "--apply"], ports)
         self.assertEqual(rc, 1)
         self.assertIn("消せなかった", out)
-        self.assertTrue(pathlib.Path(self.root, "r-pr-1").exists())
+        self.assertTrue(os.path.exists(self.paths[1]))
 
-    def test_apply_does_not_close_a_workspace_whose_pane_has_a_conversation(self):
-        h = FakeHerdr()
-        h.create_workspace(str(pathlib.Path(self.root, "r-pr-1")), "r-pr-1")
-        h._panes[0]["agent"] = "claude"
-        h.writes.clear()
-        self.run_clean(["--clean", "--apply"], self.ports(herdr=h))
-        self.assertEqual(h.writes, [])
+    def test_place_with_a_conversation_is_not_removed(self):
+        ports = self.ports()
+        ports.agents = [{"cwd": self.paths[1], "status": "idle"}]
+        rc, out = self.run_clean(["--clean", "--apply"], ports)
+        self.assertIn("残す（session）", out)
+        self.assertEqual(self.h.writes, [])
 
 
 if __name__ == "__main__":
