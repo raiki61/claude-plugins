@@ -66,6 +66,7 @@ import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/wh
 from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/whose-turn と共用
 from ghcli import GH_TIMEOUT_SEC, gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn と共用
+import catchup_html  # noqa: E402 — 報告を 1 枚の HTML に描く部品（--render と --setup）
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
@@ -122,7 +123,7 @@ query($owner:String!,$name:String!,$num:Int!){
         reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}
           commit{oid}}}
         reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
-          comments(first:60){nodes{createdAt body author{__typename login} originalCommit{oid}}}}}
+          comments(first:60){nodes{createdAt body url author{__typename login} originalCommit{oid}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
           oid committedDate messageHeadline additions deletions parents{totalCount}
           author{user{login} name email}}}}
@@ -761,13 +762,13 @@ def collect_since(node, anchor, get_git, get_gh):
         since["outside"] = True  # 窓の中に基準を置けない。古い側に有るかは取っていない
         return since
     base, approx = found
-    since.update(base=base[:7], approx=approx)
+    since.update(base=base[:7], base_oid=base, approx=approx)
     authored, merges, missing = since_commits(node, base)
     if missing:
         # 窓が切れていれば「取っていない」と「書き換え」を見分けられない。切れていなければ書き換え
         since["outside" if truncated else "rewritten"] = True
         return since
-    since.update(commits=len(authored), merges=merges)
+    since.update(commits=len(authored), merges=merges, authored=authored)
     if not authored:
         return since
     files = get_git(base, node.get("headRefOid"))
@@ -887,6 +888,24 @@ def find_ask(ev, node, me, cutoff, own):
     return None
 
 
+def turn_reasons(node, me, ev, red):
+    """私の番の理由と、それを決めた材料。戻り値は (理由の列, 私宛の依頼か None, 私の最後の発言か None, 自分の件か)。
+    端末の報告（render）と HTML の材料（page_item）が同じ式を通る。"""
+    reasons = my_turn(node, me, ev, red)
+    spoke = last_spoken(ev, me)
+    own = login_of(node["author"]) == me or any(a["login"] == me for a in node["assignees"]["nodes"])
+    ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
+    # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
+    # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
+    # 別の事実で、片方だけ告げると依頼の存在が 1 行目から消える。名指しの無い発言（unaddressed）は
+    # 問いかどうか機械では決められないが、自分の件で相手が最後に発言していれば少なくとも読むのは私
+    if ask:
+        reasons.append("私の件に相手の発言があり、その後に私は発言していない（問いかは本文で確かめる）"
+                       if ask.get("unaddressed") else
+                       "私宛の依頼が来ていて、その後に私は発言していない")
+    return reasons, ask, spoke, own
+
+
 def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
            with_map=False, with_threads=False, with_ci=False, branch_lines=(),
            stacked=(), since=None):
@@ -903,20 +922,8 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         return me_or(who, me)
 
     red, running, green = check_state(node) if is_pr else ([], 0, 0)
-    reasons = my_turn(node, me, ev, red)
-
+    reasons, ask, spoke, own = turn_reasons(node, me, ev, red)
     anchor_t = anchor["t"] if anchor else ts(node["createdAt"])
-    spoke = last_spoken(ev, me)
-    own = author == me or any(a["login"] == me for a in node["assignees"]["nodes"])
-    ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
-    # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
-    # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
-    # 別の事実で、片方だけ告げると依頼の存在が 1 行目から消える。名指しの無い発言（unaddressed）は
-    # 問いかどうか機械では決められないが、自分の件で相手が最後に発言していれば少なくとも読むのは私
-    if ask:
-        reasons.append("私の件に相手の発言があり、その後に私は発言していない（問いかは本文で確かめる）"
-                       if ask.get("unaddressed") else
-                       "私宛の依頼が来ていて、その後に私は発言していない")
 
     kind = "PR" if is_pr else "issue"
     w(f"# #{node['number']} {node['title']}")
@@ -1249,6 +1256,13 @@ def sibling_dirs(owner, name, paths):
     return [(d, sib[d]) for d in sorted(sib)]
 
 
+@functools.lru_cache(maxsize=None)
+def gh_pr_diff(owner, name, num):
+    """gh pr diff（文脈 3 行）。地図（手元に commit が無いとき）と HTML の差分が同じ 1 回を使う。"""
+    return gh_try("pr", "diff", str(num), "-R", f"{owner}/{name}")
+
+
+@functools.lru_cache(maxsize=None)
 def merged_size_context(owner, name):
     """直近マージ 60 本の行数（追加＋削除）の中央値と上位 25%。「大きい PR か」の目安。"""
     out = gh_try("pr", "list", "-R", f"{owner}/{name}", "--state", "merged",
@@ -1308,8 +1322,7 @@ def render_map(node, owner, name):
 
     # diff は手元に base と head があれば git（コードは関数まるごと、散文は前後 PROSE_CONTEXT 行）、無ければ gh pr diff（文脈 3 行）。
     # 先頭・骨組み・名前の言及は + の行しか見ないので、文脈の広さで変わらない
-    text, note = pr_function_diff(owner, name, node,
-                                  lambda: gh_try("pr", "diff", str(node["number"]), "-R", f"{owner}/{name}"))
+    text, note = pr_function_diff(owner, name, node, lambda: gh_pr_diff(owner, name, node["number"]))
     if text is None:
         w("  中身: 出せない（diff が取れない。gh pr diff が失敗した）")
         return "\n".join(out)
@@ -1441,7 +1454,8 @@ def unresolved_threads(node, me):
                     "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me,
                     # 私の最後の発言の時刻。私が返す番で相手がその後に返していれば、「私の発言以降にその file が
                     # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
-                    "mine_t": ts(mine[-1]["createdAt"]) if mine else None})
+                    "mine_t": ts(mine[-1]["createdAt"]) if mine else None,
+                    "mine_last": mine[-1] if mine else None})
     return out
 
 
@@ -1663,31 +1677,47 @@ def ci_excerpt(log, tail=CI_TAIL):
     return rows[max(0, end - tail):end]
 
 
-def render_ci(node, owner, name, run_log=None, full=False):
-    """赤いチェックごとに、失敗した step のログの末尾。run_log は検査用の差し替え口。"""
+CI_RED_CAP = 3  # ログを取る赤の件数（--full で外す）
+
+
+def ci_failures(node, owner, name, run_log=None, full=False):
+    """赤いチェックごとに {name, url, log（落ちた step のログの末尾の行。取れなければ None）, note}。
+    run_log は検査用の差し替え口。端末の報告（render_ci）と HTML の材料が同じ取得を使う（ログを 2 回取らない）。"""
     red, _, _ = check_state(node)
     out = []
-    w = out.append
-    w("## CI が落ちた理由（材料。赤いチェックごとに、失敗した step のログの末尾）")
-    if not red:
-        w("  赤いチェックは無い")
-        return "\n".join(out)
-    for cname, url in (red if full else red[:3]):
-        w(f"  === {cname}  {url or '（URL なし）'} （言語名 plaintext）")
+    for cname, url in (red if full else red[:CI_RED_CAP]):
         m = RUN_URL.search(url or "")
         if not m:
-            w("  | （GitHub Actions の run ではないのでログを取れない。URL を開く）")
+            out.append({"name": cname, "url": url, "log": None,
+                        "note": "GitHub Actions の run ではないのでログを取れない。URL を開く"})
             continue
         log = (run_log or (lambda run, job: gh_try(
             "run", "view", run, "-R", f"{owner}/{name}", "--job", job, "--log-failed")))(
             m.group(1), m.group(2))
-        if not log:
-            w("  | （ログを取れなかった。gh run view <run> --job <job> --log-failed で見る）")
+        out.append({"name": cname, "url": url, "log": ci_excerpt(log) if log else None,
+                    "note": "" if log else "ログを取れなかった。gh run view <run> --job <job> --log-failed で見る"})
+    return out, max(0, len(red) - len(out))
+
+
+def render_ci(node, owner, name, run_log=None, full=False, failures=None):
+    """赤いチェックごとに、失敗した step のログの末尾。failures は ci_failures の戻り値（呼び手が取って
+    あれば渡す）。"""
+    fails, more = failures if failures is not None else ci_failures(node, owner, name, run_log, full)
+    out = []
+    w = out.append
+    w("## CI が落ちた理由（材料。赤いチェックごとに、失敗した step のログの末尾）")
+    if not fails:
+        w("  赤いチェックは無い")
+        return "\n".join(out)
+    for f in fails:
+        w(f"  === {f['name']}  {f['url'] or '（URL なし）'} （言語名 plaintext）")
+        if f["log"] is None:
+            w(f"  | （{f['note']}）")
             continue
-        for ln in ci_excerpt(log):
+        for ln in f["log"]:
             w("  | " + ln)
-    if not full and len(red) > 3:
-        w(f"  （赤は他に {len(red) - 3} 件。--full で全部）")
+    if more:
+        w(f"  （赤は他に {more} 件。--full で全部）")
     return "\n".join(out)
 
 
@@ -2043,6 +2073,20 @@ def switch_to_branch(name, cwd=None):
                          else "移れなかった（git switch が拒んだ）"))
 
 
+# 「見ていないもの」。端末の報告と HTML の材料が同じ文を使う
+COMMIT_UNSEEN = (
+    "GitHub の PR / issue（この commit を含む PR があっても見ていない。番号か URL を渡せば出る）",
+    "この commit の前後の commit（範囲は親との差 1 つだけ。merge は第 1 親との差）",
+    "この commit を誰かが取り込んだか、手元と origin のどちらが先か",
+)
+
+
+def range_unseen(sa, sb):
+    return ["GitHub の PR / issue（この範囲を含む PR があっても見ていない。番号か URL を渡せば出る）",
+            f"範囲の外の commit（{sa} より前と {sb} より後）と、各 commit の本文（題だけ出した）",
+            "この範囲を誰かが取り込んだか、手元と origin のどちらが先か"]
+
+
 def render_commit(oid, cwd=None, frame=None, full=False):
     """手元の commit（push 済みでも）の報告。GitHub には何も聞かない——この repo のように PR を
     立てずに main へ直接 commit する運用では、変更を読み直す口が他に無い。出す形は PR の地図と
@@ -2085,12 +2129,7 @@ def render_commit(oid, cwd=None, frame=None, full=False):
     out += changemap.frames_section(cwd, paths, rev=rev,
                                     frame_cmd=f"catchup.py {short} --frame", new_from_file=False,
                                     jump_note=jump)
-    return "\n".join(out + [
-        "", "見ていないもの:",
-        "  - GitHub の PR / issue（この commit を含む PR があっても見ていない。番号か URL を渡せば出る）",
-        "  - この commit の前後の commit（範囲は親との差 1 つだけ。merge は第 1 親との差）",
-        "  - この commit を誰かが取り込んだか、手元と origin のどちらが先か",
-    ])
+    return "\n".join(out + ["", "見ていないもの:"] + ["  - " + s for s in COMMIT_UNSEEN])
 
 
 def render_range(rev, cwd=None, frame=None, full=False):
@@ -2135,12 +2174,7 @@ def render_range(rev, cwd=None, frame=None, full=False):
     out += changemap.frames_section(cwd, paths, rev=rev,
                                     frame_cmd=f"catchup.py {sa}..{sb} --frame", new_from_file=False,
                                     jump_note=jump)
-    return "\n".join(out + [
-        "", "見ていないもの:",
-        "  - GitHub の PR / issue（この範囲を含む PR があっても見ていない。番号か URL を渡せば出る）",
-        f"  - 範囲の外の commit（{sa} より前と {sb} より後）と、各 commit の本文（題だけ出した）",
-        "  - この範囲を誰かが取り込んだか、手元と origin のどちらが先か",
-    ])
+    return "\n".join(out + ["", "見ていないもの:"] + ["  - " + s for s in range_unseen(sa, sb)])
 
 
 def ahead_of_default(cwd=None):
@@ -2249,6 +2283,323 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_
     return "\n".join(out)
 
 
+# ---- HTML の材料（--out のときに書き、--render が描く） ------------------------------------
+#
+# 端末の報告（AI が読む文字の材料）と同じ取得から、雛形（attention/templates/catchup.html）が描く構造を組む。
+# ここも事実だけで判断はしない。AI の欄（headline・where・turn・next・unseen・explain・figure）は別の JSON で
+# 来て、catchup_html が 2 つを雛形に流し込む。形の正本は catchup_html.py の見本（SAMPLE_DATA）と仕様 5 節。
+
+
+def page_base(kind, page, repo, head):
+    return {"schema": catchup_html.SCHEMA, "kind": kind, "page": page, "repo": repo,
+            "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "head": head, "anchor": "", "anchor_label": "", "mine": None, "events": [], "status": [],
+            "links": {"closes": [], "stacked": [], "refs": []}, "unseen": [], "threads": [], "ci": [],
+            "views": [], "scale": "", "local": ""}
+
+
+def page_event(e, me):
+    return {"when": hhmm(e["t"]), "min": int(e["t"].timestamp() // 60), "who": me_or(e["who"], me),
+            "kind": e["kind"], "cat": e["cat"], "sha": (e.get("oid") or "")[:7] if e["cat"] == PUSH else "",
+            "text": excerpt(e["text"], 160)}
+
+
+def page_turn(node, me, reasons):
+    """番の札。閉じた件は誰の番でもない（済み）。理由が無ければ待ちで、誰を待っているかを添える。"""
+    if node["state"] != "OPEN":
+        return {"kind": "done", "label": "済み", "reasons": [],
+                "detail": "merge 済み" if node["state"] == "MERGED" else "close 済み"}
+    if not reasons:
+        return {"kind": "wait", "label": "待ち", "reasons": [], "detail": waiting_on(node, me)}
+    return {"kind": "mine", "label": "私の番", "reasons": reasons, "detail": ""}
+
+
+def page_status(node, me, red, running, green):
+    """止めているものの行（GitHub のマージの欄と同じ並び）。tone は札の色: ok・warn・bad・mine・neutral。"""
+    out = []
+    add = lambda key, label, value, tone: out.append({"key": key, "label": label, "value": value, "tone": tone})  # noqa: E731
+    if node["__typename"] != "PullRequest":
+        labels = [lb["name"] for lb in node.get("labels", {}).get("nodes", [])]
+        if labels:
+            add("labels", "ラベル", ", ".join(labels), "neutral")
+    else:
+        unresolved = [t for t in node["reviewThreads"]["nodes"] if not t["isResolved"]]
+        human = unresolved_threads(node, me)
+        mine_n = sum(1 for t in human if t["my_turn"])
+        add("threads", "未解決の会話", f"{len(unresolved)} 件（うち人が入っているもの {len(human)} 件）"
+            + (f" · 私が返す番 {mine_n} 件" if mine_n else ""),
+            "mine" if mine_n else "warn" if human else "ok")
+        if not (red or running or green):
+            add("ci", "CI", "報告なし", "neutral")
+        else:
+            parts = ([f"赤 {len(red)} 件（{', '.join(n for n, _ in red[:3])}{'…' if len(red) > 3 else ''}）"] if red else []) \
+                + ([f"実行中 {running} 件"] if running else []) + ([f"緑 {green}"] if green else [])
+            add("ci", "CI", "／".join(parts) if red or running else f"全 pass（緑 {green}）",
+                "bad" if red else "warn" if running else "ok")
+        decision = node["reviewDecision"]
+        add("approval", "承認", approval(decision),
+            "ok" if decision == "APPROVED" else "warn" if decision in ("REVIEW_REQUIRED", "CHANGES_REQUESTED") else "neutral")
+        merge = node["mergeable"]
+        add("merge", "取り込み", MERGEABLE.get(merge, str(merge)),
+            "ok" if merge == "MERGEABLE" else "bad" if merge == "CONFLICTING" else "neutral")
+        base = [ln.strip() for ln in base_lines(node, me)]
+        if base:
+            add("base", "取り込み先", " ／ ".join(re.sub(r"^取り込み先: ", "", ln) for ln in base), "warn")
+        if unrequested(node, me):
+            add("suggested", "依頼先の候補", suggested_line(node).split(": ", 1)[-1], "neutral")
+    others = [a["login"] for a in node["assignees"]["nodes"] if a["login"] != me]
+    if others:
+        add("assignees", "担当", ", ".join(me_or(a["login"], me) for a in node["assignees"]["nodes"]), "neutral")
+    return out
+
+
+def page_threads(node, me, url, by_path, read_lines, since_paths, full):
+    """指摘（人が入っている未解決スレッド）。GitHub のスレッドと同じ形にする材料: 指摘の行を含む差分の抜粋
+    （差分に無い行なら head の前後の行）・私の最後の発言・相手の最後の発言・前回から file が変わったか。"""
+    threads = unresolved_threads(node, me)
+    out = []
+    for th in (threads if full else threads[:THREAD_CAP]):
+        c = th["last"]
+        f = by_path.get(th["path"])
+        ex = catchup_html.excerpt(f, th["line"]) if f and th["line"] else None
+        if ex is None and th["line"] and read_lines:
+            ex = catchup_html.context_excerpt(th["path"], read_lines(th["path"]), th["line"])
+        mine = th.get("mine_last")
+        out.append({
+            "path": th["path"], "line": th["line"], "my_turn": th["my_turn"], "outdated": bool(th["outdated"]),
+            "who": login_of(c["author"]), "when": hhmm(ts(c["createdAt"])),
+            "quote": "\n".join(ln for ln in (c["body"] or "").splitlines() if not ln.lstrip().startswith(">")).strip(),
+            "mine": {"when": hhmm(ts(mine["createdAt"])), "quote": excerpt(mine["body"], 300)} if mine else None,
+            "href": c.get("url") or (f"{url}/files#{catchup_html.anchor(th['path'])}" if url else ""),
+            "excerpt": ex, "changed": None if since_paths is None else th["path"] in since_paths})
+    return out, max(0, len(threads) - len(out))
+
+
+def since_diff_text(owner, name, node, since):
+    """私の痕跡以降に作者側が触った file の差分（基準の commit から head まで）。手元に commit が有れば git、
+    無ければ GitHub の compare。取り込み（merge）が挟まると base 側の変更がその file に混ざりうる。"""
+    if not since or since.get("outside") or since.get("rewritten") or not since.get("files"):
+        return None
+    base, head = since["base_oid"], node.get("headRefOid")
+    paths = [p for _, p in since["files"]]
+    top = local_range(owner, name, base, head)
+    if top:
+        return changemap.git("-c", "core.quotePath=false", "diff", *changemap.DIFF_SANE, f"{base}..{head}", "--",
+                             *changemap.pathspecs(paths), cwd=top)
+    text = gh_try("api", "-H", "Accept: application/vnd.github.diff", f"repos/{owner}/{name}/compare/{base}...{head}")
+    return catchup_html.filter_diff(text, paths) if text else None
+
+
+def pr_views(owner, name, node, since):
+    """変更の節の見え方: 前回から（私の痕跡以降）と PR 全体。PR 全体は GitHub の Files changed と同じ
+    base...head の文脈 3 行（手元に commit が有れば git、無ければ gh pr diff）。"""
+    url = node["url"]
+    base, head = node.get("baseRefOid"), node.get("headRefOid")
+    top = local_range(owner, name, base, head) if base and head else None
+    text = changemap.git("-c", "core.quotePath=false", "diff", *changemap.DIFF_SANE, f"{base}...{head}", cwd=top) \
+        if top else None
+    if text is None:
+        text = gh_pr_diff(owner, name, node["number"])
+    since_text = since_diff_text(owner, name, node, since)
+    since_paths = [p for _, p in since["files"]] if since_text else []
+    views = []
+    if since_text and len(since_text) <= MAP_DIFF_CAP:
+        authored = since.get("authored") or []
+        one = authored[-1][:9] if len(authored) == 1 else ""
+        label = one or f"{since['commits']} 本の commit"
+        note = f"取り込み {since['merges']} 本の分が混ざりうる" if since["merges"] else ""
+        if since["approx"]:
+            note = "基準は commit の日付で置いた近似。" + note
+        v = catchup_html.view("since", f"前回から（{label} · {len(since_paths)} files）", since_text,
+                              url=f"{url}/commits/{authored[-1]}" if one else f"{url}/files/{since['base_oid']}..{head}",
+                              note=note)
+        v.update(sha=one, label=label)
+        views.append(v)
+    n = node["changedFiles"]
+    if text is None:
+        views.append(catchup_html.view("all", f"PR 全体（{n} files）", "", url=f"{url}/files",
+                                       note="差分を取れなかった（gh pr diff が失敗した）。"))
+    elif len(text) > MAP_DIFF_CAP:
+        views.append(catchup_html.view("all", f"PR 全体（{n} files）", "", url=f"{url}/files",
+                                       note=f"差分が {len(text)} 文字で大きいので載せない（上限 {MAP_DIFF_CAP}）。"))
+    else:
+        views.append(catchup_html.view("all", f"PR 全体（{n} files）", text, since_paths=since_paths))
+    # 指摘の「前回から変わったか」は差分の文字でなく file の一覧で決める（差分を取れなくても一覧は在る）。
+    # 基準を置けない（私の痕跡が無い・窓の外・書き換え）なら分からないので None
+    valid = since is not None and not since.get("outside") and not since.get("rewritten")
+    return views, ({p for _, p in since["files"]} if valid else None)
+
+
+def page_unseen(caps, unlinked, since, more_threads, ci_more, is_pr, threads, ask):
+    """「見ていないもの」（HTML の末尾）。端末の報告の同じ節から、HTML では見えているもの（差分の全文・
+    発言の全文の口）を除いた分。"""
+    out = [f"{label}の古い方 {total - got} 件（{total} 件中、新しい {got} 件だけ取った）。私の痕跡や私宛の依頼が"
+           "そこにあれば見落とす" for label, total, got in caps]
+    out.append("GitHub の外（チャット・口頭・メール）でのやり取り")
+    if threads:
+        out.append("指摘のスレッドの途中の発言（私と相手の最後の発言だけを出した）")
+    if more_threads:
+        out.append(f"指摘の残り {more_threads} 件（上限 {THREAD_CAP} 件。--full で出る）")
+    if ci_more:
+        out.append(f"赤の残り {ci_more} 件のログ（上限 {CI_RED_CAP} 件。--full で出る）")
+    if since is not None:
+        out.extend(since_unseen(since))
+    if unlinked:
+        out.append(f"GitHub の login に結び付いていない commit（名前: {', '.join(unlinked)}）が誰のものか")
+    out.append("名指しの無い発言が私への問いかどうか"
+               + ("（私の件なので、最後の 1 件だけは材料に出した）" if ask and ask.get("unaddressed") else ""))
+    return out
+
+
+def page_item(node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, caps, *, full, stacked, since,
+              with_map, with_threads, ci, read_lines, local_text):
+    """PR / issue の材料。ci は ci_failures の戻り値（取っていなければ None）。"""
+    is_pr = node["__typename"] == "PullRequest"
+    red, running, green = check_state(node) if is_pr else ([], 0, 0)
+    reasons, ask, _, _ = turn_reasons(node, me, ev, red)
+    head = {"kind": "pr" if is_pr else "issue", "ref": f"#{node['number']}", "title": node["title"], "url": node["url"],
+            "state": node["state"].lower(), "draft": bool(node.get("isDraft")),
+            "author": me_or(login_of(node["author"]), me), "role": role_of(node, me, ev),
+            "turn": page_turn(node, me, reasons),
+            "files": node.get("changedFiles"), "additions": node.get("additions"), "deletions": node.get("deletions"),
+            "notes": []}
+    page = page_base(head["kind"], f"{owner}-{name}/{node['number']}", f"{owner}/{name}", head)
+    anchor_t = anchor["t"] if anchor else ts(node["createdAt"])
+    page["anchor"] = anchor_kind
+    page["anchor_label"] = {"mine": "前回から", "handover": "渡されてから"}.get(anchor_kind, "作られてから")
+    if anchor:
+        page["mine"] = page_event(anchor, me)
+    page["events"] = [page_event(e, me) for e in ev if e["t"] > anchor_t]
+    page["status"] = page_status(node, me, red, running, green)
+    linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
+    page["links"] = {"closes": [{"number": i["number"], "state": i["state"].lower(), "title": i["title"]} for i in linked],
+                     "stacked": [{"number": s["number"], "title": s["title"]} for s in stacked[:STACKED_SHOWN]],
+                     "refs": [{"when": hhmm(r["t"]), "text": r["text"]} for r in refs[-3:]]}
+    more_threads = 0
+    if is_pr and with_map:
+        page["views"], since_paths = pr_views(owner, name, node, since)
+        ctx = merged_size_context(owner, name)
+        page["scale"] = f"{node['changedFiles']} ファイル +{node['additions']}/-{node['deletions']}" + (
+            f" ／ 直近マージ {ctx[0]} 本の中央値 {ctx[1]} 行、上位 25% {ctx[2]} 行" if ctx else "")
+    else:
+        since_paths = None
+    if is_pr and with_threads:
+        all_view = next((v for v in page["views"] if v["id"] == "all"), None)
+        by_path = {f["path"]: f for f in catchup_html.parse_diff(all_view["text"])} if all_view else {}
+        page["threads"], more_threads = page_threads(node, me, node["url"], by_path, read_lines, since_paths, full)
+    ci_more = 0
+    if ci is not None:
+        page["ci"], ci_more = ci
+    page["local"] = local_text or ""
+    page["unseen"] = page_unseen(caps, unlinked, since, more_threads, ci_more, is_pr, page["threads"], ask)
+    return page
+
+
+def local_slug(cwd=None):
+    """手元の git の対象（commit・範囲・手元のブランチ）の置き場の名前と owner/repo。origin が無ければ根の名前。"""
+    top = changemap.repo_top(cwd)
+    m = changemap.REPO_TAIL.search(changemap.origin_url(top)) if top and changemap.origin_url(top) else None
+    if m:
+        return f"{m.group(2)}-{m.group(4)}", f"{m.group(2)}/{m.group(4)}"
+    return "local-" + catchup_html._safe(os.path.basename(top) if top else "unknown"), ""
+
+
+def plain_diff(rev, cwd=None, paths=()):
+    return changemap.git("-c", "core.quotePath=false", "diff", *changemap.DIFF_SANE, rev, "--",
+                         *changemap.pathspecs(paths), cwd=cwd) or ""
+
+
+def page_commit(oid, cwd=None):
+    rev = changemap.commit_range(oid, cwd)
+    short, author, date, subject = ((changemap.git("show", "-s", "--format=%h%n%an%n%ad%n%s", "--date=short", oid,
+                                                   cwd=cwd) or "").split("\n") + ["", "", "", ""])[:4]
+    slug, repo = local_slug(cwd)
+    text = plain_diff(rev, cwd)
+    head = {"kind": "commit", "ref": short, "title": subject, "url": "", "state": "", "draft": False,
+            "author": author, "role": "", "turn": {"kind": "none", "label": "", "reasons": [], "detail": ""},
+            "files": None, "additions": None, "deletions": None, "notes": [date, "GitHub 側は見ていない"]}
+    page = page_base("commit", f"{slug}/commit-{short}", repo, head)
+    page["views"] = [catchup_html.view("all", f"この commit（{len(catchup_html.parse_diff(text))} files）", text)] if text else []
+    page["unseen"] = list(COMMIT_UNSEEN)
+    return page
+
+
+def page_range(rev, cwd=None):
+    a, b = rev.split("..", 1)
+    sa, sb = a[:7], b[:7]
+    n = len([ln for ln in (changemap.git("log", "--format=%h", rev, cwd=cwd) or "").splitlines() if ln.strip()])
+    slug, repo = local_slug(cwd)
+    text = plain_diff(rev, cwd)
+    head = {"kind": "range", "ref": f"{sa}..{sb}", "title": f"commit {n} 件", "url": "", "state": "", "draft": False,
+            "author": "", "role": "", "turn": {"kind": "none", "label": "", "reasons": [], "detail": ""},
+            "files": None, "additions": None, "deletions": None, "notes": ["GitHub 側は見ていない"]}
+    page = page_base("range", f"{slug}/range-{catchup_html._safe(sa)}-{catchup_html._safe(sb)}", repo, head)
+    page["views"] = [catchup_html.view("all", f"この範囲（{len(catchup_html.parse_diff(text))} files）", text)] if text else []
+    page["unseen"] = range_unseen(sa, sb)
+    return page
+
+
+def page_local(cwd=None):
+    """PR も番号も無い枝。未コミットの変更（追跡している file）と、既定ブランチより先の commit の差。"""
+    cwd = cwd or changemap.repo_top() or os.getcwd()
+    branch = changemap.current_branch(cwd) or ""
+    slug, repo = local_slug(cwd)
+    head = {"kind": "local", "ref": branch or "（detached）", "title": f"今のブランチ {branch or '（detached）'}",
+            "url": "", "state": "", "draft": False, "author": "", "role": "",
+            "turn": {"kind": "none", "label": "", "reasons": [], "detail": ""},
+            "files": None, "additions": None, "deletions": None, "notes": ["GitHub 側は見ていない"]}
+    page = page_base("local", f"{slug}/branch-{catchup_html._safe(branch or 'detached')}", repo, head)
+    views = []
+    text = plain_diff("HEAD", cwd)
+    if text:
+        views.append(catchup_html.view("local", f"未コミット（{len(catchup_html.parse_diff(text))} files）", text,
+                                       note="追跡している file だけ。未追跡の新規 file は手元の節の木に出る。"))
+    base = changemap.default_branch_ref(cwd)
+    mb = (changemap.git("merge-base", base, "HEAD", cwd=cwd) or "").strip() if base else ""
+    ahead = plain_diff(f"{mb}..HEAD", cwd) if mb else ""
+    if ahead:
+        views.append(catchup_html.view("ahead", f"{base} より先（{len(catchup_html.parse_diff(ahead))} files）", ahead))
+    page["views"] = views
+    page["local"] = render_local(why="this で呼んだので出す", cwd=cwd)
+    page["unseen"] = ["GitHub の PR / issue（今のブランチに PR が無く、名前にも番号が無い。番号か URL を渡せば出る）",
+                      "他のブランチ・他の worktree の状態"]
+    return page
+
+
+def render_command(data_path, fields_path):
+    """--render: 材料（--out が書いた JSON。会話の話題なら -）と AI の欄を雛形に流し込み、path と 1 行を出す。"""
+    def load(path, what):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except OSError as e:
+            sys.exit(f"{what} {path} が読めない（{e.strerror or e}）")
+        except ValueError as e:
+            sys.exit(f"{what} {path} が JSON として読めない（{e}）")
+    data = None if data_path == "-" else load(data_path, "材料")
+    if data is not None and (not isinstance(data, dict) or data.get("schema") != catchup_html.SCHEMA):
+        sys.exit(f"材料 {data_path} の形が違う（版 {catchup_html.SCHEMA} の catchup.py --out が書いたものを渡す。"
+                 "走らせ直せば新しく書く）")
+    fields = load(fields_path, "欄の JSON")
+    errs = catchup_html.validate_fields(fields, need_title=data is None)
+    if errs:
+        print(f"欄の JSON {fields_path} を直す所が {len(errs)} 件ある:", file=sys.stderr)
+        for e in errs:
+            print("  - " + e, file=sys.stderr)
+        return 2
+    path, line = catchup_html.write_page(data, fields)
+    print(path)
+    print(line)
+    print(catchup_html.open_in_vscode(path), file=sys.stderr)
+    return 0
+
+
+def setup_command(check):
+    code, lines = catchup_html.setup(check=check)
+    print("\n".join(lines))
+    return code
+
+
 def collect_caps(node):
     caps = []
     for field, label in (("comments", "コメント"), ("reviews", "レビュー"),
@@ -2286,19 +2637,46 @@ def parser():
                         " fetch して作る（名前と追跡先は gh pr checkout と同じ）。追跡ファイルに未コミットが"
                         "あれば移らない。手元にある枝は動かさない（pull・stash・gh pr checkout はしない）。"
                         "this では何もしない")
+    p.add_argument("--render", nargs=2, metavar=("材料.json", "欄.json"),
+                   help="--out が書いた材料（会話の話題なら -）と AI が書いた欄の JSON を雛形に流し込み、"
+                        "~/.cache/attention/catchup/<owner>-<repo>/<番号>.html を書いて index を組み直す。"
+                        "出すのはページの path と 1 行の要約。ATTENTION_CATCHUP_OPEN=0 でなければ VS Code の窓で開く")
+    p.add_argument("--setup", action="store_true",
+                   help="HTML を VS Code で見る準備（生きた窓・拡張 Simple HTML Viewer・Machine の設定 2 つ）を確かめ、"
+                        "足りなければ入れて、見本を描いて開く")
+    p.add_argument("--check", action="store_true", help="--setup と一緒に: 何も変えずに確かめて報告だけする")
     outfile.add_flag(p)
     return p
 
 
 def main(argv=None):
     a = parser().parse_args(argv)
+    if a.render:
+        if a.words or a.setup or a.check:
+            sys.exit("--render は材料と欄の JSON の 2 つだけを取る（対象・--setup と一緒に使えない）")
+        return render_command(*a.render)
+    if a.setup:
+        if a.words:
+            sys.exit("--setup は対象を取らない")
+        return setup_command(a.check)
+    if a.check:
+        sys.exit("--check は --setup と一緒に使う（何も変えずに準備を確かめる）")
 
+    sink = {}  # HTML の材料。--out のときだけ組んで JSON に書く（組むのに gh と git を余分に呼ぶ）
     if not a.out:
         return report(a)
-    return outfile.run_to_file(lambda: report(a), "catchup")
+    code = outfile.run_to_file(lambda: report(a, sink), "catchup")
+    if sink.get("page"):
+        path = catchup_html.save_data(sink["page"])
+        print(f"描く材料は {path} に書いた。欄の JSON を書いて catchup.py --render {path} <欄の JSON> で描く")
+    return code
 
 
-def report(a):
+def report(a, sink=None):
+    """端末の報告を出す。sink（dict）を渡すと、HTML の材料を sink["page"] に入れる（--frame では入れない）。"""
+    def keep(build):
+        if sink is not None and not a.frame:
+            sink["page"] = build()
     target, focus = split_words(a.words)
     owner, name, num, local = resolve_target(target, a.repo)
     pre_lines = []  # ブランチ名で移った・移らなかったの行（見出しに足す）
@@ -2317,7 +2695,9 @@ def report(a):
             else:
                 print("\n".join("  " + ln for ln in pre_lines))
                 print()
-                print(render_commit(changemap.commit_oid(num), frame=a.frame, full=a.full))
+                oid = changemap.commit_oid(num)
+                print(render_commit(oid, frame=a.frame, full=a.full))
+                keep(lambda: dict(page_commit(oid), local="\n".join(ln.strip() for ln in pre_lines)))
                 print()
                 print(f"（移っていないので、枝 {num} の tip の commit として出した。枝全体の差は移ってから this で）")
                 return 0
@@ -2326,6 +2706,7 @@ def report(a):
             print("ブランチ: commit の範囲には移る先が無い（--switch は何もしない）")
             print()
         print(render_range(num, frame=a.frame, full=a.full))
+        keep(lambda: page_range(num))
         rest = focus_words(focus - {"map"})
         if rest:
             print()
@@ -2336,6 +2717,7 @@ def report(a):
             print("ブランチ: commit には移る先が無い（--switch は何もしない）")
             print()
         print(render_commit(num, frame=a.frame, full=a.full))
+        keep(lambda: page_commit(num))
         # 地図は commit にも出る（上で出した）。指摘・CI だけが PR / issue の材料。語は人の語で
         # （内部 key の threads / ci を出すと、命令書のどの語にも結び付かない。実測）
         rest = focus_words(focus - {"map"})
@@ -2352,6 +2734,7 @@ def report(a):
             print("ブランチ: this では移らない（今のブランチのまま）")
             print()
         print(render_no_target())
+        keep(page_local)
         if focus:
             print()
             print(f"（{focus_words(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
@@ -2412,18 +2795,26 @@ def report(a):
     # → GitHub に無い手元の状態
     tails = [render_body(node, a.full, lambda n: fetch_ref(owner, name, n))]
     pr_head = head_oid(node)  # issue なら None
+    read_lines = head_reader(owner, name, pr_head) if with_threads else None
     if with_threads:
-        tails.append(render_threads(node, me, head_reader(owner, name, pr_head), full=a.full,
+        tails.append(render_threads(node, me, read_lines, full=a.full,
                                     diff_since=since_differ(owner, name, pr_head)))
+    ci = ci_failures(node, owner, name, full=a.full) if with_ci else None
     if with_ci:
-        tails.append(render_ci(node, owner, name, full=a.full))
+        tails.append(render_ci(node, owner, name, full=a.full, failures=ci))
     if with_map:
         tails.append(render_map(node, owner, name))
+    local_text = ""
     if local or on_branch:
-        tails.append(render_local(
+        local_text = render_local(
             num if local == "branch" else None,
             "this で呼んだので出す" if local else "--switch でこの件のブランチに居るので出す",
-            pr_head=pr_head, derived_kind="PR" if is_pr else "issue"))
+            pr_head=pr_head, derived_kind="PR" if is_pr else "issue")
+        tails.append(local_text)
+    keep(lambda: page_item(
+        node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, collect_caps(node), full=a.full,
+        stacked=stacked, since=since, with_map=with_map, with_threads=with_threads, ci=ci, read_lines=read_lines,
+        local_text="\n".join([ln.strip() for ln in branch_lines] + ([local_text] if local_text else []))))
     if not is_pr and focus:
         tails.append("（issue には地図・指摘・CI の材料は無い）")
     for t in tails:
