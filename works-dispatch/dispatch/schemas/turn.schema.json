@@ -8,7 +8,7 @@
       "required": ["pane", "status", "detail"],
       "properties": {
         "pane": {"type": "string"},
-        "status": {"type": "string", "enum": ["idle", "done", "blocked", "stalled", "sent", "failed"]},
+        "status": {"type": "string", "enum": ["idle", "done", "working", "blocked", "stalled", "sent", "failed"]},
         "detail": {"type": ["string", "null"]}
       }
     }

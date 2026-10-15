@@ -7,6 +7,7 @@ gh にはフォルダごとにアカウントを替える仕組みが無い。�
 マシン全体の有効なアカウント（gh auth switch）は替えない。並行するほかの作業まで巻き込むため。
 """
 
+import datetime
 import json
 import subprocess
 
@@ -39,6 +40,60 @@ def pr_info(repo, number, runner=_default_runner, env=None):
     if not isinstance(got, dict) or "headRefName" not in got:
         raise GhError(f"{repo} の #{number} を読めない: {(p.stderr or p.stdout).strip()[:200]}")
     return {"number": got["number"], "title": got["title"], "head": got["headRefName"], "url": got.get("url")}
+
+
+def login(runner=_default_runner, env=None):
+    """gh の今のアカウントのログイン名（env の GH_TOKEN が有ればその鍵の持ち主）。読めなければ GhError。"""
+    p = runner(["gh", "api", "user", "--jq", ".login"], env=env)
+    name = p.stdout.strip()
+    if p.returncode != 0 or not name:
+        raise GhError(f"gh のログイン名を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    return name
+
+
+def _epoch(stamp):
+    try:
+        return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
+
+
+ACTIVITY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    author { login }
+    reviewRequests(first: 50) { nodes { requestedReviewer { __typename } } }
+    reviews(last: 100) { nodes { author { __typename login } submittedAt } }
+    comments(last: 100) { nodes { author { __typename login } createdAt } }
+    commits(last: 100) { nodes { commit { committedDate authors(first: 10) { nodes { user { login } } } } } }
+  } }
+}"""
+
+
+def pr_activity(repo, number, me, runner=_default_runner, env=None):
+    """PR の動きのうち、送り直す判断と、作者の PR にレビュアーが居るかの判断に要る物。
+    {"reviewers": 人へのレビューの依頼か、作者のほかの人のレビューが有るか, "last_other": me のほかの人の最後のコメント・レビュー・
+    commit の時刻（秒）}。Bot（copilot など）は、レビュアーにも、動きにも数えない。見分けは whose-turn と同じく GraphQL の
+    __typename（login の形では見分けない）。レビューのスレッドへの返事は、返した人のレビューとして reviews に入る。読めなければ GhError。"""
+    owner, name = repo.split("/", 1)
+    p = runner(["gh", "api", "graphql", "-f", f"query={ACTIVITY_QUERY}", "-F", f"owner={owner}", "-F", f"name={name}",
+                "-F", f"number={number}"], env=env)
+    try:
+        got = json.loads(p.stdout)["data"]["repository"]["pullRequest"] if p.returncode == 0 else None
+    except (ValueError, KeyError, TypeError):
+        got = None
+    if not isinstance(got, dict):
+        raise GhError(f"{repo} の #{number} の動きを読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    nodes = lambda k: (got.get(k) or {}).get("nodes") or []
+    who = lambda actor: (actor or {}).get("login")
+    author = who(got.get("author"))
+    human = lambda actor: (actor or {}).get("__typename") != "Bot"
+    times = [_epoch(c.get("createdAt")) for c in nodes("comments") if who(c.get("author")) != me and human(c.get("author"))]
+    times += [_epoch(r.get("submittedAt")) for r in nodes("reviews") if who(r.get("author")) != me and human(r.get("author"))]
+    times += [_epoch((c.get("commit") or {}).get("committedDate")) for c in nodes("commits")
+              if me not in [who(a.get("user")) for a in ((c.get("commit") or {}).get("authors") or {}).get("nodes") or []]]
+    people = [r for r in nodes("reviews") if human(r.get("author")) and who(r.get("author")) not in (author, None)]
+    asked = [q for q in nodes("reviewRequests") if ((q.get("requestedReviewer") or {}).get("__typename")) in ("User", "Team")]
+    return {"reviewers": bool(asked or people), "last_other": max([t for t in times if t is not None], default=None)}
 
 
 def pr_state(repo, number, runner=_default_runner, env=None):

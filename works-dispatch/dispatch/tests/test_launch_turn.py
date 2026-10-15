@@ -37,7 +37,7 @@ class FakeHerdr:
         self.calls.append(("agent", pane))
         return self._agent
 
-    def prompt(self, target, text, wait):
+    def prompt(self, target, text, wait, until=()):
         self.calls.append(("prompt", target, text, wait))
         if self._prompt_error:
             raise real_herdr.HerdrError(["herdr", "agent", "prompt"], self._prompt_error)

@@ -150,14 +150,16 @@ def wait_ready(pane, runner=_default_runner, pause=lambda: time.sleep(0.5)):
         pause()
 
 
-def prompt(target, text, wait, runner=_default_runner):
+def prompt(target, text, wait, runner=_default_runner, until=()):
     """会話にプロンプトを送る。書く口その 2。文は argv の 1 つでそのまま渡し、シェルを通さない。
 
     wait が真なら、送った後に動き出したのを見てから止まるまで待ち、その状態（idle・done・blocked）を返す。
-    herdr の組み込みの見張りが返す agent_prompt_stalled は、誤りではなく "stalled" の状態として返す。
+    until を渡すと、止まるまでではなく、その状態のどれかを見た所で返す（herdr agent prompt --until。例: 動き出したのだけを待つ
+    ("working", "blocked")）。herdr の組み込みの見張りが返す agent_prompt_stalled は、誤りではなく "stalled" の状態として返す。
     wait が偽なら "sent"。
     """
-    argv = ["herdr", "agent", "prompt", target, text] + (["--wait"] if wait else [])
+    argv = ["herdr", "agent", "prompt", target, text] + (["--wait"] if wait else []) + \
+        [x for s in (until if wait else ()) for x in ("--until", s)]
     try:
         result = _call(argv, runner)
     except HerdrError as e:
