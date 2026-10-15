@@ -6,6 +6,8 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-15
+
 ### Added
 
 - `catchup.py --render <描く材料> <欄>`（どちらも JSON の file の path）。`--out` が書く描く材料と、AI が書く小さな欄の JSON（headline・where・turn・next・unseen・explain・figure）を雛形 `templates/catchup.html` に流し込み、`~/.cache/attention/catchup/<owner>-<repo>/<番号>.html` を書く（同じ件は上書き）。同じ置き場の `index.html` に、ページごとに 1 行（件・件名・誰の番・次の一手・更新）を並べる。欄に直す所があれば、日本語で 1 件 1 行を出して終了コード 2 で止まる。

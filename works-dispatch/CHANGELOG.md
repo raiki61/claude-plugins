@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-15
+
 ### Changed
 
 - 起こした Claude Code に、環境変数 `ATTENTION_CATCHUP_OPEN=0` を渡すようにした（POSIX のシェルのとき）。attention の `/catchup` は書いたページを VS Code の窓に開くが、dispatch は何件も一度に起こすので、窓にタブが一気に開かないようにする。ページは書かれ、一覧のページに載る。
