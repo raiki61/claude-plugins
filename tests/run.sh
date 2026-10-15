@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=604
+EXPECTED_CHECKS=605
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3381,6 +3381,11 @@ expect_exit 1 "catchup --switch: 知らないケース名は落ちる（検査�
 # git にも GitHub にも触らない。diff の分解・骨組み・木の描画を固定の材料で叩く
 expect_output 0 "OK" "changemap: 変更の地図の部品の回帰（unittest。引用形の日本語 path・改名・木の周辺）" \
     "$PY_BIN" "$ROOT/tests/changemap-suite.py"
+
+# ---- attention/scripts/lib/catchup_html: /catchup の報告を 1 枚の HTML に描く部品と catchup.py --render ----
+# GitHub にも git にも VS Code にも触らない。VS Code の CLI は差し替え、置き場と設定は一時の階層に書く
+expect_output 0 "OK" "catchup_html: 欄の検査・雛形への差し込み・index の組み直し・socket の選び方・Machine の設定の足し方・PR の材料の番と止めているもの・--render の出力（unittest）" \
+    "$PY_BIN" "$ROOT/tests/catchup-html-suite.py"
 
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
