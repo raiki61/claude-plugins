@@ -28,9 +28,10 @@ WRITES = {
     "open_worktree": {"nodes/provision.py"},
     "remove_worktree": {"nodes/clean.py"},
     "close_workspace": {"nodes/clean.py"},
-    # git: origin の枝を取る・早送りする・手元の枝を消す
+    # git: origin の枝を取る・早送りする・作者の force-push に揃える・手元の枝を消す
     "fetch": {"nodes/provision.py"},
     "fast_forward": {"nodes/provision.py"},
+    "reset_keep": {"nodes/provision.py"},
     "delete_branch": {"nodes/clean.py"},
     # gh: issue に枝を結ぶ（GitHub に枝を作る）
     "issue_develop": {"nodes/provision.py"},

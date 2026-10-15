@@ -18,9 +18,11 @@ from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, pr
 from .test_launch_turn import CATCHUP, SECOND
 from .test_launch_turn import FakeHerdr as TurnHerdr
 from .test_provision import git, make_world
+import claudex
 import dispatch
 import ghx
 import gitx
+import herdr as real_herdr
 from nodes import fresh, turn
 
 
@@ -42,6 +44,16 @@ class Decide(unittest.TestCase):
         self.assertEqual(fresh.decide(session("busy"), news, None, True, False), "busy")
         self.assertEqual(fresh.decide(session(), news, None, False, False), "dirty")
         self.assertEqual(fresh.decide(session(), news, None, True, True), "unpushed")
+
+    def test_inside_follows_symlinks_like_clean(self):
+        import os
+        import tempfile
+        real = pathlib.Path(tempfile.mkdtemp()).resolve()
+        (real / "feat-1").mkdir()
+        link = pathlib.Path(tempfile.mkdtemp()) / "w"
+        os.symlink(real, link)
+        self.assertTrue(fresh.inside(str(real / "feat-1" / "sub"), str(link / "feat-1")))
+        self.assertFalse(fresh.inside(str(real / "feat-10"), str(link / "feat-1")))
 
     def test_own_pr_without_reviewers_is_held(self):
         self.assertTrue(fresh.own_unreviewed({"role": "implementer"}, {"reviewers": False}))
@@ -139,7 +151,8 @@ class Flow(unittest.TestCase):
         """その場所で会話が開いている形を作る（herdr のペインと claude agents の行）。"""
         pane = ports.herdr.open_at(path, agent="claude")
         ports.herdr.talking.add(pane["pane_id"])
-        ports.agents = list(ports.agents) + [{"cwd": path, "status": status, "startedAt": started * 1000}]
+        ports.agents = list(ports.agents) + [{"cwd": path, "status": status, "startedAt": started * 1000,
+                                              "pane": pane["pane_id"]}]
         return pane
 
     def linked(self, ports):
@@ -180,6 +193,89 @@ class Flow(unittest.TestCase):
         self.assertEqual([x["path"] for x in self.linked(ports)], [path])
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
         self.assertIn("o/r#1", sent)
+
+    def test_refresh_records_the_send_time_before_the_first_turn_and_the_head(self):
+        path = self.place(1)
+        ports = FakePorts([pr(1)])
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        ports.now = lambda: float(len(ports.herdr.writes))   # 時計を「それまでに外へ書いた数」にする
+        run_main(self.cfg, ports, "--no-second")   # --no-second の回も控えを書く
+        sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
+        first = next(i for i, w in enumerate(ports.herdr.writes) if w[0] == "prompt" and w[2] == f"{CATCHUP} 1")
+        self.assertEqual(sent["o/r#1"], {"at": float(first), "head": gitx.head_sha(path)})   # 1 ターン目を送る直前
+
+    def test_old_send_record_with_only_a_time_is_still_read(self):
+        path = self.place(1)
+        ports = FakePorts([pr(1)])
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 150.0}}
+        limits = pathlib.Path(self.root).parent / "limits"
+        limits.mkdir(exist_ok=True)
+        (limits / dispatch.SENT_FILE).write_text(json.dumps({"o/r#1": 200.0}))
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("no_news"), out)
+
+    def test_force_pushed_branch_is_refreshed_and_reset_to_origin(self):
+        # 作者が force-push した: 手元の HEAD は前に送った時の head のまま、origin の祖先ではない。手元で積んだ commit とは見分け、
+        # 送り直して origin の head に揃える
+        from .test_provision import advance
+        advance(self.src, "feat/1")
+        path = str(pathlib.Path(self.root, "feat-1"))
+        git("-C", self.src, "worktree", "add", "-q", "-b", "feat/1", path, "origin/feat/1")
+        old = gitx.head_sha(path)
+        rewritten = git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"{old}^{{tree}}",
+                        "-p", f"{old}^", "-m", "rewritten")
+        git("-C", self.src, "push", "-q", "--force", "origin", f"{rewritten}:refs/heads/feat/1")
+        git("-C", self.src, "fetch", "-q", "origin")   # 持ち主が取った後でも、手元だけの commit とはみなさない
+        limits = pathlib.Path(self.root).parent / "limits"
+        limits.mkdir(exist_ok=True)
+        (limits / dispatch.SENT_FILE).write_text(json.dumps({"o/r#1": {"at": 100.0, "head": old}}))
+        ports = FakePorts([pr(1)])
+        self.talking_in(ports, path, started=50.0)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("refreshed"), out)
+        self.assertEqual(gitx.head_sha(path), rewritten)
+        self.assertIn("force-push", out)
+
+    def test_refresh_does_not_close_a_workspace_with_another_busy_pane(self):
+        path = self.place(1)
+        ports = FakePorts([pr(1)])
+        old = self.talking_in(ports, path)
+        extra = ports.herdr.add_pane(old["workspace_id"], path)
+        ports.herdr.busy.add(extra["pane_id"])
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("close_failed"), out)
+        self.assertNotIn(("close_workspace", old["workspace_id"]), ports.herdr.writes)
+        self.assertFalse([w for w in ports.herdr.writes if w[0] in ("run", "open_worktree", "create_worktree")])
+
+    def test_conversation_outside_herdr_is_not_closed_for_refresh(self):
+        # 会話は herdr の外（VS Code の端末など）に居て、herdr のその場所にはシェルだけがある
+        path = self.place(1)
+        ports = FakePorts([pr(1)])
+        ports.herdr.open_at(path)
+        ports.agents = [{"cwd": path, "status": "idle", "startedAt": 100000}]
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertTrue(line(out, 1).endswith("close_failed"), out)
+        self.assertIn("herdr の外の会話は終えない", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_unreadable_herdr_panes_make_the_pr_close_failed_not_a_traceback(self):
+        path = self.place(1)
+        ports = FakePorts([pr(1)])
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": 500.0}}
+
+        def boom():
+            raise real_herdr.HerdrError(["herdr", "pane", "list"], "server_unreachable")
+        ports.herdr.panes = boom
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0)
+        self.assertTrue(line(out, 1).endswith("close_failed"), out)
+        self.assertIn("server_unreachable", out)
 
     def test_dry_run_says_refresh_and_touches_nothing(self):
         path = self.place(1)
@@ -238,6 +334,76 @@ class Flow(unittest.TestCase):
                 self.assertIn(f"#5 feat/5: 閉じた PR だが、{want}", out)
                 self.assertTrue(pathlib.Path(path).exists())
                 self.assertEqual(ports.herdr.writes, [])
+
+    def test_closed_pr_with_two_conversations_is_kept(self):
+        path = self.place(5)
+        ports = FakePorts([])
+        self.talking_in(ports, path)
+        ports.agents = list(ports.agents) + [{"cwd": path + "/backend", "status": "idle"}]
+        self.merged(ports, 5, path)
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#5 feat/5: 閉じた PR だが、会話が 2 つ開いているので残した", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_closed_pr_whose_conversation_is_outside_herdr_is_kept(self):
+        path = self.place(5)
+        ports = FakePorts([])
+        ports.herdr.open_at(path)   # herdr にはシェルだけ
+        ports.agents = [{"cwd": path, "status": "idle"}]
+        self.merged(ports, 5, path)
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#5 feat/5: 閉じた PR の会話を終えられなかったので残した", out)
+        self.assertTrue(pathlib.Path(path).exists())
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_closed_pr_whose_conversation_is_still_listed_after_exit_is_kept(self):
+        # /exit の後に会話の一覧を取り直し、その場所にまだ会話が見えれば消さない
+        path = self.place(5)
+        ports = FakePorts([])
+        self.talking_in(ports, path)
+        ports.agents = [{k: v for k, v in x.items() if k != "pane"} for x in ports.agents]
+        self.merged(ports, 5, path)
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#5 feat/5: 会話を終えた後も、その場所に会話が見えるので残した", out)
+        self.assertTrue(pathlib.Path(path).exists())
+
+    def test_closed_pr_with_a_changed_copied_file_is_kept_and_named(self):
+        path = self.place(5)
+        pathlib.Path(path, "frontend").mkdir()
+        pathlib.Path(path, "frontend", ".env.local").write_text("CHANGED=1\n")
+        pathlib.Path(path, "node_modules").mkdir()   # 依存や生成物は捨ててよい（理由にならない）
+        ports = FakePorts([])
+        self.merged(ports, 5, path)
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#5 feat/5: 閉じた PR だが、写したファイルが写し元と違うので残した: frontend/.env.local", out)
+        self.assertTrue(pathlib.Path(path).exists())
+
+    def test_ignored_dependencies_alone_do_not_keep_the_place(self):
+        path = self.place(5)
+        pathlib.Path(path, "frontend").mkdir()
+        pathlib.Path(path, "frontend", ".env.local").write_text("SECRET=1\n")   # 写し元と同じ
+        ports = FakePorts([])
+        self.merged(ports, 5, path)
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#5 feat/5: 片付けた", out)
+        self.assertFalse(pathlib.Path(path).exists())
+
+    def test_unreadable_conversations_skip_tidying_with_a_note(self):
+        path = self.place(5)
+        ports = FakePorts([])
+        self.merged(ports, 5, path)
+        calls = []
+
+        def flaky(config_dir):
+            calls.append(1)
+            if len(calls) > 1:   # 1 回目（流れの始め）は読めて、片付けの時に読めない
+                raise claudex.ClaudeError("claude agents --json（x）: boom")
+            return []
+        ports.list_sessions = flaky
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0)
+        self.assertIn("片付けを飛ばした（開いている会話を読めない: claude agents --json（x）: boom）", out)
+        self.assertTrue(pathlib.Path(path).exists())
 
     def test_branch_without_a_pr_is_never_tidied(self):
         path = self.place(5)

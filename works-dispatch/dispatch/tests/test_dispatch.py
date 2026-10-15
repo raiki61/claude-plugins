@@ -96,6 +96,8 @@ class FakeHerdr(WorktreeHerdr):
         super().__init__(root)
         self._fail = set(fail_run_for)
         self.talking = set()   # 前に会話が居るペイン（/exit を受けるとシェルに戻る）
+        self.busy = set()      # 前にシェルでない物（エディタ・dev server）が居るペイン
+        self.exited = set()    # /exit を受けて会話が終わったペイン
 
     def run(self, pane, command):
         self.writes.append(("run", pane, command))
@@ -103,7 +105,7 @@ class FakeHerdr(WorktreeHerdr):
             raise real_herdr.HerdrError(["herdr", "pane", "run"], "pane_not_found")
 
     def shell_in_front(self, pane):
-        return pane not in self.talking
+        return pane not in self.talking and pane not in self.busy
 
     def wait_ready(self, pane):
         return "idle"
@@ -115,6 +117,7 @@ class FakeHerdr(WorktreeHerdr):
         self.writes.append(("prompt", target, text, wait))
         if text == "/exit":
             self.talking.discard(target)
+            self.exited.add(target)
             for p in self._panes:
                 if p["pane_id"] == target:
                     p["agent"] = None
@@ -151,7 +154,8 @@ class FakePorts(dispatch.Ports):
     agents = ()   # claude agents --json の並び（アカウントを問わない）
 
     def list_sessions(self, config_dir):
-        return list(self.agents)
+        # 会話の行に "pane" が有れば、そのペインが /exit を受けた後は一覧から消える
+        return [x for x in self.agents if x.get("pane") not in self.herdr.exited]
 
     acts = {}   # 番号 → PR の動き（無ければレビュアーが居て、動きの無い PR）
 
@@ -176,7 +180,8 @@ class FakePorts(dispatch.Ports):
 
     def issue_info(self, repo, number):
         i = self.issues[number]
-        return {"number": number, "title": i["title"], "url": f"i{number}", "state": "OPEN", "prs": i.get("prs", [])}
+        return {"number": number, "title": i["title"], "url": f"i{number}", "state": i.get("state", "OPEN"),
+                "prs": i.get("prs", [])}
 
     def issue_branches(self, repo, number):
         return list(self.issues[number].get("branches", []))
@@ -445,6 +450,14 @@ class Issue(unittest.TestCase):
         self.assertEqual(self.line(out), "issue #12 ログインを直す  -  a1  create")
         self.assertIn("gh issue develop", out)
 
+    def test_closed_issue_gets_no_branch_and_stops(self):
+        ports = self.ports(state="CLOSED")
+        rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.line(out), "issue #12 ログインを直す  -  -  issue_closed")
+        self.assertEqual(ports.gh.developed, [])
+        self.assertEqual(ports.herdr.writes, [])
+
     def test_issue_and_pr_together_stop(self):
         rc, out = run_main(["--config", self.cfg, "--issue", "12", "--pr", "1"], self.ports())
         self.assertEqual(rc, 2)
@@ -683,6 +696,17 @@ class Preflight(unittest.TestCase):
                             gh_ok=lambda repo, env=None: True, worktrees=broken)
         problems, _ = ports.preflight(cfg)
         self.assertIn("worktree を並べられない（herdr worktree list: not_a_git_repository）", "\n".join(problems))
+
+    def test_source_that_is_a_linked_worktree_is_a_problem(self):
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        linked = str(pathlib.Path(root, "feat-1"))
+        subprocess.run(["git", "-C", cfg.repos[0].source, "worktree", "add", "-q", "-b", "feat/1", linked, "origin/feat/1"],
+                       check=True, capture_output=True)
+        cfg = cfg._replace(repos=(cfg.repos[0]._replace(source=linked),))
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True, gh_ok=lambda repo, env=None: True)
+        problems, _ = ports.preflight(cfg)
+        self.assertIn("linked worktree で、本体の checkout でない", "\n".join(problems))
 
     def test_source_of_another_repo_is_a_problem(self):
         cfg_path, root = make_cfg()

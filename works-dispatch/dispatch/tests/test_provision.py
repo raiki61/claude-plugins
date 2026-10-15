@@ -87,25 +87,39 @@ class WorktreeHerdr:
         self.root = root or str(pathlib.Path(tempfile.mkdtemp(prefix="dispatch-wt-")).resolve())
         self._panes = []
         self._n = 0
+        self._wt = {}   # 場所の実際のパス → その worktree の作業場（herdr の open_workspace_id）
         self.writes = []
 
     # 作業場とペイン
     def panes(self):
         return list(self._panes)
 
-    def open_at(self, path, agent=None):
-        """試験の下ごしらえ: その場所に作業場を 1 つ開く（herdr の口ではない。writes に残さない）。"""
-        pane = {"pane_id": f"P{self._n}", "workspace_id": f"W{self._n}", "cwd": path, "agent": agent}
+    def open_at(self, path, agent=None, worktree=True):
+        """試験の下ごしらえ: 作業場を 1 つ開き、そのペインの作業フォルダを path にする（herdr の口ではない。writes に残さない）。
+        worktree が真なら、それを path の worktree の作業場とする。偽なら、持ち主の別の作業場のペインがそこへ cd した形。"""
+        ws = f"W{self._n}"
+        pane = {"pane_id": f"P{self._n}", "workspace_id": ws, "cwd": path, "agent": agent}
+        self._n += 1
+        self._panes.append(pane)
+        if worktree:
+            self._wt[os.path.realpath(path)] = ws
+        return pane
+
+    def add_pane(self, workspace_id, cwd, agent=None):
+        """試験の下ごしらえ: 在る作業場にペインを 1 つ足す。"""
+        pane = {"pane_id": f"P{self._n}", "workspace_id": workspace_id, "cwd": cwd, "agent": agent}
         self._n += 1
         self._panes.append(pane)
         return pane
 
     def _ws(self, path):
-        return next((p for p in self._panes if _same(p["cwd"], path)), None)
+        ws = self._wt.get(os.path.realpath(path))
+        return next((p for p in self._panes if p["workspace_id"] == ws), None) if ws else None
 
     def close_workspace(self, workspace_id):
         self.writes.append(("close_workspace", workspace_id))
         self._panes = [p for p in self._panes if p["workspace_id"] != workspace_id]
+        self._wt = {k: v for k, v in self._wt.items() if v != workspace_id}
 
     # 場所（git worktree）
     def worktrees(self, source):
@@ -135,7 +149,7 @@ class WorktreeHerdr:
         has = subprocess.run(["git", "-C", source, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
                              capture_output=True).returncode == 0
         p = subprocess.run(["git", "-C", source, "worktree", "add", "-q", *([path, branch] if has else ["-b", branch, path, base])],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         if p.returncode != 0:
             raise real_herdr.HerdrError(["herdr", "worktree", "create"], "worktree_create_failed")
         return self._open(path)
@@ -149,10 +163,11 @@ class WorktreeHerdr:
     def remove_worktree(self, source, path, label):
         self.writes.append(("remove_worktree", path))
         ws = self._open(path)["workspace_id"]
-        p = subprocess.run(["git", "-C", source, "worktree", "remove", path], capture_output=True, text=True)
+        p = subprocess.run(["git", "-C", source, "worktree", "remove", path], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if p.returncode != 0:
             raise real_herdr.HerdrError(["herdr", "worktree", "remove"], "dirty_worktree_requires_force")
         self._panes = [x for x in self._panes if x["workspace_id"] != ws]
+        self._wt = {k: v for k, v in self._wt.items() if v != ws}
         return {"path": path, "workspace_id": ws}
 
 
@@ -238,6 +253,24 @@ class Prepare(unittest.TestCase):
         self.assertEqual(got["status"], "ready", got)
         self.assertEqual(gitx.head_sha(first["path"]), mine)
         self.assertIn("手元にしか無い commit", got["detail"])
+
+    def test_force_pushed_branch_is_reset_only_when_head_is_what_was_sent(self):
+        h = WorktreeHerdr(self.root)
+        first = provision.prepare(self.row, self.repo, h, gitx)
+        old = gitx.head_sha(first["path"])
+        rewritten = git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"{old}^{{tree}}",
+                        "-m", "rewritten")
+        git("-C", self.src, "push", "-q", "--force", "origin", f"{rewritten}:refs/heads/feat/7")
+        got = provision.prepare({**self.row, "sent_head": "f" * 40}, self.repo, h, gitx)   # 送った時の head と違う
+        self.assertEqual(gitx.head_sha(first["path"]), old)
+        self.assertIn("手元にしか無い commit", got["detail"])
+        pathlib.Path(first["path"], "draft.py").write_text("x\n")                         # 場所がきれいでない
+        provision.prepare({**self.row, "sent_head": old}, self.repo, h, gitx)
+        self.assertEqual(gitx.head_sha(first["path"]), old)
+        os.remove(os.path.join(first["path"], "draft.py"))
+        got = provision.prepare({**self.row, "sent_head": old}, self.repo, h, gitx)
+        self.assertEqual(gitx.head_sha(first["path"]), rewritten)
+        self.assertIn("force-push", got["detail"])
 
     def test_branch_open_in_the_source_clone_is_branch_busy(self):
         git("-C", self.src, "checkout", "-q", "-b", "feat/7", "origin/feat/7")

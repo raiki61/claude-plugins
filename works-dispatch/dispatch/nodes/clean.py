@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """clean ノード: 枝ごとの場所（元の clone の linked worktree）のうち、消してよいものを選び、消す（設計書 3 節の片付け）。外に書く。
 
-見るのは、元の clone の linked worktree だけ（元の clone 自身は見ない）。並びは herdr アダプタの worktrees が返す、元の clone と中身を
-共有する worktree なので、関係ないリポジトリの場所は並びにも入らない。
+見るのは、元の clone の linked worktree だけ（元の clone 自身は、herdr が linked と返しても見ない）。並びは herdr アダプタの
+worktrees が返す、元の clone と中身を共有する worktree なので、関係ないリポジトリの場所は並びにも入らない。
 消してよいのは、次の全部を満たす場所だけ。
 - 枝に居る（枝に乗っていない checkout は消さない）
 - その枝の PR が閉じている（MERGED か CLOSED）。PR の無い枝（issue から始めて PR をまだ作っていないもの）は消さない。
   PR が読めなければ消さない
 - その場所かその下を作業フォルダにする会話が、どのアカウントにも無い（入口は、閉じた PR の会話が手すきで手元の作業も無ければ、
-  先に会話を終えてから（turn.close_session）この候補を読み直す）
+  先に会話を終え（turn.close_session）、会話の一覧を取り直して無いことを確かめてから消す）
 - 未コミットの変更も、git にまだ足していない新しいファイルも、その枝の上の stash も無い
 - 手元の枝の先頭が PR の head の commit と同じ（手元にしか無い commit が無い）
+- 設定の copy_files に書いたファイルのうち、写し元と中身が違うもの（その場所で書き換えた手元だけのファイル）が無い
+git が追わないファイルのうち、それ以外（依存・生成物など）は場所と一緒に捨ててよい（作り直せる）。
 パスはリンクを辿った実際のパスで比べる（会話の作業フォルダを見落とさない）。
 消す時は herdr の worktree の口で checkout と作業場を消し（--force は付けない）、消えたことを読み戻してから、手元の枝も消す
 （先頭が PR の head と同じときだけ）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
@@ -18,6 +20,7 @@
 使い方は入口から: python3 dispatch.py --clean [--apply]
 """
 
+import filecmp
 import os
 import pathlib
 import sys
@@ -34,18 +37,35 @@ def _inside(cwd, path):
     return c == p or p in c.parents
 
 
+def _same(a, b):
+    return os.path.realpath(a or "") == os.path.realpath(b or "")
+
+
 class Unknown(Exception):
     """PR が読めない（pr_for_branch が投げる）。その場所は消さない。"""
 
 
-def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha):
+def changed_copies(path, copy_root, copy_files):
+    """copy_files のうち、場所に在って、写し元（copy_root）と中身が違うもの（写し元が無いものも含む）。"""
+    out = []
+    for rel in copy_files:
+        here, there = os.path.join(path, rel), os.path.join(copy_root, rel)
+        if os.path.isfile(here) and not (os.path.isfile(there) and filecmp.cmp(here, there, shallow=False)):
+            out.append(rel)
+    return out
+
+
+def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha, source=None, changed=lambda p: []):
     """places は herdr.worktrees の並び。pr_for_branch(枝) は {number, state, head_sha}・None（PR が無い）・Unknown を投げる。
-    返す 1 行は {path, branch, number, state, pr_head, removable, reason}。"""
+    changed(場所) は、写し元と中身の違う copy_files の並び（changed_copies）。
+    返す 1 行は {path, branch, number, state, pr_head, removable, reason, files}。"""
     rows = []
     for place in sorted((p for p in places if p.get("linked")), key=lambda p: p.get("path") or ""):
         path, branch = place["path"], place.get("branch")
+        if source and _same(path, source):
+            continue
         row = {"path": path, "branch": branch, "number": None, "state": None, "pr_head": None,
-               "removable": False, "reason": None}
+               "removable": False, "reason": None, "files": []}
         rows.append(row)
         if not branch:
             row["reason"] = "no_branch"
@@ -68,18 +88,37 @@ def candidates(places, pr_for_branch, open_cwds, is_clean, stashed, head_sha):
         elif stashed(path, branch) or not pr.get("head_sha") or head_sha(path) != pr.get("head_sha"):
             row["reason"] = "unpushed"
         else:
-            row["removable"] = True
+            row["files"] = changed(path)
+            if row["files"]:
+                row["reason"] = "local_files"
+            else:
+                row["removable"] = True
     return rows
 
 
-def release(path, h=herdr):
-    """作業フォルダがちょうど path で、会話の居ないペインの作業場を閉じる（checkout は残す）。閉じた作業場の ID か None。
-    送り直す前に古いペインを畳むのに使う。ほかのフォルダのペインには触らない。"""
-    for p in h.panes():
-        if os.path.realpath(p.get("cwd") or "") == os.path.realpath(path) and not p.get("agent"):
-            h.close_workspace(p["workspace_id"])
-            return p["workspace_id"]
-    return None
+def release(source, path, h=herdr):
+    """その場所の worktree の作業場（herdr がその場所に返す open_workspace_id）を閉じる（checkout は残す）。
+    送り直す前に古い作業場を畳むのに使う。{status, workspace, detail}。status は closed・none（開いていない）・close_failed。
+    閉じる前に、その作業場の全部のペインの前がシェルかを確かめ、シェルでない物（会話・エディタ・dev server）が居れば閉じない。
+    同じフォルダに cd しただけのほかの作業場には触らない（そのペインを探して閉じると、持ち主の別の作業場ごと閉じてしまう）。"""
+    out = {"status": "close_failed", "workspace": None, "detail": None}
+    try:
+        place = next((p for p in h.worktrees(source) if _same(p.get("path"), path)), None)
+        ws = (place or {}).get("workspace")
+        if not ws:
+            out["status"] = "none"
+            return out
+        out["workspace"] = ws
+        busy = [p["pane_id"] for p in h.panes() if p.get("workspace_id") == ws and not h.shell_in_front(p["pane_id"])]
+        if busy:
+            out["detail"] = f"作業場 {ws} のペイン {', '.join(busy)} の前でシェルでない物が動いている（閉じない）"
+            return out
+        h.close_workspace(ws)
+    except h.HerdrError as e:
+        out["detail"] = str(e)
+        return out
+    out["status"] = "closed"
+    return out
 
 
 def remove(row, source, label, h=herdr, g=gitx):
@@ -90,8 +129,7 @@ def remove(row, source, label, h=herdr, g=gitx):
         h.remove_worktree(source, path, label)
     except (h.HerdrError, OSError) as e:
         out["detail"] = str(e)
-    out["removed"] = not os.path.exists(path) and all(
-        os.path.realpath(p.get("path") or "") != os.path.realpath(path) for p in _safe_list(h, source))
+    out["removed"] = not os.path.exists(path) and all(not _same(p.get("path"), path) for p in _safe_list(h, source))
     if not out["removed"]:
         out["detail"] = out["detail"] or "消した後の読み戻しで、場所がまだ在る"
         return out

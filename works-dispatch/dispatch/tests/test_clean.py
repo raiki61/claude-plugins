@@ -162,13 +162,54 @@ class Remove(unittest.TestCase):
         self.assertTrue(os.path.exists(self.path))
         self.assertIn("feat/1", git("-C", self.src, "branch", "--list", "feat/1"))
 
-    def test_release_closes_only_the_pane_on_exactly_that_folder(self):
-        h = FakeHerdr()
-        a = h.open_at("/c/feat-1")
-        h.open_at("/c/feat-1/sub")
-        h.open_at("/c/other")
-        self.assertEqual(clean.release("/c/feat-1", h), a["workspace_id"])
-        self.assertEqual(h.writes, [("close_workspace", a["workspace_id"])])
+    def test_release_closes_only_the_worktrees_own_workspace(self):
+        # 持ち主の別の作業場のペインが、その場所に cd しているだけなら、その作業場は閉じない
+        other = self.h.open_at(self.path, worktree=False)
+        self.h.open_at(os.path.join(self.path, "sub"), worktree=False)
+        got = clean.release(self.src, self.path, self.h)
+        self.assertEqual((got["status"], got["workspace"]), ("closed", "W0"))
+        self.assertEqual(self.h.writes, [("close_workspace", "W0")])
+        self.assertIn(other, self.h.panes())
+
+    def test_release_keeps_a_workspace_with_any_pane_that_is_not_a_shell(self):
+        # 1 つの作業場に複数のペイン。どれか 1 つでも前がシェルでなければ（dev server など）、作業場を閉じない
+        extra = self.h.add_pane("W0", self.path)
+        self.h.busy.add(extra["pane_id"])
+        got = clean.release(self.src, self.path, self.h)
+        self.assertEqual(got["status"], "close_failed")
+        self.assertIn(extra["pane_id"], got["detail"])
+        self.assertEqual(self.h.writes, [])
+
+    def test_release_of_a_place_without_an_open_workspace_closes_nothing(self):
+        self.h.close_workspace("W0")
+        self.h.writes.clear()
+        self.h.open_at(self.path, worktree=False)   # cd しただけのペインはその場所の作業場ではない
+        self.assertEqual(clean.release(self.src, self.path, self.h)["status"], "none")
+        self.assertEqual(self.h.writes, [])
+
+
+class Copies(unittest.TestCase):
+    def test_copied_files_changed_here_or_missing_at_the_source_are_named(self):
+        here, there = pathlib.Path(tempfile.mkdtemp()), pathlib.Path(tempfile.mkdtemp())
+        for d in (here, there):
+            (d / "a").mkdir()
+        (here / "a" / ".env.local").write_text("A=2\n")
+        (there / "a" / ".env.local").write_text("A=1\n")
+        (here / "same.yaml").write_text("x\n")
+        (there / "same.yaml").write_text("x\n")
+        (here / "only-here.yaml").write_text("y\n")
+        got = clean.changed_copies(str(here), str(there), ("a/.env.local", "same.yaml", "only-here.yaml", "absent.yaml"))
+        self.assertEqual(got, ["a/.env.local", "only-here.yaml"])
+
+    def test_place_with_changed_copies_is_kept(self):
+        rows = clean.candidates([place("/w/a", "a")], lambda b: {"number": 1, "state": "MERGED", "head_sha": SHA}, set(),
+                                lambda p: True, lambda p, b: False, lambda p: SHA, changed=lambda p: [".env.local"])
+        self.assertEqual((rows[0]["removable"], rows[0]["reason"], rows[0]["files"]), (False, "local_files", [".env.local"]))
+
+    def test_the_source_clone_is_never_a_candidate_even_if_listed_as_linked(self):
+        rows = clean.candidates([place("/s/repo", "a"), place("/w/a", "b")], lambda b: None, set(), lambda p: True,
+                                lambda p, b: False, lambda p: SHA, source="/s/repo")
+        self.assertEqual([r["path"] for r in rows], ["/w/a"])
 
 
 class Main(unittest.TestCase):
@@ -220,6 +261,25 @@ class Main(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("消せなかった", out)
         self.assertTrue(os.path.exists(self.paths[1]))
+
+    def test_copied_file_changed_in_the_place_is_kept_and_named(self):
+        pathlib.Path(self.paths[1], "frontend").mkdir()
+        pathlib.Path(self.paths[1], "frontend", ".env.local").write_text("CHANGED=1\n")
+        rc, out = self.run_clean(["--clean", "--apply"], self.ports())
+        self.assertIn("残す（local_files: frontend/.env.local）", out)
+        self.assertTrue(os.path.exists(self.paths[1]))
+
+    def test_unreadable_conversations_stop_without_a_traceback(self):
+        import claudex
+        ports = self.ports()
+
+        def broken(config_dir):
+            raise claudex.ClaudeError("claude agents --json（x）: boom")
+        ports.list_sessions = broken
+        rc, out = self.run_clean(["--clean", "--apply"], ports)
+        self.assertEqual(rc, 1)
+        self.assertIn("止めた: claude agents --json（x）: boom", out)
+        self.assertEqual(self.h.writes, [])
 
     def test_place_with_a_conversation_is_not_removed(self):
         ports = self.ports()

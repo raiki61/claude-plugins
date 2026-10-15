@@ -121,7 +121,7 @@ def setting_strings(path):
 
 MARK = "@@CLAUDE_CONFIG_DIR="
 COST_FILE = "dispatch-cost.json"  # 1 件あたりの使用率の測り（cost ノード）。使用率の控えと同じ置き場
-SENT_FILE = "dispatch-sent.json"  # PR ごとに最後に /catchup を送った時刻（送り直しの判断。fresh ノード）
+SENT_FILE = "dispatch-sent.json"  # PR ごとに最後に /catchup を送った時刻と、その時の場所の head（送り直しの判断。fresh ノード）
 
 
 def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
@@ -224,6 +224,9 @@ class Ports:
         for repo in cfg.repos:
             if gitx.origin_repo(repo.source) != repo.repo:
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
+            elif not gitx.is_main_worktree(repo.source):
+                problems.append(f"{repo.repo}: 元の clone {repo.source} が linked worktree で、本体の checkout でない"
+                                "（git rev-parse の git-dir と git-common-dir が違う。source には本体の clone を書く）")
             else:
                 try:
                     self.places(repo)
@@ -359,9 +362,36 @@ def _key(repo, number):
     return f"{repo.repo}#{number}"
 
 
+def _sent_record(v):
+    """dispatch-sent.json の 1 件を {at, head} にする。前の版は時刻だけを書いた。"""
+    if isinstance(v, (int, float)):
+        return {"at": v, "head": None}
+    return {"at": (v or {}).get("at"), "head": (v or {}).get("head")}
+
+
 def _pane_at(h, path):
-    """作業フォルダがちょうど path のペインの ID（無ければ None）。"""
-    return next((p["pane_id"] for p in h.panes() if os.path.realpath(p.get("cwd") or "") == os.path.realpath(path)), None)
+    """作業フォルダがちょうど path で、herdr が Claude Code の会話を見ているペインの ID（無ければ None）。読めなければ HerdrError。"""
+    return next((p["pane_id"] for p in h.panes()
+                 if p.get("agent") == "claude" and os.path.realpath(p.get("cwd") or "") == os.path.realpath(path)), None)
+
+
+def _end_conversation(ports, path):
+    """その場所の会話を終える（turn.close_session）。(closed か close_failed, 訳)。herdr に会話のペインが無ければ
+    （会話が herdr の外の端末に居るなど）終えない。"""
+    try:
+        pane = _pane_at(ports.herdr, path)
+    except herdr.HerdrError as e:
+        return "close_failed", f"herdr のペインを読めない（{e}）"
+    if not pane:
+        return "close_failed", "その場所に herdr の会話のペインが無い（herdr の外の会話は終えない）"
+    got = turn.close_session(pane, ports.herdr)
+    return got, None if got == "closed" else f"ペイン {pane} の会話が /exit で終わらなかった"
+
+
+def _sessions_in(cfg, ports, path):
+    """その場所かその下を作業フォルダにする会話（全アカウント）。読めなければ ClaudeError。"""
+    return [s for acc in cfg.accounts for s in ports.list_sessions(acc.config_dir)
+            if s.get("cwd") and fresh.inside(s["cwd"], path)]
 
 
 def _cost_note(est, limit_percent):
@@ -383,6 +413,8 @@ def _issue_item(repo, number, ports, notes):
     結んだ枝が見えなければ、issue を閉じる開いた PR の枝（枝から PR を作ると、GitHub は枝の結びつきを PR に置き換える）。
     どちらも無ければ head は None で、provision の前に GitHub に枝を作って結ぶ。"""
     info = ports.issue_info(repo, number)
+    if info.get("state") not in (None, "OPEN"):
+        return {"number": number, "kind": "issue", "title": info["title"], "head": None, "url": info.get("url"), "closed": True}
     branches = ports.issue_branches(repo, number)
     head = branches[0] if branches else None
     if branches[1:]:
@@ -449,6 +481,10 @@ def main(argv=None, ports=None):
     except (prs.PrsError, claudex.ClaudeError, ghx.GhError, herdr.HerdrError) as e:
         print(f"止めた: {e}")
         return 1
+    if my_prs and my_prs[0].get("closed"):
+        # 閉じた issue には枝を作らない（作る前に止める）
+        print("\n".join(report.lines([_held_row(my_prs[0], "issue_closed", {}, kind="issue")], {}, notes)))
+        return 0
     places = _branch_places(found)
     sess = sessions.collect(listed, ports.branch, ports.origin)
     # 自分が作者でレビュアーの付いていない PR は、一覧からは開かない（--pr で指したものは開く）
@@ -479,8 +515,11 @@ def main(argv=None, ports=None):
         except ghx.GhError as e:
             notes.append(f"#{p['number']}: {e}（送り直さない）")
             continue
-        v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, sent.get(_key(repo, p["number"])),
-                                                        ports.is_clean(path), ports.unpushed(path))
+        rec = _sent_record(sent.get(_key(repo, p["number"])))
+        # HEAD が前に送った時の head のままなら、remote に見えない commit は作者の force-push で消えた物（手元で積んだ物でない）
+        local = (ports.stashed(path, p["head"]) if rec["head"] and ports.head_sha(path) == rec["head"]
+                 else ports.unpushed(path))
+        v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local)
         if v == "refresh":
             refresh[p["number"]] = inside[0]
         else:
@@ -501,6 +540,8 @@ def main(argv=None, ports=None):
     assigned = [r for r in the_plan if r["outcome"] == "assigned"]
     # fork の PR（head が別のリポジトリ）は作業場を作らない。whose-turn の一覧は fork かを持たないので、開く PR だけ問う
     for r in assigned:
+        if r["kind"] == "pr":
+            r["sent_head"] = _sent_record(sent.get(_key(repo, r["number"])))["head"]
         if r["kind"] == "pr" and not a.pr:
             try:
                 r["fork"] = bool(ports.pr_info(repo, r["number"]).get("fork"))
@@ -515,17 +556,17 @@ def main(argv=None, ports=None):
         ready = []
         for r in assigned:
             if r["number"] in refresh:
-                # 古い会話を終え、そのペインの作業場を畳む（checkout は残し、下の provision が同じ場所を開き直す）
-                pane = _pane_at(ports.herdr, r["path"])
-                closed = turn.close_session(pane, ports.herdr) if pane else "close_failed"
+                # 古い会話を終え、その場所の作業場を畳む（checkout は残し、下の provision が同じ場所を開き直す）
+                closed, why = _end_conversation(ports, r["path"])
                 if closed != "closed":
                     results[r["number"]] = "close_failed"
-                    notes.append(f"#{r['number']}: 送り直す前に古い会話を終えられなかった（ペイン {pane or '無し'}）")
+                    notes.append(f"#{r['number']}: 送り直す前に古い会話を終えられなかった（{why}）")
                     continue
-                try:
-                    clean.release(r["path"], ports.herdr)
-                except ports.herdr.HerdrError as e:
-                    notes.append(f"#{r['number']}: 古い作業場を閉じられなかった（{e}）")
+                rel = clean.release(repo.source, r["path"], ports.herdr)
+                if rel["status"] == "close_failed":
+                    results[r["number"]] = "close_failed"
+                    notes.append(f"#{r['number']}: 古い作業場を閉じられなかった（{rel['detail']}）")
+                    continue
             if r["kind"] == "issue" and not r["head"]:
                 try:
                     linked = provision.link_branch(repo, r["number"], ports.default_branch(repo), ports.gh, ports.gh_env(repo))
@@ -562,6 +603,8 @@ def main(argv=None, ports=None):
                 notes.append(f"{name}: {got['detail']}")
         # issue から始めたものは 1 ターン目の /catchup まで（2 ターン目の文は PR のレビューの文なので送らない）
         second = {r["number"]: None if (a.no_second or r["kind"] == "issue") else repo.second_prompt for r, _ in ready}
+        # 送った時刻は 1 ターン目を送る直前（その後の動きを「新しい返事」と見る）、head はその時の場所の head（force-push の見分け）
+        stamp = {r["number"]: {"at": ports.now(), "head": ports.head_sha(r["path"])} for r, _ in ready}
         if ready:
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                 futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane, second[r["number"]], ports.herdr,
@@ -571,7 +614,7 @@ def main(argv=None, ports=None):
                 results.update({n: f.result() for n, f in futures.items()})
             for r, _ in ready:
                 if results.get(r["number"]) == "sent" and r["kind"] == "pr":
-                    sent[_key(repo, r["number"])] = ports.now()
+                    sent[_key(repo, r["number"])] = stamp[r["number"]]
                     if r["number"] in refresh:
                         results[r["number"]] = "refreshed"
             ports.save_sent(cfg.limits_dir, sent)
@@ -592,8 +635,8 @@ def _name(row):
     return f"{'issue ' if row.get('kind') == 'issue' else ''}#{row['number']}"
 
 
-def _held_row(p, outcome, places):
-    return {"number": p["number"], "kind": "pr", "title": p["title"], "head": p["head"], "url": p.get("url"), "fork": False,
+def _held_row(p, outcome, places, kind="pr"):
+    return {"number": p["number"], "kind": kind, "title": p["title"], "head": p["head"], "url": p.get("url"), "fork": False,
             "outcome": outcome, "account": None, "path": places.get(p["head"])}
 
 
@@ -601,34 +644,58 @@ def _where(r):
     return f"#{r['number']} {r['branch']}" if r["number"] is not None else f"- {r['branch'] or '（枝無し）'}"
 
 
+def _changed(repo):
+    return lambda path: clean.changed_copies(path, config.copy_root(repo), repo.copy_files)
+
+
 def _tidy(cfg, repo, ports, dry_run, found):
     """閉じた PR（MERGED・CLOSED）の枝の場所を片付ける（一覧で回すときだけ）。元の clone の linked worktree だけを見る（clean.candidates）。
-    会話が開いていても、手すきで変更も手元だけの commit も無ければ、会話を終えてから消す。作業中・手元の作業の有る場所は残して名指す。
-    返すのは報告の頭に置く行。"""
-    listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
+    会話が 1 つだけ開いていて、手すきで手元の作業も無ければ、会話を終え、会話の一覧を取り直して居ないことを確かめてから消す。
+    作業中・会話が 2 つ以上・手元の作業の有る場所は残して名指す。返すのは報告の頭に置く行。読めない・終えられない物は、その場所の
+    行にして続ける。"""
+    try:
+        listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
+    except claudex.ClaudeError as e:
+        return [f"片付けを飛ばした（開いている会話を読めない: {e}）"]
     sess = sessions.collect(listed, ports.branch, ports.origin)
+    changed = _changed(repo)
     rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), {x["cwd"] for x in sess if x["cwd"]},
-                            ports.is_clean, ports.stashed, ports.head_sha)
+                            ports.is_clean, ports.stashed, ports.head_sha, source=repo.source, changed=changed)
     out = []
     for r in rows:
         finished = r["state"] in clean.FINISHED
         if r["reason"] == "session" and finished:
             mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
+            files = changed(r["path"])
             local = (not ports.is_clean(r["path"]) or ports.stashed(r["path"], r["branch"])
-                     or ports.head_sha(r["path"]) != r["pr_head"])
+                     or ports.head_sha(r["path"]) != r["pr_head"] or files)
+            if len(mine) > 1:
+                out.append(f"{_where(r)}: 閉じた PR だが、会話が {len(mine)} つ開いているので残した")
+                continue
             if any(x["status"] != "idle" for x in mine) or local:
                 out.append(f"{_where(r)}: 閉じた PR だが、会話が作業中か手元の作業が有るので残した")
                 continue
             if dry_run:
                 out.append(f"{_where(r)}: 閉じた PR なので、会話を終えて片付ける")
                 continue
-            pane = _pane_at(ports.herdr, r["path"])
-            if not pane or turn.close_session(pane, ports.herdr) != "closed":
-                out.append(f"{_where(r)}: 閉じた PR の会話を終えられなかったので残した")
+            closed, why = _end_conversation(ports, r["path"])
+            if closed != "closed":
+                out.append(f"{_where(r)}: 閉じた PR の会話を終えられなかったので残した（{why}）")
+                continue
+            try:
+                left = _sessions_in(cfg, ports, r["path"])
+            except claudex.ClaudeError as e:
+                out.append(f"{_where(r)}: 会話を終えた後の一覧を読めないので残した（{e}）")
+                continue
+            if left:
+                out.append(f"{_where(r)}: 会話を終えた後も、その場所に会話が見えるので残した")
                 continue
             r = {**r, "removable": True, "reason": None}
         if finished and r["reason"] in ("dirty", "unpushed"):
             out.append(f"{_where(r)}: 閉じた PR だが、手元の作業が有るので残した")
+            continue
+        if finished and r["reason"] == "local_files":
+            out.append(f"{_where(r)}: 閉じた PR だが、写したファイルが写し元と違うので残した: {', '.join(r['files'])}")
             continue
         if not r["removable"]:
             continue
@@ -717,19 +784,20 @@ def _init(a, ports):
 
 
 def _clean(cfg, repo, apply, ports):
-    listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
-    cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
     try:
+        listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
         found = ports.places(repo)
-    except herdr.HerdrError as e:
-        print(f"止めた: {e}")
+    except (claudex.ClaudeError, herdr.HerdrError) as e:
+        print(f"止めた: {e}（開いている会話か元の clone の worktree を読めないので、何も消さない）")
         return 1
-    rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha)
+    cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
+    rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
+                            source=repo.source, changed=_changed(repo))
     if not rows:
         print(f"元の clone {repo.source} の worktree は無い")
         return 0
     for r in rows:
-        mark = "消せる" if r["removable"] else f"残す（{r['reason']}）"
+        mark = "消せる" if r["removable"] else f"残す（{r['reason']}{': ' + ', '.join(r['files']) if r['files'] else ''}）"
         print(f"{_where(r)}  {r['state'] or '-'}  {mark}")
     if not apply:
         if any(r["removable"] for r in rows):

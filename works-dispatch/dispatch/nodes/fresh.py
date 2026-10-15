@@ -13,11 +13,13 @@ own_unreviewed は、自分が作者でレビュアーの付いていない PR�
 （2026-10-15「自分のレビュワーついてない作業のやつはたてなくていい」）で、一覧から開かない。--pr で指したものは入口が外さない。
 """
 
+import os
 import pathlib
 
 
 def inside(cwd, path):
-    c, p = pathlib.PurePath(cwd), pathlib.PurePath(path)
+    """cwd が path かその下か。リンクを辿った実際のパスで比べる（clean と同じ。~/src がリンクでも見落とさない）。"""
+    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
     return c == p or p in c.parents
 
 

@@ -29,7 +29,8 @@ import jsonio  # noqa: E402
 
 
 def _inside(cwd, path):
-    c, p = pathlib.PurePath(cwd), pathlib.PurePath(path)
+    """cwd が path かその下か。リンクを辿った実際のパスで比べる（clean と同じ。~/src がリンクでも見落とさない）。"""
+    c, p = pathlib.PurePath(os.path.realpath(cwd)), pathlib.PurePath(os.path.realpath(path))
     return c == p or p in c.parents
 
 

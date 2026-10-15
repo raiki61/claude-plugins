@@ -356,6 +356,21 @@ class GitWorktree(unittest.TestCase):
         self.assertEqual(gitx.fast_forward(self.path, "feat/1"), "local_only")
         self.assertEqual(gitx.head_sha(self.path), mine)
 
+    def test_reset_keep_follows_a_force_push_but_keeps_uncommitted_changes(self):
+        old = gitx.head_sha(self.path)
+        rewritten = self.git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"{old}^{{tree}}",
+                             "-m", "rewritten")
+        self.git("-C", self.src, "push", "-q", "--force", "origin", f"{rewritten}:refs/heads/feat/1")
+        gitx.fetch(self.src, "feat/1")
+        self.assertEqual(gitx.fast_forward(self.path, "feat/1"), "local_only")
+        gitx.reset_keep(self.path, "feat/1")
+        self.assertEqual(gitx.head_sha(self.path), rewritten)
+
+    def test_is_main_worktree(self):
+        self.assertTrue(gitx.is_main_worktree(self.src))
+        self.assertFalse(gitx.is_main_worktree(self.path))
+        self.assertIsNone(gitx.is_main_worktree(tempfile.mkdtemp()))
+
     def test_delete_branch_only_when_the_tip_is_the_expected_one(self):
         sha = gitx.head_sha(self.path)
         with self.assertRaises(gitx.GitError):   # どこかの worktree が開いている枝は git が断る

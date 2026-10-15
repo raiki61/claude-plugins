@@ -3,9 +3,10 @@
 作業場は元の clone の git worktree（作る・消すは herdr の口。herdr.py）。worktree は中身（objects・refs・stash）を元の clone と
 共有するので、手元の作業の判定は「その worktree の HEAD とその枝」に絞る（ほかの枝や元の clone の作業を数えない）。
 
-書く関数は fetch・fast_forward・delete_branch の 3 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+書く関数は fetch・fast_forward・reset_keep・delete_branch の 4 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
+import os
 import re
 import subprocess
 
@@ -79,6 +80,22 @@ def fast_forward(cwd, branch, runner=_default_runner):
         return "local_only"
     _must(["git", "-C", cwd, "merge", "--ff-only", "--quiet", f"refs/remotes/origin/{branch}"], runner)
     return "updated"
+
+
+def reset_keep(cwd, branch, runner=_default_runner):
+    """その枝を開いている worktree（cwd）を、origin/<枝> へ `git reset --keep` で揃える。書く口。
+    作者が force-push して、手元の HEAD が origin の祖先でなくなったときだけ使う（呼ぶ側が、HEAD が前に送った時の head と同じで、
+    場所がきれいなことを確かめてから）。--keep は、未コミットの変更と重なるなら git が断る（変更は消さない）。"""
+    _must(["git", "-C", cwd, "reset", "--quiet", "--keep", f"refs/remotes/origin/{branch}"], runner)
+
+
+def is_main_worktree(cwd, runner=_default_runner):
+    """cwd が、linked worktree でなく本体の checkout か（`git rev-parse` の git-dir と git-common-dir が同じ）。読めなければ None。"""
+    out = _git(cwd, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], runner)
+    lines = (out or "").splitlines()
+    if len(lines) != 2:
+        return None
+    return os.path.realpath(lines[0]) == os.path.realpath(lines[1])
 
 
 def head_sha(cwd, runner=_default_runner):

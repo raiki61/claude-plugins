@@ -41,6 +41,18 @@ class Plan(unittest.TestCase):
         rows = assign.plan(REPO, [pr(1)], set(), {"/w/r/feat-10"}, [acct("a")], places=PLACES)
         self.assertEqual(rows[0]["outcome"], "assigned")
 
+    def test_conversation_behind_a_symlink_counts_as_inside_the_place(self):
+        import os
+        import pathlib
+        import tempfile
+        real = pathlib.Path(tempfile.mkdtemp()).resolve()
+        (real / "feat-1").mkdir()
+        link = pathlib.Path(tempfile.mkdtemp()) / "w"
+        os.symlink(real, link)
+        rows = assign.plan(REPO, [pr(1)], set(), {str(real / "feat-1" / "backend")}, [acct("a")],
+                           places={"feat/1": str(link / "feat-1")})
+        self.assertEqual(rows[0]["outcome"], "already_open")
+
     def test_rows_carry_the_place_kind_and_fork(self):
         issue = {"number": 12, "kind": "issue", "title": "t", "head": None, "url": "i12"}
         rows = assign.plan(REPO, [pr(1), {**pr(2), "fork": True}, issue], set(), set(), [acct("a")], places=PLACES)

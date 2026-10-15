@@ -4,7 +4,7 @@
 頭に注記（使用率の控えが無いアカウントなど）、続けて 1 件 1 行: `#<番号> <タイトル>  <枝>  <アカウント>  <結末>`。
 issue から始めたもの（kind が issue）は `issue #<番号> …` で始める。まだ枝が無ければ枝の欄は `-`。
 結末の語は sent・refreshed・blocked・stalled・already_open・no_news・busy・dirty・unpushed・own_unreviewed・close_failed・
-no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed と、--dry-run の create（作業場を作る）・
+no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed・issue_closed と、--dry-run の create（作業場を作る）・
 reuse（使い直す）・refresh（送り直す）。
 PR が 0 件なら「自分の番の PR は無い」の 1 行。
 

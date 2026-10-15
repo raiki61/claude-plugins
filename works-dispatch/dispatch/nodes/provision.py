@@ -9,7 +9,8 @@
   置き場は herdr の既定に任せる。依存は入れない。
 - 有れば使い直す: origin のその枝を取り、作業場が開いていなければ開く。
 - どちらでも、手元の枝が origin の枝の祖先なら早送りだけする（/catchup は枝を移るときも pull・merge をしないので、origin の今の
-  head に揃えてから渡す）。手元にしか無い commit が有れば動かさず、注記に書く。
+  head に揃えてから渡す）。祖先でなくても、HEAD が前に送った時の head（行の sent_head）のままで場所がきれいなら、作者の
+  force-push なので `git reset --keep` で origin に揃える。それ以外（手元にしか無い commit が有る）は動かさず、注記に書く。
 - fork の PR（head が別のリポジトリ）は origin に枝が無いので作らず provision_failed。
 - 最後に、herdr の worktree の並びにその枝の場所が在り、作業場が開いていて、checkout がその枝に居ることを読み戻してから返す。
 
@@ -110,7 +111,14 @@ def prepare(row, repo, h=herdr, g=gitx):
             made = h.open_worktree(repo.source, place["path"], label(repo, branch))
         moved = g.fast_forward(made["path"], branch)
         if moved == "local_only":
-            notes.append(f"枝 {branch} に手元にしか無い commit が有るので、origin の head へ早送りしなかった")
+            sent_head = row.get("sent_head")
+            if sent_head and g.head_sha(made["path"]) == sent_head and g.is_clean(made["path"]):
+                # 手元の HEAD が前に送った時の head のまま（手元で積んだ commit ではない）で、origin の祖先でなくなった:
+                # 作者が force-push した。場所がきれいなら origin に揃える（--keep は未コミットの変更と重なれば断る）
+                g.reset_keep(made["path"], branch)
+                notes.append(f"枝 {branch} は前に送った後に origin で書き換えられていた（force-push）ので、origin の head に揃えた")
+            else:
+                notes.append(f"枝 {branch} に手元にしか無い commit が有るので、origin の head へ早送りしなかった")
         seen = find(h.worktrees(repo.source), branch)
     except (gitx.GitError, h.HerdrError, OSError) as e:
         out["detail"] = "／".join(notes + [str(e)])
