@@ -243,6 +243,49 @@ class GitHub(unittest.TestCase):
         self.assertFalse(out[0]["truncated"])
 
 
+class Privacy(unittest.TestCase):
+    """非公開のリポジトリの名前・番号は、AI の文に書かせない。公開のリポジトリは書いてよい。"""
+
+    def material(self):
+        gh = [{"events": [
+            {"repo": "corp/secret-app", "number": 1971, "private": True},
+            {"repo": "me/open-tool", "number": 42, "private": False},
+        ]}]
+        rows = [{"repo": "corp/secret-app", "commits": [{"subject": "fix: x (#1665)"}]},
+                {"repo": "corp/unknown", "commits": [{"subject": "feat: y (#7)"}]},
+                {"repo": "me/open-tool", "commits": [{"subject": "z (#43)"}]}]
+        asked = []
+        priv = rf.privacy(rows, gh, ask=lambda label: asked.append(label) or True)
+        return rows, priv, asked
+
+    def test_flags_from_events_first_and_unknown_is_private(self):
+        rows, priv, asked = self.material()
+        self.assertEqual(asked, ["corp/unknown"])  # 動きの記録に印の無いものだけ問い合わせる
+        self.assertEqual(priv["repos"], ["corp/secret-app", "corp/unknown"])
+        self.assertEqual(priv["numbers"], [7, 1665, 1971])
+        self.assertEqual([r["private"] for r in rows], [True, True, False])
+
+    def test_leaks_are_caught_and_public_refs_pass(self):
+        _, priv, _ = self.material()
+        data = {"private": priv}
+        ok = fields(headline="me/open-tool の #42 と PR 43 を直した。レビュー 14 件")
+        self.assertEqual(rf.leaks(ok, data), [])
+        for bad in ("#1971 をレビュー", "PR 1665 を直した", "secret-app の検索を直した", "corp/secret-app で"):
+            with self.subTest(bad=bad):
+                self.assertTrue(rf.leaks(fields(diary=bad), data))
+
+    def test_render_stops_on_a_leak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d, f = pathlib.Path(tmp) / "d.json", pathlib.Path(tmp) / "f.json"
+            d.write_text(json.dumps({"schema": rf.SCHEMA, "period": {"start": "2026-10-15", "end": "2026-10-15"},
+                                     "private": {"repos": ["corp/secret-app"], "numbers": [1971]}}), encoding="utf-8")
+            f.write_text(json.dumps(fields(headline="#1971 のレビュー")), encoding="utf-8")
+            code, lines = rf.render(d, f, env={"XDG_STATE_HOME": tmp, "ATTENTION_CATCHUP_OPEN": "0"}, root=pathlib.Path(tmp) / "out")
+            self.assertEqual(code, 2)
+            self.assertTrue(any("#1971" in line for line in lines))
+            self.assertFalse((pathlib.Path(tmp) / "out").exists())
+
+
 class InsightsAndAssets(unittest.TestCase):
     def test_facets_of_the_period_and_plugin_commands(self):
         with tempfile.TemporaryDirectory() as tmp:

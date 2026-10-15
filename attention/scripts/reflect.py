@@ -386,7 +386,8 @@ def event_row(e):
     review = p.get("review") or {}
     return {"type": (e.get("type") or "").replace("Event", ""), "repo": (e.get("repo") or {}).get("name"),
             "action": p.get("action") or review.get("state"), "number": item.get("number"),
-            "title": clip(item.get("title") or "", 120), "at": local(e.get("created_at"))}
+            "title": clip(item.get("title") or "", 120), "at": local(e.get("created_at")),
+            "private": not e.get("public", False)}
 
 
 def local(ts):
@@ -527,6 +528,72 @@ def decide(path, pid, status, note="", today=None):
 # ---- 材料 ------------------------------------------------------------------------
 
 
+def repo_private(label):
+    """そのリポジトリが非公開か。gh で使えるどのアカウントでも決められなければ、非公開として扱う（書かない側に倒す）。"""
+    if "/" not in label:
+        return True
+    for login in gh_logins():
+        token = (run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]) or "").strip()
+        raw = (run(["gh", "api", f"repos/{label}", "--jq", ".private"], env={**os.environ, "GH_TOKEN": token} if token else None) or "").strip()
+        if raw in ("true", "false"):
+            return raw == "true"
+    return True
+
+
+def privacy(commit_rows, gh_rows, ask=repo_private):
+    """非公開のリポジトリの名前と、そこで出てきた PR・issue の番号。AI の文に書かせない（render が見る）。
+
+    公開・非公開は、GitHub の動きの記録の public の印を先に使い、無いリポジトリだけ問い合わせる。"""
+    known = {}
+    for g in gh_rows:
+        for r in g["events"]:
+            if r.get("repo"):
+                known.setdefault(r["repo"], bool(r.get("private")))
+    for c in commit_rows:
+        if c["repo"] not in known:
+            known[c["repo"]] = ask(c["repo"])
+        c["private"] = known[c["repo"]]
+    repos = sorted(k for k, v in known.items() if v)
+    numbers = {r["number"] for g in gh_rows for r in g["events"] if r.get("private") and r.get("number")}
+    numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in re.findall(r"#(\d+)", x["subject"])}
+    return {"repos": repos, "numbers": sorted(numbers)}
+
+
+REF = re.compile(r"(?:#|\b(?:PR|pr|issue|Issue)\s*#?)(\d+)")
+
+
+def leaks(fields, data):
+    """欄の文に、非公開のリポジトリの名前・番号が入っていれば、その誤りを並べる。"""
+    priv = data.get("private") or {}
+    texts = []
+
+    def walk(v):
+        if isinstance(v, str):
+            texts.append(v)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+    walk(fields)
+    text = "\n".join(texts)
+    errs = []
+    for repo in priv.get("repos") or []:
+        names = {repo} | ({repo.split("/", 1)[1]} if "/" in repo and len(repo.split("/", 1)[1]) >= 4 else set())
+        # 語の切れ目で当てる（名前が一般の語のとき、id の「unknown-one」のような語の一部に当てない）
+        hit = sorted(n for n in names if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", text))
+        if hit:
+            errs.append(f"非公開のリポジトリの名前を書いている: {'、'.join(hit)}")
+    nums = set(priv.get("numbers") or [])
+    hit = sorted({int(n) for n in REF.findall(text)} & nums)
+    if hit:
+        errs.append("非公開のリポジトリの PR・issue の番号を書いている: " + "、".join(f"#{n}" for n in hit))
+    if errs:
+        errs.append("非公開のリポジトリの件は、番号・名前・件名でなく、何の作業か・どのくらいの量か・言いたいことで書く")
+    return errs
+
+
 def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     env = dict(os.environ if env is None else env)
     first, last = period(spec, today)
@@ -536,6 +603,8 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     cwds = sorted({s["cwd"] for s in human if s["cwd"]})
     asks, cmds = repeats(human)
     gh = github(start, end) if with_github else []
+    commit_rows = commits(cwds, start, end)
+    private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True))
     try:
         ledger, ledger_error = read_ledger(ledger_path(env)), None
     except ValueError as e:
@@ -553,8 +622,9 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
         "sessions": human_rows(human, (last - first).days + 1),
         "background": background_rows(background),
         "repeats": {"asks": asks, "commands": cmds},
-        "commits": commits(cwds, start, end),
+        "commits": commit_rows,
         "github": gh,
+        "private": private,
         "insights": insights(dirs, {s["id"] for s in human}),
         "assets": assets(dirs, cwds),
         "ledger": ledger["proposals"],
@@ -718,7 +788,7 @@ def render(data_path, fields_path, env=None, root=None, template=None, today=Non
         return 2, [f"材料か欄の JSON が読めない（{e}）"]
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         return 2, [f"材料の形が違う（schema {SCHEMA} の reflect.py --out で集め直す）"]
-    errs = validate_fields(fields)
+    errs = validate_fields(fields) or leaks(fields, data)
     if errs:
         return 2, ["欄の JSON を直す:"] + [f"- {e}" for e in errs]
     today_s = (today or dt.date.today()).isoformat()
