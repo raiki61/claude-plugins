@@ -7,11 +7,15 @@
 起こした後に、そのペインに会話が見えることを herdr から読み戻してから返す（送ったつもりで起きていない、を返さない）。
 打ち込む前に、ペインの前にシェルだけが居ることを確かめる。vim・dev server・別の会話が残っていれば打ち込まない（pane_busy）。
 起こした後に確認の画面（フォルダの信頼・ログインなど）で止まったら、blocked で返し、/catchup は送らない。
+POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く。attention の /catchup は書いたページを VS Code の窓に
+開くが、dispatch は何件も一度に起こすので、窓にタブが一気に開かないようにする（ページは書かれ、一覧のページに載る）。
+シェル関数のアカウントのコマンドにも、この前置きは関数の間だけ環境変数として渡る（bash・zsh で確かめた）。
 
 使い方: python3 nodes/launch.py --plan <plan の JSON> --number <PR 番号> --pane <ペイン ID> [--out <パス>]
 """
 
 import argparse
+import os
 import pathlib
 import sys
 
@@ -20,8 +24,13 @@ import herdr  # noqa: E402
 import jsonio  # noqa: E402
 
 
-def start(row, pane, h=herdr):
+QUIET_CATCHUP = "ATTENTION_CATCHUP_OPEN=0"
+
+
+def start(row, pane, h=herdr, posix=None):
     command = row["account"]["command"]
+    if os.name != "nt" if posix is None else posix:
+        command = f"{QUIET_CATCHUP} {command}"
     result = {"number": row["number"], "pane": pane, "status": "launch_failed", "detail": None}
     try:
         if not h.shell_in_front(pane):

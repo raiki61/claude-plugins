@@ -52,10 +52,16 @@ SECOND = "1. 深掘り\n2. 世の中の解 'x' $y"
 class Launch(unittest.TestCase):
     def test_runs_account_command_in_slot_pane_and_reads_back(self):
         h = FakeHerdr()
-        got = launch.start(ROW, "wB:p1", h)
+        got = launch.start(ROW, "wB:p1", h, posix=True)
         self.assertEqual(got["status"], "ready")
-        self.assertEqual(h.calls[:2], [("shell_in_front", "wB:p1"), ("run", "wB:p1", "claude-x")])
+        self.assertEqual(h.calls[:2], [("shell_in_front", "wB:p1"),
+                                       ("run", "wB:p1", "ATTENTION_CATCHUP_OPEN=0 claude-x")])
         self.assertIn(("agent", "wB:p1"), h.calls)
+
+    def test_without_a_posix_shell_the_command_is_typed_as_is(self):
+        h = FakeHerdr()
+        launch.start(ROW, "wB:p1", h, posix=False)
+        self.assertIn(("run", "wB:p1", "claude-x"), h.calls)
 
     def test_no_conversation_on_read_back_is_launch_failed(self):
         got = launch.start(ROW, "wB:p1", FakeHerdr(agent={"agent": None, "agent_status": "unknown"}))

@@ -18,8 +18,14 @@ import ghx
 import gitx
 import herdr as real_herdr
 from nodes import clean
+from nodes import launch
 from nodes import prs as prs_node
 from nodes import report
+
+
+def typed(command):
+    """launch がペインに打ち込む形（POSIX のシェルでは /catchup の窓を開かない前置きが付く）。"""
+    return command if os.name == "nt" else f"{launch.QUIET_CATCHUP} {command}"
 
 
 class Report(unittest.TestCase):
@@ -335,7 +341,7 @@ class Main(unittest.TestCase):
         self.assertEqual(ports.herdr.writes, [
             ("create_worktree", "feat/1", "r/feat/1"),
             ("trust", "a1", gitx_source(self.cfg), path),
-            ("run", "P0", "claude-a1"),
+            ("run", "P0", typed("claude-a1")),
             ("prompt", "P0", "/attention:catchup 1", True),
             ("prompt", "P0", "二手目", False),
         ])
@@ -347,7 +353,7 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
         self.assertIn("#1: アカウント a1 は元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す", out)
-        self.assertIn(("run", "P0", "claude-a1"), ports.herdr.writes)
+        self.assertIn(("run", "P0", typed("claude-a1")), ports.herdr.writes)
 
     def test_no_second_sends_only_catchup(self):
         ports = FakePorts([pr(1)])

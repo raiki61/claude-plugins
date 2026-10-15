@@ -14,7 +14,7 @@ import subprocess
 import unittest
 
 from . import DISPATCH  # noqa: F401
-from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, pr
+from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, pr, typed
 from .test_launch_turn import CATCHUP, SECOND
 from .test_launch_turn import FakeHerdr as TurnHerdr
 from .test_provision import git, make_world
@@ -201,7 +201,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(w[2], ("open_worktree", path, "r/feat/1"))   # checkout は残し、同じ場所を開き直す
         new = ports.herdr.panes()[0]["pane_id"]
         self.assertNotEqual(new, old["pane_id"])
-        self.assertIn(("run", new, "claude-a1"), w)
+        self.assertIn(("run", new, typed("claude-a1")), w)
         self.assertEqual([x[2] for x in w if x[0] == "prompt"][1:], [f"{CATCHUP} 1", "二手目"])
         self.assertEqual([x["path"] for x in self.linked(ports)], [path])
         sent = json.loads(pathlib.Path(self.root).parent.joinpath("limits", dispatch.SENT_FILE).read_text())
