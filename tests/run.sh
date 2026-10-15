@@ -3384,7 +3384,7 @@ expect_output 0 "OK" "changemap: 変更の地図の部品の回帰（unittest。
 
 # ---- attention/scripts/lib/catchup_html: /catchup の報告を 1 枚の HTML に描く部品と catchup.py --render ----
 # GitHub にも git にも VS Code にも触らない。VS Code の CLI は差し替え、置き場と設定は一時の階層に書く
-expect_output 0 "OK" "catchup_html: 欄の検査・雛形への差し込み・index の組み直し・socket の選び方・Machine の設定の足し方・PR の材料の番と止めているもの・--render の出力（unittest）" \
+expect_output 0 "OK" "catchup_html: 欄の検査・雛形への差し込み・index の組み直し・socket の選び方・Machine の設定の足し方・PR の材料の番と止めているもの・--render の出力・雛形の作り（unittest）" \
     "$PY_BIN" "$ROOT/tests/catchup-html-suite.py"
 
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----

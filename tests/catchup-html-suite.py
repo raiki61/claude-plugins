@@ -5,7 +5,8 @@
 固定するのは: AI の欄の検査（直す所を日本語で 1 件 1 行）、雛形への差し込み（`</script>` で閉じない）、
 置き場と index の組み直し（頭の行だけを読む・消えたページは落とす・新しい順）、差分の抜粋、
 VS Code の socket の選び方（新しい順・生きているものだけ・全部で開く・0 で開かない）、Machine の設定の
-足し方（他の key を消さない・控えを置く・注記の有る file は書かない）、PR の材料の番と止めているもの。
+足し方（他の key を消さない・控えを置く・注記の有る file は書かない）、PR の材料の番と止めているもの、
+雛形の作り（発言の Markdown を固定した版で描き生の HTML を描かない・番の動きは会話の流れの形・持ち主の値が無い）。
 """
 
 import importlib.util
@@ -182,6 +183,28 @@ class PageTest(unittest.TestCase):
         self.assertEqual(ch.page_rel(None, {"title": "今の修正"}), ch.page_rel(None, {"title": "今の修正"}))
         self.assertTrue(ch.page_rel(None, {"title": "今の修正"}).startswith("topics/"))
         self.assertEqual(ch.page_rel({"page": "o-r/commit-abc1234"}, {}), "o-r/commit-abc1234.html")
+
+
+class TemplateTest(unittest.TestCase):
+    """雛形の作りの決まり。ブラウザで描く所は試験で動かせないので、作りの印で固定する。"""
+    TPL = (ROOT / "attention" / "templates" / "catchup.html").read_text(encoding="utf-8")
+
+    def test_comment_markdown_is_drawn_by_the_pinned_parser_with_raw_html_escaped(self):
+        # 発言の本文は GitHub と同じく Markdown で描く。生の HTML・javascript: のリンク・外の画像は描かせない
+        self.assertIn("marked 15.0.12 marked.min.js（MIT", self.TPL)
+        self.assertIn("marked v15.0.12", self.TPL)
+        self.assertRegex(self.TPL, r"html\(tok\) \{ return esc\(")
+        self.assertIn("safeHref", self.TPL)
+        self.assertRegex(self.TPL, r"image\(tok\) \{[^\n]*<a href")
+        self.assertNotIn("</script", self.TPL.split("marked 15.0.12 marked.min.js", 1)[1].split("埋め込みここまで", 1)[0])
+
+    def test_turn_history_is_a_timeline_not_the_lane_figure(self):
+        self.assertIn('class: "timeline"', self.TPL)
+        self.assertNotIn("laneFigure", self.TPL)
+
+    def test_no_owner_specific_values(self):
+        for s in ("my_notes", "/Users/", "raiki61", "190578"):
+            self.assertNotIn(s, self.TPL)
 
 
 class VscodeTest(unittest.TestCase):
