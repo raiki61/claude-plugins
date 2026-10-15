@@ -195,8 +195,8 @@ class HerdrWorktree(unittest.TestCase):
     def test_list_reads_places_in_branch_words(self):
         f = Fake(ok(WT_LIST))
         self.assertEqual(herdr.worktrees("/s/repo", runner=f), [
-            {"path": "/s/repo", "branch": "main", "linked": False, "workspace": "w1", "prunable": False},
-            {"path": "/h/.herdr/worktrees/repo/feat-a", "branch": "feat-a", "linked": True, "workspace": None,
+            {"path": os.path.normpath("/s/repo"), "branch": "main", "linked": False, "workspace": "w1", "prunable": False},
+            {"path": os.path.normpath("/h/.herdr/worktrees/repo/feat-a"), "branch": "feat-a", "linked": True, "workspace": None,
              "prunable": False}])
         self.assertEqual(f.calls[0][0], ["herdr", "worktree", "list", "--cwd", "/s/repo"])
 
@@ -220,7 +220,8 @@ class HerdrWorktree(unittest.TestCase):
     def test_create_passes_branch_base_label_without_focus_or_trust(self):
         f = Fake(ok(WT_CREATE))
         got = herdr.create_worktree("/s/repo", "feat-a", "origin/feat-a", "repo/feat-a", runner=f)
-        self.assertEqual(got, {"path": "/h/.herdr/worktrees/repo/feat-a", "branch": "feat-a", "workspace_id": "w1B",
+        # 場所のパスは入口で normpath にそろう（Windows では `\\` 区切りになる）
+        self.assertEqual(got, {"path": os.path.normpath("/h/.herdr/worktrees/repo/feat-a"), "branch": "feat-a", "workspace_id": "w1B",
                                "pane_id": "w1B:p1"})
         self.assertEqual(f.calls[0][0], ["herdr", "worktree", "create", "--cwd", "/s/repo", "--branch", "feat-a",
                                          "--base", "origin/feat-a", "--label", "repo/feat-a", "--no-focus"])
@@ -236,7 +237,7 @@ class HerdrWorktree(unittest.TestCase):
     def test_remove_opens_then_removes_by_workspace_without_force(self):
         f = Fake(ok(WT_OPEN), ok(WT_REMOVE))
         got = herdr.remove_worktree("/s/repo", "/h/.herdr/worktrees/repo/feat-a", "repo/feat-a", runner=f)
-        self.assertEqual(got, {"path": "/h/.herdr/worktrees/repo/feat-a", "workspace_id": "w1F"})
+        self.assertEqual(got, {"path": os.path.normpath("/h/.herdr/worktrees/repo/feat-a"), "workspace_id": "w1F"})
         self.assertEqual(f.calls[1][0], ["herdr", "worktree", "remove", "--workspace", "w1F"])
         self.assertNotIn("--force", f.calls[1][0])
 
