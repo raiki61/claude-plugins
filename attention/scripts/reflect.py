@@ -249,7 +249,8 @@ def human_rows(human, days=1):
         kept = asks if len(asks) <= 2 * keep else asks[:keep] + asks[-keep:]
         rows.append({
             "id": s["id"], "config_dir": s["config_dir"], "cwd": home_short(s["cwd"]),
-            "start": s["first"].isoformat(timespec="minutes"), "end": s["last"].isoformat(timespec="minutes"),
+            "start": s["first"].astimezone().isoformat(timespec="minutes"),
+            "end": s["last"].astimezone().isoformat(timespec="minutes"),
             "asks_total": len(asks), "asks": [clip(a, chars) for a in kept],
             "asks_cut": len(asks) - len(kept),
             "tools": dict(s["tools"].most_common(8)), "marks": dict(s["marks"]),
@@ -339,21 +340,31 @@ def repo_tops(cwds):
 
 
 def commits(cwds, start, end):
-    """会話の作業フォルダから引いたリポジトリごとに、その user.email の期間の commit。"""
-    out = []
+    """会話の作業フォルダから引いたリポジトリごとに、その user.email の期間の commit。
+
+    二重に数えないための 3 つ（どれも 2026-10-16 の実測で数が膨らんだ）:
+    - --all でなく枝と追跡の枝だけ。git subrepo などが持つ別の ref（refs/subrepo/…）は、取り込んだ先の
+      他のリポジトリの commit を同じ author で抱えている
+    - --first-parent。取り込み（subrepo pull・main の取り込み）で第 2 親から入った他所の commit を外す
+    - 同じ origin の別の clone は 1 つのリポジトリにまとめ、同じ commit は 1 回だけ数える"""
+    by_label, seen = {}, set()
     for top in repo_tops(cwds).values():
         email = (run(["git", "-C", top, "config", "user.email"]) or "").strip()
         if not email:
             continue
-        # --all でなく枝と追跡の枝だけ。git subrepo などが持つ別の ref（refs/subrepo/…）は、取り込んだ先の
-        # 他のリポジトリの commit を同じ author で抱えていて、数が二重になる（2026-10-16 実測）
-        log = run(["git", "-C", top, "log", "--branches", "--remotes", "--no-merges", f"--author={email}",
-                   f"--since={start.isoformat()}", f"--until={end.isoformat()}",
-                   "--format=%h%x1f%aI%x1f%s", f"-n{COMMITS_PER_REPO}"]) or ""
-        items = [dict(zip(("sha", "at", "subject"), line.split("\x1f"))) for line in log.splitlines() if line.count("\x1f") == 2]
-        if items:
-            out.append({"repo": repo_label(top), "count": len(items), "commits": items})
-    return out
+        log = run(["git", "-C", top, "log", "--branches", "--remotes", "--first-parent", "--no-merges",
+                   f"--author={email}", f"--since={start.isoformat()}", f"--until={end.isoformat()}",
+                   "--format=%H%x1f%aI%x1f%s", f"-n{COMMITS_PER_REPO}"]) or ""
+        label = repo_label(top)
+        for line in log.splitlines():
+            if line.count("\x1f") != 2:
+                continue
+            sha, at, subject = line.split("\x1f")
+            if sha in seen:
+                continue
+            seen.add(sha)
+            by_label.setdefault(label, []).append({"sha": sha[:9], "at": at, "subject": subject})
+    return [{"repo": k, "count": len(v), "commits": v[:COMMITS_PER_REPO]} for k, v in by_label.items()]
 
 
 def gh_logins():
@@ -375,7 +386,12 @@ def event_row(e):
     review = p.get("review") or {}
     return {"type": (e.get("type") or "").replace("Event", ""), "repo": (e.get("repo") or {}).get("name"),
             "action": p.get("action") or review.get("state"), "number": item.get("number"),
-            "title": clip(item.get("title") or "", 120), "at": e.get("created_at")}
+            "title": clip(item.get("title") or "", 120), "at": local(e.get("created_at"))}
+
+
+def local(ts):
+    t = when({"timestamp": ts})
+    return t.astimezone().isoformat(timespec="minutes") if t else ts
 
 
 def github(start, end):
@@ -452,10 +468,10 @@ def assets(dirs, cwds):
         for name, entries in (installed.get("plugins") or {}).items():
             for e in entries if isinstance(entries, list) else []:
                 root = pathlib.Path(e.get("installPath") or "")
-                key = (name, e.get("version"))
-                if key in seen:
+                # 同じプラグインが入れた範囲（user・project）の数だけ並ぶので、名前で 1 つにする
+                if name in seen:
                     continue
-                seen.add(key)
+                seen.add(name)
                 cmds = [{"name": p.stem, "about": first_line(p)} for p in sorted(root.glob("commands/*.md"))]
                 skills = [{"name": p.parent.name, "about": first_line(p)} for p in sorted(root.glob("skills/*/SKILL.md"))]
                 plugins.append({"plugin": name, "version": e.get("version"), "commands": cmds, "skills": skills})
