@@ -6,6 +6,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.69] - 2026-10-15
+
+### Fixed
+
+- 0.2.68 と coldwrite 0.2.0 の組で、works の実行が AI を起こす前の確かめで「coldwrite が入っていない」か「coldwrite に works が使う hook PreToolUse:Write が無い」と出て止まっていたのを直した。works の AI の役が借りる文書の初見検査を、退いた coldwrite から gates（書いた文書を記録し、ターンの終わりに初見の読み手が読む）に替えた。works の依存も gates になったので、`claude plugin update works@raiki61` の後に gates が入っていなければ `claude plugin install gates@raiki61` で入れる。
+
 ## [0.2.68] - 2026-10-15
 
 ### Changed
