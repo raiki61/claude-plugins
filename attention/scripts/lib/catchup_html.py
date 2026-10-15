@@ -45,7 +45,7 @@ OPEN_ENV = "ATTENTION_CATCHUP_OPEN"  # 0 なら描いた後に VS Code で開か
 CODE_TIMEOUT_SEC = 20
 EXTENSION_ID = "austin-spagnolo.simple-html-viewer"
 VIEW_TYPE = "simpleHtmlViewer.preview"
-ASSOC_GLOB = "**/.cache/attention/catchup/**/*.html"
+ASSOC_GLOB = "**/.cache/attention/**/*.html"  # /catchup と /reflect のページ
 AUTO_REFRESH = ("simpleHtmlViewer.autoRefresh", "onFileChange")
 ASSOC_KEY = "workbench.editorAssociations"
 

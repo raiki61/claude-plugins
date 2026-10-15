@@ -171,7 +171,7 @@ PR でないとき（欄ごとの言い切り。材料が無いことは、無�
 
 1. 生きている VS Code の窓を探す（`code --status` が通る socket）
 2. 拡張が `~/.vscode-server/extensions` に無ければ `code --install-extension austin-spagnolo.simple-html-viewer` で入れる
-3. `~/.vscode-server/data/Machine/settings.json` に 2 つを足す——`workbench.editorAssociations` の `"**/.cache/attention/catchup/**/*.html": "simpleHtmlViewer.preview"` と `"simpleHtmlViewer.autoRefresh": "onFileChange"`。他の key は消さず、書く前に同じ階層へ控え（`settings.json.bak-<日時>`）を置く。注記（`//`）の有る file は書き直さず、足す行を示す
+3. `~/.vscode-server/data/Machine/settings.json` に 2 つを足す——`workbench.editorAssociations` の `"**/.cache/attention/**/*.html": "simpleHtmlViewer.preview"` と `"simpleHtmlViewer.autoRefresh": "onFileChange"`。他の key は消さず、書く前に同じ階層へ控え（`settings.json.bak-<日時>`）を置く。注記（`//`）の有る file は書き直さず、足す行を示す
 4. 見本のページを描いて開く
 5. したことと、まだ足りないものを並べる
 

@@ -1,0 +1,84 @@
+# /reflect の仕様
+
+`/reflect [期間]` は、ある期間の持ち主（このプラグインを使う人）の作業を振り返り、**改善の提案**と、持ち主の仕事の仕方についての**気づきとヒント**を 1 枚の HTML に出す。手で打てば動く。定時に回す仕組みは持たない（回したい人は、自分の環境の定時の仕組みから `claude -p "/attention:reflect yesterday"` を呼ぶ）。この文書の読み手は、`scripts/reflect.py` と `commands/reflect.md` を直す人である。
+
+## 役割分担
+
+| 段 | 誰 | 何を |
+|---|---|---|
+| 材料 | 機械（`scripts/reflect.py --out`） | 会話・裏で起こされた会話・commit・GitHub の動き・`/insights` の控え・持ち物・台帳を集める |
+| 判断 | `/reflect` を走らせる AI | 材料を読み、欄の JSON（`headline`・`proposals`・`insights`・`unseen`・`diary`）を書く |
+| 描く | 機械（`scripts/reflect.py --render`） | 雛形 `templates/reflect.html` に流し込み、台帳を更新し、日記を書き、VS Code で開く |
+| 決める | 持ち主 | 提案を採るか、却下か、保留か（`reflect.py --decide`） |
+
+`--out` は材料を `~/.cache/attention/reflect/materials/<始まり>_<終わり>.json` に書き、1 行目にその path を出す。AI は欄をその隣に `<始まり>_<終わり>.fields.json` として書き、`--render <材料の path> <欄の path>` に渡す。
+
+## 期間
+
+`today`・`yesterday`・`week`（今日を含む 7 日。既定）・`month`（今日を含む 30 日）・`YYYY-MM-DD`・`YYYY-MM-DD..YYYY-MM-DD`（両端の日を含む）。日の境は手元の時刻帯の 0 時。
+
+## 材料（決め打ちしない）
+
+持ち主の環境の値（日記の置き場、アカウントのフォルダ、gh のアカウント名、探すリポジトリの範囲）を、コードにも文書にも書かない。
+
+会話は、読む設定のフォルダ（下の 1.）の `projects/*/*.jsonl` の 1 file（1 セッション）。どの数も期間の中の行だけから数え、期間をまたぐ会話も期間の外の行は数えない。
+
+1. **読む設定のフォルダ**: 既定は今の Claude Code の設定のフォルダ（`CLAUDE_CONFIG_DIR`、無ければ `~/.claude`）1 つ。別のフォルダも読みたい人は、`ATTENTION_REFLECT_CONFIG_DIRS`（OS の path の区切り文字でつなぐ）か `--config-dir`（重ねてよい）で足す。
+2. **人の会話**: 各フォルダの会話のうち、期間の中に人の発言（`promptSource` が `typed`・`queued` の行と、`/` で始まるコマンドの行）の有るもの。会話ごとに、作業フォルダ、発言（その会話の期間の中の発言の最初と最後から、1 日の期間は 6 件ずつ・1 件 300 字、2 日以上は 3 件ずつ・1 件 200 字。間は省いた数だけ出す）、道具の呼び出しの回数、出力のトークン、区切りの操作（Bash で打った commit・push・PR 作成・CI 確認・テストの回数）を出す。トークンは返答（`message.id`）ごとに 1 回だけ数える——記録は 1 つの返答を内容のまとまりごとに何行にも分けて書き、行ごとに同じ使用量を繰り返す。
+3. **裏で起こされた会話**: 期間の中に人の発言が無い会話（`claude -p` やフックが起こすもの）。起こした元ごと（作業フォルダと最初の依頼文の頭 40 字）にまとめ、回数・出力のトークンの合計と中央値・使ったモデル・API の失敗の数を出す。このプラグインのように裏で会話を起こす道具の重さや失敗は、ここに出る。
+4. **繰り返し**: 期間の中の人の会話をすべてまたいで、人の発言を正規化（空白を詰め、数字を `#` に）し、2 回以上出たものを数える。`/` で始まるコマンドは名前ごとに数える。
+5. **commit**: 会話の作業フォルダから git のリポジトリを引き（worktree は同じリポジトリにまとめる）、そのリポジトリの `user.email` の commit を期間で出す。
+6. **GitHub**: `gh auth status` で使えるアカウントごとに、`/users/<login>/events` の期間の分を出す（push・PR・レビュー・コメント）。GitHub はこの一覧を 90 日・300 件までしか返さない。300 件を取っても期間の頭に届かなかったアカウントは `truncated` を true にし、AI が `unseen` に書く。
+7. **`/insights` の控え**: `/insights` は Claude Code 組み込みのコマンドで、最近の会話を分析した報告を設定のフォルダの `usage-data/` に残す。各フォルダの `usage-data/facets/<会話>.json` のうち、上の 2. で拾った人の会話のもの（要約・結果・つまずき。裏の会話の分は読まない）と、最新の報告の path と日付を出す。控えの形は公式に書かれていないので、読めないものは飛ばして止まらない。
+8. **持ち物**: 各フォルダに入っているプラグインと、その中のコマンド・スキルの名前と説明の頭、読む設定のフォルダそれぞれの `CLAUDE.md`、触ったリポジトリの根の `CLAUDE.md`・`AGENTS.md` の path。提案が既に有る物を作れと言わないために使う。
+9. **台帳**: 前に出した提案と状態。
+10. **日記の置き場**: `ATTENTION_REFLECT_DIARY_DIR` の値（`diary_dir`。無ければ null）。
+11. **機械の申告**: 機械が数えていないもの（`unseen`。例: サブエージェントの記録は親の会話のトークンに足していない、`--no-github` なら GitHub を読んでいない）。
+
+## 欄（AI が書く JSON）
+
+| key | 形 | 中身 |
+|---|---|---|
+| `headline` | 文字列（200 字まで） | 期間の一言 |
+| `proposals` | 並び（7 件まで） | 改善の提案 |
+| `insights` | 並び（7 件まで） | 気づきとヒント |
+| `unseen` | 文字列の並び（省いてよい） | 見ていないもの・確かめていないこと |
+| `diary` | 文字列（2,000 字まで。省いてよい） | 日記に書く振り返りの節（下の「日記」） |
+
+提案の 1 件: `id`（`[a-z0-9-]`、3〜60 字。前と同じ提案なら台帳の id を使い回す）、`title`、`kind`（`stop` やめる・`automate` 自動にする・`config` 設定を変える・`adopt` 既製品に乗り換える・`fix` 道具を直す）、`evidence`（何回・どの会話か）、`count`（期間の回数。分からなければ null）、`minutes`（1 回の手間の分。分からなければ null）、`where`（直す場所）、`existing`（既に有る物・世間の既製品の文字列。無ければ key ごと省いても、空の文字列でもよい）、`action`（最初の一手）。
+
+気づきの 1 件: `title`、`body`、`evidence`。
+
+形が違えば（知らない key、8 件以上など）、`--render` は誤りを並べて終了コード 2 で止まる。7 件に絞るのは AI。
+
+決まり（原典: SRE Workbook の toil、UiPath の Task Mining、Google Cloud Recommender、Dependabot）:
+
+- 自動化の前に、やめられないかを先に考える（`stop`）。
+- 並びは `count × minutes` の大きい順。機械が並べ替える。`count` と `minutes` の両方が有るものが先で、どちらかが null のものは AI の書いた順のまま後ろに置く。
+- 出すのは候補まで。採るかは持ち主が決める。
+- 前と同じ提案（同じ場所の同じ手間を直すもの）かは AI が決め、同じなら台帳の id を使い回す。
+- 台帳で却下（`dismissed`）の id は出さない。機械が落とし、落としたことをページに書く。採用（`adopted`）・保留（`held`）の id は出してよく、ページに台帳の状態が付く。
+
+## 台帳
+
+`<状態の置き場>/attention/reflect-ledger.json`。状態の置き場は `XDG_STATE_HOME`、無ければ `~/.local/state`。キャッシュに置かないのは、消えると却下を忘れて同じ提案が戻るから。file が無ければ空の台帳として扱う。在るのに読めない・形が違うときは、空として上書きすると却下の記録が消えるので、`--render` と `--decide` は終了コード 2 で止まり、`--out` は材料の `unseen` にそう書く。
+
+1 件: `id`・`title`・`status`（`open`・`adopted`・`dismissed`・`held`）・`first_seen`・`last_seen`・`decided`・`note`。`--render` が新しい id を `open` で足し、前からの id は `last_seen` だけ進める。日付はどれも `YYYY-MM-DD` で、`first_seen`・`last_seen` は `--render` を走らせた日、`decided` は `--decide` を走らせた日（`open` に戻したときもその日。一度も決めていなければ null）。状態は `--decide <id> <adopted|dismissed|held|open> [--note …]` だけが変える。台帳に無い id の `--decide` は終了コード 2。
+
+## 日記
+
+`ATTENTION_REFLECT_DIARY_DIR` を決めた人だけ。期間が 1 日で、欄に `diary` が有るとき、`--render` が `<置き場>/YYYY-MM-DD.md` の末尾の節（`<!-- reflect:start -->` から `<!-- reflect:end -->` まで。見出しは「振り返り（自動）」）を `diary` の文で書き直す。節が無ければ末尾に足し、file が無ければ `# YYYY-MM-DD` の見出しで作る。節の外は触らない。置き場のフォルダが無ければ書かず、書かなかったと 1 行出す。
+
+## ページ
+
+`~/.cache/attention/reflect/<始まり>_<終わり>.html`。同じ期間は上書きする。節はこの順:
+
+1. 見出し: 期間、数（人の会話・裏の会話・commit・GitHub の動き・出力のトークン）、`headline`
+2. 改善の提案: 1 件ずつ、種類の札・回数 × 手間・根拠・直す場所・既に有る物・最初の一手・台帳の状態と id
+3. 気づきとヒント
+4. 裏で起こされた会話: 起こした元ごとの表
+5. 繰り返した頼み方とコマンド
+6. 会話・commit・GitHub の動き（畳む）
+7. 見ていないもの（AI の `unseen` と、材料の `unseen` に機械が書いた申告。例: サブエージェントの記録はトークンに足していない）
+
+描いた後、`ATTENTION_CATCHUP_OPEN=0` でなければ、生きている VS Code の窓で開く（開く処理は `/catchup` と共用で、切り替えの `ATTENTION_CATCHUP_OPEN` も共通。開ける窓が無ければ開かず、誤りにもしない）。端末には、ページの path、`headline`、落とした提案・日記・開いたかの行を返す。

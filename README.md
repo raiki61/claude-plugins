@@ -8,7 +8,7 @@ raiki61 のプラグインマーケットプレイス。配るプラグインは
 |---|---|---|
 | **convergence-loops** | 収束するまで回す 4 つのループ（/review-loop・/research-loop・/doctor-loop・/firstread-loop） | 呼んだときに効く（コマンド）→ [convergence-loops/README.md](convergence-loops/README.md) |
 | **gates** | 外に出る操作を、検査が通るまで止める門番。1 本目は coldread——手元の文書（md など）は書いた後に読んでターンの終わりに指摘を返し、gh の投稿本文(issue・PR・release notes・gist 等)を、別プロセスの読み手に初見で読ませて、詰まりが直るまで投稿を止める(新規作成は文脈ゼロで、既に在るスレッドへの返信は画面に見えているもの——題・状態・本文・変更ファイル・元の指摘・これまでの返信・参照する番号の題——を渡して読ませる。画面が既知にするのは指す先であって語彙ではない)。2 本目は destgate——投稿の宛先を人が管理する許可一覧で縛る（既定で眠る） | 有効化した環境で常時効く（フック）→ [gates/README.md](gates/README.md) |
-| **attention** | 並行作業を見渡して戻り、進めるための道具 4 本。open 全件から誰の番かを出す /whose-turn、1 件の PR / issue に戻る /catchup（該当ブランチへ移る。手元に無ければ origin から取る。説明の後ろに系の前後の絵）、いま居るセッションが何のスレッドだったかを思い出す /what-am-i-doing、戻った PR の番を進める /my-turn | 呼んだときに効く（コマンド）→ [attention/README.md](attention/README.md) |
+| **attention** | 並行作業を見渡して戻り、進め、振り返るための道具 5 本。open 全件から誰の番かを出す /whose-turn、1 件の PR / issue に戻る /catchup（該当ブランチへ移る。手元に無ければ origin から取る。説明の後ろに系の前後の絵）、いま居るセッションが何のスレッドだったかを思い出す /what-am-i-doing、戻った PR の番を進める /my-turn、ある期間を振り返って改善の提案と気づきを出す /reflect | 呼んだときに効く（コマンド）→ [attention/README.md](attention/README.md) |
 | **graphloops** | 収束ループのグラフ実行版。convergence-loops の 4 ループを「節＋依存＋周回条件」の JSON に写し、機械が盤面・波・遮断・件数・収束を持って回す。実行版は /research-graph（/research-loop の実行版）と /review-graph（/review-loop の実行版）の 2 本（既存のコマンドは残し、本体は隣に置く。触った範囲は graphloops/README.md） | 呼んだときに効く（コマンド）→ [graphloops/README.md](graphloops/README.md) |
 | **works** | 人の修正依頼を、今いるリポジトリを対象に、Archon（AI の作業の流れを回す外の道具）の上の生産ライン darkfactory に回す /works スキル | 呼んだときに効く（スキル）→ [works/README.md](works/README.md) |
 | **works-factory** | 修正の工場 works-factory（別のリポジトリ raiki61/works-factory）へ依頼を回す /works-factory スキル。/works と並べて置く | 呼んだときに効く（スキル） |

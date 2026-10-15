@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=605
+EXPECTED_CHECKS=606
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3387,6 +3387,11 @@ expect_output 0 "OK" "changemap: 変更の地図の部品の回帰（unittest。
 expect_output 0 "OK" "catchup_html: 欄の検査・雛形への差し込み・index の組み直し・socket の選び方・Machine の設定の足し方・PR の材料の番と止めているもの・--render の出力（unittest）" \
     "$PY_BIN" "$ROOT/tests/catchup-html-suite.py"
 
+# ---- attention/reflect: ある期間を振り返り、改善の提案と気づきを 1 枚の HTML に出す ----
+# 本物の会話の記録・GitHub・VS Code には触らない。設定のフォルダ・git・台帳・日記は一時の階層に作る
+expect_output 0 "OK" "reflect: 期間・人と裏の会話の見分け・トークンを返答ごとに 1 回・起こした元ごとのまとめ・commit の引き方・GitHub の絞り方・欄の検査・台帳（却下は落とす）・日記の節の置き換え・持ち主の値を書かない（unittest）" \
+    "$PY_BIN" "$ROOT/tests/reflect-suite.py"
+
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
 WAI_CASE="$ROOT/tests/what-am-i-doing-case.py"
@@ -3771,6 +3776,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "HTTPS_PROXY",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
                   "WORKS_DISPATCH_CONFIG",
+                  # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）
+                  "ATTENTION_REFLECT_CONFIG_DIRS", "ATTENTION_REFLECT_DIARY_DIR",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP"}
 # HEAD と CLAUDE_CONFIG_DIR は表から外した——works の python・shell が同じ名前を定数に持つので定義の在る

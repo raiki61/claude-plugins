@@ -288,7 +288,7 @@ head の commit が有れば git、無ければ `gh pr diff` と GitHub の comp
 - works-dispatch が起こす会話は `ATTENTION_CATCHUP_OPEN=0` を持つ（持ち主の窓に何十枚も開かない）
 - 準備は `/catchup setup`（`catchup.py --setup`）: 生きた窓を探す → 拡張 `austin-spagnolo.simple-html-viewer` が
   `~/.vscode-server/extensions` に無ければ入れる → `~/.vscode-server/data/Machine/settings.json` に
-  `workbench.editorAssociations` の `"**/.cache/attention/catchup/**/*.html": "simpleHtmlViewer.preview"` と
+  `workbench.editorAssociations` の `"**/.cache/attention/**/*.html": "simpleHtmlViewer.preview"` と
   `"simpleHtmlViewer.autoRefresh": "onFileChange"` を足す（他の key は消さない。書く前に同じ階層へ控えを置く。注記の有る
   file は書き直さず、足す行を示す）→ 見本を描いて開く → したことと足りないものを出す。`--setup --check` は何も変えずに
   確かめるだけ。確かめた事実（2026-10-15）: この 2 つを Remote の Machine の設定に置けば効き、`/` を含む glob が Remote の

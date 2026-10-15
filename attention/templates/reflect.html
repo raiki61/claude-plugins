@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reflect</title>
+<!--
+reflect の雛形（ある期間の自分の作業を振り返る持ち主向け）
+
+■ 差し込み口（埋めるのは attention/scripts/reflect.py の --render。手で埋めない）
+  - <title>: 期間
+  - id="data": {"data": reflect.py が集めた材料, "fields": AI が書いた欄（headline・proposals・insights・unseen・diary）
+    に、機械が足した dropped（台帳で却下済みなので落とした id）}。形は attention/docs/reflect-spec.md
+
+■ 読者の仕事から組んだ順
+  5 秒  見出しと一言: 期間と数（人の会話・裏の会話・commit・GitHub の動き・トークン）。
+  1 分  改善の提案: 回数 × 手間の大きい順。1 件ずつ、種類・根拠・直す場所・既に有る物・最初の一手。
+        気づきとヒント。
+  5 分  裏で起こされた会話の表、繰り返した頼み方、会話・commit・GitHub の動き（畳む）、見ていないもの。
+
+■ 先行例から採ったもの
+  - 提案の 1 件の形: Google Cloud の Recommender（推薦ごとに効果の見積もりと状態を持ち、却下したものは出さない）。
+  - 順位: SRE Workbook の toil（直す手間と浮く時間で並べる）と UiPath の Task Mining（繰り返しの頻度）。
+  - 見た目: /catchup の雛形と同じ GitHub Primer の token（@primer/primitives 11.10.0（MIT）の値）。値は catchup.html と同じに保つ。
+-->
+<style>
+/* Primer の functional の token（@primer/primitives 11.10.0）。名前は Primer のまま。 */
+:root {
+  --bgColor-default: #ffffff; --bgColor-muted: #f6f8fa; --bgColor-neutral-muted: #818b981f;
+  --bgColor-accent-muted: #ddf4ff; --bgColor-accent-emphasis: #0969da;
+  --bgColor-success-muted: #dafbe1; --bgColor-success-emphasis: #1f883d;
+  --bgColor-danger-muted: #ffebe9; --bgColor-attention-muted: #fff8c5; --bgColor-attention-emphasis: #9a6700;
+  --bgColor-severe-muted: #fff1e5; --bgColor-severe-emphasis: #bc4c00; --bgColor-neutral-emphasis: #59636e;
+  --fgColor-default: #1f2328; --fgColor-muted: #59636e; --fgColor-accent: #0969da; --fgColor-onEmphasis: #ffffff;
+  --fgColor-success: #1a7f37; --fgColor-danger: #d1242f; --fgColor-attention: #9a6700; --fgColor-severe: #bc4c00; --fgColor-done: #8250df;
+  --bgColor-done-emphasis: #8250df; --bgColor-danger-emphasis: #cf222e;
+  --borderColor-default: #d1d9e0; --borderColor-muted: #d1d9e0b3; --borderColor-translucent: #1f232826;
+  --borderColor-accent-muted: #54aeff66; --borderColor-severe-muted: #fb8f4466; --borderColor-success-muted: #4ac26b66;
+  --borderColor-danger-muted: #ff818266; --borderColor-attention-muted: #d4a72c66;
+  --control-bgColor-rest: #f6f8fa; --control-bgColor-hover: #eff2f5;
+  --diffBlob-additionNum-bgColor: #aceebb; --diffBlob-additionWord-bgColor: #aceebb;
+  --diffBlob-deletionNum-bgColor: #ffcecb; --diffBlob-deletionWord-bgColor: #ffcecb;
+  --diffBlob-hunkNum-bgColor-rest: #b6e3ff;
+  /* highlight.js の GitHub の theme の色 */
+  --hl-fg: #24292e; --hl-keyword: #d73a49; --hl-title: #6f42c1; --hl-attr: #005cc5; --hl-string: #032f62;
+  --hl-builtin: #e36209; --hl-comment: #6a737d; --hl-name: #22863a; --hl-section: #005cc5; --hl-bullet: #735c0f;
+  --fontStack-system: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, "Hiragino Sans", "Noto Sans JP", "Meiryo", sans-serif;
+  --fontStack-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(:has(body.vscode-light)) {
+    --bgColor-default: #0d1117; --bgColor-muted: #151b23; --bgColor-neutral-muted: #656c7633;
+    --bgColor-accent-muted: #388bfd1a; --bgColor-accent-emphasis: #1f6feb;
+    --bgColor-success-muted: #2ea04326; --bgColor-success-emphasis: #238636;
+    --bgColor-danger-muted: #f851491a; --bgColor-attention-muted: #bb800926; --bgColor-attention-emphasis: #9e6a03;
+    --bgColor-severe-muted: #db6d281a; --bgColor-severe-emphasis: #bd561d; --bgColor-neutral-emphasis: #656c76;
+    --fgColor-default: #f0f6fc; --fgColor-muted: #9198a1; --fgColor-accent: #4493f8; --fgColor-onEmphasis: #ffffff;
+    --fgColor-success: #3fb950; --fgColor-danger: #f85149; --fgColor-attention: #d29922; --fgColor-severe: #db6d28; --fgColor-done: #ab7df8; --bgColor-done-emphasis: #8957e5; --bgColor-danger-emphasis: #da3633;
+    --borderColor-default: #3d444d; --borderColor-muted: #3d444db3; --borderColor-translucent: #ffffff26;
+    --borderColor-accent-muted: #388bfd66; --borderColor-severe-muted: #db6d2866; --borderColor-success-muted: #2ea04366;
+    --borderColor-danger-muted: #f8514966; --borderColor-attention-muted: #bb800966;
+    --control-bgColor-rest: #212830; --control-bgColor-hover: #262c36;
+    --diffBlob-additionNum-bgColor: #3fb9504d; --diffBlob-additionWord-bgColor: #2ea04366;
+    --diffBlob-deletionNum-bgColor: #f851494d; --diffBlob-deletionWord-bgColor: #f8514966;
+    --diffBlob-hunkNum-bgColor-rest: #0c2d6b;
+    --hl-fg: #c9d1d9; --hl-keyword: #ff7b72; --hl-title: #d2a8ff; --hl-attr: #79c0ff; --hl-string: #a5d6ff;
+    --hl-builtin: #ffa657; --hl-comment: #8b949e; --hl-name: #7ee787; --hl-section: #1f6feb; --hl-bullet: #f2cc60;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"], :root:has(body.vscode-dark) {
+  --bgColor-default: #0d1117; --bgColor-muted: #151b23; --bgColor-neutral-muted: #656c7633;
+  --bgColor-accent-muted: #388bfd1a; --bgColor-accent-emphasis: #1f6feb;
+  --bgColor-success-muted: #2ea04326; --bgColor-success-emphasis: #238636;
+  --bgColor-danger-muted: #f851491a; --bgColor-attention-muted: #bb800926; --bgColor-attention-emphasis: #9e6a03;
+  --bgColor-severe-muted: #db6d281a; --bgColor-severe-emphasis: #bd561d; --bgColor-neutral-emphasis: #656c76;
+  --fgColor-default: #f0f6fc; --fgColor-muted: #9198a1; --fgColor-accent: #4493f8; --fgColor-onEmphasis: #ffffff;
+  --fgColor-success: #3fb950; --fgColor-danger: #f85149; --fgColor-attention: #d29922; --fgColor-severe: #db6d28; --fgColor-done: #ab7df8; --bgColor-done-emphasis: #8957e5; --bgColor-danger-emphasis: #da3633;
+  --borderColor-default: #3d444d; --borderColor-muted: #3d444db3; --borderColor-translucent: #ffffff26;
+  --borderColor-accent-muted: #388bfd66; --borderColor-severe-muted: #db6d2866; --borderColor-success-muted: #2ea04366;
+  --borderColor-danger-muted: #f8514966; --borderColor-attention-muted: #bb800966;
+  --control-bgColor-rest: #212830; --control-bgColor-hover: #262c36;
+  --diffBlob-additionNum-bgColor: #3fb9504d; --diffBlob-additionWord-bgColor: #2ea04366;
+  --diffBlob-deletionNum-bgColor: #f851494d; --diffBlob-deletionWord-bgColor: #f8514966;
+  --diffBlob-hunkNum-bgColor-rest: #0c2d6b;
+  --hl-fg: #c9d1d9; --hl-keyword: #ff7b72; --hl-title: #d2a8ff; --hl-attr: #79c0ff; --hl-string: #a5d6ff;
+  --hl-builtin: #ffa657; --hl-comment: #8b949e; --hl-name: #7ee787; --hl-section: #1f6feb; --hl-bullet: #f2cc60;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bgColor-default); color: var(--fgColor-default); font: 14px/1.6 var(--fontStack-system); }
+main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; font-weight: 600; margin: 0 0 8px; }
+h2 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--borderColor-muted); }
+h2 .count { font-size: 13px; font-weight: 400; color: var(--fgColor-muted); margin-left: 8px; }
+a { color: var(--fgColor-accent); text-decoration: none; }
+code, .mono { font-family: var(--fontStack-mono); font-size: 12px; }
+.headline { font-size: 16px; margin: 8px 0 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.stats li { border: 1px solid var(--borderColor-default); border-radius: 6px; padding: 4px 10px; background: var(--bgColor-muted); font-size: 13px; }
+.stats b { font-size: 15px; margin-right: 4px; }
+.box { border: 1px solid var(--borderColor-default); border-radius: 6px; }
+.item { padding: 12px 16px; }
+.item + .item { border-top: 1px solid var(--borderColor-default); }
+.item-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.item-title { font-weight: 600; font-size: 15px; }
+.label { display: inline-block; font-size: 12px; line-height: 18px; padding: 0 7px; border-radius: 2em; border: 1px solid var(--borderColor-default); color: var(--fgColor-muted); white-space: nowrap; }
+.label.stop { color: var(--fgColor-danger); border-color: var(--borderColor-danger-muted); }
+.label.automate { color: var(--fgColor-accent); border-color: var(--borderColor-accent-muted); }
+.label.config { color: var(--fgColor-attention); border-color: var(--borderColor-attention-muted); }
+.label.adopt { color: var(--fgColor-success); border-color: var(--borderColor-success-muted); }
+.label.fix { color: var(--fgColor-severe); border-color: var(--borderColor-severe-muted); }
+.label.status-adopted { color: var(--fgColor-success); }
+.label.status-held { color: var(--fgColor-attention); }
+.score { margin-left: auto; color: var(--fgColor-muted); font-size: 13px; white-space: nowrap; }
+dl.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; }
+dl.facts dt { color: var(--fgColor-muted); font-size: 13px; }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+.body { margin: 6px 0 0; }
+.muted { color: var(--fgColor-muted); font-size: 13px; }
+.note { margin: 8px 0 0; padding: 8px 12px; border-radius: 6px; background: var(--bgColor-attention-muted); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--borderColor-default); vertical-align: top; }
+th { background: var(--bgColor-muted); font-weight: 600; border-top: 0; }
+td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wrap { overflow-x: auto; }
+details { margin: 8px 0; }
+summary { cursor: pointer; font-weight: 600; }
+ul.plain { margin: 6px 0 0; padding-left: 20px; }
+.diary { white-space: pre-wrap; padding: 12px 16px; }
+.empty { color: var(--fgColor-muted); padding: 12px 16px; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script type="application/json" id="data">/*__DATA__*/null</script>
+<script>
+(function () {
+  "use strict";
+  const all = JSON.parse(document.getElementById("data").textContent) || {};
+  const data = all.data || {}, fields = all.fields || {};
+  const app = document.getElementById("app");
+  const KIND = { stop: "やめる", automate: "自動にする", config: "設定を変える", adopt: "既製品に乗り換える", fix: "道具を直す" };
+  const STATUS = { open: "未決", adopted: "採用", dismissed: "却下", held: "保留" };
+
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") n.className = v; else n.setAttribute(k, v);
+    }
+    for (const k of kids.flat()) {
+      if (k === null || k === undefined || k === false) continue;
+      n.append(k instanceof Node ? k : document.createTextNode(String(k)));
+    }
+    return n;
+  }
+  const num = (n) => (typeof n === "number" ? n.toLocaleString("ja-JP") : "");
+  function section(title, count, ...kids) {
+    return el("section", null, el("h2", null, title, count === null ? null : el("span", { class: "count" }, count)), ...kids);
+  }
+  function facts(rows) {
+    const dl = el("dl", { class: "facts" });
+    for (const [k, v] of rows) if (v) dl.append(el("dt", null, k), el("dd", null, v));
+    return dl;
+  }
+
+  const p = data.period || {}, c = data.counts || {};
+  const span = p.start === p.end ? p.start : `${p.start}〜${p.end}`;
+  const commits = (data.commits || []).reduce((a, r) => a + r.count, 0);
+  const events = (data.github || []).reduce((a, g) => a + g.count, 0);
+  app.append(
+    el("h1", null, `振り返り ${span}`),
+    el("ul", { class: "stats" },
+      el("li", null, el("b", null, num(c.human_sessions)), "人の会話"),
+      el("li", null, el("b", null, num(c.asks)), "発言"),
+      el("li", null, el("b", null, num(c.background_sessions)), "裏の会話"),
+      el("li", null, el("b", null, num(commits)), "commit"),
+      el("li", null, el("b", null, num(events)), "GitHub の動き"),
+      el("li", null, el("b", null, num((c.human_output_tokens || 0) + (c.background_output_tokens || 0))), "出力トークン")),
+    el("p", { class: "headline" }, fields.headline || ""));
+
+  // 改善の提案
+  const props = fields.proposals || [];
+  const pbox = el("div", { class: "box" });
+  for (const x of props) {
+    const sc = typeof x.count === "number" && typeof x.minutes === "number"
+      ? `${num(x.count)} 回 × ${num(x.minutes)} 分 ＝ ${num(Math.round(x.count * x.minutes))} 分` : "回数・手間は見積もれていない";
+    pbox.append(el("div", { class: "item", id: `p-${x.id}` },
+      el("div", { class: "item-head" },
+        el("span", { class: `label ${x.kind}` }, KIND[x.kind] || x.kind),
+        el("span", { class: "item-title" }, x.title),
+        x.status && x.status !== "open" ? el("span", { class: `label status-${x.status}` }, STATUS[x.status]) : null,
+        el("span", { class: "score" }, sc)),
+      facts([["根拠", x.evidence], ["直す場所", x.where], ["既に有る物", x.existing], ["最初の一手", x.action],
+             ["台帳の id", el("code", null, x.id)]])));
+  }
+  if (!props.length) pbox.append(el("div", { class: "empty" }, "提案は無い。"));
+  const dropped = fields.dropped || [];
+  app.append(section("改善の提案", `${props.length} 件`, pbox,
+    dropped.length ? el("p", { class: "note" }, `台帳で却下済みなので出していない: ${dropped.join(", ")}`) : null,
+    el("p", { class: "muted" }, "採る・却下・保留は、会話で伝えれば台帳に書く（reflect.py --decide <id> adopted|dismissed|held）。")));
+
+  // 気づきとヒント
+  const ins = fields.insights || [];
+  const ibox = el("div", { class: "box" });
+  for (const x of ins) ibox.append(el("div", { class: "item" },
+    el("div", { class: "item-title" }, x.title), el("p", { class: "body" }, x.body), el("p", { class: "muted" }, x.evidence)));
+  if (!ins.length) ibox.append(el("div", { class: "empty" }, "気づきは無い。"));
+  app.append(section("気づきとヒント", `${ins.length} 件`, ibox));
+
+  if (fields.diary) app.append(section("日記に書いた節", null, el("div", { class: "box diary" }, fields.diary)));
+
+  // 裏で起こされた会話
+  const bg = data.background || [];
+  const bt = el("table", null, el("tr", null, el("th", null, "起こした元"), el("th", { class: "num" }, "回数"),
+    el("th", { class: "num" }, "出力トークン"), el("th", { class: "num" }, "1 回の中央値"), el("th", null, "モデル"), el("th", { class: "num" }, "失敗")));
+  for (const r of bg.slice(0, 15)) bt.append(el("tr", null,
+    el("td", null, r.prompt_head || "（依頼文なし）", el("div", { class: "muted mono" }, r.cwd)),
+    el("td", { class: "num" }, num(r.runs)), el("td", { class: "num" }, num(r.output_tokens)),
+    el("td", { class: "num" }, num(r.median_output_tokens)),
+    el("td", null, Object.entries(r.models || {}).map(([m, n]) => `${m} ${n}`).join("、")),
+    el("td", { class: "num" }, num(r.errors))));
+  app.append(section("裏で起こされた会話", `${bg.length} 種類・${num(c.background_sessions)} 本`,
+    bg.length ? el("div", { class: "box wrap" }, bt) : el("div", { class: "box empty" }, "無い。")));
+
+  // 繰り返し
+  const rep = data.repeats || {};
+  const cmds = Object.entries(rep.commands || {});
+  const asks = rep.asks || [];
+  app.append(section("繰り返した頼み方とコマンド", null,
+    cmds.length ? el("ul", { class: "stats" }, cmds.map(([k, n]) => el("li", null, el("b", null, num(n)), el("code", null, k)))) : null,
+    asks.length ? el("div", { class: "box" }, asks.map((a) => el("div", { class: "item" },
+      el("div", { class: "item-head" }, el("span", { class: "label" }, `${a.count} 回・${a.sessions} 会話`), el("span", null, a.text))))) :
+      el("div", { class: "box empty" }, "2 回以上出た頼み方は無い。")));
+
+  // 材料（畳む）
+  const ses = data.sessions || [];
+  const sd = el("details", null, el("summary", null, `会話 ${ses.length} 本`));
+  for (const s of ses) sd.append(el("div", { class: "box item" },
+    el("div", { class: "item-head" }, el("span", { class: "mono" }, `${(s.start || "").slice(5, 16).replace("T", " ")}〜${(s.end || "").slice(11, 16)}`),
+      el("span", { class: "muted mono" }, s.cwd), el("span", { class: "score" }, `発言 ${s.asks_total} 件・出力 ${num(s.output_tokens)}`)),
+    el("ul", { class: "plain" }, (s.asks || []).map((a) => el("li", null, a))),
+    s.asks_cut ? el("p", { class: "muted" }, `間の ${s.asks_cut} 件は省いた`) : null));
+  const cd = el("details", null, el("summary", null, `commit ${num(commits)} 件`));
+  for (const r of data.commits || []) cd.append(el("p", null, el("b", null, `${r.repo}（${r.count} 件）`)),
+    el("ul", { class: "plain" }, (r.commits || []).map((x) => el("li", null, el("code", null, x.sha), " ", x.subject))));
+  const gd = el("details", null, el("summary", null, `GitHub の動き ${num(events)} 件`));
+  for (const g of data.github || []) gd.append(el("p", null, el("b", null, `${g.login}（${g.count} 件）`), " ",
+      el("span", { class: "muted" }, Object.entries(g.kinds || {}).map(([k, n]) => `${k} ${n}`).join("・"))),
+    el("ul", { class: "plain" }, (g.events || []).slice(0, 60).map((e) => el("li", null,
+      el("span", { class: "muted mono" }, (e.at || "").slice(5, 16).replace("T", " ")), " ", `${e.type} ${e.action || ""} ${e.repo || ""}${e.number ? " #" + e.number : ""} ${e.title || ""}`))));
+  app.append(section("材料", null, sd, cd, gd));
+
+  const unseen = [...(fields.unseen || []), ...(data.unseen || [])];
+  if (unseen.length) app.append(section("見ていないもの", null, el("ul", { class: "plain" }, unseen.map((u) => el("li", null, u)))));
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # attention
 
-並行作業を**見渡して、戻る**ための道具。見渡す 1 本と、戻り方 2 本——**失われているものが違う。**戻った後にその番を進める `/my-turn` も持つ。
+並行作業を**見渡して、戻る**ための道具。見渡す 1 本と、戻り方 2 本——**失われているものが違う。**戻った後にその番を進める `/my-turn` と、ある期間を振り返って改善の提案と気づきを出す `/reflect` も持つ。
 
 版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
 
@@ -10,6 +10,7 @@
 | `/catchup [番号] [指摘・地図・CI]` | 1 件の PR / issue、ブランチ、commit（範囲も）、会話の話題に戻るとき（該当ブランチへ移る。手元に無ければ origin から取る。返事は 1 枚の HTML） | **会話のどこで自分が止まったか**と、**何を言われ・何のために何を変える PR か** |
 | `/what-am-i-doing` | セッションを切り替えて戻ってきたとき | **このスレッドが何の作業だったか** |
 | `/my-turn` | `/catchup` で 1 件に戻った後、その番を進めるとき | （戻った後の進め方。指摘を掘り、世の中の解と突き合わせ、レビューする側なら指摘の下書きまで） |
+| `/reflect [期間]` | 1 日・1 週の終わりに振り返るとき（返事は 1 枚の HTML。日記の置き場を決めていれば日記にも書く） | **自分が何を繰り返し、どこで手間を使い、何を直せば効くか** |
 
 ## 何を解く道具か
 
@@ -108,7 +109,7 @@ python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json
 - **VS Code の Remote-SSH** で、catchup を走らせるマシンに繋いでいる（ページはそのマシンの `~/.cache` に書かれる）
 - 拡張 **Simple HTML Viewer**（`austin-spagnolo.simple-html-viewer`）が、Remote 側に入っている
 - Remote の Machine の設定（`~/.vscode-server/data/Machine/settings.json`）に 2 つ——`workbench.editorAssociations` の
-  `"**/.cache/attention/catchup/**/*.html": "simpleHtmlViewer.preview"`（catchup のページを拡張で開く）と
+  `"**/.cache/attention/**/*.html": "simpleHtmlViewer.preview"`（catchup のページを拡張で開く）と
   `"simpleHtmlViewer.autoRefresh": "onFileChange"`（描き直すと開いたページも変わる）
 - ワークスペースを信頼している（拡張はページのスクリプトを、既定では信頼したワークスペースでだけ動かす）
 
@@ -385,6 +386,28 @@ AI が書くのは欄の JSON だけで、機械の出力（作者の本文も�
 命令書は意図と判定基準で書き、出力の文言は指定しない。文言を指定すると、その言い回しが場面に関係なく
 毎回出て雑音になる（実測: 2026-09-02、グローバル設定の「求めるものが無いなら『読むだけでよい』と言う」が、
 雑談の返答にまで「読むだけでよいターンです」を付けた）。例文は書き方の一つとして置き、写す型ではないと断る。
+
+## `/reflect` — ある期間を振り返る
+
+```
+/reflect               # 今日を含む 7 日
+/reflect today         # 今日（yesterday・month・2026-10-15・2026-10-01..2026-10-15 も）
+```
+
+機械（`scripts/reflect.py`）が、その期間の会話・裏で起こされた会話（`claude -p` など）・commit・GitHub の動き・
+Claude Code の `/insights` の控え・入っているプラグインと指示ファイル・前に出した提案の台帳を集め、AI が
+**改善の提案**（回数 × 手間の大きい順。自動にする前に、やめられないかを先に見る）と、**仕事の仕方についての
+気づきとヒント**を書き、機械が 1 枚の HTML（`~/.cache/attention/reflect/<始まり>_<終わり>.html`）に描く。
+仕様は [docs/reflect-spec.md](docs/reflect-spec.md)。
+
+- 読むのは今の Claude Code の設定のフォルダの会話だけ。ほかのフォルダも読むなら `ATTENTION_REFLECT_CONFIG_DIRS`
+  （OS の path の区切り文字でつなぐ）。
+- 日記の置き場を `ATTENTION_REFLECT_DIARY_DIR` で決めていれば、1 日の期間のとき、その日の日記
+  （`<置き場>/YYYY-MM-DD.md`）の末尾の節（`<!-- reflect:start -->` から `<!-- reflect:end -->`）を書き直す。
+  手で書いた行には触らない。
+- 提案の台帳は `${XDG_STATE_HOME:-~/.local/state}/attention/reflect-ledger.json`。採る・却下・保留は会話で伝えれば
+  `reflect.py --decide` で書く。却下した提案は次から出ない。
+- 定時に回す仕組みは持たない。回したい人は、自分の環境の定時の仕組みから `claude -p "/attention:reflect yesterday"` を呼ぶ。
 
 ## `/what-am-i-doing` — いま居るセッションに戻る
 
