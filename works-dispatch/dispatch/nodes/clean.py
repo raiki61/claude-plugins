@@ -4,7 +4,8 @@
 消してよいのは、次の全部を満たすフォルダだけ。
 - `<clone_root>/<リポジトリの名前>-pr-<番号>` の形の名前で、origin がこのリポジトリである（同じ名前の別のリポジトリの clone に触らない）
 - その PR が閉じている（MERGED か CLOSED）。状態が読めなければ消さない
-- そのフォルダかその下を作業フォルダにする会話が、どのアカウントにも無い（会話を閉じるのは持ち主だけ）
+- そのフォルダかその下を作業フォルダにする会話が、どのアカウントにも無い（入口は、閉じた PR の会話が手すきで変更も無ければ、
+  先に会話を終えてから（turn.close_session）この候補を読み直す）
 - 未コミットの変更も、git にまだ足していない新しいファイルも、手元にしか無い commit（枝に乗っていない HEAD の上を含む）も、stash も無い
 パスはリンクを辿った実際のパスで比べる（clone_root がリンクでも、会話の作業フォルダを見落とさない）。
 消す時は、そのフォルダを作業フォルダにするペインに会話が無ければ、herdr の作業場を先に閉じてからフォルダを消し、消えたことを読み戻す。
@@ -58,15 +59,21 @@ def candidates(repo, folders, pr_state, open_cwds, is_clean, unpushed, origin=No
     return rows
 
 
+def release(path, h=herdr):
+    """作業フォルダがちょうど path で、会話の居ないペインの作業場を閉じる（フォルダは残す）。閉じた作業場の ID か None。
+    送り直す前に古いペインを畳むのと、片付けでフォルダを消す前に使う。ほかのフォルダのペインには触らない。"""
+    for p in h.panes():
+        if os.path.realpath(p.get("cwd") or "") == os.path.realpath(path) and not p.get("agent"):
+            h.close_workspace(p["workspace_id"])
+            return p["workspace_id"]
+    return None
+
+
 def remove(row, h=herdr):
     path = row["path"]
     out = {"path": path, "removed": False, "closed_workspace": None, "detail": None}
     try:
-        for p in h.panes():
-            if os.path.realpath(p.get("cwd") or "") == os.path.realpath(path) and not p.get("agent"):
-                h.close_workspace(p["workspace_id"])
-                out["closed_workspace"] = p["workspace_id"]
-                break
+        out["closed_workspace"] = release(path, h)
         gitx.remove_clone(path)
     except (h.HerdrError, OSError) as e:
         out["detail"] = str(e)

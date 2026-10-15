@@ -90,6 +90,7 @@ class FakeHerdr:
         self._panes = []
         self._fail = set(fail_run_for)
         self.writes = []
+        self.talking = set()   # 前に会話が居るペイン（/exit を受けるとシェルに戻る）
 
     def panes(self):
         return list(self._panes)
@@ -110,7 +111,7 @@ class FakeHerdr:
             raise real_herdr.HerdrError(["herdr", "pane", "run"], "pane_not_found")
 
     def shell_in_front(self, pane):
-        return True
+        return pane not in self.talking
 
     def wait_ready(self, pane):
         return "idle"
@@ -118,8 +119,13 @@ class FakeHerdr:
     def agent(self, pane):
         return {"agent": "claude", "agent_status": "idle"}
 
-    def prompt(self, target, text, wait):
+    def prompt(self, target, text, wait, until=()):
         self.writes.append(("prompt", target, text, wait))
+        if text == "/exit":
+            self.talking.discard(target)
+            for p in self._panes:
+                if p["pane_id"] == target:
+                    p["agent"] = None
         return "idle" if wait else "sent"
 
 
@@ -147,8 +153,20 @@ class FakePorts(dispatch.Ports):
     def fetch_prs(self, repo):
         return self._prs
 
+    agents = ()   # claude agents --json の並び（アカウントを問わない）
+
     def list_sessions(self, config_dir):
-        return []
+        return list(self.agents)
+
+    acts = {}   # 番号 → PR の動き（無ければレビュアーが居て、動きの無い PR）
+
+    def activity(self, repo, number):
+        return self.acts.get(number, {"reviewers": True, "last_other": None})
+
+    states = {}   # 番号 → PR の状態（片付け。無ければ読めない＝消さない）
+
+    def pr_state(self, repo, number):
+        return self.states.get(number)
 
     limits_seq = None  # 読むたびに 1 つずつ返す控え（None なら全部「控え無し」）
 

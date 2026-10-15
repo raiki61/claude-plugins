@@ -9,6 +9,10 @@
 4. report
 止まっている（blocked）・会話が開いている（already_open）などは誤りではないので、終了の値は 0。
 
+一覧で回すとき（--pr 無し）は、2 の前に fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
+送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じフォルダに立て直す。
+最後に、閉じた PR の clone を片付ける（_tidy。--dry-run は並べるだけ）。
+
 片付け（--clean）は、PR ごとの clone のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
 
 --pr N は自分の番の一覧（whose-turn）を使わず、指した PR だけを開く。止めている実装や、見に行くだけの PR に使う。
@@ -38,7 +42,7 @@ import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 import limits  # noqa: E402
-from nodes import accounts, assign, clean, cost, launch, provision, prs, report, sessions, turn  # noqa: E402
+from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, sessions, turn  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -113,6 +117,7 @@ def setting_strings(path):
 
 MARK = "@@CLAUDE_CONFIG_DIR="
 COST_FILE = "dispatch-cost.json"  # 1 件あたりの使用率の測り（cost ノード）。使用率の控えと同じ置き場
+SENT_FILE = "dispatch-sent.json"  # PR ごとに最後に /catchup を送った時刻（送り直しの判断。fresh ノード）
 
 
 def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
@@ -279,8 +284,53 @@ class Ports:
         """元の clone を信頼済みのアカウントなら、clone にも信頼の印を付ける（claudex.inherit_trust）。"""
         return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone)
 
+    def activity(self, repo, number):
+        """PR の動き（ghx.pr_activity）。自分のログイン名は 1 度だけ問い合わせる。"""
+        env = self.gh_env(repo)
+        if not hasattr(self, "_me"):
+            self._me = ghx.login(env=env)
+        return ghx.pr_activity(repo.repo, number, self._me, env=env)
+
+    def load_sent(self, limits_dir):
+        try:
+            got = jsonio_load(pathlib.Path(limits_dir) / SENT_FILE)
+        except (OSError, ValueError):
+            return {}
+        return got if isinstance(got, dict) else {}
+
+    def save_sent(self, limits_dir, sent):
+        path = pathlib.Path(limits_dir) / SENT_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(sent, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def state(self, config_dir, path):
+        """そのフォルダの中の会話の状態を Claude Code 自身に問う（claude agents --json の status。idle・busy など）。
+        会話が見えない・読めなければ None。"""
+        try:
+            items = self.list_sessions(config_dir)
+        except claudex.ClaudeError:
+            return None
+        got = [i.get("status") or i.get("state") for i in items if fresh.inside(i.get("cwd") or "", path)]
+        return got[0] if len(got) == 1 else None
+
     def now(self):
         return time.time()
+
+
+def jsonio_load(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _key(repo, number):
+    return f"{repo.repo}#{number}"
+
+
+def _pane_at(h, path):
+    """作業フォルダがちょうど path のペインの ID（無ければ None）。"""
+    return next((p["pane_id"] for p in h.panes() if os.path.realpath(p.get("cwd") or "") == os.path.realpath(path)), None)
 
 
 def _cost_note(est, limit_percent):
@@ -336,24 +386,71 @@ def main(argv=None, ports=None):
         print(f"止めた: {e}")
         return 1
     sess = sessions.collect(listed, ports.branch, ports.origin)
+    # 自分が作者でレビュアーの付いていない PR は、一覧からは開かない（--pr で指したものは開く）
+    held, acts = [], {}
+    if not a.pr:
+        kept = []
+        for p in my_prs:
+            if p.get("role") == "implementer":
+                try:
+                    acts[p["number"]] = ports.activity(repo, p["number"])
+                except ghx.GhError as e:
+                    notes.append(f"#{p['number']}: {e}（レビュアーの有無が分からないので開く）")
+                if p["number"] in acts and fresh.own_unreviewed(p, acts[p["number"]]):
+                    held.append(_held_row(repo, p, "own_unreviewed"))
+                    continue
+            kept.append(p)
+        my_prs = kept
+    # clone の中で会話が開いている PR: 自分以外の動きが前に送った時より後に有れば、会話とペインを畳んで新しく立て直す
+    sent = ports.load_sent(cfg.limits_dir)
+    refresh, verdicts = {}, {}
+    for p in my_prs:
+        path = config.clone_path(repo, p["number"])
+        inside = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], path)]
+        if not inside:
+            continue
+        try:
+            act = acts.get(p["number"]) or ports.activity(repo, p["number"])
+        except ghx.GhError as e:
+            notes.append(f"#{p['number']}: {e}（送り直さない）")
+            continue
+        v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, sent.get(_key(repo, p["number"])),
+                                                        ports.is_clean(path), ports.unpushed(path))
+        if v == "refresh":
+            refresh[p["number"]] = inside[0]
+        else:
+            verdicts[p["number"]] = v
+    staying = [x for x in sess if not any(x is r for r in refresh.values())]
     metered = [x.name for x in cfg.accounts if x.limits]
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
     before = ports.read_limits(cfg.limits_dir, metered)
     ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now())
     est = cost.estimate(ports.load_cost(cfg.limits_dir))
-    the_plan = assign.plan(repo, my_prs, sessions.open_keys(sess), {s["cwd"] for s in sess if s["cwd"]}, ranked,
+    the_plan = assign.plan(repo, my_prs, sessions.open_keys(staying), {s["cwd"] for s in staying if s["cwd"]}, ranked,
                            cfg.limit_percent, est)
     if any(r["outcome"] in ("assigned", "no_account") for r in the_plan):
         notes.append(_cost_note(est, cfg.limit_percent))
 
-    results = {}
+    results = {n: v for n, v in verdicts.items()}
     assigned = [r for r in the_plan if r["outcome"] == "assigned"]
     if a.dry_run:
-        results = {r["number"]: provision.would(repo, r["number"]) for r in assigned}
+        results.update({r["number"]: "refresh" if r["number"] in refresh else provision.would(repo, r["number"]) for r in assigned})
     else:
         ready = []
         for r in assigned:
+            if r["number"] in refresh:
+                # 古い会話を終え、そのペインの作業場を畳む（フォルダは残し、下の provision が新しい作業場を開く）
+                pane = _pane_at(ports.herdr, r["clone_path"])
+                closed = turn.close_session(pane, ports.herdr) if pane else "close_failed"
+                if closed != "closed":
+                    results[r["number"]] = "close_failed"
+                    notes.append(f"#{r['number']}: 送り直す前に古い会話を終えられなかった（ペイン {pane or '無し'}）")
+                    continue
+                try:
+                    clean.release(r["clone_path"], ports.herdr)
+                except ports.herdr.HerdrError as e:
+                    notes.append(f"#{r['number']}: 古い作業場を閉じられなかった（{e}）")
             prov = provision.prepare(r, repo, ports.herdr, ports.git)
             if prov["detail"]:
                 notes.append(f"#{r['number']}: {prov['detail']}")
@@ -378,17 +475,66 @@ def main(argv=None, ports=None):
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                 futures = {r["number"]: pool.submit(turn.catchup_then_second, r["number"], pane,
                                                     None if a.no_second else repo.second_prompt, ports.herdr,
-                                                    catchup=ports.catchup_command(r["account"].get("config_dir")))
+                                                    catchup=ports.catchup_command(r["account"].get("config_dir")),
+                                                    state=(lambda r=r: ports.state(r["account"].get("config_dir"), r["clone_path"])))
                            for r, pane in ready}
                 results.update({n: f.result() for n, f in futures.items()})
+            for r, _ in ready:
+                if results.get(r["number"]) == "sent":
+                    sent[_key(repo, r["number"])] = ports.now()
+                    if r["number"] in refresh:
+                        results[r["number"]] = "refreshed"
+            ports.save_sent(cfg.limits_dir, sent)
             counts = collections.Counter(r["account"]["name"] for r, _ in ready)
             measured = [n for n in counts if n in metered]
             if measured:
                 ports.refresh_limits(cfg, measured)
                 ports.save_cost(cfg.limits_dir, cost.samples(before, ports.read_limits(cfg.limits_dir, measured), counts))
 
-    print("\n".join(report.lines(the_plan, results, notes)))
+    if not a.pr:
+        notes += _tidy(cfg, repo, ports, a.dry_run)
+    print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
+
+
+def _held_row(repo, p, outcome):
+    return {"number": p["number"], "title": p["title"], "head": p["head"], "url": p.get("url"), "outcome": outcome,
+            "account": None, "clone_path": config.clone_path(repo, p["number"])}
+
+
+def _tidy(cfg, repo, ports, dry_run):
+    """閉じた PR（MERGED・CLOSED）の clone を片付ける（一覧で回すときだけ）。名前が <リポジトリの名前>-pr-<番号> で origin がこの
+    リポジトリの clone だけを見る（clean.candidates）。会話が開いていても、手すきで変更も手元だけの commit も無ければ、会話を終えてから
+    消す。作業中・変更の有る会話は残す。返すのは報告の頭に置く行。"""
+    listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
+    sess = sessions.collect(listed, ports.branch, ports.origin)
+    root = repo.clone_root
+    folders = [os.path.join(root, n) for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))]
+    rows = clean.candidates(repo, folders, lambda n: ports.pr_state(repo, n), {x["cwd"] for x in sess if x["cwd"]},
+                            ports.is_clean, ports.unpushed, origin=ports.origin)
+    out = []
+    for r in rows:
+        if r["reason"] == "session" and r["state"] in clean.FINISHED:
+            mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
+            if any(x["status"] != "idle" for x in mine) or not ports.is_clean(r["path"]) or ports.unpushed(r["path"]):
+                out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR だが、会話が作業中か変更が有るので残した")
+                continue
+            if dry_run:
+                out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR なので、会話を終えて片付ける")
+                continue
+            pane = _pane_at(ports.herdr, r["path"])
+            if not pane or turn.close_session(pane, ports.herdr) != "closed":
+                out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR の会話を終えられなかったので残した")
+                continue
+            r = {**r, "removable": True, "reason": None}
+        if not r["removable"]:
+            continue
+        if dry_run:
+            out.append(f"#{r['number']} {os.path.basename(r['path'])}: 閉じた PR なので片付ける")
+            continue
+        got = clean.remove(r, ports.herdr)
+        out.append(f"#{r['number']} {os.path.basename(r['path'])}: " + ("片付けた" if got["removed"] else f"片付けられなかった（{got['detail']}）"))
+    return out
 
 
 def _check(cfg, ports):

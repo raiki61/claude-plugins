@@ -2,8 +2,8 @@
 """report ノード: 報告の行を作る純粋な関数（設計書 2 節の 8）。外には書かない。
 
 頭に注記（使用率の控えが無いアカウントなど）、続けて PR ごとに 1 行: `#<番号> <タイトル>  <作業場のフォルダの名前>  <アカウント>  <結末>`。
-結末の語は sent・blocked・stalled・already_open・no_account・provision_failed・pane_busy・launch_failed・send_failed と、
---dry-run の create（作業場を作る）・reuse（使い直す）。
+結末の語は sent・refreshed・blocked・stalled・already_open・no_news・busy・dirty・unpushed・own_unreviewed・close_failed・
+no_account・provision_failed・pane_busy・launch_failed・send_failed と、--dry-run の create（作業場を作る）・reuse（使い直す）・refresh（送り直す）。
 PR が 0 件なら「自分の番の PR は無い」の 1 行。
 
 使い方: python3 nodes/report.py --plan <plan の JSON> [--results <番号→結末の JSON>]

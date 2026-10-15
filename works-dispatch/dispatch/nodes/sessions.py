@@ -31,6 +31,7 @@ def collect(listed, branch_of, origin_of):
                 "session_id": s.get("sessionId"),
                 "cwd": cwd,
                 "status": s.get("status") or s.get("state"),
+                "started": s["startedAt"] / 1000 if isinstance(s.get("startedAt"), (int, float)) else None,
                 "repo": origin_of(cwd) if cwd else None,
                 "branch": branch_of(cwd) if cwd else None,
             })

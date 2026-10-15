@@ -5,7 +5,15 @@
 `herdr agent wait` だけで待たないのは、それがターンの区切りを追わず、始まる前の idle に当たりうるため。
 2 ターン目は、1 ターン目が idle か done で終えた時だけ、待たずに送る。2 ターン目の文が無ければ（--no-second）、
 `/catchup <番号>` だけを待たずに送って終える。blocked（許可の確認などで止まっている）と
-stalled（送って動き出さなかった。herdr の組み込みの見張りの結末）なら送らない。こちらからは期限を足さない。
+stalled（送って動き出さなかった。herdr の組み込みの見張りの結末）なら送らない。
+1 ターン目の終わりは、入口が state を渡せば、Claude Code 自身が返す会話の状態（claude agents --json の status。idle・busy）で見る。
+herdr は画面の下の行で作業中かを決めるので、会話が裏に待ちのコマンドを残すと、ターンが終わっても作業中と見続ける（2026-10-15 に
+#2003 で 54 分止まり、2 ターン目も報告も出なかった）。動き出したことだけは herdr の --wait --until working で見る（herdr の
+組み込みの見張りが、動き出さなければ stalled で返す）。その後、Claude Code が idle を返すまで間をおいて見る。herdr が blocked
+（許可の確認など）を返せば blocked。期限は足さない（D5）。
+
+close_session は、会話を終えてペインの前をシェルに戻す（送り直す前と、閉じた PR の片付けの前に使う）。会話に /exit を送り、
+シェルが前に戻るのを読み戻してから closed を返す。戻らなければ close_failed。
 
 送るのはプラグイン名つきの `/<プラグイン名>:catchup <番号>`（名前の組み立ては claudex.catchup_commands）。人が画面で `/catchup` と
 打つと補完がプラグイン名を足すが、herdr は打った文字をそのまま送るので、`/catchup` のままだと Claude Code が「Unknown command」と
@@ -17,6 +25,7 @@ stalled（送って動き出さなかった。herdr の組み込みの見張り�
 import argparse
 import pathlib
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import herdr  # noqa: E402
@@ -25,26 +34,72 @@ import jsonio  # noqa: E402
 FINISHED = ("idle", "done")
 
 
-def send(pane, text, wait, h=herdr):
+POLL_S = 5                         # 1 ターン目の終わりを Claude Code に問う間
+CLOSE_TRIES, CLOSE_PAUSE_S = 30, 1  # /exit の後にシェルが前に戻るのを見る回数と間
+
+
+def send(pane, text, wait, h=herdr, until=()):
     try:
-        return {"pane": pane, "status": h.prompt(pane, text, wait), "detail": None}
+        status = h.prompt(pane, text, wait, until=until) if until else h.prompt(pane, text, wait)
+        return {"pane": pane, "status": status, "detail": None}
     except h.HerdrError as e:
         return {"pane": pane, "status": "failed", "detail": str(e)}
 
 
-def catchup_then_second(number, pane, second, h=herdr, *, catchup):
+def _until(check, tries, pause):
+    for i in range(tries):
+        if check():
+            return True
+        if i + 1 < tries:
+            pause()
+    return False
+
+
+def _turn_end(pane, h, state, pause):
+    """動き出した後、Claude Code が idle を返すまで待つ。idle・blocked のどちらか。state() が None（会話が見えない）の回は
+    herdr の見立てを使う。"""
+    while True:
+        got = state()
+        if got == "idle":
+            return "idle"
+        if got is None:
+            seen = (h.agent(pane) or {}).get("agent_status")
+            if seen in FINISHED:
+                return "idle"
+            if seen == "blocked":
+                return "blocked"
+        elif (h.agent(pane) or {}).get("agent_status") == "blocked":
+            return "blocked"
+        pause()
+
+
+def catchup_then_second(number, pane, second, h=herdr, *, catchup, state=None, pause=lambda: time.sleep(POLL_S)):
     """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。
-    catchup は送る命令の名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。"""
+    catchup は送る命令の名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。
+    state() は、その会話の状態を Claude Code 自身に問う口（idle・busy・None）。None を渡すと、終わりも herdr の見立てで待つ。"""
     if second is None:
         only = send(pane, f"{catchup} {number}", False, h)
         return "sent" if only["status"] == "sent" else "send_failed"
-    first = send(pane, f"{catchup} {number}", True, h)
+    first = send(pane, f"{catchup} {number}", True, h, until=("working", "blocked") if state else ())
     if first["status"] == "failed":
         return "send_failed"
+    if state is not None and first["status"] == "working":
+        first["status"] = _turn_end(pane, h, state, pause)
     if first["status"] not in FINISHED:
         return first["status"]  # blocked か stalled
     second_result = send(pane, second, False, h)
     return "sent" if second_result["status"] == "sent" else "send_failed"
+
+
+def close_session(pane, h=herdr, tries=CLOSE_TRIES, pause=lambda: time.sleep(CLOSE_PAUSE_S)):
+    """会話を終えて、ペインの前をシェルに戻す。closed・close_failed のどちらか。前がもうシェルなら何も送らない。"""
+    try:
+        if h.shell_in_front(pane):
+            return "closed"
+        h.prompt(pane, "/exit", False)
+        return "closed" if _until(lambda: h.shell_in_front(pane), tries, pause) else "close_failed"
+    except h.HerdrError:
+        return "close_failed"
 
 
 def main(argv=None):

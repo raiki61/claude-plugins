@@ -1,6 +1,6 @@
 # works-dispatch
 
-自分の番の PR を、PR ごとの作業場（代表の clone から作る clone と、herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で `/catchup <番号>` と、設定のファイルに書いた 2 ターン目の文を送る Claude Code のプラグイン。herdr は、端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具。修正の工場 works（darkfactory）と同じ系列の名前を持つが、中身は works の何も使わない。
+自分の番の PR を、PR ごとの作業場（代表の clone から作る clone と、herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で `/catchup <番号>` と、設定のファイルに書いた 2 ターン目の文を送る Claude Code のプラグイン。相手の新しい返事が有れば同じフォルダに会話を立て直して送り直し、閉じた PR の作業場は片付ける（PR ごとの作業場の一生を 1 つのコマンドで回す）。herdr は、端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具。修正の工場 works（darkfactory）と同じ系列の名前を持つが、中身は works の何も使わない。
 
 - AI は使わない。全部 Python の標準ライブラリだけのスクリプト（`dispatch/`）で、`/works-dispatch:dispatch` のスキル（`skills/dispatch/SKILL.md`）はそれを走らせて出力を見せるだけ。
 - 使う人向けの前提と手順は SKILL.md にまとめた。ここは直す人向けに書く。
@@ -12,13 +12,14 @@
 - ノード（`dispatch/nodes/`）は、1 つの仕事と、入出力の JSON（`dispatch/schemas/`）を持つ。ノードは互いを import しない。並べる順を持つのは入口の `dispatch.py` だけ。
   - prs: 自分の番の PR を集める。
   - sessions: 開いている会話を読む。
+  - fresh: 自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める（相手の新しい返事が有り、会話が手すきで手元の作業が無いときだけ）。
   - accounts: アカウントを使用率で並べる。
   - assign: PR をアカウントと作業場に割り振る。全部の PR は同時に走るので、始める前に、各アカウントの使用率の残りと 1 件あたりの使用率から件数を決める。
   - cost: 1 件あたりの使用率を測って覚える。dispatch が始める前と全部の `/catchup` の後に使用率を API に問い合わせ（出力 0 トークン）、差を開いた件数で割る。週の使用率は statusline からは枠の中で動かない（`limits.py` の record の決まり）ので、問い合わせで取る。
   - provision: clone と herdr の作業場を、無ければ作り、有れば使い直す。
   - launch: Claude Code を起こす。
-  - turn: `/catchup` と 2 ターン目の文を送る。
-  - clean: 消してよい作業場を並べる・消す。
+  - turn: `/catchup` と 2 ターン目の文を送る。1 ターン目の終わりは Claude Code 自身の会話の状態で見る。会話を終える（`/exit`）口も持つ。
+  - clean: 消してよい作業場を並べる・消す。ペインの作業場だけを畳む口（release）も持つ。
   - report: 結果を 1 件 1 行で出す。
 - 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）の 4 つ。
 - 流れの外に、任意の道具が 2 つある。どちらも dispatch の設定のアカウントを読む。
