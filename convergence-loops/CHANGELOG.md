@@ -6,6 +6,12 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-10-15
+
+### Changed
+
+- README の入れ方の例で、退いた coldwrite の代わりに gates を挙げる（coldwrite は一覧から外れ、gates に付け替わった）。
+
 ## [0.44.0] - 2026-10-15
 
 ### Changed
