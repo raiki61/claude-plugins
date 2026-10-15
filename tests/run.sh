@@ -3697,8 +3697,11 @@ assert not missing, f".review-checks.json の段 {missing} が {wf} の run を�
 print("CI_LINT_OK")
 PYCI
 
-# ---- attention の命令書と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が命令書から読む） ----
-expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README と仕様書が、機械の出力行の語（飛び先・取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file）を同じ綴りで持つ（写す規則なので綴り違いは AI が探せない）" \
+# ---- attention の命令書と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が /what-am-i-doing の命令書から読む） ----
+# /catchup は 2026-10-15 から HTML のページを機械が描き、AI は欄の JSON だけを書く。端末の枠（飛び先・言語名）と絵の検査を
+# 使うのは /what-am-i-doing だけになったので、その語は /what-am-i-doing の命令書と README に。/catchup の側は、AI が材料から
+# 読む語（取り込み先など）と、描く口（--render・ATTENTION_CATCHUP_OPEN）を命令書・README・仕様書が同じ綴りで持つ
+expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README と仕様書が、機械の出力行の語（/what-am-i-doing の飛び先・言語名・figure-check.py、/catchup の取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file・--render・ATTENTION_CATCHUP_OPEN）を同じ綴りで持つ（綴り違いは AI が探せない）" \
     "$PY_BIN" - "$ROOT" <<'PY'
 import sys, pathlib
 for _s in (sys.stdout, sys.stderr):
@@ -3709,8 +3712,10 @@ docs = {n: (root / n).read_text(encoding="utf-8") for n in
         ["attention/commands/catchup.md", "attention/commands/what-am-i-doing.md", "attention/README.md",
          "attention/docs/catchup-spec.md"]}
 others = docs.keys() - {"attention/commands/what-am-i-doing.md"}  # /what-am-i-doing は PR の材料を持たない
-for word, files in [("飛び先", docs), ("figure-check.py", docs), ("（言語名 X）", docs), ("取り込み先", others), ("上に積む", others),
-                    ("依頼先の候補", others), ("私の痕跡以降に変わった file", others)]:
+frames = {"attention/commands/what-am-i-doing.md", "attention/README.md"}  # 端末に枠と絵を出すのは /what-am-i-doing だけ
+for word, files in [("飛び先", frames), ("figure-check.py", frames), ("（言語名 X）", frames), ("取り込み先", others),
+                    ("上に積む", others), ("依頼先の候補", others), ("私の痕跡以降に変わった file", others),
+                    ("--render", others), ("ATTENTION_CATCHUP_OPEN", others)]:
     for f in files:
         assert word in docs[f], f"{f}: 「{word}」が無い"
 print("DOC_WORDS_OK")
