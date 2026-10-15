@@ -6,6 +6,13 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-15
+
+### Fixed
+
+- 起動のたびに `herdr.py` が SyntaxWarning（文字列の中の不正なエスケープ）を出していた。Python の先の版では読めなくなる形なので直し、works-dispatch の Python が警告なしに読めることを柵（tests/fences.py の compiles_clean）で縛った。
+- 0.3.1 の直し（受け取ったパスを入口でそろえる）に、試験の期待が追いついておらず、Windows の CI が赤のままだった。試験の期待もそろえた形に合わせた。
+
 ## [0.3.1] - 2026-10-15
 
 ### Changed
