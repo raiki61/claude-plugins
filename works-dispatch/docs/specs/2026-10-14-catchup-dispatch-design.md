@@ -111,15 +111,19 @@ cost が書くのは、dispatch の控え（`<limits_dir>/dispatch-cost.json`）
 3'. **fresh**（一覧で回すときだけ）: 自分が作者でレビュアーの付いていない PR を外す（`own_unreviewed`）。PR の枝の場所で会話が開いている PR は、次の全部を満たせば送り直す（`refresh`）。満たさなければ、その理由を結末にして触らない。
    - 会話が手すき（`claude agents --json` の status が `idle`）。作業中は `busy`。
    - 場所に未コミットの変更も git に足していないファイルも無い（`dirty`）、手元にしか無い commit もその枝の上の stash も無い（`unpushed`）。worktree は枝と stash を元の clone と共有するので、数えるのはその場所の HEAD とその枝の物だけ。
-   - 前に送った時と会話を起こした時の遅い方より後に、自分以外の人の動き（コメント・レビュー・commit。Bot は数えない）が PR に有る。無ければ相手の返事を待っている途中なので `no_news`。前に送った時は `<limits_dir>/dispatch-sent.json` の控えで、入口（`dispatch.py`）が、PR の 1 ターン目と 2 ターン目を送り終えた（結末が `sent`）回の最後に、PR ごとの時刻を書く。issue から始めた件は書かない。
-   送り直す PR は assign で新しくアカウントを選び直す。provision の前に、古い会話に `/exit` を送ってペインの前がシェルに戻るのを読み戻し（turn の close_session）、そのペインの作業場を閉じる（clean の release。checkout は残る）。provision は同じ場所の作業場を開き直す。
+   - 前に送った時と会話を起こした時の遅い方より後に、自分以外の人の動き（コメント・レビュー・commit。Bot は数えない）が PR に有る。無ければ相手の返事を待っている途中なので `no_news`。前に送った時は `<limits_dir>/dispatch-sent.json` の控えで、入口（`dispatch.py`）が書く。書くのは PR の 1 ターン目を送れた回（結末が `sent`。2 ターン目まで送った回も、`--no-second` で 1 ターン目だけ送った回も）で、中身は PR ごとに、1 ターン目を送る直前の時刻と、その時の場所の head の commit（`{"at", "head"}`。前の版の時刻だけの控えも読む）。送った後の動きを「新しい返事」と数えるため、時刻は送る前に取る。issue から始めた件は書かない。
+   - 場所の HEAD が控えの head のままなら、どの remote の枝にも無い commit は作者の force-push で origin から消えた物で、手元で積んだ物ではない。そのときは `unpushed` を、その枝の stash だけで決める。
+   送り直す PR は assign で新しくアカウントを選び直す。provision の前に、その場所で herdr が Claude Code の会話を見ているペイン（agent が claude）に `/exit` を送ってペインの前がシェルに戻るのを読み戻し（turn の close_session）、その場所の worktree の作業場（herdr がその場所に返す `open_workspace_id`）を閉じる（clean の release。checkout は残る）。provision は同じ場所の作業場を開き直す。
+   - herdr にその場所の会話のペインが無ければ（会話が herdr の外の端末に居るなど）終えず、`close_failed`。
+   - release は、その作業場の全部のペインの前がシェルかを確かめてから閉じる。シェルでない物（別の会話・エディタ・dev server）が居れば閉じず `close_failed`。同じフォルダに cd しただけのほかの作業場は閉じない（ペインの作業フォルダで探すと、持ち主の別の作業場ごと閉じてしまう）。
+   - herdr や Claude Code を読めないときも、その PR の `close_failed` にして、ほかの PR は続ける。
 7. **turn**: ペインと文を受け、`herdr agent prompt <対象> <文>` で送る。`--wait` を付けたときは、送った後に動き出したのを見てから、`idle`・`done`・`blocked` のどれかになるまで待ち、その状態を返す。
    - 1 ターン目は `/catchup <番号>` を `--wait` 付きで送る。`herdr agent wait` だけで待たないのは、help が「It does not track turns」と書く通り、ターンの区切りを追わず、始まる前の `idle` に当たりうるため。
    - 2 ターン目は、1 ターン目が `idle` か `done` のときだけ、2 ターン目の文を `--wait` 無しで送って終える。`blocked`（許可の確認などで止まっている）なら送らない。
    - こちらの手では期限を付けない。このリポジトリで作業する決まりの文書（直下の `CLAUDE.md`）が、期限とタイムアウトを新しく足すことを禁じているため。herdr に組み込みの見張り（`--wait` は、送って 5000ms 以内に動き出さなければ `agent_prompt_stalled` で返す）は、こちらが足すものではないので、そのまま受けて結末にする（判断）。
    - 1 ターン目の終わりは、Claude Code 自身が返す会話の状態（`claude agents --json` の status）で見る（2026-10-15 から）。herdr は画面の下の行で作業中かを決めるので、会話が裏に待ちのコマンドを残すと、ターンが終わっても作業中と見続ける。2026-10-15 に #2003 で `/catchup` の返事の後 54 分止まり、2 ターン目も報告も出なかった。動き出したことは herdr の `--wait --until working --until blocked` で見て、その後 Claude Code が `idle` を返すまで 5 秒おきに問う。herdr が `blocked` を返せば `blocked`。会話が Claude Code から見えない回は、herdr の見立てを使う。
    - 会話を終える close_session は、`/exit` を送り、ペインの前がシェルに戻ったのを 1 秒おきに 30 回まで読み戻す。戻らなければ `close_failed` で、その PR は送り直さない・消さない。走っている仕事を打ち切る期限ではなく、送った操作が効いたかの読み戻しの回数である（D5 の外。判断）。
-8. **report**: PR ごとに 1 行。番号、タイトル、枝（作業場の鍵。3 節）、アカウント、結末（`sent` 2 ターン目まで送った・`refreshed` 古い会話を畳んで送り直した・`blocked` 止まっている・`stalled` 動き出さなかった・`already_open`・`no_news`・`busy`・`dirty`・`unpushed`（会話が開いていて送り直さなかった理由）・`own_unreviewed`・`close_failed` 古い会話を終えられなかった・`no_account`・`provision_failed` 作業場を作れなかった・`branch_busy` 元の clone がその枝を開いている・`launch_failed` 起こせなかった・`send_failed` 送る命令が誤りを返した）。issue から始めたものは、行を `issue #<番号>` で始めて issue の番号と枝を出し、1 ターン目まで送れば `sent`（`--dry-run` でまだ枝が無ければ枝の欄は `-`）。頭の注記に、片付けた・残した場所を 1 行ずつ置く。
+8. **report**: PR ごとに 1 行。番号、タイトル、枝（作業場の鍵。3 節）、アカウント、結末（`sent` 2 ターン目まで送った・`refreshed` 古い会話を畳んで送り直した・`blocked` 止まっている・`stalled` 動き出さなかった・`already_open`・`no_news`・`busy`・`dirty`・`unpushed`（会話が開いていて送り直さなかった理由）・`own_unreviewed`・`close_failed` 古い会話を終えられなかった・`no_account`・`provision_failed` 作業場を作れなかった・`branch_busy` 元の clone がその枝を開いている・`launch_failed` 起こせなかった・`send_failed` 送る命令が誤りを返した・`issue_closed` 閉じた issue を `--issue` で指した）。issue から始めたものは、行を `issue #<番号>` で始めて issue の番号と枝を出し、1 ターン目まで送れば `sent`（`--dry-run` でまだ枝が無ければ枝の欄は `-`）。頭の注記に、片付けた・残した場所を 1 行ずつ置く。
 
 PR が複数あるときは、provision と launch を PR ごとに順に全部先に済ませてから、turn を PR ごとに並べて走らせる。1 件の `/catchup` が長くても、ほかの件が遅れないようにするため。
 
@@ -134,10 +138,12 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 作業場を用意するのは provision のノードで、外に書く（worktree を作る・herdr の作業場を開く）。herdr とのやりとりは herdr アダプタ（`herdr.py`）の場所の関数だけが持ち、ノードは「枝の場所を探す・作る・開く・消す」の言葉で書く。
 
 - 場所を探す: 元の clone（`source`）の worktree を `herdr worktree list --cwd <source>` で並べ、その枝を開いている linked worktree があれば、それがその枝の場所。フォルダの名前では探さない。
+- 会話の作業フォルダが場所の中かは、assign・fresh・clean のどれでも、リンクを辿った実際のパスで比べる（`~/src` がリンクでも、`claude agents --json` が実際のパスを返しても見落とさない）。
 - 無ければ作る: `git fetch origin <枝>` の後、`herdr worktree create --cwd <source> --branch <枝> --base origin/<枝> --label <リポジトリの名前>/<枝> --no-focus` で作る。`--trust-repository` は付けない（2026-10-15 に手元の herdr 0.9.3 で、自分の持ち物の一時の git リポジトリに付けずに打って通った。herdr の文書は、持ち主が確かめたリポジトリにだけ付けるよう求めている）。元の clone が herdr で開いていなければ、herdr は create のときにその作業場も開く（list は開かない）。置き場は herdr の既定（設定の `worktrees.directory` の下の `<リポジトリ>/<枝の slug>`）に任せ、こちらで決めない。herdr は、手元に同じ名前の枝が有ればそれを開き、無ければ `--base` から作る。名前（label）は人が見るためだけで、探すのには使わない（herdr の作業場の名前は重なっても止められない。Discussion #3567「not unique by contract」）。名前を `<リポジトリの名前>/` で始めるのは、issue の番号で始まる枝の名前でも、数字で始まらないようにするため（herdr はチケットの番号で始まる表示名を受け付けなかった、という報告がある。Discussion #3284）。
 - 設定の `copy_files`（git が追わない手元だけのファイル。例 `frontend/.env.local`）を、`copy_from` のフォルダ（省けば元の clone）から作った場所へ写す。依存（仮想環境・`node_modules`）は入れない。`/catchup` と 2 ターン目は主に読む仕事で、試験を走らせる段になってから、その会話の中で入れれば足りる。
 - 有れば使い直す: `git fetch origin <枝>` の後、`herdr worktree open --cwd <source> --path <場所> --label <リポジトリの名前>/<枝> --no-focus` で作業場を開く（`--path` だけでは `worktree_not_found` が返り、元の clone を `--cwd` で渡すと通った。開いている場所に打てば、その作業場をそのまま返す。2026-10-15 に 0.9.3 で見た）。
-- 作る・使い直すのどちらでも、手元の枝が origin の枝の祖先なら早送り（`git merge --ff-only`）だけする。作るときも、手元に同じ名前の古い枝が残っていれば herdr はそれを開くので、同じく揃える。手元にしか無い commit があれば動かさず、報告の注記に書く（fresh の `unpushed` と同じ扱い）。
+- 作る・使い直すのどちらでも、手元の枝が origin の枝の祖先なら早送り（`git merge --ff-only`）だけする。作るときも、手元に同じ名前の古い枝が残っていれば herdr はそれを開くので、同じく揃える。
+- 祖先でないときは、作者の force-push か、手元で積んだ commit かを見分ける。HEAD が前に送った時の head（`dispatch-sent.json` の控え）と同じで、場所に未コミットの変更も git に足していないファイルも無ければ、作者の force-push とみなして `git reset --keep origin/<枝>` で揃え、注記に書く（`--keep` は未コミットの変更と重なれば git が断る）。それ以外は手元にしか無い commit があるとみなして動かさず、報告の注記に書く（fresh の `unpushed` と同じ扱い）。
 - 手元の枝が古いまま `/catchup` に渡さない。`/catchup` は枝を移るときも pull や merge をしないので、作る・使い直すのどちらでも、origin の今の head に揃えてから渡す。
 - その場所かその下を作業フォルダにする会話が、どのアカウントにも有れば、2 節の 3' の fresh で送り直すかを決める。送り直すときは古い会話を終え、herdr の作業場を閉じ（checkout は残る）、同じ場所を開き直す。送り直さないものは作業場に触らない。
 - fork の PR（head が別のリポジトリ）は、origin に枝が無いので作らず `provision_failed` で知らせる（判断。guided-resolver では起きていない）。
@@ -148,15 +154,16 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 - 結んだ枝が見えなければ、その issue を閉じる PR（`gh issue view --json closedByPullRequestsReferences` のうち、このリポジトリの開いた PR。fork の PR は除く）の枝を使う。GitHub の文書は、issue に結んだ枝から PR を作ると、枝の結びつきを外して PR に置き換えると書く。PR を作った後の issue に枝を作り直さないため（判断）。
 - どちらも無ければ `gh issue develop <番号> --base <既定の枝>` で GitHub に枝を作って issue に結び、`--list` で読み戻した枝を使う。枝の名前は gh の既定に任せる。この操作は GitHub に枝を作る外への書き込みで、持ち主が `--issue` で指したときだけ、`--dry-run` でないときだけ行う（`--dry-run` は「枝を作って結ぶ」と注記に書くだけ）。
 - その枝の場所を上と同じに作り、会話を起こして 1 ターン目に `/catchup <番号>` を送って止める。`/catchup` に issue の番号を渡すと、attention はその issue で前回自分が触ってから何が起きたかを出す（PR がまだ無いので、PR の指摘・CI の材料は無い。枝は、名前にその番号を持つ手元の枝が 1 本のときだけ移るが、会話はもうその枝の場所で起きている）。2 ターン目の文はレビューの文なので送らない。PR を作るのは起こした会話の中の仕事。
+- issue が閉じていれば、枝を探しも作りもせず、`issue_closed` を結末にして止める（閉じた作業のために GitHub に枝を作らない。判断）。
 - `--issue` は `--pr` と一緒には使えない（1 回に 1 つの入口）。送り直しも片付けもしない。
 
 片付けは、一覧で回す dispatch の最後に同じコマンドがする（2026-10-15 から。`--pr`・`--issue` で指したときと `--dry-run` は消さない。`--dry-run` は片付ける物を並べる）。`dispatch.py --clean`（並べる）と `--clean --apply`（消す）も残す。
 
-- 対象は、元の clone の linked worktree（元の clone 自身は対象にしない）。対象を元の clone の worktree に限るので、関係ないリポジトリの場所は並びにも入らない。
-- 候補にするのは、その枝の PR が閉じている（マージ済みか閉じた）こと、その場所かその下を作業フォルダにする会話がどのアカウントにも無いこと、未コミットの変更も git に足していないファイルも無いこと、手元の枝の先頭が PR の head の commit と同じ（手元にしか無い commit が無い）こと、を全部満たすものだけ。PR の無い枝（issue から始めて PR をまだ作っていないもの）は消さない。
+- 対象は、元の clone の linked worktree（元の clone 自身は対象にしない。herdr が linked と返しても、元の clone と同じ実際のパスの物は必ず外す）。対象を元の clone の worktree に限るので、関係ないリポジトリの場所は並びにも入らない。
+- 候補にするのは、その枝の PR が閉じている（マージ済みか閉じた）こと、その場所かその下を作業フォルダにする会話がどのアカウントにも無いこと、未コミットの変更も git に足していないファイルも無いこと、手元の枝の先頭が PR の head の commit と同じ（手元にしか無い commit が無い）こと、設定の `copy_files` に書いたファイルのうち写し元と中身が違うもの（その場所で書き換えた手元だけのファイル）が無いこと、を全部満たすものだけ。git が追わないファイルのうち、それ以外（依存・生成物など）は場所と一緒に捨ててよい（作り直せる。持ち主 2026-10-15 の決め）。写し元と違う `copy_files` が有れば消さずに残し、そのファイルを報告に出す。PR の無い枝（issue から始めて PR をまだ作っていないもの）は消さない。
 - 枝の PR は `gh pr list --head <枝> --state all` で読む（fork の PR は除き、開いたものが有ればそれ、無ければいちばん新しいもの）。手元の作業の判定は、その場所の HEAD とその枝の上の stash だけを見る（worktree は枝と stash を元の clone と共有する）。
 - `--clean` は候補を並べるだけで、`--apply` を付けた時だけ消す。消すのは `herdr worktree remove --workspace <ID>`（未コミットの変更か git に足していないファイルがあれば、herdr は `dirty_worktree_requires_force` で断る。`--force` は付けない）。herdr の remove は作業場の ID で指すので、開いていない場所は `herdr worktree open` で開いてから消す。消えたことを herdr の並びで読み戻してから、手元の枝も消す（herdr の remove は手元の枝を残す。消す直前に、先頭が PR の head と同じことをもう一度確かめ、違えば残して注記に書く）。
-- 一覧で回す dispatch は、閉じた PR の場所のうち、会話が開いていても、会話が手すきで手元の作業も無いものは、会話を終えてから消す。作業中・手元の作業の有るものは残し、注記で名指す。
+- 一覧で回す dispatch は、閉じた PR の場所のうち、会話が開いていても、会話が 1 つだけで手すきで手元の作業も無いものは、会話を終えてから消す。会話を終えるのは送り直しと同じ形（herdr で会話を見ているペインに `/exit`。herdr の外の会話は終えない）で、終えた後に会話の一覧を取り直し、その場所に会話が無いことを確かめてから消す。作業中・会話が 2 つ以上・手元の作業の有るものは残し、注記で名指す。会話や herdr を読めないときは、片付けを飛ばすか、その場所を残して注記に書き、traceback で止めない。
 - 前の版が作った PR ごとの clone（前の版の設定の `clone_root` の下の `<リポジトリの名前>-pr-<番号>`）は、この版では扱わない。元の clone の worktree ではないので、並びにも入らない。移る時に持ち主の前で 1 回だけ手で片付ける（判断。同じ片付けを 2 通り持たない）。設定に `clone_root` が残っていても、ほかの知らない鍵と同じく読み飛ばす（止めない）。
 
 ## 4. ノードの作りの決まり
@@ -166,7 +173,7 @@ PR が複数あるときは、provision と launch を PR ごとに順に全部�
 - **D1 旧 works の部品に頼らない。** `works-dispatch/dispatch/` は、`works/.shared/`・`works/dev/`・`works/darkfactory/`・`works/blk-*` のファイルを読まず、import もしない。darkfactory は works-factory に置き換わったら外されるので、頼ると一緒に壊れる。機械: `works-dispatch/dispatch/` の字にそれらのパスが無い。
 - **D2 処理は Python に置き、シェルの文字列に Python を埋めない。** 旧 works は起動の処理を sh の関数と、sh の文字列に埋めた Python に持ち、写しが食い違った。入口も Python にする。機械: `works-dispatch/dispatch/` に `.sh` が無い。
 - **D3 ノードは流れを知らない。** ノードは引数と JSON のファイルのパスで受け、JSON で返す。どのノードの次に何を呼ぶかは、入口の `works-dispatch/dispatch/dispatch.py` だけが持つ（works-factory の、流れはグラフだけが持ち助け手は流れを知らない、の形）。機械: `works-dispatch/dispatch/nodes/` のファイルがほかのノードを import しない。
-- **D4 外に書くのは決まったノードだけで、書いた後に読み戻す。** provision・launch・turn と、片付けの clean。機械: Python の構文木で見る。`subprocess` を import するのは外への口（`herdr.py`・`gitx.py`・`claudex.py`・`ghx.py`）と、whose-turn を呼ぶ prs のノードと、始める前の確かめを持つ入口だけ。herdr に書く関数（`run`・`prompt`・場所を作る・開く・消す `create_worktree`・`open_worktree`・`remove_worktree`・`close_workspace`）と、git に書く関数（`fetch`・早送りの `fast_forward`・手元の枝を消す `delete_branch`）と、gh に書く関数（issue に枝を結ぶ `issue_develop`。`gh issue develop`）を呼ぶのは、その 4 つのノードだけ。どのノードがどれを呼ぶかは、柵の表（`works-dispatch/dispatch/tests/fences.py` の `WRITES`）に書く。字の書き方を変えても逃げられないようにするため、字では探さない。読み戻しは人が見る。
+- **D4 外に書くのは決まったノードだけで、書いた後に読み戻す。** provision・launch・turn と、片付けの clean。機械: Python の構文木で見る。`subprocess` を import するのは外への口（`herdr.py`・`gitx.py`・`claudex.py`・`ghx.py`）と、whose-turn を呼ぶ prs のノードと、始める前の確かめを持つ入口だけ。herdr に書く関数（`run`・`prompt`・場所を作る・開く・消す `create_worktree`・`open_worktree`・`remove_worktree`・`close_workspace`）と、git に書く関数（`fetch`・早送りの `fast_forward`・作者の force-push に揃える `reset_keep`・手元の枝を消す `delete_branch`）と、gh に書く関数（issue に枝を結ぶ `issue_develop`。`gh issue develop`）を呼ぶのは、その 4 つのノードだけ。どのノードがどれを呼ぶかは、柵の表（`works-dispatch/dispatch/tests/fences.py` の `WRITES`）に書く。字の書き方を変えても逃げられないようにするため、字では探さない。読み戻しは人が見る。
 - **D5 こちらから期限を足さない。** 機械: `works-dispatch/dispatch/` に `timeout` の字が無い（herdr の組み込みの見張りの結末の語 `agent_prompt_stalled` は除く）。
 - **D6 持ち主の環境の値をリポジトリに書かない。** アカウントの名前、起動のコマンド、置き場のパス、使用率の控えの場所は、設定のファイルで渡す（works-factory の「既定の道は普通の利用者の環境でそのまま動く」と同じ）。機械: `works-dispatch/dispatch/` に `raiki61`・`claude-code-oauth-`・`/Users/`・`claude-p` の字が無い。
 - **D7 普通の利用者の環境でもそのまま動く。** 設定にアカウントが無ければ、`claude` 1 つだけのアカウントとして扱う。使用率の控えが無いアカウントは、使用率が分からないものとして選べる側に残し、順の最後に置く（判断）。人が見る。
@@ -226,7 +233,7 @@ gh_user = "<会社の GitHub のログイン名>"   # このリポジトリを�
 - アカウントの起動のコマンドが、作業場のシェルで見つかる（利用者のログインのシェルに `command -v <コマンド>` を対話の形で聞く。シェルの関数も数える）。
 - `/catchup` を持つ attention が、各アカウントの設定のフォルダに入っている（`<設定のフォルダ>/plugins/installed_plugins.json` に `attention@` で始まる名がある）。2026-10-14 には 4 つとも入っていた。
 - `gh` が使える（whose-turn と、片付けの PR の状態の確かめが使う）。
-- 元の clone（`source`）が、対象のリポジトリの clone である（origin が `repo` と同じ）。herdr が元の clone の worktree を並べられる。`copy_files` が写す元（`copy_from`、省けば元の clone）に有る（無いものは止めずに 1 行出す）。gh が `repo` を読める（`gh_user` が有れば、そのアカウントの鍵で `gh repo view` が通る）。
+- 元の clone（`source`）が、対象のリポジトリの clone である（origin が `repo` と同じ）。linked worktree でなく本体の checkout である（`git rev-parse` の `--git-dir` と `--git-common-dir` が同じ）。herdr が元の clone の worktree を並べられる。`copy_files` が写す元（`copy_from`、省けば元の clone）に有る（無いものは止めずに 1 行出す）。gh が `repo` を読める（`gh_user` が有れば、そのアカウントの鍵で `gh repo view` が通る）。
 
 `--dry-run` を付けると、assign まで走らせて report を出し、何も起こさずに終わる。作業場を作るか（`create`）使い直すか（`reuse`）、元の clone がその枝を開いているか（`branch_busy`）も、元の clone の worktree の並び（`herdr worktree list`。読むだけで作業場は開かない）から報告する。fork の PR かを gh に問うのと、片付けの候補の PR を読むのも、読むだけ。
 

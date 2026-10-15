@@ -41,7 +41,7 @@
 
 `dispatch.py --check` が全部確かめる。設定の下書きは `dispatch.py --init --repo OWNER/NAME --source <代表の clone>` が書く。
 
-1. **herdr が動いている。** 手元の版の API に、使う 11 の口（`HERDR_METHODS`。worktree の 4 つを含む）があることと、代表の clone の worktree を並べられることを確かめる。
+1. **herdr が動いている。** 手元の版の API に、使う 11 の口（`HERDR_METHODS`。worktree の 4 つを含む）があることと、代表の clone の worktree を並べられることを確かめる。代表の clone は本体の checkout であること（linked worktree でない）も確かめる。
 2. **Claude Code の `claude agents --json`。** 開いている会話を、アカウントごとに読む公式の口。同じリポジトリとブランチの会話が開いていれば、その PR は飛ばす。
 3. **起こすコマンドと設定のフォルダ。** アカウントごとに、Claude Code を起こすシェルのコマンドと、そのコマンドが `CLAUDE_CONFIG_DIR` に入れるフォルダを書く。コマンドが `CLAUDE_CONFIG_DIR` を入れないなら、`config_dir` は書かない。書くと、信頼の記録と会話の一覧を読む場所がずれる。アカウントを切り替えない人は `accounts` を書かず、`claude` 1 つで動く。
    - `config_dir` を書かないアカウントのフォルダは、作業場のペインで新しく起きるログインのシェルが持つ `CLAUDE_CONFIG_DIR` で決める（`dispatch._login_config_dir`）。無ければ `~/.claude` になる。dispatch を走らせている会話の値は使わない。dispatch はふつう、別のアカウントの会話の中から走るためである。
