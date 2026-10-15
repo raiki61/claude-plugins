@@ -354,6 +354,56 @@ class PageItemTest(unittest.TestCase):
         self.assertEqual((turn["kind"], turn["detail"]), ("wait", "作者 hanako 待ち"))
 
 
+class OutWiringTest(unittest.TestCase):
+    """--out は文字の材料と一緒に描く材料を書く。描く材料を組めなくても、文字の材料は落とさない。"""
+
+    def run_main(self, page_commit):
+        import contextlib
+        import io
+        saved = (cu.resolve_target, cu.render_commit, cu.page_commit)
+        cu.resolve_target = lambda token, repo: (None, None, "oid", "commit")
+        cu.render_commit = lambda oid, cwd=None, frame=None, full=False: "COMMIT"
+        cu.page_commit = page_commit
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = cu.main(["HEAD", "--out"])
+        finally:
+            cu.resolve_target, cu.render_commit, cu.page_commit = saved
+        return rc, buf.getvalue()
+
+    def paths(self, out):
+        import re
+        return [m for m in re.findall(r"(\S+\.(?:txt|json)) に書いた", out)]
+
+    def test_material_json_is_written_next_to_the_report(self):
+        rc, out = self.run_main(lambda oid, cwd=None: {"schema": ch.SCHEMA, "page": "x/commit-1"})
+        files = self.paths(out)
+        try:
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(files), 2, out)
+            self.assertEqual(json.loads(pathlib.Path(files[1]).read_text(encoding="utf-8"))["page"], "x/commit-1")
+            self.assertEqual(pathlib.Path(files[0]).parent, pathlib.Path(files[1]).parent)
+            self.assertIn("--render", out)
+        finally:
+            for f in files:
+                os.unlink(f)
+
+    def test_failure_to_build_keeps_the_report(self):
+        def boom(oid, cwd=None):
+            raise RuntimeError("壊れた")
+        rc, out = self.run_main(boom)
+        files = self.paths(out)
+        try:
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(files), 1, out)
+            self.assertIn("COMMIT", pathlib.Path(files[0]).read_text(encoding="utf-8"))
+            self.assertIn("描く材料を組めなかった（RuntimeError: 壊れた）", out)
+        finally:
+            for f in files:
+                os.unlink(f)
+
+
 class RenderCliTest(unittest.TestCase):
     def run_cli(self, *args, home):
         env = dict(os.environ, HOME=str(home), USERPROFILE=str(home), ATTENTION_CATCHUP_OPEN="0",

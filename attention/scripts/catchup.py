@@ -2669,14 +2669,20 @@ def main(argv=None):
     if sink.get("page"):
         path = catchup_html.save_data(sink["page"])
         print(f"描く材料は {path} に書いた。欄の JSON を書いて catchup.py --render {path} <欄の JSON> で描く")
+    elif sink.get("error"):
+        print(f"描く材料を組めなかった（{sink['error']}）。ページは描けない——報告のファイルを読んで端末で返す")
     return code
 
 
 def report(a, sink=None):
     """端末の報告を出す。sink（dict）を渡すと、HTML の材料を sink["page"] に入れる（--frame では入れない）。"""
     def keep(build):
+        # 描く材料は文字の材料の後で組む。組めなくても文字の材料（AI が読む本体）は落とさない
         if sink is not None and not a.frame:
-            sink["page"] = build()
+            try:
+                sink["page"] = build()
+            except Exception as e:  # noqa: BLE001 — 落とすと、取り終えた文字の材料まで失われる
+                sink["error"] = f"{type(e).__name__}: {e}"
     target, focus = split_words(a.words)
     owner, name, num, local = resolve_target(target, a.repo)
     pre_lines = []  # ブランチ名で移った・移らなかったの行（見出しに足す）
