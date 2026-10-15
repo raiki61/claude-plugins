@@ -144,7 +144,8 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
 
 前は別の plugin の coldwrite が、Write の前に prompt 型フックで読んで書き込みを止めていた。prompt 型フックは道具に渡した
-中身しか見ないので、Edit では差し替えた数行しか読めず、文書の全体を読めなかった。gates に移して coldwrite は退いた。
+中身しか見ないので、Edit では差し替えた数行しか読めず、文書の全体を読めなかった。gates に移して coldwrite は marketplace から外し、
+`marketplace.json` の `renames` で名前を gates に付け替えた(coldwrite を有効にしていた設定は、Claude Code が gates の名前に書き換える)。
 
 リポジトリ全体の文書の初読検査は convergence-loops の `/firstread-loop`(重い姉)。
 こちらは単体で読まれる短文向けの軽い妹で、フックなので呼ばなくても効く。

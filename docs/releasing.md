@@ -1,6 +1,6 @@
 # 版を出す手順
 
-このリポジトリ（marketplace）で plugin の版を出すときの段を書く。配る plugin の全部（`.claude-plugin/marketplace.json` の `plugins[]` に並ぶ 8 本。退いた coldwrite も、フックを持たない最後の版を届けるために一覧に残している）に同じ段が当たる。保守する人向けの文書で、利用者が読む物ではない。いつ出すか（頻度）は [ADR 0022](adr/0022-release-often.md) に在る。
+このリポジトリ（marketplace）で plugin の版を出すときの段を書く。配る plugin の全部（`.claude-plugin/marketplace.json` の `plugins[]` に並ぶ 7 本）に同じ段が当たる。保守する人向けの文書で、利用者が読む物ではない。いつ出すか（頻度）は [ADR 0022](adr/0022-release-often.md) に在る。
 
 ## 平易版（3 行）
 

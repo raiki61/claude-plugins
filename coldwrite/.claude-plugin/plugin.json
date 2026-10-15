@@ -1,5 +1,0 @@
-{
-  "name": "coldwrite",
-  "version": "0.2.0",
-  "description": "退いた plugin。書かれる文書の初見検査は gates の coldread に移った(手元の文書は書いた後に読み、ターンの終わりに指摘を返す)。この版はフックを持たない。入れているなら外し、gates を入れる。"
-}

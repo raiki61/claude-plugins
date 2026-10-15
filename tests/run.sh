@@ -1752,6 +1752,17 @@ for key in ("name", "owner", "plugins"):
     assert key in mk, f"marketplace.json に {key} が無い"
 assert isinstance(mk["owner"], dict) and mk["owner"].get("name"), "owner は name を持つ object"
 assert mk["plugins"], "plugins が空"
+# 一覧から外した plugin の名前は、残した名前か null へ付け替えて残す（公式 code.claude.com/docs/en/plugins/host-marketplace
+# 「Rename or remove a plugin」: 無いと入れていた利用者に "not found in marketplace" が出る。行き先が一覧に無い鎖は
+# `claude plugin validate` が "chain does not resolve" で弾くが、CI に claude は無いのでここで同じ形を見る）
+listed = {p["name"] for p in mk["plugins"]}
+renames = mk.get("renames") or {}
+for old_name, to in renames.items():
+    assert old_name not in listed, f"renames の {old_name} が plugins にまだ在る"
+    seen_names = {old_name}
+    while to is not None and to not in listed:
+        assert to in renames and to not in seen_names, f"renames.{old_name}: 行き先が plugins にも null にも着かない"
+        seen_names.add(to); to = renames[to]
 pl = json.loads((root/"convergence-loops/.claude-plugin/plugin.json").read_text(encoding="utf-8"))
 for key in ("name", "version", "description"):
     assert key in pl, f"plugin.json に {key} が無い"

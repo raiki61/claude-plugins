@@ -25,12 +25,6 @@
       "strict": false
     },
     {
-      "name": "coldwrite",
-      "description": "退いた plugin。書かれる文書の初見検査は gates の coldread に移った(手元の文書は書いた後に読み、ターンの終わりに指摘を返す)。この版はフックを持たない。入れているなら外し、gates を入れる。",
-      "source": "./coldwrite",
-      "strict": false
-    },
-    {
       "name": "attention",
       "description": "並行作業を見渡して戻るための道具 3 本。open な PR / issue を全件走査して「誰の番か・なぜ今その人の番か」を機械で出す /whose-turn、1 件の PR / issue について「前回自分が触ってから何が起きたか」を出す /catchup、いま居るセッションが何のスレッドだったかをその場に居なかった人でも追いつける形で説明する /what-am-i-doing。中心は位置——戻ったときに真っ先に失われているのは会話のどこで止まったか——で、中身は作者の本文から初見向けに説明し、実物の行を有るだけ後ろに付ける。先行例は Gerrit / Google Critique の Attention Set。",
       "source": "./attention",
@@ -60,5 +54,8 @@
       "source": "./works-dispatch",
       "strict": false
     }
-  ]
+  ],
+  "renames": {
+    "coldwrite": "gates"
+  }
 }

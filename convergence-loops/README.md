@@ -49,7 +49,7 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 /plugin marketplace add //fileserver/share/claude-plugins             # 共有フォルダ・ローカルパス
 
 /plugin install convergence-loops@raiki61
-/plugin install coldwrite@raiki61        # 他のプラグインも同じ形(名前@raiki61)
+/plugin install gates@raiki61            # 他のプラグインも同じ形(名前@raiki61)
 ```
 
 `marketplace` は道具の配布元、`plugin` はそこから入れる道具の束のこと。**セットアップは要らない**。入れたらすぐ使える。
