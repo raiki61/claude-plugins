@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-15
+
 ### Added
 
 - `--issue N`。issue から始める作業の入口。issue に結んだ枝（`gh issue develop --list`）の作業場を開き、1 ターン目の `/catchup N` まで送って止める（2 ターン目の文は送らない）。結んだ枝が見えなければ、その issue を閉じる開いた PR の枝を使い、それも無ければ既定の枝から GitHub に枝を作って issue に結ぶ（`gh issue develop`）。報告の行は `issue #N` で始め、枝を出す。閉じた issue には枝を作らず `issue_closed` で止める。`--pr` とは一緒に使えない。
