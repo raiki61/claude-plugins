@@ -2240,7 +2240,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=603
+EXPECTED_CHECKS=604
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2555,7 +2555,7 @@ expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いし�
 expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "$ROOT/tests/coldread-table-case.py"
 # 手元の文書の口（書いた後に記録し、ターンの終わりにまとめて読む）。読み手は差し替え（COLDREAD_READER_CMD）で、
 # 呼ばれた回数と渡った依頼文をファイルに残させて数える——指摘を返すかだけを見ると、読まずに通す形も緑になる
-expect_output 0 "DOCS_GATE_OK" "coldread の手元の文書: 文書だけを記録し、ターンの終わりに 1 本 1 回だけ投稿と同じ依頼文で読み、指摘を止めずに返す" \
+expect_output 0 "DOCS_GATE_OK" "coldread の手元の文書: 文書だけを記録し、ターンの終わりに 1 本 1 回だけ投稿と同じ依頼文で読み、親には指摘をファイルに書いて短い知らせだけを返す" \
     "$PY_BIN" - "$ROOT" "$WORK/docs-gate" <<'PY'
 import importlib.util, json, os, pathlib, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
@@ -2603,10 +2603,17 @@ run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})   # 同
 pending = (cfg / "coldread-gate/docs/s1.pending").read_text(encoding="utf-8").split()
 assert code not in pending and a in pending, f"記録が文書の拡張子だけを拾っていない: {pending}"
 
-out = json.loads(run("docs-check", {"session_id": "s1"}, FIND))
+out = json.loads(run("docs-check", {"session_id": "s1", "hook_event_name": "Stop"}, FIND))
 ctx = out["hookSpecificOutput"]
 assert ctx["hookEventName"] == "Stop" and "decision" not in out, f"止めずに続けさせる形でない: {out}"
-assert "例の方針" in ctx["additionalContext"] and a in ctx["additionalContext"], ctx
+# 親の会話には指摘の全文を積まない: 全文はファイルに書き、知らせは本数・件数・場所・作業役に渡す指示だけ
+note = ctx["additionalContext"]
+assert "例の方針" not in note and "1 本" in note and "詰まり 1 件" in note and "推測で埋めた箇所 1 件" in note, note
+assert "作業役" in note and "意図と違う" in note, f"作業役に渡して直させ、推測で埋めた箇所だけ親が見る、の指示が無い: {note}"
+written = list((cfg / "coldread-gate/docs/findings").iterdir())
+assert len(written) == 1 and str(written[0]) in note, (written, note)
+full = written[0].read_text(encoding="utf-8")
+assert "例の方針" in full and a in full and "方針は決まっていると読んだ" in full, f"書き出したファイルに指摘の全文が無い: {full}"
 got = sorted(calls.iterdir())
 assert len(got) == 1, f"読んだのは a.md の 1 本だけのはず（300 字未満・2 つの印・同じ文書の 2 度目は読まない）: {len(got)} 回"
 prompt = got[0].read_text(encoding="utf-8")
@@ -2636,9 +2643,25 @@ run("docs-record", {"session_id": "s2", "tool_input": {"file_path": a}}, COLDREA
 run("docs-record", {"session_id": "s3", "tool_input": {"file_path": a}}, COLDREAD_IN_READER="1")
 assert not any((cfg / "coldread-gate/docs").glob("s[23].pending")), "COLDREAD_DOCS_OFF か読み手の中で記録した"
 
-# 読み手のモデル: 手元の文書は既定 haiku、投稿は既定 sonnet
-argv = g.reader_argv("claude", g.DOC_MODEL)
-assert argv[argv.index("--model") + 1] == "haiku" and g.reader_argv("claude")[3] == "sonnet", (argv, g.reader_argv("claude"))
+# 読み手のモデルと effort: 手元の文書は既定 haiku・xhigh、投稿は既定 sonnet・medium のまま。既定は環境変数を外した子で見る
+def loaded(**env):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    r = subprocess.run([sys.executable, "-c", "import importlib.util as u, sys; s = u.spec_from_file_location('g', sys.argv[1]); m = u.module_from_spec(s); "
+                        "s.loader.exec_module(m); a = m.reader_argv('claude'); print(m.DOC_MODEL, m.DOC_EFFORT, a[a.index('--model') + 1], a[a.index('--effort') + 1])", str(gate)],
+                       capture_output=True, text=True, env=dict(e, CLAUDE_CONFIG_DIR=str(cfg), **env))
+    return r.stdout.split()
+assert loaded() == ["haiku", "xhigh", "sonnet", "medium"], loaded()
+assert loaded(COLDREAD_DOC_EFFORT="high")[1] == "high", "COLDREAD_DOC_EFFORT で手元の文書の effort を替えられない"
+# 実際に読み手へ渡る引数も見る(read_doc が effort を渡し忘れても、上の値の検査だけでは通る)。起動と認証は差し替える
+pick = lambda a, flag: a[a.index(flag) + 1]
+seen_argv, saved = [], (g.subprocess.run, g.claude_auth.auth_env, os.environ.pop("COLDREAD_READER_CMD", None))
+g.claude_auth.auth_env = lambda env, **kw: (dict(env), None)
+g.subprocess.run = lambda argv, **kw: (seen_argv.append(argv), subprocess.CompletedProcess(argv, 0, b"CLEAN", b""))[1]
+try:
+    g.read_doc("本文")
+finally:
+    g.subprocess.run, g.claude_auth.auth_env = saved[:2]
+assert seen_argv and (pick(seen_argv[0], "--model"), pick(seen_argv[0], "--effort")) == (g.DOC_MODEL, g.DOC_EFFORT), seen_argv
 
 # フックの宣言: 書いた後は記録だけ、ターンの終わりに読む
 hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
@@ -2646,6 +2669,8 @@ post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "Writ
 stop = [h for grp in hooks.get("Stop", []) for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-record") for h in post), post
 assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) >= 250 for h in stop), stop
+sub = [h for grp in hooks.get("SubagentStop", []) if not grp.get("matcher") for h in grp["hooks"]]
+assert any(h["command"].endswith("coldread-gate.py\" docs-check") for h in sub), f"サブエージェントの終わりに読む口が無い（matcher 無しで全部の作業役に効かせる）: {sub}"
 
 # 初見で読む観点の正本は 1 か所。skill の手順は依頼文を写して持たない
 skill = (root / "gates/skills/coldread/SKILL.md").read_text(encoding="utf-8")
@@ -2657,6 +2682,75 @@ assert "coldread-gate.py\" read" in skill, "skill『coldread』の手で検査�
 r = subprocess.run([sys.executable, str(gate), "prompt"], capture_output=True)
 assert r.stdout.decode("utf-8") == g.COLD_PROMPT, "prompt の口が COLD_PROMPT をそのまま出していない"
 print("DOCS_GATE_OK")
+PY
+# サブエージェントが書いた文書は、その役の終わり（SubagentStop）に読んで、指摘の全文をその役に返す。記録は PostToolUse の
+# 入力の agent_id で分け、親の Stop はサブエージェントの記録を読まない（前は親の Stop で読み、指摘が親に届いて親の文脈を食った）
+expect_output 0 "DOCS_AGENT_OK" "coldread の手元の文書: 書いた役ごとに記録し、サブエージェントの分はその役の終わりに読んで全文をその役に返し、親の Stop は読まない" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-agent" <<'PY'
+import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls = work / "cfg", work / "calls"
+calls.mkdir()
+
+def run(mode, payload, reader=None):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg))
+    if reader:
+        e["COLDREAD_READER_CMD"] = reader
+    r = subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+# 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残し、本文に在る印をそのまま指摘に写す（どの文書を読んだかを指摘から引く）
+FIND = ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; '
+        'printf "詰まり: 『%%s』が何か分からない\\n" "$(grep -o "印[A-Z]" "%s/$n.txt" | head -1)"' % (calls, calls, calls))
+
+def doc(name):
+    f = work / name
+    f.write_text("# 手順\n\n" + ("印%s の方針どおりに進める。" % name[0].upper()) * 30, encoding="utf-8")
+    return str(f)
+
+m, x, y = doc("m.md"), doc("x.md"), doc("y.md")
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": m}})
+run("docs-record", {"session_id": "s1", "agent_id": "agent-x", "agent_type": "general-purpose", "tool_input": {"file_path": x}})
+run("docs-record", {"session_id": "s1", "agent_id": "agent-y", "agent_type": "general-purpose", "tool_input": {"file_path": y}})
+pend = cfg / "coldread-gate/docs"
+assert sorted(p.name for p in pend.glob("*.pending")) == ["s1.agent-x.pending", "s1.agent-y.pending", "s1.pending"], list(pend.iterdir())
+assert (pend / "s1.agent-x.pending").read_text(encoding="utf-8").split() == [x], "サブエージェントの記録にほかの役の文書が混ざる"
+
+# サブエージェント x の終わり: x の分だけを読み、指摘の全文を x に返す（SubagentStop の additionalContext はその役を続けさせる）
+out = json.loads(run("docs-check", {"session_id": "s1", "agent_id": "agent-x", "hook_event_name": "SubagentStop",
+                                    "stop_hook_active": False}, FIND))
+ctx = out["hookSpecificOutput"]
+assert ctx["hookEventName"] == "SubagentStop" and "decision" not in out, out
+assert "印X" in ctx["additionalContext"] and x in ctx["additionalContext"], ctx
+assert "印Y" not in ctx["additionalContext"] and "印M" not in ctx["additionalContext"], f"ほかの役の文書を読んだ: {ctx}"
+assert len(list(calls.iterdir())) == 1 and not (pend / "s1.agent-x.pending").exists(), list(calls.iterdir())
+assert not (pend / "findings").exists(), "サブエージェントの指摘をファイルに書き出した（その役に全文を返せば足りる）"
+
+# 親の終わり: 親の分だけを読む。サブエージェント y の記録はまだ終わっていないので触らない
+note = json.loads(run("docs-check", {"session_id": "s1", "hook_event_name": "Stop"}, FIND))["hookSpecificOutput"]["additionalContext"]
+assert "印M" not in note and len(list(calls.iterdir())) == 2, f"親の分が 1 本だけ読まれていない: {note}"
+written = list((pend / "findings").iterdir())
+assert len(written) == 1 and "印M" in written[0].read_text(encoding="utf-8") and "印Y" not in written[0].read_text(encoding="utf-8"), written
+assert (pend / "s1.agent-y.pending").exists(), "親の Stop がサブエージェントの記録を読んだか消した"
+
+# 直さずに終えた x がもう一度終わっても、同じ中身は読み直さない（終わりが来る）
+run("docs-record", {"session_id": "s1", "agent_id": "agent-x", "tool_input": {"file_path": x}})
+assert run("docs-check", {"session_id": "s1", "agent_id": "agent-x", "hook_event_name": "SubagentStop", "stop_hook_active": True}, FIND) == ""
+assert len(list(calls.iterdir())) == 2, "同じ中身を読み直した"
+# 書いた記録の無い役の終わり（Claude Code の内部の役も SubagentStop を撃つ）は何もしない
+assert run("docs-check", {"session_id": "s1", "agent_id": "agent-z", "hook_event_name": "SubagentStop"}, FIND) == ""
+# y の終わりで y を読む
+y_ctx = json.loads(run("docs-check", {"session_id": "s1", "agent_id": "agent-y", "hook_event_name": "SubagentStop"}, FIND))
+assert "印Y" in y_ctx["hookSpecificOutput"]["additionalContext"], y_ctx
+print("DOCS_AGENT_OK")
 PY
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
@@ -2960,7 +3054,7 @@ expect_output 0 "READER_ARGV_OK" "読み役の起動引数は遮断の旗を持�
     "$PY_BIN" -c "$CR_LOAD"$'\n''import inspect
 a = g.reader_argv("claude")
 flags = all(f in a and a[a.index(f) + 1] == "" for f in ("--setting-sources", "--tools"))
-body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", "model"]   # 本文を受ける引数を持たない（モデルは手元の文書の読み手が替える）
+body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", "model", "effort"]   # 本文を受ける引数を持たない（モデルと effort は手元の文書の読み手が替える）
 print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"

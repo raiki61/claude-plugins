@@ -1,6 +1,6 @@
 # gates — 門番フック集
 
-外に出る操作を、検査が通るまで止めるフックを配る。現在の門番は 2 本——coldread(通じやすさ)と destgate(宛先の許可制)。coldread は gh への投稿を書く前に止め、手元の文書(md など)は書いた後に読んでターンの終わりに指摘を返す(止めない)。
+外に出る操作を、検査が通るまで止めるフックを配る。現在の門番は 2 本——coldread(通じやすさ)と destgate(宛先の許可制)。coldread は gh への投稿を書く前に止め、手元の文書(md など)は書いた後に読んで、書いた役(親の会話か作業役)の終わりに指摘を返す(止めない)。
 
 版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
 
@@ -117,19 +117,29 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 ## coldread — 手元の文書(書いた後に読み、止めずに指摘を返す)
 
 拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を Write・Edit・MultiEdit で書くと、PostToolUse のフックが
-パスを記録するだけで終わる。ターンの終わり(Stop のフック)に、そのターンで書いた文書を 1 本 1 回だけ、
+パスを書いた役ごとに記録するだけで終わる。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
 投稿と同じ依頼文(`coldread-gate.py` の `COLD_PROMPT`。初見で読む観点の正本はこの 1 か所)で coldreader に読ませる。
-詰まりか推測で埋めた箇所が在れば、Stop の `additionalContext` で指摘を返して会話を続けさせる(書き込みは取り消さない)。
+詰まりか推測で埋めた箇所が在れば、指摘を返して書いた役を続けさせる(書き込みは取り消さない)。返し方は書いた役で変わる:
 
+- **サブエージェント(作業役)が書いた文書**は、その役が終わるとき(SubagentStop のフック)に読み、指摘の全文をその役に
+  返して直させる。記録はフックの入力の `agent_id`(サブエージェントの中でだけ付く)で分けるので、親の会話の終わりには
+  読まれない。前は親の会話のターンの終わりに読んでいたので、指摘が親に届き、親は作業役へ送り直すしかなく親の文脈を食った。
+  作業役が書き終える前の書きかけを読む空振りもした
+- **親の会話が書いた文書**は、ターンの終わり(Stop のフック)に読む。指摘の全文は親の文脈に積まず、
+  `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` のファイルに書き出し(新しい 200 本を残す)、本数・件数・ファイルの場所と
+  「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」の短い知らせだけを返す
 - 投稿は出したら取り消せないので書く前に止める。手元の文書は書いた後でも直せるので止めない。書くたびに読ませると、
   Edit のたびに待たされ、同じ文書を何度も読む
-- 読み手は投稿より安いモデル(既定 haiku。`COLDREAD_DOC_MODEL` で替える)。投稿の読み手は sonnet のまま
+- 読み手は投稿より安いモデルを effort を上げて走らせる(既定 haiku・xhigh。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。
+  Artificial Analysis の総合ランキング(2026-10-13)で Haiku 5.5 の xhigh が Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の
+  費用で出したため。投稿の読み手は sonnet・medium のまま
 - 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
   前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
-- 直した文書はまた次のターンの終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
+- 直した文書はまたその役の終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
   そのまま終えてよい。連続で返すのは Claude Code が 8 回で打ち切る
 - 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
-- 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった)
+- 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった。サブエージェントの分は
+  `aid=` に `agent_id` が付く)
 - 手で 1 本を読ませる口: `python3 hooks/coldread-gate.py read <パス>`(詰まりが在れば終了コード 1)。
   依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
 

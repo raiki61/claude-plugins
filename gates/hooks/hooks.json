@@ -34,6 +34,18 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\" docs-check",
+            "shell": "bash",
+            "statusMessage": "coldread: この作業役が書いた文書を初見の読み手が読んでいる"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

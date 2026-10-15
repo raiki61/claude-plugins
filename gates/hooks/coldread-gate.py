@@ -83,6 +83,7 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
                              sh -c 実行。$1 以降に gh の引数列)。テスト用
   COLDREAD_MODEL             既定 sonnet
   COLDREAD_EFFORT            既定 medium
+  (手元の文書の読み手の環境変数 COLDREAD_DOC_* は、下の「手元の文書」の節の冒頭)
   COLDREAD_MIN_LEN           これ未満のコマンドは素通し。既定 400
   COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny。既定 100000
   COLDREAD_IN_READER=1       読み役の中であることの印(自動で付く)。入れ子の再発火を防ぐ
@@ -1200,7 +1201,7 @@ VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s
                 "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
 
 
-def reader_argv(claude_bin, model=None):
+def reader_argv(claude_bin, model=None, effort=None):
     """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。
 
     **本文は argv に載せない**(依頼文+本文は stdin で渡す)。載せていた頃は 2 つ問題が在った:
@@ -1214,7 +1215,7 @@ def reader_argv(claude_bin, model=None):
     """
     return [claude_bin, "-p",
             "--model", model or os.environ.get("COLDREAD_MODEL", "sonnet"),
-            "--effort", os.environ.get("COLDREAD_EFFORT", "medium"),
+            "--effort", effort or os.environ.get("COLDREAD_EFFORT", "medium"),
             # 読み役は本文を読んで報告するだけで道具は要らない。検査対象の文章そのものを
             # 渡すので、本文に紛れた指示で読み役が動く経路をここで断つ("" で全道具を無効化)。
             "--tools", "",
@@ -1236,8 +1237,8 @@ def _child_text(raw, strict=True):
     return (raw or b"").decode("utf-8", "strict" if strict else "replace").replace("\r\n", "\n")
 
 
-def run_reader(prompt: str, model=None):
-    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
+def run_reader(prompt: str, model=None, effort=None):
+    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model と effort は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
     note = None  # 採った認証の段。差し替えの枝では認証に触らないので None のまま
     if override:
@@ -1260,7 +1261,7 @@ def run_reader(prompt: str, model=None):
         claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
-            reader_argv(claude_bin, model), input=prompt.encode("utf-8"),
+            reader_argv(claude_bin, model, effort), input=prompt.encode("utf-8"),
             capture_output=True, timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
@@ -1524,21 +1525,36 @@ def main() -> None:
     )
 
 
-# ---- 手元の文書(書いた後に記録し、ターンの終わりにまとめて読む) -----------------------------
+# ---- 手元の文書(書いた後に記録し、書いた役の終わりにまとめて読む) -----------------------------
 # gh への投稿は出したら取り消せないので、書く前に止める(上の main)。手元の文書は書いた後でも直せるので止めない。
 # 書くたびに読み手を起こすと、Edit のたびに待たされ、同じ文書を何度も読む(Vale も書いた後に走らせ、止めずに指摘を返す)。
-# だから Write・Edit の後(PostToolUse)は読んだ文書の名前を記録するだけにし、ターンの終わり(Stop)に、そのターンで
-# 書いた文書を 1 本 1 回だけ読ませ、詰まりが在れば止めずに指摘を返して直させる(Stop の additionalContext は会話を続けさせ、
-# Claude Code が連続 8 回で打ち切る)。読み手と観点は投稿と同じ COLD_PROMPT で、正本はこの 1 か所。
-# 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)にする。
+# だから Write・Edit の後(PostToolUse)は書いた文書の名前を記録するだけにし、書いた役が終わるときに、その役が書いた
+# 文書を 1 本 1 回だけ読ませる。読み手と観点は投稿と同じ COLD_PROMPT で、正本はこの 1 か所。
+#
+# 記録は書いた役ごとに分ける。サブエージェントの中のフックの入力には、その役を指す agent_id が付く(公式の hooks の
+# 文書「the input carries the `agent_id` and `agent_type` common input fields that identify the subagent」。2026-10-15 に
+# claude 2.1.300 で実測: サブエージェントの Write の PostToolUse と、その役の SubagentStop に同じ agent_id が付き、親の
+# Write と Stop には付かない。Stop はサブエージェントの終わりでは撃たれず、親の終わりに 1 回だけ撃たれた)。
+# - サブエージェントが書いた文書は、その役の SubagentStop で読み、指摘の全文をその役に返して直させる(SubagentStop の
+#   additionalContext はその役を続けさせる)。前は親の Stop で読んでいたので、指摘が親に届き、親は書いた役へ送り直すしか
+#   なく、親の文脈を食った。書き手が書き終える前の書きかけを読む空振りもした。
+# - 親(agent_id が無い)が書いた文書は親の Stop で読むが、指摘の全文は親の文脈に積まない。ファイルに書き出し、本数・件数・
+#   ファイルの場所と、新しい作業役に渡して直させるという短い知らせだけを返す。親の Stop はサブエージェントの記録を読まない。
+# 直した文書は次の終わりにまた読まれ、同じ中身はハッシュで読み直さないので、直さなければ終わる(Claude Code も連続 8 回で打ち切る)。
+# 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)を effort xhigh で走らせる(Artificial Analysis の総合
+# ランキング 2026-10-13 で、Haiku 5.5 の xhigh は Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の費用で出した。
+# convergence-loops 0.42.0 の CHANGELOG)。
 DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
 DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
-DOC_WORKERS = 4      # 1 ターンに書いた文書を並べて読む数。Stop のフックの timeout(300s)に、読み役 1 回(210s)で収める
+DOC_EFFORT = os.environ.get("COLDREAD_DOC_EFFORT", "xhigh")
+DOC_WORKERS = 4      # 1 回の終わりに読む文書を並べる数。Stop のフックの timeout(300s)に、読み役 1 回(210s)で収める
 DOC_SEEN_KEEP = 5000  # 読んだ中身のハッシュを覚える数
+DOC_FINDINGS_KEEP = 200  # 親に返す指摘を書き出したファイルを残す数(古いものから消す)
 DOC_DIR = os.path.join(STATE_DIR, "docs")
 DOC_LOG = os.path.join(STATE_DIR, "docs.log")
 DOC_SEEN = os.path.join(DOC_DIR, "seen")
+DOC_FINDINGS = os.path.join(DOC_DIR, "findings")
 # 1 行目にこの印が在る文書は読まない(書き手が意図して置く逃げ道。印がファイルに残るので記録は要らない)。
 # coldwrite(このゲートに移る前の、書く前に止める門番)の印もそのまま効かせる
 DOC_SKIP_MARKS = ("coldread:skip", "coldwrite:skip")
@@ -1549,18 +1565,32 @@ def docs_off():
     return os.environ.get("COLDREAD_DOCS_OFF") == "1"
 
 
-def _pending(session):
-    return os.path.join(DOC_DIR, "%s.pending" % re.sub(r"[^A-Za-z0-9_-]", "_", session or "nosession"))
+def _safe(name):
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)
+
+
+def _pending(session, agent=""):
+    """書いた役ごとの待ちの一覧。親は <session>.pending、サブエージェントは <session>.<agent_id>.pending。
+
+    区切りの「.」は _safe が両方の名前から消すので、親の名前とサブエージェントの名前は重ならない。
+    """
+    name = _safe(session or "nosession") + ("." + _safe(agent) if agent else "")
+    return os.path.join(DOC_DIR, "%s.pending" % name)
+
+
+def _who(payload):
+    """(session_id, agent_id)。agent_id はサブエージェントの中のフックにだけ付く(親では空)。"""
+    return str(payload.get("session_id") or ""), str(payload.get("agent_id") or "")
 
 
 def docs_record(payload):
-    """PostToolUse(Write・Edit・MultiEdit): 書いた文書のパスをこのセッションの待ちの一覧に足す。読まない・止めない。"""
+    """PostToolUse(Write・Edit・MultiEdit): 書いた文書のパスを、書いた役の待ちの一覧に足す。読まない・止めない。"""
     path = (payload.get("tool_input") or {}).get("file_path") or ""
     if not path.lower().endswith(DOC_EXTS):
         return
     try:
         os.makedirs(DOC_DIR, exist_ok=True)
-        with open(_pending(str(payload.get("session_id") or "")), "a", encoding="utf-8") as f:
+        with open(_pending(*_who(payload)), "a", encoding="utf-8") as f:
             f.write(os.path.abspath(path) + "\n")
     except OSError:
         pass
@@ -1611,7 +1641,7 @@ def doc_to_read(path, seen):
 
 def read_doc(text):
     """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。"""
-    out = run_reader(COLD_PROMPT + text, model=DOC_MODEL)
+    out = run_reader(COLD_PROMPT + text, model=DOC_MODEL, effort=DOC_EFFORT)
     if not report_shaped(out):
         raise RuntimeError("報告の形(CLEAN かラベル行)をしていない: %r" % out[:150])
     return sort_findings(out)
@@ -1629,53 +1659,100 @@ def doc_feedback(path, found):
     )))
 
 
-def docs_check(payload):
-    """Stop: このセッションで書いた文書を 1 本 1 回だけ読ませ、指摘が在れば止めずに返して直させる。"""
-    session = str(payload.get("session_id") or "")
-    pending = _pending(session)
+def _read_pending(session, agent):
+    """書いた役の待ちの一覧を読んで消し、読ませる文書を読ませる。(指摘の節, 件数, 読めなかった文書) を返す。"""
+    pending = _pending(session, agent)
     try:
         with open(pending, encoding="utf-8") as f:
             paths = list(dict.fromkeys(line.strip() for line in f if line.strip()))
         os.remove(pending)
     except OSError:
-        return
+        return [], {"詰まり": 0, "補完": 0}, []
+    who = "sid=%s" % session[:8] + ("\taid=%s" % agent[:17] if agent else "")
     seen = _seen()
     todo = []
     for path in paths:
         text, why = doc_to_read(path, seen)
         if text is None:
-            log_line(DOC_LOG, "skip\t%s\tsid=%s\t%s" % (why, session[:8], path))
+            log_line(DOC_LOG, "skip\t%s\t%s\t%s" % (why, who, path))
         else:
             todo.append((path, text, why))
+    notes, counts, read, down = [], {"詰まり": 0, "補完": 0}, [], []
     if not todo:
-        return
+        return notes, counts, down
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
         futures = {pool.submit(read_doc, text): (path, text, digest) for path, text, digest in todo}
-    notes, read, down = [], [], []
     for fut, (path, text, digest) in futures.items():
         try:
             found = fut.result()
         except Exception as exc:
-            log_line(DOC_LOG, "reader-down\t%s\tsid=%s\t%s" % (str(exc)[:150].replace("\n", " "), session[:8], path))
+            log_line(DOC_LOG, "reader-down\t%s\t%s\t%s" % (str(exc)[:150].replace("\n", " "), who, path))
             down.append(path)
             continue
         read.append(digest)
         note = doc_feedback(path, found)
-        log_line(DOC_LOG, "%s\t%d\tsid=%s\t%s" % ("finding" if note else "clean", len(text), session[:8], path))
+        log_line(DOC_LOG, "%s\t%d\t%s\t%s" % ("finding" if note else "clean", len(text), who, path))
         if note:
             notes.append(note)
+            for label in counts:
+                counts[label] += len(found[label])
     _remember(read)
+    return notes, counts, down
+
+
+def _write_findings(session, body):
+    """親に返す指摘の全文をファイルに書き、その場所を返す。古いものは DOC_FINDINGS_KEEP 本を残して消す。"""
+    os.makedirs(DOC_FINDINGS, exist_ok=True)
+    path = os.path.join(DOC_FINDINGS, "%s-%s-%d.txt" % (time.strftime("%Y%m%d-%H%M%S"), _safe(session)[:8], os.getpid()))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(body + "\n")
+    try:
+        old = sorted(os.scandir(DOC_FINDINGS), key=lambda e: e.stat().st_mtime)[:-DOC_FINDINGS_KEEP]
+        for e in old:
+            os.remove(e.path)
+    except OSError:
+        pass
+    return path
+
+
+def docs_check(payload):
+    """Stop・SubagentStop: 終わろうとしている役が書いた文書を 1 本 1 回だけ読ませ、指摘が在れば止めずに返して直させる。
+
+    サブエージェント(agent_id が有る)には指摘の全文を返す。親には全文をファイルに書き、短い知らせだけを返す。
+    """
+    session, agent = _who(payload)
+    notes, counts, down = _read_pending(session, agent)
     if not notes and not down:
         return
-    head = ("coldread(文脈を持たない初見の読み手 coldreader、モデル %s)が、このターンで書いた文書を読んだ。" % DOC_MODEL
-            + ("詰まった箇所を直すこと(直した文書はターンの終わりにまた読まれる。直さずに残すと判断したものは、"
-               "そのまま終えてよい——同じ中身は読み直さない):" if notes else ""))
+    event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
+    reader = "coldread(文脈を持たない初見の読み手 coldreader、モデル %s・effort %s)" % (DOC_MODEL, DOC_EFFORT)
     tail = ("読み手を起こせず読めなかった文書(%s)。手で読ませるなら python3 %s read <パス>。"
             % ("・".join(down), os.path.abspath(__file__))) if down else ""
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "Stop",
-        "additionalContext": "\n\n".join(filter(None, (head, *notes, tail, VERSION_NOTE))),
-    }}, ensure_ascii=False))
+    if agent:
+        head = (reader + "が、この役が書いた文書を読んだ。"
+                + ("詰まった箇所を直すこと(直した文書はこの役の終わりにまた読まれる。直さずに残すと判断したものは、"
+                   "そのまま終えてよい——同じ中身は読み直さない):" if notes else ""))
+        context = "\n\n".join(filter(None, (head, *notes, tail, VERSION_NOTE)))
+    else:
+        context = tail
+        if notes:
+            try:
+                where = _write_findings(session, "\n\n".join((reader + "が、親の会話で書いた文書を読んだ指摘。", *notes)))
+            except OSError as exc:
+                where = None
+                log_line(DOC_LOG, "findings-unwritten\t%s\tsid=%s" % (type(exc).__name__, session[:8]))
+            if where:
+                context = "\n\n".join(filter(None, ((
+                    "%sが、このターンで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
+                    "新しい作業役(サブエージェント)にこのファイルを渡して直させ、全文をこの会話に読み込まない。"
+                    "推測で埋めた箇所のうち書き手の意図と違うものだけは、この会話で見て、正しい意図を作業役に伝える。"
+                    "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
+                    % (reader, len(notes), counts["詰まり"], counts["補完"], where)), tail)))
+            else:
+                # 書き出せないときは全文を返す(指摘を落とすより文脈を食うほうがまし)
+                context = "\n\n".join(filter(None, (reader + "が、このターンで書いた文書を読んだ。詰まった箇所を直すこと:", *notes, tail)))
+        context = "\n\n".join(filter(None, (context, VERSION_NOTE)))
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}, ensure_ascii=False))
 
 
 def read_now(path):
