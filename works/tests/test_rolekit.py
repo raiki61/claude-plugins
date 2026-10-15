@@ -446,7 +446,7 @@ class LocalReviewRetryCase(Base):
             return self.material.take(self.b.dir, "local-review", reply, self.tmp / "repo", "optional")
 
     def test_required_lens_not_invoked_rejected_for_retry(self):
-        out = self.take(self.reply(skip="pr-review-toolkit:code-reviewer"), self.config(["pr-review-toolkit", "coldwrite"]))
+        out = self.take(self.reply(skip="pr-review-toolkit:code-reviewer"), self.config(["pr-review-toolkit", "gates"]))
         self.assertFalse(out["ok"], out)
         self.assertFalse(out["done"], "上限の前は同じ会話で起こし直させる")
         self.assertFalse(out["give_up"])
@@ -466,7 +466,7 @@ class LocalReviewRetryCase(Base):
 
     def test_missing_plugin_goes_to_human_without_retry(self):
         out = self.take(self.reply(skip="pr-review-toolkit:code-reviewer", why="pr-review-toolkit の agent が無い"),
-                        self.config(["coldwrite"]))
+                        self.config(["gates"]))
         self.assertFalse(out["ok"], out)
         self.assertTrue(out["done"], "毎回落ちる環境の失敗は出し直さない")
         self.assertTrue(out["give_up"])

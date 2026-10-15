@@ -2184,7 +2184,7 @@ class UseShell(unittest.TestCase):
         self.assert_ran_from_copy(copy)
         cfg = str(self.home / "claude-config")
         calls = [json.loads(ln) for ln in self.claude_log.read_text().splitlines()]
-        self.assertIn(["plugin", "install", "coldwrite@works-local"], [c["argv"][:3] for c in calls])
+        self.assertIn(["plugin", "install", "gates@works-local"], [c["argv"][:3] for c in calls])
         self.assertEqual({c["cfg"] for c in calls}, {cfg})   # claude は隔離した設定にだけ入れる
         self.assertIn("run id: run-1", r.stdout)
 

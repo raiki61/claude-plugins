@@ -1621,7 +1621,7 @@ class DevWiringCase(unittest.TestCase):
             fake_bin.mkdir()
             (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
             (fake_bin / "shasum").chmod(0o755)
-            # archon.sh は同じ claude で隔離した設定に coldwrite を入れる（dev/toolset.py）ので、plugin の CLI を真似る偽物。
+            # archon.sh は同じ claude で隔離した設定に gates を入れる（dev/toolset.py）ので、plugin の CLI を真似る偽物。
             # 借りる物を取る利用者の設定（隔離の前の CLAUDE_CONFIG_DIR）も偽物
             from test_toolset import make_user_config, write_fake_claude
             write_fake_claude(fake_bin)

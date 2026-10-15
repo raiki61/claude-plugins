@@ -1,4 +1,4 @@
-<!-- coldwrite:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
+<!-- coldread:skip 内部の設計の地図。語は冒頭の「語」の節で定義 -->
 # 考えの住処の地図（works の設計の考えが、どこに 1 つの形で住んでいるか）
 
 状態: 2026-10-09 の版 22d98fdc の事実で作った初版を、0.2.52（04137594）で柵を走らせて確かめ直し、既知の漏れのうちコードの重なり（読んだ証拠の名・止め札の名・宣言のファイルの名・申し出の欄の名）と、core とブロックが境の節の名を書いていた所を住処へ寄せた。0.2.55 の後に `carry-over` を `.shared/core/carry.py` へ、`stop-reasons` を `.shared/core/stopby.py` へまとめて住処ありにし、残りの散らばりにも数の歯止め（今の知る場所の数が増えない柵）を掛けた。`entry-kind` と `start-record` は入口のブロック `blk-entry` と core の `entryshape`・`startrec` へまとめて住処ありにした（計画 one-entry-shape）。`human-gates` は core の `gatepolicy` へまとめて住処ありにした（境の節は線の入力を写さず始めの記録を読む）。行のパスは試験（`tests/test_concept_fences.py`）が在ることを確かめる（予定の物は「予定」と書き、試験は見ない）。

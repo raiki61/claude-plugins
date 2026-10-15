@@ -1698,6 +1698,48 @@ assert sorted(rows) == sorted(names), f"README の表 {sorted(rows)} と marketp
 assert count and int(count.group(1)) == len(names), f"README の本数 {count and count.group(1)} と marketplace.json の {len(names)} 本が違う"
 print("README_PLUGINS_OK", len(names))
 PY
+# 依存と借り物は、リポジトリの実物で照らす。coldwrite を退かせた周（0.2.0 でフックを外した）に、works の依存と借りる一覧
+# （borrow.json。PreToolUse:Write のフックを名指していた）が残り、works の実行が AI を起こす前の確かめで止まった。works の試験は
+# 偽のプラグインで回るので見えず、CI は緑だった（実測 2026-10-15）
+expect_output 0 "DEPS_REAL_OK" "raiki61 の依存は中身の在るプラグインを指し、works が借りる名前（hook・agent）はリポジトリの実物に在り、依存と一致する" "$PY_BIN" - "$ROOT" <<'PY'
+import importlib.util, json, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.dont_write_bytecode = True
+root = pathlib.Path(sys.argv[1])
+mk = json.loads((root/".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+src = {p["name"]: root / p["source"] for p in mk["plugins"]}
+def plugin(name):
+    return json.loads((src[name]/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+def hollow(d):
+    """フックも agent・command・skill も持たない（退いた最終版の形）"""
+    hooks = d/"hooks"/"hooks.json"
+    has_hooks = hooks.is_file() and bool(json.loads(hooks.read_text(encoding="utf-8")).get("hooks"))
+    return not has_hooks and not any((d/k).is_dir() and any((d/k).rglob("*.md")) for k in ("agents", "commands", "skills"))
+bad = []
+for name in src:
+    for dep in plugin(name).get("dependencies") or []:
+        if dep.get("marketplace") != mk["name"]:
+            continue
+        if dep["name"] not in src:
+            bad.append(f"{name} の依存 {dep['name']} が marketplace.json に無い")
+        elif hollow(src[dep["name"]]):
+            bad.append(f"{name} の依存 {dep['name']} は中身の無いプラグイン（退いた版）")
+spec = importlib.util.spec_from_file_location("toolset", root/"works/dev/toolset.py")
+toolset = importlib.util.module_from_spec(spec); spec.loader.exec_module(toolset)
+borrow = toolset.load_borrow(root/"works")
+plugins = {n: i for n, i in borrow.items() if i["kind"] == "plugin"}
+deps = {d["name"] for d in plugin("works").get("dependencies") or []}
+if set(plugins) != deps:
+    bad.append(f"works の借りる plugin {sorted(plugins)} と依存 {sorted(deps)} が違う")
+for n, item in sorted(plugins.items()):
+    if item["marketplace"] == mk["name"]:
+        missing = toolset._missing_names(n, item, src[n]) if n in src else [f"marketplace.json に {n} が無い"]
+        bad += [f"works が借りる {n} に {m} が無い" for m in missing]
+assert not bad, "\n".join(bad)
+print("DEPS_REAL_OK", len(plugins))
+PY
 expect_exit 0 "marketplace.json / plugin.json が必須の欄を持つ" "$PY_BIN" - "$ROOT" <<'PY'
 import json, re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
@@ -2198,7 +2240,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=602
+EXPECTED_CHECKS=603
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

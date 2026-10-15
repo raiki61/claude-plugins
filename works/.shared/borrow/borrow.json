@@ -44,13 +44,16 @@
       }
     }
   },
-  "coldwrite": {
+  "gates": {
     "kind": "plugin",
     "marketplace": "raiki61",
     "marketplace_repo": "raiki61/claude-plugins",
     "hooks": {
-      "PreToolUse": [
-        "Write"
+      "PostToolUse": [
+        "Write|Edit|MultiEdit"
+      ],
+      "Stop": [
+        ""
       ]
     }
   },

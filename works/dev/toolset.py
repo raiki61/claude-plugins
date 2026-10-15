@@ -11,7 +11,7 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   利用者の installed_plugins.json の superpowers の行は読まない（入れた版は run に使わず、開発の再開の確かめが比べるだけ）。
   写しの包むファイルが borrow.json の superpowers.pin の sha256 と合わなければ（spseam.pin_problems）、違うファイルを 1 行ずつ
   名指して、何も写さずに止まる。
-- coldwrite・pr-review-toolkit（kind "plugin"）: 利用者が Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は
+- gates・pr-review-toolkit（kind "plugin"）: 利用者が Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は
   Claude Code が今に保ち、入れた版をそのまま使う）。
 - 探す所（kind "plugin"）: 利用者の設定の置き場（--user-config。無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude。隔離した設定ではない。
   archon.sh は隔離の前の値を渡す。絶対パスだけを受け、隔離した設定の置き場と同じなら名指しして止まる）の plugins/installed_plugins.json の <名>@<borrow の marketplace> の行。Claude Code と同じく
@@ -19,16 +19,16 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   installPath が無ければ下の scope へ落ちずに入っていないとする）。enabledPlugins で無効でも借りる（記録に残すだけ）。
   installed_plugins.json が知らない形（version が INSTALLED_VERSIONS の外など）なら、入っていないとは言わずに形を名指しして止まる。
 - kind "plugin" で確かめるのは、works が名前で頼る物が在ることだけ（中身・版・バイトは見ない。役は読むだけなので、名前が在れば
-  新しい版で動く）: pr-review-toolkit は agents/<名>.md（borrow の agents。レンズの名）、coldwrite は hooks/hooks.json の
-  hooks.<事象> に matcher が borrow の hooks の物の行。入っていない・名前が無い物は、借りる物ごとに 1 行の理由と入れるコマンドを
+  新しい版で動く）: pr-review-toolkit は agents/<名>.md（borrow の agents。レンズの名）、gates は hooks/hooks.json の
+  hooks.<事象> に matcher が borrow の hooks の物の行（matcher を持たない Stop の行は空の matcher）。入っていない・名前が無い物は、借りる物ごとに 1 行の理由と入れるコマンドを
   並べ、何も写さずに止まる（AI を起こさない）。写しが pin と合わない superpowers の行も同じ 1 つの止まりにまとめる。
 - kind "skills"（superpowers）: 写しの skills/<スキル>/ の一覧のスキルだけを <置き場>/skills/<スキル>/ へ、部品（parts。スキル
   としては使わず、中の文を役の指示書に使うファイル）を <置き場>/works-parts/superpowers/<相対パス> へ、バイトのまま・権限つきで
   写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、無人の役の約束が崩れる）。
   中身と実行の権限が同じなら何もしない。違えば一時の置き場に写してから入れ替える。
-- kind "plugin"（coldwrite・pr-review-toolkit）: 入れた置き場を <置き場>/works-marketplace/<名>/ に写し、手元の marketplace
+- kind "plugin"（gates・pr-review-toolkit）: 入れた置き場を <置き場>/works-marketplace/<名>/ に写し、手元の marketplace
   works-local を書いて、Claude Code の CLI（`claude plugin marketplace add`・`claude plugin install <名>@works-local`）で入れる
-  （試し plugin-hook-probe と同じ機構）。coldwrite は書く散文の初見検査のフック、pr-review-toolkit は素材集めの局所レビューの
+  （試し plugin-hook-probe と同じ機構）。gates は書いた文書をターンの終わりに初見の読み手に読ませるフック（書いた後の記録と、ターンの終わりの読み）、pr-review-toolkit は素材集めの局所レビューの
   レンズの agent。中身が同じで入っていれば CLI を呼ばない。変わっていれば marketplace を update し、入れ直す。CLI が 0 で
   終わっても settings.json の enabledPlugins に載らなければ止まる（フックの効かない役を起こさない）。--no-plugins（認証の
   要らない道。validate・テスト）は CLI を呼ばない（探して名前を確かめるのは同じ）。
@@ -198,8 +198,9 @@ def _missing_names(name: str, item: dict, src: pathlib.Path) -> list:
         table = hooks.get("hooks") if isinstance(hooks, dict) else None
         for event, matchers in sorted(item["hooks"].items()):
             rows = table.get(event) if isinstance(table, dict) else None
-            have = {r.get("matcher") for r in rows if isinstance(r, dict)} if isinstance(rows, list) else set()
-            out += [f"hook {event}:{m}（hooks/hooks.json）" for m in matchers if m not in have]
+            # matcher を持たない行（Stop など）は空の matcher と読む。borrow の "" がそれを指す
+            have = {r.get("matcher", "") for r in rows if isinstance(r, dict)} if isinstance(rows, list) else set()
+            out += [f"hook {event}{':' + m if m else ''}（hooks/hooks.json）" for m in matchers if m not in have]
     return out
 
 

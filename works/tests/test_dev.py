@@ -417,7 +417,7 @@ class TestDevShell(unittest.TestCase):
                 'gh auth status >/dev/null 2>&1 || true\n'
             )
             fake_bin = tmp / "fake-bin"
-            # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
+            # 隔離した設定に gates を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
             from test_toolset import make_user_config, write_fake_claude
             write_fake_claude(fake_bin)
             # mise も偽物（本物の利用者の信頼の控えは読まない）。trust --show は実物の mise 2026.9 と同じ
@@ -714,15 +714,15 @@ class TestDevShell(unittest.TestCase):
     def test_archon_sh_installs_borrowed_skills(self):
         """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。
         superpowers の 5 つのスキルは両方の道で skills/ へ写す（Archon の validate も同じ置き場でスキルを探す）。
-        coldwrite・pr-review-toolkit は認証を使う道だけで、PATH の claude（ここでは偽物）の plugin の CLI で入れる。認証の要らない道は claude を起こさない"""
+        gates・pr-review-toolkit は認証を使う道だけで、PATH の claude（ここでは偽物）の plugin の CLI で入れる。認証の要らない道は claude を起こさない"""
         from test_sp_skills import BORROW
         result, _, _ = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
         self.assertEqual(self.settings_seen["enabledPlugins"],
-                         {"coldwrite@works-local": True, "pr-review-toolkit@works-local": True})
+                         {"gates@works-local": True, "pr-review-toolkit@works-local": True})
         self.assertEqual([c[:3] for c in self.claude_calls],
-                         [["plugin", "marketplace", "add"], ["plugin", "install", "coldwrite@works-local"],
+                         [["plugin", "marketplace", "add"], ["plugin", "install", "gates@works-local"],
                           ["plugin", "install", "pr-review-toolkit@works-local"], ["--version"]])
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -752,13 +752,13 @@ class TestDevShell(unittest.TestCase):
         pin = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))["superpowers"]["pin"]
         self.assertEqual(os.path.realpath(self.toolset_rec["superpowers"]["source"]),
                          os.path.realpath(ROOT / ".shared" / "borrow" / "superpowers" / pin["version"]), self.toolset_rec)
-        for name in ("coldwrite", "pr-review-toolkit"):
+        for name in ("gates", "pr-review-toolkit"):
             self.assertTrue(self.toolset_rec[name]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec[name])
         with tempfile.TemporaryDirectory() as home:
             dot = make_user_config(pathlib.Path(home) / ".claude")
             result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="", HOME=home)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(self.toolset_rec["coldwrite"]["source"].startswith(str(dot) + os.sep), self.toolset_rec)
+            self.assertTrue(self.toolset_rec["gates"]["source"].startswith(str(dot) + os.sep), self.toolset_rec)
 
     def test_archon_sh_resolves_relative_user_config_before_passing_it(self):
         """相対の CLAUDE_CONFIG_DIR は、殻を起こした所から絶対パスに直して toolset.py へ渡す（toolset.py は絶対だけを受ける）。
@@ -766,7 +766,7 @@ class TestDevShell(unittest.TestCase):
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="../user-claude-config",
                                             cwd_in_tmp="dev-home")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for name in ("coldwrite", "pr-review-toolkit"):   # superpowers は works の写しから入れる
+        for name in ("gates", "pr-review-toolkit"):   # superpowers は works の写しから入れる
             src = self.toolset_rec[name]["source"]
             self.assertTrue(os.path.isabs(src), self.toolset_rec[name])
             self.assertTrue(os.path.realpath(src).startswith(os.path.realpath(self.user_cfg) + os.sep), self.toolset_rec[name])
@@ -778,7 +778,7 @@ class TestDevShell(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             result, _, seen = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=empty)
         self.assertEqual(result.returncode, 2, result.stderr)
-        for cmd in ("claude plugin install coldwrite@raiki61", "claude plugin install pr-review-toolkit@claude-plugins-official"):
+        for cmd in ("claude plugin install gates@raiki61", "claude plugin install pr-review-toolkit@claude-plugins-official"):
             self.assertIn(cmd, result.stderr)
         self.assertNotIn("superpowers@superpowers-marketplace", result.stderr)
         self.assertIsNone(seen, "止めるべき所で Archon を起こした")

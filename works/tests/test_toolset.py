@@ -7,11 +7,11 @@ AI の節は全部 settingSources: [user] で、開発の殻（dev/archon.sh）�
   sha256 と合わなければ、違うファイルを名指して何も写さずに止まる。5 つのスキルを skills/<名>/ へ、部品（parts）を
   works-parts/superpowers/<相対パス> へバイトのまま写す（プラグインとしては入れない。有効にすると SessionStart の hook が
   using-superpowers を差し込むため。裁定 P1-R8）。
-- coldwrite・pr-review-toolkit: 利用者が Claude Code に入れたプラグインから取る（works は写しを持たない。版は Claude Code が
+- gates・pr-review-toolkit: 利用者が Claude Code に入れたプラグインから取る（works は写しを持たない。版は Claude Code が
   今に保つ）。探す所は利用者の設定の置き場の plugins/installed_plugins.json の <名>@<marketplace> の行（user の行、次に
   projectPath が cwd の project・local の行）。入っていない・works が名前で頼る物（agent・hook）が無い借りる物は、1 物 1 行の
   理由と入れるコマンドを並べて止まる。中身・版・バイトは確かめない（試験が中身を見るのは、ここで作った偽のプラグインだけ）。
-- coldwrite・pr-review-toolkit を、設定の中の手元の marketplace works-local（works-marketplace/）に写し、Claude Code の CLI
+- gates・pr-review-toolkit を、設定の中の手元の marketplace works-local（works-marketplace/）に写し、Claude Code の CLI
   （claude plugin marketplace add・install）で入れる。Claude Code のキャッシュの印（.in_use/・.orphaned_at）は写さない。
 柵（guard）は一覧の外（CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の settings*.json・
 一覧の外のスキル・settings.json の許す鍵の外・一覧の外のプラグインと marketplace）を名前で並べ、CLI は終了コード 2 で止まる。
@@ -52,7 +52,7 @@ VENDORED = spseam.vendored_dir(toolset.load_borrow(ROOT)["superpowers"])
 LENSES = ["code-reviewer", "silent-failure-hunter", "type-design-analyzer", "pr-test-analyzer", "comment-analyzer"]
 MP = "works-local"
 # 偽の利用者の設定に入れる偽のプラグイン: 名 → (marketplace, キャッシュの版の置き場の名・installed_plugins.json の version)
-FAKE_INSTALLED = {"superpowers": ("superpowers-marketplace", "9.9.0"), "coldwrite": ("raiki61", "1.2.3"),
+FAKE_INSTALLED = {"superpowers": ("superpowers-marketplace", "9.9.0"), "gates": ("raiki61", "1.2.3"),
                   "pr-review-toolkit": ("claude-plugins-official", "abc123def456")}
 
 
@@ -81,10 +81,11 @@ def make_user_config(base: pathlib.Path, only=None, scope="user", project=None) 
             _put(d / "LICENSE", "MIT License\n\nCopyright (c) 2025 Test\n")
             for f in ("SKILL.md", "implementer-prompt.md", "task-reviewer-prompt.md"):   # 部品（parts）は 2 本だけを借りる
                 _put(d / "skills" / "subagent-driven-development" / f, f"偽の {f}\n")
-        elif name == "coldwrite":
+        elif name == "gates":
             _put(d / ".claude-plugin" / "plugin.json", json.dumps({"name": name, "version": ver}))
-            _put(d / "hooks" / "hooks.json", json.dumps({"hooks": {"PreToolUse": [
-                {"matcher": "Write", "hooks": [{"type": "prompt", "prompt": "偽の初見検査"}]}]}}))
+            _put(d / "hooks" / "hooks.json", json.dumps({"hooks": {
+                "PostToolUse": [{"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": "偽の記録"}]}],
+                "Stop": [{"hooks": [{"type": "command", "command": "偽の初見検査"}]}]}}))
         else:
             _put(d / ".claude-plugin" / "plugin.json", json.dumps({"name": name}))   # 本物と同じく version を持たない
             for a in LENSES + ["code-simplifier"]:
@@ -170,7 +171,7 @@ def upstream_redirect(to) -> dict:
     return gitkit.git_url_redirect(toolset.UPSTREAM_URL, to)
 
 
-PLUGINS = ("coldwrite", "pr-review-toolkit")   # 手元の marketplace に並ぶ名の順（sorted）
+PLUGINS = ("gates", "pr-review-toolkit")   # 手元の marketplace に並ぶ名の順（sorted）
 
 
 class Base(unittest.TestCase):
@@ -224,18 +225,18 @@ class BorrowListCase(unittest.TestCase):
         """借りる物は利用者が入れたプラグインの <名>@<marketplace> で名指し、入れるコマンドの marketplace の元（GitHub）を持つ。
         works が名前で頼る物（スキル・agent・hook）だけを並べる。写しを示す印（pinned）は無い"""
         b = toolset.load_borrow(ROOT)
-        self.assertEqual(sorted(b), ["coldwrite", "pr-review-toolkit", "superpowers"])
+        self.assertEqual(sorted(b), ["gates", "pr-review-toolkit", "superpowers"])
         self.assertEqual(sorted(b["superpowers"]["skills"]), sorted(BORROW_SKILLS))
         want = {"superpowers": ("superpowers-marketplace", "obra/superpowers-marketplace"),
-                "coldwrite": ("raiki61", "raiki61/claude-plugins"),
+                "gates": ("raiki61", "raiki61/claude-plugins"),
                 "pr-review-toolkit": ("claude-plugins-official", "anthropics/claude-plugins-official")}
         for name, (mp, repo) in want.items():
             with self.subTest(name):
                 self.assertEqual((b[name]["marketplace"], b[name]["marketplace_repo"]), (mp, repo))
                 self.assertNotIn("pinned", b[name])
         self.assertEqual(b["superpowers"]["kind"], "skills")
-        self.assertEqual(b["coldwrite"], {"kind": "plugin", "marketplace": "raiki61", "marketplace_repo": "raiki61/claude-plugins",
-                                          "hooks": {"PreToolUse": ["Write"]}})
+        self.assertEqual(b["gates"], {"kind": "plugin", "marketplace": "raiki61", "marketplace_repo": "raiki61/claude-plugins",
+                                          "hooks": {"PostToolUse": ["Write|Edit|MultiEdit"], "Stop": [""]}})
         self.assertEqual(b["pr-review-toolkit"]["agents"], LENSES)
 
     def test_lens_names_cover_what_the_graph_calls(self):
@@ -247,9 +248,9 @@ class BorrowListCase(unittest.TestCase):
         self.assertEqual(sorted(used - set(toolset.load_borrow(ROOT)["pr-review-toolkit"]["agents"])), [])
 
     def test_no_vendored_copies(self):
-        """works は coldwrite・pr-review-toolkit の写しを持たない（利用者が入れた版に従う）。superpowers の写しは VendorCase と
+        """works は gates・pr-review-toolkit の写しを持たない（利用者が入れた版に従う）。superpowers の写しは VendorCase と
         test_sp_skills の VendoredCopyCase が縛る"""
-        for name in ("pr-review-toolkit", "coldwrite"):
+        for name in ("pr-review-toolkit", "gates"):
             self.assertFalse((ROOT / ".shared" / name).exists(), name)
         self.assertFalse((ROOT / "NOTICE").exists())
 
@@ -438,7 +439,7 @@ class ResolveCase(unittest.TestCase):
         target.mkdir()
         user = make_user_config(self.tmp / "user", scope="project", project=target)
         chosen, _ = toolset.installed_sources(user, self.borrow, cwd=target)
-        self.assertEqual(chosen["coldwrite"], installed_dir(user, "coldwrite"))
+        self.assertEqual(chosen["gates"], installed_dir(user, "gates"))
         with self.assertRaises(toolset.ToolsetError):
             toolset.installed_sources(user, self.borrow, cwd=self.tmp)
 
@@ -452,14 +453,14 @@ class ResolveCase(unittest.TestCase):
         lines = str(cm.exception).splitlines()[1:]
         self.assertEqual(len(lines), 2, lines)
         self.assertNotIn("superpowers", str(cm.exception))
-        for key, repo in (("coldwrite@raiki61", "raiki61/claude-plugins"),
+        for key, repo in (("gates@raiki61", "raiki61/claude-plugins"),
                           ("pr-review-toolkit@claude-plugins-official", "anthropics/claude-plugins-official")):
             line = next(ln for ln in lines if key in ln)
             self.assertIn(f"claude plugin marketplace add {repo}", line)
             self.assertIn(f"claude plugin install {key}", line)
 
     def test_only_the_missing_one_is_named(self):
-        user = make_user_config(self.tmp / "user", only={"superpowers", "coldwrite"})
+        user = make_user_config(self.tmp / "user", only={"superpowers", "gates"})
         with self.assertRaises(toolset.ToolsetError) as cm:
             toolset.installed_sources(user, self.borrow)
         lines = str(cm.exception).splitlines()[1:]
@@ -468,17 +469,20 @@ class ResolveCase(unittest.TestCase):
 
     def test_install_path_that_is_gone_counts_as_not_installed(self):
         user = make_user_config(self.tmp / "user")
-        shutil.rmtree(installed_dir(user, "coldwrite"))
+        shutil.rmtree(installed_dir(user, "gates"))
         with self.assertRaises(toolset.ToolsetError) as cm:
             toolset.installed_sources(user, self.borrow)
-        self.assertIn("coldwrite が入っていない", str(cm.exception))
+        self.assertIn("gates が入っていない", str(cm.exception))
 
     def test_missing_names_stop_with_the_name(self):
         """works が名前で頼る物が無い版は止める（名前が API）。無い名前を出す"""
         cases = {   # superpowers のスキルの欠けは写しの照合が名指す（test_tampered_vendored_copy_stops_before_writing）
             "agent comment-analyzer": lambda u: (installed_dir(u, "pr-review-toolkit") / "agents" / "comment-analyzer.md").unlink(),
-            "hook PreToolUse:Write": lambda u: _put(installed_dir(u, "coldwrite") / "hooks" / "hooks.json",
-                                                    json.dumps({"hooks": {"PreToolUse": [{"matcher": "Edit"}]}})),
+            "hook PostToolUse:Write|Edit|MultiEdit": lambda u: _put(installed_dir(u, "gates") / "hooks" / "hooks.json",
+                                                    json.dumps({"hooks": {"PostToolUse": [{"matcher": "Edit"}], "Stop": [{}]}})),
+            # matcher を持たない事象（Stop）は名だけで出す
+            "hook Stop（": lambda u: _put(installed_dir(u, "gates") / "hooks" / "hooks.json",
+                                         json.dumps({"hooks": {"PostToolUse": [{"matcher": "Write|Edit|MultiEdit"}]}})),
         }
         for want, breakit in cases.items():
             with self.subTest(want):
@@ -498,7 +502,7 @@ class ResolveCase(unittest.TestCase):
         self.assertEqual((chosen["superpowers"], versions["superpowers"]), (VENDORED, self.borrow["superpowers"]["pin"]["version"]))
 
     def test_plugins_content_is_not_checked(self):
-        """coldwrite・pr-review-toolkit は今どおり名前だけ: 名前が在れば、中身が変わった新しい版でも通る（役は読むだけ）"""
+        """gates・pr-review-toolkit は今どおり名前だけ: 名前が在れば、中身が変わった新しい版でも通る（役は読むだけ）"""
         user = make_user_config(self.tmp / "user")
         _put(installed_dir(user, "pr-review-toolkit") / "agents" / "code-reviewer.md", "新しい版の文\n")
         chosen, _ = toolset.installed_sources(user, self.borrow)
@@ -555,7 +559,7 @@ class ScopeCase(unittest.TestCase):
         記録の source_enabled は、元で勝った enabledPlugins の値（どこにも鍵が無ければ null）。superpowers は写しから入れるので、
         利用者の側の有効・無効を載せない"""
         _put(self.user / "settings.json", json.dumps({"enabledPlugins": {
-            "coldwrite@raiki61": False, "superpowers@superpowers-marketplace": False}}))
+            "gates@raiki61": False, "superpowers@superpowers-marketplace": False}}))
         _put(self.target / ".claude" / "settings.json", json.dumps({"enabledPlugins": {
             "superpowers@superpowers-marketplace": True}}))
         cfg = self.tmp / "claude-config"
@@ -565,9 +569,9 @@ class ScopeCase(unittest.TestCase):
                            env={k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"})
         self.assertEqual(r.returncode, 0, r.stderr)
         rec = json.loads((cfg / toolset.RECORD).read_text())
-        self.assertEqual(rec["coldwrite"]["source"], str(installed_dir(self.user, "coldwrite")))
+        self.assertEqual(rec["gates"]["source"], str(installed_dir(self.user, "gates")))
         self.assertEqual({n: rec[n].get("source_enabled", "無い") for n in FAKE_INSTALLED},
-                         {"coldwrite": False, "superpowers": "無い", "pr-review-toolkit": None})
+                         {"gates": False, "superpowers": "無い", "pr-review-toolkit": None})
 
 
 class InstalledShapeCase(unittest.TestCase):
@@ -614,11 +618,11 @@ class InstalledShapeCase(unittest.TestCase):
 
 class InstallCase(Base):
     def test_install_builds_exactly_the_chosen_config(self):
-        """一時の置き場に組んだ設定の中身が、ちょうど 5 つのスキル・2 つの部品・手元の marketplace の coldwrite と
+        """一時の置き場に組んだ設定の中身が、ちょうど 5 つのスキル・2 つの部品・手元の marketplace の gates と
         pr-review-toolkit・その入れた状態だけ。superpowers の写す元は works の写し、ほかは利用者が入れた置き場で、キャッシュの印は
         写さない"""
         rec = self.install()
-        srcs = {"coldwrite": installed_dir(self.user, "coldwrite"), "pr-review-toolkit": installed_dir(self.user, "pr-review-toolkit")}
+        srcs = {"gates": installed_dir(self.user, "gates"), "pr-review-toolkit": installed_dir(self.user, "pr-review-toolkit")}
         sp = VENDORED
         want = sorted(
             [f"skills/{n}/{f}" for n in BORROW_SKILLS for f in files_under(sp / "skills" / n)]
@@ -649,7 +653,7 @@ class InstallCase(Base):
                          + [["plugin", "install", f"{n}@{MP}"] for n in PLUGINS])
         # 記録: 版は installed_plugins.json の行の物、source は利用者が入れた置き場（versions.json の borrowed に載る）。
         # superpowers は pin の版と写しのフォルダ
-        self.assertEqual(sorted(rec), ["coldwrite", "pr-review-toolkit", "superpowers"])
+        self.assertEqual(sorted(rec), ["gates", "pr-review-toolkit", "superpowers"])
         self.assertEqual({k: (v["version"], v["source"], v["loaded"]) for k, v in rec.items()},
                          {n: (ver, str(installed_dir(self.user, n)), True) for n, (_, ver) in FAKE_INSTALLED.items()
                           if n != "superpowers"}
@@ -662,23 +666,23 @@ class InstallCase(Base):
         self.install()
         before = {f: (self.cfg / f).read_bytes() for f in files_under(self.cfg)}
         self.log.unlink()
-        _put(installed_dir(self.user, "coldwrite") / ".in_use" / "9999", "{}")
+        _put(installed_dir(self.user, "gates") / ".in_use" / "9999", "{}")
         self.install()
         self.assertEqual(self.calls(), [])
         self.assertEqual({f: (self.cfg / f).read_bytes() for f in files_under(self.cfg)}, before)
 
     def test_changed_plugin_is_recopied_and_reinstalled(self):
         """利用者のプラグインが新しい版になれば（Claude Code が今に保つ）、写し直して入れ直す"""
-        src = installed_dir(self.user, "coldwrite")
+        src = installed_dir(self.user, "gates")
         self.install()
         self.log.unlink()
-        (src / "hooks" / "hooks.json").write_text('{"hooks": {"PreToolUse": [{"matcher": "Write"}]}}\n', encoding="utf-8")
+        (src / "hooks" / "hooks.json").write_text('{"hooks": {"PostToolUse": [{"matcher": "Write|Edit|MultiEdit"}], "Stop": [{"hooks": []}]}}\n', encoding="utf-8")
         self.install()
-        key = f"coldwrite@{MP}"
+        key = f"gates@{MP}"
         self.assertEqual(self.calls(), [["plugin", "marketplace", "update", MP], ["plugin", "uninstall", key],
                                         ["plugin", "install", key]])
-        self.assertEqual((self.cfg / "works-marketplace" / "coldwrite" / "hooks" / "hooks.json").read_text(),
-                         '{"hooks": {"PreToolUse": [{"matcher": "Write"}]}}\n')
+        self.assertEqual((self.cfg / "works-marketplace" / "gates" / "hooks" / "hooks.json").read_text(),
+                         '{"hooks": {"PostToolUse": [{"matcher": "Write|Edit|MultiEdit"}], "Stop": [{"hooks": []}]}}\n')
 
     def test_stale_skill_copy_and_exec_bit_are_fixed(self):
         sp = VENDORED
@@ -700,7 +704,7 @@ class InstallCase(Base):
 
     def test_no_superpowers_installed_still_installs(self):
         """利用者が superpowers を入れていなくても組め、スキルは写しのバイトと同じ"""
-        self.user = make_user_config(self.tmp / "user2", only={"coldwrite", "pr-review-toolkit"})
+        self.user = make_user_config(self.tmp / "user2", only={"gates", "pr-review-toolkit"})
         rec = self.install()
         for s in self.borrow["superpowers"]["skills"]:
             for f in files_under(VENDORED / "skills" / s):
@@ -766,7 +770,7 @@ class InstallCase(Base):
         heads = [ln for ln in str(cm.exception).splitlines() if ln.startswith("- ")]
         self.assertEqual(len(heads), 3, heads)
         self.assertTrue(heads[0].startswith("- superpowers の写し"), heads)
-        self.assertIn("coldwrite が入っていない", heads[1])
+        self.assertIn("gates が入っていない", heads[1])
         self.assertIn("pr-review-toolkit が入っていない", heads[2])
         self.assertIn("  - skills/test-driven-development/SKILL.md: 中身が固定と違う", str(cm.exception))
 
@@ -845,11 +849,11 @@ class InstallCase(Base):
         self.assertEqual(toolset.guard(self.cfg, self.borrow), ["works-parts/superpowers/skills/subagent-driven-development/SKILL.md"])
 
     def test_plugin_not_enabled_after_cli_fails_closed(self):
-        """CLI が 0 で終わっても coldwrite が有効になっていなければ、入ったことにしない（フックの効かない役を起こさない）"""
+        """CLI が 0 で終わっても gates が有効になっていなければ、入ったことにしない（フックの効かない役を起こさない）"""
         with mock.patch.dict(os.environ, {"FAKE_CLAUDE_NOOP": "1"}):
             with self.assertRaises(toolset.ToolsetError) as cm:
                 self.install()
-        self.assertIn("coldwrite", str(cm.exception))
+        self.assertIn("gates", str(cm.exception))
 
     def test_cli_error_is_reported(self):
         bad = self.tmp / "bin" / "claude-bad"
@@ -965,7 +969,7 @@ class CliCase(Base):
                 self.assertEqual(self.calls(), [])
         r = self.cli("install", "--no-plugins", str(self.cfg), CLAUDE_CONFIG_DIR=str(empty))
         self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("coldwrite@raiki61", r.stderr)
+        self.assertIn("gates@raiki61", r.stderr)
 
     def test_cli_refuses_relative_user_config(self):
         """利用者の設定の置き場は絶対パスだけを受ける（相対は殻が cd の前に直す。cd の後に対象から解くと別の置き場を読む）。
@@ -1183,7 +1187,7 @@ class NewerCase(Base):
     def setUp(self):
         super().setUp()
         shutil.rmtree(self.tmp / "user")   # Base の偽の superpowers 9.9.0 のフォルダも消す（版のフォルダは候補に数える）
-        self.user = make_user_config(self.tmp / "user", only={"coldwrite", "pr-review-toolkit"})
+        self.user = make_user_config(self.tmp / "user", only={"gates", "pr-review-toolkit"})
         self.item = toolset.load_borrow(ROOT)["superpowers"]
         # newer が読む pack は偽の物（写しの固定の commit を試験が書き換えても本物の borrow.json に触れない）
         self.pack = self.tmp / "pack"
