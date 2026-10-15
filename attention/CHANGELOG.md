@@ -6,6 +6,19 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Added
+
+- `catchup.py --render <描く材料> <欄>`。`--out` が書く描く材料（JSON）と、AI が書く小さな欄の JSON（headline・where・turn・next・unseen・explain・figure）を雛形 `templates/catchup.html` に流し込み、`~/.cache/attention/catchup/<owner>-<repo>/<番号>.html` を書く（同じ件は上書き）。同じ置き場の `index.html` に、ページごとに 1 行（件・件名・誰の番・次の一手・更新）を並べる。欄に直す所があれば、日本語で 1 件 1 行を出して終了コード 2 で止まる。
+- 描いた後、生きている VS Code の窓のすべてでページを開く。`ATTENTION_CATCHUP_OPEN=0` なら開かない。開けなくても失敗にしない。
+- `/catchup setup`（`catchup.py --setup`、確かめるだけなら `--setup --check`）。VS Code で見る準備をする: 拡張 Simple HTML Viewer を入れ、Remote の Machine の設定に 2 つを足し（他の設定は消さず、書く前に控えを置く）、見本のページを描いて開く。
+
+### Changed
+
+- `/catchup` の返事を、端末の長い散文から 1 枚の HTML のページにした。端末に返るのはページの path と 1 行の要約だけ。差分・指摘・CI のログ・番の受け渡しの図は機械が描き、AI は欄だけを書く。前提（VS Code の Remote-SSH・Simple HTML Viewer・設定 2 つ）と見え方の落ち方は README の「前提（HTML で見る）」に在る。
+- `/catchup` の図を、罫線の絵（60 桁・14 行）から、変更前と変更後の箱と矢印の鎖にした。`figure-check.py` は `/what-am-i-doing` の絵にだけ使う。
+- `/catchup` の欄の文体を常体の短文にした（旧の返事は です・ます）。
+- `/catchup` の命令書の `allowed-tools` に Write を足した（欄の JSON を一時の階層に書く）。
+
 ## [0.27.0] - 2026-10-15
 
 ### Added
