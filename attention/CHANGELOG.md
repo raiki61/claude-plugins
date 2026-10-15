@@ -6,7 +6,17 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Added
+
+- `/reflect [期間]`（today・yesterday・week（既定）・month・YYYY-MM-DD・YYYY-MM-DD..YYYY-MM-DD）。その期間の会話・裏で起こされた会話（`claude -p` やフックが起こしたもの）・commit・GitHub の動き・`/insights` の控え・入っているプラグインと指示ファイル・提案の台帳を機械（`scripts/reflect.py`）が集め、AI が改善の提案（回数 × 手間の大きい順。自動にする前に、やめられないかを先に見る）と、仕事の仕方についての気づきとヒントを書き、機械が 1 枚の HTML（`~/.cache/attention/reflect/<始まり>_<終わり>.html`）に描く。仕様は `docs/reflect-spec.md`。
+- 読む設定のフォルダを足す `ATTENTION_REFLECT_CONFIG_DIRS` と、日記の置き場 `ATTENTION_REFLECT_DIARY_DIR`。日記の置き場を決めていれば、1 日の期間のとき、その日の日記の末尾の節（`<!-- reflect:start -->` から `<!-- reflect:end -->`）だけを書き直す。
+- 提案の台帳（`${XDG_STATE_HOME:-~/.local/state}/attention/reflect-ledger.json`）と `reflect.py --decide <id> <adopted|dismissed|held|open>`。却下した提案は次から機械が落とす。壊れた台帳は上書きせずに止まる。
+- 非公開のリポジトリの PR・issue の番号とリポジトリ名を、AI の文に書かせない。`--render` が見つけたら終了コード 2 で止める（何の作業か・量・言いたいことで書く）。
+- `/my-turn` の手順 0。掘る前に、PR の今の状態（merge 済みか・head・CI）、この PR の会話とレビューと行のコメントの全部（自分の前の指摘の一覧）、名指しされた PR・issue・ADR を取り直す。
+
 ### Changed
+
+- VS Code でページを拡張のプレビューで開く関連付けを、`/catchup` と `/reflect` の両方に効く `**/.cache/attention/**/*.html` に広げた。前の版で準備した人は `/catchup setup` を打ち直すと足される。
 
 - `/catchup` のページを読みやすくした。指摘のスレッドの発言を、GitHub と同じく Markdown として描く（太字・コードの囲み・箇条・リンク。生の HTML は描かずに文字にし、リンクは http(s)・mailto・ページ内・相対だけ、画像は読み込まない）。部品は marked 15.0.12（MIT）を雛形に埋め込んだ。
 - 「前回から」の番の受け渡しを、横の帯の図から、GitHub の PR の会話の流れと同じ縦の並び（印・誰が・何を・いつ、最後に「いま」）にした。帯の図は字が小さく、点の名前が重なっていた。
