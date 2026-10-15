@@ -534,7 +534,8 @@ def main(argv=None, ports=None):
         # HEAD が前に送った時の head のままなら、remote に見えない commit は作者の force-push で消えた物（手元で積んだ物でない）
         local = (ports.stashed(path, p["head"]) if rec["head"] and ports.head_sha(path) == rec["head"]
                  else ports.unpushed(path))
-        v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local)
+        v = "busy" if len(inside) > 1 else fresh.decide(inside[0], act, rec["at"], ports.is_clean(path), local,
+                                                        sent_head=rec["head"])
         if v == "refresh":
             refresh[p["number"]] = inside[0]
         else:

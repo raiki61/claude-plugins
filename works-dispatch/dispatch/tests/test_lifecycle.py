@@ -39,6 +39,14 @@ class Decide(unittest.TestCase):
         self.assertEqual(fresh.decide(session(), {"last_other": 150.0}, 200.0, True, False), "no_news")
         self.assertEqual(fresh.decide(session(), {"last_other": None}, None, True, False), "no_news")
 
+    def test_a_moved_head_is_news_even_without_newer_activity(self):
+        # 作者の push（force-push で古い時刻の commit が来ても）。会話の無い PR の判断（quiet_since_sent）と同じ見方
+        moved = {"last_other": 150.0, "head_sha": "b" * 40}
+        self.assertEqual(fresh.decide(session(), moved, 200.0, True, False, sent_head="a" * 40), "refresh")
+        self.assertEqual(fresh.decide(session(), moved, 200.0, True, False, sent_head="b" * 40), "no_news")
+        self.assertEqual(fresh.decide(session(), moved, 200.0, True, False), "no_news")   # 古い控え（head 無し）
+        self.assertEqual(fresh.decide(session("busy"), moved, 200.0, True, False, sent_head="a" * 40), "busy")
+
     def test_busy_or_local_work_is_never_refreshed(self):
         news = {"last_other": 999.0}
         self.assertEqual(fresh.decide(session("busy"), news, None, True, False), "busy")
@@ -318,6 +326,15 @@ class Flow(unittest.TestCase):
         self.assertEqual(line(out, 1).split()[-2:], ["-", "no_news"])
         self.assertTrue(line(out, 2).endswith("sent"), out)
         self.assertEqual([w["branch"] for w in self.linked(ports)], ["feat/2"])
+
+    def test_open_conversation_with_a_moved_head_is_refreshed(self):
+        path = self.place(1)
+        self.sent({"o/r#1": {"at": 1000.0, "head": gitx.head_sha(path)}})
+        ports = FakePorts([pr(1)])
+        self.talking_in(ports, path)
+        ports.acts = {1: {"reviewers": True, "last_other": None, "head_sha": "b" * 40}}
+        rc, out = run_main(self.cfg, ports, "--dry-run")
+        self.assertTrue(line(out, 1).endswith("refresh"), out)
 
     def test_dry_run_says_refresh_and_touches_nothing(self):
         path = self.place(1)

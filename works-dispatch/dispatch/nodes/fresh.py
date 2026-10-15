@@ -38,21 +38,29 @@ def quiet_since_sent(sent, activity):
     at = (sent or {}).get("at")
     if not isinstance(at, (int, float)):
         return False
-    head, now = (sent or {}).get("head"), activity.get("head_sha")
-    if head and now and head != now:
+    if _head_moved((sent or {}).get("head"), activity):
         return False
     last = activity.get("last_other")
     return last is None or last <= at
 
 
-def decide(session, activity, sent_at, clean, unpushed):
-    """refresh・busy・dirty・unpushed・no_news のどれか。session は sessions ノードの 1 行、activity は {last_other}。"""
+def _head_moved(sent_head, activity):
+    """控えの head と PR の今の head が違うか（作者の push。どちらかが分からなければ偽）。"""
+    now = activity.get("head_sha")
+    return bool(sent_head and now and sent_head != now)
+
+
+def decide(session, activity, sent_at, clean, unpushed, sent_head=None):
+    """refresh・busy・dirty・unpushed・no_news のどれか。session は sessions ノードの 1 行、activity は {last_other, head_sha}。
+    sent_head は前に送った時の head。今の PR の head と違えば、時刻に依らず動きとする（quiet_since_sent と同じ見方）。"""
     if session.get("status") != "idle":
         return "busy"
     if not clean:
         return "dirty"
     if unpushed:
         return "unpushed"
+    if _head_moved(sent_head, activity):
+        return "refresh"
     last = activity.get("last_other")
     since = max([t for t in (sent_at, session.get("started")) if isinstance(t, (int, float))], default=None)
     if last is None or (since is not None and last <= since):
