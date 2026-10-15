@@ -8,9 +8,9 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ### Added
 
-- `catchup.py --render <描く材料> <欄>`。`--out` が書く描く材料（JSON）と、AI が書く小さな欄の JSON（headline・where・turn・next・unseen・explain・figure）を雛形 `templates/catchup.html` に流し込み、`~/.cache/attention/catchup/<owner>-<repo>/<番号>.html` を書く（同じ件は上書き）。同じ置き場の `index.html` に、ページごとに 1 行（件・件名・誰の番・次の一手・更新）を並べる。欄に直す所があれば、日本語で 1 件 1 行を出して終了コード 2 で止まる。
+- `catchup.py --render <描く材料> <欄>`（どちらも JSON の file の path）。`--out` が書く描く材料と、AI が書く小さな欄の JSON（headline・where・turn・next・unseen・explain・figure）を雛形 `templates/catchup.html` に流し込み、`~/.cache/attention/catchup/<owner>-<repo>/<番号>.html` を書く（同じ件は上書き）。同じ置き場の `index.html` に、ページごとに 1 行（件・件名・誰の番・次の一手・更新）を並べる。欄に直す所があれば、日本語で 1 件 1 行を出して終了コード 2 で止まる。
 - 描いた後、生きている VS Code の窓のすべてでページを開く。`ATTENTION_CATCHUP_OPEN=0` なら開かない。開けなくても失敗にしない。
-- `/catchup setup`（`catchup.py --setup`、確かめるだけなら `--setup --check`）。VS Code で見る準備をする: 拡張 Simple HTML Viewer を入れ、Remote の Machine の設定に 2 つを足し（他の設定は消さず、書く前に控えを置く）、見本のページを描いて開く。
+- `/catchup setup`（`catchup.py --setup`、確かめるだけなら `--setup --check`）。VS Code で見る準備をする: 拡張 Simple HTML Viewer を入れ、Remote の Machine の設定に 2 つ（catchup のページをこの拡張で開く関連付けと、描き直したら表示も変わる自動の再読み込み）を足し（他の設定は消さず、書く前に控えを置く）、見本のページを描いて開く。
 
 ### Changed
 
