@@ -291,18 +291,18 @@ class InsightsAndAssets(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = pathlib.Path(tmp) / "cfg"
             (cfg / "usage-data" / "facets").mkdir(parents=True)
-            (cfg / "usage-data" / "facets" / "s1.json").write_text(json.dumps({"session_id": "s1", "brief_summary": "要約", "outcome": "ok"}))
-            (cfg / "usage-data" / "facets" / "s2.json").write_text("{壊れた")
-            (cfg / "usage-data" / "report.html").write_text("<html>")
+            (cfg / "usage-data" / "facets" / "s1.json").write_text(json.dumps({"session_id": "s1", "brief_summary": "要約", "outcome": "ok"}), encoding="utf-8")
+            (cfg / "usage-data" / "facets" / "s2.json").write_text("{壊れた", encoding="utf-8")
+            (cfg / "usage-data" / "report.html").write_text("<html>", encoding="utf-8")
             plug = pathlib.Path(tmp) / "plug"
             (plug / "commands").mkdir(parents=True)
-            (plug / "commands" / "go.md").write_text("---\ndescription: 行く命令\n---\n本文")
+            (plug / "commands" / "go.md").write_text("---\ndescription: 行く命令\n---\n本文", encoding="utf-8")
             (plug / "skills" / "s").mkdir(parents=True)
-            (plug / "skills" / "s" / "SKILL.md").write_text("---\nname: s\ndescription: 技\n---\n")
+            (plug / "skills" / "s" / "SKILL.md").write_text("---\nname: s\ndescription: 技\n---\n", encoding="utf-8")
             (cfg / "plugins").mkdir()
             (cfg / "plugins" / "installed_plugins.json").write_text(json.dumps(
-                {"plugins": {"p@m": [{"version": "1.0.0", "installPath": str(plug)}]}}))
-            (cfg / "CLAUDE.md").write_text("x")
+                {"plugins": {"p@m": [{"version": "1.0.0", "installPath": str(plug)}]}}), encoding="utf-8")
+            (cfg / "CLAUDE.md").write_text("x", encoding="utf-8")
             ins = rf.insights([cfg], {"s1", "s2", "s3"})
             self.assertEqual([f["brief_summary"] for f in ins["facets"]], ["要約"])
             self.assertEqual(len(ins["reports"]), 1)
