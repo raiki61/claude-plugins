@@ -325,9 +325,12 @@ def build_html(template, data, fields, entry):
     for slot in (DATA_SLOT, INDEX_SLOT, TITLE_SLOT):
         if slot not in template:
             raise ValueError(f"雛形に差し込み口 {slot} が無い")
-    return (template.replace(TITLE_SLOT, f"<title>{html.escape(title)}</title>", 1)
-            .replace(INDEX_SLOT, _script_json(entry), 1)
-            .replace(DATA_SLOT, _script_json({"data": data, "fields": fields}), 1))
+    # 3 つを 1 回の走査で差し込む。順に replace すると、先に入れた件名などに後の差し込み口の文字列が
+    # 含まれていたとき、そちらに当たって本物の口が空のまま残る
+    filled = {TITLE_SLOT: f"<title>{html.escape(title)}</title>", INDEX_SLOT: _script_json(entry),
+              DATA_SLOT: _script_json({"data": data, "fields": fields})}
+    pattern = re.compile("|".join(re.escape(slot) for slot in filled))
+    return pattern.sub(lambda m: filled.pop(m.group(0), m.group(0)), template)
 
 
 def _write_atomic(path, text):
@@ -557,7 +560,31 @@ def _strip_jsonc(text):
         else:
             out.append(c)
             i += 1
-    return re.sub(r",(\s*[}\]])", r"\1", "".join(out)), comments
+    return _drop_trailing_commas("".join(out)), comments
+
+
+def _drop_trailing_commas(text):
+    """閉じ括弧の前の余分な , を、文字列の外でだけ落とす（文字列の中の ",]" を壊さない）。注記を落とした後に呼ぶ。"""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+            continue
+        if c == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def settings_gaps(obj):

@@ -147,6 +147,15 @@ class PageTest(unittest.TestCase):
         self.assertIn("<title>#1 &lt;/script&gt;", html)
         self.assertNotIn(ch.DATA_SLOT, html)
 
+    def test_slot_strings_in_untrusted_text_do_not_steal_the_slots(self):
+        title = f"x {ch.DATA_SLOT} {ch.INDEX_SLOT} y"
+        d = self.data(title=title)
+        entry = ch.index_entry(d, fields(), "o-r/1.html", ch.dt.datetime(2026, 10, 15))
+        page = ch.build_html(ch.TEMPLATE.read_text(encoding="utf-8"), d, fields(), entry)
+        self.assertNotIn(f'id="data">{ch.DATA_SLOT}', page)
+        self.assertIn('"title": "x /*__DATA__*/null', page.replace("\\u003c", "<"))
+        self.assertNotIn(f">{ch.INDEX_SLOT}<", page)
+
     def test_write_page_overwrites_and_rebuilds_index(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -253,6 +262,13 @@ class SettingsTest(unittest.TestCase):
         backup = self.path.with_name("settings.json.bak-20261015-090000")
         self.assertEqual(json.loads(backup.read_text(encoding="utf-8")), {"a.b": 1, ch.ASSOC_KEY: {"*.x": "v"}})
         self.assertEqual(ch.merge_settings(self.path)[0], [f"設定は揃っている（{self.path}）"])
+
+    def test_commas_and_brackets_inside_strings_survive_the_rewrite(self):
+        self.path.write_text(json.dumps({"editor.wordSeparators": "a,]b", "x": "[1,}"}), encoding="utf-8")
+        lines, ok = ch.merge_settings(self.path)
+        self.assertTrue(ok, lines)
+        got = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual((got["editor.wordSeparators"], got["x"]), ("a,]b", "[1,}"))
 
     def test_missing_file_is_created_without_backup(self):
         lines, ok = ch.merge_settings(self.path)
