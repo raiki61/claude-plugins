@@ -130,6 +130,7 @@ def _epoch(stamp):
 ACTIVITY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     author { login }
+    headRefOid
     reviewRequests(first: 50) { nodes { requestedReviewer { __typename } } }
     reviews(last: 100) { nodes { author { __typename login } submittedAt } }
     comments(last: 100) { nodes { author { __typename login } createdAt } }
@@ -141,7 +142,7 @@ ACTIVITY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
 def pr_activity(repo, number, me, runner=_default_runner, env=None):
     """PR の動きのうち、送り直す判断と、作者の PR にレビュアーが居るかの判断に要る物。
     {"reviewers": 人へのレビューの依頼か、作者のほかの人のレビューが有るか, "last_other": me のほかの人の最後のコメント・レビュー・
-    commit の時刻（秒）}。Bot（copilot など）は、レビュアーにも、動きにも数えない。見分けは whose-turn と同じく GraphQL の
+    commit の時刻（秒）, "head_sha": PR の今の head の commit}。Bot（copilot など）は、レビュアーにも、動きにも数えない。見分けは whose-turn と同じく GraphQL の
     __typename（login の形では見分けない）。レビューのスレッドへの返事は、返した人のレビューとして reviews に入る。読めなければ GhError。"""
     owner, name = repo.split("/", 1)
     p = runner(["gh", "api", "graphql", "-f", f"query={ACTIVITY_QUERY}", "-F", f"owner={owner}", "-F", f"name={name}",
@@ -162,4 +163,5 @@ def pr_activity(repo, number, me, runner=_default_runner, env=None):
               if me not in [who(a.get("user")) for a in ((c.get("commit") or {}).get("authors") or {}).get("nodes") or []]]
     people = [r for r in nodes("reviews") if human(r.get("author")) and who(r.get("author")) not in (author, None)]
     asked = [q for q in nodes("reviewRequests") if ((q.get("requestedReviewer") or {}).get("__typename")) in ("User", "Team")]
-    return {"reviewers": bool(asked or people), "last_other": max([t for t in times if t is not None], default=None)}
+    return {"reviewers": bool(asked or people), "last_other": max([t for t in times if t is not None], default=None),
+            "head_sha": got.get("headRefOid")}

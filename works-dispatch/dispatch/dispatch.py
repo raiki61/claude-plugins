@@ -12,6 +12,7 @@
 止まっている（blocked）・会話が開いている（already_open）などは誤りではないので、終了の値は 0。
 
 一覧で回すとき（--pr・--issue 無し）は、2 の fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
+会話の開いていない PR も、前に送った控えが有って、その後に自分以外の動きも head の変化も無ければ開かない（no_news）。
 送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じ場所に立て直す。
 最後に、閉じた PR の場所を片付ける（_tidy。--dry-run は並べるだけ）。
 
@@ -505,10 +506,24 @@ def main(argv=None, ports=None):
     # 枝の場所の中で会話が開いている PR: 自分以外の動きが前に送った時より後に有れば、会話とペインを畳んで新しく立て直す
     sent = ports.load_sent(cfg.limits_dir)
     refresh, verdicts = {}, {}
+    quiet = set()
+    keys = sessions.open_keys(sess)
     for p in (my_prs if listing else []):
         path = places.get(p["head"])
         inside = [x for x in sess if x["cwd"] and path and fresh.inside(x["cwd"], path)]
         if not inside:
+            # 会話が開いていない PR: 前に送った後に動きが無ければ、開き直さない（返事待ちの PR を、持ち主が会話を閉じただけで
+            # もう一度レビューしない。持ち主 2026-10-15）。--pr で名指したときはここを通らない
+            sent_rec = sent.get(_key(repo, p["number"]))
+            if sent_rec is None or (repo.repo, p["head"]) in keys:
+                continue
+            try:
+                act = acts.get(p["number"]) or ports.activity(repo, p["number"])
+            except ghx.GhError as e:
+                notes.append(f"#{p['number']}: {e}（前に送った後の動きが分からないので開く）")
+                continue
+            if fresh.quiet_since_sent(_sent_record(sent_rec), act):
+                quiet.add(p["number"])
             continue
         try:
             act = acts.get(p["number"]) or ports.activity(repo, p["number"])
@@ -524,6 +539,8 @@ def main(argv=None, ports=None):
             refresh[p["number"]] = inside[0]
         else:
             verdicts[p["number"]] = v
+    held += [_held_row(p, "no_news", places) for p in my_prs if p["number"] in quiet]
+    my_prs = [p for p in my_prs if p["number"] not in quiet]
     staying = [x for x in sess if not any(x is r for r in refresh.values())]
     metered = [x.name for x in cfg.accounts if x.limits]
     if not a.dry_run:

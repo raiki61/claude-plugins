@@ -75,7 +75,7 @@ class Activity(unittest.TestCase):
                                    "submittedAt": "2026-10-15T01:00:00Z"}]},
             "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "ci"}, "createdAt": "2026-10-15T02:00:00Z"}]},
             "commits": {"nodes": []}})
-        self.assertEqual(got, {"reviewers": False, "last_other": None})
+        self.assertEqual(got, {"reviewers": False, "last_other": None, "head_sha": None})
 
     def test_people_count_and_my_own_moves_do_not(self):
         got = self.run_with({
@@ -88,6 +88,11 @@ class Activity(unittest.TestCase):
                                               "authors": {"nodes": [{"user": {"login": "me"}}]}}}]}})
         self.assertTrue(got["reviewers"])
         self.assertEqual(got["last_other"], 1792026000.0)
+
+    def test_head_of_the_pr_is_read(self):
+        got = self.run_with({"author": {"login": "me"}, "headRefOid": "c" * 40, "reviewRequests": {"nodes": []},
+                             "reviews": {"nodes": []}, "comments": {"nodes": []}, "commits": {"nodes": []}})
+        self.assertEqual(got["head_sha"], "c" * 40)
 
     def test_a_pending_request_to_a_person_is_a_reviewer(self):
         got = self.run_with({"author": {"login": "me"},
@@ -276,6 +281,43 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertTrue(line(out, 1).endswith("close_failed"), out)
         self.assertIn("server_unreachable", out)
+
+    def sent(self, record):
+        limits = pathlib.Path(self.root).parent / "limits"
+        limits.mkdir(exist_ok=True)
+        (limits / dispatch.SENT_FILE).write_text(json.dumps(record))
+
+    def test_without_a_conversation_an_earlier_send_without_news_is_not_reopened(self):
+        # 持ち主の決め（2026-10-15）: 返事待ちの PR は、持ち主が会話を閉じただけでは開き直さない
+        H = "a" * 40
+        cases = (
+            ("控えあり・動き無し", {"o/r#1": {"at": 100.0, "head": H}}, {"last_other": 90.0, "head_sha": H}, (), "no_news"),
+            ("控えあり・動きあり", {"o/r#1": {"at": 100.0, "head": H}}, {"last_other": 500.0, "head_sha": H}, (), "create"),
+            ("head が違う", {"o/r#1": {"at": 100.0, "head": H}}, {"last_other": None, "head_sha": "b" * 40}, (), "create"),
+            ("--pr で名指し", {"o/r#1": {"at": 100.0, "head": H}}, {"last_other": None, "head_sha": H}, ("--pr", "1"), "create"),
+            ("控え無し", {}, {"last_other": None, "head_sha": H}, (), "create"),
+            ("時刻だけの古い控え・動き無し", {"o/r#1": 100.0}, {"last_other": None, "head_sha": H}, (), "no_news"),
+        )
+        for name, record, act, argv, want in cases:
+            with self.subTest(name):
+                self.setUp()
+                self.sent(record)
+                ports = FakePorts([{**pr(1), "role": "reviewer"}])
+                ports.pr_info = lambda repo, n: pr(n)
+                ports.acts = {1: {"reviewers": True, **act}}
+                rc, out = run_main(self.cfg, ports, "--dry-run", *argv)
+                self.assertEqual(rc, 0, out)
+                self.assertTrue(line(out, 1).endswith(want), out)
+                self.assertEqual(ports.herdr.writes, [])
+
+    def test_no_news_pr_takes_no_account_and_makes_no_place(self):
+        self.sent({"o/r#1": {"at": 100.0, "head": "a" * 40}})
+        ports = FakePorts([pr(1), pr(2)])
+        ports.acts = {1: {"reviewers": True, "last_other": None, "head_sha": "a" * 40}}
+        rc, out = run_main(self.cfg, ports)
+        self.assertEqual(line(out, 1).split()[-2:], ["-", "no_news"])
+        self.assertTrue(line(out, 2).endswith("sent"), out)
+        self.assertEqual([w["branch"] for w in self.linked(ports)], ["feat/2"])
 
     def test_dry_run_says_refresh_and_touches_nothing(self):
         path = self.place(1)

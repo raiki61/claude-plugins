@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 前に送った後に相手の動き（自分以外のコメント・レビュー・commit。Bot は数えない）が無い PR は、会話が開いていなくても開き直さない（`no_news`）。返事待ちの PR を、会話を閉じただけでもう一度レビューしていた。PR の head が前に送った時と違えば（作者の push。force-push で古い時刻の commit が来ても）動きとして数える。`--pr N` で名指したときは今までどおり開く。
+
 ## [0.3.0] - 2026-10-15
 
 ### Added

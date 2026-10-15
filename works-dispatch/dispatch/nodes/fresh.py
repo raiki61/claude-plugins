@@ -9,6 +9,9 @@
 送り直すときは、入口が会話を終えてペインを畳み、同じ場所に新しい作業場と会話を立てて /catchup から送る（場所は checkout だけを
 使い直す。会話を /clear で使い回さないのは、作る道を 1 本にするため）。
 
+quiet_since_sent は、会話の開いていない PR を開き直さずに置くか（前に送った後に動きが無ければ no_news）。入口は、--pr で名指した
+ときは使わない。
+
 own_unreviewed は、自分が作者でレビュアーの付いていない PR（レビューの依頼も、作者のほかの人のレビューも無い）。持ち主の決め
 （2026-10-15「自分のレビュワーついてない作業のやつはたてなくていい」）で、一覧から開かない。--pr で指したものは入口が外さない。
 """
@@ -25,6 +28,21 @@ def inside(cwd, path):
 
 def own_unreviewed(pr, activity):
     return pr.get("role") == "implementer" and not activity.get("reviewers")
+
+
+def quiet_since_sent(sent, activity):
+    """会話が開いていない PR を、開き直さずに置くか（no_news）。前に送った控え（{at, head}）が有り、送った時刻より後に自分以外の
+    動きが無く、PR の今の head も控えの head のままなら真。持ち主の決め（2026-10-15）: 返事待ちの PR は、持ち主が会話を閉じた
+    だけでは開き直さない。head が違えば、commit の時刻に依らず動きとする（force-push で古い時刻の commit が来ることがあるため）。
+    控えが無い・控えに時刻が無いなら偽（開く）。"""
+    at = (sent or {}).get("at")
+    if not isinstance(at, (int, float)):
+        return False
+    head, now = (sent or {}).get("head"), activity.get("head_sha")
+    if head and now and head != now:
+        return False
+    last = activity.get("last_other")
+    return last is None or last <= at
 
 
 def decide(session, activity, sent_at, clean, unpushed):
