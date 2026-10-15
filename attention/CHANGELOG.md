@@ -6,6 +6,8 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-16
+
 ### Added
 
 - `/reflect [期間]`（today・yesterday・week（既定）・month・YYYY-MM-DD・YYYY-MM-DD..YYYY-MM-DD）。その期間の会話・裏で起こされた会話（`claude -p` やフックが起こしたもの）・commit・GitHub の動き・`/insights` の控え・入っているプラグインと指示ファイル・提案の台帳を機械（`scripts/reflect.py`）が集め、AI が改善の提案（回数 × 手間の大きい順。自動にする前に、やめられないかを先に見る）と、仕事の仕方についての気づきとヒントを書き、機械が 1 枚の HTML（`~/.cache/attention/reflect/<始まり>_<終わり>.html`）に描く。仕様は `docs/reflect-spec.md`。
