@@ -46,6 +46,7 @@ import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 import limits  # noqa: E402
+import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, sessions, turn  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
@@ -314,6 +315,10 @@ class Ports:
         cdir = config.effective_config_dir(config.Account("", "", config_dir), self.account_env)
         found = claudex.catchup_commands(cdir)
         return found[0] if len(found) == 1 else None
+
+    def open_pages(self, repo, numbers):
+        """送り終えた PR の /catchup のページのうち書かれているものを、VS Code の窓にタブで開く（vscode.open_pages）。"""
+        return vscode.open_pages([p for p in (vscode.page_path(repo.repo, n) for n in numbers) if p.is_file()], self.env)
 
     def trust(self, account, source, clone):
         """元の clone を信頼済みのアカウントなら、枝の場所（worktree）にも信頼の印を付ける（claudex.inherit_trust）。"""
@@ -642,6 +647,11 @@ def main(argv=None, ports=None):
             if measured:
                 ports.refresh_limits(cfg, measured)
                 ports.save_cost(cfg.limits_dir, cost.samples(before, ports.read_limits(cfg.limits_dir, measured), counts))
+            # 起こした会話には /catchup のページを開かせていない（launch の ATTENTION_CATCHUP_OPEN=0）。送り終えた件だけ、ここで 1 回開く
+            opened = ports.open_pages(repo, [r["number"] for r, _ in ready
+                                             if r["kind"] == "pr" and results.get(r["number"]) in ("sent", "refreshed")])
+            if opened:
+                notes.append(opened)
 
     if listing:
         notes += _tidy(cfg, repo, ports, a.dry_run, found)

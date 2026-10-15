@@ -87,4 +87,4 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 - 作業中の会話・未コミットの変更や push していない commit の有る会話は、送り直しにも片付けにも使わない（`busy`・`dirty`・`unpushed`）。相手の新しい返事が無い会話もそのまま（`no_news`）。前に送った後に相手の動き（コメント・レビュー・commit・head の変化）が無い PR は、会話を閉じてあっても開き直さない（`no_news`。`--pr N` で名指せば開く）。PR の作業場の外で同じブランチの会話が開いていれば、その PR は飛ばす（`already_open`）。
 - シェルではない物（エディタ・dev server・別の会話）が前に居るペインには打ち込まない（`pane_busy`）。起こした Claude Code が信頼やログインの確認の画面で止まったら、`/catchup` を送らずに `blocked` と報告する。
 - 依存（`.venv`・`node_modules`）は入れない。試験を走らせる段になってから、その会話の中で入れる。
-- 起こした会話の `/catchup` のページを、VS Code の窓に開かない（起こすコマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く）。ページは書かれ、attention の一覧のページに載る。
+- 起こした会話の `/catchup` のページを、会話ごとには VS Code の窓に開かない（起こすコマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く）。全件を送り終えた後に、送った PR のページをまとめて、生きている VS Code の窓にタブで開く（`ATTENTION_CATCHUP_OPEN=0` で dispatch を走らせれば開かない。窓が無ければページの path を報告に出す）。
