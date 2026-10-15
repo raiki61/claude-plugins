@@ -9,6 +9,7 @@ import ast
 import json
 import pathlib
 import re
+import warnings
 
 SKIP = ("tests", "vendor")
 
@@ -143,7 +144,20 @@ def d8_schemas(root):
     return out
 
 
-FENCES = (d1_old_works, d2_no_sh, d3_nodes_blind, d4_outward, d5_no_timeout, d6_no_owner_env, d8_schemas)
+def compiles_clean(root):
+    """Python が警告を出さずに読める（文字列の中の不正なエスケープなど。今は SyntaxWarning で、先の版で SyntaxError になる）。"""
+    out = []
+    for rel, p in _files(root, "*.py"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            try:
+                compile(p.read_text(encoding="utf-8"), rel, "exec")
+            except (SyntaxError, SyntaxWarning) as e:
+                out.append(f"{rel}: 警告なしに読めない（{e}）")
+    return out
+
+
+FENCES = (d1_old_works, d2_no_sh, d3_nodes_blind, d4_outward, d5_no_timeout, d6_no_owner_env, d8_schemas, compiles_clean)
 
 
 def check_all(root):

@@ -37,6 +37,9 @@ class EachFenceCatches(unittest.TestCase):
         self.assertCaught(fences.d1_old_works, {"x.py": "import sys\nsys.path.append('works/dev')\n"})
         self.assertCaught(fences.d1_old_works, {"x.py": "R = 'darkfactory'\n"})
 
+    def test_compiles_without_warning(self):
+        self.assertCaught(fences.compiles_clean, {"x.py": 'S = "\\`"\n'})
+
     def test_d2_shell_script(self):
         self.assertCaught(fences.d2_no_sh, {"run.sh": "echo hi\n"})
 

@@ -178,7 +178,7 @@ def prompt(target, text, wait, runner=_default_runner, until=()):
 
 def _norm(path):
     """herdr から受け取ったパスを、ここで 1 回だけ os.path.normpath にそろえる。中ではそろえた形だけを使う。
-    herdr が返すのは git の worktree list と同じ `/` 区切りで、Windows では os.path.join で作るパス（`\` 区切り）と字が
+    herdr が返すのは git の worktree list と同じ `/` 区切りで、Windows では os.path.join で作るパス（`\\` 区切り）と字が
     食い違い、同じ場所を別物とみなしていた（2026-10-15 の CI の windows の組）。比べる所は realpath を使うので、それとも矛盾しない。"""
     return os.path.normpath(path) if path else path
 
