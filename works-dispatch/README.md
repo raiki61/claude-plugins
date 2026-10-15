@@ -1,6 +1,6 @@
 # works-dispatch
 
-自分の番の PR を、PR ごとの作業場（代表の clone から作る clone と、herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で `/catchup <番号>` と、設定のファイルに書いた 2 ターン目の文を送る Claude Code のプラグイン。相手の新しい返事が有れば同じフォルダに会話を立て直して送り直し、閉じた PR の作業場は片付ける（PR ごとの作業場の一生を 1 つのコマンドで回す）。herdr は、端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具。修正の工場 works（darkfactory）と同じ系列の名前を持つが、中身は works の何も使わない。
+自分の番の PR を、枝ごとの作業場（代表の clone の git worktree と、herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で `/catchup <番号>` と、設定のファイルに書いた 2 ターン目の文を送る Claude Code のプラグイン。相手の新しい返事が有れば同じ場所に会話を立て直して送り直し、閉じた PR の場所は片付ける（作業場の一生を 1 つのコマンドで回す）。issue から始める作業も、issue に結んだ枝の作業場を開いて `/catchup <issue の番号>` まで送れる（`--issue N`）。herdr は、端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具。修正の工場 works（darkfactory）と同じ系列の名前を持つが、中身は works の何も使わない。
 
 - AI は使わない。全部 Python の標準ライブラリだけのスクリプト（`dispatch/`）で、`/works-dispatch:dispatch` のスキル（`skills/dispatch/SKILL.md`）はそれを走らせて出力を見せるだけ。
 - 使う人向けの前提と手順は SKILL.md にまとめた。ここは直す人向けに書く。
@@ -16,12 +16,14 @@
   - accounts: アカウントを使用率で並べる。
   - assign: PR をアカウントと作業場に割り振る。全部の PR は同時に走るので、始める前に、各アカウントの使用率の残りと 1 件あたりの使用率から件数を決める。
   - cost: 1 件あたりの使用率を測って覚える。dispatch が始める前と全部の `/catchup` の後に使用率を API に問い合わせ（出力 0 トークン）、差を開いた件数で割る。週の使用率は statusline からは枠の中で動かない（`limits.py` の record の決まり）ので、問い合わせで取る。
-  - provision: clone と herdr の作業場を、無ければ作り、有れば使い直す。
+  - provision: 枝の場所（代表の clone の git worktree）と herdr の作業場を、無ければ作り、有れば開き直して、origin の head へ早送りする。代表の clone 自身がその枝を開いていれば作らない（`branch_busy`）。`--issue` で issue に枝がまだ無ければ、GitHub に枝を作って結ぶ（`gh issue develop`）。
   - launch: Claude Code を起こす。
   - turn: `/catchup` と 2 ターン目の文を送る。1 ターン目の終わりは Claude Code 自身の会話の状態で見る。会話を終える（`/exit`）口も持つ。
-  - clean: 消してよい作業場を並べる・消す。ペインの作業場だけを畳む口（release）も持つ。
+  - clean: 代表の clone の linked worktree のうち、消してよい場所を並べる・消す（手元の枝も消す）。ペインの作業場だけを畳む口（release）も持つ。
   - report: 結果を 1 件 1 行で出す。
 - 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）の 4 つ。
+  - 場所（git worktree）を作る・並べる・開く・消すのは herdr の worktree の口で、`herdr.py` の `worktrees`・`create_worktree`・`open_worktree`・`remove_worktree` だけが呼ぶ（herdr アダプタ）。ノードは「枝の場所」の言葉だけで書く。置き場は herdr の設定の `worktrees.directory`（既定 `~/.herdr/worktrees/<リポジトリ>/<枝の slug>`）に任せる。
+  - worktree は枝と stash を代表の clone と共有するので、手元の作業の判定（`gitx.unpushed`・`gitx.stashed`）は、その場所の HEAD とその枝の物だけを数える。
 - 流れの外に、任意の道具が 2 つある。どちらも dispatch の設定のアカウントを読む。
   - `limits.py`: 使用率の控えを作って読む。控えが古いアカウントにだけ API を問い合わせ（probe）、statusline の値を取り込み（record）、herdr のタブ欄に 1 行ずつ出す（show）。取り直しの規則は、持ち主が先に作った `limits.sh` と `statusline.sh` から写した。herdr の打ち切りの秒は、コードの外の雛形 `templates/herdr-tab-bar.toml` に置く（D5）。
     - herdr のタブ欄から呼ぶ道（show と probe）は、設定の TOML を読まず、`herdr-config` が書くアカウントの写し（`<limits_dir>/accounts.json`）を読む。herdr がタブ欄のコマンドに渡す PATH は、ログインのシェルの PATH と違い、macOS では OS に付いてくる Python 3.9 が `python3` になった（2026-10-15 に実物で確かめた）。TOML を読む `tomllib` は 3.11 からなので、そのままでは起動できない。
@@ -29,7 +31,7 @@
   - `activity.py`: Claude Code のフックから、herdr のサイドバーの印 `$act` に作業内容を送る。
 - 柵 D1〜D8 は、試験 `dispatch/tests/test_rules.py` が構文木と文字で見る。中身は設計書の 4 節にある。
   - D1: works（darkfactory）の部品（`works/.shared/` など）を読まない。入れたプラグインはほかのプラグインのフォルダを引けないため。
-  - D4: 外へ書く関数は、決まったノードからだけ呼ぶ。
+  - D4: 外へ書く関数は、決まったノードからだけ呼ぶ。対応の表は `dispatch/tests/fences.py` の `WRITES`。
   - D5: 期限（timeout）を足さない。
   - D6: 持ち主の環境の値（アカウント名・パスなど）をコードに書かない。
 - attention の `whose-turn.py` と、共通の `scripts/claude_auth.py` は、`dispatch/vendor/` に写して使う。写しは `scripts/shared-copies.py` が正本と同じかを見張る。
@@ -39,7 +41,7 @@
 
 `dispatch.py --check` が全部確かめる。設定の下書きは `dispatch.py --init --repo OWNER/NAME --source <代表の clone>` が書く。
 
-1. **herdr が動いている。** 手元の版の API に、使う 7 つの口（`HERDR_METHODS`）があることを確かめる。
+1. **herdr が動いている。** 手元の版の API に、使う 11 の口（`HERDR_METHODS`。worktree の 4 つを含む）があることと、代表の clone の worktree を並べられることを確かめる。
 2. **Claude Code の `claude agents --json`。** 開いている会話を、アカウントごとに読む公式の口。同じリポジトリとブランチの会話が開いていれば、その PR は飛ばす。
 3. **起こすコマンドと設定のフォルダ。** アカウントごとに、Claude Code を起こすシェルのコマンドと、そのコマンドが `CLAUDE_CONFIG_DIR` に入れるフォルダを書く。コマンドが `CLAUDE_CONFIG_DIR` を入れないなら、`config_dir` は書かない。書くと、信頼の記録と会話の一覧を読む場所がずれる。アカウントを切り替えない人は `accounts` を書かず、`claude` 1 つで動く。
    - `config_dir` を書かないアカウントのフォルダは、作業場のペインで新しく起きるログインのシェルが持つ `CLAUDE_CONFIG_DIR` で決める（`dispatch._login_config_dir`）。無ければ `~/.claude` になる。dispatch を走らせている会話の値は使わない。dispatch はふつう、別のアカウントの会話の中から走るためである。
@@ -47,21 +49,27 @@
    - `limits = false` は、使用率の枠の無いアカウント（Ollama、Foundry など）の印。控えを読まず、取り直さず、使用率で外さない。
 4. **`/catchup` を持つプラグイン。** アカウント全体（user）に入れたプラグインのうち、`commands/catchup.md` を持つものを探し、`/<plugin.json の名前>:catchup` を送る。人が画面で `/catchup` と打つと補完がプラグイン名を足すが、herdr は文字をそのまま送るので、名前を組み立てる必要がある。
 5. **gh でリポジトリを読める。** 有効なアカウントで読めないリポジトリには、設定に `gh_user` を書く。鍵は `gh auth token --user` で取り出し、gh を呼ぶ子のプロセスにだけ `GH_TOKEN` として渡す。gh にはフォルダごとにアカウントを替える仕組みが無く、`gh auth switch` はマシン全体を替えるので使わない。
-6. **代表の clone を、各アカウントで信頼済みにしておく。** Claude Code のフォルダの信頼は、リポジトリの根ごとに記録される。親のフォルダの信頼は、中の clone には効かない。そこで dispatch は、代表の clone を信頼済みのアカウントでだけ、作った clone にも信頼の印（`.claude.json` の `projects[<根>].hasTrustDialogAccepted`。公式の文書が手で信頼する手として書くもの）を付ける。代表を信頼していないアカウントでは何も書かず、確認がふつうに出る。
-7. **手元だけのファイルの置き場（任意）。** `copy_files` に書いた、git が追わないファイル（`.env.local`・`*.local.yaml`・`.claude/settings.local.json` など）を、新しい clone へ写す。写す元は `copy_from` で、省けば代表の clone。
+6. **代表の clone を、各アカウントで信頼済みにしておく。** Claude Code のフォルダの信頼は、リポジトリの根ごとに記録される。代表の clone の信頼は、そこから作った worktree（別のフォルダ）には効かない。そこで dispatch は、代表の clone を信頼済みのアカウントでだけ、作った worktree にも信頼の印（`.claude.json` の `projects[<根>].hasTrustDialogAccepted`。公式の文書が手で信頼する手として書くもの）を付ける。代表を信頼していないアカウントでは何も書かず、確認がふつうに出る。
+7. **手元だけのファイルの置き場（任意）。** `copy_files` に書いた、git が追わないファイル（`.env.local`・`*.local.yaml`・`.claude/settings.local.json` など）を、新しく作った worktree へ写す。写す元は `copy_from` で、省けば代表の clone。
 8. **使用率の控え（任意）。** `limits_dir/<アカウント名>.json`。無ければ、そのアカウントは使用率が分からないものとして順の最後に置く。作るのは `limits.py`。
 9. **herdr の連携（任意）。** `--check` が `herdr integration status` の claude の行を、アカウントのフォルダごとに読む。herdr の文書によれば、Claude Code の作業中の判定は herdr が画面から読み、連携のフックは会話の識別子を herdr に渡すだけである。そこで、無いときは止めずに、入れるコマンドを出す。
 10. **古いパス（任意）。** タブ欄の行とサイドバーのフックは、プラグインの版ごとのフォルダを指す。`--check` は、herdr の設定と各アカウントの `settings.json` が、消えた `limits.py` や `activity.py` を指していないかを見る。
 
 持ち主は、herdr の作業中の判定の規則（`~/.config/herdr/agent-detection/claude.toml`）も、手元で上書きしている。この規則はここに入れない。上書きは herdr が配る規則の写しなので、herdr を上げるたびに写し直しが要る。そのうえ、上書きが見る印（背景の作業が残る間に statusline が出す行）は、持ち主の statusline にしか無い。
 
-## 試しの実行で確かめた外の振る舞い（2026-10-14）
+## 試しの実行で確かめた外の振る舞い（2026-10-14・2026-10-15）
 
-確かめた版は、herdr 0.9.3、Claude Code 2.1.299、git 2.50.1（Apple Git-155）。版が変わったら、ここを確かめ直す。
+確かめた版は、herdr 0.9.3、Claude Code 2.1.299、git 2.50.1（Apple Git-155）、gh 2.102.0。版が変わったら、ここを確かめ直す。
 
 - herdr の `agent wait` は、まだ会話を見つけていないペインでは待たずに `agent_not_found` を返す。`herdr.wait_ready` は、ペインの前のプロセス（`pane process-info`）を見て待ち直す。
-- herdr の `pane run` と `workspace close` は、成功しても何も出力しない。
+- herdr の `pane run` は、成功しても何も出力しない。`workspace close` は 2026-10-14 には何も出さず、2026-10-15 には `{"result": {"type": "ok"}}` を返した（どちらも受ける）。
 - `herdr agent prompt` で送った `/exit` は、文字は入るが送信されなかった（Enter をもう 1 回押す必要があった）。`/attention:catchup 1737` は 1 回で送信された。違いの理由は調べていない。
 - 新しいフォルダで Claude Code を起こすと、信頼の確認が出る。この画面で Esc を押すと、会話は終わらずに進み、そのフォルダが信頼済みとして記録された。
-- `git clone` が、ローカルの clone でまれに `BUG: refs/files-backend.c:3050: initial ref transaction called with existing refs` で落ち、`.git` だけの作りかけを残す（20 回ほどのうち数回）。provision は作りかけを消して 1 回だけやり直す。原因は突き止めていない。
+- herdr の worktree の口（2026-10-15 に、一時の git リポジトリに打って確かめた。出力の写しは `dispatch/tests/test_ports.py`）:
+  - `worktree list --cwd <元の clone>` は、herdr で開いていないリポジトリに打っても作業場を開かない。`worktree create` は、その元の clone の作業場も開く。
+  - 自分の持ち物のリポジトリでは、`worktree create` に `--trust-repository` は要らなかった。
+  - `worktree open --path <場所>` だけでは `worktree_not_found` が返り、`--cwd <元の clone>` を足すと開いた。開いている場所に打つと、`already_open: true` でその作業場を返す。
+  - `worktree remove --workspace <ID>` は、未追跡のファイルが有ると `dirty_worktree_requires_force` で断る。消すと作業場も閉じ、手元の枝は残る。
+  - 元の clone が開いている枝で `worktree create` を打つと、git の「already used by worktree」で `worktree_create_failed` になる。dispatch はその前に `branch_busy` で止める。
+- 元の clone の作業場（親）を閉じると、そこから作った worktree の作業場もまとめて閉じることがある（持ち主の herdr の設定の注記は、画面で親を閉じると黙って連鎖すると書き、herdr の issue #3483 を指す。herdr の文書は、CLI の `workspace close --group` が親と linked worktree の作業場をまとめて閉じると書く）。要確認: CLI で `--group` 無しに親を閉じたときの振る舞いは試していない。dispatch は親の作業場を閉じない。
 

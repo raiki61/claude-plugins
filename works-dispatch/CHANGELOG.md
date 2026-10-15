@@ -6,6 +6,22 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- `--issue N`。issue から始める作業の入口。issue に結んだ枝（`gh issue develop --list`）の作業場を開き、1 ターン目の `/catchup N` まで送って止める（2 ターン目の文は送らない）。結んだ枝が見えなければ、その issue を閉じる開いた PR の枝を使い、それも無ければ既定の枝から GitHub に枝を作って issue に結ぶ（`gh issue develop`）。報告の行は `issue #N` で始め、枝を出す。`--pr` とは一緒に使えない。
+- 作業場の一生を 1 つのコマンドで回すようにした（引数なしで回すとき）。自分が作者でレビュアーの付いていない PR は開かない（`own_unreviewed`）。会話の開いている PR は、前に送った後に相手の新しい返事が有り、会話が手すきで手元の作業も無ければ、古い会話を終えて同じ場所で送り直す（`refreshed`）。閉じた PR の場所は最後に片付ける。1 ターン目の終わりは、herdr の画面の見立てでなく Claude Code の会話の状態で見る。
+
+### Changed
+
+- 作業場を、PR ごとの clone（`<clone_root>/<名前>-pr-<番号>`）から、枝ごとの git worktree に替えた。代表の clone（設定の `source`）から herdr の worktree の口で作り、置き場は herdr の設定の `worktrees.directory`（既定 `~/.herdr/worktrees/<リポジトリ>/<枝>`）に任せる。作るときも使い直すときも、origin の今の head へ早送りしてから `/catchup` に渡す（手元にしか無い commit が有れば動かさない）。代表の clone 自身がその枝を開いていれば作らず `branch_busy` と報告する。fork の PR は作らず `provision_failed` と報告する。
+- 報告の行の 3 つ目の欄を、作業場のフォルダの名前から枝の名前に替えた。
+- 片付け（`--clean`・一覧で回したときの最後）は、代表の clone の linked worktree だけを見る。枝の PR が閉じていて、会話が無く、手元の作業（未コミットの変更・git に足していないファイル・その枝の stash）も無く、手元の枝の先頭が PR の head と同じ場所だけ、worktree と手元の枝を消す。PR の無い枝は消さない。
+- 1 件あたりの使用率は、1 ターン目の終わりまで待った件だけで測る。`--no-second` の件を測ると、まだ使っていない差を覚えてしまっていた。
+
+### Removed
+
+- 設定の `clone_root`。読まなくなった（設定に残っていても止めない。消してよい）。前の版が作った `<名前>-pr-<番号>` の clone は、この版の片付けの対象にならない。要らなければ手で消す。
+
 ## [0.2.1] - 2026-10-15
 
 ### Changed
