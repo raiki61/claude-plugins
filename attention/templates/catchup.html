@@ -273,8 +273,10 @@ figure.fig figcaption { font-size: 12px; color: var(--fgColor-muted); margin-top
 .d2h-info { color: var(--fgColor-muted); }
 .d2h-code-line ins, .d2h-code-line del { border-radius: 3px; }
 .d2h-diff-table { font-family: var(--fontStack-mono); }
-.md-wrap .d2h-code-line, .md-wrap .d2h-code-line-ctn { white-space: pre-wrap; overflow-wrap: anywhere; }
-.md-wrap .d2h-code-line { width: auto; }
+/* 散文の行だけ折り返す。折り返すのは中身（ctn）だけ——行の箱（d2h-code-line）まで pre-wrap にすると、diff2html が
+   印と中身の間に置く改行まで描かれて、1 行が 3 行に割れる */
+.md-wrap .d2h-code-line { white-space: normal; width: auto; }
+.md-wrap .d2h-code-line-ctn { display: inline; width: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 tr.is-commented .d2h-code-linenumber { box-shadow: inset 3px 0 0 var(--fgColor-severe); color: var(--fgColor-default); font-weight: 600; }
 /* highlight.js の GitHub の theme を token で */
 .hljs { color: var(--hl-fg); background: transparent; }
@@ -409,7 +411,7 @@ const title = H.title || A.title || "";
 app.append(el("header", { class: "pr-head" },
   el("h1", {}, title, " ", H.ref ? el("span", { class: "num" }, H.url ? el("a", { href: H.url, class: "num" }, H.ref) : H.ref) : null),
   el("div", { class: "pr-meta" }, pill,
-    H.author ? [el("b", {}, H.author), "が"] : null,
+    H.author ? [el("b", {}, H.author), nFiles ? "が" : M.kind === "issue" ? "が起票" : null] : null,
     nFiles ? [`${nFiles} 個のファイルを変更`, el("span", { class: "add" }, `+${nAdd}`), el("span", { class: "del" }, `−${nDel}`)] : null,
     closes.length ? ["· 閉じる", closes.map(c => rich(`#${c.number}`))] : null,
     (H.notes || []).map(n => el("span", {}, "· " + n)))));
