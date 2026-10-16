@@ -246,7 +246,7 @@ class Flow(unittest.TestCase):
 
         def keys(pane, *k):
             real_keys(pane, *k)
-            if "ctrl+c" in k:
+            if "ctrl+z" in k:
                 self.ports.herdr.talking.discard(pane)
                 self.ports.herdr.front.pop(pane, None)
                 self.ports.list_sessions = real_list   # 打ち直すと会話が起きる
@@ -254,7 +254,31 @@ class Flow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         writes = [w for w in self.ports.herdr.writes if w[0] in ("send_keys", "run")]
-        self.assertEqual(writes[:2], [("send_keys", self.window, "ctrl+c"), ("run", self.window, "claude-a1 attach d")])
+        self.assertEqual(writes[:2], [("send_keys", self.window, "ctrl+z"), ("run", self.window, "claude-a1 attach d")])
+
+    def test_department_whose_pane_was_closed_is_reopened_and_attached(self):
+        # ペインを閉じると部署の作業場も閉じる（SKILL.md の「部署の会話を止める」の止め方）。作業場を開き直し、その新しいペインで
+        # 短い id の attach を打って戻す（まっさらな環境での 8 回目の試しの 2）
+        h = self.ports.herdr
+        ws = next(p["workspace_id"] for p in h._panes if p["pane_id"] == self.window)
+        h.close_workspace(ws)
+        real_run = h.run
+
+        def run(pane, command):
+            real_run(pane, command)
+            if " attach " in command:
+                h.talking.add(pane)
+                for p in h._panes:
+                    if p["pane_id"] == pane:
+                        p["agent"] = "claude"
+        h.run = run
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        opened = [w for w in h.writes if w[0] == "open_worktree"]
+        self.assertEqual(len(opened), 1)
+        [attach] = [w for w in h.writes if w[0] == "run"]
+        self.assertEqual(attach[2], "claude-a1 attach d")
+        self.assertNotEqual(attach[1], self.window, "閉じたペインでなく、開き直した作業場の新しいペインに打つ")
 
     def test_a_line_left_in_the_input_box_gets_an_enter(self):
         # Windows: attach で戻した直後に送った文が、入力欄に入ったまま送信されなかった。残っていれば Enter を足す

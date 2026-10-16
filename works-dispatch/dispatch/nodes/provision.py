@@ -187,6 +187,13 @@ def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
     return _read_back(out, made, seen, branch, notes, g)
 
 
+def reopen(source, path, name, h=herdr):
+    """閉じた部署の作業場（ペインを閉じると作業場も閉じる）を herdr に開き直し、新しいペインを返す。書く口（herdr の作業場）。
+    開けなければ HerdrError。"""
+    got = h.open_worktree(source, path, name)
+    return got.get("pane_id")
+
+
 def refresh_shape(source, g=gitx):
     """部署を立てる前に、会社の形を読む ref（origin の既定の枝。origin/HEAD が指す先）だけを origin から取り直す。書く口（手元の
     origin/<枝> を動かす）。取り直せなければ注記を返し、手元の控えのまま読ませる。origin/HEAD が無ければ何もしない（読む側の

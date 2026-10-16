@@ -115,15 +115,17 @@ def attach(row, pane, session_id, h=herdr):
 
 
 def end_stale_attach(pane, h=herdr):
-    """裏の処理が止まって会話が落ちた後も、部署の窓に残って「Waking session …」のまま止まる attach の画面（Linux で見た。
-    まっさらな環境での 7 回目の試しの 2）を、Ctrl-C で終わらせる。前に居るのが attach のときだけ送る。送ったら True。"""
+    """部署の窓の前に残った attach の画面を、Ctrl+Z でシェルに戻す。裏の処理が止まって会話が落ちた後も、attach は「Waking
+    session …」のまま前に残る（Linux で見た。まっさらな環境での 7 回目の試しの 2）。`claude attach --help` は「Ctrl+Z drops back
+    to your shell. The session keeps running either way.」と書き、Ctrl-C は attach を終わらせない（Linux の 2.1.301 で、生きた
+    attach も止まった attach も確かめた。8 回目の試しの 3）。前に居るのが attach のときだけ送る。送ったら True。"""
     try:
         front = h.foreground(pane)
     except h.HerdrError:
         return False
     if not any(" attach " in f" {c} " for c in front):
         return False
-    h.send_keys(pane, "ctrl+c")
+    h.send_keys(pane, "ctrl+z")
     return True
 
 

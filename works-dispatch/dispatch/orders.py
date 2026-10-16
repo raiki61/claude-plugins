@@ -134,7 +134,7 @@ def live_window(dept, ports):
     return pane
 
 
-def revive(dept, accounts_, ports, sessions_=None):
+def revive(dept, accounts_, ports, sessions_=None, source=None):
     """部署の窓に会話が居ない（PC やサーバーの再起動で attach の窓が落ちたなど）とき、部署の属性の会話の id で、部署のペインに
     `<アカウントのコマンド> attach <id>` を打ち、窓に会話が戻るのを見る。裏の会話は落ちても記録が残り、attach で前の続きから
     戻る（まっさらな環境での 5 回目の試しの 1。Windows で確かめた）。(戻ったペインか None, 言葉)。"""
@@ -146,9 +146,18 @@ def revive(dept, accounts_, ports, sessions_=None):
     sid = claudex.attach_id(entry, full)   # attach は短い id で打つ（部署を立てるときと同じ）
     command = f"{acc.command if acc else 'claude'} attach {sid}"
     try:
+        if not dept["panes"] and source:
+            # ペインを閉じると部署の作業場も閉じる。開き直し、新しいペインのシェルで attach を打つ
+            fresh = provision.reopen(source, dept["path"], dept["attrs"].get("name") or os.path.basename(dept["path"]), ports.herdr)
+            if fresh:
+                dept = {**dept, "panes": [{"pane_id": fresh, "agent": None}]}
+                for _ in range(REVIVE_LOOKS):
+                    if ports.herdr.shell_in_front(fresh):
+                        break
+                    ports.pause()
         pane = next((p["pane_id"] for p in dept["panes"] if ports.herdr.shell_in_front(p["pane_id"])), None)
         if pane is None:
-            # 止まった attach が窓の前に残っていれば Ctrl-C で終わらせ、シェルに戻るのを見る
+            # 止まった attach が窓の前に残っていれば Ctrl+Z でシェルに戻し、シェルに戻るのを見る
             for p in dept["panes"]:
                 if launch.end_stale_attach(p["pane_id"], ports.herdr):
                     for _ in range(REVIVE_LOOKS):
@@ -242,7 +251,7 @@ def ask(a, ports, cwd, task):
         pane, revived = live_window(dept, ports), False
         if pane is None and not a.dry_run:
             # 窓に会話が居ない: 部署の会話が落ちた（PC やサーバーの再起動など）。attach で前の続きから戻す
-            pane, said = revive(dept, accounts_, ports, sessions_)
+            pane, said = revive(dept, accounts_, ports, sessions_, company["root"])
             notes.append(said)
             revived = pane is not None
         if pane is None:

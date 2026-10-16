@@ -6,6 +6,13 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+まっさらな環境での 8 回目の試し（`docs/trials/2026-10-16-clean-env-8.md`）で残った 2 項目の直し。
+
+- ペインを閉じて止めた部署（ペインを閉じると、部署の作業場も herdr から閉じる）を、`--ask` が「作業場が herdr に開いていない」で戻せなかった。作業場を開き直し、その新しいペインのシェルで短い id の attach を打って戻す。Colima の Docker の一時の環境（Linux、Claude Code 2.1.301・herdr 0.9.5）で、未納品の頼みを持った部署のペインを閉じて止めた後の `--ask` が、開き直して戻し、納品を促すことを確かめた。
+- 部署の窓の attach の画面は、Ctrl-C では終わらなかった（macOS と Linux の 2.1.301 で確かめた）。`claude attach --help` が書く Ctrl+Z（「Ctrl+Z drops back to your shell. The session keeps running either way.」）で終わる。0.19.6 で入れた「前に残った attach を終わらせる」キーを Ctrl-C から Ctrl+Z に替え、SKILL.md の「部署の会話を止める」も Ctrl+Z とペインを閉じる手だけを書くよう直した。
+
 ## [0.19.6] - 2026-10-17
 
 ### Fixed
