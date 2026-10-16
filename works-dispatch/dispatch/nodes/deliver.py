@@ -58,8 +58,9 @@ def parse_target(target):
     return (company or None) if sep else None, rest
 
 
-def find_target(companies, here_root, target, task=None):
-    """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。
+def find_target(companies, here_root, target, task=None, current=lambda company, name: name):
+    """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。current は (会社, 役の名前) → 今の役の名前
+    （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
     部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。役で宛てて task（--task の部署の名前）を
     渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常設の部署が名前違いで居ても
@@ -99,9 +100,11 @@ def find_target(companies, here_root, target, task=None):
             raise DeliverError(f"{company['name']} に部署の名前「{task}」が 2 つ以上ある"
                                f"（{'、'.join(d['branch'] or d['path'] for d in mine)}）")
         return {"company": company, "department": mine[0] if mine else None,
-                "role": mine[0]["attrs"].get("role") or name if mine else name}
+                "role": current(company, mine[0]["attrs"].get("role") or name if mine else name)}
+    name = current(company, name)
     resident = [d for d in company["departments"]
-                if d["attrs"].get("role") == name and d["attrs"].get("residency") == "resident"]
+                if d["attrs"].get("role") and current(company, d["attrs"]["role"]) == name
+                and d["attrs"].get("residency") == "resident"]
     if len(resident) > 1:
         raise DeliverError(f"{company['name']} に役「{name}」の常設の部署が 2 つ以上ある"
                            f"（{'、'.join(d['attrs'].get('name') or d['branch'] for d in resident)}）。部署の名前で宛てる")

@@ -23,10 +23,14 @@
 - machine: true なら、AI の部署を持たない役（道具だけを持つ。--ask で宛てられない。部署を立てない）
 - tools: 機械窓口の道具の並び（[[roles.tools]]。受付の設計 5.2）。欄は MCP の Tool に合わせた name・title・description・inputSchema と、
   ここだけの command（走らせるコマンド）・fallback_role（片づかなかったときに回す役。省けばその役。machine の役では要る）
+- former_names: その役の前の名前の並び。役の名前を替えたときに書くと、前の名前で宛てた頼み（--ask 会社/前の名前）と、前の名前を
+  属性 company.role に持つ部署・本社が、今の役に当たる（Terraform の moved のように、名前の替え方を会社の形に書いて、属性の側を
+  手で直させない）。ほかの役の名前・前の名前と重なる物は problems に書いて外す
 役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
 表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
 会社の形の頭の default_role は、--task で --role を省いたときの役（[[roles]] のどれかの name）。省けば入口の既定（作業）。
+会社の形の頭の desk_role は、本社（代表の clone）で持ち主と話す会話の役（--desk で --role を省いたときの役。[[roles]] のどれかの name）。
 
 入口の dispatch.py --task が起こすときに load・pick・settings_for・write_settings・gh_user・warnings を呼び、プラグインのフック
 role_hook.py が context と env_line を呼ぶ。
@@ -98,7 +102,7 @@ def _tools(r, where, problems):
 
 
 def _empty():
-    return {"roles": {}, "gh_user": None, "default_role": None, "problems": []}
+    return {"roles": {}, "gh_user": None, "default_role": None, "desk_role": None, "former": {}, "problems": []}
 
 
 def load(path, text=None):
@@ -165,6 +169,20 @@ def load(path, text=None):
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
                                    "resident": r.get("resident") is True, "fresh": r.get("fresh") is True,
                                    "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"])}
+        olds = r.get("former_names", [])
+        if not (isinstance(olds, list) and all(isinstance(x, str) and x.strip() for x in olds)):
+            out["problems"].append(f"{where}（{r['name']}）: former_names が空でない文字列の並びで無いので外す")
+            olds = []
+        for old in (x.strip() for x in olds):
+            if old != r["name"]:
+                out["former"].setdefault(old, []).append(r["name"])
+    for old, now in list(out["former"].items()):
+        if old in out["roles"] or len(now) > 1:
+            why = "今の役の名前" if old in out["roles"] else f"2 つ以上の役（{', '.join(now)}）の前の名前"
+            out["problems"].append(f"{path}: 前の名前 {old} が{why}なので、前の名前としては引かない")
+            del out["former"][old]
+        else:
+            out["former"][old] = now[0]
     for r in out["roles"].values():
         keep = []
         for t in r["tools"]:
@@ -182,7 +200,19 @@ def load(path, text=None):
         out["problems"].append(f"{path}: default_role の役 {default} が [[roles]] に無い（在る役: {', '.join(out['roles']) or 'なし'}）")
     elif default:
         out["default_role"] = default
+    desk = raw.get("desk_role")
+    if desk is not None and not (isinstance(desk, str) and desk):
+        out["problems"].append(f"{path}: desk_role が文字列で無い")
+    elif desk and current(out, desk) not in out["roles"]:
+        out["problems"].append(f"{path}: desk_role の役 {desk} が [[roles]] に無い（在る役: {', '.join(out['roles']) or 'なし'}）")
+    elif desk:
+        out["desk_role"] = current(out, desk)
     return out
+
+
+def current(shape, name):
+    """役の名前を今の名前に引き直す（前の名前 former_names なら今の役の名前。ほかはそのまま）。"""
+    return name if not name or name in shape["roles"] else shape.get("former", {}).get(name, name)
 
 
 def default(shape, builtin):
@@ -198,7 +228,7 @@ def default(shape, builtin):
 def pick(shape, name, explicit):
     """役の名前から役の項目。(項目か None, 止める訳か None)。会社の形に役が書かれていて、名前を明示したのに無ければ止める
     （書き損じで設定が黙って効かないのを防ぐ）。明示していない既定の役が無いのは止めない。"""
-    got = shape["roles"].get(name)
+    got = shape["roles"].get(current(shape, name))
     if got is None and explicit and shape["roles"]:
         return None, f"役 {name} が会社の形に無い（在る役: {', '.join(shape['roles'])}）"
     return got, None

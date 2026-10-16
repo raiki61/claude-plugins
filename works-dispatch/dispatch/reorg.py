@@ -5,8 +5,10 @@ dispatch.py の流れの続きで、ノード（nodes/provision.py の mark・no
 同時に直すので、ぶつかりを減らすために別のファイルにした（orders.py・landing.py と同じ）。
 
 --reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・常設か都度か・上役を付け替える。
---desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける（名前を省けば DESK_ROLE）。役 DESK_ROLE・常設・名前・アカウントと会話の id を
-本社の git の設定に書く（手で書いていた company.role・company.name の正式な口）。
+--desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける。役（desk_role）・常設・名前・アカウントと会話の id と
+会話の処理の番号を本社の git の設定に書く（手で書いていた company.role・company.name の正式な口）。役は --role、会社の形の頭の
+desk_role、本社が今持つ役、DESK_ROLE の順に決め、名前を省けば本社が今持つ名前、無ければ役の名前。会話の処理の番号（company.pid）は、
+その会話を /clear・compact・resume して会話の id が変わったときに、フックが本社の属性の id を書き直すための見分け（同じ処理の会話だけ）。
 
 どちらも、名前を替えたら前の名前を属性 company.former-names（JSON の並び）に足す。--land・--ask は前の名前でも部署を引く
 （gitx.former_names）。属性を書いた後に、その場所の分だけ --sync と同じ物（ペインの名前・表示名・題名・札と作業場の名前）を付け直す。
@@ -22,7 +24,12 @@ import herdr
 import orders
 from nodes import provision, role, sync, tree
 
-DESK_ROLE = "窓口"   # 持ち主と話して頼みを配る本社の会話の役（持ち主 2026-10-16）
+DESK_ROLE = "窓口"   # 会社の形に desk_role も本社の役も無いときの、本社の会話の役（持ち主 2026-10-16）
+
+
+def desk_role(shape, attrs, given):
+    """--desk で書く役の名前。--role、会社の形の desk_role、本社が今持つ役（前の名前 former_names なら今の名前）、DESK_ROLE の順。"""
+    return role.current(shape, given or shape.get("desk_role") or attrs.get("role") or DESK_ROLE)
 
 
 def _same(a, b):
@@ -112,18 +119,18 @@ def reorg(a, ports, cwd):
     source = gitx.root_of(common)
     shape, notes = _shape(source, a)
     notes += shape["problems"]
-    the_role = attrs["role"]
+    the_role = role.current(shape, attrs["role"])
     if a.role:
         got, why = role.pick(shape, a.role, True)
         if why:
             print(f"止めた: {why}")
             return 2
-        the_role = a.role
+        the_role = role.current(shape, a.role)
     else:
         got = shape["roles"].get(the_role)
     changes = {}
     if a.role:
-        changes["role"] = a.role
+        changes["role"] = the_role
     if a.resident or a.per_task:
         changes["residency"] = "resident" if a.resident else "per-task"
     elif a.role and got and got["resident"]:
@@ -153,27 +160,28 @@ def reorg(a, ports, cwd):
 
 def desk(a, ports, cwd):
     """--desk [名前]。本社で持ち主と話す会話を窓口として名付ける。終了の値。"""
-    name = (a.desk or "").strip() or DESK_ROLE
     common = ports.git.common_dir(cwd)
     if not common:
         print(f"止めた: {cwd} が git でない（窓口は会社の代表の clone で開く）")
         return 2
     source = gitx.root_of(common)
     attrs = ports.attrs(cwd)
-    if ports.git.is_main_worktree(cwd) is False and attrs.get("role") and attrs["role"] != (a.role or DESK_ROLE):
-        print(f"止めた: {cwd} は部署（役 {attrs['role']}）。部署の名前と役は --reorg で付け替える")
-        return 2
     shape, notes = _shape(source, a)
     notes += shape["problems"]
-    the_role = a.role or DESK_ROLE
+    linked = ports.git.is_main_worktree(cwd) is False   # 部署の worktree（部署の役を窓口の役の候補にしない）
+    the_role = desk_role(shape, {} if linked else attrs, a.role)
+    if linked and attrs.get("role") and role.current(shape, attrs["role"]) != the_role:
+        print(f"止めた: {cwd} は部署（役 {attrs['role']}）。部署の名前と役は --reorg で付け替える")
+        return 2
+    name = (a.desk or "").strip() or attrs.get("name") or the_role
     if a.role:
         _, why = role.pick(shape, a.role, True)
         if why:
             print(f"止めた: {why}")
             return 2
-    elif shape["roles"] and DESK_ROLE not in shape["roles"]:
-        notes.append(f"会社の形に役 {DESK_ROLE} が無いので、窓口の会話に足す役の本文は無い（要るなら [[roles]] に {DESK_ROLE} を"
-                     "書けば、次の会話の始まりから足される）")
+    elif shape["roles"] and the_role not in shape["roles"]:
+        notes.append(f"会社の形に役 {the_role} が無いので、窓口の会話に足す役の本文は無い（要るなら会社の形の頭に "
+                     f"desk_role = \"<役>\" を書くか、--role で名指す。在る役: {', '.join(shape['roles'])}）")
     try:
         _, _, sessions_, _, companies, _, more = orders.survey(a.config, ports)
     except herdr.HerdrError as e:
@@ -190,7 +198,8 @@ def desk(a, ports, cwd):
                      "（窓口の会話の中から打てば書く）")
     changes = {"role": the_role, "residency": "resident", "name": name}
     if account:
-        changes.update({"account": account, "session": session})
+        pid = ports.caller_pid(sessions_)
+        changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
     former = _renamed(attrs, name)
     if former:
         changes["former-names"] = former

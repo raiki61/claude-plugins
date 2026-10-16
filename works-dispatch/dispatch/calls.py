@@ -123,6 +123,7 @@ def call(a, ports, cwd, task):
         print(f"止めた: {why}")
         return 2
     shape = role.load(info["path"], info["text"])
+    role_name = role.current(shape, role_name)   # 前の名前（former_names）で呼んでも今の役の道具を引く
     notes = [f"注記: {p}" for p in info.get("problems", []) + shape["problems"]]
     if a.dry_run:
         found, why = tools.find(shape["roles"], role_name, tool_name)
@@ -175,7 +176,7 @@ def fire(after, root, ports, a, task, attrs):
     boss = {k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")}
     lines = []
     for x in after:
-        rc, out = invoke(root, company, x["role"], x["tool"], x.get("input") or {}, shape["roles"], ports, a, task, boss=boss)
+        rc, out = invoke(root, company, role.current(shape, x["role"]), x["tool"], x.get("input") or {}, shape["roles"], ports, a, task, boss=boss)
         state = {0: "片づいた", CALLED: "AI に回した"}.get(rc, "呼べなかった")
         lines.append(f"合図（本流に入れた後）: {x['role']}/{x['tool']} {state}")
         lines += [f"  {line}" for item in out for line in item.splitlines()]

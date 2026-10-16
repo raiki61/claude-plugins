@@ -97,11 +97,23 @@ def survey(config_path, ports):
     return cfg, accounts_, sessions_, panes, companies, settings, notes
 
 
+def current_role(settings):
+    """find_target に渡す (会社, 役の名前) → 今の役の名前（その会社の形の former_names）。会社ごとに 1 度だけ読む。"""
+    shapes = {}
+
+    def current(company, name):
+        if company["root"] not in shapes:
+            info = tree.read_info(company["root"], settings)
+            shapes[company["root"]] = role.load(info["path"], info["text"])
+        return role.current(shapes[company["root"]], name)
+    return current
+
+
 def shape_role(root, settings, name):
     """会社の形（--task と同じ読み方。root が None なら無い）からその役の項目と、会社の形の注記（読み方の注記と形の誤り）。"""
     info = tree.read_info(root, settings) if root else {"path": None, "text": None, "notes": []}
     shape = role.load(info["path"], info["text"])
-    return shape["roles"].get(name), info["notes"] + shape["problems"]
+    return shape["roles"].get(role.current(shape, name)), info["notes"] + shape["problems"]
 
 
 # 頼みごとに空の会話で受ける部署の属性の値（ask の中では role が役の名前の字なので、ここで写す）
@@ -298,7 +310,7 @@ def ask(a, ports, cwd, task):
         return 2
     try:
         cfg, accounts_, sessions_, _, companies, settings, notes = survey(a.config, ports)
-        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task)
+        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings))
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
         return 1

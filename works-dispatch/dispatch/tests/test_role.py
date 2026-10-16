@@ -60,7 +60,8 @@ class Shape(unittest.TestCase):
                                                  "deliver": None, "resident": False, "fresh": False, "machine": False, "tools": []})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
-        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "problems": []})
+        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "desk_role": None,
+                                                 "former": {}, "problems": []})
         got = role.load(write(f"{self.d}/c.toml", '''gh_user = 3
 [[roles]]
 instructions = "名前が無い"
@@ -230,7 +231,8 @@ class Hook(unittest.TestCase):
         self.src, root = make_world()
         self.place = str(pathlib.Path(root) / "dept")
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
-        self.env = {"WORKS_DISPATCH_CONFIG": str(pathlib.Path(root).parent / "conf" / "dispatch.toml")}
+        self.env = {"WORKS_DISPATCH_CONFIG": str(pathlib.Path(root).parent / "conf" / "dispatch.toml"),
+                    "TMPDIR": tempfile.mkdtemp()}   # 会話に足した文の控えの置き場
 
     def test_clear_compact_and_resume_rewrite_the_department_session_and_keep_the_job(self):
         # /clear で会話の id が変わる。古い id のままだと --ask が動き出しを見られず、Stop フックが部署の会話を見分けなかった。
@@ -320,6 +322,54 @@ class Hook(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src})), self.env)
         self.assertEqual(out.getvalue(), "")
+
+    def test_the_head_office_desk_session_follows_a_clear_in_the_same_process_only(self):
+        # 段取り（--desk の会話）は区切りで /clear する。--desk が書いた会話の処理の番号の処理なら、新しい id に書き直す
+        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk", "pid": "999999999"}, gitx)
+        role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-other", "source": "clear"})), self.env)
+        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")   # 持ち主のほかの会話の /clear
+        provision.mark(self.src, self.src, {"pid": str(os.getpid())}, gitx)   # フックは会話の処理の子で走る（ここではこの処理）
+        with contextlib.redirect_stdout(io.StringIO()):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-new", "source": "clear"})), self.env)
+        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-new")
+
+    def test_a_former_role_name_reads_as_the_current_role_and_is_rewritten(self):
+        write(pathlib.Path(self.src) / ".claude" / "company.toml",
+              'name = "co"\ndesk_role = "窓口"\n[[roles]]\nname = "段取り"\nformer_names = ["窓口"]\ninstructions = "頼みを配る。"\n')
+        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk"}, gitx)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-desk", "source": "startup"})), self.env)
+        self.assertIn("役は「段取り」。\n頼みを配る。", json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(gitx.worktree_attrs(self.src)["role"], "段取り")
+        shape = role.load("x", (pathlib.Path(self.src) / ".claude" / "company.toml").read_text(encoding="utf-8"))
+        self.assertEqual((shape["desk_role"], role.current(shape, "窓口"), role.current(shape, "作業")), ("段取り", "段取り", "作業"))
+
+    def test_a_running_talk_gets_the_new_role_text_once_on_its_next_prompt(self):
+        shape = pathlib.Path(self.src) / ".claude" / "company.toml"
+        write(shape, '[[roles]]\nname = "相談"\ninstructions = "持ち主と話す。"\n')
+        provision.mark(self.place, self.src, {"role": "相談", "session": "s1"}, gitx)
+        with contextlib.redirect_stdout(io.StringIO()):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1", "source": "startup"})), self.env)
+
+        def prompt(sid="s1"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                role_hook.prompt(io.StringIO(json.dumps({"cwd": self.place, "session_id": sid})), self.env)
+            return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"] if out.getvalue() else None
+        self.assertIsNone(prompt())   # 会話の始まりに足した物のまま
+        write(shape, '[[roles]]\nname = "相談"\ninstructions = "持ち主と話し、頼みは段取りに渡す。"\n')
+        got = prompt()
+        self.assertTrue(got.startswith(role_hook.CHANGED_HEAD), got)
+        self.assertIn("頼みは段取りに渡す。", got)
+        self.assertIsNone(prompt())   # 足すのは替わった後の 1 度だけ
+        self.assertIsNone(prompt("s-other"))   # 場所の属性の会話でない会話には足さない
+
+    def test_plugin_declares_the_prompt_hook_in_sync(self):
+        hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        [h] = [h for grp in hooks["UserPromptSubmit"] for h in grp["hooks"] if "role_hook.py" in h["command"]]
+        self.assertTrue(h["command"].endswith('role_hook.py" --prompt'))
+        self.assertFalse(h.get("async"))   # 裏で走るフックの返す文は会話に入らない
 
     def test_plugin_declares_the_hook_on_the_existing_script(self):
         hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]

@@ -407,6 +407,10 @@ class Ports:
         """この命令を走らせている会話の (アカウントの名, 会話の名前)。Claude Code の中から走っていなければ (None, None)。"""
         return claudex.caller(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
 
+    def caller_pid(self, listed):
+        """この命令を走らせている会話の処理（Claude Code）の番号。一覧に見えなければ None。"""
+        return claudex.caller_pid(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
+
     def trust(self, account, source, clone):
         """元の clone を信頼済みのアカウントなら、枝の場所（worktree）にも信頼の印を付ける（claudex.inherit_trust）。"""
         return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone)
@@ -583,7 +587,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--boss", help="--reorg と一緒に: 新しい上役（納品を返す会話）の名前")
     ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい上役のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
-                    help="本社で持ち主と話す今の会話を窓口として名付ける（名前を省けば 窓口）。herdr の表示も付け直す")
+                    help="本社で持ち主と話す今の会話を窓口として名付ける（役は --role、会社の形の desk_role、今の役、窓口 の順。"
+                         "名前を省けば今の名前か役の名前）。herdr の表示も付け直す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
     if a.init:
@@ -1236,7 +1241,7 @@ def _company(a, ports):
     if a.tree:
         print("\n".join(notes + tree.lines(companies)))
         return 0
-    notes += _sync_fresh(companies, settings, ports, a.dry_run)
+    notes += _sync_roles(companies, settings, ports, a.dry_run)
     ops, why = sync.plan(companies, len(accounts_) > 1)
     ws_ops = sync.workspace_ops(companies, {w["workspace_id"]: w.get("label") for w in workspaces_})
     notes += why
@@ -1250,29 +1255,39 @@ def _company(a, ports):
     return 1 if any(r["status"] != "done" for r in done) else 0
 
 
-def _sync_fresh(companies, settings, ports, dry_run):
-    """会社の形の役の fresh を、今いる部署の属性 company.fresh に写し直す（会社の形を変えたら、--sync 1 回で全部の部署に
-    行き渡らせる。--ask・--reorg --role を待たない）。companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。
-    会社の形に無い役の部署は触らない。--dry-run なら書かずに、書く物だけを出す。"""
+def _sync_roles(companies, settings, ports, dry_run):
+    """会社の形の役を、今いる部署と本社の属性に写し直す（会社の形を変えたら、--sync 1 回で全部の場所に行き渡らせる。--ask・
+    --reorg --role を待たない）。属性 company.role が役の前の名前（former_names）なら今の名前に、company.fresh は役の fresh に。
+    companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。会社の形に無い役の場所は触らない。--dry-run なら書かずに、
+    書く物だけを出す。"""
     out = []
     for c in companies:
         info = tree.read_info(c["root"], settings)
-        roles = role.load(info["path"], info["text"])["roles"]
+        shape = role.load(info["path"], info["text"])
         for d in c["departments"]:
-            got = roles.get(d["attrs"].get("role"))
+            got = shape["roles"].get(role.current(shape, d["attrs"].get("role")))
             if not got:
                 continue
+            changes, why = {}, []
+            if d["attrs"].get("role") != got["name"]:
+                changes["role"] = got["name"]
+                why.append(f"company.role {d['attrs'].get('role')} → {got['name']}（役の前の名前を今の名前に）")
             want = role.FRESH if got["fresh"] else None
-            if (d["attrs"].get("fresh") or None) == want:
+            if (d["attrs"].get("fresh") or None) != want:
+                changes["fresh"] = want
+                why.append(f"company.fresh {d['attrs'].get('fresh') or '-'} → {want or '（消す）'}（役 {got['name']} の fresh を写す）")
+            if not changes:
                 continue
-            line = f"{c['name']} {d['attrs'].get('name') or d['branch'] or d['path']}: company.fresh {d['attrs'].get('fresh') or '-'} → {want or '（消す）'}（役 {got['name']} の fresh を写す）"
+            line = f"{c['name']} {d['attrs'].get('name') or d['branch'] or d['path']}: " + "、".join(why)
             if not dry_run:
                 try:
-                    provision.mark(d["path"], c["root"], {"fresh": want}, ports.git)
+                    provision.mark(d["path"], c["root"], changes, ports.git)
                 except (gitx.GitError, OSError) as e:
                     out.append(f"{line}  書けなかった（{e}）")
                     continue
-            d["attrs"] = {**d["attrs"], "fresh": want} if want else {k: v for k, v in d["attrs"].items() if k != "fresh"}
+            d["attrs"] = {k: v for k, v in {**d["attrs"], **changes}.items() if v}
+            if "role" in changes:
+                d["role"] = got["name"]
             out.append(line)
     return out
 
@@ -1407,6 +1422,7 @@ name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出�
 description = {description}   # この会社が受ける仕事
 gh_user = {gh_user}   # 部署の会話の gh が使うアカウント{gh_note}
 default_role = "作業"   # --task で --role を省いたときの役
+desk_role = "窓口"   # 本社で持ち主と話す会話の役（--desk で --role を省いたときの役）
 
 # 受け持ち。1 つの受け持ちに担当が常設で 1 人つき、担当の部署の名前（herdr の作業場の名前）は受け持ちの name にする。
 # 担当の会話の始まりに、部署の名前と同じ name の受け持ちの description が足される。--tree にも出る
@@ -1462,7 +1478,9 @@ autoMode = {{ allow = ["$defaults", {land_allow}] }}
 # resident = true
 
 # 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。窓口の会話から --desk を打つと、この役の本文が次の会話の
-# 始まりから足される（組織の決まりを窓口に届けるため。コメントの決まりは、どの会話にも届かない）
+# 始まりから足される（組織の決まりを窓口に届けるため。コメントの決まりは、どの会話にも届かない）。本文を替えると、会話を持ち越して
+# いる部署と窓口にも、次の番の頭に今の本文が足される
+# 役の名前を替えるときは、前の名前を former_names = ["<前の名前>"] に書く（前の名前で宛てた頼みと、前の名前を持つ部署が今の役に当たる）
 [[roles]]
 name = "窓口"
 instructions = {desk}

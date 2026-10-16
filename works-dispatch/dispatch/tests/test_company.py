@@ -375,6 +375,17 @@ class Entry(unittest.TestCase):
         self.assertIn("company.fresh true → （消す）", out)
         self.assertNotIn("fresh", gitx.worktree_attrs(self.place))
 
+    def test_sync_renames_a_former_role_name_to_the_current_one(self):
+        # 会社の形で役の名前を替え、前の名前を former_names に書けば、--sync が前の名前を持つ場所の属性を今の名前に書き直す
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('[[roles]]\nname = "調べもの"\nformer_names = ["調べ役"]\n', encoding="utf-8")
+        rc, out = self.main("--sync")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("company.role 調べ役 → 調べもの（役の前の名前を今の名前に）", out)
+        self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
+        self.assertIn("表示名 調べもの（都度）", out)
+
     def test_tree_prints_the_company_and_its_departments(self):
         rc, out = self.main("--tree")
         self.assertEqual(rc, 0, out)

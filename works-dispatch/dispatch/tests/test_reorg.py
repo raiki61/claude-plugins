@@ -139,6 +139,27 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertNotIn("/rename", out)
 
+    def test_desk_takes_the_role_from_the_shape_keeps_its_name_and_writes_the_process(self):
+        # 役の名前を替えた会社: --role を省いても、会社の形の desk_role を書く（DESK_ROLE の 窓口 を書かない）
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('desk_role = "段取り"\n[[roles]]\nname = "段取り"\nformer_names = ["窓口"]\n[[roles]]\nname = "担当"\n',
+                         encoding="utf-8")
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り"}, gitx)
+        self.sessions[1]["pid"] = 4242
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.src)
+        self.assertEqual({k: attrs.get(k) for k in ("role", "name", "session", "pid")},
+                         {"role": "段取り", "name": "段取り", "session": "s-desk", "pid": "4242"})
+        self.assertNotIn("former-names", attrs)
+        # 前の役の名前で宛てても、今の役の常設の場所（本社の段取り）に当たる
+        self.ports._cwd = self.place
+        rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--brief", str(shape), "--dry-run")
+        self.assertIn(f"宛先の部署 {os.path.basename(self.src)}/段取り（main）", out)
+
     def test_desk_replaces_a_hand_written_role_and_keeps_the_old_name(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "my_notesの窓口"}, gitx)
         self.ports._cwd = self.src

@@ -18,6 +18,7 @@ from .test_provision import git
 import gitx
 import herdr as real_herdr
 import orders
+import role_hook
 import wake_hook
 from nodes import deliver, provision, role, wake
 
@@ -171,8 +172,8 @@ class Hook(unittest.TestCase):
         self.inbox = deliver.inbox_of(gitx.common_dir(self.src))
         self.env = {"WORKS_DISPATCH_CONFIG": "/none/c.toml"}
 
-    def plan(self, sid="s1", parent=lambda: 7, cwd=None):
-        return wake_hook.plan({"cwd": cwd or self.place, "session_id": sid}, env=self.env, parent=parent)
+    def plan(self, sid="s1", parent=lambda: 7, cwd=None, same=lambda pid: False):
+        return wake_hook.plan({"cwd": cwd or self.place, "session_id": sid}, env=self.env, parent=parent, same=same)
 
     def test_waits_only_in_a_named_department_and_names_the_company(self):
         self.assertIsNone(self.plan())
@@ -197,6 +198,25 @@ class Hook(unittest.TestCase):
         wake.claim(self.inbox, place, ["co/調べ"], "s1", 7, "t", 0)
         self.assertIsNone(self.plan(sid="s9", parent=lambda: 8))   # 別の処理の会話
         self.assertTrue(self.plan(sid="s9")["adopt"])   # 同じ処理が /clear で会話の id を替えた
+
+    def test_the_desk_follows_a_clear_in_its_own_process_without_the_mark(self):
+        # 窓口の /clear で前の待ち受けが TERM を受けて印を消しても、--desk が書いた会話の処理の会話なら続きと見る
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s1", "pid": "7"}, gitx)
+        self.assertIsNone(self.plan(sid="s9", cwd=self.src))   # 会話の処理が違う（持ち主のほかの会話）
+        self.assertTrue(self.plan(sid="s9", cwd=self.src, same=lambda pid: pid == "7")["adopt"])
+        # 部署は印で見分ける（部署の場所の会話の処理の番号は書かない）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "pid": "7"}, gitx)
+        self.assertIsNone(self.plan(sid="s9", same=lambda pid: True))
+
+    def test_the_wake_text_starts_with_the_new_role_text_when_it_changed(self):
+        err = io.StringIO()
+        out = wake_hook.WithRole(err, {"session_id": "s1"}, changed=lambda payload: "役が替わった")
+        out.write("納品です\n")
+        out.write("続き\n")
+        self.assertEqual(err.getvalue(), "役が替わった\n\n納品です\n続き\n")
+        err = io.StringIO()
+        wake_hook.WithRole(err, {}, changed=lambda payload: None).write("納品です\n")
+        self.assertEqual(err.getvalue(), "納品です\n")
 
     def checker(self, payload=None, window=None):
         return wake_hook.checker(self.plan(), payload or {"hook_event_name": "Stop"}, h=window or Window(self.place),
@@ -254,7 +274,8 @@ class Hook(unittest.TestCase):
                            capture_output=True, text=True, encoding="utf-8")
         self.assertEqual((p.returncode, p.stdout, p.stderr), (0, "", ""))
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ"}, gitx)
-        env = {**os.environ, **self.env}
+        env = {**os.environ, **self.env, "TMPDIR": tempfile.mkdtemp()}
+        role_hook.remember("s1", role_hook.text_for(self.place, env), env)   # 会話の始まりに足した役の文のまま（替わっていない）
         proc = subprocess.Popen([sys.executable, str(DISPATCH / "wake_hook.py")], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env)
         proc.stdin.write(json.dumps({"cwd": self.place, "session_id": "s1", "hook_event_name": "Stop"}))
@@ -282,7 +303,7 @@ class Hook(unittest.TestCase):
             self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py"', h["command"])
             # 持ち時間の既定（600 秒）では手の空いた会話の待ち受けがすぐ切れるので、長く取る
             self.assertGreaterEqual(h["timeout"], 86400)
-        (h,) = [h for g in hooks["UserPromptSubmit"] for h in g["hooks"]]
+        (h,) = [h for g in hooks["UserPromptSubmit"] for h in g["hooks"] if "wake_hook.py" in h["command"]]
         self.assertTrue(h["async"])   # 人の入力を遅らせない
         self.assertTrue(h["command"].endswith('wake_hook.py" --pause'))
 

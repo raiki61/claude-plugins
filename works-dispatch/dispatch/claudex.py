@@ -245,6 +245,12 @@ def ancestors(runner=_default_runner, pid=None):
     return chain
 
 
+def in_process(pid, chain=ancestors, parent=os.getppid):
+    """pid（字でもよい）が、この処理の親をたどった中に在るか。--desk が書いた会話の処理の番号を、フックが同じ会話の処理か見分けるのに
+    使う（フックは会話の処理〔Claude Code〕の子で走る）。ps が通らない所（Windows）では親の 1 つだけを見る。"""
+    return bool(pid) and str(pid) in {str(p) for p in [parent(), *chain()]}
+
+
 def latest(items, session_id, ancestors=()):
     """一覧のうち、その識別子の 1 件か None。同じ会話を一時停止したまま --resume で開き直すと、同じ sessionId の項目が古い処理と
     今の処理の 2 つ並ぶ（2026-10-16 に 2.1.301 で見た。古い方は状態 T のまま古い名前を持つ）。そのときは ancestors（呼んだ
@@ -252,6 +258,15 @@ def latest(items, session_id, ancestors=()):
     hits = [s for s in items if s.get("sessionId") == session_id]
     mine = [s for s in hits if s.get("pid") in ancestors]
     return max(mine or hits, key=lambda s: s.get("startedAt") or 0, default=None)
+
+
+def caller_pid(listed, session_id, ancestors=()):
+    """呼んだ会話の処理（Claude Code）の番号（一覧の 1 件の pid）。見つからなければ None。選び方は caller と同じ。"""
+    for items in listed.values() if session_id else ():
+        s = latest(items, session_id, ancestors)
+        if s:
+            return s.get("pid") if isinstance(s.get("pid"), int) else None
+    return None
 
 
 def caller(listed, session_id, ancestors=()):

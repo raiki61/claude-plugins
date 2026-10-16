@@ -8,8 +8,10 @@
 
 部署か窓口（その場所の git の設定に company.role と company.name が在る）でなければ、すぐ 0 で終わる。待つのは場所の属性
 company.session の会話だけ（部署で属性に id が無ければ誰でも。窓口〔代表の clone〕は id が要る）。この会話の id と違うときは、
-同じ処理の会話が /clear などで id を替えた（前の待ち受けの印の会話の id が属性の id で、印を書いた処理がこの待ち受けの親と同じ）
-ときだけ、属性の id を書き直して待つ。確かめは印を書く前にする（待たない会話は、ほかの待ち受けの印に触らない）。
+同じ処理の会話が /clear などで id を替えた（前の待ち受けの印の会話の id が属性の id で、印を書いた処理がこの待ち受けの親と同じか、
+窓口で --desk が書いた会話の処理の番号 company.pid がこの待ち受けの親の処理に在る）ときだけ、属性の id を書き直して待つ。
+会話を起こす字の頭には、その会話に前に足した役の文と今の文が違えば、今の文を足す（role_hook.changed。会社の形を替えたことを、
+会話を持ち越している部署と窓口に届ける）。確かめは印を書く前にする（待たない会話は、ほかの待ち受けの印に触らない）。
 
 宛先の会社の名前は、--ask と --tree と同じ読み方（tree.read_info と tree.company_name）で決める。
 """
@@ -23,8 +25,10 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
+    import claudex  # noqa: E402
     import config  # noqa: E402
     import gitx  # noqa: E402
+    import role_hook  # noqa: E402
     import herdr  # noqa: E402
     from nodes import deliver, provision, role, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
@@ -37,7 +41,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 
-def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid):
+def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid, same=claudex.in_process):
     """待つなら {cwd, root, inbox, place, names, session, owner, adopt}、待たないなら None。adopt は属性の会話の id を書き直すか。"""
     cwd = payload.get("cwd") or os.getcwd()
     sid = payload.get("session_id")
@@ -55,8 +59,9 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
     adopt = False
     if attrs.get("session") and sid and attrs["session"] != sid:
         held = wake.read_mark(inbox, place)
-        if not (held and held.get("session") == attrs["session"] and held.get("owner") == parent()):
-            return None
+        if not (held and held.get("session") == attrs["session"] and held.get("owner") == parent()
+                or desk and same(attrs.get("pid"))):
+            return None   # 窓口は、--desk が書いた会話の処理（company.pid）の会話なら、印が消えていても続きと見る
         adopt = True
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
     names = wake.addresses(tree.company_name(root, info), attrs, gitx.former_names(attrs))
@@ -148,6 +153,26 @@ def pause_here(payload):
     return 0
 
 
+class WithRole:
+    """会話を起こす字（err に書く物）の頭に、その会話の役の文が替わっていれば今の文を足す（role_hook.changed）。"""
+
+    def __init__(self, err, payload, changed=role_hook.changed):
+        self.err, self.payload, self.changed, self.done = err, payload, changed, False
+
+    def write(self, text):
+        if not self.done:
+            self.done = True
+            try:
+                note = self.changed(self.payload)
+            except Exception:  # 役の文を読めなくても、知らせは届ける
+                note = None
+            text = f"{note}\n\n{text}" if note else text
+        self.err.write(text)
+
+    def flush(self):
+        self.err.flush()
+
+
 def main(argv=None, stdin=sys.stdin, err=sys.stderr):
     argv = sys.argv[1:] if argv is None else argv
     try:
@@ -174,7 +199,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
     for name in ("SIGTERM", "SIGHUP", "SIGINT"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), stop)
-    return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, err,
+    return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, WithRole(err, payload),
                       check=checker(got, payload))
 
 
