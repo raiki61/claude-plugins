@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-16
+
 ### Changed
 
 - README が名指す会社の形（部署の役と本流に入れる決まりを書く `.claude/company.toml`）の設計の文書を、本流に入れた `docs/specs/2026-10-16-company-shape-design.md`（リポジトリの根）に替えた。前は枝 `docs/company-shape` にしか無く、本流を clone した人は辿れなかった。
