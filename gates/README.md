@@ -166,7 +166,7 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 ## coldread — 手元の文書(書いた後に読み、止めずに指摘を返す)
 
 拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を書くと、PostToolUse のフックが
-パスを書いた役ごとに記録するだけで終わる。拾う道具は Write・Edit・MultiEdit・NotebookEdit・Bash・MCP の書く道具(下の「拾う幅」)。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
+パスを書いた役ごとに記録するだけで終わる。拾う道具は Write・Edit・MultiEdit・Bash・MCP の書く道具(下の「拾う幅」)。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
 投稿と同じ依頼文(`coldread-gate.py` の `COLD_PROMPT`。初見で読む観点の正本はこの 1 か所)で coldreader に読ませる。
 詰まりか推測で埋めた箇所が在れば、指摘を返して書いた役を続けさせる(書き込みは取り消さない)。返し方は書いた役で変わる:
 
@@ -186,7 +186,7 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
     `sed -i`・`cp`/`mv`/`install` の行き先)も静的に拾う(相対パスは入力の cwd で解く)。git は `GIT_OPTIONAL_LOCKS=0` で
     走らせ、index の lock を取らない。1 回 5 秒を超えたら静的な読みだけにする
   - MCP の道具: 道具の名前が書く道具らしいもの(write・edit・create・update・save・move・copy など)の入力の path の欄を拾う
-  - NotebookEdit も拾うが、`.ipynb` は文書の拡張子に入れていないので読まない
+  - NotebookEdit は拾わない（`.ipynb` は文書の拡張子に入れていないので、拾っても読まない。Write・Edit・MultiEdit の matcher の名前は works が名前で頼っているので変えない）
   - **同じ checkout を並行の会話が触っていると、Bash が走る間の他人の書き込みも拾う**。読むのは中身のハッシュで 1 回だけ
     なので、同じ中身を 2 つの会話が読むことは無いが、指摘は先に終わった方の会話に返る(書いていない会話に返ることがある)
   - 拾えないもの: 裏で走らせた Bash(`run_in_background`)が後から書く文書・git の外でコマンドの字面に書き込み先が

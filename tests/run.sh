@@ -3259,7 +3259,7 @@ expect_output 0 "取り出せない" "サブシェルの中の代入は gh に�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "( S=$CR_FDIR ); gh issue comment 1 --body-file \"\$S/body.md\""
 expect_output 0 "取り出せない" "パイプの中の代入は gh に届かないので止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "S=$CR_FDIR | true; gh issue comment 1 --body-file \"\$S/body.md\""
-expect_output 0 "MARK_FILE が届いた" "~/ のパスは HOME で解いて読む" \
+expect_output 0 "MARK_FILE が届いた" "ホームの下を ~/ で書いたパスは HOME で解いて読む" \
     env HOME="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file ~/body.md"
 expect_output 0 "取り出せない" "解けない変数のパスは止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \"\$NOPE\""
