@@ -55,20 +55,26 @@ role = "担当"
 [[roles]]
 name = "担当"
 resident = true
-instructions = "受け持ちを常設で預かる。自分の受け持ちは作業場の名前（部署の名前）で決まり、その中身は会話の始まりに足される。境目: プラグインのフォルダの中（README・tests など）はそのプラグインの担当の物。works と works-factory は誰の受け持ちでもなく、触らない。試しの担当はプラグインを直さず、直しはその受け持ちの担当に頼む。頼みを受け、自分で進めるか、並べたいときは作業に頼む（--ask claude-plugins/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。受け持ちの無いファイル（根の scripts/ など）は作業に頼む。"
+instructions = "受け持ちを常設で預かる。自分の受け持ちは作業場の名前（部署の名前）で決まり、その中身は会話の始まりに足される。境目: プラグインのフォルダの中（README・tests など）はそのプラグインの担当の物。works と works-factory は誰の受け持ちでもなく、触らない。試しの担当はプラグインを直さず、直しはその受け持ちの担当に頼む。頼みを受け、自分で進めるか、並べたいときは作業に頼む（--ask claude-plugins/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて返す（窓口が --land <部署の名前> を打って入れる）。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。受け持ちの無いファイル（根の scripts/ など）は作業に頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
+# autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は本流へ早送りするので
+# 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] の関門を通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
+autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分の枝を本流に入れること。本流への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] の関門を通してから早送りする決まりで、持ち主がこの会社の部署に許している。"] }
 
 # 作業: 一度きりの作業をする一時の部署。頼みごとに立ち、本流に入れたら畳まれる
 [[roles]]
 name = "作業"
-instructions = "頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（本流に入れる命令が上げる）。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。"
+instructions = "頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（本流に入れる命令が上げる）。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて返す（窓口が --land <部署の名前> を打って入れる）。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
+# autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は本流へ早送りするので
+# 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] の関門を通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
+autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分の枝を本流に入れること。本流への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] の関門を通してから早送りする決まりで、持ち主がこの会社の部署に許している。"] }
 
 # 部署の成果を本流に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
 # 関門は部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
