@@ -210,7 +210,9 @@ def test_started_at_reads_a_real_process_and_its_end():
     p = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
     try:
         started = role_run._started_at(p.pid)
-        assert isinstance(started, float) and born - role_run.REUSE_SLACK <= started <= time.time()
+        # 上の端も REUSE_SLACK を取る: Windows の time.time() は作成時刻（100ns）より粗い時計を読む版があり、直後に読んでも
+        # 作成時刻より前の値を返しうる（CI の Python 3.12 で実測）
+        assert isinstance(started, float) and born - role_run.REUSE_SLACK <= started <= time.time() + role_run.REUSE_SLACK
     finally:
         p.stdin.close()
         p.wait()
