@@ -6,6 +6,14 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `--clean` は、dispatch の設定のファイル（`[[repos]]`）が無くても動く。会社（代表の clone）は部署の回と同じに、`--repo`（`[[repos]]` の名前か代表の clone のパス）か打った場所で決め、`[[repos]]` に無い会社では、PR の作業場は見ずに（GitHub に問わずに）部署だけを並べて片付ける。0.18.0 までは設定のファイルが無いと止まり、`--init` で設定を書く必要があった（まっさらな環境での 2 回目の試し `docs/trials/2026-10-16-clean-env-2.md` の 8）。
+
+### Fixed
+
+- 常駐の部署（担当）が本流に入れ終えた前の手元の枝が、`git branch` に並び続けていた。`--land` は、常駐の部署の入れた枝と、その時の枝の先頭を属性 `company.landed-branches` に書く。部署が次の頼みで枝を移った後の `--land`（どの部署でも）と `--clean --apply` が、どの worktree も開いていない前の枝を、先頭が入れた時のままなら消す（入れた後に commit を積んだ枝は消さず、記録から外す）。作業場は残す。
+
 ## [0.18.0] - 2026-10-16
 
 ### Changed

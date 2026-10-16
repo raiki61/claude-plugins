@@ -596,7 +596,8 @@ def main(argv=None, ports=None):
         return _init_company(a, ports, ports.cwd())
     # 部署の回（--task・--land）は、[[repos]] が無くても、代表の clone の場所から会社を決める（_department_repo）
     # --check は、[[repos]] が無ければ部署の回の前提だけを確かめる（_check）
-    department = a.task is not None or a.land is not None
+    # --clean も部署の回と同じに決める（設定が無くても、--repo のパスか今いる場所の代表の clone の部署を片付ける）
+    department = a.task is not None or a.land is not None or a.clean
     try:
         cfg = config.load(a.config, os.environ, missing_ok=department or a.check)
         repo = (_department_repo(cfg, a.repo, ports, ports.cwd()) if department else
@@ -1462,10 +1463,11 @@ def _clean(cfg, repo, apply, ports):
     notes = []
     depts = _department_rows(cfg, repo, ports, found, notes)
     dept_paths = {os.path.realpath(d["path"]) for d in depts}
+    swept = landing.sweep_branches(repo, ports, found, apply)
     for d in depts:
         print(f"部署 {d['name'] or '-'} {d['branch'] or '（枝無し）'}  {d['state']}  "
               + ("消せる" if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}）"))
-    print("\n".join(notes) if notes else "", end="\n" if notes else "")
+    print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
     failed = 0
     if apply:
         for d in (d for d in depts if d["removable"]):
@@ -1474,6 +1476,13 @@ def _clean(cfg, repo, apply, ports):
             failed += not got["removed"]
     found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths]
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
+    if not any(os.path.realpath(r.source) == os.path.realpath(repo.source) for r in cfg.repos):
+        # 設定の [[repos]] に無い会社: PR の作業場は見ない（PR の状態を GitHub に問うのは、PR を開く回に使うリポジトリだけ）
+        if not depts:
+            print(f"元の clone {repo.source} に部署は無い（設定の [[repos]] に無いので、PR の作業場は見ない）")
+        elif not apply and any(d["removable"] for d in depts):
+            print("消すには --clean --apply を付けて打ち直す")
+        return 1 if failed else 0
     rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
                             source=repo.source, changed=_changed(repo))
     if not rows:

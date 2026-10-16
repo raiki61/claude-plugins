@@ -21,6 +21,7 @@
 """
 
 import datetime
+import json
 import os
 import shutil
 import subprocess
@@ -308,7 +309,16 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
         code = 0 if got["removed"] else 1
     elif row["reason"] == "resident":
-        print(f"部署は残した（{reasons[row['reason']]}）")
+        # 常駐の部署は作業場を残す。入れた枝は、部署が次の頼みで枝を移った後に消す（sweep_branches）ので、枝と入れた commit を書く
+        later = "入れた枝は、部署が次の枝に移った後の --land か --clean --apply が消す"
+        if row["branch"]:
+            try:
+                # 書くのは部署の枝の先頭（版を上げる commit は本流の側にだけ在り、部署の枝の先頭と違う）
+                landed_map = {**clean.landed_of(ports.attrs(path)), row["branch"]: ports.git.rev(path, "HEAD")}
+                provision.mark(path, repo.source, {clean.LANDED_BRANCHES: json.dumps(landed_map, ensure_ascii=False)}, ports.git)
+            except (gitx.GitError, OSError) as e:
+                later = f"入れた枝を書けなかった（{e}）ので、手元の枝 {row['branch']} は手で消す"
+        print(f"部署は残した（{reasons[row['reason']]}）。{later}")
         code = 0
     else:
         try:
@@ -328,5 +338,29 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex)
         print(f"前の --land で残した部署 {who} を片付けた" if got["removed"]
               else f"前の --land で残した部署 {who} を片付けられなかった: {got['detail']}")
+    if not dry_run:
+        for line in sweep_branches(repo, ports, found, apply=True):
+            print(line)
     return code
+
+
+SWEEP_SAID = {"deleted": "消した", "open": "まだ開いている（部署が次の枝に移った後に消す）", "would": "消せる",
+              "moved": "入れた後に commit が有るので消さず、記録から外した", "failed": "git が断った（次に回す）"}
+
+
+def sweep_branches(repo, ports, found, apply):
+    """常駐の部署が入れ終えた前の手元の枝を消し（clean.sweep_landed）、残す物を属性に書き戻す。出す行の並び。"""
+    rows = clean.sweep_landed(found, ports.attrs, repo.source, apply, ports.git)
+    out, written = [], set()
+    for r in rows:
+        if r["status"] != "open":
+            out.append(f"常駐の部署 {r['name'] or r['path']} の入れ終えた枝 {r['branch']}: {SWEEP_SAID[r['status']]}")
+        if apply and r["path"] not in written and clean.landed_of(ports.attrs(r["path"])) != r["keep"]:
+            written.add(r["path"])
+            try:
+                provision.mark(r["path"], repo.source,
+                               {clean.LANDED_BRANCHES: json.dumps(r["keep"], ensure_ascii=False) if r["keep"] else None}, ports.git)
+            except (gitx.GitError, OSError) as e:
+                out.append(f"常駐の部署 {r['name'] or r['path']} の入れた枝の記録を書き戻せなかった（{e}）")
+    return out
 

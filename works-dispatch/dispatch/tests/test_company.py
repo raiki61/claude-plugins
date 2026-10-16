@@ -461,6 +461,37 @@ class Departments(unittest.TestCase):
         self.assertEqual(self.removed, [])
         self.assertTrue(os.path.exists(self.place))
 
+    def test_clean_works_without_a_config_file_and_does_not_ask_github(self):
+        # 設定のファイルが無くても、--repo のパスの代表の clone の部署を片付ける。[[repos]] に無いので PR の作業場（GitHub）は見ない
+        self.ports.pr_for_branch = lambda repo, branch: self.fail("設定の無い --clean が PR を GitHub に問うた")
+        none = str(pathlib.Path(self.cfg).parent / "none.toml")
+        rc, out = run_main(["--config", none, "--clean", "--repo", self.src], self.ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("部署 dept/a dept/a  done  消せる", out)
+        self.assertIn("消すには --clean --apply を付けて打ち直す", out)
+
+    def test_resident_department_branches_it_landed_are_removed_after_it_moves_on(self):
+        # 常駐の部署は作業場を残し、頼みごとに枝を移る。--land が書いた「入れた枝 → commit」のうち、もう開いていない枝を消す
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        old_sha = git("-C", self.place, "rev-parse", "HEAD")
+        git("-C", self.place, "switch", "-q", "-c", "dept/next")             # 次の頼みの枝に移った
+        git("-C", self.src, "branch", "-q", "dept/moved", old_sha)
+        git("-C", self.src, "branch", "-q", "-f", "dept/moved", git("-C", self.src, "commit-tree", f"{old_sha}^{{tree}}", "-p", old_sha,
+                                                                   "-m", "after"))
+        provision.mark(self.place, self.src, {"landed-branches": json.dumps(
+            {"dept/a": old_sha, "dept/next": old_sha, "dept/moved": old_sha})}, gitx)
+        rc, out = self.clean()
+        self.assertIn("入れ終えた枝 dept/a: 消せる", out)
+        self.assertIn("dept/a", git("-C", self.src, "branch", "--list", "dept/a"), "見立てだけで消した")
+        rc, out = self.clean("--apply")
+        self.assertIn("入れ終えた枝 dept/a: 消した", out)
+        self.assertIn("入れ終えた枝 dept/moved: 入れた後に commit が有るので消さず", out)
+        self.assertEqual(git("-C", self.src, "branch", "--list", "dept/a"), "")
+        self.assertNotEqual(git("-C", self.src, "branch", "--list", "dept/moved"), "")
+        # 開いている枝（今の頼みの枝）だけが記録に残る
+        self.assertEqual(json.loads(gitx.worktree_attrs(self.place)["landed-branches"]), {"dept/next": old_sha})
+        self.assertTrue(os.path.exists(self.place))
+
     def test_retire_stops_when_rm_refuses(self):
         class C:
             @staticmethod

@@ -436,8 +436,12 @@ class Leftover(LandCase):
         self.w.work()
         code, out = self.land(self.w, self.ports, rows=lambda *a: [self.row(self.w.dept, "feat/a", False, "resident")])
         self.assertEqual(code, 0, out)
-        self.assertNotIn("landed", gitx.worktree_attrs(self.w.dept))
+        attrs = gitx.worktree_attrs(self.w.dept)
+        self.assertNotIn("landed", attrs)
         self.assertNotIn("次の --land", out)
+        # 常駐の部署は作業場を残す。入れた枝と commit を書き、部署が次の枝に移った後の --land か --clean --apply が消す
+        self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": git("-C", self.w.dept, "rev-parse", "HEAD")})
+        self.assertIn("入れた枝は、部署が次の枝に移った後", out)
 
 
 class OtherModes(LandCase):

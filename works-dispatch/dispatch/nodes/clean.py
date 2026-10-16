@@ -26,10 +26,17 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 worktree の口で場所と作業場（attach の窓）を消し、手元の枝も消す。本流に入れる方法は会社ごとに決める（設計の 8 章）ので、
 ここは「入っていれば消す」だけを持つ。
 
+常駐の部署は作業場を残したまま、頼みごとに枝を切り替える。入れ終えた前の枝は手元に残るので、--land が入れた枝とその commit を
+属性 company.landed-branches（JSON の 枝 → commit）に書き、--clean --apply と次の --land が sweep_landed で消す。消すのは、
+どの worktree も開いていない枝で、先頭がまだ入れた commit と同じ物だけ（入れた後に commit を積んだ枝は消さず、記録から外す）。
+部署の会話に「切り替えるときに前の枝を消す」と任せず機械で消すのは、会話は前の枝を消し忘れても止まらず、消してよいかの見極め
+（入れた commit と同じか）を機械が確かに持つため。
+
 使い方は入口から: python3 dispatch.py --clean [--apply]
 """
 
 import filecmp
+import json
 import os
 import pathlib
 import sys
@@ -206,3 +213,48 @@ def _safe_list(h, source):
         return h.worktrees(source)
     except h.HerdrError:
         return []
+
+
+LANDED_BRANCHES = "landed-branches"   # 常駐の部署の属性: 入れた枝 → 入れた commit（JSON）
+
+
+def landed_of(attrs):
+    """属性 company.landed-branches の {枝: commit}。読めなければ空。"""
+    try:
+        got = json.loads(attrs.get(LANDED_BRANCHES) or "{}")
+    except ValueError:
+        return {}
+    return {b: c for b, c in got.items() if isinstance(b, str) and isinstance(c, str)} if isinstance(got, dict) else {}
+
+
+def sweep_landed(places, attrs_of, source, apply, g=gitx):
+    """常駐の部署が入れ終えた前の手元の枝を消す（apply が偽なら見立てだけ）。1 行は {path, name, branch, status, keep}。
+    status は deleted（消した・もう無い）・open（どこかの worktree が開いている。次に回す）・moved（入れた後に commit が有るので
+    消さず、記録から外す）・would（apply が偽で、消せる）・failed（git が断った。次に回す）。keep はその部署の記録に残す {枝: commit}
+    （呼んだ側が属性に書き戻す。同じ部署の行は同じ keep を持つ）。"""
+    opened = {p.get("branch") for p in places if p.get("branch") and not p.get("prunable")}
+    out = []
+    for place in places:
+        if not place.get("linked") or place.get("prunable"):
+            continue
+        attrs = attrs_of(place["path"])
+        landed = landed_of(attrs)
+        if not landed:
+            continue
+        keep, rows = {}, []
+        for branch, sha in sorted(landed.items()):
+            if branch in opened:
+                status = "open"
+            elif not apply:
+                status = "would"
+            else:
+                try:
+                    status = {"deleted": "deleted", "absent": "deleted", "moved": "moved"}[g.delete_branch(source, branch, sha)]
+                except gitx.GitError:
+                    status = "failed"
+            if status in ("open", "would", "failed"):
+                keep[branch] = sha
+            rows.append({"path": place["path"], "name": attrs.get("name"), "branch": branch, "status": status})
+        out += [{**r, "keep": keep} for r in rows]
+    return out
+
