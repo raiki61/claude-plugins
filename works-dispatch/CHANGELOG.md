@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.19.5] - 2026-10-17
+
 ### Fixed
 
 - 0.19.4 で入れた「落ちた部署の会話を `--ask` が戻す」が働いていなかった（まっさらな環境での 6 回目の試し `docs/trials/2026-10-16-clean-env-6.md`）。
