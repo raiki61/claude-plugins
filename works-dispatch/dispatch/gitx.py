@@ -247,6 +247,17 @@ def is_ancestor(cwd, a, b, runner=_default_runner):
     return _is_ancestor(cwd, a, b, runner)
 
 
+def remote_rev(cwd, branch, runner=_default_runner):
+    """origin のその枝の先頭の commit を origin に問い合わせて読む（git ls-remote）。枝が無ければ None。手元の ref は書かない。"""
+    out = _must(["git", "-C", cwd, "ls-remote", "--heads", "origin", f"refs/heads/{branch}"], runner)
+    return out.split()[0] if out else None
+
+
+def subjects(cwd, a, b, runner=_default_runner):
+    """a..b の commit の「短い id 件名」を新しい順に。読めなければ GitError。"""
+    return _must(["git", "-C", cwd, "log", "--format=%h %s", f"{a}..{b}"], runner).splitlines()
+
+
 def commits_touching(cwd, path, since=None, runner=_default_runner):
     """path（cwd からの相対）を変えた commit の id を新しい順に。since を渡せば since..HEAD の中だけ。読めなければ GitError。"""
     return _must(["git", "-C", cwd, "log", "--format=%H", *([f"{since}..HEAD"] if since else []), "--", path], runner).split()

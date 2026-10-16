@@ -38,6 +38,7 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
         python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--dry-run]
+        python3 dispatch.py --land <部署> [--repo OWNER/NAME] [--dry-run]
 
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 """
@@ -508,7 +509,7 @@ def main(argv=None, ports=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
     ap.add_argument("--repo")
-    ap.add_argument("--dry-run", action="store_true", help="割り振りの案までを決めて報告し、何も起こさない")
+    ap.add_argument("--dry-run", action="store_true", help="することの案までを決めて報告し、何も起こさない（--land では決まりと見立てだけを出し、push しない）")
     ap.add_argument("--pr", type=int, action="append", metavar="N",
                     help="自分の番の一覧を使わず、この番号の PR だけを開く（繰り返して複数）")
     ap.add_argument("--issue", type=int, metavar="N",
@@ -570,7 +571,7 @@ def main(argv=None, ports=None):
         if a.task is not None or a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --land はほかの入口（--task・--pr・--issue・--clean・--check・--no-second）と一緒に使えない")
             return 2
-        return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config)
+        return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config, dry_run=a.dry_run)
     if a.task is not None:
         if a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --task は --pr・--issue・--clean・--check・--no-second と一緒に使えない（1 回に 1 つの入口）")

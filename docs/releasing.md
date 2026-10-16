@@ -20,6 +20,7 @@
 
 - 利用者に効く違い（足した口・変えた動き・直した不具合）を、その plugin の `<根>/CHANGELOG.md` の `## [Unreleased]` の下の節（Added・Changed・Fixed など）に 1 行ずつ書き足す。1 つの変更が複数の plugin に効くなら、それぞれの記録に書く。
 - commit の id と作業枝の名前は書かない。この記録は利用者の手元（プラグインのキャッシュ）に届き、そこには git の履歴が無い。
+- 中身の無い版（`## [Unreleased]` が空のまま見出しだけ足して上げる版）は作らない。plugin の根の下のファイルを変えたら、文面だけの直しでも、何が変わったかを `## [Unreleased]` に 1 行書く。版を上げずに済ませる道は無い（marketplace は版が変わった時だけ中身を取り直すので、上げなければ変えた中身が利用者に届かない。`tests/run.sh` の `VERSION_BUMP_OK` も、ファイルを変えたのに版が据え置きの plugin を、main と release/* の CI で赤にする）。works-dispatch の `--land`（部署の枝を main に入れる命令。`works-dispatch/README.md` の「本流に入れる」の節）は、版を上げる段で、ファイルを変えたのに `## [Unreleased]` が空の plugin を見つけると、版を上げずに止める（違いを書き足して commit し、`--land` を打ち直す）。
 
 ## 版を上げる
 

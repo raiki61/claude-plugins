@@ -14,6 +14,10 @@
 - 同じ commit で、plugin.json の version・marketplace.json の metadata.version・CHANGELOG.md の `## [Unreleased]` の中身を
   `## [<版>] - <日付>` の下へ移す（`## [Unreleased]` の見出しは空で残す）。
 - 件名は `chore(<名前>, …): 版を上げる（<名前> <版> / … / marketplace <版>）`。
+- 中身の無い版は作らない: 据え置きのプラグイン（版を最後に上げた後に、フォルダの中のファイルを変えた物）の
+  `## [Unreleased]` に見出し（`### Fixed` のような `#` で始まる行）でない行が 1 つも無ければ、版を上げずに BumpError で止める（利用者に効く違いを書き足してから打ち直す）。版を上げずに通す道は用意しない——
+  marketplace は版が変わった時だけ中身を取り直すので、上げなければ変えた中身が利用者に届かず、版の据え置きを
+  main・release/* の CI で赤にするリポジトリの試験（tests/run.sh の VERSION_BUMP_OK）も赤にする。見出しだけの版は、何が変わったかを記録が答えないまま利用者に取り直させる。
 ファイルの書き換えは字の置き換えで、JSON の並びと字下げを崩さない。
 """
 
@@ -74,6 +78,12 @@ def unreleased(text):
     return head, end, lines
 
 
+def has_entries(text):
+    """`## [Unreleased]` の下に、見出しでない中身の行が有るか。"""
+    head, end, lines = unreleased(text)
+    return any(line.strip() and not line.lstrip().startswith("#") for line in lines[head + 1:end])
+
+
 def level_of(text):
     head, end, lines = unreleased(text)
     return "minor" if any(line.strip() in (f"### {s}" for s in MINOR) for line in lines[head + 1:end]) else "patch"
@@ -88,14 +98,22 @@ def move_unreleased(text, version, date):
 
 
 def plan(root, g):
-    """上げる物の並び [{name, source, old, new, level}] と、marketplace の (old, new)。据え置きが無ければ ([], None)。"""
+    """上げる物の並び [{name, source, old, new, level}] と、marketplace の (old, new)。据え置きが無ければ ([], None)。
+    据え置きのどれかの `## [Unreleased]` に中身が無ければ BumpError（ファイルは書かない）。"""
     mk = json.loads(_read(root, MARKETPLACE))
     plugins = [p for p in mk.get("plugins", []) if isinstance(p.get("source"), str) and p["source"].startswith("./")]
-    rows = []
+    rows, empty = [], []
     for name, src in sorted(stale(root, plugins, g).items()):
         old = json.loads(_read(root, posixpath.join(src, PLUGIN)))["version"]
-        level = level_of(_read(root, posixpath.join(src, "CHANGELOG.md")))
+        log = _read(root, posixpath.join(src, "CHANGELOG.md"))
+        if not has_entries(log):
+            empty.append(f"{name}（{src}/CHANGELOG.md）")
+            continue
+        level = level_of(log)
         rows.append({"name": name, "source": src, "old": old, "new": raise_version(old, level), "level": level})
+    if empty:
+        raise BumpError(f"版を最後に上げた後に中身を変えたのに、`## [Unreleased]` に利用者に効く違いが書いてない: {'、'.join(empty)}。"
+                        "中身の無い版は作らないので、違いを書き足して commit してから打ち直す")
     if not rows:
         return [], None
     m = _META.search(_read(root, MARKETPLACE))

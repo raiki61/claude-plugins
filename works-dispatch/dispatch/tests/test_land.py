@@ -15,6 +15,7 @@ import unittest
 from unittest import mock
 
 from . import DISPATCH  # noqa: F401
+import dispatch
 import ghx
 import gitx
 import herdr as real_herdr
@@ -202,12 +203,12 @@ class LandCase(unittest.TestCase):
         self.addCleanup(self.env.stop)
         self.config = os.path.join(self.tmp, "conf", "dispatch.toml")   # 無いファイル（設定の置き場を一時のフォルダに向ける）
 
-    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16", name="a"):
+    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16", name="a", dry_run=False):
         repo = Repo("o/r", "", world.source, (), None, None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "resident": "常駐の部署は畳まない"},
-                                self.config, pause=lambda: None, today=today,
+                                self.config, pause=lambda: None, today=today, dry_run=dry_run,
                                 **({"checker": checker} if checker else {}))
         return code, out.getvalue()
 
@@ -542,6 +543,119 @@ class BumpAtLand(LandCase):
         mk = pathlib.Path(src, ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
         self.assertEqual(mk, MARKET.replace('"version": "0.9.0"', '"version": "0.9.1"'))
         self.assertEqual(bump.plan(src, gitx), ([], None), "版を上げた後も据え置きと数える")
+
+
+    def test_empty_unreleased_stops_without_a_version(self):
+        """中身の無い版は作らない: 置き場を変えたのに `## [Unreleased]` が空なら、版を上げずに止め、本流に入れない。"""
+        files = marketplace_files()
+        files[".claude/company.toml"] = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\nbump = "marketplace"\n'
+        w = World(self.tmp, files)
+        before = w.origin("main")
+        write(os.path.join(w.dept, "one", "x.py"), "2\n")
+        write(os.path.join(w.dept, "one", "CHANGELOG.md"), CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n"))
+        commit(w.dept, "one を直す（記録は見出しだけ）")
+        ran = []
+        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""))
+        self.assertEqual(code, 1, out)
+        self.assertIn("one（one/CHANGELOG.md）", out)
+        self.assertEqual(ran, [], "版を上げられないのに関門を回した")
+        self.assertEqual(w.origin("main"), before)
+        self.assertEqual(git("-C", w.source, "worktree", "list", "--porcelain").count("worktree "), 2, "一時の場所が残った")
+
+    def test_has_entries(self):
+        self.assertFalse(bump.has_entries(CHANGELOG))
+        self.assertFalse(bump.has_entries(CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n")))
+        self.assertTrue(bump.has_entries(CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- 直した\n")))
+
+
+class DryRun(LandCase):
+    """--land --dry-run は決まりと見立てを出すだけで、origin・手元の ref・部署の窓・関門のどれにも書かない。"""
+
+    def snapshot(self, w):
+        return (git("--git-dir", w.remote, "for-each-ref"), git("-C", w.source, "for-each-ref"),
+                git("-C", w.source, "worktree", "list", "--porcelain"))
+
+    def test_ci_gate_with_bump_reports_the_plan_and_writes_nothing(self):
+        files = {**marketplace_files(), **CI_FILES}
+        files[".claude/company.toml"] = CI_RULES + 'bump = "marketplace"\n'
+        w = World(self.tmp, files)
+        write(os.path.join(w.dept, "one", "x.py"), "2\n")
+        write(os.path.join(w.dept, "one", "CHANGELOG.md"), CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- 直した\n"))
+        head = commit(w.dept, "one を直す")
+        before = self.snapshot(w)
+        ports = Ports(w)
+        code, out = self.land(w, ports, dry_run=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("取り込み方 ff-after-ci、関門 release/*、版上げ marketplace", out)
+        self.assertIn(f"- {head[:7]} one を直す", out)
+        self.assertIn("one 0.1.0 → 0.1.1（patch） / marketplace 0.9.0 → 0.9.1", out)
+        self.assertIn("release/a", out)
+        self.assertEqual(self.snapshot(w), before, "空打ちなのに ref か worktree を書いた")
+        self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "", "空打ちなのに部署の場所のファイルを書き換えた")
+        self.assertEqual((ports.gh.asked, ports.gh.prs, ports.herdr.prompts), (0, [], []))
+
+    def test_main_moved_reports_the_rebase_without_fetching_or_asking(self):
+        w = World(self.tmp, CI_FILES)
+        w.work()
+        w.move_main()
+        before = self.snapshot(w)
+        ports = Ports(w)
+        code, out = self.land(w, ports, dry_run=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn("載せ直し", out)
+        self.assertEqual(self.snapshot(w), before, "空打ちなのに本流を取り直した")
+        self.assertEqual(ports.herdr.prompts, [])
+
+    def test_empty_unreleased_is_reported(self):
+        files = marketplace_files()
+        files[".claude/company.toml"] = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\nbump = "marketplace"\n'
+        w = World(self.tmp, files)
+        write(os.path.join(w.dept, "two", "y.py"), "2\n")
+        commit(w.dept, "two を直す")
+        code, out = self.land(w, Ports(w), dry_run=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn("two（two/CHANGELOG.md）", out)
+
+    def test_local_check_is_not_run(self):
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
+        w.work()
+        before = self.snapshot(w)
+        ran = []
+        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""), dry_run=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ran, [])
+        self.assertIn("手元の検証 tools/check", out)
+        self.assertEqual(self.snapshot(w), before)
+
+    def test_pr_mode_neither_pushes_nor_opens_a_pr(self):
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        w.work()
+        ports = Ports(w)
+        code, out = self.land(w, ports, dry_run=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ports.gh.prs, [])
+        self.assertFalse(w.has("feat/a"))
+
+    def test_already_landed_reports_the_tidy_without_retiring(self):
+        w = World(self.tmp, CI_FILES)
+        head = w.work()
+        git("-C", w.dept, "push", "-q", "origin", f"{head}:refs/heads/main")
+        retired = []
+        rows = lambda cfg, repo, ports, found, notes: [{"path": w.dept, "removable": True, "branch": "feat/a"}]  # noqa: E731
+        with mock.patch.object(landing.clean, "retire", lambda *a, **k: retired.append(a)):
+            code, out = self.land(w, Ports(w), rows=rows, dry_run=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("もう本流 main に入っている", out)
+        self.assertIn("部署を片付ける", out)
+        self.assertEqual(retired, [])
+
+    def test_the_entry_passes_dry_run_to_land(self):
+        got = {}
+        with mock.patch.object(dispatch.config, "load", lambda *a: None), \
+                mock.patch.object(dispatch.config, "pick_repo", lambda cfg, r: "repo"), \
+                mock.patch.object(dispatch.landing, "main", lambda *a, **k: got.update(k) or 0):
+            self.assertEqual(dispatch.main(["--land", "a", "--dry-run"], ports=object()), 0)
+        self.assertTrue(got.get("dry_run"))
 
 
 class Rules(unittest.TestCase):
