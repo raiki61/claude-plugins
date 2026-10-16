@@ -123,6 +123,13 @@ class FakeHerdr(WorktreeHerdr):
         self.writes.append(("report_pane_metadata", pane, display_agent, title, dict(tokens), list(clear_tokens)))
 
     screen = ""   # read が返す画面の終わり
+    front = {}    # ペイン → 前で動いている命令の並び（foreground）。無ければ、会話が居ればその会話、居なければシェル
+
+    def foreground(self, pane):
+        return self.front.get(pane, ["claude"] if pane in self.talking else ["/bin/sh"])
+
+    def send_keys(self, pane, *keys):
+        self.writes.append(("send_keys", pane, *keys))
 
     def read(self, pane, lines):
         return self.screen

@@ -104,6 +104,8 @@ def shape_role(root, settings, name):
 REVIVE_LOOKS = 20
 
 
+# 会話の一覧の状態のうち、会話が落ちている物（tree の STATES の鍵）
+FALLEN = ("stopped", "failed")
 # attach の画面が終わったときに Claude Code がペインに出す行（「Session cb2d81c3 has exited.」。2.1.301 で見た）
 EXITED = re.compile(r"Session \S+ has exited\.")
 
@@ -115,6 +117,10 @@ def live_window(dept, ports):
     会話は居ないと見る。"""
     pane = deliver.window(dept)
     if pane is None:
+        return None
+    if dept.get("state") in FALLEN:
+        # 会話の一覧が止まったと言う。裏の処理が止まった後も、窓の attach が「Waking session …」のまま前に残る（Linux で見た。
+        # まっさらな環境での 7 回目の試しの 2）ので、窓の前のプロセスだけでは見分けられない
         return None
     try:
         if os.name != "nt" and ports.herdr.shell_in_front(pane):
@@ -141,6 +147,16 @@ def revive(dept, accounts_, ports, sessions_=None):
     command = f"{acc.command if acc else 'claude'} attach {sid}"
     try:
         pane = next((p["pane_id"] for p in dept["panes"] if ports.herdr.shell_in_front(p["pane_id"])), None)
+        if pane is None:
+            # 止まった attach が窓の前に残っていれば Ctrl-C で終わらせ、シェルに戻るのを見る
+            for p in dept["panes"]:
+                if launch.end_stale_attach(p["pane_id"], ports.herdr):
+                    for _ in range(REVIVE_LOOKS):
+                        ports.pause()
+                        if ports.herdr.shell_in_front(p["pane_id"]):
+                            pane = p["pane_id"]
+                            break
+                    break
     except herdr.HerdrError as e:
         pane = None
         why = str(e)
@@ -161,6 +177,15 @@ def revive(dept, accounts_, ports, sessions_=None):
             alive = False
         if alive:
             return pane, f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
+    try:
+        screen = ports.herdr.read(pane, 6)
+    except herdr.HerdrError:
+        screen = ""
+    if "00~" in screen:
+        # attach の画面を強く終わらせると、窓の端末に貼り付けの印（ESC[200~）が残り、打った命令の前後に 00~ と 01~ が付いて
+        # 届く（まっさらな環境での 7 回目の試しの 4。macOS で見た）。dispatch の打つ字も同じ道を通るので、ここでは直せない
+        return None, (f"ペイン {pane} の端末に貼り付けの印が残っていて、{command} が崩れて届いた（画面に 00~ が出ている）。"
+                      f"部署の窓で reset を打って端末を戻してから、--ask を打ち直す")
     return None, f"ペイン {pane} で {command} を打ったが、窓に会話が戻らない（画面を見て、会話が戻ったら --ask を打ち直す）"
 
 
@@ -228,7 +253,7 @@ def ask(a, ports, cwd, task):
         if pending:
             # 部署は頼みを 1 つずつ受ける（頼み元の属性は 1 組なので、上書きすると前の頼み元に納品が返らない）
             if revived:
-                status, detail = deliver.send(pane, nudge_line(held, dept["attrs"].get("boss")), ports.herdr)
+                status, detail = deliver.send(pane, nudge_line(held, dept["attrs"].get("boss")), ports.herdr, ports.pause)
                 notes.append(f"戻した部署に、受付 {held} の納品を促した（{status}" + (f"。{detail}" if detail else "") + "）")
                 print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
                                          "まだ納品していない。会話が落ちていたので戻して納品を促した。納品が届いてから頼み直す"]))
@@ -246,7 +271,7 @@ def ask(a, ports, cwd, task):
             return 0
         path = deliver.put(inbox, f"{ask_id}-ask.md", body)
         line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-        status, detail = deliver.send(pane, line, ports.herdr)
+        status, detail = deliver.send(pane, line, ports.herdr, ports.pause)
         if status == "sent":
             try:
                 provision.mark(dept["path"], company["root"], boss, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
@@ -344,7 +369,7 @@ def deliver_summary(a, ports, cwd):
                                  f"受付箱: {target}", f"打ち込む 1 行: {line}"]))
         return 0
     path = deliver.put(inbox, os.path.basename(target), deliver.summary_text(items, required))
-    status, detail = deliver.send(pane, line, ports.herdr) if pane else ("failed", how)
+    status, detail = deliver.send(pane, line, ports.herdr, ports.pause) if pane else ("failed", how)
     deliver.log(inbox, {"id": file_id, "kind": "deliver", "ask": ask_id, "at": ports.now(), "status": status, "detail": detail,
                         "from": {"name": attrs.get("name"), "account": attrs.get("account"), "session": attrs.get("session"),
                                  "branch": branch, "place": cwd},

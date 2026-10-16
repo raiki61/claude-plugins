@@ -298,12 +298,33 @@ def deliver_line(ask_id, sender, branch, items, required, path):
     return f"納品です（受付 {ask_id or '-'}、{sender}・枝 {branch or '-'} から）: {body} （全文: {path}）"
 
 
-def send(pane, line, h):
-    """窓の会話に 1 行を送る（herdr agent prompt。終わりは待たない）。書く口。(sent か failed, 訳)。"""
+# 送った 1 行が入力欄に残っていないかを見る回数（1 回ごとに pause）
+SUBMIT_LOOKS = 3
+
+
+def send(pane, line, h, pause=None):
+    """窓の会話に 1 行を送る（herdr agent prompt。終わりは待たない）。書く口。(sent か failed, 訳)。
+    pause を渡すと、送った後に入力欄（行の頭が ❯ の行）にその文が残っていないかを見て、残っていれば Enter を 1 回足す。
+    Windows で、attach で戻した直後の会話に送った文が、入力欄に入ったまま送信されなかった（まっさらな環境での 7 回目の試しの 1）。
+    入力欄が空のときの Enter は何もしないので、見誤っても害は無い。"""
     try:
         h.prompt(pane, line, False)
     except h.HerdrError as e:
         return "failed", str(e)
+    if pause is not None:
+        head = " ".join(line.split())[:20]
+        for _ in range(SUBMIT_LOOKS):
+            pause()
+            try:
+                tail = [x.strip() for x in h.read(pane, 12).splitlines() if x.strip()]
+            except h.HerdrError:
+                break
+            if any(x.startswith("❯") and head in " ".join(x.split()) for x in tail[-8:]):
+                try:
+                    h.send_keys(pane, "enter")
+                except h.HerdrError:
+                    pass
+                return "sent", "入力欄に残っていたので Enter を足した"
     return "sent", None
 
 

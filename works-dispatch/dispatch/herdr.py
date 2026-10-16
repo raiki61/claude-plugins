@@ -6,7 +6,7 @@ herdr は版が 0.x で互換を約束していない。herdr の文書は、手
 作業場の場所（元の clone の git worktree）も、作る・並べる・開く・消すをここに寄せる（worktrees・create_worktree・open_worktree・
 remove_worktree）。ノードは「枝の場所」の言葉だけで書き、herdr の worktree の口の形を知らない。
 
-書く関数は run・prompt・rename_pane・rename_workspace・report_pane_metadata・create_worktree・open_worktree・remove_worktree・close_workspace・
+書く関数は run・prompt・send_keys・rename_pane・rename_workspace・report_pane_metadata・create_worktree・open_worktree・remove_worktree・close_workspace・
 report_activity で、
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
@@ -168,6 +168,17 @@ def read(pane, lines, runner=_default_runner):
     if p.returncode != 0:
         raise HerdrError(argv, _error_code(p.stdout) or (p.stderr or p.stdout).strip()[:300])
     return p.stdout
+
+
+def foreground(pane, runner=_default_runner):
+    """ペインの前で動いているプロセスの起こした命令の並び（herdr pane process-info の foreground_processes の cmdline）。読む口。"""
+    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+    return [p.get("cmdline") or " ".join(p.get("argv") or []) for p in info.get("foreground_processes") or []]
+
+
+def send_keys(pane, *keys, runner=_default_runner):
+    """ペインにキーを送る（herdr pane send-keys。例 ctrl+c・enter）。書く口。"""
+    _call(["herdr", "pane", "send-keys", pane, *keys], runner, quiet_ok=True)
 
 
 def shell_in_front(pane, runner=_default_runner):

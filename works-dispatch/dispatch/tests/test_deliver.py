@@ -233,6 +233,41 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.herdr.writes)
 
+    def test_stopped_session_behind_a_stuck_attach_is_ended_and_attached_again(self):
+        # Linux: 裏の処理が止まると、窓の attach は「Waking session …」のまま前に残る。会話の一覧が stopped と言えば落ちたと見て、
+        # 残った attach を Ctrl-C で終わらせ、シェルに戻ってから短い id で打ち直す
+        real_list = self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {**x, "state": "stopped"} if x.get("sessionId") == "s-dept" else x for x in real_list(cdir, include_done)]
+        self.ports.herdr.front[self.window] = ["claude attach d"]
+        self.fall(keep_mark=True)
+        self.ports.herdr.talking.add(self.window)   # 止まった attach が前に居る（シェルでない）
+        real_keys = self.ports.herdr.send_keys
+
+        def keys(pane, *k):
+            real_keys(pane, *k)
+            if "ctrl+c" in k:
+                self.ports.herdr.talking.discard(pane)
+                self.ports.herdr.front.pop(pane, None)
+                self.ports.list_sessions = real_list   # 打ち直すと会話が起きる
+        self.ports.herdr.send_keys = keys
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        writes = [w for w in self.ports.herdr.writes if w[0] in ("send_keys", "run")]
+        self.assertEqual(writes[:2], [("send_keys", self.window, "ctrl+c"), ("run", self.window, "claude-a1 attach d")])
+
+    def test_a_line_left_in_the_input_box_gets_an_enter(self):
+        # Windows: attach で戻した直後に送った文が、入力欄に入ったまま送信されなかった。残っていれば Enter を足す
+        h = self.ports.herdr
+        h.screen = "────\n❯ 再開の知らせです: この会話は落ちて戻った。\n────"
+        status, detail = deliver.send(self.window, "再開の知らせです: この会話は落ちて戻った。受付 X", h, lambda: None)
+        self.assertEqual(status, "sent")
+        self.assertIn(("send_keys", self.window, "enter"), h.writes)
+        h.writes.clear()
+        h.screen = "────\n❯\n────"
+        deliver.send(self.window, "再開の知らせです: この会話は落ちて戻った。受付 X", h, lambda: None)
+        self.assertNotIn(("send_keys", self.window, "enter"), h.writes)
+
     def test_exited_line_on_the_screen_counts_as_fallen(self):
         # Windows では前のプロセスを見る口が当てにならないので、画面の「Session … has exited.」でも見分ける
         orders = __import__("orders")

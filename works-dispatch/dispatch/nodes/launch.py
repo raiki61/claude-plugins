@@ -114,6 +114,19 @@ def attach(row, pane, session_id, h=herdr):
     return {"pane": pane, "status": "attached", "detail": None}
 
 
+def end_stale_attach(pane, h=herdr):
+    """裏の処理が止まって会話が落ちた後も、部署の窓に残って「Waking session …」のまま止まる attach の画面（Linux で見た。
+    まっさらな環境での 7 回目の試しの 2）を、Ctrl-C で終わらせる。前に居るのが attach のときだけ送る。送ったら True。"""
+    try:
+        front = h.foreground(pane)
+    except h.HerdrError:
+        return False
+    if not any(" attach " in f" {c} " for c in front):
+        return False
+    h.send_keys(pane, "ctrl+c")
+    return True
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plan", required=True)
