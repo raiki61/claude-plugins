@@ -8,6 +8,8 @@
 
 ## 動作確認
 
+まっさらな環境（macOS・Windows・Linux）でプラグインを入れて、説明書だけで使えるかを試した記録は、索引 [docs/trials/README.md](docs/trials/README.md) から辿れる（試しに使う Windows の VM の手引きも同じ所）。
+
 **これはこのプラグイン自身を開発・改造する人向けの検証で、利用者が対象リポジトリで走らせるものではない。** `/plugin install` で入れた場合、実体はプラグインのキャッシュに置かれて作業ディレクトリには現れないので、`tests/run.sh` は clone しないと存在しない。
 
 ```bash
