@@ -6,6 +6,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Changed
+
+- 手元の文書の初見読みが、一時の置き場（Python の `tempfile` が一時フォルダに選ぶ候補の `TMPDIR`・`TEMP`・`TMP`・`/tmp` などと `tempfile.gettempdir()`。macOS の `/tmp` → `/private/tmp` のような実体のパスでも比べる）の下にある、git の作業ツリーの外のファイルを読まない。Claude Code の scratchpad に置いた頼みの文書や、試験の前後を比べるために置いた写しを読み、毎回「直さずに残す」で終わる指摘を出していた。git の中のファイルと、一時の置き場の外のファイルは今どおり読む。根は `COLDREAD_TMP_DIRS` で替えられる。
+
 ## [0.15.0] - 2026-10-16
 
 ### Changed

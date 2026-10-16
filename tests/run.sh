@@ -2593,7 +2593,8 @@ spec.loader.exec_module(g)
 
 def run(mode, payload, reader=None, **env):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
-    e.update(CLAUDE_CONFIG_DIR=str(cfg), **env)
+    # 文書は一時フォルダの下(WORK)に置くので、一時の置き場の根を別の所に向けて、git の外の文書として読ませる
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"), **env)
     if reader:
         e["COLDREAD_READER_CMD"] = reader
     r = subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
@@ -2825,7 +2826,7 @@ calls.mkdir()
 
 def run(mode, payload, reader=None):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
-    e.update(CLAUDE_CONFIG_DIR=str(cfg))
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"))   # WORK の下の文書を読ませる
     if reader:
         e["COLDREAD_READER_CMD"] = reader
     r = subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
@@ -2898,7 +2899,8 @@ spec.loader.exec_module(g)
 
 def run(mode, payload, reader=None):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
-    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader or "cat >/dev/null; exit 1")
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader or "cat >/dev/null; exit 1",
+             COLDREAD_TMP_DIRS=str(work / "tmp-root"))   # WORK の下の git の外の文書も読ませる
     r = subprocess.run([sys.executable, str(gate), *([mode] if mode else [])], input=json.dumps(payload).encode("utf-8"),
                        capture_output=True, env=e, timeout=60)
     assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
@@ -3026,6 +3028,74 @@ run("docs-check", {"session_id": "s9", "hook_event_name": "Stop"}, READER)
 body = last_prompt()[0][len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
 assert "印U" in body and "印D の 0 行目" in body and "印A" not in body and "印C" not in body, f"HEAD の版と比べた節だけが渡っていない: {body}"
 print("DOCS_FOCUS_OK")
+PY
+# 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。
+# 2026-10-16 に、scratchpad(/private/tmp/claude-<uid>/…)と /private/tmp の写しを読み、毎回「直さずに残す」で終わる指摘を出した。
+# 一時フォルダの下でも git の中は読み、一時フォルダの外は今どおり読む。綴りと実体の違う根(macOS の /var → /private/var)も効かせる
+expect_output 0 "DOCS_TMP_OK" "coldread の手元の文書: 一時の置き場の下の git の外のファイルは読まず、git の中と一時の置き場の外は読む" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-tmp" <<'PY'
+import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls = work / "cfg", work / "calls"
+calls.mkdir()
+# 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残す(並んで読むので名前は mktemp で分ける)
+READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
+
+def read_marks(docs, **env):
+    """docs を 1 回の記録と終わりに流し、読み手に渡った文書の印を返す。"""
+    for f in calls.iterdir():
+        f.unlink()
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=READER, **env)
+    for mode, payload in [*(("docs-record", {"session_id": "s1", "tool_name": "Write", "tool_input": {"file_path": str(p)}})
+                            for p in docs), ("docs-check", {"session_id": "s1", "hook_event_name": "Stop"})]:
+        r = subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
+                           capture_output=True, env=e, timeout=60)
+        assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    got = [f.read_text(encoding="utf-8") for f in calls.iterdir()]
+    return sorted(m for m in (pathlib.Path(p).stem for p in docs) if any("印" + m + "。" in t for t in got))
+
+def doc(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("# 題\n\n" + ("印%s。" % path.stem) * 60, encoding="utf-8")   # 300 字を超える。印は名前ごとに変える
+    return path
+
+def git_init(d):
+    d.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(d)], check=True, capture_output=True)
+
+# 1) 既定の根: Python の一時フォルダ(TMPDIR が決める tempfile.gettempdir())の下の git の外は読まず、git の中は読む
+tmp = work / "t"
+git_init(tmp / "repo")
+plain, tracked = doc(tmp / "plain.md"), doc(tmp / "repo" / "tracked.md")
+assert read_marks([plain, tracked], TMPDIR=str(tmp), TEMP=str(tmp), TMP=str(tmp)) == ["tracked"], "既定の一時フォルダの下の git の外を読んだか、git の中を読まない"
+# 実パスの綴りで渡しても同じ(macOS では一時フォルダが /var/folders/… で、実体は /private/var/folders/…)
+real = doc(pathlib.Path(os.path.realpath(tmp)) / "real.md")
+assert read_marks([real], TMPDIR=str(tmp), TEMP=str(tmp), TMP=str(tmp)) == [], "実パスの綴りの一時フォルダの下を読んだ"
+
+# 2) 根を COLDREAD_TMP_DIRS で替える: 根の下の git の外は読まず、根の外は読む(試験の WORK 自体が一時フォルダの下に在るので、外は根を替えて作る)
+roots = work / "k"
+inner, outer = doc(roots / "inner.md"), doc(work / "out" / "outer.md")
+assert read_marks([inner, outer], COLDREAD_TMP_DIRS=str(roots)) == ["outer"], "根の下の git の外を読んだか、根の外を読まない"
+
+# 3) 綴りと実体の違う根: 根を symlink の綴りで書いても、実体の綴りで書いても、もう片方の綴りのファイルを読まない
+link = work / "k-link"
+try:
+    os.symlink(str(roots), str(link), target_is_directory=True)
+except (OSError, NotImplementedError) as exc:
+    print("  ok   一時の置き場の根の綴りと実体の違い # SKIP symlink: %s" % exc)
+else:
+    via_link, via_real = doc(link / "vialink.md"), doc(roots / "viareal.md")
+    assert read_marks([via_real], COLDREAD_TMP_DIRS=str(link)) == [], "根を symlink で書いたとき、実体の綴りのファイルを読んだ"
+    assert read_marks([via_link], COLDREAD_TMP_DIRS=str(roots)) == [], "根を実体で書いたとき、symlink の綴りのファイルを読んだ"
+log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+assert "一時の置き場(git の外)" in log and str(plain) in log, "読まなかった理由が docs.log に無い"
+print("DOCS_TMP_OK")
 PY
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \

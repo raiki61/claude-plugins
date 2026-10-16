@@ -104,6 +104,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
@@ -2498,8 +2499,48 @@ def _seen_list():
         return []
 
 
+def _tmp_roots():
+    """一時の置き場の根の集合(正規化した綴りと実パスの両方)。
+
+    既定は Python の tempfile が一時フォルダを選ぶ候補(環境変数 TMPDIR・TEMP・TMP と OS の決まった場所。最後の候補の
+    カレントディレクトリは除く)と、実際に選んだ tempfile.gettempdir()。gettempdir() だけでは足りない: macOS では
+    TMPDIR が /var/folders/… を指し、Claude Code の scratchpad(/private/tmp/claude-<uid>/…)は /tmp の下にある
+    (2026-10-16 に実測)。macOS の /tmp → /private/tmp・/var → /private/var のように綴りと実体が違うので、両方を持つ。
+    COLDREAD_TMP_DIRS(os.pathsep 区切り)が在れば、既定の代わりにそれを使う(試験は一時フォルダの下で走るので)。
+    """
+    raw = os.environ.get("COLDREAD_TMP_DIRS")
+    if raw is not None:
+        dirs = raw.split(os.pathsep)
+    else:
+        dirs = [tempfile.gettempdir()] + [os.environ.get(k) for k in ("TMPDIR", "TEMP", "TMP")]
+        if os.name == "nt":
+            dirs += [os.path.expanduser(r"~\AppData\Local\Temp"), os.path.expandvars(r"%SYSTEMROOT%\Temp")]
+        else:
+            dirs += ["/tmp", "/var/tmp", "/usr/tmp"]
+    return {os.path.normcase(f(d)) for d in dirs if d for f in (os.path.abspath, os.path.realpath)}
+
+
+def _scratch(path):
+    """git の作業ツリーの外で、一時の置き場の下に在るファイルか(書いた役が自分のために置いた写し・頼みの文書。読まない)。"""
+    roots = _tmp_roots()
+    under = False
+    for p in {os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.realpath(path))}:
+        for r in roots:
+            try:
+                under = under or os.path.commonpath([p, r]) == r
+            except ValueError:   # Windows で別のドライブ
+                pass
+    if not under:
+        return False
+    # 一時の置き場の下でも、git の作業ツリーの中なら人に見せる文書として読む。git が無い・時間切れなら外と見る
+    d = os.path.dirname(os.path.abspath(path))
+    return not (os.path.isdir(d) and _git(["rev-parse", "--show-toplevel"], d))
+
+
 def doc_to_read(path, seen):
     """読むなら (本文, 中身のハッシュ)、読まないなら (None, 理由)。"""
+    if _scratch(path):
+        return None, "一時の置き場(git の外)"
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()

@@ -220,6 +220,12 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   費用で出したため。投稿の読み手は sonnet・medium のまま
 - 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
   `linguist-generated` の印・書く前と同じ中身・前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
+- 一時の置き場に書いた、git の作業ツリーの外のファイルも読まない(書いた役が自分のために置いた写しや、渡された頼みの文書)。
+  一時の置き場は、Python の `tempfile` が一時フォルダを選ぶ候補(環境変数 `TMPDIR`・`TEMP`・`TMP` と、OS の決まった場所。
+  macOS・Linux は `/tmp`・`/var/tmp`・`/usr/tmp`、Windows は `~\AppData\Local\Temp` と `%SYSTEMROOT%\Temp`)と、
+  実際に選んだ `tempfile.gettempdir()`。綴りと実体のパスの両方で比べる(macOS の `/tmp` → `/private/tmp`・`/var` → `/private/var`)。
+  Claude Code の scratchpad(macOS では `/private/tmp/claude-<uid>/…`)もここに入る。一時の置き場の下でも git の中は読む。
+  根を替えるなら `COLDREAD_TMP_DIRS`(`os.pathsep` 区切り。既定の代わりに使う)
 - 直した文書はまたその役の終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
   そのまま終えてよい。連続で返すのは Claude Code が 8 回で打ち切る
 - 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
