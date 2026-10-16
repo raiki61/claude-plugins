@@ -11,94 +11,94 @@ gh_user = "raiki61"
 id = "plugin-fix"
 name = "プラグインの直し"
 description = "受け持ちの無い一度きりの直しと、部が並べて進めたい直しを、一時の部署で受ける"
-role = "作業役"
+role = "作業者"
 
 [[skills]]
 id = "dispatch"
-name = "振り分け部の受け持ち"
+name = "総務部の受け持ち"
 description = "部署の立て方・頼みと納品・本流に入れる命令と、道具の点検の直し"
-role = "振り分け部"
+role = "総務部の管理者"
 
 [[skills]]
 id = "gates"
-name = "関門部の受け持ち"
+name = "審査部の受け持ち"
 description = "書き込み前の関門（初見読みなど）の直し"
-role = "関門部"
+role = "審査部の管理者"
 
 [[skills]]
 id = "convergence"
-name = "収束部の受け持ち"
+name = "技術部の受け持ち"
 description = "レビュー・調べ・初見読みなどの収束の工程と、そのグラフの直し"
-role = "収束部"
+role = "技術部の管理者"
 
 [[skills]]
 id = "attention"
-name = "見渡し部の受け持ち"
+name = "秘書室の受け持ち"
 description = "自分の番の PR の見渡しと /catchup の直し"
-role = "見渡し部"
+role = "秘書室の管理者"
 
 [[skills]]
 id = "docs"
-name = "文書部の受け持ち"
+name = "広報部の受け持ち"
 description = "プラグインをまたぐ文書（根の README・docs/）の直し"
-role = "文書部"
+role = "広報部の管理者"
 
 [[skills]]
 id = "trials"
-name = "試し部の受け持ち"
+name = "品質保証部の受け持ち"
 description = "まっさらな環境・Windows・Linux で入れて試し、詰まりを記録する"
-role = "試し部"
+role = "品質保証部の管理者"
 
 [[roles]]
-name = "振り分け部"
-instructions = "受け持ちは works-dispatch と tiers のプラグイン。常設の部なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部に頼む命令（--ask claude-plugins/<部>）で頼む。"
+name = "総務部の管理者"
+instructions = "受け持ちは works-dispatch と tiers のプラグイン。頼みを受け、自分で進めるか、並べたいときは作業者に頼む（--ask claude-plugins/作業者 に --task <部署の名前> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask claude-plugins/<部>の管理者）で頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 
 [[roles]]
-name = "関門部"
-instructions = "受け持ちは gates のプラグイン。常設の部なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部に頼む命令（--ask claude-plugins/<部>）で頼む。"
+name = "審査部の管理者"
+instructions = "受け持ちは gates のプラグイン。頼みを受け、自分で進めるか、並べたいときは作業者に頼む（--ask claude-plugins/作業者 に --task <部署の名前> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask claude-plugins/<部>の管理者）で頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 
 [[roles]]
-name = "収束部"
-instructions = "受け持ちは convergence-loops と graphloops のプラグイン。常設の部なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部に頼む命令（--ask claude-plugins/<部>）で頼む。"
+name = "技術部の管理者"
+instructions = "受け持ちは convergence-loops と graphloops のプラグイン。頼みを受け、自分で進めるか、並べたいときは作業者に頼む（--ask claude-plugins/作業者 に --task <部署の名前> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask claude-plugins/<部>の管理者）で頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 
 [[roles]]
-name = "見渡し部"
-instructions = "受け持ちは attention のプラグイン。常設の部なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部に頼む命令（--ask claude-plugins/<部>）で頼む。"
+name = "秘書室の管理者"
+instructions = "受け持ちは attention のプラグイン。頼みを受け、自分で進めるか、並べたいときは作業者に頼む（--ask claude-plugins/作業者 に --task <部署の名前> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask claude-plugins/<部>の管理者）で頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 
 [[roles]]
-name = "文書部"
-instructions = "受け持ちはプラグインをまたぐ文書（根の README.md・CLAUDE.md と docs/。docs/trials/ は試し部）。常設の部なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部に頼む命令（--ask claude-plugins/<部>）で頼む。"
+name = "広報部の管理者"
+instructions = "受け持ちはプラグインをまたぐ文書（根の README.md・CLAUDE.md と docs/。docs/trials/ は品質保証部）。頼みを受け、自分で進めるか、並べたいときは作業者に頼む（--ask claude-plugins/作業者 に --task <部署の名前> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask claude-plugins/<部>の管理者）で頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 
 [[roles]]
-name = "試し部"
-instructions = "受け持ちは docs/trials/。まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する。プラグインは直さず、直しは受け持ちの部に頼む。常設の部なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部に頼む命令（--ask claude-plugins/<部>）で頼む。"
+name = "品質保証部の管理者"
+instructions = "受け持ちは docs/trials/。まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する。プラグインは直さず、直しは受け持ちの部の管理者に頼む。頼みを受け、自分で進めるか、並べたいときは作業者に頼む（--ask claude-plugins/作業者 に --task <部署の名前> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask claude-plugins/<部>の管理者）で頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 
 [[roles]]
-name = "作業役"
+name = "作業者"
 instructions = "頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（本流に入れる命令が上げる）。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
@@ -114,14 +114,20 @@ check = "python3 scripts/shared-copies.py"
 bump = "marketplace"
 
 # 組織の決まり（この会社の作り方。スキルの決まりではない）
-# - 部と作業役: 部（〜部の役）は受け持ち（プラグインかフォルダ）ごとの常設の部署で、--resident で立て、片付けで畳まれず、次の頼みを同じ会話で受ける。
-#   同じ受け持ちの直しは部の中で順番に進むので、同じファイルの取り合いにならない。作業役は一時の部署で、頼みごとに立って入れたら畳まれる。
-#   作業役を使うのは、受け持ちの無い一度きりの作業（根の scripts/・tests/・.github/ や会社の形など）と、部が並べて進めたいとき。
-#   部がまだ立っていないときに役で頼む（--ask claude-plugins/<部>）なら、--task <部署の名前> --branch <枝> に --resident を添える（添えないと都度の部署が立ち、次の頼みがその部署を見つけない）。
+# - 呼び名: 持ち主を社長と見立てる。持ち主と話して各社の部に頼む会話は社長室（前の呼び名は窓口）。
+#   部（総務部・審査部・技術部・秘書室・広報部・品質保証部）は受け持ち（プラグインかフォルダ）ごとの常設の部署で、役職は 2 つ。
+#   管理者は各部に常設で 1 人いて、頼みを受け、自分で進めるか、並べたいときは作業者に頼む。作業者は一度きりの作業をする一時の人。
+#   役の名前は「<部>の管理者」と「作業者」にし、宛先（--ask claude-plugins/<役>）で部と役職が分かるようにする。
+# - 管理者と作業者: 管理者の部署は --resident で立て、片付けで畳まれず、次の頼みを同じ会話で受ける。
+#   同じ受け持ちの直しは部の中で順番に進むので、同じファイルの取り合いにならない。作業者は一時の部署で、頼みごとに立って入れたら畳まれる。
+#   作業者を使うのは、受け持ちの無い一度きりの作業（根の scripts/・tests/・.github/ や会社の形など）と、管理者が並べて進めたいとき。
+#   管理者がまだ立っていないときに役で頼む（--ask claude-plugins/<部>の管理者）なら、--task <部署の名前> --branch <枝> に --resident を添える（添えないと都度の部署が立ち、次の頼みがその部署を見つけない）。
+#   作業者を --task で直に立てるときは --role 作業者 を添える（省くと works-dispatch の既定の役「作業役」になり、作業者の本文と設定が効かない。--ask claude-plugins/作業者 なら役が渡る）。
 #   設計は docs/specs/2026-10-16-company-shape-design.md の 4.12。
-# - 部どうしの連携: 部は、ほかの部と作業役に頼む命令（--ask claude-plugins/<役>）で頼んでよい。頼んだ部が上役になり、納品はその部に返る。
+# - 部どうしの連携: 管理者は、ほかの部の管理者と作業者に頼む命令（--ask claude-plugins/<役>）で頼んでよい。頼んだ管理者が上役になり、納品はその管理者に返る。
 # - works と works-factory は持ち主が別に自動で回している所なので、部を作らず、どの部も触らない。
-# - 部署の名前（--task・--ask に渡す名前。会話・ペインの名前になる）は、日本語で中身が分かる名前にする（例: 「初見読みの一時ファイル除外」）。
-# - 窓口の会話と部の部署の名前は、会社が分かる名前にする（例: 「my_notesの窓口」「claude-pluginsの振り分け部」）。「窓口」だけでは、どの会社の窓口かが分からない。
+# - 部署の名前（--task・--ask に渡す名前。会話・herdr のペインの名前になる）は、会社＋部＋役職が分かる名前にし、作業者には作業の中身を括弧で添える
+#   （例: 「claude-plugins総務部の管理者」「claude-plugins総務部の作業者（README の直し）」。社長室が部を通さずに頼む作業者は「claude-pluginsの作業者（CI の直し）」）。
+#   社長室も会社が分かる名前にする（例: 「my_notesの社長室」）。「社長室」だけでは、どの会社の社長室かが分からない。
 # - 枝の名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
-# - 窓口とのやり取りは頼む命令（--ask）と納品の命令（--deliver）。途中で頼みを変えるときは、部署の窓に直接話しかける。
+# - 社長室とのやり取りは頼む命令（--ask）と納品の命令（--deliver）。途中で頼みを変えるときは、部署の窓に直接話しかける。
