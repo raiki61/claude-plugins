@@ -170,6 +170,15 @@ class Task(unittest.TestCase):
         self.assertIn("「窓口」とはアカウントが違い", command)
         self.assertNotIn("SendMessage で「", command)
 
+    def test_account_with_fewer_running_conversations_gets_the_department(self):
+        # 使用率が同じ（ここでは控えが無い）なら、PR と同じく動いている会話の少ないアカウントに立てる。a1 は設定の順では先
+        dirs = two_accounts(self.cfg)
+        ports = self.ports({dirs["a1"]: [{"sessionId": "w1", "cwd": "/x", "kind": "background", "state": "working"},
+                                         {"sessionId": "w2", "cwd": "/y", "kind": "interactive", "status": "busy"}]})
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/fix  a2  started", out)
+
     def test_unknown_caller_gets_the_screen_route_and_a_note(self):
         ports = self.ports()
         ports.env = {}

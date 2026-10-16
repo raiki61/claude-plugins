@@ -15,6 +15,7 @@ from typing import NamedTuple
 DEFAULT_PATH = "~/.config/works-dispatch/dispatch.toml"
 ENV = "WORKS_DISPATCH_CONFIG"
 DEFAULT_LIMIT = 95
+DEFAULT_RESET_SOON_HOURS = 24  # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（accounts ノード）
 DEFAULT_LIMITS_DIR = "~/.cache/claude-limits"
 
 
@@ -45,6 +46,7 @@ class Config(NamedTuple):
     accounts: tuple[Account, ...]
     repos: tuple[Repo, ...]
     notes: tuple[str, ...] = ()  # 止めはしないが、書いた人に伝える事（外した鍵が書かれているなど）
+    reset_soon_hours: float = DEFAULT_RESET_SOON_HOURS
 
 
 def _path(v):
@@ -82,6 +84,10 @@ def load(path=None, env=os.environ):
     if not isinstance(limits_dir, str):
         problems.append("limits_dir が文字列で無い")
         limits_dir = DEFAULT_LIMITS_DIR
+    soon = raw.get("reset_soon_hours", DEFAULT_RESET_SOON_HOURS)
+    if not isinstance(soon, (int, float)) or isinstance(soon, bool) or soon < 0:
+        problems.append("reset_soon_hours が 0 以上の数で無い")
+        soon = DEFAULT_RESET_SOON_HOURS
 
     accounts = []
     for i, a in enumerate(raw.get("accounts", [])):
@@ -141,7 +147,7 @@ def load(path=None, env=os.environ):
 
     if problems:
         raise ConfigError(f"設定の形が違う（{path}）: " + "／".join(problems))
-    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes))
+    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes), soon)
 
 
 def pick_repo(cfg, name):

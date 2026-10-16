@@ -7,7 +7,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "command", "config_dir", "seven_day", "five_hour", "known", "eligible", "reason"],
+        "required": ["name", "command", "config_dir", "seven_day", "five_hour", "known", "eligible", "reason", "soon", "peak", "running"],
         "properties": {
           "name": {"type": "string"},
           "command": {"type": "string"},
@@ -18,9 +18,16 @@
                         "properties": {"used": {"type": ["number", "null"]}, "resets_at": {"type": ["integer", "null"]}}},
           "known": {"type": "boolean"},
           "eligible": {"type": "boolean"},
-          "reason": {"type": ["string", "null"]}
+          "reason": {"type": ["string", "null"]},
+          "soon": {"type": "boolean"},
+          "peak": {"type": ["number", "null"]},
+          "running": {"type": "integer"}
         }
       }
-    }
+    },
+    "pick": {"type": ["object", "null"], "required": ["name", "command", "config_dir", "why"],
+             "properties": {"name": {"type": "string"}, "command": {"type": "string"},
+                            "config_dir": {"type": ["string", "null"]}, "why": {"type": "string"}}},
+    "notes": {"type": "array", "items": {"type": "string"}}
   }
 }

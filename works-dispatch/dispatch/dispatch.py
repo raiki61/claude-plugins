@@ -340,9 +340,10 @@ class Ports:
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
 
-    def refresh_limits(self, cfg, names):
-        """名指したアカウントの使用率を、控えの古さに依らず API に問い合わせて取り直す（出力 0 トークン。失敗は probe.log）。"""
-        limits.probe_all([a for a in cfg.accounts if a.name in names], cfg.limits_dir, self.env, self.now(), force=True)
+    def refresh_limits(self, cfg, names, force=True):
+        """名指したアカウントの使用率を API に問い合わせて取り直す（出力 0 トークン。失敗は probe.log）。
+        force は控えの古さに依らず全部。偽なら、古いアカウントだけ（limits.py の probe と同じ）。"""
+        limits.probe_all([a for a in cfg.accounts if a.name in names], cfg.limits_dir, self.env, self.now(), force=force)
 
     def load_cost(self, limits_dir):
         return cost.load(pathlib.Path(limits_dir) / COST_FILE)
@@ -632,7 +633,8 @@ def main(argv=None, ports=None):
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
     before = ports.read_limits(cfg.limits_dir, metered)
-    ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now())
+    ranked = accounts.rank(cfg.accounts, before, cfg.limit_percent, ports.now(), accounts.count_running(listed),
+                           cfg.reset_soon_hours)
     est = cost.estimate(ports.load_cost(cfg.limits_dir))
     the_plan = assign.plan(repo, my_prs, sessions.open_keys(staying), {s["cwd"] for s in staying if s["cwd"]}, ranked,
                            cfg.limit_percent, est, places)
@@ -883,7 +885,8 @@ def _task(cfg, repo, a, ports):
     metered = [x.name for x in cfg.accounts if x.limits]
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
-    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now())
+    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
+                           accounts.count_running(listed), cfg.reset_soon_hours)
     row = assign.plan(repo, [{"number": None, "kind": "task", "title": a.task, "head": a.branch}], sessions.open_keys(sess),
                       {s["cwd"] for s in sess if s["cwd"]}, ranked, cfg.limit_percent, None, _branch_places(found))[0]
     row["label"] = a.task
@@ -1084,6 +1087,7 @@ def _init(a, ports):
         "# 欄の意味: works-dispatch プラグインの README",
         "",
         "limit_percent = 95                      # 週か 5 時間の使用率がこれに達したアカウントは使わない",
+        "# reset_soon_hours = 24                 # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（使わずに切り替わる分を無駄にしない）",
         '# limits_dir = "~/.cache/claude-limits"   # アカウントごとの使用率の控え（<name>.json）。無ければ使用率は見ない',
         "",
         "# アカウントを切り替えないなら accounts は書かない（claude を 1 つだけ使う）。",

@@ -325,6 +325,20 @@ class Main(unittest.TestCase):
         rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
         self.assertIn("1 件あたりの使用率の見積もり（3 回の測りの中央値）: 週 0.7%・5 時間 2.0%", out)
 
+    def test_account_with_fewer_running_conversations_goes_first(self):
+        # 使用率が同じ（ここでは控えが無い）なら、動いている会話の少ないアカウントに先に配る。a0 は設定の順では先だが、会話が 2 件動いている
+        d = pathlib.Path(self.cfg).parent
+        text = pathlib.Path(self.cfg).read_text(encoding="utf-8").replace(
+            "accounts = [", f"accounts = [{{ name = \"a0\", command = \"claude-a0\", config_dir = '{d}/c0' }}, ", 1)
+        pathlib.Path(self.cfg).write_text(text, encoding="utf-8")
+        ports = FakePorts([pr(1)])
+        busy = {f"{d}/c0": [{"cwd": "/elsewhere", "state": "working"}, {"cwd": "/elsewhere2", "status": "busy"}]}
+        ports.list_sessions = lambda cdir: busy.get(cdir, [])
+        ports.origin = ports.branch = lambda cwd: None
+        rc, out = run_main(["--config", self.cfg, "--dry-run"], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn(" a1 ", by_number(out)["#1"])
+
     def test_dry_run_does_not_ask_for_fresh_usage(self):
         ports = FakePorts([pr(1)])
         run_main(["--config", self.cfg, "--dry-run"], ports)

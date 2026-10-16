@@ -90,6 +90,15 @@ class Load(unittest.TestCase):
         self.assertEqual(config.copy_root(cfg.repos[0]), cfg.repos[0].source)
         self.assertEqual(cfg.limit_percent, 95)
         self.assertEqual(cfg.limits_dir, os.path.expanduser("~/.cache/claude-limits"))
+        self.assertEqual(cfg.reset_soon_hours, 24)
+
+    def test_reset_soon_hours_is_read_and_checked(self):
+        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        self.assertEqual(config.load(write(self.d, "c.toml", "reset_soon_hours = 6.5\n" + body), env={}).reset_soon_hours, 6.5)
+        for bad in ('"24"', "-1", "true"):
+            with self.assertRaises(config.ConfigError) as e:
+                config.load(write(self.d, "c.toml", f"reset_soon_hours = {bad}\n" + body), env={})
+            self.assertIn("reset_soon_hours", str(e.exception))
 
     def test_account_kinds(self):
         # アカウントの持ち方は人で違う。claude そのまま／設定のフォルダ＋自分で作った Keychain の項目／使用率の枠の無いもの（Ollama・Foundry など）
