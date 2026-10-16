@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 前の版の置き場のパスで打たれた dispatch.py が、今入っている版の dispatch.py を同じ引数で起こし直すようにした（Claude Code の入れた物の控え `installed_plugins.json` で今の版の置き場を引く）。頼みの行と返し方の命令は送った側の dispatch.py のパスをそのまま書き、Claude Code は前の版の置き場を 14 日残すので、部署がその字で打つと前の版が動く。0.25.0 を本流に入れた `--land` を 0.23.0 の dispatch.py で打ち、0.24.0 で足した合図（`[[land.after]]`）が走らず、配布が回らなかった（2026-10-17）。乗り換えはこの版から後の dispatch.py で効く（0.25.0 までの置き場のパスで打てば、前のまま動く）。
+
 ## [0.25.0] - 2026-10-17
 
 ### Changed

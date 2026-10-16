@@ -70,6 +70,7 @@ import config  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
+import installed  # noqa: E402
 import jsonio  # noqa: E402
 import calls  # noqa: E402
 import landing  # noqa: E402
@@ -1641,4 +1642,6 @@ def _clean(cfg, repo, apply, ports):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # 前の版の置き場のパスで打たれたら、今入っている版で打ち直す（installed.py）
+    hopped = installed.hop(__file__, sys.argv[1:])
+    sys.exit(main() if hopped is None else hopped)

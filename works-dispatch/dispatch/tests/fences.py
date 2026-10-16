@@ -19,8 +19,9 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # D4: subprocess を import してよい所（外への口・段の点検 tiers を呼ぶ tierx・whose-turn を呼ぶ prs・始める前の確かめを持つ入口）
 # landing.py は入口 dispatch.py の --land の流れを分けた物で、手元の検証のコマンドを回す
 # calls.py は入口 dispatch.py の --call と --land の合図の流れを分けた物で、会社の形に書かれた道具のコマンドを回す
+# installed.py は入口 dispatch.py が前の版の置き場で打たれたとき、今入っている版の dispatch.py を起こす
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
-                 "calls.py"}
+                 "calls.py", "installed.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
 WRITES = {
