@@ -12,18 +12,18 @@
 
 - 段 0: Claude Code だけ。`claude --version` が通るか。
 - 段 1: gh（GitHub の CLI）。入っているか（`gh --version`）、ログイン済みか（`gh auth status`）。
-- 段 2: herdr（端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具）。入っているか、server が動いているか（`herdr status server` の `status: running`）。それと、アカウントの起こし方の命令（`--launcher` で渡す。省けば `claude`）が、利用者のログインのシェルで見つかるか（Linux・macOS はログインのシェルの `command -v` で探し、シェルの関数と別名も数える。Windows は PATH の上を探し、無ければ PowerShell の起動時に読む設定のファイル `$PROFILE` に書いた関数を、PowerShell の `Get-Command` で探す）。
+- 段 2: herdr（端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具）。入っているか（`herdr --version`）、server が動いているか（`herdr status server` の `status: running`）。それと、アカウントの起こし方の命令（`--launcher` で渡す。省けば `claude`）が、利用者のログインのシェルで見つかるか（Linux・macOS はログインのシェルの `command -v` で探し、シェルの関数と別名も数える。Windows は PATH の上を探し、無ければ PowerShell の起動時に読む設定のファイル `$PROFILE` に書いた関数（と別名）を、PowerShell の `Get-Command` で探す）。
 - 段 3: Archon（AI の工程を順に回す道具）。`archon` が PATH に在るか。
 
 足りない物ごとに、入れ方を返す。入れ方の命令は各道具の公式の README の install の節から写した（2026-10-16 に読んだ。OS ごと: macOS・Linux・Windows）。
 
-段 2 は、初めての人が自分で準備できるように、入れ方の命令に加えて案内（`guide`）も返す。
+段 2 は、初めての人が自分で準備できるように、足りない項目にだけ、入れ方の命令に加えて案内（`guide`）も返す（そろっている項目には出さない）。
 
-- herdr が無い: OS ごとの入れ方の補い（Linux・macOS は置き場 `~/.local/bin` と Homebrew・mise・Nix。Windows は WSL を通さないネイティブで一般提供であること、ARM64 は x86_64 の版をエミュレーションで動かすこと、インストーラの置き場 `%USERPROFILE%\.herdr\packages\standalone\releases`、PowerShell のインストーラが止められたときにコマンドプロンプトで `install.cmd` を落として走らせる入れ方、GitHub の releases から手で落とす zip は中の `herdr.exe` だけを写さず展開したフォルダごと置くこと）と、Claude Code の連携（`herdr integration install claude`。Claude Code の会話を herdr に知らせるフックを、Claude Code の設定のフォルダに足す。アカウントごとに設定のフォルダを分けているなら、フォルダごとに、そのフォルダを指す環境変数 `CLAUDE_CONFIG_DIR` を替えて入れる）。
+- herdr が無い: OS ごとの入れ方の補い（Linux・macOS は、インストーラが herdr を `~/.local/bin` に置くこと（環境変数 `HERDR_INSTALL_DIR` で替えられる）と、ほかの入れ方の Homebrew・mise・Nix。Windows は WSL を通さないネイティブで一般提供であること、ARM64 は x86_64 の版をエミュレーションで動かすこと、インストーラが版ごとのフォルダを `%USERPROFILE%\.herdr\packages\standalone\releases` の下に置き、今の版のフォルダを PATH に入れること、エンドポイントのセキュリティが PowerShell のインストーラを止めたときにコマンドプロンプトで `https://herdr.dev/install.cmd` を落として走らせる入れ方、GitHub の releases から手で落とす zip は中の `herdr.exe` だけを写さず展開したフォルダごと置くこと。同じフォルダに在る、Windows の疑似端末の仕組み ConPTY の実行時のファイルが要る。このファイルは点検しない）と、Claude Code の連携（`herdr integration install claude`。Claude Code の会話を herdr に知らせるフックを、Claude Code の設定のフォルダ（既定は `~/.claude`）に足す。アカウントごとに設定のフォルダを分けているなら、フォルダごとに、そのフォルダを指す環境変数 `CLAUDE_CONFIG_DIR` を替えて入れる。連携が入っているかは点検せず、案内に出すだけ）。
 - herdr が入っているが server が動いていない: 入れ方の命令は「作業するフォルダで `herdr` を打って起こす」。案内は、herdr を初めて起こすと herdr 自身が初回の案内（onboarding）を出し、進めると設定の integrations のタブから連携を入れられることと、上と同じ連携の案内。
-- 起こし方の命令が見つからない: 先に「アカウントが 1 つなら命令は作らなくてよい」と書き、分けるなら、アカウントごとに設定のフォルダを分けて `CLAUDE_CONFIG_DIR` に入れて `claude` を起こす関数か別名を、bash・zsh・PowerShell の 3 つで示す。名前（`claude-p2`）とフォルダ（`~/.claude-p2`）は例で、点検は `--launcher` で渡された名前を探すだけで決め打ちしない。
+- 起こし方の命令が見つからない（`--launcher` で渡した命令が見つからなければ、足りない物に数える）: 先に「アカウントが 1 つなら命令は作らなくてよい（`--launcher` を省けば `claude` だけを見る）」と書き、分けるなら、アカウントごとに設定のフォルダを分けて `CLAUDE_CONFIG_DIR` に入れて `claude` を起こす関数か別名を、bash・zsh・PowerShell の 3 つで示す。名前（`claude-p2`）とフォルダ（`~/.claude-p2`）は例で、点検は `--launcher` で渡された名前を探すだけで決め打ちしない。
 
-根拠は、herdr の v0.9.5 の文書とソースを写した持ち主のノート（my_notes の `reference/primary/ai/herdr-install-and-config.md`、2026-10-16）、Claude Code の環境変数の文書（`CLAUDE_CONFIG_DIR`）、PowerShell の `Set-Alias` の文書（別名は引数を持てないので関数にする）。
+根拠は、herdr の v0.9.5 の文書とソースを写した持ち主のノート（my_notes の `reference/primary/ai/herdr-install-and-config.md`、2026-10-16。v0.9.5 は読んだ版。点検は herdr の版の番号を見ないが、`herdr status server` の出力の形は 0.9.3 で読んだ物を前提にする）、Claude Code の環境変数の文書（`CLAUDE_CONFIG_DIR`）、PowerShell の `Set-Alias` の文書（別名は引数を持てないので関数にする）。
 
 ## 使い方
 

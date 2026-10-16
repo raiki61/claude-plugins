@@ -6,18 +6,22 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Fixed
+
+- `/tiers:check` のスキルと README の段 2 の案内の説明を、初めての人が推測せずに読める形に直す（案内は足りない項目にだけ出ること、足りない項目は全部まとめて見せること、Windows の zip の中の ConPTY の実行時のファイル、`herdr status server` の出力の形の前提）。
+
 ## [0.2.0] - 2026-10-16
 
 ### Added
 
 - 段 2（herdr と、アカウントの起こし方の命令）で足りない物に、初めての人が自分で準備するための案内を付ける。人の読む形は「案内:」の下に、`--json` は各項目の `guide`（行の並び。足りない項目だけが持つ）に同じ物を出す。`--json` の形の版 `schema` は 1 のまま（欄を足すだけで、今の呼び手はそのまま動くため）。
-  - herdr が無い: OS ごとの入れ方の補い（Windows は WSL を通さないネイティブで一般提供、ARM64 は x86_64 の版をエミュレーションで動かす、インストーラが止められたときのコマンドプロンプトでの入れ方、手で落とす zip は `herdr.exe` だけを写さずフォルダごと置く。Linux・macOS は置き場 `~/.local/bin` と、ほかの入れ方 Homebrew・mise・Nix）と、Claude Code の連携 `herdr integration install claude`。
+  - herdr が無い: OS ごとの入れ方の補い（Windows は WSL を通さないネイティブで一般提供、Windows の ARM64 は x86_64 の版をエミュレーションで動かす、エンドポイントのセキュリティが PowerShell のインストーラを止めたときのコマンドプロンプトでの入れ方、手で落とす zip は `herdr.exe` だけを写さずフォルダごと置く（同じフォルダに在る、Windows の疑似端末の仕組み ConPTY の実行時のファイルが要る）。Linux・macOS は置き場 `~/.local/bin` と、ほかの入れ方 Homebrew・mise・Nix）と、Claude Code の連携 `herdr integration install claude`。
   - herdr の server が動いていない: herdr を初めて起こしたときに herdr が出す初回の案内から連携を入れられることと、連携の入れ方。
   - 起こし方の命令（アカウントごとに Claude Code を起こすシェルの命令。`--launcher` で渡す）が見つからない: アカウントが 1 つなら起こし方の命令は要らないことを先に書き、アカウントごとに Claude Code の設定のフォルダを分けて、そのフォルダを環境変数 `CLAUDE_CONFIG_DIR` に入れて起こす関数か別名を、bash・zsh・PowerShell で示す（名前とフォルダは例）。
 
 ### Fixed
 
-- Windows で、PowerShell の `$PROFILE` に書いた起こし方の関数を見つけられず、足りない物と言っていた。起こし方の命令が PATH の上に無ければ、入っている方の PowerShell（pwsh・Windows PowerShell）に、命令の有無を調べる `Get-Command` で聞く。
+- Windows で、PowerShell の `$PROFILE` に書いた起こし方の関数を見つけられず、足りない物と言っていた。起こし方の命令が PATH の上に無ければ、PowerShell に、命令の有無を調べる `Get-Command` で聞く（pwsh が入っていれば先に聞き、見つからなければ Windows PowerShell にも聞く。`-NoProfile` を付けずに起こすので `$PROFILE` を読む）。
 
 ## [0.1.1] - 2026-10-16
 
