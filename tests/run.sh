@@ -2263,7 +2263,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=670
+EXPECTED_CHECKS=671
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3204,6 +3204,76 @@ run("docs-check", {"session_id": "s9", "hook_event_name": "Stop"}, READER)
 body = last_prompt()[0][len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
 assert "印U" in body and "印D の 0 行目" in body and "印A" not in body and "印C" not in body, f"HEAD の版と比べた節だけが渡っていない: {body}"
 print("DOCS_FOCUS_OK")
+PY
+# 読む前に読む中身を覚え、読めなかった物だけ外す。読み終えてから覚えていた頃は、裏の読み(1 回 2〜4 分)の間に同じ文書が
+# commit で記録し直され、次のターンの終わりの読みが同じ中身をもう一度読んだ(2026-10-17 に説明書の部署で、同じ 11 本を 2 回)
+expect_output 0 "DOCS_RACE_OK" "coldread の手元の文書: 読みの最中に同じ中身が記録し直されても、次の終わりの読みは読み直さず、読めなかった中身は次の終わりにまた読む" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-race" <<'PY'
+import json, os, pathlib, subprocess, sys, time
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls, docs = work / "cfg", work / "calls", work / "docs"
+calls.mkdir()
+docs.mkdir()
+
+def env(reader):
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_JOB_DIR"))}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader, COLDREAD_TMP_DIRS=str(work / "tmp-root"))
+    return e
+
+def hook(mode, payload, reader="cat >/dev/null; exit 1", wait=True):
+    p = subprocess.Popen([sys.executable, str(gate), mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=env(reader))
+    p.stdin.write(json.dumps(payload).encode("utf-8"))
+    p.stdin.close()
+    if not wait:
+        return p
+    p.wait(timeout=60)
+    assert p.returncode == 0, (mode, p.returncode, p.stderr.read().decode("utf-8", "replace"))
+
+def record(sid, path):
+    hook("docs-record", {"session_id": sid, "tool_name": "Write", "tool_input": {"file_path": str(path)},
+                         "tool_response": {"type": "create", "filePath": str(path), "originalFile": None}})
+
+def stop(sid, reader, wait=True):
+    return hook("docs-check", {"session_id": sid, "hook_event_name": "Stop"}, reader, wait)
+
+READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
+started = work / "started"
+SLOW = "touch %s; sleep 3; " % started.as_posix() + READER   # 動き出した印を置いてから、読み終えるまで 3 秒かかる読み手
+n_calls = lambda: len(list(calls.iterdir()))
+
+# 1) 読みの最中に同じ中身が記録し直されても、次の終わりは読み直さない
+a = docs / "a.md"
+a.write_text("# 題\n\n" + "読みの最中に記録し直される文書の本文。" * 40 + "\n", encoding="utf-8")
+record("s1", a)
+first = stop("s1", SLOW, wait=False)
+deadline = time.time() + 20
+while not started.exists() and time.time() < deadline:
+    time.sleep(0.1)   # 1 つ目の読みが読み手を起こすまで待つ
+assert first.poll() is None, "1 つ目の読みが、試験の前提より早く終わった(読み手の sleep が効いていない)"
+record("s1", a)   # 同じ中身を commit で記録し直した形
+stop("s1", READER)
+first.wait(timeout=60)
+assert first.returncode == 0, first.stderr.read().decode("utf-8", "replace")
+assert n_calls() == 1, f"同じ中身を 2 回読んだ: {n_calls()} 回"
+log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+assert "同じ中身を前に読んだ" in log, log
+
+# 2) 読めなかった中身は覚えから外れ、次の終わりにまた読む
+b = docs / "b.md"
+b.write_text("# 題\n\n" + "読み手が落ちた文書の本文。" * 40 + "\n", encoding="utf-8")
+record("s2", b)
+stop("s2", "cat >/dev/null; exit 1")
+assert "reader-down" in (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+record("s2", b)
+stop("s2", READER)
+assert n_calls() == 2, f"読めなかった中身を次の終わりに読み直していない: {n_calls()} 回"
+print("DOCS_RACE_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。
 # 2026-10-16 に、scratchpad(/private/tmp/claude-<uid>/…)と /private/tmp の写しを読み、毎回「直さずに残す」で終わる指摘を出した。

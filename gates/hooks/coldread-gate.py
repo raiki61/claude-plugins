@@ -2571,9 +2571,24 @@ def _remember(digests):
         return
     try:
         lines = [*_seen_list(), *digests][-DOC_SEEN_KEEP:]
-        tmp = DOC_SEEN + ".tmp"
+        tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
         with open(tmp, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
+        os.replace(tmp, DOC_SEEN)
+    except OSError:
+        pass
+
+
+def _forget(digests):
+    """覚えた中身のハッシュから digests を外す(読む前に覚えたが、読めなかった物)。"""
+    if not digests:
+        return
+    drop = set(digests)
+    try:
+        lines = [d for d in _seen_list() if d not in drop]
+        tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + ("\n" if lines else ""))
         os.replace(tmp, DOC_SEEN)
     except OSError:
         pass
@@ -2937,19 +2952,24 @@ def _read_pending(session, agent, timeout=READER_TIMEOUT):
             log_line(DOC_LOG, "skip\t書く前と同じ中身\t%s\t%s" % (who, path))
             continue
         picked.append((path, text, digest, part))
-    notes, counts, read, down = [], {"詰まり": 0, "補完": 0}, [], []
+    notes, counts, down = [], {"詰まり": 0, "補完": 0}, []
     if not picked:
         return notes, counts, down
+    # 読む前に、読む中身を読んだ物として覚えておき、読めなかった物だけ後で外す。読み終えてから覚えていた頃は、裏の読み
+    # (1 回 2〜4 分)の間に同じ文書が commit で記録し直され、次のターンの終わりの読みが同じ中身をもう一度読んだ
+    # (2026-10-17 に説明書の部署で実測: 同じ 11 本を 05:29:04 と 05:30:23 に同じ字数で 2 回読んだ)
+    _remember([digest for _, _, digest, _ in picked])
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
         futures = {pool.submit(_timed_read, text if part is None else part, part is not None, timeout): (path, text, digest, part)
                    for path, text, digest, part in picked}
+    unread = []
     for fut, (path, text, digest, part) in futures.items():
         (found, exc), secs = fut.result()
         if exc is not None:
             log_line(DOC_LOG, "reader-down\t%s\t%ds\t%s\t%s" % (str(exc)[:150].replace("\n", " "), secs, who, path))
             down.append(path)
+            unread.append(digest)
             continue
-        read.append(digest)
         note = doc_feedback(path, found, part is not None)
         # 長さの欄は読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
         size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
@@ -2958,7 +2978,7 @@ def _read_pending(session, agent, timeout=READER_TIMEOUT):
             notes.append(note)
             for label in counts:
                 counts[label] += len(found[label])
-    _remember(read)
+    _forget(unread)   # 読めなかった中身は、次の終わりにまた読む
     return notes, counts, down
 
 
