@@ -6,11 +6,15 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Fixed
+
+- `docs/design.md` の依存の範囲の節が「範囲は依存先の git のタグで解く」とだけ書いていた。同じ marketplace の相対パスの依存はタグが無くても今の写しで入り、範囲は読み込むときに確かめる（Claude Code の文書 Plugin dependencies）ことを書いた。
+
 ## [0.5.1] - 2026-10-17
 
 ### Fixed
 
-- `lib/tiers_check.py` の頭の注が、herdr の案内の根拠に持ち主の公開していないノートを指したまま、文も途中で切れていた（0.4.2 で `docs/design.md` だけ直していた）。herdr v0.9.5 の文書とソースに拠ることと、URL の在り処（`docs/design.md` の「段 2 の案内」）を書いた。
+- `lib/tiers_check.py` の頭の注が、herdr（段 2 で点検する、端末を作業場とペインに分けて並べる道具）が足りないときに出す案内の根拠に、持ち主（このリポジトリの作者）の公開していないノートを指したまま、文も途中で切れていた（0.4.2 で `docs/design.md` だけ直していた）。herdr v0.9.5 の文書とソースに拠ることと、URL の在り処（`docs/design.md` の「段 2 の案内」の節。herdr の入れ方・起こし方・Claude Code との連携の案内を、出典の URL 付きで並べる）を書いた。
 - Python が見つからない形を作る試験が、Ubuntu の CI では `/usr/bin` の python を見つけて落ちていた。PATH に sh だけを置いたフォルダを渡す。
 
 ## [0.5.0] - 2026-10-17
