@@ -4,7 +4,7 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。
 
-## [Unreleased]
+## [0.1.1] - 2026-10-16
 
 ### Fixed
 
