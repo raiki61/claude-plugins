@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-16
+
 ### Changed
 
 - README を初めての人向けに書き直した。頭に「何ができるか」「要る物」「5 分で試す」（部署を 1 つ立てて頼み、要約が返るまで）を置き、内部の作り・本流に入れる決まり・前提の理由・試しの記録は `docs/` の `internals.md`・`land.md`・`prerequisites.md`・`observed.md` に移した（中身は消していない）。
