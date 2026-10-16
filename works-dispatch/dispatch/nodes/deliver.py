@@ -251,21 +251,22 @@ def flat(text):
 
 # ---- 窓に打ち込む 1 行 ----
 
-def deliver_command(dispatch_py):
-    return f"python3 {dispatch_py} --deliver <要約のファイル>"
+def deliver_command(run):
+    """run は dispatch.py を起こす字（引用符付きの Python と dispatch.py のパス。orders.RUN）。"""
+    return f"{run} --deliver <要約のファイル>"
 
 
-def tail(required, dispatch_py):
+def tail(required, run):
     """頼みの後ろに付ける、返し方の 1 文。"""
-    return (f" 終わったら、要約を {'・'.join(required)} の見出しで書いたファイルにして、{deliver_command(dispatch_py)} で"
+    return (f" 終わったら、要約を {'・'.join(required)} の見出しで書いたファイルにして、{deliver_command(run)} で"
             "頼み元へ返す（項目が足りなければ送られずに返ってくる）。")
 
 
-def ask_line(ask_id, sender, text, file, required, dispatch_py):
+def ask_line(ask_id, sender, text, file, required, run):
     """宛先の部署の窓に打つ 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。"""
     head = f"頼みです（受付 {ask_id}、{sender} から）: "
     body = text if text and "\n" not in text and len(text) <= SHORT_TEXT else f"{file} を読んで、その通りに進めてください。"
-    return head + body + tail(required, dispatch_py)
+    return head + body + tail(required, run)
 
 
 def deliver_line(ask_id, sender, branch, items, required, path):
@@ -286,7 +287,7 @@ def send(pane, line, h):
 
 # ---- Stop フック ----
 
-def stop_verdict(payload, attrs, count, dispatch_py):
+def stop_verdict(payload, attrs, count, run):
     """差し戻すなら、その訳の文。差し戻さないなら None。count はこの会話・この頼みで差し戻した回数。"""
     if not attrs.get("role"):
         return None
@@ -299,7 +300,7 @@ def stop_verdict(payload, attrs, count, dispatch_py):
     if count >= STOP_LIMIT:
         return None
     boss = attrs.get("boss") or "頼み元"
-    return (f"頼み（受付 {ask}）をまだ納品していない。止まる前に、要約をファイルに書いて {deliver_command(dispatch_py)} で"
+    return (f"頼み（受付 {ask}）をまだ納品していない。止まる前に、要約をファイルに書いて {deliver_command(run)} で"
             f"{boss} へ返す（足りない項目は命令が教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
             f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。")
 

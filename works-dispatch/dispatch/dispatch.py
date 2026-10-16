@@ -935,7 +935,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
     attrs = {"role": role_name, "residency": RESIDENT if a.resident else PER_TASK, "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
-             "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **(extra_attrs or {})}
+             "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **{k: v for k, v in (extra_attrs or {}).items() if v}}
     route = ("納品の命令で頼み元の窓へ" if tail else f"SendMessage で「{caller['name']}」へ"
              if caller["name"] and caller["account"] == account else "区切りで画面に書いて止まる")
     if a.dry_run:

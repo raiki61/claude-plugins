@@ -99,10 +99,10 @@ class Summary(unittest.TestCase):
         self.assertIn("文字列の並びで無い", why)
 
     def test_short_text_is_typed_and_long_text_points_at_the_file(self):
-        line = deliver.ask_line("id1", "desk", "直して", "/i/id1-ask.md", ["結論"], "/p/dispatch.py")
+        line = deliver.ask_line("id1", "desk", "直して", "/i/id1-ask.md", ["結論"], "py /p/dispatch.py")
         self.assertTrue(line.startswith("頼みです（受付 id1、desk から）: 直して 終わったら"))
-        self.assertIn("python3 /p/dispatch.py --deliver <要約のファイル>", line)
-        line = deliver.ask_line("id1", "desk", "一\n二", "/i/id1-ask.md", ["結論"], "/p/dispatch.py")
+        self.assertIn("py /p/dispatch.py --deliver <要約のファイル>", line)
+        line = deliver.ask_line("id1", "desk", "一\n二", "/i/id1-ask.md", ["結論"], "py /p/dispatch.py")
         self.assertIn("/i/id1-ask.md を読んで", line)
         self.assertNotIn("\n", line)
 
@@ -210,6 +210,27 @@ class Flow(unittest.TestCase):
         # 受付箱は commit されない（共通の .git の中）
         self.assertEqual(git("-C", self.src, "status", "--porcelain").strip(), "")
 
+    def test_the_command_handed_to_the_department_is_quoted_with_forward_slashes(self):
+        self.assertNotIn("\\", orders.RUN)
+        self.assertTrue(orders.RUN.endswith("/dispatch.py") or orders.RUN.endswith("/dispatch.py'"))
+
+    def test_a_second_ask_waits_until_the_first_is_delivered(self):
+        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "一つ目")[0], 0)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "二つ目")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("まだ納品していない", out)
+        self.assertEqual(len(self.prompts()), 1)
+
+    def test_a_new_ask_does_not_keep_the_previous_askers_values(self):
+        provision.mark(self.place, self.src, {"boss": "前の窓口", "boss-account": "zz", "boss-session": "s-old",
+                                              "boss-pane": "P-old"}, gitx)
+        self.ports.env = {}   # Claude Code の外から頼んだ（頼む会話が分からない）
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual({k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane")},
+                         {"boss": None, "boss-account": None, "boss-session": None, "boss-pane": None})
+
     def test_ask_dry_run_writes_nothing(self):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "x", "--dry-run")
         self.assertEqual(rc, 0, out)
@@ -315,6 +336,17 @@ class Flow(unittest.TestCase):
         self.assertIn("見つからない", out)
         self.assertEqual(deliver.records(self.inbox)[-1]["status"], "failed")
         self.assertTrue(pathlib.Path(deliver.records(self.inbox)[-1]["file"]).is_file())
+        # 知らせられなかったので納品済みにしない（窓が開いたら打ち直せる。Stop フックは上限まで差し戻す）
+        self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
+
+    def test_each_delivery_gets_its_own_file(self):
+        summary = self.ask_then_summary(GOOD)
+        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+        self.ports.now = lambda: 1
+        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+        files = [r["file"] for r in deliver.records(self.inbox) if r["kind"] == "deliver"]
+        self.assertEqual(len(set(files)), 2)
+        self.assertTrue(all(pathlib.Path(f).is_file() for f in files))
 
 
 if __name__ == "__main__":

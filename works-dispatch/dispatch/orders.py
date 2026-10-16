@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import pathlib
+import shlex
 import sys
 import tempfile
 
@@ -30,6 +31,9 @@ import herdr  # noqa: E402
 from nodes import deliver, provision, tree  # noqa: E402
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
+# 部署に「この字で返せ」と渡す dispatch.py の起こし方。今動いている Python で、パスは / 区切りで引用符を付ける
+# （Windows の Claude Code の Bash の道具は Git Bash で、\ と空白のパスがそのままでは崩れ、python3 が無いこともある）
+RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))
 
 for _s in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -118,6 +122,12 @@ def ask(a, ports, cwd, task):
             "boss-pane": ports.env.get("HERDR_PANE_ID"), "boss-inbox": inbox}
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if dept is not None:
+        held = dept["attrs"].get("ask")
+        if held and dept["attrs"].get("delivered") != held:
+            # 部署は頼みを 1 つずつ受ける（頼み元の属性は 1 組なので、上書きすると前の頼み元に納品が返らない）
+            print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
+                                     "まだ納品していない。納品を待つか、別の部署に頼む"]))
+            return 2
         if a.task or a.branch:
             notes.append(f"宛先の部署 {where} は立っているので、--task・--branch は使わない")
         pane = deliver.window(dept)
@@ -126,16 +136,16 @@ def ask(a, ports, cwd, task):
                                      "（--sync で付け直すか、部署を開き直す）"]))
             return 1
         if a.dry_run:
-            line = deliver.ask_line(ask_id, sender, body, os.path.join(inbox, f"{ask_id}-ask.md"), required, DISPATCH_PY)
+            line = deliver.ask_line(ask_id, sender, body, os.path.join(inbox, f"{ask_id}-ask.md"), required, RUN)
             print("\n".join(notes + [f"頼む先: {where}  ペイン {pane}", f"打ち込む 1 行: {line}",
                                      "書く属性: " + "、".join(f"company.{k}={v}" for k, v in boss.items() if v)]))
             return 0
         path = deliver.put(inbox, f"{ask_id}-ask.md", body)
-        line = deliver.ask_line(ask_id, sender, body, path, required, DISPATCH_PY)
+        line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
         status, detail = deliver.send(pane, line, ports.herdr)
         if status == "sent":
             try:
-                provision.mark(dept["path"], company["root"], boss, ports.git)
+                provision.mark(dept["path"], company["root"], boss, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
             except (gitx.GitError, OSError) as e:
                 notes.append(f"宛先の部署に頼みの属性を書けなかった（{e}）。納品の命令が頼み元を見つけられず、Stop フックが効かない")
         deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail,
@@ -161,8 +171,12 @@ def ask(a, ports, cwd, task):
         return 0
     path = deliver.put(inbox, f"{ask_id}-ask.md", body)
     ns = argparse.Namespace(**{**vars(a), "brief": path, "role": role})
-    rc = task(cfg, repo, ns, ports, extra_attrs=boss, tail=deliver.tail(required, DISPATCH_PY))
-    got = next((p for p in ports.places(repo) if p.get("branch") == a.branch), None)
+    rc = task(cfg, repo, ns, ports, extra_attrs=boss, tail=deliver.tail(required, RUN))
+    try:
+        got = next((p for p in ports.places(repo) if p.get("branch") == a.branch), None)
+    except herdr.HerdrError as e:
+        got = None
+        notes.append(f"立てた後に部署の場所を読めない（{e}）")
     attrs = ports.attrs(got["path"]) if got else {}
     status = "sent" if attrs.get("ask") == ask_id and attrs.get("session") else "failed"
     deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": None if rc == 0 else f"rc={rc}",
@@ -216,7 +230,7 @@ def deliver_summary(a, ports, cwd):
     pane, how = deliver.boss_window(attrs, sid, entry, panes, companies)
     ask_id = attrs.get("ask")
     sender = attrs.get("name") or os.path.basename(os.path.normpath(cwd))
-    file_id = ask_id or deliver.new_id(ports.now())
+    file_id = deliver.new_id(ports.now())   # 納品ごとに別のファイル（打ち直しで前の要約を消さない）
     target = os.path.join(inbox, f"{file_id}-deliver.md")
     line = deliver.deliver_line(ask_id, sender, branch, items, required, target)
     if a.dry_run:
@@ -230,11 +244,13 @@ def deliver_summary(a, ports, cwd):
                                  "branch": branch, "place": cwd},
                         "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": sid, "pane": pane},
                         "file": path})
-    if ask_id:
+    if ask_id and status == "sent":
         try:
             provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id}, ports.git)
         except (gitx.GitError, OSError) as e:
             notes.append(f"納品済みの印（company.delivered）を書けなかった（{e}）。Stop フックが差し戻し続ける（上限まで）")
+    if status != "sent":
+        notes.append("要約は受付箱に置いたが、頼み元に知らせられなかったので納品済みにしない。頼み元の窓が開いたら打ち直す")
     print("\n".join(notes + [f"納品 {file_id} → {attrs.get('boss') or '頼み元'}  {status}" + (f"（{detail}）" if detail else ""),
                              f"- 要約: {path}"]))
     return 0 if status == "sent" else 1
@@ -252,7 +268,7 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
         count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
     except (OSError, ValueError):
         count = 0
-    reason = deliver.stop_verdict(payload, attrs, count, DISPATCH_PY)
+    reason = deliver.stop_verdict(payload, attrs, count, RUN)
     if reason is None:
         return 0
     os.makedirs(os.path.dirname(path), exist_ok=True)
