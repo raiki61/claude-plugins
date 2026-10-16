@@ -159,7 +159,7 @@ class StopVerdict(unittest.TestCase):
 
     def test_plugin_hook_runs_orders_stop_and_is_quiet_outside_a_department(self):
         hooks = json.loads((DISPATCH.parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-        (command,) = [h["command"] for g in hooks["Stop"] for h in g["hooks"]]
+        (command,) = [h["command"] for g in hooks["Stop"] for h in g["hooks"] if not h.get("asyncRewake")]
         self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/orders.py" stop', command)
         plain = tempfile.mkdtemp()
         p = subprocess.run([sys.executable, str(DISPATCH / "orders.py"), "stop"], input=json.dumps({"cwd": plain}),

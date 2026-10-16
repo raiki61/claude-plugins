@@ -27,11 +27,26 @@ FAIL_LINES = 20  # 赤の要点に載せる記録の行数
 ASK_CHARS = 2000  # 部署に打ち込む文の上限の字数
 
 
+def _after(raw, path, problems):
+    """[[land.after]]（本流に入れた後に呼ぶ道具の並び。受付の設計 5.5）を読む。形の違う項目は problems に書いて外す。"""
+    if not isinstance(raw, list):
+        problems.append(f"{path}: land.after が表の並び（[[land.after]]）で無い")
+        return []
+    out = []
+    for i, x in enumerate(raw):
+        if not (isinstance(x, dict) and all(isinstance(x.get(k), str) and x[k].strip() for k in ("role", "tool"))
+                and isinstance(x.get("input", {}), dict)):
+            problems.append(f"{path}: land.after[{i}] は role・tool（空でない文字列）と input（表。省けば空）で書く")
+            continue
+        out.append({"role": x["role"].strip(), "tool": x["tool"].strip(), "input": x.get("input") or {}})
+    return out
+
+
 def read_rules(path, role=None, text=None):
     """会社の形のファイルの [land] の表を読み、役 role の [land.roles.<役>] を上に重ねる。text を渡せば、それを中身として読む
     （tree.read_info が読んだ物。path は注記に出す場所の札）。{mode, gate, check, bump, main, problems}。ファイルが無い・表が
     無ければ mode は none。"""
-    out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "problems": []}
+    out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "after": [], "problems": []}
     if not path or text is None and not os.path.isfile(path):
         return out
     try:
@@ -48,6 +63,7 @@ def read_rules(path, role=None, text=None):
     if not isinstance(raw, dict):
         out["problems"].append(f"{path}: land が表で無い")
         return out
+    out["after"] = _after(raw.get("after", []), path, out["problems"])
     layers = [raw]
     roles = raw.get("roles", {})
     if role and isinstance(roles, dict) and isinstance(roles.get(role), dict):

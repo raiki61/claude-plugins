@@ -71,6 +71,7 @@ import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 import jsonio  # noqa: E402
+import calls  # noqa: E402
 import landing  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
@@ -565,6 +566,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
+    ap.add_argument("--call", nargs=2, metavar=("会社/役", "道具"),
+                    help="役の機械窓口の道具を呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
+    ap.add_argument("--input", help="--call と一緒に: 道具への入力（JSON の字か @ファイル。省けば {}）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
     ap.add_argument("--keep-removal", action="store_true",
@@ -581,6 +585,11 @@ def main(argv=None, ports=None):
     ports = ports or Ports()
     if a.init:
         return _init(a, ports)
+    if a.input is not None and a.call is None:
+        print("止めた: --input は --call と一緒にだけ使う")
+        return 2
+    if a.call is not None:
+        return calls.call(a, ports, os.getcwd(), _task)
     if a.ask is not None:
         return orders.ask(a, ports, os.getcwd(), _task)
     if a.deliver is not None:
@@ -636,7 +645,8 @@ def main(argv=None, ports=None):
             print("止めた: --land はほかの入口（--task・--pr・--issue・--clean・--check・--no-second）と一緒に使えない")
             return 2
         return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config, dry_run=a.dry_run,
-                            keep_removal=a.keep_removal)
+                            keep_removal=a.keep_removal,
+                            after=lambda rules, source, attrs: calls.fire(rules, source, ports, a, _task, attrs))
     if a.task is not None:
         if a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --task は --pr・--issue・--clean・--check・--no-second と一緒に使えない（1 回に 1 つの入口）")
@@ -1212,6 +1222,8 @@ def _company(a, ports):
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
     companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings), sessions_)
+    if a.tree:
+        calls.annotate(companies, settings, ports.git)
     if a.json:
         jsonio.dump({"companies": companies, "notes": notes}, None)
         return 0

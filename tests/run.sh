@@ -2263,7 +2263,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=672
+EXPECTED_CHECKS=674
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4272,6 +4272,16 @@ expect_output 0 "OK" "catchup_html: 欄の検査・雛形への差し込み・in
 # 本物の会話の記録・GitHub・VS Code には触らない。設定のフォルダ・git・台帳・日記は一時の階層に作る
 expect_output 0 "OK" "reflect: 期間・人と裏の会話の見分け・トークンを返答ごとに 1 回・起こした元ごとのまとめ・commit の引き方・GitHub の絞り方・欄の検査・台帳（却下は落とす）・日記の節の置き換え・持ち主の値を書かない（unittest）" \
     "$PY_BIN" "$ROOT/tests/reflect-suite.py"
+
+# ---- scripts/spread-plugins.py: 会社の形の役「配布」の道具（全アカウントに配る） ----
+# claude・herdr・git は偽物の runner で回す。/reload-plugins を部署と窓口の会話にだけ打つのはこの組織の決まりで、works-dispatch には置かない
+SPREAD_CASE="$ROOT/tests/spread-plugins-case.py"
+expect_output 0 "ONLY_COMPANY_TALKS_OK" \
+    "spread-plugins: 部署と窓口の会話にだけ打ち、打ちかけの会話と手元の除外は飛ばす。自分の marketplace の物だけ更新" \
+    "$PY_BIN" "$SPREAD_CASE" only-company-talks
+expect_output 0 "FAILURE_IS_NONZERO_OK" \
+    "spread-plugins: 1 つでも失敗したら 0 以外で終わる（works-dispatch が AI の部署に回す）" \
+    "$PY_BIN" "$SPREAD_CASE" failure-is-nonzero
 
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える

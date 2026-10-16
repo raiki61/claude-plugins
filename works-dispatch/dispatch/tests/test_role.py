@@ -57,7 +57,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "settings": None,
-                                                 "deliver": None, "resident": False, "fresh": False})
+                                                 "deliver": None, "resident": False, "fresh": False, "machine": False, "tools": []})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "problems": []})
@@ -157,7 +157,7 @@ class Seat(unittest.TestCase):
                                              '[[roles]]\nname = "相談"\nresident = true\n[[roles]]\nname = "変"\nfresh = "yes"\n'))
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
-        self.assertIn("resident・fresh は true か false", got["problems"][0])
+        self.assertIn("resident・fresh・machine は true か false", got["problems"][0])
         # herdr の表示名に、常設か都度かと、会話を持ち越すか毎回空にするかを添える
         from nodes import sync
         self.assertEqual(sync.shown_role({"role": "担当", "residency": "resident", "fresh": "true"}), "担当（常設・毎回空）")
@@ -321,7 +321,7 @@ class Hook(unittest.TestCase):
 
     def test_plugin_declares_the_hook_on_the_existing_script(self):
         hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-        [command] = [h["command"] for grp in hooks["SessionStart"] for h in grp["hooks"]]
+        [command] = [h["command"] for grp in hooks["SessionStart"] for h in grp["hooks"] if not h.get("asyncRewake")]
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/dispatch/role_hook.py", command)
         self.assertTrue((pathlib.Path(DISPATCH) / "role_hook.py").is_file())
 

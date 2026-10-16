@@ -7,6 +7,13 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/role_hook.py\"",
             "shell": "bash"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py\"",
+            "shell": "bash",
+            "asyncRewake": true,
+            "timeout": 604800
           }
         ]
       }
@@ -18,6 +25,25 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/orders.py\" stop",
             "shell": "bash"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py\"",
+            "shell": "bash",
+            "asyncRewake": true,
+            "timeout": 604800
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py\" --pause",
+            "shell": "bash",
+            "async": true
           }
         ]
       }

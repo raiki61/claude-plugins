@@ -18,6 +18,7 @@
   止まる前に納品の命令で返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。
 """
 
+import hashlib
 import json
 import os
 import pathlib
@@ -166,6 +167,19 @@ def boss_window(attrs, sid, entry, panes, companies):
 
 def inbox_of(common_dir):
     return os.path.join(common_dir, *INBOX)
+
+
+def digest(text):
+    """頼みの本文の指紋（前後の空白を除いた字の sha256）。同じ中身の頼みを 2 度積まない見分けに使う。"""
+    return hashlib.sha256((text or "").strip().encode("utf-8")).hexdigest()
+
+
+def common_of_inbox(inbox):
+    """受付箱の場所から、その会社の共通の .git の場所（inbox_of の逆）。"""
+    path = os.path.normpath(inbox)
+    for _ in INBOX:
+        path = os.path.dirname(path)
+    return path
 
 
 def new_id(now, rand=None):

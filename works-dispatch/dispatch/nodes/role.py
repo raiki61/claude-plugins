@@ -20,6 +20,9 @@
 - fresh: true なら、その役の部署は頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に /clear を
   打つ）。省けば会話を持ち越す。resident とは別の軸で、常設の席（順番を 1 本にする・宛先の名前・決まった窓）は残したまま、
   前の頼みの記憶を持ち越さない（記憶は太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す。まっさらな環境での 2 回目の試し）
+- machine: true なら、AI の部署を持たない役（道具だけを持つ。--ask で宛てられない。部署を立てない）
+- tools: 機械窓口の道具の並び（[[roles.tools]]。受付の設計 5.2）。欄は MCP の Tool に合わせた name・title・description・inputSchema と、
+  ここだけの command（走らせるコマンド）・fallback_role（片づかなかったときに回す役。省けばその役。machine の役では要る）
 役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
 表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
@@ -31,6 +34,7 @@ role_hook.py が context と env_line を呼ぶ。
 
 import json
 import os
+import re
 import shlex
 import tomllib
 
@@ -50,6 +54,47 @@ def seat(residency, fresh):
     if residency == "resident":
         return "常設・毎回空" if fresh else "常設・持ち越し"
     return "都度"
+
+
+# 道具の名前（MCP の Tool.name の決まり: 英数字・_・-・. の 1〜128 字）
+TOOL_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
+
+
+def _tools(r, where, problems):
+    """役の [[roles.tools]] を読む。形の違う道具は problems に書いて外す。"""
+    raw = r.get("tools", [])
+    if not isinstance(raw, list):
+        problems.append(f"{where}（{r['name']}）: tools が表の並び（[[roles.tools]]）で無い")
+        return []
+    out = []
+    for j, t in enumerate(raw):
+        at = f"{where}（{r['name']}）の tools[{j}]"
+        if not isinstance(t, dict):
+            problems.append(f"{at} が表で無い")
+            continue
+        bad = []
+        if not (isinstance(t.get("name"), str) and TOOL_NAME.fullmatch(t["name"])):
+            bad.append("name（英数字・_・-・. の 1〜128 字）")
+        schema = t.get("inputSchema")
+        if not (isinstance(schema, dict) and schema.get("type") == "object"):
+            bad.append("inputSchema（根に type = \"object\" の表）")
+        if not (isinstance(t.get("command"), str) and t["command"].strip()):
+            bad.append("command（空でない文字列）")
+        bad += [k for k in ("title", "description", "fallback_role") if k in t and not (isinstance(t[k], str) and t[k].strip())]
+        if bad:
+            problems.append(f"{at}: {', '.join(bad)} の形が違うので外す")
+            continue
+        if r.get("machine") is True and not t.get("fallback_role"):
+            problems.append(f"{at}（{t['name']}）: 機械だけの役（machine = true）の道具なのに、片づかなかったときに回す役（fallback_role）が"
+                            "無いので外す")
+            continue
+        if any(x["name"] == t["name"] for x in out):
+            problems.append(f"{at}: 道具 {t['name']} が 2 度書かれている（先の物を使う）")
+            continue
+        out.append({"name": t["name"], "title": (t.get("title") or "").strip() or None,
+                    "description": (t.get("description") or "").strip() or None, "inputSchema": schema,
+                    "command": t["command"].strip(), "fallback_role": (t.get("fallback_role") or "").strip() or r["name"]})
+    return out
 
 
 def _empty():
@@ -94,7 +139,7 @@ def load(path, text=None):
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
-        bad += [k for k in ("resident", "fresh") if k in r and not isinstance(r[k], bool)]
+        bad += [k for k in ("resident", "fresh", "machine") if k in r and not isinstance(r[k], bool)]
         if "effort" in r and r["effort"] not in EFFORTS + (INHERIT,):
             bad.append("effort")
         if "deliver" in r and not (isinstance(r["deliver"], list) and r["deliver"]
@@ -102,7 +147,7 @@ def load(path, text=None):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び、resident・fresh は true か false、"
+                                   f"deliver は空でない文字列の並び、resident・fresh・machine は true か false、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
         if r.get("model") == INHERIT:
@@ -118,7 +163,18 @@ def load(path, text=None):
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
                                    "model": r.get("model") or None, "effort": r.get("effort"), "settings": r.get("settings") or None,
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
-                                   "resident": r.get("resident") is True, "fresh": r.get("fresh") is True}
+                                   "resident": r.get("resident") is True, "fresh": r.get("fresh") is True,
+                                   "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"])}
+    for r in out["roles"].values():
+        keep = []
+        for t in r["tools"]:
+            to = out["roles"].get(t["fallback_role"])
+            if to is None or to["machine"]:
+                why = "会社の形に無い" if to is None else "機械だけの役（AI の部署を持たない）"
+                out["problems"].append(f"{path}: 役 {r['name']} の道具 {t['name']} の回す役 {t['fallback_role']} が{why}ので外す")
+                continue
+            keep.append(t)
+        r["tools"] = keep
     default = raw.get("default_role")
     if default is not None and not (isinstance(default, str) and default):
         out["problems"].append(f"{path}: default_role が文字列で無い")

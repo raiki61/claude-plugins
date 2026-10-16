@@ -96,6 +96,11 @@ def _blank(source=None, path=None, notes=()):
             "notes": list(notes)}
 
 
+def company_name(root, info):
+    """会社の名前: 会社の形の name、無ければ元の clone のフォルダの名前（宛先の「会社/名前」の会社。--ask と待ち受けが同じ物を使う）。"""
+    return info.get("name") or os.path.basename(os.path.normpath(root))
+
+
 def read_info(root, settings_dir, committed=committed_info):
     """その会社の情報。{source: origin|repo|settings|None, path, text, name, description, skills, problems, notes}。会社の形を読む場所を
     決めるのはこの 1 か所で、読む順は origin の既定の枝に commit された物（committed。path は ref:パス の札）、元の clone の作業
@@ -224,7 +229,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                 "account": a.get("account") or (main or {}).get("account"),
                 "name": a.get("name") or (main or {}).get("name"), "boss": a.get("boss"),
             })
-        companies.append({"root": root, "name": info.get("name") or os.path.basename(os.path.normpath(root)),
+        companies.append({"root": root, "name": company_name(root, info),
                           "info_source": info.get("source"), "info_path": info.get("path"),
                           "description": info.get("description"), "skills": info.get("skills", []),
                           "problems": info.get("problems", []), "departments": rows})
@@ -244,6 +249,9 @@ def lines(companies):
         for s in c["skills"]:
             out.append(f"  受ける仕事: {s['name']}" + (f"（{s['description']}）" if s["description"] else "")
                        + (f" → {s['role']}" if s["role"] else ""))
+        for t in c.get("tools", []):
+            out.append(f"  道具: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
+                       + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")
         out += [f"  ! {p}" for p in c["problems"]]
         depts = c["departments"]
         for i, d in enumerate(depts):
@@ -253,5 +261,7 @@ def lines(companies):
                 fields.append(f"会話 {d['name']}")
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
+            if d.get("queue"):
+                fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）")
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

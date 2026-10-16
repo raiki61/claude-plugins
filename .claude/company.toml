@@ -78,6 +78,22 @@ skillOverrides = { dataviz = "off" }
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] の関門を通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
 autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分の枝を本流に入れること。本流への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] の関門を通してから早送りする決まりで、持ち主がこの会社の部署に許している。"] }
 
+# 配布: 機械だけの役（machine = true。AI の部署を持たない）。道具「全アカウントに配る」（scripts/spread-plugins.py）だけを持つ。
+# 本流に入れるたびに下の [[land.after]] の合図で呼ばれ、片づかなければ（1 つでも失敗したら）作業に回る（名前「配布：全アカウントに配る」の部署が立つ）。
+# 手で呼ぶなら dispatch.py --call 配布 spread-plugins（--input '{"dry_run": true}' で空打ち）。どの会話に /reload-plugins を打つか
+# （部署と窓口だけ）はこの組織の決まりなのでスクリプトに置き、その人だけの除外は ~/.config/claude-plugins/spread.toml の skip に置く
+[[roles]]
+name = "配布"
+machine = true
+
+[[roles.tools]]
+name = "spread-plugins"
+title = "全アカウントに配る"
+description = "works-dispatch の設定の全アカウントで、この marketplace と入っているそのプラグインを更新し、部署と窓口の会話に /reload-plugins を打つ（入力欄に字の在る会話は飛ばす）"
+inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、することを出すだけで何も打たない" } }, additionalProperties = false }
+command = "python3 scripts/spread-plugins.py"
+fallback_role = "作業"
+
 # 部署の成果を本流に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
 # 関門は部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
 # 件数の柵（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
@@ -90,11 +106,16 @@ gate = "check"
 check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 gates/hooks/coldread-gate.py branch-check"
 bump = "marketplace"
 
+# 本流に入れた後の合図: 全アカウントに配る（出荷のたびに窓口が手で配っていた物。片づかなければ作業に回り、頼み元は本流に入れた部署の頼み元）
+[[land.after]]
+role = "配布"
+tool = "spread-plugins"
+
 # 組織の決まり（この会社の作り方。スキルの決まりではない）
 # - 名前は日本語の短い言葉にする（英語や会社らしい呼び名にしない。持ち主 2026-10-16「会社っぽくなくていい」「日本語で」）。
 #   herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役・枝）が出る。
 #   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
-# - 役は 4 つ: 窓口（持ち主と話す本社の会話。役の項目は要らない）・担当（受け持ちに常設）・作業（一度きり）・相談（この会社の形には置かない）。
+# - 役は 5 つ: 窓口（持ち主と話す本社の会話。役の項目は要らない）・担当（受け持ちに常設）・作業（一度きり）・配布（機械だけ）・相談（この会社の形には置かない）。
 # - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
 #   受け持ちの表（どの受け持ちが何のファイルを持つか）は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の
 #   役を足すフックが、部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。

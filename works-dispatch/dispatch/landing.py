@@ -82,8 +82,10 @@ def _find(found, name, attrs_of):
 
 
 def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: time.sleep(RUN_PAUSE_S), today=None,
-        checker=run_check, dry_run=False, keep_removal=False):
+        checker=run_check, dry_run=False, keep_removal=False, after=None):
     """--land <名前>。rows は dispatch._department_rows、reasons は片付けで残す訳（dispatch.DEPT_REASONS）。
+    after は本流へ push し終えた後に、会社の形の [[land.after]]（合図。受付の設計 5.5）の並びと代表の clone と部署の属性を渡して
+    呼ぶ関数（calls.fire）で、出す行の並びを返す。
     dry_run なら、することの見立てを出すだけで何も書かない（_preview）。"""
     g, out = ports.git, []
     try:
@@ -231,6 +233,9 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     except gitx.GitError as e:
         local = f"そろえられなかった: {e}"
     print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local}）")
+    if after and rules["after"]:
+        for line in after(rules["after"], source, attrs):
+            print(line)
     try:
         # この部署が本流を知った位置を、入れた後の本流に進める（次の --land の関門は、ここより後にほかの部署が入れた行を見る）
         provision.mark(path, source, {"base": candidate}, g)
@@ -325,6 +330,8 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         print(f"止めた: {e}")
         return 1
     print(f"緑なら: 本流をもう一度取り直し、まだ祖先なら本流 {main} を候補へ早送りして push する。赤なら失敗の要点を部署に頼む")
+    if rules["after"]:
+        print("入れた後の合図: " + "、".join(f"{x['role']}/{x['tool']}" for x in rules["after"]) + " を呼ぶ（片づかなければ AI に回す）")
     return _tidy(cfg, repo, ports, found, path, rows, reasons, head, dry_run=True)
 
 

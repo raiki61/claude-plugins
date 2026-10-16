@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""scripts/spread-plugins.py（役「配布」の道具）を、claude・herdr・git を偽物の runner にして回す。
+
+使い方: python3 tests/spread-plugins-case.py <場合>
+- only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力欄に字の在る会話と手元の
+  設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
+- failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
+"""
+
+import importlib.util
+import io
+import json
+import os
+import pathlib
+import sys
+import tempfile
+
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location("spread_plugins", ROOT / "scripts" / "spread-plugins.py")
+sp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sp)
+
+RULE = "─" * 20
+EMPTY = f"{RULE}\n❯ \n{RULE}\n"
+TYPED = f"{RULE}\n❯ 打ちかけ\n{RULE}\n"
+MARKET = sp.marketplace_name()
+
+
+def world(fail=()):
+    """(runner, 打った命令の並び)。"""
+    calls = []
+    panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "cwd": "/dept"},
+             {"pane_id": "b:1", "workspace_id": "b", "agent": "claude", "cwd": "/mine"},
+             {"pane_id": "c:1", "workspace_id": "c", "agent": "claude", "cwd": "/typed"},
+             {"pane_id": "d:1", "workspace_id": "d", "agent": "claude", "cwd": "/skipped"},
+             {"pane_id": "e:1", "workspace_id": "e", "agent": None, "cwd": "/dept"}]
+    labels = {"a": "割り振り", "b": "作業の会話", "c": "点検", "d": "plugins1", "e": "シェル"}
+
+    def runner(argv, env=None):
+        calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
+        if argv[:3] == ["claude", "plugin", "list"]:
+            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user"}, {"id": "x@other", "scope": "user"},
+                                  {"id": f"p@{MARKET}", "scope": "project"}])
+        if argv[:1] == ["claude"]:
+            return (1, "network") if " ".join(argv) in fail else (0, "")
+        if argv[:3] == ["herdr", "workspace", "list"]:
+            return 0, json.dumps({"result": {"workspaces": [{"workspace_id": k, "label": v} for k, v in labels.items()]}})
+        if argv[:3] == ["herdr", "pane", "list"]:
+            return 0, json.dumps({"result": {"panes": panes}})
+        if argv[:3] == ["herdr", "pane", "read"]:
+            return 0, TYPED if argv[3] == "c:1" else EMPTY
+        if argv[:3] == ["herdr", "agent", "prompt"]:
+            return 0, ""
+        if argv[:1] == ["git"]:
+            return (0, "作業\n") if argv[2] in ("/dept", "/typed", "/skipped") else (1, "")
+        raise AssertionError(argv)
+    return runner, calls
+
+
+def run(runner, value):
+    d = pathlib.Path(tempfile.mkdtemp())
+    (d / "dispatch.toml").write_text('accounts = [{ name = "main", command = "claude" },'
+                                     ' { name = "p1", command = "claude-p1", config_dir = "/c/p1" }]\n', encoding="utf-8")
+    (d / "spread.toml").write_text('skip = ["plugins1"]\n', encoding="utf-8")
+    out = io.StringIO()
+    old = sys.stdout
+    sys.stdout = out
+    try:
+        rc = sp.main(io.StringIO(json.dumps(value)), runner, {"WORKS_DISPATCH_CONFIG": str(d / "dispatch.toml")},
+                     str(d / "spread.toml"))
+    finally:
+        sys.stdout = old
+    return rc, out.getvalue()
+
+
+def only_company_talks():
+    runner, calls = world()
+    rc, out = run(runner, {})
+    assert rc == 0, out
+    prompts = [a[3] for a, _ in calls if a[:3] == ["herdr", "agent", "prompt"]]
+    assert prompts == ["a:1"], prompts   # 部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペインは飛ばす）
+    updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
+    assert updates == [(f"a@{MARKET}", None), (f"a@{MARKET}", "/c/p1")], updates
+    assert "点検（c:1）: 入力欄に字が在るので飛ばす" in out and "plugins1（d:1）: 手元の設定で除く" in out, out
+    print("ONLY_COMPANY_TALKS_OK")
+
+
+def failure_is_nonzero():
+    runner, _ = world(fail={f"claude plugin update a@{MARKET}"})
+    rc, out = run(runner, {})
+    assert rc == 1 and "失敗 2 件" in out, (rc, out)
+    print("FAILURE_IS_NONZERO_OK")
+
+
+if __name__ == "__main__":
+    {"only-company-talks": only_company_talks, "failure-is-nonzero": failure_is_nonzero}[sys.argv[1]]()
