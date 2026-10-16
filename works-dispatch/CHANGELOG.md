@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 同梱の試験の 1 件（役の gh のアカウントを環境のファイルに 1 度だけ書く物）が Windows でだけ落ちていたのを直した（試験が前もって置くファイルの改行が Windows で `\r\n` になっていた）。works-dispatch の振る舞いは変わらない。
+
 ## [0.14.0] - 2026-10-16
 
 ### Added
