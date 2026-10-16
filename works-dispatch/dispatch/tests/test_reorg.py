@@ -49,7 +49,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual(self.ports.herdr.writes, [
             ("rename_workspace", self.ws(self.pane), "割り振り"),
             ("rename_pane", self.pane, "割り振り"),
-            ("report_pane_metadata", self.pane, "担当", "割り振り", {"role": "担当", "account": "a1", "boss": "窓口"}, [])])
+            ("report_pane_metadata", self.pane, "担当（常設・持ち越し）", "割り振り", {"role": "担当", "account": "a1", "boss": "窓口"}, [])])
         self.assertIn("company.name: 振り分け → 割り振り", out)
         self.assertIn("前の名前 振り分け でも --land・--ask で引ける", out)
         self.assertIn("/rename 割り振り", out)
@@ -123,7 +123,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual(self.ports.herdr.writes, [
             ("rename_workspace", self.ws(self.office_pane), os.path.basename(self.src)),
             ("rename_pane", self.office_pane, "窓口"),
-            ("report_pane_metadata", self.office_pane, "窓口", "窓口", {"role": "窓口", "account": "a1"}, ["boss"])])
+            ("report_pane_metadata", self.office_pane, "窓口（常設・持ち越し）", "窓口", {"role": "窓口", "account": "a1"}, ["boss"])])
         # 部署の場所で打つと、部署の名前を窓口にせず止める
         self.ports._cwd = self.place
         rc, out = self.main("--desk", "x")
@@ -162,7 +162,7 @@ class FormerNames(unittest.TestCase):
         self.assertEqual(deliver.find_target(companies, "/r", "振り分け")["department"]["path"], "/r/w")
 
     def test_role_with_a_task_name_goes_to_that_department_not_to_another_resident(self):
-        # --ask 会社/担当 --task 点検: 名前違いの常駐の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
+        # --ask 会社/担当 --task 点検: 名前違いの常設の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
         def row(name, path):
             return {"branch": "b", "path": path, "attrs": {"name": name, "role": "担当", "residency": "resident"}, "panes": []}
         companies = [{"name": "c", "root": "/r", "departments": [row("割り振り", "/r/w")]}]

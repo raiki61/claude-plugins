@@ -231,6 +231,15 @@ class Flow(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "Windows では前に居るプロセスを見る口が当てにならないので見ず、画面の exited の行で見分ける"
                                       "（test_exited_line_on_the_screen_counts_as_fallen）")
+    def test_fallen_department_missing_from_the_list_is_attached_by_its_job_id(self):
+        # /clear で会話の id が変わっても、裏の会話の短い id（company.job）は変わらない。一覧に見えないときは job で打つ
+        # （会話の id の頭の字は /clear の後の id では短い id と合わない）
+        provision.mark(self.place, self.src, {"session": "a5b0bc07-new", "job": "8c4a1102"}, gitx)
+        self.ports.list_sessions = lambda cdir, include_done=False: []
+        self.fall()
+        self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertIn(("run", self.window, "claude-a1 attach 8c4a1102"), self.ports.herdr.writes)
+
     def test_window_back_at_the_shell_counts_as_fallen_even_if_herdr_keeps_the_mark(self):
         # attach の画面が終わってシェルに戻っても、herdr はペインの会話の印を残す。前に居るのがシェルなら落ちたと見て戻す
         self.fall(keep_mark=True)
@@ -544,6 +553,48 @@ class Flow(unittest.TestCase):
         shape = pathlib.Path(self.src) / ".claude" / "company.toml"
         shape.parent.mkdir(exist_ok=True)
         shape.write_text(text, encoding="utf-8")
+
+    def fresh_world(self, busy_before=False):
+        """頼みごとに空にする役（fresh）の部署。/clear を打つと会話の id が変わり、頼みを打つと動き出す。"""
+        self.shape('[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\n')
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        sent = lambda: [w[2] for w in self.prompts() if w[1] != self.desk]   # noqa: E731
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
+            {"id": "s", "sessionId": "s-new" if "/clear" in sent() else "s-dept", "name": "調べ", "cwd": self.place,
+             "kind": "background", "state": "working",
+             "status": "busy" if busy_before or any(x != "/clear" for x in sent()) else "idle"}]
+        return sent
+
+    def test_fresh_role_clears_the_talk_before_the_next_ask_once_the_last_one_is_delivered(self):
+        # 担当は常設の席のまま、頼みごとに空の会話で受ける（前の頼みの記憶で書き直すと、ほかの部署が入れた行を消す）
+        sent = self.fresh_world()
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, gitx)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(sent()[0], "/clear")
+        self.assertIn("調べて", sent()[1])
+        self.assertIn("/clear で会話を空にしてから送る", out)
+        attrs = gitx.worktree_attrs(self.place)
+        # 変わった会話の id と、attach に渡す短い id（/clear の前の id の頭）、役の fresh を属性に書く
+        self.assertEqual((attrs["session"], attrs["job"], attrs["fresh"]), ("s-new", "s", "true"))
+        # herdr の表示名にも出る
+        rc, out = self.main(self.src, "--sync", "--dry-run")
+        self.assertIn("表示名 調べ役（常設・毎回空）", out)
+
+    def test_fresh_role_does_not_clear_a_talk_without_a_delivered_ask_or_a_running_one(self):
+        sent = self.fresh_world()
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")   # 頼みの無い部署（--task の頼みのファイルで働いているかも）
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("/clear", sent())
+        self.assertIn("まだ納品した頼みが無いので、空にせずに送る", out)
+        self.ports.herdr.writes.clear()
+        sent = self.fresh_world(busy_before=True)
+        provision.mark(self.place, self.src, {"delivered": gitx.worktree_attrs(self.place)["ask"]}, gitx)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("/clear", sent())
+        self.assertIn("部署の会話が動いているので、空にせずに送る", out)
 
     def test_deliver_items_follow_the_role_in_the_company_shape(self):
         # 役の起こし方の欄（instructions・model・settings）と納品の項目（deliver）を同じ [[roles]] の項目に書く

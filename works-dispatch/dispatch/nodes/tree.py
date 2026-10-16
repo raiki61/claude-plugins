@@ -28,6 +28,7 @@ import tomllib
 import urllib.parse
 
 import gitx
+from nodes import role
 
 INFO_FILE = (".claude", "company.toml")  # リポジトリの中の会社の情報（commit する側）
 SETTINGS_DIR = "companies"  # 設定の置き場の下の、リポジトリの外の会社の情報（commit しない側）
@@ -219,7 +220,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                            "agent_status": x.get("agent_status"),
                            "agent_session": _session_of(x)} for x in mine],
                 "attrs": a,
-                "role": a.get("role"), "residency": a.get("residency"),
+                "role": a.get("role"), "residency": a.get("residency"), "fresh": bool(a.get("fresh")),
                 "account": a.get("account") or (main or {}).get("account"),
                 "name": a.get("name") or (main or {}).get("name"), "boss": a.get("boss"),
             })
@@ -250,7 +251,7 @@ def lines(companies):
             fields = [STATES[d["state"]] + (f"（会話 {d['sessions']}）" if d["sessions"] > 1 else "")]
             if d["name"]:
                 fields.append(f"会話 {d['name']}")
-            fields += [f"役 {d['role'] or '-'}" + ("（常駐）" if d["residency"] == "resident" else ""), f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
+            fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

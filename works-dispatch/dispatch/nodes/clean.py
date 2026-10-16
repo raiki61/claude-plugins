@@ -18,7 +18,7 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 （先頭が PR の head と同じときだけ）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
 
 部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
-- 都度の部署である（属性 company.residency が resident の常駐の部署は畳まない。属性が無ければ都度とみなす。会社の形の設計 4.10 の 1）
+- 都度の部署である（属性 company.residency が resident の常設の部署は畳まない。属性が無ければ都度とみなす。会社の形の設計 4.10 の 1）
 - 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
 - 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
 - 部署の枝の先頭が本流（origin の既定の枝の手元の控え）に入っている
@@ -26,7 +26,7 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 worktree の口で場所と作業場（attach の窓）を消し、手元の枝も消す。本流に入れる方法は会社ごとに決める（設計の 8 章）ので、
 ここは「入っていれば消す」だけを持つ。
 
-常駐の部署は作業場を残したまま、頼みごとに枝を切り替える。入れ終えた前の枝は手元に残るので、--land が入れた枝とその commit を
+常設の部署は作業場を残したまま、頼みごとに枝を切り替える。入れ終えた前の枝は手元に残るので、--land が入れた枝とその commit を
 属性 company.landed-branches（JSON の 枝 → commit）に書き、--clean --apply と次の --land が sweep_landed で消す。消すのは、
 どの worktree も開いていない枝で、先頭がまだ入れた commit と同じ物だけ（入れた後に commit を積んだ枝は消さず、記録から外す）。
 部署の会話に「切り替えるときに前の枝を消す」と任せず機械で消すのは、会話は前の枝を消し忘れても止まらず、消してよいかの見極め
@@ -215,7 +215,7 @@ def _safe_list(h, source):
         return []
 
 
-LANDED_BRANCHES = "landed-branches"   # 常駐の部署の属性: 入れた枝 → 入れた commit（JSON）
+LANDED_BRANCHES = "landed-branches"   # 常設の部署の属性: 入れた枝 → 入れた commit（JSON）
 
 
 def landed_of(attrs):
@@ -228,7 +228,7 @@ def landed_of(attrs):
 
 
 def sweep_landed(places, attrs_of, source, apply, g=gitx):
-    """常駐の部署が入れ終えた前の手元の枝を消す（apply が偽なら見立てだけ）。1 行は {path, name, branch, status, keep}。
+    """常設の部署が入れ終えた前の手元の枝を消す（apply が偽なら見立てだけ）。1 行は {path, name, branch, status, keep}。
     status は deleted（消した・もう無い）・open（どこかの worktree が開いている。次に回す）・moved（入れた後に commit が有るので
     消さず、記録から外す）・would（apply が偽で、消せる）・failed（git が断った。次に回す）。keep はその部署の記録に残す {枝: commit}
     （呼んだ側が属性に書き戻す。同じ部署の行は同じ keep を持つ）。"""

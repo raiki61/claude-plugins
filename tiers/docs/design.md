@@ -27,7 +27,7 @@ tiers（プラグインが要る外の道具がそろっているかを点検し
 
 1 を選んだ。2 の形は、Claude Code のプラグインが入った後に自分のフォルダしか持たず、実行時に 1 か所を共有する道が無かった時（2026-09-15 の実測。記録は `scripts/shared-copies.py` の頭）の答えである。その後、依存として入れたプラグインの `bin/` が PATH に入ると確かめられたので（下の「試して確かめたこと」）、点検の本文を 1 か所に置いて呼べる。1 なら、点検の中身を直すと全部のプラグインに 1 回で効き、写しの割れを縛る柵も要らない。人が走らせる入口（`/tiers:check`）も同じ所に置ける。設計の 4.11 が挙げる Neovim の `:checkhealth`（点検の枠を共有する）と `brew doctor`・`flutter doctor`（1 つの命令が環境を点検する）のうち、`brew doctor`・`flutter doctor` の形に近い。各プラグインの点検（works-dispatch の設定や `/catchup` の命令など、そのプラグインだけが知る物）は、各プラグインが続けて持つ。
 
-依存の範囲（`version`）は書かない。範囲は依存先の git のタグで解くが、このリポジトリはタグを作らない（持ち主の決定）。同じ marketplace の相対パスのプラグインは、marketplace の今の写しで入る。呼ぶ側と tiers の版がずれうるので、 `--json` の形は `schema` の番号で守り、形を変えるときは番号を上げ、呼ぶ側は知らない番号を誤りとして扱う。欄を足すだけ（知らない欄を読まない呼び手がそのまま動く変え方。`guide` がそれ）は番号を上げない。上げると、`schema` が 1 であることを確かめる呼び手（このリポジトリの別のプラグイン works-dispatch が tiers を呼ぶ所 `dispatch/tierx.py`。[from-other-plugins.md](from-other-plugins.md)）が、足した欄を使わないのに止まる。
+依存の範囲（`version`）は書かない。同じ marketplace の相対パスの依存は、タグが無くても marketplace の今の写しで入る。範囲を書くと、Claude Code は依存先の git のタグ（`<名前>--v<版>`）から範囲に合う版を探し、合うタグが無ければ今の写しで入れて、範囲は読み込むときに確かめる（外れていれば、呼ぶ側のプラグインが切られたままになる。[Plugin dependencies](https://code.claude.com/docs/en/plugin-dependencies) の「How a constraint resolves against tags」）。このリポジトリはタグを作らない（持ち主の決定）ので、範囲を書いても効くのは読み込むときの確かめだけで、tiers の版を上げたときに呼ぶ側が切られうる。呼ぶ側と tiers の版がずれうるので、 `--json` の形は `schema` の番号で守り、形を変えるときは番号を上げ、呼ぶ側は知らない番号を誤りとして扱う。欄を足すだけ（知らない欄を読まない呼び手がそのまま動く変え方。`guide` がそれ）は番号を上げない。上げると、`schema` が 1 であることを確かめる呼び手（このリポジトリの別のプラグイン works-dispatch が tiers を呼ぶ所 `dispatch/tierx.py`。[from-other-plugins.md](from-other-plugins.md)）が、足した欄を使わないのに止まる。
 
 ## 試して確かめたこと（2026-10-16、Claude Code 2.1.301、使い捨ての marketplace）
 

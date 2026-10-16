@@ -118,7 +118,7 @@ class Task(unittest.TestCase):
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
         # 部署が本流を知った位置（枝を作ったときの origin の本流）も書く（--land の書き換えの取り合いの関門が使う）
         self.assertEqual(gitx.worktree_attrs(path), {"role": "作業", "residency": "per-task", "account": "a1", "name": "直し",
-                                                     "session": "bg0-full", "config": self.cfg,
+                                                     "session": "bg0-full", "job": "bg0", "config": self.cfg,
                                                      "base": git("-C", src, "rev-parse", "refs/remotes/origin/main")})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に、部署の会話が書く許可の記録だけが入る（.claude/ を丸ごと隠すと、.claude/ の下に
@@ -128,7 +128,7 @@ class Task(unittest.TestCase):
         self.assertNotIn(".claude/", excluded)
         self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
         # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
-        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
+        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業（都度）", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
@@ -140,7 +140,7 @@ class Task(unittest.TestCase):
         path = self.place(ports)
         attrs = gitx.worktree_attrs(path)
         self.assertEqual((attrs["role"], attrs["residency"]), ("調べ役", "resident"))
-        # 常駐の部署の最初の枝も、入れた枝と同じ記録に書く（入れずに次の枝へ移っても、先頭がそのままなら後で消える）
+        # 常設の部署の最初の枝も、入れた枝と同じ記録に書く（入れずに次の枝へ移っても、先頭がそのままなら後で消える）
         self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": git("-C", path, "rev-parse", "HEAD")})
 
     def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):

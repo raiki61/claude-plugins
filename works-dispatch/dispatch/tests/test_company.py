@@ -257,7 +257,7 @@ class Build(unittest.TestCase):
         text = "\n".join(tree.lines(self.build((), sessions)))
         self.assertIn("r  /s/r  （会社の情報なし）", text)
         self.assertIn("  本社 main  会話なし", text)
-        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（常駐）  アカウント p2  上役 窓口  窓 なし", text)
+        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（常設・持ち越し）  アカウント p2  上役 窓口  窓 なし", text)
         self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  上役 -  窓 なし", text)
 
     def test_roots_come_from_herdr_then_from_conversations(self):
@@ -280,7 +280,7 @@ class Sync(unittest.TestCase):
         ops, notes = sync.plan(self.company(
             self.dept(attrs, [{"pane_id": "a", "agent": None}, {"pane_id": "b", "agent": "claude", "label": "x"}]),
             self.dept({}, [{"pane_id": "c", "agent": "claude"}])), many_accounts=True)
-        self.assertEqual(ops, [{"pane": "b", "label": "調べ p2", "display_agent": "調べ役", "title": "調べ",
+        self.assertEqual(ops, [{"pane": "b", "label": "調べ p2", "display_agent": "調べ役（都度）", "title": "調べ",
                                 "tokens": {"role": "調べ役", "account": "p2", "boss": "窓口"}, "clear_tokens": []}])
         self.assertEqual(notes, [])
 
@@ -361,7 +361,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn(f"{os.path.basename(self.src)}  {self.src}  （会社の情報なし）", out)
         self.assertIn("  本社 main  会話なし", out)
-        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役  アカウント a1  上役 -  窓 あり", out)
+        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（都度）  アカウント a1  上役 -  窓 あり", out)
 
     def test_tree_json_matches_the_schema(self):
         rc, out = self.main("--tree", "--json")
@@ -380,7 +380,7 @@ class Entry(unittest.TestCase):
         rc, out = self.main("--sync", "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.herdr.writes, [])
-        self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役  題名 調べ  札 role=調べ役、account=a1", out)
+        self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役（都度）  題名 調べ  札 role=調べ役、account=a1", out)
         ws = next(p["workspace_id"] for p in self.ports.herdr.panes() if p["pane_id"] == self.pane)
         self.assertIn(f"作業場 {ws}: 名前 調べ", out)
         rc, out = self.main("--sync")
@@ -388,7 +388,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(self.ports.herdr.writes, [
             ("rename_workspace", ws, "調べ"),
             ("rename_pane", self.pane, "調べ"),
-            ("report_pane_metadata", self.pane, "調べ役", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
+            ("report_pane_metadata", self.pane, "調べ役（都度）", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
 
     def test_flags_go_together(self):
         for argv in (["--tree", "--sync"], ["--json"], ["--sync", "--json"], ["--tree", "--dry-run"]):
@@ -457,7 +457,7 @@ class Departments(unittest.TestCase):
     def test_resident_department_is_never_removed(self):
         provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
         rc, out = self.clean("--apply")
-        self.assertIn("部署 dept/a dept/a  done  残す（常駐の部署は畳まない）", out)
+        self.assertIn("部署 dept/a dept/a  done  残す（常設の部署は畳まない）", out)
         self.assertEqual(self.removed, [])
         self.assertTrue(os.path.exists(self.place))
 
@@ -471,7 +471,7 @@ class Departments(unittest.TestCase):
         self.assertIn("消すには --clean --apply を付けて打ち直す", out)
 
     def test_resident_department_branches_it_landed_are_removed_after_it_moves_on(self):
-        # 常駐の部署は作業場を残し、頼みごとに枝を移る。--land が書いた「入れた枝 → commit」のうち、もう開いていない枝を消す
+        # 常設の部署は作業場を残し、頼みごとに枝を移る。--land が書いた「入れた枝 → commit」のうち、もう開いていない枝を消す
         provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
         old_sha = git("-C", self.place, "rev-parse", "HEAD")
         git("-C", self.place, "switch", "-q", "-c", "dept/next")             # 次の頼みの枝に移った

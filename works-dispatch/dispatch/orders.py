@@ -101,6 +101,9 @@ def shape_role(root, settings, name):
     return shape["roles"].get(name), info["notes"] + shape["problems"]
 
 
+# 頼みごとに空の会話で受ける部署の属性の値（ask の中では role が役の名前の字なので、ここで写す）
+FRESH = role.FRESH
+
 # 落ちた部署の会話を attach で戻した後、窓に会話が出るのを見る回数（1 回ごとに ports.pause）
 REVIVE_LOOKS = 20
 
@@ -144,7 +147,9 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
         return None, "部署の属性に会話の id（company.session）が無いので戻せない（部署を立て直す）"
     acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
     entry = next((x for items in (sessions_ or {}).values() for x in items if x.get("sessionId") == full), None)
-    sid = claudex.attach_id(entry, full)   # attach は短い id で打つ（部署を立てるときと同じ）
+    # attach は短い id で打つ（部署を立てるときと同じ）。一覧に無ければ属性の短い id（company.job。/clear で会話の id が変わっても
+    # 変わらない）
+    sid = claudex.attach_id(entry, full) if entry or not dept["attrs"].get("job") else dept["attrs"]["job"]
     command = f"{acc.command if acc else 'claude'} attach {sid}"
     try:
         if not dept["panes"] and source:
@@ -231,6 +236,25 @@ def busy_check(dept, accounts_, ports):
     return busy
 
 
+def clear_before_ask(dept, held, pane, busy, ports):
+    """頼みごとに空の会話で受ける役（fresh）の部署に、新しい頼みを打つ前に /clear を打つ。出す注記の並び。
+    空にするのは、前の頼み（company.ask）を納品し終えていて、会話が止まっているときだけ（納品していない頼みはここまでに止めている。
+    頼みの無い部署は --task の頼みのファイルで働いているかもしれず、動いている会話を空にすると途中の仕事が消える）。"""
+    if not held:
+        return ["頼みごとに空にする役だが、部署にまだ納品した頼みが無いので、空にせずに送る"]
+    if busy():
+        return ["頼みごとに空にする役だが、部署の会話が動いているので、空にせずに送る（打った頼みは番の後の待ちの列に入る）"]
+    before = busy.found
+
+    def cleared():
+        busy()
+        return bool(busy.found) and busy.found != before
+    status, detail = deliver.clear_talk(pane, ports.herdr, ports.pause, cleared)
+    if status == "cleared":
+        return [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
+    return [f"会話を空にできなかった（{detail}）。そのまま送る"]
+
+
 def nudge_line(held, boss, now=None):
     """戻した部署に、落ちる前の頼みの納品を促す 1 行。頭に時刻を入れて、前に送った促しと字を分ける（届いたかの確かめが、画面に
     残った前の促しを今の促しと見誤らないように）。"""
@@ -314,15 +338,19 @@ def ask(a, ports, cwd, task):
             print("\n".join(notes + [f"頼む先: {where}  ペイン {pane}", f"打ち込む 1 行: {line}",
                                      "書く属性: " + "、".join(f"company.{k}={v}" for k, v in boss.items() if v)]))
             return 0
+        fresh = bool((the_role or {}).get("fresh"))
+        busy = busy_check(dept, accounts_, ports)
+        if fresh:
+            notes += clear_before_ask(dept, held, pane, busy, ports)
         path = deliver.put(inbox, f"{ask_id}-ask.md", body)
         line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-        busy = busy_check(dept, accounts_, ports)
         status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy)
         if status == "sent":
-            marks = dict(boss)
+            # 役の fresh を写す（会社の形を後から変えても、次の頼みから herdr の表示が合う）
+            marks = {**boss, "fresh": FRESH if fresh else None}
             if busy.found and busy.found != dept["attrs"].get("session"):
                 # /clear で変わった会話の id を書き直す（Stop フックの見分けと、落ちたときの attach が古い id を使わない）
-                marks["session"] = busy.found
+                marks.update(provision.renew_session(dept["attrs"], busy.found))
             try:
                 provision.mark(dept["path"], company["root"], marks, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
             except (gitx.GitError, OSError) as e:
@@ -336,7 +364,7 @@ def ask(a, ports, cwd, task):
         return 0 if status == "sent" else 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。枝の名前は頼む側が渡す）
     if not (a.task and a.task.strip() and a.branch):
-        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の常駐の部署が無いので新しく立てる。"
+        print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の常設の部署が無いので新しく立てる。"
                                  "部署の名前を --task <名前>、枝を --branch <枝> で渡す"]))
         return 2
     if cfg is None:

@@ -11,7 +11,8 @@
 - 上げ幅: そのプラグインの CHANGELOG.md の `## [Unreleased]` に Added・Changed・Deprecated・Removed の節が有れば
   minor（x.Y.0）、無ければ patch（x.y.Z）。ただし版を最後に上げた後に変えたファイルが試験と文書だけ（QUIET。利用者が動かす物を
   変えていない）なら、節によらず patch（Semantic Versioning の minor は「後方互換のある機能の追加」で、試験と文書だけの直しは
-  当たらない）。marketplace の metadata.version は、minor を上げたプラグインが 1 つでも有れば minor、無ければ patch。
+  当たらない）。plugin.json は、説明（description）の字だけを変えたなら文書に数える（tiers 0.5.0 は、plugin.json の説明の
+  言い回しだけの直しを Changed に書き、minor に上がった）。marketplace の metadata.version は、minor を上げたプラグインが 1 つでも有れば minor、無ければ patch。
 - 同じ commit で、plugin.json の version・marketplace.json の metadata.version・CHANGELOG.md の `## [Unreleased]` の中身を
   `## [<版>] - <日付>` の下へ移す（`## [Unreleased]` の見出しは空で残す）。
 - 件名は `chore(<名前>, …): 版を上げる（<名前> <版> / … / marketplace <版>）`。
@@ -100,6 +101,21 @@ def quiet(path, src):
     return len(parts) == 1 and name in ("README.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE")
 
 
+# plugin.json のうち、変えても利用者が動かす物が変わらない欄（人が読む説明の字）
+MANIFEST_TEXT = ("description",)
+
+
+def manifest_text_only(root, since, src, g):
+    """版を最後に上げた commit から今までに、plugin.json の変えたのが説明の字（MANIFEST_TEXT）だけか。"""
+    pj = posixpath.join(src, PLUGIN)
+    try:
+        old, new = json.loads(g.file_at(root, since, pj) or "{}"), json.loads(_read(root, pj))
+    except ValueError:
+        return False
+    drop = lambda d: {k: v for k, v in d.items() if k not in MANIFEST_TEXT}   # noqa: E731
+    return isinstance(old, dict) and isinstance(new, dict) and drop(old) == drop(new)
+
+
 def level_of(text):
     head, end, lines = unreleased(text)
     return "minor" if any(line.strip() in (f"### {s}" for s in MINOR) for line in lines[head + 1:end]) else "patch"
@@ -126,8 +142,10 @@ def plan(root, g):
             empty.append(f"{name}（{src}/CHANGELOG.md）")
             continue
         level, why = level_of(log), None
-        if level == "minor" and all(quiet(f, src) for f in g.changed_paths(root, since, src)):
-            level, why = "patch", "変えたのは試験と文書だけなので、記録の節によらず patch"
+        pj = posixpath.join(src, PLUGIN)
+        if level == "minor" and all(quiet(f, src) or f == pj and manifest_text_only(root, since, src, g)
+                                    for f in g.changed_paths(root, since, src)):
+            level, why = "patch", "変えたのは試験と文書（plugin.json の説明の字を含む）だけなので、記録の節によらず patch"
         rows.append({"name": name, "source": src, "old": old, "new": raise_version(old, level), "level": level, "why": why})
     if empty:
         raise BumpError(f"版を最後に上げた後に中身を変えたのに、`## [Unreleased]` に利用者に効く違いが書いてない: {'、'.join(empty)}。"

@@ -4,8 +4,8 @@
 dispatch.py の流れの続きで、ノード（nodes/provision.py の mark・nodes/sync.py）を呼ぶ順をここが持つ。ほかの部署と dispatch.py を
 同時に直すので、ぶつかりを減らすために別のファイルにした（orders.py・landing.py と同じ）。
 
---reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・常駐か都度か・上役を付け替える。
---desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける（名前を省けば DESK_ROLE）。役 DESK_ROLE・常駐・名前・アカウントと会話の id を
+--reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・常設か都度か・上役を付け替える。
+--desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける（名前を省けば DESK_ROLE）。役 DESK_ROLE・常設・名前・アカウントと会話の id を
 本社の git の設定に書く（手で書いていた company.role・company.name の正式な口）。
 
 どちらも、名前を替えたら前の名前を属性 company.former-names（JSON の並び）に足す。--land・--ask は前の名前でも部署を引く
@@ -128,6 +128,8 @@ def reorg(a, ports, cwd):
         changes["residency"] = "resident" if a.resident else "per-task"
     elif a.role and got and got["resident"]:
         changes["residency"] = "resident"   # 役の resident = true は --resident と同じ（--task と揃える）
+    if a.role and got:
+        changes["fresh"] = role.FRESH if got["fresh"] else None   # 役の fresh を写す（--task と揃える）
     if a.name:
         try:
             _, _, sessions_, _, companies, _, _ = orders.survey(a.config, ports)

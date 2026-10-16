@@ -13,6 +13,12 @@ origin の既定の枝に commit された .claude/company.toml、無ければ�
 部署の属性 company.gh-user（--task が書く gh のアカウントの名前）があれば、Claude Code がフックに渡す CLAUDE_ENV_FILE に、その鍵を
 GH_TOKEN に入れる 1 行（role.env_line）を足す。会話の Bash がコマンドごとに鍵を取り出す（鍵の値はどこにも書かない）。
 設定の置き場は、部署の属性 company.config（--task が既定でない dispatch の設定を使ったときに書く）、無ければ既定の決まり。
+
+部署の会話で /clear・compact・resume をすると会話の id が変わる（source が clear・compact・resume のときのフックの入力の
+session_id）。そのとき部署の属性 company.session を新しい id に書き直す（refresh_session）。古い id のままだと、--ask が会話の
+動き出しを見られず、Stop フックが部署の会話を別の会話と見て納品を促さず、落ちた部署を戻す attach が前の会話を戻した。
+新しく起こした会話（startup）では書かない（部署の場所で人が別の会話を開いても、部署の会話を取り違えない）。本社（代表の clone）では
+書かない（持ち主の会話がほかにも居て、どれが窓口か分からない）。
 """
 
 import json
@@ -24,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
     import config  # noqa: E402
     import gitx  # noqa: E402
-    from nodes import role, tree  # noqa: E402
+    from nodes import provision, role, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # どの会話の始まりにも走るので、PATH の python3 が古い（tomllib の無い 3.10 以前）ときも会話を邪魔しない
     print(f"works-dispatch: 役を足すフックを動かせない（Python 3.11 以上が要る: {_e}）", file=sys.stderr)
@@ -51,6 +57,22 @@ def put_env(attrs, env):
         f.write(line + "\n")
 
 
+# 会話の id が変わるやり直し（SessionStart の source）
+RENEWED = ("clear", "compact", "resume")
+
+
+def refresh_session(payload, cwd, attrs):
+    """部署の会話をやり直して会話の id が変わったら、属性 company.session を書き直す。書いたら新しい id、書かなければ None。"""
+    sid = payload.get("session_id")
+    if not (attrs.get("role") and sid and payload.get("source") in RENEWED and attrs.get("session") != sid):
+        return None
+    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
+    if not here or not common or os.path.realpath(here) == os.path.realpath(common):
+        return None   # 本社（代表の clone）
+    provision.mark(cwd, gitx.root_of(common), provision.renew_session(attrs, sid), gitx)
+    return sid
+
+
 def text_for(cwd, env=os.environ, attrs=None):
     """その場所で足す文。部署でなければ None。"""
     attrs = gitx.worktree_attrs(cwd) if attrs is None else attrs
@@ -74,10 +96,17 @@ def text_for(cwd, env=os.environ, attrs=None):
 
 def main(stdin=sys.stdin, env=os.environ):
     try:
-        cwd = (json.loads(stdin.read() or "{}") or {}).get("cwd") or os.getcwd()
+        payload = json.loads(stdin.read() or "{}") or {}
     except ValueError:
-        cwd = os.getcwd()
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    cwd = payload.get("cwd") or os.getcwd()
     attrs = gitx.worktree_attrs(cwd)
+    try:
+        refresh_session(payload, cwd, attrs)
+    except gitx.GitError as e:
+        print(f"works-dispatch: 部署の会話の id を書き直せなかった（{e}）", file=sys.stderr)
     try:
         put_env(attrs, env)
     except OSError as e:

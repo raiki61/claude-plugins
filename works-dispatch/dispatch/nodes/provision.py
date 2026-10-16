@@ -212,6 +212,15 @@ def refresh_shape(source, g=gitx):
     return None
 
 
+def renew_session(attrs, sid):
+    """部署の会話の id が変わった（/clear・compact・resume）ときに書く属性。会話の id（company.session）と、裏の会話の短い id
+    （company.job。attach に渡す。/clear の後も変わらない）。job の無い前の版の部署は、古い会話の id の頭の 8 字を job にする
+    （短い id は最初の会話の id の頭と同じ字だった。2026-10-17 に 2.1.301 で、/clear の後の割り振りの部署で見た）。"""
+    old = attrs.get("session")
+    job = attrs.get("job") or (old.split("-")[0][:8] if old else None)
+    return {"session": sid, **({"job": job} if job else {})}
+
+
 def mark(path, source, attrs, g=gitx):
     """部署の属性を、その場所（worktree）の git の設定 company.<名前> に書く。値が None（か空）の属性は、前の回の値が残っていれば消す
     （使い直した場所に、前の回の gh のアカウントや設定の場所が残って効き続けないように）。書けなければ GitError。

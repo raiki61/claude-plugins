@@ -10,7 +10,7 @@
 5. 関門: CI の枝の形なら、その枝の頭を GitHub Actions の設定が書いていることを確かめ、その枝へ候補を push して run を待つ。check なら、手元の検証のコマンドを候補の場所で回す。
 6. 赤なら、部署に失敗の要点を頼む。緑なら本流を取り直し、まだ祖先なら本流を早送りして push する（関門の枝は消す）。
    進んでいれば、部署に載せ直しを頼む。
-7. 入れたら、都度の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。常駐の部署は残す。片付けられない
+7. 入れたら、都度の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。常設の部署は残す。片付けられない
    都度の部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
    （どの部署でも）が、片付けられる形になっていれば一緒に片付ける。止まるのを待たないのは、こちらから期限を足さないため（D5）。
 
@@ -354,7 +354,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
         code = 0 if got["removed"] else 1
     elif row["reason"] == "resident":
-        # 常駐の部署は作業場を残す。入れた枝は、部署が次の頼みで枝を移った後に消す（sweep_branches）ので、枝と入れた commit を書く
+        # 常設の部署は作業場を残す。入れた枝は、部署が次の頼みで枝を移った後に消す（sweep_branches）ので、枝と入れた commit を書く
         later = "入れた枝は、部署が次の枝に移った後の --land か --clean --apply が消す"
         if row["branch"]:
             try:
@@ -394,18 +394,18 @@ SWEEP_SAID = {"deleted": "消した", "open": "まだ開いている（部署が
 
 
 def sweep_branches(repo, ports, found, apply):
-    """常駐の部署が入れ終えた前の手元の枝を消し（clean.sweep_landed）、残す物を属性に書き戻す。出す行の並び。"""
+    """常設の部署が入れ終えた前の手元の枝を消し（clean.sweep_landed）、残す物を属性に書き戻す。出す行の並び。"""
     rows = clean.sweep_landed(found, ports.attrs, repo.source, apply, ports.git)
     out, written = [], set()
     for r in rows:
         if r["status"] != "open":
-            out.append(f"常駐の部署 {r['name'] or r['path']} の入れ終えた枝 {r['branch']}: {SWEEP_SAID[r['status']]}")
+            out.append(f"常設の部署 {r['name'] or r['path']} の入れ終えた枝 {r['branch']}: {SWEEP_SAID[r['status']]}")
         if apply and r["path"] not in written and clean.landed_of(ports.attrs(r["path"])) != r["keep"]:
             written.add(r["path"])
             try:
                 provision.mark(r["path"], repo.source,
                                {clean.LANDED_BRANCHES: json.dumps(r["keep"], ensure_ascii=False) if r["keep"] else None}, ports.git)
             except (gitx.GitError, OSError) as e:
-                out.append(f"常駐の部署 {r['name'] or r['path']} の入れた枝の記録を書き戻せなかった（{e}）")
+                out.append(f"常設の部署 {r['name'] or r['path']} の入れた枝の記録を書き戻せなかった（{e}）")
     return out
 

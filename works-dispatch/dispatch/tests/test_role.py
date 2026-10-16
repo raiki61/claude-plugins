@@ -19,7 +19,7 @@ from . import test_task
 import gitx
 import orders
 import role_hook
-from nodes import launch, provision, role
+from nodes import deliver, launch, provision, role
 
 SHAPE = '''
 name = "試しの会社"
@@ -55,7 +55,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["instructions"], "結論と原典の一句を返す。")
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "settings": None,
-                                                 "deliver": None, "resident": False})
+                                                 "deliver": None, "resident": False, "fresh": False})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "problems": []})
@@ -148,6 +148,22 @@ deliver = ["結論"]
         self.assertEqual(role.context("x", None, "会社"), "この会話は会社「会社」の部署で、役は「x」。")
 
 
+class Seat(unittest.TestCase):
+    def test_fresh_is_read_and_shown_with_residency(self):
+        d = tempfile.mkdtemp()
+        got = role.load(write(f"{d}/c.toml", '[[roles]]\nname = "担当"\nresident = true\nfresh = true\n'
+                                             '[[roles]]\nname = "相談"\nresident = true\n[[roles]]\nname = "変"\nfresh = "yes"\n'))
+        self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
+        self.assertNotIn("変", got["roles"])
+        self.assertIn("resident・fresh は true か false", got["problems"][0])
+        # herdr の表示名に、常設か都度かと、会話を持ち越すか毎回空にするかを添える
+        from nodes import sync
+        self.assertEqual(sync.shown_role({"role": "担当", "residency": "resident", "fresh": "true"}), "担当（常設・毎回空）")
+        self.assertEqual(sync.shown_role({"role": "相談", "residency": "resident"}), "相談（常設・持ち越し）")
+        self.assertEqual(sync.shown_role({"role": "作業", "residency": "per-task"}), "作業（都度）")
+        self.assertIsNone(sync.shown_role({}))
+
+
 class Launch(unittest.TestCase):
     ROW = {"account": {"command": "claude-a1"}, "label": None}
 
@@ -174,6 +190,29 @@ class Hook(unittest.TestCase):
         self.place = str(pathlib.Path(root) / "dept")
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
         self.env = {"WORKS_DISPATCH_CONFIG": str(pathlib.Path(root).parent / "conf" / "dispatch.toml")}
+
+    def test_clear_compact_and_resume_rewrite_the_department_session_and_keep_the_job(self):
+        # /clear で会話の id が変わる。古い id のままだと --ask が動き出しを見られず、Stop フックが部署の会話を見分けなかった。
+        # 裏の会話の短い id（attach に渡す）は /clear の後も変わらないので、前の版の部署は古い id の頭を job に残す
+        provision.mark(self.place, self.src, {"role": "担当", "session": "8c4a1102-aaaa", "ask": "X", "boss": "窓口"}, gitx)
+        role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "a5b0bc07-bbbb", "source": "clear"})), self.env)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["session"], attrs["job"]), ("a5b0bc07-bbbb", "8c4a1102"))
+        # 書き直した後は、Stop フックがこの会話を部署の会話と見て、納品していない頼みを差し戻す
+        self.assertIsNotNone(deliver.stop_verdict({"session_id": "a5b0bc07-bbbb"}, attrs, 0, "run"))
+        for source in ("compact", "resume"):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": f"s-{source}", "source": source})), self.env)
+            attrs = gitx.worktree_attrs(self.place)
+            self.assertEqual((attrs["session"], attrs["job"]), (f"s-{source}", "8c4a1102"))
+
+    def test_new_talks_and_the_head_office_keep_the_department_session(self):
+        # 部署の場所で人が別の会話を起こしても（startup）、本社で持ち主の会話が /clear しても、部署の会話の id は替えない
+        provision.mark(self.place, self.src, {"role": "担当", "session": "s-dept"}, gitx)
+        role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-other", "source": "startup"})), self.env)
+        self.assertEqual(gitx.worktree_attrs(self.place)["session"], "s-dept")
+        provision.mark(self.src, self.src, {"role": "窓口", "session": "s-desk"}, gitx)
+        role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-mine", "source": "clear"})), self.env)
+        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
 
     def test_department_gets_its_role_text_and_other_places_get_nothing(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml", SHAPE)

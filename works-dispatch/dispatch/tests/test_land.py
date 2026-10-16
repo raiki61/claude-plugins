@@ -207,7 +207,7 @@ class LandCase(unittest.TestCase):
         repo = Repo("o/r", "", world.source, (), None, None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "resident": "常駐の部署は畳まない"},
+            code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "resident": "常設の部署は畳まない"},
                                 self.config, pause=lambda: None, today=today, dry_run=dry_run, keep_removal=keep_removal,
                                 **({"checker": checker} if checker else {}))
         return code, out.getvalue()
@@ -360,7 +360,7 @@ class Tidy(LandCase):
         row = {"path": w.dept, "branch": "feat/a", "removable": False, "reason": "resident"}
         code, out = self.land(w, Ports(w), rows=lambda *a: [row])
         self.assertEqual(code, 0, out)
-        self.assertIn("常駐の部署は畳まない", out)
+        self.assertIn("常設の部署は畳まない", out)
 
     def test_landed_department_is_retired_with_the_clean_parts(self):
         w = World(self.tmp, CI_FILES)
@@ -439,7 +439,7 @@ class Leftover(LandCase):
         attrs = gitx.worktree_attrs(self.w.dept)
         self.assertNotIn("landed", attrs)
         self.assertNotIn("次の --land", out)
-        # 常駐の部署は作業場を残す。入れた枝と commit を書き、部署が次の枝に移った後の --land か --clean --apply が消す
+        # 常設の部署は作業場を残す。入れた枝と commit を書き、部署が次の枝に移った後の --land か --clean --apply が消す
         self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": git("-C", self.w.dept, "rev-parse", "HEAD")})
         self.assertIn("入れた枝は、部署が次の枝に移った後", out)
 
@@ -646,6 +646,24 @@ class BumpAtLand(LandCase):
         self.assertEqual(market, ("0.9.0", "0.10.0"))
         self.assertTrue(bump.quiet("one/README.md", "one"))
         self.assertFalse(bump.quiet("one/skills/x/SKILL.md", "one"), "SKILL.md は Claude Code が読んで動く物")
+
+    def test_a_manifest_description_only_edit_is_a_patch_but_other_keys_are_not(self):
+        # tiers 0.5.0: plugin.json の説明の言い回しだけを直して Changed に書き、minor に上がった。説明の字は文書と同じに数える
+        w = World(self.tmp, marketplace_files())
+        src = w.source
+        changed = CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Changed\n\n- 説明を直した\n")
+        pj = pathlib.Path(src, "one/.claude-plugin/plugin.json")
+        manifest = json.loads(pj.read_text(encoding="utf-8"))
+        pj.write_text(json.dumps({**manifest, "description": "言い回しを直した"}, ensure_ascii=False), encoding="utf-8")
+        write(os.path.join(src, "one", "CHANGELOG.md"), changed)
+        commit(src, "one の説明を直す")
+        rows, _ = bump.plan(src, gitx)
+        self.assertEqual([(r["name"], r["level"]) for r in rows], [("one", "patch")])
+        pj.write_text(json.dumps({**manifest, "description": "言い回しを直した", "dependencies": ["two"]}, ensure_ascii=False),
+                      encoding="utf-8")
+        commit(src, "one に依存を足す")
+        rows, _ = bump.plan(src, gitx)
+        self.assertEqual([(r["name"], r["level"]) for r in rows], [("one", "minor")])
 
     def test_empty_unreleased_stops_without_a_version(self):
         """中身の無い版は作らない: 置き場を変えたのに `## [Unreleased]` が空なら、版を上げずに止め、本流に入れない。"""

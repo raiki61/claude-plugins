@@ -93,7 +93,7 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
 TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read", "pane.send_keys", "workspace.rename"}
 # --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役。持ち主 2026-10-16 に作業役から改名）
 DEFAULT_ROLE = "作業"
-# 部署の常駐か都度か（属性 company.residency の値）。常駐の部署は片付けで畳まない（会社の形の設計 4.10 の 1）
+# 部署の常設か都度か（属性 company.residency の値）。常設の部署は片付けで畳まない（会社の形の設計 4.10 の 1）
 RESIDENT, PER_TASK = "resident", "per-task"
 
 
@@ -559,7 +559,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば会社の形の default_role、無ければ {DEFAULT_ROLE}）")
     ap.add_argument("--resident", action="store_true",
-                    help="--task と一緒に: 常駐の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば都度の部署）")
+                    help="--task と一緒に: 常設の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば都度の部署）")
     ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree と一緒に: JSON で出す")
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
@@ -570,9 +570,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署が本流を知った後にほかの部署が入れた行を、この枝が消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
-                    help="今いる部署の名前・役・常駐か都度か・上役を付け替え、herdr の表示を付け直す（--name・--role・--resident か --per-task・--boss）")
+                    help="今いる部署の名前・役・常設か都度か・上役を付け替え、herdr の表示を付け直す（--name・--role・--resident か --per-task・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
-    ap.add_argument("--per-task", action="store_true", help="--reorg と一緒に: 都度の部署にする（常駐をやめる）")
+    ap.add_argument("--per-task", action="store_true", help="--reorg と一緒に: 都度の部署にする（常設をやめる）")
     ap.add_argument("--boss", help="--reorg と一緒に: 新しい上役（納品を返す会話）の名前")
     ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい上役のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
@@ -1036,7 +1036,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
     # 部署の属性（正本）。上役は呼んだ会話。分からない物は書かない
-    attrs = {"role": role_name, "residency": RESIDENT if resident else PER_TASK, "account": account,
+    attrs = {"role": role_name, "residency": RESIDENT if resident else PER_TASK, "fresh": role.FRESH if the_role and the_role["fresh"] else None,
+             "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
              "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **{k: v for k, v in (extra_attrs or {}).items() if v}}
@@ -1090,7 +1091,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 if known:
                     provision.mark(prov["path"], repo.source, {"base": known}, ports.git)
             if attrs["residency"] == RESIDENT and a.branch:
-                # 常駐の部署の最初の枝も、入れた枝と同じに記録する。頼みごとに枝を移るので、入れずに移った最初の枝（--brief で
+                # 常設の部署の最初の枝も、入れた枝と同じに記録する。頼みごとに枝を移るので、入れずに移った最初の枝（--brief で
                 # 立てただけの枝など）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す
                 first = {**clean.landed_of(ports.attrs(prov["path"])), a.branch: ports.git.rev(prov["path"], "HEAD")}
                 provision.mark(prov["path"], repo.source, {clean.LANDED_BRANCHES: json.dumps(first, ensure_ascii=False)}, ports.git)
@@ -1116,7 +1117,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             else:
                 sid = claudex.attach_id(talk)
                 try:
-                    provision.mark(prov["path"], repo.source, {"session": talk["sessionId"]}, ports.git)
+                    provision.mark(prov["path"], repo.source, {"session": talk["sessionId"], "job": sid}, ports.git)
                 except (gitx.GitError, OSError) as e:
                     notes.append(f"会話の id を属性に書けなかった（{e}）。--clean がこの部署を片付けない")
                 got = launch.attach(row, pane, sid, ports.herdr)
@@ -1376,14 +1377,18 @@ role = "作業"
 # 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、その役の会話の頭に毎回足す役の本文
 # deliver は納品する要約の必須の項目。担当と作業はコードの直しなので、差分と試験を返させる（省くと既定の 結論・決め手・残った疑問・枝
 # になり、決め手に原典の URL を求める。調べものの役に向く）
-# 担当: 受け持ちに常設で 1 人（resident = true なので、--resident を付けなくても常駐の部署で立つ。片付けで畳まれず、次の頼みを
-# 同じ会話で受ける）。最初の頼みと一緒に立てるなら --ask {plain}/担当 --task <受け持ち> --branch <枝> --text <頼み>。
+# 担当: 受け持ちに常設で 1 人（resident = true なので、--resident を付けなくても常設の部署で立つ。片付けで畳まれず、次の頼みを
+# 同じ部署で受ける）。fresh = true なので、頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に
+# /clear を打つ。常設の値打ちは記憶ではなく受け持ちごとの席〔順番を 1 本にする・宛先の名前・決まった窓〕で、前の頼みの記憶は
+# 太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す）。持ち越すなら fresh を消す。
+# 最初の頼みと一緒に立てるなら --ask {plain}/担当 --task <受け持ち> --branch <枝> --text <頼み>。
 # 頼み無しで立てるなら --task <受け持ち> --branch <枝> --role 担当 --brief <頼みのファイル>（--task には --brief が要る）
 [[roles]]
 name = "担当"
 instructions = {duty}
 deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 resident = true
+fresh = true
 # model = "opus"   # 部署を起こすときの --model（省けば既定）
 # 部署の会話にだけ効かせる Claude Code の設定（--settings で渡す。要らないプラグインを切るなどもここ）。
 # autoMode.allow は、自動の権限の判定（auto mode の classifier）の組み込みの拒否への例外を文で書く（"$defaults" で組み込みの
@@ -1400,6 +1405,12 @@ instructions = {work}
 deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 [roles.settings]
 autoMode = {{ allow = ["$defaults", {land_allow}] }}
+
+# 相談: 持ち主が直接話して考えを詰める会話。要る会社だけ # を外して足す。常設で、話の流れを持ち越す（fresh は書かない）
+# [[roles]]
+# name = "相談"
+# instructions = "持ち主と話して考えを詰める。決まったことは頼みに書き直して窓口に渡す。"
+# resident = true
 
 # 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。窓口の会話から --desk を打つと、この役の本文が次の会話の
 # 始まりから足される（組織の決まりを窓口に届けるため。コメントの決まりは、どの会話にも届かない）
@@ -1529,7 +1540,7 @@ def _department_rows(cfg, repo, ports, found, notes):
                              lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source)
 
 
-DEPT_REASONS = {"resident": "常駐の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
+DEPT_REASONS = {"resident": "常設の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
                 "not_merged": "枝が本流に入っていない", "no_branch": "枝に乗っていない"}
 
 

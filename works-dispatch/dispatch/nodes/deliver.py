@@ -3,7 +3,7 @@
 記録を残し、窓に 1 行を打ち込む。流れ（どの順に呼ぶか）は orders.py が持つ。
 
 - 宛先: 「会社/役」か部署の名前。会社を省けば頼む側の会社。部署の名前（属性 company.name）が先に当たる。役で宛てたときは、その役の
-  常駐の部署（company.residency=resident）に届け、無ければ新しく立てる（4.10 の 1・2。都度の部署は頼みごとに立てる）。
+  常設の部署（company.residency=resident）に届け、無ければ新しく立てる（4.10 の 1・2。都度の部署は頼みごとに立てる）。
 - 頼み元の窓: 部署の属性 company.boss-session（頼んだ会話の id）、無ければ company.boss と company.boss-account から会話の一覧で
   引いた会話を、herdr のペインと結ぶ。結び方は、その会話を持つ部署の窓、ペインの会話の印（agent_session）と場所が合うもの、
   頼んだときのペイン（company.boss-pane）の順。ペインの会話の印は裏の会話の attach の窓では別の会話の id を指すことがある
@@ -61,8 +61,8 @@ def find_target(companies, here_root, target, task=None):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
     部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。役で宛てて task（--task の部署の名前）を
-    渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常駐の部署が名前違いで居ても
-    使わない）。task が無く、役で宛てて常駐の部署が無ければ department は None（新しく立てる）。"""
+    渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常設の部署が名前違いで居ても
+    使わない）。task が無く、役で宛てて常設の部署が無ければ department は None（新しく立てる）。"""
     company_name, name = parse_target(target)
     if company_name is None:
         pool = companies
@@ -90,7 +90,7 @@ def find_target(companies, here_root, target, task=None):
     else:
         company = pool[0]
     if task:
-        # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の常駐の部署が名前違いで
+        # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の常設の部署が名前違いで
         # 1 つ居ても、そこへは届けない（受け持ちごとに担当が居る形で、ほかの受け持ちの担当に届いてしまうため）
         mine = [d for d in company["departments"] if d["attrs"].get("name") == task] or \
             [d for d in company["departments"] if task in gitx.former_names(d["attrs"])]
@@ -102,7 +102,7 @@ def find_target(companies, here_root, target, task=None):
     resident = [d for d in company["departments"]
                 if d["attrs"].get("role") == name and d["attrs"].get("residency") == "resident"]
     if len(resident) > 1:
-        raise DeliverError(f"{company['name']} に役「{name}」の常駐の部署が 2 つ以上ある"
+        raise DeliverError(f"{company['name']} に役「{name}」の常設の部署が 2 つ以上ある"
                            f"（{'、'.join(d['attrs'].get('name') or d['branch'] for d in resident)}）。部署の名前で宛てる")
     return {"company": company, "department": resident[0] if resident else None, "role": name}
 
@@ -409,6 +409,35 @@ def send_confirmed(pane, line, h, pause, busy):
             return "sent", "動いている会話に 1 回打った（待ちの列に載ったのを画面で見られなかったが、二重に送らないよう打ち直さない）"
         detail = f"届いたかを確かめられず打ち直した（{attempt + 1} 回目）"
     return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力欄に残っていれば Enter を押す）"
+
+
+CLEAR = "/clear"
+
+
+def clear_talk(pane, h, pause, cleared):
+    """窓の会話に /clear を打ち、会話が空になった（cleared() が真。会話の一覧の id が変わった）のを見てから返す。書く口。
+    (cleared・unconfirmed・failed, 訳)。入力欄に /clear が残っていれば Enter を 1 回足す（残ったまま頼みを打つと、頼みの頭に
+    /clear が付いて届く）。見えなくても打ち直さない（2 度打っても害は無いが、空になったかは一覧でしか分からない）。"""
+    try:
+        h.prompt(pane, CLEAR, False)
+    except h.HerdrError as e:
+        return "failed", str(e)
+    entered = False
+    for _ in range(CONFIRM_LOOKS):
+        pause()
+        if cleared():
+            return "cleared", None
+        try:
+            box = input_box(h.read(pane, 40)) or ""
+        except h.HerdrError:
+            continue
+        if CLEAR in box and not entered:
+            try:
+                h.send_keys(pane, "enter")
+            except h.HerdrError:
+                pass
+            entered = True
+    return "unconfirmed", "/clear を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
 # ---- Stop フック ----

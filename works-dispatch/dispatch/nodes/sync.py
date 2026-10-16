@@ -12,11 +12,17 @@
   出すため。本社（元の clone。--desk で窓口の属性を書く）の作業場は herdr の木の親なので、属性を持てば会社の名前を付ける（会社の
   名前は親の作業場にだけ出し、部署の名前には付けない。持ち主 2026-10-16）。今の名前と同じなら付け直さず、属性を持つ場所が
   2 つ以上居る作業場は触らない。
-- 表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
+- 表示名は役に席の見え方（常設・毎回空、常設・持ち越し、都度）を添えた物、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
   属性に無い物は消す。
 
 入口の dispatch.py --sync が tree ノードの組み立てを渡して plan を呼び、apply で herdr に書く（--dry-run は plan だけ）。
 """
+
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from nodes import role  # noqa: E402
 
 SOURCE = "company"  # herdr pane report-metadata の出どころ
 TOKENS = ("role", "account", "boss")  # 札に出す属性
@@ -33,8 +39,15 @@ def op(pane, attrs, many_accounts, current_label=None):
     name = attrs.get("name")
     want = label(name, attrs.get("account"), many_accounts) if name else None
     return {"pane": pane, "label": want if want and want != current_label else None,
-            "display_agent": attrs.get("role"), "title": name,
+            "display_agent": shown_role(attrs), "title": name,
             "tokens": {k: attrs[k] for k in TOKENS if attrs.get(k)}, "clear_tokens": [k for k in TOKENS if not attrs.get(k)]}
+
+
+def shown_role(attrs):
+    """herdr の表示名（会話の行の agent の欄）。役に、常設か都度かと会話の持ち越し方を添える（例: 担当（常設・毎回空））。
+    herdr の設定の行の並びを変えずに見えるよう、札ではなく表示名に入れる。"""
+    name = attrs.get("role")
+    return f"{name}（{role.seat(attrs.get('residency'), attrs.get('fresh'))}）" if name else None
 
 
 def _target(dept):

@@ -9,8 +9,11 @@
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
   その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
-- resident: true なら、その役の部署は常駐（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
+- resident: true なら、その役の部署は常設（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
+- fresh: true なら、その役の部署は頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に /clear を
+  打つ）。省けば会話を持ち越す。resident とは別の軸で、常設の席（順番を 1 本にする・宛先の名前・決まった窓）は残したまま、
+  前の頼みの記憶を持ち越さない（記憶は太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す。まっさらな環境での 2 回目の試し）
 役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
 表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
@@ -25,8 +28,18 @@ import os
 import shlex
 import tomllib
 
+# 頼みごとに空の会話で受ける部署の属性 company.fresh の値（役の fresh = true を写す。無ければ会話を持ち越す）
+FRESH = "true"
+
 # 部署を起こすときに必ず効かせる設定の鍵。役の設定より強い（裏の会話が自分で worktree を作らず、先に作った作業場で働くため）
 FIXED = {"worktree": {"bgIsolation": "none"}}
+
+
+def seat(residency, fresh):
+    """部署の席の見え方（herdr の表示名と --tree に役の後ろへ添える字）。常設なら会話の持ち越し方も添える。"""
+    if residency == "resident":
+        return "常設・毎回空" if fresh else "常設・持ち越し"
+    return "都度"
 
 
 def _empty():
@@ -34,7 +47,7 @@ def _empty():
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver, resident}, gh_user, default_role, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver, resident, fresh}, gh_user, default_role, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -71,14 +84,13 @@ def load(path, text=None):
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
-        if "resident" in r and not isinstance(r["resident"], bool):
-            bad.append("resident")
+        bad += [k for k in ("resident", "fresh") if k in r and not isinstance(r[k], bool)]
         if "deliver" in r and not (isinstance(r["deliver"], list) and r["deliver"]
                                    and all(isinstance(x, str) and x.strip() for x in r["deliver"])):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び、resident は true か false）")
+                                   f"deliver は空でない文字列の並び、resident・fresh は true か false）")
             continue
         if isinstance(r.get("settings"), dict) and "deliver" in r["settings"]:
             out["problems"].append(f"{where}（{r['name']}）: deliver が [roles.settings] の中に入っている（deliver は [roles.settings] "
@@ -89,7 +101,7 @@ def load(path, text=None):
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
                                    "model": r.get("model") or None, "settings": r.get("settings") or None,
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
-                                   "resident": r.get("resident") is True}
+                                   "resident": r.get("resident") is True, "fresh": r.get("fresh") is True}
     default = raw.get("default_role")
     if default is not None and not (isinstance(default, str) and default):
         out["problems"].append(f"{path}: default_role が文字列で無い")
