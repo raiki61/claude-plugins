@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-17
+
 ### Fixed
 
 - `docs/design.md` の依存の範囲の節が「範囲は依存先の git のタグで解く」とだけ書いていた。同じ marketplace の相対パスの依存はタグが無くても今の写しで入り、範囲は読み込むときに確かめる（Claude Code の文書 Plugin dependencies）ことを書いた。
