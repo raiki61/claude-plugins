@@ -20,6 +20,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 - 頼みと納品の本文と台帳（`log.jsonl`）を、頼み元の会社の共通の `.git` の中の受付箱 `company/inbox/` に残す（commit されず、部署を片付けても消えない）。
 - プラグインの Stop フック。部署の会話が、受けた頼みを納品しないまま止まろうとしたら、納品の命令で返すよう差し戻す（同じ会話・同じ頼みで 3 回まで。その後は止まるのを許す）。部署でない場所では何もしない。
 
+### Fixed
+
+- `--check` が tiers を見つけられないとき、入れる命令（`claude plugin install tiers@<マーケットプレイス>`。名は `plugin.json` の `dependencies` から読む）と、開いている会話では `/reload-plugins` を打つことを注記に出す。依存は `claude plugin update` では入らない（公式の文書のとおり。install・入れ直し・`/reload-plugins`・自動更新で入る）ので、0.7.0 へ update しただけだと tiers が無いまま works-dispatch が読み込まれない。前は「/plugin で入れ直す」とだけ出していた。
+
 ## [0.7.0] - 2026-10-16
 
 ### Added

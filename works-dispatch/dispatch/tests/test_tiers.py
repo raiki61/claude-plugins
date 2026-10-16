@@ -110,6 +110,30 @@ class Check(unittest.TestCase):
             with self.assertRaises(tierx.TierError):
                 tierx.check([], env={"PATH": d}, here=pathlib.Path(d) / "a" / "b.py")
 
+    def plugin(self, d, deps):
+        """d/wd に依存を書いた plugin.json を置き、その中の dispatch/tierx.py の場所を返す。"""
+        root = pathlib.Path(d) / "wd"
+        (root / ".claude-plugin").mkdir(parents=True)
+        (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "wd", "dependencies": deps}), encoding="utf-8")
+        return root / "dispatch" / "tierx.py"
+
+    def test_no_entry_names_the_install_command_with_the_declared_marketplace(self):
+        # 依存は claude plugin update では入らない（install・/reload-plugins などでだけ入る）ので、入れる命令をそのまま出す
+        with tempfile.TemporaryDirectory() as d:
+            here = self.plugin(d, [{"name": "tiers", "marketplace": "lab"}])
+            with self.assertRaises(tierx.TierError) as e:
+                tierx.check([], env={"PATH": d}, here=here)
+        self.assertIn("claude plugin install tiers@lab", str(e.exception))
+        self.assertIn("/reload-plugins", str(e.exception))
+
+    def test_no_entry_without_a_declared_marketplace_names_the_command_with_a_blank(self):
+        for deps in (["tiers"], [{"name": "tiers"}], []):
+            with tempfile.TemporaryDirectory() as d:
+                here = self.plugin(d, deps)
+                with self.assertRaises(tierx.TierError) as e:
+                    tierx.check([], env={"PATH": d}, here=here)
+            self.assertIn("claude plugin install tiers@<works-dispatch を入れたマーケットプレイス>", str(e.exception), deps)
+
 
 if __name__ == "__main__":
     unittest.main()

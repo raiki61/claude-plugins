@@ -3,6 +3,9 @@
 works-dispatch の要る段は 2（gh で自分の番の PR を集め、herdr に作業場を開き、アカウントの起こし方の命令で Claude Code を起こす）。
 点検の中身は tiers が持ち、ここは呼んで JSON を読むだけ。tiers は plugin.json の dependencies で入り、Claude Code が
 その bin/ を Bash の道具の PATH に入れる。リポジトリの checkout から走らせるとき（試験・開発）は、隣の tiers/bin/tiers を使う。
+依存は claude plugin install のほか /reload-plugins・入れ直し・自動更新では入るが、claude plugin update では入らない
+（公式の文書 code.claude.com/docs/en/plugins/dependencies の「Besides claude plugin install」の節。2026-10-16 に 2.1.301 で再現）。
+なので、無いときは入れる命令をそのまま出す。
 """
 
 import json
@@ -17,6 +20,20 @@ NAME = "tiers"
 
 class TierError(Exception):
     pass
+
+
+def install_command(here=None):
+    """tiers を入れる命令。マーケットプレイスの名はこのプラグインの plugin.json の dependencies から読む（決め打ちしない）。"""
+    root = pathlib.Path(here or __file__).resolve().parent.parent
+    market = "<works-dispatch を入れたマーケットプレイス>"
+    try:
+        deps = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("dependencies") or []
+    except (OSError, ValueError, AttributeError):
+        deps = []
+    for d in deps:
+        if isinstance(d, dict) and d.get("name") == NAME and d.get("marketplace"):
+            market = d["marketplace"]
+    return f"claude plugin install {NAME}@{market}"
 
 
 def locate(env, here=None):
@@ -35,8 +52,9 @@ def check(launchers, env=None, runner=subprocess.run, here=None):
     env = dict(os.environ if env is None else env)
     entry = locate(env, here)
     if entry is None:
-        raise TierError("段の点検の部品（tiers プラグインの bin/tiers）が見つからない。works-dispatch の依存として入るので、"
-                        "/plugin で works-dispatch を入れ直す")
+        raise TierError("段の点検の部品（tiers プラグインの bin/tiers）が見つからない。works-dispatch の依存だが、"
+                        f"claude plugin update では入らない。シェルで {install_command(here)} を打ち、"
+                        "開いている会話では /reload-plugins を打つ")
     argv = [sys.executable, entry, "--tier", str(NEEDED_TIER), "--json"]
     for c in launchers:
         argv += ["--launcher", c]

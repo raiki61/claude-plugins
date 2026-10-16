@@ -92,7 +92,7 @@ bump = "marketplace"
 
 `dispatch.py --check` が全部確かめる。設定の下書きは `dispatch.py --init --repo OWNER/NAME --source <代表の clone>` が書く。
 
-**要る段: 2**（共通の点検の部品 [tiers](../tiers/README.md) の段。gh・herdr・アカウントの起こし方の命令）。`--check` は最初に `tiers --tier 2 --json` を、設定の各アカウントの起こすコマンドを `--launcher` に渡して呼ぶ（`dispatch/tierx.py`）。足りなければ、その入れ方を出して止まり、下の確かめには進まない。tiers は `plugin.json` の `dependencies` で入り、Claude Code がその `bin/` を PATH に入れる。見つからない（依存の入っていない古い入れ方・Claude Code の外から走らせた）ときは、注記にして下の確かめを続ける。下の 1 と 3 と 5 は tiers の点検と重なるが、dispatch の普段の回と `--task` の回が使う確かめなので残す。
+**要る段: 2**（共通の点検の部品 [tiers](../tiers/README.md) の段。gh・herdr・アカウントの起こし方の命令）。`--check` は最初に `tiers --tier 2 --json` を、設定の各アカウントの起こすコマンドを `--launcher` に渡して呼ぶ（`dispatch/tierx.py`）。足りなければ、その入れ方を出して止まり、下の確かめには進まない。tiers は `plugin.json` の `dependencies` で入り、Claude Code がその `bin/` を PATH に入れる。見つからない（依存の入っていない古い入れ方・Claude Code の外から走らせた）ときは、入れる命令（`claude plugin install tiers@<マーケットプレイス>`）を注記にして下の確かめを続ける。依存は `claude plugin update` では入らないので、tiers を足した版（0.7.0）へ update しただけのときは、この命令で入れる。下の 1 と 3 と 5 は tiers の点検と重なるが、dispatch の普段の回と `--task` の回が使う確かめなので残す。
 
 1. **herdr が動いている。** 手元の版の API に、使う 11 の口（`HERDR_METHODS`。worktree の 4 つを含む）があることと、代表の clone の worktree を並べられることを確かめる。代表の clone は本体の checkout であること（linked worktree でない）も確かめる。
 2. **Claude Code の `claude agents --json`。** 開いている会話を、アカウントごとに読む公式の口。同じリポジトリとブランチの会話が開いていれば、その PR は飛ばす。
