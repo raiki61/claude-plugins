@@ -2,7 +2,7 @@
 """機械窓口の流れ（受付の設計 docs/specs/2026-10-17-reception-design.md の 5 章）。入口の dispatch.py --call と、--land の合図
 （会社の形の [[land.after]]）から呼ぶ。道具の中身（入力の確かめ・回す頼みの字）は nodes/tools.py、道具の定義を読むのは role ノード。
 
---call <会社/役> <道具>（call）: 道具を代表の clone の根で走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
+--call <会社/役> <道具>（call）: 道具を origin の既定の枝の中身（一時の worktree。tools.place）の根で走らせ、入力の JSON を標準入力に渡す。終了の値 0 なら片づいた（答えを出して
 0 で終わる）。0 以外なら外れを受付箱の台帳に残し、その入力を AI への頼みに変えて回す（orders.ask と同じ宛て方。回す役の常設の部署が
 在ればその順番待ちに積み、無ければ一度きりの部署を自動で立てる）。回したら受付番号を出して 3 で終わる。
 合図（fire）: --land が本流へ push し終えた後に、[[land.after]] の並びの順に同じ走らせ方で呼ぶ。回した頼みの頼み元は、本流に入れた
@@ -76,10 +76,11 @@ def invoke(root, company, role_name, tool_name, value, roles, ports, a, task, bo
     if bad:
         return 2, [f"止めた: 道具 {role_name}/{tool_name} の入力が形に合わない: " + "、".join(bad)]
     inbox = deliver.inbox_of(ports.git.common_dir(root))
-    code, out, both = run_tool(tool["command"], root, value)
+    with tools.place(root, ports.git) as (here, note):
+        code, out, both = run_tool(tool["command"], here, value)
     if code == 0:
         deliver.log(inbox, {"kind": "call", "status": "done", "role": role_name, "tool": tool_name, "at": ports.now()})
-        return 0, [out.rstrip("\n")] if out.strip() else []
+        return 0, [x for x in [note, out.rstrip("\n")] if x and x.strip()]
     out_tail = tools.tail(both)
     deliver.log(inbox, {"kind": "miss", "role": role_name, "tool": tool_name, "input": value, "code": code, "tail": out_tail,
                         "at": ports.now()})
@@ -131,7 +132,8 @@ def call(a, ports, cwd, task):
         _, tool = found
         bad = tools.check_input(tool["inputSchema"], value)
         print("\n".join(notes + [f"呼ぶ道具: {company}/{role_name} の {tool_name}（{tools.label(tool)}）",
-                                 f"- 走らせる: {tool['command']}（{root} で。入力 {json.dumps(value, ensure_ascii=False)}）",
+                                 f"- 走らせる: {tool['command']}（origin の既定の枝の中身を一時の worktree に出し、その根で。"
+                                 f"入力 {json.dumps(value, ensure_ascii=False)}）",
                                  f"- 片づかなければ回す役: {tool['fallback_role']}"]
                          + [f"- 入力が形に合わない: {'、'.join(bad)}"] * bool(bad)))
         return 0

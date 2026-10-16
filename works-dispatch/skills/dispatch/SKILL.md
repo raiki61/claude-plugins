@@ -253,7 +253,7 @@ name = "spread-plugins"              # 以下 4 つは MCP の道具の定義（
 title = "全アカウントに配る"
 description = "…"
 inputSchema = { type = "object", properties = { dry_run = { type = "boolean" } }, additionalProperties = false }
-command = "python3 scripts/spread-plugins.py"   # 代表の clone の根で走らせる。入力の JSON を標準入力に渡す
+command = "python3 scripts/spread-plugins.py"   # origin の既定の枝の中身（一時の worktree）の根で走らせる。入力の JSON を標準入力に渡す
 fallback_role = "作業"               # 片づかなかったときに回す役（省けばその道具を持つ役。machine の役では要る）
 ```
 

@@ -8,6 +8,7 @@ import sys
 import unittest
 
 from . import test_deliver
+from .test_provision import git
 import calls
 import gitx
 from nodes import deliver, land, provision, role, tools
@@ -92,6 +93,16 @@ class Call(unittest.TestCase):
         self.assertEqual(self.prompts(), [])
         (rec,) = deliver.records(self.inbox)
         self.assertEqual((rec["kind"], rec["status"], rec["tool"]), ("call", "done", "spread-plugins"))
+
+    def test_the_tool_runs_on_the_default_branch_not_on_what_the_clone_has_open(self):
+        self.use("git rev-parse HEAD")
+        want = gitx.rev(self.src, gitx.origin_head(self.src))
+        git("-C", self.src, "switch", "-q", "-c", "other")   # 持ち主が代表の clone で別の枝を開いている
+        git("-C", self.src, "commit", "-q", "--allow-empty", "-m", "other")
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(want, out)
+        self.assertEqual(len(git("-C", self.src, "worktree", "list").splitlines()), 2)   # 一時の worktree は消える（代表の clone と部署）
 
     def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
         self.use(self.script("import sys; print('p2 で失敗'); sys.exit(4)"))

@@ -8,8 +8,12 @@
 - 回す頼み（miss_text）と、回す先の部署を自動で立てるときの名前と枝（auto_name・auto_branch）。
 """
 
+import contextlib
 import json
+import os
 import re
+import shutil
+import tempfile
 
 TAIL_LINES = 20   # 外れの記録と回す頼みに載せる、道具の出力の終わりの行数
 TYPES = {"string": str, "boolean": bool, "array": list, "object": dict}
@@ -52,6 +56,28 @@ def check_input(schema, value):
         if kinds and not any(_typed(v, x) for x in kinds):
             out.append(f"鍵 {k} の型が {'・'.join(kinds)} で無い")
     return out
+
+
+@contextlib.contextmanager
+def place(root, g):
+    """道具を走らせる場所: origin の既定の枝（会社の形を読むのと同じ ref）の中身を、一時の worktree に出したもの。代表の clone の
+    作業ツリーは、持ち主がほかの枝を開いていることがあり、その枝に道具の台本が在るとは限らないため。origin/HEAD が無ければ
+    代表の clone の根（(場所, 注記) を渡す）。書く口（一時の worktree を作って消す）。"""
+    ref = g.origin_head(root)
+    sha = g.rev(root, ref) if ref else None
+    if not sha:
+        yield root, "origin の既定の枝が分からないので、代表の clone の作業ツリーで走らせた"
+        return
+    path = os.path.join(tempfile.mkdtemp(prefix="works-dispatch-tool-"), "tree")
+    g.add_detached(root, path, sha)
+    try:
+        yield path, None
+    finally:
+        try:
+            g.remove_detached(root, path)
+        except g.GitError:
+            pass
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 def tail(text, lines=TAIL_LINES):

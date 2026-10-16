@@ -42,11 +42,12 @@ WRITES = {
     "reset_keep": {"nodes/provision.py"},
     "delete_branch": {"nodes/clean.py"},
     # git: 部署の成果を本流に入れる（関門の枝と本流へ push・関門の枝を消す・手元の本流を早送り・版を上げる一時の場所と commit）
+    # tools は機械窓口の道具を origin の既定の枝の中身で走らせる一時の場所を作って消す
     "push": {"nodes/land.py"},
     "drop_remote": {"nodes/land.py"},
     "advance_branch": {"nodes/land.py"},
-    "add_detached": {"nodes/land.py"},
-    "remove_detached": {"nodes/land.py"},
+    "add_detached": {"nodes/land.py", "nodes/tools.py"},
+    "remove_detached": {"nodes/land.py", "nodes/tools.py"},
     "commit_all": {"nodes/bump.py"},
     # git: 部署の属性（worktree ごとの設定）を書く
     "enable_worktree_config": {"nodes/provision.py"},
