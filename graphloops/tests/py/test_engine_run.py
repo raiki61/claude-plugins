@@ -64,10 +64,10 @@ def test_parse_keeps_the_keep_background_declaration():
 
 
 def test_readme_names_every_optional_step_key():
-    """段の任意の鍵（逃げ道の宣言）は、利用者が読む README の宣言の節に綴りのまま載る——載っていなければ宣言できることが
-    伝わらない"""
-    readme = (pathlib.Path(PLUGIN).parent / "README.md").read_text(encoding="utf-8")
-    assert all(f'"{k}"' in readme for k in declared.STEP_OPTIONAL_KEYS)
+    """段の任意の鍵（逃げ道の宣言）は、宣言の節（リポジトリの根の CONTRIBUTING.md。2026-10-16 に根の README から移った）に
+    綴りのまま載る——載っていなければ宣言できることが伝わらない"""
+    doc = (pathlib.Path(PLUGIN).parent / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert all(f'"{k}"' in doc for k in declared.STEP_OPTIONAL_KEYS)
 
 
 MUT = {"argv": ["runner"], "arms": "arms.json"}

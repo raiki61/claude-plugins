@@ -176,7 +176,7 @@ class Task(unittest.TestCase):
         self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
         # 起こすときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
         [command] = self.sent(ports)
-        self.assertIn("--model haiku", command)
+        self.assertRegex(command, r'--model "?haiku\b')   # POSIX でない殻（Windows）では語を "…" で囲む
 
     def test_dry_run_reads_the_shape_without_fetching(self):
         src = gitx_source(self.cfg)

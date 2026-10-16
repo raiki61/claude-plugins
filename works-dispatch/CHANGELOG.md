@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 同梱の試験の 1 件（会社の形を取り直してから役の model を決める物）が Windows でだけ落ちていたのを直した（Windows では起こす命令の語が `"…"` で囲まれる）。works-dispatch の振る舞いは変わらない。
+
 ## [0.16.0] - 2026-10-16
 
 ### Added
