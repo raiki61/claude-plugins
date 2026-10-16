@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-16
+
 ### Changed
 
 - 部署の回（`--task`・`--ask`・`--land`・`--init-company`）は GitHub を読まない。本流の枝の名前は、代表の clone の手元の `origin/HEAD`（無ければ `git ls-remote --symref origin HEAD` で origin に問う）から取り、部署の枝を作る元・`--land` の本流・`--clean` の片付けの見極めで同じ元を使う。部署の回の始める前の確かめは、gh で origin のリポジトリを読めるかを見ない。`--land` は、取り込み方が `pr` か CI の枝の関門のときだけ gh の鍵を取り出す。設定に `[[repos]]` が無い `--check` は、gh の足りない物（段 1）を止めずに注記にする。0.17.2 までは、手元の bare リポジトリを origin にすると「whose-turn が自分の番の PR を集められない」で部署を立てられず、本流の枝の名前を GitHub から取っていた（まっさらな環境での 2 回目の試し `docs/trials/2026-10-16-clean-env-2.md` の 3）。
