@@ -51,8 +51,9 @@
 - `tests`・`test`・`docs` という名前のフォルダの下のファイル
 - `test_*.py`・`*_test.py`・`conftest.py`
 - plugin のフォルダの直下の `README.md`・`CHANGELOG.md`・`CONTRIBUTING.md`・`LICENSE`（直下だけ。`skills/foo/README.md` は入らない）
+- `.claude-plugin/plugin.json` のうち、説明（`description`）の字だけを変えたとき（版を最後に上げた時の中身と比べて、`description` のほかの欄が同じ）
 
-これ以外は全部、利用者が動かす物に数える。`SKILL.md`・エージェントの `.md`・`plugin.json` もそちら（Claude Code が読んで動く物なので）。この一覧の正本は `works-dispatch/dispatch/nodes/bump.py` の `quiet` で、ずれたらそちらが正しい。`--land` が 1 に当たって patch にしたときは、画面に注記を出す。
+これ以外は全部、利用者が動かす物に数える。`SKILL.md`・エージェントの `.md` と、`description` のほかの欄も変えた `plugin.json` もそちら（Claude Code が読んで動く物なので）。この一覧の正本は `works-dispatch/dispatch/nodes/bump.py` の `quiet` と `manifest_text_only`（`plugin.json` の説明の字だけの直し）で、ずれたらそちらが正しい。`--land` が 1 に当たって patch にしたときは、画面に注記を出す。
 
 major（X.0.0）は `--land` では上がらない。今の版はどれも 0.x で（Semantic Versioning では、0.y.z の間は何が変わってもよい扱い）、互換を壊す変更（Removed など）も minor を上げる。
 
