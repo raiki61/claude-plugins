@@ -1100,7 +1100,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 result = "launch_failed"
                 notes.append(why)
             else:
-                sid = talk.get("id") or talk["sessionId"]
+                sid = claudex.attach_id(talk)
                 try:
                     provision.mark(prov["path"], repo.source, {"session": talk["sessionId"]}, ports.git)
                 except (gitx.GitError, OSError) as e:

@@ -6,6 +6,13 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.19.4 で入れた「落ちた部署の会話を `--ask` が戻す」が働いていなかった（まっさらな環境での 6 回目の試し `docs/trials/2026-10-16-clean-env-6.md`）。
+  - 戻す attach を部署の属性の長い id（`company.session`）で打ち、Claude Code 2.1.301 が「No job matching」と断っていた。会話の一覧の短い id（部署を立てるときに使う物と同じ）で打つ。id の取り方は `claudex.attach_id` の 1 か所にまとめた。
+  - attach の画面が終わってシェルに戻った窓を、herdr が残す会話の印のせいで「会話が居る」と見て、未納品の頼みの確かめで止まっていた。前に居るのがシェルなら（macOS・Linux）、画面の終わりに「Session … has exited.」が出ていれば（Windows を含む）、会話が居ないと見て戻す。
+  - 手元の macOS で、使い捨ての部署の会話を名指しで止めてから `--ask` を打ち、短い id で attach して頼みが届くこと、未納品の頼みがあるときは戻して納品を促して止まることを確かめた。
+
 ## [0.19.4] - 2026-10-17
 
 ### Fixed

@@ -184,6 +184,7 @@ class Flow(unittest.TestCase):
         self.ports.herdr = CompanyHerdr(self.src)
         self.desk = self.ports.herdr.open_at(self.src, agent="claude")["pane_id"]
         self.window = self.ports.herdr.open_at(self.place, agent="claude")["pane_id"]
+        self.ports.herdr.talking.add(self.window)   # 部署の窓の前には attach の画面（会話）が居る
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk", "HERDR_PANE_ID": self.desk}
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
@@ -197,20 +198,49 @@ class Flow(unittest.TestCase):
     def prompts(self):
         return [w for w in self.ports.herdr.writes if w[0] == "prompt"]
 
-    def fall(self):
-        """部署の窓の会話が落ちた形（PC の再起動などで attach の窓が消え、ペインにはシェルだけが居る）。"""
-        for p in self.ports.herdr._panes:
-            if p["pane_id"] == self.window:
-                p["agent"] = None
+    def fall(self, keep_mark=False):
+        """部署の窓の会話が落ちた形（PC の再起動などで attach の画面が終わり、ペインにはシェルだけが居る）。keep_mark なら、
+        herdr がペインの会話の印を残したままの形（まっさらな環境での 6 回目の試しの 1）。"""
+        self.ports.herdr.talking.discard(self.window)
+        if not keep_mark:
+            for p in self.ports.herdr._panes:
+                if p["pane_id"] == self.window:
+                    p["agent"] = None
+        real_run = self.ports.herdr.run
+
+        def run(pane, command):   # attach を打つと、窓に会話が戻る
+            real_run(pane, command)
+            if " attach " in command:
+                self.ports.herdr.talking.add(pane)
+                for p in self.ports.herdr._panes:
+                    if p["pane_id"] == pane:
+                        p["agent"] = "claude"
+        self.ports.herdr.run = run
 
     def test_fallen_department_is_attached_again_and_the_ask_goes_through(self):
         self.fall()
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
         runs = [w for w in self.ports.herdr.writes if w[0] == "run"]
-        self.assertEqual(runs, [("run", self.window, "claude-a1 attach s-dept")])
+        self.assertEqual(runs, [("run", self.window, "claude-a1 attach d")])   # 会話の一覧の短い id で打つ（長い id は断られる）
         self.assertIn("部署の窓に会話が居なかったので", out)
         self.assertEqual(len(self.prompts()), 1)
+
+    def test_window_back_at_the_shell_counts_as_fallen_even_if_herdr_keeps_the_mark(self):
+        # attach の画面が終わってシェルに戻っても、herdr はペインの会話の印を残す。前に居るのがシェルなら落ちたと見て戻す
+        self.fall(keep_mark=True)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.herdr.writes)
+
+    def test_exited_line_on_the_screen_counts_as_fallen(self):
+        # Windows では前のプロセスを見る口が当てにならないので、画面の「Session … has exited.」でも見分ける
+        orders = __import__("orders")
+        self.ports.herdr.screen = "Session d has exited.\nPS C:\\w> "
+        dept = {"panes": [{"pane_id": self.window, "agent": "claude"}]}
+        self.assertIsNone(orders.live_window(dept, self.ports))
+        self.ports.herdr.screen = "> 作業中"
+        self.assertEqual(orders.live_window(dept, self.ports), self.window)
 
     def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
         # 落ちる前の頼みを納品していない部署: 戻して納品を促し、新しい頼みは送らずに止まる（待っても来ない、で止めない）

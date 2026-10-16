@@ -175,6 +175,16 @@ def missing_flags(runner=_default_runner, flags=TASK_FLAGS):
     return [f for f in flags if f not in text]
 
 
+def attach_id(entry, session_id=None):
+    """`claude attach` に渡す会話の id。会話の一覧（claude agents --json）の短い `id`（8 字）を使う。Claude Code 2.1.301 の attach は
+    長い id（sessionId。UUID）を「No job matching」と断る（まっさらな環境での 6 回目の試し）。一覧に無ければ、長い id の頭の 8 字
+    （短い id は長い id の頭と同じ字だった）。"""
+    if entry and entry.get("id"):
+        return entry["id"]
+    full = (entry or {}).get("sessionId") or session_id or ""
+    return full.split("-")[0][:8] if full else None
+
+
 def remove_session(config_dir, session_id, runner=_default_runner, base_env=None):
     """そのアカウントの裏の会話を消す（`claude rm <id>`）。書く口。(消えたか, claude の言葉)。
     rm は、どのリモートにも無い commit や確かめられないファイルのある worktree なら、消さずに断る（2026-10-16 に 2.1.301 で見た。

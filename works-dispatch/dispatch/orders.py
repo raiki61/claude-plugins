@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shlex
 import sys
 import tempfile
@@ -103,15 +104,41 @@ def shape_role(root, settings, name):
 REVIVE_LOOKS = 20
 
 
-def revive(dept, accounts_, ports):
+# attach の画面が終わったときに Claude Code がペインに出す行（「Session cb2d81c3 has exited.」。2.1.301 で見た）
+EXITED = re.compile(r"Session \S+ has exited\.")
+
+
+def live_window(dept, ports):
+    """部署の窓（会話の居るペイン）か None。herdr はペインの会話の印を、attach の画面が終わってシェルに戻った後も残すので、
+    印だけでは落ちた会話を見分けられない（まっさらな環境での 6 回目の試しの 1）。前に居るのがシェルなら（macOS・Linux）、
+    画面の終わりに「Session … has exited.」が出ていれば（Windows を含む。Windows は前のプロセスを見る口が当てにならない）、
+    会話は居ないと見る。"""
+    pane = deliver.window(dept)
+    if pane is None:
+        return None
+    try:
+        if os.name != "nt" and ports.herdr.shell_in_front(pane):
+            return None
+        tail = ports.herdr.read(pane, 6)
+    except herdr.HerdrError:
+        return pane   # 確かめられないときは、居ると見て今までどおり（打ち込んで会話を乱さない側）
+    lines = [x for x in (tail or "").splitlines() if x.strip()]
+    if lines and EXITED.search("\n".join(lines[-3:])):
+        return None
+    return pane
+
+
+def revive(dept, accounts_, ports, sessions_=None):
     """部署の窓に会話が居ない（PC やサーバーの再起動で attach の窓が落ちたなど）とき、部署の属性の会話の id で、部署のペインに
     `<アカウントのコマンド> attach <id>` を打ち、窓に会話が戻るのを見る。裏の会話は落ちても記録が残り、attach で前の続きから
     戻る（まっさらな環境での 5 回目の試しの 1。Windows で確かめた）。(戻ったペインか None, 言葉)。"""
-    sid = dept["attrs"].get("session")
-    acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
-    command = f"{acc.command if acc else 'claude'} attach {sid}"
-    if not sid:
+    full = dept["attrs"].get("session")
+    if not full:
         return None, "部署の属性に会話の id（company.session）が無いので戻せない（部署を立て直す）"
+    acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+    entry = next((x for items in (sessions_ or {}).values() for x in items if x.get("sessionId") == full), None)
+    sid = claudex.attach_id(entry, full)   # attach は短い id で打つ（部署を立てるときと同じ）
+    command = f"{acc.command if acc else 'claude'} attach {sid}"
     try:
         pane = next((p["pane_id"] for p in dept["panes"] if ports.herdr.shell_in_front(p["pane_id"])), None)
     except herdr.HerdrError as e:
@@ -125,13 +152,15 @@ def revive(dept, accounts_, ports):
     if got["status"] != "attached":
         return None, f"部署の会話を戻せなかった（{got['detail']}）。部署のペイン {pane} で {command} を打って戻す"
     for look in range(REVIVE_LOOKS):
-        if look:
-            ports.pause()
+        ports.pause()
         try:
-            if (ports.herdr.agent(pane) or {}).get("agent"):
-                return pane, f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
+            screen = ports.herdr.read(pane, 6)
+            alive = (ports.herdr.agent(pane) or {}).get("agent") and not EXITED.search(screen or "") \
+                and "No job matching" not in (screen or "") and (os.name == "nt" or not ports.herdr.shell_in_front(pane))
         except herdr.HerdrError:
-            pass
+            alive = False
+        if alive:
+            return pane, f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
     return None, f"ペイン {pane} で {command} を打ったが、窓に会話が戻らない（画面を見て、会話が戻ったら --ask を打ち直す）"
 
 
@@ -185,10 +214,10 @@ def ask(a, ports, cwd, task):
     if dept is not None:
         held = dept["attrs"].get("ask")
         pending = held and dept["attrs"].get("delivered") != held
-        pane, revived = deliver.window(dept), False
+        pane, revived = live_window(dept, ports), False
         if pane is None and not a.dry_run:
             # 窓に会話が居ない: 部署の会話が落ちた（PC やサーバーの再起動など）。attach で前の続きから戻す
-            pane, said = revive(dept, accounts_, ports)
+            pane, said = revive(dept, accounts_, ports, sessions_)
             notes.append(said)
             revived = pane is not None
         if pane is None:
@@ -205,7 +234,7 @@ def ask(a, ports, cwd, task):
                                          "まだ納品していない。会話が落ちていたので戻して納品を促した。納品が届いてから頼み直す"]))
                 return 2
             print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
-                                     "まだ納品していない。納品を待つか、別の部署に頼む（部署の会話が動いていないなら、部署の窓で"
+                                     f"まだ納品していない。納品を待つか、別の部署に頼む（部署の会話が止まって見えるなら、部署の窓 {pane} で"
                                      "続きを頼む）"]))
             return 2
         if a.task or a.branch:
