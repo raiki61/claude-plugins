@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Fixed
+
+- 試験の置き場 `tiers/tests` をパッケージにしない（`__init__.py` を消す）。works-dispatch の試験と同じ 1 回の pytest で回すと、どちらも `tests` というパッケージになってぶつかり、1 件が読み込めなかった。unittest は `-s tiers/tests` だけで回す。
+
 ## [0.1.0] - 2026-10-16
 
 ### Added

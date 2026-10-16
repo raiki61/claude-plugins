@@ -71,7 +71,7 @@ works-dispatch が最初につないだ（`--check`）。ほかのプラグイ�
 ## 試験
 
 ```bash
-python3 -B -m unittest discover -s tiers/tests -t .
+python3 -B -m unittest discover -s tiers/tests
 ```
 
 外の道具は起こさず、口（`Probe`）を偽物に替える。全体の試験（`tests/run.sh`）にも載っている。

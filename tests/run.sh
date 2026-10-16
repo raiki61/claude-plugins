@@ -3936,7 +3936,7 @@ expect_output 0 "OK" "works-dispatch/dispatch: ノードの試験と決まりの
 # ---- tiers: 要る道具の段ごとの点検（ほかのプラグインが依存として入れ、使い始めに bin/tiers を呼ぶ）----
 # 外の道具（claude・gh・herdr・archon）は起こさず、口（Probe）を偽物に替える
 expect_output 0 "OK" "tiers: 段ごとの点検が足りない物と入れ方を返し、--json の形と終了コードを守る" \
-    "$PY_BIN" -B -m unittest discover -s "$ROOT/tiers/tests" -t "$ROOT"
+    "$PY_BIN" -B -m unittest discover -s "$ROOT/tiers/tests"
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \
     "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
