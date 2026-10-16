@@ -19,6 +19,7 @@ from .test_provision import git
 from .test_task import push_shape
 from . import test_role
 import gitx
+import herdr as real_herdr
 import orders
 from nodes import deliver, provision
 
@@ -186,9 +187,11 @@ class Flow(unittest.TestCase):
         self.window = self.ports.herdr.open_at(self.place, agent="claude")["pane_id"]
         self.ports.herdr.talking.add(self.window)   # 部署の窓の前には attach の画面（会話）が居る
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk", "HERDR_PANE_ID": self.desk}
+        # 部署の会話は、窓に 1 行が送られると動き出す（status が busy になる）。--ask は送った後にそれを見て、届いたと確かめる
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
-            {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working"}]
+            {"id": "d", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
+             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.herdr.writes) else "idle"}]
         self.inbox = os.path.join(self.src, ".git", "company", "inbox")
 
     def main(self, cwd, *argv):
@@ -279,6 +282,51 @@ class Flow(unittest.TestCase):
         [attach] = [w for w in h.writes if w[0] == "run"]
         self.assertEqual(attach[2], "claude-a1 attach d")
         self.assertNotEqual(attach[1], self.window, "閉じたペインでなく、開き直した作業場の新しいペインに打つ")
+        self.assertIn(("rename_pane", attach[1], "調べ"), h.writes)   # 開き直したペインにも --sync と同じ名前を付ける
+
+    def test_confirmed_send_waits_for_the_box_and_resends_only_when_the_line_never_arrived(self):
+        # Windows: attach で戻した直後の会話は、打った字を受けられるまで間がある。入力欄が出てから送り、動き出す（busy）まで見る
+        BOX = "──────────── 計算 ─\n❯ {}\n────────────────"
+
+        class H:
+            HerdrError = real_herdr.HerdrError
+
+            def __init__(self, screens):
+                self.screens, self.writes = list(screens), []
+
+            def read(self, pane, lines):
+                return self.screens.pop(0) if len(self.screens) > 1 else self.screens[0]
+
+            def prompt(self, pane, text, wait):
+                self.writes.append(("prompt", text))
+
+            def send_keys(self, pane, *keys):
+                self.writes.append(("keys",) + keys)
+        line = "再開の知らせです: この会話は落ちて戻った。受付 X"
+        # 入力欄に残った: Enter を 1 回足し、動き出したら送れた
+        state = {"n": 0}
+
+        def busy_after_enter():
+            return any(w[0] == "keys" for w in h.writes)
+        h = H(["", BOX.format(""), BOX.format(line)])
+        self.assertEqual(deliver.send_confirmed("P", line, h, lambda: None, busy_after_enter)[0], "sent")
+        self.assertEqual([w[0] for w in h.writes], ["prompt", "keys"])
+        # 入力欄にも上にも見えず、動き出さない: 打ち直す
+        h = H([BOX.format("")])
+        status, detail = deliver.send_confirmed("P", line, h, lambda: None, lambda: False)
+        self.assertEqual(status, "failed")
+        self.assertEqual([w[0] for w in h.writes], ["prompt"] * deliver.SEND_TRIES)
+        # 入力欄より上に載った（届いた）: 打ち直さない
+        h = H([BOX.format(""), "● " + line + "\n" + BOX.format("")])
+        self.assertEqual(deliver.send_confirmed("P", line, h, lambda: None, lambda: False)[0], "sent")
+        self.assertEqual([w[0] for w in h.writes], ["prompt"])
+        # 前に送った同じ字が画面に残っているだけ（今の 1 行は届いていない）: 届いたと見誤らず、打ち直す
+        h = H(["● " + line + "\n" + BOX.format("")])
+        self.assertEqual(deliver.send_confirmed("P", line, h, lambda: None, lambda: False)[0], "failed")
+        self.assertEqual([w[0] for w in h.writes], ["prompt"] * deliver.SEND_TRIES)
+        # 促しの 1 行は時刻で前の促しと字を分ける
+        import orders
+        self.assertNotEqual(orders.nudge_line("X", "desk", 1_000_000)[:20], orders.nudge_line("X", "desk", 1_000_007)[:20])
 
     def test_a_line_left_in_the_input_box_gets_an_enter(self):
         # Windows: attach で戻した直後に送った文が、入力欄に入ったまま送信されなかった。残っていれば Enter を足す

@@ -23,6 +23,7 @@ import re
 import shlex
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
@@ -30,7 +31,7 @@ try:
     import config  # noqa: E402
     import gitx  # noqa: E402
     import herdr  # noqa: E402
-    from nodes import deliver, launch, provision, role, tree  # noqa: E402
+    from nodes import deliver, launch, provision, role, sync, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
@@ -151,6 +152,8 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
             fresh = provision.reopen(source, dept["path"], dept["attrs"].get("name") or os.path.basename(dept["path"]), ports.herdr)
             if fresh:
                 dept = {**dept, "panes": [{"pane_id": fresh, "agent": None}]}
+                # 開き直したペインにも、部署の名前・表示名・札を --sync と同じに付ける
+                sync.apply([sync.op(fresh, dept["attrs"], len(accounts_) > 1)], ports.herdr)
                 for _ in range(REVIVE_LOOKS):
                     if ports.herdr.shell_in_front(fresh):
                         break
@@ -198,9 +201,25 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
     return None, f"ペイン {pane} で {command} を打ったが、窓に会話が戻らない（画面を見て、会話が戻ったら --ask を打ち直す）"
 
 
-def nudge_line(held, boss):
-    """戻した部署に、落ちる前の頼みの納品を促す 1 行。"""
-    return (f"再開の知らせです: この会話は落ちて戻った。受付 {held}（{boss or '頼み元'} から）の頼みをまだ納品していない。"
+def busy_check(dept, accounts_, ports):
+    """部署の会話が動いている（会話の一覧の status が busy）かを見る関数。送った 1 行が届いたかの確かめに使う。"""
+    full = dept["attrs"].get("session")
+    acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+
+    def busy():
+        try:
+            items = ports.list_sessions(acc.config_dir if acc else None)
+        except claudex.ClaudeError:
+            return False
+        return any(x.get("sessionId") == full and x.get("status") == "busy" for x in items)
+    return busy
+
+
+def nudge_line(held, boss, now=None):
+    """戻した部署に、落ちる前の頼みの納品を促す 1 行。頭に時刻を入れて、前に送った促しと字を分ける（届いたかの確かめが、画面に
+    残った前の促しを今の促しと見誤らないように）。"""
+    stamp = time.strftime("%H:%M:%S", time.localtime(now)) if now else ""
+    return (f"再開の知らせです{f'（{stamp}）' if stamp else ''}: この会話は落ちて戻った。受付 {held}（{boss or '頼み元'} から）の頼みをまだ納品していない。"
             "済んでいれば要約を納品の命令（--deliver）で返し、途中なら続けてから返す。")
 
 
@@ -262,7 +281,8 @@ def ask(a, ports, cwd, task):
         if pending:
             # 部署は頼みを 1 つずつ受ける（頼み元の属性は 1 組なので、上書きすると前の頼み元に納品が返らない）
             if revived:
-                status, detail = deliver.send(pane, nudge_line(held, dept["attrs"].get("boss")), ports.herdr, ports.pause)
+                status, detail = deliver.send_confirmed(pane, nudge_line(held, dept["attrs"].get("boss"), ports.now()), ports.herdr, ports.pause,
+                                                        busy_check(dept, accounts_, ports))
                 notes.append(f"戻した部署に、受付 {held} の納品を促した（{status}" + (f"。{detail}" if detail else "") + "）")
                 print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
                                          "まだ納品していない。会話が落ちていたので戻して納品を促した。納品が届いてから頼み直す"]))
@@ -280,7 +300,7 @@ def ask(a, ports, cwd, task):
             return 0
         path = deliver.put(inbox, f"{ask_id}-ask.md", body)
         line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-        status, detail = deliver.send(pane, line, ports.herdr, ports.pause)
+        status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
         if status == "sent":
             try:
                 provision.mark(dept["path"], company["root"], boss, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）

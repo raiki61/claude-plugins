@@ -328,6 +328,81 @@ def send(pane, line, h, pause=None):
     return "sent", None
 
 
+# 送った 1 行で会話が動き出したかを見る回数（1 回ごとに pause）と、届いていなければ打ち直す回数
+CONFIRM_LOOKS = 8
+SEND_TRIES = 3
+
+
+def _rule(x):
+    """会話の画面の横の罫線の行か（入力欄の上と下に引かれる「────」。上の罫線には部署の名前が入ることがある）。"""
+    return x.count("─") >= 10
+
+
+def input_box(screen):
+    """会話の画面の入力欄の字（下から 2 本の罫線の間の行をつないだ物）。罫線が 2 本無ければ None（字を受けられる形でない）。"""
+    lines = (screen or "").splitlines()
+    rules = [i for i, x in enumerate(lines) if _rule(x)]
+    if len(rules) < 2:
+        return None
+    return " ".join(" ".join(lines[rules[-2] + 1:rules[-1]]).split())
+
+
+def ready(screen):
+    """会話の画面が字を受けられる形か（入力欄が出ている）。"""
+    return input_box(screen) is not None
+
+
+def above_box(screen):
+    """入力欄より上の画面の字（会話に届いた字が載る所）。"""
+    lines = (screen or "").splitlines()
+    rules = [i for i, x in enumerate(lines) if _rule(x)]
+    return " ".join(" ".join(lines[:rules[-2]] if len(rules) >= 2 else lines).split())
+
+
+def send_confirmed(pane, line, h, pause, busy):
+    """窓の会話に 1 行を送り、会話が動き出した（busy() が真）のを見てから返す。書く口。(sent か failed, 訳)。
+    Windows で、attach で戻した直後の会話に送った 1 行が、届かないか入力欄に残った（まっさらな環境での 9 回目の試しの 1）。
+    送る前に入力欄が出るのを待ち、送った後は、入力欄に残っていれば Enter を足し、入力欄にも画面にも見えず動き出してもいなければ
+    打ち直す（SEND_TRIES 回まで）。画面に送った字が見えていれば（入力欄でない所に）、届いたと見て打ち直さない（二重に送らない）。"""
+    head = " ".join(line.split())[:20]
+    seen = 0   # 送る前に入力欄より上に見えていた数（前に送った同じ字が画面に残っていても、届いたと見誤らない）
+    for _ in range(CONFIRM_LOOKS):
+        try:
+            screen = h.read(pane, 40)
+        except h.HerdrError:
+            break
+        if ready(screen):
+            seen = above_box(screen).count(head)
+            break
+        pause()
+    detail = None
+    for attempt in range(SEND_TRIES):
+        try:
+            h.prompt(pane, line, False)
+        except h.HerdrError as e:
+            return "failed", str(e)
+        entered = False
+        for _ in range(CONFIRM_LOOKS):
+            pause()
+            if busy():
+                return "sent", detail
+            try:
+                screen = h.read(pane, 40)
+            except h.HerdrError:
+                continue
+            if head in (input_box(screen) or ""):
+                if not entered:
+                    try:
+                        h.send_keys(pane, "enter")
+                    except h.HerdrError:
+                        pass
+                    entered, detail = True, "入力欄に残っていたので Enter を足した"
+            elif above_box(screen).count(head) > seen:
+                return "sent", detail   # 入力欄から出て、入力欄より上に新しく載った（会話に届いた）
+        detail = f"届いたかを確かめられず打ち直した（{attempt + 1} 回目）"
+    return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力欄に残っていれば Enter を押す）"
+
+
 # ---- Stop フック ----
 
 def stop_verdict(payload, attrs, count, run):
