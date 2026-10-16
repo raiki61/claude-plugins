@@ -152,6 +152,17 @@ class FormerNames(unittest.TestCase):
         companies[0]["departments"].pop()
         self.assertEqual(deliver.find_target(companies, "/r", "振り分け")["department"]["path"], "/r/w")
 
+    def test_role_with_a_task_name_goes_to_that_department_not_to_another_resident(self):
+        # --ask 会社/担当 --task 点検: 名前違いの常駐の担当（割り振り）が 1 つだけ居ても、そこへは届けず、点検を新しく立てる
+        def row(name, path):
+            return {"branch": "b", "path": path, "attrs": {"name": name, "role": "担当", "residency": "resident"}, "panes": []}
+        companies = [{"name": "c", "root": "/r", "departments": [row("割り振り", "/r/w")]}]
+        got = deliver.find_target(companies, "/r", "c/担当", "点検")
+        self.assertEqual((got["department"], got["role"]), (None, "担当"))
+        self.assertEqual(deliver.find_target(companies, "/r", "c/担当")["department"]["path"], "/r/w")   # 名前を渡さなければ今までどおり
+        companies[0]["departments"].append(row("点検", "/r/x"))
+        self.assertEqual(deliver.find_target(companies, "/r", "c/担当", "点検")["department"]["path"], "/r/x")
+
     def test_land_finds_a_department_by_its_former_name(self):
         found = [{"path": "/w", "linked": True, "branch": "work/a"}, {"path": "/s", "linked": False, "branch": "main"}]
         attrs = {"/w": {"name": "割り振り", "former-names": '["総務部の管理者"]'}}

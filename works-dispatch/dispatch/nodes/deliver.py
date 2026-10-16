@@ -57,10 +57,12 @@ def parse_target(target):
     return (company or None) if sep else None, rest
 
 
-def find_target(companies, here_root, target):
+def find_target(companies, here_root, target, task=None):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
-    部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。役で宛てて常駐の部署が無ければ department は None（新しく立てる）。"""
+    部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。役で宛てて task（--task の部署の名前）を
+    渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常駐の部署が名前違いで居ても
+    使わない）。task が無く、役で宛てて常駐の部署が無ければ department は None（新しく立てる）。"""
     company_name, name = parse_target(target)
     if company_name is None:
         pool = companies
@@ -87,6 +89,16 @@ def find_target(companies, here_root, target):
         company = home[0]
     else:
         company = pool[0]
+    if task:
+        # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の常駐の部署が名前違いで
+        # 1 つ居ても、そこへは届けない（受け持ちごとに担当が居る形で、ほかの受け持ちの担当に届いてしまうため）
+        mine = [d for d in company["departments"] if d["attrs"].get("name") == task] or \
+            [d for d in company["departments"] if task in gitx.former_names(d["attrs"])]
+        if len(mine) > 1:
+            raise DeliverError(f"{company['name']} に部署の名前「{task}」が 2 つ以上ある"
+                               f"（{'、'.join(d['branch'] or d['path'] for d in mine)}）")
+        return {"company": company, "department": mine[0] if mine else None,
+                "role": mine[0]["attrs"].get("role") or name if mine else name}
     resident = [d for d in company["departments"]
                 if d["attrs"].get("role") == name and d["attrs"].get("residency") == "resident"]
     if len(resident) > 1:

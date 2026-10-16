@@ -98,7 +98,7 @@ def ask(a, ports, cwd, task):
         return 2
     try:
         cfg, _, sessions_, _, companies, settings, notes = survey(a.config, ports)
-        target = deliver.find_target(companies, gitx.root_of(common), a.ask)
+        target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task)
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
         return 1
