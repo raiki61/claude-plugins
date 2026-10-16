@@ -88,3 +88,17 @@ def report(result):
     if out:
         out.append("詳しい案内は /tiers:check で見られる")
     return out
+
+
+GH_TIER = 1   # gh（GitHub の CLI）の段。部署の回（手元の git だけで動く）には要らない
+
+
+def without_gh(result):
+    """部署の回だけを確かめるとき（設定に [[repos]] が無い --check）の点検の結果。gh の段（GH_TIER）の足りない物を外し、
+    残りで ok を決め直した写しと、外した物の行（注記に出す）。段は小さい段を含むので、段 2 の点検は gh も見るが、部署の回は
+    本流の枝の名前を手元の origin/HEAD から取り、GitHub を読まない。"""
+    gone = [x for x in result.get("checks", []) if not x.get("ok") and x.get("tier") == GH_TIER]
+    kept = {**result, "checks": [x for x in result.get("checks", []) if x not in gone]}
+    kept["ok"] = all(x.get("ok") for x in kept["checks"])
+    return kept, problems({**result, "checks": gone})
+

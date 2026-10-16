@@ -266,10 +266,22 @@ def deliver_command(run):
     return f"{run} --deliver <要約のファイル>"
 
 
+def rules_of(required):
+    """要る項目に付く決まりの短い文の並び（返し方の文に添えて、部署が送り返されてから知ることを減らす）。"""
+    out = []
+    if CONCLUSION_ITEM in required:
+        out.append(f"{CONCLUSION_ITEM}は {CONCLUSION_LINES} 行以内")
+    out += [f"{name}には原典の http(s) の URL が要る（無い URL や、決め手でない URL を足さない）" for name in required if name in URL_ITEMS]
+    if BRANCH_ITEM in required:
+        out.append(f"{BRANCH_ITEM}は書かなければ機械が足す")
+    return out
+
+
 def tail(required, run):
-    """頼みの後ろに付ける、返し方の 1 文。"""
+    """頼みの後ろに付ける、返し方の 1 文。要る項目と、その項目に付く決まり（URL が要るか など）を書く。"""
+    rules = rules_of(required)
     return (f" 終わったら、要約を {'・'.join(required)} の見出しで書いたファイルにして、{deliver_command(run)} で"
-            "頼み元へ返す（項目が足りなければ送られずに返ってくる）。")
+            "頼み元へ返す（項目が足りなければ送られずに返ってくる" + (f"。{'・'.join(rules)}" if rules else "") + "）。")
 
 
 def ask_line(ask_id, sender, text, file, required, run):

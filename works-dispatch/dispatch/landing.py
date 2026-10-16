@@ -55,6 +55,24 @@ def _ask(ports, place, text):
     return f"部署の窓が herdr に無いので打ち込めなかった。次の文を部署に渡す: {text}"
 
 
+def _sweep(place, made):
+    """手元の検証が部署の場所に作った、git に足していないファイル（py_compile の __pycache__ など）を消す。--clean が「git に足して
+    いないファイルが有る」として部署を残さないため。消すのは検証の前に無かった物だけ（.gitignore に当たる物は数えず、触らない）。"""
+    for rel in sorted(made):
+        target = os.path.join(place, rel)
+        try:
+            os.remove(target)
+        except OSError:
+            continue
+        folder = os.path.dirname(target)
+        while os.path.realpath(folder) != os.path.realpath(place):
+            try:
+                os.rmdir(folder)   # 空になったフォルダだけ消える
+            except OSError:
+                break
+            folder = os.path.dirname(folder)
+
+
 def _find(found, name, attrs_of):
     """部署を名前か枝の名前で探す。当たらなければ前の名前（--reorg が書く company.former-names）で探す。"""
     rows = [(p, attrs_of(p["path"])) for p in found if p.get("linked") and not p.get("prunable")]
@@ -106,7 +124,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         return 1
     try:
         main = rules["main"] or ports.default_branch(repo)
-        env = ports.gh_env(repo)
+        # gh の鍵は、GitHub を使う取り込み方（pr と CI の枝の関門）でだけ取り出す。手元の検証の関門なら GitHub を要さない
+        env = ports.gh_env(repo) if rules["mode"] == "pr" or rules["gate"] != land.GATE_CHECK else None
         head = g.rev(path, "HEAD")
         if dry_run:
             return _preview(cfg, repo, ports, found, place, attrs.get("name") or name, rules, main, head, rows, reasons)
@@ -142,7 +161,10 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             else:
                 print("版の据え置きは無い（版を上げる commit は作らない）")
         if rules["gate"] == land.GATE_CHECK:
+            before = g.untracked(where)
             code, said = checker(rules["check"], where)
+            if where == path:
+                _sweep(where, g.untracked(where) - before)
             verdict = {"result": "green" if code == 0 else "red"}
             label = f"手元の検証 {rules['check']}"
             points = said.splitlines()[-land.FAIL_LINES:]

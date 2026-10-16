@@ -65,7 +65,7 @@ def _resync(a, ports, place, notes):
     return out or ["herdr の表示は付け直す物が無かった"]
 
 
-def _write(a, ports, place, source, before, changes, notes, head):
+def _write(a, ports, place, source, before, changes, notes, head, talk_name=None):
     """属性を書き、表示を付け直して報告する。終了の値。"""
     shown = [f"- company.{k}: {before.get(k) or '-'} → {v or '（消す）'}" for k, v in changes.items() if (before.get(k) or None) != v]
     if not shown:
@@ -81,8 +81,9 @@ def _write(a, ports, place, source, before, changes, notes, head):
         return 1
     out = [f"{head}:"] + shown + _resync(a, ports, place, notes)
     name = changes.get("name")
-    if name and name != before.get("name"):
-        out.append(f"前の名前 {before.get('name') or '-'} でも --land・--ask で引ける（枝の名前でも引ける）")
+    if name and name != before.get("name") and before.get("name"):
+        out.append(f"前の名前 {before.get('name')} でも --land・--ask で引ける（枝の名前でも引ける）")
+    if name and name != talk_name:   # 会話の名前がもうその名前なら勧めない（claude --name 窓口 で起こした窓口など）
         out.append(f"会話の名前は dispatch からは替えられない（Claude Code に外から会話の名前を替える口が無い）。"
                    f"揃えるなら、その会話で /rename {name} を打つ")
     print("\n".join(notes + out))
@@ -129,9 +130,10 @@ def reorg(a, ports, cwd):
         changes["residency"] = "resident"   # 役の resident = true は --resident と同じ（--task と揃える）
     if a.name:
         try:
-            _, _, _, _, companies, _, _ = orders.survey(a.config, ports)
+            _, _, sessions_, _, companies, _, _ = orders.survey(a.config, ports)
         except herdr.HerdrError:
-            companies = []   # 名前のぶつかりを確かめられないだけ（属性は書ける）
+            sessions_, companies = {}, []   # 名前のぶつかりを確かめられないだけ（属性は書ける）
+        talk_name = ports.caller(sessions_)[1]
         clash = _clash(companies, cwd, a.name)
         if clash:
             print(f"止めた: 「{a.name}」という名前の部署がもう在る（{clash}）。宛先が 1 つに決まらないので、別の名前にする")
@@ -144,7 +146,7 @@ def reorg(a, ports, cwd):
         # 上役を替えたら、前の上役の会話の id とペインは消す（納品は新しい上役を名前で引く）。受付箱は残す
         changes.update({"boss": a.boss, "boss-account": a.boss_account, "boss-session": None, "boss-pane": None})
     head = f"部署 {attrs.get('name') or cwd}（役 {the_role}）を組み直す"
-    return _write(a, ports, cwd, source, attrs, changes, notes, head)
+    return _write(a, ports, cwd, source, attrs, changes, notes, head, talk_name if a.name else None)
 
 
 def desk(a, ports, cwd):
@@ -179,7 +181,7 @@ def desk(a, ports, cwd):
     if clash:
         print("\n".join(notes + [f"止めた: 「{name}」という名前の部署がもう在る（{clash}）。別の名前にする"]))
         return 2
-    account, _ = ports.caller(sessions_)
+    account, talk_name = ports.caller(sessions_)
     session = ports.env.get("CLAUDE_CODE_SESSION_ID")
     if not account:
         notes.append("この命令を打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
@@ -190,4 +192,4 @@ def desk(a, ports, cwd):
     former = _renamed(attrs, name)
     if former:
         changes["former-names"] = former
-    return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける")
+    return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける", talk_name)

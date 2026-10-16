@@ -290,8 +290,11 @@ class Ports:
             try:
                 env = self.gh_env(repo)
             except ghx.GhError as e:
-                problems.append(f"{repo.repo}: {e}")
+                problems.append(f"{repo.repo}: {e}" + ("。部署の会話に渡す gh のアカウント（会社の形か設定の gh_user）の鍵が要る。"
+                                                       "鍵を GH_TOKEN で渡しているなら gh_user を書かない" if task else ""))
                 continue
+            if task:
+                continue   # 部署の回は GitHub を読まない（本流の枝の名前は手元の origin/HEAD から。手元の bare リポジトリでも立つ）
             if not self._gh_ok(repo.repo, env):
                 problems.append(f"gh が {repo.repo} を読めない。whose-turn が自分の番の PR を集められない"
                                 "（gh auth status で、このリポジトリを読めるアカウントが有効かを確かめる）")
@@ -356,7 +359,9 @@ class Ports:
         return ghx.issue_branches(repo.repo, number, env=self.gh_env(repo))
 
     def default_branch(self, repo):
-        return ghx.default_branch(repo.repo, env=self.gh_env(repo))
+        """本流の枝の名前。GitHub に問わず、代表の clone の手元の origin/HEAD（無ければ origin に問う）から取る（gitx.default_branch。
+        部署の回を手元の bare リポジトリでも動かすため）。読めなければ gitx.GitError。"""
+        return gitx.default_branch(repo.source)
 
     def read_limits(self, limits_dir, names):
         return accounts.read_limits(limits_dir, names)
@@ -747,7 +752,7 @@ def main(argv=None, ports=None):
             if r["kind"] == "issue" and not r["head"]:
                 try:
                     linked = provision.link_branch(repo, r["number"], ports.default_branch(repo), ports.gh, ports.gh_env(repo))
-                except ghx.GhError as e:
+                except (ghx.GhError, gitx.GitError) as e:
                     linked, why = [], str(e)
                 else:
                     why = "結んだ後の読み戻しで、issue に結んだ枝が見えない"
@@ -1035,7 +1040,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         return 0
     try:
         base = None if provision.find(found, a.branch) else (a.base or ports.default_branch(repo))
-    except ghx.GhError as e:
+    except (ghx.GhError, gitx.GitError) as e:
         print(f"止めた: {e}（枝を作る元の既定の枝を読めない。--base で渡す）")
         return 1
     prov = provision.prepare_task(row, repo, base, ports.herdr, ports.git)
@@ -1186,6 +1191,9 @@ def _check(cfg, ports):
         tiers = ports.tiers(list(dict.fromkeys(a.command for a in cfg.accounts)))
     except tierx.TierError as e:
         tiers, tier_notes = None, [str(e)]
+    if tiers is not None and not cfg.repos:
+        tiers, no_gh = tierx.without_gh(tiers)
+        tier_notes += [f"{line}（部署の回には要らない。PR を開く回と、gh を使う役の部署に要る）" for line in no_gh]
     if tiers is not None and not tiers.get("ok"):
         print("足りない物（要る道具の段の点検。手で入れてから --check を打ち直す）:")
         print("\n".join(tierx.report(tiers)))
@@ -1273,8 +1281,9 @@ def _init(a, ports):
 
 # 会社の形の下書き（--init-company）。欄の読み手は nodes/tree.py（name・description・skills）・nodes/role.py（gh_user・roles）・
 # nodes/land.py（land）。名前は herdr の画面で読む物から決めた日本語（持ち主 2026-10-16。会社らしい名前・英語はやめた）:
-# 役は 窓口・担当（受け持ちに常設）・作業（一度きり）・相談 の 4 つで、[[roles]] に書くのは 担当 と 作業（窓口は本社の会話、相談は
-# 持ち主が直接話す会話で、会社ごとに要るときに足す）。受け持ちは会社ごとに違うので、例を 1 つだけ <…> の置き字で書く
+# 役は 窓口・担当（受け持ちに常設）・作業（一度きり）・相談 の 4 つで、[[roles]] に書くのは 担当・作業・窓口（窓口は代表の clone の
+# 会話で、組織の決まりを届けるために役の本文を持つ。相談は持ち主が直接話す会話で、会社ごとに要るときに足す）。受け持ちは会社ごとに
+# 違うので、例を 1 つだけ <…> の置き字で書く
 COMPANY_DRAFT = """# 会社の形: このリポジトリで部署（作業ごとの会話）を立てるときの、会社の名前・役・gh のアカウント・本流への入れ方。
 # 読むのは works-dispatch（--tree・--task・--ask・--deliver・--land と、役を足すフック）。--init-company が書いた下書き。
 # 書き方: works-dispatch の skills/dispatch/SKILL.md の「役の中身と起こし方」と「本流に入れる」。
@@ -1301,15 +1310,18 @@ name = "一度きりの作業"
 description = "受け持ちの無い一度きりの作業と、担当が並べて進めたい作業を、一時の作業の部署で受ける"
 role = "作業"
 
-# 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、部署の会話の頭に毎回足す役の本文
+# 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、その役の会話の頭に毎回足す役の本文
+# deliver は納品する要約の必須の項目。担当と作業はコードの直しなので、差分と試験を返させる（省くと既定の 結論・決め手・残った疑問・枝
+# になり、決め手に原典の URL を求める。調べものの役に向く）
 # 担当: 受け持ちに常設で 1 人（resident = true なので、--resident を付けなくても常駐の部署で立つ。片付けで畳まれず、次の頼みを
-# 同じ会話で受ける）。立てるのは --task <受け持ち> --branch <枝> --role 担当
+# 同じ会話で受ける）。最初の頼みと一緒に立てるなら --ask {plain}/担当 --task <受け持ち> --branch <枝> --text <頼み>。
+# 頼み無しで立てるなら --task <受け持ち> --branch <枝> --role 担当 --brief <頼みのファイル>（--task には --brief が要る）
 [[roles]]
 name = "担当"
 instructions = {duty}
+deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 resident = true
 # model = "opus"   # 部署を起こすときの --model（省けば既定）
-# deliver = ["結論", "決め手", "残った疑問", "枝"]   # 納品する要約の必須の項目（省けば既定）
 # [roles.settings]   # 部署の会話にだけ効かせる Claude Code の設定（要らないプラグインを切るなど）
 # enabledPlugins = {{ "<プラグイン>@<マーケットプレイス>" = false }}
 
@@ -1317,6 +1329,13 @@ resident = true
 [[roles]]
 name = "作業"
 instructions = {work}
+deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
+
+# 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。窓口の会話から --desk を打つと、この役の本文が次の会話の
+# 始まりから足される（組織の決まりを窓口に届けるため。コメントの決まりは、どの会話にも届かない）
+[[roles]]
+name = "窓口"
+instructions = {desk}
 
 # 部署の成果を本流に入れる決まり（--land）。none は何もしない（入れるのは人）。
 # pr は本流への PR を出して止まる。ff-after-ci は関門（gate。CI の枝の形か check）が緑なら本流を早送りする。
@@ -1335,17 +1354,44 @@ mode = "none"
 #   部署の名前には付けない。
 # - 枝の名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
 # - 担当への頼みは部署の名前で宛てる（--ask <受け持ち>。部署の名前は役より先に当たる）。担当がまだ居ない受け持ちは
-#   --task <受け持ち> --branch <枝> --role 担当 で立てる。頼んだ部署が上役になり、納品はそこに返る。
+#   --ask {plain}/担当 --task <受け持ち> --branch <枝> --text <頼み> で、最初の頼みと一緒に立てる。頼んだ部署が上役になり、納品はそこに返る。
+# - 担当の受け持ちの中の作業は、担当に頼む（窓口が作業に直に頼まない。同じファイルを 2 つの部署が触ると、後から入れた方が前の変更を消す）。
 # - 納品の後に判断が要ることが出たら、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは届かない）。
 """
 # 役の本文の共通の終わり。組織の決まりのうち、部署が守ることを部署の会話に届ける（コメントは部署に届かない）
 DRAFT_RETURN = ("済んだら作業の枝に push し、要約を納品の命令（--deliver）で頼み元に返す。納品の後に判断が要ることが出たら、"
                 "画面に書いて止まらず、もう一度納品の命令で返す（画面にだけ書いた問いは頼み元に届かない）。")
+DRAFT_BRANCH = "枝の名前は英小文字とハイフンにし、直しは fix/…、足すものは feat/…、調べや下書きは work/… にする。"
 DRAFT_DUTY = ("受け持ちを常設で預かる。自分の受け持ちは部署の名前で決まる。常設なので、作業場は同じまま、頼みごとに git fetch origin "
-              "してから origin の既定の枝から決まりどおりの名前の枝を切って作業する。並べて進めたい作業は作業に頼む"
+              "してから origin の既定の枝から枝を切って作業する。" + DRAFT_BRANCH + "枝を切った後、触るファイルを本流から読み直してから"
+              "書く（前の頼みで覚えた中身で書かない。ほかの部署が入れた変更を消すため）。並べて進めたい作業は作業に頼む"
               "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。試験は触った所の物だけを回す。"
               + DRAFT_RETURN + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
-DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。試験は触った所の物だけを回す。" + DRAFT_RETURN
+DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + "試験は触った所の物だけを回す。" + DRAFT_RETURN
+DRAFT_DESK = ("持ち主と話し、仕事を頼みに変えて部署に配る。自分ではファイルを直さない。受け持ちの中の仕事は、その担当に部署の名前で頼む"
+              "（--ask <受け持ち>）。担当がまだ居ない受け持ちは --ask {company}/担当 --task <受け持ち> --branch <枝> --text <頼み> で立てる。"
+              "受け持ちの無い一度きりの作業だけを作業に頼む（--ask {company}/作業 --task <受け持ち>：<何をするか> --branch <枝>）。"
+              "担当の受け持ちの中の作業を、作業に直に頼まない（同じファイルを 2 つの部署が触ると、後から入れた方が前の変更を消す）。"
+              + DRAFT_BRANCH + "担当と作業は、本流に入れる決まり（会社の形の [land]）が none でなければ、自分で --land して本流に入れてから"
+              "納品する（窓口から頼まなくてよい）。納品は要約を読んで持ち主に伝える。")
+
+
+def _draft_gh_user(ports):
+    """下書きに書く gh_user と、その行の注記（1 行）。gh の今のアカウントを読めないか、その鍵を `gh auth token --user` で取り出せない
+    （鍵を GH_TOKEN で渡している人など。部署の会話は gh_user の鍵をそれで取り出す）なら書かず (None, 訳)。注記は TOML の
+    1 行の注記の中に置くので、gh の誤りの文は 1 行に畳む（複数行のまま入れると、2 行目が # の外に出て TOML が壊れる）。"""
+    def one_line(e):
+        return " ".join(str(e).split())[:160]
+    try:
+        user = ports.gh.login()
+    except ghx.GhError as e:
+        return None, f"。gh の今のアカウントを読めなかったので書かない（{one_line(e)}）。書かなければ、その人の今の gh の設定で動く"
+    try:
+        ports.gh.env_for(user, dict(ports.env))
+    except ghx.GhError as e:
+        return None, (f"。gh の今のアカウント {user} の鍵を gh auth token --user で取り出せないので書かない（GH_TOKEN で鍵を渡している"
+                      f"ときなど。{one_line(e)}）。書かなければ、その人の今の gh の設定で動く")
+    return user, "（--init-company を打った時の gh の今のアカウント）"
 
 
 def _init_company(a, ports, cwd):
@@ -1362,17 +1408,16 @@ def _init_company(a, ports, cwd):
         print(f"会社の形はもうある: {path}（上書きしない）")
         return 1
     other = os.path.join(root, *tree.INFO_FILE) if a.local else tree.settings_info_path(settings, root)
-    try:
-        gh_user, gh_note = ports.gh.login(), "（--init-company を打った時の gh の今のアカウント）"
-    except ghx.GhError as e:
-        gh_user, gh_note = None, f"。gh の今のアカウントを読めなかった（{e}）ので空。書かなければ、その人の今の gh の設定で動く"
+    gh_user, gh_note = _draft_gh_user(ports)
     def q(v):
         return json.dumps(v, ensure_ascii=False)   # TOML の基本の文字列と同じ書き方
     company = os.path.basename(os.path.normpath(root))
     text = COMPANY_DRAFT.format(name=q(company), description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""),
-                                gh_note=gh_note, duty=q(DRAFT_DUTY.format(company=company)), work=q(DRAFT_WORK))
+                                gh_note=gh_note, plain=" ".join(company.split()), duty=q(DRAFT_DUTY.format(company=company)),
+                                work=q(DRAFT_WORK), desk=q(DRAFT_DESK.format(company=company)))
     if not gh_user:
         text = text.replace('gh_user = ""', '# gh_user = "<ログイン名>"')
+    tomllib.loads(text)   # 下書きは必ず TOML として読める形にする（読めなければ書かずに例外で止める。作り手の誤り）
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
@@ -1391,7 +1436,7 @@ def _department_rows(cfg, repo, ports, found, notes):
     try:
         listed = {acc.name: (acc, ports.list_sessions(acc.config_dir, include_done=True)) for acc in cfg.accounts}
         target = f"refs/remotes/origin/{ports.default_branch(repo)}"
-    except (claudex.ClaudeError, ghx.GhError) as e:
+    except (claudex.ClaudeError, ghx.GhError, gitx.GitError) as e:
         notes.append(f"部署の片付けを飛ばした（会話の一覧か既定の枝を読めない: {e}）")
         return []
 

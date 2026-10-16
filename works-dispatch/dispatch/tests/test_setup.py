@@ -147,7 +147,11 @@ class InitCompany(unittest.TestCase):
         self.cfg, self.root = make_cfg()
         self.src = gitx_source(self.cfg)
         self.ports = FakePorts([])
-        self.ports.gh = type("Gh", (), {"login": staticmethod(lambda: "the-user")})()
+        self.ports.gh = self.gh()
+
+    @staticmethod
+    def gh(login=lambda: "the-user", env_for=lambda user, env: {**env, "GH_TOKEN": "t"}):
+        return type("Gh", (), {"login": staticmethod(login), "env_for": staticmethod(env_for)})()
 
     def init(self, *extra):
         return run_main(["--config", self.cfg, "--init-company", "--repo", self.src, *extra], self.ports)
@@ -163,7 +167,15 @@ class InitCompany(unittest.TestCase):
         self.assertIn(f"書いた: {path}", out)
         info, shape, rules = self.read()
         self.assertEqual((info["source"], info["name"], info["problems"]), ("repo", os.path.basename(self.src), []))
-        self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("the-user", ["担当", "作業"], []))
+        self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("the-user", ["担当", "作業", "窓口"], []))
+        # 担当と作業はコードの直しなので、納品は差分と試験を返す（決め手の原典の URL を求めない）
+        for name in ("担当", "作業"):
+            self.assertEqual(shape["roles"][name]["deliver"], ["結論", "差分", "試験", "残った疑問", "枝"])
+        self.assertIn("触るファイルを本流から読み直してから", shape["roles"]["担当"]["instructions"])
+        self.assertIn("fix/", shape["roles"]["担当"]["instructions"])
+        # 窓口は組織の決まり（担当は自分で --land する・枝の名前・受け持ちの中は担当に頼む）を役の本文で受ける
+        for rule in ("自分で --land", "fix/", "作業に直に頼まない"):
+            self.assertIn(rule, shape["roles"]["窓口"]["instructions"])
         # 役は担当（受け持ちに常設）と作業（一度きり。--role を省いたときの役）。受け持ちは受ける仕事の項目で、役は担当
         self.assertEqual([(s["name"], s["role"]) for s in info["skills"]], [("<受け持ち>", "担当"), ("一度きりの作業", "作業")])
         self.assertEqual((shape["default_role"], dispatch.DEFAULT_ROLE), ("作業", "作業"))
@@ -174,7 +186,7 @@ class InitCompany(unittest.TestCase):
         for name in ("担当", "作業"):
             self.assertIn("もう一度納品の命令で返す", shape["roles"][name]["instructions"])
         text = path.read_text(encoding="utf-8")
-        for rule in ("窓口", "相談", "「<受け持ち>：<何をするか>」", "部署の名前には付けない", "英小文字とハイフン"):
+        for rule in ("窓口", "相談", "「<受け持ち>：<何をするか>」", "部署の名前には付けない", "英小文字とハイフン", "--task には --brief が要る"):
             self.assertIn(rule, text)
         for gone in ("管理者", "社長室", "作業者"):
             self.assertNotIn(gone, text)
@@ -190,16 +202,31 @@ class InitCompany(unittest.TestCase):
         self.assertFalse(pathlib.Path(self.src, ".claude", "company.toml").exists())
         info, shape, _ = self.read()
         self.assertEqual((info["source"], info["path"]), ("settings", tree.settings_info_path(os.path.dirname(self.cfg), self.src)))
-        self.assertEqual(list(shape["roles"]), ["担当", "作業"])
+        self.assertEqual(list(shape["roles"]), ["担当", "作業", "窓口"])
 
-    def test_unreadable_gh_account_leaves_gh_user_commented_out(self):
+    def test_unreadable_gh_account_leaves_gh_user_commented_out_and_the_draft_stays_toml(self):
+        # gh の誤りの文は複数行になる。注記に入れても 1 行に畳み、下書きは TOML として読める
         def broken():
-            raise ghx.GhError("not logged in")
-        self.ports.gh = type("Gh", (), {"login": staticmethod(broken)})()
+            raise ghx.GhError("gh のログイン名を読めない: To get started with GitHub CLI, please run:  gh auth login\n"
+                              "Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.")
+        self.ports.gh = self.gh(login=broken)
         rc, out = self.init()
         self.assertEqual(rc, 0, out)
-        raw = tomllib.loads(pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8"))
+        text = pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8")
+        raw = tomllib.loads(text)
         self.assertNotIn("gh_user", raw)
+        self.assertIn("Alternatively, populate", next(line for line in text.splitlines() if line.startswith("# gh_user")))
+
+    def test_account_whose_key_cannot_be_taken_out_is_not_written(self):
+        # 鍵を GH_TOKEN で渡しているとき: gh api user は通るが、gh auth token --user では取り出せない。部署を立てるときに止まるので書かない
+        def no_key(user, env):
+            raise ghx.GhError(f"gh のアカウント {user} の鍵を取り出せない: no oauth token found for github.com account {user}")
+        self.ports.gh = self.gh(env_for=no_key)
+        rc, out = self.init()
+        self.assertEqual(rc, 0, out)
+        text = pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8")
+        self.assertNotIn("gh_user", tomllib.loads(text))
+        self.assertIn("GH_TOKEN", text)
 
     def test_outside_git_and_local_alone_stop(self):
         rc, out = run_main(["--config", self.cfg, "--init-company"], self.ports)   # 打った場所（FakePorts.cwd）は git の外

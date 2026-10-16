@@ -7,7 +7,7 @@ dispatch が頼る herdr・Claude Code・git・gh の振る舞いのうち、文
 - herdr の `agent wait` は、まだ会話を見つけていないペインでは待たずに `agent_not_found` を返す。`herdr.wait_ready` は、ペインで前面に動いているプロセス（`pane process-info`）を見て待ち直す。
 - herdr の `pane run` は、成功しても何も出力しない。`workspace close` は 2026-10-14 には何も出さず、2026-10-15 には `{"result": {"type": "ok"}}` を返した（どちらも受ける）。
 - `herdr agent prompt` で送った `/exit` は、文字は入るが送信されなかった（Enter をもう 1 回押す必要があった）。`/attention:catchup 1737` は 1 回で送信された。違いの理由は調べていない。
-- 新しいフォルダで Claude Code を起こすと、信頼の確認が出る。この画面で Esc を押すと、会話は終わらずに進み、そのフォルダが信頼済みとして記録された。
+- 新しいフォルダで Claude Code を起こすと、信頼の確認が出る。2.1.301 では、この画面の Esc は「取り消し」で、既定の選び（No, exit）と同じく会話を始めずに終わり、そのフォルダは信頼済みとして記録されない（`~/.claude.json` の `projects` に、そのフォルダの項目が増えない）。2026-10-16 に、使い捨てのフォルダで起こして Esc を送り、確かめた（まっさらな環境での 2 回目の試し `docs/trials/2026-10-16-clean-env-2.md` の「1 回目の 14 件の今」の 12 と同じ）。前の版のこの行は「Esc で会話が進み、信頼済みになる」と書いていたが、今の版とは逆。信頼するには「Yes, I trust this folder」を選んで Enter を押す。
 - herdr の worktree の口（2026-10-15 に、一時の git リポジトリに打って確かめた。出力の写しは `dispatch/tests/test_ports.py`）:
   - `worktree list --cwd <元の clone>` は、herdr で開いていないリポジトリに打っても作業場を開かない。`worktree create` は、その元の clone の作業場も開く。
   - 自分の持ち物のリポジトリでは、`worktree create` に `--trust-repository` は要らなかった。

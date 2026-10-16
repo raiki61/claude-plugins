@@ -130,6 +130,15 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("--reorg で付け替える", out)
 
+    def test_desk_does_not_ask_for_rename_when_the_conversation_already_has_the_name(self):
+        # claude --name 窓口 で起こした窓口: 会話の名前がもう 窓口 なので /rename を勧めない
+        self.sessions[1]["name"] = "窓口"
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("/rename", out)
+
     def test_desk_replaces_a_hand_written_role_and_keeps_the_old_name(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "my_notesの窓口"}, gitx)
         self.ports._cwd = self.src

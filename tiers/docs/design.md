@@ -2,7 +2,7 @@
 
 tiers（プラグインが要る外の道具がそろっているかを点検し、入れ方を出すプラグイン）の決めたことと、その根拠の記録。tiers を直す人・つなぐ人向けで、使うだけなら読まなくてよい。使い方と、段（要る道具を 0〜3 に分けた区切り）・herdr・起こし方の命令の意味は [README](../README.md)。
 
-設計の正本は、このリポジトリ（claude-plugins）の根の `docs/specs/2026-10-16-company-shape-design.md` の 4.11（要る道具の段と、点検と準備）。世間の形の調べは、持ち主のノートのリポジトリ my_notes の `reference/secondary/architecture/extension-hosts-declare-sibling-extensions-but-not-individual-outside-tools.md`。
+設計の正本は、このリポジトリ（claude-plugins）の根の `docs/specs/2026-10-16-company-shape-design.md` の 4.11（要る道具の段と、点検と準備）。世間の形の調べ（拡張の土台は、同じ土台の上の別の拡張への依存は欄で宣言させるが、gh のような個別の外の道具を要る物として宣言する欄は、調べた範囲では持たない。点検の命令は `flutter doctor`・`brew doctor`・Neovim の `:checkhealth` の形）の原典は、[Claude Code の Plugin dependencies](https://code.claude.com/docs/en/plugins/dependencies)・[Plugin manifest reference](https://code.claude.com/docs/en/plugins/manifest-reference)・[Agent Skills の仕様](https://agentskills.io/specification)・[MCPB の MANIFEST.md](https://github.com/modelcontextprotocol/mcpb/blob/main/MANIFEST.md)・[gh extension](https://cli.github.com/manual/gh_extension)・[VS Code の Extension Manifest](https://code.visualstudio.com/api/references/extension-manifest)・[Neovim の health](https://neovim.io/doc/user/health/)・[flutter の CLI](https://docs.flutter.dev/reference/flutter-cli)・[Homebrew の Formula Cookbook](https://docs.brew.sh/Formula-Cookbook) と [Manpage](https://docs.brew.sh/Manpage)・[npm の package.json](https://docs.npmjs.com/cli/v12/configuring-npm/package-json/)・[Debian Policy の 7 章](https://www.debian.org/doc/debian-policy/ch-relationships.html)・[pyproject.toml の仕様](https://packaging.python.org/en/latest/specifications/pyproject-toml/)（2026-10-16 に読んだ）。
 
 ## 段 2 の案内
 
@@ -12,7 +12,7 @@ tiers（プラグインが要る外の道具がそろっているかを点検し
 - herdr が入っているが server が動いていない: 入れ方の命令は「作業するフォルダで `herdr` を打って起こす」。案内は、herdr を初めて起こすと herdr 自身が初回の案内（onboarding）を出し、進めると設定の integrations のタブから連携を入れられることと、上と同じ連携の案内。
 - 起こし方の命令が見つからない（`--launcher` で渡した命令が見つからなければ、足りない物に数える）: 先に「アカウントが 1 つなら命令は作らなくてよい（`--launcher` を省けば `claude` だけを見る）」と書き、分けるなら、アカウントごとに設定のフォルダを分けて `CLAUDE_CONFIG_DIR` に入れて `claude` を起こす関数か別名を、bash・zsh・PowerShell の 3 つで示す。名前（`claude-p2`）とフォルダ（`~/.claude-p2`）は例で、点検は `--launcher` で渡された名前を探すだけで決め打ちしない。
 
-根拠は、herdr の v0.9.5 の文書とソースを写した持ち主のノート（my_notes の `reference/primary/ai/herdr-install-and-config.md`、2026-10-16。v0.9.5 は読んだ版。点検は herdr の版の番号を見ないが、`herdr status server` の出力の形は 0.9.3 で読んだ物を前提にする）、Claude Code の環境変数の文書（`CLAUDE_CONFIG_DIR`）、PowerShell の `Set-Alias` の文書（別名は引数を持てないので関数にする）。
+根拠は、herdr の v0.9.5 の文書とソース（2026-10-16 に読んだ。[install](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/install.mdx)・[windows-beta](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/windows-beta.mdx)・[configuration](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/configuration.mdx)・[integrations](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/integrations.mdx)・[install.sh](https://herdr.dev/install.sh)・[src/integration/claude_settings.rs](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/src/integration/claude_settings.rs)。v0.9.5 は読んだ版。点検は herdr の版の番号を見ないが、`herdr status server` の出力の形は 0.9.3 で読んだ物を前提にする）、Claude Code の環境変数の文書（`CLAUDE_CONFIG_DIR`）、PowerShell の `Set-Alias` の文書（別名は引数を持てないので関数にする）。
 
 ## 点検は入れ方を示して止まり、何も入れない
 

@@ -2,7 +2,7 @@
 
 会社の形に `[land]` を書く人と、`--land` が何をするかを知りたい人向け。使い始め方と言葉（部署・会社・納品）は [README](../README.md)、使う人向けの手順の全部は [SKILL.md](../skills/dispatch/SKILL.md)。
 
-`python3 dispatch.py --land <部署>` は、部署（名前か枝の名前で指す）の枝を、会社の形（`.claude/company.toml`、無ければ設定の置き場〔dispatch の設定のファイル `~/.config/works-dispatch/dispatch.toml` の隣〕の `companies/`）の `[land]` の決まりで本流に入れる。会社の形の設計（枝 `docs/company-shape` の `docs/specs/2026-10-16-company-shape-design.md`）の 8 章（検証をどこで回すか）と 4.10 の 1（部署の畳み方と成果の取り込み）に当たる。部署の窓は、その部署の会話の画面を出した herdr（端末を作業場ごとに分け、中の会話を外から操作する道具）のペイン。流れは、入口の `dispatch.py` から分けた `dispatch/landing.py` が持つ（ほかの部署と同時に `dispatch.py` を触るぶつかりを減らすため、別のファイルにした）。
+`python3 dispatch.py --land <部署>` は、部署（名前か枝の名前で指す）の枝を、会社の形（`.claude/company.toml`、無ければ設定の置き場〔dispatch の設定のファイル `~/.config/works-dispatch/dispatch.toml` の隣〕の `companies/`）の `[land]` の決まりで本流に入れる。会社の形の設計（リポジトリの根の [`docs/specs/2026-10-16-company-shape-design.md`](../../docs/specs/2026-10-16-company-shape-design.md)）の 8 章（検証をどこで回すか）と 4.10 の 1（部署の畳み方と成果の取り込み）に当たる。部署の窓は、その部署の会話の画面を出した herdr（端末を作業場ごとに分け、中の会話を外から操作する道具）のペイン。流れは、入口の `dispatch.py` から分けた `dispatch/landing.py` が持つ（ほかの部署と同時に `dispatch.py` を触るぶつかりを減らすため、別のファイルにした）。
 
 - 欄:
   - `mode`: 取り込み方。`ff-after-ci`（関門が緑なら本流を早送り）、`pr`（部署の枝を origin に出して PR を出し、止める。`gate`・`check`・`bump` は使わない）、`none`（何もしない）。`[land]` が無ければ `none` で、何もしない。

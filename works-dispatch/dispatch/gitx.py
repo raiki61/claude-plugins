@@ -191,6 +191,12 @@ def former_names(attrs):
     return [n for n in got if isinstance(n, str) and n] if isinstance(got, list) else []
 
 
+def untracked(cwd, runner=_default_runner):
+    """git にまだ足していないファイルの集合（cwd の worktree の根からの相対。.gitignore に当たる物は入れない）。読めなければ GitError。"""
+    out = _must(["git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z"], runner)
+    return {x for x in out.split("\0") if x}
+
+
 def enable_worktree_config(source, runner=_default_runner):
     """元の clone に extensions.worktreeConfig = true を入れる（部署ごとの設定を使う前提）。書く口。
     already（もう入っている）・enabled（入れた）のどちらか。git の文書は、入れる前に共通の設定の core.bare と core.worktree を
@@ -282,6 +288,21 @@ def origin_head(cwd, runner=_default_runner):
     """origin の既定の枝を指す手元の ref（origin/HEAD が指す先。例 origin/main）。origin/HEAD が無い・git でない時は None。
     手元の ref を読むだけで、origin へは問い合わせない（最後に fetch・push した時の形）。"""
     return _git(cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], runner) or None
+
+
+def default_branch(cwd, runner=_default_runner):
+    """origin の既定の枝の名前（本流。例 main）。手元の origin/HEAD を先に、無ければ origin に `git ls-remote --symref origin HEAD`
+    で問う（GitHub に限らず、手元の bare リポジトリでも答える）。どちらでも決まらなければ GitError（直し方を添える）。
+    本流の枝の名前の元はこれ 1 つにする（会社の形を読む ref の origin/HEAD と同じ物を、部署の枝を作る元と --land の本流にも使う）。"""
+    head = origin_head(cwd, runner)
+    if head and head.startswith("origin/"):
+        return head.split("/", 1)[1]
+    out = _git(cwd, ["ls-remote", "--symref", "origin", "HEAD"], runner) or ""
+    for line in out.splitlines():
+        if line.startswith("ref: refs/heads/") and line.rstrip().endswith("HEAD"):
+            return line[len("ref: refs/heads/"):].split("\t")[0].strip()
+    raise GitError(f"{cwd}: origin の既定の枝を決められない（手元の origin/HEAD が無く、origin も HEAD を答えない。"
+                   f"origin に本流の枝を push してから git -C {cwd} remote set-head origin --auto を打つ）")
 
 
 def file_at(cwd, commit, path, runner=_default_runner):

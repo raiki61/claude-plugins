@@ -20,9 +20,9 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
 
 ## 要る物
 
-- **要る段: 2**（[tiers](../tiers/README.md) の段）。gh が入っていてログイン済み、herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具。[herdr.dev](https://herdr.dev)）が動いている。
+- **要る段: 2**（[tiers](../tiers/README.md) の段）。herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具。[herdr.dev](https://herdr.dev)）が動いている。gh（GitHub の CLI）のログインは、PR を開く使い方と、本流への入れ方に PR か CI を使う会社だけに要る（部署の回は GitHub を読まない。`--check` は、設定に `[[repos]]` が無ければ gh の足りない物を注記にとどめる）。
 - Python 3.11 以降（`python3` で起こせる物）と git。
-- 試すリポジトリの clone を 1 つ。既定の枝（main など）を開いておく。部署の作業場は、この clone から作る。
+- 試すリポジトリの clone を 1 つ。既定の枝（main など）を開いておく。部署の作業場は、この clone から作る。origin は GitHub でなくてよい（手元の bare リポジトリでも立つ）。本流の枝の名前は、clone の手元の `origin/HEAD` から取り、無ければ origin に問う（空の bare を clone した直後など、どちらでも決まらなければ、本流の枝を push してから `git remote set-head origin --auto` を打つ）。
 - PR を開く使い方だけ: attention プラグイン（`/catchup` の命令を持つ）と、dispatch の設定のファイル（`--init` が下書きを書く。手順は [SKILL.md](skills/dispatch/SKILL.md) の「初めて」）。
 
 前提ごとの理由と、`--check` が確かめる中身は [docs/prerequisites.md](docs/prerequisites.md)。

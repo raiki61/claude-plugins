@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Fixed
+
+- `docs/design.md` の「世間の形の調べ」と、段 2 の案内の herdr の根拠が、持ち主の公開していないノートのリポジトリを指していた。読んだ原典（Claude Code・Agent Skills・MCPB・gh・VS Code・Neovim・flutter・Homebrew・npm・Debian・Python の文書と、herdr v0.9.5 の文書とソース）の URL に替えた。
+
 ## [0.4.1] - 2026-10-16
 
 ### Fixed
