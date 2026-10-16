@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-16
+
 ### Fixed
 
 - 部署を立てる `--task` と、新しく部署を立てる `--ask` は、会社の形（`.claude/company.toml`）を読む前に、origin の既定の枝（`origin/HEAD` が指す先）だけを fetch する（`--dry-run` は fetch せず、読んだ所を出す）。前は作業場を作るときの fetch より前に手元の控えで読んでいたので、別の所で本流の会社の形を変えて fetch していないと、起こすときの役の `settings`・`model` は古い形で決まり、立てた後に役を足すフックは新しい形を読んでいた。作業場を作った後に読む並びにしなかったのは、役の名前の誤りを作業場を作る前に止め、`--dry-run` でも役の起動の設定を出すため。fetch できなければ注記を出し、手元の控えで読む。
