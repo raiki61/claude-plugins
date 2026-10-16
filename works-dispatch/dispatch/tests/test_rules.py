@@ -65,6 +65,7 @@ class EachFenceCatches(unittest.TestCase):
         self.assertCaught(fences.d4_outward, {"nodes/assign.py": "def f(g):\n    g.fast_forward('/c', 'b')\n"})
         self.assertCaught(fences.d4_outward, {"nodes/launch.py": "def f(h):\n    h.prompt('p', 't', True)\n"})
         self.assertCaught(fences.d4_outward, {"dispatch.py": "from gitx import fetch\n"})
+        self.assertCaught(fences.d4_outward, {"dispatch.py": "def f(h):\n    h.rename_pane('p', 'x')\n"})
 
     def test_d4_subprocess_run_is_not_a_herdr_write(self):
         self.assertEqual(fences.d4_outward(tree({"dispatch.py": "import subprocess\nsubprocess.run(['x'])\n"})), [])

@@ -14,6 +14,8 @@
 - fork の PR（head が別のリポジトリ）は origin に枝が無いので作らず provision_failed。
 - 最後に、herdr の worktree の並びにその枝の場所が在り、作業場が開いていて、checkout がその枝に居ることを読み戻してから返す。
 
+作業役（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。
+
 issue から始めるとき（入口の --issue）に、issue に結んだ枝がまだ無ければ、link_branch が GitHub に枝を作って issue に結ぶ
 （gh issue develop。書く口）。作った後に issue に結んだ枝を読み戻して返す。
 
@@ -123,7 +125,11 @@ def prepare(row, repo, h=herdr, g=gitx):
     except (gitx.GitError, h.HerdrError, OSError) as e:
         out["detail"] = "／".join(notes + [str(e)])
         return out
+    return _read_back(out, made, seen, branch, notes, g)
 
+
+def _read_back(out, made, seen, branch, notes, g):
+    """作った・開いた場所を、herdr の worktree の並び（seen）と git から読み戻して、out を ready にするか、外れを detail に書く。"""
     misses = []
     if seen is None or not seen.get("workspace"):
         misses.append(f"作った後の読み戻しで、枝 {branch} の場所の作業場が herdr に見えない")
@@ -137,6 +143,46 @@ def prepare(row, repo, h=herdr, g=gitx):
     out.update(path=made["path"], pane=made["pane_id"], workspace=seen["workspace"], status="ready",
                detail="／".join(notes) or None)
     return out
+
+
+def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
+    """作業役（入口の --task）の場所を用意する。row は {head: 枝, label: 作業の名前}。PR の場所と同じく、枝の場所が在れば開き直し、
+    無ければ herdr に作らせる（置き場は herdr の worktrees.directory）。元の clone 自身がその枝を開いていれば branch_busy。
+
+    PR と違い、枝は origin に無くてよい（作業はこれから始める）。作るときの元は、origin にその枝が在れば origin/<枝>、無ければ
+    origin の既定の枝（default_branch）。手元に同じ名前の枝が在れば、herdr はそれを開く。在る場所は git で動かさない
+    （作業役の枝は手元で積む物なので、origin へ早送りしない）。作業場の名前（herdr の label）は作業の名前にする。"""
+    branch, name = row.get("head"), row.get("label")
+    out = {"number": None, "branch": branch, "path": None, "pane": None, "workspace": None,
+           "created": False, "status": "provision_failed", "detail": None}
+    if not branch:
+        out["detail"] = "枝が決まっていない"
+        return out
+    notes = []
+    try:
+        places = h.worktrees(repo.source)
+        if source_holds(places, branch):
+            out.update(status="branch_busy", detail=f"元の clone {repo.source} が枝 {branch} を開いている（枝を替えない。"
+                                                     "元の clone を別の枝へ移すか、別の枝の名前で頼む）")
+            return out
+        place = find(places, branch)
+        if place is None:
+            try:
+                g.fetch(repo.source, branch)
+                base = f"origin/{branch}"
+            except gitx.GitError:
+                g.fetch(repo.source, default_branch)
+                base = f"origin/{default_branch}"
+            made = h.create_worktree(repo.source, branch, base, name)
+            out["created"] = True
+            notes += _copy(repo, made["path"])
+        else:
+            made = h.open_worktree(repo.source, place["path"], name)
+        seen = find(h.worktrees(repo.source), branch)
+    except (gitx.GitError, h.HerdrError, OSError) as e:
+        out["detail"] = "／".join(notes + [str(e)])
+        return out
+    return _read_back(out, made, seen, branch, notes, g)
 
 
 def main(argv=None):

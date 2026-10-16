@@ -23,6 +23,7 @@ SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "no
 WRITES = {
     # herdr: 会話を起こす・送る
     "run": {"nodes/launch.py"},
+    "rename_pane": {"nodes/launch.py"},
     "prompt": {"nodes/turn.py"},
     # herdr: 枝の場所（元の clone の git worktree）を作る・開く・消す、作業場を畳む
     "create_worktree": {"nodes/provision.py"},

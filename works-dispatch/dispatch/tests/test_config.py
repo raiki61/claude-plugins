@@ -58,7 +58,23 @@ class Load(unittest.TestCase):
         self.assertEqual(repo.copy_files, ("frontend/.env.local", "deploy/local/secrets.local.yaml"))
         self.assertEqual(repo.copy_from, f"{self.d}/keep")
         self.assertEqual(repo.gh_user, "me-at-work")
+        self.assertIsNone(repo.task_cwd)
         self.assertEqual(config.copy_root(repo), f"{self.d}/keep")
+
+    def test_task_cwd_is_expanded_and_must_be_a_string(self):
+        cfg = config.load(write(self.d, "c.toml", FULL.format(d=self.d) + "task_cwd = '~/notes'\n"), env={})
+        self.assertEqual(cfg.repos[0].task_cwd, os.path.expanduser("~/notes"))
+        with self.assertRaises(config.ConfigError) as e:
+            config.load(write(self.d, "c.toml", FULL.format(d=self.d) + "task_cwd = 3\n"), env={})
+        self.assertIn("task_cwd が文字列で無い", str(e.exception))
+
+    def test_pick_repo_by_name_or_by_the_source_clone_path(self):
+        cfg = config.load(write(self.d, "c.toml", FULL.format(d=self.d)), env={})
+        self.assertEqual(config.pick_repo(cfg, "o/r").repo, "o/r")
+        os.makedirs(f"{self.d}/src", exist_ok=True)
+        self.assertEqual(config.pick_repo(cfg, f"{self.d}/src/").repo, "o/r")
+        with self.assertRaises(config.ConfigError):
+            config.pick_repo(cfg, f"{self.d}/elsewhere")
 
     def test_defaults_without_accounts_or_limits(self):
         body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'

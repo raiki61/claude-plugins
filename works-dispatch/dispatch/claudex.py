@@ -120,3 +120,29 @@ def is_trusted(path_of_file, folder):
     except (OSError, ValueError, AttributeError):
         return False
     return bool((projects.get(folder) or {}).get("hasTrustDialogAccepted"))
+
+
+def has_name_flag(runner=_default_runner):
+    """PATH の claude が、会話に名前を付ける `--name` を持つか（`claude --help` の字で見る）。作業役（--task）は、会話の名前を
+    SendMessage の宛先にするので、これが要る。Claude Code の変更の記録は、`-n` / `--name <name>` を起動時に会話の表示の名前を
+    付ける旗として足したと書く。起こせなければ偽。"""
+    try:
+        p = runner(["claude", "--help"])
+    except OSError:
+        return False
+    return p.returncode == 0 and "--name" in (p.stdout or "")
+
+
+def caller(listed, session_id):
+    """呼んだ会話（この命令を走らせている Claude Code の会話）の (アカウントの名, 会話の名前)。見つからなければ (None, None)。
+
+    listed は アカウントの名 → そのアカウントの `claude agents --json` の並び。session_id は Claude Code が Bash の道具の子に渡す
+    CLAUDE_CODE_SESSION_ID（文書は、フックに渡す session_id と同じ値で、外の道具と会話を結ぶのに使うと書く）。一覧はアカウントの
+    設定のフォルダごとなので、その識別子が載っている一覧のアカウントが、呼んだ会話のアカウントである。"""
+    if not session_id:
+        return None, None
+    for account, items in listed.items():
+        for s in items:
+            if s.get("sessionId") == session_id:
+                return account, s.get("name") or None
+    return None, None

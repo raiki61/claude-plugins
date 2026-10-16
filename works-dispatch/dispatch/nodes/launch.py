@@ -10,6 +10,7 @@
 POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く。attention の /catchup は書いたページを VS Code の窓に
 開くが、dispatch は何件も一度に起こすので、窓にタブが一気に開かないようにする（ページは書かれ、一覧のページに載る）。
 シェル関数のアカウントのコマンドにも、この前置きは関数の間だけ環境変数として渡る（bash・zsh で確かめた）。
+作業役（入口の --task）を起こすときは、この前置きを付けず、会話とペインに名前を付け、別のフォルダで起こせる（start の説明）。
 
 使い方: python3 nodes/launch.py --plan <plan の JSON> --number <PR 番号> --pane <ペイン ID> [--out <パス>]
 """
@@ -17,6 +18,7 @@ POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を�
 import argparse
 import os
 import pathlib
+import shlex
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -27,15 +29,33 @@ import jsonio  # noqa: E402
 QUIET_CATCHUP = "ATTENTION_CATCHUP_OPEN=0"
 
 
-def start(row, pane, h=herdr, posix=None):
+def _quote(text, posix):
+    """シェルに 1 語で渡す形。POSIX のシェルは shlex の形、それ以外（Windows の PowerShell・cmd）は二重引用符で囲む。"""
+    return shlex.quote(text) if posix else '"' + text.replace('"', '') + '"'
+
+
+def start(row, pane, h=herdr, posix=None, *, quiet=True, name=None, label=None, cwd=None):
+    """PR の会話は quiet（/catchup の窓を開かない前置き）だけで起こす。作業役（入口の --task）は quiet を外し、次の 3 つを足す。
+    name: 会話の名前（起動のコマンドの後ろに `--name <名前>`。SendMessage の宛先になる）。label: ペインの名前（herdr pane rename。
+    付けられなくても起こし、detail に書く）。cwd: 会話を起こすフォルダ（作業場と違うときだけ。先に `cd <フォルダ>` を打ち込む）。"""
+    posix = os.name != "nt" if posix is None else posix
     command = row["account"]["command"]
-    if os.name != "nt" if posix is None else posix:
+    if name:
+        command = f"{command} --name {_quote(name, posix)}"
+    if quiet and posix:
         command = f"{QUIET_CATCHUP} {command}"
     result = {"number": row["number"], "pane": pane, "status": "launch_failed", "detail": None}
     try:
         if not h.shell_in_front(pane):
             result.update(status="pane_busy", detail="作業場のペインの前で、シェルではない物が動いている（打ち込まない。そのペインを空けてから打ち直す）")
             return result
+        if label:
+            try:
+                h.rename_pane(pane, label)
+            except h.HerdrError as e:
+                result["detail"] = f"ペインに名前を付けられなかった（{e}）"
+        if cwd:
+            h.run(pane, f"cd {_quote(cwd, posix)}")
         h.run(pane, command)
         state = h.wait_ready(pane)
         seen = h.agent(pane)
@@ -44,7 +64,7 @@ def start(row, pane, h=herdr, posix=None):
         return result
     if state == "blocked":
         result.update(status="blocked", detail="起こした後に確認の画面で止まっている（フォルダの信頼・ログインなど）。"
-                                               "そのペインで答えてから /catchup を送る")
+                                               "そのペインで答えてから最初の文を送る")
         return result
     if seen.get("agent") != "claude":
         result["detail"] = f"起こした後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"
