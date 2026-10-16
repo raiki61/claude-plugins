@@ -32,6 +32,11 @@ import claudex  # noqa: E402
 import config  # noqa: E402
 import jsonio  # noqa: E402
 
+# Windows の既定の標準出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 WINDOWS = ("seven_day", "five_hour")
 RUNNING_STATES = ("working", "blocked")  # 背景の会話の state のうち、動いているもの
 
