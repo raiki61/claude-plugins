@@ -92,7 +92,9 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
                              CLAUDE_CONFIG_DIR の末尾から推定: ~/.claude-p1 → claude-code-oauth-p1)
 """
+import bisect
 import concurrent.futures
+import difflib
 import hashlib
 import json
 import os
@@ -1585,10 +1587,11 @@ _FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず
   「何をどう埋めたか」を書く(例:「補完: 障害は今起きていると読んだ」)。
   推測で埋めたなら、理解を妨げていなくても書く——書き手はここで初めて自分の誤読を知る
 """
+# 依頼文の終わりの、本文の始まりの印。手元の文書の抜き出しは、この印の手前に補足を差し込む(doc_prompt)
+BODY_MARK = "--- 本文 ---\n"
 _RULES = """規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。該当の無い欄は「詰まり: なし」のように書かず、行ごと省く。日本語で。
 
---- 本文 ---
-"""
+""" + BODY_MARK
 COLD_PROMPT = """あなたはこの文章について何も知らない初見の読者です。会話の経緯もリポジトリも見ていません。
 以下の「本文」だけを読み、理解を実際に妨げた事実だけを報告してください。
 
@@ -2164,6 +2167,15 @@ def main() -> None:
 # 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)を effort xhigh で走らせる(Artificial Analysis の総合
 # ランキング 2026-10-13 で、Haiku 5.5 の xhigh は Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の費用で出した。
 # convergence-loops 0.42.0 の CHANGELOG)。
+#
+# 前から在る文書は、書き換えた所を含む節だけを読ませる(新しく作った文書は全体)。全体を読ませていた頃は、約 200 行の
+# 設計の文書に数行足しただけで読み手が時間切れ(210 秒)になり、AGENTS.md の 1 文を直すたびに直していない節の前からの
+# 疑問が 6〜14 件返って、直させる作業役が「対象の文に指摘なし」で終わった(2026-10-16 に持ち主の会話で実測)。
+# 前の版は、書いた役のその回で最初に記録したときの、書く前の中身にする(Write・Edit は PostToolUse の tool_response の
+# originalFile。2026-10-16 に claude 2.1.300 で実測: Edit と Write の上書きは文字列、Write の新規は null と type "create")。
+# 取れない道具(Bash・MCP)は、書く前の HEAD の版を指す(Bash は走る前の控えの HEAD)。HEAD に無い文書は新しい文書として全体を読む。
+# 人が書いていない文書(.gitattributes の linguist-generated。GitHub Linguist の印で、Graphite も AI のレビューから外すのに
+# 使う)は読まない。スクリプトがウェブから取った原文の写しを読んで、時間切れと指摘を出していた(2026-10-16 の docs.log)。
 DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
 DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
@@ -2178,6 +2190,19 @@ DOC_FINDINGS = os.path.join(DOC_DIR, "findings")
 # 1 行目にこの印が在る文書は読まない(書き手が意図して置く逃げ道。印がファイルに残るので記録は要らない)。
 # coldwrite(このゲートに移る前の、書く前に止める門番)の印もそのまま効かせる
 DOC_SKIP_MARKS = ("coldread:skip", "coldwrite:skip")
+DOC_BASE_DIR = os.path.join(DOC_DIR, "base")   # 書いた役ごとの、文書の前の版(またはその在り処)の控え
+DOC_CONTEXT = 5        # 見出しの無い文書で、変えた行の前後に添える行数(さらに段落の切れ目まで広げる)
+DOC_LEAD_MAX = 30      # 何の文書かを知るために添える冒頭(題と最初の段落)の行数の上限
+DOC_WHOLE_RATIO = 0.8  # 抜き出しが全体の行数のこの割合以上なら、抜き出さずに全体を読ませる
+GENERATED_ATTR = "linguist-generated"
+# 抜き出しを読ませるときに、依頼文の本文の印の手前に足す補足。観点(COLD_PROMPT)は変えず、読む範囲だけを言う。
+# 省いた節で説明されている語まで詰まりに出すと、直していない所の前からの疑問が毎回返る形に戻るので、疑問に回させる
+DOC_LEAD_LABEL = "【冒頭】"
+DOC_PART_LABEL = "【書き換えた所】"
+DOC_FOCUS_NOTE = ("補足: この本文は、長い文書のうち今回書き換えた所だけを抜き出したもの。「" + DOC_LEAD_LABEL
+                  + "」の下は、何の文書かを知るために添えた文書の頭で、そこへの指摘は書かない。「" + DOC_PART_LABEL
+                  + "」の下だけについて報告する。「(略)」は省いた所。省いた所で説明されているかもしれない語や参照が"
+                  "分からないときは、詰まりではなく疑問にする。\n\n")
 
 
 def docs_off():
@@ -2204,10 +2229,11 @@ def _who(payload):
 
 
 # Bash・MCP の道具で書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
-# cat > x.md <<EOF・tee・sed -i・python で書く・mv/cp で置く文書が 1 本も読まれなかった。
+# cat > x.md <<EOF・tee・sed -i・python で書く文書が 1 本も読まれなかった。
 # - Bash: 走る前(PreToolUse。投稿の門番の main が呼ぶ)に、cwd の git の作業ツリーの変更一覧のうち文書の (mtime, 大きさ) を
 #   控え、走った後(PostToolUse・PostToolUseFailure)に取り直して、増えた・変わった文書を記録に載せる。git の外と、git が
-#   見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(リダイレクト・tee・sed -i・cp/mv の行き先)も静的に拾う
+#   見ない文書(.gitignore の中)のために、中身をコマンドの字面に持つ書き込み先(ヒアドキュメント・echo・printf の行き先、
+#   sed -i)も静的に拾う。ほかの命令の出力のリダイレクト先と cp/mv の行き先は写しなので、git の中の差からも外す(下の AUTHOR_CMDS)
 # - MCP の道具: 名前が書く道具らしいもの(write・edit・create…)の入力の path の欄を拾う
 # 同じ checkout を並行の会話が触っていると、その間の他人の書き込みも拾いうる。読むのは中身のハッシュで 1 回だけなので、
 # 同じ中身を 2 つの会話が読むことは無いが、先に終わった方に指摘が返る(gates/README.md の射程)。
@@ -2259,6 +2285,7 @@ def docs_snapshot(payload):
     top = _git(["rev-parse", "--show-toplevel"], cwd) if os.path.isdir(cwd) else None
     root = top.decode("utf-8", "replace").strip() if top else None
     docs = _git_docs(root) if root else None
+    head = _git(["rev-parse", "--verify", "-q", "HEAD"], root) if docs is not None else None   # 書く前の版の在り処
     os.makedirs(DOC_SNAP_DIR, exist_ok=True)
     now = time.time()
     for e in os.scandir(DOC_SNAP_DIR):
@@ -2268,39 +2295,63 @@ def docs_snapshot(payload):
         except OSError:
             pass
     with open(_snap_file(payload), "w", encoding="utf-8") as f:
-        json.dump({"root": root if docs is not None else None, "docs": docs or {}}, f)
+        json.dump({"root": root if docs is not None else None, "docs": docs or {},
+                   "head": head.decode("ascii", "replace").strip() if head else None}, f)
+
+
+# Bash の書き込み先のうち、人(書いた役)が書いた文書と見るのは、中身がコマンドの字面に在るものだけにする:
+# ヒアドキュメント・ヒア文字列を受けた命令の書き込み先、echo・printf の書き込み先、それらをパイプで受けた tee・cat の行き先、
+# sed -i の書き換え。ほかの命令の出力をリダイレクトした先(`sed -n … ci.log > x.txt`・`git log > x.txt`)と cp・mv・install の
+# 行き先は、中身がコマンドの外から来る写しなので読まない。git の作業ツリーの中でも、変更一覧の差から外す。
+# 前(0.14.0)は書き込み先を全部拾い、CI のログの抜粋を一時の置き場に書いた .txt を読み手が文書として読んで、詰まりを返した
+# (2026-10-16 に窓口の会話で実測)。字面に書き込み先が現れない書き方(python の中で書く)は、git の中の差でだけ拾う
+AUTHOR_CMDS = ("echo", "printf")   # 引数が中身
+PASS_CMDS = ("cat", "tee")         # 受けた中身をそのまま書く
 
 
 def _written_by_command(command, cwd):
-    """コマンドの中の書き込み先のうち、在る文書の実パス(リダイレクト・tee・sed -i・cp/mv/install の行き先)。"""
+    """コマンドの書き込み先の文書の実パスを、(書いた文書, 外から来た中身の写し) に分ける。書いた文書は在るものだけ。"""
     norm, heredoc_bodies = prepare(command)
     tokens = tokenize(norm)
     if tokens is None:
-        return []
+        return [], []
     cmds = split_commands(tokens)
     files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
-    out = []
+    wrote, copied = [], []
+    authored_prev = False   # パイプの前の命令が、中身を字面に持つ命令だったか
     for k, c in enumerate(cmds):
         at = command_start(c.args)
         f = files.at(k, c.args[:at])
-        dests = [d for op, d in c.redirects if op in WRITE_OPS]
         name = os.path.basename(c.args[at]) if at < len(c.args) else ""
         rest = [a for a in c.args[at + 1:] if not a.startswith("-")]
+        piped = bool(c.ops) and c.ops[-1][0] == "|"
+        # ヒアドキュメントを受けても、python・sh などはそれを台本として走らせるので、出力は台本の書いた中身ではない
+        fed = (any("__HEREDOC" in a for a in c.args) or any(op == "<<<" for op, _ in c.redirects)
+               or (piped and authored_prev))
+        authored = name in AUTHOR_CMDS or (name in PASS_CMDS and fed)
+        mine, theirs = [], []
+        dests = [d for op, d in c.redirects if op in WRITE_OPS]
         if name == "tee":
-            dests += rest
-        elif name in ("sed", "gsed") and any(a.startswith(("-i", "--in-place")) for a in c.args[at + 1:]):
-            dests += [a for a in rest if a.lower().endswith(DOC_EXTS)]
+            dests += [a for a in rest if "__HEREDOC" not in a]
+        (mine if authored else theirs).extend(dests)
+        if name in ("sed", "gsed") and any(a.startswith(("-i", "--in-place")) for a in c.args[at + 1:]):
+            mine += [a for a in rest if a.lower().endswith(DOC_EXTS)]
         elif name in ("cp", "mv", "install") and len(rest) >= 2:
-            dests += [rest[-1]] + [os.path.join(rest[-1], os.path.basename(s)) for s in rest[:-1]]
-        for d in dests:
+            theirs += [rest[-1]] + [os.path.join(rest[-1], os.path.basename(s)) for s in rest[:-1]]
+        for d in mine:
             p = f.path(d)
             if p and p.lower().endswith(DOC_EXTS) and os.path.isfile(p):
-                out.append(p)
-    return out
+                wrote.append(p)
+        for d in theirs:
+            p = f.path(d)
+            if p and p.lower().endswith(DOC_EXTS):
+                copied.append(os.path.realpath(p))
+        authored_prev = authored
+    return wrote, copied
 
 
 def _bash_docs(payload):
-    """PostToolUse(Bash): 控えと取り直しの差で増えた・変わった文書と、コマンドの書き込み先の文書。"""
+    """PostToolUse(Bash): (控えと取り直しの差で増えた・変わった文書とコマンドの書き込み先の文書, 走る前の控え)。"""
     found, snap = [], None
     try:
         with open(_snap_file(payload), encoding="utf-8") as f:
@@ -2313,12 +2364,21 @@ def _bash_docs(payload):
         if now is not None:
             before = snap.get("docs") or {}
             found += [p for p, st in now.items() if before.get(p) != st]
+        # 同じコマンドの中で書いて commit した文書は、変更一覧から消えている。HEAD が動いたなら、動いた間の差の文書も拾う
+        if snap.get("head"):
+            diff = _git(["diff", "--name-only", "-z", "--no-renames", snap["head"], "HEAD", "--"], snap["root"])
+            for rel in (diff or b"").decode("utf-8", "replace").split("\0"):
+                full = os.path.realpath(os.path.join(snap["root"], rel)) if rel.lower().endswith(DOC_EXTS) else ""
+                if full and os.path.isfile(full):
+                    found.append(full)
     command = (payload.get("tool_input") or {}).get("command") or ""
     try:
-        found += _written_by_command(command, payload.get("cwd") or None)
+        wrote, copied = _written_by_command(command, payload.get("cwd") or None)
     except Exception:
-        pass   # 静的な読みの失敗で記録の口を落とさない(手元の文書は止めない側)
-    return found
+        wrote, copied = [], []   # 静的な読みの失敗で記録の口を落とさない(手元の文書は止めない側)
+    skip = set(copied) - {os.path.realpath(p) for p in wrote}
+    found = [p for p in found if os.path.realpath(p) not in skip] + wrote
+    return found, snap
 
 
 def _tool_docs(payload):
@@ -2332,9 +2392,61 @@ def _tool_docs(payload):
     return [os.path.abspath(v) for v in (ti.get(k) for k in ("file_path", "notebook_path")) if isinstance(v, str) and v]
 
 
+def _base_dir(session, agent):
+    """書いた役ごとの、前の版の控えの置き場(待ちの一覧と同じ名前)。"""
+    return os.path.join(DOC_BASE_DIR, os.path.basename(_pending(session, agent))[:-len(".pending")])
+
+
+def _base_file(where, path):
+    return os.path.join(where, hashlib.sha256(os.path.realpath(path).encode("utf-8")).hexdigest()[:40] + ".json")
+
+
+def _rev_entry(path, root=None, head=None):
+    """文書の HEAD の版の在り処 {"rev", "root", "rel"}。git の外・HEAD の無い checkout・作業ツリーの外なら {}(全体を読む)。"""
+    if not (root and head):
+        out = _git(["rev-parse", "--show-toplevel", "--verify", "-q", "HEAD"], os.path.dirname(path) or ".")
+        lines = out.decode("utf-8", "replace").split("\n") if out else []
+        if len(lines) < 2 or not lines[1].strip():
+            return {}
+        root, head = lines[0].strip(), lines[1].strip()
+    try:
+        rel = os.path.relpath(os.path.realpath(path), os.path.realpath(root))
+    except ValueError:   # Windows で別のドライブ
+        return {}
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep) or os.path.isabs(rel):
+        return {}
+    return {"rev": head, "root": root, "rel": rel.replace(os.sep, "/")}
+
+
+def _keep_base(where, path, entry):
+    """前の版の控えを、その回で最初に記録したときのものだけ残す(後から書いた分で上書きしない。O_EXCL なので並行でも 1 つ)。"""
+    try:
+        os.makedirs(where, exist_ok=True)
+        with open(_base_file(where, path), "x", encoding="utf-8") as f:
+            json.dump(entry, f, ensure_ascii=False)
+    except OSError:
+        pass   # 在る(先に記録した版が勝つ)か、書けない(全体を読む側に倒れる)
+
+
+def _prune_bases():
+    """終わりが来ずに残った控え(会話を閉じた等)を、走る前の控えと同じ秒数で消す。"""
+    now = time.time()
+    try:
+        for e in os.scandir(DOC_BASE_DIR):
+            if now - e.stat().st_mtime > DOC_SNAP_KEEP:
+                shutil.rmtree(e.path, ignore_errors=True)
+    except OSError:
+        pass
+
+
 def docs_record(payload):
-    """PostToolUse: 書いた文書のパスを、書いた役の待ちの一覧に足す。読まない・止めない。"""
-    paths = _bash_docs(payload) if payload.get("tool_name") == "Bash" else _tool_docs(payload)
+    """PostToolUse: 書いた文書のパスを書いた役の待ちの一覧に足し、書く前の版(の在り処)を控える。読まない・止めない。"""
+    tool = payload.get("tool_name")
+    snap = None
+    if tool == "Bash":
+        paths, snap = _bash_docs(payload)
+    else:
+        paths = _tool_docs(payload)
     paths = [p for p in dict.fromkeys(paths) if p.lower().endswith(DOC_EXTS)]
     if not paths:
         return
@@ -2343,7 +2455,22 @@ def docs_record(payload):
         with open(_pending(*_who(payload)), "a", encoding="utf-8") as f:
             f.write("".join(p + "\n" for p in paths))
     except OSError:
-        pass
+        return
+    _prune_bases()
+    where = _base_dir(*_who(payload))
+    resp = payload.get("tool_response") if isinstance(payload.get("tool_response"), dict) else {}
+    for p in paths:
+        if os.path.exists(_base_file(where, p)):
+            continue   # この回の前の版はもう控えてある(git を呼ばずに済ませる)
+        if isinstance(resp.get("originalFile"), str):
+            entry = {"text": resp["originalFile"]}
+        elif resp.get("type") == "create":
+            entry = {}   # Write で新しく作った文書
+        elif snap and snap.get("root") and snap.get("head"):
+            entry = _rev_entry(p, snap["root"], snap["head"])
+        else:
+            entry = _rev_entry(p)
+        _keep_base(where, p, entry)
 
 
 def _seen():
@@ -2389,20 +2516,224 @@ def doc_to_read(path, seen):
     return text, digest
 
 
-def read_doc(text):
+def doc_prompt(body, focus=False):
+    """読み手に渡す依頼文+本文。抜き出し(focus)なら、本文の印の手前に読む範囲の補足を足す。"""
+    if not focus:
+        return COLD_PROMPT + body
+    return COLD_PROMPT[:-len(BODY_MARK)] + DOC_FOCUS_NOTE + BODY_MARK + body
+
+
+def read_doc(text, focus=False):
     """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。"""
-    out = run_reader(COLD_PROMPT + text, model=DOC_MODEL, effort=DOC_EFFORT)
+    out = run_reader(doc_prompt(text, focus), model=DOC_MODEL, effort=DOC_EFFORT)
     if not report_shaped(out):
         raise RuntimeError("報告の形(CLEAN かラベル行)をしていない: %r" % out[:150])
     return sort_findings(out)
 
 
-def doc_feedback(path, found):
-    """1 本の文書の指摘を、直してほしい順の節にする(詰まりも補完も無ければ空)。"""
+# ---- 書き換えた所の抜き出し ----
+# 節は見出しから次の見出しの手前まで(深さは見ない。いちばん内側の節)。見出しの書き方は拡張子で決める:
+# md・mdx は ATX(# 〜 ######。コードの囲みと冒頭の frontmatter の中は見ない)、adoc は = 〜 ======、rst は下線
+# (と上線)付きの行。txt と、見出しの無い文書は、変えた行の前後 DOC_CONTEXT 行を段落の切れ目まで広げる
+_MD_HEAD = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+_MD_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+_ADOC_HEAD = re.compile(r"={1,6}[ \t]+\S")
+_RST_RULE = re.compile(r"""([=\-~^"'`#*+:.])\1+[ \t]*$""")
+
+
+def _front_end(lines):
+    """冒頭の frontmatter(--- で挟んだ行)の次の行。無ければ 0。"""
+    if lines and lines[0].strip() == "---":
+        for k in range(1, len(lines)):
+            if lines[k].strip() in ("---", "..."):
+                return k + 1
+    return 0
+
+
+def _sections(lines, ext):
+    """(節の始まりの行の並び, 見出しを成す行の集まり)。"""
+    starts, marks = [], set()
+    if ext in (".md", ".mdx"):
+        fence = None
+        for k in range(_front_end(lines), len(lines)):
+            m = _MD_FENCE.match(lines[k])
+            if m:
+                mark = m.group(1)[0]
+                fence = mark if fence is None else (None if fence == mark else fence)
+            elif fence is None and _MD_HEAD.match(lines[k]):
+                starts.append(k)
+                marks.add(k)
+    elif ext in (".adoc", ".asciidoc"):
+        for k, line in enumerate(lines):
+            if _ADOC_HEAD.match(line):
+                starts.append(k)
+                marks.add(k)
+    elif ext == ".rst":
+        for k in range(len(lines) - 1):
+            title, rule = lines[k], lines[k + 1]
+            if (title.strip() and not _RST_RULE.match(title) and _RST_RULE.match(rule)
+                    and len(rule.rstrip()) >= len(title.rstrip())):
+                over = k > 0 and _RST_RULE.match(lines[k - 1]) and lines[k - 1].strip()[:1] == rule.strip()[:1]
+                start = k - 1 if over else k
+                if not starts or starts[-1] < start:
+                    starts.append(start)
+                    marks.update((start, k, k + 1))
+    return starts, marks
+
+
+def _changed(base_lines, lines):
+    """今の版で書き換えた行の範囲 [(始め, 終わり)]。消しただけの所は、その前後の行。"""
+    n, out = len(lines), []
+    sm = difflib.SequenceMatcher(None, base_lines, lines, autojunk=False)
+    for tag, _i1, _i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        out.append((j1, j2) if j2 > j1 else (max(0, j1 - 1), min(n, j1 + 1)))
+    return [(a, b) for a, b in out if b > a]
+
+
+def _paragraph(lines, a, b):
+    """[a, b) を前後 DOC_CONTEXT 行広げ、さらに段落の切れ目(空行)まで広げる(広げるのは片側 20 行まで)。"""
+    n = len(lines)
+    a, b = max(0, a - DOC_CONTEXT), min(n, b + DOC_CONTEXT)
+    for _ in range(20):
+        if a > 0 and lines[a - 1].strip():
+            a -= 1
+    for _ in range(20):
+        if b < n and lines[b].strip():
+            b += 1
+    return a, b
+
+
+def _lead(lines, marks):
+    """何の文書かを知るために添える冒頭(frontmatter の後の、題と最初の段落)。"""
+    start = j = _front_end(lines)
+    n = len(lines)
+    while j < n and (not lines[j].strip() or j in marks):
+        j += 1
+    while j < n and lines[j].strip() and j not in marks:
+        j += 1
+    return start, min(j, start + DOC_LEAD_MAX)
+
+
+def doc_excerpt(path, text, base):
+    """前の版 base から書き換えた所を含む節と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。"""
+    if not base:
+        return None
+    lines, base_lines = text.split("\n"), base.replace("\r\n", "\n").split("\n")
+    touched = _changed(base_lines, lines)
+    if not touched:
+        return ""
+    n = len(lines)
+    starts, marks = _sections(lines, os.path.splitext(path)[1].lower())
+    spans = []   # (始め, 終わり, 書き換えた所か)
+    for a, b in touched:
+        if starts:   # 範囲の頭の行が入る節の始めから、尻の行が入る節の終わりまで
+            i, j = bisect.bisect_right(starts, a) - 1, bisect.bisect_right(starts, b - 1) - 1
+            spans.append((starts[i] if i >= 0 else 0, starts[j + 1] if j + 1 < len(starts) else n, True))
+        else:
+            spans.append(_paragraph(lines, a, b) + (True,))
+    la, lb = _lead(lines, marks)
+    if lb > la:
+        spans.append((la, lb, False))
+    parts = []   # 重なるか接する範囲を合わせる。書き換えた所を含めば、冒頭と合わせた範囲も書き換えた所と呼ぶ
+    for a, b, changed in sorted(spans):
+        if parts and a <= parts[-1][1]:
+            parts[-1] = [parts[-1][0], max(parts[-1][1], b), parts[-1][2] or changed]
+        else:
+            parts.append([a, b, changed])
+    if sum(b - a for a, b, _ in parts) >= DOC_WHOLE_RATIO * n:
+        return None
+    out, pos = [], 0
+    for a, b, changed in parts:
+        if a > pos and any(line.strip() for line in lines[pos:a]):
+            out.append("(略: %d 行)" % (a - pos))
+        out.append((DOC_PART_LABEL if changed else DOC_LEAD_LABEL) + "\n" + "\n".join(lines[a:b]).strip("\n"))
+        pos = max(pos, b)
+    if pos < n and any(line.strip() for line in lines[pos:]):
+        out.append("(略: %d 行)" % (n - pos))
+    return "\n\n".join(out) + "\n"
+
+
+def _cat_blobs(root, specs):
+    """git cat-file --batch で <rev>:<path> の中身を読む。読めない(HEAD に無い・UTF-8 でない)ものは None。"""
+    try:
+        r = subprocess.run(["git", "-C", root, "cat-file", "--batch"], input="".join(s + "\n" for s in specs).encode("utf-8"),
+                           capture_output=True, timeout=GIT_TIMEOUT, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+    except (OSError, subprocess.SubprocessError):
+        return [None] * len(specs)
+    out, pos, data = [], 0, r.stdout if r.returncode == 0 else b""
+    for _ in specs:
+        nl = data.find(b"\n", pos)
+        if nl < 0:
+            out.append(None)
+            continue
+        head = data[pos:nl].split()
+        pos = nl + 1
+        if len(head) == 3 and head[1] == b"blob" and head[2].isdigit():
+            size = int(head[2])
+            try:
+                out.append(data[pos:pos + size].decode("utf-8"))
+            except UnicodeDecodeError:
+                out.append(None)
+            pos += size + 1
+        else:
+            out.append(None)   # missing(追跡外・新しい文書)
+    return out
+
+
+def _bases(where, paths):
+    """{パス: 前の版の本文}。控えの無い・前の版の無い(新しい)文書は None(全体を読む)。"""
+    out, revs = {}, {}
+    for p in paths:
+        try:
+            with open(_base_file(where, p), encoding="utf-8") as f:
+                e = json.load(f)
+        except (OSError, ValueError):
+            e = {}
+        if isinstance(e.get("text"), str):
+            out[p] = e["text"]
+        elif e.get("rev") and e.get("root") and e.get("rel") and "\n" not in e["rel"]:
+            revs.setdefault(e["root"], []).append((p, "%s:%s" % (e["rev"], e["rel"])))
+        else:
+            out[p] = None
+    for root, items in revs.items():
+        for (p, _), blob in zip(items, _cat_blobs(root, [spec for _, spec in items])):
+            out[p] = blob
+    return out
+
+
+def _generated(paths):
+    """git の属性 linguist-generated(GitHub Linguist の、人が書いていない生成物の印)が付いた文書。
+
+    値の読み方は Linguist に合わせる(lib/linguist/lazy_blob.rb の boolean_attribute: 付いていて "false" でなければ生成物)。
+    git check-attr は付いていない・-linguist-generated を unspecified・unset と返す。git の外の文書は印が無い側。
+    """
+    by_dir, out = {}, set()
+    for p in paths:
+        by_dir.setdefault(os.path.dirname(p) or ".", []).append(p)
+    for d, ps in by_dir.items():
+        try:
+            r = subprocess.run(["git", "-C", d, "check-attr", "-z", "--stdin", GENERATED_ATTR],
+                               input=b"".join(os.path.basename(p).encode("utf-8") + b"\0" for p in ps),
+                               capture_output=True, timeout=GIT_TIMEOUT, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode != 0:
+            continue
+        f = r.stdout.decode("utf-8", "replace").split("\0")
+        for k in range(0, len(f) - 2, 3):
+            if f[k + 2] not in ("unspecified", "unset", "false"):
+                out.update(p for p in ps if os.path.basename(p) == f[k])
+    return out
+
+
+def doc_feedback(path, found, focus=False):
+    """1 本の文書の指摘を、直してほしい順の節にする(詰まりも補完も無ければ空)。focus は書き換えた所だけを読ませたとき。"""
     if not (found["詰まり"] or found["補完"]):
         return ""
     return "\n".join(filter(None, (
-        "■ %s" % path,
+        "■ %s%s" % (path, "(書き換えた節だけを読んだ)" if focus else ""),
         section("詰まり(直す):", found["詰まり"]),
         section("coldreader が推測で埋めた箇所(意図と違うなら直す):", found["補完"]),
         section("残った疑問(反映するかは判断してよい):", found["疑問"]),
@@ -2420,6 +2751,9 @@ def _read_pending(session, agent):
     except OSError:
         return [], {"詰まり": 0, "補完": 0}, []
     who = "sid=%s" % session[:8] + ("\taid=%s" % agent[:17] if agent else "")
+    where = _base_dir(session, agent)
+    bases = _bases(where, paths)
+    shutil.rmtree(where, ignore_errors=True)
     seen = _seen()
     todo = []
     for path in paths:
@@ -2428,12 +2762,24 @@ def _read_pending(session, agent):
             log_line(DOC_LOG, "skip\t%s\t%s\t%s" % (why, who, path))
         else:
             todo.append((path, text, why))
+    generated = _generated([path for path, _, _ in todo]) if todo else set()
+    picked = []
+    for path, text, digest in todo:
+        if path in generated:
+            log_line(DOC_LOG, "skip\t生成物の印(%s)\t%s\t%s" % (GENERATED_ATTR, who, path))
+            continue
+        part = doc_excerpt(path, text, bases.get(path))
+        if part == "":
+            log_line(DOC_LOG, "skip\t書く前と同じ中身\t%s\t%s" % (who, path))
+            continue
+        picked.append((path, text, digest, part))
     notes, counts, read, down = [], {"詰まり": 0, "補完": 0}, [], []
-    if not todo:
+    if not picked:
         return notes, counts, down
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
-        futures = {pool.submit(read_doc, text): (path, text, digest) for path, text, digest in todo}
-    for fut, (path, text, digest) in futures.items():
+        futures = {pool.submit(read_doc, text if part is None else part, part is not None): (path, text, digest, part)
+                   for path, text, digest, part in picked}
+    for fut, (path, text, digest, part) in futures.items():
         try:
             found = fut.result()
         except Exception as exc:
@@ -2441,8 +2787,10 @@ def _read_pending(session, agent):
             down.append(path)
             continue
         read.append(digest)
-        note = doc_feedback(path, found)
-        log_line(DOC_LOG, "%s\t%d\t%s\t%s" % ("finding" if note else "clean", len(text), who, path))
+        note = doc_feedback(path, found, part is not None)
+        # 長さの欄は読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
+        size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
+        log_line(DOC_LOG, "%s\t%s\t%s\t%s" % ("finding" if note else "clean", size, who, path))
         if note:
             notes.append(note)
             for label in counts:

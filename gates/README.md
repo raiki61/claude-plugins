@@ -168,7 +168,19 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を書くと、PostToolUse のフックが
 パスを書いた役ごとに記録するだけで終わる。拾う道具は Write・Edit・MultiEdit・Bash・MCP の書く道具(下の「拾う幅」)。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
 投稿と同じ依頼文(`coldread-gate.py` の `COLD_PROMPT`。初見で読む観点の正本はこの 1 か所)で coldreader に読ませる。
-詰まりか推測で埋めた箇所が在れば、指摘を返して書いた役を続けさせる(書き込みは取り消さない)。返し方は書いた役で変わる:
+詰まりか推測で埋めた箇所が在れば、指摘を返して書いた役を続けさせる(書き込みは取り消さない)。
+
+- **読む範囲**: 前から在る文書は、書き換えた所を含む節(見出しから次の見出しの手前まで。md・mdx は `#`、adoc は `=`、
+  rst は下線付きの行。見出しの無い文書は書き換えた行の前後を段落の切れ目まで)と、何の文書かが分かる冒頭(題と最初の段落)だけを
+  読ませ、指摘もそこだけに求める。省いた節で説明されているかもしれない語は、詰まりでなく疑問に回させる。新しく作った文書と、
+  抜き出しが全体の 8 割以上になる文書は全体を読ませる。前の版は、その役のその回で最初に記録したときの書く前の中身
+  (Write・Edit はフックの入力の `originalFile`。Bash は走る前の HEAD の版、MCP の道具は記録したときの HEAD の版。HEAD に
+  無い文書は新しい文書)。全体を読ませていた頃は、約 200 行の文書に数行足すと読み手が時間切れになり、1 文直すたびに直していない
+  節の前からの疑問が返った。`docs.log` の長さの欄は、抜き出したときは「渡した字数/全体の字数」
+- **生成物は読まない**: `.gitattributes` で `linguist-generated` の印を付けた文書(GitHub Linguist の印。値なしか `=true`。
+  `-linguist-generated`・`=false` は印なし)は読まない。印の付け方は、`.gitattributes` に `reference/_snapshots/** linguist-generated` のように 1 行足す
+
+返し方は書いた役で変わる:
 
 - **サブエージェント(作業役)が書いた文書**は、その役が終わるとき(SubagentStop のフック)に読み、指摘の全文をその役に
   返して直させる。記録はフックの入力の `agent_id`(サブエージェントの中でだけ付く)で分けるので、親の会話の終わりには
@@ -178,13 +190,19 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` のファイルに書き出し(新しい 200 本を残す)、本数・件数・ファイルの場所と
   「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」の短い知らせだけを返す
 - **拾う幅**(持ち主の方針「防ぐより、ひっかける幅を増やす」。前は Write・Edit・MultiEdit で書いた文書しか拾わず、
-  `cat > x.md <<EOF`・`tee`・`sed -i`・python で書く・`mv`/`cp` で置く文書は 1 本も読まれなかった):
+  `cat > x.md <<EOF`・`tee`・`sed -i`・python で書く文書は 1 本も読まれなかった):
   - Bash: 走る前(PreToolUse。投稿の門番と同じフック)に、cwd の git の作業ツリーの変更一覧(`git status --porcelain
     --untracked-files=all`。追跡外も含む)のうち文書の mtime と大きさを控え、走った後(PostToolUse と、失敗した後の
     PostToolUseFailure)に取り直して、増えた・変わった文書を記録に載せる。前から変わっていた文書は、走る間に変わらなければ
-    拾わない。git の外と、git が見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(リダイレクト・`tee`・
-    `sed -i`・`cp`/`mv`/`install` の行き先)も静的に拾う(相対パスは入力の cwd で解く)。git は `GIT_OPTIONAL_LOCKS=0` で
-    走らせ、index の lock を取らない。1 回 5 秒を超えたら静的な読みだけにする
+    拾わない。git の外と、git が見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(下の「人が書いた文書と見る
+    もの」)も静的に拾う(相対パスは入力の cwd で解く)。git は `GIT_OPTIONAL_LOCKS=0` で
+    走らせ、index の lock を取らない。1 回 5 秒を超えたら静的な読みだけにする。同じコマンドの中で書いて commit した文書は、
+    走る前と後の HEAD の差で拾う
+  - 人が書いた文書と見るもの(Bash): 書いた役が書いた文書と見るのは、中身がコマンドの字面に在る書き込みだけ: ヒアドキュメント・ヒア文字列を受けた
+    `cat`・`tee` の行き先、`echo`・`printf` の行き先、それらをパイプで受けた `tee`・`cat` の行き先、`sed -i`。ほかの命令の出力を
+    リダイレクトした先(`sed -n … ci.log > x.txt`・`git log > x.txt`・ヒアドキュメントを台本として走らせた `python3 - > x.md`)と
+    `cp`/`mv`/`install` の行き先は、外から来た中身の写しなので拾わず、git の変更一覧の差からも外す(0.14.0 では拾っていて、
+    CI のログの抜粋を書いた一時ファイルを読み手が読み、詰まりを返した)
   - MCP の道具: 道具の名前が書く道具らしいもの(write・edit・create・update・save・move・copy など)の入力の path の欄を拾う
   - NotebookEdit は拾わない（`.ipynb` は文書の拡張子に入れていないので、拾っても読まない。Write・Edit・MultiEdit の matcher の名前は works が名前で頼っているので変えない）
   - **同じ checkout を並行の会話が触っていると、Bash が走る間の他人の書き込みも拾う**。読むのは中身のハッシュで 1 回だけ
@@ -201,7 +219,7 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   Artificial Analysis の総合ランキング(2026-10-13)で Haiku 5.5 の xhigh が Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の
   費用で出したため。投稿の読み手は sonnet・medium のまま
 - 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
-  前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
+  `linguist-generated` の印・書く前と同じ中身・前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
 - 直した文書はまたその役の終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
   そのまま終えてよい。連続で返すのは Claude Code が 8 回で打ち切る
 - 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)

@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=665
+EXPECTED_CHECKS=666
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2773,12 +2773,24 @@ def in_plain():
     (plain / "d").mkdir()
     (plain / "d/c.md").write_text("c\n", encoding="utf-8")
     (plain / "e.rst").write_text("e\n", encoding="utf-8")
+    for n in ("p.md", "ex.txt", "py.md", "h.txt"):
+        (plain / n).write_text(n + "\n", encoding="utf-8")
+# 中身が字面に在る書き込み先(ヒアドキュメント・echo/printf をパイプで受けた tee・printf・ヒア文字列・sed -i)は拾い、
+# ほかの命令の出力のリダイレクト先(sed -n … >・ヒアドキュメントを台本として走らせた python の出力)と cp/mv の行き先は拾わない
 cmd = ("cat > %s/a.md <<'EOF'\nhello\nEOF\necho hi | tee b.md >/dev/null && cp a.md c.md && mv c.md d/ "
-       "&& sed -i.bak s/x/y/ e.rst && cat untouched.md > /dev/null" % plain.as_posix())   # \ 区切りは Git Bash に落とされる
+       "&& sed -i.bak s/x/y/ e.rst && cat untouched.md > /dev/null && printf '%%s\\n' p > p.md "
+       "&& sed -n 1,5p ci.log > ex.txt && cat <<< h > h.txt\npython3 - > py.md <<'EOF'\nprint(1)\nEOF" % plain.as_posix())   # \ 区切りは Git Bash に落とされる
 bash("s2", "tu2", plain, cmd, in_plain)
 got = pending("s2")
-want = sorted(real(plain / n) for n in ("a.md", "b.md", "c.md", "d/c.md", "e.rst"))
-assert got == want, f"git の外で書き込み先を静的に拾えていない: {got} / 期待 {want}"
+want = sorted(real(plain / n) for n in ("a.md", "b.md", "e.rst", "p.md", "h.txt"))
+assert got == want, f"git の外で、中身が字面に在る書き込み先だけを拾えていない: {got} / 期待 {want}"
+
+# git の中でも、ほかの命令の出力をリダイレクトした写し(git の変更一覧には出る)は外す。python が書いた文書は差で拾う
+def in_repo_copy():
+    (repo / "log.txt").write_text("log\n", encoding="utf-8")
+    (repo / "py2.md").write_text("py\n", encoding="utf-8")
+bash("s5", "tu5", repo, "git log > log.txt; python3 tools/write.py", in_repo_copy)
+assert pending("s5") == [real(repo / "py2.md")], pending("s5")
 
 # MCP の書く道具の path は拾い、読むだけの道具の path は拾わない
 (plain / "mcp.md").write_text("m\n", encoding="utf-8")
@@ -2865,6 +2877,155 @@ assert run("docs-check", {"session_id": "s1", "agent_id": "agent-z", "hook_event
 y_ctx = json.loads(run("docs-check", {"session_id": "s1", "agent_id": "agent-y", "hook_event_name": "SubagentStop"}, FIND))
 assert "印Y" in y_ctx["hookSpecificOutput"]["additionalContext"], y_ctx
 print("DOCS_AGENT_OK")
+PY
+# 前から在る文書は、書き換えた所を含む節と冒頭だけを読ませる(全体を読ませていた頃は、長い文書に数行足すと読み手が時間切れになり、
+# 直していない節の前からの疑問が毎回返った)。新しい文書は全体。linguist-generated の印が付いた文書(生成物)は読まない
+expect_output 0 "DOCS_FOCUS_OK" "coldread の手元の文書: 前から在る文書は書き換えた節と冒頭だけを読ませ、新しい文書は全体を読ませ、生成物の印の付いた文書は読まない" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-focus" <<'PY'
+import importlib.util, json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls, repo = work / "cfg", work / "calls", work / "repo"
+calls.mkdir()
+repo.mkdir()
+spec = importlib.util.spec_from_file_location("gate_focus", gate)
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+
+def run(mode, payload, reader=None):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader or "cat >/dev/null; exit 1")
+    r = subprocess.run([sys.executable, str(gate), *([mode] if mode else [])], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+def git(*a):
+    subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+
+# 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残す。返すのは CLEAN(渡った本文だけを見る)。
+# 1 回の終わりに複数の文書を並べて読むので、名前は mktemp で分ける(数えて名付けると、並んだ読み手が同じ名前に書く)
+READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
+def prompts():
+    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)]
+def last_prompt():
+    got = prompts()
+    return got[-1], len(got)
+
+def design(mark_c="", mark_e=""):
+    secs = "".join("## 節%s\n\n%s\n\n" % (k, "".join("印%s の %d 行目。\n" % (k, i) for i in range(12)) + (mark_c if k == "C" else mark_e if k == "E" else ""))
+                   for k in "ABCDE")
+    return "# 設計の題\n\nこの文書は印T の設計を書く。\n\n" + secs
+
+git("init", "-q")
+git("config", "user.email", "t@example.com")
+git("config", "user.name", "t")
+git("config", "core.autocrlf", "false")
+(repo / ".gitattributes").write_text("gen/*.txt linguist-generated\nsnap.md linguist-generated=true\nkeep.md -linguist-generated\nno.md linguist-generated=false\n", encoding="utf-8")
+doc = repo / "design.md"
+doc.write_text(design(), encoding="utf-8")
+(repo / "gen").mkdir()
+for name in ("gen/a.txt", "snap.md", "keep.md", "no.md"):
+    (repo / name).write_text("写しの原文。" * 100, encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "init")
+
+# 1) Edit: 前の版は PostToolUse の tool_response の originalFile。節C を書き換えると、冒頭と節C だけが渡る
+before = doc.read_text(encoding="utf-8")
+doc.write_text(design(mark_c="印X を足した。\n"), encoding="utf-8")
+run("docs-record", {"session_id": "s1", "tool_name": "Edit", "tool_input": {"file_path": str(doc)},
+                    "tool_response": {"filePath": str(doc), "originalFile": before}})
+# 同じ回に 2 度目の Edit(節E)。前の版は最初の記録のまま(2 つの書き換えが両方渡る)
+mid = doc.read_text(encoding="utf-8")
+doc.write_text(design(mark_c="印X を足した。\n", mark_e="印Y を足した。\n"), encoding="utf-8")
+run("docs-record", {"session_id": "s1", "tool_name": "Edit", "tool_input": {"file_path": str(doc)},
+                    "tool_response": {"filePath": str(doc), "originalFile": mid}})
+run("docs-check", {"session_id": "s1", "hook_event_name": "Stop"}, READER)
+prompt, n = last_prompt()
+assert n == 1, n
+assert prompt.startswith(g.COLD_PROMPT[:-len(g.BODY_MARK)] + g.DOC_FOCUS_NOTE + g.BODY_MARK), "抜き出しの補足が本文の印の手前に無い"
+body = prompt[len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
+assert "印T" in body and g.DOC_LEAD_LABEL in body, f"冒頭(題と最初の段落)が添えられていない: {body[:300]}"
+assert "印X" in body and "印C の 0 行目" in body and "印Y" in body and "印E の 0 行目" in body, f"書き換えた節が丸ごと渡っていない: {body}"
+assert "印A" not in body and "印B" not in body and "印D" not in body, f"書き換えていない節まで渡った: {body}"
+assert not list((cfg / "coldread-gate/docs/base").iterdir()), "読んだ後に前の版の控えが残る"
+assert "\t%d/%d\t" % (len(body), len(doc.read_text(encoding="utf-8"))) in (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8"), "docs.log に渡した字数/全体の字数が無い"
+
+# 2) Bash: 前の版は走る前の HEAD。commit したあとに書き換え、同じコマンドで commit しても、走る前の HEAD と比べる
+git("add", ".")
+git("commit", "-q", "-m", "c")
+def bash(sid, tid, command, effect):
+    pay = {"session_id": sid, "tool_name": "Bash", "tool_use_id": tid, "cwd": str(repo), "tool_input": {"command": command}}
+    run("", dict(pay, hook_event_name="PreToolUse"))
+    effect()
+    run("docs-record", dict(pay, hook_event_name="PostToolUse"))
+def edit_b_and_commit():
+    doc.write_text(doc.read_text(encoding="utf-8").replace("印B の 5 行目。", "印B の 5 行目を印Z に直した。"), encoding="utf-8")
+    git("commit", "-q", "-am", "b")
+bash("s2", "tu1", "python3 tools/edit.py && git commit -am b", edit_b_and_commit)
+run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, READER)
+prompt, n = last_prompt()
+assert n == 2, n
+body = prompt[len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
+assert "印Z" in body and "印B の 0 行目" in body and "印C" not in body and "印A" not in body, f"Bash で書き換えた節だけが渡っていない: {body}"
+
+# 3) 新しい文書は全体: Write の新規(type create)と、Bash で作った HEAD に無い文書
+new = repo / "new.md"
+new_text = design()
+new.write_text(new_text, encoding="utf-8")
+run("docs-record", {"session_id": "s3", "tool_name": "Write", "tool_input": {"file_path": str(new)},
+                    "tool_response": {"type": "create", "filePath": str(new), "originalFile": None}})
+run("docs-check", {"session_id": "s3", "hook_event_name": "Stop"}, READER)
+prompt, n = last_prompt()
+assert n == 3 and prompt == g.COLD_PROMPT + new_text, "新しく作った文書が全体のまま(投稿と同じ依頼文)で渡っていない"
+new2 = repo / "new2.md"
+bash("s4", "tu2", "python3 tools/make.py", lambda: new2.write_text(design(mark_c="印W\n"), encoding="utf-8"))
+run("docs-check", {"session_id": "s4", "hook_event_name": "Stop"}, READER)
+prompt, n = last_prompt()
+assert n == 4 and prompt == g.COLD_PROMPT + new2.read_text(encoding="utf-8"), "HEAD に無い文書を全体で読んでいない"
+
+# 4) 書く前と同じ中身は読まない(読み手を起こさない)。まだ読んでいない中身で、同じ中身を書き直した形
+doc.write_text(doc.read_text(encoding="utf-8") + "印S\n", encoding="utf-8")
+run("docs-record", {"session_id": "s6", "tool_name": "Edit", "tool_input": {"file_path": str(doc)},
+                    "tool_response": {"filePath": str(doc), "originalFile": doc.read_text(encoding="utf-8")}})
+run("docs-check", {"session_id": "s6", "hook_event_name": "Stop"}, READER)
+assert last_prompt()[1] == 4, "書く前と同じ中身の文書で読み手を起こした"
+assert "書く前と同じ中身" in (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+
+# 5) 生成物の印(linguist-generated。値なし・=true)の付いた文書は読まない。-linguist-generated・=false は読む
+for name in ("gen/a.txt", "snap.md", "keep.md", "no.md"):
+    f = repo / name
+    f.write_text(name + " の写しの原文を取り直した。" * 100, encoding="utf-8")   # 中身を分ける(同じ中身は 1 回しか読まない)
+    run("docs-record", {"session_id": "s7", "tool_name": "Write", "tool_input": {"file_path": str(f)},
+                        "tool_response": {"type": "create", "filePath": str(f), "originalFile": None}})
+run("docs-check", {"session_id": "s7", "hook_event_name": "Stop"}, READER)
+got = prompts()[4:]
+assert len(got) == 2, f"生成物の印の付いた文書を読んだか、印を外した文書を読まなかった: {len(got)} 回"
+log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+skipped = [ln for ln in log.splitlines() if "生成物の印" in ln]
+assert len(skipped) == 2 and any(ln.endswith("a.txt") for ln in skipped) and any(ln.endswith("snap.md") for ln in skipped), skipped
+
+# 6) 見出しの無い文書(txt)は、書き換えた行の前後を段落の切れ目まで
+plain = repo / "plain.txt"
+paras = "\n\n".join("段落%d の文。\n続き%d。" % (i, i) for i in range(40)) + "\n"
+plain.write_text(paras.replace("段落20 の文", "段落20 を印V に直した文"), encoding="utf-8")
+run("docs-record", {"session_id": "s8", "tool_name": "Edit", "tool_input": {"file_path": str(plain)},
+                    "tool_response": {"filePath": str(plain), "originalFile": paras}})
+run("docs-check", {"session_id": "s8", "hook_event_name": "Stop"}, READER)
+body = last_prompt()[0][len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
+assert "印V" in body and "段落0 の文" in body and "段落5 の文" not in body and "段落35 の文" not in body, body
+
+# 7) 前の版を返さない道具(MCP の書く道具)は、記録したときの HEAD の版と比べる
+doc.write_text(doc.read_text(encoding="utf-8").replace("印D の 3 行目。", "印D の 3 行目を印U に直した。"), encoding="utf-8")
+run("docs-record", {"session_id": "s9", "tool_name": "mcp__fs__write_file", "tool_input": {"path": str(doc)}, "tool_response": [{"type": "text"}]})
+run("docs-check", {"session_id": "s9", "hook_event_name": "Stop"}, READER)
+body = last_prompt()[0][len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
+assert "印U" in body and "印D の 0 行目" in body and "印A" not in body and "印C" not in body, f"HEAD の版と比べた節だけが渡っていない: {body}"
+print("DOCS_FOCUS_OK")
 PY
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
