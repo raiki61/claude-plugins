@@ -15,7 +15,7 @@ import ast
 import importlib.util
 import io
 import os
-import shutil
+import pathlib
 import sys
 import tempfile
 
@@ -160,11 +160,12 @@ QUIET = [
     ("gh api graphql -f query='query { repository { name } }' # %s" % PAD, "graphql の読み取り"),
 ]
 
-# 本文ファイルの倒れ先を発火させる実物のファイル(一時フォルダに置き、終わりに消す)
-_tmp = tempfile.mkdtemp()
-OK_FILE = os.path.join(_tmp, "ok.md")
-BIG = os.path.join(_tmp, "big.md")
-LATIN = os.path.join(_tmp, "latin.md")
+# 本文ファイルの倒れ先を発火させる実物のファイル(一時フォルダに置き、終わりに消す)。コマンドに埋めるパスは / で区切る——
+# Windows の Bash の道具は Git Bash なので、C:\Users\… の \ は引用しないとシェルに落とされる(C:/Users/… は Git Bash でも読める)
+_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+OK_FILE = pathlib.Path(_tmp.name, "ok.md").as_posix()
+BIG = pathlib.Path(_tmp.name, "big.md").as_posix()
+LATIN = pathlib.Path(_tmp.name, "latin.md").as_posix()
 with open(OK_FILE, "w", encoding="utf-8") as f:
     f.write(BODY + PAD)
 with open(BIG, "w", encoding="utf-8") as f:
@@ -295,7 +296,7 @@ try:
             failures.append("倒れ先 %r で止まらない (blocked=%s parsed=%s)" % (reason, blocked, parsed))
 finally:
     del gate.LONG_TEXT_FLAGS[PATCH_FLAG]
-    shutil.rmtree(_tmp, ignore_errors=True)
+    _tmp.cleanup()
 
 if failures:
     for f in failures:

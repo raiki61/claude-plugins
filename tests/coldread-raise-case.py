@@ -13,12 +13,11 @@ import importlib.util
 import io
 import json
 import os
-import shutil
 import sys
 import tempfile
 
-_cfg = tempfile.mkdtemp()
-os.environ["CLAUDE_CONFIG_DIR"] = _cfg
+_cfg = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+os.environ["CLAUDE_CONFIG_DIR"] = _cfg.name
 
 gate_path = os.path.join(os.path.dirname(__file__), "..", "gates", "hooks", "coldread-gate.py")
 spec = importlib.util.spec_from_file_location("coldread_gate", gate_path)
@@ -41,5 +40,5 @@ except SystemExit:
     pass
 finally:
     sys.stdout = real_stdout
-    shutil.rmtree(_cfg, ignore_errors=True)
+    _cfg.cleanup()
 print(buf.getvalue().strip() or "ALLOW_EMPTY")
