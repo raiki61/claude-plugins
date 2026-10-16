@@ -4,6 +4,19 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。
 
+## [Unreleased]
+
+### Added
+
+- 段 2 の足りない物に、初めての人が自分で準備するための案内を付ける。人の読む形は「案内:」の下に、`--json` は各項目の `guide`（行の並び。足りない項目だけが持つ）に同じ物を出す。`schema` は 1 のまま。
+  - herdr が無い: OS ごとの入れ方の補い（Windows はネイティブで一般提供、ARM64 はエミュレーション、cmd での入れ方、zip はフォルダごと置く。Linux・macOS は置き場と Homebrew・mise・Nix）と、Claude Code の連携 `herdr integration install claude`。
+  - herdr が動いていない: 初回の案内から連携を入れられることと、連携の入れ方。
+  - 起こし方の命令が見つからない: アカウントが 1 つなら要らないことを先に書き、アカウントごとに設定のフォルダを分けて `CLAUDE_CONFIG_DIR` で起こす関数か別名を、bash・zsh・PowerShell で示す（名前とフォルダは例）。
+
+### Fixed
+
+- Windows で、PowerShell の `$PROFILE` に書いた起こし方の関数を見つけられず、足りない物と言っていた。PATH の上に無ければ、在る方の PowerShell（pwsh・Windows PowerShell）に `Get-Command` で聞く。
+
 ## [0.1.1] - 2026-10-16
 
 ### Fixed

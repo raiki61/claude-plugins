@@ -86,6 +86,37 @@ class Tiers(unittest.TestCase):
         r = tiers_check.check(2, probe=FakeProbe(shell=()))
         self.assertEqual(names(r, ok=False), ["起こし方の命令 claude"])
 
+    def test_missing_herdr_guides_install_for_the_os_and_the_claude_link(self):
+        for platform, words in (("win32", ("ARM64", "install.cmd", "herdr-windows-x86_64.zip", "$env:CLAUDE_CONFIG_DIR")),
+                                ("darwin", ("HERDR_INSTALL_DIR", "mise use -g herdr", 'CLAUDE_CONFIG_DIR="$HOME/.claude-p2"')),
+                                ("linux", ("HERDR_INSTALL_DIR", "herdr update"))):
+            r = tiers_check.check(2, probe=FakeProbe(have=("claude", "gh"), platform=platform))
+            herdr = r["checks"][3]
+            self.assertEqual(herdr["name"], "herdr")
+            self.assertIn("herdr.dev/install", herdr["fix"][0])
+            text = "\n".join(herdr["guide"])
+            self.assertIn("herdr integration install claude", text)
+            for w in words:
+                self.assertIn(w, text, platform)
+
+    def test_herdr_not_running_guides_the_claude_link(self):
+        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, "server:\n  status: not running\n")}))
+        run = r["checks"][4]
+        self.assertEqual(run["name"], "herdr の動き")
+        self.assertIn("herdr integration install claude", "\n".join(run["guide"]))
+
+    def test_missing_launcher_guides_one_account_first_then_three_shells(self):
+        r = tiers_check.check(2, ["claude-work"], probe=FakeProbe(shell=()))
+        guide = r["checks"][-1]["guide"]
+        self.assertIn("アカウントが 1 つなら", guide[0])
+        for head in ("bash:", "zsh:", "PowerShell:"):
+            self.assertTrue(any(g.startswith(head) for g in guide), head)
+        self.assertIn("CLAUDE_CONFIG_DIR", "\n".join(guide))
+
+    def test_items_that_are_ok_have_no_guide(self):
+        r = tiers_check.check(3, probe=FakeProbe())
+        self.assertTrue(all(x["guide"] == [] for x in r["checks"]))
+
     def test_version_failure_is_a_problem(self):
         r = tiers_check.check(0, probe=FakeProbe(runs={("claude", "--version"): (1, "boom\n")}))
         self.assertFalse(r["ok"])
@@ -115,6 +146,15 @@ class Main(unittest.TestCase):
         self.assertIn("入れ方（手で）", out)
         self.assertIn("tiers --tier 2 --launcher claude-x", out)
 
+    def test_human_lines_show_the_same_guide_as_json(self):
+        probe = lambda: FakeProbe(have=("claude", "gh"), shell=(), platform="win32")
+        rc, out = self.run_main(["--tier", "2", "--launcher", "claude-x"], probe())
+        _, js = self.run_main(["--tier", "2", "--launcher", "claude-x", "--json"], probe())
+        guides = [g for x in json.loads(js)["checks"] for g in x["guide"]]
+        self.assertTrue(guides)
+        for g in guides:
+            self.assertIn(f"          - {g}", out)
+
     def test_all_good(self):
         rc, out = self.run_main(["--tier", "3"], FakeProbe())
         self.assertEqual(rc, 0)
@@ -141,6 +181,25 @@ class RealProbe(unittest.TestCase):
     def test_shell_has_falls_back_to_which_on_windows(self):
         probe = tiers_check.Probe(env={"PATH": ""}, platform="win32")
         self.assertFalse(probe.shell_has("tiers-no-such-command"))
+
+    def test_shell_has_looks_for_powershell_functions_on_windows(self):
+        # $PROFILE に書いた関数は PATH に無いので、在る方の PowerShell に Get-Command で聞く
+        calls = []
+
+        def fake_run(argv):
+            calls.append(argv)
+            return (0 if pathlib.PurePath(argv[0]).name == "powershell" else 1), ""
+
+        probe = tiers_check.Probe(env={"PATH": ""}, platform="win32")
+        probe.which = lambda cmd: {"pwsh": "/ps/pwsh", "powershell": "/ps/powershell"}.get(cmd)
+        orig = tiers_check._run
+        tiers_check._run = fake_run
+        try:
+            self.assertTrue(probe.shell_has("claude-o'p"))
+        finally:
+            tiers_check._run = orig
+        self.assertEqual([pathlib.PurePath(c[0]).name for c in calls], ["pwsh", "powershell"])
+        self.assertIn("Get-Command -Name 'claude-o''p'", calls[-1][-1])
 
 
 if __name__ == "__main__":
