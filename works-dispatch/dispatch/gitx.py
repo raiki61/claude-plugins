@@ -3,7 +3,11 @@
 作業場は元の clone の git worktree（作る・消すは herdr の口。herdr.py）。worktree は中身（objects・refs・stash）を元の clone と
 共有するので、手元の作業の判定は「その worktree の HEAD とその枝」に絞る（ほかの枝や元の clone の作業を数えない）。
 
-書く関数は fetch・fast_forward・reset_keep・delete_branch の 4 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+部署の属性（役・アカウント・上役など）は、部署（worktree）ごとの git の設定 `company.<名前>` に置く（worktree_attrs・
+enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
+混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
+
+書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr の 6 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
 import os
@@ -140,3 +144,49 @@ def ignored_files(cwd, runner=_default_runner):
     """git が追わないファイル（.gitignore に当たるもの）。丸ごと無視したフォルダ（node_modules など）は中を数えない。"""
     out = _git(cwd, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], runner)
     return sorted(line for line in (out or "").splitlines() if line and not line.endswith("/"))
+
+
+def common_dir(cwd, runner=_default_runner):
+    """cwd の属するリポジトリの共通の .git の場所（linked worktree でも元の clone の .git）。git でなければ None。"""
+    out = _git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], runner)
+    return os.path.normpath(out) if out else None
+
+
+def root_of(common):
+    """共通の .git の場所から、元の clone の根。ふつうは .git の親。bare など .git で終わらなければ、その場所そのもの。"""
+    return os.path.dirname(common) if os.path.basename(common) == ".git" else common
+
+
+ATTR = "company."
+
+
+def worktree_attrs(cwd, runner=_default_runner):
+    """その worktree の git の設定 company.<名前> を {名前: 値} で（名前は git が小文字にそろえる）。
+    extensions.worktreeConfig が入っていない・属性が無い・読めないときは空。"""
+    out = _git(cwd, ["config", "--worktree", "--get-regexp", r"^company\."], runner)
+    attrs = {}
+    for line in (out or "").splitlines():
+        key, _, value = line.partition(" ")
+        if key.startswith(ATTR):
+            attrs[key[len(ATTR):]] = value
+    return attrs
+
+
+def enable_worktree_config(source, runner=_default_runner):
+    """元の clone に extensions.worktreeConfig = true を入れる（部署ごとの設定を使う前提）。書く口。
+    already（もう入っている）・enabled（入れた）のどちらか。git の文書は、入れる前に共通の設定の core.bare と core.worktree を
+    元の clone の config.worktree へ移すよう求めている。そのどちらかが共通の設定に在れば入れずに GitError（移すのは持ち主）。"""
+    if (_git(source, ["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"], runner) or "") == "true":
+        return "already"
+    moved = [k for k in ("core.bare", "core.worktree")
+             if _git(source, ["config", "--local", "--get", k], runner) not in (None, "false")]
+    if moved:
+        raise GitError(f"{source} の共通の設定に {', '.join(moved)} が有るので extensions.worktreeConfig を入れない"
+                       "（git help worktree の CONFIGURATION FILE の節のとおり、先に元の clone の config.worktree へ移す）")
+    _must(["git", "-C", source, "config", "--local", "extensions.worktreeConfig", "true"], runner)
+    return "enabled"
+
+
+def set_worktree_attr(cwd, name, value, runner=_default_runner):
+    """その worktree の git の設定 company.<名前> に値を書く（同じ値なら同じ結果）。書く口。"""
+    _must(["git", "-C", cwd, "config", "--worktree", f"{ATTR}{name}", value], runner)

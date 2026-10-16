@@ -14,7 +14,8 @@
 - fork の PR（head が別のリポジトリ）は origin に枝が無いので作らず provision_failed。
 - 最後に、herdr の worktree の並びにその枝の場所が在り、作業場が開いていて、checkout がその枝に居ることを読み戻してから返す。
 
-作業役（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。
+作業役（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。部署の属性（役・アカウント・会話の名前・
+上役）は mark が、その場所の git の設定 company.<名前> に書く（会社の形の設計 4.2）。
 
 issue から始めるとき（入口の --issue）に、issue に結んだ枝がまだ無ければ、link_branch が GitHub に枝を作って issue に結ぶ
 （gh issue develop。書く口）。作った後に issue に結んだ枝を読み戻して返す。
@@ -183,6 +184,15 @@ def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
         out["detail"] = "／".join(notes + [str(e)])
         return out
     return _read_back(out, made, seen, branch, notes, g)
+
+
+def mark(path, source, attrs, g=gitx):
+    """部署の属性を、その場所（worktree）の git の設定 company.<名前> に書く。値が None の属性は書かない。書けなければ GitError。
+    元の clone に extensions.worktreeConfig が無ければ先に入れる（部署ごとの設定は、これが無いと書けない）。"""
+    g.enable_worktree_config(source)
+    for name, value in attrs.items():
+        if value:
+            g.set_worktree_attr(path, name, value)
 
 
 def main(argv=None):

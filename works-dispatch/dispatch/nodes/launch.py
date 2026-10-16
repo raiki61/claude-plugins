@@ -10,7 +10,7 @@
 POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く。attention の /catchup は書いたページを VS Code の窓に
 開くが、dispatch は何件も一度に起こすので、窓にタブが一気に開かないようにする（ページは書かれ、一覧のページに載る）。
 シェル関数のアカウントのコマンドにも、この前置きは関数の間だけ環境変数として渡る（bash・zsh で確かめた）。
-作業役（入口の --task）を起こすときは、この前置きを付けず、会話とペインに名前を付け、別のフォルダで起こせる（start の説明）。
+作業役（入口の --task）を起こすときは、この前置きを付けず、会話とペインに名前を付ける（start の説明）。作業役も作業場で起こす。
 
 使い方: python3 nodes/launch.py --plan <plan の JSON> --number <PR 番号> --pane <ペイン ID> [--out <パス>]
 """
@@ -34,10 +34,10 @@ def _quote(text, posix):
     return shlex.quote(text) if posix else '"' + text.replace('"', '') + '"'
 
 
-def start(row, pane, h=herdr, posix=None, *, quiet=True, name=None, label=None, cwd=None):
-    """PR の会話は quiet（/catchup の窓を開かない前置き）だけで起こす。作業役（入口の --task）は quiet を外し、次の 3 つを足す。
+def start(row, pane, h=herdr, posix=None, *, quiet=True, name=None, label=None):
+    """PR の会話は quiet（/catchup の窓を開かない前置き）だけで起こす。作業役（入口の --task）は quiet を外し、次の 2 つを足す。
     name: 会話の名前（起動のコマンドの後ろに `--name <名前>`。SendMessage の宛先になる）。label: ペインの名前（herdr pane rename。
-    付けられなくても起こし、detail に書く）。cwd: 会話を起こすフォルダ（作業場と違うときだけ。先に `cd <フォルダ>` を打ち込む）。"""
+    付けられなくても起こし、detail に書く）。"""
     posix = os.name != "nt" if posix is None else posix
     command = row["account"]["command"]
     if name:
@@ -54,8 +54,6 @@ def start(row, pane, h=herdr, posix=None, *, quiet=True, name=None, label=None, 
                 h.rename_pane(pane, label)
             except h.HerdrError as e:
                 result["detail"] = f"ペインに名前を付けられなかった（{e}）"
-        if cwd:
-            h.run(pane, f"cd {_quote(cwd, posix)}")
         h.run(pane, command)
         state = h.wait_ready(pane)
         seen = h.agent(pane)

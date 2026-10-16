@@ -2,6 +2,7 @@
 
 置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works-dispatch/dispatch.toml の順。形は設計書 5 節。
 知らない鍵は読み飛ばす（前の版の clone_root が残っていても止めない）。
+外した鍵のうち、書いた人の思う動きと違ってしまう物（task_cwd）は、止めずに注記（Config.notes）を出して無視する。
 アカウントを書かなければ、`claude` 1 つだけのアカウントとして扱う（D7。普通の利用者の環境でもそのまま動く）。
 """
 
@@ -36,7 +37,6 @@ class Repo(NamedTuple):
     copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（リポジトリの中の相対パス）
     copy_from: str | None = None  # copy_files を写す元のフォルダ。None は元の clone
     gh_user: str | None = None  # このリポジトリを読む gh のアカウント。None はその人の今の設定（有効なアカウントか GH_TOKEN）
-    task_cwd: str | None = None  # 作業役（--task）の会話を起こすフォルダ。None は作業場（git worktree）そのもの
 
 
 class Config(NamedTuple):
@@ -44,6 +44,7 @@ class Config(NamedTuple):
     limits_dir: str
     accounts: tuple[Account, ...]
     repos: tuple[Repo, ...]
+    notes: tuple[str, ...] = ()  # 止めはしないが、書いた人に伝える事（外した鍵が書かれているなど）
 
 
 def _path(v):
@@ -105,7 +106,7 @@ def load(path=None, env=os.environ):
     if not raw.get("accounts"):
         accounts = [Account("default", "claude", None)]
 
-    repos = []
+    repos, notes = [], []
     for i, r in enumerate(raw.get("repos", [])):
         where = f"repos[{i}]"
         name = _str(r, "repo", where, problems)
@@ -130,18 +131,17 @@ def load(path=None, env=os.environ):
         if gh_user is not None and not isinstance(gh_user, str):
             problems.append(f"{where}: gh_user が文字列で無い")
             gh_user = None
-        task_cwd = r.get("task_cwd")
-        if task_cwd is not None and not isinstance(task_cwd, str):
-            problems.append(f"{where}: task_cwd が文字列で無い")
-            task_cwd = None
+        if "task_cwd" in r:
+            # 作業役は自分の作業場で起こす（その会社の AGENTS.md・CLAUDE.md とフックを効かせるため。会社の形の設計 4.1）
+            notes.append(f"{where}（{name}）: task_cwd は使わなくなったので無視した（作業役は自分の作業場で起こす）。設定から消してよい")
         repos.append(Repo(name, prompt, _path(source) if source else None, tuple(copy),
-                          _path(copy_from) if copy_from else None, gh_user or None, _path(task_cwd) if task_cwd else None))
+                          _path(copy_from) if copy_from else None, gh_user or None))
     if not raw.get("repos"):
         problems.append("repos が 1 つも無い")
 
     if problems:
         raise ConfigError(f"設定の形が違う（{path}）: " + "／".join(problems))
-    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos))
+    return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes))
 
 
 def pick_repo(cfg, name):

@@ -23,7 +23,8 @@ SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "no
 WRITES = {
     # herdr: 会話を起こす・送る
     "run": {"nodes/launch.py"},
-    "rename_pane": {"nodes/launch.py"},
+    "rename_pane": {"nodes/launch.py", "nodes/sync.py"},
+    "report_pane_metadata": {"nodes/sync.py"},
     "prompt": {"nodes/turn.py"},
     # herdr: 枝の場所（元の clone の git worktree）を作る・開く・消す、作業場を畳む
     "create_worktree": {"nodes/provision.py"},
@@ -35,6 +36,9 @@ WRITES = {
     "fast_forward": {"nodes/provision.py"},
     "reset_keep": {"nodes/provision.py"},
     "delete_branch": {"nodes/clean.py"},
+    # git: 部署の属性（worktree ごとの設定）を書く
+    "enable_worktree_config": {"nodes/provision.py"},
+    "set_worktree_attr": {"nodes/provision.py"},
     # gh: issue に枝を結ぶ（GitHub に枝を作る）
     "issue_develop": {"nodes/provision.py"},
     # herdr: サイドバーの印

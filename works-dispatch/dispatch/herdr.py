@@ -6,7 +6,8 @@ herdr は版が 0.x で互換を約束していない。herdr の文書は、手
 作業場の場所（元の clone の git worktree）も、作る・並べる・開く・消すをここに寄せる（worktrees・create_worktree・open_worktree・
 remove_worktree）。ノードは「枝の場所」の言葉だけで書き、herdr の worktree の口の形を知らない。
 
-書く関数は run・prompt・rename_pane・create_worktree・open_worktree・remove_worktree・close_workspace・report_activity で、
+書く関数は run・prompt・rename_pane・report_pane_metadata・create_worktree・open_worktree・remove_worktree・close_workspace・
+report_activity で、
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
@@ -63,6 +64,17 @@ def panes(runner=_default_runner):
 def workspace_labels(runner=_default_runner):
     ws = _call(["herdr", "workspace", "list"], runner).get("workspaces", [])
     return {w["workspace_id"]: w.get("label") for w in ws}
+
+
+def workspaces(runner=_default_runner):
+    """作業場の並び。1 件は {workspace_id, label, repo_root}。repo_root は herdr がその作業場に持つリポジトリの元の clone の根
+    （linked worktree の作業場でも元の clone）で、herdr が git の印を持たない作業場（git worktree からでなく開いたもの）は None。
+    形は 2026-10-16 に herdr 0.9.3 で読んだ（workspace list の worktree 欄の repo_root）。"""
+    out = []
+    for w in _call(["herdr", "workspace", "list"], runner).get("workspaces", []):
+        wt = w.get("worktree") if isinstance(w.get("worktree"), dict) else {}
+        out.append({"workspace_id": w["workspace_id"], "label": w.get("label"), "repo_root": _norm(wt.get("repo_root"))})
+    return out
 
 
 def agent(target, runner=_default_runner):
@@ -126,6 +138,21 @@ def run(pane, command, runner=_default_runner):
 def rename_pane(pane, label, runner=_default_runner):
     """ペインに名前（label）を付ける。書く口。名前は 1 つの argv で渡す（herdr は残りの引数を空白でつなぐが、1 つなら字のまま）。"""
     _call(["herdr", "pane", "rename", pane, label], runner)
+
+
+def report_pane_metadata(pane, source, display_agent, title, tokens, clear_tokens=(), runner=_default_runner):
+    """ペインの表示名（--display-agent）・題名（--title）・札（--token 名=値）を、出どころ source の分として付ける。書く口。
+    herdr は出どころごとに値を持ち、同じ出どころで打ち直すと置き換わる。値が None の表示名・題名と、clear_tokens の札は消す
+    （正本から消えた物を表示に残さない。何度打っても同じ結果）。成功しても何も出さない（2026-10-16 に herdr 0.9.3 で見た。
+    --token と --clear-token、--clear-display-agent・--clear-title は 1 回の呼び出しに混ぜられた）。"""
+    argv = ["herdr", "pane", "report-metadata", pane, "--source", source]
+    argv += ["--display-agent", display_agent] if display_agent else ["--clear-display-agent"]
+    argv += ["--title", title] if title else ["--clear-title"]
+    for name, value in sorted(tokens.items()):
+        argv += ["--token", f"{name}={value}"]
+    for name in clear_tokens:
+        argv += ["--clear-token", name]
+    _call(argv, runner, quiet_ok=True)
 
 
 def shell_in_front(pane, runner=_default_runner):
