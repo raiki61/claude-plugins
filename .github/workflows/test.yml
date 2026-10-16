@@ -1,11 +1,12 @@
 name: test
 
-# **起こすのは出荷の時の 1 回だけ**（持ち主の決め 2026-10-04）: release/** への push と手での起動（gh workflow run test.yml --ref <枝>）。
-# wip/* と main への push・pull_request では走らせない——main へは release/* で緑になった同じ sha を早送りするので回し直さない。
-# 版の据え置きを赤にする検査（tests/run.sh の VERSION_BUMP_OK）は release/* で厳しく効く。形は tests/run.sh の CI_LINT_OK が縛る
+# **起こすのは main と release/** への push と手での起動（gh workflow run test.yml --ref <枝>）。** wip/* への push・pull_request では走らせない。
+# main で走らせるのは、取り込みの命令（works-dispatch の --land）が関門を手元の検証で済ませて main へ直接 push し、release/* を通らないから
+# ——main で走らないと、入った後に赤を見つける役を誰も果たさない（2026-10-16）。入る前の関門にはしない（main の CI は待たない）。
+# 版の据え置きを赤にする検査（tests/run.sh の VERSION_BUMP_OK）は main・release/* で厳しく効く。形は tests/run.sh の CI_LINT_OK が縛る
 on:
   push:
-    branches: ["release/**"]
+    branches: [main, "release/**"]
   workflow_dispatch:
 
 # checkout して台本を走らせるだけなので、GITHUB_TOKEN は読むだけにする
