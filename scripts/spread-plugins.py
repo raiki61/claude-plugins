@@ -6,14 +6,15 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
 終わり、works-dispatch がその仕事を AI の部署（役「作業」）に回す。
 
 すること:
-1. アカウントごとに（works-dispatch の設定の accounts。設定のフォルダ config_dir ごとに Claude Code を起こす）、
-   `claude plugin marketplace update <このリポジトリの marketplace>` を打ち、入っているこの marketplace のプラグインだけ
-   `claude plugin update <id>` を打つ。
+1. アカウントごとに（works-dispatch の設定の accounts と、手元の設定 `~/.config/claude-plugins/spread.toml` の accounts。
+   設定のフォルダ config_dir ごとに Claude Code を起こす）、`claude plugin marketplace update <このリポジトリの marketplace>`
+   を打ち、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。works-dispatch の設定に載るのは
+   部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
+   （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
    `/reload-plugins` を打つ。持ち主の作業の会話に打つと herdr で done に替わり、ノイズになるため（この決まりは組織の物なので、
    works-dispatch でなくここに置く）。入力欄に字が入っている会話は飛ばす。
-3. その人だけの除外は手元の設定 `~/.config/claude-plugins/spread.toml` の `skip`（herdr の作業場の名前の並び）に置く。
-   持ち主の値を配布物に書かない。
+3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）に置く。持ち主の値を配布物に書かない。
 
 使い方: python3 scripts/spread-plugins.py < 入力の JSON（省けば {}）
 終了の値: 0 = 配った（飛ばした会話は数えない）/ 1 = 失敗が在る / 2 = 入力か設定が読めない
@@ -32,7 +33,7 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"   # works-dispatch の設定の既定の場所（WORKS_DISPATCH_CONFIG で替わる）
-LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの除外
+LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの配る先の足しと除外
 RELOAD = "/reload-plugins"
 
 
@@ -45,21 +46,29 @@ def marketplace_name(root=ROOT):
     return json.loads((root / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))["name"]
 
 
-def accounts(env=os.environ):
-    """works-dispatch の設定のアカウントの並び [(名前, 設定のフォルダか None)]。設定が無ければ既定の 1 つ。"""
-    path = pathlib.Path(os.path.expanduser(env.get("WORKS_DISPATCH_CONFIG") or DISPATCH_CONFIG))
-    if not path.is_file():
-        return [("default", None)]
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    return [(a.get("name") or "?", a.get("config_dir")) for a in raw.get("accounts", [])] or [("default", None)]
+def read_toml(path):
+    p = pathlib.Path(os.path.expanduser(path))
+    return tomllib.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+
+
+def accounts(env=os.environ, local=LOCAL):
+    """配る先のアカウントの並び [(名前, 設定のフォルダか None)]。works-dispatch の設定の物に手元の設定の物を足し、
+    同じ設定のフォルダは先の 1 つだけ残す。works-dispatch の設定が無いか accounts が空なら、既定の 1 つから始める。"""
+    raw = read_toml(env.get("WORKS_DISPATCH_CONFIG") or DISPATCH_CONFIG).get("accounts") or [{"name": "default"}]
+    out, seen = [], set()
+    for a in raw + read_toml(local).get("accounts", []):
+        if not isinstance(a, dict):
+            continue
+        d = a.get("config_dir")
+        key = os.path.realpath(os.path.expanduser(d)) if d else None
+        if key not in seen:
+            seen.add(key)
+            out.append((a.get("name") or "?", d))
+    return out
 
 
 def skips(path=LOCAL):
-    p = pathlib.Path(os.path.expanduser(path))
-    if not p.is_file():
-        return []
-    got = tomllib.loads(p.read_text(encoding="utf-8")).get("skip", [])
-    return [x for x in got if isinstance(x, str)]
+    return [x for x in read_toml(path).get("skip", []) if isinstance(x, str)]
 
 
 def claude_env(config_dir, env=os.environ):
@@ -159,7 +168,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
             raise ValueError("JSON の物で無い")
         dry = bool(value.get("dry_run"))
         market = marketplace_name()
-        accs, skip = accounts(env), skips(local)
+        accs, skip = accounts(env, local), skips(local)
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as e:
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2

@@ -81,7 +81,8 @@ autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（
 # 配布: 機械だけの役（machine = true。AI の部署を持たない）。道具「全アカウントに配る」（scripts/spread-plugins.py）だけを持つ。
 # 本流に入れるたびに下の [[land.after]] の合図で呼ばれ、片づかなければ（1 つでも失敗したら）作業に回る（名前「配布：全アカウントに配る」の部署が立つ）。
 # 手で呼ぶなら dispatch.py --call 配布 spread-plugins（--input '{"dry_run": true}' で空打ち）。どの会話に /reload-plugins を打つか
-# （部署と窓口だけ）はこの組織の決まりなのでスクリプトに置き、その人だけの除外は ~/.config/claude-plugins/spread.toml の skip に置く
+# （部署と窓口だけ）はこの組織の決まりなのでスクリプトに置き、その人だけの除外は ~/.config/claude-plugins/spread.toml の skip に置く。
+# 配る先は works-dispatch の設定のアカウントと、同じ手元の設定の accounts（Claude Code を使うが部署は起こさないアカウント）
 [[roles]]
 name = "配布"
 machine = true
@@ -89,7 +90,7 @@ machine = true
 [[roles.tools]]
 name = "spread-plugins"
 title = "全アカウントに配る"
-description = "works-dispatch の設定の全アカウントで、この marketplace と入っているそのプラグインを更新し、部署と窓口の会話に /reload-plugins を打つ（入力欄に字の在る会話は飛ばす）"
+description = "works-dispatch の設定と手元の設定（~/.config/claude-plugins/spread.toml の accounts）の全アカウントで、この marketplace と入っているそのプラグインを更新し、部署と窓口の会話に /reload-plugins を打つ（入力欄に字の在る会話は飛ばす）"
 inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、することを出すだけで何も打たない" } }, additionalProperties = false }
 command = "python3 scripts/spread-plugins.py"
 fallback_role = "作業"

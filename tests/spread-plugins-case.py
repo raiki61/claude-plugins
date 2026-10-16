@@ -5,6 +5,7 @@
 - only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力欄に字の在る会話と手元の
   設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
+- local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
 """
 
 import importlib.util
@@ -61,11 +62,11 @@ def world(fail=()):
     return runner, calls
 
 
-def run(runner, value):
+def run(runner, value, local='skip = ["plugins1"]\n'):
     d = pathlib.Path(tempfile.mkdtemp())
     (d / "dispatch.toml").write_text('accounts = [{ name = "main", command = "claude" },'
                                      ' { name = "p1", command = "claude-p1", config_dir = "/c/p1" }]\n', encoding="utf-8")
-    (d / "spread.toml").write_text('skip = ["plugins1"]\n', encoding="utf-8")
+    (d / "spread.toml").write_text(local, encoding="utf-8")
     out = io.StringIO()
     old = sys.stdout
     sys.stdout = out
@@ -96,5 +97,16 @@ def failure_is_nonzero():
     print("FAILURE_IS_NONZERO_OK")
 
 
+def local_accounts():
+    runner, calls = world()
+    rc, out = run(runner, {}, 'skip = ["plugins1"]\n'
+                  'accounts = [{ name = "ollama", config_dir = "/c/ollama" }, { name = "p1", config_dir = "/c/p1/" }]\n')
+    assert rc == 0, out
+    updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
+    assert updates == [(f"a@{MARKET}", None), (f"a@{MARKET}", "/c/p1"), (f"a@{MARKET}", "/c/ollama")], updates
+    print("LOCAL_ACCOUNTS_OK")
+
+
 if __name__ == "__main__":
-    {"only-company-talks": only_company_talks, "failure-is-nonzero": failure_is_nonzero}[sys.argv[1]]()
+    {"only-company-talks": only_company_talks, "failure-is-nonzero": failure_is_nonzero,
+     "local-accounts": local_accounts}[sys.argv[1]]()
