@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.19.6] - 2026-10-17
+
 ### Fixed
 
 まっさらな環境での 7 回目の試し（`docs/trials/2026-10-16-clean-env-7.md`）で、未納品の頼みを持ったまま落ちた部署を `--ask` が戻せなかった形の直し。
