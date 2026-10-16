@@ -48,14 +48,14 @@ role = "担当"
 [[skills]]
 id = "trials"
 name = "試し"
-description = "まっさらな環境・Windows・Linux でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
+description = "まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
 role = "担当"
 
 # 担当: 受け持ちごとに常設で 1 つ（resident = true なので、--resident を付けなくても常駐の部署で立つ）。受け持ちは部署の名前で決まる
 [[roles]]
 name = "担当"
 resident = true
-instructions = "受け持ちを常設で預かる。自分の受け持ちは作業場の名前（部署の名前）で決まる。受け持ちは次のとおり: 割り振り＝works-dispatch・tiers、点検＝gates と CI・根の tests/、見直し＝convergence-loops・graphloops、見渡し＝attention、説明書＝根の README・CLAUDE.md・CONTRIBUTING.md・docs/（docs/trials/ は除く）、試し＝docs/trials/（まっさらな環境・Windows・Linux〔Colima の Docker〕でプラグインを入れて試し、詰まりを docs/trials/ に記録する。プラグインは直さず、直しはその受け持ちの担当に頼む）。プラグインのフォルダの中（README・tests など）はそのプラグインの担当の物。works と works-factory は誰の受け持ちでもなく、触らない。頼みを受け、自分で進めるか、並べたいときは作業に頼む（--ask claude-plugins/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。受け持ちの無いファイル（根の scripts/・会社の形など）は作業に頼む。"
+instructions = "受け持ちを常設で預かる。自分の受け持ちは作業場の名前（部署の名前）で決まり、その中身は会話の始まりに足される。境目: プラグインのフォルダの中（README・tests など）はそのプラグインの担当の物。works と works-factory は誰の受け持ちでもなく、触らない。試しの担当はプラグインを直さず、直しはその受け持ちの担当に頼む。頼みを受け、自分で進めるか、並べたいときは作業に頼む（--ask claude-plugins/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。受け持ちの無いファイル（根の scripts/・会社の形など）は作業に頼む。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
@@ -84,9 +84,9 @@ bump = "marketplace"
 #   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
 # - 役は 4 つ: 窓口（持ち主と話す本社の会話。役の項目は要らない）・担当（受け持ちに常設）・作業（一度きり）・相談（この会社の形には置かない）。
 # - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
-#   受け持ち: 割り振り（works-dispatch・tiers）、点検（gates と、CI・根の tests/）、見直し（convergence-loops・graphloops）、
-#   見渡し（attention）、説明書（根の README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/ は除く）、
-#   試し（docs/trials/。まっさらな環境・Windows・Linux で入れて試し、詰まりを記録する。プラグインは直さず、直しはその受け持ちの担当に頼む）。
+#   受け持ちの表は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の役を足すフックが、
+#   部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。
+#   試しの担当はプラグインを直さず、直しはその受け持ちの担当に頼む。
 #   プラグインのフォルダの中（README・tests など）は、そのプラグインの担当の物。
 #   works と works-factory は持ち主が別に回している所なので、受け持ちを作らず、どの担当も触らない。
 #   担当への頼みは部署の名前で宛てる（--ask 割り振り。works-dispatch は部署の名前を役より先に当てる。
