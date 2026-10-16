@@ -6,7 +6,7 @@ herdr は版が 0.x で互換を約束していない。herdr の文書は、手
 作業場の場所（元の clone の git worktree）も、作る・並べる・開く・消すをここに寄せる（worktrees・create_worktree・open_worktree・
 remove_worktree）。ノードは「枝の場所」の言葉だけで書き、herdr の worktree の口の形を知らない。
 
-書く関数は run・prompt・create_worktree・open_worktree・remove_worktree・close_workspace・report_activity で、
+書く関数は run・prompt・rename_pane・create_worktree・open_worktree・remove_worktree・close_workspace・report_activity で、
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
@@ -121,6 +121,11 @@ def report_activity(pane, text, ttl_ms, spawn=_spawn):
 def run(pane, command, runner=_default_runner):
     """ペインのシェルにコマンドを打ち込み、Enter まで送る。書く口その 1。"""
     _call(["herdr", "pane", "run", pane, command], runner, quiet_ok=True)
+
+
+def rename_pane(pane, label, runner=_default_runner):
+    """ペインに名前（label）を付ける。書く口。名前は 1 つの argv で渡す（herdr は残りの引数を空白でつなぐが、1 つなら字のまま）。"""
+    _call(["herdr", "pane", "rename", pane, label], runner)
 
 
 def shell_in_front(pane, runner=_default_runner):

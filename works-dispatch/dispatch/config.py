@@ -36,6 +36,7 @@ class Repo(NamedTuple):
     copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（リポジトリの中の相対パス）
     copy_from: str | None = None  # copy_files を写す元のフォルダ。None は元の clone
     gh_user: str | None = None  # このリポジトリを読む gh のアカウント。None はその人の今の設定（有効なアカウントか GH_TOKEN）
+    task_cwd: str | None = None  # 作業役（--task）の会話を起こすフォルダ。None は作業場（git worktree）そのもの
 
 
 class Config(NamedTuple):
@@ -129,8 +130,12 @@ def load(path=None, env=os.environ):
         if gh_user is not None and not isinstance(gh_user, str):
             problems.append(f"{where}: gh_user が文字列で無い")
             gh_user = None
+        task_cwd = r.get("task_cwd")
+        if task_cwd is not None and not isinstance(task_cwd, str):
+            problems.append(f"{where}: task_cwd が文字列で無い")
+            task_cwd = None
         repos.append(Repo(name, prompt, _path(source) if source else None, tuple(copy),
-                          _path(copy_from) if copy_from else None, gh_user or None))
+                          _path(copy_from) if copy_from else None, gh_user or None, _path(task_cwd) if task_cwd else None))
     if not raw.get("repos"):
         problems.append("repos が 1 つも無い")
 
@@ -140,13 +145,16 @@ def load(path=None, env=os.environ):
 
 
 def pick_repo(cfg, name):
-    """名前の repo を返す。名前が None なら設定の最初の repo。"""
+    """名前（OWNER/NAME）か代表の clone のパスの repo を返す。名前が None なら設定の最初の repo。"""
     if name is None:
         return cfg.repos[0]
     for r in cfg.repos:
         if r.repo == name:
             return r
-    raise ConfigError(f"設定の repos に {name} が無い")
+    for r in cfg.repos:
+        if r.source and os.path.realpath(_path(name)) == os.path.realpath(r.source):
+            return r
+    raise ConfigError(f"設定の repos に {name} が無い（OWNER/NAME か、source に書いた代表の clone のパスで指す）")
 
 
 def copy_root(repo):

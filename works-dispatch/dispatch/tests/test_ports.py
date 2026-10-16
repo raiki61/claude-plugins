@@ -80,6 +80,15 @@ class Herdr(unittest.TestCase):
             herdr.prompt("p", "t", wait=True, runner=Fake((1, err, "")))
         self.assertIn("pane_not_found", str(e.exception))
 
+    def test_rename_pane_passes_the_name_as_one_argv(self):
+        f = Fake(ok({"id": "cli:pane:rename", "result": {"type": "pane_info", "pane": {"pane_id": "w1:p1", "label": "直し p2"}}}))
+        herdr.rename_pane("w1:p1", "直し p2", runner=f)
+        self.assertEqual(f.calls[0][0], ["herdr", "pane", "rename", "w1:p1", "直し p2"])
+
+    def test_rename_pane_error_raises(self):
+        with self.assertRaises(herdr.HerdrError):
+            herdr.rename_pane("w1:p1", "x", runner=Fake((1, '{"error": {"code": "pane_not_found"}}', "")))
+
     def test_run_sends_command_line(self):
         f = Fake(ok({"id": "x", "result": {}}))
         herdr.run("wB:p1", "claude-x", runner=f)
@@ -513,3 +522,23 @@ class Claude(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaudeName(unittest.TestCase):
+    def test_name_flag_is_read_from_help(self):
+        f = Fake((0, "  -n, --name <name>   Set a display name for this session\n", ""))
+        self.assertTrue(claudex.has_name_flag(runner=f))
+        self.assertEqual(f.calls[0][0], ["claude", "--help"])
+        self.assertFalse(claudex.has_name_flag(runner=Fake((0, "  --resume <id>\n", ""))))
+        self.assertFalse(claudex.has_name_flag(runner=Fake((1, "--name", ""))))
+
+    def test_name_flag_is_false_when_claude_cannot_start(self):
+        def missing(argv, env=None):
+            raise FileNotFoundError(argv[0])
+        self.assertFalse(claudex.has_name_flag(runner=missing))
+
+    def test_caller_is_the_account_whose_listing_has_the_session(self):
+        listed = {"a1": [{"sessionId": "s1", "name": "x"}], "a2": [{"sessionId": "s2", "name": "窓口"}]}
+        self.assertEqual(claudex.caller(listed, "s2"), ("a2", "窓口"))
+        self.assertEqual(claudex.caller(listed, "s9"), (None, None))
+        self.assertEqual(claudex.caller(listed, None), (None, None))

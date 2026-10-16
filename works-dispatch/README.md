@@ -1,6 +1,6 @@
 # works-dispatch
 
-自分の番の PR を、枝ごとの作業場（代表の clone の git worktree と、herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で `/catchup <番号>` と、設定のファイルに書いた 2 ターン目の文を送る Claude Code のプラグイン。相手の新しい返事が有れば同じ場所に会話を立て直して送り直し、閉じた PR の場所は片付ける（作業場の一生を 1 つのコマンドで回す）。issue から始める作業も、issue に結んだ枝の作業場を開いて `/catchup <issue の番号>` まで送れる（`--issue N`）。herdr は、端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具。修正の工場 works（darkfactory）と同じ系列の名前を持つが、中身は works の何も使わない。
+自分の番の PR を、枝ごとの作業場（代表の clone の git worktree と、herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で `/catchup <番号>` と、設定のファイルに書いた 2 ターン目の文を送る Claude Code のプラグイン。相手の新しい返事が有れば同じ場所に会話を立て直して送り直し、閉じた PR の場所は片付ける（作業場の一生を 1 つのコマンドで回す）。issue から始める作業も、issue に結んだ枝の作業場を開いて `/catchup <issue の番号>` まで送れる（`--issue N`）。作業ごとの作業役の会話を、名前を付けて枝の作業場に起こし、頼みのファイルを渡すこともできる（`--task`。窓口と作業役の形は SKILL.md）。herdr は、端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具。修正の工場 works（darkfactory）と同じ系列の名前を持つが、中身は works の何も使わない。
 
 - AI は使わない。全部 Python の標準ライブラリだけのスクリプト（`dispatch/`）で、`/works-dispatch:dispatch` のスキル（`skills/dispatch/SKILL.md`）はそれを走らせて出力を見せるだけ。
 - 使う人向けの前提と手順は SKILL.md にまとめた。ここは直す人向けに書く。
@@ -16,9 +16,9 @@
   - accounts: アカウントを使用率で並べる。
   - assign: PR をアカウントと作業場に割り振る。全部の PR は同時に走るので、始める前に、各アカウントの使用率の残りと 1 件あたりの使用率から件数を決める。
   - cost: 1 件あたりの使用率を測って覚える。dispatch が始める前と全部の `/catchup` の後に使用率を API に問い合わせ（出力 0 トークン）、差を開いた件数で割る。週の使用率は statusline からは枠の中で動かない（`limits.py` の record の決まり）ので、問い合わせで取る。
-  - provision: 枝の場所（代表の clone の git worktree）と herdr の作業場を、無ければ作り、有れば開き直して、origin の head へ早送りする。代表の clone 自身がその枝を開いていれば作らない（`branch_busy`）。`--issue` で issue に枝がまだ無ければ、GitHub に枝を作って結ぶ（`gh issue develop`）。
-  - launch: Claude Code を起こす。
-  - turn: `/catchup` と 2 ターン目の文を送る。1 ターン目の終わりは Claude Code 自身の会話の状態で見る。会話を終える（`/exit`）口も持つ。
+  - provision: 枝の場所（代表の clone の git worktree）と herdr の作業場を、無ければ作り、有れば開き直して、origin の head へ早送りする。作業役（`--task`）の場所は `prepare_task` が用意し、origin に無い枝も既定の枝から作り、在る場所は git で動かさない。代表の clone 自身がその枝を開いていれば作らない（`branch_busy`）。`--issue` で issue に枝がまだ無ければ、GitHub に枝を作って結ぶ（`gh issue develop`）。
+  - launch: Claude Code を起こす。作業役は、ペインに名前を付け（`herdr pane rename`）、会話に `--name` を付け、設定の `task_cwd` が有ればそこへ `cd` してから起こす。
+  - turn: `/catchup` と 2 ターン目の文を送る。作業役には最初の文を送り、動き出したのを見て返す（`first_prompt`）。1 ターン目の終わりは Claude Code 自身の会話の状態で見る。会話を終える（`/exit`）口も持つ。
   - clean: 代表の clone の linked worktree のうち、消してよい場所を並べる・消す（手元の枝も消す）。ペインの作業場だけを畳む口（release）も持つ。
   - report: 結果を 1 件 1 行で出す。
 - 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）の 4 つ。
@@ -29,6 +29,7 @@
     - herdr のタブ欄から呼ぶ道（show と probe）は、設定の TOML を読まず、`herdr-config` が書くアカウントの写し（`<limits_dir>/accounts.json`）を読む。herdr がタブ欄のコマンドに渡す PATH は、ログインのシェルの PATH と違い、macOS では OS に付いてくる Python 3.9 が `python3` になった（2026-10-15 に実物で確かめた）。TOML を読む `tomllib` は 3.11 からなので、そのままでは起動できない。
     - 行には、マシンごとに違う Python の絶対パスを書かない。ほかのプラグインのフックと同じく、PATH の `python3` か `python` を使う。その代わり、タブ欄から呼ぶファイル（`limits.py` と `vendor/claude_auth.py`）は 3.9 の文法で書き、試験（`test_tab_bar_path_reads_as_python_3_9`）が縛る。
   - `activity.py`: Claude Code のフックから、herdr のサイドバーの印 `$act` に作業内容を送る。
+- 作業役（`--task`）の流れは `dispatch.py` の `_task` だけが持ち、場所・アカウント・起こす・送るは上のノードを使い回す。連絡の道（同じアカウントなら SendMessage、違えば画面）は、呼んだ会話を `claude agents --json` の一覧から `CLAUDE_CODE_SESSION_ID` で探して決める（`claudex.caller`。Claude Code の文書は、この環境変数を Bash の道具の子に渡し、外の道具と会話を結ぶのに使うと書く）。一覧はアカウントの設定のフォルダごとなので、その識別子が載る一覧のアカウントが呼んだ会話のアカウントである。
 - 柵 D1〜D8 は、試験 `dispatch/tests/test_rules.py` が構文木と文字で見る。中身は設計書の 4 節にある。
   - D1: works（darkfactory）の部品（`works/.shared/` など）を読まない。入れたプラグインはほかのプラグインのフォルダを引けないため。
   - D4: 外へ書く関数は、決まったノードからだけ呼ぶ。対応の表は `dispatch/tests/fences.py` の `WRITES`。
@@ -53,7 +54,8 @@
 7. **手元だけのファイルの置き場（任意）。** `copy_files` に書いた、git が追わないファイル（`.env.local`・`*.local.yaml`・`.claude/settings.local.json` など）を、新しく作った worktree へ写す。写す元は `copy_from` で、省けば代表の clone。
 8. **使用率の控え（任意）。** `limits_dir/<アカウント名>.json`。無ければ、そのアカウントは使用率が分からないものとして順の最後に置く。作るのは `limits.py`。
 9. **herdr の連携（任意）。** `--check` が `herdr integration status` の claude の行を、アカウントのフォルダごとに読む。herdr の文書によれば、Claude Code の作業中の判定は herdr が画面から読み、連携のフックは会話の識別子を herdr に渡すだけである。そこで、無いときは止めずに、入れるコマンドを出す。
-10. **古いパス（任意）。** タブ欄の行とサイドバーのフックは、プラグインの版ごとのフォルダを指す。`--check` は、herdr の設定と各アカウントの `settings.json` が、消えた `limits.py` や `activity.py` を指していないかを見る。
+10. **作業役の前提（`--task` の回だけ足りない物、ほかの回は注記）。** herdr の API に `pane.rename` が有ること、PATH の `claude --help` に `--name` が有ること、設定の `task_cwd` が在るフォルダであること。`task_cwd` を各アカウントが信頼していなければ注記を出す（作業役を起こすたびに信頼の確認が出る）。
+11. **古いパス（任意）。** タブ欄の行とサイドバーのフックは、プラグインの版ごとのフォルダを指す。`--check` は、herdr の設定と各アカウントの `settings.json` が、消えた `limits.py` や `activity.py` を指していないかを見る。
 
 持ち主は、herdr の作業中の判定の規則（`~/.config/herdr/agent-detection/claude.toml`）も、手元で上書きしている。この規則はここに入れない。上書きは herdr が配る規則の写しなので、herdr を上げるたびに写し直しが要る。そのうえ、上書きが見る印（背景の作業が残る間に statusline が出す行）は、持ち主の statusline にしか無い。
 
@@ -71,5 +73,6 @@
   - `worktree open --path <場所>` だけでは `worktree_not_found` が返り、`--cwd <元の clone>` を足すと開いた。開いている場所に打つと、`already_open: true` でその作業場を返す。
   - `worktree remove --workspace <ID>` は、未追跡のファイルが有ると `dirty_worktree_requires_force` で断る。消すと作業場も閉じ、手元の枝は残る。
   - 元の clone が開いている枝で `worktree create` を打つと、git の「already used by worktree」で `worktree_create_failed` になる。dispatch はその前に `branch_busy` で止める。
+- 2026-10-16（Claude Code 2.1.301、herdr 0.9.3）: `herdr pane rename <ペイン> <名前>` は `{"result": {"type": "pane_info", "pane": {…, "label": "<名前>"}}}` を返した。`claude --help` に `-n, --name <name>` が有り、`claude agents --json` の 1 件の `name` に、その名前（付けなければ自動の名前）が出た。持ち主の手元で、別のアカウント（別の `CLAUDE_CONFIG_DIR`）の会話どうしでは SendMessage が両方向とも「No agent named … is reachable」で届かず、各会話の一覧にも同じアカウントの会話しか出なかった（Claude Code の文書は、設定のフォルダの違う会話に届くかを書いていない）。
 - 元の clone の作業場（親）を閉じると、そこから作った worktree の作業場もまとめて閉じることがある（持ち主の herdr の設定の注記は、画面で親を閉じると黙って連鎖すると書き、herdr の issue #3483 を指す。herdr の文書は、CLI の `workspace close --group` が親と linked worktree の作業場をまとめて閉じると書く）。要確認: CLI で `--group` 無しに親を閉じたときの振る舞いは試していない。dispatch は親の作業場を閉じない。
 

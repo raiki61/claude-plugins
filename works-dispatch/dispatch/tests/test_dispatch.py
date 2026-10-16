@@ -113,6 +113,9 @@ class FakeHerdr(WorktreeHerdr):
     def shell_in_front(self, pane):
         return pane not in self.talking and pane not in self.busy
 
+    def rename_pane(self, pane, label):
+        self.writes.append(("rename_pane", pane, label))
+
     def wait_ready(self, pane):
         return "idle"
 
@@ -131,7 +134,8 @@ class FakeHerdr(WorktreeHerdr):
 
 
 # 試験の Ports が本物の herdr とログインのシェルを呼ばないための偽物（試験の中で上書きするものはそちらが勝つ）
-QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None, "worktrees": lambda source: []}
+QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None, "worktrees": lambda source: [],
+         "name_flag": lambda: True}
 
 
 def quiet_ports(**kw):
@@ -151,7 +155,8 @@ class FakePorts(dispatch.Ports):
         self.issues = {}
         self.source = None   # 元の clone（FakeGh が origin に枝を作るのに使う）
 
-    def preflight(self, cfg):
+    def preflight(self, cfg, task=False):
+        self.preflight_task = task
         return list(self._problems), []
 
     def fetch_prs(self, repo):
@@ -229,6 +234,11 @@ class FakePorts(dispatch.Ports):
     def trust(self, account, source, clone):
         self.herdr.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
+
+    trusted_dirs = ()   # 信頼済みのフォルダ（作業役を起こすフォルダの確かめ）
+
+    def trusted(self, account, folder):
+        return folder in self.trusted_dirs
 
 
 class FakeGh:
@@ -585,6 +595,26 @@ class Preflight(unittest.TestCase):
         self.assertIn("catchup", text)
         self.assertNotIn("元の clone", text)  # 元の clone は o/r の clone なので通る
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
+
+    def test_task_needs_pane_names_session_names_and_its_folder_but_not_catchup(self):
+        # 作業役の回は /catchup と 2 ターン目の文を見ず、ペインの名前（pane.rename）・会話の名前（claude --name）・起こすフォルダを見る。
+        # ほかの回では、それらは注記にとどめる（PR を開くのには要らない）
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        cfg = cfg._replace(repos=tuple(r._replace(second_prompt="", task_cwd=f"{root}/nowhere") for r in cfg.repos))
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
+                            gh_ok=lambda repo, env=None: True, name_flag=lambda: False)
+        problems, notes = ports.preflight(cfg, task=True)
+        text = "\n".join(problems)
+        for word in ("pane.rename", "--name", "task_cwd"):
+            self.assertIn(word, text)
+        self.assertNotIn("catchup", text)
+        self.assertNotIn("2 ターン目", text)
+        problems, notes = ports.preflight(cfg)
+        self.assertNotIn("--name", "\n".join(problems))
+        self.assertIn("--name", "\n".join(notes))
+        self.assertIn("pane.rename", "\n".join(notes))
+        self.assertIn("catchup", "\n".join(problems))
 
     def test_account_without_usage_window_gets_no_missing_limits_note(self):
         cfg_path, root = make_cfg()
