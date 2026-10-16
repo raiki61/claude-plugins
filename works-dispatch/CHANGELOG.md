@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-16
+
 ### Added
 
 - 会社の形（`.claude/company.toml`）の下書きを書く `--init-company`。名前（フォルダの名前）・説明・`gh_user`（gh の今のアカウント。読めなければコメントにする）・役 1 つ（作業役）・`[land]`（`mode = "none"`。本流へは入れない）を、欄の説明のコメント付きで書く。既定はリポジトリの中（commit するかは利用者が決める）、`--local` で dispatch の設定のフォルダ（既定は `~/.config/works-dispatch/`）の `companies/`（commit しない側）。書き出し先にもうあれば上書きしない。両方にあれば、リポジトリの中の物を読む。
