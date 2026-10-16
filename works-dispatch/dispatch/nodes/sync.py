@@ -6,6 +6,8 @@
 - 付ける先は、部署の中で会話の居るペイン。会話が居なくて、ペインが 1 つだけならそのペイン（herdr を立ち上げ直した後など）。
 - ペインの名前は 会話の名前（アカウントが 2 つ以上なら、後ろにアカウントの名）。--task が付ける名前と同じ決まり（label）。
   今の名前と同じなら付け直さない。
+- 作業場の名前も 会話の名前（属性の name。アカウントの名は添えない）。herdr のサイドバーの 1 行目はペインでなく作業場の名前を
+  出すため。本社（元の clone）も、属性を持てば同じに付ける。今の名前と同じなら付け直さず、属性を持つ場所が 2 つ以上居る作業場は触らない。
 - 表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
   属性に無い物は消す。
 
@@ -52,6 +54,29 @@ def plan(companies, many_accounts):
                 continue
             ops += [op(p["pane_id"], d["attrs"], many_accounts, p.get("label")) for p in panes]
     return ops, notes
+
+
+def workspace_ops(companies, labels):
+    """作業場に付ける名前の並び。1 件は {workspace, label}。labels は 作業場の id → 今の名前（herdr の作業場の並び）。"""
+    claims = {}
+    for c in companies:
+        for d in c["departments"]:
+            if d["attrs"] and d.get("workspace"):
+                claims.setdefault(d["workspace"], []).append(d["attrs"].get("name"))
+    return [{"workspace": ws, "label": names[0]} for ws, names in claims.items()
+            if len(names) == 1 and names[0] and ws in labels and labels[ws] != names[0]]
+
+
+def apply_workspaces(ops, h):
+    """作業場の名前を herdr に書く。1 件ごとに {workspace, status: done|failed, detail}。1 件の失敗で残りを止めない。"""
+    out = []
+    for o in ops:
+        try:
+            h.rename_workspace(o["workspace"], o["label"])
+            out.append({"workspace": o["workspace"], "status": "done", "detail": None})
+        except h.HerdrError as e:
+            out.append({"workspace": o["workspace"], "status": "failed", "detail": str(e)})
+    return out
 
 
 def apply(ops, h):

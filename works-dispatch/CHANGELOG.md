@@ -6,6 +6,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 一時停止したまま `claude --resume` で開き直した会話は、`claude agents --json` に同じ識別子で古い処理（古い名前）と今の処理が並ぶ。呼んだ会話を探すとき、dispatch を走らせている処理（親をたどって当たる pid）を選び、当たらなければ新しく起きた方を選ぶ。前は先頭の古い方を拾い、`--ask` と `--task` で立てた部署の上役（`company.boss`）と herdr の札が古い名前になっていた。納品で頼み元の会話を引くときも新しく起きた方を選ぶ。
+- `--ask` が `--from-name`・`--from-account` を頼み元の名前とアカウントに使う。前は渡しても効かなかった。
+- `--sync` が、ペインに加えて作業場の名前（herdr のサイドバーの 1 行目）も属性の `company.name` から付け直す。本社（元の clone）も属性を持てば付ける。属性を持つ場所が 2 つ以上居る作業場は触らない。
+
 ## [0.12.0] - 2026-10-16
 
 ### Changed

@@ -152,16 +152,44 @@ def remove_session(config_dir, session_id, runner=_default_runner, base_env=None
     return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
 
 
-def caller(listed, session_id):
+def ancestors(runner=_default_runner, pid=None):
+    """この処理（pid を渡せばその処理）から親をたどった pid の並び（自分を含む）。ps が通らなければ空。"""
+    try:
+        p = runner(["ps", "-A", "-o", "pid=,ppid="])
+    except OSError:
+        return []
+    parent = {}
+    for line in (p.stdout or "").splitlines() if p.returncode == 0 else []:
+        cols = line.split()
+        if len(cols) == 2 and cols[0].isdigit() and cols[1].isdigit():
+            parent[int(cols[0])] = int(cols[1])
+    chain, cur = [], os.getpid() if pid is None else pid
+    while cur and cur not in chain:
+        chain.append(cur)
+        cur = parent.get(cur)
+    return chain
+
+
+def latest(items, session_id, ancestors=()):
+    """一覧のうち、その識別子の 1 件か None。同じ会話を一時停止したまま --resume で開き直すと、同じ sessionId の項目が古い処理と
+    今の処理の 2 つ並ぶ（2026-10-16 に 2.1.301 で見た。古い方は状態 T のまま古い名前を持つ）。そのときは ancestors（呼んだ
+    処理の親の pid）に当たる方、当たらなければ startedAt の新しい方を取る。"""
+    hits = [s for s in items if s.get("sessionId") == session_id]
+    mine = [s for s in hits if s.get("pid") in ancestors]
+    return max(mine or hits, key=lambda s: s.get("startedAt") or 0, default=None)
+
+
+def caller(listed, session_id, ancestors=()):
     """呼んだ会話（この命令を走らせている Claude Code の会話）の (アカウントの名, 会話の名前)。見つからなければ (None, None)。
 
     listed は アカウントの名 → そのアカウントの `claude agents --json` の並び。session_id は Claude Code が Bash の道具の子に渡す
     CLAUDE_CODE_SESSION_ID（文書は、フックに渡す session_id と同じ値で、外の道具と会話を結ぶのに使うと書く）。一覧はアカウントの
-    設定のフォルダごとなので、その識別子が載っている一覧のアカウントが、呼んだ会話のアカウントである。"""
+    設定のフォルダごとなので、その識別子が載っている一覧のアカウントが、呼んだ会話のアカウントである。同じ識別子が複数並ぶときの
+    選び方は latest。"""
     if not session_id:
         return None, None
     for account, items in listed.items():
-        for s in items:
-            if s.get("sessionId") == session_id:
-                return account, s.get("name") or None
+        s = latest(items, session_id, ancestors)
+        if s:
+            return account, s.get("name") or None
     return None, None

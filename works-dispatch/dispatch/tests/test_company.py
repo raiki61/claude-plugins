@@ -80,6 +80,11 @@ class HerdrPorts(unittest.TestCase):
             {"workspace_id": "w1", "label": "r", "repo_root": os.path.normpath("/s/r")},
             {"workspace_id": "w2", "label": "notes", "repo_root": None}])
 
+    def test_rename_workspace_passes_the_label_as_one_argument(self):
+        run = fake_runner(json.dumps({"result": {"type": "workspace_info"}}))
+        real_herdr.rename_workspace("wX", "初見 読み", runner=run)
+        self.assertEqual(run.calls, [["herdr", "workspace", "rename", "wX", "初見 読み"]])
+
     def test_metadata_sets_and_clears_in_one_call(self):
         run = fake_runner("")
         real_herdr.report_pane_metadata("p", "company", "調べ役", None, {"role": "調べ役"}, ["boss"], runner=run)
@@ -289,6 +294,17 @@ class Sync(unittest.TestCase):
         self.assertEqual([o["pane"] for o in ops], ["p"])
         self.assertIn("dept/b: 付ける先のペインが無い（作業場が開いていない）", notes[0])
 
+    def test_workspace_takes_the_name_of_the_place_including_the_head_office(self):
+        # herdr のサイドバーの 1 行目は作業場の名前。本社（元の clone）も属性の name で付ける
+        office = {**self.dept({"name": "窓口", "account": "a1"}, []), "head_office": True, "workspace": "wX"}
+        same = {**self.dept({"name": "調べ"}, [], branch="dept/b"), "workspace": "wB"}
+        shared = [{**self.dept({"name": n}, [], branch=f"dept/{n}"), "workspace": "wS"} for n in ("c", "d")]
+        bare = {**self.dept({}, [], branch="dept/e"), "workspace": "wE"}
+        got = sync.workspace_ops(self.company(office, same, *shared, bare),
+                                 {"wX": "mynotes", "wB": "調べ", "wS": "x", "wE": "y"})
+        # 名前が同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の無い場所の作業場は触らない
+        self.assertEqual(got, [{"workspace": "wX", "label": "窓口"}])
+
     def test_apply_keeps_going_after_a_failure(self):
         class H:
             HerdrError = real_herdr.HerdrError
@@ -364,9 +380,12 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.herdr.writes, [])
         self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役  題名 調べ  札 role=調べ役、account=a1", out)
+        ws = next(p["workspace_id"] for p in self.ports.herdr.panes() if p["pane_id"] == self.pane)
+        self.assertIn(f"作業場 {ws}: 名前 調べ", out)
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.herdr.writes, [
+            ("rename_workspace", ws, "調べ"),
             ("rename_pane", self.pane, "調べ"),
             ("report_pane_metadata", self.pane, "調べ役", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
 

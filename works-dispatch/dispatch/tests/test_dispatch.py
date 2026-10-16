@@ -116,6 +116,9 @@ class FakeHerdr(WorktreeHerdr):
     def rename_pane(self, pane, label):
         self.writes.append(("rename_pane", pane, label))
 
+    def rename_workspace(self, workspace, label):
+        self.writes.append(("rename_workspace", workspace, label))
+
     def report_pane_metadata(self, pane, source, display_agent, title, tokens, clear_tokens=()):
         self.writes.append(("report_pane_metadata", pane, display_agent, title, dict(tokens), list(clear_tokens)))
 

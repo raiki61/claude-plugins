@@ -113,7 +113,8 @@ def ask(a, ports, cwd, task):
     the_role, problems = shape_role(company["root"], settings, role)
     required = deliver.required_items(the_role)
     notes += problems
-    account, name = ports.caller(sessions_)
+    found_account, found_name = ports.caller(sessions_)
+    account, name = a.from_account or found_account, a.from_name or found_name
     sender = name or "名の無い会話"
     inbox = deliver.inbox_of(common)
     ask_id = deliver.new_id(ports.now())

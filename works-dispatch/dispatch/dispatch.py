@@ -384,7 +384,7 @@ class Ports:
 
     def caller(self, listed):
         """この命令を走らせている会話の (アカウントの名, 会話の名前)。Claude Code の中から走っていなければ (None, None)。"""
-        return claudex.caller(listed, self.env.get("CLAUDE_CODE_SESSION_ID"))
+        return claudex.caller(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
 
     def trust(self, account, source, clone):
         """元の clone を信頼済みのアカウントなら、枝の場所（worktree）にも信頼の印を付ける（claudex.inherit_trust）。"""
@@ -536,8 +536,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--branch", help="--task と一緒に: 作業役の枝（在れば開き、無ければ作る）")
     ap.add_argument("--brief", help="--task と一緒に: 作業役に最初に読ませる頼みのファイル")
     ap.add_argument("--base", help="--task と一緒に: 枝を新しく作るときの元にする origin の枝（省けば既定の枝）")
-    ap.add_argument("--from-name", help="--task と一緒に: 呼んだ会話の名前（Claude Code の中から走らせれば自分で探す）")
-    ap.add_argument("--from-account", help="--task と一緒に: 呼んだ会話のアカウントの名（同上）")
+    ap.add_argument("--from-name", help="--task か --ask と一緒に: 呼んだ会話の名前（Claude Code の中から走らせれば自分で探す）")
+    ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば {DEFAULT_ROLE}）")
     ap.add_argument("--resident", action="store_true",
                     help="--task と一緒に: 常駐の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば都度の部署）")
@@ -1112,8 +1112,8 @@ def _company(a, ports):
         except claudex.ClaudeError as e:
             notes.append(f"アカウント {acc.name} の会話の一覧を読めないので、そのアカウントの会話を見ない（{e}）")
     try:
-        panes = ports.herdr.panes()
-        roots = tree.roots(ports.herdr.workspaces(), panes, ports.common_of,
+        panes, workspaces_ = ports.herdr.panes(), ports.herdr.workspaces()
+        roots = tree.roots(workspaces_, panes, ports.common_of,
                            list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
@@ -1134,14 +1134,20 @@ def _company(a, ports):
         print("\n".join(notes + tree.lines(companies)))
         return 0
     ops, why = sync.plan(companies, len(accounts_) > 1)
+    ws_ops = sync.workspace_ops(companies, {w["workspace_id"]: w.get("label") for w in workspaces_})
     notes += why
+    none = [] if ops or ws_ops else ["付け直す部署は無い（属性を持つ部署が無い）"]
     if a.dry_run:
-        print("\n".join(notes + [_op_line(o) for o in ops] + ([] if ops else ["付け直す部署は無い（属性を持つ部署が無い）"])))
+        print("\n".join(notes + [_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + none))
         return 0
-    done = sync.apply(ops, ports.herdr)
-    print("\n".join(notes + [f"{_op_line(o)}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
-                              for o, r in zip(ops, done)] + ([] if ops else ["付け直す部署は無い（属性を持つ部署が無い）"])))
+    done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr)
+    print("\n".join(notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
+                              for line, r in zip([_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none))
     return 1 if any(r["status"] != "done" for r in done) else 0
+
+
+def _ws_line(o):
+    return f"作業場 {o['workspace']}: 名前 {o['label']}"
 
 
 def _op_line(o):

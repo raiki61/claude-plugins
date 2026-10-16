@@ -99,16 +99,24 @@ def window(dept):
 
 def boss_session(attrs, sessions):
     """頼み元の会話の (id, 一覧の 1 件か None)。sessions は アカウントの名 → 会話の並び。名前で引くのは、その名前の終わっていない
-    会話が 1 つに決まるときだけ。"""
+    会話が 1 つに決まるときだけ。一時停止したまま --resume で開き直した会話は、同じ id で古い処理と今の処理が並ぶので、今の処理
+    （startedAt の新しい方）を 1 件とする。"""
     sid = attrs.get("boss-session")
     pool = sessions.get(attrs.get("boss-account"), []) if attrs.get("boss-account") else \
         [s for items in sessions.values() for s in items]
     if sid:
-        return sid, next((s for s in pool if s.get("sessionId") == sid), None)
+        return sid, _latest(s for s in pool if s.get("sessionId") == sid)
     if not attrs.get("boss"):
         return None, None
-    alive = [s for s in pool if s.get("name") == attrs["boss"] and s.get("state") not in ("done", "failed", "stopped")]
-    return (alive[0].get("sessionId"), alive[0]) if len(alive) == 1 else (None, None)
+    alive = {}
+    for s in pool:
+        if s.get("name") == attrs["boss"] and s.get("state") not in ("done", "failed", "stopped"):
+            alive.setdefault(s.get("sessionId"), []).append(s)
+    return (next(iter(alive)), _latest(next(iter(alive.values())))) if len(alive) == 1 else (None, None)
+
+
+def _latest(items):
+    return max(items, key=lambda s: s.get("startedAt") or 0, default=None)
 
 
 def _same_place(pane, cwd):

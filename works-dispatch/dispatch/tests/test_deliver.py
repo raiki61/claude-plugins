@@ -124,6 +124,14 @@ class BossWindow(unittest.TestCase):
         self.assertEqual(deliver.boss_session({"boss": "desk", "boss-account": "m"}, sessions), (None, None))
         self.assertEqual(deliver.boss_session({"boss-session": "s2", "boss-account": "m"}, sessions)[0], "s2")
 
+    def test_boss_session_takes_the_current_process_of_a_resumed_session(self):
+        old = {"pid": 1, "startedAt": 100, "sessionId": "s1", "name": "desk", "cwd": "/old"}
+        new = {"pid": 2, "startedAt": 200, "sessionId": "s1", "name": "desk", "cwd": "/new"}
+        sessions = {"m": [old, new]}
+        self.assertEqual(deliver.boss_session({"boss-session": "s1", "boss-account": "m"}, sessions), ("s1", new))
+        # 名前で引くときも、同じ id の 2 件は 1 つの会話に数える
+        self.assertEqual(deliver.boss_session({"boss": "desk", "boss-account": "m"}, sessions), ("s1", new))
+
 
 class StopVerdict(unittest.TestCase):
     ATTRS = {"role": "作業役", "ask": "id1", "session": "s1", "boss": "desk"}
@@ -205,6 +213,23 @@ class Flow(unittest.TestCase):
         self.assertEqual(pathlib.Path(rec["file"]).read_text(encoding="utf-8"), "これを調べて\n")
         # 受付箱は commit されない（共通の .git の中）
         self.assertEqual(git("-C", self.src, "status", "--porcelain").strip(), "")
+
+    def test_ask_names_the_asker_from_the_current_process_of_a_resumed_session(self):
+        # 窓口を一時停止したまま --resume で開き直し、/rename した。一覧には古い処理（desk）と今の処理（窓口）が並ぶ
+        listed = self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {"pid": 10**9, "startedAt": 100, **listed(cdir)[0]},   # 試験を走らせる処理の親に当たらない pid
+            {"pid": 10**9 + 1, "startedAt": 200, **listed(cdir)[0], "name": "窓口"}, *listed(cdir)[1:]]
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "窓口")
+        self.assertIn("窓口 から）", self.prompts()[0][2])
+
+    def test_ask_takes_the_askers_name_and_account_from_the_flags(self):
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x", "--from-name", "窓口", "--from-account", "a2")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs.get("boss"), attrs.get("boss-account")), ("窓口", "a2"))
 
     def test_the_command_handed_to_the_department_is_quoted_with_forward_slashes(self):
         self.assertNotIn("\\", orders.RUN)

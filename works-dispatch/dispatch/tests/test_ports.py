@@ -555,3 +555,22 @@ class ClaudeName(unittest.TestCase):
         self.assertEqual(claudex.caller(listed, "s2"), ("a2", "窓口"))
         self.assertEqual(claudex.caller(listed, "s9"), (None, None))
         self.assertEqual(claudex.caller(listed, None), (None, None))
+
+    def test_caller_takes_the_current_process_when_a_resumed_session_is_listed_twice(self):
+        # 一時停止したまま --resume で開き直すと、同じ sessionId で古い処理（古い名前）と今の処理が並ぶ（2026-10-16 に 2.1.301 で見た）
+        old = {"pid": 19749, "startedAt": 100, "sessionId": "s1", "name": "desk"}
+        new = {"pid": 35433, "startedAt": 200, "sessionId": "s1", "name": "窓口"}
+        self.assertEqual(claudex.caller({"a1": [old, new]}, "s1"), ("a1", "窓口"))
+        self.assertEqual(claudex.caller({"a1": [new, old]}, "s1"), ("a1", "窓口"))
+        # 親をたどって当たる処理があれば、そちらを取る
+        self.assertEqual(claudex.caller({"a1": [new, old]}, "s1", [500, 19749, 1]), ("a1", "desk"))
+
+    def test_ancestors_walks_the_parents_from_the_pid(self):
+        f = Fake((0, "  1     0\n 10     1\n 20    10\n 30    20\n 99     1\n", ""))
+        self.assertEqual(claudex.ancestors(runner=f, pid=30), [30, 20, 10, 1])
+        self.assertEqual(f.calls[0][0], ["ps", "-A", "-o", "pid=,ppid="])
+        self.assertEqual(claudex.ancestors(runner=Fake((1, "", "no ps")), pid=30), [30])
+
+        def missing(argv, env=None):
+            raise OSError("ps が無い")
+        self.assertEqual(claudex.ancestors(runner=missing, pid=30), [])
