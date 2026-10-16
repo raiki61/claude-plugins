@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=640
+EXPECTED_CHECKS=641
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2686,7 +2686,7 @@ assert seen_argv and (pick(seen_argv[0], "--model"), pick(seen_argv[0], "--effor
 
 # フックの宣言: 書いた後は記録だけ、ターンの終わりに読む
 hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
-post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "Write|Edit|MultiEdit" for h in grp["hooks"]]
+post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "^(Write|Edit|MultiEdit|NotebookEdit)$" for h in grp["hooks"]]
 stop = [h for grp in hooks.get("Stop", []) for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-record") for h in post), post
 assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) >= 250 for h in stop), stop
@@ -2703,6 +2703,99 @@ assert "coldread-gate.py\" read" in skill, "skill『coldread』の手で検査�
 r = subprocess.run([sys.executable, str(gate), "prompt"], capture_output=True)
 assert r.stdout.decode("utf-8") == g.COLD_PROMPT, "prompt の口が COLD_PROMPT をそのまま出していない"
 print("DOCS_GATE_OK")
+PY
+# Bash・MCP の道具で書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
+# cat > x.md <<EOF・tee・sed -i・python で書く・mv/cp で置く文書が 1 本も読まれなかった。Bash の前(PreToolUse)に
+# git の変更一覧の文書の mtime と大きさを控え、後(PostToolUse)で取り直して、増えた・変わった文書を記録に載せる。
+# git の外ではコマンドの中の書き込み先を静的に拾う
+expect_output 0 "DOCS_BASH_OK" "coldread の手元の文書: Bash が書いた文書を git の変更一覧の差と書き込み先の静的な読みで拾い、MCP の書く道具の path も拾う" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-bash" <<'PY'
+import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg = work / "cfg"
+repo, plain = work / "repo", work / "plain"
+repo.mkdir()
+plain.mkdir()
+
+def run(mode, payload, **env):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD="cat >/dev/null; exit 1", **env)
+    r = subprocess.run([sys.executable, str(gate), *([mode] if mode else [])], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+def git(*a):
+    subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+
+def pending(sid):
+    f = cfg / "coldread-gate/docs" / (sid + ".pending")
+    return sorted(set(f.read_text(encoding="utf-8").split())) if f.exists() else []
+
+real = lambda p: os.path.realpath(str(p))
+git("init", "-q")
+git("config", "user.email", "t@example.com")
+git("config", "user.name", "t")
+(repo / "t.md").write_text("tracked\n", encoding="utf-8")
+(repo / "m.md").write_text("tracked\n", encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "init")
+(repo / "m.md").write_text("changed before the command\n", encoding="utf-8")   # 前から変わっている文書は拾わない
+
+def bash(sid, tid, cwd, command, effect):
+    """PreToolUse(投稿の門番と同じ口) → コマンドの効果 → PostToolUse(docs-record) を流す。"""
+    pay = {"session_id": sid, "tool_name": "Bash", "tool_use_id": tid, "cwd": str(cwd), "tool_input": {"command": command}}
+    run("", dict(pay, hook_event_name="PreToolUse"))
+    effect()
+    run("docs-record", dict(pay, hook_event_name="PostToolUse"))
+
+def in_repo():
+    (repo / "new.md").write_text("new\n", encoding="utf-8")
+    (repo / "t.md").write_text("tracked and edited by python\n", encoding="utf-8")
+    (repo / "sub").mkdir()
+    (repo / "sub/deep.txt").write_text("deep\n", encoding="utf-8")
+    (repo / "x.py").write_text("x = 1\n", encoding="utf-8")
+bash("s1", "tu1", repo, "python3 tools/write_docs.py", in_repo)
+got = pending("s1")
+want = sorted(real(repo / n) for n in ("new.md", "t.md", "sub/deep.txt"))
+assert got == want, f"git の変更一覧の差で拾った文書が違う: {got} / 期待 {want}"
+assert not list((cfg / "coldread-gate/docs/snap").glob("*.json")), "Bash の後に控えが残る"
+
+def in_plain():
+    (plain / "a.md").write_text("a\n", encoding="utf-8")
+    (plain / "b.md").write_text("b\n", encoding="utf-8")
+    (plain / "c.md").write_text("c\n", encoding="utf-8")
+    (plain / "d").mkdir()
+    (plain / "d/c.md").write_text("c\n", encoding="utf-8")
+    (plain / "e.rst").write_text("e\n", encoding="utf-8")
+cmd = ("cat > %s/a.md <<'EOF'\nhello\nEOF\necho hi | tee b.md >/dev/null && cp a.md c.md && mv c.md d/ "
+       "&& sed -i.bak s/x/y/ e.rst && cat untouched.md > /dev/null" % plain)
+bash("s2", "tu2", plain, cmd, in_plain)
+got = pending("s2")
+want = sorted(real(plain / n) for n in ("a.md", "b.md", "c.md", "d/c.md", "e.rst"))
+assert got == want, f"git の外で書き込み先を静的に拾えていない: {got} / 期待 {want}"
+
+# MCP の書く道具の path は拾い、読むだけの道具の path は拾わない
+(plain / "mcp.md").write_text("m\n", encoding="utf-8")
+run("docs-record", {"session_id": "s3", "tool_name": "mcp__fs__write_file", "tool_input": {"path": str(plain / "mcp.md")}})
+run("docs-record", {"session_id": "s4", "tool_name": "mcp__fs__read_file", "tool_input": {"path": str(plain / "mcp.md")}})
+assert pending("s3") == [real(plain / "mcp.md")] and pending("s4") == [], (pending("s3"), pending("s4"))
+
+# フックの宣言: Bash の後と失敗の後、MCP の道具の後にも記録の口が在る(前は Write|Edit|MultiEdit だけ)
+hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
+import re
+def fires(event, tool):
+    return any(re.search(grp.get("matcher", ""), tool) and any(h["command"].endswith("docs-record") for h in grp["hooks"])
+               for grp in hooks.get(event, []))
+assert all(fires("PostToolUse", t) for t in ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "mcp__fs__write_file")), "PostToolUse の記録の口が足りない"
+assert fires("PostToolUseFailure", "Bash"), "失敗した Bash(書いてから落ちたもの)の記録の口が無い"
+assert not fires("PostToolUse", "BashOutput"), "Bash の matcher が BashOutput にも当たる(^…$ で囲む)"
+print("DOCS_BASH_OK")
 PY
 # サブエージェントが書いた文書は、その役の終わり（SubagentStop）に読んで、指摘の全文をその役に返す。記録は PostToolUse の
 # 入力の agent_id で分け、親の Stop はサブエージェントの記録を読まない（前は親の Stop で読み、指摘が親に届いて親の文脈を食った）

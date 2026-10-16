@@ -156,8 +156,8 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 
 ## coldread — 手元の文書(書いた後に読み、止めずに指摘を返す)
 
-拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を Write・Edit・MultiEdit で書くと、PostToolUse のフックが
-パスを書いた役ごとに記録するだけで終わる。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
+拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を書くと、PostToolUse のフックが
+パスを書いた役ごとに記録するだけで終わる。拾う道具は Write・Edit・MultiEdit・NotebookEdit・Bash・MCP の書く道具(下の「拾う幅」)。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
 投稿と同じ依頼文(`coldread-gate.py` の `COLD_PROMPT`。初見で読む観点の正本はこの 1 か所)で coldreader に読ませる。
 詰まりか推測で埋めた箇所が在れば、指摘を返して書いた役を続けさせる(書き込みは取り消さない)。返し方は書いた役で変わる:
 
@@ -168,6 +168,24 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 - **親の会話が書いた文書**は、ターンの終わり(Stop のフック)に読む。指摘の全文は親の文脈に積まず、
   `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` のファイルに書き出し(新しい 200 本を残す)、本数・件数・ファイルの場所と
   「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」の短い知らせだけを返す
+- **拾う幅**(持ち主の方針「防ぐより、ひっかける幅を増やす」。前は Write・Edit・MultiEdit で書いた文書しか拾わず、
+  `cat > x.md <<EOF`・`tee`・`sed -i`・python で書く・`mv`/`cp` で置く文書は 1 本も読まれなかった):
+  - Bash: 走る前(PreToolUse。投稿の門番と同じフック)に、cwd の git の作業ツリーの変更一覧(`git status --porcelain
+    --untracked-files=all`。追跡外も含む)のうち文書の mtime と大きさを控え、走った後(PostToolUse と、失敗した後の
+    PostToolUseFailure)に取り直して、増えた・変わった文書を記録に載せる。前から変わっていた文書は、走る間に変わらなければ
+    拾わない。git の外と、git が見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(リダイレクト・`tee`・
+    `sed -i`・`cp`/`mv`/`install` の行き先)も静的に拾う(相対パスは入力の cwd で解く)。git は `GIT_OPTIONAL_LOCKS=0` で
+    走らせ、index の lock を取らない。1 回 5 秒を超えたら静的な読みだけにする
+  - MCP の道具: 道具の名前が書く道具らしいもの(write・edit・create・update・save・move・copy など)の入力の path の欄を拾う
+  - NotebookEdit も拾うが、`.ipynb` は文書の拡張子に入れていないので読まない
+  - **同じ checkout を並行の会話が触っていると、Bash が走る間の他人の書き込みも拾う**。読むのは中身のハッシュで 1 回だけ
+    なので、同じ中身を 2 つの会話が読むことは無いが、指摘は先に終わった方の会話に返る(書いていない会話に返ることがある)
+  - 拾えないもの: 裏で走らせた Bash(`run_in_background`)が後から書く文書・git の外でコマンドの字面に書き込み先が
+    現れない書き方(python やスクリプトの中で書く)・名前が書く道具らしくない MCP の道具
+  - 重さ(2026-10-16 にこの環境 macOS で実測。Bash 1 回あたり、前と後のフックの合計で足される時間の中央値): git の外
+    約 70ms(後のフックの python の起動が大半)、このリポジトリ(約 2,600 ファイル)約 140ms、約 5,800 ファイルのリポジトリ
+    約 170ms、10 万ファイル・追跡外の文書 2,000 本の合成のリポジトリ約 720ms(`git status` 1 回が約 260ms)。
+    重すぎるときは `COLDREAD_DOCS_OFF=1` で手元の文書の門番ごと切る
 - 投稿は出したら取り消せないので書く前に止める。手元の文書は書いた後でも直せるので止めない。書くたびに読ませると、
   Edit のたびに待たされ、同じ文書を何度も読む
 - 読み手は投稿より安いモデルを effort を上げて走らせる(既定 haiku・xhigh。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。

@@ -47,7 +47,7 @@ gh への投稿は、同梱のフックが coldreader を自動で走らせる�
 
 ## 手元の文書(自動。書いた後に読まれる)
 
-拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を Write・Edit で書くと、同梱のフックが名前だけを書いた役ごとに記録し、
+拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を書くと(Write・Edit のほか、Bash の `cat >`・`tee`・`sed -i`・python などで書いても、MCP の書く道具で書いても)、同梱のフックが名前だけを書いた役ごとに記録し、
 書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ coldreader(既定は haiku・effort xhigh)に読ませる。
 投稿と違って書き込みは止めない。詰まりや推測で埋めた箇所が在ったときの返り方は、書いた役で変わる:
 

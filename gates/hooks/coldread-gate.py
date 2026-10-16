@@ -1753,6 +1753,13 @@ def main() -> None:
     except Exception:
         allow()
 
+    # 手元の文書の門番: Bash が書いた文書を後で拾うために、走る前の文書の状態を控える(投稿の判定とは独立。
+    # 失敗しても投稿の門番を落とさない)
+    try:
+        docs_snapshot(payload)
+    except Exception:
+        pass
+
     # log の各行に書き手(session)・版・投稿先を残す。連続 deny は session ごとに数える
     sid = str(payload.get("session_id") or "")[:8]
     cwd = payload.get("cwd") or None
@@ -1961,7 +1968,7 @@ def main() -> None:
 # ---- 手元の文書(書いた後に記録し、書いた役の終わりにまとめて読む) -----------------------------
 # gh への投稿は出したら取り消せないので、書く前に止める(上の main)。手元の文書は書いた後でも直せるので止めない。
 # 書くたびに読み手を起こすと、Edit のたびに待たされ、同じ文書を何度も読む(Vale も書いた後に走らせ、止めずに指摘を返す)。
-# だから Write・Edit の後(PostToolUse)は書いた文書の名前を記録するだけにし、書いた役が終わるときに、その役が書いた
+# だから書いた後(PostToolUse)は書いた文書の名前を記録するだけにし、書いた役が終わるときに、その役が書いた
 # 文書を 1 本 1 回だけ読ませる。読み手と観点は投稿と同じ COLD_PROMPT で、正本はこの 1 か所。
 #
 # 記録は書いた役ごとに分ける。サブエージェントの中のフックの入力には、その役を指す agent_id が付く(公式の hooks の
@@ -2016,15 +2023,145 @@ def _who(payload):
     return str(payload.get("session_id") or ""), str(payload.get("agent_id") or "")
 
 
+# Bash・MCP の道具で書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
+# cat > x.md <<EOF・tee・sed -i・python で書く・mv/cp で置く文書が 1 本も読まれなかった。
+# - Bash: 走る前(PreToolUse。投稿の門番の main が呼ぶ)に、cwd の git の作業ツリーの変更一覧のうち文書の (mtime, 大きさ) を
+#   控え、走った後(PostToolUse・PostToolUseFailure)に取り直して、増えた・変わった文書を記録に載せる。git の外と、git が
+#   見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(リダイレクト・tee・sed -i・cp/mv の行き先)も静的に拾う
+# - MCP の道具: 名前が書く道具らしいもの(write・edit・create…)の入力の path の欄を拾う
+# 同じ checkout を並行の会話が触っていると、その間の他人の書き込みも拾いうる。読むのは中身のハッシュで 1 回だけなので、
+# 同じ中身を 2 つの会話が読むことは無いが、先に終わった方に指摘が返る(gates/README.md の射程)。
+DOC_SNAP_DIR = os.path.join(DOC_DIR, "snap")
+DOC_SNAP_KEEP = 24 * 3600   # 控えを残す秒数。投稿の門番に止められた Bash は後のフックが走らないので、古い控えを消す
+GIT_TIMEOUT = 5             # git 1 回の上限(秒)。PostToolUse のフックの timeout(10s)に収める。超えたら静的な読みだけにする
+MCP_WRITE_RE = re.compile(r"write|edit|create|update|save|put|append|move|copy|rename|replace|insert", re.I)
+PATH_KEYS = ("file_path", "path", "filePath", "notebook_path", "filename", "destination", "target")
+
+
+def _git(args, cwd):
+    """git を読み取りで走らせ、標準出力(bytes)を返す。失敗・時間切れは None。index の lock を取らない(並行の会話と競らない)。"""
+    try:
+        r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, timeout=GIT_TIMEOUT,
+                           env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _git_docs(root):
+    """git の作業ツリー root の変更一覧(追跡外も含む)のうち文書 → {実パス: [mtime_ns, 大きさ]}。取れなければ None。"""
+    out = _git(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], root)
+    if out is None:
+        return None
+    docs = {}
+    for ent in out.decode("utf-8", "replace").split("\0"):
+        if len(ent) < 4 or not ent[3:].lower().endswith(DOC_EXTS):
+            continue
+        full = os.path.realpath(os.path.join(root, ent[3:]))   # porcelain のパスは作業ツリーの根から
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue   # 消された文書
+        if stat.S_ISREG(st.st_mode):
+            docs[full] = [st.st_mtime_ns, st.st_size]
+    return docs
+
+
+def _snap_file(payload):
+    return os.path.join(DOC_SNAP_DIR, _safe(str(payload.get("tool_use_id") or "")) + ".json")
+
+
+def docs_snapshot(payload):
+    """PreToolUse(Bash): 走る前の、cwd の git の変更一覧の文書の状態を控える。git の外なら根は None で、静的な読みだけになる。"""
+    if docs_off() or payload.get("tool_name") != "Bash" or not payload.get("tool_use_id"):
+        return
+    cwd = payload.get("cwd") or ""
+    top = _git(["rev-parse", "--show-toplevel"], cwd) if os.path.isdir(cwd) else None
+    root = top.decode("utf-8", "replace").strip() if top else None
+    docs = _git_docs(root) if root else None
+    os.makedirs(DOC_SNAP_DIR, exist_ok=True)
+    now = time.time()
+    for e in os.scandir(DOC_SNAP_DIR):
+        try:
+            if now - e.stat().st_mtime > DOC_SNAP_KEEP:
+                os.remove(e.path)
+        except OSError:
+            pass
+    with open(_snap_file(payload), "w", encoding="utf-8") as f:
+        json.dump({"root": root if docs is not None else None, "docs": docs or {}}, f)
+
+
+def _written_by_command(command, cwd):
+    """コマンドの中の書き込み先のうち、在る文書の実パス(リダイレクト・tee・sed -i・cp/mv/install の行き先)。"""
+    norm, heredoc_bodies = prepare(command)
+    tokens = tokenize(norm)
+    if tokens is None:
+        return []
+    cmds = split_commands(tokens)
+    files = BodyFiles(cmds, cwd, heredoc_bodies, norm)
+    out = []
+    for k, c in enumerate(cmds):
+        at = command_start(c.args)
+        f = files.at(k, c.args[:at])
+        dests = [d for op, d in c.redirects if op in WRITE_OPS]
+        name = os.path.basename(c.args[at]) if at < len(c.args) else ""
+        rest = [a for a in c.args[at + 1:] if not a.startswith("-")]
+        if name == "tee":
+            dests += rest
+        elif name in ("sed", "gsed") and any(a.startswith(("-i", "--in-place")) for a in c.args[at + 1:]):
+            dests += [a for a in rest if a.lower().endswith(DOC_EXTS)]
+        elif name in ("cp", "mv", "install") and len(rest) >= 2:
+            dests += [rest[-1]] + [os.path.join(rest[-1], os.path.basename(s)) for s in rest[:-1]]
+        for d in dests:
+            p = f.path(d)
+            if p and p.lower().endswith(DOC_EXTS) and os.path.isfile(p):
+                out.append(p)
+    return out
+
+
+def _bash_docs(payload):
+    """PostToolUse(Bash): 控えと取り直しの差で増えた・変わった文書と、コマンドの書き込み先の文書。"""
+    found, snap = [], None
+    try:
+        with open(_snap_file(payload), encoding="utf-8") as f:
+            snap = json.load(f)
+        os.remove(_snap_file(payload))
+    except (OSError, ValueError):
+        pass
+    if snap and snap.get("root"):
+        now = _git_docs(snap["root"])
+        if now is not None:
+            before = snap.get("docs") or {}
+            found += [p for p, st in now.items() if before.get(p) != st]
+    command = (payload.get("tool_input") or {}).get("command") or ""
+    try:
+        found += _written_by_command(command, payload.get("cwd") or None)
+    except Exception:
+        pass   # 静的な読みの失敗で記録の口を落とさない(手元の文書は止めない側)
+    return found
+
+
+def _tool_docs(payload):
+    """Write・Edit・NotebookEdit と MCP の書く道具の入力の path の欄。"""
+    tool = str(payload.get("tool_name") or "")
+    ti = payload.get("tool_input") or {}
+    if tool.startswith("mcp__") and not MCP_WRITE_RE.search(tool.rsplit("__", 1)[-1]):
+        return []
+    if tool.startswith("mcp__"):
+        return [os.path.realpath(v) for v in (ti.get(k) for k in PATH_KEYS) if isinstance(v, str) and v]
+    return [os.path.abspath(v) for v in (ti.get(k) for k in ("file_path", "notebook_path")) if isinstance(v, str) and v]
+
+
 def docs_record(payload):
-    """PostToolUse(Write・Edit・MultiEdit): 書いた文書のパスを、書いた役の待ちの一覧に足す。読まない・止めない。"""
-    path = (payload.get("tool_input") or {}).get("file_path") or ""
-    if not path.lower().endswith(DOC_EXTS):
+    """PostToolUse: 書いた文書のパスを、書いた役の待ちの一覧に足す。読まない・止めない。"""
+    paths = _bash_docs(payload) if payload.get("tool_name") == "Bash" else _tool_docs(payload)
+    paths = [p for p in dict.fromkeys(paths) if p.lower().endswith(DOC_EXTS)]
+    if not paths:
         return
     try:
         os.makedirs(DOC_DIR, exist_ok=True)
         with open(_pending(*_who(payload)), "a", encoding="utf-8") as f:
-            f.write(os.path.abspath(path) + "\n")
+            f.write("".join(p + "\n" for p in paths))
     except OSError:
         pass
 
@@ -2097,7 +2234,8 @@ def _read_pending(session, agent):
     pending = _pending(session, agent)
     try:
         with open(pending, encoding="utf-8") as f:
-            paths = list(dict.fromkeys(line.strip() for line in f if line.strip()))
+            # 同じ文書が別の綴り(Write の abspath と Bash の実パス)で載っていても 1 回だけ読む
+            paths = list({os.path.realpath(p): p for p in (line.strip() for line in f) if p}.values())
         os.remove(pending)
     except OSError:
         return [], {"詰まり": 0, "補完": 0}, []
