@@ -36,6 +36,10 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --task <名前> --branch <枝> --brief <頼みのファイル> [--repo OWNER/NAME か代表の clone] [--base <枝>]
                             [--from-name <呼んだ会話の名前>] [--from-account <アカウントの名>] [--role <役>] [--dry-run]
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
+        python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
+        python3 dispatch.py --deliver <要約のファイル> [--dry-run]
+
+--ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 """
 
 import argparse
@@ -63,6 +67,7 @@ import limits  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn  # noqa: E402
+import orders  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -525,10 +530,20 @@ def main(argv=None, ports=None):
     ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree と一緒に: JSON で出す")
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
+    ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
+    ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
+    ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     a = ap.parse_args(argv)
     ports = ports or Ports()
     if a.init:
         return _init(a, ports)
+    if a.ask is not None:
+        return orders.ask(a, ports, os.getcwd(), _task)
+    if a.deliver is not None:
+        return orders.deliver_summary(a, ports, os.getcwd())
+    if a.text is not None:
+        print("止めた: --text は --ask と一緒にだけ使う")
+        return 2
     if a.tree or a.sync or a.json:
         return _company(a, ports)
 
@@ -842,12 +857,12 @@ def _contact(caller, account):
     return f"報告は区切りごとにこの画面に短く書いて止まる（{why}。呼んだ側が herdr でこの画面を読む）。"
 
 
-def _brief_text(brief, caller, account):
-    """作業役に最初に送る文（1 行）。"""
-    return f"作業の頼みです。{brief} を読んで、その通りに進めてください。" + _contact(caller, account)
+def _brief_text(brief, caller, account, tail=None):
+    """作業役に最初に送る文（1 行）。tail は連絡の道の文の代わり（--ask は納品の命令での返し方）。"""
+    return f"作業の頼みです。{brief} を読んで、その通りに進めてください。" + (tail or _contact(caller, account))
 
 
-def _task(cfg, repo, a, ports):
+def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
     """部署を 1 つ立てる（会社の形の設計 9.1）。場所は PR と同じ決まり（provision.prepare_task。herdr が元の clone の子の作業場として
     worktree を作る）、アカウントは同じ割り振り（accounts.rank と assign.plan。1 件なので、使用率が上限に届かないアカウントのうち
     順の頭）。部署の属性を git に書き（provision.mark）、その作業場のペインで Claude Code の裏の会話を起こし（launch.start_background。
@@ -920,9 +935,9 @@ def _task(cfg, repo, a, ports):
     attrs = {"role": role_name, "residency": RESIDENT if a.resident else PER_TASK, "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
-             "config": None if cfg_path == config.path_of(None, {}) else cfg_path}
-    route = (f"SendMessage で「{caller['name']}」へ" if caller["name"] and caller["account"] == account
-             else "区切りで画面に書いて止まる")
+             "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **(extra_attrs or {})}
+    route = ("納品の命令で頼み元の窓へ" if tail else f"SendMessage で「{caller['name']}」へ"
+             if caller["name"] and caller["account"] == account else "区切りで画面に書いて止まる")
     if a.dry_run:
         print("\n".join(notes + [
             f"部署 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",
@@ -933,7 +948,7 @@ def _task(cfg, repo, a, ports):
             f"- 役の起動の設定: モデル {(the_role or {}).get('model') or '既定'}、--settings の鍵 "
             + ", ".join(role.settings_for(the_role)),
             f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
-            f"- 最初の文: {_brief_text(brief, caller, account)}"]))
+            f"- 最初の文: {_brief_text(brief, caller, account, tail)}"]))
         return 0
     try:
         base = None if provision.find(found, a.branch) else (a.base or ports.default_branch(repo))
@@ -966,7 +981,7 @@ def _task(cfg, repo, a, ports):
                 settings = role.write_settings(ports.git.git_dir(prov["path"]), role.settings_for(the_role))
             except (OSError, TypeError) as e:
                 notes.append(f"役 {role_name} の設定を書けなかったので、役の設定なしで起こす（{e}）")
-        got = launch.start_background(row, pane, a.task, settings, _brief_text(brief, caller, account),
+        got = launch.start_background(row, pane, a.task, settings, _brief_text(brief, caller, account, tail),
                                       ports.herdr, pause=ports.pause, model=(the_role or {}).get("model"))
         if got["detail"]:
             notes.append(got["detail"])

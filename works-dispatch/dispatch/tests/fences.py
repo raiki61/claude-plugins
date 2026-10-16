@@ -25,7 +25,7 @@ WRITES = {
     "run": {"nodes/launch.py"},
     "rename_pane": {"nodes/launch.py", "nodes/sync.py"},
     "report_pane_metadata": {"nodes/sync.py"},
-    "prompt": {"nodes/turn.py"},
+    "prompt": {"nodes/turn.py", "nodes/deliver.py"},   # deliver は頼みと納品の 1 行を窓に送る
     # herdr: 枝の場所（元の clone の git worktree）を作る・開く・消す、作業場を畳む
     "create_worktree": {"nodes/provision.py"},
     "open_worktree": {"nodes/provision.py"},
