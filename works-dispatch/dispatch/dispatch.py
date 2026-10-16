@@ -63,6 +63,7 @@ import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 import jsonio  # noqa: E402
+import landing  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
@@ -533,6 +534,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
+    ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
     a = ap.parse_args(argv)
     ports = ports or Ports()
     if a.init:
@@ -564,6 +566,11 @@ def main(argv=None, ports=None):
     if a.task is None and task_args:
         print(f"止めた: {', '.join(task_args)} は --task と一緒にだけ使う")
         return 2
+    if a.land is not None:
+        if a.task is not None or a.pr or a.issue is not None or a.clean or a.check or a.no_second:
+            print("止めた: --land はほかの入口（--task・--pr・--issue・--clean・--check・--no-second）と一緒に使えない")
+            return 2
+        return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config)
     if a.task is not None:
         if a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --task は --pr・--issue・--clean・--check・--no-second と一緒に使えない（1 回に 1 つの入口）")

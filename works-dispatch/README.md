@@ -25,6 +25,8 @@
   - tree: herdr の作業場と全アカウントの会話が指すリポジトリを会社とし、会社ごとに会社の情報（`.claude/company.toml`、無ければ設定の置き場の `companies/`）と部署（worktree・属性・会話の状態・窓）を組み立てる。
   - deliver: 依頼と納品の中身。宛先（「会社/役」か部署の名前）と頼み元の窓を決め、要約の項目（会社の形の役ごとに替えられる）を確かめ、頼み元の会社の共通の `.git` の中の受付箱（`company/inbox/`）に本文と台帳を置き、窓に 1 行を打ち込む。Stop フックの差し戻しの判定も持つ。
   - sync: 部署の属性から、herdr のペインの名前・表示名（役）・題名（会話の名前）・札（ペインに添える短い印。役・アカウント・上役）を組み立て直す（何度打っても同じ）。
+  - land: 部署の成果を本流に入れる決まり（会社の形の `[land]`）を読み、関門の枝へ出して CI の run を待ち、緑で本流が祖先なら本流を早送りして push する。本流が先に進んでいれば merge せず、赤なら失敗の要点を付けて、部署の窓に herdr で頼みを打ち込む。流れは `landing.py`（下の「本流に入れる」）。
+  - bump: Claude Code のプラグインの marketplace で、中身を変えたのに版が据え置きのプラグインの版を上げる commit を作る（`docs/releasing.md` の形。取り込みのときに上げる会社だけ）。
 - 部署の属性（役・アカウント・会話の名前と id・上役）は、部署の worktree ごとの git の設定 `company.<名前>`（`extensions.worktreeConfig`）に置く。正本は git で、dispatch は別の台帳を持たない（会社の形の設計 4.2）。読み書きは `gitx.py` の `worktree_attrs`・`enable_worktree_config`・`set_worktree_attr`。
 - 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）の 4 つ。
   - 場所（git worktree）を作る・並べる・開く・消すのは herdr の worktree の口で、`herdr.py` の `worktrees`・`create_worktree`・`open_worktree`・`remove_worktree` だけが呼ぶ（herdr アダプタ）。ノードは「枝の場所」の言葉だけで書く。置き場は herdr の設定の `worktrees.directory`（既定 `~/.herdr/worktrees/<リポジトリ>/<枝の slug>`）に任せる。
@@ -44,6 +46,47 @@
   - D6: 持ち主の環境の値（アカウント名・パスなど）をコードに書かない。
 - attention の `whose-turn.py` と、共通の `scripts/claude_auth.py` は、`dispatch/vendor/` に写して使う。写しは `scripts/shared-copies.py` が正本と同じかを見張る。
 - 試験は `python3 -B -m unittest discover -s works-dispatch/dispatch/tests -t .`（リポジトリの根から）。根の `tests/run.sh` もこれを回す。
+
+## 本流に入れる（`--land`）
+
+`python3 dispatch.py --land <部署>` は、部署（名前か枝の名前で指す）の枝を、会社の形（`.claude/company.toml`、無ければ設定の置き場の `companies/`）の `[land]` の決まりで本流に入れる。会社の形の設計の 8 章（検証をどこで回すか）と 4.10 の 1（部署の畳み方と成果の取り込み）に当たる。流れは入口の一部の `landing.py` が持つ（ほかの部署と同時に `dispatch.py` を触るぶつかりを減らすため、別のファイルにした）。
+
+- 欄:
+  - `mode`: 取り込み方。`ff-after-ci`（関門が緑なら本流を早送り）、`pr`（部署の枝を origin に出して PR を出し、止める）、`none`（何もしない）。`[land]` が無ければ `none` で、前の版と同じく何もしない。
+  - `gate`: 関門（本流に入れる前に必ず通す検証）。CI の枝の形（固定の頭の後ろに `/*`。例 `release/*`。`*` に部署の名前が入る。できた枝の名前が本流か部署の枝と同じなら止める）か、`check`（手元の検証を下回りが回す）。
+  - `check`: 部署が手元で回す検証のコマンド。`gate = "check"` のときは、下回りが部署の場所（版を上げるときはその一時の場所）で回す。
+  - `bump`: `marketplace` なら、部署は版を上げずに出し、取り込むときに下回りが版を上げる commit を足してから関門に出す。
+  - `main`: 本流の枝。省けば origin の既定の枝。
+  - 役ごとに `[land.roles.<役>]` で上の欄を替えられる（役は部署の属性 `company.role`）。
+- 順（`ff-after-ci`）:
+  1. 本流を取り直す。部署の枝がもう本流に入っていれば、片付けへ進む。
+  2. 本流が部署の枝の祖先でなければ（ほかの部署が先に入れた）、関門に出さずに、部署に「本流の上に載せ直して push し直す」と頼んで止める。
+  3. `bump` があれば、一時の場所（枝に乗らない worktree）で、部署の枝の先頭の上に版を上げる commit を作る。部署の枝は動かさない。
+  4. 関門に出す。CI の枝なら、まず候補の木の GitHub Actions の設定（`.github/workflows`）のどれかがその枝の頭（`release/` など）を書いていることを確かめ（無ければ止める）、その枝へ候補の commit を push して（前の物は上書き）、その commit の run が現れるまで 10 秒おきに見に行き（回数に上限を置かない。期限を足さない決まり D5 のため、上の確かめで代える）、`gh run watch` で終わりを待つ。watch が途中で戻れば、赤とせずに止める。
+  5. 赤なら、部署に失敗の要点（落ちた job と step、記録の終わりの行）を頼んで止める。
+  6. 緑なら本流を取り直し、まだ候補の祖先なら、origin の本流を候補へ早送りで push し、手元の本流も早送りし、関門の枝を消す。進んでいれば、部署に載せ直しを頼んで止める。push が断られたら本流を取り直し、先に進んでいたときだけ載せ直しを頼む（枝の保護や認証で断られたなら、頼まずに止める）。2 つの部署が同時に入れようとしても、本流に入る順は早送りで 1 本ずつに決まる。
+  7. 入れたら、`--clean` と同じ決まりと部品で部署を片付ける（都度の部署で、会話が終わり、手元の作業が無いとき。常駐の部署は残す）。
+- 部署への頼みは、部署の窓（herdr のペイン）への打ち込みだけ。窓が無ければ、頼みの文を出して呼んだ側に渡させる。頼みと納品の仕組みが入ったら、そちらに替える。
+- 終わりの値: 0 は入れた・PR を出した・決まりが `none`。1 は止めた・赤・載せ直しを頼んだ。2 は決まりか引数の誤り。
+
+例（my_notes。検証は `tools/check.py` を手元で回し、通れば早送りで入れる）:
+
+```toml
+[land]
+mode = "ff-after-ci"
+gate = "check"
+check = "python3 tools/check.py"
+```
+
+例（claude-plugins。部署は変えたプラグインのフォルダの下の試験だけを手元で回し、関門は `release/*` への push で走る CI。版は取り込むときに上げる）:
+
+```toml
+[land]
+mode = "ff-after-ci"
+gate = "release/*"
+check = "python3 -B -m unittest discover -s works-dispatch/dispatch/tests -t ."   # 変えたプラグインの試験に替えて回す
+bump = "marketplace"
+```
 
 ## 前提と、なぜ要るか
 

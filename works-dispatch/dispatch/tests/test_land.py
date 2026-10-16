@@ -1,0 +1,542 @@
+"""部署の成果を本流に入れる（入口の --land。landing.py と nodes/land.py・nodes/bump.py）。
+
+git は本物を使う。一時のフォルダに、GitHub に見立てた裸のリポジトリと、それを origin にした元の clone と、部署の worktree を作る。
+本物の GitHub と本物の main には触らない。herdr と gh は偽物にする（gh の偽物は、関門の CI の結果を試験が決める）。
+"""
+
+import contextlib
+import io
+import json
+import os
+import pathlib
+import subprocess
+import tempfile
+import unittest
+from unittest import mock
+
+from . import DISPATCH  # noqa: F401
+import ghx
+import gitx
+import herdr as real_herdr
+import landing
+from config import Repo
+from nodes import bump, land
+
+
+def git(*args):
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace").stdout.strip()
+
+
+def write(path, text):
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(path).write_text(text, encoding="utf-8")
+
+
+def commit(cwd, msg="x"):
+    git("-C", cwd, "add", "--all")
+    git("-C", cwd, "commit", "-q", "-m", msg)
+    return git("-C", cwd, "rev-parse", "HEAD")
+
+
+# git の持ち主の設定（署名・フックなど）に左右されないよう、全体の設定を空のファイルにし、名前とメールを環境で渡す
+def isolated_git(tmp):
+    empty = os.path.join(tmp, "gitconfig")
+    write(empty, "")
+    return mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": empty, "GIT_CONFIG_NOSYSTEM": "1",
+                                        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+
+
+MARKET = """{
+  "name": "m",
+  "metadata": {
+    "description": "d",
+    "version": "0.9.0"
+  },
+  "plugins": [
+    {"name": "one", "source": "./one"},
+    {"name": "two", "source": "./two"}
+  ]
+}
+"""
+
+CHANGELOG = """# 変更の記録
+
+## [Unreleased]
+
+## [0.1.0] - 2026-01-01
+
+### Added
+
+- 始め
+"""
+
+
+class World:
+    """裸の origin・元の clone・部署の worktree（枝 feat/a）。元の clone は main に居る。"""
+
+    def __init__(self, tmp, files=None):
+        self.tmp = tmp
+        self.remote = os.path.join(tmp, "o", "r.git")
+        self.source = os.path.join(tmp, "src")
+        git("init", "--bare", "-q", "-b", "main", self.remote)
+        git("clone", "-q", self.remote, self.source)
+        git("-C", self.source, "symbolic-ref", "HEAD", "refs/heads/main")
+        for rel, text in (files or {"README.md": "r\n"}).items():
+            write(os.path.join(self.source, rel), text)
+        commit(self.source, "init")
+        git("-C", self.source, "push", "-q", "origin", "HEAD:refs/heads/main")
+        git("-C", self.source, "fetch", "-q", "origin")
+        self.dept = os.path.join(tmp, "wt", "a")
+        git("-C", self.source, "worktree", "add", "-q", "-b", "feat/a", self.dept, "origin/main")
+
+    def work(self, rel="a.txt", text="a\n"):
+        write(os.path.join(self.dept, rel), text)
+        return commit(self.dept, "部署の作業")
+
+    def move_main(self):
+        """ほかの部署が先に本流に入れた形: origin の main を 1 つ進める。"""
+        other = os.path.join(self.tmp, "other")
+        git("clone", "-q", self.remote, other)
+        write(os.path.join(other, "b.txt"), "b\n")
+        commit(other, "ほかの部署")
+        git("-C", other, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+    def origin(self, ref):
+        return git("--git-dir", self.remote, "rev-parse", f"refs/heads/{ref}")
+
+    def has(self, ref):
+        return subprocess.run(["git", "--git-dir", self.remote, "rev-parse", "--verify", "--quiet", f"refs/heads/{ref}"],
+                              capture_output=True).returncode == 0
+
+
+class FakeHerdr:
+    HerdrError = real_herdr.HerdrError
+
+    def __init__(self, world):
+        self.world = world
+        self.prompts = []
+        self._panes = [{"pane_id": "P1", "workspace_id": "W1", "cwd": world.dept, "agent": "claude"}]
+
+    def panes(self):
+        return list(self._panes)
+
+    def worktrees(self, source):
+        out = []
+        for block in git("-C", source, "worktree", "list", "--porcelain").split("\n\n"):
+            lines = dict(line.split(" ", 1) if " " in line else (line, "") for line in block.splitlines())
+            if "worktree" in lines:
+                path = os.path.normpath(lines["worktree"])
+                out.append({"path": path, "branch": lines.get("branch", "").replace("refs/heads/", "") or None,
+                            "linked": os.path.realpath(path) != os.path.realpath(source), "prunable": False,
+                            "workspace": "W1" if os.path.realpath(path) == os.path.realpath(self.world.dept) else None})
+        return out
+
+    def prompt(self, target, text, wait):
+        self.prompts.append((target, text))
+        return "sent"
+
+
+class FakeGh:
+    """関門の CI。conclusion を試験が決める。on_run は run を返す前に呼ぶ（その間に本流が進む形を作る）。"""
+
+    def __init__(self, conclusion="success", appear=0, on_run=None):
+        self.conclusion, self.appear, self.on_run = conclusion, appear, on_run
+        self.asked, self.prs = 0, []
+
+    def runs_for(self, repo, branch, sha, env=None):
+        self.asked += 1
+        self.seen = (branch, sha)
+        if self.asked <= self.appear:
+            return []
+        if self.on_run:
+            self.on_run()
+        return [{"id": 7, "status": "in_progress", "conclusion": None, "url": "https://ci/7"}]
+
+    def watch_run(self, repo, run_id, env=None):
+        return {"id": run_id, "status": "completed", "conclusion": self.conclusion, "url": "https://ci/7"}
+
+    def run_failure(self, repo, run_id, lines=20, env=None):
+        return ["落ちた job: test（step: run）", "AssertionError: 版が据え置き"]
+
+    def create_pr(self, repo, branch, base, env=None):
+        self.prs.append((branch, base))
+        return "https://pr/1"
+
+
+class Ports:
+    def __init__(self, world, gh=None, attrs=None):
+        self.world = world
+        self.herdr = FakeHerdr(world)
+        self.gh = gh or FakeGh()
+        self.git = gitx
+        self._attrs = attrs or {"name": "a", "session": "s1", "role": "worker"}
+
+    def places(self, repo):
+        return self.herdr.worktrees(repo.source)
+
+    def attrs(self, path):
+        return dict(self._attrs) if os.path.realpath(path) == os.path.realpath(self.world.dept) else {}
+
+    def is_clean(self, path):
+        return gitx.is_clean(path)
+
+    def default_branch(self, repo):
+        return "main"
+
+    def gh_env(self, repo):
+        return None
+
+
+def no_rows(cfg, repo, ports, found, notes):
+    return []
+
+
+class LandCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="dispatch-land-"))
+        self.env = isolated_git(self.tmp)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.config = os.path.join(self.tmp, "conf", "dispatch.toml")   # 無いファイル（設定の置き場を一時のフォルダに向ける）
+
+    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16"):
+        repo = Repo("o/r", "", world.source, (), None, None)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = landing.main(None, repo, "a", ports, rows, {"running": "会話がまだ動いている", "resident": "常駐の部署は畳まない"},
+                                self.config, pause=lambda: None, today=today,
+                                **({"checker": checker} if checker else {}))
+        return code, out.getvalue()
+
+
+CI_RULES = '[land]\nmode = "ff-after-ci"\ngate = "release/*"\n'
+FLOW = ".github/workflows/t.yml"
+CI_FILES = {".claude/company.toml": CI_RULES, FLOW: "on:\n  push:\n    branches: ['release/**']\n"}
+
+
+class FastForwardAfterCi(LandCase):
+    def test_green_and_main_is_ancestor_fast_forwards_main_and_drops_the_gate_branch(self):
+        w = World(self.tmp, CI_FILES)
+        head = w.work()
+        ports = Ports(w)
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(w.origin("main"), head)
+        self.assertEqual(ports.gh.seen, ("release/a", head))
+        self.assertFalse(w.has("release/a"), "入れた後も関門の枝が origin に残っている")
+        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head, "手元の本流が早送りされていない")
+        self.assertEqual(ports.herdr.prompts, [])
+
+    def test_waits_until_the_run_appears(self):
+        w = World(self.tmp, CI_FILES)
+        w.work()
+        ports = Ports(w, FakeGh(appear=3))
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ports.gh.asked, 4)
+
+    def test_gate_without_ci_for_its_branch_stops_before_pushing(self):
+        w = World(self.tmp, {".claude/company.toml": CI_RULES})
+        before = w.origin("main")
+        w.work()
+        ports = Ports(w)
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertIn("CI が起きない", out)
+        self.assertFalse(w.has("release/a"))
+        self.assertEqual(w.origin("main"), before)
+        self.assertEqual(ports.gh.asked, 0)
+
+    def test_gate_branch_that_names_the_department_branch_stops(self):
+        w = World(self.tmp, {**CI_FILES, ".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "feat/*"\n'})
+        head = w.work()
+        git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/feat/a")
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 1)
+        self.assertIn("部署の枝と同じ名前", out)
+        self.assertEqual(w.origin("feat/a"), head)
+
+    def test_refused_push_without_main_moving_stops_without_asking(self):
+        w = World(self.tmp, CI_FILES)
+        before = w.origin("main")
+        w.work()
+        ports = Ports(w)
+        real = gitx.push
+
+        def push(cwd, sha, ref, force=False):
+            if ref == "main":
+                raise gitx.GitError("protected branch")
+            return real(cwd, sha, ref, force)
+        with mock.patch.object(gitx, "push", push):
+            code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertIn("push が断られた", out)
+        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(w.origin("main"), before)
+
+    def test_failure_after_the_push_still_finishes_the_landing(self):
+        w = World(self.tmp, CI_FILES)
+        head = w.work()
+        seen = []
+
+        def broken(*a, **k):
+            raise gitx.GitError("lock")
+        with mock.patch.object(gitx, "advance_branch", broken):
+            code, out = self.land(w, Ports(w), rows=lambda *a: seen.append(1) or [])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(w.origin("main"), head)
+        self.assertIn("そろえられなかった", out)
+        self.assertFalse(w.has("release/a"))
+        self.assertEqual(seen, [1])
+
+    def test_main_moved_before_the_gate_asks_the_department_to_rebase(self):
+        w = World(self.tmp, CI_FILES)
+        w.work()
+        w.move_main()
+        moved = w.origin("main")
+        ports = Ports(w)
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertEqual(w.origin("main"), moved)
+        self.assertFalse(w.has("release/a"), "載せ直しが要るのに関門に出した")
+        self.assertEqual(len(ports.herdr.prompts), 1)
+        self.assertIn("載せ直し", ports.herdr.prompts[0][1])
+        self.assertIn("版を上げ直して", ports.herdr.prompts[0][1])
+
+    def test_main_moved_while_the_gate_ran_does_not_merge(self):
+        w = World(self.tmp, CI_FILES)
+        w.work()
+        ports = Ports(w, FakeGh(on_run=w.move_main))
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertEqual(git("--git-dir", w.remote, "log", "-1", "--format=%s", "main"), "ほかの部署")
+        self.assertIn("載せ直し", ports.herdr.prompts[0][1])
+
+    def test_red_hands_the_failure_to_the_department(self):
+        w = World(self.tmp, CI_FILES)
+        before = w.origin("main")
+        w.work()
+        ports = Ports(w, FakeGh(conclusion="failure"))
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertEqual(w.origin("main"), before)
+        self.assertEqual(ports.herdr.prompts[0][0], "P1")
+        self.assertIn("AssertionError: 版が据え置き", ports.herdr.prompts[0][1])
+        self.assertNotIn("\n", ports.herdr.prompts[0][1])
+
+    def test_no_pane_prints_the_request_for_the_caller(self):
+        w = World(self.tmp, CI_FILES)
+        w.work()
+        ports = Ports(w, FakeGh(conclusion="failure"))
+        ports.herdr._panes = []
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 1)
+        self.assertIn("次の文を部署に渡す", out)
+
+    def test_already_landed_goes_straight_to_tidy(self):
+        w = World(self.tmp, CI_FILES)
+        seen = []
+        code, out = self.land(w, Ports(w), rows=lambda *a: seen.append(1) or [])
+        self.assertEqual(code, 0, out)
+        self.assertIn("もう本流", out)
+        self.assertEqual(seen, [1])
+
+    def test_dirty_department_stops(self):
+        w = World(self.tmp, CI_FILES)
+        write(os.path.join(w.dept, "x.txt"), "x")
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 1)
+        self.assertIn("未コミット", out)
+
+
+class Tidy(LandCase):
+    def test_landed_department_is_kept_when_rows_say_so(self):
+        w = World(self.tmp, CI_FILES)
+        w.work()
+        row = {"path": w.dept, "branch": "feat/a", "removable": False, "reason": "resident"}
+        code, out = self.land(w, Ports(w), rows=lambda *a: [row])
+        self.assertEqual(code, 0, out)
+        self.assertIn("常駐の部署は畳まない", out)
+
+    def test_landed_department_is_retired_with_the_clean_parts(self):
+        w = World(self.tmp, CI_FILES)
+        head = w.work()
+        ports = Ports(w)
+        removed = []
+
+        def remove_worktree(source, path, label):
+            removed.append(path)
+            git("-C", source, "worktree", "remove", path)
+        ports.herdr.remove_worktree = remove_worktree
+        row = {"path": w.dept, "branch": "feat/a", "removable": True, "reason": None, "session": None, "pr_head": head}
+        code, out = self.land(w, ports, rows=lambda *a: [row])
+        self.assertEqual(code, 0, out)
+        self.assertIn("部署を片付けた", out)
+        self.assertEqual(removed, [w.dept])
+        self.assertEqual(git("-C", w.source, "branch", "--list", "feat/a"), "")
+
+
+class OtherModes(LandCase):
+    def test_no_rules_does_nothing(self):
+        w = World(self.tmp)
+        before = w.origin("main")
+        w.work()
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 0)
+        self.assertIn("何もしない", out)
+        self.assertEqual(w.origin("main"), before)
+
+    def test_pr_mode_pushes_the_branch_and_opens_a_pr(self):
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        head = w.work()
+        ports = Ports(w)
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ports.gh.prs, [("feat/a", "main")])
+        self.assertEqual(w.origin("feat/a"), head)
+        self.assertIn("https://pr/1", out)
+
+    def test_role_override(self):
+        w = World(self.tmp, {**CI_FILES, ".claude/company.toml": CI_RULES + '[land.roles.research]\nmode = "none"\n'})
+        w.work()
+        code, out = self.land(w, Ports(w, attrs={"name": "a", "role": "research"}))
+        self.assertEqual(code, 0)
+        self.assertIn("何もしない", out)
+
+    def test_local_check_gate(self):
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
+        head = w.work()
+        ran = []
+        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append((cmd, cwd)) or (0, "ok"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ran, [("tools/check", w.dept)])
+        self.assertEqual(w.origin("main"), head)
+
+    def test_local_check_red(self):
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "tools/check"\n'})
+        before = w.origin("main")
+        w.work()
+        ports = Ports(w)
+        code, out = self.land(w, ports, checker=lambda cmd, cwd: (1, "line1\n壊れた\n"))
+        self.assertEqual(code, 1)
+        self.assertEqual(w.origin("main"), before)
+        self.assertIn("壊れた", ports.herdr.prompts[0][1])
+
+    def test_bad_rules_stop(self):
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\n'})
+        w.work()
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 2)
+        self.assertIn("land.gate", out)
+
+
+def marketplace_files():
+    return {".claude-plugin/marketplace.json": MARKET,
+            "one/.claude-plugin/plugin.json": '{\n  "name": "one",\n  "version": "0.1.0"\n}\n',
+            "one/CHANGELOG.md": CHANGELOG, "one/x.py": "1\n",
+            "two/.claude-plugin/plugin.json": '{\n  "name": "two",\n  "version": "0.2.3"\n}\n',
+            "two/CHANGELOG.md": CHANGELOG.replace("0.1.0", "0.2.3"), "two/y.py": "1\n"}
+
+
+class BumpAtLand(LandCase):
+    def test_bumps_on_a_scratch_place_and_lands_the_bump_commit(self):
+        files = marketplace_files()
+        files[".claude/company.toml"] = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\nbump = "marketplace"\n'
+        w = World(self.tmp, files)
+        write(os.path.join(w.dept, "one", "x.py"), "2\n")
+        write(os.path.join(w.dept, "one", "CHANGELOG.md"), CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Added\n\n- 新しい口\n"))
+        head = commit(w.dept, "one を直す")
+        seen = []
+
+        def checker(cmd, cwd):
+            seen.append(json.loads(pathlib.Path(cwd, "one/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"])
+            return 0, ""
+        code, out = self.land(w, Ports(w), checker=checker)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seen, ["0.2.0"], "関門が版を上げた後の木を見ていない")
+        landed = w.origin("main")
+        self.assertEqual(git("--git-dir", w.remote, "rev-parse", f"{landed}^"), head)
+        self.assertEqual(git("--git-dir", w.remote, "log", "-1", "--format=%s", landed),
+                         "chore(one): 版を上げる（one 0.2.0 / marketplace 0.10.0）")
+        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "部署の枝を動かした")
+        self.assertEqual(git("-C", w.source, "worktree", "list", "--porcelain").count("worktree "), 2, "一時の場所が残った")
+
+    def test_bump_plan_and_files(self):
+        w = World(self.tmp, marketplace_files())
+        src = w.source
+        self.assertEqual(bump.plan(src, gitx), ([], None))
+        write(os.path.join(src, "two", "y.py"), "2\n")
+        write(os.path.join(src, "two", "CHANGELOG.md"),
+              CHANGELOG.replace("0.1.0", "0.2.3").replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- 直した\n"))
+        commit(src, "two を直す")
+        got = bump.make(src, "2026-10-16", gitx)
+        self.assertEqual([(r["name"], r["new"]) for r in got["rows"]], [("two", "0.2.4")])
+        self.assertEqual(got["marketplace"], "0.9.1")
+        text = pathlib.Path(src, "two/CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("## [Unreleased]\n\n## [0.2.4] - 2026-10-16\n\n### Fixed\n\n- 直した\n\n## [0.2.3] - 2026-01-01", text)
+        self.assertEqual(pathlib.Path(src, "one/.claude-plugin/plugin.json").read_text(encoding="utf-8"),
+                         marketplace_files()["one/.claude-plugin/plugin.json"])
+        mk = pathlib.Path(src, ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+        self.assertEqual(mk, MARKET.replace('"version": "0.9.0"', '"version": "0.9.1"'))
+        self.assertEqual(bump.plan(src, gitx), ([], None), "版を上げた後も据え置きと数える")
+
+
+class Rules(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="dispatch-rules-")
+
+    def read(self, text, role=None):
+        path = os.path.join(self.dir, "company.toml")
+        write(path, text)
+        return land.read_rules(path, role)
+
+    def test_missing_file_or_table_is_none(self):
+        self.assertEqual(land.read_rules(os.path.join(self.dir, "nope.toml"))["mode"], "none")
+        self.assertEqual(self.read('name = "x"\n')["mode"], "none")
+
+    def test_readme_examples_read_clean(self):
+        readme = (pathlib.Path(DISPATCH).parent / "README.md").read_text(encoding="utf-8")
+        blocks = [b.split("```", 1)[0] for b in readme.split("```toml\n")[1:]]
+        lands = [b for b in blocks if "[land]" in b]
+        self.assertGreaterEqual(len(lands), 2, "README に [land] の例が 2 つ無い")
+        for b in lands:
+            got = self.read(b)
+            self.assertEqual(got["problems"], [], b)
+            self.assertEqual(got["mode"], "ff-after-ci")
+
+    def test_problems(self):
+        self.assertTrue(self.read('[land]\nmode = "merge"\n')["problems"])
+        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "check"\n')["problems"])
+        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "release"\n')["problems"])
+        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "*"\n')["problems"])
+        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "release-*"\n')["problems"])
+        self.assertTrue(self.read('[land]\nmode = "pr"\nbump = "npm"\n')["problems"])
+        self.assertTrue(self.read('[land]\nmode = 3\n')["problems"])
+        self.assertTrue(self.read('[land\n')["problems"])
+
+    def test_gate_branch(self):
+        self.assertEqual(land.gate_branch("release/*", "land", "feat/company-land"), "release/land")
+        self.assertEqual(land.gate_branch("release/*", "取り込み", "feat/company-land"), "release/feat-company-land")
+
+
+class FailurePoints(unittest.TestCase):
+    def test_run_failure_keeps_the_body_of_the_failed_log(self):
+        def runner(argv, env=None):
+            if "--log-failed" in argv:
+                return subprocess.CompletedProcess(argv, 0, "test\trun\t2026-10-16T00:00:00Z AssertionError: x\n", "")
+            jobs = {"jobs": [{"name": "test", "conclusion": "failure", "steps": [{"name": "run", "conclusion": "failure"}]},
+                             {"name": "lint", "conclusion": "success", "steps": []}]}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(jobs), "")
+        self.assertEqual(ghx.run_failure("o/r", 1, runner=runner),
+                         ["落ちた job: test（step: run）", "2026-10-16T00:00:00Z AssertionError: x"])
+
+
+class WatchRun(unittest.TestCase):
+    def test_a_watch_that_returns_early_is_not_read_as_red(self):
+        def runner(argv, env=None):
+            body = {"databaseId": 1, "status": "in_progress", "conclusion": "", "url": "u"}
+            return subprocess.CompletedProcess(argv, 0 if "view" in argv else 1, json.dumps(body), "")
+        with self.assertRaises(ghx.GhError):
+            ghx.watch_run("o/r", 1, runner=runner)

@@ -1,7 +1,7 @@
 """gh への口（PR と issue を読む・アカウントの鍵を取り出す・issue に枝を結ぶ）。dispatch で gh を直に呼ぶのはこの 1 か所だけ。
 
-書く関数は issue_develop 1 つ（GitHub に枝を作って issue に結ぶ）で、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が
-構文木で見る。持ち主が --issue で指したときだけ呼ばれる。
+書く関数は issue_develop（GitHub に枝を作って issue に結ぶ。持ち主が --issue で指したときだけ）と create_pr（取り込みの命令
+--land が PR を出す）の 2 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 
 自分の番の PR の一覧は gh を直に呼ばず、写した whose-turn に任せる（nodes/prs.py）。
 
@@ -165,3 +165,67 @@ def pr_activity(repo, number, me, runner=_default_runner, env=None):
     asked = [q for q in nodes("reviewRequests") if ((q.get("requestedReviewer") or {}).get("__typename")) in ("User", "Team")]
     return {"reviewers": bool(asked or people), "last_other": max([t for t in times if t is not None], default=None),
             "head_sha": got.get("headRefOid")}
+
+
+# 関門の CI を待つ・PR を出す（取り込みの命令 --land。nodes/land.py）
+
+
+def runs_for(repo, branch, sha, runner=_default_runner, env=None):
+    """その枝のその commit の GitHub Actions の run を新しい順に [{id, status, conclusion, url}]。読めなければ GhError。"""
+    p = runner(["gh", "run", "list", "--repo", repo, "--branch", branch, "--commit", sha, "--limit", "20",
+                "--json", "databaseId,status,conclusion,url,createdAt"], env=env)
+    try:
+        got = json.loads(p.stdout) if p.returncode == 0 else None
+    except ValueError:
+        got = None
+    if not isinstance(got, list):
+        raise GhError(f"{repo} の枝 {branch} の run を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    got = sorted((x for x in got if isinstance(x, dict)), key=lambda x: x.get("createdAt") or "", reverse=True)
+    return [{"id": x.get("databaseId"), "status": x.get("status"), "conclusion": x.get("conclusion"), "url": x.get("url")}
+            for x in got]
+
+
+def watch_run(repo, run_id, runner=_default_runner, env=None):
+    """run が終わるまで待ち（gh run watch）、終わりの {id, status, conclusion, url} を読み直して返す。
+    緑か赤かは、watch の終わりの値でなく読み直した conclusion で決める。読めない・まだ終わっていなければ GhError。"""
+    runner(["gh", "run", "watch", str(run_id), "--repo", repo], env=env)
+    p = runner(["gh", "run", "view", str(run_id), "--repo", repo, "--json", "databaseId,status,conclusion,url"], env=env)
+    try:
+        got = json.loads(p.stdout) if p.returncode == 0 else None
+    except ValueError:
+        got = None
+    if not isinstance(got, dict):
+        raise GhError(f"{repo} の run {run_id} を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+    if got.get("status") != "completed":
+        # watch が途中で切れた（通信・認証）。途中の run を赤と取り違えない
+        raise GhError(f"{repo} の run {run_id} を待ち終える前に gh run watch が戻った（今の状態 {got.get('status')}）")
+    return {"id": got.get("databaseId"), "status": got.get("status"), "conclusion": got.get("conclusion"), "url": got.get("url")}
+
+
+def run_failure(repo, run_id, lines=20, runner=_default_runner, env=None):
+    """赤の run の要点: 落ちた job と step の名前、落ちた step の記録の終わりの lines 行。読めない分は省く（GhError にしない）。"""
+    out = []
+    p = runner(["gh", "run", "view", str(run_id), "--repo", repo, "--json", "jobs"], env=env)
+    try:
+        jobs = json.loads(p.stdout).get("jobs") or [] if p.returncode == 0 else []
+    except (ValueError, AttributeError):
+        jobs = []
+    for j in jobs:
+        if isinstance(j, dict) and j.get("conclusion") not in ("success", "skipped", None):
+            steps = [s.get("name") for s in j.get("steps") or [] if isinstance(s, dict) and s.get("conclusion") == "failure"]
+            out.append(f"落ちた job: {j.get('name')}" + (f"（step: {', '.join(steps)}）" if steps else ""))
+    p = runner(["gh", "run", "view", str(run_id), "--repo", repo, "--log-failed"], env=env)
+    if p.returncode == 0:
+        # 1 行は「job<TAB>step<TAB>時刻と本文」。本文だけを残す
+        tail = [line.split("\t")[-1] for line in p.stdout.splitlines() if line.strip()][-lines:]
+        out += tail
+    return out
+
+
+def create_pr(repo, branch, base, runner=_default_runner, env=None):
+    """枝 branch から base へ PR を出す（gh pr create --fill。題と本文は commit から）。書く口。PR の URL を返す。失敗は GhError。"""
+    p = runner(["gh", "pr", "create", "--repo", repo, "--head", branch, "--base", base, "--fill"], env=env)
+    url = (p.stdout or "").strip().splitlines()[-1:] if p.returncode == 0 else []
+    if not url:
+        raise GhError(f"{repo} の枝 {branch} から PR を出せない: {(p.stderr or p.stdout).strip()[:200]}")
+    return url[0]

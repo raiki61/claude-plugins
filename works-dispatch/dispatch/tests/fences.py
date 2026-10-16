@@ -17,7 +17,8 @@ SKIP = ("tests", "vendor")
 OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 
 # D4: subprocess を import してよい所（外への口・段の点検 tiers を呼ぶ tierx・whose-turn を呼ぶ prs・始める前の確かめを持つ入口）
-SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py"}
+# landing.py は入口 dispatch.py の --land の流れを分けた物で、手元の検証のコマンドを回す
+SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
 WRITES = {
@@ -25,17 +26,24 @@ WRITES = {
     "run": {"nodes/launch.py"},
     "rename_pane": {"nodes/launch.py", "nodes/sync.py"},
     "report_pane_metadata": {"nodes/sync.py"},
-    "prompt": {"nodes/turn.py", "nodes/deliver.py"},   # deliver は頼みと納品の 1 行を窓に送る
+    "prompt": {"nodes/turn.py", "nodes/deliver.py", "nodes/land.py"},   # deliver は頼みと納品の 1 行を、land は載せ直しと赤の頼みを窓に送る
     # herdr: 枝の場所（元の clone の git worktree）を作る・開く・消す、作業場を畳む
     "create_worktree": {"nodes/provision.py"},
     "open_worktree": {"nodes/provision.py"},
     "remove_worktree": {"nodes/clean.py"},
     "close_workspace": {"nodes/clean.py"},
     # git: origin の枝を取る・早送りする・作者の force-push に揃える・手元の枝を消す
-    "fetch": {"nodes/provision.py"},
+    "fetch": {"nodes/provision.py", "nodes/land.py"},
     "fast_forward": {"nodes/provision.py"},
     "reset_keep": {"nodes/provision.py"},
     "delete_branch": {"nodes/clean.py"},
+    # git: 部署の成果を本流に入れる（関門の枝と本流へ push・関門の枝を消す・手元の本流を早送り・版を上げる一時の場所と commit）
+    "push": {"nodes/land.py"},
+    "drop_remote": {"nodes/land.py"},
+    "advance_branch": {"nodes/land.py"},
+    "add_detached": {"nodes/land.py"},
+    "remove_detached": {"nodes/land.py"},
+    "commit_all": {"nodes/bump.py"},
     # git: 部署の属性（worktree ごとの設定）を書く
     "enable_worktree_config": {"nodes/provision.py"},
     "set_worktree_attr": {"nodes/provision.py"},
@@ -43,8 +51,9 @@ WRITES = {
     "exclude": {"nodes/provision.py"},
     # claude: 裏の会話を消す（claude rm）
     "remove_session": {"nodes/clean.py"},
-    # gh: issue に枝を結ぶ（GitHub に枝を作る）
+    # gh: issue に枝を結ぶ（GitHub に枝を作る）・本流への PR を出す
     "issue_develop": {"nodes/provision.py"},
+    "create_pr": {"nodes/land.py"},
     # herdr: サイドバーの印
     "report_activity": {"activity.py"},
 }

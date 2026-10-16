@@ -7,7 +7,9 @@
 enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 
-書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude の 8 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude と、
+本流に入れる（取り込みの命令）ための push・drop_remote・advance_branch・add_detached・remove_detached・commit_all の 14 で、
+呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
 import os
@@ -230,3 +232,89 @@ def unset_worktree_attr(cwd, name, runner=_default_runner):
 def set_worktree_attr(cwd, name, value, runner=_default_runner):
     """その worktree の git の設定 company.<名前> に値を書く（同じ値なら同じ結果）。書く口。"""
     _must(["git", "-C", cwd, "config", "--worktree", f"{ATTR}{name}", value], runner)
+
+
+# 本流に入れる（取り込みの命令 --land。nodes/land.py と nodes/bump.py）ための口
+
+
+def rev(cwd, ref, runner=_default_runner):
+    """ref の commit。無ければ None。"""
+    return _git(cwd, ["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], runner) or None
+
+
+def is_ancestor(cwd, a, b, runner=_default_runner):
+    """a が b の祖先（同じ commit も含む）か。読めなければ偽。"""
+    return _is_ancestor(cwd, a, b, runner)
+
+
+def commits_touching(cwd, path, since=None, runner=_default_runner):
+    """path（cwd からの相対）を変えた commit の id を新しい順に。since を渡せば since..HEAD の中だけ。読めなければ GitError。"""
+    return _must(["git", "-C", cwd, "log", "--format=%H", *([f"{since}..HEAD"] if since else []), "--", path], runner).split()
+
+
+def file_at(cwd, commit, path, runner=_default_runner):
+    """その commit の path（cwd からの相対）の中身。無ければ None。"""
+    return _git(cwd, ["show", f"{commit}:./{path}"], runner)
+
+
+def push(cwd, sha, ref, force=False, runner=_default_runner):
+    """origin の枝 ref を sha にする（git push origin <sha>:refs/heads/<ref>）。書く口。force が偽なら早送りでしか進めず、
+    origin が先に進んでいれば git が断る（GitError）。"""
+    _must(["git", "-C", cwd, "push", "--quiet", "origin", f"{'+' if force else ''}{sha}:refs/heads/{ref}"], runner)
+
+
+def drop_remote(cwd, ref, runner=_default_runner):
+    """origin の枝 ref を消す。書く口。もう無ければ何もしない。"""
+    if _git(cwd, ["ls-remote", "--exit-code", "--heads", "origin", ref], runner) is None:
+        return "absent"
+    _must(["git", "-C", cwd, "push", "--quiet", "origin", "--delete", ref], runner)
+    return "deleted"
+
+
+def _holder(source, branch, runner):
+    """その枝を開いている worktree の場所（無ければ None）。"""
+    path = None
+    for line in (_git(source, ["worktree", "list", "--porcelain"], runner) or "").splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+        elif line == f"branch refs/heads/{branch}":
+            return path
+    return None
+
+
+def advance_branch(source, branch, sha, runner=_default_runner):
+    """手元の枝 branch を sha へ早送りだけする。書く口。current（もう同じ）・updated（進めた）・absent（手元に枝が無い）・
+    local_only（手元の枝にしか無い commit が有るので動かさない）・dirty（枝を開いている worktree に未コミットの変更が有るので
+    動かさない）のどれか。枝を開いている worktree が有れば、そこで git merge --ff-only を打つ（中身もそろえる）。"""
+    old = rev(source, f"refs/heads/{branch}", runner)
+    if old is None:
+        return "absent"
+    if old == sha:
+        return "current"
+    if not _is_ancestor(source, old, sha, runner):
+        return "local_only"
+    holder = _holder(source, branch, runner)
+    if holder is None:
+        _must(["git", "-C", source, "update-ref", f"refs/heads/{branch}", sha, old], runner)
+    elif not is_clean(holder, runner):
+        return "dirty"
+    else:
+        _must(["git", "-C", holder, "merge", "--ff-only", "--quiet", sha], runner)
+    return "updated"
+
+
+def add_detached(source, path, sha, runner=_default_runner):
+    """枝に乗らない一時の worktree を path に sha で作る（取り込みのときに版を上げる commit を作る場所）。書く口。"""
+    _must(["git", "-C", source, "worktree", "add", "--quiet", "--detach", path, sha], runner)
+
+
+def remove_detached(source, path, runner=_default_runner):
+    """add_detached で作った一時の worktree を消す（中の変更ごと）。書く口。"""
+    _must(["git", "-C", source, "worktree", "remove", "--force", path], runner)
+
+
+def commit_all(cwd, message, runner=_default_runner):
+    """cwd の変更を全部足して commit し、その commit の id を返す。書く口。"""
+    _must(["git", "-C", cwd, "add", "--all"], runner)
+    _must(["git", "-C", cwd, "commit", "--quiet", "-m", message], runner)
+    return _git(cwd, ["rev-parse", "HEAD"], runner)
