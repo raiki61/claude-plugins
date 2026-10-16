@@ -965,8 +965,9 @@ def _contact(caller, account):
 
 
 def _brief_text(brief, caller, account, tail=None):
-    """作業役に最初に送る文（1 行）。tail は連絡の道の文の代わり（--ask は納品の命令での返し方）。"""
-    return f"作業の頼みです。{brief} を読んで、その通りに進めてください。" + (tail or _contact(caller, account))
+    """作業役に最初に送る文（1 行）。tail は連絡の道の文の代わり（--ask は納品の命令での返し方）。
+    「その通りに」とは書かない（頼みに異論を返してよいかは会社の形の役の本文が決める。頼みの文がそれを打ち消さないように）。"""
+    return f"作業の頼みです。{brief} を読んで進めてください。" + (tail or _contact(caller, account))
 
 
 def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):

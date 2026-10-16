@@ -261,6 +261,8 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
         self.assertIsNone(role_hook.text_for(self.src, self.env))      # 本社
+        provision.mark(self.src, self.src, {"role": "窓口"}, gitx)     # --desk で名付けた本社の窓口は、部署と書かない
+        self.assertEqual(role_hook.text_for(self.src, self.env), "この会話は会社「試しの会社」の本社の会話で、役は「窓口」。")
         self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
 
     def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""SessionStart のフック: 会話を起こした場所が部署なら、その役の本文を会話の指示に足す（会社の形の設計 4.8）。
+"""SessionStart のフック: 会話を起こした場所が部署か本社の窓口（--desk）なら、その役の本文を会話の指示に足す（会社の形の設計 4.8）。
 
 起こした場所（フックの入力の cwd）の部署の属性 company.role（git config --worktree）を読み、会社の形（tree.read_info の読み方。
 origin の既定の枝に commit された .claude/company.toml、無ければ元の clone の作業ツリーの物、無ければ設定の置き場の companies/ の
-中の、そのリポジトリの分）から役の項目を引いて、additionalContext として返す。役の無い場所（本社や普通の clone、git でない場所）
-では何も出さない。部署の枝が書き換えた物も、元の clone がたまたま開いている枝の物も読まない（--task が起動の設定を決めたときと
-同じ物を読む）。
+中の、そのリポジトリの分）から役の項目を引いて、additionalContext として返す。役の属性の無い場所（--desk を打っていない本社や普通の
+clone、git でない場所）では何も出さない。本社（代表の clone）の窓口には、部署ではなく本社の会話と書く。部署の枝が書き換えた物も、
+元の clone がたまたま開いている枝の物も読まない（--task が起動の設定を決めたときと同じ物を読む）。
 足す文は毎回の起動時の量に入るので、役の本文（instructions）と、部署の名前と同じ name の受ける仕事（[[skills]]。受け持ち）の
 説明だけを足す。読めない・形が違うときも会話は止めない（何も足さないか、
 訳を 1 行足す）。会話をやり直した（resume・clear・compact）ときにも走り、役が付き直す。
@@ -87,7 +87,7 @@ def text_for(cwd, env=os.environ, attrs=None):
     shape = role.load(info["path"], info["text"])
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
-    text = role.context(name, shape["roles"].get(name), company, duty)
+    text = role.context(name, shape["roles"].get(name), company, duty, gitx.is_main_worktree(cwd) is True)
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"

@@ -299,9 +299,10 @@ def tail(required, run):
 
 
 def ask_line(ask_id, sender, text, file, required, run):
-    """宛先の部署の窓に打つ 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。"""
+    """宛先の部署の窓に打つ 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。
+    「その通りに」とは書かない（頼みに異論を返してよいかは会社の形の役の本文が決める。頼みの文がそれを打ち消さないように）。"""
     head = f"頼みです（受付 {ask_id}、{sender} から）: "
-    body = text if text and "\n" not in text and len(text) <= SHORT_TEXT else f"{file} を読んで、その通りに進めてください。"
+    body = text if text and "\n" not in text and len(text) <= SHORT_TEXT else f"{file} を読んで進めてください。"
     return head + body + tail(required, run)
 
 

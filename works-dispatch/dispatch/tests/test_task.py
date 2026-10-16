@@ -109,7 +109,7 @@ class Task(unittest.TestCase):
         ])
         if words:
             self.assertEqual(words[:6], ["claude-a1", "--bg", "--name", "直し", "--settings", ports.department_settings()])
-            self.assertTrue(words[6].startswith(f"作業の頼みです。{self.brief} を読んで、その通りに進めてください。"), words)
+            self.assertTrue(words[6].startswith(f"作業の頼みです。{self.brief} を読んで進めてください。"), words)
             self.assertNotIn("\n", words[6])
         # 裏の会話にだけ効く設定は、会話が自分で worktree を作らないようにする
         self.assertEqual(json.loads(pathlib.Path(ports.department_settings()).read_text(encoding="utf-8")),
