@@ -252,6 +252,12 @@ def commits_touching(cwd, path, since=None, runner=_default_runner):
     return _must(["git", "-C", cwd, "log", "--format=%H", *([f"{since}..HEAD"] if since else []), "--", path], runner).split()
 
 
+def origin_head(cwd, runner=_default_runner):
+    """origin の既定の枝を指す手元の ref（origin/HEAD が指す先。例 origin/main）。origin/HEAD が無い・git でない時は None。
+    手元の ref を読むだけで、origin へは問い合わせない（最後に fetch・push した時の形）。"""
+    return _git(cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], runner) or None
+
+
 def file_at(cwd, commit, path, runner=_default_runner):
     """その commit の path（cwd からの相対）の中身。無ければ None。"""
     return _git(cwd, ["show", f"{commit}:./{path}"], runner)

@@ -15,7 +15,7 @@ from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import git, make_world
 import gitx
 import herdr as real_herdr
-from nodes import clean, provision, sync, tree
+from nodes import clean, land, provision, sync, tree
 
 
 def fake_runner(out="", rc=0):
@@ -135,6 +135,73 @@ class Info(unittest.TestCase):
         write(os.path.join(self.root, ".claude", "company.toml"), 'name = 3\nskills = [{ id = "x" }]\n')
         got = tree.read_info(self.root, None)
         self.assertEqual(len(got["problems"]), 2)
+
+
+def publish(src, text):
+    """origin の main に .claude/company.toml を commit して push し（元の clone の作業ツリーは動かさない）、origin/HEAD を main に向ける。"""
+    side = tempfile.mkdtemp(prefix="company-pub-") + "/w"
+    git("-C", src, "fetch", "-q", "origin", "main")
+    git("-C", src, "worktree", "add", "-q", "--detach", side, "origin/main")
+    write(os.path.join(side, ".claude", "company.toml"), text)
+    git("-C", side, "add", ".claude/company.toml")
+    git("-C", side, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "company")
+    git("-C", side, "push", "-q", "origin", "HEAD:refs/heads/main")
+    git("-C", src, "worktree", "remove", "--force", side)
+    git("-C", src, "fetch", "-q", "origin", "main")
+    git("-C", src, "remote", "set-head", "origin", "main")
+
+
+class Source(unittest.TestCase):
+    """会社の形を読む場所（read_info）: origin の既定の枝に commit された物を、元の clone の作業ツリーより先に読む。"""
+
+    def setUp(self):
+        self.src, self.root = make_world()
+        self.settings = tempfile.mkdtemp(prefix="company-settings-")
+        # 元の clone はほかの会話が古い枝で使っている（会社の形を持たないか、古い物を持つ）
+        git("-C", self.src, "checkout", "-q", "-b", "old")
+
+    def test_default_branch_wins_over_a_clone_without_the_shape(self):
+        publish(self.src, 'name = "本流"\n')
+        write(tree.settings_info_path(self.settings, self.src), 'name = "手元"\n')
+        got = tree.read_info(self.src, self.settings)
+        self.assertEqual((got["source"], got["name"], got["path"]), ("origin", "本流", "origin/main:.claude/company.toml"))
+        self.assertEqual(got["text"], 'name = "本流"')
+
+    def test_default_branch_wins_over_an_old_shape_in_the_clone(self):
+        publish(self.src, 'name = "新しい"\n')
+        write(os.path.join(self.src, ".claude", "company.toml"), 'name = "古い"\n')
+        self.assertEqual(tree.read_info(self.src, self.settings)["name"], "新しい")
+
+    def test_a_department_reads_the_same_shape_as_the_head_office(self):
+        publish(self.src, 'name = "本流"\n')
+        place = os.path.join(self.root, "dept")
+        git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", place, "origin/main")
+        write(os.path.join(place, ".claude", "company.toml"), 'name = "部署が書き換えた"\n')
+        root = gitx.root_of(gitx.common_dir(place))
+        self.assertEqual(tree.read_info(root, self.settings)["name"], "本流")
+
+    def test_without_origin_head_the_clone_is_read(self):
+        git("-C", self.src, "remote", "set-head", "origin", "--delete")
+        write(os.path.join(self.src, ".claude", "company.toml"), 'name = "手元の clone"\n')
+        got = tree.read_info(self.src, self.settings)
+        self.assertEqual((got["source"], got["name"]), ("repo", "手元の clone"))
+
+    def test_default_branch_without_the_shape_falls_back_to_the_clone(self):
+        git("-C", self.src, "remote", "set-head", "origin", "main")
+        write(os.path.join(self.src, ".claude", "company.toml"), 'name = "手元の clone"\n')
+        self.assertEqual(tree.read_info(self.src, self.settings)["source"], "repo")
+
+    def test_broken_shape_on_the_default_branch_is_a_problem_and_does_not_fall_back(self):
+        publish(self.src, "name = \n")
+        write(os.path.join(self.src, ".claude", "company.toml"), 'name = "手元"\n')
+        got = tree.read_info(self.src, self.settings)
+        self.assertEqual((got["source"], got["name"]), ("origin", None))
+        self.assertIn("origin/main:.claude/company.toml: TOML として読めない", got["problems"][0])
+
+    def test_land_rules_are_read_from_the_default_branch(self):
+        publish(self.src, '[land]\nmode = "pr"\n')
+        info = tree.read_info(self.src, self.settings)
+        self.assertEqual(land.read_rules(info["path"], None, info["text"])["mode"], "pr")
 
 
 class Build(unittest.TestCase):

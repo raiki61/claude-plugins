@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """SessionStart のフック: 会話を起こした場所が部署なら、その役の本文を会話の指示に足す（会社の形の設計 4.8）。
 
-起こした場所（フックの入力の cwd）の部署の属性 company.role（git config --worktree）を読み、会社の形（リポジトリの中の
-.claude/company.toml、無ければ設定の置き場の companies/ の中の、そのリポジトリの分。--tree と同じ読み方）から役の項目を引いて、
-additionalContext として返す。役の無い場所（本社や普通の clone、git でない場所）では何も出さない。
-会社の形は本社（元の clone）の物を読む（部署の枝が書き換えた物ではなく、--tree が見る物と同じにする）。
+起こした場所（フックの入力の cwd）の部署の属性 company.role（git config --worktree）を読み、会社の形（tree.read_info の読み方。
+origin の既定の枝に commit された .claude/company.toml、無ければ元の clone の作業ツリーの物、無ければ設定の置き場の companies/ の
+中の、そのリポジトリの分）から役の項目を引いて、additionalContext として返す。役の無い場所（本社や普通の clone、git でない場所）
+では何も出さない。部署の枝が書き換えた物も、元の clone がたまたま開いている枝の物も読まない（--task が起動の設定を決めたときと
+同じ物を読む）。
 足す文は毎回の起動時の量に入るので、役の本文（instructions）だけを足す。読めない・形が違うときも会話は止めない（何も足さないか、
 訳を 1 行足す）。会話をやり直した（resume・clear・compact）ときにも走り、役が付き直す。
 
@@ -60,7 +61,7 @@ def text_for(cwd, env=os.environ, attrs=None):
         return None
     root = gitx.root_of(common)
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
-    shape = role.load(info["path"])
+    shape = role.load(info["path"], info["text"])
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     text = role.context(name, shape["roles"].get(name), company)
     problems = info.get("problems", []) + shape["problems"]

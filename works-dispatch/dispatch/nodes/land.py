@@ -27,15 +27,19 @@ FAIL_LINES = 20  # 赤の要点に載せる記録の行数
 ASK_CHARS = 2000  # 部署に打ち込む文の上限の字数
 
 
-def read_rules(path, role=None):
-    """会社の形のファイルの [land] の表を読み、役 role の [land.roles.<役>] を上に重ねる。
-    {mode, gate, check, bump, main, problems}。ファイルが無い・表が無ければ mode は none。"""
+def read_rules(path, role=None, text=None):
+    """会社の形のファイルの [land] の表を読み、役 role の [land.roles.<役>] を上に重ねる。text を渡せば、それを中身として読む
+    （tree.read_info が読んだ物。path は注記に出す場所の札）。{mode, gate, check, bump, main, problems}。ファイルが無い・表が
+    無ければ mode は none。"""
     out = {"mode": "none", "gate": None, "check": None, "bump": None, "main": None, "problems": []}
-    if not path or not os.path.isfile(path):
+    if not path or text is None and not os.path.isfile(path):
         return out
     try:
-        with open(path, "rb") as f:
-            raw = tomllib.load(f).get("land")
+        if text is None:
+            with open(path, "rb") as f:
+                raw = tomllib.load(f).get("land")
+        else:
+            raw = tomllib.loads(text).get("land")
     except (OSError, tomllib.TOMLDecodeError) as e:
         out["problems"].append(f"{path}: TOML として読めない（{e}）")
         return out

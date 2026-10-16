@@ -117,7 +117,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し 
 
 herdr に開いている作業場と、全アカウントの会話（終わった裏の会話も）が指すリポジトリを会社として、会社ごとに受ける仕事と部署を出す。部署の行は、枝・状態（作業中・止まっている・終わった・待機中・会話なし など）・会話の名前・役・アカウント・上役・herdr の窓の有無。`--tree --json` は同じ物を JSON で出す（形は `dispatch/schemas/tree.schema.json`）。読むだけで、何も書かない。dispatch の設定が無くても動く（有れば、そのアカウントの会話の一覧も見る）。
 
-会社の情報（名前と受ける仕事）は、リポジトリの中の `.claude/company.toml` を先に読み、無ければ設定の置き場（設定のファイルの隣）の `companies/<代表の clone の場所を符号にした名前>.toml` を読む。書き方は同じ TOML で、欄の名前は A2A の Agent Card に合わせた:
+会社の情報（名前と受ける仕事）は、リポジトリの中の `.claude/company.toml` を先に読み、無ければ設定の置き場（設定のファイルの隣）の `companies/<代表の clone の場所を符号にした名前>.toml` を読む。リポジトリの中の物は、origin の既定の枝（`origin/HEAD` が指す手元の ref。fetch はしない）に commit された物を先に読み、無ければ代表の clone の作業ツリーの物を読む（代表の clone がたまたま開いている枝や、部署の枝で書き換えた物には頼らない。変えた会社の形は本流に入れてから効く）。`--tree`・`--task`・`--ask`・`--deliver`・`--land`・役を足すフックは同じ読み方をする。書き方は同じ TOML で、欄の名前は A2A の Agent Card に合わせた:
 
 ```toml
 name = "my_notes"

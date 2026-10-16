@@ -12,7 +12,7 @@
         "properties": {
           "root": {"type": "string"},
           "name": {"type": "string"},
-          "info_source": {"type": ["string", "null"], "enum": ["repo", "settings", null]},
+          "info_source": {"type": ["string", "null"], "enum": ["origin", "repo", "settings", null]},
           "info_path": {"type": ["string", "null"]},
           "description": {"type": ["string", "null"]},
           "problems": {"type": "array", "items": {"type": "string"}},

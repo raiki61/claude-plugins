@@ -11,7 +11,10 @@
   状態は裏の会話の state（作業中・止まっている・終わった など）、手前の会話（kind が interactive）は status から取る。
 - 窓は、部署の作業場か部署の場所のペイン（attach の画面など）が herdr に在るか。
 - 会社の情報（名前と受ける仕事）は、リポジトリの中の INFO_FILE を先に読み、無ければ設定の置き場の companies/ の中の、その
-  リポジトリの分を読む（書き方は同じ。Claude Code の settings.json と settings.local.json の分け方と同じ考え）。
+  リポジトリの分を読む（書き方は同じ。Claude Code の settings.json と settings.local.json の分け方と同じ考え）。リポジトリの中の
+  物は、origin の既定の枝（origin/HEAD が指す手元の ref）に commit された物を先に読み、無ければ元の clone の作業ツリーの物を読む
+  （read_info）。元の clone の作業ツリーはほかの会話が古い枝で使っていることがあり、部署の枝は部署が書き換えうるので、どちらにも
+  頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。
   書き方は TOML で、欄の名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
   role だけをここで足した。知らない欄は読み飛ばす。
 
@@ -22,6 +25,8 @@ import os
 import pathlib
 import tomllib
 import urllib.parse
+
+import gitx
 
 INFO_FILE = (".claude", "company.toml")  # リポジトリの中の会社の情報（commit する側）
 SETTINGS_DIR = "companies"  # 設定の置き場の下の、リポジトリの外の会社の情報（commit しない側）
@@ -57,30 +62,56 @@ def _skills(raw, where, problems):
     return out
 
 
-def read_info(root, settings_dir):
-    """その会社の情報。{source: repo|settings|None, path, name, description, skills, problems}。読む順はリポジトリの中、設定の置き場。
+def committed_info(root):
+    """origin の既定の枝に commit された INFO_FILE。(場所の札 例 origin/main:.claude/company.toml, 中身) か None。
+    手元の ref を読むだけで fetch しない（毎回の会話の始まりに走るフックも通るので、外へ問い合わせない）。"""
+    ref = gitx.origin_head(root)
+    rel = "/".join(INFO_FILE)
+    text = gitx.file_at(root, ref, rel) if ref else None
+    return (f"{ref}:{rel}", text) if text is not None else None
+
+
+def _blank(source=None, path=None):
+    return {"source": source, "path": path, "text": None, "name": None, "description": None, "skills": [], "problems": []}
+
+
+def read_info(root, settings_dir, committed=committed_info):
+    """その会社の情報。{source: origin|repo|settings|None, path, text, name, description, skills, problems}。会社の形を読む場所を
+    決めるのはこの 1 か所で、読む順は origin の既定の枝に commit された物（committed。path は ref:パス の札）、元の clone の作業
+    ツリーの物、設定の置き場の物。text は読んだ中身（role.load・land.read_rules に渡す。同じ物を読み直さない）。
     読めない・形の違うファイルは problems に書き、そこで止める（次の置き場へ落とさない。書いた物が効いていないことを隠さない）。"""
-    places = [("repo", os.path.join(root, *INFO_FILE))]
-    if settings_dir:
-        places.append(("settings", settings_info_path(settings_dir, root)))
-    for source, path in places:
-        if not os.path.isfile(path):
-            continue
-        out = {"source": source, "path": path, "name": None, "description": None, "skills": [], "problems": []}
+    got = committed(root)
+    if got:
+        source, path, text = "origin", got[0], got[1]
+    else:
+        places = [("repo", os.path.join(root, *INFO_FILE))]
+        if settings_dir:
+            places.append(("settings", settings_info_path(settings_dir, root)))
+        for source, path in places:
+            if os.path.isfile(path):
+                break
+        else:
+            return _blank()
         try:
-            with open(path, "rb") as f:
-                raw = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError) as e:
-            out["problems"].append(f"{path}: TOML として読めない（{e}）")
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError) as e:
+            out = _blank(source, path)
+            out["problems"].append(f"{path}: 読めない（{e}）")
             return out
-        for k in ("name", "description"):
-            if isinstance(raw.get(k), str):
-                out[k] = raw[k]
-            elif k in raw:
-                out["problems"].append(f"{path}: {k} が文字列で無い")
-        out["skills"] = _skills(raw.get("skills", []), path, out["problems"])
+    out = {**_blank(source, path), "text": text}
+    try:
+        raw = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        out["problems"].append(f"{path}: TOML として読めない（{e}）")
         return out
-    return {"source": None, "path": None, "name": None, "description": None, "skills": [], "problems": []}
+    for k in ("name", "description"):
+        if isinstance(raw.get(k), str):
+            out[k] = raw[k]
+        elif k in raw:
+            out["problems"].append(f"{path}: {k} が文字列で無い")
+    out["skills"] = _skills(raw.get("skills", []), path, out["problems"])
+    return out
 
 
 def roots(workspaces, panes, common_of, cwds=()):
@@ -181,7 +212,7 @@ def lines(companies):
         return ["herdr に開いている会社（git のリポジトリ）も、裏の会話も無い"]
     out = []
     for c in companies:
-        where = {"repo": "リポジトリの中", "settings": "設定の置き場"}.get(c["info_source"])
+        where = {"origin": "既定の枝", "repo": "リポジトリの中", "settings": "設定の置き場"}.get(c["info_source"])
         out.append(f"{c['name']}  {c['root']}" + (f"  （会社の情報: {where}）" if where else "  （会社の情報なし）"))
         if c["description"]:
             out.append(f"  {c['description']}")

@@ -17,6 +17,7 @@ from .test_dispatch import FakeHerdr, gitx_source
 from .test_provision import git, make_world
 from . import test_task
 import gitx
+import orders
 import role_hook
 from nodes import launch, provision, role
 
@@ -166,6 +167,16 @@ class Hook(unittest.TestCase):
         self.assertIsNone(role_hook.text_for(self.src, self.env))      # 本社
         self.assertIsNone(role_hook.text_for(tempfile.mkdtemp(), self.env))   # git でない
 
+    def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
+        from .test_company import publish
+        publish(self.src, SHAPE)
+        git("-C", self.src, "checkout", "-q", "-b", "old")   # 元の clone はほかの会話が古い枝で使っている（会社の形を持たない）
+        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
+        # --ask・--deliver の読み方（orders.shape_role）も同じ物を読む
+        got, problems = orders.shape_role(self.src, None, "調べ役")
+        self.assertEqual((got["instructions"], problems), ("結論と原典の一句を返す。", []))
+
     def test_shape_outside_the_repo_is_read_and_a_missing_role_gets_only_the_head_line(self):
         conf = pathlib.Path(self.env["WORKS_DISPATCH_CONFIG"]).parent
         write(conf / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
@@ -259,6 +270,17 @@ class TaskWithRole(unittest.TestCase):
         self.assertNotIn("gh-user", attrs)
         self.assertNotIn("boss", attrs)
         self.assertEqual(attrs["config"], self.cfg)
+
+    def test_role_model_is_read_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
+        from .test_company import publish
+        src = gitx_source(self.cfg)
+        publish(src, SHAPE)
+        write(pathlib.Path(src) / ".claude" / "company.toml", 'name = "古い形"\n')   # 元の clone の作業ツリーは古い（役が無い）
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役")
+        self.assertEqual(rc, 0, out)
+        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        self.assertIn("haiku", command)
 
     def test_role_settings_model_and_gh_user_reach_the_department(self):
         self.shape()

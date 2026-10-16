@@ -74,7 +74,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     place, attrs = hits[0]
     branch, path, source = place.get("branch"), place["path"], repo.source
     info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)))
-    rules = land.read_rules(info.get("path"), attrs.get("role"))
+    rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))
     if rules["problems"]:
         print("止めた（取り込みの決まりが読めない）:\n" + "\n".join(f"- {p}" for p in rules["problems"]))
         return 2

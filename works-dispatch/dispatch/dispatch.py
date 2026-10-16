@@ -886,7 +886,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
     # 役の項目（会社の形の [[roles]]）と gh のアカウント。会社の形は --tree と同じ読み方（会社の形の設計 4.7・4.8）
     role_name = a.role or DEFAULT_ROLE
     cfg_path = config.path_of(a.config, os.environ)
-    shape = role.load(tree.read_info(repo.source, os.path.dirname(cfg_path))["path"])
+    info = tree.read_info(repo.source, os.path.dirname(cfg_path))
+    shape = role.load(info["path"], info["text"])
     the_role, why = role.pick(shape, role_name, a.role is not None)
     if why:
         print(f"止めた: {why}")

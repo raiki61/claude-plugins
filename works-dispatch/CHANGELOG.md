@@ -4,6 +4,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。0.1.0 は出していない。作った時に付けた版の後に変更を積んだので、初めて出す版を 0.1.1 にした。
 
+## [Unreleased]
+
+### Fixed
+
+- 会社の形（`.claude/company.toml`）を、代表の clone の作業ツリーではなく、origin の既定の枝（`origin/HEAD` が指す手元の ref。fetch はしない）に commit された物から先に読む。無ければ前と同じく代表の clone の作業ツリー、設定の置き場の順。前は代表の clone をほかの会話が古い枝で開いていると、部署の役の本文（`instructions`）が会話に足されず、役の `settings`（`enabledPlugins` など）と `model` も効かなかった。部署の枝で書き換えた会社の形も読まない（部署が自分の納品の必須項目や取り込みの決まりを緩められない。変えた会社の形は本流に入れてから効く）。`--tree`・`--task`・`--ask`・`--deliver`・`--land`・役を足すフックは、同じ 1 つの読み方（`tree.read_info`）を通る。`--tree` は読んだ所を「既定の枝」と出し、`--tree --json` の `info_source` に `origin` が増えた。
+
 ## [0.9.0] - 2026-10-16
 
 ### Added

@@ -30,15 +30,19 @@ def _empty():
     return {"roles": {}, "gh_user": None, "problems": []}
 
 
-def load(path):
+def load(path, text=None):
     """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver}, gh_user, problems}。path が None なら空。
+    text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
     out = _empty()
     if not path:
         return out
     try:
-        with open(path, "rb") as f:
-            raw = tomllib.load(f)
+        if text is None:
+            with open(path, "rb") as f:
+                raw = tomllib.load(f)
+        else:
+            raw = tomllib.loads(text)
     except (OSError, tomllib.TOMLDecodeError) as e:
         out["problems"].append(f"{path}: TOML として読めない（{e}）")
         return out

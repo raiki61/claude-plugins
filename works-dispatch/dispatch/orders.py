@@ -75,7 +75,8 @@ def survey(config_path, ports):
 
 def shape_role(root, settings, name):
     """会社の形（--task と同じ読み方。root が None なら無い）からその役の項目と、会社の形の注記。"""
-    shape = role.load(tree.read_info(root, settings)["path"] if root else None)
+    info = tree.read_info(root, settings) if root else {"path": None, "text": None}
+    shape = role.load(info["path"], info["text"])
     return shape["roles"].get(name), shape["problems"]
 
 
