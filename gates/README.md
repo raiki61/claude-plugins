@@ -215,10 +215,9 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
     重すぎるときは `COLDREAD_DOCS_OFF=1` で手元の文書の門番ごと切る
 - 投稿は出したら取り消せないので書く前に止める。手元の文書は書いた後でも直せるので止めない。書くたびに読ませると、
   Edit のたびに待たされ、同じ文書を何度も読む
-- 読み手は投稿より安いモデルで走らせる(既定 haiku・medium。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。
-  xhigh だった頃は、1 回の出力の中央値が約 2 万トークン(97% が考えの分)で、読みの 13% が時間切れ(210 秒)だった。過去の
-  読み 12 本を読ませ直すと、medium は出力が約 4 分の 1 で、指摘の役立ちは同じ程度だった。low は、指摘の有る文書を CLEAN で
-  返すことがあった(2026-10-16 の実測)。投稿の読み手は sonnet・medium のまま
+- 読み手は投稿より安いモデルを effort を上げて走らせる(既定 haiku・xhigh。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。
+  Artificial Analysis の総合ランキング(2026-10-13)で Haiku 5.5 の xhigh が Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の
+  費用で出したため。投稿の読み手は sonnet・medium のまま
 - 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
   `linguist-generated` の印・書く前と同じ中身・前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
 - 一時の置き場に書いた、git の作業ツリーの外のファイルも読まない(書いた役が自分のために置いた写しや、渡された頼みの文書)。
