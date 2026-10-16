@@ -490,6 +490,17 @@ class OtherModes(LandCase):
         self.assertEqual(w.origin("main"), before)
         self.assertIn("壊れた", ports.herdr.prompts[0][1])
 
+    def test_python_cache_the_department_made_does_not_stop_the_landing(self):
+        # .gitignore の無いリポジトリで、部署が試しに import して作った __pycache__ は、手元だけの無視の決まりで数えない
+        w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\n'})
+        head = w.work()
+        cache = pathlib.Path(w.dept, "src", "__pycache__")
+        cache.mkdir(parents=True)
+        (cache / "calc.cpython-314.pyc").write_bytes(b"x")
+        code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: (0, "ok"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(w.origin("main"), head)
+
     def test_bad_rules_stop(self):
         w = World(self.tmp, {".claude/company.toml": '[land]\nmode = "ff-after-ci"\n'})
         w.work()

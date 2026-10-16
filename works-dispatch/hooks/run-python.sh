@@ -8,10 +8,16 @@
 # 選べなければ、訳と直し方を 1 行で stderr に出し、終了の値 1 で終わる（Claude Code はフックの終了の値 1 を、会話を止めない
 # 誤りとして見せる）。
 min=3.11
-if [ "$1" = "--min" ]; then
-  min=$2
-  shift 2
-fi
+once=
+while :; do
+  case "$1" in
+    --min) min=$2; shift 2 ;;
+    # --once: 選べないときの知らせを、会話ごとに 1 回だけ誤り（終了の値 1）として出す。止まる前のフックはターンごとに
+    # 走るので、毎回出すと画面がその 1 行で埋まる（まっさらな環境での 4 回目の試しの 6）。会話の id はフックの入力から読む
+    --once) once=1; shift ;;
+    *) break ;;
+  esac
+done
 want="(${min%%.*}, ${min#*.})"
 for cand in python3 python "py -3"; do
   command -v "${cand%% *}" >/dev/null 2>&1 || continue
@@ -21,5 +27,14 @@ for cand in python3 python "py -3"; do
     exec $cand "$@"
   fi
 done
+if [ -n "$once" ]; then
+  IFS= read -r -d '' input || true   # bash の組み込みだけで読む（PATH の外の道具に頼らない）
+  re='"session_id"[[:space:]]*:[[:space:]]*"([^"]*)"'
+  sid=
+  [[ $input =~ $re ]] && sid=${BASH_REMATCH[1]}
+  mark="${TMPDIR:-/tmp}/works-dispatch-no-python-${sid:-none}"
+  [ -e "$mark" ] && exit 0
+  : > "$mark" 2>/dev/null
+fi
 echo "works-dispatch: Python $min 以上が見つからない（python3・python・py -3 を試した）。Python $min 以上を入れる。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
 exit 1

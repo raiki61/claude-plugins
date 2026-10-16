@@ -217,10 +217,18 @@ def mark(path, source, attrs, g=gitx):
             g.unset_worktree_attr(path, name)
 
 
+# 元の clone の .git/info/exclude（commit されない、手元だけの無視の決まり。worktree と共有）に足す物
+LOCAL_EXCLUDES = (
+    ".claude/",       # 部署の会話が作る .claude/（許可の記録など。会社の形の設計 9.1 で確かめた）
+    "__pycache__/",   # 部署が試しに走らせた Python が作る控え。.gitignore の無いリポジトリで、--land と --clean が
+                      # 「git に足していないファイルが有る」として止まっていた（まっさらな環境での 4 回目の試しの 7）
+)
+
+
 def hide_claude_dir(source, g=gitx):
-    """元の clone の .git/info/exclude に .claude/ を足す（無ければ）。部署の会話が元の clone に作る .claude/（許可の記録など）を、
-    勤め先のリポジトリの .gitignore を触らずに git status から隠す（会社の形の設計 9.1 で確かめた）。"""
-    return g.exclude(source, ".claude/")
+    """元の clone の .git/info/exclude に LOCAL_EXCLUDES を足す（無い物だけ）。部署の会話と、部署が走らせた道具が作る手元だけの
+    ファイルを、勤め先のリポジトリの .gitignore を触らずに git status から隠す。結末の語の並び（gitx.exclude の added・already）。"""
+    return [g.exclude(source, pattern) for pattern in LOCAL_EXCLUDES]
 
 
 def main(argv=None):

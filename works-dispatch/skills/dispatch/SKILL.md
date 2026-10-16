@@ -13,10 +13,10 @@ description: 自分の番の PR（attention プラグインの /whose-turn が�
 4. 会話が開いている PR は、dispatch が前に送った時（dispatch の控えに残る）の後に相手の新しい返事（コメント・レビュー・commit。Bot は数えない）が有り、会話が手すき（Claude Code の会話の状態が idle）で手元の作業も無ければ、古い会話を終えて herdr の作業場を閉じ（worktree は残す）、同じ worktree に herdr の作業場を開き直し、新しい会話を起こして 3 から送り直す。送り直した会話にも、前の会話の中身を持たない新しい目で PR を見させるためである。
 5. 閉じた（merge・close した）PR の枝の場所は片付ける（worktree と手元の枝を消す）。会話が手すきで手元の作業も無ければ、会話を終えてから消す。見るのは代表の clone の worktree だけで、ほかのリポジトリには触らない。PR の無い枝（issue から始めてまだ PR を作っていないもの）は消さない。
 
-AI は使わない。このスキルは下のスクリプトを走らせ、出力をそのまま見せるだけで、判断も言い換えもしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパスを入れる変数である。
+AI は使わない。このスキルは下のスクリプトを走らせ、出力をそのまま見せるだけで、判断も言い換えもしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパスを入れる変数である。命令は `python3` でなく、このプラグインの `hooks/run-python.sh` を通して起こす（`python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ。Windows の `python3` が Microsoft Store へ誘う代わりの物でも動く）。下の命令の形をそのまま打ち、Python の名前を替えない。
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
 ```
 
 PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `run_in_background` で走らせ、終わりの知らせが来てから出力を見せる。dispatch は各 PR の `/catchup` が終わるのを待ってから 2 ターン目を送るので、数分かかる。前で走らせると、Bash の道具の時間の上限で止められ、2 ターン目も報告も出ない。`--dry-run`・`--check`・`--clean`・`--init` はすぐ終わるので、前で走らせてよい。
@@ -41,13 +41,13 @@ PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `r
 1. 会社の形（`.claude/company.toml`。会社の名前・役・本流への入れ方）の下書きを書き、名前・説明・役の本文を直す。下書きの役は、受け持ちに常設の `担当`（`resident = true`）と、一度きりの `作業`（`--role` を省いたときの役。`default_role`）と、`窓口`（代表の clone で `--desk` を打った会話に、組織の決まりを役の本文として届ける）の 3 つ。担当と作業はコードの直しなので、納品の項目を `結論・差分・試験・残った疑問・枝` にする（既定の「決め手」の原典の URL を求めない）。担当の本文は、枝を切った後に触るファイルを本流から読み直すこと（前の頼みで覚えた中身で書かない）を言う。受け持ちは受ける仕事（`[[skills]]`）の項目で書き、担当の部署の名前を受け持ちの名前にすると、その説明が担当の会話に足される。組織の決まり（役は窓口・担当・作業・相談の 4 つ・名前は herdr で読んで分かる短い日本語で、作業は `<受け持ち>：<何をするか>`・会社の名前は herdr の親の作業場にだけ出し部署の名前に付けない・枝の名前は英小文字とハイフン・担当への頼みは部署の名前で宛てる・納品の後に判断が要れば、もう一度 `--deliver` で返す）はコメントで書く。`<…>` の置き字（受け持ちの名前と中身）を直す。既定はリポジトリの中に書くので、同じリポジトリを使う人にも効かせるなら commit する。commit しないなら `--local` を付けて、dispatch の設定のフォルダ（既定は `~/.config/works-dispatch/`）の `companies/` に書く。
 
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init-company [--local] [--repo <代表の clone>]
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init-company [--local] [--repo <代表の clone>]
    ```
 
 2. PR を開く回（引数なし・`--pr`・`--issue`）も使う人は、dispatch の設定（既定は `~/.config/works-dispatch/dispatch.toml`）の下書きを書く。隣に空の `dispatch-second-prompt.md` ができるので、`/catchup` の後に送る文（2 ターン目の文）を書く。`--init` は設定がもうあると書かずに止まるので、手順 3 で設定を書くより先に打つ（もうあるなら `[[repos]]` を手で足す）。
 
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init --repo OWNER/NAME --source <代表の clone>
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init --repo OWNER/NAME --source <代表の clone>
    ```
 
    設定の `[[repos]]` が要るのは、PR を開く回のほかは、`--repo` を `OWNER/NAME` の形で指すとき、git の外から `--repo` 無しで打つとき、部署の gh を会社の形と違うアカウント（`gh_user`）にするとき、新しい worktree へ手元だけのファイルを写す（`copy_files`）ときだけ。
@@ -71,7 +71,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 2. **タブ欄に、アカウントごとの使用率を出す。** 次のコマンドが出す行を、herdr の設定（`~/.config/herdr/config.toml`）の `[ui]` に貼る。アカウントごとに表示が 1 つ（例: `p1 5h 38% 1h4m  7d 32% 2d4h`。`5h` は 5 時間の枠、`7d` は週の枠で、使用率と切り替わりまでの時間）と、5 分ごとに控えを取り直す行が 1 つ並ぶ。取り直しは、使っていないアカウントの控えが古くなったときだけ、出力 0 トークンの問い合わせを 1 回投げる。
 
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" herdr-config
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" herdr-config
    ```
 
    このコマンドは、アカウントの一覧の写し（`~/.cache/claude-limits/accounts.json`）も書く。タブ欄の行は設定のファイルではなくこの写しを読むので、設定のアカウントを足したり変えたりしたら、このコマンドを走らせ直して行を貼り直す。
@@ -80,7 +80,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 3. **サイドバーに、会話ごとの作業内容を出す。** 作業中は動いているツールを、ターンが終わると直前に頼んだ内容を出す。次のコマンドが出す `hooks` の塊を、各アカウントの Claude Code の設定（`settings.json`）に足す。すでに `hooks` があれば、出来事ごとの並びに足す。
 
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/activity.py" settings
+   bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/activity.py" settings
    ```
 
    そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く（`$act` は、上のフックが作業内容を送る herdr の印の名前）。
@@ -111,7 +111,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 - 連絡の道は 2 つある。窓口と部署が同じアカウントなら、部署は区切りで SendMessage を窓口へ送り、窓口は SendMessage の `notify_when_idle` で手すきの知らせを 1 回受けられる（待つ間トークンを使わない）。アカウントが違うと SendMessage は両方向とも届かない（各会話の一覧に、同じアカウントの会話しか出ない）。その場合、部署は区切りごとに画面に短く報告を書いて止まり、窓口は herdr で部署のペイン（`attach` で裏の会話の画面を出したペイン）に打ち込み、画面を読む（`herdr pane read`）。dispatch は、どちらの道かを最初の文の後ろに書き足す。
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し --branch feat/catchup-redo --brief <頼みのファイル> [--role <役>] [--resident] [--repo OWNER/NAME か代表の clone]
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し --branch feat/catchup-redo --brief <頼みのファイル> [--role <役>] [--resident] [--repo OWNER/NAME か代表の clone]
 ```
 
 `--repo` を省くと、コマンドを打ったフォルダのリポジトリに立てる（中のフォルダや worktree から打っても、その代表の clone になる）。打ったフォルダが git の外なら設定の最初の `[[repos]]`、それも無ければ止まって `--repo` を求める。`OWNER/NAME` で指せるのは設定の `[[repos]]` に書いたリポジトリだけ。
@@ -124,7 +124,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し 
 
 呼んだ会話の名前とアカウントは、dispatch が Claude Code の会話の一覧（`claude agents --json`）から、Bash の道具に渡る `CLAUDE_CODE_SESSION_ID` で探す。一時停止（Ctrl-Z）したまま `--resume` で開き直した会話は、一覧に同じ会話の id（`sessionId`）で古い処理（古い名前のまま）と今の処理の 2 件が並ぶので、dispatch の処理から親の処理を順にたどって pid（処理の番号）の並びを作り、2 件のうち一覧の `pid` がその並びに入っている方（dispatch を走らせている、今の処理）を、どちらも入っていなければ処理の起きた時刻（`startedAt`。開き直した今の処理の方が新しい）の新しい方を選ぶ。Claude Code の外から走らせるなど見つからないときは、画面の道にして注記を出す。SendMessage の道にしたいなら `--from-name <呼んだ会話の名前> --from-account <アカウントの名>` で渡す（`--ask`〔下の「頼む・納品する」〕でも、渡せば頼み元の名前とアカウントになる）。`--dry-run` は、作業場を作るか使い直すか、アカウント、名前、部署の属性、連絡の道、最初の文を出すだけで、何も起こさない。同じ名前の会話が既に開いていれば止まる（宛先が 1 つに決まらないため）。
 
-部署の会話が起きて attach するまでで終わるので、前で走らせてよい。会話が起きなかった（`launch_failed`・`blocked` など）ときは、終了の値 1 で知らせる。常駐の部署（`--resident` か `resident = true` の役）は、最初の枝とその時の先頭も、本流に入れた枝と同じ記録（属性 `company.landed-branches`）に書く。入れずに次の枝へ移っても、先頭がそのままなら、移った後の `--land` か `--clean --apply` が消す。
+部署の会話が起きて attach するまでで終わるので、前で走らせてよい。会話が起きなかった（`launch_failed`・`blocked` など）ときは、終了の値 1 で知らせる。裏の会話が会話の一覧に出るのを、打ち込んだ後に何度か見直す（Windows の `claude --bg` は、裏の会話を受ける仕組みを起こすのに 2〜3 秒かかる）。ペインに `backgrounded · <id>` が出ていれば、その id の会話を使う。`git worktree add` は本社の `config.worktree`（`--desk` が書いた窓口の属性）を新しい部署に写すので、部署を立てるときに、本社と同じ値のまま写っていて今回書かない属性（窓口の会話の id・前の名前など）は消す。常駐の部署（`--resident` か `resident = true` の役）は、最初の枝とその時の先頭も、本流に入れた枝と同じ記録（属性 `company.landed-branches`）に書く。入れずに次の枝へ移っても、先頭がそのままなら、移った後の `--land` か `--clean --apply` が消す。
 
 設定に前の版の `task_cwd` が残っていれば、止めずに注記を出して無視する（部署は自分の作業場で起こす。その会社の AGENTS.md・CLAUDE.md とフックを効かせるため）。
 
@@ -171,6 +171,7 @@ skillOverrides = { dataviz = "off" }
 - `--role` で名指した役が、役を書いた会社の形に無ければ止まる（書き損じで設定が黙って効かないのを防ぐ）。`--role` を省いたときの役（会社の形の `default_role`、無ければ `作業`）が会社の形に無いのは止めず、役の本文と起動の設定が付かないことを注記に出す。`default_role` が `[[roles]]` に無い名前なら、会社の形の誤りとして注記に出し、`作業` を使う。
 - `resident = true` の役は、`--resident` を付けなくても常駐の部署で立つ。役で宛てた頼み（`--ask 会社/役`）で部署がまだ無いときに `--resident` を付け忘れても都度の部署にならず、次に同じ役で頼んだときに同じ部署に届く。
 - gh のアカウントは、dispatch の設定の `[[repos]]` の `gh_user`（前提の節の、設定の `gh_user` と同じ欄）を先に、無ければ会社の形の `gh_user` を使う（commit した会社の形に書かれたアカウントは、ほかの人のものでありうるため）。dispatch は名前だけを部署の属性 `company.gh-user` に書く。フックがそれを読み、会話の Bash がコマンドごとに `gh auth token --user <名前>` で鍵を取り出して `GH_TOKEN` に入れる。鍵の値は、ファイルにも画面にも履歴にも残らない。そのアカウントで gh にログインしていなければ、`GH_TOKEN` に使えない字を入れる（gh はほかのアカウントに落ちずに、認証の誤りで止まる）。dispatch の設定の場所や gh のアカウントを前の回と替えて同じ枝の部署を立て直すと、前の回の属性は消してから書く。PowerShell の道具には `GH_TOKEN` が入らず、そこで打つ gh は、その人の今の gh の設定のアカウントで動く（フックが足す `export GH_TOKEN="$(gh auth token …)"` の行は `$(…)` で gh を走らせる形で、Claude Code が PowerShell に写すのは `export 名前=値` のように値をそのまま読める行だけのため）。鍵を `GH_TOKEN` で gh に渡している人（コンテナや CI の形）は `gh_user` を書かない（`gh auth token --user` は `GH_TOKEN` の鍵を取り出せず、部署を立てるときの確かめで止まる。`--init-company` の下書きは、取り出せないアカウントを書かない）。
+- フォルダの信頼は、Claude Code が `.claude.json` の `projects` に書いたフォルダの字と、dispatch の持つ字が違っても（Windows の `C:/…` と `C:\…`、macOS の `/tmp` と `/private/tmp`）、同じフォルダを指していれば信頼済みと見る。部署の作業場に付ける信頼の印は、Claude Code が書いた区切りに揃える。
 - 既定の置き場でない dispatch の設定（`--config` か `WORKS_DISPATCH_CONFIG`）で部署を立てたときは、フックがその隣の `companies/` を読めるよう、設定の場所を部署の属性 `company.config` に書く。
 
 ## herdr の表示を付け直す: `--sync`
@@ -180,8 +181,8 @@ skillOverrides = { dataviz = "off" }
 ## 組み直す: `--reorg`・`--desk`
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役の名前> [--boss-account <アカウントの名>]] [--dry-run]
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --desk [<名前>] [--role <役>] [--dry-run]
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役の名前> [--boss-account <アカウントの名>]] [--dry-run]
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --desk [<名前>] [--role <役>] [--dry-run]
 ```
 
 - `--reorg` は、部署（属性 `company.role` の在る worktree）の中から打ち、その部署の属性を付け替える。`--role` は会社の形に無ければ止まり、`--resident`・`--per-task` を省いて `resident = true` の役に替えると常駐にする。`--boss` は上役（納品を返す会話）の名前を替え、前の上役の会話の id とペイン（`company.boss-session`・`company.boss-pane`）を消す（納品は新しい上役を名前で引く）。ほかの部署が同じ名前を持っていれば止まる。
@@ -196,7 +197,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --desk [<名前>] [--role <
 dispatch を通さずに会話を立てるときも、同じ選び方でアカウントを選ぶ。
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/nodes/accounts.py" --pick
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/nodes/accounts.py" --pick
 ```
 
 `main: claude — 5 時間 3%・週 1% で、高い方 3% が選べるものの中で最も低い。動いている会話 5 件` のような 1 行を出す。頭が選んだアカウントの名前、`:` の後がそのアカウントの起こし方の命令（設定の `command`）。`--json` を付けると、選んだ 1 件（`pick`）と全部の順（`accounts`）と注記（`notes`）を JSON で出す。選べるアカウントが無ければ、終了の値は 1。古い使用率の控えだけを取り直す（`--no-probe` で取り直さない）。
@@ -206,8 +207,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/nodes/accounts.py" --pick
 部署への頼みと、部署からの納品（要約を返すこと）を、herdr の窓（相手の会話の画面を出したペイン）への 1 行の書き込みに一本化する。アカウントが違っても届く（SendMessage は同じアカウントの会話にしか届かないので使わない）。
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --deliver <要約のファイル> [--dry-run]
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --deliver <要約のファイル> [--dry-run]
 ```
 
 どちらも打ち込んだ相手の作業の終わりを待たないので、前で走らせてよい。
@@ -237,6 +238,7 @@ deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 - `mode = "ff-after-ci"` と `bump = "marketplace"` で、版を最後に上げた後にフォルダの中のファイルを変えた（commit した）プラグインの `CHANGELOG.md` の `## [Unreleased]` が、版を上げる commit を足す前の時点で空（`### Fixed` のような `#` で始まる行だけ）なら、中身の無い版を作らずに `--land` 全体を止める（何も push しない。終わりの値は 1）。版を上げずに入れる道は無い（marketplace は版が変わった時だけ中身を取り直すので、上げなければ利用者に届かない）。部署が利用者に効く違いを書き足して commit したら、もう一度 `--land` を打つ。
 - `--dry-run` を付けると、決まりと見立て（載せ直しが要るか・入れる commit・上げる版・関門・片付け）を出すだけで、何も書かない・push しない・部署の窓に打ち込まない。打つ前の確かめに使う。終わりの値は、本当に打てば途中で止まる見立て（載せ直しが要る・中身の無い版など）か、見立てそのものの失敗（origin を読めないなど）なら 1、通る見立てなら 0。
 - CI を待つ間は戻らないので、Bash の道具の `run_in_background` で走らせ、終わりの知らせを待つ。
+- 部署の会話が打つ `--land` は、Claude Code の自動の権限の判定（auto mode の classifier）に「Merge Without Review」として止められることがある。役の `settings` の `autoMode.allow` に、`--land` が会社の形の関門を通してから本流に入れる決まりであることを文で書くと、組み込みの拒否の例外になる（[Configure auto mode](https://code.claude.com/docs/en/auto-mode-config)。`autoMode` はプロジェクトの `.claude/settings.json` からは読まれず、`--settings` で渡す役の設定からは読まれる）。`--init-company` の下書きの担当と作業はこれを持つ。それでも止められたら、部署は打ち直さずに納品で知らせ、窓口が `--land <部署の名前>` を打つ。`--land` は部署の場所の `__pycache__/` を数えない（部署を立てるときと `--land` のときに、代表の clone の `.git/info/exclude` に `.claude/` と一緒に足す）。
 
 ## しないこと
 

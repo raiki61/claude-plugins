@@ -1068,7 +1068,13 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                          f"信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
         try:
             provision.hide_claude_dir(repo.source, ports.git)
-            provision.mark(prov["path"], repo.source, attrs, ports.git)
+            # git worktree add は、extensions.worktreeConfig のとき、作った元の worktree（本社）の config.worktree を新しい
+            # worktree に写す（2026-10-16 に git 2.50 と 2.56.0.windows.2 で見た）。本社に --desk が書いた窓口の属性（会話の id・
+            # 前の名前など）が部署に写って残ると、部署が窓口の会話を自分の会話と取り違える（まっさらな環境での 4 回目の試しの 3）。
+            # 本社と同じ値のまま残っている属性のうち、今回書かない物は消す
+            office = ports.attrs(repo.source)
+            copied = {k: None for k, v in ports.attrs(prov["path"]).items() if k not in attrs and office.get(k) == v}
+            provision.mark(prov["path"], repo.source, {**copied, **attrs}, ports.git)
             if attrs["residency"] == RESIDENT and a.branch:
                 # 常駐の部署の最初の枝も、入れた枝と同じに記録する。頼みごとに枝を移るので、入れずに移った最初の枝（--brief で
                 # 立てただけの枝など）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す
@@ -1112,21 +1118,41 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     return 0 if result == "started" else 1   # 起きなかった（launch_failed・blocked など）を、呼んだ側（--ask・台本）に終了の値で知らせる
 
 
+# 起こした裏の会話が会話の一覧に出るのを見る回数（1 回ごとに ports.pause）。Windows の `claude --bg` は、裏の会話を受ける
+# 仕組み（background service）を起こすのに 2〜3 秒かかり、その間もペインの前のプロセスを見る口（shell_in_front）は戻ったと
+# 答える（2026-10-16 に Windows 11 ARM64 の Claude Code 2.1.301 で、打ってから一覧に出るまで 2.7 秒を測った）。1 回だけ
+# 見ると、立った会話を見落として launch_failed にし、attach を打たなかった（まっさらな環境での 4 回目の試しの 2）。
+STARTED_LOOKS = 20
+# `claude --bg` が起こした後にペインへ出す行（「backgrounded · <短い id> · <名前>」）。一覧より先に画面に出ることがある
+BACKGROUNDED = re.compile(r"backgrounded\s*·\s*([0-9a-f]{6,})\s*·")
+
+
 def _started(ports, config_dir, name, path, pane):
     """起こした裏の会話を、そのアカウントの会話の一覧（終わった物も）から、名前と場所で探す。(会話の 1 件, None) か
-    (None, 訳)。見つからなければ、ペインの画面の終わりを訳に添える。"""
-    try:
-        items = ports.list_sessions(config_dir, include_done=True)
-    except claudex.ClaudeError as e:
-        return None, f"起こした後に会話の一覧を読めない（{e}）"
-    mine = [s for s in items if s.get("name") == name and s.get("cwd") and fresh.inside(s["cwd"], path)]
-    if mine:
-        return max(mine, key=lambda s: s.get("startedAt") or 0), None
-    try:
-        tail = " ".join(ports.herdr.read(pane, 6).split())[-300:]
-    except herdr.HerdrError as e:
-        tail = f"画面も読めない（{e}）"
-    return None, f"打ち込んだが、会話の一覧に「{name}」の裏の会話が出ない（画面の終わり: {tail}）"
+    (None, 訳)。出るまで STARTED_LOOKS 回まで見直す。見つからなければ、ペインの画面の終わりを訳に添える。"""
+    tail = ""
+    for look in range(STARTED_LOOKS):
+        if look:
+            ports.pause()
+        try:
+            items = ports.list_sessions(config_dir, include_done=True)
+        except claudex.ClaudeError as e:
+            return None, f"起こした後に会話の一覧を読めない（{e}）"
+        mine = [s for s in items if s.get("name") == name and s.get("cwd") and fresh.inside(s["cwd"], path)]
+        if mine:
+            return max(mine, key=lambda s: s.get("startedAt") or 0), None
+        try:
+            screen = ports.herdr.read(pane, 6)
+        except herdr.HerdrError as e:
+            screen = f"画面も読めない（{e}）"
+        tail = " ".join(screen.split())[-300:]
+        shown = BACKGROUNDED.search(screen)
+        if shown:   # 画面には起きたと出た: 一覧のその id の会話を使う（名前の字が一覧で違って見えるときも拾う）
+            hit = [s for s in items if (s.get("id") or "").startswith(shown.group(1))
+                   or (s.get("sessionId") or "").startswith(shown.group(1))]
+            if hit:
+                return hit[0], None
+    return None, f"打ち込んだが、会話の一覧に「{name}」の裏の会話が出ない（{STARTED_LOOKS} 回見た。画面の終わり: {tail}）"
 
 
 def _company(a, ports):
@@ -1338,7 +1364,12 @@ instructions = {duty}
 deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 resident = true
 # model = "opus"   # 部署を起こすときの --model（省けば既定）
-# [roles.settings]   # 部署の会話にだけ効かせる Claude Code の設定（要らないプラグインを切るなど）
+# 部署の会話にだけ効かせる Claude Code の設定（--settings で渡す。要らないプラグインを切るなどもここ）。
+# autoMode.allow は、自動の権限の判定（auto mode の classifier）の組み込みの拒否への例外を文で書く（"$defaults" で組み込みの
+# 決まりを残す）。--land は本流へ早送りするので「Merge Without Review」として止められることがある。人のレビューの代わりに
+# 会社の形の [land] の関門を通す決まりであることを書いて、止めないようにする（https://code.claude.com/docs/en/auto-mode-config）
+[roles.settings]
+autoMode = {{ allow = ["$defaults", {land_allow}] }}
 # enabledPlugins = {{ "<プラグイン>@<マーケットプレイス>" = false }}
 
 # 作業: 一度きりの作業をする一時の部署（頼みごとに立ち、本流に入れたら畳まれる）
@@ -1346,6 +1377,8 @@ resident = true
 name = "作業"
 instructions = {work}
 deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
+[roles.settings]
+autoMode = {{ allow = ["$defaults", {land_allow}] }}
 
 # 窓口: 持ち主と話して頼みを配る、代表の clone の会話（部署ではない）。窓口の会話から --desk を打つと、この役の本文が次の会話の
 # 始まりから足される（組織の決まりを窓口に届けるため。コメントの決まりは、どの会話にも届かない）
@@ -1378,20 +1411,28 @@ mode = "none"
 DRAFT_RETURN = ("済んだら作業の枝に push し、要約を納品の命令（--deliver）で頼み元に返す。納品の後に判断が要ることが出たら、"
                 "画面に書いて止まらず、もう一度納品の命令で返す（画面にだけ書いた問いは頼み元に届かない）。")
 DRAFT_BRANCH = "枝の名前は英小文字とハイフンにし、直しは fix/…、足すものは feat/…、調べや下書きは work/… にする。"
+# 自動の権限の判定への例外（役の settings の autoMode.allow）。--land は、関門を通した後に本流を早送りして push する
+DRAFT_LAND_ALLOW = ("この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分の枝を本流に入れること。"
+                    "本流への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] の関門を通してから"
+                    "早送りする決まりで、持ち主がこの会社の部署に許している。")
+# 自動の権限の判定に止められたときの手。打ち直しで判定を回り込まず、窓口に入れてもらう
+DRAFT_DENIED = ("--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて"
+                "返す（窓口が --land <部署の名前> を打って入れる）。")
 # commit に足す物の決まり。git add -A は、試験や検証が作った生成物（__pycache__ など。.gitignore の無いリポジトリ）まで本流に入れる
 DRAFT_COMMIT = "commit に足すのは自分が触ったファイルだけにする（git add -A や git add . をしない）。"
 DRAFT_DUTY = ("受け持ちを常設で預かる。自分の受け持ちは部署の名前で決まる。常設なので、作業場は同じまま、頼みごとに git fetch origin "
               "してから origin の既定の枝から枝を切って作業する。" + DRAFT_BRANCH + "枝を切った後、触るファイルを本流から読み直してから"
               "書く（前の頼みで覚えた中身で書かない。覚えた中身で書くと、ほかの部署が入れた変更を消してしまう）。" + DRAFT_COMMIT + "並べて進めたい作業は作業に頼む"
               "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。試験は触った所の物だけを回す。"
-              + DRAFT_RETURN + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
-DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + DRAFT_COMMIT + "試験は触った所の物だけを回す。" + DRAFT_RETURN
+              + DRAFT_RETURN + DRAFT_DENIED + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
+DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + DRAFT_COMMIT + "試験は触った所の物だけを回す。" + DRAFT_RETURN + DRAFT_DENIED
 DRAFT_DESK = ("持ち主と話し、仕事を頼みに変えて部署に配る。自分ではファイルを直さない。受け持ちの中の仕事は、その担当に部署の名前で頼む"
               "（--ask <受け持ち>）。担当がまだ居ない受け持ちは --ask {company}/担当 --task <受け持ち> --branch <枝> --text <頼み> で立てる。"
               "受け持ちの無い一度きりの作業だけを作業に頼む（--ask {company}/作業 --task <受け持ち>：<何をするか> --branch <枝>）。"
               "担当の受け持ちの中の作業を、作業に直に頼まない（同じファイルを 2 つの部署が触ると、後から入れた方が前の変更を消す）。"
               + DRAFT_BRANCH + "担当と作業は、本流に入れる決まり（会社の形の [land]）が none でなければ、自分で --land して本流に入れてから"
-              "納品する（窓口から頼まなくてよい）。納品は要約を読んで持ち主に伝える。")
+              "納品する（窓口から頼まなくてよい）。担当や作業が「--land が自動の権限の判定に止められた」と返したら、窓口から "
+              "--land <部署の名前> を打って入れる。納品は要約を読んで持ち主に伝える。")
 
 
 def _draft_gh_user(ports):
@@ -1432,7 +1473,8 @@ def _init_company(a, ports, cwd):
     company = os.path.basename(os.path.normpath(root))
     text = COMPANY_DRAFT.format(name=q(company), description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""),
                                 gh_note=gh_note, plain=" ".join(company.split()), duty=q(DRAFT_DUTY.format(company=company)),
-                                work=q(DRAFT_WORK), desk=q(DRAFT_DESK.format(company=company)))
+                                work=q(DRAFT_WORK), desk=q(DRAFT_DESK.format(company=company)),
+                                land_allow=q(DRAFT_LAND_ALLOW))
     if not gh_user:
         text = text.replace('gh_user = ""', '# gh_user = "<ログイン名>"')
     tomllib.loads(text)   # 下書きは必ず TOML として読める形にする（読めなければ書かずに例外で止める。作り手の誤り）

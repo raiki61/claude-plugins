@@ -55,6 +55,32 @@ def trust_file(config_dir, env):
     return os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude.json")
 
 
+def _same_folder(a, b):
+    """2 つのパスが同じフォルダか。Claude Code が .claude.json の projects に書く字は、区切りや記号のリンクの解き方が dispatch の
+    持つ字と違うことがある（Windows は区切りを / で書き、dispatch は逆スラッシュで書いた物を持つ。macOS の /tmp は
+    /private/tmp の記号のリンク）。リンクを解き、OS の決まりで大文字小文字と区切りを揃えて比べる。"""
+    def norm(p):
+        return os.path.normcase(os.path.realpath(os.path.expanduser(p)))
+    return norm(a) == norm(b)
+
+
+def _project(projects, folder):
+    """projects の中の、そのフォルダの (鍵, 項目)。字が同じ物を先に、無ければ同じフォルダを指す物（_same_folder）。無ければ (None, None)。"""
+    if folder in projects:
+        return folder, projects[folder]
+    for key, entry in projects.items():
+        if isinstance(key, str) and _same_folder(key, folder):
+            return key, entry
+    return None, None
+
+
+def _key_like(found_key, path):
+    """新しく書く鍵の字を、見つけた鍵（Claude Code が書いた物）の区切りに揃える（Windows で / の物なら / にする）。"""
+    if found_key and "/" in found_key and "\\" not in found_key and "\\" in path:
+        return path.replace("\\", "/")
+    return path
+
+
 def inherit_trust(path_of_file, source, clone):
     """元の clone が信頼済みなら、そこから作った作業場（clone は、元の clone の worktree のパス）にも信頼の印を付ける。結末の語を返す:
     inherited（付けた）・already（もう付いている）・source_untrusted（元が信頼されていない。確認がふつうに出る）・no_file。
@@ -71,11 +97,14 @@ def inherit_trust(path_of_file, source, clone):
     projects = data.get("projects") if isinstance(data, dict) else None
     if not isinstance(projects, dict):
         return "no_file"
-    if not (projects.get(source) or {}).get("hasTrustDialogAccepted"):
+    found, entry = _project(projects, source)
+    if not (entry or {}).get("hasTrustDialogAccepted"):
         return "source_untrusted"
-    if (projects.get(clone) or {}).get("hasTrustDialogAccepted"):
+    mine, have = _project(projects, clone)
+    if (have or {}).get("hasTrustDialogAccepted"):
         return "already"
-    projects[clone] = {**(projects.get(clone) or {}), "hasTrustDialogAccepted": True}
+    key = mine or _key_like(found, clone)
+    projects[key] = {**(have or {}), "hasTrustDialogAccepted": True}
     mode = os.stat(path_of_file).st_mode & 0o777
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path_of_file), prefix=".claude.json.")
     try:
@@ -127,7 +156,7 @@ def is_trusted(path_of_file, folder):
             projects = json.load(f).get("projects") or {}
     except (OSError, ValueError, AttributeError):
         return False
-    return bool((projects.get(folder) or {}).get("hasTrustDialogAccepted"))
+    return bool((_project(projects, folder)[1] or {}).get("hasTrustDialogAccepted"))
 
 
 TASK_FLAGS = ("--name", "--bg", "--settings")

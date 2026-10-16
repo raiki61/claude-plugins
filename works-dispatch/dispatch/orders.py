@@ -32,7 +32,20 @@ try:
     from nodes import deliver, provision, role, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
-    # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる。role_hook.py と同じ）
+    # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
+    # 会話ごとに 1 回だけ出す（hooks/run-python.sh の --once と同じ。会話の id はフックの入力から読む）
+    import tempfile
+    try:
+        _sid = (json.loads(sys.stdin.read() or "{}") or {}).get("session_id") or "none"
+    except ValueError:
+        _sid = "none"
+    _mark = pathlib.Path(tempfile.gettempdir()) / f"works-dispatch-no-python-{_sid}"
+    if _mark.exists():
+        sys.exit(0)
+    try:
+        _mark.touch()
+    except OSError:
+        pass
     print(f"works-dispatch: 止まる前のフックを動かせない（Python 3.11 以上が要る: {_e}）", file=sys.stderr)
     sys.exit(1)
 

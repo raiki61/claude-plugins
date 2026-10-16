@@ -6,6 +6,18 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+まっさらな環境での 4 回目の試し（`docs/trials/2026-10-16-clean-env-4.md`）で出た詰まりの直し。
+
+- Windows で、`--task` と `--ask` が立てた部署が毎回 `launch_failed` になり、部署の窓に `claude attach` を打たなかった。Windows の `claude --bg` は、裏の会話を受ける仕組みを起こすのに 2〜3 秒かかる（Windows 11 ARM64 の Claude Code 2.1.301 で、打ってから一覧に出るまで 2.7 秒を測った）のに、打ち込んだ後に会話の一覧を 1 回だけ見ていた。何度か見直し、ペインに `backgrounded · <id>` が出ていればその id の会話を使う。
+- 部署の属性の会話の id（`company.session`）が、窓口の会話の id になることがあった。`git worktree add` は、`extensions.worktreeConfig` のとき、本社の `config.worktree`（`--desk` が書いた窓口の会話の id・役・前の名前）を新しい worktree に写す（git 2.50 と 2.56.0.windows.2 で確かめた。macOS・Linux でも写る）。部署を立てるときに、本社と同じ値のまま写っていて今回書かない属性を消す。0.19.2 までは、会話が起きると id は上書きされたが、前の名前（`company.former-names`）は残り、Windows では起き損ねて窓口の id が残り、`--clean` が片付けず、`--tree` が本社を「会話なし」と出していた。
+- フォルダの信頼の判定（`--check` の注記と、部署の作業場への信頼の印）が、Claude Code の書いたフォルダの字と dispatch の持つ字の違いで外れていた（Windows の `C:/…` と `C:\…`、macOS の `/tmp` と `/private/tmp`）。記号のリンクを解き、OS の決まりで大文字小文字と区切りを揃えて比べる。新しく書く印は、Claude Code が書いた区切りに揃える。
+- `--init-company` の下書きの担当と作業の役の設定に、自動の権限の判定（auto mode）への例外（`autoMode.allow`。`--land` が会社の形の関門を通してから本流に入れる決まりであること）を入れた。止められたら打ち直さずに納品で知らせ、窓口が `--land` を打つことを、担当・作業・窓口の本文に書いた。担当の `--land` が「Merge Without Review」として止められ、担当が次の頼みから `--land` を打たなくなっていた。
+- `.gitignore` の無いリポジトリで、部署が試しに走らせた Python の `__pycache__/` で `--land` が止まっていた。部署を立てるときと `--land` のときに、代表の clone の `.git/info/exclude`（commit されない手元だけの無視の決まり）に `__pycache__/` を足す。
+- Python 3.10 以前（か、選べる Python が無いとき）の止まる前のフックの知らせが、ターンごとに誤りとして画面に出ていた。会話ごとに 1 回だけ出す（`hooks/run-python.sh` に `--once` を足した）。
+- SKILL.md の命令の形を `python3 …/dispatch.py` から `bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" …/dispatch.py` に替えた。Windows で、アプリ実行エイリアスを切っていない人の `python3` は Microsoft Store へ誘う代わりの物に当たる。
+
 ## [0.19.2] - 2026-10-16
 
 ### Fixed

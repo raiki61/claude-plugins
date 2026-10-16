@@ -56,9 +56,9 @@ class Attrs(unittest.TestCase):
     def test_exclude_adds_the_line_once(self):
         path = pathlib.Path(self.src) / ".git" / "info" / "exclude"
         path.write_text("# mine", encoding="utf-8")
-        self.assertEqual(provision.hide_claude_dir(self.place, gitx), "added")   # worktree から打っても共有の exclude
-        self.assertEqual(provision.hide_claude_dir(self.src, gitx), "already")
-        self.assertEqual(path.read_text(encoding="utf-8"), "# mine\n.claude/\n")
+        self.assertEqual(provision.hide_claude_dir(self.place, gitx), ["added", "added"])   # worktree から打っても共有の exclude
+        self.assertEqual(provision.hide_claude_dir(self.src, gitx), ["already", "already"])
+        self.assertEqual(path.read_text(encoding="utf-8"), "# mine\n.claude/\n__pycache__/\n")
 
     def test_common_dir_and_root_of_a_linked_worktree_are_the_source(self):
         self.assertEqual(os.path.realpath(gitx.root_of(gitx.common_dir(self.place))), os.path.realpath(self.src))

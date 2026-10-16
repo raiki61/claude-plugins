@@ -46,6 +46,19 @@ class HookPython(unittest.TestCase):
             self.assertEqual(p.returncode, 1)
             self.assertIn("Python 99.0 以上", p.stderr)
 
+    def test_once_tells_only_the_first_time_in_a_conversation(self):
+        # 止まる前のフックはターンごとに走る。選べないときの知らせは、会話ごとに 1 回だけ誤り（終了の値 1）として出す
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as tmp:
+            stub = pathlib.Path(d) / "python3"
+            stub.write_text("#!/bin/sh\nexit 9009\n", encoding="utf-8")
+            stub.chmod(0o755)
+            env = {**os.environ, "PATH": d, "TMPDIR": tmp}
+            runs = [subprocess.run([shutil.which("bash"), str(PICK), "--once", "x.py"], input='{"session_id": "s-1"}',
+                                   capture_output=True, text=True, encoding="utf-8", env=env) for _ in range(2)]
+            self.assertEqual([r.returncode for r in runs], [1, 0])
+            self.assertIn("アプリ実行エイリアス", runs[0].stderr)
+            self.assertEqual(runs[1].stderr, "")
+
     def test_nothing_to_pick_says_how_to_fix_it(self):
         with tempfile.TemporaryDirectory() as d:
             for name in ("python3", "python"):

@@ -12,6 +12,7 @@ import unittest
 from . import DISPATCH  # noqa: F401
 from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import WorktreeHerdr, git, make_world
+import dispatch
 import gitx
 from config import Repo
 from nodes import provision
@@ -119,7 +120,9 @@ class Task(unittest.TestCase):
                                                      "session": "bg0-full", "config": self.cfg})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に .claude/ が入る
-        self.assertIn(".claude/", (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines())
+        excluded = (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".claude/", excluded)
+        self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
         # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
         self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
@@ -223,8 +226,34 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 1, out)   # 起きなかったことを終了の値でも知らせる
         self.assertIn("task/fix  a1  launch_failed", out)
-        self.assertIn("「直し」の裏の会話が出ない（画面の終わり: Error: something $）", out)
+        self.assertIn(f"「直し」の裏の会話が出ない（{dispatch.STARTED_LOOKS} 回見た。画面の終わり: Error: something $）", out)
         self.assertFalse([w for w in ports.herdr.writes if w[0] == "run" and " attach " in w[2]])
+
+    def test_desk_attributes_copied_by_git_worktree_add_are_not_kept(self):
+        # git worktree add は本社の config.worktree を新しい worktree に写す。窓口の会話の id や前の名前が部署に残らない
+        src = gitx_source(self.cfg)
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "session": "s-desk", "former-names": '["前の窓口"]'}, gitx)
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place(ports))
+        self.assertEqual((attrs["role"], attrs["name"], attrs["session"]), ("作業", "直し", "bg0-full"))
+        self.assertNotIn("former-names", attrs)
+        self.assertEqual(gitx.worktree_attrs(src)["session"], "s-desk", "本社の属性は触らない")
+
+    def test_a_session_that_appears_late_is_found_and_attached(self):
+        # Windows の claude --bg は、裏の会話が一覧に出るまで 2〜3 秒かかる。1 回目に見えなくても、見直して見つけ、attach を打つ
+        ports = self.ports()
+        real, looks = ports.list_sessions, []
+
+        def late(cdir, include_done=False):
+            looks.append(cdir)
+            return real(cdir, include_done) if len(looks) > 3 else []
+        ports.list_sessions = late
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/fix  a1  started", out)
+        self.assertTrue([w for w in ports.herdr.writes if w[0] == "run" and " attach " in w[2]])
 
     def test_same_account_caller_gets_sendmessage_and_becomes_the_boss(self):
         dirs = two_accounts(self.cfg)

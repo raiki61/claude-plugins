@@ -470,6 +470,21 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7"), "already")
         self.assertEqual(os.stat(f).st_mtime_ns, before)
 
+    @unittest.skipIf(os.name == "nt", "記号のリンクは Windows の外で作る")
+    def test_trust_is_found_through_a_different_spelling_of_the_same_folder(self):
+        # Claude Code は信頼をフォルダの字で書く。macOS の /tmp と /private/tmp（記号のリンク）、Windows の C:/… と C:\\… のように、
+        # dispatch の持つ字と違うことがある。同じフォルダを指していれば信頼済みと見る
+        real = os.path.realpath(tempfile.mkdtemp())
+        link = os.path.join(tempfile.mkdtemp(), "via-link")
+        os.symlink(real, link)
+        f = self.trust_world({link: {"hasTrustDialogAccepted": True}})
+        self.assertTrue(claudex.is_trusted(f, real))
+        self.assertEqual(claudex.inherit_trust(f, real, real + "-w"), "inherited")
+
+    def test_new_key_follows_the_separator_claude_code_wrote(self):
+        self.assertEqual(claudex._key_like("C:/Users/dev/demo", "C:\\Users\\dev\\demo-w"), "C:/Users/dev/demo-w")
+        self.assertEqual(claudex._key_like("/src/r", "/src/r-w"), "/src/r-w")
+
     def test_missing_or_broken_file_writes_nothing(self):
         d = tempfile.mkdtemp()
         self.assertEqual(claudex.inherit_trust(os.path.join(d, ".claude.json"), "/s", "/p"), "no_file")

@@ -172,6 +172,15 @@ class InitCompany(unittest.TestCase):
         for name in ("担当", "作業"):
             self.assertEqual(shape["roles"][name]["deliver"], ["結論", "差分", "試験", "残った疑問", "枝"])
         self.assertIn("触るファイルを本流から読み直してから", shape["roles"]["担当"]["instructions"])
+        # --land は自動の権限の判定（auto mode）に「Merge Without Review」で止められうる。担当と作業の設定で例外を文で書き、
+        # 止められたら打ち直さずに返し、窓口が入れる
+        for name in ("担当", "作業"):
+            allow = shape["roles"][name]["settings"]["autoMode"]["allow"]
+            self.assertEqual(allow[0], "$defaults")
+            self.assertIn("--land", allow[1])
+            self.assertIn("打ち直さず", shape["roles"][name]["instructions"])
+            self.assertIn("git add -A", shape["roles"][name]["instructions"])
+        self.assertIn("--land <部署の名前> を打って入れる", shape["roles"]["窓口"]["instructions"])
         self.assertIn("fix/", shape["roles"]["担当"]["instructions"])
         # 窓口は組織の決まり（担当は自分で --land する・枝の名前・受け持ちの中は担当に頼む）を役の本文で受ける
         for rule in ("自分で --land", "fix/", "作業に直に頼まない"):

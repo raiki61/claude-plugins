@@ -120,6 +120,10 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     if not branch:
         print("止めた: 部署が枝に乗っていない")
         return 1
+    try:
+        provision.hide_claude_dir(source, g)   # 前の版で立てた部署にも、手元だけの無視の決まり（__pycache__/ など）を足す
+    except (gitx.GitError, OSError):
+        pass   # 足せなくても、下の確かめがそのまま見る
     if not ports.is_clean(path):
         print("止めた: 部署の場所に未コミットの変更か git に足していないファイルが有る")
         return 1
