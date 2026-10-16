@@ -149,7 +149,7 @@ class Load(unittest.TestCase):
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         msg = str(e.exception)
-        for word in ("repo", "second_prompt_file", "source", "copy_files"):
+        for word in ("repo", "source", "copy_files"):
             self.assertIn(word, msg)
 
     def test_env_var_is_used_without_argument(self):

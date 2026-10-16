@@ -6,6 +6,18 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- 会社の形（`.claude/company.toml`）の下書きを書く `--init-company`。名前（フォルダの名前）・説明・`gh_user`（gh の今のアカウント）・役 1 つ（作業役）・`[land]`（`mode = "none"`）を、欄の説明のコメント付きで書く。既定はリポジトリの中（commit するかは利用者が決める）、`--local` で設定の置き場の `companies/`（commit しない側）。在れば上書きしない。
+
+### Changed
+
+- 部署の回（`--task`・`--ask`・`--land`・`--tree`）は、dispatch の設定に `[[repos]]` が無くても動く。会社は `--repo` に渡した代表の clone のパスか、打った場所のリポジトリ（git の共通の `.git`）で決まる。`[[repos]]` は PR を開く回と、`gh_user`・`copy_files` を会社の形と別に決めたいときだけ要る。設定のファイルそのものが無くても、部署の回はアカウント 1 つ（`claude`）の既定で動く。前は、部署を立てるリポジトリごとに `[[repos]]`（`second_prompt_file` まで）を書かないと「設定の repos に無い」で止まった。
+- `--task`・`--land` を `--repo` 無しで打つと、打った場所のリポジトリの部署を扱う（打った場所が git の外なら前と同じく設定の最初の `[[repos]]`）。前は打った場所に関わらず設定の最初の `[[repos]]` だった。
+- `--task` の始める前の確かめは、部署を立てるリポジトリだけを見る（設定のほかの `[[repos]]` の足りない物で止めない）。
+- `--land` の gh のアカウントを `--task` と同じ決め方にした（設定の `[[repos]]` の `gh_user`、無ければ会社の形の `gh_user`）。前は会社の形の `gh_user` を見なかった。
+- `second_prompt_file` を省けるようにした（PR を開く回は、2 ターン目の文が空なら始める前の確かめで止まる）。`--check` は、`[[repos]]` が無ければ（設定のファイルが無くても）部署の回の前提だけを確かめる。
+
 ## [0.10.1] - 2026-10-16
 
 ### Fixed

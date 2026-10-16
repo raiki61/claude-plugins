@@ -32,7 +32,7 @@ import config
 import ghx
 import gitx
 import herdr
-from nodes import bump, clean, land, provision, tree
+from nodes import bump, clean, land, provision, role, tree
 
 RUN_PAUSE_S = 10  # 関門の枝に push した後、run が現れるのを見に行く間
 
@@ -88,6 +88,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     if rules["problems"]:
         print("止めた（取り込みの決まりが読めない）:\n" + "\n".join(f"- {p}" for p in rules["problems"]))
         return 2
+    # gh のアカウントは --task と同じ決め方（dispatch の設定の [[repos]] の gh_user を先に、無ければ会社の形の gh_user）
+    repo = repo._replace(gh_user=role.gh_user(repo.gh_user, role.load(info.get("path"), info.get("text")))[0])
     gate = rules["gate"] or "-"
     print(f"部署 {attrs.get('name') or name}（枝 {branch or '-'}）: 取り込み方 {rules['mode']}、関門 {gate}"
           + (f"、版上げ {rules['bump']}" if rules["bump"] else ""))

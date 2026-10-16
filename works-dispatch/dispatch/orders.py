@@ -46,7 +46,7 @@ def survey(config_path, ports):
     notes = []
     path = config.path_of(config_path, os.environ)
     try:
-        cfg = config.load(config_path, os.environ)
+        cfg = config.load(config_path, os.environ, missing_ok=True)
         accounts_ = cfg.accounts
     except config.ConfigError as e:
         cfg, accounts_ = None, (config.Account("default", "claude"),)
@@ -78,14 +78,6 @@ def shape_role(root, settings, name):
     info = tree.read_info(root, settings) if root else {"path": None, "text": None, "notes": []}
     shape = role.load(info["path"], info["text"])
     return shape["roles"].get(name), info["notes"] + shape["problems"]
-
-
-def _repo_for(cfg, root, ports):
-    """会社の根の dispatch の設定の repo。設定に無ければ、その根を代表の clone とする最小の repo を作る。"""
-    for r in cfg.repos:
-        if r.source and os.path.realpath(r.source) == os.path.realpath(root):
-            return r
-    return config.Repo(ports.origin(root) or os.path.basename(os.path.normpath(root)), "", root)
 
 
 def ask(a, ports, cwd, task):
@@ -168,9 +160,10 @@ def ask(a, ports, cwd, task):
                                  "部署の名前を --task <名前>、枝を --branch <枝> で渡す"]))
         return 2
     if cfg is None:
-        print("\n".join(notes + ["止めた: 部署を立てるには dispatch の設定が要る（アカウントと使用率の上限を読む）"]))
+        print("\n".join(notes + ["止めた: 部署を立てるには、読める dispatch の設定が要る（アカウントと使用率の上限を読む。"
+                                 "ファイルが無ければ既定で動くが、在って読めない物は直す）"]))
         return 2
-    repo = _repo_for(cfg, company["root"], ports)
+    repo = config.repo_at(cfg, company["root"], ports.origin)
     if a.dry_run:
         print("\n".join(notes + [f"頼む先: {company['name']} に部署 {a.task}（役 {role}、枝 {a.branch}）を立て、最初の文で頼む",
                                  f"- 受付箱: {inbox}",

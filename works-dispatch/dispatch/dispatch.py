@@ -38,7 +38,11 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
         python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--dry-run]
-        python3 dispatch.py --land <部署> [--repo OWNER/NAME] [--dry-run]
+        python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
+        python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> | --init-company [--local] [--repo <代表の clone>]
+
+部署の回（--task・--ask・--land・--tree）は、設定の [[repos]] が無くても、代表の clone の場所（--repo のパスか打った場所）から
+会社を決める（_department_repo）。[[repos]] は PR を開く回と、gh_user・copy_files を会社の形と別に決めたいときだけ要る。
 
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 """
@@ -236,7 +240,7 @@ class Ports:
                              "その会話にだけ効く設定を渡して起こす。Claude Code を新しくする）")
         for repo in cfg.repos:
             if not task and not (repo.second_prompt or "").strip():
-                problems.append(f"{repo.repo}: 2 ターン目の文が空")
+                problems.append(f"{repo.repo}: 2 ターン目の文が空（設定の [[repos]] の second_prompt_file に書いたファイルに、送る文を書く）")
         for a in cfg.accounts:
             if not self._shell_has(a.command):
                 problems.append(f"アカウント {a.name} の起動のコマンド {a.command} がシェルで見つからない")
@@ -420,6 +424,10 @@ class Ports:
     def now(self):
         return time.time()
 
+    def cwd(self):
+        """この命令を打った場所（部署の回と --init-company が、--repo の無いときに会社を決める所）。"""
+        return os.getcwd()
+
     def common_of(self, cwd):
         """その場所の属するリポジトリの元の clone の根（git の共通の .git から）。git でなければ None。"""
         got = gitx.common_dir(cwd)
@@ -517,6 +525,10 @@ def main(argv=None, ports=None):
     ap.add_argument("--no-second", action="store_true", help="2 ターン目の文を送らず、/catchup だけで止める")
     ap.add_argument("--init", action="store_true", help="設定の下書きを書く（--repo と --source が要る。有れば上書きしない）")
     ap.add_argument("--source", help="--init と一緒に: そのリポジトリの代表の clone")
+    ap.add_argument("--init-company", action="store_true",
+                    help="会社の形（.claude/company.toml）の下書きを書く（--repo に代表の clone のパス。省けば今いる場所。有れば上書きしない）")
+    ap.add_argument("--local", action="store_true",
+                    help="--init-company と一緒に: リポジトリの中でなく、設定の置き場の companies/ に書く（commit しない側）")
     ap.add_argument("--check", action="store_true", help="始める前の確かめだけを走らせ、足りない物と直し方を出す")
     ap.add_argument("--clean", action="store_true", help="元の clone の worktree のうち消してよいものを並べる")
     ap.add_argument("--apply", action="store_true", help="--clean と一緒に: 並べたものを本当に消す")
@@ -550,9 +562,18 @@ def main(argv=None, ports=None):
     if a.tree or a.sync or a.json:
         return _company(a, ports)
 
+    if a.local and not a.init_company:
+        print("止めた: --local は --init-company と一緒にだけ使う")
+        return 2
+    if a.init_company:
+        return _init_company(a, ports, ports.cwd())
+    # 部署の回（--task・--land）は、[[repos]] が無くても、代表の clone の場所から会社を決める（_department_repo）
+    # --check は、[[repos]] が無ければ部署の回の前提だけを確かめる（_check）
+    department = a.task is not None or a.land is not None
     try:
-        cfg = config.load(a.config, os.environ)
-        repo = config.pick_repo(cfg, a.repo)
+        cfg = config.load(a.config, os.environ, missing_ok=department or a.check)
+        repo = (_department_repo(cfg, a.repo, ports, ports.cwd()) if department else
+                None if a.check and not cfg.repos else config.pick_repo(cfg, a.repo))
     except config.ConfigError as e:
         print(f"止めた: {e}")
         return 2
@@ -773,6 +794,30 @@ def main(argv=None, ports=None):
     return 0
 
 
+def _department_repo(cfg, name, ports, cwd):
+    """部署の回（--task・--land）の repo。--repo が設定の [[repos]] の名前か source ならそれ。--repo がフォルダなら、その場所の
+    git の共通の .git から代表の clone を決める（config.repo_at。[[repos]] に無ければ最小の repo）。--repo が無ければ今いる場所から
+    同じに決め、今いる場所が git でなければ設定の最初の repo。決められなければ config.ConfigError。"""
+    if name is not None:
+        try:
+            return config.pick_repo(cfg, name)
+        except config.ConfigError:
+            pass
+        place = os.path.expanduser(name)
+        if not os.path.isdir(place):
+            raise config.ConfigError(f"--repo の {name} が、設定の [[repos]] の名前でも、在るフォルダでもない"
+                                     "（代表の clone のパスを渡すか、その clone の中から打つ）")
+    else:
+        place = cwd
+    root = ports.common_of(place)
+    if root:
+        return config.repo_at(cfg, root, ports.origin)
+    if name is None and cfg.repos:
+        return cfg.repos[0]
+    raise config.ConfigError(f"{place} が git のリポジトリでないので、会社（代表の clone）を決められない"
+                             "（--repo に代表の clone のパスを渡すか、その clone の中から打つ）")
+
+
 def _name(row):
     return f"{'issue ' if row.get('kind') == 'issue' else ''}#{row['number']}"
 
@@ -898,9 +943,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         print(f"止めた: {why}")
         return 2
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
-    if gh_user != repo.gh_user:
-        cfg = cfg._replace(repos=tuple(repo._replace(gh_user=gh_user) if r is repo else r for r in cfg.repos))
-        repo = repo._replace(gh_user=gh_user)
+    repo = repo._replace(gh_user=gh_user)
+    # 始める前の確かめは、部署を立てるこの repo だけを見る（設定の [[repos]] に無い repo も、ほかの repo の足りない物で止めない）
+    cfg = cfg._replace(repos=(repo,))
     names = [x.name for x in cfg.accounts]
     if a.from_account and a.from_account not in names:
         print(f"止めた: --from-account の {a.from_account} が設定の accounts に無い（{', '.join(names)}）")
@@ -1055,7 +1100,7 @@ def _company(a, ports):
     notes = []
     path = config.path_of(a.config, os.environ)
     try:
-        accounts_ = config.load(a.config, os.environ).accounts
+        accounts_ = config.load(a.config, os.environ, missing_ok=True).accounts
     except config.ConfigError as e:
         accounts_ = (config.Account("default", "claude"),)
         if os.path.exists(path):
@@ -1116,10 +1161,13 @@ def _check(cfg, ports):
         print("足りない物（要る道具の段の点検。手で入れてから --check を打ち直す）:")
         print("\n".join(tierx.report(tiers)))
         return 2
-    problems, notes = ports.preflight(cfg)
+    problems, notes = ports.preflight(cfg, task=not cfg.repos)
     # origin/HEAD が無い元の clone は、会社の形を作業ツリーから読む（止めずに直し方を出す）
     heads = [n for n in dict.fromkeys(tree.head_note(r.source) for r in cfg.repos if r.source) if n]
     notes = list(cfg.notes) + tier_notes + notes + heads
+    if not cfg.repos:
+        notes.insert(0, "設定に [[repos]] が無いので、部署の回（--task・--ask・--land）の前提だけを確かめた"
+                        "（PR を開く回も使うなら python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> で下書きを作る）")
     for acc in cfg.accounts:
         try:
             ports.list_sessions(acc.config_dir)
@@ -1191,6 +1239,81 @@ def _init(a, ports):
     print(f"書いた: {path}")
     print(f"2 ターン目の文: {second}（空。送りたい文を書く）")
     print("次: python3 dispatch.py --check")
+    return 0
+
+
+# 会社の形の下書き（--init-company）。欄の読み手は nodes/tree.py（name・description・skills）・nodes/role.py（gh_user・roles）・
+# nodes/land.py（land）
+COMPANY_DRAFT = '''# 会社の形: このリポジトリで部署（作業ごとの会話）を立てるときの、会社の名前・役・gh のアカウント・本流への入れ方。
+# 読むのは works-dispatch（--tree・--task・--ask・--deliver・--land と、役を足すフック）。--init-company が書いた下書き。
+# 書き方: works-dispatch の skills/dispatch/SKILL.md の「役の中身と起こし方」と「本流に入れる」。
+# 置き場は 2 つ。リポジトリの中（.claude/company.toml）なら commit すると同じリポジトリを使う人に効く。commit しない物は、
+# dispatch の設定の置き場の companies/ に置く（--init-company --local）。両方に在れば、リポジトリの中の物を読む。
+
+name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る）
+description = {description}   # この会社が受ける仕事
+gh_user = {gh_user}   # 部署の会話の gh が使うアカウント{gh_note}
+
+# 受ける仕事（任意）。--tree に出る。role は、その仕事を受ける役
+# [[skills]]
+# id = "fix"
+# name = "直し"
+# description = "頼まれた所を直し、試験を通して作業の枝に push する"
+# role = "作業役"
+
+# 役。部署を立てるときに --role で選び、省けば作業役。instructions は、部署の会話の頭に毎回足す役の本文
+[[roles]]
+name = "作業役"
+instructions = "頼まれた所を直す。試験は触った所の物だけを回す。作業の枝に push したら、作った物・決めたこと・決められなかったことを知らせて止まる。"
+# model = "opus"   # 部署を起こすときの --model（省けば既定）
+# deliver = ["結論", "決め手", "残った疑問", "枝"]   # 納品する要約の必須の項目（省けば既定）
+# [roles.settings]   # 部署の会話にだけ効かせる Claude Code の設定（要らないプラグインを切るなど）
+# enabledPlugins = {{ "<プラグイン>@<マーケットプレイス>" = false }}
+
+# 部署の成果を本流に入れる決まり（--land）。none は何もしない（入れるのは人）。
+# pr は本流への PR を出して止まる。ff-after-ci は関門（gate。CI の枝の形か check）が緑なら本流を早送りする
+[land]
+mode = "none"
+# gate = "check"
+# check = "<手元の検証のコマンド>"
+'''
+
+
+def _init_company(a, ports, cwd):
+    """--init-company。会社の形の下書きを、リポジトリの中の .claude/company.toml（--local なら設定の置き場の companies/）に書く。
+    在れば上書きしない。commit はしない（するかは利用者が決める）。"""
+    place = os.path.expanduser(a.repo) if a.repo else cwd
+    root = ports.common_of(place) if os.path.isdir(place) else None
+    if not root:
+        print(f"止めた: {place} が git のリポジトリでない（--repo に代表の clone のパスを渡すか、その clone の中から打つ）")
+        return 2
+    settings = os.path.dirname(config.path_of(a.config, os.environ))
+    path = tree.settings_info_path(settings, root) if a.local else os.path.join(root, *tree.INFO_FILE)
+    if os.path.exists(path):
+        print(f"会社の形はもうある: {path}（上書きしない）")
+        return 1
+    other = os.path.join(root, *tree.INFO_FILE) if a.local else tree.settings_info_path(settings, root)
+    try:
+        gh_user, gh_note = ports.gh.login(), "（--init-company を打った時の gh の今のアカウント）"
+    except ghx.GhError as e:
+        gh_user, gh_note = None, f"。gh の今のアカウントを読めなかった（{e}）ので空。書かなければ、その人の今の gh の設定で動く"
+    def q(v):
+        return json.dumps(v, ensure_ascii=False)   # TOML の基本の文字列と同じ書き方
+    text = COMPANY_DRAFT.format(name=q(os.path.basename(os.path.normpath(root))),
+                                description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""), gh_note=gh_note)
+    if not gh_user:
+        text = text.replace('gh_user = ""', '# gh_user = "<ログイン名>"')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"書いた: {path}")
+    if os.path.exists(other):
+        print(f"注意: {other} にも会社の形が在る。読むのはリポジトリの中の物（origin の既定の枝に commit された物が先）")
+    if a.local:
+        print("commit しない置き場に書いた。名前・説明・役の本文を直す")
+    else:
+        print("名前・説明・役の本文を直し、同じリポジトリを使う人にも効かせるなら commit する"
+              "（commit しないなら --init-company --local で設定の置き場に書く）")
     return 0
 
 

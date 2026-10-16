@@ -4,6 +4,9 @@
 知らない鍵は読み飛ばす（前の版の clone_root が残っていても止めない）。
 外した鍵のうち、書いた人の思う動きと違ってしまう物（task_cwd）は、止めずに注記（Config.notes）を出して無視する。
 アカウントを書かなければ、`claude` 1 つだけのアカウントとして扱う（D7。普通の利用者の環境でもそのまま動く）。
+[[repos]] は PR を開く回（pick_repo）にだけ要る。部署の回（--task・--ask・--land・--tree）は、代表の clone の場所から会社を決め
+（repo_at）、設定の [[repos]] は gh_user・copy_files などを上書きしたいときだけ書く。second_prompt_file も PR を開く回だけの物で、
+書かなければ 2 ターン目の文は空（PR を開く回は始める前の確かめが止める）。
 """
 
 import os
@@ -66,13 +69,17 @@ def path_of(path=None, env=os.environ):
     return _path(path or env.get(ENV) or DEFAULT_PATH)
 
 
-def load(path=None, env=os.environ):
+def load(path=None, env=os.environ, missing_ok=False):
+    """missing_ok が真なら、設定のファイルが無いときに、何も書いていない設定（既定の値・アカウント 1 つ・repos 無し）を返す（部署の回）。"""
     path = path_of(path, env)
     try:
         with open(path, "rb") as f:
             raw = tomllib.load(f)
     except FileNotFoundError:
-        raise ConfigError(f"設定のファイルが無い: {path}（python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> で下書きを作る）")
+        if missing_ok:
+            raw = {}
+        else:
+            raise ConfigError(f"設定のファイルが無い: {path}（python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> で下書きを作る）")
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"設定のファイルを TOML として読めない: {path}（{e}）")
 
@@ -116,9 +123,11 @@ def load(path=None, env=os.environ):
     for i, r in enumerate(raw.get("repos", [])):
         where = f"repos[{i}]"
         name = _str(r, "repo", where, problems)
-        pfile = _str(r, "second_prompt_file", where, problems)
-        prompt = None
-        if pfile:
+        pfile = r.get("second_prompt_file")
+        prompt = ""
+        if pfile is not None and not (isinstance(pfile, str) and pfile):
+            problems.append(f"{where}: second_prompt_file が文字列で無い")
+        elif pfile:
             try:
                 with open(_path(pfile), encoding="utf-8") as f:
                     prompt = f.read()
@@ -142,16 +151,16 @@ def load(path=None, env=os.environ):
             notes.append(f"{where}（{name}）: task_cwd は使わなくなったので無視した（作業役は自分の作業場で起こす）。設定から消してよい")
         repos.append(Repo(name, prompt, _path(source) if source else None, tuple(copy),
                           _path(copy_from) if copy_from else None, gh_user or None))
-    if not raw.get("repos"):
-        problems.append("repos が 1 つも無い")
-
     if problems:
         raise ConfigError(f"設定の形が違う（{path}）: " + "／".join(problems))
     return Config(limit, _path(limits_dir), tuple(accounts), tuple(repos), tuple(notes), soon)
 
 
 def pick_repo(cfg, name):
-    """名前（OWNER/NAME）か代表の clone のパスの repo を返す。名前が None なら設定の最初の repo。"""
+    """名前（OWNER/NAME）か代表の clone のパスの repo を返す。名前が None なら設定の最初の repo。PR を開く回の選び方。"""
+    if not cfg.repos:
+        raise ConfigError("設定に [[repos]] が 1 つも無い（PR を開く回には要る。python3 dispatch.py --init --repo OWNER/NAME "
+                          "--source <代表の clone> で下書きを作る）")
     if name is None:
         return cfg.repos[0]
     for r in cfg.repos:
@@ -161,6 +170,15 @@ def pick_repo(cfg, name):
         if r.source and os.path.realpath(_path(name)) == os.path.realpath(r.source):
             return r
     raise ConfigError(f"設定の repos に {name} が無い（OWNER/NAME か、source に書いた代表の clone のパスで指す）")
+
+
+def repo_at(cfg, root, origin):
+    """代表の clone の根 root の repo。設定の [[repos]] に source がその根の物が有ればそれ、無ければその根を代表の clone とする
+    最小の repo（名前は origin の OWNER/NAME、無ければフォルダの名前。gh_user などは会社の形から読む）。部署の回の選び方。"""
+    for r in cfg.repos:
+        if r.source and os.path.realpath(r.source) == os.path.realpath(root):
+            return r
+    return Repo(origin(root) or os.path.basename(os.path.normpath(root)), "", root)
 
 
 def copy_root(repo):

@@ -229,6 +229,12 @@ class FakePorts(dispatch.Ports):
     def now(self):
         return 0
 
+    def cwd(self):
+        # 打った場所は git の外（部署の回は設定の最初の repo を使う）。試験を走らせた場所のリポジトリに部署を立てない
+        if not hasattr(self, "_cwd"):
+            self._cwd = tempfile.mkdtemp(prefix="dispatch-cwd-")
+        return self._cwd
+
     def pause(self):
         pass
 
@@ -834,10 +840,12 @@ class Check(unittest.TestCase):
     def setUp(self):
         self.cfg, self.root = make_cfg()
 
-    def test_without_config_points_to_init(self):
+    def test_without_config_checks_the_department_needs_and_points_to_init(self):
         missing = str(pathlib.Path(self.root).parent / "none.toml")
-        rc, out = run_main(["--config", missing, "--check"], FakePorts([]))
-        self.assertEqual(rc, 2)
+        ports = FakePorts([])
+        rc, out = run_main(["--config", missing, "--check"], ports)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(ports.preflight_task)
         self.assertIn("--init", out)
 
     def test_all_good_says_so_and_writes_nothing(self):
