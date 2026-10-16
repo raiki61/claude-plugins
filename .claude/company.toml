@@ -28,3 +28,8 @@ mode = "ff-after-ci"
 gate = "check"
 check = "python3 scripts/shared-copies.py"
 bump = "marketplace"
+
+# 組織の決まり（この会社の作り方。スキルの決まりではない）
+# - 部署の名前（--task・--ask に渡す名前。会話・ペインの名前になる）は、日本語で中身が分かる名前にする（例: 「初見読みの一時ファイル除外」）。
+# - 枝の名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
+# - 窓口とのやり取りは頼む命令（--ask）と納品の命令（--deliver）。途中で頼みを変えるときは、部署の窓に直接話しかける。
