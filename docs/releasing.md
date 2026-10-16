@@ -25,7 +25,7 @@
 ## 版を上げる
 
 1. 全段の試験を、手元でも `VERSION_BUMP_STRICT=1 bash tests/run.sh` で回す（版上げの順の検査は、main と release/* の CI でだけ厳しくなるため）。
-2. `<根>/.claude-plugin/plugin.json` の `version` と、`.claude-plugin/marketplace.json` の `metadata.version` を上げる。
+2. `<根>/.claude-plugin/plugin.json` の `version` と、`.claude-plugin/marketplace.json` の `metadata.version` を上げる。上げ幅は下の「上げ幅の決め方」による。
 3. 同じ commit で、`<根>/CHANGELOG.md` の `## [Unreleased]` の中身を、新しい見出し `## [<版>] - <YYYY-MM-DD>` の下へ移す。`## [Unreleased]` の見出しは空で残す。
 4. 版を上げる commit を作る。件名の形は `chore(<plugin の名前>): 版を上げる（<plugin の名前> <版> / marketplace <版>）`。
 5. その commit を枝の最後に置いたまま main に入れ、push し、`gh run list` で main の CI の緑を確かめる。版上げの後に plugin の中身を変える commit を積むと、main の CI が赤になる（中身を変えたのに版が据え置きの plugin を、`tests/run.sh` が赤にする）。
@@ -33,6 +33,24 @@
 1 つの commit で複数の plugin の版を上げるときは、上げた plugin のそれぞれで 2 と 3 をする（記録の見出しは plugin ごとに足す）。件名には上げた plugin を全部並べる。
 
 `tests/run.sh` は、marketplace.json の一覧に在る全部の plugin について、`plugin.json` の今の版の見出し（`## [<版>] - <YYYY-MM-DD>`）がその plugin の `CHANGELOG.md` に在ることを確かめる。見るのは見出しが在ることまでで、中身が `## [Unreleased]` に残ったままの形は見ない。
+
+## 上げ幅の決め方
+
+版の番号は x.y.z（[Semantic Versioning](https://semver.org/lang/ja/) の形）。上げるのは、版を最後に上げた後にフォルダの中のファイルを変えた plugin だけ（「版を最後に上げた後」は、`plugin.json` の `version` が今の値になった commit より後。数え方は `tests/run.sh` の `VERSION_BUMP_OK` と同じ）。手で上げるときも、works-dispatch の `--land` が上げるときも、上げ幅は次の順で決める。
+
+1. 版を最後に上げた後にその plugin の中で変えたファイルが、試験と文書（下の一覧）だけなら、patch（x.y.Z）を上げる。`## [Unreleased]` にどの節が有っても patch にする。Semantic Versioning の minor は機能を足したときに上げる物で、利用者が動かす物を変えていない直しには当たらないため。
+2. そうでなければ、`## [Unreleased]` に Added・Changed・Deprecated・Removed のどれかの節が有れば minor（x.Y.0）を上げ、無ければ（Fixed・Security だけなら）patch を上げる。`## [Unreleased]` に中身が無いときは上げない（上の「作業枝で」の節。`--land` も止まる）。
+3. marketplace の版は、同じ commit で上げる plugin のうち minor を上げた物が 1 つでも有れば minor、無ければ patch を上げる。
+
+試験と文書に数えるのは次の物で、深さによらず、plugin のフォルダの中のどこに在っても同じ:
+
+- `tests`・`test`・`docs` という名前のフォルダの下のファイル
+- `test_*.py`・`*_test.py`・`conftest.py`
+- plugin のフォルダの直下の `README.md`・`CHANGELOG.md`・`CONTRIBUTING.md`・`LICENSE`（直下だけ。`skills/foo/README.md` は入らない）
+
+これ以外は全部、利用者が動かす物に数える。`SKILL.md`・エージェントの `.md`・`plugin.json` もそちら（Claude Code が読んで動く物なので）。この一覧の正本は `works-dispatch/dispatch/nodes/bump.py` の `quiet` で、ずれたらそちらが正しい。`--land` が 1 に当たって patch にしたときは、画面に注記を出す。
+
+major（X.0.0）は `--land` では上がらない。今の版はどれも 0.x で（Semantic Versioning では、0.y.z の間は何が変わってもよい扱い）、互換を壊す変更（Removed など）も minor を上げる。
 
 ## tag を作らない理由と、依存の版の範囲
 
