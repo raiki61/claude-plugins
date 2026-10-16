@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-16
+
 ### Changed
 
 - `--clean` は、dispatch の設定のファイル（`[[repos]]`）が無くても動く。会社（代表の clone）は部署の回と同じに、`--repo`（`[[repos]]` の名前か代表の clone のパス）か打った場所で決め、`[[repos]]` に無い会社では、PR の作業場は見ずに（GitHub に問わずに）部署だけを並べて片付ける。0.18.0 までは設定のファイルが無いと止まり、`--init` で設定を書く必要があった（まっさらな環境での 2 回目の試し `docs/trials/2026-10-16-clean-env-2.md` の 8）。
