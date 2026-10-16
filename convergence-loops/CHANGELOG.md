@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.44.2] - 2026-10-17
+
 ### Changed
 
 - 文書だけの直し: この記録の頭が挙げるほかのプラグインの記録の置き場を今の顔ぶれに合わせる（改名した coldwrite を外し、tiers・works・works-dispatch・works-factory を足す）。振る舞いは変わらない。
