@@ -1,0 +1,19 @@
+# 試しの実行で確かめた外の振る舞い（2026-10-14〜2026-10-16）
+
+dispatch が頼る herdr・Claude Code・git・gh の振る舞いのうち、文書に無く、手元で打って確かめた物の記録。使い始め方は [README](../README.md)、使う人向けの手順の全部は [SKILL.md](../skills/dispatch/SKILL.md)。
+
+確かめた版は、herdr 0.9.3、Claude Code 2.1.299、git 2.50.1（Apple Git-155）、gh 2.102.0。項の頭に別の版を書いた物は、その版で確かめた。版が変わったら、ここを確かめ直す。
+
+- herdr の `agent wait` は、まだ会話を見つけていないペインでは待たずに `agent_not_found` を返す。`herdr.wait_ready` は、ペインで前面に動いているプロセス（`pane process-info`）を見て待ち直す。
+- herdr の `pane run` は、成功しても何も出力しない。`workspace close` は 2026-10-14 には何も出さず、2026-10-15 には `{"result": {"type": "ok"}}` を返した（どちらも受ける）。
+- `herdr agent prompt` で送った `/exit` は、文字は入るが送信されなかった（Enter をもう 1 回押す必要があった）。`/attention:catchup 1737` は 1 回で送信された。違いの理由は調べていない。
+- 新しいフォルダで Claude Code を起こすと、信頼の確認が出る。この画面で Esc を押すと、会話は終わらずに進み、そのフォルダが信頼済みとして記録された。
+- herdr の worktree の口（2026-10-15 に、一時の git リポジトリに打って確かめた。出力の写しは `dispatch/tests/test_ports.py`）:
+  - `worktree list --cwd <元の clone>` は、herdr で開いていないリポジトリに打っても作業場を開かない。`worktree create` は、その元の clone の作業場も開く。
+  - 自分の持ち物のリポジトリでは、`worktree create` に `--trust-repository` は要らなかった。
+  - `worktree open --path <場所>` だけでは `worktree_not_found` が返り、`--cwd <元の clone>` を足すと開いた。開いている場所に打つと、`already_open: true` でその作業場を返す。
+  - `worktree remove --workspace <ID>` は、未追跡のファイルが有ると `dirty_worktree_requires_force` で断る。消すと作業場も閉じ、手元の枝は残る。
+  - 元の clone が開いている枝で `worktree create` を打つと、git の「already used by worktree」で `worktree_create_failed` になる。dispatch はその前に `branch_busy` で止める。
+- 2026-10-16（Claude Code 2.1.301、herdr 0.9.3）: `herdr pane rename <ペイン> <名前>` は `{"result": {"type": "pane_info", "pane": {…, "label": "<名前>"}}}` を返した。`claude --help` に `-n, --name <name>` が有り、`claude agents --json` の 1 件の `name` に、その名前（付けなければ自動の名前）が出た。持ち主の手元で、別のアカウント（別の `CLAUDE_CONFIG_DIR`）の会話どうしでは SendMessage が両方向とも「No agent named … is reachable」で届かず、各会話の一覧にも同じアカウントの会話しか出なかった（Claude Code の文書は、設定のフォルダの違う会話に届くかを書いていない）。
+- 2026-10-16（Claude Code 2.1.301、持ち主の手元のアカウントの 1 つ、使い捨ての clone で部署を 1 つ起こした）: 役の設定（`enabledPlugins` で 10 個のプラグインを切り、`permissions.deny` で Artifact・Workflow・ScheduleWakeup・SendFeedback・ReportFindings を消す）と `--model haiku` を渡すと、最初の要求は 2.10 万トークン（入力 2 + キャッシュの書き 20,977。比べた 4.51 万は、claude-plugins の作業場で絞らずに起こした会話の値で、今回測った物ではなく、持ち主のノートのリポジトリ〔この README の外〕に残る記録から取った。その会話の条件は、dispatch の設定の `accounts` で `main` と名付けたアカウントと Opus 5.5）で、道具の一覧は Agent・AskUserQuestion・Bash・Edit・EnterWorktree・ListAgents・Read・Skill・ToolSearch・Write だけになった。モデルは Haiku 5.5 になった。SessionStart のフックの文は会話の頭に入った。`GH_TOKEN="$(gh auth token --user …)" <アカウントのコマンド> --bg …` と前に置いた鍵は、裏の会話の Bash に届かなかった（`GH_TOKEN` は空で、gh は有効なアカウントのまま）。裏の会話は、起こしたシェルの環境変数を継がない。
+- 元の clone の作業場（親）を閉じると、そこから作った worktree の作業場もまとめて閉じることがある（持ち主の herdr の設定の注記は、画面で親を閉じると黙って連鎖すると書き、herdr の issue #3483 を指す。herdr の文書は、CLI の `workspace close --group` が親と linked worktree の作業場をまとめて閉じると書く）。要確認: CLI で `--group` 無しに親を閉じたときの振る舞いは試していない。dispatch は親の作業場を閉じない。

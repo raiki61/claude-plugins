@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Changed
+
+- README を初めての人向けに書き直した。頭に「何ができるか」「要る物」「5 分で試す」を置き、決めたことと試して確かめたことは `docs/design.md` に、ほかのプラグインからつなぐ形は `docs/from-other-plugins.md` に移した（中身は消していない）。
+
 ## [0.3.0] - 2026-10-16
 
 ### Changed

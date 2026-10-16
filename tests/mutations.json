@@ -4914,8 +4914,8 @@
   },
   {
    "id": "TN6",
-   "title": "宣言の件数の柵: README の宣言からラチェットの名前が落ちれば赤",
-   "file": "README.md",
+   "title": "宣言の件数の柵: CONTRIBUTING.md の宣言からラチェットの名前が落ちれば赤",
+   "file": "CONTRIBUTING.md",
    "suite": "root",
    "old": "`EXPECTED_TESTS`・`VOCAB_REACHED`",
    "new": "`EXPECTED_TESTS`",
@@ -4923,8 +4923,8 @@
   },
   {
    "id": "TN7",
-   "title": "宣言の件数の柵: README の宣言の見出しが変われば赤（黙って突合を外さない）",
-   "file": "README.md",
+   "title": "宣言の件数の柵: CONTRIBUTING.md の宣言の見出しが変われば赤（黙って突合を外さない）",
+   "file": "CONTRIBUTING.md",
    "suite": "root",
    "old": "### review-loop が読む検証の道具（このリポジトリの宣言）",
    "new": "### 検証の道具",

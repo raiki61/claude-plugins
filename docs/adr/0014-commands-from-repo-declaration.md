@@ -35,5 +35,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.21.0（82deb2e）。[README の「review-loop が読む検証の道具」](../../README.md#review-loop-が読む検証の道具このリポジトリの宣言)。
+- リポジトリの中: 0.21.0（82deb2e）。[CONTRIBUTING.md の「review-loop が読む検証の道具」](../../CONTRIBUTING.md#review-loop-が読む検証の道具このリポジトリの宣言)（2026-10-16 に根の README から移した）。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: 計画版の 2 章「起動と安全」・7 章の 14、`HANDOFF-log-20260925.md` の抽象化の run の行、`merge-request.md` の B の道具名の抽象化。

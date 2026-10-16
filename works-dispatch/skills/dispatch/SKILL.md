@@ -210,7 +210,7 @@ deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 
 ## 本流に入れる: `--land 部署`
 
-部署（名前か枝の名前で指す）の枝を、会社の形（`.claude/company.toml`、無ければ設定の置き場の `companies/`）の `[land]` の決まりで本流に入れる。欄と例は README の「本流に入れる」。
+部署（名前か枝の名前で指す）の枝を、会社の形（`.claude/company.toml`、無ければ設定の置き場の `companies/`）の `[land]` の決まりで本流に入れる。欄と例は、このプラグインの `docs/land.md`。
 
 - 決まりが無い（`[land]` が無いか `mode = "none"`）なら何もしない。`mode = "pr"` なら、部署の枝を origin に出して PR を出し、止める。
 - `mode = "ff-after-ci"` なら、関門（`gate`。CI の枝の形〔例 `release/*`〕か、手元の検証の `check`）を通し、緑で本流がまだ部署の枝の祖先なら、本流を早送りして push する。`bump = "marketplace"` なら、部署は版を上げずに出し、取り込むときに版を上げる commit を足してから関門に出す。

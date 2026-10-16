@@ -671,11 +671,11 @@ class Rules(unittest.TestCase):
         self.assertEqual(land.read_rules(os.path.join(self.dir, "nope.toml"))["mode"], "none")
         self.assertEqual(self.read('name = "x"\n')["mode"], "none")
 
-    def test_readme_examples_read_clean(self):
-        readme = (pathlib.Path(DISPATCH).parent / "README.md").read_text(encoding="utf-8")
-        blocks = [b.split("```", 1)[0] for b in readme.split("```toml\n")[1:]]
+    def test_doc_examples_read_clean(self):
+        doc = (pathlib.Path(DISPATCH).parent / "docs" / "land.md").read_text(encoding="utf-8")
+        blocks = [b.split("```", 1)[0] for b in doc.split("```toml\n")[1:]]
         lands = [b for b in blocks if "[land]" in b]
-        self.assertGreaterEqual(len(lands), 2, "README に [land] の例が 2 つ無い")
+        self.assertGreaterEqual(len(lands), 2, "docs/land.md に [land] の例が 2 つ無い")
         for b in lands:
             got = self.read(b)
             self.assertEqual(got["problems"], [], b)
