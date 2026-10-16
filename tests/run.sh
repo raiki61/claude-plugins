@@ -2254,7 +2254,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=668
+EXPECTED_CHECKS=669
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2855,6 +2855,127 @@ assert all(fires("PostToolUse", t) for t in ("Write", "Edit", "MultiEdit", "Note
 assert fires("PostToolUseFailure", "Bash"), "失敗した Bash(書いてから落ちたもの)の記録の口が無い"
 assert not fires("PostToolUse", "BashOutput"), "Bash の matcher が BashOutput にも当たる(^…$ で囲む)"
 print("DOCS_BASH_OK")
+PY
+# 載せ直し・merge・checkout などで git が作業ツリーに持ち込んだ文書は、書いた役の書いた文書として拾わない。
+# 2026-10-16 に、割り振りの部署が origin/main の上に載せ直したとき、本流から入った文書 6 本を読み、書いていない役に直せない
+# 指摘を返した(走る前と後の HEAD の差を丸ごと拾っていた)。HEAD の移動の記録(reflog)の見出しが commit の分だけを拾う
+expect_output 0 "DOCS_GIT_OK" "coldread の手元の文書: 載せ直し・merge・checkout で入った文書は拾わず、同じコマンドで書いて commit した文書は拾う" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-git" <<'PY'
+import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, repo, fresh = work / "cfg", work / "repo", work / "fresh"
+repo.mkdir()
+fresh.mkdir()
+
+def run(mode, payload):
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "GIT_"))}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD="cat >/dev/null; exit 1")
+    r = subprocess.run([sys.executable, str(gate), *([mode] if mode else [])], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+
+def git(*a, cwd=repo, check=True):
+    return subprocess.run(["git", "-C", str(cwd), *a], check=check, capture_output=True)
+
+def pending(sid):
+    f = cfg / "coldread-gate/docs" / (sid + ".pending")
+    return sorted(set(f.read_text(encoding="utf-8").split())) if f.exists() else []
+
+def bash(sid, command, effect, cwd=repo):
+    pay = {"session_id": sid, "tool_name": "Bash", "tool_use_id": "tu-" + sid, "cwd": str(cwd), "tool_input": {"command": command}}
+    run("", dict(pay, hook_event_name="PreToolUse"))
+    effect()
+    run("docs-record", dict(pay, hook_event_name="PostToolUse"))
+
+def write(name, text, at=repo):
+    (at / name).write_text(text, encoding="utf-8")
+
+real = lambda p: os.path.realpath(str(p))
+for d in (repo, fresh):
+    git("init", "-q", "-b", "main", cwd=d)
+    git("config", "user.email", "t@example.com", cwd=d)
+    git("config", "user.name", "t", cwd=d)
+    git("config", "core.autocrlf", "false", cwd=d)
+for n in ("up.md", "own.md", "clash.md"):
+    write(n, n + " の初めの版\n")
+git("add", ".")
+git("commit", "-q", "-m", "init")
+git("switch", "-q", "-c", "feat")
+write("own.md", "部署が書いた版\n")
+git("commit", "-q", "-am", "own")
+git("switch", "-q", "main")
+write("up.md", "本流で書き換えた版\n")
+write("clash.md", "本流の側の版\n")
+write("other.md", "本流で足した文書\n")
+git("add", ".")
+git("commit", "-q", "-m", "upstream")
+git("switch", "-q", "feat")
+
+# 1) 載せ直し: 本流から入った up.md・other.md は拾わない
+bash("s1", "git rebase main", lambda: git("rebase", "-q", "main"))
+assert pending("s1") == [], f"載せ直しで入った文書を拾った: {pending('s1')}"
+
+# 2) 同じコマンドで書いて commit してから載せ直す: 書いた文書だけを拾い、前の版は commit の前
+git("switch", "-q", "-c", "feat2", "main~1")
+def write_commit_rebase():
+    write("mine.md", "部署が新しく書いた文書\n")
+    git("add", "mine.md")
+    git("commit", "-q", "-m", "mine")
+    git("rebase", "-q", "main")
+bash("s2", "python3 tools/w.py && git commit -m mine && git rebase main", write_commit_rebase)
+assert pending("s2") == [real(repo / "mine.md")], f"書いて commit した文書だけを拾えていない: {pending('s2')}"
+
+# 3) 枝の切り替え・merge(早送り): 入った文書は拾わない
+git("switch", "-q", "-c", "old", "main~1")
+bash("s3", "git checkout main", lambda: git("checkout", "-q", "main"))
+bash("s4", "git switch old && git merge --ff-only main", lambda: (git("switch", "-q", "old"), git("merge", "-q", "--ff-only", "main")))
+assert pending("s3") == [] and pending("s4") == [], (pending("s3"), pending("s4"))
+
+# 4) 衝突して止まった merge: 衝突した文書(UU)と、本流から入って index に載った文書は拾わない。直して git add した後は拾う
+git("switch", "-q", "-c", "clash", "main~1")
+write("clash.md", "部署の側の版\n")
+git("commit", "-q", "-am", "clash")
+bash("s5", "git merge main", lambda: git("merge", "-q", "main", check=False))
+assert git("status", "--porcelain").stdout.decode().count("UU clash.md") == 1, "試験の前提: clash.md が衝突していない"
+assert pending("s5") == [], f"merge で入った文書を拾った: {pending('s5')}"
+def resolve():
+    write("clash.md", "部署が衝突を直した版\n")
+    git("add", "clash.md")
+bash("s6", "python3 tools/fix.py && git add clash.md", resolve)
+assert pending("s6") == [real(repo / "clash.md")], f"衝突を直して git add した文書を拾えていない: {pending('s6')}"
+git("merge", "--abort")
+
+# 5) stash を戻す: git が戻した文書は拾わない(書いたときに記録してある)
+git("switch", "-q", "main")
+write("up.md", "部署が書きかけた版\n")
+git("stash", "-q")
+bash("s7", "git stash pop", lambda: git("stash", "pop", "-q"))
+assert pending("s7") == [], f"stash から戻した文書を拾った: {pending('s7')}"
+git("checkout", "-q", "--", "up.md")
+
+# 6) 最初の commit(走る前に HEAD が無い)で書いて commit した文書は拾う
+def first_commit():
+    write("first.md", "最初の文書\n", at=fresh)
+    git("add", "first.md", cwd=fresh)
+    git("commit", "-q", "-m", "first", cwd=fresh)
+bash("s8", "python3 tools/w.py && git commit -m first", first_commit, cwd=fresh)
+assert pending("s8") == [real(fresh / "first.md")], f"最初の commit で書いた文書を拾えていない: {pending('s8')}"
+
+# 7) commit の amend は、amend で変えた文書だけ
+write("amend.md", "直す前\n", at=fresh)
+git("add", "amend.md", cwd=fresh)
+git("commit", "-q", "-m", "a", cwd=fresh)
+def amend():
+    write("amend.md", "amend で直した\n", at=fresh)
+    git("commit", "-q", "-a", "--amend", "--no-edit", cwd=fresh)
+bash("s9", "python3 tools/w.py && git commit -a --amend --no-edit", amend, cwd=fresh)
+assert pending("s9") == [real(fresh / "amend.md")], f"amend で変えた文書だけを拾えていない: {pending('s9')}"
+print("DOCS_GIT_OK")
 PY
 # サブエージェントが書いた文書は、その役の終わり（SubagentStop）に読んで、指摘の全文をその役に返す。記録は PostToolUse の
 # 入力の agent_id で分け、親の Stop はサブエージェントの記録を読まない（前は親の Stop で読み、指摘が親に届いて親の文脈を食った）

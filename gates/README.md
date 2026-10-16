@@ -174,7 +174,7 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   rst は下線付きの行。見出しの無い文書は書き換えた行の前後を段落の切れ目まで)と、何の文書かが分かる冒頭(題と最初の段落)だけを
   読ませ、指摘もそこだけに求める。省いた節で説明されているかもしれない語は、詰まりでなく疑問に回させる。新しく作った文書と、
   抜き出しが全体の 8 割以上になる文書は全体を読ませる。前の版は、その役のその回で最初に記録したときの書く前の中身
-  (Write・Edit はフックの入力の `originalFile`。Bash は走る前の HEAD の版、MCP の道具は記録したときの HEAD の版。HEAD に
+  (Write・Edit はフックの入力の `originalFile`。Bash は走る前の HEAD の版〔同じコマンドで commit した文書はその commit の前の版〕、MCP の道具は記録したときの HEAD の版。HEAD に
   無い文書は新しい文書)。全体を読ませていた頃は、約 200 行の文書に数行足すと読み手が時間切れになり、1 文直すたびに直していない
   節の前からの疑問が返った。`docs.log` の長さの欄は、抜き出したときは「渡した字数/全体の字数」
 - **生成物は読まない**: `.gitattributes` で `linguist-generated` の印を付けた文書(GitHub Linguist の印。値なしか `=true`。
@@ -204,7 +204,13 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
     拾わない。git の外と、git が見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(下の「人が書いた文書と見る
     もの」)も静的に拾う(相対パスは入力の cwd で解く)。git は `GIT_OPTIONAL_LOCKS=0` で
     走らせ、index の lock を取らない。1 回 5 秒を超えたら静的な読みだけにする。同じコマンドの中で書いて commit した文書は、
-    走る前と後の HEAD の差で拾う
+    走る間に足された HEAD の移動の記録(reflog)のうち、git commit の分(見出しが `commit`・`commit (initial)`・`commit (amend)`)の差で拾う
+  - git が持ち込んだ文書(Bash): origin/main の上への載せ直し・merge・pull・checkout・stash の戻しなどで作業ツリーに入った文書は、
+    書いた役が書いた文書として拾わない。HEAD の移動の記録のうち commit 以外の分(見出しが `rebase (pick)`・`checkout: moving …`・
+    `commit (merge)` など。merge の commit の差は相手の枝の中身)の差は拾わず、git が作業ツリーを書く命令(`checkout`・`restore`・`reset`・`rebase`・`merge`・`pull`・
+    `cherry-pick`・`revert`・`am`・`apply`・`stash`)を走らせたか、HEAD を commit 以外で動かしたコマンドでは、変更一覧の差も拾わない
+    (字面に中身の在る書き込み先は拾う)。衝突して止まった文書(変更一覧の印 `UU`・`AA` など)はいつも拾わず、直して `git add` した後に
+    拾う。0.18.0 までは走る前と後の HEAD の差を丸ごと拾い、載せ直した会話で、本流から入った文書 6 本を読んで書いていない役に指摘を返した
   - 人が書いた文書と見るもの(Bash): 書いた役が書いた文書と見るのは、中身がコマンドの字面に在る書き込みだけ: ヒアドキュメント・ヒア文字列を受けた
     `cat`・`tee` の行き先、`echo`・`printf` の行き先、それらをパイプで受けた `tee`・`cat` の行き先、`sed -i`。ほかの命令の出力を
     リダイレクトした先(`sed -n … ci.log > x.txt`・`git log > x.txt`・ヒアドキュメントを台本として走らせた `python3 - > x.md`)と

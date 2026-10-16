@@ -2266,7 +2266,7 @@ def _git_docs(root):
         return None
     docs = {}
     for ent in out.decode("utf-8", "replace").split("\0"):
-        if len(ent) < 4 or not ent[3:].lower().endswith(DOC_EXTS):
+        if len(ent) < 4 or not ent[3:].lower().endswith(DOC_EXTS) or ent[:2] in UNMERGED:
             continue
         full = os.path.realpath(os.path.join(root, ent[3:]))   # porcelain のパスは作業ツリーの根から
         try:
@@ -2282,6 +2282,68 @@ def _snap_file(payload):
     return os.path.join(DOC_SNAP_DIR, _safe(str(payload.get("tool_use_id") or "")) + ".json")
 
 
+# 書いた役が書いた文書と、git が作業ツリーに持ち込んだ文書(載せ直し・merge・pull・checkout など)を分ける。
+# フックの入力は道具の入力と出力だけで、Bash が変えたファイルは載らない(公式の hooks の文書の入力の欄)。だから git の記録で分ける:
+# HEAD の移動の記録(reflog)の 1 件ごとの見出しは、移した命令が書く。git commit は「commit」「commit (initial)」
+# 「commit (amend)」で、merge の後の commit は「commit (merge)」、cherry-pick・rebase の途中の commit は「commit (cherry-pick)」
+# 「commit (rebase)」、rebase・pull・checkout などは呼んだ命令の名前(GIT_REFLOG_ACTION。git 2.50.1 の builtin/commit.c)。
+# 書いた役の書いた物と見るのは、前の 3 つの見出しの commit が変えた文書だけにする。前(0.18.0 まで)は走る前と後の HEAD の差を
+# 丸ごと拾ったので、origin/main の上に載せ直すと本流から入った文書 6 本まで書いた文書として読み、書いていない役に直せない
+# 指摘が積もった(2026-10-16 に割り振りの部署で実測。15 本のうち 6 本)。git が作業ツリーに書く命令(下の GIT_TREE_CMDS)を
+# 走らせたか、HEAD を commit 以外で動かしたコマンドでは、変更一覧の差も git の持ち込みと見て拾わない(字面に中身の在る書き込み先は拾う)。
+# 衝突して止まった文書(変更一覧の印 UU・AA など)は、いつも拾わない。書いた役が直して git add した後に、変わった文書として拾う
+OWN_COMMIT_MSGS = ("commit", "commit (initial)", "commit (amend)")
+GIT_TREE_CMDS = ("checkout", "restore", "reset", "rebase", "merge", "pull", "cherry-pick", "revert", "am", "apply", "stash")
+GIT_VALUE_OPTS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env")   # 値を次の語に取る git の旗
+UNMERGED = ("DD", "AU", "UD", "UA", "DU", "AA", "UU")   # git status --porcelain の衝突の印(git-status の文書の Short Format)
+REFLOG_MAX = 500   # 1 回のコマンドの間に足された移動を探す上限(長い載せ直しでも 1 commit に 1 件と数件)
+
+
+def _reflog(root, n):
+    """HEAD の移動の記録を新しい順に n 件まで [[移した先の commit, 時刻つきの位置, 見出し], …]。無い・取れなければ []。"""
+    out = _git(["log", "-g", "-n", str(n), "--date=raw", "--format=%H%x1f%gd%x1f%gs%x1e", "HEAD", "--"], root)
+    rows = [r.lstrip("\n").split("\x1f") for r in (out or b"").decode("utf-8", "replace").split("\x1e")]
+    return [r for r in rows if len(r) == 3]
+
+
+def _head_moves(snap):
+    """走った間の HEAD の移動を ([(前, 後) — 書いた役の commit], commit 以外の移動が在ったか) に分ける。
+
+    走る前の記録の頭(控えの reflog)より新しい分だけを見る。頭が見つからない(記録を消した・上限を超えた)ときは、
+    分けられないので commit は拾わず、commit 以外の移動が在ったと見る(本流の文書を読むより、読まない側に倒す)。
+    """
+    root, top = snap.get("root"), snap.get("reflog")
+    rows = _reflog(root, REFLOG_MAX + 1)
+    if top is None:
+        new, before = rows, None   # 走る前は記録が無かった(最初の commit)
+    elif top in rows:
+        new, before = rows[:rows.index(top)], top[0]
+    else:
+        return [], bool(rows) and rows[0][0] != snap.get("head")
+    steps, other = [], False
+    for k, (sha, _, msg) in enumerate(new):
+        old = new[k + 1][0] if k + 1 < len(new) else before
+        if msg.split(": ", 1)[0] in OWN_COMMIT_MSGS:
+            steps.append((old, sha))
+        else:
+            other = True
+    return steps[::-1], other
+
+
+def _git_subcommand(args):
+    """git の単純コマンドの引数(命令名の後)から、下位の命令の名前。無ければ ""。"""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in GIT_VALUE_OPTS:
+            i += 2
+        elif a.startswith("-"):
+            i += 1
+        else:
+            return a
+    return ""
+
+
 def docs_snapshot(payload):
     """PreToolUse(Bash): 走る前の、cwd の git の変更一覧の文書の状態を控える。git の外なら根は None で、静的な読みだけになる。"""
     if docs_off() or payload.get("tool_name") != "Bash" or not payload.get("tool_use_id"):
@@ -2291,6 +2353,7 @@ def docs_snapshot(payload):
     root = top.decode("utf-8", "replace").strip() if top else None
     docs = _git_docs(root) if root else None
     head = _git(["rev-parse", "--verify", "-q", "HEAD"], root) if docs is not None else None   # 書く前の版の在り処
+    last = _reflog(root, 1) if docs is not None else []   # 走る前の HEAD の移動の記録の頭(走った間に足された分を見分ける)
     os.makedirs(DOC_SNAP_DIR, exist_ok=True)
     now = time.time()
     for e in os.scandir(DOC_SNAP_DIR):
@@ -2301,7 +2364,8 @@ def docs_snapshot(payload):
             pass
     with open(_snap_file(payload), "w", encoding="utf-8") as f:
         json.dump({"root": root if docs is not None else None, "docs": docs or {},
-                   "head": head.decode("ascii", "replace").strip() if head else None}, f)
+                   "head": head.decode("ascii", "replace").strip() if head else None,
+                   "reflog": last[0] if last else None}, f)
 
 
 # Bash の書き込み先のうち、人(書いた役)が書いた文書と見るのは、中身がコマンドの字面に在るものだけにする:
@@ -2315,14 +2379,17 @@ PASS_CMDS = ("cat", "tee")         # 受けた中身をそのまま書く
 
 
 def _written_by_command(command, cwd):
-    """コマンドの書き込み先の文書の実パスを、(書いた文書, 外から来た中身の写し) に分ける。書いた文書は在るものだけ。"""
+    """コマンドの書き込み先の文書の実パスを、(書いた文書, 外から来た中身の写し, git が作業ツリーを書く命令が在るか) に分ける。
+
+    書いた文書は在るものだけ。
+    """
     norm, heredoc_bodies = prepare(command)
     tokens = tokenize(norm)
     if tokens is None:
-        return [], []
+        return [], [], False
     cmds = split_commands(tokens)
     files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
-    wrote, copied = [], []
+    wrote, copied, git_tree = [], [], False
     authored_prev = False   # パイプの前の命令が、中身を字面に持つ命令だったか
     for k, c in enumerate(cmds):
         at = command_start(c.args)
@@ -2330,6 +2397,7 @@ def _written_by_command(command, cwd):
         name = os.path.basename(c.args[at]) if at < len(c.args) else ""
         rest = [a for a in c.args[at + 1:] if not a.startswith("-")]
         piped = bool(c.ops) and c.ops[-1][0] == "|"
+        git_tree = git_tree or (name == "git" and _git_subcommand(c.args[at + 1:]) in GIT_TREE_CMDS)
         # ヒアドキュメントを受けても、python・sh などはそれを台本として走らせるので、出力は台本の書いた中身ではない
         fed = (any("__HEREDOC" in a for a in c.args) or any(op == "<<<" for op, _ in c.redirects)
                or (piped and authored_prev))
@@ -2352,12 +2420,16 @@ def _written_by_command(command, cwd):
             if p and p.lower().endswith(DOC_EXTS):
                 copied.append(os.path.realpath(p))
         authored_prev = authored
-    return wrote, copied
+    return wrote, copied, git_tree
 
 
 def _bash_docs(payload):
-    """PostToolUse(Bash): (控えと取り直しの差で増えた・変わった文書とコマンドの書き込み先の文書, 走る前の控え)。"""
-    found, snap = [], None
+    """PostToolUse(Bash): (書いた文書, 走る前の控え, {書いた役の commit で拾った文書: その commit の前の版})。
+
+    書いた文書は、控えと取り直しの差で増えた・変わった文書と、走った間の書いた役の commit が変えた文書と、
+    コマンドの書き込み先の文書。git が作業ツリーに持ち込んだ分は外す(上の OWN_COMMIT_MSGS の注)。
+    """
+    found, commits, snap, bases, moved = [], [], None, {}, False
     try:
         with open(_snap_file(payload), encoding="utf-8") as f:
             snap = json.load(f)
@@ -2369,21 +2441,30 @@ def _bash_docs(payload):
         if now is not None:
             before = snap.get("docs") or {}
             found += [p for p, st in now.items() if before.get(p) != st]
-        # 同じコマンドの中で書いて commit した文書は、変更一覧から消えている。HEAD が動いたなら、動いた間の差の文書も拾う
-        if snap.get("head"):
-            diff = _git(["diff", "--name-only", "-z", "--no-renames", snap["head"], "HEAD", "--"], snap["root"])
-            for rel in (diff or b"").decode("utf-8", "replace").split("\0"):
-                full = os.path.realpath(os.path.join(snap["root"], rel)) if rel.lower().endswith(DOC_EXTS) else ""
-                if full and os.path.isfile(full):
-                    found.append(full)
+        # 同じコマンドの中で書いて commit した文書は、変更一覧から消えている。HEAD が動いたなら、動いた間の書いた役の
+        # commit ごとの差の文書も拾う(載せ直し・merge・checkout などで動いた分は拾わない)
+        head = _git(["rev-parse", "--verify", "-q", "HEAD"], snap["root"])
+        if (head or b"").decode("ascii", "replace").strip() != (snap.get("head") or "") or snap.get("reflog") is None:
+            steps, moved = _head_moves(snap)
+            for old, new in steps:
+                diff = (_git(["diff", "--name-only", "-z", "--no-renames", old, new, "--"], snap["root"]) if old else
+                        _git(["diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "-z", "--no-renames", new],
+                             snap["root"]))
+                for rel in (diff or b"").decode("utf-8", "replace").split("\0"):
+                    full = os.path.realpath(os.path.join(snap["root"], rel)) if rel.lower().endswith(DOC_EXTS) else ""
+                    if full and os.path.isfile(full):
+                        commits.append(full)
+                        bases.setdefault(full, old)
     command = (payload.get("tool_input") or {}).get("command") or ""
     try:
-        wrote, copied = _written_by_command(command, payload.get("cwd") or None)
+        wrote, copied, git_tree = _written_by_command(command, payload.get("cwd") or None)
     except Exception:
-        wrote, copied = [], []   # 静的な読みの失敗で記録の口を落とさない(手元の文書は止めない側)
+        wrote, copied, git_tree = [], [], False   # 静的な読みの失敗で記録の口を落とさない(手元の文書は止めない側)
+    if moved or git_tree:
+        found = []   # 変更一覧の差は git の持ち込みと見る
     skip = set(copied) - {os.path.realpath(p) for p in wrote}
-    found = [p for p in found if os.path.realpath(p) not in skip] + wrote
-    return found, snap
+    found = [p for p in found + commits if os.path.realpath(p) not in skip] + wrote
+    return found, snap, bases
 
 
 def _tool_docs(payload):
@@ -2448,8 +2529,9 @@ def docs_record(payload):
     """PostToolUse: 書いた文書のパスを書いた役の待ちの一覧に足し、書く前の版(の在り処)を控える。読まない・止めない。"""
     tool = payload.get("tool_name")
     snap = None
+    bases = {}
     if tool == "Bash":
-        paths, snap = _bash_docs(payload)
+        paths, snap, bases = _bash_docs(payload)
     else:
         paths = _tool_docs(payload)
     paths = [p for p in dict.fromkeys(paths) if p.lower().endswith(DOC_EXTS)]
@@ -2471,6 +2553,8 @@ def docs_record(payload):
             entry = {"text": resp["originalFile"]}
         elif resp.get("type") == "create":
             entry = {}   # Write で新しく作った文書
+        elif p in bases:
+            entry = _rev_entry(p, snap["root"], bases[p]) if bases[p] else {}   # 書いた役の commit の前の版(最初の commit なら全体)
         elif snap and snap.get("root") and snap.get("head"):
             entry = _rev_entry(p, snap["root"], snap["head"])
         else:
