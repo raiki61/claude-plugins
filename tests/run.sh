@@ -2263,7 +2263,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=671
+EXPECTED_CHECKS=672
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3274,6 +3274,92 @@ record("s2", b)
 stop("s2", READER)
 assert n_calls() == 2, f"読めなかった中身を次の終わりに読み直していない: {n_calls()} 回"
 print("DOCS_RACE_OK")
+PY
+# 本流に入れる前の関門(--land の check から呼ぶ branch-check): 枝が足した・変えた文書だけを読み、詰まりが在れば 1 で止める。
+# 前は手元の文書の読みがターンの終わりに裏で走るだけで、部署が同じターンで --land まで済ませると、指摘は本流に入った後に届いた
+expect_output 0 "DOCS_BRANCH_OK" "coldread の枝の関門: 本流との分かれ目から枝が書いた文書だけを読み、詰まりで止め、推測だけなら通し、同じ依頼文は読み直さず、読めなければ止める" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-branch" <<'PY'
+import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls, repo = work / "cfg", work / "calls", work / "repo"
+calls.mkdir()
+repo.mkdir()
+
+def git(*a):
+    return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True).stdout.decode("utf-8").strip()
+
+# 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは CLEAN を返す
+READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q 印STUCK "$f"; then echo "詰まり: 印STUCK の語が分からない"; '
+          'elif grep -q 印GUESS "$f"; then echo "補完: 印GUESS を推測で読んだ"; else echo CLEAN; fi') % calls.as_posix()
+
+def check(reader=READER):
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR"))}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader)
+    r = subprocess.run([sys.executable, str(gate), "branch-check"], cwd=str(repo), capture_output=True, env=e, timeout=120)
+    return r.returncode, r.stdout.decode("utf-8")
+
+def prompts():
+    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)]
+
+def doc(*secs):
+    return "# 題\n\nこの文書は印T の設計を書く。\n\n" + "".join("## 節%s\n\n%s\n\n" % (k, "".join("印%s の %d 行目。\n" % (k, i) for i in range(40)) + extra)
+                                                  for k, extra in secs)   # 1 節で 300 字(DOC_MIN_LEN)を超える
+
+git("init", "-q", "-b", "main")
+git("config", "user.email", "t@example.com")
+git("config", "user.name", "t")
+git("config", "core.autocrlf", "false")
+(repo / ".gitattributes").write_text("gen.md linguist-generated\n", encoding="utf-8")
+(repo / "old.md").write_text(doc(("A", ""), ("B", ""), ("C", "")), encoding="utf-8")
+(repo / "untouched.md").write_text(doc(("U", "")), encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "base")
+git("update-ref", "refs/remotes/origin/main", "HEAD")
+git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+git("switch", "-q", "-c", "feat")
+(repo / "old.md").write_text(doc(("A", ""), ("B", "印STUCK を足した。\n"), ("C", "")), encoding="utf-8")
+(repo / "new.md").write_text(doc(("N", "印GUESS の語。\n")), encoding="utf-8")
+(repo / "gen.md").write_text(doc(("G", "")), encoding="utf-8")
+(repo / "short.md").write_text("印SHORT\n", encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "feat")
+
+# 1) 枝が変えた old.md は書き換えた節だけ、足した new.md は全体を読む。生成物・短い文書・枝が触っていない文書は読まない。
+#    詰まりが在るので 1。詰まりの行に作業ツリーの根からのパスが付き、末尾の行に件数と全文の場所が出る
+rc, out = check()
+got = prompts()
+assert rc == 1, (rc, out)
+assert len(got) == 2, f"読んだ文書の数が違う: {len(got)}"
+body = next(p for p in got if "印STUCK" in p)
+assert "印B の 0 行目" in body and "印A" not in body and "印C" not in body, "old.md の書き換えた節だけを読んでいない"
+assert any("印N の 0 行目" in p for p in got) and not any("印G の" in p or "印U の" in p or "印SHORT" in p for p in got), "読む文書の選び方が違う"
+assert "old.md — 詰まり: 印STUCK の語が分からない" in out, out
+last = out.strip().splitlines()[-1]
+assert "2 本を読んだ" in last and "詰まり 1 件・推測で埋めた箇所 1 件" in last and "全文: " in last, last
+assert "new.md" in pathlib.Path(last.split("全文: ")[1]).read_text(encoding="utf-8"), "全文に推測の指摘が無い"
+
+# 2) 同じ依頼文は読み直さず、覚えた判定で同じく止める(本流が進んで載せ直したときの打ち直し)
+rc, out = check()
+assert rc == 1 and len(prompts()) == 2 and "新しく読んだ 0 本" in out, (rc, len(prompts()), out)
+
+# 3) 詰まりを直せば、推測で埋めた箇所が残っていても通す(直した節だけを新しく読む)
+(repo / "old.md").write_text(doc(("A", ""), ("B", "語の意味を書いた。\n"), ("C", "")), encoding="utf-8")
+git("commit", "-q", "-am", "fix")
+rc, out = check()
+assert rc == 0 and len(prompts()) == 3 and "詰まり 0 件・推測で埋めた箇所 1 件" in out, (rc, len(prompts()), out)
+
+# 4) 読み手を起こせない文書が在れば止める(読まずに通すと関門が黙って空になる)
+(repo / "new2.md").write_text(doc(("M", "")), encoding="utf-8")
+git("add", "new2.md")
+git("commit", "-q", "-m", "more")
+rc, out = check("cat >/dev/null; exit 1")
+assert rc == 1 and "読めなかった文書" in out and "new2.md" in out, (rc, out)
+print("DOCS_BRANCH_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。
 # 2026-10-16 に、scratchpad(/private/tmp/claude-<uid>/…)と /private/tmp の写しを読み、毎回「直さずに残す」で終わる指摘を出した。

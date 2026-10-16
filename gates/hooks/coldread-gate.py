@@ -3065,6 +3065,118 @@ def docs_check(payload, background=False):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}, ensure_ascii=False))
 
 
+# ---- 本流に入れる前の関門: 枝が書いた文書を読む ----
+# 部署はターンの中で本流に入れる命令(works-dispatch の --land)まで済ませ、上の手元の文書の読みはターンの終わりに裏で
+# 走るので、指摘はいつも本流に入った後に届いた(2026-10-17 に 8 件。担当の決まり「初見読みの指摘は入れる前に直す」が
+# 守れなかった)。この口は --land の関門(会社の形の [land] の check)から、入れる候補の commit を置いた一時の作業ツリーで
+# 呼ばれ、本流(既定は origin/HEAD の指す枝)と枝の分かれ目から枝が足した・変えた文書を、手元の文書と同じ読み手と観点で読む。
+# 前から在る文書は分かれ目の版と比べて書き換えた節だけを読ませる。詰まりが 1 件でもあれば 1 で終わって止め、推測で埋めた
+# 箇所と疑問だけなら通す(手元の文書の門番と同じ重さ: 直すのは詰まり、推測は意図と違うときだけ)。読めなかった文書が在っても
+# 1 で終わる(読まずに通すと、関門が黙って空になる)。指摘の全文は findings/ に書き、--land が部署の窓に返す末尾の行に
+# 詰まりと全文の場所を出す。本流が先に進むたびに載せ直して打ち直すので、同じ依頼文の判定は branch/ に覚えて読み直さない
+DOC_BRANCH = os.path.join(DOC_DIR, "branch")   # 依頼文のハッシュごとの判定(読み直さない)
+DOC_BRANCH_KEEP = 2000   # 覚える判定の数(古いものから消す)
+
+
+def _branch_docs(root, base):
+    """(分かれ目の commit, [(作業ツリーの根からのパス, 実パス)])。枝が足した・変えた文書だけ。分かれ目が取れなければ None。"""
+    mb = _git(["merge-base", "HEAD", base], root)
+    if not mb:
+        return None
+    mb = mb.decode("ascii", "replace").strip()
+    out = _git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=AM", mb, "HEAD", "--"], root) or b""
+    rels = [r for r in out.decode("utf-8", "replace").split("\0") if r.lower().endswith(DOC_EXTS)]
+    return mb, [(r, os.path.join(root, r)) for r in rels if os.path.isfile(os.path.join(root, r))]
+
+
+def _branch_verdict(key, body, focus):
+    """覚えた判定か、読んで覚えた判定({"詰まり", "補完", "疑問"})。読めなければ例外。"""
+    where = os.path.join(DOC_BRANCH, key + ".json")
+    try:
+        with open(where, encoding="utf-8") as f:
+            return json.load(f), True
+    except (OSError, ValueError):
+        pass
+    found = read_doc(body, focus, DOC_ASYNC_TIMEOUT)
+    try:
+        os.makedirs(DOC_BRANCH, exist_ok=True)
+        with open(where, "w", encoding="utf-8") as f:
+            json.dump(found, f, ensure_ascii=False)
+        for e in sorted(os.scandir(DOC_BRANCH), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
+            os.remove(e.path)
+    except OSError:
+        pass
+    return found, False
+
+
+def branch_check(argv):
+    """--land の関門: 枝が書いた文書を読み、詰まりが在れば 1、読めない文書が在れば 1、無ければ 0。"""
+    base = argv[argv.index("--base") + 1] if "--base" in argv[:-1] else None
+    top = _git(["rev-parse", "--show-toplevel"], os.getcwd())
+    if not top:
+        print("coldread branch-check: git の作業ツリーの中で走らせる")
+        return 2
+    root = top.decode("utf-8", "replace").strip()
+    if not base:
+        head = _git(["rev-parse", "--abbrev-ref", "origin/HEAD"], root)
+        base = head.decode("utf-8", "replace").strip() if head else "origin/main"
+    got = _branch_docs(root, base)
+    if got is None:
+        print("coldread branch-check: %s との分かれ目が取れない(--base <本流の ref> で渡す)" % base)
+        return 2
+    mb, docs = got
+    generated = _generated([full for _, full in docs]) if docs else set()
+    picked = []
+    for rel, full in docs:
+        try:
+            with open(full, encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if full in generated or len(text) < DOC_MIN_LEN or any(m in text.split("\n", 1)[0] for m in DOC_SKIP_MARKS):
+            continue
+        old = _git(["show", "%s:%s" % (mb, rel)], root)
+        part = doc_excerpt(full, text, old.decode("utf-8", "replace") if old is not None else None)
+        if part == "":
+            continue
+        body = text if part is None else part
+        key = hashlib.sha256(doc_prompt(body, part is not None).encode("utf-8")).hexdigest()[:40]
+        picked.append((rel, text, body, part is not None, key))
+    notes, stuck, counts, down, fresh = [], [], {"詰まり": 0, "補完": 0}, [], 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
+        futures = [(pool.submit(_branch_verdict, key, body, focus), rel, text, focus)
+                   for rel, text, body, focus, key in picked]
+    for fut, rel, text, focus in futures:
+        try:
+            found, cached = fut.result()
+        except Exception as exc:
+            log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
+            down.append(rel)
+            continue
+        fresh += not cached
+        log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["詰まり"] or found["補完"] else "clean",
+                                                  "(覚えた判定)" if cached else "", rel))
+        note = doc_feedback(rel, found, focus)
+        if note:
+            notes.append(note)
+        if found["詰まり"]:
+            stuck += ["%s — %s" % (rel, line) for line in found["詰まり"]]
+        for label in counts:
+            counts[label] += len(found[label])
+    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, _, _, _ in picked])   # ターンの終わりの読みと重ねない
+    where = _write_findings("branch", "\n\n".join(("coldread が、本流に入れる前に枝の文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
+        if notes else None
+    for line in stuck:
+        print(line)
+    if down:
+        print("読めなかった文書(読み手を起こせない。手で読ませるなら python3 %s read <パス>): %s"
+              % (os.path.abspath(__file__), "・".join(down)))
+    print("coldread branch-check: 枝の文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件・推測で埋めた箇所 %d 件%s。%s"
+          % (len(picked), fresh, counts["詰まり"], counts["補完"], "・読めなかった %d 本" % len(down) if down else "",
+             ("全文: " + where) if where else "指摘なし"))
+    return 1 if stuck or down else 0
+
+
 def read_now(path):
     """手で 1 本を読ませる(記録もハッシュも見ない)。指摘を出し、詰まりが在れば 1 で終わる。"""
     with open(path, encoding="utf-8") as f:
@@ -3093,6 +3205,8 @@ if __name__ == "__main__":
     MODE = sys.argv[1] if len(sys.argv) > 1 else ""
     if MODE in ("docs-record", "docs-check", "docs-check-async"):
         hook_main(MODE)
+    elif MODE == "branch-check":
+        sys.exit(branch_check(sys.argv[2:]))
     elif MODE == "read" and len(sys.argv) == 3:
         sys.exit(read_now(sys.argv[2]))
     elif MODE == "prompt":
@@ -3101,6 +3215,6 @@ if __name__ == "__main__":
         sys.stdout.flush()
         sys.stdout.buffer.write(COLD_PROMPT.encode("utf-8"))
     elif MODE:
-        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | read <パス> | prompt](引数なしは投稿の門番)")
+        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | branch-check [--base <ref>] | read <パス> | prompt](引数なしは投稿の門番)")
     else:
         main()

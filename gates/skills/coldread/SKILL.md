@@ -66,6 +66,9 @@ git の作業ツリーの中で書き換わった文書で、ほかの命令の�
 読まないもの: 300 字未満の文書、1 行目に `coldread:skip`(前の coldwrite の `coldwrite:skip` も効く)を置いた文書、
 `.gitattributes` で `linguist-generated` の印を付けた文書(生成物)、書く前と同じ中身、前に読んだのと同じ中身。手元の文書の門番だけを切るなら、環境変数 `COLDREAD_DOCS_OFF=1` を入れて Claude Code を起こす。
 
+本流に入れる前に、枝が書いた文書をまとめて読ませるときは `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py" branch-check`
+を枝の作業ツリーで走らせる(本流との分かれ目から枝が変えた文書だけを読み、詰まりが在れば終了コード 1。README の「本流に入れる前に読む」)。
+
 ## 手で検査するとき(メール・チャットなど、ファイルに書かない文章)
 
 1. 検査対象の本文を一時ファイルに保存する。
