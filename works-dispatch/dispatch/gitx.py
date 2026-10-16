@@ -7,7 +7,7 @@
 enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 
-書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・exclude の 7 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude の 8 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
 import os
@@ -152,6 +152,13 @@ def common_dir(cwd, runner=_default_runner):
     return os.path.normpath(out) if out else None
 
 
+def git_dir(cwd, runner=_default_runner):
+    """cwd の worktree の .git の場所（linked worktree なら元の clone の .git/worktrees/<名前>）。commit されず、git worktree remove で
+    消える。git でなければ None。"""
+    out = _git(cwd, ["rev-parse", "--path-format=absolute", "--git-dir"], runner)
+    return os.path.normpath(out) if out else None
+
+
 def root_of(common):
     """共通の .git の場所から、元の clone の根。ふつうは .git の親。bare など .git で終わらなければ、その場所そのもの。"""
     return os.path.dirname(common) if os.path.basename(common) == ".git" else common
@@ -210,6 +217,14 @@ def exclude(source, pattern, runner=_default_runner):
 def is_merged(cwd, target, runner=_default_runner):
     """その場所の HEAD が target（例: refs/remotes/origin/main）に入っているか。読めなければ偽（消さない側に倒す）。"""
     return _is_ancestor(cwd, "HEAD", target, runner)
+
+
+def unset_worktree_attr(cwd, name, runner=_default_runner):
+    """その worktree の git の設定 company.<名前> を消す。書く口。もともと無ければ何もしない（git config は終了の値 5 を返す）。"""
+    argv = ["git", "-C", cwd, "config", "--worktree", "--unset", f"{ATTR}{name}"]
+    p = runner(argv)
+    if p.returncode not in (0, 5):
+        raise GitError(f"{' '.join(argv[:4])}: {(p.stderr or p.stdout).strip()[:300]}")
 
 
 def set_worktree_attr(cwd, name, value, runner=_default_runner):

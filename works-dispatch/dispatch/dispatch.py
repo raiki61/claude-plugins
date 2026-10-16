@@ -61,7 +61,7 @@ import herdr  # noqa: E402
 import jsonio  # noqa: E402
 import limits  # noqa: E402
 import vscode  # noqa: E402
-from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, sessions, sync, tree, turn  # noqa: E402
+from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -855,12 +855,24 @@ def _task(cfg, repo, a, ports):
     if not os.path.isfile(brief):
         print(f"止めた: 頼みのファイルが無い: {brief}")
         return 2
+    # 役の項目（会社の形の [[roles]]）と gh のアカウント。会社の形は --tree と同じ読み方（会社の形の設計 4.7・4.8）
+    role_name = a.role or DEFAULT_ROLE
+    cfg_path = config.path_of(a.config, os.environ)
+    shape = role.load(tree.read_info(repo.source, os.path.dirname(cfg_path))["path"])
+    the_role, why = role.pick(shape, role_name, a.role is not None)
+    if why:
+        print(f"止めた: {why}")
+        return 2
+    gh_user, gh_note = role.gh_user(repo.gh_user, shape)
+    if gh_user != repo.gh_user:
+        cfg = cfg._replace(repos=tuple(repo._replace(gh_user=gh_user) if r is repo else r for r in cfg.repos))
+        repo = repo._replace(gh_user=gh_user)
     names = [x.name for x in cfg.accounts]
     if a.from_account and a.from_account not in names:
         print(f"止めた: --from-account の {a.from_account} が設定の accounts に無い（{', '.join(names)}）")
         return 2
     problems, notes = ports.preflight(cfg, task=True)
-    notes = list(cfg.notes) + notes
+    notes = list(cfg.notes) + shape["problems"] + [n for n in [gh_note] if n] + role.warnings(the_role) + notes
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
         print("\n".join(f"- {p}" for p in problems))
@@ -899,8 +911,10 @@ def _task(cfg, repo, a, ports):
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
     # 部署の属性（正本）。上役は呼んだ会話。分からない物は書かない
-    attrs = {"role": a.role or DEFAULT_ROLE, "residency": RESIDENT if a.resident else PER_TASK, "account": account,
-             "name": a.task, "boss": caller["name"], "boss-account": caller["account"]}
+    attrs = {"role": role_name, "residency": RESIDENT if a.resident else PER_TASK, "account": account,
+             "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
+             # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
+             "config": None if cfg_path == config.path_of(None, {}) else cfg_path}
     route = (f"SendMessage で「{caller['name']}」へ" if caller["name"] and caller["account"] == account
              else "区切りで画面に書いて止まる")
     if a.dry_run:
@@ -910,6 +924,9 @@ def _task(cfg, repo, a, ports):
             f"- ペインの名前: {pane_label}／会話の名前: {a.task}",
             f"- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
             f"- 連絡の道: {route}",
+            f"- 役の起動の設定: モデル {(the_role or {}).get('model') or '既定'}、--settings の鍵 "
+            + ", ".join(role.settings_for(the_role)),
+            f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
             f"- 最初の文: {_brief_text(brief, caller, account)}"]))
         return 0
     try:
@@ -937,8 +954,14 @@ def _task(cfg, repo, a, ports):
         except (gitx.GitError, OSError) as e:
             notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・上役が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
         row["label"] = pane_label
-        got = launch.start_background(row, pane, a.task, ports.department_settings(), _brief_text(brief, caller, account),
-                                      ports.herdr, pause=ports.pause)
+        settings = ports.department_settings()
+        if (the_role or {}).get("settings"):
+            try:
+                settings = role.write_settings(ports.git.git_dir(prov["path"]), role.settings_for(the_role))
+            except (OSError, TypeError) as e:
+                notes.append(f"役 {role_name} の設定を書けなかったので、役の設定なしで起こす（{e}）")
+        got = launch.start_background(row, pane, a.task, settings, _brief_text(brief, caller, account),
+                                      ports.herdr, pause=ports.pause, model=(the_role or {}).get("model"))
         if got["detail"]:
             notes.append(got["detail"])
         result = got["status"]

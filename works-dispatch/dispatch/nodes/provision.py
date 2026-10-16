@@ -187,12 +187,15 @@ def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
 
 
 def mark(path, source, attrs, g=gitx):
-    """部署の属性を、その場所（worktree）の git の設定 company.<名前> に書く。値が None の属性は書かない。書けなければ GitError。
+    """部署の属性を、その場所（worktree）の git の設定 company.<名前> に書く。値が None（か空）の属性は、前の回の値が残っていれば消す
+    （使い直した場所に、前の回の gh のアカウントや設定の場所が残って効き続けないように）。書けなければ GitError。
     元の clone に extensions.worktreeConfig が無ければ先に入れる（部署ごとの設定は、これが無いと書けない）。"""
     g.enable_worktree_config(source)
     for name, value in attrs.items():
         if value:
             g.set_worktree_attr(path, name, value)
+        else:
+            g.unset_worktree_attr(path, name)
 
 
 def hide_claude_dir(source, g=gitx):
