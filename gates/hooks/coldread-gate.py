@@ -126,7 +126,7 @@ STUCK_LOG = os.path.join(STATE_DIR, "stuck.log")
 MAX_LEN = int(os.environ.get("COLDREAD_MAX_LEN", "100000"))
 READER_TIMEOUT = 210
 GH_TIMEOUT = 12   # 画面取得の gh 呼び出し 1 回分
-GH_BUDGET = 40    # 画面取得の合計。読み役の 210 と合わせてフックの timeout(260s)に収める——
+GH_BUDGET = 40    # 画面取得の合計。読み役の 210 と手元の文書の控え(git 2 回・各 5 秒まで)と合わせてフックの timeout(275s)に収める——
                   # 超えるとフック自体が時間切れになり、投稿が無検査で通る(fail-open)
 GH_PAGES = 5      # 会話の取得で辿る最大ページ数(1 ページ 100 件)
 DENY_STREAK_WINDOW = 30 * 60
@@ -145,8 +145,11 @@ DENY_STREAK_WINDOW = 30 * 60
 # 区切りの直後に改行を求めていた頃は、この形を見落として「別プロセスからの stdin」で止めていた(33 件)。
 # 続きは群 3 に取って解析用の文字列に残す(旗もパイプも gh の引数列と区切りとして読む)。区切りの直後に
 # 区切りの字が続かないこと((?!…))を求めるのは、`<<EOFX` を区切り EOF と続き X に割らないため。
+# 終わりの行の字下げを許すのは `<<-` のときだけで、許すのもタブだけ(bash と同じ)。`<<EOF` で字下げした `  EOF` の行を
+# 終わりと読むと、本文の続きがシェルとして解析され、gh が出す本文の後半が読み役に届かない。
+# 群は 1=`-` 2=引用 3=区切り 4=開始行の続き 5=本文。
 HEREDOC_RE = re.compile(
-    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1(?![A-Za-z0-9_.-])([^\r\n]*)\r?\n(.*?)\r?\n[ \t]*\2(?:\r?\n|\r?$)""",
+    r"""<<(-)?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\2(?![A-Za-z0-9_.-])([^\r\n]*)\r?\n(.*?)\r?\n(?(1)\t*)\3(?:\r?\n|\r?$)""",
     re.S,
 )
 
@@ -160,6 +163,7 @@ LONG_TEXT_FLAGS = {
     "--body-file": "file", "--notes-file": "file",
 }
 NON_POSTING = {("secret", "set"), ("variable", "set")}
+HELP_FLAGS = {"--help", "-h", "--version"}
 # 長い旗でも本文でない 1 例: gh pr review の --comment はレビュー種別を選ぶ真偽旗で値を取らない
 LONG_FLAG_NOT_BODY = {("--comment", ("pr", "review"))}
 # 短縮形は同じ綴りが別の意味に割り当てられていて、綴りだけでは判定できない(同じ走査で確認):
@@ -204,9 +208,10 @@ WRAPPER_POSITIONALS = {"timeout": 1, "gtimeout": 1}
 # 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
 # 見えず、投稿が無検査・無記録で通る(両ゲートとも。実測)。同じ意味の `( gh … )` は
 # `(` が OP_CHARS にあるので元から通っていた——書き方だけで片方が抜ける状態だった。
+# if・while・until も直後に条件のコマンドを取る(`if gh … --body-file f; then` の gh が見えず素通しだった)。
 # 載せるのは「直後にコマンドが来る」語だけ。done・fi・in は後ろにコマンドを取らないので
 # 入れない(入れても発火させられず、表の全メンバーを検査する回帰が張れない)。
-RESERVED = {"{", "!", "then", "else", "elif", "do"}
+RESERVED = {"{", "!", "then", "else", "elif", "do", "if", "while", "until"}
 OP_CHARS = set("();<>|&\n")
 # リダイレクト演算子(演算子と行き先を読み飛ばす)。&> >& <& は & を含むが区切りではない。
 REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|"}
@@ -233,6 +238,11 @@ BODY_FLAG_RE = re.compile(
 HEREDOC_MARK = "__HEREDOC%d__"
 
 
+class Expands(str):
+    """区切りを引用しないヒアドキュメント(`<<EOF`)で、本文に $ か ` が在るもの。シェルが展開するので、字のままの
+    本文は実際に出る本文と違う。読ませずに止める印(中身は普通の str として扱える)。"""
+
+
 def shield_heredocs(command):
     """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。
 
@@ -245,8 +255,9 @@ def shield_heredocs(command):
     bodies = []
 
     def repl(m):
-        bodies.append(m.group(4))
-        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " " + m.group(3) + "\n"
+        body = m.group(5)
+        bodies.append(Expands(body) if not m.group(2) and re.search(r"[$`]", body) else body)
+        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " " + m.group(4) + "\n"
 
     while True:
         command, n = HEREDOC_RE.subn(repl, command)
@@ -260,12 +271,22 @@ def own_heredocs(args, heredoc_bodies):
             if (HEREDOC_MARK % i) in args]
 
 
+def has_live_variable(text):
+    """引用の外(または二重引用の中)に $名前・${ があるか(変数の展開)。単一引用の中は展開されない。"""
+    return _live(text, lambda t, i: t[i] == "$" and i + 1 < len(t) and (t[i + 1].isalpha() or t[i + 1] in "_{"))
+
+
 def has_live_substitution(text):
     """引用の外(または二重引用の中)に $( や ` があるか。単一引用の中は展開されない。
 
     引用の種別は shlex が落としてしまうので、生の文字列の側で見る。これを見ないと、
     本文に ``` や `--body` を含むだけの普通の文章まで「置換渡し」と誤判定する。
     """
+    return _live(text, lambda t, i: t[i] == "`" or t.startswith("$(", i))
+
+
+def _live(text, hit):
+    """単一引用の外で hit(text, 位置) が真になる位置が在るか。"""
     i, quote = 0, None
     while i < len(text):
         c = text[i]
@@ -277,11 +298,11 @@ def has_live_substitution(text):
         elif quote == '"':
             if c == '"':
                 quote = None
-            elif c == "`" or text.startswith("$(", i):
+            elif hit(text, i):
                 return True
         elif c in "'\"":
             quote = c
-        elif c == "`" or text.startswith("$(", i):
+        elif hit(text, i):
             return True
         i += 1
     return False
@@ -412,12 +433,23 @@ def tokenize(text):
 
 
 class Simple:
-    """単純コマンド 1 件: 引数列・リダイレクト((演算子, 行き先) の列)・直前の区切り(先頭は "")。"""
+    """単純コマンド 1 件: 引数列・リダイレクト((演算子, 行き先) の列)・直前の区切り。
 
-    __slots__ = ("args", "redirects", "sep")
+    ops は直前の区切りの演算子と、それが現れた括弧の深さの列((演算子, 深さ))。depth はこのコマンドの深さ
+    (サブシェル `( … )`・`$( … )` の中なら 1 以上)。sep は ops のうち括弧でないものの代表(効果が届かない演算子が
+    在ればそれ、無ければ最後のもの。先頭のコマンドは "")。
+    """
 
-    def __init__(self, args, redirects, sep):
-        self.args, self.redirects, self.sep = args, redirects, sep
+    __slots__ = ("args", "redirects", "sep", "ops", "depth")
+
+    def __init__(self, args, redirects, ops, depth):
+        self.args, self.redirects, self.ops, self.depth = args, redirects, ops, depth
+        plain = [op for op, _ in ops if op not in "()"] or [op for op, _ in ops][-1:]
+        weak = [op for op in plain if op not in _SEQUENTIAL]
+        self.sep = weak[0] if weak else (plain[-1] if plain else "")
+
+
+_OP_RE = re.compile(r"&&|\|\||;;|[;&|()\n]")
 
 
 def split_commands(tokens):
@@ -426,7 +458,7 @@ def split_commands(tokens):
     区切りを残すのは、本文ファイルのパスを静的に解くとき(変数の代入・cd)に、前のコマンドの効果が
     gh まで届くか(; && 改行なら届く。| & ( ) は別のプロセスなので届かない)を見るため。
     """
-    cmds, cur, redirects, sep, pending, i = [], [], [], "", "", 0
+    cmds, cur, redirects, ops, depth, cmd_depth, i = [], [], [], [], 0, 0, 0
     while i < len(tokens):
         tok = tokens[i]
         if tok and all(c in OP_CHARS for c in tok):
@@ -437,13 +469,16 @@ def split_commands(tokens):
                 redirects.append((tok, tokens[i + 1] if i + 1 < len(tokens) else ""))
                 i += 2  # 演算子とその行き先(fd かファイル名)を読み飛ばす
                 continue
-            # ; | & && || 改行 () は単純コマンドの区切り
+            # ; | & && || 改行 () は単純コマンドの区切り。shlex は続いた区切りを 1 語にする(`);`)ので演算子に割る
             if cur:
-                cmds.append(Simple(cur, redirects, sep))
-                cur, redirects, pending = [], [], ""
-            # 区切りが続く(`; (` や `&& {`)ときは、効果の届き方を最も弱い側で見る(届かない区切りを残す)
-            pending = tok if not pending or pending in (";", "&&", "\n") else pending
-            sep = pending
+                cmds.append(Simple(cur, redirects, ops, cmd_depth))
+                cur, redirects, ops = [], [], []
+            for op in _OP_RE.findall(tok):
+                if op == ")":
+                    depth -= 1
+                ops.append((op, depth))
+                if op == "(":
+                    depth += 1
             i += 1
             continue
         # 予約語はコマンド位置(蓄積中の単純コマンドが空)でだけ読み飛ばす。ここで捌くのは、
@@ -454,10 +489,12 @@ def split_commands(tokens):
         if not cur and tok in RESERVED:
             i += 1
             continue
+        if not cur:
+            cmd_depth = depth
         cur.append(tok)
         i += 1
     if cur:
-        cmds.append(Simple(cur, redirects, sep))
+        cmds.append(Simple(cur, redirects, ops, cmd_depth))
     return cmds
 
 
@@ -537,11 +574,12 @@ def subcommand(args):
     return tuple(words)
 
 
-def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
+def classify(args, heredoc_bodies, live_substitution=False, ctx=None, live_variable=True):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。
 
     ctx(BodyFiles)が有れば、本文ファイル・変数で書いた値を同じコマンドの中で静的に解いて読む。無ければ
     (destgate のように投稿かどうかだけを見る呼び手)、ファイルと変数は今までどおり検査できない側に倒す。
+    live_variable はコマンドの中に展開される $名前 が在るか(無ければ本文の中の $ は字のまま)。
     """
     heredoc_bodies = own_heredocs(args, heredoc_bodies)
     # 倒れ先はすべて blocked.append に集める。テスト側が理由の一覧を実装から機械で読み、
@@ -549,6 +587,10 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
     # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
     # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
     candidates, blocked = [], []
+    if any(t in HELP_FLAGS for t in (args[:args.index("--")] if "--" in args else args)):
+        # --help・-h・--version は旗がどこに在っても gh が案内を出して終わる(投稿しない)。短いコマンドを解析の前に
+        # 通していた頃は `gh --version` も通っていたので、ここで止めると逆戻りになる
+        return candidates, blocked
     sub = subcommand(args)
     if sub is None:
         # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
@@ -575,6 +617,8 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
             blocked.append("本文ファイルが UTF-8 でない")
         elif why == "unreadable":
             blocked.append("本文ファイルを読めない")
+        elif why == "expand":
+            blocked.append("区切りを引用しないヒアドキュメントの展開")
         else:   # ctx の無い呼び手(destgate)
             blocked.append("実ファイル指定")
 
@@ -600,7 +644,10 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
             # 本文の位置(.body と review の comments[].body)の中身だけを読ませる。
             if value in ("-", ""):
                 raws = heredoc_bodies
-                if not raws:
+                if any(isinstance(b, Expands) for b in raws):
+                    file_failed("expand")
+                    raws = []
+                elif not raws:
                     # パイプ・別プロセスからの stdin と、ヒアドキュメントを取り損ねた形は
                     # ここでは区別できない。兄弟の file 分岐と同じ向きに倒す。
                     blocked.append("別プロセスからの stdin 渡し")
@@ -624,9 +671,10 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
             # 引用されていない $(...) や `...` は shlex が演算子で割るので、値が "$" や
             # "`cat" のような断片になって届く。断片かどうかは形だけでは決まらない
             # (単一引用の中の ``` や $ は普通の文字)ので、生の文字列側の判定と併せて見る。
+            # 本文の一部だけが変数の形("See: $B")も同じ——字のまま読ませると、実際に出る本文と違う。
             looks_sub = (value in ("$", "") or value.endswith("$")
                          or value.startswith("`") or value.startswith("$("))
-            if VAR_RE.match(value):
+            if "$" in value and (live_variable or VAR_RE.match(value)):
                 got = ctx.var(value) if ctx else None
                 if got is None:
                     blocked.append("変数・コマンド置換渡し")
@@ -638,7 +686,9 @@ def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
                 candidates.append(value)
         elif kind == "file":
             if value in ("-", "@-"):
-                if heredoc_bodies:
+                if any(isinstance(b, Expands) for b in heredoc_bodies):
+                    file_failed("expand")
+                elif heredoc_bodies:
                     candidates.extend(heredoc_bodies)
                 else:
                     blocked.append("別プロセスからの stdin 渡し")
@@ -842,6 +892,13 @@ WRITE_OPS = {">", ">>", ">|", "&>", "&>>"}
 READ_ONLY_CMDS = {"cat", "wc", "head", "tail", "ls", "test", "[", "stat", "file", "grep", "diff", "less",
                   "jq", "echo", "printf", "cd"}
 _SEQUENTIAL = (";", "&&", "\n")   # 前のコマンドの効果(代入・cd)が後ろへ届く区切り
+_RUNS_BEFORE = ("", ";", "\n")     # 直前の区切りがこれなら、そのコマンドは前の成否に関わらず必ず走る
+CD_WORDS = {"cd", "pushd", "popd", "chdir"}
+CONDITIONAL_WORDS = {"if", "then", "else", "elif", "fi", "case", "esac", "while", "until", "for", "do", "done", "select"}
+# 変数を入れ直しうる命令(引数に名前を取る)。この名前は同じコマンドの中の代入から解かない
+REASSIGN_CMDS = {"read", "printf", "declare", "typeset", "local", "readonly", "mapfile", "readarray", "for",
+                 "select", "unset", "let", "getopts"}
+_APPEND_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\+=")
 _VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 
 
@@ -867,35 +924,90 @@ def single_quoted_dollar(text):
 
 
 class BodyFiles:
-    """1 つのコマンド文字列の中で、k 番目の単純コマンド(gh)が読む本文ファイルと変数を静的に解く。"""
+    """1 つのコマンド文字列の中で、k 番目の単純コマンド(gh)が読む本文ファイルと変数を静的に解く。
 
-    def __init__(self, cmds, cwd, heredoc_bodies, norm):
+    解くのは、前のコマンドが必ず走って効果が gh まで届くと字面で言えるときだけ。言えなければ None(止める側)。
+    """
+
+    def __init__(self, cmds, cwd, heredoc_bodies, norm, tokens=()):
         self.cmds, self.heredocs, self.norm = cmds, heredoc_bodies, norm
+        # if・case・繰り返しの中の命令は、区切りが ; でも走るとは限らない(予約語は単純コマンドから落ちるので、語の列で見る)
+        self.conditional = any(t in CONDITIONAL_WORDS for t in tokens)
         self.cwd = cwd if cwd and os.path.isabs(cwd) else None
         self.k, self.moved = 0, False
         self._assigned = None
         self._sq = None
+        # 繰り返し・関数の中では、gh の後に書いた命令も次の gh の前に走る
+        self.looped = any(c.args[:1] in (["done"], ["}"]) for c in cmds)
 
     def at(self, k, prefix):
-        """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C は cwd を変える)。"""
+        """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C・-C<dir>・--chdir は cwd を変える)。"""
         self.k = k
-        self.moved = any(t in ("-C", "--chdir") or t.startswith("--chdir=") for t in prefix)
+        self.moved = any(t.startswith(("-C", "--chdir")) for t in prefix)
         return self
 
-    def _flows(self, j):
-        """j 番目のコマンドの効果が k 番目まで届くか(間の区切りがどれも ; && 改行)。"""
-        return j < self.k and all(self.cmds[m].sep in _SEQUENTIAL for m in range(j + 1, self.k + 1))
+    def _flows(self, j, k=None):
+        """j 番目のコマンド(変数の代入)が必ず走り、その値が k 番目(既定は gh)まで届くか。
+
+        届かないのは: 条件・繰り返しの中・`|| B=x`(走らないことがある)・`B=x |`・`B=x &`(別のプロセスで代入される)・
+        `( B=x ); gh`(サブシェルが先に閉じる)。`a && B=x` は、そこから gh まで && だけで続くときだけ(B=x が走らなければ
+        gh も走らない)。間に在るほかのコマンドのパイプや `$( … )` は、親のシェルの変数を変えないので見ない。
+        """
+        k = self.k if k is None else k
+        if not (j < k) or self.conditional or not self._between(j, k, None, below_ok=False):
+            return False
+        d = self.cmds[j].depth
+        if any(op in ("|", "&") and dep == d for op, dep in self.cmds[j + 1].ops):
+            return False
+        if self._runs(j, ()):
+            return True
+        return self._runs(j, ("&&",)) and self._between(j, k, ("&&",), below_ok=False)
+
+    def _runs(self, j, also):
+        """j 番目のコマンドが前の成否に関わらず走るか(直前の区切りのうち括弧でないものが ; 改行 か also だけ)。"""
+        return all(op in _RUNS_BEFORE + also for op, _ in self.cmds[j].ops if op not in "()")
+
+    def _between(self, j, k, allowed, below_ok):
+        """j の後から k までの区切りのうち、j の深さ以下に現れた演算子がどれも allowed か(None なら演算子は問わない)。
+
+        j より深いところ(後の `$( … )` の中)の演算子は、j の効果(代入・cd・書き込み)の届き方に関わらないので見ない。
+        below_ok が偽なら、j を囲むサブシェルが k より前に閉じる(深さが j より浅くなる)ことも許さない
+        (`( S=x ); gh` の S は gh に届かない)。ファイルへの書き込みは届くので、書き手の順を見るときは真にする。
+        """
+        d = self.cmds[j].depth
+        for m in range(j + 1, k + 1):
+            for op, dep in self.cmds[m].ops:
+                if op in "()":
+                    if not below_ok and op == ")" and dep < d:
+                        return False
+                    continue
+                if allowed is not None and dep <= d and op not in allowed:
+                    return False
+        return below_ok or self.cmds[k].depth >= d
 
     def assigned(self):
-        """変数名 → (値, 位置)。2 度代入された名前は None(どちらが効くかを分岐で決められない)。"""
+        """変数名 → (値, 位置)。値が 1 つに決まらない名前は None。
+
+        決まらないのは: 2 度代入された・`+=` で書き足された・read・printf -v・declare・local・mapfile・for・unset などで
+        入れ直されうる(`B=x; read -r B < f` の B は f の中身)。
+        """
         if self._assigned is None:
-            self._assigned = {}
+            table, spoiled = {}, set()
             for j, c in enumerate(self.cmds):
+                spoiled.update(m.group(1) for m in (_APPEND_RE.match(a) for a in c.args) if m)
+                if c.args and c.args[0] in ("eval", "source", "."):
+                    spoiled.update(n for a in (cc.args for cc in self.cmds) for t in a for n in [t.split("=", 1)[0]])
+                    spoiled.add("*")   # どの名前でも入れ直しうる
+                if c.args and c.args[0] in REASSIGN_CMDS:
+                    spoiled.update(a.split("=", 1)[0] for a in c.args[1:])
                 args = c.args[1:] if c.args[:1] == ["export"] else c.args
                 if args and not c.redirects and all(ENV_PREFIX_RE.match(a) for a in args):
                     for a in args:
                         name, value = a.split("=", 1)
-                        self._assigned[name] = None if name in self._assigned else (value, j)
+                        if name in table:
+                            spoiled.add(name)
+                        table[name] = (value, j)
+            self._assigned = {n: (None if n in spoiled or "*" in spoiled else v) for n, v in table.items()}
         return self._assigned
 
     def var(self, value):
@@ -919,37 +1031,62 @@ class BodyFiles:
         out = _VAR_REF_RE.sub(sub, value)
         return None if failed or "$" in out else out
 
-    def cwd_here(self):
-        """k 番目のコマンドが走る cwd。決まらなければ None。"""
+    def cwd_here(self, k=None):
+        """k 番目(既定は gh)のコマンドが走る cwd。決まらなければ None。
+
+        cwd を変える命令(cd・pushd・popd を語のどこかに持つもの。`if cd x`・`builtin cd x` も)が前に在れば、
+        `cd <絶対パス>` が必ず走り、そこから k まで && だけで続く形でだけ、その先を cwd と見る。
+        """
+        k = self.k if k is None else k
         if self.moved:
             return None
         cwd = self.cwd
-        for j in range(self.k):
-            args = self.cmds[j].args
-            if args[:1] in (["cd"], ["pushd"], ["popd"]):
-                dest = self.var(args[1]) if args[0] == "cd" and len(args) == 2 else None
-                ok = dest and os.path.isabs(dest) and all(
-                    self.cmds[m].sep == "&&" for m in range(j + 1, self.k + 1))
-                cwd = dest if ok else None
+        for j in range(k):
+            c = self.cmds[j]
+            if not any(t in CD_WORDS for t in c.args):
+                continue
+            args = c.args[command_start(c.args):]
+            dest = self.var(args[1]) if args[:1] == ["cd"] and len(args) == 2 else None
+            ok = (dest and os.path.isabs(dest) and not self.conditional and self._runs(j, ("&&",))
+                  and self._between(j, k, ("&&",), below_ok=False))
+            cwd = dest if ok else None
         return cwd
 
-    def path(self, value):
-        """本文ファイルの実パス。字のまま決まらなければ None。"""
+    def path(self, value, k=None):
+        """本文ファイルの実パス(k 番目のコマンドの cwd で解く)。字のまま決まらなければ None。"""
         v = self.var(value)
+        if v and v.startswith("~/") and "HOME" not in self.assigned() and os.environ.get("HOME"):
+            # `~/` はシェルが HOME で開く。フックは Bash と同じ利用者・同じ HOME で起こされる(コマンドの中で HOME を
+            # 入れ直していなければ)。`~user/` の形は開かない
+            v = os.path.join(os.environ["HOME"], v[2:])
         if not v or v.startswith("~") or "__HEREDOC" in v or any(ch in v for ch in "*?["):
             return None
         if not os.path.isabs(v):
-            cwd = self.cwd_here()
+            cwd = self.cwd_here(k)
             if not cwd:
                 return None
             v = os.path.join(cwd, v)
         return os.path.realpath(v)
+
+    def _writes_first(self, j):
+        """j 番目のコマンドが、gh が走るなら必ずその前に走り終えるか(ファイルへの書き込みの順だけを見る)。
+
+        区切りは ; && 改行と、サブシェルの括弧(`URL=$(gh …)` の gh も cat の後に走る)まで許す。パイプ・& は同時に走り、
+        `||`・条件・繰り返しの中は走らないことがある。`a && cat > f && gh` は && で gh まで続くときだけ。
+        """
+        if not (j < self.k) or self.conditional:
+            return False
+        if self._runs(j, ()):
+            return self._between(j, self.k, _SEQUENTIAL, below_ok=True)
+        return self._runs(j, ("&&",)) and self._between(j, self.k, ("&&",), below_ok=True)
 
     def writer(self, target):
         """同じコマンドの中で target を書く命令。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
         base = os.path.basename(target)
         found = []
         for j, c in enumerate(self.cmds):
+            if not self.looped and j > self.k and self._between(self.k, j, _SEQUENTIAL + ("||",), below_ok=True):
+                continue   # gh が終わった後に走る命令(`gh … --body-file f && rm f` の後片付け)は gh の読む中身を変えない
             # gh 自身のリダイレクト(`gh … --body-file f > f`)も書き手に数える: シェルが gh より先に f を空にする
             for op, dest in c.redirects:
                 if op not in WRITE_OPS:
@@ -957,10 +1094,13 @@ class BodyFiles:
                 d = self.var(dest)
                 if d is None or os.path.basename(d) == base:
                     marks = [t for t in c.args[1:] if t.startswith("__HEREDOC")]
-                    heredoc = (j < self.k and c.args[:1] == ["cat"] and len(c.args) == 2 and len(marks) == 1
-                               and op in (">", ">|") and d is not None and self.path(dest) == target)
+                    # ヒアドキュメントを本文と見るのは、その cat が必ず gh より先に走り(`[ -e f ] || cat > f` は走らないことがある)、
+                    # 書く先が cat の cwd で解いて同じファイルのときだけ
+                    heredoc = (c.args[:1] == ["cat"] and len(c.args) == 2 and len(marks) == 1 and op in (">", ">|")
+                               and d is not None and self.path(dest, j) == target and self._writes_first(j))
                     found.append(int(marks[0][9:-2]) if heredoc else "writer")
-            if j != self.k and c.args and c.args[0] not in READ_ONLY_CMDS:
+            at = command_start(c.args)
+            if j != self.k and at < len(c.args) and os.path.basename(c.args[at]) not in READ_ONLY_CMDS:
                 for t in c.args[1:]:
                     tv = self.var(t) or t
                     if os.path.basename(tv.rstrip("/")) == base:
@@ -979,6 +1119,8 @@ class BodyFiles:
         w = self.writer(target)
         if w == "writer":
             return None, "writer"
+        if isinstance(w, Expands):
+            return None, "expand"
         if w is not None:
             return w, None
         return read_body_file(target)
@@ -1058,14 +1200,15 @@ def analyze(command, cwd=None):
     # 字句解析と同じ 1 本を見る。生の側を見ていると `--body "$\<改行>(cat x)"` が
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
     live = has_live_substitution(norm)
+    live_var = has_live_variable(norm)
     cmds = split_commands(tokens)
-    files = BodyFiles(cmds, cwd, heredoc_bodies, norm)
+    files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
     out = Analysis(True)
     for k, c in enumerate(cmds):
         args = gh_args(c.args)
         cands, blk, sub = [], [], None
         if args is not None:
-            cands, blk = classify(args, heredoc_bodies, live, files.at(k, c.args[:len(c.args) - len(args) - 1]))
+            cands, blk = classify(args, heredoc_bodies, live, files.at(k, c.args[:len(c.args) - len(args) - 1]), live_var)
             sub = subcommand(args)
             out.calls.append((sub, args, cands, blk))
             out.candidates.extend(cands)
@@ -1558,6 +1701,8 @@ def deny_streak(session, target, fp=None):
             break
         if cols.get("to", "-") != target:
             continue
+        if fp and not cols.get("fp"):
+            continue   # 本文を取り出せなかった deny は、本文の在る投稿の連続に数えない(別の投稿かもしれない)
         if not same_post(fp, cols.get("fp")):
             break
         n += 1
@@ -2098,7 +2243,7 @@ def _written_by_command(command, cwd):
     if tokens is None:
         return []
     cmds = split_commands(tokens)
-    files = BodyFiles(cmds, cwd, heredoc_bodies, norm)
+    files = BodyFiles(cmds, cwd, heredoc_bodies, norm, tokens)
     out = []
     for k, c in enumerate(cmds):
         at = command_start(c.args)

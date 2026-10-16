@@ -133,6 +133,9 @@ RESERVED_CASES = [
     ("else", "if false; then true; else gh issue comment 1 --body %s; fi" % TEXT),
     ("elif", "if false; then true; elif gh issue comment 1 --body %s; then :; fi" % TEXT),
     ("do", "while true; do gh issue comment 1 --body %s; break; done" % TEXT),
+    ("if", "if gh issue comment 1 --body %s; then :; fi" % TEXT),
+    ("while", "while gh issue comment 1 --body %s; do break; done" % TEXT),
+    ("until", "until gh issue comment 1 --body %s; do :; done" % TEXT),
 ]
 # 値を取る global 旗 1 メンバー = ここ 1 行(同上)
 GLOBAL_FLAG_CASES = [
@@ -186,6 +189,8 @@ BLOCKED_CASES = [
     ("本文ファイルが上限より大きい", "gh issue comment 1 --body-file %s # %s" % (BIG, PAD)),
     ("本文ファイルが UTF-8 でない", "gh issue comment 1 --body-file %s # %s" % (LATIN, PAD)),
     ("本文ファイルのパスが決まらない", "gh issue comment 1 --body-file rel/body.md # %s" % PAD),
+    ("区切りを引用しないヒアドキュメントの展開",
+     "gh issue comment 1 --body-file - <<EOF\n$HOME %s\nEOF" % PAD),
     ("本文ファイルを同じコマンドの中で書き換えうる",
      "cp /tmp/a %s && gh issue comment 1 --body-file %s # %s" % (OK_FILE, OK_FILE, PAD)),
     ("変数・コマンド置換渡し", 'gh issue comment 1 --body "$BODY" # %s' % PAD),

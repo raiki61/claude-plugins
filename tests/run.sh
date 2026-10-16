@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=641
+EXPECTED_CHECKS=665
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3221,6 +3221,11 @@ expect_output 0 "MARK_FILE が届いた" "400 字未満のコマンドでも、-
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file $CR_FDIR/body.md"
 expect_output 0 "取り出せない" "400 字未満のコマンドでも、変数で渡す本文は止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \"\$MSG\""
+# 短いコマンドも解析するので、投稿しない短い gh(--version・--help)を「サブコマンドを特定できない」で止めない
+expect_output 0 "ALLOW_EMPTY" "gh --version は止めない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh --version"
+expect_output 0 "ALLOW_EMPTY" "--help の付いた gh は本文旗が在っても投稿しないので止めない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr --help && gh issue comment 1 --help --body-file /no/such.md"
 # 2. review の JSON で .body が在ると comments[].body を見ていなかった
 CR_STUB_SEES_C=$(cr_stub_sees MARK_C)
 expect_output 0 "MARK_C が届いた" "review の JSON は .body が空でも comments[].body を読ませる" \
@@ -3248,6 +3253,14 @@ expect_output 0 "取り出せない" "cd の後 ; で続く相対パスは、cd 
     env COLDREAD_TEST_CWD=/ "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cd $CR_FDIR; gh issue comment 1 --body-file body.md"
 expect_output 0 "MARK_FILE が届いた" "同じコマンドの中で絶対パスを代入した変数のパスは、静的に解いて読む" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "S=$CR_FDIR/body.md; gh issue comment 1 --body-file \"\$S\""
+expect_output 0 "MARK_FILE が届いた" "代入と gh の間に \$( … ) が在っても、変数のパスを解いて読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "S=$CR_FDIR; N=\$(wc -c < \"\$S/body.md\"); gh issue comment 1 --body-file \"\$S/body.md\""
+expect_output 0 "取り出せない" "サブシェルの中の代入は gh に届かないので止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "( S=$CR_FDIR ); gh issue comment 1 --body-file \"\$S/body.md\""
+expect_output 0 "取り出せない" "パイプの中の代入は gh に届かないので止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "S=$CR_FDIR | true; gh issue comment 1 --body-file \"\$S/body.md\""
+expect_output 0 "MARK_FILE が届いた" "~/ のパスは HOME で解いて読む" \
+    env HOME="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file ~/body.md"
 expect_output 0 "取り出せない" "解けない変数のパスは止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \"\$NOPE\""
 printf 'MARK_OLD %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/w.md"
@@ -3259,6 +3272,8 @@ EOF
 gh issue comment 1 --body-file $CR_FDIR/w.md"
 expect_output 0 "取り出せない" "同じコマンドの中で別の命令が本文ファイルを書き換えうるなら止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cp $CR_FDIR/w.md $CR_FDIR/body.md && gh issue comment 1 --body-file $CR_FDIR/body.md"
+expect_output 0 "MARK_FILE が届いた" "gh の後に走る後片付け(&& rm f)は書き手に数えない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file $CR_FDIR/body.md && rm -f $CR_FDIR/no-such-copy/body.md"
 printf '\377\376 not utf-8 %s\n' "$CR_PAD" > "$CR_FDIR/latin.md"
 expect_output 0 "UTF-8 でない" "UTF-8 でない本文ファイルは止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/latin.md"
@@ -3274,6 +3289,57 @@ else
     cr_fifo_skip="  ok   FIFO の本文ファイルは待たずに止める # SKIP fifo: mkfifo が無い"
     echo "$cr_fifo_skip"; note_skips "$cr_fifo_skip"; ran=$((ran + 1))
 fi
+# 別の目のレビュー(2026-10-16)が見つけた、読んだ中身と gh が読む中身がずれる形。どれも「読めない」に倒す
+mkdir -p "$CR_FDIR/b"
+printf 'MARK_OTHER %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/b/body.md"
+expect_output 0 "取り出せない" "if の条件の cd の後の相対パスは止める(cd が先頭の語でなくても見る)" \
+    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "if cd $CR_FDIR/b; then gh issue comment 1 --body-file body.md; fi"
+expect_output 0 "取り出せない" "builtin cd の後の相対パスも止める" \
+    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "builtin cd $CR_FDIR/b && gh issue comment 1 --body-file body.md"
+expect_output 0 "取り出せない" "|| の先の cd(走るかどうかが決まらない)の後の相対パスは止める" \
+    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "true || cd $CR_FDIR/b && gh issue comment 1 --body-file body.md"
+expect_output 0 "取り出せない" "env -C<dir> の 1 語の形の後の相対パスも止める" \
+    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "env -C$CR_FDIR/b gh issue comment 1 --body-file body.md"
+expect_output 0 "取り出せない" "走るかどうかが決まらない cat > f <<EOF の書き手は、ヒアドキュメントを本文と見なさずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "[ -e $CR_FDIR/body.md ] || cat > $CR_FDIR/body.md <<'EOF'
+$CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/body.md"
+expect_output 0 "取り出せない" "if の中の cat > f <<EOF は走るとは限らないので、ヒアドキュメントを本文と見なさずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "if false; then cat > $CR_FDIR/body.md <<'EOF'
+$CR_BODY $CR_PAD
+EOF
+fi; gh issue comment 1 --body-file $CR_FDIR/body.md"
+expect_output 0 "MARK_HD が届いた" "cat > f <<EOF の後の \$(gh …) の中の gh も、ヒアドキュメントを本文として読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_HD" "cat > $CR_FDIR/w.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+URL=\$(gh pr create -t t --body-file $CR_FDIR/w.md)"
+expect_output 0 "取り出せない" "区切りを引用しないヒアドキュメントの中の \$ や \` は展開されるので止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file - <<EOF
+$CR_BODY \$(cat $CR_FDIR/b/body.md) $CR_PAD
+EOF"
+expect_output 0 "取り出せない" "+= で書き足す変数の本文は、最初の代入だけで読まずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "B='$CR_BODY $CR_PAD'; B+=' more'; gh issue comment 1 --body \"\$B\""
+expect_output 0 "取り出せない" "read で入れ直す変数の本文は止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "B='$CR_BODY $CR_PAD'; read -r B < $CR_FDIR/b/body.md; gh issue comment 1 --body \"\$B\""
+expect_output 0 "取り出せない" "|| の先の代入は効くかどうかが決まらないので止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "true || B='$CR_BODY $CR_PAD'; gh issue comment 1 --body \"\$B\""
+expect_output 0 "取り出せない" "本文の一部に変数が混じる二重引用の本文(\"See: \$B\")は止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "B=\"\$(cat $CR_FDIR/b/body.md)\"; gh issue comment 1 --body \"See: \$B\""
+expect_output 0 "詰まり" "単一引用の中の \$ は字のままなので、本文として読ませる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '\$HOME は展開されない。$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "if・while・until の直後の gh も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "if gh issue comment 1 --body '$CR_BODY $CR_PAD'; then echo ok; fi"
+CR_STUB_SEES_TAIL=$(cr_stub_sees MARK_TAIL)
+expect_output 0 "MARK_TAIL が届いた" "<<EOF(- の無い形)は字下げした区切りの行で終わらない(本文の続きまで読ませる)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_TAIL" "gh issue comment 1 --body-file - <<'EOF'
+$CR_BODY $CR_PAD
+  EOF
+MARK_TAIL
+EOF"
+expect_output 0 "取り出せない" "繰り返しの中では、gh の後の命令も次の gh の前に走るので書き手に数える" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "for i in 1 2; do gh issue comment 1 --body-file $CR_FDIR/body.md; cp $CR_FDIR/b/body.md $CR_FDIR/body.md; done"
 # 4. ヒアドキュメントの開始行で、区切りの後ろに同じ行で文字が続く形を見落とし、「別プロセスからの stdin」で誤って止めていた
 expect_output 0 "詰まり" "区切りの後ろに旗が続くヒアドキュメント(<<'J' -q .html_url)も本文として読む" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues/1/comments --input - <<'J' -q .html_url
