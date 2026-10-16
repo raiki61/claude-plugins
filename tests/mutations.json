@@ -6633,8 +6633,8 @@
    "title": "CI の突合: shards の --groups から OS が欠ければ赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
-   "old": "--groups ubuntu-latest,macos-latest,windows-latest",
-   "new": "--groups ubuntu-latest,macos-latest",
+   "old": "--groups ubuntu-latest,windows-latest",
+   "new": "--groups ubuntu-latest",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
@@ -6652,7 +6652,7 @@
    "file": ".github/workflows/test.yml",
    "suite": "root",
    "old": "        os: *os\n",
-   "new": "        os: [ubuntu-latest, macos-latest, windows-latest]\n",
+   "new": "        os: [ubuntu-latest, windows-latest]\n",
    "expect": "CI の設定が shellcheck を回す"
   },
   {

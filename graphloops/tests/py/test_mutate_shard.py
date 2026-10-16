@@ -326,12 +326,14 @@ def mutation_workflow_problems(text, test_yml):
     probs = []
     allow = dict(re.findall(r'- os: (\S+)\n\s+skip_allow: "([^"]*)"', test_yml))
     jobs = dict(re.findall(r"\n  ([\w-]+):\n((?:(?!\n  [\w-]+:\n).)*)", text[text.index("\njobs:\n"):], re.S))
-    posix = {allow.get("ubuntu-latest"), allow.get("macos-latest")}
-    if len(posix) != 1 or None in posix:
-        probs.append(f"test.yml の ubuntu と macOS の skip_allow が揃わない（頭の 1 つで渡せない）: {sorted(map(str, posix))}")
+    # mutation.yml の頭の値は Windows でない job（ubuntu・macOS）の全部に効く。正本は test.yml の Windows でない OS の値
+    # （2026-10-16 から test.yml は macOS を回さず、ubuntu の値だけが正本になる。macOS を戻したら、その値も同じであること）
+    posix = {v for o, v in allow.items() if not o.startswith("windows")}
+    if len(posix) != 1:
+        probs.append(f"test.yml の Windows でない OS の skip_allow が 1 つに揃わない（頭の 1 つで渡せない）: {sorted(posix)}")
     top = re.search(r'^env:\n  SKIP_ALLOW: "([^"]*)"$', text, re.M)
     if not top or top.group(1) not in posix:
-        probs.append("workflow の頭の env の SKIP_ALLOW が無いか、test.yml の ubuntu・macOS の値と違う")
+        probs.append("workflow の頭の env の SKIP_ALLOW が無いか、test.yml の Windows でない OS の値と違う")
     declared = bool(top)
     for name, body in jobs.items():
         runs = re.search(r"^    runs-on: (.+)$", body, re.M).group(1)
@@ -393,10 +395,14 @@ WIN_ALLOW = '    env:\n      SKIP_ALLOW: "posix-mode process-group fifo read-per
      "        shell: bash\n        run: python tests/mutate.py -j 4 --confirm-survivors --same-as", "mutation", "撃ち比べの段が if: always()"),
     ("          path: fresh-report.json", "          path: other.json", "mutation", "fresh-report.json"),
     ("      - name: 撃ち比べの報告を残す\n        if: always()\n", "      - name: 撃ち比べの報告を残す\n", "mutation", "fresh-report.json"),
-    ('- os: macos-latest\n', '- os: macos-latest\n            skip_allow: "other"\n', "test", "ubuntu と macOS の skip_allow が揃わない"),
+    ('- os: ubuntu-latest\n            skip_allow: "version-bump"\n',
+     '- os: ubuntu-latest\n            skip_allow: "version-bump"\n          - os: macos-latest\n            skip_allow: "other"\n',
+     "test", "Windows でない OS の skip_allow が 1 つに揃わない"),
+    ('- os: ubuntu-latest\n            skip_allow: "version-bump"\n', '- os: ubuntu-latest\n            skip_allow: "other"\n',
+     "test", "test.yml の Windows でない OS の値と違う"),
 ], ids=["top-value", "top-gone", "windows-override-gone", "override-outside-windows", "step-env", "merge-always", "same-as-always",
         "same-as-needs", "merge-continue-on-error", "merge-exit-dropped", "same-as-step-always", "same-as-report-path",
-        "same-as-report-always", "test-yml-posix-split"])
+        "same-as-report-always", "test-yml-posix-split", "test-yml-posix-differs"])
 def test_every_entrance_of_the_workflow_shape_is_red(old, new, where, want):
     """形の検査が縛る入口ごとに本文を 1 か所だけ壊すと、その入口の問題が出る（1 か所の赤は覆いの証拠にならない）"""
     mut, test = _workflows()

@@ -1882,7 +1882,7 @@ PY
 # 見るのは commit 済みの履歴だけ——作業ツリーの未 commit の変更は見ない。
 # **据え置きを赤にするのは、CI が main か release/* の枝を見ているとき（GITHUB_REF_NAME）と、手元で VERSION_BUMP_STRICT=1 を
 # 渡したときだけ。** 作業枝（wip）は版を上げずに手で CI を起こす（test.yml の workflow_dispatch）ので、そこで赤にすると毎回赤になる。それ以外では
-# 柵の標本だけを走らせ、据え置きの一覧を「# SKIP version-bump:」の見送りの行で出す（CI は 3 OS とも SKIP_ALLOW でこの能力を許す）。
+# 柵の標本だけを走らせ、据え置きの一覧を「# SKIP version-bump:」の見送りの行で出す（CI はどの OS も SKIP_ALLOW でこの能力を許す）。
 # 赤にする枝で浅い clone（履歴の無い checkout）なら測れないので、黙って緑にせず赤にする（CI の test の job は fetch-depth: 0 で取る）。
 expect_output 0 "VERSION_BUMP_OK" "配る plugin の置き場のファイルが、その plugin.json の version を最後に変えた commit より後に変わっていれば、version も上がっている（main・release/* の CI と VERSION_BUMP_STRICT=1 のときだけ赤）" \
     "$PY_BIN" - "$ROOT" <<'PYBUMP'
@@ -4035,7 +4035,7 @@ if command -v shellcheck >/dev/null 2>&1; then
         fail=1
     fi
 else
-    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck: shellcheck が手元に無い（CI は 3 OS とも入れる。下の CI_LINT_OK がその設定を見る）"
+    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck: shellcheck が手元に無い（CI はどの OS にも入れる。下の CI_LINT_OK がその設定を見る）"
     echo "$sc_skip"
     note_skips "$sc_skip"
 fi
@@ -4044,7 +4044,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が全履歴で取り、works/tests/run.sh を 0..N-1 の組に分けて組の数を段に渡し、FAIL_ON_SKIP=1 で回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは release/** への push と手での起動だけ（出荷の時の 1 回）" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。どの OS にも同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が全履歴で取り、works/tests/run.sh を 0..N-1 の組に分けて組の数を段に渡し、FAIL_ON_SKIP=1 で回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは release/** への push と手での起動だけ（出荷の時の 1 回）" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -4099,7 +4099,7 @@ def step(name):
     got = [s for s in steps if s[0] == f"- name: {name}"]
     assert len(got) == 1, f"{wf}: 段 {name} がちょうど 1 つでない（{len(got)} 個）"
     return got[0]
-# **見送り自体を無くす道具は 3 OS に同じ版で入れる。** OS の条件（if:）を付けると、条件から外れた OS で tests/run.sh の中の
+# **見送り自体を無くす道具はどの OS にも同じ版で入れる。** OS の条件（if:）を付けると、条件から外れた OS で tests/run.sh の中の
 # shellcheck が見送りになり、SKIP_ALLOW に無い名前なので赤になる——黙って緑には戻らないが、原因が遠い
 inst = [s for s in steps if any(re.fullmatch(r"run: python -m pip install shellcheck-py==[0-9][0-9.]*", x) for x in s)]
 assert inst, f"{wf}: shellcheck を版を固定して入れる段（run: python -m pip install shellcheck-py==<版>）が無い"

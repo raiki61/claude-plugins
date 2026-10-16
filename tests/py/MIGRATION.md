@@ -221,7 +221,7 @@ graphloops の台本の 6 関数を消した周（2026-09-28）も、台本の r
 ### 門と CI の段
 
 この置き場は門に載った（0.22.0 の取りまとめ。問いの台帳の fork の推し A）: [.github/workflows/test.yml](../../.github/workflows/test.yml) の
-pytest の job の段 root pytest（3 OS）と、[.review-checks.json](../../.review-checks.json) の suite の root pytest。fence は 1 回の起動に
+pytest の job の段 root pytest（test の job と同じ OS）と、[.review-checks.json](../../.review-checks.json) の suite の root pytest。fence は 1 回の起動に
 1 つの置き場しか載せないので、graphloops/tests/py とは別の起動で回す。
 
 ### 台本の側を消す run でやること
