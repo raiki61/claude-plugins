@@ -4,7 +4,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、リポジトリのルートの `docs/releasing.md` に在る。0.1.0 は出していない。作った時に付けた版の後に変更を積んだので、初めて出す版を 0.1.1 にした。
 
-## [Unreleased]
+## [0.6.0] - 2026-10-16
 
 ### Added
 
