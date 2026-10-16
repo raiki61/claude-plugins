@@ -34,23 +34,26 @@ PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `r
 
 ## 初めて: `/works-dispatch:dispatch setup`
 
-部署（`--task`・`--ask`・`--land`）だけなら、dispatch の設定は要らない。会社（リポジトリ）は、`--repo` に渡した代表の clone のパスか、打った場所のリポジトリで決まる。
+`setup` はスクリプトの引数ではない。そう呼ばれたら、この節の手順を上から持ち主と進める。
 
-1. 会社の形（`.claude/company.toml`）の下書きを書き、名前・説明・役の本文を直す。リポジトリの中に書くので、同じリポジトリを使う人にも効かせるなら commit する。commit しないなら `--local` を付けて、設定の置き場の `companies/` に書く。
+部署（作業ごとの git worktree と裏の Claude Code の会話の組。`--task` で立て、`--ask` で頼み、`--land` で本流に入れる。下の「部署を立てる」）だけを使うなら、ふつうは dispatch の設定のファイルは要らない（要るときは手順 2 の終わり）。部署を立てるリポジトリ（会社）は、`--repo` に渡した代表の clone のパスか、コマンドを打ったフォルダのリポジトリで決まる。
+
+1. 会社の形（`.claude/company.toml`。会社の名前・役・本流への入れ方）の下書きを書き、名前・説明・役の本文を直す。既定はリポジトリの中に書くので、同じリポジトリを使う人にも効かせるなら commit する。commit しないなら `--local` を付けて、dispatch の設定のフォルダ（既定は `~/.config/works-dispatch/`）の `companies/` に書く。
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init-company [--local] [--repo <代表の clone>]
    ```
 
-2. アカウントを切り替える人だけ、dispatch の設定（既定は `~/.config/works-dispatch/dispatch.toml`）に `accounts` を書く（下の「アカウントの書き方」）。
-3. PR を開く回（引数なし・`--pr`・`--issue`）も使う人は、設定の下書きを書き、2 ターン目の文のファイルを埋める。設定の `[[repos]]` は、この回と、部署の gh のアカウント（`gh_user`）や写すファイル（`copy_files`）を会社の形と別に決めたいときにだけ要る。
+2. PR を開く回（引数なし・`--pr`・`--issue`）も使う人は、dispatch の設定（既定は `~/.config/works-dispatch/dispatch.toml`）の下書きを書く。隣に空の `dispatch-second-prompt.md` ができるので、`/catchup` の後に送る文（2 ターン目の文）を書く。`--init` は設定がもうあると書かずに止まるので、手順 3 で設定を書くより先に打つ（もうあるなら `[[repos]]` を手で足す）。
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init --repo OWNER/NAME --source <代表の clone>
    ```
 
-4. `--check` を、足りない物が出なくなるまで走らせる（`[[repos]]` が無ければ、部署の回の前提だけを見る）。
-5. 窓口の会話は名前を付けて起こす（`claude --name 窓口`。アカウントを切り替える人は、そのアカウントのコマンドに `--name 窓口` を足す）。部署はその名前を SendMessage の宛先にする。名前が無いと `my-notes-31` のような自動の名前になる。
+   設定の `[[repos]]` が要るのは、PR を開く回のほかは、`--repo` を `OWNER/NAME` の形で指すとき、git の外から `--repo` 無しで打つとき、部署の gh を会社の形と違うアカウント（`gh_user`）にするとき、新しい worktree へ手元だけのファイルを写す（`copy_files`）ときだけ。
+3. アカウントを切り替える人だけ、dispatch の設定に `accounts` を書く（下の「アカウントの書き方」）。書かなければ `claude` 1 つで動く。
+4. `--check` を、足りない物が出なくなるまで走らせる（`[[repos]]` が無ければ、部署の前提だけを見る）。
+5. 窓口（持ち主と話し、部署を立てる会話）は、持ち主が名前を付けて起こす（`claude --name 窓口`。アカウントを切り替える人は、そのアカウントのコマンドに `--name 窓口` を足す）。部署はその名前を SendMessage の宛先にする。名前が無いと `my-notes-31` のような自動の名前になる。
 
 ### アカウントの書き方
 
@@ -93,7 +96,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 - `--no-second`: `/catchup` だけで止め、2 ターン目の文を送らない。
 - `--clean`: 代表の clone の worktree のうち、消してよい場所を並べる。消してよいのは、枝の PR が閉じていて、会話が無く、未コミットの変更・git に足していない新しいファイル（`git status` に出るもの）・その枝の stash が無く、手元の枝の先頭が PR の head と同じものだけ。設定の `copy_files`（git が追わない手元だけのファイルの一覧。新しく作った worktree へ、`copy_from`〔省けば代表の clone〕から写す）のうち写し元と中身が違うファイルが有る場所も残し、そのファイルを出す。`.gitignore` に当たるファイル（依存・生成物など）は数えず、場所と一緒に捨てる。`--clean --apply` で本当に消す（worktree と手元の枝を消す。herdr に `--force` を付けずに消させるので、並べた後に変更が出来ていれば herdr が断り、何も消えない）。部署（下の `--task` が立てた worktree）は PR を見ずに別に並べ、都度の部署で、会話が終わり（または会話がもう無く）、未コミットの変更・手元にしか無い commit・stash が無く、枝の先頭が origin の既定の枝に入っているものだけを消せるとする。消すときは、先に `claude rm` で会話を消してから場所と窓と手元の枝を消す。常駐の部署（`--resident`）は消さない。
 - `--check`: 前提だけを確かめる。
-- `--init`・`--init-company`: dispatch の設定・会社の形の下書きを書く（上の「初めて」。在れば上書きしない）。
+- `--init`・`--init-company`: dispatch の設定・会社の形の下書きを書く（上の「初めて」。もうあれば上書きしない）。
 - `--task 名前 --branch 枝 --brief 頼みのファイル`: 部署を 1 つ立てる（下の「部署を立てる」）。
 - `--tree`・`--sync`: 会社のツリー図を出す・herdr の表示を付け直す（下の節）。
 - `--land 部署`: 部署の成果を、会社の形の決まりで本流に入れる（下の「本流に入れる」）。
@@ -110,7 +113,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し --branch feat/catchup-redo --brief <頼みのファイル> [--role <役>] [--resident] [--repo OWNER/NAME か代表の clone]
 ```
 
-`--repo` を省くと、打った場所のリポジトリに立てる（打った場所が git の外なら、設定の最初の `[[repos]]`）。`OWNER/NAME` で指せるのは設定の `[[repos]]` に書いたリポジトリだけ。
+`--repo` を省くと、コマンドを打ったフォルダのリポジトリに立てる（中のフォルダや worktree から打っても、その代表の clone になる）。打ったフォルダが git の外なら設定の最初の `[[repos]]`、それも無ければ止まって `--repo` を求める。`OWNER/NAME` で指せるのは設定の `[[repos]]` に書いたリポジトリだけ。
 
 1. 枝の作業場を、PR と同じ置き場の決まりで用意する（代表の clone の git worktree を herdr に作らせ、置き場は herdr の `worktrees.directory`。herdr はその作業場を、リポジトリの作業場の子としてまとめる）。枝の作業場が既に在れば開き直し、git では動かさない（PR と違い、origin の head へ早送りしない。部署の枝は手元で commit を積む物のため）。無ければ作る。元は、origin にその枝が在れば origin の枝、無ければ既定の枝（`--base` で替えられる）。
 2. 使用率が上限に届かないアカウント（上限は PR を開く回の 2 と同じで、週の枠と 5 時間の枠の両方に当てる）のうち、PR と同じ順の頭を 1 つ選ぶ。
