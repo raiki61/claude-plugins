@@ -10,7 +10,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- 会社の形（`.claude/company.toml`）を、代表の clone の作業ツリーではなく、origin の既定の枝（`origin/HEAD` が指す手元の ref。fetch はしない）に commit された物から先に読む。無ければ前と同じく代表の clone の作業ツリー、設定の置き場の順。前は代表の clone をほかの会話が古い枝で開いていると、部署の役の本文（`instructions`）が会話に足されず、役の `settings`（`enabledPlugins` など）と `model` も効かなかった。部署の枝で書き換えた会社の形も読まない（部署が自分の納品の必須項目や取り込みの決まりを緩められない。変えた会社の形は本流に入れてから効く）。`--tree`・`--task`・`--ask`・`--deliver`・`--land`・役を足すフックは、同じ 1 つの読み方（`tree.read_info`）を通る。`--tree` は読んだ所を「既定の枝」と出し、`--tree --json` の `info_source` に `origin` が増えた。
+- 会社の形（会社ごとの名前・受ける仕事・役（納品の必須項目を含む）・取り込みの決まりを書く `.claude/company.toml`）を、origin の既定の枝（main など。手元の ref `origin/HEAD` が指す枝で、読むときに fetch はしない）に commit された物から先に読む。無ければ（手元に `origin/HEAD` が無い clone も）前と同じく、代表の clone（部署の worktree を作る元の clone）の作業ツリーの物、設定の置き場（dispatch の設定のファイルの隣）の `companies/` の物の順に探す。0.9.0 までは代表の clone の作業ツリーの物を先に読んだので、代表の clone をほかの会話が古い枝で開いていると、部署の役の本文（`instructions`）が会話に足されず、役の `settings`（`enabledPlugins` など）と `model` も効かなかった。部署の worktree で書き換えた会社の形も読まない（部署が自分の納品の必須項目や取り込みの決まりを緩められない）。変えた会社の形は既定の枝に入れてから効く。手元の `origin/<既定の枝>` が古ければ古い物を読む（`git fetch` や `--land` の push で新しくなる）。`--tree`・`--task`・`--ask`・`--deliver`・`--land`・役の本文を足す SessionStart のフックは、同じ 1 つの読み方（`dispatch/nodes/tree.py` の `read_info`）を通る。`--tree` は読んだ所を「既定の枝」と出し、`--tree --json` の `info_source` に `origin` が増えた。
 
 ## [0.9.0] - 2026-10-16
 
