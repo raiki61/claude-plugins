@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-10-17
+
 ### Fixed
 
 - 機械窓口の道具（`--call` と `[[land.after]]` の合図）を、代表の clone の作業ツリーで走らせていた。持ち主が代表の clone でほかの枝を開いていると、その枝に道具の台本が無く走らなかった（claude-plugins の「全アカウントに配る」で見つかった）。origin の既定の枝（会社の形を読むのと同じ ref）の中身を一時の worktree に出し、その根で走らせ、終われば消す。
