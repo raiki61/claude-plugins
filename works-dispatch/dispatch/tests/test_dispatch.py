@@ -143,7 +143,7 @@ class FakeHerdr(WorktreeHerdr):
 
 # 試験の Ports が本物の herdr とログインのシェルを呼ばないための偽物（試験の中で上書きするものはそちらが勝つ）
 QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None, "worktrees": lambda source: [],
-         "task_flags": lambda: []}
+         "task_flags": lambda: [], "tier_check": lambda launchers: {"schema": 1, "tier": 2, "ok": True, "missing": 0, "checks": []}}
 
 
 def quiet_ports(**kw):

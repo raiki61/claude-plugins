@@ -12,6 +12,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 - SessionStart のフック: 部署（属性 `company.role` の有る worktree）で会話が始まると、会社の形からその役の `instructions` を引いて会話の指示に足す。代表の clone やふつうの clone では何も足さない。
 - 部署の gh のアカウント: 会社の形の頭に `gh_user` を書ける（dispatch の設定の `[[repos]]` の `gh_user` が先）。`--task` は名前だけを部署の属性 `company.gh-user` に書き、フックが会話の Bash に、コマンドごとに `gh auth token --user` で鍵を取り出して `GH_TOKEN` に入れる 1 行を足す。鍵の値はどこにも書かない。
 
+### Changed
+
+- `--check` が、最初に要る道具の段 2（gh が入っていてログイン済みか・herdr が動いているか・設定の各アカウントの起こすコマンドがシェルで見つかるか）を、新しい共通のプラグイン tiers（依存として入る）の `tiers --tier 2 --json` で点検する。足りなければ、OS ごとの入れ方を出して止まる。tiers が見つからなければ注記にして、今までの確かめを続ける。
+
 ## [0.6.0] - 2026-10-16
 
 ### Added

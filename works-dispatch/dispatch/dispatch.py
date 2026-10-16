@@ -60,6 +60,7 @@ import gitx  # noqa: E402
 import herdr  # noqa: E402
 import jsonio  # noqa: E402
 import limits  # noqa: E402
+import tierx  # noqa: E402
 import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn  # noqa: E402
 
@@ -169,9 +170,10 @@ class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
     def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None, herdr_integration=None,
-                 login_config_dir=None, worktrees=None, task_flags=None):
+                 login_config_dir=None, worktrees=None, task_flags=None, tier_check=None):
         self._herdr_methods = herdr_methods or herdr.methods
         self._task_flags = task_flags or claudex.missing_flags
+        self._tier_check = tier_check or (lambda launchers: tierx.check(launchers, env=self.env))
         self._herdr_integration = herdr_integration or (lambda cdir: herdr.claude_integration(cdir, dict(self.env)))
         self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
         self._account_env = None
@@ -279,6 +281,10 @@ class Ports:
                 problems.append(f"gh が {repo.repo} を読めない。whose-turn が自分の番の PR を集められない"
                                 "（gh auth status で、このリポジトリを読めるアカウントが有効かを確かめる）")
         return problems, notes
+
+    def tiers(self, launchers):
+        """要る道具の段の点検（tiers プラグイン）の結果。部品が無ければ tierx.TierError。"""
+        return self._tier_check(launchers)
 
     def fetch_prs(self, repo):
         return prs.read(repo.repo, env=self.gh_env(repo))
@@ -1070,8 +1076,18 @@ def _op_line(o):
 
 
 def _check(cfg, ports):
+    # 先に要る道具の段（tiers）を点検する。足りなければ、その案内を出して止まる（設計 4.11）。部品が無ければ注記にして、今までの確かめを続ける
+    tier_notes = []
+    try:
+        tiers = ports.tiers(list(dict.fromkeys(a.command for a in cfg.accounts)))
+    except tierx.TierError as e:
+        tiers, tier_notes = None, [str(e)]
+    if tiers is not None and not tiers.get("ok"):
+        print("足りない物（要る道具の段の点検。手で入れてから --check を打ち直す）:")
+        print("\n".join(f"- {p}" for p in tierx.problems(tiers)))
+        return 2
     problems, notes = ports.preflight(cfg)
-    notes = list(cfg.notes) + notes
+    notes = list(cfg.notes) + tier_notes + notes
     for acc in cfg.accounts:
         try:
             ports.list_sessions(acc.config_dir)
