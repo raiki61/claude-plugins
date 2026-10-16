@@ -4370,10 +4370,14 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "ARTIFACTS_DIR", "TITLE_GENERATION_MODEL",
                   # 包みが Bash の役の子に向け直す・向け直さない外の道具の環境変数
                   "UV_CACHE_DIR", "TMPDIR",
-                  # 外の道具（mise・gh）の設定の環境変数
-                  "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN",
+                  # Python の tempfile が TMPDIR の次に一時フォルダの候補に見る環境変数（gates の coldread-gate.py が同じ順に読む）
+                  "TEMP", "TMP",
+                  # 外の道具（mise・gh・git・herdr のインストーラ）の設定の環境変数
+                  "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN", "GIT_SSH_COMMAND", "HERDR_INSTALL_DIR",
+                  # Claude Code がフックに渡す、Bash のコマンドごとに先に走らせるファイルの環境変数（works-dispatch の role_hook.py が読む）
+                  "CLAUDE_ENV_FILE",
                   # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
-                  "HTTPS_PROXY",
+                  "HTTPS_PROXY", "HTTP_PROXY",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
                   "WORKS_DISPATCH_CONFIG",
                   # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）
@@ -4431,6 +4435,12 @@ for p in CODE:
     # 同じ名前のファイル（tests/run.sh と graphloops/tests/run.sh）は和で持つ——上書きすると先に読んだ方の定数が消える
     by_file.setdefault(p.name, set()).update(defined(p.read_text(encoding="utf-8")))
 names = set().union(*by_file.values())
+# この台本の検査の合格の印（`expect_output 0 "VERSION_BUMP_OK" …` の期待文字列）も、文書が検査を指す名として名指す。
+# 代入の行は無いので、印として台本に在れば実在と見る（除外の表に足さない——印を改名すれば文書の側が赤くなる）。
+# 拾うのは `_OK` で終わる印だけ——期待文字列には環境変数の名（`COLDREAD_MAX_LEN`）も並ぶので、全部を拾うと接頭辞の除外と重なる
+markers = set(re.findall(r'^expect_output \d+ "([A-Z][A-Z0-9_]*_OK)"', (root / "tests/run.sh").read_text(encoding="utf-8"), re.M))
+assert "DOC_SYMBOLS_OK" in markers, "自己検査: 台本の合格の印の拾い方が、この検査自身の印を外す"
+names |= markers
 # works の WORKS_ で始まる名は環境変数で、殻と python が `${WORKS_X:-}`・`os.environ.get("WORKS_X")` の形で読むので、代入の行が
 # 無いことが多い。works のコード（.py・.sh・.yaml）のどこかに字で在れば実在と見る（除外の表に 1 つずつ足さない）
 WORKS_CODE = [q for q in sorted((root / "works").rglob("*")) if q.suffix in (".py", ".sh", ".yaml") and q.is_file()]
