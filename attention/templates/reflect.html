@@ -157,6 +157,8 @@ ul.plain { margin: 6px 0 0; padding-left: 20px; }
     return n;
   }
   const num = (n) => (typeof n === "number" ? n.toLocaleString("ja-JP") : "");
+  // 出力のトークンはモデルごとに並べる。単価がモデルで数十倍違うので、足した 1 つの数にしない
+  const byModel = (m) => Object.entries(m || {}).map(([k, n]) => `${k.replace(/^claude-/, "")} ${num(n)}`).join("・") || "0";
   function section(title, count, ...kids) {
     return el("section", null, el("h2", null, title, count === null ? null : el("span", { class: "count" }, count)), ...kids);
   }
@@ -178,7 +180,8 @@ ul.plain { margin: 6px 0 0; padding-left: 20px; }
       el("li", null, el("b", null, num(c.background_sessions)), "裏の会話"),
       el("li", null, el("b", null, num(commits)), "commit"),
       el("li", null, el("b", null, num(events)), "GitHub の動き"),
-      el("li", null, el("b", null, num((c.human_output_tokens || 0) + (c.background_output_tokens || 0))), "出力トークン")),
+      el("li", null, el("b", null, byModel(c.human_output_by_model)), "出力トークン（人の会話）"),
+      el("li", null, el("b", null, byModel(c.background_output_by_model)), "出力トークン（裏の会話）")),
     el("p", { class: "headline" }, fields.headline || ""));
 
   // 改善の提案
@@ -220,7 +223,7 @@ ul.plain { margin: 6px 0 0; padding-left: 20px; }
     el("td", null, r.prompt_head || "（依頼文なし）", el("div", { class: "muted mono" }, r.cwd)),
     el("td", { class: "num" }, num(r.runs)), el("td", { class: "num" }, num(r.output_tokens)),
     el("td", { class: "num" }, num(r.median_output_tokens)),
-    el("td", null, Object.entries(r.models || {}).map(([m, n]) => `${m} ${n}`).join("、")),
+    el("td", null, byModel(r.models)),
     el("td", { class: "num" }, num(r.errors))));
   app.append(section("裏で起こされた会話", `${bg.length} 種類・${num(c.background_sessions)} 本`,
     bg.length ? el("div", { class: "box wrap" }, bt) : el("div", { class: "box empty" }, "無い。")));
@@ -240,7 +243,7 @@ ul.plain { margin: 6px 0 0; padding-left: 20px; }
   const sd = el("details", null, el("summary", null, `会話 ${ses.length} 本`));
   for (const s of ses) sd.append(el("div", { class: "box item" },
     el("div", { class: "item-head" }, el("span", { class: "mono" }, `${(s.start || "").slice(5, 16).replace("T", " ")}〜${(s.end || "").slice(11, 16)}`),
-      el("span", { class: "muted mono" }, s.cwd), el("span", { class: "score" }, `発言 ${s.asks_total} 件・出力 ${num(s.output_tokens)}`)),
+      el("span", { class: "muted mono" }, s.cwd), el("span", { class: "score" }, `発言 ${s.asks_total} 件・出力 ${byModel(s.output_by_model)}`)),
     el("ul", { class: "plain" }, (s.asks || []).map((a) => el("li", null, a))),
     s.asks_cut ? el("p", { class: "muted" }, `間の ${s.asks_cut} 件は省いた`) : null));
   const cd = el("details", null, el("summary", null, `commit ${num(commits)} 件`));

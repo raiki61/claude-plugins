@@ -239,6 +239,15 @@ def home_short(p):
     return ("~" + p[len(home):]) if p and p.startswith(home) else p
 
 
+def tokens_by_model(group):
+    """出力のトークンをモデルごとに足す（モデルの分からない返答は "?"）。単価がモデルで数十倍違うので、モデルをまたいで足さない。"""
+    out = collections.Counter()
+    for s in group:
+        for mid, n in s["out"].items():
+            out[s["models"].get(mid, "?")] += n
+    return {m: n for m, n in out.most_common() if n}  # 失敗の返答（<synthetic>）のような 0 の行は出さない
+
+
 def human_rows(human, days=1):
     """会話ごとの行。期間が長いほど 1 会話の発言を減らす（AI が読む量を 1 日分と同じくらいに保つ）。"""
     keep = ASKS_KEEP if days <= 1 else max(2, ASKS_KEEP // 2)
@@ -254,7 +263,8 @@ def human_rows(human, days=1):
             "asks_total": len(asks), "asks": [clip(a, chars) for a in kept],
             "asks_cut": len(asks) - len(kept),
             "tools": dict(s["tools"].most_common(8)), "marks": dict(s["marks"]),
-            "output_tokens": sum(s["out"].values()), "errors": s["errors"],
+            "output_tokens": sum(s["out"].values()), "output_by_model": tokens_by_model([s]),
+            "errors": s["errors"],
         })
     return rows
 
@@ -271,13 +281,12 @@ def background_rows(background):
     rows = []
     for (cwd, head), group in groups.items():
         per = [sum(s["out"].values()) for s in group]
-        models = collections.Counter(m for s in group for m in s["models"].values())
         rows.append({
             "cwd": cwd, "prompt_head": head, "runs": len(group),
             "config_dirs": sorted({s["config_dir"] for s in group}),
             "output_tokens": sum(per), "median_output_tokens": int(statistics.median(per)) if per else 0,
             "max_output_tokens": max(per) if per else 0,
-            "models": dict(models.most_common(3)), "errors": sum(s["errors"] for s in group),
+            "models": tokens_by_model(group), "errors": sum(s["errors"] for s in group),
         })
     rows.sort(key=lambda r: (-r["output_tokens"], -r["runs"]))
     return rows
@@ -618,6 +627,8 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
             "background_sessions": len(background),
             "human_output_tokens": sum(sum(s["out"].values()) for s in human),
             "background_output_tokens": sum(sum(s["out"].values()) for s in background),
+            "human_output_by_model": tokens_by_model(human),
+            "background_output_by_model": tokens_by_model(background),
         },
         "sessions": human_rows(human, (last - first).days + 1),
         "background": background_rows(background),

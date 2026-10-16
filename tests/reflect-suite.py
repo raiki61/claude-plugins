@@ -143,15 +143,20 @@ class Sessions(unittest.TestCase):
     def test_tokens_count_each_reply_once(self):
         row = rf.human_rows(self.human)[0]
         self.assertEqual(row["output_tokens"], 150)
+        self.assertEqual(sum(row["output_by_model"].values()), 150)
         self.assertEqual(row["marks"], {"commit": 1, "push": 1})
         self.assertEqual(row["tools"], {"Bash": 1, "Read": 1})
+
+    def test_tokens_are_kept_apart_by_model(self):
+        s = {"out": {"a": 10, "b": 20, "c": 5}, "models": {"a": "m-big", "b": "m-small"}}
+        self.assertEqual(rf.tokens_by_model([s, s]), {"m-small": 40, "m-big": 20, "?": 10})
 
     def test_background_is_grouped_by_origin(self):
         rows = rf.background_rows(self.background)
         self.assertEqual(len(rows), 1)
         r = rows[0]
         self.assertEqual((r["runs"], r["output_tokens"], r["median_output_tokens"], r["max_output_tokens"]), (3, 60, 20, 30))
-        self.assertEqual(r["models"], {"m-small": 3})
+        self.assertEqual(r["models"], {"m-small": 60})
         self.assertEqual(r["cwd"], "/gate")
 
     def test_repeats_count_asks_and_commands_apart(self):
