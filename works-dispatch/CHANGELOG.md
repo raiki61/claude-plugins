@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-16
+
 ### Added
 
 - 部署を組み直す `--reorg`。部署（作業ごとの git worktree と裏の Claude Code の会話の組）の中から打ち、名前（`--name`）・役（`--role`）・常駐か都度か（`--resident`・`--per-task`）・上役（`--boss`。納品を返す会話）を付け替え、その部署の herdr の表示（ペインの名前・表示名・題名・札と作業場の名前）を付け直す。0.15.0 までは git の設定と herdr の命令で手で付け替えていた。会話の名前（Claude Code の `/rename`）は外から替える口が無いので替えず、その会話で打つ `/rename <名前>` を出す。
