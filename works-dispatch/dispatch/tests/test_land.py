@@ -651,10 +651,10 @@ class DryRun(LandCase):
 
     def test_the_entry_passes_dry_run_to_land(self):
         got = {}
-        with mock.patch.object(dispatch.config, "load", lambda *a: None), \
-                mock.patch.object(dispatch.config, "pick_repo", lambda cfg, r: "repo"), \
+        with mock.patch.object(dispatch.config, "load", lambda *a, **k: None), \
+                mock.patch.object(dispatch, "_department_repo", lambda cfg, r, ports, cwd: "repo"), \
                 mock.patch.object(dispatch.landing, "main", lambda *a, **k: got.update(k) or 0):
-            self.assertEqual(dispatch.main(["--land", "a", "--dry-run"], ports=object()), 0)
+            self.assertEqual(dispatch.main(["--land", "a", "--dry-run"], ports=type("P", (), {"cwd": lambda self: "/"})()), 0)
         self.assertTrue(got.get("dry_run"))
 
 
