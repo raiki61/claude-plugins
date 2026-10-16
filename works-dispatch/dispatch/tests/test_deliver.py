@@ -197,6 +197,33 @@ class Flow(unittest.TestCase):
     def prompts(self):
         return [w for w in self.ports.herdr.writes if w[0] == "prompt"]
 
+    def fall(self):
+        """部署の窓の会話が落ちた形（PC の再起動などで attach の窓が消え、ペインにはシェルだけが居る）。"""
+        for p in self.ports.herdr._panes:
+            if p["pane_id"] == self.window:
+                p["agent"] = None
+
+    def test_fallen_department_is_attached_again_and_the_ask_goes_through(self):
+        self.fall()
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        runs = [w for w in self.ports.herdr.writes if w[0] == "run"]
+        self.assertEqual(runs, [("run", self.window, "claude-a1 attach s-dept")])
+        self.assertIn("部署の窓に会話が居なかったので", out)
+        self.assertEqual(len(self.prompts()), 1)
+
+    def test_fallen_department_with_a_pending_ask_is_nudged_to_deliver(self):
+        # 落ちる前の頼みを納品していない部署: 戻して納品を促し、新しい頼みは送らずに止まる（待っても来ない、で止めない）
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "boss": "desk"}, gitx)
+        self.fall()
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("会話が落ちていたので戻して納品を促した", out)
+        [(_, pane, text, _)] = self.prompts()
+        self.assertEqual(pane, self.window)
+        self.assertIn("受付 20261016-000000-aaaaaa", text)
+        self.assertIn("--deliver", text)
+
     def test_ask_types_one_line_into_the_department_window_and_writes_the_ask(self):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)

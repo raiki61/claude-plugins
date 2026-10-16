@@ -1274,6 +1274,12 @@ def _init(a, ports):
         print(f"設定はもうある: {path}（上書きしない。足すなら手で書く）")
         return 1
     source = os.path.abspath(os.path.expanduser(a.source))
+    origin = ports.origin(source)
+    if origin != a.repo:
+        # --check も同じ所（元の clone が、このリポジトリの clone でない）で止まる。書く前に知らせる
+        print(f"止めた: --source の {source} は " + (f"origin が {origin} の clone で" if origin else "origin の在る git の clone でなく")
+              + f"、--repo の {a.repo} と合わない（--repo に origin の OWNER/NAME を渡すか、そのリポジトリの clone を --source に渡す）")
+        return 2
     local = [f for f in ports.git.ignored_files(source) if LOCAL_FILE.search(f)]
     second = os.path.join(os.path.dirname(path), "dispatch-second-prompt.md")
     home = ports.env.get("HOME") or os.path.expanduser("~")
@@ -1282,7 +1288,7 @@ def _init(a, ports):
     q = json.dumps
     lines = [
         "# works の dispatch の設定（--init が書いた下書き）。直したら --check で確かめる。",
-        "# 欄の意味: works-dispatch プラグインの README",
+        "# 欄の書き方: works-dispatch の skills/dispatch/SKILL.md の「初めて」と「アカウントの書き方」（前提の訳は docs/prerequisites.md）",
         "",
         "limit_percent = 95                      # 週か 5 時間の使用率がこれに達したアカウントは使わない",
         "# reset_soon_hours = 24                 # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（使わずに切り替わる分を無駄にしない）",
@@ -1290,7 +1296,8 @@ def _init(a, ports):
         "",
         "# アカウントを切り替えないなら accounts は書かない（claude を 1 つだけ使う）。",
         "# 切り替えるなら、名前・そのアカウントで Claude Code を起こすコマンド・そのコマンドが CLAUDE_CONFIG_DIR に入れるフォルダを並べる。",
-        "# 鍵を自分で決めた名前の Keychain の項目に置いたなら keychain_service、使用率の枠の無いアカウント（Ollama など）は limits = false:",
+        "# 鍵を自分で決めた名前の Keychain の項目に置いたなら keychain_service、使用率の枠の無いアカウント（Ollama など）は limits = false。",
+        "# CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて claude を起こす人も、そのフォルダを config_dir に書く（書かないと ~/.claude を見る）:",
         "# accounts = [",
         '#   { name = "main", command = "claude" },',
         '#   { name = "sub",  command = "<別のアカウントで起こすコマンド>", config_dir = "~/.claude-sub" },',

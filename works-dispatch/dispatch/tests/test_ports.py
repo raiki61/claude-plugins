@@ -479,7 +479,11 @@ class Claude(unittest.TestCase):
         os.symlink(real, link)
         f = self.trust_world({link: {"hasTrustDialogAccepted": True}})
         self.assertTrue(claudex.is_trusted(f, real))
-        self.assertEqual(claudex.inherit_trust(f, real, real + "-w"), "inherited")
+        # 部署の作業場の印は、記号のリンクを解いた形で書く（Claude Code は解いた形で引く。/tmp/… の鍵は効かなかった）
+        os.makedirs(real + "-w")
+        os.symlink(real + "-w", link + "-w")
+        self.assertEqual(claudex.inherit_trust(f, link, link + "-w"), "inherited")
+        self.assertIn(real + "-w", json.load(open(f))["projects"])
 
     def test_new_key_follows_the_separator_claude_code_wrote(self):
         self.assertEqual(claudex._key_like("C:/Users/dev/demo", "C:\\Users\\dev\\demo-w"), "C:/Users/dev/demo-w")

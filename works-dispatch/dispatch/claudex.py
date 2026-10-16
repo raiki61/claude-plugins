@@ -103,7 +103,9 @@ def inherit_trust(path_of_file, source, clone):
     mine, have = _project(projects, clone)
     if (have or {}).get("hasTrustDialogAccepted"):
         return "already"
-    key = mine or _key_like(found, clone)
+    # 新しく書く鍵は、記号のリンクを解いた形（Claude Code は解いた形で引く。macOS で /tmp/… の鍵は効かず、/private/tmp/… の
+    # 鍵は効いた。2026-10-16 に 2.1.301 で確かめた）を、Claude Code が書いた区切りに揃えて書く
+    key = mine or _key_like(found, os.path.realpath(clone))
     projects[key] = {**(have or {}), "hasTrustDialogAccepted": True}
     mode = os.stat(path_of_file).st_mode & 0o777
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path_of_file), prefix=".claude.json.")

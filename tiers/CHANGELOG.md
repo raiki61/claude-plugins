@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Fixed
+
+- 段 2 の「herdr の server が動いていない」に、どこの socket を見たか（`herdr status server` の `socket:` の行）を添える。HOME や設定の置き場が違うと、別の所の server を見ていることがある。
+
 ## [0.4.3] - 2026-10-16
 
 ### Fixed

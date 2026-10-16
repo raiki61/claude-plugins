@@ -165,6 +165,7 @@ def check_gh(probe):
 
 
 RUNNING = re.compile(r"^\s*status:\s*running\s*$", re.M)
+SOCKET = re.compile(r"^\s*socket:\s*(\S.*)$", re.M)   # herdr status server が出す、見た socket の行
 
 
 def herdr_link_guide(os_key):
@@ -242,7 +243,11 @@ def check_herdr(probe, launchers):
         if code == 0 and RUNNING.search(text):
             out.append(_item(2, "herdr の動き", found="herdr の server が動いている"))
         else:
-            out.append(_item(2, "herdr の動き", problem=f"herdr の server が動いていない: {_first_line(text)[:200]}",
+            # どこの socket を見たか（herdr status server の「socket:」の行）を添える。HOME や XDG_CONFIG_HOME が違うと、別の
+            # 置き場の server を見ていることがある（まっさらな環境での 1 回目の試しの 8）
+            sock = SOCKET.search(text or "")
+            where = f"（見た socket: {sock.group(1).strip()}）" if sock else ""
+            out.append(_item(2, "herdr の動き", problem=f"herdr の server が動いていない{where}: {_first_line(text)[:200]}",
                              fix=["作業するフォルダで herdr を起こす: herdr"], guide=herdr_start_guide(os_key)))
     for cmd in launchers:
         if probe.shell_has(cmd):

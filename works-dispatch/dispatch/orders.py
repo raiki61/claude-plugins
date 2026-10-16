@@ -29,7 +29,7 @@ try:
     import config  # noqa: E402
     import gitx  # noqa: E402
     import herdr  # noqa: E402
-    from nodes import deliver, provision, role, tree  # noqa: E402
+    from nodes import deliver, launch, provision, role, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
@@ -99,6 +99,48 @@ def shape_role(root, settings, name):
     return shape["roles"].get(name), info["notes"] + shape["problems"]
 
 
+# 落ちた部署の会話を attach で戻した後、窓に会話が出るのを見る回数（1 回ごとに ports.pause）
+REVIVE_LOOKS = 20
+
+
+def revive(dept, accounts_, ports):
+    """部署の窓に会話が居ない（PC やサーバーの再起動で attach の窓が落ちたなど）とき、部署の属性の会話の id で、部署のペインに
+    `<アカウントのコマンド> attach <id>` を打ち、窓に会話が戻るのを見る。裏の会話は落ちても記録が残り、attach で前の続きから
+    戻る（まっさらな環境での 5 回目の試しの 1。Windows で確かめた）。(戻ったペインか None, 言葉)。"""
+    sid = dept["attrs"].get("session")
+    acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+    command = f"{acc.command if acc else 'claude'} attach {sid}"
+    if not sid:
+        return None, "部署の属性に会話の id（company.session）が無いので戻せない（部署を立て直す）"
+    try:
+        pane = next((p["pane_id"] for p in dept["panes"] if ports.herdr.shell_in_front(p["pane_id"])), None)
+    except herdr.HerdrError as e:
+        pane = None
+        why = str(e)
+    else:
+        why = "部署の作業場が herdr に開いていない" if not dept["panes"] else "部署のペインの前にシェルが居ない"
+    if pane is None:
+        return None, f"部署の会話を戻せなかった（{why}）。部署の作業場のペインで {command} を打って戻す"
+    got = launch.attach({"account": {"command": acc.command if acc else "claude"}}, pane, sid, ports.herdr)
+    if got["status"] != "attached":
+        return None, f"部署の会話を戻せなかった（{got['detail']}）。部署のペイン {pane} で {command} を打って戻す"
+    for look in range(REVIVE_LOOKS):
+        if look:
+            ports.pause()
+        try:
+            if (ports.herdr.agent(pane) or {}).get("agent"):
+                return pane, f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
+        except herdr.HerdrError:
+            pass
+    return None, f"ペイン {pane} で {command} を打ったが、窓に会話が戻らない（画面を見て、会話が戻ったら --ask を打ち直す）"
+
+
+def nudge_line(held, boss):
+    """戻した部署に、落ちる前の頼みの納品を促す 1 行。"""
+    return (f"再開の知らせです: この会話は落ちて戻った。受付 {held}（{boss or '頼み元'} から）の頼みをまだ納品していない。"
+            "済んでいれば要約を納品の命令（--deliver）で返し、途中なら続けてから返す。")
+
+
 def ask(a, ports, cwd, task):
     """--ask。task は dispatch._task（部署を立てる道）。終了の値を返す。"""
     if bool(a.text) == bool(a.brief):
@@ -116,7 +158,7 @@ def ask(a, ports, cwd, task):
         print(f"止めた: 頼む会話の場所 {cwd} が git でないので、受付箱を置けない（会社の本社か部署の場所から頼む）")
         return 2
     try:
-        cfg, _, sessions_, _, companies, settings, notes = survey(a.config, ports)
+        cfg, accounts_, sessions_, _, companies, settings, notes = survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task)
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
@@ -142,18 +184,32 @@ def ask(a, ports, cwd, task):
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if dept is not None:
         held = dept["attrs"].get("ask")
-        if held and dept["attrs"].get("delivered") != held:
+        pending = held and dept["attrs"].get("delivered") != held
+        pane, revived = deliver.window(dept), False
+        if pane is None and not a.dry_run:
+            # 窓に会話が居ない: 部署の会話が落ちた（PC やサーバーの再起動など）。attach で前の続きから戻す
+            pane, said = revive(dept, accounts_, ports)
+            notes.append(said)
+            revived = pane is not None
+        if pane is None:
+            print("\n".join(notes + [f"止めた: 宛先の部署 {where}（{dept['branch']}）の窓に会話が居ない"
+                                     + ("（--dry-run なので戻さない。--dry-run を外すと、部署のペインで attach を打って戻す）"
+                                        if a.dry_run else "")]))
+            return 1
+        if pending:
             # 部署は頼みを 1 つずつ受ける（頼み元の属性は 1 組なので、上書きすると前の頼み元に納品が返らない）
+            if revived:
+                status, detail = deliver.send(pane, nudge_line(held, dept["attrs"].get("boss")), ports.herdr)
+                notes.append(f"戻した部署に、受付 {held} の納品を促した（{status}" + (f"。{detail}" if detail else "") + "）")
+                print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
+                                         "まだ納品していない。会話が落ちていたので戻して納品を促した。納品が届いてから頼み直す"]))
+                return 2
             print("\n".join(notes + [f"止めた: 宛先の部署 {where} は受付 {held}（頼み元 {dept['attrs'].get('boss') or '-'}）を"
-                                     "まだ納品していない。納品を待つか、別の部署に頼む"]))
+                                     "まだ納品していない。納品を待つか、別の部署に頼む（部署の会話が動いていないなら、部署の窓で"
+                                     "続きを頼む）"]))
             return 2
         if a.task or a.branch:
             notes.append(f"宛先の部署 {where} は立っているので、--task・--branch は使わない")
-        pane = deliver.window(dept)
-        if pane is None:
-            print("\n".join(notes + [f"止めた: 宛先の部署 {where}（{dept['branch']}）の窓に会話が居ない"
-                                     "（--sync で付け直すか、部署を開き直す）"]))
-            return 1
         if a.dry_run:
             line = deliver.ask_line(ask_id, sender, body, os.path.join(inbox, f"{ask_id}-ask.md"), required, RUN)
             print("\n".join(notes + [f"頼む先: {where}  ペイン {pane}", f"打ち込む 1 行: {line}",

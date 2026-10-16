@@ -202,5 +202,13 @@ class RealProbe(unittest.TestCase):
         self.assertIn("Get-Command -Name 'claude-o''p'", calls[-1][-1])
 
 
+
+class HerdrSocket(unittest.TestCase):
+    def test_not_running_names_the_socket_it_looked_at(self):
+        text = "server:\n  status: not running\n  socket: /tmp/h/.config/herdr/herdr.sock\n"
+        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, text)}))
+        [item] = [x for x in r["checks"] if x["name"] == "herdr の動き"]
+        self.assertIn("見た socket: /tmp/h/.config/herdr/herdr.sock", item["problem"])
+
 if __name__ == "__main__":
     unittest.main()

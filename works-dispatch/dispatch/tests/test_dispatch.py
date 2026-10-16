@@ -824,6 +824,15 @@ class Init(unittest.TestCase):
         self.assertEqual(repo.copy_files, ("frontend/.env.local",))
         self.assertTrue(pathlib.Path(self.cfg).with_name("dispatch-second-prompt.md").is_file())
         self.assertIn("--check", out)
+        text = pathlib.Path(self.cfg).read_text(encoding="utf-8")
+        self.assertIn("skills/dispatch/SKILL.md", text.splitlines()[1])   # 欄の書き方は SKILL.md に在る（README でない）
+        self.assertIn("CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて", text)
+
+    def test_repo_that_is_not_the_origin_of_the_source_stops_before_writing(self):
+        rc, out = run_main(["--config", self.cfg, "--init", "--repo", "o/other", "--source", self.src], FakePorts([]))
+        self.assertEqual(rc, 2)
+        self.assertIn("origin が o/r の clone で、--repo の o/other と合わない", out)
+        self.assertFalse(pathlib.Path(self.cfg).exists())
 
     def test_never_overwrites_an_existing_config(self):
         run_main(["--config", self.cfg, "--init", "--repo", "o/r", "--source", self.src], FakePorts([]))
