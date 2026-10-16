@@ -8,7 +8,8 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
 すること:
 1. アカウントごとに（works-dispatch の設定の accounts と、手元の設定 `~/.config/claude-plugins/spread.toml` の accounts。
    設定のフォルダ config_dir ごとに Claude Code を起こす）、`claude plugin marketplace update <このリポジトリの marketplace>`
-   を打ち、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。works-dispatch の設定に載るのは
+   を打ち、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
+   消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
    部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
@@ -17,7 +18,7 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
 3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）に置く。持ち主の値を配布物に書かない。
 
 使い方: python3 scripts/spread-plugins.py < 入力の JSON（省けば {}）
-終了の値: 0 = 配った（飛ばした会話は数えない）/ 1 = 失敗が在る / 2 = 入力か設定が読めない
+終了の値: 0 = 配った（飛ばした会話は数えない）/ 1 = 失敗が在る（失敗の行を出力の終わりに並べ直す）/ 2 = 入力か設定が読めない
 """
 
 import json
@@ -78,29 +79,87 @@ def claude_env(config_dir, env=os.environ):
     return out
 
 
-def update_account(name, config_dir, market, dry, runner=run):
-    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の数)。"""
-    env = claude_env(config_dir)
-    lines, bad = [], 0
-    steps = [["claude", "plugin", "marketplace", "update", market]]
+def mend_clone(name, market, env, dry, runner=run):
+    """その設定のフォルダの marketplace の clone で、作業ツリーから消えた tracked のファイルを index から戻す。行の並び。
+    clone のやり直しが途中で切れると、作業ツリーが欠けたまま marketplace update は済になり、その後の plugin update は
+    欠けた写しを入れるか（plugin.json の無い写しは版でなく commit の名前の版で入る）「destination is empty after copy」で
+    失敗する（2026-10-17 に p2 で実測）。marketplace update は欠けを戻さないので、ここで戻す。"""
+    code, out = runner(["claude", "plugin", "marketplace", "list", "--json"], env)
+    try:
+        loc = next((m.get("installLocation") for m in json.loads(out) if isinstance(m, dict) and m.get("name") == market),
+                   None) if code == 0 else None
+    except ValueError:
+        loc = None
+    if not loc:
+        return []   # 戻せないときも、入った写しの検査（update_account）が欠けを失敗に数える
+    code, out = runner(["git", "-C", loc, "ls-files", "--deleted"])
+    gone = out.splitlines() if code == 0 else []
+    if not gone:
+        return []
+    what = f"{name}: marketplace の clone の作業ツリーに {len(gone)} 個のファイルが無いので戻す"
+    if dry:
+        return [what + "（空打ち）"]
+    code, out = runner(["git", "-C", loc, "checkout", "--", "."])
+    return [what + (" 済" if code == 0 else f" 失敗（{out.strip()[:200]}）")]
+
+
+def installed_ids(name, market, env, runner=run):
+    """(入っているこの marketplace のプラグインの {id: 入った場所}, 読めなかったときの行か None)。user の scope の物だけ。"""
     code, out = runner(["claude", "plugin", "list", "--json"], env)
     try:
-        installed = json.loads(out) if code == 0 else []
+        got = json.loads(out) if code == 0 else None
     except ValueError:
-        installed = []
-    if code != 0:
-        lines.append(f"{name}: 入っているプラグインを読めない（{out.strip()[:200]}）")
-        bad += 1
-    ids = sorted({p["id"] for p in installed if isinstance(p, dict) and str(p.get("id", "")).endswith("@" + market)
-                  and p.get("scope", "user") == "user"})
-    steps += [["claude", "plugin", "update", i] for i in ids]
-    for argv in steps:
+        got = None
+    if not isinstance(got, list):
+        return {}, f"{name}: 入っているプラグインを読めない（{out.strip()[:200]}）"
+    return {p["id"]: p.get("installPath") for p in got if isinstance(p, dict) and str(p.get("id", "")).endswith("@" + market)
+            and p.get("scope", "user") == "user"}, None
+
+
+def update_account(name, config_dir, market, dry, runner=run):
+    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び)。
+    「済」と出すのは、入った写しに .claude-plugin/plugin.json が在るときだけ（欠けた写しを済と数えない）。"""
+    env = claude_env(config_dir)
+    lines, bad = [], []
+
+    def note(line, failed):
+        lines.append(line)
+        if failed:
+            bad.append(line)
+
+    argv = ["claude", "plugin", "marketplace", "update", market]
+    if dry:
+        note(f"{name}: {' '.join(argv)}（空打ち）", False)
+    else:
+        code, out = runner(argv, env)
+        note(f"{name}: {' '.join(argv)} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"), code != 0)
+    for line in mend_clone(name, market, env, dry, runner):
+        note(line, "失敗（" in line)
+    ids, err = installed_ids(name, market, env, runner)
+    if err:
+        note(err, True)
+    done = []
+    for i in sorted(ids):
+        argv = ["claude", "plugin", "update", i]
         if dry:
-            lines.append(f"{name}: {' '.join(argv)}（空打ち）")
+            note(f"{name}: {' '.join(argv)}（空打ち）", False)
             continue
         code, out = runner(argv, env)
-        lines.append(f"{name}: {' '.join(argv)} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"))
-        bad += code != 0
+        if code != 0:
+            note(f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
+        else:
+            done.append(i)
+    if done:
+        after, err = installed_ids(name, market, env, runner)
+        for i in done:
+            head = f"{name}: claude plugin update {i} "
+            where = after.get(i)
+            if err:
+                note(head + "失敗（入った写しを確かめられない）", True)
+            elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
+                note(head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
+            else:
+                note(head + "済", False)
     return lines, bad
 
 
@@ -128,13 +187,14 @@ def input_empty(screen):
 
 
 def reload_talks(skip, dry, runner=run):
-    """部署と窓口の会話に /reload-plugins を打つ。(行の並び, 失敗の数)。"""
+    """部署と窓口の会話に /reload-plugins を打つ。(行の並び, 失敗の行の並び)。"""
     try:
         labels = {w["workspace_id"]: w.get("label") for w in herdr_json(["workspace", "list"], runner).get("workspaces", [])}
         panes = herdr_json(["pane", "list"], runner).get("panes", [])
     except (RuntimeError, ValueError) as e:
-        return [f"herdr を読めない（{e}）"], 1
-    lines, bad = [], 0
+        line = [f"herdr を読めない（{e}）"]
+        return line, line
+    lines, bad = [], []
     for p in panes:
         if p.get("agent") != "claude" or not p.get("cwd"):
             continue
@@ -147,7 +207,7 @@ def reload_talks(skip, dry, runner=run):
         code, screen = runner(["herdr", "pane", "read", p["pane_id"], "--lines", "40"])   # 画面の字がそのまま出る
         if code != 0:
             lines.append(f"{where}: 画面を読めない（{screen.strip()[:200]}）")
-            bad += 1
+            bad.append(lines[-1])
             continue
         if not input_empty(screen):
             lines.append(f"{where}: 入力欄に字が在るので飛ばす")
@@ -157,7 +217,8 @@ def reload_talks(skip, dry, runner=run):
             continue
         code, out = runner(["herdr", "agent", "prompt", p["pane_id"], RELOAD])
         lines.append(f"{where}: {RELOAD} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"))
-        bad += code != 0
+        if code != 0:
+            bad.append(lines[-1])
     return lines, bad
 
 
@@ -172,15 +233,16 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as e:
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2
-    lines, bad = [], 0
+    lines, bad = [], []
     for name, config_dir in accs:
-        got, n = update_account(name, config_dir, market, dry, runner)
+        got, fails = update_account(name, config_dir, market, dry, runner)
         lines += got
-        bad += n
-    got, n = reload_talks(skip, dry, runner)
+        bad += fails
+    got, fails = reload_talks(skip, dry, runner)
     lines += got
-    bad += n
-    print("\n".join(lines + [f"失敗 {bad} 件" if bad else "配った"]))
+    bad += fails
+    # 失敗の行は終わりに並べ直す（works-dispatch が作業に回す頼みには出力の終わりしか載らない）
+    print("\n".join(lines + ([f"失敗 {len(bad)} 件:"] + [f"- {x}" for x in bad] if bad else ["配った"])))
     return 1 if bad else 0
 
 

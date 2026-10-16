@@ -2263,7 +2263,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=675
+EXPECTED_CHECKS=677
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4285,6 +4285,12 @@ expect_output 0 "FAILURE_IS_NONZERO_OK" \
 expect_output 0 "LOCAL_ACCOUNTS_OK" \
     "spread-plugins: 手元の設定の accounts（部署を起こさないアカウント）にも配り、同じ設定のフォルダは 1 回だけ" \
     "$PY_BIN" "$SPREAD_CASE" local-accounts
+expect_output 0 "BROKEN_COPY_OK" \
+    "spread-plugins: 更新が 0 で終わっても入った写しに plugin.json が無ければ失敗に数え、失敗の行を出力の終わりに並べ直す" \
+    "$PY_BIN" "$SPREAD_CASE" broken-copy
+expect_output 0 "MEND_CLONE_OK" \
+    "spread-plugins: marketplace の clone の作業ツリーから消えたファイルを、プラグインの更新の前に戻す" \
+    "$PY_BIN" "$SPREAD_CASE" mend-clone
 
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える

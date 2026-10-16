@@ -6,6 +6,8 @@
   設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
 - local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
+- broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無ければ失敗に数え、失敗の行を出力の終わりに並べ直す
+- mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
 """
 
 import importlib.util
@@ -31,9 +33,18 @@ TYPED = f"{RULE}\n❯ 打ちかけ\n{RULE}\n"
 MARKET = sp.marketplace_name()
 
 
-def world(fail=()):
-    """(runner, 打った命令の並び)。"""
+def plugin_dir(whole=True):
+    d = pathlib.Path(tempfile.mkdtemp())
+    if whole:
+        (d / ".claude-plugin").mkdir()
+        (d / ".claude-plugin" / "plugin.json").write_text("{}", encoding="utf-8")
+    return str(d)
+
+
+def world(fail=(), installed=None, gone=""):
+    """(runner, 打った命令の並び)。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。"""
     calls = []
+    installed = installed or plugin_dir()
     panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "cwd": "/dept"},
              {"pane_id": "b:1", "workspace_id": "b", "agent": "claude", "cwd": "/mine"},
              {"pane_id": "c:1", "workspace_id": "c", "agent": "claude", "cwd": "/typed"},
@@ -44,8 +55,11 @@ def world(fail=()):
     def runner(argv, env=None):
         calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
         if argv[:3] == ["claude", "plugin", "list"]:
-            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user"}, {"id": "x@other", "scope": "user"},
-                                  {"id": f"p@{MARKET}", "scope": "project"}])
+            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user", "installPath": installed},
+                                  {"id": "x@other", "scope": "user"}, {"id": f"p@{MARKET}", "scope": "project"}])
+        if argv[:4] == ["claude", "plugin", "marketplace", "list"]:
+            return 0, json.dumps([{"name": "other", "installLocation": "/m/other"},
+                                  {"name": MARKET, "installLocation": "/m/mine"}])
         if argv[:1] == ["claude"]:
             return (1, "network") if " ".join(argv) in fail else (0, "")
         if argv[:3] == ["herdr", "workspace", "list"]:
@@ -55,6 +69,10 @@ def world(fail=()):
         if argv[:3] == ["herdr", "pane", "read"]:
             return 0, TYPED if argv[3] == "c:1" else EMPTY
         if argv[:3] == ["herdr", "agent", "prompt"]:
+            return 0, ""
+        if argv[:4] == ["git", "-C", "/m/mine", "ls-files"]:
+            return 0, gone
+        if argv[:4] == ["git", "-C", "/m/mine", "checkout"]:
             return 0, ""
         if argv[:1] == ["git"]:
             return (0, "作業\n") if argv[2] in ("/dept", "/typed", "/skipped") else (1, "")
@@ -107,6 +125,33 @@ def local_accounts():
     print("LOCAL_ACCOUNTS_OK")
 
 
+def broken_copy():
+    runner, _ = world(installed=plugin_dir(whole=False))
+    rc, out = run(runner, {})
+    assert rc == 1, (rc, out)
+    tail = out.strip().splitlines()
+    assert tail[-3] == "失敗 2 件:" and all(x.startswith("- ") and "plugin.json が無い" in x for x in tail[-2:]), out
+    assert f"claude plugin update a@{MARKET} 済" not in out, out
+    print("BROKEN_COPY_OK")
+
+
+def mend_clone():
+    runner, calls = world(gone="attention/README.md\ntiers/README.md\n")
+    rc, out = run(runner, {})
+    assert rc == 0, out
+    seq = [a for a, _ in calls if a[:1] == ["git"] and a[2] == "/m/mine" or a[:3] == ["claude", "plugin", "update"]]
+    assert seq[:3] == [["git", "-C", "/m/mine", "ls-files", "--deleted"], ["git", "-C", "/m/mine", "checkout", "--", "."],
+                       ["claude", "plugin", "update", f"a@{MARKET}"]], seq   # 戻してから更新する
+    assert "main: marketplace の clone の作業ツリーに 2 個のファイルが無いので戻す 済" in out, out
+    runner, calls = world()
+    run(runner, {})
+    assert not [a for a, _ in calls if a[:4] == ["git", "-C", "/m/mine", "checkout"]], calls   # 欠けが無ければ触らない
+    runner, calls = world(gone="a\n")
+    rc, out = run(runner, {"dry_run": True})
+    assert rc == 0 and "無いので戻す（空打ち）" in out and not [a for a, _ in calls if "checkout" in a], out
+    print("MEND_CLONE_OK")
+
+
 if __name__ == "__main__":
     {"only-company-talks": only_company_talks, "failure-is-nonzero": failure_is_nonzero,
-     "local-accounts": local_accounts}[sys.argv[1]]()
+     "local-accounts": local_accounts, "broken-copy": broken_copy, "mend-clone": mend_clone}[sys.argv[1]]()
