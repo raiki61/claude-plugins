@@ -15,7 +15,9 @@ import ast
 import importlib.util
 import io
 import os
+import shutil
 import sys
+import tempfile
 
 gate_path = os.path.join(os.path.dirname(__file__), "..", "gates", "hooks", "coldread-gate.py")
 spec = importlib.util.spec_from_file_location("coldread_gate", gate_path)
@@ -118,6 +120,9 @@ WRAPPER_CASES = [
     ("exec", "exec gh issue comment 1 --body %s" % TEXT),
     ("nohup", "nohup gh issue comment 1 --body %s" % TEXT),
     ("time", "time gh issue comment 1 --body %s" % TEXT),
+    # timeout は時間の値(位置引数 1 つ)と -s・-k の値を読み飛ばす(読み飛ばさないと gh が見えず素通しだった)
+    ("timeout", "timeout -s KILL -k 5 180 gh issue comment 1 --body %s" % TEXT),
+    ("gtimeout", "gtimeout --signal=TERM 2m gh issue comment 1 --body %s" % TEXT),
 ]
 # シェルの予約語 1 メンバー = ここ 1 行。( gh … ) は元から網に入るのに { gh …; } は抜ける、
 # という「書き方だけで片方が抜ける」状態だったので、全メンバーを実際に発火させて突合する
@@ -152,6 +157,18 @@ QUIET = [
     ("gh api graphql -f query='query { repository { name } }' # %s" % PAD, "graphql の読み取り"),
 ]
 
+# 本文ファイルの倒れ先を発火させる実物のファイル(一時フォルダに置き、終わりに消す)
+_tmp = tempfile.mkdtemp()
+OK_FILE = os.path.join(_tmp, "ok.md")
+BIG = os.path.join(_tmp, "big.md")
+LATIN = os.path.join(_tmp, "latin.md")
+with open(OK_FILE, "w", encoding="utf-8") as f:
+    f.write(BODY + PAD)
+with open(BIG, "w", encoding="utf-8") as f:
+    f.write("x" * (gate.MAX_LEN + 1))
+with open(LATIN, "wb") as f:
+    f.write(b"\xff\xfe not utf-8 " + PAD.encode())
+
 # 倒れ先 1 つ = ここ 1 行。実装の blocked.append の文言集合と一致することを下で検査する。
 # 「本文旗の値を判定できない」は表に知らない種別が入ったときの唯一の倒れ先なので、
 # 検査用の旗を一時的に表へ挿して発火させる(下の PATCH_FLAG)。
@@ -163,14 +180,21 @@ BLOCKED_CASES = [
     # 肩代わりして deny になるので、分岐を消しても気付けない(5 巡目に変異で実測)
     ("別プロセスからの stdin 渡し",
      "cat /tmp/p.json | gh api repos/o/r/issues/1/comments --input - # %s" % PAD),
-    ("実ファイル指定", "gh issue comment 1 --body-file /tmp/real.md # %s" % PAD),
+    ("実ファイル指定", "gh gist create /tmp/real.md # %s" % PAD),
+    ("本文ファイルを読めない", "gh issue comment 1 --body-file /no/such/dir/real.md # %s" % PAD),
+    ("本文ファイルが通常のファイルでない", "gh issue comment 1 --body-file / # %s" % PAD),
+    ("本文ファイルが上限より大きい", "gh issue comment 1 --body-file %s # %s" % (BIG, PAD)),
+    ("本文ファイルが UTF-8 でない", "gh issue comment 1 --body-file %s # %s" % (LATIN, PAD)),
+    ("本文ファイルのパスが決まらない", "gh issue comment 1 --body-file rel/body.md # %s" % PAD),
+    ("本文ファイルを同じコマンドの中で書き換えうる",
+     "cp /tmp/a %s && gh issue comment 1 --body-file %s # %s" % (OK_FILE, OK_FILE, PAD)),
     ("変数・コマンド置換渡し", 'gh issue comment 1 --body "$BODY" # %s' % PAD),
     ("JSON として読めない --input",
      "gh api repos/o/r/issues/1/comments --input - <<'EOF'\n{\"body\": ここは JSON でない %s\nEOF" % PAD),
     ("JSON の本文の位置を特定できない",
      "gh api -X PUT /repos/o/r/actions/secrets/K --input - <<'EOF'\n{\"encrypted_value\": \"%s\"}\nEOF" % PAD),
     ("graphql mutation の本文を取り出せない",
-     "gh api graphql -f query='mutation { addComment(input:{body: \"%s\"}) }'" % PAD),
+     "gh api graphql -f query='mutation($b: String!) { addComment(input:{body: $b}) { x } }' # %s" % PAD),
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
 ]
 
@@ -231,12 +255,14 @@ for command, why in POSTING + [(c, str(k)) for k, c in WRAPPER_CASES + RESERVED_
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (why, blocked, parsed))
 
-# 門番が発火する前置では、逃げ道 COLDREAD_SKIP=1 も必ず効かなければならない。片方だけ効くと、
-# ゲートに止められた人が案内どおり書いても通せない(予約語を gh_args にだけ足したとき実際にそうなった)。
-# 前置の読み飛ばしを simple_commands の 1 箇所に寄せてあることを、表の全メンバーで縛る
+# 逃げ道 COLDREAD_SKIP=1 はエージェントに使わせない(持ち主の判断 2026-10-16)。どの前置の形で書かれても、
+# 本文は今までどおり拾われる(書いた事実の記録に使う wants_skip も同じ前置を読む)
 for _key, command in WRAPPER_CASES + RESERVED_CASES:
-    if not gate.wants_skip(command.replace("gh ", "COLDREAD_SKIP=1 gh ", 1)):
-        failures.append("%s: 門番は発火するのに逃げ道が効かない" % _key)
+    skipped = command.replace("gh ", "COLDREAD_SKIP=1 gh ", 1)
+    if not bodies_of(skipped)[0]:
+        failures.append("%s: 逃げ道を前置すると本文を拾えない" % _key)
+    if not gate.wants_skip(skipped):
+        failures.append("%s: 逃げ道を書いた事実を読めない" % _key)
 
 # 素通しであるべき形
 for command, why in QUIET + [(c, str(k)) for k, c in NOT_BODY_CASES + NON_POSTING_CASES]:
@@ -245,15 +271,14 @@ for command, why in QUIET + [(c, str(k)) for k, c in NOT_BODY_CASES + NON_POSTIN
         failures.append("%s: 素通しのはずが反応した (bodies=%s blocked=%s)"
                         % (why, [len(b) for b in bodies], blocked))
 
-# graphql の mutation からは本文候補を取り出さない。取り出すと body 以外のフィールドに
-# 書かれた値(ID・トークン・設定値)まで読み役へ渡る。deny になるかどうかでは検出できない
-# ——mutation は一律で止まるので、抽出を戻しても deny のままになる(5 巡目に変異で実測)
+# graphql の mutation からは body: の欄の値だけを取り出す。丸ごと取り出すと body 以外のフィールドに
+# 書かれた値(ID・トークン・設定値)まで読み役へ渡る。deny になるかどうかでは検出できないので、候補の中身を見る
 SECRET = "DB_PASSWORD=hunter2"
 MUTATION = ("gh api graphql -f query='mutation { u(input:{subjectId: \"\"\"%s%s\"\"\", "
             "body: \"\"\"%s\"\"\"}) }'" % (SECRET, PAD, BODY))
 mutation_candidates = gate.posting_bodies(MUTATION)[0]
-if mutation_candidates:
-    failures.append("graphql mutation から本文候補を取り出している(非 body の値が読み役へ渡る) — %s"
+if any(SECRET in c for c in mutation_candidates) or not any(BODY in c for c in mutation_candidates):
+    failures.append("graphql mutation から body: の欄だけを取り出していない(非 body の値が読み役へ渡るか、本文を落とす) — %s"
                     % [c[:40] for c in mutation_candidates])
 
 # 倒れ先: 理由ごとに、その理由で実際に止まることを確かめる
@@ -265,6 +290,7 @@ try:
             failures.append("倒れ先 %r で止まらない (blocked=%s parsed=%s)" % (reason, blocked, parsed))
 finally:
     del gate.LONG_TEXT_FLAGS[PATCH_FLAG]
+    shutil.rmtree(_tmp, ignore_errors=True)
 
 if failures:
     for f in failures:

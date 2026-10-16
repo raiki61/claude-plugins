@@ -12,9 +12,10 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 構造的に無い(自動の振る舞いはフックが実行する、の原則)。再実行のたびに新しい
 読み手が直後の本文を読むため、「毎回新規の読み役」も機械が保証する。
 
-逃げ道は COLDREAD_SKIP=1 の 1 本(記録が残る)。読み役が起動できないときも
-deny + 逃げ道の案内にする(投稿不能にはならない)。連続 3 回 deny されたら、
-残る指摘の採否を判断して skip してよい旨を案内する(初見指摘は読み手ごとに揺れ、
+エージェントが自分で検査を外す逃げ道は無い(持ち主の判断 2026-10-16。前の COLDREAD_SKIP=1 は、本文ファイルの
+書き直しを避けて未検査のまま出す口に 22 回使われた。今は書かれていても効かせず、書いた事実だけを記録する)。
+読み役が起動できないときも止める。同じ投稿が STREAK_CAP 回(3)続けて止められたら、それ以上は書き直させず、
+持ち主に渡して止まらせ、stuck.log に残す(初見指摘は読み手ごとに揺れ、
 完全収束しないため。firstread-loop と同じ知見。2026-09-07 の試走: 画面を広げた後でも、
 3,693 字の実物の返信が 3 回とも別の詰まり 1〜2 件で止まり——4:27/7:40=58% を「計算が合わない」
 と読む等——10,179 字版は 3 回中 1 回通った。揺れは画面の広さでは消えない。揺れの中身は
@@ -66,25 +67,26 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
 識別子を全部詰まりに出す側へ寄る(2026-09-06 に実測: 素の起動では利用者の CLAUDE.md の
 見出しをそのまま引用した。空にすると NONE)。
 
-記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 3 本:
-  denies.log  allow / deny / skip の別(deny はタブ区切りで種別も。maxlen・parse-fail・
-              blocked・reader-down・finding)。finding と allow には本文の長さと読み方
+記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 4 本:
+  denies.log  allow / deny の別(deny はタブ区切りで種別も。maxlen・parse-fail・
+              blocked・reader-down・reader-shape・finding・cap)。finding と allow には本文の長さと読み方
               (screen=画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
-              どれだけ膨れたかを書き手に示すため。各行の末尾に sid=(session id の先頭 8 字)
-              v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)
-  skip.log    逃げ道を使った投稿のコマンド先頭 200 字
-  misses.log  本文旗の綴りが在るのに候補も blocked も空だった素通し=網から落ちた疑い。
-              「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
+              どれだけ膨れたかを示すため。blocked には止めた理由(why=)が付く。各行の末尾に sid=(session id の先頭 8 字)
+              v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)、本文を読んだ deny には
+              fp=(本文の指紋。本文を写さずに、同じ投稿の書き直しかを比べる)
+  skip.log    効かせなかった逃げ道(refused)と、読み役の中で発火した呼び出しのコマンド先頭
+  misses.log  本文旗の綴りが在るのに候補も blocked も空だった単純コマンドの、旗の綴りと先頭の語
+              =網から落ちた疑い。「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
+  stuck.log   往復の上限に当たった投稿の、会話・版・宛先の種類・止めた回数と理由の並び・本文の長さの並び
+              (本文は写さない)。関所か書き方のどちらかがおかしい合図なので、後で直す材料にする
 
 環境変数:
-  COLDREAD_SKIP=1            この 1 回だけゲートを通す(記録が残る)
   COLDREAD_READER_CMD        読み役コマンドの差し替え(POSIX sh 文字列として sh -c 実行。stdin に依頼文+本文)。テスト用
   COLDREAD_GH_CMD            画面(投稿先のスレッド)を取る gh の差し替え(POSIX sh 文字列として
                              sh -c 実行。$1 以降に gh の引数列)。テスト用
   COLDREAD_MODEL             既定 sonnet
   COLDREAD_EFFORT            既定 medium
   (手元の文書の読み手の環境変数 COLDREAD_DOC_* は、下の「手元の文書」の節の冒頭)
-  COLDREAD_MIN_LEN           これ未満のコマンドは素通し。既定 400
   COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny。既定 100000
   COLDREAD_IN_READER=1       読み役の中であることの印(自動で付く)。入れ子の再発火を防ぐ
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
@@ -97,6 +99,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -118,7 +121,7 @@ STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")
 MISS_LOG = os.path.join(STATE_DIR, "misses.log")
-MIN_LEN = int(os.environ.get("COLDREAD_MIN_LEN", "400"))
+STUCK_LOG = os.path.join(STATE_DIR, "stuck.log")
 # 上限。これを超える文字列は正規表現の後方追跡(HEREDOC_RE)が重くなりうるので解析せず deny
 MAX_LEN = int(os.environ.get("COLDREAD_MAX_LEN", "100000"))
 READER_TIMEOUT = 210
@@ -138,8 +141,13 @@ DENY_STREAK_WINDOW = 30 * 60
 # デリミタは引用の有無(' か " か無し)と . - を許し、<<- の字下げ終端も拾う。
 # 行末は \r?\n。コマンド文字列が CRLF で届くと \n 固定では開始行も終端行もマッチせず、
 # 正しく書いたヒアドキュメントが「stdin 渡し」という嘘の理由で止まる(実測)。
+# 開始行の区切りの後ろには、同じ行で旗やパイプが続きうる(`<<'J' -q .html_url`・`<<'EOF' | tail`)。
+# 区切りの直後に改行を求めていた頃は、この形を見落として「別プロセスからの stdin」で止めていた(33 件)。
+# 続きは群 3 に取って解析用の文字列に残す(旗もパイプも gh の引数列と区切りとして読む)。区切りの直後に
+# 区切りの字が続かないこと((?!…))を求めるのは、`<<EOFX` を区切り EOF と続き X に割らないため。
 HEREDOC_RE = re.compile(
-    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1\r?\n(.*?)\r?\n[ \t]*\2(?:\r?\n|\r?$)""", re.S
+    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1(?![A-Za-z0-9_.-])([^\r\n]*)\r?\n(.*?)\r?\n[ \t]*\2(?:\r?\n|\r?$)""",
+    re.S,
 )
 
 # 本文を運ぶ旗の表(非 api 経路はこれを引く。api・gist 経路は下でハードコード)。
@@ -183,7 +191,15 @@ GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
 API_VALUE_FLAGS = {"--cache", "-F", "--field", "-H", "--header", "--hostname", "--input", "-q", "--jq",
                    "-X", "--method", "-p", "--preview", "-f", "--raw-field", "-t", "--template"}
 API_BOOL_FLAGS = {"--allow-escape-sequences", "-i", "--include", "--paginate", "--silent", "--slurp", "--verbose"}
-WRAPPERS = {"env", "command", "exec", "nohup", "time"}
+WRAPPERS = {"env", "command", "exec", "nohup", "time", "timeout", "gtimeout"}
+# 前置の旗のうち値を取るもの(値ごと読み飛ばす)と、前置が取る位置引数の数(timeout の時間)。
+# timeout を前置に入れていなかった頃は `timeout 180 gh pr create …` の gh が見えず素通しだった
+WRAPPER_VALUE_OPTS = {
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "gtimeout": {"-s", "--signal", "-k", "--kill-after"},
+    "env": {"-u", "--unset", "-C", "--chdir"},
+}
+WRAPPER_POSITIONALS = {"timeout": 1, "gtimeout": 1}
 # シェルの予約語。単純コマンドの先頭語になりうるが、コマンド名ではないので読み飛ばす。
 # 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
 # 見えず、投稿が無検査・無記録で通る(両ゲートとも。実測)。同じ意味の `( gh … )` は
@@ -199,8 +215,8 @@ VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
 ENV_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # 前段の粗選別。部分文字列だと highlight・through 等の語で解析に入ってしまう
 GH_WORD_RE = re.compile(r"\bgh\b")
-# 網から落ちたことの検出だけに使う綴り(判定には使わない)。本文旗が生の文字列にあるのに
-# 候補も blocked も空なら、投稿でないのではなく解析が取りこぼした疑いがある。
+# 網から落ちたことの検出だけに使う綴り(判定には使わない)。本文旗が単純コマンドの語にあるのに
+# 候補も blocked も空なら、投稿でないのではなく解析が取りこぼした疑いがある(当て方は analyze())。
 # 権威表から導出する——手で 2 本目の綴り表を持つと、旗を足したとき計器だけが黙り、
 # 最も新しい=最も取りこぼしやすい旗のところで数えられなくなる(表と検査の突合は
 # tests/coldread-table-case.py)。--body-file は --body\b が既に当てるので重複は無害。
@@ -210,8 +226,8 @@ BODY_FLAG_RE = re.compile(
     + r"|-[fF]\s*body="
 )
 # 短縮形(-b/-c/-n/-F)は入れない。git checkout -b 等と綴りが衝突して誤検知が増え、計器が濁るため。
-# 生の文字列を見るので、行継続で割れた `--bo\<改行>dy` も数えられない。どちらもこの計器が
-# 下限しか出さないことの内訳で、押し出しの量は「これ以上」としてしか読めない。
+# 当てるのはヒアドキュメントを印に置き換え、行継続を畳んだ後の語なので、本文の中の綴りは数えない。
+# 短縮形を数えないことが、この計器が下限しか出さないことの内訳で、押し出しの量は「これ以上」としてしか読めない。
 
 
 HEREDOC_MARK = "__HEREDOC%d__"
@@ -222,14 +238,20 @@ def shield_heredocs(command):
 
     番号を振るのは、どの単純コマンドに付いたヒアドキュメントかを後で見分けるため。
     番号が無いと、同じ行の別コマンド(cat > f <<EOF)の中身まで gh の本文候補に混ざる。
+
+    続きの行に 2 本目の開始(`cat <<A > f; gh … <<B`)が在ると、1 回目の置換では 2 本目の開始が置換後の
+    文字列に入って走査されないので、置換が起きなくなるまで繰り返す(bash も本文を開始の順に読む)。
     """
     bodies = []
 
     def repl(m):
-        bodies.append(m.group(3))
-        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " \n"
+        bodies.append(m.group(4))
+        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " " + m.group(3) + "\n"
 
-    return HEREDOC_RE.sub(repl, command), bodies
+    while True:
+        command, n = HEREDOC_RE.subn(repl, command)
+        if not n:
+            return command, bodies
 
 
 def own_heredocs(args, heredoc_bodies):
@@ -389,9 +411,22 @@ def tokenize(text):
         return None
 
 
-def simple_commands(tokens):
-    """演算子で区切った単純コマンドのトークン列を返す。リダイレクトは演算子と行き先ごと除く。"""
-    cmds, cur, i = [], [], 0
+class Simple:
+    """単純コマンド 1 件: 引数列・リダイレクト((演算子, 行き先) の列)・直前の区切り(先頭は "")。"""
+
+    __slots__ = ("args", "redirects", "sep")
+
+    def __init__(self, args, redirects, sep):
+        self.args, self.redirects, self.sep = args, redirects, sep
+
+
+def split_commands(tokens):
+    """演算子で区切った単純コマンド(Simple)の列。リダイレクトは引数列から除き、redirects に残す。
+
+    区切りを残すのは、本文ファイルのパスを静的に解くとき(変数の代入・cd)に、前のコマンドの効果が
+    gh まで届くか(; && 改行なら届く。| & ( ) は別のプロセスなので届かない)を見るため。
+    """
+    cmds, cur, redirects, sep, pending, i = [], [], [], "", "", 0
     while i < len(tokens):
         tok = tokens[i]
         if tok and all(c in OP_CHARS for c in tok):
@@ -399,12 +434,16 @@ def simple_commands(tokens):
                 # 2>&1 の 2 のような先行 fd 番号はリダイレクトの一部で、引数ではない
                 if cur and cur[-1].isdigit():
                     cur.pop()
+                redirects.append((tok, tokens[i + 1] if i + 1 < len(tokens) else ""))
                 i += 2  # 演算子とその行き先(fd かファイル名)を読み飛ばす
                 continue
             # ; | & && || 改行 () は単純コマンドの区切り
             if cur:
-                cmds.append(cur)
-                cur = []
+                cmds.append(Simple(cur, redirects, sep))
+                cur, redirects, pending = [], [], ""
+            # 区切りが続く(`; (` や `&& {`)ときは、効果の届き方を最も弱い側で見る(届かない区切りを残す)
+            pending = tok if not pending or pending in (";", "&&", "\n") else pending
+            sep = pending
             i += 1
             continue
         # 予約語はコマンド位置(蓄積中の単純コマンドが空)でだけ読み飛ばす。ここで捌くのは、
@@ -418,28 +457,47 @@ def simple_commands(tokens):
         cur.append(tok)
         i += 1
     if cur:
-        cmds.append(cur)
+        cmds.append(Simple(cur, redirects, sep))
     return cmds
 
 
-def gh_args(tokens):
-    """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。"""
-    i, after_wrapper = 0, False
+def simple_commands(tokens):
+    """演算子で区切った単純コマンドのトークン列を返す。リダイレクトは演算子と行き先ごと除く。"""
+    return [c.args for c in split_commands(tokens)]
+
+
+def command_start(tokens):
+    """単純コマンドの命令名の位置。前置(環境変数の代入・env/timeout 等とその旗と値)を読み飛ばす。無ければ len(tokens)。
+
+    gh_args と wants_skip の両方がここを通る——読み飛ばす範囲を 2 か所に書くと、片方だけ外れる。
+    """
+    i, wrapper, need = 0, None, 0
     while i < len(tokens):
         tok = tokens[i]
-        if tok == "gh" or tok.endswith("/gh"):
-            return tokens[i + 1:]
+        if wrapper and tok.startswith("-") and tok != "-":
+            # 値を取る旗は値ごと飛ばす(--signal=KILL・-sKILL の融合形は 1 語)
+            i += 2 if tok in WRAPPER_VALUE_OPTS.get(wrapper, ()) else 1
+            continue
+        if need:
+            need -= 1   # 前置が取る位置引数(timeout の時間)
+            i += 1
+            continue
         if ENV_PREFIX_RE.match(tok):
             i += 1
             continue
         if tok in WRAPPERS:
-            after_wrapper = True
+            wrapper, need = tok, WRAPPER_POSITIONALS.get(tok, 0)
             i += 1
             continue
-        if after_wrapper and tok.startswith("-"):
-            i += 1
-            continue
-        return None
+        return i
+    return i
+
+
+def gh_args(tokens):
+    """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。"""
+    i = command_start(tokens)
+    if i < len(tokens) and (tokens[i] == "gh" or tokens[i].endswith("/gh")):
+        return tokens[i + 1:]
     return None
 
 
@@ -479,8 +537,12 @@ def subcommand(args):
     return tuple(words)
 
 
-def classify(args, heredoc_bodies, live_substitution=False):
-    """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
+def classify(args, heredoc_bodies, live_substitution=False, ctx=None):
+    """gh の引数列から (本文候補, 検査できない本文の説明) を返す。
+
+    ctx(BodyFiles)が有れば、本文ファイル・変数で書いた値を同じコマンドの中で静的に解いて読む。無ければ
+    (destgate のように投稿かどうかだけを見る呼び手)、ファイルと変数は今までどおり検査できない側に倒す。
+    """
     heredoc_bodies = own_heredocs(args, heredoc_bodies)
     # 倒れ先はすべて blocked.append に集める。テスト側が理由の一覧を実装から機械で読み、
     # 一つずつ実際に発火させて突合するため、ここだけは別経路(return の直書き)を作らない。
@@ -497,7 +559,31 @@ def classify(args, heredoc_bodies, live_substitution=False):
         return candidates, blocked  # 投稿でないので本文検出も検査もしない
     is_api = sub[:1] == ("api",)
     is_graphql = sub == ("api", "graphql")
-    saw_mutation = False
+    gql_fields = {}   # graphql の -f/-F の欄(名前 → (型付きか, 値))。query と変数を後でまとめて見る
+
+    def file_failed(why):
+        """本文ファイルを読まなかった理由を blocked へ積む(理由ごとに直し方が違うので語を分ける)。"""
+        if why == "path":
+            blocked.append("本文ファイルのパスが決まらない")
+        elif why == "writer":
+            blocked.append("本文ファイルを同じコマンドの中で書き換えうる")
+        elif why == "notreg":
+            blocked.append("本文ファイルが通常のファイルでない")
+        elif why == "large":
+            blocked.append("本文ファイルが上限より大きい")
+        elif why == "utf8":
+            blocked.append("本文ファイルが UTF-8 でない")
+        elif why == "unreadable":
+            blocked.append("本文ファイルを読めない")
+        else:   # ctx の無い呼び手(destgate)
+            blocked.append("実ファイル指定")
+
+    def read_file(value):
+        """本文ファイルの中身。読めなければ理由を blocked へ積んで None。"""
+        text, why = ctx.read(value) if ctx else (None, "noctx")
+        if text is None:
+            file_failed(why)
+        return text
 
     def add(kind, value):
         """本文旗 1 つ分を判定し、candidates(読ませる)か blocked(止める)へ必ず積む。
@@ -511,37 +597,42 @@ def classify(args, heredoc_bodies, live_substitution=False):
         not_body = False
         if kind == "json":
             # gh api --input の中身は本文とは限らない(secrets の暗号値・設定の JSON 等)。
-            # .body を持つときだけ本文として読ませ、持たない JSON は読み役へ送らない。
+            # 本文の位置(.body と review の comments[].body)の中身だけを読ませる。
             if value in ("-", ""):
-                if not heredoc_bodies:
+                raws = heredoc_bodies
+                if not raws:
                     # パイプ・別プロセスからの stdin と、ヒアドキュメントを取り損ねた形は
                     # ここでは区別できない。兄弟の file 分岐と同じ向きに倒す。
                     blocked.append("別プロセスからの stdin 渡し")
-                for raw in heredoc_bodies:
-                    try:
-                        obj = json.loads(raw)
-                    except ValueError:
-                        blocked.append("JSON として読めない --input")
-                        continue
-                    body = obj.get("body") if isinstance(obj, dict) else None
-                    if isinstance(body, str):
-                        candidates.append(body)
-                    elif json_has_long_text(obj):
-                        # .body 以外の場所に長い文字列がある。投稿本文なのか設定値なのか
-                        # 判らないので、読み役へ送らず「検査できない」として止める。
-                        blocked.append("JSON の本文の位置を特定できない")
-                    else:
-                        not_body = True  # 本文らしい長さの文字列を持たない JSON
             else:
-                blocked.append("実ファイル指定")
+                raws = [t for t in (read_file(value),) if t is not None]
+            for raw in raws:
+                body, why = json_bodies(raw)
+                if why == "json":
+                    blocked.append("JSON として読めない --input")
+                elif why == "pos":
+                    # 本文の位置の外に長い文字列がある。投稿本文なのか設定値なのか
+                    # 判らないので、読み役へ送らず「検査できない」として止める。
+                    blocked.append("JSON の本文の位置を特定できない")
+                elif body is not None:
+                    candidates.append(body)
+                else:
+                    not_body = True  # 本文らしい長さの文字列を持たない JSON
         elif kind == "text":
-            # 変数・コマンド置換は実行時まで中身が無く、検査できない。
+            # 変数・コマンド置換は実行時まで中身が無い。変数だけは、同じコマンドの中の代入から
+            # 静的に解けるなら読む(ctx.var)。解けなければ検査できない。
             # 引用されていない $(...) や `...` は shlex が演算子で割るので、値が "$" や
             # "`cat" のような断片になって届く。断片かどうかは形だけでは決まらない
             # (単一引用の中の ``` や $ は普通の文字)ので、生の文字列側の判定と併せて見る。
             looks_sub = (value in ("$", "") or value.endswith("$")
                          or value.startswith("`") or value.startswith("$("))
-            if VAR_RE.match(value) or (live_substitution and looks_sub):
+            if VAR_RE.match(value):
+                got = ctx.var(value) if ctx else None
+                if got is None:
+                    blocked.append("変数・コマンド置換渡し")
+                else:
+                    candidates.append(got)
+            elif live_substitution and looks_sub:
                 blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
@@ -552,7 +643,9 @@ def classify(args, heredoc_bodies, live_substitution=False):
                 else:
                     blocked.append("別プロセスからの stdin 渡し")
             else:
-                blocked.append("実ファイル指定")
+                text = read_file(value)
+                if text is not None:
+                    candidates.append(text)
         if not not_body and len(candidates) + len(blocked) == mark:
             # 引き金は 2 つ: 表に知らない種別が足された・分岐が倒れ先を書き忘れた。
             blocked.append("本文旗の値を判定できない")
@@ -575,16 +668,12 @@ def classify(args, heredoc_bodies, live_substitution=False):
                         val = args[i]
                     if val and "=" in val:
                         key, fval = val.split("=", 1)
-                        if key == "query" and is_graphql:
-                            # mutation は投稿。ブロック文字列("""...""")を本文として抜くと、
-                            # body 以外のフィールド(ID・トークン・設定値)の値まで外部の読み役
-                            # へ送ってしまう(実測)。フィールド名で絞るには GraphQL の構文解析が
-                            # 要り、それは docs/coldread-gate-next.md が扱う岐路に入るので、
-                            # mutation は本文を取り出さず一律で検査できない側へ倒す。
-                            if re.search(r"\bmutation\b", fval):
-                                saw_mutation = True
-                        elif key == "body":
-                            if name in ("-F", "--field") and fval.startswith("@"):
+                        typed = name in ("-F", "--field")
+                        if is_graphql:
+                            gql_fields[key] = (typed, fval)
+                        elif key == "body" or key.endswith("[body]"):
+                            # comments[][body] は review の行コメント(gh api の配列の欄の書き方)
+                            if typed and fval.startswith("@"):
                                 add("file", "@-" if fval == "@-" else fval[1:])
                             else:
                                 add("text", fval)
@@ -626,10 +715,104 @@ def classify(args, heredoc_bodies, live_substitution=False):
         elif pos:
             blocked.append("実ファイル指定")
 
-    if saw_mutation:
-        blocked.append("graphql mutation の本文を取り出せない")
+    if is_graphql:
+        query = None
+        if "query" in gql_fields:
+            typed, qv = gql_fields.pop("query")
+            query = read_file(qv[1:]) if typed and qv.startswith("@") and qv != "@-" else qv
+        if query and re.search(r"\bmutation\b", query):
+            # mutation が本文を運ぶのは body(と readme)の欄だけ。欄の値だけを抜き、ほかの欄(ID・トークン・
+            # 設定値)は読み役へ送らない。欄を持たない mutation(resolveReviewThread など)は投稿でない——
+            # 一律で止めていた頃は、これが往復の 57 件を生んでいた。
+            texts = graphql_bodies(query, gql_fields, read_file)
+            if texts is None:
+                blocked.append("graphql mutation の本文を取り出せない")
+            elif texts:
+                candidates.append("\n\n".join(texts))
 
     return candidates, blocked
+
+
+# graphql の mutation で本文を運ぶ欄。`$body:`(変数の宣言)は欄ではないので、直前の $ と語の字を除く
+GQL_BODY_FIELD_RE = re.compile(r"""(?<![\w$])(?:body|readme)\s*:\s*""")
+GQL_STRING_RE = re.compile(r'"""(.*?)"""|"((?:[^"\\]|\\.)*)"|\$([A-Za-z_]\w*)', re.S)
+
+
+def graphql_bodies(query, fields, read_file):
+    """mutation の本文の欄の値の列。値が決まらない欄が 1 つでも在れば None(止める)。
+
+    値はブロック文字列・文字列・変数($名前 は -f/-F の同じ名前の欄)。変数として使われなかった
+    body・…[body] の欄(input[body]= のように入れ物ごと渡す形)も本文として読む。
+    """
+    texts, used = [], set()
+    for m in GQL_BODY_FIELD_RE.finditer(query):
+        v = GQL_STRING_RE.match(query, m.end())
+        if v is None:
+            return None   # 入れ物の変数・列挙など、文字列でない値
+        if v.group(1) is not None:
+            texts.append(v.group(1))
+        elif v.group(2) is not None:
+            try:
+                texts.append(json.loads('"%s"' % v.group(2)))
+            except ValueError:
+                texts.append(v.group(2))
+        else:
+            name = v.group(3)
+            if name not in fields:
+                return None
+            used.add(name)
+            texts.append(_gql_field_value(fields[name], read_file))
+    for key, field in fields.items():
+        if key not in used and (key == "body" or key.endswith("[body]")):
+            texts.append(_gql_field_value(field, read_file))
+    if any(t is None for t in texts):
+        return None
+    return texts
+
+
+def _gql_field_value(field, read_file):
+    typed, value = field
+    if typed and value.startswith("@") and value != "@-":
+        return read_file(value[1:])
+    return value
+
+
+def json_bodies(raw):
+    """--input の JSON → (本文, 理由)。本文を持たないと確かめたら (None, None)。理由は json・pos。
+
+    本文の位置は .body と、review の行コメント comments[].body。.body だけを見ていた頃は、行コメントが
+    読まれずに出ていた(27 件。.body が空の review も在った)。読ませるのは 1 本にまとめた全部——
+    最長の 1 本だけを読ませる決まり(main)で行コメントが落ちないように。位置の外に長い文字列が残れば、
+    本文なのか設定値なのか判らないので止める。
+    """
+    try:
+        obj = json.loads(raw)
+    except ValueError:
+        return None, "json"
+    texts, rest = [], obj
+    if isinstance(obj, dict):
+        rest = dict(obj)
+        body = rest.pop("body", None)
+        if isinstance(body, str):
+            texts.append(body)
+        elif body is not None:
+            rest["body"] = body
+        comments = rest.pop("comments", None)
+        if isinstance(comments, list):
+            left = []
+            for c in comments:
+                if isinstance(c, dict) and isinstance(c.get("body"), str):
+                    c = dict(c)
+                    texts.append("[行コメント: %s]\n%s" % (c.get("path") or "?", c.pop("body")))
+                left.append(c)
+            rest["comments"] = left
+        elif comments is not None:
+            rest["comments"] = comments
+    if json_has_long_text(rest):
+        return None, "pos"
+    if not texts:
+        return None, None
+    return "\n\n".join(t for t in texts if t.strip()), None
 
 
 def json_has_long_text(obj, limit=200):
@@ -643,24 +826,266 @@ def json_has_long_text(obj, limit=200):
     return False
 
 
-def posting_bodies(command):
-    """コマンド文字列から (本文候補, 検査できない本文の説明, 解析成否) を返す。"""
+# ---- 本文ファイル(フックが自分で読む) ----------------------------------------
+# 本文がファイルに在る形(--body-file f・-F f・-F body=@f・--input f)を「取り出せない」で止めて書き直させて
+# いた頃は、往復が 124 回あり、うち 22 回は逃げ道で未検査のまま出た。フックが自分で読めば往復は要らない。
+# 読むのは gh がそのファイルを読むときに同じ中身だと静的に言えるときだけで、言えなければ止める:
+#   - パスは字のまま・同じコマンドの中で代入した変数・cwd(フックの入力)からの相対・`cd <絶対パス> &&` の先の
+#     相対まで解く。それ以外(解けない変数・~・グロブ・`;` で続く cd の後の相対)は止める
+#   - 同じコマンドの中で本文ファイルを書く命令が在れば、`cat > f <<EOF` 1 本だけならそのヒアドキュメントを
+#     読む(フックの時点のファイルは古い中身)。それ以外の書き手(cp・mv・sed・tee・>…)が在れば止める
+#   - 開くのは O_NONBLOCK で、開いた後に fstat で通常のファイルかを見る(FIFO が書き手を待ってフックを止めると、
+#     フックの timeout で無検査で通る)。上限(COLDREAD_MAX_LEN 字)を超える・UTF-8 でないものは止める
+# 残る穴: フックが読んだ後、gh が読むまでの間に別のプロセスが書き換える余地(チェックと実行の間。gates/README.md)。
+WRITE_OPS = {">", ">>", ">|", "&>", "&>>"}
+# 本文ファイルの名前を引数に持っていても、ファイルを書き換えない命令(書くリダイレクトは別に見る)
+READ_ONLY_CMDS = {"cat", "wc", "head", "tail", "ls", "test", "[", "stat", "file", "grep", "diff", "less",
+                  "jq", "echo", "printf", "cd"}
+_SEQUENTIAL = (";", "&&", "\n")   # 前のコマンドの効果(代入・cd)が後ろへ届く区切り
+_VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
+def single_quoted_dollar(text):
+    """単一引用の中に $ が在るか。shlex は引用を落とすので、'$S' と "$S" を語の側では見分けられない。"""
+    i, quote = 0, None
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+            elif c == "$":
+                return True
+        elif c == "\\" and quote != "'":
+            i += 1
+        elif quote == '"':
+            if c == '"':
+                quote = None
+        elif c in "'\"":
+            quote = c
+        i += 1
+    return False
+
+
+class BodyFiles:
+    """1 つのコマンド文字列の中で、k 番目の単純コマンド(gh)が読む本文ファイルと変数を静的に解く。"""
+
+    def __init__(self, cmds, cwd, heredoc_bodies, norm):
+        self.cmds, self.heredocs, self.norm = cmds, heredoc_bodies, norm
+        self.cwd = cwd if cwd and os.path.isabs(cwd) else None
+        self.k, self.moved = 0, False
+        self._assigned = None
+        self._sq = None
+
+    def at(self, k, prefix):
+        """k 番目の gh 呼び出しを見る。prefix は gh より前の語(env -C は cwd を変える)。"""
+        self.k = k
+        self.moved = any(t in ("-C", "--chdir") or t.startswith("--chdir=") for t in prefix)
+        return self
+
+    def _flows(self, j):
+        """j 番目のコマンドの効果が k 番目まで届くか(間の区切りがどれも ; && 改行)。"""
+        return j < self.k and all(self.cmds[m].sep in _SEQUENTIAL for m in range(j + 1, self.k + 1))
+
+    def assigned(self):
+        """変数名 → (値, 位置)。2 度代入された名前は None(どちらが効くかを分岐で決められない)。"""
+        if self._assigned is None:
+            self._assigned = {}
+            for j, c in enumerate(self.cmds):
+                args = c.args[1:] if c.args[:1] == ["export"] else c.args
+                if args and not c.redirects and all(ENV_PREFIX_RE.match(a) for a in args):
+                    for a in args:
+                        name, value = a.split("=", 1)
+                        self._assigned[name] = None if name in self._assigned else (value, j)
+        return self._assigned
+
+    def var(self, value):
+        """$名前・${名前} を同じコマンドの中の代入で置き換えた値。解けなければ None。"""
+        if "$" not in value:
+            return value
+        if self._sq is None:
+            self._sq = single_quoted_dollar(self.norm)
+        if self._sq:
+            return None   # '$S' は字のまま。語の側では引用が落ちていて見分けられない
+        table = self.assigned()
+        failed = []
+
+        def sub(m):
+            entry = table.get(m.group(1) or m.group(2))
+            if not entry or not self._flows(entry[1]) or "$" in entry[0] or "`" in entry[0]:
+                failed.append(m.group(0))
+                return ""
+            return entry[0]
+
+        out = _VAR_REF_RE.sub(sub, value)
+        return None if failed or "$" in out else out
+
+    def cwd_here(self):
+        """k 番目のコマンドが走る cwd。決まらなければ None。"""
+        if self.moved:
+            return None
+        cwd = self.cwd
+        for j in range(self.k):
+            args = self.cmds[j].args
+            if args[:1] in (["cd"], ["pushd"], ["popd"]):
+                dest = self.var(args[1]) if args[0] == "cd" and len(args) == 2 else None
+                ok = dest and os.path.isabs(dest) and all(
+                    self.cmds[m].sep == "&&" for m in range(j + 1, self.k + 1))
+                cwd = dest if ok else None
+        return cwd
+
+    def path(self, value):
+        """本文ファイルの実パス。字のまま決まらなければ None。"""
+        v = self.var(value)
+        if not v or v.startswith("~") or "__HEREDOC" in v or any(ch in v for ch in "*?["):
+            return None
+        if not os.path.isabs(v):
+            cwd = self.cwd_here()
+            if not cwd:
+                return None
+            v = os.path.join(cwd, v)
+        return os.path.realpath(v)
+
+    def writer(self, target):
+        """同じコマンドの中で target を書く命令。無ければ None、`cat > f <<EOF` 1 本ならその本文、ほかは "writer"。"""
+        base = os.path.basename(target)
+        found = []
+        for j, c in enumerate(self.cmds):
+            # gh 自身のリダイレクト(`gh … --body-file f > f`)も書き手に数える: シェルが gh より先に f を空にする
+            for op, dest in c.redirects:
+                if op not in WRITE_OPS:
+                    continue
+                d = self.var(dest)
+                if d is None or os.path.basename(d) == base:
+                    marks = [t for t in c.args[1:] if t.startswith("__HEREDOC")]
+                    heredoc = (j < self.k and c.args[:1] == ["cat"] and len(c.args) == 2 and len(marks) == 1
+                               and op in (">", ">|") and d is not None and self.path(dest) == target)
+                    found.append(int(marks[0][9:-2]) if heredoc else "writer")
+            if j != self.k and c.args and c.args[0] not in READ_ONLY_CMDS:
+                for t in c.args[1:]:
+                    tv = self.var(t) or t
+                    if os.path.basename(tv.rstrip("/")) == base:
+                        found.append("writer")
+        if not found:
+            return None
+        if len(found) > 1 or found[0] == "writer":
+            return "writer"
+        return self.heredocs[found[0]]
+
+    def read(self, value):
+        """本文ファイルの中身 → (本文, None) か (None, 理由)。"""
+        target = self.path(value)
+        if target is None:
+            return None, "path"
+        w = self.writer(target)
+        if w == "writer":
+            return None, "writer"
+        if w is not None:
+            return w, None
+        return read_body_file(target)
+
+
+def read_body_file(path):
+    """通常のファイルを UTF-8 で読む → (本文, None) か (None, 理由)。理由は unreadable・notreg・large・utf8。
+
+    開いてから fstat で確かめる(stat と open の間に差し替えられても FIFO を掴まない)。O_NONBLOCK で
+    開くのは、FIFO が書き手を待ってフックを止めないため。大きさの食い違い(読む間の書き換え)も止める。
+    """
+    limit = MAX_LEN * 4   # UTF-8 の 1 字は 4 バイトまで
+    flags = os.O_RDONLY
+    for name in ("O_NONBLOCK", "O_NOCTTY", "O_BINARY"):
+        flags |= getattr(os, name, 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None, ("notreg" if os.path.isdir(path) else "unreadable")   # Windows はディレクトリを開けない
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None, "notreg"
+        if st.st_size > limit:
+            return None, "large"
+        chunks, got = [], 0
+        while got <= limit:
+            chunk = os.read(fd, limit + 1 - got)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            got += len(chunk)
+    except OSError:
+        return None, "unreadable"
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) != st.st_size:
+        return None, "unreadable"
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "utf8"
+    return (text, None) if len(text) <= MAX_LEN else (None, "large")
+
+
+class Analysis:
+    """コマンド 1 本の解析の結果。calls は gh 呼び出しごとの (サブコマンド, 引数列, 本文候補, 止めた理由)。"""
+
+    def __init__(self, parsed, candidates=(), blocked=(), calls=(), misses=()):
+        self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
+        self.calls, self.misses = list(calls), list(misses)
+
+    def target_of(self, body=None):
+        """log に残す投稿先と、画面を取る投稿先 (ラベル, dest)。body を運んだ呼び出し(無ければ止めた呼び出し)を見る。"""
+        for sub, args, cands, blk in self.calls:
+            if (body is not None and body in cands) or (body is None and (blk or cands)):
+                dest = destination(args, sub) if sub else None
+                return target_label(sub, dest), dest
+        return "-", None
+
+
+def _head_word(args):
+    """misses.log に添える、単純コマンドの先頭の語(環境変数の前置は値を残さないので飛ばす)。"""
+    for t in args:
+        if not ENV_PREFIX_RE.match(t):
+            return re.sub(r"\s", "_", os.path.basename(t))[:40] or "-"
+    return "-"
+
+
+def analyze(command, cwd=None):
+    """コマンド文字列を解析する(Analysis)。解析できなければ parsed=False。"""
     norm, heredoc_bodies = prepare(command)
     tokens = tokenize(norm)
     if tokens is None:
-        return [], [], False
+        return Analysis(False)
     # 字句解析と同じ 1 本を見る。生の側を見ていると `--body "$\<改行>(cat x)"` が
     # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
     live = has_live_substitution(norm)
-    candidates, blocked = [], []
-    for simple in simple_commands(tokens):
-        args = gh_args(simple)
-        if args is None:
-            continue
-        c, b = classify(args, heredoc_bodies, live)
-        candidates.extend(c)
-        blocked.extend(b)
-    return candidates, blocked, True
+    cmds = split_commands(tokens)
+    files = BodyFiles(cmds, cwd, heredoc_bodies, norm)
+    out = Analysis(True)
+    for k, c in enumerate(cmds):
+        args = gh_args(c.args)
+        cands, blk, sub = [], [], None
+        if args is not None:
+            cands, blk = classify(args, heredoc_bodies, live, files.at(k, c.args[:len(c.args) - len(args) - 1]))
+            sub = subcommand(args)
+            out.calls.append((sub, args, cands, blk))
+            out.candidates.extend(cands)
+            out.blocked.extend(blk)
+        # 素通しの理由が「投稿でない」なのか「網から落ちた」なのかを後から数える。本文旗の綴りが単純コマンドに
+        # 在るのに、その単純コマンドが候補も止めた理由も出さなかったら、解析の取りこぼしの疑いがある。
+        # 見るのはヒアドキュメントを印に置き換えた後の語(本文の中の綴りは数えない)。gh の語を含む単純コマンドに
+        # 限り、当たった旗と先頭の語(sh・python3・echo …)を残す——誤検知(別の道具の旗・文書の中の綴り)を後から分ける
+        if not cands and not blk and sub not in NON_POSTING:
+            joined = " ".join(c.args)
+            hit = BODY_FLAG_RE.search(joined)
+            if hit and GH_WORD_RE.search(joined):
+                out.misses.append((hit.group(0), _head_word(c.args)))
+    return out
+
+
+def posting_bodies(command, cwd=None):
+    """コマンド文字列から (本文候補, 検査できない本文の説明, 解析成否) を返す。"""
+    a = analyze(command, cwd)
+    return a.candidates, a.blocked, a.parsed
 
 
 # ---- 投稿先の画面 ------------------------------------------------------------
@@ -810,24 +1235,6 @@ def destination(args, sub):
     if sub in ISSUE_THREAD_SUBS:
         return ("issue", repo_flag(args), positional_after(args, sub))
     return None
-
-
-def posting_target(command, body):
-    """読ませる本文を運んでいた gh 呼び出しの (サブコマンド, 投稿先)。見つからなければ (None, None)。"""
-    norm, heredoc_bodies = prepare(command)
-    tokens = tokenize(norm)
-    if tokens is None:
-        return None, None
-    live = has_live_substitution(norm)
-    for simple in simple_commands(tokens):
-        args = gh_args(simple)
-        if args is None:
-            continue
-        cands, _blocked = classify(args, heredoc_bodies, live)
-        if body in cands:
-            sub = subcommand(args)
-            return sub, destination(args, sub)
-    return None, None
 
 
 def target_label(sub, dest):
@@ -1118,20 +1525,21 @@ def log_line(path: str, text: str) -> None:
         pass
 
 
-def deny_streak(session, target):
-    """同じ書き手(session)が同じ投稿先(target)で直近に連続して止められた (回数, その間の本文の長さの列・古い順)。
+def deny_streak(session, target, fp=None):
+    """同じ書き手(session)の同じ投稿が直近に続けて止められた (回数, その間の本文の長さの列, 止めた種別の列)。列は古い順。
 
     log は profile で共有なので、他の session の行は無いものとして飛ばす——数えると並行セッションの
     deny が自分の連続数を増やし、他所の skip が自分の案内を消す(2026-09-07 に実測)。同じ書き手でも
-    別の投稿先の deny は数えない(長さの列が別の本文の混ざりになる)が、allow・skip は投稿先に関わらず
-    連続を切る。session の無い入力は、同じく session の無い行だけを数える。
+    別の投稿先の deny は数えない(長さの列が別の本文の混ざりになる)が、allow は投稿先に関わらず
+    連続を切る。同じ投稿先でも、本文の指紋(fp)が似ていない deny に当たったら、そこで別の投稿と見て切る。
+    session の無い入力は、同じく session の無い行だけを数える。
     """
     try:
         with open(DENY_LOG, encoding="utf-8") as f:
             lines = f.readlines()[-400:]
     except OSError:
-        return 0, []
-    n, lens = 0, []
+        return 0, [], []
+    n, lens, kinds = 0, [], []
     now = time.time()
     for line in reversed(lines):
         parts = line.rstrip("\n").split("\t")
@@ -1150,11 +1558,15 @@ def deny_streak(session, target):
             break
         if cols.get("to", "-") != target:
             continue
+        if not same_post(fp, cols.get("fp")):
+            break
         n += 1
+        kinds.append(parts[2] if len(parts) > 2 else "-")
         if len(parts) >= 4 and parts[3].isdigit():
             lens.append(int(parts[3]))  # 逆順に辿っているので後で戻す
     lens.reverse()
-    return n, lens
+    kinds.reverse()
+    return n, lens, kinds
 
 
 PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1278,39 +1690,60 @@ SKIP_PREFIX_RE = re.compile(r"\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*" + SKIP_TOKE
 
 
 def wants_skip(command):
-    """逃げ道が書き手の前置として置かれているか。本文に文字列が入っているだけでは効かせない。
+    """逃げ道(COLDREAD_SKIP=1)が書き手の前置として置かれているか。本文に文字列が入っているだけでは数えない。
 
-    部分文字列一致にすると、門番自身の話題を投稿する本文で門番が黙って外れる(実測)。
-    2 段構えなのは、逃げ道の主用途が「解析できないコマンドを通す」ことだから——
-    解析前の先頭一致は必ず効かせ、解析できたときに限って cd や && の先の前置も拾う。
+    **逃げ道はもう効かない**(持ち主の判断 2026-10-16: エージェントに使わせない)。これは、書いた事実を
+    記録に残し、止めた理由に「効かない」と添えるためだけに読む。前は逃げ道が 22 回、本文ファイルの書き直しを
+    避けて未検査のまま出す口になっていた。持ち主が自分で出すときは、Claude Code の ! か自分の端末で打つ。
     """
     if SKIP_PREFIX_RE.match(command):
         return True
     tokens = tokenize(prepare(command)[0])
     if tokens is None:
         return False
-    for cmd in simple_commands(tokens):
-        for tok in cmd:
-            if tok == SKIP_TOKEN:
-                return True
-            # 読み飛ばす範囲は gh_args と同じにする。ここだけ env を透かさないと、
-            # ゲートが投稿と認めた形なのに逃げ道だけ効かず、案内どおり書いた人が嵌まる
-            # (予約語は simple_commands が先に落とすので、ここに書かなくても揃う)
-            if tok not in WRAPPERS and not ENV_PREFIX_RE.match(tok):
-                break  # 前置が途切れたら、そこから先は引数か本文
-    return False
+    # 読み飛ばす範囲は gh_args と同じ command_start(予約語は simple_commands が先に落とす)。
+    # 前置が途切れたら、そこから先は引数か本文
+    return any(SKIP_TOKEN in cmd[:command_start(cmd)] for cmd in simple_commands(tokens))
 
 
-ESCAPE_NOTE = (
-    "軽微と判断した指摘を残して通すとき・検査器が使えないときは、"
-    "コマンド先頭に COLDREAD_SKIP=1 を付けて再実行する(記録が残る)。"
+# 止めたときに書き手が取れる手。逃げ道を案内しない——自分で検査を外せる口は、往復を避けて未検査のまま出す口になった
+OWNER_NOTE = (
+    "直せない・検査できないと判断したら、書き直しを重ねず、本文の場所と止めた理由を持ち主に渡して止まる"
+    "(出すかどうかは持ち主が決め、出すなら持ち主が Claude Code の ! か自分の端末で打つ)。"
 )
+SKIP_REFUSED_NOTE = "COLDREAD_SKIP=1 はもう効かない(付けても検査は外れない)。"
 # 通過・差し戻しのどちらでも保証範囲を言う。無言で通すと、摩擦を越えた事実が
 # 「審査に合格した」と読まれ、権限・名義の検査の代わりにされる(実例あり)。
 SCOPE_NOTE = (
     "この検査が見るのは通じやすさのみ——出してよい投稿か・名義・宛先は検査していない"
     "(宛先の許可制は同梱の destgate)。"
 )
+
+# 往復の上限。同じ書き手・同じ宛先・似た本文の投稿がこの回数だけ続けて止められたら、それ以上書き直させず、
+# 持ち主に渡して止まらせる。3 にしたのは、denies.log(2026-09〜10 の 4 profile)の連続の分布から:
+# 1 回止まった後の次で通ったのは 301 本中 178 本、2 回止まった後の次で通ったのは 94 本中 49 本、
+# 3 回止まった後の次で通ったのは 33 本中 2 本だった(3 回目からは前の案内が逃げ道を勧めていたので、通る率は
+# 低めに出ている)。上限で止まるのは、関所か書き方のどちらかがおかしい合図なので、stuck.log に残して後で直す。
+STREAK_CAP = 3
+FP_SIZE = 16       # 本文の指紋(MinHash)の数。log に本文を写さずに「同じ投稿の書き直しか」を比べるため
+FP_SAME = 3        # 指紋が 16 個中これ以上一致すれば同じ投稿の書き直しと見る(推定の Jaccard ≥ 0.19)
+_FP_SALTS = [int(hashlib.sha256(b"coldread-fp-%d" % i).hexdigest()[:16], 16) for i in range(FP_SIZE)]
+_MASK64 = (1 << 64) - 1
+
+
+def fingerprint(text):
+    """本文の指紋(5 字の断片の MinHash を 16 個、16 進 64 字)。本文を復元できない形で、書き直しの近さだけを比べる。"""
+    t = re.sub(r"\s+", " ", text.strip())
+    shingles = {t[i:i + 5] for i in range(max(1, len(t) - 4))}
+    hs = [int.from_bytes(hashlib.blake2b(s.encode("utf-8"), digest_size=8).digest(), "big") for s in shingles]
+    mins = (min((((h ^ salt) * 0x9E3779B97F4A7C15) & _MASK64) for h in hs) >> 48 for salt in _FP_SALTS)
+    return "".join("%04x" % m for m in mins)
+
+
+def same_post(fp_a, fp_b):
+    if not fp_a or not fp_b or len(fp_a) != len(fp_b):
+        return True   # 指紋の無い行(本文を取り出せなかった deny)は、宛先だけで同じ投稿と見る
+    return sum(fp_a[i:i + 4] == fp_b[i:i + 4] for i in range(0, len(fp_a), 4)) >= FP_SAME
 
 
 def main() -> None:
@@ -1322,99 +1755,118 @@ def main() -> None:
 
     # log の各行に書き手(session)・版・投稿先を残す。連続 deny は session ごとに数える
     sid = str(payload.get("session_id") or "")[:8]
+    cwd = payload.get("cwd") or None
     target = "-"  # 投稿先が分かった時点で付け替える(record は呼んだ時の束縛を読む)
 
-    def record(text):
-        log_line(DENY_LOG, "%s\tsid=%s\tv=%s\tto=%s" % (text, sid, GATE_VERSION, target))
+    def record(text, extra=""):
+        log_line(DENY_LOG, "%s\tsid=%s\tv=%s\tto=%s%s" % (text, sid, GATE_VERSION, target, extra))
 
     # 読み役の中で自分がもう一度発火すると、読み役が読み役を起こす入れ子になる
     # (深さぶんの待ち時間になり、外側はフックのタイムアウトで無検査のまま通る)。
     # 読み役の道具を殺す --tools "" とは別の機構にしてある——あちらは「読み役が本文中の
     # 指示で動かない」ための処置で、起動の仕方(差し替えの読み役)に依存する。こちらは
-    # 起動の仕方に関わらず入れ子を止める。allow に落ちる以上、逃げ道と同じく記録を残す。
+    # 起動の仕方に関わらず入れ子を止める。allow に落ちる以上、記録を残す。
     if os.environ.get("COLDREAD_IN_READER") == "1":
         log_line(SKIP_LOG, "in-reader: " + command[:150].replace("\n", " "))
         allow()
 
-    if len(command) < MIN_LEN or not GH_WORD_RE.search(command):
+    # 長さで解析を飛ばさない。前は 400 字未満のコマンドを解析の前に記録も残さず通していて、本文ファイル・
+    # 変数を運ぶ短い投稿(直近 14 日で 54 件)が読まれずに出た。短い定型の返信を読み役に回さないのは、
+    # 取り出した本文の長さ(200 字未満は通す)で決める。
+    if not GH_WORD_RE.search(command):
         allow()
 
+    skip_note = ""
     if wants_skip(command):
-        log_line(SKIP_LOG, command[:200].replace("\n", " "))
-        record("skip")
-        allow()
+        log_line(SKIP_LOG, "refused\t" + command[:200].replace("\n", " "))
+        skip_note = SKIP_REFUSED_NOTE
+
+    def stop(kind, message, length=None, fp=None):
+        """deny して終わる。同じ投稿が上限の回数だけ続けて止められたら、書き直させずに持ち主に渡させる。"""
+        n, lens, kinds = deny_streak(sid, target, fp)
+        n, kinds = n + 1, kinds + [kind.split("\t", 1)[0]]
+        if length is not None:
+            lens.append(length)
+        record("deny\t" + kind, "\tfp=%s" % fp if fp else "")
+        if n >= STREAK_CAP:
+            label_kind = target.split(":", 1)[0] if target.count(":") >= 2 else target
+            log_line(STUCK_LOG, "sid=%s\tv=%s\tkind=%s\tn=%d\twhy=%s\tlens=%s" % (
+                sid, GATE_VERSION, label_kind, n, ",".join(kinds), ",".join(map(str, lens)) or "-"))
+            grown = ("。本文は %s 字と書き直された" % " → ".join("{:,}".format(x) for x in lens)
+                     if len(lens) >= 2 and lens[-1] != lens[0] else "")
+            message = (
+                "【上限に当たった: 同じ投稿が %d 回続けて止められた%s】これ以上書き直さず、持ち主に渡して止まれ"
+                "(この投稿の宛先・本文の場所と下の理由を渡す)。出すかどうかは持ち主が決め、出すなら持ち主が "
+                "Claude Code の ! か自分の端末で打つ。上限で止まるのは、関所か書き方のどちらかがおかしい合図で、"
+                "記録(coldread-gate/stuck.log)に残した。\n\n" % (n, grown)
+            ) + message
+        deny("\n".join(filter(None, (message, skip_note))))
 
     # 解析の失敗は例外の形でも起こりうる(壊れた JSON の再帰・想定外の入力)。
     # 「引用が閉じない」を deny にしているのに例外だけ素通りでは、検査を避ける口になる。
     # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
     # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
     if len(command) > MAX_LEN:
-        record("deny\tmaxlen")
-        deny(
-            "外部投稿ゲート: このコマンドは長すぎて解析しない(%d 文字 > 上限 %d)。\n"
-            % (len(command), MAX_LEN)
-            + "本文を短くして再実行すること"
-            "(上限を変えるにはフックを起動する側の環境変数 COLDREAD_MAX_LEN を設定する——"
-            "コマンド先頭に書いてもフック自身には届かない)。\n" + ESCAPE_NOTE
-        )
+        stop("maxlen",
+             "外部投稿ゲート: このコマンドは長すぎて解析しない(%d 文字 > 上限 %d)。\n" % (len(command), MAX_LEN)
+             + "本文を短くして再実行すること"
+             "(上限を変えるにはフックを起動する側の環境変数 COLDREAD_MAX_LEN を設定する——"
+             "コマンド先頭に書いてもフック自身には届かない)。\n" + OWNER_NOTE)
 
     try:
-        candidates, blocked, parsed = posting_bodies(command)
+        analysis = analyze(command, cwd)
     except Exception as exc:
-        parsed, candidates, blocked = False, [], []
+        analysis = Analysis(False)
         parse_error = str(exc)[:150]
     else:
         parse_error = "引用が閉じていない等"
-    if not parsed:
-        record("deny\tparse-fail")
-        deny(
-            "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
-            + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
-            "引用を直して再実行すること。\n" + ESCAPE_NOTE
-        )
+    if not analysis.parsed:
+        stop("parse-fail",
+             "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
+             + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
+             "引用を直して再実行すること。\n" + OWNER_NOTE)
+
+    # 素通しの疑いは判定より前に残す(止める枝・通す枝のどちらに進んでも数える)。残すのは当たった旗の綴りと
+    # 先頭の語だけで、コマンドの抜粋は残さない——`gh secret set --body <値>` のような値は秘密そのもので、
+    # 抜粋にすると平文で溜まる。狙いは押し出しの量を測ることなので綴りで足りる。
+    for flag, head in analysis.misses:
+        log_line(MISS_LOG, "%s\t%s" % (flag, head))
 
     # 「検査できない本文がある」は、別の本文が読めたかどうかと独立に止める。
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
-    if blocked:
-        record("deny\tblocked")
-        deny(
-            "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
-            "検査できないものは通せない。\n"
-            "本文はヒアドキュメント(<<'EOF' ... EOF)か、そのサブコマンドの本文旗"
-            "(--body / --notes 等)に直接書いて再実行すること。\n"
-            % "・".join(sorted(set(blocked))) + ESCAPE_NOTE
-        )
+    if analysis.blocked:
+        target = analysis.target_of()[0]
+        stop("blocked\twhy=%s" % "・".join(sorted(set(analysis.blocked))),
+             "外部投稿ゲート: この投稿は本文を取り出せない形をしている(%s)。検査できないものは通せない。\n"
+             "本文はヒアドキュメント(<<'EOF' ... EOF)・本文旗(--body / --notes 等)・本文ファイル(--body-file "
+             "<絶対パス> 等。同じコマンドの中で書き換えない)のどれかで渡して再実行すること。\n"
+             % "・".join(sorted(set(analysis.blocked))) + OWNER_NOTE)
 
-    # 素通しの理由が「投稿でない」なのか「網から落ちた」なのかを後から数えられるようにする。
-    # 本文旗の綴りが生の文字列にあるのに候補も blocked も空なら、解析の取りこぼしの疑いが濃い。
-    # deny にはしない——誤検知の率を測る前に門番の判定を変えると、また実測なしの設計になる。
-    miss = BODY_FLAG_RE.search(command)
-    if not candidates and not blocked and miss:
-        # 残すのは当たった旗の綴りだけ。コマンドの抜粋は残さない——`gh secret set --body <値>` は
-        # 投稿でない(NON_POSTING)ので必ずこの枝に落ち、抜粋にすると旗表が「値は秘密そのもの」と
-        # 書いている当の値が平文で溜まる。狙いは押し出しの量を測ることなので綴りで足りる。
-        log_line(MISS_LOG, miss.group(0))
-
-    bodies = [b for b in candidates if len(b.strip()) >= 200]
+    bodies = [b for b in analysis.candidates if len(b.strip()) >= 200]
     if not bodies:
         allow()
     # 複数の本文が同居するときは最長を代表として読ませる(全部読ませると読み役の回数と
     # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「網の射程」。
     body = max(bodies, key=len)
+    fp = fingerprint(body)
 
     # 投稿先がスレッドなら、読み手が画面で既に見ているものを取って渡す。取れなければ
     # 文脈ゼロに倒す——検査は走らせ、画面に有るものへの詰まりは無視してよいと書き手に伝える
     # 投稿先の解釈で例外が出ても門番を落とさない(落ちるとフックのクラッシュ=無検査で通る)。
     # 解釈できないときは文脈ゼロ側(厳しい側)へ倒れる
     try:
-        sub, dest = posting_target(command, body)
+        target, dest = analysis.target_of(body)
     except Exception:
-        sub, dest = None, None
-    target = target_label(sub, dest)
+        target, dest = "-", None
+
+    # 上限に当たった後の書き直しは、読み役を起こさずに止める(書き直しを重ねさせない)
+    if deny_streak(sid, target, fp)[0] >= STREAK_CAP:
+        stop("cap\t%d" % len(body), "外部投稿ゲート: この投稿は既に往復の上限に当たっている。", len(body), fp)
+
     screen, screen_error = None, None
     if dest is not None:
         try:
-            screen = screen_for(dest, payload.get("cwd") or "", body)
+            screen = screen_for(dest, cwd or "", body)
         except Exception as exc:
             screen_error = str(exc)[:120]
     mode = "screen" if screen else "cold"
@@ -1427,12 +1879,11 @@ def main() -> None:
     try:
         out = run_reader(reader_prompt(screen) + body)
     except Exception as exc:
-        record("deny\treader-down")
-        deny(
-            "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
-            + "手動で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
-            + ESCAPE_NOTE
-        )
+        # 読み役を起こせないときも止める。逃げ道は無いので、直らなければ持ち主に渡す(上限でも止まる)
+        stop("reader-down\t%d" % len(body),
+             "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
+             + "検査できていないので止めた。手で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
+             + OWNER_NOTE, len(body), fp)
 
     # **報告の形をしていない出力を「詰まりゼロ」と読まない。** 認証落ちは例外にならない——
     # 実測 2026-09-15: 素で起こした claude は『Failed to authenticate: OAuth session expired and
@@ -1440,12 +1891,10 @@ def main() -> None:
     # ここまで素通りし、ラベルが 1 つも無いまま allow に落ちていた(＝検査せずに投稿が出る fail-open)。
     # 依頼文が許す出力は CLEAN かラベル行の 2 種類だけなので、どちらでもなければ「検査できない」として止める。
     if not report_shaped(out):
-        record("deny\treader-shape")
-        deny(
-            "外部投稿ゲート: coldreader の出力が報告の形(CLEAN かラベル行)をしていない: %r\n" % out[:150]
-            + "検査できていないので止める(認証切れはこの形で出る——読み役の標準エラーを見よ)。\n"
-            + ESCAPE_NOTE
-        )
+        stop("reader-shape\t%d" % len(body),
+             "外部投稿ゲート: coldreader の出力が報告の形(CLEAN かラベル行)をしていない: %r\n" % out[:150]
+             + "検査できていないので止める(認証切れはこの形で出る——読み役の標準エラーを見よ)。\n"
+             + OWNER_NOTE, len(body), fp)
 
     found = sort_findings(out)
     blocking, questions, fills, redundant, traced = (
@@ -1458,6 +1907,7 @@ def main() -> None:
         record("allow\t%d\t%s" % (len(body), mode))
         extra = "\n".join(filter(None, (
             SCOPE_NOTE,
+            skip_note,
             screen_note,
             VERSION_NOTE,
             section("coldreader が推測で埋めた箇所——意図と違うなら投稿を編集して直すこと:", fills),
@@ -1475,29 +1925,13 @@ def main() -> None:
         }, ensure_ascii=False))
         sys.exit(0)
 
-    streak, lens = deny_streak(sid, target)
-    streak += 1
-    lens.append(len(body))
-    record("deny\tfinding\t%d\t%s" % (len(body), mode))
     role = ("この返信を受け取る相手として、スレッドの画面と本文を読んだ別プロセスの読み手"
             if mode == "screen" else "文脈ゼロの別プロセスの読み手")
     head = (
         "外部投稿ゲート: coldreader(%s)がこの本文で詰まった。詰まりを直してから"
-        "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する):" % role
+        "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する。同じ投稿が %d 回続けて"
+        "止まったら、それ以上は書き直させずに持ち主に渡させる):" % (role, STREAK_CAP)
     )
-    if streak >= 3:
-        # 先頭に置く。末尾に置いた案内は 36 回無視された(PR 1583。詰まりの欄が「直せば通る」と
-        # 読める限り、書き手は次の 1 回を試す)。本文がどれだけ膨れたかは 1 回ごとの数列で見せる——
-        # 足すたびに増えた本文が新しい詰まりを生む、という輪を書き手が自分の数字で見られるように。
-        # 出させるのは「今の本文」でなく「最初の本文」——旧文言は膨れた版を出せと読めた(1429 で実測)
-        grown = ("。この連続の間に本文は %s 字に増えた" % " → ".join("{:,}".format(n) for n in lens)
-                 if len(lens) >= 2 and lens[-1] > lens[0] else "")
-        head = (
-            "【%d 回連続で止まっている——ここから先は本文を足して直さない】coldreader の指摘は読み手ごとに"
-            "揺れ、足した文がまた新しい指摘を生む%s。この連続の最初の本文に戻し、画面と本文を合わせても"
-            "解けない語の初出 1 か所に中身を添えるだけにする。残る指摘の採否は自分で決め、採らないなら "
-            "COLDREAD_SKIP=1 でその本文を出す(記録が残る)。\n\n" % (streak, grown)
-        ) + head
     # 見出しで分ける。混ぜて並べると、直さなくてよい補完・疑問が過半を占めたまま
     # 「以下を直せ」と読め、直す量を過大に見せて逃げ道を引く方向に働く(実測で 8.9 行中 4.7 行)。
     detail = "\n\n".join(filter(None, (
@@ -1517,12 +1951,11 @@ def main() -> None:
         if mode == "screen" else
         "直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
     )
-    deny(
-        head + "\n\n" + detail[:1500]
-        + "\n\n" + howto + "詳細は skill『coldread』。\n" + SCOPE_NOTE
-        + ("\n" + screen_note if screen_note else "")
-        + ("" if streak >= 3 else "\n\n" + ESCAPE_NOTE)
-    )
+    stop("finding\t%d\t%s" % (len(body), mode),
+         head + "\n\n" + detail[:1500]
+         + "\n\n" + howto + "詳細は skill『coldread』。\n" + SCOPE_NOTE
+         + ("\n" + screen_note if screen_note else ""),
+         len(body), fp)
 
 
 # ---- 手元の文書(書いた後に記録し、書いた役の終わりにまとめて読む) -----------------------------

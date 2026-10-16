@@ -6,15 +6,18 @@
 # 既定を実物の gh にすると、テストの `gh issue comment 1` がこのリポジトリの issue 1 を実際に
 # 取りに行く(ネットワークと認証に依存し、CI では毎回失敗の待ち時間になる)。
 # 環境変数 COLDREAD_TEST_SESSION が有れば payload の session_id に入れる(連続 deny を session ごとに
-# 数える検査用)。COLDREAD_GATE が有ればそのフック本体を使う(cache に版が並ぶ形を模す検査用)。
+# 数える検査用)。無ければ呼び出しごとに別の session にする——同じ投稿の往復に上限(gates の STREAK_CAP)が
+# 在るので、session を共有すると、似た本文を続けて流す検査が上限に当たって本来の判定が見えなくなる。COLDREAD_GATE が有ればそのフック本体を使う(cache に版が並ぶ形を模す検査用)。
+# COLDREAD_TEST_CWD が有れば payload の cwd に入れる(相対パスの本文ファイルを、フックの入力の cwd で解く検査用)。
 set -uo pipefail
 cfg=$1 reader=$2 cmd=$3 gh=${4:-exit 1}
 PY_BIN=$(command -v python3 || command -v python)
 gate=${COLDREAD_GATE:-"$(dirname "$0")/../gates/hooks/coldread-gate.py"}
 payload=$("$PY_BIN" -c 'import json,sys,os
 d={"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}
-s=os.environ.get("COLDREAD_TEST_SESSION")
-if s: d["session_id"]=s
+d["session_id"]=os.environ.get("COLDREAD_TEST_SESSION") or os.urandom(8).hex()
+c=os.environ.get("COLDREAD_TEST_CWD")
+if c: d["cwd"]=c
 print(json.dumps(d))' "$cmd")
 if [ "$reader" = "-" ]; then
     out=$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$cfg" COLDREAD_GH_CMD="$gh" "$PY_BIN" "$gate")

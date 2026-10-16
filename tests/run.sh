@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=606
+EXPECTED_CHECKS=640
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2275,6 +2275,8 @@ CR_STUB_CLEAN='cat >/dev/null; echo CLEAN'
 CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
 CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
 CR_STUB_FAIL='cat >/dev/null; exit 1'
+# 読み役の代役: 届いた依頼文+本文に印(ASCII)が在るかで返す文言を変える(本文が実際に届いたことまで見る)
+cr_stub_sees() { printf 'b=$(cat); case "$b" in *%s*) printf "詰まり: %s が届いた\\n";; *) printf "詰まり: %s が届いていない\\n";; esac' "$1" "$1" "$1"; }
 # 門番を module として読む前置き(-c の頭に付ける)
 CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
@@ -2312,8 +2314,10 @@ except Exception as exc:
 CHECKS = {
     # 連続の案内は書き手（session）ごと。他のセッションの deny は自分の 1 回目に出さない
     "no-streak": ("SID_ISOLATED", lambda r: "回連続" not in r),
-    # 連続の案内は deny 理由の先頭に在る（末尾に置いた案内は 36 回無視された）
-    "streak-head": ("HEAD_OK", lambda r: r.startswith("【") and "足して直さない" in r[:80]),
+    # 上限の知らせは deny 理由の先頭に在る（末尾に置いた案内は 36 回無視された）
+    "streak-head": ("HEAD_OK", lambda r: r.startswith("【") and "上限に当たった" in r[:40]),
+    # 逃げ道（COLDREAD_SKIP=1）を付けて出せと案内しない（持ち主の判断 2026-10-16）
+    "no-skip-advice": ("NO_SKIP_ADVICE", lambda r: "COLDREAD_SKIP=1 を付け" not in r and "でその本文を出す" not in r),
 }
 mode = sys.argv[1]
 if mode not in CHECKS:
@@ -2339,14 +2343,17 @@ expect_output 0 "ALLOW_EMPTY" "gh の読み取りは素通し" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr view 12 --json state # $CR_PAD"
 expect_output 0 "ALLOW_EMPTY" "400 文字未満の返信は素通し" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body 'ありがとうございます'"
-expect_output 0 "ALLOW_EMPTY" "COLDREAD_SKIP=1 は通る" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST"
-expect_output 0 "COLDREAD_SKIP" "skip は記録に残る" \
+# 逃げ道 COLDREAD_SKIP=1 はエージェントに使わせない(持ち主の判断 2026-10-16)。書かれていても検査を外さず、
+# 書いた事実だけを記録に残す。持ち主が自分で出すときは Claude Code の ! か自分の端末で打つ(gates/README.md)
+expect_output 0 "詰まり" "COLDREAD_SKIP=1 を付けても検査は外れない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "COLDREAD_SKIP=1 $CR_POST"
+expect_output 0 "refused" "効かせなかった逃げ道も記録に残る" \
     cat "$CR_CFG/coldread-gate/skip.log"
-# 逃げ道は書き手の前置であって、本文に文字列が入っていることではない。塞ぐ側と守る側を
-# 両方張る——守る側だけなら部分文字列一致のままでも緑、塞ぐ側だけなら逃げ道を殺しても緑になる。
-# 塞ぐ側で「詰まり」を期待するのは、deny になった事実でなく読み役が実際に本文を読んだことまで
-# 見るため($CR_STUB_FAIL だと「coldreader の起動に失敗」でも緑になり、検査が走った証明にならない)
+expect_output 0 "NO_SKIP_ADVICE" "止めた理由の文は、逃げ道を付けて出せと案内しない" \
+    cr_reason - no-skip-advice \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "COLDREAD_SKIP=1 $CR_POST"
+# 本文や旗の値に逃げ道の文字列が入っていても、検査は外れない。「詰まり」を期待するのは、deny になった事実でなく
+# 読み役が実際に本文を読んだことまで見るため($CR_STUB_FAIL だと「coldreader の起動に失敗」でも緑になる)
 CR_BODY_MENTIONS="gh issue comment 1 --body-file - <<'EOF'
 $CR_BODY
 検査を飛ばすときは COLDREAD_SKIP=1 を付けて再実行します。
@@ -2356,14 +2363,14 @@ expect_output 0 "詰まり" "本文が COLDREAD_SKIP=1 に言及するだけで�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_BODY_MENTIONS"
 expect_output 0 "詰まり" "旗の値としての COLDREAD_SKIP=1 でも外れない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body 'COLDREAD_SKIP=1 $CR_BODY $CR_PAD'"
-expect_output 0 "ALLOW_EMPTY" "cd の次の行に前置しても通る" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cd /tmp
+expect_output 0 "詰まり" "cd の次の行に逃げ道を前置しても外れない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp
 COLDREAD_SKIP=1 $CR_POST"
-expect_output 0 "ALLOW_EMPTY" "&& の先に前置しても通る" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cd /tmp && COLDREAD_SKIP=1 $CR_POST"
-expect_output 0 "ALLOW_EMPTY" "解析できないコマンドでも前置なら通る(逃げ道の主用途)" \
+expect_output 0 "詰まり" "&& の先に逃げ道を前置しても外れない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp && COLDREAD_SKIP=1 $CR_POST"
+expect_output 0 "解析できない" "解析できないコマンドは、逃げ道を前置しても止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 gh issue comment 1 --body '引用が閉じない $CR_BODY $CR_PAD"
-expect_output 0 "取り出せない" "本文を取り出せない形は deny" \
+expect_output 0 "取り出せない" "本文ファイルが無ければ deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file /tmp/real.md # $CR_PAD"
 expect_output 0 "通じやすさのみ" "読み役が CLEAN なら通り、保証範囲の注が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_POST"
@@ -2371,7 +2378,10 @@ expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
-expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
+expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "読み役の故障は止めて、持ち主に渡す案内を出す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
+expect_output 0 "NO_SKIP_ADVICE" "読み役の故障の理由の文も、逃げ道を案内しない" \
+    cr_reason - no-skip-advice \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
 # 行継続(`\` + 改行)。tokenize は改行を区切りの演算子として残すので、正規化しないと 1 つの
 # gh 呼び出しが複数の単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず、
@@ -2537,7 +2547,7 @@ CR_JSON_POST="gh api repos/o/r/issues/1/comments --input - <<'EOF'
 EOF"
 expect_output 0 "詰まり" "--input - の JSON 本文も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_JSON_POST"
-expect_output 0 "取り出せない" "graphql の mutation は本文を取り出せないので deny" \
+expect_output 0 "詰まり" "graphql の mutation は body: の文字列を本文として読ませる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api graphql -f query='mutation { addComment(input:{subjectId:\"x\", body:\"$CR_BODY $CR_PAD\"}) }'"
 expect_output 0 "詰まり" "列挙に無いサブコマンドでも本文の旗があれば網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh discussion comment 1 --body '$CR_BODY $CR_PAD'"
@@ -2778,7 +2788,7 @@ expect_output 0 "詰まり" "絶対パス起動の gh も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "/usr/local/bin/gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 expect_output 0 "詰まり" "-R 前置があってもサブコマンドを見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh -R o/r pr review 12 --comment -b '$CR_BODY $CR_PAD'"
-expect_output 0 "取り出せない" "-H 前置があっても graphql の mutation を見逃さない" \
+expect_output 0 "詰まり" "-H 前置があっても graphql の mutation を見逃さない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api -H 'X-Foo: bar' graphql -f query='mutation { addComment(input:{body:\"$CR_BODY $CR_PAD\"}) }'"
 # リダイレクトは区切りではない(演算子と行き先だけを除く)。挟まれた本文を見失えば無検査で通る
 expect_output 0 "詰まり" "本文旗の直後のリダイレクトで本文を見失わない" \
@@ -2843,11 +2853,19 @@ expect_output 0 "取り出せない" "知らない旗でサブコマンドを特
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh --unknown-flag=x issue comment 1 -b '$CR_BODY $CR_PAD'"
 expect_output 0 "詰まり" "project edit の --readme も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh project edit 1 --readme '$CR_BODY $CR_PAD'"
-# mutation は body 以外のフィールドにもブロック文字列を書ける。中身を本文として抜くと ID・
-# トークン・設定値まで読み役(外部プロセス)へ渡るので、本文を取り出さず一律で止める。読み役が
-# 起動していればここは「coldreader の起動に失敗」になる(CR_STUB_FAIL は exit 1)——起動しないことの検査
-expect_output 0 "取り出せない" "graphql の mutation はブロック文字列でも読み役へ送らずに止める" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='mutation { addComment(input:{subjectId: \"\"\"DB_PASSWORD=$CR_PAD\"\"\", body: \"\"\"$CR_BODY\"\"\"}) }'"
+# mutation は body 以外のフィールドにもブロック文字列を書ける。中身を丸ごと本文として抜くと ID・
+# トークン・設定値まで読み役(外部プロセス)へ渡るので、body: の欄の値だけを抜く
+CR_STUB_NO_SECRET='if grep -q DB_PASSWORD; then printf "詰まり: body 以外の欄の値が読み役に渡った\n"; else echo CLEAN; fi'
+expect_output 0 "検査を通過" "graphql の mutation は body: の欄だけを読ませ、ほかの欄の値は読み役へ送らない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SECRET" "gh api graphql -f query='mutation { addComment(input:{subjectId: \"\"\"DB_PASSWORD=$CR_PAD\"\"\", body: \"\"\"$CR_BODY\"\"\"}) }'"
+# body の欄を持たない mutation(resolveReviewThread など)は投稿ではない。止めていた 57 件の往復の元
+expect_output 0 "ALLOW_EMPTY" "body の欄を持たない graphql の mutation は止めない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:\"PRRT_x\"}) { thread { isResolved } } }' # $CR_PAD"
+CR_STUB_SEES_V=$(cr_stub_sees MARK_V)
+expect_output 0 "MARK_V が届いた" "graphql の mutation の body: \$変数 は、-f で渡した値を読ませる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_V" "gh api graphql -f query='mutation(\$b: String!) { addComment(input:{subjectId:\"x\", body: \$b}) { clientMutationId } }' -f b='MARK_V $CR_BODY $CR_PAD'"
+expect_output 0 "取り出せない" "graphql の mutation の body: \$変数 の値が無ければ止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='mutation(\$b: String!) { addComment(input:{subjectId:\"x\", body: \$b}) { clientMutationId } }' # $CR_PAD"
 # 短縮形は綴りが同じでも意味が違う。投稿でないサブコマンドの -b/-c/-n を本文と誤認すると、
 # ローカル操作の引数が読み役(外部プロセス)へ渡り、的外れな deny で作業も止まる
 expect_output 0 "ALLOW_EMPTY" "pr checkout の -b(ブランチ名)は本文扱いしない" \
@@ -2876,9 +2894,9 @@ expect_output 0 "ALLOW_EMPTY" "gist create の説明文(-d)だけでは本文と
 expect_output 0 "ALLOW_EMPTY" "gh を含む語(highlight 等)だけでは解析に入らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "echo it's a highlight of the day # $CR_PAD"
 # 検査できない本文は、読める本文が同居していても握り潰さない
-expect_output 0 "取り出せない" "読める本文と同居しても実ファイル指定は止める" \
+expect_output 0 "取り出せない" "読める本文と同居しても、読めない本文ファイルは止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file /tmp/x.md"
-expect_output 0 "取り出せない" "--input 実ファイルは検査できないので deny" \
+expect_output 0 "取り出せない" "--input の JSON ファイルが無ければ止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
 # --input - でヒアドキュメントを取り損ねると候補ゼロ・止めた理由ゼロになり、「投稿でない」と
 # 読まれて無検査で通る。兄弟の --body-file - と同じ向きに倒すことの検査
@@ -2892,7 +2910,7 @@ expect_output 0 "詰まり" "行末が CRLF のヒアドキュメントでも本
 CR_CRLF_INPUT=$(printf 'gh api repos/o/r/issues/1/comments --input - <<'\''EOF'\''\r\n{"body": "%s%s"}\r\nEOF\r\n' "$CR_BODY" "$CR_PAD")
 expect_output 0 "詰まり" "CRLF のヒアドキュメントを --input - で渡しても本文を検査する" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_INPUT"
-expect_output 0 "取り出せない" "-F 実ファイル(--body-file 短縮形)は検査できないので deny" \
+expect_output 0 "取り出せない" "-F(--body-file 短縮形)の本文ファイルが無ければ止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F /tmp/body.md # $CR_PAD"
 expect_output 0 "取り出せない" "パイプの stdin は検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat /tmp/b.md | gh issue comment 1 --body-file - # $CR_PAD"
@@ -2914,10 +2932,23 @@ expect_output 0 "詰まり" "stdio を cp1252 に強制しても deny 文言が�
 # 連続 deny: 専用 config で履歴を隔離し「ちょうど 3 回目」で発火する境界を検査する
 # (共有 config だと先行テストの deny が積まれ、見る回数が先行テストの増減で揺れる)
 CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
-"$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-"$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-expect_output 0 "3 回連続で止まっている" "3 回連続 deny で skip の案内が出る(ちょうど 3 で発火)" \
-    "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "上限に当たった" "同じ投稿が 3 回止まると、書き直させずに上限を知らせる(ちょうど 3 で発火)" \
+    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+# 上限に当たったことは別の記録(stuck.log)に残す。本文は写さない(宛先の種類と止めた理由の並びだけ)
+expect_output 0 "STUCK_OK" "上限に当たった投稿は stuck.log に宛先の種類と止めた理由の並びを残し、本文は写さない" \
+    "$PY_BIN" -c 'import sys
+t = open(sys.argv[1], encoding="utf-8").read()
+ok = "kind=issue" in t and "why=finding,finding,finding" in t and "x" * 100 not in t
+print("STUCK_OK" if ok else "BAD %r" % t[:300])' "$CR_STREAK_CFG/coldread-gate/stuck.log"
+# 上限の後は読み役を起こさずに止める(CR_STUB_FAIL が起動していれば「起動に失敗」になる)
+expect_output 0 "上限に当たった" "上限の後の書き直しは読み役を起こさずに止める" \
+    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_FAIL" "$CR_POST"
+# 同じ書き手・同じ宛先でも、本文が似ていなければ別の投稿として数える
+expect_output 0 "NO_STREAK_OTHER_BODY" "宛先が同じでも、本文の似ていない別の投稿は上限の数に入れない" \
+    sh -c '"$@" | grep -q "上限に当たった" && echo BAD || echo NO_STREAK_OTHER_BODY' sh \
+    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$(printf 'まったく別の話題の文章です。%.0s' $(seq 1 30)) $CR_PAD'"
 # 連続 deny は書き手(session)ごと。log は profile 共有なので、並行セッションの deny を数えると
 # 1 回目の書き手に「3 回連続」の案内が出て、他所の skip が自分の案内を消す(2026-09-07 に PR 1429 で実測:
 # 7 回目の deny で案内が消えたのは、2 分前に別セッションが skip したため)
@@ -2927,8 +2958,8 @@ COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_PO
 expect_output 0 "SID_ISOLATED" "他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない" \
     cr_reason bbbb2222 no-streak \
     "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
-COLDREAD_TEST_SESSION=bbbb2222 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST" >/dev/null 2>&1
-expect_output 0 "3 回連続で止まっている" "他セッションの skip を挟んでも、自分の 3 回目で案内が出る" \
+COLDREAD_TEST_SESSION=bbbb2222 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_CLEAN" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "上限に当たった" "他セッションの通過を挟んでも、自分の 3 回目で上限に当たる" \
     env COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 expect_output 0 "to=issue:cwd:1" "log の各行に session・版・投稿先が残る(どの版のどのセッションがどこへ出したかを grep で引く)" \
     grep -E $'deny\tfinding\t[0-9]+\tcold\tsid=aaaa1111\tv=[0-9.]+\tto=issue:cwd:1' "$CR_SID_CFG/coldread-gate/denies.log"
@@ -3069,21 +3100,123 @@ body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", 
 print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
-"$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-"$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 CR_POST_LONGER="gh issue comment 1 --body-file - <<'EOF'
 $CR_BODY
 $CR_BODY
 $CR_PAD
 EOF"
-expect_output 0 " → " "3 回連続 deny で本文が増えていれば、1 回ごとの字数の数列を案内に載せる" \
-    "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
-# 出させるのは「今の本文」でなく「最初の本文」。旧文言は膨れた版を出せと読めた(1429: 5,455 字 → 10,179 字で skip)
-expect_output 0 "最初の本文に戻し" "3 回連続 deny の案内は、最初の本文に戻してから出せと言う" \
-    "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
-expect_output 0 "HEAD_OK" "3 回連続 deny の案内は deny 理由の先頭に在る" \
-    cr_reason - streak-head \
-    "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+expect_output 0 " → " "上限に当たったとき、本文が増えていれば 1 回ごとの字数の数列を知らせに載せる" \
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+expect_output 0 "持ち主に渡して止まれ" "上限の知らせは、書き直しをやめて持ち主に渡せと言う" \
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+expect_output 0 "HEAD_OK" "上限の知らせは deny 理由の先頭に在る" \
+    cr_reason grow1 streak-head \
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+
+# ---- coldread: 取りこぼしの穴(2026-10-16 に記録と会話の記録を突き合わせて見つけた) ----------------
+# 方針は「出来る限りフックで止める。本文が読めない形は止める(fail-closed)。読める形は止めずに読む」。
+# 読み役の代役は、届いた依頼文+本文に印(ASCII)が在るかで返す文言を変える——deny になった事実でなく、
+# 本文が実際に読み役へ届いたことまで見るため
+CR_STUB_SEES_FILE=$(cr_stub_sees MARK_FILE)
+CR_FDIR="$WORK/cr-files"; mkdir -p "$CR_FDIR"
+printf 'MARK_FILE %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/body.md"
+printf '{"body": "MARK_FILE %s %s"}\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/payload.json"
+# 1. 400 字未満のコマンドを解析の前に通していた。本文ファイル・変数を運ぶ短いコマンドが読まれずに出ていた
+expect_output 0 "MARK_FILE が届いた" "400 字未満のコマンドでも、--body-file の実ファイルを読んで読み役に渡す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file $CR_FDIR/body.md"
+expect_output 0 "取り出せない" "400 字未満のコマンドでも、変数で渡す本文は止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \"\$MSG\""
+# 2. review の JSON で .body が在ると comments[].body を見ていなかった
+CR_STUB_SEES_C=$(cr_stub_sees MARK_C)
+expect_output 0 "MARK_C が届いた" "review の JSON は .body が空でも comments[].body を読ませる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_C" "gh api repos/o/r/pulls/9/reviews --input - <<'EOF'
+{\"body\": \"\", \"event\": \"COMMENT\", \"comments\": [{\"path\": \"a.py\", \"line\": 1, \"body\": \"MARK_C $CR_BODY $CR_PAD\"}]}
+EOF"
+expect_output 0 "MARK_C が届いた" "review の JSON は長い .body と並ぶ comments[].body も読ませる(最長の 1 本で落とさない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_C" "gh api repos/o/r/pulls/9/reviews --input - <<'EOF'
+{\"body\": \"$CR_BODY $CR_PAD $CR_PAD\", \"event\": \"COMMENT\", \"comments\": [{\"path\": \"a.py\", \"line\": 1, \"body\": \"MARK_C は短い\"}]}
+EOF"
+# 3. 本文がファイルに在る形は止めて書き直させていた(往復 124 回)。フックが自分で読む
+expect_output 0 "MARK_FILE が届いた" "gh api -F body=@<絶対パス> はファイルを読んで読み役に渡す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh api repos/o/r/issues/1/comments -F body=@$CR_FDIR/body.md"
+expect_output 0 "MARK_FILE が届いた" "gh api --input <絶対パス> は JSON を読んで .body を読み役に渡す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh api repos/o/r/issues/1/comments --input $CR_FDIR/payload.json"
+expect_output 0 "MARK_FILE が届いた" "gh pr create -F <絶対パス>(--body-file の短縮形)も読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh pr create -t T -F $CR_FDIR/body.md"
+expect_output 0 "MARK_FILE が届いた" "相対パスはフックの入力の cwd で解いて読む" \
+    env COLDREAD_TEST_CWD="$CR_FDIR" "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "gh issue comment 1 --body-file body.md"
+expect_output 0 "取り出せない" "cwd の無い相対パスは決まらないので止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file body.md"
+expect_output 0 "MARK_FILE が届いた" "cd <絶対パス> && の後の相対パスは、cd の先で解いて読む" \
+    env COLDREAD_TEST_CWD=/ "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "cd $CR_FDIR && gh issue comment 1 --body-file body.md"
+expect_output 0 "取り出せない" "cd の後 ; で続く相対パスは、cd の成否で指す先が変わるので止める" \
+    env COLDREAD_TEST_CWD=/ "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cd $CR_FDIR; gh issue comment 1 --body-file body.md"
+expect_output 0 "MARK_FILE が届いた" "同じコマンドの中で絶対パスを代入した変数のパスは、静的に解いて読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILE" "S=$CR_FDIR/body.md; gh issue comment 1 --body-file \"\$S\""
+expect_output 0 "取り出せない" "解けない変数のパスは止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file \"\$NOPE\""
+printf 'MARK_OLD %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/w.md"
+CR_STUB_SEES_HD=$(cr_stub_sees MARK_HD)
+expect_output 0 "MARK_HD が届いた" "同じコマンドで cat > f <<EOF と書いてから渡す本文は、ディスクの古い中身でなくヒアドキュメントを読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_HD" "cat > $CR_FDIR/w.md <<'EOF'
+MARK_HD $CR_BODY $CR_PAD
+EOF
+gh issue comment 1 --body-file $CR_FDIR/w.md"
+expect_output 0 "取り出せない" "同じコマンドの中で別の命令が本文ファイルを書き換えうるなら止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cp $CR_FDIR/w.md $CR_FDIR/body.md && gh issue comment 1 --body-file $CR_FDIR/body.md"
+printf '\377\376 not utf-8 %s\n' "$CR_PAD" > "$CR_FDIR/latin.md"
+expect_output 0 "UTF-8 でない" "UTF-8 でない本文ファイルは止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/latin.md"
+expect_output 0 "上限より大きい" "上限より大きい本文ファイルは止める" \
+    env COLDREAD_MAX_LEN=300 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/body.md"
+expect_output 0 "読めない" "無い本文ファイルは止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/no-such.md"
+# FIFO は書き手を待ってフックを止める(止まるとフックの timeout で無検査で通る)。O_NONBLOCK で開き、fstat で通常のファイルかを見る
+if mkfifo "$CR_FDIR/fifo.md" 2>/dev/null; then
+    expect_output 0 "通常のファイルでない" "FIFO の本文ファイルは待たずに止める" \
+        "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/fifo.md"
+else
+    cr_fifo_skip="  ok   FIFO の本文ファイルは待たずに止める # SKIP fifo: mkfifo が無い"
+    echo "$cr_fifo_skip"; note_skips "$cr_fifo_skip"; ran=$((ran + 1))
+fi
+# 4. ヒアドキュメントの開始行で、区切りの後ろに同じ行で文字が続く形を見落とし、「別プロセスからの stdin」で誤って止めていた
+expect_output 0 "詰まり" "区切りの後ろに旗が続くヒアドキュメント(<<'J' -q .html_url)も本文として読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues/1/comments --input - <<'J' -q .html_url
+{\"body\": \"$CR_BODY $CR_PAD\"}
+J"
+expect_output 0 "詰まり" "区切りの後ろにパイプが続くヒアドキュメント(<<'EOF' | tail)も本文として読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body-file - <<'EOF' | tail -1
+$CR_BODY $CR_PAD
+EOF"
+CR_STUB_SEES_B=$(cr_stub_sees MARK_B)
+expect_output 0 "MARK_B が届いた" "1 行に 2 つのヒアドキュメントが在っても、gh に付いた方を本文にする" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_B" "cat <<'A' > /dev/null; gh issue comment 1 --body-file - <<'B'
+MARK_A $CR_PAD
+A
+MARK_B $CR_BODY $CR_PAD
+B"
+# 5. timeout の前置で gh が見えず素通しだった
+expect_output 0 "詰まり" "timeout 180 の前置でも gh を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "timeout 180 gh pr create --title t --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "timeout の -s・-k の値と長さを読み飛ばしても gh を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "timeout -s KILL -k 5 2m gh pr create --title t --body '$CR_BODY $CR_PAD'"
+# 6. misses.log: 短いコマンドも記録し、ヒアドキュメントの中身は見ず、当たった単純コマンドの先頭の語を添える
+CR_MISS_CFG="$WORK/coldread-cfg-miss"; mkdir -p "$CR_MISS_CFG"
+"$CR_CASE" "$CR_MISS_CFG" "$CR_STUB_FAIL" "sh -c 'gh issue comment 1 --body hi'" >/dev/null 2>&1
+"$CR_CASE" "$CR_MISS_CFG" "$CR_STUB_FAIL" "cat > /dev/null <<'EOF'
+gh issue comment 1 --body の書き方の説明
+EOF
+gh pr view 1" >/dev/null 2>&1
+expect_output 0 "MISS_OK" "misses.log は短いコマンドの落ちも旗と先頭の語で残し、ヒアドキュメントの中身の綴りは数えない" \
+    "$PY_BIN" -c 'import sys
+rows = [l.rstrip("\n").split("\t")[1:] for l in open(sys.argv[1], encoding="utf-8")]
+print("MISS_OK" if rows == [["--body", "sh"]] else "BAD %r" % rows)' "$CR_MISS_CFG/coldread-gate/misses.log"
+# 7. 試験が本物の記録(~/.claude*/coldread-gate/denies.log)に書いていた(セッション ID の空の parse-fail の塊)
+mkdir -p "$WORK/cr-home"
+expect_output 0 "NO_LEAK" "解析の例外の検査は、本物の設定フォルダに記録を書かない" \
+    env -u CLAUDE_CONFIG_DIR HOME="$WORK/cr-home" sh -c '"$1" "$2" >/dev/null; if [ -e "$3/.claude/coldread-gate" ]; then echo LEAKED; else echo NO_LEAK; fi' sh "$PY_BIN" "$ROOT/tests/coldread-raise-case.py" "$WORK/cr-home"
 
 # ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----
 DG_CASE="$ROOT/tests/destgate-case.sh"
