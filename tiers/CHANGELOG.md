@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Changed
+
+- README が名指す会社の形の設計の文書を、本流に入れた `docs/specs/2026-10-16-company-shape-design.md`（リポジトリの根）に替えた。前は枝 `docs/company-shape` にしか無く、本流を clone した人は辿れなかった。
+
 ## [0.2.1] - 2026-10-16
 
 ### Fixed

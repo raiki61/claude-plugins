@@ -2,7 +2,7 @@
 
 プラグインが要る外の道具（Claude Code・gh・herdr・Archon など、利用者の PC に別に入れる道具）を段に分けて点検し、足りない物と入れ方を返す、共通の部品のプラグイン。何も入れない。ほかのプラグインが依存として入れ、使い始めに呼ぶ。人は `/tiers:check` で同じ点検を走らせる。
 
-設計の正本は、枝 `docs/company-shape` の `docs/specs/2026-10-16-company-shape-design.md` の 4.11（要る道具の段と、点検と準備）。世間の形の調べは、持ち主のノートのリポジトリ my_notes の `reference/secondary/architecture/extension-hosts-declare-sibling-extensions-but-not-individual-outside-tools.md`。
+設計の正本は、このリポジトリ（claude-plugins）の根の `docs/specs/2026-10-16-company-shape-design.md` の 4.11（要る道具の段と、点検と準備）。世間の形の調べは、持ち主のノートのリポジトリ my_notes の `reference/secondary/architecture/extension-hosts-declare-sibling-extensions-but-not-individual-outside-tools.md`。
 
 変更の記録: [CHANGELOG.md](CHANGELOG.md)。
 
