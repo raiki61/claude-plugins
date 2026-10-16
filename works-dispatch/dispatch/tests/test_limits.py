@@ -214,12 +214,13 @@ class HerdrConfig(unittest.TestCase):
         self.assertEqual(len(lines), 3)
         self.assertNotIn("local", "\n".join(lines))
 
-    def test_lines_take_python_from_path_and_do_not_read_the_toml(self):
+    def test_lines_pick_python_like_the_hooks_and_do_not_read_the_toml(self):
         # herdr がタブ欄のコマンドに渡す PATH は、ログインのシェルの PATH と違う（macOS では OS に付いてくる 3.9 が先に来た）。
-        # 絶対パスはマシンごとに違うので書かず、このリポジトリのフックと同じく PATH の python3 か python を使う。
-        # そのため、タブ欄から呼ぶ道は TOML（tomllib は 3.11 から）を読まず、herdr-config が書いた JSON の写しを読む
+        # Python はフックと同じ hooks/run-python.sh で選ぶ（Windows の Store へ誘う代わりの物を飛ばす）。タブ欄から呼ぶ道は
+        # TOML（tomllib は 3.11 から）を読まず、herdr-config が書いた JSON の写しを読むので、下限は 3.9
         for line in limits.herdr_entries(accounts(2), "/p/limits.py", "/l/accounts.json"):
-            self.assertIn("command -v python3 || command -v python", line)
+            self.assertIn(f"bash {limits.PICKER} --min 3.9 /p/limits.py", line)
+            self.assertNotIn("command -v python3", line)
             self.assertIn("--accounts /l/accounts.json", line)
             self.assertNotIn("--config", line)
 

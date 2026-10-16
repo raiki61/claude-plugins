@@ -52,6 +52,7 @@ for _s in (sys.stdout, sys.stderr):
 
 HERE = pathlib.Path(__file__).resolve().parent
 TEMPLATE = HERE / "templates" / "herdr-tab-bar.toml"
+PICKER = HERE.parent / "hooks" / "run-python.sh"   # Python を選ぶ入口（フックと同じ決まり。Store へ誘う代わりの物を飛ばす）
 
 # 取り直しの間隔（分）。使っていないアカウントの値は claude.ai など外で使わない限り動かないので、5 時間の枠は長く取る。
 # 7 日の枠は statusline が大きさで採らず（放置した会話の古い高い値が今の値を潰すため）、書き手が probe だけなので短く取る。
@@ -347,7 +348,7 @@ def herdr_entries(accounts, script, snapshot_path):
     def fill(s):
         # 雛形の command は TOML の "…" の中なので、埋める値の \ と " をエスケープする（Windows のパスは \ を含む）
         return shlex.quote(s).replace("\\", "\\\\").replace('"', '\\"')
-    q = {"script": fill(script), "accounts": fill(str(snapshot_path))}
+    q = {"script": fill(script), "accounts": fill(str(snapshot_path)), "picker": fill(str(PICKER))}
     return [show.format(name=fill(a.name), **q) for a in shown] + [probe.format(**q)]
 
 

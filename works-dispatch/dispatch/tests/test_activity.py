@@ -61,7 +61,9 @@ class Settings(unittest.TestCase):
         hooks = got["hooks"]
         self.assertEqual(sorted(hooks), ["Notification", "PreToolUse", "Stop", "UserPromptSubmit"])
         for rows in hooks.values():
-            self.assertEqual(rows[0]["hooks"], [{"type": "command", "command": "python3 /p/dispatch/activity.py"}])
+            # Python はフックと同じ hooks/run-python.sh で選ぶ（Windows の Store へ誘う代わりの物を飛ばす。TOML を読まないので下限 3.9）
+            self.assertEqual(rows[0]["hooks"], [{"type": "command",
+                                                 "command": "bash /p/hooks/run-python.sh --min 3.9 /p/dispatch/activity.py"}])
         self.assertEqual(hooks["PreToolUse"][0]["matcher"], "")
 
 

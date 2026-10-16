@@ -31,6 +31,21 @@ class HookPython(unittest.TestCase):
             p = self.run_pick(d, str(script))
             self.assertEqual((p.returncode, p.stdout.strip()), (0, "True"), p.stderr)
 
+    def test_the_floor_can_be_lowered_or_raised(self):
+        # タブ欄とサイドバーの台本は TOML を読まないので --min 3.9。下限より古い物しか無ければ、その版を言って止まる
+        with tempfile.TemporaryDirectory() as d:
+            script = pathlib.Path(d) / "s.py"
+            script.write_text("print('ok')\n", encoding="utf-8")
+            (pathlib.Path(d) / "python3").symlink_to(sys.executable)
+            env = {**os.environ, "PATH": os.pathsep.join([d, os.path.dirname(shutil.which("bash"))])}
+            p = subprocess.run([shutil.which("bash"), str(PICK), "--min", "3.9", str(script)], capture_output=True, text=True,
+                               encoding="utf-8", env=env)
+            self.assertEqual((p.returncode, p.stdout.strip()), (0, "ok"), p.stderr)
+            p = subprocess.run([shutil.which("bash"), str(PICK), "--min", "99.0", str(script)], capture_output=True, text=True,
+                               encoding="utf-8", env=env)
+            self.assertEqual(p.returncode, 1)
+            self.assertIn("Python 99.0 以上", p.stderr)
+
     def test_nothing_to_pick_says_how_to_fix_it(self):
         with tempfile.TemporaryDirectory() as d:
             for name in ("python3", "python"):

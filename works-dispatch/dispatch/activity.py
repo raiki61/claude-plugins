@@ -6,7 +6,7 @@ herdr の端末のタイトルは会話の始めに一度だけ付く名前で�
 作業中は動いているツール、ターンが終わったら直前に頼まれた内容を、herdr のペインの印（カスタムのトークン $act）として送る。
 
 使い方: `python3 <このファイル> settings` が、Claude Code の設定（settings.json）に足す hooks の塊（UserPromptSubmit・PreToolUse・
-Stop・Notification で `python3 <このファイル>` を呼ぶ）を JSON で出す。herdr の設定の [ui.sidebar.agents.rows_by_agent] の claude の行に
+Stop・Notification で、Python をフックと同じ決まり〔hooks/run-python.sh〕で選んでこのファイルを呼ぶ）を JSON で出す。herdr の設定の [ui.sidebar.agents.rows_by_agent] の claude の行に
 $act を置く（SKILL.md）。引数なしで起こすと、フックとして標準入力の 1 回ぶんを処理する。
 herdr の外で動く会話では何もしない。herdr への送信は待たずに手放し、ツールの呼び出しを待たせない。
 """
@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -98,7 +99,9 @@ EVENTS = ("UserPromptSubmit", "PreToolUse", "Stop", "Notification")
 
 def settings(script):
     """settings.json に足す hooks の塊。PreToolUse は全部のツールに当てる（matcher は空）。"""
-    hook = [{"type": "command", "command": f"python3 {script}"}]
+    # Python はフックと同じ決まりで選ぶ（hooks/run-python.sh。Windows の Store へ誘う代わりの物を飛ばす）。この台本は TOML を読まないので下限は 3.9
+    picker = pathlib.Path(script).resolve().parent.parent / "hooks" / "run-python.sh"
+    hook = [{"type": "command", "command": f"bash {shlex.quote(picker.as_posix())} --min 3.9 {shlex.quote(pathlib.Path(script).as_posix())}"}]
     return {"hooks": {e: [{"matcher": "", "hooks": hook} if e == "PreToolUse" else {"hooks": hook}] for e in EVENTS}}
 
 

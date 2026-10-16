@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- herdr のタブ欄に使用率を出す行（`limits.py herdr-config` が出す行）と、サイドバーに作業内容を出すフック（`activity.py settings` が出す塊）と、SKILL.md の statusline の例が、Python を `command -v python3 || command -v python` や `python3` のまま選んでいた。Windows では、Python を入れていないと Microsoft Store へ誘う代わりの物に当たって動かない。フックと同じ `hooks/run-python.sh` を通し、`python3`・`python`・`py -3` の順に、実際に起きる物を選ぶ。どれも TOML を読まない台本なので、`run-python.sh` に下限を替える `--min` を足し、`--min 3.9` で呼ぶ（macOS 付属の 3.9 でも今までどおり動く）。前に貼った行は、`limits.py herdr-config` と `activity.py settings` を打ち直して貼り直す。
+
 ## [0.19.1] - 2026-10-16
 
 ### Fixed
