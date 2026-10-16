@@ -2463,6 +2463,8 @@ def page_item(node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, ca
             "turn": page_turn(node, me, reasons),
             "files": node.get("changedFiles"), "additions": node.get("additions"), "deletions": node.get("deletions"),
             "notes": []}
+    if is_pr and head_oid(node):
+        head["oid"] = head_oid(node)  # 差分の外のファイル（受け先の API の形など）を、描くときにこの版から読む
     page = page_base(head["kind"], f"{owner}-{name}/{node['number']}", f"{owner}/{name}", head)
     anchor_t = anchor["t"] if anchor else ts(node["createdAt"])
     page["anchor"] = anchor_kind
@@ -2581,13 +2583,17 @@ def render_command(data_path, fields_path):
         sys.exit(f"材料 {data_path} の形が違う（版 {catchup_html.SCHEMA} の catchup.py --out が書いたものを渡す。"
                  "走らせ直せば新しく書く）")
     fields = load(fields_path, "欄の JSON")
-    errs = catchup_html.validate_fields(fields, need_title=data is None)
+    # 図や変更点が差分の外のファイルを指したら、PR の先頭の版から読む（手元に同じ commit が有れば git show、無ければ GitHub）
+    owner, _, name = ((data or {}).get("repo") or "").partition("/")
+    oid = ((data or {}).get("head") or {}).get("oid")
+    read = head_reader(owner, name, oid) if owner and name and oid else None
+    errs = catchup_html.validate_fields(fields, need_title=data is None, data=data, read=read)
     if errs:
         print(f"欄の JSON {fields_path} を直す所が {len(errs)} 件ある:", file=sys.stderr)
         for e in errs:
             print("  - " + e, file=sys.stderr)
         return 2
-    path, line = catchup_html.write_page(data, fields)
+    path, line = catchup_html.write_page(data, fields, read=read)
     print(path)
     print(line)
     print(catchup_html.open_in_vscode(path), file=sys.stderr)

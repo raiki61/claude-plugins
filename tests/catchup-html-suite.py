@@ -77,19 +77,254 @@ class FieldsTest(unittest.TestCase):
 
     def test_lists_have_bounds(self):
         self.assertTrue(any("next は 1〜6 個" in e for e in ch.validate_fields(fields(next=[]))))
-        self.assertTrue(any("explain は 0〜3 個" in e for e in ch.validate_fields(fields(explain=["a"] * 4))))
+        self.assertTrue(any("explain は 0〜6 個" in e for e in ch.validate_fields(fields(explain=["a"] * 7))))
         self.assertTrue(any("空でない文字列の並び" in e for e in ch.validate_fields(fields(next=["", "x"]))))
         self.assertTrue(any("空でない文字列の並び" in e for e in ch.validate_fields(fields(next="差分を読む"))))
 
-    def test_figure_rules(self):
-        bad = {"caption": "c", "rows": [{"label": "変更前", "steps": [{"text": "a", "tone": "red"}],
-                                         "notes": [{"at": 3, "text": "n"}]}]}
+    def test_figure_kind_is_chosen_by_the_writer_and_named(self):
+        self.assertTrue(any("figure.kind は graph・sequence・compare" in e
+                            for e in ch.validate_fields(fields(figure={"rows": []}))))
+        self.assertTrue(any("figure.kind は" in e for e in ch.validate_fields(fields(figure={"kind": "flow", "rows": []}))))
+
+    def test_graph_declares_boxes_and_relations_without_coordinates(self):
+        ok = {"kind": "graph", "dir": "TB", "groups": [{"id": "job", "text": "毎晩のジョブ"}], "nodes": [
+            {"id": "a", "text": "入口", "group": "job"},
+            {"id": "b", "text": "原因の連鎖をたどる", "was": "1 段だけ見る", "sub": "包まれた例外"},
+            {"id": "c", "text": "4 で終わる", "in": "after"}],
+            "edges": [{"from": "a", "to": "b", "text": "渡す"}, {"from": "b", "to": "c", "in": "after", "dashed": True}]}
+        self.assertEqual(ch.validate_fields(fields(figure=ok)), [])
+        bad = {"kind": "graph", "dir": "RL", "nodes": [
+            {"id": "a", "text": "x", "x": 10, "group": "nope", "tone": "red"},
+            {"id": "a", "text": "y" * 41, "was": "z", "in": "after", "points": [1]}],
+            "edges": [{"from": "a", "to": "q", "in": "later"}]}
         errs = ch.validate_fields(fields(figure=bad))
-        self.assertTrue(any("tone は good か bad" in e for e in errs), errs)
-        self.assertTrue(any("notes[0].at は注記を付ける箱の番号（0〜0）" in e for e in errs), errs)
-        self.assertTrue(any("rows は 1 つ以上" in e for e in ch.validate_fields(fields(figure={"rows": []}))))
-        self.assertTrue(ch.validate_fields(fields(figure={"rows": [{"label": "x", "steps": [{"text": "a"}],
-                                                                     "arrows": []}]})))
+        for want in ("figure.dir は LR", "nodes[0] に知らない欄 x", "nodes[0].group は figure.groups", "nodes[0].tone は good か bad",
+                     "nodes[1].id a が重なっている", "nodes[1].text は 40 字まで", "nodes[1].was（変更前の字）",
+                     "nodes[1].points は points.items を書いたときだけ", "edges[0].to は figure.nodes の id", "edges[0].in は before"):
+            self.assertTrue(any(want in e for e in errs), (want, errs))
+        too_many = {"kind": "graph", "nodes": [{"id": str(i), "text": "n"} for i in range(21)]}
+        self.assertTrue(any("nodes は 1〜20 個" in e for e in ch.validate_fields(fields(figure=too_many))))
+
+    def test_graph_boxes_point_at_numbered_changes_and_code(self):
+        data = {"views": [{"id": "all", "text": DIFF}]}
+        pts = {"items": [{"title": "終了コード", "after": "連鎖をたどる"}]}
+        fig = {"kind": "graph", "nodes": [{"id": "a", "text": "入口", "points": [1], "code": [{"path": "app/retry.py"}]},
+                                          {"id": "b", "text": "出口", "points": [2], "code": [{"path": "nope.py"}]}]}
+        errs = ch.validate_fields(fields(points=pts, figure=fig), data=data)
+        self.assertTrue(any("nodes[1].points は変更点の番号（1〜1）" in e for e in errs), errs)
+        self.assertTrue(any("nodes[1].code[0].path nope.py は差分に無い" in e for e in errs), errs)
+        self.assertFalse(any("nodes[0]" in e for e in errs), errs)
+        code = ch.point_code(data, fields(points=pts, figure=fig))
+        self.assertEqual(list(code["nodes"]), ["a"])
+        self.assertIn("+    new = 1", code["nodes"]["a"][0]["text"])
+        # 増える・変わる箱に番号を付け忘れると、押してもコードが開かない。差分の外の物は [] で無いと示す
+        fig2 = {"kind": "graph", "nodes": [{"id": "a", "text": "受け口の制限", "in": "after"},
+                                           {"id": "b", "text": "手で作る値", "in": "after", "points": []},
+                                           {"id": "c", "text": "入口", "was": "旧い入口", "points": [1]}]}
+        errs = ch.validate_fields(fields(points=pts, figure=fig2))
+        self.assertTrue(any("nodes[0] はこの PR で増える・消える・変わる箱" in e for e in errs), errs)
+        self.assertFalse(any("nodes[1]" in e or "nodes[2]" in e for e in errs), errs)
+
+    def test_edges_carry_points_and_code_including_files_outside_the_diff(self):
+        # 線は流れるデータ。受け先の型はこの PR で変えていなくても、PR の先頭の版から引いて見せる
+        data = {"views": [{"id": "all", "text": DIFF}]}
+        head = {"app/schema.py": ["import x", "", "class Order:", "    id: int", "    note: str"]}
+        read = head.get
+        pts = {"items": [{"title": "終了コード", "after": "連鎖をたどる"}]}
+        fig = {"kind": "graph", "nodes": [{"id": "a", "text": "入口"}, {"id": "b", "text": "出口"}],
+               "edges": [{"from": "a", "to": "b", "text": "注文を渡す", "in": "after", "points": [1],
+                          "code": [{"path": "app/schema.py", "find": "class Order"}]},
+                         {"from": "b", "to": "a", "text": "返す", "in": "after"},
+                         {"from": "a", "to": "a", "code": [{"path": "app/none.py", "find": "x"}]},
+                         {"from": "b", "to": "b", "code": [{"path": "app/schema.py", "find": "class Nope"}]}]}
+        f = fields(points=pts, figure=fig)
+        errs = ch.validate_fields(f, data=data, read=read)
+        self.assertFalse(any("edges[0]" in e for e in errs), errs)
+        self.assertTrue(any("edges[1] はこの PR で増える・消える線" in e for e in errs), errs)
+        self.assertTrue(any("edges[2].code[0].path app/none.py は差分に無く、PR の先頭の版でも読めない" in e for e in errs), errs)
+        self.assertTrue(any("edges[3].code[0].find 'class Nope'" in e for e in errs), errs)
+        # 読めないとき（材料に head.oid が無い）は、差分の外は今まで通り止める
+        self.assertTrue(any("edges[0].code[0].path app/schema.py は差分に無い" in e for e in ch.validate_fields(f, data=data)))
+        code = ch.point_code(data, f, read)["edges"]["a>b"][0]
+        self.assertTrue(code["outside"])
+        self.assertIn("@@ -1,5 +1,5 @@", code["text"])
+        self.assertIn(" class Order:", code["text"])
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("この PR では変えていない", page)
+        self.assertIn("POINT_EDGES", page)
+        long = {"kind": "graph", "nodes": [{"id": "a", "text": "入口"}, {"id": "b", "text": "出口"}],
+                "edges": [{"from": "a", "to": "b", "text": "あ" * (ch.EDGE_TEXT_CAP + 1)}]}
+        self.assertTrue(any(f"edges[0].text は {ch.EDGE_TEXT_CAP} 字まで" in e for e in ch.validate_fields(fields(figure=long))))
+
+    def test_sequence_lists_exchanges_between_actors(self):
+        ok = {"kind": "sequence", "actors": [{"id": "ui", "text": "画面"}, {"id": "be", "text": "backend"}],
+              "steps": [{"from": "ui", "to": "be", "text": "保存する", "in": "after"}, {"from": "be", "to": "be", "text": "検査する"},
+                        {"from": "be", "to": "ui", "text": "古い返事", "in": "before", "tone": "bad"}]}
+        self.assertEqual(ch.validate_fields(fields(figure=ok)), [])
+        errs = ch.validate_fields(fields(figure={"kind": "sequence", "actors": [{"id": "ui", "text": "画面"}],
+                                                 "steps": [{"from": "ui", "to": "db", "text": ""}]}))
+        self.assertTrue(any("actors は 2〜6 個" in e for e in errs), errs)
+        self.assertTrue(any("steps[0].text は空でない文字列" in e for e in errs), errs)
+
+    def test_compare_figure(self):
+        ok = {"kind": "compare", "rows": [{"name": "既定の待ち", "before": "30 秒", "after": "10 秒", "tone": "good"},
+                                          {"name": "新しい設定", "after": "有効"}]}
+        self.assertEqual(ch.validate_fields(fields(figure=ok)), [])
+        errs = ch.validate_fields(fields(figure={"kind": "compare", "rows": [{"name": "x"}, {"before": "a"}]}))
+        self.assertTrue(any("before か after の少なくとも一方" in e for e in errs), errs)
+        self.assertTrue(any("rows[1].name" in e for e in errs), errs)
+
+    def test_lead_is_one_short_sentence(self):
+        self.assertEqual(ch.validate_fields(fields(lead="包まれた切断も終了コード 4 にする。")), [])
+        self.assertTrue(any("lead は 120 字まで" in e for e in ch.validate_fields(fields(lead="あ" * 121))))
+
+    def test_where_and_turn_are_lists_of_short_facts(self):
+        self.assertEqual(ch.validate_fields(fields(where=["昨日指摘した", "作者が返信した"], turn=["止めているのは私の返事"])), [])
+        errs = ch.validate_fields(fields(where=["あ" * 61], turn=["a"] * 5))
+        self.assertTrue(any("where[0] は 60 字まで" in e for e in errs), errs)
+        self.assertTrue(any("turn は 1〜4 個" in e for e in errs), errs)
+        # 一言と次の一手も短く（番号と件名はページの頭に出る）
+        errs = ch.validate_fields(fields(headline="あ" * 61, next=["い" * 61]))
+        self.assertTrue(any("headline は 60 字まで" in e for e in errs), errs)
+        self.assertTrue(any("next[0] は 60 字まで" in e for e in errs), errs)
+        self.assertIn('facts(A.where, "nb-where")', ch.TEMPLATE.read_text(encoding="utf-8"))  # 箇条で描く
+
+    def test_points_are_short_enough_to_compare_side_by_side(self):
+        ok = {"items": [{"title": "上限を足す", "before": "いくらでも保存できた", "after": "1000 字までにする"}]}
+        self.assertEqual(ch.validate_fields(fields(points=ok)), [])
+        long = {"items": [{"title": "あ" * 31, "before": "い" * 81, "after": "う" * 81}]}
+        errs = ch.validate_fields(fields(points=long))
+        for want in ("title は 30 字まで", "before は 80 字まで", "after は 80 字まで"):
+            self.assertTrue(any(want in e for e in errs), (want, errs))
+
+    def test_terms_define_local_words_outside_the_sentences(self):
+        ok = [{"term": "ターン", "means": "利用者の 1 回の質問と回答の 1 往復"}]
+        self.assertEqual(ch.validate_fields(fields(terms=ok)), [])
+        errs = ch.validate_fields(fields(terms=ok + [{"term": "ターン", "means": "x", "see": "y"}]))
+        self.assertTrue(any("重なっている" in e for e in errs) and any("知らない欄 see" in e for e in errs))
+        self.assertTrue(any("terms は 1〜16 個" in e for e in ch.validate_fields(fields(terms=ok * 17))))
+        self.assertTrue(any("means は 160 字まで" in e for e in ch.validate_fields(fields(terms=[{"term": "a", "means": "あ" * 161}]))))
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("この節に出てくる語", page)  # 説明の前に一覧で出す
+        self.assertIn("termify(", page)          # 文の中の同じ語に意味を付ける
+        # rich() は要素の並びを返す。el() は並びを平らにするが、replaceChildren / append に直に渡すと
+        # 並びが文字にされ「[object HTMLSpanElement]」と出る（コマ送りの字幕で起きた）
+        for line in page.splitlines():
+            if "replaceChildren(" in line:
+                for i in [k for k in range(len(line)) if line.startswith("rich(", k)]:
+                    self.assertTrue(line[:i].endswith("..."), line.strip())
+
+    def test_points_code_refs_are_checked_against_the_diff(self):
+        data = {"views": [{"id": "all", "text": DIFF}]}
+        pts = {"items": [
+            {"title": "終了コード", "before": "1 段だけ見る", "after": "連鎖をたどる",
+             "code": [{"path": "app/retry.py", "find": "new = 1"}]},
+            {"title": "説明", "after": "書き直す", "code": [{"path": "docs/x.md", "find": "b"}]}]}
+        self.assertEqual(ch.validate_fields(fields(points=pts), data=data), [])
+        code = ch.point_code(data, fields(points=pts))["points"]
+        self.assertEqual([c["path"] for c in code[0]], ["app/retry.py"])
+        self.assertIn("+    new = 1", code[0][0]["text"])
+        self.assertTrue(code[0][0]["text"].startswith("diff --git a/app/retry.py"))
+        bad = {"items": [
+            {"lane": "他", "title": "t", "after": "a", "code": [{"path": "nope.py"}]},
+            {"title": "t", "after": "a", "code": [{"path": "app/retry.py", "lines": [10, 12]}]},
+            {"title": "t", "after": "a", "code": [{"path": "app/retry.py", "find": "無い語"}]}]}
+        errs = ch.validate_fields(fields(points=bad), data=data)
+        self.assertTrue(any("items[0] に知らない欄 lane" in e for e in errs), errs)
+        self.assertTrue(any("nope.py は差分に無い" in e for e in errs), errs)
+        # 行番号では指さない（行を知るには差分の枠まで読むことになり、読む量が大きく増える）
+        self.assertTrue(any("items[1].code[0] に知らない欄 lines（使える欄は path・find）" in e for e in errs), errs)
+        self.assertTrue(any("items[2].code[0] に当たる変更の塊が無い" in e for e in errs), errs)
+        # 材料が無い（会話の話題）なら、指す先の在る無しは見ない
+        self.assertEqual(ch.validate_fields(fields(points={"items": [{"title": "t", "after": "a",
+                                                                       "code": [{"path": "x"}]}]})), [])
+        self.assertTrue(any("points.items は 1〜10 個" in e
+                            for e in ch.validate_fields(fields(points={"items": []}))))
+
+    def test_page_carries_the_code_of_points_and_boxes_and_the_layout_library(self):
+        data = dict(ch.SAMPLE_DATA)
+        f = dict(ch.SAMPLE_FIELDS)
+        page = ch.build_html(ch.TEMPLATE.read_text(encoding="utf-8"), data, f, ch.index_entry(data, f, "x.html", ch.dt.datetime(2026, 1, 1)))
+        self.assertIn('"code": {"points": [[{"path": "app/retry.py"', page)
+        self.assertIn('"nodes": {"walk": [{"path": "app/retry.py"', page)
+        self.assertIn("埋め込み: @dagrejs/dagre 3.1.1", page)
+        self.assertIn("Copyright (c) 2012-2014 Chris Pettitt", page)
+
+    def test_graph_layout_keeps_text_at_full_size_before_height(self):
+        # 高さだけで形を選ぶと、縮めた形ほど低くて勝ち、横に長い図の字が 9px まで小さくなった。
+        # 等倍以上で入る形を先に絞る
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("cands.filter(c => c.zoom >= 1", page)
+
+    def test_clicking_a_box_or_line_opens_a_card_beside_it_without_moving_the_page(self):
+        # 凡例の項へ飛ばしたりコードの窓をいきなり開いたりすると、読んでいた所を見失う。押した所の横に札を出し、
+        # コードは札のボタンを押したときだけ開く
+        page = ch.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("function showPop(", page)
+        self.assertNotIn("scrollIntoView", page.split("function showPop(")[1].split("\nfunction ")[0])
+        self.assertNotIn("function openPoints(", page)
+
+    def test_several_figures_of_different_kinds_are_numbered_in_errors(self):
+        figs = [{"kind": "compare", "rows": [{"name": "待ち", "before": "30 秒", "after": "10 秒"}]},
+                {"kind": "table", "columns": ["読む", "書く"], "rows": [{"label": "admin", "cells": ["✓", {"text": "✓", "was": "–"}]}]}]
+        self.assertEqual(ch.validate_fields(fields(figure=figs)), [])
+        errs = ch.validate_fields(fields(figure=figs + [{"kind": "table", "columns": ["a"], "rows": [{"label": "x", "cells": []}]}]))
+        self.assertTrue(any(e.startswith("figure[2].rows[0].cells は列と同じ 1 個") for e in errs), errs)
+        self.assertTrue(any("figure を並びにするなら 1〜3 個" in e for e in ch.validate_fields(fields(figure=figs * 2))))
+
+    def test_screen_is_made_of_fixed_parts(self):
+        ok = {"kind": "screen", "title": "設定", "items": [
+            {"type": "tabs", "options": ["通知", "アカウント"], "value": "通知"},
+            {"type": "textarea", "label": "通知の宛先", "hint": "カンマで区切る", "in": "after"},
+            {"type": "select", "label": "頻度", "value": "毎日", "was": "毎週"},
+            {"type": "button", "label": "保存", "primary": True, "disabled": True}]}
+        self.assertEqual(ch.validate_fields(fields(figure=ok)), [])
+        errs = ch.validate_fields(fields(figure={"kind": "screen", "items": [{"type": "canvas"}, {"type": "button"},
+                                                                              {"type": "field", "label": "x", "primary": "yes"}]}))
+        for want in ("items[0].type は heading", "items[1].label は空でない", "items[2].primary は true か false"):
+            self.assertTrue(any(want in e for e in errs), (want, errs))
+
+    def test_steps_place_each_step_in_a_lane(self):
+        ok = {"kind": "steps", "lanes": [{"id": "dev", "text": "リポジトリ"}, {"id": "ops", "text": "運用"}],
+              "steps": [{"lane": "dev", "text": "マージする", "tag": "この PR"}, {"lane": "ops", "text": "手で流す", "when": "マージの後"}]}
+        self.assertEqual(ch.validate_fields(fields(figure=ok)), [])
+        errs = ch.validate_fields(fields(figure={"kind": "steps", "lanes": [{"id": "dev", "text": "x"}], "steps": [{"lane": "qa", "text": "t"}]}))
+        self.assertTrue(any("steps[0].lane は figure.lanes の id" in e for e in errs), errs)
+
+    def test_graph_box_can_list_columns(self):
+        ok = {"kind": "graph", "nodes": [{"id": "t", "text": "users", "fields": [{"name": "id", "type": "uuid"},
+                                                                                {"name": "notify_email", "type": "bool", "in": "after"}]}]}
+        self.assertEqual(ch.validate_fields(fields(figure=ok)), [])
+        self.assertTrue(any("fields[0].name" in e for e in ch.validate_fields(
+            fields(figure={"kind": "graph", "nodes": [{"id": "t", "text": "users", "fields": [{"type": "uuid"}]}]}))))
+
+    def test_free_html_figure_allows_rich_svg_but_nothing_that_leaves_the_page_or_runs(self):
+        ok = ('<svg viewBox="0 0 100 40"><style>.a{fill:var(--fgColor-success)}</style><rect class="a" width="10" height="10">'
+              '<animate attributeName="width" values="10;90;10" dur="4s" repeatCount="indefinite"/></rect>'
+              '<text x="4" y="30" text-anchor="start">容量</text></svg><div style="display:grid">表</div>')
+        self.assertEqual(ch.validate_fields(fields(figure={"kind": "html", "html": ok})), [])
+        bad = ('<script>alert(1)</script><svg onload="x()"><image href="https://e.example/x.png"/></svg>'
+               '<div style="background:url(https://e.example)">a</div><style>@import "x.css";</style><a href="https://e.example">x</a>'
+               '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>')
+        errs = ch.validate_fields(fields(figure={"kind": "html", "html": bad}))
+        for want in ("<script> は使えない", "onload（イベント）", "<image> は使えない", "url( / @import", "<a> は使えない",
+                     "<style> に url( / @import", "javascript:"):
+            self.assertTrue(any(want in e for e in errs), (want, errs))
+        self.assertTrue(any("20000 字まで" in e for e in ch.validate_fields(fields(figure={"kind": "html", "html": "<p>a</p>" * 3000}))))
+
+    def test_play_frames_light_declared_boxes_and_lines(self):
+        g = {"kind": "graph", "nodes": [{"id": "a", "text": "壊す"}, {"id": "b", "text": "回す"}], "edges": [{"from": "a", "to": "b"}],
+             "play": [{"text": "壊す", "nodes": ["a"]}, {"text": "回す", "nodes": ["b"], "edges": ["a>b"]}]}
+        self.assertEqual(ch.validate_fields(fields(figure=g)), [])
+        bad = dict(g, play=[{"text": "x", "nodes": ["q"], "edges": ["b>a"]}, {"text": "y"}])
+        errs = ch.validate_fields(fields(figure=bad))
+        for want in ("play[0].nodes は figure.nodes の id", "play[0].edges は figure.edges の線を \"from>to\"", "play[1] は光らせる箱か線を 1 つ以上"):
+            self.assertTrue(any(want in e for e in errs), (want, errs))
+        self.assertTrue(any("play は 2〜10 個" in e for e in ch.validate_fields(fields(figure=dict(g, play=g["play"][:1])))))
+        seq = {"kind": "sequence", "play": "yes", "actors": [{"id": "a", "text": "a"}, {"id": "b", "text": "b"}],
+               "steps": [{"from": "a", "to": "b", "text": "t"}]}
+        self.assertTrue(any("figure.play は true か false" in e for e in ch.validate_fields(fields(figure=seq))))
+        self.assertIn("function player(frames, apply)", ch.TEMPLATE.read_text(encoding="utf-8"))
 
     def test_title_is_required_only_without_material(self):
         self.assertEqual(ch.validate_fields(fields()), [])
@@ -198,8 +433,10 @@ class TemplateTest(unittest.TestCase):
         self.assertRegex(self.TPL, r"image\(tok\) \{[^\n]*<a href")
         self.assertNotIn("</script", self.TPL.split("marked 15.0.12 marked.min.js", 1)[1].split("埋め込みここまで", 1)[0])
 
-    def test_turn_history_is_a_timeline_not_the_lane_figure(self):
-        self.assertIn('class: "timeline"', self.TPL)
+    def test_turn_history_is_a_folded_log_inside_the_turn_section(self):
+        # 番の動きは、いまの番の節の中に畳んだ記録として置く（別の節の縦の流れは、同じことを文と 2 回言って読みにくかった）
+        self.assertIn('class: "evlog"', self.TPL)
+        self.assertNotIn('class: "timeline"', self.TPL)
         self.assertNotIn("laneFigure", self.TPL)
 
     def test_no_owner_specific_values(self):

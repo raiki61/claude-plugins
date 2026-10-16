@@ -23,6 +23,7 @@ import datetime as dt
 import glob
 import hashlib
 import html
+import html.parser
 import json
 import os
 import pathlib
@@ -51,7 +52,11 @@ ASSOC_KEY = "workbench.editorAssociations"
 
 TONES = ("good", "bad")
 NEXT_CAP = 6        # 次の一手の数の上限
-EXPLAIN_CAP = 3     # 説明の段落の上限（材料が有れば 3 つ）
+FACT_CAP = 4        # 前回から（where）・止めているもの（turn）の項の数の上限
+FACT_TEXT_CAP = 60  # その 1 項の字数（1 文 1 事実）
+HEADLINE_CAP = 60   # いまの番の一言の字数（番号と件名はページの頭に出るので書かない）
+NEXT_TEXT_CAP = 60  # 次にやることの 1 項の字数
+EXPLAIN_CAP = 6     # 説明の段落の上限（前提・背景・変更 1〜2・使う側。初見向けに詳しく書くので 4〜6 つ）
 
 
 def cache_root(home=None):
@@ -183,11 +188,33 @@ def view(view_id, name, text, url="", note="", since_paths=()):
 
 # ---- AI の欄 -----------------------------------------------------------------
 
-FIELD_KEYS = ("headline", "where", "turn", "next", "unseen", "explain", "figure", "title")
+FIELD_KEYS = ("headline", "where", "turn", "next", "unseen", "lead", "terms", "explain", "figure", "points", "title")
+FIGURE_KINDS = ("graph", "sequence", "compare", "screen", "table", "steps", "html")
+FIGURE_CAP = 3      # 1 件に描く図の数の上限（形の違う図を並べるため）
+LEAD_CAP = 120      # ひとことの字数の上限（1 文で読める長さ）
+TERMS_CAP = 16      # 語の一覧の上限（このリポジトリ・この件の中でしか通じない語。文の中に括弧で定義を足すと 1 文が長くなる）
+POINT_CAP = 10      # 変更点の数の上限（1 点は題・前・後の短い文。作者の本文の表を丸ごと写さない）
+POINT_TITLE_CAP = 30  # 変更点の題の字数（何がどう変わるかの一言）
+POINT_TEXT_CAP = 80   # 変更点の前・後の字数（1 文。長いと横に並べた 2 枚を見比べられない。2026-10-16 は後の中央が 90 字で「頭に入らない」と言われた）
+CODE_REF_CAP = 4    # 1 つの変更点・箱に結ぶコードの数の上限
+LABEL_CAP = 40      # 図の箱・線・役者の字数の上限（箱の幅 200px で 3 行まで）
+SUB_CAP = 60        # 箱の下の補足の字数の上限
+EDGE_TEXT_CAP = 18  # 線の字数の上限（流れる物の名前だけ。細かい形は線を押すと出る札とコードへ。長い字は図を横に広げて縮めた）
+GRAPH_CAPS = {"nodes": 20, "edges": 30, "groups": 6}  # 1 枚で読み切れる数（全部を 1 画面に入れるため）
+SEQ_CAPS = {"actors": 6, "steps": 20}
+SCREEN_CAP = 24     # 画面の部品の数の上限
+SCREEN_TYPES = ("heading", "text", "field", "textarea", "select", "radio", "checkbox", "toggle", "button",
+                "tabs", "list", "alert")
+TABLE_CAPS = {"columns": 8, "rows": 16}
+STEPS_CAPS = {"lanes": 5, "steps": 16}
+HTML_CAP = 20000    # 自由に書く図（html）の字数の上限
+PLAY_CAP = 10       # コマ送り（play）のコマの数の上限
+PHASES = ("before", "after")  # in: その箱・線が変更前だけ・変更後だけに在る
 
 
-def validate_fields(obj, need_title=False):
-    """AI が書いた欄を確かめる。直す所を日本語で 1 件 1 行に並べて返す（空なら通った）。"""
+def validate_fields(obj, need_title=False, data=None, read=None):
+    """AI が書いた欄を確かめる。直す所を日本語で 1 件 1 行に並べて返す（空なら通った）。
+    data（描く材料）を渡すと、変更点（points）と図の箱が指すコードが差分の中に在るかも確かめる。"""
     errs = []
     if not isinstance(obj, dict):
         return ["欄の JSON は {…}（オブジェクト）にする"]
@@ -204,10 +231,29 @@ def validate_fields(obj, need_title=False):
         if not isinstance(v, str) or not v.strip():
             errs.append(f"{k} は空でない文字列にする")
 
+    def facts(k):
+        # 前回から・止めているものは、1 項 1 事実の短い文の並び（段落に時刻と件数を詰めると頭に入らないと言われた）。
+        # 1 つの文字列も受ける（会話の話題など、事実が 1 つのとき）
+        v = obj.get(k)
+        if isinstance(v, str) or v is None:
+            text(k)
+            return
+        if not isinstance(v, list) or not 1 <= len(v) <= FACT_CAP or not all(isinstance(x, str) and x.strip() for x in v):
+            errs.append(f"{k} は 1〜{FACT_CAP} 個の短い文の並び（[\"…\", …]）にする")
+            return
+        for i, x in enumerate(v):
+            if len(x) > FACT_TEXT_CAP:
+                errs.append(f"{k}[{i}] は {FACT_TEXT_CAP} 字までの 1 文にする（今 {len(x)} 字。1 項に 1 つの事実）")
+
     text("headline")
-    text("where")
-    text("turn")
+    if isinstance(obj.get("headline"), str) and len(obj["headline"]) > HEADLINE_CAP:
+        errs.append(f"headline は {HEADLINE_CAP} 字までの 1 文にする（今 {len(obj['headline'])} 字。番号と件名はページの頭に出るので書かない）")
+    facts("where")
+    facts("turn")
     text("title", required=need_title)
+    text("lead", required=False)
+    if isinstance(obj.get("lead"), str) and len(obj["lead"]) > LEAD_CAP:
+        errs.append(f"lead は {LEAD_CAP} 字までの 1 文にする（今 {len(obj['lead'])} 字）")
 
     def str_list(k, lo, hi, required):
         v = obj.get(k)
@@ -222,68 +268,579 @@ def validate_fields(obj, need_title=False):
             errs.append(f"{k} は {lo}〜{hi} 個にする（今 {len(v)} 個）")
 
     str_list("next", 1, NEXT_CAP, True)
+    for i, x in enumerate(obj.get("next") or [] if isinstance(obj.get("next"), list) else []):
+        if isinstance(x, str) and len(x) > NEXT_TEXT_CAP:
+            errs.append(f"next[{i}] は {NEXT_TEXT_CAP} 字までの 1 手にする（今 {len(x)} 字。理由は止めているものへ）")
     str_list("unseen", 0, 20, False)
     str_list("explain", 0, EXPLAIN_CAP, False)
 
+    errs.extend(_terms_errors(obj.get("terms")))
+    files = _diff_files(data, read) if data is not None else None
+    pts = obj.get("points")
+    n_points = 0
+    if pts is not None:
+        errs.extend(_points_errors(pts, files))
+        if isinstance(pts, dict) and isinstance(pts.get("items"), list):
+            n_points = len(pts["items"])
     fig = obj.get("figure")
-    if fig is not None:
-        errs.extend(_figure_errors(fig))
+    if isinstance(fig, list):
+        if not 1 <= len(fig) <= FIGURE_CAP:
+            errs.append(f"figure を並びにするなら 1〜{FIGURE_CAP} 個にする（今 {len(fig)} 個）")
+        for i, f1 in enumerate(fig[:FIGURE_CAP]):
+            errs.extend(e.replace("figure", f"figure[{i}]", 1) for e in _figure_errors(f1, files, n_points))
+    elif fig is not None:
+        errs.extend(_figure_errors(fig, files, n_points))
     return errs
 
 
-def _figure_errors(fig):
-    errs = []
+def _terms_errors(terms):
+    if terms is None:
+        return []
+    if not isinstance(terms, list) or not 1 <= len(terms) <= TERMS_CAP or not all(isinstance(t, dict) for t in terms):
+        return [f"terms は 1〜{TERMS_CAP} 個の {{\"term\", \"means\"}} の並びにする"]
+    errs, seen = [], set()
+    for i, t in enumerate(terms):
+        at = f"terms[{i}]"
+        errs += _keys(t, at, ("term", "means")) + _label(t.get("term"), f"{at}.term", cap=30)
+        errs += _label(t.get("means"), f"{at}.means", cap=160)
+        if t.get("term") in seen:
+            errs.append(f"{at}.term {t.get('term')} が重なっている")
+        seen.add(t.get("term"))
+    return errs
+
+
+def _label(v, at, cap=LABEL_CAP, required=True):
+    if v is None and not required:
+        return []
+    if not isinstance(v, str) or not v.strip():
+        return [f"{at} は空でない文字列にする"]
+    if len(v) > cap:
+        return [f"{at} は {cap} 字までにする（今 {len(v)} 字。長い説明は説明の段落か変更点へ）"]
+    return []
+
+
+def _keys(obj, at, allowed):
+    return [f"{at} に知らない欄 {k}（使える欄は {'・'.join(allowed)}）" for k in obj if k not in allowed]
+
+
+def _tone(obj, at):
+    if "tone" in obj and obj["tone"] not in TONES:
+        return [f"{at}.tone は good か bad（色を付けないなら書かない）"]
+    return []
+
+
+def _phase(obj, at):
+    if "in" in obj and obj["in"] not in PHASES:
+        return [f"{at}.in は before（変更前だけに在る）か after（変更後だけに在る）。両方に在るなら書かない"]
+    return []
+
+
+def _ids(items, at, what):
+    errs, seen = [], set()
+    for i, x in enumerate(items):
+        v = x.get("id") if isinstance(x, dict) else None
+        if not isinstance(v, str) or not v.strip():
+            errs.append(f"{at}[{i}].id は空でない文字列にする（{what}を指す名前）")
+        elif v in seen:
+            errs.append(f"{at}[{i}].id {v} が重なっている")
+        else:
+            seen.add(v)
+    return errs, seen
+
+
+def _list(fig, k, at, lo, hi, what):
+    v = fig.get(k, [] if lo == 0 else None)
+    if not isinstance(v, list) or not lo <= len(v) <= hi or not all(isinstance(x, dict) for x in v):
+        return None, [f"{at}.{k} は {lo}〜{hi} 個の{what}（{{…}}）の並びにする"]
+    return v, []
+
+
+def _figure_errors(fig, files=None, n_points=0):
     if not isinstance(fig, dict):
-        return ["figure は {\"caption\": …, \"rows\": […]}（オブジェクト）か null にする"]
-    for k in fig:
-        if k not in ("caption", "rows"):
-            errs.append(f"figure に知らない欄 {k}（使える欄は caption・rows）")
-    if "caption" in fig and not isinstance(fig["caption"], str):
-        errs.append("figure.caption は文字列にする")
-    rows = fig.get("rows")
+        return ["figure は {\"kind\": …, …}（オブジェクト）か null にする"]
+    kind = fig.get("kind")
+    if kind not in FIGURE_KINDS:
+        return [f"figure.kind は {'・'.join(FIGURE_KINDS)} のどれかにする（形は中身で選ぶ。命令書の「図」）"]
+    errs = _label(fig.get("caption"), "figure.caption", cap=200, required=False)
+    if kind == "graph":
+        return errs + _graph_errors(fig, files, n_points)
+    if kind == "sequence":
+        return errs + _sequence_errors(fig)
+    if kind == "screen":
+        return errs + _screen_errors(fig)
+    if kind == "table":
+        return errs + _table_errors(fig)
+    if kind == "steps":
+        return errs + _steps_errors(fig)
+    if kind == "html":
+        return errs + _keys(fig, "figure", ("kind", "caption", "html")) + html_errors(fig.get("html"))
+    return errs + _keys(fig, "figure", ("kind", "caption", "rows")) + _compare_errors(fig.get("rows"))
+
+
+def _graph_errors(fig, files, n_points):
+    errs = _keys(fig, "figure", ("kind", "caption", "dir", "groups", "nodes", "edges", "play"))
+    if fig.get("dir", "LR") not in ("LR", "TB"):
+        errs.append("figure.dir は LR（左から右）か TB（上から下）")
+    groups, e = _list(fig, "groups", "figure", 0, GRAPH_CAPS["groups"], "囲み")
+    errs += e
+    nodes, e = _list(fig, "nodes", "figure", 1, GRAPH_CAPS["nodes"], "箱")
+    errs += e
+    edges, e = _list(fig, "edges", "figure", 0, GRAPH_CAPS["edges"], "線")
+    errs += e
+    gids = set()
+    if groups is not None:
+        e, gids = _ids(groups, "figure.groups", "囲み")
+        errs += e
+        for i, g in enumerate(groups):
+            at = f"figure.groups[{i}]"
+            errs += _keys(g, at, ("id", "text")) + _label(g.get("text"), f"{at}.text")
+    nids = set()
+    if nodes is not None:
+        e, nids = _ids(nodes, "figure.nodes", "箱")
+        errs += e
+        for i, n in enumerate(nodes):
+            at = f"figure.nodes[{i}]"
+            errs += _keys(n, at, ("id", "text", "was", "sub", "group", "tone", "in", "points", "code", "fields"))
+            fl = n.get("fields", [])
+            if not isinstance(fl, list) or len(fl) > 12 or not all(isinstance(x, dict) for x in fl):
+                errs.append(f"{at}.fields は 0〜12 個の列（{{\"name\", \"type\"}}）の並びにする")
+            else:
+                for j, x in enumerate(fl):
+                    fat = f"{at}.fields[{j}]"
+                    errs += _keys(x, fat, ("name", "type", "tone", "in", "was")) + _label(x.get("name"), f"{fat}.name")
+                    errs += _label(x.get("type"), f"{fat}.type", required=False) + _tone(x, fat) + _phase(x, fat)
+                    errs += _label(x.get("was"), f"{fat}.was", required=False)
+            errs += _label(n.get("text"), f"{at}.text") + _label(n.get("was"), f"{at}.was", required=False)
+            errs += _label(n.get("sub"), f"{at}.sub", cap=SUB_CAP, required=False) + _tone(n, at) + _phase(n, at)
+            if "was" in n and "in" in n:
+                errs.append(f"{at}.was（変更前の字）は前後の両方に在る箱にだけ書く（in と一緒に書かない）")
+            if "group" in n and n["group"] not in gids:
+                errs.append(f"{at}.group は figure.groups の id のどれか（{'・'.join(sorted(gids)) or 'なし'}）にする")
+            errs += _point_refs(n.get("points", []), at, n_points)
+            # 増える・消える・変わる箱に番号が無いと、押してもコードが開かず、凡例の項も「図の外」になる（付け忘れが起きた）
+            if n_points and ("in" in n or "was" in n) and "points" not in n and "code" not in n:
+                errs.append(f"{at} はこの PR で増える・消える・変わる箱なので、その変更点の番号を points に書く"
+                            "（差分の外で作る物なら \"points\": [] と書いて、コードが無いことを示す）")
+            errs += _code_errors(n.get("code", []), at, files)
+    if edges is not None:
+        for i, ed in enumerate(edges):
+            at = f"figure.edges[{i}]"
+            errs += _keys(ed, at, ("from", "to", "text", "tone", "in", "dashed", "points", "code"))
+            for k in ("from", "to"):
+                if ed.get(k) not in nids:
+                    errs.append(f"{at}.{k} は figure.nodes の id のどれかにする（今 {ed.get(k)!r}）")
+            errs += _label(ed.get("text"), f"{at}.text", cap=EDGE_TEXT_CAP, required=False) + _tone(ed, at) + _phase(ed, at)
+            if "dashed" in ed and not isinstance(ed["dashed"], bool):
+                errs.append(f"{at}.dashed は true か false")
+            # 線も箱と同じく番号とコードを持てる（何を渡すのか・どう通すのかを押して読めるように。2026-10-16）
+            errs += _point_refs(ed.get("points", []), at, n_points)
+            if n_points and "in" in ed and "points" not in ed and "code" not in ed:
+                errs.append(f"{at} はこの PR で増える・消える線なので、その変更点の番号を points に書く"
+                            "（差分の外でつなぐ物なら \"points\": [] と書いて、コードが無いことを示す）")
+            errs += _code_errors(ed.get("code", []), at, files)
+    errs += _graph_play_errors(fig.get("play"), nids, {f"{e.get('from')}>{e.get('to')}" for e in edges or [] if isinstance(e, dict)})
+    return errs
+
+
+def _point_refs(pts, at, n_points):
+    if not isinstance(pts, list) or not all(isinstance(p, int) and not isinstance(p, bool) and 1 <= p <= n_points for p in pts):
+        return [f"{at}.points は変更点の番号（1〜{n_points}）の並びにする" if n_points
+                else f"{at}.points は points.items を書いたときだけ使う"]
+    return []
+
+
+def _graph_play_errors(play, nids, eids):
+    """コマ送り: コマごとに光らせる箱（id）と線（"from>to"）と一言。動きは機械が付ける（線の上を点が流れる）。"""
+    if play is None:
+        return []
+    if not isinstance(play, list) or not 2 <= len(play) <= PLAY_CAP or not all(isinstance(f, dict) for f in play):
+        return [f"figure.play は 2〜{PLAY_CAP} 個のコマ（{{\"text\", \"nodes\", \"edges\"}}）の並びにする"]
+    errs = []
+    for i, f in enumerate(play):
+        at = f"figure.play[{i}]"
+        errs += _keys(f, at, ("text", "nodes", "edges")) + _label(f.get("text"), f"{at}.text", cap=60)
+        ns, es = f.get("nodes", []), f.get("edges", [])
+        if not isinstance(ns, list) or any(n not in nids for n in ns):
+            errs.append(f"{at}.nodes は figure.nodes の id の並びにする")
+        if not isinstance(es, list) or any(e not in eids for e in es):
+            errs.append(f"{at}.edges は figure.edges の線を \"from>to\" で書いた並びにする（在る線: {'・'.join(sorted(eids)) or 'なし'}）")
+        if not ns and not es:
+            errs.append(f"{at} は光らせる箱か線を 1 つ以上書く")
+    return errs
+
+
+def _play_flag(fig):
+    if "play" in fig and not isinstance(fig["play"], bool):
+        return ["figure.play は true か false（true なら、段を 1 つずつ順に光らせる）"]
+    return []
+
+
+def _sequence_errors(fig):
+    errs = _keys(fig, "figure", ("kind", "caption", "actors", "steps", "play")) + _play_flag(fig)
+    actors, e = _list(fig, "actors", "figure", 2, SEQ_CAPS["actors"], "役者")
+    errs += e
+    steps, e = _list(fig, "steps", "figure", 1, SEQ_CAPS["steps"], "やり取り")
+    errs += e
+    ids = set()
+    if actors is not None:
+        e, ids = _ids(actors, "figure.actors", "役者")
+        errs += e
+        for i, a in enumerate(actors):
+            errs += _keys(a, f"figure.actors[{i}]", ("id", "text")) + _label(a.get("text"), f"figure.actors[{i}].text")
+    if steps is not None:
+        for i, s in enumerate(steps):
+            at = f"figure.steps[{i}]"
+            errs += _keys(s, at, ("from", "to", "text", "tone", "in"))
+            for k in ("from", "to"):
+                if s.get(k) not in ids:
+                    errs.append(f"{at}.{k} は figure.actors の id のどれかにする（今 {s.get(k)!r}）")
+            errs += _label(s.get("text"), f"{at}.text") + _tone(s, at) + _phase(s, at)
+    return errs
+
+
+def _screen_errors(fig):
+    errs = _keys(fig, "figure", ("kind", "caption", "title", "items"))
+    errs += _label(fig.get("title"), "figure.title", required=False)
+    items, e = _list(fig, "items", "figure", 1, SCREEN_CAP, "画面の部品")
+    errs += e
+    for i, it in enumerate(items or []):
+        at = f"figure.items[{i}]"
+        errs += _keys(it, at, ("type", "label", "value", "hint", "options", "was", "in", "tone", "disabled", "primary", "inline"))
+        if it.get("type") not in SCREEN_TYPES:
+            errs.append(f"{at}.type は {'・'.join(SCREEN_TYPES)} のどれか")
+        errs += _label(it.get("label"), f"{at}.label", cap=60, required=it.get("type") in ("heading", "field", "textarea", "select", "toggle", "button"))
+        for k, cap in (("value", 80), ("hint", 160), ("was", 80)):
+            errs += _label(it.get(k), f"{at}.{k}", cap=cap, required=False)
+        if it.get("type") in ("text", "alert") and not (it.get("label") or it.get("value")):
+            errs.append(f"{at} は label か value に文を書く")
+        opts = it.get("options", [])
+        if not isinstance(opts, list) or len(opts) > 8 or not all(isinstance(o, str) and o.strip() and len(o) <= 30 for o in opts):
+            errs.append(f"{at}.options は 0〜8 個の 30 字までの文字列にする（選択肢・タブ・一覧の行）")
+        for k in ("disabled", "primary", "inline"):
+            if k in it and not isinstance(it[k], bool):
+                errs.append(f"{at}.{k} は true か false")
+        if "was" in it and "in" in it:
+            errs.append(f"{at}.was（変更前の字）は前後の両方に在る部品にだけ書く")
+        errs += _tone(it, at) + _phase(it, at)
+    return errs
+
+
+def _table_errors(fig):
+    errs = _keys(fig, "figure", ("kind", "caption", "columns", "rows"))
+    cols = fig.get("columns")
+    if not isinstance(cols, list) or not 1 <= len(cols) <= TABLE_CAPS["columns"] or not all(isinstance(c, str) and c.strip() and len(c) <= LABEL_CAP for c in cols):
+        return errs + [f"figure.columns は 1〜{TABLE_CAPS['columns']} 個の列の名前（{LABEL_CAP} 字まで）にする"]
+    rows, e = _list(fig, "rows", "figure", 1, TABLE_CAPS["rows"], "行")
+    errs += e
+    for i, r in enumerate(rows or []):
+        at = f"figure.rows[{i}]"
+        errs += _keys(r, at, ("label", "cells", "in", "tone")) + _label(r.get("label"), f"{at}.label") + _phase(r, at) + _tone(r, at)
+        cells = r.get("cells")
+        if not isinstance(cells, list) or len(cells) != len(cols):
+            errs.append(f"{at}.cells は列と同じ {len(cols)} 個にする（今 {len(cells) if isinstance(cells, list) else '並びでない'}）")
+            continue
+        for j, c in enumerate(cells):
+            cat = f"{at}.cells[{j}]"
+            if isinstance(c, str):
+                errs += _label(c, cat, required=False) if c else []
+            elif isinstance(c, dict):
+                errs += _keys(c, cat, ("text", "was", "tone")) + _label(c.get("text"), f"{cat}.text", required=False)
+                errs += _label(c.get("was"), f"{cat}.was", required=False) + _tone(c, cat)
+            else:
+                errs.append(f"{cat} は文字列か {{\"text\", \"was\", \"tone\"}} にする")
+    return errs
+
+
+def _steps_errors(fig):
+    errs = _keys(fig, "figure", ("kind", "caption", "lanes", "steps", "play")) + _play_flag(fig)
+    lanes, e = _list(fig, "lanes", "figure", 0, STEPS_CAPS["lanes"], "担い手の列")
+    errs += e
+    lids = set()
+    if lanes:
+        e, lids = _ids(lanes, "figure.lanes", "担い手")
+        errs += e
+        for i, l in enumerate(lanes):
+            errs += _keys(l, f"figure.lanes[{i}]", ("id", "text")) + _label(l.get("text"), f"figure.lanes[{i}].text")
+    steps, e = _list(fig, "steps", "figure", 1, STEPS_CAPS["steps"], "段")
+    errs += e
+    for i, st in enumerate(steps or []):
+        at = f"figure.steps[{i}]"
+        errs += _keys(st, at, ("text", "lane", "when", "tag", "note", "tone", "in"))
+        errs += _label(st.get("text"), f"{at}.text", cap=60) + _label(st.get("when"), f"{at}.when", cap=24, required=False)
+        errs += _label(st.get("tag"), f"{at}.tag", cap=12, required=False) + _label(st.get("note"), f"{at}.note", cap=120, required=False)
+        errs += _tone(st, at) + _phase(st, at)
+        if lids and st.get("lane") not in lids:
+            errs.append(f"{at}.lane は figure.lanes の id のどれか（{'・'.join(sorted(lids))}）にする")
+        elif not lids and "lane" in st:
+            errs.append(f"{at}.lane は figure.lanes を書いたときだけ使う")
+    return errs
+
+
+# 自由に書く図（figure.kind = html）の、使ってよいタグと属性。スクリプト・外の読み込み・イベント・フォームの送信は止める。
+# 止めたいのは「ページの外へ出る・何かを動かす」ことで、見た目（style・SVG・CSS の動き）は自由にさせる
+HTML_TAGS = frozenset("""div span p b strong i em small sub sup code pre kbd mark s u br hr wbr h3 h4 h5 h6 ul ol li dl dt dd
+table thead tbody tfoot tr th td caption colgroup col section header footer aside figure figcaption details summary
+label button input textarea select option fieldset legend progress meter blockquote q abbr time style
+svg g path rect circle ellipse line polyline polygon text tspan textPath defs marker lineargradient radialgradient stop
+clippath mask pattern symbol title desc animate animatetransform animatemotion mpath set foreignobject""".split())
+HTML_ATTRS = frozenset("""class id style title role lang dir hidden tabindex colspan rowspan scope headers type value placeholder
+disabled checked selected readonly multiple rows cols size maxlength min max low high optimum open name for
+viewbox preserveaspectratio width height x y x1 x2 y1 y2 cx cy r rx ry dx dy d points pathlength transform
+fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-dasharray stroke-dashoffset stroke-linecap
+stroke-linejoin stroke-miterlimit opacity color font-size font-weight font-family font-style text-anchor
+dominant-baseline alignment-baseline letter-spacing text-decoration visibility display overflow vector-effect
+marker-start marker-mid marker-end markerwidth markerheight markerunits refx refy orient offset stop-color stop-opacity
+gradientunits gradienttransform fx fy spreadmethod clip-path clip-rule mask patternunits patterncontentunits
+attributename attributetype from to by values keytimes keysplines calcmode dur begin end repeatcount repeatdur fill
+additive accumulate rotate keypoints path startoffset method spacing lengthadjust textlength xmlns""".split())
+# url(#id) はページの中（SVG の矢印の印・塗りの参照）なので許す。外を指す url( だけを止める
+_URL_IN_CSS = re.compile(r"url\s*\(\s*(?!['\"]?\s*#)|@import|expression\s*\(|javascript:", re.I)
+
+
+class _HtmlCheck(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.errs, self.in_style = [], False
+
+    def _attr(self, tag, k, v):
+        if k.startswith("on"):
+            return f"<{tag}> の {k}（イベント）は使えない。動きは CSS か SVG の animate で書く"
+        if k.startswith("aria-") or k.startswith("data-"):
+            return None
+        if k in ("href", "xlink:href"):
+            return None if (v or "").startswith("#") else f"<{tag}> の {k} はページの中（#…）だけ指せる"
+        if k not in HTML_ATTRS:
+            return f"<{tag}> の属性 {k} は使えない"
+        if v and _URL_IN_CSS.search(v):
+            return f"<{tag}> の {k} に url( / @import / javascript: は書けない（外を読まない）"
+        return None
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in HTML_TAGS:
+            self.errs.append(f"<{tag}> は使えない（スクリプト・外の読み込み・フォームの送信を止めるため）")
+        for k, v in attrs:
+            e = self._attr(tag, k, v)
+            if e:
+                self.errs.append(e)
+        self.in_style = tag == "style"
+
+    handle_startendtag = handle_starttag
+
+    def handle_endtag(self, tag):
+        self.in_style = False
+
+    def handle_data(self, data):
+        if self.in_style and _URL_IN_CSS.search(data):
+            self.errs.append("<style> に url( / @import / expression( / javascript: は書けない（外を読まない）")
+
+
+def html_errors(text):
+    """自由に書く図の HTML を確かめる。直す所を返す（空なら通った）。直さずに消すことはしない——黙って削ると
+    描いた本人が気づかず、図が欠ける。"""
+    if not isinstance(text, str) or not text.strip():
+        return ["figure.html は空でない文字列にする（HTML か <svg>…</svg>）"]
+    if len(text) > HTML_CAP:
+        return [f"figure.html は {HTML_CAP} 字までにする（今 {len(text)} 字）"]
+    chk = _HtmlCheck()
+    try:
+        chk.feed(text)
+        chk.close()
+    except Exception as e:  # noqa: BLE001 — 読めない HTML は直させる
+        return [f"figure.html を HTML として読めない（{e}）"]
+    seen, out = set(), []
+    for e in chk.errs:
+        if e not in seen:
+            seen.add(e)
+            out.append("figure.html: " + e)
+    return out[:12]
+
+
+def _compare_errors(rows):
     if not isinstance(rows, list) or not rows:
-        return errs + ["figure.rows は 1 つ以上の行（{\"label\", \"steps\", \"notes\"}）の並びにする"]
+        return ["figure.rows（kind が compare）は 1 つ以上の行（{\"name\", \"before\", \"after\"}）の並びにする"]
+    errs = []
     for i, r in enumerate(rows):
         at = f"figure.rows[{i}]"
         if not isinstance(r, dict):
-            errs.append(f"{at} は {{\"label\", \"steps\", \"notes\"}}（オブジェクト）にする")
+            errs.append(f"{at} は {{\"name\", \"before\", \"after\"}}（オブジェクト）にする")
             continue
-        for k in r:
-            if k not in ("label", "steps", "notes"):
-                errs.append(f"{at} に知らない欄 {k}（使える欄は label・steps・notes）")
-        if not isinstance(r.get("label"), str) or not r["label"].strip():
-            errs.append(f"{at}.label は空でない文字列にする（例: 変更前・変更後）")
-        steps = r.get("steps")
-        if not isinstance(steps, list) or not steps:
-            errs.append(f"{at}.steps は 1 つ以上の箱（{{\"text\", \"tone\"}}）の並びにする")
-            steps = []
-        for j, s in enumerate(steps):
-            sat = f"{at}.steps[{j}]"
-            if not isinstance(s, dict) or not isinstance(s.get("text"), str) or not s["text"].strip():
-                errs.append(f"{sat} は {{\"text\": \"…\"}} の形にする（text は空でない文字列）")
-                continue
-            errs.extend(_extra_and_tone(s, sat, ("text", "tone")))
-        notes = r.get("notes", [])
-        if not isinstance(notes, list):
-            errs.append(f"{at}.notes は注記（{{\"at\", \"text\", \"tone\"}}）の並びにする")
-            continue
-        for j, nt in enumerate(notes):
-            nat = f"{at}.notes[{j}]"
-            if not isinstance(nt, dict) or not isinstance(nt.get("text"), str) or not nt["text"].strip():
-                errs.append(f"{nat} は {{\"at\": 箱の番号, \"text\": \"…\"}} の形にする")
-                continue
-            errs.extend(_extra_and_tone(nt, nat, ("at", "text", "tone")))
-            a = nt.get("at")
-            if not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < max(1, len(steps)):
-                errs.append(f"{nat}.at は注記を付ける箱の番号（0〜{max(0, len(steps) - 1)}）にする")
+        errs += _keys(r, at, ("name", "before", "after", "tone")) + _tone(r, at)
+        if not isinstance(r.get("name"), str) or not r["name"].strip():
+            errs.append(f"{at}.name は空でない文字列にする（比べるものの名前）")
+        for k in ("before", "after"):
+            if k in r and not isinstance(r[k], str):
+                errs.append(f"{at}.{k} は文字列にする（無かった・無くなったなら書かない）")
+        if not any(isinstance(r.get(k), str) and r[k].strip() for k in ("before", "after")):
+            errs.append(f"{at} は before か after の少なくとも一方を書く")
     return errs
 
 
-def _extra_and_tone(obj, at, allowed):
-    errs = [f"{at} に知らない欄 {k}（使える欄は {'・'.join(allowed)}）" for k in obj if k not in allowed]
-    if "tone" in obj and obj["tone"] not in TONES:
-        errs.append(f"{at}.tone は good か bad（色を付けないなら書かない）")
+def _points_errors(pts, files):
+    if not isinstance(pts, dict):
+        return ["points は {\"caption\", \"items\"}（オブジェクト）にする"]
+    errs = _keys(pts, "points", ("caption", "items")) + _label(pts.get("caption"), "points.caption", cap=80, required=False)
+    items = pts.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= POINT_CAP:
+        return errs + [f"points.items は 1〜{POINT_CAP} 個の変更点（{{\"title\", \"before\", \"after\", \"code\"}}）の並びにする"]
+    for i, it in enumerate(items):
+        at = f"points.items[{i}]"
+        if not isinstance(it, dict):
+            errs.append(f"{at} は {{\"title\", \"before\", \"after\", \"code\"}}（オブジェクト）にする")
+            continue
+        errs += _keys(it, at, ("title", "before", "after", "code", "group"))
+        errs += _label(it.get("group"), f"{at}.group", cap=20, required=False)
+        for k, need, cap in (("title", True, POINT_TITLE_CAP), ("after", True, POINT_TEXT_CAP), ("before", False, POINT_TEXT_CAP)):
+            v = it.get(k)
+            if v is None and not need:
+                continue
+            if not isinstance(v, str) or not v.strip():
+                errs.append(f"{at}.{k} は空でない文字列にする")
+            elif len(v) > cap:
+                errs.append(f"{at}.{k} は {cap} 字までの 1 文にする（今 {len(v)} 字。理由・経緯・前の番号は説明へ、細部はコードへ）")
+        errs += _code_errors(it.get("code", []), at, files)
     return errs
+
+
+def _code_errors(code, at, files):
+    if not isinstance(code, list) or len(code) > CODE_REF_CAP:
+        return [f"{at}.code は 0〜{CODE_REF_CAP} 個の {{\"path\", \"find\"}} の並びにする"]
+    errs = []
+    for j, ref in enumerate(code):
+        errs += _ref_errors(ref, f"{at}.code[{j}]", files)
+    return errs
+
+
+def _ref_errors(ref, at, files):
+    if not isinstance(ref, dict) or not isinstance(ref.get("path"), str) or not ref["path"].strip():
+        return [f"{at} は {{\"path\": \"…\"}} の形にする（path は差分の file の path）"]
+    # 行番号では指さない。行を知るには差分の枠まで読むことになり、読む量が 1 件 4 万〜6 万字増える（2026-10-16 実測）。
+    # 関数・テスト・設定の名前は、もともと読む骨組みに出ているので、それで指す
+    errs = _keys(ref, at, ("path", "find"))
+    lines = None
+    if "find" in ref and (not isinstance(ref["find"], str) or not ref["find"].strip()):
+        errs.append(f"{at}.find は差分の中に在る空でない文字列にする")
+    if errs or files is None:
+        return errs
+    f = files.get(ref["path"])
+    if f is None and files.read and "find" in ref:
+        # 差分の外のファイル（この PR で変えていない受け先の API の形など）は、PR の先頭の版で find を探す
+        got = files.read(ref["path"])
+        if got is None:
+            return [f"{at}.path {ref['path']} は差分に無く、PR の先頭の版でも読めない"]
+        if not any(ref["find"] in x for x in got):
+            return [f"{at}.find {ref['find']!r} は {ref['path']}（差分の外。PR の先頭の版）に無い"]
+        return errs
+    if f is None:
+        return [f"{at}.path {ref['path']} は差分に無い（差分の file: {'・'.join(sorted(files)) or 'なし'}。"
+                "変えていない file を指すなら find も書く。PR の先頭の版から読む）"]
+    if not pick_hunks(f, lines, ref.get("find")):
+        return [f"{at} に当たる変更の塊が無い（find の {ref.get('find')!r} が {ref['path']} の差分に無い）"]
+    return []
+
+
+# ---- 変更点と図の箱が指すコード（説明からその場で開く差分） --------------------------
+
+
+class _Files(dict):
+    """差分の file を path ごとに。read は差分の外の file の行を PR の先頭の版から返す関数（無ければ None）。"""
+    read = None
+
+
+def _diff_files(data, read=None):
+    """描く材料の差分のうち、いちばん広い見え方（PR 全体・この commit など）を path ごとに。"""
+    out = _Files()
+    out.read = read
+    views = [v for v in (data or {}).get("views") or [] if v.get("text")]
+    if views:
+        v = next((x for x in views if x.get("id") == "all"), views[-1])
+        out.update({f["path"]: f for f in parse_diff(v["text"])})
+    return out
+
+
+# 差分の外の file は、find の行の前 2 行から、その行の塊（字下げが find の行より深い間）の終わりまでを見せる。
+# 短すぎれば 8 行は見せ、長くても 40 行で切る（決まった行数で切ると、型の後ろの import まで出た）
+OUTSIDE_BEFORE, OUTSIDE_MIN, OUTSIDE_MAX = 2, 8, 40
+
+
+def _indent(s):
+    return len(s) - len(s.lstrip())
+
+
+def _outside_text(path, lines, find):
+    """差分の外の file の抜き出しを、変わっていない行だけの unified diff にする（差分と同じ部品で描ける）。"""
+    k = next((i for i, x in enumerate(lines) if find in x), None)
+    if k is None:
+        return None
+    base, end = _indent(lines[k]), k + 1
+    while end < len(lines) and end - k < OUTSIDE_MAX and (not lines[end].strip() or _indent(lines[end]) > base or end - k < OUTSIDE_MIN):
+        end += 1
+    while end > k + 1 and not lines[end - 1].strip():
+        end -= 1
+    lo, hi = max(0, k - OUTSIDE_BEFORE), end
+    n = hi - lo
+    head = [f"diff --git a/{path} b/{path}", f"--- a/{path}", f"+++ b/{path}", f"@@ -{lo + 1},{n} +{lo + 1},{n} @@"]
+    return "\n".join(head + [" " + x for x in lines[lo:hi]]) + "\n"
+
+
+def pick_hunks(f, lines=None, find=None):
+    """file の変更の塊（hunk）のうち、lines（今の版の行の範囲）に重なるか、find の文字列を含むもの。
+    どちらも無ければ全部。"""
+    out = []
+    for h in f["hunks"]:
+        news = [r[2] for r in h["rows"] if r[2] is not None]
+        lo, hi = (min(news), max(news)) if news else (h["n"], h["n"])
+        if lines and (hi < lines[0] or lo > lines[1]):
+            continue
+        if find and find not in h["ctx"] and not any(find in r[3] for r in h["rows"]):
+            continue
+        out.append(h)
+    return out
+
+
+def hunks_text(f, hunks):
+    """選んだ塊だけの unified diff（diff2html がそのまま描ける形）。"""
+    body = []
+    for h in hunks:
+        oc = sum(1 for r in h["rows"] if r[0] != "+")
+        nc = sum(1 for r in h["rows"] if r[0] != "-")
+        body.append(f"@@ -{h['o']},{oc} +{h['n']},{nc} @@ {h['ctx']}".rstrip())
+        body.extend(r[0] + r[3] for r in h["rows"])
+    return "\n".join(f["head"] + body) + "\n"
+
+
+def _resolve(files, refs):
+    out = []
+    for ref in refs or []:
+        f = files.get(ref.get("path"))
+        hs = pick_hunks(f, None, ref.get("find")) if f else []
+        if hs:
+            out.append({"path": f["path"], "anchor": anchor(f["path"]), "text": hunks_text(f, hs)})
+        elif f is None and files.read and ref.get("find"):
+            got = files.read(ref["path"])
+            text = _outside_text(ref["path"], got, ref["find"]) if got is not None else None
+            if text:
+                out.append({"path": ref["path"], "text": text, "outside": True})
+    return out
+
+
+def point_code(data, fields, read=None):
+    """指したコードの差分。{"points": [変更点ごとの並び], "nodes": {箱の id: 並び}, "edges": {"from>to": 並び}}。引けないものは空。"""
+    files = _diff_files(data, read)
+    fields = fields or {}
+    items = (fields.get("points") or {}).get("items") or []
+    figs = fields.get("figure") or []
+    figs = figs if isinstance(figs, list) else [figs]
+    nodes = [n for f1 in figs if isinstance(f1, dict) and f1.get("kind") == "graph" for n in f1.get("nodes") or []]
+    found = {n["id"]: _resolve(files, n.get("code")) for n in nodes if n.get("code")}
+    edges = {}
+    for f1 in figs:
+        if isinstance(f1, dict) and f1.get("kind") == "graph":
+            for e in f1.get("edges") or []:
+                if e.get("code"):
+                    edges.setdefault(f"{e.get('from')}>{e.get('to')}", []).extend(_resolve(files, e.get("code")))
+    return {"points": [_resolve(files, it.get("code")) for it in items],
+            "nodes": {k: v for k, v in found.items() if v},
+            "edges": {k: v for k, v in edges.items() if v}}
 
 
 # ---- ページを書く ----------------------------------------------------------------
@@ -320,7 +877,7 @@ def _script_json(obj):
     return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
 
 
-def build_html(template, data, fields, entry):
+def build_html(template, data, fields, entry, read=None):
     title = " ".join(x for x in (entry["ref"], entry["title"]) if x) or "catchup"
     for slot in (DATA_SLOT, INDEX_SLOT, TITLE_SLOT):
         if slot not in template:
@@ -328,7 +885,7 @@ def build_html(template, data, fields, entry):
     # 3 つを 1 回の走査で差し込む。順に replace すると、先に入れた件名などに後の差し込み口の文字列が
     # 含まれていたとき、そちらに当たって本物の口が空のまま残る
     filled = {TITLE_SLOT: f"<title>{html.escape(title)}</title>", INDEX_SLOT: _script_json(entry),
-              DATA_SLOT: _script_json({"data": data, "fields": fields})}
+              DATA_SLOT: _script_json({"data": data, "fields": fields, "code": point_code(data, fields, read)})}
     pattern = re.compile("|".join(re.escape(slot) for slot in filled))
     return pattern.sub(lambda m: filled.pop(m.group(0), m.group(0)), template)
 
@@ -356,7 +913,7 @@ def summary_line(entry, fields):
     return f"{head}{turn}。次: {nxt}"
 
 
-def write_page(data, fields, root=None, template=None, now=None):
+def write_page(data, fields, root=None, template=None, now=None, read=None):
     """ページを書き、index を組み直す。戻り値は (ページの path, 1 行の要約)。"""
     root = pathlib.Path(root) if root else cache_root()
     now = now or dt.datetime.now().astimezone()
@@ -364,7 +921,7 @@ def write_page(data, fields, root=None, template=None, now=None):
     rel = page_rel(data, fields)
     entry = index_entry(data, fields, rel, now)
     path = root / rel
-    _write_atomic(path, build_html(template, data, fields, entry))
+    _write_atomic(path, build_html(template, data, fields, entry, read))
     rebuild_index(root)
     return path, summary_line(entry, fields)
 
@@ -747,15 +1304,25 @@ SAMPLE_DATA = {
                "files": summary(parse_diff(SAMPLE_DIFF))}],
 }
 SAMPLE_FIELDS = {
-    "headline": "見本の #1 は私が返す番。私の指摘に、作者が直して返してきた。",
-    "where": "09:41 に包まれた例外も見てほしいと指摘した。作者が 15:32 に push し、15:44 に返信した。",
-    "turn": "止めているのは私の返事だけ。CI は緑、承認はまだ。",
+    "headline": "私の指摘に作者が直して返してきた。私が確かめて返す番。",
+    "where": ["09:41 に、包まれた例外も見てほしいと指摘した", "作者が 15:32 に push し、15:44 に返信した"],
+    "turn": ["止めているのは私の返事だけ"],
     "next": ["差分を読み、包まれた切断が 4 になるかを確かめる", "返信して解決にする"],
     "unseen": ["これは見本で、実在の件ではない"],
+    "lead": "包まれた切断も、終了コード 4（切断）で終わるようにする。",
     "explain": ["このページは /catchup setup が描いた見本です。色が付いて差分が出ていれば、拡張と設定が効いています。"],
-    "figure": {"caption": "見本の図", "rows": [
-        {"label": "変更前", "steps": [{"text": "例外"}, {"text": "1 段だけ見る", "tone": "bad"}, {"text": "1 で終わる"}]},
-        {"label": "変更後", "steps": [{"text": "例外"}, {"text": "原因の連鎖をたどる", "tone": "good"}, {"text": "4 で終わる"}]}]},
+    "points": {"items": [{"title": "原因の連鎖をたどる", "before": "いちばん外の例外だけを見ていた",
+                          "after": "原因の連鎖をたどり、どこかに切断があれば 4 にする",
+                          "code": [{"path": "app/retry.py"}]}]},
+    "figure": {"kind": "graph", "caption": "見本の図", "nodes": [
+        {"id": "err", "text": "例外"},
+        {"id": "walk", "text": "原因の連鎖をたどる", "was": "いちばん外だけを見る", "points": [1], "code": [{"path": "app/retry.py"}]},
+        {"id": "four", "text": "4 で終わる（切断）"},
+        {"id": "one", "text": "1 で終わる"}],
+        "edges": [{"from": "err", "to": "walk"}, {"from": "walk", "to": "four", "text": "外が切断"},
+                  {"from": "walk", "to": "four", "text": "中に切断", "in": "after", "points": [1]},
+                  {"from": "walk", "to": "one", "text": "中に切断", "in": "before", "tone": "bad", "points": [1]},
+                  {"from": "walk", "to": "one", "text": "切断が無い"}]},
 }
 
 

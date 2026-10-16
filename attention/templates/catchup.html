@@ -17,8 +17,9 @@ catchup の雛形（1 件の PR に戻ってきた当事者向け）
 
 ■ 読者の仕事から組んだ 3 段（Endsley の状況認識: 知覚 → 理解 → 予測）
   5 秒  いまの番: 誰の番か・次の 1 手・止めているもの（CI・承認・未解決の会話）。最初の画面にこれだけを置く。
-  1 分  前回から: 番の受け渡しを、GitHub の PR の会話の流れ（timeline）と同じ縦の並びで（印・誰が・何をした・いつ、最後に「いま」）。
-        この PR の中身は「変更前 / 変更後」の箱と矢印の図と 3 段落。状態（CI・承認・取り込み）は「いまの番」の行にだけ置き、文で繰り返さない。
+  1 分  この PR がすること（ページの主役。件名の直下に誰の番の 1 行だけを置き、その下に来る）: ひとこと → 図 → 段落 → 変更点。
+        図の形は AI が中身から選ぶ（箱と線・やり取り・画面・表・手順・値の対照・自由な HTML）。置き場所と動きは機械が持つ。
+        いまの番: 番・次にやること・止めているもの（短い表）・前回から（文と、畳んだ出来事の記録）を 1 つの節に。同じことを 2 回出さない。
   5 分  指摘: GitHub のレビューのスレッドと同じ形（コードの断片 → 相手の発言 → その後の変更）。返事を書く所まで。
         変更: Files changed 相当。既定は「前回から」（私の最後の発言の後の commit）で、「PR 全体」に切り替えられる。
 
@@ -57,7 +58,9 @@ catchup の雛形（1 件の PR に戻ってきた当事者向け）
   - 発言の Markdown: marked 15.0.12（MIT, https://github.com/markedjs/marked）の marked.min.js を埋め込み、GitHub Flavored Markdown
     （gfm・改行をそのまま改行に）で描く。生の HTML は描かずに文字としてエスケープし、リンクは http(s)・mailto・ページ内・相対だけ、
     画像は読み込まずにリンクにする（外を読まない・スクリプトを差し込ませない）。コードの囲みは highlight.js で色を付ける。
-  - 出どころ: 4 つとも cdnjs / jsDelivr の版を固定した配布物を、作るときに取って下にそのまま埋め込んだ。実行時は外を読まない。
+  - 図の箱と線の置き場所: @dagrejs/dagre 3.1.1（MIT, https://github.com/dagrejs/dagre）の dist/dagre.min.js を埋め込んだ。AI は箱と関係だけを
+    宣言し、座標は書かない（LLM が SVG の座標を直に書くと崩れうる。関係を宣言して置き場所を道具に決めさせる形を採った）。
+  - 出どころ: 5 つとも cdnjs / jsDelivr の版を固定した配布物を、作るときに取って下にそのまま埋め込んだ。実行時は外を読まない。
 ■ 採らなかったもの
   - diff2html の「Viewed」の印（fileContentToggle）: 印を付けると畳む作りで、畳んだ file が「見た」と読めてしまう。見出しを押して畳む形を自前で付けた。
   - diff2html の file の一覧（drawFileList）: 各 file の見出しが +/- と一緒に並ぶので重複する。
@@ -157,9 +160,13 @@ a:hover { text-decoration: underline; }
 code { font: 85%/1.4 var(--fontStack-mono); background: var(--bgColor-neutral-muted); border-radius: 6px; padding: .2em .4em; }
 .mono { font-family: var(--fontStack-mono); font-size: 12px; }
 .muted { color: var(--fgColor-muted); }
-.wrap { max-width: 1012px; margin: 0 auto; padding-block: 24px 64px;
+/* ページは窓の幅いっぱい（1600px まで。デスクトップで最も多い 1920 幅の画面の VS Code の枠に合わせる）。読む文の 1 行は
+   --measure（46 字前後。WCAG 1.4.8 の日本語 40 字の目安に近い）にそろえ、図・凡例・差分だけを広く使う（2026-10-16） */
+:root { --measure: 46em; }
+.wrap { max-width: 1600px; margin: 0 auto; padding-block: 24px 64px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .prose { line-height: 1.75; }
+.about .prose, .c-body p, .c-body li, .c-body blockquote { max-width: var(--measure); }
 .prose p { margin: 0 0 10px; }
 svg.icon { width: 16px; height: 16px; flex: none; vertical-align: text-bottom; fill: currentColor; }
 
@@ -212,24 +219,315 @@ section.sec { margin-top: 40px; }
 .sec-head .sub { color: var(--fgColor-muted); font-size: 13px; }
 .sec-head .tools { margin-left: auto; }
 
-/* ── 1 分: 番の動き（GitHub の PR の会話の流れの形） ── */
-.timeline { list-style: none; margin: 0 0 16px; padding: 0; position: relative; }
-.timeline::before { content: ""; position: absolute; left: 15px; top: 8px; bottom: 8px; width: 2px; background: var(--borderColor-muted); }
-.tl-item { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center;
-  padding: 6px 0; }
-.tl-badge { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; z-index: 1;
-  background: var(--bgColor-muted); color: var(--fgColor-muted); border: 2px solid var(--bgColor-default); }
-.tl-item.me .tl-badge { color: var(--fgColor-default); }
-.tl-item.now .tl-badge { background: var(--bgColor-severe-emphasis); color: var(--fgColor-onEmphasis); }
-.tl-main { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.tl-main b { font-weight: 600; }
-.tl-main .avatar { width: 20px; height: 20px; font-size: 10px; }
-.tl-time { color: var(--fgColor-muted); font: 12px/1.6 var(--fontStack-mono); white-space: nowrap; }
-.tl-more { color: var(--fgColor-muted); font-size: 12px; padding: 0 0 4px 44px; }
-/* ── 1 分: 図 ── */
-figure.fig { margin: 0 0 12px; padding: 12px 12px 8px; border: 1px solid var(--borderColor-default); border-radius: 6px; overflow-x: auto; }
-figure.fig svg { display: block; width: 100%; height: auto; min-width: 560px; color: var(--fgColor-default); font-family: var(--fontStack-system); }
-figure.fig figcaption { font-size: 12px; color: var(--fgColor-muted); margin-top: 6px; }
+/* ── いまの番（番・次の一手・止めているもの・前回から を 1 つの節に） ── */
+#now .sec-head .label { align-self: center; }
+#now .headline { max-width: var(--measure); margin: 0 0 14px; font-size: 17px; font-weight: 600; line-height: 1.6; }
+.nb-card { max-width: calc(var(--measure) * 1.25); border: 1px solid var(--borderColor-default); border-radius: 8px; padding: 16px 18px; }
+.nb-card .next.rest { margin-top: 6px; }
+.next-more > summary { cursor: pointer; font-size: 12.5px; color: var(--fgColor-muted); margin-top: 6px; }
+.chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 18px; padding: 0; }
+.chips li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border: 1px solid var(--borderColor-default); border-radius: 999px; font-size: 13px; }
+.chips i { width: 8px; height: 8px; border-radius: 50%; background: var(--bgColor-neutral-emphasis); }
+.chips .ok i { background: var(--bgColor-success-emphasis); } .chips .warn i { background: var(--bgColor-attention-emphasis); }
+.chips .mine i { background: var(--bgColor-severe-emphasis); } .chips .bad i { background: var(--bgColor-danger-emphasis); }
+.chips b { font-weight: 600; } .chips span { color: var(--fgColor-default); }
+.nb-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 32px; max-width: calc(var(--measure) * 2 + 32px); }
+/* 図と変えたことの凡例を横に並べる（窓が 1200px 以上のとき）。凡例はスクロールしても見えたままにする */
+.fig-key { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+.fk-key { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+.fk-key .pts-head { margin-top: 0; }
+.fk-key .pk-body { padding-left: 14px; }
+/* 目次（窓が 1200px 以上）。本文の左に固定する */
+body.toc-on .wrap { padding-left: 236px; }
+.toc { display: none; }
+body.toc-on .toc { display: block; position: fixed; top: 16px; left: max(16px, calc((100vw - 1600px) / 2 + 16px)); width: 196px; max-height: calc(100vh - 32px); overflow: auto; font-size: 13px; }
+.toc-h { font: 600 12px/1.4 var(--fontStack-mono); color: var(--fgColor-muted); margin: 6px 0 8px 10px; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li a { display: flex; gap: 6px; align-items: baseline; padding: 5px 10px; border-left: 2px solid var(--borderColor-muted); color: var(--fgColor-default); text-decoration: none; }
+.toc li.toc-sub a { padding-left: 22px; font-size: 12.5px; color: var(--fgColor-muted); }
+.toc li a:hover { background: var(--bgColor-muted); }
+.toc li.cur a { border-left-color: var(--fgColor-accent); color: var(--fgColor-accent); font-weight: 600; }
+.toc-n { margin-left: auto; font-size: 11.5px; color: var(--fgColor-muted); font-weight: 400; white-space: nowrap; }
+/* 説明の右に「この節の語」。スクロールしても見えたまま */
+.ex-row { display: grid; grid-template-columns: minmax(0, var(--measure)) minmax(240px, 420px); gap: 32px; align-items: start; }
+.ex-side { position: sticky; top: 12px; }
+.ex-side .terms { margin-top: 0; }
+.ex-side .terms dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.ex-side .terms dd { margin-bottom: 8px; }
+/* コードの大きな窓 */
+.code-dlg { width: min(92vw, 1500px); max-height: 88vh; padding: 0; border: 1px solid var(--borderColor-default); border-radius: 10px; background: var(--bgColor-default); color: var(--fgColor-default); }
+.code-dlg::backdrop { background: rgba(0, 0, 0, .45); }
+.code-dlg-head { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: baseline; padding: 12px 16px; background: var(--bgColor-default); border-bottom: 1px solid var(--borderColor-default); }
+.code-dlg-head .muted { font-size: 12px; overflow-wrap: anywhere; }
+.code-dlg-head button { margin-left: auto; flex: none; padding: 3px 10px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--control-bgColor-rest); color: var(--fgColor-default); cursor: pointer; }
+.code-dlg-body { padding: 12px 16px 16px; }
+.nb-col .nb-turn, .nb-col .nb-where { margin: 0; }
+.nb-h { font-size: 12px; font-weight: 600; color: var(--fgColor-muted); margin: 0 0 6px; letter-spacing: .02em; }
+.nb-turn { margin: 8px 0 0; font-size: 14px; line-height: 1.65; }
+.facts { padding-left: 1.2em; }
+.facts li + li { margin-top: 4px; }
+.facts li::marker { color: var(--fgColor-muted); }
+#since .nb-h .muted { font-weight: 400; margin-left: 4px; }
+.nb-where { margin: 0 0 8px; font-size: 14px; line-height: 1.7; }
+.evlog > summary { cursor: pointer; width: max-content; max-width: 100%; font-size: 12px; color: var(--fgColor-accent); }
+.evlog ol { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12.5px; display: grid; gap: 2px; }
+.evlog li { display: grid; grid-template-columns: 9.5em max-content minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 2px 0; }
+.evlog .t { font: 12px/1.6 var(--fontStack-mono); color: var(--fgColor-muted); }
+.evlog li.me b { color: var(--fgColor-severe); }
+/* ── 最初の画面: 誰の番の 1 行（詳しくは「いまの番」の節） ── */
+.strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -8px 0 28px; padding: 8px 12px;
+  border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--bgColor-muted); font-size: 13px; }
+.strip .nx { font-weight: 600; color: var(--fgColor-default); min-width: 0; }
+.strip .go { margin-left: auto; white-space: nowrap; }
+
+/* ── この PR がすること（ページの主役。要点 → 図 → 段落 → 変更点） ── */
+.about .lead { max-width: var(--measure); margin: 0 0 18px; font-size: 19px; line-height: 1.7; font-weight: 500; text-wrap: pretty; }
+.terms { max-width: var(--measure); margin: 4px 0 18px; padding: 10px 14px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--bgColor-muted); font-size: 13px; }
+.terms-h { font-size: 12px; font-weight: 600; color: var(--fgColor-muted); margin-bottom: 6px; }
+.terms dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+.terms dt { font-weight: 600; }
+.terms dd { margin: 0; color: var(--fgColor-default); }
+.term { text-decoration: underline dotted var(--fgColor-muted); text-underline-offset: 3px; cursor: help; }
+.terms .term { text-decoration: none; cursor: auto; }
+figure.fig { margin: 0 0 20px; padding: 16px; border: 1px solid var(--borderColor-default); border-radius: 6px; overflow-x: auto; }
+figure.fig figcaption { font-size: 12px; color: var(--fgColor-muted); margin-top: 10px; }
+/* 図（graph）: AI が宣言した箱と線を、dagre が置き場所を決めて描く。前後で在る無しが違えば、同じ置き場所の
+   まま「変更前」「変更後」の 2 枚に分けて上下に並べる（同じ箱は同じ位置に来るので、変わった所だけが目に入る） */
+.g-scroll { overflow-x: auto; }
+/* 窓より狭い図は真ん中に置く（左に寄ると右が空いて、図が小さく見える） */
+.g-scroll > .g-panel { margin: 0 auto; }
+.g-scroll > .g-row { justify-content: center; }
+.g-row { display: grid; grid-template-columns: 3.5em max-content; align-items: start; gap: 8px; }
+.g-row + .g-row { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--borderColor-default); }
+.g-row .ph { font-size: 12px; font-weight: 600; color: var(--fgColor-muted); padding-top: 14px; }
+.g-side { display: flex; justify-content: center; align-items: flex-start; gap: 48px; }
+.g-col .ph { font-size: 12px; font-weight: 600; color: var(--fgColor-muted); margin-bottom: 6px; }
+.g-col + .g-col { border-left: 1px dashed var(--borderColor-default); padding-left: 24px; margin-left: -24px; }
+.g-panel { position: relative; }
+.g-svg { position: absolute; inset: 0; overflow: visible; }
+.g-node, .g-measure .g-node { position: absolute; box-sizing: border-box; max-width: 210px; padding: 7px 11px; border-radius: 6px;
+  border: 1px solid var(--borderColor-default); background: var(--bgColor-default); font-size: 13px; line-height: 1.45;
+  text-align: center; overflow-wrap: anywhere; box-shadow: 0 1px 0 var(--borderColor-translucent); }
+.g-measure { position: absolute; visibility: hidden; left: -9999px; top: 0; }
+.g-measure .g-node, .g-measure .g-elabel { position: static; display: inline-block; }
+.g-node .s { display: block; font-size: 11.5px; color: var(--fgColor-muted); margin-top: 2px; }
+.g-node .tag { display: inline-block; font-size: 10.5px; font-weight: 700; line-height: 16px; padding: 0 5px; border-radius: 4px; margin-right: 4px; vertical-align: 1px; }
+.g-node .chips { justify-content: center; margin-top: 5px; }
+.g-node.good, .g-node.new { background: var(--bgColor-success-muted); border: 2px solid var(--fgColor-success); font-weight: 600; }
+.g-node.bad { background: var(--bgColor-danger-muted); border: 2px solid var(--fgColor-danger); font-weight: 600; }
+.g-node.gone { background: var(--bgColor-danger-muted); border: 2px dashed var(--fgColor-danger); color: var(--fgColor-danger); }
+.g-node.new .tag { background: var(--fgColor-success); color: var(--fgColor-onEmphasis); }
+.g-node.gone .tag { background: var(--fgColor-danger); color: var(--fgColor-onEmphasis); }
+.g-node.hit { cursor: pointer; }
+.g-node.hit:hover { border-color: var(--fgColor-accent); }
+.g-node.sel { outline: 3px solid var(--fgColor-accent); outline-offset: 2px; }
+.g-group { fill: var(--bgColor-muted); stroke: var(--borderColor-default); stroke-dasharray: 4 3; }
+.g-glabel { position: absolute; font-size: 11.5px; font-weight: 600; color: var(--fgColor-muted); white-space: nowrap; }
+.g-edge { fill: none; stroke: var(--fgColor-muted); stroke-width: 1.5; }
+.g-edge.good { stroke: var(--fgColor-success); stroke-width: 2.2; }
+.g-edge.bad { stroke: var(--fgColor-danger); stroke-width: 2; stroke-dasharray: 5 4; }
+.g-edge.dashed { stroke-dasharray: 5 4; }
+.g-elabel { position: absolute; transform: translate(-50%, -50%); max-width: 200px; padding: 1px 6px; border-radius: 4px; font-size: 11.5px;
+  line-height: 1.4; text-align: center; color: var(--fgColor-muted); background: var(--bgColor-default); overflow-wrap: anywhere; }
+.g-elabel.hit { cursor: pointer; border: 1px solid var(--borderColor-default); }
+.g-elabel.hit:hover { border-color: var(--fgColor-accent); }
+.g-elabel .chips { display: inline-flex; gap: 3px; margin: 0 0 0 4px; vertical-align: 1px; }
+.g-elabel.good { color: var(--fgColor-success); font-weight: 600; } .g-elabel.bad { color: var(--fgColor-danger); } .g-elabel.gone { text-decoration: line-through; }
+.g-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--fgColor-muted); margin-top: 10px; }
+.g-legend i { display: inline-block; width: 18px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; font-style: normal; }
+.g-legend .lg-new { background: var(--bgColor-success-muted); border: 2px solid var(--fgColor-success); }
+.g-legend .lg-gone { background: var(--bgColor-danger-muted); border: 2px dashed var(--fgColor-danger); }
+.g-legend .lg-hit { border: 1px solid var(--fgColor-accent); }
+/* 箱を押すと、図のすぐ下に、その箱の変更点とコードを開く */
+.g-detail { margin: -8px 0 20px; padding: 12px 16px; border: 2px solid var(--fgColor-accent); border-radius: 6px; }
+.g-detail[hidden] { display: none; }
+.g-detail-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.g-detail-head b { font-size: 14px; }
+.g-detail-head button { margin-left: auto; font: inherit; font-size: 12px; border: 0; background: none; color: var(--fgColor-accent); cursor: pointer; }
+.g-detail .pt-list { margin-bottom: 8px; }
+/* やり取り（sequence）: 役者を列に、やり取りを上から順に。列の位置は機械が等分で決める */
+.seq { min-width: calc(var(--n) * 130px); }
+.seq-head { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 0 12px; margin-bottom: 4px; }
+.seq-actor { justify-self: center; max-width: 100%; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--borderColor-default);
+  background: var(--bgColor-muted); font-size: 13px; font-weight: 600; text-align: center; overflow-wrap: anywhere; }
+.seq-body { position: relative; padding: 4px 0 10px; }
+.seq-life { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--borderColor-default); }
+.seq-row { position: relative; padding: 6px 0 4px; }
+.seq-msg { position: relative; border-top: 1.5px solid var(--fgColor-muted); margin-top: 3px; }
+.seq-msg::after { content: ""; position: absolute; top: -5.5px; border: 5px solid transparent; }
+.seq-msg.r::after { right: -2px; border-left: 7px solid var(--fgColor-muted); border-right: 0; }
+.seq-msg.l::after { left: -2px; border-right: 7px solid var(--fgColor-muted); border-left: 0; }
+.seq-lb { text-align: center; font-size: 12.5px; line-height: 1.4; padding: 0 6px; overflow-wrap: anywhere; }
+.seq-row .no { font: 600 10.5px/1 var(--fontStack-mono); color: var(--fgColor-muted); margin-right: 4px; }
+.seq-self { width: max-content; max-width: 45%; padding: 2px 8px; border-left: 3px solid var(--fgColor-muted); font-size: 12.5px; line-height: 1.4;
+  background: var(--bgColor-muted); border-radius: 0 4px 4px 0; overflow-wrap: anywhere; }
+.seq-msg.good { border-top: 2.5px solid var(--fgColor-success); } .seq-msg.good.r::after { border-left-color: var(--fgColor-success); } .seq-msg.good.l::after { border-right-color: var(--fgColor-success); }
+.seq-row.good .seq-lb, .seq-self.good { color: var(--fgColor-success); font-weight: 600; } .seq-self.good { border-left-color: var(--fgColor-success); background: var(--bgColor-success-muted); }
+.seq-msg.bad { border-top: 2px dashed var(--fgColor-danger); } .seq-msg.bad.r::after { border-left-color: var(--fgColor-danger); } .seq-msg.bad.l::after { border-right-color: var(--fgColor-danger); }
+.seq-row.bad .seq-lb, .seq-self.bad { color: var(--fgColor-danger); } .seq-self.bad { border-left-color: var(--fgColor-danger); background: var(--bgColor-danger-muted); }
+.seq-row.gone .seq-lb span:last-child, .seq-self.gone span:last-child { text-decoration: line-through; }
+/* 値の前後: 名前・変更前・変更後を 1 行に */
+.cmp { display: grid; grid-template-columns: minmax(6em, max-content) minmax(0, 1fr) 20px minmax(0, 1fr); gap: 0 10px; font-size: 13px; }
+.cmp > div { padding: 7px 0; border-top: 1px solid var(--borderColor-muted); overflow-wrap: anywhere; }
+.cmp .h { border-top: 0; font-size: 12px; font-weight: 600; color: var(--fgColor-muted); padding-top: 0; }
+.cmp .nm { font-weight: 600; }
+.cmp .bf { color: var(--fgColor-muted); }
+.cmp .ar { color: var(--fgColor-muted); text-align: center; }
+.cmp .af { font-weight: 600; }
+.cmp .bad.af, .cmp .bad.bf { color: var(--fgColor-danger); } .cmp .good.af { color: var(--fgColor-success); }
+.cmp .none { color: var(--fgColor-muted); font-style: italic; font-weight: 400; }
+/* コマ送り（play）の操作と、光らせ方 */
+.player { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -4px 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--borderColor-muted); }
+.pl-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 6px; cursor: pointer; border: 1px solid transparent;
+  background: var(--bgColor-accent-emphasis); color: var(--fgColor-onEmphasis); }
+.pl-btn.ghost { background: var(--control-bgColor-rest); color: var(--fgColor-default); border-color: var(--borderColor-default); font-weight: 500; }
+.pl-dots { display: inline-flex; gap: 4px; }
+.pl-dot { font: 600 11px/1 var(--fontStack-mono); width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 1px solid var(--borderColor-default);
+  background: var(--bgColor-default); color: var(--fgColor-muted); }
+.pl-dot.on { background: var(--bgColor-accent-emphasis); color: var(--fgColor-onEmphasis); border-color: transparent; }
+.pl-cap { font-size: 13px; color: var(--fgColor-muted); min-width: 0; flex: 1 1 16em; }
+.pl-cap b { color: var(--fgColor-accent); font-family: var(--fontStack-mono); font-size: 12px; }
+.g-node, .g-edge, .g-elabel, .g-glabel, .seq-row, .st-card { transition: opacity .6s ease, box-shadow .5s ease, stroke .5s ease; }
+.pl-bar { flex: 1 0 100%; height: 2px; background: var(--borderColor-muted); border-radius: 1px; overflow: hidden; }
+.pl-bar i { display: block; height: 100%; background: var(--fgColor-accent); transform-origin: left center; transform: scaleX(0); }
+.g-run { animation: g-dot 1.9s ease forwards; }
+@keyframes g-dot { 0% { opacity: 0; } 12%, 78% { opacity: 1; } 100% { opacity: 0; } }
+.playing .g-node:not(.on), .playing .g-elabel:not(.on), .playing .g-glabel { opacity: .28; }
+.playing .g-edge:not(.on) { opacity: .2; }
+.g-node.on { box-shadow: 0 0 0 3px var(--bgColor-default), 0 0 0 6px var(--fgColor-accent); }
+.g-edge.on { stroke: var(--fgColor-accent); stroke-width: 2.6; stroke-dasharray: 7 5; animation: g-flow .9s linear infinite; opacity: 1; }
+.g-elabel.on { color: var(--fgColor-accent); font-weight: 600; }
+.g-run { fill: var(--fgColor-accent); }
+@keyframes g-flow { to { stroke-dashoffset: -12; } }
+.seq.playing .seq-row:not(.on) { opacity: .25; }
+.seq-row.on .seq-msg { animation: s-grow 1.2s cubic-bezier(.45, 0, .25, 1); }
+.seq-row.on .seq-msg.r { transform-origin: left center; } .seq-row.on .seq-msg.l { transform-origin: right center; }
+.seq-row.on .seq-lb, .seq-row.on .seq-self { color: var(--fgColor-accent); font-weight: 600; }
+@keyframes s-grow { from { transform: scaleX(0); } }
+.st-grid.playing .st-card:not(.on) { opacity: .3; }
+.st-card.on { box-shadow: 0 0 0 3px var(--bgColor-default), 0 0 0 6px var(--fgColor-accent); }
+@media (prefers-reduced-motion: reduce) { .g-edge.on, .seq-row.on .seq-msg { animation: none; } }
+/* 画面の見取り図（screen） */
+.sc-panes { display: grid; gap: 16px; }
+.sc-panes.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sc-pane .ph { font-size: 12px; font-weight: 600; color: var(--fgColor-muted); margin-bottom: 6px; }
+.sc-win { border: 1px solid var(--borderColor-default); border-radius: 8px; overflow: hidden; background: var(--bgColor-default); box-shadow: 0 1px 3px var(--borderColor-translucent); }
+.sc-bar { display: flex; align-items: center; gap: 5px; padding: 6px 10px; background: var(--bgColor-muted); border-bottom: 1px solid var(--borderColor-default); font-size: 12px; color: var(--fgColor-muted); }
+.sc-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--borderColor-default); }
+.sc-bar span { margin-left: 6px; font-weight: 600; }
+.sc-body { padding: 12px 14px; display: grid; gap: 10px; }
+.sc-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.sc-row.end { justify-content: flex-end; }
+.sc-item { position: relative; flex: 1 1 100%; display: grid; gap: 4px; min-width: 0; border-radius: 6px; }
+.sc-item.inline, .sc-row.end .sc-item { flex: 0 0 auto; }
+.sc-item.new, .sc-item.good { outline: 2px solid var(--fgColor-success); outline-offset: 3px; background: var(--bgColor-success-muted); }
+.sc-item.gone, .sc-item.bad { outline: 2px dashed var(--fgColor-danger); outline-offset: 3px; background: var(--bgColor-danger-muted); }
+.sc-tag { position: absolute; top: -9px; right: -6px; font-size: 10px; font-weight: 700; line-height: 15px; padding: 0 4px; border-radius: 3px; color: var(--fgColor-onEmphasis); background: var(--fgColor-success); z-index: 1; }
+.sc-item.gone > .sc-tag, tr.gone .sc-tag { background: var(--fgColor-danger); }
+tr .sc-tag { position: static; margin-right: 6px; }
+.sc-h { font-size: 15px; font-weight: 600; }
+.sc-label { font-size: 12.5px; font-weight: 600; }
+.sc-hint, .sc-text { font-size: 12px; color: var(--fgColor-muted); line-height: 1.55; }
+.sc-input { min-height: 30px; padding: 5px 9px; border: 1px solid var(--borderColor-default); border-radius: 6px; font-size: 12.5px; background: var(--bgColor-default); overflow-wrap: anywhere; }
+.sc-area { min-height: 58px; }
+.sc-select { display: flex; justify-content: space-between; } .sc-select .car { color: var(--fgColor-muted); }
+.sc-input.dis, .sc-btn.dis { opacity: .5; }
+.sc-input .ph { color: var(--fgColor-muted); }
+.sc-opts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; }
+.sc-opt { display: inline-flex; align-items: center; gap: 5px; }
+.sc-opt i { width: 13px; height: 13px; border: 1.5px solid var(--fgColor-muted); }
+.sc-opt i.radio { border-radius: 50%; } .sc-opt i.checkbox { border-radius: 3px; }
+.sc-opt.on i { background: var(--fgColor-accent); border-color: var(--fgColor-accent); box-shadow: inset 0 0 0 2px var(--bgColor-default); }
+.sc-toggle { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.sc-toggle i { width: 28px; height: 16px; border-radius: 8px; background: var(--borderColor-default); position: relative; flex: none; }
+.sc-toggle i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--bgColor-default); }
+.sc-toggle i.on { background: var(--fgColor-success); } .sc-toggle i.on::after { left: 14px; }
+.sc-btn { display: inline-block; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--borderColor-default); background: var(--control-bgColor-rest); font-size: 12.5px; font-weight: 500; }
+.sc-btn.pri { background: var(--bgColor-success-emphasis); color: var(--fgColor-onEmphasis); border-color: transparent; }
+.sc-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--borderColor-default); font-size: 12.5px; }
+.sc-tabs span { padding: 4px 10px; color: var(--fgColor-muted); } .sc-tabs span.on { color: var(--fgColor-default); font-weight: 600; box-shadow: inset 0 -2px 0 var(--fgColor-severe); }
+.sc-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--borderColor-default); border-radius: 6px; font-size: 12.5px; }
+.sc-list li { padding: 5px 9px; } .sc-list li + li { border-top: 1px solid var(--borderColor-muted); }
+.sc-alert { padding: 7px 10px; border-radius: 6px; font-size: 12.5px; background: var(--bgColor-attention-muted); border: 1px solid var(--borderColor-attention-muted); }
+/* 表（table） */
+table.tb { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+table.tb th, table.tb td { border: 1px solid var(--borderColor-default); padding: 6px 10px; text-align: center; vertical-align: middle; overflow-wrap: anywhere; }
+table.tb thead th { background: var(--bgColor-muted); font-size: 12px; white-space: nowrap; }
+table.tb tbody th { text-align: left; font-weight: 600; background: var(--bgColor-muted); }
+table.tb td.empty { color: var(--fgColor-muted); }
+table.tb td.good, table.tb td.chg, table.tb tr.new td { background: var(--bgColor-success-muted); font-weight: 600; }
+table.tb td.bad, table.tb tr.gone td { background: var(--bgColor-danger-muted); }
+table.tb tr.gone td, table.tb tr.gone th { text-decoration: line-through; color: var(--fgColor-danger); }
+table.tb td s { color: var(--fgColor-danger); font-weight: 400; }
+/* 手順・時間の流れ（steps） */
+.st-grid { display: grid; gap: 8px 12px; align-items: stretch; min-width: 420px; }
+.st-lane { font-size: 12px; font-weight: 600; color: var(--fgColor-muted); text-align: center; padding-bottom: 4px; border-bottom: 2px solid var(--borderColor-default); }
+.st-no { display: grid; place-items: center; align-self: center; width: 24px; height: 24px; border-radius: 50%; font: 600 11px/1 var(--fontStack-mono); background: var(--bgColor-neutral-emphasis); color: var(--fgColor-onEmphasis); }
+.st-empty { border-left: 1px dashed var(--borderColor-muted); margin-left: 50%; }
+.st-card { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--borderColor-default); background: var(--bgColor-default); font-size: 13px; line-height: 1.5; }
+.st-card.good { border: 2px solid var(--fgColor-success); background: var(--bgColor-success-muted); }
+.st-card.bad { border: 2px solid var(--fgColor-danger); background: var(--bgColor-danger-muted); }
+.st-card.gone { border-style: dashed; }
+.st-card.gone .st-text { text-decoration: line-through; }
+.st-top { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.st-top:empty { display: none; }
+.st-when { font: 600 11.5px/1.6 var(--fontStack-mono); color: var(--fgColor-accent); }
+.st-tag { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 2em; border: 1px solid var(--borderColor-default); color: var(--fgColor-muted); }
+.st-text { font-weight: 500; }
+.st-note { font-size: 12px; color: var(--fgColor-muted); margin-top: 2px; }
+/* 箱に列の一覧（graph の fields） */
+.g-node .flds { display: grid; margin: 6px -11px -7px; border-top: 1px solid var(--borderColor-default); text-align: left; font: 11.5px/1.5 var(--fontStack-mono); }
+.g-node .flds > span { display: flex; justify-content: space-between; gap: 10px; padding: 1px 10px; font-weight: 400; }
+.g-node .flds > span + span { border-top: 1px solid var(--borderColor-muted); }
+.g-node .flds .ty { color: var(--fgColor-muted); }
+.g-node .flds .new { background: var(--bgColor-success-muted); color: var(--fgColor-success); font-weight: 600; }
+.g-node .flds .gone { background: var(--bgColor-danger-muted); color: var(--fgColor-danger); text-decoration: line-through; }
+.hf-host { overflow-x: auto; }
+/* 変更点: 点ごとに「困っていたこと → どうしたか」と、その場で開くコード */
+.pts-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 28px 0 10px; }
+.pts-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.pts-head .sub { color: var(--fgColor-muted); font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; font: 600 11px/1 var(--fontStack-mono);
+  background: var(--bgColor-default); border: 1px solid var(--borderColor-default); color: var(--fgColor-muted); }
+.pt[hidden] { display: none; }
+.pt.hot { background: var(--bgColor-accent-muted); }
+  background: var(--bgColor-neutral-emphasis); color: var(--fgColor-onEmphasis); margin-top: 1px; }
+.pt-diff { min-width: 0; max-width: 100%; }
+.pk-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--borderColor-default); border-radius: 6px; }
+.pk-list > li + li { border-top: 1px solid var(--borderColor-muted); }
+.pk-grp { padding: 10px 14px 4px; font-size: 12.5px; font-weight: 700; color: var(--fgColor-muted); }
+.pk > summary { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; list-style: none; font-size: 14.5px; transition: background-color .4s; }
+.pk > summary::-webkit-details-marker { display: none; }
+.pk > summary::after { content: "▸"; margin-left: auto; color: var(--fgColor-muted); font-size: 12px; }
+.pk[open] > summary::after { content: "▾"; }
+.pk > summary:hover { background: var(--bgColor-accent-muted); }
+.pk .num { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 600 11.5px/1 var(--fontStack-mono); background: var(--bgColor-neutral-muted); }
+.pk-t { font-weight: 600; min-width: 0; }
+.pk-off { flex: none; font-size: 11.5px; color: var(--fgColor-muted); border: 1px solid var(--borderColor-default); border-radius: 999px; padding: 0 8px; }
+.pk-body { padding: 0 14px 12px 46px; display: grid; gap: 4px; font-size: 14px; line-height: 1.65; }
+.pk-ba { display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 8px; }
+.pk-ba .k { font-size: 11.5px; font-weight: 700; line-height: 23px; }
+.pk-ba .k.b { color: var(--fgColor-danger); } .pk-ba .k.a { color: var(--fgColor-success); }
+.pk-ba .v.b { color: var(--fgColor-muted); }
+.pk-cbtn { justify-self: start; margin-top: 2px; padding: 0; border: 0; background: none; color: var(--fgColor-accent); font: inherit; font-size: 12.5px; cursor: pointer; }
+.pk-body .code-box { min-width: 0; margin-top: 4px; }
+.pk-all { margin-left: auto; padding: 2px 10px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--control-bgColor-rest); color: var(--fgColor-default); font-size: 12px; cursor: pointer; }
+.g-node.pk-hl { box-shadow: 0 0 0 3px var(--fgColor-accent); }
+.g-edge.pk-hl { stroke: var(--fgColor-accent); stroke-width: 3; }
+.pop { position: absolute; z-index: 50; width: min(400px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; padding: 10px 14px 12px;
+  border: 1px solid var(--borderColor-default); border-radius: 8px; background: var(--bgColor-default); box-shadow: 0 8px 24px rgba(0,0,0,.18); font-size: 13px; }
+.pop-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.pop-head b { font-size: 14px; }
+.pop-x { margin-left: auto; border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--fgColor-muted); }
+.pop-own { display: block; margin: 0 0 8px; }
+.pop-pt { padding: 8px 0; border-top: 1px solid var(--borderColor-default); }
+.pop-t { display: flex; gap: 6px; align-items: baseline; font-weight: 600; margin-bottom: 4px; }
+.pop-t .num { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 600 11.5px/1 var(--fontStack-mono); background: var(--bgColor-neutral-muted); }
+.pop-on { box-shadow: 0 0 0 3px var(--fgColor-accent) !important; }
+.g-elabel.pk-hl { box-shadow: 0 0 0 2px var(--fgColor-accent); color: var(--fgColor-accent); }
+.pt-diff .d2h-file-wrapper { max-width: 100%; }
+.pt-diff .d2h-file-diff { overflow-x: auto; }
 
 /* ── 5 分: レビューのスレッド（GitHub の会話の形） ── */
 .thread { border: 1px solid var(--borderColor-default); border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
@@ -344,10 +642,17 @@ details.foot { margin-top: 40px; color: var(--fgColor-muted); font-size: 12px; }
 details.foot summary { cursor: pointer; width: max-content; max-width: 100%; }
 details.foot ul { margin: 6px 0 0; padding-left: 1.4em; }
 
+@media (max-width: 700px) {
+}
 @media (max-width: 560px) {
+  .terms dl { grid-template-columns: 1fr; gap: 0; }
+  .terms dd { margin-bottom: 6px; }
   .pr-head h1 { font-size: 20px; }
   .checks li { grid-template-columns: 24px minmax(0, 1fr); }
   .checks .v { grid-column: 2; }
+  .evlog li { grid-template-columns: 8em minmax(0, 1fr); } .evlog li > span:last-child { grid-column: 2; }
+  .cmp { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 16px minmax(0, 1fr); }
+  .sc-panes.two { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .files .d2h-file-header .chev { transition: none; } }
 </style>
@@ -363,7 +668,26 @@ document.addEventListener("DOMContentLoaded", () => {
 const D = JSON.parse(document.getElementById("data").textContent) || {};
 const M = D.data || {}, A = D.fields || {}, H = M.head || {};
 const app = document.getElementById("app");
+// 中身の幅（左右の余白と目次の分を除く）。図はこの幅に合わせて組む
+const contentWidth = () => { const cs = getComputedStyle(app); return app.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); };
 const repo = (H.url || "").replace(/\/(pull|issues)\/\d+.*$/, "");
+// この節の語（terms）: 文の中に出てきたら点線を引き、乗せると意味が出る。長い語から当てる（短い語が長い語の一部を食わない）
+const TERMS = (Array.isArray(A.terms) ? A.terms : []).filter(t => t && t.term && t.means);
+const TERM_MEANS = new Map(TERMS.map(t => [t.term, t.means]));
+const TERM_RE = TERMS.length ? new RegExp([...TERM_MEANS.keys()].sort((a, b) => b.length - a.length)
+  .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g") : null;
+function termify(str) {
+  if (!TERM_RE || !str) return [str];
+  const out = [];
+  let last = 0;
+  for (const m of str.matchAll(TERM_RE)) {
+    if (m.index > last) out.push(str.slice(last, m.index));
+    out.push(el("span", { class: "term", title: TERM_MEANS.get(m[0]), tabindex: "0" }, m[0]));
+    last = m.index + m[0].length;
+  }
+  if (last < str.length) out.push(str.slice(last));
+  return out;
+}
 const svgNS = "http://www.w3.org/2000/svg";
 
 // ── 部品 ──
@@ -396,14 +720,14 @@ function rich(text) {
   let last = 0, m;
   text = String(text || "");
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(...termify(text.slice(last, m.index)));
     if (m[1]) out.push(el("code", {}, m[1]));
     else if (m[2]) out.push(repo ? el("a", { href: `${repo}/issues/${m[2].slice(1)}` }, m[2]) : m[2]);
     else if (m[3]) out.push(/\d/.test(m[3]) && /[a-f]/.test(m[3]) && repo ? el("a", { href: `${repo}/commit/${m[3]}`, class: "mono" }, m[3]) : m[3]);
     else out.push(el("span", { class: "mention" }, m[4]));
     last = re.lastIndex;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(...termify(text.slice(last)));
   return out;
 }
 // 発言の本文は GitHub と同じく Markdown で描く（marked。下に埋め込み）。生の HTML は文字に戻し、
@@ -446,6 +770,9 @@ const avatar = name => el("span", { class: "avatar", style: `background:${name =
   name === "私" ? "私" : name.replace(/[^0-9A-Za-z]/g, "").slice(0, 2).toUpperCase() || "?");
 const section = (id, title, sub, ...kids) => el("section", { class: "sec", id },
   el("div", { class: "sec-head" }, el("h2", {}, title), sub ? el("span", { class: "sub" }, sub) : null), ...kids);
+// 前回から・止めているもの: 1 項 1 事実の並びは箇条で、1 つの文字列は段落で描く
+const facts = (v, cls) => Array.isArray(v) ? (v.length ? el("ul", { class: cls + " facts" }, v.map(x => el("li", {}, rich(x)))) : null)
+  : v ? el("p", { class: cls }, rich(v)) : null;
 const prose = (...paras) => el("div", { class: "prose" }, paras.filter(Boolean).map(p => el("p", {}, rich(p))));
 
 // ── 見出し（GitHub の PR の頭と同じ並び） ──
@@ -480,10 +807,10 @@ const checks = (M.status || []).map(s => el("li", { class: s.tone || "neutral" }
   el("span", { class: "k" }, s.label), el("span", { class: "v" }, s.value)));
 const next = A.next || [];
 // 変更の節の file へ飛ぶ。「前回から」を選び、畳んでいれば開く
-function jump(f, text, cls) {
+function jump(f, text, cls, viewId) {
   return el("a", { class: cls || "go", href: "#file-" + f.anchor, onclick: e => {
     e.preventDefault();
-    if (window.__selectView) window.__selectView(sinceView ? "since" : views[0].id);
+    if (window.__selectView) window.__selectView(viewId || (sinceView ? "since" : views[0].id));
     const w = document.getElementById("file-" + f.anchor);
     if (!w) return;
     if (w.classList.contains("collapsed")) w.querySelector(".d2h-file-header").click();
@@ -500,18 +827,37 @@ const nextItem = (s, i) => el("li", {}, el("span", {}, rich(s),
   i === 0 && sinceSha && sinceTarget && s.includes(sinceSha.slice(0, 7)) ? jump(sinceTarget, "差分へ ↓", "go") : null,
   i === toThreads ? el("a", { class: "go", href: "#threads" }, "指摘へ ↓") : null,
   i === toCi ? el("a", { class: "go", href: "#ci" }, "CI へ ↓") : null));
-app.append(el("section", { class: "turn", id: "now", "aria-label": "いまの番" },
-  el("div", { class: "turn-top" },
-    el("div", { class: "who-line" },
-      T.label ? el("span", { class: "label" + (mineTurn ? " severe" : "") }, T.label) : null,
-      H.role ? el("span", {}, `${H.role}として`) : null,
-      T.detail ? el("span", {}, T.detail) : null),
+// 最初の画面に置くのは誰の番と次の 1 手だけ。主役は「この PR がすること」で、番の詳しくはその下の節
+if (T.label || next.length) app.append(el("div", { class: "strip", "aria-label": "誰の番" },
+  T.label ? el("span", { class: "label" + (mineTurn ? " severe" : "") }, T.label) : null,
+  H.role ? el("span", { class: "muted" }, `${H.role}として`) : null,
+  next.length ? el("span", { class: "nx" }, "次: ", rich(next[0])) : null,
+  el("a", { class: "go", href: "#now" }, "いまの番へ ↓")));
+// いまの番と前回からを 1 つの節にまとめる。同じことを 2 回出さない——状態は右の短い表に 1 回、経緯は where の文に 1 回、
+// 出来事の 1 件ずつは畳んだ記録に置く（2026-10-16「今の番とか前回からとかがかなり見にくい」。以前は状態の行 5 本・
+// 縦の流れ・同じことを言う文が別々の節に並んでいた）
+const statusRows = (M.status || []).filter(st => !(st.key === "assignees" && st.value === H.author));
+// 1 枚目のカードに「一言と次の一手」、その下に状態の札を 1 列、さらに下に「止めているもの」と「前回から」を
+// 同じ重さで左右に並べる（2026-10-16「今の番はまだまだ見にくい」。3 つの塊が同じ重さで文を詰めていた）
+const NEXT_SHOWN = 3;  // カードに出す一手の数。残りは畳む
+const chipText = v => String(v || "").replace(/（[A-Z_ ]+）/g, "").replace(/（うち人が入っているもの \d+ 件）\s*/, "").replace(/。.*$/, "").trim();
+const sinceCol = el("div", { class: "nb-col", id: "since" });
+const turnCol = A.turn ? el("div", { class: "nb-col" }, el("div", { class: "nb-h" }, "止めているもの"), facts(A.turn, "nb-turn")) : null;
+const turnBox = el("section", { class: "sec", id: "now" }, el("div", { class: "sec-head" }, el("h2", {}, "いまの番"),
+    T.label ? el("span", { class: "label" + (mineTurn ? " severe" : "") }, T.label) : null,
+    el("span", { class: "sub" }, [H.role ? `${H.role}として` : null, T.detail || null].filter(Boolean).join(" · "))),
+  el("div", { class: "nb-card" },
     A.headline ? el("p", { class: "headline" }, rich(A.headline)) : null,
-    next.length ? el("ol", { class: "next", "aria-label": "次にやること" }, next.map(nextItem)) : null),
-  checks.length ? el("ul", { class: "checks", "aria-label": "マージを止めているもの" }, checks) : null));
+    next.length ? [el("div", { class: "nb-h" }, "次にやること"),
+      el("ol", { class: "next", "aria-label": "次にやること" }, next.slice(0, NEXT_SHOWN).map(nextItem)),
+      next.length > NEXT_SHOWN ? el("details", { class: "next-more" }, el("summary", {}, `ほかに ${next.length - NEXT_SHOWN} 手`),
+        el("ol", { class: "next rest", start: NEXT_SHOWN + 1 }, next.slice(NEXT_SHOWN).map((s, k) => nextItem(s, k + NEXT_SHOWN)))) : null] : null),
+  statusRows.length ? el("ul", { class: "chips", "aria-label": "マージを止めているもの" }, statusRows.map(st =>
+    el("li", { class: st.tone || "neutral", title: `${st.label}: ${st.value}` }, el("i"), el("b", {}, st.label), el("span", {}, chipText(st.value))))) : null,
+  el("div", { class: "nb-cols" }, turnCol, sinceCol));
 
-// ── 1 分: 前回から（番の受け渡し。GitHub の PR の会話の流れの形） ──
-const TL_CAP = 12;  // 会話の流れに並べる出来事の塊の数。古い方は省いて上に数を書く
+// ── 前回から: 出来事を、続けて動いた同じ人ごとに塊にする ──
+const TL_CAP = 12;  // 出来事の記録に並べる塊の数。古い方は省いて数を書く
 function groupEvents() {
   // 担当の付け替えは番を動かさないので図に入れない
   const evs = [...(M.anchor === "mine" && M.mine ? [M.mine] : []), ...(M.events || [])].filter(e => !/^担当/.test(e.kind));
@@ -534,67 +880,555 @@ function groupEvents() {
   }
   return groups;
 }
-function timeline() {
+// 前回からの出来事を、時刻・誰・何の 1 行ずつに（畳んで置く。経緯は where の文で読む）
+function eventLog() {
   const all = groupEvents();
   if (!all.length) return null;
-  const groups = all.slice(-TL_CAP), cut = all.length - groups.length;
-  const waitWho = H.author && H.author !== "私" ? H.author : (groups.find(g => g.who !== "私") || {}).who || "相手";
-  const nowWho = T.kind === "mine" ? "私" : T.kind === "wait" ? waitWho : null;
-  const badge = g => g.items.some(e => e.cat === "push") ? "commit"
-    : g.items.some(e => /^スレッド|コメント|レビュー|返信|承認|変更依頼/.test(e.kind)) ? "talk" : "dot";
   const day = s => String(s || "").replace(/^(\d{2})-(\d{2}) /, "$1/$2 ");
-  const item = g => el("li", { class: "tl-item" + (g.who === "私" ? " me" : "") },
-    el("span", { class: "tl-badge" }, icon(badge(g))),
-    el("span", { class: "tl-main" }, avatar(g.who), el("b", {}, g.who), el("span", {}, rich(g.label))),
-    el("span", { class: "tl-time" }, g.first === g.last ? day(g.first) : `${day(g.first)} – ${day(g.last).slice(-5)}`));
-  const nowLabel = { mine: "私の番", wait: `${nowWho} の番`, done: "済み" }[T.kind];
-  const from = M.anchor === "mine" && M.mine ? `前回（${day(M.mine.when)}）から` : `${day(groups[0].first)} から`;
-  return el("div", {},
-    el("p", { class: "tl-more" }, `${from}の番の動き${cut ? `（古い ${cut} 件は省いた）` : ""}`),
-    el("ol", { class: "timeline", "aria-label": "番の動き" }, groups.map(item),
-      nowLabel ? el("li", { class: "tl-item now" }, el("span", { class: "tl-badge" }, icon(T.kind === "done" ? "check" : "talk")),
-        el("span", { class: "tl-main" }, el("span", { class: "label" + (T.kind === "mine" ? " severe" : "") }, `いま: ${nowLabel}`)), el("span", { class: "tl-time" }, "いま")) : null));
+  const rows = all.slice(-TL_CAP), cut = all.length - rows.length;
+  return el("details", { class: "evlog" }, el("summary", {}, `出来事を時刻の順に見る（${all.length} 件${cut ? `。古い ${cut} 件は省いた` : ""}）`),
+    el("ol", {}, rows.map(g => el("li", { class: g.who === "私" ? "me" : null },
+      el("span", { class: "t" }, g.first === g.last ? day(g.first) : `${day(g.first)}–${day(g.last).slice(-5)}`),
+      el("b", {}, g.who), el("span", {}, rich(g.label))))));
 }
 
-// 変更前 / 変更後の図（AI の figure: rows[].steps[] と notes[]）
-function flowFigure(F) {
-  if (!F || !F.rows) return null;
-  const cw = c => /[　-鿿＀-￯]/.test(c) ? 12.5 : 7.2;
-  const tw = t => [...t].reduce((a, c) => a + cw(c), 0);
-  const LBL = 64, GAP = 34, ROWH = 92, BOXH = 32, PAD = 12;
-  const rows = F.rows.map(r => { let xx = LBL; const steps = r.steps.map(st => { const w = tw(st.text) + 24; const b = { ...st, x: xx, w }; xx += w + GAP; return b; }); return { ...r, steps, end: xx - GAP }; });
-  const W = Math.max(...rows.map(r => Math.max(r.end, ...(r.notes || []).map(n => r.steps[n.at].x + tw(n.text) + 24)))) + PAD;
-  const Hh = ROWH * rows.length;
-  const s = el("svg:svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": F.caption || "変更前と変更後" });
-  s.append(el("svg:defs", {}, el("svg:marker", { id: "arr", viewBox: "0 0 8 8", refX: 7, refY: 4, markerWidth: 7, markerHeight: 7, orient: "auto" },
-    el("svg:path", { d: "M0,0 L8,4 L0,8 z", fill: "var(--fgColor-muted)" }))));
-  const C = { bad: ["var(--bgColor-danger-muted)", "var(--fgColor-danger)"], good: ["var(--bgColor-success-muted)", "var(--fgColor-success)"] };
-  rows.forEach((r, ri) => {
-    const cy = ri * ROWH + 22;
-    s.append(el("svg:text", { x: 0, y: cy + 4, "font-size": 12, "font-weight": 600, fill: "var(--fgColor-muted)" }, r.label));
-    r.steps.forEach((b, i) => {
-      const [bg, bd] = C[b.tone] || ["var(--bgColor-muted)", "var(--borderColor-default)"];
-      s.append(el("svg:rect", { x: b.x, y: cy - BOXH / 2, width: b.w, height: BOXH, rx: 6, fill: bg, stroke: bd, "stroke-width": b.tone ? 1.5 : 1 }),
-        el("svg:text", { x: b.x + b.w / 2, y: cy + 4.5, "text-anchor": "middle", "font-size": 12.5, fill: "var(--fgColor-default)" }, b.text));
-      if (i) s.append(el("svg:line", { x1: r.steps[i - 1].x + r.steps[i - 1].w + 2, x2: b.x - 3, y1: cy, y2: cy, stroke: "var(--fgColor-muted)", "stroke-width": 1.3, "marker-end": "url(#arr)" }));
-    });
-    (r.notes || []).forEach(n => {
-      const b = r.steps[n.at], [, fg] = C[n.tone] || [0, "var(--fgColor-muted)"];
-      const nx = b.x + 14, ny = cy + BOXH / 2 + 26;
-      s.append(el("svg:line", { x1: nx, x2: nx, y1: cy + BOXH / 2, y2: ny - 4, stroke: fg, "stroke-width": 1.3, "stroke-dasharray": "3 3" }),
-        el("svg:text", { x: nx + 6, y: ny, "font-size": 12, fill: fg }, n.text));
-    });
+// ── この PR がすること ──
+// 図の形は AI が中身から選ぶ（graph・sequence・compare）。AI は箱と関係だけを宣言し、座標は書かない。
+// 置き場所は機械が決める（graph は dagre。sequence と compare は等分の格子）。
+const CODE = D.code || {};
+const POINTS = (A.points && A.points.items) || [];
+const inPanel = (x, ph) => !ph || !x.in || x.in === ph;
+
+// 変更点の 1 行（変更点の並びと、図の箱を押したときの欄で同じ形）
+// コードは大きな窓で開く（画面の 9 割。Esc で閉じる）。凡例や箱の中で開くと幅が足りず、行が切れた（2026-10-16）
+let codeDlg = null;
+function openCode(title, code) {
+  if (!codeDlg) {
+    codeDlg = el("dialog", { class: "code-dlg", onclick: e => { if (e.target === codeDlg) codeDlg.close(); } });
+    document.body.append(codeDlg);
+  }
+  const box = el("div", { class: "code-dlg-body" });
+  const head = el("div", { class: "code-dlg-head" }, el("b", {}, rich(title)),
+    el("span", { class: "muted" }, [...new Set(code.map(c => c.path))].join("・")),
+    el("button", { type: "button", onclick: () => codeDlg.close() }, "閉じる（Esc）"));
+  codeDlg.replaceChildren(head, box);
+  codeDlg.showModal();
+  fillCode(box, code);
+  box.querySelectorAll("a.go").forEach(a => a.addEventListener("click", () => codeDlg.close()));
+}
+function codeBlock(list) {
+  const box = el("div", {});
+  fillCode(box, list);
+  return box;
+}
+
+// コマ送り（play）: AI はコマごとに光らせるものと一言だけを書き、動き・ボタン・時間は機械が持つ。
+// 図が画面に 6 割以上入ったら自動で始めてくり返す（2026-10-16「自動でスムーズに動かせないか」）。図が画面の外にある間は
+// 止め、図の中を押したら（箱を押して変更を開いたときなど）自動を止める。マウスを乗せただけでは止めない（乗せると止まるのは
+// 直感的でないと言われた）。動きを減らす設定なら自動で始めない
+const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const FRAME_MS = 3200, REST_MS = 1800;  // 1 コマの長さと、一巡した後に全体を見せる長さ
+function player(frames, apply) {
+  let i = -1, playing = false, anim = null, seen = false, userStopped = false;
+  const cap = el("span", { class: "pl-cap" });
+  const bar = el("i");
+  const dots = frames.map((f, k) => el("button", { type: "button", class: "pl-dot", title: f.text, onclick: () => { userStopped = true; stop(); go(k); } }, String(k + 1)));
+  const btn = el("button", { type: "button", class: "pl-btn", onclick: () => { if (playing) { userStopped = true; stop(); } else { userStopped = false; start(); } } }, "▶ 順に見る");
+  const all = el("button", { type: "button", class: "pl-btn ghost", onclick: () => { userStopped = true; stop(); go(-1); } }, "全体");
+  function go(k) {
+    i = k; apply(k);
+    dots.forEach((d, j) => d.classList.toggle("on", j === k));
+    cap.replaceChildren(...(k < 0 ? [playing ? "全体" : "図が見えると自動で動く。図を押すと止まる"] : [el("b", {}, `${k + 1} / ${frames.length}`), "　", ...rich(frames[k].text)]));
+  }
+  // 時間は進み具合の帯の動きで測る。止めると帯も止まり、続きから進む
+  function tick() {
+    if (!playing) return;
+    const last = i >= frames.length - 1;
+    if (last) go(-1); else go(i + 1);
+    const ms = last ? REST_MS : FRAME_MS;
+    if (anim) anim.cancel();
+    anim = bar.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: ms, easing: "linear" });
+    anim.onfinish = () => { if (playing) tick(); };
+    if (!seen) anim.pause();
+  }
+  function start() { if (playing) return; playing = true; btn.textContent = "⏸ 止める"; if (i >= frames.length - 1) i = -1; tick(); }
+  function stop() { playing = false; btn.textContent = "▶ 順に見る"; if (anim) { anim.cancel(); anim = null; } }
+  go(-1);
+  const root = el("div", { class: "player" }, btn, el("span", { class: "pl-dots" }, dots), all, cap, el("span", { class: "pl-bar" }, bar));
+  requestAnimationFrame(() => {
+    const fig = root.closest("figure") || root;
+    fig.addEventListener("click", e => { if (playing && !root.contains(e.target)) { userStopped = true; stop(); } });
+    if (!("IntersectionObserver" in window)) return;
+    new IntersectionObserver(es => {
+      for (const e of es) {
+        // 画面より背の高い図は 6 割入ることが無いので、画面の半分以上を占めたら見えているとする
+        seen = e.isIntersecting && (e.intersectionRatio >= 0.6 || e.intersectionRect.height >= window.innerHeight * 0.5);
+        if (!seen) { if (anim) anim.pause(); continue; }
+        if (!playing && !userStopped && !REDUCED) start();
+        else if (anim) anim.play();
+      }
+    }, { threshold: [0, 0.2, 0.4, 0.6, 0.8] }).observe(fig);
   });
-  return el("figure", { class: "fig" }, s, F.caption ? el("figcaption", {}, F.caption) : null);
+  return root;
+}
+// 箱と線（figure.kind = graph）。前後で在る無しが違う（in・was がある）なら、1 つの配置で 2 枚に描き分ける
+function graphFigure(F) {
+  if (!window.dagre) return el("p", { class: "note" }, "図を並べる部品（dagre）が読めなかった。");
+  const nodes = F.nodes || [], edges = F.edges || [], groups = F.groups || [];
+  const phased = nodes.some(n => n.in || n.was || (n.fields || []).some(f => f.in || f.was)) || edges.some(e => e.in);
+  const panels = phased ? ["before", "after"] : [null];
+  const nodeCls = (n, ph) => {
+    if (n.tone) return n.tone;
+    if (phased && n.in === "after") return "new";
+    if (phased && n.in === "before") return "gone";
+    if (n.was) return ph === "before" ? "bad" : "good";
+    return "";
+  };
+  const edgeCls = (e, ph) => [e.tone || (phased && e.in === "after" ? "good" : phased && e.in === "before" ? "bad" : ""), phased && e.in === "before" ? "gone" : ""].filter(Boolean).join(" ");
+  const nodeEl = (n, ph) => {
+    const cls = nodeCls(n, ph);
+    const hit = (n.points || []).length || (CODE.nodes || {})[n.id];
+    return el("div", { class: ["g-node", cls, hit ? "hit" : ""].filter(Boolean).join(" "), "data-id": n.id,
+      role: hit ? "button" : null, tabindex: hit ? "0" : null, title: hit ? "押すと、この箱の変えたことが横に出る" : null,
+      onclick: hit ? ev => openDetail(n, ev) : null, onkeydown: hit ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(n, e); } } : null },
+      cls === "new" ? el("span", { class: "tag" }, "新") : cls === "gone" ? el("span", { class: "tag" }, "消") : null,
+      rich(ph === "before" && n.was ? n.was : n.text),
+      n.sub ? el("span", { class: "s" }, rich(n.sub)) : null,
+      (n.fields || []).filter(f => inPanel(f, ph)).length ? el("span", { class: "flds" }, n.fields.filter(f => inPanel(f, ph)).map(f => {
+        const fc = f.tone || (phased && f.in === "after" ? "new" : phased && f.in === "before" ? "gone" : f.was ? (ph === "before" ? "gone" : "new") : "");
+        return el("span", { class: fc || null }, el("span", {}, ph === "before" && f.was ? f.was : f.name), f.type ? el("span", { class: "ty" }, f.type) : null);
+      })) : null,
+      (n.points || []).length ? el("span", { class: "chips" }, n.points.map(p => el("span", { class: "chip" }, String(p)))) : null);
+  };
+  // 大きさは実物の箱を見えない所に置いて測る（字の幅を推し量らない）
+  const host = el("div", { class: "g-measure" });
+  document.body.append(host);
+  const measure = e => { host.append(e); const r = { w: Math.ceil(e.offsetWidth) + 1, h: Math.ceil(e.offsetHeight) }; e.remove(); return r; };
+  const size = new Map(nodes.map(n => {
+    const rs = panels.filter(ph => inPanel(n, ph)).map(ph => measure(nodeEl(n, ph)));
+    return [n.id, { w: Math.max(...rs.map(r => r.w)), h: Math.max(...rs.map(r => r.h)) }];
+  }));
+  // 線も番号（points）かコードを持てば押せる。字の無い線でも、番号の札だけの字を置いて押せるようにする
+  const ekey = e => `${e.from}>${e.to}`;
+  const edgeHit = e => (e.points || []).length || (CODE.edges || {})[ekey(e)];
+  const edgeLabel = (e, cls) => el("span", { class: ["g-elabel", cls, edgeHit(e) ? "hit" : ""].filter(Boolean).join(" "), "data-e": ekey(e),
+      role: edgeHit(e) ? "button" : null, tabindex: edgeHit(e) ? "0" : null,
+      title: edgeHit(e) ? "押すと、この線の変えたことが横に出る" : null,
+      onclick: edgeHit(e) ? ev => openEdge(e, ev) : null,
+      onkeydown: edgeHit(e) ? ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openEdge(e, ev); } } : null },
+    e.text ? rich(e.text) : null,
+    (e.points || []).length ? el("span", { class: "chips" }, e.points.map(p => el("span", { class: "chip" }, String(p)))) : null);
+  const lsize = edges.map(e => e.text || edgeHit(e) ? measure(edgeLabel(e, "")) : { w: 0, h: 0 });
+  host.remove();
+  // 向きは AI の dir を先に試し、窓の幅に入らなければもう一方で組み直す。どちらも入らなければ狭い方を縮める（0.7 倍まで。それより狭いなら横に送る）。
+  // 窓より狭い図は 1.35 倍まで広げて幅を埋める（等倍のままだと、広い窓で図が小さく余白ばかりになる）
+  const layout = dir => {
+    const g = new dagre.graphlib.Graph({ compound: groups.length > 0, multigraph: true });
+    g.setGraph({ rankdir: dir, nodesep: groups.length ? 34 : 22, ranksep: dir === "LR" ? 54 : 44, edgesep: 12, marginx: 8, marginy: 8 });
+    for (const gr of groups) g.setNode("grp:" + gr.id, {});
+    for (const n of nodes) {
+      const s = size.get(n.id);
+      g.setNode(n.id, { width: s.w, height: s.h });
+      if (n.group) g.setParent(n.id, "grp:" + n.group);
+    }
+    edges.forEach((e, i) => g.setEdge(e.from, e.to, { width: lsize[i].w, height: lsize[i].h, labelpos: "c" }, "e" + i));
+    dagre.layout(g);
+    return g;
+  };
+  // 向き（横・縦）と、前後の 2 枚の並べ方（上下・左右）を全部組んでみて、窓の幅に収まり、描いたときの高さが一番低い形を
+  // 選ぶ（AI の dir は同じくらいなら優先する）。縦に細長い図を上下に 2 枚積むと、広い窓で左右が空いて縦に長くなった（2026-10-16）
+  const room = Math.max(240, contentWidth() - 34 - (KEY_SIDE ? KEY_W + KEY_GAP : 0));
+  const zoomFit = (need, r) => { const fit = r / need; return fit < 1 ? Math.max(0.7, fit) : Math.min(1.35, fit); };
+  const SIDE_GAP = 48;
+  const first = F.dir || "LR";
+  const cands = [];
+  [first, first === "LR" ? "TB" : "LR"].forEach((d, k) => {
+    const lg = layout(d), w = lg.graph().width, h = lg.graph().height;
+    const rs = room - (phased ? 64 : 0), zs = zoomFit(w, rs);
+    cands.push({ g: lg, side: false, zoom: zs, cost: (h * zs * (phased ? 2 : 1) + (w * zs > rs + 1 ? 1e6 : 0)) * (k ? 1.25 : 1) });
+    if (phased) {
+      const need = 2 * w + SIDE_GAP, zl = zoomFit(need, room);
+      cands.push({ g: lg, side: true, zoom: zl, cost: (h * zl + (need * zl > room + 1 ? 1e6 : 0)) * (k ? 1.25 : 1) });
+    }
+  });
+  // 字が等倍以上で読める形を先に取り、その中で高さが一番低いものを選ぶ。どれも縮めないと入らなければ、縮め方が一番小さいもの。
+  // 高さだけで選ぶと、縮めた形ほど低くなって勝ち、横に長い図の字が 9px まで小さくなった（2026-10-16）
+  const readable = cands.filter(c => c.zoom >= 1 && c.cost < 1e6);
+  const best = readable.length ? readable.reduce((a, b) => (b.cost < a.cost ? b : a))
+    : cands.reduce((a, b) => (b.zoom > a.zoom || (b.zoom === a.zoom && b.cost < a.cost) ? b : a));
+  const g = best.g, zoom = best.zoom, side = best.side;
+  const gw = Math.ceil(g.graph().width), gh = Math.ceil(g.graph().height);
+  const curve = pts => pts.map((p, i) => {
+    if (!i) return `M${p.x},${p.y}`;
+    if (i === pts.length - 1) return `L${p.x},${p.y}`;
+    const q = pts[i + 1];
+    return `Q${p.x},${p.y} ${(p.x + q.x) / 2},${(p.y + q.y) / 2}`;
+  }).join(" ");
+  // 囲みは、その枚に在る箱だけを包む（dagre の囲みは前後の両方の箱を包むので、片方の枚では空の所まで伸びる）
+  const groupBox = (gr, ph) => {
+    const inside = nodes.filter(n => n.group === gr.id && inPanel(n, ph));
+    if (!inside.length) return null;
+    const xs = inside.flatMap(n => { const p = g.node(n.id), sz = size.get(n.id); return [p.x - sz.w / 2, p.x + sz.w / 2]; });
+    const ys = inside.flatMap(n => { const p = g.node(n.id), sz = size.get(n.id); return [p.y - sz.h / 2, p.y + sz.h / 2]; });
+    const x = Math.min(...xs) - 14, y = Math.min(...ys) - 28;
+    return { x, y, w: Math.max(...xs) + 14 - x, h: Math.max(...ys) + 12 - y };
+  };
+  const panel = ph => {
+    // 横の位置は 2 枚で同じに保ち、縦はその枚に在るものの高さに詰める（無い箱の分の空白を残さない）
+    const ys = [];
+    for (const n of nodes) if (inPanel(n, ph)) { const p = g.node(n.id), sz = size.get(n.id); ys.push(p.y - sz.h / 2, p.y + sz.h / 2); }
+    for (const gr of groups) { const b = groupBox(gr, ph); if (b) ys.push(b.y, b.y + b.h); }
+    const top = Math.max(0, Math.min(...ys) - 8), bottom = Math.min(gh, Math.max(...ys) + 8);
+    const box = el("div", { class: "g-panel", style: `width:${gw}px;height:${bottom - top}px${zoom !== 1 ? `;zoom:${zoom.toFixed(3)}` : ""}` });
+    const inner = el("div", { style: `position:absolute;left:0;top:${-top}px;width:${gw}px;height:${gh}px` });
+    box.append(inner);
+    const svg = el("svg:svg", { class: "g-svg", width: gw, height: gh, viewBox: `0 0 ${gw} ${gh}`, "aria-hidden": "true" });
+    const mk = (id, color) => el("svg:marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" },
+      el("svg:path", { d: "M0,0 L10,5 L0,10 z", style: `fill:${color}` }));
+    const uid = "g" + Math.random().toString(36).slice(2, 8);
+    svg.append(el("svg:defs", {}, mk(uid + "-", "var(--fgColor-muted)"), mk(uid + "-good", "var(--fgColor-success)"), mk(uid + "-bad", "var(--fgColor-danger)")));
+    inner.append(svg);
+    for (const gr of groups) {
+      const b = groupBox(gr, ph);
+      if (!b) continue;
+      svg.append(el("svg:rect", { class: "g-group", x: b.x, y: b.y, width: b.w, height: b.h, rx: 8 }));
+      inner.append(el("div", { class: "g-glabel", style: `left:${b.x + 8}px;top:${b.y + 4}px` }, gr.text));
+    }
+    edges.forEach((e, i) => {
+      if (!inPanel(e, ph) || !inPanel(nodes.find(n => n.id === e.from), ph) || !inPanel(nodes.find(n => n.id === e.to), ph)) return;
+      const ge = g.edge(e.from, e.to, "e" + i), cls = edgeCls(e, ph);
+      svg.append(el("svg:path", { class: ["g-edge", cls, e.dashed ? "dashed" : ""].filter(Boolean).join(" "), d: curve(ge.points), "marker-end": `url(#${uid}-${cls.split(" ")[0]})`, "data-e": `${e.from}>${e.to}` }));
+      if (e.text || edgeHit(e)) { const lb = edgeLabel(e, cls); lb.style.cssText = `left:${ge.x}px;top:${ge.y}px`; inner.append(lb); }
+    });
+    for (const n of nodes) {
+      if (!inPanel(n, ph)) continue;
+      const p = g.node(n.id), s = size.get(n.id), e = nodeEl(n, ph);
+      e.style.cssText = `left:${p.x - s.w / 2}px;top:${p.y - s.h / 2}px;width:${s.w}px;min-height:${s.h}px`;
+      inner.append(e);
+    }
+    return box;
+  };
+  const scroll = el("div", { class: "g-scroll" }, side
+    ? el("div", { class: "g-side" }, panels.map(ph => el("div", { class: "g-col" }, el("div", { class: "ph" }, ph === "before" ? "変更前" : "変更後"), panel(ph))))
+    : panels.map(ph => ph
+      ? el("div", { class: "g-row" }, el("div", { class: "ph" }, ph === "before" ? "変更前" : "変更後"), panel(ph))
+      : panel(null)));
+  const legend = [phased && nodes.some(n => n.in === "after" || n.was) ? [el("span", {}, el("i", { class: "lg-new" }), "この PR で増える・変わった後")] : null,
+    phased && nodes.some(n => n.in === "before" || n.was) ? [el("span", {}, el("i", { class: "lg-gone" }), "この PR で無くなる・変わる前")] : null,
+    nodes.some(n => (n.points || []).length || (CODE.nodes || {})[n.id]) || edges.some(edgeHit)
+      ? el("span", {}, el("i", { class: "lg-hit" }), edges.some(edgeHit) ? "数字の付いた箱と線の字は押せる（変えたことが横に出る）" : "数字の付いた箱は押せる（変えたことが横に出る）") : null].filter(Boolean);
+  // 押した箱や線のすぐ横に札を出す（ページを動かさず、コードの窓も勝手に開かない。凡例の項へ飛ばしたり、
+  // 窓をいきなり開いたりすると、読んでいた所を見失って「ストレスが大きい」と言われた。2026-10-16）
+  function openEdge(e, ev) {
+    showPop(ev.currentTarget, e.text || `${e.from} → ${e.to}`, e.points || [], (CODE.edges || {})[ekey(e)] || [], "流れるデータの形を見る");
+  }
+  function openDetail(n, ev) {
+    showPop(ev.currentTarget, n.text, n.points || [], (CODE.nodes || {})[n.id] || [], "この箱のコードを見る");
+  }
+  // コマ送り: 光らせる箱と線は、変更前と変更後の 2 枚で同時に光る（同じ流れを前後で並べて動かす）。線の上を点が流れる
+  const applyGraph = k => {
+    const f = k < 0 ? null : F.play[k];
+    scroll.classList.toggle("playing", !!f);
+    scroll.querySelectorAll(".g-node").forEach(x => x.classList.toggle("on", !!f && (f.nodes || []).includes(x.dataset.id)));
+    scroll.querySelectorAll("[data-e]").forEach(x => x.classList.toggle("on", !!f && (f.edges || []).includes(x.dataset.e)));
+    scroll.querySelectorAll(".g-run").forEach(x => x.remove());
+    // 点はコマごとに 1 回、線の端から端まで、ゆっくり始まってゆっくり止まる速さで運ぶ
+    if (f && !REDUCED) scroll.querySelectorAll("path.g-edge.on").forEach(p => {
+      const mv = el("svg:animateMotion", { dur: "1.6s", begin: "indefinite", fill: "freeze", calcMode: "spline", keyPoints: "0;1", keyTimes: "0;1",
+        keySplines: "0.45 0 0.25 1", path: p.getAttribute("d") });
+      p.parentNode.append(el("svg:circle", { class: "g-run", r: 5.5 }, mv));
+      try { mv.beginElement(); } catch (e) { /* SMIL が無い窓では点を出さない */ }
+    });
+  };
+  return [el("figure", { class: "fig", "aria-label": F.caption || "図" }, F.play ? player(F.play, applyGraph) : null, scroll,
+    legend.length ? el("div", { class: "g-legend" }, legend) : null, F.caption ? el("figcaption", {}, rich(F.caption)) : null)];
 }
 
-const tl = timeline();
-if (tl || A.where || A.turn) app.append(section("since", M.anchor_label || "いまの所", null, tl, prose(A.where, A.turn)));
-const ABOUT = { pr: "この PR がすること", issue: "この issue の中身", commit: "この commit がすること", range: "この範囲がすること", local: "この枝でしていること" };
-if ((A.explain || []).length || A.figure) {
-  app.append(section("about", ABOUT[M.kind] || "この話題", null,
-    A.figure && typeof A.figure === "object" ? flowFigure(A.figure) : null, prose(...(A.explain || []))));
+// やり取り（figure.kind = sequence）: 役者を等分の列に、やり取りを上から順に。増えたものは緑、無くなるものは赤の点線
+function sequenceFigure(F) {
+  const actors = F.actors || [], n = actors.length, idx = new Map(actors.map((a, i) => [a.id, i]));
+  const ctr = i => (i + 0.5) / n * 100;
+  const phased = (F.steps || []).some(s => s.in);
+  const body = el("div", { class: "seq-body" }, actors.map((a, i) => el("div", { class: "seq-life", style: `left:${ctr(i)}%` })));
+  (F.steps || []).forEach((s, k) => {
+    const cls = [s.tone || (s.in === "after" ? "good" : s.in === "before" ? "bad" : ""), s.in === "before" ? "gone" : ""].filter(Boolean).join(" ");
+    const label = [el("span", { class: "no" }, `${k + 1}`), s.in === "after" ? "（新）" : s.in === "before" ? "（消）" : null, el("span", {}, rich(s.text))];
+    const a = idx.get(s.from), b = idx.get(s.to);
+    if (a === b) {
+      body.append(el("div", { class: "seq-row " + cls }, el("div", { class: "seq-self " + cls, style: `margin-left:calc(${ctr(a)}% + 4px)` }, label)));
+      return;
+    }
+    const lo = Math.min(a, b), w = Math.abs(a - b) / n * 100;
+    body.append(el("div", { class: "seq-row " + cls },
+      el("div", { class: "seq-lb", style: `--w:max(${w}%, min(240px, 100%));width:var(--w);margin-left:clamp(0px, calc(${ctr(lo) + w / 2}% - var(--w) / 2), calc(100% - var(--w)))` }, label),
+      el("div", { class: "seq-msg " + (b > a ? "r " : "l ") + cls, style: `margin-left:${ctr(lo)}%;width:${w}%` })));
+  });
+  const seq = el("div", { class: "seq", style: `--n:${n}` },
+    el("div", { class: "seq-head" }, actors.map(a => el("div", { class: "seq-actor" }, rich(a.text)))), body);
+  const applySeq = k => {
+    seq.classList.toggle("playing", k >= 0);
+    body.querySelectorAll(".seq-row").forEach((r, j) => r.classList.toggle("on", j === k));
+  };
+  return el("figure", { class: "fig", "aria-label": F.caption || "やり取り" },
+    F.play ? player(F.steps.map(s => ({ text: s.text })), applySeq) : null,
+    el("div", { class: "g-scroll" }, seq),
+    phased ? el("div", { class: "g-legend" },
+      F.steps.some(s => s.in === "after") ? el("span", {}, el("i", { class: "lg-new" }), "この PR で増えるやり取り") : null,
+      F.steps.some(s => s.in === "before") ? el("span", {}, el("i", { class: "lg-gone" }), "この PR で無くなるやり取り") : null) : null,
+    F.caption ? el("figcaption", {}, rich(F.caption)) : null);
 }
+// 値の前後（figure.kind = compare）: 名前・変更前・変更後を 1 行に
+function compareFigure(F) {
+  const g = el("div", { class: "cmp" }, el("div", { class: "h" }), el("div", { class: "h" }, "変更前"), el("div", { class: "h" }), el("div", { class: "h" }, "変更後"));
+  for (const r of F.rows || []) {
+    const t = r.tone || "";
+    g.append(el("div", { class: "nm" }, rich(r.name)),
+      el("div", { class: "bf " + t }, r.before ? rich(r.before) : el("span", { class: "none" }, "（無し）")),
+      el("div", { class: "ar" }, "→"),
+      el("div", { class: "af " + t }, r.after ? rich(r.after) : el("span", { class: "none" }, "（無くなる）")));
+  }
+  return el("figure", { class: "fig" }, g, F.caption ? el("figcaption", {}, rich(F.caption)) : null);
+}
+// 変えたことは図の凡例として図のすぐ下に置く（2026-10-16「変えたことも全部図でやってくれていい」。その前は表・色の札・
+// 小さく積んだ前後と替えて、どれも「頭に入らない」と言われた）。番号と題だけを並べ、押すとその場で前と後とコードが開く。
+// 項に乗せると図の対応する箱が光り、箱を押すと対応する項が開く。箱に結んでいない変更点（試験・文書など）も同じ並びに置く
+function fillCode(box, code) {
+  for (const c of code) {
+    const f = byPath.get(c.path);
+    // 差分の外の file（受け先の API の形など）は、この PR では変えていない今の姿だと断ってから見せる
+    if (c.outside) box.append(el("p", { class: "note" }, `${c.path} はこの PR では変えていない。PR の先頭の版の、指した所の前後`));
+    box.append(drawDiff(el("div", { class: "pt-diff" }), c.text));
+    if (f && allView) box.append(el("p", { class: "note" }, jump(f, `${c.path} の変更をまるごと読む ↓`, "go", allView.id)));
+  }
+}
+const POINT_NODES = new Map();  // 変更点の番号 → 図の箱の id の並び
+const POINT_EDGES = new Map();  // 変更点の番号 → 図の線の "from>to" の並び
+const keyItems = [];
+function lightNodes(p, on) {
+  for (const id of POINT_NODES.get(p) || []) document.querySelectorAll(`.g-node[data-id="${CSS.escape(id)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
+  for (const k of POINT_EDGES.get(p) || []) document.querySelectorAll(`.g-edge[data-e="${CSS.escape(k)}"], .g-elabel[data-e="${CSS.escape(k)}"]`).forEach(x => x.classList.toggle("pk-hl", on));
+}
+// 押した所の横の札。変えたことの項（前と後）を並べ、コードはボタンを押したときだけ窓で開く
+let pop = null;
+function closePop() { if (pop) { pop.remove(); pop = null; document.querySelectorAll(".pop-on").forEach(x => x.classList.remove("pop-on")); } }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
+document.addEventListener("click", e => { if (pop && !pop.contains(e.target) && !e.target.closest(".hit")) closePop(); });
+function showPop(anchorEl, title, pts, own, ownLabel) {
+  const again = pop && pop.dataset.for === title;
+  closePop();
+  if (again) return;
+  anchorEl.classList.add("pop-on");
+  const items = pts.map(p => {
+    const it = POINTS[p - 1];
+    if (!it) return null;
+    const code = (CODE.points || [])[p - 1] || [];
+    return el("div", { class: "pop-pt", onmouseenter: () => lightNodes(p, true), onmouseleave: () => lightNodes(p, false) },
+      el("div", { class: "pop-t" }, el("span", { class: "num" }, String(p)), rich(it.title)),
+      it.before ? el("div", { class: "pk-ba" }, el("span", { class: "k b" }, "前"), el("span", { class: "v b" }, rich(it.before))) : null,
+      el("div", { class: "pk-ba" }, el("span", { class: "k a" }, it.before ? "後" : "新しく"), el("span", { class: "v" }, rich(it.after))),
+      code.length ? el("button", { type: "button", class: "pk-cbtn", onclick: () => openCode(`${p}. ${it.title}`, code) },
+        `コードを見る（${[...new Set(code.map(c => c.path.split("/").pop()))].join("・")}）`) : null);
+  });
+  pop = el("div", { class: "pop", role: "dialog", "aria-label": title, "data-for": title },
+    el("div", { class: "pop-head" }, el("b", {}, rich(title)), el("button", { type: "button", class: "pop-x", onclick: closePop, "aria-label": "閉じる" }, "×")),
+    own.length ? el("button", { type: "button", class: "pk-cbtn pop-own", onclick: () => openCode(title, own) },
+      `${ownLabel}（${[...new Set(own.map(c => c.path.split("/").pop()))].join("・")}）`) : null,
+    items);
+  document.body.append(pop);
+  // 押した所の右に置き、入らなければ左、それも無理なら下。画面の外へははみ出さない
+  const r = anchorEl.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, gap = 10;
+  let x = r.right + gap;
+  if (x + w > innerWidth - 8) x = r.left - gap - w;
+  if (x < 8) x = Math.max(8, Math.min(innerWidth - w - 8, r.left));
+  let y = x === r.right + gap || x === r.left - gap - w ? r.top : r.bottom + gap;
+  y = Math.max(8, Math.min(y, innerHeight - h - 8));
+  pop.style.left = `${x + scrollX}px`;
+  pop.style.top = `${y + scrollY}px`;
+}
+function pointsKey(P) {
+  for (const f of FIGS) if (f.kind === "graph") for (const n of f.nodes || []) for (const p of n.points || []) POINT_NODES.set(p, [...(POINT_NODES.get(p) || []), n.id]);
+  for (const f of FIGS) if (f.kind === "graph") for (const e of f.edges || []) for (const p of e.points || []) POINT_EDGES.set(p, [...(POINT_EDGES.get(p) || []), `${e.from}>${e.to}`]);
+  const onFig = POINT_NODES.size + POINT_EDGES.size > 0;
+  const rows = [];
+  // 同じ束ね（group）の項は、その束ねが最初に出た所へ寄せる。番号は図と合わせるので付け直さない
+  const order = [];
+  const seen = new Map();
+  POINTS.forEach((it, i) => {
+    const g = it.group || "";
+    if (!seen.has(g)) { seen.set(g, []); order.push(g); }
+    seen.get(g).push(i);
+  });
+  let group = null;
+  order.flatMap(g => seen.get(g)).forEach(i => {
+    const it = POINTS[i];
+    if (it.group && it.group !== group) rows.push(el("li", { class: "pk-grp" }, rich(it.group)));
+    group = it.group || group;
+    const code = (CODE.points || [])[i] || [];
+    const files = [...new Set(code.map(c => c.path.split("/").pop()))].join("・");
+    const btn = code.length ? el("button", { type: "button", class: "pk-cbtn", title: files,
+      onclick: () => openCode(`${i + 1}. ${it.title}`, code) }, `コードを開く（${files}）`) : null;
+    const hl = on => () => lightNodes(i + 1, on);
+    const det = el("details", { class: "pk", id: `point-${i + 1}` },
+      el("summary", { onmouseenter: hl(true), onmouseleave: hl(false), onfocus: hl(true), onblur: hl(false) },
+        el("span", { class: "num" }, String(i + 1)), el("span", { class: "pk-t" }, rich(it.title)),
+        onFig && !POINT_NODES.has(i + 1) && !POINT_EDGES.has(i + 1) ? el("span", { class: "pk-off" }, "図の外") : null),
+      el("div", { class: "pk-body" },
+        it.before ? el("div", { class: "pk-ba" }, el("span", { class: "k b" }, "前"), el("span", { class: "v b" }, rich(it.before))) : null,
+        el("div", { class: "pk-ba" }, el("span", { class: "k a" }, it.before ? "後" : "新しく"), el("span", { class: "v" }, rich(it.after))),
+        btn));
+    keyItems[i] = det;
+    rows.push(el("li", {}, det));
+  });
+  const all = el("button", { type: "button", class: "pk-all", onclick: () => {
+    const open = !keyItems.every(d => d.open);
+    keyItems.forEach(d => { d.open = open; });
+    all.textContent = open ? "すべて閉じる" : "すべて開く";
+  } }, "すべて開く");
+  return el("div", { class: "pts", id: "points" },
+    el("div", { class: "pts-head" }, el("h3", {}, P.caption || "変えたこと"),
+      el("span", { class: "sub" }, `${POINTS.length} 点。押すと前と後が開く${onFig ? "。乗せると図の箱が光る" : ""}`), all),
+    el("ol", { class: "pk-list" }, rows));
+}
+// 画面（figure.kind = screen）: 決まった部品を上から並べた見取り図。前後で違えば「変更前」「変更後」を横に並べる
+function screenFigure(F) {
+  const items = F.items || [];
+  const phased = items.some(x => x.in || x.was);
+  const part = (x, ph) => {
+    const cls = ["sc-item", x.tone || (phased && x.in === "after" ? "new" : phased && x.in === "before" ? "gone" : x.was ? (ph === "before" ? "bad" : "good") : ""), x.inline ? "inline" : ""].filter(Boolean).join(" ");
+    const val = ph === "before" && x.was ? x.was : x.value;
+    const lab = x.label ? el("span", { class: "sc-label" }, rich(x.label)) : null;
+    const hint = x.hint ? el("span", { class: "sc-hint" }, rich(x.hint)) : null;
+    const opts = x.options || [];
+    let body;
+    switch (x.type) {
+      case "heading": body = el("div", { class: "sc-h" }, rich(x.label)); break;
+      case "text": body = [lab, el("div", { class: "sc-text" }, rich(val || ""))]; break;
+      case "alert": body = el("div", { class: "sc-alert" }, lab, val ? rich(val) : null); break;
+      case "field": body = [lab, el("div", { class: "sc-input" + (x.disabled ? " dis" : "") }, val ? rich(val) : el("span", { class: "ph" }, "　")), hint]; break;
+      case "textarea": body = [lab, el("div", { class: "sc-input sc-area" + (x.disabled ? " dis" : "") }, val ? rich(val) : el("span", { class: "ph" }, "　")), hint]; break;
+      case "select": body = [lab, el("div", { class: "sc-input sc-select" + (x.disabled ? " dis" : "") }, rich(val || opts[0] || ""), el("span", { class: "car" }, "▾")), hint]; break;
+      case "radio": case "checkbox": body = [lab, el("div", { class: "sc-opts" }, opts.map(o => el("span", { class: "sc-opt" + (o === val ? " on" : "") }, el("i", { class: x.type }), o))), hint]; break;
+      case "toggle": body = el("div", { class: "sc-toggle" }, el("i", { class: val === "on" || val === "有効" ? "on" : "" }), lab, hint); break;
+      case "button": body = el("span", { class: "sc-btn" + (x.primary ? " pri" : "") + (x.disabled ? " dis" : "") }, rich(x.label)); break;
+      case "tabs": body = el("div", { class: "sc-tabs" }, opts.map(o => el("span", { class: o === (val || opts[0]) ? "on" : "" }, o))); break;
+      case "list": body = [lab, el("ul", { class: "sc-list" }, opts.map(o => el("li", {}, o)))]; break;
+    }
+    return el("div", { class: cls }, cls.includes("new") ? el("span", { class: "sc-tag" }, "新") : cls.includes("gone") ? el("span", { class: "sc-tag" }, "消") : null, body);
+  };
+  const screen = ph => {
+    const box = el("div", { class: "sc-body" });
+    let row = null;
+    for (const x of items) {
+      if (!inPanel(x, ph)) continue;
+      const p = part(x, ph);
+      if (x.inline && row) { row.append(p); continue; }
+      row = el("div", { class: "sc-row" + (x.type === "button" ? " end" : "") }, p);
+      box.append(row);
+    }
+    return el("div", { class: "sc-win" }, el("div", { class: "sc-bar" }, el("i"), el("i"), el("i"), F.title ? el("span", {}, rich(F.title)) : null), box);
+  };
+  const panes = phased ? ["before", "after"].map(ph => el("div", { class: "sc-pane" }, el("div", { class: "ph" }, ph === "before" ? "変更前" : "変更後"), screen(ph))) : [screen(null)];
+  return el("figure", { class: "fig", "aria-label": F.caption || "画面" }, el("div", { class: "sc-panes" + (phased ? " two" : "") }, panes),
+    phased ? el("div", { class: "g-legend" }, el("span", {}, el("i", { class: "lg-new" }), "この PR で増える・変わった後"), el("span", {}, el("i", { class: "lg-gone" }), "この PR で無くなる・変わる前")) : null,
+    F.caption ? el("figcaption", {}, rich(F.caption)) : null);
+}
+// 表（figure.kind = table）: 行と列と升。変わった升は「前 → 後」で色を付ける
+function tableFigure(F) {
+  const cell = c => {
+    if (c == null || c === "") return el("td", { class: "empty" }, "–");
+    if (typeof c === "string") return el("td", {}, rich(c));
+    return el("td", { class: c.tone || (c.was != null ? "chg" : "") }, c.was != null ? [el("s", {}, rich(c.was || "–")), " → "] : null, rich(c.text || "–"));
+  };
+  return el("figure", { class: "fig", "aria-label": F.caption || "表" }, el("div", { class: "g-scroll" },
+    el("table", { class: "tb" }, el("thead", {}, el("tr", {}, el("th"), F.columns.map(c => el("th", {}, rich(c))))),
+      el("tbody", {}, F.rows.map(r => el("tr", { class: [r.tone || "", r.in === "after" ? "new" : r.in === "before" ? "gone" : ""].join(" ").trim() || null },
+        el("th", {}, r.in === "after" ? el("span", { class: "sc-tag" }, "新") : r.in === "before" ? el("span", { class: "sc-tag" }, "消") : null, rich(r.label)),
+        r.cells.map(cell)))))),
+    F.caption ? el("figcaption", {}, rich(F.caption)) : null);
+}
+// 手順・時間の流れ（figure.kind = steps）: 上から順に。担い手（lanes）があれば列に分けて、段をその人の列に置く
+function stepsFigure(F) {
+  const lanes = F.lanes || [], li = new Map(lanes.map((l, i) => [l.id, i]));
+  const n = Math.max(1, lanes.length);
+  const grid = el("div", { class: "st-grid", style: `grid-template-columns: 2.4em repeat(${n}, minmax(0, 1fr))` });
+  if (lanes.length) grid.append(el("div"), ...lanes.map(l => el("div", { class: "st-lane" }, rich(l.text))));
+  (F.steps || []).forEach((s, k) => {
+    const col = lanes.length ? li.get(s.lane) : 0;
+    const cls = ["st-card", s.tone || (s.in === "after" ? "good" : s.in === "before" ? "bad gone" : "")].filter(Boolean).join(" ");
+    grid.append(el("div", { class: "st-no" }, String(k + 1)));
+    for (let c = 0; c < n; c++) grid.append(c === col
+      ? el("div", { class: cls, "data-k": k }, el("div", { class: "st-top" }, s.when ? el("span", { class: "st-when" }, rich(s.when)) : null, s.tag ? el("span", { class: "st-tag" }, rich(s.tag)) : null),
+          el("div", { class: "st-text" }, rich(s.text)), s.note ? el("div", { class: "st-note" }, rich(s.note)) : null)
+      : el("div", { class: "st-empty" }));
+  });
+  const applySteps = k => {
+    grid.classList.toggle("playing", k >= 0);
+    grid.querySelectorAll(".st-card").forEach(c => c.classList.toggle("on", +c.dataset.k === k));
+  };
+  return el("figure", { class: "fig", "aria-label": F.caption || "手順" }, F.play ? player(F.steps.map(s => ({ text: s.text })), applySteps) : null,
+    el("div", { class: "g-scroll" }, grid), F.caption ? el("figcaption", {}, rich(F.caption)) : null);
+}
+// 自由に書く図（figure.kind = html）: 機械が使ってよいタグと属性を確かめ済み。ページの見た目を壊さないよう、
+// 影の DOM（shadow root）に閉じ込めて描く。色の token（--fgColor-default など）は影の中にも届く
+function htmlFigure(F) {
+  const host = el("div", { class: "hf-host" });
+  const root = host.attachShadow({ mode: "open" });
+  const tpl = document.createElement("template");
+  tpl.innerHTML = F.html;
+  tpl.content.querySelectorAll("script, iframe, object, embed, link, meta, base, image, img, a, form").forEach(x => x.remove());
+  tpl.content.querySelectorAll("*").forEach(x => [...x.attributes].forEach(a => { if (/^on/i.test(a.name) || (/href$/i.test(a.name) && !a.value.startsWith("#"))) x.removeAttribute(a.name); }));
+  root.append(el("style", {}, `:host { display: block; color: var(--fgColor-default); font: 13px/1.5 var(--fontStack-system); }
+svg { max-width: 100%; height: auto; overflow: visible; } svg text { fill: currentColor; } .muted { color: var(--fgColor-muted); }`), tpl.content);
+  const fig = el("figure", { class: "fig", "aria-label": F.caption || "図" }, host, F.caption ? el("figcaption", {}, rich(F.caption)) : null);
+  // 描いた後に、SVG の字が枠からはみ出していないかだけを見る（AI が座標を書いた図の崩れを、読む人に知らせる）
+  requestAnimationFrame(() => {
+    let bad = 0;
+    root.querySelectorAll("svg").forEach(svg => {
+      const vb = svg.viewBox && svg.viewBox.baseVal;
+      if (!vb || !vb.width) return;
+      svg.querySelectorAll("text").forEach(t => { try { const b = t.getBBox(); if (b.x < vb.x - 2 || b.y < vb.y - 2 || b.x + b.width > vb.x + vb.width + 2 || b.y + b.height > vb.y + vb.height + 2) bad++; } catch (e) { /* 描かれていない */ } });
+    });
+    if (bad) fig.append(el("p", { class: "note" }, `この図は AI が座標を書いた図で、字が ${bad} か所で枠からはみ出している。`));
+  });
+  return fig;
+}
+const FIGURES = { graph: graphFigure, sequence: sequenceFigure, compare: compareFigure, screen: screenFigure, table: tableFigure, steps: stepsFigure, html: htmlFigure };
+
+const ABOUT = { pr: "この PR がすること", issue: "この issue の中身", commit: "この commit がすること", range: "この範囲がすること", local: "この枝でしていること" };
+const FIGS = (Array.isArray(A.figure) ? A.figure : A.figure ? [A.figure] : []).filter(f => f && typeof f === "object");
+// 窓が広ければ、変えたことの凡例を図の右に置く（図はその分だけ狭く組む）
+const KEY_W = 340, KEY_GAP = 24;
+// 窓が広ければ、左に目次を置き、説明の右に「この節の語」を並べる。凡例を図の右に置くのは、目次の分を引いても図が狭く
+// なりすぎない窓（1400px 以上）だけ
+const WIDE = window.innerWidth >= 1200;
+if (WIDE) document.body.classList.add("toc-on");
+const KEY_SIDE = !!A.points && FIGS.length > 0 && window.innerWidth >= 1400;
+const drawFigs = () => FIGS.map(f => FIGURES[f.kind] ? FIGURES[f.kind](f) : null);
+// 凡例は窓が広ければ図が少し縮んでも右に置く（下に回すと、図と見比べられず、項を開くたびにページが飛んだ。2026-10-16）
+const figEls = drawFigs();
+if (A.lead || (A.explain || []).length || FIGS.length || A.points) {
+  app.append(section("about", ABOUT[M.kind] || "この話題", null,
+    A.lead ? el("p", { class: "lead" }, rich(A.lead)) : null,
+    KEY_SIDE ? el("div", { class: "fig-key" }, el("div", { class: "fk-figs" }, figEls),
+      el("aside", { class: "fk-key" }, pointsKey(A.points)))
+      : [figEls, A.points ? pointsKey(A.points) : null],
+    (() => {
+      const terms = TERMS.length ? el("div", { class: "terms" }, el("div", { class: "terms-h" }, "この節に出てくる語"),
+        el("dl", {}, TERMS.flatMap(t => [el("dt", {}, t.term), el("dd", {}, rich(t.means))]))) : null;
+      const text = (A.explain || []).length ? el("div", { id: "explain" }, prose(...A.explain)) : null;
+      return WIDE && terms && text ? el("div", { class: "ex-row" }, text, el("aside", { class: "ex-side" }, terms)) : [terms, text];
+    })(),
+    null));
+  app.lastChild.classList.add("about");
+}
+// 前回からは、いまの番の節の中の小見出しにする（別の大きな節にしない）
+const since0 = M.anchor === "mine" && M.mine ? `${String(M.mine.when).replace(/^(\d{2})-(\d{2}) /, "$1/$2 ")} から` : null;
+const evlog = eventLog();
+if (A.where || evlog) sinceCol.append(
+  el("div", { class: "nb-h" }, M.anchor_label || "前回から", since0 ? el("span", { class: "muted" }, `（${since0}）`) : null),
+  facts(A.where, "nb-where"), evlog);
+else sinceCol.remove();
+app.append(turnBox);
 
 // ── 差分の描き方（diff2html + highlight.js） ──
 const D2H = { outputFormat: "line-by-line", drawFileList: false, matching: "none", diffStyle: "word", matchWordsThreshold: 0.25,
@@ -702,6 +1536,32 @@ if (M.local) app.append(section("local", "手元", null, el("pre", { class: "log
 // ── 末尾: 見ていないもの ──
 const unseen = [...new Set([...(A.unseen || []), ...(M.unseen || [])])];
 if (unseen.length) app.append(el("details", { class: "foot" }, el("summary", {}, `この報告が見ていないもの（${unseen.length} 件）`), el("ul", {}, unseen.map(s => el("li", {}, rich(s))))));
+// 目次: 窓が広ければ左に置き、節と件数を並べる。押すとその節へ飛び、読んでいる節が光る（7 万 px を超えるページで迷わない）
+if (WIDE) {
+  const secs = [...app.querySelectorAll("section.sec")];
+  const subOf = { about: [["points", "変えたこと"], ["explain", "説明"]], now: [["since", "前回から"]] };
+  const items = secs.flatMap(sec => {
+    const h = sec.querySelector(".sec-head h2"), sub = sec.querySelector(".sec-head .sub");
+    const head = el("li", { "data-for": sec.id }, el("a", { href: `#${sec.id}` }, h ? h.textContent : sec.id,
+      sub && /\d/.test(sub.textContent) && sub.textContent.length <= 16 ? el("span", { class: "toc-n" }, sub.textContent) : null));
+    const kids = (subOf[sec.id] || []).filter(([id]) => document.getElementById(id))
+      .map(([id, t]) => el("li", { class: "toc-sub", "data-for": id }, el("a", { href: `#${id}` }, t)));
+    return [head, ...kids];
+  });
+  const toc = el("nav", { class: "toc", "aria-label": "目次" }, el("div", { class: "toc-h" }, H.number ? `#${H.number}` : "目次"), el("ol", {}, items));
+  document.body.append(toc);
+  if ("IntersectionObserver" in window) {
+    const marks = new Map(items.map(li => [li.dataset.for, li]));
+    const io = new IntersectionObserver(es => {
+      for (const e of es) if (e.isIntersecting) {
+        items.forEach(li => li.classList.remove("cur"));
+        const li = marks.get(e.target.id);
+        if (li) li.classList.add("cur");
+      }
+    }, { rootMargin: "-10% 0px -80% 0px" });
+    for (const id of marks.keys()) { const t = document.getElementById(id); if (t) io.observe(t); }
+  }
+}
 });
 </script>
 <script>
@@ -2062,6 +2922,37 @@ ${e}</tr>
 Please report this to https://github.com/markedjs/marked.`,e){let s="<p>An error occurred:</p><pre>"+R(n.message+"",!0)+"</pre>";return t?Promise.resolve(s):s}if(t)return Promise.reject(n);throw n}}};var M=new E;function k(l,e){return M.parse(l,e)}k.options=k.setOptions=function(l){return M.setOptions(l),k.defaults=M.defaults,N(k.defaults),k};k.getDefaults=z;k.defaults=w;k.use=function(...l){return M.use(...l),k.defaults=M.defaults,N(k.defaults),k};k.walkTokens=function(l,e){return M.walkTokens(l,e)};k.parseInline=M.parseInline;k.Parser=b;k.parser=b.parse;k.Renderer=$;k.TextRenderer=_;k.Lexer=x;k.lexer=x.lex;k.Tokenizer=S;k.Hooks=L;k.parse=k;var it=k.options,ot=k.setOptions,lt=k.use,at=k.walkTokens,ct=k.parseInline,pt=k,ut=b.parse,ht=x.lex;
 
 if(__exports != exports)module.exports = exports;return module.exports}));
+/* ── 埋め込みここまで ── */
+</script>
+<script>
+/* ── 埋め込み: @dagrejs/dagre 3.1.1 dist/dagre.min.js（MIT, https://cdn.jsdelivr.net/npm/@dagrejs/dagre@3.1.1/dist/dagre.min.js。末尾の source map と LEGAL.txt への注記の行を落とし、LEGAL.txt の中身を下に写した）。手で直さない ── */
+/* dagre.min.js.LEGAL.txt:
+/*
+@license
+
+Copyright (c) 2012-2014 Chris Pettitt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+* /
+
+*/
+"use strict";var dagre=(()=>{var J=Object.defineProperty;var Sn=Object.getOwnPropertyDescriptor;var Mn=Object.getOwnPropertyNames;var Pn=Object.prototype.hasOwnProperty;var Fn=(e,n,t)=>n in e?J(e,n,{enumerable:!0,configurable:!0,writable:!0,value:t}):e[n]=t;var je=(e,n)=>{for(var t in n)J(e,t,{get:n[t],enumerable:!0})},An=(e,n,t,r)=>{if(n&&typeof n=="object"||typeof n=="function")for(let o of Mn(n))!Pn.call(e,o)&&o!==t&&J(e,o,{get:()=>n[o],enumerable:!(r=Sn(n,o))||r.enumerable});return e};var Vn=e=>An(J({},"__esModule",{value:!0}),e);var Re=(e,n,t)=>Fn(e,typeof n!="symbol"?n+"":n,t);var Ir={};je(Ir,{Graph:()=>T,debug:()=>de,default:()=>Rr,graphlib:()=>ee,layout:()=>ae,util:()=>Tr,version:()=>re});var ee={};je(ee,{Graph:()=>T,alg:()=>H});var Dn=Object.defineProperty,Me=(e,n)=>{for(var t in n)Dn(e,t,{get:n[t],enumerable:!0})},Z=class{constructor(e){this._isDirected=!0,this._isMultigraph=!1,this._isCompound=!1,this._nodes={},this._in={},this._preds={},this._out={},this._sucs={},this._edgeObjs={},this._edgeLabels={},this._nodeCount=0,this._edgeCount=0,this._defaultNodeLabelFn=()=>{},this._defaultEdgeLabelFn=()=>{},e&&(this._isDirected="directed"in e?e.directed:!0,this._isMultigraph="multigraph"in e?e.multigraph:!1,this._isCompound="compound"in e?e.compound:!1),this._isCompound&&(this._parent={},this._children={},this._children["\0"]={})}isDirected(){return this._isDirected}isMultigraph(){return this._isMultigraph}isCompound(){return this._isCompound}setGraph(e){return this._label=e,this}graph(){return this._label}setDefaultNodeLabel(e){return typeof e!="function"?this._defaultNodeLabelFn=()=>e:this._defaultNodeLabelFn=e,this}nodeCount(){return this._nodeCount}nodes(){return Object.keys(this._nodes)}sources(){return this.nodes().filter(e=>Object.keys(this._in[e]).length===0)}sinks(){return this.nodes().filter(e=>Object.keys(this._out[e]).length===0)}setNodes(e,n){return e.forEach(t=>{n!==void 0?this.setNode(t,n):this.setNode(t)}),this}setNode(e,n){return e in this._nodes?(arguments.length>1&&(this._nodes[e]=n),this):(this._nodes[e]=arguments.length>1?n:this._defaultNodeLabelFn(e),this._isCompound&&(this._parent[e]="\0",this._children[e]={},this._children["\0"][e]=!0),this._in[e]={},this._preds[e]={},this._out[e]={},this._sucs[e]={},++this._nodeCount,this)}node(e){return this._nodes[e]}hasNode(e){return e in this._nodes}removeNode(e){if(e in this._nodes){let n=t=>this.removeEdge(this._edgeObjs[t]);delete this._nodes[e],this._isCompound&&(this._removeFromParentsChildList(e),delete this._parent[e],this.children(e).forEach(t=>{this.setParent(t)}),delete this._children[e]),Object.keys(this._in[e]).forEach(n),delete this._in[e],delete this._preds[e],Object.keys(this._out[e]).forEach(n),delete this._out[e],delete this._sucs[e],--this._nodeCount}return this}setParent(e,n){if(!this._isCompound)throw new Error("Cannot set parent in a non-compound graph");if(n===void 0)n="\0";else{n+="";for(let t=n;t!==void 0;t=this.parent(t))if(t===e)throw new Error("Setting "+n+" as parent of "+e+" would create a cycle");this.setNode(n)}return this.setNode(e),this._removeFromParentsChildList(e),this._parent[e]=n,this._children[n][e]=!0,this}parent(e){if(this._isCompound){let n=this._parent[e];if(n!=="\0")return n}}children(e="\0"){if(this._isCompound){let n=this._children[e];if(n)return Object.keys(n)}else{if(e==="\0")return this.nodes();if(this.hasNode(e))return[]}return[]}predecessors(e){let n=this._preds[e];if(n)return Object.keys(n)}successors(e){let n=this._sucs[e];if(n)return Object.keys(n)}neighbors(e){let n=this.predecessors(e);if(n){let t=new Set(n),r=this.successors(e);if(r)for(let o of r)t.add(o);return Array.from(t.values())}}isLeaf(e){var n;let t;return this.isDirected()?t=this.successors(e):t=this.neighbors(e),((n=t==null?void 0:t.length)!=null?n:0)===0}filterNodes(e){let n=new this.constructor({directed:this._isDirected,multigraph:this._isMultigraph,compound:this._isCompound});n.setGraph(this.graph()),Object.entries(this._nodes).forEach(([o,i])=>{e(o)&&n.setNode(o,i)}),Object.values(this._edgeObjs).forEach(o=>{n.hasNode(o.v)&&n.hasNode(o.w)&&n.setEdge(o,this.edge(o))});let t={},r=o=>{let i=this.parent(o);return!i||n.hasNode(i)?(t[o]=i,i):i in t?t[i]:r(i)};return this._isCompound&&n.nodes().forEach(o=>n.setParent(o,r(o))),n}setDefaultEdgeLabel(e){return typeof e!="function"?this._defaultEdgeLabelFn=()=>e:this._defaultEdgeLabelFn=e,this}edgeCount(){return this._edgeCount}edges(){return Object.values(this._edgeObjs)}setPath(e,n){return e.reduce((t,r)=>(n!==void 0?this.setEdge(t,r,n):this.setEdge(t,r),r)),this}setEdge(e,n,t,r){let o,i,s,a,l=!1;typeof e=="object"&&e!==null&&"v"in e?(o=e.v,i=e.w,s=e.name,arguments.length===2&&(a=n,l=!0)):(o=e,i=n,s=r,arguments.length>2&&(a=t,l=!0)),o=""+o,i=""+i,s!==void 0&&(s=""+s);let u=z(this._isDirected,o,i,s);if(u in this._edgeLabels)return l&&(this._edgeLabels[u]=a),this;if(s!==void 0&&!this._isMultigraph)throw new Error("Cannot set a named edge when isMultigraph = false");this.setNode(o),this.setNode(i),this._edgeLabels[u]=l?a:this._defaultEdgeLabelFn(o,i,s);let d=Yn(this._isDirected,o,i,s);return o=d.v,i=d.w,Object.freeze(d),this._edgeObjs[u]=d,Ie(this._preds[i],o),Ie(this._sucs[o],i),this._in[i][u]=d,this._out[o][u]=d,this._edgeCount++,this}edge(e,n,t){let r=arguments.length===1?le(this._isDirected,e):z(this._isDirected,e,n,t);return this._edgeLabels[r]}edgeAsObj(e,n,t){let r=arguments.length===1?this.edge(e):this.edge(e,n,t);return typeof r!="object"||r===null?{label:r}:r}hasEdge(e,n,t){return(arguments.length===1?le(this._isDirected,e):z(this._isDirected,e,n,t))in this._edgeLabels}removeEdge(e,n,t){let r=arguments.length===1?le(this._isDirected,e):z(this._isDirected,e,n,t),o=this._edgeObjs[r];if(o){let i=o.v,s=o.w;delete this._edgeLabels[r],delete this._edgeObjs[r],Se(this._preds[s],i),Se(this._sucs[i],s),delete this._in[s][r],delete this._out[i][r],this._edgeCount--}return this}inEdges(e,n){return this.isDirected()?this.filterEdges(this._in[e],e,n):this.nodeEdges(e,n)}outEdges(e,n){return this.isDirected()?this.filterEdges(this._out[e],e,n):this.nodeEdges(e,n)}nodeEdges(e,n){if(e in this._nodes)return this.filterEdges({...this._in[e],...this._out[e]},e,n)}_removeFromParentsChildList(e){delete this._children[this._parent[e]][e]}filterEdges(e,n,t){if(!e)return;let r=Object.values(e);return t?r.filter(o=>o.v===n&&o.w===t||o.v===t&&o.w===n):r}};function Ie(e,n){e[n]?e[n]++:e[n]=1}function Se(e,n){e[n]!==void 0&&!--e[n]&&delete e[n]}function z(e,n,t,r){let o=""+n,i=""+t;if(!e&&o>i){let s=o;o=i,i=s}return o+""+i+""+(r===void 0?"\0":r)}function Yn(e,n,t,r){let o=""+n,i=""+t;if(!e&&o>i){let a=o;o=i,i=a}let s={v:o,w:i};return r&&(s.name=r),s}function le(e,n){return z(e,n.v,n.w,n.name)}var Wn={};Me(Wn,{read:()=>Hn,write:()=>Bn});function Bn(e){let n={options:{directed:e.isDirected(),multigraph:e.isMultigraph(),compound:e.isCompound()},nodes:Xn(e),edges:zn(e)},t=e.graph();return t!==void 0&&(n.value=structuredClone(t)),n}function Xn(e){return e.nodes().map(n=>{let t=e.node(n),r=e.parent(n),o={v:n};return t!==void 0&&(o.value=t),r!==void 0&&(o.parent=r),o})}function zn(e){return e.edges().map(n=>{let t=e.edge(n),r={v:n.v,w:n.w};return n.name!==void 0&&(r.name=n.name),t!==void 0&&(r.value=t),r})}function Hn(e){let n=new Z(e.options);return e.value!==void 0&&n.setGraph(e.value),e.nodes.forEach(t=>{n.setNode(t.v,t.value),t.parent&&n.setParent(t.v,t.parent)}),e.edges.forEach(t=>{n.setEdge({v:t.v,w:t.w,name:t.name},t.value)}),n}var H={};Me(H,{CycleException:()=>Q,bellmanFord:()=>Pe,components:()=>Un,dijkstra:()=>K,dijkstraAll:()=>Qn,findCycles:()=>Zn,floydWarshall:()=>nt,isAcyclic:()=>rt,postorder:()=>it,preorder:()=>st,prim:()=>at,shortestPaths:()=>dt,tarjan:()=>Ae,topsort:()=>Ve});var qn=()=>1;function Pe(e,n,t,r){return $n(e,String(n),t||qn,r||function(o){var i;return(i=e.outEdges(o))!=null?i:[]})}function $n(e,n,t,r){let o={},i,s=0,a=e.nodes(),l=function(c){let f=o[c.v],h=o[c.w];if(!f||!h)return;let p=t(c);f.distance+p<h.distance&&(o[c.w]={distance:f.distance+p,predecessor:c.v},i=!0)},u=function(){a.forEach(function(c){r(c).forEach(function(f){let h=f.v===c?f.v:f.w,p=h===f.v?f.w:f.v;l({v:h,w:p})})})};a.forEach(function(c){let f=c===n?0:Number.POSITIVE_INFINITY;o[c]={distance:f,predecessor:""}});let d=a.length;for(let c=1;c<d&&(i=!1,s++,u(),!!i);c++);if(s===d-1&&(i=!1,u(),i))throw new Error("The graph contains a negative weight cycle");return o}function Un(e){let n={},t=[],r;function o(i){var s,a;i in n||(n[i]=!0,r.push(i),(s=e.successors(i))==null||s.forEach(o),(a=e.predecessors(i))==null||a.forEach(o))}return e.nodes().forEach(function(i){r=[],o(i),r.length&&t.push(r)}),t}var Fe=class{constructor(){this._arr=[],this._keyIndices={}}size(){return this._arr.length}keys(){return this._arr.map(e=>e.key)}has(e){return e in this._keyIndices}priority(e){let n=this._keyIndices[e];if(n!==void 0)return this._arr[n].priority}min(){if(this.size()===0)throw new Error("Queue underflow");return this._arr[0].key}add(e,n){let t=this._keyIndices,r=String(e);if(!(r in t)){let o=this._arr,i=o.length;return t[r]=i,o.push({key:r,priority:n}),this._decrease(i),!0}return!1}removeMin(){if(this.size()===0)throw new Error("Queue underflow");this._swap(0,this._arr.length-1);let e=this._arr.pop();return delete this._keyIndices[e.key],this._heapify(0),e.key}decrease(e,n){let t=this._keyIndices[e];if(t===void 0)throw new Error(`Key not found: ${e}`);let r=this._arr[t].priority;if(n>r)throw new Error(`New priority is greater than current priority. Key: ${e} Old: ${r} New: ${n}`);this._arr[t].priority=n,this._decrease(t)}_heapify(e){let n=this._arr,t=2*e,r=t+1,o=e;t<n.length&&(o=n[t].priority<n[o].priority?t:o,r<n.length&&(o=n[r].priority<n[o].priority?r:o),o!==e&&(this._swap(e,o),this._heapify(o)))}_decrease(e){let n=this._arr,t=n[e].priority,r;for(;e!==0&&(r=e>>1,!(n[r].priority<t));)this._swap(e,r),e=r}_swap(e,n){let t=this._arr,r=this._keyIndices,o=t[e],i=t[n];t[e]=i,t[n]=o,r[i.key]=e,r[o.key]=n}},Jn=()=>1;function K(e,n,t,r){let o=function(i){var s;return(s=e.outEdges(i))!=null?s:[]};return Kn(e,String(n),t||Jn,r||o)}function Kn(e,n,t,r){let o={},i=new Fe,s,a,l=function(u){let d=u.v!==s?u.v:u.w,c=o[d];if(!c)return;let f=t(u),h=a.distance+f;if(f<0)throw new Error("dijkstra does not allow negative edge weights. Bad edge: "+u+" Weight: "+f);h<c.distance&&(c.distance=h,c.predecessor=s,i.decrease(d,h))};for(e.nodes().forEach(function(u){let d=u===n?0:Number.POSITIVE_INFINITY;o[u]={distance:d,predecessor:""},i.add(u,d)});i.size()>0;){s=i.removeMin();let u=o[s];if(!u||u.distance===Number.POSITIVE_INFINITY)break;a=u,r(s).forEach(l)}return o}function Qn(e,n,t){return e.nodes().reduce(function(r,o){return r[o]=K(e,o,n,t),r},{})}function Ae(e){let n=0,t=[],r={},o=[];function i(s){var a;let l=r[s]={onStack:!0,lowlink:n,index:n++};if(t.push(s),(a=e.successors(s))==null||a.forEach(function(u){if(u in r){let d=r[u];d!=null&&d.onStack&&(l.lowlink=Math.min(l.lowlink,d.index))}else{i(u);let d=r[u];d&&(l.lowlink=Math.min(l.lowlink,d.lowlink))}}),l.lowlink===l.index){let u=[],d;do{d=t.pop();let c=r[d];c&&(c.onStack=!1),u.push(d)}while(s!==d);o.push(u)}}return e.nodes().forEach(function(s){s in r||i(s)}),o}function Zn(e){return Ae(e).filter(function(n){var t;let r=n[0];return r?n.length>1||n.length===1&&((t=e.outEdges(r,r))!=null?t:[]).length>0:!1})}var et=()=>1;function nt(e,n,t){return tt(e,n||et,t||function(r){var o;return(o=e.outEdges(r))!=null?o:[]})}function tt(e,n,t){let r={},o=e.nodes();return o.forEach(function(i){let s={};r[i]=s,s[i]={distance:0,predecessor:""},o.forEach(function(a){i!==a&&(s[a]={distance:Number.POSITIVE_INFINITY,predecessor:""})}),t(i).forEach(function(a){let l=a.v===i?a.w:a.v,u=n(a);s[l]={distance:u,predecessor:i}})}),o.forEach(function(i){let s=r[i];s&&o.forEach(function(a){let l=r[a];l&&o.forEach(function(u){let d=l[i],c=s[u],f=l[u];if(d&&c&&f){let h=d.distance+c.distance;h<f.distance&&(f.distance=h,f.predecessor=c.predecessor)}})})}),r}var Q=class extends Error{constructor(e){super(e),this.name="CycleException"}};function Ve(e){let n={},t={},r=[];function o(i){var s;if(i in t)throw new Q;i in n||(t[i]=!0,n[i]=!0,(s=e.predecessors(i))==null||s.forEach(o),delete t[i],r.push(i))}if(e.sinks().forEach(o),Object.keys(n).length!==e.nodeCount())throw new Q;return r}function rt(e){try{Ve(e)}catch(n){if(n instanceof Q)return!1;throw n}return!0}function ot(e,n,t,r,o){Array.isArray(n)||(n=[n]);let i=(a=>{var l;return(l=e.isDirected()?e.successors(a):e.neighbors(a))!=null?l:[]}),s={};return n.forEach(function(a){if(!e.hasNode(a))throw new Error("Graph does not have node: "+a);o=De(e,a,t==="post",s,i,r,o)}),o}function De(e,n,t,r,o,i,s){return n in r||(r[n]=!0,t||(s=i(s,n)),o(n).forEach(function(a){s=De(e,a,t,r,o,i,s)}),t&&(s=i(s,n))),s}function Ye(e,n,t){return ot(e,n,t,function(r,o){return r.push(o),r},[])}function it(e,n){return Ye(e,n,"post")}function st(e,n){return Ye(e,n,"pre")}function at(e,n){var t;let r=new Z,o={},i=new Fe,s;function a(d){let c=d.v===s?d.w:d.v,f=i.priority(c);if(f!==void 0){let h=n(d);h<f&&(o[c]=s,i.decrease(c,h))}}if(e.nodeCount()===0)return r;e.nodes().forEach(function(d){i.add(d,Number.POSITIVE_INFINITY),r.setNode(d)});let l=e.nodes()[0];l!==void 0&&i.decrease(l,0);let u=!1;for(;i.size()>0;){if(s=i.removeMin(),s in o)r.setEdge(s,o[s]);else{if(u)throw new Error("Input graph is not connected: "+e);u=!0}(t=e.nodeEdges(s))==null||t.forEach(a)}return r}function dt(e,n,t,r){return lt(e,n,t,r!=null?r:(o=>{var i;return(i=e.outEdges(o))!=null?i:[]}))}function lt(e,n,t,r){if(t===void 0)return K(e,n,t,r);let o=!1,i=e.nodes();for(let s=0;s<i.length;s++){let a=i[s];if(a===void 0)continue;let l=r(a);for(let u=0;u<l.length;u++){let d=l[u];if(!d)continue;let c=d.v===a?d.v:d.w,f=c===d.v?d.w:d.v;t({v:c,w:f})<0&&(o=!0)}if(o)return Pe(e,n,t,r)}return K(e,n,t,r)}var T=Z;function M(e,n,t,r){let o=r;for(;e.hasNode(o);)o=$(r);return t.dummy=n,e.setNode(o,t),o}function We(e){let n=new T().setGraph(e.graph());return e.nodes().forEach(t=>n.setNode(t,e.node(t))),e.edges().forEach(t=>{let r=n.edge(t.v,t.w)||{weight:0,minlen:1},o=e.edge(t);n.setEdge(t.v,t.w,{weight:r.weight+o.weight,minlen:Math.max(r.minlen,o.minlen)})}),n}function ne(e){let n=new T({multigraph:e.isMultigraph()}).setGraph(e.graph());return e.nodes().forEach(t=>{e.children(t).length||n.setNode(t,e.node(t))}),e.edges().forEach(t=>{n.setEdge(t,e.edge(t))}),n}function ue(e,n){let t=e.x,r=e.y,o=n.x-t,i=n.y-r,s=e.width/2,a=e.height/2;if(!o&&!i)throw new Error("Not possible to find intersection inside of the rectangle");let l,u;return Math.abs(i)*s>Math.abs(o)*a?(i<0&&(a=-a),l=a*o/i,u=a):(o<0&&(s=-s),l=s,u=s*i/o),{x:t+l,y:r+u}}function P(e){let n=A(fe(e)+1).map(()=>[]);return e.nodes().forEach(t=>{let r=e.node(t),o=r.rank;o!==void 0&&(n[o]||(n[o]=[]),n[o][r.order]=t)}),n}function Be(e){let n=e.nodes().map(r=>{let o=e.node(r).rank;return o===void 0?Number.MAX_VALUE:o}),t=R(Math.min,n);e.nodes().forEach(r=>{let o=e.node(r);Object.hasOwn(o,"rank")&&(o.rank-=t)})}function Xe(e){let n=e.nodes().map(s=>e.node(s).rank).filter(s=>s!==void 0),t=R(Math.min,n),r=[];e.nodes().forEach(s=>{let a=e.node(s).rank-t;r[a]||(r[a]=[]),r[a].push(s)});let o=0,i=e.graph().nodeRankFactor;Array.from(r).forEach((s,a)=>{s===void 0&&a%i!==0?--o:s!==void 0&&o&&s.forEach(l=>e.node(l).rank+=o)})}function ce(e,n,t,r){let o={width:0,height:0};return arguments.length>=4&&(o.rank=t,o.order=r),M(e,"border",o,n)}function ut(e,n=ze){let t=[];for(let r=0;r<e.length;r+=n){let o=e.slice(r,r+n);t.push(o)}return t}var ze=65535;function R(e,n){if(n.length>ze){let t=ut(n);return e(...t.map(r=>e(...r)))}else return e(...n)}function fe(e){let t=e.nodes().map(r=>{let o=e.node(r).rank;return o===void 0?Number.MIN_VALUE:o});return R(Math.max,t)}function He(e,n){let t={lhs:[],rhs:[]};return e.forEach(r=>{n(r)?t.lhs.push(r):t.rhs.push(r)}),t}function he(e,n){let t=Date.now();try{return n()}finally{console.log(e+" time: "+(Date.now()-t)+"ms")}}function q(e,n){return n()}var ct=0;function $(e){let n=++ct;return e+(""+n)}function A(e,n,t=1){n==null&&(n=e,e=0);let r=i=>i<n;t<0&&(r=i=>n<i);let o=[];for(let i=e;r(i);i+=t)o.push(i);return o}function B(e,n){let t={};for(let r of n)e[r]!==void 0&&(t[r]=e[r]);return t}function X(e,n){let t;return typeof n=="string"?t=r=>r[n]:t=n,Object.entries(e).reduce((r,[o,i])=>(r[o]=t(i,o),r),{})}function qe(e,n){return e.reduce((t,r,o)=>(t[r]=n[o],t),{})}var D="\0";function te(e,n,t){var u,d,c,f,h,p;if(!(e&&n&&t&&n.dummy==="edge"&&t.dummy==="edge"&&n.edgeObj&&t.edgeObj&&e[n.edgeObj.v]&&e[t.edgeObj.v]&&e[n.edgeObj.w]&&e[t.edgeObj.w]))return 0;let r=!0;n.edgeObj.w===t.edgeObj.w&&(r=!1);let o=r?(d=(u=e[n.edgeObj.v])==null?void 0:u.rank)!=null?d:NaN+1:(f=(c=e[n.edgeObj.w])==null?void 0:c.rank)!=null?f:NaN-1,i=Object.entries(e).find(E=>{var y,L;return((y=E[1].edgeObj)==null?void 0:y.v)===n.edgeObj.v&&((L=E[1].edgeObj)==null?void 0:L.w)===n.edgeObj.w&&E[1].rank===o}),s=Object.entries(e).find(E=>{var y,L;return((y=E[1].edgeObj)==null?void 0:y.v)===t.edgeObj.v&&((L=E[1].edgeObj)==null?void 0:L.w)===t.edgeObj.w&&E[1].rank===o});if(!i||!s)return 0;let a=(h=i[1].order)!=null?h:NaN,l=(p=s[1].order)!=null?p:NaN;return isNaN(a-l)?0:a-l}var re="3.1.1";var be=class{constructor(){Re(this,"_sentinel");let n={};n._next=n._prev=n,this._sentinel=n}dequeue(){let n=this._sentinel,t=n._prev;if(t!==n)return $e(t),t}enqueue(n){let t=this._sentinel;n._prev&&n._next&&$e(n),n._next=t._next,t._next._prev=n,t._next=n,n._prev=t}toString(){let n=[],t=this._sentinel,r=t._prev;for(;r!==t;)n.push(JSON.stringify(r,ft)),r=r._prev;return"["+n.join(", ")+"]"}};function $e(e){e._prev._next=e._next,e._next._prev=e._prev,delete e._next,delete e._prev}function ft(e,n){if(e!=="_next"&&e!=="_prev")return n}var Ue=be;var ht=()=>1;function me(e,n){if(e.nodeCount()<=1)return[];let t=gt(e,n||ht);return bt(t.graph,t.buckets,t.zeroIdx).flatMap(o=>e.outEdges(o.v,o.w)||[])}function bt(e,n,t){var a;let r=[],o=n[n.length-1],i=n[0],s;for(;e.nodeCount();){for(;s=i.dequeue();)ge(e,n,t,s);for(;s=o.dequeue();)ge(e,n,t,s);if(e.nodeCount()){for(let l=n.length-2;l>0;--l)if(s=(a=n[l])==null?void 0:a.dequeue(),s){r=r.concat(ge(e,n,t,s,!0)||[]);break}}}return r}function ge(e,n,t,r,o){let i=[],s=o?i:void 0;return(e.inEdges(r.v)||[]).forEach(a=>{let l=e.edge(a),u=e.node(a.v);o&&i.push({v:a.v,w:a.w}),u.out-=l,pe(n,t,u)}),(e.outEdges(r.v)||[]).forEach(a=>{let l=e.edge(a),u=a.w,d=e.node(u);d.in-=l,pe(n,t,d)}),e.removeNode(r.v),s}function gt(e,n){let t=new T,r=0,o=0;e.nodes().forEach(a=>{t.setNode(a,{v:a,in:0,out:0})}),e.edges().forEach(a=>{let l=t.edge(a.v,a.w)||0,u=n(a),d=l+u;t.setEdge(a.v,a.w,d);let c=t.node(a.v),f=t.node(a.w);o=Math.max(o,c.out+=u),r=Math.max(r,f.in+=u)});let i=pt(o+r+3).map(()=>new Ue),s=r+1;return t.nodes().forEach(a=>{pe(i,s,t.node(a))}),{graph:t,buckets:i,zeroIdx:s}}function pe(e,n,t){var r,o,i;t.out?t.in?(i=e[t.out-t.in+n])==null||i.enqueue(t):(o=e[e.length-1])==null||o.enqueue(t):(r=e[0])==null||r.enqueue(t)}function pt(e){let n=[];for(let t=0;t<e;t++)n.push(t);return n}function Je(e,n){(e.graph().acyclicer==="greedy"?me(e,r(e)):mt(e,n!=null?n:null)).forEach(o=>{let i=e.edge(o);e.removeEdge(o),i.forwardName=o.name,i.reversed=!0,e.setEdge(o.w,o.v,i,$("rev"))});function r(o){return i=>o.edge(i).weight}}function mt(e,n){let t=[],r={},o={};function i(l){Object.hasOwn(o,l)||(o[l]=!0,r[l]=!0,e.outEdges(l).forEach(u=>{Object.hasOwn(r,u.w)?t.push(u):i(u.w)}),delete r[l])}function s(l){var u;Object.hasOwn(o,l)||(o[l]=!0,r[l]=!0,(u=e.outEdges(l))==null||u.forEach(d=>{var c,f;Object.hasOwn(r,d.w)||((c=n.node(l))==null?void 0:c.rank)>((f=n.node(d.w))==null?void 0:f.rank)&&Et(e,d.w,d)?t.push(d):s(d.w)}),delete r[l])}let a=i;return n&&typeof n.node=="function"&&(a=s),e.sources().forEach(a),e.nodes().forEach(a),t}function Ke(e){e.edges().forEach(n=>{let t=e.edge(n);if(t.reversed){e.removeEdge(n);let r=t.forwardName;delete t.reversed,delete t.forwardName,e.setEdge(n.w,n.v,t,r)}})}function Et(e,n,t){let r=new Set;function o(i){var s;if(e.sources().includes(i))return!0;r.add(i);for(let a of(s=e.inEdges(i))!=null?s:[])if(!(a.v===t.v&&a.w===t.w)&&!r.has(a.v)&&o(a.v))return!0;return!1}return o(n)}function Qe(e){e.graph().dummyChains=[],e.edges().forEach(n=>yt(e,n))}function yt(e,n){let t=n.v,r=e.node(t).rank,o=n.w,i=e.node(o).rank,s=n.name,a=e.edge(n),l=a.labelRank;if(i===r+1)return;e.removeEdge(n);let u,d,c;for(c=0,++r;r<i;++c,++r)a.points=[],d={width:0,height:0,edgeLabel:a,edgeObj:n,rank:r},u=M(e,"edge",d,"_d"),r===l&&(d.width=a.width,d.height=a.height,d.dummy="edge-label",d.labelpos=a.labelpos),e.setEdge(t,u,{weight:a.weight},s),c===0&&e.graph().dummyChains.push(u),t=u;e.setEdge(t,o,{weight:a.weight},s)}function Ze(e){e.graph().dummyChains.forEach(n=>{let t=e.node(n),r=t.edgeLabel,o;for(e.setEdge(t.edgeObj,r);t.dummy;)o=e.successors(n)[0],e.removeNode(n),r.points.push({x:t.x,y:t.y}),t.dummy==="edge-label"&&(r.x=t.x,r.y=t.y,r.width=t.width,r.height=t.height),n=o,t=e.node(n)})}function U(e){let n={};function t(r){let o=e.node(r);if(Object.hasOwn(n,r))return o.rank;n[r]=!0;let i=e.outEdges(r),s=i?i.map(l=>l==null?Number.POSITIVE_INFINITY:t(l.w)-e.edge(l).minlen):[],a=R(Math.min,s);return a===Number.POSITIVE_INFINITY&&(a=0),o.rank=a}e.sources().forEach(t)}function V(e,n){return e.node(n.w).rank-e.node(n.v).rank-e.edge(n).minlen}var oe=Nt;function Nt(e){let n=new T({directed:!1}),t=e.nodes();if(t.length===0)throw new Error("Graph must have at least one node");let r=t[0],o=e.nodeCount();n.setNode(r,{});let i,s;for(;Gt(n,e)<o&&(i=vt(n,e),!!i);)s=n.hasNode(i.v)?V(e,i):-V(e,i),kt(n,e,s);return n}function Gt(e,n){function t(r){let o=n.nodeEdges(r);o&&o.forEach(i=>{let s=i.v,a=r===s?i.w:s;!e.hasNode(a)&&!V(n,i)&&(e.setNode(a,{}),e.setEdge(r,a,{}),t(a))})}return e.nodes().forEach(t),e.nodeCount()}function vt(e,n){return n.edges().reduce((r,o)=>{let i=Number.POSITIVE_INFINITY;return e.hasNode(o.v)!==e.hasNode(o.w)&&(i=V(n,o)),i<r[0]?[i,o]:r},[Number.POSITIVE_INFINITY,null])[1]}function kt(e,n,t){e.nodes().forEach(r=>n.node(r).rank+=t)}var{preorder:xt,postorder:_t}=H,nn=Y;Y.initLowLimValues=Le;Y.initCutValues=Ee;Y.calcCutValue=tn;Y.leaveEdge=on;Y.enterEdge=sn;Y.exchangeEdges=an;function Y(e){e=We(e),U(e);let n=oe(e);Le(n),Ee(n,e);let t,r;for(;t=on(n);)r=sn(n,e,t),an(n,e,t,r)}function Ee(e,n){let t=_t(e,e.nodes());t=t.slice(0,t.length-1),t.forEach(r=>Ot(e,n,r))}function Ot(e,n,t){let o=e.node(t).parent,i=e.edge(t,o);i.cutvalue=tn(e,n,t)}function tn(e,n,t){let o=e.node(t).parent,i=!0,s=n.edge(t,o),a=0;s||(i=!1,s=n.edge(o,t)),a=s.weight;let l=n.nodeEdges(t);return l&&l.forEach(u=>{let d=u.v===t,c=d?u.w:u.v;if(c!==o){let f=d===i,h=n.edge(u).weight;if(a+=f?h:-h,Tt(e,t,c)){let E=e.edge(t,c).cutvalue;a+=f?-E:E}}}),a}function Le(e,n){arguments.length<2&&(n=e.nodes()[0]),rn(e,{},1,n)}function rn(e,n,t,r,o){let i=t,s=e.node(r);n[r]=!0;let a=e.neighbors(r);return a&&a.forEach(l=>{Object.hasOwn(n,l)||(t=rn(e,n,t,l,r))}),s.low=i,s.lim=t++,o?s.parent=o:delete s.parent,t}function on(e){return e.edges().find(n=>e.edge(n).cutvalue<0)}function sn(e,n,t){let r=t.v,o=t.w;n.hasEdge(r,o)||(r=t.w,o=t.v);let i=e.node(r),s=e.node(o),a=i,l=!1;return i.lim>s.lim&&(a=s,l=!0),n.edges().filter(d=>l===en(e,e.node(d.v),a)&&l!==en(e,e.node(d.w),a)).reduce((d,c)=>V(n,c)<V(n,d)?c:d)}function an(e,n,t,r){let o=t.v,i=t.w;e.removeEdge(o,i),e.setEdge(r.v,r.w,{}),Le(e),Ee(e,n),Ct(e,n)}function Ct(e,n){let t=e.nodes().find(o=>!e.node(o).parent);if(!t)return;let r=xt(e,[t]);r=r.slice(1),r.forEach(o=>{let s=e.node(o).parent,a=n.edge(o,s),l=!1;a||(a=n.edge(s,o),l=!0),n.node(o).rank=n.node(s).rank+(l?a.minlen:-a.minlen)})}function Tt(e,n,t){return e.hasEdge(n,t)}function en(e,n,t){return t.low<=n.lim&&n.lim<=t.lim}var ln=jt;function jt(e){let n=e.graph().ranker;if(typeof n=="function")return n(e);switch(n){case"network-simplex":dn(e);break;case"tight-tree":It(e);break;case"longest-path":Rt(e);break;case"none":break;default:dn(e)}}var Rt=U;function It(e){U(e),oe(e)}function dn(e){nn(e)}var un=St;function St(e){let n=Pt(e),t=e.graph();if(!Array.isArray(t.dummyChains))return;t.dummyChains.forEach(o=>{let i=e.node(o),s=i.edgeObj,a=Mt(e,n,s.v,s.w),l=a.path,u=a.lca,d=0,c=l[d],f=!0;for(;o!==s.w;){if(i=e.node(o),f){for(;(c=l[d])!==u&&e.node(c).maxRank<i.rank;)d++;c===u&&(f=!1)}if(!f){for(;d<l.length-1&&e.node(l[d+1]).minRank<=i.rank;)d++;c=l[d]}c!==void 0&&e.setParent(o,c),o=e.successors(o)[0]}})}function Mt(e,n,t,r){let o=[],i=[],s=Math.min(n[t].low,n[r].low),a=Math.max(n[t].lim,n[r].lim),l;l=t;do l=e.parent(l),o.push(l);while(l&&(n[l].low>s||a>n[l].lim));let u=l,d=r;for(;(d=e.parent(d))!==u;)i.push(d);return{path:o.concat(i.reverse()),lca:u}}function Pt(e){let n={},t=0;function r(o){let i=t;e.children(o).forEach(r),n[o]={low:i,lim:t++}}return e.children(D).forEach(r),n}function cn(e){let n=M(e,"root",{},"_root"),t=Ft(e),r=Object.values(t),o=R(Math.max,r)-1,i=2*o+1;e.graph().nestingRoot=n,e.edges().forEach(a=>e.edge(a).minlen*=i);let s=At(e)+1;e.children(D).forEach(a=>{fn(e,n,i,s,o,t,a)}),e.graph().nodeRankFactor=i}function fn(e,n,t,r,o,i,s){var c;let a=e.children(s);if(!a.length){s!==n&&e.setEdge(n,s,{weight:0,minlen:t});return}let l=ce(e,"_bt"),u=ce(e,"_bb"),d=e.node(s);e.setParent(l,s),d.borderTop=l,e.setParent(u,s),d.borderBottom=u,a.forEach(f=>{var b;fn(e,n,t,r,o,i,f);let h=e.node(f),p=h.borderTop?h.borderTop:f,E=h.borderBottom?h.borderBottom:f,y=h.borderTop?r:2*r,L=p!==E?1:o-((b=i[s])!=null?b:0)+1;e.setEdge(l,p,{weight:y,minlen:L,nestingEdge:!0}),e.setEdge(E,u,{weight:y,minlen:L,nestingEdge:!0})}),e.parent(s)||e.setEdge(n,l,{weight:0,minlen:o+((c=i[s])!=null?c:0)})}function Ft(e){let n={};function t(r,o){let i=e.children(r);i&&i.length&&i.forEach(s=>t(s,o+1)),n[r]=o}return e.children(D).forEach(r=>t(r,1)),n}function At(e){return e.edges().reduce((n,t)=>n+e.edge(t).weight,0)}function hn(e){let n=e.graph();e.removeNode(n.nestingRoot),delete n.nestingRoot,e.edges().forEach(t=>{e.edge(t).nestingEdge&&e.removeEdge(t)})}var gn=Dt;function Dt(e){function n(t){let r=e.children(t),o=e.node(t);if(r.length&&r.forEach(n),o&&Object.hasOwn(o,"minRank")){o.borderLeft=[],o.borderRight=[];for(let i=o.minRank,s=o.maxRank+1;i<s;++i)bn(e,"borderLeft","_bl",t,o,i),bn(e,"borderRight","_br",t,o,i)}}e.children(D).forEach(n)}function bn(e,n,t,r,o,i){let s={width:0,height:0,rank:i,borderType:n},a=o[n][i-1],l=M(e,"border",s,t);o[n][i]=l,e.setParent(l,r),a&&e.setEdge(a,l,{weight:1})}function mn(e){var t;let n=(t=e.graph().rankdir)==null?void 0:t.toLowerCase();(n==="lr"||n==="rl")&&Ln(e)}function En(e){var t;let n=(t=e.graph().rankdir)==null?void 0:t.toLowerCase();(n==="bt"||n==="rl")&&Yt(e),(n==="lr"||n==="rl")&&(Wt(e),Ln(e))}function Ln(e){e.nodes().forEach(n=>pn(e.node(n))),e.edges().forEach(n=>pn(e.edge(n)))}function pn(e){let n=e.width;e.width=e.height,e.height=n}function Yt(e){e.nodes().forEach(n=>ye(e.node(n))),e.edges().forEach(n=>{var r;let t=e.edge(n);(r=t.points)==null||r.forEach(ye),Object.hasOwn(t,"y")&&ye(t)})}function ye(e){e.y=-e.y}function Wt(e){e.nodes().forEach(n=>we(e.node(n))),e.edges().forEach(n=>{var r;let t=e.edge(n);(r=t.points)==null||r.forEach(we),Object.hasOwn(t,"x")&&we(t)})}function we(e){let n=e.x;e.x=e.y,e.y=n}function Ne(e,n=null){let t={},r=e.nodes().filter(d=>!e.children(d).length),o=r.map(d=>e.node(d).rank),i=R(Math.max,o),s=A(i+1).map(()=>[]);function a(d){if(t[d])return;t[d]=!0;let c=e.node(d);s[c.rank].push(d);let f=e.successors(d);f&&[...f].sort((p,E)=>u(p,E)).forEach(a)}r.sort((d,c)=>e.node(d).rank-e.node(c).rank).forEach(a);function u(d,c){let f=e.node(d),h=e.node(c);return te(n,f,h)}return s}function Ge(e,n){let t=0;for(let r=1;r<n.length;++r)t+=Xt(e,n[r-1],n[r]);return t}function Xt(e,n,t){let r=qe(t,t.map((u,d)=>d)),o=n.flatMap(u=>{let d=e.outEdges(u);return d?d.map(c=>({pos:r[c.w],weight:e.edge(c).weight})).sort((c,f)=>c.pos-f.pos):[]}),i=1;for(;i<t.length;)i<<=1;let s=2*i-1;i-=1;let a=new Array(s).fill(0),l=0;return o.forEach(u=>{let d=u.pos+i;a[d]+=u.weight;let c=0;for(;d>0;)d%2&&(c+=a[d+1]),d=d-1>>1,a[d]+=u.weight;l+=u.weight*c}),l}function ve(e,n=[]){return n.map(t=>{let r=e.inEdges(t);if(!r||!r.length)return{v:t};{let o=r.reduce((i,s)=>{let a=e.edge(s),l=e.node(s.v);return{sum:i.sum+a.weight*l.order,weight:i.weight+a.weight}},{sum:0,weight:0});return{v:t,barycenter:o.sum/o.weight,weight:o.weight}}})}function ke(e,n){let t={};e.forEach((o,i)=>{let s={indegree:0,in:[],out:[],vs:[o.v],i};o.barycenter!==void 0&&(s.barycenter=o.barycenter,s.weight=o.weight),t[o.v]=s}),n.edges().forEach(o=>{let i=t[o.v],s=t[o.w];i!==void 0&&s!==void 0&&(s.indegree++,i.out.push(s))});let r=Object.values(t).filter(o=>!o.indegree);return zt(r)}function zt(e){let n=[];function t(o){return i=>{i.merged||(i.barycenter===void 0||o.barycenter===void 0||i.barycenter>=o.barycenter)&&Ht(o,i)}}function r(o){return i=>{i.in.push(o),--i.indegree===0&&e.push(i)}}for(;e.length;){let o=e.pop();n.push(o),o.in.reverse().forEach(t(o)),o.out.forEach(r(o))}return n.filter(o=>!o.merged).map(o=>B(o,["vs","i","barycenter","weight"]))}function Ht(e,n){let t=0,r=0;e.weight&&(t+=e.barycenter*e.weight,r+=e.weight),n.weight&&(t+=n.barycenter*n.weight,r+=n.weight),e.vs=n.vs.concat(e.vs),e.barycenter=t/r,e.weight=r,e.i=Math.min(n.i,e.i),n.merged=!0}function xe(e,n,t,r,o){let i={},s=null,a=null,l=o;typeof n=="boolean"?(l=n,i={}):n&&(i=n,s=t!=null?t:null,a=r!=null?r:null);let u=He(e,L=>Object.hasOwn(L,"barycenter")),d=u.lhs,c=u.rhs.sort((L,b)=>b.i-L.i),f=[],h=0,p=0,E=0;d.sort(qt(a,s,!!l));for(let[L,b]of Object.entries(i)){let g=d.findIndex(m=>m.vs[0]===L);d.splice(g+1,0,b)}E=yn(f,c,E),d.forEach(L=>{E+=L.vs.length,f.push(L.vs),h+=L.barycenter*L.weight,p+=L.weight,E=yn(f,c,E)});let y={vs:f.flat(1)};return p&&(y.barycenter=h/p,y.weight=p),y}function yn(e,n,t){let r;for(;n.length&&(r=n[n.length-1]).i<=t;)n.pop(),e.push(r.vs),t++;return t}function qt(e,n,t){return(r,o)=>{if(r.barycenter<o.barycenter)return-1;if(r.barycenter>o.barycenter)return 1;if(e&&(typeof r.vs[0]=="string"||typeof o.vs[0]=="string")){let i=e.node(r.vs[0]),s=e.node(o.vs[0]),a=te(n,i,s);if(a!==0)return a}return t?o.i-r.i:r.i-o.i}}function ie(e,n,t,r,o){var L,b,g,m,w,k,_,C,j,I,S;let i=null,s=o;typeof r=="boolean"?(s=r,i=null):r!==void 0&&(i=r);let a=e.children(n),l=e.node(n),u=l?l.borderLeft:void 0,d=l?l.borderRight:void 0,c={};u&&(a=a.filter(G=>G!==u&&G!==d));let f=ve(e,a);f.forEach(G=>{if(e.children(G.v).length){let{result:x}=ie(e,G.v,t,i,s);c[G.v]=x,Object.hasOwn(x,"barycenter")&&Ut(G,x)}});let h=ke(f,t);$t(h,c);let p={},E=!1;for(let G=0;G<h.length;G++)for(let x=G+1;x<h.length;x++)if(!(!h[G]||!h[x]||!((L=h[G])!=null&&L.barycenter)||!((b=h[x])!=null&&b.barycenter))&&((g=h[G])==null?void 0:g.barycenter)===h[x].barycenter){let v=(w=(m=h[G])==null?void 0:m.vs[0])!=null?w:"",N=(_=(k=h[x])==null?void 0:k.vs[0])!=null?_:"",O=e.node(v),W=e.node(N);if(O.dummy==="edge"&&W.dummy==="edge"&&((C=O.edgeObj)==null?void 0:C.v)===((j=W.edgeObj)==null?void 0:j.v)&&((I=O.edgeObj)==null?void 0:I.w)===((S=W.edgeObj)==null?void 0:S.w))if(O.edgeLabel.reversed){p[N]=h[G],h.splice(G,1),G--;break}else p[v]=h[x],h.splice(x,1),x--;else E=!0}let y=xe(h,p,i,e,s);if(u&&d){y.vs=[u,y.vs,d].flat(1);let G=e.predecessors(u);if(G&&G.length){let x=e.node(G[0]),v=e.predecessors(d),N=e.node(v[0]);Object.hasOwn(y,"barycenter")||(y.barycenter=0,y.weight=0),y.barycenter=(y.barycenter*y.weight+x.order+N.order)/(y.weight+2),y.weight+=2}}return Object.defineProperty(y,"result",{value:y,enumerable:!1,configurable:!0,writable:!0}),Object.defineProperty(y,"usedBias",{value:E,enumerable:!1,configurable:!0,writable:!0}),y}function $t(e,n){e.forEach(t=>{t.vs=t.vs.flatMap(r=>n[r]?n[r].vs:r)})}function Ut(e,n){e.barycenter!==void 0?(e.barycenter=(e.barycenter*e.weight+n.barycenter*n.weight)/(e.weight+n.weight),e.weight+=n.weight):(e.barycenter=n.barycenter,e.weight=n.weight)}function _e(e,n,t,r){r||(r=e.nodes());let o=Jt(e),i=new T({compound:!0}).setGraph({root:o}).setDefaultNodeLabel(s=>e.node(s));return r.forEach(s=>{let a=e.node(s),l=e.parent(s);if(a.rank===n||a.minRank<=n&&n<=a.maxRank){i.setNode(s),i.setParent(s,l||o);let u=e[t](s);u&&u.forEach(d=>{let c=d.v===s?d.w:d.v,f=i.edge(c,s),h=f!==void 0?f.weight:0;i.setEdge(c,s,{weight:e.edge(d).weight+h})}),Object.hasOwn(a,"minRank")&&i.setNode(s,{borderLeft:a.borderLeft[n],borderRight:a.borderRight[n]})}}),i}function Jt(e){let n;for(;e.hasNode(n=$("_root")););return n}function Oe(e,n,t){let r={},o;t.forEach(i=>{let s=e.parent(i),a,l;for(;s;){if(a=e.parent(s),a?(l=r[a],r[a]=s):(l=o,o=s),l&&l!==s){n.setEdge(l,s);return}s=a}})}function se(e,n={},t=null){if(typeof n.customOrder=="function"){n.customOrder(e,se);return}let r=fe(e),o=wn(e,A(1,r+1),"inEdges"),i=wn(e,A(r-1,-1,-1),"outEdges"),s=Ne(e,t);if(Nn(e,s),n.disableOptimalOrderHeuristic)return;let a=Number.POSITIVE_INFINITY,l,u=n.constraints||[];for(let d=0,c=0;c<4;++d,++c){Kt(d%2?o:i,d%4>=2,u,t),s=P(e);let f=Ge(e,s);f<a?(c=0,l=Object.assign({},s),a=f):f===a&&(l=structuredClone(s))}Nn(e,l)}function wn(e,n,t){let r=new Map,o=(i,s)=>{r.has(i)||r.set(i,[]),r.get(i).push(s)};for(let i of e.nodes()){let s=e.node(i);if(typeof s.rank=="number"&&o(s.rank,i),typeof s.minRank=="number"&&typeof s.maxRank=="number")for(let a=s.minRank;a<=s.maxRank;a++)a!==s.rank&&o(a,i)}return n.map(function(i){return _e(e,i,t,r.get(i)||[])})}function Kt(e,n,t,r){let o=!0,i=new T;e.forEach(function(s){t.forEach(d=>i.setEdge(d.left,d.right));let a=s.graph().root,{result:l,usedBias:u}=ie(s,a,i,r,o);n&&u&&(o=!o),l.vs.forEach((d,c)=>s.node(d).order=c),Oe(s,i,l.vs)})}function Nn(e,n){Object.values(n).forEach(t=>t.forEach((r,o)=>e.node(r).order=o))}function Qt(e,n){let t={};function r(o,i){let s=0,a=0,l=o.length,u=i[i.length-1];return i.forEach((d,c)=>{let f=er(e,d),h=f?e.node(f).order:l;(f||d===u)&&(i.slice(a,c+1).forEach(p=>{let E=e.predecessors(p);E&&E.forEach(y=>{let L=e.node(y),b=L.order;(b<s||h<b)&&!(L.dummy&&e.node(p).dummy)&&vn(t,y,p)})}),a=c+1,s=h)}),i}return n.length&&n.reduce(r),t}function Zt(e,n){let t={};function r(i,s,a,l,u){A(s,a).forEach(d=>{let c=i[d];if(c!==void 0&&e.node(c).dummy){let f=e.predecessors(c);f&&f.forEach(h=>{if(h===void 0)return;let p=e.node(h);p.dummy&&(p.order<l||p.order>u)&&vn(t,h,c)})}})}function o(i,s){let a=-1,l=-1,u=0;return s.forEach((d,c)=>{if(e.node(d).dummy==="border"){let f=e.predecessors(d);if(f&&f.length){let h=f[0];if(h===void 0)return;l=e.node(h).order,r(s,u,c,a,l),u=c,a=l}}r(s,u,s.length,l,i.length)}),s}return n.length&&n.reduce(o),t}function er(e,n){if(e.node(n).dummy){let t=e.predecessors(n);if(t)return t.find(r=>e.node(r).dummy)}}function vn(e,n,t){if(n>t){let o=n;n=t,t=o}let r=e[n];r||(e[n]=r={}),r[t]=!0}function nr(e,n,t){if(n>t){let o=n;n=t,t=o}let r=e[n];return r!==void 0&&Object.hasOwn(r,t)}function tr(e,n,t,r,o){let i={},s={},a={};return n.forEach(l=>{l.forEach((u,d)=>{i[u]=u,s[u]=u,a[u]=d})}),n.forEach(l=>{let u=-1,d=-1,c=!1,f=l,h=l.findIndex(p=>(o==null?void 0:o.includes(p))||Gn(p,e,o));h>0&&(f=[l[h],...l.slice(0,h),...l.slice(h+1)],c=!0),f.forEach(p=>{var y;let E=r(p);if(E&&E.length){o!=null&&o.includes(p)&&(E=E.filter(g=>Gn(g,e,o)));let L=E.sort((g,m)=>{let w=a[g],k=a[m];return(w!==void 0?w:0)-(k!==void 0?k:0)}),b=(L.length-1)/2;for(let g=Math.floor(b),m=Math.ceil(b);g<=m;++g){let w=L[g];if(w===void 0)continue;let k=a[w];if(k!==void 0&&s[p]===p&&u<k&&a[w]!==d&&!nr(t,p,w)){let _=i[w];_!==void 0&&(s[w]=p,s[p]=i[p]=_,u=k,c&&(u=-1,d=(y=a[w])!=null?y:-1,c=!1))}}}})}),{root:i,align:s}}function rr(e,n,t,r,o=!1){let i={},s=or(e,n,t,o),a=o?"borderLeft":"borderRight";function l(h,p){let E=s.nodes().slice(),y={},L=E.pop();for(;L;){if(y[L])h(L);else{y[L]=!0,E.push(L);for(let b of p(L))E.push(b)}L=E.pop()}}function u(h){let p=s.inEdges(h);p?i[h]=p.reduce((E,y)=>{var g;let L=(g=i[y.v])!=null?g:0,b=s.edge(y);return Math.max(E,L+(b!==void 0?b:0))},0):i[h]=0}function d(h){let p=s.outEdges(h),E=Number.POSITIVE_INFINITY;p&&(E=p.reduce((L,b)=>{let g=i[b.w],m=s.edge(b);return Math.min(L,(g!==void 0?g:0)-(m!==void 0?m:0))},Number.POSITIVE_INFINITY));let y=e.node(h);E!==Number.POSITIVE_INFINITY&&y.borderType!==a&&(i[h]=Math.max(i[h]!==void 0?i[h]:0,E))}function c(h){return s.predecessors(h)||[]}function f(h){return s.successors(h)||[]}return l(u,c),l(d,f),Object.keys(r).forEach(h=>{var E;let p=t[h];p!==void 0&&(i[h]=(E=i[p])!=null?E:0)}),i}function or(e,n,t,r){let o=new T,i=e.graph(),s=dr(i.nodesep,i.edgesep,r);return n.forEach(a=>{let l;a.forEach(u=>{let d=t[u];if(d!==void 0){if(o.setNode(d),l!==void 0){let c=t[l];if(c!==void 0){let f=o.edge(c,d);o.setEdge(c,d,Math.max(s(e,u,l),f||0))}}l=u}})}),o}function ir(e,n){return Object.values(n).reduce((t,r)=>{let o=Number.NEGATIVE_INFINITY,i=Number.POSITIVE_INFINITY;Object.entries(r).forEach(([a,l])=>{let u=lr(e,a)/2;o=Math.max(l+u,o),i=Math.min(l-u,i)});let s=o-i;return s<t[0]&&(t=[s,r]),t},[Number.POSITIVE_INFINITY,null])[1]}function sr(e,n){let t=Object.values(n),r=R(Math.min,t),o=R(Math.max,t);["u","d"].forEach(i=>{["l","r"].forEach(s=>{let a=i+s,l=e[a];if(!l||l===n)return;let u=Object.values(l),d=r-R(Math.min,u);s!=="l"&&(d=o-R(Math.max,u)),d&&(e[a]=X(l,c=>c+d))})})}function ar(e,n=void 0){let t=e.ul;return t?X(t,(r,o)=>{var s,a;if(n){let l=n.toLowerCase(),u=e[l];if(u&&u[o]!==void 0)return u[o]}let i=Object.values(e).map(l=>{let u=l[o];return u!==void 0?u:0}).sort((l,u)=>l-u);return(((s=i[1])!=null?s:0)+((a=i[2])!=null?a:0))/2}):{}}function kn(e,n){let t=P(e),r=Object.assign(Qt(e,t),Zt(e,t)),o={},i;["u","d"].forEach(a=>{i=a==="u"?t:Object.values(t).reverse(),["l","r"].forEach(l=>{l==="r"&&(i=i.map(f=>Object.values(f).reverse()));let d=tr(e,i,r,f=>(a==="u"?e.predecessors(f):e.successors(f))||[],n),c=rr(e,i,d.root,d.align,l==="r");l==="r"&&(c=X(c,f=>-f)),o[a+l]=c})});let s=ir(e,o);return sr(o,s),ar(o,e.graph().align)}function dr(e,n,t){return(r,o,i)=>{let s=r.node(o),a=r.node(i),l=0,u;if(l+=s.width/2,Object.hasOwn(s,"labelpos"))switch(s.labelpos.toLowerCase()){case"l":u=-s.width/2;break;case"r":u=s.width/2;break}if(u&&(l+=t?u:-u),u=void 0,l+=(s.dummy?n:e)/2,l+=(a.dummy?n:e)/2,l+=a.width/2,Object.hasOwn(a,"labelpos"))switch(a.labelpos.toLowerCase()){case"l":u=a.width/2;break;case"r":u=-a.width/2;break}return u&&(l+=t?u:-u),l}}function lr(e,n){return e.node(n).width}function Gn(e,n,t){var s;if(!t)return!1;let r=(s=n.node(e))==null?void 0:s.edgeObj;if(!r||n.node(e).edgeLabel.reversed)return!1;let o=t.indexOf(r==null?void 0:r.v),i=t.indexOf(r==null?void 0:r.w);return o!==-1&&i!==-1&&o===(i+1)%t.length||o===(i-1)%t.length}function xn(e,n){e=ne(e),ur(e),Object.entries(kn(e,n)).forEach(([t,r])=>e.node(t).x=r)}function ur(e){let n=P(e),t=e.graph(),r=t.ranksep,o=t.rankalign,i=0;n.forEach(s=>{let a=s.reduce((l,u)=>{var c;let d=(c=e.node(u).height)!=null?c:0;return l>d?l:d},0);s.forEach(l=>{let u=e.node(l);o==="top"?u.y=i+u.height/2:o==="bottom"?u.y=i+a-u.height/2:u.y=i+a/2}),i+=a+r})}var _n=new WeakMap;function ae(e,n={}){return In(e,q,n),e}function On(e,n,t){let r=n;for(;r!==void 0;){let o=e.parent(r);if(o===t)return r;r=o}}function In(e,n,t){var L;let r=e.nodes().filter(b=>e.children(b).length),o={};r.forEach(b=>{let g=e.node(b);if(g&&g.rankdir){let m=new T({multigraph:!0,compound:!0});m.setGraph({rankdir:g.rankdir});let w=e.children(b);w.forEach(v=>{let N={...e.node(v)};m.setNode(v,N);let O=e.parent(v);O&&O!==b&&w.includes(O)&&m.setParent(v,O)});let k=new Set;e.edges().forEach(v=>{let N=On(e,v.v,b),O=On(e,v.w,b);if(N&&O&&N!==O){let W=`${N}\0${O}`;k.has(W)||(k.add(W),m.setEdge(N,O,{...e.edge(v)}))}}),In(m,n,t);let _=Rn(m);Cn(_,n,t,null),Tn(m,_);let C=1/0,j=1/0,I=-1/0,S=-1/0;m.nodes().forEach(v=>{if(v===b)return;let N=m.node(v);N&&typeof N.x=="number"&&typeof N.y=="number"&&typeof N.width=="number"&&typeof N.height=="number"&&(C=Math.min(C,N.x-N.width/2),I=Math.max(I,N.x+N.width/2),j=Math.min(j,N.y-N.height/2),S=Math.max(S,N.y+N.height/2))}),(!isFinite(C)||!isFinite(j)||!isFinite(I)||!isFinite(S))&&(C=j=0,I=S=0);let G=I-C,x=S-j;o[b]={minX:C,minY:j,maxX:I,maxY:S,width:G,height:x,offsetX:C,offsetY:j},g._dagreClusterSubgraph=m}});let i=[],s=b=>{let g=[],m=(e.children(b)||[]).filter(w=>w!==b);for(;m.length>0;){let w=m.shift();g.push(w),(e.children(w)||[]).filter(k=>k!==w).forEach(k=>m.push(k))}return g},a=new Map;r.forEach(b=>{let g=e.node(b);g&&g.rankdir&&o[b]&&a.set(b,(e.children(b)||[]).filter(m=>m!==b))});let l=new Set([...a.values()].flat()),u=new Map;a.forEach((b,g)=>{l.has(g)||u.set(g,s(g))});let d=new Set([...u.values()].flat()),c=b=>{for(let[g,m]of u)if(m.includes(b))return g;return b},f=[];e.edges().forEach(b=>{(d.has(b.v)||d.has(b.w))&&f.push({edge:b,label:e.edge(b)})});let h=new Map;d.forEach(b=>{let g=e.parent(b);h.set(b,typeof g=="string"?g:void 0)}),u.forEach((b,g)=>{let m=e.node(g),w=[];b.forEach(C=>{let j=e.node(C);j&&(w.push({id:C,node:j,parent:h.get(C)}),e.removeNode(C))});let k=f.filter(({edge:C})=>b.includes(C.v)||b.includes(C.w)),_=o[g];m&&(i.push({clusterId:g,subgraph:m._dagreClusterSubgraph,bounds:_,children:b,removedNodes:w,removedEdges:k}),m.width=_.width,m.height=_.height)});let p=new Set;f.forEach(({edge:b,label:g})=>{let m=c(b.v),w=c(b.w);if(m!==w&&e.hasNode(m)&&e.hasNode(w)){let k=`${m}\0${w}`;p.has(k)||(p.add(k),e.setEdge(m,w,{...g,width:0,height:0}))}});let E=Rn(e),y=Cn(E,n,t,(L=_n.get(e))!=null?L:null);_n.set(e,y),Tn(e,E),p.forEach(b=>{let g=b.indexOf("\0"),m=b.slice(0,g),w=b.slice(g+1);e.hasEdge(m,w)&&e.removeEdge(m,w)}),i.forEach(({clusterId:b,subgraph:g,bounds:m,removedNodes:w,removedEdges:k})=>{var G,x;let _=e.node(b),C=(G=_==null?void 0:_.x)!=null?G:0,j=(x=_==null?void 0:_.y)!=null?x:0,I=(m.minX+m.maxX)/2,S=(m.minY+m.maxY)/2;w.forEach(({id:v,node:N,parent:O})=>{e.setNode(v,N),O!==void 0&&e.setParent(v,O)}),k.forEach(({edge:v,label:N})=>{e.setEdge(v,N)}),g.nodes().forEach(v=>{if(v===b)return;let N=g.node(v),O=e.node(v);O&&N&&typeof N.x=="number"&&typeof N.y=="number"&&(O.x=C+(N.x-I),O.y=j+(N.y-S))}),delete _._dagreClusterSubgraph}),r.forEach(b=>{var w,k;let g=e.node(b),m=o[b];if(g&&g.rankdir&&g._dagreClusterSubgraph&&m){let _=g._dagreClusterSubgraph,C=(w=g.x)!=null?w:0,j=(k=g.y)!=null?k:0,I=(m.minX+m.maxX)/2,S=(m.minY+m.maxY)/2;_.nodes().forEach(G=>{if(G===b)return;let x=_.node(G),v=e.node(G);if(v&&x&&typeof x.x=="number"&&typeof x.y=="number"){let N=x.x-I,O=x.y-S;v.x=C+N,v.y=j+O}}),delete g._dagreClusterSubgraph}})}function Cn(e,n,t,r=null){var l,u;let o=(t==null?void 0:t.useDynamic)!==!1,i=o&&(l=r==null?void 0:r.graph)!=null?l:null,s=o&&(u=r==null?void 0:r.rawNodes)!=null?u:null;n("    makeSpaceForEdgeLabels",()=>Er(e)),n("    removeSelfEdges",()=>_r(e)),n("    acyclic",()=>Je(e,i)),n("    nestingGraph.run",()=>cn(e)),n("    rank",()=>ln(ne(e))),n("    injectEdgeLabelProxies",()=>Lr(e)),n("    removeEmptyRanks",()=>Xe(e)),n("    nestingGraph.cleanup",()=>hn(e)),n("    normalizeRanks",()=>Be(e)),n("    assignRankMinMax",()=>yr(e)),n("    removeEdgeLabelProxies",()=>wr(e)),n("    normalize.run",()=>Qe(e)),n("    parentDummyChains",()=>un(e)),n("    addBorderSegments",()=>gn(e)),n("    order",()=>se(e,t,s)),n("    insertSelfEdges",()=>Or(e)),n("    adjustCoordinateSystem",()=>mn(e)),n("    position",()=>xn(e,t.corePath)),n("    positionSelfEdges",()=>Cr(e));let a=JSON.parse(JSON.stringify(e._nodes));return n("    removeBorderNodes",()=>xr(e)),n("    normalize.undo",()=>Ze(e)),n("    fixupEdgeLabelCoords",()=>vr(e)),n("    undoCoordinateSystem",()=>En(e)),n("    translateGraph",()=>Nr(e)),n("    assignNodeIntersects",()=>Gr(e)),n("    reversePoints",()=>kr(e)),n("    acyclic.undo",()=>Ke(e)),{graph:e,rawNodes:a}}function Tn(e,n){e.nodes().forEach(t=>{let r=e.node(t),o=n.node(t);r&&(r.x=o.x,r.y=o.y,r.order=o.order,r.rank=o.rank,n.children(t).length&&(r.width=o.width,r.height=o.height))}),e.edges().forEach(t=>{let r=e.edge(t),o=n.edge(t);r.points=o.points,Object.hasOwn(o,"x")&&(r.x=o.x,r.y=o.y)}),e.graph().width=n.graph().width,e.graph().height=n.graph().height}var cr=["nodesep","edgesep","ranksep","marginx","marginy"],fr={ranksep:50,edgesep:20,nodesep:50,rankdir:"TB",rankalign:"center"},hr=["acyclicer","ranker","rankdir","align","rankalign"],br=["width","height","rank"],jn={width:0,height:0},gr=["minlen","weight","width","height","labeloffset"],pr={minlen:1,weight:1,width:0,height:0,labeloffset:10,labelpos:"r"},mr=["labelpos"];function Rn(e){let n=new T({multigraph:!0,compound:!0}),t=Te(e.graph());return n.setGraph(Object.assign({},fr,Ce(t,cr),B(t,hr))),e.nodes().forEach(r=>{let o=Te(e.node(r)),i=Ce(o,br);Object.keys(jn).forEach(a=>{i[a]===void 0&&(i[a]=jn[a])}),n.setNode(r,i);let s=e.parent(r);s!==void 0&&n.setParent(r,s)}),e.edges().forEach(r=>{let o=Te(e.edge(r));n.setEdge(r,Object.assign({},pr,Ce(o,gr),B(o,mr)))}),n}function Er(e){let n=e.graph();n.ranksep/=2,e.edges().forEach(t=>{var o;let r=e.edge(t);r.minlen*=2,((o=r.labelpos)!=null?o:"r").toLowerCase()!=="c"&&(n.rankdir==="TB"||n.rankdir==="BT"?r.width+=r.labeloffset:r.height+=r.labeloffset)})}function Lr(e){e.edges().forEach(n=>{let t=e.edge(n);if(t.width&&t.height){let r=e.node(n.v),i={rank:(e.node(n.w).rank-r.rank)/2+r.rank,e:n};M(e,"edge-proxy",i,"_ep")}})}function yr(e){let n=0;e.nodes().forEach(t=>{let r=e.node(t);r.borderTop&&(r.minRank=e.node(r.borderTop).rank,r.maxRank=e.node(r.borderBottom).rank,n=Math.max(n,r.maxRank))}),e.graph().maxRank=n}function wr(e){e.nodes().forEach(n=>{let t=e.node(n);if(t.dummy==="edge-proxy"){let r=t;e.edge(r.e).labelRank=t.rank,e.removeNode(n)}})}function Nr(e){let n=Number.POSITIVE_INFINITY,t=0,r=Number.POSITIVE_INFINITY,o=0,i=e.graph(),s=i.marginx||0,a=i.marginy||0;function l(u){let d=u.x,c=u.y,f=u.width,h=u.height;n=Math.min(n,d-f/2),t=Math.max(t,d+f/2),r=Math.min(r,c-h/2),o=Math.max(o,c+h/2)}e.nodes().forEach(u=>l(e.node(u))),e.edges().forEach(u=>{let d=e.edge(u);Object.hasOwn(d,"x")&&l(d)}),n-=s,r-=a,e.nodes().forEach(u=>{let d=e.node(u);d.x-=n,d.y-=r}),e.edges().forEach(u=>{let d=e.edge(u);d.points.forEach(c=>{c.x-=n,c.y-=r}),Object.hasOwn(d,"x")&&(d.x-=n),Object.hasOwn(d,"y")&&(d.y-=r)}),i.width=t-n+s,i.height=o-r+a}function Gr(e){e.edges().forEach(n=>{if(n.v===n.w)return;let t=e.edge(n),r=e.node(n.v),o=e.node(n.w),i,s;t.points?(i=t.points[0],s=t.points[t.points.length-1]):(t.points=[],i=o,s=r),t.points.unshift(ue(r,i)),t.points.push(ue(o,s))})}function vr(e){e.edges().forEach(n=>{let t=e.edge(n);if(Object.hasOwn(t,"x"))switch((t.labelpos==="l"||t.labelpos==="r")&&(t.width-=t.labeloffset),t.labelpos){case"l":t.x-=t.width/2+t.labeloffset;break;case"r":t.x+=t.width/2+t.labeloffset;break}})}function kr(e){e.edges().forEach(n=>{let t=e.edge(n);t.reversed&&t.points.reverse()})}function xr(e){e.nodes().forEach(n=>{if(e.children(n).length){let t=e.node(n),r=e.node(t.borderTop),o=e.node(t.borderBottom),i=e.node(t.borderLeft[t.borderLeft.length-1]),s=e.node(t.borderRight[t.borderRight.length-1]);t.width=Math.abs(s.x-i.x),t.height=Math.abs(o.y-r.y),t.x=i.x+t.width/2,t.y=r.y+t.height/2}}),e.nodes().forEach(n=>{e.node(n).dummy==="border"&&e.removeNode(n)})}function _r(e){e.edges().forEach(n=>{if(n.v===n.w){let t=e.node(n.v);t.selfEdges||(t.selfEdges=[]),t.selfEdges.push({e:n,label:e.edge(n)}),e.removeEdge(n)}})}function Or(e){P(e).forEach(t=>{let r=0;t.forEach((o,i)=>{let s=e.node(o);typeof s.rank!="number"&&(s.rank=0),s.order=i+r,(s.selfEdges||[]).forEach(a=>{M(e,"selfedge",{width:a.label.width,height:a.label.height,rank:s.rank,order:i+ ++r,e:a.e,edgeLabel:a.label},"_se"),(!Array.isArray(a.label.points)||a.label.points.length!==7)&&(a.label.points=[{x:0,y:-10},{x:0,y:-10},{x:0,y:0},{x:0,y:10},{x:0,y:10},{x:0,y:0},{x:0,y:0}])}),delete s.selfEdges})})}function Cr(e){e.nodes().forEach(n=>{let t=e.node(n),r=o=>typeof o=="number"&&isFinite(o);if(t.dummy==="selfedge"){let o=t,i=e.node(o.e.v),s=r(i==null?void 0:i.x)?i.x:0,a=r(i==null?void 0:i.y)?i.y:0,l=r(i==null?void 0:i.width)?i.width:0,u=r(i==null?void 0:i.height)?i.height:0,d=r(t.x)?t.x:s,c=r(t.y)?t.y:a,f=l/2,h=u/2;o.edgeLabel.points=[{x:d+f,y:c-h},{x:d+f,y:c-h},{x:d,y:c},{x:d-f,y:c+h},{x:d-f,y:c+h},{x:d,y:c},{x:d,y:c}],o.edgeLabel.x=d,o.edgeLabel.y=c,e.setEdge(o.e,o.edgeLabel),e.removeNode(n)}else t&&Array.isArray(t.selfEdges)&&t.selfEdges.forEach(o=>{if(!Array.isArray(o.label.points)||o.label.points.length!==7){let i=r(t.x)?t.x:0,s=r(t.y)?t.y:0,a=r(t.width)?t.width:0,l=r(t.height)?t.height:0,u=a/2,d=l/2;o.label.points=[{x:i+u,y:s-d},{x:i+u,y:s-d},{x:i,y:s},{x:i-u,y:s+d},{x:i-u,y:s+d},{x:i,y:s},{x:i,y:s}]}})})}function Ce(e,n){return X(B(e,n),Number)}function Te(e){let n={};return e&&Object.entries(e).forEach(([t,r])=>{typeof t=="string"&&(t=t.toLowerCase()),n[t]=r}),n}function de(e){let n=P(e),t=new T({compound:!0,multigraph:!0}).setGraph({});return e.nodes().forEach(r=>{t.setNode(r,{label:r}),t.setParent(r,"layer"+e.node(r).rank)}),e.edges().forEach(r=>t.setEdge(r.v,r.w,{},r.name)),n.forEach((r,o)=>{let i="layer"+o;t.setNode(i,{rank:"same"}),r.reduce((s,a)=>(t.setEdge(s,a,{style:"invis"}),a))}),t}var Tr={time:he,notime:q},jr={graphlib:ee,version:re,layout:ae,debug:de,util:{time:he,notime:q}},Rr=jr;return Vn(Ir);})();
 /* ── 埋め込みここまで ── */
 </script>
 </body>
