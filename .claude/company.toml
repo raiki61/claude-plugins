@@ -79,11 +79,13 @@ autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（
 # 部署の成果を本流に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
 # 関門は部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
 # 件数の柵（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
+# 最後に、枝が書いた文書を初見の読み手に読ませ、詰まりが在れば止める（gates の branch-check。推測で埋めた箇所だけなら通す。読み 1 回に 2〜4 分。
+# 同じ中身の判定は覚えるので、載せ直しの打ち直しでは読み直さない）。安い関門を先に、遅い初見読みを最後に並べる
 # mode の名前 ff-after-ci は「関門の後に早送り」の意味で、関門が CI とは限らない。ここは gate = "check"（手元の検証）なので CI を待たない
 [land]
 mode = "ff-after-ci"
 gate = "check"
-check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh"
+check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 gates/hooks/coldread-gate.py branch-check"
 bump = "marketplace"
 
 # 組織の決まり（この会社の作り方。スキルの決まりではない）
