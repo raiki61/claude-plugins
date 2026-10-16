@@ -545,6 +545,24 @@ class BumpAtLand(LandCase):
         self.assertEqual(bump.plan(src, gitx), ([], None), "版を上げた後も据え置きと数える")
 
 
+    def test_tests_and_docs_only_are_a_patch_even_under_changed(self):
+        # 記録が Changed の節でも、版を最後に上げた後に変えたのが試験と文書だけなら patch。利用者が動かす物を変えたら minor
+        w = World(self.tmp, marketplace_files())
+        src = w.source
+        changed = CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Changed\n\n- 同梱の試験を直した\n")
+        write(os.path.join(src, "one", "tests", "test_x.py"), "assert True\n")
+        write(os.path.join(src, "one", "docs", "a.md"), "直した\n")
+        write(os.path.join(src, "one", "CHANGELOG.md"), changed)
+        write(os.path.join(src, "two", "y.py"), "2\n")
+        write(os.path.join(src, "two", "CHANGELOG.md"), changed.replace("0.1.0", "0.2.3"))
+        commit(src, "one は試験と文書、two は中身")
+        rows, market = bump.plan(src, gitx)
+        self.assertEqual([(r["name"], r["new"], r["level"], bool(r["why"])) for r in rows],
+                         [("one", "0.1.1", "patch", True), ("two", "0.3.0", "minor", False)])
+        self.assertEqual(market, ("0.9.0", "0.10.0"))
+        self.assertTrue(bump.quiet("one/README.md", "one"))
+        self.assertFalse(bump.quiet("one/skills/x/SKILL.md", "one"), "SKILL.md は Claude Code が読んで動く物")
+
     def test_empty_unreleased_stops_without_a_version(self):
         """中身の無い版は作らない: 置き場を変えたのに `## [Unreleased]` が空なら、版を上げずに止め、本流に入れない。"""
         files = marketplace_files()

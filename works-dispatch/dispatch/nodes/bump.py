@@ -9,8 +9,9 @@
 - 据え置き: プラグインの置き場（plugins[].source）のファイルを、その plugin.json の version を今の値にした commit より後に
   変えた commit が有る（その marketplace の試験 VERSION_BUMP_OK と同じ数え方）。
 - 上げ幅: そのプラグインの CHANGELOG.md の `## [Unreleased]` に Added・Changed・Deprecated・Removed の節が有れば
-  minor（x.Y.0）、無ければ patch（x.y.Z）。marketplace の metadata.version は、minor を上げたプラグインが 1 つでも有れば minor、
-  無ければ patch。
+  minor（x.Y.0）、無ければ patch（x.y.Z）。ただし版を最後に上げた後に変えたファイルが試験と文書だけ（QUIET。利用者が動かす物を
+  変えていない）なら、節によらず patch（Semantic Versioning の minor は「後方互換のある機能の追加」で、試験と文書だけの直しは
+  当たらない）。marketplace の metadata.version は、minor を上げたプラグインが 1 つでも有れば minor、無ければ patch。
 - 同じ commit で、plugin.json の version・marketplace.json の metadata.version・CHANGELOG.md の `## [Unreleased]` の中身を
   `## [<版>] - <日付>` の下へ移す（`## [Unreleased]` の見出しは空で残す）。
 - 件名は `chore(<名前>, …): 版を上げる（<名前> <版> / … / marketplace <版>）`。
@@ -52,7 +53,8 @@ def raise_version(version, level):
 
 
 def stale(root, plugins, g):
-    """版が据え置きのプラグインの {名前: 置き場}。版を最後に変えた commit を、今の版を持つ commit が続く一番古い物とする。"""
+    """版が据え置きのプラグインの {名前: (置き場, 版を最後に変えた commit)}。版を最後に変えた commit を、今の版を持つ commit が
+    続く一番古い物とする。"""
     out = {}
     for p in plugins:
         src = posixpath.normpath(p["source"])
@@ -64,7 +66,7 @@ def stale(root, plugins, g):
                 break
             bump = c
         if bump is not None and g.commits_touching(root, src, since=bump):
-            out[p["name"]] = src
+            out[p["name"]] = (src, bump)
     return out
 
 
@@ -84,6 +86,20 @@ def has_entries(text):
     return any(line.strip() and not line.lstrip().startswith("#") for line in lines[head + 1:end])
 
 
+def quiet(path, src):
+    """プラグインの置き場 src の下のファイル path（リポジトリの根からの相対）が、試験か文書か（利用者が動かす物でないか）。
+    試験は tests・test のフォルダの下と test_*.py・*_test.py・conftest.py、文書は docs のフォルダの下と、置き場の直下の
+    README.md・CHANGELOG.md・CONTRIBUTING.md・LICENSE。SKILL.md やエージェントの .md は、Claude Code が読んで動く物なので文書に数えない。"""
+    rel = posixpath.relpath(path, src)
+    parts = rel.split("/")
+    name = parts[-1]
+    if any(d in ("tests", "test", "docs") for d in parts[:-1]):
+        return True
+    if name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py") or name == "conftest.py":
+        return True
+    return len(parts) == 1 and name in ("README.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE")
+
+
 def level_of(text):
     head, end, lines = unreleased(text)
     return "minor" if any(line.strip() in (f"### {s}" for s in MINOR) for line in lines[head + 1:end]) else "patch"
@@ -98,19 +114,21 @@ def move_unreleased(text, version, date):
 
 
 def plan(root, g):
-    """上げる物の並び [{name, source, old, new, level}] と、marketplace の (old, new)。据え置きが無ければ ([], None)。
+    """上げる物の並び [{name, source, old, new, level, why（上げ幅を記録の節と違えた訳か None）}] と、marketplace の (old, new)。据え置きが無ければ ([], None)。
     据え置きのどれかの `## [Unreleased]` に中身が無ければ BumpError（ファイルは書かない）。"""
     mk = json.loads(_read(root, MARKETPLACE))
     plugins = [p for p in mk.get("plugins", []) if isinstance(p.get("source"), str) and p["source"].startswith("./")]
     rows, empty = [], []
-    for name, src in sorted(stale(root, plugins, g).items()):
+    for name, (src, since) in sorted(stale(root, plugins, g).items()):
         old = json.loads(_read(root, posixpath.join(src, PLUGIN)))["version"]
         log = _read(root, posixpath.join(src, "CHANGELOG.md"))
         if not has_entries(log):
             empty.append(f"{name}（{src}/CHANGELOG.md）")
             continue
-        level = level_of(log)
-        rows.append({"name": name, "source": src, "old": old, "new": raise_version(old, level), "level": level})
+        level, why = level_of(log), None
+        if level == "minor" and all(quiet(f, src) for f in g.changed_paths(root, since, src)):
+            level, why = "patch", "変えたのは試験と文書だけなので、記録の節によらず patch"
+        rows.append({"name": name, "source": src, "old": old, "new": raise_version(old, level), "level": level, "why": why})
     if empty:
         raise BumpError(f"版を最後に上げた後に中身を変えたのに、`## [Unreleased]` に利用者に効く違いが書いてない: {'、'.join(empty)}。"
                         "中身の無い版は作らないので、違いを書き足して commit してから打ち直す")

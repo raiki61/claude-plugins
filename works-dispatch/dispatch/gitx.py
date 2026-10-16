@@ -273,6 +273,11 @@ def commits_touching(cwd, path, since=None, runner=_default_runner):
     return _must(["git", "-C", cwd, "log", "--format=%H", *([f"{since}..HEAD"] if since else []), "--", path], runner).split()
 
 
+def changed_paths(cwd, since, path, runner=_default_runner):
+    """since から HEAD までに変わった、path（cwd からの相対）の下のファイルの並び（リポジトリの根からの相対）。読めなければ GitError。"""
+    return _must(["git", "-C", cwd, "diff", "--name-only", since, "HEAD", "--", path], runner).splitlines()
+
+
 def origin_head(cwd, runner=_default_runner):
     """origin の既定の枝を指す手元の ref（origin/HEAD が指す先。例 origin/main）。origin/HEAD が無い・git でない時は None。
     手元の ref を読むだけで、origin へは問い合わせない（最後に fetch・push した時の形）。"""

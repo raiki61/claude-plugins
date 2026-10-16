@@ -136,6 +136,9 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             if got["sha"]:
                 candidate = got["sha"]
                 print(f"版を上げた: {got['subject']}（commit {candidate[:7]}）")
+                for r in got["rows"]:
+                    if r.get("why"):
+                        print(f"注記: {r['name']} は{r['why']}")
             else:
                 print("版の据え置きは無い（版を上げる commit は作らない）")
         if rules["gate"] == land.GATE_CHECK:
@@ -235,7 +238,8 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         if rules["bump"]:
             plan, market = bump.plan(path, g)
             if plan:
-                print("上げる版: " + " / ".join(f"{r['name']} {r['old']} → {r['new']}（{r['level']}）" for r in plan)
+                print("上げる版: " + " / ".join(f"{r['name']} {r['old']} → {r['new']}（{r['level']}" + (f"。{r['why']}" if r.get("why") else "") + "）"
+                                       for r in plan)
                       + f" / marketplace {market[0]} → {market[1]}（一時の場所で、部署の枝の先頭の上に commit を足す）")
             else:
                 print("上げる版: 無い（版の据え置きが無いので、版を上げる commit は作らない）")
