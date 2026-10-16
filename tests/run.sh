@@ -2251,7 +2251,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=664
+EXPECTED_CHECKS=665
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2774,7 +2774,7 @@ def in_plain():
     (plain / "d/c.md").write_text("c\n", encoding="utf-8")
     (plain / "e.rst").write_text("e\n", encoding="utf-8")
 cmd = ("cat > %s/a.md <<'EOF'\nhello\nEOF\necho hi | tee b.md >/dev/null && cp a.md c.md && mv c.md d/ "
-       "&& sed -i.bak s/x/y/ e.rst && cat untouched.md > /dev/null" % plain)
+       "&& sed -i.bak s/x/y/ e.rst && cat untouched.md > /dev/null" % plain.as_posix())   # \ 区切りは Git Bash に落とされる
 bash("s2", "tu2", plain, cmd, in_plain)
 got = pending("s2")
 want = sorted(real(plain / n) for n in ("a.md", "b.md", "c.md", "d/c.md", "e.rst"))
@@ -3281,14 +3281,33 @@ expect_output 0 "上限より大きい" "上限より大きい本文ファイル
     env COLDREAD_MAX_LEN=300 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/body.md"
 expect_output 0 "読めない" "無い本文ファイルは止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/no-such.md"
-# FIFO は書き手を待ってフックを止める(止まるとフックの timeout で無検査で通る)。O_NONBLOCK で開き、fstat で通常のファイルかを見る
-if mkfifo "$CR_FDIR/fifo.md" 2>/dev/null; then
+# FIFO は書き手を待ってフックを止める(止まるとフックの timeout で無検査で通る)。O_NONBLOCK で開き、fstat で通常のファイルかを見る。
+# 走らせるのはフックの Python から FIFO に見えるときだけ——Windows の Git Bash の mkfifo が作る物は、ネイティブの Python からは
+# FIFO に見えない(run 38840103784 で実測。読むと UTF-8 でない中身が返った)。gh もネイティブなので待たされない
+if mkfifo "$CR_FDIR/fifo.md" 2>/dev/null \
+    && "$PY_BIN" -c 'import os, stat, sys; sys.exit(not stat.S_ISFIFO(os.stat(sys.argv[1]).st_mode))' "$CR_FDIR/fifo.md"; then
     expect_output 0 "通常のファイルでない" "FIFO の本文ファイルは待たずに止める" \
         "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_FDIR/fifo.md"
 else
-    cr_fifo_skip="  ok   FIFO の本文ファイルは待たずに止める # SKIP fifo: mkfifo が無い"
+    cr_fifo_skip="  ok   FIFO の本文ファイルは待たずに止める # SKIP fifo: mkfifo が無いか、フックの Python から FIFO に見えない"
     echo "$cr_fifo_skip"; note_skips "$cr_fifo_skip"; ran=$((ran + 1))
 fi
+# Windows の Bash の道具は Git Bash なので、コマンドの中のパスは /c/…・/tmp/… の形で来る。ネイティブの Python のフックは
+# cygpath で直して読む(上の本文ファイルの検査が Windows でこの道を通る)。cygpath が無いときの倒れ方は、ここで os.name を
+# 差し替えてどの OS でも見る: ドライブの形だけを直し、/tmp のような割り当ては推し量らずに止める側(None)へ
+expect_output 0 "NATIVE_PATH_OK" "Windows では Git Bash の形のパスを cygpath で直し、無ければドライブの形だけを直して、ほかは止める側に倒す" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''import os, shutil
+same = all(g.native_path(p) == p for p in ("/tmp/x.md", "C:/x.md", "rel/x.md"))
+real, os.name = os.name, "nt"
+try:
+    g._native_cache.clear()
+    drive = g.native_path("/c/Users/a b/x.md") == "C:\\Users\\a b\\x.md" and g.native_path("/d") == "D:\\"
+    kept = all(g.native_path(p) == p for p in ("C:/x.md", "rel/x.md", "//srv/share/x.md"))
+    tmp = g.native_path("/tmp/x.md")
+finally:
+    os.name = real
+tmp_ok = tmp is None if shutil.which("cygpath") is None else bool(tmp) and not tmp.startswith("/")
+print("NATIVE_PATH_OK" if (same or real == "nt") and drive and kept and tmp_ok else "BAD same=%r drive=%r kept=%r tmp=%r" % (same, drive, kept, tmp))' "$ROOT/gates/hooks/coldread-gate.py"
 # 別の目のレビュー(2026-10-16)が見つけた、読んだ中身と gh が読む中身がずれる形。どれも「読めない」に倒す
 mkdir -p "$CR_FDIR/b"
 printf 'MARK_OTHER %s %s\n' "$CR_BODY" "$CR_PAD" > "$CR_FDIR/b/body.md"

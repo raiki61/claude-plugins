@@ -923,6 +923,37 @@ def single_quoted_dollar(text):
     return False
 
 
+_MSYS_DRIVE_RE = re.compile(r"/([A-Za-z])(?=/|$)")
+_native_cache = {}
+
+
+def native_path(p):
+    """コマンドに書かれたパスを、フックの Python が開ける形にする。直せなければ None(止める側)。
+
+    Windows の Claude Code は Bash の道具を Git Bash(MSYS2)で走らせるので、コマンドの中のパスは `/c/Users/…`・
+    `/tmp/…` の POSIX 形で書かれうる。フックの Python はネイティブの Windows で動き、その形を開けない(`/tmp/x` は
+    `C:\\tmp\\x` と読まれる)。MSYS2 が同梱する cygpath(`-w` で Windows の形を出す)で直し、cygpath が無ければ
+    ドライブの形(`/c/…` → `C:\\…`)だけを直す。`/tmp` などの割り当ては Git の入れ場所で変わるので推し量らない。
+    Windows 以外と、`/` で始まらないパス(`C:/…`・相対パス)はそのまま返す。
+    """
+    if os.name != "nt" or not p.startswith("/") or p.startswith("//"):
+        return p
+    if p not in _native_cache:
+        out = None
+        try:
+            r = subprocess.run(["cygpath", "-w", p], capture_output=True, timeout=5,   # 掛かれば止める側に倒す
+                               env=dict(os.environ, LC_ALL="C.UTF-8"))
+            if r.returncode == 0:
+                out = r.stdout.decode("utf-8").strip() or None
+        except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+            pass
+        if out is None:
+            m = _MSYS_DRIVE_RE.match(p)
+            out = m.group(1).upper() + ":\\" + p[3:].replace("/", "\\") if m else None
+        _native_cache[p] = out
+    return _native_cache[p]
+
+
 class BodyFiles:
     """1 つのコマンド文字列の中で、k 番目の単純コマンド(gh)が読む本文ファイルと変数を静的に解く。
 
@@ -1047,6 +1078,7 @@ class BodyFiles:
                 continue
             args = c.args[command_start(c.args):]
             dest = self.var(args[1]) if args[:1] == ["cd"] and len(args) == 2 else None
+            dest = native_path(dest) if dest else None
             ok = (dest and os.path.isabs(dest) and not self.conditional and self._runs(j, ("&&",))
                   and self._between(j, k, ("&&",), below_ok=False))
             cwd = dest if ok else None
@@ -1060,6 +1092,9 @@ class BodyFiles:
             # 入れ直していなければ)。`~user/` の形は開かない
             v = os.path.join(os.environ["HOME"], v[2:])
         if not v or v.startswith("~") or "__HEREDOC" in v or any(ch in v for ch in "*?["):
+            return None
+        v = native_path(v)
+        if not v:
             return None
         if not os.path.isabs(v):
             cwd = self.cwd_here(k)
