@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-16
+
 ### Fixed
 
 - `--ask 会社/役`（役で宛てた頼み）に部署の名前（`--task`）を添えたとき、その名前の部署へ届け、無ければ新しく立てる。0.17.0 までは、同じ役の常駐の部署が名前違いで 1 つ居るとそこへ届けていた（`--ask claude-plugins/担当 --task 点検` が、割り振りの担当に届いた）。

@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-16
+
 ### Fixed
 
 - `docs/from-other-plugins.md` の、リポジトリの checkout から走らせるときに探す `tiers/bin/tiers` の場所を、「同じ checkout の中で自分のプラグインのフォルダと並ぶ所（例: `works-dispatch/` から見て `../tiers/bin/tiers`）」と書き直した。前は「隣の」とだけ書き、自分のリポジトリと並ぶフォルダとも読めた。
