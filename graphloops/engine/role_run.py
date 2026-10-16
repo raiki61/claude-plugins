@@ -840,27 +840,77 @@ def number_reused(started, born):
 
 def _started_at(pid):
     """pid のプロセスの開始時刻（エポック秒）。居なければ GONE、確かめられなければ None。
-    POSIX は ps の etime（経過。[[dd-]hh:]mm:ss でロケールに依らない）から、Windows は Win32_Process の CreationDate
-    （ToFileTimeUtc の整数）から出す。開始時刻で見分けるのは psutil の Process と同じ形（番号＋作成時刻で同一性を持つ）
+    POSIX は ps の etime（経過。[[dd-]hh:]mm:ss でロケールに依らない）から、Windows は Win32 の GetProcessTimes の作成時刻
+    から出す（_win_started_at）。開始時刻で見分けるのは psutil の Process と同じ形（番号＋作成時刻で同一性を持つ）
     ——コマンド行の語で見ると、同じ engine が起こした兄弟の試行（同じ python・同じ with-auth.py）を見分けられない"""
-    if os.name == "posix":
-        argv = ["ps", "-o", "etime=", "-p", str(pid)]
-    else:
-        argv = ["powershell", "-NoProfile", "-Command",
-                f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}'; "
-                "if ($p) { 'alive:' + $p.CreationDate.ToFileTimeUtc() } else { 'gone' }"]
+    if os.name != "posix":
+        return _win_started_at(pid)
     now = time.time()   # ps を起こす前の時刻から引く（_ps_all と同じ——ps の遅れを開始時刻に乗せない）
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        r = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
-    if os.name != "posix":
-        return parse_cim(r.stdout)
     out = r.stdout.strip()
     if not out:
         return GONE if not r.stderr.strip() else None   # 居ない番号は出力も誤りの文も無い（exit 1）
     secs = parse_etime(out)
     return None if secs is None else now - secs
+
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_SYNCHRONIZE = 0x00100000
+_ERROR_ACCESS_DENIED = 5
+_ERROR_INVALID_PARAMETER = 87   # OpenProcess の『その番号のプロセスは居ない』（psutil の psutil_handle_from_pid と同じ読み）
+_STILL_ACTIVE = 259
+_WAIT_OBJECT_0, _WAIT_TIMEOUT = 0, 0x102
+
+
+def _win_started_at(pid):
+    """Windows の _started_at: OpenProcess → 終わったか → GetProcessTimes の作成時刻。外のプロセス（PowerShell の
+    Get-CimInstance）を起こさず、この中で Win32 を呼ぶ——外のプロセスを起こすと、負荷の高い機械で答えが返らない回
+    （確かめられない＝None）が出るうえ、起こした問いのプロセス自身が、空いた番号（問うている pid）を貰いうる。
+    終わったがハンドルが残っているプロセスも OpenProcess は開けるので、開けた後に終わったかを確かめて GONE と読む
+    （プロセスは終わると signaled になり、終了状態が STILL_ACTIVE から終了コードに変わる）。SYNCHRONIZE を拒まれる相手
+    （別の利用者・保護されたプロセス）は PROCESS_QUERY_LIMITED_INFORMATION だけで開き直し、終了状態で読む"""
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    k.GetExitCodeProcess.restype = wintypes.BOOL
+    k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    k.GetProcessTimes.restype = wintypes.BOOL
+    k.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+    k.CloseHandle.argtypes = (wintypes.HANDLE,)
+    sync = True
+    h = k.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION | _SYNCHRONIZE, False, int(pid))
+    if not h and ctypes.get_last_error() == _ERROR_ACCESS_DENIED:
+        sync = False
+        h = k.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+    if not h:
+        return GONE if ctypes.get_last_error() == _ERROR_INVALID_PARAMETER else None
+    try:
+        if sync:
+            w = k.WaitForSingleObject(h, 0)
+            if w == _WAIT_OBJECT_0:
+                return GONE
+            if w != _WAIT_TIMEOUT:
+                return None
+        else:
+            code = wintypes.DWORD()
+            if not k.GetExitCodeProcess(h, ctypes.byref(code)):
+                return None
+            if code.value != _STILL_ACTIVE:
+                return GONE
+        created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
+        if not k.GetProcessTimes(h, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+        return filetime_to_epoch((created.dwHighDateTime << 32) | created.dwLowDateTime)
+    finally:
+        k.CloseHandle(h)
 
 
 def parse_etime(s):
@@ -876,18 +926,9 @@ def parse_etime(s):
         return None
 
 
-def parse_cim(out):
-    """Windows の問い（'alive:<FILETIME>' か 'gone'）を _started_at の値に読む: gone → GONE、FILETIME → エポック秒、
-    それ以外（居るのに読めない・空）→ None（確かめられない）"""
-    out = (out or "").strip()
-    if out == "gone":
-        return GONE
-    if not out.startswith("alive:"):
-        return None
-    try:
-        return (int(out[len("alive:"):].strip()) - 116444736000000000) / 1e7   # 1601-01-01 からの 100ns → 1970 からの秒
-    except ValueError:
-        return None
+def filetime_to_epoch(ft):
+    """Windows の FILETIME（1601-01-01 からの 100ns の数）をエポック秒に"""
+    return (ft - 116444736000000000) / 1e7
 
 
 def read_mark(pgid_file):

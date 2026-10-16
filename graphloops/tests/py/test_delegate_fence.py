@@ -316,11 +316,24 @@ def test_kill_stops_the_grandchild_while_the_leader_lives():
     p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
     try:
         grand = int(p.stdout.readline().strip())
+        born = role_run._started_at(grand)
+        assert isinstance(born, float), f"孫 {grand} の開始時刻を読めない（{born}）"
         assert role_run._kill(p) is None
+
+        def gone():
+            """孫が居ない: 番号が居ないか、番号を別のプロセスが貰った（Windows は番号をすぐ使い回すので、番号だけで見ない。
+            開始時刻は Windows では 100ns の FILETIME で一致を見られ、POSIX は ps の秒の切り捨てを REUSE_SLACK で見る）"""
+            now = role_run._started_at(grand)
+            if not isinstance(now, float):
+                return now == role_run.GONE, now
+            return (role_run.number_reused(now, born) if os.name == "posix" else now != born), now
+
         t0 = time.monotonic()   # 止めた孫は回収・終わりが非同期なので、居なくなるまで数え直す（1 回見は回収前を生きていると読む）
-        while role_run._started_at(grand) != role_run.GONE and time.monotonic() - t0 < 30:
+        done, now = gone()
+        while not done and time.monotonic() - t0 < 30:
             time.sleep(0.2)
-        assert role_run._started_at(grand) == role_run.GONE, f"孫 {grand} が残った"
+            done, now = gone()
+        assert done, f"孫 {grand} が残った（開始時刻 {born} → {now}）"
     finally:
         if p.poll() is None:
             p.kill()

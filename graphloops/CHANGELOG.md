@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows で、プロセスが居るか・いつ始まったかの確かめ（子の残りを止める `loop.py children`・試し直しの前の確かめ・止めた後の確かめが使う）が、負荷の高い機械で答えを返さず「確かめられない」になり、止めるべき子を見送ることがあった。PowerShell（`Get-CimInstance`）を起こすのをやめ、Win32 の `OpenProcess`・`GetProcessTimes` をその場で呼ぶようにした。終わったがハンドルの残っているプロセスは「居ない」と読む。
+
 ## [0.24.3] - 2026-10-15
 
 ### Changed

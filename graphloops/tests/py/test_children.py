@@ -104,11 +104,17 @@ def test_stop_needs_a_reason(tmp_path):
 
 
 def test_stop_stops_a_real_left_tree_and_skips_a_running_one(tmp_path):
-    """本物の子: launch が居ない印の子は既定で止まり印も消える。自分（生きている launch）が書いた印の子は旗まで残る"""
+    """本物の子: launch が居ない印の子は既定で止まり印も消える。自分（生きている launch）が書いた印の子は旗まで残る。
+    居ない launch の印は試行の終わりに書き直した形（left と born）で、更新時刻を 60 秒前に置く——居ない launch の番号は
+    すぐ別のプロセスに使い回されうる（Windows）ので、印より後に始まったプロセスを別物と読む見分け（number_reused）が
+    使い回しの時刻に依らず効くように。born は子を起こした後の時刻（それより後に始まった子は居ない）"""
     d = board(tmp_path)
     left, running = sleeper(), sleeper()
+    born = time.time()
     try:
-        ml = put(d / "out" / "r1" / "left.json.pgid", {"pgid": left.pid, "owner": dead_pid()})
+        ml = put(d / "out" / "r1" / "left.json.pgid", {"left": [{"pgid": left.pid, "born": born}], "owner": dead_pid()})
+        past = time.time() - 60
+        os.utime(ml, (past, past))
         mr = put(d / "out" / "r1" / "run.json.pgid", {"pgid": running.pid, "owner": os.getpid()})
         rows = {r["mark"]: r for r in children.stop(d, "検査")}
         assert rows[os.path.join("out", "r1", "left.json.pgid")]["result"] == "stopped" and settle(left) and not ml.exists()

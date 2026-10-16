@@ -1824,13 +1824,12 @@ def test_role_run():
     check(not r["ok"] and "標準出力が空" in (r["why"] or "") and r["accepted"] is None,
           f"空の標準出力は受け付けに回さない（{r['why']}）")
     ans.write_text('{"ok": 1}', encoding="utf-8")
-    # 番号の再利用の見分けは開始時刻で（POSIX は ps の etime、Windows は CreationDate の FILETIME）
+    # 番号の再利用の見分けは開始時刻で（POSIX は ps の etime、Windows は GetProcessTimes の作成時刻の FILETIME）
     check(role_run.parse_etime("05:07") == 307 and role_run.parse_etime("2-01:00:00") == 2 * 86400 + 3600
           and role_run.parse_etime("x") is None and role_run.parse_etime("") is None,
           "ps の etime（[[dd-]hh:]mm:ss）を秒に読む（読めなければ None——確かめられない）")
-    check(role_run.parse_cim("gone\r\n") == role_run.GONE and role_run.parse_cim("alive:116444736000000000") == 0.0
-          and role_run.parse_cim("alive:") is None and role_run.parse_cim("") is None,
-          "Windows: 居ない・開始時刻・読めない（確かめられない＝止めずに拒む）を分ける")
+    check(role_run.filetime_to_epoch(116444736000000000) == 0.0 and role_run.filetime_to_epoch(116444736010000000) == 1.0,
+          "Windows: 作成時刻の FILETIME（1601-01-01 からの 100ns）をエポック秒に読む")
     check(role_run.stop_group(str(tmp / "no-mark.json.pgid")) is None, "印が無ければ止める物は無い（relaunch は素通り）")
     if os.name == "posix":
         lock = parallel.creator_lock(tmp)   # 固定具の子の寿命をこの台本のプロセスに縛る（parallel.hold_code）

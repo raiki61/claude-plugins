@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 import types
 
 import pytest
@@ -196,15 +197,25 @@ def test_protected_paths_is_undecided_when_git_answers_partly(tmp_path, monkeypa
     assert role_run.protected_paths(tmp_path) is None
 
 
-def test_started_at_on_windows_reads_the_cim_answer(monkeypatch):
-    """Windows は PowerShell の答え（alive:<FILETIME>）を開始時刻に読む（ps の etime として読まない）"""
-    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="nt"))
-    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 0, "alive:116444736000000000\r\n", ""))
-    assert role_run._started_at(4242) == 0.0
+def test_filetime_to_epoch():
+    """Windows の作成時刻（FILETIME: 1601-01-01 からの 100ns）をエポック秒に読む"""
+    assert role_run.filetime_to_epoch(116444736000000000) == 0.0 and role_run.filetime_to_epoch(116444736010000000) == 1.0
 
 
-def test_parse_cim_needs_the_alive_prefix():
-    assert role_run.parse_cim("116444736000000000") is None   # 接頭の無い数を開始時刻と読まない
+def test_started_at_reads_a_real_process_and_its_end():
+    """本物の子の開始時刻を読み、終わって回収した後は居ない（か、番号を別のもっと後のプロセスが貰った）と読む。OS で見送らない
+    ——POSIX は ps の道、Windows は Win32 の道（_win_started_at）を通る。Windows は番号をすぐ使い回すので、終わった後は番号
+    だけでなく開始時刻で見分ける"""
+    born = time.time()
+    p = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
+    try:
+        started = role_run._started_at(p.pid)
+        assert isinstance(started, float) and born - role_run.REUSE_SLACK <= started <= time.time()
+    finally:
+        p.stdin.close()
+        p.wait()
+    after = role_run._started_at(p.pid)
+    assert after == role_run.GONE or (isinstance(after, float) and after > started)
 
 
 def test_started_at_unreadable_etime_is_unknown(monkeypatch):
