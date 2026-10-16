@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Changed
+
+- 文書だけの直し: plugin.json と marketplace の説明の「各プラグインがこれに依存する」を、今つないでいるのは works-dispatch だけ、に合わせる。振る舞いは変わらない。
+
 ## [0.4.4] - 2026-10-17
 
 ### Fixed

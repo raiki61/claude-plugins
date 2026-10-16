@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- 文書だけの直し: README が指す convergence-loops の命令書の置き場を、根の `commands/` から今の `convergence-loops/commands/` に直す。差分を確かめる `git diff` には移す前と後の両方の置き場を渡す。振る舞いは変わらない。
+
 ## [0.26.0] - 2026-10-16
 
 ### Changed

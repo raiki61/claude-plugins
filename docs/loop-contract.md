@@ -165,11 +165,11 @@
 
 ## P. Workflow ツールへの依存
 
-**内容**: Workflow が使えない環境でも同じ構造が動く（`docs/customize.md`「Workflow ツールが無い環境」）。research の P1 は Workflow の script で回すが、無ければ Agent の並列起動で再現する。
+**内容**: Workflow が使えない環境でも同じ構造が動く（`convergence-loops/docs/customize.md`「Workflow ツールが無い環境」）。research の P1 は Workflow の script で回すが、無ければ Agent の並列起動で再現する。
 
 **今どこが守っているか**: **散文だけ**。doctor は `allowed-tools` に `Workflow` を宣言しているが本文が一度も使わない（既知の未決）。
 
-**どう確かめるか**: 依存が変わるなら `docs/customize.md` の制約を先に決め直す。Workflow の subagent が死ぬと `agent()` が `null` を返し、script の `filter(Boolean)` がそのクラスタを黙って落とす——落ちたことは件数突合で初めて見える（→ V）。
+**どう確かめるか**: 依存が変わるなら `convergence-loops/docs/customize.md` の制約を先に決め直す。Workflow の subagent が死ぬと `agent()` が `null` を返し、script の `filter(Boolean)` がそのクラスタを黙って落とす——落ちたことは件数突合で初めて見える（→ V）。
 
 ## Q. 正本の置き場所——列挙を手順書に持ち込まない
 

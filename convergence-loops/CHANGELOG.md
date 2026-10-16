@@ -1,10 +1,14 @@
 # 変更の記録（convergence-loops）
 
-convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/firstread-loop` と、役割 agent・記録の検証器）の版ごとの、利用者に効く違いを新しい順に並べる。この記録は convergence-loops の物で、marketplace 全体の記録ではない。ほかの plugin の記録は、それぞれの置き場（`gates/`・`coldwrite/`・`attention/`・`graphloops/`）の `CHANGELOG.md` に在る。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
+convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/firstread-loop` と、役割 agent・記録の検証器）の版ごとの、利用者に効く違いを新しい順に並べる。この記録は convergence-loops の物で、marketplace 全体の記録ではない。ほかの plugin の記録は、それぞれの置き場（`gates/`・`attention/`・`graphloops/`・`tiers/`・`works/`・`works-dispatch/`・`works-factory/`）の `CHANGELOG.md` に在る。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
 
 版の出し方（この記録を書き足す段。git の tag は作らない）は、[docs/releasing.md](../docs/releasing.md) に在る。0.1.0〜0.7.2 は plugin の名前が review-loops だった版で、この記録には版を残す。0.39.0 は出していない。
 
 ## [Unreleased]
+
+### Changed
+
+- 文書だけの直し: この記録の頭が挙げるほかのプラグインの記録の置き場を今の顔ぶれに合わせる（改名した coldwrite を外し、tiers・works・works-dispatch・works-factory を足す）。振る舞いは変わらない。
 
 ## [0.44.1] - 2026-10-15
 
