@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- `--check` が要る道具の段の点検（tiers）で止まるとき、足りない物ごとに、入れ方の行の下へ tiers の案内（`--json` の `guide`。tiers 0.2.0 から）を字下げで出す。終わりに「詳しい案内は /tiers:check で見られる」を 1 行足す。`guide` の無い前の版の tiers でも、前と同じ行の後にこの 1 行を足すだけで動く。
+
 ## [0.9.3] - 2026-10-16
 
 ### Fixed

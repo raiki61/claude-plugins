@@ -45,6 +45,19 @@ class CheckCallsTiers(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("- 段 1 gh: gh が無い（入れ方（手で）: gh を入れる）", out)
         self.assertFalse(ports.preflighted)
+        self.assertIn("/tiers:check", out)
+
+    def test_guide_lines_of_tiers_are_shown_under_each_missing_tool(self):
+        got = result("herdr", "gh")
+        got["checks"][0]["guide"] = ["herdr を入れる前に読む", "入ったかは herdr --version で確かめる"]
+        got["checks"][1]["guide"] = []
+        rc, out = run_main(["--config", self.cfg, "--check"], self.ports(got))
+        self.assertEqual(rc, 2)
+        lines = out.splitlines()
+        at = lines.index("- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）")
+        self.assertEqual(lines[at + 1:at + 4], ["  - herdr を入れる前に読む", "  - 入ったかは herdr --version で確かめる",
+                                                "- 段 1 gh: gh が無い（入れ方（手で）: gh を入れる）"])
+        self.assertEqual(lines[at + 4], "詳しい案内は /tiers:check で見られる")
 
     def test_launch_commands_of_the_accounts_are_passed(self):
         ports = self.ports(result())
@@ -98,6 +111,10 @@ class Check(unittest.TestCase):
         run, _ = self.runner(json.dumps(result("herdr")), code=1)
         got = tierx.check([], env={"PATH": ""}, runner=run)
         self.assertEqual(tierx.problems(got), ["段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）"])
+        # guide の無い前の版の tiers（0.1.1 まで）でも、案内の行を出さずに読める
+        self.assertEqual(tierx.report(got), ["- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）",
+                                             "詳しい案内は /tiers:check で見られる"])
+        self.assertEqual(tierx.report(result()), [])
 
     def test_not_json_or_other_shape_is_an_error(self):
         for out in ("Traceback ...", json.dumps({"schema": 2, "checks": []})):

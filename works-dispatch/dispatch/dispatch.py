@@ -1113,7 +1113,7 @@ def _check(cfg, ports):
         tiers, tier_notes = None, [str(e)]
     if tiers is not None and not tiers.get("ok"):
         print("足りない物（要る道具の段の点検。手で入れてから --check を打ち直す）:")
-        print("\n".join(f"- {p}" for p in tierx.problems(tiers)))
+        print("\n".join(tierx.report(tiers)))
         return 2
     problems, notes = ports.preflight(cfg)
     # origin/HEAD が無い元の clone は、会社の形を作業ツリーから読む（止めずに直し方を出す）

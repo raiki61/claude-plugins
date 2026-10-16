@@ -76,3 +76,15 @@ def problems(result):
             fix = " / ".join(x.get("fix") or [])
             out.append(f"段 {x.get('tier')} {x.get('name')}: {x.get('problem')}" + (f"（入れ方（手で）: {fix}）" if fix else ""))
     return out
+
+
+def report(result):
+    """--check に出す行。足りない物ごとに 1 行（problems）と、その下に tiers の案内（guide。tiers 0.2.0 から。無ければ出さない）を
+    字下げで並べ、終わりに、同じ案内を人の読む形で出す命令を 1 行足す。"""
+    out = []
+    for line, x in zip(problems(result), (x for x in result["checks"] if not x.get("ok"))):
+        out.append(f"- {line}")
+        out.extend(f"  - {g}" for g in x.get("guide") or [] if isinstance(g, str) and g.strip())
+    if out:
+        out.append("詳しい案内は /tiers:check で見られる")
+    return out
