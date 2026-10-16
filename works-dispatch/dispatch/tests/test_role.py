@@ -210,7 +210,7 @@ class Hook(unittest.TestCase):
     def test_gh_user_is_put_into_the_env_file_once_without_the_key(self):
         provision.mark(self.place, self.src, {"role": "調べ役", "gh-user": "gh-co"}, gitx)
         envfile = pathlib.Path(tempfile.mkdtemp()) / "env.sh"
-        envfile.write_text("export A=1\n", encoding="utf-8")
+        envfile.write_bytes(b"export A=1\n")   # write_text は Windows で \r\n にする
         env = {**self.env, "CLAUDE_ENV_FILE": str(envfile)}
         for _ in range(2):   # resume で 2 度走っても 1 行
             with contextlib.redirect_stdout(io.StringIO()):
