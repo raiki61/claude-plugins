@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-17
+
 ### Fixed
 
 - `lib/tiers_check.py` の頭の注が、herdr の案内の根拠に持ち主の公開していないノートを指したまま、文も途中で切れていた（0.4.2 で `docs/design.md` だけ直していた）。herdr v0.9.5 の文書とソースに拠ることと、URL の在り処（`docs/design.md` の「段 2 の案内」）を書いた。

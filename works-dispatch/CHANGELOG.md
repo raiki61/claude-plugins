@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-10-17
+
 ### Fixed
 
 - `--ask` が、動いている部署の会話に頼みを打つと「3 回打ったが、会話が動き出さない」で failed を返し、頼みを 3 回届けていた。failed なので部署に頼み元を書かず、部署の納品が前の頼み元へ届いた。原因は 2 つ。
