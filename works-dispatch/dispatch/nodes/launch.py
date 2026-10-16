@@ -68,17 +68,18 @@ def start(row, pane, h=herdr, posix=None):
     return result
 
 
-def start_background(row, pane, name, settings, text, h=herdr, posix=None, pause=lambda: time.sleep(1), model=None):
+def start_background(row, pane, name, settings, text, h=herdr, posix=None, pause=lambda: time.sleep(1), model=None, effort=None):
     """部署の会話を裏で起こす: ペインに名前（row の label）を付け、`<アカウントのコマンド> --bg --name <名前> --settings <ファイル>
-    [--model <モデル>] <最初の文>` を打ち込み、シェルが前に戻る（--bg は起こしてすぐ戻る）のを待つ。{pane, status, detail}。status は
+    [--model <モデル>] [--effort <段>] <最初の文>` を打ち込み、シェルが前に戻る（--bg は起こしてすぐ戻る）のを待つ。{pane, status, detail}。status は
     sent（打ち込んで戻った。会話が在るかは入口が会話の一覧で確かめる）・pane_busy・blocked（確認の画面で止まった）・launch_failed。
-    model は役の項目のモデル（会社の形の設計 4.8）。gh のアカウントの鍵は、ここで環境変数として前に置いても裏の会話に届かない
+    model と effort は役の項目から入口が決めた値（会社の形の設計 4.8。role.launch_flags）。gh のアカウントの鍵は、ここで環境変数として前に置いても裏の会話に届かない
     （--bg の会話は起こしたシェルの環境を継がない。2026-10-16 に 2.1.301 で見た）ので、部署の属性から SessionStart のフックが入れる。
     確認の画面（フォルダの信頼など）で止まると、--bg も戻らない（2026-10-16 に信頼していないフォルダで見た）。herdr がその会話を
     blocked と見たら返す。期限は足さない（D5）。"""
     posix = os.name != "nt" if posix is None else posix
     command = (f"{row['account']['command']} --bg --name {_quote(name, posix)} --settings {_quote(settings, posix)} "
-               + (f"--model {_quote(model, posix)} " if model else "") + _quote(text, posix))
+               + (f"--model {_quote(model, posix)} " if model else "") + (f"--effort {_quote(effort, posix)} " if effort else "")
+               + _quote(text, posix))
     result = {"pane": pane, "status": "launch_failed", "detail": None}
     try:
         if not h.shell_in_front(pane):

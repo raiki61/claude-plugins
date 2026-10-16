@@ -5,7 +5,13 @@
 役は会社の形の [[roles]] に 1 つずつ書く。欄は次のとおりで、知らない欄は読み飛ばす。
 - name: 役の名前（部署の属性 company.role と同じ字）
 - instructions: 部署の会話の指示に足す役の本文。SessionStart のフックが毎回の起動で足すので短くし、AGENTS.md と同じことは書かない
-- model: 部署を起こすときの --model
+- model: 部署を起こすときの --model。省けばそのアカウントの既定のまま起こす。inherit（上役と同じ）は作らない（上役の会話の
+  今のモデルを外から読む口が無い。Bash の道具の環境変数に無く〔hooks の文書 "There is no $CLAUDE_MODEL environment variable"〕、
+  claude agents --json の 1 件にも無い）ので、書けば problems に書いて役を外す
+- effort: 部署を起こすときの --effort（low・medium・high・xhigh・max・ultracode）。省けばそのアカウントの既定のまま起こす。
+  inherit なら、呼んだ会話（上役）の今の effort で起こす。Claude Code は Bash の道具に今の effort を CLAUDE_EFFORT として渡す
+  （hooks の文書）ので、入口がそれを読む。--effort はその会話にだけ効き、設定の effortLevel・modelSettings より強く、保存されない
+  （CLI の文書）。知らない値は claude が注意を 1 行出すだけで既定に戻す（2.1.302 の -p で見た。裏の会話の注意は誰も読まない）ので、読むときに弾く
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
   その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
@@ -28,6 +34,10 @@ import os
 import shlex
 import tomllib
 
+# 役の effort に書ける値（CLI の文書の --effort の Options）と、上役と同じ値で起こす印
+EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultracode")
+INHERIT = "inherit"
+
 # 頼みごとに空の会話で受ける部署の属性 company.fresh の値（役の fresh = true を写す。無ければ会話を持ち越す）
 FRESH = "true"
 
@@ -47,7 +57,7 @@ def _empty():
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver, resident, fresh}, gh_user, default_role, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, resident, fresh}, gh_user, default_role, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -85,12 +95,19 @@ def load(path, text=None):
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
         bad += [k for k in ("resident", "fresh") if k in r and not isinstance(r[k], bool)]
+        if "effort" in r and r["effort"] not in EFFORTS + (INHERIT,):
+            bad.append("effort")
         if "deliver" in r and not (isinstance(r["deliver"], list) and r["deliver"]
                                    and all(isinstance(x, str) and x.strip() for x in r["deliver"])):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び、resident・fresh は true か false）")
+                                   f"deliver は空でない文字列の並び、resident・fresh は true か false、"
+                                   f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
+            continue
+        if r.get("model") == INHERIT:
+            out["problems"].append(f"{where}（{r['name']}）: model の inherit は作っていない（上役の会話の今のモデルを外から読む口が"
+                                   f"無い）。モデルの名前を書くか、省いてアカウントの既定で起こす")
             continue
         if isinstance(r.get("settings"), dict) and "deliver" in r["settings"]:
             out["problems"].append(f"{where}（{r['name']}）: deliver が [roles.settings] の中に入っている（deliver は [roles.settings] "
@@ -99,7 +116,7 @@ def load(path, text=None):
             out["problems"].append(f"{where}: 役 {r['name']} が 2 度書かれている（先の物を使う）")
             continue
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
-                                   "model": r.get("model") or None, "settings": r.get("settings") or None,
+                                   "model": r.get("model") or None, "effort": r.get("effort"), "settings": r.get("settings") or None,
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
                                    "resident": r.get("resident") is True, "fresh": r.get("fresh") is True}
     default = raw.get("default_role")
@@ -129,6 +146,18 @@ def pick(shape, name, explicit):
     if got is None and explicit and shape["roles"]:
         return None, f"役 {name} が会社の形に無い（在る役: {', '.join(shape['roles'])}）"
     return got, None
+
+
+def launch_flags(role, env):
+    """部署を起こすときの (--model の値, --effort の値, 注記)。値が None なら旗を付けない（アカウントの既定のまま）。
+    effort が inherit なら、呼んだ会話の今の effort（env の CLAUDE_EFFORT）。読めなければ旗を付けず、注記にする（止めない）。"""
+    model, effort = (role or {}).get("model"), (role or {}).get("effort")
+    if effort != INHERIT:
+        return model, effort, None
+    if env.get("CLAUDE_EFFORT"):
+        return model, env["CLAUDE_EFFORT"], None
+    return model, None, (f"役 {role['name']} の effort は inherit だが、呼んだ会話の effort が分からない（CLAUDE_EFFORT が無い。"
+                         f"Claude Code の外から打ったか、上役のモデルが effort を持たない）ので、アカウントの既定の effort で起こす")
 
 
 def _merge(base, top):

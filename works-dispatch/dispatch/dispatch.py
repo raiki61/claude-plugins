@@ -987,6 +987,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         print(f"止めた: {why}")
         return 2
     resident = a.resident or bool(the_role and the_role["resident"])   # 役の resident = true は --resident と同じ
+    model, effort, flags_note = role.launch_flags(the_role, ports.env)   # effort の inherit は、呼んだ会話の今の effort
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
     repo = repo._replace(gh_user=gh_user)
     # 始める前の確かめは、部署を立てるこの repo だけを見る（設定の [[repos]] に無い repo も、ほかの repo の足りない物で止めない）
@@ -996,7 +997,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         print(f"止めた: --from-account の {a.from_account} が設定の accounts に無い（{', '.join(names)}）")
         return 2
     problems, notes = ports.preflight(cfg, task=True)
-    notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"] + [n for n in [gh_note, default_note] if n]
+    notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"]
+             + [n for n in [gh_note, default_note, flags_note] if n]
              + role.warnings(the_role) + notes)
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
@@ -1051,7 +1053,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             f"- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
             f"- 連絡の道: {route}",
             f"- 会社の形: {info['path'] or '無い'}（--dry-run なので origin を取り直さず、手元の控えで読んだ）",
-            f"- 役の起動の設定: モデル {(the_role or {}).get('model') or '既定'}、--settings の鍵 "
+            f"- 役の起動の設定: モデル {model or '既定'}、effort {effort or '既定'}、--settings の鍵 "
             + ", ".join(role.settings_for(the_role)),
             f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
             f"- 最初の文: {_brief_text(brief, caller, account, tail)}"]))
@@ -1105,7 +1107,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             except (OSError, TypeError) as e:
                 notes.append(f"役 {role_name} の設定を書けなかったので、役の設定なしで起こす（{e}）")
         got = launch.start_background(row, pane, a.task, settings, _brief_text(brief, caller, account, tail),
-                                      ports.herdr, pause=ports.pause, model=(the_role or {}).get("model"))
+                                      ports.herdr, pause=ports.pause, model=model, effort=effort)
         if got["detail"]:
             notes.append(got["detail"])
         result = got["status"]
@@ -1417,7 +1419,8 @@ instructions = {duty}
 deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 resident = true
 fresh = true
-# model = "opus"   # 部署を起こすときの --model（省けば既定）
+# model = "opus"   # 部署を起こすときの --model（省けばアカウントの既定）
+# effort = "high"  # 部署を起こすときの --effort（low・medium・high・xhigh・max・ultracode。inherit なら頼んだ会話と同じ。省けば既定）
 # 部署の会話にだけ効かせる Claude Code の設定（--settings で渡す。要らないプラグインを切るなどもここ）。
 # autoMode.allow は、自動の権限の判定（auto mode の classifier）の組み込みの拒否への例外を文で書く（"$defaults" で組み込みの
 # 決まりを残す）。--land は本流へ早送りするので「Merge Without Review」として止められることがある。人のレビューの代わりに

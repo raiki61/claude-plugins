@@ -1,4 +1,4 @@
-"""役の渡し方（会社の形の設計 4.7・4.8）: 会社の形の役の項目（role ノード）、部署を起こすときの --settings・--model と gh の
+"""役の渡し方（会社の形の設計 4.7・4.8）: 会社の形の役の項目（role ノード）、部署を起こすときの --settings・--model・--effort と gh の
 アカウントの属性（launch と入口の --task）、役の本文と GH_TOKEN の行を足す SessionStart のフック（role_hook）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
 
 import contextlib
@@ -29,6 +29,7 @@ gh_user = "gh-co"
 name = "調べ役"
 instructions = "結論と原典の一句を返す。"
 model = "haiku"
+effort = "low"
 deliver = ["結論", "差分", "試験"]
 settings = { enabledPlugins = { "pr-review-toolkit@m" = false }, permissions = { deny = ["Artifact", "Workflow"] }, worktree = { bgIsolation = "auto" } }
 
@@ -54,7 +55,8 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["model"], "haiku")
         self.assertEqual(got["roles"]["調べ役"]["instructions"], "結論と原典の一句を返す。")
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
-        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "settings": None,
+        self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
+        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "settings": None,
                                                  "deliver": None, "resident": False, "fresh": False})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
@@ -164,6 +166,38 @@ class Seat(unittest.TestCase):
         self.assertIsNone(sync.shown_role({}))
 
 
+class ModelAndEffort(unittest.TestCase):
+    """役の model と effort: 省けばアカウントの既定、値を書けばその値、effort の inherit は呼んだ会話の今の effort（CLAUDE_EFFORT）。"""
+
+    def roles(self, body):
+        d = tempfile.mkdtemp()
+        return role.load(write(f"{d}/c.toml", body))
+
+    def test_effort_values_are_checked_and_unknown_ones_drop_the_role(self):
+        # claude は知らない --effort を注意だけで既定に戻す（裏の会話では黙って）ので、書き損じは読むときに弾く
+        got = self.roles('[[roles]]\nname = "a"\neffort = "xhigh"\n[[roles]]\nname = "b"\neffort = "hihg"\n'
+                         '[[roles]]\nname = "c"\neffort = "inherit"\n')
+        self.assertEqual((got["roles"]["a"]["effort"], got["roles"]["c"]["effort"]), ("xhigh", "inherit"))
+        self.assertNotIn("b", got["roles"])
+        [problem] = got["problems"]
+        self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか", problem)
+
+    def test_model_inherit_is_not_made(self):
+        # 上役の会話の今のモデルを外から読む口が無いので、model の inherit は作らず、書き損じと同じに役を外して知らせる
+        got = self.roles('[[roles]]\nname = "a"\nmodel = "inherit"\n')
+        self.assertNotIn("a", got["roles"])
+        self.assertIn("model の inherit は作っていない", got["problems"][0])
+
+    def test_launch_flags(self):
+        r = {"name": "担当", "model": "opus", "effort": "max"}
+        self.assertEqual(role.launch_flags(r, {"CLAUDE_EFFORT": "low"}), ("opus", "max", None))
+        self.assertEqual(role.launch_flags(None, {"CLAUDE_EFFORT": "low"}), (None, None, None))
+        self.assertEqual(role.launch_flags({**r, "effort": "inherit"}, {"CLAUDE_EFFORT": "low"}), ("opus", "low", None))
+        model, effort, note = role.launch_flags({**r, "effort": "inherit"}, {})
+        self.assertEqual((model, effort), ("opus", None))
+        self.assertIn("CLAUDE_EFFORT が無い", note)
+
+
 class Launch(unittest.TestCase):
     ROW = {"account": {"command": "claude-a1"}, "label": None}
 
@@ -176,6 +210,13 @@ class Launch(unittest.TestCase):
         got, command = self.started(True, model="haiku")
         self.assertEqual(got["status"], "sent")
         self.assertEqual(shlex.split(command), ["claude-a1", "--bg", "--name", "直し", "--settings", "s.json", "--model", "haiku", "頼み"])
+
+    def test_effort_is_put_after_the_model(self):
+        _, command = self.started(True, model="haiku", effort="low")
+        self.assertEqual(shlex.split(command), ["claude-a1", "--bg", "--name", "直し", "--settings", "s.json", "--model", "haiku",
+                                                "--effort", "low", "頼み"])
+        _, command = self.started(True, effort="max")
+        self.assertEqual(shlex.split(command)[-3:], ["--effort", "max", "頼み"])
 
     def test_without_model_the_command_is_as_before(self):
         _, command = self.started(True)
@@ -347,7 +388,8 @@ class TaskWithRole(unittest.TestCase):
         settings = os.path.join(gitx.git_dir(path), role.SETTINGS_FILE)
         self.assertEqual(json.loads(pathlib.Path(settings).read_text(encoding="utf-8"))["worktree"], {"bgIsolation": "none"})
         if os.name != "nt":
-            self.assertEqual(shlex.split(command)[:8], ["claude-a1", "--bg", "--name", "直し", "--settings", settings, "--model", "haiku"])
+            self.assertEqual(shlex.split(command)[:10], ["claude-a1", "--bg", "--name", "直し", "--settings", settings, "--model", "haiku",
+                                                         "--effort", "low"])
         self.assertNotIn("GH_TOKEN", command)
         # gh のアカウントは名前だけを部署の属性に書く（鍵はフックが会話の Bash に入れる）。既定の設定の置き場でないので、その場所も
         attrs = gitx.worktree_attrs(path)
@@ -368,8 +410,30 @@ class TaskWithRole(unittest.TestCase):
             # 役に設定が無ければ、いつもの部署の設定のファイル
             self.assertEqual(shlex.split(command)[5], ports.department_settings())
         self.assertNotIn("--model", command)
+        self.assertNotIn("--effort", command)
         self.assertEqual(gitx.worktree_attrs(self.place(ports))["gh-user"], "me")
         self.assertIn("gh-co", out)
+
+    def test_effort_inherit_takes_the_callers_effort(self):
+        self.shape(SHAPE.replace('effort = "low"', 'effort = "inherit"'))
+        ports = self.ports()
+        ports.env = {**ports.env, "CLAUDE_EFFORT": "xhigh"}
+        rc, out = self.run_task(ports, "--role", "調べ役", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("モデル haiku、effort xhigh", out)
+        rc, out = self.run_task(ports, "--role", "調べ役")
+        self.assertEqual(rc, 0, out)
+        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        self.assertRegex(command, r'--effort "?xhigh\b')
+
+    def test_effort_inherit_without_the_callers_effort_starts_at_the_default_and_says_so(self):
+        self.shape(SHAPE.replace('effort = "low"', 'effort = "inherit"'))
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役")
+        self.assertEqual(rc, 0, out)
+        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        self.assertNotIn("--effort", command)
+        self.assertIn("CLAUDE_EFFORT が無い", out)
 
     def test_unknown_explicit_role_stops_before_anything(self):
         self.shape()
@@ -384,6 +448,6 @@ class TaskWithRole(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("モデル haiku、--settings の鍵 enabledPlugins, permissions, worktree", out)
+        self.assertIn("モデル haiku、effort low、--settings の鍵 enabledPlugins, permissions, worktree", out)
         self.assertIn("gh のアカウント: gh-co（会話の Bash がコマンドごとに鍵を取り出し", out)
         self.assertEqual(ports.herdr.writes, [])
