@@ -189,6 +189,13 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 - **親の会話が書いた文書**は、ターンの終わり(Stop のフック)に読む。指摘の全文は親の文脈に積まず、
   `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` のファイルに書き出し(新しい 200 本を残す)、本数・件数・ファイルの場所と
   「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」の短い知らせだけを返す
+- **親の会話のターンの終わりは待たせない**: 対話の会話(agent view の会話も)では、Stop のフックを `asyncRewake`
+  (Claude Code の hooks の文書「Run hooks in the background」)で裏で走らせる。ターンはすぐ終わり、読み終えて指摘が在れば、
+  フックが終了コード 2 と標準エラーで会話を起こして知らせる(指摘が無ければ何も起きない)。前は読み終えるまでターンの終わりで
+  待たせていて、xhigh の読み手では 1 回数十秒〜210 秒かかった。画面の無い会話(`claude -p`)では裏のフックが会話の終わりに切られる
+  ので、今までどおり待って読む。見分けは Claude Code がフックに渡す `CLAUDE_CODE_ENTRYPOINT`(対話は `cli`、`-p` は `sdk-cli`)で、
+  無いか `sdk` で始まるときは待って読み、ほかの値(IDE の拡張など)は裏で読む。裏で読むときは誰も待たないので、読み手 1 回の上限を
+  420 秒にする(待って読むときは 210 秒のまま)。サブエージェントの終わりは、指摘をその役に返して直させるために今までどおり待って読む
 - **拾う幅**(持ち主の方針「防ぐより、ひっかける幅を増やす」。前は Write・Edit・MultiEdit で書いた文書しか拾わず、
   `cat > x.md <<EOF`・`tee`・`sed -i`・python で書く文書は 1 本も読まれなかった):
   - Bash: 走る前(PreToolUse。投稿の門番と同じフック)に、cwd の git の作業ツリーの変更一覧(`git status --porcelain
@@ -224,13 +231,15 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   一時の置き場は、Python の `tempfile` が一時フォルダを選ぶ候補(環境変数 `TMPDIR`・`TEMP`・`TMP` と、OS の決まった場所。
   macOS・Linux は `/tmp`・`/var/tmp`・`/usr/tmp`、Windows は `~\AppData\Local\Temp` と `%SYSTEMROOT%\Temp`)と、
   実際に選んだ `tempfile.gettempdir()`。綴りと実体のパスの両方で比べる(macOS の `/tmp` → `/private/tmp`・`/var` → `/private/var`)。
-  Claude Code の scratchpad(macOS では `/private/tmp/claude-<uid>/…`)もここに入る。一時の置き場の下でも git の中は読む。
+  Claude Code の scratchpad(macOS では `/private/tmp/claude-<uid>/…`)もここに入る。Claude Code の会話ごとの一時の置き場
+  (`$CLAUDE_CONFIG_DIR/jobs/<会話の id>/tmp/` と `$CLAUDE_JOB_DIR/tmp/`。agent view の会話が頼みの要約や写しを置く所)も
+  一時の置き場と見る。一時の置き場の下でも git の中は読む。
   根を替えるなら `COLDREAD_TMP_DIRS`(`os.pathsep` 区切り。既定の代わりに使う)
 - 直した文書はまたその役の終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
-  そのまま終えてよい。連続で返すのは Claude Code が 8 回で打ち切る
+  そのまま終えてよい。待って読むときに連続で返すのは Claude Code が 8 回で打ち切る
 - 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
 - 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった。サブエージェントの分は
-  `aid=` に `agent_id` が付く)
+  `aid=` に `agent_id` が付く。読み手を起こした行には、読みにかかった秒が `35s` の形で付く)
 - 手で 1 本を読ませる口: `python3 hooks/coldread-gate.py read <パス>`(詰まりが在れば終了コード 1)。
   依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
 

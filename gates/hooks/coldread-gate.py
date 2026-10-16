@@ -1833,8 +1833,8 @@ def _child_text(raw, strict=True):
     return (raw or b"").decode("utf-8", "strict" if strict else "replace").replace("\r\n", "\n")
 
 
-def run_reader(prompt: str, model=None, effort=None):
-    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model と effort は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
+def run_reader(prompt: str, model=None, effort=None, timeout=READER_TIMEOUT):
+    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model・effort・timeout は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
     note = None  # 採った認証の段。差し替えの枝では認証に触らないので None のまま
     if override:
@@ -1846,7 +1846,7 @@ def run_reader(prompt: str, model=None, effort=None):
         # 単一引用の中の改行を保つ 1 件が赤かった——読み役には行末に \r が付いた本文が届いていた)。
         proc = subprocess.run(
             ["sh", "-c", override], input=prompt.encode("utf-8"),
-            capture_output=True, timeout=READER_TIMEOUT,
+            capture_output=True, timeout=timeout,
         )
     else:
         # 認証(段の中身と理由は claude_auth の冒頭)。トークンはディスクにもログにも書かない。
@@ -1858,7 +1858,7 @@ def run_reader(prompt: str, model=None, effort=None):
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
             reader_argv(claude_bin, model, effort), input=prompt.encode("utf-8"),
-            capture_output=True, timeout=READER_TIMEOUT,
+            capture_output=True, timeout=timeout,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
     out = _child_text(proc.stdout).strip()
@@ -2182,6 +2182,10 @@ DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未�
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
 DOC_EFFORT = os.environ.get("COLDREAD_DOC_EFFORT", "xhigh")
 DOC_WORKERS = 4      # 1 回の終わりに読む文書を並べる数。Stop のフックの timeout(300s)に、読み役 1 回(210s)で収める
+# 対話の会話の Stop は裏で読む(下の「ターンの終わりを塞がない」)。誰も待たないので読み役 1 回の上限を待つときの 210 秒より
+# 長く取り、xhigh の長い読みを時間切れ(reader-down)で落とさない。hooks.json の asyncRewake の timeout(900s)に、
+# DOC_WORKERS 本ずつ 2 巡で収める
+DOC_ASYNC_TIMEOUT = 420
 DOC_SEEN_KEEP = 5000  # 読んだ中身のハッシュを覚える数
 DOC_FINDINGS_KEEP = 200  # 親に返す指摘を書き出したファイルを残す数(古いものから消す)
 DOC_DIR = os.path.join(STATE_DIR, "docs")
@@ -2520,11 +2524,36 @@ def _tmp_roots():
     return {os.path.normcase(f(d)) for d in dirs if d for f in (os.path.abspath, os.path.realpath)}
 
 
+def _job_tmp(p, jobs_roots):
+    """正規化したパス p が、Claude Code の会話ごとの一時の置き場 <jobs>/<会話の id>/tmp の下か。
+
+    場所の決まりは公式の文書(agent-view「Where state is stored」の `~/.claude/jobs/<id>/tmp/`「Per-session scratch
+    directory」と、env-vars の CLAUDE_JOB_DIR。2026-10-16 に確認)。jobs は設定の置き場(CLAUDE_CONFIG_DIR)の下。
+    0.16.0 の一時の置き場の根はこれを含まず、部署が納品のために書く要約(jobs/<id>/tmp/summary.md など)を読んでいた
+    (2026-10-16 の docs.log)。会話の id ごとに置き場が在るので、根の集合でなく形で見る。
+    """
+    for jobs in jobs_roots:
+        try:
+            rel = os.path.relpath(p, jobs)
+        except ValueError:   # Windows で別のドライブ
+            continue
+        parts = rel.split(os.sep)
+        if parts[0] != os.pardir and len(parts) >= 3 and parts[1] == "tmp":
+            return True
+    return False
+
+
 def _scratch(path):
     """git の作業ツリーの外で、一時の置き場の下に在るファイルか(書いた役が自分のために置いた写し・頼みの文書。読まない)。"""
     roots = _tmp_roots()
+    job_dir = os.environ.get("CLAUDE_JOB_DIR")   # 会話が jobs の外に置かれても、その会話の分は根として見る
+    if job_dir:
+        roots |= {os.path.normcase(f(os.path.join(job_dir, "tmp"))) for f in (os.path.abspath, os.path.realpath)}
+    jobs = os.path.join(CONFIG_DIR, "jobs")
+    jobs_roots = {os.path.normcase(f(jobs)) for f in (os.path.abspath, os.path.realpath)}
     under = False
     for p in {os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.realpath(path))}:
+        under = under or _job_tmp(p, jobs_roots)
         for r in roots:
             try:
                 under = under or os.path.commonpath([p, r]) == r
@@ -2564,9 +2593,9 @@ def doc_prompt(body, focus=False):
     return COLD_PROMPT[:-len(BODY_MARK)] + DOC_FOCUS_NOTE + BODY_MARK + body
 
 
-def read_doc(text, focus=False):
+def read_doc(text, focus=False, timeout=READER_TIMEOUT):
     """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。"""
-    out = run_reader(doc_prompt(text, focus), model=DOC_MODEL, effort=DOC_EFFORT)
+    out = run_reader(doc_prompt(text, focus), model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout)
     if not report_shaped(out):
         raise RuntimeError("報告の形(CLEAN かラベル行)をしていない: %r" % out[:150])
     return sort_findings(out)
@@ -2781,7 +2810,17 @@ def doc_feedback(path, found, focus=False):
     )))
 
 
-def _read_pending(session, agent):
+def _timed_read(text, focus, timeout):
+    """read_doc に、かかった秒を添える。((結果, 例外), 秒)。秒は docs.log に残し、次に重さを測れるようにする。"""
+    start = time.monotonic()
+    try:
+        got = (read_doc(text, focus, timeout), None)
+    except Exception as exc:
+        got = (None, exc)
+    return got, time.monotonic() - start
+
+
+def _read_pending(session, agent, timeout=READER_TIMEOUT):
     """書いた役の待ちの一覧を読んで消し、読ませる文書を読ませる。(指摘の節, 件数, 読めなかった文書) を返す。"""
     pending = _pending(session, agent)
     try:
@@ -2818,20 +2857,19 @@ def _read_pending(session, agent):
     if not picked:
         return notes, counts, down
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
-        futures = {pool.submit(read_doc, text if part is None else part, part is not None): (path, text, digest, part)
+        futures = {pool.submit(_timed_read, text if part is None else part, part is not None, timeout): (path, text, digest, part)
                    for path, text, digest, part in picked}
     for fut, (path, text, digest, part) in futures.items():
-        try:
-            found = fut.result()
-        except Exception as exc:
-            log_line(DOC_LOG, "reader-down\t%s\t%s\t%s" % (str(exc)[:150].replace("\n", " "), who, path))
+        (found, exc), secs = fut.result()
+        if exc is not None:
+            log_line(DOC_LOG, "reader-down\t%s\t%ds\t%s\t%s" % (str(exc)[:150].replace("\n", " "), secs, who, path))
             down.append(path)
             continue
         read.append(digest)
         note = doc_feedback(path, found, part is not None)
         # 長さの欄は読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
         size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
-        log_line(DOC_LOG, "%s\t%s\t%s\t%s" % ("finding" if note else "clean", size, who, path))
+        log_line(DOC_LOG, "%s\t%s\t%ds\t%s\t%s" % ("finding" if note else "clean", size, secs, who, path))
         if note:
             notes.append(note)
             for label in counts:
@@ -2855,16 +2893,40 @@ def _write_findings(session, body):
     return path
 
 
-def docs_check(payload):
+# ---- ターンの終わりを塞がない ----
+# 親の Stop で読み終えるまで待たせていた頃は、ターンの終わりごとに持ち主と部署が読み役 1 回ぶん(xhigh で数十秒〜210 秒)
+# 待った(持ち主 2026-10-16「coldreadがながいな」)。対話の会話では、Stop のフックを asyncRewake(公式の hooks の文書
+# 「runs in the background and wakes Claude on exit code 2. The hook's stderr … is shown to Claude as a system reminder」)
+# で裏で走らせ、ターンは待たずに終える。指摘が在れば終了コード 2 と標準エラーで会話を起こして返す。2026-10-16 に
+# claude 2.1.301 で実測: Stop の asyncRewake のフックが 8 秒後に 2 で終わると、終えたターンの後に会話が起きて標準エラーの
+# 文に答えた。
+# 画面の無い会話(claude -p)では、裏のフックは終わりに切られる(同じ文書「kills any async hook still running at
+# teardown」)ので、今までどおり待って読む。見分けは Claude Code がフックに渡す環境の CLAUDE_CODE_ENTRYPOINT(実測:
+# 対話と agent view の会話は cli、-p は sdk-cli)。無いか sdk で始まるときは待って読む側に倒す(読み落とすより待つ)。
+# hooks.json の Stop には同じ読みを 2 つの口(待つ docs-check と裏の docs-check-async)で置き、この見分けでどちらか
+# 片方だけが読む。サブエージェントの終わり(SubagentStop)は、指摘をその役に返して直させるので待って読む
+def rewakes():
+    """この会話の親の Stop を裏で読むか(対話の会話)。"""
+    entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    return bool(entry) and not entry.startswith("sdk")
+
+
+def docs_check(payload, background=False):
     """Stop・SubagentStop: 終わろうとしている役が書いた文書を 1 本 1 回だけ読ませ、指摘が在れば止めずに返して直させる。
 
     サブエージェント(agent_id が有る)には指摘の全文を返す。親には全文をファイルに書き、短い知らせだけを返す。
+    background は Stop の裏の口(asyncRewake)。知らせは標準エラーに書いて 2 で終わり、終えたターンの後に会話を起こす。
     """
     session, agent = _who(payload)
-    notes, counts, down = _read_pending(session, agent)
+    if not agent and background != rewakes():
+        return   # 親の Stop はもう片方の口が読む
+    if agent and background:
+        return
+    notes, counts, down = _read_pending(session, agent, DOC_ASYNC_TIMEOUT if background else READER_TIMEOUT)
     if not notes and not down:
         return
     event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
+    turn = "直前のターン" if background else "このターン"
     reader = "coldread(文脈を持たない初見の読み手 coldreader、モデル %s・effort %s)" % (DOC_MODEL, DOC_EFFORT)
     tail = ("読み手を起こせず読めなかった文書(%s)。手で読ませるなら python3 %s read <パス>。"
             % ("・".join(down), os.path.abspath(__file__))) if down else ""
@@ -2883,15 +2945,19 @@ def docs_check(payload):
                 log_line(DOC_LOG, "findings-unwritten\t%s\tsid=%s" % (type(exc).__name__, session[:8]))
             if where:
                 context = "\n\n".join(filter(None, ((
-                    "%sが、このターンで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
+                    "%sが、%sで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
                     "新しい作業役(サブエージェント)にこのファイルを渡して直させ、全文をこの会話に読み込まない。"
                     "推測で埋めた箇所のうち書き手の意図と違うものだけは、この会話で見て、正しい意図を作業役に伝える。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
-                    % (reader, len(notes), counts["詰まり"], counts["補完"], where)), tail)))
+                    % (reader, turn, len(notes), counts["詰まり"], counts["補完"], where)), tail)))
             else:
                 # 書き出せないときは全文を返す(指摘を落とすより文脈を食うほうがまし)
-                context = "\n\n".join(filter(None, (reader + "が、このターンで書いた文書を読んだ。詰まった箇所を直すこと:", *notes, tail)))
+                context = "\n\n".join(filter(None, (reader + "が、%sで書いた文書を読んだ。詰まった箇所を直すこと:" % turn, *notes, tail)))
         context = "\n\n".join(filter(None, (context, VERSION_NOTE)))
+    if background:
+        sys.stderr.write(context + "\n")
+        sys.stderr.flush()
+        sys.exit(2)
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}, ensure_ascii=False))
 
 
@@ -2913,12 +2979,15 @@ def hook_main(mode):
         payload = json.load(sys.stdin)
     except Exception:
         return
-    (docs_record if mode == "docs-record" else docs_check)(payload)
+    if mode == "docs-record":
+        docs_record(payload)
+    else:
+        docs_check(payload, background=mode == "docs-check-async")
 
 
 if __name__ == "__main__":
     MODE = sys.argv[1] if len(sys.argv) > 1 else ""
-    if MODE in ("docs-record", "docs-check"):
+    if MODE in ("docs-record", "docs-check", "docs-check-async"):
         hook_main(MODE)
     elif MODE == "read" and len(sys.argv) == 3:
         sys.exit(read_now(sys.argv[2]))
@@ -2928,6 +2997,6 @@ if __name__ == "__main__":
         sys.stdout.flush()
         sys.stdout.buffer.write(COLD_PROMPT.encode("utf-8"))
     elif MODE:
-        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | read <パス> | prompt](引数なしは投稿の門番)")
+        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | read <パス> | prompt](引数なしは投稿の門番)")
     else:
         main()

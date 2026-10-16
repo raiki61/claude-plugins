@@ -38,6 +38,9 @@ done
 # 止める猶予の環境変数（graphloops/engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を
 # 走らせると値を継ぎ、既定の 5 秒を前提に子を止める検査がその下でだけ崩れる（読めない値なら engine の import で全部落ちる）
 unset GL_KILL_GRACE
+# Claude Code の会話の中で回すと、会話の入口(cli・sdk-cli)と会話の一時の置き場を継ぐ。gates の手元の文書の初見読みは
+# これで親の Stop を待って読むか裏で読むか・どこを一時の置き場と見るかを変えるので、外して CI と同じ前提で走る(要る検査は自分で渡す)
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_JOB_DIR
 # **番人自身に `assert` を使うな。** 最適化が効いていると `assert __debug__` ごと消えるので、
 # 番人が常に通る（実測: この形で書いたとき、最適化を効かせた写しが 529 件すべて緑になった）。
 # 検査したい当のものを、検査の道具に使わない——値を印字して外から見る。
@@ -2578,7 +2581,7 @@ expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "
 # 呼ばれた回数と渡った依頼文をファイルに残させて数える——指摘を返すかだけを見ると、読まずに通す形も緑になる
 expect_output 0 "DOCS_GATE_OK" "coldread の手元の文書: 文書だけを記録し、ターンの終わりに 1 本 1 回だけ投稿と同じ依頼文で読み、親には指摘をファイルに書いて短い知らせだけを返す" \
     "$PY_BIN" - "$ROOT" "$WORK/docs-gate" <<'PY'
-import importlib.util, json, os, pathlib, subprocess, sys
+import importlib.util, json, os, pathlib, re, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -2665,6 +2668,46 @@ run("docs-record", {"session_id": "s2", "tool_input": {"file_path": a}}, COLDREA
 run("docs-record", {"session_id": "s3", "tool_input": {"file_path": a}}, COLDREAD_IN_READER="1")
 assert not any((cfg / "coldread-gate/docs").glob("s[23].pending")), "COLDREAD_DOCS_OFF か読み手の中で記録した"
 
+# docs.log に読みにかかった秒が残る(読めた・読めなかったの両方)
+log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+assert re.search(r"^\S+ \S+\tfinding\t\d+\t\d+s\tsid=", log, re.M) and re.search(r"^\S+ \S+\tclean\t\d+\t\d+s\t", log, re.M), log
+assert re.search(r"^\S+ \S+\treader-down\t.*\t\d+s\tsid=", log, re.M), log
+
+# ターンの終わりを塞がない: 対話の会話(入口 cli)の親の Stop は、待つ口(docs-check)は読まずに、裏の口(docs-check-async)が
+# 読み、指摘を標準エラーに書いて 2 で終わる(asyncRewake が会話を起こす)。画面の無い会話(sdk-cli)と入口の分からない会話は
+# 待つ口が読み、裏の口は読まない。サブエージェントの終わりは裏の口では読まない
+def raw(mode, payload, reader, **env):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"), COLDREAD_READER_CMD=reader, **env)
+    return subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
+                          capture_output=True, env=e, timeout=60)
+def touch(session, n, agent=None):
+    pathlib.Path(a).write_text(long_text + "\n%s の %d 度目。" % (session, n), encoding="utf-8")
+    run("docs-record", {"session_id": session, "tool_input": {"file_path": a}, **({"agent_id": agent} if agent else {})})
+before = len(list(calls.iterdir()))
+touch("s5", 1)
+quiet = raw("docs-check", {"session_id": "s5", "hook_event_name": "Stop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli")
+assert quiet.returncode == 0 and quiet.stdout == b"" and (cfg / "coldread-gate/docs/s5.pending").exists(), "対話の会話で待つ口が読んだ"
+woke = raw("docs-check-async", {"session_id": "s5", "hook_event_name": "Stop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli")
+told = woke.stderr.decode("utf-8")
+assert woke.returncode == 2 and woke.stdout == b"" and "直前のターン" in told and "詰まり 1 件" in told, (woke.returncode, told)
+assert len(list(calls.iterdir())) == before + 1 and not (cfg / "coldread-gate/docs/s5.pending").exists()
+touch("s5", 2)
+calm = raw("docs-check-async", {"session_id": "s5", "hook_event_name": "Stop"}, CLEAN, CLAUDE_CODE_ENTRYPOINT="cli")
+assert calm.returncode == 0 and calm.stderr == b"" and len(list(calls.iterdir())) == before + 2, "裏の口が CLEAN で会話を起こした"
+for entry in ("sdk-cli", None):
+    touch("s6", 3 if entry else 4)
+    env = {"CLAUDE_CODE_ENTRYPOINT": entry} if entry else {}
+    idle = raw("docs-check-async", {"session_id": "s6", "hook_event_name": "Stop"}, FIND, **env)
+    assert idle.returncode == 0 and (cfg / "coldread-gate/docs/s6.pending").exists(), f"画面の無い会話({entry})で裏の口が読んだ"
+    waited = raw("docs-check", {"session_id": "s6", "hook_event_name": "Stop"}, FIND, **env)
+    assert waited.returncode == 0 and "詰まり 1 件" in json.loads(waited.stdout)["hookSpecificOutput"]["additionalContext"], entry
+touch("s7", 5, agent="agent-q")
+sub_bg = raw("docs-check-async", {"session_id": "s7", "agent_id": "agent-q", "hook_event_name": "SubagentStop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli")
+assert sub_bg.returncode == 0 and (cfg / "coldread-gate/docs/s7.agent-q.pending").exists(), "裏の口がサブエージェントの終わりに読んだ"
+sub = raw("docs-check", {"session_id": "s7", "agent_id": "agent-q", "hook_event_name": "SubagentStop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli")
+assert "例の方針" in json.loads(sub.stdout)["hookSpecificOutput"]["additionalContext"], "対話の会話でサブエージェントの終わりに待って読まない"
+
 # 読み手のモデルと effort: 手元の文書は既定 haiku・xhigh、投稿は既定 sonnet・medium のまま。既定は環境変数を外した子で見る
 def loaded(**env):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
@@ -2691,6 +2734,9 @@ post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "Writ
 stop = [h for grp in hooks.get("Stop", []) for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-record") for h in post), post
 assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) >= 250 for h in stop), stop
+# 裏の口は asyncRewake(指摘が在れば 2 で会話を起こす)。timeout は裏で読む読み役の 2 巡(DOC_WORKERS 本ずつ)より長い
+assert any(h["command"].endswith("coldread-gate.py\" docs-check-async") and h.get("asyncRewake") is True
+           and h.get("timeout", 0) > 2 * g.DOC_ASYNC_TIMEOUT for h in stop), stop
 sub = [h for grp in hooks.get("SubagentStop", []) if not grp.get("matcher") for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-check") for h in sub), f"サブエージェントの終わりに読む口が無い（matcher 無しで全部の作業役に効かせる）: {sub}"
 
@@ -3093,6 +3139,13 @@ else:
     via_link, via_real = doc(link / "vialink.md"), doc(roots / "viareal.md")
     assert read_marks([via_real], COLDREAD_TMP_DIRS=str(link)) == [], "根を symlink で書いたとき、実体の綴りのファイルを読んだ"
     assert read_marks([via_link], COLDREAD_TMP_DIRS=str(roots)) == [], "根を実体で書いたとき、symlink の綴りのファイルを読んだ"
+# 4) Claude Code の会話ごとの一時の置き場(<設定の置き場>/jobs/<会話の id>/tmp と $CLAUDE_JOB_DIR/tmp)の下は読まない。
+# jobs の下でも tmp の外は読む
+job_doc, job_side = doc(cfg / "jobs" / "abc123" / "tmp" / "summary.md"), doc(cfg / "jobs" / "abc123" / "side.md")
+own_doc = doc(work / "own-job" / "tmp" / "deliver.md")
+assert read_marks([job_doc, job_side, own_doc], COLDREAD_TMP_DIRS=str(roots)) == ["deliver", "side"], "jobs/<id>/tmp の下を読んだか、tmp の外を読まない"
+own_doc2 = doc(work / "own-job" / "tmp" / "deliver2.md")   # 上で読んだ中身は覚えられて読まれないので、別の中身で見る
+assert read_marks([own_doc2], COLDREAD_TMP_DIRS=str(roots), CLAUDE_JOB_DIR=str(work / "own-job")) == [], "$CLAUDE_JOB_DIR/tmp の下を読んだ"
 log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
 assert "一時の置き場(git の外)" in log and str(plain) in log, "読まなかった理由が docs.log に無い"
 print("DOCS_TMP_OK")
