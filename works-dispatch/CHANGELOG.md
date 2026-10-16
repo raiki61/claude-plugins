@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-16
+
 ### Added
 
 - 会社の形（`.claude/company.toml`）の頭に `default_role` を書くと、`--task` で `--role` を省いたときの役になる（省けば `作業者`）。省いたときの役が会社の形に無ければ、止めずに「役の本文と起動の設定が付かない」と注記を出す。
