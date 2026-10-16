@@ -4302,7 +4302,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。どの OS にも同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が全履歴で取り、works/tests/run.sh を 0..N-1 の組に分けて組の数を段に渡し、FAIL_ON_SKIP=1 で回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは main と release/** への push と手での起動だけ" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。どの OS にも同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が全履歴で取り、works/tests/run.sh を 0..N-1 の組に分けて組の数を段に渡し、FAIL_ON_SKIP=1 で回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは main と release/** への push と手での起動だけで、同じ枝で待つ run は 1 つまで（走っている run は止めない）" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -4351,6 +4351,12 @@ for l in txt.splitlines():
         on_block.append(l.rstrip())
 want_on = ["on:", "  push:", '    branches: [main, "release/**"]', "  workflow_dispatch:"]
 assert on_block == want_on, f"{wf}: 起こす条件が main と release/** への push と手での起動だけの形（{want_on}）でない: {on_block}"
+# **同じ枝で待つ run は 1 つまで、走っている run は止めない。** 外れると main の --land が続いた日に待ちの列が積み上がる（2026-10-16 に
+# 10 本並んだ）。cancel-in-progress を true にすると、入れた後の赤を見つける run が次の push で毎回止まる
+conc = [l.rstrip() for l in txt.splitlines()]
+conc = conc[conc.index("concurrency:"):][:3] if "concurrency:" in conc else []
+want_conc = ["concurrency:", "  group: test-${{ github.ref }}", "  cancel-in-progress: false"]
+assert conc == want_conc, f"{wf}: 同じ枝で待つ run を 1 つにする形（{want_conc}）でない: {conc}"
 assert {"test", "pytest", "shards"} <= set(jobs), f"{wf}: job の test・pytest・shards が揃っていない（{sorted(jobs)}）"
 steps = [s for j in jobs.values() for s in j["steps"]]
 def step(name):

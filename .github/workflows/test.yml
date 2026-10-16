@@ -13,6 +13,15 @@ on:
 permissions:
   contents: read
 
+# **同じ枝で待つ run は 1 つまで。** 走っている run は止めず（cancel-in-progress: false）、待っている run だけを新しい push の run に
+# 替える（GitHub の concurrency: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency）。
+# main に部署の --land が続くと、push ごとに全部の job（macOS の works の 4 組を含む）が並び、列が積み上がった
+# （2026-10-16 は main に 179 commit。15:01 の run の macOS の組は 4 時間後に動き出し、20:12 には待ちの run が 10 本並んだ）。
+# 入れた後の赤を見つける役（上の on: の注）は、最後の commit を含む run が果たす。間の commit の赤は、その後の run の赤で見える
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: false
+
 # **job は 4 種**（2026-09-29）: 重い筋書きの台本の一式を OS × 組（shard）に分けて並べる test、pytest の置き場を丸ごと回す pytest、
 # 全組の名簿を集めて件数の和と全台本の和で見る検査を 1 か所で当てる shards、works の試験の全段を組に分けて回す works。1 job に閉じていた頃は Windows が 18 分で律速だった
 # （tests/run.sh 962 秒のうち graphloops の台本が 808 秒。runner の CPU は 4 で、job の中の並列はそこで頭打ち）。
