@@ -2686,7 +2686,7 @@ assert seen_argv and (pick(seen_argv[0], "--model"), pick(seen_argv[0], "--effor
 
 # フックの宣言: 書いた後は記録だけ、ターンの終わりに読む
 hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
-post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "^(Write|Edit|MultiEdit|NotebookEdit)$" for h in grp["hooks"]]
+post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "Write|Edit|MultiEdit" for h in grp["hooks"]]
 stop = [h for grp in hooks.get("Stop", []) for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-record") for h in post), post
 assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) >= 250 for h in stop), stop
