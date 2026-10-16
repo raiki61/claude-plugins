@@ -6,6 +6,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
+### Changed
+
+- 自分が作者でレビュアーの付いていない PR も、引数なしで開く。2 ターン目の文（レビューの進め方）は送らず、`/catchup` だけを送る（`--pr` で指したときも同じ）。前は一覧から外していた（`own_unreviewed`）。
+
 ## [0.3.4] - 2026-10-16
 
 ### Changed
