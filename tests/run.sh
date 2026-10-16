@@ -247,6 +247,15 @@ else
     fail=1
 fi
 
+# **数えるだけの回（TESTS_COUNT_ONLY=1）。** 検査を走らせずに件数だけを数え、下の件数の柵（EXPECTED_CHECKS）だけを当てる。
+# 本流に入れる命令の関門（tests/count-fences.sh）が回す。検査を足して柵を上げ忘れた変更が、本流に入った後の CI で初めて
+# 赤になる形が、別々の部署で続いた（2026-10-16 に 3 件。e43b0a39・46fbcc99 と graphloops の 9f9da74e）。検査の間の下ごしらえは
+# 今までどおり走るので、件数は全部を回した回と同じになる（揃いは下の COUNT_ONLY_OK が縛る）。ここより上の番人の腕は
+# expect_output 自身を検査するので、差し替えはその後に置く
+if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
+    expect_output() { ran=$((ran + 1)); }
+fi
+
 # 記録の一部を壊した JSON を**まとめて 1 プロセスで**書き出す。「壊すと落ちる」ことまで
 # 確かめないと、検証が空振りしても合格になる（fail-open）。
 #
@@ -2254,7 +2263,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=669
+EXPECTED_CHECKS=670
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4504,7 +4513,9 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）
                   "ATTENTION_REFLECT_CONFIG_DIRS", "ATTENTION_REFLECT_DIARY_DIR",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
-                  "COPIED_FROM", "VERSION", "STOP"}
+                  "COPIED_FROM", "VERSION", "STOP",
+                  # プラグインの直下のファイル名（works-dispatch の --land が版の上げ幅を決めるとき文書に数える。docs/releasing.md も書く）
+                  "LICENSE"}
 # HEAD と CLAUDE_CONFIG_DIR は表から外した——works の python・shell が同じ名前を定数に持つので定義の在る
 # 名前として通る（下の未使用の検査が表に残すことを拒む）。CLAUDE_KEYCHAIN_SERVICE は
 # このリポジトリが定める環境変数で、モジュールの定数ではない（os.environ から読む）——COLDREAD_* が
@@ -6749,9 +6760,18 @@ VORDER
 expect_output 0 "VALIDATOR_ORDER_OK" "検証器の fail() が _rows() より前に在る（表の組み立ての失敗が exit 2 で落ちる）" \
     "$PY_BIN" "$WORK/validator-order.py" "$ROOT"
 
+# 数えるだけの回の件数が、全部を回したこの回の件数（下の柵）と合う。合わなくなるのは、前の検査の結果で検査を足し引きする書き方を
+# 入れたとき（数えるだけの回は結果を作らない）。数えるだけの回では、この検査自身も走らずに 1 件に数える
+expect_output 0 "COUNT_ONLY_MATCH" "数えるだけの回（TESTS_COUNT_ONLY=1）の検査の件数が、全部を回した回の件数の柵と合う" \
+    env TESTS_COUNT_ONLY=1 bash "$ROOT/tests/run.sh"
+
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
     exit 2
+fi
+if [ "${TESTS_COUNT_ONLY:-}" = 1 ]; then
+    echo "COUNT_ONLY_MATCH 検査は $ran 件で、件数の柵（EXPECTED_CHECKS）と合う（数えるだけの回。検査は走らせていない）"
+    exit 0
 fi
 
 echo
