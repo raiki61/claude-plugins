@@ -55,10 +55,10 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["instructions"], "結論と原典の一句を返す。")
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "settings": None,
-                                                 "deliver": None})
+                                                 "deliver": None, "resident": False})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
-        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "problems": []})
+        self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "problems": []})
         got = role.load(write(f"{self.d}/c.toml", '''gh_user = 3
 [[roles]]
 instructions = "名前が無い"
@@ -99,6 +99,22 @@ deliver = ["結論"]
         self.assertIn("在る役: 調べ役, 出荷役", role.pick(shape, "調べやく", True)[1])
         self.assertEqual(role.pick(shape, "作業役", False), (None, None))
         self.assertEqual(role.pick(role.load(None), "何か", True), (None, None))
+
+    def test_default_role_and_resident_are_read_and_checked(self):
+        got = role.load(write(f"{self.d}/d.toml", 'default_role = "b"\n[[roles]]\nname = "a"\nresident = true\n[[roles]]\nname = "b"\n'))
+        self.assertEqual((got["default_role"], got["roles"]["a"]["resident"], got["roles"]["b"]["resident"], got["problems"]),
+                         ("b", True, False, []))
+        self.assertEqual(role.default(got, "作業者"), ("b", None))
+        got = role.load(write(f"{self.d}/e.toml", 'default_role = "無い"\n[[roles]]\nname = "a"\nresident = "yes"\n'
+                                                  '[[roles]]\nname = "c"\n'))
+        self.assertIsNone(got["default_role"])
+        self.assertEqual(list(got["roles"]), ["c"])
+        self.assertIn("resident の形が違う", got["problems"][0])
+        self.assertIn("default_role の役 無い が [[roles]] に無い", got["problems"][1])
+        name, note = role.default(got, "作業者")
+        self.assertEqual(name, "作業者")
+        self.assertIn("在る役: c", note)
+        self.assertEqual(role.default(role.load(None), "作業者"), ("作業者", None))   # 役を書いていない会社では注記を出さない
 
     def test_settings_keep_the_role_keys_and_the_fixed_keys_win(self):
         r = role.load(write(f"{self.d}/c.toml", SHAPE))["roles"]["調べ役"]

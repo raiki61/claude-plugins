@@ -133,6 +133,30 @@ class Task(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place(ports))
         self.assertEqual((attrs["role"], attrs["residency"]), ("調べ役", "resident"))
 
+    def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):
+        # 会社の形の default_role は --role を省いたときの役、役の resident = true は --resident と同じ
+        push_shape(gitx_source(self.cfg), 'default_role = "総務部の管理者"\n[[roles]]\nname = "総務部の管理者"\nresident = true\n'
+                                          '[[roles]]\nname = "作業者"\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place(ports))
+        self.assertEqual((attrs["role"], attrs["residency"]), ("総務部の管理者", "resident"))
+        self.assertNotIn("既定の", out)
+        rc, out = self.run_task(ports, "--role", "作業者", name="別", branch="task/other")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place(ports, "task/other"))
+        self.assertEqual((attrs["role"], attrs["residency"]), ("作業者", "per-task"))
+
+    def test_default_role_missing_from_the_shape_is_noted_not_stopped(self):
+        push_shape(gitx_source(self.cfg), SHAPE)   # 役は調べ役だけで、default_role も無い
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place(ports))["role"], "作業者")
+        self.assertIn("--role を省いたので役は既定の 作業者 だが、会社の形に無い", out)
+        self.assertIn("default_role", out)
+
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):
         src = gitx_source(self.cfg)
         sha = git("-C", src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", "origin/main^{tree}", "-p", "origin/main",

@@ -9,9 +9,12 @@
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
   その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
+- resident: true なら、その役の部署は常駐（--resident を付けたのと同じ）。部の管理者のように常設の役に書く。役で宛てた頼み
+  （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
 役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
 表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
+会社の形の頭の default_role は、--task で --role を省いたときの役（[[roles]] のどれかの name）。省けば入口の既定（作業者）。
 
 入口の dispatch.py --task が起こすときに load・pick・settings_for・write_settings・gh_user・warnings を呼び、プラグインのフック
 role_hook.py が context と env_line を呼ぶ。
@@ -27,11 +30,12 @@ FIXED = {"worktree": {"bgIsolation": "none"}}
 
 
 def _empty():
-    return {"roles": {}, "gh_user": None, "problems": []}
+    return {"roles": {}, "gh_user": None, "default_role": None, "problems": []}
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver}, gh_user, problems}。path が None なら空。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver, resident}, gh_user, default_role, problems}。
+    path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
     out = _empty()
@@ -67,12 +71,14 @@ def load(path, text=None):
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
+        if "resident" in r and not isinstance(r["resident"], bool):
+            bad.append("resident")
         if "deliver" in r and not (isinstance(r["deliver"], list) and r["deliver"]
                                    and all(isinstance(x, str) and x.strip() for x in r["deliver"])):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び）")
+                                   f"deliver は空でない文字列の並び、resident は true か false）")
             continue
         if isinstance(r.get("settings"), dict) and "deliver" in r["settings"]:
             out["problems"].append(f"{where}（{r['name']}）: deliver が [roles.settings] の中に入っている（deliver は [roles.settings] "
@@ -82,8 +88,26 @@ def load(path, text=None):
             continue
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
                                    "model": r.get("model") or None, "settings": r.get("settings") or None,
-                                   "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None}
+                                   "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
+                                   "resident": r.get("resident") is True}
+    default = raw.get("default_role")
+    if default is not None and not (isinstance(default, str) and default):
+        out["problems"].append(f"{path}: default_role が文字列で無い")
+    elif default and default not in out["roles"]:
+        out["problems"].append(f"{path}: default_role の役 {default} が [[roles]] に無い（在る役: {', '.join(out['roles']) or 'なし'}）")
+    elif default:
+        out["default_role"] = default
     return out
+
+
+def default(shape, builtin):
+    """--role を省いたときの役の名前と注記。会社の形の default_role を先に、無ければ builtin。会社の形に役が書かれていて、
+    その役が無ければ注記にする（止めない。役の本文と起動の設定が付かないことを知らせる）。"""
+    name = shape.get("default_role") or builtin
+    if shape["roles"] and name not in shape["roles"]:
+        return name, (f"--role を省いたので役は既定の {name} だが、会社の形に無いので、役の本文と起動の設定が付かない"
+                      f"（--role で名指すか、会社の形の頭に default_role = \"<役>\" を書く。在る役: {', '.join(shape['roles'])}）")
+    return name, None
 
 
 def pick(shape, name, explicit):

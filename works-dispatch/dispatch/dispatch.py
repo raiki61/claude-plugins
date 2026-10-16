@@ -85,7 +85,7 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
                  "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
 # 部署（--task）にだけ要るメソッド（ペインに名前と札を付ける・起こせなかった訳に画面を読む）
 TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read"}
-# --role を渡さないときの役（一度きりの作業をする役職。持ち主 2026-10-16 に作業役から改名）
+# --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役職。持ち主 2026-10-16 に作業役から改名）
 DEFAULT_ROLE = "作業者"
 # 部署の常駐か都度か（属性 company.residency の値）。常駐の部署は片付けで畳まない（会社の形の設計 4.10 の 1）
 RESIDENT, PER_TASK = "resident", "per-task"
@@ -538,7 +538,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--base", help="--task と一緒に: 枝を新しく作るときの元にする origin の枝（省けば既定の枝）")
     ap.add_argument("--from-name", help="--task か --ask と一緒に: 呼んだ会話の名前（Claude Code の中から走らせれば自分で探す）")
     ap.add_argument("--from-account", help="--task か --ask と一緒に: 呼んだ会話のアカウントの名（同上）")
-    ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば {DEFAULT_ROLE}）")
+    ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば会社の形の default_role、無ければ {DEFAULT_ROLE}）")
     ap.add_argument("--resident", action="store_true",
                     help="--task と一緒に: 常駐の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば都度の部署）")
     ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
@@ -933,15 +933,16 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         print(f"止めた: 頼みのファイルが無い: {brief}")
         return 2
     # 役の項目（会社の形の [[roles]]）と gh のアカウント。会社の形は --tree と同じ読み方（会社の形の設計 4.7・4.8）
-    role_name = a.role or DEFAULT_ROLE
     cfg_path = config.path_of(a.config, os.environ)
     fetched = None if a.dry_run or refreshed else provision.refresh_shape(repo.source, ports.git)
     info = tree.read_info(repo.source, os.path.dirname(cfg_path))
     shape = role.load(info["path"], info["text"])
+    role_name, default_note = (a.role, None) if a.role else role.default(shape, DEFAULT_ROLE)
     the_role, why = role.pick(shape, role_name, a.role is not None)
     if why:
         print(f"止めた: {why}")
         return 2
+    resident = a.resident or bool(the_role and the_role["resident"])   # 役の resident = true は --resident と同じ
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
     repo = repo._replace(gh_user=gh_user)
     # 始める前の確かめは、部署を立てるこの repo だけを見る（設定の [[repos]] に無い repo も、ほかの repo の足りない物で止めない）
@@ -951,7 +952,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         print(f"止めた: --from-account の {a.from_account} が設定の accounts に無い（{', '.join(names)}）")
         return 2
     problems, notes = ports.preflight(cfg, task=True)
-    notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"] + [n for n in [gh_note] if n]
+    notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"] + [n for n in [gh_note, default_note] if n]
              + role.warnings(the_role) + notes)
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
@@ -991,7 +992,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
     # 部署の属性（正本）。上役は呼んだ会話。分からない物は書かない
-    attrs = {"role": role_name, "residency": RESIDENT if a.resident else PER_TASK, "account": account,
+    attrs = {"role": role_name, "residency": RESIDENT if resident else PER_TASK, "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
              "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **{k: v for k, v in (extra_attrs or {}).items() if v}}
@@ -1261,6 +1262,7 @@ COMPANY_DRAFT = """# 会社の形: このリポジトリで部署（作業ごと
 name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る）
 description = {description}   # この会社が受ける仕事
 gh_user = {gh_user}   # 部署の会話の gh が使うアカウント{gh_note}
+default_role = "作業者"   # --task で --role を省いたときの役
 
 # 受ける仕事。--tree に出る。role は、その仕事を受ける役
 [[skills]]
@@ -1275,12 +1277,13 @@ name = "一度きりの作業"
 description = "受け持ちの無い一度きりの作業と、部の管理者が並べて進めたい作業を、一時の作業者が受ける"
 role = "作業者"
 
-# 役。部署を立てるときに --role で選ぶ（省けば作業者）。instructions は、部署の会話の頭に毎回足す役の本文
+# 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、部署の会話の頭に毎回足す役の本文
 # 部（受け持ちごとに 1 つ）の役職の管理者。役の名前は「<部>の管理者」にして、宛先（--ask <会社>/<役>）で部と役職が分かるようにする。
-# 管理者は各部に常設で 1 人（--task --resident で立てる。片付けで畳まれず、次の頼みを同じ会話で受ける）
+# 管理者は各部に常設で 1 人（resident = true なので、--resident を付けなくても常駐の部署で立つ。片付けで畳まれず、次の頼みを同じ会話で受ける）
 [[roles]]
 name = "<部の名前>の管理者"
 instructions = {dept}
+resident = true
 # model = "opus"   # 部署を起こすときの --model（省けば既定）
 # deliver = ["結論", "決め手", "残った疑問", "枝"]   # 納品する要約の必須の項目（省けば既定）
 # [roles.settings]   # 部署の会話にだけ効かせる Claude Code の設定（要らないプラグインを切るなど）
