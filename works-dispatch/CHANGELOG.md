@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Added
 
-- 会社の形の `[[roles]]` に `effort` の欄を足した（持ち主の OK 済み、2026-10-17）。部署を起こすとき（`--task` と、`--ask` で新しく立てるとき）に `--effort` で渡す。省けばそのアカウントの既定のまま、値（`low`・`medium`・`high`・`xhigh`・`max`・`ultracode`）を書けばその値、`inherit` なら頼んだ会話（上役）の今の effort（Claude Code が Bash の道具に渡す `CLAUDE_EFFORT`）で起こす。知らない値は Claude Code が注意を 1 行出すだけで既定に戻す（裏の会話の注意は誰も読まない）ので、読むときに弾いて注記を出す（役は外す）。`model` の `inherit` は作っていない（上役の会話の今のモデルを外から読む口が無い）。書けば注記を出して役を外す。`--ask` が既に立っている部署に頼みを送るときは、モデルと effort を変えない（起こしたときのまま）。`--dry-run` は起こすときの effort も出す。
+- 会社の形の `[[roles]]` に `effort` の欄を足した（持ち主の OK 済み、2026-10-17）。部署を起こすとき（`--task` と、`--ask` で新しく立てるとき）に `--effort` で渡す。役の `effort` の欄を省けばそのアカウントの既定のまま（`--effort` を付けない）、欄に値（`low`・`medium`・`high`・`xhigh`・`max`・`ultracode`）を書けばその値、`inherit` なら頼んだ会話（上役）の今の effort（Claude Code が Bash の道具に渡す `CLAUDE_EFFORT`）で起こす。知らない値は Claude Code が注意を 1 行出すだけで既定に戻す（裏の会話の注意は誰も読まない）ので、読むときに弾いて注記を出す（役は外す）。`model` の `inherit` は作っていない（上役の会話の今のモデルを外から読む口が無い）。書けば注記を出して役を外す。`--ask` が既に立っている部署に頼みを送るときは、モデルと effort を変えない（起こしたときのまま）。`--dry-run` は起こすときの effort も出す。
 
 ## [0.22.0] - 2026-10-17
 
