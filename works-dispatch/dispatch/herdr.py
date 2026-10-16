@@ -155,6 +155,16 @@ def report_pane_metadata(pane, source, display_agent, title, tokens, clear_token
     _call(argv, runner, quiet_ok=True)
 
 
+def read(pane, lines, runner=_default_runner):
+    """ペインの画面の終わりの lines 行（読むだけ。起こせなかった訳を報告に添えるのに使う）。JSON でなく画面の字のまま返る
+    （2026-10-16 に herdr 0.9.3 で見た）。"""
+    argv = ["herdr", "pane", "read", pane, "--lines", str(lines)]
+    p = runner(argv)
+    if p.returncode != 0:
+        raise HerdrError(argv, _error_code(p.stdout) or (p.stderr or p.stdout).strip()[:300])
+    return p.stdout
+
+
 def shell_in_front(pane, runner=_default_runner):
     """ペインの前にシェルだけが居るか（起こしたコマンドがまだ始まっていない・もう終わった）。"""
     info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})

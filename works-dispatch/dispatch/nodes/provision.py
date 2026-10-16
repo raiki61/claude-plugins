@@ -195,6 +195,12 @@ def mark(path, source, attrs, g=gitx):
             g.set_worktree_attr(path, name, value)
 
 
+def hide_claude_dir(source, g=gitx):
+    """元の clone の .git/info/exclude に .claude/ を足す（無ければ）。部署の会話が元の clone に作る .claude/（許可の記録など）を、
+    勤め先のリポジトリの .gitignore を触らずに git status から隠す（会社の形の設計 9.1 で確かめた）。"""
+    return g.exclude(source, ".claude/")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plan", required=True)

@@ -116,6 +116,14 @@ class FakeHerdr(WorktreeHerdr):
     def rename_pane(self, pane, label):
         self.writes.append(("rename_pane", pane, label))
 
+    def report_pane_metadata(self, pane, source, display_agent, title, tokens, clear_tokens=()):
+        self.writes.append(("report_pane_metadata", pane, display_agent, title, dict(tokens), list(clear_tokens)))
+
+    screen = ""   # read が返す画面の終わり
+
+    def read(self, pane, lines):
+        return self.screen
+
     def wait_ready(self, pane):
         return "idle"
 
@@ -135,7 +143,7 @@ class FakeHerdr(WorktreeHerdr):
 
 # 試験の Ports が本物の herdr とログインのシェルを呼ばないための偽物（試験の中で上書きするものはそちらが勝つ）
 QUIET = {"herdr_integration": lambda cdir: "current (v10)", "login_config_dir": lambda: None, "worktrees": lambda source: [],
-         "name_flag": lambda: True}
+         "task_flags": lambda: []}
 
 
 def quiet_ports(**kw):
@@ -164,7 +172,7 @@ class FakePorts(dispatch.Ports):
 
     agents = ()   # claude agents --json の並び（アカウントを問わない）
 
-    def list_sessions(self, config_dir):
+    def list_sessions(self, config_dir, include_done=False):
         # 会話の行に "pane" が有れば、そのペインが /exit を受けた後は一覧から消える
         return [x for x in self.agents if x.get("pane") not in self.herdr.exited]
 
@@ -220,6 +228,9 @@ class FakePorts(dispatch.Ports):
 
     def now(self):
         return 0
+
+    def pause(self):
+        pass
 
     trust_outcome = "inherited"
     opened = None   # open_pages に渡された番号（呼ばれなければ None）
@@ -596,23 +607,23 @@ class Preflight(unittest.TestCase):
         self.assertNotIn("元の clone", text)  # 元の clone は o/r の clone なので通る
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
 
-    def test_task_needs_pane_names_session_names_and_its_folder_but_not_catchup(self):
-        # 作業役の回は /catchup と 2 ターン目の文を見ず、ペインの名前（pane.rename）・会話の名前（claude --name）・起こすフォルダを見る。
-        # ほかの回では、それらは注記にとどめる（PR を開くのには要らない）
+    def test_task_needs_pane_names_and_background_flags_but_not_catchup(self):
+        # 部署の回は /catchup と 2 ターン目の文を見ず、ペインの名前と札（pane.rename・pane.report_metadata）と、裏の会話を起こす
+        # claude の旗（--name・--bg・--settings）を見る。ほかの回では、それらは注記にとどめる（PR を開くのには要らない）
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
-        cfg = cfg._replace(repos=tuple(r._replace(second_prompt="", task_cwd=f"{root}/nowhere") for r in cfg.repos))
+        cfg = cfg._replace(repos=tuple(r._replace(second_prompt="") for r in cfg.repos))
         ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
-                            gh_ok=lambda repo, env=None: True, name_flag=lambda: False)
+                            gh_ok=lambda repo, env=None: True, task_flags=lambda: ["--bg"])
         problems, notes = ports.preflight(cfg, task=True)
         text = "\n".join(problems)
-        for word in ("pane.rename", "--name", "task_cwd"):
+        for word in ("pane.rename", "pane.report_metadata", "--bg"):
             self.assertIn(word, text)
         self.assertNotIn("catchup", text)
         self.assertNotIn("2 ターン目", text)
         problems, notes = ports.preflight(cfg)
-        self.assertNotIn("--name", "\n".join(problems))
-        self.assertIn("--name", "\n".join(notes))
+        self.assertNotIn("--bg", "\n".join(problems))
+        self.assertIn("--bg", "\n".join(notes))
         self.assertIn("pane.rename", "\n".join(notes))
         self.assertIn("catchup", "\n".join(problems))
 

@@ -12,8 +12,6 @@ herdr は画面の下の行で作業中かを決めるので、会話が裏に�
 組み込みの見張りが、動き出さなければ stalled で返す）。その後、Claude Code が idle を返すまで間をおいて見る。herdr が blocked
 （許可の確認など）を返せば blocked。期限は足さない（D5）。
 
-first_prompt は、作業役（入口の --task）に最初の文を送り、動き出したのを見て返す（作業の終わりは待たない）。
-
 close_session は、会話を終えてペインの前をシェルに戻す（送り直す前と、閉じた PR の片付けの前に使う）。会話に /exit を送り、
 シェルが前に戻るのを読み戻してから closed を返す。戻らなければ close_failed。
 
@@ -91,15 +89,6 @@ def catchup_then_second(number, pane, second, h=herdr, *, catchup, state=None, p
         return first["status"]  # blocked か stalled
     second_result = send(pane, second, False, h)
     return "sent" if second_result["status"] == "sent" else "send_failed"
-
-
-def first_prompt(pane, text, h=herdr):
-    """作業役（入口の --task）に最初の文を送り、動き出したのを見たら待たずに返す（作業の終わりは待たない）。
-    結末の語 sent・blocked・stalled・send_failed のどれか。動き出す前に終わった（idle・done）のも、送れたので sent。"""
-    got = send(pane, text, True, h, until=("working", "blocked"))
-    if got["status"] == "failed":
-        return "send_failed"
-    return got["status"] if got["status"] in ("blocked", "stalled") else "sent"
 
 
 def close_session(pane, h=herdr, tries=CLOSE_TRIES, pause=lambda: time.sleep(CLOSE_PAUSE_S)):

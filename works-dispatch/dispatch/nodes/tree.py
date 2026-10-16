@@ -5,7 +5,11 @@
 - 会社 = git のリポジトリ 1 つ。本社は元の clone、部署は元の clone の git worktree（枝 1 本）。
 - 問い合わせられる会社 = herdr に開いている作業場が指すリポジトリ。herdr がリポジトリを持たない作業場は、そのペインの場所から
   git の共通の .git を問うて決める（入口が渡す common_of）。同じリポジトリの別の clone は、別の会社として並べる。
-- 部署の属性（役・アカウント・会話の名前・上役）は、部署ごとの git の設定 company.<名前>（入口が読んで渡す）。
+- 部署の属性（役・アカウント・会話の名前と id・上役）は、部署ごとの git の設定 company.<名前>（入口が読んで渡す）。
+- 部署の会話とその状態は、全アカウントの claude agents --json --all を合わせて見る（一覧はアカウントごとに分かれる。
+  会社の形の設計 9.1）。会話は、属性の company.session（会話の id）で結び、無ければ会話の作業フォルダの場所で結ぶ。
+  状態は裏の会話の state（作業中・止まっている・終わった など）、手前の会話（kind が interactive）は status から取る。
+- 窓は、部署の作業場か部署の場所のペイン（attach の画面など）が herdr に在るか。
 - 会社の情報（名前と受ける仕事）は、リポジトリの中の INFO_FILE を先に読み、無ければ設定の置き場の companies/ の中の、その
   リポジトリの分を読む（書き方は同じ。Claude Code の settings.json と settings.local.json の分け方と同じ考え）。
   書き方は TOML で、欄の名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
@@ -22,8 +26,10 @@ import urllib.parse
 INFO_FILE = (".claude", "company.toml")  # リポジトリの中の会社の情報（commit する側）
 SETTINGS_DIR = "companies"  # 設定の置き場の下の、リポジトリの外の会社の情報（commit しない側）
 
-# herdr の会話の状態 → 部署の状態。会話の居ないペインだけなら no_conversation、ペインが無ければ closed
-STATES = {"working": "作業中", "blocked": "確認待ち", "waiting": "待機中", "no_conversation": "会話なし", "closed": "開いていない"}
+# 部署の状態（会話の state、無ければ status から）と、その字
+STATES = {"working": "作業中", "blocked": "止まっている", "done": "終わった", "failed": "失敗した", "stopped": "止めた",
+          "idle": "待機中", "no_session": "会話なし"}
+STATUS = {"busy": "working", "waiting": "blocked", "idle": "idle"}  # 手前の会話の status → 状態
 
 
 def inside(cwd, path):
@@ -77,54 +83,52 @@ def read_info(root, settings_dir):
     return {"source": None, "path": None, "name": None, "description": None, "skills": [], "problems": []}
 
 
-def roots(workspaces, panes, common_of):
-    """herdr の作業場から、会社（元の clone の根）を herdr の並びの順に、重なり無しで。herdr が repo_root を持たない作業場は、
-    その作業場の最初のペインの場所を common_of（git の共通の .git の場所 → 元の clone の根。git でなければ None）に渡す。"""
+def roots(workspaces, panes, common_of, cwds=()):
+    """会社（元の clone の根）を、herdr の作業場の並びの順、その後に会話の作業フォルダ（cwds）の順で、重なり無しで。
+    herdr が repo_root を持たない作業場は、その作業場の最初のペインの場所を common_of（場所 → 元の clone の根。git でなければ None）
+    に渡す。会話の作業フォルダも common_of に渡す（herdr に開いていない会社の裏の会話も拾う）。"""
     seen, out = set(), []
+
+    def add(root):
+        if root and os.path.realpath(root) not in seen:
+            seen.add(os.path.realpath(root))
+            out.append(root)
+
     for w in workspaces:
         root = w.get("repo_root")
         if not root:
             cwd = next((p.get("cwd") for p in panes if p.get("workspace_id") == w["workspace_id"] and p.get("cwd")), None)
             root = common_of(cwd) if cwd else None
-        if root and os.path.realpath(root) not in seen:
-            seen.add(os.path.realpath(root))
-            out.append(root)
+        add(root)
+    for cwd in cwds:
+        add(common_of(cwd))
     return out
+
+
+def _deepest(places, cwd):
+    hits = [p for p in places if cwd and inside(cwd, p["path"])]
+    return max(hits, key=lambda p: len(os.path.realpath(p["path"])), default=None)
 
 
 def _owner(places, pane):
     """ペインがどの部署の物か。部署の作業場の中のペインならその部署、そうでなければ場所の一番深く当たる部署。無ければ None。"""
     by_ws = next((p for p in places if p.get("workspace") and p["workspace"] == pane.get("workspace_id")), None)
-    if by_ws:
-        return by_ws
-    hits = [p for p in places if pane.get("cwd") and inside(pane["cwd"], p["path"])]
-    return max(hits, key=lambda p: len(os.path.realpath(p["path"])), default=None)
+    return by_ws or _deepest(places, pane.get("cwd"))
 
 
-def _session_owner(places, session, pane_of_session):
-    pane = pane_of_session.get(session.get("sessionId"))
-    if pane is not None:
-        return _owner(places, pane)
-    hits = [p for p in places if session.get("cwd") and inside(session["cwd"], p["path"])]
-    return max(hits, key=lambda p: len(os.path.realpath(p["path"])), default=None)
-
-
-def state(panes):
-    """部署のペインの並びから、部署の状態（STATES の鍵）。"""
-    talking = [p for p in panes if p.get("agent")]
-    if any(p.get("agent_status") == "working" for p in talking):
-        return "working"
-    if any(p.get("agent_status") == "blocked" for p in talking):
-        return "blocked"
-    if talking:
-        return "waiting"
-    return "no_conversation" if panes else "closed"
+def session_state(s):
+    """会話の 1 件から、部署の状態（STATES の鍵）。"""
+    if s is None:
+        return "no_session"
+    if s.get("state") in STATES:
+        return s["state"]
+    return STATUS.get(s.get("status"), "idle")
 
 
 def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
     """会社の並び。places_of は 元の clone の根 → herdr.worktrees の並び（元の clone 自身は linked=False）。panes は herdr の
     ペインの並び。attrs_of は 部署の場所 → その部署の git の属性。info_of は 根 → read_info の結果。sessions は
-    アカウントの名 → そのアカウントの claude agents --json の並び（無ければ会話のアカウントを見ない）。"""
+    アカウントの名 → そのアカウントの claude agents --json --all の並び（無ければ会話を見ない）。"""
     every = [(root, p) for root in company_roots for p in places_of.get(root, []) if not p.get("prunable")]
     flat = [p for _, p in every]
     owned = {}
@@ -132,30 +136,36 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
         got = _owner(flat, pane)
         if got is not None:
             owned.setdefault(id(got), []).append(pane)
-    pane_of_session = {(p.get("agent_session") or {}).get("value"): p for p in panes if (p.get("agent_session") or {}).get("value")}
-    live = {}
+    attrs = {id(p): attrs_of(p["path"]) for p in flat}
+    by_id = {a.get("session"): p for p in flat for a in [attrs[id(p)]] if a.get("session")}
+    found = {}
     for account, items in (sessions or {}).items():
         for s in items:
-            got = _session_owner(flat, s, pane_of_session)
+            got = by_id.get(s.get("sessionId")) or _deepest(flat, s.get("cwd"))
             if got is not None:
-                live.setdefault(id(got), set()).add(account)
+                found.setdefault(id(got), []).append({**s, "account": account})
     companies = []
     for root in company_roots:
         info = info_of(root)
         rows = []
         for p in sorted((p for r, p in every if r == root), key=lambda p: (p.get("linked", False), p.get("branch") or "")):
+            a = attrs[id(p)]
             mine = owned.get(id(p), [])
-            attrs = attrs_of(p["path"])
+            talks = sorted(found.get(id(p), []), key=lambda s: -(s.get("startedAt") or 0))
+            main = next((s for s in talks if a.get("session") and s.get("sessionId") == a["session"]), None) or \
+                next(iter(talks), None)
             rows.append({
                 "path": p["path"], "branch": p.get("branch"), "head_office": not p.get("linked"),
                 "workspace": p.get("workspace") or next((x.get("workspace_id") for x in mine), None),
-                "state": state(mine),
+                "state": session_state(main),
+                "session": None if main is None else {k: main.get(k) for k in ("id", "sessionId", "name", "account", "kind",
+                                                                               "state", "status", "cwd")},
+                "sessions": len(talks),
                 "panes": [{"pane_id": x["pane_id"], "label": x.get("label"), "agent": x.get("agent"),
                            "agent_status": x.get("agent_status")} for x in mine],
-                "attrs": attrs,
-                "role": attrs.get("role"), "account": attrs.get("account"), "name": attrs.get("name"),
-                "boss": attrs.get("boss"),
-                "live_accounts": sorted(live.get(id(p), ())),
+                "attrs": a,
+                "role": a.get("role"), "account": a.get("account") or (main or {}).get("account"),
+                "name": a.get("name") or (main or {}).get("name"), "boss": a.get("boss"),
             })
         companies.append({"root": root, "name": info.get("name") or os.path.basename(os.path.normpath(root)),
                           "info_source": info.get("source"), "info_path": info.get("path"),
@@ -164,16 +174,10 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
     return companies
 
 
-def _account(d):
-    if d["account"]:
-        return d["account"]
-    return f"{'・'.join(d['live_accounts'])}（会話から）" if d["live_accounts"] else "-"
-
-
 def lines(companies):
     """人の読む形。会社ごとに、頭の行・受ける仕事・本社・部署の行。"""
     if not companies:
-        return ["herdr に開いている会社（git のリポジトリ）は無い"]
+        return ["herdr に開いている会社（git のリポジトリ）も、裏の会話も無い"]
     out = []
     for c in companies:
         where = {"repo": "リポジトリの中", "settings": "設定の置き場"}.get(c["info_source"])
@@ -187,8 +191,10 @@ def lines(companies):
         depts = c["departments"]
         for i, d in enumerate(depts):
             head = "本社" if d["head_office"] else ("└" if i == len(depts) - 1 else "├")
-            fields = [STATES[d["state"]], f"役 {d['role'] or '-'}", f"アカウント {_account(d)}", f"上役 {d['boss'] or '-'}"]
+            fields = [STATES[d["state"]] + (f"（会話 {d['sessions']}）" if d["sessions"] > 1 else "")]
             if d["name"]:
-                fields.insert(1, f"会話 {d['name']}")
+                fields.append(f"会話 {d['name']}")
+            fields += [f"役 {d['role'] or '-'}", f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
+                       f"窓 {'あり' if d['panes'] else 'なし'}"]
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

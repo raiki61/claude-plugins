@@ -39,12 +39,15 @@ WRITES = {
     # git: 部署の属性（worktree ごとの設定）を書く
     "enable_worktree_config": {"nodes/provision.py"},
     "set_worktree_attr": {"nodes/provision.py"},
+    "exclude": {"nodes/provision.py"},
+    # claude: 裏の会話を消す（claude rm）
+    "remove_session": {"nodes/clean.py"},
     # gh: issue に枝を結ぶ（GitHub に枝を作る）
     "issue_develop": {"nodes/provision.py"},
     # herdr: サイドバーの印
     "report_activity": {"activity.py"},
 }
-PORTS = {"herdr.py", "gitx.py", "ghx.py"}
+PORTS = {"herdr.py", "gitx.py", "ghx.py", "claudex.py"}
 
 # D6: 持ち主の環境の字
 OWNER_ENV = ("raiki61", "claude-code-oauth-", "/Users/")
@@ -110,7 +113,7 @@ def d4_outward(root):
             elif isinstance(node, ast.ImportFrom):
                 if node.module == "subprocess" and rel not in SUBPROCESS_OK:
                     out.append(f"D4 {rel}: subprocess から import している（外への口の外）")
-                if node.module in ("herdr", "gitx", "ghx"):
+                if node.module in ("herdr", "gitx", "ghx", "claudex"):
                     for a in node.names:
                         if a.name in WRITES and rel not in WRITES[a.name]:
                             out.append(f"D4 {rel}: 書く関数 {a.name} を取り込んでいる（{sorted(WRITES[a.name])} の外）")

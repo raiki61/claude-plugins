@@ -22,10 +22,11 @@
 --issue N は、issue に結んだ枝の場所を開き（枝が無ければ GitHub に作って issue に結ぶ）、1 ターン目の /catchup N まで送って止める。
 --no-second は 2 ターン目の文を送らず、/catchup だけで止める。
 
---task 名前 は、作業役を 1 つ起こす（_task）。枝の場所を PR と同じ決まりで開き、使用率でアカウントを 1 つ選び、会話とペインに名前を付けて
-起こし、頼みのファイルを読ませる最初の文を送る。最初の文の後ろに、呼んだ会話への連絡の道（同じアカウントなら SendMessage、
-違えば画面に書いて止まる）を書き足す。作業の終わりは待たない。作業場の git の設定 company.<名前> に、部署の属性（役・アカウント・
-会話の名前・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。
+--task 名前 は、部署を 1 つ立てる（_task）。枝の場所を PR と同じ決まりで開き（herdr の、元の clone の子の作業場）、使用率でアカウントを
+1 つ選び、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起こし、同じペインで
+attach して画面を出す（会社の形の設計 9.1）。最初の文の後ろに、呼んだ会話への連絡の道（同じアカウントなら SendMessage、違えば画面に
+書いて止まる）を書き足す。作業の終わりは待たない。作業場の git の設定 company.<名前> に、部署の属性（役・アカウント・会話の名前と
+id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--clean は、会話が終わり枝が本流に入った部署を、claude rm と一緒に片付ける。
 
 --tree は、herdr に開いている会社（リポジトリ）ごとに、会社の情報（名前と受ける仕事）と部署（枝・役・アカウント・上役・herdr の
 状態）を出す（_company。--json で JSON）。--sync は、部署の属性から herdr のペインの名前・表示名・札を付け直す（何度打っても同じ）。
@@ -57,6 +58,7 @@ import config  # noqa: E402
 import ghx  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
+import jsonio  # noqa: E402
 import limits  # noqa: E402
 import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, sessions, sync, tree, turn  # noqa: E402
@@ -69,8 +71,8 @@ for _s in (sys.stdout, sys.stderr):
 # 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）
 HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.close",
                  "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
-# 作業役（--task）にだけ要るメソッド（ペインに名前と札を付ける）
-TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata"}
+# 部署（--task）にだけ要るメソッド（ペインに名前と札を付ける・起こせなかった訳に画面を読む）
+TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read"}
 # 作業役の役を --role で渡さないときの役
 DEFAULT_ROLE = "作業役"
 
@@ -165,9 +167,9 @@ class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
     def __init__(self, herdr_methods=None, shell_has=None, gh_ok=None, env=None, gh_env=None, herdr_integration=None,
-                 login_config_dir=None, worktrees=None, name_flag=None):
+                 login_config_dir=None, worktrees=None, task_flags=None):
         self._herdr_methods = herdr_methods or herdr.methods
-        self._name_flag = name_flag or claudex.has_name_flag
+        self._task_flags = task_flags or claudex.missing_flags
         self._herdr_integration = herdr_integration or (lambda cdir: herdr.claude_integration(cdir, dict(self.env)))
         self._login_config_dir = login_config_dir or (lambda: _login_config_dir(self.env))
         self._account_env = None
@@ -214,12 +216,13 @@ class Ports:
                 problems.append(f"手元の herdr の API に {', '.join(sorted(missing))} が無い（herdr の版を確かめる）")
             if TASK_HERDR_METHODS - have:
                 task_only.append(f"手元の herdr の API に {', '.join(sorted(TASK_HERDR_METHODS - have))} が無い"
-                                 "（作業役（--task）のペインに名前と札を付けられない。herdr を新しくする）")
+                                 "（部署（--task）のペインに名前と札を付けられない。herdr を新しくする）")
         except (herdr.HerdrError, OSError, ValueError) as e:
             problems.append(f"herdr に届かない: {e}")
-        if not self._name_flag():
-            task_only.append("PATH の claude が会話に名前を付ける --name を持たない（作業役（--task）の会話の名前は SendMessage の宛先になる。"
-                             "Claude Code を新しくする）")
+        missing_flags = self._task_flags()
+        if missing_flags:
+            task_only.append(f"PATH の claude が {', '.join(missing_flags)} を持たない（部署（--task）は、名前を付けた裏の会話として、"
+                             "その会話にだけ効く設定を渡して起こす。Claude Code を新しくする）")
         for repo in cfg.repos:
             if not task and not (repo.second_prompt or "").strip():
                 problems.append(f"{repo.repo}: 2 ターン目の文が空")
@@ -278,8 +281,16 @@ class Ports:
     def fetch_prs(self, repo):
         return prs.read(repo.repo, env=self.gh_env(repo))
 
-    def list_sessions(self, config_dir):
-        return claudex.sessions(config_dir, base_env=self.account_env)
+    def list_sessions(self, config_dir, include_done=False):
+        return claudex.sessions(config_dir, base_env=self.account_env, include_done=include_done)
+
+    def pause(self):
+        """部署の裏の会話を打ち込んだ後に、シェルが前に戻るのを見る間。"""
+        time.sleep(1)
+
+    def department_settings(self):
+        """部署の裏の会話にだけ効かせる設定のファイル（--settings。worktree.bgIsolation を none にし、先に作った作業場で働かせる）。"""
+        return str(pathlib.Path(__file__).resolve().parent / "templates" / "department-settings.json")
 
     def branch(self, cwd):
         return gitx.branch(cwd)
@@ -825,8 +836,15 @@ def _brief_text(brief, caller, account):
 
 
 def _task(cfg, repo, a, ports):
-    """作業役を 1 つ起こす。場所は PR と同じ決まり（provision.prepare_task）、アカウントは同じ割り振り（accounts.rank と
-    assign.plan。1 件なので、使用率が上限に届かないアカウントのうち順の頭）、起こす・名付けるは launch、最初の文は turn。"""
+    """部署を 1 つ立てる（会社の形の設計 9.1）。場所は PR と同じ決まり（provision.prepare_task。herdr が元の clone の子の作業場として
+    worktree を作る）、アカウントは同じ割り振り（accounts.rank と assign.plan。1 件なので、使用率が上限に届かないアカウントのうち
+    順の頭）。部署の属性を git に書き（provision.mark）、その作業場のペインで Claude Code の裏の会話を起こし（launch.start_background。
+    裏の会話が自分で worktree を作らないよう、templates/department-settings.json で worktree.bgIsolation を none にする）、会話の一覧から
+    会話の id を読んで属性に足し、同じペインで attach する（launch.attach）。表示名と札は --sync と同じ組み立て（sync）。
+
+    置き場と枝を下回りが決めるために、Claude Code に worktree を作らせず、先に作った worktree の中で起こす。WorktreeCreate のフックでも
+    置き場と枝は決められた（2026-10-16 に試した）が、フックはその会話の中の全部の worktree（サブエージェントの isolation など）を
+    置き換え、フックの作った worktree は claude rm が消さずに断る。"""
     brief = os.path.abspath(os.path.expanduser(a.brief))
     if not os.path.isfile(brief):
         print(f"止めた: 頼みのファイルが無い: {brief}")
@@ -868,7 +886,7 @@ def _task(cfg, repo, a, ports):
     if row["outcome"] != "assigned":
         why = {"already_open": "その枝の場所で会話がもう開いている（会話を閉じるのは持ち主だけ）",
                "no_account": "使用率が上限に届かないアカウントが無い"}[row["outcome"]]
-        print("\n".join(notes + [f"作業役 {a.task}  {a.branch}  -  {row['outcome']}（{why}）"]))
+        print("\n".join(notes + [f"部署 {a.task}  {a.branch}  -  {row['outcome']}（{why}）"]))
         return 0
     account = row["account"]["name"]
     many = len(cfg.accounts) > 1
@@ -880,7 +898,7 @@ def _task(cfg, repo, a, ports):
              else "区切りで画面に書いて止まる")
     if a.dry_run:
         print("\n".join(notes + [
-            f"作業役 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",
+            f"部署 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",
             f"- 起こすフォルダ: {row['path'] or '<作る作業場の場所>'}",
             f"- ペインの名前: {pane_label}／会話の名前: {a.task}",
             f"- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
@@ -896,6 +914,7 @@ def _task(cfg, repo, a, ports):
     if prov["detail"]:
         notes.append(prov["detail"])
     result = prov["status"]
+    pane = prov["pane"]
     if prov["status"] == "ready":
         try:
             trusted = ports.trust(row["account"], repo.source, prov["path"])
@@ -906,21 +925,55 @@ def _task(cfg, repo, a, ports):
                          if trusted == "source_untrusted" else
                          f"信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
         try:
+            provision.hide_claude_dir(repo.source, ports.git)
             provision.mark(prov["path"], repo.source, attrs, ports.git)
-        except gitx.GitError as e:
-            notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・上役が出ず、--sync で札を付け直せない")
-        got = launch.start(row, prov["pane"], ports.herdr, quiet=False, name=a.task, label=pane_label)
+        except (gitx.GitError, OSError) as e:
+            notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・上役が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
+        row["label"] = pane_label
+        got = launch.start_background(row, pane, a.task, ports.department_settings(), _brief_text(brief, caller, account),
+                                      ports.herdr, pause=ports.pause)
         if got["detail"]:
             notes.append(got["detail"])
         result = got["status"]
-        if got["status"] == "ready":
-            # 表示名と札は、書いた属性を git から読み戻して付ける（--sync と同じ組み立て。名前は launch が付けた）
-            shown = sync.apply([sync.op(prov["pane"], ports.attrs(prov["path"]), many, current_label=pane_label)], ports.herdr)
-            notes += [f"ペインに表示名と札を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
-            result = turn.first_prompt(prov["pane"], _brief_text(brief, caller, account), ports.herdr)
-    print("\n".join(notes + [f"作業役 {a.task}  {a.branch}  {account}  {result}"] +
-                    ([f"- ペイン {prov['pane']}（{pane_label}）、作業場 {prov['path']}、連絡の道: {route}"] if prov["pane"] else [])))
+        if got["status"] == "sent":
+            talk, why = _started(ports, row["account"].get("config_dir"), a.task, prov["path"], pane)
+            if talk is None:
+                result = "launch_failed"
+                notes.append(why)
+            else:
+                sid = talk.get("id") or talk["sessionId"]
+                try:
+                    provision.mark(prov["path"], repo.source, {"session": talk["sessionId"]}, ports.git)
+                except (gitx.GitError, OSError) as e:
+                    notes.append(f"会話の id を属性に書けなかった（{e}）。--clean がこの部署を片付けない")
+                got = launch.attach(row, pane, sid, ports.herdr)
+                result = "started" if got["status"] == "attached" else got["status"]
+                if got["detail"]:
+                    notes.append(f"裏の会話 {sid} は始まったが、窓につなげなかった（{got['detail']}）")
+                # 表示名と札は、書いた属性を git から読み戻して付ける（--sync と同じ組み立て。名前は launch が付けた）
+                shown = sync.apply([sync.op(pane, ports.attrs(prov["path"]), many, current_label=pane_label)], ports.herdr)
+                notes += [f"ペインに表示名と札を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
+                route += f"（会話 {sid}）"
+    print("\n".join(notes + [f"部署 {a.task}  {a.branch}  {account}  {result}"] +
+                    ([f"- ペイン {pane}（{pane_label}）、作業場 {prov['path']}、連絡の道: {route}"] if pane else [])))
     return 0
+
+
+def _started(ports, config_dir, name, path, pane):
+    """起こした裏の会話を、そのアカウントの会話の一覧（終わった物も）から、名前と場所で探す。(会話の 1 件, None) か
+    (None, 訳)。見つからなければ、ペインの画面の終わりを訳に添える。"""
+    try:
+        items = ports.list_sessions(config_dir, include_done=True)
+    except claudex.ClaudeError as e:
+        return None, f"起こした後に会話の一覧を読めない（{e}）"
+    mine = [s for s in items if s.get("name") == name and s.get("cwd") and fresh.inside(s["cwd"], path)]
+    if mine:
+        return max(mine, key=lambda s: s.get("startedAt") or 0), None
+    try:
+        tail = " ".join(ports.herdr.read(pane, 6).split())[-300:]
+    except herdr.HerdrError as e:
+        tail = f"画面も読めない（{e}）"
+    return None, f"打ち込んだが、会話の一覧に「{name}」の裏の会話が出ない（画面の終わり: {tail}）"
 
 
 def _company(a, ports):
@@ -941,14 +994,16 @@ def _company(a, ports):
         accounts_ = (config.Account("default", "claude"),)
         if os.path.exists(path):
             notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
-    try:
-        sessions_ = {acc.name: ports.list_sessions(acc.config_dir) for acc in accounts_}
-    except claudex.ClaudeError as e:
-        sessions_ = None
-        notes.append(f"開いている会話を読めないので、会話のアカウントを見ない（{e}）")
+    sessions_ = {}
+    for acc in accounts_:
+        try:
+            sessions_[acc.name] = ports.list_sessions(acc.config_dir, include_done=True)
+        except claudex.ClaudeError as e:
+            notes.append(f"アカウント {acc.name} の会話の一覧を読めないので、そのアカウントの会話を見ない（{e}）")
     try:
         panes = ports.herdr.panes()
-        roots = tree.roots(ports.herdr.workspaces(), panes, ports.common_of)
+        roots = tree.roots(ports.herdr.workspaces(), panes, ports.common_of,
+                           list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
         return 1
@@ -1060,6 +1115,28 @@ def _init(a, ports):
     return 0
 
 
+def _department_rows(cfg, repo, ports, found, notes):
+    """部署（--task が立てた worktree）の片付けの候補（clean.departments）。会話は全アカウントの一覧（終わった物も）で引く。
+    本流は origin の既定の枝の手元の控え。読めなければ、部署は並べない（消さない側に倒す）。"""
+    try:
+        listed = {acc.name: (acc, ports.list_sessions(acc.config_dir, include_done=True)) for acc in cfg.accounts}
+        target = f"refs/remotes/origin/{ports.default_branch(repo)}"
+    except (claudex.ClaudeError, ghx.GhError) as e:
+        notes.append(f"部署の片付けを飛ばした（会話の一覧か既定の枝を読めない: {e}）")
+        return []
+
+    def session_of(attrs):
+        return next(({**s, "config_dir": acc.config_dir} for acc, items in listed.values() for s in items
+                     if s.get("sessionId") == attrs["session"]), None)
+
+    return clean.departments(found, ports.attrs, session_of, ports.is_clean, ports.unpushed,
+                             lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source)
+
+
+DEPT_REASONS = {"running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
+                "not_merged": "枝が本流に入っていない", "no_branch": "枝に乗っていない"}
+
+
 def _clean(cfg, repo, apply, ports):
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
@@ -1067,20 +1144,36 @@ def _clean(cfg, repo, apply, ports):
     except (claudex.ClaudeError, herdr.HerdrError) as e:
         print(f"止めた: {e}（開いている会話か元の clone の worktree を読めないので、何も消さない）")
         return 1
+    notes = []
+    depts = _department_rows(cfg, repo, ports, found, notes)
+    dept_paths = {os.path.realpath(d["path"]) for d in depts}
+    for d in depts:
+        print(f"部署 {d['name'] or '-'} {d['branch'] or '（枝無し）'}  {d['state']}  "
+              + ("消せる" if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}）"))
+    print("\n".join(notes) if notes else "", end="\n" if notes else "")
+    failed = 0
+    if apply:
+        for d in (d for d in depts if d["removable"]):
+            got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.herdr, ports.git, claudex)
+            print(f"部署 {d['name'] or '-'} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
+            failed += not got["removed"]
+    found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths]
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
     rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
                             source=repo.source, changed=_changed(repo))
     if not rows:
-        print(f"元の clone {repo.source} の worktree は無い")
-        return 0
+        if not depts:
+            print(f"元の clone {repo.source} の worktree は無い")
+        elif not apply and any(d["removable"] for d in depts):
+            print("消すには --clean --apply を付けて打ち直す")
+        return 1 if failed else 0
     for r in rows:
         mark = "消せる" if r["removable"] else f"残す（{r['reason']}{': ' + ', '.join(r['files']) if r['files'] else ''}）"
         print(f"{_where(r)}  {r['state'] or '-'}  {mark}")
     if not apply:
-        if any(r["removable"] for r in rows):
+        if any(r["removable"] for r in rows + depts):
             print("消すには --clean --apply を付けて打ち直す")
         return 0
-    failed = 0
     for r in (r for r in rows if r["removable"]):
         got = clean.remove(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git)
         print(f"{_where(r)} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))

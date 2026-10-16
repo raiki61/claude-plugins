@@ -1,7 +1,10 @@
 """作業役（入口の --task）。枝の場所は本物の git worktree（WorktreeHerdr）、herdr の会話の口・claude・gh は偽物で回す。"""
 
+import json
 import os
 import pathlib
+import re
+import shlex
 import subprocess
 import unittest
 
@@ -13,17 +16,14 @@ from config import Repo
 from nodes import provision
 
 
-def two_accounts(cfg_path, task_cwd=None):
-    """make_cfg の設定を、アカウント 2 つ（a1・a2）と、任意で作業役を起こすフォルダ（task_cwd）の形に書き直す。"""
+def two_accounts(cfg_path):
+    """make_cfg の設定を、アカウント 2 つ（a1・a2）の形に書き直す。"""
     p = pathlib.Path(cfg_path)
     d = p.parent
-    text = p.read_text(encoding="utf-8").replace(
+    p.write_text(p.read_text(encoding="utf-8").replace(
         f"accounts = [{{ name = \"a1\", command = \"claude-a1\", config_dir = '{d}/c1' }}]",
         f"accounts = [{{ name = \"a1\", command = \"claude-a1\", config_dir = '{d}/c1' }},\n"
-        f"            {{ name = \"a2\", command = \"claude-a2\", config_dir = '{d}/c2' }}]")
-    if task_cwd:
-        text += f"task_cwd = '{task_cwd}'\n"
-    p.write_text(text, encoding="utf-8")
+        f"            {{ name = \"a2\", command = \"claude-a2\", config_dir = '{d}/c2' }}]"), encoding="utf-8")
     return {"a1": f"{d}/c1", "a2": f"{d}/c2"}
 
 
@@ -32,47 +32,86 @@ def over(name):
     return {name: {"seven_day": {"used_percentage": 99, "resets_at": 10**10}, "five_hour": {"used_percentage": 1}}}
 
 
+BG = re.compile(r"^(claude-a\d) --bg --name ")
+
+
 class Task(unittest.TestCase):
     def setUp(self):
         self.cfg, self.root = make_cfg()
         self.brief = str(pathlib.Path(self.root).parent / "brief.md")
         pathlib.Path(self.brief).write_text("頼み", encoding="utf-8")
 
-    def ports(self, sessions=None, dirs=None):
-        """sessions: 設定のフォルダ → そのアカウントの会話の並び。呼んだ会話の識別子は s-caller。"""
+    def ports(self, sessions=None, starts=True):
+        """sessions: 設定のフォルダ → そのアカウントの会話の並び。呼んだ会話の識別子は s-caller。
+        starts が真なら、ペインに打ち込んだ `<アカウントのコマンド> --bg --name <名前>` の後に、そのアカウントの一覧に裏の会話が出る。"""
         ports = FakePorts([])
         ports.fetch_prs = lambda repo: self.fail("--task では whose-turn を呼ばない")
         ports.env = {"CLAUDE_CODE_SESSION_ID": "s-caller"}
-        ports.list_sessions = lambda cdir: list((sessions or {}).get(cdir, []))
+        d = pathlib.Path(self.cfg).parent
+        dirs = {"claude-a1": f"{d}/c1", "claude-a2": f"{d}/c2"}
+
+        def listed(cdir, include_done=False):
+            got = list((sessions or {}).get(cdir, []))
+            for i, w in enumerate(x for x in ports.herdr.writes if x[0] == "run" and BG.match(x[2])):
+                if starts and dirs[BG.match(w[2]).group(1)] == cdir:
+                    cwd = next(p["cwd"] for p in ports.herdr.panes() if p["pane_id"] == w[1])
+                    got.append({"id": f"bg{i}", "sessionId": f"bg{i}-full", "name": shlex.split(w[2])[3], "cwd": cwd,
+                                "kind": "background", "state": "working", "startedAt": i})
+            return got
+
+        ports.list_sessions = listed
         return ports
 
     def run_task(self, ports, *extra, name="直し", branch="task/fix"):
         return run_main(["--config", self.cfg, "--task", name, "--branch", branch, "--brief", self.brief, *extra], ports)
 
     def sent(self, ports):
-        return [w for w in ports.herdr.writes if w[0] == "prompt"]
+        """裏の会話を起こした打ち込み（最初の文はその最後の語）。"""
+        return [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.match(w[2])]
 
-    def test_creates_the_place_from_the_default_branch_names_the_pane_and_session_and_sends_the_brief(self):
+    def place(self, ports, branch="task/fix"):
+        return next(w["path"] for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["branch"] == branch)
+
+    def test_creates_the_place_starts_a_background_session_there_and_attaches(self):
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
         self.assertTrue(ports.preflight_task)
-        place = [w for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["linked"]]
-        self.assertEqual([w["branch"] for w in place], ["task/fix"])
-        path = place[0]["path"]
+        src = gitx_source(self.cfg)
+        path = self.place(ports)
+        [command] = self.sent(ports)
+        words = shlex.split(command) if os.name != "nt" else None
         # 作業場の名前は作業の名前。アカウントが 1 つなら、ペインの名前にアカウントを添えない。/catchup の窓を閉じる前置きも付けない
-        self.assertEqual(ports.herdr.writes[:4], [
+        self.assertEqual(ports.herdr.writes[:5], [
             ("create_worktree", "task/fix", "直し"),
-            ("trust", "a1", gitx_source(self.cfg), path),
+            ("trust", "a1", src, path),
             ("rename_pane", "P0", "直し"),
-            ("run", "P0", "claude-a1 --name '直し'" if os.name != "nt" else 'claude-a1 --name "直し"'),
+            ("run", "P0", command),
+            ("run", "P0", "claude-a1 attach bg0"),
         ])
-        [(_, pane, text, wait)] = self.sent(ports)
-        self.assertEqual((pane, wait), ("P0", True))
-        self.assertTrue(text.startswith(f"作業の頼みです。{self.brief} を読んで、その通りに進めてください。"), text)
-        self.assertNotIn("\n", text)
-        self.assertIn("作業役 直し  task/fix  a1  sent", out)
-        self.assertEqual(gitx.branch(gitx_source(self.cfg)), "main")
+        if words:
+            self.assertEqual(words[:6], ["claude-a1", "--bg", "--name", "直し", "--settings", ports.department_settings()])
+            self.assertTrue(words[6].startswith(f"作業の頼みです。{self.brief} を読んで、その通りに進めてください。"), words)
+            self.assertNotIn("\n", words[6])
+        # 裏の会話にだけ効く設定は、会話が自分で worktree を作らないようにする
+        self.assertEqual(json.loads(pathlib.Path(ports.department_settings()).read_text(encoding="utf-8")),
+                         {"worktree": {"bgIsolation": "none"}})
+        # 部署の属性は作業場の git の設定に入り、元の clone には入らない
+        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業役", "account": "a1", "name": "直し", "session": "bg0-full"})
+        self.assertEqual(gitx.worktree_attrs(src), {})
+        # 元の clone の .git/info/exclude に .claude/ が入る
+        self.assertIn(".claude/", (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines())
+        # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
+        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業役", "直し", {"role": "作業役", "account": "a1"},
+                                                 ["boss"]))
+        self.assertIn("部署 直し  task/fix  a1  started", out)
+        self.assertEqual(gitx.branch(src), "main")
+
+    def test_role_is_written_as_given(self):
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place(ports))["role"], "調べ役")
 
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):
         src = gitx_source(self.cfg)
@@ -82,8 +121,7 @@ class Task(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, branch="task/old")
         self.assertEqual(rc, 0, out)
-        path = next(w["path"] for w in ports.herdr.worktrees(src) if w["branch"] == "task/old")
-        self.assertEqual(gitx.head_sha(path), sha)
+        self.assertEqual(gitx.head_sha(self.place(ports, "task/old")), sha)
 
     def test_existing_place_is_opened_again_and_not_moved(self):
         src = gitx_source(self.cfg)
@@ -93,17 +131,28 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
         self.assertEqual(ports.herdr.writes[0][0], "open_worktree")
-        self.assertIn("task/fix  a1  sent", out)
+        self.assertIn("task/fix  a1  started", out)
 
-    def test_same_account_caller_gets_sendmessage_with_its_name(self):
+    def test_session_that_does_not_appear_is_launch_failed_with_the_screen(self):
+        ports = self.ports(starts=False)
+        ports.herdr.screen = "Error: something\n$ "
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("task/fix  a1  launch_failed", out)
+        self.assertIn("「直し」の裏の会話が出ない（画面の終わり: Error: something $）", out)
+        self.assertFalse([w for w in ports.herdr.writes if w[0] == "run" and " attach " in w[2]])
+
+    def test_same_account_caller_gets_sendmessage_and_becomes_the_boss(self):
         dirs = two_accounts(self.cfg)
         ports = self.ports({dirs["a1"]: [{"sessionId": "s-caller", "name": "窓口", "cwd": "/x"}]})
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        [(_, _, text, _)] = self.sent(ports)
-        self.assertIn("SendMessage で「窓口」へ送る", text)
+        [command] = self.sent(ports)
+        self.assertIn("SendMessage で「窓口」へ送る", command)
         # アカウントが 2 つ以上なら、ペインの名前にアカウントの名前を添える
         self.assertIn(("rename_pane", "P0", "直し a1"), ports.herdr.writes)
+        attrs = gitx.worktree_attrs(self.place(ports))
+        self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
 
     def test_other_account_caller_gets_the_screen_route(self):
         dirs = two_accounts(self.cfg)
@@ -111,34 +160,36 @@ class Task(unittest.TestCase):
         ports.limits_seq = [over("a1")]
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        self.assertIn("task/fix  a2  sent", out)
-        [(_, _, text, _)] = self.sent(ports)
-        self.assertIn("この画面に短く書いて止まる", text)
-        self.assertIn("「窓口」とはアカウントが違い", text)
-        self.assertNotIn("SendMessage で「", text)
+        self.assertIn("task/fix  a2  started", out)
+        [command] = self.sent(ports)
+        self.assertTrue(command.startswith("claude-a2 --bg "), command)
+        self.assertIn(("run", "P0", "claude-a2 attach bg0"), ports.herdr.writes)
+        self.assertIn("この画面に短く書いて止まる", command)
+        self.assertIn("「窓口」とはアカウントが違い", command)
+        self.assertNotIn("SendMessage で「", command)
 
     def test_unknown_caller_gets_the_screen_route_and_a_note(self):
         ports = self.ports()
         ports.env = {}
         rc, out = self.run_task(ports)
-        [(_, _, text, _)] = self.sent(ports)
-        self.assertIn("呼んだ会話が分からず", text)
+        [command] = self.sent(ports)
+        self.assertIn("呼んだ会話が分からず", command)
         self.assertIn("--from-name と --from-account で渡す", out)
 
     def test_from_name_and_account_override_what_was_found(self):
         ports = self.ports()
         ports.env = {}
         rc, out = self.run_task(ports, "--from-name", "窓口", "--from-account", "a1")
-        [(_, _, text, _)] = self.sent(ports)
-        self.assertIn("SendMessage で「窓口」へ送る", text)
+        [command] = self.sent(ports)
+        self.assertIn("SendMessage で「窓口」へ送る", command)
 
     def test_same_account_caller_without_a_name_gets_the_screen_route(self):
         ports = self.ports()
         ports.env = {}
         rc, out = self.run_task(ports, "--from-account", "a1")
-        [(_, _, text, _)] = self.sent(ports)
-        self.assertIn("呼んだ会話の名前が分からず", text)
-        self.assertNotIn("アカウントが違い", text)
+        [command] = self.sent(ports)
+        self.assertIn("呼んだ会話の名前が分からず", command)
+        self.assertNotIn("アカウントが違い", command)
 
     def test_from_account_not_in_the_config_stops(self):
         ports = self.ports()
@@ -147,31 +198,14 @@ class Task(unittest.TestCase):
         self.assertIn("--from-account の nobody が設定の accounts に無い", out)
         self.assertEqual(ports.herdr.writes, [])
 
-    def test_task_cwd_starts_the_conversation_there_and_tells_where_the_place_is(self):
-        launch_dir = str(pathlib.Path(self.root).parent / "notes-root")
-        os.mkdir(launch_dir)
-        two_accounts(self.cfg, task_cwd=launch_dir)
+    def test_task_cwd_in_the_config_is_noted_and_the_session_starts_in_the_place(self):
+        with open(self.cfg, "a", encoding="utf-8") as f:
+            f.write("task_cwd = '/notes'\n")
         ports = self.ports()
-        ports.trusted_dirs = (launch_dir,)
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        runs = [w for w in ports.herdr.writes if w[0] == "run"]
-        self.assertEqual(len(runs), 2)
-        self.assertTrue(runs[0][2].startswith("cd ") and launch_dir in runs[0][2], runs)
-        self.assertTrue(runs[1][2].startswith("claude-a1 --name "), runs)
-        # 作業場の外で起こすので、作業場への信頼の印は付けない
-        self.assertFalse([w for w in ports.herdr.writes if w[0] == "trust"])
-        path = next(w["path"] for w in ports.herdr.worktrees(gitx_source(self.cfg)) if w["linked"])
-        [(_, _, text, _)] = self.sent(ports)
-        self.assertIn(f"触る作業場（git worktree）は {path}（枝 task/fix）", text)
-        self.assertNotIn("信頼していない", out)
-
-    def test_untrusted_task_cwd_is_noted(self):
-        launch_dir = str(pathlib.Path(self.root).parent / "notes-root")
-        os.mkdir(launch_dir)
-        two_accounts(self.cfg, task_cwd=launch_dir)
-        rc, out = self.run_task(self.ports())
-        self.assertIn(f"アカウント a1 は {launch_dir} を信頼していない", out)
+        self.assertIn("task_cwd は使わなくなったので無視した", out)
+        self.assertFalse([w for w in ports.herdr.writes if w[0] == "run" and w[2].startswith("cd ")])
 
     def test_dry_run_writes_nothing_and_shows_the_plan_and_the_first_text(self):
         ports = self.ports()
@@ -179,8 +213,10 @@ class Task(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(ports.herdr.writes, [])
         self.assertFalse(hasattr(ports, "refreshed"))
-        self.assertIn("作業役 直し  task/fix  a1  create", out)
+        self.assertIn("部署 直し  task/fix  a1  create", out)
+        self.assertIn("- 部署の属性: company.role=作業役、company.account=a1、company.name=直し", out)
         self.assertIn("- 最初の文: 作業の頼みです。", out)
+        self.assertFalse((pathlib.Path(gitx_source(self.cfg)) / ".git" / "info" / "exclude").read_text(encoding="utf-8").count(".claude/"))
 
     def test_a_conversation_with_the_same_name_stops(self):
         dirs = {"a1": f"{pathlib.Path(self.cfg).parent}/c1"}
@@ -218,24 +254,25 @@ class Task(unittest.TestCase):
     def test_task_needs_branch_and_brief_and_takes_no_other_entry(self):
         for argv, said in ((["--task", "直し"], "--branch <枝> と --brief"),
                            (["--task", "直し", "--branch", "b", "--brief", "x", "--pr", "1"], "一緒に使えない"),
-                           (["--branch", "b"], "--task と一緒にだけ使う")):
+                           (["--branch", "b"], "--task と一緒にだけ使う"),
+                           (["--role", "調べ役"], "--task と一緒にだけ使う")):
             with self.subTest(argv=argv):
                 rc, out = run_main(["--config", self.cfg, *argv], self.ports())
                 self.assertEqual(rc, 2)
                 self.assertIn(said, out)
 
     def test_preflight_problem_stops(self):
-        ports = FakePorts([], problems=["PATH の claude が会話に名前を付ける --name を持たない"])
+        ports = FakePorts([], problems=["PATH の claude が --bg を持たない"])
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 2)
-        self.assertIn("--name を持たない", out)
+        self.assertIn("--bg を持たない", out)
         self.assertEqual(ports.herdr.writes, [])
 
     def test_repo_can_be_named_by_its_source_clone_path(self):
         ports = self.ports()
         rc, out = self.run_task(ports, "--repo", gitx_source(self.cfg), "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("作業役 直し", out)
+        self.assertIn("部署 直し", out)
 
 
 class PrepareTask(unittest.TestCase):

@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "required": ["schema", "companies", "notes"],
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "notes": {"type": "array", "items": {"type": "string"}},
+    "companies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["root", "name", "info_source", "info_path", "description", "skills", "problems", "departments"],
+        "properties": {
+          "root": {"type": "string"},
+          "name": {"type": "string"},
+          "info_source": {"type": ["string", "null"], "enum": ["repo", "settings", null]},
+          "info_path": {"type": ["string", "null"]},
+          "description": {"type": ["string", "null"]},
+          "problems": {"type": "array", "items": {"type": "string"}},
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "description", "role"],
+              "properties": {
+                "id": {"type": ["string", "null"]},
+                "name": {"type": "string"},
+                "description": {"type": ["string", "null"]},
+                "role": {"type": ["string", "null"]}
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "branch", "head_office", "workspace", "state", "session", "sessions", "panes", "attrs",
+                           "role", "account", "name", "boss"],
+              "properties": {
+                "path": {"type": "string"},
+                "branch": {"type": ["string", "null"]},
+                "head_office": {"type": "boolean"},
+                "workspace": {"type": ["string", "null"]},
+                "state": {"type": "string", "enum": ["working", "blocked", "done", "failed", "stopped", "idle", "no_session"]},
+                "session": {"type": ["object", "null"]},
+                "sessions": {"type": "integer"},
+                "panes": {"type": "array", "items": {"type": "object", "required": ["pane_id"]}},
+                "attrs": {"type": "object"},
+                "role": {"type": ["string", "null"]},
+                "account": {"type": ["string", "null"]},
+                "name": {"type": ["string", "null"]},
+                "boss": {"type": ["string", "null"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

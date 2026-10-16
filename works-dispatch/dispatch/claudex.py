@@ -1,4 +1,5 @@
-"""Claude Code への口。dispatch で Claude Code を呼ぶ・その設定を触るのはこの 1 か所だけ。書くのは、フォルダの信頼の印 1 つだけ。
+"""Claude Code への口。dispatch で Claude Code を呼ぶ・その設定を触るのはこの 1 か所だけ。書くのは、フォルダの信頼の印と、
+裏の会話（claude --bg）を消す rm の 2 つ。
 
 開いている会話は `claude agents --json` で読む。Claude Code の文書は、これを外から会話の状態を読む公式の口としている。
 返る 1 件の形は、2026-10-14 に 2.1.299 で見た `{"pid", "cwd", "kind", "startedAt", "sessionId", "name", "status"}`。
@@ -20,12 +21,19 @@ def _default_runner(argv, env=None):
     return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
 
 
-def sessions(config_dir, runner=_default_runner, base_env=None):
+def _env(config_dir, base_env):
     env = dict(os.environ if base_env is None else base_env)
     # config_dir が無い（アカウントを切り替えない人）なら、その人の CLAUDE_CONFIG_DIR（有れば）をそのまま使う
     if config_dir:
         env["CLAUDE_CONFIG_DIR"] = os.path.expanduser(config_dir)
-    argv = ["claude", "agents", "--json"]
+    return env
+
+
+def sessions(config_dir, runner=_default_runner, base_env=None, include_done=False):
+    """そのアカウントの会話の並び。include_done なら、終わった裏の会話（claude --bg）も入れる（--all）。
+    裏の会話の 1 件は id（短い id）と state（working・blocked・done・failed・stopped）も持つ（2026-10-16 に 2.1.301 で見た）。"""
+    env = _env(config_dir, base_env)
+    argv = ["claude", "agents", "--json"] + (["--all"] if include_done else [])
     p = runner(argv, env=env)
     try:
         listed = json.loads(p.stdout)
@@ -122,15 +130,26 @@ def is_trusted(path_of_file, folder):
     return bool((projects.get(folder) or {}).get("hasTrustDialogAccepted"))
 
 
-def has_name_flag(runner=_default_runner):
-    """PATH の claude が、会話に名前を付ける `--name` を持つか（`claude --help` の字で見る）。作業役（--task）は、会話の名前を
-    SendMessage の宛先にするので、これが要る。Claude Code の変更の記録は、`-n` / `--name <name>` を起動時に会話の表示の名前を
-    付ける旗として足したと書く。起こせなければ偽。"""
+TASK_FLAGS = ("--name", "--bg", "--settings")
+
+
+def missing_flags(runner=_default_runner, flags=TASK_FLAGS):
+    """PATH の claude の `claude --help` に無い旗の並び。部署（--task）は、会話に名前を付け（--name。SendMessage の宛先になる）、
+    裏の会話として起こし（--bg）、その会話にだけ効く設定を渡す（--settings）。起こせなければ全部。"""
     try:
         p = runner(["claude", "--help"])
     except OSError:
-        return False
-    return p.returncode == 0 and "--name" in (p.stdout or "")
+        return list(flags)
+    text = p.stdout or "" if p.returncode == 0 else ""
+    return [f for f in flags if f not in text]
+
+
+def remove_session(config_dir, session_id, runner=_default_runner, base_env=None):
+    """そのアカウントの裏の会話を消す（`claude rm <id>`）。書く口。(消えたか, claude の言葉)。
+    rm は、どのリモートにも無い commit や確かめられないファイルのある worktree なら、消さずに断る（2026-10-16 に 2.1.301 で見た。
+    会話が作った worktree でなければ、worktree は残して会話だけを消した）。鍵は要らず、設定のフォルダだけで通った。"""
+    p = runner(["claude", "rm", session_id], env=_env(config_dir, base_env))
+    return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
 
 
 def caller(listed, session_id):

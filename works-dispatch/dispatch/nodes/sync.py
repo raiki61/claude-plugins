@@ -6,14 +6,14 @@
 - 付ける先は、部署の中で会話の居るペイン。会話が居なくて、ペインが 1 つだけならそのペイン（herdr を立ち上げ直した後など）。
 - ペインの名前は 会話の名前（アカウントが 2 つ以上なら、後ろにアカウントの名）。--task が付ける名前と同じ決まり（label）。
   今の名前と同じなら付け直さない。
-- 表示名は役、題名は会話の名前、札は role（役）と boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
+- 表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
   属性に無い物は消す。
 
 入口の dispatch.py --sync が tree ノードの組み立てを渡して plan を呼び、apply で herdr に書く（--dry-run は plan だけ）。
 """
 
 SOURCE = "company"  # herdr pane report-metadata の出どころ
-TOKENS = ("role", "boss")  # 札に出す属性
+TOKENS = ("role", "account", "boss")  # 札に出す属性
 
 
 def label(name, account, many_accounts):

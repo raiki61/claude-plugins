@@ -525,17 +525,30 @@ if __name__ == "__main__":
 
 
 class ClaudeName(unittest.TestCase):
-    def test_name_flag_is_read_from_help(self):
-        f = Fake((0, "  -n, --name <name>   Set a display name for this session\n", ""))
-        self.assertTrue(claudex.has_name_flag(runner=f))
+    def test_missing_flags_are_read_from_help(self):
+        f = Fake((0, "  --bg, --background   Start in the background\n  -n, --name <name>\n", ""))
+        self.assertEqual(claudex.missing_flags(runner=f), ["--settings"])
         self.assertEqual(f.calls[0][0], ["claude", "--help"])
-        self.assertFalse(claudex.has_name_flag(runner=Fake((0, "  --resume <id>\n", ""))))
-        self.assertFalse(claudex.has_name_flag(runner=Fake((1, "--name", ""))))
+        self.assertEqual(claudex.missing_flags(runner=Fake((1, "--name --bg --settings", ""))), list(claudex.TASK_FLAGS))
 
-    def test_name_flag_is_false_when_claude_cannot_start(self):
+    def test_all_flags_are_missing_when_claude_cannot_start(self):
         def missing(argv, env=None):
             raise FileNotFoundError(argv[0])
-        self.assertFalse(claudex.has_name_flag(runner=missing))
+        self.assertEqual(claudex.missing_flags(runner=missing), list(claudex.TASK_FLAGS))
+
+    def test_sessions_with_done_ones_add_all(self):
+        f = Fake((0, "[]", ""))
+        claudex.sessions("/c1", runner=f, base_env={}, include_done=True)
+        self.assertEqual(f.calls[0][0], ["claude", "agents", "--json", "--all"])
+        self.assertEqual(f.calls[0][1]["CLAUDE_CONFIG_DIR"], "/c1")
+
+    def test_remove_session_runs_rm_in_the_account_folder_and_says_why_it_kept(self):
+        f = Fake((1, "kept 82fbd328 — its worktree is still at x\n", ""))
+        self.assertEqual(claudex.remove_session("/c1", "82fbd328", runner=f, base_env={}),
+                         (False, "kept 82fbd328 — its worktree is still at x"))
+        self.assertEqual(f.calls[0][0], ["claude", "rm", "82fbd328"])
+        self.assertEqual(f.calls[0][1]["CLAUDE_CONFIG_DIR"], "/c1")
+        self.assertTrue(claudex.remove_session(None, "x", runner=Fake((0, "removed x", "")), base_env={})[0])
 
     def test_caller_is_the_account_whose_listing_has_the_session(self):
         listed = {"a1": [{"sessionId": "s1", "name": "x"}], "a2": [{"sessionId": "s2", "name": "窓口"}]}

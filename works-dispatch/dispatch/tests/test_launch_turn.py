@@ -27,7 +27,10 @@ class FakeHerdr:
             raise real_herdr.HerdrError(["herdr", "pane", "run"], self._run_error)
 
     def shell_in_front(self, pane):
+        """shell が並びなら、呼ばれるたびに頭から 1 つずつ返す（最後の 1 つは返し続ける）。"""
         self.calls.append(("shell_in_front", pane))
+        if isinstance(self._shell, list):
+            return self._shell.pop(0) if len(self._shell) > 1 else self._shell[0]
         return self._shell
 
     def wait_ready(self, pane):
@@ -99,55 +102,51 @@ class Launch(unittest.TestCase):
         self.assertEqual(schemacheck.check(out, schemacheck.schema("launch")), [])
 
 
-class LaunchTask(unittest.TestCase):
-    """作業役（入口の --task）の起こし方: 会話とペインに名前を付け、別のフォルダで起こせる。/catchup の窓の前置きは付けない。"""
+class StartBackground(unittest.TestCase):
+    """部署（入口の --task）の起こし方: ペインに名前を付け、裏の会話（--bg）を名前と設定と最初の文を付けて打ち込み、シェルが戻るのを待つ。"""
 
-    def test_names_the_pane_then_starts_with_a_session_name_without_the_catchup_prefix(self):
-        h = FakeHerdr()
-        got = launch.start(ROW, "w:p1", h, posix=True, quiet=False, name="直し 'a'", label="直し p2")
-        self.assertEqual(got["status"], "ready")
+    def test_names_the_pane_then_types_the_background_start_and_waits_for_the_shell(self):
+        h = FakeHerdr(shell=[True, False, True])
+        got = launch.start_background({**ROW, "label": "直し p2"}, "w:p1", "直し 'a'", "/s/set.json", "頼み「x」", h, posix=True,
+                                      pause=lambda: None)
+        self.assertEqual(got["status"], "sent")
         self.assertEqual([c for c in h.calls if c[0] in ("rename_pane", "run")],
-                         [("rename_pane", "w:p1", "直し p2"), ("run", "w:p1", "claude-x --name '直し '\"'\"'a'\"'\"''")])
-
-    def test_cwd_is_entered_before_the_command(self):
-        h = FakeHerdr()
-        launch.start(ROW, "w:p1", h, posix=True, quiet=False, cwd="/my notes")
-        self.assertEqual([c for c in h.calls if c[0] == "run"], [("run", "w:p1", "cd '/my notes'"), ("run", "w:p1", "claude-x")])
+                         [("rename_pane", "w:p1", "直し p2"),
+                          ("run", "w:p1", "claude-x --bg --name '直し '\"'\"'a'\"'\"'' --settings /s/set.json '頼み「x」'")])
 
     def test_without_a_posix_shell_words_are_double_quoted(self):
         h = FakeHerdr()
-        launch.start(ROW, "w:p1", h, posix=False, quiet=False, name="直し", cwd="C:\\my notes")
+        launch.start_background(ROW, "w:p1", "直し", "C:\\s\\set.json", "頼み", h, posix=False, pause=lambda: None)
         self.assertEqual([c for c in h.calls if c[0] == "run"],
-                         [("run", "w:p1", 'cd "C:\\my notes"'), ("run", "w:p1", 'claude-x --name "直し"')])
+                         [("run", "w:p1", 'claude-x --bg --name "直し" --settings "C:\\s\\set.json" "頼み"')])
+
+    def test_a_confirmation_screen_is_blocked_not_a_hang(self):
+        h = FakeHerdr(shell=[True, False], agent={"agent": "claude", "agent_status": "blocked"})
+        got = launch.start_background(ROW, "w:p1", "直し", "/s", "頼み", h, posix=True, pause=lambda: None)
+        self.assertEqual(got["status"], "blocked")
 
     def test_a_pane_name_that_cannot_be_set_does_not_stop_the_start(self):
         h = FakeHerdr(rename_error="pane_not_found")
-        got = launch.start(ROW, "w:p1", h, posix=True, quiet=False, label="x")
-        self.assertEqual(got["status"], "ready")
+        got = launch.start_background({**ROW, "label": "x"}, "w:p1", "直し", "/s", "頼み", h, posix=True, pause=lambda: None)
+        self.assertEqual(got["status"], "sent")
         self.assertIn("ペインに名前を付けられなかった", got["detail"])
 
     def test_busy_pane_is_neither_named_nor_typed_into(self):
         h = FakeHerdr(shell=False)
-        got = launch.start(ROW, "w:p1", h, posix=True, quiet=False, label="x", cwd="/d")
+        got = launch.start_background({**ROW, "label": "x"}, "w:p1", "直し", "/s", "頼み", h, posix=True, pause=lambda: None)
         self.assertEqual(got["status"], "pane_busy")
         self.assertFalse([c for c in h.calls if c[0] in ("rename_pane", "run")])
 
+    def test_herdr_error_is_launch_failed(self):
+        got = launch.start_background(ROW, "w:p1", "直し", "/s", "頼み", FakeHerdr(run_error="pane_not_found"), posix=True,
+                                      pause=lambda: None)
+        self.assertEqual(got["status"], "launch_failed")
 
-class FirstPrompt(unittest.TestCase):
-    def test_waits_only_until_it_starts_working(self):
-        h = FakeHerdr(prompts=["working"])
-        self.assertEqual(turn.first_prompt("p", "頼み", h), "sent")
-        self.assertEqual(h.calls, [("prompt", "p", "頼み", True, ("working", "blocked"))])
-
-    def test_finished_at_once_is_still_sent(self):
-        self.assertEqual(turn.first_prompt("p", "頼み", FakeHerdr(prompts=["idle"])), "sent")
-
-    def test_blocked_and_stalled_are_said(self):
-        self.assertEqual(turn.first_prompt("p", "頼み", FakeHerdr(prompts=["blocked"])), "blocked")
-        self.assertEqual(turn.first_prompt("p", "頼み", FakeHerdr(prompts=["stalled"])), "stalled")
-
-    def test_herdr_error_is_send_failed(self):
-        self.assertEqual(turn.first_prompt("p", "頼み", FakeHerdr(prompt_error="boom")), "send_failed")
+    def test_attach_types_the_account_command_with_the_id(self):
+        h = FakeHerdr()
+        self.assertEqual(launch.attach(ROW, "w:p1", "82fbd328", h)["status"], "attached")
+        self.assertEqual(h.calls, [("run", "w:p1", "claude-x attach 82fbd328")])
+        self.assertEqual(launch.attach(ROW, "w:p1", "x", FakeHerdr(run_error="boom"))["status"], "launch_failed")
 
 
 class Turn(unittest.TestCase):

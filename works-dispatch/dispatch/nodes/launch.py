@@ -10,7 +10,9 @@
 POSIX のシェルでは、コマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く。attention の /catchup は書いたページを VS Code の窓に
 開くが、dispatch は何件も一度に起こすので、窓にタブが一気に開かないようにする（ページは書かれ、一覧のページに載る）。
 シェル関数のアカウントのコマンドにも、この前置きは関数の間だけ環境変数として渡る（bash・zsh で確かめた）。
-作業役（入口の --task）を起こすときは、この前置きを付けず、会話とペインに名前を付ける（start の説明）。作業役も作業場で起こす。
+部署（入口の --task）は start_background が、Claude Code の裏の会話（`claude --bg`）として部署の作業場で起こし、attach が同じ
+ペインでその会話につなぐ（会社の形の設計 9.1）。持ち主のアカウントのコマンドはシェル関数のことがあり、鍵はその関数が入れる
+（関数を通さずに打った回は blocked のまま進まなかった）ので、裏の会話も herdr のペインに打ち込んで起こす。
 
 使い方: python3 nodes/launch.py --plan <plan の JSON> --number <PR 番号> --pane <ペイン ID> [--out <パス>]
 """
@@ -20,6 +22,7 @@ import os
 import pathlib
 import shlex
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import herdr  # noqa: E402
@@ -34,26 +37,20 @@ def _quote(text, posix):
     return shlex.quote(text) if posix else '"' + text.replace('"', '') + '"'
 
 
-def start(row, pane, h=herdr, posix=None, *, quiet=True, name=None, label=None):
-    """PR の会話は quiet（/catchup の窓を開かない前置き）だけで起こす。作業役（入口の --task）は quiet を外し、次の 2 つを足す。
-    name: 会話の名前（起動のコマンドの後ろに `--name <名前>`。SendMessage の宛先になる）。label: ペインの名前（herdr pane rename。
-    付けられなくても起こし、detail に書く）。"""
+BUSY = "作業場のペインの前で、シェルではない物が動いている（打ち込まない。そのペインを空けてから打ち直す）"
+
+
+def start(row, pane, h=herdr, posix=None):
+    """PR の会話を、/catchup の窓を開かない前置き（POSIX のシェルだけ）を付けて起こす。"""
     posix = os.name != "nt" if posix is None else posix
     command = row["account"]["command"]
-    if name:
-        command = f"{command} --name {_quote(name, posix)}"
-    if quiet and posix:
+    if posix:
         command = f"{QUIET_CATCHUP} {command}"
     result = {"number": row["number"], "pane": pane, "status": "launch_failed", "detail": None}
     try:
         if not h.shell_in_front(pane):
-            result.update(status="pane_busy", detail="作業場のペインの前で、シェルではない物が動いている（打ち込まない。そのペインを空けてから打ち直す）")
+            result.update(status="pane_busy", detail=BUSY)
             return result
-        if label:
-            try:
-                h.rename_pane(pane, label)
-            except h.HerdrError as e:
-                result["detail"] = f"ペインに名前を付けられなかった（{e}）"
         h.run(pane, command)
         state = h.wait_ready(pane)
         seen = h.agent(pane)
@@ -69,6 +66,50 @@ def start(row, pane, h=herdr, posix=None, *, quiet=True, name=None, label=None):
         return result
     result["status"] = "ready"
     return result
+
+
+def start_background(row, pane, name, settings, text, h=herdr, posix=None, pause=lambda: time.sleep(1)):
+    """部署の会話を裏で起こす: ペインに名前（row の label）を付け、`<アカウントのコマンド> --bg --name <名前> --settings <ファイル>
+    <最初の文>` を打ち込み、シェルが前に戻る（--bg は起こしてすぐ戻る）のを待つ。{pane, status, detail}。status は
+    sent（打ち込んで戻った。会話が在るかは入口が会話の一覧で確かめる）・pane_busy・blocked（確認の画面で止まった）・launch_failed。
+    確認の画面（フォルダの信頼など）で止まると、--bg も戻らない（2026-10-16 に信頼していないフォルダで見た）。herdr がその会話を
+    blocked と見たら返す。期限は足さない（D5）。"""
+    posix = os.name != "nt" if posix is None else posix
+    command = (f"{row['account']['command']} --bg --name {_quote(name, posix)} --settings {_quote(settings, posix)} "
+               f"{_quote(text, posix)}")
+    result = {"pane": pane, "status": "launch_failed", "detail": None}
+    try:
+        if not h.shell_in_front(pane):
+            result.update(status="pane_busy", detail=BUSY)
+            return result
+        if row.get("label"):
+            try:
+                h.rename_pane(pane, row["label"])
+            except h.HerdrError as e:
+                result["detail"] = f"ペインに名前を付けられなかった（{e}）"
+        h.run(pane, command)
+        pause()
+        while not h.shell_in_front(pane):
+            if h.agent(pane).get("agent_status") == "blocked":
+                result.update(status="blocked", detail="起こすときに確認の画面で止まっている（フォルダの信頼・ログインなど）。"
+                                                       "そのペインで答えると会話が裏で始まる")
+                return result
+            pause()
+    except h.HerdrError as e:
+        result["detail"] = str(e)
+        return result
+    result["status"] = "sent"
+    return result
+
+
+def attach(row, pane, session_id, h=herdr):
+    """同じペインで `<アカウントのコマンド> attach <id>` を打ち込み、裏の会話の画面をペインに出す。ペインを閉じても会話は続く
+    （2026-10-16 に試した）。{pane, status: attached|launch_failed, detail}。"""
+    try:
+        h.run(pane, f"{row['account']['command']} attach {session_id}")
+    except h.HerdrError as e:
+        return {"pane": pane, "status": "launch_failed", "detail": str(e)}
+    return {"pane": pane, "status": "attached", "detail": None}
 
 
 def main(argv=None):

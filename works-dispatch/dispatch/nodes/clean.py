@@ -17,6 +17,14 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 消す時は herdr の worktree の口で checkout と作業場を消し（--force は付けない）、消えたことを読み戻してから、手元の枝も消す
 （先頭が PR の head と同じときだけ）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
 
+部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
+- 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
+- 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
+- 部署の枝の先頭が本流（origin の既定の枝の手元の控え）に入っている
+消す時は、会話を `claude rm` で消し（会話の worktree は下回りが作ったので、rm は worktree を残す）、続けて上と同じく herdr の
+worktree の口で場所と作業場（attach の窓）を消し、手元の枝も消す。本流に入れる方法は会社ごとに決める（設計の 8 章）ので、
+ここは「入っていれば消す」だけを持つ。
+
 使い方は入口から: python3 dispatch.py --clean [--apply]
 """
 
@@ -119,6 +127,54 @@ def release(source, path, h=herdr):
         return out
     out["status"] = "closed"
     return out
+
+
+DONE = ("done", "stopped", "failed")
+
+
+def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_sha, source=None):
+    """部署ごとに、消してよいか。attrs_of(場所) は部署の git の属性。session_of(属性) は会話の 1 件（{id, sessionId, state, …,
+    config_dir}）か、一覧に無ければ None。merged(場所) は枝の先頭が本流に入っているか。
+    返す 1 行は {path, branch, name, account, session, config_dir, state, pr_head, removable, reason}（pr_head は消す時に
+    手元の枝の先頭と比べる commit で、今の先頭）。reason は running・dirty・unpushed・not_merged・no_branch。"""
+    rows = []
+    for place in sorted((p for p in places if p.get("linked") and not p.get("prunable")), key=lambda p: p.get("path") or ""):
+        path, branch = place["path"], place.get("branch")
+        if source and _same(path, source):
+            continue
+        attrs = attrs_of(path)
+        if not attrs.get("session"):
+            continue
+        s = session_of(attrs)
+        row = {"path": path, "branch": branch, "name": attrs.get("name"), "account": attrs.get("account"),
+               "session": (s or {}).get("id") or (s or {}).get("sessionId"), "config_dir": (s or {}).get("config_dir"),
+               "state": (s or {}).get("state") or (s or {}).get("status") or "gone", "pr_head": head_sha(path),
+               "removable": False, "reason": None}
+        rows.append(row)
+        if s is not None and s.get("state") not in DONE:
+            row["reason"] = "running"
+        elif not branch:
+            row["reason"] = "no_branch"
+        elif not is_clean(path):
+            row["reason"] = "dirty"
+        elif unpushed(path):
+            row["reason"] = "unpushed"
+        elif not merged(path):
+            row["reason"] = "not_merged"
+        else:
+            row["removable"] = True
+    return rows
+
+
+def retire(row, source, label, h=herdr, g=gitx, c=None):
+    """部署の 1 行を消す: 会話が一覧に在れば c.remove_session（claude rm）で消し、続けて remove で場所と窓と手元の枝を消す。
+    rm が断れば（未 push の commit など）、場所も消さない。{path, branch, removed, branch_deleted, detail}。"""
+    if row.get("session"):
+        ok, said = c.remove_session(row["config_dir"], row["session"])
+        if not ok:
+            return {"path": row["path"], "branch": row["branch"], "removed": False, "branch_deleted": False,
+                    "detail": f"claude rm が断った（{said}）"}
+    return remove(row, source, label, h, g)
 
 
 def remove(row, source, label, h=herdr, g=gitx):

@@ -7,7 +7,7 @@
 enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 
-書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr の 6 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・exclude の 7 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
 import os
@@ -185,6 +185,31 @@ def enable_worktree_config(source, runner=_default_runner):
                        "（git help worktree の CONFIGURATION FILE の節のとおり、先に元の clone の config.worktree へ移す）")
     _must(["git", "-C", source, "config", "--local", "extensions.worktreeConfig", "true"], runner)
     return "enabled"
+
+
+def exclude(source, pattern, runner=_default_runner):
+    """元の clone の .git/info/exclude（commit されない、手元だけの無視の決まり。worktree と共有）に pattern の行が無ければ足す。書く口。
+    added（足した）・already（もう有る）。勤め先のリポジトリの .gitignore を触らずに、Claude Code が作る .claude/ を隠すのに使う。"""
+    common = common_dir(source, runner)
+    if not common:
+        raise GitError(f"{source} が git でない")
+    path = os.path.join(common, "info", "exclude")
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    if pattern in (line.strip() for line in text.splitlines()):
+        return "already"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(("" if not text or text.endswith("\n") else "\n") + pattern + "\n")
+    return "added"
+
+
+def is_merged(cwd, target, runner=_default_runner):
+    """その場所の HEAD が target（例: refs/remotes/origin/main）に入っているか。読めなければ偽（消さない側に倒す）。"""
+    return _is_ancestor(cwd, "HEAD", target, runner)
 
 
 def set_worktree_attr(cwd, name, value, runner=_default_runner):
