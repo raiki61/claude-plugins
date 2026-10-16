@@ -34,7 +34,7 @@
             "items": {
               "type": "object",
               "required": ["path", "branch", "head_office", "workspace", "state", "session", "sessions", "panes", "attrs",
-                           "role", "account", "name", "boss"],
+                           "role", "residency", "account", "name", "boss"],
               "properties": {
                 "path": {"type": "string"},
                 "branch": {"type": ["string", "null"]},
@@ -46,6 +46,7 @@
                 "panes": {"type": "array", "items": {"type": "object", "required": ["pane_id"]}},
                 "attrs": {"type": "object"},
                 "role": {"type": ["string", "null"]},
+                "residency": {"type": ["string", "null"], "enum": ["resident", "per-task", null]},
                 "account": {"type": ["string", "null"]},
                 "name": {"type": ["string", "null"]},
                 "boss": {"type": ["string", "null"]}

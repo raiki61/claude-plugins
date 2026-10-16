@@ -18,6 +18,7 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 （先頭が PR の head と同じときだけ）。前の版の PR ごとの clone（<リポジトリの名前>-pr-<番号>）は扱わない。
 
 部署（入口の --task が立て、属性 company.session を持つ linked worktree）は、別の決まりで選ぶ（departments・retire）。
+- 都度の部署である（属性 company.residency が resident の常駐の部署は畳まない。属性が無ければ都度とみなす。会社の形の設計 4.10 の 1）
 - 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
 - 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
 - 部署の枝の先頭が本流（origin の既定の枝の手元の控え）に入っている
@@ -136,7 +137,7 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
     """部署ごとに、消してよいか。attrs_of(場所) は部署の git の属性。session_of(属性) は会話の 1 件（{id, sessionId, state, …,
     config_dir}）か、一覧に無ければ None。merged(場所) は枝の先頭が本流に入っているか。
     返す 1 行は {path, branch, name, account, session, config_dir, state, pr_head, removable, reason}（pr_head は消す時に
-    手元の枝の先頭と比べる commit で、今の先頭）。reason は running・dirty・unpushed・not_merged・no_branch。"""
+    手元の枝の先頭と比べる commit で、今の先頭）。reason は resident・running・dirty・unpushed・not_merged・no_branch。"""
     rows = []
     for place in sorted((p for p in places if p.get("linked") and not p.get("prunable")), key=lambda p: p.get("path") or ""):
         path, branch = place["path"], place.get("branch")
@@ -151,7 +152,9 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
                "state": (s or {}).get("state") or (s or {}).get("status") or "gone", "pr_head": head_sha(path),
                "removable": False, "reason": None}
         rows.append(row)
-        if s is not None and s.get("state") not in DONE:
+        if attrs.get("residency") == "resident":
+            row["reason"] = "resident"
+        elif s is not None and s.get("state") not in DONE:
             row["reason"] = "running"
         elif not branch:
             row["reason"] = "no_branch"

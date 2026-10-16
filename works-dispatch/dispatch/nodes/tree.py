@@ -164,7 +164,8 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                 "panes": [{"pane_id": x["pane_id"], "label": x.get("label"), "agent": x.get("agent"),
                            "agent_status": x.get("agent_status")} for x in mine],
                 "attrs": a,
-                "role": a.get("role"), "account": a.get("account") or (main or {}).get("account"),
+                "role": a.get("role"), "residency": a.get("residency"),
+                "account": a.get("account") or (main or {}).get("account"),
                 "name": a.get("name") or (main or {}).get("name"), "boss": a.get("boss"),
             })
         companies.append({"root": root, "name": info.get("name") or os.path.basename(os.path.normpath(root)),
@@ -194,7 +195,7 @@ def lines(companies):
             fields = [STATES[d["state"]] + (f"（会話 {d['sessions']}）" if d["sessions"] > 1 else "")]
             if d["name"]:
                 fields.append(f"会話 {d['name']}")
-            fields += [f"役 {d['role'] or '-'}", f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
+            fields += [f"役 {d['role'] or '-'}" + ("（常駐）" if d["residency"] == "resident" else ""), f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

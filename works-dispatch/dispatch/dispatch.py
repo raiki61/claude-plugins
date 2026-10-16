@@ -75,6 +75,8 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
 TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read"}
 # 作業役の役を --role で渡さないときの役
 DEFAULT_ROLE = "作業役"
+# 部署の常駐か都度か（属性 company.residency の値）。常駐の部署は片付けで畳まない（会社の形の設計 4.10 の 1）
+RESIDENT, PER_TASK = "resident", "per-task"
 
 
 def _posix_shell(env, posix=None):
@@ -511,6 +513,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--from-name", help="--task と一緒に: 呼んだ会話の名前（Claude Code の中から走らせれば自分で探す）")
     ap.add_argument("--from-account", help="--task と一緒に: 呼んだ会話のアカウントの名（同上）")
     ap.add_argument("--role", help=f"--task と一緒に: 部署の役（省けば {DEFAULT_ROLE}）")
+    ap.add_argument("--resident", action="store_true",
+                    help="--task と一緒に: 常駐の部署にする（--clean で畳まず、次の頼みを同じ部署で受ける。省けば都度の部署）")
     ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree と一緒に: JSON で出す")
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
@@ -534,7 +538,7 @@ def main(argv=None, ports=None):
         print("止めた: --issue と --pr は一緒に使えない（1 回に 1 つの入口）")
         return 2
     task_args = [n for n, v in (("--branch", a.branch), ("--brief", a.brief), ("--base", a.base), ("--from-name", a.from_name),
-                                ("--from-account", a.from_account), ("--role", a.role)) if v]
+                                ("--from-account", a.from_account), ("--role", a.role), ("--resident", a.resident)) if v]
     if a.task is None and task_args:
         print(f"止めた: {', '.join(task_args)} は --task と一緒にだけ使う")
         return 2
@@ -892,8 +896,8 @@ def _task(cfg, repo, a, ports):
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
     # 部署の属性（正本）。上役は呼んだ会話。分からない物は書かない
-    attrs = {"role": a.role or DEFAULT_ROLE, "account": account, "name": a.task, "boss": caller["name"],
-             "boss-account": caller["account"]}
+    attrs = {"role": a.role or DEFAULT_ROLE, "residency": RESIDENT if a.resident else PER_TASK, "account": account,
+             "name": a.task, "boss": caller["name"], "boss-account": caller["account"]}
     route = (f"SendMessage で「{caller['name']}」へ" if caller["name"] and caller["account"] == account
              else "区切りで画面に書いて止まる")
     if a.dry_run:
@@ -1133,7 +1137,7 @@ def _department_rows(cfg, repo, ports, found, notes):
                              lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source)
 
 
-DEPT_REASONS = {"running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
+DEPT_REASONS = {"resident": "常駐の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
                 "not_merged": "枝が本流に入っていない", "no_branch": "枝に乗っていない"}
 
 

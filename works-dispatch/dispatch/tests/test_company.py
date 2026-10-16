@@ -142,7 +142,8 @@ class Build(unittest.TestCase):
                        {"path": "/wt/r/a", "branch": "dept/a", "linked": True, "workspace": "w2"},
                        {"path": "/wt/r/b", "branch": "dept/b", "linked": True, "workspace": None},
                        {"path": "/wt/r/gone", "branch": "x", "linked": True, "prunable": True}]}
-    ATTRS = {"/wt/r/a": {"role": "調べ役", "account": "p2", "name": "調べ", "session": "s-a", "boss": "窓口"}}
+    ATTRS = {"/wt/r/a": {"role": "調べ役", "residency": "resident", "account": "p2", "name": "調べ", "session": "s-a",
+                         "boss": "窓口"}}
 
     def build(self, panes=(), sessions=None):
         return tree.build(["/s/r"], self.PLACES, list(panes), lambda p: self.ATTRS.get(p, {}),
@@ -174,7 +175,7 @@ class Build(unittest.TestCase):
         text = "\n".join(tree.lines(self.build((), sessions)))
         self.assertIn("r  /s/r  （会社の情報なし）", text)
         self.assertIn("  本社 main  会話なし", text)
-        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役  アカウント p2  上役 窓口  窓 なし", text)
+        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（常駐）  アカウント p2  上役 窓口  窓 なし", text)
         self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  上役 -  窓 なし", text)
 
     def test_roots_come_from_herdr_then_from_conversations(self):
@@ -355,6 +356,13 @@ class Departments(unittest.TestCase):
         self.assertIn("部署 dept/a dept/a  working  残す（会話がまだ動いている）", out)
         self.assertIn("部署 dept/b dept/b  done  残す（手元にしか無い commit か stash が有る）", out)
         self.assertEqual(self.removed, [])
+
+    def test_resident_department_is_never_removed(self):
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        rc, out = self.clean("--apply")
+        self.assertIn("部署 dept/a dept/a  done  残す（常駐の部署は畳まない）", out)
+        self.assertEqual(self.removed, [])
+        self.assertTrue(os.path.exists(self.place))
 
     def test_retire_stops_when_rm_refuses(self):
         class C:

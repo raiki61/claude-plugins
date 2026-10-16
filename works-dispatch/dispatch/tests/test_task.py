@@ -97,7 +97,8 @@ class Task(unittest.TestCase):
         self.assertEqual(json.loads(pathlib.Path(ports.department_settings()).read_text(encoding="utf-8")),
                          {"worktree": {"bgIsolation": "none"}})
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
-        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業役", "account": "a1", "name": "直し", "session": "bg0-full"})
+        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業役", "residency": "per-task", "account": "a1", "name": "直し",
+                                                     "session": "bg0-full"})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に .claude/ が入る
         self.assertIn(".claude/", (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines())
@@ -107,11 +108,12 @@ class Task(unittest.TestCase):
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
 
-    def test_role_is_written_as_given(self):
+    def test_role_and_residency_are_written_as_given(self):
         ports = self.ports()
-        rc, out = self.run_task(ports, "--role", "調べ役")
+        rc, out = self.run_task(ports, "--role", "調べ役", "--resident")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place(ports))["role"], "調べ役")
+        attrs = gitx.worktree_attrs(self.place(ports))
+        self.assertEqual((attrs["role"], attrs["residency"]), ("調べ役", "resident"))
 
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):
         src = gitx_source(self.cfg)
@@ -214,7 +216,7 @@ class Task(unittest.TestCase):
         self.assertEqual(ports.herdr.writes, [])
         self.assertFalse(hasattr(ports, "refreshed"))
         self.assertIn("部署 直し  task/fix  a1  create", out)
-        self.assertIn("- 部署の属性: company.role=作業役、company.account=a1、company.name=直し", out)
+        self.assertIn("- 部署の属性: company.role=作業役、company.residency=per-task、company.account=a1、company.name=直し", out)
         self.assertIn("- 最初の文: 作業の頼みです。", out)
         self.assertFalse((pathlib.Path(gitx_source(self.cfg)) / ".git" / "info" / "exclude").read_text(encoding="utf-8").count(".claude/"))
 
@@ -255,7 +257,8 @@ class Task(unittest.TestCase):
         for argv, said in ((["--task", "直し"], "--branch <枝> と --brief"),
                            (["--task", "直し", "--branch", "b", "--brief", "x", "--pr", "1"], "一緒に使えない"),
                            (["--branch", "b"], "--task と一緒にだけ使う"),
-                           (["--role", "調べ役"], "--task と一緒にだけ使う")):
+                           (["--role", "調べ役"], "--task と一緒にだけ使う"),
+                           (["--resident"], "--task と一緒にだけ使う")):
             with self.subTest(argv=argv):
                 rc, out = run_main(["--config", self.cfg, *argv], self.ports())
                 self.assertEqual(rc, 2)
