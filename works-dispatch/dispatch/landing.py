@@ -3,7 +3,7 @@
 触るぶつかりを減らすため、別のファイルにした）。ノード（nodes/land.py・nodes/bump.py・nodes/clean.py）を並べる順だけを持つ。
 
 順（会社の形の設計 8 章。決まりの欄は nodes/land.py の read_rules）:
-1. 部署を名前（属性 company.name）か枝の名前で探し、会社の形の [land] を、部署の役で読む。取り込み方が none なら何もしない。
+1. 部署を名前（属性 company.name。無ければ前の名前 company.former-names）か枝の名前で探し、会社の形の [land] を、部署の役で読む。取り込み方が none なら何もしない。
 2. pr: 部署の枝を origin に出し、本流への PR を出して止める。
 3. ff-after-ci: 本流を取り直す。もう入っていれば片付けへ。本流が部署の枝の祖先でなければ、部署に載せ直しを頼んで止める。
 4. 版上げ（bump = "marketplace"）があれば、一時の場所で部署の枝の先頭の上に版を上げる commit を作る（部署の枝は動かさない）。
@@ -56,13 +56,10 @@ def _ask(ports, place, text):
 
 
 def _find(found, name, attrs_of):
-    hits = []
-    for p in found:
-        if p.get("linked") and not p.get("prunable"):
-            a = attrs_of(p["path"])
-            if a.get("name") == name or p.get("branch") == name:
-                hits.append((p, a))
-    return hits
+    """部署を名前か枝の名前で探す。当たらなければ前の名前（--reorg が書く company.former-names）で探す。"""
+    rows = [(p, attrs_of(p["path"])) for p in found if p.get("linked") and not p.get("prunable")]
+    hits = [(p, a) for p, a in rows if a.get("name") == name or p.get("branch") == name]
+    return hits or [(p, a) for p, a in rows if name in gitx.former_names(a)]
 
 
 def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: time.sleep(RUN_PAUSE_S), today=None,
@@ -77,9 +74,12 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         return 1
     hits = _find(found, name, ports.attrs)
     if len(hits) != 1:
-        print(f"止めた: 部署 {name} が" + ("無い（名前か枝の名前で探した）" if not hits else f" {len(hits)} つ在る（枝の名前で指す）"))
+        print(f"止めた: 部署 {name} が" + ("無い（今の名前・前の名前・枝の名前で探した。部署の名前は --tree の「会話」に出る）"
+                                         if not hits else f" {len(hits)} つ在る（枝の名前で指す）"))
         return 1
     place, attrs = hits[0]
+    if attrs.get("name") != name and place.get("branch") != name:
+        print(f"注記: {name} は前の名前。部署の今の名前は {attrs.get('name') or '-'}")
     branch, path, source = place.get("branch"), place["path"], repo.source
     info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)))
     rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))

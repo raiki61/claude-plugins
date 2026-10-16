@@ -115,13 +115,13 @@ class Task(unittest.TestCase):
                          {"worktree": {"bgIsolation": "none"}})
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
-        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業者", "residency": "per-task", "account": "a1", "name": "直し",
+        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業", "residency": "per-task", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "config": self.cfg})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に .claude/ が入る
         self.assertIn(".claude/", (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines())
         # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
-        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業者", "直し", {"role": "作業者", "account": "a1"},
+        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
@@ -135,26 +135,26 @@ class Task(unittest.TestCase):
 
     def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):
         # 会社の形の default_role は --role を省いたときの役、役の resident = true は --resident と同じ
-        push_shape(gitx_source(self.cfg), 'default_role = "総務部の管理者"\n[[roles]]\nname = "総務部の管理者"\nresident = true\n'
-                                          '[[roles]]\nname = "作業者"\n')
+        push_shape(gitx_source(self.cfg), 'default_role = "担当"\n[[roles]]\nname = "担当"\nresident = true\n'
+                                          '[[roles]]\nname = "作業"\n')
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
         attrs = gitx.worktree_attrs(self.place(ports))
-        self.assertEqual((attrs["role"], attrs["residency"]), ("総務部の管理者", "resident"))
+        self.assertEqual((attrs["role"], attrs["residency"]), ("担当", "resident"))
         self.assertNotIn("既定の", out)
-        rc, out = self.run_task(ports, "--role", "作業者", name="別", branch="task/other")
+        rc, out = self.run_task(ports, "--role", "作業", name="別", branch="task/other")
         self.assertEqual(rc, 0, out)
         attrs = gitx.worktree_attrs(self.place(ports, "task/other"))
-        self.assertEqual((attrs["role"], attrs["residency"]), ("作業者", "per-task"))
+        self.assertEqual((attrs["role"], attrs["residency"]), ("作業", "per-task"))
 
     def test_default_role_missing_from_the_shape_is_noted_not_stopped(self):
         push_shape(gitx_source(self.cfg), SHAPE)   # 役は調べ役だけで、default_role も無い
         ports = self.ports()
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(gitx.worktree_attrs(self.place(ports))["role"], "作業者")
-        self.assertIn("--role を省いたので役は既定の 作業者 だが、会社の形に無い", out)
+        self.assertEqual(gitx.worktree_attrs(self.place(ports))["role"], "作業")
+        self.assertIn("--role を省いたので役は既定の 作業 だが、会社の形に無い", out)
         self.assertIn("default_role", out)
 
     def test_branch_on_origin_is_made_from_origin_not_the_default_branch(self):
@@ -304,7 +304,7 @@ class Task(unittest.TestCase):
         self.assertEqual(ports.herdr.writes, [])
         self.assertFalse(hasattr(ports, "refreshed"))
         self.assertIn("部署 直し  task/fix  a1  create", out)
-        self.assertIn("- 部署の属性: company.role=作業者、company.residency=per-task、company.account=a1、company.name=直し", out)
+        self.assertIn("- 部署の属性: company.role=作業、company.residency=per-task、company.account=a1、company.name=直し", out)
         self.assertIn("- 最初の文: 作業の頼みです。", out)
         self.assertFalse((pathlib.Path(gitx_source(self.cfg)) / ".git" / "info" / "exclude").read_text(encoding="utf-8").count(".claude/"))
 

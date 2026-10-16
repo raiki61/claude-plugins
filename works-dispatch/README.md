@@ -50,7 +50,7 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
    /tiers:check 段 2
    ```
 
-4. （任意）会社の形の下書きを書かせる。会社の形は、会社の名前・役（部署の仕事の決まり）・本流への入れ方を書くファイルで、無くても試せる（役は既定の `作業者`、納品の見出しは下の 6 の既定になる）。`--local` を付けると、リポジトリの中でなく `~/.config/works-dispatch/companies/` に書くので、試すリポジトリを変えない。部署だけを使うなら、dispatch の設定のファイル（`~/.config/works-dispatch/dispatch.toml`）は要らない。
+4. （任意）会社の形の下書きを書かせる。会社の形は、会社の名前・役（部署の仕事の決まり）・本流への入れ方を書くファイルで、無くても試せる（役は既定の `作業`、納品の見出しは下の 6 の既定になる）。`--local` を付けると、リポジトリの中でなく `~/.config/works-dispatch/companies/` に書くので、試すリポジトリを変えない。部署だけを使うなら、dispatch の設定のファイル（`~/.config/works-dispatch/dispatch.toml`）は要らない。
 
    ```
    /works-dispatch:dispatch --init-company --local
@@ -59,7 +59,7 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
 5. 窓口から頼む。部署の名前（`--task`）と、部署が使う新しい枝（`--branch`）を渡す。
 
    ```
-   /works-dispatch:dispatch --ask 作業者 --text "README.md を読んで、初めての人が詰まりそうな所を 3 つ挙げて" --task 試し --branch try/first
+   /works-dispatch:dispatch --ask 作業 --text "README.md を読んで、初めての人が詰まりそうな所を 3 つ挙げて" --task 試し --branch try/first
    ```
 
    herdr に部署「試し」の画面が開き、部署の会話が頼みを受けて働き始める。窓口は待たずに次の仕事をしてよい。

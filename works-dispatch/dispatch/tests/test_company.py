@@ -295,15 +295,16 @@ class Sync(unittest.TestCase):
         self.assertIn("dept/b: 付ける先のペインが無い（作業場が開いていない）", notes[0])
 
     def test_workspace_takes_the_name_of_the_place_including_the_head_office(self):
-        # herdr のサイドバーの 1 行目は作業場の名前。本社（元の clone）も属性の name で付ける
+        # herdr のサイドバーの 1 行目は作業場の名前。部署は属性の name、本社（元の clone）は属性が有れば会社の名前で付ける
         office = {**self.dept({"name": "窓口", "account": "a1"}, []), "head_office": True, "workspace": "wX"}
         same = {**self.dept({"name": "調べ"}, [], branch="dept/b"), "workspace": "wB"}
         shared = [{**self.dept({"name": n}, [], branch=f"dept/{n}"), "workspace": "wS"} for n in ("c", "d")]
         bare = {**self.dept({}, [], branch="dept/e"), "workspace": "wE"}
         got = sync.workspace_ops(self.company(office, same, *shared, bare),
                                  {"wX": "mynotes", "wB": "調べ", "wS": "x", "wE": "y"})
-        # 名前が同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の無い場所の作業場は触らない
-        self.assertEqual(got, [{"workspace": "wX", "label": "窓口"}])
+        # 本社の作業場は herdr の木の親なので会社の名前。名前が同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の無い場所の
+        # 作業場は触らない
+        self.assertEqual(got, [{"workspace": "wX", "label": "r"}])
 
     def test_apply_keeps_going_after_a_failure(self):
         class H:

@@ -9,12 +9,12 @@
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
   その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
-- resident: true なら、その役の部署は常駐（--resident を付けたのと同じ）。部の管理者のように常設の役に書く。役で宛てた頼み
+- resident: true なら、その役の部署は常駐（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
 役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
 表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
-会社の形の頭の default_role は、--task で --role を省いたときの役（[[roles]] のどれかの name）。省けば入口の既定（作業者）。
+会社の形の頭の default_role は、--task で --role を省いたときの役（[[roles]] のどれかの name）。省けば入口の既定（作業）。
 
 入口の dispatch.py --task が起こすときに load・pick・settings_for・write_settings・gh_user・warnings を呼び、プラグインのフック
 role_hook.py が context と env_line を呼ぶ。
@@ -140,9 +140,13 @@ def gh_user(repo_user, shape):
     return repo_user or company, None
 
 
-def context(role_name, role, company):
-    """フックが部署の会話の指示に足す文。会社と役の 1 行に、役の本文（会社の形に役の項目と本文が有れば）を続ける。"""
+def context(role_name, role, company, duty=None):
+    """フックが部署の会話の指示に足す文。会社と役の 1 行に、受け持ち（duty。部署の名前と同じ name の受ける仕事 [[skills]] の項目が
+    有れば）と、役の本文（会社の形に役の項目と本文が有れば）を続ける。受け持ちを足すのは、役を 1 つ（担当）にして、受け持ちごとの
+    中身を部署の名前で引くため。"""
     head = f"この会話は会社「{company}」の部署で、役は「{role_name}」。"
+    if duty and duty.get("description"):
+        head += f"受け持ちは「{duty['name']}」（{duty['description']}）。"
     return head + (f"\n{role['instructions']}" if role and role["instructions"] else "")
 
 

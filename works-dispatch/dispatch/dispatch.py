@@ -39,12 +39,15 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--dry-run]
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
+        python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役> [--boss-account <名>]] [--dry-run]
+        python3 dispatch.py --desk [<名前>] [--role <役>] [--dry-run]
         python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> | --init-company [--local] [--repo <代表の clone>]
 
 部署の回（--task・--ask・--land・--tree）は、設定の [[repos]] が無くても、代表の clone の場所（--repo のパスか打った場所）から
 会社を決める（_department_repo）。[[repos]] は PR を開く回と、gh_user・copy_files を会社の形と別に決めたいときだけ要る。
 
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
+--reorg と --desk（部署と窓口の属性の付け替え）の流れは reorg.py が持つ。
 """
 
 import argparse
@@ -69,6 +72,7 @@ import gitx  # noqa: E402
 import herdr  # noqa: E402
 import jsonio  # noqa: E402
 import landing  # noqa: E402
+import reorg  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
@@ -85,8 +89,8 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
                  "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
 # 部署（--task）にだけ要るメソッド（ペインに名前と札を付ける・起こせなかった訳に画面を読む）
 TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read"}
-# --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役職。持ち主 2026-10-16 に作業役から改名）
-DEFAULT_ROLE = "作業者"
+# --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役。持ち主 2026-10-16 に作業役から改名）
+DEFAULT_ROLE = "作業"
 # 部署の常駐か都度か（属性 company.residency の値）。常駐の部署は片付けで畳まない（会社の形の設計 4.10 の 1）
 RESIDENT, PER_TASK = "resident", "per-task"
 
@@ -548,6 +552,14 @@ def main(argv=None, ports=None):
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
+    ap.add_argument("--reorg", action="store_true",
+                    help="今いる部署の名前・役・常駐か都度か・上役を付け替え、herdr の表示を付け直す（--name・--role・--resident か --per-task・--boss）")
+    ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
+    ap.add_argument("--per-task", action="store_true", help="--reorg と一緒に: 都度の部署にする（常駐をやめる）")
+    ap.add_argument("--boss", help="--reorg と一緒に: 新しい上役（納品を返す会話）の名前")
+    ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい上役のアカウントの名（省けば名前だけで引く）")
+    ap.add_argument("--desk", metavar="名前", nargs="?", const="",
+                    help="本社で持ち主と話す今の会話を窓口として名付ける（名前を省けば 窓口）。herdr の表示も付け直す")
     a = ap.parse_args(argv)
     ports = ports or Ports()
     if a.init:
@@ -558,6 +570,16 @@ def main(argv=None, ports=None):
         return orders.deliver_summary(a, ports, os.getcwd())
     if a.text is not None:
         print("止めた: --text は --ask と一緒にだけ使う")
+        return 2
+    if a.reorg or a.desk is not None:
+        if a.reorg and a.desk is not None:
+            print("止めた: --reorg と --desk は一緒に使えない（部署は --reorg、本社の窓口は --desk）")
+            return 2
+        return reorg.reorg(a, ports, ports.cwd()) if a.reorg else reorg.desk(a, ports, ports.cwd())
+    reorg_args = [n for n, v in (("--name", a.name), ("--per-task", a.per_task), ("--boss", a.boss),
+                                 ("--boss-account", a.boss_account)) if v]
+    if reorg_args:
+        print(f"止めた: {', '.join(reorg_args)} は --reorg と一緒にだけ使う")
         return 2
     if a.tree or a.sync or a.json:
         return _company(a, ports)
@@ -1250,86 +1272,80 @@ def _init(a, ports):
 
 
 # 会社の形の下書き（--init-company）。欄の読み手は nodes/tree.py（name・description・skills）・nodes/role.py（gh_user・roles）・
-# nodes/land.py（land）。組織は「部＋役職」の形（持ち主 2026-10-16）: 部は受け持ちごとに会社で違うので例を 1 つだけ <…> の置き字で
-# 書き、役職（部に常設の管理者・一度きりの作業者）と社長室（持ち主と話して各部に頼む会話。前の呼び名は窓口）は、どの会社でも同じ型で書く
+# nodes/land.py（land）。名前は herdr の画面で読む物から決めた日本語（持ち主 2026-10-16。会社らしい名前・英語はやめた）:
+# 役は 窓口・担当（受け持ちに常設）・作業（一度きり）・相談 の 4 つで、[[roles]] に書くのは 担当 と 作業（窓口は本社の会話、相談は
+# 持ち主が直接話す会話で、会社ごとに要るときに足す）。受け持ちは会社ごとに違うので、例を 1 つだけ <…> の置き字で書く
 COMPANY_DRAFT = """# 会社の形: このリポジトリで部署（作業ごとの会話）を立てるときの、会社の名前・役・gh のアカウント・本流への入れ方。
 # 読むのは works-dispatch（--tree・--task・--ask・--deliver・--land と、役を足すフック）。--init-company が書いた下書き。
 # 書き方: works-dispatch の skills/dispatch/SKILL.md の「役の中身と起こし方」と「本流に入れる」。
 # 置き場は 2 つ。リポジトリの中（.claude/company.toml）なら commit すると同じリポジトリを使う人に効く。commit しない物は、
 # dispatch の設定の置き場の companies/ に置く（--init-company --local）。両方に在れば、リポジトリの中の物を読む。
-# 組織は「部＋役職」。<…> は置き字なので、部の名前と受け持ちに直す（部を増やすなら、部の [[skills]] と [[roles]] の組を写して足す）。
+# <…> は置き字なので、受け持ちの名前と中身に直す（受け持ちを増やすなら、[[skills]] の項目を写して足す）。
 
-name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る）
+name = {name}   # 会社の名前（--tree と --ask の「会社/役」に出る。herdr ではリポジトリの親の作業場の名前になる）
 description = {description}   # この会社が受ける仕事
 gh_user = {gh_user}   # 部署の会話の gh が使うアカウント{gh_note}
-default_role = "作業者"   # --task で --role を省いたときの役
+default_role = "作業"   # --task で --role を省いたときの役
 
-# 受ける仕事。--tree に出る。role は、その仕事を受ける役
+# 受け持ち。1 つの受け持ちに担当が常設で 1 人つき、担当の部署の名前（herdr の作業場の名前）は受け持ちの name にする。
+# 担当の会話の始まりに、部署の名前と同じ name の受け持ちの description が足される。--tree にも出る
 [[skills]]
-id = "dept"
-name = "<部の名前>の受け持ち"
+id = "duty"
+name = "<受け持ち>"
 description = "<受け持ちのフォルダかプラグイン>の直し"
-role = "<部の名前>の管理者"
+role = "担当"
 
 [[skills]]
 id = "one-off"
 name = "一度きりの作業"
-description = "受け持ちの無い一度きりの作業と、部の管理者が並べて進めたい作業を、一時の作業者が受ける"
-role = "作業者"
+description = "受け持ちの無い一度きりの作業と、担当が並べて進めたい作業を、一時の作業の部署で受ける"
+role = "作業"
 
 # 役。部署を立てるときに --role で選ぶ（省けば default_role）。instructions は、部署の会話の頭に毎回足す役の本文
-# 部（受け持ちごとに 1 つ）の役職の管理者。役の名前は「<部>の管理者」にして、宛先（--ask <会社>/<役>）で部と役職が分かるようにする。
-# 管理者は各部に常設で 1 人（resident = true なので、--resident を付けなくても常駐の部署で立つ。片付けで畳まれず、次の頼みを同じ会話で受ける）
+# 担当: 受け持ちに常設で 1 人（resident = true なので、--resident を付けなくても常駐の部署で立つ。片付けで畳まれず、次の頼みを
+# 同じ会話で受ける）。立てるのは --task <受け持ち> --branch <枝> --role 担当
 [[roles]]
-name = "<部の名前>の管理者"
-instructions = {dept}
+name = "担当"
+instructions = {duty}
 resident = true
 # model = "opus"   # 部署を起こすときの --model（省けば既定）
 # deliver = ["結論", "決め手", "残った疑問", "枝"]   # 納品する要約の必須の項目（省けば既定）
 # [roles.settings]   # 部署の会話にだけ効かせる Claude Code の設定（要らないプラグインを切るなど）
 # enabledPlugins = {{ "<プラグイン>@<マーケットプレイス>" = false }}
 
-# 役職の作業者（--task で立てる一時の人。頼みごとに立ち、本流に入れたら畳まれる）
+# 作業: 一度きりの作業をする一時の部署（頼みごとに立ち、本流に入れたら畳まれる）
 [[roles]]
-name = "作業者"
-instructions = {worker}
-
-# 社長室（持ち主と話し、各部に頼む会話。部署ではなく代表の clone で開く）。役の本文は、代表の clone の git の設定に
-# company.role = "社長室" が有るときに足す
-[[roles]]
-name = "社長室"
-instructions = {desk}
+name = "作業"
+instructions = {work}
 
 # 部署の成果を本流に入れる決まり（--land）。none は何もしない（入れるのは人）。
 # pr は本流への PR を出して止まる。ff-after-ci は関門（gate。CI の枝の形か check）が緑なら本流を早送りする。
-# none 以外にしたら、管理者と作業者の本文の「push し」を「--land <自分の部署の名前> で本流に入れ」に替える
+# none 以外にしたら、担当と作業の本文の「push し」を「--land <自分の部署の名前> で本流に入れ」に替える
 [land]
 mode = "none"
 # gate = "check"
 # check = "<手元の検証のコマンド>"
 
 # 組織の決まり（この会社の作り方。部署の会話には届かないので、部署に守らせることは役の本文にも書く）
-# - 部＋役職: 部は受け持ち（プラグインかフォルダ）ごとに 1 つ。役職は 2 つで、管理者は各部に常設で 1 人いて頼みを受け、自分で
-#   進めるか、並べたいときは作業者に頼む。作業者は一度きりの作業をする一時の人。同じ受け持ちの直しは管理者の下で順番に進むので、
-#   同じファイルの取り合いにならない。持ち主は社長で、社長室が持ち主と話して各部に頼む。
-# - 名前: 部署の名前（--task・--ask に渡す名前。会話・ペイン・herdr の作業場の名前になる）は、会社・部・役職が分かる日本語にする
-#   （例: 「{plain}<部の名前>の管理者」「{plain}<部の名前>の作業者（README の直し）」「{plain}の社長室」）。ほかの会社の会話と
-#   herdr に並んでも見分けられるように。
+# - 役は 4 つ: 窓口（持ち主と話して頼みを配る、本社の会話。--desk で名付ける）・担当（受け持ちに常設で 1 人）・作業（一度きりの
+#   作業をする一時の部署）・相談（持ち主が直接話して考えを詰める会話。要る会社だけ [[roles]] に足す）。同じ受け持ちの直しは担当の
+#   下で順番に進むので、同じファイルの取り合いにならない。
+# - 名前は日本語で、herdr の画面で読んで分かる短い言葉にする。担当の部署の名前は受け持ちの名前（例: 「<受け持ち>」）、作業の部署の
+#   名前は「<受け持ち>：<何をするか>」（作業場の名前になるので 12 字くらいまで）。会社の名前は herdr の親の作業場にだけ出るので、
+#   部署の名前には付けない。
 # - 枝の名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
-# - 部どうしは頼む命令（--ask {plain}/<部の名前>の管理者）で頼み合う。頼んだ部署が上役になり、納品はそこに返る。
+# - 担当への頼みは部署の名前で宛てる（--ask <受け持ち>。部署の名前は役より先に当たる）。担当がまだ居ない受け持ちは
+#   --task <受け持ち> --branch <枝> --role 担当 で立てる。頼んだ部署が上役になり、納品はそこに返る。
 # - 納品の後に判断が要ることが出たら、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは届かない）。
 """
 # 役の本文の共通の終わり。組織の決まりのうち、部署が守ることを部署の会話に届ける（コメントは部署に届かない）
 DRAFT_RETURN = ("済んだら作業の枝に push し、要約を納品の命令（--deliver）で頼み元に返す。納品の後に判断が要ることが出たら、"
                 "画面に書いて止まらず、もう一度納品の命令で返す（画面にだけ書いた問いは頼み元に届かない）。")
-DRAFT_DEPT = ("この部の管理者。受け持ちは <受け持ちのフォルダかプラグイン>。常設なので、作業場は同じまま、頼みごとに git fetch origin "
-              "してから origin の既定の枝から決まりどおりの名前の枝を切って作業する。並べて進めたい作業は作業者に頼む"
-              "（--ask {company}/作業者 に --task <部署の名前> --branch <枝> を添える）。試験は触った所の物だけを回す。" + DRAFT_RETURN +
-              "受け持ちの外のファイルを変える必要が出たら、その受け持ちの部の管理者に頼む命令（--ask {company}/<部の名前>の管理者）で頼む。")
-DRAFT_WORKER = "一度きりの作業をする作業者。頼まれた所を直す。試験は触った所の物だけを回す。" + DRAFT_RETURN
-DRAFT_DESK = ("社長室。持ち主（社長）と話し、仕事を受け持ちの部の管理者に頼む命令（--ask {company}/<部の名前>の管理者）で頼む。受け持ちの無い一度きりの"
-              "作業は作業者に頼む（--ask {company}/作業者 --task <部署の名前> --branch <枝>）。自分ではファイルを直さず、"
-              "納品を読んで持ち主に伝える。")
+DRAFT_DUTY = ("受け持ちを常設で預かる。自分の受け持ちは部署の名前で決まる。常設なので、作業場は同じまま、頼みごとに git fetch origin "
+              "してから origin の既定の枝から決まりどおりの名前の枝を切って作業する。並べて進めたい作業は作業に頼む"
+              "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。試験は触った所の物だけを回す。"
+              + DRAFT_RETURN + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
+DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。試験は触った所の物だけを回す。" + DRAFT_RETURN
 
 
 def _init_company(a, ports, cwd):
@@ -1353,11 +1369,8 @@ def _init_company(a, ports, cwd):
     def q(v):
         return json.dumps(v, ensure_ascii=False)   # TOML の基本の文字列と同じ書き方
     company = os.path.basename(os.path.normpath(root))
-    plain = " ".join(company.split())   # コメントの中に置く名前（改行を入れない）
-    text = COMPANY_DRAFT.format(name=q(company), plain=plain,
-                                description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""), gh_note=gh_note,
-                                dept=q(DRAFT_DEPT.format(company=company)), worker=q(DRAFT_WORKER),
-                                desk=q(DRAFT_DESK.format(company=company)))
+    text = COMPANY_DRAFT.format(name=q(company), description=q("<この会社が受ける仕事を 1 行で>"), gh_user=q(gh_user or ""),
+                                gh_note=gh_note, duty=q(DRAFT_DUTY.format(company=company)), work=q(DRAFT_WORK))
     if not gh_user:
         text = text.replace('gh_user = ""', '# gh_user = "<ログイン名>"')
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1367,7 +1380,7 @@ def _init_company(a, ports, cwd):
     if os.path.exists(other):
         print(f"注意: {other} にも会社の形が在る。読むのはリポジトリの中の物（origin の既定の枝に commit された物が先）")
     where = "commit しない置き場に書いた。" if a.local else ""
-    print(f"{where}名前・説明と、<…> の置き字（部の名前と受け持ち）・役の本文を直す"
+    print(f"{where}名前・説明と、<…> の置き字（受け持ちの名前と中身）・役の本文を直す"
           + ("" if a.local else "。同じリポジトリを使う人にも効かせるなら commit する（commit しないなら --init-company --local で設定の置き場に書く）"))
     return 0
 

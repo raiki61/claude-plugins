@@ -25,6 +25,8 @@ import re
 import time
 import uuid
 
+import gitx
+
 INBOX = ("company", "inbox")      # 共通の .git の下の受付箱
 LOG = "log.jsonl"
 DEFAULT_ITEMS = ("結論", "決め手", "残った疑問", "枝")
@@ -58,7 +60,7 @@ def parse_target(target):
 def find_target(companies, here_root, target):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
-    部署の名前が先に当たる（会社を書けばその会社の中だけ）。役で宛てて常駐の部署が無ければ department は None（新しく立てる）。"""
+    部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。役で宛てて常駐の部署が無ければ department は None（新しく立てる）。"""
     company_name, name = parse_target(target)
     if company_name is None:
         pool = companies
@@ -69,6 +71,9 @@ def find_target(companies, here_root, target):
             known = "、".join(c["name"] for c in companies) or "なし"
             raise DeliverError(f"会社「{company_name}」が herdr に開いていない（開いている会社: {known}）")
     named = [(c, d) for c in pool for d in c["departments"] if d["attrs"].get("name") == name]
+    if not named:
+        # 名前を替えた部署（--reorg・--desk）は、前の名前でも引く（今の名前が先）
+        named = [(c, d) for c in pool for d in c["departments"] if name in gitx.former_names(d["attrs"])]
     if len(named) > 1:
         where = "、".join(f"{c['name']}/{d['branch']}" for c, d in named)
         raise DeliverError(f"部署の名前「{name}」が 2 つ以上ある（{where}）。「会社/役」で宛てるか、会社を添える")

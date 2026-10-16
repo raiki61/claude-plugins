@@ -12,6 +12,7 @@ enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/wor
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
+import json
 import os
 import re
 import subprocess
@@ -179,6 +180,15 @@ def worktree_attrs(cwd, runner=_default_runner):
         if key.startswith(ATTR):
             attrs[key[len(ATTR):]] = value
     return attrs
+
+
+def former_names(attrs):
+    """部署の前の名前の並び（属性 company.former-names。--reorg と --desk が名前を替えたときに JSON の並びで書く）。読めなければ空。"""
+    try:
+        got = json.loads(attrs.get("former-names") or "[]")
+    except ValueError:
+        return []
+    return [n for n in got if isinstance(n, str) and n] if isinstance(got, list) else []
 
 
 def enable_worktree_config(source, runner=_default_runner):

@@ -3,11 +3,15 @@
 
 会社の形の設計 4.2 の「herdr は表示と操作の場所。下回りが正本を読み、表示を組み立て直す。何度実行しても同じ結果」に当たる。
 - 付けるのは、属性（company.*）を 1 つでも持つ部署だけ。属性の無い部署（手で開いた場所）は触らない。
-- 付ける先は、部署の中で会話の居るペイン。会話が居なくて、ペインが 1 つだけならそのペイン（herdr を立ち上げ直した後など）。
+- 付ける先は、部署の中で会話の居るペイン。属性の会話（company.session）の居るペインが分かれば、そのペインだけ。会話が居なくて、
+  ペインが 1 つだけならそのペイン（herdr を立ち上げ直した後など）。本社（元の clone。--desk で窓口の属性を書く）は持ち主の
+  ほかの会話も居るので、会話の居るペインが 2 つ以上あって属性の会話と結べなければ付けない。
 - ペインの名前は 会話の名前（アカウントが 2 つ以上なら、後ろにアカウントの名）。--task が付ける名前と同じ決まり（label）。
   今の名前と同じなら付け直さない。
 - 作業場の名前も 会話の名前（属性の name。アカウントの名は添えない）。herdr のサイドバーの 1 行目はペインでなく作業場の名前を
-  出すため。本社（元の clone）も、属性を持てば同じに付ける。今の名前と同じなら付け直さず、属性を持つ場所が 2 つ以上居る作業場は触らない。
+  出すため。本社（元の clone。--desk で窓口の属性を書く）の作業場は herdr の木の親なので、属性を持てば会社の名前を付ける（会社の
+  名前は親の作業場にだけ出し、部署の名前には付けない。持ち主 2026-10-16）。今の名前と同じなら付け直さず、属性を持つ場所が
+  2 つ以上居る作業場は触らない。
 - 表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
   属性に無い物は消す。
 
@@ -35,6 +39,12 @@ def op(pane, attrs, many_accounts, current_label=None):
 
 def _target(dept):
     talking = [p for p in dept["panes"] if p.get("agent")]
+    sid = dept["attrs"].get("session")
+    mine = [p for p in talking if sid and p.get("agent_session") == sid]
+    if mine:
+        return mine
+    if dept.get("head_office") and len(talking) > 1:
+        return []   # 本社には持ち主の会話がほかにも居る。窓口の会話（company.session）と結べないペインには付けない
     if talking:
         return talking
     return dept["panes"] if len(dept["panes"]) == 1 else []
@@ -49,8 +59,11 @@ def plan(companies, many_accounts):
                 continue
             panes = _target(d)
             if not panes:
-                notes.append(f"{c['name']} {d['branch'] or d['path']}: 付ける先のペインが無い"
-                             f"（{'作業場が開いていない' if not d['panes'] else '会話の居ないペインが 2 つ以上'}）")
+                talking = sum(1 for p in d["panes"] if p.get("agent"))
+                why = ("作業場が開いていない" if not d["panes"] else
+                       "本社に会話の居るペインが 2 つ以上あり、属性の会話（company.session）の居るペインが分からない" if talking > 1 else
+                       "会話の居ないペインが 2 つ以上")
+                notes.append(f"{c['name']} {d['branch'] or d['path']}: 付ける先のペインが無い（{why}）")
                 continue
             ops += [op(p["pane_id"], d["attrs"], many_accounts, p.get("label")) for p in panes]
     return ops, notes
@@ -62,7 +75,8 @@ def workspace_ops(companies, labels):
     for c in companies:
         for d in c["departments"]:
             if d["attrs"] and d.get("workspace"):
-                claims.setdefault(d["workspace"], []).append(d["attrs"].get("name"))
+                # 本社（元の clone）の作業場は herdr の木の親なので、会社の名前にする（会社の名前は親の作業場にだけ出す）
+                claims.setdefault(d["workspace"], []).append(c["name"] if d.get("head_office") else d["attrs"].get("name"))
     return [{"workspace": ws, "label": names[0]} for ws, names in claims.items()
             if len(names) == 1 and names[0] and ws in labels and labels[ws] != names[0]]
 
