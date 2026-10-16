@@ -493,21 +493,16 @@ def main(argv=None, ports=None):
         return 0
     places = _branch_places(found)
     sess = sessions.collect(listed, ports.branch, ports.origin)
-    # 自分が作者でレビュアーの付いていない PR は、一覧からは開かない（--pr で指したものは開く）
-    held, acts = [], {}
-    if listing:
-        kept = []
-        for p in my_prs:
-            if p.get("role") == "implementer":
-                try:
-                    acts[p["number"]] = ports.activity(repo, p["number"])
-                except ghx.GhError as e:
-                    notes.append(f"#{p['number']}: {e}（レビュアーの有無が分からないので開く）")
-                if p["number"] in acts and fresh.own_unreviewed(p, acts[p["number"]]):
-                    held.append(_held_row(p, "own_unreviewed", places))
-                    continue
-            kept.append(p)
-        my_prs = kept
+    # 自分が作者でレビュアーの付いていない PR は、開くが /catchup だけ送る（2 ターン目の文はレビューの進め方なので送らない）
+    held, acts, catchup_only = [], {}, set()
+    for p in my_prs:
+        if p.get("role") == "implementer" and p.get("kind", "pr") == "pr":
+            try:
+                acts[p["number"]] = ports.activity(repo, p["number"])
+            except ghx.GhError as e:
+                notes.append(f"#{p['number']}: {e}（レビュアーの有無が分からないので 2 ターン目まで送る）")
+            if p["number"] in acts and fresh.own_unreviewed(p, acts[p["number"]]):
+                catchup_only.add(p["number"])
     # 枝の場所の中で会話が開いている PR: 自分以外の動きが前に送った時より後に有れば、会話とペインを畳んで新しく立て直す
     sent = ports.load_sent(cfg.limits_dir)
     refresh, verdicts = {}, {}
@@ -625,7 +620,10 @@ def main(argv=None, ports=None):
                 results[r["number"]] = got["status"]
                 notes.append(f"{name}: {got['detail']}")
         # issue から始めたものは 1 ターン目の /catchup まで（2 ターン目の文は PR のレビューの文なので送らない）
-        second = {r["number"]: None if (a.no_second or r["kind"] == "issue") else repo.second_prompt for r, _ in ready}
+        second = {r["number"]: None if (a.no_second or r["kind"] == "issue" or r["number"] in catchup_only)
+                  else repo.second_prompt for r, _ in ready}
+        notes.extend(f"#{r['number']}: 自分が作者でレビュアーの付いていない PR なので、/catchup だけ送った"
+                     for r, _ in ready if r["number"] in catchup_only and not a.no_second)
         # 送った時刻は 1 ターン目を送る直前（その後の動きを「新しい返事」と見る）、head はその時の場所の head（force-push の見分け）
         stamp = {r["number"]: {"at": ports.now(), "head": ports.head_sha(r["path"])} for r, _ in ready}
         if ready:

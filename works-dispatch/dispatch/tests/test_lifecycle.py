@@ -171,14 +171,14 @@ class Flow(unittest.TestCase):
     def linked(self, ports):
         return [w for w in ports.herdr.worktrees(self.src) if w["linked"]]
 
-    def test_own_pr_without_reviewers_is_not_opened(self):
+    def test_own_pr_without_reviewers_is_opened_with_catchup_only(self):
         ports = FakePorts([pr(1)])
         ports.acts = {1: {"reviewers": False, "last_other": None}}
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0, out)
-        self.assertTrue(line(out, 1).endswith("own_unreviewed"))
-        self.assertEqual(ports.herdr.writes, [])
-        self.assertEqual(self.linked(ports), [])
+        self.assertTrue(line(out, 1).endswith("sent"), out)
+        self.assertEqual([x[2] for x in ports.herdr.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])  # 2 ターン目は送らない
+        self.assertIn("/catchup だけ", out)
 
     def test_naming_the_pr_opens_it_even_without_reviewers(self):
         ports = FakePorts([])
@@ -186,6 +186,7 @@ class Flow(unittest.TestCase):
         ports.pr_info = lambda repo, n: pr(n)
         rc, out = run_main(self.cfg, ports, "--pr", "1")
         self.assertTrue(line(out, 1).endswith("sent"), out)
+        self.assertEqual([x[2] for x in ports.herdr.writes if x[0] == "prompt"], [f"{CATCHUP} 1"])
 
     def test_news_in_an_idle_clean_session_reopens_it_in_the_same_place(self):
         path = self.place(1)
