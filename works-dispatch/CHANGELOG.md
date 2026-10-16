@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-17
+
 ### Added
 
 - 会社の形（`.claude/company.toml`）が替わったら、手で `--sync` を打たなくても、その会社の部署と本社の属性（役の前の名前・`fresh`）と herdr の表示（ペインの表示名・札・作業場の名前）を揃え直す。番の終わりに裏で走るフック（Stop の `dispatch/shape_hook.py`）が、読んだ会社の形の中身を、前に揃えた時の控え（代表の clone の `.git/company/shape-synced`）と比べ、違えばその会社の分だけ `--sync` と同じ物を付け直す。会社の形は origin の既定の枝から読むので、`--land` でも本社の直の push でも、手元の origin の枝に来た後の、どの会話の番の終わりでも効く。付けられなかった物があれば控えを書かず、次の番の終わりにもう一度揃える。my_notes で役の名前を「窓口」から「段取り」に替えたとき、表示の替え残しを持ち主が herdr の上で見つけた（2026-10-17）。
