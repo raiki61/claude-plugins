@@ -20,3 +20,11 @@ instructions = "頼まれたプラグインを直す。試験は触ったプラ�
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
+
+# 部署の成果を本流に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
+# 関門は部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致だけを機械で確かめる。版は取り込むときに上げる
+[land]
+mode = "ff-after-ci"
+gate = "check"
+check = "python3 scripts/shared-copies.py"
+bump = "marketplace"
