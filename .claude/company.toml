@@ -1,0 +1,22 @@
+# 会社の形: このリポジトリで作業ごとの会話を立てるときの、役ごとの指示・起動の設定と gh のアカウント。
+# 読むのは works-dispatch。書き方は works-dispatch/skills/dispatch/SKILL.md の「役の中身と起こし方」。
+# 外す道具とプラグインは、持ち主のノートの測り（会話を起こしただけで読み込む量の内訳。2026-10-16）による。
+# pr-review-toolkit は外さない。convergence-loops が依存に持ち、切ると convergence-loops も消える。
+
+name = "claude-plugins"
+description = "持ち主の Claude Code のプラグインと、それを配る marketplace"
+gh_user = "raiki61"
+
+[[skills]]
+id = "plugin-fix"
+name = "プラグインの直し"
+description = "頼まれたプラグインを直し、触ったプラグインの試験を通して作業の枝に push する"
+role = "作業役"
+
+[[roles]]
+name = "作業役"
+instructions = "頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（上げるのは窓口）。作業の枝に push したら、作った物・決めたこと・決められなかったことを窓口に知らせて止まる。"
+[roles.settings]
+permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
+enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
+skillOverrides = { dataviz = "off" }
