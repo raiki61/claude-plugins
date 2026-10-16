@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: 自分の番の PR（attention プラグインの /whose-turn が「自分の番」に並べるもの）を、枝ごとの作業場（代表の clone の git worktree と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code を起こして、/catchup（その PR のどこで止まっていたかを出す attention の命令）と、設定のファイルに書いた 2 ターン目の文を送る。issue から始める作業は、issue に結んだ枝の作業場を開いて /catchup まで送る。作業ごとの作業役の会話を、名前を付けて別の作業場に起こし、頼みのファイルを渡すこともできる（--task）。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」「issue #1300 を始めて」「この作業を作業役に回して」と言われたときに使う。初めて使う人は「/works-dispatch:dispatch setup」。
+description: 自分の番の PR（attention プラグインの /whose-turn が「自分の番」に並べるもの）を、枝ごとの作業場（代表の clone の git worktree と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code を起こして、/catchup（その PR のどこで止まっていたかを出す attention の命令）と、設定のファイルに書いた 2 ターン目の文を送る。issue から始める作業は、issue に結んだ枝の作業場を開いて /catchup まで送る。作業ごとの部署の会話を、名前を付けて別の作業場に起こし、頼みのファイルを渡すこともできる（--task）。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」「issue #1300 を始めて」「この作業を作業者に回して」と言われたときに使う。初めて使う人は「/works-dispatch:dispatch setup」。
 ---
 
 # dispatch
@@ -38,7 +38,7 @@ PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `r
 
 部署（作業ごとの git worktree と裏の Claude Code の会話の組。`--task` で立て、`--ask` で頼み、`--land` で本流に入れる。下の「部署を立てる」）だけを使うなら、ふつうは dispatch の設定のファイルは要らない（要るときは手順 2 の終わり）。部署を立てるリポジトリ（会社）は、`--repo` に渡した代表の clone のパスか、コマンドを打ったフォルダのリポジトリで決まる。
 
-1. 会社の形（`.claude/company.toml`。会社の名前・役・本流への入れ方）の下書きを書き、名前・説明・役の本文を直す。既定はリポジトリの中に書くので、同じリポジトリを使う人にも効かせるなら commit する。commit しないなら `--local` を付けて、dispatch の設定のフォルダ（既定は `~/.config/works-dispatch/`）の `companies/` に書く。
+1. 会社の形（`.claude/company.toml`。会社の名前・役・本流への入れ方）の下書きを書き、名前・説明・役の本文を直す。下書きは「部＋役職」の組織の形で書く: 受け持ち（プラグインかフォルダ）ごとの部の例 1 つ（役の名前は `<部の名前>の管理者`。`--task --resident` で常設に立てる）、一度きりの作業をする一時の役職の作業者（`--role` を省いたときの役）、持ち主と話して各部に頼む社長室の役と、組織の決まり（部署の名前は会社・部・役職が分かる日本語・枝の名前は英小文字とハイフン・部どうしは `--ask` で頼み合う・納品の後に判断が要れば、もう一度 `--deliver` で返す）のコメント。`<…>` の置き字（部の名前と受け持ち）を直す。既定はリポジトリの中に書くので、同じリポジトリを使う人にも効かせるなら commit する。commit しないなら `--local` を付けて、dispatch の設定のフォルダ（既定は `~/.config/works-dispatch/`）の `companies/` に書く。
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --init-company [--local] [--repo <代表の clone>]
@@ -105,7 +105,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 
 持ち主と話す長く生きる会話（窓口）が、作業ごとに別の会話（部署）を立てて仕事を渡す形を、1 回の呼び出しでやる。部署は、リポジトリ（会社）の git worktree 1 つ（枝 1 本）と、そこで働く Claude Code の裏の会話（`claude --bg`）1 つの組である。部署の画面は、herdr のリポジトリの作業場の子の作業場に、常に並べる。
 
-- 窓口は長く生かす。部署は作業ごとに 1 つ立て、終わったら畳む（下の `--clean`）。部署の仕事を点検する役は、部署の文脈を持たない新しいサブエージェントを毎回立てる。
+- 窓口は長く生かす。部署は作業ごとに 1 つ立て、終わったら畳む（上の「使い方」の `--clean`）。部署の仕事を点検する役は、部署の文脈を持たない新しいサブエージェントを毎回立てる。
 - 部署のペインと会話には、作業の中身の名前（例: `catchup作り直し`）を付ける。ペインの名前には、アカウントが 2 つ以上なら、そのアカウントの名前を添える（例: `catchup作り直し p2`）。会話の名前は SendMessage の宛先になる。
 - 連絡の道は 2 つある。窓口と部署が同じアカウントなら、部署は区切りで SendMessage を窓口へ送り、窓口は SendMessage の `notify_when_idle` で手すきの知らせを 1 回受けられる（待つ間トークンを使わない）。アカウントが違うと SendMessage は両方向とも届かない（各会話の一覧に、同じアカウントの会話しか出ない）。その場合、部署は区切りごとに画面に短く報告を書いて止まり、窓口は herdr で部署のペイン（`attach` で裏の会話の画面を出したペイン）に打ち込み、画面を読む（`herdr pane read`）。dispatch は、どちらの道かを最初の文の後ろに書き足す。
 
@@ -117,7 +117,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し 
 
 1. 枝の作業場を、PR と同じ置き場の決まりで用意する（代表の clone の git worktree を herdr に作らせ、置き場は herdr の `worktrees.directory`。herdr はその作業場を、リポジトリの作業場の子としてまとめる）。枝の作業場が既に在れば開き直し、git では動かさない（PR と違い、origin の head へ早送りしない。部署の枝は手元で commit を積む物のため）。無ければ作る。元は、origin にその枝が在れば origin の枝、無ければ既定の枝（`--base` で替えられる）。
 2. 使用率が上限に届かないアカウント（上限は PR を開く回の 2 と同じで、週の枠と 5 時間の枠の両方に当てる）のうち、PR と同じ順の頭を 1 つ選ぶ。
-3. 部署の属性（役〔`--role`。省けば `作業役`〕・常駐か都度か〔`--resident` を付ければ常駐（`resident`）、省けば都度（`per-task`）。常駐の部署は `--clean` で畳まず、次の頼みを同じ部署で受ける〕・アカウント・会話の名前・上役〔呼んだ会話〕）を、作業場の git の設定に、属性ごとに `company.role`・`company.residency`・`company.account`・`company.name`・`company.boss` のような名前で書く（代表の clone に `extensions.worktreeConfig = true` を入れる。値は commit されず、worktree と一緒に消える）。代表の clone の `.git/info/exclude` に `.claude/` を足す（`.gitignore` は触らない）。
+3. 部署の属性（役〔`--role`。省けば `作業者`〕・常駐か都度か〔`--resident` を付ければ常駐（`resident`）、省けば都度（`per-task`）。常駐の部署は `--clean` で畳まず、次の頼みを同じ部署で受ける〕・アカウント・会話の名前・上役〔呼んだ会話〕）を、作業場の git の設定に、属性ごとに `company.role`・`company.residency`・`company.account`・`company.name`・`company.boss` のような名前で書く（代表の clone に `extensions.worktreeConfig = true` を入れる。値は commit されず、worktree と一緒に消える）。代表の clone の `.git/info/exclude` に `.claude/` を足す（`.gitignore` は触らない）。
 4. ペインに名前を付け、そのアカウントの起こし方（設定の `command`）に `--bg --name <作業の名前> --settings <設定のファイル> [--model <モデル>] "<最初の文>"` を付けて打ち込む。設定のファイルは、裏の会話が自分で別の worktree を作らないようにする（`worktree.bgIsolation = "none"`。このプラグインの templates/department-settings.json）。会社の形の役の項目に起動の設定やモデルが有れば、それも渡す（下の「役の中身と起こし方」）。最初の文は「作業の頼みです。<頼みのファイル> を読んで、その通りに進めてください。」に連絡の道を書き足したもの。
 5. そのアカウントの会話の一覧に裏の会話が出たら、会話の id を属性に足し、同じペインで `<command> attach <id>` を打ち込んで画面を出す。herdr の表示名（役）と札（ペインに添える短い印。役・アカウント・上役）も付ける。作業の終わりは待たない。ペインを閉じても裏の会話は続く。
 
@@ -165,7 +165,7 @@ skillOverrides = { dataviz = "off" }
 - `settings` は、その会話の間だけ、利用者の全体の設定とリポジトリの設定の同じ鍵より先に効く。全体の設定とリポジトリの設定は触らない。道具の名前だけを `permissions.deny` に書くと、その道具は会話の文脈から消える。`skillOverrides` は Claude Code に同梱のスキルにだけ効き、プラグインのスキルには効かない（プラグインごと切るのは `enabledPlugins`）。`enabledPlugins` で works-dispatch 自身を切ると役の本文が足されないので、dispatch が注記を出す。
 - 効きは、`claude plugin details` の見積もりではなく、起こした会話の最初の API 要求のトークン（入力とキャッシュの書き・読みの和）で確かめる（見積もりは、フックが足す文やサブエージェントの説明の例を数えない）。
 - 役は `[[roles]]` の形だけで書く。`[roles."調べ役"]` のように名前で引く表の形は読まず、`[[roles]]` の項目に移すよう注記を出す（TOML では同じ `roles` を両方の形で書けず、混ぜると片方が黙って効かないため）。`[roles.settings]` の行より後に書いた欄は `settings` の中に入るので、`deliver` などの欄は `[roles.settings]` より前に書く（`settings` の中に `deliver` が有れば注記を出す）。
-- `--role` で名指した役が、役を書いた会社の形に無ければ止まる（書き損じで設定が黙って効かないのを防ぐ）。`--role` を省いたときの `作業役` が無いのは止めない。
+- `--role` で名指した役が、役を書いた会社の形に無ければ止まる（書き損じで設定が黙って効かないのを防ぐ）。`--role` を省いたときの `作業者` が無いのは止めない（0.12.0 までの既定の `作業役` も、名指さなければ使わない）。
 - gh のアカウントは、dispatch の設定の `[[repos]]` の `gh_user`（前提の節の、設定の `gh_user` と同じ欄）を先に、無ければ会社の形の `gh_user` を使う（commit した会社の形に書かれたアカウントは、ほかの人のものでありうるため）。dispatch は名前だけを部署の属性 `company.gh-user` に書く。フックがそれを読み、会話の Bash がコマンドごとに `gh auth token --user <名前>` で鍵を取り出して `GH_TOKEN` に入れる。鍵の値は、ファイルにも画面にも履歴にも残らない。そのアカウントで gh にログインしていなければ、`GH_TOKEN` に使えない字を入れる（gh はほかのアカウントに落ちずに、認証の誤りで止まる）。dispatch の設定の場所や gh のアカウントを前の回と替えて同じ枝の部署を立て直すと、前の回の属性は消してから書く。PowerShell の道具には `GH_TOKEN` が入らず、そこで打つ gh は、その人の今の gh の設定のアカウントで動く（フックが足す `export GH_TOKEN="$(gh auth token …)"` の行は `$(…)` で gh を走らせる形で、Claude Code が PowerShell に写すのは `export 名前=値` のように値をそのまま読める行だけのため）。
 - 既定の置き場でない dispatch の設定（`--config` か `WORKS_DISPATCH_CONFIG`）で部署を立てたときは、フックがその隣の `companies/` を読めるよう、設定の場所を部署の属性 `company.config` に書く。
 
@@ -201,7 +201,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --deliver <要約のファ�
 
 ```toml
 [[roles]]
-name = "作業役"
+name = "作業者"
 deliver = ["結論", "差分", "試験", "残った疑問", "枝"]
 ```
 

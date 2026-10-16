@@ -115,13 +115,13 @@ class Task(unittest.TestCase):
                          {"worktree": {"bgIsolation": "none"}})
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
-        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業役", "residency": "per-task", "account": "a1", "name": "直し",
+        self.assertEqual(gitx.worktree_attrs(path), {"role": "作業者", "residency": "per-task", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "config": self.cfg})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に .claude/ が入る
         self.assertIn(".claude/", (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines())
         # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
-        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業役", "直し", {"role": "作業役", "account": "a1"},
+        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業者", "直し", {"role": "作業者", "account": "a1"},
                                                  ["boss"]))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
@@ -280,7 +280,7 @@ class Task(unittest.TestCase):
         self.assertEqual(ports.herdr.writes, [])
         self.assertFalse(hasattr(ports, "refreshed"))
         self.assertIn("部署 直し  task/fix  a1  create", out)
-        self.assertIn("- 部署の属性: company.role=作業役、company.residency=per-task、company.account=a1、company.name=直し", out)
+        self.assertIn("- 部署の属性: company.role=作業者、company.residency=per-task、company.account=a1、company.name=直し", out)
         self.assertIn("- 最初の文: 作業の頼みです。", out)
         self.assertFalse((pathlib.Path(gitx_source(self.cfg)) / ".git" / "info" / "exclude").read_text(encoding="utf-8").count(".claude/"))
 

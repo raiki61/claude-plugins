@@ -13,6 +13,7 @@ from . import DISPATCH  # noqa: F401
 from . import test_deliver, test_land
 from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
 import config
+import dispatch
 import ghx
 from nodes import land, role, tree
 
@@ -162,9 +163,20 @@ class InitCompany(unittest.TestCase):
         self.assertIn(f"書いた: {path}", out)
         info, shape, rules = self.read()
         self.assertEqual((info["source"], info["name"], info["problems"]), ("repo", os.path.basename(self.src), []))
-        self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("the-user", ["作業役"], []))
-        self.assertTrue(shape["roles"]["作業役"]["instructions"])
-        self.assertEqual((rules["mode"], rules["problems"]), ("none", []))
+        self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("the-user", ["<部の名前>の管理者", "作業者", "社長室"], []))
+        # 組織は部＋役職: 部の役（管理者が受ける）と作業者は受ける仕事と組で、--role を省いたときの役は作業者
+        self.assertEqual([s["role"] for s in info["skills"]], ["<部の名前>の管理者", "作業者"])
+        self.assertIn(dispatch.DEFAULT_ROLE, shape["roles"])
+        company = os.path.basename(self.src)
+        self.assertIn(f"--ask {company}/<部の名前>の管理者", shape["roles"]["<部の名前>の管理者"]["instructions"])
+        self.assertIn("管理者", shape["roles"]["<部の名前>の管理者"]["instructions"])
+        self.assertIn(f"--ask {company}/<部の名前>の管理者", shape["roles"]["社長室"]["instructions"])
+        for name in ("<部の名前>の管理者", "作業者"):
+            self.assertIn("もう一度納品の命令で返す", shape["roles"][name]["instructions"])
+        text = path.read_text(encoding="utf-8")
+        for rule in ("会社・部・役職が分かる", f"{company}<部の名前>の管理者", f"{company}の社長室", "英小文字とハイフン",
+                     f"--ask {company}/<部の名前>の管理者"):
+            self.assertIn(rule, text)
         path.write_text("# 手で直した\n", encoding="utf-8")
         rc, out = self.init()
         self.assertEqual(rc, 1)
@@ -177,7 +189,7 @@ class InitCompany(unittest.TestCase):
         self.assertFalse(pathlib.Path(self.src, ".claude", "company.toml").exists())
         info, shape, _ = self.read()
         self.assertEqual((info["source"], info["path"]), ("settings", tree.settings_info_path(os.path.dirname(self.cfg), self.src)))
-        self.assertEqual(list(shape["roles"]), ["作業役"])
+        self.assertEqual(list(shape["roles"]), ["<部の名前>の管理者", "作業者", "社長室"])
 
     def test_unreadable_gh_account_leaves_gh_user_commented_out(self):
         def broken():
