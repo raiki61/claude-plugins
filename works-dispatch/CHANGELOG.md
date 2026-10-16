@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-10-16
+
 ### Fixed
 
 - `--land` の版上げ（`bump = "marketplace"`）で、版を最後に上げた後に変えたファイルが試験と文書だけのプラグインは、変更の記録の `## [Unreleased]` に `### Changed` などの節が有っても patch を上げる（`--land` が注記を出す）。0.17.1 までは、試験だけの直しを `### Changed` に書くと minor が上がっていた（graphloops 0.24.5 → 0.25.0 → 0.26.0）。何を試験と文書に数えるかは `docs/land.md` の `bump`。
