@@ -169,7 +169,7 @@
 日本語の名前（今の形）: 持ち主が herdr の画面で読む物から決めた。herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役〔herdr の agent の項目。部署の属性 `company.role`〕・枝）が出る。会社の名前は親の作業場に出るので、部署の名前には付けない。
 
 - **役は 4 つ**: 窓口（持ち主と話す会話）・担当（受け持ちに常設）・作業（一度きり）・相談（claude-plugins には置かない）。claude-plugins の会社の形の `[[roles]]` は担当と作業の 2 つ（窓口は本社の会話なので役の項目は要らない）。担当には `resident = true` を書き、`--resident` を付け忘れても常駐で立つ。頭の `default_role` は作業にする（`--role` を省いた `--task` は作業になる）。
-- **受け持ち**（担当の作業場の名前）は日本語の短い言葉: 割り振り（works-dispatch・tiers）、点検（gates と、CI・tests/）、見直し（convergence-loops・graphloops）、見渡し（attention）、説明書（根の README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/ は除く）、試し（docs/trials/。まっさらな環境・Windows・Linux で入れて試し、詰まりを記録する。プラグインは直さず、直しはその受け持ちの担当に頼む）。works と works-factory は持ち主が別に回している所なので、受け持ちを作らない。
+- **受け持ち**（担当の作業場の名前）は日本語の短い言葉: 割り振り（works-dispatch・tiers）、点検（gates と、CI・根の tests/）、見直し（convergence-loops・graphloops）、見渡し（attention）、説明書（根の README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/ は除く）、試し（docs/trials/。まっさらな環境・Windows・Linux で入れて試し、詰まりを記録する。プラグインは直さず、直しはその受け持ちの担当に頼む）。プラグインのフォルダの中（README・tests など）は、そのプラグインの担当の物。受け持ちの無いファイル（根の scripts/・会社の形など）は作業が受ける。works と works-factory は持ち主が別に回している所なので、受け持ちを作らない。
 - **担当の本文**は 1 つで、受け持ちの表を書き、「自分の受け持ちは作業場の名前（部署の名前）で決まる」と書く。役を受け持ちごとに分けないので、受け持ちを足すのは表と `[[skills]]` の 1 項目だけで済む。
 - **宛て方**: 担当への頼みは部署の名前で宛てる（`--ask 割り振り`）。works-dispatch は部署の名前を役より先に当て、別の会社に同じ名前が有れば止まるので、そのときは `--ask claude-plugins/割り振り` と会社を添える。役で宛てる `--ask claude-plugins/担当` は、担当の常駐の部署が 2 つ以上あると止まるので使わない。担当がまだ居ない受け持ちは `--task <受け持ち> --branch work/<英小文字> --role 担当 --resident` で立てる。
 - **作業の名前**: 「<受け持ち>：<何をするか>」（例: `点検：文書の環境変数`）。作業場の名前になるので 12 字くらいまで。
