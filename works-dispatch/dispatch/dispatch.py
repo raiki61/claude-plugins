@@ -571,6 +571,8 @@ def main(argv=None, ports=None):
                     help="役の機械窓口の道具を呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: 道具への入力（JSON の字か @ファイル。省けば {}）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
+    ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
+                    "人がその会話に打つか、納品すると外れる）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署が本流を知った後にほかの部署が入れた行を、この枝が消していても入れる（わざと消すとき）")
@@ -595,6 +597,8 @@ def main(argv=None, ports=None):
         return orders.ask(a, ports, os.getcwd(), _task)
     if a.deliver is not None:
         return orders.deliver_summary(a, ports, os.getcwd())
+    if a.wait is not None:
+        return orders.wait_for_input(a, ports, os.getcwd())
     if a.text is not None:
         print("止めた: --text は --ask と一緒にだけ使う")
         return 2

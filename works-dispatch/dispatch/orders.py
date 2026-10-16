@@ -472,6 +472,36 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     return 0
 
 
+# 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
+WAITING, WAITING_WHY = "waiting", "waiting-why"
+
+
+def wait_for_input(a, ports, cwd):
+    """--wait <訳>。部署が今の頼みを、人の答えが要って止まっている（答え待ち）と印す。その間、止まる前のフックは納品を促さない。
+    人がその会話に打つと、文を受けたフック（wake_hook.py --pause）が印を外す。印は納品でも外れる。終了の値を返す。"""
+    attrs = ports.attrs(cwd)
+    ask = attrs.get("ask")
+    why = (a.wait or "").strip()
+    if not attrs.get("role"):
+        print(f"止めた: {cwd} は部署でない（git の設定 company.role が無い）。答え待ちは頼まれた部署の場所で印す")
+        return 2
+    if not ask or attrs.get("delivered") == ask:
+        print("止めた: 納品していない頼みが無い（答え待ちにする頼みが無い）")
+        return 2
+    if not why:
+        print("止めた: 何の答えを誰から待つのかを --wait に書く")
+        return 2
+    common = ports.git.common_dir(cwd)
+    try:
+        provision.mark(cwd, gitx.root_of(common), {WAITING: ask, WAITING_WHY: why}, ports.git)
+    except (gitx.GitError, OSError) as e:
+        print(f"止めた: 答え待ちの印を書けなかった（{e}）")
+        return 1
+    print(f"受付 {ask} を答え待ちにした（{why}）。止まる前のフックは納品を促さない。人がこの会話に打つと印が外れる。"
+          "答えが出たら --deliver で返す")
+    return 0
+
+
 def deliver_summary(a, ports, cwd):
     """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。"""
     attrs = ports.attrs(cwd)
@@ -543,7 +573,7 @@ def deliver_summary(a, ports, cwd):
                         "file": path})
     if ask_id and status == "sent":
         try:
-            provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id}, ports.git)
+            provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id, WAITING: None, WAITING_WHY: None}, ports.git)
         except (gitx.GitError, OSError) as e:
             notes.append(f"納品済みの印（company.delivered）を書けなかった（{e}）。Stop フックが差し戻し続ける（上限まで）")
     if status != "sent":

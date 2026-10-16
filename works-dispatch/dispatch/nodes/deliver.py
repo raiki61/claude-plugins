@@ -458,11 +458,12 @@ def clear_talk(pane, h, pause, cleared):
 # ---- Stop フック ----
 
 def stop_verdict(payload, attrs, count, run):
-    """差し戻すなら、その訳の文。差し戻さないなら None。count はこの会話・この頼みで差し戻した回数。"""
+    """差し戻すなら、その訳の文。差し戻さないなら None。count はこの会話・この頼みで差し戻した回数。
+    部署が --wait で人の答え待ちにした頼み（company.waiting が今の頼み）は促さない（人がその会話に打つと印が外れ、また促す）。"""
     if not attrs.get("role"):
         return None
     ask = attrs.get("ask")
-    if not ask or attrs.get("delivered") == ask:
+    if not ask or attrs.get("delivered") == ask or attrs.get("waiting") == ask:
         return None
     sid = payload.get("session_id")
     if attrs.get("session") and sid and attrs["session"] != sid:

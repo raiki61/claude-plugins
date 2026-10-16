@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- `--wait <訳>`: 部署が今の頼みを人の答え待ちと印す（部署の属性 `company.waiting`・`company.waiting-why`）。その頼みの間、止まる前のフックは納品を促さない。その会話に文が打たれるか、納品すると外れる。持ち主に問いを渡して答えを待つ部署が、番の終わりごとに促されて番を回していた（my_notes の社長室、2026-10-17）。A2A の頼みの状態 `input-required` に当たる。
+
 ## [0.25.1] - 2026-10-17
 
 ### Fixed

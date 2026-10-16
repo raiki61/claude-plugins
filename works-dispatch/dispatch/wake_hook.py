@@ -3,7 +3,8 @@
 
 - Stop と SessionStart（asyncRewake）: 部署と窓口の会話で、頼みと納品の知らせを待ち、来たら会話を起こす。順番待ちの次の 1 件を
   渡し（属性に頼みを書いてから起こす）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
-- UserPromptSubmit（`--pause`。async）: 人の文で番が始まったら、その場所の待ち受けを止める（印の token を書き替えるだけ）。
+- UserPromptSubmit（`--pause`。async）: 人の文で番が始まったら、部署の答え待ちの印（--wait）を外し、その場所の待ち受けを止める
+  （待ち受けは印の token を書き替えるだけ）。窓に打ち込まれた知らせも人の文と同じに数える。
 
 部署か窓口（その場所の git の設定に company.role と company.name が在る）でなければ、すぐ 0 で終わる。待つのは場所の属性
 company.session の会話だけ（部署で属性に id が無ければ誰でも。窓口〔代表の clone〕は id が要る）。この会話の id と違うときは、
@@ -119,8 +120,24 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time):
     return check
 
 
+def resume_from_wait(payload, attrs_of=gitx.worktree_attrs):
+    """人の文で番が始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
+    印を外すのは、場所の属性の会話（company.session）が文を受けたときだけ（同じ場所のほかの会話の文では外さない）。"""
+    cwd = payload.get("cwd") or os.getcwd()
+    attrs = attrs_of(cwd)
+    if not attrs.get("waiting") or attrs.get("session") and attrs["session"] != payload.get("session_id"):
+        return
+    common = gitx.common_dir(cwd)
+    if common:
+        provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None}, gitx)
+
+
 def pause_here(payload):
-    """人の文で番が始まった: その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
+    """人の文で番が始まった: 答え待ちの印を外し（resume_from_wait）、その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
+    try:
+        resume_from_wait(payload)
+    except (gitx.GitError, OSError) as e:
+        print(f"works-dispatch: 答え待ちの印を外せなかった（{e}）", file=sys.stderr)
     got = plan(payload)
     if not got:
         return 0

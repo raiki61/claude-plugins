@@ -22,6 +22,7 @@ import gitx
 import claudex
 import herdr as real_herdr
 import orders
+import wake_hook
 from nodes import deliver, provision
 
 
@@ -145,6 +146,9 @@ class StopVerdict(unittest.TestCase):
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "delivered": "id1"}, 0, "/d.py"))
         self.assertIsNone(deliver.stop_verdict({"session_id": "other"}, self.ATTRS, 0, "/d.py"))
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, self.ATTRS, deliver.STOP_LIMIT, "/d.py"))
+        # --wait で人の答え待ちにした頼みは促さない。前の頼みの印が残っていても、今の頼みは促す
+        self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id1"}, 0, "/d.py"))
+        self.assertIn("受付 id1", deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id0"}, 0, "/d.py"))
 
     def test_hook_blocks_with_json_then_gives_up_after_the_limit(self):
         tmp = tempfile.mkdtemp()
@@ -581,6 +585,29 @@ class Flow(unittest.TestCase):
         self.assertIn("## 結論\n直した。", pathlib.Path(recs[1]["file"]).read_text(encoding="utf-8"))
         # 納品の後は Stop フックが差し戻さない
         self.assertIsNone(deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
+
+    def test_wait_marks_the_ask_until_a_prompt_or_the_delivery(self):
+        # 人の答えを待つ部署（持ち主が答えるのは数時間後もありうる）が、番の終わりごとに納品を促されない
+        summary = self.ask_then_summary(GOOD)
+        self.assertEqual(self.main(self.place, "--wait", "")[0], 2)   # 何を待つかが要る
+        rc, out = self.main(self.place, "--wait", "持ち主の答え（どちらの案にするか）")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["waiting"], attrs["waiting-why"]), (attrs["ask"], "持ち主の答え（どちらの案にするか）"))
+        self.assertIsNone(deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
+        # 人が打つと外れ、また促す（ほかの会話の文では外さない）
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s-other"})
+        self.assertIn("waiting", gitx.worktree_attrs(self.place))
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s-dept"})
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertNotIn("waiting", attrs)
+        self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
+        # 納品でも外れる
+        self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 0)
+        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+        self.assertNotIn("waiting", gitx.worktree_attrs(self.place))
+        self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 2)   # 納品した後は待つ頼みが無い
+        self.assertEqual(self.main(self.src, "--wait", "持ち主の答え")[0], 2)     # 部署でない所
 
     def test_deliver_with_missing_items_sends_nothing_and_names_them(self):
         summary = self.ask_then_summary("結論: 直した\n")
