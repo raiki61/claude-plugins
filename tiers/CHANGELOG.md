@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-16
+
 ### Fixed
 
 - `/tiers:check` のスキルと README の段 2 の案内の説明を、初めての人が推測せずに読める形に直す（案内は足りない項目にだけ出ること、足りない項目は全部まとめて見せること、Windows の zip の中の ConPTY の実行時のファイル、`herdr status server` の出力の形の前提）。
