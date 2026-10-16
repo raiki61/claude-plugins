@@ -71,11 +71,12 @@ enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@rai
 skillOverrides = { dataviz = "off" }
 
 # 部署の成果を本流に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
-# 関門は部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致だけを機械で確かめる。版は取り込むときに上げる
+# 関門は部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
+# 件数の柵（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
 [land]
 mode = "ff-after-ci"
 gate = "check"
-check = "python3 scripts/shared-copies.py"
+check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh"
 bump = "marketplace"
 
 # 組織の決まり（この会社の作り方。スキルの決まりではない）
