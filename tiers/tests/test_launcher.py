@@ -27,7 +27,12 @@ class Launcher(unittest.TestCase):
                             "exit 9009\n", encoding="utf-8")
             stub.chmod(0o755)
             (pathlib.Path(d) / "python").symlink_to(sys.executable)
-            env = {**os.environ, "PATH": os.pathsep.join([d, os.path.dirname(shutil.which("sh"))])}
+            # sh だけを置いたフォルダを PATH に足す（sh の在るフォルダをそのまま足すと、Ubuntu の CI では /usr/bin の python が
+            # 見つかり、Python が見つからない形を作れなかった）
+            only_sh = pathlib.Path(d) / "only-sh"
+            only_sh.mkdir()
+            (only_sh / "sh").symlink_to(shutil.which("sh"))
+            env = {**os.environ, "PATH": os.pathsep.join([d, str(only_sh)])}
             p = subprocess.run(["sh", str(ENTRY), "--tier", "0", "--json"], capture_output=True, text=True, encoding="utf-8", env=env)
             self.assertEqual(json.loads(p.stdout)["schema"], 1, p.stderr)
             stub.with_name("python").unlink()

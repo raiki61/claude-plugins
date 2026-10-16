@@ -10,8 +10,8 @@
 
 ここに書く道具は、どれも利用者が手で入れる物（OS の道具・ログイン・シェルの設定）なので、点検は入れ方を示して止まる。
 入れ方の命令は、各道具の公式の README の「install」の節から写した（2026-10-16 に読んだ）。
-herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install Herdr・Windows support・Integrations）とソースから写した
-持ち主のノート my_notes の reference/primary/ai/herdr-install-and-config.md（2026-10-16）に拠る。
+herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install Herdr・Windows support・Integrations）とソース
+（src/integration/claude_settings.rs）に拠る（2026-10-16 に読んだ。URL は docs/design.md の「段 2 の案内」の節）。
 
 使い方:
     tiers [--tier N] [--launcher 命令 ...] [--json]
