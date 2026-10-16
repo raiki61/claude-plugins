@@ -24,11 +24,17 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import claudex  # noqa: E402
-import config  # noqa: E402
-import gitx  # noqa: E402
-import herdr  # noqa: E402
-from nodes import deliver, provision, role, tree  # noqa: E402
+try:
+    import claudex  # noqa: E402
+    import config  # noqa: E402
+    import gitx  # noqa: E402
+    import herdr  # noqa: E402
+    from nodes import deliver, provision, role, tree  # noqa: E402
+except (ImportError, SyntaxError) as _e:
+    # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
+    # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる。role_hook.py と同じ）
+    print(f"works-dispatch: 止まる前のフックを動かせない（Python 3.11 以上が要る: {_e}）", file=sys.stderr)
+    sys.exit(1)
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
 # 部署に「この字で返せ」と渡す dispatch.py の起こし方。今動いている Python で、パスは / 区切りで引用符を付ける

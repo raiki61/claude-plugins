@@ -36,15 +36,30 @@ def install_command(here=None):
     return f"claude plugin install {NAME}@{market}"
 
 
+def _version_key(name):
+    return tuple(int(x) if x.isdigit() else -1 for x in name.split("."))
+
+
 def locate(env, here=None):
-    """tiers の入口のパス（無ければ None）。PATH の上の、拡張子の無い Python の台本を探す（Windows の which は拡張子で探すので使わない）。"""
+    """tiers の入口のパス（無ければ None）。探す順:
+    1. PATH の上の、拡張子の無い台本（Claude Code の会話の中では、依存の tiers の bin/ が PATH に入る。Windows の which は拡張子で
+       探すので使わない）
+    2. リポジトリの checkout の隣の tiers/bin/tiers（試験・開発）
+    3. プラグインの置き場の隣（Claude Code が入れたプラグインは <置き場>/<マーケットプレイス>/<名前>/<版>/ に並ぶので、
+       works-dispatch の版のフォルダの 2 つ上の tiers/<版>/bin/tiers の、いちばん新しい版）。Claude Code の会話の外から --check を
+       打つとき（PATH に依存の bin/ が無い）に要る"""
     for d in (env.get("PATH") or "").split(os.pathsep):
         p = os.path.join(d, NAME) if d else ""
         if p and os.path.isfile(p):
             return p
-    here = pathlib.Path(here or __file__).resolve().parent
-    sibling = here.parent.parent / "tiers" / "bin" / NAME
-    return str(sibling) if sibling.is_file() else None
+    root = pathlib.Path(here or __file__).resolve().parent.parent   # このプラグインの根
+    sibling = root.parent / "tiers" / "bin" / NAME
+    if sibling.is_file():
+        return str(sibling)
+    installed = root.parent.parent / NAME
+    found = sorted((d for d in installed.iterdir() if (d / "bin" / NAME).is_file()), key=lambda d: _version_key(d.name)) \
+        if installed.is_dir() else []
+    return str(found[-1] / "bin" / NAME) if found else None
 
 
 def check(launchers, env=None, runner=subprocess.run, here=None):

@@ -21,7 +21,7 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
 ## 要る物
 
 - **要る段: 2**（[tiers](../tiers/README.md) の段）。herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具。[herdr.dev](https://herdr.dev)）が動いている。gh（GitHub の CLI）のログインは、PR を開く使い方と、本流への入れ方に PR か CI を使う会社だけに要る（部署の回は GitHub を読まない。`--check` は、設定に `[[repos]]` が無ければ gh の足りない物を注記にとどめる）。
-- Python 3.11 以降（`python3` で起こせる物）と git。
+- Python 3.11 以降と git。フックは `python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ（macOS 付属の 3.9 は選ばない）。Windows で `python3` や `python` を打つと Microsoft Store が開く（Python を入れていないときに出る代わりの物）なら、Python を入れ、設定 → アプリ → アプリ実行エイリアス で `python.exe` と `python3.exe` の「アプリ インストーラー」を切る。
 - 試すリポジトリの clone を 1 つ。既定の枝（main など）を開いておく。部署の作業場は、この clone から作る。origin は GitHub でなくてよい（手元の bare リポジトリでも立つ）。本流の枝の名前は、clone の手元の `origin/HEAD` から取り、無ければ origin に問う（空の bare を clone した直後など、どちらでも決まらなければ、本流の枝を push してから `git remote set-head origin --auto` を打つ）。
 - PR を開く使い方だけ: attention プラグイン（`/catchup` の命令を持つ）と、dispatch の設定のファイル（`--init` が下書きを書く。手順は [SKILL.md](skills/dispatch/SKILL.md) の「初めて」）。
 
@@ -44,10 +44,10 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
    claude --name 窓口
    ```
 
-3. 窓口に、道具がそろっているかを点検させる。足りない物があれば、出た入れ方で入れてから打ち直す。
+3. 窓口に、道具がそろっているかを点検させる。足りない物があれば、出た入れ方で入れてから打ち直す。部署だけを使うなら gh のログインは要らないので、`--check` は gh の足りない物を止めずに注記にする（`/tiers:check 段 2` は段の決まりどおり gh のログインも足りない物に数える）。
 
    ```
-   /tiers:check 段 2
+   /works-dispatch:dispatch --check
    ```
 
 4. （任意）会社の形の下書きを書かせる。会社の形は、会社の名前・役（部署の仕事の決まり）・本流への入れ方を書くファイルで、無くても試せる（役は既定の `作業`、納品の見出しは下の 6 の既定になる）。`--local` を付けると、リポジトリの中でなく `~/.config/works-dispatch/companies/` に書くので、試すリポジトリを変えない。部署だけを使うなら、dispatch の設定のファイル（`~/.config/works-dispatch/dispatch.toml`）は要らない。

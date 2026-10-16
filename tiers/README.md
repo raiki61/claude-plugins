@@ -11,7 +11,7 @@
 ## 要る物
 
 - **要る段: 0**（Claude Code だけ）。
-- Python 3（`python3` で起こせる物）。
+- Python 3。`bin/tiers` は `python3`・`python`・`py -3` の順に、実際に起きる物で動く。Windows で `python3` や `python` を打つと Microsoft Store が開く（Python を入れていないときに出る代わりの物）なら、Python を入れ、設定 → アプリ → アプリ実行エイリアス で `python.exe` と `python3.exe` の「アプリ インストーラー」を切る。
 
 ## 5 分で試す
 
@@ -43,7 +43,7 @@
 
 ## 段
 
-番号の大きい段は小さい段を含む（段 2 を点検すると段 0 と段 1 も点検する）。
+番号の大きい段は小さい段を含む（段 2 を点検すると段 0 と段 1 も点検する）。使う側のプラグインに、段 1 の gh を要らない使い方があるなら、その点検の側で外して見る（例: works-dispatch の `--check` は、部署だけを使う人には gh の足りない物を注記にとどめる）。
 
 - 段 0: Claude Code だけ。`claude --version` が通るか。
 - 段 1: gh（GitHub の CLI）。入っているか（`gh --version`）、ログイン済みか（`gh auth status`）。

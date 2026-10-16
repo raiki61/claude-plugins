@@ -181,6 +181,14 @@ def _login_config_dir(env=os.environ, runner=subprocess.run, posix=None):
     return None
 
 
+def env_command(name, value, command, windows=None):
+    """環境変数を 1 つ入れて命令を打つ 1 行。Windows（の PowerShell）は `名前=値 命令` の形を打てないので、`$env:名前` に入れてから打つ
+    形にする（入れた値はその PowerShell の窓に残る）。"""
+    if os.name == "nt" if windows is None else windows:
+        return f"$env:{name}='{value}'; {command}"
+    return f"{name}={shlex.quote(str(value))} {command}"
+
+
 class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
@@ -255,7 +263,7 @@ class Ports:
                 state = f"読めない（{e}）"
             if not state.startswith("current"):
                 notes.append(f"アカウント {a.name} に herdr の連携が入っていない: {state}（作業中の判定は無くても動く。"
-                             f"herdr を立ち上げ直したときに会話を戻すのに要る。入れる: CLAUDE_CONFIG_DIR={cdir} herdr integration install claude）")
+                             f"herdr を立ち上げ直したときに会話を戻すのに要る。入れる: {env_command('CLAUDE_CONFIG_DIR', cdir, 'herdr integration install claude')}）")
             found = claudex.catchup_commands(cdir)
             if not task and len(found) != 1:
                 problems.append(f"アカウント {a.name}（{cdir}）で /catchup の命令が 1 つに決まらない"
@@ -1061,6 +1069,11 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         try:
             provision.hide_claude_dir(repo.source, ports.git)
             provision.mark(prov["path"], repo.source, attrs, ports.git)
+            if attrs["residency"] == RESIDENT and a.branch:
+                # 常駐の部署の最初の枝も、入れた枝と同じに記録する。頼みごとに枝を移るので、入れずに移った最初の枝（--brief で
+                # 立てただけの枝など）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す
+                first = {**clean.landed_of(ports.attrs(prov["path"])), a.branch: ports.git.rev(prov["path"], "HEAD")}
+                provision.mark(prov["path"], repo.source, {clean.LANDED_BRANCHES: json.dumps(first, ensure_ascii=False)}, ports.git)
         except (gitx.GitError, OSError) as e:
             notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・上役が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
         row["label"] = pane_label
@@ -1096,7 +1109,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 route += f"（会話 {sid}）"
     print("\n".join(notes + [f"部署 {a.task}  {a.branch}  {account}  {result}"] +
                     ([f"- ペイン {pane}（{pane_label}）、作業場 {prov['path']}、連絡の道: {route}"] if pane else [])))
-    return 0
+    return 0 if result == "started" else 1   # 起きなかった（launch_failed・blocked など）を、呼んだ側（--ask・台本）に終了の値で知らせる
 
 
 def _started(ports, config_dir, name, path, pane):
@@ -1191,7 +1204,9 @@ def _check(cfg, ports):
     try:
         tiers = ports.tiers(list(dict.fromkeys(a.command for a in cfg.accounts)))
     except tierx.TierError as e:
-        tiers, tier_notes = None, [str(e)]
+        # 段の点検を回せないまま「足りない物は無い」と言わない（herdr が動いていなくても通ってしまう）
+        print(f"足りない物（要る道具の段の点検を回せない）:\n- {e}")
+        return 2
     if tiers is not None and not cfg.repos:
         tiers, no_gh = tierx.without_gh(tiers)
         tier_notes += [f"{line}（部署の回には要らない。PR を開く回と、gh を使う役の部署に要る）" for line in no_gh]
@@ -1363,12 +1378,14 @@ mode = "none"
 DRAFT_RETURN = ("済んだら作業の枝に push し、要約を納品の命令（--deliver）で頼み元に返す。納品の後に判断が要ることが出たら、"
                 "画面に書いて止まらず、もう一度納品の命令で返す（画面にだけ書いた問いは頼み元に届かない）。")
 DRAFT_BRANCH = "枝の名前は英小文字とハイフンにし、直しは fix/…、足すものは feat/…、調べや下書きは work/… にする。"
+# commit に足す物の決まり。git add -A は、試験や検証が作った生成物（__pycache__ など。.gitignore の無いリポジトリ）まで本流に入れる
+DRAFT_COMMIT = "commit に足すのは自分が触ったファイルだけにする（git add -A や git add . をしない）。"
 DRAFT_DUTY = ("受け持ちを常設で預かる。自分の受け持ちは部署の名前で決まる。常設なので、作業場は同じまま、頼みごとに git fetch origin "
               "してから origin の既定の枝から枝を切って作業する。" + DRAFT_BRANCH + "枝を切った後、触るファイルを本流から読み直してから"
-              "書く（前の頼みで覚えた中身で書かない。ほかの部署が入れた変更を消すため）。並べて進めたい作業は作業に頼む"
+              "書く（前の頼みで覚えた中身で書かない。覚えた中身で書くと、ほかの部署が入れた変更を消してしまう）。" + DRAFT_COMMIT + "並べて進めたい作業は作業に頼む"
               "（--ask {company}/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。試験は触った所の物だけを回す。"
               + DRAFT_RETURN + "受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。")
-DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + "試験は触った所の物だけを回す。" + DRAFT_RETURN
+DRAFT_WORK = "一度きりの作業をする。頼まれた所を直す。" + DRAFT_BRANCH + DRAFT_COMMIT + "試験は触った所の物だけを回す。" + DRAFT_RETURN
 DRAFT_DESK = ("持ち主と話し、仕事を頼みに変えて部署に配る。自分ではファイルを直さない。受け持ちの中の仕事は、その担当に部署の名前で頼む"
               "（--ask <受け持ち>）。担当がまだ居ない受け持ちは --ask {company}/担当 --task <受け持ち> --branch <枝> --text <頼み> で立てる。"
               "受け持ちの無い一度きりの作業だけを作業に頼む（--ask {company}/作業 --task <受け持ち>：<何をするか> --branch <枝>）。"

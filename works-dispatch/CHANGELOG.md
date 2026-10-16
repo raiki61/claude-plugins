@@ -6,6 +6,19 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+まっさらな環境での 3 回目の試し（`docs/trials/2026-10-16-clean-env-3.md`）で出た詰まりの直し。
+
+- Windows で、フック（会話の始まりの役の本文と、止まる前の納品の差し戻し）が動かなかった。`python3` が、Python を入れていないと Microsoft Store へ誘う代わりの物に当たっていた。フックは `hooks/run-python.sh` を通し、`python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ（macOS 付属の 3.9 も選ばない）。選べなければ、直し方（設定 → アプリ → アプリ実行エイリアス で切る）を 1 行で出す。README の「要る物」にも書いた。
+- 止まる前のフック（`orders.py stop`）が、Python 3.10 以前で traceback を出して落ちていた。会話の始まりのフックと同じく、短い言葉で知らせる。
+- Claude Code の会話の外から打つ `--check` が「tiers を入れろ」と出て段の点検を飛ばし、herdr が動いていなくても「足りない物は無い」と言っていた。tiers をプラグインの置き場の隣（`<マーケットプレイス>/tiers/<版>/bin/tiers`）からも探し、見つからなければ止まる。
+- `--init-company` の下書きの担当の本文の書き損じ（「ほかの部署が入れた変更を消すため」）を直した。担当と作業の本文に「commit に足すのは自分が触ったファイルだけ（`git add -A` や `git add .` をしない）」を足した。`git add -A` が、検証の作った `__pycache__` を本流に入れていた。
+- `--task … --brief` で立てた常駐の部署（担当）の最初の枝が、入れずに次の枝へ移ると、手元に残り続けた。最初の枝とその時の先頭も、本流に入れた枝と同じ記録（属性 `company.landed-branches`）に書き、先頭がそのままなら、移った後の `--land` か `--clean --apply` が消す。
+- Windows で `--check` が出す herdr の連携を入れる命令が、PowerShell で打てない `名前=値 命令` の形だった。Windows では `$env:名前='値'; 命令` の形で出す。
+- `--task` が、会話を起こせなかった（`launch_failed`・`blocked` など）ときも終了の値 0 で終わっていた。1 で終わる。
+- README の「5 分で試す」の手順 3 を、`/tiers:check 段 2` から `--check` に替えた。部署だけを使う人が、要らない `gh auth login` に誘われていた。
+
 ## [0.19.0] - 2026-10-16
 
 ### Changed

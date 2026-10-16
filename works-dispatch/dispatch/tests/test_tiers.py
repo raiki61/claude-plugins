@@ -66,13 +66,13 @@ class CheckCallsTiers(unittest.TestCase):
         self.assertEqual(ports.asked, [["claude-a1"]])
         self.assertTrue(ports.preflighted)
 
-    def test_without_the_part_it_notes_and_keeps_the_old_check(self):
+    def test_without_the_part_it_stops_instead_of_saying_nothing_is_missing(self):
+        # 段の点検を回せないまま「足りない物は無い」と言うと、herdr が動いていなくても通ってしまう
         ports = self.ports(tierx.TierError("段の点検の部品が見つからない"))
         rc, out = run_main(["--config", self.cfg, "--check"], ports)
-        self.assertEqual(rc, 0, out)
+        self.assertEqual(rc, 2, out)
         self.assertIn("段の点検の部品が見つからない", out)
-        self.assertIn("足りない物は無い", out)
-        self.assertTrue(ports.preflighted)
+        self.assertNotIn("足りない物は無い", out)
 
 
 class Locate(unittest.TestCase):
@@ -86,6 +86,17 @@ class Locate(unittest.TestCase):
         here = pathlib.Path(tierx.__file__)
         got = tierx.locate({"PATH": ""}, here=here)
         self.assertEqual(pathlib.Path(got), here.resolve().parent.parent.parent / "tiers" / "bin" / "tiers")
+
+    def test_falls_back_to_the_newest_installed_tiers_next_to_the_installed_plugin(self):
+        # Claude Code の会話の外（PATH に依存の bin/ が無い）から --check を打つとき。プラグインの置き場は <マーケットプレイス>/<名前>/<版>/
+        with tempfile.TemporaryDirectory() as d:
+            here = pathlib.Path(d) / "m" / "works-dispatch" / "0.19.0" / "dispatch" / "tierx.py"
+            for v in ("0.4.1", "0.4.10", "0.3.9"):
+                entry = pathlib.Path(d) / "m" / "tiers" / v / "bin" / "tiers"
+                entry.parent.mkdir(parents=True)
+                entry.write_text("", encoding="utf-8")
+            got = tierx.locate({"PATH": ""}, here=here)
+            self.assertEqual(pathlib.Path(got), pathlib.Path(d).resolve() / "m" / "tiers" / "0.4.10" / "bin" / "tiers")
 
     def test_none_when_nowhere(self):
         with tempfile.TemporaryDirectory() as d:

@@ -6,6 +6,11 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows で `bin/tiers` が動かなかった。頭の `#!/usr/bin/env python3` が、Python を入れていないと Microsoft Store へ誘う代わりの物に当たっていた。`bin/tiers` を sh と Python の両方で読める台本にし、sh で起こされたときは `python3`・`python`・`py -3` の順に、実際に起きる物で起こし直す（Python から起こす形はそのまま）。起こせる物が無ければ、直し方（設定 → アプリ → アプリ実行エイリアス で切る）を出す。README の「要る物」にも書いた。
+- README の「段」に、使う側のプラグインが段 1 の gh を要らない使い方を持つときは、その点検の側で外して見ることを書いた（works-dispatch の `--check` の例）。
+
 ## [0.4.2] - 2026-10-16
 
 ### Fixed

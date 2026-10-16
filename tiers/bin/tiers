@@ -1,4 +1,16 @@
-#!/usr/bin/env python3
+#!/bin/sh
+''':'
+# ここから閉じの引用符 3 つまでは sh が読む（Python には 1 つの文字列）。python3・python・py -3 の順に、実際に起きる物で
+# この台本を起こし直す。PATH の頭の python3 をそのまま使わないのは、Windows の python3・python が、Python を入れていないと
+# Microsoft Store へ誘う代わりの物（起こすと案内を出して終わる）に当たるため。
+for cand in python3 python "py -3"; do
+  command -v "${cand%% *}" >/dev/null 2>&1 || continue
+  # shellcheck disable=SC2086
+  $cand -c 'import sys' >/dev/null 2>&1 && exec $cand "$0" "$@"
+done
+echo "tiers: 起こせる Python が見つからない（python3・python・py -3 を試した）。Python 3 を入れる。Windows で python3 や python が Microsoft Store へ誘うなら、設定 → アプリ → アプリ実行エイリアス で python.exe と python3.exe の「アプリ インストーラー」を切る" >&2
+exit 1
+'''
 """要る道具の段ごとの点検の入口。中身は ../lib/tiers_check.py（使い方もそこ）。
 
 Claude Code は、有効なプラグインの根の bin/ を Bash の道具の PATH に入れる。依存として入ったプラグインの bin/ も入る

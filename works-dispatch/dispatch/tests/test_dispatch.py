@@ -669,7 +669,7 @@ class Preflight(unittest.TestCase):
         problems, notes = ports.preflight(cfg)
         text = "\n".join(notes)
         cdir = config.effective_config_dir(cfg.accounts[0], {})
-        self.assertIn(f"CLAUDE_CONFIG_DIR={cdir} herdr integration install claude", text)
+        self.assertIn(dispatch.env_command("CLAUDE_CONFIG_DIR", cdir, "herdr integration install claude"), text)
         self.assertNotIn("integration", "\n".join(problems))
         self.assertEqual(text.count("integration install"), 1)
 

@@ -130,8 +130,11 @@ class Task(unittest.TestCase):
         ports = self.ports()
         rc, out = self.run_task(ports, "--role", "調べ役", "--resident")
         self.assertEqual(rc, 0, out)
-        attrs = gitx.worktree_attrs(self.place(ports))
+        path = self.place(ports)
+        attrs = gitx.worktree_attrs(path)
         self.assertEqual((attrs["role"], attrs["residency"]), ("調べ役", "resident"))
+        # 常駐の部署の最初の枝も、入れた枝と同じ記録に書く（入れずに次の枝へ移っても、先頭がそのままなら後で消える）
+        self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": git("-C", path, "rev-parse", "HEAD")})
 
     def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):
         # 会社の形の default_role は --role を省いたときの役、役の resident = true は --resident と同じ
@@ -218,7 +221,7 @@ class Task(unittest.TestCase):
         ports = self.ports(starts=False)
         ports.herdr.screen = "Error: something\n$ "
         rc, out = self.run_task(ports)
-        self.assertEqual(rc, 0, out)
+        self.assertEqual(rc, 1, out)   # 起きなかったことを終了の値でも知らせる
         self.assertIn("task/fix  a1  launch_failed", out)
         self.assertIn("「直し」の裏の会話が出ない（画面の終わり: Error: something $）", out)
         self.assertFalse([w for w in ports.herdr.writes if w[0] == "run" and " attach " in w[2]])
