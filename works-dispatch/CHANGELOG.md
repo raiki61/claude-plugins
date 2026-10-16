@@ -18,7 +18,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 ### Added
 
 - 役ごとの起動: 会社の形（`.claude/company.toml` か設定の置き場の `companies/`）に `[[roles]]`（`name`・`instructions`・`model`・`settings`）を書くと、`--task --role <役>` が、その役の `settings` を `--settings` に（裏の会話が自分で worktree を作らない設定は重ねたまま）、`model` を `--model` に渡して部署を起こす。利用者の全体の設定とリポジトリの設定は触らない。名指した役が会社の形に無ければ止まる。
-- SessionStart のフック: 部署（属性 `company.role` の有る worktree）で会話が始まると、会社の形からその役の `instructions` を引いて会話の指示に足す。本社やふつうの clone では何も足さない。
+- SessionStart のフック: 部署（属性 `company.role` の有る worktree）で会話が始まると、会社の形からその役の `instructions` を引いて会話の指示に足す。代表の clone やふつうの clone では何も足さない。
 - 部署の gh のアカウント: 会社の形の頭に `gh_user` を書ける（dispatch の設定の `[[repos]]` の `gh_user` が先）。`--task` は名前だけを部署の属性 `company.gh-user` に書き、フックが会話の Bash に、コマンドごとに `gh auth token --user` で鍵を取り出して `GH_TOKEN` に入れる 1 行を足す。鍵の値はどこにも書かない。
 
 ## [0.5.0] - 2026-10-16

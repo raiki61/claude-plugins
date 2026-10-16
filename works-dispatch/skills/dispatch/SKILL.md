@@ -142,11 +142,11 @@ enabledPlugins = { "pr-review-toolkit@claude-plugins-official" = false }
 skillOverrides = { dataviz = "off" }
 ```
 
-- 役の本文は、このプラグインの SessionStart のフックが、会話の始まり（やり直し・圧縮の後も）に足す。足すのは部署（属性 `company.role` の有る worktree）だけで、本社やふつうの clone では何も足さない。毎回の起動の量に入るので短く書く。
+- 役の本文は、このプラグインの SessionStart のフックが、会話の始まり（やり直し・圧縮の後も）に足す。足すのは部署（属性 `company.role` の有る worktree）だけで、代表の clone やふつうの clone では何も足さない。毎回の起動の量に入るので短く書く。
 - `settings` は、その会話の間だけ、利用者の全体の設定とリポジトリの設定の同じ鍵より先に効く。全体の設定とリポジトリの設定は触らない。道具の名前だけを `permissions.deny` に書くと、その道具は会話の文脈から消える。`skillOverrides` は Claude Code に同梱のスキルにだけ効き、プラグインのスキルには効かない（プラグインごと切るのは `enabledPlugins`）。`enabledPlugins` で works-dispatch 自身を切ると役の本文が足されないので、dispatch が注記を出す。
-- 効きは、`claude plugin details` の見積もりではなく、起こした会話の最初の要求の量で確かめる（見積もりは、フックが足す文やサブエージェントの説明の例を数えない）。
+- 効きは、`claude plugin details` の見積もりではなく、起こした会話の最初の API 要求のトークン（入力とキャッシュの書き・読みの和）で確かめる（見積もりは、フックが足す文やサブエージェントの説明の例を数えない）。
 - `--role` で名指した役が、役を書いた会社の形に無ければ止まる（書き損じで設定が黙って効かないのを防ぐ）。`--role` を省いたときの `作業役` が無いのは止めない。
-- gh のアカウントは、dispatch の設定の `[[repos]]` の `gh_user` を先に、無ければ会社の形の `gh_user` を使う（commit した会社の形に書かれたアカウントは、ほかの人のものでありうるため）。dispatch は名前だけを部署の属性 `company.gh-user` に書く。フックがそれを読み、会話の Bash がコマンドごとに `gh auth token --user <名前>` で鍵を取り出して `GH_TOKEN` に入れる。鍵の値は、ファイルにも画面にも履歴にも残らない。そのアカウントで gh にログインしていなければ、`GH_TOKEN` に使えない字を入れる（gh はほかのアカウントに落ちずに、認証の誤りで止まる）。dispatch の設定の場所や gh のアカウントを前の回と替えて同じ枝の部署を立て直すと、前の回の属性は消してから書く。PowerShell の道具には渡らない（Claude Code は、そのまま値として読める行しか PowerShell に写さない）。
+- gh のアカウントは、dispatch の設定の `[[repos]]` の `gh_user`（前提の節の、設定の `gh_user` と同じ欄）を先に、無ければ会社の形の `gh_user` を使う（commit した会社の形に書かれたアカウントは、ほかの人のものでありうるため）。dispatch は名前だけを部署の属性 `company.gh-user` に書く。フックがそれを読み、会話の Bash がコマンドごとに `gh auth token --user <名前>` で鍵を取り出して `GH_TOKEN` に入れる。鍵の値は、ファイルにも画面にも履歴にも残らない。そのアカウントで gh にログインしていなければ、`GH_TOKEN` に使えない字を入れる（gh はほかのアカウントに落ちずに、認証の誤りで止まる）。dispatch の設定の場所や gh のアカウントを前の回と替えて同じ枝の部署を立て直すと、前の回の属性は消してから書く。PowerShell の道具には `GH_TOKEN` が入らず、そこで打つ gh は、その人の今の gh の設定のアカウントで動く（フックが足す `export GH_TOKEN="$(gh auth token …)"` の行は `$(…)` で gh を走らせる形で、Claude Code が PowerShell に写すのは `export 名前=値` のように値をそのまま読める行だけのため）。
 - 既定の置き場でない dispatch の設定（`--config` か `WORKS_DISPATCH_CONFIG`）で部署を立てたときは、フックがその隣の `companies/` を読めるよう、設定の場所を部署の属性 `company.config` に書く。
 
 ## herdr の表示を付け直す: `--sync`
