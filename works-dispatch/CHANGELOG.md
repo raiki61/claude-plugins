@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-16
+
 ### Fixed
 
 - 一時停止（Ctrl-Z）したまま `claude --resume` で開き直した会話は、Claude Code の会話の一覧（`claude agents --json`）に、同じ会話の id（`sessionId`）で古い処理（Claude Code のプロセス。古い名前のまま）と今の処理の 2 件が並ぶ。dispatch を呼んだ会話（頼み元）を探すとき、dispatch の処理から親の処理をたどり、その中に pid が在る方を選び、どちらも無ければ処理の起きた時刻（`startedAt`。開き直した今の処理の方が新しい）の新しい方を選ぶ。0.12.0 までは先頭の古い方を拾い、`--ask` と `--task` で立てた部署（作業ごとに会話を起こす枝の worktree）の上役（`company.boss`。頼み元の会話の名前）と herdr の札（ペインに添える短い印）が古い名前になっていた。納品（`--deliver`。部署が要約を頼み元へ返す命令）で頼み元の会話を引くときも同じく古い方を拾っていたので、起きた時刻の新しい方を選ぶようにした。
