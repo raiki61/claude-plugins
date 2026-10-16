@@ -29,7 +29,8 @@ attach して画面を出す（会社の形の設計 9.1）。最初の文の後
 id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--clean は、会話が終わり枝が本流に入った部署を、claude rm と一緒に片付ける。
 
 --tree は、herdr に開いている会社（リポジトリ）ごとに、会社の情報（名前と受ける仕事）と部署（枝・役・アカウント・上役・herdr の
-状態）を出す（_company。--json で JSON）。--sync は、部署の属性から herdr のペインの名前・表示名・札を付け直す（何度打っても同じ）。
+状態）を出す（_company。--json で JSON）。--sync は、部署の属性から herdr のペインの名前・表示名・札を付け直す（何度打っても同じ。会社の形が替わったときは、番の終わりの
+フック shape_hook.py が、その会社の分を同じ中身で付け直す）。
 どちらも dispatch の設定が無くても動く（有れば、会話のアカウントと、設定の置き場の会社の情報を見る）。
 
 使い方: python3 dispatch.py [--config <パス>] [--repo OWNER/NAME] [--pr N ... | --issue N] [--no-second] [--dry-run | --clean [--apply]]
@@ -61,6 +62,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 
@@ -1194,19 +1196,40 @@ def _started(ports, config_dir, name, path, pane):
 
 
 def _company(a, ports):
-    """--tree と --sync。herdr の作業場から会社を出し（tree.roots）、会社ごとに部署（herdr アダプタの worktrees）と属性（git）と
-    会社の情報を読んで組み立てる（tree.build）。--sync はその組み立てから付ける物を決めて（sync.plan）herdr に書く（sync.apply）。
-    dispatch の設定は無くてよい。有れば、アカウントごとの会話の一覧で部署の会話のアカウントを見て、設定の置き場の会社の情報を読む。"""
+    """--tree と --sync。herdr の作業場から会社を出し、部署と属性と会社の情報を読んで組み立て（survey_companies）、--sync はその
+    組み立てから付け直す（sync_companies）。dispatch の設定は無くてよい。有れば、アカウントごとの会話の一覧で部署の会話のアカウントを
+    見て、設定の置き場の会社の情報を読む。"""
     if a.tree == a.sync:
         print("止めた: --tree か --sync のどちらか 1 つを付ける（--json は --tree と一緒に）")
         return 2
     if a.json and not a.tree or a.dry_run and not a.sync:
         print("止めた: --json は --tree と、--dry-run は --sync と一緒にだけ使う")
         return 2
-    notes = []
-    path = config.path_of(a.config, os.environ)
+    if a.sync:
+        lines, rc = sync_companies(a.config, ports, a.dry_run)
+        print("\n".join(lines))
+        return rc
     try:
-        accounts_ = config.load(a.config, os.environ, missing_ok=True).accounts
+        _, _, companies, settings, notes = survey_companies(a.config, ports)
+    except herdr.HerdrError as e:
+        print(f"止めた: herdr を読めない（{e}）")
+        return 1
+    calls.annotate(companies, settings, ports.git)
+    if a.json:
+        jsonio.dump({"companies": companies, "notes": notes}, None)
+        return 0
+    print("\n".join(notes + tree.lines(companies)))
+    return 0
+
+
+def survey_companies(config_path, ports, only=None):
+    """herdr の作業場から会社を出し（tree.roots）、会社ごとに部署（herdr アダプタの worktrees）と属性（git）と会社の情報を読んで
+    組み立てる（tree.build）。only を渡せば、その代表の clone の会社だけ。(アカウントの並び, herdr の作業場の並び, 会社の並び,
+    設定の置き場, 注記)。herdr を読めなければ herdr.HerdrError。"""
+    notes = []
+    path = config.path_of(config_path, os.environ)
+    try:
+        accounts_ = config.load(config_path, os.environ, missing_ok=True).accounts
     except config.ConfigError as e:
         accounts_ = (config.Account("default", "claude"),)
         if os.path.exists(path):
@@ -1217,13 +1240,11 @@ def _company(a, ports):
             sessions_[acc.name] = ports.list_sessions(acc.config_dir, include_done=True)
         except claudex.ClaudeError as e:
             notes.append(f"アカウント {acc.name} の会話の一覧を読めないので、そのアカウントの会話を見ない（{e}）")
-    try:
-        panes, workspaces_ = ports.herdr.panes(), ports.herdr.workspaces()
-        roots = tree.roots(workspaces_, panes, ports.common_of,
-                           list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
-    except herdr.HerdrError as e:
-        print(f"止めた: herdr を読めない（{e}）")
-        return 1
+    panes, workspaces_ = ports.herdr.panes(), ports.herdr.workspaces()
+    roots = tree.roots(workspaces_, panes, ports.common_of,
+                       list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
+    if only:
+        roots = [r for r in roots if os.path.realpath(r) == os.path.realpath(only)]
     places_of = {}
     for root in roots:
         try:
@@ -1233,26 +1254,27 @@ def _company(a, ports):
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
     companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings), sessions_)
-    if a.tree:
-        calls.annotate(companies, settings, ports.git)
-    if a.json:
-        jsonio.dump({"companies": companies, "notes": notes}, None)
-        return 0
-    if a.tree:
-        print("\n".join(notes + tree.lines(companies)))
-        return 0
-    notes += _sync_roles(companies, settings, ports, a.dry_run)
-    ops, why = sync.plan(companies, len(accounts_) > 1)
+    return accounts_, workspaces_, companies, settings, notes
+
+
+def sync_companies(config_path, ports, dry_run=False, only=None):
+    """--sync の中身。会社の形の役を部署と本社の属性に写し直し（_sync_roles）、付ける物を決めて（sync.plan）herdr に書く（sync.apply）。
+    only を渡せば、その代表の clone の会社だけ（会社の形が替わったときの番の終わりのフック。shape_hook.py）。(出す行の並び, 終了の値)。"""
+    try:
+        accounts_, workspaces_, companies, settings, notes = survey_companies(config_path, ports, only)
+    except herdr.HerdrError as e:
+        return [f"止めた: herdr を読めない（{e}）"], 1
+    notes += _sync_roles(companies, settings, ports, dry_run)
+    ops, why = sync.plan(companies, len(accounts_) > 1, orders.waiting_of(tempfile.gettempdir()))
     ws_ops = sync.workspace_ops(companies, {w["workspace_id"]: w.get("label") for w in workspaces_})
     notes += why
     none = [] if ops or ws_ops else ["付け直す部署は無い（属性を持つ部署が無い）"]
-    if a.dry_run:
-        print("\n".join(notes + [_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + none))
-        return 0
+    if dry_run:
+        return notes + [_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + none, 0
     done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr)
-    print("\n".join(notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
-                              for line, r in zip([_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none))
-    return 1 if any(r["status"] != "done" for r in done) else 0
+    return (notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
+                     for line, r in zip([_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none,
+            1 if any(r["status"] != "done" for r in done) else 0)
 
 
 def _sync_roles(companies, settings, ports, dry_run):

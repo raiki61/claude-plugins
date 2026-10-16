@@ -13,8 +13,11 @@ from . import DISPATCH  # noqa: F401
 from . import schemacheck
 from .test_dispatch import FakeHerdr, FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import git, make_world
+import dispatch
 import gitx
 import herdr as real_herdr
+import orders
+import shape_hook
 from nodes import clean, land, provision, sync, tree
 
 
@@ -433,6 +436,71 @@ class Entry(unittest.TestCase):
         rc, out = self.main("--tree")
         self.assertEqual(rc, 1)
         self.assertIn("止めた: herdr を読めない", out)
+
+    def test_sync_keeps_the_waiting_mark_of_a_department(self):
+        # 番の終わりのフックが表示名に添えた「裏の処理待ち」を、付け直し（手の --sync も、会社の形が替わったときのフックも）が消さない
+        real = tempfile.tempdir
+        tempfile.tempdir = tempfile.mkdtemp()
+        try:
+            orders.wait_mark(tempfile.tempdir, "s-a").parent.mkdir(parents=True)
+            orders.wait_mark(tempfile.tempdir, "s-a").write_text("1", encoding="utf-8")
+            rc, out = self.main("--sync", "--dry-run")
+        finally:
+            tempfile.tempdir = real
+        self.assertIn(f"表示名 調べ役（都度）・{sync.WAITING}", out)
+
+    def hook(self, sync_=None):
+        env = {"WORKS_DISPATCH_CONFIG": self.cfg}
+        return shape_hook.run({"cwd": self.place}, env,
+                              sync_ or (lambda config_path, root: dispatch.sync_companies(self.cfg, self.ports, only=root)))
+
+    def test_shape_hook_syncs_the_company_once_per_change_of_the_shape(self):
+        # 会社の形を替えたら、どの会話の番の終わりでも、その会社の部署の属性と herdr の表示が揃う（手で --sync を打たない。
+        # my_notes で役の名前を替えたとき、表示の替え残しを持ち主が herdr の上で見つけた）
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('[[roles]]\nname = "調べ役"\n', encoding="utf-8")
+        self.assertEqual(self.hook(), (True, []))   # 控えが無ければ 1 度揃える
+        self.assertTrue(pathlib.Path(shape_hook.mark_path(os.path.join(self.src, ".git"))).is_file())
+        self.ports.herdr.writes.clear()
+        self.assertEqual(self.hook(), (False, []))   # 替わっていなければ何もしない
+        self.assertEqual(self.ports.herdr.writes, [])
+        shape.write_text('[[roles]]\nname = "調べもの"\nformer_names = ["調べ役"]\nresident = true\nfresh = true\n', encoding="utf-8")
+        self.assertEqual(self.hook(), (True, []))
+        self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
+        self.assertEqual(gitx.worktree_attrs(self.place)["fresh"], "true")
+        self.assertIn(("report_pane_metadata", self.pane, "調べもの（都度）", "調べ", {"role": "調べもの", "account": "a1"}, ["boss"]),
+                      self.ports.herdr.writes)
+
+    def test_shape_hook_retries_until_everything_is_tagged(self):
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('[[roles]]\nname = "調べ役"\n', encoding="utf-8")
+        called = []
+
+        def failing(config_path, root):
+            called.append(root)
+            return ["ペイン w1-1: …  failed（pane_not_found）"], 1
+        self.assertEqual(self.hook(failing), (True, ["ペイン w1-1: …  failed（pane_not_found）"]))
+        self.assertEqual(self.hook(failing)[0], True)   # 控えを書かないので、次の番の終わりにもう一度揃える
+        self.assertEqual(len(called), 2)
+
+    def test_shape_hook_does_nothing_without_a_shape_or_outside_git(self):
+        def never(config_path, root):
+            raise AssertionError("揃え直した")
+        self.assertEqual(self.hook(never), (False, []))   # 会社の形の無いリポジトリ
+        self.assertEqual(shape_hook.run({"cwd": tempfile.mkdtemp()}, {}, never), (False, []))
+
+    def test_sync_of_one_company_leaves_the_others(self):
+        lines, rc = dispatch.sync_companies(self.cfg, self.ports, only=tempfile.mkdtemp())
+        self.assertEqual((rc, lines), (0, ["付け直す部署は無い（属性を持つ部署が無い）"]))
+        self.assertEqual(self.ports.herdr.writes, [])
+
+    def test_plugin_declares_the_shape_hook_in_the_background_at_stop(self):
+        hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        [h] = [h for grp in hooks["Stop"] for h in grp["hooks"] if "shape_hook.py" in h["command"]]
+        self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/shape_hook.py"', h["command"])
+        self.assertTrue(h.get("async"))   # 番の終わりを待たせない
 
 
 class Departments(unittest.TestCase):

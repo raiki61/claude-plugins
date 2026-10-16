@@ -15,7 +15,8 @@
 - 表示名は役に席の見え方（常設・毎回空、常設・持ち越し、都度）を添えた物、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
   属性に無い物は消す。
 
-入口の dispatch.py --sync が tree ノードの組み立てを渡して plan を呼び、apply で herdr に書く（--dry-run は plan だけ）。
+入口の dispatch.py --sync（と、会社の形が替わったときの番の終わりのフック shape_hook.py）が tree ノードの組み立てを渡して plan を呼び、
+apply で herdr に書く（--dry-run は plan だけ）。
 """
 
 import pathlib
@@ -57,7 +58,10 @@ def waiting_op(pane, attrs, waiting):
     """部署の会話の番の終わりに付け直す物。裏の処理（run_in_background の Bash）を待っていれば、表示名に WAITING を添える。
     herdr の状態は番が終わると done になり、裏の処理を待っている会話も終わったように見えた（持ち主が見誤った）。
     ペインの名前は付け直さない（アカウントの数が分からないので）。"""
-    o = {**op(pane, attrs, False), "label": None}
+    return _waiting({**op(pane, attrs, False), "label": None}, waiting)
+
+
+def _waiting(o, waiting):
     if waiting and o["display_agent"]:
         o["display_agent"] += f"・{WAITING}"
     return o
@@ -76,8 +80,9 @@ def _target(dept):
     return dept["panes"] if len(dept["panes"]) == 1 else []
 
 
-def plan(companies, many_accounts):
-    """(付ける物の並び, 付けられない部署の注記)。companies は tree ノードの build の結果。"""
+def plan(companies, many_accounts, waiting=lambda attrs: False):
+    """(付ける物の並び, 付けられない部署の注記)。companies は tree ノードの build の結果。waiting は部署の属性を受けて、その会話が
+    裏の処理を待っているか（待っていれば表示名に WAITING を添えたままにする。付け直しで番の終わりの印を消さない）。"""
     ops, notes = [], []
     for c in companies:
         for d in c["departments"]:
@@ -91,7 +96,7 @@ def plan(companies, many_accounts):
                        "会話の居ないペインが 2 つ以上")
                 notes.append(f"{c['name']} {d['branch'] or d['path']}: 付ける先のペインが無い（{why}）")
                 continue
-            ops += [op(p["pane_id"], d["attrs"], many_accounts, p.get("label")) for p in panes]
+            ops += [_waiting(op(p["pane_id"], d["attrs"], many_accounts, p.get("label")), waiting(d["attrs"])) for p in panes]
     return ops, notes
 
 
