@@ -26,7 +26,7 @@
 ## 試験
 
 - リポジトリ全体: bash tests/run.sh（sh では動かない）。works: sh works/tests/run.sh。段は環境変数 WORKS_TESTS で選ぶ（空＝全段、fast、heavy）。
-- 手元は速い段と根の柵まで。重い段は出荷の CI に任せる（持ち主 2026-10-06「手元の重いのはやめます」）。手元で重い試験を回すのは、触ったモジュールを 1 つずつ（WORKS_TESTS=heavy bash tests/run.sh -k <モジュール>）だけ。
+- 手元は速い段と根の柵まで。重い段は出荷の CI に任せる（持ち主 2026-10-06「手元の重いのはやめます」）。手元で重い試験を回すのは、触ったモジュールを 1 つずつ（WORKS_TESTS=heavy sh works/tests/run.sh -k <モジュール>）だけ。
 - 並べすぎない: pytest の worker は PYTEST_XDIST_AUTO_NUM_WORKERS=4 で抑え、手元の試験は nice -n 19 で回す。
 - 変異テスト（tests/mutate.py の本撃ち・mutmut）は撃たない（selfcheck.py は可）。
 - サブエージェントに重い試験を回させない。

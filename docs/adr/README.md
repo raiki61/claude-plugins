@@ -112,10 +112,11 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0063](0063-roles-as-child-processes.md) | 役は engine が claude -p の子プロセスとして起こし、子の終了を直接待つ（手順 1） | 採用 | 2026-09-25（09-27 に補足） |
 | [0064](0064-refer-by-number.md) | 役は一覧を番号で指し、engine が名前に戻す（手順 2） | 採用 | 2026-09-25 |
 | [0065](0065-roles-without-user-settings.md) | engine が起こす役には利用者の CLAUDE.md・設定・フックを読ませない | 採用 | 2026-09-25 |
-| [0066](0066-release-tags-and-changelog.md) | 版ごとに plugin の tag と変更の記録を残す | 採用 | 2026-09-27 |
+| [0066](0066-release-tags-and-changelog.md) | 版ごとに plugin の tag と変更の記録を残す | 置き換え（0073） | 2026-09-27 |
 | [0067](0067-test-migration-layer2-and-removal-conditions.md) | テストの移し替えの中身: 層 2 の筋書きの形・通しに残す 10 本・台本を消す条件 | 採用 | 2026-09-27 |
 | [0068](0068-engine-launches-runner-nodes.md) | 回す側の節と comment-analyzer も engine が claude -p で起こす（手順 H3） | 採用 | 2026-09-27 |
 | [0069](0069-engine-launches-skill-node-and-lanes.md) | 局所レビューの skill の節も engine が起こし、背景の線は回し手が立てる | 採用 | 2026-09-27 |
 | [0070](0070-works-entry-does-not-classify-requests.md) | /works の入口は依頼を分類しない（何をどう直すかはラインが単位ごとに決める） | 採用 | 2026-09-28 |
 | [0071](0071-test-sizes-and-where-they-run.md) | 試験は使う資源の大きさで分け、大きさで回す場所を決める（重い試験と変異テストは手元で回さない） | 採用 | 2026-09-29 |
 | [0072](0072-works-post-fix-lens-block.md) | works の修正の後の局所レビューは、レンズを 1 本ずつ独立の節にしたブロック blk-lens に置く | 採用 | 2026-10-01 |
+| [0073](0073-land-bumps-and-no-tags.md) | 版は --land が上げて手元の関門で main に入れ、tag は作らず、CI は入った後に回す | 採用 | 2026-10-16 |

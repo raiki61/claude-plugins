@@ -2,7 +2,7 @@
 
 ## 何の文書か
 
-`/doctor-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、リポジトリの現状そのもの（コード・文書・CI・開発環境）を読み取り専用で診て、改善候補を敵対検証で刈り込みながら根本の木を組み、生き残った候補と一撃（最も梃子の効く根本）を提案として報告する。変更は一切適用しない。回す手順は手順書 `commands/doctor-loop.md` に散文で、記録の検査は検証器 `scripts/doctor-record.py`（Python）に書いてある。この 2 つが正本で、`graphloops/graphs/doctor-loop.json`（グラフ実行版プラグイン graphloops の側にある。research と review は実行用の欄も持ち engine で回せる。doctor / firstread は写しだけ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。
+`/doctor-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、リポジトリの現状そのもの（コード・文書・CI・開発環境）を読み取り専用で診て、改善候補を敵対検証で刈り込みながら根本の木を組み、生き残った候補と一撃（最も梃子の効く根本）を提案として報告する。変更は一切適用しない。回す手順は手順書 `commands/doctor-loop.md` に散文で、記録の検査は検証器 `scripts/doctor-record.py`（Python）に書いてある。この 2 つが正本で、この文書はそれを「節（工程）＋依存＋周回条件」の図に写し、図に落ちない説明を足した人が読む側である。機械が読む側のグラフ（`graphloops/graphs/doctor-loop.json`）は今は無い——2026-09-13 に取り下げた（訳は同じディレクトリの `README.md`）。
 
 用語:
 
@@ -78,6 +78,4 @@ flowchart TB
 
 ## 機械検査
 
-```bash
-python3 graphloops/scripts/graphcheck.py graphloops/graphs/doctor-loop.json scripts/doctor-record.py
-```
+機械が読む側のグラフ（JSON）が今は無いので、`graphcheck.py` で確かめる物も無い。記録は検証器（`scripts/doctor-record.py`）で確かめる。
