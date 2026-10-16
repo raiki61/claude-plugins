@@ -8,12 +8,12 @@ description: 自分の番の PR（attention プラグインの /whose-turn が�
 自分の番の PR を、枝ごとの作業場で開くところまでを機械でやる。「自分の番の PR」は、attention プラグインの `/whose-turn` が「自分の番」の節に並べる PR（直す番の自分の PR と、レビューする番の PR）である。
 
 1. PR の枝ごとに作業場を用意する。代表の clone から、その枝の git worktree を herdr に作らせ（置き場は herdr の設定の `worktrees.directory`）、herdr の作業場を開く。その枝の worktree が既にあれば開き直す。どちらでも、origin の今の head へ早送りしてから渡す（手元にしか無い commit が有れば動かさない）。代表の clone 自身がその枝を開いていれば作らない（`branch_busy`）。
-2. 週の使用率のリセットが近いアカウントから順に、使用率が 95% に届かない件数まで PR を割り振り、Claude Code を起こす。件数は、1 件あたりの使用率（dispatch が毎回の前後で測って覚える）から決める。まだ測っていなければ、選べるアカウントに 1 件ずつ順に配る。
+2. 週の使用率のリセットが近いアカウントから順に、使用率が上限（設定の `limit_percent`。既定 95%）に届かない件数まで PR を割り振り、Claude Code を起こす。上限は、週の枠と 5 時間の枠の両方に当てる（どちらかが上限に届いたアカウントは選ばない）。件数は、1 件あたりの使用率（dispatch が毎回の前後で測って覚える）から決める（今の使用率に 1 件ぶんずつ足して、両方の枠で上限に届かない数）。まだ測っていなければ、選べるアカウントに 1 件ずつ順に配る。
 3. attention の `/catchup <番号>` を送る。これは、その PR で前回自分が触ってから何が起きたかを出す命令である。それが終わったら、設定のファイルに書いた 2 ターン目の文を送る。
-4. 会話が開いている PR は、前に送った後に相手の新しい返事（コメント・レビュー・commit。Bot は数えない）が有り、会話が手すきで手元の作業も無ければ、古い会話を終えてペインを畳み、同じ場所に新しい作業場と会話を立てて 3 から送り直す。2 回目も前の会話を持たない新しい目で見るためである。
+4. 会話が開いている PR は、dispatch が前に送った時（dispatch の控えに残る）の後に相手の新しい返事（コメント・レビュー・commit。Bot は数えない）が有り、会話が手すき（Claude Code の会話の状態が idle）で手元の作業も無ければ、古い会話を終えて herdr の作業場を閉じ（worktree は残す）、同じ worktree に herdr の作業場を開き直し、新しい会話を起こして 3 から送り直す。送り直した会話にも、前の会話の中身を持たない新しい目で PR を見させるためである。
 5. 閉じた（merge・close した）PR の枝の場所は片付ける（worktree と手元の枝を消す）。会話が手すきで手元の作業も無ければ、会話を終えてから消す。見るのは代表の clone の worktree だけで、ほかのリポジトリには触らない。PR の無い枝（issue から始めてまだ PR を作っていないもの）は消さない。
 
-AI は使わない。このスキルは下のスクリプトを走らせ、出力をそのまま見せるだけで、判断も言い換えもしない。
+AI は使わない。このスキルは下のスクリプトを走らせ、出力をそのまま見せるだけで、判断も言い換えもしない。`${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのプラグインの入ったフォルダのパスを入れる変数である。
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" <引数>
@@ -27,7 +27,7 @@ PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `r
 - Claude Code が、開いている会話を読む `claude agents --json` を持つ版である。
 - 使う各アカウントに、attention プラグインがアカウント全体（user）に入っている。
 - gh でそのリポジトリを読める。普段の gh のアカウントで読めなければ、設定の `gh_user` に読めるアカウントを書く。
-- リポジトリごとに代表の clone がある。各アカウントで一度そこで Claude Code を起こし、フォルダを信頼しておく。信頼していないと、枝ごとの作業場で毎回、信頼の確認が出る。代表の clone は既定の枝（main など）に置いておく。`source` には本体の clone を書く（linked worktree なら `--check` が止める）。代表の clone が開いている枝の PR は、作業場を作れない（`branch_busy`）。
+- リポジトリごとに代表の clone（枝ごとの worktree を作る元にする、ふつうの clone。設定の `source` に書く）がある。各アカウントで一度そこで Claude Code を起こし、フォルダを信頼しておく。信頼していないと、枝ごとの作業場で毎回、信頼の確認が出る。代表の clone は既定の枝（main など）に置いておく。linked worktree（`git worktree add` で作った側）は代表の clone にできない（`--check` が止める）。代表の clone が開いている枝の PR は、作業場を作れない（`branch_busy`）。
 
 ## 初めて: `/works-dispatch:dispatch setup`
 
@@ -54,7 +54,7 @@ PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `r
 dispatch はこれが無くても動く。枝ごとの作業場が増えたときに、どのアカウントに余裕があり、どの会話が何をしているかを見やすくする。
 
 1. **herdr の連携を、アカウントごとに入れる。** `--check` が、入っていないアカウントについて、入れるコマンド（`CLAUDE_CONFIG_DIR=<フォルダ> herdr integration install claude`）を出す。herdr を立ち上げ直したときに、会話を戻すのに使われる。
-2. **タブ欄に、アカウントごとの使用率を出す。** 次のコマンドが出す行を、herdr の設定（`~/.config/herdr/config.toml`）の `[ui]` に貼る。アカウントごとに表示が 1 つ（例: `p1 5h 38% 1h4m  7d 32% 2d4h`）と、5 分ごとに控えを取り直す行が 1 つ並ぶ。取り直しは、使っていないアカウントの控えが古くなったときだけ、出力 0 トークンの問い合わせを 1 回投げる。
+2. **タブ欄に、アカウントごとの使用率を出す。** 次のコマンドが出す行を、herdr の設定（`~/.config/herdr/config.toml`）の `[ui]` に貼る。アカウントごとに表示が 1 つ（例: `p1 5h 38% 1h4m  7d 32% 2d4h`。`5h` は 5 時間の枠、`7d` は週の枠で、使用率と切り替わりまでの時間）と、5 分ごとに控えを取り直す行が 1 つ並ぶ。取り直しは、使っていないアカウントの控えが古くなったときだけ、出力 0 トークンの問い合わせを 1 回投げる。
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" herdr-config
@@ -62,14 +62,14 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 
    このコマンドは、アカウントの一覧の写し（`~/.cache/claude-limits/accounts.json`）も書く。タブ欄の行は設定のファイルではなくこの写しを読むので、設定のアカウントを足したり変えたりしたら、このコマンドを走らせ直して行を貼り直す。
 
-   使用率の控えは、dispatch がアカウントを選ぶのにも使う。Claude Code の statusline のコマンドから、受けた JSON を `limits.py record` の標準入力にも渡すと、使っているアカウントの 5 時間の枠がすぐ動く。社内のプロキシの内側では、herdr を起こすシェルに `HTTPS_PROXY` が要る。失敗は `~/.cache/claude-limits/probe.log` に残る。
+   使用率の控えは、dispatch がアカウントを選ぶのにも使う。Claude Code の statusline のコマンドから、受けた JSON を `python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" record` の標準入力にも渡すと、使っているアカウントの 5 時間の枠がすぐ動く。社内のプロキシの内側では、herdr を起こすシェルに `HTTPS_PROXY` が要る。失敗は `~/.cache/claude-limits/probe.log` に残る。
 3. **サイドバーに、会話ごとの作業内容を出す。** 作業中は動いているツールを、ターンが終わると直前に頼んだ内容を出す。次のコマンドが出す `hooks` の塊を、各アカウントの Claude Code の設定（`settings.json`）に足す。すでに `hooks` があれば、出来事ごとの並びに足す。
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/activity.py" settings
    ```
 
-   そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く。
+   そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く（`$act` は、上のフックが作業内容を送る herdr の印の名前）。
 
 2 と 3 の行は、プラグインの入った場所（版ごとのフォルダ）を指す。プラグインを更新すると、そのフォルダが消えることがある。消えた場所を指していれば `--check` が知らせるので、そのときは行を出し直す。
 
@@ -78,9 +78,9 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 - 引数なし: 自分の番の PR を全部開き、返事の有った PR を送り直し、閉じた PR の作業場を片付ける。自分が作者でレビュアーの付いていない PR も開くが、`/catchup` だけを送り、2 ターン目の文は送らない（`--pr` で指したときも同じ）。
 - `--dry-run`: 何も起こさず、どの PR をどのアカウント・どの作業場で開くか、どれを送り直すか（`refresh`）、どれを片付けるかだけを出す。
 - `--pr N`: 指した番号の PR だけを開く。複数なら `--pr` を重ねる。止めている実装や、見に行くだけの PR に使う。レビュアーの有無では外さず、送り直しも片付けもしない。
-- `--issue N`: issue から始める。issue に結んだ枝（`gh issue develop --list`）の作業場を開き、1 ターン目の `/catchup N` まで送って止める（2 ターン目のレビューの文は送らない）。枝が見えなければ、その issue を閉じる開いた PR の枝を使い、それも無ければ既定の枝から GitHub に枝を作って issue に結ぶ（`gh issue develop`。GitHub に書く）。閉じた issue なら枝を作らずに止める（`issue_closed`）。`--pr` とは一緒に使えない。送り直しも片付けもしない。
+- `--issue N`: issue から始める。issue に結んだ枝（`gh issue develop --list`）の作業場を開き、1 ターン目の `/catchup N`（N は issue の番号。`/catchup` は issue の番号も受ける）まで送って止める（2 ターン目のレビューの文は送らない）。枝が見えなければ、issue の Development の欄に出る開いた PR（merge するとその issue が閉じる PR）の枝を使い、それも無ければ既定の枝から GitHub に枝を作って issue に結ぶ（`gh issue develop`。GitHub に書く）。閉じた issue なら枝を作らずに止める（`issue_closed`）。`--pr` とは一緒に使えない。送り直しも片付けもしない。
 - `--no-second`: `/catchup` だけで止め、2 ターン目の文を送らない。
-- `--clean`: 代表の clone の worktree のうち、消してよい場所を並べる。消してよいのは、枝の PR が閉じていて、会話が無く、未コミットの変更・git に足していないファイル・その枝の stash が無く、手元の枝の先頭が PR の head と同じものだけ。設定の `copy_files` のうち写し元と中身が違うファイルが有る場所も残し、そのファイルを出す（依存や生成物などほかの git が追わないファイルは一緒に捨てる）。`--clean --apply` で本当に消す（worktree と手元の枝を消す。未コミットの変更が有れば herdr も消さない）。
+- `--clean`: 代表の clone の worktree のうち、消してよい場所を並べる。消してよいのは、枝の PR が閉じていて、会話が無く、未コミットの変更・git に足していない新しいファイル（`git status` に出るもの）・その枝の stash が無く、手元の枝の先頭が PR の head と同じものだけ。設定の `copy_files`（git が追わない手元だけのファイルの一覧。新しく作った worktree へ、`copy_from`〔省けば代表の clone〕から写す）のうち写し元と中身が違うファイルが有る場所も残し、そのファイルを出す。`.gitignore` に当たるファイル（依存・生成物など）は数えず、場所と一緒に捨てる。`--clean --apply` で本当に消す（worktree と手元の枝を消す。herdr に `--force` を付けずに消させるので、並べた後に変更が出来ていれば herdr が断り、何も消えない）。部署（下の `--task` が立てた worktree）は PR を見ずに別に並べ、都度の部署で、会話が終わり（または会話がもう無く）、未コミットの変更・手元にしか無い commit・stash が無く、枝の先頭が origin の既定の枝に入っているものだけを消せるとする。消すときは、先に `claude rm` で会話を消してから場所と窓と手元の枝を消す。常駐の部署（`--resident`）は消さない。
 - `--check`: 前提だけを確かめる。
 - `--task 名前 --branch 枝 --brief 頼みのファイル`: 部署を 1 つ立てる（下の「部署を立てる」）。
 - `--tree`・`--sync`: 会社のツリー図を出す・herdr の表示を付け直す（下の節）。
@@ -91,17 +91,17 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 
 - 窓口は長く生かす。部署は作業ごとに 1 つ立て、終わったら畳む（下の `--clean`）。部署の仕事を点検する役は、部署の文脈を持たない新しいサブエージェントを毎回立てる。
 - 部署のペインと会話には、作業の中身の名前（例: `catchup作り直し`）を付ける。ペインの名前には、アカウントが 2 つ以上なら、そのアカウントの名前を添える（例: `catchup作り直し p2`）。会話の名前は SendMessage の宛先になる。
-- 連絡の道は 2 つある。窓口と部署が同じアカウントなら、部署は区切りで SendMessage を窓口へ送り、窓口は SendMessage の `notify_when_idle` で手すきの知らせを 1 回受けられる（待つ間トークンを使わない）。アカウントが違うと SendMessage は両方向とも届かない（各会話の一覧に、同じアカウントの会話しか出ない）。その場合、部署は区切りごとに画面に短く報告を書いて止まり、窓口は herdr で部署の窓（attach の画面）に打ち込み、画面を読む（`herdr pane read`）。dispatch は、どちらの道かを最初の文の後ろに書き足す。
+- 連絡の道は 2 つある。窓口と部署が同じアカウントなら、部署は区切りで SendMessage を窓口へ送り、窓口は SendMessage の `notify_when_idle` で手すきの知らせを 1 回受けられる（待つ間トークンを使わない）。アカウントが違うと SendMessage は両方向とも届かない（各会話の一覧に、同じアカウントの会話しか出ない）。その場合、部署は区切りごとに画面に短く報告を書いて止まり、窓口は herdr で部署のペイン（`attach` で裏の会話の画面を出したペイン）に打ち込み、画面を読む（`herdr pane read`）。dispatch は、どちらの道かを最初の文の後ろに書き足す。
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し --branch feat/catchup-redo --brief <頼みのファイル> [--role <役>] [--repo OWNER/NAME か代表の clone]
+python3 "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --task catchup作り直し --branch feat/catchup-redo --brief <頼みのファイル> [--role <役>] [--resident] [--repo OWNER/NAME か代表の clone]
 ```
 
-1. 枝の作業場を、PR と同じ決まりで用意する（代表の clone の git worktree を herdr に作らせ、置き場は herdr の `worktrees.directory`。herdr はその作業場を、リポジトリの作業場の子としてまとめる）。枝の作業場が既に在れば開き直し、git では動かさない。無ければ作る。元は、origin にその枝が在れば origin の枝、無ければ既定の枝（`--base` で替えられる）。
-2. 使用率が上限に届かないアカウントのうち、PR と同じ順の頭を 1 つ選ぶ。
-3. 部署の属性（役〔`--role`。省けば `作業役`〕・アカウント・会話の名前・上役〔呼んだ会話〕）を、作業場の git の設定 `company.<名前>` に書く（代表の clone に `extensions.worktreeConfig = true` を入れる。値は commit されず、worktree と一緒に消える）。代表の clone の `.git/info/exclude` に `.claude/` を足す（`.gitignore` は触らない）。
-4. ペインに名前を付け、そのアカウントの起こし方（設定の `command`）に `--bg --name <作業の名前> --settings <このプラグインの templates/department-settings.json> "<最初の文>"` を付けて打ち込む。設定のファイルは、裏の会話が自分で別の worktree を作らないようにする（`worktree.bgIsolation = "none"`）。最初の文は「作業の頼みです。<頼みのファイル> を読んで、その通りに進めてください。」に連絡の道を書き足したもの。
-5. そのアカウントの会話の一覧に裏の会話が出たら、会話の id を属性に足し、同じペインで `<command> attach <id>` を打ち込んで画面を出す。表示名と札（役・アカウント・上役）も付ける。作業の終わりは待たない。ペインを閉じても裏の会話は続く。
+1. 枝の作業場を、PR と同じ置き場の決まりで用意する（代表の clone の git worktree を herdr に作らせ、置き場は herdr の `worktrees.directory`。herdr はその作業場を、リポジトリの作業場の子としてまとめる）。枝の作業場が既に在れば開き直し、git では動かさない（PR と違い、origin の head へ早送りしない。部署の枝は手元で commit を積む物のため）。無ければ作る。元は、origin にその枝が在れば origin の枝、無ければ既定の枝（`--base` で替えられる）。
+2. 使用率が上限に届かないアカウント（上限は PR を開く回の 2 と同じで、週の枠と 5 時間の枠の両方に当てる）のうち、PR と同じ順の頭を 1 つ選ぶ。
+3. 部署の属性（役〔`--role`。省けば `作業役`〕・常駐か都度か〔`--resident` を付ければ常駐（`resident`）、省けば都度（`per-task`）。常駐の部署は `--clean` で畳まず、次の頼みを同じ部署で受ける〕・アカウント・会話の名前・上役〔呼んだ会話〕）を、作業場の git の設定に、属性ごとに `company.role`・`company.residency`・`company.account`・`company.name`・`company.boss` のような名前で書く（代表の clone に `extensions.worktreeConfig = true` を入れる。値は commit されず、worktree と一緒に消える）。代表の clone の `.git/info/exclude` に `.claude/` を足す（`.gitignore` は触らない）。
+4. ペインに名前を付け、そのアカウントの起こし方（設定の `command`）に `--bg --name <作業の名前> --settings <このプラグインの templates/department-settings.json> "<最初の文>"` を付けて打ち込む。この department-settings.json は、裏の会話が自分で別の worktree を作らないようにする（`worktree.bgIsolation = "none"`）。最初の文は「作業の頼みです。<頼みのファイル> を読んで、その通りに進めてください。」に連絡の道を書き足したもの。
+5. そのアカウントの会話の一覧に裏の会話が出たら、会話の id を属性に足し、同じペインで `<command> attach <id>` を打ち込んで画面を出す。herdr の表示名（役）と札（ペインに添える短い印。役・アカウント・上役）も付ける。作業の終わりは待たない。ペインを閉じても裏の会話は続く。
 
 呼んだ会話の名前とアカウントは、dispatch が Claude Code の会話の一覧（`claude agents --json`）から、Bash の道具に渡る `CLAUDE_CODE_SESSION_ID` で探す。Claude Code の外から走らせるなど見つからないときは、画面の道にして注記を出す。SendMessage の道にしたいなら `--from-name <呼んだ会話の名前> --from-account <アカウントの名>` で渡す。`--dry-run` は、作業場を作るか使い直すか、アカウント、名前、部署の属性、連絡の道、最初の文を出すだけで、何も起こさない。同じ名前の会話が既に開いていれば止まる（宛先が 1 つに決まらないため）。
 
@@ -134,4 +134,4 @@ role = "調べ役"   # 受ける役（A2A に無い、ここだけの欄）
 - 作業中の会話・未コミットの変更や push していない commit の有る会話は、送り直しにも片付けにも使わない（`busy`・`dirty`・`unpushed`）。相手の新しい返事が無い会話もそのまま（`no_news`）。前に送った後に相手の動き（コメント・レビュー・commit・head の変化）が無い PR は、会話を閉じてあっても開き直さない（`no_news`。`--pr N` で名指せば開く）。PR の作業場の外で同じブランチの会話が開いていれば、その PR は飛ばす（`already_open`）。
 - シェルではない物（エディタ・dev server・別の会話）が前に居るペインには打ち込まない（`pane_busy`）。起こした Claude Code が信頼やログインの確認の画面で止まったら、`/catchup` を送らずに `blocked` と報告する。
 - 依存（`.venv`・`node_modules`）は入れない。試験を走らせる段になってから、その会話の中で入れる。
-- 起こした会話の `/catchup` のページを、会話ごとには VS Code の窓に開かない（起こすコマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く）。全件を送り終えた後に、送った PR のページをまとめて、生きている VS Code の窓にタブで開く（`ATTENTION_CATCHUP_OPEN=0` で dispatch を走らせれば開かない。窓が無ければページの path を報告に出す）。
+- 起こした会話の `/catchup` のページ（`/catchup` が書く HTML のファイル）を、会話ごとには VS Code の窓に開かない（起こすコマンドの前に `ATTENTION_CATCHUP_OPEN=0` を置く）。全件を送り終えた後に、送った PR のページをまとめて、生きている VS Code の窓にタブで開く（`ATTENTION_CATCHUP_OPEN=0` で dispatch を走らせれば開かない。窓が無ければページの path を報告に出す）。
