@@ -50,6 +50,19 @@ def shown_role(attrs):
     return f"{name}（{role.seat(attrs.get('residency'), attrs.get('fresh'))}）" if name else None
 
 
+WAITING = "裏の処理待ち"   # 番を終えて、裏で走らせた処理の終わりを待っている部署の表示名に添える字
+
+
+def waiting_op(pane, attrs, waiting):
+    """部署の会話の番の終わりに付け直す物。裏の処理（run_in_background の Bash）を待っていれば、表示名に WAITING を添える。
+    herdr の状態は番が終わると done になり、裏の処理を待っている会話も終わったように見えた（持ち主が見誤った）。
+    ペインの名前は付け直さない（アカウントの数が分からないので）。"""
+    o = {**op(pane, attrs, False), "label": None}
+    if waiting and o["display_agent"]:
+        o["display_agent"] += f"・{WAITING}"
+    return o
+
+
 def _target(dept):
     talking = [p for p in dept["panes"] if p.get("agent")]
     sid = dept["attrs"].get("session")

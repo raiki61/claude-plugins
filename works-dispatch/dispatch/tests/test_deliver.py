@@ -19,6 +19,7 @@ from .test_provision import git
 from .test_task import push_shape
 from . import test_role
 import gitx
+import claudex
 import herdr as real_herdr
 import orders
 from nodes import deliver, provision
@@ -151,7 +152,7 @@ class StopVerdict(unittest.TestCase):
         outs = []
         for _ in range(deliver.STOP_LIMIT + 1):
             out = io.StringIO()
-            self.assertEqual(orders.stop_hook(io.StringIO(payload), out, lambda cwd: dict(self.ATTRS), tmp), 0)
+            self.assertEqual(orders.stop_hook(io.StringIO(payload), out, lambda cwd: dict(self.ATTRS), tmp, lambda: None), 0)
             outs.append(out.getvalue())
         self.assertEqual([json.loads(o)["decision"] for o in outs[:-1]], ["block"] * deliver.STOP_LIMIT)
         self.assertEqual(outs[-1], "")
@@ -168,8 +169,51 @@ class StopVerdict(unittest.TestCase):
     def test_hook_does_nothing_outside_a_department(self):
         out = io.StringIO()
         self.assertEqual(orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out,
-                                          lambda cwd: {}, tempfile.mkdtemp()), 0)
+                                          lambda cwd: {}, tempfile.mkdtemp(), lambda: None), 0)
         self.assertEqual(out.getvalue(), "")
+
+    def test_waiting_for_background_work_shows_on_herdr_and_is_not_sent_back(self):
+        # 番を終えて裏の処理（run_in_background の Bash。--land など）を待つ部署は、herdr の状態が done になり、終わったように
+        # 見えた。表示名に「裏の処理待ち」を添え、待ち終えたら外す。待っている間は納品を差し戻さない（終われば会話が起きる）
+        class H:
+            HerdrError = real_herdr.HerdrError
+
+            def __init__(self):
+                self.writes = []
+
+            def panes(self):
+                return [{"pane_id": "P1", "agent": "claude", "cwd": "/w"}, {"pane_id": "P2", "agent": None, "cwd": "/w"}]
+
+            def report_pane_metadata(self, pane, source, display_agent, title, tokens, clear_tokens=()):
+                self.writes.append((pane, display_agent))
+        tmp, h = tempfile.mkdtemp(), H()
+        attrs = {**self.ATTRS, "residency": "resident", "fresh": "true", "name": "割り振り"}
+
+        def stop(n):
+            out = io.StringIO()
+            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w"})), out, lambda cwd: dict(attrs), tmp,
+                             lambda: n, h)
+            return out.getvalue()
+        self.assertEqual(stop(1), "")
+        self.assertEqual(h.writes, [("P1", "作業役（常設・毎回空）・裏の処理待ち")])
+        self.assertEqual(stop(2), "")
+        self.assertEqual(len(h.writes), 1, "変わらないときは書き直さない")
+        self.assertEqual(json.loads(stop(0))["decision"], "block")   # 待ち終えた: 表示を戻し、納品していなければ差し戻す
+        self.assertEqual(h.writes[-1], ("P1", "作業役（常設・毎回空）"))
+
+    def test_background_shells_are_the_claude_childs_bash_tool_shells(self):
+        # 会話のプロセス（claude）の子のうち、Bash の道具のシェル（シェルの写しを読み込む物）を数える。フック自身の祖先は数えない
+        ps = "\n".join([
+            "  1     0 /sbin/launchd",
+            " 10  1 claude bg-spare --bg-spare /tmp/x.sock",
+            " 11 10 caffeinate -i -t 300",
+            " 12 10 /bin/bash -c source /h/.claude/shell-snapshots/snapshot-bash-1.sh && sleep 60",
+            " 13 10 /bin/bash -c source /h/.claude/shell-snapshots/snapshot-bash-1.sh && bash run-python.sh orders.py stop",
+            " 14 13 python3 orders.py stop",
+            " 15 10 node mcp-server.js"])
+        run = lambda argv, env=None: subprocess.CompletedProcess(argv, 0, ps, "")   # noqa: E731
+        self.assertEqual(claudex.background_shells(14, run), 1)
+        self.assertIsNone(claudex.background_shells(11 + 100, run), "claude の下でないなら分からない")
 
 
 class Flow(unittest.TestCase):

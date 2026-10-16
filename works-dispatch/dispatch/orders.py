@@ -465,12 +465,43 @@ def deliver_summary(a, ports, cwd):
     return 0 if status == "sent" else 1
 
 
-def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None):
-    """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。"""
+def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
+    """部署の会話の番の終わりに、裏で走らせた Bash の数を見て、待っていれば herdr の表示名に「裏の処理待ち」を添え、待ち終えたら
+    外す。前の番と変わったときだけ書く（会話ごとの控えのファイルに前の値を残す）。裏の数（分からなければ None）を返す。"""
+    n = shells()
+    if n is None:
+        return None
+    mark = pathlib.Path(tmp_dir, "works-dispatch-wait", re.sub(r"[^0-9A-Za-z_.-]", "_", payload.get("session_id") or "-"))
+    try:
+        last = mark.read_text(encoding="utf-8")
+    except OSError:
+        last = "0"
+    now = "1" if n else "0"
+    if now != last:
+        here = os.path.realpath(cwd)
+        panes = [x for x in h.panes() if x.get("agent") and x.get("cwd") and os.path.realpath(x["cwd"]) == here]
+        if len(panes) == 1:
+            sync.apply([sync.waiting_op(panes[0]["pane_id"], attrs, bool(n))], h)
+            mark.parent.mkdir(parents=True, exist_ok=True)
+            mark.write_text(now, encoding="utf-8")
+    return n
+
+
+def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=claudex.background_shells, h=herdr):
+    """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
+    部署の会話が裏の処理（run_in_background の Bash）を待っている間は、herdr の表示名に「裏の処理待ち」を出し、差し戻さない
+    （裏の処理が終わると Claude Code が会話を起こすので、納品はその後でよい。差し戻すと待つだけの番を回数の上限まで繰り返した）。"""
     payload = json.loads(stdin.read() or "{}")
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)
-    if not attrs.get("role") or not attrs.get("ask"):
+    if not attrs.get("role"):
+        return 0
+    try:
+        waiting = show_waiting(payload, cwd, attrs, tmp_dir or tempfile.gettempdir(), shells, h)
+    except (herdr.HerdrError, OSError, ValueError) as e:
+        print(f"works-dispatch: 裏の処理待ちを herdr に出せなかった（{e}）", file=sys.stderr)
+        waiting = None
+    if not attrs.get("ask") or waiting:
         return 0
     path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", attrs["ask"])
     try:

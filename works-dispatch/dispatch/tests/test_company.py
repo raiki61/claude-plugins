@@ -356,6 +356,25 @@ class Entry(unittest.TestCase):
     def main(self, *argv):
         return run_main(["--config", self.cfg, *argv], self.ports)
 
+    def test_sync_copies_the_roles_fresh_to_every_department(self):
+        # 会社の形の役の fresh を変えたら、--sync 1 回で今いる部署の属性 company.fresh と herdr の表示に行き渡る（--ask・
+        # --reorg --role を待たない。ノートの手入れの納品で見つかった）
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\n', encoding="utf-8")
+        rc, out = self.main("--sync", "--dry-run")
+        self.assertIn("company.fresh - → true（役 調べ役 の fresh を写す）", out)
+        self.assertIn("表示名 調べ役（常設・毎回空）", out)
+        self.assertNotIn("fresh", gitx.worktree_attrs(self.place), "--dry-run が書いた")
+        rc, out = self.main("--sync")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place)["fresh"], "true")
+        shape.write_text('[[roles]]\nname = "調べ役"\nresident = true\n', encoding="utf-8")   # 持ち越しに戻す
+        rc, out = self.main("--sync")
+        self.assertIn("company.fresh true → （消す）", out)
+        self.assertNotIn("fresh", gitx.worktree_attrs(self.place))
+
     def test_tree_prints_the_company_and_its_departments(self):
         rc, out = self.main("--tree")
         self.assertEqual(rc, 0, out)

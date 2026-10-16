@@ -1216,6 +1216,7 @@ def _company(a, ports):
     if a.tree:
         print("\n".join(notes + tree.lines(companies)))
         return 0
+    notes += _sync_fresh(companies, settings, ports, a.dry_run)
     ops, why = sync.plan(companies, len(accounts_) > 1)
     ws_ops = sync.workspace_ops(companies, {w["workspace_id"]: w.get("label") for w in workspaces_})
     notes += why
@@ -1227,6 +1228,33 @@ def _company(a, ports):
     print("\n".join(notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
                               for line, r in zip([_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none))
     return 1 if any(r["status"] != "done" for r in done) else 0
+
+
+def _sync_fresh(companies, settings, ports, dry_run):
+    """会社の形の役の fresh を、今いる部署の属性 company.fresh に写し直す（会社の形を変えたら、--sync 1 回で全部の部署に
+    行き渡らせる。--ask・--reorg --role を待たない）。companies の中の属性も書き換え、続く表示がそれを使う。出す行の並び。
+    会社の形に無い役の部署は触らない。--dry-run なら書かずに、書く物だけを出す。"""
+    out = []
+    for c in companies:
+        info = tree.read_info(c["root"], settings)
+        roles = role.load(info["path"], info["text"])["roles"]
+        for d in c["departments"]:
+            got = roles.get(d["attrs"].get("role"))
+            if not got:
+                continue
+            want = role.FRESH if got["fresh"] else None
+            if (d["attrs"].get("fresh") or None) == want:
+                continue
+            line = f"{c['name']} {d['attrs'].get('name') or d['branch'] or d['path']}: company.fresh {d['attrs'].get('fresh') or '-'} → {want or '（消す）'}（役 {got['name']} の fresh を写す）"
+            if not dry_run:
+                try:
+                    provision.mark(d["path"], c["root"], {"fresh": want}, ports.git)
+                except (gitx.GitError, OSError) as e:
+                    out.append(f"{line}  書けなかった（{e}）")
+                    continue
+            d["attrs"] = {**d["attrs"], "fresh": want} if want else {k: v for k, v in d["attrs"].items() if k != "fresh"}
+            out.append(line)
+    return out
 
 
 def _ws_line(o):

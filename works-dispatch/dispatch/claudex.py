@@ -45,6 +45,40 @@ def sessions(config_dir, runner=_default_runner, base_env=None, include_done=Fal
     return listed
 
 
+# Claude Code の Bash の道具が起こすシェルの印（コマンドの頭で、会話ごとのシェルの写しを読み込む。2026-10-17 に 2.1.301 で見た）
+SNAPSHOT = "/shell-snapshots/snapshot-"
+
+
+def _is_claude(command):
+    head = (command.split() or [""])[0]
+    return os.path.basename(head) == "claude" or "/claude/versions/" in head
+
+
+def background_shells(me=None, runner=_default_runner):
+    """このフックを起こした Claude Code の会話が、裏で走らせている Bash（run_in_background）の数。分からなければ None。
+    Claude Code のフックには裏の処理の終わりを知らせる出来事が無い（hooks の文書の出来事の一覧）。代わりに、番が終わった時に
+    会話のプロセスの子に残っている Bash の道具のシェル（コマンドに SNAPSHOT を含む）を数える。番の終わりには前で走らせた Bash は
+    終わっているので、残っているのは裏の物。プロセスの一覧は ps で読むので、ps の無い Windows では None。"""
+    if os.name == "nt":
+        return None
+    p = runner(["ps", "-A", "-o", "pid=,ppid=,command="])
+    if p.returncode != 0:
+        return None
+    procs = {}
+    for line in p.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            procs[int(parts[0])] = (int(parts[1]), parts[2] if len(parts) > 2 else "")
+    chain, pid = [], me or os.getpid()
+    while pid in procs and pid not in chain and pid > 1:
+        chain.append(pid)
+        pid = procs[pid][0]
+    host = next((x for x in chain if _is_claude(procs[x][1])), None)
+    if host is None:
+        return None
+    return sum(1 for pid, (ppid, command) in procs.items() if ppid == host and SNAPSHOT in command and pid not in chain)
+
+
 def trust_file(config_dir, env):
     """Claude Code がフォルダの信頼を記録するファイル（全体の設定のファイル .claude.json）。
     CLAUDE_CONFIG_DIR を入れて起こすなら <そのフォルダ>/.claude.json、入れなければ ~/.claude.json
