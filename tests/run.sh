@@ -4502,12 +4502,12 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "UV_CACHE_DIR", "TMPDIR",
                   # Python の tempfile が TMPDIR の次に一時フォルダの候補に見る環境変数（gates の coldread-gate.py が同じ順に読む）
                   "TEMP", "TMP",
-                  # 外の道具（mise・gh・git・herdr のインストーラ）の設定の環境変数
-                  "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN", "GIT_SSH_COMMAND", "HERDR_INSTALL_DIR",
+                  # 外の道具（mise・gh・herdr のインストーラ）の設定の環境変数
+                  "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN", "HERDR_INSTALL_DIR",
                   # Claude Code がフックに渡す、Bash のコマンドごとに先に走らせるファイルの環境変数（works-dispatch の role_hook.py が読む）
                   "CLAUDE_ENV_FILE",
                   # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
-                  "HTTPS_PROXY", "HTTP_PROXY",
+                  "HTTPS_PROXY",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）
                   "WORKS_DISPATCH_CONFIG",
                   # attention の /reflect が読む環境変数（読む設定のフォルダを足す・日記の置き場。同じく os.environ から読む）
@@ -4542,6 +4542,10 @@ NAMED_IN = tuple(
     # works の計画と変更の記録は書いた日の名指しを残す歴史の文書なので柵の外（後で名を替えても書き直さない。2026-10-09 の掃除:
     # この 2 つだけを直す commit が名を足すだけで、本物の食い違いを 1 件も捕まえなかった）
     and not p.relative_to(root).as_posix().startswith(("works/docs/plans/", "works-dispatch/docs/plans/"))
+    # 試しの記録（docs/trials/ の日付で始まる物）も、試した日の環境と名指しを残す歴史の文書なので柵の外。2026-10-16 の 3 回目の記録が
+    # Windows の VM の台本（docs/trials/windows-vm/vm.sh）の環境変数 CLAUDE_ACCOUNT を名指しして、main の CI を赤にした。
+    # 今の手順を書く docs/trials/windows-vm.md は柵の中に残す
+    and not p.relative_to(root).as_posix().startswith("docs/trials/2")
     and p.relative_to(root).as_posix() != "works/CHANGELOG.md"
 ) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
