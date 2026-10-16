@@ -82,7 +82,7 @@ def _find(found, name, attrs_of):
 
 
 def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: time.sleep(RUN_PAUSE_S), today=None,
-        checker=run_check, dry_run=False):
+        checker=run_check, dry_run=False, keep_removal=False):
     """--land <名前>。rows は dispatch._department_rows、reasons は片付けで残す訳（dispatch.DEPT_REASONS）。
     dry_run なら、することの見立てを出すだけで何も書かない（_preview）。"""
     g, out = ports.git, []
@@ -133,7 +133,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         env = ports.gh_env(repo) if rules["mode"] == "pr" or rules["gate"] != land.GATE_CHECK else None
         head = g.rev(path, "HEAD")
         if dry_run:
-            return _preview(cfg, repo, ports, found, place, attrs.get("name") or name, rules, main, head, rows, reasons)
+            return _preview(cfg, repo, ports, found, place, attrs.get("name") or name, rules, main, head, rows, reasons,
+                            attrs, keep_removal)
         if rules["mode"] == "pr":
             if rules["bump"]:
                 print("注記: 取り込み方 pr では版を上げない（版上げは PR の側で）")
@@ -148,6 +149,10 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head)
     if not g.is_ancestor(source, base, head):
         print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
+        return 1
+    stop = _overwrite_gate(ports, place, attrs, branch, base, head, keep_removal)
+    if stop is not None:
+        print(stop)
         return 1
 
     candidate, stage, where = head, None, path
@@ -226,6 +231,11 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     except gitx.GitError as e:
         local = f"そろえられなかった: {e}"
     print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local}）")
+    try:
+        # この部署が本流を知った位置を、入れた後の本流に進める（次の --land の関門は、ここより後にほかの部署が入れた行を見る）
+        provision.mark(path, source, {"base": candidate}, g)
+    except (gitx.GitError, OSError) as e:
+        print(f"注記: 本流を知った位置（company.base）を書けなかった（{e}）。次の --land の書き換えの関門は前の位置で見る")
     if rules["gate"] != land.GATE_CHECK:
         try:
             land.drop_gate(source, ref, g)
@@ -234,7 +244,34 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
 
 
-def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reasons):
+def _overwrite_gate(ports, place, attrs, branch, main_sha, head, keep_removal, dry_run=False):
+    """書き換えの取り合いの関門。部署が本流を最後に知った位置（属性 company.base。--task が枝を作ったときと、この部署の --land の
+    後に書く）より後に、ほかの部署が本流へ入れた行を、部署の枝が消していれば止める文を返す（部署の窓に打ち込む。dry_run なら
+    打ち込まない）。通すなら None。位置の記録が無い部署（前の版で立てた部署）は見ずに注記だけを出す（今の本流との merge-base は、
+    載せ直した後の枝では本流の先頭になり、何も見つけないため）。"""
+    since = attrs.get("base")
+    if not since:
+        print("注記: この部署には本流を知った位置（company.base）の記録が無いので、書き換えの取り合いの関門は見ない"
+              "（前の版で立てた部署。この --land の後から記録する）")
+        return None
+    try:
+        hits = land.taken(place["path"], since, main_sha, head, ports.git)
+    except gitx.GitError as e:
+        print(f"注記: 書き換えの取り合いの関門を見られなかった（{e}）")
+        return None
+    if not hits:
+        print(f"書き換えの取り合いの関門: 通った（{since[:7]} より後にほかの部署が入れた行を、この枝は消していない）")
+        return None
+    if keep_removal:
+        print(f"書き換えの取り合いの関門: この枝はほかの部署が入れた {len(hits)} 行を消すが、--keep-removal で通す")
+        return None
+    text = land.taken_text(branch, since, hits)
+    if dry_run:
+        return f"止まる見立て: {text}"
+    return _ask(ports, place, text)
+
+
+def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reasons, attrs=None, keep_removal=False):
     """--land --dry-run の見立て。本当の流れ（main）と同じ所で止まると見立てたら、同じ終わりの値を返す。"""
     g, branch, path, source = ports.git, place["branch"], place["path"], repo.source
     if rules["mode"] == "pr":
@@ -258,6 +295,10 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
     if not (known and g.is_ancestor(source, base, head)):
         print(f"見立て: 本流が部署の枝の祖先でないので、関門に出さずに止まる（載せ直しが要る）。部署に頼む文:\n"
               f"{land.rebase_text(branch, main, rules['bump'])}")
+        return 1
+    stop = _overwrite_gate(ports, place, attrs or {}, branch, base, head, keep_removal, dry_run=True)
+    if stop is not None:
+        print(stop)
         return 1
     try:
         got = g.subjects(source, base, head)

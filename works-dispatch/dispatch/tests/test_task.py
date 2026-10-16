@@ -116,8 +116,10 @@ class Task(unittest.TestCase):
                          {"worktree": {"bgIsolation": "none"}})
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
+        # 部署が本流を知った位置（枝を作ったときの origin の本流）も書く（--land の書き換えの取り合いの関門が使う）
         self.assertEqual(gitx.worktree_attrs(path), {"role": "作業", "residency": "per-task", "account": "a1", "name": "直し",
-                                                     "session": "bg0-full", "config": self.cfg})
+                                                     "session": "bg0-full", "config": self.cfg,
+                                                     "base": git("-C", src, "rev-parse", "refs/remotes/origin/main")})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に .claude/ が入る
         excluded = (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()

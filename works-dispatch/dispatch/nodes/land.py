@@ -104,6 +104,63 @@ def red_text(branch, where, points):
     return text[:ASK_CHARS]
 
 
+TAKEN_SHOWN = 12   # 部署に打ち込む「消す行」の上限の数
+
+
+def _hunks(text):
+    """git diff -U0 の字から、ファイルごとの (古い側の始まり, 数, 新しい側の始まり, 数, その hunk の行の並び)。"""
+    out, path, cur = {}, None, None
+    for line in (text or "").splitlines():
+        if line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else path   # 消したファイル（+++ /dev/null）は diff --git の行の名前のまま
+        elif line.startswith("--- "):
+            continue
+        elif line.startswith("diff --git "):
+            path = line.split(" b/", 1)[1] if " b/" in line else None
+        elif line.startswith("@@") and path is not None:
+            m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+            if m:
+                cur = (int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1), [])
+                out.setdefault(path, []).append(cur)
+        elif cur is not None and line[:1] in "+-":
+            cur[4].append(line)
+    return out
+
+
+def taken(source, since, main, head, g):
+    """since（部署が本流を最後に知った位置）より後に本流へ入った行のうち、部署の枝（main から head への差分）が消す行。
+    [{path, line（main での行番号）, text, commit, subject}]。部署が前に読んだ中身を覚えたまま書き直すと、ほかの部署がその間に
+    入れた行を消しても git の衝突にならず、関門の試験も通る（まっさらな環境での 2 回目の試しの 5）ので、行の出どころで見る。"""
+    added = {}
+    for path, hunks in _hunks(g.diff_zero(source, since, main)).items():
+        nums = added.setdefault(path, {})
+        for _, _, new_start, new_count, lines in hunks:
+            texts = [x[1:] for x in lines if x.startswith("+")]
+            for i in range(new_count):
+                nums[new_start + i] = texts[i] if i < len(texts) else ""
+    out = []
+    for path, hunks in _hunks(g.diff_zero(source, main, head)).items():
+        if path not in added:
+            continue
+        for old_start, old_count, _, _, _ in hunks:
+            for n in range(old_start, old_start + old_count):
+                if n in added[path]:
+                    sha, subject = g.blame_line(source, main, path, n)
+                    out.append({"path": path, "line": n, "text": added[path][n], "commit": sha, "subject": subject})
+    return out
+
+
+def taken_text(branch, since, hits):
+    """部署の窓に打ち込む、消す行の知らせ。"""
+    shown = " / ".join(f"{h['path']}:{h['line']}「{' '.join(h['text'].split())[:60]}」（{(h['commit'] or '-')[:7]} "
+                       f"{(h['subject'] or '')[:40]}）" for h in hits[:TAKEN_SHOWN])
+    more = f" ほか {len(hits) - TAKEN_SHOWN} 行" if len(hits) > TAKEN_SHOWN else ""
+    text = (f"枝 {branch} を本流に入れる前に止めた。この部署が本流を最後に知った後（{since[:7]}）にほかの部署が本流へ入れた行を、"
+            f"この枝が消している: {shown}{more}。前に読んだ中身で書き直していないかを確かめ、その行を残す形に取り込み直して push し、"
+            "--land を打ち直す。わざと消すなら --land <部署の名前> --keep-removal で入れる。")
+    return text[:ASK_CHARS]
+
+
 def ask(pane, text, h):
     """部署の窓に頼みを打ち込む（herdr agent prompt。待たない）。"""
     return h.prompt(pane, " ".join(text.split()), False)

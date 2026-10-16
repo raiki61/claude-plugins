@@ -565,6 +565,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
+    ap.add_argument("--keep-removal", action="store_true",
+                    help="--land と一緒に: 部署が本流を知った後にほかの部署が入れた行を、この枝が消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
                     help="今いる部署の名前・役・常駐か都度か・上役を付け替え、herdr の表示を付け直す（--name・--role・--resident か --per-task・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
@@ -589,6 +591,9 @@ def main(argv=None, ports=None):
             print("止めた: --reorg と --desk は一緒に使えない（部署は --reorg、本社の窓口は --desk）")
             return 2
         return reorg.reorg(a, ports, ports.cwd()) if a.reorg else reorg.desk(a, ports, ports.cwd())
+    if a.keep_removal and a.land is None:
+        print("止めた: --keep-removal は --land と一緒にだけ使う")
+        return 2
     reorg_args = [n for n, v in (("--name", a.name), ("--per-task", a.per_task), ("--boss", a.boss),
                                  ("--boss-account", a.boss_account)) if v]
     if reorg_args:
@@ -628,7 +633,8 @@ def main(argv=None, ports=None):
         if a.task is not None or a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --land はほかの入口（--task・--pr・--issue・--clean・--check・--no-second）と一緒に使えない")
             return 2
-        return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config, dry_run=a.dry_run)
+        return landing.main(cfg, repo, a.land, ports, _department_rows, DEPT_REASONS, a.config, dry_run=a.dry_run,
+                            keep_removal=a.keep_removal)
     if a.task is not None:
         if a.pr or a.issue is not None or a.clean or a.check or a.no_second:
             print("止めた: --task は --pr・--issue・--clean・--check・--no-second と一緒に使えない（1 回に 1 つの入口）")
@@ -1075,6 +1081,12 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             office = ports.attrs(repo.source)
             copied = {k: None for k, v in ports.attrs(prov["path"]).items() if k not in attrs and office.get(k) == v}
             provision.mark(prov["path"], repo.source, {**copied, **attrs}, ports.git)
+            if not ports.attrs(prov["path"]).get("base"):
+                # この部署が本流を知った位置（枝を作ったときの origin の本流）。--land の書き換えの取り合いの関門が、ここより後に
+                # ほかの部署が入れた行を、この部署の枝が消していないかを見る。--land の後は入れた後の本流に進む
+                known = ports.git.rev(repo.source, f"refs/remotes/origin/{ports.default_branch(repo)}")
+                if known:
+                    provision.mark(prov["path"], repo.source, {"base": known}, ports.git)
             if attrs["residency"] == RESIDENT and a.branch:
                 # 常駐の部署の最初の枝も、入れた枝と同じに記録する。頼みごとに枝を移るので、入れずに移った最初の枝（--brief で
                 # 立てただけの枝など）も手元に残る。先頭が今のままなら、部署が移った後の --land か --clean --apply が消す

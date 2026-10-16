@@ -203,12 +203,12 @@ class LandCase(unittest.TestCase):
         self.addCleanup(self.env.stop)
         self.config = os.path.join(self.tmp, "conf", "dispatch.toml")   # 無いファイル（設定の置き場を一時のフォルダに向ける）
 
-    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16", name="a", dry_run=False):
+    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16", name="a", dry_run=False, keep_removal=False):
         repo = Repo("o/r", "", world.source, (), None, None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "resident": "常駐の部署は畳まない"},
-                                self.config, pause=lambda: None, today=today, dry_run=dry_run,
+                                self.config, pause=lambda: None, today=today, dry_run=dry_run, keep_removal=keep_removal,
                                 **({"checker": checker} if checker else {}))
         return code, out.getvalue()
 
@@ -442,6 +442,75 @@ class Leftover(LandCase):
         # 常駐の部署は作業場を残す。入れた枝と commit を書き、部署が次の枝に移った後の --land か --clean --apply が消す
         self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": git("-C", self.w.dept, "rev-parse", "HEAD")})
         self.assertIn("入れた枝は、部署が次の枝に移った後", out)
+
+
+class OverwriteGate(LandCase):
+    """書き換えの取り合いの関門: 部署が本流を知った後にほかの部署が本流へ入れた行を、部署の枝が消していれば止める。"""
+
+    RULES = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\n'
+
+    def world(self):
+        w = World(self.tmp, {".claude/company.toml": self.RULES, "calc.py": "def add():\n    pass\n"})
+        self.base = w.origin("main")   # この部署が本流を知った位置
+        other = os.path.join(self.tmp, "other")   # 作業の部署が div を本流に入れる
+        git("clone", "-q", w.remote, other)
+        write(os.path.join(other, "calc.py"), "def add():\n    pass\ndef div():\n    pass\n")
+        self.div = commit(other, "div を足す")
+        git("-C", other, "push", "-q", "origin", "HEAD:refs/heads/main")
+        git("-C", w.dept, "fetch", "-q", "origin")
+        git("-C", w.dept, "reset", "-q", "--hard", "origin/main")   # 担当が本流の先頭から枝を切った
+        return w
+
+    def ports(self, w, base=True):
+        attrs = {"name": "a", "session": "s1", "role": "worker", **({"base": self.base} if base else {})}
+        return Ports(w, attrs=attrs)
+
+    def test_removing_lines_another_department_added_stops_and_says_which(self):
+        w = self.world()
+        before = w.origin("main")
+        w.work("calc.py", "def add():\n    pass\ndef sub():\n    pass\n")   # 前に読んだ中身で書き直し、div を消した
+        ports = self.ports(w)
+        code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(w.origin("main"), before, "止めたのに本流を進めた")
+        [(_, text)] = ports.herdr.prompts
+        self.assertIn("calc.py:3「def div():」", text)
+        self.assertIn(self.div[:7], text)
+        self.assertIn("div を足す", text)
+        self.assertIn("--keep-removal", text)
+
+    def test_keep_removal_lands_on_purpose(self):
+        w = self.world()
+        head = w.work("calc.py", "def add():\n    pass\n")
+        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""), keep_removal=True)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(w.origin("main"), head)
+        self.assertIn("--keep-removal で通す", out)
+
+    def test_keeping_the_lines_passes_and_moves_the_known_position(self):
+        w = self.world()
+        head = w.work("calc.py", "def add():\n    pass\ndef div():\n    pass\ndef sub():\n    pass\n")
+        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""))
+        self.assertEqual(code, 0, out)
+        self.assertIn("書き換えの取り合いの関門: 通った", out)
+        self.assertEqual(gitx.worktree_attrs(w.dept).get("base"), head, "入れた後の本流を、次の関門の位置にする")
+
+    def test_department_without_the_known_position_is_noted_and_not_checked(self):
+        w = self.world()
+        head = w.work("calc.py", "def add():\n    pass\n")
+        code, out = self.land(w, self.ports(w, base=False), checker=lambda cmd, cwd: (0, ""))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(w.origin("main"), head)
+        self.assertIn("本流を知った位置（company.base）の記録が無い", out)
+
+    def test_dry_run_reports_the_stop_without_typing(self):
+        w = self.world()
+        w.work("calc.py", "def add():\n    pass\n")
+        ports = self.ports(w)
+        code, out = self.land(w, ports, dry_run=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn("止まる見立て", out)
+        self.assertEqual(ports.herdr.prompts, [])
 
 
 class OtherModes(LandCase):
