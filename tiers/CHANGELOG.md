@@ -8,14 +8,14 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ### Added
 
-- 段 2 の足りない物に、初めての人が自分で準備するための案内を付ける。人の読む形は「案内:」の下に、`--json` は各項目の `guide`（行の並び。足りない項目だけが持つ）に同じ物を出す。`schema` は 1 のまま。
-  - herdr が無い: OS ごとの入れ方の補い（Windows はネイティブで一般提供、ARM64 はエミュレーション、cmd での入れ方、zip はフォルダごと置く。Linux・macOS は置き場と Homebrew・mise・Nix）と、Claude Code の連携 `herdr integration install claude`。
-  - herdr が動いていない: 初回の案内から連携を入れられることと、連携の入れ方。
-  - 起こし方の命令が見つからない: アカウントが 1 つなら要らないことを先に書き、アカウントごとに設定のフォルダを分けて `CLAUDE_CONFIG_DIR` で起こす関数か別名を、bash・zsh・PowerShell で示す（名前とフォルダは例）。
+- 段 2（herdr と、アカウントの起こし方の命令）で足りない物に、初めての人が自分で準備するための案内を付ける。人の読む形は「案内:」の下に、`--json` は各項目の `guide`（行の並び。足りない項目だけが持つ）に同じ物を出す。`--json` の形の版 `schema` は 1 のまま（欄を足すだけで、今の呼び手はそのまま動くため）。
+  - herdr が無い: OS ごとの入れ方の補い（Windows は WSL を通さないネイティブで一般提供、ARM64 は x86_64 の版をエミュレーションで動かす、インストーラが止められたときのコマンドプロンプトでの入れ方、手で落とす zip は `herdr.exe` だけを写さずフォルダごと置く。Linux・macOS は置き場 `~/.local/bin` と、ほかの入れ方 Homebrew・mise・Nix）と、Claude Code の連携 `herdr integration install claude`。
+  - herdr の server が動いていない: herdr を初めて起こしたときに herdr が出す初回の案内から連携を入れられることと、連携の入れ方。
+  - 起こし方の命令（アカウントごとに Claude Code を起こすシェルの命令。`--launcher` で渡す）が見つからない: アカウントが 1 つなら起こし方の命令は要らないことを先に書き、アカウントごとに Claude Code の設定のフォルダを分けて、そのフォルダを環境変数 `CLAUDE_CONFIG_DIR` に入れて起こす関数か別名を、bash・zsh・PowerShell で示す（名前とフォルダは例）。
 
 ### Fixed
 
-- Windows で、PowerShell の `$PROFILE` に書いた起こし方の関数を見つけられず、足りない物と言っていた。PATH の上に無ければ、在る方の PowerShell（pwsh・Windows PowerShell）に `Get-Command` で聞く。
+- Windows で、PowerShell の `$PROFILE` に書いた起こし方の関数を見つけられず、足りない物と言っていた。起こし方の命令が PATH の上に無ければ、入っている方の PowerShell（pwsh・Windows PowerShell）に、命令の有無を調べる `Get-Command` で聞く。
 
 ## [0.1.1] - 2026-10-16
 

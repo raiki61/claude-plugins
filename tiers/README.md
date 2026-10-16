@@ -12,15 +12,15 @@
 
 - 段 0: Claude Code だけ。`claude --version` が通るか。
 - 段 1: gh（GitHub の CLI）。入っているか（`gh --version`）、ログイン済みか（`gh auth status`）。
-- 段 2: herdr（端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具）。入っているか、server が動いているか（`herdr status server` の `status: running`）。それと、アカウントの起こし方の命令（`--launcher` で渡す。省けば `claude`）が、利用者のログインのシェルで見つかるか（シェルの関数も数える。Windows では PATH の上と、PowerShell の `$PROFILE` に書いた関数を `Get-Command` で探す）。
+- 段 2: herdr（端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具）。入っているか、server が動いているか（`herdr status server` の `status: running`）。それと、アカウントの起こし方の命令（`--launcher` で渡す。省けば `claude`）が、利用者のログインのシェルで見つかるか（Linux・macOS はログインのシェルの `command -v` で探し、シェルの関数と別名も数える。Windows は PATH の上を探し、無ければ PowerShell の起動時に読む設定のファイル `$PROFILE` に書いた関数を、PowerShell の `Get-Command` で探す）。
 - 段 3: Archon（AI の工程を順に回す道具）。`archon` が PATH に在るか。
 
 足りない物ごとに、入れ方を返す。入れ方の命令は各道具の公式の README の install の節から写した（2026-10-16 に読んだ。OS ごと: macOS・Linux・Windows）。
 
 段 2 は、初めての人が自分で準備できるように、入れ方の命令に加えて案内（`guide`）も返す。
 
-- herdr が無い: OS ごとの入れ方の補い（Linux・macOS は置き場 `~/.local/bin` と Homebrew・mise・Nix。Windows は WSL を通さないネイティブで一般提供であること、ARM64 は x86_64 の版をエミュレーションで動かすこと、PowerShell のインストーラが止められたときの cmd の入れ方、手で落とす zip はフォルダごと置くこと）と、Claude Code の連携（`herdr integration install claude`。アカウントごとに設定のフォルダを分けているなら、フォルダごとに `CLAUDE_CONFIG_DIR` を替えて入れる）。
-- herdr が動いていない: 初回の案内から連携を入れられることと、同じ連携の案内。
+- herdr が無い: OS ごとの入れ方の補い（Linux・macOS は置き場 `~/.local/bin` と Homebrew・mise・Nix。Windows は WSL を通さないネイティブで一般提供であること、ARM64 は x86_64 の版をエミュレーションで動かすこと、インストーラの置き場 `%USERPROFILE%\.herdr\packages\standalone\releases`、PowerShell のインストーラが止められたときにコマンドプロンプトで `install.cmd` を落として走らせる入れ方、GitHub の releases から手で落とす zip は中の `herdr.exe` だけを写さず展開したフォルダごと置くこと）と、Claude Code の連携（`herdr integration install claude`。Claude Code の会話を herdr に知らせるフックを、Claude Code の設定のフォルダに足す。アカウントごとに設定のフォルダを分けているなら、フォルダごとに、そのフォルダを指す環境変数 `CLAUDE_CONFIG_DIR` を替えて入れる）。
+- herdr が入っているが server が動いていない: 入れ方の命令は「作業するフォルダで `herdr` を打って起こす」。案内は、herdr を初めて起こすと herdr 自身が初回の案内（onboarding）を出し、進めると設定の integrations のタブから連携を入れられることと、上と同じ連携の案内。
 - 起こし方の命令が見つからない: 先に「アカウントが 1 つなら命令は作らなくてよい」と書き、分けるなら、アカウントごとに設定のフォルダを分けて `CLAUDE_CONFIG_DIR` に入れて `claude` を起こす関数か別名を、bash・zsh・PowerShell の 3 つで示す。名前（`claude-p2`）とフォルダ（`~/.claude-p2`）は例で、点検は `--launcher` で渡された名前を探すだけで決め打ちしない。
 
 根拠は、herdr の v0.9.5 の文書とソースを写した持ち主のノート（my_notes の `reference/primary/ai/herdr-install-and-config.md`、2026-10-16）、Claude Code の環境変数の文書（`CLAUDE_CONFIG_DIR`）、PowerShell の `Set-Alias` の文書（別名は引数を持てないので関数にする）。
@@ -49,7 +49,7 @@ tiers --tier <0〜3> [--launcher <命令> ...] [--json]
 
 1 を選んだ。2 の形は、Claude Code のプラグインが入った後に自分のフォルダしか持たず、実行時に 1 か所を共有する道が無かった頃（2026-09-15 の実測）の答えである。依存として入れたプラグインの `bin/` が PATH に入ると確かめられたので（下）、点検の本文を 1 か所に置いて呼べる。1 なら、点検の中身を直すと全部のプラグインに 1 回で効き、写しの割れを縛る柵も要らない。人が走らせる入口（`/tiers:check`）も同じ所に置ける。設計の 4.11 が挙げる Neovim の `:checkhealth`（点検の枠を共有する）と `brew doctor`・`flutter doctor`（1 つの命令が環境を点検する）の後者の形に近い。各プラグインの点検（works-dispatch の設定や `/catchup` の命令など、そのプラグインだけが知る物）は、各プラグインが続けて持つ。
 
-依存の範囲（`version`）は書かない。範囲は依存先の git のタグで解くが、このリポジトリはタグを作らない（持ち主の決定）。同じ marketplace の相対パスのプラグインは、marketplace の今の写しで入る。そのため `--json` の形は `schema` の番号で守り、形を変えるときは番号を上げ、呼ぶ側は知らない番号を誤りとして扱う。欄を足すだけ（知らない欄を読まない呼び手がそのまま動く変え方。`guide` がそれ）は番号を上げない。上げると、`schema` が 1 であることを確かめる呼び手（works-dispatch の `tierx.py`）が、足した欄を使わないのに止まる。
+依存の範囲（`version`）は書かない。範囲は依存先の git のタグで解くが、このリポジトリはタグを作らない（持ち主の決定）。同じ marketplace の相対パスのプラグインは、marketplace の今の写しで入る。そのため `--json` の形は `schema` の番号で守り、形を変えるときは番号を上げ、呼ぶ側は知らない番号を誤りとして扱う。欄を足すだけ（知らない欄を読まない呼び手がそのまま動く変え方。`guide` がそれ）は番号を上げない。上げると、`schema` が 1 であることを確かめる呼び手（このリポジトリの別のプラグイン works-dispatch が tiers を呼ぶ所 `dispatch/tierx.py`。下の「ほかのプラグインから使う形」）が、足した欄を使わないのに止まる。
 
 ### 試して確かめたこと（2026-10-16、Claude Code 2.1.301、使い捨ての marketplace）
 
