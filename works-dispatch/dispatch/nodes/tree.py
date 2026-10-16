@@ -14,7 +14,8 @@
   リポジトリの分を読む（書き方は同じ。Claude Code の settings.json と settings.local.json の分け方と同じ考え）。リポジトリの中の
   物は、origin の既定の枝（origin/HEAD が指す手元の ref）に commit された物を先に読み、無ければ元の clone の作業ツリーの物を読む
   （read_info）。元の clone の作業ツリーはほかの会話が古い枝で使っていることがあり、部署の枝は部署が書き換えうるので、どちらにも
-  頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。
+  頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。origin は在るのに
+  origin/HEAD が無い clone では既定の枝を決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
   書き方は TOML で、欄の名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
   role だけをここで足した。知らない欄は読み飛ばす。
 
@@ -71,19 +72,35 @@ def committed_info(root):
     return (f"{ref}:{rel}", text) if text is not None else None
 
 
-def _blank(source=None, path=None):
-    return {"source": source, "path": path, "text": None, "name": None, "description": None, "skills": [], "problems": []}
+HEAD_FIX = "remote set-head origin --auto"  # origin/HEAD を origin の今の既定の枝に向ける git の命令（git -C <根> の後ろ）
+
+
+def head_note(root, g=gitx):
+    """origin は在るのに origin/HEAD が無い clone なら、会社の形の読み方が落ちる訳と直し方の注記。それ以外（git でない・origin が
+    無い・origin/HEAD が在る）は None。手元の ref を読むだけ。"""
+    if not g.origin_url(root) or g.origin_head(root):
+        return None
+    return (f"{root} に origin/HEAD（origin の既定の枝を指す手元の印）が無いので、origin の既定の枝に commit された会社の形を読めず、"
+            f"元の clone の作業ツリー（古い枝なら古い形）か設定の置き場の物で読む。直すには: git -C {root} {HEAD_FIX}")
+
+
+def _blank(source=None, path=None, notes=()):
+    return {"source": source, "path": path, "text": None, "name": None, "description": None, "skills": [], "problems": [],
+            "notes": list(notes)}
 
 
 def read_info(root, settings_dir, committed=committed_info):
-    """その会社の情報。{source: origin|repo|settings|None, path, text, name, description, skills, problems}。会社の形を読む場所を
+    """その会社の情報。{source: origin|repo|settings|None, path, text, name, description, skills, problems, notes}。会社の形を読む場所を
     決めるのはこの 1 か所で、読む順は origin の既定の枝に commit された物（committed。path は ref:パス の札）、元の clone の作業
     ツリーの物、設定の置き場の物。text は読んだ中身（role.load・land.read_rules に渡す。同じ物を読み直さない）。
-    読めない・形の違うファイルは problems に書き、そこで止める（次の置き場へ落とさない。書いた物が効いていないことを隠さない）。"""
+    読めない・形の違うファイルは problems に書き、そこで止める（次の置き場へ落とさない。書いた物が効いていないことを隠さない）。
+    notes は、止めずに知らせる事（origin/HEAD が無い clone の直し方。head_note）。"""
     got = committed(root)
+    notes = []
     if got:
         source, path, text = "origin", got[0], got[1]
     else:
+        notes = [n for n in [head_note(root)] if n]
         places = [("repo", os.path.join(root, *INFO_FILE))]
         if settings_dir:
             places.append(("settings", settings_info_path(settings_dir, root)))
@@ -91,15 +108,15 @@ def read_info(root, settings_dir, committed=committed_info):
             if os.path.isfile(path):
                 break
         else:
-            return _blank()
+            return _blank(notes=notes)
         try:
             with open(path, encoding="utf-8") as f:
                 text = f.read()
         except (OSError, UnicodeDecodeError) as e:
-            out = _blank(source, path)
+            out = _blank(source, path, notes)
             out["problems"].append(f"{path}: 読めない（{e}）")
             return out
-    out = {**_blank(source, path), "text": text}
+    out = {**_blank(source, path, notes), "text": text}
     try:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:

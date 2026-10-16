@@ -869,7 +869,7 @@ def _brief_text(brief, caller, account, tail=None):
     return f"作業の頼みです。{brief} を読んで、その通りに進めてください。" + (tail or _contact(caller, account))
 
 
-def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
+def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     """部署を 1 つ立てる（会社の形の設計 9.1）。場所は PR と同じ決まり（provision.prepare_task。herdr が元の clone の子の作業場として
     worktree を作る）、アカウントは同じ割り振り（accounts.rank と assign.plan。1 件なので、使用率が上限に届かないアカウントのうち
     順の頭）。部署の属性を git に書き（provision.mark）、その作業場のペインで Claude Code の裏の会話を起こし（launch.start_background。
@@ -878,7 +878,10 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
 
     置き場と枝を下回りが決めるために、Claude Code に worktree を作らせず、先に作った worktree の中で起こす。WorktreeCreate のフックでも
     置き場と枝は決められた（2026-10-16 に試した）が、フックはその会話の中の全部の worktree（サブエージェントの isolation など）を
-    置き換え、フックの作った worktree は claude rm が消さずに断る。"""
+    置き換え、フックの作った worktree は claude rm が消さずに断る。
+
+    会社の形は、読む前に origin の既定の枝を取り直してから読む（provision.refresh_shape。--dry-run では取り直さない）。refreshed は、
+    呼んだ側（--ask）がもう取り直したこと。"""
     brief = os.path.abspath(os.path.expanduser(a.brief))
     if not os.path.isfile(brief):
         print(f"止めた: 頼みのファイルが無い: {brief}")
@@ -886,6 +889,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
     # 役の項目（会社の形の [[roles]]）と gh のアカウント。会社の形は --tree と同じ読み方（会社の形の設計 4.7・4.8）
     role_name = a.role or DEFAULT_ROLE
     cfg_path = config.path_of(a.config, os.environ)
+    fetched = None if a.dry_run or refreshed else provision.refresh_shape(repo.source, ports.git)
     info = tree.read_info(repo.source, os.path.dirname(cfg_path))
     shape = role.load(info["path"], info["text"])
     the_role, why = role.pick(shape, role_name, a.role is not None)
@@ -901,7 +905,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
         print(f"止めた: --from-account の {a.from_account} が設定の accounts に無い（{', '.join(names)}）")
         return 2
     problems, notes = ports.preflight(cfg, task=True)
-    notes = list(cfg.notes) + shape["problems"] + [n for n in [gh_note] if n] + role.warnings(the_role) + notes
+    notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"] + [n for n in [gh_note] if n]
+             + role.warnings(the_role) + notes)
     if problems:
         print("止めた（始める前の確かめで足りない物）:")
         print("\n".join(f"- {p}" for p in problems))
@@ -953,6 +958,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None):
             f"- ペインの名前: {pane_label}／会話の名前: {a.task}",
             f"- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
             f"- 連絡の道: {route}",
+            f"- 会社の形: {info['path'] or '無い'}（--dry-run なので origin を取り直さず、手元の控えで読んだ）",
             f"- 役の起動の設定: モデル {(the_role or {}).get('model') or '既定'}、--settings の鍵 "
             + ", ".join(role.settings_for(the_role)),
             f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
@@ -1110,7 +1116,9 @@ def _check(cfg, ports):
         print("\n".join(f"- {p}" for p in tierx.problems(tiers)))
         return 2
     problems, notes = ports.preflight(cfg)
-    notes = list(cfg.notes) + tier_notes + notes
+    # origin/HEAD が無い元の clone は、会社の形を作業ツリーから読む（止めずに直し方を出す）
+    heads = [n for n in dict.fromkeys(tree.head_note(r.source) for r in cfg.repos if r.source) if n]
+    notes = list(cfg.notes) + tier_notes + notes + heads
     for acc in cfg.accounts:
         try:
             ports.list_sessions(acc.config_dir)

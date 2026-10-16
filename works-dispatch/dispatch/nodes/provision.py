@@ -15,7 +15,8 @@
 - 最後に、herdr の worktree の並びにその枝の場所が在り、作業場が開いていて、checkout がその枝に居ることを読み戻してから返す。
 
 作業役（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。部署の属性（役・アカウント・会話の名前・
-上役）は mark が、その場所の git の設定 company.<名前> に書く（会社の形の設計 4.2）。
+上役）は mark が、その場所の git の設定 company.<名前> に書く（会社の形の設計 4.2）。部署を立てる前には、refresh_shape が
+origin の既定の枝を取り直す（会社の形を読む前に。起こすときの設定と、立てた後に役を足すフックが同じ会社の形を読むように）。
 
 issue から始めるとき（入口の --issue）に、issue に結んだ枝がまだ無ければ、link_branch が GitHub に枝を作って issue に結ぶ
 （gh issue develop。書く口）。作った後に issue に結んだ枝を読み戻して返す。
@@ -184,6 +185,24 @@ def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
         out["detail"] = "／".join(notes + [str(e)])
         return out
     return _read_back(out, made, seen, branch, notes, g)
+
+
+def refresh_shape(source, g=gitx):
+    """部署を立てる前に、会社の形を読む ref（origin の既定の枝。origin/HEAD が指す先）だけを origin から取り直す。書く口（手元の
+    origin/<枝> を動かす）。取り直せなければ注記を返し、手元の控えのまま読ませる。origin/HEAD が無ければ何もしない（読む側の
+    注記が直し方を出す）。
+
+    作業場を作った後に会社の形を読む並びにしないのは、役の名前の誤りを作業場を作る前に止め、--dry-run でも役の起動の設定を
+    出すため。作業場を作るときの fetch（prepare_task）の前に読むので、ここで取り直さないと、別の所で本流の会社の形を変えて
+    取っていないとき、起こすときの設定（settings・model）は古い形で決まり、立てた後のフックは新しい形を読む。"""
+    ref = g.origin_head(source)
+    if not ref:
+        return None
+    try:
+        g.fetch(source, ref.split("/", 1)[1])
+    except g.GitError as e:
+        return f"origin の既定の枝を取り直せないので、手元の {ref}（最後に取った時の形）で会社の形を読む（{e}）"
+    return None
 
 
 def mark(path, source, attrs, g=gitx):

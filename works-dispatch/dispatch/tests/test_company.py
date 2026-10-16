@@ -185,6 +185,16 @@ class Source(unittest.TestCase):
         write(os.path.join(self.src, ".claude", "company.toml"), 'name = "手元の clone"\n')
         got = tree.read_info(self.src, self.settings)
         self.assertEqual((got["source"], got["name"]), ("repo", "手元の clone"))
+        # 既定の枝を決められない訳と直し方を、止めずに知らせる（会社の形が無くても）
+        self.assertEqual(len(got["notes"]), 1)
+        self.assertIn(f"git -C {self.src} remote set-head origin --auto", got["notes"][0])
+        os.remove(os.path.join(self.src, ".claude", "company.toml"))
+        self.assertEqual(len(tree.read_info(self.src, self.settings)["notes"]), 1)
+
+    def test_with_origin_head_or_without_origin_there_is_no_note(self):
+        git("-C", self.src, "remote", "set-head", "origin", "main")
+        self.assertEqual(tree.read_info(self.src, self.settings)["notes"], [])
+        self.assertIsNone(tree.head_note(tempfile.mkdtemp(prefix="company-plain-")))   # git でない・origin が無い
 
     def test_default_branch_without_the_shape_falls_back_to_the_clone(self):
         git("-C", self.src, "remote", "set-head", "origin", "main")

@@ -74,10 +74,10 @@ def survey(config_path, ports):
 
 
 def shape_role(root, settings, name):
-    """会社の形（--task と同じ読み方。root が None なら無い）からその役の項目と、会社の形の注記。"""
-    info = tree.read_info(root, settings) if root else {"path": None, "text": None}
+    """会社の形（--task と同じ読み方。root が None なら無い）からその役の項目と、会社の形の注記（読み方の注記と形の誤り）。"""
+    info = tree.read_info(root, settings) if root else {"path": None, "text": None, "notes": []}
     shape = role.load(info["path"], info["text"])
-    return shape["roles"].get(name), shape["problems"]
+    return shape["roles"].get(name), info["notes"] + shape["problems"]
 
 
 def _repo_for(cfg, root, ports):
@@ -114,6 +114,10 @@ def ask(a, ports, cwd, task):
         print(f"止めた: {e}")
         return 2
     company, dept, role = target["company"], target["department"], target["role"]
+    if dept is None and not a.dry_run:
+        # 部署を新しく立てる: 納品の項目と起こすときの設定を、立てた後のフックと同じ会社の形で決める（--task と同じ。task には
+        # 取り直したことを渡し、2 度は取らない）
+        notes += [n for n in [provision.refresh_shape(company["root"], ports.git)] if n]
     the_role, problems = shape_role(company["root"], settings, role)
     required = deliver.required_items(the_role)
     notes += problems
@@ -174,7 +178,7 @@ def ask(a, ports, cwd, task):
         return 0
     path = deliver.put(inbox, f"{ask_id}-ask.md", body)
     ns = argparse.Namespace(**{**vars(a), "brief": path, "role": role})
-    rc = task(cfg, repo, ns, ports, extra_attrs=boss, tail=deliver.tail(required, RUN))
+    rc = task(cfg, repo, ns, ports, extra_attrs=boss, tail=deliver.tail(required, RUN), refreshed=True)
     try:
         got = next((p for p in ports.places(repo) if p.get("branch") == a.branch), None)
     except herdr.HerdrError as e:

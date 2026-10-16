@@ -10,7 +10,9 @@
 5. 関門: CI の枝の形なら、その枝の頭を GitHub Actions の設定が書いていることを確かめ、その枝へ候補を push して run を待つ。check なら、手元の検証のコマンドを候補の場所で回す。
 6. 赤なら、部署に失敗の要点を頼む。緑なら本流を取り直し、まだ祖先なら本流を早送りして push する（関門の枝は消す）。
    進んでいれば、部署に載せ直しを頼む。
-7. 入れたら、都度の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。常駐の部署は残す。
+7. 入れたら、都度の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。常駐の部署は残す。片付けられない
+   都度の部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
+   （どの部署でも）が、片付けられる形になっていれば一緒に片付ける。止まるのを待たないのは、こちらから期限を足さないため（D5）。
 """
 
 import datetime
@@ -75,6 +77,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     branch, path, source = place.get("branch"), place["path"], repo.source
     info = tree.read_info(source, os.path.dirname(config.path_of(config_path, os.environ)))
     rules = land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))
+    for n in info["notes"]:
+        print(f"注記: {n}")
     if rules["problems"]:
         print("止めた（取り込みの決まりが読めない）:\n" + "\n".join(f"- {p}" for p in rules["problems"]))
         return 2
@@ -105,7 +109,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         return 1
     if g.is_ancestor(source, head, base):
         print(f"枝 {branch} はもう本流 {main} に入っている")
-        return _tidy(cfg, repo, ports, found, path, rows, reasons)
+        return _tidy(cfg, repo, ports, found, path, rows, reasons, head)
     if not g.is_ancestor(source, base, head):
         print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
         return 1
@@ -185,22 +189,42 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             land.drop_gate(source, ref, g)
         except gitx.GitError as e:
             print(f"注記: 関門の枝 {ref} を消せなかった（{e}）")
-    return _tidy(cfg, repo, ports, found, path, rows, reasons)
+    return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
 
 
-def _tidy(cfg, repo, ports, found, path, rows, reasons):
-    """入れた部署を片付ける（--clean の部署の決まりと部品）。"""
+def _tidy(cfg, repo, ports, found, path, rows, reasons, landed):
+    """入れた部署を片付ける（--clean の部署の決まりと部品）。片付けられない都度の部署には、入れた印 company.landed（入れた commit）を
+    書いて残す。前の --land が残した部署（印の有る部署）も、片付けられる形になっていれば片付ける。終わりの値は入れた部署の分だけ。"""
     notes = []
-    row = next((r for r in rows(cfg, repo, ports, found, notes) if os.path.realpath(r["path"]) == os.path.realpath(path)), None)
+    all_rows = rows(cfg, repo, ports, found, notes)
     for n in notes:
         print(n)
+    me = os.path.realpath(path)
+    row = next((r for r in all_rows if os.path.realpath(r["path"]) == me), None)
     if row is None:
         print("部署は残した（片付けの候補にならない。会話の属性 company.session が無い部署は手で片付ける）")
-        return 0
-    if not row["removable"]:
+        code = 0
+    elif row["removable"]:
+        got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.herdr, ports.git, claudex)
+        print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
+        code = 0 if got["removed"] else 1
+    elif row["reason"] == "resident":
         print(f"部署は残した（{reasons[row['reason']]}）")
-        return 0
-    got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.herdr, ports.git, claudex)
-    print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
-    return 0 if got["removed"] else 1
+        code = 0
+    else:
+        try:
+            provision.mark(path, repo.source, {"landed": landed}, ports.git)
+            later = "片付けられる形になれば（会話が止まった後など）、次の --land（どの部署でも）か --clean --apply が片付ける"
+        except (gitx.GitError, OSError) as e:
+            later = f"入れた印を書けなかった（{e}）ので、次の --land は拾わない。片付けられる形になれば --clean --apply で片付ける"
+        print(f"部署は残した（{reasons[row['reason']]}）。{later}")
+        code = 0
+    for r in all_rows:
+        if os.path.realpath(r["path"]) == me or not r["removable"] or not ports.attrs(r["path"]).get("landed"):
+            continue
+        got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex)
+        who = r["name"] or r["branch"] or r["path"]
+        print(f"前の --land で残した部署 {who} を片付けた" if got["removed"]
+              else f"前の --land で残した部署 {who} を片付けられなかった: {got['detail']}")
+    return code
 

@@ -16,6 +16,7 @@ from . import DISPATCH
 from .test_company import CompanyHerdr
 from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import git
+from .test_task import push_shape
 from . import test_role
 import gitx
 import orders
@@ -237,9 +238,9 @@ class Flow(unittest.TestCase):
     def test_ask_to_a_role_without_a_resident_department_starts_one_through_the_task_path(self):
         seen = {}
 
-        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None):
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
             seen.update(name=ns.task, branch=ns.branch, role=ns.role, brief=ns.brief, attrs=extra_attrs, tail=tail,
-                        source=repo.source)
+                        source=repo.source, refreshed=refreshed)
             path = str(pathlib.Path(self.root) / "new")
             git("-C", self.src, "worktree", "add", "-q", "-b", ns.branch, path, "origin/main")
             provision.mark(path, self.src, {**extra_attrs, "role": ns.role, "session": "s-new"}, gitx)
@@ -259,8 +260,24 @@ class Flow(unittest.TestCase):
         self.assertEqual(os.path.realpath(seen["source"]), os.path.realpath(self.src))
         self.assertEqual(pathlib.Path(seen["brief"]).read_text(encoding="utf-8"), "長い頼み\n二行目\n")
         self.assertIn("--deliver <要約のファイル>", seen["tail"])
+        self.assertTrue(seen["refreshed"])
         self.assertEqual(seen["attrs"]["boss"], "desk")
         self.assertEqual(deliver.records(self.inbox)[0]["status"], "sent")
+
+    def test_ask_that_starts_a_department_reads_the_items_from_the_fetched_shape(self):
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(tail=tail)
+            return 1
+
+        sha = push_shape(self.src, '[[roles]]\nname = "出荷役"\ndeliver = ["結論", "差分"]\n')
+        a = argparse.Namespace(config=self.cfg, ask="出荷役", text="x", brief=None, task="出荷", branch="ship/1",
+                               dry_run=False, role=None, resident=False, base=None, from_name=None, from_account=None)
+        with contextlib.chdir(self.src), contextlib.redirect_stdout(io.StringIO()):
+            orders.ask(a, self.ports, self.src, task)
+        self.assertEqual(git("-C", self.src, "rev-parse", "origin/main"), sha)
+        self.assertIn("結論・差分", seen["tail"])
 
     def test_ask_to_a_missing_role_needs_a_name_and_a_branch(self):
         rc, out = self.main(self.src, "--ask", "出荷役", "--text", "x")

@@ -88,6 +88,7 @@ class World:
         commit(self.source, "init")
         git("-C", self.source, "push", "-q", "origin", "HEAD:refs/heads/main")
         git("-C", self.source, "fetch", "-q", "origin")
+        git("-C", self.source, "remote", "set-head", "origin", "main")   # git の版によらず origin/HEAD を持たせる
         self.dept = os.path.join(tmp, "wt", "a")
         git("-C", self.source, "worktree", "add", "-q", "-b", "feat/a", self.dept, "origin/main")
 
@@ -201,11 +202,11 @@ class LandCase(unittest.TestCase):
         self.addCleanup(self.env.stop)
         self.config = os.path.join(self.tmp, "conf", "dispatch.toml")   # 無いファイル（設定の置き場を一時のフォルダに向ける）
 
-    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16"):
+    def land(self, world, ports, rows=no_rows, checker=None, today="2026-10-16", name="a"):
         repo = Repo("o/r", "", world.source, (), None, None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = landing.main(None, repo, "a", ports, rows, {"running": "会話がまだ動いている", "resident": "常駐の部署は畳まない"},
+            code = landing.main(None, repo, name, ports, rows, {"running": "会話がまだ動いている", "resident": "常駐の部署は畳まない"},
                                 self.config, pause=lambda: None, today=today,
                                 **({"checker": checker} if checker else {}))
         return code, out.getvalue()
@@ -376,6 +377,66 @@ class Tidy(LandCase):
         self.assertIn("部署を片付けた", out)
         self.assertEqual(removed, [w.dept])
         self.assertEqual(git("-C", w.source, "branch", "--list", "feat/a"), "")
+
+
+class Leftover(LandCase):
+    """入れたが会話がまだ動いていて残した部署は、入れた印を書いて残し、次の --land（ほかの部署）が片付ける。"""
+
+    def setUp(self):
+        super().setUp()
+        self.w = World(self.tmp, CI_FILES)
+        self.b = os.path.join(self.tmp, "wt", "b")
+        self.ports = Ports(self.w)
+        removed = self.removed = []
+
+        def remove_worktree(source, path, label):
+            removed.append(path)
+            git("-C", source, "worktree", "remove", path)
+        self.ports.herdr.remove_worktree = remove_worktree
+        # 部署 a の属性は試験の表に、入れた印だけ本物の git から足す。部署 b は名前と会話だけ
+        self.ports.attrs = lambda path: (
+            {**self.ports._attrs, **{k: v for k, v in gitx.worktree_attrs(path).items() if k == "landed"}}
+            if os.path.realpath(path) == os.path.realpath(self.w.dept) else
+            {"name": "b", "session": "s2", "role": "worker"} if os.path.realpath(path) == os.path.realpath(self.b) else {})
+
+    def row(self, path, branch, removable, reason=None):
+        return {"path": path, "branch": branch, "name": os.path.basename(path), "removable": removable, "reason": reason,
+                "session": None, "pr_head": git("-C", path, "rev-parse", "HEAD")}
+
+    def test_left_department_is_marked_and_the_next_land_retires_it(self):
+        head = self.w.work()
+        code, out = self.land(self.w, self.ports, rows=lambda *a: [self.row(self.w.dept, "feat/a", False, "running")])
+        self.assertEqual(code, 0, out)
+        self.assertIn("部署は残した（会話がまだ動いている）。片付けられる形になれば（会話が止まった後など）、次の --land", out)
+        self.assertEqual(gitx.worktree_attrs(self.w.dept).get("landed"), head)
+        self.assertEqual(self.removed, [])
+        # 会話が止まった後に、ほかの部署 b を入れる
+        git("-C", self.w.source, "fetch", "-q", "origin")
+        git("-C", self.w.source, "worktree", "add", "-q", "-b", "feat/b", self.b, "origin/main")
+        write(os.path.join(self.b, "b.txt"), "b\n")
+        commit(self.b, "部署 b の作業")
+        code, out = self.land(self.w, self.ports, name="b", rows=lambda *a: [self.row(self.w.dept, "feat/a", True),
+                                                                             self.row(self.b, "feat/b", True)])
+        self.assertEqual(code, 0, out)
+        self.assertIn("部署を片付けた", out)
+        self.assertIn("前の --land で残した部署 a を片付けた", out)
+        self.assertEqual(sorted(self.removed), sorted([self.b, self.w.dept]))
+
+    def test_other_departments_without_the_mark_are_not_touched(self):
+        self.w.work()
+        git("-C", self.w.source, "worktree", "add", "-q", "-b", "feat/b", self.b, "origin/main")
+        code, out = self.land(self.w, self.ports, rows=lambda *a: [self.row(self.w.dept, "feat/a", True),
+                                                                   self.row(self.b, "feat/b", True)])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.removed, [self.w.dept])
+        self.assertNotIn("前の --land", out)
+
+    def test_resident_department_gets_no_mark(self):
+        self.w.work()
+        code, out = self.land(self.w, self.ports, rows=lambda *a: [self.row(self.w.dept, "feat/a", False, "resident")])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("landed", gitx.worktree_attrs(self.w.dept))
+        self.assertNotIn("次の --land", out)
 
 
 class OtherModes(LandCase):

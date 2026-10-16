@@ -48,6 +48,7 @@ def _template():
     git("-C", str(src), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
     git("-C", str(src), "push", "-q", "origin", "HEAD:refs/heads/main", *[f"HEAD:refs/heads/{b}" for b in BRANCHES])
     git("-C", str(src), "fetch", "-q", "origin")
+    git("-C", str(src), "remote", "set-head", "origin", "main")   # git の版によらず origin/HEAD を持たせる
     (src / "frontend").mkdir()
     (src / "frontend" / ".env.local").write_text("SECRET=1\n")
     _TEMPLATE.append(t)

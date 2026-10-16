@@ -6,6 +6,7 @@ import pathlib
 import re
 import shlex
 import subprocess
+import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
@@ -33,6 +34,22 @@ def over(name):
 
 
 BG = re.compile(r"^(claude-a\d) --bg --name ")
+
+
+def push_shape(src, text):
+    """別の clone から origin の main に会社の形を commit して push する（元の clone の origin/main は動かさない。別の所で本流の
+    会社の形を変えて、元の clone では fetch していない形）。"""
+    side = tempfile.mkdtemp(prefix="dispatch-shape-") + "/w"
+    git("clone", "-q", git("-C", src, "remote", "get-url", "origin"), side)
+    pathlib.Path(side, ".claude").mkdir()
+    pathlib.Path(side, ".claude", "company.toml").write_text(text, encoding="utf-8")
+    git("-C", side, "add", ".claude/company.toml")
+    git("-C", side, "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-q", "-m", "company")
+    git("-C", side, "push", "-q", "origin", "HEAD:refs/heads/main")
+    return git("-C", side, "rev-parse", "HEAD")
+
+
+SHAPE = '[[roles]]\nname = "調べ役"\nmodel = "haiku"\n'
 
 
 class Task(unittest.TestCase):
@@ -125,6 +142,43 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports, branch="task/old")
         self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.head_sha(self.place(ports, "task/old")), sha)
+
+    def test_shape_changed_on_origin_is_fetched_before_the_role_is_read(self):
+        src = gitx_source(self.cfg)
+        sha = push_shape(src, SHAPE)
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
+        # 起こすときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
+        [command] = self.sent(ports)
+        self.assertIn("--model haiku", command)
+
+    def test_dry_run_reads_the_shape_without_fetching(self):
+        src = gitx_source(self.cfg)
+        before = git("-C", src, "rev-parse", "origin/main")
+        push_shape(src, SHAPE)
+        rc, out = self.run_task(self.ports(), "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(git("-C", src, "rev-parse", "origin/main"), before)
+        self.assertIn("- 会社の形: 無い（--dry-run なので origin を取り直さず、手元の控えで読んだ）", out)
+
+    def test_refresh_fetches_only_the_default_branch_and_notes_a_failure(self):
+        src = gitx_source(self.cfg)
+        sha = push_shape(src, SHAPE)
+        self.assertIsNone(provision.refresh_shape(src, gitx))
+        self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
+        git("-C", src, "remote", "set-url", "origin", str(pathlib.Path(self.root).parent / "gone.git"))
+        self.assertIn("origin の既定の枝を取り直せないので、手元の origin/main", provision.refresh_shape(src, gitx))
+        git("-C", src, "remote", "set-head", "origin", "--delete")
+        self.assertIsNone(provision.refresh_shape(src, gitx))   # 既定の枝が分からなければ取りに行かない
+
+    def test_clone_without_origin_head_is_told_how_to_fix_it(self):
+        src = gitx_source(self.cfg)
+        git("-C", src, "remote", "set-head", "origin", "--delete")
+        rc, out = self.run_task(self.ports(), "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"git -C {src} remote set-head origin --auto", out)
 
     def test_existing_place_is_opened_again_and_not_moved(self):
         src = gitx_source(self.cfg)

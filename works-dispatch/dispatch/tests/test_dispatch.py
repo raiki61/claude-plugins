@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
-from .test_provision import WorktreeHerdr, make_world
+from .test_provision import WorktreeHerdr, git, make_world
 import claudex
 import config
 import dispatch
@@ -846,6 +846,13 @@ class Check(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("足りない物は無い", out)
         self.assertEqual(ports.herdr.writes, [])
+
+    def test_clone_without_origin_head_is_a_note_with_the_fix(self):
+        src = gitx_source(self.cfg)
+        git("-C", src, "remote", "set-head", "origin", "--delete")
+        rc, out = run_main(["--config", self.cfg, "--check"], FakePorts([]))
+        self.assertEqual(rc, 0, out)   # 止めない（会社の形を使わない会社もある）
+        self.assertIn(f"git -C {src} remote set-head origin --auto", out)
 
     def test_problems_and_notes_are_listed(self):
         rc, out = run_main(["--config", self.cfg, "--check"], FakePorts([], problems=["herdr に届かない"]))
