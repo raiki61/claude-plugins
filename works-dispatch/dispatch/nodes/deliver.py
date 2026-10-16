@@ -363,8 +363,12 @@ def send_confirmed(pane, line, h, pause, busy):
     """窓の会話に 1 行を送り、会話が動き出した（busy() が真）のを見てから返す。書く口。(sent か failed, 訳)。
     Windows で、attach で戻した直後の会話に送った 1 行が、届かないか入力欄に残った（まっさらな環境での 9 回目の試しの 1）。
     送る前に入力欄が出るのを待ち、送った後は、入力欄に残っていれば Enter を足し、入力欄にも画面にも見えず動き出してもいなければ
-    打ち直す（SEND_TRIES 回まで）。画面に送った字が見えていれば（入力欄でない所に）、届いたと見て打ち直さない（二重に送らない）。"""
+    打ち直す（SEND_TRIES 回まで）。画面に送った字が見えていれば（入力欄でない所に）、届いたと見て打ち直さない（二重に送らない）。
+    送る前から動いている会話は、打った字を番の後の待ちの列に回すので、動き出しでは確かめられない。入力欄に残れば Enter を足し、
+    入力欄の上（待ちの列か、番の途中で取り込まれた会話の中）に載るか、入力欄から出たのを見て届いたとする。見えなくても打ち直さない
+    （打った字は待ちの列に入るか番の途中で取り込まれる。打ち直すと同じ頼みが何度も届いた）。"""
     head = " ".join(line.split())[:20]
+    was_busy = busy()
     seen = 0   # 送る前に入力欄より上に見えていた数（前に送った同じ字が画面に残っていても、届いたと見誤らない）
     for _ in range(CONFIRM_LOOKS):
         try:
@@ -376,7 +380,7 @@ def send_confirmed(pane, line, h, pause, busy):
             break
         pause()
     detail = None
-    for attempt in range(SEND_TRIES):
+    for attempt in range(1 if was_busy else SEND_TRIES):
         try:
             h.prompt(pane, line, False)
         except h.HerdrError as e:
@@ -384,7 +388,7 @@ def send_confirmed(pane, line, h, pause, busy):
         entered = False
         for _ in range(CONFIRM_LOOKS):
             pause()
-            if busy():
+            if not was_busy and busy():
                 return "sent", detail
             try:
                 screen = h.read(pane, 40)
@@ -399,6 +403,10 @@ def send_confirmed(pane, line, h, pause, busy):
                     entered, detail = True, "入力欄に残っていたので Enter を足した"
             elif above_box(screen).count(head) > seen:
                 return "sent", detail   # 入力欄から出て、入力欄より上に新しく載った（会話に届いた）
+            elif was_busy and entered and ready(screen):
+                return "sent", detail   # 入力欄に入った字が、Enter で入力欄から出た（待ちの列に回った）
+        if was_busy:
+            return "sent", "動いている会話に 1 回打った（待ちの列に載ったのを画面で見られなかったが、二重に送らないよう打ち直さない）"
         detail = f"届いたかを確かめられず打ち直した（{attempt + 1} 回目）"
     return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力欄に残っていれば Enter を押す）"
 

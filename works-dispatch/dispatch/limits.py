@@ -346,9 +346,13 @@ def herdr_entries(accounts, script, snapshot_path):
     show, probe = [line for line in TEMPLATE.read_text(encoding="utf-8").splitlines() if line.startswith("{{")]
 
     def fill(s):
-        # 雛形の command は TOML の "…" の中なので、埋める値の \ と " をエスケープする（Windows のパスは \ を含む）
+        # 雛形の command は TOML の "…" の中なので、埋める値の \ と " をエスケープする（名前などに混じったとき）
         return shlex.quote(s).replace("\\", "\\\\").replace('"', '\\"')
-    q = {"script": fill(script), "accounts": fill(str(snapshot_path)), "picker": fill(str(PICKER))}
+
+    def path(p):
+        # パスは / 区切りで書く（bash が読む。Windows の \ 区切りは引用符と \\ に化けた。activity.settings と同じ形）
+        return fill(pathlib.PurePath(p).as_posix())
+    q = {"script": path(script), "accounts": path(snapshot_path), "picker": path(PICKER)}
     return [show.format(name=fill(a.name), **q) for a in shown] + [probe.format(**q)]
 
 

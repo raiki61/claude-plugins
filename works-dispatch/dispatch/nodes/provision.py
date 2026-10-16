@@ -226,7 +226,10 @@ def mark(path, source, attrs, g=gitx):
 
 # 元の clone の .git/info/exclude（commit されない、手元だけの無視の決まり。worktree と共有）に足す物
 LOCAL_EXCLUDES = (
-    ".claude/",       # 部署の会話が作る .claude/（許可の記録など。会社の形の設計 9.1 で確かめた）
+    ".claude/settings.local.json",   # 部署の会話が書く許可の記録（会社の形の設計 9.1 で確かめた）。.claude/ を丸ごと隠すと、exclude は
+                                     # 全 worktree で共有なので、.claude/ の下に新しく作ったフックの台本などが未追跡に出ず、
+                                     # commit し忘れに気づけない（my_notes で見つかった）。Claude Code の手元のファイルは Claude Code が
+                                     # 自分で exclude に足す（# claude-code-runtime の行）
     "__pycache__/",   # 部署が試しに走らせた Python が作る控え。.gitignore の無いリポジトリで、--land と --clean が
                       # 「git に足していないファイルが有る」として止まっていた（まっさらな環境での 4 回目の試しの 7）
 )

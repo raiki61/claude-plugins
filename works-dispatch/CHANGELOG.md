@@ -6,6 +6,15 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- `--ask` が、動いている部署の会話に頼みを打つと「3 回打ったが、会話が動き出さない」で failed を返し、頼みを 3 回届けていた。failed なので部署に頼み元を書かず、部署の納品が前の頼み元へ届いた。原因は 2 つ。
+  - 部署の会話で `/clear` を打つと会話の id が変わる。属性 `company.session` の古い id で会話の一覧を引き、動き出しを見られなかった。id で見つからなければ、部署の場所に居る裏の会話（1 つだけのとき）で見て、頼みを届けたときに新しい id を属性に書き直す。
+  - 送る前から動いている会話に打った字は、番の後の待ちの列に回るので、動き出しでは確かめられない。そういう会話には 1 回だけ打ち、入力欄に残れば Enter を足し、入力欄の上（待ちの列）に載るか入力欄から出たのを見て届いたとする。画面で見られなくても打ち直さない。
+- 代表の clone の `.git/info/exclude` に `.claude/` を丸ごと足していた。exclude は全 worktree で共有なので、`.claude/` の下に新しく作ったファイル（フックの台本など）が未追跡に出ず、commit し忘れに気づけなかった。足すのを部署の会話が書く許可の記録 `.claude/settings.local.json` だけにした。前の版が足した `.claude/` の行は残るので、手で消す（`<代表の clone>/.git/info/exclude` の `.claude/` の 1 行）。
+- `--check` が、dispatch の呼ぶ herdr の口のうち `pane.process_info`（PR を開く道）と、`pane.send_keys`・`workspace.rename`（部署の道）を確かめていなかった。確かめる集まりに足し、`docs/prerequisites.md` の数え（11 の口）を直した。
+- Windows で、`limits.py herdr-config` が herdr のタブ欄に書くパスが `\` 区切りを引用符で包んだ形になり、`activity.py` の settings の塊は台本のパスだけドライブ名が付かなかった。どちらも、ドライブ名の付いた `/` 区切りの形で書く。
+
 ## [0.20.0] - 2026-10-17
 
 ### Added

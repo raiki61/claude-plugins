@@ -100,8 +100,9 @@ EVENTS = ("UserPromptSubmit", "PreToolUse", "Stop", "Notification")
 def settings(script):
     """settings.json に足す hooks の塊。PreToolUse は全部のツールに当てる（matcher は空）。"""
     # Python はフックと同じ決まりで選ぶ（hooks/run-python.sh。Windows の Store へ誘う代わりの物を飛ばす）。この台本は TOML を読まないので下限は 3.9
-    picker = pathlib.Path(script).resolve().parent.parent / "hooks" / "run-python.sh"
-    hook = [{"type": "command", "command": f"bash {shlex.quote(picker.as_posix())} --min 3.9 {shlex.quote(pathlib.Path(script).as_posix())}"}]
+    script = pathlib.Path(script).resolve()   # 台本と選ぶ台本を同じ形で書く（Windows で片方だけドライブ名が付かない）
+    picker = script.parent.parent / "hooks" / "run-python.sh"
+    hook = [{"type": "command", "command": f"bash {shlex.quote(picker.as_posix())} --min 3.9 {shlex.quote(script.as_posix())}"}]
     return {"hooks": {e: [{"matcher": "", "hooks": hook} if e == "PreToolUse" else {"hooks": hook}] for e in EVENTS}}
 
 

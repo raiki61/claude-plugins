@@ -121,9 +121,11 @@ class Task(unittest.TestCase):
                                                      "session": "bg0-full", "config": self.cfg,
                                                      "base": git("-C", src, "rev-parse", "refs/remotes/origin/main")})
         self.assertEqual(gitx.worktree_attrs(src), {})
-        # 元の clone の .git/info/exclude に .claude/ が入る
+        # 元の clone の .git/info/exclude に、部署の会話が書く許可の記録だけが入る（.claude/ を丸ごと隠すと、.claude/ の下に
+        # 新しく作ったファイルの commit し忘れに気づけない）
         excluded = (pathlib.Path(src) / ".git" / "info" / "exclude").read_text(encoding="utf-8").splitlines()
-        self.assertIn(".claude/", excluded)
+        self.assertIn(".claude/settings.local.json", excluded)
+        self.assertNotIn(".claude/", excluded)
         self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
         # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
         self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},

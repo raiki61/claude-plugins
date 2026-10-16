@@ -219,7 +219,7 @@ class HerdrConfig(unittest.TestCase):
         # Python はフックと同じ hooks/run-python.sh で選ぶ（Windows の Store へ誘う代わりの物を飛ばす）。タブ欄から呼ぶ道は
         # TOML（tomllib は 3.11 から）を読まず、herdr-config が書いた JSON の写しを読むので、下限は 3.9
         for line in limits.herdr_entries(accounts(2), "/p/limits.py", "/l/accounts.json"):
-            self.assertIn(f"bash {limits.PICKER} --min 3.9 /p/limits.py", line)
+            self.assertIn(f"bash {limits.PICKER.as_posix()} --min 3.9 /p/limits.py", line)   # Windows でも / 区切り
             self.assertNotIn("command -v python3", line)
             self.assertIn("--accounts /l/accounts.json", line)
             self.assertNotIn("--config", line)
@@ -229,7 +229,9 @@ class HerdrConfig(unittest.TestCase):
         script, snap = r"D:\a\p\limits.py", r"C:\Users\me\lim\accounts.json"
         for line in limits.herdr_entries(accounts(1), script, snap):
             command = tomllib.loads("x = [" + line + "]")["x"][0]["command"]
-            self.assertIn(f"{shlex.quote(script)} --accounts {shlex.quote(snap)}", command)
+            # Windows ではパスを / 区切りに直して書く（\ が残るのは、\ を区切りと読まない OS で走らせたときだけ）
+            posix = [shlex.quote(pathlib.PurePath(x).as_posix()) for x in (script, snap)]
+            self.assertIn(f"{posix[0]} --accounts {posix[1]}", command)
 
     def test_snapshot_round_trips_what_show_probe_and_record_need(self):
         accts = (config.Account("main", "claude"),

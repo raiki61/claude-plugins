@@ -201,9 +201,21 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
     return None, f"ペイン {pane} で {command} を打ったが、窓に会話が戻らない（画面を見て、会話が戻ったら --ask を打ち直す）"
 
 
-def busy_check(dept, accounts_, ports):
-    """部署の会話が動いている（会話の一覧の status が busy）かを見る関数。送った 1 行が届いたかの確かめに使う。"""
+def dept_talk(dept, items):
+    """会話の一覧から部署の会話の 1 件。属性の会話の id（company.session）の物、無ければ部署の場所に居る裏の会話が 1 つだけならそれ。
+    部署の会話で /clear を打つと会話の id が変わり、属性の id は古いまま残る（2026-10-16 の試しの部署で、属性と一覧の id が違った）。"""
     full = dept["attrs"].get("session")
+    mine = next((x for x in items if full and x.get("sessionId") == full), None)
+    if mine:
+        return mine
+    here = [x for x in items if x.get("kind") == "background" and x.get("state") not in ("done", "failed", "stopped")
+            and x.get("cwd") and os.path.realpath(x["cwd"]) == os.path.realpath(dept["path"])]
+    return here[0] if len(here) == 1 else None
+
+
+def busy_check(dept, accounts_, ports):
+    """部署の会話が動いている（会話の一覧の status が busy）かを見る関数。送った 1 行が届いたかの確かめに使う。
+    見つけた会話の id を関数の found に残す（属性の id が古ければ、頼みの属性と一緒に書き直す）。"""
     acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
 
     def busy():
@@ -211,7 +223,11 @@ def busy_check(dept, accounts_, ports):
             items = ports.list_sessions(acc.config_dir if acc else None)
         except claudex.ClaudeError:
             return False
-        return any(x.get("sessionId") == full and x.get("status") == "busy" for x in items)
+        talk = dept_talk(dept, items)
+        if talk:
+            busy.found = talk.get("sessionId")
+        return bool(talk) and talk.get("status") == "busy"
+    busy.found = None
     return busy
 
 
@@ -300,10 +316,15 @@ def ask(a, ports, cwd, task):
             return 0
         path = deliver.put(inbox, f"{ask_id}-ask.md", body)
         line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-        status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
+        busy = busy_check(dept, accounts_, ports)
+        status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy)
         if status == "sent":
+            marks = dict(boss)
+            if busy.found and busy.found != dept["attrs"].get("session"):
+                # /clear で変わった会話の id を書き直す（Stop フックの見分けと、落ちたときの attach が古い id を使わない）
+                marks["session"] = busy.found
             try:
-                provision.mark(dept["path"], company["root"], boss, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
+                provision.mark(dept["path"], company["root"], marks, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
             except (gitx.GitError, OSError) as e:
                 notes.append(f"宛先の部署に頼みの属性を書けなかった（{e}）。納品の命令が頼み元を見つけられず、Stop フックが効かない")
         deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail,

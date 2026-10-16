@@ -84,11 +84,13 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 
-# 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）
-HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "workspace.list", "workspace.close",
-                 "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
-# 部署（--task）にだけ要るメソッド（ペインに名前と札を付ける・起こせなかった訳に画面を読む）
-TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read"}
+# 手元の herdr の API に要るメソッド（herdr の文書は、手元の版の API を api schema で確かめるよう求めている）。PR を開く道が使う物。
+# pane.process_info はコマンドを打つ前にペインの前がシェルかを見る口（herdr pane process-info）
+HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.send_text", "pane.process_info", "workspace.list",
+                 "workspace.close", "worktree.list", "worktree.create", "worktree.open", "worktree.remove"}
+# 部署（--task・--ask・--sync）にだけ要るメソッド（ペインと作業場に名前と札を付ける・画面を読む・入力欄に残った字に Enter を足し、
+# 止まった attach を Ctrl+Z で戻す）
+TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read", "pane.send_keys", "workspace.rename"}
 # --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役。持ち主 2026-10-16 に作業役から改名）
 DEFAULT_ROLE = "作業"
 # 部署の常駐か都度か（属性 company.residency の値）。常駐の部署は片付けで畳まない（会社の形の設計 4.10 の 1）

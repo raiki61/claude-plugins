@@ -31,7 +31,7 @@
   - land: 部署の成果を本流に入れる決まり（会社の形の `[land]`）を読み、関門の枝へ出して CI の run を待ち、緑で本流が祖先なら本流を早送りして push する。本流が先に進んでいれば merge せず、赤なら失敗の要点を付けて、部署の窓に herdr で頼みを打ち込む。流れは `landing.py`（[land.md](land.md)）。
   - bump: Claude Code のプラグインの marketplace で、中身を変えたのに版が据え置きのプラグインの版を上げる commit を作る（`docs/releasing.md` の形。取り込みのときに上げる会社だけ）。
 - 部署の属性（役・アカウント・会話の名前と id・上役）は、部署の worktree ごとの git の設定 `company.<名前>`（`extensions.worktreeConfig`）に置く。正本は git で、dispatch は別の台帳を持たない（会社の形の設計 4.2）。読み書きは `gitx.py` の `worktree_attrs`・`enable_worktree_config`・`set_worktree_attr`。
-- 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）の 4 つ。
+- 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（`ghx.py`）、Claude Code（`claudex.py`）、要る道具の段の点検の tiers（`tierx.py`）、VS Code（`vscode.py`。送り終えた PR の /catchup のページを窓にタブで開く）の 6 つ。
   - 場所（git worktree）を作る・並べる・開く・消すのは herdr の worktree の口で、`herdr.py` の `worktrees`・`create_worktree`・`open_worktree`・`remove_worktree` だけが呼ぶ（herdr アダプタ）。ノードは「枝の場所」の言葉だけで書く。置き場は herdr の設定の `worktrees.directory`（既定 `~/.herdr/worktrees/<リポジトリ>/<枝の slug>`）に任せる。
   - worktree は枝と stash を代表の clone と共有するので、手元の作業の判定（`gitx.unpushed`・`gitx.stashed`）は、その場所の HEAD とその枝の物だけを数える。
 - 流れの外に、任意の道具が 2 つある。どちらも dispatch の設定のアカウントを読む。

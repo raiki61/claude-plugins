@@ -551,7 +551,9 @@ class RealPorts(unittest.TestCase):
         (d / ".claude.json").write_text(json.dumps({"projects": {"/s": {"hasTrustDialogAccepted": True}}}))
         ports = dispatch.Ports(env={"HOME": "/nowhere"})
         self.assertEqual(ports.trust({"name": "p2", "config_dir": str(d)}, "/s", "/s-pr-1"), "inherited")
-        self.assertTrue(json.loads((d / ".claude.json").read_text())["projects"]["/s-pr-1"]["hasTrustDialogAccepted"])
+        # 鍵は記号のリンクを解いた形を、元の鍵（/s）の区切りに揃えた物（Windows では解くとドライブ名が付き D:/s-pr-1 になる）
+        key = os.path.realpath("/s-pr-1").replace(os.sep, "/")
+        self.assertTrue(json.loads((d / ".claude.json").read_text())["projects"][key]["hasTrustDialogAccepted"])
 
     def test_account_without_config_dir_follows_a_fresh_login_shell_not_this_session(self):
         # dispatch はふつう、別のアカウントの Claude Code の会話の中から走る。その会話の CLAUDE_CONFIG_DIR は、

@@ -58,7 +58,7 @@ class Attrs(unittest.TestCase):
         path.write_text("# mine", encoding="utf-8")
         self.assertEqual(provision.hide_claude_dir(self.place, gitx), ["added", "added"])   # worktree から打っても共有の exclude
         self.assertEqual(provision.hide_claude_dir(self.src, gitx), ["already", "already"])
-        self.assertEqual(path.read_text(encoding="utf-8"), "# mine\n.claude/\n__pycache__/\n")
+        self.assertEqual(path.read_text(encoding="utf-8"), "# mine\n.claude/settings.local.json\n__pycache__/\n")
 
     def test_common_dir_and_root_of_a_linked_worktree_are_the_source(self):
         self.assertEqual(os.path.realpath(gitx.root_of(gitx.common_dir(self.place))), os.path.realpath(self.src))
@@ -476,7 +476,8 @@ class Departments(unittest.TestCase):
         old_sha = git("-C", self.place, "rev-parse", "HEAD")
         git("-C", self.place, "switch", "-q", "-c", "dept/next")             # 次の頼みの枝に移った
         git("-C", self.src, "branch", "-q", "dept/moved", old_sha)
-        git("-C", self.src, "branch", "-q", "-f", "dept/moved", git("-C", self.src, "commit-tree", f"{old_sha}^{{tree}}", "-p", old_sha,
+        git("-C", self.src, "branch", "-q", "-f", "dept/moved", git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o",
+                                                                   "commit-tree", f"{old_sha}^{{tree}}", "-p", old_sha,
                                                                    "-m", "after"))
         provision.mark(self.place, self.src, {"landed-branches": json.dumps(
             {"dept/a": old_sha, "dept/next": old_sha, "dept/moved": old_sha})}, gitx)

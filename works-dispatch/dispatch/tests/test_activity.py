@@ -58,12 +58,13 @@ class Handle(unittest.TestCase):
 class Settings(unittest.TestCase):
     def test_prints_the_hooks_block_for_settings_json(self):
         got = activity.settings("/p/dispatch/activity.py")
+        base = pathlib.Path("/p").resolve().as_posix()   # Windows では解くとドライブ名が付く（D:/p）
         hooks = got["hooks"]
         self.assertEqual(sorted(hooks), ["Notification", "PreToolUse", "Stop", "UserPromptSubmit"])
         for rows in hooks.values():
             # Python はフックと同じ hooks/run-python.sh で選ぶ（Windows の Store へ誘う代わりの物を飛ばす。TOML を読まないので下限 3.9）
             self.assertEqual(rows[0]["hooks"], [{"type": "command",
-                                                 "command": "bash /p/hooks/run-python.sh --min 3.9 /p/dispatch/activity.py"}])
+                                                 "command": f"bash {base}/hooks/run-python.sh --min 3.9 {base}/dispatch/activity.py"}])
         self.assertEqual(hooks["PreToolUse"][0]["matcher"], "")
 
 

@@ -229,6 +229,8 @@ class Flow(unittest.TestCase):
         self.assertIn("部署の窓に会話が居なかったので", out)
         self.assertEqual(len(self.prompts()), 1)
 
+    @unittest.skipIf(os.name == "nt", "Windows では前に居るプロセスを見る口が当てにならないので見ず、画面の exited の行で見分ける"
+                                      "（test_exited_line_on_the_screen_counts_as_fallen）")
     def test_window_back_at_the_shell_counts_as_fallen_even_if_herdr_keeps_the_mark(self):
         # attach の画面が終わってシェルに戻っても、herdr はペインの会話の印を残す。前に居るのがシェルなら落ちたと見て戻す
         self.fall(keep_mark=True)
@@ -324,9 +326,35 @@ class Flow(unittest.TestCase):
         h = H(["● " + line + "\n" + BOX.format("")])
         self.assertEqual(deliver.send_confirmed("P", line, h, lambda: None, lambda: False)[0], "failed")
         self.assertEqual([w[0] for w in h.writes], ["prompt"] * deliver.SEND_TRIES)
+        # 送る前から動いている会話: 打った字は番の後の待ちの列に回る。動き出しでは確かめず、打ち直さない（同じ頼みが 3 回届いた）
+        h = H([BOX.format(""), "❯ " + line + "\n  ctrl+x ctrl+s to send now\n" + BOX.format("")])
+        self.assertEqual(deliver.send_confirmed("P", line, h, lambda: None, lambda: True)[0], "sent")
+        self.assertEqual([w[0] for w in h.writes], ["prompt"])
+        # 入力欄に残った字は Enter で待ちの列に回し、入力欄から出たのを見て届いたとする
+        h = H([BOX.format(""), BOX.format(line), BOX.format("Press up to edit queued messages")])
+        self.assertEqual(deliver.send_confirmed("P", line, h, lambda: None, lambda: True)[0], "sent")
+        self.assertEqual([w[0] for w in h.writes], ["prompt", "keys"])
+        # 画面で見られなくても、動いている会話には 1 回だけ打つ（番の途中で取り込まれて画面から消えることもある）
+        h = H([BOX.format("")])
+        status, detail = deliver.send_confirmed("P", line, h, lambda: None, lambda: True)
+        self.assertEqual((status, [w[0] for w in h.writes]), ("sent", ["prompt"]))
+        self.assertIn("打ち直さない", detail)
         # 促しの 1 行は時刻で前の促しと字を分ける
         import orders
         self.assertNotEqual(orders.nudge_line("X", "desk", 1_000_000)[:20], orders.nudge_line("X", "desk", 1_000_007)[:20])
+
+    def test_ask_finds_the_department_talk_after_clear_and_rewrites_its_id(self):
+        # 部署の会話で /clear を打つと会話の id が変わる。属性の古い id で一覧を引くと動き出しを見られず、届いた頼みを 3 回打ち直して
+        # failed を返し、頼み元の属性を書かなかった（2026-10-16 の試しの部署）。部署の場所に居る裏の会話で見つけ、id を書き直す
+        self.ports.list_sessions = lambda cdir, include_done=False: [
+            {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
+            {"id": "e", "sessionId": "s-cleared", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
+             "status": "busy" if any(w[0] == "prompt" and w[1] != self.desk for w in self.ports.herdr.writes) else "idle"}]
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.prompts()), 1)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs.get("session"), attrs.get("boss")), ("s-cleared", "desk"))
 
     def test_a_line_left_in_the_input_box_gets_an_enter(self):
         # Windows: attach で戻した直後に送った文が、入力欄に入ったまま送信されなかった。残っていれば Enter を足す
