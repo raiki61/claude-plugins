@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-10-16
+
 ### Fixed
 
 まっさらな環境での 4 回目の試し（`docs/trials/2026-10-16-clean-env-4.md`）で出た詰まりの直し。
