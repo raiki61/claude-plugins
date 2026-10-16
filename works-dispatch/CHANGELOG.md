@@ -15,6 +15,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 - アカウントの順を変えた（PR を開くときも、`--task` で部署を立てるときも同じ）。週の枠の切り替わりが近い（`reset_soon_hours` 以内）アカウントを先に使い、それ以外は 5 時間の枠（同じく 5 時間の窓）と週の枠のうち高い方の使用率が低い順、同じなら動いている会話（そのアカウントの `claude agents --json` で作業中か返事待ちのもの）の少ない順にする。前は週の切り替わりの近い順だけで並べたので、どのアカウントも切り替わりが何日も先でも、十数時間早いだけのアカウントに毎回寄せ、その 5 時間の枠を先に食い潰していた。
 
+### Added
+
+- 役ごとの起動: 会社の形（`.claude/company.toml` か設定の置き場の `companies/`）に `[[roles]]`（`name`・`instructions`・`model`・`settings`）を書くと、`--task --role <役>` が、その役の `settings` を `--settings` に（裏の会話が自分で worktree を作らない設定は重ねたまま）、`model` を `--model` に渡して部署を起こす。利用者の全体の設定とリポジトリの設定は触らない。名指した役が会社の形に無ければ止まる。
+- SessionStart のフック: 部署（属性 `company.role` の有る worktree）で会話が始まると、会社の形からその役の `instructions` を引いて会話の指示に足す。本社やふつうの clone では何も足さない。
+- 部署の gh のアカウント: 会社の形の頭に `gh_user` を書ける（dispatch の設定の `[[repos]]` の `gh_user` が先）。`--task` は名前だけを部署の属性 `company.gh-user` に書き、フックが会話の Bash に、コマンドごとに `gh auth token --user` で鍵を取り出して `GH_TOKEN` に入れる 1 行を足す。鍵の値はどこにも書かない。
+
 ## [0.5.0] - 2026-10-16
 
 ### Added

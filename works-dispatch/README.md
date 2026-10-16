@@ -17,7 +17,8 @@
   - assign: PR をアカウントと作業場に割り振る。全部の PR は同時に走るので、始める前に、各アカウントの使用率の残りと 1 件あたりの使用率から件数を決める。
   - cost: 1 件あたりの使用率を測って覚える。dispatch が始める前と、全件の `/catchup` が終わった後の 1 回ずつ、使用率を Anthropic の API に問い合わせ（出力 0 トークン）、アカウントごとに、前後の使用率の差（1% 刻みで届くので +1 した上の端）を、今回そのアカウントで開いた件数で割る。statusline から取り込む record は、週の値を、枠が切り替わったときと控えに無いときにしか書かない（放置した会話の古い値で今の値を潰さないための `limits.py` の決まり）。そのため控えの週の値は枠の中で動かず、問い合わせで取る。
   - provision: 枝の場所（代表の clone の git worktree）と herdr の作業場を、無ければ作り、有れば開き直して、origin の head へ早送りする。部署（`--task`）の場所は `prepare_task` が用意し、origin に無い枝も既定の枝から作り、在る場所は git で動かさない。代表の clone 自身がその枝を開いていれば作らない（`branch_busy`）。`--issue` で issue に枝がまだ無ければ、GitHub に枝を作って結ぶ（`gh issue develop`）。
-  - launch: Claude Code を起こす。部署は、ペインに名前を付け（`herdr pane rename`）、裏の会話（`--bg --name <名前> --settings templates/department-settings.json <最初の文>`）として打ち込み（`start_background`）、同じペインで `attach` する。
+  - launch: Claude Code を起こす。部署は、ペインに名前を付け（`herdr pane rename`）、裏の会話（`--bg --name <名前> --settings <設定のファイル> [--model <モデル>] <最初の文>`）として打ち込み（`start_background`）、同じペインで `attach` する。設定のファイルは、役に設定が無ければ `templates/department-settings.json`、有れば役の設定に同じ鍵を重ねて部署の `.git` の場所に書いた物。
+  - role: 会社の形の `[[roles]]`（役の本文・モデル・起動の設定）と `gh_user` を読み、部署を起こすときの設定（`--settings` の JSON）と、フックが足す文を組み立てる（会社の形の設計 4.7・4.8）。
   - turn: `/catchup` と 2 ターン目の文を送る。1 ターン目の終わりは Claude Code 自身の会話の状態で見る。会話を終える（`/exit`）口も持つ。
   - clean: 代表の clone の linked worktree のうち、消してよい場所を並べる・消す（herdr の worktree の口は手元の枝を残すので、枝は続けて `gitx.delete_branch` で消す）。消してよいのは、PR が閉じていて、会話も手元の作業も無い場所（条件の全部は `dispatch/nodes/clean.py` の冒頭と SKILL.md の `--clean`）。ペインの作業場だけを畳む口（release）も持つ。
   - report: 結果を 1 件 1 行で出す。
@@ -33,6 +34,7 @@
     - 行には、マシンごとに違う Python の絶対パスを書かない。ほかのプラグインのフックと同じく、PATH の `python3` か `python` を使う。その代わり、タブ欄から呼ぶファイル（`limits.py` と `vendor/claude_auth.py`）は 3.9 の文法で書き、試験（`test_tab_bar_path_reads_as_python_3_9`）が縛る。
   - `activity.py`: Claude Code のフックから、herdr のサイドバーの印 `$act` に作業内容を送る。
 - 部署（`--task`）の流れは `dispatch.py` の `_task` だけが持ち、場所・アカウント・起こす・属性は上のノードを使い回す。部署の会話は Claude Code の裏の会話（`claude --bg`）で、置き場と枝を dispatch（herdr 経由）が決めるために、先に herdr に作らせた worktree の中で、`worktree.bgIsolation = "none"` を渡して起こす（Claude Code に worktree を作らせない。WorktreeCreate のフックでも置き場と枝は決められたが、フックはその会話の中の全部の worktree を置き換え、フックの作った worktree は `claude rm` が消さずに断る。2026-10-16 に試した）。部署の片付け（`--clean`）は、会話が終わり枝が本流に入った部署を `claude rm`（`claudex.remove_session`）と herdr の worktree の口で消す。連絡の道（同じアカウントなら SendMessage、違えば窓口が herdr で部署のペインに打ち込み、画面を読む）は、呼んだ会話を `claude agents --json` の一覧から `CLAUDE_CODE_SESSION_ID` で探して決める（`claudex.caller`。Claude Code の文書は、この環境変数を Bash の道具の子に渡し、外の道具と会話を結ぶのに使うと書く）。一覧はアカウントの設定のフォルダごとなので、その識別子が載る一覧のアカウントが呼んだ会話のアカウントである。
+- 役の本文は、プラグインの SessionStart のフック（`hooks/hooks.json` → `dispatch/role_hook.py`）が、起動した場所の属性 `company.role` を読んで会話の指示に足す（additionalContext）。部署の属性 `company.gh-user` が有れば、同じフックが Claude Code の `CLAUDE_ENV_FILE` に `export GH_TOKEN="$(gh auth token --user <名前> || echo gh-user-not-logged-in)"` の 1 行を足す（ログインしていないアカウントなら、使えない字を入れて gh を認証の誤りで止め、ほかのアカウントに落とさない）。hooks の文書は、このファイルを Bash の道具のコマンドごとにシェルのコードとして先に走らせると書く（"Each Bash command runs the file's contents as shell code before the command itself"）。そのため鍵の値はどこにも書かれない。起こすコマンドの前に `GH_TOKEN=…` を置く形は、裏の会話に届かなかった（下の試し）。要確認: `CLAUDE_ENV_FILE` の 1 行で、裏の会話の gh が名指しのアカウントで動くかは、実際に部署を起こしてはまだ確かめていない（下の試しで確かめたのは、前に置く形が届かないことと、フックの文が会話の頭に入ることだけ）。
 - 柵 D1〜D8 は、試験 `dispatch/tests/test_rules.py` が構文木と文字で見る。中身は設計書の 4 節にある。
   - D1: works（darkfactory）の部品（`works/.shared/` など）を読まない。入れたプラグインはほかのプラグインのフォルダを引けないため。
   - D4: 外へ書く関数は、決まったノードからだけ呼ぶ。対応の表は `dispatch/tests/fences.py` の `WRITES`。
@@ -62,9 +64,9 @@
 
 持ち主は、herdr の作業中の判定の規則（`~/.config/herdr/agent-detection/claude.toml`）も、手元で上書きしている。この規則はここに入れない。上書きは herdr が配る規則の写しなので、herdr を上げるたびに写し直しが要る。そのうえ、上書きが見る印（背景の作業が残る間に statusline が出す行）は、持ち主の statusline にしか無い。
 
-## 試しの実行で確かめた外の振る舞い（2026-10-14・2026-10-15）
+## 試しの実行で確かめた外の振る舞い（2026-10-14〜2026-10-16）
 
-確かめた版は、herdr 0.9.3、Claude Code 2.1.299、git 2.50.1（Apple Git-155）、gh 2.102.0。版が変わったら、ここを確かめ直す。
+確かめた版は、herdr 0.9.3、Claude Code 2.1.299、git 2.50.1（Apple Git-155）、gh 2.102.0。項の頭に別の版を書いた物は、その版で確かめた。版が変わったら、ここを確かめ直す。
 
 - herdr の `agent wait` は、まだ会話を見つけていないペインでは待たずに `agent_not_found` を返す。`herdr.wait_ready` は、ペインで前面に動いているプロセス（`pane process-info`）を見て待ち直す。
 - herdr の `pane run` は、成功しても何も出力しない。`workspace close` は 2026-10-14 には何も出さず、2026-10-15 には `{"result": {"type": "ok"}}` を返した（どちらも受ける）。
@@ -77,5 +79,6 @@
   - `worktree remove --workspace <ID>` は、未追跡のファイルが有ると `dirty_worktree_requires_force` で断る。消すと作業場も閉じ、手元の枝は残る。
   - 元の clone が開いている枝で `worktree create` を打つと、git の「already used by worktree」で `worktree_create_failed` になる。dispatch はその前に `branch_busy` で止める。
 - 2026-10-16（Claude Code 2.1.301、herdr 0.9.3）: `herdr pane rename <ペイン> <名前>` は `{"result": {"type": "pane_info", "pane": {…, "label": "<名前>"}}}` を返した。`claude --help` に `-n, --name <name>` が有り、`claude agents --json` の 1 件の `name` に、その名前（付けなければ自動の名前）が出た。持ち主の手元で、別のアカウント（別の `CLAUDE_CONFIG_DIR`）の会話どうしでは SendMessage が両方向とも「No agent named … is reachable」で届かず、各会話の一覧にも同じアカウントの会話しか出なかった（Claude Code の文書は、設定のフォルダの違う会話に届くかを書いていない）。
+- 2026-10-16（Claude Code 2.1.301、持ち主の手元のアカウントの 1 つ、使い捨ての clone で部署を 1 つ起こした）: 役の設定（`enabledPlugins` で 10 個のプラグインを切り、`permissions.deny` で Artifact・Workflow・ScheduleWakeup・SendFeedback・ReportFindings を消す）と `--model haiku` を渡すと、最初の要求は 2.10 万トークン（入力 2 + キャッシュの書き 20,977。比べた 4.51 万は、claude-plugins の作業場で絞らずに起こした会話の値で、今回測った物ではなく、持ち主のノートのリポジトリ〔この README の外〕に残る記録から取った。その会話の条件は、dispatch の設定の `accounts` で `main` と名付けたアカウントと Opus 5.5）で、道具の一覧は Agent・AskUserQuestion・Bash・Edit・EnterWorktree・ListAgents・Read・Skill・ToolSearch・Write だけになった。モデルは Haiku 5.5 になった。SessionStart のフックの文は会話の頭に入った。`GH_TOKEN="$(gh auth token --user …)" <アカウントのコマンド> --bg …` と前に置いた鍵は、裏の会話の Bash に届かなかった（`GH_TOKEN` は空で、gh は有効なアカウントのまま）。裏の会話は、起こしたシェルの環境変数を継がない。
 - 元の clone の作業場（親）を閉じると、そこから作った worktree の作業場もまとめて閉じることがある（持ち主の herdr の設定の注記は、画面で親を閉じると黙って連鎖すると書き、herdr の issue #3483 を指す。herdr の文書は、CLI の `workspace close --group` が親と linked worktree の作業場をまとめて閉じると書く）。要確認: CLI で `--group` 無しに親を閉じたときの振る舞いは試していない。dispatch は親の作業場を閉じない。
 
