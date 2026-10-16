@@ -6,6 +6,20 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-16
+
+### Added
+
+- 作業ごとの部署を 1 回の呼び出しで立てる `--task 名前 --branch 枝 --brief 頼みのファイル`。枝の作業場を herdr に、リポジトリの作業場の子として作らせ、その中で Claude Code の裏の会話（`claude --bg`）を、名前と頼みのファイルを読ませる最初の文を付けて起こし、同じ区画で attach して画面を並べる。アカウントは PR と同じ決まりで使用率から 1 つ選ぶ。呼んだ会話と同じアカウントなら SendMessage、違えば画面に報告を書かせる。`--role <役>` で役を、`--resident` で常駐の部署（片付けで畳まない）を指せる。
+- 部署の属性（役・常駐か都度か・アカウント・会話の名前と id・上役）を、部署の worktree ごとの git の設定 `company.<名前>` に書く（代表の clone に `extensions.worktreeConfig = true` を入れる。commit されない）。代表の clone の `.git/info/exclude` に `.claude/` を足す。
+- 会社のツリー図 `--tree`（`--json` で JSON）。herdr の作業場と全アカウントの会話が指すリポジトリを会社として、会社ごとに受ける仕事（`.claude/company.toml`、無ければ設定の置き場の `companies/`）と、部署ごとの枝・状態・会話・役・アカウント・上役・窓の有無を出す。dispatch の設定が無くても動く。
+- `--sync`: 部署の属性から、herdr の区画の名前・表示名・題名・札を付け直す（何度打っても同じ）。
+- `--clean` が部署も片付ける。都度の部署で、会話が終わり、手元の作業が無く、枝が origin の既定の枝に入っていれば、`claude rm` で会話を消してから、場所と窓と手元の枝を消す。
+
+### Removed
+
+- 設定の `task_cwd`。部署は自分の作業場で起こす（その会社の AGENTS.md・CLAUDE.md とフックを効かせるため）。設定に残っていれば、止めずに注記を出して無視する。
+
 ## [0.4.0] - 2026-10-16
 
 ### Changed
