@@ -8,7 +8,7 @@
 ## 文脈
 
 - [0066](0066-release-tags-and-changelog.md) は、版ごとに plugin の tag を付け、tag を作って push するのは人と決めた。tag は 1 つも作っていない（2026-10-15 に `git ls-remote --tags origin` で 0 件）。持ち主は 2026-09-29 に tag を作らないと決めた。
-- [0071](0071-test-sizes-and-where-they-run.md) の「回す場所」の 2 は、push と PR の CI（3 OS）の緑で取り込んでよいかを決めると書いた。今の CI（`.github/workflows/test.yml`）は main と release/** への push でだけ走り（PR では走らない）、試験の job は ubuntu と windows の 2 つ（macOS は 2026-10-16 に外した）。
+- [0071](0071-test-sizes-and-where-they-run.md) の「回す場所」の 2 は、push と PR の CI（3 OS）の緑で取り込んでよいかを決めると書いた。今の CI（`.github/workflows/test.yml`）は main と release/* の枝への push でだけ走り（PR では走らない）、試験の job は ubuntu と windows の 2 つ（macOS は 2026-10-16 に外した）。
 - 部署の枝を main に入れるのは works-dispatch の `--land` になった。`--land` は版を上げる commit を足し、手元の関門を通してから main を早送りする。持ち主の方針（2026-10-16）は「CI は待たない」。
 
 ## 決定
@@ -30,7 +30,7 @@
 ## 結果
 
 - 楽になる: 部署が自分で main に入れられる。CI を待たないので、取り込みが CI の時間に縛られない。
-- 難しくなる: 重い一式の赤は main に入った後にしか分からない。入った後の赤を誰が見つけて直すかは、点検の受け持ち（CI と根の tests/）。
+- 難しくなる: 重い一式の赤は main に入った後にしか分からない。CI が赤を出したら、それを直すのは点検の担当（会社の形の受け持ち。CI と根の tests/）。
 - 0071 のうち、試験の大きさの分け方と手元で回す物（回す場所の 1・3・4・6）は変わらない。変わったのは回す場所の 2（取り込みの関門）と 5 の「2 の緑」。
 
 ## 見直す条件

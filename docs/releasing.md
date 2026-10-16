@@ -4,7 +4,7 @@
 
 ## 平易版（3 行）
 
-- 版は works-dispatch の `--land`（部署の枝を main に入れる命令）が上げる。版を上げる commit で、その plugin の版の番号・marketplace の版の番号・その plugin の変更の記録（`CHANGELOG.md`）の 3 つを一緒に直し、その commit を枝の最後に置く。
+- 版は works-dispatch の `--land`（部署の枝を main に入れる命令）が上げる。版を上げる commit で、上げる plugin ごとの版の番号・marketplace の版の番号・上げる plugin ごとの変更の記録（`CHANGELOG.md`）の 3 つを一緒に直し、その commit を枝の最後に置く。
 - 出荷は main への push で終わる。`--land` は CI を待たない（持ち主の方針 2026-10-16。会社の形 `.claude/company.toml` の `[land]` のコメント）。CI は入った後の赤を見つける。git の tag は作らない（持ち主の決め 2026-09-29「タグはつくりません」）。
 - 作業枝では、利用者に効く違いをその plugin の変更の記録の `## [Unreleased]` に書き足していく。
 
@@ -26,13 +26,13 @@
 
 ふだんは `--land` が上げる。部署は版を上げずに枝を出し、`--land <部署の名前>` を打つ。`--land` は会社の形（`.claude/company.toml`）の `[land]` に従って、次をする（`bump = "marketplace"`・`gate = "check"` のとき。順の全部は `works-dispatch/docs/land.md`）。
 
-1. 一時の場所で、部署の枝の先頭の上に版を上げる commit を作る。上げるのは、版を最後に上げた後に中身を変えた plugin だけ。上げ幅は下の「上げ幅の決め方」による。`## [Unreleased]` の中身を新しい見出し `## [<版>] - <YYYY-MM-DD>` の下へ移し、`## [Unreleased]` の見出しは空で残す。件名の形は `chore(<plugin の名前>, …): 版を上げる（<plugin の名前> <版> / … / marketplace <版>）`。
+1. 一時の場所（枝に乗らない git worktree）で、部署の枝の先頭の上に版を上げる commit を作る。上げるのは、版を最後に上げた後にフォルダの中のファイルを 1 つでも変えた plugin だけ（試験や文書だけの直しも入る。そのときの上げ幅は patch）。上げ幅は下の「上げ幅の決め方」による。`## [Unreleased]` の中身を新しい見出し `## [<版>] - <YYYY-MM-DD>` の下へ移し、`## [Unreleased]` の見出しは空で残す。件名の形は `chore(<plugin の名前>, …): 版を上げる（<plugin の名前> <版> / … / marketplace <版>）`。
 2. その場所で、`[land]` の `check` のコマンド（関門）を回す。全段の試験は回さない。
 3. 関門が緑なら、main をその commit へ早送りして push する。CI は待たない。
 
 版上げの後に plugin の中身を変える commit を積むと、main の CI が赤になる（中身を変えたのに版が据え置きの plugin を、`tests/run.sh` の `VERSION_BUMP_OK` が赤にする）。`--land` は版を上げる commit を必ず枝の最後に置くので、この形にならない。
 
-`--land` を通さずに手で上げるときは、上の 1 を手でして、その commit を枝の最後に置いたまま main に入れる。版上げの順の検査は main と release/* の CI でだけ厳しくなるので、手元では `VERSION_BUMP_STRICT=1 bash tests/run.sh` で確かめる。
+`--land` を通さずに手で上げるときは、上の 1 を手でし、2 の `check` のコマンドも手で回してから、その commit を枝の最後に置いたまま main に push する。版上げの順の検査は main と release/* の CI でだけ厳しくなるので、手元では `VERSION_BUMP_STRICT=1 bash tests/run.sh` で確かめる。
 
 1 つの commit で複数の plugin の版を上げるときは、上げた plugin のそれぞれで版の番号と記録の見出しを直す（記録の見出しは plugin ごとに足す）。件名には上げた plugin を全部並べる。`--land` もこの形で上げる。
 
