@@ -2,7 +2,7 @@
 
 [![test](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml)
 
-raiki61 のプラグインマーケットプレイス。配るプラグインは 7 本で、並列の関係にある。一覧の正本は `.claude-plugin/marketplace.json` で、下の表はその要約である。
+raiki61 のプラグインマーケットプレイス。配るプラグインは 8 本で、並列の関係にある。一覧の正本は `.claude-plugin/marketplace.json` で、下の表はその要約である。
 
 | プラグイン | 何を配るか | 効き方 |
 |---|---|---|
@@ -13,6 +13,7 @@ raiki61 のプラグインマーケットプレイス。配るプラグインは
 | **works** | 人の修正依頼を、今いるリポジトリを対象に、Archon（AI の作業の流れを回す外の道具）の上の生産ライン darkfactory に回す /works スキル | 呼んだときに効く（スキル）→ [works/README.md](works/README.md) |
 | **works-factory** | 修正の工場 works-factory（別のリポジトリ raiki61/works-factory）へ依頼を回す /works-factory スキル。/works と並べて置く | 呼んだときに効く（スキル） |
 | **works-dispatch** | 自分の番の PR を、PR ごとの作業場（clone と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code で /catchup と 2 ターン目の文を送る /works-dispatch:dispatch スキル。AI を使わない | 呼んだときに効く（スキル）→ [works-dispatch/README.md](works-dispatch/README.md) |
+| **tiers** | プラグインが要る外の道具を段（0: Claude Code だけ、1: gh、2: herdr とアカウントの起こし方の命令、3: Archon）に分けて点検し、足りない物と入れ方を返す共通の部品。何も入れない。ほかのプラグインが依存として入れ、使い始めに呼ぶ。人は /tiers:check で走らせる | 呼んだときに効く（スキルと bin/tiers）→ [tiers/README.md](tiers/README.md) |
 
 convergence-loops・gates・graphloops の 3 本は規律（読み役は毎回新規・文脈遮断・点数を測らない）を
 共有するが、別々に有効化する——ループ集を入れたら投稿や書き込みの挙動が黙って変わる、を避けるため。

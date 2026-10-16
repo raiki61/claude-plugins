@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""要る道具の段ごとの点検の入口。中身は ../lib/tiers_check.py（使い方もそこ）。
+
+Claude Code は、有効なプラグインの根の bin/ を Bash の道具の PATH に入れる。依存として入ったプラグインの bin/ も入る
+（2026-10-16 に Claude Code 2.1.301 で試した。tiers/README.md の「置き場」）。
+"""
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "lib"))
+import tiers_check  # noqa: E402
+
+if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
+    sys.exit(tiers_check.main())

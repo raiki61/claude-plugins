@@ -3932,6 +3932,11 @@ expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義�
 # 試験と、設計書 4 節の決まりの柵（works-dispatch/dispatch/tests/test_rules.py）を 1 本で回す。herdr・gh・claude には触らない
 expect_output 0 "OK" "works-dispatch/dispatch: ノードの試験と決まりの柵（D1〜D6・D8）" \
     "$PY_BIN" -B -m unittest discover -s "$ROOT/works-dispatch/dispatch/tests" -t "$ROOT"
+
+# ---- tiers: 要る道具の段ごとの点検（ほかのプラグインが依存として入れ、使い始めに bin/tiers を呼ぶ）----
+# 外の道具（claude・gh・herdr・archon）は起こさず、口（Probe）を偽物に替える
+expect_output 0 "OK" "tiers: 段ごとの点検が足りない物と入れ方を返し、--json の形と終了コードを守る" \
+    "$PY_BIN" -B -m unittest discover -s "$ROOT/tiers/tests" -t "$ROOT"
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \
     "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \

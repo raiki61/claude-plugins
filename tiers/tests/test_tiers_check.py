@@ -1,0 +1,147 @@
+"""tiers_check の試験。外の道具は起こさず、Probe の偽物で答える。"""
+
+import io
+import json
+import pathlib
+import subprocess
+import sys
+import unittest
+
+HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+import tiers_check  # noqa: E402
+
+
+class FakeProbe:
+    """have: 在る命令の名前。runs: (命令の名前, 引数の頭) → (終了コード, 出力)。shell: シェルで見つかる命令。"""
+
+    def __init__(self, have=("claude", "gh", "herdr", "archon"), runs=None, shell=("claude",), platform="linux"):
+        self.have = set(have)
+        self.runs = {("claude", "--version"): (0, "2.1.301 (Claude Code)\n"),
+                     ("gh", "--version"): (0, "gh version 2.102.0\n"),
+                     ("gh", "auth"): (0, "github.com\n  ✓ Logged in\n"),
+                     ("herdr", "--version"): (0, "herdr 0.9.3\n"),
+                     ("herdr", "status"): (0, "server:\n  status: running\n  version: 0.9.3\n"),
+                     **(runs or {})}
+        self.shell = set(shell)
+        self.platform = platform
+        self.called = []
+
+    def which(self, cmd):
+        return f"/bin/{cmd}" if cmd in self.have else None
+
+    def run(self, argv):
+        self.called.append(argv)
+        return self.runs[(pathlib.PurePosixPath(argv[0]).name, argv[1])]
+
+    def shell_has(self, cmd):
+        return cmd in self.shell
+
+
+def names(result, ok=None):
+    return [x["name"] for x in result["checks"] if ok is None or x["ok"] == ok]
+
+
+class Tiers(unittest.TestCase):
+    def test_tier_0_checks_only_claude(self):
+        r = tiers_check.check(0, probe=FakeProbe())
+        self.assertTrue(r["ok"])
+        self.assertEqual(names(r), ["Claude Code"])
+
+    def test_upper_tier_includes_lower_ones(self):
+        r = tiers_check.check(3, probe=FakeProbe())
+        self.assertTrue(r["ok"], r)
+        self.assertEqual([x["tier"] for x in r["checks"]], [0, 1, 1, 2, 2, 2, 3])
+
+    def test_missing_gh_gives_install_for_the_os_and_skips_login(self):
+        for platform, word in (("darwin", "brew install gh"), ("win32", "winget"), ("linux", "apt")):
+            r = tiers_check.check(1, probe=FakeProbe(have=("claude",), platform=platform))
+            self.assertFalse(r["ok"])
+            self.assertEqual(r["missing"], 1)
+            gh = r["checks"][1]
+            self.assertEqual(gh["name"], "gh")
+            self.assertIn(word, gh["fix"][0])
+            self.assertTrue(gh["manual"])
+            self.assertNotIn("gh のログイン", names(r))
+
+    def test_gh_not_logged_in_says_how_to_log_in(self):
+        r = tiers_check.check(1, probe=FakeProbe(runs={("gh", "auth"): (1, "You are not logged into any GitHub hosts.\n")}))
+        self.assertEqual(names(r, ok=False), ["gh のログイン"])
+        bad = r["checks"][-1]
+        self.assertEqual(bad["fix"], ["gh auth login"])
+        self.assertIn("not logged", bad["problem"])
+
+    def test_herdr_not_running(self):
+        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (0, "server:\n  status: not running\n")}))
+        self.assertEqual(names(r, ok=False), ["herdr の動き"])
+        r = tiers_check.check(2, probe=FakeProbe(runs={("herdr", "status"): (1, "error: connect refused\n")}))
+        self.assertEqual(names(r, ok=False), ["herdr の動き"])
+
+    def test_launchers_are_looked_up_in_the_shell(self):
+        r = tiers_check.check(2, ["claude-a", "claude-b"], probe=FakeProbe(shell=("claude-a",)))
+        self.assertEqual(names(r, ok=False), ["起こし方の命令 claude-b"])
+        self.assertIn("claude-a", names(r, ok=True)[-1])
+
+    def test_without_launchers_claude_is_looked_up(self):
+        r = tiers_check.check(2, probe=FakeProbe(shell=()))
+        self.assertEqual(names(r, ok=False), ["起こし方の命令 claude"])
+
+    def test_version_failure_is_a_problem(self):
+        r = tiers_check.check(0, probe=FakeProbe(runs={("claude", "--version"): (1, "boom\n")}))
+        self.assertFalse(r["ok"])
+        self.assertIn("boom", r["checks"][0]["problem"])
+
+    def test_archon_missing(self):
+        r = tiers_check.check(3, probe=FakeProbe(have=("claude", "gh", "herdr"), platform="darwin"))
+        self.assertEqual(names(r, ok=False), ["Archon"])
+        self.assertIn("archon.diy", r["checks"][-1]["fix"][0])
+
+
+class Main(unittest.TestCase):
+    def run_main(self, argv, probe):
+        out = io.StringIO()
+        return tiers_check.main(argv, probe=probe, stdout=out), out.getvalue()
+
+    def test_json_has_the_schema_and_exit_code(self):
+        rc, out = self.run_main(["--tier", "1", "--json"], FakeProbe(have=("claude",)))
+        self.assertEqual(rc, 1)
+        got = json.loads(out)
+        self.assertEqual((got["schema"], got["tier"], got["ok"], got["missing"]), (1, 1, False, 1))
+
+    def test_human_lines_show_fix_and_how_to_rerun(self):
+        rc, out = self.run_main(["--tier", "2", "--launcher", "claude-x"], FakeProbe(shell=()))
+        self.assertEqual(rc, 1)
+        self.assertIn(" NG  段 2 起こし方の命令 claude-x", out)
+        self.assertIn("入れ方（手で）", out)
+        self.assertIn("tiers --tier 2 --launcher claude-x", out)
+
+    def test_all_good(self):
+        rc, out = self.run_main(["--tier", "3"], FakeProbe())
+        self.assertEqual(rc, 0)
+        self.assertIn("足りない物は無い", out)
+
+    def test_bad_tier_is_usage(self):
+        rc, out = self.run_main(["--tier", "4"], FakeProbe())
+        self.assertEqual(rc, 2)
+        self.assertIn("0〜3", out)
+
+    def test_entry_in_bin_runs_with_the_python(self):
+        # bin/tiers は拡張子の無い Python の台本。Windows でも同じ解釈系で起こせる（外の道具は起こさない: 使い方の誤りで終わる）
+        p = subprocess.run([sys.executable, str(HERE.parent / "bin" / "tiers"), "--tier", "9"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("0〜3", p.stdout)
+
+
+class RealProbe(unittest.TestCase):
+    def test_which_uses_the_given_path(self):
+        probe = tiers_check.Probe(env={"PATH": ""}, platform="linux")
+        self.assertIsNone(probe.which("tiers-no-such-command"))
+
+    def test_shell_has_falls_back_to_which_on_windows(self):
+        probe = tiers_check.Probe(env={"PATH": ""}, platform="win32")
+        self.assertFalse(probe.shell_has("tiers-no-such-command"))
+
+
+if __name__ == "__main__":
+    unittest.main()
