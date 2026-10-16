@@ -9,7 +9,7 @@
   頼んだときのペイン（company.boss-pane）の順。ペインの会話の印は裏の会話の attach の窓では別の会話の id を指すことがある
   （2026-10-16 に herdr 0.9.3 で見た）ので、場所が合わない物は使わない。
 - 要約の項目: 既定は「結論」「決め手」「残った疑問」「枝」。会社の形（.claude/company.toml か設定の置き場の同じ書き方のファイル）の
-  [roles.<役>] の deliver で役ごとに替えられる。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で書く。結論は 3 行以内、
+  [[roles]] の deliver で役ごとに替えられる（読むのは role ノード）。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で書く。結論は 3 行以内、
   決め手は原典の URL を含むこと、ほかは空でないこと。枝は書かなければ部署の枝を機械が足す。
 - 受付箱: 頼み元の会社の共通の .git の中の company/inbox（INBOX）。commit されず、部署の worktree を消しても残り（4.10 の 1。
   部署ごとの .git/worktrees/<部署> は git worktree remove で一緒に消える）、勤め先のリポジトリの .gitignore も触らない。
@@ -23,7 +23,6 @@ import os
 import pathlib
 import re
 import time
-import tomllib
 import uuid
 
 INBOX = ("company", "inbox")      # 共通の .git の下の受付箱
@@ -176,24 +175,10 @@ def records(inbox):
 
 # ---- 要約の項目 ----
 
-def required_items(shape_paths, role):
-    """その役の必須の項目と、読めなかった訳。shape_paths は会社の形のファイルの候補（リポジトリの中、設定の置き場の順。
-    在る最初の 1 つだけを読む。tree の会社の情報と同じ読む順）。[roles.<役>] の deliver が文字列の並びなら、それを使う。"""
-    for path in shape_paths:
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path, "rb") as f:
-                raw = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError) as e:
-            return list(DEFAULT_ITEMS), f"{path}: TOML として読めないので既定の項目で確かめた（{e}）"
-        got = ((raw.get("roles") or {}).get(role) or {}).get("deliver") if isinstance(raw.get("roles"), dict) else None
-        if got is None:
-            return list(DEFAULT_ITEMS), None
-        if not isinstance(got, list) or not got or not all(isinstance(x, str) and x.strip() for x in got):
-            return list(DEFAULT_ITEMS), f"{path}: roles.{role}.deliver が空でない文字列の並びで無いので既定の項目で確かめた"
-        return [x.strip() for x in got], None
-    return list(DEFAULT_ITEMS), None
+def required_items(role):
+    """その役の必須の項目。role は会社の形の役の項目（role ノードが [[roles]] から読んだ物。無ければ None）で、deliver が有れば
+    それを、無ければ既定の項目を使う。"""
+    return list((role or {}).get("deliver") or DEFAULT_ITEMS)
 
 
 def _label(names):

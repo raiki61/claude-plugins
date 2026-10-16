@@ -11,6 +11,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 - 部署の成果を本流に入れる `--land 部署`。会社の形（`.claude/company.toml`）の `[land]` に、取り込み方（`ff-after-ci`・`pr`・`none`）・関門（CI の枝の形〔例 `release/*`〕か手元の検証 `check`）・手元の検証のコマンド・本流の枝を書く。`ff-after-ci` は、関門の枝へ push して CI を待ち、緑で本流がまだ祖先なら本流を早送りして push し、入れた都度の部署を片付ける。本流が先に進んでいれば merge せずに部署へ載せ直しを、赤なら失敗の要点を、部署の窓に打ち込んで頼む。`[land]` が無ければ何もしない。役ごとに `[land.roles.<役>]` で替えられる。
 - `[land]` の `bump = "marketplace"`: Claude Code のプラグインの marketplace で、部署は版を上げずに出し、取り込むときに、中身を変えたのに版が据え置きのプラグインの版（と marketplace の版・変更の記録の見出し）を上げる commit を足してから関門に出す。同じ版の番号を付けた部署どうしがぶつからない。
 
+### Fixed
+
+- 役の起こし方（`instructions`・`model`・`settings`）と納品する要約の必須項目（`deliver`）を、会社の形の同じ `[[roles]]` の項目に書けるようにした。0.8.0 は `deliver` を `[roles."役"]`（名前で引く表）で読んでいたが、TOML では同じ `roles` を `[[roles]]` と両方の形で書けないので、役の設定と役ごとの納品の項目を一緒に使えず、`[[roles]]` の中に書いた `deliver` は黙って無視されていた。`[roles."役"]` の形は読まず、`[[roles]]` に移すよう注記を出す。`deliver` を `[roles.settings]` の中に書いてしまったときも注記を出す。
+
 ## [0.8.0] - 2026-10-16
 
 ### Added

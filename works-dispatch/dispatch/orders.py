@@ -28,7 +28,7 @@ import claudex  # noqa: E402
 import config  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
-from nodes import deliver, provision, tree  # noqa: E402
+from nodes import deliver, provision, role, tree  # noqa: E402
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
 # 部署に「この字で返せ」と渡す dispatch.py の起こし方。今動いている Python で、パスは / 区切りで引用符を付ける
@@ -73,9 +73,10 @@ def survey(config_path, ports):
     return cfg, accounts_, sessions_, panes, companies, settings, notes
 
 
-def shape_paths(root, settings):
-    """会社の形のファイルの候補（読む順。tree.read_info と同じ）。"""
-    return [os.path.join(root, *tree.INFO_FILE), tree.settings_info_path(settings, root)]
+def shape_role(root, settings, name):
+    """会社の形（--task と同じ読み方。root が None なら無い）からその役の項目と、会社の形の注記。"""
+    shape = role.load(tree.read_info(root, settings)["path"] if root else None)
+    return shape["roles"].get(name), shape["problems"]
 
 
 def _repo_for(cfg, root, ports):
@@ -112,8 +113,9 @@ def ask(a, ports, cwd, task):
         print(f"止めた: {e}")
         return 2
     company, dept, role = target["company"], target["department"], target["role"]
-    required, why = deliver.required_items(shape_paths(company["root"], settings), role)
-    notes += [why] if why else []
+    the_role, problems = shape_role(company["root"], settings, role)
+    required = deliver.required_items(the_role)
+    notes += problems
     account, name = ports.caller(sessions_)
     sender = name or "名の無い会話"
     inbox = deliver.inbox_of(common)
@@ -201,13 +203,14 @@ def deliver_summary(a, ports, cwd):
         return 2
     common = ports.git.common_dir(cwd)
     settings = os.path.dirname(config.path_of(a.config, os.environ))
-    required, why = deliver.required_items(shape_paths(gitx.root_of(common), settings) if common else [], attrs["role"])
+    the_role, problems = shape_role(gitx.root_of(common) if common else None, settings, attrs["role"])
+    required = deliver.required_items(the_role)
     items = deliver.parse(text, set(required) | set(deliver.DEFAULT_ITEMS))
     branch = ports.branch(cwd)
     if deliver.BRANCH_ITEM in required and not items.get(deliver.BRANCH_ITEM) and branch:
         items[deliver.BRANCH_ITEM] = branch
     missing = deliver.check(items, required)
-    notes = [why] if why else []
+    notes = list(problems)
     if missing:
         print("\n".join(notes + ["送らなかった: 要約に足りない項目がある: " + "、".join(missing),
                                  f"- 必須の項目（{attrs['role']}）: " + "・".join(required)

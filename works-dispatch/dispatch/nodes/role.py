@@ -8,6 +8,9 @@
 - model: 部署を起こすときの --model
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
   その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
+- deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
+役ごとの項目を名前で引く表（[roles."役"]）の形は読まず、[[roles]] に移すよう problems に書く（TOML では同じ鍵 roles を
+表の並びと表の両方で書けず、二つの形を混ぜると片方が黙って効かないため）。
 会社の形の頭の gh_user は、その会社の gh のアカウント（部署の会話の Bash に GH_TOKEN として入れる。env_line）。
 
 入口の dispatch.py --task が起こすときに load・pick・settings_for・write_settings・gh_user・warnings を呼び、プラグインのフック
@@ -28,7 +31,7 @@ def _empty():
 
 
 def load(path):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings}, gh_user, problems}。path が None なら空。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, settings, deliver}, gh_user, problems}。path が None なら空。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
     out = _empty()
     if not path:
@@ -45,6 +48,10 @@ def load(path):
     elif gh_user:
         out["gh_user"] = gh_user
     roles = raw.get("roles", [])
+    if isinstance(roles, dict):
+        out["problems"].append(f"{path}: 役を [roles.\"役\"] の形で書いている（{', '.join(roles)}）。この形は読まないので、"
+                               f"[[roles]] の項目（name = \"役\"）に移す")
+        return out
     if not isinstance(roles, list):
         out["problems"].append(f"{path}: roles が表の並び（[[roles]]）で無い")
         return out
@@ -56,14 +63,22 @@ def load(path):
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
+        if "deliver" in r and not (isinstance(r["deliver"], list) and r["deliver"]
+                                   and all(isinstance(x, str) and x.strip() for x in r["deliver"])):
+            bad.append("deliver")
         if bad:
-            out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表）")
+            out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
+                                   f"deliver は空でない文字列の並び）")
             continue
+        if isinstance(r.get("settings"), dict) and "deliver" in r["settings"]:
+            out["problems"].append(f"{where}（{r['name']}）: deliver が [roles.settings] の中に入っている（deliver は [roles.settings] "
+                                   f"より前に書く）")
         if r["name"] in out["roles"]:
             out["problems"].append(f"{where}: 役 {r['name']} が 2 度書かれている（先の物を使う）")
             continue
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
-                                   "model": r.get("model") or None, "settings": r.get("settings") or None}
+                                   "model": r.get("model") or None, "settings": r.get("settings") or None,
+                                   "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None}
     return out
 
 

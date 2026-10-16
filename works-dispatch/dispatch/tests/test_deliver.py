@@ -16,6 +16,7 @@ from . import DISPATCH
 from .test_company import CompanyHerdr
 from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import git
+from . import test_role
 import gitx
 import orders
 from nodes import deliver, provision
@@ -87,16 +88,10 @@ class Summary(unittest.TestCase):
         self.assertEqual(deliver.check({**items, "決め手": "原文だけ"}, ["決め手"]), ["決め手（原典の URL が無い）"])
         self.assertEqual(deliver.check(items, ["枝", "試験"]), ["枝（無いか空）", "試験（無いか空）"])
 
-    def test_required_items_come_from_the_company_shape_by_role(self):
-        d = pathlib.Path(tempfile.mkdtemp())
-        self.assertEqual(deliver.required_items([str(d / "none.toml")], "作業役"), (list(deliver.DEFAULT_ITEMS), None))
-        (d / "c.toml").write_text('[roles."作業役"]\ndeliver = ["結論", "差分", "試験"]\n', encoding="utf-8")
-        self.assertEqual(deliver.required_items([str(d / "c.toml")], "作業役"), (["結論", "差分", "試験"], None))
-        self.assertEqual(deliver.required_items([str(d / "c.toml")], "調べ役"), (list(deliver.DEFAULT_ITEMS), None))
-        (d / "bad.toml").write_text('[roles."作業役"]\ndeliver = "結論"\n', encoding="utf-8")
-        items, why = deliver.required_items([str(d / "bad.toml")], "作業役")
-        self.assertEqual(items, list(deliver.DEFAULT_ITEMS))
-        self.assertIn("文字列の並びで無い", why)
+    def test_required_items_come_from_the_role_or_default(self):
+        self.assertEqual(deliver.required_items(None), list(deliver.DEFAULT_ITEMS))
+        self.assertEqual(deliver.required_items({"name": "作業役", "deliver": None}), list(deliver.DEFAULT_ITEMS))
+        self.assertEqual(deliver.required_items({"name": "作業役", "deliver": ["結論", "差分", "試験"]}), ["結論", "差分", "試験"])
 
     def test_short_text_is_typed_and_long_text_points_at_the_file(self):
         line = deliver.ask_line("id1", "desk", "直して", "/i/id1-ask.md", ["結論"], "py /p/dispatch.py")
@@ -310,16 +305,37 @@ class Flow(unittest.TestCase):
         self.assertNotIn("delivered", attrs)
         self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
 
-    def test_deliver_items_follow_the_company_shape(self):
+    def shape(self, text):
         # 会社の形は本社（元の clone）のものを読む（--tree と頼む側と同じ。部署の枝の中の写しではない）
         shape = pathlib.Path(self.src) / ".claude" / "company.toml"
-        shape.parent.mkdir()
-        shape.write_text('[roles."調べ役"]\ndeliver = ["結論", "差分", "試験"]\n', encoding="utf-8")
-        summary = self.ask_then_summary("結論: 直した\n差分: 1 行\n")
-        rc, out = self.main(self.place, "--deliver", summary)
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text(text, encoding="utf-8")
+
+    def test_deliver_items_follow_the_role_in_the_company_shape(self):
+        # 役の起こし方の欄（instructions・model・settings）と納品の項目（deliver）を同じ [[roles]] の項目に書く
+        self.shape(test_role.SHAPE)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("結論・差分・試験 の見出しで", self.prompts()[0][2])
+        self.ports.herdr.writes.clear()
+        summary = pathlib.Path(self.root).parent / "summary.md"
+        summary.write_text("結論: 直した\n差分: 1 行\n", encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", str(summary))
         self.assertEqual(rc, 2, out)
-        self.assertIn("試験（無いか空）", out)
+        self.assertIn("送らなかった: 要約に足りない項目がある: 試験（無いか空）", out)
         self.assertNotIn("決め手", out.splitlines()[0])
+        summary.write_text("結論: 直した\n差分: 1 行\n試験: 緑\n", encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", str(summary))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("【試験】緑", self.prompts()[0][2])
+
+    def test_roles_written_by_name_are_not_read_and_say_to_move_them(self):
+        self.shape('[roles."調べ役"]\ndeliver = ["結論", "差分", "試験"]\n')
+        summary = self.ask_then_summary(GOOD)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)   # 既定の項目で確かめる（黙って無視せず、注記を出す）
+        self.assertIn('[roles."役"] の形で書いている（調べ役）', out)
+        self.assertIn("[[roles]] の項目", out)
 
     def test_deliver_outside_a_department_stops(self):
         summary = pathlib.Path(self.root).parent / "s.md"

@@ -28,6 +28,7 @@ gh_user = "gh-co"
 name = "調べ役"
 instructions = "結論と原典の一句を返す。"
 model = "haiku"
+deliver = ["結論", "差分", "試験"]
 settings = { enabledPlugins = { "pr-review-toolkit@m" = false }, permissions = { deny = ["Artifact", "Workflow"] }, worktree = { bgIsolation = "auto" } }
 
 [[roles]]
@@ -51,7 +52,9 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["gh_user"], "gh-co")
         self.assertEqual(got["roles"]["調べ役"]["model"], "haiku")
         self.assertEqual(got["roles"]["調べ役"]["instructions"], "結論と原典の一句を返す。")
-        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "settings": None})
+        self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
+        self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "settings": None,
+                                                 "deliver": None})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "problems": []})
@@ -71,6 +74,23 @@ model = "x"
         self.assertIsNone(got["roles"]["b"]["model"])   # 2 度目は使わない
         self.assertEqual(len(got["problems"]), 4, got["problems"])
         self.assertIn("TOML", role.load(write(f"{self.d}/bad.toml", "[[roles]"))["problems"][0])
+
+    def test_roles_by_name_and_misplaced_deliver_are_problems_not_silence(self):
+        got = role.load(write(f"{self.d}/old.toml", '[roles."作業役"]\ndeliver = ["結論"]\n'))
+        self.assertEqual(got["roles"], {})
+        self.assertIn('[roles."役"] の形で書いている（作業役）', got["problems"][0])
+        self.assertIn("[[roles]] の項目", got["problems"][0])
+        got = role.load(write(f"{self.d}/c.toml", '''[[roles]]
+name = "a"
+deliver = "結論"
+[[roles]]
+name = "b"
+[roles.settings]
+deliver = ["結論"]
+'''))
+        self.assertEqual(list(got["roles"]), ["b"])
+        self.assertIn("deliver の形が違う", got["problems"][0])
+        self.assertIn("deliver が [roles.settings] の中に入っている", got["problems"][1])
 
     def test_pick_stops_only_on_an_explicit_role_missing_from_a_shape_that_has_roles(self):
         shape = role.load(write(f"{self.d}/c.toml", SHAPE))
