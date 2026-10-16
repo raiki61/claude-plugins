@@ -15,7 +15,7 @@ role = "作業役"
 
 [[roles]]
 name = "作業役"
-instructions = "頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（上げるのは窓口）。作業の枝に push したら、作った物・決めたこと・決められなかったことを窓口に知らせて止まる。"
+instructions = "頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（本流に入れる命令が上げる）。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。納品の後は commit しない（初見読みの指摘は入れる前に直す）。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
