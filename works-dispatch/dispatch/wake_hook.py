@@ -109,8 +109,12 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
     status, _ = deliver.clear_talk(pane, h, pause, cleared)
     if status == "failed":
         return False
-    provision.mark(got["cwd"], got["root"], marks or {"cleared": attrs["ask"]}, gitx)
+    # 毎回空にする部署（marks の無い道）だけ、会社の形のモデルと effort を空にした会話に効かせる。区切り（--rest）で空にする
+    # 会話は持ち主が直接話す会話（窓口・相談）でもあるので、持ち主に断らずにモデルを替えない
+    switched = {} if marks else deliver.switch_flags(pane, attrs, role_hook.flags_now(got["cwd"], attrs), h, pause)
+    provision.mark(got["cwd"], got["root"], {**(marks or {"cleared": attrs["ask"]}), **switched}, gitx)
     return True
+
 
 
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time):

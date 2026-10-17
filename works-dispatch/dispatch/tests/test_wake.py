@@ -251,6 +251,31 @@ class Hook(unittest.TestCase):
         got = wake_hook.checker(self.plan(), {"hook_event_name": "SessionStart"}, h=Window(self.place), now=lambda: 5)
         self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
 
+    def test_fresh_department_takes_the_shapes_model_and_effort_after_the_clear(self):
+        # /clear では起こしたときのモデルと effort が残る。会社の形の値（受け持ちの値が役の値より先）が起こしたときと違えば、
+        # 空にした会話に /model・/effort を打ち、属性を書き直す（e1ee87）
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir()
+        shape.write_text('[[skills]]\nname = "調べ"\ndescription = "x"\nrole = "担当"\neffort = "low"\n'
+                         '[[roles]]\nname = "担当"\nmodel = "sonnet"\neffort = "high"\nfresh = true\n'
+                         '[[roles]]\nname = "相談"\nmodel = "sonnet"\n', encoding="utf-8")
+        git("-C", self.src, "add", "-A")
+        git("-C", self.src, "commit", "-q", "-m", "shape")
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH, "model": "opus", "effort": "low"}, gitx)
+        w = Window(self.place)
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker(window=w)(), ("end", None))
+        self.assertEqual(w.writes, [deliver.CLEAR, "/model sonnet"])   # effort は受け持ちの low のまま
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["model"], attrs["effort"], attrs["cleared"]), ("sonnet", "low", "a0"))
+        # 区切り（--rest）で空にする会話は、持ち主が直接話す会話でもあるので、モデルを替えない
+        provision.mark(self.place, self.src, {"role": "相談", "fresh": None, "model": None, "session": "s1", wake.REST: "s1"}, gitx)
+        w = Window(self.place)
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker({"hook_event_name": "Stop", "session_id": "s1"}, w)(), ("end", None))
+        self.assertEqual(w.writes, [deliver.CLEAR])
+
     def test_fresh_department_is_not_cleared_while_busy_typed_or_waiting_on_background_work(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH}, gitx)

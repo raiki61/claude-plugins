@@ -473,6 +473,28 @@ def clear_talk(pane, h, pause, cleared):
     return "unconfirmed", "/clear を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
+# 会話のモデルと effort を替える Claude Code の命令（会話の中で打つ。/model <名前>・/effort <段>。2.1.302 で見た）
+SWITCH = {"model": "/model", "effort": "/effort"}
+
+
+def switch_flags(pane, attrs, want, h, pause):
+    """空にした会話に（書く口）、会社の形の今のモデルと effort が、起こしたとき（属性 company.model・company.effort）と違えば、その命令を
+    窓に打つ（/clear ではモデルと effort は起こしたときのまま残るため。e1ee87）。打った値の属性の並び（書き戻す物）。
+    会社の形に値が無い欄は触らない（アカウントの既定へ戻す命令は、既定の値が会話からは分からないので打たない）。"""
+    out = {}
+    for key, command in SWITCH.items():
+        value = want.get(key)
+        if not value or value == attrs.get(key):
+            continue
+        try:
+            h.prompt(pane, f"{command} {value}", False)
+        except h.HerdrError:
+            continue
+        pause()
+        out[key] = value
+    return out
+
+
 # ---- Stop フック ----
 
 def stop_verdict(payload, attrs, count, run):

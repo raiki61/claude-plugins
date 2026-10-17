@@ -1101,6 +1101,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     # 部署の属性（正本）。上役は呼んだ会話。分からない物は書かない
     attrs = {"role": role_name, "residency": RESIDENT if resident else PER_TASK, "fresh": role.FRESH if the_role and the_role["fresh"] else None,
              "account": account,
+             # 起こしたときのモデルと effort（毎回空にする部署が、/clear の後に会社の形の値と比べて替える。deliver.switch_flags）
+             "model": model, "effort": effort,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
              "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **{k: v for k, v in (extra_attrs or {}).items() if v}}

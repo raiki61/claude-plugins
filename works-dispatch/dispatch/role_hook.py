@@ -97,6 +97,19 @@ def _shape_at(cwd, attrs, env):
     return root, info, role.load(info["path"], info["text"])
 
 
+def flags_now(cwd, attrs, env=os.environ):
+    """会社の形の今の値で、この部署を起こすなら付ける {model, effort}（role.launch_flags と同じ決める順。値の無い欄は None）。
+    effort の inherit は、起こした会話の effort を受け継ぐ意味なので、起こした後には決めない（None）。"""
+    got = _shape_at(cwd, attrs, env) if attrs.get("role") else None
+    if not got:
+        return {"model": None, "effort": None}
+    _, info, shape = got
+    the_role = shape["roles"].get(role.current(shape, attrs["role"]))
+    duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
+    model, effort, _ = role.launch_flags(the_role, {}, duty)
+    return {"model": model, "effort": effort}
+
+
 def rename_role(cwd, attrs, env=os.environ):
     """属性 company.role が役の前の名前（former_names）なら、今の名前に書き直す。書いたら今の名前、書かなければ None。"""
     if not attrs.get("role"):
