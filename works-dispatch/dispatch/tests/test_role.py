@@ -377,6 +377,7 @@ class Hook(unittest.TestCase):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-new", "source": "clear"})), self.env)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-new")
         self.assertIn("席はこの会話に引き継いだ", out.getvalue())   # 窓口は空にした後に --desk を打ち直して確かめなくてよい
+        self.assertIsNone(role_hook.changed({"cwd": self.src, "session_id": "s-new"}, self.env))   # 次の発言で役の本文を足し直さない
 
     def test_only_the_desk_seat_gets_the_head_office_role(self):
         # 代表の clone で起きた試しの claude -p（名前が無い）や、窓口が動いている間に起きた会話は、窓口として振る舞わない（53d5d1・6be241）

@@ -71,12 +71,11 @@ def label(payload):
 
 
 def confirmed_pane(cwd, sid, env=os.environ):
-    """この会話の居るペインのうち、窓の前のプロセスにこの会話が居ると確かめた物（/clear の打ち先と同じ確かめ方。wake_hook.talk_window）。
+    """この会話の居るペインのうち、窓の前のプロセスにこの会話が居ると確かめた物（/clear の打ち先と同じ確かめ方。herdr.talk_window。wake_hook は tomllib を読むので、下限 3.9 のこのフックからは引かない）。
     会話の印と場所だけで決めると、前に居た会話や別の部署の会話の窓に札を付けた（2026-10-17、割り振りの窓にほかの会話の作業内容が
     出た。c52730 の 5）。決まらなければ None。"""
     import claudex   # noqa: E402  ここだけで使う（ツールのたびに読み込まない）
-    import wake_hook   # noqa: E402
-    return wake_hook.talk_window(cwd, herdr, [claudex.host()[0]], (wake_hook.job_of(env), claudex.attach_id(None, sid)))
+    return herdr.talk_window(cwd, herdr, [claudex.host()[0]], (herdr.job_of(env), claudex.attach_id(None, sid)))
 
 
 def pane_of(payload, tmp, find=None):

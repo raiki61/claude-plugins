@@ -208,19 +208,25 @@ def enable_worktree_config(source, runner=_default_runner):
     """元の clone に extensions.worktreeConfig = true を入れる（部署ごとの設定を使う前提）。書く口。
     already（もう入っている）・enabled（入れた）のどちらか。git の文書は、入れる前に共通の設定の core.bare と core.worktree を
     元の clone の config.worktree へ移すよう求めている。そのどちらかが共通の設定に在れば入れずに GitError（移すのは持ち主）。"""
-    # 前に手で解いたぶつかりを git に覚えさせる（--land の載せ直しが使い直す。git rerere）。持ち主が決めた値が在れば替えない
-    for key in ("rerere.enabled", "rerere.autoUpdate"):
-        if _git(source, ["config", "--local", "--get", key], runner) is None:
-            _git(source, ["config", "--local", key, "true"], runner)
     if (_git(source, ["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"], runner) or "") == "true":
+        _rerere(source, runner)
         return "already"
     moved = [k for k in ("core.bare", "core.worktree")
              if _git(source, ["config", "--local", "--get", k], runner) not in (None, "false")]
     if moved:
         raise GitError(f"{source} の共通の設定に {', '.join(moved)} が有るので extensions.worktreeConfig を入れない"
                        "（git help worktree の CONFIGURATION FILE の節のとおり、先に元の clone の config.worktree へ移す）")
+    _rerere(source, runner)
     _must(["git", "-C", source, "config", "--local", "extensions.worktreeConfig", "true"], runner)
     return "enabled"
+
+
+def _rerere(source, runner):
+    """前に手で解いたぶつかりを git に覚えさせる（--land の載せ直しが使い直す。git rerere）。持ち主がどこか（local・global・
+    system）に値を書いていれば替えない。"""
+    for key in ("rerere.enabled", "rerere.autoUpdate"):
+        if _git(source, ["config", "--get", key], runner) is None:
+            _git(source, ["config", "--local", key, "true"], runner)
 
 
 def exclude(source, pattern, runner=_default_runner):

@@ -244,6 +244,26 @@ def holds_talk(processes, pids, jobs):
     return False
 
 
+def talk_window(cwd, h, pids=(), jobs=()):
+    """会話を消す打ち込み（/clear）の打ち先。場所がこの会話の場所のペインのうち、前のプロセスにこの会話が居ると確かめられた物
+    （holds_talk。jobs は attach の短い id の候補で、clear_now は属性 company.job・CLAUDE_JOB_DIR の名前・会話の id の頭を渡す）が
+    1 つならそれ、ほかは None。会話の印（agent_session）も、場所だけでの代わりも使わない（印は前に居た会話や
+    別の部署の会話の id のまま残り、2026-10-17 に my_notes で別の部署の窓に /clear を打った。持ち主の決め: 自分の会話だと確かめ
+    られなければ打たずに残す）。"""
+    here = place_of(cwd)
+    hits = [p["pane_id"] for p in h.panes() if p.get("agent") and p.get("cwd") and place_of(p["cwd"]) == here]
+    mine = [x for x in hits if holds_talk(h.front_processes(x), {p for p in pids if p is not None}, {j for j in jobs if j})]
+    return mine[0] if len(mine) == 1 else None
+
+
+def job_of(env=os.environ):
+    """この会話の裏の処理の短い id（`claude attach` に渡す物）。Claude Code は裏の会話（claude --bg）の処理に、置き場
+    <設定のフォルダ>/jobs/<短い id> を CLAUDE_JOB_DIR で渡し、フックはそれを継ぐ。短い id は会話の id の頭と同じとは限らない
+    （2026-10-17 に割り振りで、会話 081f72dd を短い id 8c4a1102 の処理が続けていた）。裏の会話でなければ None。"""
+    d = (env.get("CLAUDE_JOB_DIR") or "").rstrip("/\\")
+    return os.path.basename(d) or None
+
+
 def send_keys(pane, *keys, runner=_default_runner):
     """ペインにキーを送る（herdr pane send-keys。例 ctrl+c・enter）。書く口。"""
     _call(["herdr", "pane", "send-keys", pane, *keys], runner, quiet_ok=True)

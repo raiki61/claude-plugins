@@ -732,6 +732,8 @@ class Hook(unittest.TestCase):
         attached = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude", "attach", "abcd1234"]}])   # 裏の会話を開いた窓
         self.assertEqual(wake_hook.talk_window(self.place, attached, [ME], ["abcd1234"]), "p1")
         self.assertIsNone(wake_hook.talk_window(self.place, attached, [ME], ["zzzz9999"]))
+        no_pid = Window(self.place, front=[{"argv": ["claude"]}])   # 処理の番号の無い行（Windows では自分の番号も取れない）
+        self.assertIsNone(wake_hook.talk_window(self.place, no_pid, [None], []))
 
     def test_the_window_attached_to_this_job_is_found_even_when_the_job_attr_is_old(self):
         # 裏の会話を起こし直すと短い id が替わる（2026-10-17 の割り振り: 属性は a5b0bc07、窓は 8c4a1102 に attach、会話の id は

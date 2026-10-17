@@ -127,7 +127,8 @@ def start_now(a, ports, cwd, task):
                         + [f"止めた: {company['name']} の会社の形に、起こし方（[skills.start]）の有る受け持ち「{name}」が無い"]))
         return 2
     caller = _caller(a, ports, cwd, sessions_)
-    if skill["start"]["by"] and caller is not None and caller not in skill["start"]["by"]:
+    refused = bool(skill["start"]["by"]) and caller is not None and caller not in skill["start"]["by"]
+    if refused:
         said = f"受け持ち「{name}」を命令で起こせるのは {'・'.join(skill['start']['by'])}（会社の形の by）。打った会話は {caller}"
         if not a.dry_run:
             print("\n".join(notes + [f"止めた: {said}"]))
@@ -136,7 +137,8 @@ def start_now(a, ports, cwd, task):
         notes.append(f"注記: 本当に打てばここで止まる（{said}）。試し打ちなので、この先も見立てる")
     rc, lines = fire(company, companies, skill, f"命令（{caller or '人'}）", ports, a, task, settings)
     print("\n".join(notes + lines))
-    return rc
+    # 本当に打てば by で止まる試し打ちは、先を見立てても 2 を返す（--land --dry-run と同じく、本当に打った時の終了の値を返す）
+    return 2 if refused else rc
 
 
 def due_all(a, ports, task):

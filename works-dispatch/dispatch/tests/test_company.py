@@ -88,6 +88,12 @@ class Attrs(unittest.TestCase):
         self.place = str(pathlib.Path(self.root) / "dept")
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place, "origin/main")
 
+    def test_the_extension_turns_rerere_on_unless_the_owner_set_it(self):
+        git("-C", self.src, "config", "rerere.autoUpdate", "false")   # 持ち主の値は替えない
+        self.assertEqual(gitx.enable_worktree_config(self.src), "enabled")
+        self.assertEqual(git("-C", self.src, "config", "--get", "rerere.enabled").strip(), "true")
+        self.assertEqual(git("-C", self.src, "config", "--get", "rerere.autoUpdate").strip(), "false")
+
     def test_attrs_are_empty_before_the_extension_and_stay_in_their_own_worktree(self):
         self.assertEqual(gitx.worktree_attrs(self.place), {})
         self.assertEqual(gitx.enable_worktree_config(self.src), "enabled")
