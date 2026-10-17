@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-10-17
+
 ### Added
 
 - 会社（会社の形〔役と受ける仕事を書いた `.claude/company.toml`〕を、origin の既定の枝かリポジトリの中、または dispatch の設定の置き場の `companies/` に持つリポジトリ）で、役を持たない会話の始まり（SessionStart のフック）に、ほかの会社への頼み方の 1 行「頼むときは SendMessage でなく `dispatch.py --ask <会社の名前> --text <頼み>` を打つ」を足す。役を持たない会話は、部署の属性（git の設定 `company.role`）の無い worktree の会話（PR の枝の作業場など）と、代表の clone（部署の worktree を作る元の clone）の会話のうち窓口（`--desk` で名付けた会話）でない物。部署（`company.role` を持つ worktree の会話）と窓口の会話には、今までどおり始まりのフック（`role_hook.py`）が役の本文（会社の形に書いた、その役への指示）を足しており、この 1 行は足さない（役の本文も変えない）。会社でないリポジトリの会話には何も足さない。会社になる前から動いている会話には、会社になった後に人が最初にプロンプトを打ったとき（UserPromptSubmit のフック）に 1 度だけ足す（その会話にまだ何も足していないときだけ）。訳: 2026-10-17 に guided-resolver の PR の枝（git のブランチ）の会話が、人から「my_notes に調査を頼んで」と言われ、SendMessage（Claude Code の、ほかの会話へ文を送る道具）で my_notes の段取り（my_notes の窓口の役の名前）に頼んだ。SendMessage では受付箱の台帳（`.git/company/inbox/log.jsonl`。頼み元を書き、納品をそこへ返す）に頼み元が残らず、段取りが返し先を自分のメモで覚えるしかなかった。`--ask` なら台帳に頼み元が残り、納品はその会話の herdr の窓（ペイン）に 1 行を打ち込んで返る（部署でない会話には待ち受けが居ないため。herdr の外の会話には返らず、台帳にだけ残る）。会社でない git の場所の会話では、会社になったかを見るため、プロンプトごとに git が 2〜3 回余分に走る。
