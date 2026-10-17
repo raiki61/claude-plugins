@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.58.4] - 2026-10-17
+
 ### Fixed
 
 - 部署の成果が本流に入ったのに、代表の clone（部署の worktree の元の clone。窓口の会話が居る所）の本流が進まず、窓口にも知らせが届かないことがあったのを直した（2026-10-17 の my_notes。代表の clone の master が本流より遅れたまま、窓口のフックと決まりが前の版で動いた。受付 d3f166）。
