@@ -72,6 +72,25 @@ class Move(unittest.TestCase):
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["status"]), ("a1", "a2", "done"))
 
+    def test_a_department_that_does_not_start_again_is_attached_back_only_when_no_new_talk_rose(self):
+        provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "session": "s-dept", "account": "a1"}, gitx)
+        seen, task = self.fake_task(rc=1)
+        listed = self.ports.list_sessions
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ")   # 移る先に同じ名前の会話が見える（窓につなぐ所だけ落ちた）
+        self.assertEqual(rc, 1, out)
+        self.assertEqual([w for w in self.ports.herdr.writes if w[0] == "run"], [])   # 2 つ立てない
+        self.ports.herdr.writes.clear()
+        provision.mark(self.place, self.src, {"job": "d", "session": "s-dept", "account": "a1"}, gitx)
+        self.ports.list_sessions = lambda cdir, include_done=False: [] if cdir and cdir.endswith("c2") else listed(cdir, include_done)
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual([w[2] for w in self.ports.herdr.writes if w[0] == "run"], ["claude-a1 attach d"])
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["session"], attrs["job"], attrs["account"]), ("s-dept", "d", "a1"))   # 前の会話の値に戻す
+        self.assertIn("前の会話を attach で戻した", [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"][-1]["detail"])
+
     def test_if_limited_does_not_move_while_the_account_is_under_its_limit(self):
         self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}]
         seen, task = self.fake_task()
@@ -167,6 +186,7 @@ class Move(unittest.TestCase):
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual(moved["status"], "failed")
         self.assertIn("前の会話を --resume で戻した", moved["detail"])
+        self.assertIn(wake.RESTART_KEPT, gitx.worktree_attrs(self.src))   # 同じ値では起こし直しと戻しを繰り返さない
 
     def test_the_desk_starts_again_with_the_settings_of_its_role(self):
         # 窓口の役の [roles.settings] は、--task の部署と同じく --settings で渡す（部署だけの鍵 worktree.bgIsolation は重ねない）

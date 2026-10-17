@@ -397,7 +397,7 @@ class Hook(unittest.TestCase):
             return Done()
         self.assertFalse(wake_hook.restart_first(got, opus, spawn=spawn, now=lambda: 5))
         (argv, cwd), = seen
-        self.assertEqual(argv[2:], ["--move", "co/調べ", "--if-changed"])
+        self.assertEqual(argv[1:], ["-u", wake_hook.DISPATCH_PY, "--move", "co/調べ", "--if-changed"])
         self.assertEqual(cwd, self.place)
         attrs = gitx.worktree_attrs(self.place)
         self.assertNotIn(wake.RESTARTING, attrs)

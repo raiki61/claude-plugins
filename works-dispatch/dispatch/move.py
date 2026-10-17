@@ -234,10 +234,21 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
     rc = task(cfg, repo, ns, ports, extra_attrs={k: attrs.get(k) for k in KEEP}, tail=tail)
     if rc == 0:
         return 0, None
-    # 新しい会話が立たなかった: 止めた前の会話を attach で戻す（裏の会話は止めても記録が残り、attach で前の続きから戻る）
-    back = _bring_back(pane, f"{old_acc.command if old_acc else 'claude'} attach {job}", ports) if pane and job else "戻す窓か会話の id が無い"
+    # 新しい会話が立たなかった: 止めた前の会話を attach で戻す（裏の会話は止めても記録が残り、attach で前の続きから戻る）。
+    # 新しい会話が立っていて窓につなぐ所だけ落ちたなら戻さない（同じ部署の会話を 2 つ立てない）
+    try:
+        risen = any(x.get("name") == attrs.get("name") and x.get("state") not in ("done", "failed", "stopped")
+                    for x in ports.list_sessions(next((c.config_dir for c in cfg.accounts if c.name == chosen), None)))
+    except claudex.ClaudeError:
+        risen = True   # 確かめられなければ戻さない
+    if risen:
+        back = "移る先のアカウントに同じ名前の会話が立っているか、確かめられないので戻さない"
+    elif pane and job:
+        back = _bring_back(pane, f"{old_acc.command if old_acc else 'claude'} attach {job}", ports)
+    else:
+        back = "戻す窓か会話の id が無い"
     if back is None:
-        provision.mark(dept["path"], company["root"], {"session": attrs.get("session"), "job": attrs.get("job")}, ports.git)
+        provision.mark(dept["path"], company["root"], {k: attrs.get(k) for k in ("session", "job", "account", wake.LAUNCHED, "cleared")}, ports.git)
     return rc, "--task と同じ道で起こせなかった（上の出力を見る）。" + ("前の会話を attach で戻した" if back is None else f"前の会話も戻せなかった（{back}）")
 
 
@@ -290,6 +301,9 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
     if got["status"] == "ready":
         return 0, warn
     # 新しい会話が立たなかった: 前の会話を --resume で同じペインに戻す（窓口を消したままにしない。2026-10-17 に段取りが 22 分消えた）
-    provision.mark(company["root"], company["root"], {wake.LAUNCHED: None, wake.LAUNCHING: None}, ports.git)
+    provision.mark(company["root"], company["root"], {wake.LAUNCHED: attrs.get(wake.LAUNCHED), wake.LAUNCHING: None}, ports.git)
     back = _bring_back(pane, f"{(old_acc or acc).command} --resume {sid}", ports)
+    if back is None and not warn:
+        # 戻した会話は前の設定のまま。同じ値で区切りのたびに起こし直しと戻しを繰り返さない（会社の形が替われば試し直す）
+        provision.mark(company["root"], company["root"], {wake.RESTART_KEPT: role.launch_key(the_role)}, ports.git)
     return 1, (got["detail"] or got["status"]) + ("。前の会話を --resume で戻した" if back is None else f"。前の会話も戻せなかった（{back}）")

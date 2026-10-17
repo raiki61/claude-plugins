@@ -229,8 +229,8 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
     走らせ、殻の書く終わりの値のファイルで終わりを見る（--move は前の会話を止めても走り続け、起こし直すか、起こせなければ訳を台帳に書く）。"""
     attrs = gitx.worktree_attrs(got["cwd"])
     name = attrs["name"]
-    argv = ([sys.executable, DISPATCH_PY, "--move", f"{got['company']}/{name}", "--if-changed"]
-            + (["--config", attrs["config"]] if attrs.get("config") else []))
+    argv = ([sys.executable, "-u", DISPATCH_PY, "--move", f"{got['company']}/{name}", "--if-changed"]
+            + (["--config", attrs["config"]] if attrs.get("config") else []))   # -u: 途中で止まっても、そこまでの出力を残す
     out = os.path.join(got["inbox"], MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
     done = out[:-len(".log")] + ".done"
     detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
