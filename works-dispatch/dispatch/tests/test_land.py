@@ -174,6 +174,7 @@ class Ports:
         self.gh = gh or FakeGh()
         self.git = gitx
         self._attrs = attrs or {"name": "a", "session": "s1", "role": "worker"}
+        self.account_env = {}   # claude を呼ぶ環境（本物は Ports.account_env）
 
     def places(self, repo):
         return self.herdr.worktrees(repo.source)

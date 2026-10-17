@@ -569,6 +569,11 @@ class ClaudeName(unittest.TestCase):
         self.assertEqual(f.calls[0][1]["CLAUDE_CONFIG_DIR"], "/c1")
         self.assertTrue(claudex.remove_session(None, "x", runner=Fake((0, "removed x", "")), base_env={})[0])
 
+    def test_job_tmp_is_under_the_account_folder_by_the_short_id(self):
+        self.assertEqual(claudex.job_tmp("/c/p1", "35f0e1c2"), os.path.join("/c/p1", "jobs", "35f0e1c2", "tmp"))
+        self.assertEqual(claudex.job_tmp(None, "35f0e1c2-aaaa-bbbb", {"HOME": "/h"}), os.path.join("/h", ".claude", "jobs", "35f0e1c2", "tmp"))
+        self.assertEqual(claudex.job_tmp(None, "35f0e1c2", {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), os.path.join("/x", "jobs", "35f0e1c2", "tmp"))
+
     def test_caller_is_the_account_whose_listing_has_the_session(self):
         listed = {"a1": [{"sessionId": "s1", "name": "x"}], "a2": [{"sessionId": "s2", "name": "窓口"}]}
         self.assertEqual(claudex.caller(listed, "s2"), ("a2", "窓口"))

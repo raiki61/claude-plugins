@@ -1712,13 +1712,15 @@ def _clean(cfg, repo, apply, ports):
     dept_paths = {os.path.realpath(d["path"]) for d in depts}
     swept = landing.sweep_branches(repo, ports, found, apply)
     for d in depts:
+        kept = len(clean.tmp_entries(claudex.job_tmp(d["config_dir"], d["session"], ports.account_env))) if d["removable"] and d["session"] else 0
         print(f"部署 {d['name'] or '-'} {d['branch'] or '（枝無し）'}  {d['state']}  "
-              + ("消せる" if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}）"))
+              + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else ""))
+                 if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}）"))
     print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
     failed = 0
     if apply:
         for d in (d for d in depts if d["removable"]):
-            got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.herdr, ports.git, claudex)
+            got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
             print(f"部署 {d['name'] or '-'} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
             failed += not got["removed"]
     found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths]

@@ -235,6 +235,15 @@ def stop_session(config_dir, job, runner=_default_runner, base_env=None):
     return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
 
 
+def job_tmp(config_dir, session_id, env=None):
+    """裏の会話の一時の置き場（<設定のフォルダ>/jobs/<短い id>/tmp）。会話が残すと書いた物もここに在り、claude rm は会話と一緒に
+    ここも消す（2026-10-17 に 2.1.301 で、--clean が消した部署の測りの道具がここと一緒に消えた）。設定のフォルダの決め方は
+    trust_file と同じ（config_dir、無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude）。"""
+    env = os.environ if env is None else env
+    folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    return os.path.join(os.path.expanduser(folder), "jobs", attach_id({"sessionId": session_id}), "tmp")
+
+
 def ancestors(runner=_default_runner, pid=None):
     """この処理（pid を渡せばその処理）から親をたどった pid の並び（自分を含む）。ps が通らなければ空。"""
     try:

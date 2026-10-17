@@ -538,7 +538,7 @@ class Departments(unittest.TestCase):
         self.ports = FakePorts([])
         self.place = self.dept("dept/a", "s-a")
         self.state = {"s-a": "done"}
-        self.removed = []
+        self.removed, self.rm_env = [], []
         self.ports.list_sessions = lambda cdir, include_done=False: [
             {"id": sid[-1], "sessionId": sid, "state": st} for sid, st in self.state.items()] if include_done else []
 
@@ -551,7 +551,8 @@ class Departments(unittest.TestCase):
     def clean(self, *extra):
         import dispatch
         real = dispatch.claudex.remove_session
-        dispatch.claudex.remove_session = lambda cdir, sid, **kw: (self.removed.append((cdir, sid)) or (True, "removed"))
+        dispatch.claudex.remove_session = lambda cdir, sid, **kw: (self.removed.append((cdir, sid)) or self.rm_env.append(kw.get("base_env"))
+                                                                   or (True, "removed"))
         try:
             return run_main(["--config", self.cfg, "--clean", *extra], self.ports)
         finally:
@@ -568,6 +569,15 @@ class Departments(unittest.TestCase):
         self.assertIn("部署 dept/a 消した", out)
         self.assertEqual(self.removed, [(f"{pathlib.Path(self.cfg).parent}/c1", "a")])
         self.assertFalse(os.path.exists(self.place))
+
+    def test_rm_looks_in_the_login_shell_folder_not_the_calling_session(self):
+        # 2026-10-17: p2 の会話から打った --clean --apply が、config_dir の無い main の会話を p2 の置き場で探して断られた
+        self.ports.env = {**os.environ, "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}
+        self.ports._account_env = None
+        rc, out = self.clean("--apply")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.rm_env), 1)
+        self.assertNotIn("CLAUDE_CONFIG_DIR", self.rm_env[0])   # ペインのログインのシェル（ここでは値無し）に倣う
 
     def test_running_unpushed_and_unmerged_departments_are_kept(self):
         self.state["s-a"] = "working"
@@ -620,12 +630,59 @@ class Departments(unittest.TestCase):
     def test_retire_stops_when_rm_refuses(self):
         class C:
             @staticmethod
-            def remove_session(cdir, sid):
+            def remove_session(cdir, sid, base_env=None):
                 return False, "kept a — its worktree has unpushed commits"
+
+            @staticmethod
+            def job_tmp(cdir, sid, env=None):
+                return "/nowhere"
         got = clean.retire({"path": self.place, "branch": "dept/a", "session": "a", "config_dir": "/c", "pr_head": None},
                            self.src, "x", self.ports.herdr, gitx, C)
         self.assertFalse(got["removed"])
         self.assertIn("claude rm が断った", got["detail"])
+        self.assertTrue(os.path.exists(self.place))
+
+    def test_job_tmp_is_copied_into_the_common_git_before_rm(self):
+        # claude rm は会話の一時の置き場も消す。部署がそこに残した物（2026-10-17 の測りの道具）を、消す前に写して残す
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "jobs" / "a" / "tmp"
+        (tmp / "tools").mkdir(parents=True)
+        (tmp / "tools" / "measure.py").write_text("x\n", encoding="utf-8")
+        real = dispatch.claudex.job_tmp
+        dispatch.claudex.job_tmp = lambda cdir, sid, env=None: str(tmp)
+        self.addCleanup(setattr, dispatch.claudex, "job_tmp", real)
+        rc, out = self.clean()
+        self.assertIn("消せる（会話の一時の置き場の 1 件は、共通の .git の company/kept-tmp/ に写してから消す）", out)
+        rc, out = self.clean("--apply")
+        self.assertEqual(rc, 0, out)
+        kept = pathlib.Path(gitx.common_dir(self.src), "company", "kept-tmp", "a")
+        self.assertIn(f"会話の一時の置き場の 1 件を {kept} に写した", out)
+        self.assertEqual((kept / "tools" / "measure.py").read_text(encoding="utf-8"), "x\n")
+        self.assertEqual(len(self.removed), 1)
+
+    def test_retire_keeps_everything_when_job_tmp_cannot_be_copied(self):
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        (tmp / "note").write_text("x", encoding="utf-8")
+        asked = []
+
+        class C:
+            @staticmethod
+            def remove_session(cdir, sid, base_env=None):
+                asked.append(sid)
+                return True, ""
+
+            @staticmethod
+            def job_tmp(cdir, sid, env=None):
+                return str(tmp)
+
+        class G:
+            @staticmethod
+            def common_dir(cwd):
+                return None
+        got = clean.retire({"path": self.place, "branch": "dept/a", "session": "a", "config_dir": "/c", "pr_head": None},
+                           self.src, "x", self.ports.herdr, G, C)
+        self.assertFalse(got["removed"])
+        self.assertIn("会話の一時の置き場を写せないので消さない", got["detail"])
+        self.assertEqual(asked, [])
         self.assertTrue(os.path.exists(self.place))
 
     def test_department_whose_session_is_gone_is_still_judged_by_git(self):

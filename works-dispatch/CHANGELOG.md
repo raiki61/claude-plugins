@@ -6,6 +6,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- ほかのアカウントの会話から `--clean --apply`（と `--land` の片付け）を打つと、設定に `config_dir` を書かないアカウントの部署の会話を、打った会話の `CLAUDE_CONFIG_DIR` の置き場で探し、`claude rm` が「No job matching」で断って何も消せなかった。会話の一覧を読むのと同じく、ペインの新しいログインのシェルの値で探す。
+- `claude rm` は部署の会話と一緒に、その会話の一時の置き場（`<設定のフォルダ>/jobs/<短い id>/tmp`）も消す。部署がそこに残した物まで、気づかれずに消えていた。消す前に、中に物が在れば代表の clone の `.git/company/kept-tmp/<短い id>/` に写し、写した数と先を出す（`--clean` の並びにも「写してから消す」と出る）。写せなければ、その部署は消さない。
+
 ## [0.37.0] - 2026-10-17
 
 ### Added

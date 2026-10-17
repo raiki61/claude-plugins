@@ -22,7 +22,8 @@ git が追わないファイルのうち、それ以外（依存・生成物な�
 - 部署の会話が終わっている（state が done・stopped・failed）か、会話の一覧にもう無い
 - 未コミットの変更も git に足していないファイルも、手元にしか無い commit や stash も無い
 - 部署の枝の先頭が本流（origin の既定の枝の手元の控え）に入っている
-消す時は、会話を `claude rm` で消し（会話の worktree は下回りが作ったので、rm は worktree を残す）、続けて上と同じく herdr の
+消す時は、会話を `claude rm` で消し（会話の worktree は下回りが作ったので、rm は worktree を残す。rm が一緒に消す会話の一時の
+置き場は、物が在れば先に共通の .git の下の company/kept-tmp/<会話の id> に写す）、続けて上と同じく herdr の
 worktree の口で場所と作業場（attach の窓）を消し、手元の枝も消す。本流に入れる方法は会社ごとに決める（設計の 8 章）ので、
 ここは「入っていれば消す」だけを持つ。
 
@@ -39,6 +40,7 @@ import filecmp
 import json
 import os
 import pathlib
+import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -176,15 +178,54 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
     return rows
 
 
-def retire(row, source, label, h=herdr, g=gitx, c=None):
+KEPT_TMP = ("company", "kept-tmp")   # 共通の .git の下の、消した部署の会話の一時の置き場の写し
+
+
+def tmp_entries(path):
+    """会話の一時の置き場の中の名前の並び（無ければ空）。"""
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
+
+
+def keep_tmp(tmp, source, session, g=gitx):
+    """会話の一時の置き場 tmp に物が在れば <共通の .git>/company/kept-tmp/<会話の id> に写し、(写した数, 写した先) を返す
+    （空か無ければ (0, None)）。写せなければ OSError。"""
+    n = len(tmp_entries(tmp))
+    if not n:
+        return 0, None
+    common = g.common_dir(source)
+    if not common:
+        raise OSError(f"{source} の共通の .git を読めない")
+    dest = os.path.join(common, *KEPT_TMP, session)
+    shutil.copytree(tmp, dest, symlinks=True, dirs_exist_ok=True)
+    return n, dest
+
+
+def retire(row, source, label, h=herdr, g=gitx, c=None, env=None):
     """部署の 1 行を消す: 会話が一覧に在れば c.remove_session（claude rm）で消し、続けて remove で場所と窓と手元の枝を消す。
-    rm が断れば（未 push の commit など）、場所も消さない。{path, branch, removed, branch_deleted, detail}。"""
+    env は claude を呼ぶ環境で、config_dir を書かないアカウントの置き場をこの環境の CLAUDE_CONFIG_DIR で決める。打った会話の
+    環境のままにせず、会話の一覧を読んだのと同じ環境を渡す（2026-10-17 に p2 の会話から打った --clean --apply が、main の会話を
+    p2 の置き場で探して「No job matching」で断られた）。
+    rm は会話の一時の置き場（c.job_tmp）も消す。部署はそこに残すと書いた物を置くことがあるので、物が在れば先に keep_tmp で写し、
+    写せなければ消さない。rm が断れば（未 push の commit など）、場所も消さない。{path, branch, removed, branch_deleted, detail}。"""
+    note = None
     if row.get("session"):
-        ok, said = c.remove_session(row["config_dir"], row["session"])
+        try:
+            n, dest = keep_tmp(c.job_tmp(row["config_dir"], row["session"], env), source, row["session"], g)
+        except OSError as e:
+            return {"path": row["path"], "branch": row["branch"], "removed": False, "branch_deleted": False,
+                    "detail": f"会話の一時の置き場を写せないので消さない（{e}）"}
+        note = f"会話の一時の置き場の {n} 件を {dest} に写した" if n else None
+        ok, said = c.remove_session(row["config_dir"], row["session"], base_env=env)
         if not ok:
             return {"path": row["path"], "branch": row["branch"], "removed": False, "branch_deleted": False,
                     "detail": f"claude rm が断った（{said}）"}
-    return remove(row, source, label, h, g)
+    out = remove(row, source, label, h, g)
+    if note:
+        out["detail"] = f"{note}。{out['detail']}" if out["detail"] else note
+    return out
 
 
 def remove(row, source, label, h=herdr, g=gitx):

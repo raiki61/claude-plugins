@@ -357,7 +357,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
             print(f"部署は残し、入れた印（company.landed）を書く（{reasons[row['reason']]}）")
         code = 0
     elif row["removable"]:
-        got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.herdr, ports.git, claudex)
+        got = clean.retire(row, repo.source, provision.label(repo, row["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
         print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
         code = 0 if got["removed"] else 1
     elif row["reason"] == "resident":
@@ -387,7 +387,7 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         if dry_run:
             print(f"前の --land で残した部署 {who} も片付ける")
             continue
-        got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex)
+        got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
         print(f"前の --land で残した部署 {who} を片付けた" if got["removed"]
               else f"前の --land で残した部署 {who} を片付けられなかった: {got['detail']}")
     if not dry_run:
