@@ -16,6 +16,7 @@ boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の�
 役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
 頼み元の受付箱に置き、頼み元（「頼み元の会社/company.boss」。引けなければ company.boss-session の会話）の待ち受けが居ればその
 台帳に知らせの 1 行を足し、居なければ頼み元の窓に 1 行を打ち込み、属性に納品済み（company.delivered）を書く。
+--for <受付> を添えれば、--forward で回して閉じた頼みの頼み元（台帳の forwarded の行）へ返し、今受けている頼みは閉じない。
 
 `python3 orders.py stop`（stop_hook）: プラグインの Stop フック。部署でない場所では何もしない。
 """
@@ -333,12 +334,14 @@ def ask(a, ports, cwd, task):
 def forwarded(attrs, sent, ports, cwd):
     """--forward で回した後: 受けた頼み（attrs の company.ask）から回した先の頼み（sent の id と to）への結び付きを、自分と頼み元の
     受付箱の台帳に kind forwarded で残し、受けた頼みを納品済みにする。頼み元には知らせない（回しただけの知らせで頼み元の会話を
-    起こさない。頼み元は、結果か問いの納品で起きたときに台帳で追う）。結果と問いは今までどおり --deliver で返す。出す行を返す。"""
+    起こさない。頼み元は、結果か問いの納品で起きたときに台帳で追う）。結果と問いは --deliver --for <受けた頼み> で返す（頼み元は
+    この行から引く）。出す行を返す。"""
     held = attrs["ask"]
     common = ports.git.common_dir(cwd)
     record = {"id": held, "kind": "forwarded", "at": ports.now(), "child": sent["id"], "to": sent["to"],
               "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd},
-              "boss": {"name": attrs.get("boss"), "session": attrs.get("boss-session")}}
+              "boss": {"name": attrs.get("boss"), "session": attrs.get("boss-session"), "account": attrs.get("boss-account"),
+                       "pane": attrs.get("boss-pane"), "inbox": attrs.get("boss-inbox")}}
     boss_inbox = attrs.get("boss-inbox")
     for inbox in dict.fromkeys([deliver.inbox_of(common)] + ([boss_inbox] if boss_inbox and os.path.isdir(boss_inbox) else [])):
         deliver.log(inbox, record)
@@ -929,12 +932,36 @@ def finish_here(a, ports, cwd):
     return 0
 
 
+def forwarded_ask(inbox, ask_id):
+    """--deliver --for の引き当て: 受付箱の台帳から、回した元の頼み（id）か回した先の頼み（child）が ask_id の forwarded の行の
+    最後の 1 件。無ければ None。"""
+    rows = [r for r in deliver.records(inbox) if r.get("kind") == "forwarded" and ask_id in (r.get("id"), r.get("child"))]
+    return rows[-1] if rows else None
+
+
+def for_attrs(attrs, record):
+    """回して閉じた頼みへ納品するときの属性: 受けた頼みと頼み元を forwarded の行の物に替える（ほかの属性は今の場所の物）。"""
+    boss = record.get("boss") or {}
+    return {**attrs, "ask": record["id"], "boss": boss.get("name"), "boss-session": boss.get("session"),
+            "boss-account": boss.get("account"), "boss-pane": boss.get("pane"), "boss-inbox": boss.get("inbox")}
+
+
 def deliver_summary(a, ports, cwd):
-    """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。"""
+    """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。--for <受付> なら、--forward で回して閉じた頼みの頼み元へ
+    返し、今受けている頼み（company.ask）は閉じない。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role"):
         print(f"止めた: {cwd} は部署でない（git の設定 company.role が無い）。納品は頼まれた部署の場所から返す")
         return 2
+    for_ask = getattr(a, "for_ask", None)
+    if for_ask:
+        common = ports.git.common_dir(cwd)
+        record = forwarded_ask(deliver.inbox_of(common), for_ask) if common else None
+        if not record:
+            print(f"止めた: 受付 {for_ask} を回して閉じた行（kind forwarded）が、この会社の受付箱の台帳に無い。"
+                  "--for には --ask … --forward で回した元の受付か、回した先の受付を渡す")
+            return 2
+        attrs = for_attrs(attrs, record)
     try:
         text = sys.stdin.read() if a.deliver == "-" else \
             pathlib.Path(os.path.expanduser(a.deliver)).read_text(encoding="utf-8")
@@ -1016,8 +1043,8 @@ def deliver_summary(a, ports, cwd):
                                  "branch": branch, "place": cwd},
                         "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": sid, "pane": pane,
                                "wake": to if heard else None},
-                        "file": path})
-    if ask_id and status == "sent":
+                        "file": path, **({"for": for_ask} if for_ask else {})})
+    if ask_id and status == "sent" and not for_ask:   # --for は回して閉じた頼みへ返すので、今の頼みの印は変えない
         try:
             provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id, WAITING: None, WAITING_WHY: None}, ports.git)
         except (gitx.GitError, OSError) as e:

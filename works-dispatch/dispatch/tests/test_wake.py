@@ -833,6 +833,32 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("--forward は --ask と一緒にだけ使う", out)
 
+    def test_deliver_for_returns_a_forwarded_ask_to_its_asker_without_closing_the_one_held_now(self):
+        # 窓口が回して閉じた頼み（a0）の結果を返すとき、その後に受けた頼み（a1）は閉じない
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
+                                            "boss-inbox": self.inbox}, gitx)
+        self.listen("調べ", self.dept_place())
+        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")[0], 0)
+        (child,) = [r["child"] for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
+        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, gitx)
+        boss = self.listen("社長室", "/elsewhere/.git")
+        summary = pathlib.Path(self.root).parent / "summary.md"
+        summary.write_text(test_deliver.GOOD, encoding="utf-8")
+        rc, out = self.main(self.src, "--deliver", str(summary), "--for", "nope")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("受付 nope を回して閉じた行", out)
+        for key in ("a0", child):   # 回した元の受付でも、回した先の受付でも引ける
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
+            self.assertEqual(rc, 0, out)
+            notice, rec = deliver.records(self.inbox)[-2:]
+            self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
+            self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
+        attrs = gitx.worktree_attrs(self.src)
+        self.assertEqual((attrs["ask"], attrs["delivered"], attrs["boss"]), ("a1", "a0", "持ち主"))   # 今の頼みはそのまま
+        rc, out = self.main(self.src, "--for", "a0")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--for は --deliver と一緒にだけ使う", out)
+
     def test_a_machine_role_cannot_be_asked(self):
         self.shape('[[roles]]\nname = "配布"\nmachine = true\n')
         rc, out = self.main(self.src, "--ask", "配布", "--text", "配って", "--task", "x", "--branch", "b/x")

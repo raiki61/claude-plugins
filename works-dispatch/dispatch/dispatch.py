@@ -639,6 +639,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--due", action="store_true", help="herdr に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起こす"
                     "（手元の OS の予定から刻む）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
+    ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
+                    "回した先の受付）の頼み元へ返す（今受けている頼みは閉じない）")
     ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
                     "人がその会話に打つか、納品すると外れる）")
     ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（この番の終わりに、"
@@ -680,6 +682,9 @@ def main(argv=None, ports=None):
         return 2
     if a.forward and (a.ask is None or a.take is not None):
         print("止めた: --forward は --ask と一緒にだけ使う（--take --ask は受付番号と頼み元をそのまま回すので要らない）")
+        return 2
+    if a.for_ask is not None and a.deliver is None:
+        print("止めた: --for は --deliver と一緒にだけ使う")
         return 2
     if a.take is not None:
         return orders.take(a, ports, os.getcwd(), _task)
