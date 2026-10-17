@@ -466,10 +466,17 @@ class WakeFlow(unittest.TestCase):
         a = seen[-1]
         self.assertEqual((a.ask_id, a.brief, a.text, a.task), (urgent["id"], urgent["file"], None, "調べ：急ぎ"))
         self.assertEqual(a.from_boss["boss"], "desk")
+        # 回す側の添え書きは、元の本文の前に置く
+        with mock.patch.object(orders, "ask", fake_ask):
+            rc, out = self.main(self.place, "--take", first["id"], "--ask", "作業", "--task", "調べ：先", "--branch", "b/y",
+                                "--text", "割り振りが回した")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(seen[-1].text, None)
+        self.assertRegex(pathlib.Path(seen[-1].brief).read_text(encoding="utf-8"), r"^割り振りが回した\n\n---\n\n.*先の頼み")
         self.assertNotIn("ask", a.from_boss)
-        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"]])
-        (taken,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
-        self.assertEqual((taken["id"], taken["to"], taken["name"]), (urgent["id"], "作業", "調べ：急ぎ"))
+        self.assertEqual(wake.queued(self.inbox, self.dept_place()), [])
+        taken = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
+        self.assertEqual([(r["id"], r["to"], r["name"]) for r in taken], [(urgent["id"], "作業", "調べ：急ぎ"), (first["id"], "作業", "調べ：先")])
 
     def test_withdraw_drops_an_ask_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()

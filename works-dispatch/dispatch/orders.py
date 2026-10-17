@@ -526,7 +526,7 @@ def take(a, ports, cwd, task):
     """--take <受付>。順番待ちの 1 件を、積んだ順を飛ばして取り出す（2d707e）。--ask を添えなければ、打った部署（その順番待ちの
     持ち主）が今受ける（待ち受けが渡すときと同じに、頼み元の属性を書いて頼みの 1 行を出す）。--ask <宛先>（と --task・--branch）を
     添えれば、受付番号と頼み元をそのままに、ほかの部署に頼み直す（担当が手一杯のときに、受け持ちの名前の付いた作業へ回す。納品は
-    元の頼み元に返る）。取り出しと回した先は台帳に kind taken で残す。終了の値を返す。"""
+    元の頼み元に返る）。--text は回す側の添え書きで、元の本文の前に置く。取り出しと回した先は台帳に kind taken で残す。終了の値を返す。"""
     if a.ask is None:
         return _take_here(a, ports, cwd)
     item, notes = _find_queued(a.take, a.config, ports, cwd)
@@ -541,7 +541,19 @@ def take(a, ports, cwd, task):
         print("\n".join(notes + [f"止めた: 受付 {a.take} はほかが先に取った"]))
         return 2
     marks = item.get("marks") or {}
-    ns = argparse.Namespace(**{**vars(a), "brief": item.get("file"), "text": None, "ask_id": item.get("id"),
+    brief = item.get("file")
+    if a.text:
+        # 回す側の添え書き（担当が回したこと・避けるファイルなど）を、元の頼みの本文の前に置く
+        try:
+            body = pathlib.Path(brief).read_text(encoding="utf-8")
+        except (OSError, TypeError) as e:
+            wake.put_back(item)
+            print(f"止めた: 受付 {a.take} の頼みのファイルを読めないので、元の順番待ちに戻した（{e}）")
+            return 2
+        common = ports.git.common_dir(cwd)
+        brief = deliver.put(deliver.inbox_of(common) if common else _queue_inbox(item), f"{item.get('id')}-ask.md",
+                            f"{a.text.strip()}\n\n---\n\n{body}")
+    ns = argparse.Namespace(**{**vars(a), "brief": brief, "text": None, "ask_id": item.get("id"),
                                "from_boss": {k: v for k, v in marks.items() if k == "boss" or k.startswith("boss-")}})
     rc = ask(ns, ports, cwd, task)
     if rc != 0:
