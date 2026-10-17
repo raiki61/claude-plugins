@@ -7,7 +7,7 @@
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
 - local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
 - broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版が本流（origin/main）とそろわなければ
-  失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える
+  失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える。本流は全アカウントに配った後に読む
 - mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
 """
 
@@ -155,6 +155,12 @@ def broken_copy():
     runner, _ = world()
     rc, out = run(runner, {})
     assert rc == 0 and out.count(f"claude plugin update a@{MARKET} 済（1.0.0）") == 2, out
+    runner, calls = world()   # 本流は全アカウントに配った後に読む（配る間に本流へ入った版を、入った版が新しいのにそろわないと数えない）
+    run(runner, {})
+    seq = [i for i, (a, _) in enumerate(calls) if a[:2] == ["claude", "plugin"] and a[2] in ("update", "marketplace")
+           and "list" not in a]
+    reads = [i for i, (a, _) in enumerate(calls) if a[:1] == ["git"] and a[2] == str(sp.ROOT)]
+    assert reads and min(reads) > max(seq), calls
     runner, calls = world(main=None)   # 本流の版を読めなければ、照らせないので失敗に数える
     rc, out = run(runner, {})
     assert rc == 1 and "本流の版を読めない" in out.strip().splitlines()[-1], out

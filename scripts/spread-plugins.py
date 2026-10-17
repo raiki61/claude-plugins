@@ -12,8 +12,9 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
    消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
    部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
-   配った後に、入ったプラグインの版が本流（origin/main。先に git fetch する）の plugin.json の版と同じかを照らし、
-   違えば失敗に数える。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
+   全アカウントに配った後に、入ったプラグインの版が本流（origin/main。先に git fetch する）の plugin.json の版と同じかを
+   照らし、違えば失敗に数える。本流は配った後に読む。配る前に読むと、配る間に別の部署が本流へ入れた版を marketplace が
+   先に拾い、入った版が本流より新しいのに「そろわない」と数える（2026-10-17 に works-dispatch 0.36.0 で実測）。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
    `/reload-plugins` を打つ。持ち主の作業の会話に打つと herdr で done に替わり、ノイズになるため（この決まりは組織の物なので、
    works-dispatch でなくここに置く）。番の途中の会話（herdr が idle・done と見ていない物）と、入力欄に字が入っている会話は
@@ -110,7 +111,7 @@ def mend_clone(name, market, env, dry, runner=run):
 
 def expected_versions(market, root=ROOT, runner=run):
     """(本流の {id: 版}, 読めなかったときの行か None)。本流は origin/main で、先に fetch する（fetch が切れても手元の
-    origin/main で照らす。--land の push の後なら手元の origin/main も入れた commit を指す）。"""
+    origin/main で照らす。--land の push の後なら手元の origin/main も入れた commit を指す）。全アカウントに配った後に呼ぶ。"""
     runner(["git", "-C", str(root), "fetch", "--quiet", "origin", "main"])
     def show(path):
         code, out = runner(["git", "-C", str(root), "show", f"origin/main:{path}"])
@@ -141,10 +142,9 @@ def installed_ids(name, market, env, runner=run):
             and p.get("scope", "user") == "user"}, None
 
 
-def update_account(name, config_dir, market, dry, want, runner=run):
-    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び)。want は本流の {id: 版}。
-    「済」と出すのは、入った写しに .claude-plugin/plugin.json が在り、版が本流と同じときだけ（欠けた写しや古い版を済と数えない）。
-    本流に無いプラグイン（marketplace から外した物）は版を照らさない。"""
+def update_account(name, config_dir, market, dry, runner=run):
+    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び, 写しの揃った [(名前, id, 版)])。
+    入った写しに .claude-plugin/plugin.json が無ければ失敗に数える（欠けた写しを済と数えない）。版は check_versions が照らす。"""
     env = claude_env(config_dir)
     lines, bad = [], []
 
@@ -164,7 +164,7 @@ def update_account(name, config_dir, market, dry, want, runner=run):
     ids, err = installed_ids(name, market, env, runner)
     if err:
         note(err, True)
-    done = []
+    done, whole = [], []
     for i in sorted(ids):
         argv = ["claude", "plugin", "update", i]
         if dry:
@@ -184,10 +184,22 @@ def update_account(name, config_dir, market, dry, want, runner=run):
                 note(head + "失敗（入った写しを確かめられない）", True)
             elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
                 note(head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
-            elif i in want and version != want[i]:
-                note(head + f"失敗（版が本流とそろわない: 入った版 {version}・本流 {want[i]}）", True)
             else:
-                note(head + f"済（{version}）", False)
+                whole.append((name, i, version))
+    return lines, bad, whole
+
+
+def check_versions(whole, want):
+    """写しの揃ったプラグインの版を本流の {id: 版} と照らす。(行の並び, 失敗の行の並び)。「済」と出すのは版が本流と同じときだけ
+    （古い版を済と数えない）。本流に無いプラグイン（marketplace から外した物）は版を照らさない。"""
+    lines, bad = [], []
+    for name, i, version in whole:
+        head = f"{name}: claude plugin update {i} "
+        if i in want and version != want[i]:
+            lines.append(head + f"失敗（版が本流とそろわない: 入った版 {version}・本流 {want[i]}）")
+            bad.append(lines[-1])
+        else:
+            lines.append(head + f"済（{version}）")
     return lines, bad
 
 
@@ -264,15 +276,18 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as e:
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2
-    lines, bad = [], []
-    want = {}
-    if not dry:
+    lines, bad, whole = [], [], []
+    for name, config_dir in accs:
+        got, fails, ok = update_account(name, config_dir, market, dry, runner)
+        lines += got
+        bad += fails
+        whole += ok
+    if whole:   # 本流は配った後に読む（配る間に本流へ入った版を、入った版が新しいのにそろわないと数えないため）
         want, err = expected_versions(market, runner=runner)
         if err:
             lines.append(err)
             bad.append(err)
-    for name, config_dir in accs:
-        got, fails = update_account(name, config_dir, market, dry, want, runner)
+        got, fails = check_versions(whole, want)
         lines += got
         bad += fails
     got, fails = reload_talks(skip, dry, runner)
