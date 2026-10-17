@@ -400,6 +400,53 @@ class FastForwardAfterCi(LandCase):
         inbox = os.path.join(w.source, ".git", "company", "inbox", "log.jsonl")
         self.assertIn("進められなかった", pathlib.Path(inbox).read_text(encoding="utf-8"))
 
+    def test_the_desk_is_told_when_git_fails_to_follow(self):
+        # 代表の clone をそろえる git が誤りを返しても、黙らずに窓口に知らせる（今までは「そろえられなかった」を出すだけだった）
+        w = World(self.tmp, CI_FILES)
+        git("-C", w.source, "config", "--local", "extensions.worktreeConfig", "true")
+        git("-C", w.source, "config", "--worktree", "company.name", "窓口")
+        w.work()
+        with mock.patch.object(land, "follow", side_effect=gitx.GitError("取り直せない")):
+            code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 0, out)
+        self.assertIn("手元の main: そろえられなかった: 取り直せない", out)
+        self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", out)
+
+    def test_catch_up_brings_the_main_clone_up_to_a_push_that_skipped_land(self):
+        # 部署が --land を通さずに手で push した形（push が手元の origin/main も書き換える）。--deliver の後のそろえ（受付 d3f166）
+        w = World(self.tmp, CI_FILES)
+        write(os.path.join(w.source, "diary.md"), "書きかけ\n")
+        head = w.work()
+        git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/main")
+        out = landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx)
+        self.assertEqual(out, [f"代表の clone の main を本流 {head[:7]} へ進めた"])
+        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head)
+        self.assertEqual(pathlib.Path(w.source, "diary.md").read_text(encoding="utf-8"), "書きかけ\n")
+        self.assertEqual(landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx), [])   # そろっていれば何も出さない
+
+    def test_catch_up_tells_the_desk_when_the_main_clone_cannot_follow(self):
+        w = World(self.tmp, CI_FILES)
+        write(os.path.join(w.source, "a.txt"), "持ち主の書きかけ\n")   # 部署が足すのと同じファイル
+        git("-C", w.source, "config", "--local", "extensions.worktreeConfig", "true")
+        git("-C", w.source, "config", "--worktree", "company.name", "窓口")
+        before = git("-C", w.source, "rev-parse", "main")
+        w.work()
+        git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/main")
+        (line,) = landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx)
+        self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", line)
+        self.assertEqual(git("-C", w.source, "rev-parse", "main"), before)
+        self.assertEqual(pathlib.Path(w.source, "a.txt").read_text(encoding="utf-8"), "持ち主の書きかけ\n")
+
+    def test_catch_up_without_the_network_follows_the_local_origin_ref(self):
+        # 取り直せなくても、部署の push が書き換えた手元の origin/main まではそろえる
+        w = World(self.tmp, CI_FILES)
+        head = w.work()
+        git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/main")
+        with mock.patch.object(land, "refresh", side_effect=gitx.GitError("網が無い")):
+            out = landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx)
+        self.assertIn("網が無い", out[0])
+        self.assertEqual(out[1], f"代表の clone の main を本流 {head[:7]} へ進めた")
+
     def test_red_hands_the_failure_to_the_department(self):
         w = World(self.tmp, CI_FILES)
         before = w.origin("main")

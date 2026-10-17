@@ -6,6 +6,13 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 部署の成果が本流に入ったのに、代表の clone（部署の worktree の元の clone。窓口の会話が居る所）の本流が進まず、窓口にも知らせが届かないことがあったのを直した（2026-10-17 の my_notes。代表の clone の master が本流より遅れたまま、窓口のフックと決まりが前の版で動いた。受付 d3f166）。
+  - 原因: 部署が `--land`（部署の枝を本流に入れる命令）を通さず、`git push origin HEAD:master` で手で入れていた。代表の clone をそろえるのは `--land` の push の後だけだったので、手で入れると誰もそろえなかった。
+  - 直し: `--deliver`（納品）の後にも、代表の clone の手元の本流を origin の本流の先頭へ早送りする。会社の形（`.claude/company.toml`）の `[land]` が `ff-after-ci` の会社だけで、ほかの会社の代表の clone は動かさない。取り直し（fetch）が失敗しても、部署の push で書き換わった手元の `origin/<本流>` まではそろえる。書きかけが本流の変更とぶつかるなどで進められなければ、`--land` の後と同じく窓口へ受付箱の台帳の知らせで渡す。
+  - `--land` の後のそろえで git が誤りを返したときも、窓口へ知らせる。今までは `--land` の出力に「そろえられなかった」と出すだけだった。
+
 ## [0.58.3] - 2026-10-17
 
 ### Fixed

@@ -301,6 +301,11 @@ def advance(source, main, sha, g):
 def follow(source, main, sha, g):
     """push した後に、手元の origin/<本流> と手元の本流をそろえる。手元の本流の結果（gitx.advance_branch の値）を返す。"""
     g.fetch(source, main)
+    return advance_local(source, main, sha, g)
+
+
+def advance_local(source, main, sha, g):
+    """手元の本流を sha へ早送りだけする（取り直さない）。gitx.advance_branch の値を返す。"""
     return g.advance_branch(source, main, sha)
 
 

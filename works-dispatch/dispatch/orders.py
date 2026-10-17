@@ -38,7 +38,8 @@ try:
     import config  # noqa: E402
     import gitx  # noqa: E402
     import herdr  # noqa: E402
-    from nodes import deliver, launch, provision, role, sync, tools, tree, wake  # noqa: E402
+    import landing  # noqa: E402
+    from nodes import deliver, land, launch, provision, role, sync, tools, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
@@ -1296,6 +1297,8 @@ def deliver_summary(a, ports, cwd):
             provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id, WAITING: None, WAITING_WHY: None}, ports.git)
         except (gitx.GitError, OSError) as e:
             notes.append(f"納品済みの印（company.delivered）を書けなかった（{e}）。Stop フックが差し戻し続ける（上限まで）")
+    if common:
+        notes += follow_main(gitx.root_of(common), settings, attrs.get("role"), ports.git)
     if status == POSTED:
         notes.append("頼み元の会話が見つからないので、要約と知らせを頼み元の受付箱に置いて納品済みにした（次の頼みを受けられる）。"
                      "頼み元の代わりに読む人（窓口など）が要れば、受付箱の台帳のこの行から要約を渡す")
@@ -1304,6 +1307,20 @@ def deliver_summary(a, ports, cwd):
     print("\n".join(notes + [f"納品 {file_id} → {attrs.get('boss') or '頼み元'}  {status}" + (f"（{detail}）" if detail else ""),
                              f"- 要約: {path}"]))
     return 0 if status in ("sent", POSTED) else 1
+
+
+def follow_main(source, settings, role_name, g):
+    """納品の後に、部署の会社の代表の clone の本流を origin の本流にそろえる（そろえられなければ窓口に知らせる。landing.catch_up）。
+    --land（取り込み方 ff-after-ci）を使う会社だけ。部署が --land を通さずに手で push しても、成果が代表の clone に届く。出す行の並び。"""
+    info = tree.read_info(source, settings)
+    rules = land.read_rules(info.get("path"), role_name, info.get("text"))
+    if rules["mode"] != "ff-after-ci":
+        return []
+    try:
+        main = rules["main"] or gitx.default_branch(source)
+    except gitx.GitError as e:
+        return [f"注記: 本流の枝の名前を読めないので、代表の clone をそろえていない（{e}）"]
+    return landing.catch_up(source, info, main, g) if main else []
 
 
 def wait_mark(tmp_dir, sid):

@@ -37,6 +37,8 @@ import herdr
 from nodes import bump, clean, deliver, land, provision, role, tree, wake
 
 RUN_PAUSE_S = 10  # 関門の枝に push した後、run が現れるのを見に行く間
+FAILED = "failed"   # 代表の clone の本流をそろえる git が誤りを返した（gitx.advance_branch の値に並べる、こちらの札）
+LAGS = ("dirty", "local_only", FAILED)   # 代表の clone の本流が遅れたまま残り、窓口に知らせる形
 
 
 def run_check(command, cwd):
@@ -239,12 +241,12 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             print(f"止めた: 本流 {main} への push が断られた（{e}）")
         return 1
     try:
-        local = land.follow(source, main, candidate, g)
+        local, err = land.follow(source, main, candidate, g), None
     except gitx.GitError as e:
-        local = f"そろえられなかった: {e}"
-    print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local}）")
-    if local in ("dirty", "local_only"):
-        print(_tell_desk(source, info, main, candidate, local))
+        local, err = FAILED, e
+    print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local if err is None else f'そろえられなかった: {err}'}）")
+    if local in LAGS:
+        print(_tell_desk(source, info, main, candidate, local, err))
     if after and rules["after"]:
         for line in after(rules["after"], source, attrs):
             print(line)
@@ -261,13 +263,39 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
 
 
-def _tell_desk(source, info, main, candidate, local):
+def catch_up(source, info, main, g):
+    """代表の clone の手元の本流を、origin の本流の先頭へそろえる（--deliver の後）。--land の後のそろえと同じく、そろえられなければ
+    窓口に台帳の知らせで渡す。部署が --land を通さずに手で push した成果も、代表の clone に届けるため（2026-10-17 の my_notes。
+    部署が git push origin HEAD:master で入れ、代表の clone の master が黙って遅れた。受付 d3f166）。取り直せなくても（手元の網の
+    誤りなど）、手元の origin/<本流>（部署の push が書き換える）までそろえる。出す行の並びを返す。"""
+    out = []
+    try:
+        land.refresh(source, main, g)
+    except gitx.GitError as e:
+        out.append(f"注記: 本流 {main} を取り直せなかった（{e}）。手元の origin/{main} まで代表の clone をそろえる")
+    sha = g.rev(source, f"refs/remotes/origin/{main}")
+    if not sha:
+        return out
+    try:
+        local, err = land.advance_local(source, main, sha, g), None
+    except gitx.GitError as e:
+        local, err = FAILED, e
+    if local == "updated":
+        out.append(f"代表の clone の {main} を本流 {sha[:7]} へ進めた")
+    elif local in LAGS:
+        out.append(_tell_desk(source, info, main, sha, local, err))
+    return out
+
+
+def _tell_desk(source, info, main, candidate, local, err=None):
     """代表の clone の本流を進められなかったことを、その会社の窓口（本社の --desk の会話）に台帳の知らせで渡す。窓口の会話のフックと
     決まりは代表の clone の作業ツリーから読まれるので、進まないと本流に入れた物が窓口に効かない（5d75df）。出す行を返す。"""
     why, fix = {"dirty": ("git merge --ff-only が断った（書きかけが本流の変更とぶつかるか、merge・rebase の途中など）",
                           f"書きかけを片付けるか commit してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
                 "local_only": (f"代表の clone の {main} に、本流に無い commit が有る",
-                               f"その commit を本流に入れるか別の枝に移してから、代表の clone で git merge --ff-only origin/{main} を打つ")}[local]
+                               f"その commit を本流に入れるか別の枝に移してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
+                FAILED: (f"git が誤りを返した（{err}）",
+                         f"代表の clone で git fetch origin {main} と git merge --ff-only origin/{main} を打つ")}[local]
     attrs = gitx.worktree_attrs(source)
     company = tree.company_name(source, info)
     to = wake.address(company, attrs["name"]) if attrs.get("name") else info.get("desk")   # 会社の形の desk: ほかの会社の窓口が兼ねる

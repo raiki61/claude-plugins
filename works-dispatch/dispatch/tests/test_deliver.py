@@ -820,6 +820,37 @@ class Flow(unittest.TestCase):
         # 納品の後は Stop フックが差し戻さない
         self.assertIsNone(deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
 
+    def push_from_the_department(self, files):
+        """部署が --land を通さずに、部署の作業場から手で本流へ push した形（git push origin HEAD:main）。入れた commit を返す。"""
+        for rel, text in files.items():
+            pathlib.Path(self.place, rel).parent.mkdir(parents=True, exist_ok=True)
+            pathlib.Path(self.place, rel).write_text(text, encoding="utf-8")
+            git("-C", self.place, "add", rel)
+        git("-C", self.place, "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-q", "-m", "部署の作業")
+        git("-C", self.place, "push", "-q", "origin", "HEAD:refs/heads/main")
+        return git("-C", self.place, "rev-parse", "HEAD")
+
+    def test_deliver_brings_the_main_clone_up_to_a_push_that_skipped_land(self):
+        # 部署が --land を通さずに手で push した成果も、納品の後に代表の clone の本流へ届く（2026-10-17 の my_notes。部署が
+        # git push origin HEAD:master で入れ、代表の clone の master が黙って遅れた。受付 d3f166）
+        summary = self.ask_then_summary(GOOD)
+        before = git("-C", self.src, "rev-parse", "main")
+        head = self.push_from_the_department({".claude/company.toml": '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\n'})
+        self.assertEqual(git("-C", self.src, "rev-parse", "main"), before)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(git("-C", self.src, "rev-parse", "main"), head)
+        self.assertIn(f"代表の clone の main を本流 {head[:7]} へ進めた", out)
+
+    def test_deliver_leaves_the_main_clone_of_a_company_without_land_alone(self):
+        summary = self.ask_then_summary(GOOD)
+        before = git("-C", self.src, "rev-parse", "main")
+        self.push_from_the_department({"a.txt": "a\n"})
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(git("-C", self.src, "rev-parse", "main"), before)   # --land を使わない会社の代表の clone は動かさない
+        self.assertNotIn("代表の clone", out)
+
     def test_wait_marks_the_ask_until_a_prompt_or_the_delivery(self):
         # 人の答えを待つ部署（持ち主が答えるのは数時間後もありうる）が、番の終わりごとに納品を促されない
         summary = self.ask_then_summary(GOOD)
