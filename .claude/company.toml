@@ -116,7 +116,11 @@ instructions = """\
 入ったら納品の命令で返す。\
 --land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて返す（窓口が --land <部署の名前> を打って入れる）。\
 納品の後は commit しない（初見読みの指摘は入れる前に直す）。\
-納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。"""
+納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。\
+最後に、枝を本流に入れて納品し終えたら（commit の無い頼みなら納品の後）、dispatch.py --done を打って番を終える（その番の終わりに部屋が畳まれる）。\
+--done が断ったら、納品していない頼みは納品してから、枝が本流に入っていないと出たら git fetch origin してから打ち直す。\
+それ以外の訳（未コミットの変更・本流に無い commit など）は、消したり commit したりせず、訳を書いてもう一度納品の命令（--deliver）で返し、印は打たずに止まる（窓口が --clean の一覧で見て、畳むかを決める）。\
+--land を窓口に打ってもらう形のときも、入ったと知らされたら git fetch origin してから打ち、知らされなければ打たずに止まる。"""
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings", "AskUserQuestion", "EnterWorktree"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
@@ -177,7 +181,10 @@ tool = "spread-plugins"
 #   別の会社に同じ名前の部署が有れば --ask claude-plugins/割り振り）。担当は 1 つの会社に幾つも有るので、役（--ask claude-plugins/担当）では宛てない。
 #   担当がまだ居ない受け持ちは --task <受け持ち> --branch work/<英小文字> --role 担当 --resident で立てる。
 #   担当の部署は片付けで畳まれず、次の頼みを同じ作業場と窓で、空にした会話で受ける（fresh = true）。同じ受け持ちの直しは担当の中で順番に進むので、同じファイルの取り合いにならない。
-# - 作業: 頼みごとに立って入れたら畳まれる一時の部署。受け持ちの無い一度きりの作業（根の scripts/ など。どれに受け持ちが有るかは [[skills]]）と、
+# - 作業: 頼みごとに立って入れたら畳まれる一時の部署。畳むきっかけは、作業が最後に自分で打つ終わりの印（dispatch.py --done。打つ時は作業の本文）で、
+#   印の番の終わりに works-dispatch が会話を止めて部屋を片付ける。印の無いまま残った部屋は、dispatch.py --clean の一覧に
+#   「頼みは納品済みで、終わりの印が無い」「終わりの印で畳もうとして残った: …」などの訳と並ぶので、窓口が止めるか残すかを決め、止めるなら --retire <部署> を打つ。
+#   使うのは、受け持ちの無い一度きりの作業（根の scripts/ など。どれに受け持ちが有るかは [[skills]]）と、
 #   担当が並べて進めたいとき（触るファイルが重ならない作業に限る）に使う。--ask claude-plugins/作業 に --task <名前> --branch <枝> を添えるか、
 #   --task で直に立てる（--role を省けば default_role の作業になる）。
 #   名前は「<受け持ち>：<何をするか>」（例: 「点検：文書の環境変数」）。作業場の名前になるので 12 字くらいまで。受け持ちの無い作業は何をするかだけでよい。
