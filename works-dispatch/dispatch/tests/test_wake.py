@@ -82,6 +82,13 @@ class Watch(unittest.TestCase):
                                                                                           None, 1))], check=check)
         self.assertEqual((rc, err, len(seen)), (2, "頼みです（受付 q1）\n", 2))   # 張った時に 1 回、知らせで 1 回
 
+    def test_a_note_on_the_held_ask_wakes_with_its_line_even_while_an_ask_is_undelivered(self):
+        # 足しは納品と同じに字をそのまま渡す（check は未納品なら None を返すが、足しは待たない）
+        rc, err = self.run_watch([lambda: None, lambda: write_line(self.log, wake.notice("co/調べ", "n1", wake.NOTE, "/n1.md",
+                                                                                          "頼みの足しです（受付 a0 への）", 1))],
+                                 check=lambda: None)
+        self.assertEqual((rc, err), (2, "頼みの足しです（受付 a0 への）\n"))
+
     def test_check_can_end_the_watch_at_the_start(self):
         rc, err = self.run_watch([lambda: None], check=lambda: ("end", None))
         self.assertEqual((rc, err), (0, ""))
@@ -656,6 +663,64 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.place, "--withdraw", first["id"])
         self.assertEqual(rc, 2, out)
         self.assertIn("どの順番待ちにも無い", out)
+
+    def test_first_moves_a_queued_ask_to_the_head_and_leaves_it_in_the_ledger(self):
+        first, urgent = self.queue_two()
+        rc, out = self.main(self.src, "--first", urgent["id"], "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"], urgent["id"]])
+        rc, out = self.main(self.src, "--first", urgent["id"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("1 件", out)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [urgent["id"], first["id"]])
+        self.assertEqual(wake.take(self.inbox, self.dept_place())["id"], urgent["id"])   # 待ち受けが渡すのも先頭から
+        (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "reordered"]
+        self.assertEqual((moved["id"], moved["passed"]), (urgent["id"], [first["id"]]))
+        rc, out = self.main(self.src, "--first", urgent["id"])
+        self.assertEqual(rc, 2, out)
+
+    def test_note_on_a_queued_ask_rides_on_the_line_it_is_handed_with(self):
+        first, urgent = self.queue_two()
+        rc, out = self.main(self.src, "--note", first["id"], "--text", "範囲に B も足す")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"], urgent["id"]])   # 順は替えない
+        handed = wake.take(self.inbox, self.dept_place())
+        self.assertIn(first["line"], handed["line"])
+        self.assertRegex(handed["line"], rf"\n頼みの足しです（受付 {first['id']} への、desk から。足しの受付 \S+）: 範囲に B も足す")
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note"]
+        self.assertEqual((rec["ask"], rec["status"]), (first["id"], "queued"))
+        self.assertEqual(self.prompts(), [])
+
+    def test_note_on_a_held_ask_goes_through_the_ledger_and_not_the_window(self):
+        # 番の途中の部署（待ち受けは居ないが跡は在る）にも、窓に打たずに台帳で届く。番の終わりの待ち受けが渡す
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        to = self.listen("調べ", self.dept_place(), owner=dead_pid())
+        rc, out = self.main(self.src, "--note", "a0", "--text", "取り下げる。止めて、どこまで済んだかを返す")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("番の終わりに待ち受けが渡す", out)
+        self.assertEqual([w for w in self.ports.herdr.writes if w[0] in ("prompt", "run")], [])
+        notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
+        self.assertEqual((notice["to"], notice["kind"]), (to, wake.NOTE))
+        self.assertIn("頼みの足しです（受付 a0 への、desk から", notice["text"])
+        self.assertIn("取り下げる。止めて", notice["text"])
+        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note" and not isinstance(r.get("to"), str)]
+        self.assertEqual((rec["ask"], rec["status"], rec["to"]["wake"]), ("a0", "noticed", to))
+
+    def test_note_without_a_waiter_types_into_the_window_and_stops_once_delivered(self):
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
+        self.assertEqual(rc, 0, out)
+        (typed,) = self.prompts()
+        self.assertIn("頼みの足しです（受付 a0 への", str(typed))
+        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("もう納品した", out)
+        rc, out = self.main(self.src, "--note", "nope", "--text", "x")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("どの部署も受けておらず", out)
+        rc, out = self.main(self.src, "--note", "a0")
+        self.assertEqual(rc, 2, out)
 
     def test_forward_closes_the_held_ask_without_waking_its_asker_and_links_it_in_the_ledger(self):
         # 窓口が受けた頼みを部署へ回しただけなら、頼み元（社長室）の会話を起こさない。回した先は台帳にだけ結ぶ

@@ -613,7 +613,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--json", action="store_true", help="--tree と一緒に: JSON で出す")
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
-    ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
+    ap.add_argument("--text", help="--ask か --note と一緒に: 頼みか足しの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--forward", action="store_true", help="--ask と一緒に: 部署か窓口の場所から、受けている頼みをこの頼みで回したとして"
                     "閉じる（回した先は台帳にだけ書き、頼み元の会話は起こさない。結果と問いは今までどおり --deliver で返す）")
     ap.add_argument("--take", metavar="受付", help="順番待ちの 1 件を、積んだ順を飛ばして取り出す。部署の場所から打てばその部署が今受け、"
@@ -624,6 +624,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--if-limited", action="store_true",
                     help="--move と一緒に: 今のアカウントの使用率が上限に達しているときだけ移す（上限で止まったときのフックが付ける）")
     ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）")
+    ap.add_argument("--first", metavar="受付", help="順番待ちの 1 件を、その順番待ちの先頭に回す（急ぐ物を先にする。台帳に残す）")
+    ap.add_argument("--note", metavar="受付", help="受付の頼みに、変更・足し・取り下げを届ける（--text か --brief。部署が番の途中でも、"
+                    "台帳の知らせで番の終わりに待ち受けが渡す。順番待ちの頼みなら、渡すときの 1 行に添える）")
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "道具"),
                     help="役の機械窓口の道具を呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: 道具への入力（JSON の字か @ファイル。省けば {}）")
@@ -678,6 +681,10 @@ def main(argv=None, ports=None):
         return orders.take(a, ports, os.getcwd(), _task)
     if a.withdraw is not None:
         return orders.withdraw(a, ports, os.getcwd())
+    if a.first is not None:
+        return orders.first(a, ports, os.getcwd())
+    if a.note is not None:
+        return orders.note(a, ports, os.getcwd())
     if a.ask is not None:
         return orders.ask(a, ports, os.getcwd(), _task)
     if a.deliver is not None:

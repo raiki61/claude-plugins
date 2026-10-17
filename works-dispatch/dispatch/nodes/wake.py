@@ -16,7 +16,7 @@ docs/specs/2026-10-17-reception-design.md の 3・4 章）。人の打つ入力�
   待ってから台帳を読み始める（前の物が読み終えた所から続ける）。読んだ所は wake/<場所の鍵>.pos（台帳の何バイト目まで）。初めての
   場所は、待ち受けを張った時の台帳の終わりから読む。読んだ所のファイルが在ること（has_history）が、その場所に待ち受けが居た跡。
 - 順番待ち: 受付箱の queue/<場所の鍵>/<受付番号>.json に 1 件 1 ファイル（enqueue）。受付番号は時刻で始まるので、名前の順が
-  積んだ順。取るのは待ち受けの入口だけ（take）。
+  積んだ順。先頭に回した件（front。--first）は、回した時刻の新しい順にその前に並ぶ。取るのは待ち受けの入口だけ（take）。
 """
 
 import hashlib
@@ -32,9 +32,10 @@ POLL = 1.0          # 台帳を見る間（秒）
 BEAT = 5.0          # 印の更新の時刻を進める間（秒）
 FRESH = 15.0        # 送る側が待ち受けを居ると見る、印の更新からの秒
 GRACE = 2.0         # 新しい待ち受けが、前の待ち受けが終わるのを待つ秒（前の物は POLL ごとに印を見る）
-KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み"}
+KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み", "note": "頼みの足し"}
 HOLD = ("hold", None)  # check の返り: 今は渡さず、BEAT ごとに check を呼び直す（fresh の部署を空にできるまで待つ）
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
+NOTE = "note"       # 今受けている頼みへの足し（--note）。納品と同じに text をそのまま渡す（番の途中なら、番の終わりの待ち受けが渡す）
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
                     # 番の終わりの待ち受けが窓に /clear を打って消す。人の文で番が始まると外れる
 FINISHED = "finished"   # 都度の部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
@@ -173,8 +174,13 @@ def queue_dir(inbox, place):
 
 
 def queued(inbox, place):
-    """その場所の順番待ちの並び（積んだ順。各件に path を添える）。"""
-    d = queue_dir(inbox, place)
+    """その場所の順番待ちの並び（渡す順。各件に path を添える）。先頭に回した件（front に回した時刻）が、新しく回した物から先に
+    並び、ほかは積んだ順。"""
+    return listed(queue_dir(inbox, place))
+
+
+def listed(d):
+    """順番待ちの置き場 d（queue/<場所の鍵>）の並び（queued と同じ順）。"""
     try:
         names = sorted(n for n in os.listdir(d) if n.endswith(".json"))
     except OSError:
@@ -188,6 +194,7 @@ def queued(inbox, place):
             continue
         if isinstance(got, dict):
             out.append({**got, "path": os.path.join(d, n)})
+    out.sort(key=lambda q: (0, -float(q["front"])) if isinstance(q.get("front"), (int, float)) else (1, 0))
     return out
 
 

@@ -563,17 +563,19 @@ def _queue_inbox(item):
     return os.path.dirname(os.path.dirname(os.path.dirname(item["path"])))
 
 
-def _find_queued(ask_id, config_path, ports, cwd):
-    """受付 ask_id の順番待ちの件を、打った場所の会社と herdr に開いている会社の受付箱から探す。(件か None, 注記)。"""
+def _find_queued(ask_id, config_path, ports, cwd, companies=None):
+    """受付 ask_id の順番待ちの件を、打った場所の会社と herdr に開いている会社の受付箱から探す。(件か None, 注記)。
+    companies（survey の会社の並び）を渡せば herdr を読み直さない。"""
     inboxes, notes = [], []
     common = ports.git.common_dir(cwd)
     if common:
         inboxes.append(deliver.inbox_of(common))
-    try:
-        companies = survey(config_path, ports)[4]
-    except herdr.HerdrError as e:
-        companies = []
-        notes.append(f"herdr を読めないので、打った場所の会社の順番待ちだけを探した（{e}）")
+    if companies is None:
+        try:
+            companies = survey(config_path, ports)[4]
+        except herdr.HerdrError as e:
+            companies = []
+            notes.append(f"herdr を読めないので、打った場所の会社の順番待ちだけを探した（{e}）")
     for c in companies:
         got = ports.git.common_dir(c["root"])
         if got:
@@ -585,10 +587,16 @@ def _find_queued(ask_id, config_path, ports, cwd):
     return None, notes
 
 
-def _log_taken(item, record):
-    """順番待ちから取った知らせを、順番待ちの在る受付箱と頼み元の受付箱の台帳に足す（取り下げと回した先を両方に残す）。"""
+def _log_taken(item, record, also=()):
+    """順番待ちから取った知らせを、順番待ちの在る受付箱と頼み元の受付箱（と also の受付箱）の台帳に足す（取り下げと回した先を
+    両方に残す）。"""
     boss_inbox = (item.get("marks") or {}).get("boss-inbox")
-    for inbox in dict.fromkeys([_queue_inbox(item)] + ([boss_inbox] if boss_inbox and os.path.isdir(boss_inbox) else [])):
+    _log_each([_queue_inbox(item), boss_inbox, *also], record)
+
+
+def _log_each(inboxes, record):
+    """在る受付箱のそれぞれの台帳に 1 行ずつ足す（同じ受付箱には 1 行だけ）。"""
+    for inbox in dict.fromkeys(x for x in inboxes if x and os.path.isdir(x)):
         deliver.log(inbox, record)
 
 
@@ -684,6 +692,129 @@ def withdraw(a, ports, cwd):
                       "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
     print("\n".join(notes + [f"受付 {a.withdraw} を順番待ちから取り下げた（台帳に残した）"]))
     return 0
+
+
+def first(a, ports, cwd):
+    """--first <受付>。順番待ちの 1 件を、その順番待ちの先頭に回す（急ぐ物を先にする。渡すのは今までどおり待ち受けで、今の頼みの
+    納品の後）。後から回した物ほど前に並ぶ。台帳に kind reordered で、追い越した件と一緒に残す。終了の値を返す。"""
+    item, notes = _find_queued(a.first, a.config, ports, cwd)
+    if item is None:
+        print("\n".join(notes + [f"止めた: 受付 {a.first} はどの順番待ちにも無い（もう渡ったか、取り下げられた）"]))
+        return 2
+    line = [q.get("id") for q in wake.listed(os.path.dirname(item["path"]))]
+    passed = line[:line.index(a.first)] if a.first in line else []
+    if a.dry_run:
+        print("\n".join(notes + [f"受付 {a.first} を順番待ち（{os.path.dirname(item['path'])}）の先頭に回す（{len(passed)} 件を追い越す）"]))
+        return 0
+    if not wake.pull(item):
+        print("\n".join(notes + [f"止めた: 受付 {a.first} はほかが先に取った"]))
+        return 2
+    wake.put_back({**item, "front": ports.now()})
+    _log_taken(item, {"id": item.get("id"), "kind": "reordered", "at": ports.now(), "from": os.path.dirname(item["path"]),
+                      "passed": passed, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+    print("\n".join(notes + [f"受付 {a.first} を順番待ちの先頭に回した（{len(passed)} 件" + (f"〔{'・'.join(passed)}〕" if passed else "")
+                              + "を追い越した。台帳に残した）。今の頼みの納品の後に待ち受けが渡す"]))
+    return 0
+
+
+def note_line(ask_id, note_id, sender, text, file):
+    """今受けている頼みへの足しを、部署の会話に渡す 1 行。短い文は本文ごと、長い物は受付箱のファイルを指す。"""
+    body = text if text and "\n" not in text and len(text) <= deliver.SHORT_TEXT else f"{file} を読む。"
+    return (f"頼みの足しです（受付 {ask_id} への、{sender} から。足しの受付 {note_id}）: {body} "
+            "今の頼みの進め方に入れて続ける（足しに別の納品はしない。今の頼みの納品にまとめる。取り下げなら、そこで止めて、"
+            "どこまで済んだかを納品で返す）。")
+
+
+def note(a, ports, cwd):
+    """--note <受付>（--text か --brief）。受付の頼みに、変更・足し・取り下げを届ける。順番待ちに積まれていれば、その件に足しを
+    添える（渡すときに頼みの 1 行と一緒に出る）。部署が今受けている（未納品の）頼みなら、宛先の会社の台帳に足しの知らせ
+    （kind note）を足し、部署の待ち受けが番の終わりに会話を起こして渡す（番の途中の会話の入力欄には打たない）。待ち受けの跡の無い
+    部署（フックの無い古い版の会話）には、今までどおり窓に打ち込む。打った場所・頼み元・宛先の受付箱の台帳に kind note で残す。
+    終了の値を返す。"""
+    if bool(a.text) == bool(a.brief):
+        print("止めた: --note には --text <文> か --brief <ファイル> のどちらか 1 つが要る")
+        return 2
+    body = a.text
+    if a.brief:
+        try:
+            body = pathlib.Path(os.path.expanduser(a.brief)).read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"止めた: 足しのファイルを読めない（{e}）")
+            return 2
+    common = ports.git.common_dir(cwd)
+    if not common:
+        print(f"止めた: 打った場所 {cwd} が git でないので、受付箱を置けない（会社の本社か部署の場所から打つ）")
+        return 2
+    try:
+        cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
+    except herdr.HerdrError as e:
+        print(f"止めた: herdr を読めない（{e}）")
+        return 1
+    inbox = deliver.inbox_of(common)
+    sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
+    found_account, found_name = ports.caller(sessions_)
+    name = a.from_name or place_name(cwd, sid, ports) or found_name
+    sender = name or "名の無い会話"
+    note_id = deliver.new_id(ports.now())
+    by = {"name": name, "account": a.from_account or found_account, "session": sid, "place": cwd}
+    item, more = _find_queued(a.note, a.config, ports, cwd, companies)
+    notes += more
+    if item is not None:
+        if a.dry_run:
+            print("\n".join(notes + [f"受付 {a.note} は順番待ち（{os.path.dirname(item['path'])}）に在る。渡すときの 1 行に足しを添える"]))
+            return 0
+        if not wake.pull(item):
+            print("\n".join(notes + [f"止めた: 受付 {a.note} は今ちょうど渡った。もう一度打つと、受けた部署に足しを届ける"]))
+            return 2
+        path = deliver.put(inbox, f"{note_id}-note.md", body)
+        line = note_line(a.note, note_id, sender, body, path)
+        wake.put_back({**item, "line": f"{item.get('line') or wake.wake_text([item])}\n{line}",
+                       "notes": (item.get("notes") or []) + [{"id": note_id, "file": path, "from": sender, "at": ports.now()}]})
+        _log_taken(item, {"id": note_id, "kind": "note", "ask": a.note, "at": ports.now(), "status": "queued", "from": by,
+                          "file": path}, also=[inbox])
+        print("\n".join(notes + [f"足し {note_id} → 受付 {a.note}（順番待ちに在る）  渡すときの 1 行に添えた", f"- 本文: {path}"]))
+        return 0
+    held = [(c, d) for c in companies for d in c["departments"] if d["attrs"].get("ask") == a.note]
+    if not held:
+        print("\n".join(notes + [f"止めた: 受付 {a.note} はどの部署も受けておらず、どの順番待ちにも無い（会社が herdr に開いているか、"
+                                 "受付番号を確かめる）"]))
+        return 2
+    company, dept = held[0]
+    where = f"{company['name']}/{dept['attrs'].get('name') or dept['branch']}"
+    if dept["attrs"].get("delivered") == a.note:
+        print("\n".join(notes + [f"止めた: {where} は受付 {a.note} をもう納品した（足すなら新しい頼みとして --ask で頼む）"]))
+        return 2
+    dest_common = ports.git.common_dir(company["root"])
+    dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
+    place_dir = ports.git.git_dir(dept["path"])
+    to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
+    path = os.path.join(inbox, f"{note_id}-note.md")
+    line = note_line(a.note, note_id, sender, body, path)
+    by_ledger = bool(to and dest_inbox and place_dir and (heard or wake.has_history(dest_inbox, place_dir)))
+    pane = None
+    if not by_ledger:
+        pane = live_window(dept, ports)
+        if pane is None:
+            print("\n".join(notes + [f"止めた: {where} は待ち受けの跡が無く、窓にも会話が居ない（部署の会話を戻してから打ち直す）"]))
+            return 1
+    if a.dry_run:
+        print("\n".join(notes + [f"足す先: {where}（受付 {a.note} を受けている）  "
+                                 + ("台帳に知らせを足す（待ち受けが番の終わりに渡す）" if by_ledger else f"窓 {pane} に打ち込む"),
+                                 f"会話に渡す 1 行: {line}"]))
+        return 0
+    path = deliver.put(inbox, f"{note_id}-note.md", body)
+    if by_ledger:
+        deliver.log(dest_inbox, wake.notice(to, note_id, wake.NOTE, path, line, ports.now()))
+        status, detail = "noticed", ("待ち受けが渡す" if heard else "番の終わりに待ち受けが渡す")
+    else:
+        status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
+    _log_each([inbox, dest_inbox, dept["attrs"].get("boss-inbox")],
+              {"id": note_id, "kind": "note", "ask": a.note, "at": ports.now(), "status": status, "detail": detail, "from": by,
+               "to": {"company": company["name"], "name": dept["attrs"].get("name"), "path": dept["path"], "pane": pane,
+                      "wake": to if by_ledger else None}, "file": path})
+    print("\n".join(notes + [f"足し {note_id} → {where}（受付 {a.note}）  {status}" + (f"（{detail}）" if detail else ""),
+                             f"- 本文: {path}"]))
+    return 0 if status in ("noticed", "sent") else 1
 
 
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
