@@ -297,6 +297,48 @@ def ask_title(path, width=60):
     return head if head is None or len(head) <= width else head[:width] + "…"
 
 
+# ---- 残った疑問の持ち手（役の holders。my_notes の tools/deliver_check.py の holder_problems から移した）----
+
+OPEN = "残った疑問"
+HOLDER_RE = re.compile(r"持ち手[:：]\s*([^\s。、]+)")
+ITEM_RE = re.compile(r"^(?:[-*・]|\d+[.)．])\s")   # 箇条の頭。字下げした子の項目は親に続ける
+NONE_WORDS = {"無し", "なし", "無い", "ない", "特に無し", "特になし"}
+OWNER_WORDS = ("持ち主", "所有者")
+OWNER_OK = ("持ち主（価値で選ぶ）", "持ち主（確認してからやる）")
+
+
+def open_items(text):
+    """残った疑問を 1 件ずつに割る。箇条書きが無ければ全体で 1 件。"""
+    items = []
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        if ITEM_RE.match(line) or not items:
+            items.append(line.strip())
+        else:
+            items[-1] += " " + line.strip()
+    return items
+
+
+def holder_problems(text, relays=()):
+    """残った疑問（text）の 1 件ごとの持ち手の違反の並び。持ち手が無い・持ち主（か relays の名前。持ち主への中継の会話）を持ち手にして、
+    価値で選ぶ問いか確認してからやる事と示していない、の 2 つ。「無し」だけなら違反なし。"""
+    text = (text or "").strip()
+    if not text or text.strip("。.") in NONE_WORDS:
+        return []
+    out = []
+    for item in open_items(text):
+        head = item[:40]
+        found = HOLDER_RE.search(item)
+        if not found:
+            out.append(f"持ち手が無い: {head}")
+            continue
+        holder = found.group(1)
+        if holder.startswith(OWNER_WORDS + tuple(relays)) and not holder.startswith(OWNER_OK):
+            out.append(f"持ち手が持ち主（か持ち主への中継）で、「持ち主（価値で選ぶ）」か「持ち主（確認してからやる）」と示していない: {head}")
+    return out
+
+
 # ---- 要約の項目 ----
 
 def required_items(role):

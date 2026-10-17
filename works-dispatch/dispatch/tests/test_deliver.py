@@ -124,6 +124,29 @@ class Target(unittest.TestCase):
             self.assertIn("その窓口が見つからない", str(e.exception))
 
 
+class Holders(unittest.TestCase):
+    """残った疑問の持ち手の検査（役の holders・ask_holders。my_notes の tools/deliver_check.py から移した。24e521）。"""
+
+    def test_each_open_item_needs_a_holder_and_the_owner_only_with_a_reason(self):
+        ok = "- 測り直す。持ち手: 割り振り\n- どれを採るか。持ち手: 持ち主（価値で選ぶ）\n  続きの行"
+        self.assertEqual(deliver.holder_problems(ok), [])
+        self.assertEqual(deliver.holder_problems("なし"), [])
+        bad = deliver.holder_problems("- 持ち手の無い疑問\n- 決めて。持ち手: 持ち主\n- 中継。持ち手: 社長室", ["社長室"])
+        self.assertEqual(len(bad), 3)
+        self.assertIn("持ち手が無い", bad[0])
+        self.assertIn("持ち主（価値で選ぶ）", bad[1])
+        self.assertEqual(deliver.holder_problems("- 中継。持ち手: 社長室"), [])   # 中継の名前を書かない会社では普通の持ち手
+
+    def test_the_role_reads_holders_as_off_true_or_relay_names(self):
+        import tomllib
+        from nodes import role
+        path = pathlib.Path(tempfile.mkdtemp(), "c.toml")
+        path.write_text('[[roles]]\nname = "担当"\nholders = ["社長室"]\n[[roles]]\nname = "相談"\nask_holders = true\n'
+                        '[[roles]]\nname = "作業"\n', encoding="utf-8")
+        got = role.load(str(path), path.read_text(encoding="utf-8"))["roles"]
+        self.assertEqual((got["担当"]["holders"], got["相談"]["ask_holders"], got["作業"]["holders"]), (["社長室"], [], None))
+
+
 class Summary(unittest.TestCase):
     def test_headings_and_labels_are_read(self):
         got = deliver.parse("結論: 直した\n**決め手**：原文 https://x.example\n## 残った疑問\nなし\n## 補足\n関係ない",
@@ -984,6 +1007,24 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)   # 既定の項目で確かめる（黙って無視せず、注記を出す）
         self.assertIn('[roles."役"] の形で書いている（調べ役）', out)
         self.assertIn("[[roles]] の項目", out)
+
+    def test_deliver_with_holders_stops_an_open_item_without_a_holder(self):
+        self.shape('[[roles]]\nname = "調べ役"\nholders = true\n')
+        summary = self.ask_then_summary(GOOD.replace("## 残った疑問\nなし", "## 残った疑問\n- 測り直す"))
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("持ち手が無い: - 測り直す", out)
+        self.assertEqual(self.prompts(), [])
+        pathlib.Path(summary).write_text(GOOD.replace("## 残った疑問\nなし", "## 残った疑問\n- 測り直す。持ち手: 割り振り"), encoding="utf-8")
+        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+
+    def test_an_ask_to_a_role_with_ask_holders_is_checked_when_it_has_open_items(self):
+        self.shape('[[roles]]\nname = "調べ役"\nask_holders = true\n')
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "問いです\n## 残った疑問\n- 持ち手の無い疑問", "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("役の ask_holders の検査", out)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "残った疑問の節の無い頼み", "--dry-run")
+        self.assertEqual(rc, 0, out)
 
     def test_deliver_outside_a_department_stops(self):
         summary = pathlib.Path(self.root).parent / "s.md"

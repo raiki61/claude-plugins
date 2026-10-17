@@ -18,6 +18,10 @@
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
 - deliver_check: その役の納品の検査の命令（シェルの字）。--deliver が項目を確かめた後に部署の作業場の根で走らせ、0 以外で終われば
   送らない（何を確かめるかは会社の側のスクリプトが持つ。渡す物と終わりの値は deliver ノードの gate）。省けば検査しない
+- holders: 納品の「残った疑問」の 1 件ごとに「持ち手: <部署の名前か受付>」が在るかを --deliver が確かめる（true か、持ち主の側と
+  みなす名前の並び〔例 ["社長室"]。持ち主への中継の会話〕）。持ち手を持ち主にしてよいのは「持ち主（価値で選ぶ）」「持ち主（確認してから
+  やる）」と書いた物だけ。欠けていれば送らない（deliver ノードの holder_problems。my_notes の tools/deliver_check.py から移した）。
+- ask_holders: holders と同じ形で、この役へ宛てた --ask の本文に「残った疑問」の節が在れば、同じ検査を掛ける（問いを受ける相談の役に書く）
 - resident: true なら、その役の部署は常設（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
 - fresh: true なら、その役の部署は頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に /clear を
@@ -165,6 +169,8 @@ def load(path, text=None):
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
         bad += [k for k in ("resident", "fresh", "machine") if k in r and not isinstance(r[k], bool)]
+        bad += [k for k in ("holders", "ask_holders") if k in r and not (isinstance(r[k], bool) or isinstance(r[k], list)
+                                                                        and all(isinstance(x, str) and x for x in r[k]))]
         if "effort" in r and r["effort"] not in EFFORTS + (INHERIT,):
             bad.append("effort")
         if "deliver" in r and not (isinstance(r["deliver"], list) and r["deliver"]
@@ -173,6 +179,7 @@ def load(path, text=None):
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
                                    f"deliver は空でない文字列の並び、deliver_check は空でない文字列、resident・fresh・machine は true か false、"
+                                   f"holders・ask_holders は true・false か名前の並び、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
         if r.get("model") == INHERIT:
@@ -191,7 +198,8 @@ def load(path, text=None):
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
                                    "deliver_check": (r.get("deliver_check") or "").strip() or None,
                                    "resident": r.get("resident") is True, "fresh": r.get("fresh") is True,
-                                   "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"])}
+                                   "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"]),
+                                   "holders": _holders(r.get("holders")), "ask_holders": _holders(r.get("ask_holders"))}
         olds = r.get("former_names", [])
         if not (isinstance(olds, list) and all(isinstance(x, str) and x.strip() for x in olds)):
             out["problems"].append(f"{where}（{r['name']}）: former_names が空でない文字列の並びで無いので外す")
@@ -299,6 +307,13 @@ def _merge(base, top):
 def settings_for(role):
     """部署を起こすときに --settings に渡す設定（dict）。役の設定に、必ず効かせる鍵（FIXED）を上から重ねる。"""
     return _merge((role or {}).get("settings") or {}, FIXED)
+
+
+def _holders(value):
+    """役の holders・ask_holders の値を、検査しないなら None、するなら持ち主の側とみなす名前の並び（空でもよい）にする。"""
+    if value is True:
+        return []
+    return list(value) if isinstance(value, list) and value else None
 
 
 def gh_user(repo_user, shape):

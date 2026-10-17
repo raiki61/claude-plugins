@@ -419,6 +419,14 @@ def _ask(a, ports, cwd, task, sent):
     the_role, problems = shape_role(company["root"], settings, role)
     required = deliver.required_items(the_role)
     notes += problems
+    relays = (the_role or {}).get("ask_holders")
+    if relays is not None:
+        # 問いを受ける役（相談）へ宛てた頼みにも、本文に残った疑問の節が在れば同じ持ち手の検査を掛ける
+        bad = deliver.holder_problems(deliver.parse(body, {deliver.OPEN}).get(deliver.OPEN), relays)
+        if bad:
+            print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、持ち手が足りない（役の ask_holders の検査）"]
+                            + [f"  {x}" for x in bad]))
+            return 2
     found_account, found_name = ports.caller(sessions_)
     inbox = deliver.inbox_of(common)
     ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
@@ -1175,6 +1183,14 @@ def deliver_summary(a, ports, cwd):
                                  f"- 必須の項目（{attrs['role']}）: " + "・".join(required)
                                  + "。見出し（## 結論）か行の頭の札（結論: …）で書く。結論は 3 行以内、決め手には原典の URL"]))
         return 2
+    relays = (the_role or {}).get("holders")
+    if relays is not None:
+        bad = deliver.holder_problems(items.get(deliver.OPEN), relays)
+        if bad:
+            print("\n".join(notes + ["送らなかった: 残った疑問の持ち手が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
+                            + ["- 残った疑問は 1 件ごとに「持ち手: <部署の名前か受付番号>」を書く。持ち主に向ける物だけ「持ち手: 持ち主（価値で"
+                               "選ぶ）」か「持ち手: 持ち主（確認してからやる）」"]))
+            return 2
     check = (the_role or {}).get("deliver_check")
     if check:
         place = ports.git.toplevel(cwd) or cwd
