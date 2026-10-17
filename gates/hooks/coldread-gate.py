@@ -30,7 +30,8 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 
 読み手が持つ文脈は投稿先で変える。PR/issue のスレッドへ付く返信・編集は、題・番号・
 file と行・元の指摘・これまでの返信が同じ画面に見えている状態で読まれるので、フックが
-gh でその「画面」を取り、読み手に既知として渡す(新規作成は読み手が何も持たないので
+gh でその「画面」を取り、読み手に既知として渡す。新しい PR・issue も、GitHub が本文の周りに出すもの
+(題・リポジトリ・枝・変更ファイル・本文が指す #番号 の題)を渡す(release・gist・discussion の新規作成は
 文脈ゼロのまま)。画面を渡さずに読ませると、@相手の名前・PR 番号・相手が付けた印・
 相手自身の語まで詰まりに出て、書き手がそれを直すと宛先本人に本人の名前と自分の指摘の
 意味を説明する返信になる(2026-09-06 に PR 1583 で実測: 1 本の返信が 39 回止まり、
@@ -70,7 +71,7 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
 記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 4 本:
   denies.log  allow / deny の別(deny はタブ区切りで種別も。maxlen・parse-fail・
               blocked・reader-down・reader-shape・finding・cap)。finding と allow には本文の長さと読み方
-              (screen=画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
+              (screen=スレッドの画面を渡した / new=新しい PR・issue の画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
               どれだけ膨れたかを示すため。blocked には止めた理由(why=)が付く。各行の末尾に sid=(session id の先頭 8 字)
               v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)、本文を読んだ deny には
               fp=(本文の指紋。本文を写さずに、同じ投稿の書き直しかを比べる)
@@ -1212,13 +1213,20 @@ class Analysis:
         self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
         self.calls, self.misses = list(calls), list(misses)
 
-    def target_of(self, body=None):
-        """log に残す投稿先と、画面を取る投稿先 (ラベル, dest)。body を運んだ呼び出し(無ければ止めた呼び出し)を見る。"""
+    def call_of(self, body=None):
+        """body を運んだ呼び出し(無ければ止めた呼び出し)の (サブコマンド, 引数列)。無ければ (None, [])。"""
         for sub, args, cands, blk in self.calls:
             if (body is not None and body in cands) or (body is None and (blk or cands)):
-                dest = destination(args, sub) if sub else None
-                return target_label(sub, dest), dest
-        return "-", None
+                return sub, args
+        return None, []
+
+    def target_of(self, body=None):
+        """log に残す投稿先と、画面を取る投稿先 (ラベル, dest)。"""
+        sub, args = self.call_of(body)
+        if sub is None and not args:
+            return "-", None
+        dest = destination(args, sub) if sub else None
+        return target_label(sub, dest), dest
 
 
 def _head_word(args):
@@ -1273,8 +1281,12 @@ def posting_bodies(command, cwd=None):
 # 返信の読み手は文脈ゼロではない。スレッドへ付く返信は、題・番号・file と行・元の指摘・
 # これまでの返信が同じ画面に見えている状態で読まれる。読み手にそれを渡さず本文だけで
 # 読ませると、画面に有るもの(相手の名前・PR 番号・相手の印・相手の語)が全部詰まりに出る
-# (経緯は冒頭の docstring)。そこで投稿先がスレッドなら gh で画面の中身を取って渡し、
-# 新規作成(issue/PR/release/gist/discussion の create)は読み手が何も持たないので渡さない。
+# (経緯は冒頭の docstring)。そこで投稿先がスレッドなら gh で画面の中身を取って渡す。
+# 新規の PR・issue も読み手は本文だけを見ているのではない。GitHub は本文の周りに題・リポジトリ・
+# (PR なら)取り込む先と元の枝・変更ファイル・本文が指す #番号 の題を出す(閉じる issue は PR の横に題ごと並ぶ)。
+# それを渡さずに読ませると、本文 1 行目の「Closes #660」まで「何の issue か分からない」と止まった
+# (2026-10-17 に実測。works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)。そこで new_item_screen が
+# その分だけを組んで渡す。release・gist・discussion の create は今までどおり文脈ゼロ。
 # 取れなかったときは文脈ゼロに倒して検査は走らせ、その旨を書き手に伝える。
 # 画面の中身は他人の文章なので読み手への指示が混ざりうるが、読み手は道具を持たず(--tools "")、
 # 出力は詰まりの有無にしか効かない。
@@ -1308,6 +1320,8 @@ API_DEST_RES = (
 PR_THREAD_SUBS = {("pr", "comment"), ("pr", "review"), ("pr", "close"), ("pr", "reopen"),
                   ("pr", "merge"), ("pr", "revert"), ("pr", "edit")}
 ISSUE_THREAD_SUBS = {("issue", "comment"), ("issue", "close"), ("issue", "reopen"), ("issue", "edit")}
+# 新しく作るもので、GitHub が本文の周りに題などを出すもの(new_item_screen)。値は読み手に示す呼び名
+NEW_ITEM_SUBS = {("pr", "create"): "PR", ("issue", "create"): "issue"}
 
 
 class BudgetExhausted(RuntimeError):
@@ -1355,17 +1369,22 @@ class Screen:
         return out
 
 
-def repo_flag(args):
-    """-R/--repo の値。無ければ None(gh はカレントの git remote を使う)。"""
+def flag_value(args, short, long):
+    """値を取る旗(-X 値・-X値・--xx 値・--xx=値)の値。無ければ None。"""
     for i, tok in enumerate(args):
-        if tok in ("-R", "--repo") and i + 1 < len(args):
+        if tok in (short, long) and i + 1 < len(args):
             return args[i + 1]
-        for f in ("-R", "--repo"):
+        for f in (short, long):
             if tok.startswith(f + "="):
                 return tok[len(f) + 1:]
-        if tok.startswith("-R") and tok != "-R":
-            return tok[2:]
+        if tok.startswith(short) and tok != short and not tok.startswith("--"):
+            return tok[len(short):]
     return None
+
+
+def repo_flag(args):
+    """-R/--repo の値。無ければ None(gh はカレントの git remote を使う)。"""
+    return flag_value(args, "-R", "--repo")
 
 
 def positional_after(args, sub):
@@ -1482,7 +1501,7 @@ def comment_blocks(label, ts):
             for i, t in enumerate(ts)]
 
 
-def referenced_lines(g, repo, nums):
+def referenced_lines(g, repo, nums, label="[本文とスレッドが参照している番号]"):
     """参照されている番号の題と状態。1 件ずつ取り、取れない番号は飛ばす。予算切れなら有る分で止める。"""
     lines = []
     for n in nums:
@@ -1493,7 +1512,7 @@ def referenced_lines(g, repo, nums):
         except Exception:
             continue
         lines.append("#%s「%s」(%s)" % (n, it.get("title", ""), item_state(it)))
-    return ["[本文とスレッドが参照している番号]"] + lines if lines else []
+    return [label] + lines if lines else []
 
 
 def assemble(head, body, comments, tail):
@@ -1577,6 +1596,48 @@ def screen_for(dest, cwd, body=""):
                     referenced_lines(g, where, nums) if where else [])
 
 
+def new_item_screen(sub, args, cwd, body):
+    """新しく作る PR/issue を開いた読み手に、GitHub が本文の周りに出すものを返す (画面の文, 取れなかった物)。
+    題・-R・-B・-H はコマンドから読み、省かれた分(リポジトリ・既定の枝・今の枝)は gh と git で引く。
+    1 つ取れなくても残りで組む。何も組めなければ画面は None(文脈ゼロで読む)。"""
+    g = Screen(cwd)
+    missed = []
+    title, repo = flag_value(args, "-t", "--title"), repo_flag(args)
+    default_branch = None
+    try:
+        info = g.json(["repo", "view"] + ([repo] if repo else []) + ["--json", "nameWithOwner,defaultBranchRef"])
+        repo = info.get("nameWithOwner") or repo
+        default_branch = (info.get("defaultBranchRef") or {}).get("name")
+    except Exception:
+        if not repo:
+            missed.append("リポジトリ")
+    draft = sub == ("pr", "create") and any(t in ("-d", "--draft") for t in args)
+    lines = ["新しい %s%s(%s%s)" % (NEW_ITEM_SUBS[sub], "「%s」" % title if title else "",
+                                  repo or "このリポジトリ", "、draft" if draft else "")]
+    if sub == ("pr", "create"):
+        base = flag_value(args, "-B", "--base") or default_branch
+        head = flag_value(args, "-H", "--head")
+        if not head and g.cwd:
+            out = _git(["rev-parse", "--abbrev-ref", "HEAD"], g.cwd)
+            head = out.decode("utf-8", "replace").strip() if out else None
+        if base and head:
+            lines.append("[取り込む先 ← 元の枝] %s ← %s" % (base, head))
+        try:
+            if not (repo and base and head):
+                raise RuntimeError("比べる枝が分からない")
+            cmp = g.json(["api", "repos/%s/compare/%s...%s" % (repo, base, head)])
+            lines += files_lines([f.get("filename") for f in cmp.get("files") or []])
+        except Exception:
+            missed.append("変更ファイルの一覧")
+    nums = referenced_numbers([title, body], None)
+    if nums:
+        refs = referenced_lines(g, repo, nums, "[本文が参照している番号]") if repo else []
+        if not refs:
+            missed.append("本文が参照している番号の題")
+        lines += refs
+    return ("\n".join(lines) if len(lines) > 1 or title or repo else None), missed
+
+
 # ---- 読み役 ----------------------------------------------------------------
 # 観点と報告の形式は 2 つの依頼文で共通。違うのは読み手の立ち位置(文脈ゼロ/画面を見ている)と、
 # 画面モードにだけ在る「冗長」欄——画面に有るものを本文で説明した箇所を、止めずに書き手へ返す。
@@ -1593,13 +1654,11 @@ BODY_MARK = "--- 本文 ---\n"
 _RULES = """規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。該当の無い欄は「詰まり: なし」のように書かず、行ごと省く。日本語で。
 
 """ + BODY_MARK
-COLD_PROMPT = """あなたはこの文章について何も知らない初見の読者です。会話の経緯もリポジトリも見ていません。
-以下の「本文」だけを読み、理解を実際に妨げた事実だけを報告してください。
-
-見る観点:
+# 初見の観点。(3) の「何と合わせて解くか」だけが、文脈ゼロと新しい PR/issue(画面あり)で違う
+_COLD_VIEWS = """見る観点:
 (1) この文章があなたに求めていること(読んで何をすべきか)が言えるか
 (2) 冒頭 3 行で「何の話か・自分に関係あるか・急ぐか」が掴めるか
-(3) 本文の中だけでは意味を解決できない略語・識別子・参照は無いか
+(3) %s意味を解決できない略語・識別子・参照は無いか
 (4) 意味を推測で埋めた箇所と、埋めた推測の中身(特に時制・主体・範囲)
 (5) 読み終えて残った疑問は何か
 
@@ -1607,6 +1666,24 @@ COLD_PROMPT = """あなたはこの文章について何も知らない初見の
 """ + _FORMAT_COMMON + """- 詰まりも疑問も補完も 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
   (1 件でもあるなら CLEAN とは書かない)
 """ + _RULES
+COLD_PROMPT = """あなたはこの文章について何も知らない初見の読者です。会話の経緯もリポジトリも見ていません。
+以下の「本文」だけを読み、理解を実際に妨げた事実だけを報告してください。
+
+""" + _COLD_VIEWS % "本文の中だけでは"
+# 新しい PR/issue を開いた読み手が、本文の周りに見ているもの(new_item_screen が組む物)
+NEW_SCREEN_ITEMS = {"PR": "題・リポジトリ・取り込む先と元の枝・変更ファイルの一覧・本文が参照している番号の題と状態",
+                    "issue": "題・リポジトリ・本文が参照している番号の題と状態"}
+NEW_PROMPT = """あなたはこの {noun} を初めて開いた読者です。会話の経緯もリポジトリの中身も見ていません。
+ただし GitHub はこの {noun} の本文の周りに次のものを表示していて、あなたはそれを見ています。
+
+--- 画面に既に見えているもの ---
+%s
+--- 画面ここまで ---
+
+以下の「本文」を読み、理解を実際に妨げた事実だけを報告してください。
+画面に見えているもの({items})は「何を指しているか分かっている」ものとして読み、本文で説明されていなくても詰まりにしない。
+
+""" + _COLD_VIEWS % "画面と本文を合わせても"
 # 読み手が画面で見ているものの列挙。依頼文(既知の範囲)と deny の直し方(説明しないもの)の両方がこれを使う
 SCREEN_ITEMS = ("PR/issue の題と番号と状態・リポジトリ・相手の名前・元の指摘の文言と印・file と行・"
                 "変更ファイルの一覧・これまでの返信の中身・参照されている番号の題")
@@ -1638,8 +1715,11 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 """ + _RULES
 
 
-def reader_prompt(screen):
-    """読み手に渡す依頼文(本文の手前まで)。画面が有れば画面モード、無ければ文脈ゼロ。"""
+def reader_prompt(screen, noun=None):
+    """読み手に渡す依頼文(本文の手前まで)。noun(PR/issue)が有れば新しく作る物の画面、
+    画面だけ有ればスレッドの画面、どちらも無ければ文脈ゼロ。"""
+    if screen and noun:
+        return NEW_PROMPT.replace("{noun}", noun).replace("{items}", NEW_SCREEN_ITEMS[noun]) % screen
     return SCREEN_PROMPT % screen if screen else COLD_PROMPT
 
 
@@ -2054,21 +2134,33 @@ def main() -> None:
     if deny_streak(sid, target, fp)[0] >= STREAK_CAP:
         stop("cap\t%d" % len(body), "外部投稿ゲート: この投稿は既に往復の上限に当たっている。", len(body), fp)
 
-    screen, screen_error = None, None
+    screen, screen_error, screen_note = None, None, ""
+    sub, sub_args = analysis.call_of(body)
+    noun = NEW_ITEM_SUBS.get(sub) if dest is None else None
     if dest is not None:
         try:
             screen = screen_for(dest, cwd or "", body)
         except Exception as exc:
             screen_error = str(exc)[:120]
-    mode = "screen" if screen else "cold"
-    screen_note = (
-        "投稿先はスレッドだが、画面の中身(題・元の指摘・これまでの返信)を gh で取れなかった(%s)ので"
-        "文脈ゼロで読んだ。画面に有るもの(PR/issue 番号・相手の名前・元の指摘)への詰まりは無視してよい。"
-        % screen_error if dest is not None and screen is None else ""
-    )
+        if screen is None:
+            screen_note = (
+                "投稿先はスレッドだが、画面の中身(題・元の指摘・これまでの返信)を gh で取れなかった(%s)ので"
+                "文脈ゼロで読んだ。画面に有るもの(PR/issue 番号・相手の名前・元の指摘)への詰まりは無視してよい。"
+                % screen_error)
+    elif noun:
+        # 新しい PR/issue。画面を組む途中の失敗で門番を落とさない(落ちると無検査で通る)
+        try:
+            screen, missed = new_item_screen(sub, sub_args, cwd or "", body)
+        except Exception as exc:
+            missed = ["画面の全部(%s)" % str(exc)[:80]]
+        if missed:
+            screen_note = (
+                "新しい %s の画面に出るもののうち、%s を gh で取れなかったので読み手に渡していない。"
+                "それへの詰まりは無視してよい。" % (noun, "・".join(missed)))
+    mode = ("new" if noun else "screen") if screen else "cold"
 
     try:
-        out = run_reader(reader_prompt(screen) + body)
+        out = run_reader(reader_prompt(screen, noun) + body)
     except Exception as exc:
         # 読み役を起こせないときも止める。逃げ道は無いので、直らなければ持ち主に渡す(上限でも止まる)
         stop("reader-down\t%d" % len(body),
@@ -2116,8 +2208,9 @@ def main() -> None:
         }, ensure_ascii=False))
         sys.exit(0)
 
-    role = ("この返信を受け取る相手として、スレッドの画面と本文を読んだ別プロセスの読み手"
-            if mode == "screen" else "文脈ゼロの別プロセスの読み手")
+    role = {"screen": "この返信を受け取る相手として、スレッドの画面と本文を読んだ別プロセスの読み手",
+            "new": "この %s を初めて開く人として、GitHub が本文の周りに出すものと本文を読んだ別プロセスの読み手" % noun,
+            }.get(mode, "文脈ゼロの別プロセスの読み手")
     head = (
         "外部投稿ゲート: coldreader(%s)がこの本文で詰まった。詰まりを直してから"
         "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する。同じ投稿が %d 回続けて"
@@ -2141,6 +2234,8 @@ def main() -> None:
         "地の文に写した箇所は、画面に同じ語が有っても「なぞり」として止まる。直し方は自分の言葉に置き換える)。"
         if mode == "screen" else
         "直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
+        + ("読み手は " + NEW_SCREEN_ITEMS.get(noun, "") + " を画面で見ているので、それらを本文で説明し直さなくてよい。"
+           if mode == "new" else "")
     )
     stop("finding\t%d\t%s" % (len(body), mode),
          head + "\n\n" + detail[:1500]

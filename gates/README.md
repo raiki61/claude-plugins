@@ -21,8 +21,12 @@ coldreader(文脈ゼロの読み手。別プロセスの headless Claude)を走�
 
 読み手が持つ文脈は投稿先で変える。既に在る PR/issue のスレッドへ付く返信・編集は、題・番号・
 file と行・元の指摘・これまでの返信が同じ画面に見えている状態で読まれるので、**フックが gh で
-その画面を取り、読み手に既知として渡す**。新規作成(issue/PR/release/gist/discussion の create)は
-読み手が何も持たないので文脈ゼロのまま。画面を渡さずに読ませると、@相手の名前・PR 番号・相手が
+その画面を取り、読み手に既知として渡す**。新しい PR・issue(`gh pr create`・`gh issue create`)も、読み手は
+本文だけを見ているのではない。GitHub が本文の周りに出すもの——題・リポジトリ・(PR なら)取り込む先と元の枝・
+変更ファイルの一覧・本文が指す #番号 の題と状態——を、フックがコマンドの旗と gh・git で組んで渡す(閉じる
+issue は PR の横に題ごと並ぶ。渡さずに読ませると、本文 1 行目の `Closes #660` まで「何の issue か分からない」と
+止まった。2026-10-17 に works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)。release・gist・
+discussion の新規作成は文脈ゼロのまま。スレッドの画面を渡さずに読ませると、@相手の名前・PR 番号・相手が
 付けた印・相手自身の語まで詰まりに出て、書き手がそれを直すと宛先本人に本人の名前と自分の指摘の
 意味を説明する返信になる(2026-09-06 に PR 1583 で実測: 1 本の返信が 39 回止まり、1,021 字 →
 2,555 字に膨れて逃げ道で出た。短く戻した版も止まった)。画面に有るものを本文で説明している箇所は
@@ -156,7 +160,12 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 - フックの起動行は POSIX シェル(bash)で評価される前提で書いてある(`command -v` と `$(...)` で
   `python3`/`python` を選ぶ)。bash が無い環境では本体がフック自体を起動できないので、
   起動行の書き方に関わらず門番は動かない
-- 画面を渡すのは投稿先が既に在るスレッドのときだけ: `gh api` の path が
+- 新しい PR・issue の画面は `gh pr create`・`gh issue create` のときだけ組む。題は `--title`、リポジトリは
+  `-R`(無ければ `gh repo view`)、PR の枝は `--base`(無ければ既定の枝)と `--head`(無ければ cwd の今の枝)から取り、
+  変更ファイルは GitHub の compare(枝が push 済みのときだけ取れる)、#番号 の題は issues の API で引く。
+  取れなかった物は渡さずに、その旨を書き手に伝える(残りで読ませる)。`gh api` で直に作る形
+  (`repos/o/r/pulls` への POST 等)と、`--fill` で題を省いた形の題は拾わない
+- スレッドの画面を渡すのは投稿先が既に在るスレッドのときだけ: `gh api` の path が
   `repos/o/r/pulls/N/comments/ID/replies`(PR 番号無しの形も)・`repos/o/r/pulls/comments/ID`・`repos/o/r/pulls/N/comments`・
   `repos/o/r/pulls/N/reviews`・`repos/o/r/issues/N/comments`・`repos/o/r/issues/comments/ID`・
   `repos/o/r/(issues|pulls)/N` のとき、または `gh pr comment/review/close/reopen/merge/revert/edit`・

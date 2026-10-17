@@ -3853,6 +3853,8 @@ case "$*" in
   "api repos/o/r/pulls/9/comments?per_page=100&page=1") printf '%s' '[{"id":77,"in_reply_to_id":null,"body":"[block] F3 の行が抜けています。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:21:40Z"},{"id":78,"in_reply_to_id":77,"body":"先の返信です","user":{"login":"author_y"},"created_at":"2026-09-05T00:00:00Z"},{"id":90,"in_reply_to_id":null,"body":"別スレッドの指摘","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:22:00Z"}]' ;;
   "pr view 9 --json number,title,body,comments,url,state,isDraft,files") printf '%s' '{"number":9,"title":"docs: F3 の説明を足す","body":"PR の説明","url":"https://github.com/o/r/pull/9","state":"OPEN","isDraft":false,"files":[{"path":"docs/a.adoc"},{"path":"src/f3.py"}],"comments":[{"author":{"login":"reviewer_x"},"body":"レビューしました。F3 は fixture 3 の略です。","createdAt":"2026-09-04T11:19:54Z"}]}' ;;
   "api repos/o/r/issues/5") printf '%s' '{"number":5,"title":"issue 5 の題","body":"issue の本文"}' ;;
+  "repo view o/r --json nameWithOwner,defaultBranchRef"|"repo view --json nameWithOwner,defaultBranchRef") printf '%s' '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;
+  "api repos/o/r/compare/main...feat") printf '%s' '{"files":[{"filename":"src/f3.py"},{"filename":"docs/a.adoc"}]}' ;;
   "api repos/o/r/issues/5/comments?per_page=100&page=1") printf '%s' '[{"id":501,"body":"issue への先のコメント。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T00:00:00Z"}]' ;;
   *) echo "ghstub: 知らない呼び方: $*" >&2; exit 1 ;;
 esac
@@ -3888,8 +3890,26 @@ expect_output 0 "検査を通過" "gh pr comment は PR の題と会話が読み
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "検査を通過" "gh api issues/N/comments は issue の題と会話が読み手に渡る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh api repos/o/r/issues/5/comments -f body='$CR_BODY $CR_PAD'" "$CR_GH"
-expect_output 0 "検査を通過" "issue の新規作成は文脈ゼロのまま(画面を渡さない)" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SCREEN" "gh issue create --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
+# 新しい PR・issue の読み手も本文だけを見ているのではない。GitHub が本文の周りに出す題・リポジトリ・枝・
+# 変更ファイル・本文が指す #番号 の題を渡す。渡さないと「Closes #660」まで「何の issue か分からない」で止まった
+# (2026-10-17 に実測。works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)
+CR_STUB_NEW_PR='b=$(cat); case "$b" in *"初めて開いた"*"新しい PR「F3 を足す」(o/r)"*"main ← feat"*"src/f3.py"*"#5「issue 5 の題」(?)"*"画面と本文を合わせても"*) echo CLEAN;; *) printf "詰まり: 新しい PR の画面(題・枝・変更ファイル・参照番号の題)が渡っていない\n";; esac'
+expect_output 0 "検査を通過" "新しい PR は題・リポジトリ・枝・変更ファイル・本文が指す番号の題が読み手に渡る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create -R o/r --title 'F3 を足す' -H feat --body 'Closes #5
+$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "新しい PR の -R・-B を省いても、gh でリポジトリと既定の枝を引いて渡す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create --title 'F3 を足す' --head=feat --body 'Closes #5
+$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_NEW_ISSUE='b=$(cat); case "$b" in *"この issue を初めて開いた"*"新しい issue「t」(o/r)"*"#5「issue 5 の題」"*) case "$b" in *"取り込む先 ← 元の枝"*|*"PR"*) printf "詰まり: issue に PR の枝か呼び名が載った\n";; *) echo CLEAN;; esac;; *) printf "詰まり: 新しい issue の画面が渡っていない\n";; esac'
+expect_output 0 "検査を通過" "新しい issue は題・リポジトリ・本文が指す番号の題が読み手に渡る(枝は載せない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_ISSUE" "gh issue create -R o/r --title t --body '#5 の続き $CR_BODY $CR_PAD'" "$CR_GH"
+# gh が使えなくても、コマンドに書いた題は渡し、取れなかった物は書き手に伝える(文脈ゼロに戻さない)
+CR_STUB_NEW_TITLE_ONLY='b=$(cat); case "$b" in *"新しい PR「F3 を足す」(o/r)"*) echo CLEAN;; *) printf "詰まり: コマンドに書いた題が渡っていない\n";; esac'
+expect_output 0 "変更ファイルの一覧・本文が参照している番号の題 を gh で取れなかった" "新しい PR の画面の一部を取れないときは、有る分で読ませ、取れなかった物を伝える" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_TITLE_ONLY" "gh pr create -R o/r --title 'F3 を足す' -H feat --body 'Closes #5
+$CR_BODY $CR_PAD'" "exit 1"
+expect_output 0 "検査を通過" "題もリポジトリも分からない新しい PR は文脈ゼロで読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SCREEN" "gh pr create --fill --body '$CR_BODY $CR_PAD'" "exit 1"
 expect_output 0 "検査を通過" "gist の新規作成も文脈ゼロのまま" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SCREEN" "$CR_GIST" "$CR_GH"
 # 画面を取れないときは止めずに文脈ゼロで読み、書き手には「画面に有るものへの詰まりは無視してよい」と伝える
@@ -3954,6 +3974,8 @@ expect_output 0 "足すより削る" "スレッドへの返信の deny は「足
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_REPLY" "$CR_GH"
 expect_output 0 "掃討" "新規作成の deny は従来の「同型を掃討」の案内のまま" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "それらを本文で説明し直さなくてよい" "新しい PR・issue の deny は、画面に出る物を本文で説明し直さなくてよいと添える" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create -R o/r --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
 # 「詰まり: なし」は 0 件であって 1 件ではない。依頼文で省けと言っても読み手は書く(2026-09-06 に実測:
 # 画面モードの読み手が書き、837 字の返信が止まった)。落とさないと無い欄が投稿を止める
 CR_STUB_NONE='cat >/dev/null; printf "詰まり: なし\n補完: 無し。\n疑問: 期限はいつか\n"'
