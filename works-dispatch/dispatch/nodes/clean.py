@@ -199,8 +199,28 @@ def keep_tmp(tmp, source, session, g=gitx):
     if not common:
         raise OSError(f"{source} の共通の .git を読めない")
     dest = os.path.join(common, *KEPT_TMP, session)
-    shutil.copytree(tmp, dest, symlinks=True, dirs_exist_ok=True)
+    _copy_over(tmp, dest)
     return n, dest
+
+
+def _copy_over(src, dest):
+    """src の木を dest に写す。前の回が途中で止まって dest に写しが残っていても、打ち直せば写し終える: 在るファイルとリンクは
+    消してから写し直す（git の objects は読み取り専用で写るので、上に書けず Errno 13 になる。リンクは在ると Errno 17 になる。
+    2026-10-17 の --retire 点検で 701 件と 5 件）。フォルダの権限は写さない（読み取り専用のフォルダに写すと、次の回が中に書けない）。
+    写せない物が有れば OSError。"""
+    for root, dirs, files in os.walk(src):
+        here = os.path.join(dest, os.path.relpath(root, src))
+        os.makedirs(here, exist_ok=True)
+        for name in dirs + files:
+            s, d = os.path.join(root, name), os.path.join(here, name)
+            if os.path.isdir(s) and not os.path.islink(s):
+                continue
+            if os.path.lexists(d):
+                os.unlink(d)
+            if os.path.islink(s):
+                os.symlink(os.readlink(s), d)
+            else:
+                shutil.copy2(s, d)
 
 
 def retire(row, source, label, h=herdr, g=gitx, c=None, env=None):

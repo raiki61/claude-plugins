@@ -827,6 +827,23 @@ class Departments(unittest.TestCase):
         self.assertEqual((kept / "tools" / "measure.py").read_text(encoding="utf-8"), "x\n")
         self.assertEqual(len(self.removed), 1)
 
+    def test_job_tmp_copy_finishes_when_a_former_copy_stopped_halfway(self):
+        # 前の回の写しが読み取り専用のファイル（git の objects）とリンクを残しても、打ち直せば写し終える（2026-10-17 の
+        # --retire 点検は Errno 13 と 17 で止まり続けた）
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        (tmp / "repo" / "objects").mkdir(parents=True)
+        obj = tmp / "repo" / "objects" / "ab"
+        obj.write_text("blob\n", encoding="utf-8")
+        obj.chmod(0o444)
+        (tmp / "link").symlink_to("repo")
+        clean.keep_tmp(str(tmp), self.src, "half", gitx)
+        (tmp / "new").write_text("later\n", encoding="utf-8")
+        n, dest = clean.keep_tmp(str(tmp), self.src, "half", gitx)
+        self.assertEqual(n, 3)
+        self.assertEqual(pathlib.Path(dest, "repo", "objects", "ab").read_text(encoding="utf-8"), "blob\n")
+        self.assertEqual(os.readlink(os.path.join(dest, "link")), "repo")
+        self.assertEqual(pathlib.Path(dest, "new").read_text(encoding="utf-8"), "later\n")
+
     def test_retire_keeps_everything_when_job_tmp_cannot_be_copied(self):
         tmp = pathlib.Path(tempfile.mkdtemp())
         (tmp / "note").write_text("x", encoding="utf-8")
