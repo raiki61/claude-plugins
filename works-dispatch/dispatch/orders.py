@@ -472,8 +472,11 @@ def _ask(a, ports, cwd, task, sent):
         busy = busy_check(dept, accounts_, ports)
         if fresh:
             acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+            # 記録はペインのシェルで起きた会話のアカウントの下に在る。頼む会話の CLAUDE_CONFIG_DIR（別のアカウント）で探さない
+            # （設定のフォルダを書かないアカウントの部署を、別のアカウントの段取りから頼むと、記録が見つからず止まった。
+            # my_notes の受付 20261017-075753-01991f）
             ok, said = clear_before_ask(dept, held, pane, busy, ports,
-                                        lambda: claudex.newest_talk(acc.config_dir if acc else None, dept["path"]))
+                                        lambda: claudex.newest_talk(acc.config_dir if acc else None, dept["path"], ports.account_env))
             notes += said
             if not ok:
                 print("\n".join(notes + [f"止めた: 宛先の部署 {where} は頼みごとに空の会話で受ける役なので、前の会話のままでは送らない"]))

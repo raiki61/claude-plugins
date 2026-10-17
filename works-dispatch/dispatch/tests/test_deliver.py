@@ -7,6 +7,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -748,6 +749,36 @@ class Flow(unittest.TestCase):
         # herdr の作業場の印にも出る
         rc, out = self.main(self.src, "--sync", "--dry-run")
         self.assertIn("印 常設・毎回空", out)
+
+    def test_fresh_role_sees_the_clear_in_the_records_of_the_pane_account_not_of_the_asker(self):
+        # 設定のフォルダを書かないアカウントの部署は、ペインのシェルの素の claude で起きて ~/.claude に記録を書く。頼む会話の
+        # CLAUDE_CONFIG_DIR（別のアカウント）の下を探すと記録が見つからず、一覧の id も替わらないので、空になったのを見られない
+        # （2026-10-17 に、設定のフォルダを書いたアカウントの会話から、書かないアカウントの部署へ 2 回頼んで 2 回止まった。my_notes の受付 20261017-075753-01991f）
+        cfg = pathlib.Path(self.cfg)
+        cfg.write_text(cfg.read_text(encoding="utf-8").replace(f", config_dir = '{cfg.parent}/c1'", ""), encoding="utf-8")
+        home = pathlib.Path(self.root).parent / "home"
+        records = home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(self.place))
+        records.mkdir(parents=True)
+        (records / "old.jsonl").write_text("{}", encoding="utf-8")
+        os.utime(records / "old.jsonl", (1, 1))
+        self.ports.env = {**self.ports.env, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(pathlib.Path(self.root).parent / "c2")}
+        sent = self.fresh_world()
+        self.ports.list_sessions = lambda cdir, include_done=False: [   # 裏の会話は /clear の後も一覧の id が替わらない
+            {"sessionId": "s-desk", "name": "desk", "cwd": self.src, "kind": "interactive", "status": "idle"},
+            {"id": "s", "sessionId": "s-dept", "name": "調べ", "cwd": self.place, "kind": "background", "state": "working",
+             "status": "busy" if any(x != "/clear" for x in sent()) else "idle"}]
+        typed = self.ports.herdr.prompt
+
+        def prompt(pane, text, wait):
+            if text == "/clear":
+                (records / "new.jsonl").write_text("{}", encoding="utf-8")
+            return typed(pane, text, wait)
+        self.ports.herdr.prompt = prompt
+        provision.mark(self.place, self.src, {"ask": "20261016-000000-aaaaaa", "delivered": "20261016-000000-aaaaaa"}, gitx)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(sent()[0], "/clear")
+        self.assertIn("調べて", sent()[1])
 
     def test_fresh_role_does_not_clear_a_talk_without_a_delivered_ask_or_a_running_one(self):
         sent = self.fresh_world()
