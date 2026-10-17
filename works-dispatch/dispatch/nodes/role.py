@@ -21,6 +21,9 @@
 - holders: 納品の「残った疑問」の 1 件ごとに「持ち手: <部署の名前か受付>」が在るかを --deliver が確かめる（true か、持ち主の側と
   みなす名前の並び〔例 ["社長室"]。持ち主への中継の会話。空の並びは true と同じ〕）。残った疑問の外の項目の「要確認」も止める。持ち手を持ち主にしてよいのは「持ち主（価値で選ぶ）」「持ち主（確認してから
   やる）」と書いた物だけ。欠けていれば送らない（deliver ノードの holder_problems。my_notes の tools/deliver_check.py から移した）。
+- ask_check: この役へ宛てた --ask の関所の命令（シェルの字）。頼む会話がどの会社に居ても、--ask が受ける会社の origin の既定の枝の
+  中身（一時の worktree）で走らせ、JSON（to・role・body・ask・from）を標準入力に渡す。0 以外で終われば頼まない。止める中身は受ける会社の側のスクリプトが持つ
+  （deliver_check の頼みの側。例 my_notes の社長室あての返事の要らない知らせを止める tools/no_notice.py --ask-check）
 - ask_holders: holders と同じ形で、この役へ宛てた --ask の本文に「残った疑問」の節が在れば、同じ検査を掛ける（問いを受ける相談の役に書く）
 - resident: true なら、その役の部署は常設（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
@@ -164,8 +167,9 @@ def load(path, text=None):
             out["problems"].append(f"{where} に name が無い")
             continue
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
-        if "deliver_check" in r and not (isinstance(r["deliver_check"], str) and r["deliver_check"].strip()):
-            bad.append("deliver_check")
+        for k in ("deliver_check", "ask_check"):
+            if k in r and not (isinstance(r[k], str) and r[k].strip()):
+                bad.append(k)
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
         bad += [k for k in ("resident", "fresh", "machine") if k in r and not isinstance(r[k], bool)]
@@ -178,7 +182,7 @@ def load(path, text=None):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び、deliver_check は空でない文字列、resident・fresh・machine は true か false、"
+                                   f"deliver は空でない文字列の並び、deliver_check・ask_check は空でない文字列、resident・fresh・machine は true か false、"
                                    f"holders・ask_holders は true・false か名前の並び、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
@@ -197,6 +201,7 @@ def load(path, text=None):
                                    "model": r.get("model") or None, "effort": r.get("effort"), "settings": r.get("settings") or None,
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
                                    "deliver_check": (r.get("deliver_check") or "").strip() or None,
+                                   "ask_check": (r.get("ask_check") or "").strip() or None,
                                    "resident": r.get("resident") is True, "fresh": r.get("fresh") is True,
                                    "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"]),
                                    "holders": _holders(r.get("holders")), "ask_holders": _holders(r.get("ask_holders"))}

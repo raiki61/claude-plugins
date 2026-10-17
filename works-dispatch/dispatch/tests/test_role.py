@@ -60,7 +60,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "settings": None,
                                                  "deliver": None, "deliver_check": None, "resident": False, "fresh": False, "machine": False, "tools": [],
-                                                 "holders": None, "ask_holders": None})
+                                                 "holders": None, "ask_holders": None, "ask_check": None})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "desk_role": None,

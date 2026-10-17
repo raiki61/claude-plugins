@@ -1033,6 +1033,23 @@ class Flow(unittest.TestCase):
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "残った疑問の節の無い頼み", "--dry-run")
         self.assertEqual(rc, 0, out)
 
+    def test_an_ask_runs_the_check_of_the_receiving_role_at_the_receiving_company(self):
+        # 受ける会社の決まりで、ほかの会社から届く頼みも止める（242baa）。関所は受ける会社の代表の clone で走り、本文を JSON で受ける
+        script = pathlib.Path(self.src, "gate.py")
+        script.write_text("import json,sys,os\nd=json.load(sys.stdin)\nopen('seen.txt','w').write(os.getcwd())\n"
+                          "sys.exit(1 if '知らせ' in d['body'] else 0)\n", encoding="utf-8")
+        self.shape(f'[[roles]]\nname = "調べ役"\nask_check = {json.dumps(pathlib.Path(sys.executable).as_posix() + " gate.py")}\n')
+        git("-C", self.src, "add", "gate.py")
+        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "gate")
+        git("-C", self.src, "push", "-q", "origin", "HEAD:main")
+        git("-C", self.src, "fetch", "-q", "origin")
+        script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")   # 作業ツリーの物でなく、origin の既定の枝の物が走る
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "知らせです", "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("の関所（役「調べ役」の ask_check", out)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "問いです", "--dry-run")
+        self.assertEqual(rc, 0, out)
+
     def test_deliver_outside_a_department_stops(self):
         summary = pathlib.Path(self.root).parent / "s.md"
         summary.write_text(GOOD, encoding="utf-8")

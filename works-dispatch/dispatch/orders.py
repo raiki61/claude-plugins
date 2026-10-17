@@ -38,7 +38,7 @@ try:
     import config  # noqa: E402
     import gitx  # noqa: E402
     import herdr  # noqa: E402
-    from nodes import deliver, launch, provision, role, sync, tree, wake  # noqa: E402
+    from nodes import deliver, launch, provision, role, sync, tools, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
     # 知らせて会話を止めない（終了の値 1 は、Claude Code が会話を止めない誤りとして stderr を見せる）。ターンごとに出さず、
@@ -426,6 +426,22 @@ def _ask(a, ports, cwd, task, sent):
         if bad:
             print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、持ち手が足りない（役の ask_holders の検査）"]
                             + [f"  {x}" for x in bad]))
+            return 2
+    check = (the_role or {}).get("ask_check")
+    if check:
+        # 受ける会社の関所: 頼む会話の会社でなく、受ける会社の origin の既定の枝の中身で走らせる（止める中身は受ける会社の持ち物。
+        # 代表の clone の作業ツリーは古い枝のことがあるので、機械窓口の道具と同じ場所の作り方。242baa）
+        try:
+            with tools.place(company["root"], ports.git) as (here, said):
+                code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": getattr(a, "ask_id", None),
+                                                       "from": ports.env.get("CLAUDE_CODE_SESSION_ID")}, subprocess.run)
+        except (gitx.GitError, OSError) as e:
+            code, out, said = 1, str(e), None
+        if said:
+            notes.append(said)
+        if code != 0:
+            print("\n".join(notes + [f"止めた: 受ける会社 {company['name']} の関所（役「{role}」の ask_check: {check}）が通さなかった"
+                                     f"（終了の値 {code}）"] + [f"  {x}" for x in out.splitlines()]))
             return 2
     found_account, found_name = ports.caller(sessions_)
     inbox = deliver.inbox_of(common)
