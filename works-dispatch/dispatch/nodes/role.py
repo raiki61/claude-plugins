@@ -19,7 +19,7 @@
 - deliver_check: その役の納品の検査の命令（シェルの字）。--deliver が項目を確かめた後に部署の作業場の根で走らせ、0 以外で終われば
   送らない（何を確かめるかは会社の側のスクリプトが持つ。渡す物と終わりの値は deliver ノードの gate）。省けば検査しない
 - holders: 納品の「残った疑問」の 1 件ごとに「持ち手: <部署の名前か受付>」が在るかを --deliver が確かめる（true か、持ち主の側と
-  みなす名前の並び〔例 ["社長室"]。持ち主への中継の会話〕）。持ち手を持ち主にしてよいのは「持ち主（価値で選ぶ）」「持ち主（確認してから
+  みなす名前の並び〔例 ["社長室"]。持ち主への中継の会話。空の並びは true と同じ〕）。残った疑問の外の項目の「要確認」も止める。持ち手を持ち主にしてよいのは「持ち主（価値で選ぶ）」「持ち主（確認してから
   やる）」と書いた物だけ。欠けていれば送らない（deliver ノードの holder_problems。my_notes の tools/deliver_check.py から移した）。
 - ask_holders: holders と同じ形で、この役へ宛てた --ask の本文に「残った疑問」の節が在れば、同じ検査を掛ける（問いを受ける相談の役に書く）
 - resident: true なら、その役の部署は常設（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
@@ -313,7 +313,7 @@ def _holders(value):
     """役の holders・ask_holders の値を、検査しないなら None、するなら持ち主の側とみなす名前の並び（空でもよい）にする。"""
     if value is True:
         return []
-    return list(value) if isinstance(value, list) and value else None
+    return list(value) if isinstance(value, list) else None
 
 
 def gh_user(repo_user, shape):

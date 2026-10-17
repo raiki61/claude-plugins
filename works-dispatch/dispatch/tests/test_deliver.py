@@ -136,6 +136,13 @@ class Holders(unittest.TestCase):
         self.assertIn("持ち手が無い", bad[0])
         self.assertIn("持ち主（価値で選ぶ）", bad[1])
         self.assertEqual(deliver.holder_problems("- 中継。持ち手: 社長室"), [])   # 中継の名前を書かない会社では普通の持ち手
+        for none in ("- なし", "なし（全部閉じた）", "ありません", "・特になし"):
+            self.assertEqual(deliver.holder_problems(none), [], none)
+        lead = "次の 2 件。\n1） 測る。持ち手: 割り振り\n② 決める。持ち手: 持ち主 (価値で選ぶ)"
+        self.assertEqual(deliver.holder_problems(lead), [])   # 前置きの行は数えない。空白と半角の括弧も読む
+        self.assertEqual(len(deliver.holder_problems("(1) 測る。持ち手: 割り振り\n(2) 持ち手の無い疑問")), 1)   # 番号で 1 件ずつ
+        self.assertEqual(deliver.unsure_problems({"結論": "直した（要確認）", deliver.OPEN: "要確認。持ち手: 割り振り"}),
+                         ["「結論」に「要確認」がある。残った疑問に移して持ち手を付ける"])
 
     def test_the_role_reads_holders_as_off_true_or_relay_names(self):
         import tomllib

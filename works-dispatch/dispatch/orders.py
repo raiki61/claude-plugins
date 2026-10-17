@@ -1185,11 +1185,11 @@ def deliver_summary(a, ports, cwd):
         return 2
     relays = (the_role or {}).get("holders")
     if relays is not None:
-        bad = deliver.holder_problems(items.get(deliver.OPEN), relays)
+        bad = deliver.holder_problems(items.get(deliver.OPEN), relays) + deliver.unsure_problems(items)
         if bad:
             print("\n".join(notes + ["送らなかった: 残った疑問の持ち手が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
                             + ["- 残った疑問は 1 件ごとに「持ち手: <部署の名前か受付番号>」を書く。持ち主に向ける物だけ「持ち手: 持ち主（価値で"
-                               "選ぶ）」か「持ち手: 持ち主（確認してからやる）」"]))
+                               "選ぶ）」か「持ち手: 持ち主（確認してからやる）」。疑問が無ければ「なし」とだけ書く"]))
             return 2
     check = (the_role or {}).get("deliver_check")
     if check:
