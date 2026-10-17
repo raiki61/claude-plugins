@@ -67,7 +67,8 @@ WAITING = "裏の処理待ち"   # 番を終えて、裏で走らせた処理の
 
 
 def waiting_op(pane, attrs, waiting):
-    """部署の会話の番の終わりに付け直す物。裏の処理（run_in_background の Bash）を待っていれば、表示名に WAITING を添える。
+    """部署の会話の番の終わりに付け直す物。裏の処理（run_in_background の Bash・裏で立てた作業役など）を待っていれば、表示名に
+    WAITING を添える。
     herdr の状態は番が終わると done になり、裏の処理を待っている会話も終わったように見えた（持ち主が見誤った）。
     ペインの名前は付け直さない（アカウントの数が分からないので）。"""
     return _waiting({**op(pane, attrs, False), "label": None}, waiting)

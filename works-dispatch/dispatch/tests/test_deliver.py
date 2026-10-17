@@ -211,6 +211,29 @@ class StopVerdict(unittest.TestCase):
         self.assertEqual(json.loads(stop(0))["decision"], "block")   # 待ち終えた: 表示を戻し、納品していなければ差し戻す
         self.assertEqual(h.writes[-1], ("P1", "作業役"))
 
+    def test_a_running_background_agent_lets_the_turn_end_and_a_finished_one_does_not(self):
+        # 裏で立てた作業役（Agent）は会話のプロセスの子に Bash を残さないので、ps では待っているのが見えず、差し戻された
+        # （2026-10-17 の割り振り）。Stop フックの入力の background_tasks が在れば、その running の物で見る
+        class NoPanes:   # herdr の窓が見えない（表示名は書かない）。差し戻すかだけを見る
+            HerdrError = real_herdr.HerdrError
+
+            def panes(self):
+                return []
+
+        def stop(payload, shells=lambda: 0):
+            out = io.StringIO()
+            orders.stop_hook(io.StringIO(json.dumps({"session_id": "s1", "cwd": "/w", **payload})), out,
+                             lambda cwd: dict(self.ATTRS), tempfile.mkdtemp(), shells, NoPanes())
+            return out.getvalue()
+        agent = {"id": "a1", "type": "subagent", "status": "running", "agent_type": "convergence-loops:inspector"}
+        self.assertEqual(stop({"background_tasks": [agent]}), "")
+        self.assertEqual(json.loads(stop({"background_tasks": []}, shells=lambda: 1))["decision"], "block",
+                         "一覧が在れば一覧で見る（空なら裏で動く物は無い）")
+        self.assertEqual(json.loads(stop({"background_tasks": [{**agent, "status": "completed"}]}))["decision"], "block")
+        self.assertEqual(stop({}, shells=lambda: 1), "", "一覧の無い版では裏の Bash を ps で数える")
+        self.assertEqual(json.loads(stop({}, shells=lambda: None))["decision"], "block", "動いているのを確かめられなければ差し戻す")
+        self.assertIn("番を終えてよい", json.loads(stop({"background_tasks": []}))["reason"])
+
     def test_background_shells_are_the_claude_childs_bash_tool_shells(self):
         # 会話のプロセス（claude）の子のうち、Bash の道具のシェル（シェルの写しを読み込む物）を数える。フック自身の祖先は数えない
         ps = "\n".join([

@@ -1260,10 +1260,21 @@ def waiting_of(tmp_dir):
     return waiting
 
 
+def in_flight(payload, shells):
+    """番の終わりに裏で動いている処理の数。分からなければ None。Claude Code が Stop フックの入力に渡す background_tasks（裏の処理の
+    一覧。run_in_background の Bash・裏で立てた作業役〔Agent〕・Monitor など。https://code.claude.com/docs/en/hooks#stop-input）
+    が在れば、その中の status が running の物を数える（2026-10-17 に 2.1.301 で、裏の作業役が running で載り、終わった後の番では
+    空なのを見た）。一覧の無い版では、裏の Bash を ps で数える（shells。裏の作業役は見えない）。"""
+    tasks = payload.get("background_tasks")
+    if isinstance(tasks, list):
+        return sum(1 for t in tasks if isinstance(t, dict) and t.get("status") == "running")
+    return shells()
+
+
 def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
-    """部署の会話の番の終わりに、裏で走らせた Bash の数を見て、待っていれば herdr の表示名に「裏の処理待ち」を添え、待ち終えたら
-    外す。前の番と変わったときだけ書く（会話ごとの控えのファイルに前の値を残す）。裏の数（分からなければ None）を返す。"""
-    n = shells()
+    """部署の会話の番の終わりに、裏で動いている処理の数（in_flight）を見て、待っていれば herdr の表示名に「裏の処理待ち」を添え、
+    待ち終えたら外す。前の番と変わったときだけ書く（会話ごとの控えのファイルに前の値を残す）。裏の数（分からなければ None）を返す。"""
+    n = in_flight(payload, shells)
     if n is None:
         return None
     mark = wait_mark(tmp_dir, payload.get("session_id"))
@@ -1284,8 +1295,10 @@ def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
 
 def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=claudex.background_shells, h=herdr):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
-    部署の会話が裏の処理（run_in_background の Bash）を待っている間は、herdr の表示名に「裏の処理待ち」を出し、差し戻さない
-    （裏の処理が終わると Claude Code が会話を起こすので、納品はその後でよい。差し戻すと待つだけの番を回数の上限まで繰り返した）。"""
+    部署の会話が裏の処理（run_in_background の Bash・裏で立てた作業役など。in_flight）を待っている間は、herdr の表示名に
+    「裏の処理待ち」を出し、差し戻さない（裏の処理が終わると Claude Code が会話を起こすので、納品はその後でよい。差し戻すと待つだけの
+    番を回数の上限まで繰り返した。裏の作業役は 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。
+    2026-10-17 の割り振り）。動いているのを確かめられないとき（一覧も ps も無い）と、裏の処理が終わったときは差し戻す。"""
     payload = json.loads(stdin.read() or "{}")
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)

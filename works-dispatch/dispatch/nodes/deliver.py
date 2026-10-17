@@ -17,7 +17,8 @@
   部署ごとの .git/worktrees/<部署> は git worktree remove で一緒に消える）、勤め先のリポジトリの .gitignore も触らない。
   頼みと納品の本文を 1 件 1 ファイルで置き、log.jsonl に誰が誰に何を頼み何が返ったかを 1 行ずつ足す。
 - Stop フック: 部署（company.role の在る場所）の会話で、受けた頼み（company.ask）の納品（company.delivered）が済んでいなければ、
-  止まる前に納品の命令で返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。
+  止まる前に納品の命令で返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。裏の処理（裏の Bash・作業役）が
+  動いている間は差し戻さない（どう見るかは orders.in_flight）。
 """
 
 import hashlib
@@ -530,7 +531,8 @@ def stop_verdict(payload, attrs, count, run):
     boss = attrs.get("boss") or "頼み元"
     return (f"頼み（受付 {ask}）をまだ納品していない。止まる前に、要約をファイルに書いて {deliver_command(run)} で"
             f"{boss} へ返す（足りない項目は命令が教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
-            f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。")
+            f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。裏の処理（run_in_background の Bash や Agent）の終わりを待つだけなら、"
+            "番を終えてよい（動いている間はこの差し戻しは出ず、終われば知らせで会話が起きる）。")
 
 
 def stop_count_path(tmp_dir, session_id, ask):

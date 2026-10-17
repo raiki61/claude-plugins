@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 部署の会話が裏で作業役（Agent の道具を `run_in_background` で立てた物。見直しの目など）を立てて結果を待つとき、番を終えると「頼みをまだ納品していない」の Stop フックに差し戻されるため待つ手が無く、1 つの返答で待つ字を出し続けて出力の上限で切れた（2026-10-17 の claude-plugins の割り振り。費用 $2.70 → $6.41）。Stop フックは裏の Bash だけを、会話のプロセスの子のシェルで数えていて、裏の作業役は見えていなかった。Claude Code が Stop フックの入力に渡す裏の処理の一覧（`background_tasks`。https://code.claude.com/docs/en/hooks#stop-input ）で見るように替え、status が `running` の物が在る間は差し戻さず、herdr の表示名に「裏の処理待ち」を出す。作業役が終われば知らせで会話が起き、その番の終わりには一覧が空なので、納品していなければ前と同じく差し戻す。一覧の無い版の Claude Code では前と同じく裏の Bash を数え、動いているのを確かめられなければ差し戻す。差し戻しの文にも「裏の処理の終わりを待つだけなら番を終えてよい」を足した。
+
 ## [0.50.5] - 2026-10-17
 
 ### Fixed

@@ -58,8 +58,8 @@ def _is_claude(command):
 
 def background_shells(me=None, runner=_default_runner):
     """このフックを起こした Claude Code の会話が、裏で走らせている Bash（run_in_background）の数。分からなければ None。
-    Claude Code のフックには裏の処理の終わりを知らせる出来事が無い（hooks の文書の出来事の一覧）。代わりに、番が終わった時に
-    会話のプロセスの子に残っている Bash の道具のシェル（コマンドに SNAPSHOT を含む）を数える。番の終わりには前で走らせた Bash は
+    Stop フックの入力に裏の処理の一覧（background_tasks）の無い版のための代わり（一覧が在れば orders.in_flight がそちらを使う）。
+    番が終わった時に会話のプロセスの子に残っている Bash の道具のシェル（コマンドに SNAPSHOT を含む）を数える。番の終わりには前で走らせた Bash は
     終わっているので、残っているのは裏の物。プロセスの一覧は ps で読むので、ps の無い Windows では None。"""
     if os.name == "nt":
         return None
