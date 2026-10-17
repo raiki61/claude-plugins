@@ -155,7 +155,7 @@ def read_info(root, settings_dir, committed=committed_info):
             out[k] = raw[k]
         elif k in raw:
             out["problems"].append(f"{path}: {k} が文字列で無い")
-    desk = raw.get("desk")
+    desk = raw.get("desk").strip() if isinstance(raw.get("desk"), str) else raw.get("desk")
     if isinstance(desk, str) and desk.count("/") == 1 and all(desk.split("/")):
         out["desk"] = desk   # ほかの会社の窓口が兼ねる（「会社/名前」）。本社に窓口が立っていないときの窓口
     elif "desk" in raw:

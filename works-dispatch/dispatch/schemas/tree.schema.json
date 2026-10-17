@@ -30,6 +30,22 @@
               }
             }
           },
+          "desk_of": {"type": ["string", "null"]},
+          "asks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "at", "from", "to", "state", "title"],
+              "properties": {
+                "id": {"type": "string"},
+                "at": {"type": ["number", "null"]},
+                "from": {"type": ["string", "null"]},
+                "to": {"type": ["string", "null"]},
+                "state": {"type": "string"},
+                "title": {"type": ["string", "null"]}
+              }
+            }
+          },
           "desk": {
             "type": ["object", "null"],
             "required": ["name", "role", "ask"],

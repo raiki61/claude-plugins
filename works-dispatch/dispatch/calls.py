@@ -175,18 +175,22 @@ def annotate(companies, settings, g):
 
 def asks_of(companies):
     """会社ごとに、まだ閉じていない頼み（deliver.open_asks。頼み元と宛先の会社の台帳を足し合わせて見るので、会社をまたぐ頼みも
-    出る）を、宛先の会社の asks に足す。1 件は {id, at, from, to, state, title}。state は「順番待ち n 件目」か「渡った」。"""
+    出る）を、宛先の会社の asks に足す。1 件は {id, at, from, to, state, title}。state は「順番待ち n 件目」か「渡った」か、宛先の
+    部署がもう無いときはそう書く（納品も取り下げも無いまま部署が畳まれた頼み。窓口が見て、要れば頼み直す）。"""
     inboxes = list(dict.fromkeys(c["inbox"] for c in companies if c.get("inbox")))
     records = sorted((r for x in inboxes for r in deliver.records(x)), key=lambda r: r.get("at") or 0)
     for c in companies:
         c["asks"] = []
-    for r in deliver.open_asks(records):
+    held = {(d.get("attrs") or {}).get("ask") for c in companies for d in c["departments"]
+            if (d.get("attrs") or {}).get("ask") and (d.get("attrs") or {}).get("delivered") != (d.get("attrs") or {}).get("ask")}
+    for r in deliver.open_asks(records, held):
         to = r.get("to") or {}
         # 同じ名前の会社（同じリポジトリの別の clone）が並ぶので、宛先の部署の場所を持つ会社を先に、無ければ名前の合う最初の会社
         named = [c for c in companies if c["name"] == to.get("company")]
         here = os.path.realpath(to["path"]) if to.get("path") else None
-        c = next((c for c in named if here and any(os.path.realpath(d["path"]) == here for d in c["departments"])),
-                 named[0] if named else None)
+        c = next((c for c in named if here and any(os.path.realpath(d["path"]) == here for d in c["departments"])), None)
+        gone = c is None and bool(here)   # 宛先の部署がもう無い（畳まれた・消えた）
+        c = c or (named[0] if named else None)
         if c is None:
             continue
         item = wake.find(c["inbox"], r["id"]) if c.get("inbox") else None
@@ -194,7 +198,7 @@ def asks_of(companies):
             line = [q.get("id") for q in wake.listed(os.path.dirname(item["path"]))]
             state = f"順番待ち {line.index(r['id']) + 1} 件目" if r["id"] in line else "順番待ち"
         else:
-            state = "渡った"
+            state = "宛先の部署が無い（畳まれたか消えた。閉じる記録が無い）" if gone else "渡った"
         c["asks"].append({"id": r["id"], "at": r.get("at"), "from": (r.get("from") or {}).get("name"), "to": to.get("name"),
                           "state": state, "title": deliver.ask_title(r.get("file"))})
 

@@ -238,14 +238,16 @@ def records(inbox):
         return []
 
 
-def open_asks(records):
+def open_asks(records, held=()):
     """台帳の行（会社をまたいで足し合わせた物）から、まだ閉じていない頼みの並び（積んだ順）。頼みは kind ask の行（status が sent か
     queued。同じ受付が回し直されたら後の行）。閉じたとみるのは、その受付への納品（kind deliver の ask か、頼み元の待ち受けへの
-    納品の知らせの id。--for の返しと、知らせられずに failed の物を除く）・回したことで閉じた（forwarded）・取り下げた（withdrawn）とき。"""
+    納品の知らせの id。--for の返しと、知らせられずに failed の物を除く）・回したことで閉じた（forwarded）・取り下げた（withdrawn）とき。
+    held は部署が今受けていて納品していない受付の並び（部署の属性 company.ask）で、届いたかを確かめられずに status が failed の
+    頼みも、ここに在れば数える。"""
     asks, closed = {}, set()
     for r in records:
         kind = r.get("kind")
-        if kind == "ask" and r.get("status") in ("sent", "queued") and r.get("id"):
+        if kind == "ask" and (r.get("status") in ("sent", "queued") or r.get("id") in held) and r.get("id"):
             asks.pop(r["id"], None)
             asks[r["id"]] = r
         elif kind == "deliver" and r.get("ask") and r.get("status") != "failed" and not r.get("for"):
