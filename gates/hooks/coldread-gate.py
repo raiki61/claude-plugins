@@ -2165,9 +2165,10 @@ def main() -> None:
 # - 親(agent_id が無い)が書いた文書は親の Stop で読むが、指摘の全文は親の文脈に積まない。ファイルに書き出し、本数・件数・
 #   ファイルの場所と、新しい作業役に渡して直させるという短い知らせだけを返す。親の Stop はサブエージェントの記録を読まない。
 # 直した文書は次の終わりにまた読まれ、同じ中身はハッシュで読み直さないので、直さなければ終わる(Claude Code も連続 8 回で打ち切る)。
-# 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)を effort xhigh で走らせる(Artificial Analysis の総合
-# ランキング 2026-10-13 で、Haiku 5.5 の xhigh は Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の費用で出した。
-# convergence-loops 0.42.0 の CHANGELOG)。
+# 投稿より読む数が多いので、読み手は速く安いモデル(既定 haiku)を effort high で走らせる。Anthropic の Effort の文書は
+# Haiku 5.5 に「Use high for knowledge work, longer agent tasks, and strict instruction following. Use xhigh or max only
+# where your evals show a quality gain」と書く(https://platform.claude.com/docs/en/build-with-claude/effort)。初見読みは
+# 決まった書式の指示に従って文書を読む知識の仕事なので high。手元の測りでは決めない(持ち主の決まり)。
 #
 # 前から在る文書は、書き換えた所を含む節だけを読ませる(新しく作った文書は全体)。全体を読ませていた頃は、約 200 行の
 # 設計の文書に数行足しただけで読み手が時間切れ(210 秒)になり、AGENTS.md の 1 文を直すたびに直していない節の前からの
@@ -2188,7 +2189,7 @@ def main() -> None:
 DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
 DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
-DOC_EFFORT = os.environ.get("COLDREAD_DOC_EFFORT", "xhigh")
+DOC_EFFORT = os.environ.get("COLDREAD_DOC_EFFORT", "high")
 DOC_WORKERS = 4      # 1 回の終わりに読む文書を並べる数
 # 手元の文書の読み役 1 回の上限。裏で読む口も待って読む口(作業役の終わり・claude -p の終わり・手の read・枝の関門)も同じにする。
 # 待って読む口だけ投稿の読み役と同じ 210 秒で切っていた頃は、xhigh の読みが 210 秒を超える文書を作業役が何度書き直しても

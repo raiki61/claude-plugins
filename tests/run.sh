@@ -2739,15 +2739,15 @@ touch("s7", 8, agent="agent-q")
 assert raw("docs-check", {"session_id": "s7", "agent_id": "agent-q", "hook_event_name": "SubagentStop"}, GUESS).stdout == b"", "推測だけで作業役を続けさせた"
 assert len(re.findall(r"^\S+ \S+\tguess=1\t", (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8"), re.M)) == 3
 
-# 読み手のモデルと effort: 手元の文書は既定 haiku・xhigh、投稿は既定 sonnet・medium のまま。既定は環境変数を外した子で見る
+# 読み手のモデルと effort: 手元の文書は既定 haiku・high、投稿は既定 sonnet・medium のまま。既定は環境変数を外した子で見る
 def loaded(**env):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
     r = subprocess.run([sys.executable, "-c", "import importlib.util as u, sys; s = u.spec_from_file_location('g', sys.argv[1]); m = u.module_from_spec(s); "
                         "s.loader.exec_module(m); a = m.reader_argv('claude'); print(m.DOC_MODEL, m.DOC_EFFORT, a[a.index('--model') + 1], a[a.index('--effort') + 1])", str(gate)],
                        capture_output=True, text=True, env=dict(e, CLAUDE_CONFIG_DIR=str(cfg), **env))
     return r.stdout.split()
-assert loaded() == ["haiku", "xhigh", "sonnet", "medium"], loaded()
-assert loaded(COLDREAD_DOC_EFFORT="high")[1] == "high", "COLDREAD_DOC_EFFORT で手元の文書の effort を替えられない"
+assert loaded() == ["haiku", "high", "sonnet", "medium"], loaded()
+assert loaded(COLDREAD_DOC_EFFORT="low")[1] == "low", "COLDREAD_DOC_EFFORT で手元の文書の effort を替えられない"
 # 実際に読み手へ渡る引数も見る(read_doc が effort を渡し忘れても、上の値の検査だけでは通る)。起動と認証は差し替える
 pick = lambda a, flag: a[a.index(flag) + 1]
 seen_argv, saved = [], (g.subprocess.run, g.claude_auth.auth_env, os.environ.pop("COLDREAD_READER_CMD", None))

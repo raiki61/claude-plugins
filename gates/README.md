@@ -255,9 +255,9 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
     重すぎるときは `COLDREAD_DOCS_OFF=1` で手元の文書の門番ごと切る
 - 投稿は出したら取り消せないので書く前に止める。手元の文書は書いた後でも直せるので止めない。書くたびに読ませると、
   Edit のたびに待たされ、同じ文書を何度も読む
-- 読み手は投稿より安いモデルを effort を上げて走らせる(既定 haiku・xhigh。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。
-  Artificial Analysis の総合ランキング(2026-10-13)で Haiku 5.5 の xhigh が Sonnet 5.5 の medium と同じ総合点を約 4 分の 1 の
-  費用で出したため。投稿の読み手は sonnet・medium のまま
+- 読み手は投稿より安いモデルを effort を上げて走らせる(既定 haiku・high。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。
+  Anthropic の [Effort の文書](https://platform.claude.com/docs/en/build-with-claude/effort)が、Haiku 5.5 は知識の仕事と
+  厳密な指示の順守に high を使い、xhigh と max は評価で質が上がると示せた所だけに使う、と書くため。投稿の読み手は sonnet・medium のまま
 - 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
   `linguist-generated` の印・書く前と同じ中身・前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
 - 一時の置き場に書いた、git の作業ツリーの外のファイルも読まない(書いた役が自分のために置いた写しや、渡された頼みの文書)。
@@ -272,7 +272,7 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   そのまま終えてよい。待って読むときに連続で返すのは Claude Code が 8 回で打ち切る
 - 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
 - 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった。サブエージェントの分は
-  `aid=` に `agent_id` が付く。読み手を起こした行には、読みにかかった秒が `35s` の形で、読み手の effort が `e=xhigh` の形で付く。
+  `aid=` に `agent_id` が付く。読み手を起こした行には、読みにかかった秒が `35s` の形で、読み手の effort が `e=high` の形で付く。
   effort はアカウントの settings.json の `env` に `COLDREAD_DOC_EFFORT` を書けば、そのアカウントの会話だけ替わる)
 - 手で 1 本を読ませる口: `python3 hooks/coldread-gate.py read <パス>`(詰まりが在れば終了コード 1)。
   依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
