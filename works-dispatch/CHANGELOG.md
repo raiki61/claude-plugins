@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-17
+
 ### Changed
 
 - スキルの説明の `--sync` の節に、会社の形が替わったときに自動で付け直すフック（`dispatch/shape_hook.py`）がいつ・何を付け直すかと、残す「・裏の処理待ち」の印が何かを書き足した（初見の読み手が推測で埋めていた所）。
