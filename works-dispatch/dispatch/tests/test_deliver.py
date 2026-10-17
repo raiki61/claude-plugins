@@ -117,10 +117,11 @@ class Target(unittest.TestCase):
                 "info_source": "origin", "desk_of": "my_notes/段取り"}
         got = deliver.find_target([notes, plugins, bare], "/r/n", "claude-plugins")
         self.assertEqual((got["company"]["name"], got["department"]["path"], got["role"]), ("my_notes", "/r/n", "段取り"))
-        loop = {**plugins, "desk_of": "claude-plugins"}   # 書いた先がまた desk を指しても 1 段だけたどる
-        with self.assertRaises(deliver.DeliverError) as e:
-            deliver.find_target([notes, loop], "/r/n", "claude-plugins")
-        self.assertIn("desk", str(e.exception))
+        self.assertIn("会社の形の desk", got["via"])
+        for far in ("claude-plugins", "my_notes/無い窓口"):   # 書いた先が部署の名前で当たらなければ、役の道に落とさずに止める
+            with self.assertRaises(deliver.DeliverError) as e:
+                deliver.find_target([notes, {**plugins, "desk_of": far}], "/r/n", "claude-plugins")
+            self.assertIn("その窓口が見つからない", str(e.exception))
 
 
 class Summary(unittest.TestCase):

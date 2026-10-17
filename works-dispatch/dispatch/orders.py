@@ -428,6 +428,12 @@ def _ask(a, ports, cwd, task, sent):
     here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
     account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
     sender = name or "名の無い会話"
+    if dept is not None and sid and dept["attrs"].get("session") == sid:   # 宛先の会話が、頼むこの会話
+        print("\n".join(notes + [f"止めた: 宛先「{a.ask}」はこの会話自身（{dept['attrs'].get('name') or dept['path']}）"
+                                 + (f"。{target['via']}が、この会話だった" if target.get("via") else "")]))
+        return 2
+    if target.get("via"):
+        notes.append(f"宛先「{a.ask}」は{target['via']}の {company['name']}/{dept['attrs'].get('name')} に届ける")
     # 納品を受ける受付箱は、頼んだ会話の居る場所の会社の物（待ち受けはそこで宛先を受ける）。命令を打った場所（cwd）がほかの会社の
     # clone でも替えない（段取りが claude-plugins の clone で打った頼みの返り先が claude-plugins の受付箱になり、段取りの待ち受けに
     # 届かなかった。my_notes の受付 20261017-054115-5bc0b0）

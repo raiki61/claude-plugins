@@ -63,12 +63,13 @@ def parse_target(target):
     return (company or None) if sep else None, rest
 
 
-def find_target(companies, here_root, target, task=None, current=lambda company, name: name, hop=False):
+def find_target(companies, here_root, target, task=None, current=lambda company, name: name):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。current は (会社, 役の名前) → 今の役の名前
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
     部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。会社を書かずに会社の名前（会社の形の在る会社だけ）
-    だけで宛てれば、その会社の本社の名付いた会話（窓口）に届け、名付いていなければ止める。頼む側の会社の役の名前より先に当たる。役で宛てて task（--task の部署の名前）を
+    だけで宛てれば、その会社の本社の名付いた会話（窓口）に届け、名付いていなければ、会社の形の desk に書いたほかの会社の窓口に
+    届け（返しに via を添える）、それも無ければ止める。頼む側の会社の役の名前より先に当たる。役で宛てて task（--task の部署の名前）を
     渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常設の部署が名前違いで居ても
     使わない）。task が無く、役で宛てて常設の部署が無ければ department は None（新しく立てる）。"""
     company_name, name = parse_target(target)
@@ -106,10 +107,17 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         # 会社の名前だけで宛てたら、その会社の窓口（本社の、--desk で名付けた会話）に届ける（tree.contacts の窓口と同じ物）。部署で
         # ない会話がほかの会社に頼むとき、宛先の役の名前を会社ごとに知らなくてよいように
         head = next((d for d in whole[0]["departments"] if d.get("head_office") and d["attrs"].get("name")), None)
-        if head is None and whole[0].get("desk_of") and not hop:
+        if head is None and whole[0].get("desk_of"):
             # 本社に窓口が無く、会社の形の desk にほかの会社の窓口が書いてあれば、そこへ届ける（--tree の窓口と同じ物。claude-plugins の
-            # 窓口は my_notes の段取り）。書いた先がまた desk を指していても、1 段だけたどる
-            return find_target(companies, here_root, whole[0]["desk_of"], None, current, hop=True)
+            # 窓口は my_notes の段取り）。書いた先は部署の名前で当たったときだけ使う（役の道に落として、ほかの会社に部署を立てない）
+            far, far_name = parse_target(whole[0]["desk_of"])
+            hits = [(c, d) for c in companies if c["name"] == far for d in c["departments"]
+                    if d["attrs"].get("name") == far_name or far_name in gitx.former_names(d["attrs"])]
+            if len({d["path"] for _, d in hits}) != 1:
+                raise DeliverError(f"会社「{name}」の窓口は会社の形の desk で {whole[0]['desk_of']} と書いてあるが、その窓口が"
+                                   + ("見つからない（その会社が herdr に開いていないか、その名前の窓口が無い）" if not hits else "2 つ以上ある"))
+            c, d = hits[0]
+            return {"company": c, "department": d, "role": d["attrs"].get("role"), "via": f"{name} の窓口（会社の形の desk）"}
         if head is None:
             raise DeliverError(f"会社「{name}」の窓口が名付けられていない（その会社の本社で持ち主と話す会話が --desk を打つと名付く。"
                                "ほかの会社の窓口が兼ねるなら、会社の形の頭に desk = \"<会社>/<名前>\" と書く）。"
