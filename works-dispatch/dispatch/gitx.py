@@ -377,8 +377,18 @@ def advance_branch(source, branch, sha, runner=_default_runner):
 
 
 def add_detached(source, path, sha, runner=_default_runner):
-    """枝に乗らない一時の worktree を path に sha で作る（取り込みのときに版を上げる commit を作る場所）。書く口。"""
+    """枝に乗らない一時の worktree を path に sha で作る（取り込みのときに版を上げる commit を作る場所・機械の道具を走らせる場所）。
+    書く口。git の worktree add は、extensions.worktreeConfig が入っていると元の worktree の config.worktree を新しい worktree に
+    写すので、source が部署（代表の clone の本社など）なら部署の属性 company.* も載り、一時の場所が同じ名前の部署に見える
+    （2026-10-17 に my_notes で --call の間、段取りへの --ask が「名前が 2 つ以上ある」で止まった）。作ったらすぐ消す。
+    extensions.worktreeConfig が入っていなければ config --worktree は共通の設定を指すので、そのときは触らない（写しも起きない）。"""
     _must(["git", "-C", source, "worktree", "add", "--quiet", "--detach", path, sha], runner)
+    if (_git(path, ["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"], runner) or "") != "true":
+        return
+    p = runner(["git", "-C", path, "config", "--worktree", "--remove-section", "company"])
+    if p.returncode != 0 and worktree_attrs(path, runner):   # 節が無いとき（終了の値 128）は消す物が無い
+        runner(["git", "-C", source, "worktree", "remove", "--force", path])   # 部署に見える場所を残さない
+        raise GitError(f"git -C {path} config --worktree --remove-section company: {(p.stderr or p.stdout).strip()[:300]}")
 
 
 def remove_detached(source, path, runner=_default_runner):

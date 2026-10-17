@@ -104,6 +104,16 @@ class Call(unittest.TestCase):
         self.assertIn(want, out)
         self.assertEqual(len(git("-C", self.src, "worktree", "list").splitlines()), 2)   # 一時の worktree は消える（代表の clone と部署）
 
+    def test_the_tool_place_does_not_carry_the_clone_department_attrs(self):
+        # git の worktree add は config.worktree を写す。本社の属性が載ると、--call の間だけ同じ名前の部署が 2 つに見えた（2026-10-17）
+        self.use("git config --worktree --get-regexp company || echo 属性無し")
+        gitx.enable_worktree_config(self.src)
+        gitx.set_worktree_attr(self.src, "name", "段取り")
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("属性無し", out)
+        self.assertEqual(gitx.worktree_attrs(self.src)["name"], "段取り")   # 本社の属性はそのまま
+
     def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
         self.use(self.script("import sys; print('p2 で失敗'); sys.exit(4)"))
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")

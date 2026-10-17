@@ -77,6 +77,11 @@ class Target(unittest.TestCase):
         with self.assertRaises(deliver.DeliverError):
             deliver.find_target([self.a, twin], "/r/a", "調べ")
         self.assertEqual(deliver.find_target([self.a, twin], "/r/a", "c/調べ")["department"]["path"], "/r/c-w")
+        same = company("c", "/r/c", dept_row(name="調べ", path="/r/c-w"), dept_row(name="調べ", branch=None, path="/t/tree"))
+        with self.assertRaises(deliver.DeliverError) as e:
+            deliver.find_target([same], "/r/c", "c/調べ")   # 同じ会社の中の重なりは、会社を添えても分けられない
+        self.assertIn("c/（枝無し） /t/tree", str(e.exception))
+        self.assertIn("宛て方では分けられない", str(e.exception))
 
 
 class Summary(unittest.TestCase):

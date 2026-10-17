@@ -82,8 +82,13 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         # 名前を替えた部署（--reorg・--desk）は、前の名前でも引く（今の名前が先）
         named = [(c, d) for c in pool for d in c["departments"] if name in gitx.former_names(d["attrs"])]
     if len(named) > 1:
-        where = "、".join(f"{c['name']}/{d['branch']}" for c, d in named)
-        raise DeliverError(f"部署の名前「{name}」が 2 つ以上ある（{where}）。「会社/役」で宛てるか、会社を添える")
+        where = "、".join(f"{c['name']}/{d['branch'] or '（枝無し）'} {d['path']}" for c, d in named)
+        if len({c["root"] for c, _ in named}) > 1:
+            hint = "会社を添えて「会社/名前」で宛てる"
+        else:   # 同じ会社の中の重なりは、宛て方では分けられない
+            hint = ("同じ会社の中で重なっているので、宛て方では分けられない。--tree で場所を見て、要らない方の部署を片づけるか、"
+                    "名前を替える（--reorg）")
+        raise DeliverError(f"部署の名前「{name}」が 2 つ以上ある（{where}）。{hint}")
     if named:
         return {"company": named[0][0], "department": named[0][1], "role": named[0][1]["attrs"].get("role")}
     if company_name is None:
