@@ -63,6 +63,16 @@ DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
 # （Windows の Claude Code の Bash の道具は Git Bash で、\ と空白のパスがそのままでは崩れ、python3 が無いこともある）
 RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))
 
+
+def own_version():
+    """この works-dispatch の版（plugin.json の version）。読めなければ None。関所（deliver_check・ask_check）に JSON の version で渡し、
+    会社の側の台本が版の下限を確かめられるようにする（古い版は知らない欄を読み飛ばすので、会社の形に下限を書いても止まらない。3c9a61）。"""
+    try:
+        return json.loads((pathlib.Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json")
+                          .read_text(encoding="utf-8")).get("version")
+    except (OSError, ValueError, AttributeError):
+        return None
+
 for _s in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -435,7 +445,8 @@ def _ask(a, ports, cwd, task, sent):
         try:
             with tools.place(company["root"], ports.git) as (here, said):
                 code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": ask_id,
-                                                       "from": ports.env.get("CLAUDE_CODE_SESSION_ID")}, subprocess.run)
+                                                       "from": ports.env.get("CLAUDE_CODE_SESSION_ID"), "version": own_version()},
+                                         subprocess.run)
         except (gitx.GitError, OSError) as e:
             code, out, said = 1, str(e), None
         if said:
@@ -1205,13 +1216,14 @@ def deliver_summary(a, ports, cwd):
         if bad:
             print("\n".join(notes + ["送らなかった: 残った疑問の持ち手が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
                             + ["- 残った疑問は 1 件ごとに「持ち手: <部署の名前か受付番号>」を書く。持ち主に向ける物だけ「持ち手: 持ち主（価値で"
-                               "選ぶ）」か「持ち手: 持ち主（確認してからやる）」。疑問が無ければ「なし」とだけ書く"]))
+                               "選ぶ）」か「持ち手: 持ち主（確認してからやる）」。箇条を導くだけの前置きの段落は「：」で終える。疑問が無ければ「なし」とだけ書く"]))
             return 2
     check = (the_role or {}).get("deliver_check")
     if check:
         place = ports.git.toplevel(cwd) or cwd
         code, out = deliver.gate(check, place, {"role": attrs["role"], "ask": attrs.get("ask"), "branch": branch, "place": place,
-                                                "items": items, "summary": deliver.summary_text(items, required)},
+                                                "items": items, "summary": deliver.summary_text(items, required),
+                                                "version": own_version()},
                                  subprocess.run)
         if code != 0:
             print("\n".join(notes + [f"送らなかった: 納品の検査が通らなかった（終了の値 {code}）: {check}"]

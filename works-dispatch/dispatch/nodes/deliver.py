@@ -303,32 +303,50 @@ OPEN = "残った疑問"
 HOLDER_RE = re.compile(r"持ち手[:：]\s*([^。、\n]+)")
 # 箇条の頭（- * ・ • + と、1. 1) 1． 1） (1) ① の番号）。字下げした子の項目は親に続ける
 ITEM_RE = re.compile(r"^\s{0,1}(?:[-*・•+]|\d+[.)．）]|[(（]\d+[)）]|[①-⑳])\s*")
-NONE_WORDS = ("無し", "なし", "無い", "ない", "特に無し", "特になし", "特に無い", "ありません", "特にありません")
+NONE_RE = re.compile(r"(?:特に)?(?:無し|なし|無い|ない|ありません)(?:です|でした)?(?:$|[。．.、，,（()）「」『』【】：:；;！!→—/\s])")
+# 問いの印を探す前に消す URL（\S+ だと URL のすぐ後ろの全角の「？」まで消える）
+ASCII_URL = re.compile(r"https?://[\x21-\x7e]+")
 OWNER_WORDS = ("持ち主", "所有者")
 OWNER_OK = ("持ち主（価値で選ぶ）", "持ち主（確認してからやる）")
 
 
 def open_items(text):
-    """残った疑問を 1 件ずつに割る。箇条書きが無ければ全体で 1 件。箇条の前の前置きの行（「次の 2 件。」など）は件に数えない。"""
-    items, lead = [], []
+    """残った疑問を 1 件ずつに割る。箇条書きが無ければ全体で 1 件。箇条でない段落（箇条の前の前置きと、箇条の間・後ろの、空行の後の
+    字下げの無い行。空行まで 1 段落）は、最後の行が「：」か「:」で終わり、ほかの行が文の終わり（。？?）で終わらない物（「次の 2 件：」
+    など。折り返した行も 1 段落）で、すぐ次が箇条の物だけを箇条を導く札として件に数えず、ほかは 1 件に数える（前置きや後書きに問いを書いて持ち手を省くと
+    通っていた。my_notes の受付 3c9a61）。"""
+    blocks, gap = [], True   # 箇条の 1 件は字、段落は行の並び
     for line in (text or "").splitlines():
         if not line.strip():
+            gap = True
             continue
         if ITEM_RE.match(line):
-            items.append(line.strip())
-        elif items and line[:1].isspace():
-            items[-1] += " " + line.strip()
-        elif items:
-            items[-1] += " " + line.strip()
+            blocks.append(line.strip())
+        elif blocks and not (gap and (isinstance(blocks[-1], list) or not line[:1].isspace())):
+            if isinstance(blocks[-1], list):
+                blocks[-1].append(line.strip())
+            else:
+                blocks[-1] += " " + line.strip()
         else:
-            lead.append(line.strip())
-    return items or ([" ".join(lead)] if lead else [])
+            blocks.append([line.strip()])
+        gap = False
+    if not any(isinstance(b, str) for b in blocks):
+        return [" ".join(" ".join(b) for b in blocks)] if blocks else []
+    return [b if isinstance(b, str) else " ".join(b) for i, b in enumerate(blocks)
+            if isinstance(b, str) or not (_intro(b) and i + 1 < len(blocks) and isinstance(blocks[i + 1], str))]
+
+
+def _intro(lines):
+    """箇条でない段落（行の並び）が、箇条を導くだけの札か（最後の行が「：」で終わり、ほかの行が文の終わりで終わらない）。"""
+    return lines[-1].endswith((":", "：")) and not any(x.endswith(("。", "？", "?")) for x in lines[:-1])
 
 
 def _none(text):
-    """疑問が無いと書いた物か（「なし」「- なし」「なし（全部閉じた）」「ありません」など）。"""
+    """疑問が無いと書いた物か（「なし」「- なし」「なし（全部閉じた）」「無い。<理由>」「ありません」など）。無しの語の後が句読点・括弧・
+    空白・終わりのときだけで、「無い場合はどうするか」のように語が文の頭に来ただけの物と、問いの印（？。URL の中の ? は除く）の在る物は
+    数えない（3c9a61）。"""
     body = ITEM_RE.sub("", text.strip(), count=1).strip()
-    return body.startswith(NONE_WORDS) and "持ち手" not in body
+    return bool(NONE_RE.match(body)) and "持ち手" not in body and not any(q in ASCII_URL.sub("", body) for q in "？?")
 
 
 def holder_problems(text, relays=()):
@@ -412,7 +430,7 @@ GATE_TAIL = 20   # 納品の検査が通らなかったとき、部署に返す�
 
 
 def gate(command, place, payload, runner):
-    """納品の検査。command（シェルの字）を place（部署の作業場の根）で走らせ、payload（role・ask・branch・place・items・summary）を
+    """納品の検査。command（シェルの字）を place（部署の作業場の根）で走らせ、payload（role・ask・branch・place・items・summary・version）を
     JSON で標準入力に渡す。(終了の値, 標準出力と標準エラーの終わりの GATE_TAIL 行)。0 なら通った、0 以外なら送らない。
     runner は subprocess.run（ノードは subprocess を持たないので、流れの orders.py が渡す）。"""
     p = runner(command, shell=True, cwd=place, input=json.dumps(payload, ensure_ascii=False), capture_output=True,

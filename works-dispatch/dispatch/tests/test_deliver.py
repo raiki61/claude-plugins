@@ -136,10 +136,25 @@ class Holders(unittest.TestCase):
         self.assertIn("持ち手が無い", bad[0])
         self.assertIn("持ち主（価値で選ぶ）", bad[1])
         self.assertEqual(deliver.holder_problems("- 中継。持ち手: 社長室"), [])   # 中継の名前を書かない会社では普通の持ち手
-        for none in ("- なし", "なし（全部閉じた）", "ありません", "・特になし"):
+        for none in ("- なし", "なし（全部閉じた）", "ありません", "・特になし", "無し。", "- 無い。url-status の語は原典どおり", "無し",
+                     "無し。https://x.example/?a=1", "なしです", "ありませんでした", "なし！", "なし→全部閉じた"):
             self.assertEqual(deliver.holder_problems(none), [], none)
-        lead = "次の 2 件。\n1） 測る。持ち手: 割り振り\n② 決める。持ち手: 持ち主 (価値で選ぶ)"
-        self.assertEqual(deliver.holder_problems(lead), [])   # 前置きの行は数えない。空白と半角の括弧も読む
+        # 無しの語で始まるだけの問いは疑問なしと読まない（3c9a61）
+        for asked in ("無い場合はどうするか", "- なしで進めてよいか", "無し。ただ X は直すか？", "なし。https://x.example/a を見てどうするか？"):
+            self.assertEqual(len(deliver.holder_problems(asked)), 1, asked)
+        lead = "次の 2 件：\n1） 測る。持ち手: 割り振り\n② 決める。持ち手: 持ち主 (価値で選ぶ)"
+        self.assertEqual(deliver.holder_problems(lead), [])   # 「：」で終わる前置きの行は数えない。空白と半角の括弧も読む
+        asked = "決めてほしいのは A の扱いだけ。\n- 測る。持ち手: 割り振り"
+        self.assertEqual(deliver.holder_problems(asked), ["持ち手が無い: 決めてほしいのは A の扱いだけ。"])   # 前置きに書いた問いは 1 件
+        self.assertEqual(deliver.holder_problems("直しの候補（受け持ち\nごと）:\n\n- 測る。持ち手: 割り振り"), [])   # 折り返しも 1 段落
+        self.assertEqual(deliver.holder_problems("- 測る。持ち手: 割り振り\n\n札：\n- 決める。持ち手: 段取り\n\n  字下げの続き"), [])
+        # 「：」で終わる段落でも、上の行が文で終わる物と、箇条の後ろの空行の後の段落は、問いとして 1 件に数える
+        for asked, head in (("A の扱いを決めて。\n次の 2 件：\n- 測る。持ち手: 割り振り", "A の扱いを決めて。 次の 2 件："),
+                            ("Q。\n\n次の 2 件：\n- 測る。持ち手: 割り振り", "Q。"),
+                            ("- 測る。持ち手: 割り振り\n\nほかに B をどうするか決めたい。", "ほかに B をどうするか決めたい。"),
+                            ("A をどうするか：", "A をどうするか："),
+                            ("- 測る。持ち手: 割り振り\n\nB をどうするか：", "B をどうするか：")):
+            self.assertEqual(deliver.holder_problems(asked), [f"持ち手が無い: {head}"], asked)
         self.assertEqual(len(deliver.holder_problems("(1) 測る。持ち手: 割り振り\n(2) 持ち手の無い疑問")), 1)   # 番号で 1 件ずつ
         self.assertEqual(deliver.unsure_problems({"結論": "直した（要確認）", deliver.OPEN: "要確認。持ち手: 割り振り"}),
                          ["「結論」に「要確認」がある。残った疑問に移して持ち手を付ける"])
@@ -991,6 +1006,8 @@ class Flow(unittest.TestCase):
         self.assertEqual(payload["place"], payload["cwd"])
         self.assertIn("決め手", payload["items"])
         self.assertTrue(payload["summary"].startswith("## 結論\n直した。"))
+        self.assertEqual(payload["version"], orders.own_version())   # 会社の側の台本が版の下限を確かめる（3c9a61）
+        self.assertRegex(payload["version"], r"^\d+\.\d+\.\d+$")
         pathlib.Path(summary).write_text(GOOD.replace("なし", "写しは reference/spec.md"), encoding="utf-8")
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
@@ -1037,7 +1054,7 @@ class Flow(unittest.TestCase):
         # 受ける会社の決まりで、ほかの会社から届く頼みも止める（242baa）。関所は受ける会社の代表の clone で走り、本文を JSON で受ける
         script = pathlib.Path(self.src, "gate.py")
         script.write_text("import json,sys,os\nd=json.load(sys.stdin)\nopen('seen.txt','w').write(os.getcwd())\n"
-                          "sys.exit(1 if '知らせ' in d['body'] else 0)\n", encoding="utf-8")
+                          "sys.exit(1 if '知らせ' in d['body'] or not d.get('version') else 0)\n", encoding="utf-8")
         self.shape(f'[[roles]]\nname = "調べ役"\nask_check = {json.dumps(pathlib.Path(sys.executable).as_posix() + " gate.py")}\n')
         git("-C", self.src, "add", "gate.py")
         git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "gate")
