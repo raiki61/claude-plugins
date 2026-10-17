@@ -8,7 +8,7 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
 すること:
 1. アカウントごとに（works-dispatch の設定の accounts と、手元の設定 `~/.config/claude-plugins/spread.toml` の accounts。
    設定のフォルダ config_dir ごとに Claude Code を起こす）、`claude plugin marketplace update <このリポジトリの marketplace>`
-   を打ち（落ちたら 1 回だけ打ち直す）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
+   を打ち（落ちたら 1 回だけ打ち直す。それでも落ちても、入った版が全部本流とそろえば失敗に数えない）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
    消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
    部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
@@ -308,6 +308,16 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
         got, fails = check_versions(whole, want)
         lines += got
         bad += fails
+        if not err:
+            # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部本流と同じなら目的は果たしている。同じ設定のフォルダの
+            # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
+            off = {n for n, i, v in whole if i in want and v != want[i]}
+            even = {n for n, i, v in whole if i in want} - off
+            for n in sorted(even):
+                head = f"{n}: claude plugin marketplace update "
+                if any(x.startswith(head) for x in bad):
+                    bad = [x for x in bad if not x.startswith(head)]
+                    lines.append(f"{n}: marketplace の更新は落ちたが、入った版は本流とそろったので失敗に数えない")
     got, fails = reload_talks(skip, dry, runner)
     lines += got
     bad += fails

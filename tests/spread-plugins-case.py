@@ -4,7 +4,8 @@
 使い方: python3 tests/spread-plugins-case.py <場合>
 - only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力欄に字の在る会話と手元の
   設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
-- failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直す
+- failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、
+  それでも落ちても入った版が全部本流とそろえば失敗に数えない
 - local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
 - broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版が本流（origin/main）とそろわなければ
   失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える。本流は全アカウントに配った後に読み、
@@ -133,10 +134,17 @@ def failure_is_nonzero():
     runner, _ = world(fail={f"claude plugin update a@{MARKET}"})
     rc, out = run(runner, {})
     assert rc == 1 and "失敗 2 件" in out, (rc, out)
-    runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})
+    runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"}, version="0.9.0")
     rc, out = run(runner, {})
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
-    assert rc == 1 and "失敗 2 件" in out and len(tries) == 4, (rc, out, tries)   # 打ち直しても落ちれば失敗（アカウントごとに 2 回まで）
+    assert rc == 1 and "- main: claude plugin marketplace update" in out and len(tries) == 8, (rc, out, tries)   # 打ち直しても落ち、版も古ければ失敗（配り直しを含めアカウントごとに 2 回まで）
+    runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})   # 別の会話が先に取り直して版はそろった
+    rc, out = run(runner, {})
+    tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
+    assert rc == 0 and len(tries) == 4 and "main: marketplace の更新は落ちたが、入った版は本流とそろったので失敗に数えない" in out, (rc, out, tries)
+    runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"}, main=None)   # 本流を読めなければそろったと言えない
+    rc, out = run(runner, {})
+    assert rc == 1 and "- main: claude plugin marketplace update" in out, (rc, out)
     runner, calls = world(flaky={f"claude plugin marketplace update {MARKET}"})   # 別の会話の取り直しとぶつかった
     rc, out = run(runner, {})
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]

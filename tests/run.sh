@@ -4412,7 +4412,7 @@ expect_output 0 "ONLY_COMPANY_TALKS_OK" \
     "spread-plugins: 手の空いた部署と窓口の会話にだけ打ち、番の途中・打ちかけの会話と手元の除外は飛ばす。自分の marketplace の物だけ更新" \
     "$PY_BIN" "$SPREAD_CASE" only-company-talks
 expect_output 0 "FAILURE_IS_NONZERO_OK" \
-    "spread-plugins: 1 つでも失敗したら 0 以外で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直す" \
+    "spread-plugins: 1 つでも失敗したら 0 以外で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、なお落ちても入った版が本流とそろえば数えない" \
     "$PY_BIN" "$SPREAD_CASE" failure-is-nonzero
 expect_output 0 "LOCAL_ACCOUNTS_OK" \
     "spread-plugins: 手元の設定の accounts（部署を起こさないアカウント）にも配り、同じ設定のフォルダは 1 回だけ" \
