@@ -5086,6 +5086,10 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN", "HERDR_INSTALL_DIR",
                   # Claude Code がフックに渡す、Bash のコマンドごとに先に走らせるファイルの環境変数（works-dispatch の role_hook.py が読む）
                   "CLAUDE_ENV_FILE",
+                  # Claude Code が会話とその子に渡す環境変数（works-dispatch が effort の継ぎと待ち受けの窓の確かめに読む）
+                  "CLAUDE_EFFORT", "CLAUDE_JOB_DIR",
+                  # herdr がペインの中の殻に渡す環境変数（works-dispatch がペインの見分けと herdr への問い合わせに読む）・OS の PATH
+                  "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "PATH",
                   # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
                   "HTTPS_PROXY",
                   # works-dispatch の設定の置き場を替える環境変数（CLAUDE_KEYCHAIN_SERVICE と同じく、モジュールの定数でなく os.environ から読む）

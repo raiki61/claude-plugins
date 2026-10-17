@@ -261,7 +261,7 @@ class Hook(unittest.TestCase):
         d = pathlib.Path(tempfile.mkdtemp())
         self.src = str(d / "co")
         git("init", "-q", "-b", "main", self.src)
-        git("-C", self.src, "commit", "-q", "--allow-empty", "-m", "init")
+        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
         self.place = str(d / "dept")
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", self.place)
         self.inbox = deliver.inbox_of(gitx.common_dir(self.src))

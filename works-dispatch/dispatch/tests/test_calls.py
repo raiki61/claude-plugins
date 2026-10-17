@@ -98,7 +98,7 @@ class Call(unittest.TestCase):
         self.use("git rev-parse HEAD")
         want = gitx.rev(self.src, gitx.origin_head(self.src))
         git("-C", self.src, "switch", "-q", "-c", "other")   # 持ち主が代表の clone で別の枝を開いている
-        git("-C", self.src, "commit", "-q", "--allow-empty", "-m", "other")
+        git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "other")
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 0, out)
         self.assertIn(want, out)
