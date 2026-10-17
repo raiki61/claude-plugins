@@ -128,7 +128,7 @@
 
 担当の model・effort は、受け持ち（`[[skills]]`）ごとに書く（2026-10-17。持ち主「雑用っぽい部署はsonnetでいい」）。同じ決まりは、役ごとのモデルを手元の測りでなく公開の指針で決めると書くので、再演の続きを待たずに Anthropic の指針（[Claude Code のモデルと effort](https://claude.com/blog/claude-model-and-effort-level-in-claude-code)・[Effort](https://platform.claude.com/docs/en/build-with-claude/effort)）で決めた。
 
-- 試し: Sonnet・high。決まった手順で入れて動かし、見たことを記録する決まった仕事で、指針は決まった仕事に小さいモデルを選ぶと書く。プラグインは直さず、直しは Opus の担当に回る。
+- 試し: Opus・high。一度は Sonnet・high にした（決まった手順で入れて動かし、見たことを記録する決まった仕事で、指針は決まった仕事に小さいモデルを選ぶと書く）が、同じ日に Opus に戻した。戻した理由と記録への行き先は、会社の形の試しの受け持ち（`id = "trials"`）の上のコメントに書く。
 - 割り振り・点検・見直し・見渡し: Opus・high。プラグインのコードを直す仕事で、指針は長いコーディングでは effort が正確さを買うと書く。アカウントの既定が high と medium で割れるので、high を書いてそろえる。
 - 説明書・標準・業務改革: Opus・medium。文書と判断の仕事で、指針の調べものと知識の仕事の計測では medium が既定と同じ正確さだった。原文の照合と規約の判断はモデルを下げない。
 

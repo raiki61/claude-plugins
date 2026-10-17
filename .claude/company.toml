@@ -131,21 +131,18 @@ text = """\
 異論と差し戻しの数、組織そのものへの仕事の割合、前の回の改善点が効いたか。\
 改善点ごとに、回す先（部署）と、持ち主の判断が要るか（CLAUDE.md と company.toml の決まりで答えが出るか）と、確かめ方を書く。"""
 
-# 試しは Sonnet で起こす。決まった手順（入れて動かし、詰まりを記録する）を繰り返す仕事で、結果は同じ手順で試し直して確かめられる。
-# ほかの担当はプラグインのコードの直しで、長いコーディングは effort が正確さを買うので、Opus・アカウントの既定（high）のまま残す。
-# 機械的な仕事のうち、配る仕事は既にモデルを使わない機械の役「配布」にしてある。
-# 持ち主 2026-10-16「あと雑用っぽい部署はsonnetでいいとかね。」、2026-10-17「もう材料があるなら、あなたが変えて適応すれば？」（my_notes の社長室が書いた）。
-# 記録の漏れや誤りが増えたら（点検の初見読みで止まる回が増えるなど）、model を消して Opus に戻す。
-# 根拠（Anthropic の公式の指針、my_notes の reference/primary/ai/claude-model-choice.md に写し）:
-#   "Pick a smaller model when the work is routine." "specific instructions directing execution are a better recipe for success on the smaller models."
-#   "Long-horizon coding is where effort genuinely buys accuracy."
+# 試しは Opus で起こす（ほかの担当と同じく model を書かず、アカウントの既定の Opus）。
+# 一度 Sonnet にした（2026-10-17。持ち主「あと雑用っぽい部署はsonnetでいいとかね。」、根拠は "Pick a smaller model when the work is routine."）が、
+# 「記録の漏れや誤りが増えたら Opus に戻す」と決めてあり、同じ日に戻した。2 回目の試しを Sonnet でやり直すと、
+# Opus で回した前の記録の詰まりのうち、同じ条件で起こりうる 10 件で、見落とし 2 件・一部だけ書いた 1 件が出た（数え方は docs/trials/2026-10-17-sonnet-replay.md）。
+# 1 回だけなので、Sonnet のせいか回ごとのばらつきかは分けていない。それでも決まりどおり戻し、もう 1 回回して確かめることはしない
+# （my_notes の段取りの頼み 20261017-091106-9b6d67）。
 [[skills]]
 id = "trials"
 name = "試し"
 description = "まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
 role = "担当"
-model = "sonnet"   # 決まった手順で入れて動かし、見たことを記録する。プラグインは直さず、詰まりの直しは Opus の担当に頼む
-effort = "high"   # Sonnet 5.5 の既定。長い手順の仕事なので下げない
+effort = "high"   # 長い手順で入れて動かし、見たことを漏らさず記録する仕事なので下げない
 
 # 担当: 受け持ちごとに常設で 1 つ（resident = true なので、--resident を付けなくても常設の部署で立つ）。受け持ちは部署の名前で決まる
 # fresh = true で、頼みごとに空の会話で受ける（持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
