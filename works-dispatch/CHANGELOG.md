@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.50.4] - 2026-10-17
+
 ### Fixed
 
 - 部署（作業場ごとの裏の Claude Code の会話）の属性から会話の id（git の設定 `company.session`）が消えていると、窓の会話が落ちたときに `--ask` も `--nudge` も「会話の id が無いので戻せない」で止まり、窓口が `--task` で手で立て直すまで順番待ちが渡らなかったのを直した（2026-10-17 の claude-plugins の割り振り・説明書と my_notes のノートの手入れ）。会話の id が無ければ、会話の一覧（`claude agents`。終わった会話も含む）の、作業フォルダが部署の場所の裏の会話（名前が部署の名前の物を先に）で `claude attach` して戻し、属性も書き戻す。`--tree` は会話の id の無い部署に「! 会話の id が無い」と出す。
