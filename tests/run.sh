@@ -2366,6 +2366,8 @@ EOF"
 CR_STUB_CLEAN='cat >/dev/null; echo CLEAN'
 CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
 CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
+# 3 回目からは前の回から残った詰まりだけが止める。続けて止まる数を見る検査は、前の回の印の付いた詰まりを返す代役を使う
+CR_STUB_CARRY='cat >/dev/null; printf "詰まり: (前の回) F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
 CR_STUB_FAIL='cat >/dev/null; exit 1'
 # 読み役の代役: 届いた依頼文+本文に印(ASCII)が在るかで返す文言を変える(本文が実際に届いたことまで見る)
 cr_stub_sees() { printf 'b=$(cat); case "$b" in *%s*) printf "詰まり: %s が届いた\\n";; *) printf "詰まり: %s が届いていない\\n";; esac' "$1" "$1" "$1"; }
@@ -2405,7 +2407,7 @@ except Exception as exc:
 
 CHECKS = {
     # 連続の案内は書き手（session）ごと。他のセッションの deny は自分の 1 回目に出さない
-    "no-streak": ("SID_ISOLATED", lambda r: "回連続" not in r),
+    "no-streak": ("SID_ISOLATED", lambda r: "回続けて" not in r),
     # 続けて止まった知らせは deny 理由の先頭に在る（末尾に置いた案内は 36 回無視された）
     "streak-head": ("HEAD_OK", lambda r: r.startswith("【") and "回続けて止まった" in r[:40]),
     # 逃げ道（COLDREAD_SKIP=1）を付けて出せと案内しない（持ち主の判断 2026-10-16）
@@ -3807,10 +3809,10 @@ expect_output 0 "詰まり" "stdio を cp1252 に強制しても deny 文言が�
 # 連続 deny: 専用 config で履歴を隔離し「ちょうど 3 回目」で知らせる境界を検査する。往復の上限は置かない(持ち主 2026-10-17)
 # (共有 config だと先行テストの deny が積まれ、見る回数が先行テストの増減で揺れる)
 CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
-env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "3 回続けて止まった" "同じ投稿が 3 回止まると、続けて止まったことと持ち主に渡す道を知らせる(ちょうど 3 で発火)" \
-    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "$CR_POST"
 # 続けて止まったことは別の記録(stuck.log)に残す。本文は写さない(宛先の種類と止めた理由の並びだけ)
 expect_output 0 "STUCK_OK" "3 回続けて止まった投稿は stuck.log に宛先の種類と止めた理由の並びを残し、本文は写さない" \
     "$PY_BIN" -c 'import sys
@@ -3823,21 +3825,61 @@ expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "3 回�
 # 同じ書き手・同じ宛先でも、本文が似ていなければ別の投稿として数える
 expect_output 0 "NO_STREAK_OTHER_BODY" "宛先が同じでも、本文の似ていない別の投稿は続けて止まった数に入れない" \
     sh -c '"$@" | grep -q "回続けて止まった" && echo BAD || echo NO_STREAK_OTHER_BODY' sh \
-    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$(printf 'まったく別の話題の文章です。%.0s' $(seq 1 30)) $CR_PAD'"
+    env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "gh issue comment 1 --body '$(printf 'まったく別の話題の文章です。%.0s' $(seq 1 30)) $CR_PAD'"
 # 連続 deny は書き手(session)ごと。log は profile 共有なので、並行セッションの deny を数えると
 # 1 回目の書き手に「3 回連続」の案内が出て、他所の skip が自分の案内を消す(2026-09-07 に PR 1429 で実測:
 # 7 回目の deny で案内が消えたのは、2 分前に別セッションが skip したため)
 CR_SID_CFG="$WORK/coldread-cfg-sid"; mkdir -p "$CR_SID_CFG"
-COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
+COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "SID_ISOLATED" "他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない" \
     cr_reason bbbb2222 no-streak \
     "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 COLDREAD_TEST_SESSION=bbbb2222 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_CLEAN" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "3 回続けて止まった" "他セッションの通過を挟んでも、自分の 3 回目で知らせる" \
-    env COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+    env COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_CARRY" "$CR_POST"
 expect_output 0 "to=issue:cwd:1" "log の各行に session・版・投稿先が残る(どの版のどのセッションがどこへ出したかを grep で引く)" \
     grep -E $'deny\tfinding\t[0-9]+\tcold\tsid=aaaa1111\tv=[0-9.]+\tto=issue:cwd:1' "$CR_SID_CFG/coldread-gate/denies.log"
+# 本文を読めずに止めた回(本文を取り出せない形など)は、書き直しの回に数えない。読めた回の連続も切らない。前は本文ファイルを
+# 同じコマンドの中で書き換えて止まった回が「4 回続けて止まった」に数えられた(2026-10-17 の works-factory)
+CR_UNREAD_CFG="$WORK/coldread-cfg-unread"; mkdir -p "$CR_UNREAD_CFG"
+CR_UNREAD_POST="gh issue comment 1 --body \"\$BODY\" # $CR_PAD"
+env COLDREAD_TEST_SESSION=unread1 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=unread1 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "SID_ISOLATED" "読めた回が 2 回続いた後の、本文を読めずに止めた回は、続けて止まった数に入れない" \
+    cr_reason unread1 no-streak "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_FAIL" "$CR_UNREAD_POST"
+# 読み手が動かない回(本文の指紋が有る)も、読めた回の連続に足さず、切りもしない。前は足されて「4 回」と出た
+env COLDREAD_TEST_SESSION=unread1 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_FAIL" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "【同じ投稿が 3 回続けて止まった" "本文を読めずに止めた回・読み手が動かない回を挟んでも、読めた回の連続は切れず、足されもしない" \
+    env COLDREAD_TEST_SESSION=unread1 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_CARRY" "$CR_POST"
+env COLDREAD_TEST_SESSION=unread2 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_FAIL" "$CR_UNREAD_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=unread2 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_FAIL" "$CR_UNREAD_POST" >/dev/null 2>&1
+expect_output 0 "3 回続けて、本文を読めずに止まった" "本文を読めずに止めた回だけが 3 回続けば、そのことを知らせる" \
+    env COLDREAD_TEST_SESSION=unread2 "$CR_CASE" "$CR_UNREAD_CFG" "$CR_STUB_FAIL" "$CR_UNREAD_POST"
+# 別の版の回は数えず、前の回の記録も引き継がない。前は 0.22.3 で止まった回が 0.23.0 の回に足され、新しい版の 2 回目で
+# 「3 回続けて」と出た(2026-10-17 の works-factory)。前の版で止まった記録の版を書き換えて模す
+CR_VER_CFG="$WORK/coldread-cfg-ver"; mkdir -p "$CR_VER_CFG"
+env COLDREAD_TEST_SESSION=ver1 "$CR_CASE" "$CR_VER_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=ver1 "$CR_CASE" "$CR_VER_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+"$PY_BIN" -c 'import glob,json,re,sys
+d = sys.argv[1]
+p = d + "/denies.log"; t = open(p, encoding="utf-8").read(); open(p, "w", encoding="utf-8").write(re.sub(r"\tv=[^\t]+", "\tv=0.0.0", t))
+for f in glob.glob(d + "/rounds/*.json"):
+    r = json.load(open(f, encoding="utf-8")); r["v"] = "0.0.0"; json.dump(r, open(f, "w", encoding="utf-8"))' "$CR_VER_CFG/coldread-gate"
+expect_output 0 "SID_ISOLATED" "前の版で止まった回は、今の版の続けて止まった数に入れない" \
+    cr_reason ver1 no-streak "$CR_CASE" "$CR_VER_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+"$PY_BIN" -c 'import glob,json,sys
+for f in glob.glob(sys.argv[1] + "/rounds/*.json"):
+    r = json.load(open(f, encoding="utf-8")); r["v"] = "0.0.0"; json.dump(r, open(f, "w", encoding="utf-8"))' "$CR_VER_CFG/coldread-gate"
+expect_output 0 "F3 が届いていない" "前の版の回の記録は引き継がず、1 回目として全体を読む" \
+    env COLDREAD_TEST_SESSION=ver1 "$CR_CASE" "$CR_VER_CFG" "$(cr_stub_sees F3)" "$CR_POST"
+# この検査が見るのは通じやすさだけ。中身の審査の問い(判断の材料・根拠・実例)は止める詰まりでなく疑問に回すよう、
+# どの依頼文にも書く。前は 3 回目の読み手が「許していない範囲は前の点検と同じか」で止め、根拠を足すたびに足した文が
+# また問われて、本文が 473 → 1,351 字に膨らんだ(2026-10-17 の works-factory の PR #677)
+expect_output 0 "CLARITY_ONLY_OK" "依頼文は詰まりを語・指す先・筋の 3 つに絞り、中身の審査の問いを疑問に回す" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''prompts = [g.COLD_PROMPT, g.reader_prompt("画面", "PR"), g.reader_prompt("画面")]
+ok = all(all(w in p for w in ("(語)", "(指す先)", "(筋)", "判断の材料", "疑問")) for p in prompts) and "判断の材料" in g.FOLLOWUP_NOTE
+print("CLARITY_ONLY_OK" if ok else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
 
 # ---- coldread: 返信の読み手には画面(投稿先のスレッド)を渡す ----------------------------
 # 文脈ゼロで読ませると、画面に有るもの(相手の名前・PR 番号・相手の印・相手の語)が全部詰まりに出て、
@@ -4004,24 +4046,24 @@ body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", 
 print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
-env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
 CR_POST_LONGER="gh issue comment 1 --body-file - <<'EOF'
 $CR_BODY
 $CR_BODY
 $CR_PAD
 EOF"
 expect_output 0 " → " "3 回続けて止まったとき、本文が増えていれば 1 回ごとの字数の数列を知らせに載せる" \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
-expect_output 0 "持ち主に渡して止まる" "続けて止まった知らせは、直せないなら書き直しをやめて持ち主に渡せと言う" \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
+expect_output 0 "前の回から残った詰まり・なぞりだけが投稿を止める" "続けて止まった知らせは、この先は前の回から残った物だけで止まると言う" \
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
 expect_output 0 "HEAD_OK" "続けて止まった知らせは deny 理由の先頭に在る" \
     cr_reason grow1 streak-head \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
-# 持ち主が通す口(coldread-pass <番号>)の番号は、書き手(session)と投稿先の組で決まり、本文を読んで止めた知らせに載る
-CR_GROW_ID=$("$PY_BIN" -c "$CR_LOAD"$'\n''print(g.pass_id("grow1", "issue:cwd:1"))' "$ROOT/gates/hooks/coldread-gate.py")
-expect_output 0 "coldread-pass $CR_GROW_ID" "3 回続けて止まった知らせに、持ち主が通す口とこの投稿の番号が載る" \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
+# 持ち主に通させる口は無い(持ち主 2026-10-17「人からパスを売ってもらう運用はやめて」)。知らせに持ち主の許しの番号を載せない
+expect_output 0 "NO_OWNER_PASS" "続けて止まった知らせは、持ち主に許しを打たせる道を案内しない" \
+    sh -c '"$@" | grep -q "coldread-pass" && echo BAD || echo NO_OWNER_PASS' sh \
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
 
 # 書き直しの 2 回目からは、前の回の指摘と直した差分を読み手に渡す。毎回まっさらな読み手は前の回を知らず、逆の注文を出し、
 # 前の読み手が言わなかった端の所を拾い続けた(2026-10-17 の works-factory で 5 本が 3 回止まった)
@@ -4058,38 +4100,29 @@ for f in "$CR_ROUND_CFG"/coldread-gate/rounds/*.json; do printf '[]' > "$f"; don
 expect_output 0 "F3 が届いていない" "壊れた前の回の記録は無いものとして、1 回目として読む" \
     env COLDREAD_TEST_SESSION=round6 "$CR_CASE" "$CR_ROUND_CFG" "$(cr_stub_sees F3)" "$CR_POST"
 
-# 持ち主が通す口: 持ち主が会話の入力欄に「coldread-pass <番号>」とだけ打つと(UserPromptSubmit のフック)、その会話の
-# その投稿先への次の 1 回を検査せずに通す。エージェントが自分で外す逃げ道(COLDREAD_SKIP=1)とは別(持ち主 2026-10-17)
-CR_PASS_CFG="$WORK/coldread-cfg-pass"; mkdir -p "$CR_PASS_CFG"
-cr_owner_says() {
-    "$PY_BIN" -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "prompt": sys.argv[2]}))' "$1" "$2" \
-        | CLAUDE_CONFIG_DIR="$CR_PASS_CFG" "$PY_BIN" "$ROOT/gates/hooks/coldread-gate.py" owner-pass
-    echo "said rc=$?"
-}
-CR_PASS_ID=$("$PY_BIN" -c "$CR_LOAD"$'\n''print(g.pass_id("pass1", "issue:cwd:1"))' "$ROOT/gates/hooks/coldread-gate.py")
-expect_output 0 "said rc=0" "入力の一部に番号が混ざるだけでは許しにしない" cr_owner_says pass1 "これは coldread-pass $CR_PASS_ID です"
-expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "許しの無い投稿は読み手を起こす" \
-    env COLDREAD_TEST_SESSION=pass1 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
-expect_output 0 "持ち主が、番号 $CR_PASS_ID の投稿" "入力の全体が「coldread-pass <番号>」なら許しを記録して、打ち直せと伝える" \
-    cr_owner_says pass1 "coldread-pass $CR_PASS_ID"
-expect_output 0 "said rc=0" "別の会話で同じ番号を打っても、その会話の許しにしかならない" cr_owner_says pass2 "coldread-pass $CR_PASS_ID"
-expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "番号は会話と投稿先の組で決まり、別の会話の投稿は通さない" \
-    env COLDREAD_TEST_SESSION=pass2 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
-expect_output 0 "持ち主の許し" "許しの有る投稿は、読み手を起こさずに通す" \
-    env COLDREAD_TEST_SESSION=pass1 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
-expect_output 0 "owner-pass" "持ち主の許しで通した事実は skip.log に残る" cat "$CR_PASS_CFG/coldread-gate/skip.log"
-expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "許しは 1 回で消える" \
-    env COLDREAD_TEST_SESSION=pass1 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
-# 許しは 30 分で切れる
-cr_owner_says pass1 "coldread-pass $CR_PASS_ID" >/dev/null
-"$PY_BIN" -c 'import os,sys,time; [os.utime(os.path.join(sys.argv[1], f), (time.time() - 3600,) * 2) for f in os.listdir(sys.argv[1])]' "$CR_PASS_CFG/coldread-gate/passes"
-expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "30 分より前の許しは効かない" \
-    env COLDREAD_TEST_SESSION=pass1 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
-# エージェントが Bash で許しの口を呼ぶ・置き場に書く形は止める
-expect_output 0 "持ち主が会話の入力欄に打つ物" "許しの口を Bash で呼ぶ形は止める" \
-    "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "echo '{}' | python3 ~/.claude/plugins/cache/raiki61/gates/0.23.0/hooks/coldread-gate.py owner-pass"
-expect_output 0 "持ち主が会話の入力欄に打つ物" "許しの置き場に書く形は止める" \
-    "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "touch ~/.claude/coldread-gate/passes/abc-123456"
+# 3 回目からは、前の回から残った詰まり・なぞりだけで止める。読み手が印((前の回))を付けずに止める欄に書いた物は疑問に移す
+# (関門が自分で収まる形。持ち主 2026-10-17「ある程度出たと判断したら進む形にしよう」)
+CR_CARRY_CFG="$WORK/coldread-cfg-carry"; mkdir -p "$CR_CARRY_CFG"
+CR_STUB_NEW_ONLY='cat >/dev/null; printf "詰まり: (語) 直しで足した ZZNEW が分からない\n"'
+CR_STUB_CARRIED='cat >/dev/null; printf "詰まり: (前の回) (語) F3 が何かまだ解けていない\n"'
+env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "詰まり: (語) 直しで足した ZZNEW" "2 回目は、直しが新しく生んだ詰まりでも止める" \
+    env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
+expect_output 0 "まだ解けていないものだけ が届いた" "3 回目の読み手には、前の回から残った物だけを止めよと頼む" \
+    env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees 'まだ解けていないものだけ')" "$CR_POST"
+env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "疑問: 詰まり: (語) 直しで足した ZZNEW" "3 回目からは、前の回の印の無い詰まりを止めずに疑問として返す" \
+    env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
+env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "投稿を止めている詰まり" "3 回目からも、前の回から残った詰まりでは止める" \
+    env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_CARRIED" "$CR_POST"
+# 持ち主の許しの口は外した。入力欄で撃たれるフックは無い
+expect_output 0 "NO_PASS_MODE" "持ち主の許しの口は門番にもフックの設定にも無い" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''import os
+h = open(os.path.join(os.path.dirname(sys.argv[1]), "hooks.json"), encoding="utf-8").read()
+print("NO_PASS_MODE" if not hasattr(g, "owner_pass_main") and "UserPromptSubmit" not in h else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
 
 # ---- coldread: 取りこぼしの穴(2026-10-16 に記録と会話の記録を突き合わせて見つけた) ----------------
 # 方針は「出来る限りフックで止める。本文が読めない形は止める(fail-closed)。読める形は止めずに読む」。
