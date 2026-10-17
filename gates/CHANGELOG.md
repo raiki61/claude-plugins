@@ -6,6 +6,11 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Fixed
+
+- `plugin.json` に作者（`author`）を書いた。Claude Code の公式の検査（`claude plugin validate`）の警告「No author information provided」が消える。説明は marketplace の項目から外し、`plugin.json` の 1 か所にした。`/plugin` の画面に出る説明は、これまでの marketplace の項目の文から `plugin.json` の文に替わる（既に在るスレッドへの返信で、フックが画面を取って読み手に渡すことまで書いた新しい方。項目にだけ在った「逃げ道は無く、同じ投稿が 3 回止まったら持ち主に渡して止まる」と、疑問を止めずに申し送ることは `plugin.json` へ移した）。
+- README に入れ方の節（`/plugin marketplace add raiki61/claude-plugins` と `/plugin install gates@raiki61`）を足した。
+
 ## [0.22.0] - 2026-10-17
 
 ### Changed
