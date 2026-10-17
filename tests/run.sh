@@ -5088,7 +5088,8 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "AN
                   "CLAUDE_ENV_FILE",
                   # Claude Code が会話とその子に渡す環境変数（works-dispatch が effort の継ぎと待ち受けの窓の確かめに読む）
                   "CLAUDE_EFFORT", "CLAUDE_JOB_DIR",
-                  # herdr がペインの中の殻に渡す環境変数（works-dispatch がペインの見分けと herdr への問い合わせに読む）・OS の PATH
+                  # herdr がペインの中の殻に渡す環境変数（works-dispatch は HERDR_SOCKET_PATH を herdr への問い合わせに読み、HERDR_PANE_ID は
+                  # 「継いだ値が別のペインを指すことがあるので使わない」と文書で名指す）・OS の PATH
                   "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "PATH",
                   # プロキシの環境変数（works-dispatch の limits.py の問い合わせが urllib の既定で従う）
                   "HTTPS_PROXY",
