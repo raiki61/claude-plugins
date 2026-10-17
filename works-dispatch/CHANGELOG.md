@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-10-17
+
 ### Fixed
 
 - 本社の窓口がほかの会社の clone の中で `--ask` を打っても、納品を受ける受付箱（属性 `company.boss-inbox`）は窓口の居る場所の会社の物にする。今までは命令を打った場所の会社の受付箱を書いたので、その会社には窓口の待ち受けが居らず、納品は待ち受けを通らず窓に直に打ち込まれていた（2026-10-17 に my_notes の段取りが claude-plugins の clone で頼んだ部署で見た）。
