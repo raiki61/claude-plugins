@@ -364,12 +364,31 @@ class Task(unittest.TestCase):
         self.assertIn("- 最初の文: 作業の頼みです。", out)
         self.assertFalse((pathlib.Path(gitx_source(self.cfg)) / ".git" / "info" / "exclude").read_text(encoding="utf-8").count(".claude/"))
 
-    def test_a_conversation_with_the_same_name_stops(self):
+    def test_a_conversation_with_the_same_name_elsewhere_and_no_other_account_stops(self):
         dirs = {"a1": f"{pathlib.Path(self.cfg).parent}/c1"}
         ports = self.ports({dirs["a1"]: [{"sessionId": "s-other", "name": "直し", "cwd": "/x"}]})
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 1)
-        self.assertIn("「直し」という名前の会話がもう開いている", out)
+        self.assertIn("「直し」という名前の会話がほかの会社でもう開いていて（アカウント a1）、振れるアカウントがほかに無い", out)
+        self.assertEqual(ports.herdr.writes, [])
+
+    def test_a_conversation_with_the_same_name_in_another_company_moves_to_another_account(self):
+        # 会社が違えば同じ名前の部署を並べて立てる。SendMessage の宛先はアカウントの中で決まるので、重なったアカウントを避ける
+        dirs = two_accounts(self.cfg)
+        ports = self.ports({dirs["a1"]: [{"sessionId": "s-other", "name": "直し", "cwd": "/elsewhere", "state": "working"}]})
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        [command] = self.sent(ports)
+        self.assertTrue(command.startswith("claude-a2 --bg --name "), command)
+        self.assertIn("ほかの会社でアカウント a1 に開いているので、そのアカウントを避けて振る", out)
+
+    def test_a_conversation_with_the_same_name_in_this_company_stops_even_with_another_account(self):
+        # 同じ会社の中の重なりは、「会社/名前」の宛て方でも分けられないので止める
+        dirs = two_accounts(self.cfg)
+        ports = self.ports({dirs["a1"]: [{"sessionId": "s-other", "name": "直し", "cwd": gitx_source(self.cfg), "state": "working"}]})
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 1)
+        self.assertIn("「直し」という名前の会話がこの会社にもう開いている（アカウント a1）", out)
         self.assertEqual(ports.herdr.writes, [])
 
     def test_a_conversation_open_in_the_place_is_already_open(self):

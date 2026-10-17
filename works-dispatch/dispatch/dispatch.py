@@ -1139,13 +1139,17 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     except (claudex.ClaudeError, herdr.HerdrError) as e:
         print(f"止めた: {e}")
         return 1
-    # 止めた裏の会話（--move が起こし直す前の会話）は数えない
-    clash = sorted({acc for acc, items in listed.items() for s in items
-                    if s.get("name") == a.task and s.get("state") not in ("done", "failed", "stopped")})
-    if clash:
-        print(f"止めた: 「{a.task}」という名前の会話がもう開いている（アカウント {', '.join(clash)}）。"
-              "SendMessage の宛先が 1 つに決まらないので、別の名前で頼む")
+    # 同じ名前の会話。止めた裏の会話（--move が起こし直す前の会話）は数えない。SendMessage の宛先はアカウントの中で、dispatch の
+    # 宛て方（「会社/名前」）は会社の中で 1 つに決まれば足りる。同じ会社の中の重なりは止め、ほかの会社の重なりは、そのアカウントを
+    # 避けて振る（部署の名前に会社の名前を付けない決まりのまま、会社ごとに同じ名前の受け持ちを並べて立てるため）
+    alive = [(acc, s) for acc, items in listed.items() for s in items
+             if s.get("name") == a.task and s.get("state") not in ("done", "failed", "stopped")]
+    here = [acc for acc, s in alive if s.get("cwd") and any(fresh.inside(s["cwd"], p["path"]) for p in found if p.get("path"))]
+    if here:
+        print(f"止めた: 「{a.task}」という名前の会話がこの会社にもう開いている（アカウント {', '.join(sorted(set(here)))}）。"
+              "宛先が 1 つに決まらないので、別の名前で頼む")
         return 1
+    taken = {acc for acc, _ in alive}
     found_account, found_name = ports.caller(listed)
     caller = {"account": a.from_account or found_account, "name": a.from_name or found_name}
     if not caller["account"]:
@@ -1157,6 +1161,16 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         ports.refresh_limits(cfg, metered)
     # --move はアカウントを名指して起こし直す（only_account）。ほかの回は、使用率の順の頭
     pool = [x for x in cfg.accounts if x.name == getattr(a, "only_account", None)] or cfg.accounts
+    if taken:
+        free = [x for x in pool if x.name not in taken]
+        if not free:
+            print(f"止めた: 「{a.task}」という名前の会話がほかの会社でもう開いていて（アカウント {', '.join(sorted(taken))}）、"
+                  "振れるアカウントがほかに無い。同じアカウントでは SendMessage の宛先が 1 つに決まらないので、"
+                  "設定の accounts にアカウントを足すか、その会話が終わってから頼む")
+            return 1
+        notes.append(f"「{a.task}」という名前の会話がほかの会社でアカウント {', '.join(sorted(taken))} に開いているので、"
+                     "そのアカウントを避けて振る")
+        pool = free
     ranked = accounts.rank(pool, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
                            accounts.count_running(listed), cfg.reset_soon_hours)
     row = assign.plan(repo, [{"number": None, "kind": "task", "title": a.task, "head": a.branch}], sessions.open_keys(sess),
