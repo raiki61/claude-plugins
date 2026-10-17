@@ -6,6 +6,10 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Changed
+
+- `/plugin` の一覧と詳細に出る説明を、marketplace の一覧の項目でなく `plugin.json` の説明から出すようにした（文面は同じ）。`plugin.json` に作者（`author`）を足し、README に入れ方の 2 行を足した。
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
