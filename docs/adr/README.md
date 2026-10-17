@@ -59,7 +59,7 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0010](0010-judgment-entry-for-fix-requests.md) | 直す依頼は判定から入る run に通す（直接直すのは誤字・コメント・文言だけ） | 採用 | 2026-09-25 |
 | [0011](0011-disable-model-invocation.md) | 重い工程のコマンドに disable-model-invocation を付け、提案だけする案内を別に置く | 置き換え（0012） | 2026-09-25 |
 | [0012](0012-heavy-processes-on-human-request.md) | 重い工程は人の指示のときだけ起動し、言葉の「工程に回して」では起動できる形を残す | 採用 | 2026-09-25 |
-| [0013](0013-all-edits-through-review-graph.md) | engine・graph・rules・テストの編集は判定から入る run に通す | 採用 | 2026-09-25 |
+| [0013](0013-all-edits-through-review-graph.md) | engine・graph・rules・テストの編集は判定から入る run に通す | 置き換え（0074） | 2026-09-25 |
 | [0014](0014-commands-from-repo-declaration.md) | 指示書に特定のリポジトリの道具名を書かず、コマンドは対象リポジトリの宣言が持つ | 採用 | 2026-09-25 |
 | [0015](0015-engine-runs-command-nodes.md) | 走らせて写すだけの節は engine が走らせる（手順 3b） | 採用 | 2026-09-25 |
 | [0016](0016-drop-checks-approval-gate.md) | テストの宣言の人の承認（allow-checks）を外し、走らせる直前に宣言を読み直す | 採用 | 2026-09-25 |
@@ -120,3 +120,4 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0071](0071-test-sizes-and-where-they-run.md) | 試験は使う資源の大きさで分け、大きさで回す場所を決める（重い試験と変異テストは手元で回さない） | 採用 | 2026-09-29 |
 | [0072](0072-works-post-fix-lens-block.md) | works の修正の後の局所レビューは、レンズを 1 本ずつ独立の節にしたブロック blk-lens に置く | 採用 | 2026-10-01 |
 | [0073](0073-land-bumps-and-no-tags.md) | 版は --land が上げて手元の関門で main に入れ、tag は作らず、CI は入った後に回す | 採用 | 2026-10-16 |
+| [0074](0074-graphloops-edits-by-desk-and-land.md) | graphloops の直しは受け持ちの担当が当てて --land で入れ、review-graph の run は持ち主が頼んだときだけ回す | 採用 | 2026-10-16 |
