@@ -303,6 +303,12 @@ class Flow(unittest.TestCase):
         self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.herdr.writes)
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs["session"], attrs["job"]), ("s-dept", "d"))
+        old = {"kind": "background", "sessionId": "s-old", "id": "o", "cwd": self.place, "name": "調べ", "state": "done", "startedAt": 9}
+        talk = {"kind": "background", "sessionId": "s-now", "id": "n", "cwd": self.place, "name": "調べ", "state": "working", "startedAt": 1}
+        here = {"attrs": {"name": "調べ"}, "path": self.place}
+        self.assertEqual(orders.place_talk(here, {"a1": [old, talk]}, [])[1]["id"], "n")   # 動いている物を先に
+        self.assertEqual(orders.place_talk({**here, "attrs": {"name": "調べ", "account": "a2"}}, {"a1": [talk]}, []), None)
+        self.assertIsNone(orders.place_talk({**here, "head_office": True}, {"a1": [talk]}, []))   # 本社は選ばない
         self.ports.list_sessions = lambda cdir, include_done=False: []   # 一覧にも無ければ、今までどおり立て直しを頼む
         self.assertEqual(orders.revive({"attrs": {}, "path": self.place, "panes": []}, [], self.ports, {})[1][:30],
                          "部署の属性に会話の id（company.session）が無く、会話の一覧にも部署の場所の裏の"[:30])

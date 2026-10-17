@@ -183,7 +183,7 @@ class Watch(unittest.TestCase):
                                        "problems": [], "departments": [
                                            {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
                                             "account": None, "boss": None, "panes": [], "branch": "b", "no_talk_id": True}]}]))
-        self.assertIn("! 会話の id（company.session）が無い（次の --ask か --nudge 調べ が会話の一覧から書き戻す）", line)
+        self.assertIn("! 会話の id（company.session）が無い（窓の会話が落ちたとき", line)
 
     def test_queue_hands_out_in_the_order_it_was_put(self):
         for i in ("20261017-000002-bbbbbb", "20261017-000001-aaaaaa"):

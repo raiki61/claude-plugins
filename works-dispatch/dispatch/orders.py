@@ -188,12 +188,17 @@ def live_window(dept, ports):
 
 def place_talk(dept, sessions_, accounts_):
     """会話の一覧（アカウントの名 → 並び。終わった物も含む）のうち、作業フォルダが部署の場所の裏の会話の (アカウントの名, 1 件)。
-    名前が部署の名前の物を先に、無ければ場所の合う物のうち、起きた時刻の新しい物。無ければ None。"""
+    属性にアカウントが残っていれば、そのアカウントの一覧だけを見る。動いている（作業中か返事待ち）物を先に、次に名前が部署の名前の
+    物を先に、その中で起きた時刻の新しい物。本社（窓口）は選ばない（代表の clone には持ち主のほかの会話も居る）。無ければ None。"""
+    if dept.get("head_office"):
+        return None
     here = os.path.realpath(dept["path"])
-    hits = [(name, x) for name, items in (sessions_ or {}).items() for x in items
+    mine = dept["attrs"].get("account")
+    hits = [(name, x) for name, items in (sessions_ or {}).items() if not mine or name == mine for x in items
             if x.get("kind") == "background" and x.get("sessionId") and x.get("cwd") and os.path.realpath(x["cwd"]) == here]
-    named = [h for h in hits if h[1].get("name") == dept["attrs"].get("name")]
-    return max(named or hits, key=lambda h: h[1].get("startedAt") or 0, default=None)
+    live = [h for h in hits if h[1].get("state") in ("working", "blocked")]
+    named = [h for h in (live or hits) if h[1].get("name") == dept["attrs"].get("name")]
+    return max(named or live or hits, key=lambda h: h[1].get("startedAt") or 0, default=None)
 
 
 def revive(dept, accounts_, ports, sessions_=None, source=None):
@@ -210,11 +215,6 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
         account, entry = found
         full = entry["sessionId"]
         dept = {**dept, "attrs": {**dept["attrs"], "session": full, "job": claudex.attach_id(entry), "account": account}}
-        try:
-            provision.mark(dept["path"], source or gitx.root_of(ports.git.common_dir(dept["path"])),
-                           {"session": full, "job": claudex.attach_id(entry), "account": account}, ports.git)
-        except (gitx.GitError, OSError):
-            pass
     acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
     entry = next((x for items in (sessions_ or {}).values() for x in items if x.get("sessionId") == full), None)
     # attach は短い id で打つ（部署を立てるときと同じ）。一覧に無ければ属性の短い id（company.job。/clear で会話の id が変わっても
@@ -261,7 +261,16 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
         except herdr.HerdrError:
             alive = False
         if alive:
-            return pane, f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
+            said = f"部署の窓に会話が居なかったので、ペイン {pane} で {command} を打って戻した"
+            if found:
+                # 会話の一覧から選んだ会話が窓に戻ったのを見てから、属性に書き戻す（外れた会話を属性に残さない）
+                try:
+                    provision.mark(dept["path"], source or gitx.root_of(ports.git.common_dir(dept["path"])),
+                                   {k: dept["attrs"][k] for k in ("session", "job", "account")}, ports.git)
+                    said += "（属性に会話の id が無かったので、会話の一覧の部署の場所の会話で戻し、属性に書き戻した）"
+                except (gitx.GitError, OSError) as e:
+                    said += f"（会話の一覧の部署の場所の会話で戻したが、属性に書き戻せなかった: {e}）"
+            return pane, said
     try:
         screen = ports.herdr.read(pane, 6)
     except herdr.HerdrError:
