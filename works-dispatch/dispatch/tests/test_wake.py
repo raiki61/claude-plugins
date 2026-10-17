@@ -125,6 +125,24 @@ class Watch(unittest.TestCase):
         wake.release(self.inbox, self.place, "t")
         self.assertIsNone(wake.read_mark(self.inbox, self.place))
 
+    def test_the_ask_lock_lets_one_holder_at_a_time(self):
+        import threading
+        got = []
+
+        def other():
+            with wake.ask_lock(self.inbox, self.place):
+                got.append("other")
+        with wake.ask_lock(self.inbox, self.place):
+            t = threading.Thread(target=other)
+            t.start()
+            t.join(0.3)
+            self.assertEqual(got, [])   # 持っている間は待つ
+            got.append("first")
+        t.join(5)
+        self.assertEqual(got, ["first", "other"])
+        with wake.ask_lock(None, self.place):   # 受付箱の無い部署（前の版）では何もしない
+            pass
+
     def test_stalled_needs_a_queue_a_delivered_ask_and_no_running_watcher(self):
         # 会話は生きているのに待ち受けの台本が居ない（2026-10-17 に my_notes のノートの手入れで約 70 分止まった形）
         def mark(pid):
@@ -317,6 +335,25 @@ class Hook(unittest.TestCase):
         self.assertEqual((attrs["ask"], attrs["boss"], attrs["ask-digest"]), ("a1", "窓口", "d1"))
         self.assertEqual(deliver.records(self.inbox)[-1]["kind"], "handed")
         self.assertIsNone(self.checker()())   # 渡した物は順番待ちから消える
+
+    def test_does_not_hand_the_next_ask_when_one_arrived_after_it_looked(self):
+        # 上で属性を読んだ後に、--ask が窓に別の頼みを打って属性を書いた。錠の中で読み直し、渡さずに順番待ちに残す（渡すと、
+        # 後に書いた頼み元が前の頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        self.put("a1")
+        reads = []
+
+        def attrs_of(cwd):
+            reads.append(cwd)
+            if len(reads) == 2:   # 錠の中の読み直しの前に、ほかの道が頼みを書いた
+                provision.mark(self.place, self.src, {"ask": "b1", "boss": "段取り"}, gitx)
+            return gitx.worktree_attrs(cwd)
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  attrs_of=attrs_of)
+        self.assertIsNone(check())
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["ask"], attrs["boss"]), ("b1", "段取り"))
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, gitx.git_dir(self.place))], ["a1"])
 
     def test_fresh_department_is_cleared_when_it_stops_after_delivering(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
@@ -832,6 +869,26 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.prompts()), 1)
         self.assertEqual(wake.queued(self.inbox, self.dept_place()), [])
+
+    def test_an_ask_taken_while_the_line_was_being_typed_queues_the_new_one(self):
+        # 部署を読んだ時は頼みが無く待ち受けも見えなかったが、打つ前に待ち受けが順番待ちの頼み a1 を渡した。窓に打たずに順番待ちに
+        # 積み、a1 の頼み元を残す（2026-10-17 に my_notes の調べもので、後の頼みが前の頼みの頼み元を上書きした。受付 20261017-082903-87f45f）
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0", "boss": "desk"}, gitx)
+        self.listen("調べ", self.dept_place(), owner=dead_pid())
+        real = orders.live_window
+
+        def handed_meanwhile(dept, ports):
+            provision.mark(self.place, self.src, {"ask": "a1", "boss": "段取り"}, gitx)
+            return real(dept, ports)
+        with mock.patch.object(orders, "live_window", handed_meanwhile):
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.prompts(), [])
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "段取り"))
+        (item,) = wake.queued(self.inbox, self.dept_place())
+        self.assertEqual((item["marks"]["boss"], deliver.records(self.inbox)[-1]["status"]), ("desk", "queued"))
+        self.assertIn("今の頼みの納品の後に待ち受けが渡す", out)
 
     def test_ask_dry_run_names_the_queue(self):
         self.listen("調べ", self.dept_place())

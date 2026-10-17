@@ -296,11 +296,15 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
         key = restart_due(got, payload, attrs, key_of)
         if key and restart(got, key):
             return "end", None   # 会社の形の起動の設定が替わったので起こし直した。起こし直した会話の待ち受けが、次を渡す
-        item = wake.take(got["inbox"], got["place"])
-        if item is None:
-            return None
-        # 次の頼みを受けたら、前の終わりの印は外す（終わりは、受けた頼みを済ませてから --done で印し直す）
-        provision.mark(got["cwd"], got["root"], {**(item.get("marks") or {}), wake.FINISHED: None}, gitx)
+        with wake.ask_lock(got["inbox"], got["place"]):
+            # 錠の中で読み直す（上で読んだ後に、--ask が窓に頼みを打っているかもしれない）
+            if wake.pending(attrs_of(got["cwd"])):
+                return None
+            item = wake.take(got["inbox"], got["place"])
+            if item is None:
+                return None
+            # 次の頼みを受けたら、前の終わりの印は外す（終わりは、受けた頼みを済ませてから --done で印し直す）
+            provision.mark(got["cwd"], got["root"], {**(item.get("marks") or {}), wake.FINISHED: None}, gitx)
         deliver.log(got["inbox"], {"id": item.get("id"), "kind": "handed", "at": now(), "place": got["cwd"],
                                    "session": got["session"]})
         return "wake", item.get("line") or wake.wake_text([item])

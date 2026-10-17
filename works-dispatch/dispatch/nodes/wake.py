@@ -17,8 +17,11 @@ docs/specs/2026-10-17-reception-design.md の 3・4 章）。人の打つ入力�
   場所は、待ち受けを張った時の台帳の終わりから読む。読んだ所のファイルが在ること（has_history）が、その場所に待ち受けが居た跡。
 - 順番待ち: 受付箱の queue/<場所の鍵>/<受付番号>.json に 1 件 1 ファイル（enqueue）。受付番号は時刻で始まるので、名前の順が
   積んだ順。先頭に回した件（front。--first）は、回した時刻の新しい順にその前に並ぶ。取るのは待ち受けの入口だけ（take）。
+- 頼みの錠: 部署の受けている頼み（属性 company.ask と頼み元）を書き換える道（待ち受けの take・--ask の窓への打ち込み・--take）は、
+  受付箱の wake/<場所の鍵>.lock の錠（ask_lock）を取ってから属性を読み直し、未納品の頼みが無いときだけ書く。
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -104,6 +107,47 @@ def claim(inbox, place, names, session, owner, token, now):
          "since": now}, ensure_ascii=False))
     if _read_pos(inbox, place) is None:
         _replace(pos_path(inbox, place), str(_size(os.path.join(inbox, LOG))))
+
+
+@contextlib.contextmanager
+def ask_lock(inbox, place, pause=time.sleep):
+    """その場所の頼みの錠を取って持つ（ほかが持っていれば放すまで待つ）。部署の受けている頼みは属性の 1 組なので、読んでから書くまでの
+    間にほかの道が別の頼みを書くと、前の頼みの頼み元が消え、納品が後の頼みの頼み元へ届く（2026-10-17 に my_notes の調べもので、
+    待ち受けが受付 73d574 を渡した 11 秒後に、その前に部署を読んでいた --ask が受付 df9c5b を窓に打って属性を書き換えた）。
+    錠は開いたファイルに掛けるので、持つ処理が落ちれば OS が外す。inbox か place が無ければ何もしない。"""
+    if not (inbox and place):
+        yield
+        return
+    path = os.path.join(_dir(inbox), key(place) + ".lock")
+    os.makedirs(_dir(inbox), exist_ok=True)
+    with open(path, "a+b") as f:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    pause(0.2)
+            try:
+                yield
+            finally:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def pending(attrs):
+    """部署が受けた頼みをまだ納品していなければ、その受付番号。ほかは None。"""
+    held = attrs.get("ask")
+    return held if held and attrs.get("delivered") != held else None
 
 
 def has_history(inbox, place):
