@@ -253,11 +253,37 @@ def log(inbox, record):
 
 
 def records(inbox):
+    """受付箱の台帳の行の並び。読めない行（書きかけの最後の行など）は飛ばす（待ち受けが読む間に書かれることがある）。"""
+    out = []
     try:
         with open(os.path.join(inbox, LOG), encoding="utf-8") as f:
-            return [json.loads(line) for line in f if line.strip()]
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    got = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(got, dict):
+                    out.append(got)
     except FileNotFoundError:
         return []
+    return out
+
+
+def closed_ids(records):
+    """台帳の行から、閉じた頼みの受付の集まり（その受付への納品〔--for の返しと failed を除く〕・頼み元の待ち受けへの納品の知らせ・
+    回して閉じた〔forwarded〕・取り下げた〔withdrawn〕のどれかが在る物）。"""
+    closed = set()
+    for r in records:
+        kind = r.get("kind")
+        if kind == "deliver" and r.get("ask") and r.get("status") != "failed" and not r.get("for"):
+            closed.add(r["ask"])
+        elif kind == "deliver" and isinstance(r.get("to"), str) and r.get("id"):
+            closed.add(r["id"])
+        elif kind in ("forwarded", "withdrawn") and r.get("id"):
+            closed.add(r["id"])
+    return closed
 
 
 def open_asks(records, held=()):

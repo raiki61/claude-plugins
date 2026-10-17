@@ -693,7 +693,7 @@ def stuck_why(dest_inbox, place_dir, dept):
 
 # 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では窓に打たない（待ち受けの
 # /clear と打ち込みがぶつからないように）
-PASSING = ("裏の処理が残っている", "会話がまだ動いている", "窓の入力欄が見えないか、字が在る")
+PASSING = ("裏の処理が残っている", "会話がまだ動いている", "窓の入力欄が見えないか、字が在る", "子の頼みの返事を待っている")
 # 人の文で番が始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
 KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished")
 

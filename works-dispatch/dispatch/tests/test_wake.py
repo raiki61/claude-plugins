@@ -321,6 +321,24 @@ class Hook(unittest.TestCase):
             self.assertEqual(self.checker(window=w)(), ("end", None))   # 空にした（空にした後の待ち受けが a1 を渡す）
         self.assertEqual(w.writes[0], deliver.CLEAR)
 
+    def test_children_count_only_since_the_ask_and_close_only_in_what_the_waiter_has_read(self):
+        attrs = {"name": "調べ", "ask": "a0"}
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        got = self.plan()
+        log = lambda r: deliver.log(self.inbox, r)   # noqa: E731
+        log({"kind": "ask", "id": "old", "status": "queued", "at": 1, "from": {"name": "調べ", "place": self.place}})   # 前の会話の古い頼み
+        log({"kind": "handed", "id": "a0", "at": 5, "place": self.place})
+        log({"kind": "ask", "id": "c1", "status": "queued", "at": 6, "from": {"name": "調べ", "place": os.path.join(self.place, "sub")}})
+        self.assertEqual(wake_hook.open_children(got, attrs), ["c1"])   # 今の頼みを受けた後の物だけ（作業場の下のフォルダも）
+        place = gitx.git_dir(self.place)
+        size = os.path.getsize(os.path.join(self.inbox, wake.LOG))
+        os.makedirs(os.path.dirname(wake.pos_path(self.inbox, place)), exist_ok=True)
+        pathlib.Path(wake.pos_path(self.inbox, place)).write_text(str(size))   # 待ち受けはここまで読んだ
+        log({"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent", "at": 7})
+        self.assertEqual(wake_hook.open_children(got, attrs, read=wake_hook._read_part(got)), ["c1"])   # 返事をまだ会話が受けていない
+        pathlib.Path(wake.pos_path(self.inbox, place)).write_text(str(os.path.getsize(os.path.join(self.inbox, wake.LOG))))
+        self.assertEqual(wake_hook.open_children(got, attrs, read=wake_hook._read_part(got)), [])
+
     def test_a_fresh_department_woken_by_a_notice_is_cleared_at_the_end_of_that_turn(self):
         # 頼みを受けていない番（納品の知らせで起きた）の後も、次の頼みを空の会話で受ける（6a9337）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",

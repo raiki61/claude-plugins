@@ -183,17 +183,44 @@ def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
 EMPTY_STARTS = ("startup", "clear")
 
 
-def open_children(got, attrs, records=None):
-    """この部署が出して、まだ閉じていない頼み（納品・取り下げ・回して閉じる、のどれも台帳に無い物）の受付の並び。頼みの行の from の
-    名前が部署の名前で、場所が部署の場所（か、その下）の物。"""
-    here = os.path.realpath(got["cwd"])
+def open_children(got, attrs, records=None, read=None):
+    """この部署が出して、まだ閉じていない頼みの受付の並び。数えるのは、頼みの行の from が部署（今の名前か前の名前で、場所が部署の
+    作業場の中）で、今の頼み（company.ask）を受けた後に出した物（前の会話が残した古い行で順番待ちを止めない）。閉じたとみるのは、
+    待ち受けが読み終えた所（read。省けば台帳の全部）までに、その受付への納品・取り下げ・回して閉じる、の行が在る物（返事の知らせを
+    会話が受ける前に空にしない）。"""
+    root = os.path.realpath(gitx.toplevel(got["cwd"]) or got["cwd"])
+    names = {attrs.get("name"), *gitx.former_names(attrs)} - {None}
     rows = deliver.records(got["inbox"]) if records is None else records
+    seen = rows if read is None else read
+    since = max((r.get("at") or 0 for r in rows if r.get("kind") == "handed" and r.get("id") == attrs.get("ask")), default=0)
+    mine = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and (r.get("at") or 0) >= since
+            and (r.get("from") or {}).get("name") in names
+            and _inside(os.path.realpath((r.get("from") or {}).get("place") or ""), root)}
+    return sorted(mine - deliver.closed_ids(seen))
+
+
+def _inside(at, root):
+    return at == root or at.startswith(root + os.sep)
+
+
+def _read_part(got):
+    """台帳のうち、この場所の待ち受けが読み終えた所（wake の pos）までの行。読めなければ None（全部を読んだと見る）。"""
+    pos = wake._read_pos(got["inbox"], got["place"])
+    if pos is None:
+        return None
+    try:
+        with open(os.path.join(got["inbox"], wake.LOG), "rb") as f:
+            data = f.read(pos)
+    except OSError:
+        return None
     out = []
-    for r in deliver.open_asks(rows):
-        src = r.get("from") or {}
-        at = os.path.realpath(src.get("place") or "")
-        if src.get("name") == attrs.get("name") and (at == here or at.startswith(here + os.sep)):
-            out.append(r["id"])
+    for line in data.splitlines():
+        try:
+            got_ = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(got_, dict):
+            out.append(got_)
     return out
 
 
@@ -291,7 +318,7 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # 都度の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         if must_clear(payload, attrs):
-            children = open_children(got, attrs)
+            children = open_children(got, attrs, read=_read_part(got))
             if children:
                 # 子の頼み（この部署が出して返事の来ていない頼み）が在る間は空にしない（持ち主の承認 dc0aa2: 受けた頼みも子の頼みも
                 # 全部閉じた番の終わりに空にする）。子の納品で起きた番の終わりに、閉じていれば空にする（起こすときに印を外す。woken）。
