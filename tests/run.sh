@@ -2343,7 +2343,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=702
+EXPECTED_CHECKS=707
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4048,6 +4048,16 @@ expect_output 0 "F3 が届いていない" "通った後の投稿は 1 回目と
 expect_output 0 "F3 が届いていない" "前の回の指摘は書き手(session)ごとで、ほかの会話の分を渡さない" \
     env COLDREAD_TEST_SESSION=round4 "$CR_CASE" "$CR_ROUND_CFG" "$(cr_stub_sees F3)" "$CR_POST"
 
+# 同じ宛先でも、半分を超えて違う本文は前の回を引き継がない(引き継ぐと書き換えていない所で止めなくなり、別の投稿の検査が甘くなる)
+env COLDREAD_TEST_SESSION=round5 "$CR_CASE" "$CR_ROUND_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "F3 が届いていない" "同じ宛先への別の本文には、前の回の指摘を渡さない" \
+    env COLDREAD_TEST_SESSION=round5 "$CR_CASE" "$CR_ROUND_CFG" "$(cr_stub_sees F3)" "gh issue comment 1 --body '$(printf 'まったく別の話題の文章です。%.0s' $(seq 1 30)) $CR_PAD'"
+# 前の回の記録が壊れていても門番は落ちず(落ちると無検査で通る)、1 回目として読む
+env COLDREAD_TEST_SESSION=round6 "$CR_CASE" "$CR_ROUND_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+for f in "$CR_ROUND_CFG"/coldread-gate/rounds/*.json; do printf '[]' > "$f"; done
+expect_output 0 "F3 が届いていない" "壊れた前の回の記録は無いものとして、1 回目として読む" \
+    env COLDREAD_TEST_SESSION=round6 "$CR_CASE" "$CR_ROUND_CFG" "$(cr_stub_sees F3)" "$CR_POST"
+
 # 持ち主が通す口: 持ち主が会話の入力欄に「coldread-pass <番号>」とだけ打つと(UserPromptSubmit のフック)、その会話の
 # その投稿先への次の 1 回を検査せずに通す。エージェントが自分で外す逃げ道(COLDREAD_SKIP=1)とは別(持ち主 2026-10-17)
 CR_PASS_CFG="$WORK/coldread-cfg-pass"; mkdir -p "$CR_PASS_CFG"
@@ -4070,6 +4080,16 @@ expect_output 0 "持ち主の許し" "許しの有る投稿は、読み手を起
 expect_output 0 "owner-pass" "持ち主の許しで通した事実は skip.log に残る" cat "$CR_PASS_CFG/coldread-gate/skip.log"
 expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "許しは 1 回で消える" \
     env COLDREAD_TEST_SESSION=pass1 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
+# 許しは 30 分で切れる
+cr_owner_says pass1 "coldread-pass $CR_PASS_ID" >/dev/null
+"$PY_BIN" -c 'import os,sys,time; [os.utime(os.path.join(sys.argv[1], f), (time.time() - 3600,) * 2) for f in os.listdir(sys.argv[1])]' "$CR_PASS_CFG/coldread-gate/passes"
+expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "30 分より前の許しは効かない" \
+    env COLDREAD_TEST_SESSION=pass1 "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "$CR_POST"
+# エージェントが Bash で許しの口を呼ぶ・置き場に書く形は止める
+expect_output 0 "持ち主が会話の入力欄に打つ物" "許しの口を Bash で呼ぶ形は止める" \
+    "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "echo '{}' | python3 ~/.claude/plugins/cache/raiki61/gates/0.23.0/hooks/coldread-gate.py owner-pass"
+expect_output 0 "持ち主が会話の入力欄に打つ物" "許しの置き場に書く形は止める" \
+    "$CR_CASE" "$CR_PASS_CFG" "$CR_STUB_FAIL" "touch ~/.claude/coldread-gate/passes/abc-123456"
 
 # ---- coldread: 取りこぼしの穴(2026-10-16 に記録と会話の記録を突き合わせて見つけた) ----------------
 # 方針は「出来る限りフックで止める。本文が読めない形は止める(fail-closed)。読める形は止めずに読む」。

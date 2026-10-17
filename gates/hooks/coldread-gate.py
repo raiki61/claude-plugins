@@ -10,7 +10,8 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 
 検査の実行を書き手(モデル)の申告に頼らないので、「検査した印だけ押して通す」穴が
 構造的に無い(自動の振る舞いはフックが実行する、の原則)。再実行のたびに新しい
-読み手が直後の本文を読むため、「毎回新規の読み役」も機械が保証する。
+読み手が直後の本文を読むため、「毎回新規の読み役」も機械が保証する(別プロセスとして新しい。同じ投稿の書き直しの
+2 回目からは、前の回の指摘と差分を渡す)。
 
 エージェントが自分で検査を外す逃げ道は無い(持ち主の判断 2026-10-16。前の COLDREAD_SKIP=1 は、本文ファイルの
 書き直しを避けて未検査のまま出す口に 22 回使われた。今は書かれていても効かせず、書いた事実だけを記録する)。
@@ -70,18 +71,21 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
 識別子を全部詰まりに出す側へ寄る(2026-09-06 に実測: 素の起動では利用者の CLAUDE.md の
 見出しをそのまま引用した。空にすると NONE)。
 
-記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 4 本:
+記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 4 本と、置き場 2 つ:
   denies.log  allow / deny の別(deny はタブ区切りで種別も。maxlen・parse-fail・
-              blocked・reader-down・reader-shape・finding・cap)。finding と allow には本文の長さと読み方
+              blocked・reader-down・reader-shape・finding)。finding と allow には本文の長さと読み方
               (screen=スレッドの画面を渡した / new=新しい PR・issue の画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
               どれだけ膨れたかを示すため。blocked には止めた理由(why=)が付く。各行の末尾に sid=(session id の先頭 8 字)
               v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)、本文を読んだ deny には
               fp=(本文の指紋。本文を写さずに、同じ投稿の書き直しかを比べる)
-  skip.log    効かせなかった逃げ道(refused)と、読み役の中で発火した呼び出しのコマンド先頭
+  skip.log    効かせなかった逃げ道(refused)と、読み役の中で発火した呼び出しのコマンド先頭と、持ち主の許しの記録
+              (owner-pass-granted)と、許しで検査せずに通した投稿(owner-pass)
   misses.log  本文旗の綴りが在るのに候補も blocked も空だった単純コマンドの、旗の綴りと先頭の語
               =網から落ちた疑い。「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
   stuck.log   STUCK_MARK 回続けて止まった投稿の、会話・版・宛先の種類・止めた回数と理由の並び・本文の長さの並び
               (本文は写さない)。関所か書き方のどちらかがおかしい合図なので、後で直す材料にする
+  rounds/     書き直しの前の回の本文と指摘(書き手と投稿先の組ごとに 1 つ。通ったら消す。FOLLOWUP_NOTE)
+  passes/     持ち主の許し(会話と番号ごとに 1 つ。使ったら消す。OWNER_PASS)
 
 環境変数:
   COLDREAD_READER_CMD        読み役コマンドの差し替え(POSIX sh 文字列として sh -c 実行。stdin に依頼文+本文)。テスト用
@@ -2084,15 +2088,19 @@ def fingerprint(text):
     return "".join("%04x" % m for m in mins)
 
 
-def same_post(fp_a, fp_b):
+def same_post(fp_a, fp_b, need=FP_SAME):
     if not fp_a or not fp_b or len(fp_a) != len(fp_b):
         return True   # 指紋の無い行(本文を取り出せなかった deny)は、宛先だけで同じ投稿と見る
-    return sum(fp_a[i:i + 4] == fp_b[i:i + 4] for i in range(0, len(fp_a), 4)) >= FP_SAME
+    return sum(fp_a[i:i + 4] == fp_b[i:i + 4] for i in range(0, len(fp_a), 4)) >= need
 
 
 # 書き直しの回の記録。前の回の本文と指摘を、書き手(session)と投稿先の組ごとに 1 つ持つ(2 回目からの読み手に渡すため)。
 # 本文を持つので log には書かず、組ごとの小さなファイルにして、通ったら消し、DENY_STREAK_WINDOW を過ぎた物は書くときに消す。
 ROUND_DIR = os.path.join(STATE_DIR, "rounds")
+# 前の回の記録を引き継ぐ本文の近さ(指紋 16 個中の一致数。推定の Jaccard ≥ 0.5)。続けて止まった数(FP_SAME)より厳しくする——
+# 引き継ぐと書き換えていない所の新しい気づきで止めなくなるので、同じ宛先への別の投稿(見出しだけ共通の PR の型など)を
+# 書き直しと取り違えると、別の投稿の検査が甘くなる。半分を超えて書き換えた本文は、1 回目として全体を読む
+ROUND_SAME = 8
 
 
 def _pair_key(session, target):
@@ -2110,7 +2118,10 @@ def load_round(session, target, fp):
             prev = json.load(f)
     except (OSError, ValueError):
         return None
-    if time.time() - prev.get("t", 0) > DENY_STREAK_WINDOW or not same_post(fp, prev.get("fp")):
+    if not (isinstance(prev, dict) and isinstance(prev.get("t"), (int, float)) and isinstance(prev.get("body"), str)
+            and isinstance(prev.get("found"), dict) and isinstance(prev.get("round"), int)):
+        return None   # 壊れた記録は無いものとして、1 回目の読み方に戻る
+    if time.time() - prev["t"] > DENY_STREAK_WINDOW or not same_post(fp, prev.get("fp"), ROUND_SAME):
         return None
     return prev
 
@@ -2121,9 +2132,13 @@ def save_round(session, target, fp, body, found, round_no):
         now = time.time()
         for name in os.listdir(ROUND_DIR):
             path = os.path.join(ROUND_DIR, name)
-            if now - os.path.getmtime(path) > DENY_STREAK_WINDOW:
-                os.remove(path)
-        with open(_round_path(session, target), "w", encoding="utf-8") as f:
+            try:
+                if now - os.path.getmtime(path) > DENY_STREAK_WINDOW:
+                    os.remove(path)
+            except OSError:
+                pass   # 消せない古い記録が 1 つ在っても、この回の記録は書く
+        fd = os.open(_round_path(session, target), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # 本文を持つので本人だけが読める
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"round": round_no, "t": now, "fp": fp, "body": body, "found": found}, f, ensure_ascii=False)
     except OSError:
         pass   # 記録できなくても検査は続く(次の回が 1 回目の読み方に戻るだけ)
@@ -2148,6 +2163,7 @@ OWNER_PASS = "coldread-pass"
 OWNER_PASS_RE = re.compile(r"\s*%s\s+([0-9a-f]{6})\s*\Z" % OWNER_PASS)
 PASTED_RE = re.compile(r"^</?pasted_content\b[^>]*>\s*$", re.M)   # 貼った文の囲みの行(持ち主の端末で付く)
 PASS_DIR = os.path.join(STATE_DIR, "passes")
+OWNER_FORGE_RE = re.compile(r"coldread-gate\.py\W*\s+owner-pass\b|coldread-gate[/\\]passes")
 
 
 def pass_id(session, target):
@@ -2227,6 +2243,13 @@ def main() -> None:
     # 長さで解析を飛ばさない。前は 400 字未満のコマンドを解析の前に記録も残さず通していて、本文ファイル・
     # 変数を運ぶ短い投稿(直近 14 日で 54 件)が読まれずに出た。短い定型の返信を読み役に回さないのは、
     # 取り出した本文の長さ(200 字未満は通す)で決める。
+    # 持ち主の許しをエージェントが自分で作る形(許しの口を Bash で呼ぶ・許しの置き場に書く)は止める。同じ利用者で動くので
+    # 機械で全部は塞げない(ファイルを書く別の道具・別の綴りは残る)が、素朴な迂回はここで止まり、許しは skip.log に残る
+    if OWNER_FORGE_RE.search(command):
+        log_line(SKIP_LOG, "owner-pass-forge\tsid=%s\t%s" % (sid, command[:150].replace("\n", " ")))
+        deny("外部投稿ゲート: 持ち主の許し(%s)は、持ち主が会話の入力欄に打つ物で、エージェントが作る物ではない。"
+             "このコマンドは許しの口か置き場に触るので止めた。" % OWNER_PASS)
+
     if not GH_WORD_RE.search(command):
         allow()
 
@@ -2251,11 +2274,12 @@ def main() -> None:
             # 持ち主が通す口は、本文を読んで止めた投稿にだけ添える(本文を取り出せない・解析できない形は、書き手が形を直せば読める)
             owner_pass = (
                 "持ち主が出してよいと決めたら、持ち主がこの会話の入力欄に「%s %s」とだけ打てば、"
-                "この投稿先への次の 1 回だけを検査せずに通す(打てるのは持ち主だけ。エージェントは打たない・予約しない)。"
+                "この投稿先への次の 1 回だけを検査せずに通す(打つのは持ち主だけ。エージェントは打たない・予約しない・"
+                "許しの記録を自分で作らない)。持ち主が自分の端末で打って出してもよい。"
                 % (OWNER_PASS, pass_id(sid, target)) if fp else
                 "出すかどうかは持ち主が決め、出すなら持ち主が Claude Code の ! か自分の端末で打つ。")
             message = (
-                "【同じ投稿が %d 回続けて止まった%s】次の回の読み手も、前の回の指摘が解けたかと、直しが持ち込んだ物だけを見る。"
+                "【同じ投稿が %d 回続けて止まった%s】前の回の指摘の記録が有れば、次の回の読み手は、それが解けたかと、直しが持ち込んだ物だけを見る。"
                 "直せると判断したら直して打ち直す。直せない(指摘が本文の外の物・前の直しと食い違う)と判断したら、"
                 "書き直しをやめて持ち主に渡して止まる(この投稿の宛先・本文の場所と下の理由を渡す)。%s"
                 "収まらない投稿は記録(coldread-gate/stuck.log)に残した。\n\n" % (n, grown, owner_pass)
@@ -2358,11 +2382,15 @@ def main() -> None:
     mode = ("new" if noun else "screen") if screen else "cold"
 
     # 同じ投稿の書き直しなら、前の回の指摘と直しを読み手に渡す(FOLLOWUP_NOTE)
-    prev = load_round(sid, target, fp)
-    round_no = prev.get("round", 1) + 1 if prev else 1
+    # 記録の読みで例外が出ても門番を落とさない(落ちると無検査で通る)。1 回目の読み方に戻す
     prompt = reader_prompt(screen, noun)
-    if prev:
-        prompt = followup_prompt(prompt, prev, body)
+    try:
+        prev = load_round(sid, target, fp)
+        if prev:
+            prompt = followup_prompt(prompt, prev, body)
+    except Exception:
+        prev, prompt = None, reader_prompt(screen, noun)
+    round_no = prev["round"] + 1 if prev else 1
     try:
         out = run_reader(prompt + body)
     except Exception as exc:
@@ -2439,10 +2467,8 @@ def main() -> None:
             "説明しない(説明は「冗長」として返る)。詰まりは画面と本文を合わせても解けないものだけなので、"
             "その語の初出 1 か所に中身を添える。相手の語は指してよいが、相手の語で書かない(相手の言い回しを"
             "地の文に写した箇所は、画面に同じ語が有っても「なぞり」として止まる。直し方は自分の言葉に置き換える)。")
-    elif prev:
-        howto = ""
     else:
-        howto = ("直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
+        howto = (("" if prev else "直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。")
                  + ("読み手は " + NEW_SCREEN_ITEMS.get(noun, "") + " を画面で見ているので、それらを本文で説明し直さなくてよい。"
                     if mode == "new" else ""))
     # 2 回目からは、次の回の読み手が見る所(前の指摘と直した所)に直しを絞らせる。掃討で直していない所まで書き換えると、
