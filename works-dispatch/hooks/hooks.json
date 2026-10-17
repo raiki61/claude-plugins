@@ -64,6 +64,18 @@
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/limit_hook.py\"",
+            "shell": "bash"
+          }
+        ]
+      }
     ]
   }
 }

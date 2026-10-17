@@ -130,6 +130,60 @@ def end_stale_attach(pane, h=herdr):
     return True
 
 
+# 窓の前をシェルに戻すまでに見る回数（1 回ごとに pause）
+SHELL_LOOKS = 10
+
+
+def to_shell(pane, h=herdr, pause=lambda: time.sleep(1), looks=SHELL_LOOKS):
+    """窓の前の attach の画面を終わらせ、シェルが前に戻ったら True。Ctrl+Z の後、Claude Code 2.1.302 はシェルでなく会話の一覧の
+    画面（claude agents）を出し、そこで Esc を押すとシェルに戻った（d7d50c。2.1.301 までは Ctrl+Z でシェルに戻った）ので、
+    シェルが戻らなければ Esc を 1 回足す。前に attach が居なければ、シェルが居るかだけを返す。"""
+    try:
+        if h.shell_in_front(pane):
+            return True
+    except h.HerdrError:
+        return False
+    if not end_stale_attach(pane, h):
+        return False
+    escaped = False
+    for i in range(looks):
+        pause()
+        try:
+            if h.shell_in_front(pane):
+                return True
+            if not escaped and i >= 1:
+                h.send_keys(pane, "escape")
+                escaped = True
+        except h.HerdrError:
+            return False
+    return False
+
+
+def start_named(command, pane, name, text, h=herdr, posix=None):
+    """前の会話（持ち主の前で動く会話。窓口など）を、そのペインのシェルで `<アカウントのコマンド> --name <名前> <最初の文>` で起こす。
+    {pane, status: ready|pane_busy|blocked|launch_failed, detail}。"""
+    posix = os.name != "nt" if posix is None else posix
+    result = {"pane": pane, "status": "launch_failed", "detail": None}
+    try:
+        if not h.shell_in_front(pane):
+            result.update(status="pane_busy", detail=BUSY)
+            return result
+        h.run(pane, f"{command} --name {_quote(name, posix)} {_quote(text, posix)}")
+        state = h.wait_ready(pane)
+        seen = h.agent(pane)
+    except h.HerdrError as e:
+        result["detail"] = str(e)
+        return result
+    if state == "blocked":
+        result.update(status="blocked", detail="起こした後に確認の画面で止まっている（フォルダの信頼・ログインなど）")
+        return result
+    if seen.get("agent") != "claude":
+        result["detail"] = f"起こした後のペインに会話が見えない（agent={seen.get('agent')}, status={seen.get('agent_status')}）"
+        return result
+    result["status"] = "ready"
+    return result
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plan", required=True)

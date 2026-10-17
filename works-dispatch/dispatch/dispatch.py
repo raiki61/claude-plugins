@@ -77,6 +77,7 @@ import installed  # noqa: E402
 import jsonio  # noqa: E402
 import calls  # noqa: E402
 import landing  # noqa: E402
+import move  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
@@ -437,6 +438,10 @@ class Ports:
         """この命令を走らせている会話の処理（Claude Code）の番号。一覧に見えなければ None。"""
         return claudex.caller_pid(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
 
+    def stop_session(self, config_dir, job):
+        """そのアカウントの裏の会話を止める（--move が起こし直す前に）。(止まったか, claude の言葉)。"""
+        return claudex.stop_session(config_dir, job, base_env=self.account_env)
+
     def running_claude(self, pid):
         """その番号の処理が今動いている Claude Code か（--desk が、窓口の席に座っている会話が動いているかを見る）。"""
         return claudex.running_claude(pid)
@@ -603,6 +608,11 @@ def main(argv=None, ports=None):
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--take", metavar="受付", help="順番待ちの 1 件を、積んだ順を飛ばして取り出す。部署の場所から打てばその部署が今受け、"
                     "--ask <宛先>（と --task・--branch）を添えれば、受付番号と頼み元をそのままにほかの部署へ頼み直す（--text は元の本文の前に置く添え書き）")
+    ap.add_argument("--move", metavar="部署か窓口", help="立っている部署か本社の窓口の会話を、ほかのアカウントで起こし直す"
+                    "（前の会話を止めてから。--account で名指さなければ、使用率の順で空いている物）")
+    ap.add_argument("--account", help="--move と一緒に: 移る先のアカウントの名")
+    ap.add_argument("--if-limited", action="store_true",
+                    help="--move と一緒に: 今のアカウントの使用率が上限に達しているときだけ移す（上限で止まったときのフックが付ける）")
     ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）")
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "道具"),
                     help="役の機械窓口の道具を呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
@@ -633,6 +643,11 @@ def main(argv=None, ports=None):
         return 2
     if a.call is not None:
         return calls.call(a, ports, os.getcwd(), _task)
+    if a.move is not None:
+        return move.move(a, ports, os.getcwd(), _task)
+    if (a.account or a.if_limited) and a.move is None:
+        print("止めた: --account と --if-limited は --move と一緒にだけ使う")
+        return 2
     if a.take is not None:
         return orders.take(a, ports, os.getcwd(), _task)
     if a.withdraw is not None:
@@ -1075,7 +1090,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     except (claudex.ClaudeError, herdr.HerdrError) as e:
         print(f"止めた: {e}")
         return 1
-    clash = sorted({acc for acc, items in listed.items() for s in items if s.get("name") == a.task})
+    # 止めた裏の会話（--move が起こし直す前の会話）は数えない
+    clash = sorted({acc for acc, items in listed.items() for s in items
+                    if s.get("name") == a.task and s.get("state") not in ("done", "failed", "stopped")})
     if clash:
         print(f"止めた: 「{a.task}」という名前の会話がもう開いている（アカウント {', '.join(clash)}）。"
               "SendMessage の宛先が 1 つに決まらないので、別の名前で頼む")
@@ -1089,7 +1106,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     metered = [x.name for x in cfg.accounts if x.limits]
     if not a.dry_run:
         ports.refresh_limits(cfg, metered)
-    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
+    # --move はアカウントを名指して起こし直す（only_account）。ほかの回は、使用率の順の頭
+    pool = [x for x in cfg.accounts if x.name == getattr(a, "only_account", None)] or cfg.accounts
+    ranked = accounts.rank(pool, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
                            accounts.count_running(listed), cfg.reset_soon_hours)
     row = assign.plan(repo, [{"number": None, "kind": "task", "title": a.task, "head": a.branch}], sessions.open_keys(sess),
                       {s["cwd"] for s in sess if s["cwd"]}, ranked, cfg.limit_percent, None, _branch_places(found))[0]
@@ -1123,8 +1142,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             f"- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
             f"- 最初の文: {_brief_text(brief, caller, account, tail)}"]))
         return 0
+    existed = bool(provision.find(found, a.branch))
     try:
-        base = None if provision.find(found, a.branch) else (a.base or ports.default_branch(repo))
+        base = None if existed else (a.base or ports.default_branch(repo))
     except (ghx.GhError, gitx.GitError) as e:
         print(f"止めた: {e}（枝を作る元の既定の枝を読めない。--base で渡す）")
         return 1
@@ -1148,7 +1168,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             # worktree に写す（2026-10-16 に git 2.50 と 2.56.0.windows.2 で見た）。本社に --desk が書いた窓口の属性（会話の id・
             # 前の名前など）が部署に写って残ると、部署が窓口の会話を自分の会話と取り違える（まっさらな環境での 4 回目の試しの 3）。
             # 本社と同じ値のまま残っている属性のうち、今回書かない物は消す
-            office = ports.attrs(repo.source)
+            # 立っている部署の場所を開き直したとき（--task の打ち直し・--move）は、属性は部署の物なので消さない（頼み元の受付箱
+            # company.boss-inbox は、ふつう本社の物と同じ値なので、消されていた。d7d50c）
+            office = {} if existed else ports.attrs(repo.source)
             copied = {k: None for k, v in ports.attrs(prov["path"]).items() if k not in attrs and office.get(k) == v}
             provision.mark(prov["path"], repo.source, {**copied, **attrs}, ports.git)
             if not ports.attrs(prov["path"]).get("base"):

@@ -473,6 +473,27 @@ def clear_talk(pane, h, pause, cleared):
     return "unconfirmed", "/clear を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
+# 前の会話を終える命令と、シェルに戻るのを見る回数（1 回ごとに pause）
+EXIT = "/exit"
+EXIT_LOOKS = 20
+
+
+def exit_talk(pane, h, pause, looks=EXIT_LOOKS):
+    """窓の前の会話（持ち主の前で動く窓口など）に /exit を打ち、シェルが前に戻ったら True。書く口。"""
+    try:
+        h.prompt(pane, EXIT, False)
+    except h.HerdrError:
+        return False
+    for _ in range(looks):
+        pause()
+        try:
+            if h.shell_in_front(pane):
+                return True
+        except h.HerdrError:
+            return False
+    return False
+
+
 # ---- Stop フック ----
 
 def stop_verdict(payload, attrs, count, run):

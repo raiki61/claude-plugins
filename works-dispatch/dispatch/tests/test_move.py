@@ -1,0 +1,137 @@
+"""--move（move.py）と、上限で止まったときのフック（limit_hook.py）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
+
+import io
+import json
+import os
+import pathlib
+import time
+import unittest
+from unittest import mock
+
+from . import test_deliver
+import dispatch
+import gitx
+import limit_hook
+from nodes import deliver, provision
+
+
+class Move(unittest.TestCase):
+    """場の作りは test_deliver.Flow の物を借りる（継ぐと、その試験が二度走る）。アカウントは a1（今）と a2（移る先）。"""
+
+    Flow = test_deliver.Flow
+    main = Flow.main
+    del Flow
+
+    def setUp(self):
+        test_deliver.Flow.setUp(self)
+        text = pathlib.Path(self.cfg).read_text(encoding="utf-8")
+        d = pathlib.Path(self.cfg).parent
+        pathlib.Path(self.cfg).write_text(text.replace(
+            "accounts = [", f"accounts = [{{ name = \"a2\", command = \"claude-a2\", config_dir = '{d}/c2' }}, "), encoding="utf-8")
+        self.stopped = []
+        self.ports.stop_session = lambda cdir, job: self.stopped.append((os.path.basename(cdir or ""), job)) or (True, "")
+        h = self.ports.herdr
+        h.front[self.window] = ["claude-a1", "attach", "d"]
+        real_keys = h.send_keys
+
+        def keys(pane, *k):   # 2.1.302: Ctrl+Z は会話の一覧の画面を出し、Esc でシェルに戻る
+            real_keys(pane, *k)
+            if k == ("escape",):
+                h.talking.discard(pane)
+                h.front.pop(pane, None)
+        h.send_keys = keys
+
+    def fake_task(self, rc=0):
+        seen = []
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.append({"ns": ns, "extra": extra_attrs, "tail": tail,
+                         "brief": pathlib.Path(ns.brief).read_text(encoding="utf-8"), "attrs": gitx.worktree_attrs(self.place)})
+            return rc
+        return seen, task
+
+    def test_a_department_is_stopped_and_started_again_on_the_other_account_keeping_its_asker(self):
+        provision.mark(self.place, self.src, {"residency": "resident", "ask": "q1", "boss": "desk", "boss-inbox": self.inbox,
+                                              "job": "d"}, gitx)
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, [("c1", "d")])   # 前の会話を前のアカウントで止めてから
+        keys = [w for w in self.ports.herdr.writes if w[0] == "send_keys"]
+        self.assertEqual([k[2] for k in keys], ["ctrl+z", "escape"])   # 窓の attach の画面をシェルに戻す（d7d50c の 1）
+        (got,) = seen
+        self.assertEqual((got["ns"].task, got["ns"].branch, got["ns"].only_account, got["ns"].role), ("調べ", "dept/a", "a2", "調べ役"))
+        self.assertTrue(got["ns"].resident)
+        self.assertEqual(got["extra"]["boss"], "desk")   # 頼み元はそのまま（納品は元の頼み元へ）
+        self.assertIn("受付 q1", got["brief"])
+        self.assertIn("アカウント a1", got["brief"])
+        self.assertIn("--deliver", got["tail"])
+        self.assertNotIn("session", got["attrs"])   # 新しい会話の待ち受けが前の id を見ないよう、起こす前に消す
+        (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual((moved["from"], moved["to"], moved["status"]), ("a1", "a2", "done"))
+
+    def test_if_limited_does_not_move_while_the_account_is_under_its_limit(self):
+        self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10}, "seven_day": {"used_percentage": 20}}, "a2": None}]
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("移さない", out)
+        self.assertEqual((seen, self.stopped), ([], []))
+
+    def test_no_other_account_with_room_stops(self):
+        full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+        self.ports.limits_seq = [{"a1": full, "a2": full}]
+        rc, out = self.main(self.src, "--move", "調べ")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("移れるアカウントが無い", out)
+        rc, out = self.main(self.src, "--move", "調べ", "--account", "a9")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("accounts に無い", out)
+
+    def test_the_desk_exits_and_starts_again_named_in_the_same_pane(self):
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
+        for p in self.ports.herdr._panes:
+            if p["pane_id"] == self.desk:
+                p["agent_session"] = {"value": "s-desk"}
+        self.ports.herdr.talking.add(self.desk)
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 0, out)
+        writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
+        self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
+        self.assertEqual(writes[1][0], "run")
+        self.assertRegex(writes[1][2], r"^claude-a2 --name '窓口' '.*--move.*--desk 窓口")
+
+
+class LimitHook(unittest.TestCase):
+    Flow = test_deliver.Flow
+    del Flow
+
+    def setUp(self):
+        test_deliver.Flow.setUp(self)
+
+    def test_only_resident_departments_and_the_desk_move_on_a_rate_limit(self):
+        base = {"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"}
+        self.assertIsNone(limit_hook.plan(base))   # 都度の部署
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        argv, cwd, out = limit_hook.plan(base)
+        self.assertEqual(argv[2:5], ["--move", "調べ", "--if-limited"])
+        self.assertEqual(cwd, self.place)
+        self.assertIsNone(limit_hook.plan({**base, "error": "overloaded"}))
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk"}, gitx)
+        self.assertIsNone(limit_hook.plan({"cwd": self.src, "session_id": "s-other", "error": "rate_limit"}))
+        self.assertEqual(limit_hook.plan({"cwd": self.src, "session_id": "s-desk", "error": "rate_limit"})[0][3], "窓口")
+
+    def test_main_spawns_once_within_the_quiet_time(self):
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        spawned = []
+        payload = json.dumps({"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"})
+        for _ in range(2):
+            limit_hook.main(io.StringIO(payload), spawn=lambda argv, **kw: spawned.append(argv), now=lambda: time.time())
+        self.assertEqual(len(spawned), 1)
+        self.assertTrue(os.listdir(os.path.join(self.inbox, limit_hook.MOVES)))
+
+
+if __name__ == "__main__":
+    unittest.main()

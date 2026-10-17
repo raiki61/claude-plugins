@@ -246,6 +246,20 @@ class Task(unittest.TestCase):
         self.assertNotIn("former-names", attrs)
         self.assertEqual(gitx.worktree_attrs(src)["session"], "s-desk", "本社の属性は触らない")
 
+    def test_running_task_again_on_a_standing_department_keeps_its_asker_inbox(self):
+        # 立っている部署に --task を打ち直すと、本社と同じ値の頼み元の受付箱（company.boss-inbox）が、写り込んだ物と見て消えていた（d7d50c の 2）
+        src = gitx_source(self.cfg)
+        inbox = str(pathlib.Path(src) / ".git" / "company" / "inbox")
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "boss-inbox": inbox}, gitx)
+        ports = self.ports()
+        self.assertEqual(self.run_task(ports)[0], 0)
+        provision.mark(self.place(ports), src, {"boss-inbox": inbox, "ask": "q1"}, gitx)
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place(ports))
+        self.assertEqual((attrs.get("boss-inbox"), attrs.get("ask")), (inbox, "q1"))
+
     def test_a_session_that_appears_late_is_found_and_attached(self):
         # Windows の claude --bg は、裏の会話が一覧に出るまで 2〜3 秒かかる。1 回目に見えなくても、見直して見つけ、attach を打つ
         ports = self.ports()

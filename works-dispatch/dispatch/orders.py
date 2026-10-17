@@ -198,14 +198,10 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
                     ports.pause()
         pane = next((p["pane_id"] for p in dept["panes"] if ports.herdr.shell_in_front(p["pane_id"])), None)
         if pane is None:
-            # 止まった attach が窓の前に残っていれば Ctrl+Z でシェルに戻し、シェルに戻るのを見る
+            # 止まった attach が窓の前に残っていれば Ctrl+Z（2.1.302 からは続けて Esc）でシェルに戻し、シェルに戻るのを見る
             for p in dept["panes"]:
-                if launch.end_stale_attach(p["pane_id"], ports.herdr):
-                    for _ in range(REVIVE_LOOKS):
-                        ports.pause()
-                        if ports.herdr.shell_in_front(p["pane_id"]):
-                            pane = p["pane_id"]
-                            break
+                if launch.to_shell(p["pane_id"], ports.herdr, ports.pause, REVIVE_LOOKS):
+                    pane = p["pane_id"]
                     break
     except herdr.HerdrError as e:
         pane = None

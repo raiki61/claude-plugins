@@ -228,6 +228,13 @@ def remove_session(config_dir, session_id, runner=_default_runner, base_env=None
     return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
 
 
+def stop_session(config_dir, job, runner=_default_runner, base_env=None):
+    """そのアカウントの裏の会話を止める（`claude stop <id>`。会話の記録は残り、attach で戻せる）。書く口。(止まったか, claude の言葉)。
+    窓に attach の画面が開いたままだと、attach が会話を起こし直すので、先に窓をシェルに戻す（launch.to_shell）。"""
+    p = runner(["claude", "stop", job], env=_env(config_dir, base_env))
+    return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
+
+
 def ancestors(runner=_default_runner, pid=None):
     """この処理（pid を渡せばその処理）から親をたどった pid の並び（自分を含む）。ps が通らなければ空。"""
     try:
