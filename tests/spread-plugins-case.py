@@ -4,7 +4,7 @@
 使い方: python3 tests/spread-plugins-case.py <場合>
 - only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力欄に字の在る会話と手元の
   設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
-- failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
+- failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直す
 - local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
 - broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版が本流（origin/main）とそろわなければ
   失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える。本流は全アカウントに配った後に読み、
@@ -43,8 +43,8 @@ def plugin_dir(whole=True):
     return str(d)
 
 
-def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
-    """(runner, 打った命令の並び)。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
+def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky=()):
+    """(runner, 打った命令の並び)。flaky は最初の 1 回だけ落ちる命令。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
     version は入った版（関数なら、その設定のフォルダで打った plugin update の数から版を返す）、main は本流（origin/main）の
     plugin.json の版（None なら本流を読めない）。"""
     calls = []
@@ -68,7 +68,9 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
             return 0, json.dumps([{"name": "other", "installLocation": "/m/other"},
                                   {"name": MARKET, "installLocation": "/m/mine"}])
         if argv[:1] == ["claude"]:
-            return (1, "network") if " ".join(argv) in fail else (0, "")
+            line = " ".join(argv)
+            first = line in flaky and sum(1 for a, _ in calls if " ".join(a) == line) == 1
+            return (1, "network") if line in fail or first else (0, "")
         if argv[:3] == ["herdr", "workspace", "list"]:
             return 0, json.dumps({"result": {"workspaces": [{"workspace_id": k, "label": v} for k, v in labels.items()]}})
         if argv[:3] == ["herdr", "pane", "list"]:
@@ -131,6 +133,14 @@ def failure_is_nonzero():
     runner, _ = world(fail={f"claude plugin update a@{MARKET}"})
     rc, out = run(runner, {})
     assert rc == 1 and "失敗 2 件" in out, (rc, out)
+    runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})
+    rc, out = run(runner, {})
+    tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
+    assert rc == 1 and "失敗 2 件" in out and len(tries) == 4, (rc, out, tries)   # 打ち直しても落ちれば失敗（アカウントごとに 2 回まで）
+    runner, calls = world(flaky={f"claude plugin marketplace update {MARKET}"})   # 別の会話の取り直しとぶつかった
+    rc, out = run(runner, {})
+    tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
+    assert rc == 0 and len(tries) == 3, (rc, out, tries)   # 落ちた 1 回だけ打ち直す
     print("FAILURE_IS_NONZERO_OK")
 
 

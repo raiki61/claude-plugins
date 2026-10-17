@@ -8,7 +8,7 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
 すること:
 1. アカウントごとに（works-dispatch の設定の accounts と、手元の設定 `~/.config/claude-plugins/spread.toml` の accounts。
    設定のフォルダ config_dir ごとに Claude Code を起こす）、`claude plugin marketplace update <このリポジトリの marketplace>`
-   を打ち、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
+   を打ち（落ちたら 1 回だけ打ち直す）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
    消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
    部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
@@ -160,6 +160,10 @@ def update_account(name, config_dir, market, dry, runner=run):
         note(f"{name}: {' '.join(argv)}（空打ち）", False)
     else:
         code, out = runner(argv, env)
+        if code != 0:
+            # 同じ設定のフォルダの別の会話が同じ時に marketplace を取り直すと、clone の置き場（<名前>..clone）がぶつかって
+            # 落ちる（shallow.lock が在る・index を書けない。2026-10-17 に main で実測し、打ち直すと通った）。1 回だけ打ち直す
+            code, out = runner(argv, env)
         note(f"{name}: {' '.join(argv)} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"), code != 0)
     for line in mend_clone(name, market, env, dry, runner):
         note(line, "失敗（" in line)
