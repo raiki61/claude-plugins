@@ -13,6 +13,15 @@ gh_user = "raiki61"
 
 default_role = "作業"   # --task で --role を省いたときの役
 
+# 受け持ちごとの model・effort（2026-10-17。持ち主「雑用っぽい部署はsonnetでいい」「全部がopus highで都度も常設も動いてるのもあるのでは」）。
+# 手元の測りでは決めず、公開の指針で決める（my_notes の AGENTS.md の「モデル」、その写しは my_notes の reference/primary/ai/claude-model-choice.md）。
+# - 安いモデル（Sonnet）は、正確に言い表せる決まった仕事だけ（"Pick a smaller model when the work is routine."）。
+# - プラグインのコードを直す受け持ちは Opus・high（"Long-horizon coding is where effort genuinely buys accuracy."）。
+#   アカウントの既定は high（main・p1・p2）と medium（p3。Opus 5.5 の既定）で割れるので、high を書いてそろえる。
+# - 文書と判断の受け持ちは Opus・medium（調べものと知識の仕事の計測で "medium matched the default's accuracy"）。
+#   原文の照合と規約の判断は能力の高い側のモデルに残し、下げるのは effort だけにする。
+# 毎回空にする担当は、次の頼みの前に新しい値で起こし直す。入れた後の外れは手元の測り（docs/model-replay.md）で見つけ、戻すのは段取りが持つ
+
 [[skills]]
 id = "plugin-fix"
 name = "一度きりの直し"
@@ -24,24 +33,28 @@ id = "dispatch"
 name = "割り振り"
 description = "works-dispatch と tiers の直し（部署の立て方・頼みと納品・本流に入れる命令と、道具の点検）"
 role = "担当"
+effort = "high"   # コード（works-dispatch の Python）
 
 [[skills]]
 id = "gates"
 name = "点検"
 description = "gates の直し（書き込み前の関門・初見読みなど）と、CI・根の tests/ の直し"
 role = "担当"
+effort = "high"   # コード（gates のフック・CI・根の tests/）
 
 [[skills]]
 id = "convergence"
 name = "見直し"
 description = "convergence-loops と graphloops の直し（レビュー・調べ・初見読みなどの収束の工程と、そのグラフ）"
 role = "担当"
+effort = "high"   # コード（graphloops の Python とグラフ）と、レビューの工程の判断
 
 [[skills]]
 id = "attention"
 name = "見渡し"
 description = "attention の直し（自分の番の PR の見渡しと /catchup）"
 role = "担当"
+effort = "high"   # コード（attention の Python）
 
 [[skills]]
 id = "docs"
@@ -50,6 +63,7 @@ description = """\
 プラグインをまたぐ文書（根の README・CLAUDE.md・CONTRIBUTING.md・docs/。docs/trials/・docs/standards/・docs/reform/ は除く）と、会社の形（.claude/company.toml と設計の docs/specs/2026-10-16-company-shape-design.md）の直し。\
 会社の形の中身を決めるのは持ち主と窓口で、説明書は書く"""
 role = "担当"
+effort = "medium"   # 文書と会社の形を書く。原文の照合があるのでモデルは Opus のまま
 
 [[skills]]
 id = "standards"
@@ -58,6 +72,7 @@ description = """\
 プラグインをまたぐ標準（書き方・作りの揃え方）を docs/standards/ に作り、プラグインごとのずれを見つけて綺麗にし続ける。\
 ずれの直しは各プラグインの担当に、標準を機械で守らせる検査（CI・根の tests/）は点検に、根の README・CLAUDE.md・CONTRIBUTING.md から標準を指す直しは説明書に頼む"""
 role = "担当"
+effort = "medium"   # 標準を書き、ずれを見つけて頼む。規約の判断なのでモデルは Opus のまま
 # 起こし方: 持ち主が my_notes の社長室から呼びたいときに --start claude-plugins/標準 の 1 行で起こす（every を書かないので周期では起きない。
 # 持ち主 2026-10-17「一旦cronは不要で。役や部署として書いておき。呼び出したいときに呼び出せたらいいです」）。
 # 返す先と起こしてよい会話は、同じ形の my_notes の業務改革にそろえて社長室。部署がまだ無ければこの名前で立ち、在れば順番待ちに積む。
@@ -93,6 +108,7 @@ claude-plugins の組織（会社の形 .claude/company.toml が表す部署・�
 3. 直しの結果は段取りが頼む命令で知らせてくる。入ったか（commit が本流に在るか）と、その場で測れる分の効いたかを確かめて台帳に書き、社長室に報告する（--ask my_notes/社長室 --forward。点検される側が報告を握らないよう、段取りには返さない）。\
 すぐ測れない効き目は、次に起こされた回に確かめて報告する。報告への社長室の納品は、持ち主の言葉を台帳に書き、やり直しなら 2 から進める。"""
 role = "担当"
+effort = "medium"   # 台帳を読んで組織を点検し、案と報告を書く。判断なのでモデルは Opus のまま
 [skills.start]
 report_to = "my_notes/社長室"
 by = ["社長室"]
@@ -121,7 +137,8 @@ id = "trials"
 name = "試し"
 description = "まっさらな環境・Windows・Linux（Colima の Docker）でプラグインを入れて試し、詰まりを docs/trials/ に記録する"
 role = "担当"
-model = "sonnet"
+model = "sonnet"   # 決まった手順で入れて動かし、見たことを記録する。プラグインは直さず、詰まりの直しは Opus の担当に頼む
+effort = "high"   # Sonnet 5.5 の既定。長い手順の仕事なので下げない
 
 # 担当: 受け持ちごとに常設で 1 つ（resident = true なので、--resident を付けなくても常設の部署で立つ）。受け持ちは部署の名前で決まる
 # fresh = true で、頼みごとに空の会話で受ける（持ち主の決め 2026-10-17「担当＝常設・毎回空」。--ask が前の頼みを納品し終えた担当に /clear を打ってから頼む）
@@ -159,7 +176,7 @@ autoMode = { allow = ["$defaults", """\
 
 # 作業: 一度きりの作業をする一時の部署。頼みごとに立ち、本流に入れたら畳まれる
 # effort は medium（2026-10-17。使う量と 5 時間の上限を減らすため。モデルは替えず effort を下げる。済んだ頼み 2 件の再演で、
-# Opus・medium は費用が high の 56% で、漏れと誤りは high と同じ 2 件。docs/model-replay.md）。担当は既定のまま（試しだけ Sonnet。試しの受け持ちのコメント）
+# Opus・medium は費用が high の 56% で、漏れと誤りは high と同じ 2 件。docs/model-replay.md）。担当の値は受け持ち（[[skills]]）ごとに書く
 [[roles]]
 name = "作業"
 effort = "medium"

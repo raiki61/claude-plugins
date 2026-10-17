@@ -124,7 +124,15 @@
 
 安いモデル（Sonnet）や低い effort（medium）に替えたときの質（漏れと誤りの件数）と費用（API の定価で換算した USD）は、済んだ頼みを 3 通り（Opus・high〔今の形〕、Sonnet・high、Opus・medium）でやり直して測った（2026-10-17、[docs/model-replay.md](../model-replay.md)）。費用は今の形（2 件で 6.44 USD）を 100 として Sonnet が 40、Opus・medium が 56。漏れと誤りは 2 件の合計で、今の形が 2 件、Sonnet が 5 件、Opus・medium が 2 件（1 通り 2 回だけなので揺れが大きい）。
 
-この再演を受けて、役「作業」を Opus のまま effort medium で起こす（2026-10-17。会社の形の `[[roles]]` の `effort`）。モデルを替える前に同じモデルの effort を動かす、という持ち主の決まり（my_notes の AGENTS.md の「モデル」）に沿い、Sonnet は広げない。担当は再演で比べていないので今のまま（アカウントの既定）。
+この再演を受けて、役「作業」を Opus のまま effort medium で起こす（2026-10-17。会社の形の `[[roles]]` の `effort`）。モデルを替える前に同じモデルの effort を動かす、という持ち主の決まり（my_notes の AGENTS.md の「モデル」）に沿う。
+
+担当の model・effort は、受け持ち（`[[skills]]`）ごとに書く（2026-10-17。持ち主「雑用っぽい部署はsonnetでいい」）。同じ決まりは、役ごとのモデルを手元の測りでなく公開の指針で決めると書くので、再演の続きを待たずに Anthropic の指針（[Claude Code のモデルと effort](https://claude.com/blog/claude-model-and-effort-level-in-claude-code)・[Effort](https://platform.claude.com/docs/en/build-with-claude/effort)）で決めた。
+
+- 試し: Sonnet・high。決まった手順で入れて動かし、見たことを記録する決まった仕事で、指針は決まった仕事に小さいモデルを選ぶと書く。プラグインは直さず、直しは Opus の担当に回る。
+- 割り振り・点検・見直し・見渡し: Opus・high。プラグインのコードを直す仕事で、指針は長いコーディングでは effort が正確さを買うと書く。アカウントの既定が high と medium で割れるので、high を書いてそろえる。
+- 説明書・標準・業務改革: Opus・medium。文書と判断の仕事で、指針の調べものと知識の仕事の計測では medium が既定と同じ正確さだった。原文の照合と規約の判断はモデルを下げない。
+
+入れた後の外れは手元の測り（[docs/model-replay.md](../model-replay.md)）で見つける。
 
 ### 4.8 役の渡し方
 
