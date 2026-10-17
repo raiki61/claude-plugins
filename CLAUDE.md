@@ -12,8 +12,8 @@
 - 人に聞くかは「答えが自明か」で決める。業界の定石（一次の出典が揃う）・本流（graphloops）と同じ・持ち主が前に決めた事、のどれかで 1 つに決まるなら、根拠を書いて自分で進め、台帳に残す。出典が割れる・どれでも決まらない物だけ聞く。
 - works は graphloops の review-graph の上位互換を作る。設計は review-graph と能力で比べ、同等か上位互換なら推しで進める。移し替え・作り替えでよく起きる失敗は、元にあった能力を気づかずに削ってしまうこと。削る・置き換える時は、元の能力（keep-essence の 12 の仕組み〔works/docs/keep-essence.md〕と、review-graph の同じ場面）が残るかを先に照らす。残るなら「目的を満たし、全体がより簡潔か」で決めて進め、台帳に残す。元の能力が落ちる物だけ先に聞く。
 - 本流の写しにしない。先に works 自身の事実（配る先・OS・負荷・何が壊れうるか）から要るかを導き、その後で本流と比べる。
-- 外への書き込み（公開・PR や issue への書き込み・ほかのリポジトリへの push）と取り消せない操作は聞く。このリポジトリの main へは、works-dispatch の `--land`（部署の枝を main に入れる命令。関門を通してから早送りで push する）で聞かずに入れる（持ち主 2026-10-16。docs/specs/2026-10-16-company-shape-design.md の 8・docs/releasing.md）。費用のかかる試し・実走は聞かずに回してよい。
-- タグは作らない（持ち主 2026-09-29「タグはつくりません」）。出荷は main への push で終わり、CI は待たない（持ち主 2026-10-16。CI は main に入った後の赤を見つける。docs/adr/0073-land-bumps-and-no-tags.md）。
+- 外への書き込み（公開・PR や issue への書き込み・ほかのリポジトリへの push）と取り消せない操作は持ち主に聞く。このリポジトリの部署の枝の push と、main へ入れることは聞かない。main へは works-dispatch の `--land`（部署の枝を main に入れる命令。会社の形 `.claude/company.toml` の `[land]` の `check` を関門に回し、緑なら早送りで push する）で入れる（持ち主 2026-10-16。docs/specs/2026-10-16-company-shape-design.md の 8・docs/releasing.md）。費用のかかる試し・実走は聞かずに回してよい。
+- タグは作らない（持ち主 2026-09-29「タグはつくりません」）。出荷は main への push で終わり、CI は待たない（持ち主 2026-10-16。CI は main に入った後の赤を見つけ、赤なら最初の手は入れた commit を git revert で戻すこと。docs/adr/0073-land-bumps-and-no-tags.md）。
 
 ## works（Archon の pack）
 
@@ -49,5 +49,5 @@
 ## 手元の操作
 
 - プロセスを止める時は pkill -f の広い形を使わず、pid と cwd を確かめて止める。
-- サブエージェントは opus を明示する。web から集めてまとめる所だけは sonnet などの安い模型でもよい（持ち主 2026-09-29。works/docs/owner-decisions.md の「食い違いと解き方」）。
-- 試しの `claude -p` は、本社や部署の作業場（`git config --worktree` に `company.role` が有る所）で起こさない。そこで起こすと works-dispatch のフックが役の本文を足し、試しの会話が本物の役として動く（2026-10-17 に my_notes の本社で起きた）。一時の worktree を切って `git config --worktree --remove-section company` で属性を消し、`--settings '{"disableAllHooks":true}' --max-turns 1` を付けて起こす（`git worktree add` は元の作業場の `config.worktree` を写すので、切ったばかりの worktree にも属性が載っている）。これは機械で防ぐ直し（割り振りの受け持ち。試しの会話が役の本文を受けず、本社の席も取らない形）が入るまでのつなぎで、入ったらこの行は消す。
+- サブエージェントは opus を明示する。web から集めてまとめる所だけは sonnet などの安いモデルでもよい（持ち主 2026-09-29。works/docs/owner-decisions.md の「食い違いと解き方」）。
+- 試しの `claude -p` は、本社や部署の作業場（`git config --worktree` に `company.role` が有る所）で起こさない。そこで起こすと works-dispatch のフックが役の本文を足し、試しの会話が本物の役として動く（2026-10-17 に my_notes の本社で起きた）。一時の worktree を切り、その中で `git config --worktree --remove-section company` を打って属性を消し（元の作業場では打たない）、`--settings '{"disableAllHooks":true}' --max-turns 1` を付けて起こす（`git worktree add` は元の作業場の `config.worktree` を写すので、切ったばかりの worktree にも属性が載っている）。これは機械で防ぐ直し（割り振りの受け持ち。試しの会話が役の本文を受けず、本社の席も取らない形）が入るまでのつなぎで、入ったか（割り振りの納品か works-dispatch の CHANGELOG で分かる）を確かめてから、この行は消す。
