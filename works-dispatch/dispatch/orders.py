@@ -427,13 +427,14 @@ def _ask(a, ports, cwd, task, sent):
             print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、持ち手が足りない（役の ask_holders の検査）"]
                             + [f"  {x}" for x in bad]))
             return 2
+    ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
     check = (the_role or {}).get("ask_check")
     if check:
         # 受ける会社の関所: 頼む会話の会社でなく、受ける会社の origin の既定の枝の中身で走らせる（止める中身は受ける会社の持ち物。
         # 代表の clone の作業ツリーは古い枝のことがあるので、機械窓口の道具と同じ場所の作り方。242baa）
         try:
             with tools.place(company["root"], ports.git) as (here, said):
-                code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": getattr(a, "ask_id", None),
+                code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": ask_id,
                                                        "from": ports.env.get("CLAUDE_CODE_SESSION_ID")}, subprocess.run)
         except (gitx.GitError, OSError) as e:
             code, out, said = 1, str(e), None
@@ -445,7 +446,6 @@ def _ask(a, ports, cwd, task, sent):
             return 2
     found_account, found_name = ports.caller(sessions_)
     inbox = deliver.inbox_of(common)
-    ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
     sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
     # 頼み元の窓は、頼んだ会話の居るペイン（herdr.own_pane。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがある）。
     # Claude Code の外から頼んだ（会話の id が無い）なら、頼んだ会話が無いので窓も記録しない

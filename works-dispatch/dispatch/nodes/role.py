@@ -23,7 +23,7 @@
   やる）」と書いた物だけ。欠けていれば送らない（deliver ノードの holder_problems。my_notes の tools/deliver_check.py から移した）。
 - ask_check: この役へ宛てた --ask の関所の命令（シェルの字）。頼む会話がどの会社に居ても、--ask が受ける会社の origin の既定の枝の
   中身（一時の worktree）で走らせ、JSON（to・role・body・ask・from）を標準入力に渡す。0 以外で終われば頼まない。止める中身は受ける会社の側のスクリプトが持つ
-  （deliver_check の頼みの側。例 my_notes の社長室あての返事の要らない知らせを止める tools/no_notice.py --ask-check）
+  --dry-run（試し打ち）でも走る（通るかを試しで見られるように）（deliver_check の頼みの側。例 my_notes の社長室あての返事の要らない知らせを止める tools/no_notice.py --ask-check）
 - ask_holders: holders と同じ形で、この役へ宛てた --ask の本文に「残った疑問」の節が在れば、同じ検査を掛ける（問いを受ける相談の役に書く）
 - resident: true なら、その役の部署は常設（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
