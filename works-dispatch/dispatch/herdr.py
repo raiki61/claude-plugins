@@ -222,6 +222,25 @@ def foreground(pane, runner=_default_runner):
     return [p.get("cmdline") or " ".join(p.get("argv") or []) for p in info.get("foreground_processes") or []]
 
 
+def front_processes(pane, runner=_default_runner):
+    """ペインの前で動いているプロセスの並び（herdr pane process-info の foreground_processes。pid と argv を持つ）。読む口。"""
+    info = _call(["herdr", "pane", "process-info", "--pane", pane], runner).get("process_info", {})
+    return info.get("foreground_processes") or []
+
+
+def holds_talk(processes, pids, jobs):
+    """ペインの前のプロセス（front_processes）に、この会話が居るか。会話の処理そのもの（pids のどれか。前で開いた会話）か、
+    この会話へ attach した claude（argv の attach の次の字が jobs のどれか。裏の会話〔claude --bg〕を開いた窓）が居れば真。
+    会話の印〔agent_session〕は古いまま残ることがあるので見ない。"""
+    for p in processes:
+        if p.get("pid") in pids:
+            return True
+        argv = p.get("argv") or []
+        if any(a == "attach" and i + 1 < len(argv) and argv[i + 1] in jobs for i, a in enumerate(argv)):
+            return True
+    return False
+
+
 def send_keys(pane, *keys, runner=_default_runner):
     """ペインにキーを送る（herdr pane send-keys。例 ctrl+c・enter）。書く口。"""
     _call(["herdr", "pane", "send-keys", pane, *keys], runner, quiet_ok=True)

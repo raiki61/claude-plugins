@@ -85,14 +85,26 @@ def own_window(cwd, h=herdr, sid=None):
     return herdr.own_pane(cwd, sid, h.panes())
 
 
-def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None):
+def talk_window(cwd, h=herdr, pids=(), jobs=()):
+    """会話を消す打ち込み（/clear）の打ち先。場所がこの会話の場所のペインのうち、前のプロセスにこの会話が居ると確かめられた物
+    （herdr.holds_talk）が 1 つならそれ、ほかは None。会話の印（agent_session）も、場所だけでの代わりも使わない（印は前に居た会話や
+    別の部署の会話の id のまま残り、2026-10-17 に my_notes で別の部署の窓に /clear を打った。持ち主の決め: 自分の会話だと確かめ
+    られなければ打たずに残す）。"""
+    here = herdr.place_of(cwd)
+    hits = [p["pane_id"] for p in h.panes() if p.get("agent") and p.get("cwd") and herdr.place_of(p["cwd"]) == here]
+    mine = [x for x in hits if herdr.holds_talk(h.front_processes(x), set(pids), {j for j in jobs if j})]
+    return mine[0] if len(mine) == 1 else None
+
+
+def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0]):
     """止まった会話を、自分の窓に /clear を打って空にする。打ったら True（属性に marks を書く。省けば、納品し終えた fresh の部署の
-    company.cleared）。裏の処理が残る・会話がまだ動いている・窓の入力欄に字が在る・窓が 1 つに決まらない・herdr が受け付けない
-    ときは False（空にしない）。"""
+    company.cleared）。裏の処理が残る・会話がまだ動いている・窓の入力欄に字が在る・自分の会話の居る窓だと確かめられない
+    （talk_window。me はこのフックを起こした Claude Code の処理の番号を返す）・herdr が受け付けないときは False（空にしない）。"""
     if payload.get("background_tasks"):
         return False
     try:
-        pane = own_window(got["cwd"], h, payload.get("session_id"))
+        jobs = (attrs.get("job"), claudex.attach_id(None, payload.get("session_id")))
+        pane = talk_window(got["cwd"], h, [me()], jobs)
         if pane is None or (h.agent(pane) or {}).get("agent_status") not in IDLE:
             return False   # ほかの止まる前のフックが番を続けさせたなど（次の番の終わりにもう一度見る）
         box = deliver.input_box(h.read(pane, 40))
@@ -111,17 +123,17 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
     return True
 
 
-def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time):
-    """wake.watch に渡す check（受付の設計 4.2 の順）。"""
+def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0]):
+    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。"""
     def check():
         attrs = attrs_of(got["cwd"])
         ask = attrs.get("ask")
         if ask and attrs.get("delivered") != ask:
             return None   # 未納品の頼みを持っている
         if (payload.get("hook_event_name") == "Stop" and ask and attrs.get("fresh") == role.FRESH
-                and attrs.get("cleared") != ask and clear_now(got, payload, attrs, h)):
+                and attrs.get("cleared") != ask and clear_now(got, payload, attrs, h, me=me)):
             return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す
-        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and clear_now(got, payload, attrs, h, marks={wake.REST: None}):
+        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me):
             return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
         item = wake.take(got["inbox"], got["place"])
         if item is None:

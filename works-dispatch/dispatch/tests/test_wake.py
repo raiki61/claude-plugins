@@ -136,15 +136,23 @@ class Watch(unittest.TestCase):
         self.assertEqual(wake.addresses("co", {}, ["前"]), [])
 
 
+ME = 4242   # 試験の中の、この会話の処理（Claude Code）の番号
+
+
 class Window:
     """部署の窓の偽物（herdr の口）。"""
     HerdrError = real_herdr.HerdrError
 
-    def __init__(self, cwd, status="done", box=""):
+    def __init__(self, cwd, status="done", box="", front=None):
         self.cwd, self.status, self.box, self.writes = cwd, status, box, []
+        # 窓の前のプロセス。既定はこの会話の処理（checker が clear_now に渡す me の番号）が居る窓
+        self.front = [{"pid": ME, "argv": ["claude"]}] if front is None else front
 
     def panes(self):
         return [{"pane_id": "p1", "cwd": self.cwd, "agent": "claude"}]
+
+    def front_processes(self, pane):
+        return self.front
 
     def agent(self, pane):
         return {"agent": "claude", "agent_status": self.status}
@@ -220,7 +228,7 @@ class Hook(unittest.TestCase):
 
     def checker(self, payload=None, window=None):
         return wake_hook.checker(self.plan(), payload or {"hook_event_name": "Stop"}, h=window or Window(self.place),
-                                 now=lambda: 5)
+                                 now=lambda: 5, me=lambda: ME)
 
     def put(self, ask_id, **marks):
         wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）",
@@ -302,6 +310,18 @@ class Hook(unittest.TestCase):
         self.assertEqual(wake_hook.own_window(self.place, Many(self.place), "s1"), "p2")
         self.assertIsNone(wake_hook.own_window(self.place, Many(self.place), "s7"))   # 結べなければ打たない
         self.assertEqual(wake_hook.own_window(self.place, Window(self.place), "s7"), "p1")   # 場所に 1 つなら、それ
+
+    def test_clear_goes_only_to_a_window_where_this_talk_is_seen_running(self):
+        # 会話を消す打ち込みは、窓の前のプロセスにこの会話が居ると確かめたときだけ打つ（印も、場所だけの代わりも使わない）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a1", "delivered": "a1", "fresh": role.FRESH,
+                                              "job": "abcd1234"}, gitx)
+        stranger = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude"]}])
+        stranger.panes = lambda: [{"pane_id": "p1", "cwd": self.place, "agent": "claude", "agent_session": {"value": "s1"}}]
+        self.assertIsNone(self.checker(window=stranger)())   # 印が合っても、前に居るのが別の会話なら打たない
+        self.assertEqual(stranger.writes, [])
+        attached = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude", "attach", "abcd1234"]}])   # 裏の会話を開いた窓
+        self.assertEqual(wake_hook.talk_window(self.place, attached, [ME], ["abcd1234"]), "p1")
+        self.assertIsNone(wake_hook.talk_window(self.place, attached, [ME], ["zzzz9999"]))
 
     def test_a_pane_of_another_place_is_not_the_window_even_with_this_talk_mark(self):
         # herdr の印は別の部署の会話の id のまま残ることがある（2026-10-17 に my_notes で、ノートの手入れの待ち受けが印の合った
