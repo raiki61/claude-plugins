@@ -317,6 +317,8 @@ def context(role_name, role, company, duty=None, head_office=False):
     head = f"この会話は会社「{company}」の{'本社の会話' if head_office else '部署'}で、役は「{role_name}」。"
     if duty and duty.get("description"):
         head += f"受け持ちは「{duty['name']}」（{duty['description']}）。"
+    if duty and duty.get("standing") is False and not head_office:
+        head += "この受け持ちは頼まれたときだけ立てる物で、この部署は都度の部署（頼みを済ませたら畳まれる）。"
     return head + (f"\n{role['instructions']}" if role and role["instructions"] else "")
 
 

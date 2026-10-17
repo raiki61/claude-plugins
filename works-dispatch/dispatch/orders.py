@@ -559,6 +559,11 @@ def _ask(a, ports, cwd, task, sent):
                                  f"- 本文: {path}"]))
         return 0 if status == "sent" else 1
     # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。枝の名前は頼む側が渡す）
+    if target.get("on_demand"):
+        # 頼まれたときだけ立てる受け持ち: 部署の名前は受け持ちの名前、枝は受付番号から作る（--task・--branch を渡さなくてよい）。
+        # 部署は都度の部署で立ち（dispatch._task が受け持ちの standing を見る）、納品して本流に入れたら --done で畳まれる
+        a = argparse.Namespace(**{**vars(a), "task": target["on_demand"], "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
+        notes.append(f"{target['on_demand']} は頼まれたときだけ立てる受け持ちなので、部署 {a.task}（枝 {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
         print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の常設の部署が無いので新しく立てる。"
                                  "部署の名前を --task <名前>、枝を --branch <枝> で渡す"]))

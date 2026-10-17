@@ -675,6 +675,29 @@ class Flow(unittest.TestCase):
         self.assertNotIn("ask", gitx.worktree_attrs(self.place))
         self.assertFalse(os.path.exists(self.inbox))
 
+    def test_ask_to_a_duty_raised_only_when_asked_starts_its_department_with_a_branch_of_its_own(self):
+        # 頼まれたときだけ立てる受け持ち（standing = false）: --task・--branch を渡さなくても、受け持ちの名前の部署を立てる（813bb8）
+        self.shape('[[roles]]\nname = "担当"\nresident = true\n[[skills]]\nname = "見渡し"\nrole = "担当"\nstanding = false\n')
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(name=ns.task, branch=ns.branch, role=ns.role)
+            return 1
+        with contextlib.chdir(self.src):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                a = argparse.Namespace(config=self.cfg, ask="見渡し", text="見て", brief=None, task=None, branch=None,
+                                       dry_run=False, role=None, resident=False, base=None, from_name=None, from_account=None)
+                orders.ask(a, self.ports, self.src, task)
+        self.assertEqual((seen["name"], seen["role"]), ("見渡し", "担当"), buf.getvalue())
+        self.assertRegex(seen["branch"], r"^work/ask-[0-9a-f]{6}$")
+        self.assertIn("頼まれたときだけ立てる受け持ち", buf.getvalue())
+        companies = [{"name": "co", "root": self.src, "departments": [],
+                      "skills": [{"name": "見渡し", "role": "担当", "standing": False}]}]
+        self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["on_demand"], "見渡し")
+        companies[0]["departments"] = [dept_row(name="見渡し", role="担当", path="/r/w")]   # 立っている間は、その部署に届ける
+        self.assertEqual(deliver.find_target(companies, self.src, "co/見渡し")["department"]["path"], "/r/w")
+
     def test_ask_to_a_role_without_a_resident_department_starts_one_through_the_task_path(self):
         seen = {}
 

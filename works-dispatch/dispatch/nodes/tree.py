@@ -82,6 +82,11 @@ def _skills(raw, where, problems):
             got["effort"] = s["effort"]
         # 起こし方（周期か命令・返す先。start ノード）。形が違えば外し、その受け持ちは起こさない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
+        # standing = false: 常設の部署を置かず、頼まれたときだけその受け持ちの名前の都度の部署を立てる（--ask が立て、--done で畳む）
+        got["standing"] = s.get("standing", True)
+        if not isinstance(got["standing"], bool):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の standing は true か false。外して常設で扱う")
+            got["standing"] = True
         out.append({"model": None, "effort": None, **got})
     return out
 
@@ -273,7 +278,7 @@ def contacts(company, shape):
     for s in company["skills"]:
         r = shape["roles"].get(role.current(shape, s["role"])) if s.get("role") else None
         s["ask"] = (None if r is None or r["machine"] else
-                    f"--ask {plain}/{s['name']}" if r["resident"] and s["name"] in named else
+                    f"--ask {plain}/{s['name']}" if s.get("standing") is False or r["resident"] and s["name"] in named else
                     f"--ask {plain}/{r['name']} --task {s['name']} --branch <枝>" if r["resident"] else
                     f"--ask {plain}/{r['name']} --task <部署の名前> --branch <枝>")
     head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
@@ -301,6 +306,7 @@ def lines(companies):
                        + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k))
                        + (f"  起こし方: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
+                       + ("  頼まれたときだけ立てる" if s.get("standing") is False else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
         if c.get("desk"):
             out.append(f"  窓口: {c['desk']['name']}（受ける仕事に当たらない件・部署をまたぐ件）  宛て方 {c['desk']['ask']}")

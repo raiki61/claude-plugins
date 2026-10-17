@@ -207,7 +207,8 @@ class Info(unittest.TestCase):
         self.assertEqual(os.path.basename(local), urllib.parse.quote(os.path.realpath(self.root), safe="") + ".toml")
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
-        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "start": None}])
+        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None, "start": None,
+                                          "standing": True}])
 
     def test_repo_file_wins_and_unknown_fields_are_skipped(self):
         write(tree.settings_info_path(self.settings, self.root), 'name = "手元"\n')

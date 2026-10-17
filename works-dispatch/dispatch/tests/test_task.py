@@ -161,6 +161,16 @@ class Task(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place(ports, "task/other"))
         self.assertEqual((attrs["role"], attrs["residency"]), ("作業", "per-task"))
 
+    def test_a_duty_raised_only_when_asked_starts_per_task_even_under_a_resident_role(self):
+        # 受け持ちの standing = false（頼まれたときだけ立てる）は、役が resident = true でも都度の部署で立つ（--done で畳まれる）
+        push_shape(gitx_source(self.cfg), 'default_role = "担当"\n[[roles]]\nname = "担当"\nresident = true\n'
+                                          '[[skills]]\nname = "直し"\nrole = "担当"\nstanding = false\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports)   # 部署の名前（直し）が受け持ちの名前
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.place(ports))
+        self.assertEqual((attrs["role"], attrs["residency"]), ("担当", "per-task"))
+
     def test_default_role_missing_from_the_shape_is_noted_not_stopped(self):
         push_shape(gitx_source(self.cfg), SHAPE)   # 役は調べ役だけで、default_role も無い
         ports = self.ports()

@@ -141,6 +141,11 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                                f"（{'、'.join(d['branch'] or d['path'] for d in mine)}）")
         return {"company": company, "department": mine[0] if mine else None,
                 "role": current(company, mine[0]["attrs"].get("role") or name if mine else name)}
+    duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("standing") is False), None)
+    if duty and duty.get("role"):
+        # 頼まれたときだけ立てる受け持ち（standing = false）で、その名前の部署が今は無い: その名前の都度の部署を立てる（orders.ask が
+        # 部署の名前と枝を決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む
+        return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"]}
     name = current(company, name)
     resident = [d for d in company["departments"]
                 if d["attrs"].get("role") and current(company, d["attrs"]["role"]) == name

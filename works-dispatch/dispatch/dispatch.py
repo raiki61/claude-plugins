@@ -1116,9 +1116,10 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if why:
         print(f"止めた: {why}")
         return 2
-    resident = a.resident or bool(the_role and the_role["resident"])   # 役の resident = true は --resident と同じ
     # 部署の名前と同じ name の受け持ち（[[skills]]）に model・effort が有れば、役の値より先に効く。effort の inherit は、呼んだ会話の今の effort
     duty = next((x for x in info["skills"] if x["name"] == a.task), None)
+    # 役の resident = true は --resident と同じ。ただし受け持ちが standing = false（頼まれたときだけ立てる）なら都度の部署で立てる
+    resident = (a.resident or bool(the_role and the_role["resident"])) and not (duty and duty.get("standing") is False)
     model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
     repo = repo._replace(gh_user=gh_user)
