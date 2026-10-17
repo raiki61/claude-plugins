@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-10-17
+
 ### Fixed
 
 - ほかのアカウントの会話から `--clean --apply`（と `--land` の片付け）を打つと、設定に `config_dir` を書かないアカウントの部署の会話を、打った会話の `CLAUDE_CONFIG_DIR` の置き場で探し、`claude rm` が「No job matching」で断って何も消せなかった。会話の一覧を読むのと同じく、ペインの新しいログインのシェルの値で探す。
