@@ -187,6 +187,22 @@ def start_named(command, pane, name, text, h=herdr, posix=None, settings=None, m
     return result
 
 
+def bring_back(pane, command, h=herdr):
+    """起こし直せなかったとき、ペインのシェルで command（前の会話へ戻る命令。`<コマンド> --resume <id>` か `<コマンド> attach <短い id>`）を
+    打ち、会話が戻るのを待つ。戻れば None、ほかは訳。"""
+    try:
+        if not h.shell_in_front(pane):
+            return f"窓 {pane} の前にシェルが居ない"
+        h.run(pane, command)
+        state = h.wait_ready(pane)
+        seen = h.agent(pane)
+    except h.HerdrError as e:
+        return str(e)
+    if state == "blocked" or seen.get("agent") != "claude":
+        return f"打った後に会話が見えない（{state}）"
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plan", required=True)

@@ -244,27 +244,12 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
     if risen:
         back = "移る先のアカウントに同じ名前の会話が立っているか、確かめられないので戻さない"
     elif pane and job:
-        back = _bring_back(pane, f"{old_acc.command if old_acc else 'claude'} attach {job}", ports)
+        back = launch.bring_back(pane, f"{old_acc.command if old_acc else 'claude'} attach {job}", ports.herdr)
     else:
         back = "戻す窓か会話の id が無い"
     if back is None:
         provision.mark(dept["path"], company["root"], {k: attrs.get(k) for k in ("session", "job", "account", wake.LAUNCHED, "cleared")}, ports.git)
     return rc, "--task と同じ道で起こせなかった（上の出力を見る）。" + ("前の会話を attach で戻した" if back is None else f"前の会話も戻せなかった（{back}）")
-
-
-def _bring_back(pane, command, ports):
-    """起こし直せなかったとき、ペインのシェルで command（前の会話へ戻る命令）を打ち、会話が戻るのを待つ。戻れば None、ほかは訳。"""
-    try:
-        if not ports.herdr.shell_in_front(pane):
-            return f"窓 {pane} の前にシェルが居ない"
-        ports.herdr.run(pane, command)
-        state = ports.herdr.wait_ready(pane)
-        seen = ports.herdr.agent(pane)
-    except herdr.HerdrError as e:
-        return str(e)
-    if state == "blocked" or seen.get("agent") != "claude":
-        return f"打った後に会話が見えない（{state}）"
-    return None
 
 
 def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
@@ -302,7 +287,7 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
         return 0, warn
     # 新しい会話が立たなかった: 前の会話を --resume で同じペインに戻す（窓口を消したままにしない。2026-10-17 に段取りが 22 分消えた）
     provision.mark(company["root"], company["root"], {wake.LAUNCHED: attrs.get(wake.LAUNCHED), wake.LAUNCHING: None}, ports.git)
-    back = _bring_back(pane, f"{(old_acc or acc).command} --resume {sid}", ports)
+    back = launch.bring_back(pane, f"{(old_acc or acc).command} --resume {sid}", ports.herdr)
     if back is None and not warn:
         # 戻した会話は前の設定のまま。同じ値で区切りのたびに起こし直しと戻しを繰り返さない（会社の形が替われば試し直す）
         provision.mark(company["root"], company["root"], {wake.RESTART_KEPT: role.launch_key(the_role)}, ports.git)
