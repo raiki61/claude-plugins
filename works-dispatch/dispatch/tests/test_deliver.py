@@ -740,6 +740,16 @@ class Flow(unittest.TestCase):
         self.assertIn("納品の検査が通った", out)
         self.assertEqual(len(self.prompts()), 1)
 
+    def test_a_check_script_missing_in_the_workplace_says_to_rebase(self):
+        # 会社の形は本流から読むが、検査は作業場で走る。台本の入る前の本流から切った枝では台本が無いので、載せ直すよう言う
+        self.shape(f'[[roles]]\nname = "調べ役"\ndeliver_check = {json.dumps(f'"{pathlib.Path(sys.executable).as_posix()}" tools/check.py')}\n')
+        summary = self.ask_then_summary(GOOD)
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("検査の台本 tools/check.py がこの作業場に無い", out)
+        self.assertIn("git rebase origin/main", out)
+        self.assertEqual(self.prompts(), [])
+
     def test_roles_written_by_name_are_not_read_and_say_to_move_them(self):
         self.shape('[roles."調べ役"]\ndeliver = ["結論", "差分", "試験"]\n')
         summary = self.ask_then_summary(GOOD)

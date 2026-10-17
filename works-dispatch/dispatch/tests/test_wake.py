@@ -303,6 +303,24 @@ class Hook(unittest.TestCase):
         self.assertIsNone(wake_hook.own_window(self.place, Many(self.place), "s7"))   # 結べなければ打たない
         self.assertEqual(wake_hook.own_window(self.place, Window(self.place), "s7"), "p1")   # 場所に 1 つなら、それ
 
+    def test_a_pane_of_another_place_is_not_the_window_even_with_this_talk_mark(self):
+        # herdr の印は別の部署の会話の id のまま残ることがある（2026-10-17 に my_notes で、ノートの手入れの待ち受けが印の合った
+        # 調べものの窓に /clear を打った）。場所の違う窓は、印が合っても打ち先にしない
+        other = tempfile.mkdtemp()
+
+        class Stale(Window):
+            def panes(self):
+                return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": {"value": "s1"}},
+                        {"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": {"value": "s-old"}}]
+
+        class Alone(Window):
+            def panes(self):
+                return [{"pane_id": "p9", "cwd": other, "agent": "claude", "agent_session": {"value": "s1"}}]
+        self.assertEqual(wake_hook.own_window(self.place, Stale(self.place), "s1"), "p1")
+        self.assertIsNone(wake_hook.own_window(self.place, Alone(self.place), "s1"))
+        os.makedirs(os.path.join(self.place, "sub"), exist_ok=True)   # 会話が作業場の下のフォルダに居ても、同じ場所と見る
+        self.assertEqual(wake_hook.own_window(os.path.join(self.place, "sub"), Stale(self.place), "s1"), "p1")
+
     def test_a_typed_prompt_pauses_the_watcher(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
         place = gitx.git_dir(self.place)

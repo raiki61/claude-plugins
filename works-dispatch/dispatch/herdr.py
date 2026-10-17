@@ -61,16 +61,35 @@ def panes(runner=_default_runner):
     return out
 
 
+def place_of(path):
+    """場所の根（path から上へたどって最初に .git の在るフォルダ。git の作業場の根）。無ければ path 自身。git を呼ばずに字と
+    ファイルだけで決める（ペインの数だけ呼ぶので）。"""
+    here = os.path.realpath(path)
+    up = here
+    while True:
+        if os.path.exists(os.path.join(up, ".git")):
+            return up
+        parent = os.path.dirname(up)
+        if parent == up:
+            return here
+        up = parent
+
+
 def own_pane(cwd, sid=None, listed=None):
-    """会話の居るペイン（会話の居るペインのうち、会話の印〔agent_session〕がこの会話の id の物が 1 つならそれ、無ければ場所が
-    cwd の物が 1 つならそれ）。決まらなければ None。listed は panes() の並び（省けば読む）。環境変数 HERDR_PANE_ID は使わない
-    （裏の会話〔claude --bg〕は前もって起こした控えの処理の値を継ぎ、別のペインを指していた。2026-10-17 に見た）。"""
+    """会話の居るペイン。場所の根（place_of）がこの会話と同じペインのうち、会話の印〔agent_session〕がこの会話の id の物が 1 つなら
+    それ、無ければ場所の同じ物が 1 つならそれ。決まらなければ None。listed は panes() の並び（省けば読む）。
+    場所の違うペインは、印がこの会話の id でも選ばない（herdr の印は前にそのペインに居た会話や別の部署の会話の id のまま残ることが
+    あり、2026-10-17 に my_notes で、ノートの手入れの待ち受けが印の合った調べものの窓に /clear を打った）。
+    環境変数 HERDR_PANE_ID は使わない（裏の会話〔claude --bg〕は前もって起こした控えの処理の値を継ぎ、別のペインを指していた。
+    2026-10-17 に見た）。"""
+    if not cwd:
+        return None
+    here = place_of(cwd)
     talking = [p for p in (panes() if listed is None else listed) if p.get("agent")]
-    mine = [p for p in talking if sid and (p.get("agent_session") or {}).get("value") == sid]
+    hits = [p for p in talking if p.get("cwd") and place_of(p["cwd"]) == here]
+    mine = [p for p in hits if sid and (p.get("agent_session") or {}).get("value") == sid]
     if len(mine) == 1:
         return mine[0]["pane_id"]
-    here = os.path.realpath(cwd) if cwd else None
-    hits = [p for p in talking if here and p.get("cwd") and os.path.realpath(p["cwd"]) == here]
     return hits[0]["pane_id"] if len(hits) == 1 else None
 
 

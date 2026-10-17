@@ -754,6 +754,9 @@ def deliver_summary(a, ports, cwd):
         if code != 0:
             print("\n".join(notes + [f"送らなかった: 納品の検査が通らなかった（終了の値 {code}）: {check}"]
                             + [f"  {x}" for x in out.splitlines()]
+                            + [f"- 検査の台本 {x} がこの作業場に無い（会社の形は origin の本流から読むが、検査は作業場で走る）。"
+                               "枝を本流の上に載せ直してから（git fetch origin && git rebase origin/main）打ち直す"
+                               for x in deliver.absent_files(check, place)]
                             + [f"- 検査は会社の形の役 {attrs['role']} の deliver_check。上の訳を直してから --deliver を打ち直す"]))
             return 2
         notes.append(f"納品の検査が通った: {check}")

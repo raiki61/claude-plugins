@@ -25,6 +25,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import time
 import uuid
 
@@ -279,6 +280,18 @@ def gate(command, place, payload, runner):
                text=True, encoding="utf-8", errors="replace")
     both = (p.stdout or "") + (p.stderr or "")
     return p.returncode, "\n".join(both.rstrip().splitlines()[-GATE_TAIL:])
+
+
+def absent_files(command, place):
+    """納品の検査の命令の字のうち、place からの相対のファイルの名に見えて（/ を含むか拡張子を持つ）place に無い物の並び。会社の形は
+    origin の本流から読むが、検査は部署の作業場で走るので、台本の入る前の本流から切った枝では台本が無い（2026-10-17 に my_notes の
+    調べものの納品が tools/deliver_check.py が無くて止まった）。"""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return []
+    return [w for w in words if not w.startswith("-") and not os.path.isabs(w) and ("/" in w or os.path.splitext(w)[1])
+            and not os.path.exists(os.path.join(place, w))]
 
 
 def summary_text(items, required):
