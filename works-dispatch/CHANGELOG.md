@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-10-17
+
 この版の要点: 頼みを受ける会社の決まりで、ほかの会社から届く頼みも止められるようにした（役の欄 `ask_check`）。
 
 ### Added
