@@ -106,6 +106,22 @@ class Target(unittest.TestCase):
             deliver.find_target([a, notes, twin], "/r/a", "my_notes")
         self.assertIn("2 つ以上ある", str(e.exception))
 
+    def test_a_company_name_alone_goes_to_the_desk_written_in_its_shape_and_skips_a_bare_clone(self):
+        # claude-plugins の窓口は my_notes の段取りが兼ねる（会社の形の desk）。部署を立てていない別の clone（claude-plugins-work1）は
+        # 同じ名前でも会社に数えない（2026-10-17、--ask claude-plugins が「2 つ以上ある」で止まった。415c94）
+        desk = {**dept_row(name="段取り", role="段取り", residency="resident", path="/r/n"), "head_office": True}
+        notes = {**company("my_notes", "/r/n", desk), "info_source": "origin"}
+        plugins = {**company("claude-plugins", "/r/cp", {**dept_row(path="/r/cp"), "head_office": True},
+                             dept_row(name="割り振り", role="担当", path="/r/cp-w")), "info_source": "origin", "desk_of": "my_notes/段取り"}
+        bare = {**company("claude-plugins", "/r/cp-work1", {**dept_row(path="/r/cp-work1"), "head_office": True}),
+                "info_source": "origin", "desk_of": "my_notes/段取り"}
+        got = deliver.find_target([notes, plugins, bare], "/r/n", "claude-plugins")
+        self.assertEqual((got["company"]["name"], got["department"]["path"], got["role"]), ("my_notes", "/r/n", "段取り"))
+        loop = {**plugins, "desk_of": "claude-plugins"}   # 書いた先がまた desk を指しても 1 段だけたどる
+        with self.assertRaises(deliver.DeliverError) as e:
+            deliver.find_target([notes, loop], "/r/n", "claude-plugins")
+        self.assertIn("desk", str(e.exception))
+
 
 class Summary(unittest.TestCase):
     def test_headings_and_labels_are_read(self):

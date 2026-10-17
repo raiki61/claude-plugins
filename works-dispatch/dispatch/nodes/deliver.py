@@ -63,7 +63,7 @@ def parse_target(target):
     return (company or None) if sep else None, rest
 
 
-def find_target(companies, here_root, target, task=None, current=lambda company, name: name):
+def find_target(companies, here_root, target, task=None, current=lambda company, name: name, hop=False):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。current は (会社, 役の名前) → 今の役の名前
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
@@ -97,13 +97,22 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     whole = [c for c in companies if company_name is None and c.get("info_source")
              and name in (c["name"], os.path.basename(os.path.normpath(c["root"])))]
     if len(whole) > 1:
+        # 同じリポジトリの別の clone（作業用に clone しただけで部署を立てていない物）も、origin の会社の形を読むので同じ名前になる。
+        # 部署（役の属性の在る worktree）を持つ clone を会社と見る（2026-10-17、claude-plugins-work1 が数えられて --ask claude-plugins が止まった）
+        whole = [c for c in whole if any(d["attrs"].get("role") for d in c["departments"])] or whole
+    if len(whole) > 1:
         raise DeliverError(f"会社の名前「{name}」が 2 つ以上ある（{'、'.join(c['root'] for c in whole)}）。部署の名前か「会社/役」で宛てる")
     if whole:
         # 会社の名前だけで宛てたら、その会社の窓口（本社の、--desk で名付けた会話）に届ける（tree.contacts の窓口と同じ物）。部署で
         # ない会話がほかの会社に頼むとき、宛先の役の名前を会社ごとに知らなくてよいように
         head = next((d for d in whole[0]["departments"] if d.get("head_office") and d["attrs"].get("name")), None)
+        if head is None and whole[0].get("desk_of") and not hop:
+            # 本社に窓口が無く、会社の形の desk にほかの会社の窓口が書いてあれば、そこへ届ける（--tree の窓口と同じ物。claude-plugins の
+            # 窓口は my_notes の段取り）。書いた先がまた desk を指していても、1 段だけたどる
+            return find_target(companies, here_root, whole[0]["desk_of"], None, current, hop=True)
         if head is None:
-            raise DeliverError(f"会社「{name}」の窓口が名付けられていない（その会社の本社で持ち主と話す会話が --desk を打つと名付く）。"
+            raise DeliverError(f"会社「{name}」の窓口が名付けられていない（その会社の本社で持ち主と話す会話が --desk を打つと名付く。"
+                               "ほかの会社の窓口が兼ねるなら、会社の形の頭に desk = \"<会社>/<名前>\" と書く）。"
                                "--tree の「受ける仕事」の宛て方で、仕事ごとの部署に宛てる")
         return {"company": whole[0], "department": head, "role": head["attrs"].get("role")}
     if company_name is None:
