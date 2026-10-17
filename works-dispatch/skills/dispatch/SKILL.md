@@ -159,7 +159,7 @@ model = "haiku"                                  # 部署を起こすときの -
 effort = "low"                                   # 部署を起こすときの --effort（inherit なら頼んだ会話と同じ。省けばアカウントの既定）
 deliver = ["結論", "決め手", "残った疑問", "枝"]   # 納品する要約の必須項目（省けば既定。下の「頼む・納品する」）
 deliver_check = "python3 scripts/check_deliver.py"   # 納品の検査のシェルの命令（省けば検査しない。下の「頼む・納品する」の「納品の検査」）
-resident = true                                  # この役の部署は常設（--resident を付けたのと同じ。担当のように受け持ちに常設の役に書く）
+resident = true                                  # この役で立てる部署は常設（--resident を付けたのと同じ。この [[roles]] の項目に書く。例: 受け持ちごとに常設で立てる担当の役）
 fresh = true                                     # 頼みごとに空の会話で受ける（省けば会話を持ち越す）
 [roles.settings]                                 # 部署を起こすときの --settings（その会話にだけ効く Claude Code の設定）
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
