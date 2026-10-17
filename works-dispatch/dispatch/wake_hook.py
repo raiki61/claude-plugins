@@ -3,6 +3,8 @@
 
 - Stop と SessionStart（asyncRewake）: 部署と窓口の会話で、頼みと納品の知らせを待ち、来たら会話を起こす。順番待ちの次の 1 件を
   渡し（属性に頼みを書いてから起こす）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
+  fresh の部署を空にできない間（裏の処理が残る・入力欄に字が在る・窓を確かめられないなど）は、前の会話のまま次を渡さず、
+  間を置いて空にするのを試し直す（会話が前の会話の中身で次の頼みを書き直さない）。
   会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）番の終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
   都度の部署が終わりと印した（--done。属性 company.finished）番の終わりには、印を外して dispatch.py --retire <部署> を会話から
@@ -103,29 +105,36 @@ def talk_window(cwd, h=herdr, pids=(), jobs=()):
     return mine[0] if len(mine) == 1 else None
 
 
-def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0]):
+def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0], why=None):
     """止まった会話を、自分の窓に /clear を打って空にする。打ったら True（属性に marks を書く。省けば、納品し終えた fresh の部署の
     company.cleared）。裏の処理が残る・会話がまだ動いている・窓の入力欄に字が在る・自分の会話の居る窓だと確かめられない
-    （talk_window。me はこのフックを起こした Claude Code の処理の番号を返す）・herdr が受け付けないときは False（空にしない）。"""
-    if payload.get("background_tasks"):
+    （talk_window。me はこのフックを起こした Claude Code の処理の番号を返す）・herdr が受け付けないときは False（空にしない）。
+    why に並びを渡せば、空にしなかった訳を 1 つ足す。"""
+    def no(reason):
+        if why is not None:
+            why.append(reason)
         return False
+    if payload.get("background_tasks"):
+        return no("裏の処理が残っている")
     try:
         jobs = (attrs.get("job"), claudex.attach_id(None, payload.get("session_id")))
         pane = talk_window(got["cwd"], h, [me()], jobs)
-        if pane is None or (h.agent(pane) or {}).get("agent_status") not in IDLE:
-            return False   # ほかの止まる前のフックが番を続けさせたなど（次の番の終わりにもう一度見る）
+        if pane is None:
+            return no("この会話の居る窓を 1 つに確かめられない（部署の窓で attach を開けば続く）")
+        if (h.agent(pane) or {}).get("agent_status") not in IDLE:
+            return no("会話がまだ動いている")   # ほかの止まる前のフックが番を続けさせたなど
         box = deliver.input_box(h.read(pane, 40))
         if box is None or box.lstrip("❯").strip():
-            return False   # 入力欄が見えないか、字が在る（頭の ❯ は入力欄の印）
-    except h.HerdrError:
-        return False
+            return no("窓の入力欄が見えないか、字が在る")   # 頭の ❯ は入力欄の印
+    except h.HerdrError as e:
+        return no(f"herdr を読めない（{e}）")
 
     def cleared():   # /clear の後の会話の始まりで張った待ち受けが、新しい会話の id で印を書く
         held = wake.read_mark(got["inbox"], got["place"]) or {}
         return bool(held.get("session")) and held.get("session") != got["session"]
-    status, _ = deliver.clear_talk(pane, h, pause, cleared)
+    status, detail = deliver.clear_talk(pane, h, pause, cleared)
     if status == "failed":
-        return False
+        return no(f"/clear を打てない（{detail}）")
     provision.mark(got["cwd"], got["root"], marks or {"cleared": attrs["ask"]}, gitx)
     return True
 
@@ -151,9 +160,26 @@ def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
     return True
 
 
+# 会話の始まり（SessionStart）のうち、会話が空で始まった物（source）。ほかの始まり（resume・compact）は前の会話を持っている
+EMPTY_STARTS = ("startup", "clear")
+
+
+def must_clear(payload, attrs):
+    """頼みごとに空の会話で受ける部署（fresh）が、次の頼みを受ける前に会話を空にしなければならないか。納品し終えていて
+    （company.delivered が company.ask）、まだ空にしていない（company.cleared が違う）とき。ただし会話が空で始まった時を除く。"""
+    ask = attrs.get("ask")
+    if not (ask and attrs.get("fresh") == role.FRESH and attrs.get("delivered") == ask and attrs.get("cleared") != ask):
+        return False
+    return not (payload.get("hook_event_name") == "SessionStart" and payload.get("source") in EMPTY_STARTS)
+
+
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
             spawn=subprocess.Popen):
-    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。"""
+    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。
+    fresh の部署を空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。順番待ちに
+    次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--take で回せる）。"""
+    told = set()
+
     def check():
         attrs = attrs_of(got["cwd"])
         ask = attrs.get("ask")
@@ -162,9 +188,16 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
         if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # 都度の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
-        if (payload.get("hook_event_name") == "Stop" and ask and attrs.get("fresh") == role.FRESH
-                and attrs.get("cleared") != ask and clear_now(got, payload, attrs, h, me=me)):
-            return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す
+        if must_clear(payload, attrs):
+            why = []
+            if clear_now(got, payload, attrs, h, me=me, why=why):
+                return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す
+            waiting = wake.queued(got["inbox"], got["place"])
+            if waiting and (waiting[0].get("id"), why[0]) not in told:
+                told.add((waiting[0].get("id"), why[0]))
+                deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
+                                           "session": got["session"], "detail": f"前の会話を空にできないので渡さずに待つ（{why[0]}）"})
+            return wake.HOLD
         if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me):
             return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
         item = wake.take(got["inbox"], got["place"])

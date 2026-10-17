@@ -33,6 +33,7 @@ BEAT = 5.0          # 印の更新の時刻を進める間（秒）
 FRESH = 15.0        # 送る側が待ち受けを居ると見る、印の更新からの秒
 GRACE = 2.0         # 新しい待ち受けが、前の待ち受けが終わるのを待つ秒（前の物は POLL ごとに印を見る）
 KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み"}
+HOLD = ("hold", None)  # check の返り: 今は渡さず、BEAT ごとに check を呼び直す（fresh の部署を空にできるまで待つ）
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
                     # 番の終わりの待ち受けが窓に /clear を打って消す。人の文で番が始まると外れる
@@ -310,7 +311,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
     """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
     owner は待ち受けを起こした会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
     check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに呼ぶ関数で、("wake", 字)（その字で会話を起こす）・
-    ("end", None)（0 で終わる。会話を空にしたなど）・None（待ち続ける）を返す。"""
+    ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。"""
     claim(inbox, place, names, session, owner, token, now())
     pause(GRACE)
     log = os.path.join(inbox, LOG)
@@ -319,9 +320,11 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         pos = _size(log)
         _replace(pos_path(inbox, place), str(pos))
     got = read_mark(inbox, place)
+    holding = False
     if check and got and got.get("token") == token:
         verdict = check()
-        if verdict:
+        holding = verdict == HOLD
+        if verdict and not holding:
             return _finish(verdict, err)
     beat = now()
     while True:
@@ -340,6 +343,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             _replace(pos_path(inbox, place), str(pos))   # 出す前に進める（同じ行で 2 度起こさない）
             said = [r for r in hits if r.get("kind") != QUEUED]
             verdict = check() if check and len(said) < len(hits) else None
+            holding = holding or verdict == HOLD
             if verdict and verdict[0] == "end" and not said:
                 return 0
             text = "\n".join(x for x in [wake_text(said) if said else "", verdict[1] if verdict and verdict[0] == "wake" else ""]
@@ -347,6 +351,11 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             if text:
                 return _finish(("wake", text), err)
         if now() - beat >= BEAT:
+            if holding:
+                verdict = check()
+                holding = verdict == HOLD
+                if verdict and not holding:
+                    return _finish(verdict, err)
             try:
                 os.utime(mark_path(inbox, place))
             except OSError:

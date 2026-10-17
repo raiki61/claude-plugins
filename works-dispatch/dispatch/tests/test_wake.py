@@ -265,9 +265,59 @@ class Hook(unittest.TestCase):
         for payload, window in (({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}, Window(self.place)),
                                 ({"hook_event_name": "Stop"}, Window(self.place, status="working")),
                                 ({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ"))):
-            self.assertIsNone(self.checker(payload, window)())   # 空にせず、渡す物も無い
+            self.assertEqual(self.checker(payload, window)(), wake.HOLD)   # 空にせず、空にできるまで待つ
             self.assertEqual(window.writes, [])
         self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
+
+    def test_fresh_department_that_cannot_be_cleared_holds_the_next_ask(self):
+        # 空にできない間は、前の会話のまま次の頼みを渡さない（my_notes の受付 6f32b7 が 26 万トークンの会話のまま渡った）。
+        # 渡さない訳は台帳に 1 度だけ残し、空にできたら次の番に回す
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH}, gitx)
+        self.put("a1")
+        place = gitx.git_dir(self.place)
+        for payload, window in (({"hook_event_name": "Stop"}, Window(self.place, status="working")),
+                                ({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ")),
+                                ({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}, Window(self.place)),
+                                ({"hook_event_name": "Stop"}, Window(self.place, front=[]))):
+            check = self.checker(payload, window)
+            self.assertEqual(check(), wake.HOLD)
+            self.assertEqual(check(), wake.HOLD)
+            self.assertEqual(window.writes, [])
+            self.assertEqual(len(wake.queued(self.inbox, place)), 1)
+            self.assertEqual(gitx.worktree_attrs(self.place)["ask"], "a0")
+        held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
+        self.assertEqual(len(held), 4)   # 訳ごとに 1 度
+        self.assertIn("会話がまだ動いている", held[0]["detail"])
+        # 会話が前の会話を持って始まった（resume・compact）ときも空にしてから。空で始まった時は渡す
+        self.assertEqual(self.checker({"hook_event_name": "SessionStart", "source": "resume"}, Window(self.place, status="working"))(),
+                         wake.HOLD)
+        got = wake_hook.checker(self.plan(), {"hook_event_name": "SessionStart", "source": "startup"}, h=Window(self.place),
+                                now=lambda: 5)
+        self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
+
+    def test_a_held_watcher_tries_again_each_beat_until_it_can_clear(self):
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH}, gitx)
+        self.put("a1")
+        w = Window(self.place, status="working")
+        got = self.plan()
+        clock = [0.0]
+
+        def pause(sec):
+            clock[0] += sec
+            if clock[0] > 60:
+                raise AssertionError("待ち受けが終わらない")
+            if clock[0] > 10:
+                w.status = "idle"   # 番が終わって手が空いた
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            rc = wake.watch(got["inbox"], got["place"], got["names"], "s1", 7, "t1", io.StringIO(), now=lambda: clock[0],
+                            pause=pause, parent=lambda: 7, check=wake_hook.checker(got, {"hook_event_name": "Stop"}, h=w,
+                                                                                    now=lambda: 5, me=lambda: ME))
+        self.assertEqual(rc, 0)
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
+        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)   # 渡すのは空にした後の待ち受け
 
     def test_a_resident_talk_is_cleared_at_the_end_of_the_turn_it_marked_a_break(self):
         # 会話を持ち越す部署と窓口は、会話が自分で区切りと印した（--rest）番の終わりに、機械が窓に /clear を打つ（持ち主が手で打たない）
@@ -382,7 +432,7 @@ class Hook(unittest.TestCase):
                                               "job": "abcd1234"}, gitx)
         stranger = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude"]}])
         stranger.panes = lambda: [{"pane_id": "p1", "cwd": self.place, "agent": "claude", "agent_session": {"value": "s1"}}]
-        self.assertIsNone(self.checker(window=stranger)())   # 印が合っても、前に居るのが別の会話なら打たない
+        self.assertEqual(self.checker(window=stranger)(), wake.HOLD)   # 印が合っても、前に居るのが別の会話なら打たない
         self.assertEqual(stranger.writes, [])
         attached = Window(self.place, front=[{"pid": ME + 1, "argv": ["claude", "attach", "abcd1234"]}])   # 裏の会話を開いた窓
         self.assertEqual(wake_hook.talk_window(self.place, attached, [ME], ["abcd1234"]), "p1")

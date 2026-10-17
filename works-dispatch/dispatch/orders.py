@@ -280,13 +280,15 @@ def busy_check(dept, accounts_, ports):
 
 
 def clear_before_ask(dept, held, pane, busy, ports):
-    """頼みごとに空の会話で受ける役（fresh）の部署に、新しい頼みを打つ前に /clear を打つ。出す注記の並び。
+    """頼みごとに空の会話で受ける役（fresh）の部署に、新しい頼みを打つ前に /clear を打つ。(送ってよいか, 出す注記の並び)。
     空にするのは、前の頼み（company.ask）を納品し終えていて、会話が止まっているときだけ（納品していない頼みはここまでに止めている。
-    頼みの無い部署は --task の頼みのファイルで働いているかもしれず、動いている会話を空にすると途中の仕事が消える）。"""
+    頼みの無い部署は --task の頼みのファイルで働いているかもしれず、動いている会話を空にすると途中の仕事が消える）。納品し終えた
+    部署を空にできない（動いている・空になったのを見られない）ときは送らない（打った頼みは前の会話のまま届く）。"""
     if not held:
-        return ["頼みごとに空にする役だが、部署にまだ納品した頼みが無いので、空にせずに送る"]
+        return True, ["頼みごとに空にする役だが、部署にまだ納品した頼みが無いので、空にせずに送る"]
     if busy():
-        return ["頼みごとに空にする役だが、部署の会話が動いているので、空にせずに送る（打った頼みは番の後の待ちの列に入る）"]
+        return False, ["頼みごとに空にする役だが、部署の会話が動いていて空にできないので送らなかった（打つと番の後に前の会話のまま"
+                       "届く）。番が終わってから --ask を打ち直す"]
     before = busy.found
 
     def cleared():
@@ -294,8 +296,8 @@ def clear_before_ask(dept, held, pane, busy, ports):
         return bool(busy.found) and busy.found != before
     status, detail = deliver.clear_talk(pane, ports.herdr, ports.pause, cleared)
     if status == "cleared":
-        return [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
-    return [f"会話を空にできなかった（{detail}）。そのまま送る"]
+        return True, [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
+    return False, [f"会話を空にできなかったので送らなかった（{detail}）。部署の窓を見て、空になっていれば --ask を打ち直す"]
 
 
 def nudge_line(held, boss, now=None):
@@ -413,7 +415,10 @@ def _ask(a, ports, cwd, task, sent):
         dest_inbox = deliver.inbox_of(dest_common) if dest_common else None
         place_dir = ports.git.git_dir(dept["path"])
         to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
-        if to and dest_inbox and place_dir and (heard or pending and wake.has_history(dest_inbox, place_dir)):
+        fresh = bool((the_role or {}).get("fresh"))
+        # 待ち受けの跡の在る fresh の部署が、納品し終えて番の途中（待ち受けが止まっている）なら積む。番の終わりの待ち受けが空にしてから渡す
+        mid_turn = fresh and held and not pending and busy_check(dept, accounts_, ports)()
+        if to and dest_inbox and place_dir and (heard or (pending or mid_turn) and wake.has_history(dest_inbox, place_dir)):
             # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, digest,
                              {"id": ask_id, "sender": sender, "body": body, "inbox": inbox, "required": required, "boss": boss,
@@ -451,10 +456,13 @@ def _ask(a, ports, cwd, task, sent):
             print("\n".join(notes + [f"頼む先: {where}  ペイン {pane}", f"打ち込む 1 行: {line}",
                                      "書く属性: " + "、".join(f"company.{k}={v}" for k, v in boss.items() if v)]))
             return 0
-        fresh = bool((the_role or {}).get("fresh"))
         busy = busy_check(dept, accounts_, ports)
         if fresh:
-            notes += clear_before_ask(dept, held, pane, busy, ports)
+            ok, said = clear_before_ask(dept, held, pane, busy, ports)
+            notes += said
+            if not ok:
+                print("\n".join(notes + [f"止めた: 宛先の部署 {where} は頼みごとに空の会話で受ける役なので、前の会話のままでは送らない"]))
+                return 1
         path = deliver.put(inbox, f"{ask_id}-ask.md", body)
         line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
         status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy)

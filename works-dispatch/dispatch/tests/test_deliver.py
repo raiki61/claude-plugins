@@ -705,9 +705,26 @@ class Flow(unittest.TestCase):
         sent = self.fresh_world(busy_before=True)
         provision.mark(self.place, self.src, {"delivered": gitx.worktree_attrs(self.place)["ask"]}, gitx)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
+        # 納品し終えた部署が動いていて空にできないなら送らない（打つと番の後に前の会話のまま届く。my_notes の受付 6f32b7）
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(sent(), [])
+        self.assertIn("空にできないので送らなかった", out)
+
+    def test_fresh_role_mid_turn_with_a_watcher_history_queues_the_ask(self):
+        # 待ち受けの跡の在る部署が番の途中（待ち受けが止まっている）なら、打ち込まずに順番待ちに積む（番の終わりの待ち受けが
+        # 空にしてから渡す）
+        sent = self.fresh_world(busy_before=True)
+        provision.mark(self.place, self.src, {"name": "調べ", "ask": "20261016-000000-aaaaaa",
+                                              "delivered": "20261016-000000-aaaaaa"}, gitx)
+        place_dir = gitx.git_dir(self.place)
+        pos = pathlib.Path(wake.pos_path(self.inbox, place_dir))
+        pos.parent.mkdir(parents=True, exist_ok=True)
+        pos.write_text("0", encoding="utf-8")
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "次")
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("/clear", sent())
-        self.assertIn("部署の会話が動いているので、空にせずに送る", out)
+        self.assertEqual(sent(), [])
+        self.assertIn("順番待ちに積んだ", out)
+        self.assertEqual(len(wake.queued(self.inbox, place_dir)), 1)
 
     def test_deliver_items_follow_the_role_in_the_company_shape(self):
         # 役の起こし方の欄（instructions・model・settings）と納品の項目（deliver）を同じ [[roles]] の項目に書く
