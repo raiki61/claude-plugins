@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.50.3] - 2026-10-17
+
 この節の言葉: 会社の形は、リポジトリの `.claude/company.toml`（部署の役と、役ごとの model・effort・起動の設定を書く）。窓口は、本社（代表の clone）で持ち主と話す、`--desk` で名付けた会話。部署は、作業場（git worktree）ごとの裏の Claude Code の会話（`claude --bg`）。待ち受けは、部署と窓口の会話の番の終わりに works-dispatch のフックが裏で起こす台本。区切りは、会話が `--rest` で「今は会話を空にしてよい」と印した番。
 
 ### Fixed
