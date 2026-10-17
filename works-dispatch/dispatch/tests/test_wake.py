@@ -490,6 +490,51 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("どの順番待ちにも無い", out)
 
+    def test_forward_closes_the_held_ask_without_waking_its_asker_and_links_it_in_the_ledger(self):
+        # 窓口が受けた頼みを部署へ回しただけなら、頼み元（社長室）の会話を起こさない。回した先は台帳にだけ結ぶ
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("回す元の頼みが無い", out)
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-inbox": self.inbox}, gitx)
+        to = self.listen("調べ", self.dept_place())
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("回した元: 受付 a0 を閉じ", out)
+        self.assertEqual((deliver.records(self.inbox), gitx.worktree_attrs(self.src).get("delivered")), ([], None))
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("回した元の受付 a0 を閉じた", out)
+        (item,) = wake.queued(self.inbox, self.dept_place())
+        self.assertEqual(item["marks"]["boss"], "desk")   # 回した先の納品は、回した側（窓口）に返る
+        (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]   # 同じ受付箱には 1 行だけ
+        self.assertEqual((link["id"], link["child"], link["to"]["name"], link["boss"]["name"]), ("a0", item["id"], "調べ", "社長室"))
+        self.assertEqual([r["to"] for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [to])   # 社長室への知らせは無い
+        self.assertEqual(gitx.worktree_attrs(self.src)["delivered"], "a0")
+        # 閉じた後は、もう回す元の頼みが無い
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "別の頼み", "--forward")
+        self.assertEqual(rc, 2, out)
+        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
+
+    def test_forward_to_a_window_without_a_waiter_closes_the_held_ask_once_the_line_is_sent(self):
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, gitx)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.prompts()), 1)
+        (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
+        self.assertEqual(link["child"], gitx.worktree_attrs(self.place)["ask"])
+        self.assertEqual(gitx.worktree_attrs(self.src)["delivered"], "a0")
+
+    def test_forward_does_not_close_the_held_ask_when_the_ask_did_not_reach(self):
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室"}, gitx)
+        provision.mark(self.place, self.src, {"ask": "a9", "boss": "ほか"}, gitx)   # 待ち受けの居ない部署が前の頼みを納品していない
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("delivered", gitx.worktree_attrs(self.src))
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"], [])
+        rc, out = self.main(self.src, "--take", "x", "--ask", "調べ", "--forward")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--forward は --ask と一緒にだけ使う", out)
+
     def test_a_machine_role_cannot_be_asked(self):
         self.shape('[[roles]]\nname = "配布"\nmachine = true\n')
         rc, out = self.main(self.src, "--ask", "配布", "--text", "配って", "--task", "x", "--branch", "b/x")

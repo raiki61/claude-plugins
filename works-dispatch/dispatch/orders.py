@@ -9,7 +9,8 @@ dispatch.py の流れの続きで、ノード（nodes/deliver.py ほか）を呼
 居れば、宛先の会社の受付箱の台帳に知らせの 1 行を足し、待ち受けが会話を起こす（nodes/wake.py）。居なければ（フックの無い古い会話・
 落ちた会話）、宛先の部署の窓（attach のペイン）に 1 行を打ち込む。宛先の部署が立っていなければ、--task と同じ道（dispatch._task）で
 立て、最初の文で頼みを渡す。宛先の部署の属性に、受けた頼み（company.ask）と頼み元（company.boss・boss-account・boss-session・
-boss-pane・boss-inbox）を書く。
+boss-pane・boss-inbox）を書く。--forward を添えれば、打った部署か窓口が受けている頼みを、この頼みで回したとして閉じる（forwarded。
+回した先は台帳にだけ書き、頼み元の会話は起こさない）。
 
 --deliver <要約のファイル>（deliver）: 部署の場所から、要約の項目がそろっているかを確かめ（欠けていれば送らずに欠けた項目を返す）、
 役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
@@ -293,7 +294,46 @@ def nudge_line(held, boss, now=None):
 
 
 def ask(a, ports, cwd, task):
-    """--ask。task は dispatch._task（部署を立てる道）。終了の値を返す。"""
+    """--ask。task は dispatch._task（部署を立てる道）。終了の値を返す。--forward なら、打った場所が受けている頼みを、この頼みで
+    回したとして閉じる（forwarded）。"""
+    held = None
+    if getattr(a, "forward", False):
+        mine = ports.attrs(cwd)
+        held = mine.get("ask")
+        if not mine.get("role") or not held or mine.get("delivered") == held:
+            print("止めた: --forward は、受けた頼みをまだ納品していない部署か窓口の場所から打つ（回す元の頼みが無い）")
+            return 2
+    sent = {}
+    rc = _ask(a, ports, cwd, task, sent)
+    if held and rc == 0:
+        if a.dry_run:
+            print(f"- 回した元: 受付 {held} を閉じ、回した先を台帳に書く（頼み元 {mine.get('boss') or '-'} の会話は起こさない）")
+        elif sent:
+            print("\n".join(forwarded(mine, sent, ports, cwd)))
+    return rc
+
+
+def forwarded(attrs, sent, ports, cwd):
+    """--forward で回した後: 受けた頼み（attrs の company.ask）から回した先の頼み（sent の id と to）への結び付きを、自分と頼み元の
+    受付箱の台帳に kind forwarded で残し、受けた頼みを納品済みにする。頼み元には知らせない（回しただけの知らせで頼み元の会話を
+    起こさない。頼み元は、結果か問いの納品で起きたときに台帳で追う）。結果と問いは今までどおり --deliver で返す。出す行を返す。"""
+    held = attrs["ask"]
+    common = ports.git.common_dir(cwd)
+    record = {"id": held, "kind": "forwarded", "at": ports.now(), "child": sent["id"], "to": sent["to"],
+              "from": {"name": attrs.get("name"), "session": attrs.get("session"), "place": cwd},
+              "boss": {"name": attrs.get("boss"), "session": attrs.get("boss-session")}}
+    boss_inbox = attrs.get("boss-inbox")
+    for inbox in dict.fromkeys([deliver.inbox_of(common)] + ([boss_inbox] if boss_inbox and os.path.isdir(boss_inbox) else [])):
+        deliver.log(inbox, record)
+    try:
+        provision.mark(cwd, gitx.root_of(common), {"delivered": held, WAITING: None, WAITING_WHY: None}, ports.git)
+    except (gitx.GitError, OSError) as e:
+        return [f"回した元の受付 {held} を納品済みにできなかった（{e}）。台帳には回した先を書いた。--deliver で閉じる"]
+    return [f"回した元の受付 {held} を閉じた（頼み元 {attrs.get('boss') or '-'} の会話は起こさず、回した先を台帳に書いた）"]
+
+
+def _ask(a, ports, cwd, task, sent):
+    """--ask の本体。頼みが宛先に届いた（送った・積んだ・同じ中身が動いている）なら、sent に回した先の頼みの id と宛先（to）を書く。"""
     if bool(a.text) == bool(a.brief):
         print("止めた: --ask には --text <文> か --brief <ファイル> のどちらか 1 つが要る")
         return 2
@@ -353,6 +393,7 @@ def ask(a, ports, cwd, task):
         pending = held and dept["attrs"].get("delivered") != held
         digest = deliver.digest(body)
         if pending and dept["attrs"].get("ask-digest") == digest:
+            sent.update(id=held, to={"company": company["name"], "name": dept["attrs"].get("name"), "role": role})
             print("\n".join(notes + [f"頼み {held} → {where}  同じ中身の頼みが動いている（新しく積まない）"]))
             return 0
         dest_common = ports.git.common_dir(company["root"])
@@ -365,7 +406,7 @@ def ask(a, ports, cwd, task):
                              {"id": ask_id, "sender": sender, "body": body, "inbox": inbox, "required": required, "boss": boss,
                               "fresh": bool((the_role or {}).get("fresh")), "from": {"name": name, "account": account,
                               "session": boss["boss-session"], "place": cwd}, "company": company["name"], "role": role},
-                             accounts_, sessions_, company["root"])
+                             accounts_, sessions_, company["root"], sent)
         pane, revived = live_window(dept, ports), False
         if pane is None and not a.dry_run:
             # 窓に会話が居ない: 部署の会話が落ちた（PC やサーバーの再起動など）。attach で前の続きから戻す
@@ -418,6 +459,8 @@ def ask(a, ports, cwd, task):
                             "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
                                    "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path})
+        if status == "sent":
+            sent.update(id=ask_id, to={"company": company["name"], "name": dept["attrs"].get("name"), "role": role})
         print("\n".join(notes + [f"頼み {ask_id} → {where}  {status}" + (f"（{detail}）" if detail else ""),
                                  f"- 本文: {path}"]))
         return 0 if status == "sent" else 1
@@ -450,16 +493,21 @@ def ask(a, ports, cwd, task):
                         "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
                                "path": got and got["path"], "pane": None}, "file": path})
+    if status == "sent":
+        sent.update(id=ask_id, to={"company": company["name"], "name": a.task, "role": role})
     print("\n".join(notes + [f"頼み {ask_id} → {company['name']}/{a.task}（新しく立てた部署）  {status}", f"- 本文: {path}"]))
     return rc if status == "sent" else (rc or 1)
 
 
-def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, digest, ask, accounts_, sessions_, source):
+def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, digest, ask, accounts_, sessions_, source, sent):
     """待ち受けの居る部署への --ask: 順番待ちに積み（同じ中身が積まれていればその受付番号を返す）、宛先の会社の台帳に知らせを
-    足す。渡すのは部署の待ち受け（wake_hook.py）。会話が落ちていれば attach で戻す（戻った会話の始まりの待ち受けが渡す）。"""
+    足す。渡すのは部署の待ち受け（wake_hook.py）。会話が落ちていれば attach で戻す（戻った会話の始まりの待ち受けが渡す）。
+    積んだ（か同じ中身が積まれていた）なら、sent にその頼みの id と宛先を書く。"""
     waiting = wake.queued(dest_inbox, place_dir)
     same = next((q for q in waiting if q.get("digest") == digest), None)
+    dest = {"company": ask["company"], "name": dept["attrs"].get("name"), "role": ask["role"]}
     if same:
+        sent.update(id=same.get("id"), to=dest)
         print("\n".join(notes + [f"頼み {same.get('id')} → {where}  同じ中身の頼みが順番待ちに積まれている（新しく積まない）"]))
         return 0
     file = os.path.join(ask["inbox"], f"{ask['id']}-ask.md")
@@ -484,6 +532,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
                                "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
                                                           "pane": None, "wake": to}, "file": path})
+    sent.update(id=ask["id"], to=dest)
     print("\n".join(notes + [f"頼み {ask['id']} → {where}  {detail}", f"- 本文: {path}"]))
     return 0
 

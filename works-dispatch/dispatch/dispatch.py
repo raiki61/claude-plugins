@@ -609,6 +609,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
+    ap.add_argument("--forward", action="store_true", help="--ask と一緒に: 部署か窓口の場所から、受けている頼みをこの頼みで回したとして"
+                    "閉じる（回した先は台帳にだけ書き、頼み元の会話は起こさない。結果と問いは今までどおり --deliver で返す）")
     ap.add_argument("--take", metavar="受付", help="順番待ちの 1 件を、積んだ順を飛ばして取り出す。部署の場所から打てばその部署が今受け、"
                     "--ask <宛先>（と --task・--branch）を添えれば、受付番号と頼み元をそのままにほかの部署へ頼み直す（--text は元の本文の前に置く添え書き）")
     ap.add_argument("--move", metavar="部署か窓口", help="立っている部署か本社の窓口の会話を、ほかのアカウントで起こし直す"
@@ -650,6 +652,9 @@ def main(argv=None, ports=None):
         return move.move(a, ports, os.getcwd(), _task)
     if (a.account or a.if_limited) and a.move is None:
         print("止めた: --account と --if-limited は --move と一緒にだけ使う")
+        return 2
+    if a.forward and (a.ask is None or a.take is not None):
+        print("止めた: --forward は --ask と一緒にだけ使う（--take --ask は受付番号と頼み元をそのまま回すので要らない）")
         return 2
     if a.take is not None:
         return orders.take(a, ports, os.getcwd(), _task)
