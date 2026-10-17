@@ -58,6 +58,11 @@
           },
           {
             "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py\" --resume",
+            "shell": "bash"
+          },
+          {
+            "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py\" --pause",
             "shell": "bash",
             "async": true

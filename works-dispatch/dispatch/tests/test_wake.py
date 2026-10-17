@@ -322,12 +322,23 @@ class Hook(unittest.TestCase):
         self.assertEqual(wake_hook.own_window(os.path.join(self.place, "sub"), Stale(self.place), "s1"), "p1")
 
     def test_a_typed_prompt_pauses_the_watcher(self):
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1", "waiting": "a1"}, gitx)
         place = gitx.git_dir(self.place)
         wake.claim(self.inbox, place, ["co/調べ"], "s1", os.getppid(), "t", 0)
         with mock.patch.dict(os.environ, self.env):
             wake_hook.main(["--pause"], io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1"})))
         self.assertEqual(wake.read_mark(self.inbox, place)["token"], "paused")
+        # 裏で走る --pause は答え待ちの印に触らない（同じ番の中で会話が打った --wait より後に走りうる）
+        self.assertEqual(gitx.worktree_attrs(self.place)["waiting"], "a1")
+
+    def test_a_typed_prompt_takes_the_wait_mark_off_before_the_talk_reads_it(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a1", "waiting": "a1",
+                                              "waiting-why": "持ち主の答え"}, gitx)
+        with mock.patch.dict(os.environ, self.env):
+            self.assertEqual(wake_hook.main(["--resume"], io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1"}))), 0)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertNotIn("waiting", attrs)
+        self.assertNotIn("waiting-why", attrs)
 
     def test_hook_process_wakes_on_its_notice_and_is_quiet_elsewhere(self):
         p = subprocess.run([sys.executable, str(DISPATCH / "wake_hook.py")], input=json.dumps({"cwd": tempfile.mkdtemp()}),
@@ -363,9 +374,12 @@ class Hook(unittest.TestCase):
             self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py"', h["command"])
             # 持ち時間の既定（600 秒）では手の空いた会話の待ち受けがすぐ切れるので、長く取る
             self.assertGreaterEqual(h["timeout"], 86400)
-        (h,) = [h for g in hooks["UserPromptSubmit"] for h in g["hooks"] if "wake_hook.py" in h["command"]]
-        self.assertTrue(h["async"])   # 人の入力を遅らせない
-        self.assertTrue(h["command"].endswith('wake_hook.py" --pause'))
+        prompt = {h["command"].rsplit(" ", 1)[-1]: h for g in hooks["UserPromptSubmit"] for h in g["hooks"]
+                  if "wake_hook.py" in h["command"]}
+        self.assertEqual(set(prompt), {"--resume", "--pause"})
+        # 印を外すのは会話が文を読む前（裏で走らせると、同じ番の中で打った --wait の印を後から外しうる）
+        self.assertFalse(prompt["--resume"].get("async"))
+        self.assertTrue(prompt["--pause"]["async"])   # 待ち受けを止めるのは裏で（人の入力を遅らせない）
 
 
 class WakeFlow(unittest.TestCase):

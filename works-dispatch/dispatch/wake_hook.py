@@ -5,8 +5,11 @@
   渡し（属性に頼みを書いてから起こす）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
   会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）番の終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
-- UserPromptSubmit（`--pause`。async）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）を外し、その場所の
-  待ち受けを止める（待ち受けは印の token を書き替えるだけ）。窓に打ち込まれた知らせも人の文と同じに数える。
+- UserPromptSubmit（`--resume`。裏で走らせない）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）を
+  外す。会話が文を読む前に済ませる（裏で走らせると、同じ番の中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
+  そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
+- UserPromptSubmit（`--pause`。async）: 人の文で番が始まったら、その場所の待ち受けを止める（待ち受けは印の token を書き替えるだけ）。
+  窓に打ち込まれた知らせも人の文と同じに数える。
 
 部署か窓口（その場所の git の設定に company.role と company.name が在る）でなければ、すぐ 0 で終わる。待つのは場所の属性
 company.session の会話だけ（部署で属性に id が無ければ誰でも。窓口〔代表の clone〕は id が要る）。この会話の id と違うときは、
@@ -143,12 +146,17 @@ def resume_from_wait(payload, attrs_of=gitx.worktree_attrs):
         provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None, wake.REST: None}, gitx)
 
 
-def pause_here(payload):
-    """人の文で番が始まった: 答え待ちの印を外し（resume_from_wait）、その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
+def resume_here(payload):
+    """人の文で番が始まった（--resume。会話が文を読む前に走る）: 答え待ちと区切りの印を外す（resume_from_wait）。"""
     try:
         resume_from_wait(payload)
     except (gitx.GitError, OSError) as e:
         print(f"works-dispatch: 答え待ちの印を外せなかった（{e}）", file=sys.stderr)
+    return 0
+
+
+def pause_here(payload):
+    """人の文で番が始まった（--pause。裏で走る）: その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
     got = plan(payload)
     if not got:
         return 0
@@ -185,6 +193,8 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
         payload = json.loads(stdin.read() or "{}") or {}
     except ValueError:
         return 0
+    if argv[:1] == ["--resume"]:
+        return resume_here(payload)
     if argv[:1] == ["--pause"]:
         return pause_here(payload)
     got = plan(payload)
