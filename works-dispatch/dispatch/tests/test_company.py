@@ -120,7 +120,7 @@ class Info(unittest.TestCase):
         self.assertEqual(os.path.basename(local), urllib.parse.quote(os.path.realpath(self.root), safe="") + ".toml")
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"]), ("settings", "ノート"))
-        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None}])
+        self.assertEqual(got["skills"], [{"id": "r", "name": "調べもの", "description": None, "role": None, "model": None, "effort": None}])
 
     def test_repo_file_wins_and_unknown_fields_are_skipped(self):
         write(tree.settings_info_path(self.settings, self.root), 'name = "手元"\n')
@@ -130,6 +130,17 @@ class Info(unittest.TestCase):
         got = tree.read_info(self.root, self.settings)
         self.assertEqual((got["source"], got["name"], got["description"]), ("repo", "会社", "説明"))
         self.assertEqual(got["skills"][0]["role"], "調べ役")
+
+    def test_duty_model_and_effort_are_read_and_bad_ones_are_dropped_alone(self):
+        # 部署ごとのモデルと effort は受け持ちに書く。形の違う欄はその欄だけ外し、受け持ち（部署の説明）は残す
+        write(os.path.join(self.root, ".claude", "company.toml"),
+              '[[skills]]\nname = "割り振り"\nrole = "担当"\nmodel = "sonnet"\neffort = "low"\n'
+              '[[skills]]\nname = "点検"\nrole = "担当"\nmodel = "inherit"\neffort = "hihg"\n')
+        got = tree.read_info(self.root, self.settings)
+        self.assertEqual([(s["name"], s["model"], s["effort"]) for s in got["skills"]], [("割り振り", "sonnet", "low"), ("点検", None, None)])
+        self.assertEqual(len(got["problems"]), 2)
+        self.assertIn("inherit は作っていない", got["problems"][0])
+        self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか。外して、役の effort で起こす", got["problems"][1])
 
     def test_broken_file_is_a_problem_and_does_not_fall_back(self):
         write(os.path.join(self.root, ".claude", "company.toml"), "name = \n")

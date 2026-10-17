@@ -1015,7 +1015,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         print(f"止めた: {why}")
         return 2
     resident = a.resident or bool(the_role and the_role["resident"])   # 役の resident = true は --resident と同じ
-    model, effort, flags_note = role.launch_flags(the_role, ports.env)   # effort の inherit は、呼んだ会話の今の effort
+    # 部署の名前と同じ name の受け持ち（[[skills]]）に model・effort が有れば、役の値より先に効く。effort の inherit は、呼んだ会話の今の effort
+    duty = next((x for x in info["skills"] if x["name"] == a.task), None)
+    model, effort, flags_note = role.launch_flags(the_role, ports.env, duty)
     gh_user, gh_note = role.gh_user(repo.gh_user, shape)
     repo = repo._replace(gh_user=gh_user)
     # 始める前の確かめは、部署を立てるこの repo だけを見る（設定の [[repos]] に無い repo も、ほかの repo の足りない物で止めない）
@@ -1026,6 +1028,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
         return 2
     problems, notes = ports.preflight(cfg, task=True)
     notes = (list(cfg.notes) + [n for n in [fetched] if n] + info["notes"] + shape["problems"]
+             + [p for p in info["problems"] if p not in shape["problems"]]
              + [n for n in [gh_note, default_note, flags_note] if n]
              + role.warnings(the_role) + notes)
     if problems:
@@ -1458,6 +1461,8 @@ id = "duty"
 name = "<受け持ち>"
 description = "<受け持ちのフォルダかプラグイン>の直し"
 role = "担当"
+# model = "sonnet"   # この受け持ちの部署を起こすときの --model（役の model より優先する。省けば役の値、それも無ければアカウントの既定）
+# effort = "low"     # この受け持ちの部署を起こすときの --effort（役の effort より優先する。書ける値は役の effort と同じ）
 
 [[skills]]
 id = "one-off"

@@ -5,7 +5,8 @@
 役は会社の形の [[roles]] に 1 つずつ書く。欄は次のとおりで、知らない欄は読み飛ばす。
 - name: 役の名前（部署の属性 company.role と同じ字）
 - instructions: 部署の会話の指示に足す役の本文。SessionStart のフックが毎回の起動で足すので短くし、AGENTS.md と同じことは書かない
-- model: 部署を起こすときの --model。省けばそのアカウントの既定のまま起こす。inherit（上役と同じ）は作らない（上役の会話の
+- model: 部署を起こすときの --model。省けばそのアカウントの既定のまま起こす。受け持ち（[[skills]]）に model が有れば、
+  その部署ではそちらが先に効く（launch_flags）。inherit（上役と同じ）は作らない（上役の会話の
   今のモデルを外から読む口が無い。Bash の道具の環境変数に無く〔hooks の文書 "There is no $CLAUDE_MODEL environment variable"〕、
   claude agents --json の 1 件にも無い）ので、書けば problems に書いて役を外す
 - effort: 部署を起こすときの --effort（low・medium・high・xhigh・max・ultracode）。省けばそのアカウントの既定のまま起こす。
@@ -240,15 +241,20 @@ def pick(shape, name, explicit):
     return got, None
 
 
-def launch_flags(role, env):
+def launch_flags(role, env, duty=None):
     """部署を起こすときの (--model の値, --effort の値, 注記)。値が None なら旗を付けない（アカウントの既定のまま）。
+    決める順は欄ごとに、部署（duty。部署の名前と同じ name の受け持ち [[skills]] の項目）の値、役の値、アカウントの既定。
+    役を 1 つ（担当）にして受け持ちを部署の名前で引くので、部署ごとに替えるなら受け持ちに書く。
     effort が inherit なら、呼んだ会話の今の effort（env の CLAUDE_EFFORT）。読めなければ旗を付けず、注記にする（止めない）。"""
-    model, effort = (role or {}).get("model"), (role or {}).get("effort")
+    duty = duty or {}
+    model = duty.get("model") or (role or {}).get("model")
+    effort = duty.get("effort") or (role or {}).get("effort")
     if effort != INHERIT:
         return model, effort, None
     if env.get("CLAUDE_EFFORT"):
         return model, env["CLAUDE_EFFORT"], None
-    return model, None, (f"役 {role['name']} の effort は inherit だが、呼んだ会話の effort が分からない（CLAUDE_EFFORT が無い。"
+    who = f"部署 {duty['name']}" if duty.get("effort") else f"役 {role['name']}"
+    return model, None, (f"{who} の effort は inherit だが、呼んだ会話の effort が分からない（CLAUDE_EFFORT が無い。"
                          f"Claude Code の外から打ったか、上役のモデルが effort を持たない）ので、アカウントの既定の effort で起こす")
 
 

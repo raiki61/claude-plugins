@@ -17,7 +17,7 @@
   頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。origin は在るのに
   origin/HEAD が無い clone では既定の枝を決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
   書き方は TOML で、欄の名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
-  role だけをここで足した。知らない欄は読み飛ばす。
+  role と、その受け持ちの部署を起こすときの model・effort（役の値より先に効く）だけをここで足した。知らない欄は読み飛ばす。
 
 入口の dispatch.py --tree が、herdr・git・claude から読んだ物を渡して build を呼び、lines で人の読む形にする。
 """
@@ -66,7 +66,19 @@ def _skills(raw, where, problems):
         if not isinstance(s, dict) or not isinstance(s.get("name"), str):
             problems.append(f"{where}: skills[{i}] に name が無い")
             continue
-        out.append({k: s[k] if isinstance(s.get(k), str) else None for k in ("id", "name", "description", "role")})
+        got = {k: s[k] if isinstance(s.get(k), str) else None for k in ("id", "name", "description", "role")}
+        # その部署を起こすときの --model と --effort。役の値より先に効く（role.launch_flags）。形の違う値はその欄だけ外し、役の値で起こす
+        if "model" in s and not (isinstance(s["model"], str) and s["model"] and s["model"] != role.INHERIT):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の model は空でないモデルの名前（inherit は作っていない。上役の会話の"
+                            f"今のモデルを外から読む口が無い）。外して、役の model で起こす")
+        elif "model" in s:
+            got["model"] = s["model"]
+        if "effort" in s and s["effort"] not in role.EFFORTS + (role.INHERIT,):
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の effort は {'・'.join(role.EFFORTS + (role.INHERIT,))} のどれか。"
+                            f"外して、役の effort で起こす")
+        elif "effort" in s:
+            got["effort"] = s["effort"]
+        out.append({"model": None, "effort": None, **got})
     return out
 
 
@@ -248,7 +260,8 @@ def lines(companies):
             out.append(f"  {c['description']}")
         for s in c["skills"]:
             out.append(f"  受ける仕事: {s['name']}" + (f"（{s['description']}）" if s["description"] else "")
-                       + (f" → {s['role']}" if s["role"] else ""))
+                       + (f" → {s['role']}" if s["role"] else "")
+                       + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k)))
         for t in c.get("tools", []):
             out.append(f"  道具: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
                        + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")

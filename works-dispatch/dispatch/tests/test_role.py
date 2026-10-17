@@ -205,6 +205,18 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual((model, effort), ("opus", None))
         self.assertIn("CLAUDE_EFFORT が無い", note)
 
+    def test_launch_flags_take_the_duty_before_the_role(self):
+        # 決める順は欄ごとに、部署（受け持ち）・役・アカウントの既定。受け持ちに無い欄は役の値
+        r = {"name": "担当", "model": "opus", "effort": "max"}
+        self.assertEqual(role.launch_flags(r, {}, {"name": "割り振り", "model": "sonnet", "effort": "low"}), ("sonnet", "low", None))
+        self.assertEqual(role.launch_flags(r, {}, {"name": "割り振り", "model": None, "effort": "low"}), ("opus", "low", None))
+        self.assertEqual(role.launch_flags(None, {}, {"name": "割り振り", "model": "haiku", "effort": None}), ("haiku", None, None))
+        self.assertEqual(role.launch_flags(r, {"CLAUDE_EFFORT": "xhigh"}, {"name": "割り振り", "model": None, "effort": "inherit"}),
+                         ("opus", "xhigh", None))
+        _, effort, note = role.launch_flags(r, {}, {"name": "割り振り", "model": None, "effort": "inherit"})
+        self.assertIsNone(effort)
+        self.assertIn("部署 割り振り の effort は inherit", note)
+
 
 class Launch(unittest.TestCase):
     ROW = {"account": {"command": "claude-a1"}, "label": None}
@@ -472,6 +484,28 @@ class TaskWithRole(unittest.TestCase):
         self.assertNotIn("--effort", command)
         self.assertEqual(gitx.worktree_attrs(self.place(ports))["gh-user"], "me")
         self.assertIn("gh-co", out)
+
+    def test_duty_model_and_effort_come_before_the_roles(self):
+        # 部署の名前（--task）と同じ name の受け持ちに書いた値が、役の値より先に効く。ほかの名前の部署は役の値のまま
+        self.shape(SHAPE + '\n[[skills]]\nname = "直し"\nrole = "調べ役"\nmodel = "sonnet"\neffort = "high"\n')
+        ports = self.ports()
+        rc, out = self.run_task(ports, "--role", "調べ役", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("モデル sonnet、effort high", out)
+        rc, out = self.run_task(ports, "--role", "調べ役", "--dry-run", name="別の直し")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("モデル haiku、effort low", out)
+        rc, out = self.run_task(ports, "--role", "調べ役")
+        self.assertEqual(rc, 0, out)
+        [command] = [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.search(w[2])]
+        self.assertRegex(command, r'--model "?sonnet\b.*--effort "?high\b')
+
+    def test_bad_duty_effort_is_said_at_launch_and_the_role_value_is_used(self):
+        self.shape(SHAPE + '\n[[skills]]\nname = "直し"\neffort = "hihg"\n')
+        rc, out = self.run_task(self.ports(), "--role", "調べ役", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("外して、役の effort で起こす", out)
+        self.assertIn("モデル haiku、effort low", out)
 
     def test_effort_inherit_takes_the_callers_effort(self):
         self.shape(SHAPE.replace('effort = "low"', 'effort = "inherit"'))
