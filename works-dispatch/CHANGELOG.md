@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.39.4] - 2026-10-17
+
 ### Fixed
 
 - 機械の道具（`--call`）を走らせる一時の作業場と、`--land` が版を上げる一時の作業場が、代表の clone の部署と同じ名前の部署に見えるのを直した。git の `worktree add` は、`extensions.worktreeConfig` が入っていると元の作業場の `config.worktree` を新しい作業場に写すので、本社（代表の clone）の部署の属性 `company.*` も載っていた（2026-10-17 に my_notes で、`--call` の間だけ `--ask 段取り` が「部署の名前「段取り」が 2 つ以上ある」で止まった。12:36 の `--desk` の「もう在る」も同じ根）。一時の作業場を作ったらすぐ部署の属性を消す。
