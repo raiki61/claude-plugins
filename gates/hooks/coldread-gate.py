@@ -2306,8 +2306,14 @@ def _reflog(root, n):
     return [r for r in rows if len(r) == 3]
 
 
+def _reflog_time(row):
+    """HEAD の移動の記録の 1 件の時刻(秒)。位置は --date=raw で「HEAD@{1792183593 +0900}」。読めなければ 0。"""
+    m = re.search(r"@\{(\d+)", row[1]) if row else None
+    return int(m.group(1)) if m else 0
+
+
 def _head_moves(snap):
-    """走った間の HEAD の移動を ([(前, 後) — 書いた役の commit], commit 以外の移動が在ったか) に分ける。
+    """走った間の HEAD の移動を ([(前, 後, 後の時刻, 前の時刻) — 書いた役の commit], commit 以外の移動が在ったか) に分ける。
 
     走る前の記録の頭(控えの reflog)より新しい分だけを見る。頭が見つからない(記録を消した・上限を超えた)ときは、
     分けられないので commit は拾わず、commit 以外の移動が在ったと見る(本流の文書を読むより、読まない側に倒す)。
@@ -2324,7 +2330,7 @@ def _head_moves(snap):
     for k, (sha, _, msg) in enumerate(new):
         old = new[k + 1][0] if k + 1 < len(new) else before
         if msg.split(": ", 1)[0] in OWN_COMMIT_MSGS:
-            steps.append((old, sha))
+            steps.append((old, sha, _reflog_time(new[k]), _reflog_time(new[k + 1] if k + 1 < len(new) else top)))
         else:
             other = True
     return steps[::-1], other
@@ -2344,10 +2350,131 @@ def _git_subcommand(args):
     return ""
 
 
+# ---- 並べた役の書き分け ----
+# 同じ checkout で役(同じ会話の作業役どうし・親・並行の会話)が並んで動くと、ある役の Bash が走る間に、ほかの役が書いた
+# 文書も変更一覧の差に出る。差で拾った物をそのまま走った役の物にしていた頃は、作業役 7 本を並べた調べものの部署で、3 分
+# かかる検査(python3 tools/check.py)を走らせた作業役に、その間にほかの 4〜5 本が書いたノートの指摘が届き、受けた役は
+# 受け持ちの外として直さずに終えた(2026-10-17 の docs.log と作業役の記録で実測)。差は誰が書いたかを持たないので、二つの
+# 帳面で見分ける:
+# - 書いた印(DOC_CLAIMS): 記録に載せるたびに、役・文書・時刻を残す。Write・Edit・MCP の道具・字面に書き込み先の在る
+#   Bash は書いた役が確かな印、差で拾って下の見分けを通った物も印にする
+# - Bash の窓(DOC_WINDOWS と、走っている間の控え DOC_SNAP_DIR): 役・走り始めと終わり・字面に現れた文書の名前・
+#   git commit を含むか
+# 差で拾った文書は、(1) 走った間にほかの役の印が付いていれば、その役の物として外す。(2) 変わった時刻(mtime。commit で拾った
+# 物は reflog の時刻)を含む窓がほかの役にも在れば、字面にその文書の名前が在る窓(commit で拾った物は git commit を含む窓)を
+# 先に、次に後から走り始めた窓を選び、選んだ窓の役の物にする。同じ文書をどの役が見ても同じ窓が選ばれるので、届くのは 1 役だけ。
+# 印が後から付く隙間(ほかの役の Write の後のフックが走る前に、この役が差を取った)のために、読む前にもう一度印を見て、
+# 最後の印がほかの役なら読まない(最後に書いた役が読む)。
+DOC_CLAIMS = os.path.join(DOC_DIR, "claims")
+DOC_WINDOWS = os.path.join(DOC_DIR, "windows")
+LEDGER_MAX = 1 << 20   # 帳面がこの大きさ(バイト)を超えたら、DOC_SNAP_KEEP より古い行を捨てて書き直す
+COMMIT_RE = re.compile(r"\bgit\b[^\n;&|]*\bcommit\b")
+DOC_NAME_RE = re.compile(r"[^\s'\"`<>|;&()=,]+")
+
+
+def _role(session, agent):
+    """役の名前(待ちの一覧と同じ)。"""
+    return os.path.basename(_pending(session, agent))[:-len(".pending")]
+
+
+def _ledger(path):
+    """帳面の行(JSON)を読む。大きくなりすぎたら古い行を捨てる。読めなければ []。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+    except (OSError, ValueError):
+        return []
+    try:
+        if os.path.getsize(path) > LEDGER_MAX:
+            cut = time.time() - DOC_SNAP_KEEP
+            rows = [r for r in rows if (r.get("t1") or r.get("t") or 0) >= cut]
+            tmp = "%s.%d" % (path, os.getpid())
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+            os.replace(tmp, path)
+    except OSError:
+        pass
+    return rows
+
+
+def _note(path, rows):
+    try:
+        os.makedirs(DOC_DIR, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    except OSError:
+        pass   # 書けなければ見分けずに拾う側(前と同じ)に倒れる
+
+
+def _named(command):
+    """コマンドの字面に現れた文書の名前(小文字)。"""
+    return sorted({os.path.basename(w).lower() for w in DOC_NAME_RE.findall(command) if w.lower().endswith(DOC_EXTS)})
+
+
+def _windows(root):
+    """root で走った・走っている Bash の窓。走っている窓のうち、同じ役が後から走り始めて終えた窓が在るもの(投稿の門番に
+    止められて後のフックが来なかった控え。役が終われば _drop_snaps が消す)は外す。"""
+    done = [w for w in _ledger(DOC_WINDOWS) if w.get("root") == root]
+    later = {}
+    for w in done:
+        later[w.get("r")] = max(later.get(w.get("r"), 0), w.get("t0", 0))
+    live = []
+    try:
+        for e in os.scandir(DOC_SNAP_DIR):
+            try:
+                with open(e.path, encoding="utf-8") as f:
+                    w = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if w.get("root") == root and w.get("r") is not None and later.get(w["r"], 0) <= w.get("t0", 0):
+                live.append(dict(w, t1=None))
+    except OSError:
+        pass
+    return done + live
+
+
+def _drop_snaps(role):
+    """終わった役の走る前の控えを消す。後のフックが来なかった控え(投稿の門番や利用者に止められた Bash)を、走っている窓と
+    見続けないため。"""
+    try:
+        for e in os.scandir(DOC_SNAP_DIR):
+            try:
+                with open(e.path, encoding="utf-8") as f:
+                    mine = json.load(f).get("r") == role
+                if mine:
+                    os.remove(e.path)
+            except (OSError, ValueError):
+                continue
+    except OSError:
+        pass
+
+
+def _theirs(snap, role, items, now):
+    """差で拾った文書 items [(実パス, 変わった時刻, 印を見る下限, commit で拾ったか)] のうち、ほかの役が書いたと見る物の集合。"""
+    if not items:
+        return set()
+    claims = _ledger(DOC_CLAIMS)
+    me = {"r": role, "t0": snap.get("t0") or 0, "t1": now, "w": snap.get("w") or [], "c": bool(snap.get("c"))}
+    wins = [me] + [w for w in _windows(snap["root"]) if w.get("r") != role]
+    out = set()
+    for path, when, lo, commit in items:
+        if any(c.get("p") == path and c.get("r") != role and c.get("t", 0) >= lo for c in claims):
+            out.add(path)
+            continue
+        span = 1 if commit else 0   # reflog の時刻は秒で切り捨て
+        over = [w for w in wins if w.get("t0", 0) <= when + span and (w.get("t1") is None or w["t1"] >= when)]
+        name = os.path.basename(path).lower()
+        pick = max(over, key=lambda w: (bool(w.get("c")) if commit else name in (w.get("w") or ()), w.get("t0", 0)), default=me)
+        if pick["r"] != role:
+            out.add(path)
+    return out
+
+
 def docs_snapshot(payload):
     """PreToolUse(Bash): 走る前の、cwd の git の変更一覧の文書の状態を控える。git の外なら根は None で、静的な読みだけになる。"""
     if docs_off() or payload.get("tool_name") != "Bash" or not payload.get("tool_use_id"):
         return
+    t0 = time.time()   # 変更一覧を取る前の時刻。差に出る書き込みは、この後に起きている
     cwd = payload.get("cwd") or ""
     top = _git(["rev-parse", "--show-toplevel"], cwd) if os.path.isdir(cwd) else None
     root = top.decode("utf-8", "replace").strip() if top else None
@@ -2362,10 +2489,12 @@ def docs_snapshot(payload):
                 os.remove(e.path)
         except OSError:
             pass
+    command = (payload.get("tool_input") or {}).get("command") or ""
     with open(_snap_file(payload), "w", encoding="utf-8") as f:
         json.dump({"root": root if docs is not None else None, "docs": docs or {},
                    "head": head.decode("ascii", "replace").strip() if head else None,
-                   "reflog": last[0] if last else None}, f)
+                   "reflog": last[0] if last else None,
+                   "r": _role(*_who(payload)), "t0": t0, "w": _named(command), "c": bool(COMMIT_RE.search(command))}, f)
 
 
 # Bash の書き込み先のうち、人(書いた役)が書いた文書と見るのは、中身がコマンドの字面に在るものだけにする:
@@ -2429,7 +2558,7 @@ def _bash_docs(payload):
     書いた文書は、控えと取り直しの差で増えた・変わった文書と、走った間の書いた役の commit が変えた文書と、
     コマンドの書き込み先の文書。git が作業ツリーに持ち込んだ分は外す(上の OWN_COMMIT_MSGS の注)。
     """
-    found, commits, snap, bases, moved = [], [], None, {}, False
+    found, commits, snap, bases, moved, items = [], [], None, {}, False, []
     try:
         with open(_snap_file(payload), encoding="utf-8") as f:
             snap = json.load(f)
@@ -2441,12 +2570,13 @@ def _bash_docs(payload):
         if now is not None:
             before = snap.get("docs") or {}
             found += [p for p, st in now.items() if before.get(p) != st]
+            items += [(p, now[p][0] / 1e9, snap.get("t0") or 0, False) for p in found]
         # 同じコマンドの中で書いて commit した文書は、変更一覧から消えている。HEAD が動いたなら、動いた間の書いた役の
         # commit ごとの差の文書も拾う(載せ直し・merge・checkout などで動いた分は拾わない)
         head = _git(["rev-parse", "--verify", "-q", "HEAD"], snap["root"])
         if (head or b"").decode("ascii", "replace").strip() != (snap.get("head") or "") or snap.get("reflog") is None:
             steps, moved = _head_moves(snap)
-            for old, new in steps:
+            for old, new, when, lo in steps:
                 diff = (_git(["diff", "--name-only", "-z", "--no-renames", old, new, "--"], snap["root"]) if old else
                         _git(["diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "-z", "--no-renames", new],
                              snap["root"]))
@@ -2455,6 +2585,14 @@ def _bash_docs(payload):
                     if full and os.path.isfile(full):
                         commits.append(full)
                         bases.setdefault(full, old)
+                        # 走った間に書き換わった文書は、変更一覧の差と同じに見る(mtime と走り始め)。前から在った変更を
+                        # commit しただけなら、前の HEAD の移動からの印と、commit の時刻を含む窓で見る
+                        t0 = snap.get("t0") or 0
+                        try:
+                            mt = os.stat(full).st_mtime
+                        except OSError:
+                            mt = 0
+                        items.append((full, mt, t0, False) if mt >= t0 else (full, when, lo, True))
     command = (payload.get("tool_input") or {}).get("command") or ""
     try:
         wrote, copied, git_tree = _written_by_command(command, payload.get("cwd") or None)
@@ -2463,6 +2601,15 @@ def _bash_docs(payload):
     if moved or git_tree:
         found = []   # 変更一覧の差は git の持ち込みと見る
     skip = set(copied) - {os.path.realpath(p) for p in wrote}
+    if snap and snap.get("root"):
+        now_t = time.time()
+        live = set(found + commits)
+        try:
+            skip |= _theirs(snap, snap.get("r") or _role(*_who(payload)), [i for i in items if i[0] in live], now_t)
+        except Exception:
+            pass   # 見分けの失敗で記録の口を落とさない(見分けずに拾う)
+        _note(DOC_WINDOWS, [{"root": snap["root"], "r": snap.get("r") or _role(*_who(payload)), "t0": snap.get("t0") or 0,
+                             "t1": now_t, "w": snap.get("w") or [], "c": bool(snap.get("c"))}])
     found = [p for p in found + commits if os.path.realpath(p) not in skip] + wrote
     return found, snap, bases
 
@@ -2543,6 +2690,8 @@ def docs_record(payload):
             f.write("".join(p + "\n" for p in paths))
     except OSError:
         return
+    now = time.time()
+    _note(DOC_CLAIMS, [{"p": os.path.realpath(p), "r": _role(*_who(payload)), "t": now} for p in paths])
     _prune_bases()
     where = _base_dir(*_who(payload))
     resp = payload.get("tool_response") if isinstance(payload.get("tool_response"), dict) else {}
@@ -2930,6 +3079,14 @@ def _read_pending(session, agent, timeout=READER_TIMEOUT):
     except OSError:
         return [], {"詰まり": 0, "補完": 0}, []
     who = "sid=%s" % session[:8] + ("\taid=%s" % agent[:17] if agent else "")
+    last = {}
+    for c in _ledger(DOC_CLAIMS):
+        if c.get("t", 0) >= last.get(c.get("p"), {}).get("t", 0):
+            last[c.get("p")] = c
+    role = _role(session, agent)
+    for path in [p for p in paths if last.get(os.path.realpath(p), {}).get("r", role) != role]:
+        log_line(DOC_LOG, "skip\t後からほかの役が書いた(%s)\t%s\t%s" % (last[os.path.realpath(path)]["r"][:26], who, path))
+        paths.remove(path)
     where = _base_dir(session, agent)
     bases = _bases(where, paths)
     shutil.rmtree(where, ignore_errors=True)
@@ -3022,6 +3179,7 @@ def docs_check(payload, background=False):
     background は Stop の裏の口(asyncRewake)。知らせは標準エラーに書いて 2 で終わり、終えたターンの後に会話を起こす。
     """
     session, agent = _who(payload)
+    _drop_snaps(_role(session, agent))
     if not agent and background != rewakes():
         return   # 親の Stop はもう片方の口が読む
     if agent and background:

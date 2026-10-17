@@ -3055,6 +3055,111 @@ y_ctx = json.loads(run("docs-check", {"session_id": "s1", "agent_id": "agent-y",
 assert "印Y" in y_ctx["hookSpecificOutput"]["additionalContext"], y_ctx
 print("DOCS_AGENT_OK")
 PY
+# 同じ checkout に並べた役は、ほかの役が書いた文書を自分の物にしない。2026-10-17 に、作業役 7 本を並べた調べものの部署で、
+# 3 分かかる検査を走らせた作業役に、その間にほかの作業役が書いたノートの指摘が届いた(Bash の前と後の変更一覧の差を、
+# 走った役の物にしていた)。書いた印と Bash の窓で見分け、読む前にも最後に書いた役を確かめる
+expect_output 0 "DOCS_SIBLINGS_OK" "coldread の手元の文書: 並べた作業役の Bash が走る間にほかの作業役が書いた文書は、その Bash の役に載せず、書いた役に載せる" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-siblings" <<'PY'
+import json, os, pathlib, subprocess, sys, time
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, repo = work / "cfg", work / "repo"
+repo.mkdir()
+
+def run(mode, payload):
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "GIT_"))}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD="cat >/dev/null; exit 1")
+    r = subprocess.run([sys.executable, str(gate), *([mode] if mode else [])], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+def git(*a):
+    subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+
+def pending(agent=""):
+    f = cfg / "coldread-gate/docs" / ("s1" + ("." + agent if agent else "") + ".pending")
+    return sorted({os.path.realpath(p) for p in f.read_text(encoding="utf-8").split()}) if f.exists() else []
+
+def pay(agent, tid, command):
+    return dict({"session_id": "s1", "tool_name": "Bash", "tool_use_id": tid, "cwd": str(repo),
+                 "tool_input": {"command": command}}, **({"agent_id": agent} if agent else {}))
+
+def start(agent, tid, command):
+    run("", dict(pay(agent, tid, command), hook_event_name="PreToolUse"))
+
+def end(agent, tid, command):
+    run("docs-record", dict(pay(agent, tid, command), hook_event_name="PostToolUse"))
+
+def write(name, text="本文\n"):
+    (repo / name).write_text(text, encoding="utf-8")
+    time.sleep(0.05)   # mtime と窓の時刻の前後をはっきりさせる
+
+real = lambda n: os.path.realpath(str(repo / n))
+git("init", "-q", "-b", "main")
+git("config", "user.email", "t@example.com")
+git("config", "user.name", "t")
+write("base.md")
+git("add", ".")
+git("commit", "-q", "-m", "init")
+
+# 作業役 A が長い検査を走らせる間に、B は Write で、C は python の中で、D は走り終わらない Bash の中で、それぞれのノートを書く
+CHECK = "python3 tools/check.py"
+start("agent-a", "ta", CHECK)
+write("a.md")                                        # A の検査の中で A が書いた文書(ほかの役の窓が始まる前)
+time.sleep(0.05)
+write("b.md")
+run("docs-record", {"session_id": "s1", "agent_id": "agent-b", "tool_name": "Write", "tool_input": {"file_path": str(repo / "b.md")},
+                    "tool_response": {"type": "create"}})
+C_CMD = "python3 - <<'EOF'\np='c.md'\nopen(p,'w').write('x')\nEOF"
+start("agent-c", "tc", C_CMD)
+write("c.md")
+end("agent-c", "tc", C_CMD)
+D_CMD = "python3 tools/fetch.py"
+start("agent-d", "td", D_CMD)
+write("d.md")                                        # D の窓は A より後に始まり、A が終わる時もまだ走っている
+end("agent-a", "ta", CHECK)
+end("agent-d", "td", D_CMD)
+assert pending("agent-a") == [real("a.md")], f"A の Bash の間にほかの役が書いた文書を A に載せた: {pending('agent-a')}"
+assert pending("agent-b") == [real("b.md")], pending("agent-b")
+assert pending("agent-c") == [real("c.md")], pending("agent-c")
+assert pending("agent-d") == [real("d.md")], f"走っている間に書いた D の文書が D に載っていない: {pending('agent-d')}"
+
+# 親が全部を commit しても、作業役の印の在る文書は親に載せない。親が書いて commit した文書は載せる
+write("p.md")
+G_CMD = "python3 tools/p.py && git add -A && git commit -m notes"
+start("", "tp", G_CMD)
+git("add", "-A")
+git("commit", "-q", "-m", "notes")
+end("", "tp", G_CMD)
+assert pending() == [real("p.md")], f"親の commit で作業役の文書を親に載せた: {pending()}"
+
+# 後のフックが来なかった Bash(投稿の門番に止められた)の控えは、その役が終わったら走っている窓と見ない。見続けると、
+# 後から走り始めた窓として、ほかの役が走る間に書いた文書を取る
+H_CMD = "python3 tools/h.py"
+start("agent-h", "th", H_CMD)
+time.sleep(0.05)
+start("agent-g", "tg", "gh issue comment 1 --body-file x.md")
+run("docs-check", {"session_id": "s1", "agent_id": "agent-g", "hook_event_name": "SubagentStop"})
+write("h.md")
+end("agent-h", "th", H_CMD)
+assert pending("agent-h") == [real("h.md")], f"終わった役の残った控えに文書を取られた: {pending('agent-h')}"
+
+# 前に書いた役より後から別の役が同じ文書を書いたら、前の役の終わりには読まない(最後に書いた役が読む)
+write("e.md", "e の本文" * 100)
+run("docs-record", {"session_id": "s1", "agent_id": "agent-e", "tool_name": "Write", "tool_input": {"file_path": str(repo / "e.md")}})
+time.sleep(0.05)
+run("docs-record", {"session_id": "s1", "agent_id": "agent-f", "tool_name": "Edit", "tool_input": {"file_path": str(repo / "e.md")}})
+run("docs-check", {"session_id": "s1", "agent_id": "agent-e", "hook_event_name": "SubagentStop"})
+log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+assert "後からほかの役が書いた" in log and "reader-down" not in log, log
+assert pending("agent-f") == [real("e.md")], pending("agent-f")
+print("DOCS_SIBLINGS_OK")
+PY
 # 前から在る文書は、書き換えた所を含む節と冒頭だけを読ませる(全体を読ませていた頃は、長い文書に数行足すと読み手が時間切れになり、
 # 直していない節の前からの疑問が毎回返った)。新しい文書は全体。linguist-generated の印が付いた文書(生成物)は読まない
 expect_output 0 "DOCS_FOCUS_OK" "coldread の手元の文書: 前から在る文書は書き換えた節と冒頭だけを読ませ、新しい文書は全体を読ませ、生成物の印の付いた文書は読まない" \
