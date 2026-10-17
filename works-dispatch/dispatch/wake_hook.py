@@ -58,8 +58,8 @@ for _s in (sys.stdout, sys.stderr):
 
 
 def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid, same=claudex.in_process):
-    """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company}、待たないなら None。adopt は属性の会話の id を書き直すか。
-    company は会社の名前（--retire に宛てる）。"""
+    """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company, job}、待たないなら None。adopt は属性の会話の id を書き直すか。
+    company は会社の名前（--retire に宛てる）。job は会話の裏の処理の短い id（環境変数 CLAUDE_JOB_DIR の名前。裏の会話でなければ None）。"""
     cwd = payload.get("cwd") or os.getcwd()
     sid = payload.get("session_id")
     attrs = attrs_of(cwd)
@@ -84,7 +84,15 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
     company = tree.company_name(root, info)
     names = wake.addresses(company, attrs, gitx.former_names(attrs))
     return {"cwd": cwd, "root": root, "inbox": inbox, "place": place, "names": names, "session": sid, "owner": parent(),
-            "adopt": adopt, "company": company}
+            "adopt": adopt, "company": company, "job": job_of(env)}
+
+
+def job_of(env=os.environ):
+    """この会話の裏の処理の短い id（`claude attach` に渡す物）。Claude Code は裏の会話（claude --bg）の処理に、置き場
+    <設定のフォルダ>/jobs/<短い id> を CLAUDE_JOB_DIR で渡し、フックはそれを継ぐ。短い id は会話の id の頭と同じとは限らない
+    （2026-10-17 に割り振りで、会話 081f72dd を短い id 8c4a1102 の処理が続けていた）。裏の会話でなければ None。"""
+    d = (env.get("CLAUDE_JOB_DIR") or "").rstrip("/\\")
+    return os.path.basename(d) or None
 
 
 # herdr が会話の手が空いたと見る状態（done は番を終えたまま見られていない物）
@@ -100,7 +108,8 @@ def own_window(cwd, h=herdr, sid=None):
 
 def talk_window(cwd, h=herdr, pids=(), jobs=()):
     """会話を消す打ち込み（/clear）の打ち先。場所がこの会話の場所のペインのうち、前のプロセスにこの会話が居ると確かめられた物
-    （herdr.holds_talk）が 1 つならそれ、ほかは None。会話の印（agent_session）も、場所だけでの代わりも使わない（印は前に居た会話や
+    （herdr.holds_talk。jobs は attach の短い id の候補で、clear_now は属性 company.job・CLAUDE_JOB_DIR の名前・会話の id の頭を渡す）が
+    1 つならそれ、ほかは None。会話の印（agent_session）も、場所だけでの代わりも使わない（印は前に居た会話や
     別の部署の会話の id のまま残り、2026-10-17 に my_notes で別の部署の窓に /clear を打った。持ち主の決め: 自分の会話だと確かめ
     られなければ打たずに残す）。"""
     here = herdr.place_of(cwd)
@@ -123,7 +132,7 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
     if payload.get("background_tasks"):
         return no("裏の処理が残っている")
     try:
-        jobs = (attrs.get("job"), claudex.attach_id(None, payload.get("session_id")))
+        jobs = (attrs.get("job"), got.get("job"), claudex.attach_id(None, payload.get("session_id")))
         pane = talk_window(got["cwd"], h, [me()], jobs)
         if pane is None:
             return no("この会話の居る窓を 1 つに確かめられない（部署の窓で attach を開けば続く）")
@@ -314,6 +323,17 @@ def pause_here(payload):
     return 0
 
 
+def keep_job(got, attrs_of=gitx.worktree_attrs):
+    """部署の属性 company.job（落ちた部署を attach で戻すときと、/clear を打つ窓を確かめるときの短い id）を、この会話の裏の処理の
+    短い id に合わせる。裏の会話を起こし直すと短い id が替わり、古い id のままだと窓を自分の物と確かめられずに順番待ちを渡さなかった
+    （2026-10-17 の割り振り。属性は a5b0bc07、窓は 8c4a1102 に attach していた）。書けなくても待ち受けは続ける。"""
+    try:
+        if got.get("job") and attrs_of(got["cwd"]).get("job") != got["job"]:
+            provision.mark(got["cwd"], got["root"], {"job": got["job"]}, gitx)
+    except (gitx.GitError, OSError):
+        pass
+
+
 class WithRole:
     """会話を起こす字（err に書く物）の頭に、その会話の役の文が替わっていれば今の文を足す（role_hook.changed）。"""
 
@@ -353,6 +373,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
             provision.mark(got["cwd"], got["root"], provision.renew_session(attrs, got["session"]), gitx)
         except (gitx.GitError, OSError):
             return 0
+    keep_job(got)
     token = wake.new_token()
 
     def stop(*_):

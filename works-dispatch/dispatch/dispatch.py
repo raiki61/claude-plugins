@@ -631,6 +631,8 @@ def main(argv=None, ports=None):
                     help="--move と一緒に: 毎回空にする部署を、会社の形の model・effort が起こしたときと違うときだけ起こし直す"
                     "（今のアカウントに空きがあれば同じアカウントで。頼みを渡す前の待ち受けが付ける）")
     ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）")
+    ap.add_argument("--nudge", metavar="部署", help="順番待ちが渡らずに止まった部署を動かす（会話が落ちていれば attach で戻し、"
+                    "待ち受けが居ないか渡さずに待っていれば、手の空いた窓に 1 行打って番を回す。台帳に残す）")
     ap.add_argument("--first", metavar="受付", help="順番待ちの 1 件を、その順番待ちの先頭に回す（急ぐ物を先にする。台帳に残す）")
     ap.add_argument("--note", metavar="受付", help="受付の頼みに、変更・足し・取り下げを届ける（--text か --brief。部署が番の途中でも、"
                     "台帳の知らせで番の終わりに待ち受けが渡す。順番待ちの頼みなら、渡すときの 1 行に添える）")
@@ -695,6 +697,8 @@ def main(argv=None, ports=None):
         return orders.withdraw(a, ports, os.getcwd())
     if a.first is not None:
         return orders.first(a, ports, os.getcwd())
+    if a.nudge is not None:
+        return orders.nudge(a, ports, os.getcwd())
     if a.note is not None:
         return orders.note(a, ports, os.getcwd())
     if a.ask is not None:

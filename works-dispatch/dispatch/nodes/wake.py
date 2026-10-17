@@ -154,6 +154,37 @@ def stalled(inbox, place, attrs, now=None, posix=os.name != "nt"):
     return bool(queued(inbox, place)) and not watching(inbox, place, now, posix)
 
 
+def held(inbox, cwd, place, attrs=None):
+    """順番待ちが在り、部署は今の頼みを納品済み（か頼みが無い）で、その場所の待ち受けが動いているのに渡さずに待っている（台帳の
+    その場所の、今の待ち受けの会話の行のうち最後の渡した handed か渡さずに待つ held の行が held）なら、その訳。ほかは None。
+    待ち受けは渡せない訳が替わるまで台帳に書き直さないので、行が古くても待ち続けている。--take で取った頼みは handed を残さないので、
+    納品済みかと今の待ち受けの会話の行かで、古い held を数えない。cwd は部署の場所（台帳の行の place は待ち受けの会話の場所で、
+    部署の場所の下のフォルダでもよい）。"""
+    attrs = attrs or {}
+    if attrs.get("ask") and attrs.get("delivered") != attrs["ask"]:
+        return None
+    mark = read_mark(inbox, place)
+    if not queued(inbox, place) or not mark or not watching(inbox, place):
+        return None
+    here, last = os.path.realpath(cwd), None
+    try:
+        with open(os.path.join(inbox, LOG), encoding="utf-8") as f:
+            for line in f:
+                if '"held"' not in line and '"handed"' not in line:
+                    continue
+                try:
+                    got = json.loads(line)
+                except ValueError:
+                    continue
+                at = os.path.realpath(got.get("place") or "")
+                if (got.get("kind") in ("held", "handed") and got.get("place") and (at == here or at.startswith(here + os.sep))
+                        and got.get("session") == mark.get("session")):
+                    last = got
+    except OSError:
+        return None
+    return (last.get("detail") or "渡さずに待っている") if last and last.get("kind") == "held" else None
+
+
 def release(inbox, place, token):
     """印がまだ自分の物なら消す（送る側がすぐに予備の打ち込みへ回れるように）。"""
     got = read_mark(inbox, place)

@@ -151,7 +151,34 @@ class Watch(unittest.TestCase):
                                            {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
                                             "account": None, "boss": None, "panes": [], "branch": "b", "queue": 1,
                                             "queue_dir": "/q", "stalled": True}]}]))
-        self.assertIn("順番待ち 1 件（/q）  ! 渡す待ち受けが居ない", line)
+        self.assertIn("順番待ち 1 件（/q）  ! 渡す待ち受けが居ない（--nudge 調べ で動かす）", line)
+
+    def test_held_is_the_last_hold_of_the_place_while_its_watcher_runs(self):
+        # 待ち受けは居るが渡さずに待っている（2026-10-17 の割り振り）。台帳のその場所の最後の行が held のときだけ
+        cwd = tempfile.mkdtemp()
+        wake.claim(self.inbox, self.place, self.names, "s1", os.getpid(), "t", 0)
+        write_line(self.log, {"id": "a1", "kind": "held", "place": cwd, "session": "s1", "detail": "窓を確かめられない"})
+        self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 順番待ちが無い
+        wake.enqueue(self.inbox, self.place, {"id": "a2", "line": "a2"})
+        self.assertEqual(wake.held(self.inbox, cwd, self.place), "窓を確かめられない")
+        self.assertEqual(wake.held(self.inbox, os.path.dirname(cwd) + os.sep + os.path.basename(cwd), self.place),
+                         "窓を確かめられない")
+        self.assertIsNone(wake.held(self.inbox, tempfile.mkdtemp(), self.place))   # ほかの場所の行
+        self.assertIsNone(wake.held(self.inbox, cwd, self.place, {"ask": "a9"}))   # 取った頼みをまだ納品していない（--take）
+        wake.claim(self.inbox, self.place, self.names, "s2", os.getpid(), "t", 0)
+        self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 前の会話の行（/clear で会話が替わった）
+        wake.claim(self.inbox, self.place, self.names, "s1", os.getpid(), "t", 0)
+        write_line(self.log, {"id": "a1", "kind": "handed", "place": cwd, "session": "s1"})
+        self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 渡した後
+        write_line(self.log, {"id": "a2", "kind": "held", "place": cwd, "session": "s1", "detail": "x"})
+        os.unlink(wake.mark_path(self.inbox, self.place))
+        self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 待ち受けが居ないのは stalled の方
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [
+                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
+                                            "account": None, "boss": None, "panes": [], "branch": "b", "queue": 1,
+                                            "queue_dir": "/q", "stalled": False, "held": "x"}]}]))
+        self.assertIn("順番待ち 1 件（/q）  ! 渡さずに待っている（x）（--nudge 調べ で動かす）", line)
 
     def test_queue_hands_out_in_the_order_it_was_put(self):
         for i in ("20261017-000002-bbbbbb", "20261017-000001-aaaaaa"):
@@ -582,6 +609,24 @@ class Hook(unittest.TestCase):
         self.assertEqual(wake_hook.talk_window(self.place, attached, [ME], ["abcd1234"]), "p1")
         self.assertIsNone(wake_hook.talk_window(self.place, attached, [ME], ["zzzz9999"]))
 
+    def test_the_window_attached_to_this_job_is_found_even_when_the_job_attr_is_old(self):
+        # 裏の会話を起こし直すと短い id が替わる（2026-10-17 の割り振り: 属性は a5b0bc07、窓は 8c4a1102 に attach、会話の id は
+        # 081f72dd）。フックが継ぐ CLAUDE_JOB_DIR の名前で窓を確かめ、属性も書き直す
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "ask": "a1", "delivered": "a1", "fresh": role.FRESH,
+                                              "job": "a5b0bc07"}, gitx)
+        self.put("a2")
+        self.env["CLAUDE_JOB_DIR"] = "/home/u/.claude/jobs/8c4a1102/"
+        got = self.plan()
+        self.assertEqual(got["job"], "8c4a1102")
+        attached = self.emptied()
+        attached.front = [{"pid": ME + 1, "argv": ["claude", "attach", "8c4a1102"]}]
+        verdict = wake_hook.checker(got, {"hook_event_name": "Stop"}, h=attached, now=lambda: 5, me=lambda: ME)()
+        self.assertEqual(verdict, ("end", None))   # 空にした（空にした後の待ち受けが渡す）
+        self.assertEqual(attached.writes, [deliver.CLEAR])
+        wake_hook.keep_job(got)
+        self.assertEqual(gitx.worktree_attrs(self.place)["job"], "8c4a1102")
+        self.assertIsNone(wake_hook.job_of({}))   # 裏の会話でなければ無い
+
     def test_a_pane_of_another_place_is_not_the_window_even_with_this_talk_mark(self):
         # herdr の印は別の部署の会話の id のまま残ることがある（2026-10-17 に my_notes で、ノートの手入れの待ち受けが印の合った
         # 調べものの窓に /clear を打った）。場所の違う窓は、印が合っても打ち先にしない
@@ -696,10 +741,40 @@ class WakeFlow(unittest.TestCase):
         mark = wake.read_mark(self.inbox, self.dept_place())
         with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
             json.dump({**mark, "pid": dead_pid()}, f)   # 会話は生きているが、待ち受けの台本が居ない
+        self.ports.herdr.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"   # 手の空いた窓（入力欄が空）
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
         self.assertIn("渡す待ち受けが居ない", out)
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
+        # 持ち主に打たせず、窓に 1 行打って番を回す（番の終わりに待ち受けが張り直して渡す）
+        self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
+        self.assertIn("1 行打って番を回した", out)
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([(r["why"], r["id"]) for r in nudged], [("渡す待ち受けが居ない", wake.queued(self.inbox, self.dept_place())[0]["id"])])
+
+    def test_nudge_moves_a_held_department_and_leaves_a_typing_window_alone(self):
+        self.listen("調べ", self.dept_place())
+        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0"}, gitx)
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts()), (0, []), out)
+        self.assertIn("順番待ちが空", out)   # 止まっていない
+        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "会話がまだ動いている"})
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts()), (1, []), out)   # すぐ替わる訳なら打たない（待ち受けの /clear とぶつけない）
+        self.assertIn("訳がすぐ替わる物なので打たなかった", out)
+        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
+        provision.mark(self.place, self.src, {"rest": "s"}, gitx)
+        self.ports.herdr.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual((rc, self.prompts()), (1, []), out)   # 人の打ちかけの字を壊さない
+        self.assertIn("入力欄に字が在るので打たなかった", out)
+        self.ports.herdr.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        rc, out = self.main(self.src, "--nudge", "調べ")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
+        self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
+        self.assertEqual(gitx.worktree_attrs(self.place).get("rest"), "s")   # 打った 1 行で外れる区切りの印は残す
 
     def test_the_same_ask_twice_returns_the_first_number(self):
         self.listen("調べ", self.dept_place())

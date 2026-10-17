@@ -282,21 +282,24 @@ def busy_check(dept, accounts_, ports):
     return busy
 
 
-def clear_before_ask(dept, held, pane, busy, ports):
+def clear_before_ask(dept, held, pane, busy, ports, newest=lambda: None):
     """頼みごとに空の会話で受ける役（fresh）の部署に、新しい頼みを打つ前に /clear を打つ。(送ってよいか, 出す注記の並び)。
     空にするのは、前の頼み（company.ask）を納品し終えていて、会話が止まっているときだけ（納品していない頼みはここまでに止めている。
     頼みの無い部署は --task の頼みのファイルで働いているかもしれず、動いている会話を空にすると途中の仕事が消える）。納品し終えた
-    部署を空にできない（動いている・空になったのを見られない）ときは送らない（打った頼みは前の会話のまま届く）。"""
+    部署を空にできない（動いている・空になったのを見られない）ときは送らない（打った頼みは前の会話のまま届く）。
+    空になったのは、会話の一覧の id が替わったか、newest（部署の場所のいちばん新しい会話の記録の (名前, 時刻)。claudex.newest_talk）が
+    打つ前と別のファイルになったかで見る（裏の会話は /clear の後も一覧の id が替わらないことがある）。"""
     if not held:
         return True, ["頼みごとに空にする役だが、部署にまだ納品した頼みが無いので、空にせずに送る"]
     if busy():
         return False, ["頼みごとに空にする役だが、部署の会話が動いていて空にできないので送らなかった（打つと番の後に前の会話のまま"
                        "届く）。番が終わってから --ask を打ち直す"]
-    before = busy.found
+    before, talk = busy.found, newest()
 
     def cleared():
         busy()
-        return bool(busy.found) and busy.found != before
+        now = newest()
+        return bool(busy.found) and busy.found != before or bool(now) and bool(talk) and now[0] != talk[0]
     status, detail = deliver.clear_talk(pane, ports.herdr, ports.pause, cleared)
     if status == "cleared":
         return True, [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
@@ -468,7 +471,9 @@ def _ask(a, ports, cwd, task, sent):
             return 0
         busy = busy_check(dept, accounts_, ports)
         if fresh:
-            ok, said = clear_before_ask(dept, held, pane, busy, ports)
+            acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
+            ok, said = clear_before_ask(dept, held, pane, busy, ports,
+                                        lambda: claudex.newest_talk(acc.config_dir if acc else None, dept["path"]))
             notes += said
             if not ok:
                 print("\n".join(notes + [f"止めた: 宛先の部署 {where} は頼みごとに空の会話で受ける役なので、前の会話のままでは送らない"]))
@@ -539,6 +544,8 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     dest = {"company": ask["company"], "name": dept["attrs"].get("name"), "role": ask["role"]}
     if same:
         sent.update(id=same.get("id"), to=dest)
+        if not a.dry_run:
+            notes += wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source)
         print("\n".join(notes + [f"頼み {same.get('id')} → {where}  同じ中身の頼みが順番待ちに積まれている（新しく積まない）"]))
         return 0
     file = os.path.join(ask["inbox"], f"{ask['id']}-ask.md")
@@ -557,10 +564,9 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     deliver.log(dest_inbox, wake.notice(to, ask["id"], wake.QUEUED, path, None, ports.now()))
     if not heard and live_window(dept, ports) is None:
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
+    elif heard:   # 会話の処理は生きている（番の途中で待ち受けが居ないのは、番の終わりに張られる）
+        notes += wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source)
     n = len(wake.queued(dest_inbox, place_dir))
-    if heard and wake.stalled(dest_inbox, place_dir, dept["attrs"]):
-        notes.append(f"宛先の部署 {where} は番を終えて止まっているのに、渡す待ち受けが居ない（部署の窓に 1 文打つと、番の終わりに"
-                     "待ち受けが張り直して渡す）")
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
     deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
                                "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
@@ -569,6 +575,109 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     sent.update(id=ask["id"], to=dest)
     print("\n".join(notes + [f"頼み {ask['id']} → {where}  {detail}", f"- 本文: {path}"]))
     return 0
+
+
+POSTED = "posted"   # 納品の台帳の status: 頼み元の窓が無いので、頼み元の名前に宛てた知らせを台帳に置いた（納品済みにする）
+
+# 順番待ちが渡らずに止まった部署の会話に打つ 1 行（wake_stuck）。番を 1 つ回すだけで、返事も仕事も要らない
+STUCK_LINE = ("順番待ちの知らせです: この部署の順番待ちが渡らずに止まっていたので、番を 1 つ回す。返事は要らない。受けている頼みが"
+              "途中なら、それを続ける。無ければ何もせずにこの番を終える（番の終わりに待ち受けが張り直して、次の頼みを渡す）。")
+
+
+def stuck_why(dest_inbox, place_dir, dept):
+    """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 2 つ: 番を終えたのに渡す待ち受けが居ない
+    （wake.stalled）と、待ち受けは居るが渡さずに待っている（wake.held。台帳の最後の行が held）。"""
+    if wake.stalled(dest_inbox, place_dir, dept["attrs"]):
+        return "渡す待ち受けが居ない"
+    why = wake.held(dest_inbox, dept["path"], place_dir, dept["attrs"])
+    return f"待ち受けが渡さずに待っている（{why}）" if why else None
+
+
+# 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では窓に打たない（待ち受けの
+# /clear と打ち込みがぶつからないように）
+PASSING = ("裏の処理が残っている", "会話がまだ動いている", "窓の入力欄が見えないか、字が在る")
+# 人の文で番が始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
+KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished")
+
+
+def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None, moved=None):
+    """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに動かす。出す注記の並びを返す（止まっていなければ空）。
+    - 窓に会話が居なければ（live_window）、attach で戻す（revive。戻った会話の始まりの待ち受けが渡す）。
+    - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力欄が空なら、STUCK_LINE を 1 行打って番を 1 つ回す。番の初めに
+      前の待ち受けが止まり（--pause）、番の終わりに今の版の待ち受けが張り直して、空にしてから次を渡す。
+    - 会話が動いている・入力欄に字が在るとき、待ち受けが渡さない訳がすぐ替わる物（PASSING）のときは打たない（番の終わりに待ち受けが
+      張り直すか、待ち受けが自分で抜ける。人の打ちかけの字と待ち受けの /clear を壊さない）。
+    打ったか戻したかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。打った 1 行で外れる印（KEPT_MARKS）は
+    書き戻す。以前は「部署の窓に 1 文打つ」と持ち主に打たせていた（2026-10-17 の割り振り・説明書）。"""
+    why = stuck_why(dest_inbox, place_dir, dept)
+    if not why:
+        return []
+    head = f"宛先の部署 {where} の順番待ちが止まっていた（{why}）"
+    first_id = (wake.queued(dest_inbox, place_dir) or [{}])[0].get("id")
+    pane = live_window(dept, ports)
+    if pane is None:
+        pane, said = revive(dept, accounts_, ports, sessions_, source)
+        deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(), "place": dept["path"], "pane": pane,
+                                 "why": why, "status": "revived" if pane else "failed", "detail": said})
+        if pane and moved is not None:
+            moved.append(True)
+        return [f"{head}。{said}"]
+    if any(x in why for x in PASSING):
+        return [f"{head}。訳がすぐ替わる物なので打たなかった（待ち受けが 5 秒ごとに試し直す）"]
+    try:
+        status = (ports.herdr.agent(pane) or {}).get("agent_status")
+        box = deliver.input_box(ports.herdr.read(pane, 40))
+    except herdr.HerdrError as e:
+        return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。--nudge {dept['attrs'].get('name') or where} で打ち直す"]
+    if status not in ("idle", "done") or box is None or box.lstrip("❯").strip():
+        return [f"{head}。会話が動いているか入力欄に字が在るので打たなかった（番の終わりに待ち受けが張り直す。止まったままなら "
+                f"--nudge {dept['attrs'].get('name') or where} で打ち直す）"]
+    keep = {k: dept["attrs"][k] for k in KEPT_MARKS if dept["attrs"].get(k)}
+    sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
+    if keep:
+        try:
+            provision.mark(dept["path"], gitx.root_of(ports.git.common_dir(dept["path"])), keep, ports.git)
+        except (gitx.GitError, OSError) as e:
+            detail = f"{detail + '。' if detail else ''}外れた印（{'・'.join(keep)}）を書き戻せなかった（{e}）"
+    deliver.log(dest_inbox, {"id": first_id, "kind": "nudged", "at": ports.now(),
+                             "place": dept["path"], "pane": pane, "why": why, "status": sent, "detail": detail})
+    if sent == "sent" and moved is not None:
+        moved.append(True)
+    return [f"{head}。窓 {pane} に 1 行打って番を回した（{sent}" + (f"。{detail}" if detail else "") + "）。番の終わりに待ち受けが渡す"]
+
+
+def nudge(a, ports, cwd):
+    """--nudge <部署>。順番待ちが渡らずに止まった部署を動かす（wake_stuck）。--ask が止まった部署に積むときは同じことを自分でする
+    ので、これは頼みを足さずに動かす口（段取りが --tree の「止まっている」を見て打つ）。終了の値を返す。"""
+    common = ports.git.common_dir(cwd)
+    try:
+        cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
+        target = deliver.find_target(companies, gitx.root_of(common) if common else None, a.nudge, None, current_role(settings))
+    except herdr.HerdrError as e:
+        print(f"止めた: herdr を読めない（{e}）")
+        return 1
+    except deliver.DeliverError as e:
+        print(f"止めた: {e}")
+        return 2
+    company, dept = target["company"], target["department"]
+    where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or a.nudge}"
+    dest_common = ports.git.common_dir(company["root"])
+    place_dir = ports.git.git_dir(dept["path"]) if dept else None
+    if not (dest_common and place_dir):
+        print("\n".join(notes + [f"止めた: 「{a.nudge}」という立っている部署が無い"]))
+        return 2
+    dest_inbox = deliver.inbox_of(dest_common)
+    why = stuck_why(dest_inbox, place_dir, dept)
+    if not why:
+        n = len(wake.queued(dest_inbox, place_dir))
+        print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
+        return 0
+    if a.dry_run:
+        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。窓に会話が居なければ attach で戻し、居れば 1 行打って番を回す"]))
+        return 0
+    moved = []
+    print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))
+    return 0 if moved else 1
 
 
 def _queue_inbox(item):
@@ -1010,6 +1119,7 @@ def deliver_summary(a, ports, cwd):
         # 頼み元の名前で待ち受けが引けない（前の版は会話の一覧の名前を頼み元に書いた。place_name）: 頼んだ会話の id で引く
         heard = wake.listening_session(inbox, attrs["boss-session"])
         to = heard["names"][0] if heard else to
+    gone = False   # 頼み元の会話が終わった（窓も会話の一覧の生きた会話も無い）
     if heard:
         # 頼み元の待ち受けが居る: herdr の窓を探さない（知らせは台帳の 1 行で届く）
         sid, pane, how = attrs.get("boss-session"), None, f"{to} の待ち受けが会話を起こす"
@@ -1028,13 +1138,20 @@ def deliver_summary(a, ports, cwd):
             print("\n".join(notes + ["止めた: 頼み元の受付箱が分からない（属性 company.boss-inbox が無く、頼み元の会話も一覧に見えない）"]))
             return 1
         pane, how = deliver.boss_window(attrs, sid, entry, panes, companies)
+        living = [s for items in sessions_.values() for s in items if s.get("sessionId") == sid and s.get("state") not in FALLEN]
+        if pane is None and attrs.get("boss") and sid and not living:
+            # 頼み元の会話が終わった（窓が無く、会話の一覧にも居ないか止まっている）: 頼み元の名前に宛てた知らせを台帳に置き、納品済みにする。
+            # 会話が生きていて窓を 1 つに決められないだけのときと、頼み元が誰か分からないときは、今までどおり納品済みにしない。待ち続けても
+            # 終わった会話の窓は開かず、部署は次の頼みを受けられないまま止まる（2026-10-17 の点検。頼み元 my-notes-ad が終わり、
+            # 順番待ちが 5 時間渡らなかった）。頼み元の名前の待ち受けが後で張られれば、台帳の知らせで起きる
+            to, gone = wake.address(inbox_company(inbox, settings), attrs["boss"]), True
     ask_id = attrs.get("ask")
     sender = attrs.get("name") or os.path.basename(os.path.normpath(cwd))
     file_id = deliver.new_id(ports.now())   # 納品ごとに別のファイル（打ち直しで前の要約を消さない）
     target = os.path.join(inbox, f"{file_id}-deliver.md")
     line = deliver.deliver_line(ask_id, sender, branch, items, required, target)
     if a.dry_run:
-        where = how if heard else (f"ペイン {pane}（{how}）" if pane else f"窓なし（{how}）")
+        where = how if heard else (f"ペイン {pane}（{how}）" if pane else f"窓なし（{how}）" + (f"。{to} への知らせを台帳に置く" if gone else ""))
         print("\n".join(notes + [f"送り先: {attrs.get('boss') or '-'}  {where}", f"受付箱: {target}",
                                  f"{'会話に渡す' if heard else '打ち込む'} 1 行: {line}"]))
         return 0
@@ -1042,24 +1159,30 @@ def deliver_summary(a, ports, cwd):
     if heard:
         deliver.log(inbox, wake.notice(to, ask_id, "deliver", path, line, ports.now()))
         status, detail = "sent", how
+    elif gone:
+        deliver.log(inbox, wake.notice(to, ask_id, "deliver", path, line, ports.now()))
+        status, detail = POSTED, f"{how}。{to} への知らせを台帳に置いた（頼み元の待ち受けが張られたら届く）"
     else:
         status, detail = deliver.send(pane, line, ports.herdr, ports.pause) if pane else ("failed", how)
     deliver.log(inbox, {"id": file_id, "kind": "deliver", "ask": ask_id, "at": ports.now(), "status": status, "detail": detail,
                         "from": {"name": attrs.get("name"), "account": attrs.get("account"), "session": attrs.get("session"),
                                  "branch": branch, "place": cwd},
                         "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": sid, "pane": pane,
-                               "wake": to if heard else None},
+                               "wake": to if heard or status == POSTED else None},
                         "file": path, **({"for": for_ask} if for_ask else {})})
-    if ask_id and status == "sent" and not for_ask:   # --for は回して閉じた頼みへ返すので、今の頼みの印は変えない
+    if ask_id and status in ("sent", POSTED) and not for_ask:   # --for は回して閉じた頼みへ返すので、今の頼みの印は変えない
         try:
             provision.mark(cwd, gitx.root_of(common), {"delivered": ask_id, WAITING: None, WAITING_WHY: None}, ports.git)
         except (gitx.GitError, OSError) as e:
             notes.append(f"納品済みの印（company.delivered）を書けなかった（{e}）。Stop フックが差し戻し続ける（上限まで）")
-    if status != "sent":
+    if status == POSTED:
+        notes.append("頼み元の会話が見つからないので、要約と知らせを頼み元の受付箱に置いて納品済みにした（次の頼みを受けられる）。"
+                     "頼み元の代わりに読む人（窓口など）が要れば、受付箱の台帳のこの行から要約を渡す")
+    elif status != "sent":
         notes.append("要約は受付箱に置いたが、頼み元に知らせられなかったので納品済みにしない。頼み元の窓が開いたら打ち直す")
     print("\n".join(notes + [f"納品 {file_id} → {attrs.get('boss') or '頼み元'}  {status}" + (f"（{detail}）" if detail else ""),
                              f"- 要約: {path}"]))
-    return 0 if status == "sent" else 1
+    return 0 if status in ("sent", POSTED) else 1
 
 
 def wait_mark(tmp_dir, sid):

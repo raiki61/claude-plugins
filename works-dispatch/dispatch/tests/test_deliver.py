@@ -350,6 +350,42 @@ class Flow(unittest.TestCase):
         # 開き直した作業場は新しいので、常設か都度かの印も付け直す
         self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
+    def test_clear_before_ask_sees_the_clear_by_a_new_talk_file_when_the_list_keeps_the_id(self):
+        # 裏の会話は /clear の後も会話の一覧の sessionId が替わらないことがある（2026-10-17 の試し）。記録のファイルが替われば空と見る
+        class H:
+            HerdrError = real_herdr.HerdrError
+
+            def prompt(self, pane, text, wait):
+                files.append(("new.jsonl", 2))
+
+            def read(self, pane, lines):
+                return ""
+
+        def busy():
+            busy.found = "s-old"
+            return False
+        busy.found = "s-old"
+        files = [("old.jsonl", 1)]
+        ports = argparse.Namespace(herdr=H(), pause=lambda: None)
+        ok, said = orders.clear_before_ask({"attrs": {}}, "a0", "p1", busy, ports, lambda: files[-1])
+        self.assertTrue(ok, said)
+        files[:] = [("old.jsonl", 1)]
+        H.prompt = lambda self, pane, text, wait: None   # 記録も替わらない
+        ok, said = orders.clear_before_ask({"attrs": {}}, "a0", "p1", busy, ports, lambda: files[-1])
+        self.assertFalse(ok)
+        self.assertIn("見られなかった", said[0])
+
+    def test_newest_talk_is_the_last_written_record_of_the_folder(self):
+        home = tempfile.mkdtemp()
+        cwd = "/w/a.b"
+        d = pathlib.Path(home, "projects", "-w-a-b")
+        d.mkdir(parents=True)
+        self.assertIsNone(claudex.newest_talk(home, cwd))
+        for name, t in (("x.jsonl", 10), ("y.jsonl", 20), ("z.txt", 30)):
+            (d / name).write_text("{}", encoding="utf-8")
+            os.utime(d / name, (t, t))
+        self.assertEqual(claudex.newest_talk(home, cwd), ("y.jsonl", 20))
+
     def test_confirmed_send_waits_for_the_box_and_resends_only_when_the_line_never_arrived(self):
         # Windows: attach で戻した直後の会話は、打った字を受けられるまで間がある。入力欄が出てから送り、動き出す（busy）まで見る
         BOX = "──────────── 計算 ─\n❯ {}\n────────────────"
@@ -821,15 +857,34 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("部署でない", out)
 
-    def test_deliver_without_the_asker_window_still_leaves_the_summary_in_the_inbox(self):
+    def test_deliver_without_the_asker_window_posts_a_notice_and_closes_the_ask(self):
+        # 頼み元の会話が終わって窓が無い: 待っても窓は開かず、部署の順番待ちが止まる（2026-10-17 の点検）。頼み元の名前に宛てた
+        # 知らせを台帳に置いて納品済みにする（頼み元の名前の待ち受けが後で張られれば、その知らせで起きる）
         summary = self.ask_then_summary(GOOD)
         self.ports.herdr._panes = [p for p in self.ports.herdr._panes if p["pane_id"] != self.desk]
         rc, out = self.main(self.place, "--deliver", summary)
-        self.assertEqual(rc, 1, out)
+        self.assertEqual(rc, 1, out)   # 頼み元の会話が一覧に居る（生きていて窓を決められないだけ）なら閉じない
+        self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
+        listed = self.ports.list_sessions
+        self.ports.list_sessions = lambda cdir, include_done=False: [s for s in listed(cdir, include_done) if s.get("sessionId") != "s-desk"]
+        before = len(self.prompts())
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
         self.assertIn("見つからない", out)
+        notice, record = deliver.records(self.inbox)[-2:]   # 打ち直しの分
+        self.assertEqual((record["status"], record["kind"]), (orders.POSTED, "deliver"))
+        self.assertTrue(pathlib.Path(record["file"]).is_file())
+        self.assertEqual((notice["kind"], notice["to"], notice["file"]), ("deliver", wake.address("src", "desk"), record["file"]))
+        self.assertEqual(gitx.worktree_attrs(self.place)["delivered"], gitx.worktree_attrs(self.place)["ask"])
+        self.assertEqual(len(self.prompts()), before)   # 窓には打たない
+
+    def test_deliver_whose_send_fails_does_not_close_the_ask(self):
+        # 窓は在るが打てなかった（herdr の誤り）: 窓が戻れば打ち直せるので、納品済みにしない
+        summary = self.ask_then_summary(GOOD)
+        self.ports.herdr.prompt = lambda *a, **k: (_ for _ in ()).throw(real_herdr.HerdrError(["herdr"], "pane_not_found"))
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 1, out)
         self.assertEqual(deliver.records(self.inbox)[-1]["status"], "failed")
-        self.assertTrue(pathlib.Path(deliver.records(self.inbox)[-1]["file"]).is_file())
-        # 知らせられなかったので納品済みにしない（窓が開いたら打ち直せる。Stop フックは上限まで差し戻す）
         self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
 
     def test_each_delivery_gets_its_own_file(self):

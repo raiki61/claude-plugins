@@ -310,8 +310,8 @@ def lines(companies):
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             if d.get("queue"):
+                stuck = "渡す待ち受けが居ない" if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None)
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
-                              + ("  ! 渡す待ち受けが居ない（部署の窓に 1 文打つと、番の終わりに待ち受けが張り直して渡す）"
-                                 if d.get("stalled") else ""))
+                              + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} で動かす）" if stuck else ""))
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

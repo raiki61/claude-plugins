@@ -9,6 +9,7 @@
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -253,6 +254,21 @@ def job_tmp(config_dir, session_id, env=None):
     env = os.environ if env is None else env
     folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
     return os.path.join(os.path.expanduser(folder), "jobs", attach_id({"sessionId": session_id}), "tmp")
+
+
+def newest_talk(config_dir, cwd, env=None):
+    """その作業フォルダの会話の記録（<設定のフォルダ>/projects/<フォルダの字の英数字でない字を - にした物>/<会話の id>.jsonl）のうち、
+    いちばん新しく書かれた物の (名前, 書いた時刻)。無ければ None。裏の会話（claude --bg）は /clear で会話を空にしても、会話の一覧の
+    sessionId が替わらないことがある（2026-10-17 の試し。一覧は 98d8f057 のまま、記録は f20ea13c から新しいファイルに移った）ので、
+    空になったかを記録のファイルが替わったかで見る。設定のフォルダの決め方は job_tmp と同じ。"""
+    env = os.environ if env is None else env
+    folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+    d = os.path.join(os.path.expanduser(folder), "projects", re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(cwd)))
+    try:
+        found = [(e.stat().st_mtime, e.name) for e in os.scandir(d) if e.name.endswith(".jsonl") and e.is_file()]
+    except OSError:
+        return None
+    return (max(found)[1], max(found)[0]) if found else None
 
 
 def ancestors(runner=_default_runner, pid=None):
