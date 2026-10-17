@@ -151,6 +151,23 @@ class Move(unittest.TestCase):
         self.assertEqual(writes[1][0], "run")
         self.assertRegex(writes[1][2], r"^claude-a2 --name '窓口' '.*--move.*--desk 窓口")
 
+    def test_the_desk_that_does_not_start_again_resumes_its_former_talk(self):
+        # 新しい会話が立たなければ、前の会話を同じペインに --resume で戻し、訳を台帳に残す（窓口を消したままにしない）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
+        for p in self.ports.herdr._panes:
+            if p["pane_id"] == self.desk:
+                p["agent_session"] = {"value": "s-desk"}
+        self.ports.herdr.talking.add(self.desk)
+        failed = {"pane": self.desk, "status": "launch_failed", "detail": "起こせない"}
+        with mock.patch.object(move.launch, "start_named", lambda *a, **k: failed):
+            rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 1, out)
+        runs = [w[2] for w in self.ports.herdr.writes if w[1] == self.desk and w[0] == "run"]
+        self.assertEqual(runs, ["claude-a1 --resume s-desk"])   # 前のアカウントで前の会話へ
+        (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual(moved["status"], "failed")
+        self.assertIn("前の会話を --resume で戻した", moved["detail"])
+
     def test_the_desk_starts_again_with_the_settings_of_its_role(self):
         # 窓口の役の [roles.settings] は、--task の部署と同じく --settings で渡す（部署だけの鍵 worktree.bgIsolation は重ねない）
         test_deliver.Flow.shape(self, '[[roles]]\nname = "窓口"\n[roles.settings]\nenabledPlugins = { "works@m" = false }\n')

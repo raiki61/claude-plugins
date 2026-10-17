@@ -210,22 +210,41 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False)
     return None if key is None or key in (attrs.get(wake.LAUNCHED) or NO_FLAGS, attrs.get(wake.RESTART_KEPT)) else key
 
 
-def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid):
+# 会話から切り離して命令を走らせる殻（POSIX）。外の sh はすぐ終わり、中の ( … ) & は親を失って init の子になる。会話の処理を止めると
+# Claude Code はフックの子孫も止めるので、フックの子のまま走らせた --move は、自分が止めた前の会話と一緒に止まり、何も書かずに消えた
+# （2026-10-17 の my_notes の段取り。16:03 と 16:54 に moves/ の出力が 0 バイトのまま、窓口が消えた。部署の --move の跡も同じ）
+DETACH = 'log=$1; done=$2; shift 2; ( "$@" >"$log" 2>&1 </dev/null; echo $? >"$done" ) &'
+
+
+def detached(argv, log, done):
+    """argv を会話から切り離して走らせる sh の並び。出力は log に、終わりの値は done に書く。"""
+    return ["/bin/sh", "-c", DETACH, "sh", log, done, *argv]
+
+
+def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid, detach=None):
     """dispatch.py --move <会社/部署> --if-changed を会話から切り離して走らせ、終わるまで待つ。--move がこの会話を止めて起こし直したら
     True（新しい会話の待ち受けが頼みを渡す）。止めずに終わったら（起こし直さない・起こせない）、印を外して今の値を
     company.restart-kept に残し、False（この会話に頼みを渡す。前の model・effort のまま受ける）。待つ間も印の更新の時刻を進め、
-    会話の処理が替わる（止められた）か待ち受けが替わったら True。"""
+    会話の処理が替わる（止められた）か待ち受けが替わったら True。detach（既定は POSIX で本物の Popen のとき）なら detached の殻で
+    走らせ、殻の書く終わりの値のファイルで終わりを見る（--move は前の会話を止めても走り続け、起こし直すか、起こせなければ訳を台帳に書く）。"""
     attrs = gitx.worktree_attrs(got["cwd"])
     name = attrs["name"]
     argv = ([sys.executable, DISPATCH_PY, "--move", f"{got['company']}/{name}", "--if-changed"]
             + (["--config", attrs["config"]] if attrs.get("config") else []))
     out = os.path.join(got["inbox"], MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
+    done = out[:-len(".log")] + ".done"
+    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
     provision.mark(got["cwd"], got["root"], {wake.RESTARTING: got["session"]}, gitx)
     token = (wake.read_mark(got["inbox"], got["place"]) or {}).get("token")
     try:
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        with open(out, "w", encoding="utf-8") as f:
-            proc = spawn(argv, cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+        if detach:
+            spawn(detached(argv, out, done), cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL, start_new_session=True).wait()
+            proc = None if os.path.exists(done) else _DoneFile(done)
+        else:
+            with open(out, "w", encoding="utf-8") as f:
+                proc = spawn(argv, cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
     except OSError:
         proc = None
     while proc is not None and proc.poll() is None:
@@ -240,6 +259,16 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
         return True   # --move が前の会話を止めた
     provision.mark(got["cwd"], got["root"], {wake.RESTARTING: None, wake.RESTART_KEPT: key}, gitx)
     return False
+
+
+class _DoneFile:
+    """切り離して走らせた命令の終わりを、殻が書く終わりの値のファイルで見る（Popen の poll と同じ形）。"""
+
+    def __init__(self, path):
+        self.path = path
+
+    def poll(self):
+        return 0 if os.path.exists(self.path) else None
 
 
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
@@ -268,7 +297,8 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
                                            "session": got["session"], "detail": f"前の会話を空にできないので渡さずに待つ（{why[0]}）"})
             return wake.HOLD
-        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST):
+        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
+            # 区切りの印はこの会話が打った物だけ見る（前の会話の印が残っていても、持ち主と話している今の会話を起こし直さない）
             key = restart_due(got, payload, attrs, key_of, at_rest=True)
             if key and restart(got, key):
                 return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起こし直した。起こし直した会話の待ち受けが、次を渡す

@@ -408,6 +408,31 @@ class Hook(unittest.TestCase):
             return Done()
         self.assertTrue(wake_hook.restart_first(got, opus, spawn=stopped, now=lambda: 5))
 
+    def test_the_move_runs_detached_from_the_talk_and_writes_its_output_and_end(self):
+        # 会話を止めると Claude Code はフックの子孫も止める。--move は切り離して走らせ、前の会話を止めても最後まで走る
+        d = tempfile.mkdtemp()
+        log, done = os.path.join(d, "m.log"), os.path.join(d, "m.done")
+        p = subprocess.Popen(wake_hook.detached([sys.executable, "-c", "print('動いた')"], log, done), start_new_session=True)
+        p.wait()
+        for _ in range(200):
+            if os.path.exists(done):
+                break
+            time.sleep(0.05)
+        self.assertEqual(pathlib.Path(done).read_text().strip(), "0")
+        self.assertEqual(pathlib.Path(log).read_text(encoding="utf-8").strip(), "動いた")
+        self.assertIsNone(wake_hook._DoneFile(log + ".x").poll())
+        self.assertEqual(wake_hook._DoneFile(done).poll(), 0)
+
+    def test_a_break_marked_by_an_earlier_talk_does_not_restart_this_one(self):
+        # 区切りの印は打った会話の id。前の会話の印が残っていても、今の会話（持ち主と話している）を起こし直さない（16:03 の段取り）
+        opus = role.launch_key({"model": "opus"})
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s0"}, gitx)
+        tried, w = [], Window(self.place)
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "session_id": "s1"}, h=w, now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: opus)
+        self.assertIsNone(check())
+        self.assertEqual((tried, w.writes), ([], []))
+
     def test_fresh_department_is_not_cleared_while_busy_typed_or_waiting_on_background_work(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH}, gitx)

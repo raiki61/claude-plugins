@@ -973,7 +973,8 @@ def wait_for_input(a, ports, cwd):
 
 
 def rest_here(a, ports, cwd):
-    """--rest。部署か窓口の会話が、今は会話を空にしてよい区切りだと印す（属性 company.rest に場所の会話の id）。この番の終わりに
+    """--rest。部署か窓口の会話が、今は会話を空にしてよい区切りだと印す（属性 company.rest に打った会話の id。Bash の道具に渡る
+    CLAUDE_CODE_SESSION_ID、無ければ場所の会話の id。待ち受けは、この印が自分の会話の id のときだけ区切りと見る）。この番の終わりに
     待ち受け（wake_hook.py）が、窓の入力欄が空なら窓に /clear を打って空にし、印を外す。区切りかどうかは会話が役の本文の決まりで
     判断する（ここでは決めない）。人がその会話に打つと印が外れる（人と話している途中の会話を空にしない）。終了の値を返す。"""
     attrs = ports.attrs(cwd)
@@ -986,7 +987,7 @@ def rest_here(a, ports, cwd):
         return 2
     common = ports.git.common_dir(cwd)
     try:
-        provision.mark(cwd, gitx.root_of(common), {wake.REST: attrs.get("session") or "1"}, ports.git)
+        provision.mark(cwd, gitx.root_of(common), {wake.REST: ports.env.get("CLAUDE_CODE_SESSION_ID") or attrs.get("session") or "1"}, ports.git)
     except (gitx.GitError, OSError) as e:
         print(f"止めた: 区切りの印を書けなかった（{e}）")
         return 1

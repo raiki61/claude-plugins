@@ -121,7 +121,7 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     acc = {x.name: x for x in cfg.accounts}
     text = _first_text(attrs, dept, old, chosen, why, head)
     if head:
-        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings)
+        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings, acc.get(old))
     else:
         rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, text, ports, task, settings)
     inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
@@ -232,10 +232,31 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
                                "from_account": None, "only_account": chosen, "base": None, "dry_run": False})
     repo = config.repo_at(cfg, company["root"], ports.origin)
     rc = task(cfg, repo, ns, ports, extra_attrs={k: attrs.get(k) for k in KEEP}, tail=tail)
-    return (0, None) if rc == 0 else (rc, "--task と同じ道で起こせなかった（上の出力を見る）")
+    if rc == 0:
+        return 0, None
+    # 新しい会話が立たなかった: 止めた前の会話を attach で戻す（裏の会話は止めても記録が残り、attach で前の続きから戻る）
+    back = _bring_back(pane, f"{old_acc.command if old_acc else 'claude'} attach {job}", ports) if pane and job else "戻す窓か会話の id が無い"
+    if back is None:
+        provision.mark(dept["path"], company["root"], {"session": attrs.get("session"), "job": attrs.get("job")}, ports.git)
+    return rc, "--task と同じ道で起こせなかった（上の出力を見る）。" + ("前の会話を attach で戻した" if back is None else f"前の会話も戻せなかった（{back}）")
 
 
-def _move_desk(company, dept, acc, text, ports, settings):
+def _bring_back(pane, command, ports):
+    """起こし直せなかったとき、ペインのシェルで command（前の会話へ戻る命令）を打ち、会話が戻るのを待つ。戻れば None、ほかは訳。"""
+    try:
+        if not ports.herdr.shell_in_front(pane):
+            return f"窓 {pane} の前にシェルが居ない"
+        ports.herdr.run(pane, command)
+        state = ports.herdr.wait_ready(pane)
+        seen = ports.herdr.agent(pane)
+    except herdr.HerdrError as e:
+        return str(e)
+    if state == "blocked" or seen.get("agent") != "claude":
+        return f"打った後に会話が見えない（{state}）"
+    return None
+
+
+def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
     """窓口の会話を /exit で終え、同じペインで移る先のアカウントの会話を窓口の名前（と役の起動の設定）で起こす。(終了の値, 言葉)。"""
     attrs = dept["attrs"]
     sid = attrs.get("session")
@@ -268,5 +289,7 @@ def _move_desk(company, dept, acc, text, ports, settings):
     got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.herdr, settings=conf, model=model, effort=effort)
     if got["status"] == "ready":
         return 0, warn
+    # 新しい会話が立たなかった: 前の会話を --resume で同じペインに戻す（窓口を消したままにしない。2026-10-17 に段取りが 22 分消えた）
     provision.mark(company["root"], company["root"], {wake.LAUNCHED: None, wake.LAUNCHING: None}, ports.git)
-    return 1, got["detail"] or got["status"]
+    back = _bring_back(pane, f"{(old_acc or acc).command} --resume {sid}", ports)
+    return 1, (got["detail"] or got["status"]) + ("。前の会話を --resume で戻した" if back is None else f"。前の会話も戻せなかった（{back}）")
