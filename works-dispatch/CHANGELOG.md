@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.43.4] - 2026-10-17
+
 ### Fixed
 
 - 部署の場所から `--take <受付>` を打つと、その部署の会話が「takenです（受付 …）: - を読む」という空の知らせで 1 回起こされていたのを直した。受付箱の台帳（`log.jsonl`）に残す `taken` の行の `to`（宛先）が部署の名前の字で、待ち受け（番の終わりに裏で走るフック）は `to` が字の行を知らせと読むため。`taken` の行の `to` を、ほかの記録の行と同じに辞書（`--take` だけなら `{"name", "role"}`、`--ask` を添えたら `{"ask"}`）にした。`withdrawn`・`reordered`・`note`・`forwarded`・`held`・`handed` の行は、もとから `to` が辞書か無いので、知らせと取り違えない。
