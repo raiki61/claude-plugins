@@ -6,6 +6,8 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-17
+
 ### Changed
 
 - Claude Code の `/plugin`（プラグインを探して入れる画面）に出る説明の書き場所を、配布元の一覧（リポジトリの根の `.claude-plugin/marketplace.json`）から attention 自身の `plugin.json` の 1 か所に移した。画面に出る文面は変わらない。今後は `plugin.json` を直せば画面も変わる（前は一覧の方が画面に出ていて、`plugin.json` だけ直しても変わらなかった）。
