@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: 自分の番の PR（attention プラグインの /whose-turn が「自分の番」に並べるもの）を、枝ごとの作業場（代表の clone の git worktree と herdr の作業場）に開き、使用率に余裕のあるアカウントの Claude Code を起こして、/catchup（その PR のどこで止まっていたかを出す attention の命令）と、設定のファイルに書いた 2 ターン目の文を送る。issue から始める作業は、issue に結んだ枝の作業場を開いて /catchup まで送る。作業ごとの部署の会話を、名前を付けて別の作業場に起こし、頼みのファイルを渡すこともできる（--task）。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」「issue #1300 を始めて」「この作業を作業に回して」と言われたときに使う。初めて使う人は「/works-dispatch:dispatch setup」。
+description: "自分の番の PR（attention の /whose-turn が並べる物）や issue を枝ごとの作業場（git worktree と herdr）に開き、使用枠に空きのあるアカウントの Claude Code に /catchup を送る。作業ごとの部署（別の作業場の会話。「作業」などの役を持つ）を起こして頼みのファイルを渡すこともできる（--task）。「自分の番を全部開いて」「PR を展開して」「#1234 を開いて catchup して」「issue #1300 を始めて」「この作業を作業に回して」と言われたときに使う。初めては「/works-dispatch:dispatch setup」。"
 ---
 
 # dispatch

@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- スキルの説明（`skills/dispatch/SKILL.md` の頭の `description`）が、YAML の注釈の決まり（空白の後の「#」から後ろは読み捨てる）で、言われ方の例「issue #1300 を始めて」の所から切れていた。会話の始めに読み込まれるスキルの一覧から、いつ使うか（「と言われたときに使う」と、初めての時の `/works-dispatch:dispatch setup` の案内）が落ち、Claude がこのスキルを呼ぶか決める材料が欠けていた。説明を引用符で囲んで全部読み込まれるようにし、呼ぶ条件（言われ方の例と `setup` の案内）を残し、細かい中身は SKILL.md の本文に任せて 437 字から 307 字に縮めた。
+
 ## [0.35.0] - 2026-10-17
 
 ### Added
