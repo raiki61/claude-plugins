@@ -6,6 +6,10 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+
+- plugin.json に作者（`author`）を書き、説明（`description`）を plugin.json の 1 か所にした。marketplace の項目の説明は外した（両方に在ると利用者の `/plugin` の画面には marketplace の項目の方が出て、片方だけ直すと画面が変わらないため）。plugin.json の説明は、今まで画面に出ていた marketplace の項目の言い回しに揃えた。振る舞いは変わらない。
+
 ## [0.44.2] - 2026-10-17
 
 ### Changed

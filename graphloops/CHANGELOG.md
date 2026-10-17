@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- plugin.json に作者（`author`）を書き、説明（`description`）を plugin.json の 1 か所にした。marketplace の項目の説明は外した（両方に在ると利用者の `/plugin` の画面には marketplace の項目の方が出て、片方だけ直すと画面が変わらないため）。plugin.json の説明は、今まで画面に出ていた marketplace の項目の言い回しに揃えた。README に入れ方の 2 行（「インストール」の節）を足した。振る舞いは変わらない。
+
 ## [0.26.1] - 2026-10-17
 
 ### Changed

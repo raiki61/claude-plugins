@@ -14,7 +14,6 @@
   "plugins": [
     {
       "name": "convergence-loops",
-      "description": "収束するまで回す 4 本組——コード変更を収束させる /review-loop、見立てを一次情報で校正する /research-loop、現状を読み取り専用で診て提案だけ返す /doctor-loop、書いた文書が通じるかを、その文書を知らない読み役に用事だけ渡して探させ確かめる /firstread-loop。writer≠grader の分離と、無言の省略を許さない記録で収束を判定する。",
       "source": "./convergence-loops",
       "strict": false
     },
@@ -32,7 +31,6 @@
     },
     {
       "name": "graphloops",
-      "description": "収束ループのグラフ実行版。convergence-loops の 4 ループを「節＋依存＋周回条件」の JSON に写し、機械（engine）が盤面・波・遮断・件数・連続カウント・上限を持ち、回す側の LLM は渡された節を実行して返すだけにする。実行版は /research-graph（/research-loop の実行版）と /review-graph（/review-loop の実行版）の 2 本。既存のコマンドは残し、本体は隣に置く（記録の形と検証器は共通）。",
       "source": "./graphloops",
       "strict": false
     },

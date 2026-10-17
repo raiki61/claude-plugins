@@ -6,6 +6,13 @@
 
 版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
 
+## インストール
+
+```bash
+/plugin marketplace add raiki61/claude-plugins
+/plugin install graphloops@raiki61
+```
+
 ## 3 層
 
 | 層 | 場所 | 持つもの |
