@@ -2,6 +2,9 @@
 # 読むのは works-dispatch。書き方は works-dispatch/skills/dispatch/SKILL.md の「役の中身と起こし方」。
 # 外す道具とプラグインは、持ち主のノートの測り（会話を起こしただけで読み込む量の内訳。2026-10-16）による。
 # pr-review-toolkit は外さない。convergence-loops が依存に持ち、切ると convergence-loops も消える。
+# AskUserQuestion と EnterWorktree も外す（割り振りの測り 2026-10-17。2 つで最初の要求が約 3k トークン減る）。部署の問いは納品で返す決まりで、画面で聞いても誰も答えない。
+# 部署は dispatch が先に作った作業場で働くので、別の worktree に移る道具は要らない。
+# pr-review-toolkit のサブエージェントも一覧から外さない（Agent(<名前>) の deny）。/review-loop が使う review-pr が 6 つとも呼ぶ。
 
 name = "claude-plugins"
 description = "持ち主の Claude Code のプラグインと、それを配る marketplace"
@@ -65,7 +68,7 @@ resident = true
 fresh = true
 instructions = "受け持ちを常設で預かる。自分の受け持ちは作業場の名前（部署の名前）で決まり、その中身は会話の始まりに足される。境目: プラグインのフォルダの中（README・tests など）はそのプラグインの担当の物。works と works-factory は誰の受け持ちでもなく、触らない。試しと標準の担当はプラグインを直さず、直しはその受け持ちの担当に頼む。頼みの前提や作り方に異論・代案があるとき、または頼みそのものが受け持ちの外のときは、頼みに「その通りに進めて」とあっても作らず、それだけを納品で返す（結論に「異論があるので作っていない」と要点を、決め手に根拠の URL〔原典か、根拠のファイルの GitHub の URL〕を、残った疑問に代案か回す先の部署の名前を書く）。頼みを受け、自分で進めるか、並べたいときは作業に頼む（--ask claude-plugins/作業 に --task <受け持ち>：<何をするか> --branch <枝> を添える）。常設なので、作業場は同じまま、頼みごとに git fetch origin してから origin/main から決まりどおりの名前の枝を切って作業する。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて返す（窓口が --land <部署の名前> を打って入れる）。版は上げない・CI は待たない・試験は触ったプラグインの物だけ。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。受け持ちの外のファイルを変える必要が出たら、その受け持ちの担当に部署の名前で頼む（--ask <受け持ち>）。受け持ちの無いファイル（根の scripts/ など）は作業に頼む。"
 [roles.settings]
-permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
+permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings", "AskUserQuestion", "EnterWorktree"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は本流へ早送りするので
@@ -77,7 +80,7 @@ autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（
 name = "作業"
 instructions = "頼みの前提や作り方に異論・代案があるとき、または頼みそのものが受け持ちの外のときは、頼みに「その通りに進めて」とあっても作らず、それだけを納品で返す（結論に「異論があるので作っていない」と要点を、決め手に根拠の URL〔原典か、根拠のファイルの GitHub の URL〕を、残った疑問に代案か回す先の部署の名前を書く）。作業にとっての受け持ちの外は、受け持ちの有るファイル（[[skills]] の表）の直しを、その担当からでなく頼まれたとき。頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（本流に入れる命令が上げる）。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて返す（窓口が --land <部署の名前> を打って入れる）。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。"
 [roles.settings]
-permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings"] }
+permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings", "AskUserQuestion", "EnterWorktree"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は本流へ早送りするので
