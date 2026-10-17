@@ -294,9 +294,22 @@ class FastForwardAfterCi(LandCase):
         self.assertFalse(w.has("release/a"))
         self.assertEqual(seen, [1])
 
-    def test_main_moved_before_the_gate_asks_the_department_to_rebase(self):
+    def test_main_moved_before_the_gate_is_rebased_by_git_and_lands(self):
+        # 本流が先に進んでも、git が機械で載せ直せれば --land が自分で載せ直して関門に出す（部署の会話に頼まない）
         w = World(self.tmp, CI_FILES)
         w.work()
+        w.move_main()
+        ports = Ports(w)
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 0, out)
+        self.assertIn("git で本流の上に載せ直した", out)
+        self.assertEqual(ports.herdr.prompts, [])
+        self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
+        self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署の枝も載せ直した物
+
+    def test_main_moved_with_a_conflict_git_cannot_solve_asks_the_department_and_restores_the_branch(self):
+        w = World(self.tmp, CI_FILES)
+        head = w.work(rel="b.txt", text="部署の b\n")   # ほかの部署も b.txt を書く
         w.move_main()
         moved = w.origin("main")
         ports = Ports(w)
@@ -304,18 +317,55 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), moved)
         self.assertFalse(w.has("release/a"), "載せ直しが要るのに関門に出した")
+        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "載せ直しを元に戻していない")
+        self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "")
         self.assertEqual(len(ports.herdr.prompts), 1)
         self.assertIn("載せ直し", ports.herdr.prompts[0][1])
         self.assertIn("版を上げ直して", ports.herdr.prompts[0][1])
+        self.assertIn("ぶつかるファイル: b.txt", ports.herdr.prompts[0][1])
 
-    def test_main_moved_while_the_gate_ran_does_not_merge(self):
+    def test_a_changelog_conflict_at_the_top_of_unreleased_is_solved_with_the_department_lines_first(self):
+        log = "# 記録\n\n## [Unreleased]\n\n## [0.1.0] - 2026-10-01\n\n- 初め\n"
+        w = World(self.tmp, {**CI_FILES, "CHANGELOG.md": log})
+        w.work(rel="CHANGELOG.md", text=log.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- 部署の直し\n"))
+        other = os.path.join(self.tmp, "other")
+        git("clone", "-q", w.remote, other)
+        write(os.path.join(other, "CHANGELOG.md"), log.replace("## [Unreleased]\n", "## [Unreleased]\n\n## [0.1.1] - 2026-10-02\n\n- ほかの直し\n"))
+        commit(other, "ほかの部署")
+        git("-C", other, "push", "-q", "origin", "HEAD:refs/heads/main")
+        ports = Ports(w)
+        code, out = self.land(w, ports)
+        self.assertEqual(code, 0, out)
+        got = git("--git-dir", w.remote, "show", "main:CHANGELOG.md")
+        self.assertNotIn("<<<<<<<", got)
+        self.assertLess(got.index("- 部署の直し"), got.index("## [0.1.1]"))   # 部署の書き足しは Unreleased のすぐ下に
+        self.assertLess(got.index("## [Unreleased]"), got.index("- 部署の直し"))
+        self.assertIn("- ほかの直し", got)
+
+    def test_main_moved_while_the_gate_ran_is_rebased_and_the_gate_runs_again(self):
         w = World(self.tmp, CI_FILES)
         w.work()
-        ports = Ports(w, FakeGh(on_run=w.move_main))
+        moved = []
+
+        def once():
+            if not moved:
+                moved.append(1)
+                w.move_main()
+        ports = Ports(w, FakeGh(on_run=once))
         code, out = self.land(w, ports)
-        self.assertEqual(code, 1)
-        self.assertEqual(git("--git-dir", w.remote, "log", "-1", "--format=%s", "main"), "ほかの部署")
-        self.assertIn("載せ直し", ports.herdr.prompts[0][1])
+        self.assertEqual(code, 0, out)
+        self.assertIn("載せ直した枝で、関門から回し直す", out)
+        self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
+        self.assertEqual(ports.herdr.prompts, [])
+
+    def test_resolve_changelog_leaves_other_conflicts_alone(self):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "CHANGELOG.md")
+        write(path, "# 記録\n\n## [0.1.0]\n<<<<<<< HEAD\nあ\n=======\nい\n>>>>>>> c\n")
+        self.assertFalse(land.resolve_changelog(path))   # Unreleased の頭でないぶつかり
+        other = os.path.join(d, "README.md")
+        write(other, "## [Unreleased]\n<<<<<<< HEAD\nあ\n=======\nい\n>>>>>>> c\n")
+        self.assertFalse(land.resolve_changelog(other))   # 変更の記録でないファイル
 
     def test_red_hands_the_failure_to_the_department(self):
         w = World(self.tmp, CI_FILES)

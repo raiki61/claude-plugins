@@ -114,6 +114,79 @@ def rebase_text(branch, main, bump):
             f"{again} push し直して、終わったら知らせて。")
 
 
+UNRELEASED = "## [Unreleased]"   # 変更の記録（Keep a Changelog の形）の、まだ版に入れていない節の見出し
+
+
+def resolve_changelog(path):
+    """変更の記録（名前が CHANGELOG.md）のぶつかりを、どれも Unreleased の節の頭で起きた物なら解いて書き直し、True。
+    載せ直しの途中のぶつかりの印は、<<<<<<< の側が載せ直す先（本流と、もう載せ直した commit）、>>>>>>> の側が今載せ直す commit。
+    部署は版を上げない（版は本流に入れる命令が上げる）ので、部署の側の書き足しはいつも Unreleased の頭に在り、本流の側はそこへ
+    ほかの部署の書き足しを入れたか、Unreleased を版の見出しにした。解き方は、部署の側の書き足しを Unreleased のすぐ下に、本流の側を
+    その後に置く（2026-10-17 に手で 3 度解いた形）。ほかの所のぶつかり・ほかのファイルは解かない（False。部署の会話に頼む）。"""
+    if os.path.basename(path) != "CHANGELOG.md":
+        return False
+    try:
+        lines = pathlib.Path(path).read_text(encoding="utf-8").split("\n")
+    except OSError:
+        return False
+    out, i, solved = [], 0, False
+    while i < len(lines):
+        if not lines[i].startswith("<<<<<<< "):
+            out.append(lines[i])
+            i += 1
+            continue
+        before = [x for x in out if x.strip()]
+        if not before or before[-1].strip() != UNRELEASED:
+            return False
+        try:
+            mid = next(j for j in range(i + 1, len(lines)) if lines[j] == "=======")
+            end = next(j for j in range(mid + 1, len(lines)) if lines[j].startswith(">>>>>>> "))
+        except StopIteration:
+            return False
+        ours = lines[i + 1:mid]
+        base = next((j for j in range(i + 1, mid) if lines[j].startswith("||||||| ")), None)   # diff3 の形なら共通の祖先を外す
+        if base is not None:
+            ours = lines[i + 1:base]
+        theirs = lines[mid + 1:end]
+        while theirs and not theirs[-1].strip():
+            theirs.pop()
+        out += theirs + [""] + ours
+        i, solved = end + 1, True
+    if not solved:
+        return False
+    pathlib.Path(path).write_text("\n".join(out), encoding="utf-8")
+    return True
+
+
+def auto_rebase(place, branch, base, g):
+    """部署の場所で、枝を本流 base の上に git で載せ直し、origin の部署の枝も載せ直した物にする。(載せ直した頭の commit か None,
+    並び)。並びは、載せ直せなければ解けなかったファイル、載せ直せたら注記（origin に出せなかったなど）。ぶつかりは、git rerere が前の解き方で解いた物と、変更の記録の Unreleased の頭の物（resolve_changelog）
+    だけを機械で解く。ほかが残れば載せ直しをやめて元の枝に戻す（部署の会話に頼む）。"""
+    old = g.rev(place, "HEAD")
+    ok, files = g.rebase(place, base)
+    while not ok:
+        left = [f for f in files if not resolve_changelog(os.path.join(place, f))]
+        if left:
+            g.rebase_abort(place)
+            return None, left
+        for f in files:
+            g.add_path(place, f)
+        before = g.rev(place, "HEAD")
+        ok, files = g.rebase_continue(place)
+        if not ok and not files and g.rev(place, "HEAD") == before:
+            g.rebase_abort(place)   # 解けていないファイルが無いのに進まない（空になった commit など）。人に任せる
+            return None, ["（git rebase --continue が進まない）"]
+    new = g.rev(place, "HEAD")
+    pushed = None
+    if new != old:
+        # origin の部署の枝も載せ直した物にする（無ければ作る）。本流へ入れるのには要らないので、出せなくても載せ直しは使う
+        try:
+            g.push_rebased(place, branch, g.remote_rev(place, branch) or "", new)
+        except g.GitError as e:
+            pushed = f"origin の {branch} は出せなかった（{e}）"
+    return new, [pushed] if pushed else []
+
+
 def red_text(branch, where, points):
     body = " / ".join(x.strip() for x in points if x.strip())
     text = f"関門（{where}）が赤だったので、枝 {branch} を本流に入れなかった。直して push し直し、終わったら知らせて。失敗の要点: {body}"

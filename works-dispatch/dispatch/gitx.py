@@ -336,6 +336,46 @@ def push(cwd, sha, ref, force=False, runner=_default_runner):
     _must(["git", "-C", cwd, "push", "--quiet", "origin", f"{'+' if force else ''}{sha}:refs/heads/{ref}"], runner)
 
 
+# 載せ直しで、前に手で解いたぶつかりを git に使い直させる（git rerere。rebase は rerere を自動で呼ぶ）。解いた所は index に足す
+REBASE_OPTS = ["-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=true", "-c", "core.editor=true"]
+
+
+def conflicted(cwd, runner=_default_runner):
+    """ぶつかって解けていないファイルの並び（作業場の根からの道）。"""
+    out = _git(cwd, ["diff", "--name-only", "--diff-filter=U"], runner)
+    return [x for x in (out or "").splitlines() if x]
+
+
+def rebase(cwd, onto, runner=_default_runner):
+    """今の枝を onto の上に載せ直す（git rebase）。書く口。(載せ直せたか, 解けていないファイルの並び)。ぶつかったら途中のまま返す
+    （rebase_continue か rebase_abort で終える）。"""
+    p = runner(["git", "-C", cwd, *REBASE_OPTS, "rebase", "--quiet", onto])
+    return (True, []) if p.returncode == 0 else (False, conflicted(cwd, runner))
+
+
+def rebase_continue(cwd, runner=_default_runner):
+    """途中の載せ直しを続ける（ぶつかりを解いて index に足した後）。書く口。返しは rebase と同じ。"""
+    p = runner(["git", "-C", cwd, *REBASE_OPTS, "rebase", "--continue"])
+    return (True, []) if p.returncode == 0 else (False, conflicted(cwd, runner))
+
+
+def rebase_abort(cwd, runner=_default_runner):
+    """途中の載せ直しをやめて、載せ直す前の枝に戻す。書く口。"""
+    _must(["git", "-C", cwd, "rebase", "--abort"], runner)
+
+
+def add_path(cwd, path, runner=_default_runner):
+    """解いたファイルを index に足す。書く口。"""
+    _must(["git", "-C", cwd, "add", "--", path], runner)
+
+
+def push_rebased(cwd, branch, old, new, runner=_default_runner):
+    """載せ直した枝を origin に出す（origin の枝が old のままのときだけ上書きする。old が空なら、origin に枝が無いときだけ作る。
+    --force-with-lease）。書く口。"""
+    _must(["git", "-C", cwd, "push", "--quiet", f"--force-with-lease=refs/heads/{branch}:{old}", "origin",
+           f"{new}:refs/heads/{branch}"], runner)
+
+
 def drop_remote(cwd, ref, runner=_default_runner):
     """origin の枝 ref を消す。書く口。もう無ければ何もしない。"""
     if _git(cwd, ["ls-remote", "--exit-code", "--heads", "origin", ref], runner) is None:

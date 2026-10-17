@@ -150,8 +150,9 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         print(f"枝 {branch} はもう本流 {main} に入っている")
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head)
     if not g.is_ancestor(source, base, head):
-        print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
-        return 1
+        head = _rebase_here(ports, place, path, branch, base, main, rules)
+        if head is None:
+            return 1
     stop = _overwrite_gate(ports, place, attrs, branch, base, head, keep_removal)
     if stop is not None:
         print(stop)
@@ -212,9 +213,10 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     except gitx.GitError as e:
         print(f"止めた: 本流を取り直せない（{e}）")
         return 1
+    again = lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after)
     if not g.is_ancestor(source, base, candidate):
-        print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
-        return 1
+        # 関門を回す間に本流が先に進んだ: 載せ直せれば、載せ直した枝で関門から回し直す
+        return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
     try:
         land.advance(source, main, candidate, g)
     except gitx.GitError as e:
@@ -224,7 +226,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         except gitx.GitError:
             moved = False
         if moved:
-            print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
+            return again() if _rebase_here(ports, place, path, branch, land.refresh(source, main, g), main, rules) else 1
         else:
             print(f"止めた: 本流 {main} への push が断られた（{e}）")
         return 1
@@ -247,6 +249,30 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         except gitx.GitError as e:
             print(f"注記: 関門の枝 {ref} を消せなかった（{e}）")
     return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
+
+
+def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after):
+    """載せ直した枝で、--land を頭から回し直す（関門も書き換えの取り合いの関門も、載せ直した枝でもう一度通す）。"""
+    print("載せ直した枝で、関門から回し直す")
+    return main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, False, keep_removal, after)
+
+
+def _rebase_here(ports, place, path, branch, base, main, rules):
+    """本流が先に進んだ部署の枝を、部署の場所で git の載せ直し（land.auto_rebase）で本流の上に載せ、origin の部署の枝にも出す。
+    載せ直した頭の commit を返す。git が機械で解けないぶつかりが残れば、載せ直しをやめて元の枝に戻し、部署の会話に載せ直しを
+    頼んで None（今までどおり）。部署の会話の手直しは、git の解けないぶつかりだけに要る（持ち主 2026-10-17「gitとかの機能で
+    マージをできるだけ」）。"""
+    try:
+        new, left = land.auto_rebase(path, branch, base, ports.git)
+    except gitx.GitError as e:
+        new, left = None, [f"（{e}）"]
+    if new:
+        print(f"本流 {main} が先に進んでいたので、枝 {branch} を git で本流の上に載せ直した（{new[:7]}）"
+              + (f"。注記: {'・'.join(left)}" if left else f"。origin の {branch} にも出した"))
+        return new
+    print(f"本流 {main} が先に進んでいて、git で載せ直すとぶつかりが残った（{'・'.join(left)}）。載せ直しは元に戻した")
+    print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"]) + f" ぶつかるファイル: {'・'.join(left)}"))
+    return None
 
 
 def _overwrite_gate(ports, place, attrs, branch, main_sha, head, keep_removal, dry_run=False):

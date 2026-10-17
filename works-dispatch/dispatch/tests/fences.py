@@ -50,6 +50,12 @@ WRITES = {
     # git: 部署の成果を本流に入れる（関門の枝と本流へ push・関門の枝を消す・手元の本流を早送り・版を上げる一時の場所と commit）
     # tools は機械窓口の道具を origin の既定の枝の中身で走らせる一時の場所を作って消す
     "push": {"nodes/land.py"},
+    # git: 本流が先に進んだ部署の枝を、本流に入れる命令が載せ直して origin に出す
+    "rebase": {"nodes/land.py"},
+    "rebase_continue": {"nodes/land.py"},
+    "rebase_abort": {"nodes/land.py"},
+    "add_path": {"nodes/land.py"},
+    "push_rebased": {"nodes/land.py"},
     "drop_remote": {"nodes/land.py"},
     "advance_branch": {"nodes/land.py"},
     "add_detached": {"nodes/land.py", "nodes/tools.py"},
