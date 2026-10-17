@@ -303,6 +303,21 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "pid": "7"}, gitx)
         self.assertIsNone(self.plan(sid="s9", same=lambda pid: True))
 
+    def test_a_fresh_department_woken_by_a_notice_is_cleared_at_the_end_of_that_turn(self):
+        # 頼みを受けていない番（納品の知らせで起きた）の後も、次の頼みを空の会話で受ける（6a9337）
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
+                                              "fresh": role.FRESH}, gitx)
+        stop = {"hook_event_name": "Stop", "session_id": "s1"}
+        self.assertFalse(wake_hook.must_clear(stop, gitx.worktree_attrs(self.place)))   # 空にした後
+        err = io.StringIO()
+        out = wake_hook.WithRole(err, {"session_id": "s1"}, changed=lambda payload: None, woke=lambda: wake_hook.woken(self.plan()))
+        out.write("納品です（受付 d1）\n")
+        self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
+        self.assertTrue(wake_hook.must_clear(stop, gitx.worktree_attrs(self.place)))   # 起こされた番の終わりに空にする
+        provision.mark(self.place, self.src, {"cleared": "a0", "fresh": None}, gitx)   # 会話を持ち越す役では外さない
+        wake_hook.woken(self.plan())
+        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
+
     def test_the_wake_text_starts_with_the_new_role_text_when_it_changed(self):
         err = io.StringIO()
         out = wake_hook.WithRole(err, {"session_id": "s1"}, changed=lambda payload: "役が替わった")

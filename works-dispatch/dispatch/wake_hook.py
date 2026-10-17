@@ -357,15 +357,29 @@ def keep_job(got, attrs_of=gitx.worktree_attrs):
         pass
 
 
+def woken(got, attrs_of=gitx.worktree_attrs):
+    """待ち受けが会話を起こす（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、毎回空にする部署（役が fresh）なら、空にした印
+    （company.cleared）を外す。起こされた番の文脈が会話に残るので、その番の終わりに待ち受けがまた空にする（must_clear）。今までは、
+    頼みを受けていない番（社長室の納品で起こされた業務改革など）の後も印が残り、次の頼みが前の番の文脈のまま渡った
+    （my_notes の受付 f4ca34 で見つかった。6a9337）。人が窓に打った番では外さない（持ち主と話している途中の会話を空にしない）。"""
+    attrs = attrs_of(got["cwd"])
+    if attrs.get("fresh") == role.FRESH and attrs.get("cleared"):
+        provision.mark(got["cwd"], got["root"], {"cleared": None}, gitx)
+
+
 class WithRole:
     """会話を起こす字（err に書く物）の頭に、その会話の役の文が替わっていれば今の文を足す（role_hook.changed）。"""
 
-    def __init__(self, err, payload, changed=role_hook.changed):
-        self.err, self.payload, self.changed, self.done = err, payload, changed, False
+    def __init__(self, err, payload, changed=role_hook.changed, woke=lambda: None):
+        self.err, self.payload, self.changed, self.done, self.woke = err, payload, changed, False, woke
 
     def write(self, text):
         if not self.done:
             self.done = True
+            try:
+                self.woke()
+            except Exception:  # 印を外せなくても、知らせは届ける
+                pass
             try:
                 note = self.changed(self.payload)
             except Exception:  # 役の文を読めなくても、知らせは届ける
@@ -406,7 +420,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
     for name in ("SIGTERM", "SIGHUP", "SIGINT"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), stop)
-    return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, WithRole(err, payload),
+    return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, WithRole(err, payload, woke=lambda: woken(got)),
                       check=checker(got, payload))
 
 
