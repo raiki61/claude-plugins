@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-10-17
+
 ### Fixed
 
 - 窓口や部署（場所の名前 `company.name` を持つ場所）から打った `--ask` の頼み元の名前（`company.boss`）に、会話の一覧の名前でなく場所の名前を書く。待ち受けは場所の名前で宛先を受けるので、会話の名前（例 `my-notes-d7`）を書いた頼みの納品は待ち受けに届かず、頼み元の窓への打ち込みに落ちていた。本社（代表の clone）では `--desk` が書いた会話（`company.session`）が打ったときだけ場所の名前を使う。前の版で会話の名前を書いた部署の `--deliver` は、名前で待ち受けが引けなければ、頼んだ会話の id（`company.boss-session`）で待ち受けを引く。
