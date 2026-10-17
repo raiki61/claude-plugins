@@ -394,8 +394,13 @@ def _ask(a, ports, cwd, task, sent):
     here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
     account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
     sender = name or "名の無い会話"
+    # 納品を受ける受付箱は、頼んだ会話の居る場所の会社の物（待ち受けはそこで宛先を受ける）。命令を打った場所（cwd）がほかの会社の
+    # clone でも替えない（段取りが claude-plugins の clone で打った頼みの返り先が claude-plugins の受付箱になり、段取りの待ち受けに
+    # 届かなかった。my_notes の受付 20261017-054115-5bc0b0）
+    here_common = ports.git.common_dir(here) if here != cwd else common
     boss = {"ask": ask_id, "boss": name, "boss-account": account, "boss-session": sid,
-            "boss-pane": herdr.own_pane(here, sid, panes) if sid else None, "boss-inbox": inbox}
+            "boss-pane": herdr.own_pane(here, sid, panes) if sid else None,
+            "boss-inbox": deliver.inbox_of(here_common) if here_common else inbox}
     if getattr(a, "from_boss", None):
         # 合図で回した頼み（calls.fire）: 頼み元は、本流に入れた部署の頼み元
         boss.update({k: v for k, v in a.from_boss.items() if k != "ask"})

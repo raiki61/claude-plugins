@@ -505,6 +505,15 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "段取り")
 
+    def test_ask_typed_in_another_clone_returns_to_the_askers_own_inbox(self):
+        # 窓口が別の会社の clone で命令を打っても、納品の受付箱は窓口の居る場所の会社の物（段取りが claude-plugins の clone で打ち、
+        # 返り先が claude-plugins の受付箱になった。my_notes の受付 20261017-054115-5bc0b0）
+        other = str(pathlib.Path(self.root) / "other")
+        git("init", "-q", other)
+        rc, out = self.main(other, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(os.path.realpath(gitx.worktree_attrs(self.place).get("boss-inbox")), os.path.realpath(self.inbox))
+
     def test_ask_from_another_talk_in_the_head_office_keeps_the_talks_name(self):
         # 本社にはほかの会話も居る。--desk が書いた会話（company.session）でなければ、窓口の名前を名乗らない
         provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-other"}, gitx)
