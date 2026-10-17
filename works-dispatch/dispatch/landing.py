@@ -264,19 +264,40 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
 def _tell_desk(source, info, main, candidate, local):
     """代表の clone の本流を進められなかったことを、その会社の窓口（本社の --desk の会話）に台帳の知らせで渡す。窓口の会話のフックと
     決まりは代表の clone の作業ツリーから読まれるので、進まないと本流に入れた物が窓口に効かない（5d75df）。出す行を返す。"""
-    why = {"dirty": "代表の clone の書きかけが本流の変更とぶつかる", "local_only": "代表の clone の本流に、本流に無い commit が有る"}[local]
+    why, fix = {"dirty": ("git merge --ff-only が断った（書きかけが本流の変更とぶつかるか、merge・rebase の途中など）",
+                          f"書きかけを片付けるか commit してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
+                "local_only": (f"代表の clone の {main} に、本流に無い commit が有る",
+                               f"その commit を本流に入れるか別の枝に移してから、代表の clone で git merge --ff-only origin/{main} を打つ")}[local]
     attrs = gitx.worktree_attrs(source)
-    if not attrs.get("name"):
+    company = tree.company_name(source, info)
+    to = wake.address(company, attrs["name"]) if attrs.get("name") else info.get("desk")   # 会社の形の desk: ほかの会社の窓口が兼ねる
+    if not to:
         return f"注記: 代表の clone の {main} を本流 {candidate[:7]} に進められなかった（{why}）。窓口が名付けられていないので知らせていない"
-    text = (f"知らせ（返事は要らない）: 代表の clone の {main} を本流 {candidate[:7]} に進められなかった（{why}）。この会話のフックと"
-            f"会社の形は前の版のまま。書きかけを片付けるか commit してから、代表の clone で git merge --ff-only origin/{main} を打つ")
+    seen = f"{local} {gitx.rev(source, f'refs/heads/{main}')}"
+    if attrs.get("behind") == seen:
+        return f"注記: 代表の clone の {main} を進められなかった（{why}）。同じ形は前に窓口へ知らせたので、知らせ直さない"
+    text = (f"知らせ（返事は要らない）: {company} の代表の clone（{source}）の {main} を本流 {candidate[:7]} に進められなかった（{why}）。"
+            f"代表の clone の作業ツリーから読むフックと会社の形は前の版のまま。{fix}")
     try:
+        far, _ = deliver.parse_target(to)
         inbox = deliver.inbox_of(gitx.common_dir(source))
-        deliver.log(inbox, wake.notice(wake.address(tree.company_name(source, info), attrs["name"]), None, wake.NOTE, None, text,
-                                       time.time()))
+        if far and far != company:
+            # ほかの会社の窓口: その窓口の居る会社の受付箱の台帳に置く（待ち受けはその会社の台帳を読む）
+            inbox = next((deliver.inbox_of(gitx.common_dir(p)) for p in _company_roots() if tree.company_name(p, tree.read_info(p, None)) == far),
+                         inbox)
+        deliver.log(inbox, wake.notice(to, None, wake.NOTE, None, text, time.time()))
+        provision.mark(source, source, {"behind": seen}, gitx)
     except (gitx.GitError, OSError) as e:
         return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口に知らせられなかった（{e}）"
-    return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口 {attrs['name']} に台帳の知らせで渡した"
+    return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口 {to} に台帳の知らせで渡した"
+
+
+def _company_roots():
+    """herdr に開いている会社の代表の clone の並び（ほかの会社の窓口の受付箱を引く）。読めなければ空。"""
+    try:
+        return [w["repo_root"] for w in herdr.workspaces() if w.get("repo_root")]
+    except herdr.HerdrError:
+        return []
 
 
 def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after):

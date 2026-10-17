@@ -425,7 +425,8 @@ def advance_branch(source, branch, sha, runner=_default_runner):
         return "updated"
     # 枝を開いている worktree に書きかけ（未コミットの変更・git に足していないファイル）が有っても、早送りを試す。git merge --ff-only は、
     # 本流の変更が書きかけのファイルに触れるときだけ何も変えずに断るので、触れない書きかけ（持ち主の日記など）は壊さずに進む（5d75df）
-    p = runner(["git", "-C", holder, "merge", "--ff-only", "--quiet", sha])
+    # 利用者の設定の autoStash は切る（書きかけを退避して戻すときにぶつかると、印と stash が残る）。無視するファイルも上書きしない
+    p = runner(["git", "-C", holder, "-c", "merge.autoStash=false", "merge", "--ff-only", "--no-overwrite-ignore", "--quiet", sha])
     return "updated" if p.returncode == 0 else "dirty"
 
 
