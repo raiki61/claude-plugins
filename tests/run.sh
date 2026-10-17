@@ -2717,6 +2717,17 @@ assert sub_bg.returncode == 0 and (cfg / "coldread-gate/docs/s7.agent-q.pending"
 sub = raw("docs-check", {"session_id": "s7", "agent_id": "agent-q", "hook_event_name": "SubagentStop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli")
 assert "例の方針" in json.loads(sub.stdout)["hookSpecificOutput"]["additionalContext"], "対話の会話でサブエージェントの終わりに待って読まない"
 
+# 推測で埋めた箇所と疑問だけなら、書いた役を起こさない(親の待つ口・裏の口・サブエージェントの終わりのどれも)。docs.log に件数は残す
+GUESS = stub("補完: 方針は決まっていると読んだ\\n疑問: 期限はいつか")
+touch("s6", 6)
+assert raw("docs-check", {"session_id": "s6", "hook_event_name": "Stop"}, GUESS, CLAUDE_CODE_ENTRYPOINT="sdk-cli").stdout == b"", "推測だけで親を起こした"
+touch("s5", 7)
+lull = raw("docs-check-async", {"session_id": "s5", "hook_event_name": "Stop"}, GUESS, CLAUDE_CODE_ENTRYPOINT="cli")
+assert lull.returncode == 0 and lull.stderr == b"", "推測だけで裏の口が会話を起こした"
+touch("s7", 8, agent="agent-q")
+assert raw("docs-check", {"session_id": "s7", "agent_id": "agent-q", "hook_event_name": "SubagentStop"}, GUESS).stdout == b"", "推測だけで作業役を続けさせた"
+assert len(re.findall(r"^\S+ \S+\tguess=1\t", (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8"), re.M)) == 3
+
 # 読み手のモデルと effort: 手元の文書は既定 haiku・xhigh、投稿は既定 sonnet・medium のまま。既定は環境変数を外した子で見る
 def loaded(**env):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
@@ -3208,11 +3219,11 @@ git("init", "-q")
 git("config", "user.email", "t@example.com")
 git("config", "user.name", "t")
 git("config", "core.autocrlf", "false")
-(repo / ".gitattributes").write_text("gen/*.txt linguist-generated\nsnap.md linguist-generated=true\nkeep.md -linguist-generated\nno.md linguist-generated=false\n", encoding="utf-8")
+(repo / ".gitattributes").write_text("gen/*.txt linguist-generated\nsnap.md linguist-generated=true\nkeep.md -linguist-generated\nno.md linguist-generated=false\nprim.md -coldread\nkept.md coldread\n", encoding="utf-8")
 doc = repo / "design.md"
 doc.write_text(design(), encoding="utf-8")
 (repo / "gen").mkdir()
-for name in ("gen/a.txt", "snap.md", "keep.md", "no.md"):
+for name in ("gen/a.txt", "snap.md", "keep.md", "no.md", "prim.md", "kept.md"):
     (repo / name).write_text("写しの原文。" * 100, encoding="utf-8")
 git("add", ".")
 git("commit", "-q", "-m", "init")
@@ -3279,18 +3290,18 @@ run("docs-check", {"session_id": "s6", "hook_event_name": "Stop"}, READER)
 assert last_prompt()[1] == 4, "書く前と同じ中身の文書で読み手を起こした"
 assert "書く前と同じ中身" in (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
 
-# 5) 生成物の印(linguist-generated。値なし・=true)の付いた文書は読まない。-linguist-generated・=false は読む
-for name in ("gen/a.txt", "snap.md", "keep.md", "no.md"):
+# 5) 生成物の印(linguist-generated。値なし・=true)と -coldread の付いた文書は読まない。-linguist-generated・=false・coldread(値なし)は読む
+for name in ("gen/a.txt", "snap.md", "keep.md", "no.md", "prim.md", "kept.md"):
     f = repo / name
     f.write_text(name + " の写しの原文を取り直した。" * 100, encoding="utf-8")   # 中身を分ける(同じ中身は 1 回しか読まない)
     run("docs-record", {"session_id": "s7", "tool_name": "Write", "tool_input": {"file_path": str(f)},
                         "tool_response": {"type": "create", "filePath": str(f), "originalFile": None}})
 run("docs-check", {"session_id": "s7", "hook_event_name": "Stop"}, READER)
 got = prompts()[4:]
-assert len(got) == 2, f"生成物の印の付いた文書を読んだか、印を外した文書を読まなかった: {len(got)} 回"
+assert len(got) == 3, f"読まない印の付いた文書を読んだか、印を外した文書を読まなかった: {len(got)} 回"
 log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
-skipped = [ln for ln in log.splitlines() if "生成物の印" in ln]
-assert len(skipped) == 2 and any(ln.endswith("a.txt") for ln in skipped) and any(ln.endswith("snap.md") for ln in skipped), skipped
+skipped = [ln for ln in log.splitlines() if "読まない印" in ln]
+assert len(skipped) == 3 and all(any(ln.endswith(n) for ln in skipped) for n in ("a.txt", "snap.md", "prim.md")), skipped
 
 # 6) 見出しの無い文書(txt)は、書き換えた行の前後を段落の切れ目まで
 plain = repo / "plain.txt"

@@ -2177,6 +2177,14 @@ def main() -> None:
 # 取れない道具(Bash・MCP)は、書く前の HEAD の版を指す(Bash は走る前の控えの HEAD)。HEAD に無い文書は新しい文書として全体を読む。
 # 人が書いていない文書(.gitattributes の linguist-generated。GitHub Linguist の印で、Graphite も AI のレビューから外すのに
 # 使う)は読まない。スクリプトがウェブから取った原文の写しを読んで、時間切れと指摘を出していた(2026-10-16 の docs.log)。
+# 人が書いた文書でも、ほかの検査が受け持つ所(原文と照らす写しのノートなど)は .gitattributes の -coldread で外せる。
+# 生成物の印は意味が違うので付けさせない。my_notes の reference/primary/ は 5 時間で 799 本読まれていた(2026-10-17 の測り)。
+#
+# 書いた役を起こす(続けさせる・会話を起こす)のは詰まりが在るときだけ。推測で埋めた箇所と疑問だけなら返さず、docs.log に
+# 件数だけ残す(投稿の門番も本流に入れる前の関門も、止めるのは詰まりだけで、手元の文書の門番だけが推測で埋めた箇所でも
+# 起こしていた)。読み手は推測で埋めた箇所を理解を妨げなくても書くので、ほとんどの文書が CLEAN にならず、直すたびに直した
+# 節がまた読まれた(2026-10-17 の 5 時間で、詰まり 12 件に推測で埋めた箇所 395 件。直す回りが全体の使う量の 17%)。
+# 詰まりが在るときは、推測で埋めた箇所と疑問も一緒に返す(直す番は起きているので、誤読を知る機会は残る)。
 DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
 DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
@@ -2200,6 +2208,7 @@ DOC_CONTEXT = 5        # 見出しの無い文書で、変えた行の前後に�
 DOC_LEAD_MAX = 30      # 何の文書かを知るために添える冒頭(題と最初の段落)の行数の上限
 DOC_WHOLE_RATIO = 0.8  # 抜き出しが全体の行数のこの割合以上なら、抜き出さずに全体を読ませる
 GENERATED_ATTR = "linguist-generated"
+SKIP_ATTR = "coldread"   # .gitattributes で -coldread(unset)にした文書は読まない
 # 抜き出しを読ませるときに、依頼文の本文の印の手前に足す補足。観点(COLD_PROMPT)は変えず、読む範囲だけを言う。
 # 省いた節で説明されている語まで詰まりに出すと、直していない所の前からの疑問が毎回返る形に戻るので、疑問に回させる
 DOC_LEAD_LABEL = "【冒頭】"
@@ -3022,17 +3031,18 @@ def _bases(where, paths):
 
 
 def _generated(paths):
-    """git の属性 linguist-generated(GitHub Linguist の、人が書いていない生成物の印)が付いた文書。
+    """読まない印の付いた文書。git の属性 linguist-generated(GitHub Linguist の、人が書いていない生成物の印)か -coldread。
 
-    値の読み方は Linguist に合わせる(lib/linguist/lazy_blob.rb の boolean_attribute: 付いていて "false" でなければ生成物)。
-    git check-attr は付いていない・-linguist-generated を unspecified・unset と返す。git の外の文書は印が無い側。
+    linguist-generated の値の読み方は Linguist に合わせる(lib/linguist/lazy_blob.rb の boolean_attribute: 付いていて
+    "false" でなければ生成物)。git check-attr は付いていない・-linguist-generated を unspecified・unset と返す。
+    coldread は unset(-coldread)だけを外す印にする。git の外の文書は印が無い側。
     """
     by_dir, out = {}, set()
     for p in paths:
         by_dir.setdefault(os.path.dirname(p) or ".", []).append(p)
     for d, ps in by_dir.items():
         try:
-            r = subprocess.run(["git", "-C", d, "check-attr", "-z", "--stdin", GENERATED_ATTR],
+            r = subprocess.run(["git", "-C", d, "check-attr", "-z", "--stdin", GENERATED_ATTR, SKIP_ATTR],
                                input=b"".join(os.path.basename(p).encode("utf-8") + b"\0" for p in ps),
                                capture_output=True, timeout=GIT_TIMEOUT, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
         except (OSError, subprocess.SubprocessError):
@@ -3041,7 +3051,7 @@ def _generated(paths):
             continue
         f = r.stdout.decode("utf-8", "replace").split("\0")
         for k in range(0, len(f) - 2, 3):
-            if f[k + 2] not in ("unspecified", "unset", "false"):
+            if (f[k + 2] not in ("unspecified", "unset", "false") if f[k + 1] == GENERATED_ATTR else f[k + 2] == "unset"):
                 out.update(p for p in ps if os.path.basename(p) == f[k])
     return out
 
@@ -3102,7 +3112,7 @@ def _read_pending(session, agent, timeout=READER_TIMEOUT):
     picked = []
     for path, text, digest in todo:
         if path in generated:
-            log_line(DOC_LOG, "skip\t生成物の印(%s)\t%s\t%s" % (GENERATED_ATTR, who, path))
+            log_line(DOC_LOG, "skip\t読まない印(%s か -%s)\t%s\t%s" % (GENERATED_ATTR, SKIP_ATTR, who, path))
             continue
         part = doc_excerpt(path, text, bases.get(path))
         if part == "":
@@ -3127,10 +3137,12 @@ def _read_pending(session, agent, timeout=READER_TIMEOUT):
             down.append(path)
             unread.append(digest)
             continue
-        note = doc_feedback(path, found, part is not None)
+        # 書いた役を起こすのは詰まりが在るときだけ(上の「書いた役を起こす」)。推測で埋めた箇所だけなら guess で件数を残す
+        note = doc_feedback(path, found, part is not None) if found["詰まり"] else ""
         # 長さの欄は読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
         size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
-        log_line(DOC_LOG, "%s\t%s\t%ds\t%s\t%s" % ("finding" if note else "clean", size, secs, who, path))
+        kind = "finding" if note else "guess=%d" % len(found["補完"]) if found["補完"] else "clean"
+        log_line(DOC_LOG, "%s\t%s\t%ds\t%s\t%s" % (kind, size, secs, who, path))
         if note:
             notes.append(note)
             for label in counts:
