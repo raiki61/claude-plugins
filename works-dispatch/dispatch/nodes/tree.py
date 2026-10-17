@@ -313,5 +313,7 @@ def lines(companies):
                 stuck = "渡す待ち受けが居ない" if d.get("stalled") else (f"渡さずに待っている（{d['held']}）" if d.get("held") else None)
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
                               + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} で動かす）" if stuck else ""))
+            if d.get("no_talk_id"):
+                fields.append(f"! 会話の id（company.session）が無い（次の --ask か --nudge {d['name'] or d['branch']} が会話の一覧から書き戻す）")
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

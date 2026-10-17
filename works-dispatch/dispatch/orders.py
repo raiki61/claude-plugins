@@ -186,13 +186,35 @@ def live_window(dept, ports):
     return pane
 
 
+def place_talk(dept, sessions_, accounts_):
+    """会話の一覧（アカウントの名 → 並び。終わった物も含む）のうち、作業フォルダが部署の場所の裏の会話の (アカウントの名, 1 件)。
+    名前が部署の名前の物を先に、無ければ場所の合う物のうち、起きた時刻の新しい物。無ければ None。"""
+    here = os.path.realpath(dept["path"])
+    hits = [(name, x) for name, items in (sessions_ or {}).items() for x in items
+            if x.get("kind") == "background" and x.get("sessionId") and x.get("cwd") and os.path.realpath(x["cwd"]) == here]
+    named = [h for h in hits if h[1].get("name") == dept["attrs"].get("name")]
+    return max(named or hits, key=lambda h: h[1].get("startedAt") or 0, default=None)
+
+
 def revive(dept, accounts_, ports, sessions_=None, source=None):
     """部署の窓に会話が居ない（PC やサーバーの再起動で attach の窓が落ちたなど）とき、部署の属性の会話の id で、部署のペインに
     `<アカウントのコマンド> attach <id>` を打ち、窓に会話が戻るのを見る。裏の会話は落ちても記録が残り、attach で前の続きから
     戻る（まっさらな環境での 5 回目の試しの 1。Windows で確かめた）。(戻ったペインか None, 言葉)。"""
     full = dept["attrs"].get("session")
-    if not full:
-        return None, "部署の属性に会話の id（company.session）が無いので戻せない（部署を立て直す）"
+    found = None if full else place_talk(dept, sessions_, accounts_)
+    if not full and not found:
+        return None, "部署の属性に会話の id（company.session）が無く、会話の一覧にも部署の場所の裏の会話が無いので戻せない（部署を立て直す）"
+    if found:
+        # 属性の会話の id が消えていた（前の版の --move が前の会話を止めた直後に止められ、id を消したまま終わった。2026-10-17 の
+        # 割り振り・説明書・ノートの手入れ）: 会話の一覧の、部署の場所の裏の会話で戻し、属性も書き戻す
+        account, entry = found
+        full = entry["sessionId"]
+        dept = {**dept, "attrs": {**dept["attrs"], "session": full, "job": claudex.attach_id(entry), "account": account}}
+        try:
+            provision.mark(dept["path"], source or gitx.root_of(ports.git.common_dir(dept["path"])),
+                           {"session": full, "job": claudex.attach_id(entry), "account": account}, ports.git)
+        except (gitx.GitError, OSError):
+            pass
     acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
     entry = next((x for items in (sessions_ or {}).values() for x in items if x.get("sessionId") == full), None)
     # attach は短い id で打つ（部署を立てるときと同じ）。一覧に無ければ属性の短い id（company.job。/clear で会話の id が変わっても

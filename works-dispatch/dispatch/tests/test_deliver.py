@@ -294,6 +294,19 @@ class Flow(unittest.TestCase):
         self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertIn(("run", self.window, "claude-a1 attach 8c4a1102"), self.ports.herdr.writes)
 
+    def test_fallen_department_without_its_talk_id_is_attached_by_the_talk_at_its_place(self):
+        # 属性の会話の id が消えていても（前の版の --move が id を消した直後に止められた。2026-10-17 の割り振り・説明書）、会話の
+        # 一覧の、部署の場所の裏の会話で戻し、属性を書き戻す
+        subprocess.run(["git", "-C", self.place, "config", "--worktree", "--unset", "company.session"], check=True)
+        self.fall()
+        self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertIn(("run", self.window, "claude-a1 attach d"), self.ports.herdr.writes)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["session"], attrs["job"]), ("s-dept", "d"))
+        self.ports.list_sessions = lambda cdir, include_done=False: []   # 一覧にも無ければ、今までどおり立て直しを頼む
+        self.assertEqual(orders.revive({"attrs": {}, "path": self.place, "panes": []}, [], self.ports, {})[1][:30],
+                         "部署の属性に会話の id（company.session）が無く、会話の一覧にも部署の場所の裏の"[:30])
+
     def test_window_back_at_the_shell_counts_as_fallen_even_if_herdr_keeps_the_mark(self):
         # attach の画面が終わってシェルに戻っても、herdr はペインの会話の印を残す。前に居るのがシェルなら落ちたと見て戻す
         self.fall(keep_mark=True)

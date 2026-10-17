@@ -146,7 +146,7 @@ def call(a, ports, cwd, task):
 def annotate(companies, settings, g):
     """--tree に受付を足す: 会社ごとに道具（役・名前・title・外れの回数）を tools に、部署ごとに順番待ちの件数と置き場を queue・
     queue_dir に、渡す待ち受けが居なくて止まっているか（wake.stalled）を stalled に、待ち受けは居るが渡さずに待っている訳（wake.held）を
-    held に。外れは受付箱の台帳の kind miss の行で数える。"""
+    held に、部署の属性に会話の id（company.session）が無いかを no_talk_id に。外れは受付箱の台帳の kind miss の行で数える。"""
     for c in companies:
         common = g.common_dir(c["root"])
         inbox = deliver.inbox_of(common) if common else None
@@ -166,6 +166,8 @@ def annotate(companies, settings, g):
             d["queue_dir"] = wake.queue_dir(inbox, here) if here else None
             d["stalled"] = bool(here) and wake.stalled(inbox, here, d.get("attrs") or {})
             d["held"] = wake.held(inbox, d["path"], here, d.get("attrs") or {}) if here and not d["stalled"] else None
+            attrs = d.get("attrs") or {}
+            d["no_talk_id"] = bool(attrs.get("role")) and not d.get("head_office") and not attrs.get("session")
     return companies
 
 
