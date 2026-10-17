@@ -31,6 +31,55 @@ def fake_runner(out="", rc=0):
     return run
 
 
+class OpenAsks(unittest.TestCase):
+    """--tree が台帳から出す、まだ閉じていない頼み（deliver.open_asks・calls.asks_of）と、ほかの会社が兼ねる窓口（会社の形の desk）。"""
+
+    def test_an_ask_closes_by_its_delivery_its_notice_a_forward_or_a_withdrawal(self):
+        from nodes import deliver
+        ask = lambda i, **k: {"kind": "ask", "id": i, "status": "queued", "to": {"company": "co", "name": "調べ"}, **k}
+        records = [ask("a1"), ask("a2"), ask("a3"), ask("a4"), ask("a5"), ask("a6"), {"kind": "ask", "id": "a7", "status": "failed"},
+                   {"kind": "deliver", "id": "d1", "ask": "a1", "status": "sent"},
+                   {"kind": "deliver", "id": "a2", "to": "co/段取り"},   # 頼み元の待ち受けへの知らせ
+                   {"kind": "forwarded", "id": "a3"}, {"kind": "withdrawn", "id": "a4"},
+                   {"kind": "deliver", "id": "d5", "ask": "a5", "status": "failed"},   # 知らせられなかった納品は閉じない
+                   {"kind": "deliver", "id": "d6", "ask": "a6", "status": "sent", "for": "x"}]   # --for の返しは今の頼みを閉じない
+        self.assertEqual([r["id"] for r in deliver.open_asks(records)], ["a5", "a6"])
+        f = pathlib.Path(tempfile.mkdtemp(), "q-ask.md")
+        f.write_text("段取りが回した: 割り振りが止まっている\n\n---\n\n前提が違う、と思ったら返して。\n\n## 困りごと\n本文\n", encoding="utf-8")
+        self.assertEqual(deliver.ask_title(str(f)), "困りごと")
+        self.assertIsNone(deliver.ask_title("/無い"))
+
+    def test_the_desk_of_another_company_written_in_the_shape_is_the_desk(self):
+        d = tempfile.mkdtemp()
+        info = pathlib.Path(d, "company.toml")
+        info.write_text('name = "co"\ndesk = "my_notes/段取り"\n', encoding="utf-8")
+        got = tree.read_info(d, None, committed=lambda root: (str(info), info.read_text(encoding="utf-8")))
+        self.assertEqual((got["desk"], got["problems"]), ("my_notes/段取り", []))
+        company = {"name": "co", "skills": [], "departments": [], "desk_of": got["desk"]}
+        tree.contacts(company, {"roles": {}})
+        self.assertEqual(company["desk"], {"name": "my_notes/段取り", "role": None, "ask": "--ask my_notes/段取り"})
+        bad = tree.read_info(d, None, committed=lambda root: (str(info), 'desk = "段取り"\n'))
+        self.assertIn("desk は「会社/名前」", bad["problems"][0])
+
+    def test_open_asks_go_to_the_company_that_holds_the_department(self):
+        import calls
+        from nodes import deliver
+        inbox = tempfile.mkdtemp()
+        place = tempfile.mkdtemp()
+        deliver.log(inbox, {"kind": "ask", "id": "a1", "status": "sent", "at": 1, "from": {"name": "段取り"},
+                            "to": {"company": "co", "name": "調べ", "path": place}, "file": "/無い"})
+        first = {"name": "co", "inbox": None, "departments": []}
+        second = {"name": "co", "inbox": inbox, "departments": [{"path": place}]}
+        calls.asks_of([first, second])
+        self.assertEqual(first["asks"], [])
+        (got,) = second["asks"]
+        self.assertEqual((got["id"], got["from"], got["to"], got["state"]), ("a1", "段取り", "調べ", "渡った"))
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [], "asks": second["asks"]}]))
+        self.assertIn("動いている頼み（台帳でまだ閉じていない物。1 件）:", line)
+        self.assertIn("    a1  ", line)
+
+
 class Attrs(unittest.TestCase):
     """部署の属性（git の worktree ごとの設定 company.*）と、.git/info/exclude。"""
 

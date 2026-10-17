@@ -160,6 +160,7 @@ def annotate(companies, settings, g):
                        "machine": r["machine"], "misses": misses.get((r["name"], t["name"]), 0)}
                       for r in shape["roles"].values() for t in r["tools"]]
         tree.contacts(c, shape)   # 受ける仕事ごとの宛て方と窓口
+        c["inbox"] = inbox
         for d in c["departments"]:
             here = g.git_dir(d["path"]) if inbox else None
             d["queue"] = len(wake.queued(inbox, here)) if here else 0
@@ -168,7 +169,34 @@ def annotate(companies, settings, g):
             d["held"] = wake.held(inbox, d["path"], here, d.get("attrs") or {}) if here and not d["stalled"] else None
             attrs = d.get("attrs") or {}
             d["no_talk_id"] = bool(attrs.get("role")) and not d.get("head_office") and not attrs.get("session")
+    asks_of(companies)
     return companies
+
+
+def asks_of(companies):
+    """会社ごとに、まだ閉じていない頼み（deliver.open_asks。頼み元と宛先の会社の台帳を足し合わせて見るので、会社をまたぐ頼みも
+    出る）を、宛先の会社の asks に足す。1 件は {id, at, from, to, state, title}。state は「順番待ち n 件目」か「渡った」。"""
+    inboxes = list(dict.fromkeys(c["inbox"] for c in companies if c.get("inbox")))
+    records = sorted((r for x in inboxes for r in deliver.records(x)), key=lambda r: r.get("at") or 0)
+    for c in companies:
+        c["asks"] = []
+    for r in deliver.open_asks(records):
+        to = r.get("to") or {}
+        # 同じ名前の会社（同じリポジトリの別の clone）が並ぶので、宛先の部署の場所を持つ会社を先に、無ければ名前の合う最初の会社
+        named = [c for c in companies if c["name"] == to.get("company")]
+        here = os.path.realpath(to["path"]) if to.get("path") else None
+        c = next((c for c in named if here and any(os.path.realpath(d["path"]) == here for d in c["departments"])),
+                 named[0] if named else None)
+        if c is None:
+            continue
+        item = wake.find(c["inbox"], r["id"]) if c.get("inbox") else None
+        if item:
+            line = [q.get("id") for q in wake.listed(os.path.dirname(item["path"]))]
+            state = f"順番待ち {line.index(r['id']) + 1} 件目" if r["id"] in line else "順番待ち"
+        else:
+            state = "渡った"
+        c["asks"].append({"id": r["id"], "at": r.get("at"), "from": (r.get("from") or {}).get("name"), "to": to.get("name"),
+                          "state": state, "title": deliver.ask_title(r.get("file"))})
 
 
 def fire(after, root, ports, a, task, attrs):

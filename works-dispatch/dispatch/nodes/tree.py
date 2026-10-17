@@ -25,6 +25,7 @@
 
 import os
 import pathlib
+import time
 import tomllib
 import urllib.parse
 
@@ -107,8 +108,8 @@ def head_note(root, g=gitx):
 
 
 def _blank(source=None, path=None, notes=()):
-    return {"source": source, "path": path, "text": None, "name": None, "description": None, "skills": [], "problems": [],
-            "notes": list(notes)}
+    return {"source": source, "path": path, "text": None, "name": None, "description": None, "desk": None, "skills": [],
+            "problems": [], "notes": list(notes)}
 
 
 def company_name(root, info):
@@ -154,6 +155,11 @@ def read_info(root, settings_dir, committed=committed_info):
             out[k] = raw[k]
         elif k in raw:
             out["problems"].append(f"{path}: {k} が文字列で無い")
+    desk = raw.get("desk")
+    if isinstance(desk, str) and desk.count("/") == 1 and all(desk.split("/")):
+        out["desk"] = desk   # ほかの会社の窓口が兼ねる（「会社/名前」）。本社に窓口が立っていないときの窓口
+    elif "desk" in raw:
+        out["problems"].append(f"{path}: desk は「会社/名前」の文字列で書く（ほかの会社の窓口が兼ねるとき）")
     out["skills"] = _skills(raw.get("skills", []), path, out["problems"])
     return out
 
@@ -249,7 +255,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
             })
         companies.append({"root": root, "name": company_name(root, info),
                           "info_source": info.get("source"), "info_path": info.get("path"),
-                          "description": info.get("description"), "skills": info.get("skills", []),
+                          "description": info.get("description"), "skills": info.get("skills", []), "desk_of": info.get("desk"),
                           "problems": info.get("problems", []), "departments": rows})
     return companies
 
@@ -273,6 +279,9 @@ def contacts(company, shape):
     head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
     company["desk"] = None if head is None else {"name": head["attrs"]["name"], "role": head["attrs"].get("role"),
                                                  "ask": f"--ask {plain}/{head['attrs']['name']}"}
+    if company["desk"] is None and company.get("desk_of"):
+        # 会社の形の頭の desk（「会社/名前」）: ほかの会社の窓口がこの会社の窓口を兼ねる（claude-plugins の窓口は my_notes の段取り）
+        company["desk"] = {"name": company["desk_of"], "role": None, "ask": f"--ask {company['desk_of']}"}
     return company
 
 
@@ -316,4 +325,10 @@ def lines(companies):
             if d.get("no_talk_id"):
                 fields.append("! 会話の id（company.session）が無い（窓の会話が落ちたとき、--ask か --nudge が会話の一覧の部署の場所の会話で戻して書き戻す）")
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
+        if c.get("asks"):
+            out.append(f"  動いている頼み（台帳でまだ閉じていない物。{len(c['asks'])} 件）:")
+            for a in c["asks"]:
+                stamp = time.strftime("%m-%d %H:%M", time.localtime(a["at"])) if a.get("at") else "-"
+                out.append(f"    {a['id']}  {stamp}  {a['from'] or '-'} → {a['to'] or '-'}  {a['state']}"
+                           + (f"  {a['title']}" if a.get("title") else ""))
     return out

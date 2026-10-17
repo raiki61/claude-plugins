@@ -238,6 +238,41 @@ def records(inbox):
         return []
 
 
+def open_asks(records):
+    """台帳の行（会社をまたいで足し合わせた物）から、まだ閉じていない頼みの並び（積んだ順）。頼みは kind ask の行（status が sent か
+    queued。同じ受付が回し直されたら後の行）。閉じたとみるのは、その受付への納品（kind deliver の ask か、頼み元の待ち受けへの
+    納品の知らせの id。--for の返しと、知らせられずに failed の物を除く）・回したことで閉じた（forwarded）・取り下げた（withdrawn）とき。"""
+    asks, closed = {}, set()
+    for r in records:
+        kind = r.get("kind")
+        if kind == "ask" and r.get("status") in ("sent", "queued") and r.get("id"):
+            asks.pop(r["id"], None)
+            asks[r["id"]] = r
+        elif kind == "deliver" and r.get("ask") and r.get("status") != "failed" and not r.get("for"):
+            closed.add(r["ask"])
+        elif kind == "deliver" and isinstance(r.get("to"), str) and r.get("id"):
+            closed.add(r["id"])   # 頼み元の待ち受けへの納品の知らせ（wake.notice。id が頼みの受付）
+        elif kind in ("forwarded", "withdrawn") and r.get("id"):
+            closed.add(r["id"])
+    return [r for i, r in asks.items() if i not in closed]
+
+
+# 頼みの本文の頭によく置く決まり文句（題にしない）
+BOILERPLATE = ("前提が違う", "段取りからの添え書き", "---")
+
+
+def ask_title(path, width=60):
+    """頼みの本文のファイルの題（回した側の添え書き〔「…が回した:」と区切りの ---〕の後の、最初の字の在る行の頭）。読めなければ None。"""
+    try:
+        lines = [x.strip() for x in pathlib.Path(path).read_text(encoding="utf-8").splitlines()]
+    except (OSError, UnicodeDecodeError, TypeError):
+        return None
+    if "---" in lines and any("回した" in x for x in lines[:lines.index("---")]):
+        lines = lines[lines.index("---") + 1:]
+    head = next((x.lstrip("# ") for x in lines if x and not x.startswith(BOILERPLATE)), None)
+    return head if head is None or len(head) <= width else head[:width] + "…"
+
+
 # ---- 要約の項目 ----
 
 def required_items(role):
