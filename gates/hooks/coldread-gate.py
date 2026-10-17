@@ -3178,6 +3178,25 @@ def _write_findings(session, body):
 # 対話と agent view の会話は cli、-p は sdk-cli)。無いか sdk で始まるときは待って読む側に倒す(読み落とすより待つ)。
 # hooks.json の Stop には同じ読みを 2 つの口(待つ docs-check と裏の docs-check-async)で置き、この見分けでどちらか
 # 片方だけが読む。サブエージェントの終わり(SubagentStop)は、指摘をその役に返して直させるので待って読む
+# 裏の読みの間に /clear が打たれると、読み終えた知らせは /clear の後の空の会話を起こす(公式の hooks の文書の asyncRewake は
+# 窓の会話を起こす)。受けた会話は書いたときの意図を持たないのに、自分が書いた物かが分からず、意図と照らせない推測の扱いに迷う
+# (2026-10-17 10:35 ごろに my_notes の本社で、前の会話が書いた 2 本の指摘を受けた会話が、意図を確かめずに作業役へ任せた)。
+# /clear で終わる会話は SessionEnd のフック(reason が clear)で覚え、その会話の分の知らせには、前の会話の id と、意図を
+# 確かめられない推測の扱いを書く
+DOC_CLEARED = os.path.join(DOC_DIR, "cleared")   # /clear で終わった会話の帳面
+
+
+def docs_session_end(payload):
+    """SessionEnd: /clear で終わった会話の id を覚える。"""
+    if payload.get("reason") == "clear" and payload.get("session_id"):
+        _note(DOC_CLEARED, [{"s": payload["session_id"], "t": time.time()}])
+
+
+def _cleared(session):
+    """この会話が /clear で終わっているか。"""
+    return any(r.get("s") == session for r in _ledger(DOC_CLEARED))
+
+
 def rewakes():
     """この会話の親の Stop を裏で読むか(対話の会話)。"""
     entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
@@ -3217,7 +3236,16 @@ def docs_check(payload, background=False):
             except OSError as exc:
                 where = None
                 log_line(DOC_LOG, "findings-unwritten\t%s\tsid=%s" % (type(exc).__name__, session[:8]))
-            if where:
+            if where and background and _cleared(session):
+                context = "\n\n".join(filter(None, ((
+                    "%sが、/clear で終わった前の会話(id %s)が書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。"
+                    "この会話が書いた物ではなく、書いたときの意図はこの会話に無い。全文は %s 。"
+                    "新しい作業役(サブエージェント)にこのファイルを渡して詰まりを直させ、全文をこの会話に読み込まない(詰まりは意図が無くても直せる)。"
+                    "推測で埋めた箇所は、文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、"
+                    "確かめられないものは直さずに残す(推測を別の推測で書き換えない)。"
+                    "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
+                    % (reader, session[:8], len(notes), counts["詰まり"], counts["補完"], where)), tail)))
+            elif where:
                 context = "\n\n".join(filter(None, ((
                     "%sが、%sで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
                     "新しい作業役(サブエージェント)にこのファイルを渡して直させ、全文をこの会話に読み込まない。"
@@ -3367,13 +3395,15 @@ def hook_main(mode):
         return
     if mode == "docs-record":
         docs_record(payload)
+    elif mode == "docs-session-end":
+        docs_session_end(payload)
     else:
         docs_check(payload, background=mode == "docs-check-async")
 
 
 if __name__ == "__main__":
     MODE = sys.argv[1] if len(sys.argv) > 1 else ""
-    if MODE in ("docs-record", "docs-check", "docs-check-async"):
+    if MODE in ("docs-record", "docs-check", "docs-check-async", "docs-session-end"):
         hook_main(MODE)
     elif MODE == "branch-check":
         sys.exit(branch_check(sys.argv[2:]))

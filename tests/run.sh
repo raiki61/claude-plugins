@@ -2704,6 +2704,14 @@ assert len(list(calls.iterdir())) == before + 1 and not (cfg / "coldread-gate/do
 touch("s5", 2)
 calm = raw("docs-check-async", {"session_id": "s5", "hook_event_name": "Stop"}, CLEAN, CLAUDE_CODE_ENTRYPOINT="cli")
 assert calm.returncode == 0 and calm.stderr == b"" and len(list(calls.iterdir())) == before + 2, "裏の口が CLEAN で会話を起こした"
+# /clear で終わった会話の分の知らせは、前の会話の id と、意図を確かめられない推測の扱いを書く(終わり方が clear でなければ今までどおり)
+run("docs-session-end", {"session_id": "s5", "hook_event_name": "SessionEnd", "reason": "other"})
+assert not (cfg / "coldread-gate/docs/cleared").exists(), "/clear でない終わりを覚えた"
+run("docs-session-end", {"session_id": "s5", "hook_event_name": "SessionEnd", "reason": "clear"})
+touch("s5", 9)
+gone = raw("docs-check-async", {"session_id": "s5", "hook_event_name": "Stop"}, FIND, CLAUDE_CODE_ENTRYPOINT="cli").stderr.decode("utf-8")
+assert "/clear で終わった前の会話(id s5)" in gone and "確かめられないものは直さずに残す" in gone and "この会話で見て" not in gone, gone
+assert "この会話で見て" in told and "/clear" not in told, "/clear の前でない会話の知らせが変わった"
 for entry in ("sdk-cli", None):
     touch("s6", 3 if entry else 4)
     env = {"CLAUDE_CODE_ENTRYPOINT": entry} if entry else {}
@@ -2759,6 +2767,8 @@ assert any(h["command"].endswith("coldread-gate.py\" docs-check-async") and h.ge
            and h.get("timeout", 0) > 2 * g.DOC_ASYNC_TIMEOUT for h in stop), stop
 sub = [h for grp in hooks.get("SubagentStop", []) if not grp.get("matcher") for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-check") for h in sub), f"サブエージェントの終わりに読む口が無い（matcher 無しで全部の作業役に効かせる）: {sub}"
+ends = [h for e in hooks["SessionEnd"] if e.get("matcher") == "clear" for h in e["hooks"]]
+assert any(h["command"].endswith("coldread-gate.py\" docs-session-end") for h in ends), f"/clear で終わる会話を覚える口が無い: {ends}"
 
 # 初見で読む観点の正本は 1 か所。skill の手順は依頼文を写して持たない
 skill = (root / "gates/skills/coldread/SKILL.md").read_text(encoding="utf-8")
