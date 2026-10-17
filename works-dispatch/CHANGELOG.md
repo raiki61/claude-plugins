@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.56.1] - 2026-10-17
+
 この版の要点: 本流に入れた決まりとフックが、代表の clone（会社の本社の作業場。窓口の会話が居る）にも遅れずに効くようにした。
 
 ### Fixed
