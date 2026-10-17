@@ -28,9 +28,16 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 前の回は無い（docs/standards/ はこの回に作った）。公式の検査（Claude Code 2.1.302）をリポジトリの根と 6 つのプラグインに当てて、次のずれを見つけた。
 
-- 1-1 plugin.json に author が無い（6 つとも。works・works-factory も同じ）。公式の検査が警告を出す。状態: 見つけた
-- 1-2 description を plugin.json と marketplace の項目の 2 か所に持ち、convergence-loops・gates・graphloops は中身が違う。利用者の画面に出るのは marketplace の項目の方なので、plugin.json の方を直しても画面は変わらない。状態: 見つけた
-- 1-3 README に入れ方の行が無い（attention・gates・graphloops）。公式の検査が助言を出す。状態: 見つけた
+- 1-1 plugin.json に author が無い（6 つとも。works・works-factory も同じ）。公式の検査が警告を出す。状態: 頼んだ（下の 4 件）
+- 1-2 description を plugin.json と marketplace の項目の 2 か所に持ち、convergence-loops・gates・graphloops は中身が違う。利用者の画面に出るのは marketplace の項目の方なので、plugin.json の方を直しても画面は変わらない。状態: 頼んだ（下の 4 件）
+- 1-3 README に入れ方の行が無い（attention・gates・graphloops）。公式の検査が助言を出す。状態: 頼んだ（下の 4 件）
+
+頼んだ受付（1-1〜1-3 をまとめて、受け持ちのプラグインごとに）:
+
+- 見渡し（attention）: 20261017-070336-504bb8
+- 見直し（convergence-loops・graphloops）: 20261017-070354-0f5cbe
+- 割り振り（tiers・works-dispatch）: 20261017-070325-80831b
+- 点検（gates と、決まり 2〜4 を根の tests/ で見る検査。検査はほかの 3 件が本流に入ってから）: 20261017-070322-aabbb8
 
 見送ったずれ:
 
