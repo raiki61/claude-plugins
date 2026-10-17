@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-10-17
+
 ### Fixed
 
 - 裏の会話（`claude --bg`）で、サイドバーの作業内容（`$act`）が別の会話の窓に付き、`--ask` が別の窓を頼み元の窓（`company.boss-pane`。待ち受けの居ない頼み元へ納品を打ち込む先）と記録しうるのを直した。どちらも環境変数 `HERDR_PANE_ID`（裏の会話は前もって起こした控えの処理の値を継ぎ、別のペインを指すことがある）をやめ、会話の id か場所で herdr のペインを引く。Claude Code の外から打った `--ask` は、頼み元の窓を記録しない。
