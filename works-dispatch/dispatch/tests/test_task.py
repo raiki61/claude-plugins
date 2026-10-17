@@ -117,8 +117,10 @@ class Task(unittest.TestCase):
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
         # 部署が本流を知った位置（枝を作ったときの origin の本流）も書く（--land の書き換えの取り合いの関門が使う）
+        # 起こしたときの会社の形の model・effort も書く（毎回空にする部署の待ち受けが、今の値と比べる）
         self.assertEqual(gitx.worktree_attrs(path), {"role": "作業", "residency": "per-task", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "job": "bg0", "config": self.cfg,
+                                                     "launched": '{"effort": null, "model": null}',
                                                      "base": git("-C", src, "rev-parse", "refs/remotes/origin/main")})
         self.assertEqual(gitx.worktree_attrs(src), {})
         # 元の clone の .git/info/exclude に、部署の会話が書く許可の記録だけが入る（.claude/ を丸ごと隠すと、.claude/ の下に
@@ -188,6 +190,9 @@ class Task(unittest.TestCase):
         # 起こすときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
         [command] = self.sent(ports)
         self.assertRegex(command, r'--model "?haiku\b')   # POSIX でない殻（Windows）では語を "…" で囲む
+        # 起こしたときの model・effort を属性に残す（毎回空にする部署の待ち受けが、会社の形の今の値と比べる）
+        launched = gitx.worktree_attrs(self.place(ports))["launched"]
+        self.assertEqual(json.loads(launched), {"model": "haiku", "effort": None})
 
     def test_dry_run_reads_the_shape_without_fetching(self):
         src = gitx_source(self.cfg)

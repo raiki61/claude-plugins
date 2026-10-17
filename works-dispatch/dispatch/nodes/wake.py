@@ -41,6 +41,9 @@ REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で�
 FINISHED = "finished"   # 都度の部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
                         # 会話の id。番の終わりの待ち受けが印を外して --retire を裏で走らせる。人の文で番が始まると外れる
 RETIRE_KEPT = "retire-kept"   # 部署の属性: --retire が片付けずに残した訳（--clean の一覧に出す）
+LAUNCHED = "launched"   # 部署の属性: 起こしたときの会社の形の model・effort（role.launch_key の字。--task が書く）
+RESTARTING = "restarting"   # 部署の属性: 待ち受けが --move --if-changed を走らせている間、その会話の id（--move が前の会話を止めたら外す）
+RESTART_KEPT = "restart-kept"   # 部署の属性: 起こし直さずに残した今の値（role.launch_key の字）。同じ値では起こし直しを試し直さない
 
 
 def address(company, name):

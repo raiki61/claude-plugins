@@ -12,7 +12,8 @@ from . import test_deliver
 import dispatch
 import gitx
 import limit_hook
-from nodes import deliver, provision
+import move
+from nodes import deliver, provision, role, wake
 
 
 class Move(unittest.TestCase):
@@ -89,6 +90,53 @@ class Move(unittest.TestCase):
         rc, out = self.main(self.src, "--move", "調べ", "--account", "a9")
         self.assertEqual(rc, 2, out)
         self.assertIn("accounts に無い", out)
+
+    def changed_world(self, launched):
+        # 毎回空にする部署。会社の形の model は opus、起こしたときは launched
+        test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\nmodel = "opus"\n')
+        provision.mark(self.place, self.src, {"residency": "resident", "fresh": role.FRESH, "ask": "q1", "delivered": "q1",
+                                              "boss": "desk", "boss-inbox": self.inbox, "job": "d", "launched": launched,
+                                              wake.RESTARTING: "s-dept"}, gitx)
+
+    def test_if_changed_restarts_a_fresh_department_on_the_same_account_when_the_model_changed(self):
+        self.changed_world(role.launch_key(None))
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, [("c1", "d")])
+        (got,) = seen
+        self.assertEqual(got["ns"].only_account, "a1")   # 空きがあれば同じアカウントで
+        self.assertIn("会社の形の model・effort が替わった", got["brief"])
+        self.assertIn("受けている頼みは無い", got["brief"])
+        self.assertIsNone(got["tail"])
+        # 前の会話を止めたら待ち受けの印を外す。起こし直した会話は空なので、空にした印も書く
+        self.assertNotIn(wake.RESTARTING, got["attrs"])
+        self.assertEqual(got["attrs"]["cleared"], "q1")
+        (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual((moved["from"], moved["to"], moved["why"]), ("a1", "a1", move.CHANGED))
+
+    def test_if_changed_keeps_the_talk_when_the_values_are_the_same_or_it_carries_its_talk(self):
+        self.changed_world(role.launch_key({"model": "opus"}))
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("起こし直さない", out)
+            # 印は待ち受けが外す（止めなかったと見て、前の会話に頼みを渡す）
+            self.assertEqual(gitx.worktree_attrs(self.place)[wake.RESTARTING], "s-dept")
+            # 空いたアカウントが無ければ起こし直さない（上限のアカウントで起こすと、前の会話だけが止まる）
+            full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+            self.ports.limits_seq = [{"a1": full, "a2": full}]
+            provision.mark(self.place, self.src, {"launched": role.launch_key(None)}, gitx)
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("使用率が上限に届かないアカウントが無い", out)
+            provision.mark(self.place, self.src, {"fresh": None}, gitx)
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("毎回空にする部署でない", out)
+        self.assertEqual((seen, self.stopped), ([], []))
 
     def test_the_desk_exits_and_starts_again_named_in_the_same_pane(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)

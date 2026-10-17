@@ -208,6 +208,14 @@ class ModelAndEffort(unittest.TestCase):
         self.assertEqual((model, effort), ("opus", None))
         self.assertIn("CLAUDE_EFFORT が無い", note)
 
+    def test_launch_key_keeps_inherit_unresolved_and_takes_the_duty_first(self):
+        # 毎回空にする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起こし直さない）
+        r = {"name": "担当", "model": "opus", "effort": "inherit"}
+        self.assertEqual(json.loads(role.launch_key(r)), {"model": "opus", "effort": "inherit"})
+        self.assertEqual(json.loads(role.launch_key(r, {"name": "割り振り", "model": "sonnet", "effort": None})),
+                         {"model": "sonnet", "effort": "inherit"})
+        self.assertEqual(json.loads(role.launch_key(None)), {"model": None, "effort": None})
+
     def test_launch_flags_take_the_duty_before_the_role(self):
         # 決める順は欄ごとに、部署（受け持ち）・役・アカウントの既定。受け持ちに無い欄は役の値
         r = {"name": "担当", "model": "opus", "effort": "max"}

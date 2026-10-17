@@ -11,6 +11,8 @@
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
   順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
+  毎回空にする部署は、次の頼みを渡す前に、会社の形の model・effort が起こしたとき（属性 company.launched）と違えば、
+  dispatch.py --move <部署> --if-changed で起こし直す（/clear は起こしたときの --model・--effort を残すため。restart_due）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
   終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じ番の中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
   そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
@@ -145,6 +147,8 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
 RETIRES = "retires"   # 受付箱の下の、--retire を走らせた出力の置き場
+MOVES = "moves"   # 受付箱の下の、--move を走らせた出力の置き場（limit_hook.py と同じ）
+NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起こした）は、旗なしで起こしたと見る
 
 
 def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
@@ -177,9 +181,58 @@ def must_clear(payload, attrs):
     return not (payload.get("hook_event_name") == "SessionStart" and payload.get("source") in EMPTY_STARTS)
 
 
+def restart_due(got, payload, attrs, key_of=role_hook.launch_key):
+    """毎回空にする部署が次の頼みを受ける前に、起こし直すか。起こし直すなら会社の形の今の値（role.launch_key の字）、ほかは None。
+    /clear は起こしたときの --model・--effort を残すので、会社の形の model・effort を替えたら、空にするのでなく起こし直す（6bdc72）。
+    裏の処理が残る・順番待ちが空・今の値が起こしたとき（company.launched）か、前に起こし直さなかった値（company.restart-kept）と
+    同じ・会社の形を読めない・この会話の起こし直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
+    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）ときは起こし直さない。"""
+    if (attrs.get("fresh") != role.FRESH or payload.get("background_tasks") or not (attrs.get("job") or attrs.get("session"))
+            or attrs.get(wake.RESTARTING) == got["session"] or not wake.queued(got["inbox"], got["place"])):
+        return None
+    try:
+        key = key_of(got["cwd"], attrs)
+    except Exception:  # 会社の形を読めなくても、頼みは渡す
+        return None
+    return None if key is None or key in (attrs.get(wake.LAUNCHED) or NO_FLAGS, attrs.get(wake.RESTART_KEPT)) else key
+
+
+def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid):
+    """dispatch.py --move <会社/部署> --if-changed を会話から切り離して走らせ、終わるまで待つ。--move がこの会話を止めて起こし直したら
+    True（新しい会話の待ち受けが頼みを渡す）。止めずに終わったら（起こし直さない・起こせない）、印を外して今の値を
+    company.restart-kept に残し、False（この会話に頼みを渡す。前の model・effort のまま受ける）。待つ間も印の更新の時刻を進め、
+    会話の処理が替わる（止められた）か待ち受けが替わったら True。"""
+    attrs = gitx.worktree_attrs(got["cwd"])
+    name = attrs["name"]
+    argv = ([sys.executable, DISPATCH_PY, "--move", f"{got['company']}/{name}", "--if-changed"]
+            + (["--config", attrs["config"]] if attrs.get("config") else []))
+    out = os.path.join(got["inbox"], MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
+    provision.mark(got["cwd"], got["root"], {wake.RESTARTING: got["session"]}, gitx)
+    token = (wake.read_mark(got["inbox"], got["place"]) or {}).get("token")
+    try:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            proc = spawn(argv, cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+    except OSError:
+        proc = None
+    while proc is not None and proc.poll() is None:
+        if parent() != got["owner"] or (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != token:
+            return True
+        try:
+            os.utime(wake.mark_path(got["inbox"], got["place"]))
+        except OSError:
+            pass
+        pause(wake.POLL)
+    if not gitx.worktree_attrs(got["cwd"]).get(wake.RESTARTING):
+        return True   # --move が前の会話を止めた
+    provision.mark(got["cwd"], got["root"], {wake.RESTARTING: None, wake.RESTART_KEPT: key}, gitx)
+    return False
+
+
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
-            spawn=subprocess.Popen):
-    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。"""
+            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key):
+    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。
+    restart は起こし直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。"""
     # fresh の部署を空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。順番待ちに
     # 次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--take で回せる）
     told = set()
@@ -204,6 +257,9 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
             return wake.HOLD
         if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me):
             return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
+        key = restart_due(got, payload, attrs, key_of)
+        if key and restart(got, key):
+            return "end", None   # 会社の形の model・effort が替わったので起こし直した。起こし直した会話の待ち受けが、次を渡す
         item = wake.take(got["inbox"], got["place"])
         if item is None:
             return None

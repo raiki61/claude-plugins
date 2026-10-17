@@ -241,14 +241,26 @@ def pick(shape, name, explicit):
     return got, None
 
 
+def launch_spec(role, duty=None):
+    """会社の形が決める (model, effort)。effort の inherit は解かずにそのまま（launch_flags が呼んだ会話の値に解く）。"""
+    duty = duty or {}
+    return duty.get("model") or (role or {}).get("model"), duty.get("effort") or (role or {}).get("effort")
+
+
+def launch_key(role, duty=None):
+    """部署の属性 company.launched に書く字（起こしたときの launch_spec）。毎回空にする部署の待ち受けが、会社の形の今の値と比べ、
+    違えば頼みを渡す前に起こし直す（--move --if-changed）。"""
+    model, effort = launch_spec(role, duty)
+    return json.dumps({"model": model, "effort": effort}, ensure_ascii=False, sort_keys=True)
+
+
 def launch_flags(role, env, duty=None):
     """部署を起こすときの (--model の値, --effort の値, 注記)。値が None なら旗を付けない（アカウントの既定のまま）。
     決める順は欄ごとに、部署（duty。部署の名前と同じ name の受け持ち [[skills]] の項目）の値、役の値、アカウントの既定。
     役を 1 つ（担当）にして受け持ちを部署の名前で引くので、部署ごとに替えるなら受け持ちに書く。
     effort が inherit なら、呼んだ会話の今の effort（env の CLAUDE_EFFORT）。読めなければ旗を付けず、注記にする（止めない）。"""
     duty = duty or {}
-    model = duty.get("model") or (role or {}).get("model")
-    effort = duty.get("effort") or (role or {}).get("effort")
+    model, effort = launch_spec(role, duty)
     if effort != INHERIT:
         return model, effort, None
     if env.get("CLAUDE_EFFORT"):

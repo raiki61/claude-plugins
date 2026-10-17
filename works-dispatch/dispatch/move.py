@@ -15,6 +15,15 @@
 
 --if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達していなければ
 （一時の混み合いの rate_limit）、移さずに終わる。移したことは会社の受付箱の台帳に kind moved で残す。
+
+--if-changed は、毎回空にする部署（役が fresh）の待ち受け（wake_hook.py）が、次の頼みを渡す前に付ける（6bdc72）。/clear は会話を
+空にしても起こしたときの --model・--effort を残すので、会社の形の model・effort を替えても、立っている部署には起こし直すまで効かない。
+会話の中で /model を打つと、そのアカウントの新しい会話の既定まで替わる（持ち主の会話にも効く）ので打たない。会社の形の今の値
+（role.launch_key。origin の既定の枝を取り直してから読む）が、起こしたときの値（属性 company.launched）と違えば起こし直す。
+アカウントは、今のアカウントの使用率が上限に届かなければ同じアカウント、届けば空いているほかの物。どれも無ければ起こし直さない。
+会話を持ち越す部署と本社の窓口は起こし直さない（持ち主と話す会話の流れを切らない）。前の会話を止めたら、待ち受けが付けた印
+（属性 company.restarting）を外す。待ち受けは --if-changed が終わるのを待ち、印が残っていれば（前の会話を止めずに終わった）、
+頼みを前の会話に渡す（wake_hook.restart_first）。
 """
 
 import argparse
@@ -28,10 +37,13 @@ import config  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 import orders  # noqa: E402
-from nodes import accounts, deliver, launch, provision, role  # noqa: E402
+import role_hook  # noqa: E402
+from nodes import accounts, deliver, launch, provision, role, wake  # noqa: E402
 
 RESIDENT = "resident"
 LIMITED = "使用上限に当たった"   # 台帳の why（--if-limited で移したとき）
+CHANGED = "会社の形の model・effort が替わった"   # 台帳の why（--if-changed で起こし直したとき）
+NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起こした）は、旗なしで起こしたと見る
 # 起こし直しても残す頼み元の属性（--task が呼んだ会話で書き直す物）
 KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 # 前の裏の会話が止まったのを会話の一覧で見る回数（1 回ごとに ports.pause）
@@ -54,6 +66,8 @@ def move(a, ports, cwd, task):
     if dept is None:
         print("\n".join(notes + [f"止めた: 「{a.move}」という部署も窓口も無い（起こし直すのは立っている部署か、--desk で名付けた窓口）"]))
         return 2
+    if a.if_changed:
+        return _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes)
     if cfg is None:
         print("\n".join(notes + ["止めた: 起こし直すには、読める dispatch の設定が要る（アカウントと使用率の上限を読む）"]))
         return 2
@@ -88,6 +102,13 @@ def move(a, ports, cwd, task):
     if a.dry_run:
         print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {old or '-'} から {chosen} へ起こし直す（{why}）"]))
         return 0
+    return _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes)
+
+
+def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes):
+    """前の会話を止めて、アカウント chosen で起こし直し、台帳に kind moved で残す。終了の値。"""
+    attrs = dept["attrs"]
+    old = attrs.get("account")
     acc = {x.name: x for x in cfg.accounts}
     text = _first_text(attrs, dept, old, chosen, why, head)
     if head:
@@ -97,9 +118,52 @@ def move(a, ports, cwd, task):
     inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
     deliver.log(inbox, {"kind": "moved", "at": ports.now(), "name": attrs.get("name"), "path": dept["path"], "from": old,
                         "to": chosen, "why": why, "status": "done" if rc == 0 else "failed", "detail": said})
+    where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
     print("\n".join(notes + [f"{'窓口' if head else '部署'} {where}: アカウント {old or '-'} → {chosen}  "
                              + ("起こし直した" if rc == 0 else "起こし直せなかった") + (f"（{said}）" if said else "")]))
     return rc
+
+
+def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
+    """--if-changed。毎回空にする部署を、会社の形の model・effort が起こしたときと違えば起こし直す。終了の値。"""
+    attrs = dept["attrs"]
+    where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
+    if a.if_limited or a.account:
+        print("止めた: --if-changed は --if-limited・--account と一緒に使わない（アカウントは今の物を先に選ぶ）")
+        return 2
+    if dept.get("head_office") or attrs.get("fresh") != role.FRESH:
+        print("\n".join(notes + [f"止めた: {where} は毎回空にする部署でない（会話を持ち越す部署と窓口は、話の流れを切らないよう"
+                                 "起こし直さない）"]))
+        return 2
+    if cfg is None:
+        print("\n".join(notes + ["止めた: 起こし直すには、読める dispatch の設定が要る（アカウントと使用率の上限を読む）"]))
+        return 2
+    if not a.dry_run:
+        notes = notes + [n for n in [provision.refresh_shape(company["root"], ports.git)] if n]
+    now_key = role_hook.launch_key(dept["path"], attrs, ports.env)
+    if now_key is None:
+        print("\n".join(notes + [f"起こし直さない: {where} の会社の形を読めない（役が無いか、読めない所がある）"]))
+        return 0
+    if now_key == (attrs.get(wake.LAUNCHED) or NO_FLAGS):
+        print("\n".join(notes + [f"起こし直さない: {where} の model・effort は起こしたときと同じ（{now_key}）"]))
+        return 0
+    old = attrs.get("account")
+    metered = [x.name for x in cfg.accounts if x.limits]
+    if not a.dry_run:
+        ports.refresh_limits(cfg, metered)
+    ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
+                           accounts.count_running(sessions_), cfg.reset_soon_hours)
+    roomy = [r["name"] for r in ranked if r["eligible"]]
+    if not roomy:
+        # 上限に達したアカウントで起こすと、--task が起こさずに終わり、前の会話だけが止まる。前の会話に渡させる
+        print("\n".join(notes + [f"起こし直さない: 使用率が上限に届かないアカウントが無い（{where} は前の model・effort のまま受ける）"]))
+        return 0
+    chosen = old if old in roomy else roomy[0]
+    if a.dry_run:
+        print("\n".join(notes + [f"部署 {where} をアカウント {chosen} で起こし直す（{CHANGED}: "
+                                 f"{attrs.get(wake.LAUNCHED) or NO_FLAGS} → {now_key}）"]))
+        return 0
+    return _relaunch(a, ports, task, cfg, company, dept, chosen, CHANGED, False, settings, notes)
 
 
 def _first_text(attrs, dept, old, chosen, why, head):
@@ -108,6 +172,7 @@ def _first_text(attrs, dept, old, chosen, why, head):
     pending = ask and attrs.get("delivered") != ask
     file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md") if pending else None
     head_line = (f"前の会話（アカウント {old or '-'}）が使用上限に当たったので、アカウント {chosen} で起こし直した。" if why == LIMITED else
+                 f"{CHANGED}ので、アカウント {chosen} で起こし直した。" if why == CHANGED else
                  f"前の会話（アカウント {old or '-'}）を、アカウント {chosen} へ移して起こし直した（--move）。") + "前の会話の記憶は引き継いでいない。"
     if head:
         head_line += (f" まず、この会話の中から works-dispatch の --desk {attrs.get('name') or ''} を打って、窓口の席をこの会話に移す。"
@@ -140,10 +205,14 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
                 break
             ports.pause()
     # 新しい会話の待ち受けが、前の会話の id を見て待たないことの無いよう、会話の id を消してから起こす（--task が新しい id を書く）
-    provision.mark(dept["path"], company["root"], {"session": None, "job": None}, ports.git)
+    # 前の会話は止まったので、--if-changed の待ち受けの印も外す（新しい会話の待ち受けがすぐ渡す）。毎回空にする部署で頼みを納品し
+    # 終えていれば、空にした印も書く（起こし直した会話は空なので、最初の文の番の終わりに /clear を打たない）
+    ask = attrs.get("ask")
+    done = ask and attrs.get("delivered") == ask and attrs.get("fresh") == role.FRESH
+    provision.mark(dept["path"], company["root"], {"session": None, "job": None, wake.RESTARTING: None, wake.RESTART_KEPT: None,
+                                                   **({"cleared": ask} if done else {})}, ports.git)
     brief = os.path.join(ports.git.git_dir(dept["path"]), "move-brief.md")
     pathlib.Path(brief).write_text(text + "\n", encoding="utf-8")
-    ask = attrs.get("ask")
     pending = ask and attrs.get("delivered") != ask
     the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
     tail = deliver.tail(deliver.required_items(the_role), orders.RUN) if pending else None

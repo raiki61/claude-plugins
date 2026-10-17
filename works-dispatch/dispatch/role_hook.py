@@ -117,6 +117,20 @@ def _shape_at(cwd, attrs, env):
     return root, info, role.load(info["path"], info["text"])
 
 
+def launch_key(cwd, attrs, env=os.environ):
+    """その場所の部署を今起こすなら属性 company.launched に書く字（role.launch_key）。会社の形を読めない・役が無いときは None
+    （読めないのを「model・effort を外した」と取り違えて起こし直さない）。"""
+    got = attrs.get("role") and _shape_at(cwd, attrs, env)
+    if not got:
+        return None
+    _, info, shape = got
+    the_role = shape["roles"].get(role.current(shape, attrs["role"]))
+    if the_role is None or shape["problems"] or info.get("problems"):
+        return None
+    duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
+    return role.launch_key(the_role, duty)
+
+
 def rename_role(cwd, attrs, env=os.environ):
     """属性 company.role が役の前の名前（former_names）なら、今の名前に書き直す。書いたら今の名前、書かなければ None。"""
     if not attrs.get("role"):

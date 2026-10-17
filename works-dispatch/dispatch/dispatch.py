@@ -627,6 +627,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--account", help="--move と一緒に: 移る先のアカウントの名")
     ap.add_argument("--if-limited", action="store_true",
                     help="--move と一緒に: 今のアカウントの使用率が上限に達しているときだけ移す（上限で止まったときのフックが付ける）")
+    ap.add_argument("--if-changed", action="store_true",
+                    help="--move と一緒に: 毎回空にする部署を、会社の形の model・effort が起こしたときと違うときだけ起こし直す"
+                    "（今のアカウントに空きがあれば同じアカウントで。頼みを渡す前の待ち受けが付ける）")
     ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）")
     ap.add_argument("--first", metavar="受付", help="順番待ちの 1 件を、その順番待ちの先頭に回す（急ぐ物を先にする。台帳に残す）")
     ap.add_argument("--note", metavar="受付", help="受付の頼みに、変更・足し・取り下げを届ける（--text か --brief。部署が番の途中でも、"
@@ -677,8 +680,8 @@ def main(argv=None, ports=None):
         return starts.start_now(a, ports, os.getcwd(), _task) if a.start is not None else starts.due_all(a, ports, _task)
     if a.move is not None:
         return move.move(a, ports, os.getcwd(), _task)
-    if (a.account or a.if_limited) and a.move is None:
-        print("止めた: --account と --if-limited は --move と一緒にだけ使う")
+    if (a.account or a.if_limited or a.if_changed) and a.move is None:
+        print("止めた: --account・--if-limited・--if-changed は --move と一緒にだけ使う")
         return 2
     if a.forward and (a.ask is None or a.take is not None):
         print("止めた: --forward は --ask と一緒にだけ使う（--take --ask は受付番号と頼み元をそのまま回すので要らない）")
@@ -1172,7 +1175,9 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
              "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
              # 既定の置き場でない dispatch の設定を使ったときだけ、その場所（役を足すフックが、設定の置き場の会社の形を探すため）
-             "config": None if cfg_path == config.path_of(None, {}) else cfg_path, **{k: v for k, v in (extra_attrs or {}).items() if v}}
+             "config": None if cfg_path == config.path_of(None, {}) else cfg_path,
+             # 起こしたときの会社の形の model・effort（毎回空にする部署の待ち受けが、今の値と比べて起こし直すかを決める）
+             wake.LAUNCHED: role.launch_key(the_role, duty), **{k: v for k, v in (extra_attrs or {}).items() if v}}
     route = ("納品の命令で頼み元の窓へ" if tail else f"SendMessage で「{caller['name']}」へ"
              if caller["name"] and caller["account"] == account else "区切りで画面に書いて止まる")
     if a.dry_run:

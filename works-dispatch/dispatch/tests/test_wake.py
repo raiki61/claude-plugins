@@ -319,6 +319,68 @@ class Hook(unittest.TestCase):
             self.assertEqual(check(), ("end", None))
         self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
 
+    def fresh_dept(self, **more):
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
+                                              "fresh": role.FRESH, "job": "j1", **more}, gitx)
+        return gitx.worktree_attrs(self.place)
+
+    def test_fresh_department_restarts_before_the_next_ask_when_the_shape_changed_its_model(self):
+        # /clear は起こしたときの --model・--effort を残すので、会社の形の値が起こしたときと違えば起こし直す（6bdc72）
+        opus = role.launch_key({"model": "opus"})
+        attrs = self.fresh_dept(launched=role.launch_key(None))
+        got = self.plan()
+        stop = {"hook_event_name": "Stop"}
+        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus))   # 渡す頼みが無い
+        self.put("a1")
+        self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus), opus)
+        for payload, attrs_, key in ((stop, attrs, role.launch_key(None)),   # 起こしたときと同じ
+                                     (stop, {**attrs, wake.RESTART_KEPT: opus}, opus),   # 前に起こし直さなかった値
+                                     (stop, attrs, None),   # 会社の形を読めない
+                                     ({**stop, "background_tasks": [{"id": "b"}]}, attrs, opus),
+                                     (stop, {**attrs, "fresh": None}, opus),   # 会話を持ち越す部署
+                                     (stop, {**attrs, wake.RESTARTING: got["session"]}, opus)):   # この会話の起こし直しが走っている
+            self.assertIsNone(wake_hook.restart_due(got, payload, attrs_, key_of=lambda cwd, a: key))
+        # 前の会話の id の印は残り物（/clear の後）。起こし直してよい
+        self.assertEqual(wake_hook.restart_due(got, stop, {**attrs, wake.RESTARTING: "old"}, key_of=lambda cwd, a: opus), opus)
+        # 属性の無い部署（この版より前に起こした）は旗なしで起こしたと見る
+        self.assertIsNone(wake_hook.restart_due(got, stop, {**attrs, "launched": None}, key_of=lambda cwd, a: role.launch_key(None)))
+        tried = []
+        check = wake_hook.checker(got, stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: opus)
+        self.assertEqual(check(), ("end", None))   # 起こし直した会話の待ち受けが渡す
+        self.assertEqual(tried, [opus])
+        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)
+        check = wake_hook.checker(got, stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: False, key_of=lambda cwd, a: opus)
+        self.assertEqual(check(), ("wake", "頼みです（受付 a1）"))   # 起こし直せなければ、前の会話に渡す
+
+    def test_restart_first_waits_for_the_move_and_hands_the_ask_back_when_the_talk_was_not_stopped(self):
+        opus = role.launch_key({"model": "opus"})
+        self.fresh_dept()
+        got = self.plan(sid="j1")
+        seen = []
+
+        class Done:
+            def poll(self):
+                return 0
+
+        def spawn(argv, **kw):
+            seen.append((argv, kw["cwd"]))
+            self.assertEqual(gitx.worktree_attrs(self.place)[wake.RESTARTING], "j1")   # 走らせる前に印を付ける
+            return Done()
+        self.assertFalse(wake_hook.restart_first(got, opus, spawn=spawn, now=lambda: 5))
+        (argv, cwd), = seen
+        self.assertEqual(argv[2:], ["--move", "co/調べ", "--if-changed"])
+        self.assertEqual(cwd, self.place)
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertNotIn(wake.RESTARTING, attrs)
+        self.assertEqual(attrs[wake.RESTART_KEPT], opus)   # 同じ値では試し直さない
+
+        def stopped(argv, **kw):   # --move が前の会話を止めて印を外した
+            provision.mark(self.place, self.src, {wake.RESTARTING: None}, gitx)
+            return Done()
+        self.assertTrue(wake_hook.restart_first(got, opus, spawn=stopped, now=lambda: 5))
+
     def test_fresh_department_is_not_cleared_while_busy_typed_or_waiting_on_background_work(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH}, gitx)
