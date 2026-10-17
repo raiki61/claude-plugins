@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-10-17
+
 ### Fixed
 
 - `plugin.json` に作者（`author`）を書いた。Claude Code の公式の検査（`claude plugin validate`）の警告「No author information provided」が消える。
