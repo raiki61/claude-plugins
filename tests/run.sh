@@ -1887,6 +1887,80 @@ for t in sorted((root/"convergence-loops/templates").glob("round-*.example.json"
     assert "gh repo view" not in t.read_text(encoding="utf-8"), \
         f"{t.name} が手順書の禁じ手（gh repo view で owner/repo を確認）を実例として見せている"
 PY
+# 配る形の標準（docs/standards/plugin-manifest.md）の決まり 2〜4 を、公式の検査 `claude plugin validate .` と同じ形で見る。
+# 公式の検査は CI に無い（claude が無い）ので、警告「No author information provided」・項目と plugin.json の
+# 説明の食い違い（利用者の画面に出るのは項目の方。https://code.claude.com/docs/en/plugins/marketplace-reference#display-fields）・
+# README の入れ方の行の助言を、ここで止める。
+expect_output 0 "MANIFEST_STANDARD_OK" "配る形の標準: plugin.json に作者・説明と版は plugin.json の 1 か所・README に入れ方の 2 行" "$PY_BIN" - "$ROOT" <<'PY'
+import json, re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root = pathlib.Path(sys.argv[1])
+mk = json.loads((root/".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+owner = mk["owner"]["name"]
+REPO = "raiki61/claude-plugins"   # README で marketplace を足す行の宛先（標準の決まり 4 の例）
+# 標準の対象から外す物（docs/standards/README.md の「対象」）。works と works-factory は誰の受け持ちでもなく、直す担当がいない。
+EXEMPT = {"works", "works-factory"}
+
+def _entry_gap(entry):
+    """marketplace の項目が、説明か版を自分で持つ理由（無ければ None）。決まり 3。"""
+    held = [k for k in ("description", "version") if k in entry]
+    return f"項目が {'・'.join(held)} を持つ（plugin.json の 1 か所に書く）" if held else None
+def _author_gap(d, owner):
+    """plugin.json の作者の欠け（在れば None）。決まり 2。"""
+    a = d.get("author")
+    if not isinstance(a, dict) or not a.get("name"):
+        return "author.name が無い"
+    return None if a["name"] == owner else f"author.name が {a['name']!r}（marketplace の owner.name {owner!r} と揃える）"
+def _install_gap(name, mk_name, text):
+    """README の本文 text に、入れ方の 2 行の欠け（揃えば None）。/plugin の形とシェルの形の両方を認める。決まり 4。"""
+    lines = [
+        (r"marketplace を足す行", rf"(?:(?<![\w./-])/plugin|\bclaude\s+plugin)\s+marketplace\s+add\s+{re.escape(REPO)}(?![\w./-])"),
+        (f"{name}@{mk_name} で入れる行", rf"(?:(?<![\w./-])/plugin|\bclaude\s+plugin)\s+install\s+{re.escape(name)}@{re.escape(mk_name)}(?![\w.@-])"),
+    ]
+    miss = [what for what, pat in lines if not re.search(pat, text)]
+    return f"README に {'・'.join(miss)} が無い" if miss else None
+
+# **柵そのものを標本で測る**（違反が今 0 件でも、柵が生きていることを毎回踏む）
+assert _entry_gap({"name": "a", "description": "x"}) and _entry_gap({"name": "a", "version": "1.0.0"}), \
+    "配る形の柵が、項目の説明・版を拾えていない"
+assert _entry_gap({"name": "a", "source": "./a", "strict": False}) is None, "配る形の柵が、説明の無い項目まで拾っている"
+assert _author_gap({}, "o") and _author_gap({"author": "o"}, "o") and _author_gap({"author": {}}, "o") \
+    and _author_gap({"author": {"name": "x"}}, "o"), "配る形の柵が、作者の欠け・形の違い・別の名前を拾えていない"
+assert _author_gap({"author": {"name": "o", "email": "e"}}, "o") is None, "配る形の柵が、正しい作者まで拾っている"
+_ok_slash = f"```\n/plugin marketplace add {REPO}\n/plugin install g@m\n```\n"
+_ok_shell = f"1. 足す\n   claude plugin marketplace add {REPO}\n   claude  plugin install g@m\n"
+assert _install_gap("g", "m", _ok_slash) is None and _install_gap("g", "m", _ok_shell) is None, \
+    "配る形の柵が、/plugin の形かシェルの形の正しい入れ方まで拾っている"
+assert _install_gap("g", "m", "") and _install_gap("g", "m", "/plugin install g@m\n") \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\n") \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\n/plugin install gx@m\n") \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\n/plugin install g@mx\n") \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\n/plugin install h@m\n") \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}x\n/plugin install g@m\n") \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\nfoo/plugin install g@m\n"), \
+    "配る形の柵が、入れ方の行の欠け・別の名前・別の marketplace を拾えていない"
+
+listed = {p["name"]: p for p in mk["plugins"]}
+assert EXEMPT <= set(listed), f"外す物 {sorted(EXEMPT - set(listed))} が marketplace.json に無い（外す一覧から消す）"
+bad, checked = [], 0
+for name, entry in sorted(listed.items()):
+    sub = root/entry["source"]
+    d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    readme = sub/"README.md"
+    gaps = [g for g in (_entry_gap(entry), _author_gap(d, owner),
+                        _install_gap(name, mk["name"], readme.read_text(encoding="utf-8") if readme.is_file() else "")) if g]
+    if name in EXEMPT:
+        # 外した物が標準を満たしたら、外す一覧に残る理由が無い（残すと、後で崩れても見えない）
+        assert gaps, f"{name} は配る形の標準を満たしたので、外す一覧 EXEMPT から消す"
+        continue
+    checked += 1
+    bad += [f"{name}: {g}（docs/standards/plugin-manifest.md）" for g in gaps]
+assert not bad, "\n".join(bad)
+assert checked, "配る形の柵が 1 つのプラグインも見ていない"
+print("MANIFEST_STANDARD_OK", checked)
+PY
 
 # **中身を変えたら版も上げる。** marketplace の更新は plugin の version が変わった時だけ中身を取り直すので、中身だけ変えて版を
 # 据え置くと、利用者の手元は古い中身のまま残る（実測 2026-09-27: 検証器 scripts/review-record.py に関数を足したのに
@@ -2263,7 +2337,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=680
+EXPECTED_CHECKS=681
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
