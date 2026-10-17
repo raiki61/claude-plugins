@@ -496,6 +496,15 @@ class Flow(unittest.TestCase):
         self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "段取り")
         self.assertIn("段取り から）", self.prompts()[0][2])
 
+    def test_ask_from_the_desk_right_after_clear_names_the_asker_by_the_place(self):
+        # 窓口が /clear で会話を空にした直後は、会話の id が company.session と合わない。--desk が書いた処理（company.pid）の中から
+        # 頼んだなら、場所の名前を書く（会話の一覧の名前 my-notes-d7 で頼み元を書き続けた。my_notes の受付 20261017-054115-5bc0b0）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-before-clear", "pid": "4242"}, gitx)
+        self.ports.same_process = lambda pid: pid == "4242"
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "段取り")
+
     def test_ask_from_another_talk_in_the_head_office_keeps_the_talks_name(self):
         # 本社にはほかの会話も居る。--desk が書いた会話（company.session）でなければ、窓口の名前を名乗らない
         provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-other"}, gitx)

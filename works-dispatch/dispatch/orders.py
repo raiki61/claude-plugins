@@ -150,13 +150,15 @@ def place_name(here, sid, ports):
     """頼んだ場所の名前（属性 company.name）か None。窓口と部署の待ち受けはこの名前で宛先を受ける（wake_hook.plan）ので、頼み元の
     名前に会話の一覧の名前より先に使う（一覧の名前は替わりうる。段取りが会話の名前 my-notes-d7 で頼み、納品が待ち受けに届かず
     窓に打ち込まれた。my_notes の受付 20261017-032608-18b5f5）。本社（代表の clone）は持ち主のほかの会話も居るので、--desk が書いた
-    会話（company.session）が頼んだときだけ。"""
+    会話（company.session）か、その会話の処理（company.pid）の中から頼んだときだけ。窓口が /clear で会話を空にすると会話の id が
+    替わり、待ち受けが company.session を書き直すまでの間は id が合わない（その間の頼みが会話の一覧の名前 my-notes-d7 で頼み元を
+    書き、納品が窓に直に打ち込まれ続けた。my_notes の受付 20261017-054115-5bc0b0）ので、処理でも見る（wake_hook.plan と同じ見分け方）。"""
     attrs = ports.attrs(here)
     if not attrs.get("role") or not attrs.get("name"):
         return None
     place, common = ports.git.git_dir(here), ports.git.common_dir(here)
     desk = bool(place and common) and os.path.realpath(place) == os.path.realpath(common)
-    return attrs["name"] if not desk or (sid and attrs.get("session") == sid) else None
+    return attrs["name"] if not desk or (sid and attrs.get("session") == sid) or ports.same_process(attrs.get("pid")) else None
 
 
 def live_window(dept, ports):

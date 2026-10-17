@@ -448,6 +448,10 @@ class Ports:
         """そのアカウントの裏の会話を止める（--move が起こし直す前に）。(止まったか, claude の言葉)。"""
         return claudex.stop_session(config_dir, job, base_env=self.account_env)
 
+    def same_process(self, pid):
+        """その番号の処理が、この命令を走らせている処理の親をたどった中に在るか（claudex.in_process）。"""
+        return claudex.in_process(pid)
+
     def running_claude(self, pid):
         """その番号の処理が今動いている Claude Code か（--desk が、窓口の席に座っている会話が動いているかを見る）。"""
         return claudex.running_claude(pid)
