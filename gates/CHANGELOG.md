@@ -11,7 +11,7 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 ### Fixed
 
 - `plugin.json` に作者（`author`）を書いた。Claude Code の公式の検査（`claude plugin validate`）の警告「No author information provided」が消える。
-- 説明を marketplace の項目から外し、`plugin.json` の 1 か所にした。`/plugin` の画面に出る説明は、項目の文から `plugin.json` の文に替わる。`plugin.json` の文は、PR や issue の返信のときにスレッドの画面を読み手に渡すことまで書いてある。項目にだけ在った「逃げ道は無く、同じ投稿が 3 回止まったら持ち主に渡して止まる」は `plugin.json` へ移した。
+- 説明を marketplace の項目（リポジトリの根の `.claude-plugin/marketplace.json` に並ぶ、プラグインごとの欄）から外し、`plugin.json` の 1 か所にした。`/plugin` の画面に出る説明は、項目の文から `plugin.json` の文に替わる。`plugin.json` の文は項目の文より新しく、既に在る PR や issue へ返信するとき、フックが gh でそのスレッドの中身（題・本文・これまでの返信など）を取り、coldread の読み手に前提として渡すことまで書いてある。項目にだけ在った 2 点——エージェントが自分で検査を外す手段は無いこと、同じ投稿が 3 回止まったらエージェントは書き直しをやめて Claude Code を使っている人に渡すこと——は `plugin.json` へ移した。
 - README に入れ方の節（`/plugin marketplace add raiki61/claude-plugins` と `/plugin install gates@raiki61`）を足した。
 
 ## [0.22.0] - 2026-10-17
