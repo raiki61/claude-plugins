@@ -9,7 +9,8 @@
 - 部署（裏の会話。claude --bg）: 窓の attach の画面をシェルに戻し（launch.to_shell）、前の会話を claude stop で止め、--task と同じ道
   （dispatch._task）で同じ名前・枝・役の会話を、移る先のアカウントで起こす。頼み元の属性（company.boss など）はそのまま残す。
 - 本社の窓口（持ち主の前で動く会話。--desk で名付けた物）: 窓口の窓に /exit を打って前の会話を終え、同じペインで
-  `<移る先のコマンド> --name <窓口の名前> <最初の文>` を打つ。起きた会話は窓口の席に座り（前の会話が終わっていて、名前が窓口の名前なので、
+  `<移る先のコマンド> --name <窓口の名前> [--settings <役の設定のファイル>] <最初の文>` を打つ。窓口の役に起動の設定（会社の形の
+  [roles.settings]）が有れば、代表の clone の .git の場所に書いて --settings で渡す（--task が部署に渡すのと同じ設定。部署だけの鍵は重ねない）。起きた会話は窓口の席に座り（前の会話が終わっていて、名前が窓口の名前なので、
   会話の始まりのフックが役の本文を足す）、最初の文のとおり --desk を打って属性を自分に付け替える。
 
 --if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達していなければ
@@ -27,7 +28,7 @@ import config  # noqa: E402
 import gitx  # noqa: E402
 import herdr  # noqa: E402
 import orders  # noqa: E402
-from nodes import accounts, deliver, launch, provision  # noqa: E402
+from nodes import accounts, deliver, launch, provision, role  # noqa: E402
 
 RESIDENT = "resident"
 LIMITED = "使用上限に当たった"   # 台帳の why（--if-limited で移したとき）
@@ -90,7 +91,7 @@ def move(a, ports, cwd, task):
     acc = {x.name: x for x in cfg.accounts}
     text = _first_text(attrs, dept, old, chosen, why, head)
     if head:
-        rc, said = _move_desk(dept, acc[chosen], text, ports)
+        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings)
     else:
         rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, text, ports, task, settings)
     inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
@@ -154,14 +155,20 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
     return (0, None) if rc == 0 else (rc, "--task と同じ道で起こせなかった（上の出力を見る）")
 
 
-def _move_desk(dept, acc, text, ports):
-    """窓口の会話を /exit で終え、同じペインで移る先のアカウントの会話を窓口の名前で起こす。(終了の値, 言葉)。"""
+def _move_desk(company, dept, acc, text, ports, settings):
+    """窓口の会話を /exit で終え、同じペインで移る先のアカウントの会話を窓口の名前（と役の起動の設定）で起こす。(終了の値, 言葉)。"""
     attrs = dept["attrs"]
     sid = attrs.get("session")
     pane = next((p["pane_id"] for p in dept["panes"] if sid and p.get("agent_session") == sid), None)
     if pane is None:
         return 1, "窓口の会話の居るペインが分からない（属性の会話 company.session の居るペインが無い）"
+    the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
+    warn = None
+    try:
+        conf = role.write_desk_settings(ports.git.git_dir(company["root"]), the_role)
+    except (gitx.GitError, OSError, TypeError) as e:
+        conf, warn = None, f"役 {attrs.get('role')} の設定を書けなかったので、役の設定なしで起こした（{e}）"
     if not deliver.exit_talk(pane, ports.herdr, ports.pause):
         return 1, f"窓口の窓 {pane} に /exit を打ったが、シェルに戻らない"
-    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.herdr)
-    return (0, None) if got["status"] == "ready" else (1, got["detail"] or got["status"])
+    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.herdr, settings=conf)
+    return (0, warn) if got["status"] == "ready" else (1, got["detail"] or got["status"])

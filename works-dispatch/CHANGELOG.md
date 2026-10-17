@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- 本社の窓口の会話に、会社の形の窓口の役の起動の設定（`[roles.settings]`。要らないプラグインを切るなど）が届かなかったのを直した（今までは `--task` で立てる部署にだけ `--settings` で渡していた）。`--move` で窓口をほかのアカウントへ移すときは、役の設定を代表の clone の `.git/company-settings.json` に書いて `--settings` で渡す。`--desk` は同じファイルを書き、持ち主が手で窓口を起こすときの命令（`<アカウントのコマンド> --name <窓口の名前> --settings <ファイル>`）を出す。窓口には部署だけの鍵（`worktree.bgIsolation`）を重ねない。
+
 ## [0.43.1] - 2026-10-17
 
 ### Fixed

@@ -159,16 +159,17 @@ def to_shell(pane, h=herdr, pause=lambda: time.sleep(1), looks=SHELL_LOOKS):
     return False
 
 
-def start_named(command, pane, name, text, h=herdr, posix=None):
-    """前の会話（持ち主の前で動く会話。窓口など）を、そのペインのシェルで `<アカウントのコマンド> --name <名前> <最初の文>` で起こす。
-    {pane, status: ready|pane_busy|blocked|launch_failed, detail}。"""
+def start_named(command, pane, name, text, h=herdr, posix=None, settings=None):
+    """前の会話（持ち主の前で動く会話。窓口など）を、そのペインのシェルで `<アカウントのコマンド> --name <名前> [--settings <ファイル>]
+    <最初の文>` で起こす。settings は役の起動の設定のファイル（role.write_desk_settings）。{pane, status: ready|pane_busy|blocked|launch_failed, detail}。"""
     posix = os.name != "nt" if posix is None else posix
     result = {"pane": pane, "status": "launch_failed", "detail": None}
     try:
         if not h.shell_in_front(pane):
             result.update(status="pane_busy", detail=BUSY)
             return result
-        h.run(pane, f"{command} --name {_quote(name, posix)} {_quote(text, posix)}")
+        h.run(pane, f"{command} --name {_quote(name, posix)} "
+                    + (f"--settings {_quote(settings, posix)} " if settings else "") + _quote(text, posix))
         state = h.wait_ready(pane)
         seen = h.agent(pane)
     except h.HerdrError as e:

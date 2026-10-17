@@ -103,6 +103,21 @@ class Move(unittest.TestCase):
         self.assertEqual(writes[1][0], "run")
         self.assertRegex(writes[1][2], r"^claude-a2 --name '窓口' '.*--move.*--desk 窓口")
 
+    def test_the_desk_starts_again_with_the_settings_of_its_role(self):
+        # 窓口の役の [roles.settings] は、--task の部署と同じく --settings で渡す（部署だけの鍵 worktree.bgIsolation は重ねない）
+        test_deliver.Flow.shape(self, '[[roles]]\nname = "窓口"\n[roles.settings]\nenabledPlugins = { "works@m" = false }\n')
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1"}, gitx)
+        for p in self.ports.herdr._panes:
+            if p["pane_id"] == self.desk:
+                p["agent_session"] = {"value": "s-desk"}
+        self.ports.herdr.talking.add(self.desk)
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 0, out)
+        (run,) = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] == "run"]
+        path = os.path.join(gitx.git_dir(self.src), "company-settings.json")
+        self.assertRegex(run[2], r"^claude-a2 --name '窓口' --settings \S*company-settings.json '.*--desk 窓口")
+        self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
+
 
 class LimitHook(unittest.TestCase):
     Flow = test_deliver.Flow

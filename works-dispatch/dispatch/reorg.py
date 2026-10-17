@@ -13,6 +13,8 @@ desk_role、本社が今持つ役、DESK_ROLE の順に決め、名前を省け�
 どちらも、名前を替えたら前の名前を属性 company.former-names（JSON の並び）に足す。--land・--ask は前の名前でも部署を引く
 （gitx.former_names）。属性を書いた後に、その場所の分だけ --sync と同じ物（ペインの名前・表示名・題名・札と作業場の名前）を付け直す。
 会話の名前（Claude Code の /rename）は外から替える口が無いので替えず、会話の中で打つ /rename を出す。
+--desk は、窓口の役に起動の設定（会社の形の [roles.settings]）が有れば、代表の clone の .git の場所に書き、その設定で窓口の会話を
+起こす命令（`<アカウントのコマンド> --name <窓口の名前> --settings <ファイル>`）を出す。持ち主が手で起こす窓口に設定を届ける口。
 """
 
 import json
@@ -22,7 +24,7 @@ import config
 import gitx
 import herdr
 import orders
-from nodes import provision, role, sync, tree
+from nodes import launch, provision, role, sync, tree
 
 DESK_ROLE = "窓口"   # 会社の形に desk_role も本社の役も無いときの、本社の会話の役（持ち主 2026-10-16）
 
@@ -71,14 +73,14 @@ def _resync(a, ports, place, notes):
     return out or ["herdr の表示は付け直す物が無かった"]
 
 
-def _write(a, ports, place, source, before, changes, notes, head, talk_name=None):
-    """属性を書き、表示を付け直して報告する。終了の値。"""
+def _write(a, ports, place, source, before, changes, notes, head, talk_name=None, after=()):
+    """属性を書き、表示を付け直して報告する。after は報告の最後に足す行。終了の値。"""
     shown = [f"- company.{k}: {before.get(k) or '-'} → {v or '（消す）'}" for k, v in changes.items() if (before.get(k) or None) != v]
     if not shown:
-        print("\n".join(notes + [f"{head}: 付け替える物は無い（今の属性と同じ）"]))
+        print("\n".join(notes + [f"{head}: 付け替える物は無い（今の属性と同じ）"] + list(after)))
         return 0
     if a.dry_run:
-        print("\n".join(notes + [f"{head}（空打ち。何も書かない）:"] + shown))
+        print("\n".join(notes + [f"{head}（空打ち。何も書かない）:"] + shown + list(after)))
         return 0
     try:
         provision.mark(place, source, changes, ports.git)
@@ -92,8 +94,29 @@ def _write(a, ports, place, source, before, changes, notes, head, talk_name=None
     if name and name != talk_name:   # 会話の名前がもうその名前なら勧めない（claude --name 窓口 で起こした窓口など）
         out.append(f"会話の名前は dispatch からは替えられない（Claude Code に外から会話の名前を替える口が無い）。"
                    f"揃えるなら、その会話で /rename {name} を打つ")
-    print("\n".join(notes + out))
+    print("\n".join(notes + out + list(after)))
     return 0
+
+
+def _launch_line(a, ports, source, shape, the_role, name, command):
+    """窓口の役に起動の設定が有れば、それを代表の clone の .git の場所に書き（空打ちでは書かない）、その設定で窓口を起こす命令の行。"""
+    got = shape["roles"].get(the_role)
+    if not (got and got.get("settings")):
+        return []
+    posix = os.name != "nt"
+    try:
+        folder = ports.git.git_dir(source)
+        path = os.path.join(folder, role.SETTINGS_FILE)
+        if not a.dry_run:
+            role.write_desk_settings(folder, got)
+    except (gitx.GitError, OSError, TypeError) as e:
+        return [f"窓口の役 {the_role} の起動の設定（[roles.settings]）を書けなかった（{e}）。窓口の会話は役の設定なしで起きる"]
+    return [f"窓口の役 {the_role} に起動の設定（会社の形の [roles.settings]）が有る"
+            + ("（空打ちなので書いていない）" if a.dry_run else f"ので {path} に書いた")
+            + "。窓口の会話を手で起こすときは、次の命令で起こす（--move はこの設定で起こす）: "
+            f"{command} --name {launch._quote(name, posix)} --settings {launch._quote(path, posix)}",
+            "この会話がこの設定で起きていなければ、/exit してから上の命令で起こし直し、起きた会話から --desk を打つ"
+            "（会社の形の設定を替えたら、--desk を打ち直すとファイルを書き直す）"]
 
 
 def _shape(source, a):
@@ -182,9 +205,9 @@ def desk(a, ports, cwd):
         notes.append(f"会社の形に役 {the_role} が無いので、窓口の会話に足す役の本文は無い（要るなら会社の形の頭に "
                      f"desk_role = \"<役>\" を書くか、--role で名指す。在る役: {', '.join(shape['roles'])}）")
     try:
-        _, _, sessions_, _, companies, _, more = orders.survey(a.config, ports)
+        cfg, _, sessions_, _, companies, _, more = orders.survey(a.config, ports)
     except herdr.HerdrError as e:
-        sessions_, companies, more = {}, [], [f"herdr を読めないので、名前のぶつかりと会話のアカウントを確かめられない（{e}）"]
+        cfg, sessions_, companies, more = None, {}, [], [f"herdr を読めないので、名前のぶつかりと会話のアカウントを確かめられない（{e}）"]
     notes += more
     clash = _clash(companies, cwd, name)
     if clash:
@@ -209,4 +232,7 @@ def desk(a, ports, cwd):
     former = _renamed(attrs, name)
     if former:
         changes["former-names"] = former
-    return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける", talk_name)
+    held_by = account or attrs.get("account")
+    command = next((x.command for x in (cfg.accounts if cfg else []) if x.name == held_by), "claude")
+    after = _launch_line(a, ports, source, shape, the_role, name, command)
+    return _write(a, ports, cwd, source, attrs, changes, notes, f"窓口 {name}（{source}）を名付ける", talk_name, after)

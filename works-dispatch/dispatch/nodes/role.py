@@ -301,6 +301,13 @@ def write_settings(folder, data):
     return path
 
 
+def write_desk_settings(folder, role):
+    """本社の窓口の会話を起こすときの設定を、代表の clone の .git の場所（folder）に書いてパスを返す。役に設定が無ければ None。
+    役の設定だけを書き、部署の FIXED は重ねない（裏の会話が自分で worktree を作らないための鍵で、前で動く窓口には要らない）。"""
+    data = (role or {}).get("settings")
+    return write_settings(folder, data) if data else None
+
+
 def warnings(role, plugin="works-dispatch"):
     """役の設定が、役を足すフックを持つこのプラグインを切っていれば、その注記。"""
     plugins = ((role or {}).get("settings") or {}).get("enabledPlugins")

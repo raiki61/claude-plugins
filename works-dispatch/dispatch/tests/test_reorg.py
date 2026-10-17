@@ -162,6 +162,30 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--brief", str(shape), "--dry-run")
         self.assertIn(f"宛先の部署 {os.path.basename(self.src)}/段取り（main）", out)
 
+    def test_desk_writes_the_settings_of_its_role_and_shows_the_command_to_start_with_them(self):
+        # 持ち主が手で起こす窓口に [roles.settings] を届ける口: --desk が設定のファイルを書き、起こす命令を出す
+        shape = pathlib.Path(self.src, ".claude", "company.toml")
+        shape.parent.mkdir(exist_ok=True)
+        shape.write_text('[[roles]]\nname = "窓口"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        path = os.path.join(gitx.git_dir(self.src), role.SETTINGS_FILE)
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("--settings", out)   # 役に設定が無ければ出さない
+        self.assertFalse(os.path.exists(path))
+        shape.write_text('[[roles]]\nname = "窓口"\n[roles.settings]\nenabledPlugins = { "works@m" = false }\n'
+                         '[[roles]]\nname = "担当"\n', encoding="utf-8")
+        rc, out = self.main("--desk", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("空打ちなので書いていない", out)
+        self.assertFalse(os.path.exists(path))
+        rc, out = self.main("--desk")   # 属性は替わらなくても、命令は出す
+        self.assertEqual(rc, 0, out)
+        self.assertIn("付け替える物は無い", out)
+        self.assertIn(f"claude-a1 --name '窓口' --settings {path}", out)
+        self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
+
     def test_desk_does_not_take_the_seat_while_the_desk_talk_runs(self):
         # 窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が --desk で席を取ると、納品がそちらに届く（53d5d1・6be241）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, gitx)
