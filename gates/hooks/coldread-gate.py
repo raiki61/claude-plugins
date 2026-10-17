@@ -3142,7 +3142,7 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
     for fut, (path, text, digest, part) in futures.items():
         (found, exc), secs = fut.result()
         if exc is not None:
-            log_line(DOC_LOG, "reader-down\t%s\t%ds\t%s\t%s" % (str(exc)[:150].replace("\n", " "), secs, who, path))
+            log_line(DOC_LOG, "reader-down\t%s\t%ds\te=%s\t%s\t%s" % (str(exc)[:150].replace("\n", " "), secs, DOC_EFFORT, who, path))
             down.append("%s: %s" % (path, _down_reason(exc)))
             unread.append(digest)
             continue
@@ -3151,7 +3151,8 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
         # 長さの欄は読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
         size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
         kind = "finding" if note else "guess=%d" % len(found["補完"]) if found["補完"] else "clean"
-        log_line(DOC_LOG, "%s\t%s\t%ds\t%s\t%s" % (kind, size, secs, who, path))
+        # e= は読み手の effort。アカウントごとに effort を替えて、詰まりの在る文書の割合を同じ時期の記録で比べるために残す
+        log_line(DOC_LOG, "%s\t%s\t%ds\te=%s\t%s\t%s" % (kind, size, secs, DOC_EFFORT, who, path))
         if note:
             notes.append(note)
             for label in counts:

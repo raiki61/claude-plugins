@@ -272,7 +272,8 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   そのまま終えてよい。待って読むときに連続で返すのは Claude Code が 8 回で打ち切る
 - 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
 - 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった。サブエージェントの分は
-  `aid=` に `agent_id` が付く。読み手を起こした行には、読みにかかった秒が `35s` の形で付く)
+  `aid=` に `agent_id` が付く。読み手を起こした行には、読みにかかった秒が `35s` の形で、読み手の effort が `e=xhigh` の形で付く。
+  effort はアカウントの settings.json の `env` に `COLDREAD_DOC_EFFORT` を書けば、そのアカウントの会話だけ替わる)
 - 手で 1 本を読ませる口: `python3 hooks/coldread-gate.py read <パス>`(詰まりが在れば終了コード 1)。
   依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
 

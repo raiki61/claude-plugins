@@ -2682,8 +2682,8 @@ assert not any((cfg / "coldread-gate/docs").glob("s[23].pending")), "COLDREAD_DO
 
 # docs.log に読みにかかった秒が残る(読めた・読めなかったの両方)
 log = (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
-assert re.search(r"^\S+ \S+\tfinding\t\d+\t\d+s\tsid=", log, re.M) and re.search(r"^\S+ \S+\tclean\t\d+\t\d+s\t", log, re.M), log
-assert re.search(r"^\S+ \S+\treader-down\t.*\t\d+s\tsid=", log, re.M), log
+assert re.search(r"^\S+ \S+\tfinding\t\d+\t\d+s\te=%s\tsid=" % g.DOC_EFFORT, log, re.M) and re.search(r"^\S+ \S+\tclean\t\d+\t\d+s\te=", log, re.M), log
+assert re.search(r"^\S+ \S+\treader-down\t.*\t\d+s\te=%s\tsid=" % g.DOC_EFFORT, log, re.M), log
 
 # ターンの終わりを塞がない: 対話の会話(入口 cli)の親の Stop は、待つ口(docs-check)は読まずに、裏の口(docs-check-async)が
 # 読み、指摘を標準エラーに書いて 2 で終わる(asyncRewake が会話を起こす)。画面の無い会話(sdk-cli)と入口の分からない会話は
