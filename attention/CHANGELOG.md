@@ -8,7 +8,9 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ### Changed
 
-- `/plugin` の一覧と詳細に出る説明を、marketplace の一覧の項目でなく `plugin.json` の説明から出すようにした（文面は同じ）。`plugin.json` に作者（`author`）を足し、README に入れ方の 2 行を足した。
+- Claude Code の `/plugin`（プラグインを探して入れる画面）に出る説明の書き場所を、配布元の一覧（リポジトリの根の `.claude-plugin/marketplace.json`）から attention 自身の `plugin.json` の 1 か所に移した。画面に出る文面は変わらない。今後は `plugin.json` を直せば画面も変わる（前は一覧の方が画面に出ていて、`plugin.json` だけ直しても変わらなかった）。
+- `plugin.json` に作者（`author`）として raiki61 を書いた。公式の検査（`claude plugin validate`）が作者の無いプラグインに出していた警告が消える。
+- README に入れ方の 2 行（配布元を足す行と、attention を入れる行）を足した。
 
 ## [0.30.0] - 2026-10-16
 
