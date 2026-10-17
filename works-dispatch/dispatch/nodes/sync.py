@@ -15,6 +15,12 @@
 - 作業場には、席の見え方（常設・毎回空、常設・持ち越し、都度）を印 kind として付ける（サイドバーの作業場の行に herdr の設定の
   $kind で出す。会話の行でなく作業場の行で見せる。持ち主 2026-10-16・17）。名前と同じく、今の値と同じなら付け直さず、属性を持つ
   場所が 2 つ以上居る作業場は触らない。
+- 会社ごとの部署の作業場（元の clone の linked worktree の作業場）は、仕事の流れの順に並べる（flow_order。順の鍵は role.flow_rank で、
+  --tree の部署の並びと同じ。持ち主 2026-10-17 の案 A）。
+  常設・持ち越し（相談の社長室など）、常設・毎回空（担当。この中は会社の形の [[skills]] の書き順）、都度（作業。この中は今の並び。
+  herdr は新しい作業場を後ろに足すので、起こした順）、属性の無い作業場（手で開いた場所）の順。順は属性と会社の形から毎回出し、
+  順の表は持たない。本社（元の clone）の作業場は herdr が会社のまとまりの頭に置くので動かさない。会社の部署の作業場が herdr の
+  並びで占める位置の中だけで入れ替え、ほかの会社とまとまりの無い作業場の位置は変えない。
 - ペインの表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（頼み元）。出どころ SOURCE の分として付けるので、
   打ち直すと置き換わる。属性に無い物は消す。
 
@@ -159,4 +165,49 @@ def apply(ops, h):
             out.append({"pane": o["pane"], "status": "done", "detail": None})
         except h.HerdrError as e:
             out.append({"pane": o["pane"], "status": "failed", "detail": str(e)})
+    return out
+
+
+def flow_order(workspaces, attrs_of, skills_of):
+    """部署の作業場を仕事の流れの順にする動かし方の並び。1 件は {workspace, index, label}（herdr.move_workspace に渡す。順に当てる）。
+    workspaces は herdr の作業場の並び（herdr.workspaces の形。並びの順）、attrs_of は worktree の場所 → 部署の属性、skills_of は
+    元の clone の根 → 会社の形の受け持ちの並び（[[skills]] の書き順）。もう流れの順なら空。"""
+    ids = [w["workspace_id"] for w in workspaces]
+    want = list(ids)
+    slots = {}
+    for i, w in enumerate(workspaces):
+        if w.get("repo_root") and w.get("linked") and w.get("path"):
+            slots.setdefault(w["repo_root"], []).append(i)
+    for root, places in slots.items():
+        names = [x.get("name") for x in skills_of(root)]
+        for place, i in zip(places, sorted(places, key=lambda i: (*role.flow_rank(attrs_of(workspaces[i]["path"]), names), i))):
+            want[place] = ids[i]
+    labels = {w["workspace_id"]: w.get("label") for w in workspaces}
+    now, out = list(ids), []
+    for i, ws in enumerate(want):
+        if now[i] != ws:
+            now.insert(i, now.pop(now.index(ws)))
+            out.append({"workspace": ws, "index": i, "label": labels.get(ws)})
+    return out
+
+
+def order_line(o):
+    """作業場を動かす 1 行（--sync の報告と --dry-run）。"""
+    return f"作業場 {o['workspace']}（{o['label'] or '-'}）: 並びの {o['index'] + 1} 番目へ"
+
+
+def apply_order(moves, h):
+    """flow_order の動かし方を herdr に当てる。1 件ごとに {workspace, status: done|failed|skipped, detail}。位置は前の動かしの後の並びで
+    数えるので、1 件が失敗したら残りは当てない（skipped）。"""
+    out, failed = [], None
+    for o in moves:
+        if failed:
+            out.append({"workspace": o["workspace"], "status": "skipped", "detail": "前の作業場を動かせなかった"})
+            continue
+        try:
+            h.move_workspace(o["workspace"], o["index"])
+            out.append({"workspace": o["workspace"], "status": "done", "detail": None})
+        except h.HerdrError as e:
+            failed = str(e)
+            out.append({"workspace": o["workspace"], "status": "failed", "detail": failed})
     return out

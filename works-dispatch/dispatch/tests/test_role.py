@@ -216,6 +216,17 @@ class ModelAndEffort(unittest.TestCase):
                          {"model": "sonnet", "effort": "inherit"})
         self.assertEqual(json.loads(role.launch_key(None)), {"model": None, "effort": None})
 
+    def test_flow_rank_puts_carry_over_then_standing_by_the_duties_then_per_task_then_the_rest(self):
+        # herdr の作業場の並びと --tree の部署の並びが同じ鍵を使う（持ち主 2026-10-17 の案 A）
+        duties = ["ノートの手入れ", "調べもの"]
+        rows = {"社長室": {"role": "相談", "name": "社長室", "residency": "resident"},
+                "調べもの": {"role": "担当", "name": "調べもの", "residency": "resident", "fresh": "true"},
+                "ノートの手入れ": {"role": "担当", "name": "ノートの手入れ", "residency": "resident", "fresh": "true"},
+                "新しい担当": {"role": "担当", "name": "新しい担当", "residency": "resident", "fresh": "true"},
+                "作業：1": {"role": "作業", "name": "作業：1", "residency": "per-task"}, "手で開いた": {}}
+        self.assertEqual(sorted(rows, key=lambda n: role.flow_rank(rows[n], duties)),
+                         ["社長室", "ノートの手入れ", "調べもの", "新しい担当", "作業：1", "手で開いた"])
+
     def test_launch_flags_take_the_duty_before_the_role(self):
         # 決める順は欄ごとに、部署（受け持ち）・役・アカウントの既定。受け持ちに無い欄は役の値
         r = {"name": "担当", "model": "opus", "effort": "max"}

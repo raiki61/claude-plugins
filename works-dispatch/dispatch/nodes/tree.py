@@ -223,7 +223,10 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
     for root in company_roots:
         info = info_of(root)
         rows = []
-        for p in sorted((p for r, p in every if r == root), key=lambda p: (p.get("linked", False), p.get("branch") or "")):
+        # 本社（元の clone）を頭に、部署は herdr の作業場の並びと同じ仕事の流れの順（role.flow_rank）、同じ順の中は枝の名前
+        duties = [x.get("name") for x in info.get("skills", [])]
+        for p in sorted((p for r, p in every if r == root),
+                        key=lambda p: (p.get("linked", False), *role.flow_rank(attrs[id(p)], duties), p.get("branch") or "")):
             a = attrs[id(p)]
             mine = owned.get(id(p), [])
             talks = sorted(found.get(id(p), []), key=lambda s: -(s.get("startedAt") or 0))

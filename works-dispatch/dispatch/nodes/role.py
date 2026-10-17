@@ -63,6 +63,22 @@ def seat(residency, fresh):
     return "都度"
 
 
+# 部署を並べる仕事の流れの順（席の見え方 seat の値 → 順。持ち主 2026-10-17 の案 A）。役の無い場所は最後
+FLOW = ("常設・持ち越し", "常設・毎回空", "都度")
+
+
+def flow_rank(attrs, duties):
+    """部署の、仕事の流れの順の鍵（小さい方が先）。常設・持ち越し（相談の社長室など）、常設・毎回空（担当。この中は duties の並び
+    〔会社の形の [[skills]] の名前の書き順〕）、都度（作業）、役の無い場所。同じ鍵の物の順は呼ぶ側が決める（herdr の並びは今の順、
+    --tree は枝の名前）。herdr の作業場の並び（sync.flow_order）と --tree の部署の並び（tree.build）が同じ鍵を使う。"""
+    attrs = attrs or {}
+    seat_ = seat(attrs.get("residency"), attrs.get("fresh")) if attrs.get("role") else None
+    rank = FLOW.index(seat_) if seat_ in FLOW else len(FLOW)
+    names = list(duties)
+    duty = names.index(attrs["name"]) if rank == 1 and attrs.get("name") in names else len(names)
+    return rank, duty
+
+
 # 道具の名前（MCP の Tool.name の決まり: 英数字・_・-・. の 1〜128 字）
 TOOL_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 

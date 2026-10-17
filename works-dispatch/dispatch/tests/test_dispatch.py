@@ -125,6 +125,12 @@ class FakeHerdr(WorktreeHerdr):
     def report_workspace_metadata(self, workspace, source, tokens, clear_tokens=()):
         self.writes.append(("report_workspace_metadata", workspace, dict(tokens), list(clear_tokens)))
 
+    def workspaces(self):
+        return []   # 作業場の並びを見る試験は、並びを持つ偽物（test_company.CompanyHerdr など）で回す
+
+    def move_workspace(self, workspace, index):
+        self.writes.append(("move_workspace", workspace, index))
+
     screen = ""   # read が返す画面の終わり
     front = {}    # ペイン → 前で動いている命令の並び（foreground）。無ければ、会話が居ればその会話、居なければシェル
 

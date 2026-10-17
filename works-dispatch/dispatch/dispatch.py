@@ -1271,6 +1271,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 if prov.get("workspace"):
                     shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], written)], ports.herdr)
                     notes += [f"作業場に常設か都度かの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
+                    notes += _order_company(repo.source, info["skills"], ports)
                 route += f"（会話 {sid}）"
     print("\n".join(notes + [f"部署 {a.task}  {a.branch}  {account}  {result}"] +
                     ([f"- ペイン {pane}（{pane_label}）、作業場 {prov['path']}、連絡の道: {route}"] if pane else [])))
@@ -1376,6 +1377,19 @@ def survey_companies(config_path, ports, only=None):
     return accounts_, workspaces_, companies, settings, notes
 
 
+def _order_company(source, skills, ports):
+    """立てた部署の会社の作業場を、仕事の流れの順に並べ直す（sync.flow_order。herdr は新しい作業場を後ろに足すので、常設の部署を
+    立てたときは前へ動かす）。ほかの会社の作業場は、会社の印を外して渡し、動かさない。並べ直せなかった訳の注記の並び。"""
+    root = os.path.realpath(source)
+    try:
+        listed = [w if w.get("repo_root") and os.path.realpath(w["repo_root"]) == root else {**w, "repo_root": None}
+                  for w in ports.herdr.workspaces()]
+    except herdr.HerdrError as e:
+        return [f"作業場を流れの順に並べられなかった（herdr を読めない: {e}）"]
+    done = sync.apply_order(sync.flow_order(listed, ports.attrs, lambda r: skills), ports.herdr)
+    return [f"作業場を流れの順に並べられなかった（{x['detail']}）" for x in done if x["status"] == "failed"]
+
+
 def sync_companies(config_path, ports, dry_run=False, only=None):
     """--sync の中身。会社の形の役を部署と本社の属性に写し直し（_sync_roles）、付ける物を決めて（sync.plan）herdr に書く（sync.apply）。
     only を渡せば、その代表の clone の会社だけ（会社の形が替わったときの番の終わりのフック。shape_hook.py）。(出す行の並び, 終了の値)。"""
@@ -1386,14 +1400,25 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
     notes += _sync_roles(companies, settings, ports, dry_run)
     ops, why = sync.plan(companies, len(accounts_) > 1, orders.waiting_of(tempfile.gettempdir()))
     ws_ops = sync.workspace_ops(companies, workspaces_)
+    moves = sync.flow_order(*_flow_inputs(companies, workspaces_))
     notes += why
     none = [] if ops or ws_ops else ["付け直す部署は無い（属性を持つ部署が無い）"]
+    lines = [sync.workspace_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + [sync.order_line(o) for o in moves]
     if dry_run:
-        return notes + [sync.workspace_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + none, 0
-    done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr)
-    return (notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
-                     for line, r in zip([sync.workspace_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none,
+        return notes + lines + none, 0
+    done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr) + sync.apply_order(moves, ports.herdr)
+    return (notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "") for line, r in zip(lines, done)] + none,
             1 if any(r["status"] != "done" for r in done) else 0)
+
+
+def _flow_inputs(companies, workspaces_):
+    """sync.flow_order に渡す (作業場の並び, 場所 → 属性, 根 → 受け持ちの並び)。会社の並び（tree.build）の部署の属性を使い、並べるのは
+    その会社の作業場だけ（ほかの作業場は会社の印を外して渡す。--sync の only で絞った会社のほかは動かさない）。"""
+    roots = {os.path.realpath(c["root"]): c for c in companies}
+    attrs = {os.path.realpath(d["path"]): d["attrs"] for c in companies for d in c["departments"] if d.get("path")}
+    listed = [w if w.get("repo_root") and os.path.realpath(w["repo_root"]) in roots else {**w, "repo_root": None} for w in workspaces_]
+    return (listed, lambda path: attrs.get(os.path.realpath(path), {}),
+            lambda root: roots[os.path.realpath(root)].get("skills") or [])
 
 
 def _sync_roles(companies, settings, ports, dry_run):

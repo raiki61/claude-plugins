@@ -6,13 +6,14 @@ herdr は版が 0.x で互換を約束していない。herdr の文書は、手
 作業場の場所（元の clone の git worktree）も、作る・並べる・開く・消すをここに寄せる（worktrees・create_worktree・open_worktree・
 remove_worktree）。ノードは「枝の場所」の言葉だけで書き、herdr の worktree の口の形を知らない。
 
-書く関数は run・prompt・send_keys・rename_pane・rename_workspace・report_pane_metadata・report_workspace_metadata・create_worktree・open_worktree・remove_worktree・close_workspace・
+書く関数は run・prompt・send_keys・rename_pane・rename_workspace・report_pane_metadata・report_workspace_metadata・move_workspace・create_worktree・open_worktree・remove_worktree・close_workspace・
 report_activity で、
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
 import json
 import os
+import socket
 import subprocess
 import time
 
@@ -99,14 +100,16 @@ def workspace_labels(runner=_default_runner):
 
 
 def workspaces(runner=_default_runner):
-    """作業場の並び。1 件は {workspace_id, label, repo_root, tokens}。repo_root は herdr がその作業場に持つリポジトリの元の clone の根
-    （linked worktree の作業場でも元の clone）で、herdr が git の印を持たない作業場（git worktree からでなく開いたもの）は None。
+    """作業場の並び（herdr の並びの順）。1 件は {workspace_id, label, repo_root, path, linked, tokens}。repo_root は herdr がその作業場に
+    持つリポジトリの元の clone の根（linked worktree の作業場でも元の clone）で、herdr が git の印を持たない作業場（git worktree から
+    でなく開いたもの）は None。path はその作業場の worktree の場所、linked は元の clone でない worktree（部署の作業場）か。
     tokens は作業場の印（workspace report-metadata で付けた物。出どころを混ぜた 名前 → 値）。
     形は 2026-10-16 に herdr 0.9.3 で読んだ（workspace list の worktree 欄の repo_root。tokens は 2026-10-17 に同じ版で見た）。"""
     out = []
     for w in _call(["herdr", "workspace", "list"], runner).get("workspaces", []):
         wt = w.get("worktree") if isinstance(w.get("worktree"), dict) else {}
         out.append({"workspace_id": w["workspace_id"], "label": w.get("label"), "repo_root": _norm(wt.get("repo_root")),
+                    "path": _norm(wt.get("checkout_path")), "linked": bool(wt.get("is_linked_worktree")),
                     "tokens": w.get("tokens") if isinstance(w.get("tokens"), dict) else {}})
     return out
 
@@ -354,6 +357,59 @@ def remove_worktree(source, path, label, runner=_default_runner):
                        runner))["workspace_id"]
     got = _call(["herdr", "worktree", "remove", "--workspace", ws], runner)
     return {"path": _norm(got.get("path")), "workspace_id": got.get("workspace_id")}
+
+
+def _socket_path(env=os.environ, runner=_default_runner):
+    """herdr のソケットの場所。herdr のペインの中なら環境変数 HERDR_SOCKET_PATH（herdr が渡す）、無ければ herdr status の socket の行。"""
+    if env.get("HERDR_SOCKET_PATH"):
+        return env["HERDR_SOCKET_PATH"]
+    p = runner(["herdr", "status", "server"])
+    for line in (p.stdout or "").splitlines():
+        if line.strip().startswith("socket:"):
+            return line.split(":", 1)[1].strip()
+    raise HerdrError(["herdr", "status", "server"], "ソケットの場所が分からない")
+
+
+def _request(method, params, env=os.environ, runner=_default_runner, connect=None):
+    """CLI に口の無いメソッドを、herdr のソケットの API に 1 行の JSON で頼む（herdr 0.9.3 の CLI に作業場を並べ替える命令が無い）。
+    答えの result を返す。失敗は HerdrError。形は 2026-10-17 に herdr 0.9.3（protocol 22）の実物で見た（頼み {id, method, params} の
+    1 行に、答え {id, result} か {id, error: {code, message}} の 1 行が返る）。"""
+    argv = ["herdr", "api", method]
+    if connect is None:
+        if not hasattr(socket, "AF_UNIX"):
+            raise HerdrError(argv, "この Python では herdr のソケットにつなげない（AF_UNIX が無い）")
+
+        def connect(path):
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(path)
+            return s
+    try:
+        s = connect(_socket_path(env, runner))
+        try:
+            s.sendall((json.dumps({"id": "works-dispatch", "method": method, "params": params}) + "\n").encode("utf-8"))
+            buf = b""
+            while b"\n" not in buf:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+        finally:
+            s.close()
+    except OSError as e:
+        raise HerdrError(argv, f"ソケットにつなげない（{e}）")
+    try:
+        got = json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
+    except ValueError:
+        raise HerdrError(argv, f"JSON でない答え: {buf[:200]!r}")
+    if isinstance(got.get("error"), dict):
+        raise HerdrError(argv, got["error"].get("code") or got["error"].get("message") or "失敗")
+    return got.get("result", {})
+
+
+def move_workspace(workspace_id, insert_index, request=_request):
+    """作業場を、herdr の並びの insert_index の位置へ動かす（workspace.move）。insert_index は動かす前の並びで数え、その位置に
+    今いる作業場の前に入る（自分の位置か、その次を渡すと動かない。2026-10-17 に herdr 0.9.3 で確かめた）。"""
+    request("workspace.move", {"workspace_id": workspace_id, "insert_index": insert_index})
 
 
 def close_workspace(workspace_id, runner=_default_runner):

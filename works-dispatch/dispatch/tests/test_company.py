@@ -78,10 +78,42 @@ class HerdrPorts(unittest.TestCase):
     def test_workspaces_take_the_repo_root_or_none(self):
         run = fake_runner(json.dumps({"result": {"workspaces": [
             {"workspace_id": "w1", "label": "r", "worktree": {"repo_root": "/s/r", "checkout_path": "/s/r"}},
+            {"workspace_id": "w3", "label": "d", "worktree": {"repo_root": "/s/r", "checkout_path": "/w/d", "is_linked_worktree": True}},
             {"workspace_id": "w2", "label": "notes", "tokens": {"kind": "都度"}}]}}))
         self.assertEqual(real_herdr.workspaces(runner=run), [
-            {"workspace_id": "w1", "label": "r", "repo_root": os.path.normpath("/s/r"), "tokens": {}},
-            {"workspace_id": "w2", "label": "notes", "repo_root": None, "tokens": {"kind": "都度"}}])
+            {"workspace_id": "w1", "label": "r", "repo_root": os.path.normpath("/s/r"), "path": os.path.normpath("/s/r"),
+             "linked": False, "tokens": {}},
+            {"workspace_id": "w3", "label": "d", "repo_root": os.path.normpath("/s/r"), "path": os.path.normpath("/w/d"),
+             "linked": True, "tokens": {}},
+            {"workspace_id": "w2", "label": "notes", "repo_root": None, "path": None, "linked": False, "tokens": {"kind": "都度"}}])
+
+    def test_move_workspace_sends_one_json_line_to_the_socket_and_reads_the_answer(self):
+        # herdr 0.9.3 の CLI に作業場を並べ替える命令が無いので、ソケットの API に 1 行の JSON で頼む
+        sent = []
+
+        class Sock:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def sendall(self, data):
+                sent.append(json.loads(data.decode("utf-8")))
+
+            def recv(self, n):
+                out, self.answer = self.answer, b""
+                return out
+
+            def close(self):
+                pass
+        env = {"HERDR_SOCKET_PATH": "/s/herdr.sock"}
+        ok = lambda path: Sock(b'{"id":"works-dispatch","result":{"type":"workspace_list"}}\n')   # noqa: E731
+        real_herdr.move_workspace("w3", 1, request=lambda m, p: real_herdr._request(m, p, env=env, connect=ok))
+        self.assertEqual((sent[0]["method"], sent[0]["params"]), ("workspace.move", {"workspace_id": "w3", "insert_index": 1}))
+        bad = lambda path: Sock(b'{"id":"works-dispatch","error":{"code":"workspace_not_found","message":"x"}}\n')   # noqa: E731
+        with self.assertRaises(real_herdr.HerdrError) as got:
+            real_herdr._request("workspace.move", {}, env=env, connect=bad)
+        self.assertEqual(got.exception.detail, "workspace_not_found")
+        run = fake_runner("client:\n  version: 0.9.3\nserver:\n  socket: /c/herdr.sock\n")
+        self.assertEqual(real_herdr._socket_path({}, run), "/c/herdr.sock")   # herdr の外からは herdr status で引く
 
     def test_rename_workspace_passes_the_label_as_one_argument(self):
         run = fake_runner(json.dumps({"result": {"type": "workspace_info"}}))
@@ -374,6 +406,62 @@ class Sync(unittest.TestCase):
         got = sync.apply(ops, H())
         self.assertEqual([g["status"] for g in got], ["failed", "done"])
         self.assertEqual(H.calls, [("rename", "ok", "y"), ("meta", "ok", "company")])
+
+
+class FlowOrder(unittest.TestCase):
+    """部署の作業場を仕事の流れの順に並べる（sync.flow_order。持ち主 2026-10-17 の案 A）。"""
+
+    WS = [("d", "/r/notes", "/r/notes", False), ("x", None, None, False), ("a", "/r/notes", "/w/a", True),
+          ("b", "/r/notes", "/w/b", True), ("p", "/r/notes", "/w/p", True), ("c", "/r/plugins", "/w/c", True),
+          ("t1", "/r/notes", "/w/t1", True), ("h", "/r/notes", "/w/h", True), ("t2", "/r/notes", "/w/t2", True)]
+    ATTRS = {"/w/a": {"role": "担当", "name": "調べもの", "residency": "resident", "fresh": "true"},
+             "/w/b": {"role": "担当", "name": "ノートの手入れ", "residency": "resident", "fresh": "true"},
+             "/w/p": {"role": "相談", "name": "社長室", "residency": "resident"},
+             "/w/c": {"role": "担当", "name": "割り振り", "residency": "resident", "fresh": "true"},
+             "/w/t1": {"role": "作業", "name": "作業：1", "residency": "per-task"},
+             "/w/t2": {"role": "作業", "name": "作業：2", "residency": "per-task"}}
+
+    @staticmethod
+    def play(ids, moves):
+        """herdr の workspace.move と同じに当てる（動かす前の並びの位置の前に入る）。"""
+        now = list(ids)
+        for o in moves:
+            j, i = now.index(o["workspace"]), o["index"]
+            now.insert(i if i < j else i - 1, now.pop(j))
+        return now
+
+    def order(self, ws):
+        listed = [{"workspace_id": w, "label": w, "repo_root": root, "path": path, "linked": linked} for w, root, path, linked in ws]
+        skills = {"/r/notes": [{"name": "ノートの手入れ"}, {"name": "調べもの"}], "/r/plugins": []}
+        return sync.flow_order(listed, lambda path: self.ATTRS.get(path, {}), lambda root: skills[root])
+
+    def test_departments_line_up_carry_over_then_standing_in_the_shape_order_then_per_task_then_the_rest(self):
+        moves = self.order(self.WS)
+        got = self.play([w[0] for w in self.WS], moves)
+        # 本社 d とまとまりの無い x、ほかの会社の c の位置はそのまま。my_notes の部署は 社長室・受け持ちの書き順の担当・作業（今の順）・手で開いた場所
+        self.assertEqual(got, ["d", "x", "p", "b", "a", "c", "t1", "t2", "h"])
+        self.assertEqual(self.order([next(w for w in self.WS if w[0] == i) for i in got]), [])   # 並んだら動かさない
+
+    def test_sync_orders_only_the_companies_it_read(self):
+        # --sync の会社の並び（tree.build）の部署の属性で並べ、読んでいない会社の作業場は動かさない
+        companies = [{"root": "/r/notes", "skills": [{"name": "ノートの手入れ"}, {"name": "調べもの"}],
+                      "departments": [{"path": path, "attrs": attrs} for path, attrs in self.ATTRS.items() if path != "/w/c"]}]
+        listed = [{"workspace_id": w, "label": w, "repo_root": root, "path": path, "linked": linked} for w, root, path, linked in self.WS]
+        listed.insert(6, {"workspace_id": "c2", "label": "c2", "repo_root": "/r/plugins", "path": "/w/c2", "linked": True})
+        moves = sync.flow_order(*dispatch._flow_inputs(companies, listed))
+        self.assertEqual(self.play([w["workspace_id"] for w in listed], moves), ["d", "x", "p", "b", "a", "c", "c2", "t1", "t2", "h"])
+
+    def test_apply_order_stops_after_the_first_failure(self):
+        class H:
+            HerdrError = real_herdr.HerdrError
+            seen = []
+
+            def move_workspace(self, ws, index):
+                self.seen.append(ws)
+                raise real_herdr.HerdrError(["herdr", "api", "workspace.move"], "workspace_not_found")
+        got = sync.apply_order([{"workspace": "p", "index": 2}, {"workspace": "b", "index": 3}], H())
+        self.assertEqual([r["status"] for r in got], ["failed", "skipped"])
+        self.assertEqual(H.seen, ["p"])
 
 
 class CompanyHerdr(FakeHerdr):
