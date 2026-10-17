@@ -175,7 +175,7 @@ def text_for(cwd, env=os.environ, attrs=None):
     name = role.current(shape, attrs["role"])
     company = info.get("name") or os.path.basename(os.path.normpath(root))
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
-    text = role.context(name, shape["roles"].get(name), company, duty, gitx.is_main_worktree(cwd) is True)
+    text = role.context(name, shape["roles"].get(name), company, duty, gitx.is_main_worktree(cwd) is True, attrs.get("residency"))
     problems = info.get("problems", []) + shape["problems"]
     if problems:
         text += f"\n（会社の形を読めない所がある: {problems[0]}）"

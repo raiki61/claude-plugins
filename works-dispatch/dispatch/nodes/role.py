@@ -310,14 +310,14 @@ def gh_user(repo_user, shape):
     return repo_user or company, None
 
 
-def context(role_name, role, company, duty=None, head_office=False):
+def context(role_name, role, company, duty=None, head_office=False, residency=None):
     """フックが部署の会話の指示に足す文。会社と役の 1 行に、受け持ち（duty。部署の名前と同じ name の受ける仕事 [[skills]] の項目が
     有れば）と、役の本文（会社の形に役の項目と本文が有れば）を続ける。受け持ちを足すのは、役を 1 つ（担当）にして、受け持ちごとの
     中身を部署の名前で引くため。head_office は代表の clone（--desk で名付けた窓口）の会話で、部署ではないので部署と書かない。"""
     head = f"この会話は会社「{company}」の{'本社の会話' if head_office else '部署'}で、役は「{role_name}」。"
     if duty and duty.get("description"):
         head += f"受け持ちは「{duty['name']}」（{duty['description']}）。"
-    if duty and duty.get("standing") is False and not head_office:
+    if duty and duty.get("standing") is False and not head_office and residency != "resident":
         head += "この受け持ちは頼まれたときだけ立てる物で、この部署は都度の部署（頼みを済ませたら畳まれる）。"
     return head + (f"\n{role['instructions']}" if role and role["instructions"] else "")
 

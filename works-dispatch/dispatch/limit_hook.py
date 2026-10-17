@@ -43,8 +43,8 @@ def plan(payload, attrs_of=gitx.worktree_attrs):
     head = os.path.realpath(here) == os.path.realpath(common)
     if head and attrs.get("session") != payload.get("session_id"):
         return None   # 本社の、窓口でない会話
-    if not head and attrs.get("residency") != "resident":
-        return None
+    if not head and attrs.get("residency") != "resident" and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
+        return None   # 都度の部署は、頼みを受けている間だけ移す（頼まれたときだけ立てる受け持ちの部署は、頼みの途中で枠が尽きうる）
     argv = [sys.executable, DISPATCH_PY, "--move", name, "--if-limited"] + (["--config", attrs["config"]] if attrs.get("config") else [])
     out = os.path.join(deliver.inbox_of(common), MOVES, f"{''.join(c for c in name if c.isalnum())}-{int(time.time())}.log")
     return argv, cwd, out

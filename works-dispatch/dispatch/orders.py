@@ -1090,6 +1090,13 @@ def finish_here(a, ports, cwd):
     if wake.queued(deliver.inbox_of(common), place):
         print("止めた: 順番待ちに頼みが在る。待ち受けが渡す次の頼みを済ませてから印す")
         return 2
+    waiting = [r["id"] for r in deliver.open_asks(deliver.records(deliver.inbox_of(common)))
+               if (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
+               and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
+    if waiting:
+        # この部署が頼んで、まだ返事（納品）の来ていない頼み。畳むと、返事が届いても受ける会話が居ない（業務改革が社長室の答えを待つ間など）
+        print(f"止めた: この部署が頼んで返事の来ていない頼みが在る（受付 {'・'.join(waiting)}）。返事を受けて済ませてから印す")
+        return 2
     if not ports.is_clean(cwd):
         print("止めた: 未コミットの変更か、git に足していないファイルが在る（片付けると消える）。commit するか消してから印す")
         return 2

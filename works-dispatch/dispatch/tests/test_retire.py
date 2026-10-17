@@ -76,6 +76,16 @@ class Retire(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.worktree_attrs(self.place)[wake.FINISHED], "s-dept")
 
+    def test_done_refuses_while_an_ask_this_department_made_has_no_answer(self):
+        # 業務改革が社長室に問いを回して答えを待つ間に畳むと、答えを受ける会話が居ない（813bb8 の見直しの指摘）
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "社長室"}})
+        rc, out = self.main(self.place, "--done")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("返事の来ていない頼みが在る（受付 c1）", out)
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent"})
+        self.assertEqual(self.main(self.place, "--done")[0], 0)
+
     def test_done_passes_a_department_without_commits_and_refuses_desks_and_residents(self):
         rc, out = self.main(self.place, "--done")
         self.assertEqual(rc, 0, out)   # commit の無い部署は本流に入っているとみなす

@@ -263,8 +263,10 @@ class LimitHook(unittest.TestCase):
 
     def test_only_resident_departments_and_the_desk_move_on_a_rate_limit(self):
         base = {"cwd": self.place, "session_id": "s-dept", "error": "rate_limit"}
-        self.assertIsNone(limit_hook.plan(base))   # 都度の部署
-        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        self.assertIsNone(limit_hook.plan(base))   # 頼みを受けていない都度の部署
+        provision.mark(self.place, self.src, {"ask": "q1"}, gitx)   # 頼みの途中の都度の部署（頼まれたときだけ立てる受け持ち）は移す
+        self.assertEqual(limit_hook.plan(base)[0][2:4], ["--move", "調べ"])
+        provision.mark(self.place, self.src, {"ask": None, "residency": "resident"}, gitx)
         argv, cwd, out = limit_hook.plan(base)
         self.assertEqual(argv[2:5], ["--move", "調べ", "--if-limited"])
         self.assertEqual(cwd, self.place)
