@@ -5,7 +5,7 @@
 
 ## 決まり
 
-1. **公式の検査を警告 0 で通す。** リポジトリの根で `claude plugin validate .` を打ち、`✔ Validation passed`（警告の無い形）で終わる。
+1. **公式の検査で、対象の 6 つのプラグインの警告と助言を 0 にする。** リポジトリの根で `claude plugin validate .` を打つ。works・works-factory は標準の対象の外なので、その 2 つの author の警告（一覧の plugins[4]・plugins[5]）は残り、警告 2 件の後に `✔ Validation passed with warnings` で終わる（2026-10-17 に実測）（標準の対象は [README](README.md) の「対象」）。
    根で打つと、marketplace の項目と、相対パスで載る各プラグインの plugin.json を一度に見る（[Create a marketplace の Problems that validation reports](https://code.claude.com/docs/en/plugin-marketplaces#problems-that-validation-reports)）。
    警告は読み込みを止めないが、公式は CI では `--strict` で警告を失敗にする道を用意している（[Plugin manifest reference の Validate the manifest](https://code.claude.com/docs/en/plugins-reference#validate-the-manifest)「Pass `--strict` to turn warnings into failures in CI」）。下の 2〜4 は、今の警告と助言を消すための個別の決まり。
 2. **plugin.json に author を書く。** 形は `"author": { "name": "raiki61" }`（marketplace の `owner.name` と同じ）。
@@ -27,4 +27,4 @@
 
 ## 守らせ方
 
-公式の検査の命令 `claude` は CI に無い（根の `tests/run.sh` の marketplace の検査の注記）。CI では、決まり 2〜4 を根の `tests/` の検査で同じ形に見る（点検に頼む）。手元では、直した後に根で `claude plugin validate .` を打って確かめる。
+公式の検査の命令 `claude` は CI に無い（根の `tests/run.sh` の marketplace の検査の注記）。CI では、決まり 2〜4 を根の `tests/run.sh` の検査（出力の印 `MANIFEST_STANDARD_OK`。2026-10-17 に点検が入れた、commit 6b54d12b）が同じ形に見る。works・works-factory はこの検査の外す一覧に載り、2 つが標準を満たすと検査が赤で知らせて、外す一覧から消させる。手元では、直した後に根で `claude plugin validate .` を打って確かめる。

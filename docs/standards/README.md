@@ -28,16 +28,18 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 前の回は無い（docs/standards/ はこの回に作った）。公式の検査（Claude Code 2.1.302）をリポジトリの根と 6 つのプラグインに当てて、次のずれを見つけた。
 
-- 1-1 plugin.json に author が無い（6 つとも。works・works-factory も同じ）。公式の検査が警告を出す。状態: gates 以外は入った（残りは下の点検の受付）
-- 1-2 description を plugin.json と marketplace の項目の 2 か所に持ち、convergence-loops・gates・graphloops は中身が違う。利用者の画面に出るのは marketplace の項目の方なので、plugin.json の方を直しても画面は変わらない。状態: gates 以外は入った（残りは下の点検の受付）
-- 1-3 README に入れ方の行が無い（attention・gates・graphloops）。公式の検査が助言を出す。状態: gates 以外は入った（残りは下の点検の受付）
+- 1-1 plugin.json に author が無い（6 つとも。works・works-factory も同じ）。公式の検査が警告を出す。状態: 入った（対象のプラグインの全部）
+- 1-2 description を plugin.json と marketplace の項目の 2 か所に持ち、convergence-loops・gates・graphloops は中身が違う。利用者の画面に出るのは marketplace の項目の方なので、plugin.json の方を直しても画面は変わらない。状態: 入った（対象のプラグインの全部）
+- 1-3 README に入れ方の行が無い（attention・gates・graphloops）。公式の検査が助言を出す。状態: 入った（対象のプラグインの全部）
 
 頼んだ受付（1-1〜1-3 をまとめて、受け持ちのプラグインごとに）:
 
 - 見渡し（attention）: 20261017-070336-504bb8 → 入った（d6f91472）
 - 見直し（convergence-loops・graphloops）: 20261017-070354-0f5cbe → 入った（febd3617）
 - 割り振り（tiers・works-dispatch）: 20261017-070325-80831b → 入った（ae06fe0c。README の入れ方の行は元から在った）
-- 点検（gates と、決まり 2〜4 を根の tests/ で見る検査。検査はほかの 3 件が本流に入ってから）: 20261017-070322-aabbb8
+- 点検（gates と、決まり 2〜4 を根の tests/ で見る検査。検査はほかの 3 件が本流に入ってから）: 20261017-070322-aabbb8 → 入った（gates は a8f36daf、検査は 6b54d12b・a5b0ce1f）
+
+1 回目の締め: 公式の検査に残る警告は、対象の外の works・works-factory の author だけ。2 つは誰の受け持ちでもないので頼む先が無く、標準の担当も直さない。誰かが直して標準を満たせば、根の検査が外す一覧から消すよう赤で知らせる。
 
 見送ったずれ:
 
