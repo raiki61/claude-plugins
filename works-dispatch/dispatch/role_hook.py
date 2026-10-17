@@ -284,6 +284,7 @@ def main(stdin=sys.stdin, env=os.environ):
     payload = _payload(stdin)
     cwd = payload.get("cwd") or os.getcwd()
     attrs = gitx.worktree_attrs(cwd)
+    wrote = [None, None]
     try:
         wrote = [refresh_session(payload, cwd, attrs), rename_role(cwd, attrs, env)]
         if any(wrote):
@@ -295,6 +296,11 @@ def main(stdin=sys.stdin, env=os.environ):
     except OSError as e:
         print(f"works-dispatch: GH_TOKEN を入れる行を書けなかった（{e}）", file=sys.stderr)
     text = text_for(cwd, env, attrs) if attrs.get("role") and seated(payload, cwd, attrs) else hint_for(cwd, env, attrs)
+    if text and wrote[0] and gitx.is_main_worktree(cwd) is True:
+        # 本社の窓口の会話が /clear などで会話の id を替えた: 席はこのフックが引き継いだと会話に知らせる（窓口が空にした後に毎回
+        # --desk --dry-run を打って確かめなくてよい。c52730 の 6）
+        text += (f"\n（窓口 {attrs.get('name') or '-'} の席はこの会話に引き継いだ: 属性の会話の id（company.session）をこの会話の id に"
+                 "書き直した。--desk を打ち直さなくてよい）")
     if text:
         remember(payload.get("session_id"), text, env)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}},

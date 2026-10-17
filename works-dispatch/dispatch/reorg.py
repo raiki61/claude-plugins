@@ -51,8 +51,12 @@ def _renamed(attrs, new_name):
 
 
 def _clash(companies, place, name):
-    """ほかの場所が同じ名前（今の名前）を持っていれば、その場所の字。宛先が 1 つに決まらなくなるので止める。"""
+    """同じ会社のほかの場所が同じ名前（今の名前）を持っていれば、その場所の字。宛先が 1 つに決まらなくなるので止める。ほかの会社の
+    同じ名前は「会社/名前」で分けられるので止めない（--task と同じ。0.48.0）。"""
+    here = os.path.realpath(gitx.common_dir(place) or place)
     for c in companies:
+        if os.path.realpath(gitx.common_dir(c["root"]) or c["root"]) != here:
+            continue
         for d in c["departments"]:
             if not _same(d["path"], place) and d["attrs"].get("name") == name:
                 return f"{c['name']}/{d['branch'] or d['path']}"

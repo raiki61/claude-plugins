@@ -128,9 +128,12 @@ def start_now(a, ports, cwd, task):
         return 2
     caller = _caller(a, ports, cwd, sessions_)
     if skill["start"]["by"] and caller is not None and caller not in skill["start"]["by"]:
-        print("\n".join(notes + [f"止めた: 受け持ち「{name}」を命令で起こせるのは {'・'.join(skill['start']['by'])}"
-                                 f"（会社の形の by）。打った会話は {caller}"]))
-        return 2
+        said = f"受け持ち「{name}」を命令で起こせるのは {'・'.join(skill['start']['by'])}（会社の形の by）。打った会話は {caller}"
+        if not a.dry_run:
+            print("\n".join(notes + [f"止めた: {said}"]))
+            return 2
+        # 試し打ちは止めずに、本当に打てば止まることを書いて、部署を立てる所まで見立てる（c52730 の 2。d9e752）
+        notes.append(f"注記: 本当に打てばここで止まる（{said}）。試し打ちなので、この先も見立てる")
     rc, lines = fire(company, companies, skill, f"命令（{caller or '人'}）", ports, a, task, settings)
     print("\n".join(notes + lines))
     return rc

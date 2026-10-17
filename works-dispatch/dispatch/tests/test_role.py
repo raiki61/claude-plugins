@@ -371,9 +371,12 @@ class Hook(unittest.TestCase):
         role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-other", "source": "clear"})), self.env)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")   # 持ち主のほかの会話の /clear
         provision.mark(self.src, self.src, {"pid": str(os.getpid())}, gitx)   # フックは会話の処理の子で走る（ここではこの処理）
-        with contextlib.redirect_stdout(io.StringIO()):
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "窓口"\ninstructions = "頼みを配る。"\n')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-new", "source": "clear"})), self.env)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-new")
+        self.assertIn("席はこの会話に引き継いだ", out.getvalue())   # 窓口は空にした後に --desk を打ち直して確かめなくてよい
 
     def test_only_the_desk_seat_gets_the_head_office_role(self):
         # 代表の clone で起きた試しの claude -p（名前が無い）や、窓口が動いている間に起きた会話は、窓口として振る舞わない（53d5d1・6be241）

@@ -9,7 +9,7 @@
 
 部署か窓口（その場所の git の設定に company.role が在る）でなければ、すぐ 0 で終わる。窓口（代表の clone）では、--desk が書いた
 会話の処理（company.pid）の会話だけを見る（代表の clone には持ち主のほかの会話も居る）。窓は、待ち受けのフックが /clear を打つ窓と
-同じ決め方（wake_hook.own_window。場所が同じペインのうち、会話の印がこの会話の id の物、無ければ場所が同じ物）で 1 つに決め、決まらなければ（herdr の
+同じ決め方（wake_hook.talk_window。場所が同じペインのうち、窓の前のプロセスにこの会話が居ると確かめた物）で 1 つに決め、決まらなければ（herdr の
 外の会話など）何もしない。環境変数 HERDR_PANE_ID は使わない（裏の会話〔claude --bg〕は前もって起こした控えの処理で動き、その値が
 別のペインを指していた。2026-10-17 に見た）。打ったら属性 company.reloaded に処理の番号と時刻を控え、同じ更新で打ち直さない。
 裏で走るので番の終わりを待たせない。誤りは stderr に 1 行出し、会話は止めない。
@@ -27,7 +27,7 @@ try:
     import gitx  # noqa: E402
     import herdr  # noqa: E402
     from nodes import provision, refresh  # noqa: E402
-    from wake_hook import own_window  # noqa: E402
+    from wake_hook import job_of, talk_window  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # 裏で走るので、古い Python でも会話を止めない。知らせは止まる前のフック（orders.py stop）が会話ごとに 1 回出す
     sys.exit(0)
@@ -40,7 +40,7 @@ PLUGIN_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 
 
 def run(payload, env=os.environ, h=herdr, host=claudex.host, same=claudex.in_process, attrs_of=gitx.worktree_attrs,
-        pause=lambda: time.sleep(1), now=time.time, mark=provision.mark, plugin_root=PLUGIN_ROOT, window=own_window):
+        pause=lambda: time.sleep(1), now=time.time, mark=provision.mark, plugin_root=PLUGIN_ROOT, window=None):
     """古ければ替える。結末の語（refresh.reload_when_free の物）か、見るまでもなければ None。"""
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)
@@ -58,7 +58,13 @@ def run(payload, env=os.environ, h=herdr, host=claudex.host, same=claudex.in_pro
     if not refresh.stale(refresh.newest_update(path, cwd), started, refresh.reloaded_at(attrs.get(refresh.ATTR), pid)):
         return None
     try:
-        pane = window(cwd, h, payload.get("session_id"))
+        if window is not None:
+            pane = window(cwd, h, payload.get("session_id"))
+        else:
+            # 打ち先は、/clear と同じく、窓の前のプロセスにこの会話が居ると確かめた窓だけ（会話の印と場所だけでは、前に居た会話や別の
+            # 部署の会話の窓に打ちうる。c52730 の 5）。会話の処理の番号か、この会話の裏の処理へ attach した claude で確かめる
+            jobs = (attrs.get("job"), job_of(env), claudex.attach_id(None, payload.get("session_id")))
+            pane = talk_window(cwd, h, [pid], jobs)
     except h.HerdrError:
         return "unseen"
     if not pane:

@@ -203,6 +203,12 @@ class Watch(unittest.TestCase):
                                             "account": None, "boss": None, "panes": [], "branch": "b", "no_talk_id": True}]}]))
         self.assertIn("! 会話の id（company.session）が無い（窓の会話が落ちたとき", line)
 
+    def test_only_notice_kinds_with_a_text_address_wake_the_talk(self):
+        # 記録の行に字の to を書いても、空の知らせで会話を起こさない（c52730 の 3）
+        self.assertTrue(wake.mine({"to": "co/調べ", "kind": "deliver"}, self.names))
+        self.assertFalse(wake.mine({"to": "co/調べ", "kind": "moved"}, self.names))
+        self.assertFalse(wake.mine({"to": {"name": "調べ"}, "kind": "deliver"}, self.names))
+
     def test_queue_hands_out_in_the_order_it_was_put(self):
         for i in ("20261017-000002-bbbbbb", "20261017-000001-aaaaaa"):
             wake.enqueue(self.inbox, self.place, {"id": i, "line": i})

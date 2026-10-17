@@ -87,6 +87,10 @@ class Start(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("命令で起こせるのは 社長室（会社の形の by）。打った会話は 段取り", out)
         self.assertEqual(self.prompts(), [])
+        rc, out = self.main(self.src, "--start", "調べ", "--from-name", "段取り", "--dry-run")   # 試し打ちは止めずに先まで見立てる
+        self.assertEqual(rc, 0, out)
+        self.assertIn("本当に打てばここで止まる", out)
+        self.assertIn("起こす: ", out)
 
     def test_a_person_outside_claude_code_may_always_start(self):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nby = ["社長室"]'))

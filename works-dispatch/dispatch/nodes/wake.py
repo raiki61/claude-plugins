@@ -361,7 +361,9 @@ def notice(to, ask_id, kind, file, text, now):
 
 
 def mine(record, names):
-    return isinstance(record.get("to"), str) and record["to"] in names
+    """宛先が自分の知らせか。知らせは to が字で、種類が知らせの種類（KINDS。頼み・納品・順番待ち・足し）の行だけ（記録の行に字の
+    to を書いても、空の知らせで会話を起こさない）。"""
+    return isinstance(record.get("to"), str) and record["to"] in names and record.get("kind") in KINDS
 
 
 def read_new(log, pos):

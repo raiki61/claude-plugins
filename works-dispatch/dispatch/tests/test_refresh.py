@@ -139,7 +139,7 @@ class Hook(unittest.TestCase):
             json.dumps({"plugins": {"works-dispatch@m": [{"scope": "user", "lastUpdated": iso(t)}]}}), encoding="utf-8")
 
     def run_hook(self, cwd=None, window=None, pid=20, same=lambda pid: False, now=T0 + 100):
-        w = window or Window(cwd or self.place, status="done")
+        w = window or Window(cwd or self.place, status="done", front=[{"pid": pid, "argv": ["claude"]}])   # 窓の前にこの会話の処理
         got = refresh_hook.run({"cwd": cwd or self.place, "session_id": "s1"}, self.env, h=w, host=lambda: (pid, T0), same=same,
                                pause=lambda: None, now=lambda: now, plugin_root=self.root)
         return got, w.writes
@@ -158,8 +158,8 @@ class Hook(unittest.TestCase):
         self.updated(T0 - 1)
         self.assertEqual(self.run_hook(), (None, []))              # 起きた後に更新が無い
         self.updated(T0 + 60)
-        self.assertEqual(self.run_hook(window=Window(self.place, status="working")), ("busy", []))
-        self.assertEqual(self.run_hook(window=Window(self.place, box="打ちかけ")), ("typing", []))
+        self.assertEqual(self.run_hook(window=Window(self.place, status="working", front=[{"pid": 20, "argv": ["claude"]}])), ("busy", []))
+        self.assertEqual(self.run_hook(window=Window(self.place, box="打ちかけ", front=[{"pid": 20, "argv": ["claude"]}])), ("typing", []))
         self.assertNotIn(refresh.ATTR, gitx.worktree_attrs(self.place))   # 打てなければ控えず、次の番の終わりに見直す
 
     def test_does_nothing_outside_a_department_herdr_or_the_plugin_cache(self):
@@ -169,6 +169,14 @@ class Hook(unittest.TestCase):
         got = refresh_hook.run({"cwd": self.place}, self.env, h=Window(self.place), host=lambda: (20, T0),
                                pause=lambda: None, plugin_root="/src/claude-plugins/works-dispatch")
         self.assertIsNone(got)                                     # リポジトリの checkout から読んだ物
+
+    def test_a_window_where_another_talk_is_in_front_is_not_reloaded(self):
+        # 打ち先は、窓の前のプロセスにこの会話が居ると確かめた窓だけ（/clear と同じ確かめ方。c52730 の 5）
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        other = Window(self.place, status="done", front=[{"pid": 99, "argv": ["claude"]}])
+        self.assertEqual(self.run_hook(window=other), (None, []))
+        attached = Window(self.place, status="done", front=[{"pid": 99, "argv": ["claude", "attach", "s1"]}])
+        self.assertEqual(self.run_hook(window=attached), ("sent", [refresh.RELOAD]))   # この会話へ attach した窓
 
     def test_the_desk_reloads_only_its_own_conversation(self):
         provision.mark(self.src, self.src, {"role": "段取り", "pid": "20"}, gitx)

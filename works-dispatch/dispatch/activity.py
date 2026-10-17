@@ -70,7 +70,16 @@ def label(payload):
     return None
 
 
-def pane_of(payload, tmp, find=herdr.own_pane):
+def confirmed_pane(cwd, sid, env=os.environ):
+    """この会話の居るペインのうち、窓の前のプロセスにこの会話が居ると確かめた物（/clear の打ち先と同じ確かめ方。wake_hook.talk_window）。
+    会話の印と場所だけで決めると、前に居た会話や別の部署の会話の窓に札を付けた（2026-10-17、割り振りの窓にほかの会話の作業内容が
+    出た。c52730 の 5）。決まらなければ None。"""
+    import claudex   # noqa: E402  ここだけで使う（ツールのたびに読み込まない）
+    import wake_hook   # noqa: E402
+    return wake_hook.talk_window(cwd, herdr, [claudex.host()[0]], (wake_hook.job_of(env), claudex.attach_id(None, sid)))
+
+
+def pane_of(payload, tmp, find=None):
     """この会話の居るペイン（herdr.own_pane の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
     決まったら会話の id ごとの控えに残し、次からは herdr を読まない。ツールの呼び出し（PreToolUse）では控えだけを見て、決まって
     いなければ印を送らない（ツールのたびに herdr を待たせない）。"""
@@ -83,7 +92,7 @@ def pane_of(payload, tmp, find=herdr.own_pane):
     if payload.get("hook_event_name") == "PreToolUse":
         return None
     try:
-        pane = find(payload.get("cwd"), sid)
+        pane = find(payload.get("cwd"), sid) if find else confirmed_pane(payload.get("cwd"), sid)
     except herdr.HerdrError:
         return None
     if pane and memo:
@@ -91,7 +100,7 @@ def pane_of(payload, tmp, find=herdr.own_pane):
     return pane
 
 
-def handle(text, env, send=herdr.report_activity, find=herdr.own_pane):
+def handle(text, env, send=herdr.report_activity, find=None):
     """1 回のフックの入力を処理する。頼まれた内容はペインごとの控えに残し、ターンの終わり（Stop など）にそこへ戻す。"""
     if env.get("HERDR_ENV") != "1":
         return
