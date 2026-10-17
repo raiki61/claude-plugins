@@ -37,7 +37,7 @@ id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）�
         python3 dispatch.py --task <名前> --branch <枝> --brief <頼みのファイル> [--repo OWNER/NAME か代表の clone] [--base <枝>]
                             [--from-name <呼んだ会話の名前>] [--from-account <アカウントの名>] [--role <役>] [--dry-run]
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
-        python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
+        python3 dispatch.py --ask <会社/役 か部署の名前か会社の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
         python3 dispatch.py --done（都度の部署の場所から。納品して本流に入れ終えたので、番の終わりに会話を止めて部屋を片付けてよいと印す）
@@ -616,7 +616,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--tree", action="store_true", help="herdr に開いている会社ごとに、会社の情報と部署の様子を出す")
     ap.add_argument("--json", action="store_true", help="--tree と一緒に: JSON で出す")
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
-    ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
+    ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署か、会社の名前だけならその会社の窓口に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask か --note と一緒に: 頼みか足しの文（長い物は --brief のファイルで渡す）")
     ap.add_argument("--forward", action="store_true", help="--ask と一緒に: 部署か窓口の場所から、受けている頼みをこの頼みで回したとして"
                     "閉じる（回した先は台帳にだけ書き、頼み元の会話は起こさない。結果と問いは今までどおり --deliver で返す）")

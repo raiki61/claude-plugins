@@ -85,6 +85,28 @@ class Target(unittest.TestCase):
         self.assertIn("宛て方では分けられない", str(e.exception))
 
 
+    def test_a_company_name_alone_goes_to_its_desk(self):
+        # 部署でない会話は、宛先の会社の窓口の役の名前を知らなくても、会社の名前で頼める
+        desk = {**dept_row(name="段取り", role="段取り", residency="resident", path="/r/n"), "head_office": True}
+        notes = {**company("my_notes", "/r/n", desk, dept_row(name="調べもの", role="担当", path="/r/n-w")), "info_source": "origin"}
+        a = {**self.a, "info_source": "repo"}
+        got = deliver.find_target([a, notes], "/r/a", "my_notes")
+        self.assertEqual((got["company"]["name"], got["department"]["path"], got["role"]), ("my_notes", "/r/n", "段取り"))
+        with self.assertRaises(deliver.DeliverError) as e:   # 窓口を名付けていない会社
+            deliver.find_target([a, notes], "/r/n", "a")
+        self.assertIn("窓口が名付けられていない", str(e.exception))
+        # 会社の形の無いリポジトリの名前は会社に当たらず、今までどおり頼む側の会社の役で宛てる
+        plain = company("出荷役", "/r/出荷役")
+        self.assertEqual(deliver.find_target([a, plain], "/r/a", "出荷役")["department"]["path"], "/r/a-w2")
+        # 部署の名前は会社の名前より先に当たる
+        named = company("c", "/r/c", dept_row(name="my_notes", role="担当", path="/r/c-w"))
+        self.assertEqual(deliver.find_target([a, notes, named], "/r/a", "my_notes")["department"]["path"], "/r/c-w")
+        twin = {**company("my_notes", "/s/my_notes", desk), "info_source": "origin"}   # 同じ会社を別の所にも clone した
+        with self.assertRaises(deliver.DeliverError) as e:
+            deliver.find_target([a, notes, twin], "/r/a", "my_notes")
+        self.assertIn("2 つ以上ある", str(e.exception))
+
+
 class Summary(unittest.TestCase):
     def test_headings_and_labels_are_read(self):
         got = deliver.parse("結論: 直した\n**決め手**：原文 https://x.example\n## 残った疑問\nなし\n## 補足\n関係ない",

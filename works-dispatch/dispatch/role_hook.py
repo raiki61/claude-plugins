@@ -28,12 +28,20 @@ UserPromptSubmit（`--prompt`）: 番が始まるたび、その場所の役に�
 works-dispatch-role-<会話の id>）と違えば、今の文を足す（会社の形の名前・役・本文を替えたことを、会話を持ち越している部署と本社に
 届ける。会話を空にしないので、持ち主との話は消えない）。同じなら何も出さない。控えが無い（この版より前に始まった会話）ときも足す。
 待ち受けが会話を起こすとき（wake_hook.py）も、同じ物を起こす字の頭に足す（changed）。
+
+会社（会社の形の在るリポジトリ。読み方は上と同じ tree.read_info）の場所で、役の本文を足さない会話（部署の属性の無い作業場の会話、
+本社の窓口でない会話）には、ほかの会社への頼み方の 1 行（HINT。--ask <会社の名前> でその会社の窓口に届く）を足す。SendMessage で
+頼むと受付の台帳に頼み元が残らず、受けた側が返し先を覚えておくしかなかった（2026-10-17 に guided-resolver の枝の会話が my_notes の
+段取りに頼んだ）。会社になる前から動いている会話にも届くよう、UserPromptSubmit でも、この会話にまだ何も足していなければ足す
+（会社でない場所では何も書かないので、会社になった後の番で届く。その代わり、会社でない git の場所の会話では番ごとに会社の形を
+読み直す git が 2〜3 回走る）。会社でないリポジトリの会話には何も足さない。
 """
 
 import hashlib
 import json
 import os
 import pathlib
+import shlex
 import sys
 import tempfile
 
@@ -51,6 +59,15 @@ except (ImportError, SyntaxError) as _e:
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
+
+DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
+# 会話に「この字で頼め」と渡す dispatch.py の起こし方（orders.RUN と同じ作り。この会話のフックは orders を読み込まずに済ませる）
+RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))
+
+# 部署でない会話に足す、ほかの会社への頼み方（毎回の起動の量に入るので 1 行に保つ）
+HINT = ("works-dispatch: ここは会社「{company}」のリポジトリだが、この会話は部署ではない。ほかの会社に頼むときは SendMessage でなく "
+        "`{run} --ask <会社の名前> --text <頼み>` を打つ（その会社の窓口に届き、受付の台帳に頼み元が残って、納品はこの会話の "
+        "herdr の窓に返る。会社と仕事ごとの宛て方は同じ命令の `--tree`）。")
 
 
 def put_env(attrs, env):
@@ -165,6 +182,19 @@ def text_for(cwd, env=os.environ, attrs=None):
     return text
 
 
+def hint_for(cwd, env=os.environ, attrs=None):
+    """部署でない会話に足す頼み方の 1 行（HINT）。会社の場所でなければ None。"""
+    common = gitx.common_dir(cwd)
+    if not common:
+        return None
+    attrs = gitx.worktree_attrs(cwd) if attrs is None else attrs
+    root = gitx.root_of(common)
+    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+    if not info.get("source"):
+        return None
+    return HINT.format(company=tree.company_name(root, info), run=RUN)
+
+
 def seen_path(sid, env=os.environ):
     """この会話に前に足した文の控え（中身の digest）の置き場。"""
     folder = env.get("TMPDIR") or tempfile.gettempdir()
@@ -211,6 +241,20 @@ def changed(payload, env=os.environ, attrs=None):
     return f"{CHANGED_HEAD}\n{text}"
 
 
+def late_hint(payload, cwd, attrs, env=os.environ, seated_=None):
+    """この会話にまだ何も足していない（控えが無い）、役の本文を受けない会話で、場所が会社なら HINT。足したら控えを書く。
+    会社になる前から動いている会話に、会社になった後の番で届ける。"""
+    sid = payload.get("session_id")
+    if not sid or os.path.exists(seen_path(sid, env)):
+        return None
+    if attrs.get("role") and (seated_ or seated)(payload, cwd, attrs):
+        return None   # 部署か窓口の会話（役の本文は changed が足す）
+    text = hint_for(cwd, env, attrs)
+    if text:
+        remember(sid, text, env)
+    return text
+
+
 def _payload(stdin):
     try:
         payload = json.loads(stdin.read() or "{}") or {}
@@ -229,7 +273,7 @@ def prompt(stdin=sys.stdin, env=os.environ):
             attrs = gitx.worktree_attrs(cwd)
     except (gitx.GitError, OSError) as e:
         print(f"works-dispatch: 役の名前を書き直せなかった（{e}）", file=sys.stderr)
-    text = changed(payload, env, attrs)
+    text = changed(payload, env, attrs) or late_hint(payload, cwd, attrs, env)
     if text:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}},
                          ensure_ascii=False))
@@ -250,7 +294,7 @@ def main(stdin=sys.stdin, env=os.environ):
         put_env(attrs, env)
     except OSError as e:
         print(f"works-dispatch: GH_TOKEN を入れる行を書けなかった（{e}）", file=sys.stderr)
-    text = text_for(cwd, env, attrs) if attrs.get("role") and seated(payload, cwd, attrs) else None
+    text = text_for(cwd, env, attrs) if attrs.get("role") and seated(payload, cwd, attrs) else hint_for(cwd, env, attrs)
     if text:
         remember(payload.get("session_id"), text, env)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}},

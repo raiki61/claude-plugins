@@ -2,7 +2,8 @@
 """deliver ノード: 依頼と納品（会社の形の設計 4.5・4.10 の 3・9.2）の中身。宛先と頼み元の窓を決め、要約の項目を確かめ、受付箱に
 記録を残し、窓に 1 行を打ち込む。流れ（どの順に呼ぶか）は orders.py が持つ。
 
-- 宛先: 「会社/役」か部署の名前。会社を省けば頼む側の会社。部署の名前（属性 company.name）が先に当たる。役で宛てたときは、その役の
+- 宛先: 「会社/役」か部署の名前か会社の名前。会社を省けば頼む側の会社。部署の名前（属性 company.name）が先に当たる。会社の名前
+  だけなら、その会社の窓口（本社の、--desk で名付けた会話）に届ける。役で宛てたときは、その役の
   常設の部署（company.residency=resident）に届け、無ければ新しく立てる（4.10 の 1・2。都度の部署は頼みごとに立てる）。
 - 頼み元の窓: 部署の属性 company.boss-session（頼んだ会話の id）、無ければ company.boss と company.boss-account から会話の一覧で
   引いた会話を、herdr のペインと結ぶ。結び方は、その会話を持つ部署の窓、ペインの会話の印（agent_session）と場所が合うもの、
@@ -66,7 +67,8 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。current は (会社, 役の名前) → 今の役の名前
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
-    部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。役で宛てて task（--task の部署の名前）を
+    部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。会社を書かずに会社の名前（会社の形の在る会社だけ）
+    だけで宛てれば、その会社の本社の名付いた会話（窓口）に届け、名付いていなければ止める。頼む側の会社の役の名前より先に当たる。役で宛てて task（--task の部署の名前）を
     渡せば、その名前の部署に届け、無ければ department は None（新しく立てる。同じ役の常設の部署が名前違いで居ても
     使わない）。task が無く、役で宛てて常設の部署が無ければ department は None（新しく立てる）。"""
     company_name, name = parse_target(target)
@@ -92,6 +94,18 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         raise DeliverError(f"部署の名前「{name}」が 2 つ以上ある（{where}）。{hint}")
     if named:
         return {"company": named[0][0], "department": named[0][1], "role": named[0][1]["attrs"].get("role")}
+    whole = [c for c in companies if company_name is None and c.get("info_source")
+             and name in (c["name"], os.path.basename(os.path.normpath(c["root"])))]
+    if len(whole) > 1:
+        raise DeliverError(f"会社の名前「{name}」が 2 つ以上ある（{'、'.join(c['root'] for c in whole)}）。部署の名前か「会社/役」で宛てる")
+    if whole:
+        # 会社の名前だけで宛てたら、その会社の窓口（本社の、--desk で名付けた会話）に届ける（tree.contacts の窓口と同じ物）。部署で
+        # ない会話がほかの会社に頼むとき、宛先の役の名前を会社ごとに知らなくてよいように
+        head = next((d for d in whole[0]["departments"] if d.get("head_office") and d["attrs"].get("name")), None)
+        if head is None:
+            raise DeliverError(f"会社「{name}」の窓口が名付けられていない（その会社の本社で持ち主と話す会話が --desk を打つと名付く）。"
+                               "--tree の「受ける仕事」の宛て方で、仕事ごとの部署に宛てる")
+        return {"company": whole[0], "department": head, "role": head["attrs"].get("role")}
     if company_name is None:
         home = [c for c in companies if os.path.realpath(c["root"]) == os.path.realpath(here_root)] if here_root else []
         if not home:

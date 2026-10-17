@@ -436,6 +436,46 @@ class Hook(unittest.TestCase):
         self.assertIsNone(prompt())   # 足すのは替わった後の 1 度だけ
         self.assertIsNone(prompt("s-other"))   # 場所の属性の会話でない会話には足さない
 
+    def test_a_talk_outside_the_departments_of_a_company_gets_how_to_ask_other_companies(self):
+        # 部署でない会話（PR の枝の会話など）が SendMessage で頼み、受付の台帳に頼み元が残らなかった（2026-10-17 の guided-resolver）
+        def started(cwd, sid):
+            out = io.StringIO()
+            with mock.patch.object(claudex, "running_claude", lambda pid: True), contextlib.redirect_stdout(out):
+                role_hook.main(io.StringIO(json.dumps({"cwd": cwd, "session_id": sid, "source": "startup"})), self.env)
+            return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"] if out.getvalue() else None
+        self.assertIsNone(started(self.place, "s-a"))   # 会社でないリポジトリには何も足さない
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", 'name = "co"\n' + SHAPE.replace('name = "試しの会社"\n', ""))
+        got = started(self.place, "s-b")
+        self.assertIn("会社「co」", got)
+        self.assertIn(f"{role_hook.RUN} --ask <会社の名前> --text <頼み>", got)
+        self.assertEqual(len(got.splitlines()), 1)   # 毎回の起動の量に入るので 1 行
+        provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, gitx)
+        self.assertEqual(started(self.src, "s-c"), got)   # 本社の、窓口でない会話
+        self.assertEqual(started(self.src, "s-desk"), role_hook.text_for(self.src, self.env))   # 窓口と部署は役の本文だけ（今までどおり）
+        provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
+        self.assertEqual(started(self.place, "s-d"), role_hook.text_for(self.place, self.env))
+
+    def test_a_talk_running_before_the_repo_became_a_company_gets_the_hint_once_on_its_next_prompt(self):
+        def prompt(sid="s1", cwd=None):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                role_hook.prompt(io.StringIO(json.dumps({"cwd": cwd or self.place, "session_id": sid})), self.env)
+            return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"] if out.getvalue() else None
+        with contextlib.redirect_stdout(io.StringIO()):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s1", "source": "startup"})), self.env)
+        self.assertIsNone(prompt())   # まだ会社でない
+        conf = pathlib.Path(self.env["WORKS_DISPATCH_CONFIG"]).parent   # 会社の形を設定の置き場に書いて会社にした
+        write(conf / "companies" / (urllib.parse.quote(os.path.realpath(self.src), safe="") + ".toml"), SHAPE)
+        self.assertIn("会社「試しの会社」", prompt())
+        self.assertIsNone(prompt())   # 足すのは 1 度だけ
+        provision.mark(self.place, self.src, {"role": "調べ役", "session": "s2"}, gitx)
+        self.assertIsNone(prompt("s9"))   # 部署の場所のほかの会話には、役の本文を足した会話と同じく足さない
+        provision.mark(self.src, self.src, {"role": "調べ役", "name": "調べ", "session": "s-desk", "pid": "999999999"}, gitx)
+        with mock.patch.object(claudex, "running_claude", lambda pid: True):
+            self.assertIn("会社「試しの会社」", prompt("s-head", self.src))   # 本社の、窓口でない会話
+            got = prompt("s-desk", self.src)   # 窓口の会話には、頼み方でなく役の本文（changed。控えが無いので今足す）
+            self.assertTrue(got.startswith(role_hook.CHANGED_HEAD) and "SendMessage" not in got, got)
+
     def test_plugin_declares_the_prompt_hook_in_sync(self):
         hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         [h] = [h for grp in hooks["UserPromptSubmit"] for h in grp["hooks"] if "role_hook.py" in h["command"]]
