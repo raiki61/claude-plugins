@@ -277,8 +277,32 @@ class Build(unittest.TestCase):
         text = "\n".join(tree.lines(self.build((), sessions)))
         self.assertIn("r  /s/r  （会社の情報なし）", text)
         self.assertIn("  本社 main  会話なし", text)
-        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（常設・持ち越し）  アカウント p2  上役 窓口  窓 なし", text)
-        self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  上役 -  窓 なし", text)
+        self.assertIn("  ├ dept/a  作業中  会話 調べ  役 調べ役（常設・持ち越し）  アカウント p2  頼み元 窓口  窓 なし", text)
+        self.assertIn("  └ dept/b  会話なし  役 -  アカウント -  頼み元 -  窓 なし", text)
+
+    def test_contacts_show_who_to_ask_and_the_desk(self):
+        # 受ける仕事ごとの宛て方（常設の受け持ちは部署の名前、まだ立っていなければ役と --task、都度の役は役と --task）と窓口を出す。
+        # 頼み元（company.boss）は納品の返し先なので、宛て方にも窓口にも使わない
+        from nodes import role
+        shape = role.load("t", '[[roles]]\nname = "担当"\nresident = true\n[[roles]]\nname = "作業"\n'
+                               '[[roles]]\nname = "配布"\nmachine = true\n')
+        company = {"name": "c", "skills": [{"name": "調べ", "description": None, "role": "担当"}, {"name": "点検", "description": None, "role": "担当"},
+                                           {"name": "直し", "description": None, "role": "作業"}, {"name": "配る", "description": None, "role": "配布"},
+                                           {"name": "無役", "description": None, "role": None}],
+                   "departments": [{"head_office": True, "attrs": {"name": "段取り", "role": "段取り", "boss": "社長室"}},
+                                   {"head_office": False, "attrs": {"name": "調べ", "role": "担当", "boss": "段取り"}}]}
+        tree.contacts(company, shape)
+        self.assertEqual([s["ask"] for s in company["skills"]],
+                         ["--ask c/調べ", "--ask c/担当 --task 点検 --branch <枝>", "--ask c/作業 --task <部署の名前> --branch <枝>",
+                          None, None])
+        self.assertEqual(company["desk"], {"name": "段取り", "role": "段取り", "ask": "--ask c/段取り"})
+        company.update({"root": "/s/c", "info_source": "origin", "description": None, "problems": []})
+        text = "\n".join(tree.lines([company | {"departments": []}]))
+        self.assertIn("  受ける仕事: 調べ → 担当  宛て方 --ask c/調べ", text)
+        self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  宛て方 --ask c/段取り", text)
+        # 本社を名付けていなければ、名付けていないと出す
+        unnamed = company | {"departments": [], "desk": None}
+        self.assertIn("  窓口: 名付けていない", "\n".join(tree.lines([unnamed])))
 
     def test_roots_come_from_herdr_then_from_conversations(self):
         common = {"/notes": "/notes", "/wt/n/x": "/notes", "/r2/sub": "/r2"}
@@ -419,7 +443,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn(f"{os.path.basename(self.src)}  {self.src}  （会社の情報なし）", out)
         self.assertIn("  本社 main  会話なし", out)
-        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（都度）  アカウント a1  上役 -  窓 あり", out)
+        self.assertIn("  └ dept/a  作業中  会話 調べ  役 調べ役（都度）  アカウント a1  頼み元 -  窓 あり", out)
 
     def test_tree_json_matches_the_schema(self):
         rc, out = self.main("--tree", "--json")

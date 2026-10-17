@@ -194,7 +194,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか", problem)
 
     def test_model_inherit_is_not_made(self):
-        # 上役の会話の今のモデルを外から読む口が無いので、model の inherit は作らず、書き損じと同じに役を外して知らせる
+        # 頼み元の会話の今のモデルを外から読む口が無いので、model の inherit は作らず、書き損じと同じに役を外して知らせる
         got = self.roles('[[roles]]\nname = "a"\nmodel = "inherit"\n')
         self.assertNotIn("a", got["roles"])
         self.assertIn("model の inherit は作っていない", got["problems"][0])

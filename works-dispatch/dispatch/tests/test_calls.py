@@ -127,7 +127,7 @@ class Call(unittest.TestCase):
         self.assertIn("機械の道具「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
         self.assertIn("p2 で失敗", brief)
         # 外れは --tree で数えられる
-        companies = [{"root": self.src, "departments": []}]
+        companies = [{"root": self.src, "name": "src", "skills": [], "departments": []}]   # tree.build の会社の 1 件の形
         calls.annotate(companies, os.path.dirname(self.cfg), gitx)
         self.assertEqual(companies[0]["tools"][0]["misses"], 1)
 

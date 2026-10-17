@@ -26,9 +26,9 @@
 1 つ選び、その作業場で Claude Code の裏の会話（claude --bg）を、名前と頼みのファイルを読ませる最初の文を付けて起こし、同じペインで
 attach して画面を出す（会社の形の設計 9.1）。最初の文の後ろに、呼んだ会話への連絡の道（同じアカウントなら SendMessage、違えば画面に
 書いて止まる）を書き足す。作業の終わりは待たない。作業場の git の設定 company.<名前> に、部署の属性（役・アカウント・会話の名前と
-id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--clean は、会話が終わり枝が本流に入った部署を、claude rm と一緒に片付ける。
+id・頼み元〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--clean は、会話が終わり枝が本流に入った部署を、claude rm と一緒に片付ける。
 
---tree は、herdr に開いている会社（リポジトリ）ごとに、会社の情報（名前と受ける仕事）と部署（枝・役・アカウント・上役・herdr の
+--tree は、herdr に開いている会社（リポジトリ）ごとに、会社の情報（名前と受ける仕事）と部署（枝・役・アカウント・頼み元・herdr の
 状態）を出す（_company。--json で JSON）。--sync は、部署の属性から herdr のペインの名前・表示名・札を付け直す（何度打っても同じ。会社の形が替わったときは、番の終わりの
 フック shape_hook.py が、その会社の分を同じ中身で付け直す）。
 どちらも dispatch の設定が無くても動く（有れば、会話のアカウントと、設定の置き場の会社の情報を見る）。
@@ -43,7 +43,7 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --done（都度の部署の場所から。納品して本流に入れ終えたので、番の終わりに会話を止めて部屋を片付けてよいと印す）
         python3 dispatch.py --retire <部署>（都度の部署の会話を止めてから、--clean と同じ決まりで片付ける）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
-        python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役> [--boss-account <名>]] [--dry-run]
+        python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <頼み元> [--boss-account <名>]] [--dry-run]
         python3 dispatch.py --desk [<名前>] [--role <役>] [--dry-run]
         python3 dispatch.py --init --repo OWNER/NAME --source <代表の clone> | --init-company [--local] [--repo <代表の clone>]
 
@@ -656,11 +656,11 @@ def main(argv=None, ports=None):
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署が本流を知った後にほかの部署が入れた行を、この枝が消していても入れる（わざと消すとき）")
     ap.add_argument("--reorg", action="store_true",
-                    help="今いる部署の名前・役・常設か都度か・上役を付け替え、herdr の表示を付け直す（--name・--role・--resident か --per-task・--boss）")
+                    help="今いる部署の名前・役・常設か都度か・頼み元を付け替え、herdr の表示を付け直す（--name・--role・--resident か --per-task・--boss）")
     ap.add_argument("--name", help="--reorg と一緒に: 部署の新しい名前（前の名前は覚え、--land・--ask は前の名前でも引く）")
     ap.add_argument("--per-task", action="store_true", help="--reorg と一緒に: 都度の部署にする（常設をやめる）")
-    ap.add_argument("--boss", help="--reorg と一緒に: 新しい上役（納品を返す会話）の名前")
-    ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい上役のアカウントの名（省けば名前だけで引く）")
+    ap.add_argument("--boss", help="--reorg と一緒に: 新しい頼み元（納品を返す会話）の名前")
+    ap.add_argument("--boss-account", help="--reorg と一緒に: 新しい頼み元のアカウントの名（省けば名前だけで引く）")
     ap.add_argument("--desk", metavar="名前", nargs="?", const="",
                     help="本社で持ち主と話す今の会話を窓口として名付ける（役は --role、会社の形の desk_role、今の役、窓口 の順。"
                          "名前を省けば今の名前か役の名前）。herdr の表示も付け直す")
@@ -1170,7 +1170,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     account = row["account"]["name"]
     many = len(cfg.accounts) > 1
     pane_label = sync.label(a.task, account, many)
-    # 部署の属性（正本）。上役は呼んだ会話。分からない物は書かない
+    # 部署の属性（正本）。頼み元は呼んだ会話。分からない物は書かない
     attrs = {"role": role_name, "residency": RESIDENT if resident else PER_TASK, "fresh": role.FRESH if the_role and the_role["fresh"] else None,
              "account": account,
              "name": a.task, "boss": caller["name"], "boss-account": caller["account"], "gh-user": gh_user,
@@ -1236,7 +1236,7 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 first = {**clean.landed_of(ports.attrs(prov["path"])), a.branch: ports.git.rev(prov["path"], "HEAD")}
                 provision.mark(prov["path"], repo.source, {clean.LANDED_BRANCHES: json.dumps(first, ensure_ascii=False)}, ports.git)
         except (gitx.GitError, OSError) as e:
-            notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・上役が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
+            notes.append(f"部署の属性を書けなかった（{e}）。--tree に役・頼み元が出ず、--sync で札を付け直せず、--clean が部署を片付けない")
         row["label"] = pane_label
         settings = ports.department_settings()
         if (the_role or {}).get("settings"):
@@ -1642,7 +1642,7 @@ mode = "none"
 #   部署の名前には付けない。
 # - 枝の名前は英小文字とハイフンにする（git と GitHub の URL で崩れないため）。直しは fix/…、足すものは feat/…、調べや下書きは work/…。
 # - 担当への頼みは部署の名前で宛てる（--ask <受け持ち>。部署の名前は役より先に当たる）。担当がまだ居ない受け持ちは
-#   --ask {plain}/担当 --task <受け持ち> --branch <枝> --text <頼み> で、最初の頼みと一緒に立てる。頼んだ部署が上役になり、納品はそこに返る。
+#   --ask {plain}/担当 --task <受け持ち> --branch <枝> --text <頼み> で、最初の頼みと一緒に立てる。頼んだ部署が頼み元になり、納品はそこに返る。
 # - 担当の受け持ちの中の作業は、担当に頼む（窓口が作業に直に頼まない。同じファイルを 2 つの部署が触ると、後から入れた方が前の変更を消す）。
 # - 納品の後に判断が要ることが出たら、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは届かない）。
 """

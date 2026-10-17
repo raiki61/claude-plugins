@@ -3,7 +3,7 @@
 作業場は元の clone の git worktree（作る・消すは herdr の口。herdr.py）。worktree は中身（objects・refs・stash）を元の clone と
 共有するので、手元の作業の判定は「その worktree の HEAD とその枝」に絞る（ほかの枝や元の clone の作業を数えない）。
 
-部署の属性（役・アカウント・上役など）は、部署（worktree）ごとの git の設定 `company.<名前>` に置く（worktree_attrs・
+部署の属性（役・アカウント・頼み元など）は、部署（worktree）ごとの git の設定 `company.<名前>` に置く（worktree_attrs・
 enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/worktrees/<部署>/config.worktree` に入り、ほかの部署と元の clone に
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 

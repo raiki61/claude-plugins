@@ -4,7 +4,7 @@
 dispatch.py の流れの続きで、ノード（nodes/provision.py の mark・nodes/sync.py）を呼ぶ順をここが持つ。ほかの部署と dispatch.py を
 同時に直すので、ぶつかりを減らすために別のファイルにした（orders.py・landing.py と同じ）。
 
---reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・常設か都度か・上役を付け替える。
+--reorg（reorg）: 今いる部署（属性 company.role の在る worktree）の名前・役・常設か都度か・頼み元を付け替える。
 --desk [名前]（desk）: 本社（代表の clone）で持ち主と話す会話を窓口として名付ける。役（desk_role）・常設・名前・アカウントと会話の id と
 会話の処理の番号を本社の git の設定に書く（手で書いていた company.role・company.name の正式な口）。役は --role、会社の形の頭の
 desk_role、本社が今持つ役、DESK_ROLE の順に決め、名前を省けば本社が今持つ名前、無ければ役の名前。会話の処理の番号（company.pid）は、
@@ -174,7 +174,7 @@ def reorg(a, ports, cwd):
         if former:
             changes["former-names"] = former
     if a.boss:
-        # 上役を替えたら、前の上役の会話の id とペインは消す（納品は新しい上役を名前で引く）。受付箱は残す
+        # 頼み元を替えたら、前の頼み元の会話の id とペインは消す（納品は新しい頼み元を名前で引く）。受付箱は残す
         changes.update({"boss": a.boss, "boss-account": a.boss_account, "boss-session": None, "boss-pane": None})
     head = f"部署 {attrs.get('name') or cwd}（役 {the_role}）を組み直す"
     return _write(a, ports, cwd, source, attrs, changes, notes, head, talk_name if a.name else None)

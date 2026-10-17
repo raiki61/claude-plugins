@@ -6,11 +6,11 @@
 - name: 役の名前（部署の属性 company.role と同じ字）
 - instructions: 部署の会話の指示に足す役の本文。SessionStart のフックが毎回の起動で足すので短くし、AGENTS.md と同じことは書かない
 - model: 部署を起こすときの --model。省けばそのアカウントの既定のまま起こす。受け持ち（[[skills]]）に model が有れば、
-  その部署ではそちらが先に効く（launch_flags）。inherit（上役と同じ）は作らない（上役の会話の
+  その部署ではそちらが先に効く（launch_flags）。inherit（頼み元と同じ）は作らない（頼み元の会話の
   今のモデルを外から読む口が無い。Bash の道具の環境変数に無く〔hooks の文書 "There is no $CLAUDE_MODEL environment variable"〕、
   claude agents --json の 1 件にも無い）ので、書けば problems に書いて役を外す
 - effort: 部署を起こすときの --effort（low・medium・high・xhigh・max・ultracode）。省けばそのアカウントの既定のまま起こす。
-  inherit なら、呼んだ会話（上役）の今の effort で起こす。Claude Code は Bash の道具に今の effort を CLAUDE_EFFORT として渡す
+  inherit なら、呼んだ会話（頼み元）の今の effort で起こす。Claude Code は Bash の道具に今の effort を CLAUDE_EFFORT として渡す
   （hooks の文書）ので、入口がそれを読む。--effort はその会話にだけ効き、設定の effortLevel・modelSettings より強く、保存されない
   （CLI の文書）。知らない値は claude が注意を 1 行出すだけで既定に戻す（2.1.302 の -p で見た。裏の会話の注意は誰も読まない）ので、読むときに弾く
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
@@ -45,7 +45,7 @@ import re
 import shlex
 import tomllib
 
-# 役の effort に書ける値（CLI の文書の --effort の Options）と、上役と同じ値で起こす印
+# 役の effort に書ける値（CLI の文書の --effort の Options）と、頼み元と同じ値で起こす印
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultracode")
 INHERIT = "inherit"
 
@@ -160,7 +160,7 @@ def load(path, text=None):
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
         if r.get("model") == INHERIT:
-            out["problems"].append(f"{where}（{r['name']}）: model の inherit は作っていない（上役の会話の今のモデルを外から読む口が"
+            out["problems"].append(f"{where}（{r['name']}）: model の inherit は作っていない（頼み元の会話の今のモデルを外から読む口が"
                                    f"無い）。モデルの名前を書くか、省いてアカウントの既定で起こす")
             continue
         for k in ("deliver", "deliver_check"):
@@ -267,7 +267,7 @@ def launch_flags(role, env, duty=None):
         return model, env["CLAUDE_EFFORT"], None
     who = f"部署 {duty['name']}" if duty.get("effort") else f"役 {role['name']}"
     return model, None, (f"{who} の effort は inherit だが、呼んだ会話の effort が分からない（CLAUDE_EFFORT が無い。"
-                         f"Claude Code の外から打ったか、上役のモデルが effort を持たない）ので、アカウントの既定の effort で起こす")
+                         f"Claude Code の外から打ったか、頼み元のモデルが effort を持たない）ので、アカウントの既定の effort で起こす")
 
 
 def _merge(base, top):

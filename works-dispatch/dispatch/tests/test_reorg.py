@@ -69,7 +69,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs["role"], attrs["residency"], attrs["boss"], attrs["boss-account"]), ("作業", "per-task", "割り振り", "a1"))
-        # 前の上役の会話の id とペインは消す（納品は新しい上役を名前で引く）
+        # 前の頼み元の会話の id とペインは消す（納品は新しい頼み元を名前で引く）
         self.assertNotIn("boss-session", attrs)
         self.assertNotIn("boss-pane", attrs)
         # 役の名前の書き損じは止める

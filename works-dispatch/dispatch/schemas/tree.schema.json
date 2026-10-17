@@ -25,8 +25,18 @@
                 "id": {"type": ["string", "null"]},
                 "name": {"type": "string"},
                 "description": {"type": ["string", "null"]},
-                "role": {"type": ["string", "null"]}
+                "role": {"type": ["string", "null"]},
+                "ask": {"type": ["string", "null"]}
               }
+            }
+          },
+          "desk": {
+            "type": ["object", "null"],
+            "required": ["name", "role", "ask"],
+            "properties": {
+              "name": {"type": "string"},
+              "role": {"type": ["string", "null"]},
+              "ask": {"type": "string"}
             }
           },
           "departments": {

@@ -100,7 +100,7 @@ dispatch はこれが無くても動く。枝ごとの作業場が増えたと�
 - `--init`・`--init-company`: dispatch の設定・会社の形の下書きを書く（上の「初めて」。もうあれば上書きしない）。
 - `--task 名前 --branch 枝 --brief 頼みのファイル`: 部署を 1 つ立てる（下の「部署を立てる」）。
 - `--tree`・`--sync`: 会社のツリー図を出す・herdr の表示を付け直す（下の節）。
-- `--reorg`・`--desk`: 部署の名前・役・常設か都度か・上役を付け替える・本社の会話を窓口として名付ける（下の「組み直す」）。
+- `--reorg`・`--desk`: 部署の名前・役・常設か都度か・頼み元を付け替える・本社の会話を窓口として名付ける（下の「組み直す」）。
 - `--land 部署`: 部署の成果を、会社の形の決まりで本流に入れる（下の「本流に入れる」）。
 - `--move 部署か窓口`: 立っている部署か窓口の会話を、ほかのアカウントで起こし直す（下の「ほかのアカウントで起こし直す」）。
 - `--start 受け持ち`・`--due`: 会社の形に起こし方を書いた受け持ちの部署を、命令か周期で起こす（下の「受け持ちを起こす」）。
@@ -121,9 +121,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 
 1. 枝の作業場を、PR と同じ置き場の決まりで用意する（代表の clone の git worktree を herdr に作らせ、置き場は herdr の `worktrees.directory`。herdr はその作業場を、リポジトリの作業場の子としてまとめる）。枝の作業場が既に在れば開き直し、git では動かさない（PR と違い、origin の head へ早送りしない。部署の枝は手元で commit を積む物のため）。無ければ作る。元は、origin にその枝が在れば origin の枝、無ければ既定の枝（`--base` で替えられる）。既定の枝の名前は GitHub に問わず、代表の clone の手元の `origin/HEAD` から取り、無ければ origin に `git ls-remote --symref origin HEAD` で問う（`--land` の本流と `--clean` も同じ元から取る）。部署の回（`--task`・`--ask`・`--land`・`--init-company`）は GitHub を読まないので、origin は手元の bare リポジトリでもよい。GitHub が要るのは、PR を開く回と、`[land]` の取り込み方が `pr` か CI の枝の関門のときだけ。
 2. 使用率が上限に届かないアカウント（上限は PR を開く回の 2 と同じで、週の枠と 5 時間の枠の両方に当てる）のうち、PR を開く回の 2 と同じ順（週の枠の切り替わりが近い物を先に、ほかは使用率の低い順）の頭を 1 つ選ぶ。
-3. 部署の属性（役〔`--role`。省けば会社の形の `default_role`、それも無ければ `作業`〕・常設か都度か〔`--resident` を付けるか、役の項目に `resident = true` が有れば常設（`resident`）、省けば都度（`per-task`）。常設の部署は `--clean` で畳まず、次の頼みを同じ部署で受ける〕・アカウント・会話の名前・上役〔呼んだ会話〕）を、作業場の git の設定に、属性ごとに `company.role`・`company.residency`・`company.account`・`company.name`・`company.boss` のような名前で書く（代表の clone に `extensions.worktreeConfig = true` を入れる。値は commit されず、worktree と一緒に消える）。代表の clone の `.git/info/exclude` に `.claude/settings.local.json`（部署の会話が書く許可の記録）を足す（`.gitignore` は触らない。`.claude/` を丸ごとは隠さない。exclude は全 worktree で共有なので、`.claude/` の下に新しく作ったファイルが未追跡に出なくなり、commit し忘れに気づけない）。
+3. 部署の属性（役〔`--role`。省けば会社の形の `default_role`、それも無ければ `作業`〕・常設か都度か〔`--resident` を付けるか、役の項目に `resident = true` が有れば常設（`resident`）、省けば都度（`per-task`）。常設の部署は `--clean` で畳まず、次の頼みを同じ部署で受ける〕・アカウント・会話の名前・頼み元〔呼んだ会話〕）を、作業場の git の設定に、属性ごとに `company.role`・`company.residency`・`company.account`・`company.name`・`company.boss` のような名前で書く（代表の clone に `extensions.worktreeConfig = true` を入れる。値は commit されず、worktree と一緒に消える）。代表の clone の `.git/info/exclude` に `.claude/settings.local.json`（部署の会話が書く許可の記録）を足す（`.gitignore` は触らない。`.claude/` を丸ごとは隠さない。exclude は全 worktree で共有なので、`.claude/` の下に新しく作ったファイルが未追跡に出なくなり、commit し忘れに気づけない）。
 4. ペインに名前を付け、そのアカウントの起こし方（設定の `command`）に `--bg --name <作業の名前> --settings <設定のファイル> [--model <モデル>] [--effort <段>] "<最初の文>"` を付けて打ち込む。設定のファイルは、裏の会話が自分で別の worktree を作らないようにする（`worktree.bgIsolation = "none"`。このプラグインの templates/department-settings.json）。会社の形の役の項目に起動の設定・モデル・effort が有れば、それも渡す（下の「役の中身と起こし方」）。最初の文は「作業の頼みです。<頼みのファイル> を読んで進めてください。」に連絡の道を書き足したもの。
-5. そのアカウントの会話の一覧に裏の会話が出たら、会話の id を属性に足し、同じペインで `<command> attach <id>` を打ち込んで画面を出す。herdr の表示名（役）と札（ペインに添える短い印。役・アカウント・上役）をペインに、常設か都度かと会話の持ち越し方（`常設・毎回空`・`常設・持ち越し`・`都度`）を作業場の印 `$kind` に付ける（会話の行でなく作業場の行に出す）。作業の終わりは待たない。ペインを閉じても裏の会話は続く。
+5. そのアカウントの会話の一覧に裏の会話が出たら、会話の id を属性に足し、同じペインで `<command> attach <id>` を打ち込んで画面を出す。herdr の表示名（役）と札（ペインに添える短い印。役・アカウント・頼み元）をペインに、常設か都度かと会話の持ち越し方（`常設・毎回空`・`常設・持ち越し`・`都度`）を作業場の印 `$kind` に付ける（会話の行でなく作業場の行に出す）。作業の終わりは待たない。ペインを閉じても裏の会話は続く。
 
 呼んだ会話の名前とアカウントは、dispatch が Claude Code の会話の一覧（`claude agents --json`）から、Bash の道具に渡る `CLAUDE_CODE_SESSION_ID` で探す。一時停止（Ctrl-Z）したまま `--resume` で開き直した会話は、一覧に同じ会話の id（`sessionId`）で古い処理（古い名前のまま）と今の処理の 2 件が並ぶので、dispatch の処理から親の処理を順にたどって pid（処理の番号）の並びを作り、2 件のうち一覧の `pid` がその並びに入っている方（dispatch を走らせている、今の処理）を、どちらも入っていなければ処理の起きた時刻（`startedAt`。開き直した今の処理の方が新しい）の新しい方を選ぶ。Claude Code の外から走らせるなど見つからないときは、画面の道にして注記を出す。SendMessage の道にしたいなら `--from-name <呼んだ会話の名前> --from-account <アカウントの名>` で渡す（`--ask`〔下の「頼む・納品する」〕でも、渡せば頼み元の名前とアカウントになる）。`--dry-run` は、作業場を作るか使い直すか、アカウント、名前、部署の属性、連絡の道、最初の文を出すだけで、何も起こさない。同じ名前の会話が既に開いていれば止まる（宛先が 1 つに決まらないため）。
 
@@ -133,7 +133,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch
 
 ## 会社のツリー図: `--tree`
 
-herdr に開いている作業場と、全アカウントの会話（終わった裏の会話も）が指すリポジトリを会社として、会社ごとに受ける仕事と部署を出す。部署の行は、枝・状態（作業中・止まっている・終わった・待機中・会話なし など）・会話の名前・役・アカウント・上役・herdr の窓の有無。`--tree --json` は同じ物を JSON で出す（形は `dispatch/schemas/tree.schema.json`）。読むだけで、何も書かない。dispatch の設定が無くても動く（有れば、そのアカウントの会話の一覧も見る）。
+herdr に開いている作業場と、全アカウントの会話（終わった裏の会話も）が指すリポジトリを会社として、会社ごとに受ける仕事と部署を出す。受ける仕事の行には、その仕事を頼む宛て方（`--ask` の宛先。常設の受け持ちは部署の名前、まだ立っていない受け持ちと都度の役は役と `--task`）を添え、会社ごとに窓口（本社で `--desk` で名付けた会話。受ける仕事に当たらない件・部署をまたぐ件の宛先）を出す。外の会社の部署も中の部署も、ここから誰に頼むかを決める。部署の行は、枝・状態（作業中・止まっている・終わった・待機中・会話なし など）・会話の名前・役・アカウント・頼み元（納品を返す先。直前に頼んだ会話で、上下ではない。上下は本社〔窓口〕の下に部署が並ぶ木の形で出す）・herdr の窓の有無。`--tree --json` は同じ物を JSON で出す（形は `dispatch/schemas/tree.schema.json`）。読むだけで、何も書かない。dispatch の設定が無くても動く（有れば、そのアカウントの会話の一覧も見る）。
 
 会社の情報（名前と受ける仕事）は、リポジトリの中の `.claude/company.toml` を先に読み、無ければ設定の置き場（設定のファイルの隣）の `companies/<代表の clone の場所を符号にした名前>.toml` を読む。リポジトリの中の物は、origin の既定の枝（main など。手元の ref `origin/HEAD` が指す枝。部署を立てる `--task` と `--ask` は、読む前にその枝だけを fetch する〔`--dry-run` を除く〕。ほかの命令は fetch しない）に commit された物を先に読み、既定の枝に無いときだけ代表の clone の作業ツリーの物を読む。既定の枝に在れば、代表の clone がたまたま開いている枝や部署の worktree で書き換えた物は読まないので、変えた会社の形は既定の枝に入れてから効く。手元の `origin/<既定の枝>` が古ければ古い物を読む（`git fetch` や `--land` の push で新しくなる）。`origin/HEAD` が無い clone（作った後に origin の既定の枝を替えた、など）では既定の枝を決められないので代表の clone の作業ツリーから読み、`--check` と会社の形を読む命令が、直す命令 `git -C <代表の clone> remote set-head origin --auto` を注記に出す。`--tree`・`--task`・`--ask`・`--deliver`・`--land`・役の本文を足す SessionStart のフック（下の「役の中身と起こし方」）は同じ読み方をする。書き方は同じ TOML で、欄の名前は A2A の Agent Card に合わせた:
 
@@ -205,11 +205,11 @@ effort = "low"        # この部署だけ、役の effort より優先する
 ## 組み直す: `--reorg`・`--desk`
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役の名前> [--boss-account <アカウントの名>]] [--dry-run]
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <頼み元の名前> [--boss-account <アカウントの名>]] [--dry-run]
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/dispatch.py" --desk [<名前>] [--role <役>] [--dry-run]
 ```
 
-- `--reorg` は、部署（属性 `company.role` の在る worktree）の中から打ち、その部署の属性を付け替える。`--role` は会社の形に無ければ止まり、`--resident`・`--per-task` を省いて `resident = true` の役に替えると常設にする。`--boss` は上役（納品を返す会話）の名前を替え、前の上役の会話の id とペイン（`company.boss-session`・`company.boss-pane`）を消す（納品は新しい上役を名前で引く）。`--name` の新しい名前を、ほかの部署がもう持っていれば止まる（宛先が 1 つに決まらなくなるため）。
+- `--reorg` は、部署（属性 `company.role` の在る worktree）の中から打ち、その部署の属性を付け替える。`--role` は会社の形に無ければ止まり、`--resident`・`--per-task` を省いて `resident = true` の役に替えると常設にする。`--boss` は頼み元（納品を返す会話）の名前を替え、前の頼み元の会話の id とペイン（`company.boss-session`・`company.boss-pane`）を消す（納品は新しい頼み元を名前で引く）。`--name` の新しい名前を、ほかの部署がもう持っていれば止まる（宛先が 1 つに決まらなくなるため）。
 - `--desk` は、代表の clone で持ち主と話す会話の中から打ち、その場所の属性に窓口（役・常設・名前・その会話のアカウントと会話の id と会話の処理の番号）を書く。役は `--role`、会社の形の `desk_role`、本社が今持つ役、`窓口` の順に決め、名前を省けば本社が今持つ名前、無ければ役の名前。手で `git config --worktree company.role …` と書いていた物の正式な口。部署の worktree で打つと止まる（部署は `--reorg`）。窓口の席は 1 つで、前に `--desk` を打った会話の処理（属性 `company.pid`）が動いている Claude Code の間は、ほかの会話から打つと止まる（試しの `claude -p` などが席を取ると、納品がそちらに届き、同じ役の会話が 2 つ動く）。席を移すとき（アカウントを替えるなど）は、前の窓口の会話を `/exit` で終えてから、新しい会話で打つ。窓口の役に起動の設定（`[roles.settings]`）が有れば、`--desk` はそれを代表の clone の `.git/company-settings.json` に書き（部署だけの鍵 `worktree.bgIsolation` は重ねない）、その設定で窓口を起こす命令（`<アカウントのコマンド> --name <窓口の名前> --settings <ファイル>`）を出す。`--settings` はその会話を起こすときにだけ読まれるので、今の会話がその設定で起きていなければ、`/exit` してからその命令で起こし直し、起きた会話から `--desk` を打つ。会社の形の設定を替えたら、`--desk` を打ち直すとファイルを書き直す（`--move` は起こすたびに書き直す）。
 - どちらも、名前を替えたら前の名前を属性 `company.former-names` に覚える。`--land` と `--ask` の宛先は、今の名前が無ければ前の名前でも部署を引く（`--land` は枝の名前でも引ける）。
 - 属性を書いた後に、その場所の分だけ `--sync` と同じ物（ペインの名前・表示名・題名・札と作業場の名前）を付け直す。

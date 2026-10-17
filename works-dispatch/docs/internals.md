@@ -29,10 +29,10 @@ works-dispatch は、作業ごとに Claude Code の会話を別に立てて仕�
   - report: 結果を 1 件 1 行で出す。
   - tree: herdr の作業場と全アカウントの会話が指すリポジトリを会社とし、会社ごとに会社の情報（`.claude/company.toml`、無ければ設定の置き場の `companies/`）と部署（worktree・属性・会話の状態・窓〔その部署の会話を映す herdr のペイン〕）を組み立てる。
   - deliver: 依頼と納品の中身。宛先（「会社/役」か部署の名前）と頼み元の窓を決め、要約の項目（会社の形の `[[roles]]` の `deliver` で役ごとに替えられる。読むのは role）を確かめ、頼み元の会社の共通の `.git` の中の受付箱（`company/inbox/`）に本文と台帳（`log.jsonl`。頼みと納品ごとに、宛先・頼み元・届いたかを 1 行）を置き、窓に 1 行を打ち込む。Stop フックの差し戻しの判定も持つ。
-  - sync: 部署の属性から、herdr のペインの名前・表示名（役）・題名（会話の名前）・札（ペインに添える短い印。役・アカウント・上役）を組み立て直す（何度打っても同じ）。
+  - sync: 部署の属性から、herdr のペインの名前・表示名（役）・題名（会話の名前）・札（ペインに添える短い印。役・アカウント・頼み元）を組み立て直す（何度打っても同じ）。
   - land: 部署の成果を本流に入れる決まり（会社の形の `[land]`）を読み、関門の枝（CI を走らせるために、本流に入れる前の commit を push する枝。例 `release/*`）へ出して CI の run を待ち、緑で本流が祖先なら本流を早送りして push する。本流が先に進んでいれば merge せずに本流の上への載せ直しを、赤なら失敗の要点を付けて直しを、部署の窓に herdr で頼んで止まる。流れは `landing.py`（[land.md](land.md)）。
   - bump: Claude Code のプラグインの marketplace で、中身を変えたのに版が据え置きのプラグインの版を上げる commit を作る（`docs/releasing.md` の形。会社の形の `[land]` に `bump = "marketplace"` を書いた会社でだけ、`--land` が本流に入れる前に呼ぶ）。
-- 部署の属性（役・アカウント・会話の名前と id・上役〔部署を立てた会話〕）は、部署の worktree ごとの git の設定 `company.<名前>`（`extensions.worktreeConfig`）に置く。正本は git で、dispatch は別の台帳を持たない（会社の形の設計 4.2）。読み書きは `gitx.py` の `worktree_attrs`・`enable_worktree_config`・`set_worktree_attr`。
+- 部署の属性（役・アカウント・会話の名前と id・頼み元〔部署を立てた会話〕）は、部署の worktree ごとの git の設定 `company.<名前>`（`extensions.worktreeConfig`）に置く。正本は git で、dispatch は別の台帳を持たない（会社の形の設計 4.2）。読み書きは `gitx.py` の `worktree_attrs`・`enable_worktree_config`・`set_worktree_attr`。
 - 外への口は 1 つの道具に 1 ファイル。herdr（`herdr.py`）、git（`gitx.py`）、gh（GitHub の CLI。`ghx.py`）、Claude Code（`claudex.py`）、tiers（`tierx.py`。同じリポジトリの tiers プラグインの点検の命令を呼び、このプラグインが要る外の道具〔gh・herdr・アカウントの起こし方の命令〕がそろっているかの結果の JSON を読む）、VS Code（`vscode.py`。送り終えた PR の /catchup のページを VS Code のウィンドウにタブで開く）の 6 つ。
   - 場所（git worktree）を作る・並べる・開く・消すのは herdr の worktree の口で、`herdr.py` の `worktrees`・`create_worktree`・`open_worktree`・`remove_worktree` だけが呼ぶ（herdr アダプタ）。ノードは「枝の場所」の言葉だけで書く。置き場は herdr の設定の `worktrees.directory`（既定 `~/.herdr/worktrees/<リポジトリ>/<枝の slug>`）に任せる。
   - worktree は枝と stash を代表の clone と共有するので、手元の作業の判定（`gitx.unpushed`・`gitx.stashed`）は、その場所の HEAD とその枝の物だけを数える。

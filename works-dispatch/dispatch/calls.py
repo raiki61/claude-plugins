@@ -158,6 +158,7 @@ def annotate(companies, settings, g):
         c["tools"] = [{"role": r["name"], "name": t["name"], "title": t["title"], "fallback_role": t["fallback_role"],
                        "machine": r["machine"], "misses": misses.get((r["name"], t["name"]), 0)}
                       for r in shape["roles"].values() for t in r["tools"]]
+        tree.contacts(c, shape)   # 受ける仕事ごとの宛て方と窓口
         for d in c["departments"]:
             here = g.git_dir(d["path"]) if inbox else None
             d["queue"] = len(wake.queued(inbox, here)) if here else 0

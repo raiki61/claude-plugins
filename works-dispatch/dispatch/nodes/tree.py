@@ -5,7 +5,7 @@
 - 会社 = git のリポジトリ 1 つ。本社は元の clone、部署は元の clone の git worktree（枝 1 本）。
 - 問い合わせられる会社 = herdr に開いている作業場が指すリポジトリ。herdr がリポジトリを持たない作業場は、そのペインの場所から
   git の共通の .git を問うて決める（入口が渡す common_of）。同じリポジトリの別の clone は、別の会社として並べる。
-- 部署の属性（役・アカウント・会話の名前と id・上役）は、部署ごとの git の設定 company.<名前>（入口が読んで渡す）。
+- 部署の属性（役・アカウント・会話の名前と id・頼み元〔納品を返す先。属性 company.boss〕）は、部署ごとの git の設定 company.<名前>（入口が読んで渡す）。
 - 部署の会話とその状態は、全アカウントの claude agents --json --all を合わせて見る（一覧はアカウントごとに分かれる。
   会社の形の設計 9.1）。会話は、属性の company.session（会話の id）で結び、無ければ会話の作業フォルダの場所で結ぶ。
   状態は裏の会話の state（作業中・止まっている・終わった など）、手前の会話（kind が interactive）は status から取る。
@@ -70,7 +70,7 @@ def _skills(raw, where, problems):
         got = {k: s[k] if isinstance(s.get(k), str) else None for k in ("id", "name", "description", "role")}
         # その部署を起こすときの --model と --effort。役の値より先に効く（role.launch_flags）。形の違う値はその欄だけ外し、役の値で起こす
         if "model" in s and not (isinstance(s["model"], str) and s["model"] and s["model"] != role.INHERIT):
-            problems.append(f"{where}: skills[{i}]（{s['name']}）の model は空でないモデルの名前（inherit は作っていない。上役の会話の"
+            problems.append(f"{where}: skills[{i}]（{s['name']}）の model は空でないモデルの名前（inherit は作っていない。頼み元の会話の"
                             f"今のモデルを外から読む口が無い）。外して、役の model で起こす")
         elif "model" in s:
             got["model"] = s["model"]
@@ -251,8 +251,30 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
     return companies
 
 
+def contacts(company, shape):
+    """--tree に宛て方を足す: 受ける仕事ごとに頼む命令の宛先を ask に、会社に窓口（本社の会話）を desk に。shape は role.load の結果。
+    外の会社の部署も中の部署も、仕事が決まれば受ける仕事の宛先へ、決まらない件と部署をまたぐ件は窓口へ頼む。窓口は会社の部署すべてを
+    見渡す本社の会話で、部署をまたぐ件の上げ先を関わる部署すべてを見渡す段とする組織論の原典（Galbraith 1974）と、外の入口を 1 つに
+    する形（ITIL のサービスデスク）に当たる。受ける仕事ごとの宛先は働きごとに宛先を分ける形（RFC 2142）に当たる。
+    宛先の決まりは deliver.find_target と同じ: 常設の役の受け持ちは部署の名前（＝受け持ちの名前。役を足すフックが同じ名前で結ぶ）で
+    宛て、その部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。都度の役は役で宛てて --task に
+    部署の名前を添える。立てるときは枝（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
+    plain = company["name"]
+    named = {d["attrs"].get("name") for d in company["departments"]}
+    for s in company["skills"]:
+        r = shape["roles"].get(role.current(shape, s["role"])) if s.get("role") else None
+        s["ask"] = (None if r is None or r["machine"] else
+                    f"--ask {plain}/{s['name']}" if r["resident"] and s["name"] in named else
+                    f"--ask {plain}/{r['name']} --task {s['name']} --branch <枝>" if r["resident"] else
+                    f"--ask {plain}/{r['name']} --task <部署の名前> --branch <枝>")
+    head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
+    company["desk"] = None if head is None else {"name": head["attrs"]["name"], "role": head["attrs"].get("role"),
+                                                 "ask": f"--ask {plain}/{head['attrs']['name']}"}
+    return company
+
+
 def lines(companies):
-    """人の読む形。会社ごとに、頭の行・受ける仕事・本社・部署の行。"""
+    """人の読む形。会社ごとに、頭の行・受ける仕事（と宛て方）・窓口・本社・部署の行。"""
     if not companies:
         return ["herdr に開いている会社（git のリポジトリ）も、裏の会話も無い"]
     out = []
@@ -266,7 +288,12 @@ def lines(companies):
                        + (f" → {s['role']}" if s["role"] else "")
                        + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k))
                        + (f"  起こし方: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
-                          f"、{s['start']['report_to']} に返す" if s.get("start") else ""))
+                          f"、{s['start']['report_to']} に返す" if s.get("start") else "")
+                       + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
+        if c.get("desk"):
+            out.append(f"  窓口: {c['desk']['name']}（受ける仕事に当たらない件・部署をまたぐ件）  宛て方 {c['desk']['ask']}")
+        elif "desk" in c and c["skills"]:
+            out.append("  窓口: 名付けていない（本社で持ち主と話す会話から --desk を打つと名付く）")
         for t in c.get("tools", []):
             out.append(f"  道具: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
                        + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")
@@ -277,7 +304,7 @@ def lines(companies):
             fields = [STATES[d["state"]] + (f"（会話 {d['sessions']}）" if d["sessions"] > 1 else "")]
             if d["name"]:
                 fields.append(f"会話 {d['name']}")
-            fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
+            fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             if d.get("queue"):
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
