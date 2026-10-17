@@ -61,6 +61,19 @@ def panes(runner=_default_runner):
     return out
 
 
+def own_pane(cwd, sid=None, listed=None):
+    """会話の居るペイン（会話の居るペインのうち、会話の印〔agent_session〕がこの会話の id の物が 1 つならそれ、無ければ場所が
+    cwd の物が 1 つならそれ）。決まらなければ None。listed は panes() の並び（省けば読む）。環境変数 HERDR_PANE_ID は使わない
+    （裏の会話〔claude --bg〕は前もって起こした控えの処理の値を継ぎ、別のペインを指していた。2026-10-17 に見た）。"""
+    talking = [p for p in (panes() if listed is None else listed) if p.get("agent")]
+    mine = [p for p in talking if sid and (p.get("agent_session") or {}).get("value") == sid]
+    if len(mine) == 1:
+        return mine[0]["pane_id"]
+    here = os.path.realpath(cwd) if cwd else None
+    hits = [p for p in talking if here and p.get("cwd") and os.path.realpath(p["cwd"]) == here]
+    return hits[0]["pane_id"] if len(hits) == 1 else None
+
+
 def workspace_labels(runner=_default_runner):
     ws = _call(["herdr", "workspace", "list"], runner).get("workspaces", [])
     return {w["workspace_id"]: w.get("label") for w in ws}

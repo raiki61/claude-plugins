@@ -77,14 +77,9 @@ IDLE = ("idle", "done")
 
 def own_window(cwd, h=herdr, sid=None):
     """この会話の窓（herdr のペインのうち会話の居る物）。ペインの会話の印（agent_session）がこの会話の id の物が 1 つなら
-    それ、無ければ場所がこの会話の場所の物。1 つに決まらなければ None（本社には持ち主のほかの会話も居るので、印で結ぶ）。"""
-    talking = [p for p in h.panes() if p.get("agent")]
-    mine = [p for p in talking if sid and tree.session_of(p) == sid]
-    if len(mine) == 1:
-        return mine[0]["pane_id"]
-    here = os.path.realpath(cwd)
-    hits = [p for p in talking if p.get("cwd") and os.path.realpath(p["cwd"]) == here]
-    return hits[0]["pane_id"] if len(hits) == 1 else None
+    それ、無ければ場所がこの会話の場所の物。1 つに決まらなければ None（本社には持ち主のほかの会話も居るので、印で結ぶ）。決め方は
+    herdr.own_pane（サイドバーの作業内容と頼み元の窓も同じ決め方）。"""
+    return herdr.own_pane(cwd, sid, h.panes())
 
 
 def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None):

@@ -493,6 +493,13 @@ class Flow(unittest.TestCase):
         self.assertIn("まだ納品していない", out)
         self.assertEqual(len(self.prompts()), 1)
 
+    def test_the_askers_window_is_where_the_asking_talk_is_not_the_inherited_env(self):
+        # 裏の会話（claude --bg）は控えの処理の HERDR_PANE_ID を継ぎ、別のペインを指すことがある（2026-10-17 に見た）
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk", "HERDR_PANE_ID": self.window}
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place).get("boss-pane"), self.desk)
+
     def test_a_new_ask_does_not_keep_the_previous_askers_values(self):
         provision.mark(self.place, self.src, {"boss": "前の窓口", "boss-account": "zz", "boss-session": "s-old",
                                               "boss-pane": "P-old"}, gitx)

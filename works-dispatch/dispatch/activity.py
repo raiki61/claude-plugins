@@ -8,7 +8,8 @@ herdr の端末のタイトルは会話の始めに一度だけ付く名前で�
 使い方: `python3 <このファイル> settings` が、Claude Code の設定（settings.json）に足す hooks の塊（UserPromptSubmit・PreToolUse・
 Stop・Notification で、Python をフックと同じ決まり〔hooks/run-python.sh〕で選んでこのファイルを呼ぶ）を JSON で出す。herdr の設定の [ui.sidebar.agents.rows_by_agent] の claude の行に
 $act を置く（SKILL.md）。引数なしで起こすと、フックとして標準入力の 1 回ぶんを処理する。
-herdr の外で動く会話では何もしない。herdr への送信は待たずに手放し、ツールの呼び出しを待たせない。
+herdr の外で動く会話では何もしない。herdr への送信は待たずに手放し、ツールの呼び出しを待たせない。印を送るペインは、会話の id か
+場所で herdr のペインから引く（pane_of）。
 """
 
 import json
@@ -69,10 +70,30 @@ def label(payload):
     return None
 
 
-def handle(text, env, send=herdr.report_activity):
+def pane_of(payload, tmp, find=herdr.own_pane):
+    """この会話の居るペイン（herdr.own_pane の決め方。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがあるので使わない）。
+    決まったら会話の id ごとの控えに残し、次からは herdr を読まない。ツールの呼び出し（PreToolUse）では控えだけを見て、決まって
+    いなければ印を送らない（ツールのたびに herdr を待たせない）。"""
+    sid = payload.get("session_id")
+    memo = tmp / f"herdr-pane-{sid}" if sid else None
+    try:
+        return memo.read_text(encoding="utf-8").strip() or None
+    except (AttributeError, OSError):
+        pass
+    if payload.get("hook_event_name") == "PreToolUse":
+        return None
+    try:
+        pane = find(payload.get("cwd"), sid)
+    except herdr.HerdrError:
+        return None
+    if pane and memo:
+        memo.write_text(pane, encoding="utf-8")
+    return pane
+
+
+def handle(text, env, send=herdr.report_activity, find=herdr.own_pane):
     """1 回のフックの入力を処理する。頼まれた内容はペインごとの控えに残し、ターンの終わり（Stop など）にそこへ戻す。"""
-    pane = env.get("HERDR_PANE_ID")
-    if env.get("HERDR_ENV") != "1" or not pane:
+    if env.get("HERDR_ENV") != "1":
         return
     try:
         payload = json.loads(text)
@@ -80,7 +101,11 @@ def handle(text, env, send=herdr.report_activity):
         return
     if not isinstance(payload, dict):
         return
-    ask = pathlib.Path(env.get("TMPDIR") or "/tmp") / f"herdr-ask-{pane.replace(':', '_')}"
+    tmp = pathlib.Path(env.get("TMPDIR") or "/tmp")
+    pane = pane_of(payload, tmp, find)
+    if not pane:
+        return
+    ask = tmp / f"herdr-ask-{pane.replace(':', '_')}"
     event = payload.get("hook_event_name")
     line = label(payload)
     if event == "UserPromptSubmit" and line:

@@ -6,7 +6,8 @@ import tempfile
 import unittest
 
 from . import DISPATCH  # noqa: F401
-import activity
+import activity  # noqa: E402
+import herdr  # noqa: E402
 
 
 class Label(unittest.TestCase):
@@ -33,25 +34,44 @@ class Label(unittest.TestCase):
 class Handle(unittest.TestCase):
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp())
-        self.sent = []
-        self.env = {"HERDR_ENV": "1", "HERDR_PANE_ID": "w1:p1", "TMPDIR": str(self.dir)}
+        self.sent, self.looked = [], []
+        # 裏の会話は控えの処理の HERDR_PANE_ID を継ぎ、別のペインを指すことがある（2026-10-17 に見た）。印はそこへ送らない
+        self.env = {"HERDR_ENV": "1", "HERDR_PANE_ID": "w9:p9", "TMPDIR": str(self.dir)}
+        self.panes = [{"pane_id": "w9:p9", "agent": "claude", "cwd": "/other", "agent_session": {"value": "s-other"}},
+                      {"pane_id": "w1:p1", "agent": "claude", "cwd": "/a", "agent_session": {"value": "s1"}}]
+
+    def find(self, cwd, sid):
+        self.looked.append(sid)
+        return herdr.own_pane(cwd, sid, self.panes)
 
     def handle(self, payload, env=None):
-        activity.handle(json.dumps(payload), self.env if env is None else env,
-                        send=lambda pane, text, ttl: self.sent.append((pane, text)))
+        activity.handle(json.dumps({"session_id": "s1", "cwd": "/a", **payload}), self.env if env is None else env,
+                        send=lambda pane, text, ttl: self.sent.append((pane, text)), find=self.find)
 
     def test_turn_end_goes_back_to_what_was_asked(self):
         self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "テストを直して"})
         self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
         self.handle({"hook_event_name": "Stop"})
         self.assertEqual(self.sent, [("w1:p1", "テストを直して"), ("w1:p1", "Read b.py"), ("w1:p1", "テストを直して")])
+        self.assertEqual(self.looked, ["s1"])   # 決まったペインは会話ごとに控え、herdr を読み直さない
+
+    def test_tool_calls_do_not_wait_for_herdr_before_the_pane_is_known(self):
+        self.handle({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b.py"}})
+        self.assertEqual((self.sent, self.looked), ([], []))
+
+    def test_no_label_when_the_pane_is_not_settled(self):
+        self.panes = [p for p in self.panes if p["pane_id"] != "w1:p1"]
+        self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "x"})
+        self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "y"})
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.looked, ["s1", "s1"])   # 決まらない間は控えず、次の番で引き直す
 
     def test_outside_herdr_does_nothing(self):
         self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "x"}, env={"TMPDIR": str(self.dir)})
         self.assertEqual(self.sent, [])
 
     def test_broken_input_does_nothing(self):
-        activity.handle("{not json", self.env, send=lambda *a: self.sent.append(a))
+        activity.handle("{not json", self.env, send=lambda *a: self.sent.append(a), find=self.find)
         self.assertEqual(self.sent, [])
 
 

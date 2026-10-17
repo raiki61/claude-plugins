@@ -309,7 +309,7 @@ def ask(a, ports, cwd, task):
         print(f"止めた: 頼む会話の場所 {cwd} が git でないので、受付箱を置けない（会社の本社か部署の場所から頼む）")
         return 2
     try:
-        cfg, accounts_, sessions_, _, companies, settings, notes = survey(a.config, ports)
+        cfg, accounts_, sessions_, panes, companies, settings, notes = survey(a.config, ports)
         target = deliver.find_target(companies, gitx.root_of(common), a.ask, a.task, current_role(settings))
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
@@ -330,8 +330,12 @@ def ask(a, ports, cwd, task):
     sender = name or "名の無い会話"
     inbox = deliver.inbox_of(common)
     ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
-    boss = {"ask": ask_id, "boss": name, "boss-account": account, "boss-session": ports.env.get("CLAUDE_CODE_SESSION_ID"),
-            "boss-pane": ports.env.get("HERDR_PANE_ID"), "boss-inbox": inbox}
+    sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
+    # 頼み元の窓は、頼んだ会話の居るペイン（herdr.own_pane。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがある）。
+    # Claude Code の外から頼んだ（会話の id が無い）なら、頼んだ会話が無いので窓も記録しない
+    here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
+    boss = {"ask": ask_id, "boss": name, "boss-account": account, "boss-session": sid,
+            "boss-pane": herdr.own_pane(here, sid, panes) if sid else None, "boss-inbox": inbox}
     if getattr(a, "from_boss", None):
         # 合図で回した頼み（calls.fire）: 頼み元は、本流に入れた部署の頼み元
         boss.update({k: v for k, v in a.from_boss.items() if k != "ask"})
