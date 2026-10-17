@@ -6,7 +6,8 @@
   設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
 - local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
-- broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無ければ失敗に数え、失敗の行を出力の終わりに並べ直す
+- broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版が本流（origin/main）とそろわなければ
+  失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える
 - mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
 """
 
@@ -41,8 +42,9 @@ def plugin_dir(whole=True):
     return str(d)
 
 
-def world(fail=(), installed=None, gone=""):
-    """(runner, 打った命令の並び)。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。"""
+def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
+    """(runner, 打った命令の並び)。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
+    version は入った版、main は本流（origin/main）の plugin.json の版（None なら本流を読めない）。"""
     calls = []
     installed = installed or plugin_dir()
     panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "cwd": "/dept"},
@@ -55,7 +57,7 @@ def world(fail=(), installed=None, gone=""):
     def runner(argv, env=None):
         calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
         if argv[:3] == ["claude", "plugin", "list"]:
-            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user", "installPath": installed},
+            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user", "installPath": installed, "version": version},
                                   {"id": "x@other", "scope": "user"}, {"id": f"p@{MARKET}", "scope": "project"}])
         if argv[:4] == ["claude", "plugin", "marketplace", "list"]:
             return 0, json.dumps([{"name": "other", "installLocation": "/m/other"},
@@ -70,6 +72,16 @@ def world(fail=(), installed=None, gone=""):
             return 0, TYPED if argv[3] == "c:1" else EMPTY
         if argv[:3] == ["herdr", "agent", "prompt"]:
             return 0, ""
+        if argv[:2] == ["git", "-C"] and argv[2] == str(sp.ROOT) and argv[3] == "fetch":
+            return 0, ""
+        if argv[:2] == ["git", "-C"] and argv[2] == str(sp.ROOT) and argv[3] == "show":
+            if main is None:
+                return 128, "fatal: invalid object name 'origin/main'"
+            if argv[4] == "origin/main:.claude-plugin/marketplace.json":
+                return 0, json.dumps({"plugins": [{"name": "a", "source": "./a"}, {"name": "gone", "source": "./gone"}]})
+            if argv[4] in ("origin/main:a/.claude-plugin/plugin.json", "origin/main:gone/.claude-plugin/plugin.json"):
+                return 0, json.dumps({"version": main})
+            raise AssertionError(argv)
         if argv[:4] == ["git", "-C", "/m/mine", "ls-files"]:
             return 0, gone
         if argv[:4] == ["git", "-C", "/m/mine", "checkout"]:
@@ -132,6 +144,20 @@ def broken_copy():
     tail = out.strip().splitlines()
     assert tail[-3] == "失敗 2 件:" and all(x.startswith("- ") and "plugin.json が無い" in x for x in tail[-2:]), out
     assert f"claude plugin update a@{MARKET} 済" not in out, out
+    runner, _ = world(version="1.0.0", main="1.1.0")   # 古い版が入った（marketplace の clone が古いままなど）
+    rc, out = run(runner, {})
+    tail = out.strip().splitlines()
+    assert rc == 1 and tail[-3] == "失敗 2 件:", (rc, out)
+    assert all("版が本流とそろわない: 入った版 1.0.0・本流 1.1.0" in x for x in tail[-2:]), out
+    runner, _ = world()
+    rc, out = run(runner, {})
+    assert rc == 0 and out.count(f"claude plugin update a@{MARKET} 済（1.0.0）") == 2, out
+    runner, calls = world(main=None)   # 本流の版を読めなければ、照らせないので失敗に数える
+    rc, out = run(runner, {})
+    assert rc == 1 and "本流の版を読めない" in out.strip().splitlines()[-1], out
+    runner, calls = world(main=None)
+    rc, out = run(runner, {"dry_run": True})   # 空打ちでは本流を読みに行かない
+    assert rc == 0 and not [a for a, _ in calls if a[:1] == ["git"] and a[2] == str(sp.ROOT)], out
     print("BROKEN_COPY_OK")
 
 

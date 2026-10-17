@@ -12,6 +12,8 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
    消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
    部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
+   配った後に、入ったプラグインの版が本流（origin/main。先に git fetch する）の plugin.json の版と同じかを照らし、
+   違えば失敗に数える。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
    `/reload-plugins` を打つ。持ち主の作業の会話に打つと herdr で done に替わり、ノイズになるため（この決まりは組織の物なので、
    works-dispatch でなくここに置く）。入力欄に字が入っている会話は飛ばす。
@@ -103,8 +105,28 @@ def mend_clone(name, market, env, dry, runner=run):
     return [what + (" 済" if code == 0 else f" 失敗（{out.strip()[:200]}）")]
 
 
+def expected_versions(market, root=ROOT, runner=run):
+    """(本流の {id: 版}, 読めなかったときの行か None)。本流は origin/main で、先に fetch する（fetch が切れても手元の
+    origin/main で照らす。--land の push の後なら手元の origin/main も入れた commit を指す）。"""
+    runner(["git", "-C", str(root), "fetch", "--quiet", "origin", "main"])
+    def show(path):
+        code, out = runner(["git", "-C", str(root), "show", f"origin/main:{path}"])
+        if code != 0:
+            raise ValueError(out.strip()[:200])
+        return json.loads(out)
+    try:
+        out = {}
+        for p in show(".claude-plugin/marketplace.json").get("plugins", []):
+            src = p.get("source")
+            if isinstance(src, str) and src.startswith("./"):
+                out[f"{p['name']}@{market}"] = show(f"{src[2:]}/.claude-plugin/plugin.json").get("version")
+        return out, None
+    except (ValueError, KeyError, AttributeError) as e:
+        return {}, f"本流の版を読めない（{e}）"
+
+
 def installed_ids(name, market, env, runner=run):
-    """(入っているこの marketplace のプラグインの {id: 入った場所}, 読めなかったときの行か None)。user の scope の物だけ。"""
+    """(入っているこの marketplace のプラグインの {id: (入った場所, 版)}, 読めなかったときの行か None)。user の scope の物だけ。"""
     code, out = runner(["claude", "plugin", "list", "--json"], env)
     try:
         got = json.loads(out) if code == 0 else None
@@ -112,13 +134,14 @@ def installed_ids(name, market, env, runner=run):
         got = None
     if not isinstance(got, list):
         return {}, f"{name}: 入っているプラグインを読めない（{out.strip()[:200]}）"
-    return {p["id"]: p.get("installPath") for p in got if isinstance(p, dict) and str(p.get("id", "")).endswith("@" + market)
+    return {p["id"]: (p.get("installPath"), p.get("version")) for p in got if isinstance(p, dict) and str(p.get("id", "")).endswith("@" + market)
             and p.get("scope", "user") == "user"}, None
 
 
-def update_account(name, config_dir, market, dry, runner=run):
-    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び)。
-    「済」と出すのは、入った写しに .claude-plugin/plugin.json が在るときだけ（欠けた写しを済と数えない）。"""
+def update_account(name, config_dir, market, dry, want, runner=run):
+    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び)。want は本流の {id: 版}。
+    「済」と出すのは、入った写しに .claude-plugin/plugin.json が在り、版が本流と同じときだけ（欠けた写しや古い版を済と数えない）。
+    本流に無いプラグイン（marketplace から外した物）は版を照らさない。"""
     env = claude_env(config_dir)
     lines, bad = [], []
 
@@ -153,13 +176,15 @@ def update_account(name, config_dir, market, dry, runner=run):
         after, err = installed_ids(name, market, env, runner)
         for i in done:
             head = f"{name}: claude plugin update {i} "
-            where = after.get(i)
+            where, version = after.get(i, (None, None))
             if err:
                 note(head + "失敗（入った写しを確かめられない）", True)
             elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
                 note(head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
+            elif i in want and version != want[i]:
+                note(head + f"失敗（版が本流とそろわない: 入った版 {version}・本流 {want[i]}）", True)
             else:
-                note(head + "済", False)
+                note(head + f"済（{version}）", False)
     return lines, bad
 
 
@@ -234,8 +259,14 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2
     lines, bad = [], []
+    want = {}
+    if not dry:
+        want, err = expected_versions(market, runner=runner)
+        if err:
+            lines.append(err)
+            bad.append(err)
     for name, config_dir in accs:
-        got, fails = update_account(name, config_dir, market, dry, runner)
+        got, fails = update_account(name, config_dir, market, dry, want, runner)
         lines += got
         bad += fails
     got, fails = reload_talks(skip, dry, runner)
