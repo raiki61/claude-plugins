@@ -5,11 +5,12 @@
 入口の --land（landing.py）が、この順で呼ぶ。
 1. 決まりを読む（read_rules）。会社の形のファイル（`.claude/company.toml`、無ければ設定の置き場の companies/）の [land] の表。
    無ければ取り込み方は none（何もしない。前の版と同じ動き）。役ごとに [land.roles.<役>] で欄を替えられる。
-2. 本流が部署の枝の祖先でなければ（ほかの部署が先に入れた）、関門に出さずに、部署に載せ直しを頼む（ask）。
+2. 本流が部署の枝の祖先でなければ（ほかの部署が先に入れた）、部署の場所で git で載せ直す（auto_rebase）。機械で解けないぶつかりが
+   残れば、載せ直しを元に戻して、部署に載せ直しを頼む（ask）。
 3. 関門に出す。関門が CI の枝の形（例 release/*。* に部署の名前）なら、その枝へ候補の commit を push し（publish）、その commit の
    run を待つ（wait_gate）。関門が check なら、入口が手元の検証のコマンドを回す。
 4. 赤なら、部署に失敗の要点を渡す（ask）。緑で、本流がまだ候補の祖先なら、本流を候補へ早送りして push する（advance）。
-   その間に本流が進んでいれば、自分では merge せず、部署に載せ直しを頼む。2 つの部署が同時に入れようとしても、本流に入る順は
+   その間に本流が進んでいれば、2 と同じに載せ直して関門から回し直す（載せ直せなければ部署に頼む）。2 つの部署が同時に入れようとしても、本流に入る順は
    早送りで 1 本ずつに決まる。
 部署に頼むのは herdr の打ち込み（ask）だけ。頼みと納品の仕組みは別に作るので、ここは打ち込むだけの小さな口にしておく。
 """
@@ -127,7 +128,7 @@ def resolve_changelog(path):
         return False
     try:
         lines = pathlib.Path(path).read_text(encoding="utf-8").split("\n")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return False
     out, i, solved = [], 0, False
     while i < len(lines):
@@ -144,6 +145,8 @@ def resolve_changelog(path):
         except StopIteration:
             return False
         ours = lines[i + 1:mid]
+        if any(x.startswith("## [") for x in lines[mid + 1:end]):
+            return False   # 部署の側に版の見出しが在る（部署が版を上げる会社）。ほかの部署の書き足しを部署の版に入れない
         base = next((j for j in range(i + 1, mid) if lines[j].startswith("||||||| ")), None)   # diff3 の形なら共通の祖先を外す
         if base is not None:
             ours = lines[i + 1:base]
@@ -163,20 +166,27 @@ def auto_rebase(place, branch, base, g):
     並び)。並びは、載せ直せなければ解けなかったファイル、載せ直せたら注記（origin に出せなかったなど）。ぶつかりは、git rerere が前の解き方で解いた物と、変更の記録の Unreleased の頭の物（resolve_changelog）
     だけを機械で解く。ほかが残れば載せ直しをやめて元の枝に戻す（部署の会話に頼む）。"""
     old = g.rev(place, "HEAD")
-    ok, files = g.rebase(place, base)
-    while not ok:
-        left = [f for f in files if not resolve_changelog(os.path.join(place, f))]
-        if left:
-            g.rebase_abort(place)
-            return None, left
-        for f in files:
-            g.add_path(place, f)
-        before = g.rev(place, "HEAD")
-        ok, files = g.rebase_continue(place)
-        if not ok and not files and g.rev(place, "HEAD") == before:
-            g.rebase_abort(place)   # 解けていないファイルが無いのに進まない（空になった commit など）。人に任せる
-            return None, ["（git rebase --continue が進まない）"]
+    try:
+        ok, files = g.rebase(place, base)
+        while not ok:
+            left = [f for f in files if not resolve_changelog(os.path.join(place, f))]
+            if left:
+                g.rebase_abort(place)
+                return None, left
+            for f in files:
+                g.add_path(place, f)
+            before = g.rev(place, "HEAD")
+            ok, files = g.rebase_continue(place)
+            if not ok and not files and g.rev(place, "HEAD") == before:
+                g.rebase_abort(place)   # 解けていないファイルが無いのに進まない（空になった commit など）。人に任せる
+                return None, ["（git rebase --continue が進まない）"]
+    except (g.GitError, OSError) as e:
+        if g.rebasing(place):
+            g.rebase_abort(place)   # 途中のまま残さない
+        return None, [f"（{e}）"]
     new = g.rev(place, "HEAD")
+    if new == old:
+        return None, ["（載せ直しても枝が動かない）"]
     pushed = None
     if new != old:
         # origin の部署の枝も載せ直した物にする（無ければ作る）。本流へ入れるのには要らないので、出せなくても載せ直しは使う

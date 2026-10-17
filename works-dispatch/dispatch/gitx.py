@@ -8,7 +8,8 @@ enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/wor
 混ざらず、commit されず、`git worktree remove` で一緒に消える（会社の形の設計 4.2）。
 
 書く関数は fetch・fast_forward・reset_keep・delete_branch・enable_worktree_config・set_worktree_attr・unset_worktree_attr・exclude と、
-本流に入れる（取り込みの命令）ための push・drop_remote・advance_branch・add_detached・remove_detached・commit_all の 14 で、
+本流に入れる（取り込みの命令）ための push・drop_remote・advance_branch・add_detached・remove_detached・commit_all と、本流が先に
+進んだ枝を載せ直すための rebase・rebase_continue・rebase_abort・add_path・push_rebased で、
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
@@ -337,7 +338,9 @@ def push(cwd, sha, ref, force=False, runner=_default_runner):
 
 
 # 載せ直しで、前に手で解いたぶつかりを git に使い直させる（git rerere。rebase は rerere を自動で呼ぶ）。解いた所は index に足す
-REBASE_OPTS = ["-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=true", "-c", "core.editor=true"]
+# 利用者の設定の autoStash・updateRefs は切る（やめたときに作業場を戻す reset が、載せ直しの間に書かれた字を消さないように。ほかの枝を動かさないように）
+REBASE_OPTS = ["-c", "rerere.enabled=true", "-c", "rerere.autoUpdate=true", "-c", "core.editor=true",
+               "-c", "rebase.autoStash=false", "-c", "rebase.updateRefs=false"]
 
 
 def conflicted(cwd, runner=_default_runner):
@@ -361,7 +364,16 @@ def rebase_continue(cwd, runner=_default_runner):
 
 def rebase_abort(cwd, runner=_default_runner):
     """途中の載せ直しをやめて、載せ直す前の枝に戻す。書く口。"""
-    _must(["git", "-C", cwd, "rebase", "--abort"], runner)
+    _must(["git", "-C", cwd, *REBASE_OPTS, "rebase", "--abort"], runner)   # rerere を有効にして、途中のぶつかりの記録も消させる
+
+
+def rebasing(cwd, runner=_default_runner):
+    """その作業場が載せ直しの途中か（.git の rebase-merge か rebase-apply が在る）。"""
+    d = _git(cwd, ["rev-parse", "--git-dir"], runner)
+    if not d:
+        return False
+    d = d if os.path.isabs(d) else os.path.join(cwd, d)
+    return any(os.path.isdir(os.path.join(d, n)) for n in ("rebase-merge", "rebase-apply"))
 
 
 def add_path(cwd, path, runner=_default_runner):

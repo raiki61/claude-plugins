@@ -5,11 +5,12 @@
 順（会社の形の設計 8 章。決まりの欄は nodes/land.py の read_rules）:
 1. 部署を名前（属性 company.name。無ければ前の名前 company.former-names）か枝の名前で探し、会社の形の [land] を、部署の役で読む。取り込み方が none なら何もしない。
 2. pr: 部署の枝を origin に出し、本流への PR を出して止める。
-3. ff-after-ci: 本流を取り直す。もう入っていれば片付けへ。本流が部署の枝の祖先でなければ、部署に載せ直しを頼んで止める。
+3. ff-after-ci: 本流を取り直す。もう入っていれば片付けへ。本流が部署の枝の祖先でなければ、部署の場所で git で載せ直す
+   （nodes/land.py の auto_rebase）。機械で解けないぶつかりが残れば、元に戻して部署に載せ直しを頼んで止める。
 4. 版上げ（bump = "marketplace"）があれば、一時の場所で部署の枝の先頭の上に版を上げる commit を作る（部署の枝は動かさない）。
 5. 関門: CI の枝の形なら、その枝の頭を GitHub Actions の設定が書いていることを確かめ、その枝へ候補を push して run を待つ。check なら、手元の検証のコマンドを候補の場所で回す。
 6. 赤なら、部署に失敗の要点を頼む。緑なら本流を取り直し、まだ祖先なら本流を早送りして push する（関門の枝は消す）。
-   進んでいれば、部署に載せ直しを頼む。
+   進んでいれば、同じに載せ直して関門から回し直す（載せ直せなければ部署に頼む）。
 7. 入れたら、都度の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。常設の部署は残す。片付けられない
    都度の部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
    （どの部署でも）が、片付けられる形になっていれば一緒に片付ける。止まるのを待たないのは、こちらから期限を足さないため（D5）。
@@ -226,7 +227,12 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         except gitx.GitError:
             moved = False
         if moved:
-            return again() if _rebase_here(ports, place, path, branch, land.refresh(source, main, g), main, rules) else 1
+            try:
+                base = land.refresh(source, main, g)
+            except gitx.GitError as e2:
+                print(f"止めた: 本流を取り直せない（{e2}）")
+                return 1
+            return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
         else:
             print(f"止めた: 本流 {main} への push が断られた（{e}）")
         return 1
@@ -262,6 +268,10 @@ def _rebase_here(ports, place, path, branch, base, main, rules):
     載せ直した頭の commit を返す。git が機械で解けないぶつかりが残れば、載せ直しをやめて元の枝に戻し、部署の会話に載せ直しを
     頼んで None（今までどおり）。部署の会話の手直しは、git の解けないぶつかりだけに要る（持ち主 2026-10-17「gitとかの機能で
     マージをできるだけ」）。"""
+    if not ports.is_clean(path):
+        # 関門を待つ間に部署の会話が書いた（窓口から打った --land）。書きかけを載せ直しに巻き込まない
+        print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
+        return None
     try:
         new, left = land.auto_rebase(path, branch, base, ports.git)
     except gitx.GitError as e:
@@ -324,7 +334,8 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         print(f"見立て: 枝 {branch} はもう本流 {main} に入っているので、片付けに進む")
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head, dry_run=True)
     if not (known and g.is_ancestor(source, base, head)):
-        print(f"見立て: 本流が部署の枝の祖先でないので、関門に出さずに止まる（載せ直しが要る）。部署に頼む文:\n"
+        print(f"見立て: 本流が部署の枝の祖先でないので、本当に打てば部署の場所で git で載せ直してから関門に出す（空打ちでは"
+              f"載せ直さないので、ここで止まる）。機械で解けないぶつかりが残れば、部署に頼む文:\n"
               f"{land.rebase_text(branch, main, rules['bump'])}")
         return 1
     stop = _overwrite_gate(ports, place, attrs or {}, branch, base, head, keep_removal, dry_run=True)
