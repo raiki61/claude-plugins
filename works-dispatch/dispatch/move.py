@@ -38,7 +38,8 @@ import gitx  # noqa: E402
 import herdr  # noqa: E402
 import orders  # noqa: E402
 import role_hook  # noqa: E402
-from nodes import accounts, deliver, launch, provision, role, wake  # noqa: E402
+from nodes import accounts, deliver, launch, provision, role  # noqa: E402
+from nodes import wake  # noqa: E402
 
 RESIDENT = "resident"
 LIMITED = "使用上限に当たった"   # 台帳の why（--if-limited で移したとき）
