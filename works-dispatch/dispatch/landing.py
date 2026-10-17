@@ -34,7 +34,7 @@ import config
 import ghx
 import gitx
 import herdr
-from nodes import bump, clean, land, provision, role, tree
+from nodes import bump, clean, deliver, land, provision, role, tree, wake
 
 RUN_PAUSE_S = 10  # 関門の枝に push した後、run が現れるのを見に行く間
 
@@ -189,7 +189,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             if not land.ci_on(where, rules["gate"]):
                 raise ValueError(f"関門の枝 {ref} に push しても CI が起きない（.github/workflows のどれも "
                                  f"{rules['gate'].split('*', 1)[0]} を書いていない）")
-            land.publish(source, candidate, ref, g)
+            land.publish(path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）
             print(f"関門に出した: {ref}（commit {candidate[:7]}）")
             verdict = land.wait_gate(repo.repo, ref, candidate, ports.gh, env, pause)
             label = f"CI {ref}" + (f" {verdict['run'].get('url')}" if verdict.get("run") else "")
@@ -219,7 +219,9 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         # 関門を回す間に本流が先に進んだ: 載せ直せれば、載せ直した枝で関門から回し直す
         return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
     try:
-        land.advance(source, main, candidate, g)
+        # push は部署の作業場から打つ。push の前の関所（core.hooksPath の相対の .githooks など）は git を打った作業場の物が走るので、
+        # 代表の clone が遅れていると古い関所が走り、本流の今の決まりで通るはずの push を止めた（2026-10-17 の my_notes。5d75df）
+        land.advance(path, main, candidate, g)
     except gitx.GitError as e:
         # 断られた訳を、本流を取り直して分ける: 先に進んでいれば載せ直しを頼み、そうでなければ（枝の保護・認証など）止める
         try:
@@ -241,6 +243,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     except gitx.GitError as e:
         local = f"そろえられなかった: {e}"
     print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local}）")
+    if local in ("dirty", "local_only"):
+        print(_tell_desk(source, info, main, candidate, local))
     if after and rules["after"]:
         for line in after(rules["after"], source, attrs):
             print(line)
@@ -255,6 +259,24 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         except gitx.GitError as e:
             print(f"注記: 関門の枝 {ref} を消せなかった（{e}）")
     return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
+
+
+def _tell_desk(source, info, main, candidate, local):
+    """代表の clone の本流を進められなかったことを、その会社の窓口（本社の --desk の会話）に台帳の知らせで渡す。窓口の会話のフックと
+    決まりは代表の clone の作業ツリーから読まれるので、進まないと本流に入れた物が窓口に効かない（5d75df）。出す行を返す。"""
+    why = {"dirty": "代表の clone の書きかけが本流の変更とぶつかる", "local_only": "代表の clone の本流に、本流に無い commit が有る"}[local]
+    attrs = gitx.worktree_attrs(source)
+    if not attrs.get("name"):
+        return f"注記: 代表の clone の {main} を本流 {candidate[:7]} に進められなかった（{why}）。窓口が名付けられていないので知らせていない"
+    text = (f"知らせ（返事は要らない）: 代表の clone の {main} を本流 {candidate[:7]} に進められなかった（{why}）。この会話のフックと"
+            f"会社の形は前の版のまま。書きかけを片付けるか commit してから、代表の clone で git merge --ff-only origin/{main} を打つ")
+    try:
+        inbox = deliver.inbox_of(gitx.common_dir(source))
+        deliver.log(inbox, wake.notice(wake.address(tree.company_name(source, info), attrs["name"]), None, wake.NOTE, None, text,
+                                       time.time()))
+    except (gitx.GitError, OSError) as e:
+        return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口に知らせられなかった（{e}）"
+    return f"注記: 代表の clone の {main} を進められなかった（{why}）。窓口 {attrs['name']} に台帳の知らせで渡した"
 
 
 def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after):

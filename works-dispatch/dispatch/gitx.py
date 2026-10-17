@@ -409,8 +409,9 @@ def _holder(source, branch, runner):
 
 def advance_branch(source, branch, sha, runner=_default_runner):
     """手元の枝 branch を sha へ早送りだけする。書く口。current（もう同じ）・updated（進めた）・absent（手元に枝が無い）・
-    local_only（手元の枝にしか無い commit が有るので動かさない）・dirty（枝を開いている worktree に未コミットの変更が有るので
-    動かさない）のどれか。枝を開いている worktree が有れば、そこで git merge --ff-only を打つ（中身もそろえる）。"""
+    local_only（手元の枝にしか無い commit が有るので動かさない）・dirty（枝を開いている worktree の書きかけが本流の変更とぶつかるので
+    動かさない）のどれか。枝を開いている worktree が有れば、そこで git merge --ff-only を打つ（中身もそろえる。書きかけが本流の
+    変更に触れなければ進む）。"""
     old = rev(source, f"refs/heads/{branch}", runner)
     if old is None:
         return "absent"
@@ -421,11 +422,11 @@ def advance_branch(source, branch, sha, runner=_default_runner):
     holder = _holder(source, branch, runner)
     if holder is None:
         _must(["git", "-C", source, "update-ref", f"refs/heads/{branch}", sha, old], runner)
-    elif not is_clean(holder, runner):
-        return "dirty"
-    else:
-        _must(["git", "-C", holder, "merge", "--ff-only", "--quiet", sha], runner)
-    return "updated"
+        return "updated"
+    # 枝を開いている worktree に書きかけ（未コミットの変更・git に足していないファイル）が有っても、早送りを試す。git merge --ff-only は、
+    # 本流の変更が書きかけのファイルに触れるときだけ何も変えずに断るので、触れない書きかけ（持ち主の日記など）は壊さずに進む（5d75df）
+    p = runner(["git", "-C", holder, "merge", "--ff-only", "--quiet", sha])
+    return "updated" if p.returncode == 0 else "dirty"
 
 
 def add_detached(source, path, sha, runner=_default_runner):

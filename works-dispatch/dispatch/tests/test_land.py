@@ -367,6 +367,36 @@ class FastForwardAfterCi(LandCase):
         write(other, "## [Unreleased]\n<<<<<<< HEAD\nあ\n=======\nい\n>>>>>>> c\n")
         self.assertFalse(land.resolve_changelog(other))   # 変更の記録でないファイル
 
+    def test_the_main_clone_with_unrelated_drafts_is_fast_forwarded_and_old_pre_push_checks_there_do_not_run(self):
+        # 代表の clone の書きかけ（持ち主の日記）が本流の変更に触れなければ、早送りで進める。push は部署の作業場から打つので、代表の
+        # clone の古い push 前の関所（.githooks）は走らない（2026-10-17 の my_notes。5d75df）
+        w = World(self.tmp, CI_FILES)
+        write(os.path.join(w.source, "diary.md"), "書きかけ\n")   # 追跡していないファイル
+        git("-C", w.source, "config", "core.hooksPath", ".githooks")
+        write(os.path.join(w.source, ".githooks", "pre-push"), "#!/bin/sh\nexit 1\n")   # 代表の clone の作業ツリーにだけ在る古い関所
+        os.chmod(os.path.join(w.source, ".githooks", "pre-push"), 0o755)
+        head = w.work()
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(w.origin("main"), head)
+        self.assertIn("手元の main: updated", out)
+        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head)
+        self.assertEqual(pathlib.Path(w.source, "diary.md").read_text(encoding="utf-8"), "書きかけ\n")
+
+    def test_the_main_clone_whose_draft_touches_the_landed_file_is_left_and_the_desk_is_told(self):
+        w = World(self.tmp, CI_FILES)
+        write(os.path.join(w.source, "a.txt"), "持ち主の書きかけ\n")   # 部署が足すのと同じファイル
+        git("-C", w.source, "config", "--local", "extensions.worktreeConfig", "true")
+        git("-C", w.source, "config", "--worktree", "company.name", "窓口")
+        w.work()
+        code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 0, out)
+        self.assertIn("手元の main: dirty", out)
+        self.assertIn("窓口 窓口 に台帳の知らせで渡した", out)
+        self.assertEqual(pathlib.Path(w.source, "a.txt").read_text(encoding="utf-8"), "持ち主の書きかけ\n")   # 書きかけは触らない
+        inbox = os.path.join(w.source, ".git", "company", "inbox", "log.jsonl")
+        self.assertIn("進められなかった", pathlib.Path(inbox).read_text(encoding="utf-8"))
+
     def test_red_hands_the_failure_to_the_department(self):
         w = World(self.tmp, CI_FILES)
         before = w.origin("main")
