@@ -22,8 +22,9 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # installed.py は入口 dispatch.py が前の版の置き場で打たれたとき、今入っている版の dispatch.py を起こす
 # orders.py は入口 dispatch.py の --ask・--deliver の流れを分けた物で、会社の形に書かれた納品の検査（deliver_check）のコマンドを回す
 # limit_hook.py は上限で止まった会話から切り離して --move を起こす（会話の子として待たない）
+# wake_hook.py は終わりと印した（--done）部署の会話から切り離して --retire を起こす（同じく、会話を止めるので子として待たない）
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
-                 "calls.py", "installed.py", "orders.py", "limit_hook.py"}
+                 "calls.py", "installed.py", "orders.py", "limit_hook.py", "wake_hook.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
 WRITES = {

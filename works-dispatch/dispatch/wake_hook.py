@@ -5,8 +5,12 @@
   渡し（属性に頼みを書いてから起こす）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
   会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）番の終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
-- UserPromptSubmit（`--resume`。裏で走らせない）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）を
-  外す。会話が文を読む前に済ませる（裏で走らせると、同じ番の中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
+  都度の部署が終わりと印した（--done。属性 company.finished）番の終わりには、印を外して dispatch.py --retire <部署> を会話から
+  切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
+  retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
+  順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
+- UserPromptSubmit（`--resume`。裏で走らせない）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
+  終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じ番の中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
   そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
 - UserPromptSubmit（`--pause`。async）: 人の文で番が始まったら、その場所の待ち受けを止める（待ち受けは印の token を書き替えるだけ）。
   窓に打ち込まれた知らせも人の文と同じに数える。
@@ -25,6 +29,7 @@ import json
 import os
 import pathlib
 import signal
+import subprocess
 import sys
 import time
 
@@ -47,7 +52,8 @@ for _s in (sys.stdout, sys.stderr):
 
 
 def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppid, same=claudex.in_process):
-    """待つなら {cwd, root, inbox, place, names, session, owner, adopt}、待たないなら None。adopt は属性の会話の id を書き直すか。"""
+    """待つなら {cwd, root, inbox, place, names, session, owner, adopt, company}、待たないなら None。adopt は属性の会話の id を書き直すか。
+    company は会社の名前（--retire に宛てる）。"""
     cwd = payload.get("cwd") or os.getcwd()
     sid = payload.get("session_id")
     attrs = attrs_of(cwd)
@@ -69,9 +75,10 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
             return None   # 窓口は、--desk が書いた会話の処理（company.pid）の会話なら、印が消えていても続きと見る
         adopt = True
     info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
-    names = wake.addresses(tree.company_name(root, info), attrs, gitx.former_names(attrs))
+    company = tree.company_name(root, info)
+    names = wake.addresses(company, attrs, gitx.former_names(attrs))
     return {"cwd": cwd, "root": root, "inbox": inbox, "place": place, "names": names, "session": sid, "owner": parent(),
-            "adopt": adopt}
+            "adopt": adopt, "company": company}
 
 
 # herdr が会話の手が空いたと見る状態（done は番を終えたまま見られていない物）
@@ -123,13 +130,38 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
     return True
 
 
-def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0]):
-    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。"""
+DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
+RETIRES = "retires"   # 受付箱の下の、--retire を走らせた出力の置き場
+
+
+def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
+    """終わりと印した都度の部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
+    走らせられなければ、残った訳を属性に書いて False（印は外したまま。打ち直しはしない）。"""
+    name = attrs["name"]
+    argv = [sys.executable, DISPATCH_PY, "--retire", f"{got['company']}/{name}"] + (["--config", attrs["config"]] if attrs.get("config") else [])
+    out = os.path.join(got["inbox"], RETIRES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
+    provision.mark(got["cwd"], got["root"], {wake.FINISHED: None}, gitx)
+    try:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            spawn(argv, cwd=got["root"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+    except OSError as e:
+        provision.mark(got["cwd"], got["root"], {wake.RETIRE_KEPT: f"--retire を走らせられなかった（{e}）"}, gitx)
+        return False
+    return True
+
+
+def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
+            spawn=subprocess.Popen):
+    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。"""
     def check():
         attrs = attrs_of(got["cwd"])
         ask = attrs.get("ask")
         if ask and attrs.get("delivered") != ask:
             return None   # 未納品の頼みを持っている
+        if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
+                and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
+            return "end", None   # 都度の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         if (payload.get("hook_event_name") == "Stop" and ask and attrs.get("fresh") == role.FRESH
                 and attrs.get("cleared") != ask and clear_now(got, payload, attrs, h, me=me)):
             return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す
@@ -138,7 +170,8 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
         item = wake.take(got["inbox"], got["place"])
         if item is None:
             return None
-        provision.mark(got["cwd"], got["root"], item.get("marks") or {}, gitx)
+        # 次の頼みを受けたら、前の終わりの印は外す（終わりは、受けた頼みを済ませてから --done で印し直す）
+        provision.mark(got["cwd"], got["root"], {**(item.get("marks") or {}), wake.FINISHED: None}, gitx)
         deliver.log(got["inbox"], {"id": item.get("id"), "kind": "handed", "at": now(), "place": got["cwd"],
                                    "session": got["session"]})
         return "wake", item.get("line") or wake.wake_text([item])
@@ -147,15 +180,16 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
 
 def resume_from_wait(payload, attrs_of=gitx.worktree_attrs):
     """人の文で番が始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
-    --rest の区切りの印も外す（人と話している途中の会話を空にしない）。印を外すのは、場所の属性の会話（company.session）が文を
+    --rest の区切りの印と --done の終わりの印も外す（人と話している途中の会話を空にも畳みもしない）。印を外すのは、場所の属性の会話（company.session）が文を
     受けたときだけ（同じ場所のほかの会話の文では外さない）。"""
     cwd = payload.get("cwd") or os.getcwd()
     attrs = attrs_of(cwd)
-    if not (attrs.get("waiting") or attrs.get(wake.REST)) or attrs.get("session") and attrs["session"] != payload.get("session_id"):
+    if not (attrs.get("waiting") or attrs.get(wake.REST) or attrs.get(wake.FINISHED)) \
+            or attrs.get("session") and attrs["session"] != payload.get("session_id"):
         return
     common = gitx.common_dir(cwd)
     if common:
-        provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None, wake.REST: None}, gitx)
+        provision.mark(cwd, gitx.root_of(common), {"waiting": None, "waiting-why": None, wake.REST: None, wake.FINISHED: None}, gitx)
 
 
 def resume_here(payload):

@@ -40,6 +40,8 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--dry-run]
         python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
+        python3 dispatch.py --done（都度の部署の場所から。納品して本流に入れ終えたので、番の終わりに会話を止めて部屋を片付けてよいと印す）
+        python3 dispatch.py --retire <部署>（都度の部署の会話を止めてから、--clean と同じ決まりで片付ける）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
         python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役> [--boss-account <名>]] [--dry-run]
         python3 dispatch.py --desk [<名前>] [--role <役>] [--dry-run]
@@ -50,6 +52,7 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
 
 --ask と --deliver（依頼と納品。会社の形の設計 4.5）の流れは orders.py が持つ。
 --reorg と --desk（部署と窓口の属性の付け替え）の流れは reorg.py が持つ。
+--retire（都度の部署の会話を止めて片付ける）の流れは retire.py が持つ。
 """
 
 import argparse
@@ -78,11 +81,12 @@ import jsonio  # noqa: E402
 import calls  # noqa: E402
 import landing  # noqa: E402
 import move  # noqa: E402
+import retire  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
-from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn  # noqa: E402
+from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
@@ -627,6 +631,10 @@ def main(argv=None, ports=None):
                     "人がその会話に打つか、納品すると外れる）")
     ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（この番の終わりに、"
                     "入力欄が空なら機械が窓に /clear を打つ。人がその会話に打つと外れる）")
+    ap.add_argument("--done", action="store_true", help="都度の部署の場所から、納品して本流に入れ終えたので片付けてよいと印す（この番の"
+                    "終わりに、機械が会話を止めて部屋を --clean と同じ決まりで片付ける。人がその会話に打つと外れる）")
+    ap.add_argument("--retire", metavar="部署", help="都度の部署の会話を止めてから、部屋を --clean と同じ決まりで片付ける（--done の"
+                    "番の終わりに機械が打つ。段取りが残った部屋を止めると決めたときも打つ）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署が本流を知った後にほかの部署が入れた行を、この枝が消していても入れる（わざと消すとき）")
@@ -668,6 +676,10 @@ def main(argv=None, ports=None):
         return orders.wait_for_input(a, ports, os.getcwd())
     if a.rest:
         return orders.rest_here(a, ports, os.getcwd())
+    if a.done:
+        return orders.finish_here(a, ports, os.getcwd())
+    if a.retire is not None:
+        return retire.retire(a, ports, os.getcwd(), _department_rows, DEPT_REASONS)
     if a.text is not None:
         print("止めた: --text は --ask と一緒にだけ使う")
         return 2
@@ -1686,9 +1698,10 @@ def _init_company(a, ports, cwd):
     return 0
 
 
-def _department_rows(cfg, repo, ports, found, notes):
+def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
     """部署（--task が立てた worktree）の片付けの候補（clean.departments）。会話は全アカウントの一覧（終わった物も）で引く。
-    本流は origin の既定の枝の手元の控え。読めなければ、部署は並べない（消さない側に倒す）。"""
+    本流は origin の既定の枝の手元の控え。読めなければ、部署は並べない（消さない側に倒す）。assume_stopped の会話の id
+    （sessionId）は、止まった物とみなす（--retire が、止める前に会話のほかに残す訳が無いかを見る）。"""
     try:
         listed = {acc.name: (acc, ports.list_sessions(acc.config_dir, include_done=True)) for acc in cfg.accounts}
         target = f"refs/remotes/origin/{ports.default_branch(repo)}"
@@ -1697,8 +1710,8 @@ def _department_rows(cfg, repo, ports, found, notes):
         return []
 
     def session_of(attrs):
-        return next(({**s, "config_dir": acc.config_dir} for acc, items in listed.values() for s in items
-                     if s.get("sessionId") == attrs["session"]), None)
+        return next(({**s, "config_dir": acc.config_dir, **({"state": "stopped"} if s.get("sessionId") in assume_stopped else {})}
+                     for acc, items in listed.values() for s in items if s.get("sessionId") == attrs["session"]), None)
 
     return clean.departments(found, ports.attrs, session_of, ports.is_clean, ports.unpushed,
                              lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source)
@@ -1706,6 +1719,20 @@ def _department_rows(cfg, repo, ports, found, notes):
 
 DEPT_REASONS = {"resident": "常設の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
                 "not_merged": "枝が本流に入っていない", "no_branch": "枝に乗っていない"}
+
+
+def _running_note(d, attrs):
+    """会話がまだ動いているので残す部署の訳に足す、段取りが止めるかを決める手がかり（ほかの訳の部署には足さない）。"""
+    if d["reason"] != "running":
+        return ""
+    if attrs.get(wake.RETIRE_KEPT):
+        return f"。終わりの印で畳もうとして残った: {attrs[wake.RETIRE_KEPT]}"
+    if attrs.get(wake.FINISHED):
+        return "。終わりの印が有る（この番の終わりに畳む）"
+    ask = attrs.get("ask")
+    if ask and attrs.get("delivered") == ask:
+        return f"。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire {d['name'] or d['branch']}"
+    return ""
 
 
 def _clean(cfg, repo, apply, ports):
@@ -1723,7 +1750,7 @@ def _clean(cfg, repo, apply, ports):
         kept = len(clean.tmp_entries(claudex.job_tmp(d["config_dir"], d["session"], ports.account_env))) if d["removable"] and d["session"] else 0
         print(f"部署 {d['name'] or '-'} {d['branch'] or '（枝無し）'}  {d['state']}  "
               + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else ""))
-                 if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}）"))
+                 if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']))}）"))
     print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
     failed = 0
     if apply:

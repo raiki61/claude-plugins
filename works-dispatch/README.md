@@ -66,7 +66,7 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
 
 6. 部署は終わると、要約を「結論・決め手・残った疑問・枝」の見出しで書いて返す。窓口の画面に `納品です（受付 …、試し・枝 try/first から）: 【結論】…` の 1 行が打ち込まれる。全文は clone の `.git/company/inbox/` に残る。
 
-7. 部署を片付ける。`--clean` が消せる部署を並べ、`--clean --apply` で消す。会話がまだ動いている部署は並ばない（消す条件は [SKILL.md](skills/dispatch/SKILL.md) の `--clean`）。dispatch の設定のファイルは要らない（`--repo` に代表の clone のパスを渡すか、その clone の中から打つ）。
+7. 部署を片付ける。`--clean` が消せる部署を並べ、`--clean --apply` で消す。会話がまだ動いている部署は「残す」と訳を添えて並ぶ（消す条件は [SKILL.md](skills/dispatch/SKILL.md) の `--clean`）。都度の部署が納品して本流に入れ終えたら、自分で `--done` を打てば、その番の終わりに会話が止まり、部屋が同じ決まりで片付く（印の無い部屋を止めて畳むなら `--retire <部署>`）。dispatch の設定のファイルは要らない（`--repo` に代表の clone のパスを渡すか、その clone の中から打つ）。
 
    ```
    /works-dispatch:dispatch --clean

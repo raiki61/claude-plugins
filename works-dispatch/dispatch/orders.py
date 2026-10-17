@@ -731,6 +731,60 @@ def rest_here(a, ports, cwd):
     return 0
 
 
+def finish_here(a, ports, cwd):
+    """--done。都度の部署の会話が、納品して本流に入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。この番の
+    終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
+    断るのは、部署でない・窓口・常設・会話の id が無い・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
+    commit が在る・枝が本流（origin の既定の枝の手元の控え）に入っていない時（commit の無い部署は入っているとみなす）。前の --retire が
+    残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。"""
+    attrs = ports.attrs(cwd)
+    if not attrs.get("role") or not attrs.get("name"):
+        print(f"止めた: {cwd} は部署でない（git の設定 company.role と company.name が無い）。終わりは都度の部署の場所で印す")
+        return 2
+    common, place = ports.git.common_dir(cwd), ports.git.git_dir(cwd)
+    if not common or not place or os.path.realpath(place) == os.path.realpath(common):
+        print("止めた: 窓口は畳まない。会話を空にしてよい区切りなら --rest で印す")
+        return 2
+    if attrs.get("residency") == "resident":
+        print("止めた: 常設の部署は畳まない。会話を空にしてよい区切りなら --rest で印す")
+        return 2
+    if not attrs.get("session"):
+        print("止めた: 部署の属性に会話の id（company.session）が無いので、機械が会話を止めて畳めない。--clean で並べて手で片付ける")
+        return 2
+    ask = attrs.get("ask")
+    if ask and attrs.get("delivered") != ask:
+        print(f"止めた: 納品していない頼み（受付 {ask}）が在る。終わりは、受けた頼みを納品で閉じてから印す")
+        return 2
+    if wake.queued(deliver.inbox_of(common), place):
+        print("止めた: 順番待ちに頼みが在る。待ち受けが渡す次の頼みを済ませてから印す")
+        return 2
+    if not ports.is_clean(cwd):
+        print("止めた: 未コミットの変更か、git に足していないファイルが在る（片付けると消える）。commit するか消してから印す")
+        return 2
+    if ports.unpushed(cwd):
+        print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。本流に入れてから印す")
+        return 2
+    root = gitx.root_of(common)
+    try:
+        main = gitx.default_branch(root)
+        merged = gitx.is_merged(cwd, f"refs/remotes/origin/{main}")
+    except gitx.GitError as e:
+        print(f"止めた: 枝が本流に入っているかを読めない（{e}）")
+        return 1
+    if not merged:
+        print(f"止めた: 枝が本流（origin/{main} の手元の控え）に入っていない。--land で入れてから印す"
+              "（ほかの会話が入れたなら、git fetch してから打ち直す）")
+        return 2
+    try:
+        provision.mark(cwd, root, {wake.FINISHED: attrs["session"], wake.RETIRE_KEPT: None}, ports.git)
+    except (gitx.GitError, OSError) as e:
+        print(f"止めた: 終わりの印を書けなかった（{e}）")
+        return 1
+    print("終わりと印した。この番の終わりに、機械がこの会話を止め、部屋（作業場・worktree・会話・手元の枝）を --clean と同じ決まりで"
+          "片付ける。片付けられなければ部屋を残し、訳は --clean の一覧に出る。人がこの会話に打つと印が外れる")
+    return 0
+
+
 def deliver_summary(a, ports, cwd):
     """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。"""
     attrs = ports.attrs(cwd)

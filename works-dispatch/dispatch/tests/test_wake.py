@@ -301,6 +301,71 @@ class Hook(unittest.TestCase):
         wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
         self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
 
+    def spawner(self, fail=None):
+        seen = []
+
+        def spawn(argv, **kw):
+            if fail:
+                raise fail
+            seen.append((argv, kw))
+        return seen, spawn
+
+    def test_a_finished_department_starts_retire_apart_from_the_talk_at_the_end_of_the_turn(self):
+        # 都度の部署が終わりと印した（--done）番の終わりに、印を外し、--retire を会話から切り離して走らせる（会話を止めるので待たない）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH, wake.FINISHED: "s1"}, gitx)
+        seen, spawn = self.spawner()
+        w = Window(self.place)
+        got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=w, now=lambda: 5, spawn=spawn)
+        self.assertEqual(got(), ("end", None))
+        [(argv, kw)] = seen
+        self.assertEqual(argv[2:], ["--retire", "co/調べ"])
+        self.assertTrue(kw["start_new_session"])
+        self.assertEqual(os.path.realpath(kw["cwd"]), os.path.realpath(self.src))   # 消える部署の場所の外で走らせる
+        self.assertTrue(kw["stdout"].name.startswith(os.path.join(self.inbox, wake_hook.RETIRES)))
+        self.assertEqual(w.writes, [], "fresh の部署でも /clear は打たない（空にすると印の会話が居なくなる）")
+        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))   # 印は 1 度で外れる
+
+    def test_a_finished_mark_waits_for_delivery_background_work_and_the_stop_of_the_turn(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.FINISHED: "s1"}, gitx)
+        seen, spawn = self.spawner()
+
+        def check(payload):
+            return wake_hook.checker(self.plan(), payload, h=Window(self.place), now=lambda: 5, spawn=spawn)()
+        self.assertIsNone(check({"hook_event_name": "Stop"}))   # a0 を納品していない
+        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        self.assertIsNone(check({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}))   # 裏の処理が残る
+        self.assertIsNone(check({"hook_event_name": "SessionStart"}))   # 番の終わりでない
+        self.assertEqual(seen, [])
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.FINISHED], "s1")
+
+    def test_a_queued_ask_is_handed_instead_of_retiring_and_takes_the_mark_off(self):
+        # 終わりと印した後に追いの頼みが積まれたら、畳まずに渡す（終わりは、その頼みを済ませてから印し直す）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", "delivered": "a0",
+                                              wake.FINISHED: "s1"}, gitx)
+        self.put("a1")
+        seen, spawn = self.spawner()
+        got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, spawn=spawn)
+        self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
+        self.assertEqual(seen, [])
+        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))
+
+    def test_a_retire_that_cannot_start_leaves_the_room_with_the_reason(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.FINISHED: "s1"}, gitx)
+        _, spawn = self.spawner(fail=OSError("no python"))
+        got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, spawn=spawn)
+        self.assertIsNone(got())
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertNotIn(wake.FINISHED, attrs)   # 打ち直しはしない
+        self.assertIn("no python", attrs[wake.RETIRE_KEPT])
+
+    def test_a_typed_prompt_takes_the_finished_mark_off(self):
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", wake.FINISHED: "s1"}, gitx)
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s9"})
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.FINISHED], "s1")
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
+        self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))
+
     def test_the_window_is_the_pane_of_this_talk_when_the_place_has_several(self):
         # 本社には持ち主のほかの会話も居るので、ペインの会話の印で窓口の窓を決める
         class Many(Window):

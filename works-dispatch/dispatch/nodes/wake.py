@@ -36,6 +36,9 @@ KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み"}
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
                     # 番の終わりの待ち受けが窓に /clear を打って消す。人の文で番が始まると外れる
+FINISHED = "finished"   # 都度の部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
+                        # 会話の id。番の終わりの待ち受けが印を外して --retire を裏で走らせる。人の文で番が始まると外れる
+RETIRE_KEPT = "retire-kept"   # 部署の属性: --retire が片付けずに残した訳（--clean の一覧に出す）
 
 
 def address(company, name):
