@@ -2189,11 +2189,13 @@ DOC_EXTS = (".md", ".mdx", ".adoc", ".asciidoc", ".rst", ".txt")
 DOC_MIN_LEN = int(os.environ.get("COLDREAD_DOC_MIN_LEN", "300"))   # これ未満の文書は読まない(字)
 DOC_MODEL = os.environ.get("COLDREAD_DOC_MODEL", "haiku")
 DOC_EFFORT = os.environ.get("COLDREAD_DOC_EFFORT", "xhigh")
-DOC_WORKERS = 4      # 1 回の終わりに読む文書を並べる数。Stop のフックの timeout(300s)に、読み役 1 回(210s)で収める
-# 対話の会話の Stop は裏で読む(下の「ターンの終わりを塞がない」)。誰も待たないので読み役 1 回の上限を待つときの 210 秒より
-# 長く取り、xhigh の長い読みを時間切れ(reader-down)で落とさない。hooks.json の asyncRewake の timeout(900s)に、
-# DOC_WORKERS 本ずつ 2 巡で収める
-DOC_ASYNC_TIMEOUT = 420
+DOC_WORKERS = 4      # 1 回の終わりに読む文書を並べる数
+# 手元の文書の読み役 1 回の上限。裏で読む口も待って読む口(作業役の終わり・claude -p の終わり・手の read・枝の関門)も同じにする。
+# 待って読む口だけ投稿の読み役と同じ 210 秒で切っていた頃は、xhigh の読みが 210 秒を超える文書を作業役が何度書き直しても
+# 時間切れで指摘が出なかった(2026-10-17 に my_notes の約 8 千字のメモで、待って読む口は 210 秒で 6 回続けて切れ、裏の口は
+# 同じメモを 299 秒・333 秒で読み終えた。docs.log の時間切れ 95 件は全部 210 秒の上限で、読み終えた読みの最長は 412 秒)。
+# hooks.json の Stop・SubagentStop の timeout(900s)に、DOC_WORKERS 本ずつ 2 巡で収める
+DOC_READ_TIMEOUT = 420
 DOC_SEEN_KEEP = 5000  # 読んだ中身のハッシュを覚える数
 DOC_FINDINGS_KEEP = 200  # 親に返す指摘を書き出したファイルを残す数(古いものから消す)
 DOC_DIR = os.path.join(STATE_DIR, "docs")
@@ -2850,7 +2852,7 @@ def doc_prompt(body, focus=False):
     return COLD_PROMPT[:-len(BODY_MARK)] + DOC_FOCUS_NOTE + BODY_MARK + body
 
 
-def read_doc(text, focus=False, timeout=READER_TIMEOUT):
+def read_doc(text, focus=False, timeout=DOC_READ_TIMEOUT):
     """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。"""
     out = run_reader(doc_prompt(text, focus), model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout)
     if not report_shaped(out):
@@ -3068,6 +3070,13 @@ def doc_feedback(path, found, focus=False):
     )))
 
 
+def _down_reason(exc):
+    """読めなかった訳を、書き手に返す短い言葉にする。"""
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "読み手が %d 秒で時間切れ" % exc.timeout
+    return "読み手を起こせなかった(%s)" % str(exc)[:80].replace("\n", " ")
+
+
 def _timed_read(text, focus, timeout):
     """read_doc に、かかった秒を添える。((結果, 例外), 秒)。秒は docs.log に残し、次に重さを測れるようにする。"""
     start = time.monotonic()
@@ -3078,7 +3087,7 @@ def _timed_read(text, focus, timeout):
     return got, time.monotonic() - start
 
 
-def _read_pending(session, agent, timeout=READER_TIMEOUT):
+def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
     """書いた役の待ちの一覧を読んで消し、読ませる文書を読ませる。(指摘の節, 件数, 読めなかった文書) を返す。"""
     pending = _pending(session, agent)
     try:
@@ -3134,7 +3143,7 @@ def _read_pending(session, agent, timeout=READER_TIMEOUT):
         (found, exc), secs = fut.result()
         if exc is not None:
             log_line(DOC_LOG, "reader-down\t%s\t%ds\t%s\t%s" % (str(exc)[:150].replace("\n", " "), secs, who, path))
-            down.append(path)
+            down.append("%s: %s" % (path, _down_reason(exc)))
             unread.append(digest)
             continue
         # 書いた役を起こすのは詰まりが在るときだけ(上の「書いた役を起こす」)。推測で埋めた箇所だけなら guess で件数を残す
@@ -3215,13 +3224,13 @@ def docs_check(payload, background=False):
         return   # 親の Stop はもう片方の口が読む
     if agent and background:
         return
-    notes, counts, down = _read_pending(session, agent, DOC_ASYNC_TIMEOUT if background else READER_TIMEOUT)
+    notes, counts, down = _read_pending(session, agent)
     if not notes and not down:
         return
     event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
     turn = "直前のターン" if background else "このターン"
     reader = "coldread(文脈を持たない初見の読み手 coldreader、モデル %s・effort %s)" % (DOC_MODEL, DOC_EFFORT)
-    tail = ("読み手を起こせず読めなかった文書(%s)。手で読ませるなら python3 %s read <パス>。"
+    tail = ("読み手が読めなかった文書(%s)。手で読ませるなら python3 %s read <パス>。"
             % ("・".join(down), os.path.abspath(__file__))) if down else ""
     if agent:
         head = (reader + "が、この役が書いた文書を読んだ。"
@@ -3295,7 +3304,7 @@ def _branch_verdict(key, body, focus):
             return json.load(f), True
     except (OSError, ValueError):
         pass
-    found = read_doc(body, focus, DOC_ASYNC_TIMEOUT)
+    found = read_doc(body, focus)
     try:
         os.makedirs(DOC_BRANCH, exist_ok=True)
         with open(where, "w", encoding="utf-8") as f:
@@ -3349,7 +3358,7 @@ def branch_check(argv):
             found, cached = fut.result()
         except Exception as exc:
             log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
-            down.append(rel)
+            down.append("%s: %s" % (rel, _down_reason(exc)))
             continue
         fresh += not cached
         log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["詰まり"] or found["補完"] else "clean",
@@ -3379,7 +3388,11 @@ def read_now(path):
     """手で 1 本を読ませる(記録もハッシュも見ない)。指摘を出し、詰まりが在れば 1 で終わる。"""
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    found = read_doc(text)
+    try:
+        found = read_doc(text)
+    except Exception as exc:
+        print("読めなかった: %s" % _down_reason(exc))
+        return 1
     body = doc_feedback(path, found)
     print(body or "CLEAN(詰まりも補完も無い)" + ("\n" + section("残った疑問:", found["疑問"]) if found["疑問"] else ""))
     return 1 if found["詰まり"] else 0

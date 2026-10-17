@@ -2671,6 +2671,9 @@ pathlib.Path(a).write_text(long_text + "\n3 度目。", encoding="utf-8")
 run("docs-record", {"session_id": "s1", "tool_input": {"file_path": a}})
 odd = json.loads(run("docs-check", {"session_id": "s1"}, "cat >/dev/null; echo 'Failed to authenticate'"))
 assert "読めなかった" in odd["hookSpecificOutput"]["additionalContext"], odd
+# 読めなかった訳が書き手に分かる(時間切れなら上限の秒、ほかは起こせなかった訳)
+assert "読み手を起こせなかった" in down["hookSpecificOutput"]["additionalContext"], down
+assert "420 秒で時間切れ" in g._down_reason(subprocess.TimeoutExpired(["claude"], 420)), g._down_reason(subprocess.TimeoutExpired(["claude"], 420))
 
 # 切る口と、読み手の中での入れ子
 run("docs-record", {"session_id": "s2", "tool_input": {"file_path": a}}, COLDREAD_DOCS_OFF="1")
@@ -2761,12 +2764,15 @@ hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8")
 post = [h for grp in hooks.get("PostToolUse", []) if grp.get("matcher") == "Write|Edit|MultiEdit" for h in grp["hooks"]]
 stop = [h for grp in hooks.get("Stop", []) for h in grp["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-record") for h in post), post
-assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) >= 250 for h in stop), stop
-# 裏の口は asyncRewake(指摘が在れば 2 で会話を起こす)。timeout は裏で読む読み役の 2 巡(DOC_WORKERS 本ずつ)より長い
+# 待つ口・裏の口・作業役の終わりの口の timeout は、どれも読み役の 2 巡(DOC_WORKERS 本ずつ、1 回 DOC_READ_TIMEOUT)より長い。
+# 裏の口は asyncRewake(指摘が在れば 2 で会話を起こす)
+assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) > 2 * g.DOC_READ_TIMEOUT for h in stop), stop
 assert any(h["command"].endswith("coldread-gate.py\" docs-check-async") and h.get("asyncRewake") is True
-           and h.get("timeout", 0) > 2 * g.DOC_ASYNC_TIMEOUT for h in stop), stop
+           and h.get("timeout", 0) > 2 * g.DOC_READ_TIMEOUT for h in stop), stop
 sub = [h for grp in hooks.get("SubagentStop", []) if not grp.get("matcher") for h in grp["hooks"]]
-assert any(h["command"].endswith("coldread-gate.py\" docs-check") for h in sub), f"サブエージェントの終わりに読む口が無い（matcher 無しで全部の作業役に効かせる）: {sub}"
+assert any(h["command"].endswith("coldread-gate.py\" docs-check") and h.get("timeout", 0) > 2 * g.DOC_READ_TIMEOUT for h in sub), f"サブエージェントの終わりに読む口が無いか、timeout が読み役の 2 巡に足りない（matcher 無しで全部の作業役に効かせる）: {sub}"
+# 手元の文書の読み役は、待って読む口でも投稿の読み役の上限(READER_TIMEOUT)より長く待つ
+assert g.DOC_READ_TIMEOUT > g.READER_TIMEOUT and g.read_doc.__defaults__[-1] == g._read_pending.__defaults__[-1] == g.DOC_READ_TIMEOUT
 ends = [h for e in hooks["SessionEnd"] if e.get("matcher") == "clear" for h in e["hooks"]]
 assert any(h["command"].endswith("coldread-gate.py\" docs-session-end") for h in ends), f"/clear で終わる会話を覚える口が無い: {ends}"
 
