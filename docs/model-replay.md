@@ -2,6 +2,8 @@
 
 部署（会社の形の役を受けて動く Claude Code の会話）を安いモデル（Sonnet）や低い作業量（effort）で回したら、質がどれだけ落ち、費用がどれだけ減るかを、済んだ頼みを同じ条件でやり直して測った記録。役（会社の形 `.claude/company.toml` の `[[roles]]`）の `model`・`effort` を替えるかを決める材料にする。
 
+試しの担当（まっさらな環境にプラグインを入れて詰まりを記録する部署）を Sonnet で回して詰まりを見落とさないかの再演は、別の記録 [docs/trials/2026-10-17-sonnet-replay.md](trials/2026-10-17-sonnet-replay.md) にある。
+
 ## 平易版（3 行）
 
 - 作業の役が受けた文書の整地の頼み 2 件のそれぞれを、答えが入る前の commit から、Opus 5.5・effort high（今の部署と同じ）、Sonnet 5.5・effort high、Opus 5.5・effort medium の 3 通りで 1 回ずつ、計 6 回やり直した（2026-10-17）。
