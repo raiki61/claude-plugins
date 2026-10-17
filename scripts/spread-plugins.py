@@ -16,7 +16,9 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
    違えば失敗に数える。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
    `/reload-plugins` を打つ。持ち主の作業の会話に打つと herdr で done に替わり、ノイズになるため（この決まりは組織の物なので、
-   works-dispatch でなくここに置く）。入力欄に字が入っている会話は飛ばす。
+   works-dispatch でなくここに置く）。番の途中の会話（herdr が idle・done と見ていない物）と、入力欄に字が入っている会話は
+   飛ばす。飛ばした会話は、works-dispatch の番の終わりのフック（dispatch/refresh_hook.py）が、その会話の番の終わりの手の空いた
+   時に替える。/clear では替わらない（2026-10-17 に Claude Code 2.1.302 で確かめた）。
 3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）に置く。持ち主の値を配布物に書かない。
 
 使い方: python3 scripts/spread-plugins.py < 入力の JSON（省けば {}）
@@ -38,6 +40,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"   # works-dispatch の設定の既定の場所（WORKS_DISPATCH_CONFIG で替わる）
 LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの配る先の足しと除外
 RELOAD = "/reload-plugins"
+IDLE = ("idle", "done")   # herdr が会話の手が空いたと見る状態（done は番を終えたまま見られていない物）
 
 
 def run(argv, env=None):
@@ -229,6 +232,9 @@ def reload_talks(skip, dry, runner=run):
             continue
         if not is_company_place(p["cwd"], runner):
             continue   # 持ち主の作業の会話（部署でも窓口でもない）には打たない
+        if p.get("agent_status") not in IDLE:
+            lines.append(f"{where}: 番の途中なので飛ばす（番の終わりに替わる）")
+            continue
         code, screen = runner(["herdr", "pane", "read", p["pane_id"], "--lines", "40"])   # 画面の字がそのまま出る
         if code != 0:
             lines.append(f"{where}: 画面を読めない（{screen.strip()[:200]}）")

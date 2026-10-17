@@ -34,6 +34,12 @@
           },
           {
             "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/refresh_hook.py\"",
+            "shell": "bash",
+            "async": true
+          },
+          {
+            "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" --once \"${CLAUDE_PLUGIN_ROOT}/dispatch/wake_hook.py\"",
             "shell": "bash",
             "asyncRewake": true,

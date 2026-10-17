@@ -47,12 +47,13 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
     version は入った版、main は本流（origin/main）の plugin.json の版（None なら本流を読めない）。"""
     calls = []
     installed = installed or plugin_dir()
-    panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "cwd": "/dept"},
-             {"pane_id": "b:1", "workspace_id": "b", "agent": "claude", "cwd": "/mine"},
-             {"pane_id": "c:1", "workspace_id": "c", "agent": "claude", "cwd": "/typed"},
-             {"pane_id": "d:1", "workspace_id": "d", "agent": "claude", "cwd": "/skipped"},
-             {"pane_id": "e:1", "workspace_id": "e", "agent": None, "cwd": "/dept"}]
-    labels = {"a": "割り振り", "b": "作業の会話", "c": "点検", "d": "plugins1", "e": "シェル"}
+    panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "agent_status": "idle", "cwd": "/dept"},
+             {"pane_id": "b:1", "workspace_id": "b", "agent": "claude", "agent_status": "idle", "cwd": "/mine"},
+             {"pane_id": "c:1", "workspace_id": "c", "agent": "claude", "agent_status": "done", "cwd": "/typed"},
+             {"pane_id": "d:1", "workspace_id": "d", "agent": "claude", "agent_status": "idle", "cwd": "/skipped"},
+             {"pane_id": "e:1", "workspace_id": "e", "agent": None, "cwd": "/dept"},
+             {"pane_id": "f:1", "workspace_id": "f", "agent": "claude", "agent_status": "working", "cwd": "/busy"}]
+    labels = {"a": "割り振り", "b": "作業の会話", "c": "点検", "d": "plugins1", "e": "シェル", "f": "説明書"}
 
     def runner(argv, env=None):
         calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
@@ -87,7 +88,7 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
         if argv[:4] == ["git", "-C", "/m/mine", "checkout"]:
             return 0, ""
         if argv[:1] == ["git"]:
-            return (0, "作業\n") if argv[2] in ("/dept", "/typed", "/skipped") else (1, "")
+            return (0, "作業\n") if argv[2] in ("/dept", "/typed", "/skipped", "/busy") else (1, "")
         raise AssertionError(argv)
     return runner, calls
 
@@ -113,10 +114,12 @@ def only_company_talks():
     rc, out = run(runner, {})
     assert rc == 0, out
     prompts = [a[3] for a, _ in calls if a[:3] == ["herdr", "agent", "prompt"]]
-    assert prompts == ["a:1"], prompts   # 部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペインは飛ばす）
+    assert prompts == ["a:1"], prompts   # 手の空いた部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペイン・番の途中は飛ばす）
     updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
     assert updates == [(f"a@{MARKET}", None), (f"a@{MARKET}", "/c/p1")], updates
     assert "点検（c:1）: 入力欄に字が在るので飛ばす" in out and "plugins1（d:1）: 手元の設定で除く" in out, out
+    assert "説明書（f:1）: 番の途中なので飛ばす（番の終わりに替わる）" in out, out
+    assert not [a for a, _ in calls if a[:4] == ["herdr", "pane", "read", "f:1"]], calls   # 番の途中の画面は読みもしない
     print("ONLY_COMPANY_TALKS_OK")
 
 

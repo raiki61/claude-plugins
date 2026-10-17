@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 
 
 class ClaudeError(Exception):
@@ -255,6 +256,45 @@ def running_claude(pid, runner=_default_runner):
     except OSError:
         return False
     return p.returncode == 0 and _is_claude((p.stdout or "").strip())
+
+
+def _elapsed(text):
+    """ps の etime（[[日-]時:]分:秒）を秒に。読めなければ None。"""
+    days, _, rest = text.strip().rpartition("-")
+    try:
+        nums = [int(x) for x in rest.split(":")]
+        return (int(days) if days else 0) * 86400 + sum(n * 60 ** i for i, n in enumerate(reversed(nums)))
+    except ValueError:
+        return None
+
+
+def host(runner=_default_runner, me=None, now=None):
+    """このフックを起こした Claude Code の会話の (処理の番号, 起きた時刻〔秒〕)。分からなければ (None, None)。
+    起きた時刻は ps の etime（起きてからの時間）から出す（ps の lstart は言語の設定で字が替わるので読まない）。ps の無い Windows では
+    (None, None)。"""
+    if os.name == "nt":
+        return None, None
+    try:
+        p = runner(["ps", "-A", "-o", "pid=,ppid=,etime=,command="])
+    except OSError:
+        return None, None
+    if p.returncode != 0:
+        return None, None
+    now = time.time() if now is None else now
+    procs = {}
+    for line in p.stdout.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+            procs[int(parts[0])] = (int(parts[1]), parts[2], parts[3] if len(parts) > 3 else "")
+    chain, pid = [], me or os.getpid()
+    while pid in procs and pid not in chain and pid > 1:
+        chain.append(pid)
+        pid = procs[pid][0]
+    found = next((x for x in chain if _is_claude(procs[x][2])), None)
+    if found is None:
+        return None, None
+    elapsed = _elapsed(procs[found][1])
+    return found, (None if elapsed is None else now - elapsed)
 
 
 def in_process(pid, chain=ancestors, parent=os.getppid):

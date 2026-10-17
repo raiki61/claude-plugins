@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Stop のフック（裏で走る）: 部署と窓口の会話が、読み込んだ後に更新されたプラグインのまま動いていたら、番の終わりの手の空いた
+時に、自分の窓に /reload-plugins を打って新しい版へ替える（仕組みは nodes/refresh.py）。
+
+プラグインを配った後も、起きている会話は前の版のスキルとフックのまま動き続けた（2026-10-17 の朝、持ち主が段取りの窓で手で
+/reload-plugins を 2 回打った）。配る道具（リポジトリの scripts/spread-plugins.py）は配った時に手の空いた会話にだけ打ち、番の途中の
+会話と入力欄に字が在る会話は飛ばす。飛ばした会話は、このフックがその番の終わりに替える。どの会社の会話でも、どの道でプラグインが
+更新されても（配る道具・手の claude plugin update・Claude Code の自動の更新）同じに効く。
+
+部署か窓口（その場所の git の設定に company.role が在る）でなければ、すぐ 0 で終わる。窓口（代表の clone）では、--desk が書いた
+会話の処理（company.pid）の会話だけを見る（代表の clone には持ち主のほかの会話も居る）。窓は、待ち受けのフックが /clear を打つ窓と
+同じ決め方（wake_hook.own_window。ペインの会話の印がこの会話の id の物、無ければ場所が同じ物）で 1 つに決め、決まらなければ（herdr の
+外の会話など）何もしない。環境変数 HERDR_PANE_ID は使わない（裏の会話〔claude --bg〕は前もって起こした控えの処理で動き、その値が
+別のペインを指していた。2026-10-17 に見た）。打ったら属性 company.reloaded に処理の番号と時刻を控え、同じ更新で打ち直さない。
+裏で走るので番の終わりを待たせない。誤りは stderr に 1 行出し、会話は止めない。
+"""
+
+import json
+import os
+import pathlib
+import sys
+import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+try:
+    import claudex  # noqa: E402
+    import gitx  # noqa: E402
+    import herdr  # noqa: E402
+    from nodes import provision, refresh  # noqa: E402
+    from wake_hook import own_window  # noqa: E402
+except (ImportError, SyntaxError) as _e:
+    # 裏で走るので、古い Python でも会話を止めない。知らせは止まる前のフック（orders.py stop）が会話ごとに 1 回出す
+    sys.exit(0)
+
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
+PLUGIN_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
+
+
+def run(payload, env=os.environ, h=herdr, host=claudex.host, same=claudex.in_process, attrs_of=gitx.worktree_attrs,
+        pause=lambda: time.sleep(1), now=time.time, mark=provision.mark, plugin_root=PLUGIN_ROOT, window=own_window):
+    """古ければ替える。結末の語（refresh.reload_when_free の物）か、見るまでもなければ None。"""
+    cwd = payload.get("cwd") or os.getcwd()
+    attrs = attrs_of(cwd)
+    if not attrs.get("role"):
+        return None
+    common, place = gitx.common_dir(cwd), gitx.git_dir(cwd)
+    if not common or not place:
+        return None
+    if os.path.realpath(place) == os.path.realpath(common) and not same(attrs.get("pid")):
+        return None   # 窓口の clone の、窓口でない会話
+    path = refresh.installed_file(plugin_root)   # 読み込んだこの版の置き場の、入れた物の控え
+    if not path:
+        return None
+    pid, started = host()
+    if not refresh.stale(refresh.newest_update(path, cwd), started, refresh.reloaded_at(attrs.get(refresh.ATTR), pid)):
+        return None
+    try:
+        pane = window(cwd, h, payload.get("session_id"))
+    except h.HerdrError:
+        return "unseen"
+    if not pane:
+        return None
+    status = refresh.reload_when_free(pane, h, pause, lambda: refresh.clearing(attrs_of(cwd)))
+    if status == "sent":
+        mark(cwd, gitx.root_of(common), {refresh.ATTR: refresh.mark_value(pid, now())}, gitx)
+    return status
+
+
+def main(stdin=sys.stdin, env=os.environ):
+    try:
+        payload = json.loads(stdin.read() or "{}") or {}
+    except ValueError:
+        payload = {}
+    try:
+        status = run(payload if isinstance(payload, dict) else {}, env)
+    except Exception as e:  # フックの誤りで会話を止めない
+        status = str(e)
+    if status == "failed" or status not in (None, "sent", "busy", "typing", "clearing", "unseen"):
+        print(f"works-dispatch: 古い版のプラグインのまま動いている会話を替えられなかった（{status}。次の番の終わりにもう一度見る。"
+              f"手でなら {refresh.RELOAD}）", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

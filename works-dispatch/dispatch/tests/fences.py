@@ -32,8 +32,8 @@ WRITES = {
     "rename_workspace": {"nodes/sync.py"},
     "report_pane_metadata": {"nodes/sync.py"},
     "report_workspace_metadata": {"nodes/sync.py"},
-    "prompt": {"nodes/turn.py", "nodes/deliver.py", "nodes/land.py"},
-    "send_keys": {"nodes/launch.py", "nodes/deliver.py"},   # launch は止まった attach を Ctrl-C で終わらせ、deliver は残った文に Enter を足す   # deliver は頼みと納品の 1 行を、land は載せ直しと赤の頼みを窓に送る
+    "prompt": {"nodes/turn.py", "nodes/deliver.py", "nodes/land.py", "nodes/refresh.py"},
+    "send_keys": {"nodes/launch.py", "nodes/deliver.py"},   # launch は止まった attach を Ctrl-C で終わらせ、deliver は残った文に Enter を足す   # deliver は頼みと納品の 1 行を、land は載せ直しと赤の頼みを窓に送る、refresh は古い版の会話の窓に /reload-plugins を打つ
     # herdr: 枝の場所（元の clone の git worktree）を作る・開く・消す、作業場を畳む
     "create_worktree": {"nodes/provision.py"},
     "open_worktree": {"nodes/provision.py"},
