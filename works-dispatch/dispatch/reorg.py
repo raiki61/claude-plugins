@@ -198,6 +198,13 @@ def desk(a, ports, cwd):
     changes = {"role": the_role, "residency": "resident", "name": name}
     if account:
         pid = ports.caller_pid(sessions_)
+        held = attrs.get("pid")
+        if not linked and held and held != str(pid) and session != attrs.get("session") and ports.running_claude(held):
+            # 窓口の席は 1 つ。窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が席を取ると、納品がそちらに届き、
+            # 同じ役の会話が 2 つ動く（53d5d1・6be241）
+            print("\n".join(notes + [f"止めた: 窓口 {attrs.get('name') or '-'} の会話（処理 {held}、会話 {attrs.get('session') or '-'}）"
+                                     "がまだ動いている。席を移すなら、先にその会話を終える（/exit）"]))
+            return 2
         changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
     former = _renamed(attrs, name)
     if former:

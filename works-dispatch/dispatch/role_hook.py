@@ -87,6 +87,26 @@ def refresh_session(payload, cwd, attrs, same=lambda attrs: claudex.in_process(a
     return sid
 
 
+def seated(payload, cwd, attrs, running=None, same=None):
+    """この会話に、その場所の役の本文を足してよいか。部署の worktree なら足す。本社（代表の clone）では、窓口の席に座る会話だけ:
+    属性の会話（company.session）か、--desk を打った会話と同じ処理（company.pid。/clear の後）か、窓口の会話が動いていない
+    ときに窓口の名前（company.name か前の名前）を付けて起こした会話（claude --name）。代表の clone で起きた試しや裏の 1 回きりの処理
+    （claude -p。名前が無い）と、窓口が動いている間に起きたほかの会話には足さない（それらが窓口として振る舞い、--desk で席を
+    取った。53d5d1・6be241）。"""
+    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
+    if not here or not common or os.path.realpath(here) != os.path.realpath(common):
+        return True
+    running = running or claudex.running_claude
+    same = same or (lambda attrs: claudex.in_process(attrs.get("pid")))
+    sid = payload.get("session_id")
+    if sid and sid == attrs.get("session") or same(attrs):
+        return True
+    if running(attrs.get("pid")):
+        return False
+    title = payload.get("session_title")
+    return bool(title) and title in [attrs.get("name"), *gitx.former_names(attrs)]
+
+
 def _shape_at(cwd, attrs, env):
     """(会社の根, 会社の情報, 会社の形)。git でなければ None。"""
     common = gitx.common_dir(cwd)
@@ -213,7 +233,7 @@ def main(stdin=sys.stdin, env=os.environ):
         put_env(attrs, env)
     except OSError as e:
         print(f"works-dispatch: GH_TOKEN を入れる行を書けなかった（{e}）", file=sys.stderr)
-    text = text_for(cwd, env, attrs)
+    text = text_for(cwd, env, attrs) if attrs.get("role") and seated(payload, cwd, attrs) else None
     if text:
         remember(payload.get("session_id"), text, env)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}},

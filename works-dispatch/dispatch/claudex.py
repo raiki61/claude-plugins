@@ -245,6 +245,18 @@ def ancestors(runner=_default_runner, pid=None):
     return chain
 
 
+def running_claude(pid, runner=_default_runner):
+    """その番号の処理が今動いている Claude Code か（ps -p で命令を読む。番号が使い回されたほかの処理は数えない）。ps が通らない所
+    （Windows）では分からないので False。"""
+    if not str(pid or "").isdigit():
+        return False
+    try:
+        p = runner(["ps", "-p", str(pid), "-o", "command="])
+    except OSError:
+        return False
+    return p.returncode == 0 and _is_claude((p.stdout or "").strip())
+
+
 def in_process(pid, chain=ancestors, parent=os.getppid):
     """pid（字でもよい）が、この処理の親をたどった中に在るか。--desk が書いた会話の処理の番号を、フックが同じ会話の処理か見分けるのに
     使う（フックは会話の処理〔Claude Code〕の子で走る）。ps が通らない所（Windows）では親の 1 つだけを見る。"""

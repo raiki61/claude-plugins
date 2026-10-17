@@ -437,6 +437,10 @@ class Ports:
         """この命令を走らせている会話の処理（Claude Code）の番号。一覧に見えなければ None。"""
         return claudex.caller_pid(listed, self.env.get("CLAUDE_CODE_SESSION_ID"), claudex.ancestors())
 
+    def running_claude(self, pid):
+        """その番号の処理が今動いている Claude Code か（--desk が、窓口の席に座っている会話が動いているかを見る）。"""
+        return claudex.running_claude(pid)
+
     def trust(self, account, source, clone):
         """元の clone を信頼済みのアカウントなら、枝の場所（worktree）にも信頼の印を付ける（claudex.inherit_trust）。"""
         return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone)

@@ -162,6 +162,22 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--brief", str(shape), "--dry-run")
         self.assertIn(f"宛先の部署 {os.path.basename(self.src)}/段取り（main）", out)
 
+    def test_desk_does_not_take_the_seat_while_the_desk_talk_runs(self):
+        # 窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が --desk で席を取ると、納品がそちらに届く（53d5d1・6be241）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, gitx)
+        self.sessions[1]["pid"] = 4242
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        self.ports.running_claude = lambda pid: pid == "777"
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）がまだ動いている", out)
+        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-old")
+        self.ports.running_claude = lambda pid: False   # 前の窓口を終えた（アカウントを移すときなど）
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
+
     def test_desk_replaces_a_hand_written_role_and_keeps_the_old_name(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "my_notesの窓口"}, gitx)
         self.ports._cwd = self.src

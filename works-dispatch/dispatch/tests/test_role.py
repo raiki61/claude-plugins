@@ -11,11 +11,13 @@ import shlex
 import tempfile
 import unittest
 import urllib.parse
+from unittest import mock
 
 from . import DISPATCH
 from .test_dispatch import FakeHerdr, gitx_source
 from .test_provision import git, make_world
 from . import test_task
+import claudex
 import gitx
 import orders
 import role_hook
@@ -352,6 +354,36 @@ class Hook(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "session_id": "s-new", "source": "clear"})), self.env)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-new")
+
+    def test_only_the_desk_seat_gets_the_head_office_role(self):
+        # 代表の clone で起きた試しの claude -p（名前が無い）や、窓口が動いている間に起きた会話は、窓口として振る舞わない（53d5d1・6be241）
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "段取り"\ninstructions = "頼みを配る。"\n')
+        provision.mark(self.src, self.src, {"role": "段取り", "name": "段取り", "session": "s-desk", "pid": "999999999"}, gitx)
+
+        def told(payload, running):
+            out = io.StringIO()
+            with mock.patch.object(claudex, "running_claude", lambda pid: running), contextlib.redirect_stdout(out):
+                role_hook.main(io.StringIO(json.dumps({"cwd": self.src, "source": "startup", **payload})), self.env)
+            return "頼みを配る。" in out.getvalue()
+        self.assertTrue(told({"session_id": "s-desk"}, True))                                  # 窓口の会話
+        self.assertFalse(told({"session_id": "s-probe"}, True))                                # 試しの claude -p
+        self.assertFalse(told({"session_id": "s-two", "session_title": "段取り"}, True))       # 窓口が動いている間の 2 つ目
+        self.assertTrue(told({"session_id": "s-next", "session_title": "段取り"}, False))      # 窓口を終えて起こし直した会話
+        self.assertFalse(told({"session_id": "s-probe"}, False))                               # 名前の無い会話は席に座らない
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):   # 部署の worktree は今までどおり
+            provision.mark(self.place, self.src, {"role": "段取り"}, gitx)
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-x", "source": "startup"})), self.env)
+        self.assertIn("頼みを配る。", out.getvalue())
+
+    def test_running_claude_reads_the_command_of_the_process(self):
+        import subprocess
+        def runner(out, rc=0):
+            return lambda argv: subprocess.CompletedProcess(argv, rc, out, "")
+        self.assertTrue(claudex.running_claude("12", runner("/Users/x/.local/share/claude/versions/2.1.302 --name 段取り\n")))
+        self.assertFalse(claudex.running_claude("12", runner("/usr/bin/python3 x.py\n")))   # 番号が使い回された別の処理
+        self.assertFalse(claudex.running_claude("12", runner("", rc=1)))                     # もう居ない
+        self.assertFalse(claudex.running_claude(None, runner("claude")))
 
     def test_a_former_role_name_reads_as_the_current_role_and_is_rewritten(self):
         write(pathlib.Path(self.src) / ".claude" / "company.toml",
