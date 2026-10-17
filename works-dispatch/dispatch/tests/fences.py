@@ -20,8 +20,9 @@ OLD_WORKS = (".shared/", "works/dev", "darkfactory", "blk-")
 # landing.py は入口 dispatch.py の --land の流れを分けた物で、手元の検証のコマンドを回す
 # calls.py は入口 dispatch.py の --call と --land の合図の流れを分けた物で、会社の形に書かれた道具のコマンドを回す
 # installed.py は入口 dispatch.py が前の版の置き場で打たれたとき、今入っている版の dispatch.py を起こす
+# orders.py は入口 dispatch.py の --ask・--deliver の流れを分けた物で、会社の形に書かれた納品の検査（deliver_check）のコマンドを回す
 SUBPROCESS_OK = {"herdr.py", "gitx.py", "claudex.py", "ghx.py", "vscode.py", "tierx.py", "nodes/prs.py", "dispatch.py", "landing.py",
-                 "calls.py", "installed.py"}
+                 "calls.py", "installed.py", "orders.py"}
 # D4: 外に書く関数（herdr・git・gh の口が持つ）と、それを呼んでよいノード。口を引数で渡されて呼ぶ形（h.run(...)）も数える。
 # 口そのもの（herdr.py・gitx.py・ghx.py）は定義する側なので照らさない。subprocess.run は herdr の run ではないので数えない
 WRITES = {

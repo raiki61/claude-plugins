@@ -162,6 +162,12 @@ def git_dir(cwd, runner=_default_runner):
     return os.path.normpath(out) if out else None
 
 
+def toplevel(cwd, runner=_default_runner):
+    """cwd の worktree の根。git でなければ None。"""
+    out = _git(cwd, ["rev-parse", "--show-toplevel"], runner)
+    return os.path.normpath(out) if out else None
+
+
 def root_of(common):
     """共通の .git の場所から、元の clone の根。ふつうは .git の親。bare など .git で終わらなければ、その場所そのもの。"""
     return os.path.dirname(common) if os.path.basename(common) == ".git" else common

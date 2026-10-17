@@ -1482,6 +1482,7 @@ resident = true
 fresh = true
 # model = "opus"   # 部署を起こすときの --model（省けばアカウントの既定）
 # effort = "high"  # 部署を起こすときの --effort（low・medium・high・xhigh・max・ultracode。inherit なら頼んだ会話と同じ。省けば既定）
+# deliver_check = "<納品の検査の命令>"   # --deliver が部署の作業場の根で走らせ、0 以外で終われば送らない（省けば検査しない）
 # 部署の会話にだけ効かせる Claude Code の設定（--settings で渡す。要らないプラグインを切るなどもここ）。
 # autoMode.allow は、自動の権限の判定（auto mode の classifier）の組み込みの拒否への例外を文で書く（"$defaults" で組み込みの
 # 決まりを残す）。--land は本流へ早送りするので「Merge Without Review」として止められることがある。人のレビューの代わりに

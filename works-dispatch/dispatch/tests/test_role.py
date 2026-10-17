@@ -57,7 +57,7 @@ class Shape(unittest.TestCase):
         self.assertEqual(got["roles"]["調べ役"]["deliver"], ["結論", "差分", "試験"])
         self.assertEqual(got["roles"]["調べ役"]["effort"], "low")
         self.assertEqual(got["roles"]["出荷役"], {"name": "出荷役", "instructions": None, "model": None, "effort": None, "settings": None,
-                                                 "deliver": None, "resident": False, "fresh": False, "machine": False, "tools": []})
+                                                 "deliver": None, "deliver_check": None, "resident": False, "fresh": False, "machine": False, "tools": []})
 
     def test_no_file_is_empty_and_broken_shapes_are_problems_but_others_are_read(self):
         self.assertEqual(role.load(None), {"roles": {}, "gh_user": None, "default_role": None, "desk_role": None,
@@ -91,10 +91,17 @@ deliver = "結論"
 name = "b"
 [roles.settings]
 deliver = ["結論"]
+deliver_check = "x"
+[[roles]]
+name = "c"
+deliver_check = ""
 '''))
         self.assertEqual(list(got["roles"]), ["b"])
         self.assertIn("deliver の形が違う", got["problems"][0])
         self.assertIn("deliver が [roles.settings] の中に入っている", got["problems"][1])
+        self.assertIn("deliver_check が [roles.settings] の中に入っている", got["problems"][2])
+        self.assertIn("deliver_check の形が違う", got["problems"][3])
+        self.assertIsNone(got["roles"]["b"]["deliver_check"])
 
     def test_pick_stops_only_on_an_explicit_role_missing_from_a_shape_that_has_roles(self):
         shape = role.load(write(f"{self.d}/c.toml", SHAPE))

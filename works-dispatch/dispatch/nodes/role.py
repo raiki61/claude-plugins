@@ -15,6 +15,8 @@
 - settings: 部署を起こすときの --settings に渡す Claude Code の設定（表）。enabledPlugins・permissions.deny・skillOverrides など。
   その会話にだけ効き、利用者の全体の設定とリポジトリの設定は触らない
 - deliver: その役が納品する要約の必須の項目（空でない文字列の並び）。省けば既定の項目（deliver ノードが持つ）
+- deliver_check: その役の納品の検査の命令（シェルの字）。--deliver が項目を確かめた後に部署の作業場の根で走らせ、0 以外で終われば
+  送らない（何を確かめるかは会社の側のスクリプトが持つ。渡す物と終わりの値は deliver ノードの gate）。省けば検査しない
 - resident: true なら、その役の部署は常設（--resident を付けたのと同じ）。担当のように受け持ちに常設の役に書く。役で宛てた頼み
   （--ask 会社/役）で部署がまだ無いときに --resident を付け忘れると、都度の部署が立って次の頼みがその部署を見つけないため
 - fresh: true なら、その役の部署は頼みごとに空の会話で受ける（前の頼みを納品し終えていれば、--ask が新しい頼みを打つ前に /clear を
@@ -106,7 +108,7 @@ def _empty():
 
 
 def load(path, text=None):
-    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, resident, fresh}, gh_user, default_role, problems}。
+    """会社の形のファイルから {roles: 名前 → {name, instructions, model, effort, settings, deliver, deliver_check, resident, fresh}, gh_user, default_role, problems}。
     path が None なら空。
     text を渡せば、それを中身として読む（tree.read_info が読んだ物。path は注記に出す場所の札）。
     形の違う役は problems に書いて外し、ほかの役は読む。"""
@@ -141,6 +143,8 @@ def load(path, text=None):
             out["problems"].append(f"{where} に name が無い")
             continue
         bad = [k for k in ("instructions", "model") if k in r and not isinstance(r[k], str)]
+        if "deliver_check" in r and not (isinstance(r["deliver_check"], str) and r["deliver_check"].strip()):
+            bad.append("deliver_check")
         if "settings" in r and not isinstance(r["settings"], dict):
             bad.append("settings")
         bad += [k for k in ("resident", "fresh", "machine") if k in r and not isinstance(r[k], bool)]
@@ -151,22 +155,24 @@ def load(path, text=None):
             bad.append("deliver")
         if bad:
             out["problems"].append(f"{where}（{r['name']}）: {', '.join(bad)} の形が違う（instructions・model は文字列、settings は表、"
-                                   f"deliver は空でない文字列の並び、resident・fresh・machine は true か false、"
+                                   f"deliver は空でない文字列の並び、deliver_check は空でない文字列、resident・fresh・machine は true か false、"
                                    f"effort は {'・'.join(EFFORTS + (INHERIT,))} のどれか）")
             continue
         if r.get("model") == INHERIT:
             out["problems"].append(f"{where}（{r['name']}）: model の inherit は作っていない（上役の会話の今のモデルを外から読む口が"
                                    f"無い）。モデルの名前を書くか、省いてアカウントの既定で起こす")
             continue
-        if isinstance(r.get("settings"), dict) and "deliver" in r["settings"]:
-            out["problems"].append(f"{where}（{r['name']}）: deliver が [roles.settings] の中に入っている（deliver は [roles.settings] "
-                                   f"より前に書く）")
+        for k in ("deliver", "deliver_check"):
+            if isinstance(r.get("settings"), dict) and k in r["settings"]:
+                out["problems"].append(f"{where}（{r['name']}）: {k} が [roles.settings] の中に入っている（{k} は [roles.settings] "
+                                       f"より前に書く）")
         if r["name"] in out["roles"]:
             out["problems"].append(f"{where}: 役 {r['name']} が 2 度書かれている（先の物を使う）")
             continue
         out["roles"][r["name"]] = {"name": r["name"], "instructions": (r.get("instructions") or "").strip() or None,
                                    "model": r.get("model") or None, "effort": r.get("effort"), "settings": r.get("settings") or None,
                                    "deliver": [x.strip() for x in r["deliver"]] if "deliver" in r else None,
+                                   "deliver_check": (r.get("deliver_check") or "").strip() or None,
                                    "resident": r.get("resident") is True, "fresh": r.get("fresh") is True,
                                    "machine": r.get("machine") is True, "tools": _tools(r, where, out["problems"])}
         olds = r.get("former_names", [])

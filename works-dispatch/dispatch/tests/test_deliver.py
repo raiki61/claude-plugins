@@ -697,6 +697,40 @@ class Flow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("【試験】緑", self.prompts()[0][2])
 
+    def test_deliver_check_of_the_role_stops_the_delivery_until_it_passes(self):
+        # 何を確かめるかは会社の側のスクリプト（ここでは「要約が reference/ を挙げていなければ 1」）。dispatch は走らせて終わりの値を見るだけ
+        script = pathlib.Path(self.root).parent / "gate.py"
+        got = pathlib.Path(self.root).parent / "gate.json"
+        script.write_text("import json, os, sys\n"
+                          "p = json.load(sys.stdin)\n"
+                          f"open({str(got)!r}, 'w', encoding='utf-8').write(json.dumps({{**p, 'cwd': os.getcwd()}}))\n"
+                          "if 'reference/' not in p['summary']:\n"
+                          "    print('reference/ に無い URL: https://example.com/spec')\n"
+                          "    sys.exit(1)\n", encoding="utf-8")
+        command = " ".join(f'"{pathlib.Path(x).as_posix()}"' for x in (sys.executable, script))
+        self.shape(f'[[roles]]\nname = "調べ役"\ndeliver_check = {json.dumps(command)}\n')
+        summary = self.ask_then_summary(GOOD)
+        rc, out = self.main(self.place, "--deliver", summary, "--dry-run")
+        self.assertEqual(rc, 2, out)   # --dry-run でも検査する（送る前に通るかを見られる）
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("送らなかった: 納品の検査が通らなかった（終了の値 1）", out)
+        self.assertIn("  reference/ に無い URL: https://example.com/spec", out)
+        self.assertEqual(self.prompts(), [])
+        self.assertNotIn("delivered", gitx.worktree_attrs(self.place))
+        payload = json.loads(got.read_text(encoding="utf-8"))
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((payload["role"], payload["ask"], payload["branch"]), ("調べ役", attrs["ask"], "dept/a"))
+        self.assertEqual(os.path.realpath(payload["cwd"]), os.path.realpath(self.place))   # 部署の作業場の根で走る
+        self.assertEqual(payload["place"], payload["cwd"])
+        self.assertIn("決め手", payload["items"])
+        self.assertTrue(payload["summary"].startswith("## 結論\n直した。"))
+        pathlib.Path(summary).write_text(GOOD.replace("なし", "写しは reference/spec.md"), encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("納品の検査が通った", out)
+        self.assertEqual(len(self.prompts()), 1)
+
     def test_roles_written_by_name_are_not_read_and_say_to_move_them(self):
         self.shape('[roles."調べ役"]\ndeliver = ["結論", "差分", "試験"]\n')
         summary = self.ask_then_summary(GOOD)

@@ -11,6 +11,8 @@
 - 要約の項目: 既定は「結論」「決め手」「残った疑問」「枝」。会社の形（.claude/company.toml か設定の置き場の同じ書き方のファイル）の
   [[roles]] の deliver で役ごとに替えられる（読むのは role ノード）。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で書く。結論は 3 行以内、
   決め手は原典の URL を含むこと、ほかは空でないこと。枝は書かなければ部署の枝を機械が足す。
+- 納品の検査: 役の deliver_check（会社の形）の命令を、項目を確かめた後に部署の作業場の根で走らせる（gate）。何を確かめるかは会社の
+  側のスクリプトが持ち、ここは決め打ちしない。0 以外で終われば送らない。
 - 受付箱: 頼み元の会社の共通の .git の中の company/inbox（INBOX）。commit されず、部署の worktree を消しても残り（4.10 の 1。
   部署ごとの .git/worktrees/<部署> は git worktree remove で一緒に消える）、勤め先のリポジトリの .gitignore も触らない。
   頼みと納品の本文を 1 件 1 ファイルで置き、log.jsonl に誰が誰に何を頼み何が返ったかを 1 行ずつ足す。
@@ -264,6 +266,19 @@ def check(items, required):
         elif name in URL_ITEMS and not URL.search(body):
             out.append(f"{name}（原典の URL が無い）")
     return out
+
+
+GATE_TAIL = 20   # 納品の検査が通らなかったとき、部署に返す検査の出力の終わりの行数
+
+
+def gate(command, place, payload, runner):
+    """納品の検査。command（シェルの字）を place（部署の作業場の根）で走らせ、payload（role・ask・branch・place・items・summary）を
+    JSON で標準入力に渡す。(終了の値, 標準出力と標準エラーの終わりの GATE_TAIL 行)。0 なら通った、0 以外なら送らない。
+    runner は subprocess.run（ノードは subprocess を持たないので、流れの orders.py が渡す）。"""
+    p = runner(command, shell=True, cwd=place, input=json.dumps(payload, ensure_ascii=False), capture_output=True,
+               text=True, encoding="utf-8", errors="replace")
+    both = (p.stdout or "") + (p.stderr or "")
+    return p.returncode, "\n".join(both.rstrip().splitlines()[-GATE_TAIL:])
 
 
 def summary_text(items, required):

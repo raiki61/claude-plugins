@@ -12,6 +12,7 @@ dispatch.py の流れの続きで、ノード（nodes/deliver.py ほか）を呼
 boss-pane・boss-inbox）を書く。
 
 --deliver <要約のファイル>（deliver）: 部署の場所から、要約の項目がそろっているかを確かめ（欠けていれば送らずに欠けた項目を返す）、
+役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
 頼み元の受付箱に置き、頼み元（「頼み元の会社/company.boss」）の待ち受けが居ればその台帳に知らせの 1 行を足し、居なければ頼み元の窓に
 1 行を打ち込み、属性に納品済み（company.delivered）を書く。
 
@@ -24,6 +25,7 @@ import os
 import pathlib
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -564,6 +566,18 @@ def deliver_summary(a, ports, cwd):
                                  f"- 必須の項目（{attrs['role']}）: " + "・".join(required)
                                  + "。見出し（## 結論）か行の頭の札（結論: …）で書く。結論は 3 行以内、決め手には原典の URL"]))
         return 2
+    check = (the_role or {}).get("deliver_check")
+    if check:
+        place = ports.git.toplevel(cwd) or cwd
+        code, out = deliver.gate(check, place, {"role": attrs["role"], "ask": attrs.get("ask"), "branch": branch, "place": place,
+                                                "items": items, "summary": deliver.summary_text(items, required)},
+                                 subprocess.run)
+        if code != 0:
+            print("\n".join(notes + [f"送らなかった: 納品の検査が通らなかった（終了の値 {code}）: {check}"]
+                            + [f"  {x}" for x in out.splitlines()]
+                            + [f"- 検査は会社の形の役 {attrs['role']} の deliver_check。上の訳を直してから --deliver を打ち直す"]))
+            return 2
+        notes.append(f"納品の検査が通った: {check}")
     inbox = attrs.get("boss-inbox")
     to, heard = listener(inbox, inbox and inbox_company(inbox, settings), attrs.get("boss"))
     if heard:
