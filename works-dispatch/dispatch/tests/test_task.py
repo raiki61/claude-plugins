@@ -127,9 +127,10 @@ class Task(unittest.TestCase):
         self.assertIn(".claude/settings.local.json", excluded)
         self.assertNotIn(".claude/", excluded)
         self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
-        # 表示名と札は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
-        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業（都度）", "直し", {"role": "作業", "account": "a1"},
+        # 表示名と札、作業場の印は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
+        self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
+        self.assertEqual(ports.herdr.writes[6][0::2], ("report_workspace_metadata", {"kind": "都度"}))
         self.assertIn("部署 直し  task/fix  a1  started", out)
         self.assertEqual(gitx.branch(src), "main")
 

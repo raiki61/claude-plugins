@@ -185,11 +185,13 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
     try:
         if not dept["panes"] and source:
             # ペインを閉じると部署の作業場も閉じる。開き直し、新しいペインのシェルで attach を打つ
-            fresh = provision.reopen(source, dept["path"], dept["attrs"].get("name") or os.path.basename(dept["path"]), ports.herdr)
+            fresh, ws = provision.reopen(source, dept["path"], dept["attrs"].get("name") or os.path.basename(dept["path"]), ports.herdr)
             if fresh:
                 dept = {**dept, "panes": [{"pane_id": fresh, "agent": None}]}
-                # 開き直したペインにも、部署の名前・表示名・札を --sync と同じに付ける
+                # 開き直したペインにも、部署の名前・表示名・札を --sync と同じに付ける。開き直した作業場は新しいので、印も付け直す
                 sync.apply([sync.op(fresh, dept["attrs"], len(accounts_) > 1)], ports.herdr)
+                if ws:
+                    sync.apply_workspaces([sync.kind_op(ws, dept["attrs"])], ports.herdr)
                 for _ in range(REVIVE_LOOKS):
                     if ports.herdr.shell_in_front(fresh):
                         break

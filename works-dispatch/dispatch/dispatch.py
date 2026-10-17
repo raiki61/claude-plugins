@@ -164,6 +164,25 @@ def setting_strings(path):
         return [text]
 
 
+# herdr の設定に足す作業場の行（$kind に部署の席の見え方を出す。herdr の既定の行〔state_icon・workspace と branch・git_status〕に足した形）
+SPACES_ROWS = ('[ui.sidebar.spaces]\n'
+               'rows = [\n'
+               '  ["state_icon", "workspace", { token = "$kind" }],\n'
+               '  ["branch", "git_status"],\n'
+               ']')
+
+
+def spaces_show_kind(path):
+    """herdr の設定（config.toml）の作業場の行（[ui.sidebar.spaces] の rows）に $kind が在るか。字のまま（"$kind"）でも
+    表（{ token = "$kind" }）でもよい。ファイルが無い・読めないときも無いとする。"""
+    try:
+        rows = tomllib.loads(pathlib.Path(path).read_text(encoding="utf-8"))["ui"]["sidebar"]["spaces"]["rows"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    cells = [c for row in rows if isinstance(row, list) for c in row] if isinstance(rows, list) else []
+    return any((c.get("token") if isinstance(c, dict) else c) == "$kind" for c in cells)
+
+
 MARK = "@@CLAUDE_CONFIG_DIR="
 COST_FILE = "dispatch-cost.json"  # 1 件あたりの使用率の測り（cost ノード）。使用率の控えと同じ置き場
 SENT_FILE = "dispatch-sent.json"  # PR ごとに最後に /catchup を送った時刻と、その時の場所の head（送り直しの判断。fresh ノード）
@@ -283,6 +302,10 @@ class Ports:
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
         home = self.env.get("HOME") or os.path.expanduser("~")
         herdr_toml = pathlib.Path(self.env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
+        if not spaces_show_kind(herdr_toml):
+            task_only.append(f"herdr の設定 {herdr_toml} の作業場の行（[ui.sidebar.spaces] の rows）に $kind が無い（部署の作業場の行に、"
+                             "常設・毎回空／常設・持ち越し／都度の印が出ない）。rows のどこかに { token = \"$kind\" } を置く。"
+                             f"[ui.sidebar.spaces] が無ければ、次を足して herdr server reload-config を打つ:\n{SPACES_ROWS}")
         files = [herdr_toml] + [pathlib.Path(config.effective_config_dir(a, self.account_env)) / "settings.json" for a in cfg.accounts]
         for path in gone_plugin_paths([s for f in files for s in setting_strings(f)]):
             notes.append(f"herdr の設定かフックが、もう無いスクリプトを指している: {path}（プラグインの更新で場所が変わった。"
@@ -1158,8 +1181,12 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                 if got["detail"]:
                     notes.append(f"裏の会話 {sid} は始まったが、窓につなげなかった（{got['detail']}）")
                 # 表示名と札は、書いた属性を git から読み戻して付ける（--sync と同じ組み立て。名前は launch が付けた）
-                shown = sync.apply([sync.op(pane, ports.attrs(prov["path"]), many, current_label=pane_label)], ports.herdr)
+                written = ports.attrs(prov["path"])
+                shown = sync.apply([sync.op(pane, written, many, current_label=pane_label)], ports.herdr)
                 notes += [f"ペインに表示名と札を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
+                if prov.get("workspace"):
+                    shown = sync.apply_workspaces([sync.kind_op(prov["workspace"], written)], ports.herdr)
+                    notes += [f"作業場に常設か都度かの印を付けられなかった（{x['detail']}）" for x in shown if x["status"] != "done"]
                 route += f"（会話 {sid}）"
     print("\n".join(notes + [f"部署 {a.task}  {a.branch}  {account}  {result}"] +
                     ([f"- ペイン {pane}（{pane_label}）、作業場 {prov['path']}、連絡の道: {route}"] if pane else [])))
@@ -1274,14 +1301,14 @@ def sync_companies(config_path, ports, dry_run=False, only=None):
         return [f"止めた: herdr を読めない（{e}）"], 1
     notes += _sync_roles(companies, settings, ports, dry_run)
     ops, why = sync.plan(companies, len(accounts_) > 1, orders.waiting_of(tempfile.gettempdir()))
-    ws_ops = sync.workspace_ops(companies, {w["workspace_id"]: w.get("label") for w in workspaces_})
+    ws_ops = sync.workspace_ops(companies, workspaces_)
     notes += why
     none = [] if ops or ws_ops else ["付け直す部署は無い（属性を持つ部署が無い）"]
     if dry_run:
-        return notes + [_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + none, 0
+        return notes + [sync.workspace_line(o) for o in ws_ops] + [_op_line(o) for o in ops] + none, 0
     done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr)
     return (notes + [f"{line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "")
-                     for line, r in zip([_ws_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none,
+                     for line, r in zip([sync.workspace_line(o) for o in ws_ops] + [_op_line(o) for o in ops], done)] + none,
             1 if any(r["status"] != "done" for r in done) else 0)
 
 
@@ -1320,10 +1347,6 @@ def _sync_roles(companies, settings, ports, dry_run):
                 d["role"] = got["name"]
             out.append(line)
     return out
-
-
-def _ws_line(o):
-    return f"作業場 {o['workspace']}: 名前 {o['label']}"
 
 
 def _op_line(o):

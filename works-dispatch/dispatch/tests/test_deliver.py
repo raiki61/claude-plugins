@@ -199,11 +199,11 @@ class StopVerdict(unittest.TestCase):
                              lambda: n, h)
             return out.getvalue()
         self.assertEqual(stop(1), "")
-        self.assertEqual(h.writes, [("P1", "作業役（常設・毎回空）・裏の処理待ち")])
+        self.assertEqual(h.writes, [("P1", "作業役・裏の処理待ち")])
         self.assertEqual(stop(2), "")
         self.assertEqual(len(h.writes), 1, "変わらないときは書き直さない")
         self.assertEqual(json.loads(stop(0))["decision"], "block")   # 待ち終えた: 表示を戻し、納品していなければ差し戻す
-        self.assertEqual(h.writes[-1], ("P1", "作業役（常設・毎回空）"))
+        self.assertEqual(h.writes[-1], ("P1", "作業役"))
 
     def test_background_shells_are_the_claude_childs_bash_tool_shells(self):
         # 会話のプロセス（claude）の子のうち、Bash の道具のシェル（シェルの写しを読み込む物）を数える。フック自身の祖先は数えない
@@ -342,6 +342,8 @@ class Flow(unittest.TestCase):
         self.assertEqual(attach[2], "claude-a1 attach d")
         self.assertNotEqual(attach[1], self.window, "閉じたペインでなく、開き直した作業場の新しいペインに打つ")
         self.assertIn(("rename_pane", attach[1], "調べ"), h.writes)   # 開き直したペインにも --sync と同じ名前を付ける
+        # 開き直した作業場は新しいので、常設か都度かの印も付け直す
+        self.assertTrue([w for w in h.writes if w[0] == "report_workspace_metadata" and w[2].get("kind")], h.writes)
 
     def test_confirmed_send_waits_for_the_box_and_resends_only_when_the_line_never_arrived(self):
         # Windows: attach で戻した直後の会話は、打った字を受けられるまで間がある。入力欄が出てから送り、動き出す（busy）まで見る
@@ -661,9 +663,9 @@ class Flow(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place)
         # 変わった会話の id と、attach に渡す短い id（/clear の前の id の頭）、役の fresh を属性に書く
         self.assertEqual((attrs["session"], attrs["job"], attrs["fresh"]), ("s-new", "s", "true"))
-        # herdr の表示名にも出る
+        # herdr の作業場の印にも出る
         rc, out = self.main(self.src, "--sync", "--dry-run")
-        self.assertIn("表示名 調べ役（常設・毎回空）", out)
+        self.assertIn("印 常設・毎回空", out)
 
     def test_fresh_role_does_not_clear_a_talk_without_a_delivered_ask_or_a_running_one(self):
         sent = self.fresh_world()

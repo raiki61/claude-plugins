@@ -78,10 +78,10 @@ class HerdrPorts(unittest.TestCase):
     def test_workspaces_take_the_repo_root_or_none(self):
         run = fake_runner(json.dumps({"result": {"workspaces": [
             {"workspace_id": "w1", "label": "r", "worktree": {"repo_root": "/s/r", "checkout_path": "/s/r"}},
-            {"workspace_id": "w2", "label": "notes"}]}}))
+            {"workspace_id": "w2", "label": "notes", "tokens": {"kind": "都度"}}]}}))
         self.assertEqual(real_herdr.workspaces(runner=run), [
-            {"workspace_id": "w1", "label": "r", "repo_root": os.path.normpath("/s/r")},
-            {"workspace_id": "w2", "label": "notes", "repo_root": None}])
+            {"workspace_id": "w1", "label": "r", "repo_root": os.path.normpath("/s/r"), "tokens": {}},
+            {"workspace_id": "w2", "label": "notes", "repo_root": None, "tokens": {"kind": "都度"}}])
 
     def test_rename_workspace_passes_the_label_as_one_argument(self):
         run = fake_runner(json.dumps({"result": {"type": "workspace_info"}}))
@@ -93,6 +93,12 @@ class HerdrPorts(unittest.TestCase):
         real_herdr.report_pane_metadata("p", "company", "調べ役", None, {"role": "調べ役"}, ["boss"], runner=run)
         self.assertEqual(run.calls, [["herdr", "pane", "report-metadata", "p", "--source", "company", "--display-agent", "調べ役",
                                       "--clear-title", "--token", "role=調べ役", "--clear-token", "boss"]])
+
+    def test_workspace_metadata_sets_and_clears_in_one_call(self):
+        run = fake_runner("")
+        real_herdr.report_workspace_metadata("wX", "company", {"kind": "常設・毎回空"}, ["old"], runner=run)
+        self.assertEqual(run.calls, [["herdr", "workspace", "report-metadata", "wX", "--source", "company",
+                                      "--token", "kind=常設・毎回空", "--clear-token", "old"]])
 
     def test_read_returns_the_screen_text(self):
         self.assertEqual(real_herdr.read("p", 3, runner=fake_runner("a\nb\n")), "a\nb\n")
@@ -294,7 +300,7 @@ class Sync(unittest.TestCase):
         ops, notes = sync.plan(self.company(
             self.dept(attrs, [{"pane_id": "a", "agent": None}, {"pane_id": "b", "agent": "claude", "label": "x"}]),
             self.dept({}, [{"pane_id": "c", "agent": "claude"}])), many_accounts=True)
-        self.assertEqual(ops, [{"pane": "b", "label": "調べ p2", "display_agent": "調べ役（都度）", "title": "調べ",
+        self.assertEqual(ops, [{"pane": "b", "label": "調べ p2", "display_agent": "調べ役", "title": "調べ",
                                 "tokens": {"role": "調べ役", "account": "p2", "boss": "窓口"}, "clear_tokens": []}])
         self.assertEqual(notes, [])
 
@@ -310,15 +316,22 @@ class Sync(unittest.TestCase):
 
     def test_workspace_takes_the_name_of_the_place_including_the_head_office(self):
         # herdr のサイドバーの 1 行目は作業場の名前。部署は属性の name、本社（元の clone）は属性が有れば会社の名前で付ける
-        office = {**self.dept({"name": "窓口", "account": "a1"}, []), "head_office": True, "workspace": "wX"}
-        same = {**self.dept({"name": "調べ"}, [], branch="dept/b"), "workspace": "wB"}
-        shared = [{**self.dept({"name": n}, [], branch=f"dept/{n}"), "workspace": "wS"} for n in ("c", "d")]
+        # 作業場には席の見え方を印 kind で付ける（会話の行でなく作業場の行に出す）
+        office = {**self.dept({"name": "窓口", "account": "a1", "role": "窓口", "residency": "resident"}, []), "head_office": True,
+                  "workspace": "wX"}
+        same = {**self.dept({"name": "調べ", "role": "作業", "residency": "per-task"}, [], branch="dept/b"), "workspace": "wB"}
+        kinded = {**self.dept({"name": "割り振り", "role": "担当", "residency": "resident", "fresh": "true"}, [], branch="dept/k"),
+                  "workspace": "wK"}
+        shared = [{**self.dept({"name": n, "role": "作業"}, [], branch=f"dept/{n}"), "workspace": "wS"} for n in ("c", "d")]
         bare = {**self.dept({}, [], branch="dept/e"), "workspace": "wE"}
-        got = sync.workspace_ops(self.company(office, same, *shared, bare),
-                                 {"wX": "mynotes", "wB": "調べ", "wS": "x", "wE": "y"})
-        # 本社の作業場は herdr の木の親なので会社の名前。名前が同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の無い場所の
-        # 作業場は触らない
-        self.assertEqual(got, [{"workspace": "wX", "label": "r"}])
+        got = sync.workspace_ops(self.company(office, same, kinded, *shared, bare), [
+            {"workspace_id": "wX", "label": "mynotes"}, {"workspace_id": "wB", "label": "調べ", "tokens": {"kind": "都度"}},
+            {"workspace_id": "wK", "label": "割り振り", "tokens": {"kind": "常設・持ち越し"}},
+            {"workspace_id": "wS", "label": "x"}, {"workspace_id": "wE", "label": "y"}])
+        # 本社の作業場は herdr の木の親なので会社の名前。名前と印が今と同じなら付け直さず、属性を持つ場所が 2 つ居る作業場と属性の
+        # 無い場所の作業場は触らない
+        self.assertEqual(got, [{"workspace": "wX", "label": "r", "kind": "常設・持ち越し"},
+                               {"workspace": "wK", "label": None, "kind": "常設・毎回空"}])
 
     def test_apply_keeps_going_after_a_failure(self):
         class H:
@@ -379,7 +392,8 @@ class Entry(unittest.TestCase):
         shape.write_text('[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\n', encoding="utf-8")
         rc, out = self.main("--sync", "--dry-run")
         self.assertIn("company.fresh - → true（役 調べ役 の fresh を写す）", out)
-        self.assertIn("表示名 調べ役（常設・毎回空）", out)
+        self.assertIn("印 常設・毎回空", out)   # 席の見え方は作業場の印に出す
+        self.assertIn("表示名 調べ役  ", out)   # ペインの表示名は役だけ
         self.assertNotIn("fresh", gitx.worktree_attrs(self.place), "--dry-run が書いた")
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
@@ -398,7 +412,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("company.role 調べ役 → 調べもの（役の前の名前を今の名前に）", out)
         self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
-        self.assertIn("表示名 調べもの（都度）", out)
+        self.assertIn("表示名 調べもの  ", out)
 
     def test_tree_prints_the_company_and_its_departments(self):
         rc, out = self.main("--tree")
@@ -424,15 +438,16 @@ class Entry(unittest.TestCase):
         rc, out = self.main("--sync", "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.herdr.writes, [])
-        self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役（都度）  題名 調べ  札 role=調べ役、account=a1", out)
+        self.assertIn(f"ペイン {self.pane}: 名前 調べ  表示名 調べ役  題名 調べ  札 role=調べ役、account=a1", out)
         ws = next(p["workspace_id"] for p in self.ports.herdr.panes() if p["pane_id"] == self.pane)
-        self.assertIn(f"作業場 {ws}: 名前 調べ", out)
+        self.assertIn(f"作業場 {ws}: 名前 調べ  印 都度", out)
         rc, out = self.main("--sync")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.ports.herdr.writes, [
             ("rename_workspace", ws, "調べ"),
+            ("report_workspace_metadata", ws, {"kind": "都度"}, []),
             ("rename_pane", self.pane, "調べ"),
-            ("report_pane_metadata", self.pane, "調べ役（都度）", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
+            ("report_pane_metadata", self.pane, "調べ役", "調べ", {"role": "調べ役", "account": "a1"}, ["boss"])])
 
     def test_flags_go_together(self):
         for argv in (["--tree", "--sync"], ["--json"], ["--sync", "--json"], ["--tree", "--dry-run"]):
@@ -458,7 +473,7 @@ class Entry(unittest.TestCase):
             rc, out = self.main("--sync", "--dry-run")
         finally:
             tempfile.tempdir = real
-        self.assertIn(f"表示名 調べ役（都度）・{sync.WAITING}", out)
+        self.assertIn(f"表示名 調べ役・{sync.WAITING}", out)
 
     def hook(self, sync_=None):
         env = {"WORKS_DISPATCH_CONFIG": self.cfg}
@@ -480,7 +495,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(self.hook(), (True, []))
         self.assertEqual(gitx.worktree_attrs(self.place)["role"], "調べもの")
         self.assertEqual(gitx.worktree_attrs(self.place)["fresh"], "true")
-        self.assertIn(("report_pane_metadata", self.pane, "調べもの（都度）", "調べ", {"role": "調べもの", "account": "a1"}, ["boss"]),
+        self.assertIn(("report_pane_metadata", self.pane, "調べもの", "調べ", {"role": "調べもの", "account": "a1"}, ["boss"]),
                       self.ports.herdr.writes)
 
     def test_shape_hook_retries_until_everything_is_tagged(self):

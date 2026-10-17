@@ -58,16 +58,15 @@ def _resync(a, ports, place, notes):
     """その場所の分だけ、herdr の表示を属性から付け直す（--sync と同じ部品）。出す行の並び。"""
     try:
         _, accounts_, _, _, companies, _, more = orders.survey(a.config, ports)
-        labels = {w["workspace_id"]: w.get("label") for w in ports.herdr.workspaces()}
+        workspaces_ = ports.herdr.workspaces()
     except herdr.HerdrError as e:
         return [f"herdr を読めないので表示を付け直せなかった（{e}）。herdr が戻ったら --sync を打つ"]
     notes += more
     mine = [{**c, "departments": [d for d in c["departments"] if _same(d["path"], place)]} for c in companies]
     ops, why = sync.plan(mine, len(accounts_) > 1)
-    ws_ops = sync.workspace_ops(mine, labels)
+    ws_ops = sync.workspace_ops(mine, workspaces_)
     done = sync.apply_workspaces(ws_ops, ports.herdr) + sync.apply(ops, ports.herdr)
-    lines = [f"作業場 {o['workspace']}: 名前 {o['label']}" for o in ws_ops] + [f"ペイン {o['pane']}: 名前 {o['label'] or 'そのまま'}"
-                                                                              for o in ops]
+    lines = [sync.workspace_line(o) for o in ws_ops] + [f"ペイン {o['pane']}: 名前 {o['label'] or 'そのまま'}" for o in ops]
     out = why + [f"- {line}  {r['status']}" + (f"（{r['detail']}）" if r["detail"] else "") for line, r in zip(lines, done)]
     return out or ["herdr の表示は付け直す物が無かった"]
 

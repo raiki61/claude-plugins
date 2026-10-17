@@ -188,10 +188,10 @@ def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
 
 
 def reopen(source, path, name, h=herdr):
-    """閉じた部署の作業場（ペインを閉じると作業場も閉じる）を herdr に開き直し、新しいペインを返す。書く口（herdr の作業場）。
-    開けなければ HerdrError。"""
+    """閉じた部署の作業場（ペインを閉じると作業場も閉じる）を herdr に開き直し、(新しいペイン, 作業場) を返す。書く口（herdr の
+    作業場）。開けなければ HerdrError。"""
     got = h.open_worktree(source, path, name)
-    return got.get("pane_id")
+    return got.get("pane_id"), got.get("workspace_id")
 
 
 def refresh_shape(source, g=gitx):

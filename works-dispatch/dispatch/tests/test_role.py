@@ -166,12 +166,13 @@ class Seat(unittest.TestCase):
         self.assertEqual((got["roles"]["担当"]["fresh"], got["roles"]["相談"]["fresh"]), (True, False))
         self.assertNotIn("変", got["roles"])
         self.assertIn("resident・fresh・machine は true か false", got["problems"][0])
-        # herdr の表示名に、常設か都度かと、会話を持ち越すか毎回空にするかを添える
+        # herdr の作業場の印 kind に、常設か都度かと、会話を持ち越すか毎回空にするかを出す。ペインの表示名は役だけ
         from nodes import sync
-        self.assertEqual(sync.shown_role({"role": "担当", "residency": "resident", "fresh": "true"}), "担当（常設・毎回空）")
-        self.assertEqual(sync.shown_role({"role": "相談", "residency": "resident"}), "相談（常設・持ち越し）")
-        self.assertEqual(sync.shown_role({"role": "作業", "residency": "per-task"}), "作業（都度）")
-        self.assertIsNone(sync.shown_role({}))
+        self.assertEqual(sync.kind({"role": "担当", "residency": "resident", "fresh": "true"}), "常設・毎回空")
+        self.assertEqual(sync.kind({"role": "相談", "residency": "resident"}), "常設・持ち越し")
+        self.assertEqual(sync.kind({"role": "作業", "residency": "per-task"}), "都度")
+        self.assertIsNone(sync.kind({}))
+        self.assertEqual(sync.op("p", {"role": "担当", "residency": "resident", "name": "割り振り"}, False)["display_agent"], "担当")
 
 
 class ModelAndEffort(unittest.TestCase):

@@ -122,6 +122,9 @@ class FakeHerdr(WorktreeHerdr):
     def report_pane_metadata(self, pane, source, display_agent, title, tokens, clear_tokens=()):
         self.writes.append(("report_pane_metadata", pane, display_agent, title, dict(tokens), list(clear_tokens)))
 
+    def report_workspace_metadata(self, workspace, source, tokens, clear_tokens=()):
+        self.writes.append(("report_workspace_metadata", workspace, dict(tokens), list(clear_tokens)))
+
     screen = ""   # read が返す画面の終わり
     front = {}    # ペイン → 前で動いている命令の並び（foreground）。無ければ、会話が居ればその会話、居なければシェル
 
@@ -658,6 +661,32 @@ class Preflight(unittest.TestCase):
         self.assertIn("--bg", "\n".join(notes))
         self.assertIn("pane.rename", "\n".join(notes))
         self.assertIn("catchup", "\n".join(problems))
+
+    def test_spaces_rows_without_kind_stop_the_department_run_with_the_rows_to_add(self):
+        # 部署の作業場の行に常設か都度かの印（$kind）を出すのは herdr の設定の前提。無ければ部署の回は止め、足す行を出す。
+        # ほかの回（PR を開く）では注記にとどめる
+        cfg_path, root = make_cfg()
+        cfg = config.load(cfg_path, env={})
+        home = pathlib.Path(root).parent / "home"
+        herdr_cfg = home / ".config" / "herdr" / "config.toml"
+        herdr_cfg.parent.mkdir(parents=True)
+        ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS | dispatch.TASK_HERDR_METHODS, shell_has=lambda c: True,
+                            gh_ok=lambda repo, env=None: True, env={"HOME": str(home)})
+        for text in ("", '[ui.sidebar.spaces]\nrows = [["state_icon", "workspace"]]\n'):
+            herdr_cfg.write_text(text, encoding="utf-8")
+            problems, notes = ports.preflight(cfg, task=True)
+            self.assertIn(dispatch.SPACES_ROWS, "\n".join(problems))
+            problems, notes = ports.preflight(cfg)
+            self.assertNotIn("$kind", "\n".join(problems))
+            self.assertIn("$kind", "\n".join(notes))
+        for row in ('"$kind"', '{ token = "$kind", fg = "#a6e3a1" }'):
+            herdr_cfg.write_text(f'[ui.sidebar.spaces]\nrows = [["state_icon", "workspace", {row}], ["branch"]]\n', encoding="utf-8")
+            problems, notes = ports.preflight(cfg, task=True)
+            self.assertNotIn("$kind", "\n".join(problems + notes))
+        # 足す行は、そのまま足せば前提を満たす
+        herdr_cfg.write_text(dispatch.SPACES_ROWS + "\n", encoding="utf-8")
+        self.assertTrue(dispatch.spaces_show_kind(herdr_cfg))
+        self.assertFalse(dispatch.spaces_show_kind(home / "missing.toml"))
 
     def test_account_without_usage_window_gets_no_missing_limits_note(self):
         cfg_path, root = make_cfg()

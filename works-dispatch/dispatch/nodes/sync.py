@@ -12,8 +12,11 @@
   出すため。本社（元の clone。--desk で窓口の属性を書く）の作業場は herdr の木の親なので、属性を持てば会社の名前を付ける（会社の
   名前は親の作業場にだけ出し、部署の名前には付けない。持ち主 2026-10-16）。今の名前と同じなら付け直さず、属性を持つ場所が
   2 つ以上居る作業場は触らない。
-- 表示名は役に席の見え方（常設・毎回空、常設・持ち越し、都度）を添えた物、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、打ち直すと置き換わる。
-  属性に無い物は消す。
+- 作業場には、席の見え方（常設・毎回空、常設・持ち越し、都度）を印 kind として付ける（サイドバーの作業場の行に herdr の設定の
+  $kind で出す。会話の行でなく作業場の行で見せる。持ち主 2026-10-16・17）。名前と同じく、今の値と同じなら付け直さず、属性を持つ
+  場所が 2 つ以上居る作業場は触らない。
+- ペインの表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（上役）。出どころ SOURCE の分として付けるので、
+  打ち直すと置き換わる。属性に無い物は消す。
 
 入口の dispatch.py --sync（と、会社の形が替わったときの番の終わりのフック shape_hook.py）が tree ノードの組み立てを渡して plan を呼び、
 apply で herdr に書く（--dry-run は plan だけ）。
@@ -25,7 +28,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from nodes import role  # noqa: E402
 
-SOURCE = "company"  # herdr pane report-metadata の出どころ
+SOURCE = "company"  # herdr pane report-metadata・workspace report-metadata の出どころ
 TOKENS = ("role", "account", "boss")  # 札に出す属性
 
 
@@ -40,15 +43,18 @@ def op(pane, attrs, many_accounts, current_label=None):
     name = attrs.get("name")
     want = label(name, attrs.get("account"), many_accounts) if name else None
     return {"pane": pane, "label": want if want and want != current_label else None,
-            "display_agent": shown_role(attrs), "title": name,
+            "display_agent": attrs.get("role"), "title": name,
             "tokens": {k: attrs[k] for k in TOKENS if attrs.get(k)}, "clear_tokens": [k for k in TOKENS if not attrs.get(k)]}
 
 
-def shown_role(attrs):
-    """herdr の表示名（会話の行の agent の欄）。役に、常設か都度かと会話の持ち越し方を添える（例: 担当（常設・毎回空））。
-    herdr の設定の行の並びを変えずに見えるよう、札ではなく表示名に入れる。"""
-    name = attrs.get("role")
-    return f"{name}（{role.seat(attrs.get('residency'), attrs.get('fresh'))}）" if name else None
+def kind(attrs):
+    """作業場の印 kind の値。役を持つ部署の席の見え方（常設・毎回空、常設・持ち越し、都度）。役が無ければ None。"""
+    return role.seat(attrs.get("residency"), attrs.get("fresh")) if attrs.get("role") else None
+
+
+def kind_op(workspace, attrs):
+    """1 つの作業場に印 kind だけを付ける物（名前は付け直さない。部署を立てたとき・開き直したときに、--sync と同じ値を付ける）。"""
+    return {"workspace": workspace, "label": None, "kind": kind(attrs)}
 
 
 WAITING = "裏の処理待ち"   # 番を終えて、裏で走らせた処理の終わりを待っている部署の表示名に添える字
@@ -100,24 +106,42 @@ def plan(companies, many_accounts, waiting=lambda attrs: False):
     return ops, notes
 
 
-def workspace_ops(companies, labels):
-    """作業場に付ける名前の並び。1 件は {workspace, label}。labels は 作業場の id → 今の名前（herdr の作業場の並び）。"""
+def workspace_ops(companies, workspaces):
+    """作業場に付ける物の並び。1 件は {workspace, label, kind}（付け直さない物は None）。workspaces は herdr の作業場の並び
+    （1 件は {workspace_id, label, tokens}。今の名前と印 kind を比べる）。"""
+    now = {w["workspace_id"]: (w.get("label"), (w.get("tokens") or {}).get("kind")) for w in workspaces}
     claims = {}
     for c in companies:
         for d in c["departments"]:
             if d["attrs"] and d.get("workspace"):
                 # 本社（元の clone）の作業場は herdr の木の親なので、会社の名前にする（会社の名前は親の作業場にだけ出す）
-                claims.setdefault(d["workspace"], []).append(c["name"] if d.get("head_office") else d["attrs"].get("name"))
-    return [{"workspace": ws, "label": names[0]} for ws, names in claims.items()
-            if len(names) == 1 and names[0] and ws in labels and labels[ws] != names[0]]
+                name = c["name"] if d.get("head_office") else d["attrs"].get("name")
+                claims.setdefault(d["workspace"], []).append((name, kind(d["attrs"])))
+    out = []
+    for ws, got in claims.items():
+        if len(got) != 1 or ws not in now:
+            continue
+        (name, want), (label, kind_now) = got[0], now[ws]
+        o = {"workspace": ws, "label": name if name and label != name else None, "kind": want if want and kind_now != want else None}
+        if o["label"] or o["kind"]:
+            out.append(o)
+    return out
+
+
+def workspace_line(o):
+    """作業場に付ける物の 1 行（--sync・--reorg の報告と --dry-run）。"""
+    return f"作業場 {o['workspace']}: 名前 {o['label'] or 'そのまま'}  印 {o['kind'] or 'そのまま'}"
 
 
 def apply_workspaces(ops, h):
-    """作業場の名前を herdr に書く。1 件ごとに {workspace, status: done|failed, detail}。1 件の失敗で残りを止めない。"""
+    """作業場の名前と印を herdr に書く。1 件ごとに {workspace, status: done|failed, detail}。1 件の失敗で残りを止めない。"""
     out = []
     for o in ops:
         try:
-            h.rename_workspace(o["workspace"], o["label"])
+            if o["label"]:
+                h.rename_workspace(o["workspace"], o["label"])
+            if o["kind"]:
+                h.report_workspace_metadata(o["workspace"], SOURCE, {"kind": o["kind"]})
             out.append({"workspace": o["workspace"], "status": "done", "detail": None})
         except h.HerdrError as e:
             out.append({"workspace": o["workspace"], "status": "failed", "detail": str(e)})

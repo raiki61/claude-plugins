@@ -6,7 +6,7 @@ herdr は版が 0.x で互換を約束していない。herdr の文書は、手
 作業場の場所（元の clone の git worktree）も、作る・並べる・開く・消すをここに寄せる（worktrees・create_worktree・open_worktree・
 remove_worktree）。ノードは「枝の場所」の言葉だけで書き、herdr の worktree の口の形を知らない。
 
-書く関数は run・prompt・send_keys・rename_pane・rename_workspace・report_pane_metadata・create_worktree・open_worktree・remove_worktree・close_workspace・
+書く関数は run・prompt・send_keys・rename_pane・rename_workspace・report_pane_metadata・report_workspace_metadata・create_worktree・open_worktree・remove_worktree・close_workspace・
 report_activity で、
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
@@ -67,13 +67,15 @@ def workspace_labels(runner=_default_runner):
 
 
 def workspaces(runner=_default_runner):
-    """作業場の並び。1 件は {workspace_id, label, repo_root}。repo_root は herdr がその作業場に持つリポジトリの元の clone の根
+    """作業場の並び。1 件は {workspace_id, label, repo_root, tokens}。repo_root は herdr がその作業場に持つリポジトリの元の clone の根
     （linked worktree の作業場でも元の clone）で、herdr が git の印を持たない作業場（git worktree からでなく開いたもの）は None。
-    形は 2026-10-16 に herdr 0.9.3 で読んだ（workspace list の worktree 欄の repo_root）。"""
+    tokens は作業場の印（workspace report-metadata で付けた物。出どころを混ぜた 名前 → 値）。
+    形は 2026-10-16 に herdr 0.9.3 で読んだ（workspace list の worktree 欄の repo_root。tokens は 2026-10-17 に同じ版で見た）。"""
     out = []
     for w in _call(["herdr", "workspace", "list"], runner).get("workspaces", []):
         wt = w.get("worktree") if isinstance(w.get("worktree"), dict) else {}
-        out.append({"workspace_id": w["workspace_id"], "label": w.get("label"), "repo_root": _norm(wt.get("repo_root"))})
+        out.append({"workspace_id": w["workspace_id"], "label": w.get("label"), "repo_root": _norm(wt.get("repo_root")),
+                    "tokens": w.get("tokens") if isinstance(w.get("tokens"), dict) else {}})
     return out
 
 
@@ -153,6 +155,18 @@ def report_pane_metadata(pane, source, display_agent, title, tokens, clear_token
     argv = ["herdr", "pane", "report-metadata", pane, "--source", source]
     argv += ["--display-agent", display_agent] if display_agent else ["--clear-display-agent"]
     argv += ["--title", title] if title else ["--clear-title"]
+    for name, value in sorted(tokens.items()):
+        argv += ["--token", f"{name}={value}"]
+    for name in clear_tokens:
+        argv += ["--clear-token", name]
+    _call(argv, runner, quiet_ok=True)
+
+
+def report_workspace_metadata(workspace, source, tokens, clear_tokens=(), runner=_default_runner):
+    """作業場の印（--token 名=値。サイドバーの作業場の行に $名前 で出す）を、出どころ source の分として付ける。書く口。
+    同じ出どころで打ち直すと置き換わり、clear_tokens の印は消す（2026-10-17 に herdr 0.9.3 で、--clear-token が同じ出どころの
+    印を消すのを見た）。"""
+    argv = ["herdr", "workspace", "report-metadata", workspace, "--source", source]
     for name, value in sorted(tokens.items()):
         argv += ["--token", f"{name}={value}"]
     for name in clear_tokens:
