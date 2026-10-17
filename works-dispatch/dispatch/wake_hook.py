@@ -183,6 +183,20 @@ def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
 EMPTY_STARTS = ("startup", "clear")
 
 
+def open_children(got, attrs, records=None):
+    """この部署が出して、まだ閉じていない頼み（納品・取り下げ・回して閉じる、のどれも台帳に無い物）の受付の並び。頼みの行の from の
+    名前が部署の名前で、場所が部署の場所（か、その下）の物。"""
+    here = os.path.realpath(got["cwd"])
+    rows = deliver.records(got["inbox"]) if records is None else records
+    out = []
+    for r in deliver.open_asks(rows):
+        src = r.get("from") or {}
+        at = os.path.realpath(src.get("place") or "")
+        if src.get("name") == attrs.get("name") and (at == here or at.startswith(here + os.sep)):
+            out.append(r["id"])
+    return out
+
+
 def must_clear(payload, attrs):
     """頼みごとに空の会話で受ける部署（fresh）が、次の頼みを受ける前に会話を空にしなければならないか。納品し終えていて
     （company.delivered が company.ask）、まだ空にしていない（company.cleared が違う）とき。ただし会話が空で始まった時を除く。"""
@@ -277,6 +291,20 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # 都度の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
         if must_clear(payload, attrs):
+            children = open_children(got, attrs)
+            if children:
+                # 子の頼み（この部署が出して返事の来ていない頼み）が在る間は空にしない（持ち主の承認 dc0aa2: 受けた頼みも子の頼みも
+                # 全部閉じた番の終わりに空にする）。子の納品で起きた番の終わりに、閉じていれば空にする（起こすときに印を外す。woken）。
+                # 順番待ちの次の頼みは、前の会話のまま渡さずに待つ
+                waiting = wake.queued(got["inbox"], got["place"])
+                if not waiting:
+                    return None
+                why = f"子の頼みの返事を待っている（受付 {'・'.join(children)}）"
+                if (waiting[0].get("id"), why) not in told:
+                    told.add((waiting[0].get("id"), why))
+                    deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
+                                               "session": got["session"], "detail": f"前の会話を空にしないので渡さずに待つ（{why}）"})
+                return wake.HOLD
             why = []
             if clear_now(got, payload, attrs, h, me=me, why=why):
                 return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す

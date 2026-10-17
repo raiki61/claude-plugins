@@ -303,6 +303,24 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "pid": "7"}, gitx)
         self.assertIsNone(self.plan(sid="s9", same=lambda pid: True))
 
+    def test_a_fresh_department_is_not_cleared_while_an_ask_it_made_has_no_answer(self):
+        # 受けた頼みも、そこから出した子の頼みも全部閉じた番の終わりに空にする（持ち主の承認 dc0aa2。標準 6c364c が子の納品を待つ間）
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH}, gitx)
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": self.place}, "to": {"company": "co", "name": "点検"}})
+        w = self.emptied()
+        self.assertIsNone(self.checker(window=w)())   # 子の返事待ち: 空にしない
+        self.assertEqual(w.writes, [])
+        self.put("a1")
+        self.assertEqual(self.checker(window=w)(), wake.HOLD)   # 次の頼みも前の会話のまま渡さずに待つ
+        held = [r for r in deliver.records(self.inbox) if r.get("kind") == "held"]
+        self.assertIn("子の頼みの返事を待っている（受付 c1）", held[-1]["detail"])
+        deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent"})   # 子の納品が届いた
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker(window=w)(), ("end", None))   # 空にした（空にした後の待ち受けが a1 を渡す）
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+
     def test_a_fresh_department_woken_by_a_notice_is_cleared_at_the_end_of_that_turn(self):
         # 頼みを受けていない番（納品の知らせで起きた）の後も、次の頼みを空の会話で受ける（6a9337）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
