@@ -4412,7 +4412,7 @@ expect_output 0 "LOCAL_ACCOUNTS_OK" \
     "spread-plugins: 手元の設定の accounts（部署を起こさないアカウント）にも配り、同じ設定のフォルダは 1 回だけ" \
     "$PY_BIN" "$SPREAD_CASE" local-accounts
 expect_output 0 "BROKEN_COPY_OK" \
-    "spread-plugins: 更新が 0 で終わっても入った写しに plugin.json が無いか版が本流（全アカウントに配った後に読む）と違えば失敗に数え、失敗の行を出力の終わりに並べ直す" \
+    "spread-plugins: 更新が 0 で終わっても入った写しに plugin.json が無いか版が本流（全アカウントに配った後に読む）と違えば、ずれたアカウントだけ 1 回配り直してなお違うときに失敗に数え、失敗の行を出力の終わりに並べ直す" \
     "$PY_BIN" "$SPREAD_CASE" broken-copy
 expect_output 0 "MEND_CLONE_OK" \
     "spread-plugins: marketplace の clone の作業ツリーから消えたファイルを、プラグインの更新の前に戻す" \

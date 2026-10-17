@@ -7,7 +7,8 @@
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）
 - local-accounts: 手元の設定の accounts（部署を起こさないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
 - broken-copy: 更新が 0 で終わっても、入った写しに .claude-plugin/plugin.json が無いか、版が本流（origin/main）とそろわなければ
-  失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える。本流は全アカウントに配った後に読む
+  失敗に数え、失敗の行を出力の終わりに並べ直す。本流の版を読めなくても失敗に数える。本流は全アカウントに配った後に読み、
+  版のずれたアカウントだけ 1 回配り直して照らし直す（配る間に本流が進んだとき）
 - mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
 """
 
@@ -44,7 +45,8 @@ def plugin_dir(whole=True):
 
 def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
     """(runner, 打った命令の並び)。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
-    version は入った版、main は本流（origin/main）の plugin.json の版（None なら本流を読めない）。"""
+    version は入った版（関数なら、その設定のフォルダで打った plugin update の数から版を返す）、main は本流（origin/main）の
+    plugin.json の版（None なら本流を読めない）。"""
     calls = []
     installed = installed or plugin_dir()
     panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "agent_status": "idle", "cwd": "/dept"},
@@ -58,7 +60,9 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0"):
     def runner(argv, env=None):
         calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
         if argv[:3] == ["claude", "plugin", "list"]:
-            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user", "installPath": installed, "version": version},
+            v = version(sum(1 for a, e in calls if a[:3] == ["claude", "plugin", "update"] and e == (env or {}).get(
+                "CLAUDE_CONFIG_DIR"))) if callable(version) else version
+            return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user", "installPath": installed, "version": v},
                                   {"id": "x@other", "scope": "user"}, {"id": f"p@{MARKET}", "scope": "project"}])
         if argv[:4] == ["claude", "plugin", "marketplace", "list"]:
             return 0, json.dumps([{"name": "other", "installLocation": "/m/other"},
@@ -152,6 +156,14 @@ def broken_copy():
     tail = out.strip().splitlines()
     assert rc == 1 and tail[-3] == "失敗 2 件:", (rc, out)
     assert all("版が本流とそろわない: 入った版 1.0.0・本流 1.1.0" in x for x in tail[-2:]), out
+    runner, calls = world(version=lambda n: "1.1.0" if n >= 2 else "1.0.0", main="1.1.0")   # 配る間に本流が進んだ
+    rc, out = run(runner, {})
+    updates = [env for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
+    assert rc == 0 and updates == [None, "/c/p1", None, "/c/p1"], (rc, out, updates)   # ずれたアカウントだけ 1 回配り直す
+    assert out.count(f"claude plugin update a@{MARKET} 済（1.1.0）") == 2, out
+    runner, calls = world(version=lambda n: "1.1.0" if n >= 1 else "1.0.0", main="1.1.0")
+    rc, out = run(runner, {})
+    assert rc == 0 and len([a for a, _ in calls if a[:3] == ["claude", "plugin", "update"]]) == 2, out   # そろえば配り直さない
     runner, _ = world()
     rc, out = run(runner, {})
     assert rc == 0 and out.count(f"claude plugin update a@{MARKET} 済（1.0.0）") == 2, out

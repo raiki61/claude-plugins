@@ -13,8 +13,10 @@ works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 sp
    部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
    全アカウントに配った後に、入ったプラグインの版が本流（origin/main。先に git fetch する）の plugin.json の版と同じかを
-   照らし、違えば失敗に数える。本流は配った後に読む。配る前に読むと、配る間に別の部署が本流へ入れた版を marketplace が
-   先に拾い、入った版が本流より新しいのに「そろわない」と数える（2026-10-17 に works-dispatch 0.36.0 で実測）。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
+   照らし、違えば版のずれたアカウントだけ 1 回配り直して照らし直し、まだ違えば失敗に数える。本流は配った後に読む。配る前に
+   読むと、配る間に別の部署が本流へ入れた版を marketplace が先に拾い、入った版が本流より新しいのに「そろわない」と数える
+   （2026-10-17 に works-dispatch 0.36.0 で実測）。配り直すのは、配る間に本流が進むと先に配ったアカウントが前の版のまま
+   残るため（2026-10-17 に works-dispatch 0.37.0 で実測）。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
    `/reload-plugins` を打つ。持ち主の作業の会話に打つと herdr で done に替わり、ノイズになるため（この決まりは組織の物なので、
    works-dispatch でなくここに置く）。番の途中の会話（herdr が idle・done と見ていない物）と、入力欄に字が入っている会話は
@@ -284,6 +286,18 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
         whole += ok
     if whole:   # 本流は配った後に読む（配る間に本流へ入った版を、入った版が新しいのにそろわないと数えないため）
         want, err = expected_versions(market, runner=runner)
+        # 配る間に本流が進むと、先に配ったアカウントは前の版のまま残る（2026-10-17 に works-dispatch 0.37.0 で実測）。
+        # 版のずれたアカウントだけ 1 回配り直し、本流を読み直して照らす
+        stale = {n for n, i, v in whole if i in want and v != want[i]}
+        if stale and not err:
+            whole = [w for w in whole if w[0] not in stale]
+            for name, config_dir in accs:
+                if name in stale:
+                    got, fails, ok = update_account(name, config_dir, market, dry, runner)
+                    lines += got
+                    bad += fails
+                    whole += ok
+            want, err = expected_versions(market, runner=runner)
         if err:
             lines.append(err)
             bad.append(err)
