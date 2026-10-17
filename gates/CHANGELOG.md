@@ -6,6 +6,8 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-17
+
 ### Changed
 
 - 手元の文書の初見読みの読み手の effort の既定を xhigh から high に下げる（`COLDREAD_DOC_EFFORT` で替えられる）。読み手のモデルと effort を手元の測りでなく公開の指針で決める決まりに合わせた。Anthropic の [Effort の文書](https://platform.claude.com/docs/en/build-with-claude/effort)は Haiku 5.5 に「Use high for knowledge work, longer agent tasks, and strict instruction following. Use xhigh or max only where your evals show a quality gain」と書き、初見読みは決まった書式の指示に従って文書を読む知識の仕事に当たる。xhigh の根にした Artificial Analysis の総合点は Haiku と Sonnet の比べで、この仕事で xhigh が high より質を上げる評価ではない。
