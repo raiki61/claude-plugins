@@ -72,6 +72,12 @@ jobs:
       - name: install shellcheck
         shell: bash
         run: python -m pip install shellcheck-py==0.11.0.1
+      # スキルの説明の柵（tests/run.sh の skill-descriptions-case.py）が使う YAML の読み手。版は works の job と同じ。
+      # 無ければその柵は「# SKIP pyyaml」の見送りになり、SKIP_ALLOW に無いので FAIL_ON_SKIP=1 で赤になる。
+      # 入れる先は tests/run.sh が選ぶのと同じ解釈系（PY_BIN: python3、無ければ python）——Windows で python3 が別の物を指しても入れ違えない
+      - name: install pyyaml
+        shell: bash
+        run: '"$(command -v python3 || command -v python)" -m pip install pyyaml==6.0.3'
       # 独立した段は OS のうち 1 本だけで回す（tests/run.sh の中の同じ検査と ubuntu で二重に走るのは数秒で、段を残しても能力は減らない）。深さは tests/run.sh の
       # 手元の検査と同じ -S warning——片方だけ深くすると、手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
       - name: shellcheck

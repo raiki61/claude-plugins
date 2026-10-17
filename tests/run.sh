@@ -2263,7 +2263,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=678
+EXPECTED_CHECKS=680
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4579,6 +4579,23 @@ expect_output 0 "FIGURE_OK" "figure-check: ┌┐ と └┘ の幅が違えば�
 expect_output 0 "FIGURE_OK" "figure-check: 空の入力は「通った」と言わない" \
     "$PY_BIN" "$FC_CASE" empty
 expect_exit 1 "figure-check: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$FC_CASE"
+
+# ---- 全部のプラグインのスキル・命令・役の説明（頭の YAML の description） ----
+# 説明は会話の始めに読み込まれ、壊れても読み込みは失敗しない（dispatch の説明が「 #」から後ろを YAML の注釈として読み捨てられていた）。
+# 見ることと出典は台本の頭。YAML の読み手（PyYAML）は CI がどの OS にも入れる。手元に無ければ見送りにし、CI の FAIL_ON_SKIP=1 が
+# SKIP_ALLOW に無い名前（pyyaml）として赤にするので、入れる段を消しても黙って緑には戻らない
+SD_CASE="$ROOT/tests/skill-descriptions-case.py"
+if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
+    expect_output 0 "SKILL_DESCRIPTION_ARMS_OK" "スキルの説明の柵: 空白の後の # で切れる・引用符の後ろの注釈・読めない YAML・1 行目でない頭・空の説明・SKILL.md の 1,025 字・スキルと命令の description と when_to_use の合わせて 1,537 字・置き場を変えたプラグイン・何も見つからないプラグインを落とし、引用符や畳む書き方の中の # と CRLF は通す" \
+        "$PY_BIN" "$SD_CASE" arms
+    expect_output 0 "SKILL_DESCRIPTIONS_OK" "スキルの説明の柵: 全部のプラグインのスキル・命令・役の説明が YAML で黙って切れず、公式の字数の上限（SKILL.md 1,024 字・一覧 1,536 字）に収まる" \
+        "$PY_BIN" "$SD_CASE" tree
+else
+    sd_skip="  ok   スキルの説明の柵（2 件） # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
+    echo "$sd_skip"
+    note_skips "$sd_skip"
+    ran=$((ran + 2))
+fi
 
 # ---- shell の静的検査（shellcheck） ----
 # **定番解を入れて、自作の regex を落とした。** 自作の柵は for の位置しか見ず、同じ問題クラス
