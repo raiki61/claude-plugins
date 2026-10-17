@@ -11,8 +11,10 @@
 見ること（どれも出典で決まる物だけ。短い目安の上限は持ち主が決めるまで足さない）:
 - 頭の YAML が 1 行目の「---」から始まり、閉じの「---」が在り、mapping として読める。Claude Code は 1 行目でなければ全部を本文として読み、
   読めない YAML は欄を 1 つも持たないスキルとして読み込む（https://code.claude.com/docs/en/skills）
-- description が空でない文字列。YAML として読んだ説明（と when_to_use）の後ろに、YAML が読み捨てる文（注釈）が無い——読んだ値の
-  終わりから次の欄の始まりまでが空白だけ（https://yaml.org/spec/1.2.2/#comments）。位置は YAML の読み手（PyYAML）が返す物を使い、自分で文法を真似ない
+- 値の中に「---」が無い。Claude Code は値の途中の最初の「---」で頭を閉じる（下の CC_FRONT）
+- description が空でない文字列。YAML として読んだ説明（と when_to_use）の後ろに、YAML が読み捨てた文（注釈）が無い——読んだ値の
+  終わりから次の欄までに、欄の名前より深い所から始まる文が無い（https://yaml.org/spec/1.2.2/#comments）。位置は YAML の読み手
+  （PyYAML）が返す物を使い、自分で文法を真似ない
 - SKILL.md の description は 1,024 字まで（Agent Skills の仕様。https://agentskills.io/specification）
 - スキルと命令の description と when_to_use を足して 1,536 字まで（超えた分は一覧で切られる。https://code.claude.com/docs/en/skills）。
   命令（commands/*.md）もスキルと同じ一覧に並ぶ。役（agents/*.md）は字数の上限の出典が無いので、字数は見ない
@@ -34,18 +36,25 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL_MAX = 1024
 LISTING_MAX = 1536
 # 頭の YAML の形。閉じの「---」は行そのもの（後ろの空白は許す）
-FRONT = re.compile(r"\A---\n(.*?\n)?---[ \t]*(?:\n|\Z)", re.S)
+FRONT = re.compile(r"\A---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|\Z)", re.S)
+# Claude Code の切り出し方（2.1.302 の本体から引いた正規表現。実測 2026-10-17）。閉じの「---」を行頭に縛らないので、値の途中の
+# 最初の「---」で頭が閉じる。上の行ごとの形と中身が違えば、説明がそこで黙って切れる
+CC_FRONT = re.compile(r"^---\s*\n([\s\S]*?)---\s*\n?")
 # plugin.json でこれらの置き場を変えられる。変えた物はここの走査が見ないので、黙って柵の外に出さずに落とす
 CUSTOM_PATHS = ("skills", "commands", "agents")
 
 
 def check_file(path, kind):
     """1 つのファイルの食い違いを文の list で返す。kind は skill・command・agent。"""
-    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    # 改行は read_text が \n にそろえる。BOM は Claude Code も切り出す前に剥がす
+    text = path.read_text(encoding="utf-8").removeprefix("\ufeff")
     m = FRONT.match(text)
     if not m:
         return ["頭の YAML が無い（1 行目が「---」でないか、閉じの「---」が無い）。Claude Code は説明の無いものとして読む"]
     front = m.group(1) or ""
+    cc = CC_FRONT.match(text)
+    if not cc or cc.group(1).lstrip() != front.lstrip():
+        return ["値の中の「---」で、Claude Code が頭の YAML をそこで閉じる（説明がそこで切れる）。値の中に「---」を書かない"]
     try:
         node = yaml.compose(front)
         data = yaml.safe_load(front)
@@ -64,11 +73,14 @@ def check_file(path, kind):
     for i, (key, value) in enumerate(pairs):
         if key.value not in ("description", "when_to_use"):
             continue
+        # 読んだ値の終わりから次の欄までに残った文のうち、説明を切ったのは、欄の名前より深い所から始まる物だけ——値と同じ行に続く物
+        # （YAML の注釈は前に空白が要るので、必ず 1 字以上深い）と、値の続きのつもりで字下げした行。欄と同じ深さの注釈の行は何も切っていない
         nxt = pairs[i + 1][0].start_mark.index if i + 1 < len(pairs) else len(front)
-        dropped = front[value.end_mark.index:nxt].strip()
-        if dropped:
-            bad.append(f"{key.value} の後ろの「{dropped[:40]}」を YAML が注釈として読み捨てる（説明がそこで切れる）。"
-                       "値を引用符で囲むか、空白の後の「#」をやめる")
+        for line in front[value.end_mark.index:nxt].split("\n"):
+            if line.strip() and len(line) - len(line.lstrip(" \t")) > key.start_mark.column:
+                bad.append(f"{key.value} の後ろの「{line.strip()[:40]}」を YAML が注釈として読み捨てる（説明がそこで切れる）。"
+                           "値を引用符で囲むか、空白の後の「#」をやめる")
+                break
     if not isinstance(desc, str):
         return bad
     if kind == "skill" and len(desc) > SKILL_MAX:
@@ -137,6 +149,11 @@ def arms():
     must_pass("空白の無い #", "---\ndescription: 「issue#1300 を始めて」と言われたときに使う\n---\n")
     must_pass("畳む書き方の中の #", "---\ndescription: >\n  「issue #1300 を始めて」と\n  言われたときに使う\nname: a\n---\n")
     must_pass("複数行の素の値", "---\ndescription: 何をするか。\n  いつ使うか。\nname: a\n---\n")
+    must_pass("BOM と開きの後ろの空白", "\ufeff--- \ndescription: 何をするか\n---\n")
+    must_pass("欄と同じ深さの注釈の行", "---\ndescription: 何をするか\n# 注\nname: a\n# 注\n---\n")
+    must_pass("塊の後ろの浅い注釈の行", "---\ndescription: |+\n  何をするか\n\n# 注\nname: a\n---\n")
+    must_fail("値の中の ---", "---\ndescription: 前の版 --- 後の版を比べる\n---\n", word="値の中の「---」")
+    must_fail("畳む書き方の中の ---", "---\ndescription: >\n  前の版\n  ---\n  後の版\n---\n", word="値の中の「---」")
     must_fail("空白の後の # で切れる（dispatch の実例の形）",
               "---\nname: a\ndescription: 「issue #1300 を始めて」と言われたときに使う\n---\n", word="読み捨てる")
     must_fail("最後の欄で切れる", "---\ndescription: 何をするか #いつ使うか\n---\n", word="読み捨てる")

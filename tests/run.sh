@@ -4586,7 +4586,7 @@ expect_exit 1 "figure-check: 知らないケース名は落ちる（検査自体
 # SKIP_ALLOW に無い名前（pyyaml）として赤にするので、入れる段を消しても黙って緑には戻らない
 SD_CASE="$ROOT/tests/skill-descriptions-case.py"
 if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
-    expect_output 0 "SKILL_DESCRIPTION_ARMS_OK" "スキルの説明の柵: 空白の後の # で切れる・引用符の後ろの注釈・読めない YAML・1 行目でない頭・空の説明・SKILL.md の 1,025 字・スキルと命令の description と when_to_use の合わせて 1,537 字・置き場を変えたプラグイン・何も見つからないプラグインを落とし、引用符や畳む書き方の中の # と CRLF は通す" \
+    expect_output 0 "SKILL_DESCRIPTION_ARMS_OK" "スキルの説明の柵: 空白の後の # で切れる・引用符の後ろの注釈・値の中の ---・読めない YAML・1 行目でない頭・空の説明・SKILL.md の 1,025 字・スキルと命令の description と when_to_use の合わせて 1,537 字・置き場を変えたプラグイン・何も見つからないプラグインを落とし、引用符や畳む書き方の中の # と CRLF・BOM・欄と同じ深さの注釈の行は通す" \
         "$PY_BIN" "$SD_CASE" arms
     expect_output 0 "SKILL_DESCRIPTIONS_OK" "スキルの説明の柵: 全部のプラグインのスキル・命令・役の説明が YAML で黙って切れず、公式の字数の上限（SKILL.md 1,024 字・一覧 1,536 字）に収まる" \
         "$PY_BIN" "$SD_CASE" tree
