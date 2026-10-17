@@ -9,13 +9,13 @@ dispatch.py の流れの続きで、ノード（nodes/deliver.py ほか）を呼
 居れば、宛先の会社の受付箱の台帳に知らせの 1 行を足し、待ち受けが会話を起こす（nodes/wake.py）。居なければ（フックの無い古い会話・
 落ちた会話）、宛先の部署の窓（attach のペイン）に 1 行を打ち込む。宛先の部署が立っていなければ、--task と同じ道（dispatch._task）で
 立て、最初の文で頼みを渡す。宛先の部署の属性に、受けた頼み（company.ask）と頼み元（company.boss・boss-account・boss-session・
-boss-pane・boss-inbox）を書く。--forward を添えれば、打った部署か窓口が受けている頼みを、この頼みで回したとして閉じる（forwarded。
+boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の名前（company.name。place_name）か、会話の一覧の名前。--forward を添えれば、打った部署か窓口が受けている頼みを、この頼みで回したとして閉じる（forwarded。
 回した先は台帳にだけ書き、頼み元の会話は起こさない）。
 
 --deliver <要約のファイル>（deliver）: 部署の場所から、要約の項目がそろっているかを確かめ（欠けていれば送らずに欠けた項目を返す）、
 役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
-頼み元の受付箱に置き、頼み元（「頼み元の会社/company.boss」）の待ち受けが居ればその台帳に知らせの 1 行を足し、居なければ頼み元の窓に
-1 行を打ち込み、属性に納品済み（company.delivered）を書く。
+頼み元の受付箱に置き、頼み元（「頼み元の会社/company.boss」。引けなければ company.boss-session の会話）の待ち受けが居ればその
+台帳に知らせの 1 行を足し、居なければ頼み元の窓に 1 行を打ち込み、属性に納品済み（company.delivered）を書く。
 
 `python3 orders.py stop`（stop_hook）: プラグインの Stop フック。部署でない場所では何もしない。
 """
@@ -144,6 +144,19 @@ def listener(inbox, company_name, name):
         return None, None
     to = wake.address(company_name, name)
     return to, wake.listening(inbox, to)
+
+
+def place_name(here, sid, ports):
+    """頼んだ場所の名前（属性 company.name）か None。窓口と部署の待ち受けはこの名前で宛先を受ける（wake_hook.plan）ので、頼み元の
+    名前に会話の一覧の名前より先に使う（一覧の名前は替わりうる。段取りが会話の名前 my-notes-d7 で頼み、納品が待ち受けに届かず
+    窓に打ち込まれた。my_notes の受付 20261017-032608-18b5f5）。本社（代表の clone）は持ち主のほかの会話も居るので、--desk が書いた
+    会話（company.session）が頼んだときだけ。"""
+    attrs = ports.attrs(here)
+    if not attrs.get("role") or not attrs.get("name"):
+        return None
+    place, common = ports.git.git_dir(here), ports.git.common_dir(here)
+    desk = bool(place and common) and os.path.realpath(place) == os.path.realpath(common)
+    return attrs["name"] if not desk or (sid and attrs.get("session") == sid) else None
 
 
 def live_window(dept, ports):
@@ -366,14 +379,14 @@ def _ask(a, ports, cwd, task, sent):
     required = deliver.required_items(the_role)
     notes += problems
     found_account, found_name = ports.caller(sessions_)
-    account, name = a.from_account or found_account, a.from_name or found_name
-    sender = name or "名の無い会話"
     inbox = deliver.inbox_of(common)
     ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
     sid = ports.env.get("CLAUDE_CODE_SESSION_ID")
     # 頼み元の窓は、頼んだ会話の居るペイン（herdr.own_pane。環境変数 HERDR_PANE_ID は裏の会話では別のペインを指すことがある）。
     # Claude Code の外から頼んだ（会話の id が無い）なら、頼んだ会話が無いので窓も記録しない
     here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
+    account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
+    sender = name or "名の無い会話"
     boss = {"ask": ask_id, "boss": name, "boss-account": account, "boss-session": sid,
             "boss-pane": herdr.own_pane(here, sid, panes) if sid else None, "boss-inbox": inbox}
     if getattr(a, "from_boss", None):
@@ -762,6 +775,10 @@ def deliver_summary(a, ports, cwd):
         notes.append(f"納品の検査が通った: {check}")
     inbox = attrs.get("boss-inbox")
     to, heard = listener(inbox, inbox and inbox_company(inbox, settings), attrs.get("boss"))
+    if not heard and inbox and attrs.get("boss-session"):
+        # 頼み元の名前で待ち受けが引けない（前の版は会話の一覧の名前を頼み元に書いた。place_name）: 頼んだ会話の id で引く
+        heard = wake.listening_session(inbox, attrs["boss-session"])
+        to = heard["names"][0] if heard else to
     if heard:
         # 頼み元の待ち受けが居る: herdr の窓を探さない（知らせは台帳の 1 行で届く）
         sid, pane, how = attrs.get("boss-session"), None, f"{to} の待ち受けが会話を起こす"

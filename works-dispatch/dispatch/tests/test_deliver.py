@@ -482,6 +482,22 @@ class Flow(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs.get("boss"), attrs.get("boss-account")), ("窓口", "a2"))
 
+    def test_ask_from_a_named_place_names_the_asker_by_the_place_not_the_talk(self):
+        # 窓口の待ち受けは場所の名前（company.name）で受ける。会話の一覧の名前（desk）は替わりうるので、頼み元には場所の名前を書く
+        # （段取りが会話の名前 my-notes-d7 で頼み、納品が待ち受けに届かなかった。my_notes の受付 20261017-032608-18b5f5）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-desk"}, gitx)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "段取り")
+        self.assertIn("段取り から）", self.prompts()[0][2])
+
+    def test_ask_from_another_talk_in_the_head_office_keeps_the_talks_name(self):
+        # 本社にはほかの会話も居る。--desk が書いた会話（company.session）でなければ、窓口の名前を名乗らない
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "段取り", "session": "s-other"}, gitx)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "x")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place).get("boss"), "desk")
+
     def test_the_command_handed_to_the_department_is_quoted_with_forward_slashes(self):
         self.assertNotIn("\\", orders.RUN)
         self.assertTrue(orders.RUN.endswith("/dispatch.py") or orders.RUN.endswith("/dispatch.py'"))

@@ -574,5 +574,18 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(attrs["delivered"], attrs["ask"])
 
 
+    def test_deliver_finds_the_asker_by_its_talk_when_the_name_misses(self):
+        # 前の版が会話の一覧の名前（my-notes-d7）を頼み元に書いた部署: 名前では待ち受けが引けないので、頼んだ会話の id で引く
+        summary = self.ask_then_summary(test_deliver.GOOD)
+        provision.mark(self.place, self.src, {"boss": "my-notes-d7"}, gitx)
+        to = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg)), "段取り")
+        wake.claim(self.inbox, gitx.git_dir(self.src), [to], "s-desk", os.getpid(), "t", time.time())
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.prompts(), [])
+        notice, rec = deliver.records(self.inbox)[-2:]
+        self.assertEqual((notice["to"], rec["to"]["wake"]), (to, to))
+
+
 if __name__ == "__main__":
     unittest.main()

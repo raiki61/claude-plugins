@@ -130,13 +130,13 @@ def release(inbox, place, token):
             pass
 
 
-def listening(inbox, to, now=None, posix=os.name != "nt"):
-    """宛先 to を受ける、生きた会話の印が在れば、その印。無ければ None。now は印の更新の時刻と比べる今（既定は時計）。"""
+def _living(inbox, now, posix):
+    """受付箱の、生きた会話の印の並び（ファイルの名前の順）。"""
     now = time.time() if now is None else now
     try:
         names = sorted(os.listdir(_dir(inbox)))
     except OSError:
-        return None
+        return
     for n in names:
         if not n.endswith(".json"):
             continue
@@ -147,9 +147,19 @@ def listening(inbox, to, now=None, posix=os.name != "nt"):
                 got = json.load(f)
         except (OSError, ValueError):
             continue
-        if isinstance(got, dict) and to in (got.get("names") or []) and alive({**got, "_mtime": mtime}, now, posix):
-            return got
-    return None
+        if isinstance(got, dict) and alive({**got, "_mtime": mtime}, now, posix):
+            yield got
+
+
+def listening(inbox, to, now=None, posix=os.name != "nt"):
+    """宛先 to を受ける、生きた会話の印が在れば、その印。無ければ None。now は印の更新の時刻と比べる今（既定は時計）。"""
+    return next((got for got in _living(inbox, now, posix) if to in (got.get("names") or [])), None)
+
+
+def listening_session(inbox, session, now=None, posix=os.name != "nt"):
+    """会話の id が session の、宛先を持つ生きた会話の印が在れば、その印。無ければ None（名前で引けない頼み元を会話の id で引く）。"""
+    return next((got for got in _living(inbox, now, posix) if session and got.get("session") == session and got.get("names")),
+                None)
 
 
 # ---- 順番待ち ----
