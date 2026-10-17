@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-10-17
+
 ### Fixed
 
 - 試験のうち 3 か所（`tests/test_calls.py`・`tests/test_refresh.py`・`tests/test_wake.py`）が、git の名前（user.name・user.email）を渡さずに commit していて、名前の設定が無い CI の機械で落ちていたのを直した。ほかの試験と同じく、commit の時に名前を渡す。
