@@ -406,11 +406,30 @@ class FastForwardAfterCi(LandCase):
         git("-C", w.source, "config", "--local", "extensions.worktreeConfig", "true")
         git("-C", w.source, "config", "--worktree", "company.name", "窓口")
         w.work()
-        with mock.patch.object(land, "follow", side_effect=gitx.GitError("取り直せない")):
+        with mock.patch.object(land, "advance_local", side_effect=gitx.GitError("進められない")):
             code, out = self.land(w, Ports(w))
         self.assertEqual(code, 0, out)
-        self.assertIn("手元の main: そろえられなかった: 取り直せない", out)
+        self.assertIn("手元の main: そろえられなかった: 進められない", out)
         self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", out)
+
+    def test_land_follows_the_pushed_commit_even_when_fetch_fails_after_the_push(self):
+        # push の後の取り直しが一時に落ちても、push した commit は手元に在るので、窓口を起こさずに代表の clone を進める
+        w = World(self.tmp, CI_FILES)
+        head = w.work()
+        real = land.refresh
+        calls = []
+
+        def flaky(source, main, g):
+            calls.append(1)
+            if len(calls) == 3:   # 本流の取り直しは、頭・関門の後・push の後の 3 回目
+                raise gitx.GitError("網が無い")
+            return real(source, main, g)
+        with mock.patch.object(land, "refresh", side_effect=flaky):
+            code, out = self.land(w, Ports(w))
+        self.assertEqual(code, 0, out)
+        self.assertIn("網が無い", out)
+        self.assertIn("手元の main: updated", out)
+        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head)
 
     def test_catch_up_brings_the_main_clone_up_to_a_push_that_skipped_land(self):
         # 部署が --land を通さずに手で push した形（push が手元の origin/main も書き換える）。--deliver の後のそろえ（受付 d3f166）

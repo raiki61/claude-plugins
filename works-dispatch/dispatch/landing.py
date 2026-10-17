@@ -240,10 +240,9 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         else:
             print(f"止めた: 本流 {main} への push が断られた（{e}）")
         return 1
-    try:
-        local, err = land.follow(source, main, candidate, g), None
-    except gitx.GitError as e:
-        local, err = FAILED, e
+    _, local, err, notes = _follow(source, main, g, candidate)
+    for n in notes:
+        print(n)
     print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local if err is None else f'そろえられなかった: {err}'}）")
     if local in LAGS:
         print(_tell_desk(source, info, main, candidate, local, err))
@@ -268,23 +267,31 @@ def catch_up(source, info, main, g):
     窓口に台帳の知らせで渡す。部署が --land を通さずに手で push した成果も、代表の clone に届けるため（2026-10-17 の my_notes。
     部署が git push origin HEAD:master で入れ、代表の clone の master が黙って遅れた。受付 d3f166）。取り直せなくても（手元の網の
     誤りなど）、手元の origin/<本流>（部署の push が書き換える）までそろえる。出す行の並びを返す。"""
-    out = []
-    try:
-        land.refresh(source, main, g)
-    except gitx.GitError as e:
-        out.append(f"注記: 本流 {main} を取り直せなかった（{e}）。手元の origin/{main} まで代表の clone をそろえる")
-    sha = g.rev(source, f"refs/remotes/origin/{main}")
+    sha, local, err, out = _follow(source, main, g)
     if not sha:
         return out
-    try:
-        local, err = land.advance_local(source, main, sha, g), None
-    except gitx.GitError as e:
-        local, err = FAILED, e
     if local == "updated":
         out.append(f"代表の clone の {main} を本流 {sha[:7]} へ進めた")
     elif local in LAGS:
         out.append(_tell_desk(source, info, main, sha, local, err))
     return out
+
+
+def _follow(source, main, g, sha=None):
+    """本流を取り直し、代表の clone の手元の本流を sha（省けば取り直した origin/<本流> の先頭）へ早送りする。取り直せなくても、
+    sha か手元の origin/<本流> まではそろえる。(sha, 結果, 誤り, 注記の並び)。結果は gitx.advance_branch の値か FAILED。"""
+    notes = []
+    try:
+        land.refresh(source, main, g)
+    except gitx.GitError as e:
+        notes.append(f"注記: 本流 {main} を取り直せなかった（{e}）。手元に在る本流の先頭まで代表の clone をそろえる")
+    sha = sha or g.rev(source, f"refs/remotes/origin/{main}")
+    if not sha:
+        return None, None, None, notes
+    try:
+        return sha, land.advance_local(source, main, sha, g), None, notes
+    except gitx.GitError as e:
+        return sha, FAILED, e, notes
 
 
 def _tell_desk(source, info, main, candidate, local, err=None):
@@ -324,7 +331,7 @@ def _company_roots():
     """herdr に開いている会社の代表の clone の並び（ほかの会社の窓口の受付箱を引く）。読めなければ空。"""
     try:
         return [w["repo_root"] for w in herdr.workspaces() if w.get("repo_root")]
-    except herdr.HerdrError:
+    except (herdr.HerdrError, OSError):   # herdr が入っていない（FileNotFoundError）も、知らせを自分の会社の台帳に置く
         return []
 
 

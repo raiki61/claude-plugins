@@ -38,7 +38,6 @@ try:
     import config  # noqa: E402
     import gitx  # noqa: E402
     import herdr  # noqa: E402
-    import landing  # noqa: E402
     from nodes import deliver, land, launch, provision, role, sync, tools, tree, wake  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # Stop のフックはどの会話の終わりにも走るので、古い Python（tomllib の無い 3.10 以前）でも traceback を出さず、短い言葉で
@@ -1320,6 +1319,7 @@ def follow_main(source, settings, role_name, g):
         main = rules["main"] or gitx.default_branch(source)
     except gitx.GitError as e:
         return [f"注記: 本流の枝の名前を読めないので、代表の clone をそろえていない（{e}）"]
+    import landing   # --land の流れは Stop フックでは要らないので、ここで読む（フックが読み込む物を増やさない）
     return landing.catch_up(source, info, main, g) if main else []
 
 
