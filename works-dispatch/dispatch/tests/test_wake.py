@@ -669,7 +669,10 @@ class WakeFlow(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual((attrs["ask"], attrs["boss"]), (urgent["id"], "desk"))   # 待ち受けが渡すときと同じ属性
         taken = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
-        self.assertEqual([(r["id"], r["skipped"]) for r in taken], [(urgent["id"], [first["id"]])])
+        self.assertEqual([(r["id"], r["skipped"], r["to"]["name"]) for r in taken], [(urgent["id"], [first["id"]], attrs["name"])])
+        # 記録の行で、受けた部署の会話を知らせと取り違えて起こさない（to が字の行だけが知らせ。設計の 3.1）
+        me = wake.address(orders.inbox_company(self.inbox, os.path.dirname(self.cfg)), attrs["name"])
+        self.assertFalse([r for r in taken if wake.mine(r, {me})])
 
     def test_take_waits_until_the_current_ask_is_delivered_and_only_takes_its_own_queue(self):
         first, urgent = self.queue_two()
@@ -713,7 +716,7 @@ class WakeFlow(unittest.TestCase):
         self.assertNotIn("ask", a.from_boss)
         self.assertEqual(wake.queued(self.inbox, self.dept_place()), [])
         taken = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
-        self.assertEqual([(r["id"], r["to"], r["name"]) for r in taken], [(urgent["id"], "作業", "調べ：急ぎ"), (first["id"], "作業", "調べ：先")])
+        self.assertEqual([(r["id"], r["to"], r["name"]) for r in taken], [(urgent["id"], {"ask": "作業"}, "調べ：急ぎ"), (first["id"], {"ask": "作業"}, "調べ：先")])
 
     def test_withdraw_drops_an_ask_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()

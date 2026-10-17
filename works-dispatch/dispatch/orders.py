@@ -594,7 +594,7 @@ def _find_queued(ask_id, config_path, ports, cwd, companies=None):
 
 def _log_taken(item, record, also=()):
     """順番待ちから取った知らせを、順番待ちの在る受付箱と頼み元の受付箱（と also の受付箱）の台帳に足す（取り下げと回した先を
-    両方に残す）。"""
+    両方に残す）。記録の行なので、to は辞書にする（to が字の行は待ち受けが知らせと読み、宛先の会話を起こす。設計の 3.1）。"""
     boss_inbox = (item.get("marks") or {}).get("boss-inbox")
     _log_each([_queue_inbox(item), boss_inbox, *also], record)
 
@@ -644,7 +644,7 @@ def take(a, ports, cwd, task):
         print(f"受付 {a.take} を {a.ask} に頼み直せなかったので、元の順番待ちの同じ場所に戻した")
         return rc
     _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
-                      "to": a.ask, "name": a.task, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                      "to": {"ask": a.ask}, "name": a.task, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
     return 0
 
 
@@ -674,7 +674,7 @@ def _take_here(a, ports, cwd):
         return 2
     provision.mark(cwd, gitx.root_of(common), item.get("marks") or {}, ports.git)
     _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
-                      "to": attrs.get("name"), "skipped": skipped, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+                      "to": {"name": attrs.get("name"), "role": attrs.get("role")}, "skipped": skipped, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
     print("\n".join([f"受付 {a.take} を順番待ちから取った（先に積まれた {len(skipped)} 件" + (f"〔{'・'.join(skipped)}〕" if skipped else "")
                       + "は順番待ちに残る）。この頼みを今受ける:", item.get("line") or wake.wake_text([item])]))
     return 0
