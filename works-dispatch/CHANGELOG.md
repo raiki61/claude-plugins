@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-10-17
+
 ### Fixed
 
 - `plugin.json` に作者（`author`）を書いた。Claude Code の公式の検査（`claude plugin validate`）の警告「No author information provided」が消える。説明は marketplace の項目から外し、`plugin.json` の 1 か所にした（`/plugin` の画面に出る文は変わらない）。
