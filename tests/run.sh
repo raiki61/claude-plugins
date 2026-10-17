@@ -2368,6 +2368,8 @@ CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決で
 CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
 # 3 回目からは前の回から残った詰まりだけが止める。続けて止まる数を見る検査は、前の回の印の付いた詰まりを返す代役を使う
 CR_STUB_CARRY='cat >/dev/null; printf "詰まり: (前の回) F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
+# 直した本文では止める数が前の回より 1 つ減るので、直しながら止まり続ける検査は 2 件返す代役を使う
+CR_STUB_CARRY2='cat >/dev/null; printf "詰まり: (前の回) F3 が何か本文で解決できない\n詰まり: (前の回) F4 が何か本文で解決できない\n"'
 CR_STUB_FAIL='cat >/dev/null; exit 1'
 # 読み役の代役: 届いた依頼文+本文に印(ASCII)が在るかで返す文言を変える(本文が実際に届いたことまで見る)
 cr_stub_sees() { printf 'b=$(cat); case "$b" in *%s*) printf "詰まり: %s が届いた\\n";; *) printf "詰まり: %s が届いていない\\n";; esac' "$1" "$1" "$1"; }
@@ -3811,7 +3813,7 @@ expect_output 0 "詰まり" "stdio を cp1252 に強制しても deny 文言が�
 CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
 env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
 env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
-expect_output 0 "3 回続けて止まった" "同じ投稿が 3 回止まると、続けて止まったことと持ち主に渡す道を知らせる(ちょうど 3 で発火)" \
+expect_output 0 "3 回続けて止まった" "同じ投稿が 3 回止まると、続けて止まったことと、この先の止まり方を知らせる(ちょうど 3 で発火)" \
     env COLDREAD_TEST_SESSION=streak1 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_CARRY" "$CR_POST"
 # 続けて止まったことは別の記録(stuck.log)に残す。本文は写さない(宛先の種類と止めた理由の並びだけ)
 expect_output 0 "STUCK_OK" "3 回続けて止まった投稿は stuck.log に宛先の種類と止めた理由の並びを残し、本文は写さない" \
@@ -4046,24 +4048,24 @@ body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", 
 print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
-env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
-env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST" >/dev/null 2>&1
 CR_POST_LONGER="gh issue comment 1 --body-file - <<'EOF'
 $CR_BODY
 $CR_BODY
 $CR_PAD
 EOF"
 expect_output 0 " → " "3 回続けて止まったとき、本文が増えていれば 1 回ごとの字数の数列を知らせに載せる" \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
-expect_output 0 "前の回から残った詰まり・なぞりだけが投稿を止める" "続けて止まった知らせは、この先は前の回から残った物だけで止まると言う" \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST_LONGER"
+expect_output 0 "前の回から残った詰まり・なぞりだけが投稿を止め、止める数は直すたびに減る" "続けて止まった知らせは、この先は前の回から残った物だけで止まると言う" \
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST_LONGER"
 expect_output 0 "HEAD_OK" "続けて止まった知らせは deny 理由の先頭に在る" \
     cr_reason grow1 streak-head \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST_LONGER"
 # 持ち主に通させる口は無い(持ち主 2026-10-17「人からパスを売ってもらう運用はやめて」)。知らせに持ち主の許しの番号を載せない
 expect_output 0 "NO_OWNER_PASS" "続けて止まった知らせは、持ち主に許しを打たせる道を案内しない" \
     sh -c '"$@" | grep -q "coldread-pass" && echo BAD || echo NO_OWNER_PASS' sh \
-    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY" "$CR_POST_LONGER"
+    env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST_LONGER"
 
 # 書き直しの 2 回目からは、前の回の指摘と直した差分を読み手に渡す。毎回まっさらな読み手は前の回を知らず、逆の注文を出し、
 # 前の読み手が言わなかった端の所を拾い続けた(2026-10-17 の works-factory で 5 本が 3 回止まった)
@@ -4112,8 +4114,23 @@ expect_output 0 "まだ解けていないものだけ が届いた" "3 回目の
     env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$(cr_stub_sees 'まだ解けていないものだけ')" "$CR_POST"
 env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-expect_output 0 "疑問: 詰まり: (語) 直しで足した ZZNEW" "3 回目からは、前の回の印の無い詰まりを止めずに疑問として返す" \
+expect_output 0 "検査を通過" "3 回目からは、前の回の印の無い詰まりでは止めない" \
     env COLDREAD_TEST_SESSION=carry3 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
+env COLDREAD_TEST_SESSION=carry3b "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=carry3b "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "疑問: (止めない) 詰まり: (語) 直しで足した ZZNEW" "印の無い詰まりは、疑問として書き手に返す" \
+    env COLDREAD_TEST_SESSION=carry3b "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
+# 印はラベルの直後で見る。新しい指摘が地の文で「前の回」と書いても止める側に残さない。印の後ろが「なし」なら落とす
+CR_STUB_LOOSE='cat >/dev/null; printf "詰まり: (語) 前の回の直しで足した ZZLOOSE が分からない\n詰まり: (前の回) なし\n"'
+env COLDREAD_TEST_SESSION=carry4 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=carry4 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "検査を通過" "印が地の文に在るだけの詰まりと、印の後ろが「なし」の行では止めない" \
+    env COLDREAD_TEST_SESSION=carry4 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_LOOSE" "$CR_POST"
+# 止める数は、本文を直すたびに前の回の止めた数より減る。前の回が 1 件なら、直した本文の 3 回目は印付きでも止めない
+env COLDREAD_TEST_SESSION=carry5 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+env COLDREAD_TEST_SESSION=carry5 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "検査を通過" "直した本文では、止める数が前の回の止めた数より減る(1 件なら 0 になって通る)" \
+    env COLDREAD_TEST_SESSION=carry5 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_CARRIED" "$CR_POST_FIXED"
 env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 env COLDREAD_TEST_SESSION=carry2 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "投稿を止めている詰まり" "3 回目からも、前の回から残った詰まりでは止める" \

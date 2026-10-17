@@ -1799,29 +1799,54 @@ FOLLOWUP_OPEN = """この回で「詰まり: 」「なぞり: 」として報告
 書き換えていない所で新しく気づいたことは、詰まりにもなぞりにもせず、疑問か補完として報告する(1 回目の読み手が全体を読み、詰まりに挙げなかった所)。
 """
 # CARRY_ONLY_ROUND 回目からは、前の回から残った物だけで止める。直しが新しく生んだ物も止めずに返す
-FOLLOWUP_CARRY = """この回で「詰まり: 」「なぞり: 」として報告するのは、前の回の詰まり・なぞりのうち、今の本文でまだ解けていないものだけ。
-その行は「詰まり: 」「なぞり: 」の直後に「(前の回)」と書き、どの指摘かが分かるように、前の指摘の要点を引く。
+FOLLOWUP_CARRY = """この回で「詰まり: 」「なぞり: 」として報告するのは、前の回に投稿を止めた指摘(詰まり・なぞり)のうち、今の本文でまだ解けていないものだけ。
+その行は「詰まり: 」「なぞり: 」の直後に「(前の回)」と書き、どの指摘かが分かるように、前の指摘の要点を引く。解けた指摘は書かない。前の回に止めなかった指摘(疑問など)は、ここに挙げない。
 直しで足した・書き換えた所が新しく生んだもの、書き換えていない所で新しく気づいたことは、詰まりにもなぞりにもせず、疑問か補完として報告する。
 """
 CARRY_MARK = "(前の回)"
 FOLLOWUP_DIFF_MAX = 8000   # 差分の上限(字)。超えた分は切る(本文の全体は下に在る)
 
 
-def carried_only(found):
-    """CARRY_ONLY_ROUND 回目からの仕分け。止める欄の行のうち、前の回から残った印(CARRY_MARK)の無い行を疑問に移す。
-    読み手が依頼文に従わず新しい物を止める欄に書いても、止める物は前の回から残った物を超えない(回を追って減る)。"""
+def carried_only(found, prev, changed):
+    """CARRY_ONLY_ROUND 回目からの仕分け。止める欄の行は、ラベルの直後に前の回から残った印(CARRY_MARK)が有る物だけにし、
+    ほかは疑問に移す。印の後ろが「無い」の意味だけの行は落とす。止める行の数は、本文を直していれば前の回の止めた数より
+    1 つ少ない数までにし(多い分は疑問に移す)、直していなければ前の回の数までにする。
+
+    読み手が依頼文に従わず新しい物を印付きで書いても、止める数は直すたびに減り、0 になれば通る——関門が自分で収まる
+    (持ち主 2026-10-17「ある程度出たと判断したら進む形にしよう」「人からパスを売ってもらう運用はやめて」)。
+    直さずに打ち直した本文では減らさない(打ち直すだけで通る口にしない)。"""
+    prev_found = prev.get("found", {})
+    room = sum(len(prev_found.get(label, [])) for label, stops in LABELS.items() if stops)
+    if changed:
+        room -= 1
     for label, stops in LABELS.items():
         if not stops:
             continue
-        keep = [line for line in found[label] if "前の回" in line]
-        found["疑問"] += ["疑問: " + line for line in found[label] if "前の回" not in line]
+        keep, moved = [], []
+        for line in found[label]:
+            rest = LABEL_RE.match(line)
+            rest = line[rest.end():].strip() if rest else line
+            if not rest.startswith(CARRY_MARK):
+                moved.append(line)
+            elif NONE_RE.match(rest[len(CARRY_MARK):].strip()):
+                continue
+            elif room > 0:
+                keep.append(line)
+                room -= 1
+            else:
+                moved.append(line)
+        found["疑問"] += ["疑問: (止めない) " + line for line in moved]
         found[label] = keep
     return found
 
 
 def followup_prompt(prompt, prev, body):
     """読み手の依頼文に、前の回の指摘と書き手の直しを足す(本文の始まりの印の手前に差し込む)。"""
-    findings = "\n".join(line for label in LABELS for line in prev.get("found", {}).get(label, [])) or "(記録なし)"
+    found = prev.get("found", {})
+    stopped = "\n".join(line for label, stops in LABELS.items() if stops for line in found.get(label, []))
+    kept = "\n".join(line for label, stops in LABELS.items() if not stops for line in found.get(label, []))
+    findings = ("投稿を止めた指摘(詰まり・なぞり):\n%s\n止めなかった指摘(前の回の詰まり・なぞりではない):\n%s"
+                % (stopped or "(なし)", kept or "(なし)"))
     diff = "\n".join(line for line in difflib.unified_diff(
         prev.get("body", "").splitlines(), body.splitlines(), lineterm="", n=1)
         if not line.startswith(("---", "+++")))
@@ -2236,8 +2261,10 @@ def main() -> None:
         log_line(SKIP_LOG, "refused\t" + command[:200].replace("\n", " "))
         skip_note = SKIP_REFUSED_NOTE
 
-    def stop(kind, message, length=None, fp=None):
-        """deny して終わる。同じ投稿が STUCK_MARK 回続けて止まったら、記録に残し、持ち主に渡す道と、持ち主が通す口を先頭に添える。"""
+    def stop(kind, message, length=None, fp=None, round_no=None):
+        """deny して終わる。同じ投稿が STUCK_MARK 回続けて止まったら、記録に残し、この先の止まり方を先頭に添える。
+        round_no は読み手が読んだ回(読んで止めたときだけ)。続けて止まった数(本文の近さが緩い)と回(前の回の記録を
+        引き継ぐ近さが厳しい)はずれうるので、知らせは回に合わせる。"""
         inspected = kind.startswith("finding\t")
         n, lens, kinds = deny_streak(sid, target, fp, inspected)
         n, kinds = n + 1, kinds + [kind.split("\t", 1)[0]]
@@ -2251,9 +2278,13 @@ def main() -> None:
             grown = ("。本文は %s 字と書き直された" % " → ".join("{:,}".format(x) for x in lens)
                      if len(lens) >= 2 and lens[-1] != lens[0] else "")
             message = ((
-                "【同じ投稿が %d 回続けて止まった%s】%d 回目の検査からは、前の回から残った詰まり・なぞりだけが投稿を止める"
-                "(新しく気づいた物は止めずに疑問として返る)。挙がった所だけを直して打ち直せば、止める物は回を追って減る。"
-                % (n, grown, CARRY_ONLY_ROUND)
+                ("【同じ投稿が %d 回続けて止まった%s】%d 回目の検査からは、前の回から残った詰まり・なぞりだけが投稿を止め、"
+                 "止める数は直すたびに減る(新しく気づいた物は止めずに疑問として返る)。挙がった所だけを直して打ち直す。"
+                 % (n, grown, CARRY_ONLY_ROUND)
+                 if (round_no or 0) + 1 >= CARRY_ONLY_ROUND else
+                 "【同じ投稿が %d 回続けて止まった%s】この回は前の回の記録を引き継げず(本文の半分を超えて書き換えた・"
+                 "間が 30 分を超えた・版が替わった)、%d 回目の検査として読んだ。挙がった所だけを直して打ち直すと、"
+                 "次の回から前の回の指摘を引き継ぎ、止める物が回を追って減る。" % (n, grown, round_no or 1))
                 if inspected else
                 "【同じ投稿が %d 回続けて、本文を読めずに止まった】読み手はまだ本文を読んでいない。下の理由"
                 "(本文の渡し方か、読み手の起動)を先に直す。" % n)
@@ -2375,7 +2406,7 @@ def main() -> None:
 
     found = sort_findings(out)
     if round_no >= CARRY_ONLY_ROUND:
-        found = carried_only(found)
+        found = carried_only(found, prev, body != prev.get("body"))
     blocking, questions, fills, redundant, traced = (
         found["詰まり"], found["疑問"], found["補完"], found["冗長"], found["なぞり"])
 
@@ -2410,8 +2441,10 @@ def main() -> None:
             }.get(mode, "文脈ゼロの別プロセスの読み手")
     head = (
         "外部投稿ゲート: coldreader(%s)がこの本文で詰まった(%s)。詰まりを直してから同じ形で再実行すること"
-        "(再実行時は新しい coldreader が、この回の指摘と直した差分を渡されて、指摘が解けたかと、直しが持ち込んだ物だけを見る):"
-        % (role, "%d 回目の検査。前の回の指摘が解けたかと、直しが持ち込んだ物だけを見た" % round_no if prev
+        "(再実行時は新しい coldreader が、この回の指摘と直した差分を渡されて読み、回を追って止める物を絞る):"
+        % (role, "%d 回目の検査。前の回から残った詰まり・なぞりだけで止めた(止める数は直すたびに減る)" % round_no
+                 if round_no >= CARRY_ONLY_ROUND else
+                 "%d 回目の検査。前の回の指摘が解けたかと、直しが持ち込んだ物だけを見た" % round_no if prev
                  else "1 回目の検査。本文の全体を読んだ")
     )
     # 見出しで分ける。混ぜて並べると、直さなくてよい補完・疑問が過半を占めたまま
@@ -2445,7 +2478,7 @@ def main() -> None:
          head + "\n\n" + detail[:1500]
          + "\n\n" + howto + "詳細は skill『coldread』。\n" + SCOPE_NOTE
          + ("\n" + screen_note if screen_note else ""),
-         len(body), fp)
+         len(body), fp, round_no)
 
 
 # ---- 手元の文書(書いた後に記録し、書いた役の終わりにまとめて読む) -----------------------------
