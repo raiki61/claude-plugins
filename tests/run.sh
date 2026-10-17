@@ -2343,7 +2343,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=686
+EXPECTED_CHECKS=688
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3893,13 +3893,20 @@ expect_output 0 "検査を通過" "gh api issues/N/comments は issue の題と�
 # 新しい PR・issue の読み手も本文だけを見ているのではない。GitHub が本文の周りに出す題・リポジトリ・枝・
 # 変更ファイル・本文が指す #番号 の題を渡す。渡さないと「Closes #660」まで「何の issue か分からない」で止まった
 # (2026-10-17 に実測。works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)
-CR_STUB_NEW_PR='b=$(cat); case "$b" in *"初めて開いた"*"新しい PR「F3 を足す」(o/r)"*"main ← feat"*"src/f3.py"*"#5「issue 5 の題」(?)"*"画面と本文を合わせても"*) echo CLEAN;; *) printf "詰まり: 新しい PR の画面(題・枝・変更ファイル・参照番号の題)が渡っていない\n";; esac'
+CR_STUB_NEW_PR='b=$(cat); case "$b" in *"初めて開いた"*"新しい PR「F3 を足す」(o/r)"*"main ← feat"*"src/f3.py"*"#5「issue 5 の題」(?)"*"語の意味ではない"*"画面と本文を合わせても"*) echo CLEAN;; *) printf "詰まり: 新しい PR の画面(題・枝・変更ファイル・参照番号の題)が渡っていない\n";; esac'
 expect_output 0 "検査を通過" "新しい PR は題・リポジトリ・枝・変更ファイル・本文が指す番号の題が読み手に渡る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create -R o/r --title 'F3 を足す' -H feat --body 'Closes #5
 $CR_BODY $CR_PAD'" "$CR_GH"
-expect_output 0 "検査を通過" "新しい PR の -R・-B を省いても、gh でリポジトリと既定の枝を引いて渡す" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create --title 'F3 を足す' --head=feat --body 'Closes #5
+expect_output 0 "検査を通過" "新しい PR の -R・-B を省いても、gh が走る場所でリポジトリと既定の枝を引いて渡す" \
+    env COLDREAD_TEST_CWD="$ROOT" "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create --title 'F3 を足す' --head=feat --body 'Closes #5
 $CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "新しい PR の旗は短縮形・つないだ形でも読み、本文の値が「-t」で始まっても題に読まない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create -R o/r -t 'F3 を足す' -Bmain -H feat --body '-t 偽の題 Closes #5
+$CR_BODY $CR_PAD'" "$CR_GH"
+# 前の cd で gh の走る場所が変わるなら、フックの場所でリポジトリを引かない(別の枝の中身を画面として渡さない)
+CR_STUB_NEW_ELSEWHERE='b=$(cat); case "$b" in *"新しい PR「F3 を足す」(このリポジトリ)"*) echo CLEAN;; *) printf "詰まり: cd した先でなくフックの場所のリポジトリを画面に出した\n";; esac'
+expect_output 0 "検査を通過" "cd で場所を変えた gh pr create は、フックの場所のリポジトリと枝を画面に出さない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_ELSEWHERE" "cd sub && gh pr create --title 'F3 を足す' --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_NEW_ISSUE='b=$(cat); case "$b" in *"この issue を初めて開いた"*"新しい issue「t」(o/r)"*"#5「issue 5 の題」"*) case "$b" in *"取り込む先 ← 元の枝"*|*"PR"*) printf "詰まり: issue に PR の枝か呼び名が載った\n";; *) echo CLEAN;; esac;; *) printf "詰まり: 新しい issue の画面が渡っていない\n";; esac'
 expect_output 0 "検査を通過" "新しい issue は題・リポジトリ・本文が指す番号の題が読み手に渡る(枝は載せない)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_ISSUE" "gh issue create -R o/r --title t --body '#5 の続き $CR_BODY $CR_PAD'" "$CR_GH"

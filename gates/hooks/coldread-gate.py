@@ -1207,22 +1207,23 @@ def read_body_file(path):
 
 
 class Analysis:
-    """コマンド 1 本の解析の結果。calls は gh 呼び出しごとの (サブコマンド, 引数列, 本文候補, 止めた理由)。"""
+    """コマンド 1 本の解析の結果。calls は gh 呼び出しごとの (サブコマンド, 引数列, 本文候補, 止めた理由, cwd)。
+    cwd はその gh が走る場所(前の cd を読んだもの。決まらなければ None)。"""
 
     def __init__(self, parsed, candidates=(), blocked=(), calls=(), misses=()):
         self.parsed, self.candidates, self.blocked = parsed, list(candidates), list(blocked)
         self.calls, self.misses = list(calls), list(misses)
 
     def call_of(self, body=None):
-        """body を運んだ呼び出し(無ければ止めた呼び出し)の (サブコマンド, 引数列)。無ければ (None, [])。"""
-        for sub, args, cands, blk in self.calls:
+        """body を運んだ呼び出し(無ければ止めた呼び出し)の (サブコマンド, 引数列, cwd)。無ければ (None, [], None)。"""
+        for sub, args, cands, blk, cwd in self.calls:
             if (body is not None and body in cands) or (body is None and (blk or cands)):
-                return sub, args
-        return None, []
+                return sub, args, cwd
+        return None, [], None
 
     def target_of(self, body=None):
         """log に残す投稿先と、画面を取る投稿先 (ラベル, dest)。"""
-        sub, args = self.call_of(body)
+        sub, args, _ = self.call_of(body)
         if sub is None and not args:
             return "-", None
         dest = destination(args, sub) if sub else None
@@ -1254,9 +1255,10 @@ def analyze(command, cwd=None):
         args = gh_args(c.args)
         cands, blk, sub = [], [], None
         if args is not None:
-            cands, blk = classify(args, heredoc_bodies, live, files.at(k, c.args[:len(c.args) - len(args) - 1]), live_var)
+            here = files.at(k, c.args[:len(c.args) - len(args) - 1])
+            cands, blk = classify(args, heredoc_bodies, live, here, live_var)
             sub = subcommand(args)
-            out.calls.append((sub, args, cands, blk))
+            out.calls.append((sub, args, cands, blk, here.cwd_here()))
             out.candidates.extend(cands)
             out.blocked.extend(blk)
         # 素通しの理由が「投稿でない」なのか「網から落ちた」なのかを後から数える。本文旗の綴りが単純コマンドに
@@ -1322,6 +1324,11 @@ PR_THREAD_SUBS = {("pr", "comment"), ("pr", "review"), ("pr", "close"), ("pr", "
 ISSUE_THREAD_SUBS = {("issue", "comment"), ("issue", "close"), ("issue", "reopen"), ("issue", "edit")}
 # 新しく作るもので、GitHub が本文の周りに題などを出すもの(new_item_screen)。値は読み手に示す呼び名
 NEW_ITEM_SUBS = {("pr", "create"): "PR", ("issue", "create"): "issue"}
+# その 2 つの旗のうち値を取るもの(gh 2.x の `gh pr create --help`・`gh issue create --help`)。短縮形 → 長い形。
+# 値を値として読み飛ばさないと、本文や題の値が「-t…」で始まるだけで別の旗に読める
+CREATE_VALUE_FLAGS = {"-a": "--assignee", "-B": "--base", "-b": "--body", "-F": "--body-file", "-H": "--head",
+                      "-l": "--label", "-m": "--milestone", "-p": "--project", "-r": "--reviewer",
+                      "-T": "--template", "-t": "--title", "-R": "--repo", "--recover": "--recover"}
 
 
 class BudgetExhausted(RuntimeError):
@@ -1596,30 +1603,59 @@ def screen_for(dest, cwd, body=""):
                     referenced_lines(g, where, nums) if where else [])
 
 
+def create_flags(args, sub):
+    """gh pr/issue create の旗を {長い形: 値} に読む。値を取らない旗は True。サブコマンド語より後ろだけを見る。"""
+    out, longs = {}, set(CREATE_VALUE_FLAGS.values())
+    i = args.index(sub[1]) + 1 if sub[1] in args else len(args)
+    while i < len(args):
+        tok = args[i]
+        name, _, val = tok.partition("=") if tok.startswith("--") else (tok, "", "")
+        if tok in CREATE_VALUE_FLAGS or tok in longs:
+            if i + 1 < len(args):
+                out[CREATE_VALUE_FLAGS.get(tok, tok)] = args[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--") and "=" in tok:
+            out[name] = val
+        elif tok.startswith("-") and not tok.startswith("--") and tok[:2] in CREATE_VALUE_FLAGS:
+            val = tok[2:]
+            out[CREATE_VALUE_FLAGS[tok[:2]]] = val[1:] if val.startswith("=") else val
+        elif tok.startswith("-"):
+            out[tok] = True
+        i += 1
+    return out
+
+
 def new_item_screen(sub, args, cwd, body):
     """新しく作る PR/issue を開いた読み手に、GitHub が本文の周りに出すものを返す (画面の文, 取れなかった物)。
     題・-R・-B・-H はコマンドから読み、省かれた分(リポジトリ・既定の枝・今の枝)は gh と git で引く。
+    cwd はその gh が走る場所で、決まらない(None)ときは cwd に頼る引き方(リポジトリ・今の枝)をしない——
+    `cd 別の場所 && gh pr create` で、フックの場所の枝の中身を画面として渡さないため。
     1 つ取れなくても残りで組む。何も組めなければ画面は None(文脈ゼロで読む)。"""
     g = Screen(cwd)
     missed = []
-    title, repo = flag_value(args, "-t", "--title"), repo_flag(args)
+    flags = create_flags(args, sub)
+    title, repo = flags.get("--title"), flags.get("--repo")
     default_branch = None
     try:
+        if not (repo or g.cwd):
+            raise RuntimeError("gh が走る場所が分からない")
         info = g.json(["repo", "view"] + ([repo] if repo else []) + ["--json", "nameWithOwner,defaultBranchRef"])
         repo = info.get("nameWithOwner") or repo
         default_branch = (info.get("defaultBranchRef") or {}).get("name")
     except Exception:
         if not repo:
             missed.append("リポジトリ")
-    draft = sub == ("pr", "create") and any(t in ("-d", "--draft") for t in args)
+    draft = sub == ("pr", "create") and ("-d" in flags or "--draft" in flags)
     lines = ["新しい %s%s(%s%s)" % (NEW_ITEM_SUBS[sub], "「%s」" % title if title else "",
                                   repo or "このリポジトリ", "、draft" if draft else "")]
     if sub == ("pr", "create"):
-        base = flag_value(args, "-B", "--base") or default_branch
-        head = flag_value(args, "-H", "--head")
+        base = flags.get("--base") or default_branch
+        head = flags.get("--head")
         if not head and g.cwd:
             out = _git(["rev-parse", "--abbrev-ref", "HEAD"], g.cwd)
             head = out.decode("utf-8", "replace").strip() if out else None
+            head = None if head == "HEAD" else head  # 枝の無い状態(detached)では gh も枝を決められない
         if base and head:
             lines.append("[取り込む先 ← 元の枝] %s ← %s" % (base, head))
         try:
@@ -1682,6 +1718,7 @@ NEW_PROMPT = """あなたはこの {noun} を初めて開いた読者です。�
 
 以下の「本文」を読み、理解を実際に妨げた事実だけを報告してください。
 画面に見えているもの({items})は「何を指しているか分かっている」ものとして読み、本文で説明されていなくても詰まりにしない。
+画面が分からせるのは何を指しているかであって、語の意味ではない。画面の題に有る語でも、本文がそれを自分の言葉として使い、画面と本文を合わせても意味が取れなければ詰まりにする。
 
 """ + _COLD_VIEWS % "画面と本文を合わせても"
 # 読み手が画面で見ているものの列挙。依頼文(既知の範囲)と deny の直し方(説明しないもの)の両方がこれを使う
@@ -2135,7 +2172,7 @@ def main() -> None:
         stop("cap\t%d" % len(body), "外部投稿ゲート: この投稿は既に往復の上限に当たっている。", len(body), fp)
 
     screen, screen_error, screen_note = None, None, ""
-    sub, sub_args = analysis.call_of(body)
+    sub, sub_args, sub_cwd = analysis.call_of(body)
     noun = NEW_ITEM_SUBS.get(sub) if dest is None else None
     if dest is not None:
         try:
@@ -2150,7 +2187,7 @@ def main() -> None:
     elif noun:
         # 新しい PR/issue。画面を組む途中の失敗で門番を落とさない(落ちると無検査で通る)
         try:
-            screen, missed = new_item_screen(sub, sub_args, cwd or "", body)
+            screen, missed = new_item_screen(sub, sub_args, sub_cwd, body)
         except Exception as exc:
             missed = ["画面の全部(%s)" % str(exc)[:80]]
         if missed:
