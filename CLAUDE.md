@@ -50,4 +50,5 @@
 
 - プロセスを止める時は pkill -f の広い形を使わず、pid と cwd を確かめて止める。
 - サブエージェントは opus を明示する。web から集めてまとめる所だけは sonnet などの安いモデルでもよい（持ち主 2026-09-29。works/docs/owner-decisions.md の「食い違いと解き方」）。
+  - ただし、会社の形（`.claude/company.toml`）で役のモデルを下げた部署（今は試し）では、手を動かすサブエージェントにモデルを指定せず、会話のモデルを継がせる。決まった手順の仕事だから下げた部署で、中の手だけ Opus にすると費用の半分ほどが Opus に残る（docs/model-replay.md の再演で 47%）。書いた物を照らす見直しの目（inspector・初見の読み手など）は書いた側と別のモデルにする決まりなので、定義の側のモデルのまま使う（2026-10-17。根拠は my_notes の AGENTS.md の「モデル」と、https://claude.com/blog/claude-model-and-effort-level-in-claude-code の "Pick a smaller model when the work is routine."）。
 - 試しの `claude -p` は、部署の作業場（`git config --worktree` に `company.role` が有る worktree）で起こさない。そこで起こすと works-dispatch のフックが部署の役の本文を足し、試しの会話が本物の役として動く。一時の worktree を切り、その中で `git config --worktree --remove-section company` を打って属性を消し（元の作業場では打たない）、`--settings '{"disableAllHooks":true}' --max-turns 1` を付けて起こす（`git worktree add` は元の作業場の `config.worktree` を写すので、切ったばかりの worktree にも属性が載っている）。本社（代表の clone）は機械で防いである（works-dispatch 0.35.2。名前〔`claude --name`〕の無い会話には役の本文を足さず、動いている窓口の席を `--desk` で取らせない。2026-10-17 に my_notes の本社で試しが窓口として動いたのを受けた直し）ので、本社では起こしてよい。
