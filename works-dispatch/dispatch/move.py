@@ -9,20 +9,26 @@
 - 部署（裏の会話。claude --bg）: 窓の attach の画面をシェルに戻し（launch.to_shell）、前の会話を claude stop で止め、--task と同じ道
   （dispatch._task）で同じ名前・枝・役の会話を、移る先のアカウントで起こす。頼み元の属性（company.boss など）はそのまま残す。
 - 本社の窓口（持ち主の前で動く会話。--desk で名付けた物）: 窓口の窓に /exit を打って前の会話を終え、同じペインで
-  `<移る先のコマンド> --name <窓口の名前> [--settings <役の設定のファイル>] <最初の文>` を打つ。窓口の役に起動の設定（会社の形の
-  [roles.settings]）が有れば、代表の clone の .git の場所に書いて --settings で渡す（--task が部署に渡すのと同じ設定。部署だけの鍵は重ねない）。起きた会話は窓口の席に座り（前の会話が終わっていて、名前が窓口の名前なので、
-  会話の始まりのフックが役の本文を足す）、最初の文のとおり --desk を打って属性を自分に付け替える。
+  `<移る先のコマンド> --name <窓口の名前> [--model …] [--effort …] [--settings <役の設定のファイル>] <最初の文>` を打つ。窓口の役に
+  起動の設定（会社の形の [roles.settings]）が有れば、代表の clone の .git の場所に書いて --settings で渡す（--task が部署に渡すのと
+  同じ設定。部署だけの鍵は重ねない）。model・effort は役の値（effort の inherit は旗を付けない）。起こした値は属性 company.launched に
+  書き、company.launching を付ける（起きた会話の --desk が launching を外し、launched を残す）。起きた会話は窓口の席に座り（前の会話が
+  終わっていて、名前が窓口の名前なので、会話の始まりのフックが役の本文を足す）、最初の文のとおり --desk を打って属性を自分に付け替える。
+  窓口の会話が番の途中（herdr の状態が working か blocked）か、窓の入力欄に字が在るときは /exit を打たない（番の途中に打った /exit は
+  番の終わりまで待ちの列に回り、起こし直さずに止まった後で効いて、窓口が消えたままになりうる。窓口が自分の番の中で打った --move）。
 
 --if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達していなければ
 （一時の混み合いの rate_limit）、移さずに終わる。移したことは会社の受付箱の台帳に kind moved で残す。
 
---if-changed は、毎回空にする部署（役が fresh）の待ち受け（wake_hook.py）が、次の頼みを渡す前に付ける（6bdc72）。/clear は会話を
-空にしても起こしたときの --model・--effort を残すので、会社の形の model・effort を替えても、立っている部署には起こし直すまで効かない。
+--if-changed は、待ち受け（wake_hook.py）が付ける。毎回空にする部署（役が fresh）では次の頼みを渡す前（6bdc72）、会話を持ち越す
+部署と本社の窓口では、会話が自分で区切りと印した（--rest）番の終わりに、/clear の代わりに走らせる。/clear は会話を空にしても
+起こしたときの --model・--effort・--settings を残すので、会社の形の起動の設定を替えても、立っている会話には起こし直すまで効かない。
 会話の中で /model を打つと、そのアカウントの新しい会話の既定まで替わる（持ち主の会話にも効く）ので打たない。会社の形の今の値
 （role.launch_key。origin の既定の枝を取り直してから読む）が、起こしたときの値（属性 company.launched）と違えば起こし直す。
 アカウントは、今のアカウントの使用率が上限に届かなければ同じアカウント、届けば空いているほかの物。どれも無ければ起こし直さない。
-会話を持ち越す部署と本社の窓口は起こし直さない（持ち主と話す会話の流れを切らない）。前の会話を止めたら、待ち受けが付けた印
-（属性 company.restarting）を外す。待ち受けは --if-changed が終わるのを待ち、印が残っていれば（前の会話を止めずに終わった）、
+区切りの印の無い、会話を持ち越す部署と窓口は起こし直さない（持ち主と話している途中の会話を切らない。区切りの印は、人がその
+会話に打つと外れる）。区切りで起こし直しても、/clear で空にするのと比べて失う物は無い。前の会話を止めたら、待ち受けが付けた印
+（属性 company.restarting）と区切りの印を外す。待ち受けは --if-changed が終わるのを待ち、印が残っていれば（前の会話を止めずに終わった）、
 頼みを前の会話に渡す（wake_hook.restart_first）。
 """
 
@@ -43,12 +49,13 @@ from nodes import wake  # noqa: E402
 
 RESIDENT = "resident"
 LIMITED = "使用上限に当たった"   # 台帳の why（--if-limited で移したとき）
-CHANGED = "会社の形の model・effort が替わった"   # 台帳の why（--if-changed で起こし直したとき）
+CHANGED = "会社の形の起動の設定（model・effort・settings）が替わった"   # 台帳の why（--if-changed で起こし直したとき）
 NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起こした）は、旗なしで起こしたと見る
 # 起こし直しても残す頼み元の属性（--task が呼んだ会話で書き直す物）
 KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 # 前の裏の会話が止まったのを会話の一覧で見る回数（1 回ごとに ports.pause）
 STOP_LOOKS = 20
+BUSY = ("working", "blocked")   # herdr が会話が番の途中（動いている・確かめの画面で待つ）と見る状態。/exit を打たない
 
 
 def move(a, ports, cwd, task):
@@ -95,7 +102,8 @@ def move(a, ports, cwd, task):
             print("\n".join(notes + [f"止めた: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かないアカウントが無い）"]))
             return 2
     if chosen == old:
-        print(f"止めた: {a.move} はもうアカウント {old} で動いている")
+        print(f"止めた: {a.move} はもうアカウント {old} で動いている（会社の形の起動の設定を効かせるだけなら、その会話が区切りで "
+              "--rest を打てば、番の終わりに待ち受けが同じアカウントで起こし直す）")
         return 2
     head = bool(dept.get("head_office"))
     where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
@@ -126,15 +134,17 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
 
 
 def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
-    """--if-changed。毎回空にする部署を、会社の形の model・effort が起こしたときと違えば起こし直す。終了の値。"""
+    """--if-changed。毎回空にする部署か、区切りと印した（--rest）部署・窓口を、会社の形の起動の設定が起こしたときと違えば
+    起こし直す。終了の値。"""
     attrs = dept["attrs"]
     where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
     if a.if_limited or a.account:
         print("止めた: --if-changed は --if-limited・--account と一緒に使わない（アカウントは今の物を先に選ぶ）")
         return 2
-    if dept.get("head_office") or attrs.get("fresh") != role.FRESH:
-        print("\n".join(notes + [f"止めた: {where} は毎回空にする部署でない（会話を持ち越す部署と窓口は、話の流れを切らないよう"
-                                 "起こし直さない）"]))
+    head = bool(dept.get("head_office"))
+    if not attrs.get(wake.REST) and (head or attrs.get("fresh") != role.FRESH):
+        print("\n".join(notes + [f"止めた: {where} は毎回空にする部署でなく、区切りの印（--rest）も無い（会話を持ち越す部署と窓口は、"
+                                 "話の流れを切らないよう、区切りの番の終わりにだけ起こし直す）"]))
         return 2
     if cfg is None:
         print("\n".join(notes + ["止めた: 起こし直すには、読める dispatch の設定が要る（アカウントと使用率の上限を読む）"]))
@@ -146,7 +156,7 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
         print("\n".join(notes + [f"起こし直さない: {where} の会社の形を読めない（役が無いか、読めない所がある）"]))
         return 0
     if now_key == (attrs.get(wake.LAUNCHED) or NO_FLAGS):
-        print("\n".join(notes + [f"起こし直さない: {where} の model・effort は起こしたときと同じ（{now_key}）"]))
+        print("\n".join(notes + [f"起こし直さない: {where} の起動の設定は起こしたときと同じ（{now_key}）"]))
         return 0
     old = attrs.get("account")
     metered = [x.name for x in cfg.accounts if x.limits]
@@ -157,14 +167,14 @@ def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
     roomy = [r["name"] for r in ranked if r["eligible"]]
     if not roomy:
         # 上限に達したアカウントで起こすと、--task が起こさずに終わり、前の会話だけが止まる。前の会話に渡させる
-        print("\n".join(notes + [f"起こし直さない: 使用率が上限に届かないアカウントが無い（{where} は前の model・effort のまま受ける）"]))
+        print("\n".join(notes + [f"起こし直さない: 使用率が上限に届かないアカウントが無い（{where} は前の起動の設定のまま続ける）"]))
         return 0
     chosen = old if old in roomy else roomy[0]
     if a.dry_run:
-        print("\n".join(notes + [f"部署 {where} をアカウント {chosen} で起こし直す（{CHANGED}: "
+        print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {chosen} で起こし直す（{CHANGED}: "
                                  f"{attrs.get(wake.LAUNCHED) or NO_FLAGS} → {now_key}）"]))
         return 0
-    return _relaunch(a, ports, task, cfg, company, dept, chosen, CHANGED, False, settings, notes)
+    return _relaunch(a, ports, task, cfg, company, dept, chosen, CHANGED, head, settings, notes)
 
 
 def _first_text(attrs, dept, old, chosen, why, head):
@@ -210,7 +220,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
     # 終えていれば、空にした印も書く（起こし直した会話は空なので、最初の文の番の終わりに /clear を打たない）
     ask = attrs.get("ask")
     done = ask and attrs.get("delivered") == ask and attrs.get("fresh") == role.FRESH
-    provision.mark(dept["path"], company["root"], {"session": None, "job": None, wake.RESTARTING: None, wake.RESTART_KEPT: None,
+    provision.mark(dept["path"], company["root"], {"session": None, "job": None, wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None,
                                                    **({"cleared": ask} if done else {})}, ports.git)
     brief = os.path.join(ports.git.git_dir(dept["path"]), "move-brief.md")
     pathlib.Path(brief).write_text(text + "\n", encoding="utf-8")
@@ -232,13 +242,31 @@ def _move_desk(company, dept, acc, text, ports, settings):
     pane = next((p["pane_id"] for p in dept["panes"] if sid and p.get("agent_session") == sid), None)
     if pane is None:
         return 1, "窓口の会話の居るペインが分からない（属性の会話 company.session の居るペインが無い）"
+    try:
+        status = (ports.herdr.agent(pane) or {}).get("agent_status")
+        box = deliver.input_box(ports.herdr.read(pane, 40))
+    except herdr.HerdrError as e:
+        return 1, f"窓口の窓 {pane} を読めない（{e}）"
+    if status in BUSY:
+        return 1, (f"窓口の会話が番の途中（{status or '-'}）なので /exit を打たない（窓口の会話の中から打ったなら、区切りで --rest を"
+                   "打てば番の終わりに待ち受けが起こし直す。アカウントを移すなら、番を終えてから会話の外で打つ）")
+    if box and box.lstrip("❯").strip():
+        return 1, f"窓口の窓 {pane} の入力欄に字が在るので /exit を打たない（持ち主が打ちかけの字を消さない）"
     the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
     warn = None
     try:
         conf = role.write_desk_settings(ports.git.git_dir(company["root"]), the_role)
     except (gitx.GitError, OSError, TypeError) as e:
         conf, warn = None, f"役 {attrs.get('role')} の設定を書けなかったので、役の設定なしで起こした（{e}）"
+    model, effort = role.launch_spec(the_role)
+    effort = None if effort == role.INHERIT else effort   # 窓口には引き継ぐ呼んだ会話が無い
     if not deliver.exit_talk(pane, ports.herdr, ports.pause):
         return 1, f"窓口の窓 {pane} に /exit を打ったが、シェルに戻らない"
-    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.herdr, settings=conf)
-    return (0, warn) if got["status"] == "ready" else (1, got["detail"] or got["status"])
+    # 前の会話は終わった。起こす値を書き（設定を書けなければ、起こした値を知らないと見る）、待ち受けと区切りの印を外す
+    provision.mark(company["root"], company["root"], {wake.LAUNCHED: None if warn else role.launch_key(the_role), wake.LAUNCHING: "1",
+                                                      wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None}, ports.git)
+    got = launch.start_named(acc.command, pane, attrs.get("name") or "窓口", text, ports.herdr, settings=conf, model=model, effort=effort)
+    if got["status"] == "ready":
+        return 0, warn
+    provision.mark(company["root"], company["root"], {wake.LAUNCHED: None, wake.LAUNCHING: None}, ports.git)
+    return 1, got["detail"] or got["status"]

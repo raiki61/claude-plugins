@@ -264,10 +264,13 @@ def launch_spec(role, duty=None):
 
 
 def launch_key(role, duty=None):
-    """部署の属性 company.launched に書く字（起こしたときの launch_spec）。毎回空にする部署の待ち受けが、会社の形の今の値と比べ、
-    違えば頼みを渡す前に起こし直す（--move --if-changed）。"""
+    """部署と窓口の属性 company.launched に書く字（起こしたときの launch_spec と、役の起動の設定 [roles.settings]）。待ち受けが
+    会社の形の今の値と比べ、違えば起こし直す（--move --if-changed。毎回空にする部署は次の頼みを渡す前、ほかは区切り〔--rest〕の
+    番の終わり）。役に設定が無ければ settings の欄を書かない（設定の欄の無かった版で起こした部署を、違うと見て起こし直さない）。"""
     model, effort = launch_spec(role, duty)
-    return json.dumps({"model": model, "effort": effort}, ensure_ascii=False, sort_keys=True)
+    settings = (role or {}).get("settings")
+    return json.dumps({"model": model, "effort": effort, **({"settings": settings} if settings else {})}, ensure_ascii=False,
+                      sort_keys=True)
 
 
 def launch_flags(role, env, duty=None):

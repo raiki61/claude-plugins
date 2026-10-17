@@ -7,6 +7,8 @@
   間を置いて空にするのを試し直す（会話が前の会話の中身で次の頼みを書き直さない）。
   会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）番の終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
+  区切りの番の終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起こしたとき（属性 company.launched）と違えば、
+  /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起こし直す（空にするのと失う物は同じ。持ち主の手で起こし直さない）。
   都度の部署が終わりと印した（--done。属性 company.finished）番の終わりには、印を外して dispatch.py --retire <部署> を会話から
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
@@ -181,14 +183,16 @@ def must_clear(payload, attrs):
     return not (payload.get("hook_event_name") == "SessionStart" and payload.get("source") in EMPTY_STARTS)
 
 
-def restart_due(got, payload, attrs, key_of=role_hook.launch_key):
-    """毎回空にする部署が次の頼みを受ける前に、起こし直すか。起こし直すなら会社の形の今の値（role.launch_key の字）、ほかは None。
-    /clear は起こしたときの --model・--effort を残すので、会社の形の model・effort を替えたら、空にするのでなく起こし直す（6bdc72）。
-    裏の処理が残る・順番待ちが空・今の値が起こしたとき（company.launched）か、前に起こし直さなかった値（company.restart-kept）と
+def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False):
+    """毎回空にする部署が次の頼みを受ける前に（at_rest なら、会話を持ち越す部署か窓口が区切り〔--rest〕の番の終わりに）、起こし直すか。
+    起こし直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起こしたときの --model・--effort・--settings を
+    残すので、会社の形の起動の設定を替えたら、空にするのでなく起こし直す（6bdc72）。
+    裏の処理が残る・（at_rest でなければ）順番待ちが空・今の値が起こしたとき（company.launched）か、前に起こし直さなかった値（company.restart-kept）と
     同じ・会社の形を読めない・この会話の起こし直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
     替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）ときは起こし直さない。"""
-    if (attrs.get("fresh") != role.FRESH or payload.get("background_tasks") or not (attrs.get("job") or attrs.get("session"))
-            or attrs.get(wake.RESTARTING) == got["session"] or not wake.queued(got["inbox"], got["place"])):
+    if (not at_rest and (attrs.get("fresh") != role.FRESH or not wake.queued(got["inbox"], got["place"]))
+            or payload.get("background_tasks") or not (attrs.get("job") or attrs.get("session"))
+            or attrs.get(wake.RESTARTING) == got["session"]):
         return None
     try:
         key = key_of(got["cwd"], attrs)
@@ -255,11 +259,15 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
                                            "session": got["session"], "detail": f"前の会話を空にできないので渡さずに待つ（{why[0]}）"})
             return wake.HOLD
-        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me):
-            return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
+        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST):
+            key = restart_due(got, payload, attrs, key_of, at_rest=True)
+            if key and restart(got, key):
+                return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起こし直した。起こし直した会話の待ち受けが、次を渡す
+            if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me):
+                return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
         key = restart_due(got, payload, attrs, key_of)
         if key and restart(got, key):
-            return "end", None   # 会社の形の model・effort が替わったので起こし直した。起こし直した会話の待ち受けが、次を渡す
+            return "end", None   # 会社の形の起動の設定が替わったので起こし直した。起こし直した会話の待ち受けが、次を渡す
         item = wake.take(got["inbox"], got["place"])
         if item is None:
             return None

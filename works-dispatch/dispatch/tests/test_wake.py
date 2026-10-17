@@ -452,6 +452,28 @@ class Hook(unittest.TestCase):
         self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))   # 印は 1 度で外れる
         self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)   # 次は空にした後の会話に渡す
 
+    def test_a_break_restarts_the_talk_instead_of_clearing_it_when_the_shape_changed_its_launch(self):
+        # 窓口の役の起動の設定を替えたら、区切りの番の終わりに /clear でなく起こし直す（順番待ちが空でも。持ち主の手で起こし直さない）
+        opus = role.launch_key({"model": "opus"})
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        stop = {"hook_event_name": "Stop", "session_id": "s1"}
+        got = self.plan()
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus, at_rest=True), opus)
+        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: opus))   # 区切りでなければ持ち越す
+        self.assertIsNone(wake_hook.restart_due(got, stop, attrs, key_of=lambda cwd, a: role.launch_key(None), at_rest=True))
+        tried, w = [], Window(self.place)
+        check = wake_hook.checker(got, stop, h=w, now=lambda: 5, me=lambda: ME,
+                                  restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: opus)
+        self.assertEqual(check(), ("end", None))
+        self.assertEqual((tried, w.writes), ([opus], []))
+        w = self.emptied()   # 起こし直せなければ、前と同じく /clear で空にする
+        check = wake_hook.checker(got, stop, h=w, now=lambda: 5, me=lambda: ME, restart=lambda got_, key: False,
+                                  key_of=lambda cwd, a: opus)
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(check(), ("end", None))
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+
     def test_a_break_is_not_cleared_with_an_open_ask_typed_text_or_outside_stop(self):
         provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
         for payload, window in (({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ")),   # 持ち主が打っている途中

@@ -107,7 +107,7 @@ class Move(unittest.TestCase):
         self.assertEqual(self.stopped, [("c1", "d")])
         (got,) = seen
         self.assertEqual(got["ns"].only_account, "a1")   # 空きがあれば同じアカウントで
-        self.assertIn("会社の形の model・effort が替わった", got["brief"])
+        self.assertIn(move.CHANGED, got["brief"])
         self.assertIn("受けている頼みは無い", got["brief"])
         self.assertIsNone(got["tail"])
         # 前の会話を止めたら待ち受けの印を外す。起こし直した会話は空なので、空にした印も書く
@@ -135,7 +135,7 @@ class Move(unittest.TestCase):
             provision.mark(self.place, self.src, {"fresh": None}, gitx)
             rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
             self.assertEqual(rc, 2, out)
-            self.assertIn("毎回空にする部署でない", out)
+            self.assertIn("区切りの印（--rest）も無い", out)
         self.assertEqual((seen, self.stopped), ([], []))
 
     def test_the_desk_exits_and_starts_again_named_in_the_same_pane(self):
@@ -166,6 +166,56 @@ class Move(unittest.TestCase):
         self.assertRegex(run[2], r"^claude-a2 --name '窓口' --settings \S*company-settings.json '.*--desk 窓口")
         self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
 
+
+    def desk_world(self, **more):
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "account": "a1", **more}, gitx)
+        for p in self.ports.herdr._panes:
+            if p["pane_id"] == self.desk:
+                p["agent_session"] = {"value": "s-desk"}
+        self.ports.herdr.talking.add(self.desk)
+
+    def test_if_changed_restarts_the_desk_at_its_rest_with_the_settings_model_and_effort_of_its_role(self):
+        # 窓口の役の起動の設定を替えたら、区切り（--rest）の番の終わりに、同じアカウントで起こし直す（持ち主の手で起こし直さない）
+        test_deliver.Flow.shape(self, '[[roles]]\nname = "窓口"\nmodel = "opus"\neffort = "high"\n'
+                                      '[roles.settings]\nenabledPlugins = { "works@m" = false }\n')
+        self.desk_world(**{wake.RESTARTING: "s-desk"})
+        rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
+        self.assertEqual(rc, 2, out)   # 区切りの印が無い間は起こし直さない（持ち主と話している途中の会話を切らない）
+        self.assertIn("区切りの印（--rest）も無い", out)
+        self.assertFalse([w for w in self.ports.herdr.writes if w[1] == self.desk])
+        provision.mark(self.src, self.src, {wake.REST: "s-desk"}, gitx)
+        rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
+        self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
+        self.assertRegex(writes[1][2], r"^claude-a1 --name '窓口' --model opus --effort high --settings \S*company-settings.json '.*--desk 窓口")
+        attrs = gitx.worktree_attrs(self.src)
+        shape = role.load(os.path.join(self.src, ".claude", "company.toml"),
+                          pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8"))
+        self.assertEqual(attrs.get("launched"), role.launch_key(shape["roles"]["窓口"]))
+        self.assertEqual(attrs.get(wake.LAUNCHING), "1")   # 起きた会話の --desk が外す
+        for k in (wake.REST, wake.RESTARTING):
+            self.assertNotIn(k, attrs)
+        # 起こした値と同じなら、区切りでも起こし直さない（待ち受けは /clear で空にする）
+        provision.mark(self.src, self.src, {wake.REST: "s-desk"}, gitx)
+        rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("起こし直さない", out)
+
+    def test_the_desk_is_not_exited_in_the_middle_of_its_turn_or_over_typed_text(self):
+        # 番の途中に打った /exit は番の終わりまで待ちの列に回り、起こし直さずに止まった後で効いて、窓口が消えたままになりうる
+        self.desk_world()
+        h = self.ports.herdr
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("番の途中", out)
+        h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
+        h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
+        rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("入力欄に字が在る", out)
+        self.assertFalse([w for w in h.writes if w[1] == self.desk and w[0] in ("prompt", "run")])
 
 class LimitHook(unittest.TestCase):
     Flow = test_deliver.Flow

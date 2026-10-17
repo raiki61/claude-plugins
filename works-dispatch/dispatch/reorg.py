@@ -15,6 +15,9 @@ desk_role、本社が今持つ役、DESK_ROLE の順に決め、名前を省け�
 会話の名前（Claude Code の /rename）は外から替える口が無いので替えず、会話の中で打つ /rename を出す。
 --desk は、窓口の役に起動の設定（会社の形の [roles.settings]）が有れば、代表の clone の .git の場所に書き、その設定で窓口の会話を
 起こす命令（`<アカウントのコマンド> --name <窓口の名前> --settings <ファイル>`）を出す。持ち主が手で起こす窓口に設定を届ける口。
+--desk を打った会話が --move の起こした会話（company.launching）なら、--move が書いた起こした値（company.launched）を残し、ほかの
+新しい会話なら消す（起こした値を知らないので旗なしで起こしたと見て、会社の形と違えば区切り〔--rest〕の番の終わりに待ち受けが
+起こし直す）。
 """
 
 import json
@@ -24,7 +27,7 @@ import config
 import gitx
 import herdr
 import orders
-from nodes import launch, provision, role, sync, tree
+from nodes import launch, provision, role, sync, tree, wake
 
 DESK_ROLE = "窓口"   # 会社の形に desk_role も本社の役も無いときの、本社の会話の役（持ち主 2026-10-16）
 
@@ -115,8 +118,8 @@ def _launch_line(a, ports, source, shape, the_role, name, command):
             + ("（空打ちなので書いていない）" if a.dry_run else f"ので {path} に書いた")
             + "。窓口の会話を手で起こすときは、次の命令で起こす（--move はこの設定で起こす）: "
             f"{command} --name {launch._quote(name, posix)} --settings {launch._quote(path, posix)}",
-            "この会話がこの設定で起きていなければ、/exit してから上の命令で起こし直し、起きた会話から --desk を打つ"
-            "（会社の形の設定を替えたら、--desk を打ち直すとファイルを書き直す）"]
+            "この会話を --move が起こしたのでなければ、起こした設定を機械は知らないので、この会話が区切り（--rest）を印した番の"
+            "終わりに、待ち受けがこの設定で起こし直す（持ち主の手は要らない。会社の形の設定を替えたときも同じ）"]
 
 
 def _shape(source, a):
@@ -229,6 +232,8 @@ def desk(a, ports, cwd):
                                      "がまだ動いている。席を移すなら、先にその会話を終える（/exit）"]))
             return 2
         changes.update({"account": account, "session": session, "pid": str(pid) if pid else None})
+        if session != attrs.get("session"):
+            changes.update({wake.LAUNCHING: None, **({} if attrs.get(wake.LAUNCHING) else {wake.LAUNCHED: None})})
     former = _renamed(attrs, name)
     if former:
         changes["former-names"] = former

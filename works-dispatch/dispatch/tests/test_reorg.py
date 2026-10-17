@@ -12,7 +12,7 @@ from .test_dispatch import FakePorts, gitx_source, make_cfg, run_main
 from .test_provision import git
 import gitx
 import landing
-from nodes import deliver, provision, role
+from nodes import deliver, provision, role, wake
 
 
 class Reorg(unittest.TestCase):
@@ -201,6 +201,25 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
+
+    def test_desk_keeps_what_move_launched_and_forgets_it_for_a_talk_started_by_hand(self):
+        # --move が起こした会話（company.launching）は起こした値を残す。手で起こした会話は、起こした値を知らないので消す
+        # （区切りの番の終わりに、待ち受けが会社の形の設定で起こし直す）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "launched": "k1",
+                                            wake.LAUNCHING: "1"}, gitx)
+        self.ports._cwd = self.src
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(self.src)
+        self.assertEqual((attrs.get("launched"), attrs.get(wake.LAUNCHING)), ("k1", None))
+        rc, out = self.main("--desk")   # 同じ会話が打ち直しても残す
+        self.assertEqual(gitx.worktree_attrs(self.src).get("launched"), "k1")
+        self.sessions[1]["sessionId"] = "s-hand"   # 持ち主が手で起こした会話
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-hand"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("launched", gitx.worktree_attrs(self.src))
 
     def test_desk_replaces_a_hand_written_role_and_keeps_the_old_name(self):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "my_notesの窓口"}, gitx)

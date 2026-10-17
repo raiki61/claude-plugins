@@ -127,6 +127,9 @@ def launch_key(cwd, attrs, env=os.environ):
     the_role = shape["roles"].get(role.current(shape, attrs["role"]))
     if the_role is None or shape["problems"] or info.get("problems"):
         return None
+    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
+    if here and common and os.path.realpath(here) == os.path.realpath(common):
+        return role.launch_key(the_role)   # 窓口は部署でないので受け持ちを引かない（--move の _move_desk が起こす値と揃える）
     duty = next((x for x in info.get("skills", []) if attrs.get("name") and x.get("name") == attrs["name"]), None)
     return role.launch_key(the_role, duty)
 
