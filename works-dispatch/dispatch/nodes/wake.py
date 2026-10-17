@@ -429,3 +429,14 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
                 pass
             beat = now()
         pause(POLL)
+
+
+# 会話から切り離して命令を走らせる殻（POSIX）。外の sh はすぐ終わり、中の ( … ) & は親を失って init の子になる。会話の処理を止めると
+# Claude Code はフックの子孫も止めるので、フックの子のまま走らせた --move は、自分が止めた前の会話と一緒に止まり、何も書かずに消えた
+# （2026-10-17 の my_notes の段取り。16:03 と 16:54 に moves/ の出力が 0 バイトのまま、窓口が消えた。部署の --move の跡も同じ）
+DETACH = 'log=$1; done=$2; shift 2; ( "$@" >"$log" 2>&1 </dev/null; echo $? >"$done" ) &'
+
+
+def detached(argv, log, done):
+    """argv を会話から切り離して走らせる sh の並び。出力は log に、終わりの値は done に書く。"""
+    return ["/bin/sh", "-c", DETACH, "sh", log, done, *argv]

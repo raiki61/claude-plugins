@@ -210,17 +210,6 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False)
     return None if key is None or key in (attrs.get(wake.LAUNCHED) or NO_FLAGS, attrs.get(wake.RESTART_KEPT)) else key
 
 
-# 会話から切り離して命令を走らせる殻（POSIX）。外の sh はすぐ終わり、中の ( … ) & は親を失って init の子になる。会話の処理を止めると
-# Claude Code はフックの子孫も止めるので、フックの子のまま走らせた --move は、自分が止めた前の会話と一緒に止まり、何も書かずに消えた
-# （2026-10-17 の my_notes の段取り。16:03 と 16:54 に moves/ の出力が 0 バイトのまま、窓口が消えた。部署の --move の跡も同じ）
-DETACH = 'log=$1; done=$2; shift 2; ( "$@" >"$log" 2>&1 </dev/null; echo $? >"$done" ) &'
-
-
-def detached(argv, log, done):
-    """argv を会話から切り離して走らせる sh の並び。出力は log に、終わりの値は done に書く。"""
-    return ["/bin/sh", "-c", DETACH, "sh", log, done, *argv]
-
-
 def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid, detach=None):
     """dispatch.py --move <会社/部署> --if-changed を会話から切り離して走らせ、終わるまで待つ。--move がこの会話を止めて起こし直したら
     True（新しい会話の待ち受けが頼みを渡す）。止めずに終わったら（起こし直さない・起こせない）、印を外して今の値を
@@ -239,7 +228,7 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
     try:
         os.makedirs(os.path.dirname(out), exist_ok=True)
         if detach:
-            spawn(detached(argv, out, done), cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            spawn(wake.detached(argv, out, done), cwd=got["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                   stderr=subprocess.DEVNULL, start_new_session=True).wait()
             proc = None if os.path.exists(done) else _DoneFile(done)
         else:

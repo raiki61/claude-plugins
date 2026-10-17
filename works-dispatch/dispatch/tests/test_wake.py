@@ -412,7 +412,7 @@ class Hook(unittest.TestCase):
         # 会話を止めると Claude Code はフックの子孫も止める。--move は切り離して走らせ、前の会話を止めても最後まで走る
         d = tempfile.mkdtemp()
         log, done = os.path.join(d, "m.log"), os.path.join(d, "m.done")
-        p = subprocess.Popen(wake_hook.detached([sys.executable, "-c", "print('動いた')"], log, done), start_new_session=True)
+        p = subprocess.Popen(wake.detached([sys.executable, "-c", "print('動いた')"], log, done), start_new_session=True)
         p.wait()
         for _ in range(200):
             if os.path.exists(done):

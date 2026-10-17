@@ -3,7 +3,7 @@
 
 Claude Code は、API の誤りで番が終わると Stop の代わりに StopFailure を走らせ、誤りの種類を error に渡す（使用上限は rate_limit）。
 会話の場所が常設の部署（属性 company.residency が resident）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
-dispatch.py --move <名前> --if-limited を、この会話から切り離して裏で走らせる（--move はこの会話を止めてから起こし直すので、
+dispatch.py --move <名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起こし直すので、
 この会話の子として待たない）。都度の部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
 同じ場所で 10 分の間に 2 度は走らせない（上限の後の自動の続き〔autoContinueAtUsageLimit〕で、同じ誤りが続けて来ることがある）。
 走らせた出力は受付箱の moves/ に残す。何も出さず、0 で終わる（StopFailure はフックの出力を読まない）。
@@ -19,7 +19,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
     import gitx  # noqa: E402
-    from nodes import deliver  # noqa: E402
+    from nodes import deliver, wake  # noqa: E402
 except (ImportError, SyntaxError):
     sys.exit(0)
 
@@ -73,6 +73,13 @@ def main(stdin=sys.stdin, spawn=subprocess.Popen, now=time.time):
     if _recent(out_dir, argv[3], int(now())):
         return 0
     os.makedirs(out_dir, exist_ok=True)
+    if os.name != "nt" and spawn is subprocess.Popen:
+        # 会話から切り離す（--move はこの会話を止める。会話を止めると Claude Code はフックの子孫も止め、--move が何も書かずに消えた。
+        # 2026-10-17 の点検・説明書の moves/ の出力が 0 バイト。nodes/wake.py の detached）
+        open(out, "w", encoding="utf-8").close()
+        spawn(wake.detached([argv[0], "-u", *argv[1:]], out, out[:-len(".log")] + ".done"), cwd=cwd, stdin=subprocess.DEVNULL,
+              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
+        return 0
     with open(out, "w", encoding="utf-8") as f:
         spawn(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
     return 0
