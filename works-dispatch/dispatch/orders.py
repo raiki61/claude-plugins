@@ -488,6 +488,122 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     return 0
 
 
+def _queue_inbox(item):
+    """順番待ちの件のファイル（<受付箱>/queue/<場所の鍵>/<受付>.json）から、その受付箱。"""
+    return os.path.dirname(os.path.dirname(os.path.dirname(item["path"])))
+
+
+def _find_queued(ask_id, config_path, ports, cwd):
+    """受付 ask_id の順番待ちの件を、打った場所の会社と herdr に開いている会社の受付箱から探す。(件か None, 注記)。"""
+    inboxes, notes = [], []
+    common = ports.git.common_dir(cwd)
+    if common:
+        inboxes.append(deliver.inbox_of(common))
+    try:
+        companies = survey(config_path, ports)[4]
+    except herdr.HerdrError as e:
+        companies = []
+        notes.append(f"herdr を読めないので、打った場所の会社の順番待ちだけを探した（{e}）")
+    for c in companies:
+        got = ports.git.common_dir(c["root"])
+        if got:
+            inboxes.append(deliver.inbox_of(got))
+    for inbox in dict.fromkeys(inboxes):
+        item = wake.find(inbox, ask_id)
+        if item:
+            return item, notes
+    return None, notes
+
+
+def _log_taken(item, record):
+    """順番待ちから取った知らせを、順番待ちの在る受付箱と頼み元の受付箱の台帳に足す（取り下げと回した先を両方に残す）。"""
+    boss_inbox = (item.get("marks") or {}).get("boss-inbox")
+    for inbox in dict.fromkeys([_queue_inbox(item)] + ([boss_inbox] if boss_inbox and os.path.isdir(boss_inbox) else [])):
+        deliver.log(inbox, record)
+
+
+def take(a, ports, cwd, task):
+    """--take <受付>。順番待ちの 1 件を、積んだ順を飛ばして取り出す（2d707e）。--ask を添えなければ、打った部署（その順番待ちの
+    持ち主）が今受ける（待ち受けが渡すときと同じに、頼み元の属性を書いて頼みの 1 行を出す）。--ask <宛先>（と --task・--branch）を
+    添えれば、受付番号と頼み元をそのままに、ほかの部署に頼み直す（担当が手一杯のときに、受け持ちの名前の付いた作業へ回す。納品は
+    元の頼み元に返る）。取り出しと回した先は台帳に kind taken で残す。終了の値を返す。"""
+    if a.ask is None:
+        return _take_here(a, ports, cwd)
+    item, notes = _find_queued(a.take, a.config, ports, cwd)
+    if item is None:
+        print("\n".join(notes + [f"止めた: 受付 {a.take} はどの順番待ちにも無い（もう渡ったか、取り下げられた）"]))
+        return 2
+    if a.dry_run:
+        print("\n".join(notes + [f"受付 {a.take} を順番待ち（{os.path.dirname(item['path'])}）から取り、{a.ask} に頼み直す"
+                                 f"（頼み元 {(item.get('marks') or {}).get('boss') or '-'} はそのまま）"]))
+        return 0
+    if not wake.pull(item):
+        print("\n".join(notes + [f"止めた: 受付 {a.take} はほかが先に取った"]))
+        return 2
+    marks = item.get("marks") or {}
+    ns = argparse.Namespace(**{**vars(a), "brief": item.get("file"), "text": None, "ask_id": item.get("id"),
+                               "from_boss": {k: v for k, v in marks.items() if k == "boss" or k.startswith("boss-")}})
+    rc = ask(ns, ports, cwd, task)
+    if rc != 0:
+        wake.put_back(item)
+        print(f"受付 {a.take} を {a.ask} に頼み直せなかったので、元の順番待ちの同じ場所に戻した")
+        return rc
+    _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
+                      "to": a.ask, "name": a.task, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+    return 0
+
+
+def _take_here(a, ports, cwd):
+    common = ports.git.common_dir(cwd)
+    attrs = ports.attrs(cwd) if common else {}
+    if not attrs.get("role"):
+        print(f"止めた: {cwd} は部署でも窓口でもない（git の設定 company.role が無い）。ほかの部署の順番待ちから回すなら --ask <宛先> を添える")
+        return 2
+    held = attrs.get("ask")
+    if held and attrs.get("delivered") != held:
+        print(f"止めた: 受付 {held} をまだ納品していない（頼み元の属性は 1 組なので、納品してから取る。今の頼みを手放して回すなら、"
+              f"ほかの部署から --take {a.take} --ask <宛先>）")
+        return 2
+    inbox, place_dir = deliver.inbox_of(common), ports.git.git_dir(cwd)
+    item = wake.find(inbox, a.take)
+    if item is None or os.path.dirname(item["path"]) != wake.queue_dir(inbox, place_dir):
+        print(f"止めた: 受付 {a.take} はこの部署の順番待ちに無い（ほかの部署の物を回すなら --ask <宛先> を添える）")
+        return 2
+    skipped = [q.get("id") for q in wake.queued(inbox, place_dir)]
+    skipped = skipped[:skipped.index(a.take)] if a.take in skipped else []
+    if a.dry_run:
+        print(f"受付 {a.take} を順番待ちから取り、この部署で今受ける（先に積まれた {len(skipped)} 件を飛ばす）")
+        return 0
+    if not wake.pull(item):
+        print(f"止めた: 受付 {a.take} はほかが先に取った")
+        return 2
+    provision.mark(cwd, gitx.root_of(common), item.get("marks") or {}, ports.git)
+    _log_taken(item, {"id": item.get("id"), "kind": "taken", "at": ports.now(), "from": os.path.dirname(item["path"]),
+                      "to": attrs.get("name"), "skipped": skipped, "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+    print("\n".join([f"受付 {a.take} を順番待ちから取った（先に積まれた {len(skipped)} 件" + (f"〔{'・'.join(skipped)}〕" if skipped else "")
+                      + "は順番待ちに残る）。この頼みを今受ける:", item.get("line") or wake.wake_text([item])]))
+    return 0
+
+
+def withdraw(a, ports, cwd):
+    """--withdraw <受付>。順番待ちの 1 件を取り下げる（渡さずに消し、順番待ちの在る受付箱と頼み元の受付箱の台帳に kind withdrawn で
+    残す。頼み元が取り下げを頼んだときや、段取りが同じ頼みを別の道で出し直したとき）。終了の値を返す。"""
+    item, notes = _find_queued(a.withdraw, a.config, ports, cwd)
+    if item is None:
+        print("\n".join(notes + [f"止めた: 受付 {a.withdraw} はどの順番待ちにも無い（もう渡ったか、取り下げられた）"]))
+        return 2
+    if a.dry_run:
+        print("\n".join(notes + [f"受付 {a.withdraw} を順番待ち（{os.path.dirname(item['path'])}）から取り下げる"]))
+        return 0
+    if not wake.pull(item):
+        print("\n".join(notes + [f"止めた: 受付 {a.withdraw} はほかが先に取った"]))
+        return 2
+    _log_taken(item, {"id": item.get("id"), "kind": "withdrawn", "at": ports.now(), "from": os.path.dirname(item["path"]),
+                      "by": {"session": ports.env.get("CLAUDE_CODE_SESSION_ID"), "place": cwd}})
+    print("\n".join(notes + [f"受付 {a.withdraw} を順番待ちから取り下げた（台帳に残した）"]))
+    return 0
+
+
 # 人の答え待ちの印（部署の属性）。値は受付番号と訳。A2A の input-required（人の入力が要って止まっている頼み）に当たる
 WAITING, WAITING_WHY = "waiting", "waiting-why"
 

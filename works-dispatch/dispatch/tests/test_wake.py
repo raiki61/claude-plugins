@@ -414,6 +414,75 @@ class WakeFlow(unittest.TestCase):
         self.assertIn("順番待ちに積む（1 件目。待ち受けが渡す）", out)
         self.assertEqual((deliver.records(self.inbox), wake.queued(self.inbox, self.dept_place())), ([], []))
 
+    def queue_two(self):
+        """順番待ちに 2 件積み、(先の件, 後の件) を返す。"""
+        self.listen("調べ", self.dept_place())
+        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "先の頼み")[0], 0)
+        self.ports.now = lambda: 99
+        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "急ぎの頼み")[0], 0)
+        return wake.queued(self.inbox, self.dept_place())
+
+    def test_take_pulls_a_later_ask_ahead_and_the_department_receives_it_now(self):
+        # 積んだ順を飛ばして、急ぎの頼みを今受ける（2d707e。順番待ちのファイルを手で動かさない）
+        first, urgent = self.queue_two()
+        rc, out = self.main(self.place, "--take", urgent["id"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn(urgent["line"], out)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"]])
+        attrs = gitx.worktree_attrs(self.place)
+        self.assertEqual((attrs["ask"], attrs["boss"]), (urgent["id"], "desk"))   # 待ち受けが渡すときと同じ属性
+        taken = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
+        self.assertEqual([(r["id"], r["skipped"]) for r in taken], [(urgent["id"], [first["id"]])])
+
+    def test_take_waits_until_the_current_ask_is_delivered_and_only_takes_its_own_queue(self):
+        first, urgent = self.queue_two()
+        provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, gitx)
+        rc, out = self.main(self.place, "--take", urgent["id"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("受付 a0 をまだ納品していない", out)
+        provision.mark(self.place, self.src, {"delivered": "a0"}, gitx)
+        rc, out = self.main(self.src, "--take", urgent["id"])   # 本社（窓口）の順番待ちには無い
+        self.assertEqual(rc, 2, out)
+        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 2)
+
+    def test_take_with_ask_hands_it_on_with_the_same_number_and_asker_and_puts_it_back_on_failure(self):
+        # 担当が手一杯のとき、受け持ちの名前の付いた作業へ回す。納品は元の頼み元に返るよう、受付番号と頼み元を渡す
+        first, urgent = self.queue_two()
+        seen = []
+
+        def fake_ask(a, ports, cwd, task):
+            seen.append(a)
+            return rc_of_ask
+        rc_of_ask = 1
+        with mock.patch.object(orders, "ask", fake_ask):
+            rc, out = self.main(self.place, "--take", urgent["id"], "--ask", "作業", "--task", "調べ：急ぎ", "--branch", "b/x")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("元の順番待ちの同じ場所に戻した", out)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"], urgent["id"]])
+        rc_of_ask = 0
+        with mock.patch.object(orders, "ask", fake_ask):
+            rc, out = self.main(self.place, "--take", urgent["id"], "--ask", "作業", "--task", "調べ：急ぎ", "--branch", "b/x")
+        self.assertEqual(rc, 0, out)
+        a = seen[-1]
+        self.assertEqual((a.ask_id, a.brief, a.text, a.task), (urgent["id"], urgent["file"], None, "調べ：急ぎ"))
+        self.assertEqual(a.from_boss["boss"], "desk")
+        self.assertNotIn("ask", a.from_boss)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"]])
+        (taken,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "taken"]
+        self.assertEqual((taken["id"], taken["to"], taken["name"]), (urgent["id"], "作業", "調べ：急ぎ"))
+
+    def test_withdraw_drops_an_ask_and_leaves_it_in_the_ledger(self):
+        first, urgent = self.queue_two()
+        rc, out = self.main(self.place, "--withdraw", first["id"], "--dry-run")
+        self.assertEqual((rc, len(wake.queued(self.inbox, self.dept_place()))), (0, 2), out)
+        rc, out = self.main(self.place, "--withdraw", first["id"])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [urgent["id"]])
+        self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"], [first["id"]])
+        rc, out = self.main(self.place, "--withdraw", first["id"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("どの順番待ちにも無い", out)
+
     def test_a_machine_role_cannot_be_asked(self):
         self.shape('[[roles]]\nname = "配布"\nmachine = true\n')
         rc, out = self.main(self.src, "--ask", "配布", "--text", "配って", "--task", "x", "--branch", "b/x")

@@ -177,6 +177,39 @@ def queued(inbox, place):
     return out
 
 
+def find(inbox, ask_id):
+    """受付箱のどれかの順番待ちに積まれた受付 ask_id の件（path を添える）。無ければ None。"""
+    root = os.path.join(inbox, QUEUE_DIR)
+    try:
+        keys = sorted(os.listdir(root))
+    except OSError:
+        return None
+    for k in keys:
+        path = os.path.join(root, k, f"{ask_id}.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                got = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(got, dict):
+            return {**got, "path": path}
+    return None
+
+
+def pull(item):
+    """順番待ちから、find で見つけた件を取る（ファイルを消す）。ほかが先に取っていれば False。"""
+    try:
+        os.unlink(item["path"])
+    except OSError:
+        return False
+    return True
+
+
+def put_back(item):
+    """pull で取った件を、同じ順番待ちの同じ場所（同じファイルの名前なので、積んだ順も同じ）に戻す。"""
+    _replace(item["path"], json.dumps({k: v for k, v in item.items() if k != "path"}, ensure_ascii=False))
+
+
 def enqueue(inbox, place, item):
     """順番待ちに 1 件積み、そのファイルのパスを返す。item には id が要る。"""
     path = os.path.join(queue_dir(inbox, place), f"{item['id']}.json")

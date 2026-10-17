@@ -597,6 +597,9 @@ def main(argv=None, ports=None):
     ap.add_argument("--sync", action="store_true", help="部署の属性から、herdr のペインの名前・表示名・札を付け直す")
     ap.add_argument("--ask", metavar="宛先", help="「会社/役」か部署の名前の部署に頼む（--text か --brief。部署が無ければ --task と --branch で立てる）")
     ap.add_argument("--text", help="--ask と一緒に: 頼みの文（長い物は --brief のファイルで渡す）")
+    ap.add_argument("--take", metavar="受付", help="順番待ちの 1 件を、積んだ順を飛ばして取り出す。部署の場所から打てばその部署が今受け、"
+                    "--ask <宛先>（と --task・--branch）を添えれば、受付番号と頼み元をそのままにほかの部署へ頼み直す")
+    ap.add_argument("--withdraw", metavar="受付", help="順番待ちの 1 件を、渡さずに取り下げる（台帳に残す）")
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "道具"),
                     help="役の機械窓口の道具を呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: 道具への入力（JSON の字か @ファイル。省けば {}）")
@@ -626,6 +629,10 @@ def main(argv=None, ports=None):
         return 2
     if a.call is not None:
         return calls.call(a, ports, os.getcwd(), _task)
+    if a.take is not None:
+        return orders.take(a, ports, os.getcwd(), _task)
+    if a.withdraw is not None:
+        return orders.withdraw(a, ports, os.getcwd())
     if a.ask is not None:
         return orders.ask(a, ports, os.getcwd(), _task)
     if a.deliver is not None:
