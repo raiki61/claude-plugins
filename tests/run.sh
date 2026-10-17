@@ -3419,6 +3419,25 @@ run("docs-record", {"session_id": "s9", "tool_name": "mcp__fs__write_file", "too
 run("docs-check", {"session_id": "s9", "hook_event_name": "Stop"}, READER)
 body = last_prompt()[0][len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
 assert "印U" in body and "印D の 0 行目" in body and "印A" not in body and "印C" not in body, f"HEAD の版と比べた節だけが渡っていない: {body}"
+
+# 8) DOC_SECTION_MAX 字を超える節は、節の見出しと、書き換えた箇条(字下げした子の箇条と、字下げした囲みを含む。囲みの中の
+#    字下げの無い行・空行では切らない)だけ
+def long_doc(mark=""):
+    items = "".join("- **箇条%d**: %s\n" % (i, "印L%d の文。" % i * 30) for i in range(12))
+    child = "- **親の箇条**: 印P の文。\n  - 子の箇条: 印Q の文%s。\n\n  ```\n- 囲みの中: 印R\n\n続き: 印S\n  ```\n" % mark
+    return "# 長い文書\n\nこの文書は印T の長い節を持つ。\n\n## 短い節\n\n印A の文。\n\n## 長い節\n\n" + items + child + "- **後の箇条**: 印N の文。\n"
+big = repo / "big.md"
+big.write_text(long_doc(), encoding="utf-8")
+before = big.read_text(encoding="utf-8")
+assert len(before.split("## 長い節")[1]) > g.DOC_SECTION_MAX
+big.write_text(long_doc("を印K に直した"), encoding="utf-8")
+run("docs-record", {"session_id": "s10", "tool_name": "Edit", "tool_input": {"file_path": str(big)},
+                    "tool_response": {"filePath": str(big), "originalFile": before}})
+run("docs-check", {"session_id": "s10", "hook_event_name": "Stop"}, READER)
+body = last_prompt()[0][len(g.COLD_PROMPT) + len(g.DOC_FOCUS_NOTE):]
+assert g.DOC_HEAD_LABEL + "\n## 長い節" in body, f"長い節の見出しが添えられていない: {body}"
+assert all(s in body for s in ("印K", "印P", "印R", "印S")), f"書き換えた箇条が親と囲みごと渡っていない: {body}"
+assert not any(s in body for s in ("印L0", "印L11", "印N", "印A")), f"長い節の書き換えていない箇条まで渡った: {body}"
 print("DOCS_FOCUS_OK")
 PY
 # 読む前に読む中身を覚え、読めなかった物だけ外す。読み終えてから覚えていた頃は、裏の読み(1 回 2〜4 分)の間に同じ文書が

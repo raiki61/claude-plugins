@@ -2542,14 +2542,23 @@ DOC_BASE_DIR = os.path.join(DOC_DIR, "base")   # 書いた役ごとの、文書�
 DOC_CONTEXT = 5        # 見出しの無い文書で、変えた行の前後に添える行数(さらに段落の切れ目まで広げる)
 DOC_LEAD_MAX = 30      # 何の文書かを知るために添える冒頭(題と最初の段落)の行数の上限
 DOC_WHOLE_RATIO = 0.8  # 抜き出しが全体の行数のこの割合以上なら、抜き出さずに全体を読ませる
+# 書き換えた所を含む節(またぐなら、どれか 1 つの節)がこの字数を超えるなら、節を丸ごとでなく、節の見出しと、書き換えた段落・箇条だけを読ませる。
+# 長い節を丸ごと読ませていた頃は、約 1 万 4 千字の節(works-dispatch の SKILL.md の「頼む・納品する」)の 2〜3 か所を
+# 直しただけで、枝の関門が回すたびに同じ節の書き換えていない箇条から新しい詰まりを 1〜2 件出し、6 回目でやっと通った
+# (2026-10-17。読み手の haiku は回ごとに拾う所が替わる)。2000 字はこのリポジトリの文書の節の 9 割が収まる長さ
+# (2026-10-17 の測り: 3956 節の中央 380 字・9 割 2019 字)で、短い節は今までどおり丸ごと読ませる
+DOC_SECTION_MAX = 2000
 GENERATED_ATTR = "linguist-generated"
 SKIP_ATTR = "coldread"   # .gitattributes で -coldread(unset)にした文書は読まない
 # 抜き出しを読ませるときに、依頼文の本文の印の手前に足す補足。観点(COLD_PROMPT)は変えず、読む範囲だけを言う。
 # 省いた節で説明されている語まで詰まりに出すと、直していない所の前からの疑問が毎回返る形に戻るので、疑問に回させる
 DOC_LEAD_LABEL = "【冒頭】"
+DOC_HEAD_LABEL = "【節の見出し】"
 DOC_PART_LABEL = "【書き換えた所】"
 DOC_FOCUS_NOTE = ("補足: この本文は、長い文書のうち今回書き換えた所だけを抜き出したもの。「" + DOC_LEAD_LABEL
-                  + "」の下は、何の文書かを知るために添えた文書の頭で、そこへの指摘は書かない。「" + DOC_PART_LABEL
+                  + "」の下は、何の文書かを知るために添えた文書の頭で、「" + DOC_HEAD_LABEL
+                  + "」の下は、長い節から書き換えた段落・箇条だけを抜いたときに、どの節かを知るために添えた見出し。"
+                  "どちらへの指摘も書かない。「" + DOC_PART_LABEL
                   + "」の下だけについて報告する。「(略)」は省いた所。省いた所で説明されているかもしれない語や参照が"
                   "分からないときは、詰まりではなく疑問にする。\n\n")
 
@@ -3196,11 +3205,13 @@ def read_doc(text, focus=False, timeout=DOC_READ_TIMEOUT):
 # ---- 書き換えた所の抜き出し ----
 # 節は見出しから次の見出しの手前まで(深さは見ない。いちばん内側の節)。見出しの書き方は拡張子で決める:
 # md・mdx は ATX(# 〜 ######。コードの囲みと冒頭の frontmatter の中は見ない)、adoc は = 〜 ======、rst は下線
-# (と上線)付きの行。txt と、見出しの無い文書は、変えた行の前後 DOC_CONTEXT 行を段落の切れ目まで広げる
+# (と上線)付きの行。txt と、見出しの無い文書は、変えた行の前後 DOC_CONTEXT 行を段落の切れ目まで広げる。
+# DOC_SECTION_MAX 字を超える節は、節の見出しと、変えた行を含む段落・箇条だけにする(_block)
 _MD_HEAD = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 _MD_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _ADOC_HEAD = re.compile(r"={1,6}[ \t]+\S")
 _RST_RULE = re.compile(r"""([=\-~^"'`#*+:.])\1+[ \t]*$""")
+_ITEM = re.compile(r"(?:[-*+]|\d{1,9}[.)])[ \t]")   # 字下げの無い箇条の頭(字下げした箇条は、何の箇条かが分かるよう親の箇条に含める)
 
 
 def _front_end(lines):
@@ -3267,6 +3278,29 @@ def _paragraph(lines, a, b):
     return a, b
 
 
+def _block(lines, marks, a, b, sa, sb):
+    """節 [sa, sb) の中で、書き換えた行 [a, b) を含む段落・箇条の範囲。見出し・字下げの無い箇条の頭と、空行の後の
+    字下げの無い行で切る(空行の後でも字下げした行は、前の箇条の続き)。コードの囲みの中では切らない。"""
+    starts, fence, cut = [], None, True
+    for k in range(sa, sb):
+        line = lines[k]
+        m = _MD_FENCE.match(line)
+        if fence is not None:
+            if m and m.group(1)[0] == fence:
+                fence = None
+            continue
+        if not line.strip():
+            cut = True
+            continue
+        if (cut and not line[:1].isspace()) or k in marks or _ITEM.match(line):
+            starts.append(k)
+        cut = k in marks
+        if m:
+            fence = m.group(1)[0]
+    i, j = bisect.bisect_right(starts, a) - 1, bisect.bisect_right(starts, b - 1)
+    return starts[i] if i >= 0 else sa, starts[j] if j < len(starts) else sb
+
+
 def _lead(lines, marks):
     """何の文書かを知るために添える冒頭(frontmatter の後の、題と最初の段落)。"""
     start = j = _front_end(lines)
@@ -3279,7 +3313,7 @@ def _lead(lines, marks):
 
 
 def doc_excerpt(path, text, base):
-    """前の版 base から書き換えた所を含む節と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。"""
+    """前の版 base から書き換えた所を含む節(長い節は節の見出しと書き換えた段落・箇条)と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。"""
     if not base:
         return None
     lines, base_lines = text.split("\n"), base.replace("\r\n", "\n").split("\n")
@@ -3288,29 +3322,40 @@ def doc_excerpt(path, text, base):
         return ""
     n = len(lines)
     starts, marks = _sections(lines, os.path.splitext(path)[1].lower())
-    spans = []   # (始め, 終わり, 書き換えた所か)
+    spans = []   # (始め, 終わり, 種類)。種類は 0 が冒頭、1 が節の見出し、2 が書き換えた所
     for a, b in touched:
         if starts:   # 範囲の頭の行が入る節の始めから、尻の行が入る節の終わりまで
             i, j = bisect.bisect_right(starts, a) - 1, bisect.bisect_right(starts, b - 1) - 1
-            spans.append((starts[i] if i >= 0 else 0, starts[j + 1] if j + 1 < len(starts) else n, True))
+            sa, sb = starts[i] if i >= 0 else 0, starts[j + 1] if j + 1 < len(starts) else n
+            bounds = [sa] + [s for s in starts if sa < s < sb] + [sb]
+            if max(len("\n".join(lines[x:y])) for x, y in zip(bounds, bounds[1:])) <= DOC_SECTION_MAX:
+                spans.append((sa, sb, 2))
+                continue
+            # 長い節は、書き換えた段落・箇条と、どの節かを知るための見出しだけ(上の DOC_SECTION_MAX)
+            spans.append(_block(lines, marks, a, b, sa, sb) + (2,))
+            hb = sa
+            while hb < sb and hb in marks:
+                hb += 1
+            if hb > sa:
+                spans.append((sa, hb, 1))
         else:
-            spans.append(_paragraph(lines, a, b) + (True,))
+            spans.append(_paragraph(lines, a, b) + (2,))
     la, lb = _lead(lines, marks)
     if lb > la:
-        spans.append((la, lb, False))
-    parts = []   # 重なるか接する範囲を合わせる。書き換えた所を含めば、冒頭と合わせた範囲も書き換えた所と呼ぶ
-    for a, b, changed in sorted(spans):
+        spans.append((la, lb, 0))
+    parts = []   # 重なるか接する範囲を合わせる。合わせた範囲の種類は、書き換えた所・節の見出し・冒頭の順に強い物
+    for a, b, kind in sorted(spans):
         if parts and a <= parts[-1][1]:
-            parts[-1] = [parts[-1][0], max(parts[-1][1], b), parts[-1][2] or changed]
+            parts[-1] = [parts[-1][0], max(parts[-1][1], b), max(parts[-1][2], kind)]
         else:
-            parts.append([a, b, changed])
+            parts.append([a, b, kind])
     if sum(b - a for a, b, _ in parts) >= DOC_WHOLE_RATIO * n:
         return None
     out, pos = [], 0
-    for a, b, changed in parts:
+    for a, b, kind in parts:
         if a > pos and any(line.strip() for line in lines[pos:a]):
             out.append("(略: %d 行)" % (a - pos))
-        out.append((DOC_PART_LABEL if changed else DOC_LEAD_LABEL) + "\n" + "\n".join(lines[a:b]).strip("\n"))
+        out.append((DOC_LEAD_LABEL, DOC_HEAD_LABEL, DOC_PART_LABEL)[kind] + "\n" + "\n".join(lines[a:b]).strip("\n"))
         pos = max(pos, b)
     if pos < n and any(line.strip() for line in lines[pos:]):
         out.append("(略: %d 行)" % (n - pos))
