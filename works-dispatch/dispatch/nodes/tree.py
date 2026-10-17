@@ -17,7 +17,8 @@
   頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。origin は在るのに
   origin/HEAD が無い clone では既定の枝を決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
   書き方は TOML で、欄の名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
-  role と、その受け持ちの部署を起こすときの model・effort（役の値より先に効く）だけをここで足した。知らない欄は読み飛ばす。
+  role と、その受け持ちの部署を起こすときの model・effort（役の値より先に効く）と、起こし方の start（start ノード）だけをここで
+  足した。知らない欄は読み飛ばす。
 
 入口の dispatch.py --tree が、herdr・git・claude から読んだ物を渡して build を呼び、lines で人の読む形にする。
 """
@@ -28,7 +29,7 @@ import tomllib
 import urllib.parse
 
 import gitx
-from nodes import role
+from nodes import role, start
 
 INFO_FILE = (".claude", "company.toml")  # リポジトリの中の会社の情報（commit する側）
 SETTINGS_DIR = "companies"  # 設定の置き場の下の、リポジトリの外の会社の情報（commit しない側）
@@ -78,6 +79,8 @@ def _skills(raw, where, problems):
                             f"外して、役の effort で起こす")
         elif "effort" in s:
             got["effort"] = s["effort"]
+        # 起こし方（周期か命令・返す先。start ノード）。形が違えば外し、その受け持ちは起こさない
+        got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
         out.append({"model": None, "effort": None, **got})
     return out
 
@@ -261,7 +264,9 @@ def lines(companies):
         for s in c["skills"]:
             out.append(f"  受ける仕事: {s['name']}" + (f"（{s['description']}）" if s["description"] else "")
                        + (f" → {s['role']}" if s["role"] else "")
-                       + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k)))
+                       + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k))
+                       + (f"  起こし方: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
+                          f"、{s['start']['report_to']} に返す" if s.get("start") else ""))
         for t in c.get("tools", []):
             out.append(f"  道具: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
                        + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")

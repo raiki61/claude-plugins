@@ -88,6 +88,7 @@ import tierx  # noqa: E402
 import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
+import starts  # noqa: E402
 
 # Windows の既定の標準入出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -626,6 +627,10 @@ def main(argv=None, ports=None):
     ap.add_argument("--call", nargs=2, metavar=("会社/役", "道具"),
                     help="役の機械窓口の道具を呼ぶ（会社の形の [[roles.tools]]。片づかなければ同じ役か回す役の AI の部署に回す）")
     ap.add_argument("--input", help="--call と一緒に: 道具への入力（JSON の字か @ファイル。省けば {}）")
+    ap.add_argument("--start", metavar="受け持ち", help="会社の形の起こし方（[skills.start]）の有る受け持ちを今起こす（名前か「会社/名前」。"
+                    "納品は起こし方の report_to に返る）")
+    ap.add_argument("--due", action="store_true", help="herdr に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起こす"
+                    "（手元の OS の予定から刻む）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
                     "人がその会話に打つか、納品すると外れる）")
@@ -656,6 +661,11 @@ def main(argv=None, ports=None):
         return 2
     if a.call is not None:
         return calls.call(a, ports, os.getcwd(), _task)
+    if a.start is not None or a.due:
+        if a.start is not None and a.due:
+            print("止めた: --start と --due は一緒に使えない（--start は 1 つを今、--due は周期の来た物を全部）")
+            return 2
+        return starts.start_now(a, ports, os.getcwd(), _task) if a.start is not None else starts.due_all(a, ports, _task)
     if a.move is not None:
         return move.move(a, ports, os.getcwd(), _task)
     if (a.account or a.if_limited) and a.move is None:
