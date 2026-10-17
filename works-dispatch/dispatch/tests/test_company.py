@@ -4,6 +4,8 @@
 import json
 import os
 import pathlib
+import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -836,13 +838,35 @@ class Departments(unittest.TestCase):
         obj.write_text("blob\n", encoding="utf-8")
         obj.chmod(0o444)
         (tmp / "link").symlink_to("repo")
+        os.mkfifo(tmp / "pipe")
         clean.keep_tmp(str(tmp), self.src, "half", gitx)
         (tmp / "new").write_text("later\n", encoding="utf-8")
         n, dest = clean.keep_tmp(str(tmp), self.src, "half", gitx)
-        self.assertEqual(n, 3)
+        self.assertEqual(n, 4)
         self.assertEqual(pathlib.Path(dest, "repo", "objects", "ab").read_text(encoding="utf-8"), "blob\n")
         self.assertEqual(os.readlink(os.path.join(dest, "link")), "repo")
         self.assertEqual(pathlib.Path(dest, "new").read_text(encoding="utf-8"), "later\n")
+        self.assertTrue(stat.S_ISFIFO(os.lstat(os.path.join(dest, "pipe")).st_mode))
+        # 写し元で種類が替わった物（リンク→フォルダ・フォルダ→ファイル）も、写し先の前の物を消して写し直す
+        (tmp / "link").unlink()
+        (tmp / "link").mkdir()
+        (tmp / "link" / "in").write_text("in\n", encoding="utf-8")
+        shutil.rmtree(tmp / "repo")
+        (tmp / "repo").write_text("now a file\n", encoding="utf-8")
+        clean.keep_tmp(str(tmp), self.src, "half", gitx)
+        self.assertFalse(os.path.islink(os.path.join(dest, "link")))
+        self.assertEqual(pathlib.Path(dest, "link", "in").read_text(encoding="utf-8"), "in\n")
+        self.assertEqual(pathlib.Path(dest, "repo").read_text(encoding="utf-8"), "now a file\n")
+
+    def test_job_tmp_copy_stops_on_a_folder_it_cannot_read(self):
+        # 読めないフォルダを飛ばして「写した」とすると、claude rm が中身ごと消す
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        (tmp / "locked").mkdir()
+        (tmp / "locked" / "note").write_text("x", encoding="utf-8")
+        (tmp / "locked").chmod(0o300)
+        self.addCleanup((tmp / "locked").chmod, 0o700)
+        with self.assertRaises(OSError):
+            clean.keep_tmp(str(tmp), self.src, "locked", gitx)
 
     def test_retire_keeps_everything_when_job_tmp_cannot_be_copied(self):
         tmp = pathlib.Path(tempfile.mkdtemp())

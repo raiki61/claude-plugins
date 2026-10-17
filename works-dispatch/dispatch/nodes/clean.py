@@ -41,6 +41,7 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -204,21 +205,32 @@ def keep_tmp(tmp, source, session, g=gitx):
 
 
 def _copy_over(src, dest):
-    """src の木を dest に写す。前の回が途中で止まって dest に写しが残っていても、打ち直せば写し終える: 在るファイルとリンクは
-    消してから写し直す（git の objects は読み取り専用で写るので、上に書けず Errno 13 になる。リンクは在ると Errno 17 になる。
-    2026-10-17 の --retire 点検で 701 件と 5 件）。フォルダの権限は写さない（読み取り専用のフォルダに写すと、次の回が中に書けない）。
-    写せない物が有れば OSError。"""
-    for root, dirs, files in os.walk(src):
+    """src の木を dest に写す。前の回が途中で止まって dest に写しが残っていても、打ち直せば写し終える: 写し先に在る物は
+    消してから写し直す（git の objects は読み取り専用で写るので、上に書けず Errno 13 になる。前の回が写したシンボリックリンクは、
+    在ると作れず Errno 17 になる。2026-10-17 の --retire 点検で 701 件と 5 件）。写し先の同じ名前の物が、写し元と種類が違えば
+    （ファイルとフォルダ、リンクとフォルダ）、それも消す（リンクを辿って外へ書かない）。フォルダの権限は写さない（読み取り専用の
+    フォルダに写すと、次の回が中に書けない）。名前付きパイプ（FIFO）は中身を持たないので、同じ名前のパイプを作り直す（同じ日の
+    点検の置き場に 9 個在った）。読めないフォルダやソケットなど、写せない物が有れば OSError（読めないフォルダを飛ばさない）。"""
+    def stop(e):
+        raise e
+    for root, dirs, files in os.walk(src, onerror=stop):
         here = os.path.join(dest, os.path.relpath(root, src))
+        if os.path.islink(here) or (os.path.lexists(here) and not os.path.isdir(here)):
+            os.unlink(here)
         os.makedirs(here, exist_ok=True)
         for name in dirs + files:
             s, d = os.path.join(root, name), os.path.join(here, name)
-            if os.path.isdir(s) and not os.path.islink(s):
+            mode = os.lstat(s).st_mode
+            if stat.S_ISDIR(mode):
                 continue
-            if os.path.lexists(d):
+            if os.path.isdir(d) and not os.path.islink(d):
+                shutil.rmtree(d)
+            elif os.path.lexists(d):
                 os.unlink(d)
-            if os.path.islink(s):
+            if stat.S_ISLNK(mode):
                 os.symlink(os.readlink(s), d)
+            elif stat.S_ISFIFO(mode):
+                os.mkfifo(d, stat.S_IMODE(mode))
             else:
                 shutil.copy2(s, d)
 
