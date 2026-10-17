@@ -128,7 +128,9 @@ def ask_lock(inbox, place, pause=time.sleep):
                 try:
                     msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
                     break
-                except OSError:
+                except OSError as e:
+                    if e.errno not in (13, 36):   # EACCES・EDEADLOCK はほかが持っている。ほかの誤りは待たずに投げる
+                        raise
                     pause(0.2)
             try:
                 yield

@@ -506,14 +506,8 @@ def _ask(a, ports, cwd, task, sent):
             # 錠の中で属性を読み直す。部署を読んでから今までの間に、待ち受けが順番待ちの頼みを渡していれば（属性の頼みが替わった）、
             # 窓に打たない（打つと、この頼みの頼み元が、渡された頼みの頼み元を上書きする。my_notes の受付 20261017-082903-87f45f）
             now = ports.attrs(dept["path"])
-            if now.get("ask") != held:
-                dept = {**dept, "attrs": now}
-                if to and dest_inbox and place_dir and wake.has_history(dest_inbox, place_dir):
-                    return queue(dept)
-                print("\n".join(notes + [f"止めた: 宛先の部署 {where} は、読んでから打つまでの間に受付 {now.get('ask')}（頼み元 "
-                                         f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
-                return 2
-            if fresh:
+            raced = now.get("ask") != held
+            if not raced and fresh:
                 acc = next((x for x in accounts_ if x.name == dept["attrs"].get("account")), accounts_[0] if len(accounts_) == 1 else None)
                 # 記録はペインのシェルで起きた会話のアカウントの下に在る。頼む会話の CLAUDE_CONFIG_DIR（別のアカウント）で探さない
                 # （設定のフォルダを書かないアカウントの部署を、別のアカウントの段取りから頼むと、記録が見つからず止まった。
@@ -524,10 +518,11 @@ def _ask(a, ports, cwd, task, sent):
                 if not ok:
                     print("\n".join(notes + [f"止めた: 宛先の部署 {where} は頼みごとに空の会話で受ける役なので、前の会話のままでは送らない"]))
                     return 1
-            path = deliver.put(inbox, f"{ask_id}-ask.md", body)
-            line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
-            status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy)
-            if status == "sent":
+            if not raced:
+                path = deliver.put(inbox, f"{ask_id}-ask.md", body)
+                line = deliver.ask_line(ask_id, sender, body, path, required, RUN)
+                status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy)
+            if not raced and status == "sent":
                 # 役の fresh を写す（会社の形を後から変えても、次の頼みから herdr の表示が合う）
                 marks = {**boss, "fresh": FRESH if fresh else None, "ask-digest": digest}
                 if busy.found and busy.found != dept["attrs"].get("session"):
@@ -537,6 +532,17 @@ def _ask(a, ports, cwd, task, sent):
                     provision.mark(dept["path"], company["root"], marks, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
                 except (gitx.GitError, OSError) as e:
                     notes.append(f"宛先の部署に頼みの属性を書けなかった（{e}）。納品の命令が頼み元を見つけられず、Stop フックが効かない")
+        if raced:   # 順番待ちに積むのは錠の外で（積む道は窓を戻したり打ったりするので、その間待ち受けを止めない）
+            dept = {**dept, "attrs": now}
+            if wake.pending(now) and now.get("ask-digest") == digest:
+                sent.update(id=now["ask"], to={"company": company["name"], "name": now.get("name"), "role": role})
+                print("\n".join(notes + [f"頼み {now['ask']} → {where}  同じ中身の頼みが動いている（新しく積まない）"]))
+                return 0
+            if to and dest_inbox and place_dir and wake.has_history(dest_inbox, place_dir):
+                return queue(dept)
+            print("\n".join(notes + [f"止めた: 宛先の部署 {where} は、読んでから打つまでの間に受付 {now.get('ask')}（頼み元 "
+                                     f"{now.get('boss') or '-'}）を受けた。納品を待つか、別の部署に頼む"]))
+            return 2
         deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail,
                             "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
