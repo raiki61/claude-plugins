@@ -116,9 +116,14 @@ def _key_like(found_key, path):
     return path
 
 
-def inherit_trust(path_of_file, source, clone):
+def inherit_trust(path_of_file, source, clone, vouchers=()):
     """元の clone が信頼済みなら、そこから作った作業場（clone は、元の clone の worktree のパス）にも信頼の印を付ける。結末の語を返す:
     inherited（付けた）・already（もう付いている）・source_untrusted（元が信頼されていない。確認がふつうに出る）・no_file。
+
+    元の clone の信頼は、このアカウントの物（path_of_file）か、vouchers（同じ持ち主のほかのアカウントの .claude.json のパス）の
+    どれかの物を数える。ほかのアカウントでだけ信頼済みなら、このアカウントにも元の clone の印を写してから作業場に付ける（持ち主が
+    どこかで一度信頼したリポジトリは、アカウントを替えても確認を出さない。2026-10-17 に p3 が元の clone の印を持たず、作業場ごとに
+    確認が出た）。どのアカウントも信頼していない元には付けない（確認は、知らないリポジトリの設定やフックが動くのを止める安全の確認）。
 
     Claude Code の文書は、確認を出さずに信頼する手として、.claude.json の projects["<リポジトリの根>"].hasTrustDialogAccepted を
     true にすることを書いている。信頼はリポジトリの根ごとで、親のフォルダの信頼は中の checkout に効かない。
@@ -133,15 +138,21 @@ def inherit_trust(path_of_file, source, clone):
     if not isinstance(projects, dict):
         return "no_file"
     found, entry = _project(projects, source)
-    if not (entry or {}).get("hasTrustDialogAccepted"):
-        return "source_untrusted"
+    vouched = not (entry or {}).get("hasTrustDialogAccepted")
+    if vouched:
+        if not any(is_trusted(v, source) for v in vouchers if v != path_of_file):
+            return "source_untrusted"
+        found = found or _key_like(next(iter(projects), None), os.path.realpath(source))
+        projects[found] = {**(entry or {}), "hasTrustDialogAccepted": True}
     mine, have = _project(projects, clone)
     if (have or {}).get("hasTrustDialogAccepted"):
-        return "already"
-    # 新しく書く鍵は、記号のリンクを解いた形（Claude Code は解いた形で引く。macOS で /tmp/… の鍵は効かず、/private/tmp/… の
-    # 鍵は効いた。2026-10-16 に 2.1.301 で確かめた）を、Claude Code が書いた区切りに揃えて書く
-    key = mine or _key_like(found, os.path.realpath(clone))
-    projects[key] = {**(have or {}), "hasTrustDialogAccepted": True}
+        if not vouched:
+            return "already"
+    else:
+        # 新しく書く鍵は、記号のリンクを解いた形（Claude Code は解いた形で引く。macOS で /tmp/… の鍵は効かず、/private/tmp/… の
+        # 鍵は効いた。2026-10-16 に 2.1.301 で確かめた）を、Claude Code が書いた区切りに揃えて書く
+        key = mine or _key_like(found, os.path.realpath(clone))
+        projects[key] = {**(have or {}), "hasTrustDialogAccepted": True}
     mode = os.stat(path_of_file).st_mode & 0o777
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path_of_file), prefix=".claude.json.")
     try:

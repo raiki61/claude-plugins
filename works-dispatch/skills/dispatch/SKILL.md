@@ -31,7 +31,7 @@ PR を開く回（引数なし・`--pr`・`--issue`）は、Bash の道具の `r
 - 使う各アカウントに、attention プラグインがアカウント全体（user）に入っている。
 - 部署の回は、herdr の設定（`~/.config/herdr/config.toml`）の作業場の行（`[ui.sidebar.spaces]` の `rows`）のどこかに `{ token = "$kind" }` がある。部署の作業場の行に、常設・毎回空／常設・持ち越し／都度の印を出すため（`$kind` は dispatch が部署の作業場に付ける herdr の印の名前）。無ければ `--check` が足す行を出し、部署を立てる回は止める（PR を開く回は注記だけ）。足したら `herdr server reload-config` を打つ。
 - gh でそのリポジトリを読める（PR を開く回だけ。部署の回は GitHub を読まない）。普段の gh のアカウントで読めなければ、設定の `gh_user` に読めるアカウントを書く。
-- リポジトリごとに代表の clone（枝ごとの worktree を作る元にする、ふつうの clone。設定の `source` に書く）がある。各アカウントで一度そこで Claude Code を起こし、フォルダを信頼しておく。信頼していないと、枝ごとの作業場で毎回、信頼の確認が出る。代表の clone は既定の枝（main など）に置いておく。linked worktree（`git worktree add` で作った側）は代表の clone にできない（`--check` が止める）。代表の clone が開いている枝の PR は、作業場を作れない（`branch_busy`）。
+- リポジトリごとに代表の clone（枝ごとの worktree を作る元にする、ふつうの clone。設定の `source` に書く）がある。どれか 1 つのアカウントで一度そこで Claude Code を起こし、フォルダを信頼しておく（dispatch がほかのアカウントにも信頼の印を広げる）。どのアカウントも信頼していないと、枝ごとの作業場で毎回、信頼の確認が出る。代表の clone は既定の枝（main など）に置いておく。linked worktree（`git worktree add` で作った側）は代表の clone にできない（`--check` が止める）。代表の clone が開いている枝の PR は、作業場を作れない（`branch_busy`）。
 
 ## 初めて: `/works-dispatch:dispatch setup`
 

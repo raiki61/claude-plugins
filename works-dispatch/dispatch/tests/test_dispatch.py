@@ -261,7 +261,7 @@ class FakePorts(dispatch.Ports):
     def catchup_command(self, config_dir):
         return "/attention:catchup"
 
-    def trust(self, account, source, clone):
+    def trust(self, account, source, clone, others=()):
         self.herdr.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
 
@@ -424,7 +424,7 @@ class Main(unittest.TestCase):
         ports.trust_outcome = "source_untrusted"
         rc, out = run_main(["--config", self.cfg, "--no-second"], ports)
         self.assertEqual(rc, 0)
-        self.assertIn("#1: アカウント a1 は元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す", out)
+        self.assertIn("#1: どのアカウントも元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す", out)
         self.assertIn(("run", "P0", typed("claude-a1")), ports.herdr.writes)
 
     def test_no_second_sends_only_catchup(self):
@@ -557,6 +557,16 @@ class RealPorts(unittest.TestCase):
         # 鍵は記号のリンクを解いた形を、元の鍵（/s）の区切りに揃えた物（Windows では解くとドライブ名が付き D:/s-pr-1 になる）
         key = os.path.realpath("/s-pr-1").replace(os.sep, "/")
         self.assertTrue(json.loads((d / ".claude.json").read_text())["projects"][key]["hasTrustDialogAccepted"])
+
+    def test_real_trust_carries_the_source_mark_over_from_another_account(self):
+        mine, other = pathlib.Path(tempfile.mkdtemp()), pathlib.Path(tempfile.mkdtemp())
+        (mine / ".claude.json").write_text(json.dumps({"projects": {}}))
+        (other / ".claude.json").write_text(json.dumps({"projects": {"/s": {"hasTrustDialogAccepted": True}}}))
+        ports = dispatch.Ports(env={"HOME": "/nowhere"})
+        others = [config.Account("p1", "claude-p1", str(other)), config.Account("p2", "claude-p2", str(mine))]
+        self.assertEqual(ports.trust({"name": "p2", "config_dir": str(mine)}, "/s", "/s-pr-1", others), "inherited")
+        self.assertTrue(claudex.is_trusted(str(mine / ".claude.json"), "/s"))
+        self.assertTrue(claudex.is_trusted(str(mine / ".claude.json"), "/s-pr-1"))
 
     def test_account_without_config_dir_follows_a_fresh_login_shell_not_this_session(self):
         # dispatch はふつう、別のアカウントの Claude Code の会話の中から走る。その会話の CLAUDE_CONFIG_DIR は、
@@ -788,17 +798,20 @@ class Preflight(unittest.TestCase):
         problems, _ = ports.preflight(cfg)
         self.assertIn("gh のアカウント me-at-work の鍵を取り出せない", "\n".join(problems))
 
-    def test_source_not_trusted_by_an_account_is_noted(self):
+    def test_source_trusted_by_no_account_is_noted(self):
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
-        cdir = pathlib.Path(cfg.accounts[0].config_dir)
-        cdir.mkdir(parents=True, exist_ok=True)
-        (cdir / ".claude.json").write_text(json.dumps({"projects": {}}))
+        cfg = cfg._replace(accounts=cfg.accounts + (config.Account("a2", "claude-a2", f"{root}/c2"),))
+        cdirs = [pathlib.Path(a.config_dir) for a in cfg.accounts]
+        for cdir in cdirs:
+            cdir.mkdir(parents=True, exist_ok=True)
+            (cdir / ".claude.json").write_text(json.dumps({"projects": {}}))
         ports = quiet_ports(herdr_methods=lambda: dispatch.HERDR_METHODS, shell_has=lambda c: True,
                                gh_ok=lambda repo, env=None: True)
         _, notes = ports.preflight(cfg)
-        self.assertIn(f"アカウント a1 は {cfg.repos[0].source} を信頼していない", "\n".join(notes))
-        (cdir / ".claude.json").write_text(json.dumps({"projects": {cfg.repos[0].source: {"hasTrustDialogAccepted": True}}}))
+        self.assertIn(f"どのアカウントも {cfg.repos[0].source} を信頼していない", "\n".join(notes))
+        # どれか 1 つのアカウントが信頼していれば、ほかのアカウントには作業場を作るときに広げるので知らせない
+        (cdirs[-1] / ".claude.json").write_text(json.dumps({"projects": {cfg.repos[0].source: {"hasTrustDialogAccepted": True}}}))
         _, notes = ports.preflight(cfg)
         self.assertNotIn("信頼していない", "\n".join(notes))
 

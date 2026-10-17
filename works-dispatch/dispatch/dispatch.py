@@ -295,12 +295,13 @@ class Ports:
             if not task and len(found) != 1:
                 problems.append(f"アカウント {a.name}（{cdir}）で /catchup の命令が 1 つに決まらない"
                                 f"（commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
-            for repo in cfg.repos:
-                if not claudex.is_trusted(claudex.trust_file(a.config_dir, self.account_env), repo.source):
-                    notes.append(f"アカウント {a.name} は {repo.source} を信頼していない（枝ごとの作業場で毎回フォルダの信頼の確認が出る。"
-                                 f"一度 {repo.source} で {a.command} を起こし、信頼すると出なくなる）")
             if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
+        # 信頼はアカウントをまたいで広げる（Ports.trust）ので、知らせるのはどのアカウントも信頼していない元の clone だけ
+        for repo in cfg.repos:
+            if not any(claudex.is_trusted(claudex.trust_file(a.config_dir, self.account_env), repo.source) for a in cfg.accounts):
+                notes.append(f"どのアカウントも {repo.source} を信頼していない（枝ごとの作業場で毎回フォルダの信頼の確認が出る。"
+                             f"どれか 1 つのアカウントで一度 {repo.source} に Claude Code を起こし、信頼すると、ほかのアカウントにも広げて出なくなる）")
         home = self.env.get("HOME") or os.path.expanduser("~")
         herdr_toml = pathlib.Path(self.env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
         if not spaces_show_kind(herdr_toml):
@@ -446,9 +447,11 @@ class Ports:
         """その番号の処理が今動いている Claude Code か（--desk が、窓口の席に座っている会話が動いているかを見る）。"""
         return claudex.running_claude(pid)
 
-    def trust(self, account, source, clone):
-        """元の clone を信頼済みのアカウントなら、枝の場所（worktree）にも信頼の印を付ける（claudex.inherit_trust）。"""
-        return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone)
+    def trust(self, account, source, clone, others=()):
+        """元の clone をこのアカウントかほかのアカウント（others。設定の accounts）のどれかが信頼済みなら、枝の場所（worktree）にも
+        信頼の印を付ける（claudex.inherit_trust）。"""
+        return claudex.inherit_trust(claudex.trust_file(account.get("config_dir"), self.account_env), source, clone,
+                                     [claudex.trust_file(o.config_dir, self.account_env) for o in others])
 
     def activity(self, repo, number):
         """PR の動き（ghx.pr_activity）。自分のログイン名は 1 度だけ問い合わせる。"""
@@ -863,11 +866,11 @@ def main(argv=None, ports=None):
                 continue
             r["path"] = prov["path"]
             try:
-                trusted = ports.trust(r["account"], repo.source, prov["path"])
+                trusted = ports.trust(r["account"], repo.source, prov["path"], cfg.accounts)
             except OSError as e:
                 trusted = f"書けない（{e}）"
             if trusted not in ("inherited", "already"):
-                notes.append(f"{name}: アカウント {r['account']['name']} は元の clone を信頼していないので、"
+                notes.append(f"{name}: どのアカウントも元の clone を信頼していないので、"
                              "Claude Code がフォルダの信頼の確認を出す" if trusted == "source_untrusted" else
                              f"{name}: 信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
             got = launch.start(r, prov["pane"], ports.herdr)
@@ -1155,11 +1158,11 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     pane = prov["pane"]
     if prov["status"] == "ready":
         try:
-            trusted = ports.trust(row["account"], repo.source, prov["path"])
+            trusted = ports.trust(row["account"], repo.source, prov["path"], cfg.accounts)
         except OSError as e:
             trusted = f"書けない（{e}）"
         if trusted not in ("inherited", "already"):
-            notes.append(f"アカウント {account} は元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す"
+            notes.append("どのアカウントも元の clone を信頼していないので、Claude Code がフォルダの信頼の確認を出す"
                          if trusted == "source_untrusted" else
                          f"信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
         try:

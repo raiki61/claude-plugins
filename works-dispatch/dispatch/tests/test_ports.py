@@ -463,6 +463,29 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7"), "source_untrusted")
         self.assertEqual(open(f).read(), before)
 
+    def test_source_trusted_only_by_another_account_is_carried_over(self):
+        # 持ち主がどれかのアカウントで信頼した元の clone は、このアカウントにも元と作業場の両方の印を付ける
+        f = self.trust_world({"/src/r-pr-7": {"lastCost": 1}})
+        other = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True}})
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7", [other]), "inherited")
+        got = json.load(open(f))["projects"]
+        self.assertTrue(got[os.path.realpath("/src/r")]["hasTrustDialogAccepted"])
+        self.assertEqual(got["/src/r-pr-7"], {"lastCost": 1, "hasTrustDialogAccepted": True})
+
+    def test_source_trusted_by_no_account_writes_nothing(self):
+        f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": False}})
+        other = self.trust_world({"/src/x": {"hasTrustDialogAccepted": True}})
+        before = open(f).read()
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7", [other, os.path.join(tempfile.mkdtemp(), "none")]),
+                         "source_untrusted")
+        self.assertEqual(open(f).read(), before)
+
+    def test_already_trusted_clone_still_gets_the_source_mark_from_another_account(self):
+        f = self.trust_world({"/src/r-pr-7": {"hasTrustDialogAccepted": True}})
+        other = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True}})
+        self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7", [other]), "inherited")
+        self.assertTrue(claudex.is_trusted(f, "/src/r"))
+
     def test_already_trusted_clone_writes_nothing(self):
         f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True},
                               "/src/r-pr-7": {"hasTrustDialogAccepted": True}})
