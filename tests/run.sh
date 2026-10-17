@@ -1891,7 +1891,7 @@ PY
 # 公式の検査は CI に無い（claude が無い）ので、警告「No author information provided」・項目と plugin.json の
 # 説明の食い違い（利用者の画面に出るのは項目の方。https://code.claude.com/docs/en/plugins/marketplace-reference#display-fields）・
 # README の入れ方の行の助言を、ここで止める。
-expect_output 0 "MANIFEST_STANDARD_OK" "配る形の標準: plugin.json に作者・説明と版は plugin.json の 1 か所・README に入れ方の 2 行" "$PY_BIN" - "$ROOT" <<'PY'
+expect_output 0 "MANIFEST_STANDARD_OK" "配る形の標準: plugin.json に作者と説明・説明と版は plugin.json の 1 か所・README に入れ方の 2 行" "$PY_BIN" - "$ROOT" <<'PY'
 import json, re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -1907,6 +1907,9 @@ def _entry_gap(entry):
     """marketplace の項目が、説明か版を自分で持つ理由（無ければ None）。決まり 3。"""
     held = [k for k in ("description", "version") if k in entry]
     return f"項目が {'・'.join(held)} を持つ（plugin.json の 1 か所に書く）" if held else None
+def _manifest_gap(d):
+    """plugin.json が説明を持たない理由（持てば None）。決まり 3 の「plugin.json の 1 か所」の側。"""
+    return None if isinstance(d.get("description"), str) and d["description"].strip() else "plugin.json に description が無い"
 def _author_gap(d, owner):
     """plugin.json の作者の欠け（在れば None）。決まり 2。"""
     a = d.get("author")
@@ -1916,8 +1919,8 @@ def _author_gap(d, owner):
 def _install_gap(name, mk_name, text):
     """README の本文 text に、入れ方の 2 行の欠け（揃えば None）。/plugin の形とシェルの形の両方を認める。決まり 4。"""
     lines = [
-        (r"marketplace を足す行", rf"(?:(?<![\w./-])/plugin|\bclaude\s+plugin)\s+marketplace\s+add\s+{re.escape(REPO)}(?![\w./-])"),
-        (f"{name}@{mk_name} で入れる行", rf"(?:(?<![\w./-])/plugin|\bclaude\s+plugin)\s+install\s+{re.escape(name)}@{re.escape(mk_name)}(?![\w.@-])"),
+        (r"marketplace を足す行", rf"(?<![\w./-])(?:/plugin|claude\s+plugin)\s+marketplace\s+add\s+{re.escape(REPO)}(?![\w./-])"),
+        (f"{name}@{mk_name} で入れる行", rf"(?<![\w./-])(?:/plugin|claude\s+plugin)\s+install\s+{re.escape(name)}@{re.escape(mk_name)}(?![\w.@-])"),
     ]
     miss = [what for what, pat in lines if not re.search(pat, text)]
     return f"README に {'・'.join(miss)} が無い" if miss else None
@@ -1926,6 +1929,8 @@ def _install_gap(name, mk_name, text):
 assert _entry_gap({"name": "a", "description": "x"}) and _entry_gap({"name": "a", "version": "1.0.0"}), \
     "配る形の柵が、項目の説明・版を拾えていない"
 assert _entry_gap({"name": "a", "source": "./a", "strict": False}) is None, "配る形の柵が、説明の無い項目まで拾っている"
+assert _manifest_gap({}) and _manifest_gap({"description": " "}) and _manifest_gap({"description": 1}) \
+    and _manifest_gap({"description": "x"}) is None, "配る形の柵が、plugin.json の説明の欠けを見分けられていない"
 assert _author_gap({}, "o") and _author_gap({"author": "o"}, "o") and _author_gap({"author": {}}, "o") \
     and _author_gap({"author": {"name": "x"}}, "o"), "配る形の柵が、作者の欠け・形の違い・別の名前を拾えていない"
 assert _author_gap({"author": {"name": "o", "email": "e"}}, "o") is None, "配る形の柵が、正しい作者まで拾っている"
@@ -1939,7 +1944,8 @@ assert _install_gap("g", "m", "") and _install_gap("g", "m", "/plugin install g@
     and _install_gap("g", "m", f"/plugin marketplace add {REPO}\n/plugin install g@mx\n") \
     and _install_gap("g", "m", f"/plugin marketplace add {REPO}\n/plugin install h@m\n") \
     and _install_gap("g", "m", f"/plugin marketplace add {REPO}x\n/plugin install g@m\n") \
-    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\nfoo/plugin install g@m\n"), \
+    and _install_gap("g", "m", f"/plugin marketplace add {REPO}\nfoo/plugin install g@m\n") \
+    and _install_gap("g", "m", f"claude plugin marketplace add {REPO}\nx-claude plugin install g@m\n"), \
     "配る形の柵が、入れ方の行の欠け・別の名前・別の marketplace を拾えていない"
 
 listed = {p["name"]: p for p in mk["plugins"]}
@@ -1949,7 +1955,7 @@ for name, entry in sorted(listed.items()):
     sub = root/entry["source"]
     d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
     readme = sub/"README.md"
-    gaps = [g for g in (_entry_gap(entry), _author_gap(d, owner),
+    gaps = [g for g in (_entry_gap(entry), _manifest_gap(d), _author_gap(d, owner),
                         _install_gap(name, mk["name"], readme.read_text(encoding="utf-8") if readme.is_file() else "")) if g]
     if name in EXEMPT:
         # 外した物が標準を満たしたら、外す一覧に残る理由が無い（残すと、後で崩れても見えない）
