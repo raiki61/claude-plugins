@@ -20,7 +20,7 @@ import herdr as real_herdr
 import orders
 import role_hook
 import wake_hook
-from nodes import deliver, provision, role, wake
+from nodes import deliver, provision, role, tree, wake
 
 
 def write_line(log, record):
@@ -125,6 +125,34 @@ class Watch(unittest.TestCase):
         wake.release(self.inbox, self.place, "t")
         self.assertIsNone(wake.read_mark(self.inbox, self.place))
 
+    def test_stalled_needs_a_queue_a_delivered_ask_and_no_running_watcher(self):
+        # 会話は生きているのに待ち受けの台本が居ない（2026-10-17 に my_notes のノートの手入れで約 70 分止まった形）
+        def mark(pid):
+            os.makedirs(os.path.dirname(wake.mark_path(self.inbox, self.place)), exist_ok=True)
+            with open(wake.mark_path(self.inbox, self.place), "w", encoding="utf-8") as f:
+                json.dump({"names": self.names, "session": "s1", "owner": os.getpid(), "pid": pid, "token": "t", "since": 0}, f)
+        done = {"ask": "a0", "delivered": "a0"}
+        mark(dead_pid())
+        self.assertFalse(wake.stalled(self.inbox, self.place, done, posix=True))   # 順番待ちが無い
+        wake.enqueue(self.inbox, self.place, {"id": "a1", "line": "a1"})
+        self.assertTrue(wake.stalled(self.inbox, self.place, done, posix=True))
+        self.assertTrue(wake.stalled(self.inbox, self.place, {}, posix=True))   # 頼みを受けたことの無い部署
+        self.assertIsNotNone(wake.listening(self.inbox, "co/調べ", posix=True))   # 送る側は居ると見る
+        self.assertFalse(wake.stalled(self.inbox, self.place, {"ask": "a0"}, posix=True))   # 番の終わりに張られる
+        mark(os.getpid())
+        self.assertFalse(wake.stalled(self.inbox, self.place, done, posix=True))   # 待ち受けが動いている
+        now = time.time()   # Windows は印の更新で見る
+        self.assertFalse(wake.stalled(self.inbox, self.place, done, now, posix=False))
+        self.assertTrue(wake.stalled(self.inbox, self.place, done, now + wake.FRESH + 1, posix=False))
+        os.unlink(wake.mark_path(self.inbox, self.place))
+        self.assertTrue(wake.stalled(self.inbox, self.place, done, posix=True))
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [
+                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
+                                            "account": None, "boss": None, "panes": [], "branch": "b", "queue": 1,
+                                            "queue_dir": "/q", "stalled": True}]}]))
+        self.assertIn("順番待ち 1 件（/q）  ! 渡す待ち受けが居ない", line)
+
     def test_queue_hands_out_in_the_order_it_was_put(self):
         for i in ("20261017-000002-bbbbbb", "20261017-000001-aaaaaa"):
             wake.enqueue(self.inbox, self.place, {"id": i, "line": i})
@@ -150,8 +178,8 @@ class Window:
     """部署の窓の偽物（herdr の口）。"""
     HerdrError = real_herdr.HerdrError
 
-    def __init__(self, cwd, status="done", box="", front=None):
-        self.cwd, self.status, self.box, self.writes = cwd, status, box, []
+    def __init__(self, cwd, status="done", box="", front=None, on_clear=None):
+        self.cwd, self.status, self.box, self.writes, self.on_clear = cwd, status, box, [], on_clear
         # 窓の前のプロセス。既定はこの会話の処理（checker が clear_now に渡す me の番号）が居る窓
         self.front = [{"pid": ME, "argv": ["claude"]}] if front is None else front
 
@@ -169,6 +197,8 @@ class Window:
 
     def prompt(self, pane, text, wait):
         self.writes.append(text)
+        if text == deliver.CLEAR and self.on_clear:
+            self.on_clear()   # 会話が空になり、空にした後の会話の始まりの待ち受けが印を書いた
 
     def send_keys(self, pane, *keys):
         self.writes.append(keys)
@@ -237,6 +267,10 @@ class Hook(unittest.TestCase):
         return wake_hook.checker(self.plan(), payload or {"hook_event_name": "Stop"}, h=window or Window(self.place),
                                  now=lambda: 5, me=lambda: ME)
 
+    def emptied(self):
+        """/clear を受けて空になる窓（空にした後の会話の始まりの待ち受けが、新しい会話の id で印を書く）。"""
+        return Window(self.place, on_clear=lambda: wake.claim(self.inbox, gitx.git_dir(self.place), ["co/調べ"], "s-new", 7, "t2", 0))
+
     def put(self, ask_id, **marks):
         wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）",
                                                              "marks": {"ask": ask_id, "boss": "窓口", **marks}})
@@ -256,7 +290,7 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH}, gitx)
         self.put("a1")
-        w = Window(self.place)
+        w = self.emptied()
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(self.checker(window=w)(), ("end", None))   # 渡すのは空にした後の会話の始まりの待ち受け
         self.assertEqual(w.writes[0], deliver.CLEAR)
@@ -265,6 +299,25 @@ class Hook(unittest.TestCase):
         # 空にした後（SessionStart）は渡す
         got = wake_hook.checker(self.plan(), {"hook_event_name": "SessionStart"}, h=Window(self.place), now=lambda: 5)
         self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
+
+    def test_a_clear_not_seen_to_empty_the_talk_keeps_this_watcher_holding(self):
+        # /clear を打っても空になったのを見られなければ、空にした印を書かず、この待ち受けが続いて空にするのを試し直す（空にした
+        # つもりで終わると、次の待ち受けが張られず順番待ちが止まる。2026-10-17 に my_notes のノートの手入れで約 70 分止まった）
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH}, gitx)
+        self.put("a1")
+        w = Window(self.place)
+        check = self.checker(window=w)
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(check(), wake.HOLD)   # 終わらない（"end" なら、この待ち受けの後を継ぐ者が居ない）
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+        self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
+        held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
+        self.assertIn("空になったのを見られない", held[0]["detail"])
+        w.on_clear = self.emptied().on_clear   # 試し直しで空になった
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(check(), ("end", None))
+        self.assertEqual(gitx.worktree_attrs(self.place)["cleared"], "a0")
 
     def test_fresh_department_is_not_cleared_while_busy_typed_or_waiting_on_background_work(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
@@ -307,7 +360,7 @@ class Hook(unittest.TestCase):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
                                               "fresh": role.FRESH}, gitx)
         self.put("a1")
-        w = Window(self.place, status="working")
+        w = Window(self.place, status="working", on_clear=self.emptied().on_clear)
         got = self.plan()
         clock = [0.0]
 
@@ -330,7 +383,7 @@ class Hook(unittest.TestCase):
         # 会話を持ち越す部署と窓口は、会話が自分で区切りと印した（--rest）番の終わりに、機械が窓に /clear を打つ（持ち主が手で打たない）
         provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
         self.put("a1")
-        w = Window(self.place)
+        w = self.emptied()
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
             self.assertEqual(self.checker({"hook_event_name": "Stop", "session_id": "s1"}, w)(), ("end", None))
         self.assertEqual(w.writes[0], deliver.CLEAR)
@@ -553,6 +606,16 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((item["marks"]["ask"], item["marks"]["boss"]), (rec["id"], "desk"))
         self.assertNotIn("ask", gitx.worktree_attrs(self.place))   # 属性は待ち受けが渡すときに書く
         self.assertIn("順番待ちに積んだ（1 件目。待ち受けが渡す）", out)
+
+    def test_ask_to_a_stopped_department_without_a_running_waiter_says_so(self):
+        self.listen("調べ", self.dept_place())
+        mark = wake.read_mark(self.inbox, self.dept_place())
+        with open(wake.mark_path(self.inbox, self.dept_place()), "w", encoding="utf-8") as f:
+            json.dump({**mark, "pid": dead_pid()}, f)   # 会話は生きているが、待ち受けの台本が居ない
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("渡す待ち受けが居ない", out)
+        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
 
     def test_the_same_ask_twice_returns_the_first_number(self):
         self.listen("調べ", self.dept_place())

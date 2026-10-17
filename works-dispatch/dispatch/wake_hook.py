@@ -106,10 +106,12 @@ def talk_window(cwd, h=herdr, pids=(), jobs=()):
 
 
 def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0], why=None):
-    """止まった会話を、自分の窓に /clear を打って空にする。打ったら True（属性に marks を書く。省けば、納品し終えた fresh の部署の
-    company.cleared）。裏の処理が残る・会話がまだ動いている・窓の入力欄に字が在る・自分の会話の居る窓だと確かめられない
-    （talk_window。me はこのフックを起こした Claude Code の処理の番号を返す）・herdr が受け付けないときは False（空にしない）。
-    why に並びを渡せば、空にしなかった訳を 1 つ足す。"""
+    """止まった会話を、自分の窓に /clear を打って空にする。空になった（空にした後の会話の始まりの待ち受けが印を書いた）のを見たら
+    True（属性に marks を書く。省けば、納品し終えた fresh の部署の company.cleared）。裏の処理が残る・会話がまだ動いている・窓の
+    入力欄に字が在る・自分の会話の居る窓だと確かめられない（talk_window。me はこのフックを起こした Claude Code の処理の番号を返す）・
+    herdr が受け付けない・打ったが空になったのを見られないときは False（印も書かない）。見られないまま True を返すと、この待ち受けは
+    終わるのに次の待ち受けが張られず、順番待ちを渡す者が居なくなる（2026-10-17 に my_notes のノートの手入れで、別の窓に /clear を
+    打った後に約 70 分止まった）。why に並びを渡せば、空にしなかった訳を 1 つ足す。"""
     def no(reason):
         if why is not None:
             why.append(reason)
@@ -135,6 +137,8 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
     status, detail = deliver.clear_talk(pane, h, pause, cleared)
     if status == "failed":
         return no(f"/clear を打てない（{detail}）")
+    if status != "cleared":
+        return no("/clear を打ったが、会話が空になったのを見られない")   # この待ち受けが続く（次の待ち受けが張られたかが分からない）
     provision.mark(got["cwd"], got["root"], marks or {"cleared": attrs["ask"]}, gitx)
     return True
 

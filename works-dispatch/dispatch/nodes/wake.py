@@ -125,6 +125,31 @@ def alive(mark, now=None, posix=os.name != "nt"):
     return now - float(mark.get("_mtime") or 0) <= FRESH
 
 
+def watching(inbox, place, now=None, posix=os.name != "nt"):
+    """その場所の待ち受けの台本そのものが動いているか（alive は印の会話を見る。待ち受けが会話を起こして終わった後も、会話が生きて
+    いれば alive は真のまま）。POSIX は印を書いた待ち受けの処理（pid）が在るか、Windows は印の更新が FRESH 秒以内か。"""
+    try:
+        mtime = os.stat(mark_path(inbox, place)).st_mtime
+    except OSError:
+        return False
+    got = read_mark(inbox, place)
+    if not got:
+        return False
+    if not posix:
+        return alive({**got, "_mtime": mtime}, now, posix)
+    return alive({"owner": got.get("pid")}, now, posix)
+
+
+def stalled(inbox, place, attrs, now=None, posix=os.name != "nt"):
+    """順番待ちが渡されずに止まっているか: 順番待ちが在り、部署は今の頼みを納品済み（か頼みが無い）なのに、渡す待ち受けが動いて
+    いない。待ち受けは番の終わりに張られるので、会話が番を終えて止まったまま待ち受けが居なければ、次の番が来るまで誰も渡さない
+    （2026-10-17 に my_notes のノートの手入れで約 70 分止まった）。"""
+    held = attrs.get("ask")
+    if held and attrs.get("delivered") != held:
+        return False   # 今の頼みの番の終わりに待ち受けが張られる
+    return bool(queued(inbox, place)) and not watching(inbox, place, now, posix)
+
+
 def release(inbox, place, token):
     """印がまだ自分の物なら消す（送る側がすぐに予備の打ち込みへ回れるように）。"""
     got = read_mark(inbox, place)

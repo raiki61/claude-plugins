@@ -280,6 +280,8 @@ def lines(companies):
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat(d['residency'], d['fresh'])}）" if d["role"] else ""), f"アカウント {d['account'] or '-'}", f"上役 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}"]
             if d.get("queue"):
-                fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）")
+                fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
+                              + ("  ! 渡す待ち受けが居ない（部署の窓に 1 文打つと、番の終わりに待ち受けが張り直して渡す）"
+                                 if d.get("stalled") else ""))
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
     return out

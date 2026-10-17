@@ -145,7 +145,7 @@ def call(a, ports, cwd, task):
 
 def annotate(companies, settings, g):
     """--tree に受付を足す: 会社ごとに道具（役・名前・title・外れの回数）を tools に、部署ごとに順番待ちの件数と置き場を queue・
-    queue_dir に。外れは受付箱の台帳の kind miss の行で数える。"""
+    queue_dir に、渡す待ち受けが居なくて止まっているか（wake.stalled）を stalled に。外れは受付箱の台帳の kind miss の行で数える。"""
     for c in companies:
         common = g.common_dir(c["root"])
         inbox = deliver.inbox_of(common) if common else None
@@ -162,6 +162,7 @@ def annotate(companies, settings, g):
             here = g.git_dir(d["path"]) if inbox else None
             d["queue"] = len(wake.queued(inbox, here)) if here else 0
             d["queue_dir"] = wake.queue_dir(inbox, here) if here else None
+            d["stalled"] = bool(here) and wake.stalled(inbox, here, d.get("attrs") or {})
     return companies
 
 

@@ -548,6 +548,9 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     if not heard and live_window(dept, ports) is None:
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
     n = len(wake.queued(dest_inbox, place_dir))
+    if heard and wake.stalled(dest_inbox, place_dir, dept["attrs"]):
+        notes.append(f"宛先の部署 {where} は番を終えて止まっているのに、渡す待ち受けが居ない（部署の窓に 1 文打つと、番の終わりに"
+                     "待ち受けが張り直して渡す）")
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
     deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
                                "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
