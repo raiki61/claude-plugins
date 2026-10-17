@@ -74,6 +74,11 @@
   - commit する: リポジトリの中のファイル `.claude/company.toml`。clone した人みなに効く。
   - commit しない: 下回りの設定の置き場（works-dispatch の設定のファイルの隣）の `companies/<代表の clone の場所を符号にした名前>.toml` に、そのリポジトリの分として置く。勤め先のリポジトリを汚さない。
   - 書式は TOML。欄の名前は、エージェントが受ける仕事を告げる世間の形である Google の A2A の Agent Card に合わせた（`name`・`description`・受ける仕事の `[[skills]]`）。ここだけの欄は、受ける役の `role`、役ごとの項目の `[[roles]]`（4.8）、gh のアカウントの `gh_user`（4.1）。書き方の正本は works-dispatch の SKILL.md。
+    - TOML のままにした理由（2026-10-17 に書いた。それまで理由が残っていなかった）: 世間の解は my_notes の調べもの（`reference/secondary/schema/config-formats-trade-off-by-criterion-agent-definitions-mostly-markdown-yaml.md`）に照らした。探したのは、設定の書式（TOML・YAML・JSON）と、エージェントの定義の 11 の形（Claude Code のサブエージェント・Codex・Gemini CLI など）である。エージェントの定義は、Markdown の本文に YAML の頭書きを付ける形が最も多く（11 のうち 5。[Claude Code のサブエージェント](https://code.claude.com/docs/en/sub-agents)もこの形）、長い指示文を本文に素のまま置ける。TOML は 2 つ（Codex と Gemini CLI の独自コマンド）だった。一方、エージェントの定義に向けて書式を比べた原典は見つからず、どれが最適と言い切れる原典も無い。そこで会社の形の事実から決めた。
+      - 読む側は Python の標準ライブラリだけで動く（works-dispatch の README）。標準ライブラリで読めるのは TOML（[tomllib](https://docs.python.org/3/library/tomllib.html)、3.11 から）と JSON で、YAML は外の部品（PyYAML）が要る。PyYAML は YAML 1.1 の読み手で、`yes`・`no`・`on`・`off` なども真偽に読み替える（[YAML 1.1 の真偽](https://yaml.org/type/bool.html)）。works-dispatch の設定のファイルも TOML である。
+      - 中身の多くは 1 つのエージェントの定義でなく、組の設定である（受ける仕事の表・役ごとの Claude Code の設定・機械の役の道具と入力の形・本流に入れる決まり）。Markdown と頭書きの形は 1 ファイルに 1 つのエージェントを置く形で、これを当てると役ごとにファイルが分かれ、入れ子の設定は頭書きに残る。
+      - 「毎回読まれる」量は書式に依らない。部署の会話の始まりに足すのは、役の本文と受け持ちの説明の字だけで（works-dispatch の `dispatch/role_hook.py`）、TOML の記号や他の役の項目は会話に入らない。ファイルそのものを読むのは、会社の形を直す説明書と窓口だけである。
+      - 弱みも残る。LLM が文の指示から TOML を書く課題では、12 のモデルのうち 10 で JSON と YAML の両方より出来が低かった（[StructEval](https://arxiv.org/html/2505.20139v3)）。表の見出しより後に書いたキーは、次の見出しまでその表に入る（字下げは効かない）。どちらも、works-dispatch が打つたびに会社の形を読み、読めなければ止まるので、壊れたまま気づかずに動くことは無い。長い指示文が 1 行になって読みにくい点は、TOML の複数行の文字列（`"""`。行末の `\` で改行を値に入れない）で、書式を替えずに直せる。
   - 書き方は 1 つ。読む順は、リポジトリの中、無ければスキルの設定。Claude Code の `settings.json` と `settings.local.json` の分け方と同じ考え。
 - 会社の形には、ほかの会社の情報を書かない。
 - 会社の指示ファイル（AGENTS.md など）には、この仕組みの名前（部署・窓口・下回りの命令）を書かない。決まりが要るときは、道具に依らない言い方（「作業ごとの枝で頼まれた作業は、載せ直して検証が通れば早送りで入れてよい」など）で書く。仕組みの名前は会社の形とプラグインの側に置く。道具を替えても指示ファイルが古くならないようにするため（持ち主の指摘、2026-10-16）。
