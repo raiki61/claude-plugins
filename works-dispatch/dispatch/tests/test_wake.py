@@ -261,6 +261,48 @@ class Hook(unittest.TestCase):
             self.assertEqual(window.writes, [])
         self.assertNotIn("cleared", gitx.worktree_attrs(self.place))
 
+    def test_a_resident_talk_is_cleared_at_the_end_of_the_turn_it_marked_a_break(self):
+        # 会話を持ち越す部署と窓口は、会話が自分で区切りと印した（--rest）番の終わりに、機械が窓に /clear を打つ（持ち主が手で打たない）
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        self.put("a1")
+        w = Window(self.place)
+        with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
+            self.assertEqual(self.checker({"hook_event_name": "Stop", "session_id": "s1"}, w)(), ("end", None))
+        self.assertEqual(w.writes[0], deliver.CLEAR)
+        self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))   # 印は 1 度で外れる
+        self.assertEqual(len(wake.queued(self.inbox, gitx.git_dir(self.place))), 1)   # 次は空にした後の会話に渡す
+
+    def test_a_break_is_not_cleared_with_an_open_ask_typed_text_or_outside_stop(self):
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        for payload, window in (({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ")),   # 持ち主が打っている途中
+                                ({"hook_event_name": "Stop"}, Window(self.place, status="working")),
+                                ({"hook_event_name": "SessionStart"}, Window(self.place))):
+            self.assertIsNone(self.checker(payload, window)())
+            self.assertEqual(window.writes, [])
+        provision.mark(self.place, self.src, {"ask": "a0"}, gitx)   # 納品していない頼みが在る
+        w = Window(self.place)
+        self.assertIsNone(self.checker(window=w)())
+        self.assertEqual(w.writes, [])
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")
+
+    def test_a_typed_prompt_takes_the_break_mark_off(self):
+        # 人の文で番が始まったら、区切りの印を外す（人と話している途中の会話を空にしない）
+        provision.mark(self.place, self.src, {"role": "相談", "name": "社長室", "session": "s1", wake.REST: "s1"}, gitx)
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s9"})   # 場所のほかの会話の文では外さない
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s1")
+        wake_hook.resume_from_wait({"cwd": self.place, "session_id": "s1"})
+        self.assertNotIn(wake.REST, gitx.worktree_attrs(self.place))
+
+    def test_the_window_is_the_pane_of_this_talk_when_the_place_has_several(self):
+        # 本社には持ち主のほかの会話も居るので、ペインの会話の印で窓口の窓を決める
+        class Many(Window):
+            def panes(self):
+                return [{"pane_id": "p1", "cwd": self.cwd, "agent": "claude", "agent_session": {"value": "s0"}},
+                        {"pane_id": "p2", "cwd": self.cwd, "agent": "claude", "agent_session": {"value": "s1"}}]
+        self.assertEqual(wake_hook.own_window(self.place, Many(self.place), "s1"), "p2")
+        self.assertIsNone(wake_hook.own_window(self.place, Many(self.place), "s7"))   # 結べなければ打たない
+        self.assertEqual(wake_hook.own_window(self.place, Window(self.place), "s7"), "p1")   # 場所に 1 つなら、それ
+
     def test_a_typed_prompt_pauses_the_watcher(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
         place = gitx.git_dir(self.place)

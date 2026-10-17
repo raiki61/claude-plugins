@@ -514,6 +514,29 @@ def wait_for_input(a, ports, cwd):
     return 0
 
 
+def rest_here(a, ports, cwd):
+    """--rest。部署か窓口の会話が、今は会話を空にしてよい区切りだと印す（属性 company.rest に場所の会話の id）。この番の終わりに
+    待ち受け（wake_hook.py）が、窓の入力欄が空なら窓に /clear を打って空にし、印を外す。区切りかどうかは会話が役の本文の決まりで
+    判断する（ここでは決めない）。人がその会話に打つと印が外れる（人と話している途中の会話を空にしない）。終了の値を返す。"""
+    attrs = ports.attrs(cwd)
+    if not attrs.get("role") or not attrs.get("name"):
+        print(f"止めた: {cwd} は部署でも窓口でもない（git の設定 company.role と company.name が無い）。区切りは部署か窓口の場所で印す")
+        return 2
+    ask = attrs.get("ask")
+    if ask and attrs.get("delivered") != ask:
+        print(f"止めた: 納品していない頼み（受付 {ask}）が在る。区切りは、受けた頼みを納品で閉じてから印す")
+        return 2
+    common = ports.git.common_dir(cwd)
+    try:
+        provision.mark(cwd, gitx.root_of(common), {wake.REST: attrs.get("session") or "1"}, ports.git)
+    except (gitx.GitError, OSError) as e:
+        print(f"止めた: 区切りの印を書けなかった（{e}）")
+        return 1
+    print("区切りと印した。この番の終わりに、窓の入力欄が空なら、機械がこの会話の窓に /clear を打って空にする"
+          "（空にした後の会話の始まりに役の本文が足される）。人がこの会話に打つと印が外れる")
+    return 0
+
+
 def deliver_summary(a, ports, cwd):
     """--deliver。終了の値を返す（2 は要約の項目が足りず送らなかった）。"""
     attrs = ports.attrs(cwd)

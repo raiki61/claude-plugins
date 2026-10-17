@@ -34,6 +34,8 @@ FRESH = 15.0        # 送る側が待ち受けを居ると見る、印の更新�
 GRACE = 2.0         # 新しい待ち受けが、前の待ち受けが終わるのを待つ秒（前の物は POLL ごとに印を見る）
 KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み"}
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
+REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
+                    # 番の終わりの待ち受けが窓に /clear を打って消す。人の文で番が始まると外れる
 
 
 def address(company, name):

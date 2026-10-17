@@ -23,7 +23,7 @@ import claudex
 import herdr as real_herdr
 import orders
 import wake_hook
-from nodes import deliver, provision
+from nodes import deliver, provision, wake
 
 
 def dept_row(name=None, role=None, residency=None, session=None, panes=(), branch="b", path="/x"):
@@ -608,6 +608,18 @@ class Flow(unittest.TestCase):
         self.assertNotIn("waiting", gitx.worktree_attrs(self.place))
         self.assertEqual(self.main(self.place, "--wait", "持ち主の答え")[0], 2)   # 納品した後は待つ頼みが無い
         self.assertEqual(self.main(self.src, "--wait", "持ち主の答え")[0], 2)     # 部署でない所
+
+    def test_rest_marks_a_break_only_after_the_ask_is_delivered(self):
+        # 会話を持ち越す部署と窓口が、空にしてよい区切りを自分で印す（空にするのは番の終わりの待ち受け）
+        summary = self.ask_then_summary(GOOD)
+        rc, out = self.main(self.place, "--rest")
+        self.assertEqual(rc, 2, out)   # 納品していない頼みが在る
+        self.assertIn("納品していない頼み", out)
+        self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+        rc, out = self.main(self.place, "--rest")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(gitx.worktree_attrs(self.place)[wake.REST], "s-dept")
+        self.assertEqual(self.main(self.src, "--rest")[0], 2)   # 部署でも窓口でもない所
 
     def test_deliver_with_missing_items_sends_nothing_and_names_them(self):
         summary = self.ask_then_summary("結論: 直した\n")

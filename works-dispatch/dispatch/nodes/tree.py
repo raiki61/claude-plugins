@@ -45,7 +45,7 @@ def inside(cwd, path):
     return c == p or p in c.parents
 
 
-def _session_of(pane):
+def session_of(pane):
     """ペインの会話の印（herdr の agent_session の value）。無ければ None。"""
     got = pane.get("agent_session")
     return got.get("value") if isinstance(got, dict) else None
@@ -223,7 +223,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
                 "sessions": len(talks),
                 "panes": [{"pane_id": x["pane_id"], "label": x.get("label"), "agent": x.get("agent"),
                            "agent_status": x.get("agent_status"),
-                           "agent_session": _session_of(x)} for x in mine],
+                           "agent_session": session_of(x)} for x in mine],
                 "attrs": a,
                 "role": a.get("role"), "residency": a.get("residency"), "fresh": bool(a.get("fresh")),
                 "account": a.get("account") or (main or {}).get("account"),

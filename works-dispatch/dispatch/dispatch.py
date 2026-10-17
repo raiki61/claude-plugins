@@ -39,6 +39,7 @@ id・上役〔呼んだ会話〕）を書く（会社の形の設計 4.2）。--
         python3 dispatch.py --tree [--json] | --sync [--dry-run]
         python3 dispatch.py --ask <会社/役 か部署の名前> (--text <文> | --brief <ファイル>) [--task <名前> --branch <枝>] [--dry-run]
         python3 dispatch.py --deliver <要約のファイル> [--dry-run]
+        python3 dispatch.py --rest（部署か窓口の場所から。今は会話を空にしてよい区切りと印す）
         python3 dispatch.py --land <部署> [--repo OWNER/NAME か代表の clone] [--dry-run]
         python3 dispatch.py --reorg [--name <新しい名前>] [--role <役>] [--resident | --per-task] [--boss <上役> [--boss-account <名>]] [--dry-run]
         python3 dispatch.py --desk [<名前>] [--role <役>] [--dry-run]
@@ -579,6 +580,8 @@ def main(argv=None, ports=None):
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--wait", metavar="訳", help="部署の場所から、今の頼みを人の答え待ちと印す（止まる前のフックが納品を促さない。"
                     "人がその会話に打つか、納品すると外れる）")
+    ap.add_argument("--rest", action="store_true", help="部署か窓口の場所から、今は会話を空にしてよい区切りと印す（この番の終わりに、"
+                    "入力欄が空なら機械が窓に /clear を打つ。人がその会話に打つと外れる）")
     ap.add_argument("--land", metavar="部署", help="部署の成果を、会社の形の [land] の決まりで本流に入れる（関門を待ち、緑なら早送り）")
     ap.add_argument("--keep-removal", action="store_true",
                     help="--land と一緒に: 部署が本流を知った後にほかの部署が入れた行を、この枝が消していても入れる（わざと消すとき）")
@@ -606,6 +609,8 @@ def main(argv=None, ports=None):
         return orders.deliver_summary(a, ports, os.getcwd())
     if a.wait is not None:
         return orders.wait_for_input(a, ports, os.getcwd())
+    if a.rest:
+        return orders.rest_here(a, ports, os.getcwd())
     if a.text is not None:
         print("止めた: --text は --ask と一緒にだけ使う")
         return 2
