@@ -33,10 +33,10 @@
 
 ## 出荷（works の版）
 
-1. 全段の試験（手元でも VERSION_BUMP_STRICT=1 で回す。版上げの順の検査は main・release/* の CI でだけ厳しくなるため）。
+1. 手元の試験は「試験」の節と同じく速い段と根の柵まで（重い段は main に入った後の CI に任せる）。根の柵は VERSION_BUMP_STRICT=1 を付けて回す（`VERSION_BUMP_STRICT=1 bash tests/run.sh`。版上げの順の検査は main・release/* の CI でだけ厳しくなるため）。
 2. CHANGELOG の Unreleased を版に。
 3. **版上げ（works の plugin.json・marketplace）を最後の commit にする。** 版上げの後に works を変える commit を積むと main の CI が赤になる（0.2.2 で実測）。
-4. push の後に gh run list で CI の緑を確かめる。
+4. push で終わり、CI は待たない（「判断の線」の持ち主 2026-10-16 の決め）。main の CI が後で赤になったら、最初の手は入れた commit を git revert で戻すこと。
 
 ## darkfactory を Claude Code から回す
 
