@@ -124,6 +124,8 @@
 
 安いモデル（Sonnet）や低い effort（medium）に替えたときの質（漏れと誤りの件数）と費用（API の定価で換算した USD）は、済んだ頼みを 3 通り（Opus・high〔今の形〕、Sonnet・high、Opus・medium）でやり直して測った（2026-10-17、[docs/model-replay.md](../model-replay.md)）。費用は今の形（2 件で 6.44 USD）を 100 として Sonnet が 40、Opus・medium が 56。漏れと誤りは 2 件の合計で、今の形が 2 件、Sonnet が 5 件、Opus・medium が 2 件（1 通り 2 回だけなので揺れが大きい）。
 
+この再演を受けて、役「作業」を Opus のまま effort medium で起こす（2026-10-17。会社の形の `[[roles]]` の `effort`）。モデルを替える前に同じモデルの effort を動かす、という持ち主の決まり（my_notes の AGENTS.md の「モデル」）に沿い、Sonnet は広げない。担当は再演で比べていないので今のまま（アカウントの既定）。
+
 ### 4.8 役の渡し方
 
 - 部署の会話は、起動したときに自分の役を取りに行く。プラグインの SessionStart フック（会話が始まるときに走る処理）が、起動した場所の `git config --worktree company.role` を読み、会社の形からその役の中身を引いて、会話の指示に足す（フックの additionalContext）。役の無い場所（本社や普通の clone）では何も足さない。

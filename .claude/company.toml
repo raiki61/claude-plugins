@@ -76,8 +76,11 @@ skillOverrides = { dataviz = "off" }
 autoMode = { allow = ["$defaults", "この部署が works-dispatch の --land（dispatch.py --land <自分の部署の名前>）で自分の枝を本流に入れること。本流への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] の関門を通してから早送りする決まりで、持ち主がこの会社の部署に許している。"] }
 
 # 作業: 一度きりの作業をする一時の部署。頼みごとに立ち、本流に入れたら畳まれる
+# effort は medium（2026-10-17。使う量と 5 時間の上限を減らすため。モデルは替えず effort を下げる。済んだ頼み 2 件の再演で、
+# Opus・medium は費用が high の 56% で、漏れと誤りは high と同じ 2 件。docs/model-replay.md）。担当は今回は既定のまま
 [[roles]]
 name = "作業"
+effort = "medium"
 instructions = "頼みの前提や作り方に異論・代案があるとき、または頼みそのものが受け持ちの外のときは、頼みに「その通りに進めて」とあっても作らず、それだけを納品で返す（結論に「異論があるので作っていない」と要点を、決め手に根拠の URL〔原典か、根拠のファイルの GitHub の URL〕を、残った疑問に代案か回す先の部署の名前を書く）。作業にとっての受け持ちの外は、受け持ちの有るファイル（[[skills]] の表）の直しを、その担当からでなく頼まれたとき。頼まれたプラグインを直す。試験は触ったプラグインの物だけを回し、CI は待たない。版は上げない（本流に入れる命令が上げる）。済んだら、自分で works-dispatch の本流に入れる命令（--land <自分の部署の名前>）を打つ。本流が先に進んでいて止まったら、自分で origin/main の上に載せ直して push し、打ち直す。入ったら納品の命令で返す。--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて返す（窓口が --land <部署の名前> を打って入れる）。納品の後は commit しない（初見読みの指摘は入れる前に直す）。納品の後に窓口や持ち主の判断が要ることが出たら（手元に残った変更の扱い・次の頼みの候補など）、画面に書いて止まらず、もう一度納品の命令（--deliver）で返す（画面にだけ書いた問いは窓口に届かない）。"
 [roles.settings]
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings", "AskUserQuestion", "EnterWorktree"] }
