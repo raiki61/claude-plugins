@@ -6,8 +6,8 @@
 # 既定を実物の gh にすると、テストの `gh issue comment 1` がこのリポジトリの issue 1 を実際に
 # 取りに行く(ネットワークと認証に依存し、CI では毎回失敗の待ち時間になる)。
 # 環境変数 COLDREAD_TEST_SESSION が有れば payload の session_id に入れる(連続 deny を session ごとに
-# 数える検査用)。無ければ呼び出しごとに別の session にする——同じ投稿の往復に上限(gates の STREAK_CAP)が
-# 在るので、session を共有すると、似た本文を続けて流す検査が上限に当たって本来の判定が見えなくなる。COLDREAD_GATE が有ればそのフック本体を使う(cache に版が並ぶ形を模す検査用)。
+# 数える検査用)。無ければ呼び出しごとに別の session にする——同じ投稿の書き直しは、2 回目から前の回の指摘と
+# 差分を読み手に渡し、3 回目から知らせが付くので、session を共有すると、似た本文を続けて流す検査の判定が前の検査に引きずられる。COLDREAD_GATE が有ればそのフック本体を使う(cache に版が並ぶ形を模す検査用)。
 # COLDREAD_TEST_CWD が有れば payload の cwd に入れる(相対パスの本文ファイルを、フックの入力の cwd で解く検査用)。
 set -uo pipefail
 cfg=$1 reader=$2 cmd=$3 gh=${4:-exit 1}

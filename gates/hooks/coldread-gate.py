@@ -14,8 +14,10 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 
 エージェントが自分で検査を外す逃げ道は無い(持ち主の判断 2026-10-16。前の COLDREAD_SKIP=1 は、本文ファイルの
 書き直しを避けて未検査のまま出す口に 22 回使われた。今は書かれていても効かせず、書いた事実だけを記録する)。
-読み役が起動できないときも止める。同じ投稿が STREAK_CAP 回(3)続けて止められたら、それ以上は書き直させず、
-持ち主に渡して止まらせ、stuck.log に残す(初見指摘は読み手ごとに揺れ、
+通す口は持ち主の側に在る: 持ち主が会話の入力欄に「coldread-pass <番号>」と打つと、その投稿の次の 1 回を通す(OWNER_PASS)。
+読み役が起動できないときも止める。往復の上限は置かない(持ち主 2026-10-17)。同じ投稿の書き直しは、2 回目から
+前の回の指摘と直した差分を読み手に渡し、解けていない指摘と直しが持ち込んだ物だけで止める(FOLLOWUP_NOTE)。
+同じ投稿が STUCK_MARK 回(3)続けて止まったら stuck.log に残し、持ち主に渡す道を添える(初見指摘は読み手ごとに揺れ、
 完全収束しないため。firstread-loop と同じ知見。2026-09-07 の試走: 画面を広げた後でも、
 3,693 字の実物の返信が 3 回とも別の詰まり 1〜2 件で止まり——4:27/7:40=58% を「計算が合わない」
 と読む等——10,179 字版は 3 回中 1 回通った。揺れは画面の広さでは消えない。揺れの中身は
@@ -78,7 +80,7 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
   skip.log    効かせなかった逃げ道(refused)と、読み役の中で発火した呼び出しのコマンド先頭
   misses.log  本文旗の綴りが在るのに候補も blocked も空だった単純コマンドの、旗の綴りと先頭の語
               =網から落ちた疑い。「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
-  stuck.log   往復の上限に当たった投稿の、会話・版・宛先の種類・止めた回数と理由の並び・本文の長さの並び
+  stuck.log   STUCK_MARK 回続けて止まった投稿の、会話・版・宛先の種類・止めた回数と理由の並び・本文の長さの並び
               (本文は写さない)。関所か書き方のどちらかがおかしい合図なので、後で直す材料にする
 
 環境変数:
@@ -1719,6 +1721,7 @@ NEW_PROMPT = """あなたはこの {noun} を初めて開いた読者です。�
 以下の「本文」を読み、理解を実際に妨げた事実だけを報告してください。
 画面に見えているもの({items})は「何を指しているか分かっている」ものとして読み、本文で説明されていなくても詰まりにしない。
 画面が分からせるのは何を指しているかであって、語の意味ではない。画面の題に有る語でも、本文がそれを自分の言葉として使い、画面と本文を合わせても意味が取れなければ詰まりにする。
+本文が参照している番号の題は、その番号の側の物で、本文の書き手には直せない。その題の中の語が分からなくても詰まりにしない(本文がその語を自分の言葉として使っているときだけ、本文の側の詰まりにする)。
 
 """ + _COLD_VIEWS % "画面と本文を合わせても"
 # 読み手が画面で見ているものの列挙。依頼文(既知の範囲)と deny の直し方(説明しないもの)の両方がこれを使う
@@ -1735,6 +1738,7 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 前提:
 - 画面に見えているもの(""" + SCREEN_ITEMS + """)は「何を指しているか分かっている」ものとして読む。それらが本文で説明されていなくても詰まりにしない
 - 画面は語彙の辞書ではない。相手の言い回し・業界の外では通じない横文字・比喩(例: 北極星・ニアバイ・クロージング)を、本文が自分の地の文として使っている箇所は「なぞり: 」として報告する——画面に同じ語が有っても、画面を持たずにこのスレッドを後から読む人には解けない。定着した技術用語・製品名・file 名・相手が付けた印は含めない。相手の語を引用して指す(「reviewer_x さんの言う『ニアバイ』は」「[block] の 2 件目は」)のはなぞりではない
+- 参照されている番号の題は、その番号の側の物で、本文の書き手には直せない。その題の中の語が分からなくても詰まりにしない(本文がその語を自分の言葉として使っているときだけ、本文の側の詰まりにする)
 - 本文が、画面に見えているものを改めて説明している箇所(誰宛か・何番の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長: 」として報告する(読み手は既に見ている)
 
 見る観点:
@@ -1758,6 +1762,44 @@ def reader_prompt(screen, noun=None):
     if screen and noun:
         return NEW_PROMPT.replace("{noun}", noun).replace("{items}", NEW_SCREEN_ITEMS[noun]) % screen
     return SCREEN_PROMPT % screen if screen else COLD_PROMPT
+
+
+# 書き直しの 2 回目からの読み手に足す前置き。1 回目の読み手は本文の全体を読んで全部挙げ、2 回目からの読み手は、
+# 前の回の指摘が解けたかと、直しが持ち込んだ物だけを止める理由にする。毎回まっさらな読み手に全体を読ませていた頃は、
+# 前の回の指摘と直しを知らない読み手が逆の注文を出し(issue へのコメントで、2 回目が「前のコメントの言い直しだから
+# 削れ」、3 回目が「前のコメントのどの案か言い換えられていない」)、前の読み手が言わなかった端の所を毎回新しく
+# 拾って、同じ投稿が上限の 3 回まで止まり続けた(2026-10-17 の works-factory で 5 本。stuck.log)。持ち主の決め
+# (2026-10-17、works-factory の計画の事前審査で同じ型が出た時):「指摘の内容が遷移するはず」「中央の致命的な
+# バグから、端っこの細かいのに移るはず」「ある程度出たと判断したら進む形にしよう」「上限はいらないわ」。
+# 書き換えていない所で新しく気づいた物は、前の回の読み手が全体を読んで詰まりに挙げなかった所(端に移った物)なので、
+# 止めずに疑問か補完として書き手に返す。
+FOLLOWUP_NOTE = """これは同じ投稿の書き直しの %d 回目の検査です。1 回目の読み手が本文の全体を読んで指摘を出し、書き手は回ごとに指摘を受けて本文を直しています。前の回に出た指摘と、前の回からの直しは次のとおりです。
+
+--- 前の回の指摘 ---
+%s
+--- 書き手の直し(前の回の本文との差分。行頭の - は消した行、+ は足した行) ---
+%s
+--- ここまで ---
+
+この回で「詰まり: 」「なぞり: 」として報告するのは、次の 2 つだけ:
+- 前の回の詰まり・なぞりのうち、今の本文でまだ解けていないもの(どの指摘かが分かるように、前の指摘の要点を引く)
+- 直しで足した・書き換えた所(差分の + の行)が新しく生んだ詰まり・なぞり
+書き換えていない所で新しく気づいたことは、詰まりにもなぞりにもせず、疑問か補完として報告する(1 回目の読み手が全体を読み、詰まりに挙げなかった所)。
+前の回の指摘に応えた直しを戻させる指摘(足した説明を冗長として削れ、など)は出さない。その直しで分かりにくくなったなら、そのことを詰まりとして書く。
+
+"""
+FOLLOWUP_DIFF_MAX = 8000   # 差分の上限(字)。超えた分は切る(本文の全体は下に在る)
+
+
+def followup_prompt(prompt, prev, body):
+    """読み手の依頼文に、前の回の指摘と書き手の直しを足す(本文の始まりの印の手前に差し込む)。"""
+    findings = "\n".join(line for label in LABELS for line in prev.get("found", {}).get(label, [])) or "(記録なし)"
+    diff = "\n".join(line for line in difflib.unified_diff(
+        prev.get("body", "").splitlines(), body.splitlines(), lineterm="", n=1)
+        if not line.startswith(("---", "+++")))
+    note = FOLLOWUP_NOTE % (prev.get("round", 1) + 1, findings,
+                            clip(diff, FOLLOWUP_DIFF_MAX) if diff else "(前の回と同じ本文。直していない)")
+    return prompt[:-len(BODY_MARK)] + note + BODY_MARK
 
 
 # 読み役のラベルと、投稿を止めるかどうか。依頼文が指示する綴りと 1 対 1 なので隣に置く——
@@ -2020,12 +2062,13 @@ SCOPE_NOTE = (
     "(宛先の許可制は同梱の destgate)。"
 )
 
-# 往復の上限。同じ書き手・同じ宛先・似た本文の投稿がこの回数だけ続けて止められたら、それ以上書き直させず、
-# 持ち主に渡して止まらせる。3 にしたのは、denies.log(2026-09〜10 の 4 profile)の連続の分布から:
-# 1 回止まった後の次で通ったのは 301 本中 178 本、2 回止まった後の次で通ったのは 94 本中 49 本、
-# 3 回止まった後の次で通ったのは 33 本中 2 本だった(3 回目からは前の案内が逃げ道を勧めていたので、通る率は
-# 低めに出ている)。上限で止まるのは、関所か書き方のどちらかがおかしい合図なので、stuck.log に残して後で直す。
-STREAK_CAP = 3
+# 往復の上限は置かない(持ち主 2026-10-17「上限はいらないわ」)。前は同じ投稿が 3 回続けて止まったら、それ以上は読まずに
+# 止めて持ち主に渡させていた。今は 2 回目からの読み手が前の回の指摘と直しを見て、解けていない物と直しが持ち込んだ物だけで
+# 止める(FOLLOWUP_NOTE)ので、指摘は回を追って減る。それでも同じ投稿がこの回数続けて止まったら、収まらない合図として
+# stuck.log に残し、持ち主が通してよいと決めたときの口(OWNER_PASS)を止めた理由の文に添える。3 にしたのは、denies.log
+# (2026-09〜10 の 4 profile)の連続の分布から: 1 回止まった後の次で通ったのは 301 本中 178 本、2 回止まった後の次で
+# 通ったのは 94 本中 49 本、3 回止まった後の次で通ったのは 33 本中 2 本だった(前の回を知らない読み手のときの数)。
+STUCK_MARK = 3
 FP_SIZE = 16       # 本文の指紋(MinHash)の数。log に本文を写さずに「同じ投稿の書き直しか」を比べるため
 FP_SAME = 3        # 指紋が 16 個中これ以上一致すれば同じ投稿の書き直しと見る(推定の Jaccard ≥ 0.19)
 _FP_SALTS = [int(hashlib.sha256(b"coldread-fp-%d" % i).hexdigest()[:16], 16) for i in range(FP_SIZE)]
@@ -2045,6 +2088,109 @@ def same_post(fp_a, fp_b):
     if not fp_a or not fp_b or len(fp_a) != len(fp_b):
         return True   # 指紋の無い行(本文を取り出せなかった deny)は、宛先だけで同じ投稿と見る
     return sum(fp_a[i:i + 4] == fp_b[i:i + 4] for i in range(0, len(fp_a), 4)) >= FP_SAME
+
+
+# 書き直しの回の記録。前の回の本文と指摘を、書き手(session)と投稿先の組ごとに 1 つ持つ(2 回目からの読み手に渡すため)。
+# 本文を持つので log には書かず、組ごとの小さなファイルにして、通ったら消し、DENY_STREAK_WINDOW を過ぎた物は書くときに消す。
+ROUND_DIR = os.path.join(STATE_DIR, "rounds")
+
+
+def _pair_key(session, target):
+    return hashlib.sha256(("%s\0%s" % (session, target)).encode("utf-8")).hexdigest()
+
+
+def _round_path(session, target):
+    return os.path.join(ROUND_DIR, _pair_key(session, target)[:32] + ".json")
+
+
+def load_round(session, target, fp):
+    """同じ投稿の前の回の記録({round, body, found, fp, t})。無い・古い・本文が似ていない(別の投稿)なら None。"""
+    try:
+        with open(_round_path(session, target), encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if time.time() - prev.get("t", 0) > DENY_STREAK_WINDOW or not same_post(fp, prev.get("fp")):
+        return None
+    return prev
+
+
+def save_round(session, target, fp, body, found, round_no):
+    try:
+        os.makedirs(ROUND_DIR, exist_ok=True)
+        now = time.time()
+        for name in os.listdir(ROUND_DIR):
+            path = os.path.join(ROUND_DIR, name)
+            if now - os.path.getmtime(path) > DENY_STREAK_WINDOW:
+                os.remove(path)
+        with open(_round_path(session, target), "w", encoding="utf-8") as f:
+            json.dump({"round": round_no, "t": now, "fp": fp, "body": body, "found": found}, f, ensure_ascii=False)
+    except OSError:
+        pass   # 記録できなくても検査は続く(次の回が 1 回目の読み方に戻るだけ)
+
+
+def drop_round(session, target):
+    try:
+        os.remove(_round_path(session, target))
+    except OSError:
+        pass
+
+
+# 持ち主が通してよいと決めた投稿を、検査せずに通す口。エージェントが自分で検査を外す逃げ道(COLDREAD_SKIP=1)は、止められた後に
+# 自分で付けて未検査のまま出す口に 22 回使われたのでやめた(持ち主 2026-10-16)。こちらは持ち主の言葉を機械が確かめる:
+# 止めた理由の文に投稿ごとの番号を出し、持ち主がその会話の入力欄に「coldread-pass <番号>」だけを打つと、UserPromptSubmit の
+# フック(owner_pass_main)が許しを記録し、同じ会話の同じ投稿先への次の 1 回だけを通す。エージェントは自分の会話の入力欄に
+# 打てない。ただし UserPromptSubmit は、予約した作業(/loop など)の起動・裏の作業役の報告・別の会話からの知らせでも撃たれる
+# (https://code.claude.com/docs/en/hooks#userpromptsubmit)。入力の全体がこの形と一致するときだけ許すので、作業役の報告や
+# 別の会話の知らせ(入力に囲みが付く)では効かないが、エージェントが自分で予約した作業はこの形を作れる。通した事実は skip.log に
+# owner-pass として残す。持ち主の言葉「通らないのは問題だからね」(2026-10-17)。
+OWNER_PASS = "coldread-pass"
+OWNER_PASS_RE = re.compile(r"\s*%s\s+([0-9a-f]{6})\s*\Z" % OWNER_PASS)
+PASTED_RE = re.compile(r"^</?pasted_content\b[^>]*>\s*$", re.M)   # 貼った文の囲みの行(持ち主の端末で付く)
+PASS_DIR = os.path.join(STATE_DIR, "passes")
+
+
+def pass_id(session, target):
+    return _pair_key(session, target)[-6:]
+
+
+def _pass_path(session, pid):
+    return os.path.join(PASS_DIR, "%s-%s" % (_pair_key(session, "")[:16], pid))
+
+
+def take_pass(session, target):
+    """持ち主の許しが有れば消費して True。許しは DENY_STREAK_WINDOW の間だけ効く。"""
+    path = _pass_path(session, pass_id(session, target))
+    try:
+        fresh = time.time() - os.path.getmtime(path) <= DENY_STREAK_WINDOW
+        os.remove(path)
+    except OSError:
+        return False
+    return fresh
+
+
+def owner_pass_main():
+    """UserPromptSubmit: 入力の全体が「coldread-pass <番号>」なら、その会話の許しを記録して、エージェントに打ち直せと伝える。"""
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return
+    m = OWNER_PASS_RE.match(PASTED_RE.sub("", str(payload.get("prompt") or "")))
+    if not m:
+        return
+    sid = str(payload.get("session_id") or "")[:8]
+    try:
+        os.makedirs(PASS_DIR, exist_ok=True)
+        with open(_pass_path(sid, m.group(1)), "w", encoding="utf-8"):
+            pass
+    except OSError:
+        return
+    log_line(SKIP_LOG, "owner-pass-granted\tsid=%s\tid=%s" % (sid, m.group(1)))
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "外部投稿ゲート: 持ち主が、番号 %s の投稿を初見読みの検査なしで通すことを許した(次の 1 回だけ。%d 分の間)。"
+                             "止められた投稿と同じ投稿先へのコマンドを打ち直せば通る。" % (m.group(1), DENY_STREAK_WINDOW // 60),
+    }}, ensure_ascii=False))
 
 
 def main() -> None:
@@ -2090,23 +2236,29 @@ def main() -> None:
         skip_note = SKIP_REFUSED_NOTE
 
     def stop(kind, message, length=None, fp=None):
-        """deny して終わる。同じ投稿が上限の回数だけ続けて止められたら、書き直させずに持ち主に渡させる。"""
+        """deny して終わる。同じ投稿が STUCK_MARK 回続けて止まったら、記録に残し、持ち主に渡す道と、持ち主が通す口を先頭に添える。"""
         n, lens, kinds = deny_streak(sid, target, fp)
         n, kinds = n + 1, kinds + [kind.split("\t", 1)[0]]
         if length is not None:
             lens.append(length)
         record("deny\t" + kind, "\tfp=%s" % fp if fp else "")
-        if n >= STREAK_CAP:
+        if n >= STUCK_MARK:
             label_kind = target.split(":", 1)[0] if target.count(":") >= 2 else target
             log_line(STUCK_LOG, "sid=%s\tv=%s\tkind=%s\tn=%d\twhy=%s\tlens=%s" % (
                 sid, GATE_VERSION, label_kind, n, ",".join(kinds), ",".join(map(str, lens)) or "-"))
             grown = ("。本文は %s 字と書き直された" % " → ".join("{:,}".format(x) for x in lens)
                      if len(lens) >= 2 and lens[-1] != lens[0] else "")
+            # 持ち主が通す口は、本文を読んで止めた投稿にだけ添える(本文を取り出せない・解析できない形は、書き手が形を直せば読める)
+            owner_pass = (
+                "持ち主が出してよいと決めたら、持ち主がこの会話の入力欄に「%s %s」とだけ打てば、"
+                "この投稿先への次の 1 回だけを検査せずに通す(打てるのは持ち主だけ。エージェントは打たない・予約しない)。"
+                % (OWNER_PASS, pass_id(sid, target)) if fp else
+                "出すかどうかは持ち主が決め、出すなら持ち主が Claude Code の ! か自分の端末で打つ。")
             message = (
-                "【上限に当たった: 同じ投稿が %d 回続けて止められた%s】これ以上書き直さず、持ち主に渡して止まれ"
-                "(この投稿の宛先・本文の場所と下の理由を渡す)。出すかどうかは持ち主が決め、出すなら持ち主が "
-                "Claude Code の ! か自分の端末で打つ。上限で止まるのは、関所か書き方のどちらかがおかしい合図で、"
-                "記録(coldread-gate/stuck.log)に残した。\n\n" % (n, grown)
+                "【同じ投稿が %d 回続けて止まった%s】次の回の読み手も、前の回の指摘が解けたかと、直しが持ち込んだ物だけを見る。"
+                "直せると判断したら直して打ち直す。直せない(指摘が本文の外の物・前の直しと食い違う)と判断したら、"
+                "書き直しをやめて持ち主に渡して止まる(この投稿の宛先・本文の場所と下の理由を渡す)。%s"
+                "収まらない投稿は記録(coldread-gate/stuck.log)に残した。\n\n" % (n, grown, owner_pass)
             ) + message
         deny("\n".join(filter(None, (message, skip_note))))
 
@@ -2167,9 +2319,18 @@ def main() -> None:
     except Exception:
         target, dest = "-", None
 
-    # 上限に当たった後の書き直しは、読み役を起こさずに止める(書き直しを重ねさせない)
-    if deny_streak(sid, target, fp)[0] >= STREAK_CAP:
-        stop("cap\t%d" % len(body), "外部投稿ゲート: この投稿は既に往復の上限に当たっている。", len(body), fp)
+    # 持ち主が通してよいと決めた投稿(OWNER_PASS)は、読まずに通し、通した事実を残す
+    if take_pass(sid, target):
+        log_line(SKIP_LOG, "owner-pass\tsid=%s\tv=%s\tto=%s\tlen=%d" % (sid, GATE_VERSION, target, len(body)))
+        record("allow\t%d\towner-pass" % len(body))
+        drop_round(sid, target)
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "持ち主の許し(%s)で、初見読みの検査をせずに通した" % OWNER_PASS,
+            "additionalContext": "この投稿は初見読みを通っていない(持ち主が許した。skip.log に owner-pass として残した)。",
+        }}, ensure_ascii=False))
+        sys.exit(0)
 
     screen, screen_error, screen_note = None, None, ""
     sub, sub_args, sub_cwd = analysis.call_of(body)
@@ -2196,10 +2357,16 @@ def main() -> None:
                 "それへの詰まりは無視してよい。" % (noun, "・".join(missed)))
     mode = ("new" if noun else "screen") if screen else "cold"
 
+    # 同じ投稿の書き直しなら、前の回の指摘と直しを読み手に渡す(FOLLOWUP_NOTE)
+    prev = load_round(sid, target, fp)
+    round_no = prev.get("round", 1) + 1 if prev else 1
+    prompt = reader_prompt(screen, noun)
+    if prev:
+        prompt = followup_prompt(prompt, prev, body)
     try:
-        out = run_reader(reader_prompt(screen, noun) + body)
+        out = run_reader(prompt + body)
     except Exception as exc:
-        # 読み役を起こせないときも止める。逃げ道は無いので、直らなければ持ち主に渡す(上限でも止まる)
+        # 読み役を起こせないときも止める。逃げ道は無いので、直らなければ持ち主に渡す
         stop("reader-down\t%d" % len(body),
              "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
              + "検査できていないので止めた。手で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
@@ -2225,6 +2392,7 @@ def main() -> None:
     # 説明以外を書かせる欄(補完)を足したぶん、末尾が CLEAN で終わる形は出やすくなっている。
     if not any(found[label] for label, stops in LABELS.items() if stops):
         record("allow\t%d\t%s" % (len(body), mode))
+        drop_round(sid, target)
         extra = "\n".join(filter(None, (
             SCOPE_NOTE,
             skip_note,
@@ -2249,9 +2417,10 @@ def main() -> None:
             "new": "この %s を初めて開く人として、GitHub が本文の周りに出すものと本文を読んだ別プロセスの読み手" % noun,
             }.get(mode, "文脈ゼロの別プロセスの読み手")
     head = (
-        "外部投稿ゲート: coldreader(%s)がこの本文で詰まった。詰まりを直してから"
-        "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する。同じ投稿が %d 回続けて"
-        "止まったら、それ以上は書き直させずに持ち主に渡させる):" % (role, STREAK_CAP)
+        "外部投稿ゲート: coldreader(%s)がこの本文で詰まった(%s)。詰まりを直してから同じ形で再実行すること"
+        "(再実行時は新しい coldreader が、この回の指摘と直した差分を渡されて、指摘が解けたかと、直しが持ち込んだ物だけを見る):"
+        % (role, "%d 回目の検査。前の回の指摘が解けたかと、直しが持ち込んだ物だけを見た" % round_no if prev
+                 else "1 回目の検査。本文の全体を読んだ")
     )
     # 見出しで分ける。混ぜて並べると、直さなくてよい補完・疑問が過半を占めたまま
     # 「以下を直せ」と読め、直す量を過大に見せて逃げ道を引く方向に働く(実測で 8.9 行中 4.7 行)。
@@ -2264,16 +2433,24 @@ def main() -> None:
     )))
     # 直し方は読み方で変える。画面モードで「同型を掃討」と言うと、画面に有るものの説明を
     # 本文全体に足す向きに働く(PR 1583 で実測: 宛先本人に本人の名前の説明が付いた)
-    howto = (
-        "直し方: 足すより削る。読み手は " + SCREEN_ITEMS + " を画面で見ているので、それらを本文で"
-        "説明しない(説明は「冗長」として返る)。詰まりは画面と本文を合わせても解けないものだけなので、"
-        "その語の初出 1 か所に中身を添える。相手の語は指してよいが、相手の語で書かない(相手の言い回しを"
-        "地の文に写した箇所は、画面に同じ語が有っても「なぞり」として止まる。直し方は自分の言葉に置き換える)。"
-        if mode == "screen" else
-        "直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
-        + ("読み手は " + NEW_SCREEN_ITEMS.get(noun, "") + " を画面で見ているので、それらを本文で説明し直さなくてよい。"
-           if mode == "new" else "")
-    )
+    if mode == "screen":
+        howto = (
+            "直し方: 足すより削る。読み手は " + SCREEN_ITEMS + " を画面で見ているので、それらを本文で"
+            "説明しない(説明は「冗長」として返る)。詰まりは画面と本文を合わせても解けないものだけなので、"
+            "その語の初出 1 か所に中身を添える。相手の語は指してよいが、相手の語で書かない(相手の言い回しを"
+            "地の文に写した箇所は、画面に同じ語が有っても「なぞり」として止まる。直し方は自分の言葉に置き換える)。")
+    elif prev:
+        howto = ""
+    else:
+        howto = ("直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
+                 + ("読み手は " + NEW_SCREEN_ITEMS.get(noun, "") + " を画面で見ているので、それらを本文で説明し直さなくてよい。"
+                    if mode == "new" else ""))
+    # 2 回目からは、次の回の読み手が見る所(前の指摘と直した所)に直しを絞らせる。掃討で直していない所まで書き換えると、
+    # 書き換えた所がみな次の回に読まれる
+    if prev:
+        howto = ("直し方: 挙がった所だけを直す(次の回の読み手は、この回の指摘が解けたかと、直した所だけを見る。"
+                 "直していない所で新しく気づいた物では止めない)。") + howto
+    save_round(sid, target, fp, body, found, round_no)
     stop("finding\t%d\t%s" % (len(body), mode),
          head + "\n\n" + detail[:1500]
          + "\n\n" + howto + "詳細は skill『coldread』。\n" + SCOPE_NOTE
@@ -3552,6 +3729,8 @@ if __name__ == "__main__":
     MODE = sys.argv[1] if len(sys.argv) > 1 else ""
     if MODE in ("docs-record", "docs-check", "docs-check-async", "docs-session-end"):
         hook_main(MODE)
+    elif MODE == "owner-pass":
+        owner_pass_main()
     elif MODE == "branch-check":
         sys.exit(branch_check(sys.argv[2:]))
     elif MODE == "read" and len(sys.argv) == 3:
@@ -3562,6 +3741,6 @@ if __name__ == "__main__":
         sys.stdout.flush()
         sys.stdout.buffer.write(COLD_PROMPT.encode("utf-8"))
     elif MODE:
-        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | branch-check [--base <ref>] | read <パス> | prompt](引数なしは投稿の門番)")
+        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | owner-pass | branch-check [--base <ref>] | read <パス> | prompt](引数なしは投稿の門番)")
     else:
         main()
