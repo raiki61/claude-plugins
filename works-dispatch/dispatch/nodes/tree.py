@@ -215,12 +215,13 @@ def copied_from(office, attrs):
     """部署の場所の属性 attrs が、本社の属性 office を git の worktree add が写した物か。git は extensions.worktreeConfig が入って
     いると、作った worktree に元の worktree の config.worktree を写すので、代表の clone から作った worktree（道具の一時の場所・
     --land の版を上げる一時の場所・herdr が作る部署の場所）は、作ってから属性を消すか書き直すまで、本社と同じ名前の部署に見える。
-    その間は中身を出し終えるまでの全部で、my_notes では 1 秒ほどあった（2026-10-18 に、--ask 段取り が道具の一時の場所と本社の
-    「2 つ以上ある」で止まった。受付 596ed5）。会話の id（company.session）は部署ごとに違うので、両方に在ればそれで見分け、無ければ
-    名前で見分ける。本社の属性は会話が動くたびに書き換わる（company.reloaded など）ので、全部の一致では見ない。"""
-    if office.get("session") and attrs.get("session"):
-        return attrs["session"] == office["session"]
-    return bool(attrs.get("name")) and attrs.get("name") == office.get("name")
+    git は中身を出す前に写すので、その間には出し終えるまでの時間が入る（my_notes の写しで出すのに 1.2 秒かかった。2026-10-18 に
+    --ask 段取り が道具の一時の場所と本社の「2 つ以上ある」で止まった。受付 596ed5）。名前と役が本社と同じで、部署の立て方が書く
+    本流を知った位置（company.base）が無い物を写しとみる。会話の id（company.session）では見ない。本社の窓口が会話を替えると本社の
+    id だけが書き換わり、写しの方は古い id のまま残るため。base を持つ部署は、本社と同じ名前でも隠さない（前と同じく「2 つ以上ある」で止まる）。"""
+    if not attrs.get("name") or attrs.get("base"):
+        return False
+    return (attrs["name"], attrs.get("role")) == (office.get("name"), office.get("role"))
 
 
 def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):

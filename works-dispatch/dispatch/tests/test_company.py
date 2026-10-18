@@ -371,8 +371,11 @@ class Build(unittest.TestCase):
         for k, v in (("name", "段取り"), ("role", "段取り"), ("session", "s-h"), ("reloaded", "1 1")):
             gitx.set_worktree_attr(str(src), k, v)
         place = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="works-dispatch-tool-")), "tree")
+        self.addCleanup(shutil.rmtree, os.path.dirname(place), True)
         git("-C", str(src), "worktree", "add", "-q", "--detach", place, "HEAD")
-        gitx.set_worktree_attr(str(src), "reloaded", "2 2")   # 写した後に本社の属性が書き換わっても写しと見る
+        # 写した後に本社の属性が書き換わっても（窓口が会話を替えて会話の id が変わっても）写しと見る
+        gitx.set_worktree_attr(str(src), "reloaded", "2 2")
+        gitx.set_worktree_attr(str(src), "session", "s-h2")
         self.assertEqual(gitx.worktree_attrs(place)["name"], "段取り")   # git が写した
         places = [{"path": os.path.realpath(e["path"]), "branch": e["branch"], "linked": os.path.realpath(e["path"]) != str(src)}
                   for e in gitx.listed_worktrees(str(src))]
@@ -382,9 +385,12 @@ class Build(unittest.TestCase):
         self.assertTrue(dept["head_office"])
         self.assertEqual(next(d for d in c["departments"] if d["path"] == place)["attrs"], {})
 
-    def test_a_department_with_its_own_session_is_not_a_copy(self):
-        self.assertFalse(tree.copied_from({"name": "段取り", "session": "s-h"}, {"name": "段取り", "session": "s-x"}))
-        self.assertTrue(tree.copied_from({"name": "段取り"}, {"name": "段取り"}))   # 会話の id が無ければ名前で見る
+    def test_a_department_set_up_by_provision_is_not_a_copy(self):
+        office = {"name": "段取り", "role": "段取り", "session": "s-h"}
+        self.assertTrue(tree.copied_from(office, {"name": "段取り", "role": "段取り", "session": "s-old"}))
+        # 部署の立て方が本流を知った位置（base）を書いた部署は、本社と同じ名前でも隠さない（「2 つ以上ある」で止まる）
+        self.assertFalse(tree.copied_from(office, {"name": "段取り", "role": "段取り", "base": "abc"}))
+        self.assertFalse(tree.copied_from(office, {"name": "段取り", "role": "調べ役"}))
         self.assertFalse(tree.copied_from({}, {"name": "調べ"}))
 
     def test_lines_show_the_tree(self):

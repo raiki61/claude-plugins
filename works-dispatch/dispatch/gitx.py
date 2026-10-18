@@ -448,7 +448,7 @@ def add_detached(source, path, sha, runner=_default_runner, lock=None):
     書く口。git の worktree add は、extensions.worktreeConfig が入っていると元の worktree の config.worktree を新しい worktree に
     写すので、source が部署（代表の clone の本社など）なら部署の属性 company.* も載り、一時の場所が同じ名前の部署に見える
     （2026-10-17 に my_notes で --call の間、段取りへの --ask が「名前が 2 つ以上ある」で止まった）。作ったらすぐ消す。git は中身を
-    出す前に写すので、出し終えるまでは消せない。その間は部署の一覧の側が写しを数えない（tree.copied_from。2026-10-18、受付 596ed5）。
+    出す前に写すので、出し終えるまでは消せない。その間は部署の一覧と --land の部署探しの側が写しを数えない（tree.copied_from。2026-10-18、受付 596ed5）。
     extensions.worktreeConfig が入っていなければ config --worktree は共通の設定を指すので、そのときは触らない（写しも起きない）。"""
     _must(["git", "-C", source, "worktree", "add", "--quiet", "--detach", *(["--lock", "--reason", lock] if lock else []), path, sha],
           runner)

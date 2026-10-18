@@ -79,7 +79,9 @@ def _sweep(place, made):
 
 def _find(found, name, attrs_of):
     """部署を名前か枝の名前で探す。当たらなければ前の名前（--reorg が書く company.former-names）で探す。"""
-    rows = [(p, attrs_of(p["path"])) for p in found if p.get("linked") and not p.get("prunable")]
+    office = next((attrs_of(p["path"]) for p in found if not p.get("linked")), {})
+    rows = [(p, a) for p in found if p.get("linked") and not p.get("prunable")
+            for a in [attrs_of(p["path"])] if not tree.copied_from(office, a)]   # 本社の属性の写しは部署でない
     hits = [(p, a) for p, a in rows if a.get("name") == name or p.get("branch") == name]
     return hits or [(p, a) for p, a in rows if name in gitx.former_names(a)]
 
