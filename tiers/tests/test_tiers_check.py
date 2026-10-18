@@ -28,6 +28,7 @@ class FakeProbe:
         self.auth = auth or {}
         self.platform = platform
         self.called = []
+        self.links, self.files, self.dirs = {}, {}, set()   # 設定のフォルダ → herdr integration status の出力・ファイル → 中身・在るフォルダ
 
     def which(self, cmd):
         return f"/bin/{cmd}" if cmd in self.have else None
@@ -42,6 +43,16 @@ class FakeProbe:
 
     def shell_has(self, cmd):
         return cmd in self.shell
+
+    def run_in(self, argv, config_dir):
+        self.called.append((argv, config_dir))
+        return (0, self.links.get(config_dir, "claude: current (v10) (/h/hooks/herdr-agent-state.sh)\n"), "")
+
+    def read(self, path):
+        return self.files.get(path)
+
+    def isdir(self, path):
+        return path in self.dirs
 
     def auth_status(self, cmd):
         return self.auth.get(cmd, (0, '{"loggedIn": true, "authMethod": "oauth_token"}'))
@@ -248,3 +259,49 @@ class HerdrSocket(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfigDirs(unittest.TestCase):
+    """--config-dir を渡したときの、フォルダごとの点検（プラグインの控えの置き場・herdr の連携）。"""
+
+    def test_without_config_dirs_nothing_more_is_checked(self):
+        self.assertEqual(names(tiers_check.check(2, probe=FakeProbe())), names(tiers_check.check(2, probe=FakeProbe(), config_dirs=[])))
+
+    def test_install_records_pointing_at_gone_folders_are_named_with_how_to_remove(self):
+        probe = FakeProbe()
+        probe.files["/h/.claude-p2/plugins/installed_plugins.json"] = json.dumps({"version": 2, "plugins": {
+            "gates@m": [{"scope": "user", "installPath": "/c/gates/0.8.0"},
+                        {"scope": "project", "projectPath": "/r/x", "installPath": "/c/gates/0.7.0"}]}})
+        probe.dirs.update({"/c/gates/0.8.0", "/c/gates/0.6.0", "/h/.claude-p1", "/h/.claude-p2"})
+        r = tiers_check.check(0, probe=probe, config_dirs=["/h/.claude-p1", "/h/.claude-p2"])
+        self.assertEqual(names(r, ok=False), ["プラグインの控え（/h/.claude-p2）"])
+        bad = r["checks"][-1]
+        self.assertIn("gates@m（project、/r/x）/c/gates/0.7.0", bad["problem"])
+        self.assertIn("claude plugin uninstall gates@m --scope project", bad["fix"][0])
+        # 前の版の印の付いた置き場（まだ在る）も、消える物として出す
+        probe.files["/h/.claude-p1/plugins/installed_plugins.json"] = json.dumps({"version": 2, "plugins": {
+            "gates@m": [{"scope": "user", "installPath": "/c/gates/0.6.0"}]}})
+        probe.files["/c/gates/0.6.0/.orphaned_at"] = "1"
+        self.assertIn("/c/gates/0.6.0", tiers_check.check(0, probe=probe, config_dirs=["/h/.claude-p1"])["checks"][-1]["problem"])
+        self.assertIn("が無い", tiers_check.check(0, probe=probe, config_dirs=["/h/typo"])["checks"][-1]["problem"])
+        probe.files["/h/.claude-p1/plugins/installed_plugins.json"] = "{"
+        self.assertIn("読めない", tiers_check.check(0, probe=probe, config_dirs=["/h/.claude-p1"])["checks"][-1]["problem"])
+
+    def test_herdr_link_is_checked_per_folder_and_unknown_lines_are_not_passed(self):
+        probe = FakeProbe()
+        probe.links["/h/.claude-o"] = "claude: not installed (/h/.claude-o/hooks/herdr-agent-state.sh)\n"
+        probe.links["/h/.claude-x"] = "claude: broken-ish (v11)\n"
+        probe.dirs.update({"/h/.claude-p1", "/h/.claude-o", "/h/.claude-x"})
+        r = tiers_check.check(2, probe=probe, config_dirs=["/h/.claude-p1", "/h/.claude-o", "/h/.claude-x"])
+        self.assertEqual(names(r, ok=False), ["herdr の連携（/h/.claude-o）", "herdr の連携（/h/.claude-x）"])
+        got = {x["name"]: x for x in r["checks"]}
+        self.assertIn("CLAUDE_CONFIG_DIR=/h/.claude-o herdr integration install claude", got["herdr の連携（/h/.claude-o）"]["fix"])
+        self.assertIn("読めない", got["herdr の連携（/h/.claude-x）"]["problem"])
+        self.assertIn((["/bin/herdr", "integration", "status"], "/h/.claude-o"), probe.called)
+
+    def test_the_command_line_takes_config_dirs_and_says_them_again(self):
+        out = io.StringIO()
+        probe = FakeProbe()
+        probe.dirs.add("/h/.claude-p1")
+        self.assertEqual(tiers_check.main(["--tier", "0", "--config-dir", "/h/.claude-p1"], probe=probe, stdout=out), 0)
+        self.assertIn("プラグインの控え（/h/.claude-p1）", out.getvalue())

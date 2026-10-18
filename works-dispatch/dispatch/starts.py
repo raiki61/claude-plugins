@@ -130,7 +130,11 @@ def start_now(a, ports, cwd, task):
     if not pool:
         print("\n".join(notes + [f"止めた: 受け持ち「{a.start}」の会社が herdr に開いていない（「会社/受け持ち」で渡すか、会社の場所から打つ）"]))
         return 2
-    company = pool[0]
+    try:
+        company = deliver.one_company(pool, where or pool[0]["name"])
+    except deliver.DeliverError as e:
+        print("\n".join(notes + [f"止めた: {e}"]))
+        return 2
     info = tree.read_info(company["root"], settings)
     skill = _skill(info, name)
     if skill is None or not skill.get("start"):

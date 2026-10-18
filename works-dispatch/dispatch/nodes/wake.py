@@ -29,6 +29,7 @@ import os
 import time
 import uuid
 
+import claudex
 import filex
 
 WAKE_DIR = "wake"   # 受付箱の下の、待ち受けの印と読んだ所の置き場
@@ -38,6 +39,7 @@ POLL = 1.0          # 台帳を見る間（秒）
 BEAT = 5.0          # 印の更新の時刻を進める間（秒）
 FRESH = 15.0        # 送る側が待ち受けを居ると見る、印の更新からの秒
 GRACE = 2.0         # 新しい待ち受けが、前の待ち受けが終わるのを待つ秒（前の物は POLL ごとに印を見る）
+SLACK = 2.0         # 処理の起きた時刻（ps の etime は秒の刻み）と印を書いた時刻の比べの遊び
 KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み", "note": "頼みの足し"}
 HOLD = ("hold", None)  # check の返り: 今は渡さず、BEAT ごとに check を呼び直す（fresh の部署を空にできるまで待つ）
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
@@ -79,6 +81,12 @@ def mark_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".json")
 
 
+def _mark_lock(path):
+    """印のファイルの錠。印を書く道（claim）と、token を読み直して消す道（release・_drop_dead）を並べないために持つ（読み直してから
+    消すまでの間に新しい待ち受けが印を書くと、新しい方の印が消え、待ち受けが黙って終わる）。錠のファイルは場所ごとに 1 つで、消さない。"""
+    return filex.lock(path + ".lock")
+
+
 def pos_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".pos")
 
@@ -109,9 +117,10 @@ def new_token():
 def claim(inbox, place, names, session, owner, token, now):
     """その場所の待ち受けの印を書く（前の待ち受けの印を上書きして、前の物を終わらせる）。読んだ所が無ければ台帳の終わりを書く
     （待ち受けが居た跡。順番待ちに積んでよい印になる）。"""
-    _replace(mark_path(inbox, place), json.dumps(
-        {"names": names, "session": session, "owner": owner, "pid": os.getpid(), "token": token, "place": place,
-         "since": now}, ensure_ascii=False))
+    with _mark_lock(mark_path(inbox, place)):
+        _replace(mark_path(inbox, place), json.dumps(
+            {"names": names, "session": session, "owner": owner, "pid": os.getpid(), "token": token, "place": place,
+             "since": now}, ensure_ascii=False))
     if _read_pos(inbox, place) is None:
         _replace(pos_path(inbox, place), str(_size(os.path.join(inbox, LOG))))
 
@@ -140,9 +149,11 @@ def has_history(inbox, place):
     return os.path.isfile(pos_path(inbox, place))
 
 
-def alive(mark, now=None, posix=os.name != "nt"):
+def alive(mark, now=None, posix=os.name != "nt", starts=None):
     """印の会話が生きているか。POSIX は印を書いた待ち受けの親（会話の処理）が在るか、Windows は印の更新が FRESH 秒以内か
-    （Windows の os.kill は 0 を渡しても処理を止めるので使わない）。"""
+    （Windows の os.kill は 0 を渡しても処理を止めるので使わない）。starts（処理の番号 → 起きた時刻。claudex.start_times）を
+    渡せば、その番号の処理が印を書いた時（since）より SLACK 秒より後に起きていれば、番号を使い回した別の処理と見て死んだとする
+    （会話が終わった後に同じ番号の処理が起きると、os.kill だけでは生きて見えた）。since の無い・0 の印（前の版の印と試験）は見ない。"""
     if posix:
         owner = mark.get("owner")
         if not isinstance(owner, int) or owner <= 1:
@@ -150,10 +161,12 @@ def alive(mark, now=None, posix=os.name != "nt"):
         try:
             os.kill(owner, 0)
         except PermissionError:
-            return True
+            pass
         except OSError:
             return False
-        return True
+        since = mark.get("since")
+        born = (starts or {}).get(owner)
+        return not (born is not None and isinstance(since, (int, float)) and since > 0 and born > since + SLACK)
     now = time.time() if now is None else now
     return now - float(mark.get("_mtime") or 0) <= FRESH
 
@@ -170,7 +183,7 @@ def watching(inbox, place, now=None, posix=os.name != "nt"):
         return False
     if not posix:
         return alive({**got, "_mtime": mtime}, now, posix)
-    return alive({"owner": got.get("pid")}, now, posix)
+    return alive({"owner": got.get("pid"), "since": got.get("since")}, now, posix, claudex.start_times())
 
 
 def stalled(inbox, place, attrs, now=None, posix=os.name != "nt"):
@@ -213,21 +226,26 @@ def held(inbox, cwd, place, attrs=None):
 
 def release(inbox, place, token):
     """印がまだ自分の物なら消す（送る側がすぐに予備の打ち込みへ回れるように）。"""
-    got = read_mark(inbox, place)
-    if got and got.get("token") == token:
-        try:
-            os.unlink(mark_path(inbox, place))
-        except OSError:
-            pass
+    with _mark_lock(mark_path(inbox, place)):
+        got = read_mark(inbox, place)
+        if got and got.get("token") == token:
+            try:
+                os.unlink(mark_path(inbox, place))
+            except OSError:
+                pass
 
 
-def _living(inbox, now, posix):
-    """受付箱の、生きた会話の印の並び（ファイルの名前の順）。"""
+def _living(inbox, now, posix, starts=None):
+    """受付箱の、生きた会話の印の並び（ファイルの名前の順）。POSIX では、会話の死んだ印を見つけたら消す（読んだ所の .pos は残す。
+    待ち受けが居た跡として順番待ちが使う）。消す直前に読み直し、token が替わっていれば（新しい待ち受けが書いた）消さない。
+    Windows は更新の時刻で見るので、ターンの間の会話の印も古く見える。消さない。"""
     now = time.time() if now is None else now
     try:
         names = sorted(os.listdir(_dir(inbox)))
     except OSError:
         return
+    if posix and starts is None:
+        starts = claudex.start_times()
     for n in names:
         if not n.endswith(".json"):
             continue
@@ -238,8 +256,23 @@ def _living(inbox, now, posix):
                 got = json.load(f)
         except (OSError, ValueError):
             continue
-        if isinstance(got, dict) and alive({**got, "_mtime": mtime}, now, posix):
+        if not isinstance(got, dict):
+            continue
+        if alive({**got, "_mtime": mtime}, now, posix, starts):
             yield got
+        elif posix:
+            _drop_dead(path, got.get("token"))
+
+
+def _drop_dead(path, token):
+    """死んだ会話の印を消す。読み直した token が同じときだけ（読んでから消すまでに新しい待ち受けが書いた印は残す）。"""
+    try:
+        with _mark_lock(path), open(path, encoding="utf-8") as f:
+            again = json.load(f)
+            if isinstance(again, dict) and again.get("token") == token:
+                os.unlink(path)
+    except (OSError, ValueError):
+        pass
 
 
 def listening(inbox, to, now=None, posix=os.name != "nt"):
@@ -324,7 +357,10 @@ def put_back(item):
 def enqueue(inbox, place, item):
     """順番待ちに 1 件積み、そのファイルのパスを返す。item には id が要る。"""
     path = os.path.join(queue_dir(inbox, place), f"{item['id']}.json")
-    _replace(path, json.dumps(item, ensure_ascii=False))
+    try:
+        _replace(path, json.dumps(item, ensure_ascii=False))
+    except FileNotFoundError:   # 作った置き場を、片付け（health.stale_queue の古い空の置き場）が書く前に消した。作り直して 1 度だけ書き直す
+        _replace(path, json.dumps(item, ensure_ascii=False))
     return path
 
 
@@ -487,7 +523,8 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
 # 会話から切り離してコマンドを走らせる殻（POSIX）。外の sh はすぐ終わり、中の ( … ) & は親を失って init の子になる。会話の処理を止めると
 # Claude Code はフックの子孫も止めるので、フックの子のまま走らせた --move は、自分が止めた前の会話と一緒に止まり、何も書かずに消えた
 # （2026-10-17 の my_notes の段取り。16:03 と 16:54 に moves/ の出力が 0 バイトのまま、窓口が消えた。部署の --move の跡も同じ）
-DETACH = 'log=$1; done=$2; shift 2; ( "$@" >"$log" 2>&1 </dev/null; echo $? >"$done" ) &'
+# done は走らせる前に空で作る（空なら走っている途中、無ければこの殻の外で走らせた物。--tree が終わりの値の無い物を見分ける。health.py）
+DETACH = 'log=$1; done=$2; shift 2; : >"$done"; ( "$@" >"$log" 2>&1 </dev/null; echo $? >"$done" ) &'
 
 
 def detached(argv, log, done):

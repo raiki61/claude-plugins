@@ -1,0 +1,16 @@
+{
+ "anthropic-ratelimit-unified-5h-status": "allowed",
+ "anthropic-ratelimit-unified-representative-claim": "seven_day",
+ "anthropic-ratelimit-unified-overage-status": "rejected",
+ "anthropic-ratelimit-unified-upgrade-paths": "overage",
+ "anthropic-ratelimit-unified-reset": "1792382400",
+ "anthropic-ratelimit-unified-5h-utilization": "0.49",
+ "anthropic-ratelimit-unified-7d-reset": "1792382400",
+ "anthropic-ratelimit-unified-5h-reset": "1792373400",
+ "anthropic-ratelimit-unified-7d-status": "allowed_warning",
+ "anthropic-ratelimit-unified-7d-surpassed-threshold": "0.75",
+ "anthropic-ratelimit-unified-fallback-percentage": "0.5",
+ "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+ "anthropic-ratelimit-unified-7d-utilization": "0.91",
+ "anthropic-ratelimit-unified-status": "allowed_warning"
+}

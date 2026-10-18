@@ -6,12 +6,14 @@
 宛先や打った場所の作業場の会社の物）をたどって全部の台帳を読み、頼みの木を出す（herdr は読まない。会社が開いていなくても
 台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい）。済んだブランチは出さない（--all で出す）。--json は射影を
 JSON で、--html <ファイル> は 1 枚の HTML のページに書く。
+頭に、台帳をたどった受付箱の壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ。health.py）を「!」で出す。
 誰のターンかは出さない（部署の様子は --tree）。作った物は保存せず、開くたびに台帳から作り直す。
 """
 
 import os
 import time
 
+import health
 import jsonio
 from nodes import deliver, ledger
 
@@ -76,9 +78,12 @@ def todo(a, ports, cwd):
         print(f"頼みの木のページを書いた: {a.html}（台帳 {len(inboxes)} つから {len(view['tasks'])} 件）")
         return 0
     forest = ledger.select(view, top, everything=a.all or top is not None)
+    now = ports.now()
+    # 裏の処理の失敗・誰も受けない頼み・台帳の大きさ。受付箱が 2 つ以上なら、どの受付箱の話かを頭に付ける
+    notes = [(f"{x}: " if len(inboxes) > 1 else "") + n for x in inboxes for n in health.inbox_notes(x, now)]
     if a.json:
-        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "forest": forest}, None)
+        jsonio.dump({"schema": ledger.SCHEMA, "inboxes": inboxes, "notes": notes, "forest": forest}, None)
         return 0
     out = ledger.lines(forest, when)
-    print("\n".join(out) if out else "開いている頼みは無い（済んだ物は --all で出す）")
+    print("\n".join([f"! {n}" for n in notes] + (out or ["開いている頼みは無い（済んだ物は --all で出す）"])))
     return 0

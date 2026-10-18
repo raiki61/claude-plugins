@@ -125,6 +125,17 @@ class Target(unittest.TestCase):
                 deliver.find_target([notes, {**plugins, "desk_of": far}], "/r/n", "claude-plugins")
             self.assertIn("その窓口が見つからない", str(e.exception))
 
+    def test_company_and_role_with_two_clones_uses_the_one_with_departments_or_stops(self):
+        # 「会社/役」は先頭の clone に頼んでいた。herdr の開いた順で、部署を立てていない clone に新しい部署が立ちえた
+        plugins = company("claude-plugins", "/r/cp", dept_row(name="割り振り", role="担当", path="/r/cp-w"))
+        bare = company("claude-plugins", "/r/cp-work1")
+        for order in ([bare, plugins], [plugins, bare]):
+            self.assertEqual(deliver.find_target(order, "/r/n", "claude-plugins/作業")["company"]["root"], "/r/cp")
+        other = company("claude-plugins", "/r/cp2", dept_row(name="調べ", role="作業", path="/r/cp2-w"))
+        with self.assertRaises(deliver.DeliverError) as e:
+            deliver.find_target([plugins, other], "/r/n", "claude-plugins/作業")
+        self.assertIn("2 つ以上ある", str(e.exception))
+
 
 class Holders(unittest.TestCase):
     """残った疑問の担当者の検査（役の holders・ask_holders。my_notes の tools/deliver_check.py から移した。24e521）。残った疑問は頭書きの

@@ -16,6 +16,7 @@
           "info_path": {"type": ["string", "null"]},
           "description": {"type": ["string", "null"]},
           "problems": {"type": "array", "items": {"type": "string"}},
+          "health": {"type": "array", "items": {"type": "string"}},
           "skills": {
             "type": "array",
             "items": {
@@ -26,7 +27,9 @@
                 "name": {"type": "string"},
                 "description": {"type": ["string", "null"]},
                 "role": {"type": ["string", "null"]},
-                "ask": {"type": ["string", "null"]}
+                "ask": {"type": ["string", "null"]},
+                "last_started": {"type": ["number", "null"]},
+                "next_start": {"type": ["number", "null"]}
               }
             }
           },

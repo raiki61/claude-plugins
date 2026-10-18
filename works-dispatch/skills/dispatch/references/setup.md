@@ -58,9 +58,11 @@ dispatch はこれが無くても動く。ブランチごとの作業場が増�
    bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" herdr-config
    ```
 
+   行は版に依らない入口（`~/.cache/claude-limits/limits-entry.py`。このコマンドが写す）を指す。入口は起動のたびに、今入っている版の `limits.py` を探して起動するので、プラグインを上げても行を貼り直さなくてよい。入口を写し直す要る版（入口の中身が変わった版）では、`--check` と `--tree` が知らせる。
+
    このコマンドは、アカウントの一覧の写し（`~/.cache/claude-limits/accounts.json`）も書く。タブバーの行は設定のファイルではなくこの写しを読むので、設定のアカウントを足したり変えたりしたら、このコマンドを走らせ直して行を貼り直す。
 
-   使用率の控えは、dispatch がアカウントを選ぶのにも使う。Claude Code の statusline のコマンドから、受けた JSON を `bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" --min 3.9 "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" record` の標準入力にも渡すと、使っているアカウントの 5 時間の枠がすぐ動く。社内のプロキシの内側では、herdr を起動するシェルに `HTTPS_PROXY` が要る。失敗は `~/.cache/claude-limits/probe.log` に残る。
+   使用率の控えは、dispatch がアカウントを選ぶのにも使う。Claude Code の statusline のコマンドから、受けた JSON を `bash "${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh" --min 3.9 "${CLAUDE_PLUGIN_ROOT}/dispatch/limits.py" record` の標準入力にも渡すと、使っているアカウントの 5 時間の枠がすぐ動く。社内のプロキシの内側では、herdr を起動するシェルに `HTTPS_PROXY` が要る。失敗は `~/.cache/claude-limits/probe.log` に残り、取れるまで、タブバーのそのアカウントの表示に「取り直し失敗」が、`--tree` と `--check` に訳が出る。控えが 3 時間より古ければ、表示に「古い」が付き、アカウントを選ぶ順の最後に置く。
 3. **サイドバーに、会話ごとの作業内容を出す。** 作業中は動いているツールを、ターンが終わると直前に頼んだ内容を出す。次のコマンドが出す `hooks` の塊を、各アカウントの Claude Code の設定（`settings.json`）に足す。すでに `hooks` があれば、出来事ごとの並びに足す。
 
    ```
@@ -69,4 +71,4 @@ dispatch はこれが無くても動く。ブランチごとの作業場が増�
 
    そのうえで、herdr の設定の `[ui.sidebar.agents.rows_by_agent]` にある `claude` の行のどこかに、`{ token = "$act" }` を置く（`$act` は、上のフックが作業内容を送る herdr の印の名前）。
 
-2 と 3 の行は、Python をフックと同じ決まり（`hooks/run-python.sh`。`python3`・`python`・`py -3` の順に、実際に起きる物を選び、Windows の Microsoft Store へ誘う代わりの物を飛ばす。TOML を読まない台本なので下限は 3.9）で選ぶ。2 と 3 の行は、プラグインの入った場所（版ごとのフォルダ）を指す。プラグインを更新すると、そのフォルダが消えることがある。消えた場所を指していれば `--check` が知らせるので、そのときは行を出し直す。
+2 と 3 の行（2 で貼るタブバーの行と、3 で足すフックの行）は、Python をフックと同じ決まり（`hooks/run-python.sh`。`python3`・`python`・`py -3` の順に、実際に起きる物を選び、Windows の Microsoft Store へ誘う代わりの物を飛ばす。TOML を読まない台本なので下限は 3.9）で選ぶ。3 の行は、プラグインの入った場所（版ごとのフォルダ）を指す。プラグインを更新すると、前の版のフォルダには `.orphaned_at` が付き、14 日で消える。前の版・今入っていない版・消えた場所を指していれば `--check` と `--tree` が知らせるので、そのときは行を出し直す（2 の行の前の形〔版のフォルダの `limits.py` を直に指す行〕も同じく知らせる）。

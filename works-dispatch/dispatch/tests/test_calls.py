@@ -85,6 +85,22 @@ class Fields(unittest.TestCase):
         self.assertIn("land.after[1] は role・tool", got["problems"][0])
 
 
+class CompanyRoot(unittest.TestCase):
+    def test_two_clones_with_the_same_company_name_stop_unless_one_has_departments(self):
+        from unittest import mock
+        import orders
+        clone = {"name": "co", "root": "/x/co-work", "departments": []}
+        real = {"name": "co", "root": "/x/co", "departments": [{"attrs": {"role": "作業"}}]}
+        for found, want in (([clone, real], "/x/co"), ([clone, dict(clone, root="/x/co2")], None)):
+            with self.subTest(want=want), mock.patch.object(orders, "survey", return_value=([], [], found, None, [])), \
+                    mock.patch.object(calls.tree, "read_info", return_value={}):
+                got, why = calls._company_root("co/調べ", None, "/", None)
+                if want:
+                    self.assertEqual(got[0], want)
+                else:
+                    self.assertIn("2 つ以上", why)
+
+
 class Call(unittest.TestCase):
     """--call を入口から。会社の形は本社のファイル。回す先は Flow の常設の部署「調べ」（役 調べ役）。"""
 

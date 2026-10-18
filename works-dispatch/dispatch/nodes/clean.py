@@ -43,6 +43,7 @@ import pathlib
 import shutil
 import stat
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import filex  # noqa: E402
@@ -185,6 +186,10 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
 
 
 KEPT_TMP = ("company", "kept-tmp")   # 共通の .git の下の、消した部署の会話の一時の置き場の写し
+# 写しの片付け: 写すたびに、KEPT_DAYS 日より古い物と、合計が KEPT_LIMIT を超えた分の古い物を消す（誰も消さず、3 日で claude-plugins に
+# 223MB、my_notes に 132MB 溜まった。2026-10-19）。写しは消した部署の一時のファイルを後で拾うための物で、要るかは数日で分かる
+KEPT_DAYS = 14
+KEPT_LIMIT = 1024 * 1024 * 1024
 
 
 def tmp_entries(path):
@@ -206,7 +211,51 @@ def keep_tmp(tmp, source, session, g=gitx):
         raise OSError(f"{source} の共通の .git を読めない")
     dest = os.path.join(common, *KEPT_TMP, session)
     _copy_over(tmp, dest)
+    prune_kept(os.path.dirname(dest), time.time(), keep=(dest,))
     return n, dest
+
+
+def kept_entries(kept):
+    """写しの置き場 kept の (更新の時刻, パス) の古い順。"""
+    try:
+        names = os.listdir(kept)
+    except OSError:
+        return []
+    got = []
+    for n in names:
+        p = os.path.join(kept, n)
+        try:
+            got.append((os.stat(p).st_mtime, p))
+        except OSError:
+            continue
+    return sorted(got)
+
+
+def _tree_size(path):
+    total = 0
+    for top, _, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(top, f)).st_size
+            except OSError:
+                continue
+    return total
+
+
+def prune_kept(kept, now, keep=()):
+    """写しの置き場 kept から、KEPT_DAYS 日より古い物と、合計が KEPT_LIMIT を超えた分の古い物を消す（keep に挙げた物は残す）。
+    消した数。消せなかった物は残し、--tree が古い物の残りとして出す。"""
+    entries = [(t, p, _tree_size(p)) for t, p in kept_entries(kept) if p not in keep]
+    total = sum(s for _, _, s in entries) + sum(_tree_size(p) for p in keep)
+    gone = 0
+    for t, p, size in entries:
+        if now - t <= KEPT_DAYS * 86400 and total <= KEPT_LIMIT:
+            continue
+        shutil.rmtree(p, ignore_errors=True)
+        if not os.path.exists(p):
+            gone += 1
+            total -= size
+    return gone
 
 
 def _unlink(path):

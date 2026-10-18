@@ -1,6 +1,7 @@
 # limits.py herdr-config が 1 行目をアカウントごとに、2 行目を 1 回だけ使う雛形。{script}・{accounts}・{name} を埋める。
 # Python は、このプラグインのフックと同じく hooks/run-python.sh（{picker}）で選ぶ（python3・python・py -3 の順に、実際に起きて
 # --min 以上の物。Windows の Store へ誘う代わりの物を飛ばす）。show と probe は TOML を読まない道なので、下限は 3.9（macOS 付属）。
+# {script} と {picker} は limits_dir に写した入口（limits_entry.py と run-python.sh。プラグインを上げても場所が変わらない）。
 # {accounts} はアカウントの写し（JSON）。herdr の PATH の python3 は古いことがあるので、TOML を読まない道を呼ぶ。
 # 打ち切りの秒は herdr の設定の値で、limits.py は自分では打ち切らない。
 # 表示（show）は控えを読むだけなので短く打ち切る。取り直し（probe）はアカウントの数だけ順に API へ問い合わせるので長く取る。

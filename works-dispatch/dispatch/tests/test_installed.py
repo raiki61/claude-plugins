@@ -55,6 +55,27 @@ class Installed(unittest.TestCase):
         self.record(self.entry("0.24.0"))                     # 控えの指す置き場が消えている
         self.assertIsNone(installed.target(self.old, {}))
 
+    def test_a_record_in_an_unexpected_shape_says_why_instead_of_staying_silent(self):
+        self.assertEqual(installed.look(pathlib.Path(installed.__file__), {}), (None, None))   # リポジトリの checkout は言わない
+        self.record(self.entry("0.25.0"))
+        self.assertEqual(installed.look(self.new, {}), (None, None))
+        for broken, why in (("{", "読めない"), (json.dumps({"version": 3, "plugins": {"works-dispatch@raiki61": {"path": "x"}}}), "installPath が無い")):
+            (self.root / "installed_plugins.json").write_text(broken, encoding="utf-8")
+            with self.subTest(why=why):
+                self.assertIn(why, installed.look(self.old, {})[1])
+        self.record(self.entry("0.24.0"))
+        self.assertIn("が無い", installed.look(self.old, {})[1])
+        deeper = self.root / "cache" / "raiki61" / "works-dispatch" / "0.25.0" / "x" / "dispatch" / "dispatch.py"
+        self.assertIn("の形でない", installed.look(deeper, {})[1] or "")
+
+    def test_the_real_record_still_reads(self):
+        # 2026-10-19 の本物の控え（tests/samples。パスだけ試験の置き場に替えた）。形が変われば、ここで落ちる
+        sample = json.loads((pathlib.Path(__file__).parent / "samples" / "installed_plugins.json").read_text(encoding="utf-8"))
+        for e in sample["plugins"]["works-dispatch@raiki61"]:
+            e["installPath"] = str(self.root / "cache" / "raiki61" / "works-dispatch" / "0.25.0")
+        (self.root / "installed_plugins.json").write_text(json.dumps(sample), encoding="utf-8")
+        self.assertEqual(installed.look(self.old, {}), (str(self.new), None))
+
     def test_hop_runs_the_installed_script_with_the_same_arguments(self):
         self.record(self.entry("0.25.0"))
         got = subprocess.run([sys.executable, "-c", "import sys; sys.stderr.reconfigure(encoding='utf-8'); sys.path.insert(0, sys.argv[1]); import installed; "

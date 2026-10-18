@@ -14,8 +14,13 @@
 herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install Herdr・Windows support・Integrations）とソース
 （src/integration/claude_settings.rs）に拠る（2026-10-16 に読んだ。URL は docs/design.md の「段 2 の案内」のセクション）。
 
+--config-dir（アカウントの Claude Code の設定のフォルダ。繰り返して複数）を渡せば、フォルダごとに次も点検する。
+- 段 0: 入れたプラグインの控え（plugins/installed_plugins.json）の installPath が在るか（消えた置き場を指す項目が残ると、どの項目が
+  効くかが分からない）
+- 段 2: herdr の Claude Code の連携（herdr integration status を、そのフォルダを CLAUDE_CONFIG_DIR にして打つ）
+
 使い方:
-    tiers [--tier N] [--launcher コマンド ...] [--json]
+    tiers [--tier N] [--launcher コマンド ...] [--config-dir フォルダ ...] [--json]
 
 終了コード: 0 = そろっている / 1 = 足りない物がある / 2 = 使い方が違う
 
@@ -30,6 +35,7 @@ herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install H
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -73,10 +79,10 @@ def _os_key(platform):
     return "linux"
 
 
-def _run_apart(argv):
+def _run_apart(argv, env=None):
     """(終了コード, 標準出力, 標準エラー)。起動できなければ (None, "", 訳)。"""
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     except OSError as e:
         return None, "", str(e)
     return p.returncode, p.stdout or "", p.stderr or ""
@@ -111,6 +117,21 @@ class Probe:
     def run_apart(self, argv):
         """機械向けの出力（JSON）を読む口。標準エラーを混ぜない。"""
         return _run_apart(argv)
+
+    def run_in(self, argv, config_dir):
+        """CLAUDE_CONFIG_DIR を config_dir にして打つ (終了コード, 標準出力, 標準エラー)。"""
+        return _run_apart(argv, env={**self.env, "CLAUDE_CONFIG_DIR": config_dir})
+
+    def read(self, path):
+        """ファイルの中身。無ければ None。読めなければ OSError。"""
+        try:
+            with open(path, encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            return None
+
+    def isdir(self, path):
+        return os.path.isdir(path)
 
     def auth_status(self, cmd):
         """cmd auth status --json の (終了コード, 出力の JSON の字)。起動コマンドはシェルの関数のことが多く、ログインの鍵もシェルの
@@ -218,6 +239,76 @@ def check_claude(probe):
     return [item] + ([_login(probe, 0, "claude", "Claude Code のログイン")] if path else [])
 
 
+def check_plugins(probe, config_dirs):
+    """フォルダごとの、入れたプラグインの控えが消えた置き場（と、前の版の印 .orphaned_at の付いた消える置き場）を指していないかの点検の項目（段 0）。Claude Code は前の版の置き場を
+    14 日で消すが、project の範囲の項目はそのプロジェクトで開き直すまで控えに残る（2026-10-18、~/.claude-p2 に消えた gates 0.7.0・
+    attention 0.10.1 を指す項目が残っていた）。"""
+    out = []
+    for d in config_dirs:
+        record = os.path.join(os.path.expanduser(d), "plugins", "installed_plugins.json")
+        label = f"プラグインの控え（{d}）"
+        if not probe.isdir(os.path.expanduser(d)):   # 打ち間違いを「控えが無い」として通さない
+            out.append(_item(0, label, problem=f"{d} が無い", fix=["--config-dir にアカウントの設定のフォルダ（CLAUDE_CONFIG_DIR）を渡す"]))
+            continue
+        try:
+            text = probe.read(record)
+            plugins = json.loads(text).get("plugins") if text is not None else {}
+        except (OSError, ValueError, AttributeError) as e:
+            out.append(_item(0, label, problem=f"{record} が読めない（{e}）", fix=["Claude Code を起動して /plugin で入れた物を見る"]))
+            continue
+        if not isinstance(plugins, dict):
+            out.append(_item(0, label, problem=f"{record} の plugins が表でない（控えの形が変わった）",
+                             fix=["tiers の check_plugins を、今の控えの形に合わせて直す"]))
+            continue
+        gone = []
+        for name, entries in plugins.items():
+            for e in entries if isinstance(entries, list) else [entries]:
+                path = e.get("installPath") if isinstance(e, dict) else None
+                # 前の版の印（.orphaned_at）の付いた置き場は、Claude Code が 14 日で消すので、消えた物と同じに扱う
+                if not isinstance(path, str) or not probe.isdir(path) or probe.read(os.path.join(path, ".orphaned_at")) is not None:
+                    where = f"、{e['projectPath']}" if isinstance(e, dict) and e.get("projectPath") else ""
+                    gone.append((name, (e.get("scope") if isinstance(e, dict) else None) or "?", where, path))
+        if not gone:
+            out.append(_item(0, label, found=f"{sum(len(v) if isinstance(v, list) else 1 for v in plugins.values())} 項目の置き場が在る"))
+            continue
+        out.append(_item(0, label, problem="消えた（か、前の版として消える）置き場を指す項目がある: "
+                         + "、".join(f"{n}（{s}{w}）{p}" for n, s, w, p in gone),
+                         fix=[f"CLAUDE_CONFIG_DIR={shlex.quote(d)} claude plugin uninstall {n} --scope {s}"
+                              + ("（project・local の範囲は、その projectPath のフォルダで打つ。要るなら入れ直す）" if s != "user" else "（要るなら入れ直す）")
+                              for n, s, _, _ in gone]))
+    return out
+
+
+# herdr integration status の claude の行（0.9.3 の形: "claude: current (v10) (<フックのパス>)"）。この版の herdr には JSON の出力が
+# 無いので人向けの行を読む。読み方を知らない形・状態は、黙って通さずに「読めない」として出す
+HERDR_LINK = re.compile(r"^claude:\s+(current|outdated|not installed|unknown)\b", re.M)
+
+
+def check_herdr_links(probe, herdr, config_dirs):
+    """フォルダごとの、herdr の Claude Code の連携の点検の項目（段 2）。連携はフォルダごとに入れる物で、入っていないアカウントの会話は
+    herdr から会話の状態が見えない（待ち受けと部署の様子の元）。"""
+    os_key = _os_key(probe.platform)
+    out = []
+    for d in config_dirs:
+        label = f"herdr の連携（{d}）"
+        if os_key == "win32":
+            fix = [f'$env:CLAUDE_CONFIG_DIR = "{d}"; herdr integration install claude; Remove-Item Env:CLAUDE_CONFIG_DIR   （PowerShell）']
+        else:
+            fix = [f"CLAUDE_CONFIG_DIR={shlex.quote(d)} herdr integration install claude"]
+        code, text, err = probe.run_in([herdr, "integration", "status"], os.path.expanduser(d))
+        m = HERDR_LINK.search(text or "")
+        if m and m.group(1) == "current":
+            out.append(_item(2, label, found="入っている"))
+        elif m and m.group(1) in ("outdated", "not installed"):
+            out.append(_item(2, label, problem=f"herdr の Claude Code の連携が{'古い' if m.group(1) == 'outdated' else '入っていない'}",
+                             fix=fix, guide=herdr_link_guide(os_key)))
+        else:
+            seen = next((line.strip() for line in (text or "").splitlines() if line.startswith("claude")), "") or _first_line(text + err)
+            out.append(_item(2, label, problem=f"herdr integration status の claude の行が読めない（終了コード {code}）: {seen[:200]}",
+                             fix=["herdr integration status を手で打って見る。形が変わったなら tiers の HERDR_LINK を直す"]))
+    return out
+
+
 def check_gh(probe):
     item, path = _installed(probe, 1, "gh", "gh", ["--version"])
     out = [item]
@@ -298,7 +389,7 @@ LAUNCHER_GUIDE = [
 ]
 
 
-def check_herdr(probe, launchers):
+def check_herdr(probe, launchers, config_dirs=()):
     os_key = _os_key(probe.platform)
     item, path = _installed(probe, 2, "herdr", "herdr", ["--version"], guide=herdr_install_guide(os_key))
     out = [item]
@@ -322,6 +413,7 @@ def check_herdr(probe, launchers):
                     else f"herdr status server --json の答えが読めない（終了コード {code}）: {_first_line(text + err)[:200]}")
             out.append(_item(2, "herdr の動き", problem=said,
                              fix=["作業するフォルダで herdr を起動する: herdr"], guide=herdr_start_guide(os_key)))
+        out += check_herdr_links(probe, path, config_dirs)
     for cmd in launchers:
         if probe.shell_has(cmd):
             out.append(_item(2, f"起動コマンド {cmd}", found=f"{cmd} がシェルで見つかる"))
@@ -342,14 +434,15 @@ def check_archon(probe):
     return [_item(3, "Archon", found=path)]
 
 
-def check(tier, launchers=(), probe=None):
-    """段 0〜tier を点検した結果（--json の形の dict）。"""
+def check(tier, launchers=(), probe=None, config_dirs=()):
+    """段 0〜tier を点検した結果（--json の形の dict）。config_dirs を渡せば、フォルダごとの点検も足す。"""
     probe = probe or Probe()
-    items = check_claude(probe)
+    config_dirs = list(dict.fromkeys(config_dirs))
+    items = check_claude(probe) + check_plugins(probe, config_dirs)
     if tier >= 1:
         items += check_gh(probe)
     if tier >= 2:
-        items += check_herdr(probe, list(launchers) or ["claude"])
+        items += check_herdr(probe, list(launchers) or ["claude"], config_dirs)
     if tier >= 3:
         items += check_archon(probe)
     missing = sum(1 for x in items if not x["ok"])
@@ -381,6 +474,9 @@ def main(argv=None, probe=None, stdout=None):
                     "、".join(f"{k}: {v}" for k, v in TIERS.items()))
     ap.add_argument("--launcher", action="append", default=[], metavar="コマンド",
                     help="段 2: アカウントの起動コマンド（繰り返して複数。省けば claude）")
+    ap.add_argument("--config-dir", action="append", default=[], metavar="フォルダ",
+                    help="アカウントの Claude Code の設定のフォルダ（繰り返して複数）。渡せば、プラグインの控え（段 0）と herdr の連携（段 2）を"
+                         "フォルダごとに点検する")
     ap.add_argument("--json", action="store_true", help="JSON で出す")
     try:
         a = ap.parse_args(argv)
@@ -389,11 +485,12 @@ def main(argv=None, probe=None, stdout=None):
     if not 0 <= a.tier <= TOP:
         print(f"止めた: --tier は 0〜{TOP}（渡されたのは {a.tier}）", file=stdout)
         return 2
-    result = check(a.tier, a.launcher, probe)
+    result = check(a.tier, a.launcher, probe, a.config_dir)
     if a.json:
         print(json.dumps(result, ensure_ascii=False), file=stdout)
     else:
-        again = "tiers --tier " + str(a.tier) + "".join(f" --launcher {shlex.quote(c)}" for c in a.launcher)
+        again = "tiers --tier " + str(a.tier) + "".join(f" --launcher {shlex.quote(c)}" for c in a.launcher) \
+            + "".join(f" --config-dir {shlex.quote(d)}" for d in a.config_dir)
         print("\n".join(lines(result, again)), file=stdout)
     return 0 if result["ok"] else 1
 

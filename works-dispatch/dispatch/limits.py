@@ -15,12 +15,16 @@
   python3 limits.py [--config <パス> | --accounts <写し>] show <名前>   … 控えを読んで 1 行出す（herdr のタブバーが呼ぶ）
   python3 limits.py [--config <パス> | --accounts <写し>] probe         … 取り直しが要るアカウントだけ API に問い合わせる
   python3 limits.py [--config <パス> | --accounts <写し>] record        … statusline の JSON を標準入力から読んで控えに取り込む
-  python3 limits.py [--config <パス>] herdr-config  … アカウントの写しを書き、herdr の config.toml の [ui] に置く tab_bar_right を出す
+  python3 limits.py [--config <パス>] herdr-config  … アカウントの写しと版に依らない入口を書き、herdr の config.toml の [ui] に置く
+                                                    tab_bar_right を出す
   python3 limits.py [--config <パス>] plan [--json] … アカウントごとの契約の段（Max 20x など）を出す。引けないアカウントは理由を出す
 
 アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブバーから呼ぶ道は
 設定の TOML を読まずにこれを読む。herdr がタブバーのコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
 TOML を読む tomllib（3.11 から）が無いため。タブバーから呼ぶ道（このファイルと vendor/claude_auth.py）は 3.9 の文法で書く。
+
+タブバーの行は、版ごとのフォルダのこのファイルでなく、herdr-config が limits_dir に写した入口（limits_entry.py。起動のたびに
+今入っている版のこのファイルを探して起動する）を指す。プラグインを上げても行を書き直さなくてよい。
 
 こちらからは打ち切らない。herdr のタブバーから呼ぶときは、herdr の設定の秒（雛形 templates/herdr-tab-bar.toml）が打ち切る。
 """
@@ -55,6 +59,9 @@ for _s in (sys.stdout, sys.stderr):
 HERE = pathlib.Path(__file__).resolve().parent
 TEMPLATE = HERE / "templates" / "herdr-tab-bar.toml"
 PICKER = HERE.parent / "hooks" / "run-python.sh"   # Python を選ぶ入口（フックと同じ決まり。Store へ誘う代わりの物を飛ばす）
+ENTRY = HERE / "limits_entry.py"   # タブバーが呼ぶ、版に依らない入口（herdr-config が limits_dir に写す）
+# herdr-config が limits_dir に写すファイル: 写した先の名前 → プラグインの中の元
+ENTRY_COPIES = {"limits-entry.py": ENTRY, "run-python.sh": PICKER}
 
 # 取り直しの間隔（分）。使っていないアカウントの値は claude.ai など外で使わない限り動かないので、5 時間の枠は長く取る。
 # 7 日の枠は statusline が大きさで採らず（放置した会話の古い高い値が今の値を潰すため）、書き手が probe だけなので短く取る。
@@ -67,9 +74,16 @@ HERDR_MAX_ENTRIES = 16
 
 API = "https://api.anthropic.com/v1/messages"
 # 2026-09-23 に max_tokens 0 で 200 とヘッダが返ると確かめた形。Opus・Sonnet で投げると 429 でヘッダが付かなかった
-BODY = json.dumps({"model": "claude-haiku-4-5-20251001", "max_tokens": 0,
+MODEL = "claude-haiku-4-5-20251001"
+BODY = json.dumps({"model": MODEL, "max_tokens": 0,
                    "messages": [{"role": "user", "content": "."}]}).encode()
 HEADER_PREFIX = "anthropic-ratelimit-unified-"
+# 状態のヘッダ（anthropic-ratelimit-unified-status と <枠>-status）の、知っている値。ほかの値は控えの unknown に残し、--tree に出す
+# （外の形が変わったのを黙って読み落とさない。tests/samples/ratelimit-headers.json は 2026-10-19 に採った実物の応答ヘッダ）
+KNOWN_STATUS = ("allowed", "allowed_warning", "rejected")
+STATUS, ERROR = ":status", ":error"   # fetch が応答ヘッダに添える HTTP の状態と、誤りの応答の本文の頭（ヘッダの名前と重ならない）
+TRUST_HOURS = 3   # 控えがこれより古ければ当てにしない（取り直しは 15〜60 分ごとなので、何回も続けて取れていない）
+FAILED = "probe-failed-{}.json"   # 取り直しに失敗したアカウントの {at, reason}。取れたら消す
 
 
 def from_headers(headers, now):
@@ -101,7 +115,48 @@ def from_headers(headers, now):
         return None
 
     snap = {"five_hour": win("5h", "five_hour"), "seven_day": win("7d", "seven_day"), "updated_at": now, "source": "probe"}
+    unknown = sorted(f"{k}={v}" for k, v in h.items() if (k == "status" or k.endswith("-status")) and v not in KNOWN_STATUS)
+    if unknown:
+        snap["unknown"] = unknown
     return snap if snap["five_hour"] or snap["seven_day"] else None
+
+
+def stale(snap, now):
+    """控えが古くて当てにならないか: どれかの枠の updated_at が TRUST_HOURS より古い。100% の枠がまだ切り替わっていない間は、
+    取り直さない（need_probe）ので古くない。控えが無ければ False（無いことは呼ぶ側が見る）。"""
+    if not isinstance(snap, dict):
+        return False
+    ws = _windows(snap)
+    if any(_num(w.get("used_percentage")) and w["used_percentage"] >= 100 and _num(w.get("resets_at")) and w["resets_at"] > now
+           for w in ws):
+        return False
+    times = [w["updated_at"] for w in ws if _num(w.get("updated_at"))]
+    return bool(times) and now - min(times) > TRUST_HOURS * 3600   # 時刻の無い控え（試験の形など）は古さが分からないので信じる
+
+
+def failure(limits_dir, name):
+    """取り直しの失敗の控え {at, reason}。無ければ None。"""
+    got = _read(pathlib.Path(limits_dir) / FAILED.format(name))
+    return got if isinstance(got, dict) else None
+
+
+def problems(accounts, limits_dir, now):
+    """使用率の控えの、当てにならない所の注記の並び（取り直しの失敗・古い控え・知らない状態の値）。--tree と --check が出す。"""
+    out = []
+    for a in accounts:
+        if not a.limits:
+            continue
+        snap, fail = _read(pathlib.Path(limits_dir) / f"{a.name}.json"), failure(limits_dir, a.name)
+        if fail:
+            at = fail.get("at")
+            when = time.strftime("%m-%d %H:%M", time.localtime(at)) if _num(at) else "?"
+            out.append(f"アカウント {a.name} の使用率の取り直しが失敗している（{when}: {fail.get('reason')}。probe.log に続きがある）")
+        if stale(snap, now):
+            out.append(f"アカウント {a.name} の使用率の控えが {TRUST_HOURS} 時間より古い（使用率が分からない物として選ぶ順の最後に置く）")
+        if isinstance(snap, dict) and snap.get("unknown"):
+            out.append(f"アカウント {a.name} の使用率の応答に、知らない状態の値がある: {', '.join(map(str, snap['unknown']))}"
+                       "（limits.py の KNOWN_STATUS と読み方を見直す）")
+    return out
 
 
 def _windows(snap):
@@ -140,14 +195,18 @@ def _left(sec):
     return f"{d}d{h}h" if d else f"{h}h{m}m" if h else f"{m}m"
 
 
-def render(name, snap, now):
-    """1 アカウントぶんの 1 行。例: "p1 5h 38% 1h4m  7d 32% 2d4h"。控えが無ければ空。
+def render(name, snap, now, fail=None):
+    """1 アカウントぶんの 1 行。例: "p1 5h 38% 1h4m  7d 32% 2d4h"。控えが無ければ空（取り直しに失敗していれば、その印だけ）。
 
     80% 以上の枠は "%!"。切り替わりの過ぎた枠は 0% と読み、取り直すまで残り時間を付けない。
     枠の中は 1 空白、枠の境は 2 空白（herdr はアカウントの境に tab_bar_right_separator を入れる）。
+    控えが古い（stale）と後ろに「古い」、取り直しの失敗（fail）が控えより新しいと「取り直し失敗」を足す（訳は --tree が出す）。
     """
+    tags = (["古い"] if stale(snap, now) else []) + (
+        ["取り直し失敗"] if fail and _num(fail.get("at"))
+        and fail["at"] >= ((snap.get("updated_at") or 0) if isinstance(snap, dict) else 0) else [])
     if not isinstance(snap, dict):
-        return ""
+        return f"{name} {' '.join(tags)}" if tags else ""
     parts = []
     for label, key in (("5h", "five_hour"), ("7d", "seven_day")):
         w = snap.get(key)
@@ -158,7 +217,7 @@ def render(name, snap, now):
         p = 0 if _num(at) and not live else math.floor(w["used_percentage"] + 0.5)
         text = f"{label} {p}{'%!' if p >= 80 else '%'}"
         parts.append(text + (f" {_left(at - now)}" if live else ""))
-    return f"{name} " + "  ".join(parts) if parts else ""
+    return f"{name} " + "  ".join(parts + tags) if parts else ""
 
 
 def _newer(o, n):
@@ -212,7 +271,10 @@ def merge_statusline(old, rate_limits, now):
 
     if w5 == o5 and w7 == o7:
         return None
-    return {"five_hour": w5, "seven_day": w7, "updated_at": now}
+    got = {"five_hour": w5, "seven_day": w7, "updated_at": now}
+    if o.get("unknown"):
+        got["unknown"] = o["unknown"]   # probe の見た知らない状態の値。statusline は状態を渡さないので、次の probe まで残す
+    return got
 
 
 def account_for(accounts, env):
@@ -308,7 +370,8 @@ def _log(d, text):
 
 def fetch(tok):
     """API に出力 0 トークンの要求を 1 回投げ、応答ヘッダを {名前: 値} で返す（前は 1 つの文に直してから from_headers が行に
-    切り直していた）。枠切れの 429 でもヘッダは付くので、状態は見ない。
+    切り直していた）。枠切れの 429 でもヘッダは付くので、状態で止めない。HTTP の状態を STATUS に、誤りの応答なら本文の頭を ERROR に
+    添える（ヘッダが無いときの訳。モデルの名前が使えなくなったときの 404 など）。
 
     プロキシは環境変数（HTTPS_PROXY）に従う（urllib の既定）。通信の失敗は OSError で上がる。
     """
@@ -320,9 +383,13 @@ def fetch(tok):
     })
     try:
         with urllib.request.urlopen(req) as r:
-            return dict(r.headers.items())
+            return {**dict(r.headers.items()), STATUS: str(r.status)}
     except urllib.error.HTTPError as e:
-        return dict(e.headers.items())
+        try:
+            body = " ".join(e.read(300).decode("utf-8", "replace").split())
+        except OSError:
+            body = ""
+        return {**dict(e.headers.items()), STATUS: str(e.code), ERROR: body}
 
 
 def probe_env(env):
@@ -335,7 +402,8 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
     force は古さと試み直しの待ちを見ずに全部に問い合わせる（dispatch が、始める前と /catchup の後の今の値を取るのに使う）。
 
     token(user_config, explicit) は (トークン, 出どころ) か (None, 探した所) を返す。既定は scripts/claude_auth.py の account_token。
-    試みた時刻を .probe-<名前> に残し、失敗しても PROBE_RETRY_MIN の間は投げ直さない。時刻は試みた後に書く。
+    取れた時刻を .probe-<名前> に、失敗した時刻と訳を probe-failed-<名前>.json に残し、どちらからも PROBE_RETRY_MIN の間は投げ直さない。
+    時刻は試みた後に書く。失敗は .probe-<名前> に書かない（取れたように見せない。--tree とタブバーが失敗を出す）。
     """
     if token is None:
         def token(user_config, explicit):
@@ -345,27 +413,40 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
     for a in accounts:
         if not a.limits or not (force or need_probe(_read(d / f"{a.name}.json"), now)):
             continue
-        stamp = d / f".probe-{a.name}"
+        stamp, failed = d / f".probe-{a.name}", d / FAILED.format(a.name)
         try:
             last = float(stamp.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             last = None
+        tried = (failure(d, a.name) or {}).get("at")
+        last = max([x for x in (last, tried) if _num(x)], default=None)
         if not force and last is not None and now - last < PROBE_RETRY_MIN * 60:
             continue
         tok, note = token(a.config_dir, a.keychain_service)
+        reason = None
         if not tok:
-            _log(d, f"{a.name}: 鍵が無い: {note}")
+            reason = f"鍵が無い: {note}"
         else:
             try:
-                snap = from_headers(fetch(tok), now)
+                headers = fetch(tok)
             except (OSError, http.client.HTTPException) as e:
-                _log(d, f"{a.name}: 通信に失敗（プロキシの設定か通信断）: {e!r}")
+                reason = f"通信に失敗（プロキシの設定か通信断）: {e!r}"
             else:
+                snap = from_headers(headers, now)
                 if snap is None:
-                    _log(d, f"{a.name}: 応答に ratelimit のヘッダが無い（鍵の期限切れか、使用率の枠の無いアカウント）")
+                    reason = (f"応答に ratelimit のヘッダが無い（HTTP {headers.get(STATUS, '?')}。鍵の期限切れか、使用率の枠の無い"
+                              f"アカウントか、問い合わせのモデル {MODEL} が使えなくなった）" + (f": {headers[ERROR]}" if headers.get(ERROR) else ""))
                 else:
                     _write(d / f"{a.name}.json", snap)
+        if reason:
+            _log(d, f"{a.name}: {reason}")
+            _write(failed, {"at": now, "reason": reason})
+            continue
         stamp.write_text(str(now), encoding="utf-8")
+        try:
+            failed.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def write_snapshot(path, accounts, limits_dir):
@@ -388,7 +469,7 @@ def read_snapshot(path):
         raise ValueError(f"アカウントの写し {path} が読めない（{e}）。limits.py herdr-config を走らせ直す") from e
 
 
-def herdr_entries(accounts, script, snapshot_path):
+def herdr_entries(accounts, script, snapshot_path, picker=PICKER):
     """herdr の tab_bar_right に並べる行。使用率の枠のあるアカウントごとに表示を 1 つ、最後に取り直しを 1 つ。"""
     shown = [a for a in accounts if a.limits]
     if len(shown) + 1 > HERDR_MAX_ENTRIES:
@@ -402,7 +483,7 @@ def herdr_entries(accounts, script, snapshot_path):
     def path(p):
         # パスは / 区切りで書く（bash が読む。Windows の \ 区切りは引用符と \\ に化けた。activity.settings と同じ形）
         return fill(pathlib.PurePath(p).as_posix())
-    q = {"script": path(script), "accounts": path(snapshot_path), "picker": path(PICKER)}
+    q = {"script": path(script), "accounts": path(snapshot_path), "picker": path(picker)}
     lines = [show.format(name=fill(a.name), **q) for a in shown] + [probe.format(**q)]
     # 組んだ行を TOML として読み直して確かめる（エスケープの漏れで herdr が設定ごと読めなくなるのを、書く前に止める）。
     # herdr-config は設定の TOML を読む道なので 3.11 以上で走る（tomllib はここでだけ読み込む。show・probe は 3.9 でも走る）
@@ -414,6 +495,28 @@ def herdr_entries(accounts, script, snapshot_path):
     if len(got) != len(lines) or not all(isinstance(x, dict) and isinstance(x.get("command"), str) for x in got):
         raise ValueError(f"herdr のタブバーの行が 1 行 1 つの command の表になっていない: {lines}")
     return lines
+
+
+def copy_entry(limits_dir):
+    """版に依らない入口（limits-entry.py と run-python.sh）を limits_dir に写し、(入口, Python を選ぶ入口) のパス。写せなければ OSError。"""
+    d = pathlib.Path(limits_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    for name, src in ENTRY_COPIES.items():
+        filex.replace(str(d / name), src.read_text(encoding="utf-8"))
+    return d / "limits-entry.py", d / "run-python.sh"
+
+
+def entry_drift(limits_dir):
+    """limits_dir に写した入口のうち、今の版の元と中身の違うファイルの名前の並び（写していなければ空）。"""
+    d = pathlib.Path(limits_dir)
+    out = []
+    for name, src in ENTRY_COPIES.items():
+        try:
+            if (d / name).read_text(encoding="utf-8") != src.read_text(encoding="utf-8"):
+                out.append(name)
+        except OSError:
+            continue
+    return out
 
 
 def main(argv=None, env=os.environ, stdin=sys.stdin):
@@ -443,7 +546,7 @@ def main(argv=None, env=os.environ, stdin=sys.stdin):
         accts, limits_dir = cfg.accounts, cfg.limits_dir
     now = time.time()
     if a.cmd == "show":
-        line = render(a.name, _read(pathlib.Path(limits_dir) / f"{a.name}.json"), now)
+        line = render(a.name, _read(pathlib.Path(limits_dir) / f"{a.name}.json"), now, failure(limits_dir, a.name))
         if line:
             print(line)
     elif a.cmd == "probe":
@@ -468,7 +571,9 @@ def main(argv=None, env=os.environ, stdin=sys.stdin):
     else:
         try:
             snapshot = pathlib.Path(limits_dir) / SNAPSHOT_NAME
-            lines = herdr_entries(accts, str(HERE / "limits.py"), snapshot)
+            herdr_entries(accts, str(HERE / "limits.py"), snapshot)   # 写す前に、行が組めるか（アカウントの数）を確かめる
+            entry, picker = copy_entry(limits_dir)
+            lines = herdr_entries(accts, str(entry), snapshot, picker)
             write_snapshot(snapshot, accts, limits_dir)
         except (ValueError, OSError) as e:
             print(e, file=sys.stderr)

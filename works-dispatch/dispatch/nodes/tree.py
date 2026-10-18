@@ -313,6 +313,10 @@ def contacts(company, shape):
     return company
 
 
+def _at(t):
+    return time.strftime("%m-%d %H:%M", time.localtime(t)) if t else "-"
+
+
 def lines(companies):
     """人の読む形。会社ごとに、頭の行・受ける仕事（と宛て方）・窓口・本社・部署の行。"""
     if not companies:
@@ -329,6 +333,8 @@ def lines(companies):
                        + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k))
                        + (f"  起動方法: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
+                       + (f"（前 {_at(s.get('last_started'))}・次 {_at(s.get('next_start'))}）"
+                          if "next_start" in s else "")
                        + ("  頼まれたときだけ立てる" if s.get("standing") is False else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
         if c.get("desk"):
@@ -341,7 +347,7 @@ def lines(companies):
         for t in c.get("tools", []):
             out.append(f"  ツール: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
                        + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")
-        out += [f"  ! {p}" for p in c["problems"]]
+        out += [f"  ! {p}" for p in c["problems"] + c.get("health", [])]
         depts = c["departments"]
         for i, d in enumerate(depts):
             head = "本社" if d["head_office"] else ("└" if i == len(depts) - 1 else "├")

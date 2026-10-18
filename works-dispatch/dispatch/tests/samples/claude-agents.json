@@ -1,0 +1,71 @@
+[
+ {
+  "pid": 1000,
+  "cwd": "/r/co-w",
+  "kind": "interactive",
+  "startedAt": 1792279986976,
+  "sessionId": "00000000-0000-4000-8000-000000000000",
+  "name": "部署",
+  "status": "idle"
+ },
+ {
+  "pid": 1001,
+  "id": "00000001",
+  "cwd": "/r/co-w",
+  "kind": "background",
+  "startedAt": 1792285833497,
+  "sessionId": "00000001-0000-4000-8000-000000000000",
+  "name": "部署",
+  "status": "busy",
+  "state": "working"
+ },
+ {
+  "id": "00000002",
+  "cwd": "/r/co-w",
+  "kind": "background",
+  "startedAt": 1792285848738,
+  "sessionId": "00000002-0000-4000-8000-000000000000",
+  "name": "部署",
+  "state": "stopped"
+ },
+ {
+  "pid": 1003,
+  "id": "00000003",
+  "cwd": "/r/co-w",
+  "kind": "background",
+  "startedAt": 1792311758103,
+  "sessionId": "00000003-0000-4000-8000-000000000000",
+  "name": "部署",
+  "status": "idle",
+  "state": "done"
+ },
+ {
+  "pid": 1004,
+  "id": "00000004",
+  "cwd": "/r/co-w",
+  "kind": "background",
+  "startedAt": 1792316112926,
+  "sessionId": "00000004-0000-4000-8000-000000000000",
+  "name": "部署",
+  "status": "idle",
+  "state": "working"
+ },
+ {
+  "id": "00000005",
+  "cwd": "/r/co-w",
+  "kind": "background",
+  "startedAt": 1792317561061,
+  "sessionId": "00000005-0000-4000-8000-000000000000",
+  "name": "部署",
+  "state": "done"
+ },
+ {
+  "pid": 1006,
+  "cwd": "/r/co-w",
+  "kind": "interactive",
+  "startedAt": 1792363221426,
+  "sessionId": "00000006-0000-4000-8000-000000000000",
+  "name": "部署",
+  "status": "busy"
+ }
+]

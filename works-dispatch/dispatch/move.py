@@ -102,7 +102,7 @@ def move(a, ports, cwd, task):
     ranked = accounts.rank(cfg.accounts, ports.read_limits(cfg.limits_dir, metered), cfg.limit_percent, ports.now(),
                            accounts.count_running(sessions_), cfg.reset_soon_hours)
     mine = next((r for r in ranked if r["name"] == old), None)
-    if a.if_limited and mine and mine["known"] and mine["eligible"]:
+    if a.if_limited and mine and (mine["known"] or mine.get("stale")) and mine["eligible"] and not mine.get("stale_over"):
         print("\n".join(notes + [f"移さない: アカウント {old} の使用率は上限 {cfg.limit_percent}% に達していない（一時の混み合いと見る）"]))
         return 0
     if a.account:

@@ -99,6 +99,11 @@ def survey(config_path, ports):
             sessions_[acc.name] = ports.list_sessions(acc.config_dir, include_done=True)
         except claudex.ClaudeError as e:
             notes.append(f"アカウント {acc.name} の会話の一覧を読めないので、そのアカウントの会話を見ない（{e}）")
+            continue
+        odd = claudex.unknown_values(sessions_[acc.name])
+        if odd:
+            notes.append(f"アカウント {acc.name} の会話の一覧（claude agents --json）に、読み方を知らない値がある: "
+                         f"{', '.join(f'{k} が {n} 件' for k, n in sorted(odd.items()))}（claudex.py の KNOWN_STATUS・KNOWN_STATE と読む所を見直す）")
     panes = ports.herdr.panes()
     roots = tree.roots(ports.herdr.workspaces(), panes, ports.common_of,
                        list(dict.fromkeys(s["cwd"] for items in sessions_.values() for s in items if s.get("cwd"))))
@@ -347,6 +352,8 @@ def clear_before_ask(dept, held, pane, busy, ports, newest=lambda: None):
     status, detail = deliver.clear_talk(pane, ports.herdr, ports.pause, cleared)
     if status == "cleared":
         return True, [f"前の頼み（受付 {held}）を納品し終えているので、/clear で会話を空にしてから送る"]
+    if talk is None:   # 置き場の名前は Claude Code の作り方を写している（claudex.newest_talk）。作り方が変われば、ここに出る
+        detail += "。部署の場所の会話の記録が見つからなかった（claudex.newest_talk の作る置き場の名前が、Claude Code の物と違うかもしれない）"
     return False, [f"会話を空にできなかったので送らなかった（{detail}）。部署の窓を見て、空になっていれば --ask を打ち直す"]
 
 

@@ -86,6 +86,7 @@ import move  # noqa: E402
 import retire  # noqa: E402
 import reorg  # noqa: E402
 import limits  # noqa: E402
+import limits_entry  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
 from nodes import accounts, assign, clean, cost, deliver, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
@@ -129,17 +130,60 @@ def _shell_has(cmd, env=os.environ, runner=subprocess.run, which=shutil.which, p
 
 # タブバーの行とサイドバーのフックが指す、このプラグインのスクリプト。プラグインを更新すると、入った場所（版ごとのフォルダ）が変わる
 PLUGIN_SCRIPT = re.compile(r"""[^\s"'=]+[/\\]dispatch[/\\](?:limits|activity)\.py""")
+ENTRY_SCRIPT = re.compile(r"""[^\s"'=]+[/\\](?:limits-entry\.py|run-python\.sh)""")   # limits_dir に写した版に依らない入口
 
 
-def gone_plugin_paths(texts):
-    """設定の文字列のなかの、このプラグインのスクリプトを指すパスのうち、もう無いもの（重なりは 1 つ）。"""
-    found = []
+def gone_plugin_paths(texts, installed=None):
+    """設定の文字列のなかの、このプラグインのスクリプトを指すパスのうち、使えないもの（重なりは 1 つ）の (パス, 訳) の並び。
+    使えないのは、もう無い・版のフォルダに .orphaned_at が付いた（前の版。Claude Code が 14 日で消す）・installed（今入っている
+    場所の並び）を渡したとき、版の置き場（plugins/cache/ の下）に在ってそのどれでもない、の 3 つ。"""
+    found, seen = [], set()
+    roots = {os.path.normcase(os.path.realpath(x)) for x in installed or ()}
     for text in texts:
         for m in PLUGIN_SCRIPT.findall(text):
             path = os.path.expanduser(m)
-            if not os.path.isfile(path) and path not in found:
-                found.append(path)
+            if path in seen:
+                continue
+            seen.add(path)
+            version = pathlib.Path(path).parent.parent
+            if not os.path.isfile(path):
+                found.append((path, "もう無い"))
+            elif (version / limits_entry.ORPHANED).exists():
+                found.append((path, f"前の版（{limits_entry.ORPHANED} が付き、Claude Code が消す）"))
+            elif roots and version.parent.parent.parent.name == "cache" and os.path.normcase(os.path.realpath(version)) not in roots:
+                found.append((path, "今入っていない版"))
     return found
+
+
+def herdr_config_path(env):
+    home = env.get("HOME") or os.path.expanduser("~")
+    return pathlib.Path(env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
+
+
+def plugin_notes(herdr_toml, config_dirs, limits_dir=None):
+    """herdr の設定とアカウントの settings.json が、使えない版のこのプラグインを指していれば、その注記の並び。入れた物の控えが
+    消えた置き場を指していれば、それも足す。設定が指す写した入口（limits-entry.py・run-python.sh）が無ければ、それも足す。limits_dir に写した
+    タブバーの入口（limits.py herdr-config）が今の版とずれていれば、それも足す。--check と --tree が出す。"""
+    files = [herdr_toml] + [pathlib.Path(d) / "settings.json" for d in config_dirs]
+    installed = [x for d in config_dirs for x in limits_entry.install_paths(os.path.expanduser(d))]
+    texts = [s for f in files for s in setting_strings(f)]
+    notes = [f"herdr の設定かフックが、使えない版のスクリプトを指している: {path}（{why}。プラグインの更新で場所が変わった。"
+             "skills/dispatch/references/setup.md の「任意: herdr の見た目を整える」で行を出し直す）"
+             for path, why in gone_plugin_paths(texts, installed)]
+    lost = sorted({os.path.expanduser(m) for t in texts for m in ENTRY_SCRIPT.findall(t)} - {""})
+    notes += [f"herdr の設定が指すタブバーの入口 {p} が無い（消された。limits.py herdr-config を打ち直すと写し直す）"
+              for p in lost if not os.path.isfile(p)]
+    for d in config_dirs:
+        gone = limits_entry.gone_installs(os.path.expanduser(d))
+        if gone:
+            notes.append(f"{d} の入れたプラグインの控え（plugins/installed_plugins.json）が、消えた置き場を指している: "
+                         + "、".join(f"{n}（{s}）" for n, s, _ in gone)
+                         + "（どの項目が効くかが分からない。要らなければ CLAUDE_CONFIG_DIR を合わせて claude plugin uninstall <名前> --scope <範囲> を、"
+                           "project の範囲はそのフォルダで打つ。tiers --config-dir でも見られる）")
+    drift = limits.entry_drift(limits_dir) if limits_dir else []
+    if drift:
+        notes.append(f"{limits_dir} に写したタブバーの入口（{'・'.join(drift)}）が今の版と違う（limits.py herdr-config を打ち直す）")
+    return notes
 
 
 def _leaves(value):
@@ -299,21 +343,18 @@ class Ports:
                                 f"（skills/catchup/SKILL.md か commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
             if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
+        notes += limits.problems(cfg.accounts, cfg.limits_dir, time.time())
         # 信頼はアカウントをまたいで広げる（Ports.trust）ので、知らせるのはどのアカウントも信頼していない元の clone だけ
         for repo in cfg.repos:
             if not any(claudex.is_trusted(claudex.trust_file(a.config_dir, self.account_env), repo.source) for a in cfg.accounts):
                 notes.append(f"どのアカウントも {repo.source} を信頼していない（ブランチごとの作業場で毎回フォルダの信頼の確認が出る。"
                              f"どれか 1 つのアカウントで一度 {repo.source} に Claude Code を起動し、信頼すると、ほかのアカウントにも広げて出なくなる）")
-        home = self.env.get("HOME") or os.path.expanduser("~")
-        herdr_toml = pathlib.Path(self.env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")) / "herdr" / "config.toml"
+        herdr_toml = herdr_config_path(self.env)
         if not spaces_show_kind(herdr_toml):
             task_only.append(f"herdr の設定 {herdr_toml} の作業場の行（[ui.sidebar.spaces] の rows）に $kind が無い（部署の作業場の行に、"
                              "常設・毎回空／常設・持ち越し／都度の印が出ない）。rows のどこかに { token = \"$kind\" } を置く。"
                              f"[ui.sidebar.spaces] が無ければ、次を足して herdr server reload-config を打つ:\n{SPACES_ROWS}")
-        files = [herdr_toml] + [pathlib.Path(config.effective_config_dir(a, self.account_env)) / "settings.json" for a in cfg.accounts]
-        for path in gone_plugin_paths([s for f in files for s in setting_strings(f)]):
-            notes.append(f"herdr の設定かフックが、もう無いスクリプトを指している: {path}（プラグインの更新で場所が変わった。"
-                         "skills/dispatch/references/setup.md の「任意: herdr の見た目を整える」で行を出し直す）")
+        notes += plugin_notes(herdr_toml, [config.effective_config_dir(a, self.account_env) for a in cfg.accounts], cfg.limits_dir)
         for repo in cfg.repos:
             if gitx.origin_repo(repo.source) != repo.repo:
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
@@ -1430,7 +1471,7 @@ def _company(a, ports):
         print("\n".join(lines))
         return rc
     try:
-        _, _, companies, settings, notes = survey_companies(a.config, ports)
+        _, _, companies, settings, notes = survey_companies(a.config, ports, plugins=True)
     except herdr.HerdrError as e:
         print(f"止めた: herdr を読めない（{e}）")
         return 1
@@ -1442,18 +1483,26 @@ def _company(a, ports):
     return 0
 
 
-def survey_companies(config_path, ports, only=None):
+def survey_companies(config_path, ports, only=None, plugins=False):
     """herdr の作業場から会社を出し（tree.roots）、会社ごとに部署（herdr アダプタの worktrees）と属性（git）と会社の情報を読んで
     組み立てる（tree.build）。only を渡せば、その代表の clone の会社だけ。(アカウントの並び, herdr の作業場の並び, 会社の並び,
-    設定の置き場, 注記)。herdr を読めなければ herdr.HerdrError。"""
+    設定の置き場, 注記)。plugins が真なら、注記に plugin_notes（使えない版を指す設定など。--tree だけが出す）も足す。herdr を読めなければ
+    herdr.HerdrError。"""
     notes = []
     path = config.path_of(config_path, os.environ)
+    limits_dir = None
     try:
-        accounts_ = config.load(config_path, os.environ, missing_ok=True).accounts
+        cfg = config.load(config_path, os.environ, missing_ok=True)
+        accounts_, limits_dir = cfg.accounts, cfg.limits_dir
     except config.ConfigError as e:
         accounts_ = (config.Account("default", "claude"),)
         if os.path.exists(path):
             notes.append(f"dispatch の設定を読めないので、既定のアカウント 1 つとして見る（{e}）")
+    if plugins:
+        notes += plugin_notes(herdr_config_path(os.environ), [config.effective_config_dir(a, os.environ) for a in accounts_],
+                              limits_dir)
+    if limits_dir:
+        notes += limits.problems(accounts_, os.path.expanduser(limits_dir), time.time())
     sessions_ = {}
     for acc in accounts_:
         try:

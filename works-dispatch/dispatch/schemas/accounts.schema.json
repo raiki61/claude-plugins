@@ -17,6 +17,7 @@
           "five_hour": {"type": "object", "required": ["used", "resets_at"],
                         "properties": {"used": {"type": ["number", "null"]}, "resets_at": {"type": ["integer", "null"]}}},
           "known": {"type": "boolean"},
+          "stale": {"type": "boolean"},
           "eligible": {"type": "boolean"},
           "reason": {"type": ["string", "null"]},
           "soon": {"type": "boolean"},

@@ -1,0 +1,15 @@
+{
+ "version": 2,
+ "plugins": {
+  "works-dispatch@raiki61": [
+   {
+    "scope": "user",
+    "installPath": "/Users/p03623/.claude-p3/plugins/cache/raiki61/works-dispatch/0.76.0",
+    "version": "0.76.0",
+    "installedAt": "2026-10-14T20:27:38.101Z",
+    "lastUpdated": "2026-10-18T22:35:12.334Z",
+    "gitCommitSha": "7318bb95547f1e6174078e7d8aa7c3a53daa1f3b"
+   }
+  ]
+ }
+}

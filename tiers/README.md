@@ -60,10 +60,12 @@ For each missing tool, it returns install steps. The install commands were copie
 `tiers` is in this plugin's `bin/`. Inside a Claude Code session (the Bash tool), Claude Code puts `bin/` on PATH, so you can run it by name.
 
 ```bash
-tiers --tier <0〜3> [--launcher <コマンド> ...] [--json]
+tiers --tier <0〜3> [--launcher <コマンド> ...] [--config-dir <フォルダ> ...] [--json]
 ```
 
+- `--tier` picks how far to check; the tiers (0 = Claude Code, 1 = gh, 2 = herdr and the account start commands, 3 = Archon) are listed under "Tiers" above.
 - `--launcher` is only looked at for tier 2 and above (passing it with tier 0 or 1 is not an error; it is ignored). It can be given any number of times (`--launcher claude-p1 --launcher claude-p2`). Every command passed is looked up, and if even one is not found, it counts as missing.
+- `--config-dir` is a Claude Code settings folder of an account (`~/.claude-p2` and so on). It can be given any number of times. For each folder given, tier 0 also checks that every entry in `plugins/installed_plugins.json` points at a folder that still exists and is not marked as an old version (`.orphaned_at`, which Claude Code removes after 14 days) (an entry left pointing at a removed version, typically a project-scope one, makes it unclear which entry takes effect), and tier 2 also checks that herdr's Claude Code integration is current for that folder (`herdr integration status` run with `CLAUDE_CONFIG_DIR` set to it; herdr 0.9.3 has no JSON output here, so a line in an unknown shape is reported as missing instead of passed). A folder that does not exist is reported as missing. Without `--config-dir`, neither is checked.
 - Exit codes: 0 = everything is in place, 1 = something is missing, 2 = wrong usage.
 - The `--json` format (`schema` is the format's version number, currently 1; it is raised only for changes that would break callers) is described at the top of [`lib/tiers_check.py`](lib/tiers_check.py). Missing tools are the `checks[]` items with `ok: false`, and they carry `problem` (why it is missing), `fix` (a list of install-step lines), and `guide` (a list of guidance lines; an empty list `[]` if none). Every item carries `tier` (the tier), `name` (the tool's name), `ok`, and `found` (what was found; `null` for missing items). The human-readable output prints the same `guide` lines under 「案内:」 ("guidance:").
 

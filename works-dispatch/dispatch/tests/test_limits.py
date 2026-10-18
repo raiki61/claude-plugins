@@ -358,3 +358,63 @@ class HerdrConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Breakage(unittest.TestCase):
+    """壊れても知らせが来ない所（docs/standards/breakage-detection.md）: 古い控え・取り直しの失敗・応答の形の変わり・入口のずれ。"""
+
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+
+    def test_statusline_merge_keeps_the_unknown_values_seen_by_probe(self):
+        old = {"five_hour": {"used_percentage": 1, "resets_at": NOW + 100}, "unknown": {"5h-status=x": 1}}
+        got = limits.merge_statusline(old, {"five_hour": {"used_percentage": 12, "resets_at": NOW + 100}}, NOW)
+        self.assertEqual(got["unknown"], {"5h-status=x": 1})
+
+    def test_the_real_response_headers_still_read_as_both_windows(self):
+        # 2026-10-19 に 1 つのアカウントで 1 回だけ問い合わせて採った本物のヘッダ（tests/samples）。形が変われば、ここで落ちる
+        sample = json.loads((pathlib.Path(__file__).parent / "samples" / "ratelimit-headers.json").read_text(encoding="utf-8"))
+        snap = limits.from_headers(sample, NOW)
+        self.assertEqual(snap["five_hour"], win(49.0, 1792373400))
+        self.assertEqual(snap["seven_day"], win(91.0, 1792382400))
+        self.assertNotIn("unknown", snap)   # 本物に出る状態の値は全部 KNOWN_STATUS にある
+
+    def test_unknown_status_values_are_counted_and_shown(self):
+        snap = limits.from_headers({**HEADERS, "anthropic-ratelimit-unified-7d-status": "throttled"}, NOW)
+        self.assertEqual(snap["unknown"], ["7d-status=throttled"])
+        (self.dir / "a0.json").write_text(json.dumps(snap), encoding="utf-8")
+        self.assertTrue(any("throttled" in n for n in limits.problems(accounts(1), self.dir, NOW)))
+
+    def test_old_snapshots_are_stale_unless_a_window_is_full(self):
+        old = NOW - (limits.TRUST_HOURS * 3600 + 1)
+        self.assertTrue(limits.stale({"five_hour": win(5, NOW + 60, old), "seven_day": win(5, NOW + 60)}, NOW))
+        self.assertFalse(limits.stale({"five_hour": win(5, NOW + 60), "seven_day": win(5, NOW + 60)}, NOW))
+        # 100% の間は取り直さないので、古くても当てになる
+        self.assertFalse(limits.stale({"five_hour": win(100, NOW + 60, old), "seven_day": win(5, NOW + 60, old)}, NOW))
+        self.assertFalse(limits.stale(None, NOW))
+
+    def test_failed_probe_leaves_a_record_that_tree_and_the_tab_bar_show_until_it_works(self):
+        down = {"content-type": "application/json", limits.STATUS: "404", limits.ERROR: "model not found"}
+        limits.probe_all(accounts(1), self.dir, {}, NOW, token=lambda c, e: ("tok", "x"), fetch=lambda tok: down)
+        fail = limits.failure(self.dir, "a0")
+        self.assertIn("HTTP 404", fail["reason"])
+        self.assertIn("model not found", fail["reason"])
+        self.assertFalse((self.dir / ".probe-a0").exists())   # 取れたようには見せない
+        self.assertTrue(any("失敗" in n for n in limits.problems(accounts(1), self.dir, NOW)))
+        self.assertIn("取り直し失敗", limits.render("a0", None, NOW, fail))
+        # 待ちの間は投げ直さず、待ちの後に取れたら失敗の控えを消す
+        asked = []
+        limits.probe_all(accounts(1), self.dir, {}, NOW + 60, token=lambda c, e: ("tok", "x"), fetch=lambda tok: asked.append(tok) or HEADERS)
+        self.assertEqual(asked, [])
+        later = NOW + limits.PROBE_RETRY_MIN * 60 + 1
+        limits.probe_all(accounts(1), self.dir, {}, later, token=lambda c, e: ("tok", "x"), fetch=lambda tok: HEADERS)
+        self.assertIsNone(limits.failure(self.dir, "a0"))
+        self.assertTrue((self.dir / ".probe-a0").exists())
+
+    def test_copied_entry_is_found_when_it_drifts_from_this_version(self):
+        self.assertEqual(limits.entry_drift(self.dir), [])   # 写していなければ言わない
+        entry, picker = limits.copy_entry(self.dir)
+        self.assertEqual((entry.name, picker.name), ("limits-entry.py", "run-python.sh"))
+        self.assertEqual(limits.entry_drift(self.dir), [])
+        entry.write_text("# 前の版\n", encoding="utf-8")
+        self.assertEqual(limits.entry_drift(self.dir), ["limits-entry.py"])

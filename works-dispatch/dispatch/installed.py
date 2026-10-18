@@ -7,7 +7,8 @@
 
 版の置き場の中で動いていて、Claude Code の入れた物の控え（置き場のルートの installed_plugins.json）が、このプラグインの今の置き場を
 別の所と言っていれば、そちらの dispatch.py を同じ引数で起動して、その終了の値で終わる。控えを読めない・置き場の外（リポジトリの
-checkout など）・乗り換えた先から起動された（HOPPED）ときは乗り換えない。"""
+checkout など）・乗り換えた先から起動された（HOPPED）ときは乗り換えない。置き場の中なのに控えの形が違って探せないときは、
+その訳を標準エラーに出してから、そのまま動く（壊れの見つけ方の標準 docs/standards/breakage-detection.md の決まり 3）。"""
 
 import json
 import os
@@ -22,34 +23,48 @@ def _same(a, b):
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
 
-def target(script, env=os.environ):
-    """script（動いている dispatch.py）の代わりに起動する dispatch.py のパス。乗り換えないなら None。"""
+def look(script, env=os.environ):
+    """(script の代わりに起動する dispatch.py のパス, 乗り換えられない訳)。乗り換えるなら訳は None。乗り換えないのが正しい
+    （今の版・置き場の外・乗り換えた先）なら両方 None。版の置き場の中なのに控えの形が思っていたのと違って乗り換えられなければ、
+    パスは None で訳を返す（黙って前の版のまま動くと、新しい版の決まりを飛ばしても誰も気づかない）。"""
     if env.get(HOPPED):
-        return None
+        return None, None
     here = pathlib.Path(script).resolve()
     if len(here.parents) < 6 or here.parents[4].name != "cache":
-        return None
+        if "cache" in here.parts and "plugins" in here.parts:
+            return None, f"{here} はプラグインの置き場の中だが、<設定のフォルダ>/plugins/cache/<マーケット>/<プラグイン>/<版>/ の形でない"
+        return None, None
     version_dir, plugin, market, root = here.parents[1], here.parents[2].name, here.parents[3].name, here.parents[5]
+    record = root / "installed_plugins.json"
     try:
-        with open(root / "installed_plugins.json", encoding="utf-8") as f:
+        with open(record, encoding="utf-8") as f:
             entries = (json.load(f).get("plugins") or {}).get(f"{plugin}@{market}") or []
-    except (OSError, ValueError, AttributeError):
-        return None
+    except (OSError, ValueError, AttributeError) as e:
+        return None, f"入れた物の控え {record} が読めない（{e}）"
     entries = [e for e in (entries if isinstance(entries, list) else [entries]) if isinstance(e, dict) and e.get("installPath")]
+    if not entries:
+        return None, f"入れた物の控え {record} に {plugin}@{market} の installPath が無い"
     if any(_same(e["installPath"], version_dir) for e in entries):
-        return None
+        return None, None
     # 同じプラグインを user と project の両方に入れていれば、アカウント全体に効く user の物を先にする
     for e in sorted(entries, key=lambda e: e.get("scope") != "user"):
         there = pathlib.Path(e["installPath"]) / here.parent.name / here.name
         if there.is_file():
-            return str(there)
-    return None
+            return str(there), None
+    return None, f"入れた物の控え {record} の指す置き場（{'、'.join(e['installPath'] for e in entries)}）に {here.parent.name}/{here.name} が無い"
+
+
+def target(script, env=os.environ):
+    """script（動いている dispatch.py）の代わりに起動する dispatch.py のパス。乗り換えないなら None。"""
+    return look(script, env)[0]
 
 
 def hop(script, argv, env=os.environ):
     """乗り換えるなら、今の版を起動して終了の値を返す。乗り換えないなら None。exec でなく子として起動するのは、Windows の os.execv が
     呼んだ側のシェルに先に戻ってしまうため。"""
-    there = target(script, env)
+    there, why = look(script, env)
+    if why:
+        print(f"works-dispatch: 今入っている版を探せないので、{script} のまま動く（{why}）", file=sys.stderr)
     if not there:
         return None
     print(f"works-dispatch: {script} は前の版なので、今入っている版 {there} で打ち直す", file=sys.stderr)

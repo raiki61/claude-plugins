@@ -14,12 +14,14 @@ import json
 import os
 import pathlib
 import subprocess
+import time
 
 import config
 import gitx
 import herdr
 import orders
-from nodes import deliver, role, tools, tree, wake
+import health
+from nodes import clean, deliver, role, tools, tree, wake
 
 CALLED = 3   # 片づかず AI に回した --call の終了の値
 
@@ -45,7 +47,10 @@ def _company_root(target, ports, cwd, config_path):
         hit = [c for c in companies if c["name"] == company or os.path.basename(os.path.normpath(c["root"])) == company]
         if not hit:
             return None, f"会社「{company}」が herdr に開いていない"
-        root = hit[0]["root"]
+        try:
+            root = deliver.one_company(hit, company)["root"]
+        except deliver.DeliverError as e:
+            return None, str(e)
     else:
         common = ports.git.common_dir(cwd)
         if not common:
@@ -147,14 +152,15 @@ def call(a, ports, cwd, task):
 def annotate(companies, settings, g):
     """--tree に受付を足す: 会社ごとにツール（役・名前・title・外れの回数）を tools に、部署ごとに順番待ちの件数と置き場を queue・
     queue_dir に、渡す待ち受けが居なくて止まっているか（wake.stalled）を stalled に、待ち受けは居るが渡さずに待っている訳（wake.held）を
-    held に、部署の属性に会話の id（company.session）が無いかを no_talk_id に。外れは受付箱の台帳の kind miss の行で数える。"""
+    held に、部署の属性に会話の id（company.session）が無いかを no_talk_id に。外れは受付箱の台帳の kind miss の行で数える。
+    会社ごとの壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ・周期の遅れ・一時の置き場の控え。health.py）を health に。"""
     for c in companies:
         common = g.common_dir(c["root"])
         inbox = deliver.inbox_of(common) if common else None
         info = tree.read_info(c["root"], settings)
         shape = role.load(info["path"], info["text"])
-        misses = {}
-        for r in deliver.records(inbox) if inbox else []:
+        misses, records = {}, deliver.records(inbox) if inbox else []
+        for r in records:
             if r.get("kind") == "miss":
                 misses[(r.get("role"), r.get("tool"))] = misses.get((r.get("role"), r.get("tool")), 0) + 1
         c["tools"] = [{"role": r["name"], "name": t["name"], "title": t["title"], "fallback_role": t["fallback_role"],
@@ -162,6 +168,9 @@ def annotate(companies, settings, g):
                       for r in shape["roles"].values() for t in r["tools"]]
         tree.contacts(c, shape)   # 受ける仕事ごとの宛て方と窓口
         c["inbox"] = inbox
+        now = time.time()
+        c["health"] = (health.inbox_notes(inbox, now) + health.due(c["skills"], records, now)
+                       + (health.kept_tmp(os.path.join(common, *clean.KEPT_TMP), now) if common else []))
         for d in c["departments"]:
             here = g.git_dir(d["path"]) if inbox else None
             d["queue"] = len(wake.queued(inbox, here)) if here else 0

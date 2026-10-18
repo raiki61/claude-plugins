@@ -638,7 +638,7 @@ class RealPorts(unittest.TestCase):
 
     def test_gone_plugin_paths_with_backslashes_are_found(self):
         gone = r"C:\Users\me\.claude\plugins\cache\m\works-dispatch\0.1.0\dispatch\limits.py"
-        self.assertEqual(dispatch.gone_plugin_paths([f'command = "py {gone} --accounts x show a"']), [gone])
+        self.assertEqual(dispatch.gone_plugin_paths([f'command = "py {gone} --accounts x show a"']), [(gone, "もう無い")])
 
     def test_gone_plugin_paths_inside_escaped_json_and_toml_strings_are_read_unescaped(self):
         # settings.json と herdr の TOML は、文字列の中の \ を \\ と書く。書かれた形のままでは、パスが別物になる
@@ -648,10 +648,47 @@ class RealPorts(unittest.TestCase):
         (d / "config.toml").write_text('[ui]\ntab_bar_right = [{ command = "py %s" }]\n' % gone.replace("\\", "\\\\"), encoding="utf-8")
         for f in ("settings.json", "config.toml"):
             with self.subTest(f=f):
-                self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / f)), [gone])
+                self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / f)), [(gone, "もう無い")])
         (d / "broken.toml").write_text(f'{{ command = "py {gone}" }},\n', encoding="utf-8")
-        self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / "broken.toml")), [gone])  # 読めない形はそのまま
+        self.assertEqual(dispatch.gone_plugin_paths(dispatch.setting_strings(d / "broken.toml")), [(gone, "もう無い")])  # 読めない形はそのまま
         self.assertEqual(dispatch.setting_strings(d / "missing.json"), [])
+
+    def test_plugin_notes_name_install_records_pointing_at_gone_folders(self):
+        # 2026-10-18、~/.claude-p2 の控えに、消えた置き場（gates 0.7.0・attention 0.10.1）を指す project の範囲の項目が残っていた
+        cfg = pathlib.Path(tempfile.mkdtemp())
+        here = cfg / "plugins" / "cache" / "m" / "gates" / "0.8.0"
+        here.mkdir(parents=True)
+        (cfg / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {
+            "gates@m": [{"scope": "user", "installPath": str(here)},
+                        {"scope": "project", "projectPath": "/r/x", "installPath": str(cfg / "plugins" / "cache" / "m" / "gates" / "0.7.0")}]}}),
+            encoding="utf-8")
+        notes = dispatch.plugin_notes(cfg / "none.toml", [str(cfg)])
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("gates@m（project）", notes[0])
+
+    def test_plugin_notes_name_a_tab_bar_entry_that_was_removed(self):
+        # ~/.cache が掃除されて写した入口が消えると、タブバーの表示と使用率の取り直しが黙って止まる
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "run-python.sh").write_text("")
+        toml = d / "config.toml"
+        toml.write_text(f'command = "sh {d / "run-python.sh"} {d / "limits-entry.py"} show a"\n', encoding="utf-8")
+        notes = dispatch.plugin_notes(toml, [])
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn(f"入口 {d / 'limits-entry.py'} が無い", notes[0])
+
+    def test_gone_plugin_paths_finds_orphaned_and_not_installed_versions(self):
+        # 2026-10-18、herdr のタブバーが .orphaned_at の付いた 0.1.3 を呼び続けていた。在るうちは「もう無い」で見つからない
+        cache = pathlib.Path(tempfile.mkdtemp()) / "plugins" / "cache" / "m" / "works-dispatch"
+        for v in ("0.1.3", "0.2.0", "0.3.0"):
+            (cache / v / "dispatch").mkdir(parents=True)
+            (cache / v / "dispatch" / "limits.py").write_text("")
+        (cache / "0.1.3" / ".orphaned_at").write_text("1")
+        texts = [f"py {cache / v / 'dispatch' / 'limits.py'}" for v in ("0.1.3", "0.2.0", "0.3.0")]
+        got = dict(dispatch.gone_plugin_paths(texts, installed=[str(cache / "0.3.0")]))
+        self.assertIn("前の版", got[str(cache / "0.1.3" / "dispatch" / "limits.py")])
+        self.assertEqual(got[str(cache / "0.2.0" / "dispatch" / "limits.py")], "今入っていない版")
+        self.assertNotIn(str(cache / "0.3.0" / "dispatch" / "limits.py"), got)
+        self.assertEqual([p for p, _ in dispatch.gone_plugin_paths(texts)], [str(cache / "0.1.3" / "dispatch" / "limits.py")])  # 入っている場所が分からなければ版では比べない
 
     def test_real_ports_carry_the_herdr_and_git_modules(self):
         # 偽物の Ports は herdr と git を自分で持つので、本物から消えても Main の試験は通ってしまう

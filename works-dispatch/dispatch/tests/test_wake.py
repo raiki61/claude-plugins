@@ -16,6 +16,7 @@ from . import DISPATCH
 from . import test_deliver
 from .test_provision import git
 import gitx
+import health
 import herdr as real_herdr
 import orders
 import role_hook
@@ -132,7 +133,9 @@ class Watch(unittest.TestCase):
         self.assertIsNone(wake.listening(self.inbox, "co/ほか", posix=True))
         wake.claim(self.inbox, self.place, self.names, "s1", dead_pid(), "t", 0)
         self.assertIsNone(wake.listening(self.inbox, "co/調べ", posix=True))   # 会話の処理が居ない
-        # Windows は印の更新で見る
+        self.assertIsNone(wake.read_mark(self.inbox, self.place))   # 死んだ印は見つけたときに消す
+        # Windows は印の更新で見る（消さない）
+        wake.claim(self.inbox, self.place, self.names, "s1", dead_pid(), "t", 0)
         now = time.time()
         self.assertIsNotNone(wake.listening(self.inbox, "co/調べ", now, posix=False))
         self.assertIsNone(wake.listening(self.inbox, "co/調べ", now + wake.FRESH + 1, posix=False))
@@ -140,6 +143,20 @@ class Watch(unittest.TestCase):
         self.assertIsNotNone(wake.read_mark(self.inbox, self.place))
         wake.release(self.inbox, self.place, "t")
         self.assertIsNone(wake.read_mark(self.inbox, self.place))
+
+    @unittest.skipIf(os.name == "nt", "死んだ印を消すのは POSIX だけ")
+    def test_a_dead_mark_is_not_removed_while_a_new_one_is_being_written(self):
+        import threading
+        wake.claim(self.inbox, self.place, self.names, "s1", dead_pid(), "old", 0)
+        path = wake.mark_path(self.inbox, self.place)
+        with wake._mark_lock(path):   # 新しい待ち受けが印を書いている間
+            t = threading.Thread(target=wake._drop_dead, args=(path, "old"))
+            t.start()
+            t.join(0.3)
+            self.assertTrue(t.is_alive())   # 消す側は錠を待つ
+            wake._replace(path, json.dumps({"token": "new"}))
+        t.join(5)
+        self.assertEqual(wake.read_mark(self.inbox, self.place)["token"], "new")
 
     def test_the_ask_lock_lets_one_holder_at_a_time(self):
         import threading
@@ -826,7 +843,7 @@ class Hook(unittest.TestCase):
         p = subprocess.Popen(wake.detached([sys.executable, "-c", "print('動いた')"], log, done), start_new_session=True)
         p.wait()
         for _ in range(200):
-            if os.path.exists(done):
+            if os.path.exists(done) and pathlib.Path(done).read_text().strip():   # 殻は走らせる前に空の .done を作る
                 break
             time.sleep(0.05)
         self.assertEqual(pathlib.Path(done).read_text().strip(), "0")
@@ -1011,12 +1028,29 @@ class Hook(unittest.TestCase):
         got = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=w, now=lambda: 5, spawn=spawn)
         self.assertEqual(got(), ("end", None))
         [(argv, kw)] = seen
-        self.assertEqual(argv[2:], ["--retire", "co/調べ"])
+        self.assertEqual(argv[1:2] + argv[3:], ["-u", "--retire", "co/調べ"])
         self.assertTrue(kw["start_new_session"])
         self.assertEqual(os.path.realpath(kw["cwd"]), os.path.realpath(self.src))   # 消える部署の場所の外で走らせる
         self.assertTrue(kw["stdout"].name.startswith(os.path.join(self.inbox, wake_hook.RETIRES)))
         self.assertEqual(w.writes, [], "fresh の部署でも /clear は打たない（空にすると印の会話が居なくなる）")
         self.assertNotIn(wake.FINISHED, gitx.worktree_attrs(self.place))   # 印は 1 度で外れる
+
+    @unittest.skipIf(os.name == "nt", "切り離す殻は POSIX だけ")
+    def test_retire_apart_from_the_talk_writes_its_exit_code(self):
+        # 切り離した --retire の終わりの値を .done に書く（0 でなければ --tree と --todo が出す。前は出力のログしか残らなかった）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
+        got = {"company": "co", "inbox": self.inbox, "cwd": self.place, "root": self.src}
+
+        def spawn(argv, **kw):   # --retire の代わりに、終わりの値 3 で終わる物を殻で走らせる
+            return subprocess.Popen(argv[:argv.index(sys.executable)] + ["/bin/sh", "-c", "echo gone; exit 3"], **kw)
+        self.assertTrue(wake_hook.retire_later(got, {"name": "調べ"}, spawn, now=lambda: 7, detach=True))
+        done = os.path.join(self.inbox, wake_hook.RETIRES, "調べ-7.done")
+        for _ in range(100):
+            if os.path.isfile(done) and open(done).read().strip():
+                break
+            time.sleep(0.05)
+        self.assertEqual(open(done).read().strip(), "3")
+        self.assertIn("終わりの値 3", "\n".join(health.background(self.inbox, 8)))
 
     def test_a_finished_mark_waits_for_delivery_background_work_and_the_stop_of_the_turn(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.FINISHED: "s1"}, gitx)

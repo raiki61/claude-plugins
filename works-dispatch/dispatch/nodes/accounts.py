@@ -31,6 +31,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import claudex  # noqa: E402
 import config  # noqa: E402
 import jsonio  # noqa: E402
+import limits as limits_  # noqa: E402
 
 # Windows の既定の標準出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
 for _s in (sys.stdout, sys.stderr):
@@ -78,15 +79,19 @@ def gather_running(accounts, list_sessions):
 
 
 def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.DEFAULT_RESET_SOON_HOURS):
-    """running は名 → 動いている会話の数（無い名は 0）。soon_hours は、週の枠の切り替わりを「近い」とみなす時間。"""
+    """running は名 → 動いている会話の数（無い名は 0）。soon_hours は、週の枠の切り替わりを「近い」とみなす時間。
+    控えが古い（limits.stale）アカウントは stale にし、known を偽にする（古い値で選ばない）。stale_over は、古い控えの最後の値で
+    上限に達していたか（--move --if-limited が、取り直せない間も移るかを最後の値で決める。一時の混み合いで移さない）。"""
     running = running or {}
     rows = []
     for i, a in enumerate(accounts):
         raw = limits.get(a.name) if a.limits else None
-        known = isinstance(raw, dict)
+        old = limits_.stale(raw, now)   # 古い控え（取り直せていない）は、使用率が分からない物と同じに扱う
+        known = isinstance(raw, dict) and not old
         w = {k: _window(raw.get(k) if known else None, now) for k in WINDOWS}
         over = [k for k in WINDOWS if w[k]["used"] is not None and w[k]["used"] >= limit_percent]
         used = [w[k]["used"] for k in WINDOWS if w[k]["used"] is not None]
+        last = [_window(raw.get(k), now)["used"] for k in WINDOWS] if old else []
         at = w["seven_day"]["resets_at"]
         rows.append({
             "name": a.name,
@@ -95,6 +100,8 @@ def rank(accounts, limits, limit_percent, now, running=None, soon_hours=config.D
             "seven_day": w["seven_day"],
             "five_hour": w["five_hour"],
             "known": known,
+            "stale": old,
+            "stale_over": any(u is not None and u >= limit_percent for u in last),
             "eligible": not over,
             "reason": "、".join(f"{k} が {w[k]['used']}% で上限 {limit_percent}% に達した" for k in over) or None,
             "soon": known and at is not None and at - now <= soon_hours * 3600,
@@ -127,6 +134,8 @@ def _left(sec):
 def why(row, now, soon_hours=config.DEFAULT_RESET_SOON_HOURS):
     """順の頭に来た 1 件を選んだ訳を、人が読む 1 文にする。"""
     tail = f"動いている会話 {row['running']} 件"
+    if row.get("stale"):
+        return f"使用率が分からない（控えが {limits_.TRUST_HOURS} 時間より古い。取り直せていない）。{tail}"
     if not row["known"]:
         return f"使用率が分からない（控えが無いか、使用率の枠の無いアカウント）。{tail}"
     use = f"5 時間 {_pct(row['five_hour']['used'])}・週 {_pct(row['seven_day']['used'])}"

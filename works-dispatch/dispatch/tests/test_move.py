@@ -129,6 +129,17 @@ class Move(unittest.TestCase):
         self.assertIn("移さない", out)
         self.assertEqual((seen, self.stopped), ([], []))
 
+    def test_if_limited_does_not_move_on_an_old_snapshot_under_the_limit(self):
+        # 取り直しが止まって控えが古くても、最後の値が上限の下なら一時の混み合いと見る（古いと「分からない」になり、移っていた）
+        self.ports.limits_seq = [{"a1": {"five_hour": {"used_percentage": 10, "updated_at": 1},
+                                         "seven_day": {"used_percentage": 20, "updated_at": 1}}, "a2": None}]
+        self.ports.now = lambda: 1_800_000_000
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("移さない", out)
+
     def test_no_other_account_with_room_stops(self):
         full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
         self.ports.limits_seq = [{"a1": full, "a2": full}]

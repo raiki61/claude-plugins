@@ -48,6 +48,24 @@ def sessions(config_dir, runner=_default_runner, base_env=None, include_done=Fal
     return listed
 
 
+# 会話の一覧の 1 件の status（対話の会話のターン）と state（裏の会話）の、読み方を知っている値。None はフィールドの無い物（対話の会話に
+# state は無く、終わった裏の会話に status は無い）。2026-10-19 に 2.1.303 で見た値（tests/samples/claude-agents.json）
+KNOWN_STATUS = ("busy", "idle", None)
+KNOWN_STATE = ("working", "blocked", "done", "failed", "stopped", None)
+
+
+def unknown_values(listed):
+    """会話の一覧（sessions の返り）の、読み方を知らない status と state の値の {"status=値": 件数}。コードは知っている値だけを
+    名指しで比べるので、知らない値の会話は止まっても動いてもいないように見える（壊れの見つけ方の標準の決まり 3）。"""
+    out = {}
+    for item in listed:
+        for key, known in (("status", KNOWN_STATUS), ("state", KNOWN_STATE)):
+            v = item.get(key) if isinstance(item, dict) else None
+            if v not in known:
+                out[f"{key}={v}"] = out.get(f"{key}={v}", 0) + 1
+    return out
+
+
 # Claude Code の Bash のツールが起動するシェルの印（コマンドの頭で、会話ごとのシェルの写しを読み込む。2026-10-17 に 2.1.301 で見た）
 SNAPSHOT = "/shell-snapshots/snapshot-"
 
@@ -305,6 +323,27 @@ def _elapsed(text):
         return (int(days) if days else 0) * 86400 + sum(n * 60 ** i for i, n in enumerate(reversed(nums)))
     except ValueError:
         return None
+
+
+def start_times(runner=_default_runner, now=None):
+    """動いている処理の {番号: 起きた時刻〔秒〕}（ps の etime から。host と同じ読み方）。ps の無い Windows や、ps が通らなければ空。"""
+    if os.name == "nt":
+        return {}
+    try:
+        p = runner(["ps", "-A", "-o", "pid=,etime="])
+    except OSError:
+        return {}
+    if p.returncode != 0:
+        return {}
+    now = time.time() if now is None else now
+    out = {}
+    for line in p.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit():
+            elapsed = _elapsed(parts[1])
+            if elapsed is not None:
+                out[int(parts[0])] = now - elapsed
+    return out
 
 
 def host(runner=_default_runner, me=None, now=None):

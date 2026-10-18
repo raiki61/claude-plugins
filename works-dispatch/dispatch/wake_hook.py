@@ -169,15 +169,22 @@ MOVES = "moves"   # 受付箱の下の、--move を走らせた出力の置き�
 NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起動した）は、旗なしで起動したと見る
 
 
-def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
+def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time, detach=None):
     """終わりと印した都度の部署（--done）の印を外し、dispatch.py --retire <会社/部署> を会話から切り離して裏で走らせる。走らせたら True。
-    走らせられなければ、残った訳を属性に書いて False（印は外したまま。打ち直しはしない）。"""
+    走らせられなければ、残った訳を属性に書いて False（印は外したまま。打ち直しはしない）。detach（既定は POSIX で本物の Popen のとき）
+    なら detached の殻で走らせ、終わりの値を .done に書く（0 でなければ --tree と --todo が出す。health.py）。"""
     name = attrs["name"]
-    argv = [sys.executable, DISPATCH_PY, "--retire", f"{got['company']}/{name}"] + (["--config", attrs["config"]] if attrs.get("config") else [])
+    argv = ([sys.executable, "-u", DISPATCH_PY, "--retire", f"{got['company']}/{name}"]
+            + (["--config", attrs["config"]] if attrs.get("config") else []))
     out = os.path.join(got["inbox"], RETIRES, f"{''.join(c for c in name if c.isalnum())}-{int(now())}.log")
+    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
     provision.mark(got["cwd"], got["root"], {wake.FINISHED: None}, gitx)
     try:
         os.makedirs(os.path.dirname(out), exist_ok=True)
+        if detach:
+            spawn(wake.detached(argv, out, out[:-len(".log")] + ".done"), cwd=got["root"], stdin=subprocess.DEVNULL,
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
+            return True
         with open(out, "w", encoding="utf-8") as f:
             spawn(argv, cwd=got["root"], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
     except OSError as e:

@@ -69,6 +69,19 @@ def parse_target(target):
     return (company or None) if sep else None, rest
 
 
+def one_company(pool, name):
+    """同じ名前で当たった会社の並び pool から 1 つ。同じリポジトリの別の clone（作業用に clone しただけで部署を立てていない物）も、
+    origin の会社の形を読むので同じ名前になる。部署（役の属性の在る worktree）を持つ clone を会社と見て、それでも 2 つ以上なら止める
+    （先頭に頼むと、herdr の開いた順で宛先が替わる）。pool は空でない。"""
+    if len(pool) > 1:
+        # 2026-10-17、claude-plugins-work1 が数えられて --ask claude-plugins が止まった
+        pool = [c for c in pool if any(d["attrs"].get("role") for d in c["departments"])] or pool
+    if len(pool) > 1:
+        raise DeliverError(f"会社の名前「{name}」が 2 つ以上ある（{'、'.join(c['root'] for c in pool)}）。"
+                           "部署の名前で宛てるか、要らない方の clone を herdr から閉じる")
+    return pool[0]
+
+
 def find_target(companies, here_root, target, task=None, current=lambda company, name: name):
     """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社のルート。current は (会社, 役の名前) → 今の役の名前
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
@@ -103,13 +116,8 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         return {"company": named[0][0], "department": named[0][1], "role": named[0][1]["attrs"].get("role")}
     whole = [c for c in companies if company_name is None and c.get("info_source")
              and name in (c["name"], os.path.basename(os.path.normpath(c["root"])))]
-    if len(whole) > 1:
-        # 同じリポジトリの別の clone（作業用に clone しただけで部署を立てていない物）も、origin の会社の形を読むので同じ名前になる。
-        # 部署（役の属性の在る worktree）を持つ clone を会社と見る（2026-10-17、claude-plugins-work1 が数えられて --ask claude-plugins が止まった）
-        whole = [c for c in whole if any(d["attrs"].get("role") for d in c["departments"])] or whole
-    if len(whole) > 1:
-        raise DeliverError(f"会社の名前「{name}」が 2 つ以上ある（{'、'.join(c['root'] for c in whole)}）。部署の名前か「会社/役」で宛てる")
     if whole:
+        whole = [one_company(whole, name)]
         # 会社の名前だけで宛てたら、その会社の窓口（本社の、--desk で名付けた会話）に届ける（tree.contacts の窓口と同じ物）。部署で
         # ない会話がほかの会社に頼むとき、宛先の役の名前を会社ごとに知らなくてよいように
         head = next((d for d in whole[0]["departments"] if d.get("head_office") and d["attrs"].get("name")), None)
@@ -136,7 +144,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
                                "（「会社/役」で渡す）")
         company = home[0]
     else:
-        company = pool[0]
+        company = one_company(pool, company_name)
     if task:
         # 役で宛てて部署の名前（--task）も渡したときは、その名前の部署に届け、無ければ新しく立てる。同じ役の常設の部署が名前違いで
         # 1 つ居ても、そこへは届けない（受け持ちごとに担当が居る形で、ほかの受け持ちの担当に届いてしまうため）

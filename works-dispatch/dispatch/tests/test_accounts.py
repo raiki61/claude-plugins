@@ -60,6 +60,18 @@ class Rank(unittest.TestCase):
         self.assertEqual(names(got), ["main", "p2"])
         self.assertEqual(by(got, "p2")["peak"], 74)
 
+    def test_a_stale_snapshot_is_treated_as_unknown_and_goes_last(self):
+        # 取り直しが何時間も止まった控えは、使い切っていても低く見える。古い値で選ばない
+        lim = limits()
+        lim["p1"]["five_hour"]["updated_at"] = NOW - hours(4)
+        got = accounts.rank(ACCTS, lim, 95, NOW)
+        self.assertEqual(names(got)[-1], "p1")
+        self.assertTrue(by(got, "p1")["stale"])
+        self.assertFalse(by(got, "p1")["known"])
+        self.assertFalse(by(got, "p1")["stale_over"])   # 最後の値は上限の下（--move --if-limited は移さない）
+        lim["p1"]["five_hour"]["used_percentage"] = 99
+        self.assertTrue(by(accounts.rank(ACCTS, lim, 95, NOW), "p1")["stale_over"])
+
     def test_peak_is_the_higher_of_five_hour_and_weekly(self):
         lim = limits()
         lim["p1"]["five_hour"]["used_percentage"] = 80   # 週 38 でも 5 時間 80 なら高い方は 80
