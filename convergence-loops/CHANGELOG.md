@@ -6,6 +6,10 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+
+- 文書だけの直し: `/research-loop` の P1 の別ファイル（`skills/research-loop/references/p1-calibrate.md`）の頭の目次に、節の見出しを足す（スキルの書き方の標準の決まり 5）。振る舞いは変わらない。
+
 ## [0.46.0] - 2026-10-18
 
 ### Changed

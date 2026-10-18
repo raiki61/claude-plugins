@@ -46,12 +46,6 @@ EXEMPT = {
     "attention/commands/catchup.md": {"長さ"},
     "attention/commands/what-am-i-doing.md": {"長さ"},
     "attention/commands/whose-turn.md": {"長さ"},
-    "convergence-loops/commands/doctor-loop.md": {"長さ"},
-    "convergence-loops/commands/firstread-loop.md": {"長さ"},
-    "convergence-loops/commands/research-loop.md": {"長さ"},
-    "convergence-loops/commands/review-loop.md": {"長さ"},
-    "graphloops/commands/research-graph.md": {"長さ"},
-    "graphloops/commands/review-graph.md": {"長さ", "根の外"},
     "works/skills/works/SKILL.md": {"長さ"},
     "works-dispatch/skills/dispatch/SKILL.md": {"長さ"},
 }
