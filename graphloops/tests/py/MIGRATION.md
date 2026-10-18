@@ -1,6 +1,6 @@
 # bash の台本から pytest への移し替えの対応表
 
-graphloops/tests/simulate.py・simulate_review.py（bash の tests/run.sh が束ねる台本）の検査を、このディレクトリの pytest へ段ごとに移した記録。段の名前（S2b ほか）はリポジトリの外の計画 testplan/PLAN.md の段。移すときの決まりは [README の「Where pytest tests live」](../../README.md#where-pytest-tests-live-graphloopstestspy)。
+graphloops/tests/simulate.py・simulate_review.py（bash の tests/run.sh が束ねる台本）の検査を、このディレクトリの pytest へ段ごとに移した記録。段の名前（S2b ほか）はリポジトリの外の計画 testplan/PLAN.md の段。移すときの決まりは [README の「pytest の置き場」](../../README.md#pytest-の置き場graphloopstestspy)。
 
 - 台本の check 1 件をテスト 1 件（parametrize の 1 行か 1 関数）に写す。件数の柵（conftest.py の EXPECTED_ITEMS）が check の粒度で数え続け、落ちた検査が 1 件ずつ並ぶ
 - 盤面を端から端まで回す筋書きは、本文を台本の check のまま移し、土台の gl_script で台本のモジュールを借りる。件数は EXPECTED_SIM_CHECKS が数える
