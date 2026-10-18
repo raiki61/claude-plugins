@@ -187,8 +187,12 @@ jobs:
       - name: mutmut
         shell: bash
         working-directory: graphloops
+        # mutmut の依存も版を固定する（固定しないと、依存の新しい版が出た週に、こちらは何も変えずに結果が変わる）。版は 2026-10-12 の run
+        # 38238805936 の ubuntu の job が入れた物
         run: |
-          python -m pip install mutmut==3.8.0 pytest==9.1.1
+          python -m pip install mutmut==3.8.0 pytest==9.1.1 click==8.5.0 coverage==7.16.2 iniconfig==2.3.1 libcst==1.9.0 \
+            linkify-it-py==2.2.0 markdown-it-py==4.2.0 mdit-py-plugins==0.6.1 mdurl==0.1.2 packaging==26.3 platformdirs==4.13.0 \
+            pluggy==1.6.0 pygments==2.21.0 pyyaml==6.0.3 rich==15.0.0 setproctitle==1.3.8 textual==8.2.8 typing-extensions==4.16.0
           rc=0; mutmut run --max-children 4 || rc=$?
           echo "mutmut run の終了コード: $rc" > ../mutmut-results.txt
           mutmut results >> ../mutmut-results.txt

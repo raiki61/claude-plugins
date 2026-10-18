@@ -2397,7 +2397,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=741
+EXPECTED_CHECKS=740
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -5017,6 +5017,28 @@ expect_output 0 "REAL_SHAPES_OK" \
 expect_output 0 "SHAPE_CHANGED_OK" \
     "spread-plugins: 外のツールの形が変わったら（id が無い・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、配ったと出さずに失敗に数える" \
     "$PY_BIN" "$SPREAD_CASE" shape-changed
+
+# ---- tests/ci-watch.py: 会社の形の役「CI の見張り」のツール（main の CI の赤を点検の受付に届ける） ----
+# gh と git は偽物の runner で回し、受付箱の台帳は一時の階層に作る。本物の GitHub と受付箱には触らない
+CIW_CASE="$ROOT/tests/ci-watch-case.py"
+expect_output 0 "RED_RANGE_OK" \
+    "ci-watch: main の最新の決着した run（取り消しを除く）が赤なら知らせ、最後の緑から赤までの commit の範囲を添える。読む数の外の緑・取り消しに埋もれた赤も引き、ファイルの無い workflow は見ない" \
+    "$PY_BIN" "$CIW_CASE" red-range
+expect_output 0 "TOLD_WHILE_OPEN_OK" \
+    "ci-watch: 知らせた件は、このツールから回した頼みが開いているうちは知らせ直さず、新しい件だけを知らせる" \
+    "$PY_BIN" "$CIW_CASE" told-while-open
+expect_output 0 "REOPEN_AFTER_CLOSE_OK" \
+    "ci-watch: 頼みが閉じた後は、閉じた後に決着した赤だけ知らせ直し（戻しの run を待つ）、緑に戻った件は忘れる" \
+    "$PY_BIN" "$CIW_CASE" reopen-after-close
+expect_output 0 "AGE_OK" \
+    "ci-watch: 1 度も回っていない workflow・止められた workflow・間隔と 1 日より古い定期の run（push の run に埋もれても別に引く）を知らせる" \
+    "$PY_BIN" "$CIW_CASE" age
+expect_output 0 "UNREADABLE_OK" \
+    "ci-watch: gh が落ちたら黙らずに知らせ、読めない入力は 2 で止める" \
+    "$PY_BIN" "$CIW_CASE" unreadable
+expect_output 0 "TITLE_OK" \
+    "ci-watch: works-dispatch が頼みに付ける題の形が、ツールが自分の頼みを見分ける形のまま" \
+    "$PY_BIN" "$CIW_CASE" title
 
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
