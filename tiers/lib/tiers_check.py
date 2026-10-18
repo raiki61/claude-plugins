@@ -1,20 +1,20 @@
-"""要る道具の段ごとの点検。足りない物と入れ方を返し、何も入れない。
+"""要るツールの段ごとの点検。足りない物と入れ方を返し、何も入れない。
 
-段は、プラグインが要る外の道具で分ける（設計: docs/specs/2026-10-16-company-shape-design.md の 4.11）。
+段は、プラグインが要る外のツールで分ける（設計: docs/specs/2026-10-16-company-shape-design.md の 4.11）。
 上の段は下の段を含む（段 2 を点検すると、段 0 と段 1 も点検する）。
 
-- 段 0: Claude Code だけ（claude が起こせるか）
+- 段 0: Claude Code だけ（claude が起動できるか）
 - 段 1: gh（GitHub の CLI。入っているか、ログイン済みか）
-- 段 2: herdr（入っているか、動いているか）と、アカウントの起こし方の命令（--launcher で渡す。省けば claude）
+- 段 2: herdr（入っているか、動いているか）と、アカウントの起動コマンド（--launcher で渡す。省けば claude）
 - 段 3: Archon（archon が在るか）
 
-ここに書く道具は、どれも利用者が手で入れる物（OS の道具・ログイン・シェルの設定）なので、点検は入れ方を示して止まる。
-入れ方の命令は、各道具の公式の README の「install」の節から写した（2026-10-16 に読んだ）。
+ここに書くツールは、どれも利用者が手で入れる物（OS のツール・ログイン・シェルの設定）なので、点検は入れ方を示して止まる。
+入れ方のコマンドは、各ツールの公式の README の「install」のセクションから写した（2026-10-16 に読んだ）。
 herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install Herdr・Windows support・Integrations）とソース
-（src/integration/claude_settings.rs）に拠る（2026-10-16 に読んだ。URL は docs/design.md の「段 2 の案内」の節）。
+（src/integration/claude_settings.rs）に拠る（2026-10-16 に読んだ。URL は docs/design.md の「段 2 の案内」のセクション）。
 
 使い方:
-    tiers [--tier N] [--launcher 命令 ...] [--json]
+    tiers [--tier N] [--launcher コマンド ...] [--json]
 
 終了コード: 0 = そろっている / 1 = 足りない物がある / 2 = 使い方が違う
 
@@ -22,8 +22,8 @@ herdr の入れ方と連携の案内は、herdr の v0.9.5 の文書（Install H
     {"schema": 1, "tier": N, "ok": bool, "missing": 足りない数,
      "checks": [{"tier": 段, "name": 名前, "ok": bool, "found": 見つけた物か null,
                  "problem": 足りない訳か null, "fix": [入れ方の行], "guide": [案内の行], "manual": true}]}
-    guide は、初めての人が自分で準備するための説明（fix の命令の前後に要ること）。足りない項目だけが持ち、
-    人の読む形にも同じ行を出す。0.1.x の後で足した欄で、無い欄を読まない呼び手はそのまま動くので schema は 1 のまま。
+    guide は、初めての人が自分で準備するための説明（fix のコマンドの前後に要ること）。足りない項目だけが持ち、
+    人の読む形にも同じ行を出す。0.1.x の後で足したフィールドで、無いフィールドを読まない呼び手はそのまま動くので schema は 1 のまま。
 """
 
 import argparse
@@ -37,7 +37,7 @@ import sys
 
 SCHEMA = 1
 TOP = 3
-TIERS = {0: "Claude Code だけ", 1: "gh（GitHub の CLI）", 2: "herdr と、アカウントの起こし方の命令", 3: "Archon"}
+TIERS = {0: "Claude Code だけ", 1: "gh（GitHub の CLI）", 2: "herdr と、アカウントの起動コマンド", 3: "Archon"}
 
 # 入れ方。キーは sys.platform の頭（darwin・win32・それ以外は linux の扱い）
 INSTALL = {
@@ -73,7 +73,7 @@ def _os_key(platform):
 
 
 def _run(argv):
-    """(終了コード, 標準出力と標準エラーを合わせた文)。起こせなければ (None, 訳)。"""
+    """(終了コード, 標準出力と標準エラーを合わせた文)。起動できなければ (None, 訳)。"""
     try:
         p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace")
     except OSError as e:
@@ -102,8 +102,8 @@ class Probe:
         return _run(argv)
 
     def shell_has(self, cmd):
-        """ログインかつ対話のシェル（-lic）でその命令が見つかるか。シェルの関数と別名も数える。
-        アカウントの起こし方の命令は、シェルの設定に書いた関数であることが多く、PATH を探すだけでは見つからないため。
+        """ログインかつ対話のシェル（-lic）でそのコマンドが見つかるか。シェルの関数と別名も数える。
+        アカウントの起動コマンドは、シェルの設定に書いた関数であることが多く、PATH を探すだけでは見つからないため。
         Windows では PATH の上と、PowerShell（pwsh と Windows PowerShell の在る方。どちらも $PROFILE を読む）の関数を探す。"""
         shell = _posix_shell(self.env, self.platform)
         if shell is None:
@@ -135,7 +135,7 @@ def _first_line(text):
 
 
 def _installed(probe, tier, cmd, label, version_args, guide=()):
-    """命令が PATH に在り、版を出せるか。(点検の項目, 命令のパスか None)"""
+    """コマンドが PATH に在り、版を出せるか。(点検の項目, コマンドのパスか None)"""
     path = probe.which(cmd)
     install = INSTALL[cmd][_os_key(probe.platform)]
     if not path:
@@ -184,7 +184,7 @@ def herdr_link_guide(os_key):
 
 
 def herdr_install_guide(os_key):
-    """herdr が無い（版を出せない）ときの案内。入れ方の命令（fix）の前後に要ること。"""
+    """herdr が無い（版を出せない）ときの案内。入れ方のコマンド（fix）の前後に要ること。"""
     if os_key == "win32":
         out = [
             "Windows は WSL を通さずにネイティブで動く（一般提供。Linux・macOS と違う所は herdr の文書の Windows support に在る）。"
@@ -208,16 +208,16 @@ def herdr_install_guide(os_key):
 
 def herdr_start_guide(os_key):
     """herdr が動いていないときの案内。"""
-    return ["初めて起こすと初回の案内が出る。進めると設定の integrations のタブが開き、PATH に在るエージェントの連携を入れられる"] \
+    return ["初めて起動すると初回の案内が出る。進めると設定の integrations のタブが開き、PATH に在るエージェントの連携を入れられる"] \
         + herdr_link_guide(os_key)
 
 
-# アカウントの起こし方の命令の案内。名前（claude-p2）とフォルダ（~/.claude-p2）は例で、点検は決め打ちしない
+# アカウントの起動コマンドの案内。名前（claude-p2）とフォルダ（~/.claude-p2）は例で、点検は決め打ちしない
 LAUNCHER_GUIDE = [
-    "アカウントが 1 つなら、この命令は作らなくてよい。--launcher を省けば claude をそのまま見る"
-    "（呼んだプラグインの設定でも、アカウントを 1 つにして起こす命令を claude にすれば動く）",
+    "アカウントが 1 つなら、このコマンドは作らなくてよい。--launcher を省けば claude をそのまま見る"
+    "（呼んだプラグインの設定でも、アカウントを 1 つにして起動するコマンドを claude にすれば動く）",
     "アカウントを分けるなら、アカウントごとに Claude Code の設定のフォルダを分け、そのフォルダを環境変数 CLAUDE_CONFIG_DIR に"
-    "入れて claude を起こす命令（シェルの関数か別名）を作る。下の claude-p2 と ~/.claude-p2 は例で、名前とフォルダは自由。"
+    "入れて claude を起動するコマンド（シェルの関数か別名）を作る。下の claude-p2 と ~/.claude-p2 は例で、名前とフォルダは自由。"
     "作った名前を --launcher で渡す",
     'bash: ~/.bashrc に claude-p2() { CLAUDE_CONFIG_DIR="$HOME/.claude-p2" claude "$@"; } を書く。'
     "点検はログインのシェルで探すので、~/.bash_profile が ~/.bashrc を読まないなら、~/.bash_profile に "
@@ -228,7 +228,7 @@ LAUNCHER_GUIDE = [
     'function claude-p2 { $old = $env:CLAUDE_CONFIG_DIR; $env:CLAUDE_CONFIG_DIR = Join-Path $HOME .claude-p2; '
     "try { claude @args } finally { $env:CLAUDE_CONFIG_DIR = $old } } を書く。"
     "PowerShell の別名（Set-Alias）は引数や環境変数を持てないので、関数にする",
-    "新しい設定のフォルダで初めて起こすと、ログインを求められる。そのアカウントでログインする",
+    "新しい設定のフォルダで初めて起動すると、ログインを求められる。そのアカウントでログインする",
     "書いたら端末を開き直してから点検し直す",
 ]
 
@@ -238,7 +238,7 @@ def check_herdr(probe, launchers):
     item, path = _installed(probe, 2, "herdr", "herdr", ["--version"], guide=herdr_install_guide(os_key))
     out = [item]
     if path:
-        # herdr status server の server の節（0.9.3 で読んだ形: 「status: running」の行）
+        # herdr status server の server のセクション（0.9.3 で読んだ形: 「status: running」の行）
         code, text = probe.run([path, "status", "server"])
         if code == 0 and RUNNING.search(text):
             out.append(_item(2, "herdr の動き", found="herdr の server が動いている"))
@@ -248,13 +248,13 @@ def check_herdr(probe, launchers):
             sock = SOCKET.search(text or "")
             where = f"（見た socket: {sock.group(1).strip()}）" if sock else ""
             out.append(_item(2, "herdr の動き", problem=f"herdr の server が動いていない{where}: {_first_line(text)[:200]}",
-                             fix=["作業するフォルダで herdr を起こす: herdr"], guide=herdr_start_guide(os_key)))
+                             fix=["作業するフォルダで herdr を起動する: herdr"], guide=herdr_start_guide(os_key)))
     for cmd in launchers:
         if probe.shell_has(cmd):
-            out.append(_item(2, f"起こし方の命令 {cmd}", found=f"{cmd} がシェルで見つかる"))
+            out.append(_item(2, f"起動コマンド {cmd}", found=f"{cmd} がシェルで見つかる"))
         else:
-            out.append(_item(2, f"起こし方の命令 {cmd}", problem=f"アカウントの起こし方の命令 {cmd} がシェルで見つからない",
-                             fix=[f"シェルの設定に {cmd} を足す（中身は、そのアカウントの CLAUDE_CONFIG_DIR を決めて claude を起こす関数か別名）。"
+            out.append(_item(2, f"起動コマンド {cmd}", problem=f"アカウントの起動コマンド {cmd} がシェルで見つからない",
+                             fix=[f"シェルの設定に {cmd} を足す（中身は、そのアカウントの CLAUDE_CONFIG_DIR を決めて claude を起動する関数か別名）。"
                                   "アカウントが 1 つなら claude のままでよい"],
                              guide=LAUNCHER_GUIDE))
     return out
@@ -282,8 +282,8 @@ def check(tier, launchers=(), probe=None):
 
 
 def lines(result, again):
-    """人の読む形。again は、済ませた後に打ち直す命令。"""
-    out = [f"要る道具の点検（段 0〜{result['tier']}）"]
+    """人の読む形。again は、済ませた後に打ち直すコマンド。"""
+    out = [f"要るツールの点検（段 0〜{result['tier']}）"]
     for x in result["checks"]:
         mark = " ok " if x["ok"] else " NG "
         out.append(f"{mark} 段 {x['tier']} {x['name']}: {x['found'] if x['ok'] else x['problem']}")
@@ -301,11 +301,11 @@ def lines(result, again):
 
 def main(argv=None, probe=None, stdout=None):
     stdout = stdout or sys.stdout
-    ap = argparse.ArgumentParser(prog="tiers", description="要る道具の段ごとの点検。足りない物と入れ方を返し、何も入れない。")
+    ap = argparse.ArgumentParser(prog="tiers", description="要るツールの段ごとの点検。足りない物と入れ方を返し、何も入れない。")
     ap.add_argument("--tier", type=int, default=0, help=f"点検する段（0〜{TOP}。下の段も含む）。" +
                     "、".join(f"{k}: {v}" for k, v in TIERS.items()))
-    ap.add_argument("--launcher", action="append", default=[], metavar="命令",
-                    help="段 2: アカウントの起こし方の命令（繰り返して複数。省けば claude）")
+    ap.add_argument("--launcher", action="append", default=[], metavar="コマンド",
+                    help="段 2: アカウントの起動コマンド（繰り返して複数。省けば claude）")
     ap.add_argument("--json", action="store_true", help="JSON で出す")
     try:
         a = ap.parse_args(argv)

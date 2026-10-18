@@ -1,7 +1,7 @@
-"""gh への口（PR と issue を読む・アカウントの鍵を取り出す・issue に枝を結ぶ）。dispatch で gh を直に呼ぶのはこの 1 か所だけ。
+"""gh への口（PR と issue を読む・アカウントの鍵を取り出す・issue にブランチを結ぶ）。dispatch で gh を直に呼ぶのはこの 1 か所だけ。
 
-書く関数は issue_develop（GitHub に枝を作って issue に結ぶ。持ち主が --issue で指したときだけ）と create_pr（取り込みの命令
---land が PR を出す）の 2 つで、呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
+書く関数は issue_develop（GitHub にブランチを作って issue に結ぶ。持ち主が --issue で指したときだけ）と create_pr（取り込みのコマンド
+--land が PR を出す）の 2 つで、呼んでよいノードはチェック（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 
 自分の番の PR の一覧は gh を直に呼ばず、写した whose-turn に任せる（nodes/prs.py）。
 
@@ -34,7 +34,7 @@ def env_for(user, base_env, runner=_default_runner):
 
 
 def pr_info(repo, number, runner=_default_runner, env=None):
-    """1 件の PR を、whose-turn --json の 1 件と同じ名前の欄（number・title・head・url）に、状態（state）と fork の PR か（fork。
+    """1 件の PR を、whose-turn --json の 1 件と同じ名前のフィールド（number・title・head・url）に、状態（state）と fork の PR か（fork。
     head が別のリポジトリ）を足して返す。読めなければ GhError。"""
     p = runner(["gh", "pr", "view", str(number), "--repo", repo, "--json",
                 "number,title,headRefName,url,state,isCrossRepository"], env=env)
@@ -49,7 +49,7 @@ def pr_info(repo, number, runner=_default_runner, env=None):
 
 
 def pr_for_branch(repo, branch, runner=_default_runner, env=None):
-    """その枝を head にする、このリポジトリの PR（fork の PR は数えない）。開いているものが有ればそれ、無ければいちばん新しいもの。
+    """そのブランチを head にする、このリポジトリの PR（fork の PR は数えない）。開いているものが有ればそれ、無ければいちばん新しいもの。
     {number, state, head_sha} か、PR が無ければ None。読めなければ GhError（片付けは消さない側に倒す）。"""
     p = runner(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "20",
                 "--json", "number,state,headRefOid,isCrossRepository"], env=env)
@@ -58,7 +58,7 @@ def pr_for_branch(repo, branch, runner=_default_runner, env=None):
     except ValueError:
         got = None
     if not isinstance(got, list):
-        raise GhError(f"{repo} の枝 {branch} の PR を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+        raise GhError(f"{repo} のブランチ {branch} の PR を読めない: {(p.stderr or p.stdout).strip()[:200]}")
     mine = [x for x in got if isinstance(x, dict) and not x.get("isCrossRepository")]
     pick = next((x for x in mine if x.get("state") == "OPEN"), mine[0] if mine else None)
     return None if pick is None else {"number": pick.get("number"), "state": pick.get("state"),
@@ -74,18 +74,18 @@ def can_read(repo, runner=_default_runner, env=None):
 
 
 def default_branch(repo, runner=_default_runner, env=None):
-    """リポジトリの既定の枝の名前。読めなければ GhError。"""
+    """リポジトリの既定のブランチの名前。読めなければ GhError。"""
     p = runner(["gh", "repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], env=env)
     name = p.stdout.strip()
     if p.returncode != 0 or not name:
-        raise GhError(f"{repo} の既定の枝を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+        raise GhError(f"{repo} の既定のブランチを読めない: {(p.stderr or p.stdout).strip()[:200]}")
     return name
 
 
 def issue_info(repo, number, runner=_default_runner, env=None):
-    """1 件の issue の {number, title, url, state, prs}。prs は、その issue を閉じる PR（Development の欄）の番号のうち、
-    このリポジトリのもの。issue に結んだ枝から PR を作ると、GitHub は枝の結びつきを外して PR に置き換える（GitHub の文書
-    「Creating a branch to work on an issue」）ので、枝が見えなくなった issue は、この PR から枝を辿る。読めなければ GhError。"""
+    """1 件の issue の {number, title, url, state, prs}。prs は、その issue を閉じる PR（Development のフィールド）の番号のうち、
+    このリポジトリのもの。issue に結んだブランチから PR を作ると、GitHub はブランチの結びつきを外して PR に置き換える（GitHub の文書
+    「Creating a branch to work on an issue」）ので、ブランチが見えなくなった issue は、この PR からブランチを辿る。読めなければ GhError。"""
     p = runner(["gh", "issue", "view", str(number), "--repo", repo, "--json",
                 "number,title,url,state,closedByPullRequestsReferences"], env=env)
     try:
@@ -102,21 +102,21 @@ def issue_info(repo, number, runner=_default_runner, env=None):
 
 
 def issue_branches(repo, number, runner=_default_runner, env=None):
-    """issue に結んだ枝の名前の並び（`gh issue develop --list`）。読めなければ GhError。
-    端末でないときの gh の表は、見出しを付けずに 1 行 1 枝を「枝<TAB>URL」で出す。見出し（BRANCH）が来ても読み飛ばす。"""
+    """issue に結んだブランチの名前の並び（`gh issue develop --list`）。読めなければ GhError。
+    端末でないときの gh の表は、見出しを付けずに 1 行 1 ブランチを「ブランチ<TAB>URL」で出す。見出し（BRANCH）が来ても読み飛ばす。"""
     p = runner(["gh", "issue", "develop", "--list", str(number), "--repo", repo], env=env)
     if p.returncode != 0:
-        raise GhError(f"{repo} の issue #{number} に結んだ枝を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+        raise GhError(f"{repo} の issue #{number} に結んだブランチを読めない: {(p.stderr or p.stdout).strip()[:200]}")
     names = [line.split()[0] for line in p.stdout.splitlines() if line.strip()]
     return [n for n in names if n != "BRANCH"]
 
 
 def issue_develop(repo, number, base, runner=_default_runner, env=None):
-    """GitHub に、base から枝を作って issue に結ぶ（`gh issue develop <番号> --base <base>`）。書く口。枝の名前は gh の既定に任せ、
+    """GitHub に、base からブランチを作って issue に結ぶ（`gh issue develop <番号> --base <base>`）。書く口。ブランチの名前は gh の既定に任せ、
     作った後に issue_branches で読み戻す（ここでは返さない）。失敗は GhError。"""
     p = runner(["gh", "issue", "develop", str(number), "--repo", repo, "--base", base], env=env)
     if p.returncode != 0:
-        raise GhError(f"{repo} の issue #{number} に枝を結べない: {(p.stderr or p.stdout).strip()[:200]}")
+        raise GhError(f"{repo} の issue #{number} にブランチを結べない: {(p.stderr or p.stdout).strip()[:200]}")
 
 
 def login(runner=_default_runner, env=None):
@@ -175,11 +175,11 @@ def pr_activity(repo, number, me, runner=_default_runner, env=None):
             "head_sha": got.get("headRefOid")}
 
 
-# 関門の CI を待つ・PR を出す（取り込みの命令 --land。nodes/land.py）
+# ゲートの CI を待つ・PR を出す（取り込みのコマンド --land。nodes/land.py）
 
 
 def runs_for(repo, branch, sha, runner=_default_runner, env=None):
-    """その枝のその commit の GitHub Actions の run を新しい順に [{id, status, conclusion, url}]。読めなければ GhError。"""
+    """そのブランチのその commit の GitHub Actions の run を新しい順に [{id, status, conclusion, url}]。読めなければ GhError。"""
     p = runner(["gh", "run", "list", "--repo", repo, "--branch", branch, "--commit", sha, "--limit", "20",
                 "--json", "databaseId,status,conclusion,url,createdAt"], env=env)
     try:
@@ -187,7 +187,7 @@ def runs_for(repo, branch, sha, runner=_default_runner, env=None):
     except ValueError:
         got = None
     if not isinstance(got, list):
-        raise GhError(f"{repo} の枝 {branch} の run を読めない: {(p.stderr or p.stdout).strip()[:200]}")
+        raise GhError(f"{repo} のブランチ {branch} の run を読めない: {(p.stderr or p.stdout).strip()[:200]}")
     got = sorted((x for x in got if isinstance(x, dict)), key=lambda x: x.get("createdAt") or "", reverse=True)
     return [{"id": x.get("databaseId"), "status": x.get("status"), "conclusion": x.get("conclusion"), "url": x.get("url")}
             for x in got]
@@ -231,9 +231,9 @@ def run_failure(repo, run_id, lines=20, runner=_default_runner, env=None):
 
 
 def create_pr(repo, branch, base, runner=_default_runner, env=None):
-    """枝 branch から base へ PR を出す（gh pr create --fill。題と本文は commit から）。書く口。PR の URL を返す。失敗は GhError。"""
+    """ブランチ branch から base へ PR を出す（gh pr create --fill。題と本文は commit から）。書く口。PR の URL を返す。失敗は GhError。"""
     p = runner(["gh", "pr", "create", "--repo", repo, "--head", branch, "--base", base, "--fill"], env=env)
     url = (p.stdout or "").strip().splitlines()[-1:] if p.returncode == 0 else []
     if not url:
-        raise GhError(f"{repo} の枝 {branch} から PR を出せない: {(p.stderr or p.stdout).strip()[:200]}")
+        raise GhError(f"{repo} のブランチ {branch} から PR を出せない: {(p.stderr or p.stdout).strip()[:200]}")
     return url[0]

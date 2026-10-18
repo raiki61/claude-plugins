@@ -158,7 +158,7 @@ class InitCompany(unittest.TestCase):
 
     def read(self):
         info = tree.read_info(self.src, os.path.dirname(self.cfg), committed=lambda root: None)
-        return info, role.load(info["path"], info["text"]), land.read_rules(info["path"], "作業役", info["text"])
+        return info, role.load(info["path"], info["text"]), land.read_rules(info["path"], "サブエージェント", info["text"])
 
     def test_writes_a_draft_the_readers_accept_and_does_not_overwrite_it(self):
         rc, out = self.init()
@@ -170,8 +170,8 @@ class InitCompany(unittest.TestCase):
         self.assertEqual((shape["gh_user"], list(shape["roles"]), shape["problems"]), ("the-user", ["担当", "作業", "窓口"], []))
         # 担当と作業はコードの直しなので、納品は差分と試験を返す（決め手の原典の URL を求めない）
         for name in ("担当", "作業"):
-            self.assertEqual(shape["roles"][name]["deliver"], ["結論", "差分", "試験", "残った疑問", "枝"])
-        self.assertIn("触るファイルを本流から読み直してから", shape["roles"]["担当"]["instructions"])
+            self.assertEqual(shape["roles"][name]["deliver"], ["結論", "差分", "試験", "残った疑問", "ブランチ"])
+        self.assertIn("触るファイルをメインブランチから読み直してから", shape["roles"]["担当"]["instructions"])
         # --land は自動の権限の判定（auto mode）に「Merge Without Review」で止められうる。担当と作業の設定で例外を文で書き、
         # 止められたら打ち直さずに返し、窓口が入れる
         for name in ("担当", "作業"):
@@ -182,7 +182,7 @@ class InitCompany(unittest.TestCase):
             self.assertIn("git add -A", shape["roles"][name]["instructions"])
         self.assertIn("--land <部署の名前> を打って入れる", shape["roles"]["窓口"]["instructions"])
         self.assertIn("fix/", shape["roles"]["担当"]["instructions"])
-        # 窓口は組織の決まり（担当は自分で --land する・枝の名前・受け持ちの中は担当に頼む）を役の本文で受ける
+        # 窓口は組織の決まり（担当は自分で --land する・ブランチの名前・受け持ちの中は担当に頼む）を役の本文で受ける
         for rule in ("自分で --land", "fix/", "作業に直に頼まない"):
             self.assertIn(rule, shape["roles"]["窓口"]["instructions"])
         # 役は担当（受け持ちに常設）と作業（一度きり。--role を省いたときの役）。受け持ちは受ける仕事の項目で、役は担当
@@ -193,7 +193,7 @@ class InitCompany(unittest.TestCase):
         self.assertIn(f"--ask {company}/作業 に --task <受け持ち>：<何をするか>", shape["roles"]["担当"]["instructions"])
         self.assertIn("--ask <受け持ち>", shape["roles"]["担当"]["instructions"])
         for name in ("担当", "作業"):
-            self.assertIn("もう一度納品の命令で返す", shape["roles"][name]["instructions"])
+            self.assertIn("もう一度納品のコマンドで返す", shape["roles"][name]["instructions"])
         text = path.read_text(encoding="utf-8")
         for rule in ("窓口", "相談", "「<受け持ち>：<何をするか>」", "部署の名前には付けない", "英小文字とハイフン", "--task には --brief が要る"):
             self.assertIn(rule, text)

@@ -1,4 +1,4 @@
-"""--check が要る道具の段の点検（tiers プラグイン）を呼ぶ形と、その口 tierx の試験。tiers そのものは起こさない。"""
+"""--check が要るツールの段の点検（tiers プラグイン）を呼ぶ形と、その口 tierx の試験。tiers そのものは起動しない。"""
 
 import json
 import os
@@ -146,7 +146,7 @@ class Check(unittest.TestCase):
         return root / "dispatch" / "tierx.py"
 
     def test_no_entry_names_the_install_command_with_the_declared_marketplace(self):
-        # 依存は claude plugin update では入らない（install・/reload-plugins などでだけ入る）ので、入れる命令をそのまま出す
+        # 依存は claude plugin update では入らない（install・/reload-plugins などでだけ入る）ので、入れるコマンドをそのまま出す
         with tempfile.TemporaryDirectory() as d:
             here = self.plugin(d, [{"name": "tiers", "marketplace": "lab"}])
             with self.assertRaises(tierx.TierError) as e:

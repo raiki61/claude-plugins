@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""StopFailure のフック（matcher は rate_limit）: 常設の会話が使用上限で止まったら、ほかのアカウントで起こし直す（37f8b1）。
+"""StopFailure のフック（matcher は rate_limit）: 常設の会話が使用上限で止まったら、ほかのアカウントで起動し直す（37f8b1）。
 
-Claude Code は、API の誤りで番が終わると Stop の代わりに StopFailure を走らせ、誤りの種類を error に渡す（使用上限は rate_limit）。
+Claude Code は、API の誤りでターンが終わると Stop の代わりに StopFailure を走らせ、誤りの種類を error に渡す（使用上限は rate_limit）。
 会話の場所が常設の部署（属性 company.residency が resident）か、本社の窓口（--desk。属性の会話 company.session がこの会話）なら、
-dispatch.py --move <名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起こし直すので、
+dispatch.py --move <名前> --if-limited を、この会話から切り離して（POSIX は nodes/wake.py の detached の殻で、親を init に替えて）裏で走らせる（--move はこの会話を止めてから起動し直すので、
 この会話の子として待たない）。都度の部署（作業）は移さない（頼みの区切りで畳まれ、次の頼みは空いたアカウントで立つ）。
 同じ場所で 10 分の間に 2 度は走らせない（上限の後の自動の続き〔autoContinueAtUsageLimit〕で、同じ誤りが続けて来ることがある）。
 走らせた出力は受付箱の moves/ に残す。何も出さず、0 で終わる（StopFailure はフックの出力を読まない）。
@@ -29,7 +29,7 @@ MOVES = "moves"   # 受付箱の下の、走らせた出力の置き場
 
 
 def plan(payload, attrs_of=gitx.worktree_attrs):
-    """走らせる命令の並びと、走らせる場所と出力の置き場の (argv, cwd, 出力のファイル)。移さないなら None。"""
+    """走らせるコマンドの並びと、走らせる場所と出力の置き場の (argv, cwd, 出力のファイル)。移さないなら None。"""
     if payload.get("error") != "rate_limit":
         return None
     cwd = payload.get("cwd") or os.getcwd()

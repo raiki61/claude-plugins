@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""report ノード: 報告の行を作る純粋な関数（設計書 2 節の 8）。外には書かない。
+"""report ノード: 報告の行を作る純粋な関数（設計書のセクション 2 の 8）。外には書かない。
 
-頭に注記（使用率の控えが無いアカウントなど）、続けて 1 件 1 行: `#<番号> <タイトル>  <枝>  <アカウント>  <結末>`。
-issue から始めたもの（kind が issue）は `issue #<番号> …` で始める。まだ枝が無ければ枝の欄は `-`。
+頭に注記（使用率の控えが無いアカウントなど）、続けて 1 件 1 行: `#<番号> <タイトル>  <ブランチ>  <アカウント>  <結末>`。
+issue から始めたもの（kind が issue）は `issue #<番号> …` で始める。まだブランチが無ければブランチのフィールドは `-`。
 結末の語は sent・refreshed・blocked・stalled・already_open・no_news・busy・dirty・unpushed・close_failed・
 no_account・provision_failed・branch_busy・pane_busy・launch_failed・send_failed・issue_closed と、--dry-run の create（作業場を作る）・
 reuse（使い直す）・refresh（送り直す）。

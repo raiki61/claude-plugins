@@ -1,4 +1,4 @@
-"""設計書 4 節の決まり D1〜D6・D8 の柵。今の木で緑なことと、わざと破った小さな木で各柵が誤りを返すことを見る。"""
+"""設計書のセクション 4 の決まり D1〜D6・D8 のチェック。今の木で緑なことと、わざと破った小さな木で各チェックが誤りを返すことを見る。"""
 
 import json
 import pathlib
@@ -11,7 +11,7 @@ from . import fences
 
 
 def tree(files):
-    """{相対パス: 本文} から一時の木を作り、その根を返す。"""
+    """{相対パス: 本文} から一時の木を作り、そのルートを返す。"""
     root = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-fence-"))
     for rel, body in files.items():
         p = root / rel
@@ -46,7 +46,7 @@ class EachFenceCatches(unittest.TestCase):
     def test_d3_node_imports_node(self):
         self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": "import b\n", "nodes/b.py": "X = 1\n"})
         self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": "from b import X\n", "nodes/b.py": "X = 1\n"})
-        # パッケージの名前を通す形も、読む物の名前で見る（前の柵はここを通していた）
+        # パッケージの名前を通す形も、読む物の名前で見る（前のチェックはここを通していた）
         for form in ("from nodes import b\n", "import nodes.b\n", "from nodes.b import X\n", "from . import b\n"):
             with self.subTest(form=form):
                 self.assertCaught(fences.d3_nodes_blind, {"nodes/a.py": form, "nodes/b.py": "X = 1\n"})

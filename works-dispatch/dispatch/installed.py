@@ -5,9 +5,9 @@
 動く。古い版は新しい版で足した決まり（会社の形の [[land.after]] など）を知らずに黙って飛ばす（2026-10-17、0.25.0 を入れた
 --land を 0.23.0 の dispatch.py で打ち、配布の合図が走らなかった）。
 
-版の置き場の中で動いていて、Claude Code の入れた物の控え（置き場の根の installed_plugins.json）が、このプラグインの今の置き場を
-別の所と言っていれば、そちらの dispatch.py を同じ引数で起こして、その終了の値で終わる。控えを読めない・置き場の外（リポジトリの
-checkout など）・乗り換えた先から起こされた（HOPPED）ときは乗り換えない。"""
+版の置き場の中で動いていて、Claude Code の入れた物の控え（置き場のルートの installed_plugins.json）が、このプラグインの今の置き場を
+別の所と言っていれば、そちらの dispatch.py を同じ引数で起動して、その終了の値で終わる。控えを読めない・置き場の外（リポジトリの
+checkout など）・乗り換えた先から起動された（HOPPED）ときは乗り換えない。"""
 
 import json
 import os
@@ -23,7 +23,7 @@ def _same(a, b):
 
 
 def target(script, env=os.environ):
-    """script（動いている dispatch.py）の代わりに起こす dispatch.py のパス。乗り換えないなら None。"""
+    """script（動いている dispatch.py）の代わりに起動する dispatch.py のパス。乗り換えないなら None。"""
     if env.get(HOPPED):
         return None
     here = pathlib.Path(script).resolve()
@@ -47,7 +47,7 @@ def target(script, env=os.environ):
 
 
 def hop(script, argv, env=os.environ):
-    """乗り換えるなら、今の版を起こして終了の値を返す。乗り換えないなら None。exec でなく子として起こすのは、Windows の os.execv が
+    """乗り換えるなら、今の版を起動して終了の値を返す。乗り換えないなら None。exec でなく子として起動するのは、Windows の os.execv が
     呼んだ側のシェルに先に戻ってしまうため。"""
     there = target(script, env)
     if not there:

@@ -6,11 +6,11 @@ dispatch.py の流れの続きで、ノード（nodes/deliver.py ほか）を呼
 
 --ask <宛先>（ask）: 頼む会話の場所から、宛先の部署を「会社/役」か部署の名前か会社の名前（その会社の窓口）で決め（deliver.find_target。会社は herdr に開いている
 リポジトリ。tree と同じ読み方）、頼みの本文を頼む側の受付箱に置き、宛先の部署に知らせる。宛先（「会社/部署の名前」）の待ち受けが
-居れば、宛先の会社の受付箱の台帳に知らせの 1 行を足し、待ち受けが会話を起こす（nodes/wake.py）。居なければ（フックの無い古い会話・
+居れば、宛先の会社の受付箱の台帳に知らせの 1 行を足し、待ち受けが会話を再開させる（nodes/wake.py）。居なければ（フックの無い古い会話・
 落ちた会話）、宛先の部署の窓（attach のペイン）に 1 行を打ち込む。宛先の部署が立っていなければ、--task と同じ道（dispatch._task）で
 立て、最初の文で頼みを渡す。宛先の部署の属性に、受けた頼み（company.ask）と頼み元（company.boss・boss-account・boss-session・
 boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の名前（company.name。place_name）か、会話の一覧の名前。--forward を添えれば、打った部署か窓口が受けている頼みを、この頼みで回したとして閉じる（forwarded。
-回した先は台帳にだけ書き、頼み元の会話は起こさない）。
+回した先は台帳にだけ書き、頼み元の会話は起動しない）。
 
 --deliver <要約のファイル>（deliver）: 部署の場所から、要約の項目がそろっているかを確かめ（欠けていれば送らずに欠けた項目を返す）、
 役に納品の検査（会社の形の deliver_check）が在れば走らせ（0 以外で終われば送らずに検査の出力を返す。deliver.gate）、
@@ -60,14 +60,14 @@ except (ImportError, SyntaxError) as _e:
     sys.exit(1)
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
-# 部署に「この字で返せ」と渡す dispatch.py の起こし方。今動いている Python で、パスは / 区切りで引用符を付ける
-# （Windows の Claude Code の Bash の道具は Git Bash で、\ と空白のパスがそのままでは崩れ、python3 が無いこともある）
+# 部署に「この字で返せ」と渡す dispatch.py の起動コマンド。今動いている Python で、パスは / 区切りで引用符を付ける
+# （Windows の Claude Code の Bash のツールは Git Bash で、\ と空白のパスがそのままでは崩れ、python3 が無いこともある）
 RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))
 
 
 def own_version():
-    """この works-dispatch の版（plugin.json の version）。読めなければ None。関所（deliver_check・ask_check）に JSON の version で渡し、
-    会社の側の台本が版の下限を確かめられるようにする（古い版は知らない欄を読み飛ばすので、会社の形に下限を書いても止まらない。3c9a61）。"""
+    """この works-dispatch の版（plugin.json の version）。読めなければ None。ゲート（deliver_check・ask_check）に JSON の version で渡し、
+    会社の側の台本が版の下限を確かめられるようにする（古い版は知らないフィールドを読み飛ばすので、会社の形に下限を書いても止まらない。3c9a61）。"""
     try:
         return json.loads((pathlib.Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json")
                           .read_text(encoding="utf-8")).get("version")
@@ -287,7 +287,7 @@ def revive(dept, accounts_, ports, sessions_=None, source=None):
     except herdr.HerdrError:
         screen = ""
     if "00~" in screen:
-        # attach の画面を強く終わらせると、窓の端末に貼り付けの印（ESC[200~）が残り、打った命令の前後に 00~ と 01~ が付いて
+        # attach の画面を強く終わらせると、窓の端末に貼り付けの印（ESC[200~）が残り、打ったコマンドの前後に 00~ と 01~ が付いて
         # 届く（まっさらな環境での 7 回目の試しの 4。macOS で見た）。dispatch の打つ字も同じ道を通るので、ここでは直せない
         return None, (f"ペイン {pane} の端末に貼り付けの印が残っていて、{command} が崩れて届いた（画面に 00~ が出ている）。"
                       f"部署の窓で reset を打って端末を戻してから、--ask を打ち直す")
@@ -334,8 +334,8 @@ def clear_before_ask(dept, held, pane, busy, ports, newest=lambda: None):
     if not held:
         return True, ["頼みごとに空にする役だが、部署にまだ納品した頼みが無いので、空にせずに送る"]
     if busy():
-        return False, ["頼みごとに空にする役だが、部署の会話が動いていて空にできないので送らなかった（打つと番の後に前の会話のまま"
-                       "届く）。番が終わってから --ask を打ち直す"]
+        return False, ["頼みごとに空にする役だが、部署の会話が動いていて空にできないので送らなかった（打つとターンの後に前の会話のまま"
+                       "届く）。ターンが終わってから --ask を打ち直す"]
     before, talk = busy.found, newest()
 
     def cleared():
@@ -353,7 +353,7 @@ def nudge_line(held, boss, now=None):
     残った前の促しを今の促しと見誤らないように）。"""
     stamp = time.strftime("%H:%M:%S", time.localtime(now)) if now else ""
     return (f"再開の知らせです{f'（{stamp}）' if stamp else ''}: この会話は落ちて戻った。受付 {held}（{boss or '頼み元'} から）の頼みをまだ納品していない。"
-            "済んでいれば要約を納品の命令（--deliver）で返し、途中なら続けてから返す。")
+            "済んでいれば要約を納品のコマンド（--deliver）で返し、途中なら続けてから返す。")
 
 
 def ask(a, ports, cwd, task):
@@ -370,7 +370,7 @@ def ask(a, ports, cwd, task):
     rc = _ask(a, ports, cwd, task, sent)
     if held and rc == 0:
         if a.dry_run:
-            print(f"- 回した元: 受付 {held} を閉じ、回した先を台帳に書く（頼み元 {mine.get('boss') or '-'} の会話は起こさない）")
+            print(f"- 回した元: 受付 {held} を閉じ、回した先を台帳に書く（頼み元 {mine.get('boss') or '-'} の会話は起動しない）")
         elif sent:
             print("\n".join(forwarded(mine, sent, ports, cwd)))
     return rc
@@ -379,7 +379,7 @@ def ask(a, ports, cwd, task):
 def forwarded(attrs, sent, ports, cwd):
     """--forward で回した後: 受けた頼み（attrs の company.ask）から回した先の頼み（sent の id と to）への結び付きを、自分と頼み元の
     受付箱の台帳に kind forwarded で残し、受けた頼みを納品済みにする。頼み元には知らせない（回しただけの知らせで頼み元の会話を
-    起こさない。頼み元は、結果か問いの納品で起きたときに台帳で追う）。結果と問いは --deliver --for <受けた頼み> で返す（頼み元は
+    起動しない。頼み元は、結果か問いの納品で起きたときに台帳で追う）。結果と問いは --deliver --for <受けた頼み> で返す（頼み元は
     この行から引く）。出す行を返す。"""
     held = attrs["ask"]
     common = ports.git.common_dir(cwd)
@@ -394,7 +394,7 @@ def forwarded(attrs, sent, ports, cwd):
         provision.mark(cwd, gitx.root_of(common), {"delivered": held, WAITING: None, WAITING_WHY: None}, ports.git)
     except (gitx.GitError, OSError) as e:
         return [f"回した元の受付 {held} を納品済みにできなかった（{e}）。台帳には回した先を書いた。--deliver で閉じる"]
-    return [f"回した元の受付 {held} を閉じた（頼み元 {attrs.get('boss') or '-'} の会話は起こさず、回した先を台帳に書いた）"]
+    return [f"回した元の受付 {held} を閉じた（頼み元 {attrs.get('boss') or '-'} の会話は起動せず、回した先を台帳に書いた）"]
 
 
 def _ask(a, ports, cwd, task, sent):
@@ -424,7 +424,7 @@ def _ask(a, ports, cwd, task, sent):
         return 2
     company, dept, role = target["company"], target["department"], target["role"]
     if dept is None and not a.dry_run:
-        # 部署を新しく立てる: 納品の項目と起こすときの設定を、立てた後のフックと同じ会社の形で決める（--task と同じ。task には
+        # 部署を新しく立てる: 納品の項目と起動するときの設定を、立てた後のフックと同じ会社の形で決める（--task と同じ。task には
         # 取り直したことを渡し、2 度は取らない）
         notes += [n for n in [provision.refresh_shape(company["root"], ports.git)] if n]
     the_role, problems = shape_role(company["root"], settings, role)
@@ -432,17 +432,17 @@ def _ask(a, ports, cwd, task, sent):
     notes += problems
     relays = (the_role or {}).get("ask_holders")
     if relays is not None:
-        # 問いを受ける役（相談）へ宛てた頼みにも、本文に残った疑問の節が在れば同じ持ち手の検査を掛ける
+        # 問いを受ける役（相談）へ宛てた頼みにも、本文に残った疑問のセクションが在れば同じ担当者の検査を掛ける
         bad = deliver.holder_problems(deliver.parse(body, {deliver.OPEN}).get(deliver.OPEN), relays)
         if bad:
-            print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、持ち手が足りない（役の ask_holders の検査）"]
+            print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、担当者が足りない（役の ask_holders の検査）"]
                             + [f"  {x}" for x in bad]))
             return 2
     ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
     check = (the_role or {}).get("ask_check")
     if check:
-        # 受ける会社の関所: 頼む会話の会社でなく、受ける会社の origin の既定の枝の中身で走らせる（止める中身は受ける会社の持ち物。
-        # 代表の clone の作業ツリーは古い枝のことがあるので、機械窓口の道具と同じ場所の作り方。242baa）
+        # 受ける会社のゲート: 頼む会話の会社でなく、受ける会社の origin の既定のブランチの中身で走らせる（止める中身は受ける会社の持ち物。
+        # 代表の clone の作業ツリーは古いブランチのことがあるので、機械窓口のツールと同じ場所の作り方。242baa）
         try:
             with tools.place(company["root"], ports.git) as (here, said):
                 code, out = deliver.gate(check, here, {"to": a.ask, "role": role, "body": body, "ask": ask_id,
@@ -453,7 +453,7 @@ def _ask(a, ports, cwd, task, sent):
         if said:
             notes.append(said)
         if code != 0:
-            print("\n".join(notes + [f"止めた: 受ける会社 {company['name']} の関所（役「{role}」の ask_check: {check}）が通さなかった"
+            print("\n".join(notes + [f"止めた: 受ける会社 {company['name']} のゲート（役「{role}」の ask_check: {check}）が通さなかった"
                                      f"（終了の値 {code}）"] + [f"  {x}" for x in out.splitlines()]))
             return 2
     found_account, found_name = ports.caller(sessions_)
@@ -470,7 +470,7 @@ def _ask(a, ports, cwd, task, sent):
         return 2
     if target.get("via"):
         notes.append(f"宛先「{a.ask}」は{target['via']}の {company['name']}/{dept['attrs'].get('name')} に届ける")
-    # 納品を受ける受付箱は、頼んだ会話の居る場所の会社の物（待ち受けはそこで宛先を受ける）。命令を打った場所（cwd）がほかの会社の
+    # 納品を受ける受付箱は、頼んだ会話の居る場所の会社の物（待ち受けはそこで宛先を受ける）。コマンドを打った場所（cwd）がほかの会社の
     # clone でも替えない（段取りが claude-plugins の clone で打った頼みの返り先が claude-plugins の受付箱になり、段取りの待ち受けに
     # 届かなかった。my_notes の受付 20261017-054115-5bc0b0）
     here_common = ports.git.common_dir(here) if here != cwd else common
@@ -478,7 +478,7 @@ def _ask(a, ports, cwd, task, sent):
             "boss-pane": herdr.own_pane(here, sid, panes) if sid else None,
             "boss-inbox": deliver.inbox_of(here_common) if here_common else inbox}
     if getattr(a, "from_boss", None):
-        # 合図で回した頼み（calls.fire）: 頼み元は、本流に入れた部署の頼み元
+        # 合図で回した頼み（calls.fire）: 頼み元は、メインブランチに入れた部署の頼み元
         boss.update({k: v for k, v in a.from_boss.items() if k != "ask"})
         name = boss.get("boss")
         sender = name or sender
@@ -487,8 +487,8 @@ def _ask(a, ports, cwd, task, sent):
     cause = cause_of(a, here, ports)
     where = f"{company['name']}/{(dept or {}).get('attrs', {}).get('name') or role}"
     if (the_role or {}).get("machine"):
-        print("\n".join(notes + [f"止めた: 役「{role}」は機械だけの役（AI の部署を持たない）なので頼めない。道具を --call で呼ぶ"
-                                 f"（--tree が道具を出す）"]))
+        print("\n".join(notes + [f"止めた: 役「{role}」は機械だけの役（AI の部署を持たない）なので頼めない。ツールを --call で呼ぶ"
+                                 f"（--tree がツールを出す）"]))
         return 2
     if dept is not None:
         held = dept["attrs"].get("ask")
@@ -503,7 +503,7 @@ def _ask(a, ports, cwd, task, sent):
         place_dir = ports.git.git_dir(dept["path"])
         to, heard = listener(dest_inbox, company["name"], dept["attrs"].get("name"))
         fresh = bool((the_role or {}).get("fresh"))
-        # 待ち受けの跡の在る fresh の部署が、納品し終えて番の途中（待ち受けが止まっている）なら積む。番の終わりの待ち受けが空にしてから渡す
+        # 待ち受けの跡の在る fresh の部署が、納品し終えてターンの途中（待ち受けが止まっている）なら積む。ターンの終わりの待ち受けが空にしてから渡す
         mid_turn = fresh and held and not pending and busy_check(dept, accounts_, ports)()
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
@@ -574,7 +574,7 @@ def _ask(a, ports, cwd, task, sent):
                 try:
                     provision.mark(dept["path"], company["root"], marks, ports.git)   # 値の無い頼み元の属性は消える（前の頼み元を残さない）
                 except (gitx.GitError, OSError) as e:
-                    notes.append(f"宛先の部署に頼みの属性を書けなかった（{e}）。納品の命令が頼み元を見つけられず、Stop フックが効かない")
+                    notes.append(f"宛先の部署に頼みの属性を書けなかった（{e}）。納品のコマンドが頼み元を見つけられず、Stop フックが効かない")
         if raced:   # 順番待ちに積むのは錠の外で（積む道は窓を戻したり打ったりするので、その間待ち受けを止めない）
             dept = {**dept, "attrs": now}
             if wake.pending(now) and now.get("ask-digest") == digest:
@@ -595,15 +595,15 @@ def _ask(a, ports, cwd, task, sent):
         print("\n".join(notes + [f"頼み {ask_id} → {where}  {status}" + (f"（{detail}）" if detail else ""),
                                  f"- 本文: {path}"]))
         return 0 if status == "sent" else 1
-    # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。枝の名前は頼む側が渡す）
+    # 宛先の役の部署が無い: 頼みごとに新しい部署を立てる（会社の形の設計 4.10 の 2。ブランチの名前は頼む側が渡す）
     if target.get("on_demand"):
-        # 頼まれたときだけ立てる受け持ち: 部署の名前は受け持ちの名前、枝は受付番号から作る（--task・--branch を渡さなくてよい）。
-        # 部署は都度の部署で立ち（dispatch._task が受け持ちの standing を見る）、納品して本流に入れたら --done で畳まれる
+        # 頼まれたときだけ立てる受け持ち: 部署の名前は受け持ちの名前、ブランチは受付番号から作る（--task・--branch を渡さなくてよい）。
+        # 部署は都度の部署で立ち（dispatch._task が受け持ちの standing を見る）、納品してメインブランチに入れたら --done で畳まれる
         a = argparse.Namespace(**{**vars(a), "task": target["on_demand"], "branch": a.branch or f"work/ask-{ask_id[-6:]}"})
-        notes.append(f"{target['on_demand']} は頼まれたときだけ立てる受け持ちなので、部署 {a.task}（枝 {a.branch}）を立てる")
+        notes.append(f"{target['on_demand']} は頼まれたときだけ立てる受け持ちなので、部署 {a.task}（ブランチ {a.branch}）を立てる")
     if not (a.task and a.task.strip() and a.branch):
         print("\n".join(notes + [f"止めた: {company['name']} に役「{role}」の常設の部署が無いので新しく立てる。"
-                                 "部署の名前を --task <名前>、枝を --branch <枝> で渡す"]))
+                                 "部署の名前を --task <名前>、ブランチを --branch <ブランチ> で渡す"]))
         return 2
     if cfg is None:
         print("\n".join(notes + ["止めた: 部署を立てるには、読める dispatch の設定が要る（アカウントと使用率の上限を読む。"
@@ -611,7 +611,7 @@ def _ask(a, ports, cwd, task, sent):
         return 2
     repo = config.repo_at(cfg, company["root"], ports.origin)
     if a.dry_run:
-        print("\n".join(notes + [f"頼む先: {company['name']} に部署 {a.task}（役 {role}、枝 {a.branch}）を立て、最初の文で頼む",
+        print("\n".join(notes + [f"頼む先: {company['name']} に部署 {a.task}（役 {role}、ブランチ {a.branch}）を立て、最初の文で頼む",
                                  f"- 受付箱: {inbox}",
                                  "- 書く属性: " + "、".join(f"company.{k}={v}" for k, v in boss.items() if v)]))
         return 0
@@ -638,7 +638,7 @@ def _ask(a, ports, cwd, task, sent):
 
 def cause_of(a, here, ports):
     """頼みの行の cause（この頼みを打った場所が、そのとき受けていて、まだ納品していない頼みの受付。台帳の頼みの木の親。
-    docs/ledger.md）。合図で回した頼みは、本流に入れた部署の頼み。受けている頼みが無い場所（窓口・持ち主の会話）は None。"""
+    docs/ledger.md）。合図で回した頼みは、メインブランチに入れた部署の頼み。受けている頼みが無い場所（窓口・持ち主の会話）は None。"""
     boss = getattr(a, "from_boss", None) or {}
     if boss.get("ask"):
         return boss["ask"]
@@ -679,7 +679,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     deliver.log(dest_inbox, wake.notice(to, ask["id"], wake.QUEUED, path, None, ports.now()))
     if not heard and live_window(dept, ports) is None:
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
-    elif heard:   # 会話の処理は生きている（番の途中で待ち受けが居ないのは、番の終わりに張られる）
+    elif heard:   # 会話の処理は生きている（ターンの途中で待ち受けが居ないのは、ターンの終わりに張られる）
         notes += wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, source)
     n = len(wake.queued(dest_inbox, place_dir))
     detail = f"順番待ちに積んだ（{n} 件目。{'待ち受けが渡す' if heard else '今の頼みの納品の後に待ち受けが渡す'}）"
@@ -694,13 +694,13 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
 
 POSTED = "posted"   # 納品の台帳の status: 頼み元の窓が無いので、頼み元の名前に宛てた知らせを台帳に置いた（納品済みにする）
 
-# 順番待ちが渡らずに止まった部署の会話に打つ 1 行（wake_stuck）。番を 1 つ回すだけで、返事も仕事も要らない
-STUCK_LINE = ("順番待ちの知らせです: この部署の順番待ちが渡らずに止まっていたので、番を 1 つ回す。返事は要らない。受けている頼みが"
-              "途中なら、それを続ける。無ければ何もせずにこの番を終える（番の終わりに待ち受けが張り直して、次の頼みを渡す）。")
+# 順番待ちが渡らずに止まった部署の会話に打つ 1 行（wake_stuck）。ターンを 1 つ回すだけで、返事も仕事も要らない
+STUCK_LINE = ("順番待ちの知らせです: この部署の順番待ちが渡らずに止まっていたので、ターンを 1 つ回す。返事は要らない。受けている頼みが"
+              "途中なら、それを続ける。無ければ何もせずにこのターンを終える（ターンの終わりに待ち受けが張り直して、次の頼みを渡す）。")
 
 
 def stuck_why(dest_inbox, place_dir, dept):
-    """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 2 つ: 番を終えたのに渡す待ち受けが居ない
+    """部署の順番待ちが渡らずに止まっていれば、その訳。止まっていなければ None。止まり方は 2 つ: ターンを終えたのに渡す待ち受けが居ない
     （wake.stalled）と、待ち受けは居るが渡さずに待っている（wake.held。台帳の最後の行が held）。"""
     if wake.stalled(dest_inbox, place_dir, dept["attrs"]):
         return "渡す待ち受けが居ない"
@@ -710,17 +710,17 @@ def stuck_why(dest_inbox, place_dir, dept):
 
 # 待ち受けが渡さずに待つ訳のうち、すぐ替わる物（待ち受けが 5 秒ごとに試し直して自分で抜ける）。この訳では窓に打たない（待ち受けの
 # /clear と打ち込みがぶつからないように）
-PASSING = ("裏の処理が残っている", "会話がまだ動いている", "窓の入力欄が見えないか、字が在る", "子の頼みの返事を待っている")
-# 人の文で番が始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
+PASSING = ("裏の処理が残っている", "会話がまだ動いている", "窓の入力フィールドが見えないか、字が在る", "子の頼みの返事を待っている")
+# 人の文でターンが始まると外れる印（wake_hook.resume_from_wait）。STUCK_LINE は人の文ではないので、打った後に書き戻す
 KEPT_MARKS = ("rest", "waiting", "waiting-why", "finished")
 
 
 def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=None, source=None, moved=None):
     """順番待ちが渡らずに止まった部署（stuck_why）を、人の手なしに動かす。出す注記の並びを返す（止まっていなければ空）。
     - 窓に会話が居なければ（live_window）、attach で戻す（revive。戻った会話の始まりの待ち受けが渡す）。
-    - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力欄が空なら、STUCK_LINE を 1 行打って番を 1 つ回す。番の初めに
-      前の待ち受けが止まり（--pause）、番の終わりに今の版の待ち受けが張り直して、空にしてから次を渡す。
-    - 会話が動いている・入力欄に字が在るとき、待ち受けが渡さない訳がすぐ替わる物（PASSING）のときは打たない（番の終わりに待ち受けが
+    - 窓に会話が居て、手が空いていて（herdr の状態が idle か done）入力フィールドが空なら、STUCK_LINE を 1 行打ってターンを 1 つ回す。ターンの初めに
+      前の待ち受けが止まり（--pause）、ターンの終わりに今の版の待ち受けが張り直して、空にしてから次を渡す。
+    - 会話が動いている・入力フィールドに字が在るとき、待ち受けが渡さない訳がすぐ替わる物（PASSING）のときは打たない（ターンの終わりに待ち受けが
       張り直すか、待ち受けが自分で抜ける。人の打ちかけの字と待ち受けの /clear を壊さない）。
     打ったか戻したかは受付箱の台帳に kind nudged で残し、動かしたら moved（並び）に True を足す。打った 1 行で外れる印（KEPT_MARKS）は
     書き戻す。以前は「部署の窓に 1 文打つ」と持ち主に打たせていた（2026-10-17 の割り振り・説明書）。"""
@@ -745,7 +745,7 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
     except herdr.HerdrError as e:
         return [f"{head}。窓 {pane} を読めないので打たなかった（{e}）。--nudge {dept['attrs'].get('name') or where} で打ち直す"]
     if status not in ("idle", "done") or box is None or box:
-        return [f"{head}。会話が動いているか入力欄に字が在るので打たなかった（番の終わりに待ち受けが張り直す。止まったままなら "
+        return [f"{head}。会話が動いているか入力フィールドに字が在るので打たなかった（ターンの終わりに待ち受けが張り直す。止まったままなら "
                 f"--nudge {dept['attrs'].get('name') or where} で打ち直す）"]
     keep = {k: dept["attrs"][k] for k in KEPT_MARKS if dept["attrs"].get(k)}
     sent, detail = deliver.send_confirmed(pane, STUCK_LINE, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
@@ -758,7 +758,7 @@ def wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_=N
                              "place": dept["path"], "pane": pane, "why": why, "status": sent, "detail": detail})
     if sent == "sent" and moved is not None:
         moved.append(True)
-    return [f"{head}。窓 {pane} に 1 行打って番を回した（{sent}" + (f"。{detail}" if detail else "") + "）。番の終わりに待ち受けが渡す"]
+    return [f"{head}。窓 {pane} に 1 行打ってターンを回した（{sent}" + (f"。{detail}" if detail else "") + "）。ターンの終わりに待ち受けが渡す"]
 
 
 def nudge(a, ports, cwd):
@@ -788,7 +788,7 @@ def nudge(a, ports, cwd):
         print("\n".join(notes + [f"{where} の順番待ち（{n} 件）は止まっていない（" + ("待ち受けが渡す）" if n else "順番待ちが空）")]))
         return 0
     if a.dry_run:
-        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。窓に会話が居なければ attach で戻し、居れば 1 行打って番を回す"]))
+        print("\n".join(notes + [f"{where} の順番待ちが止まっている（{why}）。窓に会話が居なければ attach で戻し、居れば 1 行打ってターンを回す"]))
         return 0
     moved = []
     print("\n".join(notes + wake_stuck(dept, where, dest_inbox, place_dir, accounts_, ports, sessions_, company["root"], moved)))
@@ -837,7 +837,7 @@ def _find_queued(ask_id, config_path, ports, cwd, companies=None):
 
 def _log_taken(item, record, also=()):
     """順番待ちから取った知らせを、順番待ちの在る受付箱と頼み元の受付箱（と also の受付箱）の台帳に足す（取り下げと回した先を
-    両方に残す）。記録の行なので、to は辞書にする（to が字の行は待ち受けが知らせと読み、宛先の会話を起こす。設計の 3.1）。"""
+    両方に残す）。記録の行なので、to は辞書にする（to が字の行は待ち受けが知らせと読み、宛先の会話を再開させる。設計の 3.1）。"""
     boss_inbox = (item.get("marks") or {}).get("boss-inbox")
     _log_each([_queue_inbox(item), boss_inbox, *also], record)
 
@@ -982,7 +982,7 @@ def note_line(ask_id, note_id, sender, text, file):
 def note(a, ports, cwd):
     """--note <受付>（--text か --brief）。受付の頼みに、変更・足し・取り下げを届ける。順番待ちに積まれていれば、その件に足しを
     添える（渡すときに頼みの 1 行と一緒に出る）。部署が今受けている（未納品の）頼みなら、宛先の会社の台帳に足しの知らせ
-    （kind note）を足し、部署の待ち受けが番の終わりに会話を起こして渡す（番の途中の会話の入力欄には打たない）。待ち受けの跡の無い
+    （kind note）を足し、部署の待ち受けがターンの終わりに会話を再開させて渡す（ターンの途中の会話の入力フィールドには打たない）。待ち受けの跡の無い
     部署（フックの無い古い版の会話）には、今までどおり窓に打ち込む。打った場所・頼み元・宛先の受付箱の台帳に kind note で残す。
     終了の値を返す。"""
     if bool(a.text) == bool(a.brief):
@@ -1067,13 +1067,13 @@ def note(a, ports, cwd):
             return 1
     if a.dry_run:
         print("\n".join(notes + [f"足す先: {where}（受付 {a.note} を受けている）  "
-                                 + ("台帳に知らせを足す（待ち受けが番の終わりに渡す）" if by_ledger else f"窓 {pane} に打ち込む"),
+                                 + ("台帳に知らせを足す（待ち受けがターンの終わりに渡す）" if by_ledger else f"窓 {pane} に打ち込む"),
                                  f"会話に渡す 1 行: {line}"]))
         return 0
     path = deliver.put(inbox, f"{note_id}-note.md", body)
     if by_ledger:
         deliver.log(dest_inbox, wake.notice(to, note_id, wake.NOTE, path, line, ports.now()))
-        status, detail = "noticed", ("待ち受けが渡す" if heard else "番の終わりに待ち受けが渡す")
+        status, detail = "noticed", ("待ち受けが渡す" if heard else "ターンの終わりに待ち受けが渡す")
     else:
         status, detail = deliver.send_confirmed(pane, line, ports.herdr, ports.pause, busy_check(dept, accounts_, ports))
     _log_each([inbox, dest_inbox, dept["attrs"].get("boss-inbox")],
@@ -1122,8 +1122,8 @@ def wait_for_input(a, ports, cwd):
 
 def rest_here(a, ports, cwd):
     """--rest。部署か窓口の会話が、今は会話を空にしてよい区切りだと印す（属性 company.rest に場所の会話の id。待ち受けが会話の
-    始まりに今の会話の id へ書き直す属性なので、打った会話の id になる。待ち受けは、この印が自分の会話の id のときだけ区切りと見る）。この番の終わりに
-    待ち受け（wake_hook.py）が、窓の入力欄が空なら窓に /clear を打って空にし、印を外す。区切りかどうかは会話が役の本文の決まりで
+    始まりに今の会話の id へ書き直す属性なので、打った会話の id になる。待ち受けは、この印が自分の会話の id のときだけ区切りと見る）。このターンの終わりに
+    待ち受け（wake_hook.py）が、窓の入力フィールドが空なら窓に /clear を打って空にし、印を外す。区切りかどうかは会話が役の本文の決まりで
     判断する（ここでは決めない）。人がその会話に打つと印が外れる（人と話している途中の会話を空にしない）。終了の値を返す。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
@@ -1139,17 +1139,17 @@ def rest_here(a, ports, cwd):
     except (gitx.GitError, OSError) as e:
         print(f"止めた: 区切りの印を書けなかった（{e}）")
         return 1
-    print("区切りと印した。この番の終わりに、窓の入力欄が空なら、機械がこの会話の窓に /clear を打って空にする"
-          "（空にした後の会話の始まりに役の本文が足される。会社の形の起動の設定が起こしたときと違えば、/clear の代わりに"
-          "その設定で起こし直す）。人がこの会話に打つと印が外れる")
+    print("区切りと印した。このターンの終わりに、窓の入力フィールドが空なら、機械がこの会話の窓に /clear を打って空にする"
+          "（空にした後の会話の始まりに役の本文が足される。会社の形の起動の設定が起動したときと違えば、/clear の代わりに"
+          "その設定で起動し直す）。人がこの会話に打つと印が外れる")
     return 0
 
 
 def finish_here(a, ports, cwd):
-    """--done。都度の部署の会話が、納品して本流に入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。この番の
+    """--done。都度の部署の会話が、納品してメインブランチに入れ終えたので片付けてよいと印す（属性 company.finished に場所の会話の id）。このターンの
     終わりに待ち受け（wake_hook.py）が --retire を会話から切り離して走らせ、会話を止めて部屋を --clean と同じ決まりで片付ける。
     断るのは、部署でない・窓口・常設・会話の id が無い・納品していない頼みか順番待ちの頼みが在る・未コミットの変更か手元にしか無い
-    commit が在る・枝が本流（origin の既定の枝の手元の控え）に入っていない時（commit の無い部署は入っているとみなす）。前の --retire が
+    commit が在る・ブランチがメインブランチ（origin の既定のブランチの手元の控え）に入っていない時（commit の無い部署は入っているとみなす）。前の --retire が
     残した訳（company.retire-kept）は消す。人がその会話に打つと印が外れる。終了の値を返す。"""
     attrs = ports.attrs(cwd)
     if not attrs.get("role") or not attrs.get("name"):
@@ -1181,17 +1181,17 @@ def finish_here(a, ports, cwd):
         print("止めた: 未コミットの変更か、git に足していないファイルが在る（片付けると消える）。commit するか消してから印す")
         return 2
     if ports.unpushed(cwd):
-        print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。本流に入れてから印す")
+        print("止めた: 手元にしか無い commit か stash が在る（片付けると消える）。メインブランチに入れてから印す")
         return 2
     root = gitx.root_of(common)
     try:
         main = gitx.default_branch(root)
         merged = gitx.is_merged(cwd, f"refs/remotes/origin/{main}")
     except gitx.GitError as e:
-        print(f"止めた: 枝が本流に入っているかを読めない（{e}）")
+        print(f"止めた: ブランチがメインブランチに入っているかを読めない（{e}）")
         return 1
     if not merged:
-        print(f"止めた: 枝が本流（origin/{main} の手元の控え）に入っていない。--land で入れてから印す"
+        print(f"止めた: ブランチがメインブランチ（origin/{main} の手元の控え）に入っていない。--land で入れてから印す"
               "（ほかの会話が入れたなら、git fetch してから打ち直す）")
         return 2
     try:
@@ -1199,7 +1199,7 @@ def finish_here(a, ports, cwd):
     except (gitx.GitError, OSError) as e:
         print(f"止めた: 終わりの印を書けなかった（{e}）")
         return 1
-    print("終わりと印した。この番の終わりに、機械がこの会話を止め、部屋（作業場・worktree・会話・手元の枝）を --clean と同じ決まりで"
+    print("終わりと印した。このターンの終わりに、機械がこの会話を止め、部屋（作業場・worktree・会話・手元のブランチ）を --clean と同じ決まりで"
           "片付ける。片付けられなければ部屋を残し、訳は --clean の一覧に出る。人がこの会話に打つと印が外れる")
     return 0
 
@@ -1212,12 +1212,12 @@ def asked_open(inbox, attrs, cwd):
 
 
 def leftover(cwd, attrs, g=gitx):
-    """受けた頼みを納品し終えた部署が、番を終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
-    受付の並び）・unlanded（枝の先頭が本流〔origin の既定の枝の手元の控え〕に入っていない。中身は本流の枝の名前）・finish（都度の
-    部署で、枝も本流に入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
-    順番待ちに頼みが在る（待ち受けが次を渡す）・本流を読めない・常設の部署で枝が入っている、ときは None。
+    """受けた頼みを納品し終えた部署が、ターンを終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
+    受付の並び）・unlanded（ブランチの先頭がメインブランチ〔origin の既定のブランチの手元の控え〕に入っていない。中身はメインブランチの名前）・finish（都度の
+    部署で、ブランチもメインブランチに入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
+    順番待ちに頼みが在る（待ち受けが次を渡す）・メインブランチを読めない・常設の部署でブランチが入っている、ときは None。
     --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
-    --land が止まって入れ損ねた部署が、残った疑問に「持ち手: 段取り」と書いただけで段取りに頼まず、1 日残った。--clean はこれを、
+    --land が止まって入れ損ねた部署が、残った疑問に「担当者: 段取り」と書いただけで段取りに頼まず、1 日残った。--clean はこれを、
     返事を待つだけの部署と同じ一行で出していた。"""
     ask = attrs.get("ask")
     if not attrs.get("role") or not ask or attrs.get("delivered") != ask or attrs.get(wake.FINISHED):
@@ -1242,9 +1242,9 @@ def leftover(cwd, attrs, g=gitx):
 
 
 def stop_after(payload, cwd, attrs, count, settings, g=gitx):
-    """納品し終えた部署の番の終わりに差し戻す訳（leftover が unlanded か finish のとき）。差し戻さないなら None。count はこの会話・
+    """納品し終えた部署のターンの終わりに差し戻す訳（leftover が unlanded か finish のとき）。差し戻さないなら None。count はこの会話・
     この頼みで差し戻した回数（deliver.STOP_LIMIT まで）。unlanded は --land を使う会社（会社の形の [land] の取り込み方が
-    ff-after-ci）だけ（PR で入れる会社は、枝が本流に入るのを人の見直しが待つ）。残った疑問に持ち手を書いただけでは、その持ち手が
+    ff-after-ci）だけ（PR で入れる会社は、ブランチがメインブランチに入るのを人の見直しが待つ）。残った疑問に担当者を書いただけでは、その担当者が
     頼みを受けていなければ誰も追わない。"""
     sid = payload.get("session_id")
     if attrs.get("session") and sid and attrs["session"] != sid or count >= deliver.STOP_LIMIT:
@@ -1256,17 +1256,17 @@ def stop_after(payload, cwd, attrs, count, settings, g=gitx):
     name = attrs.get("name") or attrs.get("branch") or "<部署>"
     limit = f"（この差し戻しは {deliver.STOP_LIMIT} 回まで。{count + 1} 回目）"
     if kind == "finish":
-        return (f"頼み（受付 {attrs['ask']}）は納品済みで、枝も本流に入っている。都度の部署なので、{RUN} --done で番を終える（会話を"
-                f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずに番を終えてよい{limit}")
+        return (f"頼み（受付 {attrs['ask']}）は納品済みで、ブランチもメインブランチに入っている。都度の部署なので、{RUN} --done でターンを終える（会話を"
+                f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずにターンを終えてよい{limit}")
     root = gitx.root_of(g.common_dir(cwd))
     info = tree.read_info(root, settings)
     if land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))["mode"] != "ff-after-ci":
         return None
-    return (f"頼み（受付 {attrs['ask']}）は納品済みだが、枝が本流（origin/{main} の手元の控え）に入っていない。止まる前に "
+    return (f"頼み（受付 {attrs['ask']}）は納品済みだが、ブランチがメインブランチ（origin/{main} の手元の控え）に入っていない。止まる前に "
             f"{RUN} --land {shlex.quote(name)} で入れる（ほかの会話が入れたなら、git fetch origin してから止まる）。--land が自動の"
             f"権限の判定に止められたなら、打ち直さず、入れてほしいと {RUN} --ask {shlex.quote(tree.company_name(root, info))} で窓口に"
-            f"頼む（頼んだ返事を待つ間は、この差し戻しは出ない）。残った疑問に持ち手を書くだけでは、持ち手に頼みが届かない。"
-            f"持ち主と話している途中なら、入れずに番を終えてよい{limit}")
+            f"頼む（頼んだ返事を待つ間は、この差し戻しは出ない）。残った疑問に担当者を書くだけでは、担当者に頼みが届かない。"
+            f"持ち主と話している途中なら、入れずにターンを終えてよい{limit}")
 
 
 def forwarded_ask(inbox, ask_id):
@@ -1324,9 +1324,9 @@ def deliver_summary(a, ports, cwd):
     if relays is not None:
         bad = deliver.holder_problems(items.get(deliver.OPEN), relays) + deliver.unsure_problems(items)
         if bad:
-            print("\n".join(notes + ["送らなかった: 残った疑問の持ち手が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
-                            + ["- 残った疑問は 1 件ごとに「持ち手: <部署の名前か受付番号>」を書く。持ち主に向ける物だけ「持ち手: 持ち主（価値で"
-                               "選ぶ）」か「持ち手: 持ち主（確認してからやる）」。箇条を導くだけの前置きの段落は「：」で終える。疑問が無ければ「なし」とだけ書く"]))
+            print("\n".join(notes + ["送らなかった: 残った疑問の担当者が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
+                            + ["- 残った疑問は 1 件ごとに「担当者: <部署の名前か受付番号>」を書く。持ち主に向ける物だけ「担当者: 持ち主（価値で"
+                               "選ぶ）」か「担当者: 持ち主（確認してからやる）」。箇条を導くだけの前置きの段落は「：」で終える。疑問が無ければ「なし」とだけ書く"]))
             return 2
     check = (the_role or {}).get("deliver_check")
     if check:
@@ -1338,8 +1338,8 @@ def deliver_summary(a, ports, cwd):
         if code != 0:
             print("\n".join(notes + [f"送らなかった: 納品の検査が通らなかった（終了の値 {code}）: {check}"]
                             + [f"  {x}" for x in out.splitlines()]
-                            + [f"- 検査の台本 {x} がこの作業場に無い（会社の形は origin の本流から読むが、検査は作業場で走る）。"
-                               "枝を本流の上に載せ直してから（git fetch origin && git rebase origin/main）打ち直す"
+                            + [f"- 検査の台本 {x} がこの作業場に無い（会社の形は origin のメインブランチから読むが、検査は作業場で走る）。"
+                               "ブランチをメインブランチの上にリベースしてから（git fetch origin && git rebase origin/main）打ち直す"
                                for x in deliver.absent_files(check, place)]
                             + [f"- 検査は会社の形の役 {attrs['role']} の deliver_check。上の訳を直してから --deliver を打ち直す"]))
             return 2
@@ -1353,7 +1353,7 @@ def deliver_summary(a, ports, cwd):
     gone = False   # 頼み元の会話が終わった（窓も会話の一覧の生きた会話も無い）
     if heard:
         # 頼み元の待ち受けが居る: herdr の窓を探さない（知らせは台帳の 1 行で届く）
-        sid, pane, how = attrs.get("boss-session"), None, f"{to} の待ち受けが会話を起こす"
+        sid, pane, how = attrs.get("boss-session"), None, f"{to} の待ち受けが会話を再開させる"
     else:
         try:
             _, _, sessions_, panes, companies, _, more = survey(a.config, ports)
@@ -1420,7 +1420,7 @@ def deliver_summary(a, ports, cwd):
 
 
 def follow_main(source, settings, role_name, g):
-    """納品の後に、部署の会社の代表の clone の本流を origin の本流にそろえる（そろえられなければ窓口に知らせる。landing.catch_up）。
+    """納品の後に、部署の会社の代表の clone のメインブランチを origin のメインブランチにそろえる（そろえられなければ窓口に知らせる。landing.catch_up）。
     --land（取り込み方 ff-after-ci）を使う会社だけ。部署が --land を通さずに手で push しても、成果が代表の clone に届く。出す行の並び。"""
     info = tree.read_info(source, settings)
     rules = land.read_rules(info.get("path"), role_name, info.get("text"))
@@ -1429,7 +1429,7 @@ def follow_main(source, settings, role_name, g):
     try:
         main = rules["main"] or gitx.default_branch(source)
     except gitx.GitError as e:
-        return [f"注記: 本流の枝の名前を読めないので、代表の clone をそろえていない（{e}）"]
+        return [f"注記: メインブランチの名前を読めないので、代表の clone をそろえていない（{e}）"]
     import landing   # --land の流れは Stop フックでは要らないので、ここで読む（フックが読み込む物を増やさない）
     return landing.catch_up(source, info, main, g) if main else []
 
@@ -1451,10 +1451,10 @@ def waiting_of(tmp_dir):
 
 
 def in_flight(payload, shells):
-    """番の終わりに裏で動いている処理の数。分からなければ None。Claude Code が Stop フックの入力に渡す background_tasks（裏の処理の
-    一覧。run_in_background の Bash・裏で立てた作業役〔Agent〕・Monitor など。https://code.claude.com/docs/en/hooks#stop-input）
-    が在れば、その中の status が running の物を数える（2026-10-17 に 2.1.301 で、裏の作業役が running で載り、終わった後の番では
-    空なのを見た）。一覧の無い版では、裏の Bash を ps で数える（shells。裏の作業役は見えない）。"""
+    """ターンの終わりに裏で動いている処理の数。分からなければ None。Claude Code が Stop フックの入力に渡す background_tasks（裏の処理の
+    一覧。run_in_background の Bash・裏で立てたサブエージェント〔Agent〕・Monitor など。https://code.claude.com/docs/en/hooks#stop-input）
+    が在れば、その中の status が running の物を数える（2026-10-17 に 2.1.301 で、裏のサブエージェントが running で載り、終わった後のターンでは
+    空なのを見た）。一覧の無い版では、裏の Bash を ps で数える（shells。裏のサブエージェントは見えない）。"""
     tasks = payload.get("background_tasks")
     if isinstance(tasks, list):
         return sum(1 for t in tasks if isinstance(t, dict) and t.get("status") == "running")
@@ -1462,8 +1462,8 @@ def in_flight(payload, shells):
 
 
 def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
-    """部署の会話の番の終わりに、裏で動いている処理の数（in_flight）を見て、待っていれば herdr の表示名に「裏の処理待ち」を添え、
-    待ち終えたら外す。前の番と変わったときだけ書く（会話ごとの控えのファイルに前の値を残す）。裏の数（分からなければ None）を返す。"""
+    """部署の会話のターンの終わりに、裏で動いている処理の数（in_flight）を見て、待っていれば herdr の表示名に「裏の処理待ち」を添え、
+    待ち終えたら外す。前のターンと変わったときだけ書く（会話ごとの控えのファイルに前の値を残す）。裏の数（分からなければ None）を返す。"""
     n = in_flight(payload, shells)
     if n is None:
         return None
@@ -1485,10 +1485,10 @@ def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
 
 def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=claudex.background_shells, h=herdr):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
-    納品し終えた後も、枝を本流に入れていないか、都度の部署が終わりの印を打っていなければ差し戻す（stop_after）。
-    部署の会話が裏の処理（run_in_background の Bash・裏で立てた作業役など。in_flight）を待っている間は、herdr の表示名に
-    「裏の処理待ち」を出し、差し戻さない（裏の処理が終わると Claude Code が会話を起こすので、納品はその後でよい。差し戻すと待つだけの
-    番を回数の上限まで繰り返した。裏の作業役は 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。
+    納品し終えた後も、ブランチをメインブランチに入れていないか、都度の部署が終わりの印を打っていなければ差し戻す（stop_after）。
+    部署の会話が裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど。in_flight）を待っている間は、herdr の表示名に
+    「裏の処理待ち」を出し、差し戻さない（裏の処理が終わると Claude Code が会話を再開させるので、納品はその後でよい。差し戻すと待つだけの
+    ターンを回数の上限まで繰り返した。裏のサブエージェントは 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。
     2026-10-17 の割り振り）。動いているのを確かめられないとき（一覧も ps も無い）と、裏の処理が終わったときは差し戻す。"""
     payload = json.loads(stdin.read() or "{}")
     cwd = payload.get("cwd") or os.getcwd()
@@ -1509,7 +1509,7 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
         count = 0
     reason = deliver.stop_verdict(payload, attrs, count, RUN)
     if reason is None and attrs.get("delivered") == attrs["ask"]:
-        # 納品の後: 枝を本流に入れずに、か都度の部署が終わりの印を打たずに、番を終えて残らない（leftover）。数えるのは別の控え
+        # 納品の後: ブランチをメインブランチに入れずに、か都度の部署が終わりの印を打たずに、ターンを終えて残らない（leftover）。数えるのは別の控え
         path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
         try:
             count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)

@@ -4,9 +4,9 @@
 
 --todo [受付]: 打った場所の会社の受付箱から始め、台帳の行が指すほかの会社の受付箱（本文のファイルの置き場・頼み元の受付箱・
 宛先や打った場所の作業場の会社の物）をたどって全部の台帳を読み、頼みの木を出す（herdr は読まない。会社が開いていなくても
-台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい）。済んだ枝は出さない（--all で出す）。--json は射影を
-JSON で、--html <ファイル> は 1 枚の HTML の頁に書く。
-誰の番かは出さない（部署の様子は --tree）。作った物は保存せず、開くたびに台帳から作り直す。
+台帳だけで組む）。受付を渡せば、その頼みから下だけ（短い 6 桁でもよい）。済んだブランチは出さない（--all で出す）。--json は射影を
+JSON で、--html <ファイル> は 1 枚の HTML のページに書く。
+誰のターンかは出さない（部署の様子は --tree）。作った物は保存せず、開くたびに台帳から作り直す。
 """
 
 import os
@@ -36,7 +36,7 @@ def inboxes_from(starts, common_dir, records=deliver.records):
 
 
 def questions(row):
-    """holders の欄の無い古い納品の行の残った疑問の持ち手（要約のファイルから読む）。"""
+    """holders のフィールドの無い古い納品の行の残った疑問の担当者（要約のファイルから読む）。"""
     try:
         with open(row.get("file") or "", encoding="utf-8") as f:
             text = f.read()
@@ -71,9 +71,9 @@ def todo(a, ports, cwd):
             with open(os.path.expanduser(a.html), "w", encoding="utf-8") as f:
                 f.write(ledger.page(forest, view, made, when, everything=a.all or top is not None))
         except OSError as e:
-            print(f"止めた: 頁を書けない（{e}）")
+            print(f"止めた: ページを書けない（{e}）")
             return 1
-        print(f"頼みの木の頁を書いた: {a.html}（台帳 {len(inboxes)} つから {len(view['tasks'])} 件）")
+        print(f"頼みの木のページを書いた: {a.html}（台帳 {len(inboxes)} つから {len(view['tasks'])} 件）")
         return 0
     forest = ledger.select(view, top, everything=a.all or top is not None)
     if a.json:

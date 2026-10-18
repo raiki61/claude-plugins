@@ -1,6 +1,6 @@
-"""JSON Schema の小さな照らし。type・required・properties・items・enum だけを解く。
+"""JSON Schema の小さな照合し。type・required・properties・items・enum だけを解く。
 
-外のパッケージ（jsonschema）を入れないための、試験の中だけの道具。schema の側でこの 5 つ以外の鍵を使うなら、ここも足す。
+外のパッケージ（jsonschema）を入れないための、試験の中だけのツール。schema の側でこの 5 つ以外の鍵を使うなら、ここも足す。
 """
 
 import json

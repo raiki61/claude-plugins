@@ -64,7 +64,7 @@ class Handle(unittest.TestCase):
         self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "x"})
         self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "y"})
         self.assertEqual(self.sent, [])
-        self.assertEqual(self.looked, ["s1", "s1"])   # 決まらない間は控えず、次の番で引き直す
+        self.assertEqual(self.looked, ["s1", "s1"])   # 決まらない間は控えず、次のターンで引き直す
 
     def test_outside_herdr_does_nothing(self):
         self.handle({"hook_event_name": "UserPromptSubmit", "prompt": "x"}, env={"TMPDIR": str(self.dir)})

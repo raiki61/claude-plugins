@@ -292,8 +292,8 @@ class HerdrConfig(unittest.TestCase):
         self.assertNotIn("local", "\n".join(lines))
 
     def test_lines_pick_python_like_the_hooks_and_do_not_read_the_toml(self):
-        # herdr がタブ欄のコマンドに渡す PATH は、ログインのシェルの PATH と違う（macOS では OS に付いてくる 3.9 が先に来た）。
-        # Python はフックと同じ hooks/run-python.sh で選ぶ（Windows の Store へ誘う代わりの物を飛ばす）。タブ欄から呼ぶ道は
+        # herdr がタブバーのコマンドに渡す PATH は、ログインのシェルの PATH と違う（macOS では OS に付いてくる 3.9 が先に来た）。
+        # Python はフックと同じ hooks/run-python.sh で選ぶ（Windows の Store へ誘う代わりの物を飛ばす）。タブバーから呼ぶ道は
         # TOML（tomllib は 3.11 から）を読まず、herdr-config が書いた JSON の写しを読むので、下限は 3.9
         for line in limits.herdr_entries(accounts(2), "/p/limits.py", "/l/accounts.json"):
             self.assertIn(f"bash {limits.PICKER.as_posix()} --min 3.9 /p/limits.py", line)   # Windows でも / 区切り
@@ -350,7 +350,7 @@ class HerdrConfig(unittest.TestCase):
         self.assertTrue(out.stdout.startswith("a0 5h 5%"), out.stdout)
 
     def test_tab_bar_path_reads_as_python_3_9(self):
-        # macOS に付いてくる python3 は 3.9。タブ欄から呼ぶファイルは、その文法で読めること
+        # macOS に付いてくる python3 は 3.9。タブバーから呼ぶファイルは、その文法で読めること
         for rel in ("limits.py", "vendor/claude_auth.py"):
             with self.subTest(file=rel):
                 ast.parse((DISPATCH / rel).read_text(encoding="utf-8"), feature_version=(3, 9))

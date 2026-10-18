@@ -1,4 +1,4 @@
-"""作業役（入口の --task）。枝の場所は本物の git worktree（WorktreeHerdr）、herdr の会話の口・claude・gh は偽物で回す。"""
+"""サブエージェント（入口の --task）。ブランチの場所は本物の git worktree（WorktreeHerdr）、herdr の会話の口・claude・gh は偽物で回す。"""
 
 import json
 import os
@@ -38,7 +38,7 @@ BG = re.compile(r"^(claude-a\d) --bg --name ")
 
 
 def push_shape(src, text):
-    """別の clone から origin の main に会社の形を commit して push する（元の clone の origin/main は動かさない。別の所で本流の
+    """別の clone から origin の main に会社の形を commit して push する（元の clone の origin/main は動かさない。別の所でメインブランチの
     会社の形を変えて、元の clone では fetch していない形）。"""
     side = tempfile.mkdtemp(prefix="dispatch-shape-") + "/w"
     git("clone", "-q", git("-C", src, "remote", "get-url", "origin"), side)
@@ -84,7 +84,7 @@ class Task(unittest.TestCase):
         return run_main(["--config", self.cfg, "--task", name, "--branch", branch, "--brief", self.brief, *extra], ports)
 
     def sent(self, ports):
-        """裏の会話を起こした打ち込み（最初の文はその最後の語）。"""
+        """裏の会話を起動した打ち込み（最初の文はその最後の語）。"""
         return [w[2] for w in ports.herdr.writes if w[0] == "run" and BG.match(w[2])]
 
     def place(self, ports, branch="task/fix"):
@@ -116,8 +116,8 @@ class Task(unittest.TestCase):
                          {"worktree": {"bgIsolation": "none"}})
         # 部署の属性は作業場の git の設定に入り、元の clone には入らない
         # 試験の設定は既定の置き場に無いので、その場所も書く（役を足すフックが設定の置き場の会社の形を探すため）
-        # 部署が本流を知った位置（枝を作ったときの origin の本流）も書く（--land の書き換えの取り合いの関門が使う）
-        # 起こしたときの会社の形の model・effort も書く（毎回空にする部署の待ち受けが、今の値と比べる）
+        # 部署がメインブランチを知った位置（ブランチを作ったときの origin のメインブランチ）も書く（--land の書き換えの取り合いのゲートが使う）
+        # 起動したときの会社の形の model・effort も書く（毎回空にする部署の待ち受けが、今の値と比べる）
         self.assertEqual(gitx.worktree_attrs(path), {"role": "作業", "residency": "per-task", "account": "a1", "name": "直し",
                                                      "session": "bg0-full", "job": "bg0", "config": self.cfg,
                                                      "launched": '{"effort": null, "model": null}',
@@ -129,7 +129,7 @@ class Task(unittest.TestCase):
         self.assertIn(".claude/settings.local.json", excluded)
         self.assertNotIn(".claude/", excluded)
         self.assertIn("__pycache__/", excluded)   # 部署が試しに走らせた Python の控えで --land と --clean が止まらない
-        # 表示名と札、作業場の印は、書いた属性から付ける（名前は起こすときに付けたので付け直さない）
+        # 表示名と札、作業場の印は、書いた属性から付ける（名前は起動するときに付けたので付け直さない）
         self.assertEqual(ports.herdr.writes[5], ("report_pane_metadata", "P0", "作業", "直し", {"role": "作業", "account": "a1"},
                                                  ["boss"]))
         self.assertEqual(ports.herdr.writes[6][0::2], ("report_workspace_metadata", {"kind": "都度"}))
@@ -143,7 +143,7 @@ class Task(unittest.TestCase):
         path = self.place(ports)
         attrs = gitx.worktree_attrs(path)
         self.assertEqual((attrs["role"], attrs["residency"]), ("調べ役", "resident"))
-        # 常設の部署の最初の枝も、入れた枝と同じ記録に書く（入れずに次の枝へ移っても、先頭がそのままなら後で消える）
+        # 常設の部署の最初のブランチも、入れたブランチと同じ記録に書く（入れずに次のブランチへ移っても、先頭がそのままなら後で消える）
         self.assertEqual(json.loads(attrs["landed-branches"]), {"task/fix": git("-C", path, "rev-parse", "HEAD")})
 
     def test_shape_picks_the_default_role_and_a_role_can_be_resident(self):
@@ -197,10 +197,10 @@ class Task(unittest.TestCase):
         rc, out = self.run_task(ports, "--role", "調べ役")
         self.assertEqual(rc, 0, out)
         self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
-        # 起こすときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
+        # 起動するときの設定（model）も、立てた後のフックと同じ新しい会社の形で決まる
         [command] = self.sent(ports)
         self.assertRegex(command, r'--model "?haiku\b')   # POSIX でない殻（Windows）では語を "…" で囲む
-        # 起こしたときの model・effort を属性に残す（毎回空にする部署の待ち受けが、会社の形の今の値と比べる）
+        # 起動したときの model・effort を属性に残す（毎回空にする部署の待ち受けが、会社の形の今の値と比べる）
         launched = gitx.worktree_attrs(self.place(ports))["launched"]
         self.assertEqual(json.loads(launched), {"model": "haiku", "effort": None})
 
@@ -219,9 +219,9 @@ class Task(unittest.TestCase):
         self.assertIsNone(provision.refresh_shape(src, gitx))
         self.assertEqual(git("-C", src, "rev-parse", "origin/main"), sha)
         git("-C", src, "remote", "set-url", "origin", str(pathlib.Path(self.root).parent / "gone.git"))
-        self.assertIn("origin の既定の枝を取り直せないので、手元の origin/main", provision.refresh_shape(src, gitx))
+        self.assertIn("origin の既定のブランチを取り直せないので、手元の origin/main", provision.refresh_shape(src, gitx))
         git("-C", src, "remote", "set-head", "origin", "--delete")
-        self.assertIsNone(provision.refresh_shape(src, gitx))   # 既定の枝が分からなければ取りに行かない
+        self.assertIsNone(provision.refresh_shape(src, gitx))   # 既定のブランチが分からなければ取りに行かない
 
     def test_clone_without_origin_head_is_told_how_to_fix_it(self):
         src = gitx_source(self.cfg)
@@ -427,7 +427,7 @@ class Task(unittest.TestCase):
         self.assertEqual(ports.herdr.writes, [])
 
     def test_task_needs_branch_and_brief_and_takes_no_other_entry(self):
-        for argv, said in ((["--task", "直し"], "--branch <枝> と --brief"),
+        for argv, said in ((["--task", "直し"], "--branch <ブランチ> と --brief"),
                            (["--task", "直し", "--branch", "b", "--brief", "x", "--pr", "1"], "一緒に使えない"),
                            (["--branch", "b"], "--task と一緒にだけ使う"),
                            (["--role", "調べ役"], "--task と一緒にだけ使う"),
@@ -480,7 +480,7 @@ class PrepareTask(unittest.TestCase):
 
     def test_no_branch_is_provision_failed(self):
         got = provision.prepare_task({"head": None, "label": "x"}, self.repo, "main", WorktreeHerdr(self.root), gitx)
-        self.assertEqual((got["status"], got["detail"]), ("provision_failed", "枝が決まっていない"))
+        self.assertEqual((got["status"], got["detail"]), ("provision_failed", "ブランチが決まっていない"))
 
 
 if __name__ == "__main__":

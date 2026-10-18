@@ -1,4 +1,4 @@
-"""受け持ちの起こし方（[skills.start]）: 欄の読み（start ノード・tree）と、--start・--due を入口から。
+"""受け持ちの起動方法（[skills.start]）: フィールドの読み（start ノード・tree）と、--start・--due を入口から。
 git は一時のフォルダの本物、herdr・claude は偽物で回す。部署は test_deliver の Flow の常設の部署「調べ」（役 調べ役）。"""
 
 import os
@@ -51,9 +51,9 @@ class Fields(unittest.TestCase):
         last = start.last_started(records, "x")
         self.assertEqual(last, 100)
         self.assertFalse(start.due(st, last, 100 + 7199))
-        self.assertTrue(start.due(st, last, 100 + 7200 * 5))   # 過ぎた回が幾つ有っても、起こすのは今の 1 回
+        self.assertTrue(start.due(st, last, 100 + 7200 * 5))   # 過ぎた回が幾つ有っても、起動するのは今の 1 回
         self.assertTrue(start.due(st, None, 0))
-        self.assertFalse(start.due({"every": None}, None, 0))   # 周期の無い物は命令でだけ起こす
+        self.assertFalse(start.due({"every": None}, None, 0))   # 周期の無い物はコマンドでだけ起動する
 
     def test_branch_of_a_started_department(self):
         self.assertEqual(start.branch({"id": "Org_Reform"}, "20261017-010203-a1b2c3"), "work/org-reform-a1b2c3")
@@ -73,14 +73,14 @@ class Start(unittest.TestCase):
         self.shape(shape_text('report_to = "社長室"\ntext = "部署の作りを見直す"'))
         rc, out = self.main(self.src, "--start", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("起こした: ", out)
+        self.assertIn("起動した: ", out)
         self.assertEqual(len(self.prompts()), 1)
         attrs = gitx.worktree_attrs(self.place)
-        self.assertEqual((attrs["boss"], attrs.get("boss-session")), ("社長室", None))   # 起こした会話でなく report_to に返る
+        self.assertEqual((attrs["boss"], attrs.get("boss-session")), ("社長室", None))   # 起動した会話でなく report_to に返る
         self.assertEqual(attrs["boss-inbox"], self.inbox)
         brief = next(r["file"] for r in deliver.records(self.inbox) if r.get("kind") == "ask")
         with open(brief, encoding="utf-8") as f:
-            self.assertIn("受け持ち「調べ」の起こし方（[skills.start]）で、命令（desk）が起こした頼みです。", f.read())
+            self.assertIn("受け持ち「調べ」の起動方法（[skills.start]）で、コマンド（desk）が出した頼みです。", f.read())
         (rec,) = self.starts()
         self.assertEqual((rec["skill"], rec["status"], rec["report_to"]), ("調べ", "sent", "社長室"))
 
@@ -88,20 +88,20 @@ class Start(unittest.TestCase):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nby = ["社長室"]'))
         rc, out = self.main(self.src, "--start", "調べ", "--from-name", "段取り")
         self.assertEqual(rc, 2, out)
-        self.assertIn("命令で起こせるのは 社長室（会社の形の by）。打った会話は 段取り", out)
+        self.assertIn("コマンドで起動できるのは 社長室（会社の形の by）。打った会話は 段取り", out)
         self.assertEqual(self.prompts(), [])
         rc, out = self.main(self.src, "--start", "調べ", "--from-name", "段取り", "--dry-run")   # 試し打ちは止めずに先まで見立てる
         self.assertEqual(rc, 2, out)   # 終了の値は本当に打った時と同じ
         self.assertIn("本当に打てばここで止まる", out)
-        self.assertIn("起こす: ", out)
+        self.assertIn("起動する: ", out)
 
     def test_a_person_outside_claude_code_may_always_start(self):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nby = ["社長室"]'))
         self.ports.env = {}
         rc, out = self.main(self.src, "--start", "調べ", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("起こす: ", out)
-        self.assertIn("命令（人）", out)
+        self.assertIn("起動する: ", out)
+        self.assertIn("コマンド（人）", out)
 
     def test_a_one_off_skill_is_not_started_while_the_last_run_stands(self):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nevery = "1d"', role_line=""))
@@ -115,9 +115,9 @@ class Start(unittest.TestCase):
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nevery = "1d"'))
         rc, out = self.main(self.src, "--due")
         self.assertEqual(rc, 0, out)
-        self.assertIn("起こした: ", out)
+        self.assertIn("起動した: ", out)
         self.assertIn("周期（1d ごと）", out)
-        rc, out = self.main(self.src, "--due")   # 起こしたばかりなので、まだ来ていない
+        rc, out = self.main(self.src, "--due")   # 起動したばかりなので、まだ来ていない
         self.assertEqual(rc, 0, out)
         self.assertIn("周期の来た受け持ちは無い", out)
         self.assertEqual(len(self.starts()), 1)
@@ -131,7 +131,7 @@ class Start(unittest.TestCase):
         ((argv, cwd, log, env),) = self.ports.spawned
         self.assertEqual((argv[1:], cwd), ([starts.DISPATCH_PY, "--due", "--config", self.cfg], self.src))
         self.assertEqual(log, os.path.join(self.inbox, "due.log"))
-        # 打った会話の印は渡さない（渡すと、打った部署自身の受け持ちを起こす頼みが「宛先はこの会話自身」で止まる）
+        # 打った会話の印は渡さない（渡すと、打った部署自身の受け持ちを起動する頼みが「宛先はこの会話自身」で止まる）
         self.assertEqual(env, {})
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text(test_deliver.GOOD, encoding="utf-8")
@@ -146,8 +146,8 @@ class Start(unittest.TestCase):
         self.assertEqual((rc, len(self.ports.spawned)), (2, 2), out)
 
     def test_due_skips_a_company_another_due_is_counting(self):
-        # 裏の --due が 2 つ並ぶと、会社の錠を持つ方だけが数えて起こし、もう一方は待たずにその会社を飛ばす（同じ受け持ちを 2 度
-        # 起こさず、待つ処理も溜めない）
+        # 裏の --due が 2 つ並ぶと、会社の錠を持つ方だけが数えて起動し、もう一方は待たずにその会社を飛ばす（同じ受け持ちを 2 度
+        # 起動せず、待つ処理も積まない）
         provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
         self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nevery = "1d"'))
         with starts._due_lock(self.inbox) as got:
@@ -157,14 +157,14 @@ class Start(unittest.TestCase):
         self.assertIn("はほかの --due が数えている", out)
         self.assertEqual((self.starts(), self.prompts()), ([], []))
         rc, out = self.main(self.src, "--due")   # 錠が外れれば数える
-        self.assertIn("起こした: ", out)
+        self.assertIn("起動した: ", out)
         self.assertEqual(len(self.starts()), 1)
 
     def test_skill_without_start_cannot_be_started(self):
         self.shape('[[roles]]\nname = "調べ役"\n[[skills]]\nname = "調べ"\nrole = "調べ役"\n')
         rc, out = self.main(self.src, "--start", "調べ")
         self.assertEqual(rc, 2, out)
-        self.assertIn("起こし方（[skills.start]）の有る受け持ち「調べ」が無い", out)
+        self.assertIn("起動方法（[skills.start]）の有る受け持ち「調べ」が無い", out)
 
 
 if __name__ == "__main__":

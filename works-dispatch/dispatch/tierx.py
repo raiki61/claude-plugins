@@ -1,11 +1,11 @@
-"""要る道具の段の点検（tiers プラグインの bin/tiers）への口。
+"""要るツールの段の点検（tiers プラグインの bin/tiers）への口。
 
-works-dispatch の要る段は 2（gh で自分の番の PR を集め、herdr に作業場を開き、アカウントの起こし方の命令で Claude Code を起こす）。
+works-dispatch の要る段は 2（gh で自分の番の PR を集め、herdr に作業場を開き、アカウントの起動コマンドで Claude Code を起動する）。
 点検の中身は tiers が持ち、ここは呼んで JSON を読むだけ。tiers は plugin.json の dependencies で入り、Claude Code が
-その bin/ を Bash の道具の PATH に入れる。リポジトリの checkout から走らせるとき（試験・開発）は、隣の tiers/bin/tiers を使う。
+その bin/ を Bash のツールの PATH に入れる。リポジトリの checkout から走らせるとき（試験・開発）は、隣の tiers/bin/tiers を使う。
 依存は claude plugin install のほか /reload-plugins・入れ直し・自動更新では入るが、claude plugin update では入らない
-（公式の文書 code.claude.com/docs/en/plugins/dependencies の「Besides claude plugin install」の節。2026-10-16 に 2.1.301 で再現）。
-なので、無いときは入れる命令をそのまま出す。
+（公式の文書 code.claude.com/docs/en/plugins/dependencies の「Besides claude plugin install」のセクション。2026-10-16 に 2.1.301 で再現）。
+なので、無いときは入れるコマンドをそのまま出す。
 """
 
 import json
@@ -23,7 +23,7 @@ class TierError(Exception):
 
 
 def install_command(here=None):
-    """tiers を入れる命令。マーケットプレイスの名はこのプラグインの plugin.json の dependencies から読む（決め打ちしない）。"""
+    """tiers を入れるコマンド。マーケットプレイスの名はこのプラグインの plugin.json の dependencies から読む（決め打ちしない）。"""
     root = pathlib.Path(here or __file__).resolve().parent.parent
     market = "<works-dispatch を入れたマーケットプレイス>"
     try:
@@ -52,7 +52,7 @@ def locate(env, here=None):
         p = os.path.join(d, NAME) if d else ""
         if p and os.path.isfile(p):
             return p
-    root = pathlib.Path(here or __file__).resolve().parent.parent   # このプラグインの根
+    root = pathlib.Path(here or __file__).resolve().parent.parent   # このプラグインのルート
     sibling = root.parent / "tiers" / "bin" / NAME
     if sibling.is_file():
         return str(sibling)
@@ -95,7 +95,7 @@ def problems(result):
 
 def report(result):
     """--check に出す行。足りない物ごとに 1 行（problems）と、その下に tiers の案内（guide。tiers 0.2.0 から。無ければ出さない）を
-    字下げで並べ、終わりに、同じ案内を人の読む形で出す命令を 1 行足す。"""
+    字下げで並べ、終わりに、同じ案内を人の読む形で出すコマンドを 1 行足す。"""
     out = []
     for line, x in zip(problems(result), (x for x in result["checks"] if not x.get("ok"))):
         out.append(f"- {line}")
@@ -111,7 +111,7 @@ GH_TIER = 1   # gh（GitHub の CLI）の段。部署の回（手元の git だ�
 def without_gh(result):
     """部署の回だけを確かめるとき（設定に [[repos]] が無い --check）の点検の結果。gh の段（GH_TIER）の足りない物を外し、
     残りで ok を決め直した写しと、外した物の行（注記に出す）。段は小さい段を含むので、段 2 の点検は gh も見るが、部署の回は
-    本流の枝の名前を手元の origin/HEAD から取り、GitHub を読まない。"""
+    メインブランチの名前を手元の origin/HEAD から取り、GitHub を読まない。"""
     gone = [x for x in result.get("checks", []) if not x.get("ok") and x.get("tier") == GH_TIER]
     kept = {**result, "checks": [x for x in result.get("checks", []) if x not in gone]}
     kept["ok"] = all(x.get("ok") for x in kept["checks"])

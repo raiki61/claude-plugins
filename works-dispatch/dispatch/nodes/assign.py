@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""assign ノード: PR ごとに結末を 1 つ決める純粋な関数（設計書 2 節の 4）。外には書かない。
+"""assign ノード: PR ごとに結末を 1 つ決める純粋な関数（設計書のセクション 2 の 4）。外には書かない。
 
 決める順:
-1. 会話が開いていれば already_open。(対象のリポジトリ, PR の head の枝) の組の会話か、その枝の場所（元の clone の worktree。
-   設計書 3 節）かその下を作業フォルダにする会話があるとき。作業場もアカウントも取らない（会話を閉じるのは持ち主だけ）。
+1. 会話が開いていれば already_open。(対象のリポジトリ, PR の head のブランチ) の組の会話か、そのブランチの場所（元の clone の worktree。
+   設計書のセクション 3）かその下を作業フォルダにする会話があるとき。作業場もアカウントも取らない（会話を閉じるのは持ち主だけ）。
 2. 開く PR を、選べるアカウントに順の頭から割り振る。全部の PR は同時に走るので、始める前に件数を決める。
    - 1 件あたりの使用率（cost ノードが測って覚えた見積もり）があれば、各アカウントに、上限（limit_percent）に届かずに
      入る件数まで入れ、あふれた分を次のアカウントへ回す（持ち主の決め「切り替わりの近い枠から使い切る」）。
@@ -12,7 +12,7 @@
    - まだ測っていなければ、1 つのアカウントに寄せず、選べるアカウントに 1 件ずつ順に配る（入れすぎない側に倒す）。
    - どのアカウントにも入らない PR は no_account。
 3. どれにも当たらなければ assigned で、アカウントを付ける。
-各行には、その枝の場所（まだ無ければ None）と、PR か issue か（kind）を付ける。並びは prs の順のまま。
+各行には、そのブランチの場所（まだ無ければ None）と、PR か issue か（kind）を付ける。並びは prs の順のまま。
 
 使い方: python3 nodes/assign.py --prs <JSON> --sessions <JSON> --accounts <JSON> [--places <JSON>] [--config <パス>] [--repo OWNER/NAME] [--out <パス>]
 """
@@ -67,7 +67,7 @@ def _spread(accounts, n, limit_percent, cost):
 
 def plan(repo, prs, open_keys, open_cwds, accounts, limit_percent=95, cost=None, places=None):
     """cost は {枠: 1 件あたりの使用率}（cost ノードの estimate）。None はまだ測っていない。
-    places は {枝: その枝の場所のパス}。prs の 1 件の kind（pr・issue。無ければ pr）と fork（fork の PR か）は、そのまま行に写す。"""
+    places は {ブランチ: そのブランチの場所のパス}。prs の 1 件の kind（pr・issue。無ければ pr）と fork（fork の PR か）は、そのまま行に写す。"""
     places = places or {}
     rows = []
     for p in prs:
@@ -92,7 +92,7 @@ def main(argv=None):
         ap.add_argument(k, required=True)
     ap.add_argument("--config")
     ap.add_argument("--repo")
-    ap.add_argument("--places", help="枝 → 場所のパスの JSON（{\"places\": {...}}）")
+    ap.add_argument("--places", help="ブランチ → 場所のパスの JSON（{\"places\": {...}}）")
     ap.add_argument("--out")
     a = ap.parse_args(argv)
     repo = config.pick_repo(config.load(a.config, os.environ), a.repo)

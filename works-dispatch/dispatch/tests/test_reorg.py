@@ -133,7 +133,7 @@ class Reorg(unittest.TestCase):
         self.assertIn("--reorg で付け替える", out)
 
     def test_desk_does_not_ask_for_rename_when_the_conversation_already_has_the_name(self):
-        # claude --name 窓口 で起こした窓口: 会話の名前がもう 窓口 なので /rename を勧めない
+        # claude --name 窓口 で起動した窓口: 会話の名前がもう 窓口 なので /rename を勧めない
         self.sessions[1]["name"] = "窓口"
         self.ports._cwd = self.src
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
@@ -164,7 +164,7 @@ class Reorg(unittest.TestCase):
         self.assertIn(f"宛先の部署 {os.path.basename(self.src)}/段取り（main）", out)
 
     def test_desk_writes_the_settings_of_its_role_and_shows_the_command_to_start_with_them(self):
-        # 持ち主が手で起こす窓口に [roles.settings] を届ける口: --desk が設定のファイルを書き、起こす命令を出す
+        # 持ち主が手で起動する窓口に [roles.settings] を届ける口: --desk が設定のファイルを書き、起動するコマンドを出す
         shape = pathlib.Path(self.src, ".claude", "company.toml")
         shape.parent.mkdir(exist_ok=True)
         shape.write_text('[[roles]]\nname = "窓口"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
@@ -181,7 +181,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("空打ちなので書いていない", out)
         self.assertFalse(os.path.exists(path))
-        rc, out = self.main("--desk")   # 属性は替わらなくても、命令は出す
+        rc, out = self.main("--desk")   # 属性は替わらなくても、コマンドは出す
         self.assertEqual(rc, 0, out)
         self.assertIn("付け替える物は無い", out)
         self.assertIn(f"claude-a1 --name '窓口' --settings {path}", out)
@@ -210,8 +210,8 @@ class Reorg(unittest.TestCase):
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
 
     def test_desk_keeps_what_move_launched_and_forgets_it_for_a_talk_started_by_hand(self):
-        # --move が起こした会話（company.launching）は起こした値を残す。手で起こした会話は、起こした値を知らないので消す
-        # （区切りの番の終わりに、待ち受けが会社の形の設定で起こし直す）
+        # --move が起動した会話（company.launching）は起動した値を残す。手で起動した会話は、起動した値を知らないので消す
+        # （区切りのターンの終わりに、待ち受けが会社の形の設定で起動し直す）
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "launched": "k1",
                                             wake.LAUNCHING: "1"}, gitx)
         self.ports._cwd = self.src
@@ -222,7 +222,7 @@ class Reorg(unittest.TestCase):
         self.assertEqual((attrs.get("launched"), attrs.get(wake.LAUNCHING)), ("k1", None))
         rc, out = self.main("--desk")   # 同じ会話が打ち直しても残す
         self.assertEqual(gitx.worktree_attrs(self.src).get("launched"), "k1")
-        self.sessions[1]["sessionId"] = "s-hand"   # 持ち主が手で起こした会話
+        self.sessions[1]["sessionId"] = "s-hand"   # 持ち主が手で起動した会話
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-hand"}
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)

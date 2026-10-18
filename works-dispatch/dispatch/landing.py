@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""入口の --land（部署の成果を本流に入れる）の流れ。dispatch.py の一部で、同じ入口の層に置く（ほかの部署と同時に dispatch.py を
+"""入口の --land（部署の成果をメインブランチに入れる）の流れ。dispatch.py の一部で、同じ入口の層に置く（ほかの部署と同時に dispatch.py を
 触るぶつかりを減らすため、別のファイルにした）。ノード（nodes/land.py・nodes/bump.py・nodes/clean.py）を並べる順だけを持つ。
 
-順（会社の形の設計 8 章。決まりの欄は nodes/land.py の read_rules）:
-1. 部署を名前（属性 company.name。無ければ前の名前 company.former-names）か枝の名前で探し、会社の形の [land] を、部署の役で読む。取り込み方が none なら何もしない。
-2. pr: 部署の枝を origin に出し、本流への PR を出して止める。
-3. ff-after-ci: 本流を取り直す。もう入っていれば片付けへ。本流が部署の枝の祖先でなければ、部署の場所で git で載せ直す
-   （nodes/land.py の auto_rebase）。機械で解けないぶつかりが残れば、元に戻して部署に載せ直しを頼んで止める。
-4. 版上げ（bump = "marketplace"）があれば、一時の場所で部署の枝の先頭の上に版を上げる commit を作る（部署の枝は動かさない）。
-5. 関門: CI の枝の形なら、その枝の頭を GitHub Actions の設定が書いていることを確かめ、その枝へ候補を push して run を待つ。check なら、手元の検証のコマンドを候補の場所で回す。
-6. 赤なら、部署に失敗の要点を頼む。緑なら本流を取り直し、まだ祖先なら本流を早送りして push する（関門の枝は消す）。
-   進んでいれば、同じに載せ直して関門から回し直す（載せ直せなければ部署に頼む）。
+順（会社の形の設計 8 章。決まりのフィールドは nodes/land.py の read_rules）:
+1. 部署を名前（属性 company.name。無ければ前の名前 company.former-names）かブランチの名前で探し、会社の形の [land] を、部署の役で読む。取り込み方が none なら何もしない。
+2. pr: 部署のブランチを origin に出し、メインブランチへの PR を出して止める。
+3. ff-after-ci: メインブランチを取り直す。もう入っていれば片付けへ。メインブランチが部署のブランチの祖先でなければ、部署の場所で git でリベースする
+   （nodes/land.py の auto_rebase）。機械で解けないぶつかりが残れば、元に戻して部署にリベースを頼んで止める。
+4. 版上げ（bump = "marketplace"）があれば、一時の場所で部署のブランチの先頭の上に版を上げる commit を作る（部署のブランチは動かさない）。
+5. ゲート: CI のブランチの形なら、そのブランチの頭を GitHub Actions の設定が書いていることを確かめ、そのブランチへ候補を push して run を待つ。check なら、手元の検証のコマンドを候補の場所で回す。
+6. 赤なら、部署に失敗の要点を頼む。緑ならメインブランチを取り直し、まだ祖先ならメインブランチを fast-forward して push する（ゲートのブランチは消す）。
+   進んでいれば、同じにリベースしてゲートから回し直す（リベースできなければ部署に頼む）。
 7. 入れたら、都度の部署は --clean と同じ部品（clean.departments・clean.retire）で片付ける。常設の部署は残す。片付けられない
    都度の部署（納品の直後で会話がまだ止まりきっていない、など）には入れた印（属性 company.landed）を書いて残し、次の --land
    （どの部署でも）が、片付けられる形になっていれば一緒に片付ける。止まるのを待たないのは、こちらから期限を足さないため（D5）。
 
---dry-run（_preview）は 1 の後で分かれ、決まりと、することの見立て（載せ直しが要るか・入れる commit・上げる版・関門・片付け）を
-出すだけにする。何も書かない: 本流の先頭は fetch せず origin に問い合わせて読み（ls-remote。手元の ref は変えない）、版は
-一時の場所を作らず、部署の場所で本当の流れと同じ bump.plan を回して見積もり、関門に出さず、手元の検証を回さず、
+--dry-run（_preview）は 1 の後で分かれ、決まりと、することの見立て（リベースが要るか・入れる commit・上げる版・ゲート・片付け）を
+出すだけにする。何も書かない: メインブランチの先頭は fetch せず origin に問い合わせて読み（ls-remote。手元の ref は変えない）、版は
+一時の場所を作らず、部署の場所で本当の流れと同じ bump.plan を回して見積もり、ゲートに出さず、手元の検証を回さず、
 部署の窓（herdr のペイン）に打ち込まず、片付けない。本当の流れが止まる所と、見立てそのものの失敗では 1 を返す。
 """
 
@@ -36,9 +36,9 @@ import gitx
 import herdr
 from nodes import bump, clean, deliver, land, provision, role, tree, wake
 
-RUN_PAUSE_S = 10  # 関門の枝に push した後、run が現れるのを見に行く間
-FAILED = "failed"   # 代表の clone の本流をそろえる git が誤りを返した（gitx.advance_branch の値に並べる、こちらの札）
-LAGS = ("dirty", "local_only", FAILED)   # 代表の clone の本流が遅れたまま残り、窓口に知らせる形
+RUN_PAUSE_S = 10  # ゲートのブランチに push した後、run が現れるのを見に行く間
+FAILED = "failed"   # 代表の clone のメインブランチをそろえる git が誤りを返した（gitx.advance_branch の値に並べる、こちらの札）
+LAGS = ("dirty", "local_only", FAILED)   # 代表の clone のメインブランチが遅れたまま残り、窓口に知らせる形
 
 
 def run_check(command, cwd):
@@ -78,7 +78,7 @@ def _sweep(place, made):
 
 
 def _find(found, name, attrs_of):
-    """部署を名前か枝の名前で探す。当たらなければ前の名前（--reorg が書く company.former-names）で探す。"""
+    """部署を名前かブランチの名前で探す。当たらなければ前の名前（--reorg が書く company.former-names）で探す。"""
     office = next((attrs_of(p["path"]) for p in found if not p.get("linked")), {})
     rows = [(p, a) for p in found if p.get("linked") and not p.get("prunable")
             for a in [attrs_of(p["path"])] if not tree.copied_from(office, a)]   # 本社の属性の写しは部署でない
@@ -89,7 +89,7 @@ def _find(found, name, attrs_of):
 def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: time.sleep(RUN_PAUSE_S), today=None,
         checker=run_check, dry_run=False, keep_removal=False, after=None):
     """--land <名前>。rows は dispatch._department_rows、reasons は片付けで残す訳（dispatch.DEPT_REASONS）。
-    after は本流へ push し終えた後に、会社の形の [[land.after]]（合図。受付の設計 5.5）の並びと代表の clone と部署の属性を渡して
+    after はメインブランチへ push し終えた後に、会社の形の [[land.after]]（合図。受付の設計 5.5）の並びと代表の clone と部署の属性を渡して
     呼ぶ関数（calls.fire）で、出す行の並びを返す。
     dry_run なら、することの見立てを出すだけで何も書かない（_preview）。"""
     g, out = ports.git, []
@@ -100,8 +100,8 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         return 1
     hits = _find(found, name, ports.attrs)
     if len(hits) != 1:
-        print(f"止めた: 部署 {name} が" + ("無い（今の名前・前の名前・枝の名前で探した。部署の名前は --tree の「会話」に出る）"
-                                         if not hits else f" {len(hits)} つ在る（枝の名前で指す）"))
+        print(f"止めた: 部署 {name} が" + ("無い（今の名前・前の名前・ブランチの名前で探した。部署の名前は --tree の「会話」に出る）"
+                                         if not hits else f" {len(hits)} つ在る（ブランチの名前で指す）"))
         return 1
     place, attrs = hits[0]
     if attrs.get("name") != name and place.get("branch") != name:
@@ -117,7 +117,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     # gh のアカウントは --task と同じ決め方（dispatch の設定の [[repos]] の gh_user を先に、無ければ会社の形の gh_user）
     repo = repo._replace(gh_user=role.gh_user(repo.gh_user, role.load(info.get("path"), info.get("text")))[0])
     gate = rules["gate"] or "-"
-    print(f"部署 {attrs.get('name') or name}（枝 {branch or '-'}）: 取り込み方 {rules['mode']}、関門 {gate}"
+    print(f"部署 {attrs.get('name') or name}（ブランチ {branch or '-'}）: 取り込み方 {rules['mode']}、ゲート {gate}"
           + (f"、版上げ {rules['bump']}" if rules["bump"] else ""))
     if rules["mode"] == "none":
         print("取り込みの決まりが none なので、何もしない（会社の形の [land] で決める）")
@@ -125,7 +125,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
     if dry_run:
         print("空打ち（--dry-run）: することを見立てるだけで、何も書かない・push しない・部署に頼まない")
     if not branch:
-        print("止めた: 部署が枝に乗っていない")
+        print("止めた: 部署がブランチに乗っていない")
         return 1
     try:
         provision.hide_claude_dir(source, g)   # 前の版で立てた部署にも、手元だけの無視の決まり（__pycache__/ など）を足す
@@ -136,7 +136,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         return 1
     try:
         main = rules["main"] or ports.default_branch(repo)
-        # gh の鍵は、GitHub を使う取り込み方（pr と CI の枝の関門）でだけ取り出す。手元の検証の関門なら GitHub を要さない
+        # gh の鍵は、GitHub を使う取り込み方（pr と CI のブランチのゲート）でだけ取り出す。手元の検証のゲートなら GitHub を要さない
         env = ports.gh_env(repo) if rules["mode"] == "pr" or rules["gate"] != land.GATE_CHECK else None
         head = g.rev(path, "HEAD")
         if dry_run:
@@ -152,7 +152,7 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         print(f"止めた: {e}")
         return 1
     if g.is_ancestor(source, head, base):
-        print(f"枝 {branch} はもう本流 {main} に入っている")
+        print(f"ブランチ {branch} はもうメインブランチ {main} に入っている")
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head)
     if not g.is_ancestor(source, base, head):
         head = _rebase_here(ports, place, path, branch, base, main, rules)
@@ -189,12 +189,12 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
         else:
             ref = land.gate_branch(rules["gate"], attrs.get("name") or name, branch)
             if ref in (main, branch):
-                raise ValueError(f"関門の枝 {ref} が本流か部署の枝と同じ名前になる（land.gate の頭を替える）")
+                raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
             if not land.ci_on(where, rules["gate"]):
-                raise ValueError(f"関門の枝 {ref} に push しても CI が起きない（.github/workflows のどれも "
+                raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
                                  f"{rules['gate'].split('*', 1)[0]} を書いていない）")
             land.publish(path, candidate, ref, g)   # push は部署の作業場から（下の advance と同じ訳）
-            print(f"関門に出した: {ref}（commit {candidate[:7]}）")
+            print(f"ゲートに出した: {ref}（commit {candidate[:7]}）")
             verdict = land.wait_gate(repo.repo, ref, candidate, ports.gh, env, pause)
             label = f"CI {ref}" + (f" {verdict['run'].get('url')}" if verdict.get("run") else "")
             points = ports.gh.run_failure(repo.repo, verdict["run"]["id"], land.FAIL_LINES, env=env) \
@@ -209,25 +209,25 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             except gitx.GitError as e:
                 print(f"注記: 一時の場所 {stage} を消せなかった（{e}）")
             shutil.rmtree(stage, ignore_errors=True)
-    print(f"関門（{label}）: {'緑' if verdict['result'] == 'green' else '赤'}")
+    print(f"ゲート（{label}）: {'緑' if verdict['result'] == 'green' else '赤'}")
     if verdict["result"] == "red":
         print(_ask(ports, place, land.red_text(branch, label, points)))
         return 1
     try:
         base = land.refresh(source, main, g)
     except gitx.GitError as e:
-        print(f"止めた: 本流を取り直せない（{e}）")
+        print(f"止めた: メインブランチを取り直せない（{e}）")
         return 1
     again = lambda: main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after)
     if not g.is_ancestor(source, base, candidate):
-        # 関門を回す間に本流が先に進んだ: 載せ直せれば、載せ直した枝で関門から回し直す
+        # ゲートを回す間にメインブランチが先に進んだ: リベースできれば、リベースしたブランチでゲートから回し直す
         return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
     try:
-        # push は部署の作業場から打つ。push の前の関所（core.hooksPath の相対の .githooks など）は git を打った作業場の物が走るので、
-        # 代表の clone が遅れていると古い関所が走り、本流の今の決まりで通るはずの push を止めた（2026-10-17 の my_notes。5d75df）
+        # push は部署の作業場から打つ。push の前のゲート（core.hooksPath の相対の .githooks など）は git を打った作業場の物が走るので、
+        # 代表の clone が遅れていると古いゲートが走り、メインブランチの今の決まりで通るはずの push を止めた（2026-10-17 の my_notes。5d75df）
         land.advance(path, main, candidate, g)
     except gitx.GitError as e:
-        # 断られた訳を、本流を取り直して分ける: 先に進んでいれば載せ直しを頼み、そうでなければ（枝の保護・認証など）止める
+        # 断られた訳を、メインブランチを取り直して分ける: 先に進んでいればリベースを頼み、そうでなければ（ブランチの保護・認証など）止める
         try:
             moved = not g.is_ancestor(source, land.refresh(source, main, g), candidate)
         except gitx.GitError:
@@ -236,57 +236,57 @@ def main(cfg, repo, name, ports, rows, reasons, config_path=None, pause=lambda: 
             try:
                 base = land.refresh(source, main, g)
             except gitx.GitError as e2:
-                print(f"止めた: 本流を取り直せない（{e2}）")
+                print(f"止めた: メインブランチを取り直せない（{e2}）")
                 return 1
             return again() if _rebase_here(ports, place, path, branch, base, main, rules) else 1
         else:
-            print(f"止めた: 本流 {main} への push が断られた（{e}）")
+            print(f"止めた: メインブランチ {main} への push が断られた（{e}）")
         return 1
     _, local, err, notes = _follow(source, main, g, candidate)
     for n in notes:
         print(n)
-    print(f"本流 {main} を {candidate[:7]} へ早送りして push した（手元の {main}: {local if err is None else f'そろえられなかった: {err}'}）")
+    print(f"メインブランチ {main} を {candidate[:7]} へ fast-forward して push した（手元の {main}: {local if err is None else f'そろえられなかった: {err}'}）")
     if local in LAGS:
         print(_tell_desk(source, info, main, candidate, local, err))
     if after and rules["after"]:
         for line in after(rules["after"], source, attrs):
             print(line)
     try:
-        # この部署が本流を知った位置を、入れた後の本流に進める（次の --land の関門は、ここより後にほかの部署が入れた行を見る）
+        # この部署がメインブランチを知った位置を、入れた後のメインブランチに進める（次の --land のゲートは、ここより後にほかの部署が入れた行を見る）
         provision.mark(path, source, {"base": candidate}, g)
     except (gitx.GitError, OSError) as e:
-        print(f"注記: 本流を知った位置（company.base）を書けなかった（{e}）。次の --land の書き換えの関門は前の位置で見る")
+        print(f"注記: メインブランチを知った位置（company.base）を書けなかった（{e}）。次の --land の書き換えのゲートは前の位置で見る")
     if rules["gate"] != land.GATE_CHECK:
         try:
             land.drop_gate(source, ref, g)
         except gitx.GitError as e:
-            print(f"注記: 関門の枝 {ref} を消せなかった（{e}）")
+            print(f"注記: ゲートのブランチ {ref} を消せなかった（{e}）")
     return _tidy(cfg, repo, ports, found, path, rows, reasons, candidate)
 
 
 def catch_up(source, info, main, g):
-    """代表の clone の手元の本流を、origin の本流の先頭へそろえる（--deliver の後）。--land の後のそろえと同じく、そろえられなければ
+    """代表の clone の手元のメインブランチを、origin のメインブランチの先頭へそろえる（--deliver の後）。--land の後のそろえと同じく、そろえられなければ
     窓口に台帳の知らせで渡す。部署が --land を通さずに手で push した成果も、代表の clone に届けるため（2026-10-17 の my_notes。
-    部署が git push origin HEAD:master で入れ、代表の clone の master が黙って遅れた。受付 d3f166）。取り直せなくても（手元の網の
-    誤りなど）、手元の origin/<本流>（部署の push が書き換える）までそろえる。出す行の並びを返す。"""
+    部署が git push origin HEAD:master で入れ、代表の clone の master が黙って遅れた。受付 d3f166）。取り直せなくても（手元のネットワークの
+    誤りなど）、手元の origin/<メインブランチ>（部署の push が書き換える）までそろえる。出す行の並びを返す。"""
     sha, local, err, out = _follow(source, main, g)
     if not sha:
         return out
     if local == "updated":
-        out.append(f"代表の clone の {main} を本流 {sha[:7]} へ進めた")
+        out.append(f"代表の clone の {main} をメインブランチ {sha[:7]} へ進めた")
     elif local in LAGS:
         out.append(_tell_desk(source, info, main, sha, local, err))
     return out
 
 
 def _follow(source, main, g, sha=None):
-    """本流を取り直し、代表の clone の手元の本流を sha（省けば取り直した origin/<本流> の先頭）へ早送りする。取り直せなくても、
-    sha か手元の origin/<本流> まではそろえる。(sha, 結果, 誤り, 注記の並び)。結果は gitx.advance_branch の値か FAILED。"""
+    """メインブランチを取り直し、代表の clone の手元のメインブランチを sha（省けば取り直した origin/<メインブランチ> の先頭）へ fast-forward する。取り直せなくても、
+    sha か手元の origin/<メインブランチ> まではそろえる。(sha, 結果, 誤り, 注記の並び)。結果は gitx.advance_branch の値か FAILED。"""
     notes = []
     try:
         land.refresh(source, main, g)
     except gitx.GitError as e:
-        notes.append(f"注記: 本流 {main} を取り直せなかった（{e}）。手元に在る本流の先頭まで代表の clone をそろえる")
+        notes.append(f"注記: メインブランチ {main} を取り直せなかった（{e}）。手元に在るメインブランチの先頭まで代表の clone をそろえる")
     sha = sha or g.rev(source, f"refs/remotes/origin/{main}")
     if not sha:
         return None, None, None, notes
@@ -297,23 +297,23 @@ def _follow(source, main, g, sha=None):
 
 
 def _tell_desk(source, info, main, candidate, local, err=None):
-    """代表の clone の本流を進められなかったことを、その会社の窓口（本社の --desk の会話）に台帳の知らせで渡す。窓口の会話のフックと
-    決まりは代表の clone の作業ツリーから読まれるので、進まないと本流に入れた物が窓口に効かない（5d75df）。出す行を返す。"""
-    why, fix = {"dirty": ("git merge --ff-only が断った（書きかけが本流の変更とぶつかるか、merge・rebase の途中など）",
+    """代表の clone のメインブランチを進められなかったことを、その会社の窓口（本社の --desk の会話）に台帳の知らせで渡す。窓口の会話のフックと
+    決まりは代表の clone の作業ツリーから読まれるので、進まないとメインブランチに入れた物が窓口に効かない（5d75df）。出す行を返す。"""
+    why, fix = {"dirty": ("git merge --ff-only が断った（書きかけがメインブランチの変更とぶつかるか、merge・rebase の途中など）",
                           f"書きかけを片付けるか commit してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
-                "local_only": (f"代表の clone の {main} に、本流に無い commit が有る",
-                               f"その commit を本流に入れるか別の枝に移してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
+                "local_only": (f"代表の clone の {main} に、メインブランチに無い commit が有る",
+                               f"その commit をメインブランチに入れるか別のブランチに移してから、代表の clone で git merge --ff-only origin/{main} を打つ"),
                 FAILED: (f"git が誤りを返した（{err}）",
                          f"代表の clone で git fetch origin {main} と git merge --ff-only origin/{main} を打つ")}[local]
     attrs = gitx.worktree_attrs(source)
     company = tree.company_name(source, info)
     to = wake.address(company, attrs["name"]) if attrs.get("name") else info.get("desk")   # 会社の形の desk: ほかの会社の窓口が兼ねる
     if not to:
-        return f"注記: 代表の clone の {main} を本流 {candidate[:7]} に進められなかった（{why}）。窓口が名付けられていないので知らせていない"
+        return f"注記: 代表の clone の {main} をメインブランチ {candidate[:7]} に進められなかった（{why}）。窓口が名付けられていないので知らせていない"
     seen = f"{local} {gitx.rev(source, f'refs/heads/{main}')}"
     if attrs.get("behind") == seen:
         return f"注記: 代表の clone の {main} を進められなかった（{why}）。同じ形は前に窓口へ知らせたので、知らせ直さない"
-    text = (f"知らせ（返事は要らない）: {company} の代表の clone（{source}）の {main} を本流 {candidate[:7]} に進められなかった（{why}）。"
+    text = (f"知らせ（返事は要らない）: {company} の代表の clone（{source}）の {main} をメインブランチ {candidate[:7]} に進められなかった（{why}）。"
             f"代表の clone の作業ツリーから読むフックと会社の形は前の版のまま。{fix}")
     try:
         far, _ = deliver.parse_target(to)
@@ -338,18 +338,18 @@ def _company_roots():
 
 
 def main_again(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, keep_removal, after):
-    """載せ直した枝で、--land を頭から回し直す（関門も書き換えの取り合いの関門も、載せ直した枝でもう一度通す）。"""
-    print("載せ直した枝で、関門から回し直す")
+    """リベースしたブランチで、--land を頭から回し直す（ゲートも書き換えの取り合いのゲートも、リベースしたブランチでもう一度通す）。"""
+    print("リベースしたブランチで、ゲートから回し直す")
     return main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, checker, False, keep_removal, after)
 
 
 def _rebase_here(ports, place, path, branch, base, main, rules):
-    """本流が先に進んだ部署の枝を、部署の場所で git の載せ直し（land.auto_rebase）で本流の上に載せ、origin の部署の枝にも出す。
-    載せ直した頭の commit を返す。git が機械で解けないぶつかりが残れば、載せ直しをやめて元の枝に戻し、部署の会話に載せ直しを
+    """メインブランチが先に進んだ部署のブランチを、部署の場所で git のリベース（land.auto_rebase）でメインブランチの上に載せ、origin の部署のブランチにも出す。
+    リベースした頭の commit を返す。git が機械で解けないぶつかりが残れば、リベースをやめて元のブランチに戻し、部署の会話にリベースを
     頼んで None（今までどおり）。部署の会話の手直しは、git の解けないぶつかりだけに要る（持ち主 2026-10-17「gitとかの機能で
     マージをできるだけ」）。"""
     if not ports.is_clean(path):
-        # 関門を待つ間に部署の会話が書いた（窓口から打った --land）。書きかけを載せ直しに巻き込まない
+        # ゲートを待つ間に部署の会話が書いた（窓口から打った --land）。書きかけをリベースに巻き込まない
         print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"])))
         return None
     try:
@@ -357,34 +357,34 @@ def _rebase_here(ports, place, path, branch, base, main, rules):
     except gitx.GitError as e:
         new, left = None, [f"（{e}）"]
     if new:
-        print(f"本流 {main} が先に進んでいたので、枝 {branch} を git で本流の上に載せ直した（{new[:7]}）"
+        print(f"メインブランチ {main} が先に進んでいたので、ブランチ {branch} を git でメインブランチの上にリベースした（{new[:7]}）"
               + (f"。注記: {'・'.join(left)}" if left else f"。origin の {branch} にも出した"))
         return new
-    print(f"本流 {main} が先に進んでいて、git で載せ直すとぶつかりが残った（{'・'.join(left)}）。載せ直しは元に戻した")
+    print(f"メインブランチ {main} が先に進んでいて、git でリベースするとぶつかりが残った（{'・'.join(left)}）。リベースは元に戻した")
     print(_ask(ports, place, land.rebase_text(branch, main, rules["bump"]) + f" ぶつかるファイル: {'・'.join(left)}"))
     return None
 
 
 def _overwrite_gate(ports, place, attrs, branch, main_sha, head, keep_removal, dry_run=False):
-    """書き換えの取り合いの関門。部署が本流を最後に知った位置（属性 company.base。--task が枝を作ったときと、この部署の --land の
-    後に書く）より後に、ほかの部署が本流へ入れた行を、部署の枝が消していれば止める文を返す（部署の窓に打ち込む。dry_run なら
-    打ち込まない）。通すなら None。位置の記録が無い部署（前の版で立てた部署）は見ずに注記だけを出す（今の本流との merge-base は、
-    載せ直した後の枝では本流の先頭になり、何も見つけないため）。"""
+    """書き換えの取り合いのゲート。部署がメインブランチを最後に知った位置（属性 company.base。--task がブランチを作ったときと、この部署の --land の
+    後に書く）より後に、ほかの部署がメインブランチへ入れた行を、部署のブランチが消していれば止める文を返す（部署の窓に打ち込む。dry_run なら
+    打ち込まない）。通すなら None。位置の記録が無い部署（前の版で立てた部署）は見ずに注記だけを出す（今のメインブランチとの merge-base は、
+    リベースした後のブランチではメインブランチの先頭になり、何も見つけないため）。"""
     since = attrs.get("base")
     if not since:
-        print("注記: この部署には本流を知った位置（company.base）の記録が無いので、書き換えの取り合いの関門は見ない"
+        print("注記: この部署にはメインブランチを知った位置（company.base）の記録が無いので、書き換えの取り合いのゲートは見ない"
               "（前の版で立てた部署。この --land の後から記録する）")
         return None
     try:
         hits = land.taken(place["path"], since, main_sha, head, ports.git)
     except gitx.GitError as e:
-        print(f"注記: 書き換えの取り合いの関門を見られなかった（{e}）")
+        print(f"注記: 書き換えの取り合いのゲートを見られなかった（{e}）")
         return None
     if not hits:
-        print(f"書き換えの取り合いの関門: 通った（{since[:7]} より後にほかの部署が入れた行を、この枝は消していない）")
+        print(f"書き換えの取り合いのゲート: 通った（{since[:7]} より後にほかの部署が入れた行を、このブランチは消していない）")
         return None
     if keep_removal:
-        print(f"書き換えの取り合いの関門: この枝はほかの部署が入れた {len(hits)} 行を消すが、--keep-removal で通す")
+        print(f"書き換えの取り合いのゲート: このブランチはほかの部署が入れた {len(hits)} 行を消すが、--keep-removal で通す")
         return None
     text = land.taken_text(branch, since, hits)
     if dry_run:
@@ -398,24 +398,24 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
     if rules["mode"] == "pr":
         if rules["bump"]:
             print("注記: 取り込み方 pr では版を上げない（版上げは PR の側で）")
-        print(f"する事: 部署の枝 {branch}（{head[:7]}）を origin に push し、本流 {main} への PR を出す")
+        print(f"する事: 部署のブランチ {branch}（{head[:7]}）を origin に push し、メインブランチ {main} への PR を出す")
         return 0
     try:
         base = g.remote_rev(source, main)
     except gitx.GitError as e:
-        print(f"止めた: origin の本流 {main} を読めない（{e}）")
+        print(f"止めた: origin のメインブランチ {main} を読めない（{e}）")
         return 1
     if base is None:
-        print(f"止めた: origin に本流 {main} が無い")
+        print(f"止めた: origin にメインブランチ {main} が無い")
         return 1
-    known = g.rev(source, base) is not None   # 手元に無い commit なら、本流は手元の知らない所へ進んでいる
-    print(f"本流 {main}: origin の先頭 {base[:7]}（origin に問い合わせて読んだ。手元の ref は取り直していない）")
+    known = g.rev(source, base) is not None   # 手元に無い commit なら、メインブランチは手元の知らない所へ進んでいる
+    print(f"メインブランチ {main}: origin の先頭 {base[:7]}（origin に問い合わせて読んだ。手元の ref は取り直していない）")
     if known and g.is_ancestor(source, head, base):
-        print(f"見立て: 枝 {branch} はもう本流 {main} に入っているので、片付けに進む")
+        print(f"見立て: ブランチ {branch} はもうメインブランチ {main} に入っているので、片付けに進む")
         return _tidy(cfg, repo, ports, found, path, rows, reasons, head, dry_run=True)
     if not (known and g.is_ancestor(source, base, head)):
-        print(f"見立て: 本流が部署の枝の祖先でないので、本当に打てば部署の場所で git で載せ直してから関門に出す（空打ちでは"
-              f"載せ直さないので、ここで止まる）。機械で解けないぶつかりが残れば、部署に頼む文:\n"
+        print(f"見立て: メインブランチが部署のブランチの祖先でないので、本当に打てば部署の場所で git でリベースしてからゲートに出す（空打ちでは"
+              f"リベースしないので、ここで止まる）。機械で解けないぶつかりが残れば、部署に頼む文:\n"
               f"{land.rebase_text(branch, main, rules['bump'])}")
         return 1
     stop = _overwrite_gate(ports, place, attrs or {}, branch, base, head, keep_removal, dry_run=True)
@@ -430,23 +430,23 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
             if plan:
                 print("上げる版: " + " / ".join(f"{r['name']} {r['old']} → {r['new']}（{r['level']}" + (f"。{r['why']}" if r.get("why") else "") + "）"
                                        for r in plan)
-                      + f" / marketplace {market[0]} → {market[1]}（一時の場所で、部署の枝の先頭の上に commit を足す）")
+                      + f" / marketplace {market[0]} → {market[1]}（一時の場所で、部署のブランチの先頭の上に commit を足す）")
             else:
                 print("上げる版: 無い（版の据え置きが無いので、版を上げる commit は作らない）")
         if rules["gate"] == land.GATE_CHECK:
-            print(f"関門: 手元の検証 {rules['check']} を、" + ("版を上げた一時の場所" if rules["bump"] else "部署の場所") + "で回す")
+            print(f"ゲート: 手元の検証 {rules['check']} を、" + ("版を上げた一時の場所" if rules["bump"] else "部署の場所") + "で回す")
         else:
             ref = land.gate_branch(rules["gate"], name, branch)
             if ref in (main, branch):
-                raise ValueError(f"関門の枝 {ref} が本流か部署の枝と同じ名前になる（land.gate の頭を替える）")
+                raise ValueError(f"ゲートのブランチ {ref} がメインブランチか部署のブランチと同じ名前になる（land.gate の頭を替える）")
             if not land.ci_on(path, rules["gate"]):
-                raise ValueError(f"関門の枝 {ref} に push しても CI が起きない（.github/workflows のどれも "
+                raise ValueError(f"ゲートのブランチ {ref} に push しても CI が起きない（.github/workflows のどれも "
                                  f"{rules['gate'].split('*', 1)[0]} を書いていない）")
-            print(f"関門: 候補の commit を枝 {ref} に push し、その run の結末を待つ（緑なら関門の枝を消す）")
+            print(f"ゲート: 候補の commit をブランチ {ref} に push し、その run の結末を待つ（緑ならゲートのブランチを消す）")
     except (gitx.GitError, bump.BumpError, OSError, ValueError) as e:
         print(f"止めた: {e}")
         return 1
-    print(f"緑なら: 本流をもう一度取り直し、まだ祖先なら本流 {main} を候補へ早送りして push する。赤なら失敗の要点を部署に頼む")
+    print(f"緑なら: メインブランチをもう一度取り直し、まだ祖先ならメインブランチ {main} を候補へ fast-forward して push する。赤なら失敗の要点を部署に頼む")
     if rules["after"]:
         print("入れた後の合図: " + "、".join(f"{x['role']}/{x['tool']}" for x in rules["after"]) + " を呼ぶ（片づかなければ AI に回す）")
     return _tidy(cfg, repo, ports, found, path, rows, reasons, head, dry_run=True)
@@ -478,15 +478,15 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
         print("部署を片付けた" if got["removed"] else f"部署を片付けられなかった: {got['detail']}")
         code = 0 if got["removed"] else 1
     elif row["reason"] == "resident":
-        # 常設の部署は作業場を残す。入れた枝は、部署が次の頼みで枝を移った後に消す（sweep_branches）ので、枝と入れた commit を書く
-        later = "入れた枝は、部署が次の枝に移った後の --land か --clean --apply が消す"
+        # 常設の部署は作業場を残す。入れたブランチは、部署が次の頼みでブランチを移った後に消す（sweep_branches）ので、ブランチと入れた commit を書く
+        later = "入れたブランチは、部署が次のブランチに移った後の --land か --clean --apply が消す"
         if row["branch"]:
             try:
-                # 書くのは部署の枝の先頭（版を上げる commit は本流の側にだけ在り、部署の枝の先頭と違う）
+                # 書くのは部署のブランチの先頭（版を上げる commit はメインブランチの側にだけ在り、部署のブランチの先頭と違う）
                 landed_map = {**clean.landed_of(ports.attrs(path)), row["branch"]: ports.git.rev(path, "HEAD")}
                 provision.mark(path, repo.source, {clean.LANDED_BRANCHES: json.dumps(landed_map, ensure_ascii=False)}, ports.git)
             except (gitx.GitError, OSError) as e:
-                later = f"入れた枝を書けなかった（{e}）ので、手元の枝 {row['branch']} は手で消す"
+                later = f"入れたブランチを書けなかった（{e}）ので、手元のブランチ {row['branch']} は手で消す"
         print(f"部署は残した（{reasons[row['reason']]}）。{later}")
         code = 0
     else:
@@ -513,23 +513,23 @@ def _tidy(cfg, repo, ports, found, path, rows, reasons, landed, dry_run=False):
     return code
 
 
-SWEEP_SAID = {"deleted": "消した", "open": "まだ開いている（部署が次の枝に移った後に消す）", "would": "消せる",
+SWEEP_SAID = {"deleted": "消した", "open": "まだ開いている（部署が次のブランチに移った後に消す）", "would": "消せる",
               "moved": "入れた後に commit が有るので消さず、記録から外した", "failed": "git が断った（次に回す）"}
 
 
 def sweep_branches(repo, ports, found, apply):
-    """常設の部署が入れ終えた前の手元の枝を消し（clean.sweep_landed）、残す物を属性に書き戻す。出す行の並び。"""
+    """常設の部署が入れ終えた前の手元のブランチを消し（clean.sweep_landed）、残す物を属性に書き戻す。出す行の並び。"""
     rows = clean.sweep_landed(found, ports.attrs, repo.source, apply, ports.git)
     out, written = [], set()
     for r in rows:
         if r["status"] != "open":
-            out.append(f"常設の部署 {r['name'] or r['path']} の入れ終えた枝 {r['branch']}: {SWEEP_SAID[r['status']]}")
+            out.append(f"常設の部署 {r['name'] or r['path']} の入れ終えたブランチ {r['branch']}: {SWEEP_SAID[r['status']]}")
         if apply and r["path"] not in written and clean.landed_of(ports.attrs(r["path"])) != r["keep"]:
             written.add(r["path"])
             try:
                 provision.mark(r["path"], repo.source,
                                {clean.LANDED_BRANCHES: json.dumps(r["keep"], ensure_ascii=False) if r["keep"] else None}, ports.git)
             except (gitx.GitError, OSError) as e:
-                out.append(f"常設の部署 {r['name'] or r['path']} の入れた枝の記録を書き戻せなかった（{e}）")
+                out.append(f"常設の部署 {r['name'] or r['path']} の入れたブランチの記録を書き戻せなかった（{e}）")
     return out
 

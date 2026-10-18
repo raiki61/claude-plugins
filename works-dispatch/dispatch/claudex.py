@@ -4,7 +4,7 @@
 開いている会話は `claude agents --json` で読む。Claude Code の文書は、これを外から会話の状態を読む公式の口としている。
 返る 1 件の形は、2026-10-14 に 2.1.299 で見た `{"pid", "cwd", "kind", "startedAt", "sessionId", "name", "status"}`。
 アカウントごとの一覧は、そのアカウントの設定のフォルダを CLAUDE_CONFIG_DIR に入れて呼ぶ。
-起こすのはシェルの関数ではなく PATH の claude の実体（subprocess はシェルを通らない）。一覧を読むだけなので、認証のラッパは要らない。
+起動するのはシェルの関数ではなく PATH の claude の実体（subprocess はシェルを通らない）。一覧を読むだけなので、認証のラッパは要らない。
 """
 
 import json
@@ -47,7 +47,7 @@ def sessions(config_dir, runner=_default_runner, base_env=None, include_done=Fal
     return listed
 
 
-# Claude Code の Bash の道具が起こすシェルの印（コマンドの頭で、会話ごとのシェルの写しを読み込む。2026-10-17 に 2.1.301 で見た）
+# Claude Code の Bash のツールが起動するシェルの印（コマンドの頭で、会話ごとのシェルの写しを読み込む。2026-10-17 に 2.1.301 で見た）
 SNAPSHOT = "/shell-snapshots/snapshot-"
 
 
@@ -57,9 +57,9 @@ def _is_claude(command):
 
 
 def background_shells(me=None, runner=_default_runner):
-    """このフックを起こした Claude Code の会話が、裏で走らせている Bash（run_in_background）の数。分からなければ None。
+    """このフックを起動した Claude Code の会話が、裏で走らせている Bash（run_in_background）の数。分からなければ None。
     Stop フックの入力に裏の処理の一覧（background_tasks）の無い版のための代わり（一覧が在れば orders.in_flight がそちらを使う）。
-    番が終わった時に会話のプロセスの子に残っている Bash の道具のシェル（コマンドに SNAPSHOT を含む）を数える。番の終わりには前で走らせた Bash は
+    ターンが終わった時に会話のプロセスの子に残っている Bash のツールのシェル（コマンドに SNAPSHOT を含む）を数える。ターンの終わりには前で走らせた Bash は
     終わっているので、残っているのは裏の物。プロセスの一覧は ps で読むので、ps の無い Windows では None。"""
     if os.name == "nt":
         return None
@@ -83,7 +83,7 @@ def background_shells(me=None, runner=_default_runner):
 
 def trust_file(config_dir, env):
     """Claude Code がフォルダの信頼を記録するファイル（全体の設定のファイル .claude.json）。
-    CLAUDE_CONFIG_DIR を入れて起こすなら <そのフォルダ>/.claude.json、入れなければ ~/.claude.json
+    CLAUDE_CONFIG_DIR を入れて起動するなら <そのフォルダ>/.claude.json、入れなければ ~/.claude.json
     （2026-10-14 に手元の 4 アカウントで、信頼したフォルダの記録がこの形で分かれているのを見た）。"""
     folder = config_dir or env.get("CLAUDE_CONFIG_DIR")
     if folder:
@@ -126,8 +126,8 @@ def inherit_trust(path_of_file, source, clone, vouchers=()):
     どこかで一度信頼したリポジトリは、アカウントを替えても確認を出さない。2026-10-17 に p3 が元の clone の印を持たず、作業場ごとに
     確認が出た）。どのアカウントも信頼していない元には付けない（確認は、知らないリポジトリの設定やフックが動くのを止める安全の確認）。
 
-    Claude Code の文書は、確認を出さずに信頼する手として、.claude.json の projects["<リポジトリの根>"].hasTrustDialogAccepted を
-    true にすることを書いている。信頼はリポジトリの根ごとで、親のフォルダの信頼は中の checkout に効かない。
+    Claude Code の文書は、確認を出さずに信頼する手として、.claude.json の projects["<リポジトリのルート>"].hasTrustDialogAccepted を
+    true にすることを書いている。信頼はリポジトリのルートごとで、親のフォルダの信頼は中の checkout に効かない。
     同じアカウントのほかの会話もこのファイルを書くので、一時ファイルに書いてから差し替える（壊さない）。
     ほかの会話が古い中身で上書きして印が消えても、確認がふつうに出るだけで済む。"""
     try:
@@ -169,9 +169,9 @@ def inherit_trust(path_of_file, source, clone, vouchers=()):
 
 
 def catchup_commands(config_dir):
-    """そのアカウントで /catchup を受ける命令の名前（例 /attention:catchup）を、入っているプラグインから組み立てて返す。
+    """そのアカウントで /catchup を受けるコマンドの名前（例 /attention:catchup）を、入っているプラグインから組み立てて返す。
 
-    プラグインの命令は「/<plugin.json の名前>:<命令のファイル名>」で呼ぶ。人が画面で /catchup と打つと補完がプラグイン名を足すが、
+    プラグインのコマンドは「/<plugin.json の名前>:<コマンドのファイル名>」で呼ぶ。人が画面で /catchup と打つと補完がプラグイン名を足すが、
     herdr は文字をそのまま送るので、名前を組み立てて送る。プラグイン名を固定の文字で持たず、commands/catchup.md を持つものを探す。
     数えるのはアカウント全体に入れたもの（scope が user）だけ。project の入れ方は、その projectPath の中の会話にしか効かない。
     """
@@ -199,7 +199,7 @@ def catchup_commands(config_dir):
 
 
 def is_trusted(path_of_file, folder):
-    """そのアカウントがフォルダ（リポジトリの根）を信頼済みか。ファイルが読めなければ偽。"""
+    """そのアカウントがフォルダ（リポジトリのルート）を信頼済みか。ファイルが読めなければ偽。"""
     try:
         with open(path_of_file, encoding="utf-8") as f:
             projects = json.load(f).get("projects") or {}
@@ -213,7 +213,7 @@ TASK_FLAGS = ("--name", "--bg", "--settings")
 
 def missing_flags(runner=_default_runner, flags=TASK_FLAGS):
     """PATH の claude の `claude --help` に無い旗の並び。部署（--task）は、会話に名前を付け（--name。SendMessage の宛先になる）、
-    裏の会話として起こし（--bg）、その会話にだけ効く設定を渡す（--settings）。起こせなければ全部。"""
+    裏の会話として起動し（--bg）、その会話にだけ効く設定を渡す（--settings）。起動できなければ全部。"""
     try:
         p = runner(["claude", "--help"])
     except OSError:
@@ -242,14 +242,14 @@ def remove_session(config_dir, session_id, runner=_default_runner, base_env=None
 
 def stop_session(config_dir, job, runner=_default_runner, base_env=None):
     """そのアカウントの裏の会話を止める（`claude stop <id>`。会話の記録は残り、attach で戻せる）。書く口。(止まったか, claude の言葉)。
-    窓に attach の画面が開いたままだと、attach が会話を起こし直すので、先に窓をシェルに戻す（launch.to_shell）。"""
+    窓に attach の画面が開いたままだと、attach が会話を再開させるので、先に窓をシェルに戻す（launch.to_shell）。"""
     p = runner(["claude", "stop", job], env=_env(config_dir, base_env))
     return p.returncode == 0, ((p.stdout or "") + (p.stderr or "")).strip()[:500]
 
 
 def job_tmp(config_dir, session_id, env=None):
     """裏の会話の一時の置き場（<設定のフォルダ>/jobs/<短い id>/tmp）。会話が残すと書いた物もここに在り、claude rm は会話と一緒に
-    ここも消す（2026-10-17 に 2.1.301 で、--clean が消した部署の測りの道具がここと一緒に消えた）。設定のフォルダの決め方は
+    ここも消す（2026-10-17 に 2.1.301 で、--clean が消した部署の測りのツールがここと一緒に消えた）。設定のフォルダの決め方は
     trust_file と同じ（config_dir、無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude）。"""
     env = os.environ if env is None else env
     folder = config_dir or env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
@@ -290,7 +290,7 @@ def ancestors(runner=_default_runner, pid=None):
 
 
 def running_claude(pid, runner=_default_runner):
-    """その番号の処理が今動いている Claude Code か（ps -p で命令を読む。番号が使い回されたほかの処理は数えない）。ps が通らない所
+    """その番号の処理が今動いている Claude Code か（ps -p でコマンドを読む。番号が使い回されたほかの処理は数えない）。ps が通らない所
     （Windows）では分からないので False。"""
     if not str(pid or "").isdigit():
         return False
@@ -312,7 +312,7 @@ def _elapsed(text):
 
 
 def host(runner=_default_runner, me=None, now=None):
-    """このフックを起こした Claude Code の会話の (処理の番号, 起きた時刻〔秒〕)。分からなければ (None, None)。
+    """このフックを起動した Claude Code の会話の (処理の番号, 起きた時刻〔秒〕)。分からなければ (None, None)。
     起きた時刻は ps の etime（起きてからの時間）から出す（ps の lstart は言語の設定で字が替わるので読まない）。ps の無い Windows では
     (None, None)。"""
     if os.name == "nt":
@@ -365,10 +365,10 @@ def caller_pid(listed, session_id, ancestors=()):
 
 
 def caller(listed, session_id, ancestors=()):
-    """呼んだ会話（この命令を走らせている Claude Code の会話）の (アカウントの名, 会話の名前)。見つからなければ (None, None)。
+    """呼んだ会話（このコマンドを走らせている Claude Code の会話）の (アカウントの名, 会話の名前)。見つからなければ (None, None)。
 
-    listed は アカウントの名 → そのアカウントの `claude agents --json` の並び。session_id は Claude Code が Bash の道具の子に渡す
-    CLAUDE_CODE_SESSION_ID（文書は、フックに渡す session_id と同じ値で、外の道具と会話を結ぶのに使うと書く）。一覧はアカウントの
+    listed は アカウントの名 → そのアカウントの `claude agents --json` の並び。session_id は Claude Code が Bash のツールの子に渡す
+    CLAUDE_CODE_SESSION_ID（文書は、フックに渡す session_id と同じ値で、外のツールと会話を結ぶのに使うと書く）。一覧はアカウントの
     設定のフォルダごとなので、その識別子が載っている一覧のアカウントが、呼んだ会話のアカウントである。同じ識別子が複数並ぶときの
     選び方は latest。"""
     if not session_id:

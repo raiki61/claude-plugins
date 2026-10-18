@@ -1,6 +1,6 @@
 """dispatch の設定（TOML）を読む。持ち主の環境の値（アカウント・起動のコマンド・置き場）はここから入り、コードには書かない（設計書 D6）。
 
-置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works-dispatch/dispatch.toml の順。形は設計書 5 節。
+置き場は、引数 → 環境変数 WORKS_DISPATCH_CONFIG → ~/.config/works-dispatch/dispatch.toml の順。形は設計書のセクション 5。
 知らない鍵は読み飛ばす（前の版の clone_root が残っていても止めない）。
 外した鍵のうち、書いた人の思う動きと違ってしまう物（task_cwd）は、止めずに注記（Config.notes）を出して無視する。
 アカウントを書かなければ、`claude` 1 つだけのアカウントとして扱う（D7。普通の利用者の環境でもそのまま動く）。
@@ -28,7 +28,7 @@ class ConfigError(Exception):
 
 class Account(NamedTuple):
     name: str  # 使用率の控えのファイル名（<limits_dir>/<name>.json）
-    command: str  # そのアカウントで Claude Code を起こすシェルのコマンド
+    command: str  # そのアカウントで Claude Code を起動するシェルのコマンド
     config_dir: str | None = None  # Claude Code の設定のフォルダ。None は既定のフォルダ
     keychain_service: str | None = None  # 鍵を置いた Keychain の項目の名前。None は共通の決まり（scripts/claude_auth.py）で探す
     limits: bool = True  # 使用率の枠があるか。false は Ollama・Foundry のような枠の無いアカウントで、控えを読まず使用率で外さない
@@ -37,7 +37,7 @@ class Account(NamedTuple):
 class Repo(NamedTuple):
     repo: str  # OWNER/NAME
     second_prompt: str  # 2 ターン目の文（second_prompt_file の中身）
-    source: str  # 元の clone。枝ごとの worktree はここから作る（置き場は herdr の worktrees.directory）
+    source: str  # 元の clone。ブランチごとの worktree はここから作る（置き場は herdr の worktrees.directory）
     copy_files: tuple[str, ...] = ()  # git が追わない手元だけのファイル（リポジトリの中の相対パス）
     copy_from: str | None = None  # copy_files を写す元のフォルダ。None は元の clone
     gh_user: str | None = None  # このリポジトリを読む gh のアカウント。None はその人の今の設定（有効なアカウントか GH_TOKEN）
@@ -147,8 +147,8 @@ def load(path=None, env=os.environ, missing_ok=False):
             problems.append(f"{where}: gh_user が文字列で無い")
             gh_user = None
         if "task_cwd" in r:
-            # 作業役は自分の作業場で起こす（その会社の AGENTS.md・CLAUDE.md とフックを効かせるため。会社の形の設計 4.1）
-            notes.append(f"{where}（{name}）: task_cwd は使わなくなったので無視した（作業役は自分の作業場で起こす）。設定から消してよい")
+            # サブエージェントは自分の作業場で起動する（その会社の AGENTS.md・CLAUDE.md とフックを効かせるため。会社の形の設計 4.1）
+            notes.append(f"{where}（{name}）: task_cwd は使わなくなったので無視した（サブエージェントは自分の作業場で起動する）。設定から消してよい")
         repos.append(Repo(name, prompt, _path(source) if source else None, tuple(copy),
                           _path(copy_from) if copy_from else None, gh_user or None))
     if problems:
@@ -173,7 +173,7 @@ def pick_repo(cfg, name):
 
 
 def repo_at(cfg, root, origin):
-    """代表の clone の根 root の repo。設定の [[repos]] に source がその根の物が有ればそれ、無ければその根を代表の clone とする
+    """代表の clone のルート root の repo。設定の [[repos]] に source がそのルートの物が有ればそれ、無ければそのルートを代表の clone とする
     最小の repo（名前は origin の OWNER/NAME、無ければフォルダの名前。gh_user などは会社の形から読む）。部署の回の選び方。"""
     for r in cfg.repos:
         if r.source and os.path.realpath(r.source) == os.path.realpath(root):

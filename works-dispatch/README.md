@@ -68,7 +68,7 @@ From setting up one department and asking it something, until the summary comes 
 
    In herdr, the workspace and the screen (a pane showing the department's session) for the department 「試し」 open, and the department's session receives the request and starts working. The front desk does not have to wait and can go on to other work.
 
-6. When it is done, the department writes its summary under the headings 「結論・決め手・残った疑問・枝」 ("conclusion, deciding reason, remaining questions, branch") and returns it. One line, `納品です（受付 …、試し・枝 try/first から）: 【結論】…` ("Delivery (request …, from 試し, branch try/first): [conclusion] …"), is typed into the front desk's screen. The full text stays in the clone's `.git/company/inbox/`.
+6. When it is done, the department writes its summary under the headings 「結論・決め手・残った疑問・ブランチ」 ("conclusion, deciding reason, remaining questions, branch") and returns it. One line, `納品です（受付 …、試し・ブランチ try/first から）: 【結論】…` ("Delivery (request …, from 試し, branch try/first): [conclusion] …"; `試し` is the department name given with `--task` in step 5, and `try/first` is the git branch given with `--branch`), is typed into the front desk's screen. The full text stays in the clone's `.git/company/inbox/`.
 
 7. Clean up the department. `--clean` lists the departments that can be removed, and `--clean --apply` removes them. Departments whose session is still running are listed as 「残す」 ("keep") with the reason (the conditions for removal are in the `--clean` item of [references/clean.md](skills/dispatch/references/clean.md)).
 

@@ -1,4 +1,4 @@
-"""tiers_check の試験。外の道具は起こさず、Probe の偽物で答える。"""
+"""tiers_check の試験。外のツールは起動せず、Probe の偽物で答える。"""
 
 import io
 import json
@@ -13,7 +13,7 @@ import tiers_check  # noqa: E402
 
 
 class FakeProbe:
-    """have: 在る命令の名前。runs: (命令の名前, 引数の頭) → (終了コード, 出力)。shell: シェルで見つかる命令。"""
+    """have: 在るコマンドの名前。runs: (コマンドの名前, 引数の頭) → (終了コード, 出力)。shell: シェルで見つかるコマンド。"""
 
     def __init__(self, have=("claude", "gh", "herdr", "archon"), runs=None, shell=("claude",), platform="linux"):
         self.have = set(have)
@@ -79,12 +79,12 @@ class Tiers(unittest.TestCase):
 
     def test_launchers_are_looked_up_in_the_shell(self):
         r = tiers_check.check(2, ["claude-a", "claude-b"], probe=FakeProbe(shell=("claude-a",)))
-        self.assertEqual(names(r, ok=False), ["起こし方の命令 claude-b"])
+        self.assertEqual(names(r, ok=False), ["起動コマンド claude-b"])
         self.assertIn("claude-a", names(r, ok=True)[-1])
 
     def test_without_launchers_claude_is_looked_up(self):
         r = tiers_check.check(2, probe=FakeProbe(shell=()))
-        self.assertEqual(names(r, ok=False), ["起こし方の命令 claude"])
+        self.assertEqual(names(r, ok=False), ["起動コマンド claude"])
 
     def test_missing_herdr_guides_install_for_the_os_and_the_claude_link(self):
         for platform, words in (("win32", ("ARM64", "install.cmd", "herdr-windows-x86_64.zip", "$env:CLAUDE_CONFIG_DIR")),
@@ -142,7 +142,7 @@ class Main(unittest.TestCase):
     def test_human_lines_show_fix_and_how_to_rerun(self):
         rc, out = self.run_main(["--tier", "2", "--launcher", "claude-x"], FakeProbe(shell=()))
         self.assertEqual(rc, 1)
-        self.assertIn(" NG  段 2 起こし方の命令 claude-x", out)
+        self.assertIn(" NG  段 2 起動コマンド claude-x", out)
         self.assertIn("入れ方（手で）", out)
         self.assertIn("tiers --tier 2 --launcher claude-x", out)
 
@@ -166,7 +166,7 @@ class Main(unittest.TestCase):
         self.assertIn("0〜3", out)
 
     def test_entry_in_bin_runs_with_the_python(self):
-        # bin/tiers は拡張子の無い Python の台本。Windows でも同じ解釈系で起こせる（外の道具は起こさない: 使い方の誤りで終わる）
+        # bin/tiers は拡張子の無い Python の台本。Windows でも同じ解釈系で起動できる（外のツールは起動しない: 使い方の誤りで終わる）
         p = subprocess.run([sys.executable, str(HERE.parent / "bin" / "tiers"), "--tier", "9"],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(p.returncode, 2, p.stdout + p.stderr)

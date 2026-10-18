@@ -1,6 +1,6 @@
 """VS Code への口。dispatch が送り終えた PR の /catchup のページを、生きている VS Code の窓にタブで開く。
 
-dispatch は会話を何件も一度に起こすので、起こした会話には /catchup のページを開かせない（launch の
+dispatch は会話を何件も一度に起動するので、起動した会話には /catchup のページを開かせない（launch の
 ATTENTION_CATCHUP_OPEN=0）。その代わり、全件を送り終えた後にここで 1 回だけ、送った件のページを開く。
 ページの置き場は attention の /catchup の決まり（~/.cache/attention/catchup/<owner>-<name>/<番号>.html）で、
 attention の中は読まない（vendor の決まり）。書かれていないページは開かない。

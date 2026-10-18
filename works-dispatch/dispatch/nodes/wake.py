@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""wake ノード: 頼みと納品の知らせを、宛先の会話の待ち受けで起こして届け、部署の順番待ちを持つ（受付の設計
-docs/specs/2026-10-17-reception-design.md の 3・4 章）。人の打つ入力欄に字を打ち込まない。
+"""wake ノード: 頼みと納品の知らせを、宛先の会話の待ち受けで起動して届け、部署の順番待ちを持つ（受付の設計
+docs/specs/2026-10-17-reception-design.md の 3・4 章）。人の打つ入力フィールドに字を打ち込まない。
 
-- 待ち受け（watch）: 部署と窓口の会話の番の終わり・始まりに、Claude Code のフック（asyncRewake）が裏で起こす台本（入口は
+- 待ち受け（watch）: 部署と窓口の会話のターンの終わり・始まりに、Claude Code のフック（asyncRewake）が裏で起動する台本（入口は
   wake_hook.py）。その場所の会社の受付箱の台帳（log.jsonl）を前に読んだ所から先だけ見る。宛先が自分の知らせの行が在れば、
   納品（kind deliver）はその 1 行を、順番待ち（kind queued）は入口の check が渡す頼みを stderr に出して 2 で終わる。宛先違いの行は
   会話に渡さない。
@@ -10,7 +10,7 @@ docs/specs/2026-10-17-reception-design.md の 3・4 章）。人の打つ入力�
   知らせ（ほかの行の to は、宛先の中身を持つ辞書）。
 - 印: 待ち受けは受付箱の wake/<場所の鍵>.json に {names, session, owner, pid, token, place, since} を書き、動いている間は BEAT 秒
   ごとに更新の時刻を進める。送る側は、宛先の名前を持つ印の会話が生きていれば（alive。POSIX は owner の処理が在る、Windows は
-  更新が FRESH 秒以内）知らせの行を足す（listening）。番の途中で待ち受けが居なくても、番の終わりに張り直した待ち受けが読む。
+  更新が FRESH 秒以内）知らせの行を足す（listening）。ターンの途中で待ち受けが居なくても、ターンの終わりに張り直した待ち受けが読む。
   会話が終わると Claude Code は待ち受けに TERM を送るので、入口は印を消して終わる（release）。
 - 1 つの場所に待ち受けは 1 つ: 新しい待ち受けが印の token を書き替え、前の待ち受けはそれを見て 0 で終わる。新しい物は GRACE 秒
   待ってから台帳を読み始める（前の物が読み終えた所から続ける）。読んだ所は wake/<場所の鍵>.pos（台帳の何バイト目まで）。初めての
@@ -38,17 +38,17 @@ GRACE = 2.0         # 新しい待ち受けが、前の待ち受けが終わる�
 KINDS = {"ask": "頼み", "deliver": "納品", "queued": "頼み", "note": "頼みの足し"}
 HOLD = ("hold", None)  # check の返り: 今は渡さず、BEAT ごとに check を呼び直す（fresh の部署を空にできるまで待つ）
 QUEUED = "queued"   # 順番待ちに積んだ知らせの種類（待ち受けは check で渡す頼みを決める）
-NOTE = "note"       # 今受けている頼みへの足し（--note）。納品と同じに text をそのまま渡す（番の途中なら、番の終わりの待ち受けが渡す）
+NOTE = "note"       # 今受けている頼みへの足し（--note）。納品と同じに text をそのまま渡す（ターンの途中なら、ターンの終わりの待ち受けが渡す）
 REST = "rest"       # 部署と窓口の属性 company.rest: 会話が自分で「今は空にしてよい区切り」と印した（--rest）。値は印した時の会話の id。
-                    # 番の終わりの待ち受けが窓に /clear を打って消す。人の文で番が始まると外れる
+                    # ターンの終わりの待ち受けが窓に /clear を打って消す。人の文でターンが始まると外れる
 FINISHED = "finished"   # 都度の部署の属性 company.finished: 会話が自分で「終わった、片付けてよい」と印した（--done）。値は印した時の
-                        # 会話の id。番の終わりの待ち受けが印を外して --retire を裏で走らせる。人の文で番が始まると外れる
+                        # 会話の id。ターンの終わりの待ち受けが印を外して --retire を裏で走らせる。人の文でターンが始まると外れる
 RETIRE_KEPT = "retire-kept"   # 部署の属性: --retire が片付けずに残した訳（--clean の一覧に出す）
-LAUNCHED = "launched"   # 部署と窓口の属性: 起こしたときの会社の形の model・effort・起動の設定（role.launch_key の字。--task と --move が書く）
-LAUNCHING = "launching"   # 窓口の属性: --move が company.launched を書いて起こした会話が、まだ --desk を打っていない（--desk が外す）
+LAUNCHED = "launched"   # 部署と窓口の属性: 起動したときの会社の形の model・effort・起動の設定（role.launch_key の字。--task と --move が書く）
+LAUNCHING = "launching"   # 窓口の属性: --move が company.launched を書いて起動した会話が、まだ --desk を打っていない（--desk が外す）
 RESTARTING = "restarting"   # 部署と窓口の属性: 待ち受けが --move --if-changed を走らせている間、その会話の id（--move が前の会話を止めたら外す）
-RESTART_KEPT = "restart-kept"   # 部署と窓口の属性: 起こし直さずに残した今の値（role.launch_key の字）。同じ値では起こし直しを試し直さない
-# --move --if-changed が「今は起こし直さない」で終わる値（会話が番の途中・入力欄に打ちかけの字）。訳がすぐ替わるので、待ち受けは
+RESTART_KEPT = "restart-kept"   # 部署と窓口の属性: 起動し直さずに残した今の値（role.launch_key の字）。同じ値では起動し直しを試し直さない
+# --move --if-changed が「今は起動し直さない」で終わる値（会話がターンの途中・入力フィールドに打ちかけの字）。訳がすぐ替わるので、待ち受けは
 # 今の値を RESTART_KEPT に残さず、次の区切りで試し直す。sysexits の EX_TEMPFAIL（https://man.freebsd.org/cgi/man.cgi?query=sysexits ）
 NOT_NOW = 75
 
@@ -179,7 +179,7 @@ def alive(mark, now=None, posix=os.name != "nt"):
 
 
 def watching(inbox, place, now=None, posix=os.name != "nt"):
-    """その場所の待ち受けの台本そのものが動いているか（alive は印の会話を見る。待ち受けが会話を起こして終わった後も、会話が生きて
+    """その場所の待ち受けの台本そのものが動いているか（alive は印の会話を見る。待ち受けが会話を再開させて終わった後も、会話が生きて
     いれば alive は真のまま）。POSIX は印を書いた待ち受けの処理（pid）が在るか、Windows は印の更新が FRESH 秒以内か。"""
     try:
         mtime = os.stat(mark_path(inbox, place)).st_mtime
@@ -195,11 +195,11 @@ def watching(inbox, place, now=None, posix=os.name != "nt"):
 
 def stalled(inbox, place, attrs, now=None, posix=os.name != "nt"):
     """順番待ちが渡されずに止まっているか: 順番待ちが在り、部署は今の頼みを納品済み（か頼みが無い）なのに、渡す待ち受けが動いて
-    いない。待ち受けは番の終わりに張られるので、会話が番を終えて止まったまま待ち受けが居なければ、次の番が来るまで誰も渡さない
+    いない。待ち受けはターンの終わりに張られるので、会話がターンを終えて止まったまま待ち受けが居なければ、次のターンが来るまで誰も渡さない
     （2026-10-17 に my_notes のノートの手入れで約 70 分止まった）。"""
     held = attrs.get("ask")
     if held and attrs.get("delivered") != held:
-        return False   # 今の頼みの番の終わりに待ち受けが張られる
+        return False   # 今の頼みのターンの終わりに待ち受けが張られる
     return bool(queued(inbox, place)) and not watching(inbox, place, now, posix)
 
 
@@ -365,7 +365,7 @@ def notice(to, ask_id, kind, file, text, now):
 
 def mine(record, names):
     """宛先が自分の知らせか。知らせは to が字で、種類が知らせの種類（KINDS。頼み・納品・順番待ち・足し）の行だけ（記録の行に字の
-    to を書いても、空の知らせで会話を起こさない）。"""
+    to を書いても、空の知らせで会話を再開させない）。"""
     return isinstance(record.get("to"), str) and record["to"] in names and record.get("kind") in KINDS
 
 
@@ -428,11 +428,11 @@ def _read_pos(inbox, place):
 def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=time.sleep, parent=os.getppid, check=None,
           ready=None):
     """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
-    owner は待ち受けを起こした会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
-    check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに呼ぶ関数で、("wake", 字)（その字で会話を起こす）・
+    owner は待ち受けを起動した会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
+    check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに呼ぶ関数で、("wake", 字)（その字で会話を再開させる）・
     ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。
     ready は会話が字を受けられるかを返す関数（None なら常に受けられる）。受けられない間は、印を張ったまま台帳を読まず check も
-    呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起こす）。"""
+    呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起動する）。"""
     claim(inbox, place, names, session, owner, token, now())
     pause(GRACE)
     log = os.path.join(inbox, LOG)
@@ -470,7 +470,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         if size > pos:
             records, pos = read_new(log, pos)
             hits = [r for r in records if mine(r, names)]
-            _replace(pos_path(inbox, place), str(pos))   # 出す前に進める（同じ行で 2 度起こさない）
+            _replace(pos_path(inbox, place), str(pos))   # 出す前に進める（同じ行で 2 度起動しない）
             said = [r for r in hits if r.get("kind") != QUEUED]
             verdict = check() if check and len(said) < len(hits) else None
             holding = holding or verdict == HOLD
@@ -494,7 +494,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         pause(POLL)
 
 
-# 会話から切り離して命令を走らせる殻（POSIX）。外の sh はすぐ終わり、中の ( … ) & は親を失って init の子になる。会話の処理を止めると
+# 会話から切り離してコマンドを走らせる殻（POSIX）。外の sh はすぐ終わり、中の ( … ) & は親を失って init の子になる。会話の処理を止めると
 # Claude Code はフックの子孫も止めるので、フックの子のまま走らせた --move は、自分が止めた前の会話と一緒に止まり、何も書かずに消えた
 # （2026-10-17 の my_notes の段取り。16:03 と 16:54 に moves/ の出力が 0 バイトのまま、窓口が消えた。部署の --move の跡も同じ）
 DETACH = 'log=$1; done=$2; shift 2; ( "$@" >"$log" 2>&1 </dev/null; echo $? >"$done" ) &'

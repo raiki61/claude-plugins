@@ -1,5 +1,5 @@
-"""片付け（clean ノードと dispatch.py --clean）。消してよいのは、元の clone の linked worktree のうち、枝の PR が閉じていて、会話が無く、
-手元の作業も無く、手元の枝の先頭が PR の head と同じ場所だけ。"""
+"""片付け（clean ノードと dispatch.py --clean）。消してよいのは、元の clone の linked worktree のうち、ブランチの PR が閉じていて、会話が無く、
+手元の作業も無く、手元のブランチの先頭が PR の head と同じ場所だけ。"""
 
 import contextlib
 import io
@@ -45,7 +45,7 @@ class Candidates(unittest.TestCase):
         self.assertEqual([(r["number"], r["removable"]) for r in rows], [(1, True), (2, True)])
 
     def test_branch_without_a_pr_is_kept(self):
-        # issue から始めて PR をまだ作っていない枝は消さない
+        # issue から始めて PR をまだ作っていないブランチは消さない
         row = self.rows([place("/w/12-fix", "12-fix")], {})[0]
         self.assertEqual((row["removable"], row["reason"]), (False, "no_pr"))
 
@@ -80,7 +80,7 @@ class Candidates(unittest.TestCase):
 
 
 class LocalWork(unittest.TestCase):
-    """worktree は枝と stash を元の clone と共有する。判定はその場所の HEAD とその枝に絞る。"""
+    """worktree はブランチと stash を元の clone と共有する。判定はその場所の HEAD とそのブランチに絞る。"""
 
     def world(self):
         src, root = make_world()
@@ -121,7 +121,7 @@ class LocalWork(unittest.TestCase):
         self.assertTrue(gitx.is_clean(path))
         self.assertTrue(gitx.unpushed(path))
         self.assertTrue(gitx.stashed(path, "feat/1"))
-        self.assertFalse(gitx.stashed(src, "main"))   # stash は共有だが、別の枝の物は数えない
+        self.assertFalse(gitx.stashed(src, "main"))   # stash は共有だが、別のブランチの物は数えない
         self.assertFalse(gitx.unpushed(src))
 
     def test_commit_on_a_detached_head_counts_as_unpushed(self):

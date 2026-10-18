@@ -1,5 +1,5 @@
 """フックの Python の選び方（hooks/run-python.sh）。Windows の python3 が Microsoft Store へ誘う代わりの物に当たっても、
-macOS 付属の python3 が 3.9 でも、次の候補の 3.11 以上で台本を起こす。選べなければ、直し方を 1 行で出して終了の値 1。"""
+macOS 付属の python3 が 3.9 でも、次の候補の 3.11 以上で台本を起動する。選べなければ、直し方を 1 行で出して終了の値 1。"""
 
 import os
 import pathlib
@@ -32,7 +32,7 @@ class HookPython(unittest.TestCase):
             self.assertEqual((p.returncode, p.stdout.strip()), (0, "True"), p.stderr)
 
     def test_the_floor_can_be_lowered_or_raised(self):
-        # タブ欄とサイドバーの台本は TOML を読まないので --min 3.9。下限より古い物しか無ければ、その版を言って止まる
+        # タブバーとサイドバーの台本は TOML を読まないので --min 3.9。下限より古い物しか無ければ、その版を言って止まる
         with tempfile.TemporaryDirectory() as d:
             script = pathlib.Path(d) / "s.py"
             script.write_text("print('ok')\n", encoding="utf-8")

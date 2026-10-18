@@ -1,7 +1,7 @@
-"""部署の成果を本流に入れる（入口の --land。landing.py と nodes/land.py・nodes/bump.py）。
+"""部署の成果をメインブランチに入れる（入口の --land。landing.py と nodes/land.py・nodes/bump.py）。
 
 git は本物を使う。一時のフォルダに、GitHub に見立てた裸のリポジトリと、それを origin にした元の clone と、部署の worktree を作る。
-本物の GitHub と本物の main には触らない。herdr と gh は偽物にする（gh の偽物は、関門の CI の結果を試験が決める）。
+本物の GitHub と本物の main には触らない。herdr と gh は偽物にする（gh の偽物は、ゲートの CI の結果を試験が決める）。
 """
 
 import contextlib
@@ -75,7 +75,7 @@ CHANGELOG = """# 変更の記録
 
 
 class World:
-    """裸の origin・元の clone・部署の worktree（枝 feat/a）。元の clone は main に居る。"""
+    """裸の origin・元の clone・部署の worktree（ブランチ feat/a）。元の clone は main に居る。"""
 
     def __init__(self, tmp, files=None):
         self.tmp = tmp
@@ -98,7 +98,7 @@ class World:
         return commit(self.dept, "部署の作業")
 
     def move_main(self):
-        """ほかの部署が先に本流に入れた形: origin の main を 1 つ進める。"""
+        """ほかの部署が先にメインブランチに入れた形: origin の main を 1 つ進める。"""
         other = os.path.join(self.tmp, "other")
         git("clone", "-q", self.remote, other)
         write(os.path.join(other, "b.txt"), "b\n")
@@ -141,7 +141,7 @@ class FakeHerdr:
 
 
 class FakeGh:
-    """関門の CI。conclusion を試験が決める。on_run は run を返す前に呼ぶ（その間に本流が進む形を作る）。"""
+    """ゲートの CI。conclusion を試験が決める。on_run は run を返す前に呼ぶ（その間にメインブランチが進む形を作る）。"""
 
     def __init__(self, conclusion="success", appear=0, on_run=None):
         self.conclusion, self.appear, self.on_run = conclusion, appear, on_run
@@ -228,8 +228,8 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
         self.assertEqual(ports.gh.seen, ("release/a", head))
-        self.assertFalse(w.has("release/a"), "入れた後も関門の枝が origin に残っている")
-        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head, "手元の本流が早送りされていない")
+        self.assertFalse(w.has("release/a"), "入れた後もゲートのブランチが origin に残っている")
+        self.assertEqual(git("-C", w.source, "rev-parse", "main"), head, "手元のメインブランチが fast-forward されていない")
         self.assertEqual(ports.herdr.prompts, [])
 
     def test_waits_until_the_run_appears(self):
@@ -258,7 +258,7 @@ class FastForwardAfterCi(LandCase):
         git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/feat/a")
         code, out = self.land(w, Ports(w))
         self.assertEqual(code, 1)
-        self.assertIn("部署の枝と同じ名前", out)
+        self.assertIn("部署のブランチと同じ名前", out)
         self.assertEqual(w.origin("feat/a"), head)
 
     def test_refused_push_without_main_moving_stops_without_asking(self):
@@ -295,17 +295,17 @@ class FastForwardAfterCi(LandCase):
         self.assertEqual(seen, [1])
 
     def test_main_moved_before_the_gate_is_rebased_by_git_and_lands(self):
-        # 本流が先に進んでも、git が機械で載せ直せれば --land が自分で載せ直して関門に出す（部署の会話に頼まない）
+        # メインブランチが先に進んでも、git が機械でリベースできれば --land が自分でリベースしてゲートに出す（部署の会話に頼まない）
         w = World(self.tmp, CI_FILES)
         w.work()
         w.move_main()
         ports = Ports(w)
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
-        self.assertIn("git で本流の上に載せ直した", out)
+        self.assertIn("git でメインブランチの上にリベースした", out)
         self.assertEqual(ports.herdr.prompts, [])
         self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
-        self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署の枝も載せ直した物
+        self.assertEqual(w.origin("feat/a"), w.origin("main"))   # origin の部署のブランチもリベースした物
 
     def test_main_moved_with_a_conflict_git_cannot_solve_asks_the_department_and_restores_the_branch(self):
         w = World(self.tmp, CI_FILES)
@@ -316,11 +316,11 @@ class FastForwardAfterCi(LandCase):
         code, out = self.land(w, ports)
         self.assertEqual(code, 1)
         self.assertEqual(w.origin("main"), moved)
-        self.assertFalse(w.has("release/a"), "載せ直しが要るのに関門に出した")
-        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "載せ直しを元に戻していない")
+        self.assertFalse(w.has("release/a"), "リベースが要るのにゲートに出した")
+        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "リベースを元に戻していない")
         self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "")
         self.assertEqual(len(ports.herdr.prompts), 1)
-        self.assertIn("載せ直し", ports.herdr.prompts[0][1])
+        self.assertIn("リベースし", ports.herdr.prompts[0][1])
         self.assertIn("版を上げ直して", ports.herdr.prompts[0][1])
         self.assertIn("ぶつかるファイル: b.txt", ports.herdr.prompts[0][1])
 
@@ -354,7 +354,7 @@ class FastForwardAfterCi(LandCase):
         ports = Ports(w, FakeGh(on_run=once))
         code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
-        self.assertIn("載せ直した枝で、関門から回し直す", out)
+        self.assertIn("リベースしたブランチで、ゲートから回し直す", out)
         self.assertEqual(git("--git-dir", w.remote, "log", "-2", "--format=%s", "main").splitlines(), ["部署の作業", "ほかの部署"])
         self.assertEqual(ports.herdr.prompts, [])
 
@@ -368,12 +368,12 @@ class FastForwardAfterCi(LandCase):
         self.assertFalse(land.resolve_changelog(other))   # 変更の記録でないファイル
 
     def test_the_main_clone_with_unrelated_drafts_is_fast_forwarded_and_old_pre_push_checks_there_do_not_run(self):
-        # 代表の clone の書きかけ（持ち主の日記）が本流の変更に触れなければ、早送りで進める。push は部署の作業場から打つので、代表の
-        # clone の古い push 前の関所（.githooks）は走らない（2026-10-17 の my_notes。5d75df）
+        # 代表の clone の書きかけ（持ち主の日記）がメインブランチの変更に触れなければ、fast-forward で進める。push は部署の作業場から打つので、代表の
+        # clone の古い push 前のゲート（.githooks）は走らない（2026-10-17 の my_notes。5d75df）
         w = World(self.tmp, CI_FILES)
         write(os.path.join(w.source, "diary.md"), "書きかけ\n")   # 追跡していないファイル
         git("-C", w.source, "config", "core.hooksPath", ".githooks")
-        write(os.path.join(w.source, ".githooks", "pre-push"), "#!/bin/sh\nexit 1\n")   # 代表の clone の作業ツリーにだけ在る古い関所
+        write(os.path.join(w.source, ".githooks", "pre-push"), "#!/bin/sh\nexit 1\n")   # 代表の clone の作業ツリーにだけ在る古いゲート
         os.chmod(os.path.join(w.source, ".githooks", "pre-push"), 0o755)
         head = w.work()
         code, out = self.land(w, Ports(w))
@@ -395,7 +395,7 @@ class FastForwardAfterCi(LandCase):
         self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", out)
         info = {"name": None, "desk": None}
         again = landing._tell_desk(w.source, info, "main", w.origin("main"), "dirty")
-        self.assertIn("同じ形は前に窓口へ知らせたので、知らせ直さない", again)   # 進められない間、--land のたびに窓口を起こさない
+        self.assertIn("同じ形は前に窓口へ知らせたので、知らせ直さない", again)   # 進められない間、--land のたびに窓口を起動しない
         self.assertEqual(pathlib.Path(w.source, "a.txt").read_text(encoding="utf-8"), "持ち主の書きかけ\n")   # 書きかけは触らない
         inbox = os.path.join(w.source, ".git", "company", "inbox", "log.jsonl")
         self.assertIn("進められなかった", pathlib.Path(inbox).read_text(encoding="utf-8"))
@@ -413,7 +413,7 @@ class FastForwardAfterCi(LandCase):
         self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", out)
 
     def test_land_follows_the_pushed_commit_even_when_fetch_fails_after_the_push(self):
-        # push の後の取り直しが一時に落ちても、push した commit は手元に在るので、窓口を起こさずに代表の clone を進める
+        # push の後の取り直しが一時に落ちても、push した commit は手元に在るので、窓口を起動せずに代表の clone を進める
         w = World(self.tmp, CI_FILES)
         head = w.work()
         real = land.refresh
@@ -421,13 +421,13 @@ class FastForwardAfterCi(LandCase):
 
         def flaky(source, main, g):
             calls.append(1)
-            if len(calls) == 3:   # 本流の取り直しは、頭・関門の後・push の後の 3 回目
-                raise gitx.GitError("網が無い")
+            if len(calls) == 3:   # メインブランチの取り直しは、頭・ゲートの後・push の後の 3 回目
+                raise gitx.GitError("ネットワークが無い")
             return real(source, main, g)
         with mock.patch.object(land, "refresh", side_effect=flaky):
             code, out = self.land(w, Ports(w))
         self.assertEqual(code, 0, out)
-        self.assertIn("網が無い", out)
+        self.assertIn("ネットワークが無い", out)
         self.assertIn("手元の main: updated", out)
         self.assertEqual(git("-C", w.source, "rev-parse", "main"), head)
 
@@ -438,7 +438,7 @@ class FastForwardAfterCi(LandCase):
         head = w.work()
         git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/main")
         out = landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx)
-        self.assertEqual(out, [f"代表の clone の main を本流 {head[:7]} へ進めた"])
+        self.assertEqual(out, [f"代表の clone の main をメインブランチ {head[:7]} へ進めた"])
         self.assertEqual(git("-C", w.source, "rev-parse", "main"), head)
         self.assertEqual(pathlib.Path(w.source, "diary.md").read_text(encoding="utf-8"), "書きかけ\n")
         self.assertEqual(landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx), [])   # そろっていれば何も出さない
@@ -461,10 +461,10 @@ class FastForwardAfterCi(LandCase):
         w = World(self.tmp, CI_FILES)
         head = w.work()
         git("-C", w.dept, "push", "-q", "origin", "HEAD:refs/heads/main")
-        with mock.patch.object(land, "refresh", side_effect=gitx.GitError("網が無い")):
+        with mock.patch.object(land, "refresh", side_effect=gitx.GitError("ネットワークが無い")):
             out = landing.catch_up(w.source, {"name": None, "desk": None}, "main", gitx)
-        self.assertIn("網が無い", out[0])
-        self.assertEqual(out[1], f"代表の clone の main を本流 {head[:7]} へ進めた")
+        self.assertIn("ネットワークが無い", out[0])
+        self.assertEqual(out[1], f"代表の clone の main をメインブランチ {head[:7]} へ進めた")
 
     def test_red_hands_the_failure_to_the_department(self):
         w = World(self.tmp, CI_FILES)
@@ -492,7 +492,7 @@ class FastForwardAfterCi(LandCase):
         seen = []
         code, out = self.land(w, Ports(w), rows=lambda *a: seen.append(1) or [])
         self.assertEqual(code, 0, out)
-        self.assertIn("もう本流", out)
+        self.assertIn("もうメインブランチ", out)
         self.assertEqual(seen, [1])
 
     def test_dirty_department_stops(self):
@@ -589,26 +589,26 @@ class Leftover(LandCase):
         attrs = gitx.worktree_attrs(self.w.dept)
         self.assertNotIn("landed", attrs)
         self.assertNotIn("次の --land", out)
-        # 常設の部署は作業場を残す。入れた枝と commit を書き、部署が次の枝に移った後の --land か --clean --apply が消す
+        # 常設の部署は作業場を残す。入れたブランチと commit を書き、部署が次のブランチに移った後の --land か --clean --apply が消す
         self.assertEqual(json.loads(attrs["landed-branches"]), {"feat/a": git("-C", self.w.dept, "rev-parse", "HEAD")})
-        self.assertIn("入れた枝は、部署が次の枝に移った後", out)
+        self.assertIn("入れたブランチは、部署が次のブランチに移った後", out)
 
 
 class OverwriteGate(LandCase):
-    """書き換えの取り合いの関門: 部署が本流を知った後にほかの部署が本流へ入れた行を、部署の枝が消していれば止める。"""
+    """書き換えの取り合いのゲート: 部署がメインブランチを知った後にほかの部署がメインブランチへ入れた行を、部署のブランチが消していれば止める。"""
 
     RULES = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\n'
 
     def world(self):
         w = World(self.tmp, {".claude/company.toml": self.RULES, "calc.py": "def add():\n    pass\n"})
-        self.base = w.origin("main")   # この部署が本流を知った位置
-        other = os.path.join(self.tmp, "other")   # 作業の部署が div を本流に入れる
+        self.base = w.origin("main")   # この部署がメインブランチを知った位置
+        other = os.path.join(self.tmp, "other")   # 作業の部署が div をメインブランチに入れる
         git("clone", "-q", w.remote, other)
         write(os.path.join(other, "calc.py"), "def add():\n    pass\ndef div():\n    pass\n")
         self.div = commit(other, "div を足す")
         git("-C", other, "push", "-q", "origin", "HEAD:refs/heads/main")
         git("-C", w.dept, "fetch", "-q", "origin")
-        git("-C", w.dept, "reset", "-q", "--hard", "origin/main")   # 担当が本流の先頭から枝を切った
+        git("-C", w.dept, "reset", "-q", "--hard", "origin/main")   # 担当がメインブランチの先頭からブランチを切った
         return w
 
     def ports(self, w, base=True):
@@ -622,7 +622,7 @@ class OverwriteGate(LandCase):
         ports = self.ports(w)
         code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 1, out)
-        self.assertEqual(w.origin("main"), before, "止めたのに本流を進めた")
+        self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
         [(_, text)] = ports.herdr.prompts
         self.assertIn("calc.py:3「def div():」", text)
         self.assertIn(self.div[:7], text)
@@ -642,8 +642,8 @@ class OverwriteGate(LandCase):
         head = w.work("calc.py", "def add():\n    pass\ndef div():\n    pass\ndef sub():\n    pass\n")
         code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 0, out)
-        self.assertIn("書き換えの取り合いの関門: 通った", out)
-        self.assertEqual(gitx.worktree_attrs(w.dept).get("base"), head, "入れた後の本流を、次の関門の位置にする")
+        self.assertIn("書き換えの取り合いのゲート: 通った", out)
+        self.assertEqual(gitx.worktree_attrs(w.dept).get("base"), head, "入れた後のメインブランチを、次のゲートの位置にする")
 
     def test_department_without_the_known_position_is_noted_and_not_checked(self):
         w = self.world()
@@ -651,7 +651,7 @@ class OverwriteGate(LandCase):
         code, out = self.land(w, self.ports(w, base=False), checker=lambda cmd, cwd: (0, ""))
         self.assertEqual(code, 0, out)
         self.assertEqual(w.origin("main"), head)
-        self.assertIn("本流を知った位置（company.base）の記録が無い", out)
+        self.assertIn("メインブランチを知った位置（company.base）の記録が無い", out)
 
     def test_dry_run_reports_the_stop_without_typing(self):
         w = self.world()
@@ -751,12 +751,12 @@ class BumpAtLand(LandCase):
             return 0, ""
         code, out = self.land(w, Ports(w), checker=checker)
         self.assertEqual(code, 0, out)
-        self.assertEqual(seen, ["0.2.0"], "関門が版を上げた後の木を見ていない")
+        self.assertEqual(seen, ["0.2.0"], "ゲートが版を上げた後の木を見ていない")
         landed = w.origin("main")
         self.assertEqual(git("--git-dir", w.remote, "rev-parse", f"{landed}^"), head)
         self.assertEqual(git("--git-dir", w.remote, "log", "-1", "--format=%s", landed),
                          "chore(one): 版を上げる（one 0.2.0 / marketplace 0.10.0）")
-        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "部署の枝を動かした")
+        self.assertEqual(git("-C", w.dept, "rev-parse", "HEAD"), head, "部署のブランチを動かした")
         self.assertEqual(git("-C", w.source, "worktree", "list", "--porcelain").count("worktree "), 2, "一時の場所が残った")
 
     def test_bump_plan_and_files(self):
@@ -780,7 +780,7 @@ class BumpAtLand(LandCase):
 
 
     def test_tests_and_docs_only_are_a_patch_even_under_changed(self):
-        # 記録が Changed の節でも、版を最後に上げた後に変えたのが試験と文書だけなら patch。利用者が動かす物を変えたら minor
+        # 記録が Changed のセクションでも、版を最後に上げた後に変えたのが試験と文書だけなら patch。利用者が動かす物を変えたら minor
         w = World(self.tmp, marketplace_files())
         src = w.source
         changed = CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Changed\n\n- 同梱の試験を直した\n")
@@ -816,7 +816,7 @@ class BumpAtLand(LandCase):
         self.assertEqual([(r["name"], r["level"]) for r in rows], [("one", "minor")])
 
     def test_empty_unreleased_stops_without_a_version(self):
-        """中身の無い版は作らない: 置き場を変えたのに `## [Unreleased]` が空なら、版を上げずに止め、本流に入れない。"""
+        """中身の無い版は作らない: 置き場を変えたのに `## [Unreleased]` が空なら、版を上げずに止め、メインブランチに入れない。"""
         files = marketplace_files()
         files[".claude/company.toml"] = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "c"\nbump = "marketplace"\n'
         w = World(self.tmp, files)
@@ -828,7 +828,7 @@ class BumpAtLand(LandCase):
         code, out = self.land(w, Ports(w), checker=lambda cmd, cwd: ran.append(cmd) or (0, ""))
         self.assertEqual(code, 1, out)
         self.assertIn("one（one/CHANGELOG.md）", out)
-        self.assertEqual(ran, [], "版を上げられないのに関門を回した")
+        self.assertEqual(ran, [], "版を上げられないのにゲートを回した")
         self.assertEqual(w.origin("main"), before)
         self.assertEqual(git("-C", w.source, "worktree", "list", "--porcelain").count("worktree "), 2, "一時の場所が残った")
 
@@ -839,7 +839,7 @@ class BumpAtLand(LandCase):
 
 
 class DryRun(LandCase):
-    """--land --dry-run は決まりと見立てを出すだけで、origin・手元の ref・部署の窓・関門のどれにも書かない。"""
+    """--land --dry-run は決まりと見立てを出すだけで、origin・手元の ref・部署の窓・ゲートのどれにも書かない。"""
 
     def snapshot(self, w):
         return (git("--git-dir", w.remote, "for-each-ref"), git("-C", w.source, "for-each-ref"),
@@ -856,7 +856,7 @@ class DryRun(LandCase):
         ports = Ports(w)
         code, out = self.land(w, ports, dry_run=True)
         self.assertEqual(code, 0, out)
-        self.assertIn("取り込み方 ff-after-ci、関門 release/*、版上げ marketplace", out)
+        self.assertIn("取り込み方 ff-after-ci、ゲート release/*、版上げ marketplace", out)
         self.assertIn(f"- {head[:7]} one を直す", out)
         self.assertIn("one 0.1.0 → 0.1.1（patch） / marketplace 0.9.0 → 0.9.1", out)
         self.assertIn("release/a", out)
@@ -872,8 +872,8 @@ class DryRun(LandCase):
         ports = Ports(w)
         code, out = self.land(w, ports, dry_run=True)
         self.assertEqual(code, 1, out)
-        self.assertIn("載せ直し", out)
-        self.assertEqual(self.snapshot(w), before, "空打ちなのに本流を取り直した")
+        self.assertIn("リベースし", out)
+        self.assertEqual(self.snapshot(w), before, "空打ちなのにメインブランチを取り直した")
         self.assertEqual(ports.herdr.prompts, [])
 
     def test_empty_unreleased_is_reported(self):
@@ -915,7 +915,7 @@ class DryRun(LandCase):
         with mock.patch.object(landing.clean, "retire", lambda *a, **k: retired.append(a)):
             code, out = self.land(w, Ports(w), rows=rows, dry_run=True)
         self.assertEqual(code, 0, out)
-        self.assertIn("もう本流 main に入っている", out)
+        self.assertIn("もうメインブランチ main に入っている", out)
         self.assertIn("部署を片付ける", out)
         self.assertEqual(retired, [])
 

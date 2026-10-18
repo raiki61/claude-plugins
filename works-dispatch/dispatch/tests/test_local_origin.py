@@ -1,5 +1,5 @@
 """部署の回を GitHub 無しで動かす所（2 回目のまっさらな環境での試し docs/trials/2026-10-16-clean-env-2.md の 3・4・6・8）。
-本流の枝の名前を手元の git から取る・部署の回の確かめで GitHub を読まない・--check が gh の足りない物を注記にとどめる・返し方の文が
+メインブランチの名前を手元の git から取る・部署の回の確かめで GitHub を読まない・--check が gh の足りない物を注記にとどめる・返し方の文が
 項目の決まりを言う・手元の検証が部署の場所に作ったファイルを消す。"""
 
 import os
@@ -21,7 +21,7 @@ from nodes import deliver
 
 
 def bare_world(branch="master"):
-    """(手元の bare の origin, その clone)。origin の既定の枝は branch。clone は origin/HEAD を持つ。"""
+    """(手元の bare の origin, その clone)。origin の既定のブランチは branch。clone は origin/HEAD を持つ。"""
     t = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-local-")).resolve()
     bare, seed, clone = t / "o.git", t / "seed", t / "c"
     env = {**os.environ, "GIT_CONFIG_GLOBAL": str(t / "gc"), "GIT_CONFIG_NOSYSTEM": "1"}
@@ -105,7 +105,7 @@ class ReturnText(unittest.TestCase):
         got = deliver.tail(list(deliver.DEFAULT_ITEMS), "py d.py")
         self.assertIn("決め手には原典の http(s) の URL が要る", got)
         self.assertIn("結論は 3 行以内", got)
-        got = deliver.tail(["結論", "差分", "試験", "残った疑問", "枝"], "py d.py")
+        got = deliver.tail(["結論", "差分", "試験", "残った疑問", "ブランチ"], "py d.py")
         self.assertNotIn("URL", got)
 
 

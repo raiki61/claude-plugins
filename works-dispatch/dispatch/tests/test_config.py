@@ -41,7 +41,7 @@ gh_user = "me-at-work"
 class Load(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
-        write(self.d, "second.md", "1. 深掘りして\n2. 世の中の解と照らして\n")
+        write(self.d, "second.md", "1. 深掘りして\n2. 世の中の解と照合して\n")
 
     def test_full_config(self):
         cfg = config.load(write(self.d, "c.toml", FULL.format(d=self.d)), env={})
@@ -53,7 +53,7 @@ class Load(unittest.TestCase):
         ))
         repo = cfg.repos[0]
         self.assertEqual(repo.repo, "o/r")
-        self.assertEqual(repo.second_prompt, "1. 深掘りして\n2. 世の中の解と照らして\n")
+        self.assertEqual(repo.second_prompt, "1. 深掘りして\n2. 世の中の解と照合して\n")
         self.assertEqual(repo.source, f"{self.d}/src")
         self.assertEqual(repo.copy_files, ("frontend/.env.local", "deploy/local/secrets.local.yaml"))
         self.assertEqual(repo.copy_from, f"{self.d}/keep")
@@ -62,7 +62,7 @@ class Load(unittest.TestCase):
         self.assertEqual(config.copy_root(repo), f"{self.d}/keep")
 
     def test_task_cwd_is_ignored_with_a_note(self):
-        # 作業役は自分の作業場で起こす（会社の形の設計 4.1）。書かれていても止めず、注記を出して無視する（形が違っても止めない）
+        # サブエージェントは自分の作業場で起動する（会社の形の設計 4.1）。書かれていても止めず、注記を出して無視する（形が違っても止めない）
         for value in ("'~/notes'", "3"):
             with self.subTest(value=value):
                 cfg = config.load(write(self.d, "c.toml", FULL.format(d=self.d) + f"task_cwd = {value}\n"), env={})

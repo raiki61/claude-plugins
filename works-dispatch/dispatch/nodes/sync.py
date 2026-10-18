@@ -18,13 +18,13 @@
 - 会社ごとの部署の作業場（元の clone の linked worktree の作業場）は、仕事の流れの順に並べる（flow_order。順の鍵は role.flow_rank で、
   --tree の部署の並びと同じ。持ち主 2026-10-17 の案 A）。
   常設・持ち越し（相談の社長室など）、常設・毎回空（担当。この中は会社の形の [[skills]] の書き順）、都度（作業。この中は今の並び。
-  herdr は新しい作業場を後ろに足すので、起こした順）、属性の無い作業場（手で開いた場所）の順。順は属性と会社の形から毎回出し、
+  herdr は新しい作業場を後ろに足すので、起動した順）、属性の無い作業場（手で開いた場所）の順。順は属性と会社の形から毎回出し、
   順の表は持たない。本社（元の clone）の作業場は herdr が会社のまとまりの頭に置くので動かさない。会社の部署の作業場が herdr の
   並びで占める位置の中だけで入れ替え、ほかの会社とまとまりの無い作業場の位置は変えない。
 - ペインの表示名は役、題名は会話の名前、札は role（役）・account（アカウント）・boss（頼み元）。出どころ SOURCE の分として付けるので、
   打ち直すと置き換わる。属性に無い物は消す。
 
-入口の dispatch.py --sync（と、会社の形が替わったときの番の終わりのフック shape_hook.py）が tree ノードの組み立てを渡して plan を呼び、
+入口の dispatch.py --sync（と、会社の形が替わったときのターンの終わりのフック shape_hook.py）が tree ノードの組み立てを渡して plan を呼び、
 apply で herdr に書く（--dry-run は plan だけ）。
 """
 
@@ -63,13 +63,13 @@ def kind_op(workspace, attrs):
     return {"workspace": workspace, "label": None, "kind": kind(attrs)}
 
 
-WAITING = "裏の処理待ち"   # 番を終えて、裏で走らせた処理の終わりを待っている部署の表示名に添える字
+WAITING = "裏の処理待ち"   # ターンを終えて、裏で走らせた処理の終わりを待っている部署の表示名に添える字
 
 
 def waiting_op(pane, attrs, waiting):
-    """部署の会話の番の終わりに付け直す物。裏の処理（run_in_background の Bash・裏で立てた作業役など）を待っていれば、表示名に
+    """部署の会話のターンの終わりに付け直す物。裏の処理（run_in_background の Bash・裏で立てたサブエージェントなど）を待っていれば、表示名に
     WAITING を添える。
-    herdr の状態は番が終わると done になり、裏の処理を待っている会話も終わったように見えた（持ち主が見誤った）。
+    herdr の状態はターンが終わると done になり、裏の処理を待っている会話も終わったように見えた（持ち主が見誤った）。
     ペインの名前は付け直さない（アカウントの数が分からないので）。"""
     return _waiting({**op(pane, attrs, False), "label": None}, waiting)
 
@@ -95,7 +95,7 @@ def _target(dept):
 
 def plan(companies, many_accounts, waiting=lambda attrs: False):
     """(付ける物の並び, 付けられない部署の注記)。companies は tree ノードの build の結果。waiting は部署の属性を受けて、その会話が
-    裏の処理を待っているか（待っていれば表示名に WAITING を添えたままにする。付け直しで番の終わりの印を消さない）。"""
+    裏の処理を待っているか（待っていれば表示名に WAITING を添えたままにする。付け直しでターンの終わりの印を消さない）。"""
     ops, notes = [], []
     for c in companies:
         for d in c["departments"]:
@@ -172,7 +172,7 @@ def apply(ops, h):
 def flow_order(workspaces, attrs_of, skills_of):
     """部署の作業場を仕事の流れの順にする動かし方の並び。1 件は {workspace, index, label}（herdr.move_workspace に渡す。順に当てる）。
     workspaces は herdr の作業場の並び（herdr.workspaces の形。並びの順）、attrs_of は worktree の場所 → 部署の属性、skills_of は
-    元の clone の根 → 会社の形の受け持ちの並び（[[skills]] の書き順）。もう流れの順なら空。"""
+    元の clone のルート → 会社の形の受け持ちの並び（[[skills]] の書き順）。もう流れの順なら空。"""
     ids = [w["workspace_id"] for w in workspaces]
     want = list(ids)
     slots = {}

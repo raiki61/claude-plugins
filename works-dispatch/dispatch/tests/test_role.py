@@ -1,4 +1,4 @@
-"""役の渡し方（会社の形の設計 4.7・4.8）: 会社の形の役の項目（role ノード）、部署を起こすときの --settings・--model・--effort と gh の
+"""役の渡し方（会社の形の設計 4.7・4.8）: 会社の形の役の項目（role ノード）、部署を起動するときの --settings・--model・--effort と gh の
 アカウントの属性（launch と入口の --task）、役の本文と GH_TOKEN の行を足す SessionStart のフック（role_hook）。git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
 
 import contextlib
@@ -83,9 +83,9 @@ model = "x"
         self.assertIn("TOML", role.load(write(f"{self.d}/bad.toml", "[[roles]"))["problems"][0])
 
     def test_roles_by_name_and_misplaced_deliver_are_problems_not_silence(self):
-        got = role.load(write(f"{self.d}/old.toml", '[roles."作業役"]\ndeliver = ["結論"]\n'))
+        got = role.load(write(f"{self.d}/old.toml", '[roles."サブエージェント"]\ndeliver = ["結論"]\n'))
         self.assertEqual(got["roles"], {})
-        self.assertIn('[roles."役"] の形で書いている（作業役）', got["problems"][0])
+        self.assertIn('[roles."役"] の形で書いている（サブエージェント）', got["problems"][0])
         self.assertIn("[[roles]] の項目", got["problems"][0])
         got = role.load(write(f"{self.d}/c.toml", '''[[roles]]
 name = "a"
@@ -110,7 +110,7 @@ deliver_check = ""
         shape = role.load(write(f"{self.d}/c.toml", SHAPE))
         self.assertEqual(role.pick(shape, "調べ役", True)[0]["name"], "調べ役")
         self.assertIn("在る役: 調べ役, 出荷役", role.pick(shape, "調べやく", True)[1])
-        self.assertEqual(role.pick(shape, "作業役", False), (None, None))
+        self.assertEqual(role.pick(shape, "サブエージェント", False), (None, None))
         self.assertEqual(role.pick(role.load(None), "何か", True), (None, None))
 
     def test_default_role_and_resident_are_read_and_checked(self):
@@ -210,7 +210,7 @@ class ModelAndEffort(unittest.TestCase):
         self.assertIn("CLAUDE_EFFORT が無い", note)
 
     def test_launch_key_keeps_inherit_unresolved_and_takes_the_duty_first(self):
-        # 毎回空にする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起こし直さない）
+        # 毎回空にする部署の待ち受けが比べる字。inherit は解かない（呼んだ会話の effort が替わっても起動し直さない）
         r = {"name": "担当", "model": "opus", "effort": "inherit"}
         self.assertEqual(json.loads(role.launch_key(r)), {"model": "opus", "effort": "inherit"})
         self.assertEqual(json.loads(role.launch_key(r, {"name": "割り振り", "model": "sonnet", "effort": None})),
@@ -229,7 +229,7 @@ class ModelAndEffort(unittest.TestCase):
                          ["社長室", "ノートの手入れ", "調べもの", "新しい担当", "作業：1", "手で開いた"])
 
     def test_launch_flags_take_the_duty_before_the_role(self):
-        # 決める順は欄ごとに、部署（受け持ち）・役・アカウントの既定。受け持ちに無い欄は役の値
+        # 決める順はフィールドごとに、部署（受け持ち）・役・アカウントの既定。受け持ちに無いフィールドは役の値
         r = {"name": "担当", "model": "opus", "effort": "max"}
         self.assertEqual(role.launch_flags(r, {}, {"name": "割り振り", "model": "sonnet", "effort": "low"}), ("sonnet", "low", None))
         self.assertEqual(role.launch_flags(r, {}, {"name": "割り振り", "model": None, "effort": "low"}), ("opus", "low", None))
@@ -291,7 +291,7 @@ class Hook(unittest.TestCase):
             self.assertEqual((attrs["session"], attrs["job"]), (f"s-{source}", "8c4a1102"))
 
     def test_new_talks_and_the_head_office_keep_the_department_session(self):
-        # 部署の場所で人が別の会話を起こしても（startup）、本社で持ち主の会話が /clear しても、部署の会話の id は替えない
+        # 部署の場所で人が別の会話を起動しても（startup）、本社で持ち主の会話が /clear しても、部署の会話の id は替えない
         provision.mark(self.place, self.src, {"role": "担当", "session": "s-dept"}, gitx)
         role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-other", "source": "startup"})), self.env)
         self.assertEqual(gitx.worktree_attrs(self.place)["session"], "s-dept")
@@ -312,7 +312,7 @@ class Hook(unittest.TestCase):
     def test_role_text_comes_from_the_default_branch_when_the_head_office_is_on_an_old_branch(self):
         from .test_company import publish
         publish(self.src, SHAPE)
-        git("-C", self.src, "checkout", "-q", "-b", "old")   # 元の clone はほかの会話が古い枝で使っている（会社の形を持たない）
+        git("-C", self.src, "checkout", "-q", "-b", "old")   # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たない）
         provision.mark(self.place, self.src, {"role": "調べ役"}, gitx)
         self.assertEqual(role_hook.text_for(self.place, self.env), "この会話は会社「試しの会社」の部署で、役は「調べ役」。\n結論と原典の一句を返す。")
         # --ask・--deliver の読み方（orders.shape_role）も同じ物を読む
@@ -392,7 +392,7 @@ class Hook(unittest.TestCase):
         self.assertTrue(told({"session_id": "s-desk"}, True))                                  # 窓口の会話
         self.assertFalse(told({"session_id": "s-probe"}, True))                                # 試しの claude -p
         self.assertFalse(told({"session_id": "s-two", "session_title": "段取り"}, True))       # 窓口が動いている間の 2 つ目
-        self.assertTrue(told({"session_id": "s-next", "session_title": "段取り"}, False))      # 窓口を終えて起こし直した会話
+        self.assertTrue(told({"session_id": "s-next", "session_title": "段取り"}, False))      # 窓口を終えて起動し直した会話
         self.assertFalse(told({"session_id": "s-probe"}, False))                               # 名前の無い会話は席に座らない
         out = io.StringIO()
         with contextlib.redirect_stdout(out):   # 部署の worktree は今までどおり
@@ -442,7 +442,7 @@ class Hook(unittest.TestCase):
         self.assertIsNone(prompt("s-other"))   # 場所の属性の会話でない会話には足さない
 
     def test_a_talk_outside_the_departments_of_a_company_gets_how_to_ask_other_companies(self):
-        # 部署でない会話（PR の枝の会話など）が SendMessage で頼み、受付の台帳に頼み元が残らなかった（2026-10-17 の guided-resolver）
+        # 部署でない会話（PR のブランチの会話など）が SendMessage で頼み、受付の台帳に頼み元が残らなかった（2026-10-17 の guided-resolver）
         def started(cwd, sid):
             out = io.StringIO()
             with mock.patch.object(claudex, "running_claude", lambda pid: True), contextlib.redirect_stdout(out):
@@ -601,7 +601,7 @@ class TaskWithRole(unittest.TestCase):
         self.shape(SHAPE + '\n[[skills]]\nname = "直し"\neffort = "hihg"\n')
         rc, out = self.run_task(self.ports(), "--role", "調べ役", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("外して、役の effort で起こす", out)
+        self.assertIn("外して、役の effort で起動する", out)
         self.assertIn("モデル haiku、effort low", out)
 
     def test_effort_inherit_takes_the_callers_effort(self):

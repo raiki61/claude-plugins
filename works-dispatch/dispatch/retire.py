@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""--retire <部署>（retire）: 都度の部署の会話を止めてから、部屋（作業場・worktree・会話・手元の枝）を --clean と同じ決まりで片付ける。
+"""--retire <部署>（retire）: 都度の部署の会話を止めてから、部屋（作業場・worktree・会話・手元のブランチ）を --clean と同じ決まりで片付ける。
 
-都度の部署は、納品して本流に入れ終えた後も会話が生きたまま残り、--clean は「会話がまだ動いている」と見て残す。終わったかを機械が
-推し量るのは難しいので、部署が自分で終わりの印（--done。属性 company.finished）を打ち、その番の終わりに待ち受け（wake_hook.py）が
-この命令を会話から切り離して裏で走らせる。印の無い部屋は、段取りが --clean の一覧で残った訳を見て、止めると決めたらこの命令を打つ。
+都度の部署は、納品してメインブランチに入れ終えた後も会話が生きたまま残り、--clean は「会話がまだ動いている」と見て残す。終わったかを機械が
+推し量るのは難しいので、部署が自分で終わりの印（--done。属性 company.finished）を打ち、そのターンの終わりに待ち受け（wake_hook.py）が
+このコマンドを会話から切り離して裏で走らせる。印の無い部屋は、段取りが --clean の一覧で残った訳を見て、止めると決めたらこのコマンドを打つ。
 
 順:
 1. 部署を名前で探す（--move と同じ deliver.find_target）。窓口・常設の部署は畳まない。
 2. 止める前に確かめる: 受けた頼みを納品している・順番待ちに頼みが無い・--clean の部署の決まり（clean.departments）で、会話が止まったとみなしたときに
-   残す訳が無い（未コミットの変更・手元にしか無い commit・本流に入っていない枝など）。訳が有れば何も止めない。
-3. 会話が動いていれば、窓の attach の画面をシェルに戻し（launch.to_shell。attach が開いたままだと会話を起こし直す）、claude stop で
+   残す訳が無い（未コミットの変更・手元にしか無い commit・メインブランチに入っていないブランチなど）。訳が有れば何も止めない。
+3. 会話が動いていれば、窓の attach の画面をシェルに戻し（launch.to_shell。attach が開いたままだと会話を再開させる）、claude stop で
    止め、--move と同じ回数だけ止まったかを読み戻す。
 4. --clean と同じ部品（clean.retire）で片付ける。
 
@@ -104,7 +104,7 @@ def retire(a, ports, cwd, rows, reasons):
         if not r["removable"]:
             return kept(f"会話を止めたが、{reasons[r['reason']]}")
         if wake.queued(inbox, ports.git.git_dir(path)):
-            return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起こし直すまで渡らない。--tree の部署の行に件数が出る）")
+            return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起動し直すまで渡らない。--tree の部署の行に件数が出る）")
     got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")

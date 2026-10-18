@@ -145,7 +145,7 @@ class HerdrPorts(unittest.TestCase):
             {"workspace_id": "w2", "label": "notes", "repo_root": None, "path": None, "linked": False, "tokens": {"kind": "都度"}}])
 
     def test_move_workspace_sends_one_json_line_to_the_socket_and_reads_the_answer(self):
-        # herdr 0.9.3 の CLI に作業場を並べ替える命令が無いので、ソケットの API に 1 行の JSON で頼む
+        # herdr 0.9.3 の CLI に作業場を並べ替えるコマンドが無いので、ソケットの API に 1 行の JSON で頼む
         sent = []
 
         class Sock:
@@ -228,7 +228,7 @@ class Info(unittest.TestCase):
         self.assertEqual(got["skills"][0]["role"], "調べ役")
 
     def test_duty_model_and_effort_are_read_and_bad_ones_are_dropped_alone(self):
-        # 部署ごとのモデルと effort は受け持ちに書く。形の違う欄はその欄だけ外し、受け持ち（部署の説明）は残す
+        # 部署ごとのモデルと effort は受け持ちに書く。形の違うフィールドはそのフィールドだけ外し、受け持ち（部署の説明）は残す
         write(os.path.join(self.root, ".claude", "company.toml"),
               '[[skills]]\nname = "割り振り"\nrole = "担当"\nmodel = "sonnet"\neffort = "low"\n'
               '[[skills]]\nname = "点検"\nrole = "担当"\nmodel = "inherit"\neffort = "hihg"\n')
@@ -236,7 +236,7 @@ class Info(unittest.TestCase):
         self.assertEqual([(s["name"], s["model"], s["effort"]) for s in got["skills"]], [("割り振り", "sonnet", "low"), ("点検", None, None)])
         self.assertEqual(len(got["problems"]), 2)
         self.assertIn("inherit は作っていない", got["problems"][0])
-        self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか。外して、役の effort で起こす", got["problems"][1])
+        self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか。外して、役の effort で起動する", got["problems"][1])
 
     def test_broken_file_is_a_problem_and_does_not_fall_back(self):
         write(os.path.join(self.root, ".claude", "company.toml"), "name = \n")
@@ -267,20 +267,20 @@ def publish(src, text):
 
 
 class Source(unittest.TestCase):
-    """会社の形を読む場所（read_info）: origin の既定の枝に commit された物を、元の clone の作業ツリーより先に読む。"""
+    """会社の形を読む場所（read_info）: origin の既定のブランチに commit された物を、元の clone の作業ツリーより先に読む。"""
 
     def setUp(self):
         self.src, self.root = make_world()
         self.settings = tempfile.mkdtemp(prefix="company-settings-")
-        # 元の clone はほかの会話が古い枝で使っている（会社の形を持たないか、古い物を持つ）
+        # 元の clone はほかの会話が古いブランチで使っている（会社の形を持たないか、古い物を持つ）
         git("-C", self.src, "checkout", "-q", "-b", "old")
 
     def test_default_branch_wins_over_a_clone_without_the_shape(self):
-        publish(self.src, 'name = "本流"\n')
+        publish(self.src, 'name = "メインブランチ"\n')
         write(tree.settings_info_path(self.settings, self.src), 'name = "手元"\n')
         got = tree.read_info(self.src, self.settings)
-        self.assertEqual((got["source"], got["name"], got["path"]), ("origin", "本流", "origin/main:.claude/company.toml"))
-        self.assertEqual(got["text"], 'name = "本流"')
+        self.assertEqual((got["source"], got["name"], got["path"]), ("origin", "メインブランチ", "origin/main:.claude/company.toml"))
+        self.assertEqual(got["text"], 'name = "メインブランチ"')
 
     def test_default_branch_wins_over_an_old_shape_in_the_clone(self):
         publish(self.src, 'name = "新しい"\n')
@@ -288,19 +288,19 @@ class Source(unittest.TestCase):
         self.assertEqual(tree.read_info(self.src, self.settings)["name"], "新しい")
 
     def test_a_department_reads_the_same_shape_as_the_head_office(self):
-        publish(self.src, 'name = "本流"\n')
+        publish(self.src, 'name = "メインブランチ"\n')
         place = os.path.join(self.root, "dept")
         git("-C", self.src, "worktree", "add", "-q", "-b", "dept/a", place, "origin/main")
         write(os.path.join(place, ".claude", "company.toml"), 'name = "部署が書き換えた"\n')
         root = gitx.root_of(gitx.common_dir(place))
-        self.assertEqual(tree.read_info(root, self.settings)["name"], "本流")
+        self.assertEqual(tree.read_info(root, self.settings)["name"], "メインブランチ")
 
     def test_without_origin_head_the_clone_is_read(self):
         git("-C", self.src, "remote", "set-head", "origin", "--delete")
         write(os.path.join(self.src, ".claude", "company.toml"), 'name = "手元の clone"\n')
         got = tree.read_info(self.src, self.settings)
         self.assertEqual((got["source"], got["name"]), ("repo", "手元の clone"))
-        # 既定の枝を決められない訳と直し方を、止めずに知らせる（会社の形が無くても）
+        # 既定のブランチを決められない訳と直し方を、止めずに知らせる（会社の形が無くても）
         self.assertEqual(len(got["notes"]), 1)
         self.assertIn(f"git -C {self.src} remote set-head origin --auto", got["notes"][0])
         os.remove(os.path.join(self.src, ".claude", "company.toml"))
@@ -363,7 +363,7 @@ class Build(unittest.TestCase):
         self.assertEqual(schemacheck.check(out, schemacheck.schema("tree")), [])
 
     def test_a_worktree_carrying_a_copy_of_the_head_office_attrs_is_not_a_department(self):
-        # git の worktree add は本社の config.worktree を写す。道具の一時の場所は、中身を出し終えて属性を消すまで本社と同じ名前の部署に
+        # git の worktree add は本社の config.worktree を写す。ツールの一時の場所は、中身を出し終えて属性を消すまで本社と同じ名前の部署に
         # 見え、--ask 段取り が「2 つ以上ある」で止まった（2026-10-18。受付 596ed5）。属性を消す前の、写したままの形で確かめる
         from nodes import deliver
         src, _ = make_world()
@@ -388,7 +388,7 @@ class Build(unittest.TestCase):
     def test_a_department_set_up_by_provision_is_not_a_copy(self):
         office = {"name": "段取り", "role": "段取り", "session": "s-h"}
         self.assertTrue(tree.copied_from(office, {"name": "段取り", "role": "段取り", "session": "s-old"}))
-        # 部署の立て方が本流を知った位置（base）を書いた部署は、本社と同じ名前でも隠さない（「2 つ以上ある」で止まる）
+        # 部署の立て方がメインブランチを知った位置（base）を書いた部署は、本社と同じ名前でも隠さない（「2 つ以上ある」で止まる）
         self.assertFalse(tree.copied_from(office, {"name": "段取り", "role": "段取り", "base": "abc"}))
         self.assertFalse(tree.copied_from(office, {"name": "段取り", "role": "調べ役"}))
         self.assertFalse(tree.copied_from({}, {"name": "調べ"}))
@@ -414,7 +414,7 @@ class Build(unittest.TestCase):
                                    {"head_office": False, "attrs": {"name": "調べ", "role": "担当", "boss": "段取り"}}]}
         tree.contacts(company, shape)
         self.assertEqual([s["ask"] for s in company["skills"]],
-                         ["--ask c/調べ", "--ask c/担当 --task 点検 --branch <枝>", "--ask c/作業 --task <部署の名前> --branch <枝>",
+                         ["--ask c/調べ", "--ask c/担当 --task 点検 --branch <ブランチ>", "--ask c/作業 --task <部署の名前> --branch <ブランチ>",
                           None, None])
         self.assertEqual(company["desk"], {"name": "段取り", "role": "段取り", "ask": "--ask c/段取り", "model": None, "effort": None})
         company.update({"root": "/s/c", "info_source": "origin", "description": None, "problems": []})
@@ -430,7 +430,7 @@ class Build(unittest.TestCase):
         self.assertIn("  窓口: 名付けていない", "\n".join(tree.lines([unnamed])))
 
     def test_desk_shows_the_model_and_effort_it_starts_with(self):
-        # 窓口の会話が起きるときに効く値: 役の欄（--move が旗で渡す）が [roles.settings] の model・effortLevel より先。
+        # 窓口の会話が起きるときに効く値: 役のフィールド（--move が旗で渡す）が [roles.settings] の model・effortLevel より先。
         # effort の inherit は窓口に引き継ぐ会話が無いので旗を付けず、設定の値が効く。役の前の名前（former_names）でも引く
         from nodes import role
         def desk(text):
@@ -688,7 +688,7 @@ class Entry(unittest.TestCase):
         self.assertIn("止めた: herdr を読めない", out)
 
     def test_sync_keeps_the_waiting_mark_of_a_department(self):
-        # 番の終わりのフックが表示名に添えた「裏の処理待ち」を、付け直し（手の --sync も、会社の形が替わったときのフックも）が消さない
+        # ターンの終わりのフックが表示名に添えた「裏の処理待ち」を、付け直し（手の --sync も、会社の形が替わったときのフックも）が消さない
         real = tempfile.tempdir
         tempfile.tempdir = tempfile.mkdtemp()
         try:
@@ -705,7 +705,7 @@ class Entry(unittest.TestCase):
                               sync_ or (lambda config_path, root: dispatch.sync_companies(self.cfg, self.ports, only=root)))
 
     def test_shape_hook_syncs_the_company_once_per_change_of_the_shape(self):
-        # 会社の形を替えたら、どの会話の番の終わりでも、その会社の部署の属性と herdr の表示が揃う（手で --sync を打たない。
+        # 会社の形を替えたら、どの会話のターンの終わりでも、その会社の部署の属性と herdr の表示が揃う（手で --sync を打たない。
         # my_notes で役の名前を替えたとき、表示の替え残しを持ち主が herdr の上で見つけた）
         shape = pathlib.Path(self.src, ".claude", "company.toml")
         shape.parent.mkdir(exist_ok=True)
@@ -732,7 +732,7 @@ class Entry(unittest.TestCase):
             called.append(root)
             return ["ペイン w1-1: …  failed（pane_not_found）"], 1
         self.assertEqual(self.hook(failing), (True, ["ペイン w1-1: …  failed（pane_not_found）"]))
-        self.assertEqual(self.hook(failing)[0], True)   # 控えを書かないので、次の番の終わりにもう一度揃える
+        self.assertEqual(self.hook(failing)[0], True)   # 控えを書かないので、次のターンの終わりにもう一度揃える
         self.assertEqual(len(called), 2)
 
     def test_shape_hook_does_nothing_without_a_shape_or_outside_git(self):
@@ -750,11 +750,11 @@ class Entry(unittest.TestCase):
         hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         [h] = [h for grp in hooks["Stop"] for h in grp["hooks"] if "shape_hook.py" in h["command"]]
         self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/shape_hook.py"', h["command"])
-        self.assertTrue(h.get("async"))   # 番の終わりを待たせない
+        self.assertTrue(h.get("async"))   # ターンの終わりを待たせない
 
 
 class Departments(unittest.TestCase):
-    """部署の片付け: 会話が終わり、手元の作業が無く、枝が本流に入った部署だけを、claude rm と一緒に消す。"""
+    """部署の片付け: 会話が終わり、手元の作業が無く、ブランチがメインブランチに入った部署だけを、claude rm と一緒に消す。"""
 
     def setUp(self):
         self.cfg, self.root = make_cfg()
@@ -829,10 +829,10 @@ class Departments(unittest.TestCase):
         self.assertIn("消すには --clean --apply を付けて打ち直す", out)
 
     def test_resident_department_branches_it_landed_are_removed_after_it_moves_on(self):
-        # 常設の部署は作業場を残し、頼みごとに枝を移る。--land が書いた「入れた枝 → commit」のうち、もう開いていない枝を消す
+        # 常設の部署は作業場を残し、頼みごとにブランチを移る。--land が書いた「入れたブランチ → commit」のうち、もう開いていないブランチを消す
         provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
         old_sha = git("-C", self.place, "rev-parse", "HEAD")
-        git("-C", self.place, "switch", "-q", "-c", "dept/next")             # 次の頼みの枝に移った
+        git("-C", self.place, "switch", "-q", "-c", "dept/next")             # 次の頼みのブランチに移った
         git("-C", self.src, "branch", "-q", "dept/moved", old_sha)
         git("-C", self.src, "branch", "-q", "-f", "dept/moved", git("-C", self.src, "-c", "user.name=o", "-c", "user.email=o@o",
                                                                    "commit-tree", f"{old_sha}^{{tree}}", "-p", old_sha,
@@ -840,14 +840,14 @@ class Departments(unittest.TestCase):
         provision.mark(self.place, self.src, {"landed-branches": json.dumps(
             {"dept/a": old_sha, "dept/next": old_sha, "dept/moved": old_sha})}, gitx)
         rc, out = self.clean()
-        self.assertIn("入れ終えた枝 dept/a: 消せる", out)
+        self.assertIn("入れ終えたブランチ dept/a: 消せる", out)
         self.assertIn("dept/a", git("-C", self.src, "branch", "--list", "dept/a"), "見立てだけで消した")
         rc, out = self.clean("--apply")
-        self.assertIn("入れ終えた枝 dept/a: 消した", out)
-        self.assertIn("入れ終えた枝 dept/moved: 入れた後に commit が有るので消さず", out)
+        self.assertIn("入れ終えたブランチ dept/a: 消した", out)
+        self.assertIn("入れ終えたブランチ dept/moved: 入れた後に commit が有るので消さず", out)
         self.assertEqual(git("-C", self.src, "branch", "--list", "dept/a"), "")
         self.assertNotEqual(git("-C", self.src, "branch", "--list", "dept/moved"), "")
-        # 開いている枝（今の頼みの枝）だけが記録に残る
+        # 開いているブランチ（今の頼みのブランチ）だけが記録に残る
         self.assertEqual(json.loads(gitx.worktree_attrs(self.place)["landed-branches"]), {"dept/next": old_sha})
         self.assertTrue(os.path.exists(self.place))
 
@@ -867,7 +867,7 @@ class Departments(unittest.TestCase):
         self.assertTrue(os.path.exists(self.place))
 
     def test_job_tmp_is_copied_into_the_common_git_before_rm(self):
-        # claude rm は会話の一時の置き場も消す。部署がそこに残した物（2026-10-17 の測りの道具）を、消す前に写して残す
+        # claude rm は会話の一時の置き場も消す。部署がそこに残した物（2026-10-17 の測りのツール）を、消す前に写して残す
         tmp = pathlib.Path(tempfile.mkdtemp()) / "jobs" / "a" / "tmp"
         (tmp / "tools").mkdir(parents=True)
         (tmp / "tools" / "measure.py").write_text("x\n", encoding="utf-8")

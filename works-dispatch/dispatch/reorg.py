@@ -14,10 +14,10 @@ desk_role、本社が今持つ役、DESK_ROLE の順に決め、名前を省け�
 （gitx.former_names）。属性を書いた後に、その場所の分だけ --sync と同じ物（ペインの名前・表示名・題名・札と作業場の名前）を付け直す。
 会話の名前（Claude Code の /rename）は外から替える口が無いので替えず、会話の中で打つ /rename を出す。
 --desk は、窓口の役に起動の設定（会社の形の [roles.settings]）が有れば、代表の clone の .git の場所に書き、その設定で窓口の会話を
-起こす命令（`<アカウントのコマンド> --name <窓口の名前> --settings <ファイル>`）を出す。持ち主が手で起こす窓口に設定を届ける口。
---desk を打った会話が --move の起こした会話（company.launching）なら、--move が書いた起こした値（company.launched）を残し、ほかの
-新しい会話なら消す（起こした値を知らないので旗なしで起こしたと見て、会社の形と違えば区切り〔--rest〕の番の終わりに待ち受けが
-起こし直す）。
+起動するコマンド（`<アカウントのコマンド> --name <窓口の名前> --settings <ファイル>`）を出す。持ち主が手で起動する窓口に設定を届ける口。
+--desk を打った会話が --move の起動した会話（company.launching）なら、--move が書いた起動した値（company.launched）を残し、ほかの
+新しい会話なら消す（起動した値を知らないので旗なしで起動したと見て、会社の形と違えば区切り〔--rest〕のターンの終わりに待ち受けが
+起動し直す）。
 """
 
 import json
@@ -97,8 +97,8 @@ def _write(a, ports, place, source, before, changes, notes, head, talk_name=None
     out = [f"{head}:"] + shown + _resync(a, ports, place, notes)
     name = changes.get("name")
     if name and name != before.get("name") and before.get("name"):
-        out.append(f"前の名前 {before.get('name')} でも --land・--ask で引ける（枝の名前でも引ける）")
-    if name and name != talk_name:   # 会話の名前がもうその名前なら勧めない（claude --name 窓口 で起こした窓口など）
+        out.append(f"前の名前 {before.get('name')} でも --land・--ask で引ける（ブランチの名前でも引ける）")
+    if name and name != talk_name:   # 会話の名前がもうその名前なら勧めない（claude --name 窓口 で起動した窓口など）
         out.append(f"会話の名前は dispatch からは替えられない（Claude Code に外から会話の名前を替える口が無い）。"
                    f"揃えるなら、その会話で /rename {name} を打つ")
     print("\n".join(notes + out + list(after)))
@@ -106,7 +106,7 @@ def _write(a, ports, place, source, before, changes, notes, head, talk_name=None
 
 
 def _launch_line(a, ports, source, shape, the_role, name, command):
-    """窓口の役に起動の設定が有れば、それを代表の clone の .git の場所に書き（空打ちでは書かない）、その設定で窓口を起こす命令の行。"""
+    """窓口の役に起動の設定が有れば、それを代表の clone の .git の場所に書き（空打ちでは書かない）、その設定で窓口を起動するコマンドの行。"""
     got = shape["roles"].get(the_role)
     if not (got and got.get("settings")):
         return []
@@ -120,12 +120,12 @@ def _launch_line(a, ports, source, shape, the_role, name, command):
         return [f"窓口の役 {the_role} の起動の設定（[roles.settings]）を書けなかった（{e}）。窓口の会話は役の設定なしで起きる"]
     return [f"窓口の役 {the_role} に起動の設定（会社の形の [roles.settings]）が有る"
             + ("（空打ちなので書いていない）" if a.dry_run else f"ので {path} に書いた")
-            + "。窓口の会話を手で起こすときは、次の命令で起こす（--move はこの設定で起こす）: "
+            + "。窓口の会話を手で起動するときは、次のコマンドで起動する（--move はこの設定で起動する）: "
             f"{command} --name {launch._quote(name, posix)} "
             + "".join(f"--{k} {launch._quote(v, posix)} " for k, v in zip(("model", "effort"), role.desk_flags(got)) if v)
             + f"--settings {launch._quote(path, posix)}",
-            "この会話を --move が起こしたのでなければ、起こした設定を機械は知らないので、この会話が区切り（--rest）を印した番の"
-            "終わりに、待ち受けがこの設定で起こし直す（持ち主の手は要らない。会社の形の設定を替えたときも同じ）"]
+            "この会話を --move が起動したのでなければ、起動した設定を機械は知らないので、この会話が区切り（--rest）を印したターンの"
+            "終わりに、待ち受けがこの設定で起動し直す（持ち主の手は要らない。会社の形の設定を替えたときも同じ）"]
 
 
 def _shape(source, a):
@@ -225,7 +225,7 @@ def desk(a, ports, cwd):
     account, talk_name = ports.caller(sessions_)
     session = ports.env.get("CLAUDE_CODE_SESSION_ID")
     if not account:
-        notes.append("この命令を打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
+        notes.append("このコマンドを打った会話が会話の一覧に見えないので、アカウントと会話の id は今の値のまま"
                      "（窓口の会話の中から打てば書く）")
     changes = {"role": the_role, "residency": "resident", "name": name}
     if account:

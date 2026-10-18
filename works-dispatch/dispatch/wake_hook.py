@@ -1,39 +1,39 @@
 #!/usr/bin/env python3
 """待ち受けのフック（受付の設計 docs/specs/2026-10-17-reception-design.md の 3・4 章。仕組みは nodes/wake.py）。
 
-- Stop と SessionStart（asyncRewake）: 部署と窓口の会話で、頼みと納品の知らせを待ち、来たら会話を起こす。順番待ちの次の 1 件を
-  渡し（属性に頼みを書いてから起こす）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
-  fresh の部署を空にできない間（裏の処理が残る・入力欄に字が在る・窓を確かめられないなど）は、前の会話のまま次を渡さず、
+- Stop と SessionStart（asyncRewake）: 部署と窓口の会話で、頼みと納品の知らせを待ち、来たら会話を再開させる。順番待ちの次の 1 件を
+  渡し（属性に頼みを書いてから起動する）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
+  fresh の部署を空にできない間（裏の処理が残る・入力フィールドに字が在る・窓を確かめられないなど）は、前の会話のまま次を渡さず、
   間を置いて空にするのを試し直す（会話が前の会話の中身で次の頼みを書き直さない）。
-  会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）番の終わりに、同じく窓に /clear を打つ。
+  会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）ターンの終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
-  区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力欄の薄字
+  区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力フィールドの薄字
   （Claude Code の次の文の候補）は打ちかけの字と数えない（deliver.typed）。
-  起こしたばかりの裏の会話（claude --bg。SessionStart の startup）は、会話の記録のファイルができる（最初の文を受ける）まで、台帳を
-  読まずに待つ（最初の文の前に Claude Code が会話の処理を殺して起こし直すと、それまでに渡した字は処理と一緒に消える。unready）。
+  起動したばかりの裏の会話（claude --bg。SessionStart の startup）は、会話の記録のファイルができる（最初の文を受ける）まで、台帳を
+  読まずに待つ（最初の文の前に Claude Code が会話の処理を殺して起動し直すと、それまでに渡した字は処理と一緒に消える。unready）。
   納品していない頼みを持つ会話の記録にその受付番号が無ければ（渡した字が届かなかった）、頼みを 1 度だけ渡し直す（unseen）。
-  区切りの番の終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起こしたとき（属性 company.launched）と違えば、
-  /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起こし直す（空にするのと失う物は同じ。持ち主の手で起こし直さない）。
-  都度の部署が終わりと印した（--done。属性 company.finished）番の終わりには、印を外して dispatch.py --retire <部署> を会話から
+  区切りのターンの終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起動したとき（属性 company.launched）と違えば、
+  /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起動し直す（空にするのと失う物は同じ。持ち主の手で起動し直さない）。
+  都度の部署が終わりと印した（--done。属性 company.finished）ターンの終わりには、印を外して dispatch.py --retire <部署> を会話から
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
   順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
   渡さずに待つ部署（子の頼みの返事を待つ・納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
   順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
   部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
-  毎回空にする部署は、次の頼みを渡す前に、会社の形の model・effort が起こしたとき（属性 company.launched）と違えば、
-  dispatch.py --move <部署> --if-changed で起こし直す（/clear は起こしたときの --model・--effort を残すため。restart_due）。
-- UserPromptSubmit（`--resume`。裏で走らせない）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
-  終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じ番の中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
+  毎回空にする部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
+  dispatch.py --move <部署> --if-changed で起動し直す（/clear は起動したときの --model・--effort を残すため。restart_due）。
+- UserPromptSubmit（`--resume`。裏で走らせない）: 人の文でターンが始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
+  終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じターンの中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
   そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
-- UserPromptSubmit（`--pause`。async）: 人の文で番が始まったら、その場所の待ち受けを止める（待ち受けは印の token を書き替えるだけ）。
+- UserPromptSubmit（`--pause`。async）: 人の文でターンが始まったら、その場所の待ち受けを止める（待ち受けは印の token を書き替えるだけ）。
   窓に打ち込まれた知らせも人の文と同じに数える。
 
 部署か窓口（その場所の git の設定に company.role と company.name が在る）でなければ、すぐ 0 で終わる。待つのは場所の属性
 company.session の会話だけ（部署で属性に id が無ければ誰でも。窓口〔代表の clone〕は id が要る）。この会話の id と違うときは、
 同じ処理の会話が /clear などで id を替えた（前の待ち受けの印の会話の id が属性の id で、印を書いた処理がこの待ち受けの親と同じか、
 窓口で --desk が書いた会話の処理の番号 company.pid がこの待ち受けの親の処理に在る）ときだけ、属性の id を書き直して待つ。
-会話を起こす字の頭には、その会話に前に足した役の文と今の文が違えば、今の文を足す（role_hook.changed。会社の形を替えたことを、
+会話を再開させる字の頭には、その会話に前に足した役の文と今の文が違えば、今の文を足す（role_hook.changed。会社の形を替えたことを、
 会話を持ち越している部署と窓口に届ける）。確かめは印を書く前にする（待たない会話は、ほかの待ち受けの印に触らない）。
 
 宛先の会社の名前は、--ask と --tree と同じ読み方（tree.read_info と tree.company_name）で決める。
@@ -99,7 +99,7 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
 job_of = herdr.job_of
 
 
-# herdr が会話の手が空いたと見る状態（done は番を終えたまま見られていない物）
+# herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
 IDLE = ("idle", "done")
 
 
@@ -118,7 +118,7 @@ def talk_window(cwd, h=herdr, pids=(), jobs=()):
 def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0], why=None):
     """止まった会話を、自分の窓に /clear を打って空にする。空になった（空にした後の会話の始まりの待ち受けが印を書いた）のを見たら
     True（属性に marks を書く。省けば、納品し終えた fresh の部署の company.cleared）。裏の処理が残る・会話がまだ動いている・窓の
-    入力欄に字が在る・自分の会話の居る窓だと確かめられない（talk_window。me はこのフックを起こした Claude Code の処理の番号を返す）・
+    入力フィールドに字が在る・自分の会話の居る窓だと確かめられない（talk_window。me はこのフックを起動した Claude Code の処理の番号を返す）・
     herdr が受け付けない・打ったが空になったのを見られないときは False（印も書かない）。見られないまま True を返すと、この待ち受けは
     終わるのに次の待ち受けが張られず、順番待ちを渡す者が居なくなる（2026-10-17 に my_notes のノートの手入れで、別の窓に /clear を
     打った後に約 70 分止まった）。why に並びを渡せば、空にしなかった訳を 1 つ足す。"""
@@ -134,12 +134,12 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
         if pane is None:
             return no("この会話の居る窓を 1 つに確かめられない（部署の窓で attach を開けば続く）")
         if (h.agent(pane) or {}).get("agent_status") not in IDLE:
-            return no("会話がまだ動いている")   # ほかの止まる前のフックが番を続けさせたなど
+            return no("会話がまだ動いている")   # ほかの止まる前のフックがターンを続けさせたなど
         box = deliver.typed(h.read(pane, 40, ansi=True))
         if box is None:
-            return no("窓の入力欄が見えない")
+            return no("窓の入力フィールドが見えない")
         if box:
-            return no(f"窓の入力欄に打ちかけの字が在る（「{box[:20]}」。薄字の候補は数えない）")
+            return no(f"窓の入力フィールドに打ちかけの字が在る（「{box[:20]}」。薄字の候補は数えない）")
     except h.HerdrError as e:
         return no(f"herdr を読めない（{e}）")
 
@@ -159,7 +159,7 @@ DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
 RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))   # orders.RUN と同じ字
 RETIRES = "retires"   # 受付箱の下の、--retire を走らせた出力の置き場
 MOVES = "moves"   # 受付箱の下の、--move を走らせた出力の置き場（limit_hook.py と同じ）
-NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起こした）は、旗なしで起こしたと見る
+NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起動した）は、旗なしで起動したと見る
 
 
 def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
@@ -184,15 +184,15 @@ EMPTY_STARTS = ("startup", "clear")
 
 
 def unready(payload, job, read=None):
-    """裏の会話（job が在る。claude --bg）がまだ最初の文を受けていないか: 起こしたばかり（SessionStart の startup）で、会話の記録の
+    """裏の会話（job が在る。claude --bg）がまだ最初の文を受けていないか: 起動したばかり（SessionStart の startup）で、会話の記録の
     ファイル（transcript_path）がまだ無いか、人の文の行（"type":"user"）がまだ無い。記録のファイルは最初の文を受けたときにでき、
     頭に会話の名前などの行を書いてから文の行を書く（文の行の前に待ち明けると、unseen が受付番号を見つけられずに渡し直す）。
-    裏の会話の処理は、最初の文を受ける前に Claude Code（daemon）が殺して同じ id で起こし直すことがあり、それまでに渡した字は処理と
-    一緒に消える。--move で起こし直した部署の待ち受けが起こして 3 秒後に順番待ちの頼みを渡し、9 秒後に daemon がその処理を殺して
-    起こし直し（Claude Code の daemon.log の「bg settled 8e817daa (killed)」「claimed-spare 8e817daa (respawn)」）、起こし直した会話は
+    裏の会話の処理は、最初の文を受ける前に Claude Code（daemon）が殺して同じ id で起動し直すことがあり、それまでに渡した字は処理と
+    一緒に消える。--move で起動し直した部署の待ち受けが起動して 3 秒後に順番待ちの頼みを渡し、9 秒後に daemon がその処理を殺して
+    起動し直し（Claude Code の daemon.log の「bg settled 8e817daa (killed)」「claimed-spare 8e817daa (respawn)」）、起動し直した会話は
     渡されたのを知らないまま「受けている頼みは無い」と納品した（2026-10-18、my_notes の受付 4bae53。Claude Code 2.1.302）。
-    殺されなければ、最初の文の前に渡した字も届く（2026-10-18 の試し。最初の文の 7 秒前に渡した字が、最初の番の後に届いた）。
-    人が端末で起こした会話は daemon が起こし直さず、最初の文を打つまで知らせを止めないよう待たない。記録の場所を知らせない
+    殺されなければ、最初の文の前に渡した字も届く（2026-10-18 の試し。最初の文の 7 秒前に渡した字が、最初のターンの後に届いた）。
+    人が端末で起動した会話は daemon が起動し直さず、最初の文を打つまで知らせを止めないよう待たない。記録の場所を知らせない
     Claude Code でも待たない。"""
     if not job or payload.get("hook_event_name") != "SessionStart" or payload.get("source") != "startup":
         return False
@@ -209,7 +209,7 @@ def unready(payload, job, read=None):
 def unseen(got, payload, attrs, git_dir=gitx.git_dir):
     """この会話が持つ納品していない頼み（company.ask）の字が、会話に届いていないか: 会話の記録（transcript_path）に受付番号が無く、
     --move の最初の文（move-brief.md を読ませる）で渡した物でもない。渡した字は会話の処理が殺されると消え（unready の 4bae53）、
-    台帳の handed の行だけが残る。最初の文の後に処理が殺されたときも、起こし直した会話の待ち受けがここで見つける。
+    台帳の handed の行だけが残る。最初の文の後に処理が殺されたときも、起動し直した会話の待ち受けがここで見つける。
     確かめられないとき（記録の場所が無い・読めない・頼みの会話がこの会話でない）は届いたと見る（同じ頼みを重ねて渡さない）。"""
     ask, path = attrs.get("ask"), payload.get("transcript_path")
     if not ask or not path or attrs.get("session") != got["session"]:
@@ -237,7 +237,7 @@ def again_text(attrs, run):
     where = f"{file} を読んで進めてください" if attrs.get("boss-inbox") and os.path.isfile(file) else f"本文は {boss} に問い合わせる"
     return (f"（前に渡した頼みの字がこの会話に届いていなかった〔会話の記録に受付番号が無い〕ので、渡し直す）頼みです（受付 {ask}、"
             f"{boss} から）: {where}。終わったら、要約をファイルに書いて {deliver.deliver_command(run)} で"
-            f"{boss} へ返す（足りない項目は命令が教える）。")
+            f"{boss} へ返す（足りない項目はコマンドが教える）。")
 
 
 def open_children(got, attrs, records=None, read=None):
@@ -305,7 +305,7 @@ def _root_of(path):
 
 
 def blocked(attrs, inbox, place):
-    """部署が番を終えて（待ち受けが動いている）、順番待ちを渡さずに止まっているか: 受けた頼みを納品していないか、fresh の部署で
+    """部署がターンを終えて（待ち受けが動いている）、順番待ちを渡さずに止まっているか: 受けた頼みを納品していないか、fresh の部署で
     納品し終えてまだ空にしていない（子の頼みの返事を待って空にしない間。must_clear と同じ見分け）。"""
     ask = attrs.get("ask")
     held = bool(wake.pending(attrs) or ask and attrs.get("fresh") == role.FRESH and attrs.get("delivered") == ask
@@ -439,12 +439,12 @@ def must_clear(payload, attrs):
 
 
 def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False):
-    """毎回空にする部署が次の頼みを受ける前に（at_rest なら、会話を持ち越す部署か窓口が区切り〔--rest〕の番の終わりに）、起こし直すか。
-    起こし直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起こしたときの --model・--effort・--settings を
-    残すので、会社の形の起動の設定を替えたら、空にするのでなく起こし直す（6bdc72）。
-    裏の処理が残る・（at_rest でなければ）順番待ちが空・今の値が起こしたとき（company.launched）か、前に起こし直さなかった値（company.restart-kept）と
-    同じ・会社の形を読めない・この会話の起こし直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
-    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）ときは起こし直さない。"""
+    """毎回空にする部署が次の頼みを受ける前に（at_rest なら、会話を持ち越す部署か窓口が区切り〔--rest〕のターンの終わりに）、起動し直すか。
+    起動し直すなら会社の形の今の値（role.launch_key の字）、ほかは None。/clear は起動したときの --model・--effort・--settings を
+    残すので、会社の形の起動の設定を替えたら、空にするのでなく起動し直す（6bdc72）。
+    裏の処理が残る・（at_rest でなければ）順番待ちが空・今の値が起動したとき（company.launched）か、前に起動し直さなかった値（company.restart-kept）と
+    同じ・会社の形を読めない・この会話の起動し直しがもう走っている（company.restarting がこの会話の id。人が打って待ち受けが
+    替わった後など。2 本走らせると同じ部署の会話が 2 つ立ちうる）ときは起動し直さない。"""
     if (not at_rest and (attrs.get("fresh") != role.FRESH or not wake.queued(got["inbox"], got["place"]))
             or payload.get("background_tasks") or not (attrs.get("job") or attrs.get("session"))
             or attrs.get(wake.RESTARTING) == got["session"]):
@@ -457,12 +457,12 @@ def restart_due(got, payload, attrs, key_of=role_hook.launch_key, at_rest=False)
 
 
 def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sleep, parent=os.getppid, detach=None):
-    """dispatch.py --move <会社/部署> --if-changed を会話から切り離して走らせ、終わるまで待つ。--move がこの会話を止めて起こし直したら
-    True（新しい会話の待ち受けが頼みを渡す）。止めずに終わったら（起こし直さない・起こせない）、印を外して今の値を
-    company.restart-kept に残し、False（この会話に頼みを渡す。前の model・effort のまま受ける）。--move が今は起こし直さない
-    （wake.NOT_NOW。番の途中・打ちかけの字）で終わったときは今の値を残さない（次の区切りでまた試す）。待つ間も印の更新の時刻を進め、
+    """dispatch.py --move <会社/部署> --if-changed を会話から切り離して走らせ、終わるまで待つ。--move がこの会話を止めて起動し直したら
+    True（新しい会話の待ち受けが頼みを渡す）。止めずに終わったら（起動し直さない・起動できない）、印を外して今の値を
+    company.restart-kept に残し、False（この会話に頼みを渡す。前の model・effort のまま受ける）。--move が今は起動し直さない
+    （wake.NOT_NOW。ターンの途中・打ちかけの字）で終わったときは今の値を残さない（次の区切りでまた試す）。待つ間も印の更新の時刻を進め、
     会話の処理が替わる（止められた）か待ち受けが替わったら True。detach（既定は POSIX で本物の Popen のとき）なら detached の殻で
-    走らせ、殻の書く終わりの値のファイルで終わりを見る（--move は前の会話を止めても走り続け、起こし直すか、起こせなければ訳を台帳に書く）。"""
+    走らせ、殻の書く終わりの値のファイルで終わりを見る（--move は前の会話を止めても走り続け、起動し直すか、起動できなければ訳を台帳に書く）。"""
     attrs = gitx.worktree_attrs(got["cwd"])
     name = attrs["name"]
     argv = ([sys.executable, "-u", DISPATCH_PY, "--move", f"{got['company']}/{name}", "--if-changed"]
@@ -493,14 +493,14 @@ def restart_first(got, key, spawn=subprocess.Popen, now=time.time, pause=time.sl
         pause(wake.POLL)
     if not gitx.worktree_attrs(got["cwd"]).get(wake.RESTARTING):
         return True   # --move が前の会話を止めた
-    # 今は起こし直さない（番の途中・打ちかけの字）で終わったなら、今の値を残さない（次の区切りで試し直す）
+    # 今は起動し直さない（ターンの途中・打ちかけの字）で終わったなら、今の値を残さない（次の区切りで試し直す）
     later = proc is not None and proc.poll() == wake.NOT_NOW
     provision.mark(got["cwd"], got["root"], {wake.RESTARTING: None, **({} if later else {wake.RESTART_KEPT: key})}, gitx)
     return False
 
 
 class _DoneFile:
-    """切り離して走らせた命令の終わりを、殻が書く終わりの値のファイルで見る（Popen の poll と同じ形。数でない値は 1）。"""
+    """切り離して走らせたコマンドの終わりを、殻が書く終わりの値のファイルで見る（Popen の poll と同じ形。数でない値は 1）。"""
 
     def __init__(self, path):
         self.path = path
@@ -517,8 +517,8 @@ class _DoneFile:
 
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
             spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie):
-    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。
-    restart は起こし直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
+    """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
+    restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
     unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。"""
     # fresh の部署を空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。順番待ちに
     # 次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--take で回せる）
@@ -557,12 +557,12 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
         if ask and attrs.get("delivered") != ask:
             if unseen(got, payload, attrs) and not any(r.get("kind") == "handed" and r.get("again") and r.get("id") == ask
                                                         and r.get("session") == got["session"] for r in deliver.records(got["inbox"])):
-                # 同じ会話へ渡し直すのは 1 度まで（記録を読み違えても、番ごとに同じ頼みを重ねない）
+                # 同じ会話へ渡し直すのは 1 度まで（記録を読み違えても、ターンごとに同じ頼みを重ねない）
                 deliver.log(got["inbox"], {"id": ask, "kind": "handed", "at": now(), "place": got["cwd"], "session": got["session"],
                                            "again": "会話の記録に受付番号が無い（渡した字が届かなかった）"})
                 return "wake", again_text(attrs, RUN)
             if not payload.get("background_tasks"):
-                # 納品の前に子の返事を待って番を終えた部署（常設の担当なども）も、輪の途中に入りうる
+                # 納品の前に子の返事を待ってターンを終えた部署（常設の担当なども）も、輪の途中に入りうる
                 loose(attrs, None)
             return None   # 未納品の頼みを持っている
         if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
@@ -572,7 +572,7 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
             children = open_children(got, attrs, read=_read_part(got))
             if children:
                 # 子の頼み（この部署が出して返事の来ていない頼み）が在る間は空にしない（持ち主の承認 dc0aa2: 受けた頼みも子の頼みも
-                # 全部閉じた番の終わりに空にする）。子の納品で起きた番の終わりに、閉じていれば空にする（起こすときに印を外す。woken）。
+                # 全部閉じたターンの終わりに空にする）。子の納品で起きたターンの終わりに、閉じていれば空にする（起動するときに印を外す。woken）。
                 # 順番待ちの次の頼みは、前の会話のまま渡さずに待つ
                 waiting = wake.queued(got["inbox"], got["place"])
                 if not waiting:
@@ -595,15 +595,15 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
             return wake.HOLD
         unrested = []   # 区切りで空にできなかった訳（次を渡すときに会話と台帳に添える。黙って前の会話のまま渡さない）
         if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
-            # 区切りの印はこの会話が打った物だけ見る（前の会話の印が残っていても、持ち主と話している今の会話を起こし直さない）
+            # 区切りの印はこの会話が打った物だけ見る（前の会話の印が残っていても、持ち主と話している今の会話を起動し直さない）
             key = restart_due(got, payload, attrs, key_of, at_rest=True)
             if key and restart(got, key):
-                return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起こし直した。起こし直した会話の待ち受けが、次を渡す
+                return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起動し直した。起動し直した会話の待ち受けが、次を渡す
             if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me, why=unrested):
                 return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
         key = restart_due(got, payload, attrs, key_of)
         if key and restart(got, key):
-            return "end", None   # 会社の形の起動の設定が替わったので起こし直した。起こし直した会話の待ち受けが、次を渡す
+            return "end", None   # 会社の形の起動の設定が替わったので起動し直した。起動し直した会話の待ち受けが、次を渡す
         with wake.ask_lock(got["inbox"], got["place"]):
             # 錠の中で読み直す（上で読んだ後に、--ask が窓に頼みを打っているかもしれない）
             if wake.pending(attrs_of(got["cwd"])):
@@ -619,13 +619,13 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
         if unrested:
             # 2026-10-18 に my_notes の段取りが、空にできない訳を知らないまま 1 時間に 12 回、前の会話のまま受けた
             text = (f"（区切り〔--rest〕で会話を空にできなかったので、前の会話のまま渡す: {unrested[0]}。区切りの印は残してあり、"
-                    "次の番の終わりにまた空にするのを試す）\n" + text)
+                    "次のターンの終わりにまた空にするのを試す）\n" + text)
         return "wake", text
     return check
 
 
 def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
-    """人の文で番が始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
+    """人の文でターンが始まった: 部署の会話が --wait で印した答え待ちを外す（答えを受けたので、止まる前のフックがまた納品を促す）。
     --rest の区切りの印と --done の終わりの印も外す（人と話している途中の会話を空にも畳みもしない）。印を外すのは、場所の属性の会話（company.session）が文を
     受けたときだけ（同じ場所のほかの会話の文では外さない）。答え待ちを外したら、場所の会社と頼み元の受付箱の台帳に kind resumed を
     足す（頼みの状態を台帳から読めるように。docs/ledger.md）。"""
@@ -644,7 +644,7 @@ def resume_from_wait(payload, attrs_of=gitx.worktree_attrs, now=time.time):
 
 
 def resume_here(payload):
-    """人の文で番が始まった（--resume。会話が文を読む前に走る）: 答え待ちと区切りの印を外す（resume_from_wait）。"""
+    """人の文でターンが始まった（--resume。会話が文を読む前に走る）: 答え待ちと区切りの印を外す（resume_from_wait）。"""
     try:
         resume_from_wait(payload)
     except (gitx.GitError, OSError) as e:
@@ -653,7 +653,7 @@ def resume_here(payload):
 
 
 def pause_here(payload):
-    """人の文で番が始まった（--pause。裏で走る）: その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
+    """人の文でターンが始まった（--pause。裏で走る）: その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
     got = plan(payload)
     if not got:
         return 0
@@ -666,7 +666,7 @@ def pause_here(payload):
 
 def keep_job(got, attrs_of=gitx.worktree_attrs):
     """部署の属性 company.job（落ちた部署を attach で戻すときと、/clear を打つ窓を確かめるときの短い id）を、この会話の裏の処理の
-    短い id に合わせる。裏の会話を起こし直すと短い id が替わり、古い id のままだと窓を自分の物と確かめられずに順番待ちを渡さなかった
+    短い id に合わせる。裏の会話を起動し直すと短い id が替わり、古い id のままだと窓を自分の物と確かめられずに順番待ちを渡さなかった
     （2026-10-17 の割り振り。属性は a5b0bc07、窓は 8c4a1102 に attach していた）。書けなくても待ち受けは続ける。"""
     try:
         if got.get("job") and attrs_of(got["cwd"]).get("job") != got["job"]:
@@ -676,17 +676,17 @@ def keep_job(got, attrs_of=gitx.worktree_attrs):
 
 
 def woken(got, attrs_of=gitx.worktree_attrs):
-    """待ち受けが会話を起こす（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、毎回空にする部署（役が fresh）なら、空にした印
-    （company.cleared）を外す。起こされた番の文脈が会話に残るので、その番の終わりに待ち受けがまた空にする（must_clear）。今までは、
-    頼みを受けていない番（社長室の納品で起こされた業務改革など）の後も印が残り、次の頼みが前の番の文脈のまま渡った
-    （my_notes の受付 f4ca34 で見つかった。6a9337）。人が窓に打った番では外さない（持ち主と話している途中の会話を空にしない）。"""
+    """待ち受けが会話を再開させる（納品・足しの知らせか、順番待ちの頼みを渡す）ときに、毎回空にする部署（役が fresh）なら、空にした印
+    （company.cleared）を外す。起動されたターンの文脈が会話に残るので、そのターンの終わりに待ち受けがまた空にする（must_clear）。今までは、
+    頼みを受けていないターン（社長室の納品で起動された業務改革など）の後も印が残り、次の頼みが前のターンの文脈のまま渡った
+    （my_notes の受付 f4ca34 で見つかった。6a9337）。人が窓に打ったターンでは外さない（持ち主と話している途中の会話を空にしない）。"""
     attrs = attrs_of(got["cwd"])
     if attrs.get("fresh") == role.FRESH and attrs.get("cleared"):
         provision.mark(got["cwd"], got["root"], {"cleared": None}, gitx)
 
 
 class WithRole:
-    """会話を起こす字（err に書く物）の頭に、その会話の役の文が替わっていれば今の文を足す（role_hook.changed）。"""
+    """会話を再開させる字（err に書く物）の頭に、その会話の役の文が替わっていれば今の文を足す（role_hook.changed）。"""
 
     def __init__(self, err, payload, changed=role_hook.changed, woke=lambda: None):
         self.err, self.payload, self.changed, self.done, self.woke = err, payload, changed, False, woke
@@ -745,6 +745,6 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:  # 待ち受けの誤りで会話を起こさない（終了の値 2 だけが会話を起こす。1 は訳を残して終わる）
+    except Exception as e:  # 待ち受けの誤りで会話を再開させない（終了の値 2 だけが会話を再開させる。1 は訳を残して終わる）
         print(f"works-dispatch の待ち受けが動かなかった: {e}", file=sys.stderr)
         sys.exit(1)

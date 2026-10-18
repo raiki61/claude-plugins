@@ -132,7 +132,7 @@ class FakeHerdr(WorktreeHerdr):
         self.writes.append(("move_workspace", workspace, index))
 
     screen = ""   # read が返す画面の終わり
-    front = {}    # ペイン → 前で動いている命令の並び（foreground）。無ければ、会話が居ればその会話、居なければシェル
+    front = {}    # ペイン → 前で動いているコマンドの並び（foreground）。無ければ、会話が居ればその会話、居なければシェル
 
     def foreground(self, pane):
         return self.front.get(pane, ["claude"] if pane in self.talking else ["/bin/sh"])
@@ -180,8 +180,8 @@ class FakePorts(dispatch.Ports):
         self.git = gitx
         self.gh = FakeGh(self)
         self.issues = {}
-        self.source = None   # 元の clone（FakeGh が origin に枝を作るのに使う）
-        self.spawned = []   # 切り離して走らせた命令（argv・場所・出力のファイル・環境）。試験では走らせない
+        self.source = None   # 元の clone（FakeGh が origin にブランチを作るのに使う）
+        self.spawned = []   # 切り離して走らせたコマンド（argv・場所・出力のファイル・環境）。試験では走らせない
 
     def spawn(self, argv, cwd, log, env):
         self.spawned.append((argv, cwd, log, env))
@@ -204,7 +204,7 @@ class FakePorts(dispatch.Ports):
     def activity(self, repo, number):
         return self.acts.get(number, {"reviewers": True, "last_other": None})
 
-    branch_prs = {}   # 枝 → その枝の PR（{number, state, head_sha}。片付け）。"unknown" は読めない＝消さない。無ければ PR が無い
+    branch_prs = {}   # ブランチ → そのブランチの PR（{number, state, head_sha}。片付け）。"unknown" は読めない＝消さない。無ければ PR が無い
 
     def pr_for_branch(self, repo, branch):
         got = self.branch_prs.get(branch)
@@ -275,14 +275,14 @@ class FakePorts(dispatch.Ports):
         self.herdr.writes.append(("trust", account["name"], source, clone))
         return self.trust_outcome
 
-    trusted_dirs = ()   # 信頼済みのフォルダ（作業役を起こすフォルダの確かめ）
+    trusted_dirs = ()   # 信頼済みのフォルダ（サブエージェントを起動するフォルダの確かめ）
 
     def trusted(self, account, folder):
         return folder in self.trusted_dirs
 
 
 class FakeGh:
-    """issue に枝を結ぶ書く口の偽物。結ぶと、ports.issues のその issue に枝が 1 本増え、origin にも枝ができる。"""
+    """issue にブランチを結ぶ書く口の偽物。結ぶと、ports.issues のその issue にブランチが 1 本増え、origin にもブランチができる。"""
 
     def __init__(self, ports):
         self.ports = ports
@@ -336,7 +336,7 @@ class Main(unittest.TestCase):
         self.assertIn("1 件あたりの使用率をまだ測っていない", out)
 
     def test_sent_pages_are_opened_once_after_all_are_sent(self):
-        # 起こした会話には開かせない（ATTENTION_CATCHUP_OPEN=0）ので、送り終えた件のページを dispatch が 1 回開く
+        # 起動した会話には開かせない（ATTENTION_CATCHUP_OPEN=0）ので、送り終えた件のページを dispatch が 1 回開く
         ports = FakePorts([pr(1), pr(2)])
         rc, out = run_main(["--config", self.cfg], ports)
         self.assertEqual(rc, 0, out)
@@ -491,7 +491,7 @@ class Main(unittest.TestCase):
 
 
 class Issue(unittest.TestCase):
-    """--issue N: issue に結んだ枝の場所を開き、1 ターン目の /catchup N まで送って止める。"""
+    """--issue N: issue に結んだブランチの場所を開き、1 ターン目の /catchup N まで送って止める。"""
 
     def setUp(self):
         self.cfg, self.root = make_cfg()
@@ -524,7 +524,7 @@ class Issue(unittest.TestCase):
         self.assertIn(("create_worktree", "12-fix", "r/12-fix"), ports.herdr.writes)
 
     def test_branch_replaced_by_its_pr_is_found_through_the_pr(self):
-        # issue に結んだ枝から PR を作ると、GitHub は枝の結びつきを PR に置き換える。枝を作り直さず、PR の枝を使う
+        # issue に結んだブランチから PR を作ると、GitHub はブランチの結びつきを PR に置き換える。ブランチを作り直さず、PR のブランチを使う
         ports = self.ports(prs=[3])
         rc, out = run_main(["--config", self.cfg, "--issue", "12"], ports)
         self.assertEqual(ports.gh.developed, [])
@@ -580,7 +580,7 @@ class RealPorts(unittest.TestCase):
 
     def test_account_without_config_dir_follows_a_fresh_login_shell_not_this_session(self):
         # dispatch はふつう、別のアカウントの Claude Code の会話の中から走る。その会話の CLAUDE_CONFIG_DIR は、
-        # 作業場のペインで起こす config_dir 無しのアカウントのフォルダではない。ペインの新しいログインのシェルが持つ値を使う
+        # 作業場のペインで起動する config_dir 無しのアカウントのフォルダではない。ペインの新しいログインのシェルが持つ値を使う
         session = {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/h/.claude-p2"}
         ports = quiet_ports(env=session, login_config_dir=lambda: None)
         self.assertEqual(claudex.trust_file(None, ports.account_env), os.path.join("/h", ".claude.json"))
@@ -613,15 +613,15 @@ class RealPorts(unittest.TestCase):
         self.assertIsNone(dispatch._login_config_dir({}, empty))
 
     def test_without_a_posix_shell_commands_are_looked_up_on_path(self):
-        # Windows（herdr の native 版）には -lic で起こす POSIX のシェルが無い。PATH の上で探す
+        # Windows（herdr の native 版）には -lic で起動する POSIX のシェルが無い。PATH の上で探す
         def boom(*a, **kw):
-            raise AssertionError("シェルを起こした")
+            raise AssertionError("シェルを起動した")
         self.assertTrue(dispatch._shell_has("claude-p1", env={}, runner=boom, which=lambda c: "C:/bin/" + c, posix=False))
         self.assertFalse(dispatch._shell_has("claude-p1", env={}, runner=boom, which=lambda c: None, posix=False))
 
     def test_without_a_posix_shell_the_pane_uses_the_default_folder(self):
         def boom(*a, **kw):
-            raise AssertionError("シェルを起こした")
+            raise AssertionError("シェルを起動した")
         self.assertIsNone(dispatch._login_config_dir({"CLAUDE_CONFIG_DIR": "/h/.claude-p2"}, boom, posix=False))
 
     def test_gone_plugin_paths_with_backslashes_are_found(self):
@@ -663,7 +663,7 @@ class Preflight(unittest.TestCase):
         self.assertIn("a1", "\n".join(notes))  # 控えが無いのは止めずに 1 行
 
     def test_task_needs_pane_names_and_background_flags_but_not_catchup(self):
-        # 部署の回は /catchup と 2 ターン目の文を見ず、ペインの名前と札（pane.rename・pane.report_metadata）と、裏の会話を起こす
+        # 部署の回は /catchup と 2 ターン目の文を見ず、ペインの名前と札（pane.rename・pane.report_metadata）と、裏の会話を起動する
         # claude の旗（--name・--bg・--settings）を見る。ほかの回では、それらは注記にとどめる（PR を開くのには要らない）
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
@@ -732,8 +732,8 @@ class Preflight(unittest.TestCase):
         self.assertEqual(text.count("integration install"), 1)
 
     def test_herdr_and_hook_settings_pointing_at_a_gone_plugin_folder_are_noted(self):
-        # タブ欄の行とサイドバーのフックは、プラグインの入った場所（版ごとのフォルダ）を指す。更新で消えると、
-        # herdr は欄を黙って消し、フックは黙って何もしなくなるので、始める前の確かめで見つける
+        # タブバーの行とサイドバーのフックは、プラグインの入った場所（版ごとのフォルダ）を指す。更新で消えると、
+        # herdr はフィールドを黙って消し、フックは黙って何もしなくなるので、始める前の確かめで見つける
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
         home = pathlib.Path(root).parent / "home"
@@ -886,7 +886,7 @@ class Init(unittest.TestCase):
         self.assertTrue(pathlib.Path(self.cfg).with_name("dispatch-second-prompt.md").is_file())
         self.assertIn("--check", out)
         text = pathlib.Path(self.cfg).read_text(encoding="utf-8")
-        self.assertIn("skills/dispatch/references/setup.md", text.splitlines()[1])   # 欄の書き方はスキルの別ファイルに在る（README でない）
+        self.assertIn("skills/dispatch/references/setup.md", text.splitlines()[1])   # フィールドの書き方はスキルの別ファイルに在る（README でない）
         self.assertIn("CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて", text)
 
     def test_repo_that_is_not_the_origin_of_the_source_stops_before_writing(self):

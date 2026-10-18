@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""accounts ノード: 使用率の控えと動いている会話の数から、選べるアカウントとその順を決める（設計書 2 節の 3）。外には書かない
+"""accounts ノード: 使用率の控えと動いている会話の数から、選べるアカウントとその順を決める（設計書のセクション 2 の 3）。外には書かない
 （--pick だけは、古い控えを取り直す。limits.py の probe と同じく、古いアカウントにだけ出力 0 トークンで問い合わせる）。
 
 - 週の枠（seven_day）か 5 時間の枠（five_hour）の使用率が上限に達したアカウントは選ばない。使用率は 1% 刻みの整数で届き、ちょうど上限の値は上限を超えている見込みがあるので、上限ちょうども選ばない。
@@ -15,8 +15,8 @@
 
 使い方:
   python3 nodes/accounts.py [--config <パス>] [--out <パス>] [--now <Unix 時刻>]   … 全部のアカウントの順を JSON で出す
-  python3 nodes/accounts.py --pick [--json] [--no-probe] [--config <パス>]          … 1 つ選び、名前と起こし方の命令を出す
---pick は、人が読む 1 行（「<名前>: <起こし方の命令> — <選んだ訳>」）を標準出力に、注記を標準エラーに出す。--json は、選んだ 1 件（pick）と
+  python3 nodes/accounts.py --pick [--json] [--no-probe] [--config <パス>]          … 1 つ選び、名前と起動コマンドを出す
+--pick は、人が読む 1 行（「<名前>: <起動コマンド> — <選んだ訳>」）を標準出力に、注記を標準エラーに出す。--json は、選んだ 1 件（pick）と
 全部の順（accounts）と注記（notes）を JSON で出す。選べるアカウントが無ければ、終了の値は 1。
 """
 
@@ -152,7 +152,7 @@ def read_limits(limits_dir, names):
 
 def _default_ports(env):
     """会話の一覧・控えの取り直しの口。入口（dispatch.py）の口をそのまま使う。config_dir の無いアカウントの会話は、
-    この命令を打った会話のアカウントでなく、作業場のペインで新しく起きるログインのシェルのフォルダで読むため（dispatch.Ports.account_env）。"""
+    このコマンドを打った会話のアカウントでなく、作業場のペインで新しく起きるログインのシェルのフォルダで読むため（dispatch.Ports.account_env）。"""
     import dispatch as entry
     return entry.Ports(env=env)
 
@@ -162,7 +162,7 @@ def main(argv=None, env=os.environ, ports=None):
     ap.add_argument("--config")
     ap.add_argument("--out")
     ap.add_argument("--now", type=float, help="時刻を固定する（試験用）。省くと今")
-    ap.add_argument("--pick", action="store_true", help="1 つ選び、名前と起こし方の命令を出す")
+    ap.add_argument("--pick", action="store_true", help="1 つ選び、名前と起動コマンドを出す")
     ap.add_argument("--json", action="store_true", help="--pick の結果を JSON で出す")
     ap.add_argument("--no-probe", action="store_true", help="--pick で、古い控えを取り直さない")
     a = ap.parse_args(argv)

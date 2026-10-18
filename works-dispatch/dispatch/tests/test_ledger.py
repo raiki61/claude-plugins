@@ -65,7 +65,7 @@ class Projection(unittest.TestCase):
                          [(A, None, None), (B, A, "cause"), (C, A, "inferred"), (D, C, "forwarded")])
         self.assertEqual(got[C]["state"], "done")
         self.assertTrue(got[C]["forwarded"])
-        # cause の欄が在って空（受けていた頼みが無い場所から打った）なら、古い行の見分けをしない
+        # cause のフィールドが在って空（受けていた頼みが無い場所から打った）なら、古い行の見分けをしない
         self.assertIsNone(build([ask(A, 1), ask(B, 2, frm=dept, cause=None)])[B]["parent"])
         # 古い行の見分けは、その場所がその時まだ閉じていない頼みにだけ結ぶ（返し終えた前の頼みの子にしない）
         rows = [ask(A, 1), {"id": "f", "kind": "deliver", "ask": A, "at": 2, "status": "sent"}, ask(B, 3, frm=dept)]
@@ -86,8 +86,8 @@ class Projection(unittest.TestCase):
         self.assertEqual((got[A]["state"], got[A]["follows"], got[A]["open"]), ("done", [B], True))   # 続きが開いているので開いている
         self.assertEqual([q["holder"] for q in got[A]["questions"]], [f"割り振り（受付 {B}）", "持ち主（価値で選ぶ）"])
         rows.append({"id": "g", "kind": "deliver", "ask": B, "at": 4, "status": "sent"})
-        self.assertFalse(build(rows)[A]["open"])   # 部署や持ち主の持ち手は、閉じる行が無いので開いている物に数えない
-        # holders の欄の無い古い納品の行は questions_of で読み、6 桁の短い受付も 1 つに当たれば結ぶ
+        self.assertFalse(build(rows)[A]["open"])   # 部署や持ち主の担当者は、閉じる行が無いので開いている物に数えない
+        # holders のフィールドの無い古い納品の行は questions_of で読み、6 桁の短い受付も 1 つに当たれば結ぶ
         old = [ask(A, 1), ask(B, 2, frm={"name": "x", "place": "/x"}), {"id": "f", "kind": "deliver", "ask": A, "at": 3, "status": "sent"}]
         got = build(old, questions_of=lambda r: [{"holder": "段取り（受付 bbbbbb）", "ask": None}])
         self.assertEqual(got[A]["follows"], [B])
@@ -180,7 +180,7 @@ class Catalog(unittest.TestCase):
 
 class Holders(unittest.TestCase):
     def test_open_holders_reads_each_question(self):
-        text = (f"- A を決める。持ち手: 持ち主（価値で選ぶ）\n- B を直す。持ち手: 割り振り（受付 {B}）\n- 持ち手の無い件")
+        text = (f"- A を決める。担当者: 持ち主（価値で選ぶ）\n- B を直す。担当者: 割り振り（受付 {B}）\n- 担当者の無い件")
         self.assertEqual(deliver.open_holders(text), [{"holder": "持ち主（価値で選ぶ）", "ask": None},
                                                       {"holder": f"割り振り（受付 {B}）", "ask": B}])
         self.assertEqual(deliver.open_holders("なし"), [])
@@ -191,8 +191,8 @@ class Holders(unittest.TestCase):
             p = pathlib.Path(d, "a.md")
             p.write_text("持ち主の頼みです（社長室から）。\n\n## 持ち主の言葉\n- 「台帳から木を作って」\n- 「次」\n", encoding="utf-8")
             self.assertEqual(deliver.task_title(str(p)), "台帳から木を作って")
-            p.write_text("頼み: 枝を直す\n\n本文\n", encoding="utf-8")
-            self.assertEqual(deliver.task_title(str(p)), "頼み: 枝を直す")
+            p.write_text("頼み: ブランチを直す\n\n本文\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "頼み: ブランチを直す")
             self.assertIsNone(deliver.task_title(os.path.join(d, "nope.md")))
 
 
@@ -207,10 +207,10 @@ class Todo(unittest.TestCase):
             inbox.mkdir(parents=True)
         (root / "theirs" / "dept").mkdir()
         (self.mine / f"{A}-ask.md").write_text("## 持ち主の言葉\n- 「木を作る」\n", encoding="utf-8")
-        (self.theirs / f"{B}-ask.md").write_text("頼み: 枝を直す\n", encoding="utf-8")
+        (self.theirs / f"{B}-ask.md").write_text("頼み: ブランチを直す\n", encoding="utf-8")
         summary = self.mine / "f-summary.md"
-        summary.write_text(f"## 結論\n済んだ\n\n## 残った疑問\n- C を決める。持ち手: 段取り（受付 {C}）\n", encoding="utf-8")
-        # 古い形の行（cause と holders の欄が無い）。mine の窓口が theirs の調べに A を頼み、調べが A を受けたまま B を出し、B の納品の
+        summary.write_text(f"## 結論\n済んだ\n\n## 残った疑問\n- C を決める。担当者: 段取り（受付 {C}）\n", encoding="utf-8")
+        # 古い形の行（cause と holders のフィールドが無い）。mine の窓口が theirs の調べに A を頼み、調べが A を受けたまま B を出し、B の納品の
         # 残った疑問が C を指す。mine の台帳の行は theirs の受付箱のファイルを指さないので、theirs は A の宛先の場所から引く
         self.write(self.mine, [ask(A, 1, frm={"name": "desk", "place": str(root / "mine")},
                                    to={"company": "theirs", "name": "調べ", "path": str(root / "theirs" / "dept")})
@@ -250,13 +250,13 @@ class Todo(unittest.TestCase):
         rc, out = self.run_todo()
         self.assertEqual(rc, 0, out)
         lines = [re.sub(r"  \d{8}-\d{6}-[0-9a-f]{6}  .*$", "", x) for x in out.splitlines()]
-        self.assertEqual(lines, ["- [済] 木を作る", "  - [済] 頼み: 枝を直す", "    → 続き: " + C, "- [順番待ち] （題なし）"])
+        self.assertEqual(lines, ["- [済] 木を作る", "  - [済] 頼み: ブランチを直す", "    → 続き: " + C, "- [順番待ち] （題なし）"])
         rc, out = self.run_todo(json=True)
         got = json.loads(out)
         self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
         self.assertEqual([n["task"]["id"] for n in got["forest"]], [A, C])
         rc, out = self.run_todo(todo="bbbbbb")
-        self.assertTrue(out.startswith(f"- [済] 頼み: 枝を直す  {B}"), out)
+        self.assertTrue(out.startswith(f"- [済] 頼み: ブランチを直す  {B}"), out)
         self.assertEqual(self.run_todo(todo="zzzzzz")[0], 2)
 
     def test_writes_one_html_page(self):

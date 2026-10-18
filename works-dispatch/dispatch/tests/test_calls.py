@@ -1,4 +1,4 @@
-"""機械窓口（受付の設計 5 章）: 道具の欄（role ノード）・入力の確かめ（tools ノード）・--call と回す・[[land.after]] の合図・--tree。
+"""機械窓口（受付の設計 5 章）: ツールのフィールド（role ノード）・入力の確かめ（tools ノード）・--call と回す・[[land.after]] の合図・--tree。
 git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
 
 import argparse
@@ -50,7 +50,7 @@ class Fields(unittest.TestCase):
 
     def test_tool_fields_follow_the_mcp_tool(self):
         bad = role.load("/c.toml", '[[roles]]\nname = "r"\n[[roles.tools]]\nname = "a b"\ninputSchema = { type = "string" }\n')
-        self.assertIn("name（英数字・_・-・. の 1〜128 字）, inputSchema（根に type = \"object\" の表）, command", bad["problems"][0])
+        self.assertIn("name（英数字・_・-・. の 1〜128 字）, inputSchema（ルートに type = \"object\" の表）, command", bad["problems"][0])
 
     def test_input_is_checked_only_for_shape(self):
         schema = {"type": "object", "required": ["n"], "properties": {"n": {"type": "integer"}, "s": {"type": ["string", "null"]}},
@@ -113,7 +113,7 @@ class Call(unittest.TestCase):
     def test_the_tool_runs_on_the_default_branch_not_on_what_the_clone_has_open(self):
         self.use("git rev-parse HEAD")
         want = gitx.rev(self.src, gitx.origin_head(self.src))
-        git("-C", self.src, "switch", "-q", "-c", "other")   # 持ち主が代表の clone で別の枝を開いている
+        git("-C", self.src, "switch", "-q", "-c", "other")   # 持ち主が代表の clone で別のブランチを開いている
         git("-C", self.src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "other")
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 0, out)
@@ -138,7 +138,7 @@ class Call(unittest.TestCase):
         self.assertEqual(len(git("-C", self.src, "worktree", "list").splitlines()), 2)
 
     def leave(self, owner=False):
-        """殺された処理が残した道具の場所を作る（owner は鍵の訳。省けば終わった処理の pid の鍵、None なら鍵を掛けない）。"""
+        """殺された処理が残したツールの場所を作る（owner は鍵の訳。省けば終わった処理の pid の鍵、None なら鍵を掛けない）。"""
         if owner is False:
             gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, encoding="utf-8")
             owner = f"{tools.OWNER}{gone.stdout.strip()}"
@@ -148,44 +148,44 @@ class Call(unittest.TestCase):
         return path
 
     def test_places_left_by_killed_runs_are_swept_by_the_next_call_and_by_clean(self):
-        # 2026-10-17 に my_notes で、消えずに残った道具の場所と、場所が無いのに鍵だけ残った行が --tree に「（枝無し）」で並んだ
+        # 2026-10-17 に my_notes で、消えずに残ったツールの場所と、場所が無いのに鍵だけ残った行が --tree に「（ブランチ無し）」で並んだ
         self.use("true")
         dead = self.leave()
-        old = self.leave(None)   # 前の版の place が作った（鍵が無い）。前の版の道具が走っているかもしれない
+        old = self.leave(None)   # 前の版の place が作った（鍵が無い）。前の版のツールが走っているかもしれない
         moved = self.leave("initializing")
         shutil.rmtree(os.path.dirname(moved))
         live = self.leave(f"{tools.OWNER}{os.getpid()}")
         listed = lambda: {os.path.realpath(e["path"]) for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])}   # noqa: E731
         rc, out = self.main(self.src, "--clean")
-        self.assertIn(f"道具の一時の場所 {os.path.realpath(live)}  残す（道具が走っている）", out)
-        self.assertIn(f"道具の一時の場所 {os.path.realpath(old)}  残す（鍵が無い。道具が走っているかもしれないので消さない。走っていなければ "
+        self.assertIn(f"ツールの一時の場所 {os.path.realpath(live)}  残す（ツールが走っている）", out)
+        self.assertIn(f"ツールの一時の場所 {os.path.realpath(old)}  残す（鍵が無い。ツールが走っているかもしれないので消さない。走っていなければ "
                       f"git -C {self.src} worktree remove -f -f {os.path.realpath(old)} で消す）", out)
         self.assertEqual(out.count("消せる（作った処理がもう居ない）"), 2, out)
-        self.assertNotIn("（枝無し）", out)
+        self.assertNotIn("（ブランチ無し）", out)
         self.assertEqual(len(listed()), 4)   # 並べるだけでは消さない
         rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
         self.assertEqual(rc, 0, out)
         self.assertEqual(listed(), {os.path.realpath(live), os.path.realpath(old)})
         self.assertFalse(os.path.exists(os.path.dirname(dead)))
-        self.assertEqual(git("-C", self.src, "for-each-ref", tools.KEPT_REF), "")   # 先頭が枝に在れば ref を足さない
+        self.assertEqual(git("-C", self.src, "for-each-ref", tools.KEPT_REF), "")   # 先頭がブランチに在れば ref を足さない
         gitx.remove_detached(self.src, live)
         gitx.remove_detached(self.src, old)
         self.leave()
         rc, out = self.main(self.src, "--tree")
-        self.assertIn("（道具の一時の場所）", out)
+        self.assertIn("（ツールの一時の場所）", out)
         rc, out = self.main(self.src, "--clean", "--apply")
         self.assertIn("消した", out)
         self.assertEqual(listed(), set())
 
     def test_a_commit_only_in_a_left_place_is_kept_and_a_dirty_place_is_left(self):
-        # 2026-10-17 に my_notes に残った道具の場所には、push できないまま殺された写しの道具の commit が載っていた
+        # 2026-10-17 に my_notes に残ったツールの場所には、push できないまま殺された写しのツールの commit が載っていた
         made = self.leave()
         git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
         sha = gitx.rev(made, "HEAD")
         dirty = self.leave()
         pathlib.Path(dirty, "half.txt").write_text("書きかけ", encoding="utf-8")
         rc, out = self.main(self.src, "--clean")
-        self.assertIn(f"どの枝にも無い先頭の commit を {tools.KEPT_REF}{sha} に残してから消す", out)
+        self.assertIn(f"どのブランチにも無い先頭の commit を {tools.KEPT_REF}{sha} に残してから消す", out)
         self.assertIn("残す（作った処理はもう居ないが、未コミットの変更が在る。中を見て、要らなければ git -C", out)
         rc, out = self.main(self.src, "--clean", "--apply")
         self.assertEqual(rc, 0, out)   # 書きかけの場所を残すのは失敗に数えない
@@ -203,7 +203,7 @@ class Call(unittest.TestCase):
         held = self.leave("持ち主が調べている")
         rc, out = self.main(self.src, "--clean", "--apply")
         self.assertIn(f"、先に git -C {self.src} update-ref {tools.KEPT_REF}{sha} {sha} で先頭の commit を残してから git -C", out)
-        self.assertIn(f"道具の一時の場所 {os.path.realpath(held)}  残す（鍵の訳が「持ち主が調べている」。道具が走っているかもしれないので", out)
+        self.assertIn(f"ツールの一時の場所 {os.path.realpath(held)}  残す（鍵の訳が「持ち主が調べている」。ツールが走っているかもしれないので", out)
         self.assertTrue(os.path.exists(made) and os.path.exists(held))
 
     def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
@@ -212,11 +212,11 @@ class Call(unittest.TestCase):
         self.assertEqual(rc, calls.CALLED, out)
         miss = [r for r in deliver.records(self.inbox) if r["kind"] == "miss"]
         self.assertEqual((len(miss), miss[0]["code"], miss[0]["tail"]), (1, 4, "p2 で失敗"))
-        self.assertIn("道具 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
+        self.assertIn("ツール 配布/spread-plugins は片づかなかった（終了の値 4）。調べ役 に回した: 受付 ", out)
         (w,) = self.prompts()   # 常設の部署「調べ」に頼む（待ち受けが居ないので窓に打つ）
         self.assertIn("-ask.md を読んで", w[2])
         brief = next(pathlib.Path(self.inbox).glob("*-call.md")).read_text(encoding="utf-8")
-        self.assertIn("機械の道具「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
+        self.assertIn("機械のツール「全アカウントに配る」（配布/spread-plugins）が片づけられなかった（終了の値 4）", brief)
         self.assertIn("p2 で失敗", brief)
         # 外れは --tree で数えられる
         companies = [{"root": self.src, "name": "src", "skills": [], "departments": []}]   # tree.build の会社の 1 件の形
@@ -236,8 +236,8 @@ class Call(unittest.TestCase):
                                brief=None, task=None, branch=None, role=None, resident=False)
         lines = calls.fire([{"role": "配布", "tool": "spread-plugins", "input": {}}], self.src, self.ports, a, None,
                            {"boss": "窓口", "boss-account": "a1", "boss-inbox": self.inbox})
-        self.assertEqual(lines[0], "合図（本流に入れた後）: 配布/spread-plugins AI に回した")
-        attrs = gitx.worktree_attrs(self.place)   # 回した頼みの頼み元は、本流に入れた部署の頼み元
+        self.assertEqual(lines[0], "合図（メインブランチに入れた後）: 配布/spread-plugins AI に回した")
+        attrs = gitx.worktree_attrs(self.place)   # 回した頼みの頼み元は、メインブランチに入れた部署の頼み元
         self.assertEqual((attrs["boss"], attrs["boss-account"]), ("窓口", "a1"))
         self.assertEqual(len(self.prompts()), 1)
 

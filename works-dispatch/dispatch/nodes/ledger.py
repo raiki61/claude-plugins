@@ -9,9 +9,9 @@ Marten の Live の射影）。行の形・種類・つなぎ方の決まりは 
 - 状態: 頼みごとに、状態を変える行を時刻の順に当て、最後に当たった物（Linear の "based on the last emitted activity" と同じ考え）。
   済・取り下げ・回した（forwarded）は終わりで、後の行で戻さない。状態の名前と、JSCalendar の Task の progress への対応は STATES。
 - 親: 頼みの行の cause（その頼みを打った場所が、そのとき受けていた頼み。Marten・KurrentDB の causation id）、--forward で回した
-  forwarded の行（回した元が親）。cause の欄の無い古い行は、打った場所と名前が同じ部署が、その時より前に最後に受けた頼みを親と見る
+  forwarded の行（回した元が親）。cause のフィールドの無い古い行は、打った場所と名前が同じ部署が、その時より前に最後に受けた頼みを親と見る
   （wake_hook.open_children と同じ見分け。parent_by は inferred）。
-- 続き: 納品の残った疑問の持ち手が受付番号なら、その頼みを続き（follows）に結ぶ。持ち手が部署や持ち主の物は questions に残すだけで、
+- 続き: 納品の残った疑問の担当者が受付番号なら、その頼みを続き（follows）に結ぶ。担当者が部署や持ち主の物は questions に残すだけで、
   開いている物には数えない（閉じる行が台帳に無いため）。
 - 開いているか（open）: 自分が終わっていないか、子か続きのどれかが開いている。届かなかった頼み（failed）は、打った会話がその場で
   知るので、開いている物に数えない。
@@ -35,7 +35,7 @@ STATES = {
 }
 FINAL = ("done", "dropped")
 
-# 台帳の行の種類（kind）と、行が指す頼みの受付を持つ欄。None は頼みを指さない行（部署や道具の出来事）。
+# 台帳の行の種類（kind）と、行が指す頼みの受付を持つフィールド。None は頼みを指さない行（部署やツールの出来事）。
 # 知らせ（to が字の行。宛先の待ち受けが拾う）の id は、どの種類でも頼みか足しの受付
 KINDS = {
     "ask": "id",          # 頼んだ（status: sent 届いた・queued 順番待ちに積んだ・failed 届かなかった）。cause は親の頼み
@@ -52,11 +52,11 @@ KINDS = {
     "resumed": "id",      # 人の文で答え待ちの印が外れた
     "nudged": "id",       # 止まった部署を動かした（--nudge）
     "knot": "id",         # 返事待ちの輪をほどくため、輪の頼みを --take で回した
-    "start": "id",        # 起こし方の有る受け持ちを起こした（--start・--due）
-    "moved": None,        # 部署の会話を別のアカウントで起こし直した（--move）
+    "start": "id",        # 起動方法の有る受け持ちを起動した（--start・--due）
+    "moved": None,        # 部署の会話を別のアカウントで起動し直した（--move）
     "retired": None,      # 都度の部署を畳んだ（--retire）
-    "call": None,         # 機械窓口の道具を呼んで片づいた（--call）
-    "miss": None,         # 機械窓口の道具が片づかなかった
+    "call": None,         # 機械窓口のツールを呼んで片づいた（--call）
+    "miss": None,         # 機械窓口のツールが片づかなかった
 }
 
 SHORT_ID = re.compile(r"(?<![0-9a-f-])[0-9a-f]{6}(?![0-9a-f])")
@@ -116,7 +116,7 @@ def _inside(at, root):
 
 
 def _short(asks, h):
-    """持ち手の字の 6 桁の短い受付番号を、頼みの受付に引く（ちょうど 1 つに当たるときだけ）。"""
+    """担当者の字の 6 桁の短い受付番号を、頼みの受付に引く（ちょうど 1 つに当たるときだけ）。"""
     for m in SHORT_ID.findall(h):
         hits = [i for i in asks if i.endswith("-" + m)]
         if len(hits) == 1:
@@ -126,7 +126,7 @@ def _short(asks, h):
 
 def build(rows, title_of=None, questions_of=None):
     """行の並び（merge した物）から射影 {"schema", "tasks": {受付: 頼み}, "roots": [受付]} を作る。title_of(本文のファイル) は題を返し、
-    questions_of(納品の行) は残った疑問の持ち手の並び [{"holder", "ask"}]（行の holders の欄と同じ形）を返す。holders の欄の無い古い行に
+    questions_of(納品の行) は残った疑問の担当者の並び [{"holder", "ask"}]（行の holders のフィールドと同じ形）を返す。holders のフィールドの無い古い行に
     だけ使う（どちらも省けば使わない）。"""
     tasks, received = {}, []
     for r in rows:
@@ -141,7 +141,7 @@ def build(rows, title_of=None, questions_of=None):
                 t["to"] = {"company": to.get("company"), "name": to.get("name")}
             t["file"] = t["file"] or r.get("file")
     for r in rows:
-        # 回した元の頼みの行が、読んだ台帳に無い（ほかの会社の台帳にだけ在る）: 回した行から頼みを起こす（回した先をたどれるように）
+        # 回した元の頼みの行が、読んだ台帳に無い（ほかの会社の台帳にだけ在る）: 回した行から頼みの行を組み立てる（回した先をたどれるように）
         if r.get("kind") == "forwarded" and r.get("id") and r["id"] not in tasks:
             boss = r.get("boss") if isinstance(r.get("boss"), dict) else {}
             to = r.get("from") if isinstance(r.get("from"), dict) else {}
@@ -201,7 +201,7 @@ def build(rows, title_of=None, questions_of=None):
                and (tasks[x[3]]["closed"] is None or tasks[x[3]]["closed"] > (t["created"] or 0))]
         if got and frm.get("place"):
             _link(tasks, got[-1][3], t["id"], "inferred")
-    # 続き: 納品の残った疑問の持ち手の受付
+    # 続き: 納品の残った疑問の担当者の受付
     for r in rows:
         if r.get("kind") != "deliver" or isinstance(r.get("to"), str) or r.get("ask") not in tasks or r.get("status") == "failed":
             continue
@@ -291,7 +291,7 @@ def forwarded_open(view, i):
 
 
 def select(view, top=None, everything=False):
-    """見せる頼みの木 [{"task", "kids", "follows"}]。top を渡せばその頼みから下だけ。everything でなければ、開いている枝だけ。"""
+    """見せる頼みの木 [{"task", "kids", "follows"}]。top を渡せばその頼みから下だけ。everything でなければ、開いているブランチだけ。"""
     tasks = view["tasks"]
     keep = (lambda i: True) if everything else (lambda i: tasks[i]["open"])
     def node(i, seen):
@@ -324,8 +324,8 @@ def lines(forest, when=None):
     return out
 
 
-# 1 枚の HTML の頁（--todo --html）。読む側は VS Code の Remote-SSH の HTML の表示で、頁の遷移と外のファイルのスクリプトが効かない
-# ので、CSS とスクリプトを頁の中に書き、畳みは details にする
+# 1 枚の HTML のページ（--todo --html）。読む側は VS Code の Remote-SSH の HTML の表示で、ページの遷移と外のファイルのスクリプトが効かない
+# ので、CSS とスクリプトをページの中に書き、畳みは details にする
 MARKS = {"queued": "◌", "working": "○", "waiting": "?", "done": "✓", "dropped": "✕", "failed": "!"}
 PAGE = """<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><title>やること</title>
@@ -373,7 +373,7 @@ reveal();
 
 
 def page(forest, view, made, when=None, everything=False):
-    """頼みの木の 1 枚の HTML。forest は select(view, everything=True) の物を渡し、済んだ枝は class closed で畳む（everything でなければ
+    """頼みの木の 1 枚の HTML。forest は select(view, everything=True) の物を渡し、済んだブランチは class closed で畳む（everything でなければ
     始めは隠す）。made は作った時刻の字。when(時刻) は日時の字を返す。"""
     tasks = view["tasks"]
     def title(t):

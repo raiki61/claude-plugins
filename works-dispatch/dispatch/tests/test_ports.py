@@ -1,4 +1,4 @@
-"""外への口（herdr・git・Claude Code）。本物の道具は呼ばず、偽物の runner が受けた argv と環境を見る。
+"""外への口（herdr・git・Claude Code）。本物のツールは呼ばず、偽物の runner が受けた argv と環境を見る。
 
 herdr の出力の形は 2026-10-14 に手元の herdr 0.9.3 で読んだ実物（`pane list`・`workspace list`・`agent get`・`api schema --json`）と、
 2026-10-15 に同じ版で一時の git リポジトリに打って読んだ `worktree list`・`create`・`open`・`remove` の実物に合わせた。
@@ -111,7 +111,7 @@ class Herdr(unittest.TestCase):
     IDLE = ok({"id": "x", "result": {"type": "agent_status", "agent": {"agent_status": "idle"}}})
 
     def test_wait_ready_waits_through_not_found_while_the_command_runs(self):
-        # 起こした直後は herdr がまだ会話を見つけておらず、agent wait は待たずに agent_not_found を返す
+        # 起動した直後は herdr がまだ会話を見つけておらず、agent wait は待たずに agent_not_found を返す
         f = Fake(self.NOT_FOUND, self.procs(False), self.NOT_FOUND, self.procs(False), self.IDLE)
         self.assertEqual(herdr.wait_ready("p", runner=f, pause=lambda: None), "idle")
         self.assertEqual(f.calls[1][0], ["herdr", "pane", "process-info", "--pane", "p"])
@@ -361,7 +361,7 @@ class Gh(unittest.TestCase):
 
 
 class GitWorktree(unittest.TestCase):
-    """fetch・早送り・手元の枝を消す、を本物の git で。"""
+    """fetch・fast-forward・手元のブランチを消す、を本物の git で。"""
 
     def setUp(self):
         from .test_provision import git, make_world
@@ -403,7 +403,7 @@ class GitWorktree(unittest.TestCase):
 
     def test_delete_branch_only_when_the_tip_is_the_expected_one(self):
         sha = gitx.head_sha(self.path)
-        with self.assertRaises(gitx.GitError):   # どこかの worktree が開いている枝は git が断る
+        with self.assertRaises(gitx.GitError):   # どこかの worktree が開いているブランチは git が断る
             gitx.delete_branch(self.src, "feat/1", sha)
         self.git("-C", self.src, "worktree", "remove", self.path)
         self.assertEqual(gitx.delete_branch(self.src, "feat/1", "b" * 40), "moved")
@@ -441,8 +441,8 @@ class Claude(unittest.TestCase):
         self.assertNotIn("CLAUDE_CONFIG_DIR", f.calls[0][1])
 
     def test_trust_file_follows_where_claude_code_keeps_its_global_config(self):
-        # 2026-10-14 に手元の 4 アカウントで見た実物: CLAUDE_CONFIG_DIR を入れて起こすアカウントは <そのフォルダ>/.claude.json、
-        # 入れずに起こすアカウントは ~/.claude.json に、信頼したフォルダを記録している
+        # 2026-10-14 に手元の 4 アカウントで見た実物: CLAUDE_CONFIG_DIR を入れて起動するアカウントは <そのフォルダ>/.claude.json、
+        # 入れずに起動するアカウントは ~/.claude.json に、信頼したフォルダを記録している
         self.assertEqual(claudex.trust_file("/c/p2", {"HOME": "/h"}), os.path.join("/c/p2", ".claude.json"))
         self.assertEqual(claudex.trust_file(None, {"HOME": "/h", "CLAUDE_CONFIG_DIR": "/x"}), os.path.join("/x", ".claude.json"))
         self.assertEqual(claudex.trust_file(None, {"HOME": "/h"}), os.path.join("/h", ".claude.json"))
@@ -559,7 +559,7 @@ class Claude(unittest.TestCase):
             self.assertEqual(claudex.catchup_commands(f"~/{rest}"), ["/attention:catchup"])
 
     def test_project_scoped_plugins_do_not_count(self):
-        # project の入れ方は、その projectPath の中で起こした会話にしか効かない
+        # project の入れ方は、その projectPath の中で起動した会話にしか効かない
         self.assertEqual(claudex.catchup_commands(self.plugins([("attention@m", "project", "attention", True)])), [])
 
     def test_no_plugins_record_means_no_command(self):

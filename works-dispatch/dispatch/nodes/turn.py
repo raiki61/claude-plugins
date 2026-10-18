@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""turn ノード: 会話にターンを送る（設計書 2 節の 7）。外に書く。
+"""turn ノード: 会話にターンを送る（設計書のセクション 2 の 7）。外に書く。
 
 1 ターン目の `/catchup <番号>` は待ち付きで送る。herdr の agent prompt --wait は、送った後に動き出したのを見てから止まるまで待つ。
 `herdr agent wait` だけで待たないのは、それがターンの区切りを追わず、始まる前の idle に当たりうるため。
@@ -75,7 +75,7 @@ def _turn_end(pane, h, state, pause):
 
 def catchup_then_second(number, pane, second, h=herdr, *, catchup, state=None, pause=lambda: time.sleep(POLL_S)):
     """結末の語 sent・blocked・stalled・send_failed のどれかを返す。second が None なら 1 ターン目だけ送る。
-    catchup は送る命令の名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。
+    catchup は送るコマンドの名前（例 /attention:catchup）。入口がアカウントのプラグインから組み立てて渡す。
     state() は、その会話の状態を Claude Code 自身に問う口（idle・busy・None）。None を渡すと、終わりも herdr の見立てで待つ。"""
     if second is None:
         only = send(pane, f"{catchup} {number}", False, h)

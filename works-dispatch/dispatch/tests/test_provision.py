@@ -1,4 +1,4 @@
-"""provision ノード: 枝ごとの作業場（元の clone の git worktree と herdr の作業場）を、無ければ作り、有れば使い直す（設計書 3 節）。
+"""provision ノード: ブランチごとの作業場（元の clone の git worktree と herdr の作業場）を、無ければ作り、有れば使い直す（設計書のセクション 3）。
 
 git は本物を使う。一時のフォルダに、GitHub に見立てた裸のリポジトリ `<tmp>/o/r.git` と、それを origin にした元の clone を作る。
 herdr だけ偽物にする。偽物の worktree の口は、本物の `git worktree` で作り・並べ・消し、herdr アダプタと同じ形（場所の言葉）で返す
@@ -33,7 +33,7 @@ _TEMPLATE = []
 
 
 def _template():
-    """make_world の元の形を 1 度だけ作る（git を何度も起こさないため。各試験はこれを写して使う）。"""
+    """make_world の元の形を 1 度だけ作る（git を何度も起動しないため。各試験はこれを写して使う）。"""
     if _TEMPLATE:
         return _TEMPLATE[0]
     t = pathlib.Path(tempfile.mkdtemp(prefix="dispatch-tmpl-")).resolve()
@@ -68,7 +68,7 @@ def make_world():
 
 
 def advance(src, branch):
-    """origin の枝に、手元に無い commit を 1 つ積む（ほかの人が push した形）。積んだ commit を返す。"""
+    """origin のブランチに、手元に無い commit を 1 つ積む（ほかの人が push した形）。積んだ commit を返す。"""
     git("-C", src, "fetch", "-q", "origin", branch)
     sha = git("-C", src, "-c", "user.name=o", "-c", "user.email=o@o", "commit-tree", f"origin/{branch}^{{tree}}",
               "-p", f"origin/{branch}", "-m", "theirs")
@@ -180,7 +180,7 @@ class Prepare(unittest.TestCase):
         self.row = {"number": 7, "head": "feat/7"}
 
     def test_label_starts_with_the_repo_name(self):
-        # herdr は数字で始まる表示名を受け付けなかった、という報告がある（設計書 3 節）。issue の番号で始まる枝でも数字で始めない
+        # herdr は数字で始まる表示名を受け付けなかった、という報告がある（設計書のセクション 3）。issue の番号で始まるブランチでも数字で始めない
         self.assertEqual(provision.label(self.repo, "12-fix-login"), "r/12-fix-login")
 
     def test_creates_a_worktree_of_the_branch_copies_files_and_opens_it(self):
@@ -195,7 +195,7 @@ class Prepare(unittest.TestCase):
         self.assertEqual(h.writes, [("create_worktree", "feat/7", "r/feat/7")])
         self.assertEqual(got["pane"], "P0")
         self.assertIn("deploy/missing.yaml", got["detail"])
-        self.assertEqual(gitx.branch(self.src), "main")  # 元の clone の枝は替えない
+        self.assertEqual(gitx.branch(self.src), "main")  # 元の clone のブランチは替えない
 
     def test_copy_from_takes_files_from_that_folder_not_the_source(self):
         keep = pathlib.Path(self.root).parent / "keep"
@@ -222,7 +222,7 @@ class Prepare(unittest.TestCase):
         self.assertNotEqual(got["pane"], first["pane"])
 
     def test_the_place_is_found_by_branch_not_by_folder_name(self):
-        # 置き場は herdr の既定に任せ、こちらは名前で探さない。持ち主が別の場所に作った worktree でも、その枝の場所として使う
+        # 置き場は herdr の既定に任せ、こちらは名前で探さない。持ち主が別の場所に作った worktree でも、そのブランチの場所として使う
         elsewhere = str(pathlib.Path(self.root).parent / "hand-made")
         git("-C", self.src, "worktree", "add", "-q", "-b", "feat/7", elsewhere, "origin/feat/7")
         got = provision.prepare(self.row, self.repo, WorktreeHerdr(self.root), gitx)
@@ -238,7 +238,7 @@ class Prepare(unittest.TestCase):
         self.assertEqual(gitx.head_sha(first["path"]), theirs)
 
     def test_existing_local_branch_behind_origin_is_fast_forwarded_when_created(self):
-        # 前の片付けで場所は消えたが手元の枝が残っている形。herdr は手元の枝を開くので、その後で origin に揃える
+        # 前の片付けで場所は消えたが手元のブランチが残っている形。herdr は手元のブランチを開くので、その後で origin に揃える
         git("-C", self.src, "branch", "-q", "feat/7", "origin/feat/7")
         theirs = advance(self.src, "feat/7")
         got = provision.prepare(self.row, self.repo, WorktreeHerdr(self.root), gitx)

@@ -2,7 +2,7 @@
 """tree ノード: herdr に開いている会社（リポジトリ）ごとに、会社の情報と部署（git worktree）の様子を組み立てる。外には書かない。
 
 会社の形の設計（docs/specs/2026-10-16-company-shape-design.md）の 4.1・4.2・4.4 に当たる。
-- 会社 = git のリポジトリ 1 つ。本社は元の clone、部署は元の clone の git worktree（枝 1 本）。
+- 会社 = git のリポジトリ 1 つ。本社は元の clone、部署は元の clone の git worktree（ブランチ 1 本）。
 - 問い合わせられる会社 = herdr に開いている作業場が指すリポジトリ。herdr がリポジトリを持たない作業場は、そのペインの場所から
   git の共通の .git を問うて決める（入口が渡す common_of）。同じリポジトリの別の clone は、別の会社として並べる。
 - 部署の属性（役・アカウント・会話の名前と id・頼み元〔納品を返す先。属性 company.boss〕）は、部署ごとの git の設定 company.<名前>（入口が読んで渡す）。
@@ -12,13 +12,13 @@
 - 窓は、部署の作業場か部署の場所のペイン（attach の画面など）が herdr に在るか。
 - 会社の情報（名前と受ける仕事）は、リポジトリの中の INFO_FILE を先に読み、無ければ設定の置き場の companies/ の中の、その
   リポジトリの分を読む（書き方は同じ。Claude Code の settings.json と settings.local.json の分け方と同じ考え）。リポジトリの中の
-  物は、origin の既定の枝（origin/HEAD が指す手元の ref）に commit された物を先に読み、無ければ元の clone の作業ツリーの物を読む
-  （read_info）。元の clone の作業ツリーはほかの会話が古い枝で使っていることがあり、部署の枝は部署が書き換えうるので、どちらにも
+  物は、origin の既定のブランチ（origin/HEAD が指す手元の ref）に commit された物を先に読み、無ければ元の clone の作業ツリーの物を読む
+  （read_info）。元の clone の作業ツリーはほかの会話が古いブランチで使っていることがあり、部署のブランチは部署が書き換えうるので、どちらにも
   頼らない。会社の形を読む所（--tree・--task・--ask・--deliver・--land・役を足すフック）は全部 read_info を通る。origin は在るのに
-  origin/HEAD が無い clone では既定の枝を決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
-  書き方は TOML で、欄の名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
-  role と、その受け持ちの部署を起こすときの model・effort（役の値より先に効く）と、起こし方の start（start ノード）だけをここで
-  足した。知らない欄は読み飛ばす。
+  origin/HEAD が無い clone では既定のブランチを決められないので、作業ツリーから読み、直し方（HEAD_FIX）を注記に出す（head_note）。
+  書き方は TOML で、フィールドの名前は A2A の Agent Card（name・description・skills〔id・name・description〕）に合わせ、受ける役の
+  role と、その受け持ちの部署を起動するときの model・effort（役の値より先に効く）と、起動方法の start（start ノード）だけをここで
+  足した。知らないフィールドは読み飛ばす。
 
 入口の dispatch.py --tree が、herdr・git・claude から読んだ物を渡して build を呼び、lines で人の読む形にする。
 """
@@ -54,7 +54,7 @@ def session_of(pane):
 
 
 def settings_info_path(settings_dir, root):
-    """設定の置き場の中の、そのリポジトリ（元の clone の根）の会社の情報のファイル。名前は根の実際のパスを字の符号にしたもの
+    """設定の置き場の中の、そのリポジトリ（元の clone のルート）の会社の情報のファイル。名前はルートの実際のパスを字の符号にしたもの
     （Windows でもファイル名に使えない字が残らない）。"""
     return os.path.join(settings_dir, SETTINGS_DIR, urllib.parse.quote(os.path.realpath(root), safe="") + ".toml")
 
@@ -69,18 +69,18 @@ def _skills(raw, where, problems):
             problems.append(f"{where}: skills[{i}] に name が無い")
             continue
         got = {k: s[k] if isinstance(s.get(k), str) else None for k in ("id", "name", "description", "role")}
-        # その部署を起こすときの --model と --effort。役の値より先に効く（role.launch_flags）。形の違う値はその欄だけ外し、役の値で起こす
+        # その部署を起動するときの --model と --effort。役の値より先に効く（role.launch_flags）。形の違う値はそのフィールドだけ外し、役の値で起動する
         if "model" in s and not (isinstance(s["model"], str) and s["model"] and s["model"] != role.INHERIT):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の model は空でないモデルの名前（inherit は作っていない。頼み元の会話の"
-                            f"今のモデルを外から読む口が無い）。外して、役の model で起こす")
+                            f"今のモデルを外から読む口が無い）。外して、役の model で起動する")
         elif "model" in s:
             got["model"] = s["model"]
         if "effort" in s and s["effort"] not in role.EFFORTS + (role.INHERIT,):
             problems.append(f"{where}: skills[{i}]（{s['name']}）の effort は {'・'.join(role.EFFORTS + (role.INHERIT,))} のどれか。"
-                            f"外して、役の effort で起こす")
+                            f"外して、役の effort で起動する")
         elif "effort" in s:
             got["effort"] = s["effort"]
-        # 起こし方（周期か命令・返す先。start ノード）。形が違えば外し、その受け持ちは起こさない
+        # 起動方法（周期かコマンド・返す先。start ノード）。形が違えば外し、その受け持ちは起動しない
         got["start"] = start.parse(s.get("start"), f"{where}: skills[{i}]（{s['name']}）", problems)
         # standing = false: 常設の部署を置かず、頼まれたときだけその受け持ちの名前の都度の部署を立てる（--ask が立て、--done で畳む）
         got["standing"] = s.get("standing", True)
@@ -92,7 +92,7 @@ def _skills(raw, where, problems):
 
 
 def committed_info(root):
-    """origin の既定の枝に commit された INFO_FILE。(場所の札 例 origin/main:.claude/company.toml, 中身) か None。
+    """origin の既定のブランチに commit された INFO_FILE。(場所の札 例 origin/main:.claude/company.toml, 中身) か None。
     手元の ref を読むだけで fetch しない（毎回の会話の始まりに走るフックも通るので、外へ問い合わせない）。"""
     ref = gitx.origin_head(root)
     rel = "/".join(INFO_FILE)
@@ -100,7 +100,7 @@ def committed_info(root):
     return (f"{ref}:{rel}", text) if text is not None else None
 
 
-HEAD_FIX = "remote set-head origin --auto"  # origin/HEAD を origin の今の既定の枝に向ける git の命令（git -C <根> の後ろ）
+HEAD_FIX = "remote set-head origin --auto"  # origin/HEAD を origin の今の既定のブランチに向ける git のコマンド（git -C <ルート> の後ろ）
 
 
 def head_note(root, g=gitx):
@@ -108,8 +108,8 @@ def head_note(root, g=gitx):
     無い・origin/HEAD が在る）は None。手元の ref を読むだけ。"""
     if not g.origin_url(root) or g.origin_head(root):
         return None
-    return (f"{root} に origin/HEAD（origin の既定の枝を指す手元の印）が無いので、origin の既定の枝に commit された会社の形を読めず、"
-            f"元の clone の作業ツリー（古い枝なら古い形）か設定の置き場の物で読む。直すには: git -C {root} {HEAD_FIX}")
+    return (f"{root} に origin/HEAD（origin の既定のブランチを指す手元の印）が無いので、origin の既定のブランチに commit された会社の形を読めず、"
+            f"元の clone の作業ツリー（古いブランチなら古い形）か設定の置き場の物で読む。直すには: git -C {root} {HEAD_FIX}")
 
 
 def _blank(source=None, path=None, notes=()):
@@ -124,7 +124,7 @@ def company_name(root, info):
 
 def read_info(root, settings_dir, committed=committed_info):
     """その会社の情報。{source: origin|repo|settings|None, path, text, name, description, skills, problems, notes}。会社の形を読む場所を
-    決めるのはこの 1 か所で、読む順は origin の既定の枝に commit された物（committed。path は ref:パス の札）、元の clone の作業
+    決めるのはこの 1 か所で、読む順は origin の既定のブランチに commit された物（committed。path は ref:パス の札）、元の clone の作業
     ツリーの物、設定の置き場の物。text は読んだ中身（role.load・land.read_rules に渡す。同じ物を読み直さない）。
     読めない・形の違うファイルは problems に書き、そこで止める（次の置き場へ落とさない。書いた物が効いていないことを隠さない）。
     notes は、止めずに知らせる事（origin/HEAD が無い clone の直し方。head_note）。"""
@@ -170,8 +170,8 @@ def read_info(root, settings_dir, committed=committed_info):
 
 
 def roots(workspaces, panes, common_of, cwds=()):
-    """会社（元の clone の根）を、herdr の作業場の並びの順、その後に会話の作業フォルダ（cwds）の順で、重なり無しで。
-    herdr が repo_root を持たない作業場は、その作業場の最初のペインの場所を common_of（場所 → 元の clone の根。git でなければ None）
+    """会社（元の clone のルート）を、herdr の作業場の並びの順、その後に会話の作業フォルダ（cwds）の順で、重なり無しで。
+    herdr が repo_root を持たない作業場は、その作業場の最初のペインの場所を common_of（場所 → 元の clone のルート。git でなければ None）
     に渡す。会話の作業フォルダも common_of に渡す（herdr に開いていない会社の裏の会話も拾う）。"""
     seen, out = set(), []
 
@@ -213,11 +213,11 @@ def session_state(s):
 
 def copied_from(office, attrs):
     """部署の場所の属性 attrs が、本社の属性 office を git の worktree add が写した物か。git は extensions.worktreeConfig が入って
-    いると、作った worktree に元の worktree の config.worktree を写すので、代表の clone から作った worktree（道具の一時の場所・
+    いると、作った worktree に元の worktree の config.worktree を写すので、代表の clone から作った worktree（ツールの一時の場所・
     --land の版を上げる一時の場所・herdr が作る部署の場所）は、作ってから属性を消すか書き直すまで、本社と同じ名前の部署に見える。
     git は中身を出す前に写すので、その間には出し終えるまでの時間が入る（my_notes の写しで出すのに 1.2 秒かかった。2026-10-18 に
-    --ask 段取り が道具の一時の場所と本社の「2 つ以上ある」で止まった。受付 596ed5）。名前と役が本社と同じで、部署の立て方が書く
-    本流を知った位置（company.base）が無い物を写しとみる。会話の id（company.session）では見ない。本社の窓口が会話を替えると本社の
+    --ask 段取り がツールの一時の場所と本社の「2 つ以上ある」で止まった。受付 596ed5）。名前と役が本社と同じで、部署の立て方が書く
+    メインブランチを知った位置（company.base）が無い物を写しとみる。会話の id（company.session）では見ない。本社の窓口が会話を替えると本社の
     id だけが書き換わり、写しの方は古い id のまま残るため。base を持つ部署は、本社と同じ名前でも隠さない（前と同じく「2 つ以上ある」で止まる）。"""
     if not attrs.get("name") or attrs.get("base"):
         return False
@@ -225,8 +225,8 @@ def copied_from(office, attrs):
 
 
 def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
-    """会社の並び。places_of は 元の clone の根 → herdr.worktrees の並び（元の clone 自身は linked=False）。panes は herdr の
-    ペインの並び。attrs_of は 部署の場所 → その部署の git の属性。info_of は 根 → read_info の結果。sessions は
+    """会社の並び。places_of は 元の clone のルート → herdr.worktrees の並び（元の clone 自身は linked=False）。panes は herdr の
+    ペインの並び。attrs_of は 部署の場所 → その部署の git の属性。info_of は ルート → read_info の結果。sessions は
     アカウントの名 → そのアカウントの claude agents --json --all の並び（無ければ会話を見ない）。"""
     every = [(root, p) for root in company_roots for p in places_of.get(root, []) if not p.get("prunable")]
     flat = [p for _, p in every]
@@ -252,7 +252,7 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
     for root in company_roots:
         info = info_of(root)
         rows = []
-        # 本社（元の clone）を頭に、部署は herdr の作業場の並びと同じ仕事の流れの順（role.flow_rank）、同じ順の中は枝の名前
+        # 本社（元の clone）を頭に、部署は herdr の作業場の並びと同じ仕事の流れの順（role.flow_rank）、同じ順の中はブランチの名前
         duties = [x.get("name") for x in info.get("skills", [])]
         for p in sorted((p for r, p in every if r == root),
                         key=lambda p: (p.get("linked", False), *role.flow_rank(attrs[id(p)], duties), p.get("branch") or "")):
@@ -284,24 +284,24 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
 
 
 def contacts(company, shape):
-    """--tree に宛て方を足す: 受ける仕事ごとに頼む命令の宛先を ask に、会社に窓口（本社の会話）を desk に。shape は role.load の結果。
+    """--tree に宛て方を足す: 受ける仕事ごとに頼むコマンドの宛先を ask に、会社に窓口（本社の会話）を desk に。shape は role.load の結果。
     外の会社の部署も中の部署も、仕事が決まれば受ける仕事の宛先へ、決まらない件と部署をまたぐ件は窓口へ頼む。窓口は会社の部署すべてを
     見渡す本社の会話で、部署をまたぐ件の上げ先を関わる部署すべてを見渡す段とする組織論の原典（Galbraith 1974）と、外の入口を 1 つに
     する形（ITIL のサービスデスク）に当たる。受ける仕事ごとの宛先は働きごとに宛先を分ける形（RFC 2142）に当たる。
     宛先の決まりは deliver.find_target と同じ: 常設の役の受け持ちは部署の名前（＝受け持ちの名前。役を足すフックが同じ名前で結ぶ）で
     宛て、その部署がまだ立っていなければ役で宛てて --task に受け持ちの名前を添える（その名前で立つ）。都度の役は役で宛てて --task に
-    部署の名前を添える。立てるときは枝（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
+    部署の名前を添える。立てるときはブランチ（--branch）も要る（orders.ask）。頼み元（属性 company.boss）は納品の返し先で、ここでは使わない。"""
     plain = company["name"]
     named = {d["attrs"].get("name") for d in company["departments"]}
     for s in company["skills"]:
         r = shape["roles"].get(role.current(shape, s["role"])) if s.get("role") else None
         s["ask"] = (None if r is None or r["machine"] else
                     f"--ask {plain}/{s['name']}" if s.get("standing") is False or r["resident"] and s["name"] in named else
-                    f"--ask {plain}/{r['name']} --task {s['name']} --branch <枝>" if r["resident"] else
-                    f"--ask {plain}/{r['name']} --task <部署の名前> --branch <枝>")
+                    f"--ask {plain}/{r['name']} --task {s['name']} --branch <ブランチ>" if r["resident"] else
+                    f"--ask {plain}/{r['name']} --task <部署の名前> --branch <ブランチ>")
     head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
     if head is not None:
-        # 窓口の会話が起きるときに効く model と effort（役の欄の旗が [roles.settings] より先。role.desk_spec）
+        # 窓口の会話が起きるときに効く model と effort（役のフィールドの旗が [roles.settings] より先。role.desk_spec）
         model, effort = role.desk_spec(shape["roles"].get(role.current(shape, head["attrs"].get("role"))))
         company["desk"] = {"name": head["attrs"]["name"], "role": head["attrs"].get("role"),
                            "ask": f"--ask {plain}/{head['attrs']['name']}", "model": model, "effort": effort}
@@ -319,7 +319,7 @@ def lines(companies):
         return ["herdr に開いている会社（git のリポジトリ）も、裏の会話も無い"]
     out = []
     for c in companies:
-        where = {"origin": "既定の枝", "repo": "リポジトリの中", "settings": "設定の置き場"}.get(c["info_source"])
+        where = {"origin": "既定のブランチ", "repo": "リポジトリの中", "settings": "設定の置き場"}.get(c["info_source"])
         out.append(f"{c['name']}  {c['root']}" + (f"  （会社の情報: {where}）" if where else "  （会社の情報なし）"))
         if c["description"]:
             out.append(f"  {c['description']}")
@@ -327,7 +327,7 @@ def lines(companies):
             out.append(f"  受ける仕事: {s['name']}" + (f"（{s['description']}）" if s["description"] else "")
                        + (f" → {s['role']}" if s["role"] else "")
                        + "".join(f"  {k} {s[k]}" for k in ("model", "effort") if s.get(k))
-                       + (f"  起こし方: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
+                       + (f"  起動方法: {(s['start']['every'] + ' ごとか') if s['start']['every'] else ''}--start"
                           f"、{s['start']['report_to']} に返す" if s.get("start") else "")
                        + ("  頼まれたときだけ立てる" if s.get("standing") is False else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
@@ -339,7 +339,7 @@ def lines(companies):
         elif "desk" in c and c["skills"]:
             out.append("  窓口: 名付けていない（本社で持ち主と話す会話から --desk を打つと名付く）")
         for t in c.get("tools", []):
-            out.append(f"  道具: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
+            out.append(f"  ツール: {t['role']}/{t['name']}" + (f"（{t['title']}）" if t["title"] else "")
                        + f"  片づかなければ {t['fallback_role']} に回す  外れ {t['misses']} 回")
         out += [f"  ! {p}" for p in c["problems"]]
         depts = c["departments"]
@@ -357,9 +357,9 @@ def lines(companies):
             if d.get("no_talk_id"):
                 fields.append("! 会話の id（company.session）が無い（窓の会話が落ちたとき、--ask か --nudge が会話の一覧の部署の場所の会話で戻して書き戻す）")
             if d.get("tool_place"):
-                out.append(f"  {head} （道具の一時の場所）  {d['path']}  道具が走り終えれば消える。残っていれば --clean が並べる")
+                out.append(f"  {head} （ツールの一時の場所）  {d['path']}  ツールが走り終えれば消える。残っていれば --clean が並べる")
                 continue
-            out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
+            out.append(f"  {head} {d['branch'] or '（ブランチ無し）'}  " + "  ".join(fields))
         if c.get("asks"):
             out.append(f"  動いている頼み（台帳でまだ閉じていない物。{len(c['asks'])} 件）:")
             for a in c["asks"]:

@@ -24,22 +24,22 @@ The skill's and command's instructions and descriptions are written in Japanese.
    claude plugin install tiers@raiki61
    ```
 
-2. In a Claude Code session, have it run the check. You can also just ask 「要る道具がそろっているか見て」 ("check whether the required tools are in place"). (`段 2` means "tier 2".)
+2. In a Claude Code session, have it run the check. You can also just ask 「要るツールがそろっているか見て」 ("check whether the required tools are in place"). (`段 2` means "tier 2".)
 
    ```
    /tiers:check 段 2
    ```
 
-3. Read the result. When everything is in place, the output looks like the following (the output is in Japanese: 「要る道具の点検（段 0〜2）」 means "check of required tools (tiers 0-2)", and 「結果: 足りない物は無い」 means "result: nothing is missing"). If something is missing, that line gets install steps (by hand). After installing, run the same check again.
+3. Read the result. When everything is in place, the output looks like the following (the output is in Japanese: 「要るツールの点検（段 0〜2）」 means "check of required tools (tiers 0-2)", and 「結果: 足りない物は無い」 means "result: nothing is missing"). If something is missing, that line gets install steps (by hand). After installing, run the same check again.
 
    ```
-   要る道具の点検（段 0〜2）
+   要るツールの点検（段 0〜2）
     ok  段 0 Claude Code: 2.1.301 (Claude Code)
     ok  段 1 gh: gh version 2.102.0 (2026-09-30)
     ok  段 1 gh のログイン: gh auth status が通る
     ok  段 2 herdr: herdr 0.9.3
     ok  段 2 herdr の動き: herdr の server が動いている
-    ok  段 2 起こし方の命令 claude: claude がシェルで見つかる
+    ok  段 2 起動コマンド claude: claude がシェルで見つかる
    結果: 足りない物は無い
    ```
 
@@ -59,7 +59,7 @@ For each missing tool, it returns install steps. The install commands were copie
 `tiers` is in this plugin's `bin/`. Inside a Claude Code session (the Bash tool), Claude Code puts `bin/` on PATH, so you can run it by name.
 
 ```bash
-tiers --tier <0〜3> [--launcher <命令> ...] [--json]
+tiers --tier <0〜3> [--launcher <コマンド> ...] [--json]
 ```
 
 - `--launcher` is only looked at for tier 2 and above (passing it with tier 0 or 1 is not an error; it is ignored). It can be given any number of times (`--launcher claude-p1 --launcher claude-p2`). Every command passed is looked up, and if even one is not found, it counts as missing.

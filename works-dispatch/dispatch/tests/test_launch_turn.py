@@ -1,4 +1,4 @@
-"""launch ノード（作業場でアカウントの Claude Code を起こし、読み戻す）と turn ノード（ターンを送る）。偽物の herdr で回す。"""
+"""launch ノード（作業場でアカウントの Claude Code を起動し、読み戻す）と turn ノード（ターンを送る）。偽物の herdr で回す。"""
 
 import unittest
 
@@ -103,7 +103,7 @@ class Launch(unittest.TestCase):
 
 
 class StartBackground(unittest.TestCase):
-    """部署（入口の --task）の起こし方: ペインに名前を付け、裏の会話（--bg）を名前と設定と最初の文を付けて打ち込み、シェルが戻るのを待つ。"""
+    """部署（入口の --task）の起動方法: ペインに名前を付け、裏の会話（--bg）を名前と設定と最初の文を付けて打ち込み、シェルが戻るのを待つ。"""
 
     def test_names_the_pane_then_types_the_background_start_and_waits_for_the_shell(self):
         h = FakeHerdr(shell=[True, False, True])

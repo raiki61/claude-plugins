@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""prs ノード: 自分の番の PR を集める（設計書 2 節の 1）。外には書かない。
+"""prs ノード: 自分の番の PR を集める（設計書のセクション 2 の 1）。外には書かない。
 
-attention の whose-turn を works へ写した `vendor/whose-turn.py` を `--json` で走らせ、「自分の番」の節の PR を全部取る。
+attention の whose-turn を works へ写した `vendor/whose-turn.py` を `--json` で走らせ、「自分の番」のセクションの PR を全部取る。
 集合と並びは whose-turn の報告と同じ。写しは scripts/shared-copies.py が正本と同じかを見張る。
 
 使い方: python3 nodes/prs.py --repo OWNER/NAME [--out <パス>]

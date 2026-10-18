@@ -12,17 +12,17 @@
 - record: Claude Code の statusline に渡る JSON の rate_limits を取り込む。使っているアカウントの 5 時間の枠がすぐ動く。
 
 使い方:
-  python3 limits.py [--config <パス> | --accounts <写し>] show <名前>   … 控えを読んで 1 行出す（herdr のタブ欄が呼ぶ）
+  python3 limits.py [--config <パス> | --accounts <写し>] show <名前>   … 控えを読んで 1 行出す（herdr のタブバーが呼ぶ）
   python3 limits.py [--config <パス> | --accounts <写し>] probe         … 取り直しが要るアカウントだけ API に問い合わせる
   python3 limits.py [--config <パス> | --accounts <写し>] record        … statusline の JSON を標準入力から読んで控えに取り込む
   python3 limits.py [--config <パス>] herdr-config  … アカウントの写しを書き、herdr の config.toml の [ui] に置く tab_bar_right を出す
   python3 limits.py [--config <パス>] plan [--json] … アカウントごとの契約の段（Max 20x など）を出す。引けないアカウントは理由を出す
 
-アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブ欄から呼ぶ道は
-設定の TOML を読まずにこれを読む。herdr がタブ欄のコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
-TOML を読む tomllib（3.11 から）が無いため。タブ欄から呼ぶ道（このファイルと vendor/claude_auth.py）は 3.9 の文法で書く。
+アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブバーから呼ぶ道は
+設定の TOML を読まずにこれを読む。herdr がタブバーのコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
+TOML を読む tomllib（3.11 から）が無いため。タブバーから呼ぶ道（このファイルと vendor/claude_auth.py）は 3.9 の文法で書く。
 
-こちらからは打ち切らない。herdr のタブ欄から呼ぶときは、herdr の設定の秒（雛形 templates/herdr-tab-bar.toml）が打ち切る。
+こちらからは打ち切らない。herdr のタブバーから呼ぶときは、herdr の設定の秒（雛形 templates/herdr-tab-bar.toml）が打ち切る。
 """
 
 import argparse
@@ -42,7 +42,7 @@ import urllib.request
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from vendor import claude_auth  # noqa: E402
 
-# 写しから読んだアカウント。dispatch の設定の Account と同じ名前の欄を持つ（config は tomllib を引くので、ここでは import しない）
+# 写しから読んだアカウント。dispatch の設定の Account と同じ名前のフィールドを持つ（config は tomllib を引くので、ここでは import しない）
 Snap = collections.namedtuple("Snap", "name command config_dir keychain_service limits")
 SNAPSHOT_NAME = "accounts.json"
 
@@ -236,7 +236,7 @@ def account_for(accounts, env):
 # ログインより先に使われる。Claude Code の文書の「Authentication precedence」）
 NO_PLAN = ("{record} から契約の段（Claude Code のログインの記録 oauthAccount の organizationRateLimitTier）が読めない。"
            "setup-token や API キーだけで入るアカウントはこの記録を作らず、setup-token の鍵では契約の段を問い合わせられないので、"
-           "道具からは引けない。引けるようにするには、同じアカウントでそのフォルダに一度ログインする（{login}。"
+           "ツールからは引けない。引けるようにするには、同じアカウントでそのフォルダに一度ログインする（{login}。"
            "書かれるのはそのフォルダのログインだけ）")
 
 
@@ -375,7 +375,7 @@ def probe_all(accounts, limits_dir, env, now, token=None, fetch=fetch, force=Fal
 
 
 def write_snapshot(path, accounts, limits_dir):
-    """タブ欄から呼ぶ道が読むアカウントの写しを書く。"""
+    """タブバーから呼ぶ道が読むアカウントの写しを書く。"""
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     _write(path, {"schema": 1, "limits_dir": str(limits_dir),
@@ -398,7 +398,7 @@ def herdr_entries(accounts, script, snapshot_path):
     """herdr の tab_bar_right に並べる行。使用率の枠のあるアカウントごとに表示を 1 つ、最後に取り直しを 1 つ。"""
     shown = [a for a in accounts if a.limits]
     if len(shown) + 1 > HERDR_MAX_ENTRIES:
-        raise ValueError(f"herdr のタブ欄に並べられるのは {HERDR_MAX_ENTRIES - 1} アカウントまで（{len(shown)} ある）")
+        raise ValueError(f"herdr のタブバーに並べられるのは {HERDR_MAX_ENTRIES - 1} アカウントまで（{len(shown)} ある）")
     show, probe = [line for line in TEMPLATE.read_text(encoding="utf-8").splitlines() if line.startswith("{{")]
 
     def fill(s):

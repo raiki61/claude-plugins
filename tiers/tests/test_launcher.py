@@ -1,5 +1,5 @@
 """bin/tiers の入口（sh と Python の両方で読める台本）。Windows の python3 が Microsoft Store へ誘う代わりの物に当たっても、
-次の候補の Python で起き直す。Python から起こす形（ほかのプラグインが sys.executable で起こす）も変わらず動く。"""
+次の候補の Python で起き直す。Python から起動する形（ほかのプラグインが sys.executable で起動する）も変わらず動く。"""
 
 import json
 import os
@@ -19,7 +19,7 @@ class Launcher(unittest.TestCase):
                            encoding="utf-8")
         self.assertEqual(json.loads(p.stdout)["schema"], 1, p.stderr)
 
-    @unittest.skipIf(os.name == "nt" or not shutil.which("sh"), "sh で起こす形は Windows の外で確かめる")
+    @unittest.skipIf(os.name == "nt" or not shutil.which("sh"), "sh で起動する形は Windows の外で確かめる")
     def test_sh_skips_a_python_that_does_not_run_and_uses_the_next(self):
         with tempfile.TemporaryDirectory() as d:
             stub = pathlib.Path(d) / "python3"   # Store へ誘う代わりの物の振る舞い: 案内を出して終わる

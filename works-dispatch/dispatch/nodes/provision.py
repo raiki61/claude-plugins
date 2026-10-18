@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""provision ノード: 枝ごとの作業場（元の clone の git worktree と herdr の作業場）を、無ければ作り、有れば使い直す（設計書 3 節）。外に書く。
+"""provision ノード: ブランチごとの作業場（元の clone の git worktree と herdr の作業場）を、無ければ作り、有れば使い直す（設計書のセクション 3）。外に書く。
 
-場所の鍵は枝。作る・並べる・開くは herdr アダプタ（herdr.py の worktrees・create_worktree・open_worktree）に任せ、ここは
-「枝の場所を探す・作る・開く」の言葉だけで書く。
-- 場所を探す: 元の clone の worktree のうち、その枝を開いている linked worktree。フォルダの名前では探さない。
-  元の clone 自身がその枝を開いていれば、作らずに branch_busy（元の clone の枝を勝手に替えない）。
-- 無ければ作る: origin のその枝を取ってから、origin/<枝> を元に worktree を作り、copy_files（git が追わない手元だけのファイル）を写す。
+場所の鍵はブランチ。作る・並べる・開くは herdr アダプタ（herdr.py の worktrees・create_worktree・open_worktree）に任せ、ここは
+「ブランチの場所を探す・作る・開く」の言葉だけで書く。
+- 場所を探す: 元の clone の worktree のうち、そのブランチを開いている linked worktree。フォルダの名前では探さない。
+  元の clone 自身がそのブランチを開いていれば、作らずに branch_busy（元の clone のブランチを勝手に替えない）。
+- 無ければ作る: origin のそのブランチを取ってから、origin/<ブランチ> を元に worktree を作り、copy_files（git が追わない手元だけのファイル）を写す。
   置き場は herdr の既定に任せる。依存は入れない。
-- 有れば使い直す: origin のその枝を取り、作業場が開いていなければ開く。
-- どちらでも、手元の枝が origin の枝の祖先なら早送りだけする（/catchup は枝を移るときも pull・merge をしないので、origin の今の
+- 有れば使い直す: origin のそのブランチを取り、作業場が開いていなければ開く。
+- どちらでも、手元のブランチが origin のブランチの祖先なら fast-forward だけする（/catchup はブランチを移るときも pull・merge をしないので、origin の今の
   head に揃えてから渡す）。祖先でなくても、HEAD が前に送った時の head（行の sent_head）のままで場所がきれいなら、作者の
   force-push なので `git reset --keep` で origin に揃える。それ以外（手元にしか無い commit が有る）は動かさず、注記に書く。
-- fork の PR（head が別のリポジトリ）は origin に枝が無いので作らず provision_failed。
-- 最後に、herdr の worktree の並びにその枝の場所が在り、作業場が開いていて、checkout がその枝に居ることを読み戻してから返す。
+- fork の PR（head が別のリポジトリ）は origin にブランチが無いので作らず provision_failed。
+- 最後に、herdr の worktree の並びにそのブランチの場所が在り、作業場が開いていて、checkout がそのブランチに居ることを読み戻してから返す。
 
-作業役（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。部署の属性（役・アカウント・会話の名前・
+サブエージェント（入口の --task）の場所は prepare_task が用意する。違いはその関数の説明に書いた。部署の属性（役・アカウント・会話の名前・
 頼み元）は mark が、その場所の git の設定 company.<名前> に書く（会社の形の設計 4.2）。部署を立てる前には、refresh_shape が
-origin の既定の枝を取り直す（会社の形を読む前に。起こすときの設定と、立てた後に役を足すフックが同じ会社の形を読むように）。
+origin の既定のブランチを取り直す（会社の形を読む前に。起動するときの設定と、立てた後に役を足すフックが同じ会社の形を読むように）。
 
-issue から始めるとき（入口の --issue）に、issue に結んだ枝がまだ無ければ、link_branch が GitHub に枝を作って issue に結ぶ
-（gh issue develop。書く口）。作った後に issue に結んだ枝を読み戻して返す。
+issue から始めるとき（入口の --issue）に、issue に結んだブランチがまだ無ければ、link_branch が GitHub にブランチを作って issue に結ぶ
+（gh issue develop。書く口）。作った後に issue に結んだブランチを読み戻して返す。
 
 使い方: python3 nodes/provision.py --plan <plan の JSON> --number <番号> [--config <パス>] [--repo OWNER/NAME] [--out <パス>]
 """
@@ -39,24 +39,24 @@ import jsonio  # noqa: E402
 
 
 def label(repo, branch):
-    """herdr の作業場の名前: <リポジトリの名前>/<枝>。人が見るためだけで、探すのには使わない。
-    リポジトリの名前で始めるのは、issue の番号で始まる枝でも、数字で始まらないようにするため（設計書 3 節）。"""
+    """herdr の作業場の名前: <リポジトリの名前>/<ブランチ>。人が見るためだけで、探すのには使わない。
+    リポジトリの名前で始めるのは、issue の番号で始まるブランチでも、数字で始まらないようにするため（設計書のセクション 3）。"""
     return f"{repo.repo.split('/')[-1]}/{branch}"
 
 
 def find(places, branch):
-    """worktree の並び（herdr.worktrees）から、その枝の場所（linked worktree）を 1 つ。無ければ None。"""
+    """worktree の並び（herdr.worktrees）から、そのブランチの場所（linked worktree）を 1 つ。無ければ None。"""
     return next((p for p in places if p.get("linked") and p.get("branch") == branch and not p.get("prunable")), None)
 
 
 def source_holds(places, branch):
-    """元の clone 自身がその枝を開いているか。"""
+    """元の clone 自身がそのブランチを開いているか。"""
     return any(not p.get("linked") and p.get("branch") == branch for p in places)
 
 
 def would(row, places):
     """--dry-run の報告用: create（作る）・reuse（使い直す）・branch_busy・provision_failed（fork の PR）のどれか。
-    issue でまだ枝が無い行（head が None）は create。"""
+    issue でまだブランチが無い行（head が None）は create。"""
     if row.get("fork"):
         return "provision_failed"
     branch = row.get("head")
@@ -68,7 +68,7 @@ def would(row, places):
 
 
 def link_branch(repo, number, base, gh=ghx, env=None):
-    """issue に枝を結ぶ（GitHub に base から枝を作る）。作った後に読み戻した、issue に結んだ枝の並びを返す。"""
+    """issue にブランチを結ぶ（GitHub に base からブランチを作る）。作った後に読み戻した、issue に結んだブランチの並びを返す。"""
     gh.issue_develop(repo.repo, number, base, env=env)
     return gh.issue_branches(repo.repo, number, env=env)
 
@@ -93,18 +93,18 @@ def prepare(row, repo, h=herdr, g=gitx):
     out = {"number": row["number"], "branch": branch, "path": None, "pane": None, "workspace": None,
            "created": False, "status": "provision_failed", "detail": None}
     if row.get("fork"):
-        out["detail"] = "fork の PR（head が別のリポジトリ）なので、origin に枝が無く、作業場を作らない"
+        out["detail"] = "fork の PR（head が別のリポジトリ）なので、origin にブランチが無く、作業場を作らない"
         return out
     if not branch:
-        out["detail"] = "枝が決まっていない"
+        out["detail"] = "ブランチが決まっていない"
         return out
     notes = []
     try:
         g.fetch(repo.source, branch)
         places = h.worktrees(repo.source)
         if source_holds(places, branch):
-            out.update(status="branch_busy", detail=f"元の clone {repo.source} が枝 {branch} を開いている（枝を替えない。"
-                                                     "元の clone を別の枝へ移すか、そこで作業する）")
+            out.update(status="branch_busy", detail=f"元の clone {repo.source} がブランチ {branch} を開いている（ブランチを替えない。"
+                                                     "元の clone を別のブランチへ移すか、そこで作業する）")
             return out
         place = find(places, branch)
         if place is None:
@@ -120,9 +120,9 @@ def prepare(row, repo, h=herdr, g=gitx):
                 # 手元の HEAD が前に送った時の head のまま（手元で積んだ commit ではない）で、origin の祖先でなくなった:
                 # 作者が force-push した。場所がきれいなら origin に揃える（--keep は未コミットの変更と重なれば断る）
                 g.reset_keep(made["path"], branch)
-                notes.append(f"枝 {branch} は前に送った後に origin で書き換えられていた（force-push）ので、origin の head に揃えた")
+                notes.append(f"ブランチ {branch} は前に送った後に origin で書き換えられていた（force-push）ので、origin の head に揃えた")
             else:
-                notes.append(f"枝 {branch} に手元にしか無い commit が有るので、origin の head へ早送りしなかった")
+                notes.append(f"ブランチ {branch} に手元にしか無い commit が有るので、origin の head へ fast-forward しなかった")
         seen = find(h.worktrees(repo.source), branch)
     except (gitx.GitError, h.HerdrError, OSError) as e:
         out["detail"] = "／".join(notes + [str(e)])
@@ -134,11 +134,11 @@ def _read_back(out, made, seen, branch, notes, g):
     """作った・開いた場所を、herdr の worktree の並び（seen）と git から読み戻して、out を ready にするか、外れを detail に書く。"""
     misses = []
     if seen is None or not seen.get("workspace"):
-        misses.append(f"作った後の読み戻しで、枝 {branch} の場所の作業場が herdr に見えない")
+        misses.append(f"作った後の読み戻しで、ブランチ {branch} の場所の作業場が herdr に見えない")
     elif os.path.realpath(seen["path"]) != os.path.realpath(made["path"]):
-        misses.append(f"作った後の読み戻しで、枝 {branch} の場所が {seen['path']}（{made['path']} のはず）")
+        misses.append(f"作った後の読み戻しで、ブランチ {branch} の場所が {seen['path']}（{made['path']} のはず）")
     elif g.branch(made["path"]) != branch:
-        misses.append(f"作った後の読み戻しで、{made['path']} の枝が {g.branch(made['path'])}（{branch} のはず）")
+        misses.append(f"作った後の読み戻しで、{made['path']} のブランチが {g.branch(made['path'])}（{branch} のはず）")
     if misses or not made.get("pane_id"):
         out["detail"] = "／".join(notes + (misses or ["作業場のペインが返らなかった"]))
         return out
@@ -148,24 +148,24 @@ def _read_back(out, made, seen, branch, notes, g):
 
 
 def prepare_task(row, repo, default_branch, h=herdr, g=gitx):
-    """作業役（入口の --task）の場所を用意する。row は {head: 枝, label: 作業の名前}。PR の場所と同じく、枝の場所が在れば開き直し、
-    無ければ herdr に作らせる（置き場は herdr の worktrees.directory）。元の clone 自身がその枝を開いていれば branch_busy。
+    """サブエージェント（入口の --task）の場所を用意する。row は {head: ブランチ, label: 作業の名前}。PR の場所と同じく、ブランチの場所が在れば開き直し、
+    無ければ herdr に作らせる（置き場は herdr の worktrees.directory）。元の clone 自身がそのブランチを開いていれば branch_busy。
 
-    PR と違い、枝は origin に無くてよい（作業はこれから始める）。作るときの元は、origin にその枝が在れば origin/<枝>、無ければ
-    origin の既定の枝（default_branch）。手元に同じ名前の枝が在れば、herdr はそれを開く。在る場所は git で動かさない
-    （作業役の枝は手元で積む物なので、origin へ早送りしない）。作業場の名前（herdr の label）は作業の名前にする。"""
+    PR と違い、ブランチは origin に無くてよい（作業はこれから始める）。作るときの元は、origin にそのブランチが在れば origin/<ブランチ>、無ければ
+    origin の既定のブランチ（default_branch）。手元に同じ名前のブランチが在れば、herdr はそれを開く。在る場所は git で動かさない
+    （サブエージェントのブランチは手元で積む物なので、origin へ fast-forward しない）。作業場の名前（herdr の label）は作業の名前にする。"""
     branch, name = row.get("head"), row.get("label")
     out = {"number": None, "branch": branch, "path": None, "pane": None, "workspace": None,
            "created": False, "status": "provision_failed", "detail": None}
     if not branch:
-        out["detail"] = "枝が決まっていない"
+        out["detail"] = "ブランチが決まっていない"
         return out
     notes = []
     try:
         places = h.worktrees(repo.source)
         if source_holds(places, branch):
-            out.update(status="branch_busy", detail=f"元の clone {repo.source} が枝 {branch} を開いている（枝を替えない。"
-                                                     "元の clone を別の枝へ移すか、別の枝の名前で頼む）")
+            out.update(status="branch_busy", detail=f"元の clone {repo.source} がブランチ {branch} を開いている（ブランチを替えない。"
+                                                     "元の clone を別のブランチへ移すか、別のブランチの名前で頼む）")
             return out
         place = find(places, branch)
         if place is None:
@@ -195,20 +195,20 @@ def reopen(source, path, name, h=herdr):
 
 
 def refresh_shape(source, g=gitx):
-    """部署を立てる前に、会社の形を読む ref（origin の既定の枝。origin/HEAD が指す先）だけを origin から取り直す。書く口（手元の
-    origin/<枝> を動かす）。取り直せなければ注記を返し、手元の控えのまま読ませる。origin/HEAD が無ければ何もしない（読む側の
+    """部署を立てる前に、会社の形を読む ref（origin の既定のブランチ。origin/HEAD が指す先）だけを origin から取り直す。書く口（手元の
+    origin/<ブランチ> を動かす）。取り直せなければ注記を返し、手元の控えのまま読ませる。origin/HEAD が無ければ何もしない（読む側の
     注記が直し方を出す）。
 
     作業場を作った後に会社の形を読む並びにしないのは、役の名前の誤りを作業場を作る前に止め、--dry-run でも役の起動の設定を
-    出すため。作業場を作るときの fetch（prepare_task）の前に読むので、ここで取り直さないと、別の所で本流の会社の形を変えて
-    取っていないとき、起こすときの設定（settings・model）は古い形で決まり、立てた後のフックは新しい形を読む。"""
+    出すため。作業場を作るときの fetch（prepare_task）の前に読むので、ここで取り直さないと、別の所でメインブランチの会社の形を変えて
+    取っていないとき、起動するときの設定（settings・model）は古い形で決まり、立てた後のフックは新しい形を読む。"""
     ref = g.origin_head(source)
     if not ref:
         return None
     try:
         g.fetch(source, ref.split("/", 1)[1])
     except g.GitError as e:
-        return f"origin の既定の枝を取り直せないので、手元の {ref}（最後に取った時の形）で会社の形を読む（{e}）"
+        return f"origin の既定のブランチを取り直せないので、手元の {ref}（最後に取った時の形）で会社の形を読む（{e}）"
     return None
 
 
@@ -245,7 +245,7 @@ LOCAL_EXCLUDES = (
 
 
 def hide_claude_dir(source, g=gitx):
-    """元の clone の .git/info/exclude に LOCAL_EXCLUDES を足す（無い物だけ）。部署の会話と、部署が走らせた道具が作る手元だけの
+    """元の clone の .git/info/exclude に LOCAL_EXCLUDES を足す（無い物だけ）。部署の会話と、部署が走らせたツールが作る手元だけの
     ファイルを、勤め先のリポジトリの .gitignore を触らずに git status から隠す。結末の語の並び（gitx.exclude の added・already）。"""
     return [g.exclude(source, pattern) for pattern in LOCAL_EXCLUDES]
 

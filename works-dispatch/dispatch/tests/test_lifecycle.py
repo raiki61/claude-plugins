@@ -1,8 +1,8 @@
-"""PR ごとの場所の一生を 1 つのコマンドで回す（設計書 2 節の 3・3 節の片付け）。
+"""PR ごとの場所の一生を 1 つのコマンドで回す（設計書のセクション 2 の 3・セクション 3 の片付け）。
 - 自分が作者でレビュアーの付いていない PR は、一覧からは開かない（--pr で指せば開く）
 - 会話の開いている PR は、自分以外の動きが前に送った時より後に有り、会話が手すきで手元の作業も無ければ、会話を終えてペインを畳み、
   同じ場所（checkout）に新しい作業場と会話を立てて /catchup から送り直す
-- 閉じた PR の枝の場所は、会話が手すきで手元の作業も無ければ会話を終えて消す。元の clone の linked worktree だけを見る
+- 閉じた PR のブランチの場所は、会話が手すきで手元の作業も無ければ会話を終えて消す。元の clone の linked worktree だけを見る
 - 1 ターン目の終わりは Claude Code 自身の状態で見る（herdr の画面の見立てだけに頼らない）
 """
 
@@ -155,7 +155,7 @@ class Flow(unittest.TestCase):
         self.src = gitx_source(self.cfg)
 
     def place(self, n):
-        """その枝の場所（元の clone の worktree）を作っておく（前の回が作った形）。"""
+        """そのブランチの場所（元の clone の worktree）を作っておく（前の回が作った形）。"""
         path = str(pathlib.Path(self.root, f"feat-{n}"))
         git("-C", self.src, "worktree", "add", "-q", "-b", f"feat/{n}", path, f"origin/feat/{n}")
         return path

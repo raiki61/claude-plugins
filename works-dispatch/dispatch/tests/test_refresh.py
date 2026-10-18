@@ -1,4 +1,4 @@
-"""古い版のプラグインで動いている会話を、番の終わりの手の空いた時に新しい版へ替える（refresh_hook.py と nodes/refresh.py）。"""
+"""古い版のプラグインで動いている会話を、ターンの終わりの手の空いた時に新しい版へ替える（refresh_hook.py と nodes/refresh.py）。"""
 
 import datetime
 import json
@@ -52,7 +52,7 @@ class Node(unittest.TestCase):
 
     def test_the_mark_belongs_to_one_process(self):
         self.assertEqual(refresh.reloaded_at(refresh.mark_value(42, T0), 42), int(T0))
-        self.assertIsNone(refresh.reloaded_at(refresh.mark_value(41, T0), 42))   # 起こし直す前の会話の控え
+        self.assertIsNone(refresh.reloaded_at(refresh.mark_value(41, T0), 42))   # 起動し直す前の会話の控え
         self.assertIsNone(refresh.reloaded_at(None, 42))
 
     def test_types_only_when_free_and_the_box_is_empty(self):
@@ -61,7 +61,7 @@ class Node(unittest.TestCase):
         self.assertEqual(w.writes, [refresh.RELOAD])
         for window, status in ((Window("/x", status="working"), "busy"), (Window("/x", box="打ちかけ"), "typing")):
             self.assertEqual(refresh.reload_when_free("p1", window, lambda: None), status)
-            self.assertEqual(window.writes, [])   # 番の途中と、人が書いている途中は打たない
+            self.assertEqual(window.writes, [])   # ターンの途中と、人が書いている途中は打たない
 
     def test_waits_for_the_end_of_the_turn_to_show(self):
         w = Window("/x", status="working")
@@ -76,7 +76,7 @@ class Node(unittest.TestCase):
 
 
     def test_waits_for_the_clear_typed_by_the_other_hook(self):
-        # 待ち受けのフックが同じ番の終わりに /clear を打つ会話では、その後に打つ（2 つの打ち込みを重ねない）
+        # 待ち受けのフックが同じターンの終わりに /clear を打つ会話では、その後に打つ（2 つの打ち込みを重ねない）
         attrs = {"role": "担当", "ask": "a1", "delivered": "a1", "fresh": role.FRESH}
         self.assertTrue(refresh.clearing(attrs))
         self.assertTrue(refresh.clearing({"rest": "s1"}))
@@ -160,7 +160,7 @@ class Hook(unittest.TestCase):
         self.updated(T0 + 60)
         self.assertEqual(self.run_hook(window=Window(self.place, status="working", front=[{"pid": 20, "argv": ["claude"]}])), ("busy", []))
         self.assertEqual(self.run_hook(window=Window(self.place, box="打ちかけ", front=[{"pid": 20, "argv": ["claude"]}])), ("typing", []))
-        self.assertNotIn(refresh.ATTR, gitx.worktree_attrs(self.place))   # 打てなければ控えず、次の番の終わりに見直す
+        self.assertNotIn(refresh.ATTR, gitx.worktree_attrs(self.place))   # 打てなければ控えず、次のターンの終わりに見直す
 
     def test_does_nothing_outside_a_department_herdr_or_the_plugin_cache(self):
         self.assertEqual(self.run_hook(), (None, []))              # 部署でない（持ち主の作業の会話）
@@ -187,7 +187,7 @@ class Hook(unittest.TestCase):
         hooks = json.loads((pathlib.Path(DISPATCH).parent / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         [h] = [h for grp in hooks["Stop"] for h in grp["hooks"] if "refresh_hook.py" in h["command"]]
         self.assertIn('"${CLAUDE_PLUGIN_ROOT}/dispatch/refresh_hook.py"', h["command"])
-        self.assertTrue(h.get("async"))   # 番の終わりを待たせない
+        self.assertTrue(h.get("async"))   # ターンの終わりを待たせない
 
     def test_main_never_stops_the_conversation(self):
         p = subprocess.run(["python3", str(pathlib.Path(DISPATCH) / "refresh_hook.py")], input="not json",

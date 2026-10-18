@@ -68,7 +68,7 @@ class Move(unittest.TestCase):
         self.assertIn("受付 q1", got["brief"])
         self.assertIn("アカウント a1", got["brief"])
         self.assertIn("--deliver", got["tail"])
-        self.assertNotIn("session", got["attrs"])   # 新しい会話の待ち受けが前の id を見ないよう、起こす前に消す
+        self.assertNotIn("session", got["attrs"])   # 新しい会話の待ち受けが前の id を見ないよう、起動する前に消す
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["status"]), ("a1", "a2", "done"))
 
@@ -132,11 +132,11 @@ class Move(unittest.TestCase):
         self.assertIn("accounts に無い", out)
 
     def test_naming_the_present_account_starts_the_department_again_on_it(self):
-        # 区切りを印さない会話を持ち越す部署（my_notes の社長室）を、持ち主が起こし直してよいと答えたとき（受付 93d98b）
+        # 区切りを印さない会話を持ち越す部署（my_notes の社長室）を、持ち主が起動し直してよいと答えたとき（受付 93d98b）
         provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "account": "a1"}, gitx)
         rc, out = self.main(self.src, "--move", "調べ", "--account", "a1", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("アカウント a1 のまま起こし直す", out)
+        self.assertIn("アカウント a1 のまま起動し直す", out)
         seen, task = self.fake_task()
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
@@ -148,11 +148,11 @@ class Move(unittest.TestCase):
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["why"]), ("a1", "a1", move.SAME))
         rc, out = self.main(self.src, "--move", "調べ", "--account", "a1", "--if-limited")
-        self.assertEqual(rc, 2, out)   # 使用上限で移すのに、今のアカウントでは起こし直さない
+        self.assertEqual(rc, 2, out)   # 使用上限で移すのに、今のアカウントでは起動し直さない
 
     def test_a_department_talking_in_its_window_is_not_stopped_and_is_told_why(self):
-        # 部署の窓で持ち主と話す会話も、窓口と同じく番の途中と打ちかけの字の上からは止めない。会話の外から打った --move なら、
-        # 止めた訳をその会話に台帳の知らせで渡す（入力欄には打たない）
+        # 部署の窓で持ち主と話す会話も、窓口と同じくターンの途中と打ちかけの字の上からは止めない。会話の外から打った --move なら、
+        # 止めた訳をその会話に台帳の知らせで渡す（入力フィールドには打たない）
         provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "account": "a1"}, gitx)
         h = self.ports.herdr
         h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
@@ -165,8 +165,8 @@ class Move(unittest.TestCase):
             wake._replace(wake.pos_path(self.inbox, gitx.git_dir(self.place)), "0")
             rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
             self.assertEqual(rc, move.NOT_NOW, out)
-            self.assertIn("入力欄に字（「打ちかけ」）が在るので止めない", out)
-            # 会社の形の起動の設定で起こし直す待ち受けの --if-changed は、出力で訳を見るので知らせない
+            self.assertIn("入力フィールドに字（「打ちかけ」）が在るので止めない", out)
+            # 会社の形の起動の設定で起動し直す待ち受けの --if-changed は、出力で訳を見るので知らせない
             test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nmodel = "opus"\n')
             provision.mark(self.place, self.src, {wake.REST: "1"}, gitx)
             rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
@@ -182,7 +182,7 @@ class Move(unittest.TestCase):
             h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
             rc, out = self.main(self.place, "--move", "調べ", "--account", "a1")
             self.assertEqual(rc, move.NOT_NOW, out)
-            self.assertIn("番の途中", out)
+            self.assertIn("ターンの途中", out)
             self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == wake.NOTE]), 1)
             self.assertEqual((seen, self.stopped), ([], []))
             self.assertFalse([w for w in h.writes if w[0] == "send_keys"])
@@ -194,7 +194,7 @@ class Move(unittest.TestCase):
         self.assertEqual(self.stopped, [("c1", "d")])
 
     def changed_world(self, launched):
-        # 毎回空にする部署。会社の形の model は opus、起こしたときは launched
+        # 毎回空にする部署。会社の形の model は opus、起動したときは launched
         test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\nmodel = "opus"\n')
         provision.mark(self.place, self.src, {"residency": "resident", "fresh": role.FRESH, "ask": "q1", "delivered": "q1",
                                               "boss": "desk", "boss-inbox": self.inbox, "job": "d", "launched": launched,
@@ -212,7 +212,7 @@ class Move(unittest.TestCase):
         self.assertIn(move.CHANGED, got["brief"])
         self.assertIn("受けている頼みは無い", got["brief"])
         self.assertIsNone(got["tail"])
-        # 前の会話を止めたら待ち受けの印を外す。起こし直した会話は空なので、空にした印も書く
+        # 前の会話を止めたら待ち受けの印を外す。起動し直した会話は空なので、空にした印も書く
         self.assertNotIn(wake.RESTARTING, got["attrs"])
         self.assertEqual(got["attrs"]["cleared"], "q1")
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
@@ -224,10 +224,10 @@ class Move(unittest.TestCase):
         with mock.patch.object(dispatch, "_task", task):
             rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
             self.assertEqual(rc, 0, out)
-            self.assertIn("起こし直さない", out)
+            self.assertIn("起動し直さない", out)
             # 印は待ち受けが外す（止めなかったと見て、前の会話に頼みを渡す）
             self.assertEqual(gitx.worktree_attrs(self.place)[wake.RESTARTING], "s-dept")
-            # 空いたアカウントが無ければ起こし直さない（上限のアカウントで起こすと、前の会話だけが止まる）
+            # 空いたアカウントが無ければ起動し直さない（上限のアカウントで起動すると、前の会話だけが止まる）
             full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
             self.ports.limits_seq = [{"a1": full, "a2": full}]
             provision.mark(self.place, self.src, {"launched": role.launch_key(None)}, gitx)
@@ -260,7 +260,7 @@ class Move(unittest.TestCase):
             if p["pane_id"] == self.desk:
                 p["agent_session"] = {"value": "s-desk"}
         self.ports.herdr.talking.add(self.desk)
-        failed = {"pane": self.desk, "status": "launch_failed", "detail": "起こせない"}
+        failed = {"pane": self.desk, "status": "launch_failed", "detail": "起動できない"}
         with mock.patch.object(move.launch, "start_named", lambda *a, **k: failed):
             rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, 1, out)
@@ -269,7 +269,7 @@ class Move(unittest.TestCase):
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual(moved["status"], "failed")
         self.assertIn("前の会話を --resume で戻した", moved["detail"])
-        self.assertIn(wake.RESTART_KEPT, gitx.worktree_attrs(self.src))   # 同じ値では起こし直しと戻しを繰り返さない
+        self.assertIn(wake.RESTART_KEPT, gitx.worktree_attrs(self.src))   # 同じ値では起動し直しと戻しを繰り返さない
 
     def test_the_desk_starts_again_with_the_settings_of_its_role(self):
         # 窓口の役の [roles.settings] は、--task の部署と同じく --settings で渡す（部署だけの鍵 worktree.bgIsolation は重ねない）
@@ -295,12 +295,12 @@ class Move(unittest.TestCase):
         self.ports.herdr.talking.add(self.desk)
 
     def test_if_changed_restarts_the_desk_at_its_rest_with_the_settings_model_and_effort_of_its_role(self):
-        # 窓口の役の起動の設定を替えたら、区切り（--rest）の番の終わりに、同じアカウントで起こし直す（持ち主の手で起こし直さない）
+        # 窓口の役の起動の設定を替えたら、区切り（--rest）のターンの終わりに、同じアカウントで起動し直す（持ち主の手で起動し直さない）
         test_deliver.Flow.shape(self, '[[roles]]\nname = "窓口"\nmodel = "opus"\neffort = "high"\n'
                                       '[roles.settings]\nenabledPlugins = { "works@m" = false }\n')
         self.desk_world(**{wake.RESTARTING: "s-desk"})
         rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
-        self.assertEqual(rc, 2, out)   # 区切りの印が無い間は起こし直さない（持ち主と話している途中の会話を切らない）
+        self.assertEqual(rc, 2, out)   # 区切りの印が無い間は起動し直さない（持ち主と話している途中の会話を切らない）
         self.assertIn("区切りの印（--rest）も無い", out)
         self.assertFalse([w for w in self.ports.herdr.writes if w[1] == self.desk])
         provision.mark(self.src, self.src, {wake.REST: "s-desk"}, gitx)
@@ -316,25 +316,25 @@ class Move(unittest.TestCase):
         self.assertEqual(attrs.get(wake.LAUNCHING), "1")   # 起きた会話の --desk が外す
         for k in (wake.REST, wake.RESTARTING):
             self.assertNotIn(k, attrs)
-        # 起こした値と同じなら、区切りでも起こし直さない（待ち受けは /clear で空にする）
+        # 起動した値と同じなら、区切りでも起動し直さない（待ち受けは /clear で空にする）
         provision.mark(self.src, self.src, {wake.REST: "s-desk"}, gitx)
         rc, out = self.main(self.src, "--move", "窓口", "--if-changed")
         self.assertEqual(rc, 0, out)
-        self.assertIn("起こし直さない", out)
+        self.assertIn("起動し直さない", out)
 
     def test_the_desk_is_not_exited_in_the_middle_of_its_turn_or_over_typed_text(self):
-        # 番の途中に打った /exit は番の終わりまで待ちの列に回り、起こし直さずに止まった後で効いて、窓口が消えたままになりうる
+        # ターンの途中に打った /exit はターンの終わりまで待ちの列に回り、起動し直さずに止まった後で効いて、窓口が消えたままになりうる
         self.desk_world()
         h = self.ports.herdr
         h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
-        self.assertEqual(rc, move.NOT_NOW, out)   # 訳がすぐ替わる（待ち受けは起こし直さなかった値を残さない）
-        self.assertIn("番の途中", out)
+        self.assertEqual(rc, move.NOT_NOW, out)   # 訳がすぐ替わる（待ち受けは起動し直さなかった値を残さない）
+        self.assertIn("ターンの途中", out)
         h.agent = lambda pane: {"agent": "claude", "agent_status": "idle"}
         h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
         rc, out = self.main(self.src, "--move", "窓口", "--account", "a2")
         self.assertEqual(rc, move.NOT_NOW, out)
-        self.assertIn("入力欄に字（「打ちかけ」）が在る", out)
+        self.assertIn("入力フィールドに字（「打ちかけ」）が在る", out)
         self.assertFalse([w for w in h.writes if w[1] == self.desk and w[0] in ("prompt", "run")])
         # 窓口でも、会話の外（部署の作業場）から打った --move なら、訳を窓口の会話に知らせで渡す
         wake._replace(wake.pos_path(self.inbox, gitx.git_dir(self.src)), "0")
@@ -345,8 +345,8 @@ class Move(unittest.TestCase):
         self.assertIn("アカウント a2 へ移して", told["text"])
 
     def test_the_desk_is_exited_over_a_faint_prompt_suggestion(self):
-        # 入力欄の薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補「消していいよ」を
-        # 打ちかけと見て、区切りの起こし直しを 1 時間打たなかった
+        # 入力フィールドの薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補「消していいよ」を
+        # 打ちかけと見て、区切りの起動し直しを 1 時間打たなかった
         self.desk_world()
         h = self.ports.herdr
         h.screen = "\x1b[38;2;136;136;136m" + "─" * 20 + " 窓口 ─\x1b[0m\n❯\xa0\x1b[0m\x1b[2m消していいよ\x1b[0m\n" + "─" * 20

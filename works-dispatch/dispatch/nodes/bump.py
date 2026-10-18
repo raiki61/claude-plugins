@@ -2,15 +2,15 @@
 """bump ノード: Claude Code のプラグインの marketplace（`.claude-plugin/marketplace.json` に plugins[] を並べるリポジトリ）で、
 中身を変えたのに版が据え置きのプラグインの版を上げる commit を作る。外に書く（その場所のファイルと commit）。
 
-取り込みの命令（入口の --land）が、会社の形の land.bump = "marketplace" のときに、本流に入れる前の一時の場所で呼ぶ。
+取り込みのコマンド（入口の --land）が、会社の形の land.bump = "marketplace" のときに、メインブランチに入れる前の一時の場所で呼ぶ。
 部署が版を上げずに出し、取り込むときに上げると、同じ版の番号を付けた部署どうしがぶつからない（会社の形の設計 8 章）。
 
 決まりは、版の出し方の決まり（marketplace のリポジトリの docs/releasing.md の形）に合わせた。
 - 据え置き: プラグインの置き場（plugins[].source）のファイルを、その plugin.json の version を今の値にした commit より後に
   変えた commit が有る（その marketplace の試験 VERSION_BUMP_OK と同じ数え方）。
-- 上げ幅: そのプラグインの CHANGELOG.md の `## [Unreleased]` に Added・Changed・Deprecated・Removed の節が有れば
+- 上げ幅: そのプラグインの CHANGELOG.md の `## [Unreleased]` に Added・Changed・Deprecated・Removed のセクションが有れば
   minor（x.Y.0）、無ければ patch（x.y.Z）。ただし版を最後に上げた後に変えたファイルが試験と文書だけ（QUIET。利用者が動かす物を
-  変えていない）なら、節によらず patch（Semantic Versioning の minor は「後方互換のある機能の追加」で、試験と文書だけの直しは
+  変えていない）なら、セクションによらず patch（Semantic Versioning の minor は「後方互換のある機能の追加」で、試験と文書だけの直しは
   当たらない）。plugin.json は、説明（description）の字だけを変えたなら文書に数える（tiers 0.5.0 は、plugin.json の説明の
   言い回しだけの直しを Changed に書き、minor に上がった）。marketplace の metadata.version は、minor を上げたプラグインが 1 つでも有れば minor、無ければ patch。
 - 同じ commit で、plugin.json の version・marketplace.json の metadata.version・CHANGELOG.md の `## [Unreleased]` の中身を
@@ -88,7 +88,7 @@ def has_entries(text):
 
 
 def quiet(path, src):
-    """プラグインの置き場 src の下のファイル path（リポジトリの根からの相対）が、試験か文書か（利用者が動かす物でないか）。
+    """プラグインの置き場 src の下のファイル path（リポジトリのルートからの相対）が、試験か文書か（利用者が動かす物でないか）。
     試験は tests・test のフォルダの下と test_*.py・*_test.py・conftest.py、文書は docs のフォルダの下と、置き場の直下の
     README.md・CHANGELOG.md・CONTRIBUTING.md・LICENSE。SKILL.md やエージェントの .md は、Claude Code が読んで動く物なので文書に数えない。"""
     rel = posixpath.relpath(path, src)
@@ -101,7 +101,7 @@ def quiet(path, src):
     return len(parts) == 1 and name in ("README.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE")
 
 
-# plugin.json のうち、変えても利用者が動かす物が変わらない欄（人が読む説明の字）
+# plugin.json のうち、変えても利用者が動かす物が変わらないフィールド（人が読む説明の字）
 MANIFEST_TEXT = ("description",)
 
 
@@ -130,7 +130,7 @@ def move_unreleased(text, version, date):
 
 
 def plan(root, g):
-    """上げる物の並び [{name, source, old, new, level, why（上げ幅を記録の節と違えた訳か None）}] と、marketplace の (old, new)。据え置きが無ければ ([], None)。
+    """上げる物の並び [{name, source, old, new, level, why（上げ幅を記録のセクションと違えた訳か None）}] と、marketplace の (old, new)。据え置きが無ければ ([], None)。
     据え置きのどれかの `## [Unreleased]` に中身が無ければ BumpError（ファイルは書かない）。"""
     mk = json.loads(_read(root, MARKETPLACE))
     plugins = [p for p in mk.get("plugins", []) if isinstance(p.get("source"), str) and p["source"].startswith("./")]
@@ -145,7 +145,7 @@ def plan(root, g):
         pj = posixpath.join(src, PLUGIN)
         if level == "minor" and all(quiet(f, src) or f == pj and manifest_text_only(root, since, src, g)
                                     for f in g.changed_paths(root, since, src)):
-            level, why = "patch", "変えたのは試験と文書（plugin.json の説明の字を含む）だけなので、記録の節によらず patch"
+            level, why = "patch", "変えたのは試験と文書（plugin.json の説明の字を含む）だけなので、記録のセクションによらず patch"
         rows.append({"name": name, "source": src, "old": old, "new": raise_version(old, level), "level": level, "why": why})
     if empty:
         raise BumpError(f"版を最後に上げた後に中身を変えたのに、`## [Unreleased]` に利用者に効く違いが書いてない: {'、'.join(empty)}。"
