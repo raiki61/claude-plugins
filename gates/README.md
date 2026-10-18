@@ -1,358 +1,358 @@
-# gates — 門番フック集
+# gates — gatekeeper hooks
 
-外に出る操作を、検査が通るまで止めるフックを配る。現在の門番は 2 本——coldread(通じやすさ)と destgate(宛先の許可制)。coldread は gh への投稿を書く前に止め、手元の文書(md など)は書いた後に読んで、書いた役(親の会話か作業役)の終わりに指摘を返す(止めない)。
+Distributes hooks that stop outward-facing operations until a check passes. There are currently 2 gatekeepers: coldread (whether the text gets across) and destgate (an allowlist for destinations). coldread stops posts to gh before they are written; for local documents (md and so on) it reads them after they are written and returns findings at the end of the role that wrote them (the parent session or a worker) (it does not stop them).
 
-版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
+The skill's instructions and description are written in Japanese.
 
-## 入れ方
+Changes per version are in [CHANGELOG.md](CHANGELOG.md). How versions are released (the step of adding to the change log; no git tags are made) is in [docs/releasing.md](../docs/releasing.md) (relative to the repository root; it is not in the copy installed as a plugin. Read it in a clone or on GitHub: https://github.com/raiki61/claude-plugins).
+
+## Install
 
 ```
 /plugin marketplace add raiki61/claude-plugins
 /plugin install gates@raiki61
 ```
 
-## coldread — 外部投稿の門番
+## coldread — gatekeeper for external posts
 
-gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・本文、release notes、gist 等)を
-PreToolUse フックで捕まえ、**フック自身が
-coldreader(文脈ゼロの読み手。別プロセスの headless Claude)を走らせて**本文を初見検査する。
-理解を妨げる「詰まり」があれば、その指摘を deny 理由に載せて投稿を止める。
-「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る。
+A PreToolUse hook catches commands that post text to GitHub with gh (issue/PR comments and bodies, release notes, gists, etc.), and **the hook itself
+runs coldreader (a reader with zero context; a headless Claude in a separate process)** to check the text as a first-time reader.
+If there are "blockers" (詰まり: places that prevent understanding), it puts those findings in the deny reason and stops the post.
+"Questions" (疑問: things the reader understood but whose answer is not in the text) do not stop it; they are passed along.
 
-読み手が持つ文脈は投稿先で変える。既に在る PR/issue のスレッドへ付く返信・編集は、題・番号・
-file と行・元の指摘・これまでの返信が同じ画面に見えている状態で読まれるので、**フックが gh で
-その画面を取り、読み手に既知として渡す**。新しい PR・issue(`gh pr create`・`gh issue create`)も、読み手は
-本文だけを見ているのではない。GitHub が本文の周りに出すもの——題・リポジトリ・(PR なら)取り込む先と元の枝・
-変更ファイルの一覧・本文が指す #番号 の題と状態——を、フックがコマンドの旗と gh・git で組んで渡す(閉じる
-issue は PR の横に題ごと並ぶ。渡さずに読ませると、本文 1 行目の `Closes #660` まで「何の issue か分からない」と
-止まった。2026-10-17 に works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)。release・gist・
-discussion の新規作成は文脈ゼロのまま。スレッドの画面を渡さずに読ませると、@相手の名前・PR 番号・相手が
-付けた印・相手自身の語まで詰まりに出て、書き手がそれを直すと宛先本人に本人の名前と自分の指摘の
-意味を説明する返信になる(2026-09-06 に PR 1583 で実測: 1 本の返信が 39 回止まり、1,021 字 →
-2,555 字に膨れて逃げ道で出た。短く戻した版も止まった)。画面に有るものを本文で説明している箇所は
-「冗長」として止めずに申し送り、deny の直し方も返信では「足すより削る」になる。
+The context the reader has depends on where the post goes. Replies and edits attached to an existing PR/issue thread are read with the title, number,
+file and line, the original comment, and the earlier replies all visible on the same screen, so **the hook fetches
+that screen with gh and gives it to the reader as known**. For new PRs and issues (`gh pr create`, `gh issue create`), the reader is
+not looking at the text alone either. What GitHub shows around the text — the title, the repository, (for a PR) the base and head branches,
+the list of changed files, and the titles and states of the #numbers the text points to — is assembled by the hook from the command's flags and from gh and git, and passed along (issues that
+the PR closes are listed next to the PR with their titles. When the reader read without them, it stopped even at `Closes #660` on the first line of the text, saying "I don't know which issue this is".
+On 2026-10-17, the bodies of 3 new PRs in works-factory were stopped 7 times in total). New releases, gists, and
+discussions are still read with zero context. When the reader read without the thread's screen, it raised as blockers even the @name of the other person, the PR number, the labels the other person
+added, and the other person's own words, and when the writer fixed those, the result was a reply explaining to the addressee their own name and the meaning of
+their own comment (measured on PR 1583 on 2026-09-06: one reply was stopped 39 times, grew from 1,021 to
+2,555 characters, and went out through the escape hatch. A version shortened back was also stopped). Places where the text explains what is on the screen
+are passed along as 「冗長」 ("redundant") without stopping, and for replies the deny's advice on how to fix is also "cut rather than add".
 
-画面は参加者が実際に見ているものまで渡す: 題・番号・状態(open/merged/draft)・本文の全文・変更ファイルの
-一覧・これまでの返信(答える相手の直前のものは切らない)・本文とスレッドが参照する #番号 の題。
-**画面が既知にするのは「何を指しているか」であって「どう書くか」ではない**——相手の言い回し・業界外の
-横文字・比喩を本文が自分の地の文として使えば、画面に同じ語が有っても詰まり(相手の語を指して答えるのは既知)。
-画面をスレッドの語彙の辞書にすると、スレッドの癖のある書き方に読み手が引っ張られ、本文がその癖を写す向きに
-働く。写した箇所は「なぞり」として詰まりと同じく止める(直し方は説明を足すことではなく、自分の言葉に置き換える)。
-詰まりの条件文に埋めた形は実物の読み手に 1 件も拾われなかったが、独立の欄として問うと 3 語とも拾い、引用して
-指す返信は拾わなかった(2026-09-07 に北極星・ニアバイ・クロージングで実測)。2026-09-07 に PR 1429 で実測: 文脈ゼロの読み手(更新前に開始し 0.8.0 のまま走っていたセッション)が
-「#1231 #1581 #1283 が何か」「9/2 の提案とは」を詰まりに出し、6 回の deny で 5,455 字 → 10,179 字
-(用語集 19 語が全体の 25%)に膨れて逃げ道で出た。詰まりは全件、スレッドを見ていれば出ないものだった。
+The screen passed along goes as far as what participants actually see: title, number, state (open/merged/draft), the full body, the list of changed
+files, the earlier replies (the one just before the reply being answered is never cut), and the titles of the #numbers that the body and the thread refer to.
+**What the screen makes known is "what is being referred to", not "how to write it"** — if the text uses the other person's phrasing, jargon from outside the industry,
+or metaphors as its own prose, that is a blocker even if the same words are on the screen (pointing at the other person's words to answer them is known).
+If the screen is treated as a dictionary of the thread's vocabulary, the reader gets pulled along by the thread's quirky writing, and that pushes the text toward copying
+those quirks. Places that copy are stopped as 「なぞり」 ("echoing"), the same as blockers (the fix is not to add explanation but to replace them with your own words).
+When this was folded into the condition sentence for blockers, the actual reader picked up none of the cases, but when asked as a separate field it picked up all 3 words, and did not pick up replies that quote and
+point at them (measured on 2026-09-07 with 北極星・ニアバイ・クロージング ("north star", "nearby", "closing")). Measured on PR 1429 on 2026-09-07: a zero-context reader (a session started before the update and still running 0.8.0)
+raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, and after 6 denies the text grew from 5,455 to 10,179 characters
+(a 19-word glossary took 25% of it) and went out through the escape hatch. Every one of the blockers was something that would not have come up if the reader had seen the thread.
 
-- 検査の実行を書き手の申告に頼らない——「検査した印だけ押して通す」穴が構造的に無い
-- 検査するのは通じやすさだけ——出してよい投稿か・名義・宛先は見ていない。**通過を承認と
-  読み違えるな**(通過・差し戻しの文言でも毎回言う)。宛先は下の destgate が縛る
-- 再実行のたびに新しい coldreader が直した本文を読む——収束をフックが機械的に駆動する
-- **エージェントが自分で検査を外す逃げ道は無い**(持ち主の判断 2026-10-16)。前の `COLDREAD_SKIP=1` は、本文ファイルの
-  書き直しを避けて未検査のまま出す口に 22 回使われた。今はコマンドに書かれていても効かせず、書いた事実だけを
-  `$CLAUDE_CONFIG_DIR/coldread-gate/skip.log` に `refused` として残し、止めた理由の文にも「効かない」と添える。
-  止めた理由の文は逃げ道を案内しない。本文を読めずに止めた(検査できない)ときだけ、直せないなら持ち主に渡して止まれと言う。
-  読んで止めたときは、下の「3 回目からは」の決まりで関門が自分で収まる(持ち主に通させる口は外した。下の「持ち主が通す口は外した」)
-- 持ち主が自分で出したいときは、自分の端末で `gh` を打つ(フックは Claude Code の中でしか動かない)。Claude Code の
-  `!`(シェルモード)は、公式の文書が「Claude を通さずに走る」「Claude の解釈と承認が要らない」と書く
-  (https://code.claude.com/docs/en/interactive-mode の「Shell mode with ! prefix」。2026-10-16 に確認)が、
-  PreToolUse のフックが掛かるかどうかは書いていない——**要確認**(掛かるなら、`!` で打っても同じ検査で止まる)
-- 網から落ちた疑いのある素通しは `misses.log` に、当たった旗の綴りと、その単純コマンドの先頭の語
-  (`sh`・`python3`・`echo` など)で残る——「投稿でなかった」と区別が付かないと、門番を締めたときにどれだけ
-  裏口へ押し出したかを測れない。ヒアドキュメントの中身の綴りは数えず、先頭の語で別の道具の旗や文書の中の
-  綴りを後から分ける。コマンドの長さに関わらず記録する
-- コマンドの長さでは飛ばさない(前は 400 文字未満のコマンドを解析の前に記録も残さず通していて、本文ファイル・
-  変数を運ぶ短い投稿が直近 14 日で 54 件読まれずに出た)。短い定型返信を読み役に回さないのは、取り出した本文が
-  200 字未満なら通す、で決める。読み取り系の gh コマンドと、`--help`・`-h`・`--version` の付いた gh(案内を出して終わる)には掛からない
-- coldreader が起動できないときも止める(検査できていないので)。直らなければ持ち主に渡す
-- 画面を取れない(gh 無し・認証無し・オフライン)ときは文脈ゼロで読み、その旨を書き手に伝える(止めない)
-- coldreader は利用者の CLAUDE.md と settings を読まない(`--setting-sources ""` で起動)。書き手向けの
-  「初見でも分かるように書く」等の規則を読み手が自分の指示として持つと、識別子を全部詰まりに出す側へ
-  寄る(2026-09-06 に実測: 素の起動では利用者の CLAUDE.md の見出しを引用した)
-- **書き直しの 2 回目からは、前の回を知る読み手が読む**(持ち主 2026-10-17)。1 回目の読み手は本文の全体を読んで全部挙げる。
-  2 回目からの読み手には、前の回の指摘(止めない欄も含む)と、前の回の本文からの差分(行ごと)を渡し、止める理由を
-  「前の回の詰まり・なぞりのうち、まだ解けていない物」と「直しで足した・書き換えた所が新しく生んだ物」だけにする。
-  書き換えていない所で新しく気づいた物は、1 回目の読み手が全体を読んで詰まりに挙げなかった所なので、疑問か補完として返す。
-  前の回の指摘に応えた直しを戻させる指摘(足した説明を冗長として削れ、など)も出させない。毎回まっさらな読み手に全体を
-  読ませていた頃は、前の回を知らない読み手が逆の注文を出し(2 回目が「前のコメントの言い直しだから削れ」、3 回目が
-  「前のコメントのどの案か言い換えられていない」)、前の読み手が言わなかった端の所を毎回新しく拾って、同じ投稿が 3 回
-  止まり続けた(2026-10-17 の works-factory で 5 本)。前の回の本文と指摘は、書き手(session)と投稿先の組ごとに
-  `$CLAUDE_CONFIG_DIR/coldread-gate/rounds/` に 1 つ持ち、通ったら消す(30 分より古い物は書くときに消す)。
-  前の回を引き継ぐのは本文の指紋が 16 個中 8 個以上一致するときだけで、半分を超えて書き換えた本文と、同じ宛先への別の
-  投稿は 1 回目として全体を読む
-- **3 回目からは、前の回から残った詰まり・なぞりだけで止める**(持ち主 2026-10-17「ある程度出たと判断したら進む形にしよう」)。
-  前の回の指摘は、止めた物と止めなかった物を分けて読み手に渡す。読み手には「詰まり: 」「なぞり: 」の直後に「(前の回)」と
-  書かせ、ラベルの直後にこの印が無い行は止めずに疑問として返す。印の後ろが「なし」だけの行は落とす。止める行の数は、
-  本文を直していれば前の回の止めた数より 1 つ少ない数まで(多い分は疑問に移す)、直さずに打ち直したなら前の回の数までにする。
-  読み手が新しい物に印を付けても、止める数は直すたびに減って 0 で通る——関門が自分で収まる。直さずに打ち直すだけでは減らない。
-  前の回の記録を引き継げない回(本文の半分を超えて書き換えた・間が 30 分を超えた・版が替わった)は 1 回目に戻る
-- **往復の上限は無く、持ち主に通させる口も無い**(持ち主 2026-10-17「上限はいらないわ」「人からパスを売ってもらう運用はやめて」)。
-  同じ投稿が 3 回続けて止まったら、止めた理由の先頭に「同じ投稿が 3 回続けて止まった」と、この先は前の回から残った物だけで
-  止まることを置き(1 回ごとの本文の字数の数列も載る)、`stuck.log` に会話・版・宛先の種類・止めた理由の並び・本文の長さの並びを
-  残す(本文は写さない。関門の側を直す材料)。前は 3 回で読まずに止めていた。
-  3 にしたのは `denies.log`(2026-09〜10、4 つの profile。前の回を知らない読み手のとき)の連続の分布から: 1 回止まった後の次で
-  通ったのは 301 本中 178 本、2 回止まった後の次で通ったのは 94 本中 49 本、3 回止まった後の次で通ったのは 33 本中 2 本。
-  揺れの中身は疑問(意味は取れたが根拠が欲しい)を詰まりに格上げする癖なので、依頼文で詰まりの線を
-  「その箇所で意味が取れず読み進められない」に絞り「迷ったら疑問」と明記した(同じ返信が 4 回中 3 回通り、
-  10,179 字版は 2/2。コンサル語・未解決の参照・文脈ゼロの未定義略語は止まったまま)(末尾に置いた案内は 36 回無視された)。
-  さらに詰まりを、語の意味・何を指すか・文のつながりのどれかが取れない物に限り、「詰まり: 」の直後にどれかを書かせる。判断の材料・
-  根拠・実例を問う中身の審査は疑問に回す(2026-10-17 に works-factory の PR #677 で、3 回目の読み手が「許していない範囲は
-  前の点検と同じか」で止め、根拠を足すたびに足した文がまた問われて、本文が 473 → 1,351 字に膨らんだ)
-  「同じ投稿」は、書き手(session)・投稿先・本文の近さで決める。log は profile で共有なので、並行セッションの
-  deny を数えると 1 回目の書き手が続けて止まった扱いになる(2026-09-07 に実測)。本文の近さは、`denies.log` の各行に残す
-  本文の指紋(5 字の断片の MinHash 16 個。本文は復元できない)が 16 個中 3 個以上一致するかで見る——書き足して
-  倍に膨れた版も同じ投稿に数え、同じ宛先への別の話題の投稿は数えない。本文を取り出せなかった deny(指紋が無い)は、
-  本文の在る投稿の連続には数えない。本文を取り出せない投稿が止められたときは、前の deny を投稿先だけで数える。
-  読み手が本文を読んで止めた回と、本文を読めずに止めた回(長すぎる・解析できない・取り出せない・読み手が動かない)は別々に数え、
-  もう片方の回は飛ばす(本文ファイルを同じコマンドの中で書き換えて止まった回が「4 回続けて」に数えられた。2026-10-17)。
-  別の版の deny に当たったら数えるのをやめ、前の回の記録(`rounds/`)も別の版の物は引き継がない(0.22.3 の 1 回が
-  0.23.0 の回に足され、新しい版の 2 回目で「3 回続けて」と出た。2026-10-17)
-- **持ち主が通す口は外した**(持ち主 2026-10-17「人からパスを売ってもらう運用はやめて」)。0.23.0 では、止めた理由の文に
-  「coldread-pass <番号>」を載せ、持ち主が会話の入力欄にこの形だけを打つと次の 1 回を通していた。持ち主が会話で
-  「通していい」と言っても機械はそれを受け取れず、書き手が止まった(works-factory の PR #677 が 5 回止まり、4・5 回目は
-  全部、取り込んでよいかを決める材料の問いだった)。今は上の 2 つ(中身の審査の問いは疑問に回す・3 回目からは前の回から
-  残った物だけで止める)で、関門が自分で収まる。持ち主が自分で出すときは、今までどおり Claude Code の ! か自分の端末で打つ
-- 参照先(本文が指す #番号)の題は、書き手が直せないので、その題の中の語では止めない(本文がその語を自分の言葉として
-  使っているときだけ止める)。新しい PR の題(`--title`)は書き手が直せるので、今までどおり読む
-- `denies.log` の各行に session・版・投稿先が付く(どの版のどのセッションがどこへ出したかを grep で引く)。
-  cache に自分より新しい版が在れば検査結果に 1 行添える——フックの版はセッション開始時に固定され、
-  長く開いたセッションは更新後も古い版で検査し続ける(16 時間 0.8.0 のままだった実測)
+- It does not rely on the writer's self-report that the check ran — there is structurally no hole of "just stamping a 'checked' mark and passing"
+- It checks only whether the text gets across — it does not look at whether the post should be made at all, under whose name, or where it goes. **Do not
+  mistake passing for approval** (the pass and send-back messages say so every time). Destinations are restricted by destgate below
+- On every retry a new coldreader reads the fixed text — the hook drives convergence mechanically
+- **There is no escape hatch for an agent to turn the check off by itself** (owner's decision 2026-10-16). The former `COLDREAD_SKIP=1` was used 22 times as a way to
+  avoid rewriting the body file and post unchecked. Now it has no effect even if written in the command; only the fact that it was written is
+  recorded as `refused` in `$CLAUDE_CONFIG_DIR/coldread-gate/skip.log`, and the stop reason also says 「効かない」 ("has no effect").
+  The stop reason does not point to an escape hatch. Only when it stopped because it could not read the text (could not check it) does it say: if you cannot fix it, hand it to the owner and stop.
+  When it read the text and stopped it, the gate settles on its own by the "From the 3rd round" rule below (the way for the owner to let a post through was removed; see "The way for the owner to let a post through was removed" below)
+- When the owner wants to post it themselves, they type `gh` in their own terminal (the hook only runs inside Claude Code). For Claude Code's
+  `!` (shell mode), the official documentation says it "runs without going through Claude" and "does not need Claude's interpretation or approval"
+  (the "Shell mode with ! prefix" section of https://code.claude.com/docs/en/interactive-mode; confirmed on 2026-10-16), but
+  it does not say whether PreToolUse hooks apply — **needs confirmation** (if they apply, typing it with `!` is stopped by the same check)
+- Pass-throughs suspected of slipping through the net are recorded in `misses.log` with the spelling of the flag that matched and the first word of that simple command
+  (`sh`, `python3`, `echo`, etc.) — if they cannot be told apart from "it was not a post", there is no way to measure how much was pushed out
+  to back doors when the gatekeeper is tightened. Spellings inside heredoc contents are not counted, and the first word is used afterwards to separate flags of other tools and spellings inside documents.
+  They are recorded regardless of command length
+- It does not skip by command length (before, commands shorter than 400 characters were passed before parsing without even a record, and short posts carrying a body file or
+  a variable went out unread 54 times in the most recent 14 days). Not sending short boilerplate replies to the reader is decided by passing them when the extracted text is
+  under 200 characters. It does not apply to read-only gh commands, or to gh with `--help`, `-h`, or `--version` (which print help and end)
+- It also stops when coldreader cannot be started (because no check was done). If that does not get fixed, hand it to the owner
+- When the screen cannot be fetched (no gh, no auth, offline), the reader reads with zero context and the writer is told so (it does not stop)
+- coldreader does not read the user's CLAUDE.md or settings (it is started with `--setting-sources ""`). If the reader holds rules meant for writers,
+  such as "write so that a first-time reader understands", as its own instructions, it leans toward raising every identifier as a blocker
+  (measured on 2026-09-06: started plainly, it quoted headings from the user's CLAUDE.md)
+- **From the 2nd rewrite on, a reader who knows the previous round reads it** (owner 2026-10-17). The 1st round's reader reads the whole text and lists everything.
+  The readers from the 2nd round on are given the previous round's findings (including the fields that do not stop) and the diff from the previous round's text (line by line), and the reasons to stop are limited to
+  "blockers and echoes from the previous round that are still unresolved" and "things newly created by what the fix added or rewrote".
+  Things newly noticed in parts that were not rewritten are parts the 1st round's reader read in full and did not raise as blockers, so they are returned as questions or guesses.
+  Findings that would make the writer undo a fix that answered the previous round's findings (cut the added explanation as redundant, etc.) are also not allowed. Back when a brand-new reader read the
+  whole text every time, readers that did not know the previous round made opposite demands (the 2nd round: "it restates the earlier comment, so cut it"; the 3rd round:
+  "it does not restate which option of the earlier comment"), each picked up new edge points the previous reader had not mentioned, and the same post kept getting stopped 3
+  times (5 posts in works-factory on 2026-10-17). The previous round's text and findings are kept, one per pair of writer (session) and destination, in
+  `$CLAUDE_CONFIG_DIR/coldread-gate/rounds/`, and deleted once the post passes (ones older than 30 minutes are deleted when writing).
+  The previous round is carried over only when 8 or more of the text's 16 fingerprints match; a text rewritten by more than half, and a different
+  post to the same destination, are read in full as a 1st round
+- **From the 3rd round, it stops only on blockers and echoes left over from the previous round** (owner 2026-10-17: 「ある程度出たと判断したら進む形にしよう」, "once we judge enough has come out, let it move on").
+  The previous round's findings are passed to the reader split into the ones that stopped the post and the ones that did not. The reader is made to write 「(前の回)」 ("(previous round)") right after
+  「詰まり: 」 ("blocker: ") or 「なぞり: 」 ("echo: "), and lines without this mark right after the label are returned as questions without stopping. Lines that contain only 「なし」 ("none") after the mark are dropped. The number of lines that stop is capped at
+  one less than the number that stopped in the previous round if the text was fixed (the excess moves to questions), and at the previous round's number if it was resubmitted without fixing.
+  Even if the reader marks new things, the number that stops goes down with every fix and passes at 0 — the gate settles on its own. Resubmitting without fixing does not reduce it.
+  Rounds that cannot carry over the previous round's record (more than half the text rewritten, more than 30 minutes in between, a different version) go back to the 1st round
+- **There is no limit on the number of round trips, and no way for the owner to let a post through** (owner 2026-10-17: 「上限はいらないわ」 "no limit needed", 「人からパスを売ってもらう運用はやめて」 "stop the practice of getting a pass from a person").
+  When the same post is stopped 3 times in a row, the stop reason starts with 「同じ投稿が 3 回続けて止まった」 ("the same post was stopped 3 times in a row") and the note that from here on it stops only on what is left over from the previous round
+  (the sequence of the text's character counts for each round is included too), and `stuck.log` records the session, version, kind of destination, the sequence of stop reasons, and the sequence of text lengths
+  (the text itself is not copied; it is material for fixing the gate side). Before, it stopped at 3 without reading.
+  3 was chosen from the distribution of consecutive stops in `denies.log` (2026-09 to 10, 4 profiles, with readers that did not know the previous round): after 1 stop, 178 of 301 posts
+  passed next time; after 2 stops, 49 of 94; after 3 stops, 2 of 33.
+  The wobble was the habit of promoting questions (the meaning was clear but the reader wanted evidence) to blockers, so the request text narrowed the blocker line to
+  "at that spot the meaning cannot be taken and reading cannot continue" and stated "when in doubt, it is a question" (the same reply passed 3 of 4 times,
+  and the 10,179-character version 2 of 2. Consultant jargon, unresolved references, and undefined abbreviations with zero context still stopped) (a note placed at the end had been ignored 36 times).
+  Further, blockers are limited to cases where the meaning of a word, what something refers to, or how sentences connect cannot be taken, and the reader is made to write which one right after 「詰まり: 」. Content review that asks for decision material,
+  evidence, or examples is moved to questions (on 2026-10-17, on works-factory PR #677, the 3rd round's reader stopped on "is the range not allowed the same as
+  the previous inspection", every time evidence was added the added sentence was questioned again, and the text swelled from 473 to 1,351 characters)
+  "The same post" is decided by the writer (session), the destination, and how close the text is. The log is shared per profile, so counting denies from parallel
+  sessions would treat the 1st round's writer as stopped repeatedly (measured on 2026-09-07). Closeness of the text is judged by whether 3 or more of the 16
+  text fingerprints left on each line of `denies.log` (16 MinHash values of 5-character fragments; the text cannot be recovered) match — a version that was added to and
+  doubled in size counts as the same post, and a post on a different topic to the same destination does not. Denies where the text could not be extracted (no fingerprint)
+  are not counted in the run of posts that have text. When a post whose text cannot be extracted is stopped, earlier denies are counted by destination only.
+  Rounds where the reader read the text and stopped it, and rounds where it stopped without being able to read the text (too long, unparseable, not extractable, reader not running), are counted separately,
+  and rounds of the other kind are skipped (rounds that were stopped because the body file was rewritten inside the same command had been counted as "4 times in a row"; 2026-10-17).
+  When it hits a deny from a different version, it stops counting, and the previous round's record (`rounds/`) from a different version is not carried over either (one round of 0.22.3
+  was added to the rounds of 0.23.0, and "3 times in a row" appeared on the new version's 2nd round; 2026-10-17)
+- **The way for the owner to let a post through was removed** (owner 2026-10-17: 「人からパスを売ってもらう運用はやめて」, "stop the practice of getting a pass from a person"). In 0.23.0, the stop reason included
+  「coldread-pass <番号>」 (`<番号>` is a number), and when the owner typed only this form in the session's input box, the next attempt was let through. Even if the owner said in the session
+  "you may let it through", the machine could not receive that, and the writer got stuck (works-factory PR #677 was stopped 5 times, and the 4th and 5th were
+  all questions asking for material to decide whether to merge it). Now, the 2 rules above (content-review questions go to questions; from the 3rd round it stops only on what is left over
+  from the previous round) make the gate settle on its own. When the owner posts it themselves, as before they type it with Claude Code's ! or in their own terminal
+- The titles of referenced items (#numbers the text points to) cannot be fixed by the writer, so words in those titles do not stop the post (it stops only when the text uses the word
+  as its own words). The title of a new PR (`--title`) can be fixed by the writer, so it is read as before
+- Each line of `denies.log` carries the session, version, and destination (grep to find which session on which version posted where).
+  If the cache has a version newer than itself, one line is added to the check result — the hook's version is fixed when the session starts, and
+  a session kept open for a long time keeps checking with the old version even after an update (measured: it stayed on 0.8.0 for 16 hours)
 
-設定は環境変数(すべて任意): `COLDREAD_MODEL`(既定 sonnet)・`COLDREAD_EFFORT`(既定
-medium)・`COLDREAD_MAX_LEN`(これを超えるコマンドは解析せず止める。本文ファイルもこの字数まで読む。既定 100000)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で
-OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(coldreader の差し替え)・
-`COLDREAD_GH_CMD`(画面を取る gh の差し替え。テスト用)。手元の文書の側は下の節。
+Settings are environment variables (all optional): `COLDREAD_MODEL` (default sonnet), `COLDREAD_EFFORT` (default
+medium), `COLDREAD_MAX_LEN` (commands longer than this are stopped without parsing; body files are also read up to this many characters; default 100000), `COLDREAD_KEYCHAIN_SERVICE` (the service name used on macOS
+to read the OAuth token from the Keychain), `COLDREAD_READER_CMD` (replaces coldreader), and
+`COLDREAD_GH_CMD` (replaces the gh used to fetch the screen; for tests). For local documents, see the section below.
 
-## 網の射程(正直な限界)
+## Reach of the net (honest limits)
 
-判定は「本文を運ぶ旗が gh 自身の引数列にあるか」で行う(単純コマンド単位で帰属を見る。
-方式の経緯と次段の PATH シム案は [docs/coldread-gate-next.md](../docs/coldread-gate-next.md))。
-次は原理的に対象外・または内容を読まずに止める形で受容している:
+The decision is made by "is a flag that carries the text in gh's own argument list" (attribution is checked per simple command.
+The history of the approach and the PATH shim plan for the next stage are in [docs/coldread-gate-next.md](../docs/coldread-gate-next.md)).
+The following are accepted as out of scope in principle, or as forms that are stopped without reading the content:
 
-- 旗を持たない投稿は対象外: `gh pr create --fill`(本文はコミットメッセージ由来)・エディタ起動(人が対話で書く)
-- graphql は `mutation` キーワード検出(クエリを `-F query=@file` で渡す形はファイルを読んで見る)。mutation が
-  本文を運ぶのは `body:`(と `readme:`)の欄だけと見て、その欄の値(ブロック文字列・文字列・`$変数` なら `-f`/`-F` で
-  渡した値)と、`input[body]=` のように欄の名前で渡した値だけを読ませる——クエリを丸ごと本文として抜くと、
-  `body:` 以外のフィールド(ID・トークン・設定値)まで coldreader へ渡るため。欄を持たない mutation
-  (`resolveReviewThread` など)は投稿でないので止めない(一律で止めていた頃は、往復の 57 件がこれだった)。
-  欄の値が決まらない(`$変数` が渡っていない・文字列でない)mutation は止める
-- `gh` がコマンドとして現れない形は判定外: `xargs -I{} gh ...`・`sh -c "gh ..."`・引用の中の gh。
-  ここだけは素通し(allow)に倒れる——`env`・`command`・`exec`・`nohup`・`time`・`timeout`・`gtimeout` の前置は
-  判定内(`timeout` は時間の値と `-s`・`-k` の値、`env` は `-u`・`-C` の値を読み飛ばす)だが、
-  `sudo`・`nice` 等それ以外の前置は網に入らない。二重引用の中の `$(…)`(`--body "$(cat <<'EOF' … EOF)"`)と、
-  Python の subprocess のような別のプログラムからの gh も、解析の延長では追わない(gh への引数がシェルの解析を
-  終えた後の形で届く PATH シムを別に検討する。[docs/coldread-gate-next.md](../docs/coldread-gate-next.md))
-- `gh` の呼び出しと分かった後は、読めなかったものを素通しにしない: サブコマンドを特定できない
-  (知らない global 旗が前にある)・本文がコマンド置換や解けない変数で渡る・`--input` の JSON が
-  本文の位置(`.body` と review の `comments[].body`)の外に長い文字列を持つ・graphql の mutation の本文の欄の
-  値が決まらない、はいずれも「検査できない」として止める。ただし単一引用の中の `` ` `` や `$(` は展開されないので、
-  本文の一部として読ませる(コードフェンスを含む普通の文章を止めないため)
-- ヒアドキュメントは、それが付いた単純コマンドの本文としてだけ扱う。同じ行に別のコマンドの
-  ヒアドキュメントがあっても gh の本文には混ぜない
-- **本文ファイルはフックが自分で読む**(`--body-file f`・`--notes-file f`・`-F f`・`-F body=@f`・`--input f`)。
-  前は「取り出せない」で止めてヒアドキュメントへ書き直させていて、往復が 124 回、うち 22 回は逃げ道で未検査のまま出た。
-  読むのは、gh が読む中身と同じだと静的に言えるときだけで、言えなければ止める(fail-closed):
-  - パスは、字のまま・`~/`(HOME で開く)・同じコマンドの中で代入した変数(`S=/abs; gh … --body-file "$S/b.md"`)・
-    フックの入力の cwd(公式の文書によると、Claude が cd した後はその先を指す)からの相対・`cd <絶対パス> &&` の先の相対まで解く。
-    変数を解くのは、代入が必ず走って gh まで届くと字面で言えるときだけ: 1 度だけの代入で、条件(`if`・`||`)・繰り返し・
-    パイプ・`&`・先に閉じるサブシェルの中でなく、`+=`・`read`・`printf -v`・`declare`・`for`・`eval` などで入れ直されない
-    (間に在るほかのコマンドの `$( … )` やパイプは見ない)。解けない変数・`~user`・グロブ・`;` で続く cd や `if cd …` の後の
-    相対・`env -C` の後の相対は止める
-  - 同じコマンドの中で本文ファイルを書く命令が在れば、`cat > f <<'EOF'` 1 本だけで、それが gh より先に必ず走る
-    (条件・`||`・パイプ・`&` の中でない)ならそのヒアドキュメントを読む(フックの時点のファイルは古い中身)。ほかの書き手(本文ファイルの名前を引数に持つ `cp`・`mv`・`sed`・`git`… や、
-    そのファイルへのリダイレクト。gh 自身の `> f` も)が在れば止める。名前を引数に持っても書かない命令
-    (`cat`・`wc`・`head`・`ls`・`grep` など)と、gh が終わった後に走る命令(`gh … --body-file f && rm f` の後片付け。
-    繰り返しや関数の中は除く)は数えない
-  - O_NONBLOCK で開き、開いた後に fstat で通常のファイルかを見る(FIFO が書き手を待ってフックを止めると、フックの
-    timeout で無検査で通る)。`COLDREAD_MAX_LEN` 字を超える・UTF-8 でない・読めないファイルは止める
-  - **残る穴**: フックが読んだ後、gh が読むまでの間に別のプロセスが書き換える余地(チェックと実行の間。CWE-367)と、
-    同じコマンドの中で本文ファイルの名前を引数に持たずに書き換えるプログラム(スクリプトの中で書くなど)は防げない
-- パイプ・別プロセスからの標準入力(`cat f | gh … --body-file -`)は中身を読めないので止める。読める本文が
-  同居していても止める。変数で渡す本文(`--body "$B"`)は、パスと同じ条件で同じコマンドの中の代入から解けるときだけ読む
-- 区切りを引用しないヒアドキュメント(`<<EOF`)の本文に `$` か `` ` `` が在れば、シェルが展開して出る本文が字のままと違うので
-  止める(`<<'EOF'` と引用すれば読む)。本文の一部に変数が混じる二重引用の本文(`--body "See: $B"`)も同じで、
-  同じコマンドの中の代入から解けるときだけ読む。`<<EOF` の終わりの行は字下げを許さない(許すのは `<<-` のタブだけ。bash と同じ)
-- `if`・`while`・`until` の直後(条件の位置)の gh も網に入る
-- 引用が閉じていない・解析が例外で落ちる・上限(既定 10 万字)を超えるコマンドも、投稿かどうか
-  確かめられないので止める(fail-closed)
-- 本文を取り出せても 200 字未満なら coldreader に渡さず通す(短い定型の返信で coldreader を起こさないため)
-- 1 つのコマンドが複数の本文を運ぶときは、最長の 1 本だけを coldreader に渡す。review の JSON の `.body` と
-  行コメント(`comments[].body`)は 1 本にまとめて読ませる(前は `.body` が在ると行コメントを見ず、27 件が読まれずに出た)
-- ヒアドキュメントの開始行で、区切りの後ろに同じ行で旗やパイプが続く形(`<<'J' -q .html_url`・`<<'EOF' | tail`)と、
-  1 行に 2 本のヒアドキュメントが在る形も、付いた単純コマンドの本文として読む
-- 旗の綴りは文脈で意味が変わるので、長い旗(`--body`・`--notes`・`--comment`・`--readme`・
-  `--body-file`・`--notes-file`)は綴りだけで本文と見なし、短縮形(`-b`・`-c`・`-n`・`-F`)は本文を意味する
-  サブコマンドの中でだけ本文と見る(gh 2.96.0 の全サブコマンドを走査して決めた)。
-  よって `gh pr checkout -b <ブランチ名>`・`gh issue view -c`・`gh run download -n` 等は
-  投稿ではないので網に入らない。逆に、gh が投稿サブコマンドを増やしても長い旗で書かれていれば
-  網に入る。短縮形しか使われない新サブコマンドは取りこぼす
-- フックの起動行は POSIX シェル(bash)で評価される前提で書いてある(`command -v` と `$(...)` で
-  `python3`/`python` を選ぶ)。bash が無い環境では本体がフック自体を起動できないので、
-  起動行の書き方に関わらず門番は動かない
-- 新しい PR・issue の画面は `gh pr create`・`gh issue create` のときだけ組む。題は `--title`、リポジトリは
-  `-R`(無ければ gh が走る場所で `gh repo view`)、PR の枝は `--base`(無ければ既定の枝)と `--head`(無ければ gh が走る
-  場所の今の枝)から取り、
-  変更ファイルは GitHub の compare(枝が push 済みのときだけ取れる)、#番号 の題は issues の API で引く。
-  gh が走る場所は、前の `cd <絶対パス> &&` まで読む。場所が決まらない形(相対パスの cd など)では、場所に頼る引き方を
-  せずに渡さない(フックの場所の別の枝の中身を、画面として渡さないため)。画面の題に有る語でも、本文が自分の言葉として
-  使って意味が取れなければ詰まりにする(画面が分からせるのは指す先であって語の意味ではない)。
-  取れなかった物は渡さずに、その旨を書き手に伝える(残りで読ませる)。`gh api` で直に作る形
-  (`repos/o/r/pulls` への POST 等)と、`--fill` で題を省いた形の題は拾わない
-- スレッドの画面を渡すのは投稿先が既に在るスレッドのときだけ: `gh api` の path が
-  `repos/o/r/pulls/N/comments/ID/replies`(PR 番号無しの形も)・`repos/o/r/pulls/comments/ID`・`repos/o/r/pulls/N/comments`・
-  `repos/o/r/pulls/N/reviews`・`repos/o/r/issues/N/comments`・`repos/o/r/issues/comments/ID`・
-  `repos/o/r/(issues|pulls)/N` のとき、または `gh pr comment/review/close/reopen/merge/revert/edit`・
-  `gh issue comment/close/reopen/edit`(番号・URL・ブランチの解決は gh 自身に任せる。番号を省いた
-  `gh pr comment` は今のブランチの PR)。review スレッドは同じ根に連なる返信だけを渡し、PR/issue の
-  会話は本文(12,000 字まで)と直近 30 件(一覧は 100 件ずつ最大 5 ページ。全体 40,000 字を超えたら古いものから
-  落とし、答える相手の直前の 1 件は切らない)。本文とスレッドが参照する #番号 の題は 8 件まで。画面取得の gh 呼び出しは合計 40 秒で
-  打ち切り、文脈ゼロへ倒す(フック自体が時間切れになると投稿が無検査で通るため)。`gh discussion` は
-  画面を取らない(文脈ゼロ)
-- 値が本文でないものは coldreader(外部プロセス)へ送らない: `gh secret set --body`・
-  `gh variable set --body`(値は秘密そのもの)、`gh api --input` の JSON(`.body` を持つときだけ
-  その中身を読ませ、持たない JSON は送らない)
+- Posts without a flag are out of scope: `gh pr create --fill` (the text comes from commit messages) and launching an editor (a person writes interactively)
+- graphql is detected by the `mutation` keyword (when the query is passed as `-F query=@file`, the file is read and checked). A mutation is taken to
+  carry text only in the `body:` (and `readme:`) fields, and only those fields' values (a block string, a string, or for `$variable` the value passed with `-f`/`-F`)
+  and values passed by field name like `input[body]=` are given to the reader — extracting the whole query as text would send
+  fields other than `body:` (IDs, tokens, settings values) to coldreader too. Mutations without such a field
+  (`resolveReviewThread`, etc.) are not posts, so they are not stopped (back when they were all stopped, 57 of the round trips were these).
+  Mutations where the field's value cannot be determined (`$variable` not passed, not a string) are stopped
+- Forms where `gh` does not appear as a command are outside the decision: `xargs -I{} gh ...`, `sh -c "gh ..."`, gh inside quotes.
+  Only here does it fall to pass-through (allow) — prefixes `env`, `command`, `exec`, `nohup`, `time`, `timeout`, `gtimeout` are
+  inside the decision (for `timeout` it skips the time value and the values of `-s` and `-k`; for `env` the values of `-u` and `-C`), but
+  other prefixes such as `sudo` and `nice` are not caught by the net. `$(…)` inside double quotes (`--body "$(cat <<'EOF' … EOF)"`) and
+  gh called from another program such as Python's subprocess are not followed as an extension of the parsing (a PATH shim, where gh's arguments arrive in the form after
+  the shell has finished parsing them, is being considered separately; [docs/coldread-gate-next.md](../docs/coldread-gate-next.md))
+- Once it is known to be a call to `gh`, what could not be read is not passed through: the subcommand cannot be identified
+  (an unknown global flag comes before it), the text is passed via command substitution or a variable that cannot be resolved, the `--input` JSON has
+  a long string outside the text positions (`.body` and a review's `comments[].body`), or the value of a graphql mutation's text field
+  cannot be determined — all of these are stopped as "cannot be checked". However, `` ` `` and `$(` inside single quotes are not expanded, so
+  they are read as part of the text (so that normal prose containing code fences is not stopped)
+- A heredoc is treated only as the text of the simple command it is attached to. Even if another command's
+  heredoc is on the same line, it is not mixed into gh's text
+- **The hook reads body files itself** (`--body-file f`, `--notes-file f`, `-F f`, `-F body=@f`, `--input f`).
+  Before, it stopped them as "cannot extract" and made the writer rewrite them as heredocs; that caused 124 round trips, 22 of which went out unchecked through the escape hatch.
+  It reads them only when it can say statically that the content is the same as what gh will read; if it cannot say so, it stops (fail-closed):
+  - Paths are resolved as far as: literal, `~/` (expanded with HOME), a variable assigned in the same command (`S=/abs; gh … --body-file "$S/b.md"`),
+    relative to the cwd in the hook's input (according to the official documentation, after Claude runs cd it points to the new location), and relative after `cd <absolute path> &&`.
+    A variable is resolved only when the text shows that the assignment always runs and reaches gh: assigned only once, not inside a condition (`if`, `||`), a loop,
+    a pipe, `&`, or a subshell that closes first, and not reassigned with `+=`, `read`, `printf -v`, `declare`, `for`, `eval`, etc.
+    (`$( … )` and pipes of other commands in between are not looked at). Unresolvable variables, `~user`, globs, relative paths after a cd followed by `;` or after `if cd …`,
+    and relative paths after `env -C` are stopped
+  - If the same command contains a command that writes the body file, and it is a single `cat > f <<'EOF'` that always runs before gh
+    (not inside a condition, `||`, a pipe, or `&`), that heredoc is read (the file at the time of the hook has old content). If there are other writers (`cp`, `mv`, `sed`, `git`… that take the body file's name as an argument, or
+    a redirect to that file, including gh's own `> f`), it is stopped. Commands that take the name as an argument but do not write
+    (`cat`, `wc`, `head`, `ls`, `grep`, etc.) and commands that run after gh finishes (the cleanup in `gh … --body-file f && rm f`;
+    except inside loops or functions) are not counted
+  - The file is opened with O_NONBLOCK, and after opening, fstat checks that it is a regular file (if a FIFO waits for a writer and stalls the hook, the post passes unchecked on the hook's
+    timeout). Files that exceed `COLDREAD_MAX_LEN` characters, are not UTF-8, or cannot be read are stopped
+  - **Remaining holes**: another process rewriting the file between the hook reading it and gh reading it (time of check vs. time of use; CWE-367), and
+    a program in the same command that rewrites the body file without taking its name as an argument (writing it inside a script, etc.) cannot be prevented
+- Standard input from a pipe or another process (`cat f | gh … --body-file -`) cannot be read, so it is stopped. It is stopped even if readable text
+  is present alongside. Text passed in a variable (`--body "$B"`) is read only when it can be resolved from an assignment in the same command, under the same conditions as paths
+- If the text of a heredoc with an unquoted delimiter (`<<EOF`) contains `$` or `` ` ``, the text the shell expands and posts differs from the literal text, so
+  it is stopped (if quoted as `<<'EOF'`, it is read). The same goes for double-quoted text with a variable mixed into part of it (`--body "See: $B"`):
+  it is read only when it can be resolved from an assignment in the same command. The end line of `<<EOF` may not be indented (only tabs with `<<-` are allowed, as in bash)
+- gh right after `if`, `while`, or `until` (in the condition position) is also caught by the net
+- Commands with unclosed quotes, whose parsing crashes with an exception, or that exceed the limit (default 100,000 characters) are also stopped, because whether they are posts
+  cannot be confirmed (fail-closed)
+- Even if the text can be extracted, if it is under 200 characters it is passed without going to coldreader (so that coldreader is not started for short boilerplate replies)
+- When one command carries several texts, only the longest one is passed to coldreader. A review JSON's `.body` and
+  its line comments (`comments[].body`) are combined into one and read together (before, line comments were not looked at when `.body` was present, and 27 went out unread)
+- On a heredoc's start line, forms where a flag or pipe follows the delimiter on the same line (`<<'J' -q .html_url`, `<<'EOF' | tail`), and
+  forms with 2 heredocs on one line, are also read as the text of the simple command they are attached to
+- Flag spellings change meaning by context, so long flags (`--body`, `--notes`, `--comment`, `--readme`,
+  `--body-file`, `--notes-file`) are treated as text by spelling alone, and short forms (`-b`, `-c`, `-n`, `-F`) are treated as text only inside subcommands where they
+  mean text (decided by scanning every subcommand of gh 2.96.0).
+  So `gh pr checkout -b <branch name>`, `gh issue view -c`, `gh run download -n`, etc. are
+  not posts and are not caught by the net. Conversely, even if gh adds posting subcommands, they are caught by the net if written with long flags.
+  New subcommands used only with short forms are missed
+- The hook's start line is written assuming it is evaluated by a POSIX shell (bash) (it uses `command -v` and `$(...)` to
+  choose `python3`/`python`). In an environment without bash, the host cannot start the hook at all, so
+  the gatekeeper does not run regardless of how the start line is written
+- The screen for a new PR or issue is assembled only for `gh pr create` and `gh issue create`. The title is taken from `--title`, the repository from
+  `-R` (if absent, `gh repo view` in the place where gh runs), and the PR's branches from `--base` (if absent, the default branch) and `--head` (if absent, the current branch
+  of the place where gh runs);
+  changed files come from GitHub's compare (available only when the branch has been pushed), and the titles of #numbers are looked up with the issues API.
+  The place where gh runs is read as far as a preceding `cd <absolute path> &&`. For forms where the place cannot be determined (cd with a relative path, etc.), lookups that depend on the place
+  are not made and nothing is passed (so that the content of a different branch in the hook's location is not passed as the screen). Even a word that is in the screen's title, if the text uses it
+  as its own word and the meaning cannot be taken, is a blocker (what the screen makes clear is what is pointed at, not the meaning of the word).
+  What could not be fetched is not passed, and the writer is told so (the rest is used for reading). Forms that create directly with `gh api`
+  (POST to `repos/o/r/pulls`, etc.) and the title in forms that omit the title with `--fill` are not picked up
+- The thread's screen is passed only when the destination is an existing thread: when the `gh api` path is
+  `repos/o/r/pulls/N/comments/ID/replies` (also the form without the PR number), `repos/o/r/pulls/comments/ID`, `repos/o/r/pulls/N/comments`,
+  `repos/o/r/pulls/N/reviews`, `repos/o/r/issues/N/comments`, `repos/o/r/issues/comments/ID`, or
+  `repos/o/r/(issues|pulls)/N`, or for `gh pr comment/review/close/reopen/merge/revert/edit` and
+  `gh issue comment/close/reopen/edit` (resolving the number, URL, or branch is left to gh itself; `gh pr comment` without a number
+  means the current branch's PR). For a review thread, only the replies chained to the same root are passed; for a PR/issue
+  conversation, the body (up to 12,000 characters) and the most recent 30 comments (the list is fetched 100 at a time, up to 5 pages; when the total exceeds 40,000 characters, the oldest
+  are dropped first, and the 1 comment just before the one being answered is never cut). Up to 8 titles of #numbers that the body and the thread refer to. The gh calls that fetch the screen are cut off after 40 seconds
+  in total and fall back to zero context (because if the hook itself times out, the post passes unchecked). `gh discussion` does
+  not fetch the screen (zero context)
+- Values that are not text are not sent to coldreader (an external process): `gh secret set --body`,
+  `gh variable set --body` (the value is the secret itself), and `gh api --input` JSON (only when it has `.body`
+  is that content read; JSON without it is not sent)
 
-## coldread — 手元の文書(書いた後に読み、止めずに指摘を返す)
+## coldread — local documents (read after writing; return findings without stopping)
 
-拡張子が md・mdx・adoc・asciidoc・rst・txt の文書を書くと、PostToolUse のフックが
-パスを書いた役ごとに記録するだけで終わる。拾う道具は Write・Edit・MultiEdit・Bash・MCP の書く道具(下の「拾う幅」)。書いた役が終わるときに、その役が書いた文書を 1 本 1 回だけ、
-投稿と同じ依頼文(`coldread-gate.py` の `COLD_PROMPT`。初見で読む観点の正本はこの 1 か所)で coldreader に読ませる。
-詰まりが在れば、指摘を返して書いた役を続けさせる(書き込みは取り消さない)。推測で埋めた箇所と疑問は、詰まりと一緒に返す。
-推測で埋めた箇所と疑問だけなら書いた役を起こさず、`docs.log` に `guess=<件数>` を残す(投稿の門番と枝の関門と同じく、止めるのは詰まりだけ)。
-推測で埋めた箇所でも起こしていた頃は、読み手が理解を妨げない推測まで書くのでほとんどの文書が指摘付きになり、直すたびに直した節がまた
-読まれた(2026-10-17 の 5 時間で、詰まり 12 件に推測で埋めた箇所 395 件。直す回りが使う量の 17%)。
+When a document with the extension md, mdx, adoc, asciidoc, rst, or txt is written, a PostToolUse hook
+only records the path per role that wrote it and ends. The tools it picks up are Write, Edit, MultiEdit, Bash, and MCP writing tools (see "Breadth of pickup" below). When the writing role ends, the documents that role wrote are read by coldreader once each,
+with the same request text as for posts (`COLD_PROMPT` in `coldread-gate.py`; the single source of truth for the first-reader viewpoint is this one place).
+If there are blockers, the findings are returned and the writing role is made to continue (the writes are not undone). Guesses (places the reader filled in by guessing) and questions are returned along with blockers.
+If there are only guesses and questions, the writing role is not woken, and `guess=<count>` is recorded in `docs.log` (as with the post gatekeeper and the branch gate, only blockers stop).
+Back when guesses also woke the role, the reader wrote down even guesses that did not hinder understanding, so almost every document came with findings, and every fix got the fixed section
+read again (in 5 hours on 2026-10-17: 12 blockers against 395 guesses; 17% of the usage spent on fix cycles).
 
-- **読む範囲**: 前から在る文書は、書き換えた所を含む節(見出しから次の見出しの手前まで。md・mdx は `#`、adoc は `=`、
-  rst は下線付きの行。見出しの無い文書は書き換えた行の前後を段落の切れ目まで)と、何の文書かが分かる冒頭(題と最初の段落)だけを
-  読ませ、指摘もそこだけに求める。2000 字を超える節は丸ごとでなく、節の見出しと、書き換えた行を含む段落・箇条(字下げした子の箇条や
-  コードの囲みなどの続きを含む)だけを読ませる。長い節を丸ごと読ませていた頃は、約 1 万 4 千字の節の 2〜3 か所を直しただけで、枝の関門が
-  回すたびに同じ節の書き換えていない箇条から新しい詰まりを出し、6 回目でやっと通った。省いた節で説明されているかもしれない語は、詰まりでなく疑問に回させる。新しく作った文書と、
-  抜き出しが全体の 8 割以上になる文書は全体を読ませる。前の版は、その役のその回で最初に記録したときの書く前の中身
-  (Write・Edit はフックの入力の `originalFile`。Bash は走る前の HEAD の版〔同じコマンドで commit した文書はその commit の前の版〕、MCP の道具は記録したときの HEAD の版。HEAD に
-  無い文書は新しい文書)。全体を読ませていた頃は、約 200 行の文書に数行足すと読み手が時間切れになり、1 文直すたびに直していない
-  節の前からの疑問が返った。`docs.log` の長さの欄は、抜き出したときは「渡した字数/全体の字数」
-- **生成物は読まない**: `.gitattributes` で `linguist-generated` の印を付けた文書(GitHub Linguist の印。値なしか `=true`。
-  `-linguist-generated`・`=false` は印なし)は読まない。印の付け方は、`.gitattributes` に `reference/_snapshots/** linguist-generated` のように 1 行足す
-- **ほかの検査が受け持つ文書も外せる**: 人が書いた文書でも、原文と照らす写しのノートのように別の検査が受け持つ所は、
-  `.gitattributes` に `reference/primary/** -coldread` のように 1 行足すと読まない(`-coldread` の形だけが外す印。生成物の印は意味が違うので使わない)
+- **Range read**: for documents that already existed, only the sections containing the rewritten parts (from a heading to just before the next heading; for md and mdx `#`, for adoc `=`,
+  for rst underlined lines; for documents without headings, the rewritten lines plus the surrounding text up to paragraph breaks) and the opening that tells what the document is (the title and first paragraph) are
+  given to the reader, and findings are asked for only there. For sections over 2000 characters, not the whole section but only the section heading and the paragraphs and list items containing the rewritten lines (including continuations such as indented child items
+  and code fences) are given. Back when long sections were read whole, after fixing just 2–3 places in a section of about 14,000 characters, the branch gate
+  raised new blockers from unrewritten items of the same section on every run, and it finally passed on the 6th run. Words that may be explained in omitted sections are to be raised as questions, not blockers. Newly created documents and
+  documents where the extract would be 80% or more of the whole are read in full. The previous version is the content before writing at the time the role first recorded it in that run
+  (for Write and Edit, `originalFile` in the hook's input; for Bash, the HEAD version before it ran [for a document committed in the same command, the version before that commit]; for MCP tools, the HEAD version at recording time. A document
+  not in HEAD is a new document). Back when whole documents were read, adding a few lines to a document of about 200 lines made the reader time out, and every one-sentence fix brought back old questions about
+  sections that had not been fixed. When extracted, the length field in `docs.log` is "characters passed/total characters"
+- **Generated files are not read**: documents marked `linguist-generated` in `.gitattributes` (the GitHub Linguist mark; with no value or `=true`;
+  `-linguist-generated` and `=false` count as unmarked) are not read. To mark them, add one line to `.gitattributes` such as `reference/_snapshots/** linguist-generated`
+- **Documents covered by another check can also be excluded**: even human-written documents, where a different check is responsible (such as notes that copy and are checked against an original),
+  are not read if you add one line to `.gitattributes` such as `reference/primary/** -coldread` (only the `-coldread` form excludes; do not use the generated-file mark, which means something else)
 
-返し方は書いた役で変わる:
+How findings are returned depends on the writing role:
 
-- **サブエージェント(作業役)が書いた文書**は、その役が終わるとき(SubagentStop のフック)に読み、指摘の全文をその役に
-  返して直させる。記録はフックの入力の `agent_id`(サブエージェントの中でだけ付く)で分けるので、親の会話の終わりには
-  読まれない。前は親の会話のターンの終わりに読んでいたので、指摘が親に届き、親は作業役へ送り直すしかなく親の文脈を食った。
-  作業役が書き終える前の書きかけを読む空振りもした
-- **親の会話が書いた文書**は、ターンの終わり(Stop のフック)に読む。指摘の全文は親の文脈に積まず、
-  `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` のファイルに書き出し(新しい 200 本を残す)、本数・件数・ファイルの場所と
-  「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」の短い知らせだけを返す。
-  対話の会話では裏で読むので、読む間に /clear が打たれると、知らせは /clear の後の会話に届く。/clear で終わった会話は
-  SessionEnd のフック(reason が clear)で `$CLAUDE_CONFIG_DIR/coldread-gate/docs/cleared` に覚えておき、その会話の分の知らせには
-  「/clear で終わった前の会話(id)が書いた文書で、意図はこの会話に無い。詰まりは直させ、推測で埋めた箇所は文書のほかの所・
-  commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、確かめられないものは残す」と書く
-- **本流に入れる前に読む(枝の関門)**: `python3 <gates の置き場>/hooks/coldread-gate.py branch-check [--base <本流の ref>]` は、
-  枝が本流(既定は `origin/HEAD` の指す枝)から分かれた所と比べて、枝が足した・変えた文書を同じ読み手と観点で読む。前から在る文書は
-  分かれ目の版と比べて書き換えた節だけ(長い節は書き換えた段落・箇条だけ。上の「読む範囲」)を読む。枝が足した文書も、
-  枝が消した・変えた文書(移した元)の分かれ目の版に在った行(前後の空白と見出しの `#` を除いて比べる)は前から在る行として扱い、
-  新しく書いた行を含む節だけを読む。全部が前から在る行なら読まない。移した元に残した行を写した物も同じに扱う。
-  スキルの本文 SKILL.md の節を字を変えずに `references/` へ移したときに、前から本流に在った文を読み直さないため。
-  割り切り: 移した先で、元の本文の前の節で説明していた語が取れなくなっても、枝の関門は拾わない(本文 SKILL.md の
-  入口の案内と語の説明は、今までどおり本文の側で読む)。ターンの終わりの読みは、足した文書を今までどおり全体で読む。
-  詰まりが 1 件でも在れば終了コード 1 で止め、推測で埋めた箇所と疑問だけなら 0 で通す。
-  読み手を起こせなかった文書が在っても 1 で止める(読まずに通すと、関門が黙って空になる)。標準出力の末尾に、詰まりの行(作業ツリーの
-  根からのパスつき)と、件数と全文のファイルの場所を出す。同じ依頼文の判定は `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch/` に覚えて、本流が進んで載せ直したときの
-  打ち直しでは読み直さない。使い方は、枝を本流に入れる前に走る検査の命令の 1 つとして書くこと。このリポジトリでは、
-  works-dispatch プラグイン(枝ごとの作業場で会話を起こして作業を回す道具)の、枝を本流に入れる命令 `--land` が、入れる前に
-  `.claude/company.toml` の `[land]` の `check` に書いた命令を走らせ、赤なら入れない。この口はそこに `&&` で並べて書く。
-  ターンの終わりにだけ読んでいた前は、1 つのターンの中で本流に入れるまで済ませる会話(works-dispatch が作業を回すために起こした会話)に、
-  指摘が本流に入った後で届いていた(2026-10-17 に 8 件)。そのため、本流に入れる前にもこの検査で読む
-- **親の会話のターンの終わりは待たせない**: 対話の会話(agent view の会話も)では、Stop のフックを `asyncRewake`
-  (Claude Code の hooks の文書「Run hooks in the background」)で裏で走らせる。ターンはすぐ終わり、読み終えて指摘が在れば、
-  フックが終了コード 2 と標準エラーで会話を起こして知らせる(指摘が無ければ何も起きない)。前は読み終えるまでターンの終わりで
-  待たせていて、xhigh の読み手では 1 回数十秒〜210 秒かかった。画面の無い会話(`claude -p`)では裏のフックが会話の終わりに切られる
-  ので、今までどおり待って読む。見分けは Claude Code がフックに渡す `CLAUDE_CODE_ENTRYPOINT`(対話は `cli`、`-p` は `sdk-cli`)で、
-  無いか `sdk` で始まるときは待って読み、ほかの値(IDE の拡張など)は裏で読む。読み手 1 回の上限は、裏で読むときも待って読むとき
-  (サブエージェントの終わり・`claude -p`・手の `read`・枝の関門)も 420 秒。待って読むときだけ 210 秒で切っていた頃は、xhigh の
-  読みが 210 秒を超える約 8 千字のメモを作業役が何度書き直しても、時間切れで指摘が出なかった。読めなかった文書は、時間切れか起こせなかった
-  かの訳を添えて書き手に返す。サブエージェントの終わりは、指摘をその役に返して直させるために今までどおり待って読む
-- **拾う幅**(持ち主の方針「防ぐより、ひっかける幅を増やす」。前は Write・Edit・MultiEdit で書いた文書しか拾わず、
-  `cat > x.md <<EOF`・`tee`・`sed -i`・python で書く文書は 1 本も読まれなかった):
-  - Bash: 走る前(PreToolUse。投稿の門番と同じフック)に、cwd の git の作業ツリーの変更一覧(`git status --porcelain
-    --untracked-files=all`。追跡外も含む)のうち文書の mtime と大きさを控え、走った後(PostToolUse と、失敗した後の
-    PostToolUseFailure)に取り直して、増えた・変わった文書を記録に載せる。前から変わっていた文書は、走る間に変わらなければ
-    拾わない。git の外と、git が見ない文書(.gitignore の中)のために、コマンドの中の書き込み先(下の「人が書いた文書と見る
-    もの」)も静的に拾う(相対パスは入力の cwd で解く)。git は `GIT_OPTIONAL_LOCKS=0` で
-    走らせ、index の lock を取らない。1 回 5 秒を超えたら静的な読みだけにする。同じコマンドの中で書いて commit した文書は、
-    走る間に足された HEAD の移動の記録(reflog)のうち、git commit の分(見出しが `commit`・`commit (initial)`・`commit (amend)`)の差で拾う
-  - git が持ち込んだ文書(Bash): origin/main の上への載せ直し・merge・pull・checkout・stash の戻しなどで作業ツリーに入った文書は、
-    書いた役が書いた文書として拾わない。HEAD の移動の記録のうち commit 以外の分(見出しが `rebase (pick)`・`checkout: moving …`・
-    `commit (merge)` など。merge の commit の差は相手の枝の中身)の差は拾わず、git が作業ツリーを書く命令(`checkout`・`restore`・`reset`・`rebase`・`merge`・`pull`・
-    `cherry-pick`・`revert`・`am`・`apply`・`stash`)を走らせたか、HEAD を commit 以外で動かしたコマンドでは、変更一覧の差も拾わない
-    (字面に中身の在る書き込み先は拾う)。衝突して止まった文書(変更一覧の印 `UU`・`AA` など)はいつも拾わず、直して `git add` した後に
-    拾う。0.18.0 までは走る前と後の HEAD の差を丸ごと拾い、載せ直した会話で、本流から入った文書 6 本を読んで書いていない役に指摘を返した
-  - 人が書いた文書と見るもの(Bash): 書いた役が書いた文書と見るのは、中身がコマンドの字面に在る書き込みだけ: ヒアドキュメント・ヒア文字列を受けた
-    `cat`・`tee` の行き先、`echo`・`printf` の行き先、それらをパイプで受けた `tee`・`cat` の行き先、`sed -i`。ほかの命令の出力を
-    リダイレクトした先(`sed -n … ci.log > x.txt`・`git log > x.txt`・ヒアドキュメントを台本として走らせた `python3 - > x.md`)と
-    `cp`/`mv`/`install` の行き先は、外から来た中身の写しなので拾わず、git の変更一覧の差からも外す(0.14.0 では拾っていて、
-    CI のログの抜粋を書いた一時ファイルを読み手が読み、詰まりを返した)
-  - MCP の道具: 道具の名前が書く道具らしいもの(write・edit・create・update・save・move・copy など)の入力の path の欄を拾う
-  - NotebookEdit は拾わない（`.ipynb` は文書の拡張子に入れていないので、拾っても読まない。Write・Edit・MultiEdit の matcher の名前は works が名前で頼っているので変えない）
-  - 同じ checkout で役が並ぶとき(同じ会話の作業役どうし・親と作業役・並行の会話)、Bash が走る間にほかの役が書いた文書も
-    変更一覧の差に出る。差で拾った文書は、書いた役を次の順で見分け、1 つの役にだけ載せる。前は走った役の物にしていて、
-    作業役 7 本を並べた会話で、3 分かかる検査を走らせた作業役に、その間にほかの作業役が書いたノートの指摘が届いた(2026-10-17)
-    1. 走った間に、ほかの役がその文書を書いた印(Write・Edit・MCP の道具・字面に書き込み先の在る Bash で付く。ほかの役の
-       Bash の差で拾い、この順でその役に載った文書にも付く)が在れば、その役の物にする
-    2. 印が無く、文書の変わった時刻(mtime。commit で拾った文書は reflog の時刻)の間にほかの役の Bash も走っていたら、
-       コマンドの字面にその文書の名前が在る役(commit で拾った文書は `git commit` を含む役)を先に、次に後から走り始めた役を選ぶ
-    3. 読む前に、その文書を最後に書いた役を見て、ほかの役なら読まない(最後に書いた役の終わりに読む)
-    見分けられない形: 長い Bash が走る間に、その中で名前を字面に出さずに書いた文書は、後から走り始めて同じ時刻にまだ走っていた
-    ほかの役の Bash の物になる。書いた印と Bash の窓は `$CLAUDE_CONFIG_DIR/coldread-gate/docs/` の `claims`・`windows` に
-    残し(1 MB を超えたら 24 時間より古い行を捨てる)、走っている Bash の窓は走る前の控え(`docs/snap/`)から読む
-  - 拾えないもの: 裏で走らせた Bash(`run_in_background`)が後から書く文書・git の外でコマンドの字面に書き込み先が
-    現れない書き方(python やスクリプトの中で書く)・名前が書く道具らしくない MCP の道具
-  - 重さ(2026-10-16 にこの環境 macOS で実測。Bash 1 回あたり、前と後のフックの合計で足される時間の中央値): git の外
-    約 70ms(後のフックの python の起動が大半)、このリポジトリ(約 2,600 ファイル)約 140ms、約 5,800 ファイルのリポジトリ
-    約 170ms、10 万ファイル・追跡外の文書 2,000 本の合成のリポジトリ約 720ms(`git status` 1 回が約 260ms)。
-    重すぎるときは `COLDREAD_DOCS_OFF=1` で手元の文書の門番ごと切る
-- 投稿は出したら取り消せないので書く前に止める。手元の文書は書いた後でも直せるので止めない。書くたびに読ませると、
-  Edit のたびに待たされ、同じ文書を何度も読む
-- 読み手は投稿より安いモデルを effort を上げて走らせる(既定 haiku・high。`COLDREAD_DOC_MODEL`・`COLDREAD_DOC_EFFORT` で替える)。
-  Anthropic の [Effort の文書](https://platform.claude.com/docs/en/build-with-claude/effort)が、Haiku 5.5 は知識の仕事と
-  厳密な指示の順守に high を使い、xhigh と max は評価で質が上がると示せた所だけに使う、と書くため。投稿の読み手は sonnet・medium のまま
-- 読まないもの: 300 字未満(`COLDREAD_DOC_MIN_LEN`)・1 行目に `coldread:skip` か `coldwrite:skip` の印・
-  `linguist-generated` の印・書く前と同じ中身・前に読んだのと同じ中身(中身の sha256 を `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen` に覚える)
-- 一時の置き場に書いた、git の作業ツリーの外のファイルも読まない(書いた役が自分のために置いた写しや、渡された頼みの文書)。
-  一時の置き場は、Python の `tempfile` が一時フォルダを選ぶ候補(環境変数 `TMPDIR`・`TEMP`・`TMP` と、OS の決まった場所。
-  macOS・Linux は `/tmp`・`/var/tmp`・`/usr/tmp`、Windows は `~\AppData\Local\Temp` と `%SYSTEMROOT%\Temp`)と、
-  実際に選んだ `tempfile.gettempdir()`。綴りと実体のパスの両方で比べる(macOS の `/tmp` → `/private/tmp`・`/var` → `/private/var`)。
-  Claude Code の scratchpad(macOS では `/private/tmp/claude-<uid>/…`)もここに入る。Claude Code の会話ごとの一時の置き場
-  (`$CLAUDE_CONFIG_DIR/jobs/<会話の id>/tmp/` と `$CLAUDE_JOB_DIR/tmp/`。agent view の会話が頼みの要約や写しを置く所)も
-  一時の置き場と見る。一時の置き場の下でも git の中は読む。
-  根を替えるなら `COLDREAD_TMP_DIRS`(`os.pathsep` 区切り。既定の代わりに使う)
-- 直した文書はまたその役の終わりに読まれ、直さなければ同じ中身なので読み直さない——指摘を採らないと決めたら
-  そのまま終えてよい。待って読むときに連続で返すのは Claude Code が 8 回で打ち切る
-- 手元の文書の門番だけを切るなら `COLDREAD_DOCS_OFF=1`(投稿の門番は残る)
-- 記録は `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log`(読んだ・読まなかった理由・読み手を起こせなかった。サブエージェントの分は
-  `aid=` に `agent_id` が付く。読み手を起こした行には、読みにかかった秒が `35s` の形で、読み手の effort が `e=high` の形で付く。
-  effort はアカウントの settings.json の `env` に `COLDREAD_DOC_EFFORT` を書けば、そのアカウントの会話だけ替わる)
-- 手で 1 本を読ませる口: `python3 hooks/coldread-gate.py read <パス>`(詰まりが在れば終了コード 1)。
-  依頼文そのものは `python3 hooks/coldread-gate.py prompt` で出る
+- **Documents written by a subagent (worker)** are read when that role ends (the SubagentStop hook), and the full findings are returned to that role
+  to fix. Records are separated by `agent_id` in the hook's input (present only inside subagents), so they are not read
+  at the end of the parent session. Before, they were read at the end of the parent session's turn, so the findings reached the parent, which could only resend them to the worker, eating up the parent's context.
+  It also wasted reads on drafts a worker had not finished writing
+- **Documents written by the parent session** are read at the end of the turn (the Stop hook). The full findings are not piled into the parent's context;
+  they are written out to files in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` (the newest 200 are kept), and only a short notice is returned with the number of documents, the counts, the file location, and
+  「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」 ("hand it to a new worker to fix; only the guesses that differ from the writer's intent are for the parent to look at").
+  In an interactive session it reads in the background, so if /clear is typed while it reads, the notice reaches the session after /clear. A session that ended with /clear is
+  remembered by the SessionEnd hook (reason is clear) in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/cleared`, and the notice for that session's documents says
+  「/clear で終わった前の会話(id)が書いた文書で、意図はこの会話に無い。詰まりは直させ、推測で埋めた箇所は文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、確かめられないものは残す」
+  ("these documents were written by the previous session (id) that ended with /clear, and their intent is not in this session. Have the blockers fixed; for guesses, fix only those whose intent can be confirmed from elsewhere in the document, the commit history, or the request file, and leave the ones that cannot")
+- **Read before merging into the mainline (本流に入れる前に読む; the branch gate)**: `python3 <gates の置き場>/hooks/coldread-gate.py branch-check [--base <本流の ref>]` (`<gates の置き場>` is where gates is installed; `<本流の ref>` is the mainline ref)
+  compares against the point where the branch split off from the mainline (by default the branch that `origin/HEAD` points to) and reads the documents the branch added or changed with the same reader and viewpoint. Documents that already existed are
+  compared with the version at the split point, and only the rewritten sections are read (for long sections, only the rewritten paragraphs and items; see "Range read" above). For documents the branch added too,
+  lines that existed in the split-point version of documents the branch deleted or changed (where they moved from) (compared ignoring leading/trailing whitespace and heading `#`) are treated as pre-existing lines,
+  and only sections containing newly written lines are read. If every line is pre-existing, the document is not read. Copies of lines left in the original are treated the same way.
+  This is so that when sections of a skill's body SKILL.md are moved to `references/` without changing a character, sentences that were already in the mainline are not read again.
+  Trade-off: if, at the new location, words that were explained in an earlier section of the original body become unclear, the branch gate does not catch it (the entry guidance and word explanations
+  in the body SKILL.md are read on the body's side as before). The end-of-turn read still reads added documents in full as before.
+  If there is even 1 blocker, it stops with exit code 1; if there are only guesses and questions, it passes with 0.
+  It also stops with 1 if there are documents for which the reader could not be started (passing them unread would make the gate silently empty). At the end of standard output, it prints the blocker lines (with paths from the
+  root of the working tree) and the counts and the location of the file with the full text. Verdicts for the same request text are remembered in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch/`, so
+  reruns after the mainline moves forward and the branch is rebased do not read again. To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,
+  the works-dispatch plugin's (a tool that starts sessions in a workspace per branch to carry out work) command for merging a branch into the mainline, `--land`, runs before merging
+  the command written in `check` under `[land]` in `.claude/company.toml`, and does not merge if it is red. This entry point is chained there with `&&`.
+  Back when documents were read only at the end of a turn, for sessions that finish everything up to merging into the mainline within one turn (sessions started by works-dispatch to carry out work),
+  the findings arrived after the merge into the mainline (8 cases on 2026-10-17). That is why it also reads with this check before merging into the mainline
+- **The end of the parent session's turn is not made to wait**: in interactive sessions (including agent view sessions), the Stop hook runs in the background with `asyncRewake`
+  ("Run hooks in the background" in Claude Code's hooks documentation). The turn ends immediately, and when reading finishes with findings,
+  the hook wakes the session with exit code 2 and standard error to notify it (if there are no findings, nothing happens). Before, the end of the turn waited until reading finished,
+  and with an xhigh reader one read took from several tens of seconds to 210 seconds. In sessions without a screen (`claude -p`), background hooks are cut off at the end of the session,
+  so it waits and reads as before. They are told apart by `CLAUDE_CODE_ENTRYPOINT`, which Claude Code passes to hooks (interactive is `cli`, `-p` is `sdk-cli`):
+  when it is absent or starts with `sdk`, it waits and reads; other values (IDE extensions, etc.) read in the background. The limit for one reader run is 420 seconds both when reading in the background and when waiting
+  (subagent end, `claude -p`, manual `read`, the branch gate). Back when only waiting reads were cut at 210 seconds, an xhigh
+  read of a memo of about 8,000 characters exceeded 210 seconds, and no matter how many times the worker rewrote it, it timed out and no findings came out. Documents that could not be read are returned to the writer
+  with the reason, timeout or could not start. At subagent end, it waits and reads as before, in order to return the findings to that role to fix
+- **Breadth of pickup** (the owner's policy: 「防ぐより、ひっかける幅を増やす」, "rather than preventing, widen what gets caught". Before, only documents written with Write, Edit, and MultiEdit were picked up,
+  and documents written with `cat > x.md <<EOF`, `tee`, `sed -i`, or python were never read):
+  - Bash: before it runs (PreToolUse; the same hook as the post gatekeeper), the mtime and size of the documents in the change list of cwd's git working tree (`git status --porcelain
+    --untracked-files=all`; including untracked files) are noted, and after it runs (PostToolUse, and PostToolUseFailure after a failure) they are taken again, and documents that were added or changed are put on the record. Documents that were already changed before are
+    not picked up unless they change while it runs. For outside git and for documents git does not look at (in .gitignore), write targets inside the command (see "What counts as a document the role wrote" below)
+    are also picked up statically (relative paths are resolved with the input's cwd). git is run with `GIT_OPTIONAL_LOCKS=0`
+    and does not take the index lock. If one run takes more than 5 seconds, only the static reading is used. Documents written and committed in the same command are picked up from the difference in the
+    git commit entries (headings `commit`, `commit (initial)`, `commit (amend)`) among the HEAD movement records (reflog) added while it ran
+  - Documents brought in by git (Bash): documents that entered the working tree through a rebase onto origin/main, merge, pull, checkout, stash pop, etc.
+    are not picked up as documents written by the writing role. Differences from HEAD movement records other than commits (headings such as `rebase (pick)`, `checkout: moving …`,
+    `commit (merge)`; the difference of a merge commit is the other branch's content) are not picked up, and for commands that ran git commands that write the working tree (`checkout`, `restore`, `reset`, `rebase`, `merge`, `pull`,
+    `cherry-pick`, `revert`, `am`, `apply`, `stash`) or that moved HEAD by something other than a commit, differences in the change list are not picked up either
+    (write targets whose content is in the command text are picked up). Documents stopped by a conflict (change-list marks `UU`, `AA`, etc.) are never picked up, and are picked up after they are fixed and `git add`ed.
+    Up to 0.18.0, the whole difference between HEAD before and after was picked up, and in a session that rebased, 6 documents that came in from the mainline were read and findings were returned to a role that had not written them
+  - What counts as a document the role wrote (Bash): only writes whose content is in the command text count as documents the writing role wrote: the destinations of `cat` and `tee`
+    receiving a heredoc or here-string, the destinations of `echo` and `printf`, the destinations of `tee` and `cat` receiving those through a pipe, and `sed -i`. Destinations of
+    redirected output of other commands (`sed -n … ci.log > x.txt`, `git log > x.txt`, `python3 - > x.md` running a heredoc as a script) and
+    destinations of `cp`/`mv`/`install` are copies of content from elsewhere, so they are not picked up, and are also excluded from git's change-list difference (0.14.0 did pick them up, and
+    the reader read a temporary file holding an excerpt of a CI log and returned blockers)
+  - MCP tools: for tools whose names look like writing tools (write, edit, create, update, save, move, copy, etc.), the path field of the input is picked up
+  - NotebookEdit is not picked up (`.ipynb` is not among the document extensions, so it would not be read even if picked up; the matcher names for Write, Edit, and MultiEdit are not changed because works relies on them by name)
+  - When roles run side by side in the same checkout (workers of the same session, the parent and a worker, parallel sessions), documents other roles wrote while a Bash ran also
+    show up in the change-list difference. Documents picked up by difference are assigned to only one role, telling the writing role apart in the following order. Before, they were assigned to the role that ran the command, and
+    in a session running 7 workers side by side, a worker that ran a check taking 3 minutes received findings on notes that other workers wrote in the meantime (2026-10-17)
+    1. If there is a mark that another role wrote that document while it ran (set by Write, Edit, MCP tools, and Bash with a write target in the command text; also set on documents picked up
+       by another role's Bash difference and assigned to that role by this order), assign it to that role
+    2. If there is no mark, and another role's Bash was also running at the time the document changed (mtime; for documents picked up by commit, the reflog time),
+       choose first the role whose command text contains the document's name (for documents picked up by commit, the role whose command contains `git commit`), then the role that started running later
+    3. Before reading, look at the role that last wrote the document, and if it is another role, do not read it (it is read at the end of the role that wrote it last)
+    Forms that cannot be told apart: a document written during a long Bash run without its name appearing in the command text is assigned to the Bash of another role that started later and
+    was still running at the same time. The write marks and the Bash windows are kept in `claims` and `windows` under `$CLAUDE_CONFIG_DIR/coldread-gate/docs/`
+    (when over 1 MB, lines older than 24 hours are discarded), and the windows of running Bash commands are read from the pre-run notes (`docs/snap/`)
+  - Not picked up: documents written later by Bash run in the background (`run_in_background`), ways of writing outside git where the write target does not
+    appear in the command text (writing inside python or a script), and MCP tools whose names do not look like writing tools
+  - Cost (measured on this macOS environment on 2026-10-16; the median time added per Bash run, total of the before and after hooks): outside git
+    about 70ms (mostly starting python for the after hook), this repository (about 2,600 files) about 140ms, a repository of about 5,800 files
+    about 170ms, a synthetic repository of 100,000 files with 2,000 untracked documents about 720ms (one `git status` takes about 260ms).
+    If it is too heavy, turn off the whole local-document gatekeeper with `COLDREAD_DOCS_OFF=1`
+- Posts cannot be taken back once made, so they are stopped before writing. Local documents can be fixed after writing, so they are not stopped. Reading on every write would
+  make each Edit wait and read the same document many times
+- The reader runs a cheaper model than for posts, with higher effort (default haiku, high; change with `COLDREAD_DOC_MODEL` and `COLDREAD_DOC_EFFORT`).
+  This is because Anthropic's [effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort) says to use high for Haiku 5.5 for knowledge work and
+  strict instruction following, and to use xhigh and max only where evaluations show they improve quality. The reader for posts stays at sonnet, medium
+- Not read: under 300 characters (`COLDREAD_DOC_MIN_LEN`), a `coldread:skip` or `coldwrite:skip` mark on the first line,
+  the `linguist-generated` mark, the same content as before writing, and the same content as read before (the content's sha256 is remembered in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/seen`)
+- Files written in a temporary location outside a git working tree are not read either (copies the writing role placed for itself, or request documents it was given).
+  Temporary locations are the candidates Python's `tempfile` chooses a temporary folder from (the environment variables `TMPDIR`, `TEMP`, `TMP`, and fixed OS locations:
+  `/tmp`, `/var/tmp`, `/usr/tmp` on macOS and Linux, and `~\AppData\Local\Temp` and `%SYSTEMROOT%\Temp` on Windows), plus
+  the actually chosen `tempfile.gettempdir()`. Both the spelling and the real path are compared (macOS `/tmp` → `/private/tmp`, `/var` → `/private/var`).
+  Claude Code's scratchpad (on macOS, `/private/tmp/claude-<uid>/…`) falls under this too. Claude Code's per-session temporary locations
+  (`$CLAUDE_CONFIG_DIR/jobs/<session id>/tmp/` and `$CLAUDE_JOB_DIR/tmp/`; where agent view sessions put request summaries and copies) are also
+  treated as temporary locations. Inside git, files are read even under a temporary location.
+  To change the roots, use `COLDREAD_TMP_DIRS` (separated by `os.pathsep`; used instead of the defaults)
+- A fixed document is read again at the end of that role, and if it is not fixed it has the same content and is not read again — if you decide not to take a finding,
+  you may just finish. When reading while waiting, Claude Code cuts off consecutive returns after 8
+- To turn off only the local-document gatekeeper, use `COLDREAD_DOCS_OFF=1` (the post gatekeeper stays)
+- The record is `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log` (read, reasons for not reading, reader could not be started; subagent lines
+  carry `agent_id` in `aid=`. Lines where the reader was started carry the seconds the read took in the form `35s` and the reader's effort in the form `e=high`.
+  If you write `COLDREAD_DOC_EFFORT` in `env` in an account's settings.json, the effort changes only for that account's sessions)
+- Manual entry point to read one file: `python3 hooks/coldread-gate.py read <パス>` (`<パス>` is the path; exit code 1 if there are blockers).
+  The request text itself is printed by `python3 hooks/coldread-gate.py prompt`
 
-前は別の plugin の coldwrite が、Write の前に prompt 型フックで読んで書き込みを止めていた。prompt 型フックは道具に渡した
-中身しか見ないので、Edit では差し替えた数行しか読めず、文書の全体を読めなかった。gates に移して coldwrite は marketplace から外し、
-`marketplace.json` の `renames` で名前を gates に付け替えた(coldwrite を有効にしていた設定は、Claude Code が gates の名前に書き換える)。
+Before, coldwrite, a separate plugin, read documents with a prompt-type hook before Write and stopped the write. A prompt-type hook sees only the content passed
+to the tool, so with Edit it could read only the few replaced lines, not the whole document. It was moved to gates, coldwrite was removed from the marketplace, and
+the name was reassigned to gates with `renames` in `marketplace.json` (settings that had coldwrite enabled are rewritten by Claude Code to the gates name).
 
-リポジトリ全体の文書の初読検査は convergence-loops の `/firstread-loop`(重い姉)。
-こちらは単体で読まれる短文向けの軽い妹で、フックなので呼ばなくても効く。
+First-read checks of documents across the whole repository are done by convergence-loops' `/firstread-loop` (the heavy older sibling).
+This one is the light younger sibling for short texts read on their own, and as a hook it works without being called.
 
-## destgate — 投稿先の許可制(既定で眠る)
+## destgate — allowlist for post destinations (dormant by default)
 
-coldread とは別の軸「その宛先へ出してよいか」を縛る 2 本目の門番。判定は決定的(LLM なし)。
+The second gatekeeper, restricting a different axis from coldread: "may this be posted to that destination". The decision is deterministic (no LLM).
 
-- `$CLAUDE_CONFIG_DIR/destgate/allowlist` が無ければ何もしない。作ると有効になる
-- 書式は 1 行 1 パターン: `owner/repo`・`owner/*`・`gist`(# 始まりと空行は無視)
-- 宛先の決め方は gh 自身の解決順に合わせる: `-R/--repo` → `gh api` の
-  `repos/{owner}/{repo}`・`orgs/{org}` パス → どちらも無ければカレントの git remote。
-  特定できない投稿は `-R` の明示を求めて止める
-- **逃げ道は無い**。通したければ人が一覧へ追記する——その追記が記録になる
-- **一覧の管理は人の仕事**。deny を受けたモデルが一覧を自分で編集して通すのは門番の無効化で、
-  deny 文言でも禁じている(機械では強制できないので、規約として明示する)
-- 射程: 解析できないコマンドには手を出さず、coldread 側の規則(長さに応じて deny)に任せる
+- If `$CLAUDE_CONFIG_DIR/destgate/allowlist` does not exist, it does nothing. Creating it turns it on
+- The format is one pattern per line: `owner/repo`, `owner/*`, `gist` (lines starting with # and empty lines are ignored)
+- The destination is determined in the same order gh itself resolves it: `-R/--repo` → the `gh api`
+  path `repos/{owner}/{repo}` or `orgs/{org}` → if neither, the current git remote.
+  Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly
+- **There is no escape hatch**. To let something through, a person adds it to the list — that addition becomes the record
+- **Managing the list is a person's job**. A model that received a deny editing the list itself to get through would be disabling the gatekeeper,
+  and the deny message forbids it too (it cannot be enforced by machine, so it is stated as a rule)
+- Reach: it does not touch commands it cannot parse, and leaves them to coldread's rule (deny depending on length)

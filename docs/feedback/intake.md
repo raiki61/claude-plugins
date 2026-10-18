@@ -3,7 +3,7 @@
 このリポジトリのプラグイン（convergence-loops / graphloops / gates / attention。gates は書いた当時 coldwrite と呼んでいた）を
 **使っている環境**で踏んだ問題を、こちらへ届けるための設計。2026-09-22 時点の方針（当時は未実装。今の状態は次の段落）。
 
-**2026-09-26 の状態**: 段階 1（自動と手の 2 経路）と、段階 2 の「届け先が設定されていれば送る」を graphloops に入れた。形・置き場・秘匿の既定の正本は [graphloops/README.md の「踏んだ問題を残す」](../../graphloops/README.md#踏んだ問題を残すgraphloopsintake)。この文書との違いは 4 つ: 置き場は Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}`（下の例の `~/.claude/plugin-feedback/` ではない）。重複判定の鍵は版を含まない（版をまたいで続く同じ問題を別物に割らないため）。送るのは利用者が明示に呼ぶ口だけで、`"type": "http"` のフックは使わない（公式の文書が差し込みを認めるのは `headers` の値だけで、利用者ごとの `url` を設定から渡せない。失敗の口の中で同期で送ると、待つか期限を足すかになる）。届け先は plugin.json の userConfig でなく置き場の設定ファイル 1 か所（userConfig は有効化の時に値を聞くので、今の入れ方が変わる）。段階 3 と、graphloops 以外の 4 つのプラグインは未着手。
+**2026-09-26 の状態**: 段階 1（自動と手の 2 経路）と、段階 2 の「届け先が設定されていれば送る」を graphloops に入れた。形・置き場・秘匿の既定の正本は [graphloops/README.md の「Recording problems you hit」](../../graphloops/README.md#recording-problems-you-hit-graphloopsintake)。この文書との違いは 4 つ: 置き場は Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}`（下の例の `~/.claude/plugin-feedback/` ではない）。重複判定の鍵は版を含まない（版をまたいで続く同じ問題を別物に割らないため）。送るのは利用者が明示に呼ぶ口だけで、`"type": "http"` のフックは使わない（公式の文書が差し込みを認めるのは `headers` の値だけで、利用者ごとの `url` を設定から渡せない。失敗の口の中で同期で送ると、待つか期限を足すかになる）。届け先は plugin.json の userConfig でなく置き場の設定ファイル 1 か所（userConfig は有効化の時に値を聞くので、今の入れ方が変わる）。段階 3 と、graphloops 以外の 4 つのプラグインは未着手。
 
 **この文書がこの変更に同梱されている理由**: 届ける口の話（受領の記録の節『この 2 run が届いた経路（型の外の所見）』）の出どころが、同じ日に届いた同じ申し送りで、受領の記録（`docs/feedback/review-loop-remaining-findings.md`）と分けると出どころが辿れなくなるため。同梱した 2026-09-22 の時点では実装は未着手で、その変更にコードは含まなかった。
 

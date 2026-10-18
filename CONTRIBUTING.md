@@ -20,7 +20,7 @@
 git clone https://github.com/raiki61/claude-plugins
 cd claude-plugins
 bash tests/run.sh
-uv run --no-project --with pytest --with pytest-xdist python -m pytest -n auto graphloops/tests/py   # pytest の置き場（開発の間だけ入れる。方針は graphloops/README.md の「検査」節）
+uv run --no-project --with pytest --with pytest-xdist python -m pytest -n auto graphloops/tests/py   # pytest の置き場（開発の間だけ入れる。方針は graphloops/README.md の「Checks」節）
 uv run --no-project --with pytest python -m pytest tests/py   # ルートの pytest の置き場（convergence-loops/scripts/review-record.py の表の検査）。CI は別の起動で回す
 ```
 

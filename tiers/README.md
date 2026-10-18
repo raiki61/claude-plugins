@@ -1,34 +1,36 @@
 # tiers
 
-プラグインが要る外の道具（Claude Code・gh・herdr・Archon など、プラグインとは別に PC に入れる道具）がそろっているかを点検し、足りない物と入れ方を出す Claude Code のプラグイン。何も入れない。
+A Claude Code plugin that checks whether the external tools a plugin needs (Claude Code, gh, herdr, Archon, and so on: tools you install on the PC separately from the plugin) are in place, and prints what is missing and how to install it. It installs nothing.
 
-## 何ができるか
+The skill's and command's instructions and descriptions are written in Japanese.
 
-- 要る道具を段に分けて点検する（下の「段」）。段を 1 つ渡すと、その段までの道具を全部見る。
-- 足りない物ごとに、入れ方を OS（macOS・Linux・Windows）に合わせて、走らせている OS の分だけ出す。入れ方は各道具の公式の README から写した。出すだけで、入れるのは人が手で行う。
-- 人は `/tiers:check` で走らせる。ほかのプラグインは依存として tiers を入れ、使い始めに同じ点検を呼ぶ（今つないでいるのは、同じリポジトリのプラグイン works-dispatch。作業ごとに Claude Code の会話を別に立てて仕事を頼むプラグイン）。
+## What it does
 
-## 要る物
+- Checks the required tools grouped into tiers (see "Tiers" below). Give it one tier and it checks every tool up to that tier.
+- For each missing tool, prints install steps for the OS (macOS, Linux, Windows), only for the OS it is running on. The install steps were copied from each tool's official README. It only prints them; a person installs by hand.
+- People run it with `/tiers:check`. Other plugins install tiers as a dependency and call the same check when they start (currently connected: works-dispatch, a plugin in the same repository that starts a separate Claude Code session for each task and hands it the work).
 
-- **要る段: 0**（Claude Code だけ）。
-- Python 3。`bin/tiers` は `python3`・`python`・`py -3` の順に、実際に起きる物で動く。Windows で `python3` や `python` を打つと Microsoft Store が開く（Python を入れていないときに出る代わりの物）なら、Python を入れ、設定 → アプリ → アプリ実行エイリアス で `python.exe` と `python3.exe` の「アプリ インストーラー」を切る。
+## Requirements
 
-## 5 分で試す
+- **Required tier (要る段): 0** (Claude Code only).
+- Python 3. `bin/tiers` runs with whichever of `python3`, `python`, `py -3` actually starts, in that order. On Windows, if typing `python3` or `python` opens the Microsoft Store (the stand-in that appears when Python is not installed), install Python, then go to Settings → Apps → App execution aliases and turn off the "App Installer" entries for `python.exe` and `python3.exe`.
 
-1. プラグインを入れる。works-dispatch を入れた人は、依存としてもう入っている。
+## Try it in 5 minutes
+
+1. Install the plugin. If you installed works-dispatch, it is already installed as a dependency.
 
    ```bash
    claude plugin marketplace add raiki61/claude-plugins
    claude plugin install tiers@raiki61
    ```
 
-2. Claude Code の会話で、点検させる。「要る道具がそろっているか見て」と頼んでもよい。
+2. In a Claude Code session, have it run the check. You can also just ask 「要る道具がそろっているか見て」 ("check whether the required tools are in place"). (`段 2` means "tier 2".)
 
    ```
    /tiers:check 段 2
    ```
 
-3. 結果を読む。そろっていれば次のように出る。足りなければ、その行に入れ方（手で）が付く。入れたら、同じ点検を打ち直す。
+3. Read the result. When everything is in place, the output looks like the following (the output is in Japanese: 「要る道具の点検（段 0〜2）」 means "check of required tools (tiers 0-2)", and 「結果: 足りない物は無い」 means "result: nothing is missing"). If something is missing, that line gets install steps (by hand). After installing, run the same check again.
 
    ```
    要る道具の点検（段 0〜2）
@@ -41,32 +43,32 @@
    結果: 足りない物は無い
    ```
 
-## 段
+## Tiers
 
-番号の大きい段は小さい段を含む（段 2 を点検すると段 0 と段 1 も点検する）。使う側のプラグインに、段 1 の gh を要らない使い方があるなら、その点検の側で外して見る（例: works-dispatch の `--check` は、部署だけを使う人には gh の足りない物を注記にとどめる）。
+A higher-numbered tier includes the lower ones (checking tier 2 also checks tier 0 and tier 1). If the calling plugin has a way of use that does not need tier 1's gh, that check leaves it out on its own side (example: works-dispatch's `--check` only adds a note about missing gh for people who use only its departments, the separate per-task Claude Code sessions it starts, and not its PR features).
 
-- 段 0: Claude Code だけ。`claude --version` が通るか。
-- 段 1: gh（GitHub の CLI）。入っているか（`gh --version`）、ログイン済みか（`gh auth status`）。
-- 段 2: herdr（端末を作業場ごとに分けて、中の AI の会話を外から操作できる道具）。入っているか（`herdr --version`）、server が動いているか（`herdr status server` の `status: running`）。それと、アカウントの起こし方の命令（`--launcher` で渡す。省けば `claude`）が、利用者のログインのシェルで見つかるか（Linux・macOS はログインのシェルの `command -v` で探し、シェルの関数と別名も数える。Windows は PATH の上を探し、無ければ PowerShell の起動時に読む設定のファイル `$PROFILE` に書いた関数（と別名）を、PowerShell の `Get-Command` で探す）。
-- 段 3: Archon（AI の工程を順に回す道具）。`archon` が PATH に在るか。
+- Tier 0: Claude Code only. Whether `claude --version` succeeds.
+- Tier 1: gh (the GitHub CLI). Whether it is installed (`gh --version`) and logged in (`gh auth status`).
+- Tier 2: herdr (a tool that splits the terminal into one workspace per task and lets you operate the AI sessions inside from outside). Whether it is installed (`herdr --version`) and its server is running (`status: running` from `herdr status server`). Also, whether the command that starts each account (passed with `--launcher`; `claude` if omitted) can be found in the user's login shell (on Linux and macOS it is looked up with `command -v` in the login shell, which also counts shell functions and aliases; on Windows it is looked up on PATH, and if not found, functions (and aliases) defined in `$PROFILE`, the file PowerShell reads at startup, are looked up with PowerShell's `Get-Command`).
+- Tier 3: Archon (a tool that runs AI workflows step by step). Whether `archon` is on PATH.
 
-足りない物ごとに、入れ方を返す。入れ方の命令は各道具の公式の README の install の節から写した（2026-10-16 に読んだ。OS ごと: macOS・Linux・Windows）。段 2 は、初めての人が自分で準備できるように、入れ方の命令に加えて案内（`guide`。herdr の OS ごとの入れ方の補い、herdr と Claude Code の連携の入れ方、起こし方の命令の作り方）も返す。案内の中身と根拠は [docs/design.md](docs/design.md) の「段 2 の案内」。
+For each missing tool, it returns install steps. The install commands were copied from the install section of each tool's official README (read on 2026-10-16; per OS: macOS, Linux, Windows). For tier 2, so that a first-time user can set things up alone, it also returns guidance (`guide`: supplements to herdr's per-OS install steps, how to install the herdr–Claude Code integration, and how to create the start commands) in addition to the install commands. The content of the guidance and its sources are in the "段 2 の案内" (tier 2 guidance) section of [docs/design.md](docs/design.md).
 
-## 使い方
+## Usage
 
-`tiers` はこのプラグインの `bin/` に在る。Claude Code の会話の中（Bash の道具）では、Claude Code が `bin/` を PATH に入れるので、名前だけで起こせる。
+`tiers` is in this plugin's `bin/`. Inside a Claude Code session (the Bash tool), Claude Code puts `bin/` on PATH, so you can run it by name.
 
 ```bash
 tiers --tier <0〜3> [--launcher <命令> ...] [--json]
 ```
 
-- `--launcher` は段 2 以上でだけ見る（段 0・1 で渡しても誤りにせず、見ない）。何度でも書ける（`--launcher claude-p1 --launcher claude-p2`）。渡した命令を全部探し、1 つでも見つからなければ足りない物になる。
-- 終了コード: 0 = そろっている、1 = 足りない物がある、2 = 使い方が違う。
-- `--json` の形（`schema` は形の版の番号で、今は 1。呼び手の動かなくなる変え方をしたときだけ上げる）は [`lib/tiers_check.py`](lib/tiers_check.py) の頭に在る。足りない物は `checks[]` の `ok: false` の項目で、`problem`（足りない訳）と `fix`（入れ方の行の並び）と `guide`（案内の行の並び。無ければ空の並び `[]`）を持つ。どの項目も `tier`（段）・`name`（道具の名前）・`ok`・`found`（見つけた物。足りない項目では `null`）を持つ。人の読む形は、同じ `guide` の行を「案内:」の下に出す。
+- `--launcher` is only looked at for tier 2 and above (passing it with tier 0 or 1 is not an error; it is ignored). It can be given any number of times (`--launcher claude-p1 --launcher claude-p2`). Every command passed is looked up, and if even one is not found, it counts as missing.
+- Exit codes: 0 = everything is in place, 1 = something is missing, 2 = wrong usage.
+- The `--json` format (`schema` is the format's version number, currently 1; it is raised only for changes that would break callers) is described at the top of [`lib/tiers_check.py`](lib/tiers_check.py). Missing tools are the `checks[]` items with `ok: false`, and they carry `problem` (why it is missing), `fix` (a list of install-step lines), and `guide` (a list of guidance lines; an empty list `[]` if none). Every item carries `tier` (the tier), `name` (the tool's name), `ok`, and `found` (what was found; `null` for missing items). The human-readable output prints the same `guide` lines under 「案内:」 ("guidance:").
 
-## もっと詳しく
+## More detail
 
-- [docs/design.md](docs/design.md): 決めたこと（何も入れない訳・共通のプラグインにした訳）と、試して確かめたこと。
-- [docs/from-other-plugins.md](docs/from-other-plugins.md): ほかのプラグインから tiers をつなぐ形。プラグインを作る人向け。
-- [CHANGELOG.md](CHANGELOG.md): 変更の記録。
-- 試験: リポジトリの根から `python3 -B -m unittest discover -s tiers/tests`。外の道具は起こさず、口（`Probe`）を偽物に替える。全体の試験（`tests/run.sh`）にも載っている。
+- [docs/design.md](docs/design.md): decisions (why it installs nothing, why it is a shared plugin) and what was tested and confirmed.
+- [docs/from-other-plugins.md](docs/from-other-plugins.md): how to connect tiers from other plugins. For plugin authors.
+- [CHANGELOG.md](CHANGELOG.md): change log.
+- Tests: from the repository root, `python3 -B -m unittest discover -s tiers/tests`. They do not start external tools; the probe interface (`Probe`) is replaced with a fake. They are also part of the full test run (`tests/run.sh`).

@@ -169,7 +169,7 @@ jobs:
           path: fresh-report.json
 
   # pytest が覆うモジュールを差分に依らず丸ごと撃つ mutmut（設定は graphloops/setup.cfg）。生き残りの数で落とす形は作れない（文言だけの
-  # 変異が残る）ので、生き残りは結果を成果物に残して次の run への依頼として返し（graphloops/README.md の「検査」節）、job は道具の失敗だけで
+  # 変異が残る）ので、生き残りは結果を成果物に残して次の run への依頼として返し（graphloops/README.md の「Checks」節）、job は道具の失敗だけで
   # 赤にする——mutmut 3.8.0 の mutmut/__main__.py の _run は、生き残りが在っても普通に戻り、exit(1) は変異の無いテストが赤（Failed to run
   # clean test）・強制の失敗の確かめ・設定の誤りのとき。
   # Linux と macOS の 2 OS だけ: mutmut は fork を前提にし、Windows では WSL の中でしか動かない（mutmut 3.8.0 の README

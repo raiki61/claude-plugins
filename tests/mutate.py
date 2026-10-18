@@ -39,7 +39,7 @@ cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filte
 テストも台本も、この実行器が撃つ（上の pytest の段。行ごとの覆いは印の写しで取る——coverage の動的 context は Python 3.14 の既定の
 core で使えず、子のプロセスにテストの名前を運ばないので使わない）。mutmut は、pytest が覆うモジュール（対象は graphloops/setup.cfg の
 only_mutate）を差分に依らず丸ごと撃ち、生き残りを pytest 側のテストで殺す道具として残す。撃つのは CI（.github/workflows/mutation.yml の
-mutmut の job）で、手元では撃たない（人の方針。設定と回し方は graphloops/README.md の「検査」節）。
+mutmut の job）で、手元では撃たない（人の方針。設定と回し方は graphloops/README.md の「Checks」節）。
 一覧の腕（字列置換・expect と killedBy の突合）は、tests に台本（SCRIPTS の関数名）と pytest の置き場（PYDIR から見た node id）を
 名指せる。node id を名指した腕は pytest を先に撃つ。打ち切るのは、落ちたテストが名指しの node id に当たる赤（node_hit）か、名指しの
 ファイルの収集の ERROR（証拠の文を分ける）だけ（named_hit）。当たらない赤・緑・撃てない回は、台本の名指しが在れば台本の道で決め、
@@ -144,7 +144,7 @@ NO_TEST = "に当たる台本が 1 本も無い"   # graphloops/tests/parallel.p
 DRIVERS = ("tests/run.sh", "graphloops/tests/run.sh", "graphloops/tests/parallel.py") + SCRIPTS
 # 止める信号を受けたとき、起こした子のグループへ SIGTERM → SIGKILL を送る間の猶予（秒）。engine の猶予（graphloops/engine/role_run.py の
 # KILL_GRACE。既定 5 秒、GL_KILL_GRACE で選べる）が 2×STOP_GRACE と写しの掃除より短いと、この実行器は掃除の途中で SIGKILL
-# される——下限は graphloops/README.md の「外の土台の下で回すとき」
+# される——下限は graphloops/README.md の「Running under an external harness」
 STOP_GRACE = 1
 # 印の写しで『どの台本が行を通したか』を読む書式。正本は graphloops/tests/parallel.py（TEST_THREAD・TAG）で、ここはその写し
 # （揃いは tests/run.sh の mut-owner の検査が縛る）。同じプロセスの中はスレッドの名前、子のプロセスは作業場の名前の印で見分ける

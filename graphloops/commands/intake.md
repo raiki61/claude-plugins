@@ -8,7 +8,7 @@ allowed-tools: Bash
 
 graphloops の engine は、非 0 で終わった呼び出し（拒否・読めない盤面・想定外の例外）と、`loop.py launch` で役が落ちた行を、利用者の環境に 1 件 1 行で自動で残す。このコマンドは、自動では拾えない問題（判定や手順がおかしい、など）を人が 1 行で書き足す口と、たまった分を作者へ渡す口である。
 
-本文・差分・記録の中身・パスは残さない。標準エラーの頭は、環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` を立てたときだけ 500 字まで残す。置き場・残す欄・止めない約束は [README の「踏んだ問題を残す」](../README.md#踏んだ問題を残すgraphloopsintake) に在る。
+本文・差分・記録の中身・パスは残さない。標準エラーの頭は、環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` を立てたときだけ 500 字まで残す。置き場・残す欄・止めない約束は [README の「Recording problems you hit」](../README.md#recording-problems-you-hit-graphloopsintake) に在る。
 
 ## 使い方
 

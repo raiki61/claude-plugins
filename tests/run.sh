@@ -1523,7 +1523,7 @@ expect_output 0 "ok" "README の入口の説明が、今の前段（名指しさ
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '剥がした写しを精読' not in t, 'README が落とした仕掛けを現在形で説明している'
-assert '同じ内容がどこにあるかを名指しさせ' in t, 'README が今の前段を説明していない'
+assert 'name where the same content already lives' in t, 'README が今の前段を説明していない'
 print('ok')" "$CL/README.md"
 # 前段が取れないと R1 の verdict ごと not_run に倒す形は、not_run が阻害要因なので「安全側に
 # 倒したつもりが収束不能」になる（実測）。前段の仕掛けを差し替えたときにこの規定も一緒に落ちた——
@@ -6778,15 +6778,15 @@ if not m:
     print("NG .github/workflows/test.yml に python-version の固定が無い"); sys.exit(1)
 ci = m.group(1)
 readme = (root / "convergence-loops/README.md").read_text(encoding="utf-8")
-want = [ln for ln in readme.splitlines() if "**必須**" in ln]
+want = [ln for ln in readme.splitlines() if "**Required**" in ln]
 if not want:
-    print("NG convergence-loops/README.md に「**必須**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
+    print("NG convergence-loops/README.md に「**Required**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
 # **一致箇所が 1 つであることまで見る。** `want[0]` だけを見ていたので、宣言が 2 行に増えた周は
 # 2 行目が誰にも測られないまま食い違える——「最初の一致だけを見る」は母数を 1 に決め打つのと同じ。
 if len(want) != 1:
-    print(f"NG README.md の「**必須**」の行が {len(want)} 行ある（宣言は 1 か所に。"
+    print(f"NG README.md の「**Required**」の行が {len(want)} 行ある（宣言は 1 か所に。"
           f"どれが正本か決まらないまま片方だけ測ることになる）: {[w[:60] for w in want]}"); sys.exit(1)
-if f"**{ci} 以降**" not in want[0]:
+if f"**{ci} or later**" not in want[0]:
     print(f"NG CI が測る版 {ci} と README の宣言が食い違う: {want[0][:120]}"); sys.exit(1)
 # **workflow は全部見る。** test.yml だけを見ていた頃、週 1 回の全腕（mutation.yml）の版を上げ下げしても赤くならなかった。
 # 版の書き方は引用符の有無・単引用符・一覧（[..]）のどれでも拾い、setup-python を使うのに版を読めない workflow は赤にする

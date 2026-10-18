@@ -17,6 +17,7 @@
 
 ## プラグインを作る・直す
 
+- README（根と各プラグインの `README.md`）は英語の 1 版だけで書き、日本語の版を並べない。スキルとコマンドの名前・説明・本文は日本語のまま（持ち主 2026-10-18。docs/readme-language.md）。
 - プラグインを作る・直す前に、docs/standards/README.md の標準の一覧を見て、変える物に当たる標準を読む（一覧の各項目の括弧に何を決めた標準かが書いてある）。
 - 特に、各プラグインのスキル（`<プラグイン>/skills/*/SKILL.md`）とコマンド（`<プラグイン>/commands/*.md`）を書く・直す前は docs/standards/skill-authoring.md を読む（本文の長さ・別ファイルへの分け方・description）。
 

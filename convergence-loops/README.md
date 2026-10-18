@@ -1,73 +1,70 @@
 # convergence-loops
 
-> **English** — Four Claude Code loops that keep reviewing, researching, diagnosing, or first-reading until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
+> Four Claude Code loops that keep reviewing, researching, diagnosing, or first-reading until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
 >
-> **The instructions are in Japanese, but you don't have to read them — Claude does.** The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
+> **The instructions are in Japanese, but you don't have to read them — Claude does.** The skills' and commands' instructions and descriptions are in Japanese. The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
 
-収束するまで回す 4 つのループを配る。
+This plugin ships four loops that run until they converge.
 
-版ごとの変更は [CHANGELOG.md](CHANGELOG.md)（convergence-loops の記録。ほかの plugin の記録は、それぞれの置き場の CHANGELOG.md）に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)。
+Changes per version are in [CHANGELOG.md](CHANGELOG.md) (the log for convergence-loops; each other plugin has its own CHANGELOG.md in its own directory). How versions are released (the step that appends to the change log; no git tags are created) is in [docs/releasing.md](../docs/releasing.md).
 
-- **`/review-loop`** — 実装したコード変更を、レビューと修正を繰り返して収束させる
-- **`/research-loop`** — 設計・手法・技術選定の見立てを、業界 / 学界の一次情報で校正してからドメインに最適化する
-- **`/doctor-loop`** — リポジトリの現状そのものを読み取り専用で診て、改善候補（減らす・機械チェック化する・構造を正す・時代に合わせる）を新規所見が出なくなるまで検証し、**提案だけ**を返す（変更は適用しない）。変更を診るのではなく、**変更を待たずに診る**
-- **`/firstread-loop`** — 書き上げた文書が、書いていない人に通じるかを確かめて、**通じなかったところを直す**。その文書を知らない読み役を毎回新しく立てて、**用事だけを渡してリポジトリの入口から探させ**、**どこで止まったか・読んだ後に何を誤解したか・読みながらどんな疑問が湧いたか**を集める。答えの出なかった疑問は、文書の抜けではなく設計の穴かもしれないので、埋めずに残す。読みやすさの点数は測らない ── **書いた本人は、自分の文書が分かるかどうかを判定できない**。これがこのループの前提
+- **`/review-loop`** — takes a code change you implemented and repeats review and fix until it converges
+- **`/research-loop`** — calibrates your assessment of a design, method, or technology choice against primary sources from industry and academia, then optimizes it for your domain
+- **`/doctor-loop`** — diagnoses the current state of the repository itself, read-only, and verifies improvement candidates (reduce, turn into a machine check, fix the structure, bring up to date) until no new findings appear, and returns **proposals only** (it applies no changes). It does not diagnose a change; it **diagnoses without waiting for a change**
+- **`/firstread-loop`** — checks whether a finished document gets through to people who did not write it, and **fixes the places where it did not**. Each time it starts a fresh reader role that does not know the document, **gives it only a task and has it search from the repository's entry point**, and collects **where it stopped, what it misunderstood after reading, and what questions came up while reading**. Questions that got no answer may be a hole in the design rather than a gap in the document, so they are kept, not filled in. It does not measure a readability score ── **the author cannot judge whether their own document is understandable**. That is the premise of this loop
 
-どれも「1 回やって終わり」ではなく、**不動点（レビューなら指摘ゼロ、調査なら新規相違ゼロ、診断なら新規所見ゼロ、初読なら新規の詰まりゼロ）に達するまで回して、達しなければ達しなかったと報告する**形になっている。
+None of them is "do it once and stop". Each one **runs until it reaches a fixed point (zero findings for review, zero new discrepancies for research, zero new findings for diagnosis, zero new stumbling points for first-read), and if it does not reach it, reports that it did not**.
 
-## 普通のレビュー依頼と違うところ
+## How this differs from an ordinary review request
 
-これが効いている理由は 4 つに絞れる。
+The reasons it works come down to four.
 
-**1. 実装者と採点者を別 context に分ける（writer ≠ grader）**
+**1. Keep the implementer and the grader in separate contexts (writer ≠ grader)**
 
-ループを回す session（writer）は findings を機械的に集めるだけで、ラベルの確定・根本診断・収束判定をしない。それは別 context の subagent（grader）がやる。writer は grader が確定した `[block]` を直すだけで、自分でラベルを下げられない。異議があるときも自分で覆さず、別 context の grader に再判定させる。自分の実装を自分で採点させると、作業を減らして得する側が合格基準を決めることになる。
+The session that runs the loop (the writer) only collects findings mechanically; it does not finalize labels, diagnose root causes, or judge convergence. A subagent in a separate context (the grader) does that. The writer only fixes the `[block]` items the grader has confirmed, and cannot downgrade a label itself. When it disagrees, it does not overturn the decision itself; it has a grader in a separate context re-judge. If you let an implementer grade its own work, the side that gains from doing less work gets to set the pass criteria.
 
-**2. 機械に合格を宣言させない。不合格だけを宣言させる**
+**2. Never let the machine declare a pass. Let it declare only failures**
 
-`review-record.py` が返すのは「収束を妨げるもの N 件」だけ。「阻害要因は無い」は収束の宣言ではなく、*機械で見つかる範囲に* 何も無いという意味にすぎない。収束を宣言するのは人。
+What `review-record.py` returns is only "N items blocking convergence". "No blockers" is not a declaration of convergence; it only means nothing was found *within what a machine can find*. Convergence is declared by a human.
 
-**3. 無言の省略を「なし」と誤認させない**
+**3. Do not let a silent omission pass as "none"**
 
-「条件に当たらないのでやらなかった（`not_applicable`）」と「やるべきだったが飛ばした（`not_run`）」を別の値で記録し、欄が空なら検証エラーで落ちる。散文で書かせるとこの 2 つが潰れ、後者が前者に化ける。実行しなかった検査が「問題なし」として報告に混じるのが、このループが塞いだ元の穴だった。
+"Not done because the condition did not apply (`not_applicable`)" and "should have been done but was skipped (`not_run`)" are recorded as different values, and an empty field fails validation. If you have the agent write this in prose, the two collapse and the latter turns into the former. A check that was never run getting reported as "no problems" is the original hole this loop was built to close.
 
-**4. 入力の隔離が違う目を並べる**
+**4. Run eyes with different input isolation side by side**
 
-同じ diff に対して、タスク文脈を知る grader・findings を渡さない grader・**diff が何の機能かを知らせない** grader・リポジトリの外（公式ドキュメント・OSS の issue）だけを見る grader を並列に走らせる。入力が違う目は違う層を拾う——文脈を知らない grader は「この用途なら妥当」という正当化ができないので、言語・フレームワーク一般の衛生違反を拾う。隔離は言い渡しでなく道具で担保する——文脈を遮断する目は道具を一切持たない役割 agent で立てるので、近傍コードにも web にも物理的に届かない（下の「役割 agent」）。
+On the same diff, it runs in parallel a grader that knows the task context, a grader that is not given the findings, a grader that is **not told what feature the diff is for**, and a grader that looks only outside the repository (official documentation, OSS issues). Eyes with different inputs catch different layers — a grader that does not know the context cannot justify something with "this is fine for this use", so it catches hygiene violations general to the language or framework. The isolation is enforced by tools, not by instruction — the eyes that are cut off from context are started as role agents with no tools at all, so they physically cannot reach nearby code or the web (see "Role agents" below).
 
-`/review-loop` は**ラウンドをまたぐ傾向を捨てない**。毎ラウンド新しい context で採点し直す一方、記録の履歴（同じ指摘の再燃・直したはずの再出現・要対応の件数の推移）を判定の確定後に judge へ渡し、再燃の原因（コード・レビュアー・規約の誤発火）や目的の外への膨張を見せる。人に聞く候補（設計の岐路・目的の外・前提不成立・動かせない主経路など）は**立った周には聞かず**、問いの台帳に載せて次の周の judge に再審させる——立った周の目にだけ難しかった問いは、次の周の材料と独立再導出で消える（実測: 前回のレビューで岐路として立った 3 件は、どれも後の周で選択肢の外の零処方で消えた）。止めて聞くのは、残る阻害要因が保留の問いに帰属するものだけになったと機械が言ったときで、ループが自分で決めた問いは根拠つきで報告に並ぶ。コメントは、削除候補を挙げさせるときに**同じ内容がどこにあるかを名指しさせ**（名指しできないものは削らない）、**残す判断にも運んでいる事実を一文で言わせる**（片側にだけ義務があると、黙って残す方が安くなる）——AI が追えるように足した注釈で人が読めなくなる向きに、減る側の弁を置いている。
+`/review-loop` **does not throw away trends across rounds**. Every round it re-grades in a fresh context, while the history of the record (the same finding flaring up again, things that were supposedly fixed reappearing, how the count of must-fix items changes) is passed to the judge after the verdict is finalized, to show it the cause of a flare-up (the code, the reviewer, or a rule misfiring) and any growth beyond the purpose. Candidates for asking a human (a fork in the design, something outside the purpose, a premise that does not hold, a main path that cannot be run, and so on) are **not asked in the round they come up**; they go into the question ledger (問いの台帳) and the next round's judge re-examines them — a question that looked hard only to the eyes of the round where it came up disappears with the next round's material and an independent re-derivation (measured: the 3 items that came up as forks in an earlier review all disappeared in later rounds through a zero-cost remedy outside the offered options). The loop stops to ask only when the machine says that the remaining blockers are only the ones attributed to held questions, and questions the loop decided by itself are listed in the report with their grounds. For comments, when it has the agent list candidates for deletion, it makes it **name where the same content already lives** (anything it cannot point to is not deleted), and **also makes it state in one sentence the fact a comment carries when it decides to keep it** (if only deleting had to be justified, silently keeping would become the cheaper choice) — a counterweight on the reducing side against annotations added so the AI can follow along making the code unreadable for people.
 
-さらに `/review-loop` は**読むだけで収束させない**。主経路を実際に 1 回動かして通った値を観測し、新設した検証ゲートはわざと違反を作って赤くなることを確認する。「テストが緑」を観測として書くことを禁じている。
+Further, `/review-loop` **does not converge by reading alone**. It actually runs the main path once and observes the values that went through, and for any newly added validation gate it deliberately creates a violation and confirms that the gate turns red. Writing "tests are green" as an observation is forbidden.
 
-## インストール
+## Installation
 
-marketplace は **GitHub リポジトリ / 任意の git URL / ローカルディレクトリ**のどれでも指せる。
+A marketplace can point at **a GitHub repository, any git URL, or a local directory**.
 
 ```bash
 /plugin marketplace add raiki61/claude-plugins                      # GitHub
-/plugin marketplace add https://git.example.com/team/claude-plugins   # 社内 git
-/plugin marketplace add //fileserver/share/claude-plugins             # 共有フォルダ・ローカルパス
+/plugin marketplace add https://git.example.com/team/claude-plugins   # internal git
+/plugin marketplace add //fileserver/share/claude-plugins             # shared folder / local path
 
 /plugin install convergence-loops@raiki61
-/plugin install gates@raiki61            # 他のプラグインも同じ形(名前@raiki61)
+/plugin install gates@raiki61            # other plugins take the same form (name@raiki61)
 ```
 
-`marketplace` は道具の配布元、`plugin` はそこから入れる道具の束のこと。**セットアップは要らない**。入れたらすぐ使える。
+A `marketplace` is where tools are distributed from, and a `plugin` is a bundle of tools you install from it. **No setup is needed**. You can use it right after installing.
 
-更新は次の 2 行。セッションの再起動は要らない(`/reload-plugins` が読み直して適用する):
+To update, run the following 2 lines. You do not need to restart the session (`/reload-plugins` reloads and applies it):
 
 ```bash
-! claude plugin marketplace update raiki61 && claude plugin update <プラグイン名>@raiki61 -y
+! claude plugin marketplace update raiki61 && claude plugin update <plugin-name>@raiki61 -y
 /reload-plugins
 ```
 
-**更新を自動にしたいなら、入れる側が設定に 1 行足す。** 配る側からは点けられない——自動更新は
-利用者の `settings.json` にある欄で、`marketplace.json` に該当する欄は無い(手元の 4 つの
-marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/marketplace.schema.json` は
-2026-09-01 時点で 404 で引けず、突き合わせていない)。
+**If you want updates to be automatic, the installing side adds 1 line to its settings.** The distributing side cannot turn it on — auto-update is a field in the user's `settings.json`, and `marketplace.json` has no matching field (checked against the 4 marketplaces on hand. The official schema `https://anthropic.com/claude-code/marketplace.schema.json` returned 404 as of 2026-09-01, so it was not compared).
 
 ```jsonc
-// ~/.claude/settings.json（CLAUDE_CONFIG_DIR を設定しているならその配下）
+// ~/.claude/settings.json (under CLAUDE_CONFIG_DIR if you have set it)
 "extraKnownMarketplaces": {
   "raiki61": {
     "source": { "source": "github", "repo": "raiki61/claude-plugins" },
@@ -76,92 +73,92 @@ marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/ma
 }
 ```
 
-`/plugin marketplace add` はこの欄を作るが、`autoUpdate` は付けない。点けるかどうかは入れる人が決める。
+`/plugin marketplace add` creates this field but does not add `autoUpdate`. Whether to turn it on is up to the person installing.
 
-**ただし入手経路には 1 つ条件がある**——次の節を読んでから配布方法を選べ。上の 3 つは対等な選択肢ではない。
+**However, there is one condition on how you obtain it** — read the next section before choosing how to distribute. The 3 options above are not equal choices.
 
-## 依存と入手経路
+## Dependencies and how you obtain them
 
-`/review-loop` は欠陥の局所レビューに公式プラグイン `pr-review-toolkit` を使う。これを `plugin.json` の `dependencies` で宣言してあるので、**このプラグインを入れると一緒に入る**（公式 marketplace `claude-plugins-official` にある）。
+`/review-loop` uses the official plugin `pr-review-toolkit` for local defect review. This is declared in `dependencies` in `plugin.json`, so **it is installed together when you install this plugin** (it is in the official marketplace `claude-plugins-official`).
 
-**その解決に失敗すると、このプラグイン全体がロードされない**（`/review-loop` だけでなく `/research-loop` も使えない）。使えないと気づいたら `claude plugin list` で状態を見て、`pr-review-toolkit` を入れ直せ。依存を宣言する代わりに `/review-loop` の中で導入コマンドを実行する形は採っていない——宣言が未解決のときプラグインがロードされないので、その導入コマンドには到達できず両立しない。
+**If resolving it fails, this whole plugin does not load** (not only `/review-loop` but also `/research-loop` becomes unavailable). If you notice it is not available, check the state with `claude plugin list` and reinstall `pr-review-toolkit`. The alternative of running an install command inside `/review-loop` instead of declaring the dependency is not used — when the declaration is unresolved the plugin does not load, so that install command could never be reached; the two cannot coexist.
 
-**この制約が効くのは、`claude-plugins-official`（GitHub 上）に到達できない環境**だ。上のインストール節の 3 つのうち、**共有フォルダ・ローカルパス配布はこれに当たりやすい**（エアギャップの社内環境で使う動機がある人ほど当たる）。到達できないなら、利用者に先に `/plugin install pr-review-toolkit@claude-plugins-official` を通せる経路を用意するか、そこを通せないことを承知の上で配れ。
+**This constraint bites in environments that cannot reach `claude-plugins-official` (on GitHub)**. Of the 3 options in the installation section above, **distribution via a shared folder or local path tends to hit this** (the more reason someone has to use it in an air-gapped internal environment, the more likely they hit it). If it cannot be reached, either prepare a route through which users can first run `/plugin install pr-review-toolkit@claude-plugins-official`, or distribute knowing that it cannot go through.
 
-**欠陥の観点が 1 つ静かに欠けたレビューが通るより、止まる方を選んでいる。** これは同梱の `REVIEW.md` の「コード衛生観点」が要求する検証機構の fail-open の検査を、この配布物自身に適用した結果である。
+**It chooses to stop rather than let a review pass with one defect perspective quietly missing.** This is the result of applying to this distribution itself the fail-open check of validation mechanisms (does a check that fails to run let things through as if it passed?) that the bundled `REVIEW.md` 「コード衛生観点」 (code hygiene perspective) requires.
 
-観点の正本は同梱の `REVIEW.md` で、そこには**固有の技術名が一つも書かれていない**。アーキテクチャ境界も標準機構も、対象リポジトリの README・lint 設定・パッケージマニフェスト・近傍コードから grader が毎回読んで把握する。固有の技術名を観点側に書き写すと、その瞬間に正本の複製になり、リポジトリが変わっても古いまま残るため。
+The source of truth for the review perspectives is the bundled `REVIEW.md`, and **it does not contain a single project-specific technology name**. Architecture boundaries and standard mechanisms are read by the grader each time from the target repository's README, lint settings, package manifest, and nearby code. Copying specific technology names into the perspectives makes them a duplicate of the source of truth the moment you do it, and they stay stale when the repository changes.
 
-対象リポジトリのルートに `REVIEW.md` を置くと、そこに書いた観点も併用される（無くても走る）。
+If you put a `REVIEW.md` at the root of the target repository, the perspectives written there are used as well (it runs without one).
 
-## 使い方
+## Usage
 
 ```
-/review-loop                    実装・リファクタリング・バグ修正の後に
-/research-loop <調べたいこと>    設計文書の論拠固め・技術選定・方式検討で
-/doctor-loop                    変更を待たず、現状から改善候補を掘りたいときに
-/firstread-loop <読者が持つ用事>  文書を書き上げた後、通じるか確かめたいときに
+/review-loop                         after implementation, refactoring, or a bug fix
+/research-loop <what to look into>   to firm up a design document's grounds, choose a technology, or weigh approaches
+/doctor-loop                         when you want to dig up improvement candidates from the current state, without waiting for a change
+/firstread-loop <the reader's task>  after finishing a document, when you want to check it gets through
 
-/review-graph                   同じ review を、機械（engine）が盤面を持って回す実行版
-/research-graph <調べたいこと>   同じ research の実行版
+/review-graph                        the same review, run by a machine (engine) that holds the board
+/research-graph <what to look into>  the executable version of the same research
 ```
 
-**どちらを使うか**: 上の 4 本（散文）が既定。`-graph` の 2 本は同じループを機械が回す版で、**回した記録がディスクに残る**（圧縮をまたいで再開できる・依存と波・上限・無言の省略を機械が守る）。長い実行を通す・記録を後から検証器に掛ける・複数人で同じ run を追う、のどれかが要るなら `-graph`。1 回で終わる普段の確認なら散文の 4 本で足りる。
+**Which to use**: the 4 above (prose) are the default. The 2 `-graph` commands are versions where a machine runs the same loop, and **the record of the run stays on disk** (it can resume across context compaction; dependencies and waves, limits, and silent omissions are enforced by the machine). Use `-graph` if you need any of these: getting a long run through, running the record through the validator afterwards, or several people following the same run. For an everyday check that ends in one pass, the 4 prose commands are enough.
 
 
-`/review-loop` はコード変更のレビュー、`/research-loop` は見立ての校正、`/firstread-loop` は文書が読み手に通じるかの検証。逆に使わない。
+`/review-loop` is for reviewing code changes, `/research-loop` for calibrating an assessment, and `/firstread-loop` for checking whether a document gets through to its readers. Do not use them the other way around.
 
-## 役割 agent
+## Role agents
 
-4 ループが立てる subagent は、`agents/` に同梱した 6 つの役割定義で起動する。役割＝モデル × effort × 持てる道具の組で、手順書は役割名だけを書き、モデル名を書かない（写しは腐る）。
+The subagents the 4 loops start are launched with the 6 role definitions bundled in `agents/`. A role = a combination of model × effort × allowed tools; the instruction files write only the role name, never a model name (copies rot).
 
-| 役割 | 役目 | 道具 |
+| Role | Job | Tools |
 |---|---|---|
-| `inspector` | リポジトリを読んで採点する安い目 | Read / Glob / Grep |
-| `investigator` | 履歴・`gh`・web まで探しに行く安い目 | ＋ Bash / WebSearch / WebFetch |
-| `cold-reader` | 文脈を遮断した初見の読み手 | **なし** |
-| `judge` | 覆せない判定を下す高い目 | Read / Glob / Grep / WebSearch / WebFetch |
-| `blind-judge` | 内部を遮断した独立導出・突合の高い目 | **なし** |
-| `reader` | `/firstread-loop` の読み役 | Read / Glob / Grep |
+| `inspector` | cheap eye that reads the repository and grades | Read / Glob / Grep |
+| `investigator` | cheap eye that searches as far as history, `gh`, and the web | + Bash / WebSearch / WebFetch |
+| `cold-reader` | first-time reader cut off from context | **none** |
+| `judge` | expensive eye that hands down verdicts that cannot be overturned | Read / Glob / Grep / WebSearch / WebFetch |
+| `blind-judge` | expensive eye for independent derivation and cross-checking, cut off from the internals | **none** |
+| `reader` | the reader role of `/firstread-loop` | Read / Glob / Grep |
 
-どの役も書く道具（Edit / Write）を持たない。`investigator` だけは Bash を持つので、起動する手順書が前後の作業ツリー突合で押さえる——「書き換えるな」を言い渡しで守らせない。遮断系の 2 役は道具ゼロで起動し、プロンプトに貼られた本文だけを読む——「読むな」と言い渡して守らせる代わりに、読めなくしてある。変え方は `docs/customize.md`「役割 agent を変える」。
+No role has writing tools (Edit / Write). Only `investigator` has Bash, so the instruction file that starts it checks the working tree before and after — "do not rewrite" is not enforced by instruction alone. The 2 isolated roles are started with zero tools and read only the text pasted into the prompt — instead of telling them "do not read" and hoping they obey, they are made unable to read. How to change them is in `docs/customize.md`, 「役割 agent を変える」 (changing role agents).
 
-## 走らせると何が起きるか
+## What happens when you run it
 
-`/review-loop` は 1 ラウンドを **P0**（基準点と「元の目的」の固定）→ **P1**（素材集め・grader を並列起動）→ **P2**（診断・根本原因への変換とラベル確定）→ **P3**（修正）→ **P4**（再採点と機械突合）で回す。`[block]` が 0 になったら **P-R** の収束ゲート——R1 最小性 / R2 ゼロベース再導出 / R3 全体整合 / R4 見えてないスコープ——に進み、1 つでも `redesign-needed` なら新ラウンドに戻る。
+`/review-loop` runs one round as **P0** (fix the baseline and the "original purpose") → **P1** (gather material, start graders in parallel) → **P2** (diagnose, convert to root causes, and finalize labels) → **P3** (fix) → **P4** (re-grade and machine cross-check). When `[block]` reaches 0, it moves to the **P-R** convergence gate — R1 minimality / R2 zero-based re-derivation / R3 overall consistency / R4 unseen scope — and if even one is `redesign-needed`, it goes back to a new round.
 
-収束は**連続 2 ラウンド**で阻害要因ゼロ・CI 緑・R1〜R4 に再設計要求も未実施も無いこと（R1 / R2 は再発火条件に当たらない周の持ち越しを含む。同梱の雛形 3 周目がその形）（連続 2 ラウンドと R1〜R4 の verdict は `review-record.py` が記録から数える。writer の自己申告にしない）。到達しなければ「収束せず」として止まり、判断を人に返す（ラウンド上限 5、超えたら必ず停止）。**黙って打ち切らない**のが設計の要点で、残った論点は問いの台帳に溜まり、止まったときに全件まとめて人に届く。
+Convergence means, for **2 consecutive rounds**, zero blockers, green CI, and neither a redesign request nor an unrun item in R1–R4 (for R1 / R2, a round where the condition for running them again does not apply carries over the earlier verdict, and that counts; the bundled template's 3rd round has that shape) (the 2 consecutive rounds and the R1–R4 verdicts are counted from the record by `review-record.py`, not self-reported by the writer). If it does not get there, it stops as "did not converge" and hands the decision back to a human (round limit 5; it always stops beyond that). **Not cutting off silently** is the core of the design: the remaining issues accumulate in the question ledger, and when it stops they all reach the human together.
 
-## 依存
+## Dependencies
 
-**必須**: `git` / `python3` または `python`（**3.12 以降**。CI は最小版を 1 本固定して測る——測っていない下限は宣言しない。以前は 3.9 と書いていたが、手元の python が新しいと 3.9 でだけ落ちる構文が全件緑をすり抜けて CI の 3 OS を赤にした〈実測 2026-09-13〉。`graphcheck.py` が使う `graphlib` は 3.9 追加なので下限の理由はそこではなく、**開発者の手元と CI が同じ構文を読めること**にある）/ `bash`
+**Required**: `git` / `python3` or `python` (**3.12 or later**. CI pins and measures one minimum version — a lower bound that is not measured is not declared. It used to say 3.9, but when the local python was newer, syntax that fails only on 3.9 slipped past an all-green run and turned CI red on all 3 OSes (measured 2026-09-13). `graphlib`, used by `graphcheck.py`, was added in 3.9, so that is not the reason for the lower bound; the reason is **that the developer's machine and CI read the same syntax**) / `bash`
 
-**局所レビューが呼ぶもの**（`/review-loop` と `/review-graph` の両方。どちらが呼ぶかは用途欄）:
+**What the local review calls** (both `/review-loop` and `/review-graph`; which one calls what is in the Use column):
 
-| 依存 | 用途 | 無いとき |
+| Dependency | Use | When missing |
 |---|---|---|
-| `pr-review-toolkit` プラグイン | `/review-loop` はまとめ役 `review-pr`。`/review-graph` はレンズを 1 本ずつ名指し（一覧の正本は `graphloops/graphs/review-loop.json` の `p1.local_review.skills`。宣言 1 本につき記録の行 1 本を機械が要求する） | 上の「依存と入手経路」が正本 |
-| 組み込み `/code-review` | 欠陥の局所レビュー（`/review-graph` の P1。`/review-loop` は `review-pr` のまま） | Claude Code 本体に同梱。同名のプラグインが別に在るので、入れている環境では綴りが衝突しうる |
-| 組み込み `/simplify` | 品質（reuse・簡素化・効率）の局所レビュー | Claude Code 本体に同梱 |
-| 組み込み `/security-review` | 認証・データ取扱い・外部 I/O に触れるとき | 同上 |
-| `gh` CLI | 並行 PR との衝突チェック | 他ホストでは同等コマンドに読み替え。読み替えられないなら「確認できなかった」と報告させる |
+| `pr-review-toolkit` plugin | `/review-loop` uses the coordinator `review-pr`. `/review-graph` names the lenses one by one (the source of truth for the list is `p1.local_review.skills` in `graphloops/graphs/review-loop.json`; the machine requires one record row per declared entry) | the "Dependencies and how you obtain them" section above is the source of truth |
+| built-in `/code-review` | local defect review (P1 of `/review-graph`; `/review-loop` stays on `review-pr`) | bundled with Claude Code itself. A plugin with the same name also exists, so in environments that have it installed the names can collide |
+| built-in `/simplify` | local review for quality (reuse, simplification, efficiency) | bundled with Claude Code itself |
+| built-in `/security-review` | when the change touches authentication, data handling, or external I/O | same as above |
+| `gh` CLI | conflict check against concurrent PRs | on other hosts, substitute the equivalent command. If it cannot be substituted, the loop is made to report "could not check" |
 
-**`/research-loop` が呼ぶもの**: `WebSearch` / `WebFetch`、`Workflow` ツール（使えない環境では同じ構造を `Agent` の並列起動で再現する手順が本文にある）、`python3` と同梱の `research-record.py`（実行記録の検証——最終報告の必須欄の正本。実行できない環境では script 本文を読んで目視照合する手順が本文にある）
+**What `/research-loop` calls**: `WebSearch` / `WebFetch`, the `Workflow` tool (in environments where it is not available, the instructions include a procedure to reproduce the same structure by starting `Agent`s in parallel), and `python3` with the bundled `research-record.py` (validation of the run record — the source of truth for the required fields of the final report. In environments where it cannot be run, the instructions include a procedure to read the script body and check by eye)
 
-**`/firstread-loop` が呼ぶもの**: `python3` と同梱の `firstread-record.py`（周の記録の検証——**聞いていない素材を「無かった」と書けなくする**のと、先に書いた答えがファイルとして実在するかの確認が主目的）
+**What `/firstread-loop` calls**: `python3` with the bundled `firstread-record.py` (validation of each round's record — its main purposes are **making it impossible to write "there was none" for material that was never asked about**, and confirming that answers written earlier actually exist as files)
 
-**`/doctor-loop` が呼ぶもの**: 対象リポジトリに既にある読み取り専用の計器（lint・型検査・テスト等。無ければ「試せなかった計器」として報告）、`python3` と同梱の `doctor-record.py`（実行記録の検証。記録は対象リポジトリの作業ツリーの**外**に書く——変更禁止の規律と両立させるため）
+**What `/doctor-loop` calls**: read-only instruments that already exist in the target repository (lint, type checks, tests, etc.; if there are none, they are reported as "instruments that could not be tried"), and `python3` with the bundled `doctor-record.py` (validation of the run record. The record is written **outside** the target repository's working tree — to stay compatible with the rule against changing it)
 
-## この型が保証しないもの
+## What this design does not guarantee
 
-- **指示は日本語のみ**。報告は利用者の言語で返るので使う分には支障がない。命令の強さ（「無言の省略を禁ずる」「注記は最後の手段」）で規律を保っている箇所が多く、訳で緩むため日本語のままにしている
-- **GitHub 前提の箇所がある**（並行 PR の衝突チェック）
-- **`comment-ratio.sh` が数えられるのは Python と C 系コメントの言語だけ**。`#` 系（Ruby・Shell）は対象外——足しても注釈を 1 行も拾えないまま「0%」を自信ありげに出すので、行数で別に測る
-- **C 系の注釈カウントは近似**。字句解析をしないので、文字列やテンプレートリテラルの中に `/*` があると `*/` までの全行を注釈として数える（過大側）。行末コメントは数えない（過小側）。ラウンド間で比べる値なので、この 2 つのバイアスは入力の中身次第で効き方が変わる。Python は `tokenize` で数えるのでこの制約は無い
-- **`claude-plugins-official` に到達できない環境では、このプラグイン全体が使えない**（詳細と復帰手順は上の「依存と入手経路」）
-- **subagent を多数起動する**。1 ラウンドあたり grader 数体、収束ゲートで数体。軽い確認には向かない
-- **ラウンド上限**（review-loop は 5、research-loop は 4）。超えたら「収束せず」として止まり、判断を人に返す。黙って打ち切らないことを優先している
+- **The instructions are Japanese only**. Reports come back in the user's language, so using it is not a problem. Many places keep their discipline through the force of the command (「無言の省略を禁ずる」 "silent omission is forbidden", 「注記は最後の手段」 "an annotation is the last resort"), which a translation would loosen, so they are kept in Japanese
+- **Some places assume GitHub** (the conflict check against concurrent PRs)
+- **`comment-ratio.sh` can count only Python and languages with C-style comments**. `#`-style languages (Ruby, Shell) are out of scope — adding them would confidently output "0%" without picking up a single annotation line, so measure them separately by line count
+- **The annotation count for C-style languages is approximate**. It does no lexical analysis, so if a string or template literal contains `/*`, every line up to `*/` is counted as annotation (over-counting). End-of-line comments are not counted (under-counting). The value is meant for comparison between rounds, and how these 2 biases act depends on the content of the input. Python is counted with `tokenize`, so it does not have this limitation
+- **In environments that cannot reach `claude-plugins-official`, this whole plugin is unusable** (details and recovery steps in "Dependencies and how you obtain them" above)
+- **It starts many subagents**. A few graders per round, and a few at the convergence gate. Not suited to light checks
+- **Round limits** (5 for review-loop, 4 for research-loop). Beyond that it stops as "did not converge" and hands the decision back to a human. Not cutting off silently takes priority
 
-## ライセンス
+## License
 
-MIT。
+MIT.

@@ -6,7 +6,7 @@ A marketplace of Claude Code plugins (marketplace name: `raiki61`). It includes 
 
 ## Language
 
-This README is in English. Everything else in the repository is written in Japanese: each plugin's README, the instructions of the skills and commands, [CONTRIBUTING.md](CONTRIBUTING.md), and the design records under `docs/`. The plugins are written for Japanese-speaking users.
+This README and each plugin's README are in English. Everything else in the repository is written in Japanese: the names, descriptions, and instructions of the skills and commands, [CONTRIBUTING.md](CONTRIBUTING.md), and the design records under `docs/`. The plugins are written for Japanese-speaking users.
 
 ## Plugins
 

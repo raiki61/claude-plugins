@@ -145,7 +145,7 @@ DENY_STREAK_WINDOW = 30 * 60
 # 代わりに、ヒアドキュメントを盾置換 → shlex でトークン化 → 単純コマンドに区切り、gh の
 # 引数列の中だけで「本文を運ぶ旗」を見る。単純コマンド分割と旗表は自作なので網羅性はテストで
 # 守る。なぜこの方式か・いつ乗り換えるかは docs/coldread-gate-next.md(正本)。
-# 対象外と受容した形は gates/README.md「網の射程」。
+# 対象外と受容した形は gates/README.md「Reach of the net (honest limits)」。
 # デリミタは引用の有無(' か " か無し)と . - を許し、<<- の字下げ終端も拾う。
 # 行末は \r?\n。コマンド文字列が CRLF で届くと \n 固定では開始行も終端行もマッチせず、
 # 正しく書いたヒアドキュメントが「stdin 渡し」という嘘の理由で止まる(実測)。
@@ -2336,7 +2336,7 @@ def main() -> None:
     if not bodies:
         allow()
     # 複数の本文が同居するときは最長を代表として読ませる(全部読ませると読み役の回数と
-    # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「網の射程」。
+    # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「Reach of the net (honest limits)」。
     body = max(bodies, key=len)
     fp = fingerprint(body)
 

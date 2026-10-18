@@ -1,83 +1,89 @@
 # works-dispatch
 
-作業ごとに Claude Code の会話を別に立てて仕事を頼み、終わったら要約を頼んだ会話へ返させる Claude Code のプラグイン。自分の番の PR を、PR ごとの作業場に開いて読ませることもできる。
+A Claude Code plugin that starts a separate Claude Code session for each task, hands it the work, and has it return a summary to the session that asked when it is done. It can also open the PRs where it is your turn, each in its own workspace, and have a session read them.
 
-ここでは次の言葉を使う。
+The skill's and command's instructions and descriptions are written in Japanese.
 
-- **窓口**: 人と話し、仕事を頼む側の Claude Code の会話。長く使い続ける。
-- **部署**: 頼まれた仕事をする側。git の枝 1 本の作業場（worktree）と、そこで働く Claude Code の会話 1 つの組。仕事ごとに立てて、終わったら片付ける。
-- **会社**: 部署を立てる元のリポジトリ。
-- **納品**: 部署が、決まった見出しの要約を窓口へ返すこと。
+This README uses the following terms (the Japanese word used in the skill and in the program's output is in parentheses).
 
-## 何ができるか
+- **Front desk** (窓口): the Claude Code session that talks with the person and hands out work. It is used for a long time.
+- **Department** (部署): the side that does the requested work. A pair of a workspace for one git branch (a worktree) and one Claude Code session working in it. One is set up per task and cleaned up when it is done.
+- **Company** (会社): the repository that departments are set up from.
+- **Delivery** (納品): a department returning a summary with fixed headings to the front desk.
 
-- **頼む・納品させる**: 窓口から部署を立てて頼む（`--ask`）。部署は終わったら要約を窓口へ返す（`--deliver`）。部署の会話が納品せずに止まろうとすると、3 回まで差し戻す。
-- **自分の番の PR を開く**: 自分の番の PR（attention プラグインの `/whose-turn` が並べる物）を、PR ごとの作業場に開き、前回からの動き（`/catchup`）を読ませる。相手から新しい返事が来た PR は開き直し、閉じた PR の作業場は片付ける。issue から始める作業も開ける（`--issue`）。
-- **アカウントを選ぶ**: Claude Code のアカウントを複数使うなら、使用率に余裕のあるアカウントで会話を起こす。
-- **見渡す・片付ける**: 会社ごとの部署の一覧を出す（`--tree`）。済んだ部署を消す（`--clean`）。部署の枝を決まりに従って本流に入れる（`--land`。[docs/land.md](docs/land.md)）。入れる前に、ほかの部署が先に入れた行を消していないかを見て、消していれば止める。
+## What it does
 
-dispatch 自身は AI を使わない。Python の標準ライブラリだけのスクリプトで、AI を使うのは起こした会話だけ。
+- **Ask and have it deliver**: from the front desk, set up a department and give it a request (`--ask`). When it is done, the department returns a summary to the front desk (`--deliver`). If a department's session tries to stop without delivering, it is sent back up to 3 times.
+- **Open the PRs where it is your turn**: opens each PR where it is your turn (your own PRs where it is your turn to fix, and PRs where it is your turn to review) in its own workspace and has the session read what has happened since last time. The list of these PRs comes from `/whose-turn`, and the catch-up comes from `/catchup`; both are commands of the attention plugin, another plugin in this repository. When someone else on the PR posts a new reply, that PR's workspace is opened again, and the workspaces of closed PRs are cleaned up. It can also open work that starts from an issue (`--issue`).
+- **Pick an account**: if you use several Claude Code accounts, it starts the session on an account with spare usage.
+- **Overview and cleanup**: lists the departments for each company (`--tree`). Removes finished departments (`--clean`). Merges a department's branch into the mainline following the rules (`--land`; see [docs/land.md](docs/land.md)). Before merging, it checks whether the branch deletes lines that another department merged first, and stops if it does.
 
-## 要る物
+dispatch itself does not use AI. It is a script that uses only the Python standard library; only the sessions it starts use AI.
 
-- **要る段: 2**（[tiers](../tiers/README.md) の段）。herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具。[herdr.dev](https://herdr.dev)）が動いている。gh（GitHub の CLI）のログインは、PR を開く使い方と、本流への入れ方に PR か CI を使う会社だけに要る（部署を立てて頼み納品させる使い方は GitHub を読まない。`--check` は、設定に `[[repos]]` が無ければ gh の足りない物を注記にとどめる）。
-- Python 3.11 以降と git。フックは `python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ（macOS 付属の 3.9 は選ばない）。Windows で `python3` や `python` を打つと Microsoft Store が開く（Python を入れていないときに出る代わりの物）なら、Python を入れ、設定 → アプリ → アプリ実行エイリアス で `python.exe` と `python3.exe` の「アプリ インストーラー」を切る。
-- 試すリポジトリの clone を 1 つ。既定の枝（main など）を開いておく。部署の作業場は、この clone から作る。origin は GitHub でなくてよい（手元の bare リポジトリでも立つ）。本流の枝の名前は、clone の手元の `origin/HEAD` から取り、無ければ origin に問う（空の bare を clone した直後など、どちらでも決まらなければ、本流の枝を push してから `git remote set-head origin --auto` を打つ）。
-- PR を開く使い方だけ: attention プラグイン（`/catchup` の命令を持つ）と、dispatch の設定のファイル（`--init` が下書きを書く。手順は [references/setup.md](skills/dispatch/references/setup.md) の「初めて」）。
+## Requirements
 
-前提ごとの理由と、`--check` が確かめる中身は [docs/prerequisites.md](docs/prerequisites.md)。
+- **Required tier (要る段): 2** (the tiers of [tiers](../tiers/README.md)). herdr (a tool that splits the terminal into one workspace per task and lets you operate the Claude Code sessions inside from outside; [herdr.dev](https://herdr.dev)) is running. A gh (the GitHub CLI) login is needed only for opening PRs, and for companies that use a PR or CI to merge into the mainline (setting up departments, asking them, and having them deliver does not read GitHub; if the dispatch settings file has no `[[repos]]` entries, the list of repositories whose PRs it opens, `--check` only adds a note about missing gh).
+- Python 3.11 or later, and git. The hooks pick the first of `python3`, `python`, `py -3` (in that order) that actually starts and is 3.11 or later (they do not pick the 3.9 that ships with macOS). On Windows, if typing `python3` or `python` opens the Microsoft Store (the stand-in that appears when Python is not installed), install Python, then go to Settings → Apps → App execution aliases and turn off the "App Installer" entries for `python.exe` and `python3.exe`.
+- One clone of the repository you want to try it on, with the default branch (main or similar) checked out. Department workspaces are created from this clone. origin does not have to be GitHub (a local bare repository works too). The name of the mainline branch is taken from the clone's local `origin/HEAD`, and if that is missing, origin is asked (if neither decides it, for example right after cloning an empty bare repository, push the mainline branch and then run `git remote set-head origin --auto`).
+- Only for opening PRs: the attention plugin (which has the `/catchup` command) and a dispatch settings file (`--init` writes a draft; the steps are in the 「初めて」 ("first time") section of [references/setup.md](skills/dispatch/references/setup.md)).
 
-## 5 分で試す
+The reason for each requirement, and what `--check` verifies, are in [docs/prerequisites.md](docs/prerequisites.md).
 
-部署を 1 つ立てて頼み、要約が窓口に返ってくるまで。
+## Try it in 5 minutes
 
-1. プラグインを入れる。依存の tiers も一緒に入る。
+From setting up one department and asking it something, until the summary comes back to the front desk.
+
+1. Install the plugin. The tiers dependency is installed with it.
 
    ```bash
    claude plugin marketplace add raiki61/claude-plugins
    claude plugin install works-dispatch@raiki61
    ```
 
-2. herdr（上の「要る段」に書いた、端末を作業場ごとに分ける道具）を起こし、その中で、試すリポジトリの clone のフォルダを開き、窓口の会話を名前を付けて起こす。初めてのフォルダなら、信頼の確認に答える。
+2. Start herdr (the tool that splits the terminal into one workspace per task, listed under "Required tier" above). Inside it, open the folder of the clone you are trying it on, and start the front desk session with a name (`窓口` means "front desk"). If the folder is new to Claude Code, answer the trust prompt.
 
    ```bash
    claude --name 窓口
    ```
 
-3. 窓口に、道具がそろっているかを点検させる。足りない物があれば、出た入れ方で入れてから打ち直す。部署だけを使うなら gh のログインは要らないので、`--check` は gh の足りない物を止めずに注記にする（`/tiers:check 段 2` は段の決まりどおり gh のログインも足りない物に数える）。
+3. Have the front desk check that the tools are in place. If something is missing, install it with the printed steps and run it again. If you only use departments, a gh login is not needed, so `--check` does not stop on missing gh and only adds a note (`/tiers:check 段 2`, which checks tier 2, counts a missing gh login as missing, as the tier rules say).
 
    ```
    /works-dispatch:dispatch --check
    ```
 
-4. （任意）会社の形の下書きを書かせる。会社の形は、会社の名前・役（部署の仕事の決まり）・本流への入れ方を書くファイルで、無くても試せる（役は既定の `作業`、納品の見出しは下の 6 の既定になる）。`--local` を付けると、リポジトリの中でなく `~/.config/works-dispatch/companies/` に書くので、試すリポジトリを変えない。部署だけを使うなら、dispatch の設定のファイル（`~/.config/works-dispatch/dispatch.toml`）は要らない。
+4. (Optional) Have it write a draft of the company shape. The company shape is a file (`.claude/company.toml` in the company's repository) that holds the company's name, its roles (the rules for a department's work), and how to merge into the mainline. You can try it without one (the role becomes the default `作業` ("work"), and the delivery headings become the defaults in step 6 below). With `--local`, it writes to `~/.config/works-dispatch/companies/` instead of inside the repository, so the repository you are trying it on does not change. If you only use departments, the dispatch settings file (`~/.config/works-dispatch/dispatch.toml`) is not needed.
 
    ```
    /works-dispatch:dispatch --init-company --local
    ```
 
-5. 窓口から頼む。部署の名前（`--task`）と、部署が使う新しい枝（`--branch`）を渡す。
+5. Ask from the front desk. Pass the department's name (`--task`) and a new branch for the department to use (`--branch`). (The request text below means "Read README.md and list 3 places where a first-time reader is likely to get stuck"; `試し` means "trial".)
 
    ```
    /works-dispatch:dispatch --ask 作業 --text "README.md を読んで、初めての人が詰まりそうな所を 3 つ挙げて" --task 試し --branch try/first
    ```
 
-   herdr に部署「試し」の作業場と画面（部署の会話を映すペイン）が開き、部署の会話が頼みを受けて働き始める。窓口は待たずに次の仕事をしてよい。
+   In herdr, the workspace and the screen (a pane showing the department's session) for the department 「試し」 open, and the department's session receives the request and starts working. The front desk does not have to wait and can go on to other work.
 
-6. 部署は終わると、要約を「結論・決め手・残った疑問・枝」の見出しで書いて返す。窓口の画面に `納品です（受付 …、試し・枝 try/first から）: 【結論】…` の 1 行が打ち込まれる。全文は clone の `.git/company/inbox/` に残る。
+6. When it is done, the department writes its summary under the headings 「結論・決め手・残った疑問・枝」 ("conclusion, deciding reason, remaining questions, branch") and returns it. One line, `納品です（受付 …、試し・枝 try/first から）: 【結論】…` ("Delivery (request …, from 試し, branch try/first): [conclusion] …"), is typed into the front desk's screen. The full text stays in the clone's `.git/company/inbox/`.
 
-7. 部署を片付ける。`--clean` が消せる部署を並べ、`--clean --apply` で消す。会話がまだ動いている部署は「残す」と訳を添えて並ぶ（消す条件は [references/clean.md](skills/dispatch/references/clean.md) の `--clean` の項）。都度の部署（一度の頼みのために立てる部署）が納品して本流に入れ終えたら、部署の会話が自分で `--done`（終わりの印を付ける命令）を打てば、その番（会話の 1 回の応答）の終わりに会話が止まり、部署の部屋（作業場・worktree・会話・手元の枝）が同じ決まりで片付く（終わりの印の無い部署の部屋を止めて畳むなら `--retire <部署>`）。dispatch の設定のファイルは要らない（`--repo` に代表の clone のパスを渡すか、その clone の中から打つ）。
+7. Clean up the department. `--clean` lists the departments that can be removed, and `--clean --apply` removes them. Departments whose session is still running are listed as 「残す」 ("keep") with the reason (the conditions for removal are in the `--clean` item of [references/clean.md](skills/dispatch/references/clean.md)).
+
+   A one-off department is a department set up for a single request. After it has delivered and finished merging into the mainline, the department's session itself can run `--done` (the command that sets the "finished" mark). Then the session stops at the end of that turn (one response of the session), and the department's room (the workspace, worktree, session, and local branch) is cleaned up under the same rules as `--clean`. To stop and fold up a department's room that has no "finished" mark, use `--retire <部署>`, where `<部署>` is the department.
+
+   The dispatch settings file is not needed for this (pass the path of the main clone to `--repo`, or run it from inside that clone).
 
    ```
    /works-dispatch:dispatch --clean
    ```
 
-ほかの使い方（自分の番の PR〔直す番の自分の PR と、レビューする番の PR〕を開く、アカウントの書き方、役ごとの設定、herdr の見た目）は [SKILL.md](skills/dispatch/SKILL.md) と、そこから主題ごとに指す別ファイル（`skills/dispatch/references/`）に在る。
+Other uses (opening the PRs where it is your turn [your own PRs where it is your turn to fix, and PRs where it is your turn to review], how to write accounts, per-role settings, herdr's appearance) are in [SKILL.md](skills/dispatch/SKILL.md) and the separate files it points to by topic (`skills/dispatch/references/`).
 
-## もっと詳しく
+## More detail
 
-- [docs/prerequisites.md](docs/prerequisites.md): 前提と、なぜ要るか。
-- [docs/land.md](docs/land.md): 部署の成果を本流に入れる決まり（`--land` と会社の形の `[land]`）。
-- [docs/internals.md](docs/internals.md): 内部の作り（ノード・外への口・柵 D1〜D8・試験）。直す人向け。
-- [docs/observed.md](docs/observed.md): herdr・Claude Code などの振る舞いを、手元で試して確かめた記録。
-- [CHANGELOG.md](CHANGELOG.md): 変更の記録。
+- [docs/prerequisites.md](docs/prerequisites.md): the requirements and why each is needed.
+- [docs/land.md](docs/land.md): the rules for merging a department's work into the mainline (`--land` and the company shape's `[land]`).
+- [docs/internals.md](docs/internals.md): the internal structure (nodes, interfaces to the outside, guards D1–D8, tests). For people who modify it.
+- [docs/observed.md](docs/observed.md): a record of how herdr, Claude Code, and others behave, tested and confirmed by hand.
+- [CHANGELOG.md](CHANGELOG.md): change log.

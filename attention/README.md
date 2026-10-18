@@ -1,40 +1,46 @@
 # attention
 
-並行作業を**見渡して、戻る**ための道具。見渡す 1 本と、戻り方 2 本——**失われているものが違う。**戻った後にその番を進める `/my-turn` と、ある期間を振り返って改善の提案と気づきを出す `/reflect` も持つ。
+Tools for **getting an overview of parallel work and getting back into it**. One command gives the overview and two commands get you back in. **Each of the two covers a different thing you have lost.** The plugin also has `/my-turn`, which moves your turn forward after you are back, and `/reflect`, which looks back over a period and gives improvement proposals and observations.
 
-版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（変更の記録を書き足す段。git の tag は作らない）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
+The instructions and descriptions of the commands are written in Japanese, and so is most of their output.
 
-| コマンド | いつ使うか | 失われているもの |
+Changes in each version are in [CHANGELOG.md](CHANGELOG.md). How versions are released (the step that adds to the change log; no git tags are created) is in [docs/releasing.md](../docs/releasing.md). That path is relative to the repository root and is not part of the installed plugin; read it in a clone or on GitHub: https://github.com/raiki61/claude-plugins.
+
+| Command | When to use it | What you have lost |
 |---|---|---|
-| `/whose-turn` | 全件を一度に見渡すとき | **今どこに何が残っていて、誰の番か** |
-| `/catchup [番号] [指摘・地図・CI]` | 1 件の PR / issue、ブランチ、commit（範囲も）、会話の話題に戻るとき（該当ブランチへ移る。手元に無ければ origin から取る。返事は 1 枚の HTML） | **会話のどこで自分が止まったか**と、**何を言われ・何のために何を変える PR か** |
-| `/what-am-i-doing` | セッションを切り替えて戻ってきたとき | **このスレッドが何の作業だったか** |
-| `/my-turn` | `/catchup` で 1 件に戻った後、その番を進めるとき | （戻った後の進め方。指摘を掘り、世の中の解と突き合わせ、レビューする側なら指摘の下書きまで） |
-| `/reflect [期間]` | 1 日・1 週の終わりに振り返るとき（返事は 1 枚の HTML。日記の置き場を決めていれば日記にも書く） | **自分が何を繰り返し、どこで手間を使い、何を直せば効くか** |
+| `/whose-turn` | Overview of everything | **What is open, and whose turn** |
+| `/catchup [number] [指摘・地図・CI]` | Back to one item (HTML page) | **Where you stopped; what the PR is for** |
+| `/what-am-i-doing` | Back to a session | **What this thread was for** |
+| `/my-turn` | Move your turn forward | (How to proceed after you are back) |
+| `/reflect [period]` | Day or week review (HTML page) | **What you repeat and what to fix** |
 
-## 入れ方
+Details for the table:
+
+- `/catchup` gets you back to one PR / issue, a branch, a commit (or a commit range), or a topic in the conversation. It moves to the matching branch, fetching it from origin if it is not local. The reply is one HTML page. What you have lost is **where in the conversation you stopped**, and **what you were told, and what the PR changes and why**. The optional words 指摘 (review comments), 地図 (map) and CI narrow the material.
+- `/what-am-i-doing` is for when you switch sessions and come back. What you have lost is **what work this thread was doing**.
+- `/my-turn` is for after `/catchup` has brought you back to one item and you move that turn forward. It digs into the review comments, compares them with known solutions elsewhere, and, if you are the reviewer, drafts review comments.
+- `/reflect` is for looking back at the end of a day or a week. The reply is one HTML page; if you have set a place for a diary, it also writes to the diary. What you have lost is **what you keep repeating, where you spend effort, and what fix would pay off**.
+
+## Installation
 
 ```
 /plugin marketplace add raiki61/claude-plugins
 /plugin install attention@raiki61
 ```
 
-## 何を解く道具か
+## What problem it solves
 
-複数の作業を並行で回していると、戻ったときに真っ先に失われているのは**会話のどこで自分が止まったか**で、GitHub の画面を上から読み直さないと復元できない。何を言われたか・何を変える PR かも忘れている——自分の PR でも。忘れていなければ戻る道具を呼ばない。だから位置を先に出し、中身は作者の本文から初見向けに説明してから、実物の行を有るだけ後ろに付ける。
+When you run several pieces of work in parallel, the first thing you have lost when you come back is **where in the conversation you stopped**, and you cannot recover it without rereading the GitHub page from the top. You have also forgotten what you were told and what the PR changes, even for your own PR. If you had not forgotten, you would not call a tool to get back. So the tool shows the position first, then explains the content for a first-time reader from the author's own text, and then appends the actual lines, as many as there are.
 
-同じことがセッションにも起きる。ターミナルを何十個も開いていると、**そのタブが何の作業だったかが分からなくなる。** 毎回「これ何をしてたんだっけ」と聞き直すことになる。
+The same happens with sessions. With dozens of terminals open, **you no longer know what work a tab was doing.** You end up asking "what was I doing here?" every time.
 
-どちらも、先に要るのは**位置**である。中身は作者の言葉で説明し、行は要約せず実物で付ける。
+In both cases, what you need first is **the position**. The content is explained in the author's words, and the lines are attached as they are, not summarized.
 
-そして戻る前に、**そもそも今どこに何が残っているか**を一度に見渡す必要がある。open な PR と issue を
-全件取って「誰の番か・なぜ今その人の番か」を機械で出すのが `/whose-turn` で、3 本は
-**全件 → 1 件 → セッション**の順に使う。先行例は Gerrit / Google Critique の Attention Set で、
-このプラグインの名の由来。
+And before getting back, you need to see **what is open and where** all at once. `/whose-turn` fetches all open PRs and issues and works out by machine "whose turn it is, and why it is that person's turn now". The three commands are used in the order **everything → one item → session**. The prior art is the Attention Set in Gerrit / Google Critique, which is where this plugin's name comes from.
 
-## `/whose-turn` — open 全件から、誰の番かを出す
+## `/whose-turn` — from all open items, show whose turn it is
 
-### 使い方
+### Usage
 
 ```
 /whose-turn            # 自分
@@ -42,58 +48,38 @@
 /whose-turn --all      # 全員分を人別に
 ```
 
-いま居るリポジトリの open な PR と issue を全件取り、PR ごとに「あなたを待っている人がいる／
-まだ誰にも渡していない／相手が動くまで進まない」を機械で判定して、**自分の番**（今日動かせる）と
-**相手の番**（相手が動くまで進まない）の 2 節に分けて出す。呼びかけ（@login で呼ばれて返していないもの）と
-担当 issue も添える。日数は「今の状態になってから」で、PR の作成日からではない。
+(`/whose-turn` alone is for yourself, `<login>` for another person, `--all` for everyone, grouped by person.)
 
-### 役割分担
+It fetches all open PRs and issues of the repository you are in, decides by machine for each PR whether "someone is waiting for you / it has not been handed to anyone yet / it cannot move until the other side acts", and reports it in two sections: **your turn** (自分の番; things you can move today) and **their turn** (相手の番; things that cannot move until the other side acts). It also adds mentions (where you were called with @login and have not replied) and issues assigned to you. Day counts are "since it entered its current state", not since the PR was created.
 
-- **スクリプト（機械）**: 母集団を固定し、判断材料を全部出す。判断はしない
-- **AI**: 材料を読んで「返信が要るか」「見て閉じるだけか」を判定する。母集団を増減させない
+### Division of work
 
-出力は `==== ここから下は判定の材料。貼らない ====` の印で 2 つに分かれ、上が報告、下が呼びかけの投稿と
-スレッドの全文。AI はこれを**貼らずに**、読む人の行動で割った 5 節——**自分の番**（今日動かせるものを
-全部、1 行目は番号と件名、2 行目は日数・役割・動作と根拠）・**相手の番**（役割で分けた番号と件名の羅列と、食い違いのある件だけ）・**担当 issue**・
-**返さなくてよい呼びかけ**・**見た範囲**——を目安 50 行で書く。番号には必ず**件名**（機械のタイトルを
-全角 8 字前後に縮めた名詞句）を添える——番号だけの行は、読む人が何の件かを引き直すことになる。
-番号は `[#番号](URL)` のリンクで書く——URL は機械が各行の 2 行目に出す（対応する端末では番号だけが
-表示されてクリックで開け、非対応なら `#番号 (URL)` と展開される）。
-人の PR（レビュアー）の行には 3 行目に作者の本文の 1 文と規模（N ファイル +A/-D）が付く——件名だけでは
-次の問いが「内容は？」になる。**1 つの番号が行を持つのは 1 節だけ**で、要返信の呼びかけはその PR の行に合流する（信号の出どころで節を割ると同じ番号が 2〜3 回出て、読む人が目で突き合わせる
-ことになる）。動作は 9 語の閉じた語彙（レビュー／再レビュー／指摘に答える／判断を返す／返信する／
-見て閉じる／マージ／依頼先を決める／CI を直す）から選ぶので、その列だけを縦に見れば「すぐ終わる件」と
-「腰を据える件」が分かる。並びはスクリプトが出した順のままで、AI は並べ替えない——読む人が機械の出力で
-検算できるようにするため。日数と件数は機械の数字をそのまま使う。機械の出力の全文は「全文を見せて」と
-言ったときだけ 1 文字も変えずに貼る。**母集団と「見ていないもの」は短くても必ず併記する**——判定の穴が
-どこに開いているかを、読む人はそこで確かめる。
+- **Script (machine)**: fixes the population and outputs all the material for judgment. It does not judge
+- **AI**: reads the material and decides "does this need a reply" or "is it just look-and-close". It does not add to or remove from the population
 
-死角のうち 2 つ——Team 宛のレビュー依頼に自分が入っているか、本文コメントで自分の最後の発言が相手の問いに
-答えているか——は、AI が**決まった手順・各 5 件まで**の上限で確かめに行き、判定が変わったものを
-「死角の確認」の節に書く。それ以外の死角（GitHub の外・通知・担当未設定）は確かめに行かず、
-確かめられないと書く。
+The output is split in two by the marker `==== ここから下は判定の材料。貼らない ====` ("below this line is material for judgment; do not paste"). Above it is the report; below it are the mention posts and the full text of the threads. The AI does **not paste** this. Instead, it writes about 50 lines in 5 sections divided by what the reader has to do: **your turn** (everything you can move today; line 1 is the number and title, line 2 is the day count, role, action, and reason), **their turn** (a list of numbers and titles grouped by role, plus only the items with a discrepancy), **assigned issues**, **mentions you do not need to answer**, and **what was looked at**. A number always comes with a **title** (a noun phrase that shortens the machine's title to about 8 full-width characters). A line with only a number forces the reader to look up what the item is. Numbers are written as `[#number](URL)` links. The machine prints the URL on line 2 of each row (in terminals that support it, only the number is shown and you can click it to open; otherwise it expands to `#number (URL)`).
+Rows for other people's PRs (where you are the reviewer) get a line 3 with one sentence from the author's description and the size (N files +A/-D). With only a title, the next question would be "what is in it?". **Each number has a row in only one section**, and a mention that needs a reply is merged into that PR's row. (If sections were split by where the signal came from, the same number would appear 2 or 3 times and the reader would have to match them up by eye.) The action is chosen from a closed vocabulary of 9 terms: レビュー (review), 再レビュー (re-review), 指摘に答える (answer review comments), 判断を返す (return a decision), 返信する (reply), 見て閉じる (look and close), マージ (merge), 依頼先を決める (decide whom to ask), CI を直す (fix CI). Reading down that column alone tells you which items finish quickly and which need real time. The order stays exactly as the script printed it; the AI does not reorder, so that the reader can check it against the machine output. Day counts and item counts use the machine's numbers as they are. The full machine output is pasted, without changing a single character, only when you say "全文を見せて" ("show me the full text"). **The population and "what was not looked at" are always stated, even briefly**. That is where the reader checks where the holes in the judgment are.
 
-### 同梱スクリプト
+For two of the blind spots, namely whether you are included in a review request addressed to a Team, and whether your last body comment answers the other side's question, the AI goes and checks them with **a fixed procedure, up to 5 items each**, and writes the ones whose judgment changed in the "blind spot check" (死角の確認) section. Other blind spots (outside GitHub, notifications, no assignee set) are not checked; the report says they cannot be checked.
+
+### Bundled script
 
 ```
 python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] [--all] [--materials] [--out]
 python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json
 ```
 
-`--json` は「自分の番」の PR だけを、ほかの道具が読む JSON で出す（番号・URL・タイトル・head の枝・役割・日数。
-集合と並びは報告の「自分の番」の節と同じ）。
+`--json` outputs only the "your turn" PRs as JSON for other tools to read (number, URL, title, head branch, role, day count). The set and the order are the same as the "your turn" section of the report.
 
-判定の定義と見ていないものは `--help` にある。判定は純粋関数で、`tests/whose-turn-suite.py` が規則を
-1 行ずつ固定している（115 件）。時刻は見出しも行も全部ローカル時刻で出す。
+The definitions of the judgments and what is not looked at are in `--help`. The judgment is a pure function, and `tests/whose-turn-suite.py` pins the rules one line at a time (115 cases). All times, in headings and rows, are shown in local time.
 
-このコマンドだけ sonnet で走る（コマンド定義の `model`）。AI の仕事は材料を規則に当てはめて
-仕分けることで、上位モデルの推論は要らず、毎日回す前提で軽くしてある。
+Only this command runs on sonnet (the `model` in the command definition). The AI's job is to apply the rules to the material and sort it; it does not need a higher model's reasoning, and it is kept light because it is meant to run every day.
 
-## `/catchup` — 1 件の PR / issue に戻る
+## `/catchup` — get back to one PR / issue
 
-何を受け取り・何をして・何を返すかの正本は [docs/catchup-spec.md](docs/catchup-spec.md)（受け口の表・節の表・上限と続きの口・現状との差）。以下はその要約と使い方。
+The authoritative description of what it takes in, what it does, and what it returns is [docs/catchup-spec.md](docs/catchup-spec.md) (the table of inputs, the table of sections, limits and how to get the rest, and differences from the current state). What follows is a summary of that and how to use it.
 
-### 使い方
+### Usage
 
 ```
 /catchup 1505                 # 番号か URL（該当ブランチへ git switch で移る。手元に無ければ origin から取る）
@@ -103,85 +89,55 @@ python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json
 /catchup setup                # VS Code で見る準備（拡張と設定 2 つ。下の「前提（HTML で見る）」）
 ```
 
-**返事は 1 枚の HTML のページ**で、端末に出るのはページの path と 1 行の要約だけ（2026-10-15 から。それまでは端末の
-長い散文で、1 件 4,000〜28,000 字・中央値 約 15,000 字のうち約 9 割が、AI が機械の枠を写しただけのコードだった）。
-ページは機械が決まった雛形（`templates/catchup.html`）に描き、AI は小さな欄（誰の番か・前回から・止めているもの・
-次の一手・説明・図）だけを書く。置き場は `~/.cache/attention/catchup/<owner>-<repo>/<番号>.html`（同じ件は上書き）で、
-同じ置き場の `index.html` が、描いたページを 1 件 1 行（件・件名・誰の番・次の一手・更新）で並べる。
+In order:
 
-### 前提（HTML で見る）
+- A number or URL: moves to the matching branch with git switch, fetching it from origin if it is not local.
+- No argument: the PR of the current branch. If there is none, the number in the branch name is treated as an issue.
+- A focus word after the number narrows the material at the end to that one kind: 指摘 (review comments), 地図 (map), CI.
+- A word that is not a number is a topic in the conversation (新しく出たもの, "the new ones", is an example). The conversation is the material; if the topic is tied to a number, the machine fills in the rest.
+- `setup`: prepares viewing in VS Code (an extension and two settings; see "Prerequisites (viewing as HTML)" below).
 
-この形は、見る道具に次を前提にする:
+**The reply is one HTML page.** The terminal shows only the page's path and a one-line summary. (This started on 2026-10-15. Before that it was long prose in the terminal: 4,000 to 28,000 characters per item, median about 15,000, and about 90% of it was code the AI had just copied from the machine's frames.) The machine draws the page from a fixed template (`templates/catchup.html`), and the AI writes only small fields: whose turn, since last time, what is blocking, next step, explanation, figure. The page is stored at `~/.cache/attention/catchup/<owner>-<repo>/<番号>.html` (`<番号>` is the item number; the same item overwrites its page). An `index.html` in the same place lists the drawn pages, one row per item (item, title, whose turn, next step, updated).
 
-- **VS Code の Remote-SSH** で、catchup を走らせるマシンに繋いでいる（ページはそのマシンの `~/.cache` に書かれる）
-- 拡張 **Simple HTML Viewer**（`austin-spagnolo.simple-html-viewer`）が、Remote 側に入っている
-- Remote の Machine の設定（`~/.vscode-server/data/Machine/settings.json`）に 2 つ——`workbench.editorAssociations` の
-  `"**/.cache/attention/**/*.html": "simpleHtmlViewer.preview"`（catchup のページを拡張で開く）と
-  `"simpleHtmlViewer.autoRefresh": "onFileChange"`（描き直すと開いたページも変わる）
-- ワークスペースを信頼している（拡張はページのスクリプトを、既定では信頼したワークスペースでだけ動かす）
+### Prerequisites (viewing as HTML)
 
-`/catchup setup`（`catchup.py --setup`）が、生きている窓を探し、拡張が無ければ入れ、設定 2 つを足し（他の key は消さず、
-書く前に控えを置く）、見本のページを描いて開く。何も変えずに確かめるだけなら `--setup --check`。
+This format assumes the following viewing setup:
 
-描いた後、機械は生きている VS Code の窓のすべてでページを開く（`code --status` が通る socket を全部試す——herdr の中の
-会話は古い socket を継いでいることがある）。`ATTENTION_CATCHUP_OPEN=0` なら開かない（works-dispatch が起こす会話など）。
-見え方は、整っている順に落ちる: VS Code の中で拡張が描いたページ → 拡張か設定が欠けていれば HTML のソースが開く →
-VS Code が繋がっていなければ path が出るだけ。**ページは外を読まない 1 つの HTML の file** で、どのブラウザでも開ける
-（差分の描画の diff2html と構文の色の highlight.js は、版を固定して中に埋め込んである）。
+- You are connected with **VS Code Remote-SSH** to the machine where catchup runs (the page is written to that machine's `~/.cache`)
+- The extension **Simple HTML Viewer** (`austin-spagnolo.simple-html-viewer`) is installed on the Remote side
+- Two entries in the Remote Machine settings (`~/.vscode-server/data/Machine/settings.json`): in `workbench.editorAssociations`,
+  `"**/.cache/attention/**/*.html": "simpleHtmlViewer.preview"` (opens catchup pages with the extension), and
+  `"simpleHtmlViewer.autoRefresh": "onFileChange"` (an open page changes when it is redrawn)
+- The workspace is trusted (by default the extension runs the page's scripts only in trusted workspaces)
 
-**対象は番号・URL・ブランチ名・引数なし（`this`）・commit・会話の話題の 6 通り。** 番号だけを渡したときは、いま居るリポジトリを見る。
-別のリポジトリの件は、URL を渡すか `-R owner/repo` を足す。引数なし（焦点の語だけのときも対象は同じ）なら今のブランチの
-PR で、無ければブランチ名の番号（`chore/1513-…` → #1513）を issue と見て、末尾に手元の状態（push していない
-commit・未コミットの木）が付く。PR も番号も無いブランチ（main で書きかけ等）では GitHub に聞かず、手元の状態と未コミットの変更の中身
-（`/what-am-i-doing` と同じ枠と飛び先）だけを出す（止めない——止めると、書きかけの人に何も返らない）。
-ブランチ名を渡すと、その枝へ移ってから（手元に無く origin にだけ有れば origin/<名前> を追跡する枝を作って）引数なしと同じに解く。
-PR も番号も無い枝では、既定ブランチより先の commit の変更（枝全体の差）も木と枠で出る。
-commit（sha・`HEAD~2`・タグ）を渡すと、その commit を同じ形で出す——題と本文・変更ファイルの木・
-変更の中身（枠と飛び先）。PR を立てずに既定ブランチへ直接 commit する運用で、変更を読み直す口。commit の範囲
-`A..B`（`2971ea2..HEAD`・`HEAD~4..HEAD`）も同じ形で、差は A の版と B の版の間、本文は各 commit の題。
-番号でない語（「今の修正」「さっきの 4 件」）は、先に会話の中で何に結び付いているかを解く——番号・枝・commit に
-結び付いていればそれが対象（このセッションで入れた commit が複数なら一番古いもの^..一番新しいものの範囲）で、
-直接呼ばれたときと同じ形で説明と地図まで出す。会話の中にしか無い話題（レビューで見つけた指摘の束など）だけ、
-`what-am-i-doing.py --topic "<語句>"` でその語句が出た往復を背骨に、同じ型で書く。
+`/catchup setup` (`catchup.py --setup`) finds the live windows, installs the extension if it is missing, adds the two settings (without deleting other keys, and saving a backup before writing), and draws and opens a sample page. To only check without changing anything, use `--setup --check`.
 
-**番号か URL で呼ぶと、該当ブランチへ移る**（命令書が `--switch` を付ける）。PR は head のブランチ、issue は名前に
-番号を持つ手元のブランチが 1 本のとき。戻るとき、会話の位置と一緒に手元の枝も失われているので。PR の枝が手元に
-無ければ、origin からその元を 1 本だけ fetch して作って移る——名前と追跡先は `gh pr checkout` と同じ（同じリポジトリの
-PR は `origin/<head>` を追跡する `<head>`、fork の PR は `refs/pull/<番号>/head` から `<head>`。head が既定ブランチ名なら
-`<fork の owner>/<head>`。origin が自分の fork（三角 workflow）なら、その fork からの PR は同じリポジトリの PR と同じ扱い）。
-issue の枝は origin から探さない（番号で選ぶのは当て推量）。
-移った・移らなかった理由は見出しの「ブランチ」の行に出て（移らなかったときは今どこに居るかも）、移った（または
-既に居た）ときは末尾に手元の状態が付く。移らないのは、追跡ファイルに未コミットの変更があるとき（git は衝突しない限り
-黙って持ち越すので、別の枝に commit する事故になる。未追跡だけなら移る）、merge / rebase / cherry-pick の途中、
-別の worktree に checkout 済みのとき、origin にももう無いとき（merge 済みで枝が削除された PR。取り方を行に書く）、
-fetch が失敗したとき（認証は端末に聞かずに失敗する）、fork の PR で手元の同名ブランチが head の commit を含まないとき
-（fork の head は trunk / main のような名前で来る）。**手元を変えるのはこの `git switch` と、その 1 本の
-`git fetch` だけ**で、手元にある枝は動かさない（pull・merge・stash・commit はしない。fetch が更新するのは
-`origin/<head>` の追跡 ref だけ）。戻すのは `git switch -`（元のブランチ名が行に残る。origin から作った枝はそのまま
-残る）。移った後は `/catchup`（引数なし）が移った先の枝を指す。
+After drawing, the machine opens the page in every live VS Code window (it tries every socket for which `code --status` succeeds; a conversation inside herdr (a terminal multiplexer) may have inherited an old socket). With `ATTENTION_CATCHUP_OPEN=0` it does not open the page (for example, in conversations that works-dispatch, another plugin in this repository, starts). What you see degrades in this order of completeness: the page drawn by the extension inside VS Code → if the extension or the settings are missing, the HTML source opens → if VS Code is not connected, only the path is printed. **The page is a single HTML file that loads nothing from outside**, and opens in any browser (diff2html for drawing diffs and highlight.js for syntax colors are embedded inside, at pinned versions).
 
-同じ checkout を複数のセッションで共有しているなら、片方の `/catchup` がもう片方のブランチを変える。未コミットが
-あれば移らないが、commit 済みで手を止めている側は守れない。分けるなら `git worktree`（別 worktree に
-checkout 済みの枝には移らない）。`Unable to create '…/index.lock'` で移らなかったときは、他のセッションが
-git を動かしている最中。
+**There are 6 kinds of target: a number, a URL, a branch name, no argument (`this`), a commit, and a topic in the conversation.** When you pass only a number, it looks at the repository you are in. For an item in another repository, pass a URL or add `-R owner/repo`. With no argument (also when there is only a focus word), the target is the PR of the current branch. If there is none, the number in the branch name (`chore/1513-…` → #1513) is treated as an issue, and the local state (commits not pushed, the uncommitted tree) is appended at the end. On a branch with neither a PR nor a number (for example, work in progress on main), it does not ask GitHub and outputs only the local state and the content of the uncommitted changes (the same frames and jump targets as `/what-am-i-doing`). It does not stop, because stopping would return nothing to someone in the middle of writing.
+When you pass a branch name, it moves to that branch first (if the branch is not local and exists only on origin, it creates a branch that tracks origin/<name>) and then resolves it the same way as no argument.
+On a branch with neither a PR nor a number, the changes in the commits ahead of the default branch (the diff of the whole branch) are also shown as a tree and frames.
+When you pass a commit (a sha, `HEAD~2`, a tag), it shows that commit in the same form: subject and body, a tree of changed files, and the content of the changes (frames and jump targets). This is the way to reread changes in a workflow that commits directly to the default branch without opening a PR. A commit range
+`A..B` (`2971ea2..HEAD`, `HEAD~4..HEAD`) has the same form; the diff is between the A version and the B version, and the body is the subject of each commit.
+A word that is not a number ("今の修正" "the current fix", "さっきの 4 件" "the 4 items from earlier") is first resolved to what it is tied to in the conversation. If it is tied to a number, a branch, or a commit, that is the target (if several commits were made in this session, the range from the oldest^ to the newest), and the output goes as far as the explanation and the map, just as when called directly. Only for topics that exist only in the conversation (such as a bundle of review findings) does it use `what-am-i-doing.py --topic "<語句>"` (`<語句>` is the phrase), taking the exchanges where that phrase appeared as the backbone and writing in the same form.
 
-ページには**実物の行が、有れば全部**載る（機械が描く。AI は写さない）。AI が読む文字の材料にも同じものが、この順で付く——`指摘` は未解決スレッドごとに相手の最後の発言の全文と
-head のその行を含む関数まるごと（行番号つき。共通の字下げは落とし、代入の文字列リテラルの中は畳む。境目の無い file は前後 5 行。
-私が返す番で相手が私の発言の後に返している件は、今の姿でなく私の発言以降の変更に帯を入れた関数まるごと。人が入っている未解決スレッドが有れば）、`CI` は落ちたチェックごとに失敗した
-step のログを最後の `##[error]` まで（行頭の job・step・時刻は落とす。赤が有れば）、`地図` は変更全体の木と
-file ごとの骨組み（PR なら常に）。作者が自分かどうかでは出し分けない——`/catchup` を呼ぶこと自体が、自分の PR
-でも中身を忘れている印なので（実測: 自分の PR で木が出ず、欲しかった）。**焦点の語**を後ろに付けると、その
-1 つに絞る（急ぐとき）。絞った材料が無ければ「無い」と 1 行出る。
+**When called with a number or URL, it moves to the matching branch** (the command definition file adds `--switch`). For a PR, this is the head branch; for an issue, it is the local branch whose name contains the number, when there is exactly one. When you come back, you have lost your local branch as well as your position in the conversation. If the PR's branch is not local, it fetches just that one source from origin, creates the branch, and moves to it. The name and the tracking target are the same as `gh pr checkout` (for a PR from the same repository, `<head>` tracking `origin/<head>`; for a fork PR, `<head>` from `refs/pull/<number>/head`. If head is the default branch name, `<fork owner>/<head>`. If origin is your own fork (a triangular workflow), PRs from that fork are treated the same as PRs from the same repository).
+Issue branches are not searched for on origin (choosing by number would be guesswork).
+The reason it moved or did not move appears in the "branch" (ブランチ) row of the heading (when it did not move, also where you are now), and when it moved (or was already there), the local state is appended at the end. It does not move when tracked files have uncommitted changes (git silently carries them over unless they conflict, which leads to accidentally committing on another branch; if there are only untracked files, it moves), during a merge / rebase / cherry-pick, when the branch is checked out in another worktree, when it no longer exists on origin either (a merged PR whose branch was deleted; the row says how to get it), when the fetch fails (authentication fails without prompting in the terminal), and for a fork PR when the local branch with the same name does not contain the head commit (fork heads come with names like trunk / main). **The only things that change your local checkout are this `git switch` and that one
+`git fetch`**, and existing local branches are not moved (no pull, merge, stash, or commit. The fetch updates only the
+`origin/<head>` tracking ref). To go back, use `git switch -` (the original branch name remains in the row; a branch created from origin stays).
+After moving, `/catchup` (no argument) points to the branch you moved to.
 
-ページの「この PR がすること」には**説明**が入る——この PR が何のために・何を・どう変えるかを、この件を初めて見る
-エンジニアに向けて、ひとこと・図・この節の語の一覧・散文 4〜6 段落（前提／背景と課題／何をどう変えるか／使う側の変化と含まれないもの。
-400〜1600 字。path と関数名は入れず、このリポジトリの中でしか通じない語は初出で中身を言う）・変更点（図の凡例として並び、図の箱や線を押すとその横に前と後が出る。
-差分はボタンを押したときだけ大きな窓で開く）で、AI が書く。図の線（データの流れ）は、受け先の API の型のように
-この PR で変えていないコードも、PR の先頭の版から引いて見せられる。前提が本文に無ければ、README の冒頭と触る部品の file の先頭で埋める。材料は機械が末尾の先頭に出す
-作者の本文（60 行まで。`--full` で全部）と閉じる issue・本文が指す issue の冒頭、地図の先頭コメント
-（実測: 28 file +1030 行の PR で、型の 1〜2 文と地図の 1 文だけでは初見に内容が読めなかった）。
+If several sessions share the same checkout, `/catchup` in one changes the branch of the other. It does not move if there are uncommitted changes, but it cannot protect a session that has committed and paused. To separate them, use `git worktree` (it does not move to a branch checked out in another worktree). If it did not move because of `Unable to create '…/index.lock'`, another session is in the middle of running git.
 
-スクリプトを直接叩いてもよい。
+The page shows **the actual lines, all of them if there are any** (drawn by the machine; the AI does not copy them). The text material the AI reads gets the same things, in this order. `指摘` (review comments): for each unresolved thread, the full text of the other side's last comment and the whole function containing that line at head (with line numbers; common indentation is removed and string literals in assignments are folded; for files with no boundaries, 5 lines before and after. For items where it is my turn to reply and the other side replied after my comment, the whole function with a band over the changes since my comment, instead of the current state). This appears if there are unresolved threads with humans in them. `CI`: for each failed check, the log of the failed step up to the last `##[error]` (the job, step, and time at the start of each line are removed). This appears if there is red. `地図` (map): a tree of all changes and the skeleton of each file (always, for a PR). It does not vary by whether you are the author. Calling `/catchup` itself is a sign that you have forgotten the content, even of your own PR (measured: on your own PR the tree was not shown, and you wanted it). Adding a **focus word** at the end narrows it to that one kind (when in a hurry). If there is no material of that kind, a one-line "none" is shown.
+
+The "what this PR does" (この PR がすること) part of the page contains **the explanation**: what this PR changes, why, and how, aimed at an engineer seeing this item for the first time. It consists of a one-line summary, a figure, a list of the terms in this section, 4 to 6 paragraphs of prose (premise / background and problem / what changes and how / what changes for users and what is not included; 400 to 1600 characters; no paths or function names, and terms that only make sense inside this repository are explained on first use), and the change points (listed as the figure's legend; clicking a box or a line in the figure shows the before and after next to it;
+the diff opens in a large window only when you press the button). The AI writes it. The figure's lines (the flow of data) can also show code this PR does not change, such as the type of the receiving API, drawn from the PR's head version. If the premise is not in the description, it is filled in from the top of the README and the top of the files of the components being touched. The material is printed by the machine at the start of the end section:
+the author's description (up to 60 lines; all of it with `--full`), the beginning of the issues it closes and the issues the description points to, and the leading comment of the map
+(measured: for a PR with 28 files and +1030 lines, the 1 to 2 sentences the format provided and the 1 sentence of the map were not enough for a first-time reader to understand the content).
+
+You can also run the script directly.
 
 ```
 python3 scripts/catchup.py [1505|URL|this|<commit>] [指摘] [地図] [CI] [--switch] [-R owner/repo] [--full] [--limit 12] [--me <login>] [--frame path] [--out]
@@ -189,68 +145,50 @@ python3 scripts/catchup.py --render <描く材料.json> <欄.json>   # ページ
 python3 scripts/catchup.py --setup [--check]                     # VS Code で見る準備
 ```
 
-`--switch` を付けたときだけ手元のブランチを変える（既定では読むだけ）。`this` では何もしない。`--out` は文字の材料と
-一緒に、ページの雛形が描く構造（描く材料）を JSON で一時の階層に書き、その path を出す。欄の JSON の形と検査は
-[docs/catchup-spec.md](docs/catchup-spec.md) の 5.1〜5.3。
+(`--render <drawing material JSON> <fields JSON>` draws the page, rebuilds the index, and opens it in VS Code, printing the path and one line. `--setup` prepares viewing in VS Code.)
 
-以下は AI が読む文字の材料（直接叩いたときに出るもの）の中身。
+Only with `--switch` does it change your local branch (by default it only reads). With `this` it does nothing. `--out` writes, along with the text material, the structure that the page template draws (the drawing material) as JSON to a temporary directory and prints its path. The shape and checks of the fields JSON are in sections 5.1 to 5.3 of
+[docs/catchup-spec.md](docs/catchup-spec.md).
 
-本文の材料は、作者の本文（60 行まで。`--full` で全部）と、閉じる issue・本文が # で指す issue / PR（3 件まで）の
-本文の冒頭（12 行）。焦点に関係なく末尾の先頭に出る。地図の材料は、変更ファイルと ±行数、同じ階層の既存、名前の言及、新規ファイルの先頭コメントと骨組み、既存
-ファイルの変更。既存ファイルの変更は **diff ではなく「今の姿に機械が帯を入れたもの」**——関数まるごと（`git diff -W`）を、
-その言語の色が付く枠にそのまま貼れる形で出す。実線の枠 `┏ … ┗` の中が変わった所で、行頭が `#│`（コメント記号に `│`）の
-薄い行は前・色の行は今、点線 `┅` は畳んだ区間（IntelliJ の gutter の端末版。unified diff は `@@` が人に意味を持たず、`+`/`-` が
-構文の色を消す）。散文・設定（md・json など）も同じ形で出る——関数の境目が無いので、機械が文脈 10 行で切る
-（file の種類で地図の中身を出し分けない。出し分けると md が主のリポジトリでは木しか残らない）。
-枠の前には毎回 `飛び先 path:行` が付く（head の行番号。AI が見出しの backtick に写すと端末でクリックで開ける。
-付かないのは file ごと削除された file だけ）。
-関数まるごとにするには手元がその checkout で base と head の commit を持っていることが要り、無ければ `gh pr diff` の
-文脈 3 行で同じ形にして、その旨を書く。長い関数は 200 行を超えると変更の前後 30 行を残して畳む。1 file 300 行を超えたら関数の切れ目で止め、続きは `catchup.py <番号> --frame <path>`。
-同じ階層の既存は、手元がそのリポジトリの checkout のときだけ出る（違えば「出せない」と書く）。
-指摘の head の行は、手元がそのリポジトリの checkout でその commit を持っていれば `git show` で（未コミットの
-編集は混ぜない）、無ければ GitHub から取る。
+What follows is the content of the text material the AI reads (what is printed when you run the script directly).
 
-PR のとき機械が足す材料は他に 4 つ。どれも事実だけで、判断は AI に残す。
+The description material is the author's description (up to 60 lines; all of it with `--full`) and the beginning (12 lines) of the bodies of the issues it closes and the issues / PRs the description points to with # (up to 3). It is printed at the start of the end section regardless of focus. The map material is the changed files and their ± line counts, existing files in the same directory, mentions of names, the leading comments and skeletons of new files, and the changes to existing
+files. Changes to existing files are **not a diff but "the current state with bands added by the machine"**: the whole function (`git diff -W`), in a form you can paste as is into a frame colored for that language. Inside the solid frame `┏ … ┗` is what changed; faint lines starting with `#│` (the comment marker plus `│`) are before, colored lines are now, and the dotted line `┅` is a folded section (a terminal version of the IntelliJ gutter. In a unified diff, `@@` means nothing to a person, and `+`/`-` remove the syntax colors). Prose and settings (md, json, and so on) come out in the same form. They have no function boundaries, so the machine cuts them with 10 lines of context
+(the content of the map is not varied by file type; if it were, a repository mostly made of md would be left with only the tree).
+Every frame is preceded by `飛び先 path:行` ("jump target path:line"; the head line number. When the AI copies it into a heading in backticks, you can click it in the terminal to open it.
+Only files deleted entirely do not get one).
+Showing whole functions requires the local checkout to have the base and head commits; if it does not, the same form is built from `gh pr diff` with 3 lines of context, and the output says so. A long function over 200 lines is folded, keeping 30 lines before and after the change. If one file exceeds 300 lines, it stops at a function boundary; for the rest, use `catchup.py <番号> --frame <path>` (`<番号>` is the item number).
+Existing files in the same directory are shown only when the local checkout is that repository's checkout (otherwise it says they "cannot be shown").
+The head line for a review comment comes from `git show` if the local checkout is that repository's checkout and has that commit (uncommitted
+edits are not mixed in); otherwise it is fetched from GitHub.
 
-- **飛び先**——変更の各枠の前に `飛び先 path:行`（head の行番号。hunk の新側の開始行。新規 file は先頭の
-  材料の頭に `path:1`）。AI が箇所の見出しと、同じ file の 2 つ目以降の枠の注釈に写す。付かないのは
-  file ごと削除された file だけ——head にもう無いので開けない
-- **取り込み先／その枝の PR／上に積む**——base が既定ブランチでないときだけ「いまの状態」に `取り込み先` と、その枝を
-  head にする同じリポジトリの PR（3 件まで。状態・承認・作者。無ければ「無い」）。この PR を base にする open な PR は
-  「つながっている先」に `上に積む`（3 件まで）。積まれた PR は、下が入るまで既定ブランチに入らない
-- **依頼先の候補**——レビュー依頼が誰にも出ていないときだけ、GitHub が提案する候補（suggested reviewers）と
-  その理由（この PR に発言あり・変更 file の commit 者）を 1 行。決めるのは AI ではなく私
-- **私の痕跡以降に変わった file**——私の最後の痕跡（レビュー・スレッドの最初の発言・push）が指す commit を
-  基準に、その後の作者側の commit（取り込みの merge は数だけ）が触った file を状態（M/A/D…）と path で。基準が
-  本文コメントやスレッドへの返信で commit に結び付かないときは、日付で最も近い commit を基準にして「近似」と
-  断る。基準の commit が取った commit（新しい 100 本）に無ければ、履歴の書き換え（rebase）か窓の外かを総数で
-  見分けて 1 行だけ——書き換えかどうか分からないときはそう言う。手元がその checkout なら
-  `git log --name-status` で 1 回、無ければ commit ごとに GitHub から（上限 20 本。超えた分は「見ていないもの」に）
+For a PR, the machine adds 4 more kinds of material. All are facts only; judgment is left to the AI.
 
-依存は `gh`（認証済み）と `python3` だけ。**「私」は `gh` の認証ユーザー。** `--me` は、それを別の人に差し替えて見たいときだけ渡す。
+- **飛び先 (jump target)**: before each frame of changes, `飛び先 path:行` (the head line number; the start line on the new side of the hunk. For a new
+  file, `path:1` at the start of the leading material). The AI copies it into the heading of the location and into the notes for the second and later frames of the same file. Only files deleted entirely do not get one, because they no longer exist at head and cannot be opened
+- **取り込み先 (merge target) / that branch's PR / 上に積む (stacked on top)**: only when base is not the default branch, "いまの状態" (current state) gets `取り込み先` and the PRs in the same repository whose head is that branch (up to 3; state, approval, author; if none, "none"). Open PRs that use this PR as base are listed under "つながっている先" (connected items) as `上に積む` (up to 3). A stacked PR does not get into the default branch until the one below it is merged
+- **依頼先の候補 (reviewer candidates)**: only when no review request has been sent to anyone, one line with the candidates GitHub suggests (suggested reviewers) and the reasons (commented on this PR, committed to the changed files). The decision is mine, not the AI's
+- **私の痕跡以降に変わった file (files changed since my last trace)**: based on the commit that my last trace (a review, the first comment in a thread, a push) points to, the files touched by the author's commits after it (merges that pull in other branches are only counted), with state (M/A/D…) and path. When the base is a body comment or a thread reply that is not tied to a commit, the commit closest by date is used as the base and the output says "approximate" (近似). If the base commit is not among the commits fetched (the newest 100), it tells by the total count whether history was rewritten (rebase) or it is outside the window, in one line; when it cannot tell whether history was rewritten, it says so. If the local checkout is that checkout, it runs
+  `git log --name-status` once; otherwise it fetches each commit from GitHub (up to 20; the rest go under "見ていないもの" (what was not looked at))
 
-GitHub に結び付いていないメールで commit していると、GitHub 上では commit の主が空になる（名前とメールだけ残る）。
-手元の `git config user.email` と一致する commit は自分の push として数える——これをしないと、自分の push が
-「その後に起きたこと」に他人の出来事として混ざり、「私が最後にしたこと」が実際より古くなる（実測: 1 か月ずれた）。
-名前では照合しない（同名の他人の push を私にしてしまう）。照合に使う config は実行した場所のものなので、
-一致しなかった結び付き無しの commit は「見ていないもの」で名前ごと申告する。`--me` を渡したときは照合しない。
+The only dependencies are `gh` (authenticated) and `python3`. **"I" (私) is the `gh` authenticated user.** Pass `--me` only when you want to view it as someone else.
 
-### 何が返るか
+If you commit with an email not linked to GitHub, the commit author is empty on GitHub (only the name and email remain).
+Commits matching the local `git config user.email` are counted as your own pushes. Without this, your own pushes would be mixed into "その後に起きたこと" (what happened after) as someone else's events, and "私が最後にしたこと" (what I did last) would look older than it is (measured: off by a month).
+Names are not matched (that would make a push by someone else with the same name mine). The config used for matching is the one where the command runs, so unlinked commits that did not match are reported by name under "見ていないもの". When `--me` is passed, no matching is done.
 
-**1 枚のページ。** 上から読む人の時間で 3 段に並ぶ——5 秒で**いまの番**（誰の番か・立場・1 文・次の一手・
-止めているものの行。GitHub のマージの欄と同じ並び。状態の値はこの行にだけ出す）、1 分で**前回から**（GitHub の PR の会話の流れと同じ縦の並びの番の受け渡しと、
-最後にしたこと・止めているものの原因の短い文）と**この PR がすること**（中身で形を選ぶ図と、前提から書く説明と、差分を開ける変更点）、5 分で**指摘**
-（GitHub のレビューのスレッドと同じ形。差分の抜粋・私と相手の最後の発言を Markdown で・前回から file が変わったか）・**CI**（赤ごとの
-ログの末尾）・**変更**（前回からと PR 全体を切り替える差分。GitHub の Files changed の形）・**手元**。末尾に見ていないもの。
-端末に返るのは path と 1 行だけ:
+### What comes back
+
+**One page.** From the top, it is arranged in 3 tiers by reading time. 5 seconds: **the current turn** (whose turn, your position, one sentence, next step, and the row of what is blocking; these rows are lined up in the same order as the merge box at the bottom of a GitHub PR page; state values appear only in this row). 1 minute: **since last time** (the hand-offs of the turn, in the same vertical order as the GitHub PR conversation, plus short sentences on what was done last and the cause of what is blocking) and **what this PR does** (a figure whose form is chosen by the content, an explanation that starts from the premise, and change points whose diffs you can open). 5 minutes: **review comments**
+(the same form as GitHub review threads: a diff excerpt, my last comment and the other side's in Markdown, and whether the file changed since last time), **CI** (the end of the log for each red check), **changes** (a diff you can switch between "since last time" and "whole PR"; the form of GitHub's Files changed), and **local**. At the end is what was not looked at.
+The terminal gets only the path and one line:
 
 ```
 /home/me/.cache/attention/catchup/example-app/482.html
 #482 fix(api): 添付ファイルの取りこぼしを塞ぐ — 私の番。次: e5096175 を読み、[block] の直しを確かめる
 ```
 
-AI が書くのは欄の JSON だけで、機械の出力（作者の本文も末尾に出る）を材料に、足りないもの——CI が落ちた理由・依頼が
-済んでいるか——を確かめてから書く。欄は旧の散文の段落を 1 つずつ持つ:
+The AI writes only the fields JSON, using the machine output (the author's description is also printed at the end) as material, and checks what is missing (why CI failed, whether the request has been handled) before writing. Each field holds one paragraph of the old prose:
 
 ```json
 {
@@ -265,69 +203,64 @@ AI が書くのは欄の JSON だけで、機械の出力（作者の本文も�
 }
 ```
 
-`headline` で読む人の用事が済む——立場と、どこで止まっているか（この件で私が動く／動かす場所は別の番号／相手待ち／
-誰の番でもない）と一手。欄の順は引き継ぎの定型 SBAR に重ねてあり、`where` が最後にしたこと（背景）、`turn` が止めて
-いるもの（評価）、`next` が次にやること（提案）。同じ番号を説明するのは 1 回。文体は常体の短文。
+`headline` alone covers what the reader needs: their position, where it is stuck (I act on this item / the place to act is a different number / waiting on the other side / nobody's turn), and the one step. The order of the fields follows the hand-off format SBAR: `where` is what was done last (background), `turn` is what is blocking (assessment), and `next` is what to do next (recommendation). The same number is explained only once. The style is plain form, short sentences.
 
-#### この型の根拠
+#### The basis for this format
 
-（下は端末の散文だった頃の型の根拠で、欄の順と中身の規則は今もこれに従う。等幅・1 画面の条件に関わる所——行長・
-「散文で話しかける」——は、ページになって機械の雛形が受け持つ）
+(The following is the basis for the format from when it was prose in the terminal. The order and content rules of the fields still follow it. The parts tied to monospace and a single screen, namely line length and "speak to the reader in prose", are now handled by the machine's template, since the output became a page.)
 
-型は新発明ではない。止まった作業を人へ渡す定型は既にあり、そこから欄と順が決まる。残る設計は
-「等幅・日本語・1 画面・読み手は自分自身」という媒体条件への落とし込みだけで、それも確立した
-知見で決まる。各規則の出所（一次情報で照合済み。適用条件も併記）:
+The format is not a new invention. Fixed formats for handing stopped work to a person already exist, and the fields and their order come from them. What is left to design is only fitting it to the conditions of the medium, "monospace, Japanese, one screen, the reader is yourself", and that too is settled by established knowledge. The source of each rule (checked against primary sources; the conditions of application are noted too):
 
-- **2 行目に結論**——米陸軍の文書規程 AR 25-50（2020 年版 1-38b）が「主要点を冒頭に置く（bottom
-  line up front）」と能動態を同時に要求する。米連邦の Federal Plain Language Guidelines（2011）も
-  「最も重要な情報を先に、背景は後ろに」。どちらも公文書・書簡が対象で、法的義務ではなく作法
-- **欄の順は引き継ぎの定型 SBAR**（Situation → Background → Assessment → Recommendation）に重ねる
-  ——2 行目が S、「最後にしたこと」が B、「止めているもの」が A、「次にやること」が R。SBAR は
-  Kaiser Permanente が 2002 年に医療へ持ち込んだ型で、由来は米海軍の潜水艦勤務者の報告習慣（公式
-  手順ではなく個人の実務経験）。「状態」を A と分けたのは、SBAR が観測（S・B）と判断（A）を分ける
-  ため——書き手が AI で判断が外れうるので、読む人がどの行を疑えばよいか分かる必要がある
-- **欄を消さない・「無し」と書く**——引き継ぎの定型 I-PASS は受け手の復唱（synthesis by receiver）
-  を構成要素に持ち、導入した 9 小児病院の研修医で医療過誤が 23% 減った（Starmer ら、NEJM 2014）。
-  片方向のテキストでは復唱が使えないので、抜けの検出を「該当なし」の明示に頼る
-- **段落は 4 文以内、1 文は 40 字前後**——W3C の日本語組版処理の要件（JLReq）が横組の 1 行を最大約
-  40 字とし、欧文の Bringhurst が 45〜75 字・理想 66 字とする（単段・本文サイズの前提）。端末では
-  描画側が幅で折るので行長は指定できない。代わりに、目が一息で追う量として文を 40 字前後に切り、
-  段落を短くする（GOV.UK は 25 語を超えたら分割を検討）
-- **番号は初出で説明し、以後は番号だけ**——Haviland & Clark（1974）の実験は、文の既知情報の先行詞が
-  直前の文脈に直接あれば、推論で橋渡しする場合より読みが速いことを示した（語順の話ではない）。
-  番号を説明なしに 2 度出すと、読む人は橋渡しに戻る
-- **段落は 5 つ・増やさない**——作業記憶で一度に持てる塊は約 4（3〜5）（Cowan 2001。リハーサルを
-  遮断した条件での純粋な容量。Miller の 7±2 はこれより多い）。太字の 1 段落＋4 で上限際
-- **日付は「N 日前（M/D）」**——/whose-turn の日数と揃える。戻った人が持つ手掛かりは暦より経過時間
-  （これは判断で、一次情報は無い）
-- **1 文 1 情報・能動・肯定**——Federal Plain Language Guidelines と GOV.UK（25 語を超えたら分割を
-  検討）。日本語の公的指針として「やさしい日本語ガイドライン」（出入国在留管理庁・文化庁 2020）が
-  あるが、対象は在留支援の情報発信で、ここでは文の構造の規則だけ借りて語彙制限は採らない
-- **散文で、読む人に話しかける**——等幅の枠に並んだラベル列は「機械の出力」に見えて、読む前に構える
-  （実測: 本人が「読む気が失せる」）。同じ内容を太字 1 文＋短い段落で書いた版が通じた。根拠は 4 つ、
-  いずれも一次情報で照合済み。書き手の分類で組んだ文章は読みにくく、読み手の必要で組み直せという
-  Flower（1979, College English）の writer-based / reader-based prose。読む人に直接語りかける
-  「you」を使えという Federal Plain Language Guidelines（2011, II「Use pronouns to speak directly to
-  readers」）。処理しやすい刺激ほど好まれるという処理流暢性の総説（Reber, Schwarz & Winkielman 2004,
-  PSPR——知覚刺激の実験のレビューで、文書への転用は類推）。ウェブの読み手は 79% が走査し、強調した
-  重要語・意味のある小見出し・1 段落 1 案・語数を半分に、という Nielsen（1997。参加者 19 人の観察）
-- **絵は構造、意味は散文**——CodeRabbit の PR 要約（Walkthrough）は Sequence Diagram(s) の節を、
-  図で示せる流れがある変更にだけ付け、無い PR では節ごと出ない（SaaS の既定の挙動。適用はレビュー要約で、
-  描く条件の仕様は公開文書で確かめていない）。ここでは絵は部品の関係が言えれば極力描き（読み飛ばすかは
-  読む人が決める）、PR の意味は説明の散文で。
-  実測: 初見の読み手 3 人が「大枠は図が速い、意味は散文」
-- **読む順は「呼ぶ側 → 本体 → helper」で据え置き**——Baum ら（ICSME 2017）はレビューで変更を読む順の理論を
-  立て、回答者の 85% が bottom-up（呼ばれる側から）を支持した。続く実験（Baum ら、EMSE 2019）では順の効果は
-  傾向にとどまり有意でない（対象は業務のレビュアーによる実験室の課題）。決め手が無いので入口からの順を
-  変えず、読む人が変えたければ変える
+- **The conclusion on line 2**: the US Army writing regulation AR 25-50 (2020 edition, 1-38b) requires putting the main point at the beginning ("bottom
+  line up front") together with the active voice. The US federal Federal Plain Language Guidelines (2011) also say
+  "put the most important information first, background later". Both apply to official documents and letters, and are practice, not legal obligations
+- **The order of the fields follows the hand-off format SBAR** (Situation → Background → Assessment → Recommendation):
+  line 2 is S, "what I did last" is B, "what is blocking" is A, "what to do next" is R. SBAR was brought into healthcare by
+  Kaiser Permanente in 2002, and comes from the reporting habits of US Navy submarine crews (personal practical experience, not an official
+  procedure). "State" is separated from A because SBAR separates observation (S, B) from judgment (A).
+  The writer is an AI and its judgment can be wrong, so the reader needs to know which rows to doubt
+- **Do not remove fields; write "none"**: the hand-off format I-PASS includes the receiver's read-back (synthesis by receiver)
+  as a component, and among residents at the 9 children's hospitals that adopted it, medical errors fell by 23% (Starmer et al., NEJM 2014).
+  One-way text cannot use read-back, so detecting omissions relies on stating "not applicable" explicitly
+- **Paragraphs of at most 4 sentences, sentences of about 40 characters**: the W3C Requirements for Japanese Text Layout (JLReq) put a horizontal line at a maximum of about
+  40 characters, and Bringhurst for Western text gives 45 to 75 characters, ideally 66 (assuming a single column and body text size). In a terminal,
+  the renderer wraps by width, so line length cannot be specified. Instead, sentences are cut to about 40 characters as the amount the eye follows in one breath, and
+  paragraphs are kept short (GOV.UK suggests considering a split above 25 words)
+- **Explain an item number (PR / issue number) on first use, and only use the number after that**: the experiments of Haviland & Clark (1974) showed that when the antecedent of a sentence's given information is
+  directly in the preceding context, reading is faster than when it has to be bridged by inference (this is not about word order).
+  If a number appears twice without explanation, the reader goes back to bridge it
+- **5 paragraphs, no more**: the number of chunks working memory can hold at once is about 4 (3 to 5) (Cowan 2001; pure capacity under conditions where
+  rehearsal is blocked. Miller's 7±2 is more than this). One bold paragraph plus 4 is at the limit
+- **Dates as "N 日前（M/D）" (N days ago (M/D))**: matched with the day counts of /whose-turn. The cue a returning person has is elapsed time rather than the calendar
+  (this is a judgment; there is no primary source)
+- **One piece of information per sentence, active, affirmative**: Federal Plain Language Guidelines and GOV.UK (consider a split above 25
+  words). As a Japanese public guideline there is the "やさしい日本語ガイドライン" (Easy Japanese Guidelines; Immigration Services Agency and Agency for Cultural Affairs, 2020), but
+  its subject is information for supporting foreign residents; only its rules on sentence structure are borrowed here, not its vocabulary limits
+- **Speak to the reader in prose**: a row of labels lined up in a monospace frame looks like "machine output", and the reader braces before reading
+  (measured: the user said "読む気が失せる", "it kills my will to read"). A version with the same content written as one bold sentence plus short paragraphs got through. There are 4 grounds,
+  all checked against primary sources. Text organized by the writer's categories is hard to read and should be reorganized by the reader's needs:
+  Flower's (1979, College English) writer-based / reader-based prose. Use "you" to address the reader directly:
+  Federal Plain Language Guidelines (2011, II "Use pronouns to speak directly to
+  readers"). Stimuli that are easier to process are preferred: the review of processing fluency (Reber, Schwarz & Winkielman 2004,
+  PSPR; a review of experiments on perceptual stimuli, so applying it to documents is an analogy). 79% of web readers scan, and highlighted
+  keywords, meaningful subheadings, one idea per paragraph, and half the word count help: Nielsen (1997; observation of 19 participants)
+- **Pictures for structure, prose for meaning**: CodeRabbit's PR summary (Walkthrough) adds a Sequence Diagram(s) section
+  only to changes that have a flow that can be shown in a diagram, and the section is absent for PRs without one (the default behavior of the SaaS; it applies to review summaries,
+  and the specification of when it draws has not been checked in public documentation). Here, pictures are drawn whenever the relationships between components can be stated (whether to skip them is
+  up to the reader), and the meaning of the PR goes in the prose of the explanation.
+  Measured: 3 first-time readers said "the figure is faster for the big picture, the prose for the meaning"
+- **The reading order "caller → main body → helper" is kept as is**: Baum et al. (ICSME 2017) built a theory of the order in which changes are read during review,
+  and 85% of respondents supported bottom-up (from the callee). In the follow-up experiment (Baum et al., EMSE 2019) the effect of order
+  was only a tendency and not significant (an in-lab task by professional reviewers). Since there is no deciding factor, the order from the entry point is
+  not changed; readers who want a different order can change it themselves
 
-この型に落ち着く前の実測: 同じ #1276 を「3 行＋機械の出力 40 行＋説明」で出したものは、初見の読み手
-3 人が答えに着くまで 3・3・44 行で「二重」「回りくどい」。固定ラベル 5 つのコードブロックにした版は
-6〜7 行で全員が正しく状態を言えたが、本人が「読む気が失せる」と言った——等幅の枠は機械の出力に見える。
-太字 1 文＋短い段落の散文にして落ち着いた。2 行目を「私の番。ただし直すものは無い」と書いた版は
-3 人中 3 人が矛盾に読んだので、動かす場所（私のもう 1 本の PR #1596）を直接書く。
+Measurements before settling on this format: when the same #1276 was output as "3 lines + 40 lines of machine output + explanation", 3 first-time readers
+took 3, 3, and 44 lines to reach the answer and called it "duplicated" and "roundabout". The version as a code block with 5 fixed labels let all of them state the status correctly in
+6 to 7 lines, but the user said "読む気が失せる" ("it kills my will to read"); a monospace frame looks like machine output.
+It settled on prose with one bold sentence plus short paragraphs. A version whose line 2 said "私の番。ただし直すものは無い" ("my turn, but there is nothing to fix") was read as
+a contradiction by 3 out of 3 readers, so the place to act (my other PR #1596) is written directly.
 
-機械の出力（AI が読む材料。スクリプトを直接叩いたときに出るもの）はこれ。人名とリポジトリ名は伏せてある。
+This is the machine output (the material the AI reads; what is printed when you run the script directly). Personal names and repository names are masked.
 
 ```
 # #482 fix(api): 添付ファイルの取りこぼしを塞ぐ
@@ -371,101 +304,103 @@ AI が書くのは欄の JSON だけで、機械の出力（作者の本文も�
   …（この下に本文と地図の材料が続く）
 ```
 
-**スクリプトを直接叩いたときは、1 行目と最初の 2 節だけで戻れる。** 1 行目で**私の立場**（実装者かレビュアーか）と
-**自分が動かせるのか待ちなのか**、「私が最後にしたこと」で**自分がどこまで言ったのか**、
-「私に求められていること」で**相手が何を待っているのか**が分かる。この例なら「指摘を出した → 相手が
-直して報告した → いま自分が見る番」まで 3 行で戻れる。残りは裏を取るための材料で、要るときだけ読めばよい。
+(The sections are: 私が最後にしたこと "what I did last", 私に求められていること "what is asked of me", その後に起きたこと "what happened after", いまの状態 "current state", つながっている先 "connected items", 見ていないもの "what was not looked at", and 本文 "description".)
 
-**「私が最後にしたこと」と「私に求められていること」を並べて出すのが要点。** 片方だけでは戻れない
-——自分が何を言ったかを思い出しても、相手が今何を求めているかは分からないし、逆も同じ。
+**When you run the script directly, line 1 and the first 2 sections are enough to get back.** Line 1 tells you **your position** (implementer or reviewer) and
+**whether you can act or are waiting**; "私が最後にしたこと" tells you **how far you had gone**, and
+"私に求められていること" tells you **what the other side is waiting for**. In this example, you get back to "I gave review comments → the other side
+fixed them and reported → now it is my turn to look" in 3 lines. The rest is material for verifying, to read only when needed.
 
-機械が決めているのは 3 つ。
+**The key point is showing "私が最後にしたこと" (what I did last) and "私に求められていること" (what is asked of me) side by side.** Either one alone is not enough to get back.
+Remembering what you said does not tell you what the other side wants now, and the reverse is also true.
 
-- **「私が最後にしたこと」は push を含む**が、**依頼を探す範囲は最後の発言（コメント・レビュー・
-  スレッド）より後で切る。** push は返事ではない——push で切ると、push の前に来ていた問いが答えた
-  ことになって消える
-- **自分の件（作者か担当）では、名指しの無い発言も最後の 1 件を拾い、「名指しは無い」と断る。**
-  自分の PR への発言は宛先を書かないのが普通で、名指しだけを待つと丸ごと落ちる。問いかどうかは
-  機械では決めないので、AI が本文で確かめる
-- **参照（他の PR / issue がこの番号を書いた）は出来事に数えない。** この件の状態を変えないのに
-  表示枠を食い、本当の出来事を押し出す。「つながっている先」にだけ置く
+The machine decides 3 things.
 
-「見ていないもの」には、取得上限で切れた分を**何を見落としうるか**まで書く（「コミットの古い方 43 件。
-私の痕跡や私宛の依頼がそこにあれば見落とす」）。件数だけでは、読む人がこの報告のどこを疑えばよいか
-分からない。
+- **"私が最後にしたこと" includes pushes**, but **the range searched for requests is cut after your last comment (comment, review,
+  thread).** A push is not a reply. If the range were cut at a push, a question that arrived before the push would count as answered
+  and disappear
+- **On your own items (as author or assignee), it also picks up the last comment without a mention, and says "名指しは無い" ("no mention").**
+  Comments on your own PR usually do not name the addressee, and waiting only for mentions would drop them entirely. Whether it is a question
+  is not decided by the machine, so the AI checks the text
+- **References (another PR / issue wrote this number) are not counted as events.** They do not change the state of this item but take up
+  display space and push real events out. They are placed only under "つながっている先" (connected items)
 
-命令書は意図と判定基準で書き、出力の文言は指定しない。文言を指定すると、その言い回しが場面に関係なく
-毎回出て雑音になる（実測: 2026-09-02、グローバル設定の「求めるものが無いなら『読むだけでよい』と言う」が、
-雑談の返答にまで「読むだけでよいターンです」を付けた）。例文は書き方の一つとして置き、写す型ではないと断る。
+"見ていないもの" (what was not looked at) states, for anything cut off by fetch limits, **what could be missed** ("コミットの古い方 43 件。
+私の痕跡や私宛の依頼がそこにあれば見落とす": "the older 43 commits; if a trace of mine or a request to me is there, it is missed"). A count alone does not tell the reader which part of this report to doubt.
 
-## `/reflect` — ある期間を振り返る
+The command definition files (the instructions the AI reads) are written as intent and criteria, and do not specify the wording of the output. If wording is specified, that phrase appears every time regardless of the situation and becomes noise (measured: on 2026-09-02, the global setting "if nothing is asked, say『読むだけでよい』 (just read)" made even chat replies end with "読むだけでよいターンです" ("this is a just-read turn")). Example sentences are given as one way of writing, with a note that they are not a template to copy.
+
+## `/reflect` — look back over a period
 
 ```
 /reflect               # 今日を含む 7 日
 /reflect today         # 今日（yesterday・month・2026-10-15・2026-10-01..2026-10-15 も）
 ```
 
-機械（`scripts/reflect.py`）が、その期間の会話・裏で起こされた会話（`claude -p` など）・commit・GitHub の動き・
-Claude Code の `/insights` の控え・入っているプラグインと指示ファイル・前に出した提案の台帳を集め、AI が
-**改善の提案**（回数 × 手間の大きい順。自動にする前に、やめられないかを先に見る）と、**仕事の仕方についての
-気づきとヒント**を書き、機械が 1 枚の HTML（`~/.cache/attention/reflect/<始まり>_<終わり>.html`）に描く。
-仕様は [docs/reflect-spec.md](docs/reflect-spec.md)。
+(No argument means the 7 days including today. `today` means today; `yesterday`, `month`, a date such as `2026-10-15`, and a range such as `2026-10-01..2026-10-15` also work.)
 
-- 読むのは今の Claude Code の設定のフォルダの会話だけ。ほかのフォルダも読むなら `ATTENTION_REFLECT_CONFIG_DIRS`
-  （OS の path の区切り文字でつなぐ）。
-- 日記の置き場を `ATTENTION_REFLECT_DIARY_DIR` で決めていれば、1 日の期間のとき、その日の日記
-  （`<置き場>/YYYY-MM-DD.md`）の末尾の節（`<!-- reflect:start -->` から `<!-- reflect:end -->`）を書き直す。
-  手で書いた行には触らない。
-- 提案の台帳は `${XDG_STATE_HOME:-~/.local/state}/attention/reflect-ledger.json`。採る・却下・保留は会話で伝えれば
-  `reflect.py --decide` で書く。却下した提案は次から出ない。
-- 定時に回す仕組みは持たない。回したい人は、自分の環境の定時の仕組みから `claude -p "/attention:reflect yesterday"` を呼ぶ。
+The machine (`scripts/reflect.py`) collects, for that period, the conversations, conversations started in the background (`claude -p` and so on), commits, GitHub activity,
+Claude Code's `/insights` records, installed plugins and instruction files, and the ledger of past proposals. The AI writes
+**improvement proposals** (in descending order of count × effort; before automating something, it first checks whether it can be stopped instead) and **observations and hints about
+how you work**, and the machine draws them into one HTML page (`~/.cache/attention/reflect/<始まり>_<終わり>.html`, start_end).
+The specification is [docs/reflect-spec.md](docs/reflect-spec.md).
 
-## `/what-am-i-doing` — いま居るセッションに戻る
+- It reads only conversations in the current Claude Code config folder. To read other folders too, use `ATTENTION_REFLECT_CONFIG_DIRS`
+  (joined with the OS path separator).
+- If you set a place for a diary with `ATTENTION_REFLECT_DIARY_DIR`, then for a one-day period it rewrites the last section of that day's diary
+  (`<置き場>/YYYY-MM-DD.md`, where `<置き場>` is that place), from `<!-- reflect:start -->` to `<!-- reflect:end -->`.
+  It does not touch lines you wrote by hand.
+- The proposal ledger is `${XDG_STATE_HOME:-~/.local/state}/attention/reflect-ledger.json`. If you say in the conversation that you adopt, reject, or defer a proposal,
+  it is recorded with `reflect.py --decide`. Rejected proposals do not appear again.
+- It has no mechanism for running on a schedule. If you want that, call `claude -p "/attention:reflect yesterday"` from your own environment's scheduler.
 
-### 使い方
+## `/what-am-i-doing` — get back to the session you are in
+
+### Usage
 
 ```
 /what-am-i-doing
 ```
 
-`CLAUDE_CODE_SESSION_ID` から自分の記録を引くので、引数は要らない。
+It looks up your own record from `CLAUDE_CODE_SESSION_ID`, so no argument is needed.
 
-### 何が返るか
+### What comes back
 
-**返るのは説明であって、記録の写しではない。** 形は `/catchup` と同じ——**同僚に口で話すときの散文**、
-太字の 1〜2 文で始まり、段落の順は固定（状況 → 止めている理由と選択肢 → 次にやること → 記録の在りか）。
-15 行前後・400 字前後、です・ます。1 段落目で「何をしていて、読む人に何が要るか」が済む——判断待ちなら
-何を決めてほしいかを選択肢の名前まで。「状況」は読む人が知っていること（頼んだ・言ったこと）から
-始め、不具合は現象で書く。選択肢は「何をする」を主語述語で、初見が読める言葉で。却下した案・作ったもの・
-レビューの記録は本文に書かず、ファイルや番号で指し、いま読む必要が無いと分かるようにする。扱っている件の番号は、
-機械が URL を出していればリンクにする。
+**What comes back is an explanation, not a copy of the record.** The form is the same as `/catchup`: **prose as if speaking to a colleague**,
+starting with 1 to 2 bold sentences, with a fixed paragraph order (situation → the reason it is stopped and the options → what to do next → where the records are).
+About 15 lines and about 400 characters, in polite form (です・ます). The first paragraph covers "what was being done, and what the reader needs to provide". If a decision is pending,
+it says what should be decided, down to the names of the options. "Situation" starts from what the reader knows (what they asked for or said),
+and bugs are described by their symptoms. Options are written as "what to do" with subject and predicate, in words a first-time reader understands. Rejected options, things that were built,
+and review records are not written in the body; they are pointed to by file or number, so it is clear that they do not need to be read now. The numbers of the items being handled
+are links if the machine printed URLs.
 
-この形にしたのは実測から。150 行の返答（何の件か／立場／やってきたこと／判断／次の順）を受け取った
-本人が「結局どういう判断をしてほしいのかだけ教えて」「初見にもわかりやすく」と 2 回聞き直し、3 回目に
-通じた答えが「状況を最初から → なぜ判断が要るか → 3 つの選び方」の散文だった——引き継ぎの定型
-SBAR（状況→背景→評価→提案）と同じ並び。固定ラベルのコードブロックに畳んだ版は初見の読み手 3 人が
-pass したが、本人は「読む気が失せる」と言った。
+This form comes from measurement. The person who received a 150-line reply (what the item is / position / what was done / decisions / order of next steps)
+asked twice, "結局どういう判断をしてほしいのかだけ教えて" ("just tell me what decision you want from me") and "初見にもわかりやすく" ("make it clear for a first-time reader"), and the answer that got through
+on the third try was prose in the order "the situation from the start → why a decision is needed → 3 ways to choose". That is the same order as the hand-off format
+SBAR (situation → background → assessment → recommendation). A version folded into a code block with fixed labels passed with 3 first-time readers,
+but the person said "読む気が失せる" ("it kills my will to read").
 
-到達点は要約ではない——**読む人は過去のやり取りを遡らないので、この 1 つの返答だけで、
-その場に居た人と同じ所まで追いつける**必要がある。出来たかどうかの判定は「読んだ人が次の一手を
-自分で実行できるか」。だから決まったことには**選ばなかった案と理由**を、作ったものには**位置と数**を
-添える。
+The goal is not a summary. **The reader does not go back through past exchanges, so this one reply alone must let them
+catch up to the same point as someone who was there.** Success is judged by "can the reader carry out the next step
+on their own?". So decisions come with **the options not chosen and why**, and things that were built come with **their location and count**.
 
-説明の道具立ては固定ではない。変更の勘所は**「変更前 → 変更後」の数行の抜き書き**で、
-系のどこを触っているかは**系の前後の絵**で見せる（描く条件と守ることは `/catchup` の説明の絵と同じ。
-同梱の `figure-check.py` で幅と罫線を検査してから出す）。ただし入れるかどうかは毎回同じ秤で決まる
-——**消しても次にやることが変わらない要素は落とす**。だから出力の長さと道具立てはセッションごとに
-違う。立場（実装者かレビュアーか）は、会話で一番呼ばれている PR 番号から機械で当てる。送ったレビューも数える
-（レビューを送ると GitHub は依頼から外すので、依頼先だけを見るとレビュー中の PR が「未参加」に落ちる）。
+The means of explanation are not fixed. The key point of a change is shown as **a few extracted lines of "before → after"**,
+and which part of the system is touched is shown as **a picture of the system before and after** (the conditions for drawing and the rules to follow are the same as the explanation figure of `/catchup`.
+It is checked for width and box-drawing lines with the bundled `figure-check.py` before output). But whether to include them is decided by the same measure every time:
+**drop any element whose removal would not change what to do next**. So the length and means of the output differ
+from session to session. The position (implementer or reviewer) is inferred by machine from the PR number mentioned most in the conversation. Reviews you sent are also counted
+(when you send a review, GitHub removes you from the requested reviewers, so looking only at requested reviewers would drop a PR under review to "not participating").
 
-### 同梱スクリプトは材料であって出力ではない
+### The bundled script is material, not output
 
 ```
 python3 scripts/what-am-i-doing.py [--full] [--limit 25] [--topic 語句] [--frame path] [--out]
 ```
 
-出すのは**依頼と、それに対して何をしたかの対**。片方だけでは追いつけない——「何を頼まれたか」の
-一覧は問いの羅列で、状態を持たない。
+(`--topic 語句` takes a phrase.)
+
+It outputs **pairs of a request and what was done about it**. Either one alone is not enough to catch up: a list of
+"what was asked" is a list of questions and holds no state.
 
 ```
 # このスレッド — PR残件確認
@@ -490,46 +425,46 @@ python3 scripts/what-am-i-doing.py [--full] [--limit 25] [--topic 語句] [--fra
   未コミットの変更なし
 ```
 
-手元に未コミットの変更が 3 file 以上あるときは、変更ファイルの木（周辺の既存も薄く並べ、新規だけ緑）を
-`diff` の枠でそのまま貼る。部品は `scripts/lib/changemap.py` で `/catchup` の地図と共用。木の下には
-「変更の中身」が付く——`/catchup` の地図と同じ形（今の姿に機械が帯を入れた枠。コードは関数まるごと
-`git diff -W HEAD`、散文・設定は文脈 10 行）。新規 file（未追跡・add 済み）は先頭コメントと骨組みだけ。1 file 300 行・合計 800 行を
-超えたら関数の切れ目で止め、続きは `what-am-i-doing.py --frame <path>`（1 file を上限なしで）。
-AI は枠を言語名つきのコードブロックに写す（言語名は機械が枠の見出しの末尾に置く `（言語名 X）` を写し、無ければ
-拡張子から付ける）。枠の前の `飛び先 path:行` は、対応する端末でクリックするとその行が開く。
+When there are uncommitted local changes in 3 or more files, a tree of the changed files (with surrounding existing files shown faintly and only new ones in green) is pasted as is in a
+`diff` frame. The component is `scripts/lib/changemap.py`, shared with the `/catchup` map. Below the tree comes
+"変更の中身" (the content of the changes), in the same form as the `/catchup` map (frames of the current state with bands added by the machine; code as whole functions
+via `git diff -W HEAD`, prose and settings with 10 lines of context). New files (untracked or added) show only their leading comment and skeleton. If one file exceeds 300 lines or the total exceeds 800 lines,
+it stops at a function boundary; for the rest, use `what-am-i-doing.py --frame <path>` (one file, without a limit).
+The AI copies the frames into code blocks with a language name (it copies the `（言語名 X）` ("language name X") that the machine puts at the end of the frame heading, or, if absent,
+derives it from the file extension). The `飛び先 path:行` ("jump target path:line") before a frame opens that line when clicked in a supporting terminal.
 
-返答は各ターンの**冒頭だけ**を取る。全文を並べると記録の写しになり、読む方が会話を遡るのと
-変わらなくなる。区切りになった操作（コミット・push・テスト実行）は Bash の中身から拾う。
+Only **the beginning** of each turn's reply is taken. Listing the full text would make it a copy of the record, and reading it would be no different from
+going back through the conversation. Turning points (commit, push, test run) are picked up from the content of Bash calls.
 
-**題（`aiTitle`）は当てにしない。** Claude Code が序盤に付けたまま更新しないので、話題が移った
-後も古い題が出続ける（実測: 棚卸しからプラグイン作りへ移った後も「PR残件確認」のままだった）。
+**The title (`aiTitle`) is not relied on.** Claude Code sets it early and never updates it, so after the topic moves on,
+the old title keeps appearing (measured: after moving from an inventory to building a plugin, it stayed "PR残件確認" ("checking remaining PR items")).
 
-## この道具がしないこと
+## What this tool does not do
 
-- **判定をしない。** 「次に何をすべきか」は読む人か `/catchup` の AI が決める。スクリプトは材料だけ出す
-- **スクリプトは差分を要約しない。** 行の要約は思い出す助けにならず、機械が要約すると実物と違う言葉になる。
-  機械が末尾に付けるのは作者の本文と実物の行だけ——**指摘**（相手の発言がある未解決スレッドごとに、相手の発言と
-  head のその行）、**CI**（赤があれば落ちた step のログ）、**地図**（変更ファイルの木と、新規 file の作者の
-  先頭コメント・骨組み、既存 file の変更の枠——今の姿に帯を入れたもの）。作者が自分かどうかで出し分けず、有れば全部付ける。行は機械の出力から
-  写すだけで、要約はしない。焦点の語で 1 つに絞れる。「何の PR か」の説明は AI が作者の本文・閉じる issue・
-  先頭コメントから書く（型の後ろの「説明」）
-- **`/catchup` は全件の棚卸しをしない。** 対象は 1 つ（番号・URL・今のブランチ・会話の話題のどれか）で、
-  その番号を決めるのは `/whose-turn`
-- **手元を変えるのは `/catchup` の `--switch` の `git switch` と、手元に無い枝の元を 1 本だけ取る `git fetch` だけ。**
-  pull・merge・stash・commit・`gh pr checkout` はしない。追跡ファイルに未コミットがあれば移らず、手元にある枝は
-  fetch でも動かさない。他の 2 本は手元を読むだけ
-- **依頼先は決めない。** GitHub の候補（suggested reviewers）と、その理由を出すだけ。誰に頼むかは私が決める
-- **絵は機械が描かない。** `/what-am-i-doing` の絵は AI が説明の語で描き、機械（`figure-check.py`）は幅・行数・罫線のずれを
-  検査するだけ。`/catchup` の図は、AI が箱の並び（変更前・変更後）を欄に書き、機械はそれを決まった形の SVG にするだけ
-  ——何を箱にするかは機械が決めない
+- **It does not judge.** "What should be done next" is decided by the reader or by the AI in `/catchup`. The scripts only output material
+- **The scripts do not summarize diffs.** A summary of lines does not help you remember, and a machine summary uses words different from the actual lines.
+  All the machine appends at the end is the author's description and the actual lines: **指摘 (review comments)** (for each unresolved thread with a comment from the other side, their comment and
+  that line at head), **CI** (if there is red, the log of the failed step), **地図 (map)** (a tree of changed files, the author's
+  leading comments and skeletons of new files, and frames of changes to existing files, that is, the current state with bands added). It does not vary by whether you are the author; everything that exists is appended. Lines are only
+  copied from the machine output, not summarized. A focus word narrows it to one kind. The explanation of "what the PR is" is written by the AI from the author's description, the issues it closes, and
+  leading comments (the "explanation" after the format)
+- **`/catchup` does not take an inventory of everything.** It has one target (a number, a URL, the current branch, or a conversation topic), and
+  deciding that number is the job of `/whose-turn`
+- **The only things that change your local checkout are the `git switch` done by `--switch` of `/catchup` and the `git fetch` that gets the source of one branch that is not local.**
+  It does not pull, merge, stash, commit, or `gh pr checkout`. If tracked files have uncommitted changes it does not move, and existing local branches are
+  not moved by the fetch either. The other 2 commands, `/whose-turn` and `/what-am-i-doing`, only read the local checkout
+- **It does not decide whom to ask for review.** It only shows GitHub's candidates (suggested reviewers) and the reasons. I decide whom to ask
+- **The machine does not draw pictures.** The pictures of `/what-am-i-doing` are drawn by the AI in the words of the explanation, and the machine (`figure-check.py`) only checks width, line count, and misaligned
+  box-drawing lines. For the figures of `/catchup`, the AI writes the arrangement of boxes (before and after) into a field, and the machine only turns it into SVG of a fixed form;
+  the machine does not decide what becomes a box
 
-## 先行例
+## Prior art
 
-手番を明示するという考え方は Gerrit と Google Critique の **Attention Set**（Critique は 2015 導入）が先行例で、「なぜ今あなたの番か」を 1 行で示す点まで同じ。この道具が足しているのは、その理由に加えて**依頼の中身と自分の最後の発言を並べる**ところで、一覧ではなく 1 件に絞ったときだけ意味を持つ。
+The idea of making the turn explicit has prior art in the **Attention Set** of Gerrit and Google Critique (introduced in Critique in 2015), which goes as far as showing "why it is your turn now" in one line. What this tool adds, on top of that reason, is **putting the content of the request side by side with your own last comment**, which only makes sense when narrowed to one item rather than a list.
 
 - <https://gerrit-review.googlesource.com/Documentation/user-attention-set.html>
 - <https://www.gerritcodereview.com/design-docs/attention-set-use-cases.html>
 
-「取り込み先／その枝の PR／上に積む」は Gerrit の **Related Changes**（積まれた変更の親子を 1 件の画面に出す）が
-先行例。「依頼先の候補」は GitHub の **suggested reviewers**（PR 画面に出る提案）をそのまま材料にしたもので、
-この道具は選ばない。
+"取り込み先 (merge target) / that branch's PR / 上に積む (stacked on top)" has prior art in Gerrit's **Related Changes** (which shows the parent-child relations of stacked changes on one item's page).
+"依頼先の候補 (reviewer candidates)" uses GitHub's **suggested reviewers** (the suggestions shown on the PR page) as material as is;
+this tool does not choose.
