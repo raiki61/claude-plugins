@@ -34,16 +34,21 @@ _spec = importlib.util.spec_from_file_location("terms", ROOT / "works-dispatch" 
 terms = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(terms)
 
-SUFFIXES = (".md", ".py", ".toml", ".sh", ".json", ".yaml", ".yml")
+SUFFIXES = (".md", ".py", ".toml", ".sh", ".json", ".yaml", ".yml", ".html")
 SKIPPED = re.compile(r"^(works|works-factory)/|(^|/)CHANGELOG\.md$|(^|/)docs/adr/|(^|/)vendor/|/20\d\d-\d\d-\d\d[^/]*$|^docs/reform/ledger\.md$"
                      r"|^works-dispatch/dispatch/terms\.py$|^works-dispatch/dispatch/tests/test_terms\.py$|^scripts/terms")
 
 
+def targets():
+    """見るファイルのパス（git の追っているファイルのうち、SUFFIXES で終わり SKIPPED に当たらない物）。"""
+    files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    return sorted(x for x in files.split("\0") if x.endswith(SUFFIXES) and not SKIPPED.search(x))
+
+
 def counts():
     """(ファイルごとの件数, 読めなかった [(パス, 訳)])。読めない物を 0 件と数えると、増えたかを確かめずに通してしまう。"""
-    files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
     out, unread = {}, []
-    for path in sorted(x for x in files.split("\0") if x.endswith(SUFFIXES) and not SKIPPED.search(x)):
+    for path in targets():
         try:
             n = len(terms.text_problems((ROOT / path).read_text(encoding="utf-8")))
         except (OSError, UnicodeDecodeError) as e:

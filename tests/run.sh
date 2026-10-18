@@ -2397,7 +2397,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=749
+EXPECTED_CHECKS=750
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -7887,6 +7887,12 @@ expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(�
 # GitHub で保護しておらず、--land を通さずに手で push する道もある（docs/releasing.md）ので、main に入った後の CI でも同じ口で見る
 expect_output 0 "TERMS_OK" "リポジトリの文の IT の定着語でない言い方の件数が、ファイルごとに基準（scripts/terms-baseline.json）と同じ" \
     "$PY_BIN" "$ROOT/scripts/terms.py"
+# 見る口が、人に見せる画面のひな形（.html。attention/templates/ の /catchup などの画面）も見ること。ツールの出力の文も定着語で
+# 書く決まり（ルートの CLAUDE.md の「会話」）に入るので、拡張子の一覧から落ちると黙って見なくなる
+expect_output 0 "TERMS_HTML_OK" "語の検査（scripts/terms.py）が、画面のひな形の .html も見る" \
+    "$PY_BIN" -c 'import importlib.util, sys
+s = importlib.util.spec_from_file_location("t", sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+print("TERMS_HTML_OK" if "attention/templates/catchup.html" in m.targets() else "見ない: attention/templates/catchup.html")' "$ROOT/scripts/terms.py"
 # **機械が読む値の標準の決まり 3（日本語の定数で比べる所）と決まり 4（訳の注記の無い pass・continue だけの except）の数が、ファイルごとに
 # 基準どおりであること。** 数え方は docs/standards/machine-readable-values.md の「守らせ方」で、見る口は tests/value-rules.py の 1 本
 # （基準は tests/value-rules-baseline.json。増えたら赤、減ったら --update で基準を書き直させる。terms.py と同じ形）
