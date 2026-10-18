@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Added
+
+- アカウントごとの契約の段（Max 20x など）を出す `limits.py plan`（`--json` で機械向け）。dispatch の設定の各アカウントについて、Claude Code がログインのときに設定のフォルダの `.claude.json` に書く記録（`oauthAccount` の `organizationRateLimitTier`）を読み、段と、Claude Code が段を問い合わせた時点を出す。setup-token だけで入るアカウントはこの記録を持たず、setup-token の鍵はモデルへの要求しかできない（契約の段を返す口に 403 で断られ、使用率の応答ヘッダにも段は出ない）ので、そのアカウントは「分からない」と出し、理由と、引けるようにする手（同じアカウントでそのフォルダに一度 `claude auth login`）を添える。鍵はファイルに書かず、どのアカウントのログインも切り替えない（2026-10-18、my_notes の受付箱の頼み 9f53db）。
+
 ## [0.63.1] - 2026-10-18
 
 ### Fixed

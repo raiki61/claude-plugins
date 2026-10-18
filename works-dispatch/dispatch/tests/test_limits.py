@@ -3,6 +3,7 @@
 アカウントの数と名前は dispatch の設定から読み、1 つでも 7 つでも同じに動く。API と Keychain は偽物にする。"""
 
 import ast
+import datetime
 import json
 import pathlib
 import shlex
@@ -196,6 +197,82 @@ class ProbeAll(unittest.TestCase):
         # 失敗の後は、待ちの間は投げ直さない
         again = self.run_probe(accounts(2))
         self.assertEqual(again, [])
+
+
+class Plan(unittest.TestCase):
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp())
+
+    def record(self, rel, data):
+        path = self.home / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_tier_comes_from_the_login_record_of_each_folder(self):
+        # フォルダを書かないアカウントは ~/.claude.json、書くアカウントは <フォルダ>/.claude.json を読む。
+        # 会話の CLAUDE_CONFIG_DIR（ほかのアカウントのフォルダ）は、フォルダを書かないアカウントの記録の場所に使わない
+        self.record(".claude.json", {"oauthAccount": {"organizationRateLimitTier": "default_claude_max_20x",
+                                                      "organizationType": "claude_max", "profileFetchedAt": NOW * 1000}})
+        self.record(".claude-w7/.claude.json", {"oauthAccount": {"organizationRateLimitTier": "default_claude_max_5x"}})
+        env = {"HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(self.home / ".claude-w7")}
+        main = limits.plan_of(config.Account("main", "claude", None), env)
+        self.assertEqual((main["tier"], main["type"]), ("default_claude_max_20x", "claude_max"))
+        when = datetime.datetime.fromtimestamp(NOW).astimezone().isoformat(timespec="seconds")
+        self.assertEqual(main["fetched_at"], when)
+        self.assertEqual(limits.render_plan(main), f"main default_claude_max_20x（claude_max） {when} 時点")
+        w7 = limits.plan_of(config.Account("w7", "claude-w7", str(self.home / ".claude-w7")), env)
+        self.assertEqual((w7["tier"], w7["type"], w7["fetched_at"]), ("default_claude_max_5x", None, None))
+        self.assertEqual(limits.render_plan(w7), "w7 default_claude_max_5x")
+
+    def test_broken_records_say_unknown_instead_of_failing(self):
+        acct = config.Account("w7", "claude-w7", str(self.home / ".claude-w7"))
+        for broken in ('{"oauthAccount": "x"}', "[1]", "{", '{"oauthAccount": {"organizationRateLimitTier": ""}}',
+                       '{"oauthAccount": {"organizationRateLimitTier": 5}}'):
+            with self.subTest(record=broken):
+                (self.home / ".claude-w7").mkdir(exist_ok=True)
+                (self.home / ".claude-w7/.claude.json").write_text(broken, encoding="utf-8")
+                got = limits.plan_of(acct, {"HOME": str(self.home)})
+                self.assertIsNone(got["tier"])
+                self.assertTrue(got["reason"])
+        for at in (10 ** 30, "x", True):
+            with self.subTest(fetched=at):
+                self.record(".claude-w7/.claude.json", {"oauthAccount": {"organizationRateLimitTier": "t", "profileFetchedAt": at}})
+                got = limits.plan_of(acct, {"HOME": str(self.home)})
+                self.assertEqual((got["tier"], got["fetched_at"]), ("t", None))
+
+    def test_account_without_login_record_says_why_and_how(self):
+        # setup-token だけで入るアカウントは oauthAccount を持たない。分からないと出し、ログインの手を添える
+        self.record(".claude-p2/.claude.json", {"projects": {}})
+        p2 = limits.plan_of(config.Account("p2", "claude-p2", str(self.home / ".claude-p2")), {"HOME": str(self.home)})
+        self.assertIsNone(p2["tier"])
+        line = limits.render_plan(p2)
+        self.assertTrue(line.startswith("p2 分からない: "))
+        self.assertIn("setup-token", line)
+        self.assertIn(f"CLAUDE_CONFIG_DIR={self.home / '.claude-p2'} claude auth login", line)
+        missing = limits.plan_of(config.Account("p9", "claude-p9", str(self.home / ".claude-p9")), {"HOME": str(self.home)})
+        self.assertIsNone(missing["tier"])
+        self.assertTrue(missing["reason"])
+
+    def test_account_without_usage_window_has_no_tier(self):
+        p = limits.plan_of(config.Account("ollama", "claude-ollama", None, None, False), {"HOME": str(self.home)})
+        self.assertIsNone(p["tier"])
+        self.assertIn("limits = false", p["reason"])
+
+    def test_plan_lists_every_account_and_json_is_machine_readable(self):
+        self.record(".claude-a0/.claude.json", {"oauthAccount": {"organizationRateLimitTier": "default_claude_max_20x"}})
+        snapshot = self.home / "accounts.json"
+        limits.write_snapshot(snapshot, tuple(config.Account(f"a{i}", f"claude-a{i}", str(self.home / f".claude-a{i}"))
+                                              for i in range(2)), str(self.home))
+        def run(*extra):
+            out = subprocess.run([sys.executable, str(DISPATCH / "limits.py"), "--accounts", str(snapshot), "plan", *extra],
+                                 capture_output=True, text=True, encoding="utf-8", env={"HOME": str(self.home)})
+            self.assertEqual(out.returncode, 0, out.stderr)
+            return out.stdout
+        got = json.loads(run("--json"))
+        self.assertEqual([(p["name"], p["tier"]) for p in got], [("a0", "default_claude_max_20x"), ("a1", None)])
+        lines = run().splitlines()
+        self.assertEqual(lines[0], "a0 default_claude_max_20x")
+        self.assertTrue(lines[1].startswith("a1 分からない: "))
 
 
 class HerdrConfig(unittest.TestCase):

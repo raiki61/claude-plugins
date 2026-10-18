@@ -16,6 +16,7 @@
   python3 limits.py [--config <パス> | --accounts <写し>] probe         … 取り直しが要るアカウントだけ API に問い合わせる
   python3 limits.py [--config <パス> | --accounts <写し>] record        … statusline の JSON を標準入力から読んで控えに取り込む
   python3 limits.py [--config <パス>] herdr-config  … アカウントの写しを書き、herdr の config.toml の [ui] に置く tab_bar_right を出す
+  python3 limits.py [--config <パス>] plan [--json] … アカウントごとの契約の段（Max 20x など）を出す。引けないアカウントは理由を出す
 
 アカウントの写し（<limits_dir>/accounts.json）は、herdr-config が dispatch の設定から書く JSON。herdr のタブ欄から呼ぶ道は
 設定の TOML を読まずにこれを読む。herdr がタブ欄のコマンドに渡す PATH の python3 は、macOS では OS に付いてくる 3.9 のことがあり、
@@ -228,6 +229,61 @@ def account_for(accounts, env):
     return None
 
 
+# 契約の段が引けないときの理由。setup-token のトークンはモデルへの要求しかできず（Claude Code の文書の「Generate a long-lived
+# token」）、契約の段を返す口（/api/oauth/profile）は user:profile の権限が要ると 403 で断る（2026-10-18 に p2・p3 の鍵で確かめた）。
+# 応答ヘッダ（anthropic-ratelimit-unified-*）にも段は出ない。そのため Claude Code がログインのときに書く記録だけを読む。
+# 一度ログインしたフォルダは、その後 setup-token の鍵で動かしても記録が残る（2026-10-18 に p3 で見た。setup-token の鍵を環境変数で渡すと、
+# ログインより先に使われる。Claude Code の文書の「Authentication precedence」）
+NO_PLAN = ("{record} から契約の段（Claude Code のログインの記録 oauthAccount の organizationRateLimitTier）が読めない。"
+           "setup-token や API キーだけで入るアカウントはこの記録を作らず、setup-token の鍵では契約の段を問い合わせられないので、"
+           "道具からは引けない。引けるようにするには、同じアカウントでそのフォルダに一度ログインする（{login}。"
+           "書かれるのはそのフォルダのログインだけ）")
+
+
+def plan_record(account, env):
+    """Claude Code がログインの記録（oauthAccount）を書くファイル。設定のフォルダの .claude.json、フォルダを書かないアカウントは
+    ~/.claude.json（account_for と同じく、既定のフォルダのアカウントとして数える）。"""
+    if account.config_dir:
+        return os.path.join(os.path.expanduser(account.config_dir), ".claude.json")
+    return os.path.join(env.get("HOME") or str(pathlib.Path.home()), ".claude.json")
+
+
+def plan_of(account, env):
+    """1 アカウントの契約の段。{"name", "tier", "type", "fetched_at", "record", "reason"}。tier が None なら reason に訳を書く。
+
+    tier は Claude Code が記録する organizationRateLimitTier（例 default_claude_max_20x）、type は organizationType（例 claude_max）。
+    fetched_at は Claude Code が段を問い合わせた時刻（手元の時差を付けた ISO 8601。記録に無いか読めなければ None）。記録は Claude Code が問い合わせ直す
+    まで古いまま（setup-token の鍵で動かしているアカウントは問い合わせ直せない）なので、契約を変えた後は時点を見る。
+    """
+    record = plan_record(account, env)
+    out = {"name": account.name, "tier": None, "type": None, "fetched_at": None, "record": record, "reason": None}
+    if not account.limits:
+        out["reason"] = "使用率の枠の無いアカウント（設定の limits = false）で、契約の段は無い"
+        return out
+    o = (_read(record) or {}).get("oauthAccount")
+    tier = o.get("organizationRateLimitTier") if isinstance(o, dict) else None
+    if not tier or not isinstance(tier, str):
+        login = (f"CLAUDE_CONFIG_DIR={account.config_dir} " if account.config_dir else "") + "claude auth login"
+        out["reason"] = NO_PLAN.format(record=record, login=login)
+        return out
+    at = o.get("profileFetchedAt")
+    try:
+        fetched = datetime.datetime.fromtimestamp(at / 1000).astimezone().isoformat(timespec="seconds") if _num(at) else None
+    except (OverflowError, OSError, ValueError):
+        fetched = None   # 壊れた時刻で、ほかのアカウントの行まで落とさない
+    out.update(tier=tier, type=o.get("organizationType"), fetched_at=fetched)
+    return out
+
+
+def render_plan(p):
+    """plan_of の 1 件を 1 行にする。例: "p1 default_claude_max_20x（claude_max） 2026-10-15T09:00:00+09:00 時点"。"""
+    if not p["tier"]:
+        return f"{p['name']} 分からない: {p['reason']}"
+    kind = f"（{p['type']}）" if p["type"] else ""
+    when = f" {p['fetched_at']} 時点" if p["fetched_at"] else ""
+    return f"{p['name']} {p['tier']}{kind}{when}"
+
+
 def _read(path):
     try:
         raw = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
@@ -365,6 +421,7 @@ def main(argv=None, env=os.environ, stdin=sys.stdin):
     sub.add_parser("probe")
     sub.add_parser("record")
     sub.add_parser("herdr-config")
+    sub.add_parser("plan").add_argument("--json", action="store_true", help="機械向けに JSON の並びで出す")
     a = ap.parse_args(argv)
     if a.accounts and a.cmd != "herdr-config":
         try:
@@ -387,6 +444,9 @@ def main(argv=None, env=os.environ, stdin=sys.stdin):
             print(line)
     elif a.cmd == "probe":
         probe_all(accts, limits_dir, env, now)
+    elif a.cmd == "plan":
+        plans = [plan_of(x, env) for x in accts]
+        print(json.dumps(plans, ensure_ascii=False, indent=2) if a.json else "\n".join(render_plan(p) for p in plans))
     elif a.cmd == "record":
         try:
             rate_limits = json.load(stdin).get("rate_limits")
