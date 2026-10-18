@@ -22,7 +22,7 @@
 | `--switch` | 該当のブランチへ移る | 番号・URL・ブランチ名 |
 | `--full` | 本文・発言の上限を外す | 全部 |
 | `--out` | 材料と描く材料をファイルに書き、その path を返す（付け方は SKILL.md の「守ること」） | 全部 |
-| `--frame <path>` | その 1 file の変更を上限なしで | PR・commit（手元の未コミットは、`/what-am-i-doing` の機械 what-am-i-doing.py の `--frame`） |
+| `--frame <path>` | その 1 file の変更を上限なしで | PR・commit（手元の未コミットは、同じプラグインのスクリプト what-am-i-doing.py〔いま居るセッションの経緯と手元の変更を出す。`/what-am-i-doing` が走らせる〕の `--frame`） |
 | `--limit N` | その後の出来事の件数（既定 12） | PR・issue |
 | `-R owner/repo` | リポジトリを指す | 番号 |
 | `--me <login>` | 「私」を差し替える | PR・issue |

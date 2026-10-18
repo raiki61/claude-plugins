@@ -8,7 +8,7 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ### Changed
 
-- `/catchup`（1 件の PR などに戻り、どこで止まっていたか・次に何をするかを出す）・`/whose-turn`（open な PR・issue の全件で、誰の番かを棚卸しする）・`/what-am-i-doing`（いま居るセッションの経緯を出す）の命令書（AI が実行時に読む指示のファイル）を、`commands/<名前>.md` から `skills/<名前>/SKILL.md` に移し、本文を 5,000 字以下に縮めた（4,990 字・4,094 字・4,732 字。移す前は 18,615 字・7,532 字・6,230 字）。詳しい手順は主題ごとの別ファイル（`skills/<名前>/references/`）に分け、本文が「いつ読むか」を添えて指す。打つ呼び名（`/attention:catchup` など。補完で `/catchup` と打っても同じ）と振る舞いは変わらない。長い会話で Claude Code が自動で文脈を縮める（圧縮する）と、各スキルの頭の 5,000 トークンしか付け直さない（https://code.claude.com/docs/en/skills 。日本語の 5,000 字はおよそ 4,400 トークンで、その内に収まる）ので、移す前は本文の後ろの手順を失ったまま動くことがあった。リポジトリのスキルの書き方の標準（`docs/standards/skill-authoring.md`）に合わせた直し。
+- `/catchup`（1 件の PR などに戻り、どこで止まっていたか・次に何をするかを出す）・`/whose-turn`（open な PR・issue の全件で、誰の番かを棚卸しする）・`/what-am-i-doing`（いま居るセッションの経緯を出す）の命令書（AI が実行時に読む指示のファイル）を、`commands/<名前>.md` から `skills/<名前>/SKILL.md` に移し、本文を 5,000 字以下に縮めた（4,990 字・4,130 字・4,732 字。移す前は 18,615 字・7,532 字・6,230 字）。詳しい手順は主題ごとの別ファイル（`skills/<名前>/references/`）に分け、本文が「いつ読むか」を添えて指す。打つ呼び名（`/attention:catchup` など。補完で `/catchup` と打っても同じ）と振る舞いは変わらない。長い会話で Claude Code が自動で文脈を縮める（圧縮する）と、各スキルの頭の 5,000 トークンしか付け直さない（https://code.claude.com/docs/en/skills 。日本語の 5,000 字はおよそ 4,400 トークンで、その内に収まる）ので、移す前は本文の後ろの手順を失ったまま動くことがあった。リポジトリのスキルの書き方の標準（`docs/standards/skill-authoring.md`）に合わせた直し。
 - `/catchup` が場面でだけ読む別ファイル（`docs/catchup-ref.md`・`docs/catchup-figures.md`）も `skills/catchup/references/` に移し、主題ごとに分けた（対象の読み方・欄の書き方・一覧・PR でないとき・準備・図）。
 
 ## [0.33.0] - 2026-10-19
