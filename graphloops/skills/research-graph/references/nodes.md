@@ -1,5 +1,9 @@
 # research-graph の節のこなし方（`run` の出力・`next` で回すとき・節の種類・`done`）
 
+## 役の起こし方
+
+役割 agent は convergence-loops に同梱の `agents/*.md` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type`（`convergence-loops:investigator` のような値）をそのまま Agent の `subagent_type` に渡す（[references/nodes.md](references/nodes.md) の「`launch` を持たない agent」）。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
+
 手順の 2（回す）の続き。
 
    出力は標準出力の最後の 1 行の JSON（`stop`・`code`・`status`・`round`・`handoff`・`needs_human`・`running`・`engine`・回し手の `runner.pid` と起動時刻・`how`）。役の返答の本文は出ない。回し手の出力は盤面の置き場の `run.log`、起こした節と止まった種類は `trace.jsonl` の `op` が `run` の行に残る。**回し手を一時停止する**なら、その pid に SIGTERM を送れ——起こし済みの役の終わりを待ち、新しい役を起こさずに抜ける（続きは `run` か `next` で盤面から）。

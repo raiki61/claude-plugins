@@ -7,11 +7,11 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 ## これは何か
 
-見立て文書（設計・手法・技術選定の仮説を書いた文書）の中の「外部に照合できる主張」を一次情報で判定させ、訂正を統合し、独立の目のゲートを通して、新しい相違が出なくなるまで回す調査ループである。convergence-loops の `/research-loop` と目的も記録の形も同じで、違いは手順の置き場だけ——散文の手順書の代わりに、グラフ（`graphs/research-loop.json`: 節・依存・役・プロンプト・返答の型）を engine（`scripts/loop.py`）が読み、盤面（どの節が終わったか・何周目か）・同時に走らせてよい組・渡してはいけないもの・件数の突合・連続カウント・上限・止める条件を機械が持つ。ループの算術（記録の初期形・扇の項目（役に並べて配る項目。照合が要る主張の束・反証が要る主張・無作為の抜き取り）の選び方・収束判定）は `rules/research-loop.py` にある。記録の欄と語彙の正本は convergence-loops の `scripts/research-record.py` で、engine は報告の前にそれを回す。
+見立て文書（設計・手法・技術選定の仮説を書いた文書。`init` の `--document` に渡す）の中の「外部に照合できる主張」を一次情報で判定させ、訂正を統合し、独立の目のゲートを通して、新しい相違が出なくなるまで回す調査ループである。この本文が読み込まれているのは、人が `/research-graph` と打ったか「工程に回して」と言った後で、回すのはあなたである。convergence-loops の `/research-loop` と目的も記録の形も同じで、違いは手順の置き場だけ——散文の手順書の代わりに、グラフ（`graphs/research-loop.json`: 節・依存・役・プロンプト・返答の型）を engine（`scripts/loop.py`）が読み、盤面（どの節が終わったか・何周目か）・同時に走らせてよい組・渡してはいけないもの・件数の突合・連続カウント・上限・止める条件を機械が持つ。ループの算術（記録の初期形・扇の項目（役に並べて配る項目。照合が要る主張の束・反証が要る主張・無作為の抜き取り）の選び方・収束判定）は `rules/research-loop.py` にある。記録の欄と語彙の正本は convergence-loops の `scripts/research-record.py` で、engine は報告の前にそれを回す。
 
 このループを回す session が **surveyor**（調査者・統合者）で、それはあなたである。あなたがするのは判断作業だけ——問いと制約の棚卸し・主張の棚卸し・訂正の統合・ドメイン適応（校正した定石を、この依頼の分野の制約に合わせて直す。説明文の「ドメイン最適化」）・報告。判定（確証・相違・留保・検証不能）は一切しない。判定は別 context の役割 agent が返し、engine がそれを記録に写す。
 
-役割 agent は convergence-loops に同梱の `agents/*.md` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type`（`convergence-loops:investigator` のような値）をそのまま Agent の `subagent_type` に渡す（[references/nodes.md](references/nodes.md) の「`launch` を持たない agent」）。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
+役の起こし方（engine が起こす役と、起こせない役を Agent で起こすとき）は [references/nodes.md](references/nodes.md) の頭に在る。
 
 このプラグインの置き場（この SKILL.md があるフォルダの 2 つ上）は `${CLAUDE_PLUGIN_ROOT}` である（ここと下の命令の中はスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、この SKILL.md〔プラグインの中の `skills/research-graph/SKILL.md`〕があるフォルダの 2 つ上、プラグイン graphloops のルートのフォルダ）に読み替えて打て。
 

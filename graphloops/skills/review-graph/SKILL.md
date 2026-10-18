@@ -21,7 +21,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 回し役なしの run（旗の無い `init`）の会話の手番はこれで足りる——手番の手引きはここ 1 か所で、値の表の正本は engine の `runner.CODES`・`HOW`。細部は下の「場面ごとに読むファイル」の別ファイルに在る。
 
-1. `init` する（要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional の節（engine が走らせる CI の節など）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run の止まり方は [references/rules.md](references/rules.md)——省けば回り切るわけではない。
+1. `init` する（`loop.py` は `${CLAUDE_PLUGIN_ROOT}/scripts/loop.py`。要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional の節（engine が走らせる CI の節など）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run の止まり方は [references/rules.md](references/rules.md)——省けば回り切るわけではない。
 2. `loop.py run --dir <DIR>` を前景で打ち（540 秒で必ず戻る。完了の知らせに頼らない。端末・CI・台本なら `run --foreground` が止まるまで戻らない）、終了コードで次の手を決める:
    - **20**: 何もせずにもう一度 `run`
    - **13**: engine の不具合（盤面の矛盾——engine が子を起こすコマンド（`claude -p` の引数）も、起こせない理由も持たない節）。記録器に残る。`handoff` の各行を、その行の `handoff_why` のとおりにこなし（返答は別のファイルに書いて `done --node <id> --output <file>`）、もう一度 `run`。前の版の engine で始めた盤面と `--no-engine-runners` の run では、今までどおり会話がこなす節で 13 が返る（前の版の決まった戻りで、不具合ではない。[references/runnerless.md](references/runnerless.md)）
