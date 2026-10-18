@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Changed
 
-- `/works-dispatch:dispatch` のスキルの本文（`skills/dispatch/SKILL.md`。スキルを呼んだときに会話に載る文）を約 5.7 万字から約 3 千字に薄くし、詳しい手順を主題ごとの別ファイル（`skills/dispatch/references/` の 12 本。初めての設定・PR を開く・片付け・部署を立てる・役・組み直す・起こし直す・頼む・納品する・機械窓口・受け持ちを起こす・本流に入れる）に移した。本文は、どの頼みでどの別ファイルを読むかを並べる。Claude Code は会話を自動で縮めた後に各スキルの頭の 5,000 トークンだけを付け直すので、前は長い会話で後ろの手順を失ったまま動いていた。命令と振る舞いは変わらず、使う人がすることは無い。`--init` が書く dispatch の設定のファイルの下書きと、`--init-company` が書く会社の形（`.claude/company.toml`。会社の名前・役・本流への入れ方を書くファイル）の下書きの、頭の「書き方」の行も、別ファイルを指すようにした。
+- `/works-dispatch:dispatch` のスキル（このプラグインの命令を AI に打たせる手引き）の本文 `skills/dispatch/SKILL.md` を、約 5.7 万字から約 3 千字にした。手順は、主題ごとの 12 本の別ファイル `skills/dispatch/references/*.md`（`setup.md`・`pr.md`・`clean.md`・`department.md`・`roles.md`・`reorg.md`・`move.md`・`ask.md`・`deliver.md`・`call.md`・`start.md`・`land.md`）に字を変えずに移した。本文には、命令の打ち方と落とし穴と、どの頼みのときにどのファイルを読むかの一覧を残した。訳: Claude Code は長い会話を自動で要約して縮めると、各スキルの本文を頭の 5,000 トークンまでしか会話に載せ直さない（https://code.claude.com/docs/en/skills）。前の本文は約 4.5 万トークンあり、縮めた後は後ろの手順を失ったまま動いていた。命令と振る舞いは変わらず、使う人がすることは無い。`--init` が書く設定のファイルの下書きと、`--init-company` が書く `.claude/company.toml` の下書きの頭にある「書き方はどこを読むか」の行も、別ファイルを指すようにした。
 
 ## [0.60.1] - 2026-10-18
 
