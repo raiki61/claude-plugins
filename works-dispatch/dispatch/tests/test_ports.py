@@ -531,7 +531,7 @@ class Claude(unittest.TestCase):
     @staticmethod
     def plugins(entries):
         """entries: [(キー, scope, plugin.json の名前, catchup を持つか)]。アカウントの設定のフォルダを返す。
-        持つかは True（命令の commands/catchup.md）か "skill"（スキルの skills/catchup/SKILL.md）。"""
+        持つかは True（コマンドの commands/catchup.md）か "skill"（スキルの skills/catchup/SKILL.md）。"""
         d = pathlib.Path(tempfile.mkdtemp())
         record = {}
         for key, scope, name, has in entries:

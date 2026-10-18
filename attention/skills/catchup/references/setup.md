@@ -1,6 +1,6 @@
 # /catchup の準備（`/catchup setup` と打たれたときに読む）
 
-/catchup（1 件の PR などについて、前回から何が起きたかを 1 枚の HTML のページに描く命令）が描くページ（`~/.cache/attention/` の下の HTML）は、VS Code の Remote-SSH の窓で、拡張 Simple HTML Viewer が開く。この文書はその準備（`/catchup setup`）の中身。準備は機械（catchup.py）を呼ぶ `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/catchup.py --setup` 1 本で（`${CLAUDE_PLUGIN_ROOT}` はこのプラグインの置き場）、機械が次をする:
+/catchup（1 件の PR などについて、前回から何が起きたかを 1 枚の HTML のページに描くコマンド）が描くページ（`~/.cache/attention/` の下の HTML）は、VS Code の Remote-SSH の窓で、拡張 Simple HTML Viewer が開く。この文書はその準備（`/catchup setup`）の中身。準備は機械（catchup.py）を呼ぶ `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/catchup.py --setup` 1 本で（`${CLAUDE_PLUGIN_ROOT}` はこのプラグインの置き場）、機械が次をする:
 
 1. 生きている VS Code の窓を探す（`code --status` が通る socket）
 2. 拡張が `~/.vscode-server/extensions` に無ければ `code --install-extension austin-spagnolo.simple-html-viewer` で入れる

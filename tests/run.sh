@@ -5158,7 +5158,7 @@ for _s in (sys.stdout, sys.stderr):
 root = pathlib.Path(sys.argv[1])
 def read(n):
     p = root / n
-    if p.is_dir():  # スキルは本文と別ファイル（references/）を合わせて 1 つの命令書と見る（語はどちらに在ってもよい）
+    if p.is_dir():  # スキルは本文と別ファイル（references/）を合わせて 1 つのコマンドの本文と見る（語はどちらに在ってもよい）
         return "\n".join(f.read_text(encoding="utf-8") for f in [p / "SKILL.md", *sorted((p / "references").glob("*.md"))])
     return p.read_text(encoding="utf-8")
 docs = {n: read(n) for n in

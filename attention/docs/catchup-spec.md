@@ -1,6 +1,6 @@
 # /catchup の仕様（正本）
 
-「これどうなってたっけ」への答えを出す道具 /catchup（attention プラグインの命令。並行作業から戻った人に、PR などの件のどこで止まっていたか・次に何をするかを出す）が、何を受け取り、何をして、何を返すかを決める文書。
+「これどうなってたっけ」への答えを出すツール /catchup（attention プラグインのコマンド。並行作業から戻った人に、PR などの件のどこで止まっていたか・次に何をするかを出す）が、何を受け取り、何をして、何を返すかを決める文書。
 読むのは /catchup を直す側（人と、直す AI）で、直す前にここを読み、直す物をここに合わせる。
 命令書（`attention/skills/catchup/SKILL.md` と、そこから指す `references/` の別ファイル。AI が実行時に読む指示書）・README（`attention/README.md`。人が読む説明）・
 機械（`attention/scripts/catchup.py` と `attention/scripts/lib/changemap.py`・`attention/scripts/lib/catchup_html.py`、雛形 `attention/templates/catchup.html`）・テスト（`tests/catchup-case.py` ほか）は
@@ -11,7 +11,7 @@
 5,000 字以下に保つ（リポジトリのスキルの書き方の標準 `docs/standards/skill-authoring.md`。長い会話で Claude Code が自動で文脈を縮めた〔圧縮した〕後は、各スキルの頭の 5,000 トークンしか付け直されない。日本語の 5,000 字はおよそ 4,400 トークンで、その内に収まる）。
 欄の書き方・対象の読み方・一覧・PR でないとき・準備・図の形は `attention/skills/catchup/references/` に主題ごとに分け、
 本文が「その場面で読む」と指す（2026-10-18 に `commands/catchup.md` と `docs/catchup-ref.md`・`docs/catchup-figures.md` から移した）。
-2026-10-16 の測りで、works-dispatch（同じリポジトリの、PR を作業場に開いて Claude Code の会話を立て、/catchup を送るプラグイン）が起こす PR の会話の最初の要求 72〜75k のうち、命令書の本文が 25.1k を占めていた。
+2026-10-16 の測りで、works-dispatch（同じリポジトリの、PR を作業場に開いて Claude Code の会話を立て、/catchup を送るプラグイン）が起動する PR の会話の最初の要求 72〜75k のうち、命令書の本文が 25.1k を占めていた。
 
 書く量は、命令書が「どう書くか」を持つので、ここは「何を・いつ・どこまで」だけ。数値は全部ここに集め、
 命令書と README はこの数値を写す。規則には根拠の実測を添えて残す——消すと同じ所でまた割れる。

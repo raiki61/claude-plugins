@@ -168,7 +168,7 @@ def inherit_trust(path_of_file, source, clone, vouchers=()):
     return "inherited"
 
 
-# /catchup の命令のファイルの置き場。どちらでも呼び名は /<プラグイン名>:catchup で変わらない
+# /catchup のコマンドのファイルの置き場。どちらでも呼び名は /<プラグイン名>:catchup で変わらない
 CATCHUP_FILES = (("skills", "catchup", "SKILL.md"), ("commands", "catchup.md"))
 
 
