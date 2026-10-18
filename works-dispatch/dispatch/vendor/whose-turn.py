@@ -967,6 +967,8 @@ def truncated(conn, what, where):
     return None
 
 
+TIMELINE_LAST = 100  # PR_QUERY の timelineItems(last: …) と同じ数
+
 # timelineItems は上限検査に入れない。totalCount が itemTypes で絞る前の総数を返すため
 # （実測: #1471 は履歴 5 件のうち対象 1 件）、比べても常に「足りない」になる。代わりに last: 100 で取る
 def limits_of_pr(pr):
@@ -1057,7 +1059,8 @@ def parser():
         "--json",
         action="store_true",
         help="「自分の番」の PR だけを機械が読む JSON で出す（番号・URL・タイトル・head のブランチ・役割・日数）。"
-        "集合と並びは報告の「自分の番」のセクションと同じ。--all・--materials・--out と一緒に使えない",
+        "集合と並びは報告の「自分の番」のセクションと同じ。limited に、判定に使う材料（コメント・レビュー・スレッド・チェック・"
+        "履歴）が走査の上限に当たった open な PR の番号（自分の番かの判定が取りこぼしで外れうる物。prs に無い物も含む）。--all・--materials・--out と一緒に使えない",
     )
     outfile.add_flag(ap)
     return ap
@@ -1100,12 +1103,18 @@ def report(a):
         drop_pending(p)
 
     limits = []
+    limited = set()  # 走査の上限に当たった PR の番号（--json の limited。判定が取りこぼしの上に立っている）
     balls = {}  # (who, pr number) -> ([kinds], since)
     idle = {}  # (who, pr number) -> 相手の返事待ちか
     shared = {}  # (who, pr number) -> 相手にも返すターンが残っているか
     pr_waits = []  # (who, info, pr)
     for p in prs:
-        limits += limits_of_pr(p)
+        hit = [w for w in limits_of_pr(p) if w]
+        # 履歴（timelineItems）は上限の行に出さない（totalCount が使えない）が、ターンの判定はレビュー依頼などの出来事で
+        # 決まるので、last: 100 で 100 件ちょうど取れたら古い方が切れている恐れがあるとして limited に入れる
+        if hit or len(p["timelineItems"]["nodes"]) >= TIMELINE_LAST:
+            limited.add(p["number"])
+        limits += hit
         rows = merge_rows(pr_balls(p))
         owing = shared_balls(rows)
         for who, (kinds, since) in rows.items():
@@ -1221,6 +1230,9 @@ def report(a):
                 }
                 for _, since, n in rows
             ],
+            # 走査の上限に当たった open な PR の番号（prs に無い物も含む）。自分の番かの判定が取りこぼしで外れうる。
+            # 判定に効かないリアクションの上限は入れない
+            "limited": sorted(limited),
         }, ensure_ascii=False, indent=2))
         return
 

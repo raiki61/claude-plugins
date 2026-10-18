@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 写しの `dispatch/vendor/whose-turn.py` を attention の正本に揃えた（`--json` に、走査の上限に当たった PR の番号の `limited` が足された）。dispatch はまだ読んでいない。
+
 ## [0.73.0] - 2026-10-19
 
 ### Changed

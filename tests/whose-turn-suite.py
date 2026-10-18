@@ -1526,6 +1526,44 @@ class Json(unittest.TestCase):
         out = json.loads(report(*prs, who="bob", args=("--json",)))
         self.assertEqual([x["number"] for x in out["prs"]], order)
 
+    def test_json_lists_limited_prs_even_outside_my_turn(self):
+        # 上限に当たった PR は、自分の番かの判定が取りこぼしの上に立っている。prs に無くても番号で引けるように出す
+        cut = pr(number=11, author={"login": "alice"}, reviews=conn(total=70))
+        whole = pr(number=12, author={"login": "bob"}, isDraft=True)
+        out = json.loads(report(cut, whole, who="bob", args=("--json",)))
+        self.assertEqual(out["schema"], 1)
+        self.assertEqual(out["limited"], [11])
+        self.assertEqual([p["number"] for p in out["prs"]], [12])
+
+    def test_json_limited_counts_a_full_timeline_as_cut(self):
+        # 履歴は last: 100 で取る。100 件ちょうどなら古い方（レビュー依頼など）が切れている恐れがある
+        full = pr(number=13, author={"login": "alice"},
+                  timelineItems=conn(*([event("ConvertToDraftEvent", T0)] * flow.TIMELINE_LAST)))
+        short = pr(number=14, author={"login": "alice"},
+                   timelineItems=conn(*([event("ConvertToDraftEvent", T0)] * (flow.TIMELINE_LAST - 1))))
+        out = json.loads(report(full, short, who="bob", args=("--json",)))
+        self.assertEqual(out["limited"], [13])
+
+    def test_json_limited_ignores_reaction_limits(self):
+        # リアクションは呼びかけの一覧にだけ効き、ターンの判定には効かないので、取り切れなくても入れない
+        ask = comment(user("alice"), T1, body="@bob 見てほしい")
+        p = pr(number=15, author={"login": "alice"}, comments=conn(ask))
+        cut = {"data": {"nodes": [{"id": ask["id"], "reactions": {"totalCount": 60, "nodes": []}}]}}
+        buf = io.StringIO()
+        with (
+            mock.patch.object(flow, "fetch_all", lambda _q, _o, _n, field: [p] if field == "pullRequests" else []),
+            mock.patch.object(flow, "gh", lambda *_a: json.dumps(cut)),
+            contextlib.redirect_stdout(buf),
+        ):
+            flow.main(["bob", "--repo", "o/n", "--json"])
+        self.assertEqual(json.loads(buf.getvalue())["limited"], [])
+        text = report(p, who="bob")  # 報告の「走査の上限」には今までどおり出る（偽の gh が空を返す回は出ない）
+        self.assertIn("走査の上限に当たったもの", text)
+
+    def test_json_limited_is_empty_when_nothing_was_cut(self):
+        out = json.loads(report(pr(number=7, author={"login": "bob"}, isDraft=True), who="bob", args=("--json",)))
+        self.assertEqual(out["limited"], [])
+
     def test_json_refuses_all_materials_out(self):
         for extra in ("--all", "--materials", "--out"):
             with self.subTest(extra=extra):
