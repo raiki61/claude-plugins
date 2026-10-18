@@ -208,6 +208,28 @@ def keep_tmp(tmp, source, session, g=gitx):
     return n, dest
 
 
+def _unlink(path):
+    """ファイルを消す。Windows は読み取り専用のファイルを消せない（WinError 5。POSIX はフォルダの権限で決まる）ので、書ける印に
+    してから消し直す。"""
+    try:
+        os.unlink(path)
+    except PermissionError:
+        if os.name != "nt":
+            raise
+        os.chmod(path, stat.S_IWRITE)
+        os.unlink(path)
+
+
+def _again_writable(func, path, err):
+    """shutil.rmtree の失敗の受け口（err は 3.12 からの onexc なら例外、前の onerror なら sys.exc_info の組）: 読み取り専用で
+    消せなかった物を、書ける印にしてから消し直す（_unlink と同じ訳）。"""
+    err = err[1] if isinstance(err, tuple) else err
+    if os.name != "nt" or not isinstance(err, PermissionError):
+        raise err
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def _copy_over(src, dest):
     """src の木を dest に写す。前の回が途中で止まって dest に写しが残っていても、打ち直せば写し終える: 写し先に在る物は
     消してから写し直す（git の objects は読み取り専用で写るので、上に書けず Errno 13 になる。前の回が写したシンボリックリンクは、
@@ -228,9 +250,9 @@ def _copy_over(src, dest):
             if stat.S_ISDIR(mode):
                 continue
             if os.path.isdir(d) and not os.path.islink(d):
-                shutil.rmtree(d)
+                shutil.rmtree(d, **{"onexc" if sys.version_info >= (3, 12) else "onerror": _again_writable})
             elif os.path.lexists(d):
-                os.unlink(d)
+                _unlink(d)
             if stat.S_ISLNK(mode):
                 os.symlink(os.readlink(s), d)
             elif stat.S_ISFIFO(mode):

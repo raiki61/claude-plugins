@@ -17,7 +17,7 @@ class Installed(unittest.TestCase):
     def setUp(self):
         self.root = pathlib.Path(tempfile.mkdtemp()) / "plugins"
         self.old = self.put("0.23.0", "print('old')")
-        # dispatch.py と同じく標準出力を UTF-8 にする（Windows の既定の符号では日本語の引数を print できない）
+        # dispatch.py と同じく標準入出力を UTF-8 にする（Windows の既定の符号では日本語を print できない。下の hop の子の標準エラーも同じ）
         self.new = self.put("0.25.0", "import os, sys; sys.stdout.reconfigure(encoding='utf-8'); "
                                       "print('new', sys.argv[1:], os.environ.get('WORKS_DISPATCH_HOPPED'))")
 
@@ -57,7 +57,7 @@ class Installed(unittest.TestCase):
 
     def test_hop_runs_the_installed_script_with_the_same_arguments(self):
         self.record(self.entry("0.25.0"))
-        got = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import installed; "
+        got = subprocess.run([sys.executable, "-c", "import sys; sys.stderr.reconfigure(encoding='utf-8'); sys.path.insert(0, sys.argv[1]); import installed; "
                               "sys.exit(installed.hop(sys.argv[2], ['--land', '割り振り']))",
                               os.path.dirname(installed.__file__), str(self.old)],
                              capture_output=True, text=True, encoding="utf-8", env={k: v for k, v in os.environ.items() if k != installed.HOPPED})

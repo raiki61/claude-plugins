@@ -219,7 +219,8 @@ class Call(unittest.TestCase):
         held = self.leave("持ち主が調べている")
         rc, out = self.main(self.src, "--clean", "--apply")
         self.assertIn(f"、先に git -C {self.src} update-ref {tools.KEPT_REF}{sha} {sha} で先頭の commit を残してから git -C", out)
-        self.assertIn(f"ツールの一時の場所 {os.path.realpath(held)}  残す（鍵の訳が「持ち主が調べている」。ツールが走っているかもしれないので", out)
+        shown = pathlib.Path(os.path.realpath(held)).as_posix() if os.name == "nt" else os.path.realpath(held)   # git の並べる字（Windows は / 区切り）
+        self.assertIn(f"ツールの一時の場所 {shown}  残す（鍵の訳が「持ち主が調べている」。ツールが走っているかもしれないので", out)
         self.assertTrue(os.path.exists(made) and os.path.exists(held))
 
     def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
