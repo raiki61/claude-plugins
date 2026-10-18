@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.28.2] - 2026-10-18
+
 ### Fixed
 
 - 同梱の試験の台帳（`tests/py/MIGRATION.md` の、元の台本の check ごとの移し先の表）を刷り直した。0.28.0 で元の台本の 1 本（`tests/simulate_review.py`）の行がずれたのに表の行番号が古いままで、台帳の試験（`test_ledger.py`）が赤だった。graphloops の振る舞いは変わらない。
