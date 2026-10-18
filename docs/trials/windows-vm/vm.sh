@@ -1,5 +1,5 @@
 #!/bin/bash
-# Windows 11 ARM64 の試しの VM を、画面なしの QEMU（Apple の Hypervisor.framework で加速）で作り・起こし・止める。
+# Windows 11 ARM64 の試しの VM を、画面なしの QEMU（Apple の Hypervisor.framework で加速）で作り・起動し・止める。
 # 使い方は docs/trials/windows-vm.md。置き場は VM_DIR（既定 ~/VMs/win11-arm64）。
 set -euo pipefail
 
