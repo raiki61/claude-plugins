@@ -291,7 +291,7 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         (run,) = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] == "run"]
         path = os.path.join(gitx.git_dir(self.src), "company-settings.json")
-        self.assertRegex(run[2], rf"^claude-a2 --name {q('窓口')} --settings \S*company-settings.json\S* {Q}.*--desk 窓口")
+        self.assertRegex(run[2], rf"^claude-a2 --name {q('窓口')} --settings {q(os.path.join(gitx.git_dir(self.src), 'company-settings.json'))} {Q}.*--desk 窓口")
         self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
 
 
@@ -316,7 +316,7 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         writes = [w for w in self.ports.herdr.writes if w[1] == self.desk and w[0] in ("prompt", "run")]
         self.assertEqual(writes[0][:3], ("prompt", self.desk, "/exit"))
-        self.assertRegex(writes[1][2], rf"^claude-a1 --name {q('窓口')} --model {q('opus')} --effort {q('high')} --settings \S*company-settings.json\S* {Q}.*--desk 窓口")
+        self.assertRegex(writes[1][2], rf"^claude-a1 --name {q('窓口')} --model {q('opus')} --effort {q('high')} --settings {q(os.path.join(gitx.git_dir(self.src), 'company-settings.json'))} {Q}.*--desk 窓口")
         attrs = gitx.worktree_attrs(self.src)
         shape = role.load(os.path.join(self.src, ".claude", "company.toml"),
                           pathlib.Path(self.src, ".claude", "company.toml").read_text(encoding="utf-8"))

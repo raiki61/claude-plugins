@@ -147,7 +147,7 @@ class Call(unittest.TestCase):
         gitx.add_detached(self.src, path, gitx.rev(self.src, "HEAD"), lock=owner)
         return path
 
-    @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、殺された処理の場所を消す振る舞いが無い")
+    @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、--clean・--call は鍵の pid の処理が居ない場所を消さない（消し方は test_sweep_with_a_gone_owner で見る）")
     def test_places_left_by_killed_runs_are_swept_by_the_next_call_and_by_clean(self):
         # 2026-10-17 に my_notes で、消えずに残ったツールの場所と、場所が無いのに鍵だけ残った行が --tree に「（ブランチ無し）」で並んだ
         self.use("true")
@@ -178,7 +178,7 @@ class Call(unittest.TestCase):
         self.assertIn("消した", out)
         self.assertEqual(listed(), set())
 
-    @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、殺された処理の場所を消す振る舞いが無い")
+    @unittest.skipIf(os.name == "nt", "Windows では作った処理が居るかを確かめない（os.kill は 0 を渡しても処理を止める）ので、--clean・--call は鍵の pid の処理が居ない場所を消さない（消し方は test_sweep_with_a_gone_owner で見る）")
     def test_a_commit_only_in_a_left_place_is_kept_and_a_dirty_place_is_left(self):
         # 2026-10-17 に my_notes に残ったツールの場所には、push できないまま殺された写しのツールの commit が載っていた
         made = self.leave()
@@ -196,6 +196,20 @@ class Call(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
         (path, why), = tools.sweep(self.src, gitx)[1]
         self.assertEqual((os.path.realpath(path), why), (os.path.realpath(dirty), "未コミットの変更が在る"))
+
+    def test_sweep_with_a_gone_owner_keeps_a_lone_commit_and_leaves_a_dirty_place(self):
+        # 居るかの見方を渡して、消し方そのものを OS に依らずに見る（Windows の既定の見方は「居る」で消さない）
+        made = self.leave()
+        git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
+        sha = gitx.rev(made, "HEAD")
+        dirty = self.leave()
+        pathlib.Path(dirty, "half.txt").write_text("書きかけ", encoding="utf-8")
+        done, failed = tools.sweep(self.src, gitx, alive=lambda pid: False)
+        self.assertEqual([(os.path.realpath(e["path"]), e["keep"]) for e in done], [(os.path.realpath(made), sha)])
+        self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
+        self.assertFalse(os.path.exists(made))
+        self.assertEqual([(os.path.realpath(p), why) for p, why in failed], [(os.path.realpath(dirty), "未コミットの変更が在る")])
+        self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
 
     def test_an_unswept_place_gets_steps_that_keep_its_commit(self):
         # 鍵の無い物と、ほかの訳の鍵の物は走っているかを確かめられないので消さず、手で消す手順に commit を残す手を添える

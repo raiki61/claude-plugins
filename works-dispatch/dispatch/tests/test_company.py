@@ -883,7 +883,26 @@ class Departments(unittest.TestCase):
         self.assertEqual((kept / "tools" / "measure.py").read_text(encoding="utf-8"), "x\n")
         self.assertEqual(len(self.removed), 1)
 
-    @unittest.skipUnless(hasattr(os, "mkfifo"), "名前付きパイプ（mkfifo）は Windows に無い")
+    def test_job_tmp_copy_overwrites_a_read_only_file_and_a_folder_turned_into_a_file(self):
+        # 下の試験の、Windows でも起きる部分（読み取り専用の git の objects の上書き・フォルダからファイルへの入れ替え）
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        (tmp / "repo" / "objects").mkdir(parents=True)
+        obj = tmp / "repo" / "objects" / "ab"
+        obj.write_text("blob\n", encoding="utf-8")
+        obj.chmod(0o444)
+        n, dest = clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        obj.chmod(0o644)
+        obj.write_text("blob2\n", encoding="utf-8")
+        obj.chmod(0o444)
+        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        self.assertEqual(pathlib.Path(dest, "repo", "objects", "ab").read_text(encoding="utf-8"), "blob2\n")
+        obj.chmod(0o644)
+        shutil.rmtree(tmp / "repo")
+        (tmp / "repo").write_text("now a file\n", encoding="utf-8")
+        clean.keep_tmp(str(tmp), self.src, "ro", gitx)
+        self.assertEqual(pathlib.Path(dest, "repo").read_text(encoding="utf-8"), "now a file\n")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "名前付きパイプ（mkfifo）は Windows に無い（Windows でも起きる部分は上の試験で見る）")
     def test_job_tmp_copy_finishes_when_a_former_copy_stopped_halfway(self):
         # 前の回の写しが読み取り専用のファイル（git の objects）とリンクを残しても、打ち直せば写し終える（2026-10-17 の
         # --retire 点検は Errno 13 と 17 で止まり続けた）
