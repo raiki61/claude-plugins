@@ -10,7 +10,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 - 既定の役（`default_role`。省けば「作業」）が、部署の役と受け持ちを書いた設定ファイル（`.claude/company.toml`。以下、会社の形）に無いとき、次の 2 つは止めて訳を出す。1 つは `--ask`（部署に頼みを送るコマンド）で役を省いた頼み。もう 1 つは、待ち受け（部署の会話に知らせを渡すフック）が返事待ちの輪（部署どうしが互いの返事を待って止まった状態）をほどく処理（`untie`。輪の先頭の頼みを、新しく立てた既定の役の部署に回す関数）。前は注記だけ出して進み、役の名前を英語で書いた会社では、既定の役の「作業」が見つからないまま、役の無い部署を立てることがあった。輪をほどけない訳は、受付箱の台帳（下の Fixed の `log.jsonl`）に、順番待ちの先頭の頼みを止めた記録（種類 `held` の行）として 1 度だけ残す（前は黙って捨てた）。
 - 席の種類（`resident-carry`・`resident-fresh`・`per-task`）と、ツールの片づけの訳（`dirty`・`git`）を、表示の日本語でなく ASCII のキーで持ち、比べる。表示の語は表から引く。
-- ブランチに結んだ issue を、`gh issue develop --list` の表でなく GitHub の GraphQL の `linkedBranches` で読む。使用率を測る API の HTTP 応答ヘッダは、1 つの文に直さず名前 → 値の組のまま読み、herdr（作業場の会話を並べる端末のツール）のソケットは `herdr status server --json` の `socket` で引く（人向けの出力を読まない）。
+- ブランチに結んだ issue を、`gh issue develop --list` の表でなく GitHub の GraphQL の `linkedBranches` で読む。使用率を測る API の HTTP 応答ヘッダは、名前と値の表（dict）のまま読む（前は「名前: 値」の行を並べた 1 つの文字列に組み直し、それを字で探していた）。herdr（作業場の会話を並べる端末のツール）のソケットは `herdr status server --json` の `socket` で引く（人向けの出力を読まない）。
 - 部署の属性（`git config --worktree`）を `-z` で読む（改行を含む値で次の行を別の鍵と読まない）。
 
 ### Fixed
