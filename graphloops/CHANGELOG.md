@@ -6,6 +6,9 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Deprecated
+- `/review-graph` を退役させる。早くて 2026-11-18 に消す（代わりの works-factory に、移った人が止まる不具合が残っていれば延ばす）。代わりは `/works-factory`（同じ marketplace の works-factory プラグイン。`/plugin install works-factory@raiki61` で入れる）。`/research-graph` と engine は残す。この版から、`/review-graph` を呼ぶと最初にこの予告が出る（`skills/review-graph/SKILL.md` の頭と description）。消した後も最後の形は git の履歴で開ける。消すときに、最後の形の commit をこの記録の Removed に書く（git の tag は作らない）。理由と消す手順は、リポジトリのルートの `docs/adr/0075-retire-review-graph.md`（プラグインとして入れた実体には無いので、clone か GitHub で見る: https://github.com/raiki61/claude-plugins/blob/main/docs/adr/0075-retire-review-graph.md）。
+
 ## [0.35.0] - 2026-10-19
 
 ### Added
