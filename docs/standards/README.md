@@ -1,6 +1,6 @@
 # プラグインをまたぐ標準
 
-この marketplace（リポジトリの根の `.claude-plugin/marketplace.json`）が配るプラグインの、書き方と作りの揃え方を決めた所。
+この marketplace（リポジトリのルートの `.claude-plugin/marketplace.json`）が配るプラグインの、書き方と作りの揃え方を決めた所。
 読むのは、プラグインを直す各担当（直す前に、下の一覧から当たる標準を開いて合わせる）と、標準の担当（次の回に、下の台帳でずれがどこまで片付いたかを知り、続きを頼む）。
 
 「担当」「点検」などは、このリポジトリの会社の形（`.claude/company.toml`）が決める部署（受け持ちを持つ Claude Code の会話）の名前。頼むと受付番号が付き、頼み先の部署が受けて、済めば納品で返す。受け持ちは次のとおり。
@@ -8,12 +8,12 @@
 - 見渡し: attention
 - 見直し: convergence-loops・graphloops
 - 割り振り: works-dispatch・tiers
-- 点検: gates と、CI・根の `tests/`
-- 説明書: 根の README・CLAUDE.md・CONTRIBUTING.md など、プラグインをまたぐ文書
+- 点検: gates と、CI・ルートの `tests/`
+- 説明書: ルートの README・CLAUDE.md・CONTRIBUTING.md など、プラグインをまたぐ文書
 - 作業: 受け持ちの無い一度きりの直し
 - 標準: この docs/standards/
 
-決め方: 標準は Claude Code の公式の文書と、公式の検査の命令 `claude plugin validate`（以下「公式の検査」）を正にして書く。手元の好みでは決めない。
+決め方: 標準は Claude Code の公式の文書と、公式の検査のコマンド `claude plugin validate`（以下「公式の検査」）を正にして書く。手元の好みでは決めない。
 公式に決まりが無い所だけ、このリポジトリの今の多数の形を標準にする。
 
 対象: marketplace に載るプラグインのうち、works と works-factory を除く 6 つ（attention・convergence-loops・gates・graphloops・tiers・works-dispatch）。
@@ -27,9 +27,9 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 ## 進め方（標準の担当がすること）
 
-1. 起こされたら、この台帳の「ずれ」の続きを見て、本流（main ブランチ）に入ったかを確かめて書き直す。
+1. 起動されたら、この台帳の「ずれ」の続きを見て、main ブランチに入ったかを確かめて書き直す。
 2. 各プラグインの今の作りを標準と見比べ、ずれの大きい順に 1〜3 個を選ぶ。
-3. ずれの直しは、そのプラグインの担当に頼む。標準を機械で守らせる検査（CI・根の `tests/`）は点検に頼む。根の README・CLAUDE.md・CONTRIBUTING.md から標準を指す直しは説明書に頼む。
+3. ずれの直しは、そのプラグインの担当に頼む。標準を機械で守らせる検査（CI・ルートの `tests/`）は点検に頼む。ルートの README・CLAUDE.md・CONTRIBUTING.md から標準を指す直しは説明書に頼む。
 4. 頼んだ受付番号をこの台帳に書く。
 
 ## ずれの台帳
@@ -38,7 +38,7 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 ### 1 回目（2026-10-17、受付 20261017-065611-6c364c）
 
-前の回は無い（docs/standards/ はこの回に作った）。公式の検査（Claude Code 2.1.302）をリポジトリの根と 6 つのプラグインに当てて、次のずれを見つけた。
+前の回は無い（docs/standards/ はこの回に作った）。公式の検査（Claude Code 2.1.302）をリポジトリのルートと 6 つのプラグインに当てて、次のずれを見つけた。
 
 - 1-1 plugin.json に author が無い（6 つとも。works・works-factory も同じ）。公式の検査が警告を出す。状態: 入った（対象のプラグインの全部）
 - 1-2 description を plugin.json と marketplace の項目の 2 か所に持ち、convergence-loops・gates・graphloops は中身が違う。利用者の画面に出るのは marketplace の項目の方なので、plugin.json の方を直しても画面は変わらない。状態: 入った（対象のプラグインの全部）
@@ -49,14 +49,14 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 - 見渡し（attention）: 20261017-070336-504bb8 → 入った（d6f91472）
 - 見直し（convergence-loops・graphloops）: 20261017-070354-0f5cbe → 入った（febd3617）
 - 割り振り（tiers・works-dispatch）: 20261017-070325-80831b → 入った（ae06fe0c。README の入れ方の行は元から在った）
-- 点検（gates と、[配る形の標準](plugin-manifest.md)の決まり 2〜4 を根の tests/ で見る検査。検査はほかの 3 件が本流に入ってから）: 20261017-070322-aabbb8 → 入った（gates は a8f36daf、検査は 6b54d12b・a5b0ce1f）
+- 点検（gates と、[配る形の標準](plugin-manifest.md)の決まり 2〜4 をルートの tests/ で見る検査。検査はほかの 3 件が main に入ってから）: 20261017-070322-aabbb8 → 入った（gates は a8f36daf、検査は 6b54d12b・a5b0ce1f）
 
-1 回目の締め: 公式の検査に残る警告は、対象の外の works・works-factory の author だけ。2 つは誰の受け持ちでもないので頼む先が無く、標準の担当も直さない。誰かが直して標準を満たせば、根の検査が外す一覧から消すよう赤で知らせる。
+1 回目の締め: 公式の検査に残る警告は、対象の外の works・works-factory の author だけ。2 つは誰の受け持ちでもないので頼む先が無く、標準の担当も直さない。誰かが直して標準を満たせば、ルートの検査が外す一覧から消すよう赤で知らせる。
 
 見送ったずれ（1 回目）:
 
 - コマンドの置き場が `commands/`（attention・convergence-loops・graphloops）と `skills/`（gates・tiers・works-dispatch）に割れている。公式の文書は `skills/` を勧めるが、「新しいプラグインには」の条件付きで、`commands/` も読み込む（[Plugin manifest reference の Standard layout](https://code.claude.com/docs/en/plugins-reference#standard-layout)「Prefer `skills/` for new plugins」）。移すと呼び出しの名前と振る舞いを確かめ直すことになるので、標準では新しく作る物を `skills/` にするとだけ決め、今ある物は移さない。
-- 試験の置き場が、根の `tests/`（attention・convergence-loops・gates）とプラグインの中（graphloops・tiers・works-dispatch）に割れている。公式に決まりが無く、どちらも CI（`.github/workflows/test.yml`）から回るので、今は揃えない。
+- 試験の置き場が、ルートの `tests/`（attention・convergence-loops・gates）とプラグインの中（graphloops・tiers・works-dispatch）に割れている。公式に決まりが無く、どちらも CI（`.github/workflows/test.yml`）から回るので、今は揃えない。
 
 ### 2 回目（2026-10-18、受付 20261018-005346-25a518）
 
@@ -67,8 +67,8 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 - 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼んだ（見直し 20261018-011038-156f7f）
 - 2-4 works-dispatch の dispatch 57,001 字。状態: 頼んだ（割り振り 20261018-011052-5f6b13。並んで動く dispatch の層の分け方の点検 20261018-002923-983a64 にも足しで知らせた）
 - 2-5 works の works 22,704 字。状態: 頼んだ（作業 20261018-011113-3952f3。works は受け持ちが無いので、持ち主の頼みに従って作業に回した）
-- 2-6 根の CLAUDE.md から標準を指していない。状態: 頼んだ（説明書 20261018-011057-6dc6b0）
+- 2-6 ルートの CLAUDE.md から標準を指していない。状態: 頼んだ（説明書 20261018-011057-6dc6b0）
 
 標準の内の物: attention の my-turn・reflect、gates の coldread（4,962 字）、graphloops の intake、tiers の check、works-factory の works-factory（4,189 字）。
 
-2-1〜2-6 は、標準が本流に入った後（b1a21382）に頼んだ。納品が届いたら、次の回にここを「入った（commit）」に書き直す。
+2-1〜2-6 は、標準が main に入った後（b1a21382）に頼んだ。納品が届いたら、次の回にここを「入った（commit）」に書き直す。
