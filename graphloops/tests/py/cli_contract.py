@@ -33,7 +33,7 @@ sys.path.insert(0, str(PLUGIN))
 from engine import commands, launch_words, role_run  # noqa: E402
 from engine.schema import cli_schema  # noqa: E402
 
-HELP = FIX / "claude-help.txt"                       # claude --help の全文（--capture が採る）
+HELP = FIX / "claude-help.out"                       # claude --help の全文（--capture が採る）
 PROBE = FIX / "claude-result-not-logged-in.json"     # 起動の確かめの包み（--capture が採る）
 SUCCESS = FIX / "claude-result-success.json"         # 本物の 1 往復の包み（手で採った。採り方は versions.json の success）
 SCHEMA = FIX / "settings-schema-keys.json"           # 設定の JSON Schema のキーと型（採り方は中の source）

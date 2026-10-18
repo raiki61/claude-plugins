@@ -28,7 +28,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ### Changed
 
 - **convergence-loops 0.50.0 以上が要る**（`dependencies` の下限を上げた）。下の 2 つが、convergence-loops の検証器 `review-record.py` と `comment-ratio.sh` に足した `--json` を呼ぶため。古い convergence-loops のままだと、周の記録が検証器を通らずに止まる。
-- review-loop の周（レビューと直しの 1 回分）の行き先（収束・仕事が残る・前提不成立で止める・残る阻害〔収束を止める指摘〕がどれも人への問いの答え待ちで、答えを待たずに進められる仕事が無い）を、`review-record.py --json` が返す `stop`（ASCII のキー）で決める。前は人向けの出力から止める訳の文言の行を探しており、文言を直すと黙って「仕事が残る」に倒れた。`stop` が無い・知らないキーのときは、周を進めずに訳を返す。graph の `record.validator_output` が `json` のとき、engine は検証器に `--json` を渡す。
+- review-loop の周（レビューと直しの 1 回分）の行き先の 4 つ（収束する・仕事が残る・前提不成立で止める・答え待ちで止める）を、`review-record.py --json` が返す `stop`（ASCII のキー）で決める。答え待ちで止めるのは、残る阻害（収束を止める指摘）がどれも人への問いの答え待ちで、答えを待たずに進められる仕事が無いとき。前は人向けの出力から止める訳の文言の行を探しており、文言を直すと黙って「仕事が残る」に倒れた。`stop` が無い・知らないキーのときは、周を進めずに訳を返す。graph の `record.validator_output` が `json` のとき、engine は検証器に `--json` を渡す。
 - review-loop の書いた行の割合の数（`scalars`）を、`comment-ratio.sh --json` から読む。数でない値・知らないキーを黙って捨てていたのをやめ、要る値（added_lines・comment_lines）が欠けたら数を書かずに訳を残す。数えられなかったファイル（`unmeasured`）が在れば、数は書いたうえで訳にも残す。
 - 前の周の判定を据え置いたレビューの行の印を、reason の末尾の添え書きでなく `held_from`（据え置いた元の周の番号）のフィールドで持つ。`held_from` の無い前の版の記録だけは、今までどおり末尾の添え書きで見分ける（版を上げる前に始めた run を続けるときと、品質の台帳 quality-ledger.py が過去の記録を数えるとき）。
 - 修正の後のレビュー（R4）が人に問う行（消えた能力と、人の方針とのぶつかり）のうち、人が前に通した行を、モデルが写した文の一致でなく `same_as`（前に人に問うた行の ID）のフィールドで見分ける。R4 の返答の 2 つの配列（`capability_inventory.lost`・`policy_conflicts`）の要素は文字列から `{text, same_as}` の object にした。前の版の返答（要素が文字列）と `same_as` の無い行は、もう一度人に問う（安全な側）。
