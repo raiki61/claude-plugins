@@ -246,7 +246,7 @@ How findings are returned depends on the writing role:
   It also wasted reads on drafts a worker had not finished writing
 - **Documents written by the parent session** are read at the end of the turn (the Stop hook). The full findings are not piled into the parent's context;
   they are written out to files in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/findings/` (the newest 200 are kept), and only a short notice is returned with the number of documents, the counts, the file location, and
-  「新しい作業役に渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」 ("hand it to a new worker to fix; only the guesses that differ from the writer's intent are for the parent to look at").
+  「新しいサブエージェントに渡して直させる。推測で埋めた箇所のうち書き手の意図と違うものだけは親が見る」 ("hand it to a new subagent to fix; only the guesses that differ from the writer's intent are for the parent to look at").
   In an interactive session it reads in the background, so if /clear is typed while it reads, the notice reaches the session after /clear. A session that ended with /clear is
   remembered by the SessionEnd hook (reason is clear) in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/cleared`, and the notice for that session's documents says
   「/clear で終わった前の会話(id)が書いた文書で、意図はこの会話に無い。詰まりは直させ、推測で埋めた箇所は文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、確かめられないものは残す」

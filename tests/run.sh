@@ -2609,7 +2609,7 @@ CR_STUB_BLOCK_CLEAN='cat >/dev/null; printf "詰まり: F3 が何か本文で解
 expect_output 0 "投稿を止めている詰まり" "詰まりを並べた後に CLEAN と書かれても通さない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_CLEAN" "$CR_POST"
 # misses.log は当たった旗の綴りだけを残す。gh secret set は投稿でない(NON_POSTING)ので
-# 必ず miss のブランチに落ちるため、コマンドの抜粋を残すと秘密そのものが平文で溜まる
+# 必ず miss の分岐に落ちるため、コマンドの抜粋を残すと秘密そのものが平文で溜まる
 expect_output 0 "ALLOW_EMPTY" "gh secret set は投稿でないので素通し" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set MY_TOKEN --body 'sk-secret-value-$CR_PAD'"
 expect_output 1 "0" "misses.log に秘密の値を残さない" \
@@ -6197,7 +6197,7 @@ for _s in (sys.stdout, sys.stderr):
 sys.path.insert(0, sys.argv[1])
 import mutate
 
-# Windows のブランチが taskkill に渡す argv を、どの OS でも見る: mutate の os と subprocess だけを差し替え（モジュールそのものは
+# Windows の分岐が taskkill に渡す argv を、どの OS でも見る: mutate の os と subprocess だけを差し替え（モジュールそのものは
 # 書き換えない）、止める信号の後に起動した子へ run_group が送る語を記録する。本物の木が止まるかは Windows の実機の CI が見る
 import subprocess, types
 sent, born = [], []
@@ -6219,7 +6219,7 @@ try:
 finally:
     mutate.os, mutate.subprocess = real_os, real_sp
     mutate.STOPPING.clear()
-assert got == ("stopped", "") and sent == [["taskkill", "/T", "/F", "/PID", str(born[0])]], f"Windows のブランチの止め方: {got} {sent} {born}"
+assert got == ("stopped", "") and sent == [["taskkill", "/T", "/F", "/PID", str(born[0])]], f"Windows の分岐の止め方: {got} {sent} {born}"
 
 if os.name != "posix":
     print("  ok   run_group の腕 # SKIP process-group: この腕の時間切れと failfast の止め方は posix のプロセスグループ（killpg）で組んである（Windows の taskkill /T が本物の木を止めるかは実機で確かめていない。渡す argv は上で見た）")
@@ -6349,7 +6349,7 @@ assert timer.cancel.called, "timer.cancel() が呼ばれず、通常終了の後
 
 print("RUNGROUP_OK")
 PYRG
-expect_output 0 "RUNGROUP_OK" "run_group: Windows のブランチは taskkill /T /F /PID <子> を送る・時間切れでグループごと殺す・標準出力が先に閉じても子の終了を待つ・failfast は最初の FAIL 行だけで rc を 1 にする（NO_TEST を含む行や failfast=False では止めない）・timer.cancel が通常終了後の時間切れ kill を防ぐ" \
+expect_output 0 "RUNGROUP_OK" "run_group: Windows の分岐は taskkill /T /F /PID <子> を送る・時間切れでグループごと殺す・標準出力が先に閉じても子の終了を待つ・failfast は最初の FAIL 行だけで rc を 1 にする（NO_TEST を含む行や failfast=False では止めない）・timer.cancel が通常終了後の時間切れ kill を防ぐ" \
     "$PY_BIN" "$WORK/mut-rungroup.py" "$ROOT/tests"
 
 # 自動の腕（--auto）の本命: 使い捨ての小さな git repo を tests/mutate.py の写しごと作り、base から
@@ -6944,11 +6944,11 @@ for rel, const, exact in RATCHETS:
             bad = 1
 if bad:
     sys.exit(1)
-# **CONTRIBUTING.md の宣言（review-loop が読む検証のツール）の「件数の柵」の行は、この表が導いた名前と両方向で一致する。**
+# **CONTRIBUTING.md の宣言（「review-loop が読む検証の道具」）の「件数の柵」の行は、この表が導いた名前と両方向で一致する。**
 # 宣言は役が読む写しなので、ラチェットを足した・消した周に宣言だけが古くなる形を赤にする。置き場は宣言に書かない（ここが導く）
 readme = (root / "CONTRIBUTING.md").read_text(encoding="utf-8")
 sec = re.search(r"^### review-loop が読む検証の道具（このリポジトリの宣言）\n(.*?)(?=^#{1,3} |\Z)", readme, re.M | re.S)
-fence = re.search(r"^- \*\*件数のチェック\*\*:(.*)$", sec.group(1), re.M) if sec else None
+fence = re.search(r"^- \*\*件数の柵\*\*:(.*)$", sec.group(1), re.M) if sec else None
 if not fence:
     print("NG CONTRIBUTING.md に「review-loop が読む検証の道具」のセクションか、その「件数の柵」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
     sys.exit(1)
