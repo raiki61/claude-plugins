@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""別プロセスの claude を起こすときに、**認証だけ**を子の環境へ足す。起動そのものは呼ぶ側が持つ。
+"""別プロセスの claude を起動するときに、**認証だけ**を子の環境へ足す。起動そのものは呼ぶ側が持つ。
 
 **この本文は複数のプラグインに写しで在る**。**正本はリポジトリ直下の `scripts/claude_auth.py`**で、
 写しは `gates/hooks/` と `graphloops/scripts/` と `works/.shared/core/` と `works-dispatch/dispatch/vendor/` と `attention/scripts/lib/`（2026-10-15 時点）。
 
 実行時に跨いで読む道は無い——キャッシュに写るのはプラグインごとに自分のフォルダだけである。`convergence-loops` が
-リポジトリの根を配っていた間（0.43 まで。実測 2026-09-15: キャッシュに `gates/ graphloops/ scripts/ …` が丸ごと在った）も、
+リポジトリのルートを配っていた間（0.43 まで。実測 2026-09-15: キャッシュに `gates/ graphloops/ scripts/ …` が丸ごと在った）も、
 その道は採らなかった。キャッシュから拾えるのが「いちばん新しい版」で、gates の版と認証コードの版が黙ってずれる組み合わせが
 起こるからである。認証は静かに壊れる場所（実測: 認証切れは終了コード 0 の 1 行で返る）なので、ここに版のずれを持ち込まない。
 
 直すのは正本 1 か所、配るのは `python3 scripts/shared-copies.py --sync scripts/claude_auth.py`。
-同一性は `tests/run.sh` の柵が見る——**どれか 1 つだけ直すと赤くなる**。
+同一性は `tests/run.sh` のチェックが見る——**どれか 1 つだけ直すと赤くなる**。
 
 **なぜ要るか。** 子は対話の claude の認証を継がない。利用者の `claude` がシェル関数のラッパ
-（Keychain から OAuth トークンを読んで `CLAUDE_CODE_OAUTH_TOKEN` に入れてから実体を起こす形）のとき、
-子は実体を直に起こすのでラッパを通らず、ハーネスも子の環境にトークンを渡さない（実測 2026-09-15:
+（Keychain から OAuth トークンを読んで `CLAUDE_CODE_OAUTH_TOKEN` に入れてから実体を起動する形）のとき、
+子は実体を直に起動するのでラッパを通らず、ハーネスも子の環境にトークンを渡さない（実測 2026-09-15:
 Bash から見える環境では `CLAUDE_CODE_OAUTH_TOKEN` も `CLAUDE_CONFIG_DIR` も空だった）。
-**落ち方は静か**——実測 2026-09-15: 素で起こした `claude -p` は
+**落ち方は静か**——実測 2026-09-15: 素で起動した `claude -p` は
 『Failed to authenticate: OAuth session expired and could not be refreshed』の 1 行を
 **標準出力に・終了コード 0 で**返した。rc では捕まらない。
 
@@ -78,7 +78,7 @@ def read_keychain(service, runner=subprocess.run):
     """`(トークン, 段の名前)`。取れなければ `(None, 空振りの理由)`——**例外は投げない**。
 
     取れないことは異常ではない（mac 以外・項目が無い・利用者が別経路で認証している）。ここで落とすと、
-    子の保存済み認証で普通に動く場まで起こせなくなる。
+    子の保存済み認証で普通に動く場まで起動できなくなる。
     """
     try:
         p = runner(["security", "find-generic-password", "-s", service, "-w"],
@@ -97,7 +97,7 @@ def read_keychain(service, runner=subprocess.run):
 def claude_code_items(user_config, home=None):
     """Claude Code 自身が Keychain に認証を置く項目の名の候補（先に試す物から）。CLAUDE_CONFIG_DIR を設定した Claude Code は
     `Claude Code-credentials-<その値（NFC）の sha256 の頭 8 桁>` に置き、無ければ `Claude Code-credentials`。
-    user_config は Claude Code を起こすときの CLAUDE_CONFIG_DIR の値（入れずに起こすなら None）。
+    user_config は Claude Code を起動するときの CLAUDE_CONFIG_DIR の値（入れずに起動するなら None）。
     足し書きの無い項目は既定のアカウントの物なので、user_config が既定のフォルダ（<home>/.claude）のときだけ候補に足す。
     別のフォルダのアカウントがそれを読むと、黙って別のアカウントの鍵で動く。"""
     if not user_config:
@@ -136,7 +136,7 @@ def account_token(user_config, env, explicit=None, platform=sys.platform, runner
     1. 利用者が作った Keychain の項目（explicit → CLAUDE_KEYCHAIN_SERVICE → 設定のフォルダから導いた名）。値はトークンそのもの
     2. Claude Code 自身が置いた Keychain の項目（claude_code_items）。値は JSON
     3. 設定のフォルダの .credentials.json（Keychain の無い環境で Claude Code が置く所）
-    user_config は Claude Code を起こすときの CLAUDE_CONFIG_DIR の値で、入れずに起こすアカウントは None。
+    user_config は Claude Code を起動するときの CLAUDE_CONFIG_DIR の値で、入れずに起動するアカウントは None。
     """
     cfg = user_config or str(pathlib.Path(env.get("HOME") or pathlib.Path.home()) / ".claude")
     tried = []

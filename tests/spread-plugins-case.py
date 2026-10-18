@@ -124,8 +124,8 @@ def only_company_talks():
     assert prompts == ["a:1"], prompts   # 手の空いた部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペイン・番の途中は飛ばす）
     updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
     assert updates == [(f"a@{MARKET}", None), (f"a@{MARKET}", "/c/p1")], updates
-    assert "点検（c:1）: 入力欄に字が在るので飛ばす" in out and "plugins1（d:1）: 手元の設定で除く" in out, out
-    assert "説明書（f:1）: 番の途中なので飛ばす（番の終わりに替わる）" in out, out
+    assert "点検（c:1）: 入力フィールドに字が在るので飛ばす" in out and "plugins1（d:1）: 手元の設定で除く" in out, out
+    assert "説明書（f:1）: ターンの途中なので飛ばす（ターンの終わりに替わる）" in out, out
     assert not [a for a, _ in calls if a[:4] == ["herdr", "pane", "read", "f:1"]], calls   # 番の途中の画面は読みもしない
     print("ONLY_COMPANY_TALKS_OK")
 
@@ -141,7 +141,7 @@ def failure_is_nonzero():
     runner, calls = world(fail={f"claude plugin marketplace update {MARKET}"})   # 別の会話が先に取り直して版はそろった
     rc, out = run(runner, {})
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
-    assert rc == 0 and len(tries) == 4 and "main: marketplace の更新は落ちたが、入った版は本流とそろったので失敗に数えない" in out, (rc, out, tries)
+    assert rc == 0 and len(tries) == 4 and "main: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない" in out, (rc, out, tries)
     runner, _ = world(fail={f"claude plugin marketplace update {MARKET}"}, main=None)   # 本流を読めなければそろったと言えない
     rc, out = run(runner, {})
     assert rc == 1 and "- main: claude plugin marketplace update" in out, (rc, out)
@@ -173,7 +173,7 @@ def broken_copy():
     rc, out = run(runner, {})
     tail = out.strip().splitlines()
     assert rc == 1 and tail[-3] == "失敗 2 件:", (rc, out)
-    assert all("版が本流とそろわない: 入った版 1.0.0・本流 1.1.0" in x for x in tail[-2:]), out
+    assert all("版が main とそろわない: 入った版 1.0.0・main 1.1.0" in x for x in tail[-2:]), out
     runner, calls = world(version=lambda n: "1.1.0" if n >= 2 else "1.0.0", main="1.1.0")   # 配る間に本流が進んだ
     rc, out = run(runner, {})
     updates = [env for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
@@ -193,7 +193,7 @@ def broken_copy():
     assert reads and min(reads) > max(seq), calls
     runner, calls = world(main=None)   # 本流の版を読めなければ、照らせないので失敗に数える
     rc, out = run(runner, {})
-    assert rc == 1 and "本流の版を読めない" in out.strip().splitlines()[-1], out
+    assert rc == 1 and "main の版を読めない" in out.strip().splitlines()[-1], out
     runner, calls = world(main=None)
     rc, out = run(runner, {"dry_run": True})   # 空打ちでは本流を読みに行かない
     assert rc == 0 and not [a for a, _ in calls if a[:1] == ["git"] and a[2] == str(sp.ROOT)], out

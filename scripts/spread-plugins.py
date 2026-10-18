@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""このリポジトリの marketplace のプラグインを、手元の全アカウントに配る（会社の形 .claude/company.toml の役「配布」の道具）。
+"""このリポジトリの marketplace のプラグインを、手元の全アカウントに配る（会社の形 .claude/company.toml の役「配布」のツール）。
 
-works-dispatch の機械窓口の道具として、`dispatch.py --call 配布 spread-plugins` か、本流に入れた後の合図（[[land.after]]）で
+works-dispatch の機械窓口のツールとして、`dispatch.py --call 配布 spread-plugins` か、main に入れた後の合図（[[land.after]]）で
 呼ばれる。入力の JSON（`{"dry_run": true}` で、することだけを出す）を標準入力で受ける。片づいたら 0、1 つでも失敗したら 1 で
 終わり、works-dispatch がその仕事を AI の部署（役「作業」）に回す。
 
 すること:
 1. アカウントごとに（works-dispatch の設定の accounts と、手元の設定 `~/.config/claude-plugins/spread.toml` の accounts。
-   設定のフォルダ config_dir ごとに Claude Code を起こす）、`claude plugin marketplace update <このリポジトリの marketplace>`
-   を打ち（落ちたら 1 回だけ打ち直す。それでも落ちても、入った版が全部本流とそろえば失敗に数えない）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
+   設定のフォルダ config_dir ごとに Claude Code を起動する）、`claude plugin marketplace update <このリポジトリの marketplace>`
+   を打ち（落ちたら 1 回だけ打ち直す。それでも落ちても、入った版が全部 main とそろえば失敗に数えない）、入っているこの marketplace のプラグインだけ `claude plugin update <id>` を打つ。marketplace の clone の作業ツリーから
    消えたファイルは戻し、入った写しに .claude-plugin/plugin.json が無ければ失敗に数える。works-dispatch の設定に載るのは
-   部署を起こす先のアカウントだけなので、Claude Code を使うが部署は起こさないアカウントは手元の設定の accounts に書く
+   部署を起動する先のアカウントだけなので、Claude Code を使うが部署は起動しないアカウントは手元の設定の accounts に書く
    （書き方は works-dispatch の設定と同じ `{ name = "…", config_dir = "…" }`。同じ設定のフォルダは 1 回だけ配る）。
-   全アカウントに配った後に、入ったプラグインの版が本流（origin/main。先に git fetch する）の plugin.json の版と同じかを
-   照らし、違えば版のずれたアカウントだけ 1 回配り直して照らし直し、まだ違えば失敗に数える。本流は配った後に読む。配る前に
-   読むと、配る間に別の部署が本流へ入れた版を marketplace が先に拾い、入った版が本流より新しいのに「そろわない」と数える
-   （2026-10-17 に works-dispatch 0.36.0 で実測）。配り直すのは、配る間に本流が進むと先に配ったアカウントが前の版のまま
-   残るため（2026-10-17 に works-dispatch 0.37.0 で実測）。全アカウントが本流の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
+   全アカウントに配った後に、入ったプラグインの版が main（origin/main。先に git fetch する）の plugin.json の版と同じかを
+   照合し、違えば版のずれたアカウントだけ 1 回配り直して照合し直し、まだ違えば失敗に数える。main は配った後に読む。配る前に
+   読むと、配る間に別の部署が main へ入れた版を marketplace が先に拾い、入った版が main より新しいのに「そろわない」と数える
+   （2026-10-17 に works-dispatch 0.36.0 で実測）。配り直すのは、配る間に main が進むと先に配ったアカウントが前の版のまま
+   残るため（2026-10-17 に works-dispatch 0.37.0 で実測）。全アカウントが main の版に合えば、版はそろっている（会話が installed_plugins.json を手で見なくて済む）。
 2. herdr に開いている Claude Code の会話のうち、部署と窓口の会話（場所の git の設定に company.role が在る物）にだけ
    `/reload-plugins` を打つ。持ち主の作業の会話に打つと herdr で done に替わり、ノイズになるため（この決まりは組織の物なので、
-   works-dispatch でなくここに置く）。番の途中の会話（herdr が idle・done と見ていない物）と、入力欄に字が入っている会話は
-   飛ばす。飛ばした会話は、works-dispatch の番の終わりのフック（dispatch/refresh_hook.py）が、その会話の番の終わりの手の空いた
+   works-dispatch でなくここに置く）。ターンの途中の会話（herdr が idle・done と見ていない物）と、入力フィールドに字が入っている会話は
+   飛ばす。飛ばした会話は、works-dispatch のターンの終わりのフック（dispatch/refresh_hook.py）が、その会話のターンの終わりの手の空いた
    時に替える。/clear では替わらない（2026-10-17 に Claude Code 2.1.302 で確かめた）。
 3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）に置く。持ち主の値を配布物に書かない。
 
@@ -43,7 +43,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"   # works-dispatch の設定の既定の場所（WORKS_DISPATCH_CONFIG で替わる）
 LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの配る先の足しと除外
 RELOAD = "/reload-plugins"
-IDLE = ("idle", "done")   # herdr が会話の手が空いたと見る状態（done は番を終えたまま見られていない物）
+IDLE = ("idle", "done")   # herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
 
 
 def run(argv, env=None):
@@ -112,8 +112,8 @@ def mend_clone(name, market, env, dry, runner=run):
 
 
 def expected_versions(market, root=ROOT, runner=run):
-    """(本流の {id: 版}, 読めなかったときの行か None)。本流は origin/main で、先に fetch する（fetch が切れても手元の
-    origin/main で照らす。--land の push の後なら手元の origin/main も入れた commit を指す）。全アカウントに配った後に呼ぶ。"""
+    """(main の {id: 版}, 読めなかったときの行か None)。main は origin/main で、先に fetch する（fetch が切れても手元の
+    origin/main で照合する。--land の push の後なら手元の origin/main も入れた commit を指す）。全アカウントに配った後に呼ぶ。"""
     runner(["git", "-C", str(root), "fetch", "--quiet", "origin", "main"])
     def show(path):
         code, out = runner(["git", "-C", str(root), "show", f"origin/main:{path}"])
@@ -128,7 +128,7 @@ def expected_versions(market, root=ROOT, runner=run):
                 out[f"{p['name']}@{market}"] = show(f"{src[2:]}/.claude-plugin/plugin.json").get("version")
         return out, None
     except (ValueError, KeyError, AttributeError) as e:
-        return {}, f"本流の版を読めない（{e}）"
+        return {}, f"main の版を読めない（{e}）"
 
 
 def installed_ids(name, market, env, runner=run):
@@ -146,7 +146,7 @@ def installed_ids(name, market, env, runner=run):
 
 def update_account(name, config_dir, market, dry, runner=run):
     """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び, 写しの揃った [(名前, id, 版)])。
-    入った写しに .claude-plugin/plugin.json が無ければ失敗に数える（欠けた写しを済と数えない）。版は check_versions が照らす。"""
+    入った写しに .claude-plugin/plugin.json が無ければ失敗に数える（欠けた写しを済と数えない）。版は check_versions が照合する。"""
     env = claude_env(config_dir)
     lines, bad = [], []
 
@@ -196,13 +196,13 @@ def update_account(name, config_dir, market, dry, runner=run):
 
 
 def check_versions(whole, want):
-    """写しの揃ったプラグインの版を本流の {id: 版} と照らす。(行の並び, 失敗の行の並び)。「済」と出すのは版が本流と同じときだけ
-    （古い版を済と数えない）。本流に無いプラグイン（marketplace から外した物）は版を照らさない。"""
+    """写しの揃ったプラグインの版を main の {id: 版} と照合する。(行の並び, 失敗の行の並び)。「済」と出すのは版が main と同じときだけ
+    （古い版を済と数えない）。main に無いプラグイン（marketplace から外した物）は版を照合しない。"""
     lines, bad = [], []
     for name, i, version in whole:
         head = f"{name}: claude plugin update {i} "
         if i in want and version != want[i]:
-            lines.append(head + f"失敗（版が本流とそろわない: 入った版 {version}・本流 {want[i]}）")
+            lines.append(head + f"失敗（版が main とそろわない: 入った版 {version}・main {want[i]}）")
             bad.append(lines[-1])
         else:
             lines.append(head + f"済（{version}）")
@@ -223,7 +223,7 @@ def is_company_place(cwd, runner=run):
 
 
 def input_empty(screen):
-    """会話の画面の入力欄（下から 2 本の横の罫線の間）が空か。罫線が見えなければ空と見ない。"""
+    """会話の画面の入力フィールド（下から 2 本の横の罫線の間）が空か。罫線が見えなければ空と見ない。"""
     lines = (screen or "").splitlines()
     rules = [i for i, x in enumerate(lines) if x.count("─") >= 10]
     if len(rules) < 2:
@@ -251,7 +251,7 @@ def reload_talks(skip, dry, runner=run):
         if not is_company_place(p["cwd"], runner):
             continue   # 持ち主の作業の会話（部署でも窓口でもない）には打たない
         if p.get("agent_status") not in IDLE:
-            lines.append(f"{where}: 番の途中なので飛ばす（番の終わりに替わる）")
+            lines.append(f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）")
             continue
         code, screen = runner(["herdr", "pane", "read", p["pane_id"], "--lines", "40"])   # 画面の字がそのまま出る
         if code != 0:
@@ -259,7 +259,7 @@ def reload_talks(skip, dry, runner=run):
             bad.append(lines[-1])
             continue
         if not input_empty(screen):
-            lines.append(f"{where}: 入力欄に字が在るので飛ばす")
+            lines.append(f"{where}: 入力フィールドに字が在るので飛ばす")
             continue
         if dry:
             lines.append(f"{where}: {RELOAD}（空打ち）")
@@ -288,10 +288,10 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
         lines += got
         bad += fails
         whole += ok
-    if whole:   # 本流は配った後に読む（配る間に本流へ入った版を、入った版が新しいのにそろわないと数えないため）
+    if whole:   # main は配った後に読む（配る間に main へ入った版を、入った版が新しいのにそろわないと数えないため）
         want, err = expected_versions(market, runner=runner)
-        # 配る間に本流が進むと、先に配ったアカウントは前の版のまま残る（2026-10-17 に works-dispatch 0.37.0 で実測）。
-        # 版のずれたアカウントだけ 1 回配り直し、本流を読み直して照らす
+        # 配る間に main が進むと、先に配ったアカウントは前の版のまま残る（2026-10-17 に works-dispatch 0.37.0 で実測）。
+        # 版のずれたアカウントだけ 1 回配り直し、main を読み直して照合する
         stale = {n for n, i, v in whole if i in want and v != want[i]}
         if stale and not err:
             whole = [w for w in whole if w[0] not in stale]
@@ -309,7 +309,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
         lines += got
         bad += fails
         if not err:
-            # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部本流と同じなら目的は果たしている。同じ設定のフォルダの
+            # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
             # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
             off = {n for n, i, v in whole if i in want and v != want[i]}
             even = {n for n, i, v in whole if i in want} - off
@@ -317,7 +317,7 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
                 head = f"{n}: claude plugin marketplace update "
                 if any(x.startswith(head) for x in bad):
                     bad = [x for x in bad if not x.startswith(head)]
-                    lines.append(f"{n}: marketplace の更新は落ちたが、入った版は本流とそろったので失敗に数えない")
+                    lines.append(f"{n}: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない")
     got, fails = reload_talks(skip, dry, runner)
     lines += got
     bad += fails

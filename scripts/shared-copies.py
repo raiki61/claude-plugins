@@ -4,12 +4,12 @@
 **なぜ写しなのか。** プラグインは 1 つずつ配られ、インストール後の実体は自分のサブディレクトリだけになる
 (実測 2026-09-15: `~/.claude/plugins/cache/raiki61/gates/<版>/` に在るのは `hooks/ README.md skills/` だけで、
 リポジトリの他の場所は無い)。だから実行時に 1 か所を共有する道が無く、**写して配るしかない**。
-代わりに、写しが割れたら赤くなる柵をここに置く。
+代わりに、写しが割れたら赤くなるチェックをここに置く。
 
 **走査対象は印から導く**(名前を手で並べない)。docstring に `MARK` の 1 文を持つ `.py` と、frontmatter(先頭の
 `---` の間)の YAML の注記の行に `MARK` を持つ `.md` を集め、同じファイル名のものを 1 組として見る。3 つ目の写しを
 作った周に、誰も見ない写しが増える形にしない。`.md` は frontmatter の中だけを見る——役の定義(agents/*.md)は本文が
-そのまま役への指示になるので、印を本文に置かない。本文で印の文言に触れる文書(この道具の説明など)を写しに数えない。
+そのまま役への指示になるので、印を本文に置かない。本文で印の文言に触れる文書(このツールの説明など)を写しに数えない。
 
 使い方:
     python3 scripts/shared-copies.py                     # 確かめる(tests/run.sh がこれを呼ぶ)
@@ -27,7 +27,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SELF = pathlib.Path(__file__).resolve()  # 印を**データとして**持つのはこの道具だけ——走査からは外す
+SELF = pathlib.Path(__file__).resolve()  # 印を**データとして**持つのはこのツールだけ——走査からは外す
 MARK = "この本文は複数のプラグインに写しで在る"
 
 
@@ -62,7 +62,7 @@ def rel(p):
 
 def check(gs):
     if not gs:
-        print("NG 写しだと名乗る本文が 1 つも無い(走査が空回り——この柵は何も測っていない)")
+        print("NG 写しだと名乗る本文が 1 つも無い(走査が空回り——このチェックは何も測っていない)")
         return 1
     bad = 0
     for name, ps in sorted(gs.items()):
