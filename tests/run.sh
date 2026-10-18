@@ -7887,8 +7887,8 @@ expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(�
 # GitHub で保護しておらず、--land を通さずに手で push する道もある（docs/releasing.md）ので、main に入った後の CI でも同じ口で見る
 expect_output 0 "TERMS_OK" "リポジトリの文の IT の定着語でない言い方の件数が、ファイルごとに基準（scripts/terms-baseline.json）と同じ" \
     "$PY_BIN" "$ROOT/scripts/terms.py"
-# 見る口が、人に見せる画面のひな形（.html。attention/templates/ の /catchup などの画面）も見ること。ツールの出力の文も定着語で
-# 書く決まり（ルートの CLAUDE.md の「会話」）に入るので、拡張子の一覧から落ちると黙って見なくなる
+# 語の検査（scripts/terms.py）が、人に見せる画面のひな形（.html。attention/templates/ の catchup.html・reflect.html）も見ること。
+# ツールの出力の文も定着語で書く決まり（ルートの CLAUDE.md の「会話」）に入るので、拡張子の一覧から落ちると黙って見なくなる
 expect_output 0 "TERMS_HTML_OK" "語の検査（scripts/terms.py）が、画面のひな形の .html も見る" \
     "$PY_BIN" -c 'import importlib.util, sys
 s = importlib.util.spec_from_file_location("t", sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
