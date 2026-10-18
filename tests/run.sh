@@ -3715,6 +3715,41 @@ for word in ("新語以外", "ABCDEFGHIJKLM"):   # 語の所でも、漢字・�
     git("commit", "-q", "-am", "word " + word)
     rc, out, n = read_words("--fixer", str(work / "fixer.py"))
     assert rc == 0 and n == 1, (word, rc, n, out)
+
+# 9) スキルのフォルダ(skills/<名前>/)の文書は、AI が先に読む物を依頼文の本文の印の手前に添える: 別ファイルには SKILL.md を前提として、
+#    SKILL.md には指した先の中身でなく、パスで指した同じフォルダのファイルの名前だけ(a.md は references/a.md の一部でも指していない)。
+#    スキルの外の文書と、SKILL.md の名前が大文字小文字まで合わないフォルダには添えない。SKILL.md を直せば別ファイルを読み直す。手の read も同じ
+before = len(prompts())
+skill, near = repo / "pl/skills/s", repo / "pl/skills/lower"
+(skill / "references").mkdir(parents=True)
+near.mkdir(parents=True)
+lines = lambda mark: "".join("印%s の %d 行目。\n" % (mark, i) for i in range(40))
+(skill / "SKILL.md").write_text("# スキル\n\n" + lines("SB") + "詳しくは [references/a.md](references/a.md) を読む。\n", encoding="utf-8")
+(skill / "references/a.md").write_text("# 別ファイル\n\n" + lines("RA"), encoding="utf-8")
+(skill / "references/b.md").write_text("# 指されない別ファイル\n\n" + lines("RB"), encoding="utf-8")
+(skill / "a.md").write_text("# 同じ名前\n\n" + lines("SA"), encoding="utf-8")
+(near / "skill.md").write_text("# 小文字\n\n" + lines("LO"), encoding="utf-8")
+(near / "other.md").write_text("# 小文字の隣\n\n" + lines("LN"), encoding="utf-8")
+(repo / "plain.md").write_text("# 外\n\n" + lines("PL"), encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "skill")
+rc, out = check()
+got = {p.split("--- 本文 ---\n")[1].split("\n", 1)[0]: p.split("--- 本文 ---\n")[0] for p in prompts()[before:]}
+assert rc == 0 and set(got) == {"# スキル", "# 別ファイル", "# 指されない別ファイル", "# 同じ名前", "# 小文字", "# 小文字の隣", "# 外"}, (rc, list(got), out)
+for title in ("# 別ファイル", "# 指されない別ファイル", "# 同じ名前"):
+    assert "--- 前提: SKILL.md ---\n# スキル" in got[title] and "前提ここまで" in got[title], (title, got[title])
+assert "(references/a.md)は、AI が本文の指す場面で" in got["# スキル"] and "印RA" not in got["# スキル"] and "--- 前提" not in got["# スキル"], got["# スキル"]
+assert not any("補足: 本文は、AI が使う手順書" in got[t] for t in ("# 小文字", "# 小文字の隣", "# 外")), got["# 外"]
+(skill / "SKILL.md").write_text("# スキル\n\n" + lines("SB") + "印SB2 を足した。詳しくは [references/a.md](references/a.md) を読む。\n", encoding="utf-8")
+git("commit", "-q", "-am", "skill body")
+before = len(prompts())
+rc, out = check()
+assert rc == 0 and sum("印SB2" in p for p in prompts()[before:]) == 4, (rc, out)   # SKILL.md と別ファイル 3 本(前提が替わった)
+e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR"))}
+e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=READER)
+before = len(prompts())
+subprocess.run([sys.executable, str(gate), "read", str(skill / "references/a.md")], cwd=str(repo), capture_output=True, env=e, timeout=120, check=True)
+assert "--- 前提: SKILL.md ---" in prompts()[before], prompts()[before][:300]
 print("DOCS_BRANCH_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。

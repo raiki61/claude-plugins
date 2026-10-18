@@ -233,6 +233,14 @@ read again (in 5 hours on 2026-10-17: 12 blockers against 395 guesses; 17% of th
   (for Write and Edit, `originalFile` in the hook's input; for Bash, the HEAD version before it ran [for a document committed in the same command, the version before that commit]; for MCP tools, the HEAD version at recording time. A document
   not in HEAD is a new document). Back when whole documents were read, adding a few lines to a document of about 200 lines made the reader time out, and every one-sentence fix brought back old questions about
   sections that had not been fixed. When extracted, the length field in `docs.log` is "characters passed/total characters"
+- **Skill documents are read with what is read before them**: for a document in a skill folder (`skills/<name>/`, the folder that holds a file named exactly `SKILL.md`), the reader gets a note before the body.
+  A separate file (such as `references/*.md`) gets the skill's `SKILL.md` as premise; the reader takes the words and steps explained there as known and reports only on the body.
+  `SKILL.md` does not get the content of the files it points to, only their names (files of the same folder whose relative path is written in `SKILL.md`) and the note that they are opened where `SKILL.md` points,
+  so their content missing from `SKILL.md` is not a blocker; a pointer that does not say when to open it or what is in it, and words not explained within `SKILL.md`, are still reported.
+  The premise is the current content in the working tree, for the end-of-turn read, the branch gate, and `read`.
+  An agent using a skill reads `SKILL.md` first and opens a separate file when `SKILL.md` points to it (`docs/standards/skill-authoring.md`, rules 3 and 4). Read alone, a separate file lost the words explained in `SKILL.md`,
+  and `SKILL.md` was blocked because the content it pointed to was not there; each fix brought new blockers elsewhere and the branch gate kept stopping (2026-10-18: 7 → 19 blockers when splitting 3 skills of attention).
+  `SKILL.md` is not given the pointed content because the agent reads `SKILL.md` before opening them, and because a `SKILL.md` that points to 12 files would make one edit read most of the folder
 - **Generated files are not read**: documents marked `linguist-generated` in `.gitattributes` (the GitHub Linguist mark; with no value or `=true`;
   `-linguist-generated` and `=false` count as unmarked) are not read. To mark them, add one line to `.gitattributes` such as `reference/_snapshots/** linguist-generated`
 - **Documents covered by another check can also be excluded**: even human-written documents, where a different check is responsible (such as notes that copy and are checked against an original),

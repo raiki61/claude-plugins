@@ -3188,16 +3188,78 @@ def doc_to_read(path, seen):
     return text, digest
 
 
-def doc_prompt(body, focus=False):
-    """読み手に渡す依頼文+本文。抜き出し(focus)なら、本文の印の手前に読む範囲の補足を足す。"""
-    if not focus:
+# スキルのフォルダの文書は、AI がそれより先に読む物を補足として添える。スキル(<プラグイン>/skills/<名前>/)を使う AI は SKILL.md を
+# 先に読み、同じフォルダの別ファイル(references/*.md など)は SKILL.md が指す場面で開く(スキルの書き方の標準
+# docs/standards/skill-authoring.md の決まり 3・4)。別ファイルを 1 本だけ読ませると SKILL.md で説明した語(機械・材料など)が取れず、
+# SKILL.md を 1 本だけ読ませると指した別ファイルの中身が無いと詰まり、直すたびに別の所で詰まって --land が止まった(2026-10-18、
+# attention の 3 本の分けで詰まり 7 → 19 件)。別ファイルには SKILL.md を前提として添える(標準で 5,000 字ほどに収まる)。SKILL.md には
+# 指した先の中身を添えず、指した先は開く場面で読む物だと言うだけにする: AI は別ファイルを開く前に SKILL.md で詰まるので、SKILL.md の語は
+# SKILL.md の中で取れるかを今までどおり見る。中身まで添えると、12 本を指す SKILL.md(works-dispatch の dispatch)を 1 行直すだけで
+# フォルダのほぼ全部を読ませ、抜き出しで縮めた意味が無くなる。前提は作業ツリーの今の中身
+DOC_PREMISE_NOTE = ("補足: 本文は、AI が使う手順書(スキル)の別ファイル。AI はスキルの本文(SKILL.md)を先に読み、SKILL.md が指す場面で"
+                    "この文書を開く。下の「前提」はその SKILL.md で、AI は読み終えている。SKILL.md で説明している語・手順は分かっているものとして読む。"
+                    "前提への指摘は書かない。本文についてだけ報告する。\n\n")
+PREMISE_MARK = "--- 前提: %s ---\n"
+PREMISE_END = "--- 前提ここまで ---\n\n"
+DOC_POINTED_NOTE = ("補足: 本文は、AI が使う手順書(スキル)の本文(SKILL.md)。本文が指す同じフォルダのファイル(%s)は、AI が本文の指す場面で"
+                    "開いて読む物で、ここには添えていない。指した先の中身が本文に無いことは詰まりにしない。ただし、いつ開くか・何が入っているかが"
+                    "本文から分からない指し方と、本文の語・手順が本文の中だけで取れない所は、今までどおり報告する。\n\n")
+
+
+def _read_text(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _skill_dir(full):
+    """full を含むスキルのフォルダ(skills/<名前>/ で、名前が大文字小文字まで SKILL.md のファイルの在るフォルダ)。無ければ None。"""
+    d = os.path.dirname(full)
+    while True:
+        if os.path.basename(os.path.dirname(d)) == "skills":
+            try:
+                if "SKILL.md" in os.listdir(d):
+                    return d
+            except OSError:
+                pass
+        if os.path.dirname(d) == d:
+            return None
+        d = os.path.dirname(d)
+
+
+def skill_premise(path):
+    """path がスキルのフォルダの文書なら、依頼文の本文の印の手前に足す補足(上の DOC_PREMISE_NOTE か DOC_POINTED_NOTE)。ほかは空。"""
+    full = os.path.abspath(path)
+    d = _skill_dir(full)
+    skill = _read_text(os.path.join(d, "SKILL.md")) if d else None
+    if skill is None:
+        return ""
+    rel = os.path.relpath(full, d).replace(os.sep, "/")
+    if rel != "SKILL.md":
+        return DOC_PREMISE_NOTE + PREMISE_MARK % "SKILL.md" + skill.rstrip("\n") + "\n" + PREMISE_END
+    pointed = []
+    for top, dirs, files in os.walk(d):
+        dirs.sort()
+        for name in sorted(files):
+            r = os.path.relpath(os.path.join(top, name), d).replace(os.sep, "/")
+            # パスとして書いた所だけ(references/a.md の a.md や、x.md を含む index.md には当てない)
+            if r != "SKILL.md" and re.search(r"(?<![\w./-])" + re.escape(r) + r"(?![\w/-])", skill):
+                pointed.append(r)
+    return DOC_POINTED_NOTE % "・".join(pointed) if pointed else ""
+
+
+def doc_prompt(body, focus=False, premise=""):
+    """読み手に渡す依頼文+本文。スキルのフォルダの補足(skill_premise)と、抜き出し(focus)なら読む範囲の補足を、本文の印の手前に足す。"""
+    if not (focus or premise):
         return COLD_PROMPT + body
-    return COLD_PROMPT[:-len(BODY_MARK)] + DOC_FOCUS_NOTE + BODY_MARK + body
+    return COLD_PROMPT[:-len(BODY_MARK)] + premise + (DOC_FOCUS_NOTE if focus else "") + BODY_MARK + body
 
 
-def read_doc(text, focus=False, timeout=DOC_READ_TIMEOUT):
-    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。"""
-    out = run_reader(doc_prompt(text, focus), model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout)
+def read_doc(text, focus=False, premise="", timeout=DOC_READ_TIMEOUT):
+    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。premise はスキルのフォルダの補足(skill_premise)。"""
+    out = run_reader(doc_prompt(text, focus, premise), model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout)
     if not report_shaped(out):
         raise RuntimeError("報告の形(CLEAN かラベル行)をしていない: %r" % out[:150])
     return sort_findings(out)
@@ -3518,11 +3580,11 @@ def _down_reason(exc):
     return "読み手を起動できなかった(%s)" % str(exc)[:80].replace("\n", " ")
 
 
-def _timed_read(text, focus, timeout):
+def _timed_read(text, focus, timeout, premise=""):
     """read_doc に、かかった秒を添える。((結果, 例外), 秒)。秒は docs.log に残し、次に重さを測れるようにする。"""
     start = time.monotonic()
     try:
-        got = (read_doc(text, focus, timeout), None)
+        got = (read_doc(text, focus, premise, timeout), None)
     except Exception as exc:
         got = (None, exc)
     return got, time.monotonic() - start
@@ -3577,7 +3639,7 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
     # (2026-10-17 に説明書の部署で実測: 同じ 11 本を 05:29:04 と 05:30:23 に同じ字数で 2 回読んだ)
     _remember([digest for _, _, digest, _ in picked])
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
-        futures = {pool.submit(_timed_read, text if part is None else part, part is not None, timeout): (path, text, digest, part)
+        futures = {pool.submit(_timed_read, text if part is None else part, part is not None, timeout, skill_premise(path)): (path, text, digest, part)
                    for path, text, digest, part in picked}
     unread = []
     for fut, (path, text, digest, part) in futures.items():
@@ -3827,10 +3889,10 @@ def _carried_from_base(stuck, body, base):
     return {k for k in range(len(stuck)) if marks.get(str(k + 1)) == "OLD"}
 
 
-def _branch_verdict(key, body, focus, base):
+def _branch_verdict(key, body, focus, base, premise=""):
     """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号)。判定は覚えた物か、読んで覚えた物({"詰まり", "補完", "疑問"})。
-    読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。"""
-    found, cached = _branch_cached(key, lambda: read_doc(body, focus))
+    読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。premise はスキルのフォルダの補足(skill_premise)。"""
+    found, cached = _branch_cached(key, lambda: read_doc(body, focus, premise=premise))
     old = _carried_from_base(found["詰まり"], body, base) if found["詰まり"] and base is not None else set()
     return found, cached, old
 
@@ -3906,12 +3968,13 @@ def branch_check(argv):
         if part == "":
             continue
         body = text if part is None else part
-        key = hashlib.sha256(doc_prompt(body, part is not None).encode("utf-8")).hexdigest()[:40]
-        picked.append((rel, text, body, part is not None, key, old))
+        premise = skill_premise(full)
+        key = hashlib.sha256(doc_prompt(body, part is not None, premise).encode("utf-8")).hexdigest()[:40]
+        picked.append((rel, text, body, part is not None, key, old, premise))
     notes, stuck, counts, down, fresh = [], [], {"詰まり": 0, "補完": 0, "前から": 0}, [], 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
-        futures = [(pool.submit(_branch_verdict, key, body, focus, old), rel, text, focus)
-                   for rel, text, body, focus, key, old in picked]
+        futures = [(pool.submit(_branch_verdict, key, body, focus, old, premise), rel, text, focus)
+                   for rel, text, body, focus, key, old, premise in picked]
     for fut, rel, text, focus in futures:
         try:
             found, cached, old = fut.result()
@@ -3931,7 +3994,7 @@ def branch_check(argv):
         counts["詰まり"] += len(found["詰まり"])
         counts["補完"] += len(found["補完"])
         counts["前から"] += len(carried)
-    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, _, _, _, _ in picked])   # ターンの終わりの読みと重ねない
+    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, *_ in picked])   # ターンの終わりの読みと重ねない
     where = _write_findings("branch", "\n\n".join(("coldread が、メインブランチに入れる前にブランチの文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
         if notes else None
     for line in stuck:
@@ -3952,7 +4015,7 @@ def read_now(path):
     with open(path, encoding="utf-8") as f:
         text = f.read()
     try:
-        found = read_doc(text)
+        found = read_doc(text, premise=skill_premise(path))
     except Exception as exc:
         print("読めなかった: %s" % _down_reason(exc))
         return 1
