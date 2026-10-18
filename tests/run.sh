@@ -4826,6 +4826,12 @@ expect_output 0 "29 番目のお願いです" \
     "what-am-i-doing: --full なら省かない" "$PY_BIN" "$WAI_CASE" full
 expect_output 1 "セッション記録が見つからない" \
     "what-am-i-doing: 記録が無ければ落ちる（黙って空を出さない）" "$PY_BIN" "$WAI_CASE" missing
+expect_output 0 "DOTTED_OK" \
+    "what-am-i-doing: 作業場のパスに . を含んでも記録を見つける（置き場の名前は英数字以外が全部 -）" \
+    "$PY_BIN" "$WAI_CASE" dotted-cwd
+expect_output 0 "OTHER_OK" \
+    "what-am-i-doing: session id の記録が無いとき、同じ置き場の別の会話の記録へ倒れない" \
+    "$PY_BIN" "$WAI_CASE" other-session
 expect_output 0 "→ 直して push しました" \
     "what-am-i-doing: stdio を cp1252 に強制しても日本語の報告が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$WAI_CASE" pairs

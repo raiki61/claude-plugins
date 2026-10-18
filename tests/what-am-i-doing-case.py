@@ -48,14 +48,21 @@ def reply(text, tools=(), at=T0):
             "message": {"content": blocks}, "sessionId": SESSION}
 
 
-def build(tmp, records, title="テストの題"):
-    cwd = pathlib.Path(tmp) / "work"
+def slug(cwd):
+    """Claude Code の実物の置き場の名前（英数字以外を全部 `-`）。実物の例は
+    `/Users/me/.herdr/wt` → `-Users-me--herdr-wt`（`.herdr` の `.` も `-` になる）。
+    試験の側で本体の project_folder を使わない——同じ間違いを両方に書くと試験が通ってしまう。"""
+    return "".join(c if c.isascii() and c.isalnum() else "-" for c in str(cwd))
+
+
+def build(tmp, records, title="テストの題", work="work", sid=SESSION):
+    cwd = pathlib.Path(tmp) / work
     cwd.mkdir(parents=True, exist_ok=True)
     # macOS の一時ディレクトリは /var → /private/var の symlink。chdir 後に見える
     # cwd は解決済みの方なので、記録の置き場も解決済みのパスから決める
     cwd = cwd.resolve()
     config = pathlib.Path(tmp) / "config"
-    folder = config / "projects" / str(cwd).replace("/", "-")
+    folder = config / "projects" / slug(cwd)
     folder.mkdir(parents=True, exist_ok=True)
 
     lines = list(records)
@@ -66,7 +73,10 @@ def build(tmp, records, title="テストの題"):
         encoding="utf-8")
 
     os.environ["CLAUDE_CONFIG_DIR"] = str(config)
-    os.environ["CLAUDE_CODE_SESSION_ID"] = SESSION
+    if sid:
+        os.environ["CLAUDE_CODE_SESSION_ID"] = sid
+    else:
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
     os.chdir(cwd)
     return cwd
 
@@ -171,6 +181,37 @@ def _missing(tmp):
     os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
     os.chdir(cwd)
     return run()
+
+
+@case("dotted-cwd")
+def _dotted(tmp):
+    """作業場のパスに `.` を含む（herdr の `~/.herdr/worktrees/…`）ときも記録を見つける。
+    置き場の名前は英数字以外が全部 `-` になるので、`/` だけを替えると外れていた（2026-10-19）。
+    session id が有れば名前を作らずに探し、無ければ実物と同じ規則の名前で探す。"""
+    build(tmp, [ask("ドットの作業場のお願い"), reply("はい")], work=".herdr/wt_1")
+    with_sid = run()
+    os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+    without = run()
+    want = {
+        "sid": "ドットの作業場のお願い" in with_sid and "注意:" not in with_sid,
+        "no_sid": "ドットの作業場のお願い" in without
+                  and "注意: CLAUDE_CODE_SESSION_ID が無いので" in without,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "DOTTED_OK" if not bad else "DOTTED_NG " + ",".join(bad) + "\n" + with_sid + "\n" + without
+
+
+@case("other-session")
+def _other(tmp):
+    """session id の記録が無いとき、同じ置き場の別の会話の記録へ黙って倒れない。
+    並んだ会話の記録を、この会話の物として見せてしまう。"""
+    build(tmp, [ask("並んだ別の会話のお願い"), reply("はい")],
+          sid="99999999-0000-0000-0000-000000000000")
+    try:
+        out = run()
+    except SystemExit as e:
+        return "OTHER_OK" if "記録が無い" in str(e) else f"OTHER_NG {e}"
+    return "OTHER_NG 別の会話の記録を出した\n" + out
 
 
 @case("dirty-paths")

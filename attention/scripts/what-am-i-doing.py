@@ -126,18 +126,42 @@ def role_on(cwd, number=None):
     return pr
 
 
+def project_folder(config, cwd):
+    """cwd の記録の置き場。session id が無いときと、同じ id の記録が複数あるときの絞り込みに使う。
+
+    置き場の名前の作り方はハーネス（Claude Code）の持ち物で、公開の約束が無い。実物は英数字以外を
+    全部 `-` に替えた名前（例: `/Users/me/.herdr/wt` → `-Users-me--herdr-wt`）。`/` だけを替えて
+    いたとき、`.herdr` を含む作業場で記録が見つからなかった（2026-10-19）。長いパスは名前が
+    切り詰められて合わないので、session id が取れる所ではまず名前に依らずに探す（transcript_path）。"""
+    return config / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+
+
 def transcript_path(session_id, cwd):
-    """記録の実体を探す。session id が取れれば一意、取れなければ最新にする。"""
+    """記録の実体と、読む人に添える注記（無ければ None）。見つからなければ (None, 理由)。
+
+    session id が取れれば、置き場の名前を自分で作らずに `projects/*/<id>.jsonl` を探す
+    （graphloops の rules/research-loop.py の transcript_path と同じ形）。見つからなくても
+    最新の記録へは倒さない——並んだ会話の別の記録を、この会話の物として見せてしまう。
+    session id が取れないときだけ、cwd の置き場の最新を出し、そう出したと注記する。"""
     config = pathlib.Path(claude_auth.config_dir(os.environ))
-    folder = config / "projects" / str(cwd).replace("/", "-")
-    if not folder.is_dir():
-        return None
     if session_id:
-        exact = folder / f"{session_id}.jsonl"
-        if exact.exists():
-            return exact
+        hits = sorted(config.glob(f"projects/*/{session_id}.jsonl"))
+        if len(hits) == 1:
+            return hits[0], None
+        if not hits:
+            return None, f"{config}/projects/*/{session_id}.jsonl に記録が無い"
+        # 同じ id が 2 つの置き場に在るのは、記録を写したときくらい。cwd の置き場の物なら選べる
+        mine = [h for h in hits if h.parent == project_folder(config, cwd)]
+        if len(mine) == 1:
+            return mine[0], None
+        return None, "session id の記録が {} 件あり、どれか決められない（{}）".format(
+            len(hits), "、".join(str(h) for h in hits))
+    folder = project_folder(config, cwd)
     files = sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
-    return files[-1] if files else None
+    if not files:
+        return None, f"{folder} に記録が無い（CLAUDE_CODE_SESSION_ID も無い）"
+    return files[-1], ("CLAUDE_CODE_SESSION_ID が無いので、この作業場の最新の記録を出した"
+                       "（並んだ会話があれば、別の会話の記録かもしれない）")
 
 
 def text_of(content):
@@ -216,7 +240,7 @@ def squeeze(text, limit):
     return s[:limit] + "…" if limit and len(s) > limit else s
 
 
-def render(title, turns, started, touched, cwd, full, limit, topic=None):
+def render(title, turns, started, touched, cwd, full, limit, topic=None, note=None):
     out = []
     w = out.append
     w(f"# このスレッド — {title or '（題が付いていない）'}")
@@ -224,6 +248,8 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     w(f"  {cwd}" + (f" · ブランチ {branch}" if branch else ""))
     span = f"開始 {started:%m-%d %H:%M}" if started else "開始 不明"
     w(f"  {span} · 最後の動き {touched:%m-%d %H:%M} · やり取り {len(turns)} 往復")
+    if note:
+        w(f"  注意: {note}")
     total = len(turns)
     if topic:
         # 話題で絞る（/catchup が番号でない語で呼ばれたとき）。会話にしか無い話題は GitHub に
@@ -374,13 +400,13 @@ def report(a):
             sys.exit(f"{a.frame} が無い（path はリポジトリの根からの相対）")
         print("\n".join(lines))
         return 0
-    path = transcript_path(os.environ.get("CLAUDE_CODE_SESSION_ID"), cwd)
+    path, note = transcript_path(os.environ.get("CLAUDE_CODE_SESSION_ID"), cwd)
     if not path:
-        sys.exit(f"このディレクトリ（{cwd}）のセッション記録が見つからない")
+        sys.exit(f"このディレクトリ（{cwd}）のセッション記録が見つからない: {note}")
 
     title, turns, first, touched = read(path)
     print(render(title, turns, stamp(first) or touched, touched, cwd, a.full, a.limit,
-                 topic=topic))
+                 topic=topic, note=note))
     return 0
 
 
