@@ -148,6 +148,9 @@ def bad_config():
         runner, calls = world()
         rc, out = run(runner, {}, local)
         assert rc == 2 and "止めた" in out and not calls, (local, rc, out)
+    runner, calls = world()
+    rc, out = run(runner, {}, 'accounts = [{ name = "p9", config_dir = 3 }]\n')
+    assert rc == 2 and "止めた" in out and not calls, (rc, out)
     print("BAD_CONFIG_OK")
 
 
@@ -170,6 +173,12 @@ def failure_is_nonzero():
     rc, out = run(runner, {})
     tries = [a for a, _ in calls if a[:4] == ["claude", "plugin", "marketplace", "update"]]
     assert rc == 0 and len(tries) == 3, (rc, out, tries)   # 落ちた 1 回だけ打ち直す
+    for broken in ({"herdr", "pane", "list"}, {"herdr", "agent", "prompt"}):   # herdr が落ちても配った結果を出し、失敗に数える
+        runner, _ = world()
+        def failing(argv, env=None, runner=runner, broken=broken):
+            return (1, "boom") if broken <= set(argv[:3]) else runner(argv, env)
+        rc, out = run(failing, {})
+        assert rc == 1 and "boom" in out.strip().splitlines()[-1], (broken, rc, out)
     print("FAILURE_IS_NONZERO_OK")
 
 

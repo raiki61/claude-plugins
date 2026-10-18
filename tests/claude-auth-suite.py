@@ -88,6 +88,8 @@ class AccountToken(unittest.TestCase):
         tok, note = claude_auth.account_token(str(d), {}, None, "linux", keychain({}))
         self.assertIsNone(tok)
         self.assertIn(".credentials.json:file-malformed", note)
+        (d / ".credentials.json").write_text("{}")   # 在るのにトークンが無い物も、無いのと同じに見せない
+        self.assertIn(":file-malformed", claude_auth.account_token(str(d), {}, None, "linux", keychain({}))[1])
         (d / ".credentials.json").write_text("not json")
         self.assertIn(":file-malformed", claude_auth.account_token(str(d), {}, None, "linux", keychain({}))[1])
         e = pathlib.Path(tempfile.mkdtemp())

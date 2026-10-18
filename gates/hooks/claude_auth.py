@@ -158,7 +158,7 @@ def account_token(user_config, env, explicit=None, platform=sys.platform, runner
         if tok.startswith(TOKEN_PREFIX):
             return tok, "file(.credentials.json)"
         # 形の違う値は渡さない（read_keychain の keychain-malformed と同じ訳）。捨てたことは探した所の並びに出す
-        tried.append("%s:%s" % (path, "file-malformed" if tok else "file-miss"))
+        tried.append("%s:file-malformed" % path)
     return None, "見つからない: " + "、".join(tried)
 
 

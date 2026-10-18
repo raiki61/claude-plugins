@@ -80,6 +80,8 @@ def accounts(env=os.environ, local=LOCAL):
     raw = listed(read_toml(path), "accounts", dict, path) or [{"name": "default"}]
     out, seen = [], set()
     for a in raw + listed(read_toml(local), "accounts", dict, local):
+        if not all(isinstance(a.get(k, ""), str) for k in ("name", "config_dir")):
+            raise ValueError(f"accounts の name・config_dir が文字列でない: {a}")
         d = a.get("config_dir")
         key = os.path.realpath(os.path.expanduser(d)) if d else None
         if key not in seen:
@@ -119,7 +121,9 @@ def mend_clone(name, market, env, dry, runner=run):
     if not loc:
         return []   # 戻せないときも、入った写しの検査（update_account）が欠けを失敗に数える
     code, out = runner(["git", "-C", loc, "ls-files", "--deleted"])
-    gone = out.splitlines() if code == 0 else []
+    if code != 0:
+        return [step(name, "mend", f"{name}: marketplace の clone の欠けを確かめられない 失敗（{out.strip()[:200]}）", True)]
+    gone = out.splitlines()
     if not gone:
         return []
     what = f"{name}: marketplace の clone の作業ツリーに {len(gone)} 個のファイルが無いので戻す"
@@ -234,7 +238,7 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
     try:
         labels = herdr.workspace_labels(herdr_run)
         panes = herdr.panes(herdr_run)
-    except herdr.HerdrError as e:
+    except (herdr.HerdrError, OSError) as e:   # OSError は herdr が入っていない・起動できないとき
         return [step(None, "talk", f"herdr を読めない（{e}）", True)]
     steps = []
     for p in panes:
@@ -251,7 +255,7 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
             continue
         try:
             box = deliver.typed(herdr.read(p["pane_id"], 40, herdr_run, ansi=True))   # 薄字の候補は打った字と数えない
-        except herdr.HerdrError as e:
+        except (herdr.HerdrError, OSError) as e:
             steps.append(step(None, "talk", f"{where}: 画面を読めない（{e}）", True))
             continue
         if box is None:
@@ -264,10 +268,11 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
             steps.append(step(None, "reload", f"{where}: {RELOAD}（空打ち）", False))
             continue
         try:
-            herdr.prompt(p["pane_id"], RELOAD, False, herdr_run)
-            steps.append(step(None, "reload", f"{where}: {RELOAD} 済", False))
-        except herdr.HerdrError as e:
-            steps.append(step(None, "reload", f"{where}: {RELOAD} 失敗（{e}）", True))
+            got = herdr.prompt(p["pane_id"], RELOAD, False, herdr_run)
+        except (herdr.HerdrError, OSError) as e:
+            got = str(e)
+        ok = got == "sent"   # herdr の見張りが止めた打ち込みは "stalled" で返る（herdr.prompt）
+        steps.append(step(None, "reload", f"{where}: {RELOAD} " + ("済" if ok else f"失敗（{got}）"), not ok))
     return steps
 
 

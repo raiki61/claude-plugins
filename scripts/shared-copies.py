@@ -20,6 +20,7 @@
 import hashlib
 import pathlib
 import shutil
+import subprocess
 import sys
 
 for _s in (sys.stdout, sys.stderr):
@@ -45,9 +46,12 @@ def marked(p):
 def groups():
     """(印を持つ本文のファイル名ごとの組, 読めなかった [(パス, 訳)])。読めない物は写しかどうか決まらないので、組から黙って外さずに
     呼ぶ側へ返す（3 つの組の 1 つが読めずに 2 つに減っても、残りが揃えば通ってしまう）。"""
+    # 見るのは git の載る物（載った物と、まだ add していない無視されない物）。手元に置いただけの無視されるファイルで止めない
+    names = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                           capture_output=True, text=True, encoding="utf-8", check=True).stdout.split("\0")
     out, unread = {}, []
-    for p in sorted([*ROOT.rglob("*.py"), *ROOT.rglob("*.md")]):
-        if ".git" in p.parts or "__pycache__" in p.parts or p.resolve() == SELF:
+    for p in sorted({ROOT / x for x in names if x.endswith((".py", ".md"))}):
+        if p.resolve() == SELF:
             continue
         try:
             if marked(p):
