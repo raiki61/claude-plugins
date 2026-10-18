@@ -1,4 +1,4 @@
-"""works の層と依存の向き（裁定 R59）の検査。この試験が層の正本（README の「層と依存の向き」は要約）。
+"""works の層と依存の向き（裁定 R59）の検査。この試験が層の正本（README の「Layers and dependency direction」は要約）。
 
 層（下から。上の層は下の層だけを知ってよい）:
 - L0 写し: .shared/core/graphloops・.shared/core/scripts（works の物を何も知らない）

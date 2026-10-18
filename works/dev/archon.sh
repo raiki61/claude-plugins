@@ -27,7 +27,7 @@ works_dev_abs_claude_config
 works_dev_refuse_claude_tmp archon.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 works_dev_refuse_claude_tmp archon.sh "対象（cwd）" "$(pwd -P)"
 
-# Claude の包み（works/.shared/core/claude-adapter。README の「Claude の包み」）。WORKS_DEV_ADAPTER=1 で入れる（既定は入れない）。
+# Claude の包み（works/.shared/core/claude-adapter。README の「Claude adapter」）。WORKS_DEV_ADAPTER=1 で入れる（既定は入れない）。
 # 入れる時は、認証を使う実行で隔離した Archon の設定に claudeBinaryPath（包み）を書き、本物の claude を WORKS_REAL_CLAUDE で
 # 包みに渡し、env の CLAUDE_BIN_PATH（Archon では設定より強い）を外す。包みの家（会話の id・読んだ記録・起動の記録）は
 # WORKS_ADAPTER_HOME（既定は $WORKS_DEV_HOME/adapter）。役の sandbox の Bash から書けない所に置く（guard.sh）。

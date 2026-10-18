@@ -1032,7 +1032,7 @@ case "$_tc_rc" in
       echo "WORKS_USE_ALLOW_TESTCMD=1 なので止めずに起こす（上の形は worktree の直しでなく対象の手元を試し得る）"
     else
       printf '%s\n' "$_tc_out" >&2
-      refuse "test_cmd が対象の手元（${TARGET}）を走らせる形なので、Archon を起こさずに止めた（run の試験が直しでなく手元のコードを試し、直しの正誤に関わらず緑になり得る）。worktree の中で環境を作り worktree の相対で書く形（例 uv run pytest -q。npm は npm ci && npm test）にして打ち直す。形を知った上でそのまま回すなら WORKS_USE_ALLOW_TESTCMD=1 を前に付けて打ち直す（works/README.md の「test_cmd と worktree」）"
+      refuse "test_cmd が対象の手元（${TARGET}）を走らせる形なので、Archon を起こさずに止めた（run の試験が直しでなく手元のコードを試し、直しの正誤に関わらず緑になり得る）。worktree の中で環境を作り worktree の相対で書く形（例 uv run pytest -q。npm は npm ci && npm test）にして打ち直す。形を知った上でそのまま回すなら WORKS_USE_ALLOW_TESTCMD=1 を前に付けて打ち直す（works/README.md の「test_cmd and worktrees」）"
     fi
     ;;
   *)

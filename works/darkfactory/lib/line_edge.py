@@ -121,7 +121,7 @@ SPEC_EDGE_BY = stopby.declare("spec-edge", "仕様の段の後の engine の節�
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
-                "包み無しで回すなら入力 adapter に optional を渡す（works/README.md の包みの節）")
+                "包み無しで回すなら入力 adapter に optional を渡す（works/README.md の「Claude adapter」）")
 FIXTURE_FAILED_OP = "fixture_capture_failed"  # h-fix が固定材料を写せなかった trace の行（run は止めない）
 ADAPTER_FIXTURE_OP = "adapter_check_after_fixture"   # 固定材料から始めた盤面で h-judge が包みの確かめを h-review に回した trace の行
 DIAGNOSE_NODE = "p2.diagnose"                # 判定の節（h-mat・h-plan が今の周に済んだかを見る）

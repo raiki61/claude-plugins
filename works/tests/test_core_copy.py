@@ -207,7 +207,7 @@ class TestCoreCopy(unittest.TestCase):
     def test_readme_install_order(self):
         """README の入れ方も SKILL.md と同じ順（依存の marketplace を先に足し、works の install だけを打つ）"""
         text = (ROOT / "README.md").read_text(encoding="utf-8")
-        section = text.split("## 入れ方", 1)[1].split("\n## ", 1)[0]
+        section = text.split("## Installation", 1)[1].split("\n## ", 1)[0]
         self._assert_install_order(section)
 
     def test_skill_frontmatter(self):

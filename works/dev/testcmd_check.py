@@ -72,7 +72,7 @@ from urllib.parse import unquote, urlparse
 
 USAGE = "usage: testcmd_check.py [--allow-checkout] <対象の根> <test_cmd>"
 STOP_EXIT = 3   # 止める形が在る時の終了コード（--allow-checkout でも同じ。行の頭だけが「注意」になる）
-HOW = "worktree の中で環境を作るコマンド（例 uv run pytest -q）にする（works/README.md の「test_cmd と worktree」）"
+HOW = "worktree の中で環境を作るコマンド（例 uv run pytest -q）にする（works/README.md の「test_cmd and worktrees」）"
 SEPARATORS = ("&&", "||", ";", "|", "&")
 REDIRECTS = (">", ">>", ">|", "&>", "&>>", ">&", "<>")   # 後ろの語が書き先のリダイレクト（< の先は読むので見る）
 # 書き先を値に取る旗（よく使う物だけ。空白で分けた値も = で繋いだ値も見ない。ほかの旗の = の値は絶対パスだけ見る）

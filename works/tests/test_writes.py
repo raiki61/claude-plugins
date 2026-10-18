@@ -185,9 +185,11 @@ class TestProvenance(RepoCase):
     def test_scope_is_stated_in_reject_and_readme(self):
         """射程（Bash で書いた後に同じ中身を Edit したものは区別しない）を、docstring・拒否文・README の 3 か所に書く"""
         scope = "Bashで書いた後に同じ中身をEditで書き直した物は区別しない"
-        for where, text in (("docstring", writes.__doc__), ("REJECT", writes.REJECT),
-                            ("README", (ROOT / "README.md").read_text(encoding="utf-8"))):
+        for where, text in (("docstring", writes.__doc__), ("REJECT", writes.REJECT)):
             self.assertIn(scope, "".join(text.split()), where)   # 折り返しと語の間の空白は見ない
+        readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").split())   # README は英語の 1 版
+        self.assertIn("does not distinguish a file written with Bash and then rewritten with Edit to the same content",
+                      readme, "README")
 
     def test_edit_with_matching_record_passes(self):
         (self.repo / "stats.py").write_text("changed\n", encoding="utf-8")

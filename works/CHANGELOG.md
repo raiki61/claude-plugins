@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- README を英語の 1 版に書き直した（中身は変えず、言語だけ替えた。日本語の版は並べない）。殻・スキル・試験が README の節を名指す所は、英語の節の名（「test_cmd and worktrees」・「Claude adapter」・「Layers and dependency direction」など）に合わせた。
+
 ## [0.2.69] - 2026-10-15
 
 ### Fixed
