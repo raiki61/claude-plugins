@@ -13,6 +13,8 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 役割 agent は convergence-loops に同梱の `agents/*.md` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type`（`convergence-loops:investigator` のような値）をそのまま Agent の `subagent_type` に渡す（[references/nodes.md](references/nodes.md) の「`launch` を持たない agent」）。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
+このプラグインの置き場（この SKILL.md があるフォルダの 2 つ上）は `${CLAUDE_PLUGIN_ROOT}` である（ここと下の命令の中はスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパスに読み替えて打て。
+
 ## 手順
 
 1. **始める**。依頼文と見立て文書を渡して盤面を作る:
@@ -23,9 +25,9 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
-   `--request` は文字列でもよい。段は既定で標準。**軽量にしてよいのは依頼者がそう言ったときだけ**で、そのときに限り `--thickness 軽量 --decider 依頼者指定` を添える（回す側の判断で下げる道は無い。engine が拒む）。N 周目の締めの後で次の周を開かずに止めるなら `--stop-after-round N`（`status` が stopped、`halted` が `by: stop_after_round`。止めた後の `next` は節を出さない。次の周へ進めるなら `loop.py resume --reason "<理由>" --stop-after-round <次に止める周>`（止めずに回すなら `--no-stop-after-round`）——続けられるのは周の数で止めた run だけで、`patch` で開けるな）。無人で走るなら `--unattended`（人に聞く番になったら保守的に止まり、聞きたかったことを報告に載せる）。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
+   `--request` は文字列でもよい。段は既定で標準。**軽量にしてよいのは依頼者がそう言ったときだけ**で、そのときに限り `--thickness 軽量 --decider 依頼者指定` を添える（回す側の判断で下げる道は無い。engine が拒む）。N 周目の締めの後で次の周を開かずに止めるなら `--stop-after-round N`（`status` が stopped、`halted` が `by: stop_after_round`。止めた後の `next` は節を出さない。次の周へ進めるなら `loop.py resume --reason "<理由>" --stop-after-round <次に止める周>`（止めずに回すなら `--no-stop-after-round`）——続けられるのは周の数で止めた run だけで、盤面を直に書き換える `loop.py patch` で開けるな）。無人で走るなら `--unattended`（人に聞く番になったら保守的に止まり、聞きたかったことを報告に載せる）。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
 
-2. **回す**。`loop.py run` を**前景で**打つ（Bash の timeout は最大に）。engine が起こせる節（役・走らせるだけの節・sandbox の中の任せ先）は、run が会話の Bash から切り離して立てる回し手が起こして受け付けまで進め、run は止まる所でだけ戻る。回し手は 1 つの run に 1 本だけで（盤面の置き場の錠で決まる。2 本目の run は回し手を立てずに付き添う）、見守りの run が Bash の上限に当たって止められても背景へ移されても、回し手と役は止まらない:
+2. **回す**。`loop.py run` を**前景で**打つ（Bash の timeout は最大に）。engine が起こせる節（役・走らせるだけの節・sandbox の中の任せ先）は、回し手（run が会話の Bash から切り離して立てる engine の背景プロセス）が起こして受け付けまで進め、run は止まる所でだけ戻る。回し手は 1 つの run に 1 本だけで（盤面の置き場の錠で決まる。2 本目の run は回し手を立てずに付き添う）、見守りの run が Bash の上限に当たって止められても背景へ移されても、回し手と役は止まらない:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" run --dir <DIR>
@@ -41,8 +43,6 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 ## 場面ごとに読むファイル
 
 このスキルの本文（この SKILL.md）は始め方・回し方の手番と読むファイルだけを持つ。**下の場面（`run` の終了コードが 13 や 10 で戻った・ループの外へ出る・人が止める・終わる など）に当たったら、そのファイルを読んでから手を動かせ。**
-
-このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（スキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダの中にある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は Bash の環境変数には無いので、この置き場に読み替えて打て。
 
 - `run` の出力の中身・`next`（次に回せる節を出す命令）で回すとき・`handoff` の節の種類ごとのこなし方（`launch` を持つ節・持たない agent・runner）・`done`（節の返答を engine に返す命令）: [references/nodes.md](references/nodes.md)
 - 人に聞く番（`answer` と聞き方）・人が途中で止める・run の子の残り: [references/human.md](references/human.md)

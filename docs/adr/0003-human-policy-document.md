@@ -20,7 +20,7 @@
 
 ## 理由
 
-- 作業ツリーの外に置くと、採点する版・差分・作業ツリーの突合に入らず、run の途中の書き足しが P1 の撃ち直しにならない。同じリポジトリの worktree の run が全部同じ文書を読む（[手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）。
+- 作業ツリーの外に置くと、採点する版・差分・作業ツリーの突合に入らず、run（engine が review-graph を 1 回回す単位）の途中の書き足しが P1（周の最初の段。局所レビューと採点役を起こして素材を集める）の撃ち直しにならない。同じリポジトリの worktree の run が全部同じ文書を読む（[手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）。
 
 ## 結果
 

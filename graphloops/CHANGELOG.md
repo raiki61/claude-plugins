@@ -8,7 +8,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ### Changed
 
-- 2 本の手順書（`/review-graph`・`/research-graph`）を `commands/<名前>.md` から `skills/<名前>/` へ移し、本文（`SKILL.md`）を 5,000 字以下にして、場面ごとの手順を `skills/<名前>/references/` の別ファイルに分けた。本文には run の手番（終了コードごとの次の手）と、どの場面でどのファイルを読むかだけを置く。呼び出しの名前は変わらない。会話が長くなって圧縮されると、Claude Code はスキルの頭の 5,000 トークンだけを付け直すので、今までは後ろの手順を失ったまま回っていた。手順の中身は削っていない（別ファイルの命令に出る `${CLAUDE_PLUGIN_ROOT}` は Bash では空になるので、本文が置き場への読み替えを言う）。`/review-graph` の description が名指す入口は「同梱の手順の『判定から入る（人の修正依頼）』」になった。
+- 2 本の手順書（`/review-graph`・`/research-graph`）を `commands/<名前>.md` から `skills/<名前>/` へ移し、本文（`SKILL.md`）を 5,000 字以下にして、場面ごとの手順を `skills/<名前>/references/` の別ファイルに分けた。本文には `loop.py run`（engine に run を回させ、止まった訳を終了コードで返す命令）の終了コードごとの次の手と、どの場面でどのファイルを読むかだけを置く。呼び出しの名前は変わらない。会話が長くなって圧縮されると、Claude Code はスキルの頭の 5,000 トークンだけを付け直すので、今までは後ろの手順を失ったまま回っていた。手順の中身は削っていない（別ファイルの命令に出る `${CLAUDE_PLUGIN_ROOT}` は Bash では空になるので、本文が置き場への読み替えを言う）。`/review-graph` の description が名指す入口は「同梱の手順の『判定から入る（人の修正依頼）』」になった（`skills/review-graph/references/judgment-entry.md` の節）。
 
 ## [0.27.0] - 2026-10-17
 

@@ -11,8 +11,8 @@
 
 ## 決定
 
-- 任せ先は engine が `claude -p` で、本物の作業ツリーの写しの上に、OS の sandbox の中で起こす。本物の作業ツリー・`.git`・ほかの作業ツリー・盤面への書き込みを拒む。
-- 外すのは、人が run ごとに明示したとき（`init --unfenced-delegates <理由>`）だけで、外したことを盤面に残す。
+- 任せ先は engine が `claude -p` で、本物の作業ツリーの写しの上に、OS の sandbox の中で起こす。本物の作業ツリー・`.git`・ほかの作業ツリー・盤面（engine が run ごとに作る、run の状態を置くディレクトリ）への書き込みを拒む。
+- 外すのは、人が run ごとに明示したとき（`init --unfenced-delegates <理由>`）だけで、外したことをその run の盤面に残す。
 - engine が起こす Bash を持つ読むだけの役も sandbox の中で起こす。sandbox の無い環境（Windows・名前空間を作れない Linux）では読むだけの形に落とす。
 - この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 

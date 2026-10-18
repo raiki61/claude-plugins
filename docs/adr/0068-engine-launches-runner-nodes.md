@@ -40,4 +40,6 @@
 
 ## 出どころ
 
+この ADR の決定（回す側の節と comment-analyzer も engine が起こす形）の根拠になった記録の在りか。
+
 - リポジトリの中: 0.21.4（eb8f11d）。[計画の文書の H3〜H5 の実施](../graphloops-rearchitecture.md)の段、[review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)の engine の起こし方。
