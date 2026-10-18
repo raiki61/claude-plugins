@@ -354,11 +354,13 @@ def _store(p, steps, runs, log_dir):
             return None, f"壊れた記録 {final} を脇へ退ける置き場を作れない（{err}）ので書かない"
         try:
             os.rename(final, aside / "old")
+            stuck = None
         except OSError as err:
-            # 退けられなければ壊れた記録が final に残る——下の rename は在る final に当たって落ち、在るから書けたと読み違える
-            shutil.rmtree(aside, ignore_errors=True)
-            return None, f"壊れた記録 {final} を退けられない（{err}）ので書かない"
+            stuck = err
         shutil.rmtree(aside, ignore_errors=True)
+        if stuck:
+            # 退けられなければ壊れた記録が final に残る——下の rename は在る final に当たって落ち、在るから書けたと読み違える
+            return None, f"壊れた記録 {final} を退けられない（{stuck}）ので書かない"
     final.parent.mkdir(parents=True, exist_ok=True)
     tmp = pathlib.Path(tempfile.mkdtemp(prefix=".tmp-", dir=final.parent))
     try:
