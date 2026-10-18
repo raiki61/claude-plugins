@@ -61,7 +61,7 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
   it does not say whether PreToolUse hooks apply — **needs confirmation** (if they apply, typing it with `!` is stopped by the same check)
 - Pass-throughs suspected of slipping through the net are recorded in `misses.log` with the spelling of the flag that matched and the first word of that simple command
   (`sh`, `python3`, `echo`, etc.) — if they cannot be told apart from "it was not a post", there is no way to measure how much was pushed out
-  to back doors when the gatekeeper is tightened. Spellings inside heredoc contents are not counted, and the first word is used afterwards to separate flags of other tools and spellings inside documents.
+  to back doors when the gatekeeper is tightened. Matching spellings inside heredoc contents are not counted. The recorded first word lets you sort out later which matches were really flags of another tool or words inside a document, rather than gh posts that slipped through.
   They are recorded regardless of command length
 - It does not skip by command length (before, commands shorter than 400 characters were passed before parsing without even a record, and short posts carrying a body file or
   a variable went out unread 54 times in the most recent 14 days). Not sending short boilerplate replies to the reader is decided by passing them when the extracted text is
