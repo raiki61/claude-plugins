@@ -9,15 +9,13 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 コード変更を、採点する目（別の会話で動く役割 agent）と直す手（あなた）を分けて、指摘が出なくなるまで回すレビューループである。このプラグイン graphloops は、同じマーケットプレイスの姉妹プラグイン convergence-loops が配る散文の手順書 `/review-loop` を、機械が読めるグラフに写したもので、目的も、周ごとの記録の形（`round-<N>.json` をディレクトリに積み、検証器 `review-record.py` がディレクトリごと読んで阻害要因を列挙する）も同じである。違いは手順の置き場だけ:
 
-- **グラフ**（このプラグインの `graphs/review-loop.json`）—— 工程（節）・依存・役・各節のプロンプトと返答の型
-- **engine**（このプラグインの `scripts/loop.py`）—— グラフを読んで盤面を持つ機械。どの節が終わったか・同時に走らせてよい組・各節に渡してよいもの（グラフの `reads` の宣言に無いものはプロンプトに貼らない）・作業ツリーの前後突合・走らせなかった素材の欄・R1/R2 の再発火・周の記録の組み立て・検証器の 3 分岐の読み取り・周の上限
-- **rules**（このプラグインの `rules/review-loop.py`）—— グラフに書けない算術。記録の欄と語彙は検証器の定数を写さず import する
+- 置き場（グラフ・engine・rules がそれぞれ何を持つか）は [references/rules.md](references/rules.md) の頭
 
 この手順書は、あなたが engine をどう呼ぶかだけを書く。このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（ここはスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルの命令に書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、このファイル（`skills/review-graph/SKILL.md`）のフォルダの 2 つ上、graphloops のルート）に読み替えて打て。
 
 旗の無い `init` は**回し役（節を自分でこなす会話）の要らない回し方**になる（下の「[早見](#早見)」）: writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線（周と並べて走らせる変異の検算）も回し手（`run` が背景に立てる engine のプロセス）が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、人に渡った節（`run` の終了コード 14）の手当てだけをする（終了コード 13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（持ち主の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（節のこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定（指摘を阻害とするかの判定）・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
-役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type` をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
+役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`next` が返す節の `agent_type` の値をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
 ## 早見
 
@@ -26,9 +24,9 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 1. `init` する（要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional の節（engine が走らせる CI の節など）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run の止まり方は [references/rules.md](references/rules.md)——省けば回り切るわけではない。
 2. `loop.py run --dir <DIR>` を前景で打ち（540 秒で必ず戻る。完了の知らせに頼らない。端末・CI・台本なら `run --foreground` が止まるまで戻らない）、終了コードで次の手を決める:
    - **20**: 何もせずにもう一度 `run`
-   - **13**: engine の不具合（盤面の矛盾——engine が子を起こすコマンド（`claude -p` の引数）も、起こせない理由も持たない節）。記録器に残る。`handoff` の各行を、その行の `handoff_why` のとおりにこなし（返答は別のファイルに書いて `done --node <id> --output <file>`）、もう一度 `run`。前の版の engine で始めた盤面と `--no-engine-runners` の run では、会話がこなす節でも 13 が返る（[references/runnerless.md](references/runnerless.md)）
+   - **13**: engine の不具合（盤面の矛盾——engine が子を起こすコマンド（`claude -p` の引数）も、起こせない理由も持たない節）。記録器に残る。`handoff` の各行を、その行の `handoff_why` のとおりにこなし（返答は別のファイルに書いて `done --node <id> --output <file>`）、もう一度 `run`。前の版の engine で始めた盤面と `--no-engine-runners` の run では、今までどおり会話がこなす節で 13 が返る（前の版の決まった戻りで、不具合ではない。[references/runnerless.md](references/runnerless.md)）
    - **10**: `ask` を人に見せ（[references/steps.md](references/steps.md) の 3「人に聞く番」の聞き方）、`answer` してからもう一度 `run`
-   - **14**: `needs_human` は**まずあなたが受ける**。各行の `why` を読み、推しで済む物（人の取捨が要らない物）はあなたがこなして `run` を打ち直す——理由が外し方を名指す行（入れ子の sandbox〔OS の囲い sandbox の中で `run` を打った〕・プラグインが無い・sandbox の立たない場）は、その外し方（sandbox の設定・プラグインを入れる・回す場を移す）を当ててから `loop.py relaunch --node <id> --reason <理由>`（入れ子の sandbox なら `--reprobe` も）。engine が起こした子の返答をあなたが引き取るなら、返答を別のファイルに書いて `done --output`（子が置き場 `out_path` に残した本文は、どう渡しても子の返答と同じ厳しさで検査される）。作業ツリーを書き換える節（修正・手直し・仕様）の子が落ちた・拒みが上限まで続いた行（回し手の自動の起こし直し `relaunch --if-untouched` が効かなかった回を含む）は、**作業ツリーを確かめてから** `relaunch`——途中まで書いた編集の上に、それを知らない新しい会話が重ねて書く。人に上げるのは取捨（能力を手放す・人の方針を変える）の行だけ
+   - **14**: `needs_human` は**まずあなたが受ける**。各行の `why` を読み、推しで済む物（人の取捨が要らない物）はあなたがこなして `run` を打ち直す——理由が外し方を名指す行（入れ子の sandbox〔OS の囲い sandbox の中で `run` を打った〕・プラグインが無い・sandbox の立たない場）は、その外し方（sandbox の設定・プラグインを入れる・回す場を移す）を当ててから `loop.py relaunch --node <id> --reason <理由>`（入れ子の sandbox なら `--reprobe` も）。engine が起こした子の返答をあなたが引き取るなら、返答を別のファイルに書いて `done --output`（子が置き場 `out_path` に残した本文は、どう渡しても子の返答と同じ厳しさで検査される）。作業ツリーを書き換える節（修正・手直し・仕様）の子が落ちた・受け付けの拒み（返答の形が合わない）が graph の上限の回数まで続いた行（回し手の自動の起こし直し `relaunch --if-untouched` が効かなかった回を含む）は、**作業ツリーを確かめてから** `relaunch`——途中まで書いた編集の上に、それを知らない新しい会話が重ねて書く。人に上げるのは取捨（能力を手放す・人の方針を変える）の行だけ
    - **0**・**11**・**12**: ここで初めて手番を終えてよい（0 なら盤面の `report.md` を依頼者の言語で出す。11 は周の止めで、続けるなら `loop.py resume`。12 は行き詰まりで、`run` の出力の `detail` を読んで直す）。14 で手番を終えるのは、取捨の行を人に上げたときだけ
    - 1・2（run そのものが拒まれた・盤面が読めない）は標準エラーを読んで直してから、128 以上（信号で止まった）はそのまま、もう一度 `run`——続きは盤面から拾う
 3. 次の周で直せる赤（テストの失敗・受け付けの拒み）は人に上げない——engine が次の周の判定に渡す。人に見せるのは 10 の `ask` と、14 のうち取捨の行だけ。

@@ -27,7 +27,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
    `--request` は文字列でもよい。段は既定で標準。**軽量にしてよいのは依頼者がそう言ったときだけ**で、そのときに限り `--thickness 軽量 --decider 依頼者指定` を添える（回す側の判断で下げる道は無い。engine が拒む）。N 周目の締めの後で次の周を開かずに止めるなら `--stop-after-round N`（`status` が stopped、`halted` が `by: stop_after_round`。止めた後の `next` は節を出さない。次の周へ進めるなら `loop.py resume --reason "<理由>" --stop-after-round <次に止める周>`（止めずに回すなら `--no-stop-after-round`）——続けられるのは周の数で止めた run だけで、盤面を直に書き換える `loop.py patch` で開けるな）。無人で走るなら `--unattended`（人に聞く番になったら保守的に止まり、聞きたかったことを報告に載せる）。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
 
-2. **回す**。`loop.py run` を**前景で**打つ（Bash の timeout は最大に）。engine が起こせる節（役・走らせるだけの節・sandbox の中の任せ先）は、回し手（run が会話の Bash から切り離して立てる engine の背景プロセス）が起こして受け付けまで進め、run は止まる所でだけ戻る。回し手は 1 つの run に 1 本だけで（盤面の置き場の錠で決まる。2 本目の run は回し手を立てずに付き添う）、見守りの run が Bash の上限に当たって止められても背景へ移されても、回し手と役は止まらない:
+2. **回す**。`loop.py run` を**前景で**打つ（Bash の timeout は最大に）。engine が起こせる節（役・走らせるだけの節・sandbox の中で起こす任せ先〔下請けの子〕）は、回し手（run が会話の Bash から切り離して立てる engine の背景プロセス）が起こして受け付けまで進め、run は止まる所でだけ戻る。回し手は 1 つの run に 1 本だけで（盤面の置き場の錠で決まる。2 本目の run は回し手を立てずに付き添う）、見守りの run が Bash の上限に当たって止められても背景へ移されても、回し手と役は止まらない:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" run --dir <DIR>
@@ -45,7 +45,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 このスキルの本文（この SKILL.md）は始め方・回し方の手番と読むファイルだけを持つ。**下の場面（`run` の終了コードが 13 や 10 で戻った・ループの外へ出る・人が止める・終わる など）に当たったら、そのファイルを読んでから手を動かせ。**
 
 - `run` の出力の中身・`next`（次に回せる節を出す命令）で回すとき・`handoff` の節の種類ごとのこなし方（`launch` を持つ節・持たない agent・runner）・`done`（節の返答を engine に返す命令）: [references/nodes.md](references/nodes.md)
-- 人に聞く番（`answer` と聞き方）・人が途中で止める・run の子の残り: [references/human.md](references/human.md)
+- 人に聞く番（`answer` と聞き方）・人が途中で止める・run の子（engine が起こした `claude -p`）の残りを止める: [references/human.md](references/human.md)
 - 開いた問いを deep-research に回す・段を上げる・節を省く・終わり（報告）: [references/exits.md](references/exits.md)
 - 人の方針の文書・版を上げたとき・作業ツリーの突合・報告の言語: [references/rules.md](references/rules.md)
 
