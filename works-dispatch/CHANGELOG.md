@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Changed
 
-- 写しの `dispatch/vendor/whose-turn.py` を、正本（同じリポジトリの attention プラグイン〔自分の番の PR を見渡すプラグイン〕の `attention/scripts/whose-turn.py`）に揃えた。`--json` に、文の報告と同じ中身の鍵（`sections`・`waits` など）が足された。dispatch が読む `schema` と `prs` は変わらない。
+- 写しの `dispatch/vendor/whose-turn.py` を、正本（同じリポジトリの attention プラグイン〔自分の番の PR を見渡すプラグイン〕の `attention/scripts/whose-turn.py`）に揃えた。`--json` に、`--json` を付けないときに出す人向けの文の報告と同じ中身を、鍵（`sections`・`waits` など）で出す形が足された。dispatch が読む `schema` と `prs` は変わらない。
 
 ## [0.74.0] - 2026-10-19
 

@@ -25,7 +25,7 @@ open 全件を見渡すフェーズにいる。
 1. `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py --json --materials $ARGUMENTS --out` を実行し、返ってきたパスを **Read で**読む（引数なし＝自分＝gh の認証ユーザー。`<login>` で他の人、`--all` で全員分を人別に）。`--out` は出力を一時ファイルへ書いてパスだけ返す——材料付きの出力は Claude Code の Bash の 1 回あたりの上限（約 30,000 バイト。上限はバイトで測るので、日本語はおよそ 1 万文字で当たる）を越え、付けずに走らせるとツール側でファイルへ退避され、走らせ直しで `gh` の呼び出しごと 2 回走る。**`cat` で読むな**——同じ量が再び Bash の出力に乗って、また退避される。`--out` は値を取らないので、`$ARGUMENTS` の後ろに置く。出力は JSON で、**鍵で読む**（文の区切りや行の位置で読まない）:
    - `sections`: 人ごと（`who`）に `mine`（自分の番）と `theirs`（相手の番）の PR の並び。1 件は `number`・`url`・`title`・`author`・`role`（`implementer`＝その人の PR、`reviewer`＝人の PR）・`days`・`facts`（行に添える事実の文）。`mine` の人の PR には `intro`（作者の本文の 1 文）と `size` も付く
    - `waits`: 返していない呼びかけ（`who`・`kind`・`number`・`url`・`title`・`days`・`by`・`excerpt`・`text`＝投稿の全文）。`threads`: 返すターンがあるスレッドの、相手の最後の発言（`number`・`path`・`line`・`author`・`text`）
-   - `assigned_issues`・`scope`（母集団の数）・`limits`（走査の上限）・`blind_spots`（手順 5 の数）・`not_seen`（見ていないもの）
+   - `assigned_issues`・`scope`（母集団の数）・`limits`（走査の上限）・`blind_spots`（手順 5 の 2 つの確認の数。`team_review_requests`＝Team 宛のレビュー依頼の件数、`unverified_replies`＝本文コメントの噛み合いを確かめていない PR の `number` と `count` の並び）・`not_seen`（見ていないもの）
 
 2. `waits` の各件を、`text` の全文と添えられた事実（`reply_to_own`＝直前が自分の発言・`reacted`＝自分が 👍 済み・`referenced_by_open_prs`＝open PR が参照）から 4 つに分け、根拠を 1 行ずつ付ける:
    - **要返信** — 質問・確認依頼・レビュー依頼で、まだ答えていない
@@ -42,7 +42,7 @@ open 全件を見渡すフェーズにいる。
 
 4. スクリプトは PR を「自分の番（今日動かせる）」と「相手の番（相手が動くまで進まない）」の 2 つ（`mine`・`theirs`）に分けている。**セクションを言い直すな。** 挙げてよいのは、出力に並んでいる事実どうしの食い違いだけ——「承認済みなのに未解決スレッドが残る」「レビュー依頼が出ているのに相手が何日も無言」「逃がした先が動いていない」など。セクションの名前や定義の言い換えは、ずれではない。
 
-5. **死角を、決まった手順だけで潰す。** `blind_spots` の数が 0 でない所は、上の判定に穴が実際に開いている場所だ。次の 2 つだけ、機械的に確かめる。**各 5 件まで**で、超えた分は「未確認 N 件」と書く:
+5. **死角を、決まった手順だけで潰す。** `blind_spots` の `team_review_requests` が 0 でないか、`unverified_replies` が空でなければ、上の判定に穴が実際に開いている。次の 2 つだけ、機械的に確かめる。**各 5 件まで**で、超えた分は「未確認 N 件」と書く:
    - **Team 宛のレビュー依頼**（`team_review_requests`）: 依頼先の Team に自分が入っていれば、その PR は自分の番。`gh api orgs/<org>/teams/<slug>/members --jq '.[].login'` を Team ごとに 1 回（`<org>/<slug>` は、その PR の `facts` の `レビュー依頼:` に出る Team 名）。読めなければ（権限不足）「確かめられない」と書く
    - **本文コメントの噛み合い**（`unverified_replies` の `number`）: 挙がっている PR を `gh pr view N --comments` で読み、**自分の最後の発言が、その前の相手の問いに答えているか**だけを見る。答えていなければ「呼びかけ」の要返信に加える
 
