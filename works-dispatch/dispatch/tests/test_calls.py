@@ -140,7 +140,7 @@ class Call(unittest.TestCase):
     def leave(self, owner=False):
         """殺された処理が残した道具の場所を作る（owner は鍵の訳。省けば終わった処理の pid の鍵、None なら鍵を掛けない）。"""
         if owner is False:
-            gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
+            gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, encoding="utf-8")
             owner = f"{tools.OWNER}{gone.stdout.strip()}"
         path = os.path.join(tempfile.mkdtemp(prefix=tools.PREFIX), "tree")
         self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
