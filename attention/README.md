@@ -71,7 +71,7 @@ python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json
 
 `--json` outputs only the "your turn" PRs as JSON for other tools to read (number, URL, title, head branch, role, day count). The set and the order are the same as the "your turn" section of the report. `limited` lists the numbers of open PRs where the data the judgment uses hit a fetch limit (comments, reviews, threads or checks not fully read, or exactly 100 timeline events, the most the query takes), including PRs that are not in `prs`; whether such a PR is your turn may be wrong. Reaction limits are not counted, because reactions do not affect the judgment.
 
-The definitions of the judgments and what is not looked at are in `--help`. The judgment is a pure function, and `tests/whose-turn-suite.py` pins the rules one line at a time (119 cases). All times, in headings and rows, are shown in local time.
+The definitions of the judgments and what is not looked at are in `--help`. The script's judgment of whose turn each PR is (the sections and rows of the report) is a pure function, and `tests/whose-turn-suite.py` pins its rules one line at a time (119 cases). The AI then only reads the materials to classify the mentions and threads, as the skill describes. All times, in headings and rows, are shown in local time.
 
 Only this command runs on sonnet (the `model` in the command definition). The AI's job is to apply the rules to the material and sort it; it does not need a higher model's reasoning, and it is kept light because it is meant to run every day.
 
