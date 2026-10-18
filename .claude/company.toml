@@ -319,6 +319,7 @@ fallback_role = "作業"
 # ゲートは部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
 # 件数のチェック（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
 # 文の IT の定着語でない言い方が、ファイルごとの基準の件数より増えていないかも確かめる（scripts/terms.py。辞書は works-dispatch/dispatch/terms.py）
+# 機械が読む値の受け渡しの決まり 3・4 に当たる所の件数が、ファイルごとの基準と違わないかも確かめる（tests/value-rules.py。標準 docs/standards/machine-readable-values.md。数えるだけで数秒）
 # 最後に、ブランチが書いた文書を初見の読み手に読ませ、詰まりが在れば止める（gates の branch-check。推測で埋めた箇所だけなら通す。読み 1 回に 2〜4 分。
 # 同じ中身の判定は覚えるので、リベースの打ち直しでは読み直さない）。安いゲートを先に、遅い初見読みを最後に並べる
 # 初見読みには --fixer で語の一覧の置き換え（works-dispatch/dispatch/terms.py の fix_text）を渡し、IT の定着語に語を置き換えただけの行は
@@ -327,7 +328,7 @@ fallback_role = "作業"
 [land]
 mode = "ff-after-ci"
 gate = "check"
-check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
+check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 tests/value-rules.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
 bump = "marketplace"
 
 # main に入れた後の合図: 全アカウントに配る（出荷のたびに窓口が手で配っていた物。片づかなければ作業に回り、頼み元は main に入れた部署の頼み元）

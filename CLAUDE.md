@@ -6,7 +6,7 @@
 
 - 持ち主との会話は日本語。サブエージェントへの指示は英語でもよいが、持ち主に見せる文は全部日本語。
 - 判断してほしいことは冒頭に 1 か所に集める。途中経過の実況は書かない。
-- 文（指示ファイル・スキル・ツールの出力・納品の要約）は IT の定着語で書く（ブランチ・ターン・セクション・ゲート・担当者など。持ち主 2026-10-18「節とかITになじみのない言葉を使ってる箇所を置き換えておいて」）。語の一覧は works-dispatch/dispatch/terms.py の TERMS で、直すときは `python3 works-dispatch/dispatch/terms.py --fix <ファイル>` を打ってから差分を読み、意味の変わった所を手で直す。main へ入れるゲートの `python3 scripts/terms.py` は、ファイルごとの当たった件数が基準（scripts/terms-baseline.json）と違えば止まる。減ったときも止まるので、直したら `python3 scripts/terms.py --update` で基準を書き直して一緒に commit する。会社の形（`.claude/company.toml`）の役「担当」と「作業」の納品（頼み元へ結果を返す要約）の検査（deliver_check）は、定着語でない言い方を含む要約を送らせない。人の言葉やほかの文書の見出しを引くときは「」で囲む（囲んだ中と、`` ` `` の中と、コードブロック〔``` か ~~~ で囲んだ所〕の中は見ない）。
+- 文（指示ファイル・スキル・ツールの出力・納品の要約）は IT の定着語で書く（ブランチ・ターン・セクション・ゲート・担当者など。持ち主 2026-10-18「節とかITになじみのない言葉を使ってる箇所を置き換えておいて」）。語の一覧は works-dispatch/dispatch/terms.py の TERMS で、直すときは `python3 works-dispatch/dispatch/terms.py --fix <ファイル>` を打ってから差分を読み、意味の変わった所を手で直す。main へ入れるゲートの `python3 scripts/terms.py` は、ファイルごとの当たった件数が基準（scripts/terms-baseline.json）と違えば止まる。減ったときも止まるので、直したら `python3 scripts/terms.py --update` で基準を書き直して一緒に commit する。機械が読む値の決まり（docs/standards/machine-readable-values.md の決まり 3・4）の件数を数える `python3 tests/value-rules.py` も同じゲートで同じ扱いで、件数が基準と違えば止まり、直したら `python3 tests/value-rules.py --update` で基準を書き直して一緒に commit する。会社の形（`.claude/company.toml`）の役「担当」と「作業」の納品（頼み元へ結果を返す要約）の検査（deliver_check）は、定着語でない言い方を含む要約を送らせない。人の言葉やほかの文書の見出しを引くときは「」で囲む（囲んだ中と、`` ` `` の中と、コードブロック〔``` か ~~~ で囲んだ所〕の中は見ない）。
 
 ## 判断の線
 
