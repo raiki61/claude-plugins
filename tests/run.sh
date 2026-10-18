@@ -2343,7 +2343,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=710
+EXPECTED_CHECKS=712
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -6827,6 +6827,14 @@ NOT_RATCHET = {
     "STOP_GRACE": "tests/mutate.py が止める信号で子のグループへ送る信号の間の猶予（秒）。件数の突合ではない",
     "ARGV_MAX": "tests/mutate.py が pytest の node id を並べる引数の字数の上限（超えればテストのファイル単位に落とす）。件数の突合ではない",
     "NOW": "works-dispatch の試験が固定する今の時刻（Unix 時刻）。件数の突合ではない",
+    "T0": "works-dispatch の試験が固定する会話の処理が起きた時刻（Unix 時刻）。件数の突合ではない",
+    "ME": "works-dispatch の試験の中の、この会話の処理の番号（pid）。件数の突合ではない",
+    "SKILL_MAX": "tests/skill-descriptions-case.py の SKILL.md の description の字数の上限（Agent Skills の仕様の 1,024 字）。件数の突合ではない",
+    "LISTING_MAX": "tests/skill-descriptions-case.py の description と when_to_use の合わせた字数の上限（Claude Code の一覧の 1,536 字）。件数の突合ではない",
+    "BODY_CHARS_MAX": "tests/skill-body-case.py の本文の字数の上限（スキルの書き方の標準の決まり 1）。件数の突合ではない",
+    "BODY_LINES_LIMIT": "tests/skill-body-case.py の本文の行数の上限（スキルの書き方の標準の決まり 1）。件数の突合ではない",
+    "TOC_OVER": "tests/skill-body-case.py が別ファイルに目次を求める行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
+    "TOC_HEAD": "tests/skill-body-case.py が目次を探す頭の行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []
