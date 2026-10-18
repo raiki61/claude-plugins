@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.59.4] - 2026-10-18
+
 ### Fixed
 
 - 中の作りの決まりと実物を揃えた。動きは変わらず、使う人がすることは無い。このプラグインのコードを直す人に効く違いで、次の 3 つ。
