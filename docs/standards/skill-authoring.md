@@ -1,7 +1,7 @@
 # スキルの書き方の標準（本文の長さ・別ファイルへの分け方・description）
 
 スキル（`skills/<名前>/SKILL.md`）とコマンド（`commands/<名前>.md`）の本文をどれだけの長さにし、詳しい手順をどう別ファイルに分け、`description` をどう書くか。
-今のずれ: 2026-10-18 に、17 本のうち 11 本が決まり 1 の長さを超えていて、長い会話で圧縮が起きると後ろの手順を失ったまま動く（今起きうる。直しは [README](README.md) の台帳の 2 回目で各担当に頼む）。
+今のずれ: 2026-10-18 に、17 本のうち 11 本が決まり 1 の長さを超えていて、長い会話で圧縮が起きると後ろの手順を失ったまま動く（今起きうる）。この 11 本は、標準の担当が各プラグインの担当の部署に直しを頼んである（どれをどこへ頼んだかは [README](README.md) の「ずれの台帳」の 2 回目）。これから書く・直す人は、自分のスキルをこの標準に合わせる。
 読むのは、スキルやコマンドを新しく書く・直すエージェントと人（直す前に読む）と、この標準を機械で守らせる検査を書く点検（CI と根の `tests/` を受け持つ部署）。
 
 Claude Code ではコマンドとスキルは同じ物として動く（[Extend Claude with skills](https://code.claude.com/docs/en/skills)「Custom commands have been merged into skills.」）。違いはスキルが別ファイルを置くフォルダを持つことだけなので、この標準は両方に当てる。以下「スキル」は両方を指す。
@@ -30,7 +30,10 @@ Claude Code では、読み込まれた本文は会話に残り続け、1 行ご
 6. **`commands/` のコマンドが決まり 1 を超えるなら、分けるときに `skills/<同じ名前>/SKILL.md` へ移す。** コマンドのファイルは別ファイルを置くフォルダを持たない。スキルにしても呼び出しの名前は変わらない（[Extend Claude with skills](https://code.claude.com/docs/en/skills)「both create `/deploy` and work the same way」）。決まり 1 の内に収まるコマンドは移さない（[配る形の標準](plugin-manifest.md)の決まり 5「今 `commands/` に在る物は移さない」）。
 7. **`description` には、何をするかと、いつ使うか（言われる言い回し）の両方を書き、1,024 字以下にする。** 1,024 字は仕様の上限（[agentskills.io の Specification](https://agentskills.io/specification)）で、目指す長さではない。description は会話の始まりから常に載るので、短いほど毎回の費用が減る。主な使いどころを先に書く（Claude Code はスキルの一覧で説明を切ることがあり、公式は大事な使いどころを先に置くよう勧める「Put the key use case first」。[Extend Claude with skills](https://code.claude.com/docs/en/skills)）。
    - 人称は公式で割れる（三人称か「Use this skill when…」の命令の形か）。日本語の文は人称を持たないので、「〜する。〜と言われたときに使う。」の形（今のスキルとコマンドの多くが取る形）を標準にする。三人称を勧める側の理由（システムプロンプトに差し込まれるので視点を揃える。[Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)）と、命令の形を勧める側の理由（いつ動くかを告げる。[agentskills.io の Optimizing descriptions](https://agentskills.io/skill-creation/optimizing-descriptions)）を、どちらもこの形で満たす。
-8. **分ける・削るときは、元の振る舞いを確かめてから入れる。** 公式の評価は「スキル有りと無し（直すときは前の版）を比べる」で揃い、作る時期だけが割れる（[二次のノート](https://github.com/raiki61/my_notes/blob/master/reference/secondary/ai/skill-authoring-guides-agree-on-three-stage-loading-and-splitting-body-split-on-length-unit-and-description-voice.md)の「評価と反復」）。この標準で多いのは今あるスキルを分ける直しなので、前の版を基準にする。分ける前に、そのスキルでよく頼まれる事を 2〜3 個選び、分けた後に新しい会話で同じ頼みを打って、前の版と同じ命令を打ち、同じ別ファイルを読み、同じ所で止まる（持ち主に問う・関所で待つ）かを見る（言い回しの揺れは見ない。書いた会話の文脈が残ると、書き漏れが隠れる。[Extend Claude with skills](https://code.claude.com/docs/en/skills)「A fresh session matters」）。試した頼みと結果は、直しの納品か commit の本文に書く。
+8. **分ける・削るときは、元の振る舞いを確かめてから入れる。** 公式の評価は「スキル有りと無し（直すときは前の版）を比べる」で揃い、作る時期だけが割れる（[二次のノート](https://github.com/raiki61/my_notes/blob/master/reference/secondary/ai/skill-authoring-guides-agree-on-three-stage-loading-and-splitting-body-split-on-length-unit-and-description-voice.md)の「評価と反復」）。この標準で多いのは今あるスキルを分ける直しなので、前の版を基準にする。直す人は次の順で比べる。
+   1. 分ける前に、そのスキルでよく頼まれる事を 2〜3 個選ぶ。それぞれを新しい会話で前の版に頼み、エージェントが打った命令と、止まった所（持ち主に問う・関所で待つ）を書き留める。
+   2. 分けた後に、同じ頼みを新しい会話で打ち、エージェントが同じ命令を打ち、同じ所で止まるかを 1 と比べる。分けた版では、要る別ファイルを読んだかも見る。言い回しの揺れは見ない（書いた会話の文脈が残ると、書き漏れが隠れる。[Extend Claude with skills](https://code.claude.com/docs/en/skills)「A fresh session matters」）。
+   3. 試した頼みと 1・2 の結果は、直しの納品か commit の本文に書く。
 
 ## 守らせ方
 
