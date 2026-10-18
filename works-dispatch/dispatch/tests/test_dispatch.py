@@ -54,9 +54,9 @@ class Prs(unittest.TestCase):
 
         def runner(argv, env=None):
             calls.append(argv)
-            return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": [{"number": 1}]}), "")
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": [{"number": 1}], "limited": [1, 7]}), "")
 
-        self.assertEqual(prs_node.read("o/r", runner=runner), [{"number": 1}])
+        self.assertEqual(prs_node.read("o/r", runner=runner), ([{"number": 1}], {1, 7}))
         self.assertTrue(pathlib.PurePath(calls[0][1]).as_posix().endswith("vendor/whose-turn.py"))
         self.assertEqual(calls[0][2:], ["--repo", "o/r", "--json"])
 
@@ -65,9 +65,9 @@ class Prs(unittest.TestCase):
 
         def runner(argv, env=None):
             seen.append(env)
-            return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": []}), "")
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"schema": 1, "prs": [], "limited": []}), "")
 
-        prs_node.read("o/r", runner=runner, env={"GH_TOKEN": "t"})
+        self.assertEqual(prs_node.read("o/r", runner=runner, env={"GH_TOKEN": "t"}), ([], set()))
         self.assertEqual(seen, [{"GH_TOKEN": "t"}])
 
     def test_read_failure_raises(self):
@@ -77,6 +77,19 @@ class Prs(unittest.TestCase):
         with self.assertRaises(prs_node.PrsError) as e:
             prs_node.read("o/r", runner=runner)
         self.assertIn("not logged in", str(e.exception))
+
+    def test_read_without_a_list_of_numbers_in_limited_raises(self):
+        # 無いのを空と読むと、取りこぼしの上の「自分の番でない」で会話を閉じる
+        for limited in (None, "1", [1, "2"], [True]):
+            with self.subTest(limited=limited):
+                body = {"schema": 1, "prs": []} if limited is None else {"schema": 1, "prs": [], "limited": limited}
+
+                def runner(argv, env=None, body=body):
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+                with self.assertRaises(prs_node.PrsError) as e:
+                    prs_node.read("o/r", runner=runner)
+                self.assertIn("limited", str(e.exception))
 
 
 def make_cfg():
@@ -176,6 +189,7 @@ class FakePorts(dispatch.Ports):
     def __init__(self, prs, problems=(), herdr=None):
         super().__init__(herdr_methods=lambda: set(), shell_has=lambda c: True, gh_ok=lambda repo, env=None: True, **QUIET)
         self._prs = prs
+        self._limited = set()   # whose-turn の limited
         self._problems = list(problems)
         self.herdr = herdr or FakeHerdr()
         self.git = gitx
@@ -192,7 +206,7 @@ class FakePorts(dispatch.Ports):
         return list(self._problems), []
 
     def fetch_prs(self, repo):
-        return self._prs
+        return self._prs, self._limited
 
     agents = ()   # claude agents --json の並び（アカウントを問わない）
 

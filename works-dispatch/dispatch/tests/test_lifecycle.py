@@ -552,6 +552,25 @@ class Flow(unittest.TestCase):
                 self.assertEqual(ports.herdr.writes, [])
                 self.assertNotIn("#3", out)
 
+    def test_off_turn_pr_whose_materials_hit_the_scan_limit_is_kept_and_named(self):
+        # whose-turn の limited に入った PR は、自分の番でないという判定が取りこぼしの上に立つので閉じない
+        for dry_run in (False, True):
+            with self.subTest(dry_run=dry_run):
+                self.setUp()
+                path, ports, _ = self.off_turn()
+                ports._limited = {3}
+                rc, out = run_main(self.cfg, ports, *(["--dry-run"] if dry_run else []))
+                self.assertEqual(rc, 0, out)
+                self.assertIn("#3 feat/3: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので会話を残した", out)
+                self.assertEqual(ports.herdr.writes, [])
+
+    def test_off_turn_pr_is_closed_when_only_another_pr_hit_the_scan_limit(self):
+        path, ports, pane = self.off_turn()
+        ports._limited = {4}
+        rc, out = run_main(self.cfg, ports)
+        self.assertIn("#3 feat/3: 自分の番でない PR なので、会話を終えて作業場を閉じた（worktree は残した）", out)
+        self.assertIn(("close_workspace", pane["workspace_id"]), ports.herdr.writes)
+
     def test_on_turn_pr_is_not_closed_as_off_turn(self):
         path, ports, _ = self.off_turn()
         ports._prs = [pr(3)]   # 自分の番に居る（相手の新しい返事は無い）

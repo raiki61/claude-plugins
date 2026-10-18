@@ -3,6 +3,7 @@
 
 attention の whose-turn を works へ写した `vendor/whose-turn.py` を `--json` で走らせ、「自分の番」のセクションの PR を全部取る。
 集合と並びは whose-turn の報告と同じ。写しは scripts/shared-copies.py が正本と同じかを見張る。
+あわせて limited（判定の材料が走査の上限に当たった open な PR の番号。prs に無い PR も含む）を取る。
 
 使い方: python3 nodes/prs.py --repo OWNER/NAME [--out <パス>]
 """
@@ -28,7 +29,8 @@ def _default_runner(argv, env=None):
 
 
 def read(repo, runner=_default_runner, env=None):
-    """env は gh のアカウントを替えるときだけ渡す（GH_TOKEN 入り）。None はこのプロセスの環境のまま。"""
+    """(自分の番の PR の並び, limited の番号の集合) を返す。env は gh のアカウントを替えるときだけ渡す（GH_TOKEN 入り）。None はこの
+    プロセスの環境のまま。limited が番号の並びでなければ読めないとして止める（無いのを空と読むと、取りこぼしの上の判定で会話を閉じる）。"""
     argv = [sys.executable, str(WHOSE_TURN), "--repo", repo, "--json"]
     p = runner(argv, env=env)
     try:
@@ -37,7 +39,10 @@ def read(repo, runner=_default_runner, env=None):
         out = None
     if not isinstance(out, dict) or out.get("schema") != jsonio.SCHEMA_VERSION:
         raise PrsError(f"whose-turn --json（{repo}）が読めない: {(p.stderr or p.stdout).strip()[:300]}")
-    return out["prs"]
+    limited = out.get("limited")
+    if not isinstance(limited, list) or not all(isinstance(n, int) and not isinstance(n, bool) for n in limited):
+        raise PrsError(f"whose-turn --json（{repo}）の limited が番号の並びでない: {limited!r}"[:300])
+    return out["prs"], set(limited)
 
 
 def main(argv=None):
@@ -45,7 +50,8 @@ def main(argv=None):
     ap.add_argument("--repo", required=True)
     ap.add_argument("--out")
     a = ap.parse_args(argv)
-    jsonio.dump({"prs": read(a.repo)}, a.out)
+    got, limited = read(a.repo)
+    jsonio.dump({"prs": got, "limited": sorted(limited)}, a.out)
     return 0
 
 

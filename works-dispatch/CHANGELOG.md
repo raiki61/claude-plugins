@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 一覧で回すとき（`--pr`・`--issue` 無し）、自分の番でなくなった PR の会話を閉じる所が、whose-turn（attention 0.37.0 から）の `--json` の `limited`（判定に使う材料が走査の上限に当たった open な PR の番号）に入った PR では、dispatch が一覧の回で開いた会話を閉じず、「自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので会話を残した」と報告に出すようにした。その PR が自分の番でないという判定は、取り切れなかった材料の上に立っているため。`limited` が番号の並びでなければ、whose-turn を読めないときと同じく止まる。
+
 ## [0.79.0] - 2026-10-19
 
 ### Changed

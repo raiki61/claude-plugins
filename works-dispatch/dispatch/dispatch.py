@@ -14,8 +14,8 @@
 一覧で回すとき（--pr・--issue 無し）は、2 の fresh で、自分が作者でレビュアーの付いていない PR を外し、会話の開いている PR を送り直すか決める。
 会話の開いていない PR も、前に送った控えが有って、その後に自分以外の動きも head の変化も無ければ開かない（no_news）。
 送り直す PR は、provision の前に古い会話を終えて（turn.close_session）ペインの作業場を畳み（clean.release）、同じ場所に立て直す。
-最後に、自分の番でなくなった PR の、dispatch が開いた会話を終えて作業場を閉じ（_step_back。worktree は残す）、閉じた PR の場所を片付ける
-（_tidy。--dry-run は並べるだけ）。
+最後に、自分の番でなくなった PR の、dispatch が開いた会話を終えて作業場を閉じ（_step_back。worktree は残す。whose-turn の limited に
+入った PR は、自分の番でないという判定が取りこぼしの上に立つので閉じない）、閉じた PR の場所を片付ける（_tidy。--dry-run は並べるだけ）。
 
 片付け（--clean）は、元の clone の linked worktree のうち消してよいものを並べるだけで、--apply を付けた時だけ消す（nodes/clean.py）。
 
@@ -386,6 +386,7 @@ class Ports:
         return self._tier_check(launchers)
 
     def fetch_prs(self, repo):
+        """(自分の番の PR の並び, whose-turn の limited の番号の集合)。"""
         return prs.read(repo.repo, env=self.gh_env(repo))
 
     def list_sessions(self, config_dir, include_done=False):
@@ -851,11 +852,14 @@ def main(argv=None, ports=None):
         return 2
 
     listing = a.issue is None and not a.pr   # 一覧で回す（送り直しと片付けもする）
+    limited = set()   # 走査の上限に当たった PR（whose-turn の limited。一覧で回すときだけ読む）
     try:
         if a.issue is not None:
             my_prs = [_issue_item(repo, a.issue, ports, notes)]
+        elif a.pr:
+            my_prs = [ports.pr_info(repo, n) for n in a.pr]
         else:
-            my_prs = [ports.pr_info(repo, n) for n in a.pr] if a.pr else ports.fetch_prs(repo)
+            my_prs, limited = ports.fetch_prs(repo)
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
         found = ports.places(repo)
     except (prs.PrsError, claudex.ClaudeError, ghx.GhError, herdr.HerdrError) as e:
@@ -1050,7 +1054,7 @@ def main(argv=None, ports=None):
                 notes.append(opened)
 
     if listing:
-        notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent)
+        notes += _tidy(cfg, repo, ports, a.dry_run, found, turn_numbers, sent, limited)
     print("\n".join(report.lines(the_plan + held, results, notes)))
     return 0
 
@@ -1096,13 +1100,13 @@ def _changed(repo):
     return lambda path: clean.changed_copies(path, config.copy_root(repo), repo.copy_files)
 
 
-def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None):
+def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None, limited=frozenset()):
     """閉じた PR（MERGED・CLOSED）のブランチの場所を片付ける（一覧で回すときだけ）。元の clone の linked worktree だけを見る（clean.candidates）。
     会話が 1 つだけ開いていて、手すきで手元の作業も無ければ、会話を終え、会話の一覧を取り直して居ないことを確かめてから消す。
     作業中・会話が 2 つ以上・手元の作業の有る場所は残して名指す。返すのは報告の頭に置く行。読めない・終えられない物は、その場所の
     行にして続ける。
     開いている PR で自分の番（turn_numbers。whose-turn の一覧。読めなければ main がその前に止まる）でない物は、_step_back で会話を終えて
-    作業場を閉じる（worktree は残す）。"""
+    作業場を閉じる（worktree は残す）。limited（whose-turn の limited）に入った PR は閉じずに名指す。"""
     try:
         listed = {acc.name: ports.list_sessions(acc.config_dir) for acc in cfg.accounts}
     except claudex.ClaudeError as e:
@@ -1114,7 +1118,7 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None):
     out = []
     for r in rows:
         if r["reason"] == "pr_open" and turn_numbers is not None and r["number"] not in turn_numbers:
-            out += _step_back(repo, ports, dry_run, r, sess, sent or {})
+            out += _step_back(repo, ports, dry_run, r, sess, sent or {}, r["number"] in limited)
             continue
         finished = r["state"] in clean.FINISHED
         if r["reason"] == "session" and finished:
@@ -1161,17 +1165,20 @@ def _tidy(cfg, repo, ports, dry_run, found, turn_numbers=None, sent=None):
     return out
 
 
-def _step_back(repo, ports, dry_run, r, sess, sent):
+def _step_back(repo, ports, dry_run, r, sess, sent, limited=False):
     """自分の番でなくなった開いている PR の場所で、dispatch が開いた会話を終えて herdr の作業場を閉じる（worktree は残す。自分の番に戻れば、
     一覧の回が同じ場所に新しい会話を立てる）。送り直し（fresh.decide の refresh）と同じく、会話が 1 つだけで手すき・未コミットの変更も
     手元にしか無い commit も無いときだけ。加えて、dispatch が一覧の回で送った会話（控えに一覧の回の印が有り、会話の起動が送った時より前）
-    だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らない。返すのは報告の行。"""
+    だけを閉じる。持ち主が自分で開いた会話と、--pr・--issue で開いた会話と、印を書く前の版の控えの会話には触らない。limited（whose-turn が
+    その PR の材料を取り切れなかった）なら、自分の番でないという判定が取りこぼしの上に立つので閉じない。返すのは報告の行。"""
     rec = _sent_record(sent.get(_key(repo, r["number"])))
     mine = [x for x in sess if x["cwd"] and fresh.inside(x["cwd"], r["path"])]
     if not mine or not isinstance(rec["at"], (int, float)) or not rec["listed"]:
         return []
     if len(mine) > 1 or not isinstance(mine[0]["started"], (int, float)) or mine[0]["started"] > rec["at"]:
         return []   # dispatch が開いた会話と言い切れない
+    if limited:
+        return [f"{_where(r)}: 自分の番でないと出たが、whose-turn が材料を取り切れなかった（走査の上限に当たった）ので会話を残した"]
     path = r["path"]
     local = (ports.stashed(path, r["branch"]) if rec["head"] and ports.head_sha(path) == rec["head"]
              else ports.unpushed(path))

@@ -224,7 +224,8 @@ class Call(unittest.TestCase):
         self.assertEqual([(os.path.realpath(e["path"]), e["keep"]) for e in done], [(os.path.realpath(made), sha)])
         self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
         self.assertFalse(os.path.exists(made))
-        self.assertEqual([(os.path.realpath(p), why) for p, why in failed], [(os.path.realpath(dirty), "未コミットの変更が在る")])
+        self.assertEqual([(os.path.realpath(p), reason, why) for p, reason, why in failed],
+                         [(os.path.realpath(dirty), tools.DIRTY, "未コミットの変更が在る")])
         self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
 
     def test_an_unswept_place_gets_steps_that_keep_its_commit(self):
