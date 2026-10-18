@@ -2,18 +2,18 @@
 
 ## 何の文書か
 
-`/research-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、設計・手法・技術選定の見立てを、業界や学界の一次情報で校正してから自分のドメインに最適化する。回す手順は手順書 `skills/research-loop/`（本文 `SKILL.md` と段ごとの `references/`）に散文で、記録の検査は検証器 `scripts/research-record.py`（Python）に書いてある。この 2 つが散文版の正本で（グラフ実行版の正本は JSON——宣言は同じディレクトリの `README.md`「決めてもらうこと」）、`graphloops/graphs/research-loop.json`（グラフ実行版プラグイン graphloops の側にある。research と review は実行用の欄も持ち engine で回せる。doctor / firstread は写しだけ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。
+`/research-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、設計・手法・技術選定の見立てを、業界や学界の一次情報で校正してから自分のドメインに最適化する。回す手順は手順書 `skills/research-loop/`（本文 `SKILL.md` と段ごとの `references/`）に散文で、記録の検査は検証器 `scripts/research-record.py`（Python）に書いてある。この 2 つが散文版の正本で（グラフ実行版の正本は JSON——宣言は同じディレクトリの `README.md`「決めてもらうこと」）、`graphloops/graphs/research-loop.json`（グラフ実行版プラグイン graphloops の側にある。research と review は実行用のフィールドも持ち engine で回せる。doctor / firstread は写しだけ） はそれを「ノード（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。
 
 用語:
 
 - **surveyor** — このループを回すメインのセッション（Claude Code の会話そのもの）。調査者・統合者。以下「回す側」
-- **役割 agent** — 回す側と別の context（子の会話）で動く subagent。`agents/*.md` に 6 本あり、ここで使うのは `investigator`（読む＋shell＋web）・`judge`（覆せない判定を下す）・`inspector`（読むだけ）・`blind-judge`（道具なし。渡されたものだけから導出）・`cold-reader`（道具なし。初見の読み手）
+- **役割 agent** — 回す側と別の context（子の会話）で動く subagent。`agents/*.md` に 6 本あり、ここで使うのは `investigator`（読む＋shell＋web）・`judge`（覆せない判定を下す）・`inspector`（読むだけ）・`blind-judge`（ツールなし。渡されたものだけから導出）・`cold-reader`（ツールなし。初見の読み手）
 - **記録** — 実行結果を書く JSON。検証器はこれを読んで「発行を妨げるもの」を列挙し、終了コード 0（阻害なし）／1（阻害あり）／2（記録が不正）で返す。機械は不合格だけを宣言する
-- **P0〜P5** — 手順書の節の名前。P0 断面の固定、P1 校正（外部照合）、P2 統合、P3 収束ゲート、P4 収束判定、P5 ドメイン適応
-- **Workflow** — Claude Code の、複数 subagent を JavaScript の script で回す道具。手順書の P1 はこの script として書かれている
+- **P0〜P5** — 手順書のセクションの名前。P0 断面の固定、P1 校正（外部照合）、P2 統合、P3 収束ゲート、P4 収束判定、P5 ドメイン適応
+- **Workflow** — Claude Code の、複数 subagent を JavaScript の script で回すツール。手順書の P1 はこの script として書かれている
 - **版** — プラグインの `plugin.json` にある `version`
 
-**基準**: この写しを起こした時点の作業ツリーの手順書と検証器（版は `.claude-plugin/plugin.json` の `version` が正本。ここに写さない）。2026-09-12 の時点で、手順書・検証器はこの写しと同じ形だった。
+**基準**: この写しを作った時点の作業ツリーの手順書と検証器（版は `.claude-plugin/plugin.json` の `version` が正本。ここに写さない）。2026-09-12 の時点で、手順書・検証器はこの写しと同じ形だった。
 
 ## 図
 
@@ -58,7 +58,7 @@ flowchart TB
 
 ## research-loop にだけある形
 
-- **厚みの三段**（軽量・標準・重厚。検査の厚さ）で動く節が変わる（JSON の `active_in`）。既定は標準。軽量への降格は依頼者の明示指定だけ、昇格は自律で自由。軽量は 1 ラウンドで打ち切るので、上限 4 は標準・重厚のもの
+- **厚みの三段**（軽量・標準・重厚。検査の厚さ）で動くノードが変わる（JSON の `active_in`）。既定は標準。軽量への降格は依頼者の明示指定だけ、昇格は自律で自由。軽量は 1 ラウンドで打ち切るので、上限 4 は標準・重厚のもの
 - **荷重と反証**。結論が乗る主張（荷重）には確証でも反証を掛け、相違は反証を経て初めて確定する。反証が掛からなかった荷重は理由付きで申告する。検証器はこれを機械で守る（4 本の中でこのループだけ）
 - **抜き取り検査**。2 ラウンド目の検証対象が空集合なら、確定済みの主張から無作為に 1〜2 割を新しい checker で引き直す。空集合での自明成立を収束と認めない
 - **無人実行の読み替え**。回す側が subagent として走るときは「人に諮れ」で止まらず、保守的な既定で続行して「要人間判断」を報告の冒頭に列挙する
@@ -74,12 +74,12 @@ flowchart TB
 
 - 暴走ガード（4 ラウンド）と軽量の 1 ラウンド打ち切りは手順書の散文だけ。検証器は `rounds_total` の下限しか見ない
 - 連続 2 ラウンドは記録の `convergence.consecutive_zero` の自己申告。1 実行 1 記録なので、ラウンド間の突合が無い
-- `investigator` を立てる前後の `git status --porcelain` 突合は散文だけ（記録の欄が無い）
+- `investigator` を立てる前後の `git status --porcelain` 突合は散文だけ（記録のフィールドが無い）
 - Workflow が無い環境では Agent の並列起動で同じ構造を再現する、と手順書が書く。その再現が同じ遮断を保っているかを確かめる手段は無い
 
 ## 実行版（`/research-graph`）
 
-このグラフは 2026-09-12 に実行用の欄（節ごとの prompt_file・schema・reads・writes・cond）を足され、graphloops の engine（`graphloops/scripts/loop.py`）で回せる。手順書は `graphloops/skills/research-graph/`、ループの算術は `graphloops/rules/research-loop.py`。記録の形と検証器は `/research-loop` と同じ。散文の側と食い違いが出たら、どちらを正本にするかは依頼者が決める（両方生かすとズレる）。
+このグラフは 2026-09-12 に実行用のフィールド（ノードごとの prompt_file・schema・reads・writes・cond）を足され、graphloops の engine（`graphloops/scripts/loop.py`）で回せる。手順書は `graphloops/skills/research-graph/`、ループの算術は `graphloops/rules/research-loop.py`。記録の形と検証器は `/research-loop` と同じ。散文の側と食い違いが出たら、どちらを正本にするかは依頼者が決める（両方生かすとズレる）。
 
 ## 機械検査
 

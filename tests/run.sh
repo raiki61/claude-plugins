@@ -2262,7 +2262,7 @@ for f in [*(root/"convergence-loops").glob("*.md"), *(root/"convergence-loops/co
     for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
         if banned.search(line):
             hits.append(f"{f.name}:{i}")
-# **このリポジトリの検証のツール（CONTRIBUTING.md の「review-loop が読む検証の道具」のセクション）を、役が読む配布物に書かない。**
+# **このリポジトリの検証のツール（CONTRIBUTING.md の「review-loop が読む検証のツール」のセクション）を、役が読む配布物に書かない。**
 # ほかのリポジトリでは無いツールを呼べと指示し、このリポジトリでもツールを足した周に指示の側だけが古くなる
 # （pytest の土台を足した周に、指示書のテスト一式から漏れた）。語は手で並べず導く——手で持った一覧はツールの追加に遅れる:
 # ツールの語はルートの宣言（.review-checks.json の suite と mutation。ruff の banned-api と同じく禁止の正本を設定に置く）から、
@@ -6988,13 +6988,13 @@ for rel, const, exact in RATCHETS:
             bad = 1
 if bad:
     sys.exit(1)
-# **CONTRIBUTING.md の宣言（「review-loop が読む検証の道具」）の「件数の柵」の行は、この表が導いた名前と両方向で一致する。**
+# **CONTRIBUTING.md の宣言（review-loop が読む検証のツール）の「件数のチェック」の行は、この表が導いた名前と両方向で一致する。**
 # 宣言は役が読む写しなので、ラチェットを足した・消した周に宣言だけが古くなる形を赤にする。置き場は宣言に書かない（ここが導く）
 readme = (root / "CONTRIBUTING.md").read_text(encoding="utf-8")
-sec = re.search(r"^### review-loop が読む検証の道具（このリポジトリの宣言）\n(.*?)(?=^#{1,3} |\Z)", readme, re.M | re.S)
-fence = re.search(r"^- \*\*件数の柵\*\*:(.*)$", sec.group(1), re.M) if sec else None
+sec = re.search(r"^### review-loop が読む検証のツール（このリポジトリの宣言）\n(.*?)(?=^#{1,3} |\Z)", readme, re.M | re.S)
+fence = re.search(r"^- \*\*件数のチェック\*\*:(.*)$", sec.group(1), re.M) if sec else None
 if not fence:
-    print("NG CONTRIBUTING.md に「review-loop が読む検証の道具」のセクションか、その「件数の柵」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
+    print("NG CONTRIBUTING.md に「review-loop が読む検証のツール」のセクションか、その「件数の柵」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
     sys.exit(1)
 declared = set(re.findall(r"`([A-Z][A-Z0-9_]+)`", fence.group(1)))
 derived = {c for _, c, _ in RATCHETS}

@@ -1,6 +1,6 @@
 # graphloops は車輪の再発明か（見立て）
 
-このリポジトリの `graphloops/` は、収束ループ（結果が動かなくなるまで回す手順）を JSON のグラフに写し、機械（engine）が盤面を持って回す Claude Code のプラグインである。Claude Code は Anthropic のコマンドライン型のコーディング環境で、メインの会話（ここでは「回す側」と呼ぶ）と、そこから立てる子の会話（subagent。ここでは役の定義を持たせたものを「役割 agent」と呼ぶ）を持つ。graphloops は汎用の実行基盤（engine）と、ループごとの算術（rules）と、節ごとのプロンプトから成る。この文書は「engine の汎用部は既存のソフトウェアの再発明ではないか」という問いへの見立てで、事実の主張を一次情報で校正しながら育てている（校正の経緯は末尾の「訂正の記録」）。
+このリポジトリの `graphloops/` は、収束ループ（結果が動かなくなるまで回す手順）を JSON のグラフに写し、機械（engine）が盤面を持って回す Claude Code のプラグインである。Claude Code は Anthropic のコマンドライン型のコーディング環境で、メインの会話（ここでは「回す側」と呼ぶ）と、そこから立てる子の会話（subagent。ここでは役の定義を持たせたものを「役割 agent」と呼ぶ）を持つ。graphloops は汎用の実行基盤（engine）と、ループごとの算術（rules）と、ノードごとのプロンプトから成る。この文書は「engine の汎用部は既存のソフトウェアの再発明ではないか」という問いへの見立てで、事実の主張を一次情報で校正しながら育てている（校正の経緯は末尾の「訂正の記録」）。
 
 ## 凡例（本文で使う役割語）
 
@@ -14,14 +14,14 @@
 
 ## 見立て
 
-engine が持つ機能は 7 つある。依存関係を持つ工程（DAG）の実行順の計算、同時に走らせてよい組（波）の抽出、項目ごとの扇形展開、条件による節の有効化、返答の型検査（JSON Schema の部分集合）、盤面のディスク保存と再開、人への問い合わせでの中断と再開。この 7 つはどれも新しくなく、LLM アプリ向けのグラフ実行基盤と汎用のワークフロー実行基盤に既にある（下の主張 1〜6）。その意味で汎用部は再発明である。
+engine が持つ機能は 7 つある。依存関係を持つ工程（DAG）の実行順の計算、同時に走らせてよい組（波）の抽出、項目ごとの扇形展開、条件によるノードの有効化、返答の型検査（JSON Schema の部分集合）、盤面のディスク保存と再開、人への問い合わせでの中断と再開。この 7 つはどれも新しくなく、LLM アプリ向けのグラフ実行基盤と汎用のワークフロー実行基盤に既にある（下の主張 1〜6）。その意味で汎用部は再発明である。
 
 それでも engine を書いた理由は、動く場所の制約にある。理由は頑健な順に並べる（弱い前提が外れても結論が崩れない順）。
 
-1. **制御の反転**。このループでは工程の実行者はメインの会話（回す側）と役割 agent で、engine は「次に何をするか」を返す被呼出側にしかなれない。この向きに合わないのは、自分で Claude Code を子として起動する taskflow 型と、Claude Code 同梱の Workflow（主張 7〜9・17）で、これは梱包と独立に構造で合わない。**ライブラリ型（LangGraph・Burr・LlamaIndex Workflows）にはこの理由は当てはまらない**——LangGraph は agent の節ごとに interrupt を置き、ディスク永続の checkpointer と同じ thread_id で別プロセスから再開できる（主張 19〜21）ので、回す側が手番ごとに呼ぶ形に組み直せる（Burr・LlamaIndex は同種の仕組みを持つが、別プロセスからの再開は未照合）。ライブラリ型に対して残る理由は、取り分の薄さ（結論の見立て）と梱包（理由 5）である。
-2. **状態の所有**。節を走らせてよいかは共有の記録（`rounds/round-N.json` 等）から導く射影で、合否は既存 4 ループ共通の検証器に通した記録で決まる。候補が独自の進捗状態を持てば状態の持ち主が 2 つになる。
-3. **実行者の不均質**。subagent を投げる仕組み（Claude Code 組み込みの Workflow を含む）は、自分のホストであるメインの会話を実行者にできない。棚卸し・統合・修正・報告を subagent に降ろすと、見える文脈と道具の許可が変わる。人待ちの節は不定長の中断と別セッションでの再開を要る。
-4. **門番の所在**。道具の遮断（役割 agent の `tools`）と書き込み・投稿の門番（hook）は Claude Code の側にある。候補が遮断を自分側に要求する設計は、担保が定義から言い渡しに落ちる後退である。
+1. **制御の反転**。このループでは工程の実行者はメインの会話（回す側）と役割 agent で、engine は「次に何をするか」を返す被呼出側にしかなれない。この向きに合わないのは、自分で Claude Code を子として起動する taskflow 型と、Claude Code 同梱の Workflow（主張 7〜9・17）で、これは梱包と独立に構造で合わない。**ライブラリ型（LangGraph・Burr・LlamaIndex Workflows）にはこの理由は当てはまらない**——LangGraph は agent のノードごとに interrupt を置き、ディスク永続の checkpointer と同じ thread_id で別プロセスから再開できる（主張 19〜21）ので、回す側がターンごとに呼ぶ形に組み直せる（Burr・LlamaIndex は同種の仕組みを持つが、別プロセスからの再開は未照合）。ライブラリ型に対して残る理由は、取り分の薄さ（結論の見立て）と梱包（理由 5）である。
+2. **状態の所有**。ノードを走らせてよいかは共有の記録（`rounds/round-N.json` 等）から導く射影で、合否は既存 4 ループ共通の検証器に通した記録で決まる。候補が独自の進捗状態を持てば状態の持ち主が 2 つになる。
+3. **実行者の不均質**。subagent を投げる仕組み（Claude Code 組み込みの Workflow を含む）は、自分のホストであるメインの会話を実行者にできない。棚卸し・統合・修正・報告を subagent に降ろすと、見える文脈とツールの許可が変わる。人待ちのノードは不定長の中断と別セッションでの再開を要る。
+4. **ゲートの所在**。ツールの遮断（役割 agent の `tools`）と書き込み・投稿のゲート（hook）は Claude Code の側にある。候補が遮断を自分側に要求する設計は、担保が定義から言い渡しに落ちる後退である。
 5. **梱包**。配布の方針は「必須は git / python3 / bash だけ」（README）で、pip で入る依存を足さない。これは最も可逆で最も弱い理由で、結論の見出しには置かない——配布方針が緩めば、この理由だけが消える。
 
 ## 事実の主張（校正の対象）
@@ -35,20 +35,20 @@ engine が持つ機能は 7 つある。依存関係を持つ工程（DAG）の�
 5. LlamaIndex の Workflows は、イベント駆動で工程をつなぐ仕組みで、`InputRequiredEvent` と `HumanResponseEvent` で人の入力待ちを実装できる。［確証。LlamaIndex 公式ドキュメント］
 6. Temporal は durable execution の基盤で、ワークフローが Signal（人の承認など）を長時間待てる。Python SDK は pip で入るが、実行には Temporal のサーバー（別配布の CLI・セルフホスト・Cloud のどれか）が要る。Prefect は Python のワークフロー基盤で、`pause_flow_run` / `suspend_flow_run` でフローを止めて人の入力を待てる（Server か Cloud のバックエンドが前提）。［確証。Temporal・Prefect の公式ドキュメント］
 7. Claude Code には Workflow（dynamic workflows）というツールがあり、JavaScript の script で agent()・pipeline()・parallel() を呼び、返答を JSON Schema で強制できる。再開は `/workflows` の画面でランを選ぶか、同じ script で relaunch を依頼する形で、完了済みの agent は保存結果から返る。利用者が扱う「run の id」という API は一次情報で確認できていない。［留保。Claude Code 公式ドキュメント］（このリポジトリの Claude Code の環境では Workflow ツールに resumeFromRunId という引数が見えるが、公式ドキュメントには無い。文書は公式ドキュメントに合わせる）
-8. Workflow の script は、ファイルシステムとシェルへ直接アクセスできず、モジュール読み込みも無い（`import()` を含む script は実行開始前に失敗する）。読み書きとコマンド実行は script が起動する subagent が行い、その道具の呼び出しには通常の session と同じ権限の検査とサンドボックスが掛かる。静的な import 文や require の扱い、モジュール読み込みを伴わない Node のグローバルが使えるか否かは公式ドキュメントに記述が無い。［確証（反証を経た）。同上］
+8. Workflow の script は、ファイルシステムとシェルへ直接アクセスできず、モジュール読み込みも無い（`import()` を含む script は実行開始前に失敗する）。読み書きとコマンド実行は script が起動する subagent が行い、そのツールの呼び出しには通常の session と同じ権限の検査とサンドボックスが掛かる。静的な import 文や require の扱い、モジュール読み込みを伴わない Node のグローバルが使えるか否かは公式ドキュメントに記述が無い。［確証（反証を経た）。同上］
 9. Workflow はバックグラウンドで非同期に実行され、起動（権限モードによる起動時の承認の後）直後にメインの会話へ制御が戻る。実行中の script は、途中でメインの会話に処理を明け渡して作業結果を受け取って再開する経路を持たない（No mid-run user input。唯一の例外は agent の権限プロンプトで、これは承認であって作業の受け渡しではない。段階間に承認を挟むなら段階ごとに別のワークフローにする）。一時停止・停止・同一セッション内の再開はできる（止めた run の再開は同じ script での relaunch で、差分以降を再実行する）。［確証（反証を経た）。同上］
 10. Claude Code の Agent 機能で立てた subagent は、SendMessage で同じ文脈のまま続けて指示できる（組み込みの Explore と Plan は除く）。［確証。Claude Code 公式ドキュメント］
-11. subagent の定義ファイル（agents/*.md）は、frontmatter の `tools` で持てる道具を allowlist として制限できる（`tools` は継承する集合を狭める方向にしか働かない。fork は対象外。制限は道具の単位で、Bash を許したまま「書けない」とは言えない）。［確証。同上］
+11. subagent の定義ファイル（agents/*.md）は、frontmatter の `tools` で持てるツールを allowlist として制限できる（`tools` は継承する集合を狭める方向にしか働かない。fork は対象外。制限はツールの単位で、Bash を許したまま「書けない」とは言えない）。［確証。同上］
 12. graphloops の engine は 10 ファイル・1,091 行（空行を除くと 963 行）の Python で、rules は 2 ループ分（review 510・research 426）で 936 行、prompts は 51 本で 590 行。rules と prompts を合わせて約 1,500 行（1,526 行）である。行数はエディタ表示行で、wc -l だと 1,091 / 936 / 577——差が出るのは prompts だけ（末尾に改行の無いファイルが 13 本）。［相違を 2 周で訂正。このリポジトリの実測。**2026-09-12 の初回測定で凍結**——現在値は `wc -l graphloops/engine/*.py graphloops/rules/*.py` で測り直す。同日夕方の再測定: engine 10 ファイル 1,582 行・rules 1,045 行・prompts 51 本 578 行］
 13. heggria/taskflow（0.3.0-beta.1.2、TypeScript 製、beta）は、宣言的 DAG・12 種の工程・resume・replay・trace を持ち、DSL には approval（人の承認）の工程もあるコーディングエージェント向けのランタイムで、Claude Code へは MCP（JSON-RPC 2.0 / stdio）サーバとプラグインで配られる（Pi へはネイティブ拡張）。ホストが MCP から呼ぶのは taskflow_run / taskflow_resume / taskflow_trace など 20 個の制御・観測ツールで、工程の実行はホストの会話ターンの外で起きる——前景実行では DAG は MCP サーバのプロセス内で回り、ツール呼び出しは DAG 全体の完了まで返らない。長いフロー向けの background では、サーバが切り離した Node のワーカを起動し、それが MCP の要求と独立に DAG を回す。どちらでも agent の工程は taskflow がホストの CLI を `claude -p`（セッションを継承しない隔離プロセス）として起動して実行し、ホストの会話が工程の実行者になることはない。プラグインが同梱するのは MCP の登録と案内の skill だけで、ホスト側の agents / commands は持たない。MCP 経由の実行は非対話なので approval の工程は自動で拒否される（Claude Code から使う限り人の承認の門にはならない）。実行要件は Node.js 22.19 以上（pnpm が要るのはモノリポを開発する場合）。［留保まで確認。GitHub の README・docs・package.json・ソース・npm］
 14. jpicklyk/task-orchestrator は Kotlin + SQLite + MCP SDK 製で、依存グラフ・SQLite の永続化・get_next_item() によるプル型の実行を持ち、Claude Code のプラグインとして配布される。README と Wiki が示す 2 つの導入経路はどちらも `docker run` を前提で、Docker 抜きの実行手順は公開文書に無い。［留保。GitHub の README・Wiki］
-15. barkain/claude-code-workflow-orchestration は Claude Code のプラグインとして配布される。Team Mode の状態は 2 つの一時ファイルで、完了時か次のユーザープロンプト時に自動削除される。README に「No session resumption」と明記される。前提条件は uv と bun が両プラットフォームで必須、Python 3.12 以上は Windows の節に required、jq は macOS/Linux では但し書きなしで列挙され Windows では optional。依存ゼロではない。［留保。GitHub の README］
+15. barkain/claude-code-workflow-orchestration は Claude Code のプラグインとして配布される。Team Mode の状態は 2 つの一時ファイルで、完了時か次のユーザープロンプト時に自動削除される。README に「No session resumption」と明記される。前提条件は uv と bun が両プラットフォームで必須、Python 3.12 以上は Windows のセクションに required、jq は macOS/Linux では但し書きなしで列挙され Windows では optional。依存ゼロではない。［留保。GitHub の README］
 16. darrenapfel/claudecode-orchestrator は README 冒頭で DEPRECATED と明記され、後継 limerIQ（www.limeriq.ai）へ案内している。通知文は 2026-04-21 に改訂されているが、コード本体は 2025-07-05 の v5.0.0 以降更新が無い。［留保。GitHub の README とコミット履歴］
-17. Claude Code の dynamic workflow の再開は同じセッション内に限られる（比較表の Interruption 欄「Resumable in the same session」）。ここでの「同じセッション」はプロセスの寿命とは別で、セッションのバックグラウンド化・`claude --resume`・cloud の再オープンを含む。新しく始めたセッションからは引き継げないと公式文書が明示し、`/fork` で複製したセッションについては記載が無い。公式文書に記載された、別のセッションから盤面を引き継ぐ手段は無い。［確証。Claude Code 公式ドキュメント］
+17. Claude Code の dynamic workflow の再開は同じセッション内に限られる（比較表の Interruption 列「Resumable in the same session」）。ここでの「同じセッション」はプロセスの寿命とは別で、セッションのバックグラウンド化・`claude --resume`・cloud の再オープンを含む。新しく始めたセッションからは引き継げないと公式文書が明示し、`/fork` で複製したセッションについては記載が無い。公式文書に記載された、別のセッションから盤面を引き継ぐ手段は無い。［確証。Claude Code 公式ドキュメント］
 18. graphloops の graphcheck.py は Python 標準ライブラリの graphlib（3.9 で追加）を import する一方、リポジトリの README は必須要件を python 3.8 以降と書いている。3.8 では graphcheck.py が動かない。［確証。Python 公式の What's New 3.9・このリポジトリの実物。同日に 3.9 以降へ確定——README.md と .github/workflows/test.yml の python-version 3.9。決着済み］
-19. LangGraph（1.x 系）は、interrupt とディスクか DB に永続する checkpointer を組み合わせると、interrupt で止まった後にプロセスを終え、後から別のプロセスで同じ thread_id と Command(resume=...) を渡して再開できる。再開は止まった行からでなく、interrupt を呼んだ節（タスク）の先頭から再実行され、interrupt の呼び出しが保存された値を返して先へ進む。成立条件は 5 つ——永続の checkpointer（InMemorySaver は不可。SqliteSaver は公式が demos と小規模向けで多スレッドに耐えないと明記）・新しいプロセスで同じ構造のグラフを組み直して同じ保存先を指す・状態と interrupt の値が直列化できる（pickle_fallback の既定は false）・interrupt で制御が返った後に正常終了する（強制終了では失われる）。［留保。LangChain 公式ドキュメント・公式リポジトリの実装。「プロセスをまたいで」と名指しした一文は無く、複数の記述からの帰結］
-20. LangGraph（1.x 系）で、同時に走る複数の節がそれぞれ interrupt を呼ぶと、それらは 1 回の呼び出しでまとめて返り、interrupt の id ごとに値を対応づけた辞書を Command(resume=...) に渡す 1 回で再開できる。id は節を実行するタスクの単位（1 つの節が interrupt を 2 回呼ぶと同じ id）で、同時に返るのは同じ段で止まった分だけ。［確証。同上］
-21. LangGraph（1.x 系・Graph API）で、interrupt を呼んだ節は再開時に先頭から再実行される。interrupt より前の副作用は冪等でなければならないと公式が警告する。再実行されるのは interrupt した当のタスクだけで、同じ段で正常に終わった他の節は再実行されない。Functional API の @task は完了結果が再生されるので挙動が異なる。［確証。同上］
+19. LangGraph（1.x 系）は、interrupt とディスクか DB に永続する checkpointer を組み合わせると、interrupt で止まった後にプロセスを終え、後から別のプロセスで同じ thread_id と Command(resume=...) を渡して再開できる。再開は止まった行からでなく、interrupt を呼んだノード（タスク）の先頭から再実行され、interrupt の呼び出しが保存された値を返して先へ進む。成立条件は 5 つ——永続の checkpointer（InMemorySaver は不可。SqliteSaver は公式が demos と小規模向けで多スレッドに耐えないと明記）・新しいプロセスで同じ構造のグラフを組み直して同じ保存先を指す・状態と interrupt の値が直列化できる（pickle_fallback の既定は false）・interrupt で制御が返った後に正常終了する（強制終了では失われる）。［留保。LangChain 公式ドキュメント・公式リポジトリの実装。「プロセスをまたいで」と名指しした一文は無く、複数の記述からの帰結］
+20. LangGraph（1.x 系）で、同時に走る複数のノードがそれぞれ interrupt を呼ぶと、それらは 1 回の呼び出しでまとめて返り、interrupt の id ごとに値を対応づけた辞書を Command(resume=...) に渡す 1 回で再開できる。id はノードを実行するタスクの単位（1 つのノードが interrupt を 2 回呼ぶと同じ id）で、同時に返るのは同じ段で止まった分だけ。［確証。同上］
+21. LangGraph（1.x 系・Graph API）で、interrupt を呼んだノードは再開時に先頭から再実行される。interrupt より前の副作用は冪等でなければならないと公式が警告する。再実行されるのは interrupt した当のタスクだけで、同じ段で正常に終わった他のノードは再実行されない。Functional API の @task は完了結果が再生されるので挙動が異なる。［確証。同上］
 
 ## 候補の地図（左＝業界の位置づけ／右＝このループへの適用）
 
@@ -88,13 +88,13 @@ engine が持つ機能は 7 つある。依存関係を持つ工程（DAG）の�
 
 ライブラリ型に置き換えたときの取り分は行数で見積もれる。engine の 1,091 行のうち、日程管理と永続化に当たるのは advance.py と board.py と commands.py の一部で、空行と注釈を除いて約 400 行（実測は 2026-09-12。機能への分類は筆者）。LangGraph に載せると、この 400 行の代わりに JSON のグラフを StateGraph に翻訳する層を書き、周をまたぐ参照・被覆の再発行・instance_deps による早出し・once・active_in・same_context_as は対応物が無いので翻訳層で同じ意味を書き直す。役の返答を保存する out/ と記録の record.json はセッションと検証器が読むので残り、LangGraph の checkpoint と保存が二重になる。差し引きの行数はほぼゼロか増え、代わりにプラグインを入れる全員の開発機で依存の解決（pip か uv と初回の取得）が要る。最も近い既存物は taskflow だが、DAG を自分のプロセスで回し、Claude Code を隔離セッションとして起動する駆動器型で、メインの会話を実行者にはしない。
 
-部分の置き換えは成立しうる。位相順の計算は Python 標準ライブラリの graphlib で足りる（engine は既にそれを使う）。subagent の起動は Claude Code の Agent 機能に載っている（**2026-09-25 に改めた**: 役は engine が `claude -p` の非対話実行——公式の `--agent`・`--resume`・`--output-format json`・権限の明示——で子プロセスとして起こす形に移した。Agent 機能で起こすと役の返答が回す側の会話に入り、それを避けるために挟んだ中継の AI が、書いていないのに『書いた』と返す・続きの返答が回す側に戻る・完了の知らせが迷って 7 時間止まる、を起こした。起こす関数は `graphloops/engine/role_run.py`）。門番は hook にある。Claude Code の Workflow は「メインの会話が実行する節を含まない直線区間」（checker→refuter の扇など）に限り使える。
+部分の置き換えは成立しうる。位相順の計算は Python 標準ライブラリの graphlib で足りる（engine は既にそれを使う）。subagent の起動は Claude Code の Agent 機能に載っている（**2026-09-25 に改めた**: 役は engine が `claude -p` の非対話実行——公式の `--agent`・`--resume`・`--output-format json`・権限の明示——で子プロセスとして起動する形に移した。Agent 機能で起動すると役の返答が回す側の会話に入り、それを避けるために挟んだ中継の AI が、書いていないのに『書いた』と返す・続きの返答が回す側に戻る・完了の知らせが迷って 7 時間止まる、を引き起こした。起動する関数は `graphloops/engine/role_run.py`）。ゲートは hook にある。Claude Code の Workflow は「メインの会話が実行するノードを含まない直線区間」（checker→refuter の扇など）に限り使える。
 
 置き換えの取り分には上限がある。消えるのはスケジューリングの核だけで、rules 936 行と prompts 51 本はループ固有の意味なので残る。engine を「ループの中身を知らない」と定義した時点で、取り分は engine の一部に切られている。
 
-この結論は恒久ではない。再評価の引き金を 2 つ置く。(a) Claude Code の Workflow が、メインの会話を実行者にする節と、別セッションからの再開を備えたとき。(b) engine の行数か変更頻度が rules を超えたとき。行数は wc -l（2026-09-12 の初回測定 engine 1,091・rules 936。同日夕方の再測定 engine 1,582・rules 1,045——**引き金 (b) の行数条件は既に成立している**。再評価するか、引き金の定義を見直すかは「残る決定事項」）。変更頻度は `git log --since` で四半期ごとに数える、engine/ と rules/ にそれぞれ触れた commit の数（初回 commit は 2026-09-12 の 4c1fc14。同日中に engine・rules とも複数回触れている——数え始めはこの四半期）。もう 1 つ、engine に再試行・入れ子のグラフ・別の機械での再開が要るようになったときも見直す（既製の基盤が買ってくれるものが増える）。
+この結論は恒久ではない。再評価の引き金を 2 つ置く。(a) Claude Code の Workflow が、メインの会話を実行者にするノードと、別セッションからの再開を備えたとき。(b) engine の行数か変更頻度が rules を超えたとき。行数は wc -l（2026-09-12 の初回測定 engine 1,091・rules 936。同日夕方の再測定 engine 1,582・rules 1,045——**引き金 (b) の行数条件は既に成立している**。再評価するか、引き金の定義を見直すかは「残る決定事項」）。変更頻度は `git log --since` で四半期ごとに数える、engine/ と rules/ にそれぞれ触れた commit の数（初回 commit は 2026-09-12 の 4c1fc14。同日中に engine・rules とも複数回触れている——数え始めはこの四半期）。もう 1 つ、engine に再試行・入れ子のグラフ・別の機械での再開が要るようになったときも見直す（既製の基盤が買ってくれるものが増える）。
 
-二択に落とさない。第三の選択肢として「engine を消し、回す側の会話が graphs/*.json と記録を直接読んで次の節を決める」がある。実行者は JSON を読めるので原理的には可能だが、手で導いた実行可否は機械で検証できず、記録と検証器を置いた目的を損なう。採らないが、選択肢としては残す。
+二択に落とさない。第三の選択肢として「engine を消し、回す側の会話が graphs/*.json と記録を直接読んで次のノードを決める」がある。実行者は JSON を読めるので原理的には可能だが、手で導いた実行可否は機械で検証できず、記録と検証器を置いた目的を損なう。採らないが、選択肢としては残す。
 
 ## 訂正の記録（append-only）
 
@@ -109,13 +109,13 @@ engine が持つ機能は 7 つある。依存関係を持つ工程（DAG）の�
 9. 主張 3 の版の粒度を「V2 への移行に伴い」に弱め、StepPersistence の対象が agent の実行であることを添えた（留保）。
 10. 主張 13（taskflow）に、background では切り離した Node のワーカが DAG を回すこと、MCP 経由では approval が自動で拒否されること、pnpm は開発時だけ要ることを足した（留保）。候補の地図の「人の入力待ち」を「MCP 経由では自動拒否」に直した。
 11. 主張 8・9 が反証を経て確証になったので、その適用条件（権限の検査とサンドボックス・権限プロンプトの例外・relaunch は差分以降の再実行）を本文に足した。主張 17（再開は同じセッション内。fork は記載なし）と 18（graphlib は 3.9 以降で README の 3.8 と食い違う）を足した。
-12. 理由 1（制御の反転）の射程からライブラリ型を外した。LangGraph は interrupt と永続の checkpointer で、回す側が手番ごとに呼んで別プロセスから再開する形に組める（主張 19〜21）。「駆動器型は梱包と独立に構造で合わない」は taskflow 型と Workflow にだけ成り立つ。ループの run は 2 周目で停止していたので、この 3 主張は run の外で refuter（judge）に反証させて書いた（判定の生の返答は run の盤面の extra/ に置いた）。起点は依頼者の指摘「Python で組んだ時点で、違いは pip で入れるかどうかだけでは」。
+12. 理由 1（制御の反転）の射程からライブラリ型を外した。LangGraph は interrupt と永続の checkpointer で、回す側がターンごとに呼んで別プロセスから再開する形に組める（主張 19〜21）。「駆動器型は梱包と独立に構造で合わない」は taskflow 型と Workflow にだけ成り立つ。ループの run は 2 周目で停止していたので、この 3 主張は run の外で refuter（judge）に反証させて書いた（判定の生の返答は run の盤面の extra/ に置いた）。起点は依頼者の指摘「Python で組んだ時点で、違いは pip で入れるかどうかだけでは」。
 13. 結論を「できない」から「駆動器型と Workflow にはできず、ライブラリ型には組めるが割に合わない」に直し、取り分を行数で見積もった（独立導出との突合が挙げた未決 U3——機能別の行数——を実測して入れた）。
 14. 凡例を足した。checker・refuter・rederiver・cold-reader が本文で未定義だった（初見の読み手の指摘）。
 15. 再評価の引き金 (b) の「変更頻度」に計測方法と現在値を足した（初見の読み手の指摘）。白地図に、独立導出との突合が挙げた未決（検証器の受け入れ・Workflow の版の固定・engine のループ非依存の検査）と、Burr・LlamaIndex の別プロセス再開を足した。
 
 ## 残る決定事項（人が決めること）
 
-- 配布方針「必須は git / python3 / bash だけ」を緩めて pip 依存を許すか。推奨は「今は緩めない」——LangGraph に載せても差し引きの行数がほぼゼロで、代償（依存の解決）は利用者全員が払う（結論の見立て）。python3 を許して pip を許さない線引きは README の方針であって物理ではなく、書き直せる。緩める必要が出たとき（別の依存が本当に要るとき）は、即席の仮想環境（uv run と PEP 723 のインライン依存のように、実行時に環境を作って終わったら捨てる形）が導入手順を増やさない手段になる。ただし uv 自体が新しい必須の道具になり、プロキシ下の開発機では初回の取得が失敗する余地が増える。
+- 配布方針「必須は git / python3 / bash だけ」を緩めて pip 依存を許すか。推奨は「今は緩めない」——LangGraph に載せても差し引きの行数がほぼゼロで、代償（依存の解決）は利用者全員が払う（結論の見立て）。python3 を許して pip を許さない線引きは README の方針であって物理ではなく、書き直せる。緩める必要が出たとき（別の依存が本当に要るとき）は、即席の仮想環境（uv run と PEP 723 のインライン依存のように、実行時に環境を作って終わったら捨てる形）が導入手順を増やさない手段になる。ただし uv 自体が新しい必須のツールになり、プロキシ下の開発機では初回の取得が失敗する余地が増える。
 - ~~graphloops の必須 Python を 3.9 以降と明記するか、graphcheck.py から graphlib を外して 3.8 に合わせるか（主張 18）~~ ——決着（2026-09-12）: 3.9 以降と明記した（README.md・.github/workflows/test.yml）。**2026-09-13 に 3.12 へ上げ直した**——下限を決める条件が `graphlib` の追加版（3.9）でなく『開発者の手元と CI が同じ構文を読めること』だと分かったため。手元 3.14 で書いた f-string の入れ子（3.12 以降の構文）が全件緑をすり抜け、CI の 3 OS すべてを赤にした。
 - 再評価の引き金 (b) の行数条件が成立している（engine 1,582 行 > rules 1,045 行、2026-09-12）。再評価（既製の基盤に載せ替える検討）を行うか、引き金を行数から別の量（変更頻度だけ・engine のうち loop 非依存の部分だけ）に定義し直すか。

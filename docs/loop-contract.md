@@ -12,26 +12,26 @@
 
 - **writer / surveyor / prospector / author** — ループを回すメインセッション（Claude Code の会話そのもの）。review では実装者（writer）、research では調査者（surveyor）、doctor では走査者（prospector）、firstread では文書の作者（author。手順書は「あなた」と呼ぶ）。以下まとめて「回す側」
 - **grader / checker / refuter / 読み役** — 回す側と別の context（子の会話）で採点・照合・反証・通読する subagent。以下まとめて「採点する側」
-- **役割 agent** — `agents/*.md` の 6 本（`blind-judge`・`cold-reader`・`inspector`・`investigator`・`judge`・`reader`）。持てる道具は各ファイルの `tools:` が正本
-- **遮断系** — 道具を一切持たない役（`blind-judge`・`cold-reader`）。プロンプトに貼られた本文しか読めない
+- **役割 agent** — `agents/*.md` の 6 本（`blind-judge`・`cold-reader`・`inspector`・`investigator`・`judge`・`reader`）。持てるツールは各ファイルの `tools:` が正本
+- **遮断系** — ツールを一切持たない役（`blind-judge`・`cold-reader`）。プロンプトに貼られた本文しか読めない
 - **記録** — 各周の実行記録 JSON。review は `round-<N>.json`、firstread は周ごと、research / doctor は 1 実行 1 記録
 - **検証器** — 記録を読んで阻害要因を列挙し終了コードで返す Python。exit 0 ＝ 阻害なし、1 ＝ 阻害あり、2 ＝ 記録が不正
 - **ラウンド** — review は P1→P4 を 1 周、research は P1→P2、doctor は P1→P3、firstread は用事の数だけ読み役を立てて手順 2〜4 を通すこと
-- **問いの台帳** — review 0.28 以降の記録の `questions` 欄。人に聞く候補を載せた周には聞かず、次の周の採点役が再審する
-- **ハーネス** — Claude Code 本体。subagent の起動・道具の許可・フック（道具の呼び出しの前後に挟まる検査。`hooks.json`）・context の圧縮（会話が長くなると要約に置き換わる）を司る
-- **Workflow** — Claude Code の、複数 subagent を JavaScript の script で回す道具。research の P1 が使う
-- **hook（フック）** — 道具の呼び出しの前後にハーネスが走らせる検査。command 型（外部プロセス）と prompt 型（別の LLM に判定させる）がある。このリポジトリの `gates`（gh の投稿本文の門番）と `coldwrite`（Write される散文の門番）がそれ
+- **問いの台帳** — review 0.28 以降の記録の `questions` フィールド。人に聞く候補を載せた周には聞かず、次の周の採点役が再審する
+- **ハーネス** — Claude Code 本体。subagent の起動・ツールの許可・フック（ツールの呼び出しの前後に挟まる検査。`hooks.json`）・context の圧縮（会話が長くなると要約に置き換わる）を司る
+- **Workflow** — Claude Code の、複数 subagent を JavaScript の script で回すツール。research の P1 が使う
+- **hook（フック）** — ツールの呼び出しの前後にハーネスが走らせる検査。command 型（外部プロセス）と prompt 型（別の LLM に判定させる）がある。このリポジトリの `gates`（gh の投稿本文のゲート）と `coldwrite`（Write される散文のゲート）がそれ
 
 ---
 
-## A. 役の遮断は道具で担保する
+## A. 役の遮断はツールで担保する
 
-**内容**: 「見るな・書くな」を言い渡しでなく、役割 agent の `tools:` で物理的に塞ぐ。遮断系は道具ゼロ、採点する側はどの役も書く道具（Write / Edit / NotebookEdit）を持たない。`investigator` だけは Bash を持つ——Bash で書けるので、この役だけは定義で塞げない。
+**内容**: 「見るな・書くな」を言い渡しでなく、役割 agent の `tools:` で物理的に塞ぐ。遮断系はツールゼロ、採点する側はどの役も書くツール（Write / Edit / NotebookEdit）を持たない。`investigator` だけは Bash を持つ——Bash で書けるので、この役だけは定義で塞げない。
 
-**今どこが守っているか**: **機械**。`tests/run.sh` の agent 定義の検査が全 agent の `tools:` を読み、書く道具の不在（`WRITE_TOOLS`）・遮断系の `tools: []`・`model` の値を検査する。`general-purpose` の起動禁止、手順書へのモデル名の写し禁止、役名の付いていない起動の禁止、どの手順書からも使われない役（孤児）の検出も同じ検査群。
-`investigator` の書き換えだけは**散文＋機械の突合**——4 本とも「起動前後で `git status --porcelain` を突き合わせろ」と書き、doctor は記録の `mod_check` 欄を必須にし（`doctor-record.py` の `validate()`）、firstread は `git_status_match` が `True` でなければ阻害要因にする（`firstread-record.py` の `blockers()`）。review と research は**散文だけ**。review 0.31.1 は加えて、ゲートの赤の確認を「本物の作業ツリーを壊さず `mktemp -d` の写しの上で」と書く——作業ツリー突合は前後 2 点の比較なので、壊して戻すサイクルを原理的に検出できない（端点は必ず一致する）。
+**今どこが守っているか**: **機械**。`tests/run.sh` の agent 定義の検査が全 agent の `tools:` を読み、書くツールの不在（`WRITE_TOOLS`）・遮断系の `tools: []`・`model` の値を検査する。`general-purpose` の起動禁止、手順書へのモデル名の写し禁止、役名の付いていない起動の禁止、どの手順書からも使われない役（孤児）の検出も同じ検査群。
+`investigator` の書き換えだけは**散文＋機械の突合**——4 本とも「起動前後で `git status --porcelain` を突き合わせろ」と書き、doctor は記録の `mod_check` フィールドを必須にし（`doctor-record.py` の `validate()`）、firstread は `git_status_match` が `True` でなければ阻害要因にする（`firstread-record.py` の `blockers()`）。review と research は**散文だけ**。review 0.31.1 は加えて、ゲートの赤の確認を「本物の作業ツリーを壊さず `mktemp -d` の写しの上で」と書く——作業ツリー突合は前後 2 点の比較なので、壊して戻すサイクルを原理的に検出できない（端点は必ず一致する）。
 
-**どう確かめるか**: 既存テストで足りる（agent の定義）。`investigator` の突合は review / research にも記録の欄として足せる。**道具で塞げるのは道具だけ**——ハーネスが注入する文脈は塞げない（→ T）。**遮断は道具の不在だけでなく起こし方まで含めて初めて成立する**——Agent ツールで起こした時点で CLAUDE.md が入るので、道具ゼロの役は別プロセスで起こす（T の実測。graphloops は `mode: cli` で機械化した）。
+**どう確かめるか**: 既存テストで足りる（agent の定義）。`investigator` の突合は review / research にも記録のフィールドとして足せる。**ツールで塞げるのはツールだけ**——ハーネスが注入する文脈は塞げない（→ T）。**遮断はツールの不在だけでなく起動方法まで含めて初めて成立する**——Agent ツールで起動した時点で CLAUDE.md が入るので、ツールゼロの役は別プロセスで起動する（T の実測。graphloops は `mode: cli` で機械化した）。
 
 ## B. 回す側は採点しない
 
@@ -44,13 +44,13 @@
 
 **今どこが守っているか**: **散文だけ**。検証器は「どのコンテキストが判定したか」を知る手段を持たない——`review-record.py` 0.31.1 の docstring が自ら「機械には writer と judge の区別が見えない。2 周目以降の正しさを支えるのは台帳を書くのが judge であることと R1 が台帳を監査することの 2 枚」と書いている。
 
-**どう確かめるか**: **機械では確かめられない**。グラフの上でだけは見られる——`graphloops/scripts/graphcheck.py` が「判定を出す節の `run_by` が回す側でない」を検査する（写すだけの節と、手順書が定めた例外は印で除く）。
+**どう確かめるか**: **機械では確かめられない**。グラフの上でだけは見られる——`graphloops/scripts/graphcheck.py` が「判定を出すノードの `run_by` が回す側でない」を検査する（写すだけのノードと、手順書が定めた例外は印で除く）。
 
 ## C. 同一ラウンド内で回し直さない
 
 **内容**: 同じラウンドで採点する側を回し直して有利な判定を採らない。やり直しは次のラウンドだけ。firstread は「詰まらなかった読み役に問い直すな」（聞かれたから捻り出した申告が出る）。doctor は cold-reader の報告ゲートだけ例外（直した後の再検査 2 回まで）。
 
-**今どこが守っているか**: **散文だけ**。research-record の `process.rerolls` と doctor-record の同名欄は自己申告。差し戻し（review P2 の「明示返答を欠いた grader を再起動」・doctor P1 の「返答を欠いた scout を 1 度だけ再起動」）は回し直しではない。
+**今どこが守っているか**: **散文だけ**。research-record の `process.rerolls` と doctor-record の同名フィールドは自己申告。差し戻し（review P2 の「明示返答を欠いた grader を再起動」・doctor P1 の「返答を欠いた scout を 1 度だけ再起動」）は回し直しではない。
 
 **どう確かめるか**: 機械では確かめられない。新しいランタイムが subagent の起動を数えて記録に書けば、ラウンドあたりの起動回数の上限を検査に落とせる。
 
@@ -59,7 +59,7 @@
 **内容**: 追認を防ぐため、新しいラウンドの採点する側は前のラウンドを知らない状態で起動する。
 
 - review: 前ラウンドの grader 出力・修正の経緯を P1 / P2 に渡すな。固有規約の把握・決着済み論点リストは文脈遮断 grader と R2 に渡すな。0.31.1: **履歴と問いの台帳は P2 の judge にだけ、今ラウンドの材料で 1〜7 を確定した後に渡す**（先に渡すと追認、writer が当てると「writer はラベルを決めない」が破れる）。P1 の探す役と R2 には渡さない
-- doctor: scout は毎ラウンド新しいコンテキスト、前ラウンドの候補・経緯を渡すな。抜き取り検査には元の判定・理由・ラウンドを渡すな。P2b の二次反証に一次の判定・理由を渡すな。親の節の反証には子の判定を伏せる
+- doctor: scout は毎ラウンド新しいコンテキスト、前ラウンドの候補・経緯を渡すな。抜き取り検査には元の判定・理由・ラウンドを渡すな。P2b の二次反証に一次の判定・理由を渡すな。親のノードの反証には子の判定を伏せる
 - firstread: 読み役は毎回新しく立てる。先に説明しない。検証役に自分の解釈・経緯・会話の履歴は渡さない。構造の 2 体に見立てと動線を見せない
 - research: 2 ラウンド目以降は新規の主張と訂正の波及分だけを P1 にかける。refuter に同じクラスタの他の判定を渡さない
 
@@ -69,7 +69,7 @@
 
 ## E. 記録は無言の省略を許さない
 
-**内容**: 必須の欄が全部あり、各素材が明示の返答を持ち、状態ごとに要求される欄が埋まっている。「該当なし」には理由が要る。「条件に当たらないのでやらなかった」と「やるべきだったが飛ばした」と「人の起動待ち」を別の値にする。review 0.31.1 は「前ラウンドの判定を流用した」（`carried_over`。実際に見たラウンド `from_round` を要求）も別の値にし、`clean` に混ぜない。
+**内容**: 必須のフィールドが全部あり、各素材が明示の返答を持ち、状態ごとに要求されるフィールドが埋まっている。「該当なし」には理由が要る。「条件に当たらないのでやらなかった」と「やるべきだったが飛ばした」と「人の起動待ち」を別の値にする。review 0.31.1 は「前ラウンドの判定を流用した」（`carried_over`。実際に見たラウンド `from_round` を要求）も別の値にし、`clean` に混ぜない。
 
 **今どこが守っているか**: **機械**。4 本の `validate()` と `tests/run.sh` の検査群（テンプレート JSON を機械的に壊して exit 0 / 1 / 2 を網羅）。review 0.31.1 は状態の属性（収束を妨げるか・持ち越せるか・どの R に許されるか）を**表の外のリストでなく行に持つ**（`namedtuple`）——状態を足して追記を忘れた版が、記録に「動かせない」と書いてあるのに exit 0 を出した実測から。firstread 0.31.1 も同じ形に畳んだ。
 
@@ -93,10 +93,10 @@
 
 ## H. 連続 2 ラウンドの収束条件
 
-**内容**: 収束は連続 2 ラウンドで新しい阻害／相違／節が出ないこと（採点のゆらぎを吸収するため。→ S）。前ラウンドに阻害があれば、今ラウンドが阻害なしでも「1 ラウンド目」として数える。回す側が数えない。
+**内容**: 収束は連続 2 ラウンドで新しい阻害／相違／ノードが出ないこと（採点のゆらぎを吸収するため。→ S）。前ラウンドに阻害があれば、今ラウンドが阻害なしでも「1 ラウンド目」として数える。回す側が数えない。
 
 **今どこが守っているか**: **ループで違う**。
-- review 0.31.1: **機械**——`review-record.py` に記録の**ディレクトリ**を渡す（入口はこれ 1 つ。ファイル 1〜2 個の入口は「1 ラウンド書かずに飛ばすだけで縛りが外れた」ので消した）。全ラウンドを読み、`base` の一致・連番の穴・持ち越しの連鎖・defer 台帳（`reopen_evidence` 無しの再出現は不正）・問いの台帳の連続性・同じ `[block]` が 3 記録続けば台帳への記載要求（stuck）・連続 2 ラウンドの会計・履歴を出す
+- review 0.31.1: **機械**——`review-record.py` に記録の**ディレクトリ**を渡す（入口はこれ 1 つ。ファイル 1〜2 個の入口は「1 ラウンド書かずに飛ばすだけで縛りが外れた」ので消した）。全ラウンドを読み、`base` の一致・通し番号の穴・持ち越しの連鎖・defer 台帳（`reopen_evidence` 無しの再出現は不正）・問いの台帳の連続性・同じ `[block]` が 3 記録続けば台帳への記載要求（stuck）・連続 2 ラウンドの会計・履歴を出す
 - firstread: **機械**——前の周の記録を受け取り、新しい詰まり・同じ場所の再出を阻害にする
 - research / doctor: **散文だけ**——1 実行 1 ファイルで、`convergence.consecutive_zero` は自己申告
 
@@ -119,13 +119,13 @@
 - doctor: 同上＋cartographer の比較係が unverifiable。thrash の処理順は固定（面積を割り直す→重厚へ昇格→諮る）
 - firstread: 止め時そのものが人の判断。構造の判断（改名・移動・入口の付け替え）は依頼者へ渡す
 
-**今どこが守っているか**: review 0.31.1 は**機械**（帰属の判定と premise の短絡。ただし機械が塞ぐのは 1 周で通る経路だけ——帰属の述語は `origin` / `depends` の自己申告で、2 周かければ作れる、と検証器自身が書く）。他 3 本は**散文だけ**。ゲートの verdict は記録の欄にあるので、そこから機械が「諮れ」を出すことは可能だが、していない。
+**今どこが守っているか**: review 0.31.1 は**機械**（帰属の判定と premise の短絡。ただし機械が塞ぐのは 1 周で通る経路だけ——帰属の述語は `origin` / `depends` の自己申告で、2 周かければ作れる、と検証器自身が書く）。他 3 本は**散文だけ**。ゲートの verdict は記録のフィールドにあるので、そこから機械が「諮れ」を出すことは可能だが、していない。
 
 **どう確かめるか**: verdict 由来の条件は記録から機械で出せる。stuck / thrash はラウンド間の突合から出せる。前提のドリフト（review のループ内の手当て。台帳に載せない）と未観測は人の判断が要る。
 
 ## K. 無人実行の読み替え
 
-**内容**: subagent として無人で走る場合、「諮れ」で止まって待たない（待機は失敗と同義——subagent には人に聞く道具が無い。→ X）。保守的な既定で続行し、諮りたかった内容を最終報告の冒頭に「要人間判断」として列挙する。人の判断そのものは代行しない。扇形展開は前景の並列呼び出し（背景起動して自分のターンを閉じると、入れ子実行で応答経路が壊れる）。
+**内容**: subagent として無人で走る場合、「諮れ」で止まって待たない（待機は失敗と同義——subagent には人に聞くツールが無い。→ X）。保守的な既定で続行し、諮りたかった内容を最終報告の冒頭に「要人間判断」として列挙する。人の判断そのものは代行しない。扇形展開は前景の並列呼び出し（背景起動して自分のターンを閉じると、入れ子実行で応答経路が壊れる）。
 
 **今どこが守っているか**: **散文だけ**（research・doctor）。review は問いの台帳で「立った周には聞かない」を既定にしたので、無人でも止まらずに回る。firstread には無人の読み替えが無く、人の入力点が 2 つある（用事を決める・止め時を決める）。
 
@@ -137,21 +137,21 @@
 
 **今どこが守っているか**: **散文だけ**（research の P1 だけは Workflow の script が並列を機械で決める）。
 
-**どう確かめるか**: 依存を有向非循環グラフとして書けば、並行の単位と待ち合わせ点は定義から決まる。`graphloops/scripts/graphcheck.py` が `graphloops/graphs/` の 4 本の JSON から波を出し、手順書の「先行してよい」「同時に起動しろ」が依存から導かれることを確かめた。**firstread の「1 周の中だけ」と doctor の「生やした親を同じラウンドの P2b に」は、グラフの外側の周回規律**（後者は循環になるので、木の構築の後の別の節として置いた）。
+**どう確かめるか**: 依存を有向非循環グラフとして書けば、並行の単位と待ち合わせ点は定義から決まる。`graphloops/scripts/graphcheck.py` が `graphloops/graphs/` の 4 本の JSON から波を出し、手順書の「先行してよい」「同時に起動しろ」が依存から導かれることを確かめた。**firstread の「1 周の中だけ」と doctor の「生やした親を同じラウンドの P2b に」は、グラフの外側の周回規律**（後者は循環になるので、木の構築の後の別のノードとして置いた）。
 
 ## M. 作業ツリーの保護
 
-**内容**: ループが対象リポジトリを汚さない。doctor は走査前後の `git status --porcelain` と `git stash list` の突合を最終報告の必須欄に。firstread は `git status` の 2 回目を**外に立てた役の判定が出揃った直後・自分が直しを当てる前**に取り、先に書いた答え・記録・写しを作業ツリーの外に置く。review 0.31.1 は P1 の前後で `git status --short`・`git stash list`・`git diff --shortstat <BASE>` を突き合わせ（道具名で列挙しない）、`git add -N` がこの手順の唯一の index への書き込みなので途中で終わったら `git reset -- <path>` で戻す。research は `investigator` の前後で突合。
+**内容**: ループが対象リポジトリを汚さない。doctor は走査前後の `git status --porcelain` と `git stash list` の突合を最終報告の必須フィールドに。firstread は `git status` の 2 回目を**外に立てた役の判定が出揃った直後・自分が直しを当てる前**に取り、先に書いた答え・記録・写しを作業ツリーの外に置く。review 0.31.1 は P1 の前後で `git status --short`・`git stash list`・`git diff --shortstat <BASE>` を突き合わせ（ツール名で列挙しない）、`git add -N` がこの手順の唯一の index への書き込みなので途中で終わったら `git reset -- <path>` で戻す。research は `investigator` の前後で突合。
 
 **今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research の散文版は**散文だけ**。graphloops＝**機械**（P1 の前後で `git status --porcelain`・`git stash list`・その周に固めた版の木の id（本物の index を写した一時 index に `add -A` した木）を突き合わせ、違えば止める——stash で退避しても stash の一覧が突合に入る。investigator の instance の前後は `git status --porcelain` だけを突き合わせる（stash と木の id は P1 の門だけ）。writer 自身の変更は `done` / `next` の `--accept-tree-change <理由>` で痕跡付きで通す——実測 2026-09-12: P1 の途中で engine を直したら次が 10 回同じ理由で止まった）。
 
-**どう確かめるか**: review / research にも記録の欄として足せる。
+**どう確かめるか**: review / research にも記録のフィールドとして足せる。
 
 ## N. 厚みの三段
 
 **内容**: 既定は標準。軽量への降格は依頼者が明示に指定した場合のみ（実行者の自己判断による降格＝さぼり降格を禁ずる。→ U）。昇格は自律で自由。省略した機構は最終報告に明示する。doctor は「面積の指定は厚みの指定ではない」と、昇格が義務になる条件を持つ。
 
-**今どこが守っているか**: **機械＋散文**——research / doctor の記録は `thickness` と `thickness_decider` を必須欄にする。「降格は依頼者指定のみ」の禁止そのものは散文。
+**今どこが守っているか**: **機械＋散文**——research / doctor の記録は `thickness` と `thickness_decider` を必須フィールドにする。「降格は依頼者指定のみ」の禁止そのものは散文。
 
 **どう確かめるか**: `thickness=軽量` かつ `decider=既定` の組み合わせを検証器で弾けば、禁止を機械に落とせる。
 
@@ -173,9 +173,9 @@
 
 ## Q. 正本の置き場所——列挙を手順書に持ち込まない
 
-**内容**: 記録の欄・状態の語彙・観点は script か `REVIEW.md` が正本で、手順書は列挙を持たない（片方が腐る）。固有の技術名を観点側に書かない。手順書にモデル名を書かない。
+**内容**: 記録のフィールド・状態の語彙・観点は script か `REVIEW.md` が正本で、手順書は列挙を持たない（片方が腐る）。固有の技術名を観点側に書かない。手順書にモデル名を書かない。
 
-**今どこが守っているか**: **機械＋散文**——モデル名の写し、`REVIEW.md` に無いセクションの参照、固有の技術名の混入、自作導入コマンドの逆戻り、`-R` 無しの `gh` は `tests/run.sh` が見る。「手順書は列挙を持たない」は散文。`graphloops/graphs/*.json` も同じ規律で書いた（欄名と見出しだけを持ち、道具・観点・行番号を持たない）。
+**今どこが守っているか**: **機械＋散文**——モデル名の写し、`REVIEW.md` に無いセクションの参照、固有の技術名の混入、自作導入コマンドの逆戻り、`-R` 無しの `gh` は `tests/run.sh` が見る。「手順書は列挙を持たない」は散文。`graphloops/graphs/*.json` も同じ規律で書いた（フィールド名と見出しだけを持ち、ツール・観点・行番号を持たない）。
 
 **どう確かめるか**: 新しい仕様を置くなら、**それが新しい正本になり、手順書と検証器の両方がそれを参照する**形にする——3 か所目の写しを作らない。
 
@@ -191,7 +191,7 @@
 
 **今どこが守っているか**: **機械**（firstread の `pre_answers` は実在するパスを要求。review の検証器は全ラウンドをディスクから読む）＋**散文**（「頭の中に置くと後付けになる」）。
 
-**どう確かめるか**: 新しいランタイムでも、節の出力は次の節が読む前にディスクに落ちること。回す側の変数に持たない。
+**どう確かめるか**: 新しいランタイムでも、ノードの出力は次のノードが読む前にディスクに落ちること。回す側の変数に持たない。
 
 ## S. 採点はゆらぐ——同じ入力でも判定が変わる
 
@@ -199,40 +199,40 @@
 
 **今どこが守っているか**: **散文**（理由は書いていない。手当てだけが書いてある）。
 
-**どう確かめるか**: 新しいコマンドで「1 ラウンドで阻害なし＝収束」に縮めないこと。抜き取りの覆り率を層別で見る doctor の計器（検証過剰／不足の判定）は、ゆらぎの大きさを測る唯一の道具。
+**どう確かめるか**: 新しいコマンドで「1 ラウンドで阻害なし＝収束」に縮めないこと。抜き取りの覆り率を層別で見る doctor の計器（検証過剰／不足の判定）は、ゆらぎの大きさを測る唯一のツール。
 
-## T. 道具で塞げるのは道具だけ——ハーネスが注入する文脈は塞げない
+## T. ツールで塞げるのはツールだけ——ハーネスが注入する文脈は塞げない
 
-**内容**: `tools: []` で塞げるのは道具の呼び出しであって、ハーネスが subagent の起動時に自動で入れるものは塞げない。firstread が実測で 3 つ挙げている——規約ファイル（`CLAUDE.md`）の自動読み込み、回す側のセッションを**始めた時点**のブランチ名・直近のコミット・未コミット変更（走行中の実態ではない。中立名に改名しても遅い）、読み役が自分で開ける `.git` 配下。8 人中 4 人が git の状態を踏み、2 人がブランチ名を検索語にして目的のファイルへ直行し、うち 1 人は申告しなかった。`gates` は別の解を採っている——読み役を別プロセス（`claude -p`）で立て、`--setting-sources ""` で利用者の規約ファイルを読ませない。
+**内容**: `tools: []` で塞げるのはツールの呼び出しであって、ハーネスが subagent の起動時に自動で入れるものは塞げない。firstread が実測で 3 つ挙げている——規約ファイル（`CLAUDE.md`）の自動読み込み、回す側のセッションを**始めた時点**のブランチ名・直近のコミット・未コミット変更（走行中の実態ではない。中立名に改名しても遅い）、読み役が自分で開ける `.git` 配下。8 人中 4 人が git の状態を踏み、2 人がブランチ名を検索語にして目的のファイルへ直行し、うち 1 人は申告しなかった。`gates` は別の解を採っている——読み役を別プロセス（`claude -p`）で立て、`--setting-sources ""` で利用者の規約ファイルを読ませない。
 
-**今どこが守っているか**: graphloops＝**機械**（engine が役の定義の `tools` が空なら `mode: cli` で出し、graph の `launch.isolated.argv`——`--tools "" --setting-sources ""` を含む——で別プロセスとして起こす。`graphcheck` は、道具ゼロの役を使う graph が `launch.isolated.argv` を宣言していなければ落とす）。firstread は**散文**（塞げないと分かった上で報告に書け）。legacy の 3 本の手順書には書かれていない——`fresh_context` は「前ラウンドを知らない」であって「文脈ゼロ」ではない。
+**今どこが守っているか**: graphloops＝**機械**（engine が役の定義の `tools` が空なら `mode: cli` で出し、graph の `launch.isolated.argv`——`--tools "" --setting-sources ""` を含む——で別プロセスとして起動する。`graphcheck` は、ツールゼロの役を使う graph が `launch.isolated.argv` を宣言していなければ落とす）。firstread は**散文**（塞げないと分かった上で報告に書け）。legacy の 3 本の手順書には書かれていない——`fresh_context` は「前ラウンドを知らない」であって「文脈ゼロ」ではない。
 
 **2026-09-12 に実測で確定した**（それまで「未確認」と書いていた所）:
 
-- **CLAUDE.md 階層は Agent ツールで起こした subagent に注入され、止める設定は無い**。公式ドキュメント（`code.claude.com/docs/en/sub-agents`）は「Explore and Plan are the **only** subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.」と書く。実測: 道具ゼロの `cold-reader` を Agent ツールで起こし「文脈に『並列セッション』が在るか」と聞いたら、利用者の `CLAUDE.md` の 1 項目を逐語で書き写して返した。
+- **CLAUDE.md 階層は Agent ツールで起動した subagent に注入され、止める設定は無い**。公式ドキュメント（`code.claude.com/docs/en/sub-agents`）は「Explore and Plan are the **only** subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.」と書く。実測: ツールゼロの `cold-reader` を Agent ツールで起動し「文脈に『並列セッション』が在るか」と聞いたら、利用者の `CLAUDE.md` の 1 項目を逐語で書き写して返した。
 - **会話をまたぐ自動記憶（auto memory）は注入されない**。注入されるのは `memory` フィールドを持つ subagent の `MEMORY.md`（先頭 200 行または 25KB）だけ。
 - **メインの system prompt も注入されない**（同ドキュメントが "not the Claude Code system prompt" と明記）。
 - **`--setting-sources ""` は CLAUDE.md ごと外す**。CLAUDE.md は settings.json と同じ setting source（`project` / `user` / `local`）の**中身そのもの**だから（`agent-sdk/claude-code-features` の表）。対照実験: フラグ無しではプロジェクトと利用者の両方の目印が見え、付けると両方消えた。
 - **外せない残り**: 組織管理（managed policy）の CLAUDE.md。よって「完全な遮断」とは名乗らない。
-- **標準入力の大きさの測定（再現の形）**: 2026-09-12、macOS・claude 2.1.269、`/review-graph` の p1.hygiene（cold-reader）。起動は graph の `launch.isolated.argv`（`claude -p --model sonnet --effort medium --tools "" --setting-sources "" --append-system-prompt-file <役の本文> --no-session-persistence --output-format text`）、入力は `wc -c prompts/r1/p1.hygiene.md`（run の盤面の置き場の下に engine が組み立てた 1 周目の指示書。雛形の `graphloops/prompts/review-loop/p1.hygiene.md` に diff などを埋めた物）→ `774021`（diff 769,188 バイト＋観点＋schema）を標準入力で。出力 4,605 バイト、`seen` は「貼られた diff 本文の全体（…）」で findings 3 件、先頭側（engine/schema.py）と末尾側（tests/run.sh）の両方に指摘が及んだ。同日の先行測定は 748,883 バイトで同じ結果。**2 点の観測であって上限の保証ではない**——入り切らなければ API がエラーを返し、`done` が非 JSON を拒む（fail-closed）。**上限に当たった実測（2026-09-27）**: 生成データ約 2 MB を足した run（wip/golden）の r2.compare（blind-judge）で、標準入力に 1 回だけ渡した 2,149,613 バイト（1,690,615 字）の指示書が `Prompt is too long · the request is ~1041145 tokens (limit 1000000)` で落ち、R2 の審査が抜けた（同じ文の `conversation ~422812 tokens` は字数 / 4 の概算で、実数ではない）。約 2.06 バイト/トークンで、上限の 100 万トークンは約 2,064,000 バイト——review-loop の graph はこれを `launch.input_budget_bytes` に宣言し、超えた周だけ rules の `_paste_copy` が節を要約に替えた写しを道具ゼロの役に渡し、要約した節の本文は全文の写しを Read で読ませる（graphloops の手順書の「大きな差分と生成データ」）。2026-09-12 の測定と同じ日に見つかった落ち方: 子は対話の claude の認証を継がず、`Failed to authenticate` の 1 行（73 バイト）が返った（2026-09-15 に同じ形を再現——`Failed to authenticate: OAuth session expired and could not be refreshed` が**標準出力に・終了コード 0 で**返る。rc では捕まらず、`done` が非 JSON を拒む形でしか現れない）——**2026-09-15 に決着**: `launch.isolated.via`（graph の宣言）で `graphloops/scripts/with-auth.py` を前置し、認証だけを足してから `claude` を起こす。段は「親の環境に在る認証はそのまま → mac は Keychain（サービス名は `CLAUDE_CONFIG_DIR` の末尾から導く。`.claude` → `claude-code-oauth-default`）→ どの段でも `CLAUDE_CONFIG_DIR` を子へ明示」。起こすのは回す側ではなく engine（`loop.py launch`）——回す側の Bash から起こす形は、出力をファイルに落とす綴りだと auto mode の分類器が『Auto-Mode Bypass』で止めた（同日実測。出力が会話に出る形は通った）。engine は起こす前に argv を機械で確かめる（自分の前置か・遮断の旗が揃っているか）。**トークンを argv に置かない**のは、`launch` が回す側の文脈と `record.json` に写るから。回す側の Bash に `$(security find-generic-password …)` を書かせる形も採れない——auto mode の分類器が資格情報の実体化として止める（実測 2026-09-15）。層の中の `security` は止まらない。Keychain の無い環境では最後の段だけが効き、そこに認証が無ければ救えない（採った段は標準エラーの `with-auth: auth=…` の 1 行に出る）。
+- **標準入力の大きさの測定（再現の形）**: 2026-09-12、macOS・claude 2.1.269、`/review-graph` の p1.hygiene（cold-reader）。起動は graph の `launch.isolated.argv`（`claude -p --model sonnet --effort medium --tools "" --setting-sources "" --append-system-prompt-file <役の本文> --no-session-persistence --output-format text`）、入力は `wc -c prompts/r1/p1.hygiene.md`（run の盤面の置き場の下に engine が組み立てた 1 周目の指示書。雛形の `graphloops/prompts/review-loop/p1.hygiene.md` に diff などを埋めた物）→ `774021`（diff 769,188 バイト＋観点＋schema）を標準入力で。出力 4,605 バイト、`seen` は「貼られた diff 本文の全体（…）」で findings 3 件、先頭側（engine/schema.py）と末尾側（tests/run.sh）の両方に指摘が及んだ。同日の先行測定は 748,883 バイトで同じ結果。**2 点の観測であって上限の保証ではない**——入り切らなければ API がエラーを返し、`done` が非 JSON を拒む（fail-closed）。**上限に当たった実測（2026-09-27）**: 生成データ約 2 MB を足した run（wip/golden）の r2.compare（blind-judge）で、標準入力に 1 回だけ渡した 2,149,613 バイト（1,690,615 字）の指示書が `Prompt is too long · the request is ~1041145 tokens (limit 1000000)` で落ち、R2 の審査が抜けた（同じ文の `conversation ~422812 tokens` は字数 / 4 の概算で、実数ではない）。約 2.06 バイト/トークンで、上限の 100 万トークンは約 2,064,000 バイト——review-loop の graph はこれを `launch.input_budget_bytes` に宣言し、超えた周だけ rules の `_paste_copy` がセクションを要約に替えた写しをツールゼロの役に渡し、要約したセクションの本文は全文の写しを Read で読ませる（graphloops の手順書の「大きな差分と生成データ」）。2026-09-12 の測定と同じ日に見つかった落ち方: 子は対話の claude の認証を継がず、`Failed to authenticate` の 1 行（73 バイト）が返った（2026-09-15 に同じ形を再現——`Failed to authenticate: OAuth session expired and could not be refreshed` が**標準出力に・終了コード 0 で**返る。rc では捕まらず、`done` が非 JSON を拒む形でしか現れない）——**2026-09-15 に決着**: `launch.isolated.via`（graph の宣言）で `graphloops/scripts/with-auth.py` を前置し、認証だけを足してから `claude` を起動する。段は「親の環境に在る認証はそのまま → mac は Keychain（サービス名は `CLAUDE_CONFIG_DIR` の末尾から導く。`.claude` → `claude-code-oauth-default`）→ どの段でも `CLAUDE_CONFIG_DIR` を子へ明示」。起動するのは回す側ではなく engine（`loop.py launch`）——回す側の Bash から起動する形は、出力をファイルに落とす綴りだと auto mode の分類器が『Auto-Mode Bypass』で止めた（同日実測。出力が会話に出る形は通った）。engine は起動する前に argv を機械で確かめる（自分の前置か・遮断の旗が揃っているか）。**トークンを argv に置かない**のは、`launch` が回す側の文脈と `record.json` に写るから。回す側の Bash に `$(security find-generic-password …)` を書かせる形も採れない——auto mode の分類器が資格情報の実体化として止める（実測 2026-09-15）。層の中の `security` は止まらない。Keychain の無い環境では最後の段だけが効き、そこに認証が無ければ救えない（採った段は標準エラーの `with-auth: auth=…` の 1 行に出る）。
 
-**どう確かめるか**: 目印を書いた `CLAUDE.md` を置いた空ディレクトリを cwd にして役を起こし、「その目印が文脈に在るか」を答えさせる。**対照（フラグ無し）を必ず同時に走らせろ**——目印が見えない結果は、遮断が効いた場合と検査が空振りした場合の両方で出る。
+**どう確かめるか**: 目印を書いた `CLAUDE.md` を置いた空ディレクトリを cwd にして役を起動し、「その目印が文脈に在るか」を答えさせる。**対照（フラグ無し）を必ず同時に走らせろ**——目印が見えない結果は、遮断が効いた場合と検査が空振りした場合の両方で出る。
 
 ## U. 実行者は検査を最小化する最適化者——検査される側に検査水準を決めさせない
 
 **内容**: 回す側は作業を減らして得する側にいる。4 本が別々の名前で禁じているものは全部同じ形——さぼり降格（厚みを自分で下げる）・検証税の省略（「今回の直しは自明だから」）・writer がラベルを軽く倒す（「直したから」）・前提を記憶で書く・探す役に「ここは見るな」の線を引く・重さを下げて増し掛けを避ける・「静的レビューを何ラウンド重ねたか」で観測の欠落を埋める。原理は職務分離——**作業者に自分の検査水準を決めさせない**。
 
-**今どこが守っているか**: **機械＋散文**の混在。機械にあるもの: `thickness_decider`・荷重ゼロと増し掛けゼロの理由の要求・`carried_over` の `from_round`・検証税の判定欄・「素材が found なのに units が空」。散文だけのもの: 降格の禁止そのもの・「writer が数えるな」（review 0.31.1 は連続 2 ラウンドと聞く時を機械に移した）。
+**今どこが守っているか**: **機械＋散文**の混在。機械にあるもの: `thickness_decider`・荷重ゼロと増し掛けゼロの理由の要求・`carried_over` の `from_round`・検証税の判定フィールド・「素材が found なのに units が空」。散文だけのもの: 降格の禁止そのもの・「writer が数えるな」（review 0.31.1 は連続 2 ラウンドと聞く時を機械に移した）。
 
-**どう確かめるか**: 新しいコマンドの各節で「この判断は誰が下すか」を `run_by` で固定し、回す側が下す判断は写しか振り分けに限る（`graphloops/scripts/graphcheck.py` の検査 2）。
+**どう確かめるか**: 新しいコマンドの各ノードで「この判断は誰が下すか」を `run_by` で固定し、回す側が下す判断は写しか振り分けに限る（`graphloops/scripts/graphcheck.py` の検査 2）。
 
 ## V. subagent の失敗は無言の省略に化ける
 
-**内容**: subagent は静かに死ぬ——Workflow の `agent()` は API の失敗で `null` を返し、script の `filter(Boolean)` が落とす。この文書を書いた会話でも、research-loop の refuter 1 体が API の安全機構の誤検知で失敗した（内容は無害だった）。firstread の実走では読み役 1 人が最初の道具呼び出しを本文として出力したまま 13 秒で終了した。落ちた subagent は「該当なし」と区別が付かない——このループが最初に塞いだ穴（無言の省略を「なし」と誤認する）が、ハーネスの層でも起きる。
+**内容**: subagent は静かに死ぬ——Workflow の `agent()` は API の失敗で `null` を返し、script の `filter(Boolean)` が落とす。この文書を書いた会話でも、research-loop の refuter 1 体が API の安全機構の誤検知で失敗した（内容は無害だった）。firstread の実走では読み役 1 人が最初のツール呼び出しを本文として出力したまま 13 秒で終了した。落ちた subagent は「該当なし」と区別が付かない——このループが最初に塞いだ穴（無言の省略を「なし」と誤認する）が、ハーネスの層でも起きる。
 
 **今どこが守っているか**: **機械**（下流で拾う）——research の件数突合（`claims_submitted` ＝ 判定数）、doctor の scout 突合（返答を欠いた面積は `unseen` に無いと不正）、review P2 の「明示返答を欠いたら止めて再起動」と P4 の `exit 2`。firstread は**無し**——読み役が落ちたときの扱いは未定義（`docs/firstread-loop-remaining-findings.md`）。
 
-**どう確かめるか**: 新しいランタイムは各節の失敗を「未実施」として記録に落とし、成功と同じ欄に混ぜない。再起動の回数を数える（C の回し直しと区別するため、失敗の再起動は別の欄）。
+**どう確かめるか**: 新しいランタイムは各ノードの失敗を「未実施」として記録に落とし、成功と同じフィールドに混ぜない。再起動の回数を数える（C の回し直しと区別するため、失敗の再起動は別のフィールド）。
 
 ## W. 語彙は固定し、記録の形で強制する
 
@@ -244,39 +244,39 @@
 
 ## X. subagent は人に聞けない——人の入力点を設計に置く
 
-**内容**: subagent には利用者に質問する道具が無く、回す側も無人（定期実行・入れ子）で走ることがある。だから「諮れ」は無人では失敗と同義（K）。review 0.28 はこれを設計で解いた——聞く候補は台帳に溜め、次の周の judge に再審させ、聞くのは機械が「仕事が尽きた」と言ったときだけ（有人でも同じ）。人の入力点は 4 本で違う: review は最終報告の冒頭（「人が決めること」だけ）、research は P5 の human_only、doctor は面積・レンズの確認と提案の採否、firstread は用事と止め時と構造の判断。
+**内容**: subagent には利用者に質問するツールが無く、回す側も無人（定期実行・入れ子）で走ることがある。だから「諮れ」は無人では失敗と同義（K）。review 0.28 はこれを設計で解いた——聞く候補は台帳にため、次の周の judge に再審させ、聞くのは機械が「仕事が尽きた」と言ったときだけ（有人でも同じ）。人の入力点は 4 本で違う: review は最終報告の冒頭（「人が決めること」だけ）、research は P5 の human_only、doctor は面積・レンズの確認と提案の採否、firstread は用事と止め時と構造の判断。
 
 **今どこが守っているか**: **散文**（`graphloops/graphs/*.json` の `asks_human` に落とした）。
 
-**どう確かめるか**: 新しいランタイムは「人の入力を待つ節」を有人／無人で切り替えられる形に持つ。無人の既定は「保守的に続行して要人間判断に列挙」。
+**どう確かめるか**: 新しいランタイムは「人の入力を待つノード」を有人／無人で切り替えられる形に持つ。無人の既定は「保守的に続行して要人間判断に列挙」。
 
 ## Y. 版はセッション開始時に固定され、記録は版を持たない
 
-**内容**: プラグインの実体はキャッシュに版ごとに置かれ（0.18.0〜0.31.1 が並存）、どの版が動くかは**セッションを始めた時点**で決まる——この文書を書いた会話は 0.19.0 の手順書で research-loop を回していたが、キャッシュには 0.31.1 が在った（`gates` の commit も「フックの版はセッション開始時に固定される」と書く）。役のモデルは別名（`opus`・`sonnet`）で指定され、環境変数 1 つで全 subagent のモデルが差し替わる。**記録にはプラグインの版もモデルも載らない**——4 本の必須欄にそれらは無い（2026-09-12 に検証器の `REQUIRED` / `MATERIALS` を読んで確認）。版が違う周の記録を同じディレクトリで突合すると、欄の不足で exit 2 になる（review 0.31.1 が「旧世代の記録なら欄を足せ」と案内する）。
+**内容**: プラグインの実体はキャッシュに版ごとに置かれ（0.18.0〜0.31.1 が並存）、どの版が動くかは**セッションを始めた時点**で決まる——この文書を書いた会話は 0.19.0 の手順書で research-loop を回していたが、キャッシュには 0.31.1 が在った（`gates` の commit も「フックの版はセッション開始時に固定される」と書く）。役のモデルは別名（`opus`・`sonnet`）で指定され、環境変数 1 つで全 subagent のモデルが差し替わる。**記録にはプラグインの版もモデルも載らない**——4 本の必須フィールドにそれらは無い（2026-09-12 に検証器の `REQUIRED` / `MATERIALS` を読んで確認）。版が違う周の記録を同じディレクトリで突合すると、フィールドの不足で exit 2 になる（review 0.31.1 が「旧世代の記録なら欄を足せ」と案内する）。
 
 **今どこが守っているか**: **無し**。
 
-**どう確かめるか**: 記録に「版・モデル・effort」を書く欄を足す（写しではなく実測値。1 周ごとに取れる）。周をまたいで比べる検証器は、版が違えばその旨を出す。
+**どう確かめるか**: 記録に「版・モデル・effort」を書くフィールドを足す（写しではなく実測値。1 周ごとに取れる）。周をまたいで比べる検証器は、版が違えばその旨を出す。
 
-## Z. 別の LLM 門番が同じ作業に掛かる
+## Z. 別の LLM のゲートが同じ作業に掛かる
 
 **内容**: このリポジトリの他のプラグインは、ループの工程に横から掛かる。`coldwrite` は Write される散文（300 字以上の `.md` 等）を prompt 型 hook の別の LLM が初見で読み、詰まりがあれば書き込みを止める——firstread の直しを当てる工程（`s4.apply`）や review の P3 で文書を書くときに発火する（この文書も 1 度止められた）。`gates` は `gh` の投稿本文を別プロセスの読み手に読ませる——review の並行 PR チェックで担当 PR へコメントを申し送るときと、`investigator` の Bash が `gh` を叩くときに掛かる。review 0.31.1 は「別プラグインの投稿ゲートに頼るな——導入していない実行者では黙って飛ばされる」と書き、報告の初見検査を自前の `cold-reader` で持つ。**prompt 型 hook は迷ったら通す（fail-open）設計で、ループの検証器は fail-closed**——同じ「初見の読み手」でも倒れる向きが逆。
 
 **今どこが守っているか**: **散文**（review の 1 文と、各プラグインの README）。ループの手順書は他のプラグインの存在を前提にしていない。
 
-**どう確かめるか**: 新しいコマンドの各節に「この工程でどの hook が発火しうるか」を注記する（`graphloops/graphs/*.json` の `note` に 2 か所書いた）。hook の逃げ道（`coldwrite:skip`・`COLDREAD_SKIP=1`）を回す側が自分の判断で使うのは U と同じ形。
+**どう確かめるか**: 新しいコマンドの各ノードに「この工程でどの hook が発火しうるか」を注記する（`graphloops/graphs/*.json` の `note` に 2 か所書いた）。hook の逃げ道（`coldwrite:skip`・`COLDREAD_SKIP=1`）を回す側が自分の判断で使うのは U と同じ形。
 
 ## AA. 費用は上限の理由の半分
 
 **内容**: 1 周の費用は読み役 1 人あたり 10〜12.5 万トークン（firstread の実測 3 件）。review は 1 ラウンドに grader 数体＋収束ゲートで数体、doctor は scout がレンズ×面積の積。暴走ガード（I）は非収束の検知だが、費用の上限でもある。research の「安い網を先に、高い針を後に」・doctor の「judge は例外駆動」は費用の配分。
 
-**今どこが守っているか**: **散文**（firstread だけが数字を持つ）。記録にトークン数の欄は無い。
+**今どこが守っているか**: **散文**（firstread だけが数字を持つ）。記録にトークン数のフィールドは無い。
 
 **どう確かめるか**: 記録に周ごとの費用を書けば、暴走ガードを「回数」でなく「費用」でも張れる。
 
 ## AB. 報告は利用者の言語で、手順書は日本語で
 
-**内容**: 手順書は命令の強さを保つために日本語のままで、報告は利用者の言語で返す。subagent の出力が別の言語でも揃える。判定語彙は日本語（候補）と英語（ゲート）が混在する。
+**内容**: 手順書はコマンドの強さを保つために日本語のままで、報告は利用者の言語で返す。subagent の出力が別の言語でも揃える。判定語彙は日本語（候補）と英語（ゲート）が混在する。
 
 **今どこが守っているか**: **散文**（4 本の「最終報告」）。
 
@@ -286,38 +286,38 @@
 
 ## AC. 回す側の文脈は通貨——同じ本文を 2 回通さない
 
-**内容**: 回す側（writer / surveyor）の文脈は圧縮で失われる有限の資源で、そこを通る本文は「読む」と「貼る」で 2 回数える。Read を持つ役（`inspector` / `investigator` / `judge` / `reader`）には本文でなくファイルの path を渡す（`git diff` や `cat` の出力を回す側の文脈に出さず `> file` に落とす）。道具を持たない役（`cold-reader` / `blind-judge`）には貼るしかないが、貼る本文は回す側を 1 回だけ通す。回す側が既に受け取った役の返答を、次の手順の入力にもう一度貼らない——置き場の path と 1 行の要約で指し、要る所だけ読み直す。
+**内容**: 回す側（writer / surveyor）の文脈は圧縮で失われる有限の資源で、そこを通る本文は「読む」と「貼る」で 2 回数える。Read を持つ役（`inspector` / `investigator` / `judge` / `reader`）には本文でなくファイルの path を渡す（`git diff` や `cat` の出力を回す側の文脈に出さず `> file` に落とす）。ツールを持たない役（`cold-reader` / `blind-judge`）には貼るしかないが、貼る本文は回す側を 1 回だけ通す。回す側が既に受け取った役の返答を、次の手順の入力にもう一度貼らない——置き場の path と 1 行の要約で指し、要る所だけ読み直す。
 
-**今どこが守っているか**: graphloops＝**機械**（engine が役の定義の `tools` から `deliver` を path / paste に決めて `next` に出し、返答の置き場 `out_path` も出す。役は engine が `loop.py launch` で `claude -p` の子として起こし、返答を置き場に書いて受け付けまで済ませ、回す側には節ごとの要約（標準出力の JSON オブジェクト 1 つ。鍵 `launched` に 1 節 1 要素）だけを返す（2026-09-25 まで挟んでいた中継の AI——運び手——は、書いていないのに『書いた』と返す・続きの返答が回す側に戻る・完了の知らせが迷う、を起こしたので廃した）。回す側の節のプロンプトは `ref:` の穴で置き場と要約だけを埋める——機構は `graphloops/engine/render.py` の `Renderer.resolve` の `ref:` の枝で、置き場のパス 1 行と `digest()` が作る 1 行要約だけを返し、本文は返さない。実測は下の「どう確かめるか」）。4 本の手順書＝**散文だけ**（役の定義の直後の「貼るな・path を渡せ」の一文。review 0.32.0 は R1〜R4 の累積差分もファイル渡しに変えた）。
+**今どこが守っているか**: graphloops＝**機械**（engine が役の定義の `tools` から `deliver` を path / paste に決めて `next` に出し、返答の置き場 `out_path` も出す。役は engine が `loop.py launch` で `claude -p` の子として起動し、返答を置き場に書いて受け付けまで済ませ、回す側にはノードごとの要約（標準出力の JSON オブジェクト 1 つ。鍵 `launched` に 1 ノード 1 要素）だけを返す（2026-09-25 まで挟んでいた中継の AI——運び手——は、書いていないのに『書いた』と返す・続きの返答が回す側に戻る・完了の知らせが迷う、を引き起こしたので廃した）。回す側のノードのプロンプトは `ref:` の穴で置き場と要約だけを埋める——機構は `graphloops/engine/render.py` の `Renderer.resolve` の `ref:` の分岐で、置き場のパス 1 行と `digest()` が作る 1 行要約だけを返し、本文は返さない。実測は下の「どう確かめるか」）。4 本の手順書＝**散文だけ**（役の定義の直後の「貼るな・path を渡せ」の一文。review 0.32.0 は R1〜R4 の累積差分もファイル渡しに変えた）。
 
-**どう確かめるか**: 回す側の節のプロンプトのバイト数を測る。盤面は `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`（版管理の外。run はその clone にしか無い）にあり、その `prompts/r<N>/` の回す側の節（research なら `p2.integrate.md`）を `wc -c` で測る——`ref:` 入りの engine で回した run なら数 KB、本文埋め込みなら数十〜百数十 KB になる。この clone の run `.git/graphloops/research-loop/20260912-120520/` での実測（2026-09-12）: `ref:` を入れる前の雛形と engine が描画した `prompts/r2/p2.integrate.md` が 139,658 バイト（約 140 KB。記録と役の返答の本文、末尾の返答の JSON Schema を含む）。同じ盤面に現行の雛形 `graphloops/prompts/research-loop/p2.integrate.md` を `graphloops/engine/advance.py` の `emit_instance` と同じ手順（`Board(<run-dir>)` を作り、`Renderer(board.ctx(), node["reads"], ref=board.ref).render(雛形)` の末尾に同じ schema を足す）で描画し直すと 6,843 バイト（約 7 KB。schema を除いた本体は 3,926 バイト）。盤面の `prompts/r*/` と `out/r*/` のバイト数を周ごとに足せば 1 周の消費が出る。回す側の節のプロンプトに役の返答の本文が再掲されていれば違反。散文の 4 本は、Read を持つ役の起動プロンプトに差分や文書の本文が貼られていないかを最終報告の転記で見るしかない。
+**どう確かめるか**: 回す側のノードのプロンプトのバイト数を測る。盤面は `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`（版管理の外。run はその clone にしか無い）にあり、その `prompts/r<N>/` の回す側のノード（research なら `p2.integrate.md`）を `wc -c` で測る——`ref:` 入りの engine で回した run なら数 KB、本文埋め込みなら数十〜百数十 KB になる。この clone の run `.git/graphloops/research-loop/20260912-120520/` での実測（2026-09-12）: `ref:` を入れる前の雛形と engine が描画した `prompts/r2/p2.integrate.md` が 139,658 バイト（約 140 KB。記録と役の返答の本文、末尾の返答の JSON Schema を含む）。同じ盤面に現行の雛形 `graphloops/prompts/research-loop/p2.integrate.md` を `graphloops/engine/advance.py` の `emit_instance` と同じ手順（`Board(<run-dir>)` を作り、`Renderer(board.ctx(), node["reads"], ref=board.ref).render(雛形)` の末尾に同じ schema を足す）で描画し直すと 6,843 バイト（約 7 KB。schema を除いた本体は 3,926 バイト）。盤面の `prompts/r*/` と `out/r*/` のバイト数を周ごとに足せば 1 周の消費が出る。回す側のノードのプロンプトに役の返答の本文が再掲されていれば違反。散文の 4 本は、Read を持つ役の起動プロンプトに差分や文書の本文が貼られていないかを最終報告の転記で見るしかない。
 
-**機械化の所在**: この規律を機械で守るのは graphloops だけ（engine が役の定義の `tools` から `deliver` を決め、`reads` に無いものを貼らず、回す側の節には置き場と要約しか渡さない）。**legacy の 3 本（`skills/review-loop/`・`skills/research-loop/`・`skills/doctor-loop/`）は散文のまま**で、違反を赤くする検査は無い——この 3 本は engine を通らないので機械で縛る場所が無い。散文に同じ規則を書いてあるのは読み手への指示であって担保ではない。担保が要るなら graphloops 側で回す。
+**機械化の所在**: この規律を機械で守るのは graphloops だけ（engine が役の定義の `tools` から `deliver` を決め、`reads` に無いものを貼らず、回す側のノードには置き場と要約しか渡さない）。**legacy の 3 本（`skills/review-loop/`・`skills/research-loop/`・`skills/doctor-loop/`）は散文のまま**で、違反を赤くする検査は無い——この 3 本は engine を通らないので機械で縛る場所が無い。散文に同じ規則を書いてあるのは読み手への指示であって担保ではない。担保が要るなら graphloops 側で回す。
 
 ## 境界のズレ——今どこも守っていない・片方しか守っていないもの
 
 上の A〜AB から、新しいコマンドで落ちやすい順に:
 
 1. **暴走ガードの上限**（I）——散文の 4 本は散文だけ（graphloops は機械）。検証器に足すのが最も安い
-2. **連続 2 ラウンド**（H）——research / doctor は自己申告欄。review 0.31.1 と同じディレクトリ渡しに落とせる
+2. **連続 2 ラウンド**（H）——research / doctor は自己申告フィールド。review 0.31.1 と同じディレクトリ渡しに落とせる
 3. **前のラウンドを渡さない**（D）——機械では確かめられない。ランタイムが入力の要約を記録に書く形にしないと永久に散文
 4. **版とモデルが記録に無い**（Y）——4 本とも無し
 5. **subagent の失敗**（V）——firstread は未定義。他 3 本は下流の件数突合で拾う
 6. **人に諮る条件**（J）——review 以外は verdict 由来の条件を記録から機械で出せるのに出していない
 7. **回す側は採点しない・回し直さない**（B・C）——機械では確かめられない。グラフの上でだけ見る
 8. **塞げない注入**（T）——firstread 以外の手順書は言及が無い
-9. **doctor の `rescan` 欄**——検証器が必須要求するが手順書に指示が無い（機械だけにあって散文に無い、逆向きのズレ）
-10. **review P0-5 の並行 PR 除外 6 段**——検証器は素材欄の有無しか見ない
+9. **doctor の `rescan` フィールド**——検証器が必須要求するが手順書に指示が無い（機械だけにあって散文に無い、逆向きのズレ）
+10. **review P0-5 の並行 PR 除外 6 段**——検証器は素材フィールドの有無しか見ない
 
 ## 新しいコマンドで最初に書くテスト
 
-回帰を捕まえる網として、既存の `tests/run.sh` に無いもの:
+回帰を捕まえるチェックとして、既存の `tests/run.sh` に無いもの:
 
 - 上限超過の記録（`round=6` で review、`rounds_total=5` で research、`7` で doctor）が阻害になること
 - research / doctor をラウンド記録に割った場合、前ラウンドに阻害があれば今ラウンドが阻害なしでも収束にならないこと
 - `thickness=軽量` かつ `decider=既定` が不正になること
 - ゲートの verdict が `premise-invalid` / `unverifiable` のとき、収束でなく「諮れ」が出ること（review 0.31.1 は台帳への記載を要求する形で既に持つ）
-- 節の失敗（subagent が返らない）が「未実施」として記録に落ち、「該当なし」と別の値になること
+- ノードの失敗（subagent が返らない）が「未実施」として記録に落ち、「該当なし」と別の値になること
 - 記録に版とモデルが載り、版の違う周の突合がその旨を出すこと
 - 並列の波が依存から決まること——`graphloops/scripts/graphcheck.py` の検査 1 を新コマンドの定義に当てる
 - 共通ランタイムの例外境界が、各ループ固有の検査が投げた例外を exit 2 にすること
@@ -327,21 +327,21 @@
 この文書と `docs/loop-graph/` を書いた最初の版（同日）を、4 本の手順書・検証器・役・hook・テストと上流 0.31.1 の全文に突き合わせて出た差:
 
 - **版の取り違え**: 最初の版は作業ツリーの 0.18.1 を基準にしていたが、実際に動く版は 0.31.1。review は問いの台帳・持ち越し・R1〜R4 の記録化・履歴・ディレクトリ渡し・「聞く時」の機械判定・comment-analyzer の前段・見た範囲の申告・写しの上でのゲート確認が丸ごと抜けていた。【0.28.0+】の印で書いていた規律は、実際には現行の正本
-- **R2 が 2 体**（独立設計と比較役）なのに 1 節にしていた——先行起動できるのは設計の半分だけ
-- **節に無かった工程**: P1 前後の作業ツリー突合・CI 再実行・規模指標・問いの台帳の写し・最終報告と初見検査・premise-invalid の judge 検算・P2 の差し戻し（明示返答の欠落）・型への還流（4 本とも）・investigator 前後の git 突合（research）
+- **R2 が 2 体**（独立設計と比較役）なのに 1 ノードにしていた——先行起動できるのは設計の半分だけ
+- **ノードに無かった工程**: P1 前後の作業ツリー突合・CI 再実行・規模指標・問いの台帳の写し・最終報告と初見検査・premise-invalid の judge 検算・P2 の差し戻し（明示返答の欠落）・型への還流（4 本とも）・investigator 前後の git 突合（research）
 - **R1 / R2 の第 1 ラウンド必須と再発火条件**が無かった（`carried_over` の根拠）
 - **hygiene と R2 の遮断**に固有規約の把握・決着済み論点・台帳・履歴が入っていなかった
 - **research の軽量は 1 ラウンド打ち切り**（上限を平坦に 4 と書いていた）。deep-research への委譲・生存者バイアス・雪だるま追跡・Workflow の null 落ちが無かった
-- **doctor / firstread のグラフが未作成**だった（今回作成。doctor は「生やした親を同じラウンドの P2b に」が循環になるので別の節に、firstread は author の分類を採点でない例外として印を付けた）
+- **doctor / firstread のグラフが未作成**だった（今回作成。doctor は「生やした親を同じラウンドの P2b に」が循環になるので別のノードに、firstread は author の分類を採点でない例外として印を付けた）
 - **LLM アプリ固有の性質**（R〜AB）はどこにも書かれていなかった
 
 ## 2026-09-13 の作業記録: windows-latest で残る赤の検査名
 
 `/review-graph` の 2 周目で、基準点 73fda8a から赤だった windows の CI を「別 PR に分ける」申請が取り下げられ（同じ差分が tests/ の 3 本を触っている）、内側として扱うことになった。最小の一歩は「HEAD で CI を回し、残る赤の検査名を記録する」。以下は run 34708227003（d4b8def、2026-09-13）の windows-latest の FAIL 行を書き写したもので（再現: `gh run view 34708227003 --log-failed | grep FAIL`）、11 行。graphloops の検査は 3 OS とも緑:
 
-- convergence-loops の review-record 検査 2 行——「増えた scalar だけを、増えた scalar の節に出す」「初出のキーを『戻った』と数えない（注記が付かない）」。期待文と出力が見た目は同じで一致しない（改行の扱いの差と推定。未確定）
+- convergence-loops の review-record 検査 2 行——「増えた scalar だけを、増えた scalar のノードに出す」「初出のキーを『戻った』と数えない（注記が付かない）」。期待文と出力が見た目は同じで一致しない（改行の扱いの差と推定。未確定）
 - gates の coldread ゲート 3 行——「単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る」（読み役に『行継続が畳まれてしまった』が出る。未確定）と、連続 deny の案内 2 行「他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない」「3 回連続 deny の案内は deny 理由の先頭に在る」。後の 2 行は `Traceback`——検査の前置き（当時の tests/run.sh の deny 理由の読み口。今は `cr-reason.py` と `cr_reason`）が `coldread-case.sh` を python の subprocess から直接起動しており、Windows は .sh を実行ファイルとして起動できない（`WinError 193`）。**この 2 行に 3 周目で `bash` を前に付けたが、緑にならなかった**——HEAD（1a94b72、run 34711979580）でも FAIL は 11 行のままで、落ち方が `WinError 193`（.py を実行ファイルとして起動できない）から `JSONDecodeError`（出力が空）に変わっただけ。**『原因は確定している』という見立てを撤回する**（bash が WSL 側に解決されて Windows のパスを見ていない疑いが在るが、これも未確定）。再現: `gh run view <id> --log-failed | grep FAIL`
-- attention の catchup --switch 6 行——origin にだけある枝・手元に無い枝の guard・ignored の上書き・手元にも origin にも無い枝・fork の PR の枝・head が main の fork PR。`git config --get branch.<枝>.remote` が非零で落ちる（Windows の git の挙動差と推定。未確定）
+- attention の catchup --switch 6 行——origin にだけあるブランチ・手元に無いブランチの guard・ignored の上書き・手元にも origin にも無いブランチ・fork の PR のブランチ・head が main の fork PR。`git config --get branch.<枝>.remote` が非零で落ちる（Windows の git の挙動差と推定。未確定）
 
 この差分（graphloops）が直した Windows の落ち方——一時ディレクトリの掃除・Python 3.10 の引数・子プロセスの文字コード・/dev/null・盤面のパスの区切り——とは別の落ち方なので、同じファイルで始めた修理の続きではない。件数と内訳はログ行から書き写す（手で数えると合わない——2 周目の記録は 10 件と書いて 11 行を列挙し、×2 と書いた検査は 1 本だった）。
 
@@ -350,19 +350,19 @@
 run 35052256573（1646b4e）の windows-latest は FAIL 15 行で、macOS / ubuntu は緑だった（少なくとも 2026-09-12 から連続で赤）。原因は 6 つで、緑になったのは run 35055659788（a188485）:
 
 1. **remote URL の末尾を `/` 固定で読んでいた**（catchup --switch の 6 行）。Windows の checkout は remote が `C:\...\o\r.git` の形で来るので末尾が取れず、origin が当のリポジトリでも「手元の origin が o/r でない」と読んで --switch が何もしなかった。`changemap.py` の `REPO_TAIL` の区切りに `\` を数え、owner と name の間の区切りは group に取って `swap_repo` が同じ字で書き戻す。回帰は OS に依らない純関数の腕（tests/changemap-suite.py の Remote）。**同じ規則の写しがもう 1 つ在った**——gates の dest-gate.py の `owner_repo` も `/` 固定で、Windows の checkout では宛先を特定できず「宛先不明」で deny していた（止まる側なので気づきにくい）。そちらも区切りを揃え、`\` 区切りの remote を置いた回帰を destgate の腕に足した
-2. **engine の起動の柵が綴りの等値で見ていた**（graphloops の 3 行）。graph の via は `{plugin_root}/scripts/with-auth.py` と書かれているので、埋めた後の argv は Windows で区切りが混ざり、同梱の層そのものを指していても撥ねていた。`_same_path`（normcase / normpath）で比べる——揃うのは区切りと大小だけなので `..` で外へ出た綴りは別物のまま。回帰は `.` を挟んだ綴りと `..` の綴りの対（graphloops/tests/simulate.py）
+2. **engine の起動のチェックが綴りの等値で見ていた**（graphloops の 3 行）。graph の via は `{plugin_root}/scripts/with-auth.py` と書かれているので、埋めた後の argv は Windows で区切りが混ざり、同梱の層そのものを指していても撥ねていた。`_same_path`（normcase / normpath）で比べる——揃うのは区切りと大小だけなので `..` で外へ出た綴りは別物のまま。回帰は `.` を挟んだ綴りと `..` の綴りの対（graphloops/tests/simulate.py）
 3. **読み役へ本文を str で渡していた**（gates の 1 行の 1 面。この行は 6 の面も持っていて、両方直して初めて緑になった——今の腕は印の直後が `\` と改行そのままであることをバイトで見るので、`\r` が挟まれば赤くなる）。`input=` に str を渡すと text mode の改行変換が働き、Windows では本文の `\n` が `\r\n` に化ける（subprocess には newline を指定する口が無い）。bytes で渡し、受けも bytes にして UTF-8 strict で読む（`_child_text`）
-4. **deny 理由を読む検査が Python から bash を起こしていた**（gates の 2 行）。改行を含む引数（ヒアドキュメントの投稿）が Windows で切り落とされ、ゲートは本文の無いコマンドを見て「投稿でない」と素通しにしていた（JSON でなく ALLOW_EMPTY）。ケースを直に起こしてパイプで渡す（`cr_reason`）
+4. **deny 理由を読む検査が Python から bash を起動していた**（gates の 2 行）。改行を含む引数（ヒアドキュメントの投稿）が Windows で切り落とされ、ゲートは本文の無いコマンドを見て「投稿でない」と素通しにしていた（JSON でなく ALLOW_EMPTY）。ケースを直に起動してパイプで渡す（`cr_reason`）
 5. **出力比較が CRLF を差と見ていた**（review-record 検査の 2 行）。複数行の期待文字列が 1 件も一致せず、`expect_output` で CRLF を畳んだら緑になった（行の中の `\r` を見ている腕を消さないため、CR を全部落とすことはしない）。**なぜ `\r` が付くかは未確定**——「Windows の Python は標準出力の `\n` を `\r\n` にする」だけでは、同じ python の出力を行末アンカーの sed で拾う graphloops/tests/run.sh が windows で緑なことを説明できない。出す側（`reconfigure(newline="\n")`）で固める方がこのリポジトリの型だが、**型が分かっていない物を 10 ファイル一斉に触らない**——先に面を決める
 6. **argv で渡していた物が windows だけ届かなかった**（1〜5 を直した後に残った 2 行）。読み役の代役（`sh -c` に渡す grep の綴り。`\` が 3 層の引用を通る）と、deny 理由の判定（`python -c` に改行入りの複数行の script と日本語の照合語を載せていた）。どちらも file に移して argv を ASCII だけにしたら緑になった（`fold-stub.py` / `cr-reason.py` と ASCII の mode）。**「日本語の argv が化ける」とは言えない**——同じ境界を日本語が通っている所が緑のまま在る（本文 `CR_BODY` は bash → python の argv を 681 字で無傷に通り、`CR_STUB_BLOCK` の日本語は python → `sh -c` の argv を通って読み役に届いている）。残る疑いは `\` の多重引用と、改行を含む `-c` の script。**断定しない**——面を分ける材料を印字する腕をそのまま残してある: `fold-stub.py` は届いたバイト数と印の周りの生の姿、`cr-reason.py` は理由の長さと先頭・末尾を ascii() で出す（この 2 行の時間を食ったのは、落ち方が「畳まれてしまった」「HEAD_OK が無い」しか言わず面が分からなかったこと。deny 理由は 49 字 121 バイトで届いており、macOS の 632 字と違った）
 
-原因の型は 2 つに畳める——**区切り（`/` と `\`）と、プロセスの境界で変わる物（改行・argv・stdio の code page）**。前者は原因まで分かっており、後者は**面が分かっていない**（5 と 6 のとおり）。回帰は OS に依らない形で入れた（1 は純関数の腕、2 は `.` と `..` の綴りの対）が、3〜6 は Windows でしか発火しない。**手元の全件緑は windows の緑を意味しない**——この節はその実測の置き場である。
+原因の型は 2 つに畳める——**区切り（`/` と `\`）と、プロセスの境界で変わる物（改行・argv・stdio の code page）**。前者は原因まで分かっており、後者は**面が分かっていない**（5 と 6 のとおり）。回帰は OS に依らない形で入れた（1 は純関数の腕、2 は `.` と `..` の綴りの対）が、3〜6 は Windows でしか発火しない。**手元の全件緑は windows の緑を意味しない**——このセクションはその実測の置き場である。
 
 ## 2026-09-26 の作業記録: windows-latest の赤 6 件（0.20.3 の直し。効いたかは push 後の run で確かめる）
 
-run 36206449136（32dfd94、0.20.2）は macOS / ubuntu が 9 月 22 日以来初めて緑で、windows-latest だけが tests/run.sh の FAIL 6 行で赤だった（tests/run.sh で止まったので pytest の段は Windows で走っていない）。手元（macOS）で再現できたのは 1 だけで、2〜4 は **Windows の実機が無いので未確認**——下の直しが効いたか・外れたかを、push 後の windows-latest の結果でこの節に書き足す:
+run 36206449136（32dfd94、0.20.2）は macOS / ubuntu が 9 月 22 日以来初めて緑で、windows-latest だけが tests/run.sh の FAIL 6 行で赤だった（tests/run.sh で止まったので pytest の段は Windows で走っていない）。手元（macOS）で再現できたのは 1 だけで、2〜4 は **Windows の実機が無いので未確認**——下の直しが効いたか・外れたかを、push 後の windows-latest の結果でこのセクションに書き足す:
 
-1. **標準入力で渡す埋め込み Python が日本語を print した**（ENTRY_SURFACE_OK。`PYTHONIOENCODING=cp1252` で手元に再現）。書く側の柵（sub-encoding.py）がファイルに書く形のヒアドキュメントしか数えていなかった。母数に標準入力の形（15 本）を入れ、14 本に `reconfigure(encoding="utf-8")` を足した
+1. **標準入力で渡す埋め込み Python が日本語を print した**（ENTRY_SURFACE_OK。`PYTHONIOENCODING=cp1252` で手元に再現）。書く側のチェック（sub-encoding.py）がファイルに書く形のヒアドキュメントしか数えていなかった。母数に標準入力の形（15 本）を入れ、14 本に `reconfigure(encoding="utf-8")` を足した
 2. **代役の claude が改行を変換していた**（simulate.py の 3 行）。上の 2026-09-16 の 5 が『先に面を決める』とした `reconfigure(newline="\n")` を、面の分かった代役（`graphloops/tests/fakeclaude.py`）にだけ入れた。検査の側は子へバイトで届く物をバイトで読み直して比べる（`read_bytes().decode`）
 3. **auto_targets の固定具が空白 3 つの名前のファイルを作っていた**（Windows は末尾の U+0020 を名前に持てず PermissionError）。全 OS で全角空白 U+3000 1 字の名前にした（`str.strip()` が落とすので同じ主張を測れる。Windows で作れるかは未確認）
-4. **mutate.py の自己検査で写しの台本の control が赤**。候補は 3 つで、どれが効いたかは未確定: (a) 裸の `bash` を Popen に渡すと、Windows の CreateProcess は PATH より先に System32 を探し、runner の `C:\Windows\System32\bash.exe`（WSL の起動口。配布物が無く『no installed distributions』を返す——actions/runner-images の issue 12646）に当たる。上の 2026-09-13 の節の『bash が WSL 側に解決されて Windows のパスを見ていない疑い』と同じ形で、`shutil.which("bash")` で PATH の順に引くようにした。(b) 台本の解釈系のパスを `repr` で埋めていた（`shlex.quote` にした）。(c) 台本を text モードで書いて CRLF になる（`newline="\n"` にした。MSYS2 の bash は CR を無視する形に手が入っていると msys2/MSYS2-packages の issue 6660 が言うので、効いていない見込み）。あわせて、`run_group` が Windows に無い `os.killpg` を呼んでいたので、`graphloops/engine/role_run.py` と同じく `subprocess.CREATE_NEW_PROCESS_GROUP` と `taskkill /T /F` に分けた。外れた回に次の run で切り分けられるよう、この検査が赤の時だけ写しの台本を同じ bash で直接走らせた終了コードと出力の頭を FAIL の行に添える
+4. **mutate.py の自己検査で写しの台本の control が赤**。候補は 3 つで、どれが効いたかは未確定: (a) 裸の `bash` を Popen に渡すと、Windows の CreateProcess は PATH より先に System32 を探し、runner の `C:\Windows\System32\bash.exe`（WSL の起動口。配布物が無く『no installed distributions』を返す——actions/runner-images の issue 12646）に当たる。上の 2026-09-13 のセクションの『bash が WSL 側に解決されて Windows のパスを見ていない疑い』と同じ形で、`shutil.which("bash")` で PATH の順に引くようにした。(b) 台本の解釈系のパスを `repr` で埋めていた（`shlex.quote` にした）。(c) 台本を text モードで書いて CRLF になる（`newline="\n"` にした。MSYS2 の bash は CR を無視する形に手が入っていると msys2/MSYS2-packages の issue 6660 が言うので、効いていない見込み）。あわせて、`run_group` が Windows に無い `os.killpg` を呼んでいたので、`graphloops/engine/role_run.py` と同じく `subprocess.CREATE_NEW_PROCESS_GROUP` と `taskkill /T /F` に分けた。外れた回に次の run で切り分けられるよう、この検査が赤の時だけ写しの台本を同じ bash で直接走らせた終了コードと出力の頭を FAIL の行に添える
