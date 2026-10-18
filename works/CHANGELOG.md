@@ -8,7 +8,9 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Added
 
-- `.shared/core/claude_auth.py`（ルートの scripts/claude_auth.py の写し）に、子の claude の認証が黙って切れるのを見つける関数を足した。`expiry_note` は、利用者が作った Keychain の項目のトークン（`claude setup-token` の物で寿命は 1 年）が、書いた日から 335 日を過ぎたら作り直しを促す 1 行を返す。`auth_failed` は、JSON を返すはずの子の出力が、短い 1 行の JSON でない文か、認証の失敗を言う `is_error` の結果なら真を返す（認証切れは終了コード 0 で返るため）。まだどこからも呼ばないので、今の動きは変わらない。
+- 共有の認証の部品 `.shared/core/claude_auth.py`（ルートの scripts/claude_auth.py の写し。プラグインが別の claude を `claude -p` で起動するときに、その claude に認証を足す部品）に、関数を 2 つ足した。今は呼ぶ所が無いので、動きは変わらない。呼ぶ所は、起動する処理を持つプラグインの担当が足す。
+  - `expiry_note(項目の名前)`: 利用者が Keychain（macOS の資格情報の保管庫）に自分で入れたトークンが、入れた日から 335 日を過ぎていれば、作り直しを促す 1 行を返す。過ぎていなければ None。このトークンは `claude setup-token`（CI などで使う長持ちのトークンを作る Claude Code のコマンド）で作る物で、寿命は 1 年。
+  - `auth_failed(出力)`: 起動した claude の標準出力が認証の失敗の形なら真を返す。真になるのは 2 つ: 300 バイト以下の 1 行で JSON として読めない文と、JSON の結果のうち `is_error`（失敗の印）が真で `result`（返答の文）に authenticate か /login を含む物。複数行の文・300 バイトを超える文・失敗でない JSON は偽。認証の切れた claude は、この形の文を出して終了の値 0 で終わり、終了の値では見分けられないため。
 
 ## [0.5.1] - 2026-10-19
 
