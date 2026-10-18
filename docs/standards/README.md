@@ -68,6 +68,9 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 - 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼んだ（見直し 20261018-011038-156f7f）
 - 2-4 works-dispatch の dispatch 57,001 字。状態: 頼んだ（割り振り 20261018-011052-5f6b13。並んで動く dispatch の層の分け方の点検 20261018-002923-983a64 にも足しで知らせた）
 - 2-5 works の works 22,704 字。状態: 頼んだ（作業 20261018-011113-3952f3。works は受け持ちが無いので、持ち主の頼みに従って作業に回した）
+  - 2026-10-19 の途中の納品（20261018-211411-c65522）: 本文は 4,942 字・79 行に縮んだが、まだ main に入っていない。初見読みのゲートが、別ファイルを SKILL.md の本文なしで読んで止めるため。ゲートの直しは点検に頼んである（20261018-211334-d8053f）。
+  - 標準が追う物 1: 本文の余りは上限まで 58 字。次に本文へ足す物が出たら、削る所を標準が決める。
+  - 標準が追う物 2: 上限を超えたスキルを外す一覧を見る検査（2-1）が入ったら、その一覧から works/skills/works を消す。
 - 2-6 ルートの CLAUDE.md から標準を指していない。状態: 頼んだ（説明書 20261018-011057-6dc6b0）
 
 標準の内の物: attention の my-turn・reflect、gates の coldread（4,962 字）、graphloops の intake、tiers の check、works-factory の works-factory（4,189 字）。
