@@ -170,7 +170,7 @@ class PrBalls(unittest.TestCase):
         ):
             with self.subTest(v=v):
                 p = pr(commits=rollup(checks("SUCCESS", v)))
-                self.assertEqual(flow.pr_balls(p), [("alice", "CI 赤", T2)])
+                self.assertEqual(flow.pr_balls(p), [("alice", "ci_red", T2)])
 
     def test_green_values_are_not_red(self):
         for v in (
@@ -186,17 +186,17 @@ class PrBalls(unittest.TestCase):
         ):
             with self.subTest(v=v):
                 p = pr(commits=rollup(checks(v)))
-                self.assertNotIn("CI 赤", [r[1] for r in flow.pr_balls(p)])
+                self.assertNotIn("ci_red", [r[1] for r in flow.pr_balls(p)])
 
     def test_ci_red_keeps_pending_reviewers(self):
         p = pr(commits=rollup(checks("FAILURE")), reviewRequests=requests(user("bob")))
         self.assertEqual(
-            flow.pr_balls(p), [("alice", "CI 赤", T2), ("bob", "レビュー", T0)]
+            flow.pr_balls(p), [("alice", "ci_red", T2), ("bob", "review", T0)]
         )
 
     def test_ci_red_wins_over_changes_requested(self):
         p = pr(commits=rollup(checks("FAILURE")), reviewDecision="CHANGES_REQUESTED")
-        self.assertEqual([r[1] for r in flow.pr_balls(p)], ["CI 赤"])
+        self.assertEqual([r[1] for r in flow.pr_balls(p)], ["ci_red"])
 
     def test_changes_requested_plus_pending_reviewer(self):
         p = pr(
@@ -209,7 +209,7 @@ class PrBalls(unittest.TestCase):
             timelineItems=conn(requested(user("carol"), T3)),
         )
         self.assertEqual(
-            flow.pr_balls(p), [("alice", "指摘対応", T1), ("carol", "レビュー", T3)]
+            flow.pr_balls(p), [("alice", "changes_requested", T1), ("carol", "review", T3)]
         )
 
     def test_review_since_is_that_reviewers_latest_request(self):
@@ -224,9 +224,9 @@ class PrBalls(unittest.TestCase):
         self.assertEqual(
             flow.pr_balls(p),
             [
-                ("bob", "レビュー", T2),
-                ("carol", "レビュー", T3),
-                ("alice", "レビュー待ち", T3),
+                ("bob", "review", T2),
+                ("carol", "review", T3),
+                ("alice", "awaiting_review", T3),
             ],
         )
 
@@ -234,26 +234,26 @@ class PrBalls(unittest.TestCase):
         p = pr(
             reviewRequests=requests(bot()), reviews=conn(review(bot(), "COMMENTED", T1))
         )
-        self.assertEqual(flow.pr_balls(p), [("alice", "未依頼", T1)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T1)])
 
     def test_team_request_shows_slug(self):
         p = pr(reviewRequests=requests(team()))
         self.assertEqual(
             flow.pr_balls(p),
-            [("org/team", "レビュー", T0), ("alice", "レビュー待ち", T0)],
+            [("org/team", "review", T0), ("alice", "awaiting_review", T0)],
         )
 
     def test_approved_is_authors_merge(self):
         p = pr(
             reviewDecision="APPROVED", reviews=conn(review(user("bob"), "APPROVED", T2))
         )
-        self.assertEqual(flow.pr_balls(p), [("alice", "マージ", T2)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "merge", T2)])
 
     def test_approved_with_pending_request_waits_on_reviewer(self):
         p = pr(reviewDecision="APPROVED", reviewRequests=requests(user("carol")))
         self.assertEqual(
             flow.pr_balls(p),
-            [("carol", "レビュー", T0), ("alice", "レビュー待ち", T0)],
+            [("carol", "review", T0), ("alice", "awaiting_review", T0)],
         )
 
     def test_pending_request_keeps_the_author_visible(self):
@@ -264,7 +264,7 @@ class PrBalls(unittest.TestCase):
         )
         self.assertEqual(
             flow.pr_balls(p),
-            [("bob", "レビュー", T2), ("alice", "レビュー待ち", T2)],
+            [("bob", "review", T2), ("alice", "awaiting_review", T2)],
         )
 
     def test_pending_request_does_not_add_a_second_author_row(self):
@@ -273,7 +273,7 @@ class PrBalls(unittest.TestCase):
             commits=rollup(checks("FAILURE")), reviewRequests=requests(user("bob"))
         )
         self.assertEqual(
-            flow.pr_balls(red), [("alice", "CI 赤", T2), ("bob", "レビュー", T0)]
+            flow.pr_balls(red), [("alice", "ci_red", T2), ("bob", "review", T0)]
         )
         talking = pr(
             reviewRequests=requests(user("bob")),
@@ -281,12 +281,12 @@ class PrBalls(unittest.TestCase):
                 thread(comment(user("bob"), T3, "直してください")),
             ),
         )
-        self.assertNotIn("レビュー待ち", [k for _, k, _ in flow.pr_balls(talking)])
+        self.assertNotIn("awaiting_review", [k for _, k, _ in flow.pr_balls(talking)])
 
     def test_pending_request_is_last_even_before_anyone_speaks(self):
         # waiting は「最後に発言したのが本人」で立つ。誰も喋っていない PR でも相手待ちに落とす
-        self.assertEqual(flow.tier(pr(), "alice", ["レビュー待ち"], 1, False), 3)
-        self.assertEqual(flow.tier(pr(), "alice", ["レビュー待ち"], 1, True), 3)
+        self.assertEqual(flow.tier(pr(), "alice", ["awaiting_review"], 1, False), 3)
+        self.assertEqual(flow.tier(pr(), "alice", ["awaiting_review"], 1, True), 3)
 
     def test_human_comment_without_request_is_rerequest(self):
         p = pr(
@@ -294,7 +294,7 @@ class PrBalls(unittest.TestCase):
                 review(bot(), "COMMENTED", T1), review(user("bob"), "COMMENTED", T2)
             )
         )
-        self.assertEqual(flow.pr_balls(p), [("alice", "再依頼", T2)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "rerequest", T2)])
 
     def test_authors_own_reply_review_is_not_a_human_review(self):
         p = pr(
@@ -302,7 +302,7 @@ class PrBalls(unittest.TestCase):
                 review(bot(), "COMMENTED", T1), review(user("alice"), "COMMENTED", T2)
             )
         )
-        self.assertEqual(flow.pr_balls(p), [("alice", "未依頼", T1)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T1)])
 
     def test_never_requested_counts_from_ready_for_review(self):
         p = pr(
@@ -310,36 +310,36 @@ class PrBalls(unittest.TestCase):
                 event("ConvertToDraftEvent", T1), event("ReadyForReviewEvent", T3)
             )
         )
-        self.assertEqual(flow.pr_balls(p), [("alice", "未依頼", T3)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T3)])
 
     def test_never_asked_counts_from_the_last_commit(self):
         # 作成から寝かせた期間は「待ち」ではない。最後に push した日から数える
         p = pr(commits=rollup(None))
         p["commits"]["nodes"][0]["commit"]["committedDate"] = T3
-        self.assertEqual(flow.pr_balls(p), [("alice", "未依頼", T3)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T3)])
 
     def test_asking_a_human_once_is_not_never_asked(self):
         # 人に頼んだ履歴があれば、依頼が消えていても「未依頼」ではない
         p = pr(timelineItems=conn(requested(user("bob"), T2)))
-        self.assertEqual(flow.pr_balls(p), [("alice", "レビュー依頼", T2)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "review_requested", T2)])
 
     def test_team_request_counts_as_asking(self):
         p = pr(timelineItems=conn(requested(team(), T2)))
-        self.assertEqual(flow.pr_balls(p), [("alice", "レビュー依頼", T2)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "review_requested", T2)])
 
     def test_bot_only_request_history_is_still_never_asked(self):
         # Copilot だけに頼んだ PR は、人から見れば誰にも渡っていない
         p = pr(timelineItems=conn(requested(bot(), T2)))
-        self.assertEqual(flow.pr_balls(p), [("alice", "未依頼", T1)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T1)])
 
     def test_unknown_decision_is_visible(self):
         p = pr(reviewDecision="SOMETHING_NEW")
-        self.assertEqual(flow.pr_balls(p), [("alice", "分類なし(SOMETHING_NEW)", T0)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unclassified", T0)])
 
     def test_pr_without_any_review_yet_is_never_asked(self):
         """レビューが 1 件も無い間 reviewDecision は null。分類なしに落とすと最上段に出る"""
         self.assertEqual(
-            flow.pr_balls(pr(reviewDecision=None)), [("alice", "未依頼", T1)]
+            flow.pr_balls(pr(reviewDecision=None)), [("alice", "unrequested", T1)]
         )
 
     def test_deleted_author_does_not_crash(self):
@@ -357,7 +357,7 @@ class PrBalls(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            flow.pr_balls(p), [("alice", "再依頼", T1), ("bob", "再確認 2 件", T2)]
+            flow.pr_balls(p), [("alice", "rerequest", T1), ("bob", "recheck", T2)]
         )
 
     def test_threads_waiting_on_author_add_author_row(self):
@@ -375,9 +375,9 @@ class PrBalls(unittest.TestCase):
         self.assertEqual(
             flow.pr_balls(p),
             [
-                ("alice", "再依頼", T1),
-                ("alice", "スレッド返答 1 件", T3),
-                ("bob", "返答待ち 1 件", T3),
+                ("alice", "rerequest", T1),
+                ("alice", "thread_reply", T3),
+                ("bob", "awaiting_reply", T3),
             ],
         )
 
@@ -391,7 +391,7 @@ class PrBalls(unittest.TestCase):
                 thread(comment(bot(), T1), comment(user("alice"), T2)),
             )
         )
-        self.assertEqual(flow.pr_balls(p), [("alice", "未依頼", T1)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T1)])
 
     def test_assignee_other_than_author_gets_row_since_assigned(self):
         p = pr(
@@ -399,32 +399,32 @@ class PrBalls(unittest.TestCase):
             timelineItems=conn(assigned("bob", T2)),
         )
         self.assertEqual(
-            flow.pr_balls(p), [("alice", "未依頼", T1), ("bob", "担当", T2)]
+            flow.pr_balls(p), [("alice", "unrequested", T1), ("bob", "assigned", T2)]
         )
 
     def test_tier_shared_review_second_and_waiting_last(self):
         def t(kinds, reviewers, waiting, shared=False, who="bob", **kw):
             return flow.tier(pr(**kw), who, kinds, reviewers, waiting, shared)
 
-        self.assertEqual(t(["レビュー"], 2, False), 1)
-        self.assertEqual(t(["レビュー"], 1, False), 0)
-        self.assertEqual(t(["レビュー依頼"], 3, False), 0)
-        self.assertEqual(t(["再確認 2 件"], 3, False), 0)
-        self.assertEqual(t(["CI 赤", "レビュー"], 3, False), 0)
+        self.assertEqual(t(["review"], 2, False), 1)
+        self.assertEqual(t(["review"], 1, False), 0)
+        self.assertEqual(t(["review_requested"], 3, False), 0)
+        self.assertEqual(t(["recheck"], 3, False), 0)
+        self.assertEqual(t(["ci_red", "review"], 3, False), 0)
         # 相手の返事待ちは、依頼先が何人でも最後
-        self.assertEqual(t(["レビュー"], 1, True), 3)
-        self.assertEqual(t(["レビュー"], 2, True), 3)
-        self.assertEqual(t(["再依頼"], 1, True), 3)
+        self.assertEqual(t(["review"], 1, True), 3)
+        self.assertEqual(t(["review"], 2, True), 3)
+        self.assertEqual(t(["rerequest"], 1, True), 3)
         # 相手にも返すターンが残っているなら、その人が全部片づけても PR は終わらない
-        self.assertEqual(t(["再確認 2 件"], 1, False, True), 1)
-        self.assertEqual(t(["スレッド返答 1 件"], 1, False, True), 1)
+        self.assertEqual(t(["recheck"], 1, False, True), 1)
+        self.assertEqual(t(["thread_reply"], 1, False, True), 1)
         # 渡していない PR は誰も待っていないが、動かせるのは本人だけ。相手待ちより上
-        self.assertEqual(t(["未依頼"], 0, False, who="alice"), 2)
+        self.assertEqual(t(["unrequested"], 0, False, who="alice"), 2)
         self.assertEqual(t(["draft"], 0, False, who="alice"), 2)
 
     def test_tier_drops_follow_up_when_only_the_author_can_clear_the_blocker(self):
         def t(who, **kw):
-            return flow.tier(pr(**kw), who, ["再確認 1 件"], 1, False)
+            return flow.tier(pr(**kw), who, ["recheck"], 1, False)
 
         self.assertEqual(t("bob"), 0)
         # main 未追従・衝突・CI 赤はブランチを持つ作者しか外せない。残りが再確認だけなら最後
@@ -440,61 +440,61 @@ class PrBalls(unittest.TestCase):
             flow.tier(
                 pr(mergeStateStatus="BEHIND"),
                 "bob",
-                ["レビュー", "再確認 1 件"],
+                ["review", "recheck"],
                 1,
                 False,
             ),
             0,
         )
         # 相手の返事待ちは shared より強い
-        self.assertEqual(flow.tier(pr(), "bob", ["レビュー"], 1, True, True), 3)
+        self.assertEqual(flow.tier(pr(), "bob", ["review"], 1, True, True), 3)
 
     def test_owes_thread_covers_both_directions_of_unresolved_threads(self):
-        self.assertTrue(flow.owes_thread(["再確認 2 件"]))
-        self.assertTrue(flow.owes_thread(["マージ", "スレッド返答 5 件"]))
-        self.assertFalse(flow.owes_thread(["再依頼", "レビュー"]))
+        self.assertTrue(flow.owes_thread(["recheck"]))
+        self.assertTrue(flow.owes_thread(["merge", "thread_reply"]))
+        self.assertFalse(flow.owes_thread(["rerequest", "review"]))
 
     def test_shared_balls_needs_two_people_with_thread_turns(self):
         both = {
-            "alice": (["マージ", "スレッド返答 5 件"], T1),
-            "bob": (["再確認 7 件"], T2),
-            "carol": (["レビュー"], T3),
+            "alice": (["merge", "thread_reply"], T1),
+            "bob": (["recheck"], T2),
+            "carol": (["review"], T3),
         }
         self.assertEqual(flow.shared_balls(both), {"alice", "bob"})
         one_side = {
-            "alice": (["再依頼", "スレッド返答 3 件"], T1),
-            "bob": (["レビュー"], T2),
+            "alice": (["rerequest", "thread_reply"], T1),
+            "bob": (["review"], T2),
         }
         self.assertEqual(flow.shared_balls(one_side), set())
-        two_openers = {"bob": (["再確認 1 件"], T1), "carol": (["再確認 2 件"], T2)}
+        two_openers = {"bob": (["recheck"], T1), "carol": (["recheck"], T2)}
         self.assertEqual(flow.shared_balls(two_openers), {"bob", "carol"})
         self.assertEqual(flow.shared_balls({}), set())
 
     def test_same_name_rerun_uses_the_last_run(self):
         p = pr(commits=rollup(runs(("chk", "FAILURE", T1), ("chk", "SUCCESS", T2))))
-        self.assertNotIn("CI 赤", [r[1] for r in flow.pr_balls(p)])
+        self.assertNotIn("ci_red", [r[1] for r in flow.pr_balls(p)])
 
     def test_same_name_rerun_that_fails_last_is_red(self):
         p = pr(commits=rollup(runs(("chk", "SUCCESS", T1), ("chk", "FAILURE", T2))))
-        self.assertEqual(flow.pr_balls(p), [("alice", "CI 赤", T2)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "ci_red", T2)])
 
     def test_running_rerun_outranks_the_old_failure(self):
         p = pr(commits=rollup(runs(("chk", "FAILURE", T2), ("chk", None, None))))
-        self.assertNotIn("CI 赤", [r[1] for r in flow.pr_balls(p)])
+        self.assertNotIn("ci_red", [r[1] for r in flow.pr_balls(p)])
 
     def test_different_names_are_not_collapsed(self):
         p = pr(commits=rollup(runs(("a", "SUCCESS", T2), ("b", "FAILURE", T1))))
-        self.assertEqual(flow.pr_balls(p), [("alice", "CI 赤", T1)])
+        self.assertEqual(flow.pr_balls(p), [("alice", "ci_red", T1)])
 
     def test_merge_rows_joins_kinds_and_keeps_oldest(self):
         rows = [
-            ("a", "再依頼", T2),
-            ("a", "スレッド返答 3 件", T1),
-            ("b", "再確認 1 件", T3),
+            ("a", "rerequest", T2),
+            ("a", "thread_reply", T1),
+            ("b", "recheck", T3),
         ]
         self.assertEqual(
             flow.merge_rows(rows),
-            {"a": (["再依頼", "スレッド返答 3 件"], T1), "b": (["再確認 1 件"], T3)},
+            {"a": (["rerequest", "thread_reply"], T1), "b": (["recheck"], T3)},
         )
 
 
@@ -508,7 +508,7 @@ class WaitingOnOthers(unittest.TestCase):
             comments=conn(comment(user("alice"), T3, "全部返しました")),
         )
         rows = flow.merge_rows(flow.pr_balls(p))
-        self.assertEqual(rows["alice"][0], ["再依頼"])
+        self.assertEqual(rows["alice"][0], ["rerequest"])
         self.assertTrue(flow.waiting_on_others(p, "alice", rows["alice"][0]))
         # 同じ PR でも、確認するターンのスレッドを持つ側は待っていない
         self.assertFalse(flow.waiting_on_others(p, "bob", rows["bob"][0]))
@@ -519,7 +519,7 @@ class WaitingOnOthers(unittest.TestCase):
             comments=conn(comment(user("bob"), T2, "これは顧客テナントですか")),
         )
         rows = flow.merge_rows(flow.pr_balls(p))
-        self.assertEqual(rows["bob"][0], ["レビュー"])
+        self.assertEqual(rows["bob"][0], ["review"])
         self.assertTrue(flow.waiting_on_others(p, "bob", rows["bob"][0]))
 
     def test_author_who_still_owes_thread_replies_is_not_waiting(self):
@@ -529,7 +529,7 @@ class WaitingOnOthers(unittest.TestCase):
             comments=conn(comment(user("alice"), T3, "main を取り込みました")),
         )
         kinds = flow.merge_rows(flow.pr_balls(p))["alice"][0]
-        self.assertIn("スレッド返答 1 件", kinds)
+        self.assertIn("thread_reply", kinds)
         self.assertFalse(flow.waiting_on_others(p, "alice", kinds))
 
     def test_authors_unrelated_comment_does_not_take_back_the_ball(self):
@@ -538,26 +538,26 @@ class WaitingOnOthers(unittest.TestCase):
             reviewThreads=conn(thread(comment(user("bob"), T1, "ここが変"))),
             comments=conn(comment(user("alice"), T3, "別件のメモです")),
         )
-        self.assertTrue(flow.waiting_on_others(p, "bob", ["レビュー"]))
+        self.assertTrue(flow.waiting_on_others(p, "bob", ["review"]))
         # 作者の側は逆で、返すターンがあるので相手待ちではない
-        self.assertFalse(flow.waiting_on_others(p, "alice", ["スレッド返答 1 件"]))
+        self.assertFalse(flow.waiting_on_others(p, "alice", ["thread_reply"]))
 
     def test_reviewer_who_has_not_spoken_is_not_waiting(self):
         p = pr(
             reviewRequests=requests(user("bob")),
             comments=conn(comment(user("alice"), T2, "レビューをお願いします")),
         )
-        self.assertFalse(flow.waiting_on_others(p, "bob", ["レビュー"]))
+        self.assertFalse(flow.waiting_on_others(p, "bob", ["review"]))
 
     def test_no_post_at_all_is_not_waiting(self):
-        self.assertFalse(flow.waiting_on_others(pr(), "alice", ["未依頼"]))
+        self.assertFalse(flow.waiting_on_others(pr(), "alice", ["unrequested"]))
 
     def test_bot_post_does_not_end_the_conversation(self):
         p = pr(
             comments=conn(comment(user("alice"), T1, "扱いはお任せします")),
             reviews=conn(review(bot(), "COMMENTED", T3, "自動レビュー")),
         )
-        self.assertTrue(flow.waiting_on_others(p, "alice", ["未依頼"]))
+        self.assertTrue(flow.waiting_on_others(p, "alice", ["unrequested"]))
 
 
 class PrFacts(unittest.TestCase):
@@ -601,8 +601,8 @@ class PrFacts(unittest.TestCase):
             "未解決 2 スレッド（alice が返答 2（1 は差分が動いた））", flow.pr_facts(p)
         )
         self.assertEqual(
-            [r for r in flow.pr_balls(p) if "スレッド返答" in r[1]],
-            [("alice", "スレッド返答 2 件", T1)],
+            [r for r in flow.pr_balls(p) if r[1] == "thread_reply"],
+            [("alice", "thread_reply", T1)],
         )
 
     def test_deleted_author_falls_back_to_the_role_word(self):
@@ -818,7 +818,7 @@ class Pending(unittest.TestCase):
     def test_unsent_review_is_its_own_ball_and_is_not_waiting_on_anyone(self):
         p = self.draft()
         flow.drop_pending(p)
-        self.assertIn(("bob", "未送信", T2), flow.pr_balls(p))
+        self.assertIn(("bob", "pending_review", T2), flow.pr_balls(p))
         self.assertIn(
             "未送信のレビュー 2 件。書いただけで相手には届いていない",
             flow.pr_facts(p, "bob"),
@@ -829,7 +829,7 @@ class Pending(unittest.TestCase):
             flow.pr_facts(p, "carol"),
         )
         # まだ誰にも渡していない段（2）。相手待ち（3）に沈めると送り忘れが埋もれる
-        self.assertEqual(flow.tier(p, "bob", ["未送信"], 0, False), 2)
+        self.assertEqual(flow.tier(p, "bob", ["pending_review"], 0, False), 2)
 
     def test_unsent_review_does_not_hide_the_authors_own_ball(self):
         """未送信は別人の行。作者の形式上の行（マージ・未依頼）を押しのけてはいけない"""
@@ -838,14 +838,14 @@ class Pending(unittest.TestCase):
         p["reviews"]["nodes"].append(review(user("carol"), "APPROVED", T1))
         flow.drop_pending(p)
         rows = flow.pr_balls(p)
-        self.assertIn(("alice", "マージ", T1), rows)
-        self.assertIn(("bob", "未送信", T2), rows)
+        self.assertIn(("alice", "merge", T1), rows)
+        self.assertIn(("bob", "pending_review", T2), rows)
 
     def test_unsent_review_survives_draft(self):
         p = self.draft()
         p["isDraft"] = True
         flow.drop_pending(p)
-        self.assertIn(("bob", "未送信", T2), flow.pr_balls(p))
+        self.assertIn(("bob", "pending_review", T2), flow.pr_balls(p))
 
     def test_unsent_review_does_not_break_sorting_posts(self):
         """PENDING の submittedAt は null。落とさないと発言を時刻で並べる所で全体が落ちる"""
@@ -885,6 +885,18 @@ class References(unittest.TestCase):
     def test_code_and_quotes_do_not_count(self):
         self.assertEqual(flow.issue_refs("`#1466`", self.REPO), set())
         self.assertEqual(flow.issue_refs("> #1466 と言われた", self.REPO), set())
+
+    def test_pr_prefix_and_japanese_before_the_number_count(self):
+        """PR#12・issue#12 は人がよく書く形。日本語の直後（対応は#12）も番号として読む"""
+        self.assertEqual(flow.issue_refs("PR#12 で直した", self.REPO), {12})
+        self.assertEqual(flow.issue_refs("issue#7 の続き", self.REPO), {7})
+        self.assertEqual(flow.issue_refs("対応は#12", self.REPO), {12})
+
+    def test_url_fragment_and_char_reference_are_not_numbers(self):
+        """x.html#12 は URL の fragment、&#123; は文字参照で、どちらも issue の番号ではない"""
+        self.assertEqual(flow.issue_refs("x.html#12 を見て", self.REPO), set())
+        self.assertEqual(flow.issue_refs("&#123; を書く", self.REPO), set())
+        self.assertEqual(flow.issue_refs("word#12", self.REPO), set())
 
 
 class UnverifiedReplies(unittest.TestCase):
@@ -978,14 +990,14 @@ class TurnThreads(unittest.TestCase):
         self.assertEqual(
             flow.conversation_balls(p),
             [
-                ("bob", "再確認 1 件", T1),
-                ("alice", "スレッド返答 1 件", T2),
-                ("carol", "返答待ち 1 件", T2),
+                ("bob", "recheck", T1),
+                ("alice", "thread_reply", T2),
+                ("carol", "awaiting_reply", T2),
             ],
         )
         # 再確認するターンの bob は今日動ける。答えを待っている carol は作者待ち
-        self.assertFalse(flow.waiting_on_others(p, "bob", ["再確認 1 件"]))
-        self.assertTrue(flow.waiting_on_others(p, "carol", ["返答待ち 1 件"]))
+        self.assertFalse(flow.waiting_on_others(p, "bob", ["recheck"]))
+        self.assertTrue(flow.waiting_on_others(p, "carol", ["awaiting_reply"]))
 
     def test_a_third_party_does_not_take_over_the_original_turn(self):
         """相槌でもターンは増えるだけ。立てた人の再確認が消えて材料が相槌に化けてはいけない"""
@@ -1025,14 +1037,14 @@ class TurnThreads(unittest.TestCase):
         self.assertEqual(
             flow.conversation_balls(p),
             [
-                ("alice", "スレッド返答 1 件", T2),
-                ("bob", "返答待ち 1 件", T2),
-                ("carol", "返答待ち 1 件", T2),
-                ("dave", "返答待ち 1 件", T2),
+                ("alice", "thread_reply", T2),
+                ("bob", "awaiting_reply", T2),
+                ("carol", "awaiting_reply", T2),
+                ("dave", "awaiting_reply", T2),
             ],
         )
         for who in ("bob", "carol", "dave"):
-            self.assertTrue(flow.waiting_on_others(p, who, ["返答待ち 1 件"]), who)
+            self.assertTrue(flow.waiting_on_others(p, who, ["awaiting_reply"]), who)
 
 
 def issue(

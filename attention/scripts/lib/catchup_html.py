@@ -32,6 +32,8 @@ import shutil
 import subprocess
 import tempfile
 
+import changemap  # 同じ lib/ にある。呼び手（catchup.py）が lib/ を sys.path に足してから読む
+
 SCHEMA = 1
 HERE = pathlib.Path(__file__).resolve().parent
 TEMPLATE = HERE.parent.parent / "templates" / "catchup.html"
@@ -66,18 +68,6 @@ def cache_root(home=None):
 # ---- 差分（試作 render.py から写した） -------------------------------------------
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
-GIT_HEAD = re.compile(r'^diff --git (?:"?a/(.*?)"? "?b/(.*?)"?)$')
-
-
-def _unquote(p):
-    """git の引用形の path（"a/\\346..."）を戻す。core.quotePath=false で取っていれば引用は付かない。"""
-    if not p.startswith('"'):
-        return p
-    try:
-        raw = p[1:-1].encode("latin-1").decode("unicode_escape").encode("latin-1")
-        return raw.decode("utf-8")
-    except (UnicodeError, ValueError):
-        return p[1:-1]
 
 
 def parse_diff(text):
@@ -86,8 +76,8 @@ def parse_diff(text):
     o = n = 0
     for raw in (text or "").splitlines():
         if raw.startswith("diff --git "):
-            m = GIT_HEAD.match(raw)
-            old, new = (m.group(1), m.group(2)) if m else ("", raw[len("diff --git "):])
+            # path の読み方（引用形・a/ b/ の外し方・' b/' を含む path）は changemap と 1 つにしてある
+            old, new = changemap.head_paths(raw) or ("", raw[len("diff --git "):])
             f = {"path": new, "old": old, "add": 0, "del": 0, "hunks": [], "head": [raw]}
             files.append(f)
             h = None
@@ -95,12 +85,10 @@ def parse_diff(text):
             continue
         elif h is None and not raw.startswith("@@"):
             f["head"].append(raw)
-            if raw.startswith("+++ ") and raw != "+++ /dev/null":
-                p = _unquote(raw[4:].strip())
-                f["path"] = p[2:] if p.startswith("b/") else p
-            elif raw.startswith("--- ") and raw != "--- /dev/null" and not f["old"]:
-                p = _unquote(raw[4:].strip())
-                f["old"] = p[2:] if p.startswith("a/") else p
+            if raw.startswith("+++ ") and changemap.side_path(raw):
+                f["path"] = changemap.side_path(raw)
+            elif raw.startswith("--- ") and changemap.side_path(raw) and not f["old"]:
+                f["old"] = changemap.side_path(raw)
         elif raw.startswith("@@"):
             m = HUNK.match(raw)
             if not m:

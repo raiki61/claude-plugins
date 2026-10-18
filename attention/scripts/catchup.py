@@ -66,6 +66,7 @@ import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/wh
 from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/whose-turn と共用
 from ghcli import GH_TIMEOUT_SEC, gh  # noqa: E402 — gh を呼ぶ共通部。/whose-turn と共用
+from ghtext import DONE_NOT_RED, is_bot, mentions, refs  # noqa: E402 — 発言の読み方。/whose-turn と共用
 import catchup_html  # noqa: E402 — 報告を 1 枚の HTML に描く部品（--render と --setup）
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
@@ -77,7 +78,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 # CheckRun.conclusion / StatusContext.state のうち、赤ではないもの。未知の値は赤に倒す
 # （CI の結論は増える。知らない値を緑に倒すと、増えた瞬間に検査が黙って甘くなる）
-GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED", "CANCELLED", "STALE"}
+GREEN = DONE_NOT_RED
 
 # API の値をそのまま出さず、中身を先に書いて括弧で原語を添える。戻ってきた人が読む報告で
 # REVIEW_REQUIRED と書かれても、承認が無いのか承認が要らないのかは読み取れない。原語を残すのは
@@ -183,8 +184,11 @@ def local_email():
     return r.stdout.strip().lower() if r.returncode == 0 else ""
 
 
-# 焦点の語。番号の後ろに付けると、末尾の材料をその 1 つに絞る（付けなければ有るものを全部）
-FOCUS = {"指摘": "threads", "地図": "map", "CI": "ci"}
+# 焦点の語。番号の後ろに付けると、末尾の材料をその 1 つに絞る（付けなければ有るものを全部）。
+# 内部のキー（threads / map / ci）そのものでも受ける——日本語の語だけだと英語で使う人が絞れない。
+# 大文字小文字は問わない。表示は FOCUS_LABELS の日本語の語
+FOCUS_LABELS = {"threads": "指摘", "map": "地図", "ci": "CI"}
+FOCUS = {**{k: k for k in FOCUS_LABELS}, **{v.lower(): k for k, v in FOCUS_LABELS.items()}}
 URL_RE = re.compile(r"https?://[^/]+/([^/]+)/([^/]+)/(?:pull|issues)/(\d+)")
 
 
@@ -193,7 +197,7 @@ def split_words(words):
     焦点だけを渡した `catchup 指摘` も、今のブランチの指摘として通る。"""
     focus, rest = set(), []
     for w in words:
-        key = FOCUS.get(w) or FOCUS.get(w.upper())
+        key = FOCUS.get(w.lower())
         if key:
             focus.add(key)
         else:
@@ -205,8 +209,7 @@ def split_words(words):
 
 def focus_words(focus):
     """焦点の内部 key（threads / map / ci）を人の語（指摘・地図・CI）に戻して「・」で繋ぐ。"""
-    back = {v: k for k, v in FOCUS.items()}
-    return "・".join(back[k] for k in ("threads", "map", "ci") if k in focus)
+    return "・".join(FOCUS_LABELS[k] for k in FOCUS_LABELS if k in focus)
 
 
 def pick_tails(is_pr, focus, has_threads, has_red):
@@ -356,10 +359,6 @@ def login_of(actor):
     return (actor or {}).get("login") or "（不明）"
 
 
-def is_bot(actor):
-    return (actor or {}).get("__typename") == "Bot"
-
-
 # ---- 出来事の並び ------------------------------------------------------------
 
 
@@ -372,16 +371,18 @@ def collect_events(node, me, my_email=""):
     結び付き無しは、それでも誰のものか決められなかった commit の author 名（申告用）。"""
     ev, refs, unlinked = [], [], set()
 
-    def add(t, who, kind, text, cat, bot=False, oid=None):
+    def add(t, who, kind, text, cat, bot=False, oid=None, key=None, to=None, resolved=None):
+        # kind は表示の語で、判定には使わない。判定は key（言語に依らない種類）・to（受け渡しの宛先の login）・
+        # resolved（スレッドが解決済みか）で見る。表示の語を比べると、文言を直すと黙って判定が変わる。
         # oid は出来事が指す commit（レビューは提出時の head、スレッドの最初の発言は付けた時点の commit、
         # push はその commit）。「私の痕跡以降に変わった file」の基準になる。本文コメントとスレッドへの
         # 返信には無い——返信の originalCommit は元の発言の commit を継ぐので、返信の時点を指さない
         ev.append({"t": ts(t), "who": who, "kind": kind, "text": text,
-                   "bot": bot, "cat": cat, "oid": oid})
+                   "bot": bot, "cat": cat, "oid": oid, "key": key, "to": to, "resolved": resolved})
 
     for c in node["comments"]["nodes"]:
         add(c["createdAt"], login_of(c["author"]), "コメント", c["body"], SPOKEN,
-            is_bot(c["author"]))
+            is_bot(c["author"]), key="comment")
 
     for r in node.get("reviews", {}).get("nodes", []):
         # 未送信（PENDING）は submittedAt が null で、相手にも届いていない。時系列には入れず
@@ -391,7 +392,7 @@ def collect_events(node, me, my_email=""):
         label = {"APPROVED": "レビュー（承認）",
                  "CHANGES_REQUESTED": "レビュー（要修正）"}.get(r["state"], "レビュー")
         add(r["submittedAt"], login_of(r["author"]), label, r["body"], SPOKEN,
-            is_bot(r["author"]), oid=(r.get("commit") or {}).get("oid"))
+            is_bot(r["author"]), oid=(r.get("commit") or {}).get("oid"), key="review")
 
     for th in node.get("reviewThreads", {}).get("nodes", []):
         where = th["path"] + (f":{th['line']}" if th["line"] else "")
@@ -399,7 +400,8 @@ def collect_events(node, me, my_email=""):
         for k, c in enumerate(th["comments"]["nodes"]):
             add(c["createdAt"], login_of(c["author"]), f"スレッド {where}（{state}）",
                 c["body"], SPOKEN, is_bot(c["author"]),
-                oid=(c.get("originalCommit") or {}).get("oid") if k == 0 else None)
+                oid=(c.get("originalCommit") or {}).get("oid") if k == 0 else None,
+                key="thread", resolved=bool(th["isResolved"]))
 
     for n in node.get("allCommits", {}).get("nodes", []):
         c = n["commit"]
@@ -414,21 +416,23 @@ def collect_events(node, me, my_email=""):
                 unlinked.add(name)
         add(c["committedDate"], who, "push",
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
-            PUSH, oid=c["oid"])
+            PUSH, oid=c["oid"], key="push")
 
     for it in node.get("timelineItems", {}).get("nodes", []):
         k = it["__typename"]
         if k == "ReviewRequestedEvent":
             r = it.get("requestedReviewer") or {}
             add(it["createdAt"], login_of(it.get("actor")), "レビュー依頼",
-                "→ " + (r.get("login") or r.get("name") or "（不明）"), EVENT)
+                "→ " + (r.get("login") or r.get("name") or "（不明）"), EVENT,
+                key="review_request", to=r.get("login"))
         elif k == "AssignedEvent":
             add(it["createdAt"], login_of(it.get("actor")), "担当",
-                "→ " + login_of(it.get("assignee")), EVENT)
+                "→ " + login_of(it.get("assignee")), EVENT,
+                key="assign", to=(it.get("assignee") or {}).get("login"))
         elif k == "ReadyForReviewEvent":
-            add(it["createdAt"], login_of(it.get("actor")), "下書き解除", "", EVENT)
+            add(it["createdAt"], login_of(it.get("actor")), "下書き解除", "", EVENT, key="ready")
         elif k == "ConvertToDraftEvent":
-            add(it["createdAt"], login_of(it.get("actor")), "下書きへ戻す", "", EVENT)
+            add(it["createdAt"], login_of(it.get("actor")), "下書きへ戻す", "", EVENT, key="draft")
         elif k == "CrossReferencedEvent":
             s = it.get("source") or {}
             if s.get("number"):
@@ -453,9 +457,9 @@ def find_anchor(ev, node, me):
 
     handover = []
     for e in ev:
-        if e["kind"] in ("レビュー依頼", "担当") and e["text"].endswith(me):
+        if e["key"] in ("review_request", "assign") and e["to"] == me:
             handover.append(e)
-        elif e["cat"] == SPOKEN and re.search(r"@" + re.escape(me) + r"\b", e["text"] or ""):
+        elif e["cat"] == SPOKEN and me in mentions(e["text"]):
             handover.append(e)
     if handover:
         return handover[-1], "handover"
@@ -825,12 +829,12 @@ def since_unseen(since):
 
 def fetch_stacked(owner, name, node):
     """このブランチを base にする open PR（積まれている先）。fork の PR と既定ブランチ自身では探さない——
-    fork のブランチは base リポジトリの --base に無く、既定ブランチを base にする PR は全部になる。取れなければ空。"""
+    fork のブランチは base リポジトリの --base に無く、既定ブランチを base にする PR は全部になる。gh が失敗すれば None（「積まれた PR は無い」の () と分ける）。"""
     if fork_of(node, owner, name) is not None or node.get("headRefName") == default_branch(node):
         return ()
     got = gh_try("pr", "list", "-R", f"{owner}/{name}", "--base", node["headRefName"],
                  "--state", "open", "--limit", str(STACKED_SHOWN + 1), "--json", "number,title")
-    return tuple(json.loads(got)) if got else ()
+    return None if got is None else tuple(json.loads(got))
 
 
 # ---- 出力 --------------------------------------------------------------------
@@ -852,11 +856,10 @@ def find_ask(ev, node, me, cutoff, own):
     ほしい」が @ 無しで来ていた）、名指しだけを待つと丸ごと落ちる。unaddressed=True を付けて
     返し、表示側で「名指しは無い」と断る。拾うのは本文のある発言だけで、解決済みスレッドは
     見ない——本文なしの承認や、push で直して閉じたスレッドが「求められていること」に化ける。"""
-    at_me = re.compile(r"@" + re.escape(me) + r"\b")
     later = [e for e in ev if cutoff is None or e["t"] > cutoff]
     hits = [e for e in later if (
-        (e["cat"] == SPOKEN and at_me.search(e["text"] or ""))
-        or (e["kind"] == "レビュー依頼" and e["text"].endswith(me)))]
+        (e["cat"] == SPOKEN and me in mentions(e["text"]))
+        or (e["key"] == "review_request" and e["to"] == me))]
     if hits:
         # 本文を持つ発言を、レビュー依頼ボタンより優先する。ボタンは中身が無く、押された順序も
         # 本文の依頼と前後する（本文で頼んでからボタンを押す運用が普通）。新しい方を機械的に
@@ -878,11 +881,12 @@ def find_ask(ev, node, me, cutoff, own):
             where = th["path"] + (f":{th['line']}" if th["line"] else "")
             return {"t": ts(cs[-1]["createdAt"]), "who": login_of(cs[-1]["author"]),
                     "kind": f"スレッド {where}（未解決）", "text": cs[-1]["body"],
-                    "bot": is_bot(cs[-1]["author"]), "cat": SPOKEN}
+                    "bot": is_bot(cs[-1]["author"]), "cat": SPOKEN,
+                    "key": "thread", "to": None, "resolved": False}
 
     if own:
         others = [e for e in later if e["cat"] == SPOKEN and e["who"] != me and not e["bot"]
-                  and "（解決済）" not in e["kind"] and excerpt(e["text"], 0) != "（本文なし）"]
+                  and not e["resolved"] and (e["text"] or "").strip()]
         if others:
             return dict(others[-1], unaddressed=True)
     return None
@@ -910,7 +914,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
            with_map=False, with_threads=False, with_ci=False, branch_lines=(),
            stacked=(), since=None):
     """branch_lines は --switch の結果（見出しの URL の行の後ろに足す。無ければ何も足さない）。
-    stacked はこのブランチを base にする open PR の列（main() が gh pr list で取る。取れなければ空）、
+    stacked はこのブランチを base にする open PR の列（main() が gh pr list で取る。gh が失敗すれば None）、
     since は「私の痕跡以降に変わった file」（collect_since の戻り値。無ければ None）。ここは gh も
     git も叩かない——取得は全部 main() で済ませ、材料だけ受け取る。"""
     is_pr = node["__typename"] == "PullRequest"
@@ -1050,13 +1054,15 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         w("")
 
     linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
-    if linked or refs or stacked:
+    if linked or refs or stacked or stacked is None:
         w("## つながっている先")
         for i in linked:
             w(f"  閉じる  #{i['number']} {i['state'].lower()}  {i['title']}")
-        for s in stacked[:STACKED_SHOWN]:
+        if stacked is None:
+            w(f"  上に積む  （gh pr list --base {node.get('headRefName')} が失敗して読めなかった）")
+        for s in (stacked or ())[:STACKED_SHOWN]:
             w(f"  上に積む  #{s['number']} {s['title']}")
-        if len(stacked) > STACKED_SHOWN:
+        if stacked and len(stacked) > STACKED_SHOWN:
             # gh pr list は STACKED_SHOWN + 1 件までしか取っていないので、残りの数は言えない
             w(f"  （上に積む PR は他にもある。gh pr list --base {node.get('headRefName')} で見る）")
         # 参照は新しい 3 件だけ。5 件出したら初見の読み手 3 人中 2 人が「読まなくてよかった」と言った。
@@ -1110,18 +1116,12 @@ BODY_CAP = 60          # 本文を出す行数の上限（--full で外れる）
 ISSUE_HEAD_LINES = 12  # 閉じる issue・本文が指す番号の本文の冒頭を出す行数
 ISSUE_CAP = 3          # 冒頭を出す閉じる issue の数
 BODY_REF_CAP = 3       # 本文が # で指す番号のうち、冒頭を出す数
-# 本文の中の #番号。直前が英数字か / のもの（URL の fragment、word#12）は番号ではない
-REF_RE = re.compile(r"(?<![\w/])#(\d+)\b")
 
 
 def body_refs(body, self_number, exclude):
-    """本文が # で指す番号（出た順・重複なし）。自分と閉じる issue は除く。"""
-    out = []
-    for m in REF_RE.finditer(body or ""):
-        n = int(m.group(1))
-        if n != self_number and n not in exclude and n not in out:
-            out.append(n)
-    return out
+    """本文が # で指す番号（出た順・重複なし）。自分と閉じる issue は除く。拾い方（URL の fragment や
+    word#12、コード・引用の中は番号にしない）は lib/ghtext.py の refs。"""
+    return [n for n in refs(body) if n != self_number and n not in exclude]
 
 
 def fetch_ref(owner, name, num):
@@ -1820,14 +1820,14 @@ def in_progress(top):
 
 
 def tree_blocker(text, nxt):
-    """git status --porcelain の行から、移るのを止める理由と未追跡の件数を返す。(理由 or None, 未追跡の数)。
+    """git status --porcelain -z の出力から、移るのを止める理由と未追跡の件数を返す。(理由 or None, 未追跡の数)。
     text が None（読めない・timeout）なら止める——空と同じに扱うと、状態を測れないまま移る（fail-open）。
     nxt は片付けた後の一手。手元にあるブランチなら git switch <名前> だが、origin から作るブランチはまだ無い
     （git switch は失敗するか、古い追跡 ref から DWIM で作る）ので、呼び手が「もう一度 /catchup」を渡す。"""
     if text is None:
         return "手元の状態が読めないので移らない", 0
-    rows = [r for r in text.splitlines() if r.strip()]
-    tracked = [r for r in rows if not r.startswith("??")]
+    rows = changemap.porcelain_records(text)
+    tracked = [r for r in rows if r[0] != "??"]
     untracked = len(rows) - len(tracked)
     if tracked:
         return (f"追跡ファイルに未コミットの変更 {len(tracked)} 件があるので移らない（git は持ち越せるが、"
@@ -1851,7 +1851,7 @@ def switch_blocker(top, target, worktree, nxt):
         return ("merge / rebase / cherry-pick / revert の途中なので移らない"
                 "（終えるか --quit で止める。別に取るなら git worktree add）"), 0
     # submodule の変更は switch がそのまま持ち越すので数えない
-    return tree_blocker(changemap.git("status", "--porcelain", "--ignore-submodules=all", cwd=top), nxt)
+    return tree_blocker(changemap.git("status", "--porcelain", "-z", "--ignore-submodules=all", cwd=top), nxt)
 
 
 def git_notes(err, failed=False):
@@ -2475,7 +2475,7 @@ def page_item(node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, ca
     page["status"] = page_status(node, me, red, running, green)
     linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
     page["links"] = {"closes": [{"number": i["number"], "state": i["state"].lower(), "title": i["title"]} for i in linked],
-                     "stacked": [{"number": s["number"], "title": s["title"]} for s in stacked[:STACKED_SHOWN]],
+                     "stacked": [{"number": s["number"], "title": s["title"]} for s in (stacked or ())[:STACKED_SHOWN]],
                      "refs": [{"when": hhmm(r["t"]), "text": r["text"]} for r in refs[-3:]]}
     more_threads = 0
     if is_pr and with_map:
@@ -2494,15 +2494,17 @@ def page_item(node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, ca
         page["ci"], ci_more = ci
     page["local"] = local_text or ""
     page["unseen"] = page_unseen(caps, unlinked, since, more_threads, ci_more, is_pr, page["threads"], ask)
+    if stacked is None:
+        page["unseen"].append(f"このブランチを base にする PR（gh pr list --base {node.get('headRefName')} が失敗して読めなかった）")
     return page
 
 
 def local_slug(cwd=None):
     """手元の git の対象（commit・範囲・手元のブランチ）の置き場の名前と owner/repo。origin が無ければルートの名前。"""
     top = changemap.repo_top(cwd)
-    m = changemap.REPO_TAIL.search(changemap.origin_url(top)) if top and changemap.origin_url(top) else None
-    if m:
-        return f"{m.group(2)}-{m.group(4)}", f"{m.group(2)}/{m.group(4)}"
+    repo = changemap.repo_of(changemap.origin_url(top)) if top else None
+    if repo:
+        return repo.replace("/", "-"), repo
     return "local-" + catchup_html._safe(os.path.basename(top) if top else "unknown"), ""
 
 

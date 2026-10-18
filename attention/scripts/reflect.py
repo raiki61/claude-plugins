@@ -27,7 +27,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import catchup_html  # noqa: E402 — ページの書き方と VS Code で開く口を /catchup と共用
+import changemap  # noqa: E402 — remote URL の読み方。/catchup と共用
 import claude_auth  # noqa: E402 — 設定のフォルダの決め方（リポジトリの scripts/ の写し）
+import transcript  # noqa: E402 — 区切りの操作の表。/what-am-i-doing と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -59,15 +61,6 @@ STATUSES = ("open", "adopted", "dismissed", "held")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,59}$")
 DIARY_START = "<!-- reflect:start -->"
 DIARY_END = "<!-- reflect:end -->"
-
-LANDMARKS = (
-    (re.compile(r"\bgit\s+commit\b"), "commit"),
-    (re.compile(r"\bgit\s+push\b"), "push"),
-    (re.compile(r"\bgh\s+pr\s+create\b"), "PR 作成"),
-    (re.compile(r"\bgh\s+(pr\s+(review|comment)|api\s+\S*/(comments|reviews))"), "レビュー・コメント"),
-    (re.compile(r"\bgh\s+run\s+(watch|view)\b"), "CI 確認"),
-    (re.compile(r"tests?/run\.sh|\bpytest\b|\bnpm\s+test\b|\bunittest\b"), "テスト"),
-)
 
 
 # ---- 期間 ----------------------------------------------------------------------
@@ -203,10 +196,8 @@ def scan(path, start, end):
                         continue
                     s["tools"][b.get("name") or "?"] += 1
                     if b.get("name") == "Bash":
-                        cmd = (b.get("input") or {}).get("command") or ""
-                        for rx, name in LANDMARKS:
-                            if rx.search(cmd):
-                                s["marks"][name] += 1
+                        for key in transcript.landmarks((b.get("input") or {}).get("command")):
+                            s["marks"][key] += 1
     return s if s["first"] else None
 
 
@@ -330,9 +321,9 @@ def run(args, cwd=None, env=None):
 
 
 def repo_label(top):
-    url = (run(["git", "-C", top, "remote", "get-url", "origin"]) or "").strip()
-    m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?$", url)
-    return m.group(1) if m else os.path.basename(top)
+    """リポジトリの呼び名。origin の "owner/name"（読み方は lib/changemap.py の repo_of）か、無ければフォルダの名前。"""
+    url = run(["git", "-C", top, "remote", "get-url", "origin"]) or ""
+    return changemap.repo_of(url) or os.path.basename(top)
 
 
 def repo_tops(cwds):
@@ -376,13 +367,19 @@ def commits(cwds, start, end):
     return [{"repo": k, "count": len(v), "commits": v[:COMMITS_PER_REPO]} for k, v in by_label.items()]
 
 
-def gh_logins():
+def gh_logins(unseen=None):
+    """gh で使えるアカウントの login。読めなければ空で、unseen に訳を足す（渡されたときだけ）。"""
+    unseen = [] if unseen is None else unseen
     raw = run(["gh", "auth", "status", "--json", "hosts"])
     logins = []
+    if raw is None:
+        unseen.append("GitHub の動き: gh auth status が失敗した（gh が無いか、ログインしていない）。どのアカウントも読んでいない")
+        return logins
     try:
-        hosts = json.loads(raw or "{}").get("hosts") or {}
-    except ValueError:
-        hosts = {}
+        hosts = json.loads(raw).get("hosts") or {}
+    except (ValueError, AttributeError) as e:
+        unseen.append(f"GitHub の動き: gh auth status の出力を読めなかった（{type(e).__name__}）。どのアカウントも読んでいない")
+        return logins
     for entry in hosts.get("github.com") or []:
         if entry.get("state") == "success" and entry.get("login") and entry["login"] not in logins:
             logins.append(entry["login"])
@@ -404,19 +401,26 @@ def local(ts):
     return t.astimezone().isoformat(timespec="minutes") if t else ts
 
 
-def github(start, end):
-    """gh で使えるアカウントごとの、期間の動き。読めないアカウントは飛ばす。"""
+def github(start, end, unseen=None):
+    """gh で使えるアカウントごとの、期間の動き。ページが読めなかったら、そのアカウントの残りのページは
+    読まずに次のアカウントへ進み、unseen に訳を足す（空の結果と見分けが付くように）。"""
+    unseen = [] if unseen is None else unseen
     out = []
-    for login in gh_logins():
+    for login in gh_logins(unseen):
         token = (run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]) or "").strip()
         env = {**os.environ, "GH_TOKEN": token} if token else None
         rows, oldest, full = [], None, True
         for page in range(1, EVENT_PAGES + 1):
             raw = run(["gh", "api", f"/users/{login}/events?per_page=100&page={page}"], env=env)
             try:
-                events = json.loads(raw) if raw else []
+                events = json.loads(raw) if raw is not None else None
             except ValueError:
-                events = []
+                events = None
+            if not isinstance(events, list):
+                unseen.append(f"GitHub の動き: {login} の {page} ページ目を読めなかった（gh api が失敗したか、形が違う）。"
+                              "そこから先の動きは数えていない")
+                full = False
+                break
             for e in events:
                 t = when({"timestamp": e.get("created_at")})
                 if t is None:
@@ -460,12 +464,49 @@ def insights(dirs, session_ids):
 
 
 def first_line(path):
+    """コマンド・スキルの説明（先頭の `---` の間の `description:`）。ファイルが読めなければ読めなかったと、
+    説明が書かれていなければ無いと書いた文を返す（空にすると 2 つが「説明が空」と同じに見える）。"""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    m = re.search(r"^description:\s*(.+)$", text, re.M)
-    return clip(m.group(1) if m else "", 160)
+    except OSError as e:
+        return f"（読めなかった: {type(e).__name__}）"
+    about = frontmatter_description(text)
+    return clip(about, 160) if about is not None else "（説明が無い: 先頭の --- の間に description が無い）"
+
+
+def frontmatter_description(text):
+    """先頭の `---` の間の `description:` の値。無ければ None。
+
+    YAML を読む物が標準ライブラリに無く、プラグインは pip の物を持てない（docs/standards/machine-readable-values.md
+    の決まり 5）。ここで要るのは説明の 1 項目だけなので、この 1 か所で読む。本文の中の `description:` は拾わない。
+    折り返し（`>`・`|`）と、次の行へ続く字下げの値は、続きの行を空白でつないで 1 行にする。"""
+    lines = text.lstrip("\ufeff").splitlines()  # 先頭の BOM は frontmatter の --- の前に来る
+    if not lines or lines[0].strip() != "---":
+        return None
+    head = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        head.append(line)
+    else:
+        return None  # 閉じの --- が無い。frontmatter でない
+    for i, line in enumerate(head):
+        if not line.startswith("description:"):
+            continue
+        value = line[len("description:"):].strip()
+        rest = []
+        for more in head[i + 1:]:
+            if more[:1] not in (" ", "\t"):
+                break
+            rest.append(more.strip())
+        if value in (">", "|", ">-", "|-", ">+", "|+") or not value:
+            value = " ".join(rest)
+        elif rest:
+            value = " ".join([value, *rest])
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        return value
+    return None
 
 
 def assets(dirs, cwds):
@@ -564,10 +605,12 @@ def privacy(commit_rows, gh_rows, ask=repo_private):
         c["private"] = known[c["repo"]]
     repos = sorted(k for k, v in known.items() if v)
     numbers = {r["number"] for g in gh_rows for r in g["events"] if r.get("private") and r.get("number")}
-    numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in re.findall(r"#(\d+)", x["subject"])}
+    numbers |= {int(n) for c in commit_rows if c["private"] for x in c["commits"] for n in REF.findall(x["subject"])}
     return {"repos": repos, "numbers": sorted(numbers)}
 
 
+# 非公開の番号を集める・フィールドの文から探す用。lib/ghtext.py の refs（コードと引用の中を数えない）より広く、
+# 「PR 12」の形も、コードの中の #12 も当てる——ここは漏れを防ぐ側なので、外すより当て過ぎに倒す
 REF = re.compile(r"(?:#|\b(?:PR|pr|issue|Issue)\s*#?)(\d+)")
 
 
@@ -611,7 +654,8 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
     human, background = sessions(dirs, start, end)
     cwds = sorted({s["cwd"] for s in human if s["cwd"]})
     asks, cmds = repeats(human)
-    gh = github(start, end) if with_github else []
+    gh_unseen = []
+    gh = github(start, end, gh_unseen) if with_github else []
     commit_rows = commits(cwds, start, end)
     private = privacy(commit_rows, gh, repo_private if with_github else (lambda _label: True))
     try:
@@ -644,6 +688,7 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
             "サブエージェントの記録は、親の会話のトークンに足していない",
             *([ledger_error] if ledger_error else []),
             *([] if with_github else ["GitHub の動きは読んでいない（--no-github）"]),
+            *gh_unseen,
         ],
     }
 

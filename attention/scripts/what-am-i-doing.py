@@ -31,6 +31,8 @@ import changemap  # noqa: E402 — 変更ファイルの木。/catchup と共用
 import claude_auth  # noqa: E402 — 設定のフォルダの決め方（リポジトリの scripts/ の写し）
 from stance import stance  # noqa: E402 — 立場の判定。/catchup と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
+import transcript  # noqa: E402 — 会話の記録の置き場と区切りの操作。/reflect と共用
+from ghtext import refs  # noqa: E402 — #番号の拾い方。/catchup・/whose-turn と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -39,22 +41,6 @@ for _stream in (sys.stdout, sys.stderr):
 # 依頼者が自分で打った発言だけを拾う印。tool_result も user レコードとして落ちるので、
 # これで絞らないとツールの出力が依頼に化ける（実測: 219 件中 189 件が tool_result）
 TYPED = {"typed", "queued"}
-
-# Bash の中身から「区切りになる操作」を拾う。全部のコマンドを並べても追いつく助けに
-# ならないので、後から見て節目と分かるものだけ名前を付ける
-LANDMARKS = (
-    (re.compile(r"\bgit\s+commit\b"), "コミット"),
-    (re.compile(r"\bgit\s+push\b"), "push"),
-    (re.compile(r"\bgit\s+rebase\b"), "rebase"),
-    (re.compile(r"\bgh\s+pr\s+create\b"), "PR 作成"),
-    (re.compile(r"\bgh\s+run\s+(watch|view)\b"), "CI 確認"),
-    (re.compile(r"tests?/run\.sh|\bpytest\b|\bnpm\s+test\b"), "テスト実行"),
-)
-
-
-# 依頼文に出てくる PR / issue の番号。何の件を扱っているかは、たいてい依頼者が
-# 番号で呼んでいるので、そこから拾うのが一番素直
-REFERENCED = re.compile(r"#(\d{1,6})\b")
 
 
 def pick_reference(asks):
@@ -66,27 +52,34 @@ def pick_reference(asks):
     セッションで、たまたま居たブランチの PR #1595 を本題として出した）。"""
     count, last = {}, {}
     for i, text in enumerate(asks):
-        for hit in REFERENCED.findall(text):
+        for hit in map(str, refs(text)):
             count[hit] = count.get(hit, 0) + 1
             last[hit] = i
     return sorted(count, key=lambda n: (-count[n], -last[n]))
 
 
-def gh(cwd, *args):
-    """gh を呼ぶ。認証切れ・ネット無し・PR 無しは失敗であって異常ではないので、
-    空文字を返して呼び出し側でセクションごと落とす（材料が減るだけで、判定は壊れない）。"""
+def gh(cwd, failures, *args):
+    """gh を呼ぶ。認証切れ・ネット無し・PR 無しは失敗であって異常ではないので、止めずに空文字を返し、
+    呼び出し側でセクションごと落とす（材料が減るだけで、判定は壊れない）。ただし失敗は failures に
+    「何を打って何と言われたか」で積み、報告の「見ていないもの」に出す——黙って落とすと、
+    「読めなかった」が「扱っている PR は無い」と同じに見える。失敗の文は読んで分岐しない（出すだけ）。"""
     try:
         r = subprocess.run(  # noqa: S603 — 引数はこのファイル内のリテラルと数字だけ
             # encoding を明示する——Windows の既定は cp1252 で、日本語を含む子の出力が
             # UnicodeDecodeError で落ちる（実測 2026-09-13: CI の windows-latest）
             ["gh", *args], cwd=cwd, capture_output=True, text=True, timeout=20,
             encoding="utf-8", errors="replace")
-        return r.stdout.strip() if r.returncode == 0 else ""
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        failures.append(f"gh {' '.join(args[:3])}: {type(e).__name__}: {e}")
         return ""
+    if r.returncode != 0:
+        why = (r.stderr.strip().splitlines() or [f"終了コード {r.returncode}"])[-1]
+        failures.append(f"gh {' '.join(args[:3])}: {why}")
+        return ""
+    return r.stdout.strip()
 
 
-def role_on(cwd, number=None):
+def role_on(cwd, failures, number=None):
     """扱っている PR で私が何者か。判定は lib/stance.py（/catchup と共用）で、ここは gh から
     素の値（作者・レビュー依頼先・送ったレビュー・担当・発言）を取り出すだけ。
 
@@ -96,14 +89,15 @@ def role_on(cwd, number=None):
     if number:
         args.append(str(number))
     args += ["--json", "number,title,state,author,reviewRequests,reviews,assignees,comments,isDraft,url"]
-    raw = gh(cwd, *args)
+    raw = gh(cwd, failures, *args)
     if not raw:
         return None
     try:
         pr = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        failures.append(f"gh {' '.join(args[:3])}: 出力が JSON でない（{e}）")
         return None
-    me = gh(cwd, "api", "user", "--jq", ".login")
+    me = gh(cwd, failures, "api", "user", "--jq", ".login")
     if not me:
         pr["role"] = "判定できない（gh の認証ユーザを取れない）"
         return pr
@@ -124,44 +118,6 @@ def role_on(cwd, number=None):
         pr["role"] = (f"{label}（作者は {author}、レビュー依頼は "
                       + (", ".join(r for r in requested if r) or "誰にも出ていない") + "）")
     return pr
-
-
-def project_folder(config, cwd):
-    """cwd の記録の置き場。session id が無いときと、同じ id の記録が複数あるときの絞り込みに使う。
-
-    置き場の名前の作り方はハーネス（Claude Code）の持ち物で、公開の約束が無い。実物は英数字以外を
-    全部 `-` に替えた名前（例: `/Users/me/.herdr/wt` → `-Users-me--herdr-wt`）。`/` だけを替えて
-    いたとき、`.herdr` を含む作業場で記録が見つからなかった（2026-10-19）。長いパスは名前が
-    切り詰められて合わないので、session id が取れる所ではまず名前に依らずに探す（transcript_path）。"""
-    return config / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-
-
-def transcript_path(session_id, cwd):
-    """記録の実体と、読む人に添える注記（無ければ None）。見つからなければ (None, 理由)。
-
-    session id が取れれば、置き場の名前を自分で作らずに `projects/*/<id>.jsonl` を探す
-    （graphloops の rules/research-loop.py の transcript_path と同じ形）。見つからなくても
-    最新の記録へは倒さない——並んだ会話の別の記録を、この会話の物として見せてしまう。
-    session id が取れないときだけ、cwd の置き場の最新を出し、そう出したと注記する。"""
-    config = pathlib.Path(claude_auth.config_dir(os.environ))
-    if session_id:
-        hits = sorted(config.glob(f"projects/*/{session_id}.jsonl"))
-        if len(hits) == 1:
-            return hits[0], None
-        if not hits:
-            return None, f"{config}/projects/*/{session_id}.jsonl に記録が無い"
-        # 同じ id が 2 つの置き場に在るのは、記録を写したときくらい。cwd の置き場の物なら選べる
-        mine = [h for h in hits if h.parent == project_folder(config, cwd)]
-        if len(mine) == 1:
-            return mine[0], None
-        return None, "session id の記録が {} 件あり、どれか決められない（{}）".format(
-            len(hits), "、".join(str(h) for h in hits))
-    folder = project_folder(config, cwd)
-    files = sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
-    if not files:
-        return None, f"{folder} に記録が無い（CLAUDE_CODE_SESSION_ID も無い）"
-    return files[-1], ("CLAUDE_CODE_SESSION_ID が無いので、この作業場の最新の記録を出した"
-                       "（並んだ会話があれば、別の会話の記録かもしれない）")
 
 
 def text_of(content):
@@ -211,11 +167,9 @@ def read(path):
                             continue
                         name = b.get("name", "?")
                         turn["tools"][name] = turn["tools"].get(name, 0) + 1
-                        cmd = (b.get("input") or {}).get("command", "")
-                        for pattern, label in LANDMARKS:
-                            if isinstance(cmd, str) and pattern.search(cmd) \
-                                    and label not in turn["marks"]:
-                                turn["marks"].append(label)
+                        for key in transcript.landmarks((b.get("input") or {}).get("command")):
+                            if key not in turn["marks"]:
+                                turn["marks"].append(key)
     return title, turns, first_ts, dt.datetime.fromtimestamp(path.stat().st_mtime)
 
 
@@ -278,7 +232,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
             w("      → " + squeeze(item["reply"], 0 if full else 200))
         detail = []
         if item["marks"]:
-            detail.append("・".join(item["marks"]))
+            detail.append("・".join(transcript.LANDMARK_LABELS[k] for k in item["marks"]))
         if item["tools"]:
             detail.append("ツール " + ", ".join(
                 f"{k}×{v}" for k, v in sorted(item["tools"].items(),
@@ -290,13 +244,13 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
     numbers = pick_reference([turn["ask"] for turn in turns])
     # 呼ばれた頻度の高い番号から順に当てる。issue の番号や消えた PR は gh が
     # 失敗して None になるので次の候補へ、全部外れたらブランチの PR に落とす
-    pr = None
+    pr, failures = None, []
     for number in numbers[:3]:
-        pr = role_on(cwd, number)
+        pr = role_on(cwd, failures, number)
         if pr:
             break
     if not pr and branch:
-        pr = role_on(cwd)
+        pr = role_on(cwd, failures)
     if pr:
         w("## 扱っている件と、私の立場")
         draft = "・下書き" if pr.get("isDraft") else ""
@@ -341,6 +295,10 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
         w(f"  - 間の {elided} 往復（--full で出る）。そこで決めたことがあれば見落とす")
     if topic and total > len(turns):
         w(f"  - 話題「{topic}」が出なかった往復 {total - len(turns)} 件。言い換えで呼ばれていれば見落とす")
+    if not pr and failures:
+        # 扱っている件を出せなかった訳。番号が issue だった・ブランチに PR が無い、もここに出る
+        w("  - 扱っている件と立場（gh で引けなかった: " + " / ".join(failures[:4])
+          + (f" ほか {len(failures) - 4} 件" if len(failures) > 4 else "") + "）")
     w("  - 記録に残らないやり取り（別のセッション・チャット・口頭）")
     w("  - 題は序盤に付いたまま更新されない。古い可能性がある")
     return "\n".join(out)
@@ -400,7 +358,8 @@ def report(a):
             sys.exit(f"{a.frame} が無い（path はリポジトリのルートからの相対）")
         print("\n".join(lines))
         return 0
-    path, note = transcript_path(os.environ.get("CLAUDE_CODE_SESSION_ID"), cwd)
+    path, note = transcript.transcript_path(
+        pathlib.Path(claude_auth.config_dir(os.environ)), os.environ.get("CLAUDE_CODE_SESSION_ID"), cwd)
     if not path:
         sys.exit(f"このディレクトリ（{cwd}）のセッション記録が見つからない: {note}")
 

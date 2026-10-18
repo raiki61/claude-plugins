@@ -427,11 +427,14 @@ def _body_refs():
 
 @case("split-words")
 def _split_words():
-    """引数の語を対象と焦点に分ける。焦点だけなら今のブランチ、無ければ今のブランチ。"""
+    """引数の語を対象と焦点に分ける。焦点だけなら今のブランチ、無ければ今のブランチ。
+    焦点は英語の鍵（threads・map・ci）でも、大文字小文字を問わず受ける。"""
     got = [catchup.split_words(w) for w in (["1569", "指摘"], ["指摘"], [],
-                                            ["this", "ci", "地図"], ["https://x/o/r/pull/3"])]
+                                            ["this", "ci", "地図"], ["https://x/o/r/pull/3"],
+                                            ["1569", "threads", "Map"], ["CI"])]
     want = [("1569", {"threads"}), ("this", {"threads"}), ("this", set()),
-            ("this", {"ci", "map"}), ("https://x/o/r/pull/3", set())]
+            ("this", {"ci", "map"}), ("https://x/o/r/pull/3", set()),
+            ("1569", {"threads", "map"}), ("this", {"ci"})]
     return "SPLIT_OK" if got == want else f"SPLIT_NG {got}"
 
 

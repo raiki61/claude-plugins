@@ -10,8 +10,10 @@
 変更は `~`、削除は `-`。
 
 〈path〉GitHub のサーバ側 diff は日本語名を "\\346…" の引用形で出す。戻さないと GraphQL の path と
-突き合わせられず、その file の中身が黙って落ちる（実測）。git ls-tree も既定は同じ引用形なので
-core.quotePath=false を付ける。"""
+突き合わせられず、その file の中身が黙って落ちる（実測）。手元の git の path の一覧（status・numstat・
+ls-tree・name-status）は -z（NUL 区切り）で読む——引用形にならず、改名の矢印（" -> "・"{old => new}"）を
+文字列から割らずに済む（矢印を割る読み方は、path に " -> " や改行が入ると別の path に化ける）。-z の無い
+diff の本文は core.quotePath=false を付けて読む。"""
 
 import os
 import pathlib
@@ -50,6 +52,28 @@ def unquote_git_path(s):
         return decoded
 
 
+# "diff --git a/x b/y" の行。path が ' b/' を含むと切れ目が決まらないので、path の正は '+++ b/…' 行
+# （削除なら '--- a/…'）。ここは塊の切れ目と仮の path にだけ使う。catchup_html.parse_diff と共用
+GIT_DIFF_HEAD = re.compile(r'diff --git ("?)a/(.*?)\1 ("?)b/(.*?)\3$')
+
+
+def head_paths(line):
+    """"diff --git a/x b/y" の行から (旧, 新) の path を返す。読めなければ None。"""
+    m = GIT_DIFF_HEAD.match(line)
+    if not m:
+        return None
+    return (unquote_git_path(m.group(1) + m.group(2) + m.group(1)),
+            unquote_git_path(m.group(3) + m.group(4) + m.group(3)))
+
+
+def side_path(line):
+    """'--- a/x' / '+++ b/x' の行の path（a/・b/ を外し、引用形を戻す）。/dev/null なら None。"""
+    path = unquote_git_path(line[4:].strip())
+    if path == "/dev/null":
+        return None
+    return path[2:] if path.startswith(("a/", "b/")) else path
+
+
 def split_diff(text):
     """unified diff を path → hunk の行に分ける。ファイル見出し（---/+++/index…）は落とし、
     @@ 行と '+'/'-'/' ' の行だけ残す。見出しの判定は最初の @@ より前に限る——hunk の中の
@@ -64,9 +88,9 @@ def split_diff(text):
         if line.startswith("diff --git "):
             cur = None
             in_hunk = False
-            m = re.match(r'diff --git ("?)a/(.*?)\1 ("?)b/(.*?)\3$', line)
-            if m:
-                cur = unquote_git_path(m.group(3) + m.group(4) + m.group(3))
+            paths = head_paths(line)
+            if paths:
+                cur = paths[1]
                 files.setdefault(cur, [])
             continue
         if in_hunk:
@@ -83,15 +107,13 @@ def split_diff(text):
                 files[cur].append(line)
             continue
         # ここから下は @@ より前の見出し
-        if line.startswith("+++ ") and not line.startswith("+++ /dev/null"):
-            path = unquote_git_path(line[4:].strip())
-            path = path[2:] if path.startswith("b/") else path
+        if line.startswith("+++ ") and side_path(line):
+            path = side_path(line)
             if cur != path:
                 files[path] = files.pop(cur, []) if cur is not None else []
                 cur = path
-        elif line.startswith("--- ") and not line.startswith("--- /dev/null") and cur is None:
-            path = unquote_git_path(line[4:].strip())
-            cur = path[2:] if path.startswith("a/") else path
+        elif line.startswith("--- ") and side_path(line) and cur is None:
+            cur = side_path(line)
             files.setdefault(cur, [])
         elif line.startswith("rename from "):
             renames["__from__"] = unquote_git_path(line[len("rename from "):].strip())
@@ -647,14 +669,16 @@ def run(*args, cwd=None, timeout=15, env=None):
     git switch）。git が無い・timeout・起動できないなら (None, "", 理由)。timeout は読むだけの呼び出し用
     ——書く操作（switch）は timeout=None で呼ぶ。途中で殺すと書きかけの木と index.lock が残る（実測）。
     stdin は閉じる（hook や filter が入力待ちで固まらない）。env は環境に足す変数（/catchup の fetch が
-    GIT_TERMINAL_PROMPT=0 を足す。git は認証を stdin でなく端末に聞くので、stdin を閉じるだけでは固まる）。"""
+    GIT_TERMINAL_PROMPT=0 を足す。git は認証を stdin でなく端末に聞くので、stdin を閉じるだけでは固まる）。
+    LC_ALL=C は常に足す。呼び手は stderr の英文（"couldn't find remote ref"・"Switched to"・"Please" など）と
+    比べるので、git が利用者の言語で答えると一致せず、別の分岐へ黙って落ちる。"""
     exe = shutil.which("git")
     if not exe:
         return None, "", "git が見つからない"
     try:
         r = subprocess.run(  # noqa: S603 — git は which で解決。引数は呼び手のリテラルと path・ブランチ名だけ
             [exe, *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
-            timeout=timeout, stdin=subprocess.DEVNULL, env={**os.environ, **env} if env else None,
+            timeout=timeout, stdin=subprocess.DEVNULL, env={**os.environ, "LC_ALL": "C", **(env or {})},
         )
     except subprocess.TimeoutExpired:
         return None, "", f"{timeout} 秒で応答が無い"
@@ -699,6 +723,12 @@ def origin_url(top):
 REPO_TAIL = re.compile(r"([:/\\])([^/\\:]+)([/\\])([^/\\]+?)(\.git)?[/\\]?$")
 
 
+def repo_of(url):
+    """remote URL の "owner/name"。形が読めなければ None。"""
+    m = REPO_TAIL.search((url or "").strip())
+    return f"{m.group(2)}/{m.group(4)}" if m else None
+
+
 def origin_is(url, owner, name):
     """url が owner/name か。末尾 2 セグメントの等値で見る——部分一致だと org/platform-docs の
     checkout を org/platform と誤認し、別リポジトリの名前が「同じ階層の既存」に混ざる（実測）。"""
@@ -722,13 +752,13 @@ def origin_matches(top, owner, name):
 def tracked_names(top, d):
     """階層 d（"." はルート）の、HEAD が追跡している名前。無ければ None。
     os.listdir だと .venv や __pycache__ が「既存」に混ざるので ls-tree で数える。"""
-    args = ["-c", "core.quotePath=false", "ls-tree", "HEAD"]
+    args = ["ls-tree", "-z", "HEAD"]
     args += [] if d == "." else ["--", d + "/"]
     out = git(*args, cwd=top)
     if not out:
         return None
     names = []
-    for line in out.splitlines():
+    for line in out.split("\0"):
         # <mode> SP <type> SP <hash> TAB <path>
         meta, _, path = line.partition("\t")
         if not path:
@@ -837,20 +867,34 @@ def render_tree(entries, siblings=None, root_label="."):
     return out
 
 
-def entries_from_porcelain(porcelain, numstat=None):
-    """git status --porcelain の行を木の entries にする。numstat は path → (追加, 削除)。"""
-    numstat = numstat or {}
-    entries = []
-    for line in porcelain.splitlines():
-        # 位置で切らない。出力全体を strip されると 1 行目の先頭空白が消えて桁がずれる
+def porcelain_records(porcelain):
+    """git status --porcelain -z の出力を (XY, path, 改名・複写の元の path か None) の列にする。
+    -z では 1 件が "XY path" の NUL 区切りで、改名・複写（X か Y が R / C）だけ次のフィールドが元の path。"""
+    out = []
+    fields = (porcelain or "").split("\0")
+    i = 0
+    while i < len(fields):
+        field = fields[i]
+        i += 1
+        # 位置で切らない。出力全体を strip されると 1 件目の先頭空白が消えて桁がずれる
         # （" M docs/a.md" → "M docs/a.md"。3 桁目から切ると "ocs/a.md" になる。実測）
-        parts = line.split(maxsplit=1)
+        parts = field.split(maxsplit=1)
         if len(parts) < 2:
             continue
-        xy, rest = parts
-        path = rest.split(" -> ", 1)[-1]
-        if path.startswith('"') and path.endswith('"'):
-            path = unquote_git_path(path)
+        xy, path = parts
+        old = None
+        if "R" in xy or "C" in xy:
+            old = fields[i] if i < len(fields) else None
+            i += 1
+        out.append((xy, path, old))
+    return out
+
+
+def entries_from_porcelain(porcelain, numstat=None):
+    """git status --porcelain -z の出力を木の entries にする。numstat は path → (追加, 削除)。"""
+    numstat = numstat or {}
+    entries = []
+    for xy, path, old in porcelain_records(porcelain):
         whole_dir = path.endswith("/")  # "?? newdir/"（-uall なし）。階層ごと新規
         path = path.rstrip("/")
         if not path:
@@ -861,9 +905,7 @@ def entries_from_porcelain(porcelain, numstat=None):
             mark = "-"
         else:
             mark = "~"
-        note = change_note(mark, *numstat.get(path, (None, None)),
-                           whole_dir=whole_dir,
-                           old=rest.split(" -> ", 1)[0] if " -> " in rest else None)
+        note = change_note(mark, *numstat.get(path, (None, None)), whole_dir=whole_dir, old=old)
         entries.append({"path": path, "mark": mark, "note": note})
     return entries
 
@@ -885,10 +927,9 @@ def working_tree(cwd=None):
     """手元の未コミットの変更を (パスの一覧, 木の行) で返す。変更が無ければ ([], [])。
     /catchup（今のブランチで呼んだとき）と /what-am-i-doing が共用。"""
     # -uall: 未追跡の階層を中のファイルに展開する（既定は "newdir/" の 1 行で、木に名前の無い行が出る）
-    porcelain = git("status", "--porcelain", "--untracked-files=all", cwd=cwd) or ""
+    porcelain = git("status", "--porcelain", "-z", "--untracked-files=all", cwd=cwd) or ""
     entries = entries_from_porcelain(
-        porcelain, parse_numstat(git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "HEAD",
-                                     "--numstat", cwd=cwd)))
+        porcelain, parse_numstat(git("diff", *DIFF_SANE, "HEAD", "--numstat", "-z", cwd=cwd)))
     if not entries:
         return [], []
     top = repo_top(cwd)
@@ -944,8 +985,7 @@ def commit_tree(rev, cwd=None):
                rev, "--", cwd=cwd)
     if text is None:
         return [], []
-    nums = parse_numstat(git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--numstat",
-                             rev, "--", cwd=cwd))
+    nums = parse_numstat(git("diff", *DIFF_SANE, "--numstat", "-z", rev, "--", cwd=cwd))
     parts = [p for p in text.split("\0") if p]
     entries, i = [], 0
     while i + 1 < len(parts):
@@ -965,17 +1005,23 @@ def commit_tree(rev, cwd=None):
 
 
 def parse_numstat(text):
+    """git diff --numstat -z の出力を path → (追加, 削除) にする。バイナリは (None, None)。
+    -z では 1 件が "追加 TAB 削除 TAB path" の NUL 区切りで、改名・複写だけ path が空になり、
+    続く 2 つのフィールドが元の path と新しい path。"""
     out = {}
-    for line in (text or "").splitlines():
-        parts = line.split("\t")
+    fields = (text or "").split("\0")
+    i = 0
+    while i < len(fields):
+        parts = fields[i].split("\t", 2)  # path にタブが入っても割らない
+        i += 1
         if len(parts) != 3:
             continue
         a, d, path = parts
-        if path.startswith('"') and path.endswith('"'):
-            path = unquote_git_path(path)
-        # 改名は "dir/{old => new}/x" か "old => new"。中括弧は新しい側に畳む
-        path = re.sub(r"\{([^{}]*) => ([^{}]*)\}", r"\2", path).replace("//", "/")
-        path = path.split(" => ")[-1]
+        if not path:
+            path = fields[i + 1] if i + 1 < len(fields) else ""
+            i += 2
+        if not path:
+            continue
         try:
             out[path] = (int(a), int(d))
         except ValueError:

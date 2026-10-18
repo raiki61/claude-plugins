@@ -348,6 +348,14 @@ class DiffTest(unittest.TestCase):
              '--- "a/docs/\\346\\227\\245.md"\n+++ "b/docs/\\346\\227\\245.md"\n@@ -1 +1 @@\n-a\n+b\n')
         self.assertEqual(ch.parse_diff(d)[0]["path"], "docs/日.md")
 
+    def test_paths_read_the_same_as_changemap(self):
+        """path の読み方は changemap.split_diff と同じ。見出しの ' b/' を含む path や引用の中の \" で食い違わない。"""
+        d = ('diff --git a/x b/y.md b/x b/y.md\n--- a/x b/y.md\n+++ b/x b/y.md\n@@ -1 +1 @@\n-a\n+b\n'
+             'diff --git "a/q\\"t.md" "b/q\\"t.md"\n--- "a/q\\"t.md"\n+++ "b/q\\"t.md"\n@@ -1 +1 @@\n-a\n+b\n')
+        got = [f["path"] for f in ch.parse_diff(d)]
+        self.assertEqual(got, ["x b/y.md", 'q"t.md'])
+        self.assertEqual(got, list(ch.changemap.split_diff(d)[0]))
+
     def test_excerpt_around_the_commented_line(self):
         f = ch.parse_diff(DIFF)[0]
         ex = ch.excerpt(f, 12)
@@ -723,6 +731,48 @@ class RenderCliTest(unittest.TestCase):
             r = self.run_cli("--render", str(data), str(flds), home=home)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("形が違う", r.stderr)
+
+
+
+def event(who, cat, key=None, to=None, text="", t="2026-08-01T00:00:00Z"):
+    return {"who": who, "cat": cat, "key": key, "to": to, "text": text, "t": t,
+            "resolved": False}
+
+
+class HandoverTest(unittest.TestCase):
+    """自分に渡された件は、宛先の login と種類のキーで決める（表示の文字の末尾一致で決めない）"""
+
+    def test_review_request_to_a_longer_login_is_not_mine(self):
+        ev = [event("alice", cu.EVENT, key="review_request", to="jimbob")]
+        self.assertEqual(cu.find_anchor(ev, {}, "bob"), (None, "created"))
+        self.assertIsNone(cu.find_ask(ev, {}, "bob", None, False))
+
+    def test_review_request_to_me_is_a_handover(self):
+        ev = [event("alice", cu.EVENT, key="review_request", to="bob")]
+        self.assertEqual(cu.find_anchor(ev, {}, "bob")[1], "handover")
+        self.assertIsNotNone(cu.find_ask(ev, {}, "bob", None, False))
+
+    def test_mention_of_a_hyphenated_login_is_not_mine(self):
+        ev = [event("alice", cu.SPOKEN, text="@bob-smith 見てください")]
+        self.assertEqual(cu.find_anchor(ev, {}, "bob"), (None, "created"))
+        self.assertIsNone(cu.find_ask(ev, {}, "bob", None, False))
+
+
+class TreeBlockerTest(unittest.TestCase):
+    """git status --porcelain -z の 1 件を数える。名前の変更は元の名前のフィールドを 1 件に数えない"""
+
+    def test_rename_record_counts_as_one_tracked_change(self):
+        text = "R  new name.txt\0old name.txt\0?? a b.txt\0"
+        why, untracked = cu.tree_blocker(text, "git switch x")
+        self.assertIn("未コミットの変更 1 件", why)
+        self.assertEqual(untracked, 1)
+
+    def test_only_untracked_does_not_block(self):
+        self.assertEqual(cu.tree_blocker("?? a.txt\0", "x"), (None, 1))
+
+    def test_unreadable_status_blocks(self):
+        self.assertEqual(cu.tree_blocker(None, "x")[1], 0)
+        self.assertIsNotNone(cu.tree_blocker(None, "x")[0])
 
 
 if __name__ == "__main__":

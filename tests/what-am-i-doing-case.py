@@ -219,7 +219,7 @@ def _dirty(tmp):
     """git status の行からパスを取るとき、位置で切らない。
 
     出力全体を strip すると 1 行目の先頭空白が消え、桁で切ると 1 文字欠ける。"""
-    stripped = "M deploy/local/README.adoc\n M hack/prune-local-disk.sh\n?? new.txt"
+    stripped = "M deploy/local/README.adoc\0 M hack/prune-local-disk.sh\0?? new.txt\0"
     got = [e["path"] for e in wai.changemap.entries_from_porcelain(stripped)]
     want = ["deploy/local/README.adoc", "hack/prune-local-disk.sh", "new.txt"]
     return ("DIRTY_OK" if got == want else f"DIRTY_NG {got}")

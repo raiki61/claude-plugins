@@ -198,19 +198,23 @@ class Tree(unittest.TestCase):
 
 class Porcelain(unittest.TestCase):
     def test_entries_from_porcelain_and_numstat(self):
-        por = (" M a/b.py\n?? new.txt\nD  gone.txt\nR  old.md -> new.md\nMM \"docs/\\346\\227\\245.md\"\n"
-               "R  docs/o.md -> docs/r.md\n?? newdir/\n")
+        # git status --porcelain -z と git diff --numstat -z の形。改名は元の path が次のフィールドに来る。
+        # path に " -> " や " => " が入っても割らない
+        por = (" M a/b.py\0?? new.txt\0D  gone.txt\0R  new.md\0old.md\0MM docs/日.md\0"
+               "R  docs/r.md\0docs/o.md\0?? newdir/\0 M odd -> name.txt\0")
         num = cm.parse_numstat(
-            "3\t1\ta/b.py\n0\t4\tgone.txt\n-\t-\timg.png\n2\t2\t\"docs/\\346\\227\\245.md\"\n"
-            "1\t0\tdocs/{o.md => r.md}\n5\t0\told.md => new.md\n1\t0\tsrc/{a => b}/x.py\n")
+            "3\t1\ta/b.py\0" "0\t4\tgone.txt\0" "-\t-\timg.png\0" "2\t2\tdocs/日.md\0"
+            "1\t0\t\0docs/o.md\0docs/r.md\0" "5\t0\t\0old.md\0new.md\0" "1\t0\t\0src/a/x.py\0src/b/x.py\0"
+            "7\t0\todd -> name.txt\0")
         ent = cm.entries_from_porcelain(por, num)
         got = {e["path"]: (e["mark"], e["note"]) for e in ent}
         self.assertEqual(got["a/b.py"], ("~", "+3/-1"))
         self.assertEqual(got["new.txt"], ("+", "新規"))
         self.assertEqual(got["gone.txt"], ("-", "-4"))
         self.assertEqual(got["new.md"], ("~", "+5  旧: old.md"))
-        self.assertEqual(got["docs/日.md"], ("~", "+2/-2"))       # numstat の引用形を戻して突き合わせる
-        self.assertEqual(got["docs/r.md"], ("~", "+1  旧: docs/o.md"))  # {old => new} 形
+        self.assertEqual(got["docs/日.md"], ("~", "+2/-2"))       # -z は日本語名を引用形にしない
+        self.assertEqual(got["docs/r.md"], ("~", "+1  旧: docs/o.md"))
+        self.assertEqual(got["odd -> name.txt"], ("~", "+7"))     # 矢印を含む名前を改名に読まない
         self.assertEqual(num["src/b/x.py"], (1, 0))
         self.assertEqual(num["img.png"], (None, None))
         self.assertEqual(got["newdir"][0], "+")                   # 階層ごと新規。名前の無い行にしない

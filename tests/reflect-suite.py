@@ -247,6 +247,34 @@ class GitHub(unittest.TestCase):
         self.assertEqual(out[0]["kinds"], {"PullRequest": 1})
         self.assertFalse(out[0]["truncated"])
 
+    def test_unreadable_gh_is_said_not_shown_as_empty(self):
+        """gh が失敗したら、空の結果に見せずに unseen へ訳を書く（「読めなかった」と「何も無かった」を分ける）。"""
+        status = json.dumps({"hosts": {"github.com": [{"login": "a", "state": "success"}]}})
+
+        def fake(args, cwd=None, env=None):
+            if args[:3] == ["gh", "auth", "status"]:
+                return fake.status
+            if args[:3] == ["gh", "auth", "token"]:
+                return "tok"
+            return None  # gh api が失敗
+
+        orig = rf.run
+        rf.run = fake
+        try:
+            start, end = rf.bounds(DAY, DAY)
+            fake.status = status
+            page_unseen = []
+            out = rf.github(start, end, page_unseen)
+            fake.status = None
+            auth_unseen = []
+            none = rf.github(start, end, auth_unseen)
+        finally:
+            rf.run = orig
+        self.assertEqual(out[0]["count"], 0)
+        self.assertTrue(any("a の 1 ページ目を読めなかった" in u for u in page_unseen), page_unseen)
+        self.assertEqual(none, [])
+        self.assertTrue(any("gh auth status が失敗した" in u for u in auth_unseen), auth_unseen)
+
 
 class Privacy(unittest.TestCase):
     """非公開のリポジトリの名前・番号は、AI の文に書かせない。公開のリポジトリは書いてよい。"""
@@ -423,6 +451,28 @@ class NoOwnerValues(unittest.TestCase):
             with self.subTest(file=p.name):
                 hits = [i for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if self.BANNED.search(line)]
                 self.assertEqual(hits, [], f"{p.name} の {hits} 行目")
+
+
+
+class Description(unittest.TestCase):
+    """スキル・コマンドの説明を frontmatter から読む。無いときと読めないときを分けて出す"""
+
+    def test_folded_value_is_joined(self):
+        text = "---\nname: x\ndescription: >\n  一行目\n  二行目\n---\n本文\n"
+        self.assertEqual(rf.frontmatter_description(text), "一行目 二行目")
+
+    def test_bom_before_the_frontmatter_is_skipped(self):
+        self.assertEqual(rf.frontmatter_description("\ufeff---\ndescription: 説明\n---\n"), "説明")
+
+    def test_description_in_the_body_is_not_read(self):
+        self.assertIsNone(rf.frontmatter_description("---\nname: x\n---\ndescription: 本文\n"))
+
+    def test_missing_and_unreadable_are_told_apart(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "SKILL.md"
+            p.write_text("---\nname: x\n---\n", encoding="utf-8")
+            self.assertIn("説明が無い", rf.first_line(p))
+            self.assertIn("読めなかった", rf.first_line(pathlib.Path(d) / "none.md"))
 
 
 if __name__ == "__main__":

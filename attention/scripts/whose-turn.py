@@ -6,24 +6,34 @@ GitHub から取れる範囲で全部、決定的に集める。判断（返信�
 それは読む人か、/whose-turn の AI の仕事。母集団と、見ていないものを必ず併記する。
 各行の 2 行目はその PR / issue の URL——読む側が番号をリンクにするための材料。
 
-〈PR のターン〉1 つの PR が複数人に載る。形式上の状態と会話の状態を別の信号として出す:
-  draft         作者。draft のまま
-  CI 赤         作者。head commit のチェックに SUCCESS / NEUTRAL / SKIPPED / PENDING /
-                EXPECTED / CANCELLED / STALE 以外の結論がある（未知の値は赤に倒す）
-  指摘対応      作者。reviewDecision が CHANGES_REQUESTED
-  レビュー      依頼先。Bot 以外（人か Team）へのレビュー依頼が未消化（copilot 等の Bot 宛は数えない）
-  レビュー待ち  作者。その依頼が残っている間。作者に動かせることは無いが、行を立てないと
-                open な PR が作者のどの段にも出ず、依頼を出したことごと一覧から消える
-  マージ        作者。APPROVED で依頼も残っていない（main 未追従なら併記）
-  再依頼        作者。作者以外の人のレビューが付いて依頼が消えたまま
-  レビュー依頼  作者。Bot 以外へ依頼を出したが、レビューが付かないまま依頼も消えた
-  未依頼        作者。Bot 以外へレビューを依頼したことが一度も無い。相手はこの PR を知らないので、
-                「待ち」は作成日ではなく最後に動かした日（head commit）から数える
-  未送信        レビューを書いた人。下書き（PENDING）のまま送っていない。相手には届いていない
-  返答待ち      指摘した人。未解決スレッドで自分の指摘の後に作者がまだ返していない
-  スレッド返答  作者。未解決スレッドで自分の最後の発言の後に指摘が来ている
-  再確認        指摘した人。未解決スレッドで自分の指摘の後に作者が返した（再依頼は押されていない）
-  担当          assignee。作者と別の人が assignee
+〈PR のターン〉1 つの PR が複数人に載る。形式上の状態と会話の状態を別の信号として出す。信号は
+ASCII のキーで持ち（判定が比べるだけで、印字はしない）、括弧の中は日本語の呼び名:
+  draft              作者。draft のまま
+  ci_red（CI 赤）    作者。head commit のチェックに SUCCESS / NEUTRAL / SKIPPED / PENDING /
+                     EXPECTED / CANCELLED / STALE 以外の結論がある（未知の値は赤に倒す）
+  changes_requested（指摘対応）
+                     作者。reviewDecision が CHANGES_REQUESTED
+  review（レビュー） 依頼先。Bot 以外（人か Team）へのレビュー依頼が未消化（copilot 等の Bot 宛は数えない）
+  awaiting_review（レビュー待ち）
+                     作者。その依頼が残っている間。作者に動かせることは無いが、行を立てないと
+                     open な PR が作者のどの段にも出ず、依頼を出したことごと一覧から消える
+  merge（マージ）    作者。APPROVED で依頼も残っていない（main 未追従なら併記）
+  rerequest（再依頼）作者。作者以外の人のレビューが付いて依頼が消えたまま
+  review_requested（レビュー依頼）
+                     作者。Bot 以外へ依頼を出したが、レビューが付かないまま依頼も消えた
+  unrequested（未依頼）
+                     作者。Bot 以外へレビューを依頼したことが一度も無い。相手はこの PR を知らないので、
+                     「待ち」は作成日ではなく最後に動かした日（head commit）から数える
+  unclassified（分類なし）
+                     作者。reviewDecision が上のどれでもない値
+  pending_review（未送信）
+                     レビューを書いた人。下書き（PENDING）のまま送っていない。相手には届いていない
+  awaiting_reply（返答待ち）
+                     指摘した人。未解決スレッドで自分の指摘の後に作者がまだ返していない
+  thread_reply（スレッド返答）
+                     作者。未解決スレッドで自分の最後の発言の後に指摘が来ている
+  recheck（再確認）  指摘した人。未解決スレッドで自分の指摘の後に作者が返した（再依頼は押されていない）
+  assigned（担当）   assignee。作者と別の人が assignee
 「待ち」はその信号が出た日からの日数。PR の作成日ではない。信号の名前は報告に出さない——
 読む人が要るのは「今日動かせるか」と、行に添えた事実の方で、語彙を覚えることではない。
 並びは「その人が動けば進むか」の 4 段。各段の中では待ちの古い順:
@@ -73,22 +83,15 @@ import unicodedata
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/catchup と共用
+from ghtext import DONE_NOT_RED, is_bot, mentions, readable, repo_refs  # noqa: E402 — 発言の読み方。/catchup と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-# CANCELLED / STALE は新しい push に打ち切られた実行で、作者が直すものではない。空文字は実行中
-GREEN = {
-    "SUCCESS",
-    "NEUTRAL",
-    "SKIPPED",
-    "PENDING",
-    "EXPECTED",
-    "CANCELLED",
-    "STALE",
-    "",
-}
+# 赤でないもの。終わって赤でない物（lib/ghtext.py）に、実行中（PENDING と空文字）を足す——ここは
+# 「作者が今直すものがあるか」を見るので、まだ終わっていない実行は赤に数えない
+GREEN = DONE_NOT_RED | {"PENDING", ""}
 
 MATERIALS_MARK = "==== ここから下は判定の材料。貼らない ===="
 
@@ -96,13 +99,17 @@ MATERIALS_MARK = "==== ここから下は判定の材料。貼らない ===="
 AUTHOR_ONLY_MERGE = {"BEHIND", "DIRTY"}
 
 # tier() が返す段。0〜2 は今日動かせる（自分の番）、3 は相手が動くまで進まない（相手の番）。
-# 報告は 2 つに分けて出し、段そのものは並びの鍵としてだけ使う——動かせる中での優先順は
+# 報告は 2 つに分けて出し、段そのものは並びのキーとしてだけ使う——動かせる中での優先順は
 # 「その人しか動かせない」→「動ける人はほかにもいる」→「まだ誰にも渡していない」の順
 MINE = (0, 1, 2)
-BUCKETS = (("自分の番", lambda t: t in MINE), ("相手の番", lambda t: t not in MINE))
+# (キー, 見出し, 段の選び方)。比べるのはキーで、見出しは印字にだけ使う
+BUCKETS = (("mine", "自分の番", lambda t: t in MINE), ("theirs", "相手の番", lambda t: t not in MINE))
 
+# 信号（pr_balls が立てる行の種類）は ASCII のキーで持つ。一覧はファイル冒頭の docstring。日本語の表示の語
+# （「再確認 N 件」）で持って startswith で比べていた頃は、語を言い換えると判定が黙って変わった
+# （docs/standards/machine-readable-values.md の決まり 3）
 # まだ誰にも渡していない状態。待っている人はいないが、動かせるのは本人だけ
-HANDOFF = {"draft", "未依頼", "未送信"}
+HANDOFF = {"draft", "unrequested", "pending_review"}
 
 NOT_SEEN = """\
 見ていないもの:
@@ -270,10 +277,6 @@ def login(actor):
     return (actor or {}).get("login")
 
 
-def is_bot(actor):
-    return (actor or {}).get("__typename") == "Bot"
-
-
 def reviewer(node):
     # User → login / Team → org/slug / それ以外（copilot 等の Bot）→ None。
     # login の有無で見分けると、クエリのフラグメントに Bot { login } を足した途端 Bot が人になる
@@ -300,7 +303,7 @@ def pr_balls(pr):
         return latest(e["createdAt"] for e in events if e["__typename"] == kind)
 
     # 作者がレビューコメントに返信すると、作者名義の COMMENTED レビューができる。それを
-    # 「人のレビュー」に数えると、誰にも頼んでいない PR が「再依頼」に化ける
+    # 「人のレビュー」に数えると、誰にも頼んでいない PR が rerequest に化ける
     reviews = [r for r in pr["reviews"]["nodes"] if login(r["author"]) != author]
 
     def last_review(pred):
@@ -320,13 +323,13 @@ def pr_balls(pr):
         rows.append(
             (
                 author,
-                "CI 赤",
+                "ci_red",
                 since or pr["commits"]["nodes"][0]["commit"]["committedDate"],
             )
         )
     elif pr["reviewDecision"] == "CHANGES_REQUESTED":
         since = last_review(lambda r: r["state"] == "CHANGES_REQUESTED")
-        rows.append((author, "指摘対応", since or created))
+        rows.append((author, "changes_requested", since or created))
 
     pending = []
     for rq in pr["reviewRequests"]["nodes"]:
@@ -340,7 +343,7 @@ def pr_balls(pr):
             and reviewer(e.get("requestedReviewer")) == who
         )
         pending.append(asked or created)
-        rows.append((who, "レビュー", asked or created))
+        rows.append((who, "review", asked or created))
 
     # 形式上の状態（依頼が残っていなければ作者のターン）。CI 赤・指摘対応があればそちらが作者の行
     if not pending and not rows:
@@ -348,14 +351,14 @@ def pr_balls(pr):
             rows.append(
                 (
                     author,
-                    "マージ",
+                    "merge",
                     last_review(lambda r: r["state"] == "APPROVED") or created,
                 )
             )
         # reviewDecision はレビューが 1 件も無い間 null で、Bot の COMMENTED が 1 件付いた
         # 瞬間に REVIEW_REQUIRED になる（実測 2026-08-23・IL-SW-AI/guided-resolver: レビュー 0 件の
         # #1478 は null、Copilot の COMMENTED だけ付いた #1476 は REVIEW_REQUIRED）。null を
-        # 分類なしに落とすと、立てたばかりの PR が「未依頼」ではなく最上段に出る
+        # unclassified に落とすと、立てたばかりの PR が unrequested ではなく最上段に出る
         elif pr["reviewDecision"] in ("REVIEW_REQUIRED", None, ""):
             human = last_review(lambda r: not is_bot(r["author"]))
             asked = latest(
@@ -365,9 +368,9 @@ def pr_balls(pr):
                 and reviewer(e.get("requestedReviewer"))
             )
             if human:
-                rows.append((author, "再依頼", human))
+                rows.append((author, "rerequest", human))
             elif asked:
-                rows.append((author, "レビュー依頼", asked))
+                rows.append((author, "review_requested", asked))
             else:
                 # 誰にも頼んでいない PR には待たせている相手がいない。作成日から数えると、書きかけを
                 # 寝かせた期間まで「待ち」に入る（実測: #1276 は作成 21 日前・最後の push は 3 日前で、
@@ -375,7 +378,7 @@ def pr_balls(pr):
                 rows.append(
                     (
                         author,
-                        "未依頼",
+                        "unrequested",
                         latest(
                             (
                                 last_event("ReadyForReviewEvent"),
@@ -386,7 +389,7 @@ def pr_balls(pr):
                     )
                 )
         else:
-            rows.append((author, f"分類なし({pr['reviewDecision']})", created))
+            rows.append((author, "unclassified", created))
 
     conv = conversation_balls(pr)
     # 依頼が生きている間、上の分岐は作者に 1 行も積まない。そのままだと open な PR が作者の
@@ -396,7 +399,7 @@ def pr_balls(pr):
     # 倒し、直近に動かした PR の日数が依頼日まで引き戻されて放置に見える（同日の実測:
     # 無条件に積むと #1207 が 4 日 → 29 日、#1450 が 2 日 → 4 日になった）
     if pending and not any(who == author for who, _, _ in rows + conv):
-        rows.append((author, "レビュー待ち", latest(pending) or created))
+        rows.append((author, "awaiting_review", latest(pending) or created))
     return rows + conv
 
 
@@ -413,23 +416,21 @@ def conversation_balls(pr):
     # 別人の行なので、そちらの「まだ行が無い」判定には混ぜない
     draft = pr.get("pendingReview")
     if draft:
-        rows.append((draft["by"], "未送信", draft["since"]))
+        rows.append((draft["by"], "pending_review", draft["since"]))
     turns = thread_turns(pr)
     for who in sorted({w for _, w, _, _ in turns if w != author}, key=str):
-        ats = [c["createdAt"] for _, w, c, _ in turns if w == who]
-        rows.append((who, f"再確認 {len(ats)} 件", min(ats)))
+        rows.append((who, "recheck", min(c["createdAt"] for _, w, c, _ in turns if w == who)))
     owed = [(c, waiting) for _, w, c, waiting in turns if w == author]
     if owed:
         rows.append(
             (
                 author,
-                f"スレッド返答 {len(owed)} 件",
+                "thread_reply",
                 min(c["createdAt"] for c, _ in owed),
             )
         )
     for p in sorted({p for _, waiting in owed for p in waiting}, key=str):
-        ats = [c["createdAt"] for c, waiting in owed if p in waiting]
-        rows.append((p, f"返答待ち {len(ats)} 件", min(ats)))
+        rows.append((p, "awaiting_reply", min(c["createdAt"] for c, waiting in owed if p in waiting)))
 
     for a in pr["assignees"]["nodes"]:
         if a["login"] != author:
@@ -439,20 +440,20 @@ def conversation_balls(pr):
                 if e["__typename"] == "AssignedEvent"
                 and (e.get("assignee") or {}).get("login") == a["login"]
             )
-            rows.append((a["login"], "担当", assigned or created))
+            rows.append((a["login"], "assigned", assigned or created))
     return rows
 
 
 def owes_thread(kinds):
-    """未解決スレッドに返すターンが残っているか。形式上の状態（再依頼・レビュー）と違い実際に何かを負う"""
-    return any(k.startswith(("スレッド返答", "再確認")) for k in kinds)
+    """未解決スレッドに返すターンが残っているか。形式上の状態（rerequest・review）と違い実際に何かを負う"""
+    return any(k in ("thread_reply", "recheck") for k in kinds)
 
 
 def shared_balls(rows):
     """merge_rows の結果から、相手にも返すターンが残っている人を返す。
 
     会話のボールが 2 人以上に立っている PR は、その 1 人が全部片づけても終わらない。作者は
-    「スレッド返答」、スレッドを立てた人は「再確認」を負うので、両方が立てば両者が該当する。"""
+    thread_reply、スレッドを立てた人は recheck を負うので、両方が立てば両者が該当する。"""
     owing = {who for who, (kinds, _) in rows.items() if owes_thread(kinds)}
     return owing if len(owing) > 1 else set()
 
@@ -460,7 +461,7 @@ def shared_balls(rows):
 def waiting_on_others(pr, who, kinds):
     """その人が最後に発言していて、未解決スレッドに返すターンも残っていない＝相手の返事待ち。
 
-    「再依頼」「レビュー」は形式上の状態（依頼が残っているか）だけで立つので、指摘に全部返した後も、
+    rerequest・reviewは形式上の状態（依頼が残っているか）だけで立つので、指摘に全部返した後も、
     レビュアーが質問を投げて答えを待っている間も消えない。日数だけが伸びて上を占めるため段を分ける。
     """
     if owes_thread(kinds):
@@ -478,7 +479,7 @@ def blocked_by_others(pr, who, kinds):
     """作者しか外せない障害が残っていて、その人の残りが再確認だけか。
 
     作者でない人にとって main 未追従・衝突・CI 赤はどれも手が出せない。それでも
-    「再確認 N 件」は立ち続けるので、上段に置くと本当に動かせる行を押し下げる。
+    recheck は立ち続けるので、上段に置くと本当に動かせる行を押し下げる。
     残りが再確認だけのときに限る——同じ PR に未消化のレビュー依頼があるなら、
     作者が詰まっていてもその人にしかできない仕事が残っている。
 
@@ -486,7 +487,7 @@ def blocked_by_others(pr, who, kinds):
     返ってきたスレッドを閉じるのは、相手を待たずに今できる仕事だから。"""
     if login(pr["author"]) == who or not kinds:
         return False
-    if not all(k.startswith(("再確認", "返答待ち")) for k in kinds):
+    if not all(k in ("recheck", "awaiting_reply") for k in kinds):
         return False
     return bool(pr["mergeStateStatus"] in AUTHOR_ONLY_MERGE or red_checks(pr))
 
@@ -495,19 +496,19 @@ def tier(pr, who, kinds, reviewers, waiting, shared=False):
     """0 = あなたを待っている人がいて、動かせるのはその人だけ / 1 = 同じだが動ける人がほかにもいる /
     2 = まだ誰にも渡していない（draft・未依頼） / 3 = 相手が動くまで進まない。
 
-    1 になるのは「レビュー」だけの行で同じ PR に Bot 以外（人か Team）のレビュー依頼先が
+    1 になるのは review だけの行で同じ PR に Bot 以外（人か Team）のレビュー依頼先が
     2 つ以上あるとき、または同じ PR の相手にも返すターンが残っているとき（shared）。後者を 0 に
     置くと「その人しか動かせない」が偽になる。相手が自分のスレッドに答えるまで、その人が
     全部再確認しても PR は終わらない。
 
     2 を 3 から分けるのは、渡していない PR は誰も待っていないが動かせるのは本人だけで、
     相手待ちと同じ段に置くと本当のボールが沈むため。"""
-    # 「未依頼」でも作者以外の assignee がいれば、レビュー依頼のボタンを押さずに人へ渡してある。
+    # unrequested でも作者以外の assignee がいれば、レビュー依頼のボタンを押さずに人へ渡してある。
     # 渡していない扱いにすると、相手が閉じるか進めるかを決めるターンの PR が自分の一覧に出続ける
     # （実測 2026-08-23・IL-SW-AI/guided-resolver #1403: assignee を付けて「扱いはお任せします、
     # 不要だったら閉じてください」と書いた PR が 6 日「まだ誰にも渡していない」に居座っていた）。
     # draft は例外にしない——作者が自分で「まだ出さない」と印を付けた状態だから
-    handed = kinds == ["未依頼"] and any(
+    handed = kinds == ["unrequested"] and any(
         a["login"] != login(pr["author"]) for a in pr["assignees"]["nodes"]
     )
     # 渡していない判定が先。draft・未依頼は誰も待っていないので waiting も立つが、
@@ -516,11 +517,11 @@ def tier(pr, who, kinds, reviewers, waiting, shared=False):
         return 2
     # 依頼中の作者は相手が返すまで手が無い。waiting は「最後に発言したのが本人」で判定するので、
     # 依頼を出しただけでまだ誰も発言していない PR では立たず、既定の 0（自分の番）に落ちる
-    if kinds == ["レビュー待ち"]:
+    if kinds == ["awaiting_review"]:
         return 3
     if waiting or blocked_by_others(pr, who, kinds):
         return 3
-    if shared or (kinds == ["レビュー"] and reviewers > 1):
+    if shared or (kinds == ["review"] and reviewers > 1):
         return 1
     return 0
 
@@ -879,44 +880,10 @@ def latest_human_post(posts):
     return humans[-1] if humans else None
 
 
-_FENCE = re.compile(r"```.*?```", re.S)
-_INLINE = re.compile(r"`[^`\n]*`")
-_QUOTE = re.compile(r"^[ \t]*>.*$", re.M)
-_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-# メールアドレスの @ と @org/team は除く。末尾の lookahead が無いと @org/team を org/tea... まで
-# 後退して拾ってしまう
-_MENTION = re.compile(
-    r"(?<![A-Za-z0-9_.@/])@([A-Za-z0-9][A-Za-z0-9_-]*)(?![A-Za-z0-9_/-])"
-)
-# #1466 と、完全 URL（CLAUDE.md が短縮参照を禁じている箇所は URL でしか書かれない）の両方。
-# URL は自リポジトリのものだけ——他所の URL を拾うと番号空間が重なって別物を指す
-# （実測 2026-08-23・#1424: argoproj/argo-cd の issues/7673 を自分の 7673 として拾っていた）
-_ISSUE_REF = r"(?:#|{}/(?:issues|pull)/)(\d{{1,7}})(?!\d)"
-
-
-def clean(text):
-    return _LINK.sub(r"\1", _QUOTE.sub("", _INLINE.sub("", _FENCE.sub("", text or ""))))
-
-
-def readable(text):
-    """材料として読む用。引用（>）とコードブロックだけ落とし、インラインコードは残す。
-
-    mentions() が使う clean() はインラインコードまで落とす——コードの中の @name を呼びかけに
-    数えないため。材料で同じことをすると、指摘の主語（ファイル名・コミット SHA・設定キー）が
-    消えて「を新設しました」だけが残り、読んでも何の話か判定できない。"""
-    return " ".join(
-        _LINK.sub(r"\1", _QUOTE.sub("", _FENCE.sub("", text or ""))).split()
-    )
-
-
-def mentions(text):
-    return set(_MENTION.findall(clean(text)))
-
-
 def issue_refs(text, repo):
-    """本文が指す自リポジトリの issue / PR の番号。コード・引用の中は数えない（clean が落とす）"""
-    pattern = re.compile(_ISSUE_REF.format(re.escape(repo)))
-    return {int(n) for n in pattern.findall(clean(text))}
+    """本文が指す自リポジトリの issue / PR の番号。#1466 と、完全 URL（CLAUDE.md が短縮参照を禁じている
+    箇所は URL でしか書かれない）の両方。読み方は lib/ghtext.py に 1 つだけ置く。"""
+    return repo_refs(text, repo)
 
 
 def unverified_replies(pr, who):
@@ -1161,10 +1128,10 @@ def report(a):
 
     reviewers = {}  # PR 番号 -> Bot 以外（人か Team）のレビュー依頼先の数
     for (_, n), (kinds, _) in balls.items():
-        reviewers[n] = reviewers.get(n, 0) + ("レビュー" in kinds)
+        reviewers[n] = reviewers.get(n, 0) + ("review" in kinds)
 
     def pr_rows(who):
-        """(段, いつから, 番号) を段の順・古い順で。段は並びの鍵で、印字はしない"""
+        """(段, いつから, 番号) を段の順・古い順で。段は並びのキーで、印字はしない"""
         rows = []
         for (w, n), (kinds, since) in balls.items():
             if w != who:
@@ -1237,8 +1204,7 @@ def report(a):
         return lines
 
     if a.json:
-        keep_mine = dict(BUCKETS)["自分の番"]
-        rows = [r for r in pr_rows(me) if keep_mine(r[0])]
+        rows = [r for r in pr_rows(me) if r[0] in MINE]
         print(json.dumps({
             "schema": 1,
             "repo": repo,
@@ -1267,14 +1233,14 @@ def report(a):
         "N 日 = 今の状態になってからの日数"
     )
     if a.all:
-        for title, keep in BUCKETS:
+        for key, title, keep in BUCKETS:
             print(f"\n## {title} — PR")
             for who in sorted({w for w, _ in balls}, key=str):
                 rows = [r for r in pr_rows(who) if keep(r[0])]
                 if not rows:
                     continue
                 print(f"  {who} — {len(rows)} 件")
-                print("\n".join(pr_lines(who, rows, "  ", intro=title == "自分の番")))
+                print("\n".join(pr_lines(who, rows, "  ", intro=key == "mine")))
         print("\n## 返していない呼びかけ")
         for who in sorted({w for w, _, _ in pr_waits + issue_waits}):
             mine = [w for w in pr_waits + issue_waits if w[0] == who]
@@ -1282,10 +1248,10 @@ def report(a):
             print("\n".join(wait_lines(mine, "  ")))
     else:
         rows = pr_rows(me)
-        for title, keep in BUCKETS:
+        for key, title, keep in BUCKETS:
             bucket = [r for r in rows if keep(r[0])]
             print(f"\n## {title} — PR {len(bucket)} 件")
-            print("\n".join(pr_lines(me, bucket, intro=title == "自分の番")))
+            print("\n".join(pr_lines(me, bucket, intro=key == "mine")))
         # PR と issue は番号が 1 本なので、呼びかけは種別で分けずに古い順に並べる
         mine = [w for w in pr_waits + issue_waits if w[0] == me]
         print(f"\n## 返していない呼びかけ — {len(mine)} 件")
