@@ -8,7 +8,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ### Changed
 
-- スキル・コマンド・プロンプトの文書を IT の定着語に置き換えた。前の版で置き換えた engine・グラフの言い方とそろう。グラフの「節」はノード、文書の区切りの「節」はセクションにした。振る舞いは変えていない。
+- スキル・コマンド・プロンプトの文書を IT の定着語に置き換えた。前の版で置き換えた engine・グラフの言い方とそろう。グラフの「節」はノード、文書の区切りの「節」はセクションにした。振る舞いは変えていない。research-graph の SKILL.md と、review-graph の references の flows.md・policy.md・runnerless.md と、review-loop のプロンプトの p2.history.md・report.md の 6 本は、まだ置き換えていない。
 
 ## [0.30.0] - 2026-10-19
 
