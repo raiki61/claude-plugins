@@ -24,6 +24,7 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 - [配る形（plugin.json・marketplace の項目・README の入れ方）](plugin-manifest.md)
 - [スキルの書き方（本文の長さ・別ファイルへの分け方・description）](skill-authoring.md)。対象は上の 6 つに加え works と works-factory も含む（標準の中の「対象」）
+- [機械が読む値の受け渡し（構造で渡す・外のツールは機械向けの出力で読む・言語に依らないキー・黙って崩さない・自作も写しもしない）](machine-readable-values.md)。対象は上の 6 つに加えルートの `scripts/`・`tests/`
 
 ## 進め方（標準の担当がすること）
 
@@ -72,3 +73,15 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 標準の内の物: attention の my-turn・reflect、gates の coldread（4,962 字）、graphloops の intake、tiers の check、works-factory の works-factory（4,189 字）。
 
 2-1〜2-6 は、標準が main に入った後（b1a21382）に頼んだ。納品が届いたら、次の回にここを「入った（commit）」に書き直す。
+
+### 3 回目（2026-10-19、受付 20261018-204600-6563b9）
+
+持ち主の頼み（「そういう感じで全体的に汚いところないかリファクタリングしよう。」）で、[機械が読む値の受け渡しの標準](machine-readable-values.md)を作った。6 つのプラグインとルートの scripts・tests を見渡し、構造で持つべき値を文から拾う・世間の解を自作する・黙って崩れる・言語や特定のツールに縛られる・同じ処理を写す、の 5 種類を 114 件見つけた（読み取り役の指摘で、各担当が直す前に確かめる）。プラグインごとの多い順にまとめて頼む。
+
+- 3-1 attention: 会話の記録の置き場の名前の作り方が違い、`.herdr` を含む作業場で `/what-am-i-doing` が記録を見つけられない（今壊れている）。ほか、表示の文字列の末尾の一致で「自分に渡された」を決める・`@名前` の一致が緩い・gh の失敗を空の結果に見せる・種類を日本語の表示の語で持つ・git の出力を `-z` 無しで読む・同じ正規表現と diff の読み方の写し。状態: 見つけた
+- 3-2 convergence-loops と graphloops: review-record.py の日本語の出力の行で review-loop の行き先を決める・comment-ratio.sh の `scalars:` の行を読む・役の答えを `--json-schema` 無しで受けて文から JSON を探す・前の回の印を日本語の添え書きで持つ・記録の列挙が日本語の値・役の定義の frontmatter の自作の読み方（YAML のリストの形で、役に渡すツールが黙って空になる）・壊れた状態のファイルを空として読む。状態: 見つけた
+- 3-3 gates とルートの tests: 初見読みのゲートが読み手の答えを日本語の見出しと「なし」の語で読む・フックの入力を読めないと通す・`except: pass` で状態の保存が黙って止まる・dest-gate の `owner_repo` の写し・tests/run.sh が YAML と frontmatter を行と正規表現で読み、日本語の決まった文で方針を見る。加えて、標準の決まり 3・4 を数で守らせる検査。状態: 見つけた
+- 3-4 works-dispatch と tiers: 台帳（`log.jsonl`）の読めない行を黙って飛ばして位置を進める・行き詰まりを解く処理が例外を黙って捨てる・終了コードが日本語の理由の文字列の一致で決まる・席の種類と役の既定が日本語の値・`git config` を `-z` 無しで読む・`gh issue develop --list` の表を列で切る・自作の原子的な書き込みとロックが 6 か所と 5 か所。tiers は herdr の状態を人向けの出力で読み、Claude Code のログインを見ない。状態: 見つけた
+- 3-5 ルートの scripts: `spread-plugins.py` の入力フィールドの判定が works-dispatch の直す前の写しで、割れている・成否を自分の出した日本語の行で決める・`shared-copies.py` と `terms.py` が読めないファイルを黙って数から外す・`claude_auth.py` がトークンの頭の形の違いを黙って捨てる。状態: 見つけた
+
+直さないと決めた物と訳は、標準の「直さないと決めた物」に書いた。
