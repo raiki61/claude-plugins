@@ -263,8 +263,8 @@ How findings are returned depends on the writing role:
   It also stops with 1 if there are documents for which the reader could not be started (passing them unread would make the gate silently empty). At the end of standard output, it prints the blocker lines (with paths from the
   root of the working tree) and the counts and the location of the file with the full text. Verdicts for the same request text are remembered in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch/`, so
   reruns after the mainline moves forward and the branch is rebased do not read again. To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,
-  the works-dispatch plugin's (a tool that starts sessions in a workspace per branch to carry out work) command for merging a branch into the mainline, `--land`, runs before merging
-  the command written in `check` under `[land]` in `.claude/company.toml`, and does not merge if it is red. This entry point is chained there with `&&`.
+  the works-dispatch plugin's (a tool that starts sessions in a workspace per branch to carry out work) command for merging a branch into the mainline, `--land`, first runs
+  the command written in `check` under `[land]` in `.claude/company.toml`, and does not merge the branch if that command fails. This entry point is chained there with `&&`.
   Back when documents were read only at the end of a turn, for sessions that finish everything up to merging into the mainline within one turn (sessions started by works-dispatch to carry out work),
   the findings arrived after the merge into the mainline (8 cases on 2026-10-17). That is why it also reads with this check before merging into the mainline
 - **The end of the parent session's turn is not made to wait**: in interactive sessions (including agent view sessions), the Stop hook runs in the background with `asyncRewake`

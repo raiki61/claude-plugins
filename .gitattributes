@@ -13,3 +13,5 @@ works/.shared/core/COPIED_FROM.* linguist-documentation
 # graphloops の台本の移し先の台帳（graphloops/tests/py/ledger.py が刷った塊を貼る。中身が今の台帳と同じかは test_ledger.py が見る）。
 # 塊は元の台本の check の説明の写しなので、初見読みは書き換えのたびに台本の語で詰まりを出す。ほかの検査が受け持つ文書として外す
 graphloops/tests/py/MIGRATION.md -coldread
+# ルートの台本の移し先の台帳も同じ（表は tests/py/ledger.py が刷り、中身が今の台帳と同じかは tests/py/test_review_record.py が見る）
+tests/py/MIGRATION.md -coldread
