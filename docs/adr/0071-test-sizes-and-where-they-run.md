@@ -10,7 +10,7 @@
 
 - 試験の種類が増え、どれをどこで回すかを 1 か所で決めた物が無かった。決まりは README・ADR（[0019](0019-mutation-testing-google-style.md)・[0020](0020-mutation-after-merge.md)・[0042](0042-ci-skip-allowlist-per-os.md)・[0062](0062-test-migration-policy.md)）・works の段の一覧（`works/tests/tiers.py`）に散らばっていた。
 - その結果、手元で重い試験が重なった。2026-09-29、darkfactory の run を 11 本並べたとき、各 run が最初の段と最後の段で test_cmd（works の全段とリポジトリ全体の試験、1 本約 27 分）を手元で回し、load average が 1 分平均で 57 まで上がった。前にも 6〜7 本の並びで 475 まで上がり、役が最初の出力を返せずに落ちている（`first_event_timeout`）。
-- 大きさの印は本流の pytest に small・medium だけ在り（`graphloops/README.md` の「Size markers」）、印の無いファイルが 46 本中 32 本あった（2026-09-29 に数えた）。works の段 fast・heavy は「使う物の形で分ける」考え方で Google の大きさと同じ筋だが、境目が違い、fast にも子プロセスを起こすモジュールが在る。
+- 大きさの印は本流の pytest に small・medium だけ在り（`graphloops/README.md` の「大きさの印」）、印の無いファイルが 46 本中 32 本あった（2026-09-29 に数えた）。works の段 fast・heavy は「使う物の形で分ける」考え方で Google の大きさと同じ筋だが、境目が違い、fast にも子プロセスを起こすモジュールが在る。
 - works の試験は手元でしか回っておらず、GitHub の CI に job が無かった。
 
 ## 決定

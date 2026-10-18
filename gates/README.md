@@ -1,5 +1,7 @@
 # gates — gatekeeper hooks
 
+For people who use Claude Code to post to GitHub with gh or to write documents, and want a check that the text gets across to a first-time reader before it goes out. Install the plugin (see Install); the coldread hooks are on as soon as it is installed, and destgate stays off until you create its allowlist. After Install and the first coldread section, the later sections are reference: the limits of what is caught, the details of each gatekeeper, and the measurements behind each decision.
+
 Distributes hooks that stop outward-facing operations until a check passes. There are currently 2 gatekeepers: coldread (whether the text gets across) and destgate (an allowlist for destinations). coldread stops posts to gh before they are written; for local documents (md and so on) it reads them after they are written and returns findings at the end of the role that wrote them (the parent session or a worker) (it does not stop them).
 
 The skill's instructions and description are written in Japanese.
