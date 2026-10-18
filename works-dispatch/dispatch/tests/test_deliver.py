@@ -969,6 +969,19 @@ class Flow(unittest.TestCase):
         (rec,) = deliver.records(self.inbox)
         self.assertEqual((rec["status"], rec["detail"]), ("failed", "部署 直し  b/x  -  no_account（使用率が上限に届かないアカウントが無い）"))
 
+    def test_a_department_that_failed_to_launch_keeps_the_reason_from_before_the_summary(self):
+        # launch_failed の訳は要約の行より前の行に在る。要約の行だけを残すと、状態の語しか残らない
+        self.shape('[[roles]]\nname = "作業"\n')
+
+        def failed(cfg, repo, a, ports, **kw):
+            print(f"claude が起動しなかった（exit 1）\n部署 {a.task}  {a.branch}  p1  launch_failed\n- ペイン 1（x）")
+            return 1
+        with mock.patch.object(sys.modules["dispatch"], "_task", failed):
+            rc, out = self.main(self.src, "--ask", "作業", "--text", "直して", "--task", "直し", "--branch", "b/x")
+        self.assertEqual(rc, 1, out)
+        (rec,) = deliver.records(self.inbox)
+        self.assertEqual(rec["detail"], "claude が起動しなかった（exit 1）；部署 直し  b/x  p1  launch_failed")
+
     def shape(self, text):
         # 会社の形は本社（元の clone）のものを読む（--tree と頼む側と同じ。部署のブランチの中の写しではない）
         shape = pathlib.Path(self.src) / ".claude" / "company.toml"

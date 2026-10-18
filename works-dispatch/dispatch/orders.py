@@ -661,10 +661,10 @@ def own_branch(cwd, branch, source, g=gitx):
 
 def why_not(said):
     """部署を立てる道（dispatch._task）が画面に書いた物から、立たなかった訳の 1 行（台帳の detail）。止めた行が有ればその最後、
-    無ければ箇条（「- 」で始まる行）でない最後の行。何も書いていなければ None。"""
+    無ければ箇条（「- 」で始まる行）でない行を「；」でつないだ物（起動に失敗した訳は要約の行より前の行に在る）。何も書いていなければ None。"""
     lines = [x.strip() for x in said.splitlines() if x.strip()]
-    return (next((x for x in reversed(lines) if x.startswith("止めた")), None)
-            or next((x for x in reversed(lines) if not x.startswith("- ")), None))
+    told = [x for x in lines if not x.startswith("- ")]
+    return next((x for x in reversed(lines) if x.startswith("止めた")), None) or ("；".join(told) or None)
 
 
 def cause_of(a, here, ports):
