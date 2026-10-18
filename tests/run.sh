@@ -3525,7 +3525,7 @@ print("DOCS_RACE_OK")
 PY
 # メインブランチに入れる前のゲート(--land の check から呼ぶ branch-check): ブランチが足した・変えた文書だけを読み、詰まりが在れば 1 で止める。
 # 前は手元の文書の読みがターンの終わりに裏で走るだけで、部署が同じターンで --land まで済ませると、指摘はメインブランチに入った後に届いた
-expect_output 0 "DOCS_BRANCH_OK" "coldread のブランチのゲート: メインブランチとの分かれ目からブランチが書いた文書だけを読み、詰まりで止め、推測だけなら通し、同じ依頼文は読み直さず、読めなければ止め、語の置き換えだけの行は数えない" \
+expect_output 0 "DOCS_BRANCH_OK" "coldread のブランチのゲート: メインブランチとの分かれ目からブランチが書いた文書だけを読み、同じブランチの打ち直しは前の回から変えた所だけを読んで前の詰まりは問い直し、詰まりで止め、推測だけなら通し、同じ依頼文は読み直さず、読めなければ止め、語の置き換えだけの行は数えない" \
     "$PY_BIN" - "$ROOT" "$WORK/docs-branch" <<'PY'
 import json, os, pathlib, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3543,9 +3543,13 @@ def git(*a):
 
 # 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは CLEAN を返す。
 # 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。
+# 前の回の詰まりがまだ詰まるかを問う依頼文(RECHECK_HEAD)は名前の末尾を .recheck にして残し、今の版に印STUCK が在れば全部を STILL、無ければ全部を FIXED と返す。
 # 詰まりをメインブランチの版と比べる依頼文(BASE_CHECK_HEAD)は名前の末尾を .base にして残し、前の版にも印STUCK が在れば印STUCK の詰まりを
 # OLD と返す(印FRESH の詰まりが 1 番に在れば 1 は NEW、印STUCK の詰まりは 2 番)
-READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "2 つの版を比べる係" "$f"; then mv "$f" "$f.base"; '
+READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "直しを確かめる係" "$f"; then mv "$f" "$f.recheck"; '
+          'v=FIXED; sed -n "/^--- 今の版 ---$/,\\$p" "$f.recheck" | grep -q 印STUCK && v=STILL; '
+          'for n in $(grep -o "^[0-9]*\\. 詰まり" "$f.recheck" | cut -d. -f1); do echo "$n $v"; done; '
+          'elif grep -q "2 つの版を比べる係" "$f"; then mv "$f" "$f.base"; '
           'if sed -n "/^--- 前の版 ---$/,\\$p" "$f.base" | grep -q 印STUCK; then '
           'if grep -q "^1\\. 詰まり: 印FRESH" "$f.base"; then echo "1 NEW"; echo "2 OLD"; else echo "1 OLD"; fi; else echo "1 NEW"; fi; '
           'elif grep -q 印STUCK "$f"; then grep -q 印FRESH "$f" && echo "詰まり: 印FRESH の語が分からない"; echo "詰まり: 印STUCK の語が分からない"; '
@@ -3559,7 +3563,7 @@ def check(reader=READER, *args):
 
 def prompts(suffix=""):
     return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)
-            if f.name.endswith(".base") == (suffix == ".base")]
+            if f.suffix == suffix or (not suffix and f.suffix not in (".base", ".recheck"))]
 
 def doc(*secs):
     return "# 題\n\nこの文書は印T の設計を書く。\n\n" + "".join("## セクション%s\n\n%s\n\n" % (k, "".join("印%s の %d 行目。\n" % (k, i) for i in range(40)) + extra)
@@ -3718,7 +3722,7 @@ for word in ("新語以外", "ABCDEFGHIJKLM"):   # 語の所でも、漢字・�
 
 # 9) スキルのフォルダ(skills/<名前>/)の文書は、AI が先に読む物を依頼文の本文の印の手前に添える: 別ファイルには SKILL.md を前提として、
 #    SKILL.md には指した先の中身でなく、パスで指した同じフォルダのファイルの名前だけ(a.md は references/a.md の一部でも指していない)。
-#    スキルの外の文書と、SKILL.md の名前が大文字小文字まで合わないフォルダには添えない。SKILL.md を直せば別ファイルを読み直す。手の read も同じ
+#    スキルの外の文書と、SKILL.md の名前が大文字小文字まで合わないフォルダには添えない。同じブランチで SKILL.md だけを直しても、字の変わらない別ファイルは読み直さない(10)。手の read も同じ
 before = len(prompts())
 skill, near = repo / "pl/skills/s", repo / "pl/skills/lower"
 (skill / "references").mkdir(parents=True)
@@ -3744,12 +3748,67 @@ assert not any("補足: 本文は、AI が使う手順書" in got[t] for t in ("
 git("commit", "-q", "-am", "skill body")
 before = len(prompts())
 rc, out = check()
-assert rc == 0 and sum("印SB2" in p for p in prompts()[before:]) == 4, (rc, out)   # SKILL.md と別ファイル 3 本(前提が替わった)
+assert rc == 0 and sum("印SB2" in p for p in prompts()[before:]) == 1, (rc, out)   # SKILL.md だけ。字の変わらない別ファイルは前提が替わっても読み直さない(10)
 e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR"))}
 e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=READER)
 before = len(prompts())
 subprocess.run([sys.executable, str(gate), "read", str(skill / "references/a.md")], cwd=str(repo), capture_output=True, env=e, timeout=120, check=True)
 assert "--- 前提: SKILL.md ---" in prompts()[before], prompts()[before][:300]
+
+# 10) 同じブランチで打ち直したら、前の回に読んだ版から変えたセクションだけを新しく読む(読むたびに直していない段落から別の詰まりが出て、
+#     直しが収まらなかった)。前の回の詰まりは、字か前提が変わったら今の版の全体を渡してまだ詰まるかを問い、STILL なら止め、FIXED なら通す。
+#     字も前提も同じなら問わずに止める(問うたびに揺れで通りうる)。問えなければ前の回の詰まりを止めたままにし、次の回に問い直す。
+#     ブランチに居ない HEAD(--land が版を上げた一時の作業場)は、HEAD から辿れて分かれ目から辿れないブランチの前の回を使う。
+#     別のブランチは前の回を持たないので、メインブランチとの分かれ目から読む
+(repo / "inc.md").write_text(doc(("X", ""), ("Y", "印STUCK を足した。\n"), ("Z", "")), encoding="utf-8")
+git("add", "inc.md")
+git("commit", "-q", "-m", "inc")
+rc, out = check()
+assert rc == 1 and "inc.md — 詰まり: 印STUCK" in out, (rc, out)
+before, rbefore = len(prompts()), len(prompts(".recheck"))
+(repo / "inc.md").write_text(doc(("X", "印X2 を足した。\n"), ("Y", "印STUCK を足した。\n"), ("Z", "")), encoding="utf-8")
+git("commit", "-q", "-am", "inc x")
+rc, out = check()
+got, rgot = prompts()[before:], prompts(".recheck")[rbefore:]
+assert rc == 1 and "inc.md — 詰まり: 印STUCK" in out and len(got) == 1 and "印X2" in got[0] and "印Y の 0 行目" not in got[0], (rc, len(got), out)
+assert len(rgot) == 1 and "1. 詰まり: 印STUCK の語が分からない" in rgot[0] and "印Z の 39 行目" in rgot[0], rgot   # 問う係には全体を渡す
+rc, out = check()
+assert rc == 1 and "inc.md — 詰まり: 印STUCK" in out and len(prompts(".recheck")) == rbefore + 1, (rc, out)   # 字が同じなら問い直さない
+before = len(prompts())
+(repo / "inc.md").write_text(doc(("X", "印X2 を足した。\n"), ("Y", "語の意味を書いた。\n"), ("Z", "")), encoding="utf-8")
+git("commit", "-q", "-am", "inc y")
+rc, out = check(READER.replace("v=FIXED; ", "exit 1; "))
+got = prompts()[before:]
+assert rc == 1 and "inc.md — 詰まり: 印STUCK" in out and len(got) == 1 and "語の意味を書いた" in got[0] and "印X2" not in got[0], (rc, len(got), out)
+rc, out = check()
+assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 問い直して FIXED。字が同じなので読み直さない
+rc, out = check()
+assert rc == 0 and "新しく読んだ 0 本" in out and len(prompts()) == before + 1, (rc, out)
+git("switch", "-q", "--detach")
+(repo / "VERSION").write_text("1\n", encoding="utf-8")
+git("add", "VERSION")
+git("commit", "-q", "-m", "bump")
+rc, out = check()
+assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 版上げの commit を足した候補でも feat の前の回を使う
+git("switch", "-q", "feat")
+# スキルの別ファイルの詰まりは、前提の SKILL.md を直せば、別ファイルを読み直さずに今の前提で問い直す
+(skill / "references/c.md").write_text("# 詰まる別ファイル\n\n" + lines("RC") + "印STUCK を足した。\n", encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "skill stuck")
+rc, out = check()
+assert rc == 1 and "references/c.md — 詰まり: 印STUCK" in out, (rc, out)
+before, rbefore = len(prompts()), len(prompts(".recheck"))
+(skill / "SKILL.md").write_text("# スキル\n\n" + lines("SB") + "印SB3 で語を説明した。詳しくは [references/a.md](references/a.md) を読む。\n", encoding="utf-8")
+git("commit", "-q", "-am", "skill define")
+rc, out = check()
+rgot = prompts(".recheck")[rbefore:]
+assert rc == 1 and not any("印RC" in p for p in prompts()[before:]) and len(rgot) == 1 and "印SB3" in rgot[0], (rc, len(rgot), out)
+git("rm", "-q", str(skill / "references/c.md"))
+git("commit", "-q", "-m", "drop c")
+before = len(prompts())
+git("switch", "-q", "-c", "other")
+rc, out = check()
+assert rc == 0 and any("印X の 0 行目" in p and "印Z の 39 行目" in p for p in prompts()[before:]), (rc, out)
 print("DOCS_BRANCH_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。

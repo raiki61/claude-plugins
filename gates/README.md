@@ -237,7 +237,7 @@ read again (in 5 hours on 2026-10-17: 12 blockers against 395 guesses; 17% of th
   A separate file (such as `references/*.md`) gets the skill's `SKILL.md` as premise; the reader takes the words and steps explained there as known and reports only on the body.
   `SKILL.md` does not get the content of the files it points to, only their names (files of the same folder whose relative path is written in `SKILL.md`) and the note that they are opened where `SKILL.md` points,
   so their content missing from `SKILL.md` is not a blocker; a pointer that does not say when to open it or what is in it, and words not explained within `SKILL.md`, are still reported.
-  The premise is the current content in the working tree, for the end-of-turn read, the branch gate, and `read`.
+  The premise is the current content in the working tree for the read the hook runs at the end of each turn, for the branch gate, and for the manual command `python3 hooks/coldread-gate.py read <パス>` (on a rerun of the branch gate, a changed `SKILL.md` alone does not make its separate files read again; see the branch gate below).
   An agent using a skill reads `SKILL.md` first and opens a separate file when `SKILL.md` points to it (`docs/standards/skill-authoring.md`, rules 3 and 4). Read alone, a separate file lost the words explained in `SKILL.md`,
   and `SKILL.md` was blocked because the content it pointed to was not there; each fix brought new blockers elsewhere and the branch gate kept stopping (2026-10-18: 7 → 19 blockers when splitting 3 skills of attention).
   `SKILL.md` is not given the pointed content because the agent reads `SKILL.md` before opening them, and because a `SKILL.md` that points to 12 files would make one edit read most of the folder
@@ -286,7 +286,24 @@ How findings are returned depends on the writing role:
   Whether a replaced word fits its meaning is checked by the side that replaced the words, which sees the old and new words side by side, not by the cold reader.
   It also stops with 1 if there are documents for which the reader could not be started (passing them unread would make the gate silently empty). At the end of standard output, it prints the blocker lines (with paths from the
   root of the working tree) and the counts and the location of the file with the full text. Verdicts for the same request text are remembered in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch/`, so
-  reruns after the mainline moves forward and the branch is rebased do not read again. To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,
+  reruns after the mainline moves forward and the branch is rebased do not read again.
+  A rerun on the same branch reads only what changed since the last run: per branch and document, the gate keeps the version it last finished reading and its verdict
+  in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch-last/` (the newest 2,000 are kept), reads only the sections rewritten since that version (the same range read as above),
+  and does not read again a document whose text has not changed (also when only the premise `SKILL.md` of a separate file changed).
+  The blockers that stopped the last run are asked again only when the document's text or its premise changed: each is sent with the whole current version and the premise
+  to the same reader model, which answers whether it still blocks a reader at the same place for the same reason (STILL) or not (FIXED). STILL blockers stop as before,
+  and an unsure answer or a check that cannot run keeps the blocker. If neither text nor premise changed, the blockers stop again without asking, because each new question
+  could let an unfixed blocker pass on the reader's variation. Only blockers found in this run are compared with the mainline version.
+  A run is not kept when the reader could not be started, or when the re-ask or the mainline comparison could not run; the next run starts again from the version kept before (verdicts already read are remembered, so this costs no new read).
+  The kept versions are not used when the reader's request text, the model, or the effort changes (such as after updating gates).
+  `--land` runs the check in a temporary worktree with no branch checked out (a detached HEAD, with the version bump commit on top of the branch);
+  there the gate uses the last run of the one local branch that HEAD contains and the split point does not. If there is not exactly one such branch, it reads from the split point as before.
+  This is because fixing one line made the reader read the unfixed paragraphs of the same extract again, and the reader picks different places on each read,
+  so new blockers kept coming from paragraphs that were not touched (2026-10-19: 10 → 2 → about 10 → 7 blockers over 4 `--land` runs while splitting a works skill).
+  It is the same shape as reviewing only the changes since the last review (GitHub's "changes since last review", CodeRabbit's incremental review).
+  Trade-off: a sentence that becomes unclear because another section or the premise `SKILL.md` changed (such as a word explanation removed from `SKILL.md`) is not caught until its own section changes.
+  A branch recreated with the same name as a deleted one continues from the deleted branch's last run. Another branch has no last run and reads from the split point.
+  To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,
   the works-dispatch plugin's (a tool that starts sessions in a workspace per branch to carry out work) command for merging a branch into the mainline, `--land`, first runs
   the command written in `check` under `[land]` in `.claude/company.toml`, and does not merge the branch if that command fails. This entry point is chained there with `&&`.
   Back when documents were read only at the end of a turn, for sessions that finish everything up to merging into the mainline within one turn (sessions started by works-dispatch to carry out work),

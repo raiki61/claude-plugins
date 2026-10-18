@@ -3897,7 +3897,7 @@ def _base_marks(out):
 
 
 def _carried_from_base(stuck, body, base):
-    """詰まり(stuck)のうち、メインブランチの版(base)にも同じ理由で在った物の番号(0 から)。問えなければ空(全部を新しい詰まりにする)。"""
+    """(詰まり(stuck)のうち、メインブランチの版(base)にも同じ理由で在った物の番号(0 から), 問えたか)。問えなければ空(全部を新しい詰まりにする)と False。"""
     prompt = (BASE_CHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, line) for k, line in enumerate(stuck, 1))
               + "\n--- 新しい版(読み手が読んだ本文) ---\n" + body + "\n--- 前の版 ---\n" + base)
     key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
@@ -3906,16 +3906,119 @@ def _carried_from_base(stuck, body, base):
             run_reader(prompt, model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT)))
     except Exception as exc:
         log_line(DOC_LOG, "base-check-down\t%s" % str(exc)[:150].replace("\n", " "))
-        return set()
-    return {k for k in range(len(stuck)) if marks.get(str(k + 1)) == "OLD"}
+        return set(), False
+    return {k for k in range(len(stuck)) if marks.get(str(k + 1)) == "OLD"}, True
 
 
-def _branch_verdict(key, body, focus, base, premise=""):
-    """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号)。判定は覚えた物か、読んで覚えた物({"詰まり", "補完", "疑問"})。
-    読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。premise はスキルのフォルダの補足(skill_premise)。"""
-    found, cached = _branch_cached(key, lambda: read_doc(body, focus, premise=premise))
-    old = _carried_from_base(found["詰まり"], body, base) if found["詰まり"] and base is not None else set()
-    return found, cached, old
+# 同じブランチで打ち直したときは、前の回に読んだ版から変えたセクションだけを新しく読む(GitHub の「前のレビューからの変更」・
+# CodeRabbit の incremental review と同じ形)。前の回の版と比べずにメインブランチとの分かれ目から読み直していた頃は、1 行の直しで
+# 同じ抜き出しの直していない段落まで読み手が読み直し、読み手は回ごとに拾う所が替わるので、詰まりが直した所と別の段落から出続けた
+# (2026-10-19、works のスキルの分けで --land を 4 回打ち、詰まり 10 → 2 → 約 10 → 7 件)。前の回の詰まり(止めた物)は、字か前提が
+# 変わったときだけ、今の版でもまだ詰まるかを 1 件ずつ問い(RECHECK_HEAD)、まだ詰まる物は止める。別のセクションや SKILL.md に語の
+# 説明を足した直しも見えるよう、問う係には今の版の全体と前提を渡す。問えなければ前の回の詰まりは全部まだ詰まる物にする。
+# 字も前提も同じなら問い直さない(問うたびに読み手の揺れで、直していない詰まりが通りうる)。前の回の版は、ブランチと文書ごとに読み終えた
+# 版を覚える。読めなかった回と、問い直しかメインブランチの版との比べを問えなかった回は覚えず、次の回にその前の版から読み直して問い直す
+# (覚えた判定で読み直しは只)。読み手への依頼文かモデルが替われば(gates を上げたときなど)前の回を使わない
+DOC_BRANCH_LAST = os.path.join(DOC_DIR, "branch-last")
+RECHECK_HEAD = """あなたは文書の直しを確かめる係です。前の回に初見の読み手がこの文書を読んで下の「詰まり」を報告し、書き手はその後に文書を直しました。
+詰まりごとに、今の版を初見で読んでも、同じ箇所で同じ理由でまだ詰まるかを判定してください。
+- STILL: 今の版にも同じ箇所(言い回しが少し違っても中身が同じ文)が在り、今の版のほかの所にも説明が無く、同じ理由で意味が取れない
+- FIXED: その箇所が消えた・書き換えられて意味が取れる・語の説明や指す先が今の版のどこかに足された
+- 迷ったら STILL
+出力は 1 行 1 件、詰まりの番号と STILL か FIXED だけ(例: 1 STILL)。ほかは何も書かない。
+"""
+RECHECK_RE = re.compile(r"^\s*(\d+)\s*[.:：)]?\s*(STILL|FIXED)\b", re.I)
+
+
+def _still_stuck(stuck, text, premise=""):
+    """前の回の詰まり(stuck)のうち、今の版(text)でもまだ詰まる物と、問えたか。問えなければ全部と False。"""
+    prompt = (RECHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, line) for k, line in enumerate(stuck, 1))
+              + premise + "\n--- 今の版 ---\n" + text)
+    key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
+
+    def ask():
+        out = run_reader(prompt, model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT)
+        marks = {m.group(1): m.group(2).upper() for m in map(RECHECK_RE.match, out.splitlines()) if m}
+        if not marks:
+            raise RuntimeError("番号と STILL・FIXED の行が無い: %r" % out[:150])
+        return marks
+    try:
+        marks, _ = _branch_cached(key, ask)
+    except Exception as exc:
+        log_line(DOC_LOG, "recheck-down\t%s" % str(exc)[:150].replace("\n", " "))
+        return list(stuck), False
+    return [line for k, line in enumerate(stuck) if marks.get(str(k + 1)) != "FIXED"], True
+
+
+def _branch_where(root, mb):
+    """前の回の控えを分ける鍵: 共通の .git の場所と、今のブランチの名前。ブランチに居ない HEAD(--land は版を上げた一時の作業場で
+    回す)は、HEAD から辿れて分かれ目(mb)から辿れないブランチが 1 本だけなら、そのブランチ(候補はその頭か、頭に版上げの commit を
+    足した物)。取れなければ None(前の回を使わず、分かれ目から読む)。"""
+    common = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root)
+    if not common:
+        return None
+    name = _git(["symbolic-ref", "-q", "--short", "HEAD"], root)
+    if name is None:
+        name = _git(["for-each-ref", "--format=%(refname:short)", "--merged", "HEAD", "--no-merged", mb, "refs/heads/"], root)
+    names = name.decode("utf-8", "replace").split() if name else []
+    return "%s\0%s" % (common.decode("utf-8", "replace").strip(), names[0]) if len(names) == 1 else None
+
+
+def _last_path(where, rel):
+    """ブランチ(where)の文書(rel)の、前の回に読み終えた版の控えの置き場。where が None なら None。"""
+    if where is None:
+        return None
+    return os.path.join(DOC_BRANCH_LAST, hashlib.sha256(("%s\0%s" % (where, rel)).encode("utf-8")).hexdigest()[:40] + ".json")
+
+
+def _last_sig():
+    """控えを使ってよいかの印: 読み手と問い直しの依頼文・モデル・effort。"""
+    return hashlib.sha256("\0".join((COLD_PROMPT, DOC_FOCUS_NOTE, RECHECK_HEAD, DOC_MODEL, DOC_EFFORT)).encode("utf-8")).hexdigest()[:40]
+
+
+def _load_last(path):
+    """前の回の控え {"text": 読んだ版, "premise": 前提, "found": 判定(止めた詰まりだけ)}。
+    無い・読めない・形が違う・印(_last_sig)が違えば None。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            last = json.load(f)
+        ok = (last.get("sig") == _last_sig() and isinstance(last.get("text"), str) and isinstance(last.get("premise"), str)
+              and isinstance(last.get("found"), dict)
+              and all(isinstance(last["found"].get(k), list) for k in ("詰まり", "補完", "疑問")))
+        return last if ok else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def _save_last(path, text, premise, found):
+    try:
+        os.makedirs(DOC_BRANCH_LAST, exist_ok=True)
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"sig": _last_sig(), "text": text, "premise": premise, "found": found}, f, ensure_ascii=False)
+        os.replace(tmp, path)
+        for e in sorted(os.scandir(DOC_BRANCH_LAST), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
+            os.remove(e.path)
+    except OSError:
+        pass
+
+
+def _branch_verdict(key, body, focus, base, premise="", text=None, last=None):
+    """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号, 問い直しと比べを問えたか)。判定は覚えた物か、読んで覚えた物
+    ({"詰まり", "補完", "疑問"})。読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。
+    premise はスキルのフォルダの補足(skill_premise)。last は同じブランチの前の回の控え(_load_last)で、その詰まりのうち今の版(text)でも
+    まだ詰まる物を判定の詰まりの後ろに足す。body が None(前の回から字が変わらない)なら読まない。メインブランチの版と比べるのは
+    今回読んで出た詰まりだけ(前の回の詰まりは比べて止めた物)"""
+    if body is None:
+        found, cached = dict(last["found"], 詰まり=[]), True
+    else:
+        found, cached = _branch_cached(key, lambda: read_doc(body, focus, premise=premise))
+    old, asked = _carried_from_base(found["詰まり"], body, base) if found["詰まり"] and base is not None else (set(), True)
+    prev = [line for line in (last["found"]["詰まり"] if last else []) if line not in found["詰まり"]]   # 読み直した所で同じ字で出た物は 1 件に
+    if prev and (body is not None or premise != last["premise"]):
+        prev, rechecked = _still_stuck(prev, text, premise)
+        asked = asked and rechecked
+    return dict(found, 詰まり=found["詰まり"] + prev), cached, old, asked
 
 
 # 語の置き換えだけの行は読み直さない(--fixer <Python のファイル>)。リポジトリの文を IT の定着語にそろえる置き換え(持ち主 2026-10-18)は
@@ -3972,6 +4075,7 @@ def branch_check(argv):
         print("coldread branch-check: %s との分かれ目が取れない(--base <メインブランチの ref> で渡す)" % base)
         return 2
     mb, docs = got
+    where = _branch_where(root, mb)
     generated = _generated([full for _, full in docs]) if docs else set()
     moved = _moved_lines(root, mb) if docs else set()
     picked = []
@@ -3988,21 +4092,27 @@ def branch_check(argv):
         part = doc_excerpt(full, text, old if old is not None else _moved_base(text, moved), fixer)
         if part == "":
             continue
-        body = text if part is None else part
+        lpath = _last_path(where, rel)
+        last = _load_last(lpath) if lpath else None
+        if last is not None:
+            part = "" if last["text"] == text else doc_excerpt(full, text, last["text"], fixer)
+        body = None if part == "" else text if part is None else part
         premise = skill_premise(full)
-        key = hashlib.sha256(doc_prompt(body, part is not None, premise).encode("utf-8")).hexdigest()[:40]
-        picked.append((rel, text, body, part is not None, key, old, premise))
+        key = hashlib.sha256(doc_prompt(body, bool(part), premise).encode("utf-8")).hexdigest()[:40] if body is not None else None
+        picked.append((rel, text, body, bool(part), key, old, premise, last, lpath))
     notes, stuck, counts, down, fresh = [], [], {"詰まり": 0, "補完": 0, "前から": 0}, [], 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
-        futures = [(pool.submit(_branch_verdict, key, body, focus, old, premise), rel, text, focus)
-                   for rel, text, body, focus, key, old, premise in picked]
-    for fut, rel, text, focus in futures:
+        futures = [(pool.submit(_branch_verdict, key, body, focus, old, premise, text, last), rel, text, focus, lpath, premise)
+                   for rel, text, body, focus, key, old, premise, last, lpath in picked]
+    for fut, rel, text, focus, lpath, premise in futures:
         try:
-            found, cached, old = fut.result()
+            found, cached, old, asked = fut.result()
         except Exception as exc:
             log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
             down.append("%s: %s" % (rel, _down_reason(exc)))
             continue
+        if lpath and asked:
+            _save_last(lpath, text, premise, dict(found, 詰まり=[line for k, line in enumerate(found["詰まり"]) if k not in old]))
         fresh += not cached
         log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["詰まり"] or found["補完"] else "clean",
                                                   "(覚えた判定)" if cached else "", rel))
