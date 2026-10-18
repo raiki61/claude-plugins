@@ -43,7 +43,6 @@ CUSTOM_PATHS = ("skills", "commands")
 
 # 今 標準を満たさない物と、満たさない決まり（2026-10-18 の測り。各担当に分けの直しを標準が頼んである。docs/standards/README.md の台帳の 2 回目）
 EXEMPT = {
-    "works/skills/works/SKILL.md": {"長さ"},
 }
 
 FRONT = re.compile(r"\A---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|\Z)", re.S)
