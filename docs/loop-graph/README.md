@@ -1,19 +1,25 @@
 # 収束ループをグラフで表す（読み方）
 
-## この場所は何か
+このディレクトリ（`docs/loop-graph/`）の 5 つのファイルの読み方を書いた案内。読み手は、`convergence-loops` のループの仕組みを図で掴みたい人と、グラフ実行版プラグイン `graphloops` を直す人。急ぎの依頼や期限は無く、各ループの文書（`review-loop.md` など）を読む前に、凡例と「規律 → グラフの属性」を引くために使う。
 
-`convergence-loops` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）で、4 本のコマンド——`/review-loop`（コード変更のレビュー）・`/research-loop`（見立ての一次情報での校正）・`/doctor-loop`（リポジトリの現状診断）・`/firstread-loop`（文書が初見の人に通じるかの検証）——を持つ。それぞれが「結果が動かなくなるまで回す」ループで、回す手順は手順書（`commands/<コマンド名>.md`）に散文で、記録の検証は Python の検証器（`scripts/<コマンド名>-record.py`）に書いてある。この 2 つが**正本**（本当の定義）で、この場所にあるファイルはその**写し**である。
+## このディレクトリは何か
+
+`convergence-loops` は、このリポジトリ（Claude Code のプラグインを集めた `claude-plugins`）が配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）で、4 本のコマンド——`/review-loop`（コード変更のレビュー）・`/research-loop`（設計・手法・技術選定についての見立て〔こうすればよいという見込みや判断〕を、一次情報で確かめて直す）・`/doctor-loop`（リポジトリの現状診断）・`/firstread-loop`（文書が初見の人に通じるかの検証）——を持つ。それぞれが「結果が動かなくなるまで回す」ループで、回す手順は手順書（`convergence-loops/skills/<コマンド名>/` の `SKILL.md` と `references/`）に散文で、記録の検証は Python の検証器（`convergence-loops/scripts/<コマンド名>-record.py`）に書いてある。この 2 つが**正本**（本当の定義）で、このディレクトリ（`docs/loop-graph/`）にあるファイルはその**写し**である。以下、`commands/`・`scripts/`・`agents/` などの短いパスは `convergence-loops/` の中を指す（`commands/<loop>.md` は今の `skills/<loop>/` に当たる）。
 
 ループごとに 2 ファイル 1 組:
 
-| ループ | 機械が読む側（`graphloops/graphs/`） | 人が読む側（ここ） | 実行 |
+| ループ | 機械が読む側（`graphloops/graphs/`） | 人が読む側（`docs/loop-graph/`） | 実行 |
 |---|---|---|---|
 | review | `review-loop.json` | `review-loop.md` | `/review-graph` |
 | research | `research-loop.json` | `research-loop.md` | `/research-graph` |
 | doctor | （まだ無い） | `doctor-loop.md` | 写しだけ |
 | firstread | （まだ無い） | `firstread-loop.md` | 写しだけ |
 
-JSON は各ループを「ノード（工程）＋依存＋外側の周回条件」のグラフとして持ち、グラフ実行版プラグイン `graphloops`（`graphloops/README.md`）の `scripts/graphcheck.py` が機械で確かめる。research と review の JSON は実行用のフィールド（ノードごとのプロンプト・返答の型・書き込み規則）も持ち、同じプラグインの engine で回せる。**doctor と firstread の JSON はこの差分から取り下げた**——engine の実行経路に乗らない写し 1,123 行が、凍結した目的（review と research の 2 本）の外に積まれていた。別 issue に落として、実行版を作る周に一緒に入れる（『既存かつこの変更と無関係』でないので split でなく取り下げが正しい形。実測 2026-09-13: BASE に無い本差分の増分で、本差分の `graphloops/tests/run.sh` が検査面に入れていた）。md は図と、図に落ちない説明（変わったこと・記録と検証器・既知の未決）を持つ。写しでも腐りにくい部分（ノードの名前・依存・役・記録のフィールド名）だけを持ち、腐りやすい部分（役のツール・観点の本文・行番号）は持たない。ツールは `agents/<役>.md`、観点は `REVIEW.md`、出典は手順書の見出し（各ノードの `source`）で指す。
+JSON は各ループを「ノード（工程）＋依存＋外側の周回条件」のグラフとして持ち、グラフ実行版プラグイン `graphloops`（`graphloops/README.md`）の `scripts/graphcheck.py` が機械で確かめる。research と review の JSON は実行用のフィールド（ノードごとのプロンプト・返答の型・書き込み規則）も持ち、同じプラグインの engine で回せる。**doctor と firstread の JSON はこの差分（`graphloops` を足した一連の変更）から取り下げた**——engine（`graphloops` の、グラフを読んでノードを順に回す実行器）の実行経路に乗らない写し 1,123 行が、凍結した目的（review-loop が変更の初めに書いて以後は動かさない、変更の目的の文。この差分では review と research の 2 本を実行版にすること）の外に積まれていた。別 issue に落として、実行版を作る周に一緒に入れる。
+
+取り下げにした理由は review-loop の決まりによる。review-loop では、変更が持ち込んだ問題は同じ変更の中で直すのが既定で、別 issue に切り出す（`split`）のは「既存かつこの変更と無関係」な問題だけに許される（`convergence-loops/REVIEW.md`「別 Issue への先送りを既定にするな」）。2 本の JSON はそのどちらにも当たらなかった。変更を始めた時点の版（BASE）には無く、この差分自身が足した物だった。しかもこの差分の試験 `graphloops/tests/run.sh` が検査の対象に入れていた（実測 2026-09-13）。だから `split` で残すことはできず、差分から外す（取り下げる）のが正しい形になる。持ち込んだ物ごと取り下げるのは、先送りでなく回収（同じ変更の中で片付けること）に数える（`convergence-loops/REVIEW.md`「処方の最小性」）。
+
+md は図と、図に落ちない説明（変わったこと・記録と検証器・既知の未決）を持つ。写しでも腐りにくい部分（ノードの名前・依存・役・記録のフィールド名）だけを持ち、腐りやすい部分（役のツール・観点の本文・行番号）は持たない。ツールは `agents/<役>.md`、観点は `REVIEW.md`、出典は手順書の見出し（各ノードの `source`）で指す。
 
 4 本を横断して拾い上げた規律の一覧と、LLM（大規模言語モデル）を使うアプリとしての性質は、`docs/loop-contract.md` に置く（graphloops と同じ変更で書いた**作業記録**であって、規律の権威ではない——各規律の根拠は、そのノードが引く手順書・検証器・実測の側にある）。
 
@@ -50,7 +56,7 @@ JSON のフィールド:
 `docs/loop-contract.md` は規律に A〜Q（4 本共通）と R〜AB（LLM アプリ固有の性質）の記号を振っている。それがグラフのどこに落ちるか:
 
 - **A 役の遮断** → `run_by`（ツールは `agents/<役>.md`）。**T 塞げない注入** → `unblockable_context`
-- **B 回す側は採点しない** → 判定を出すノードの `run_by` が回す側でない（機械検査 2）。例外は `verdict_is_copy` と `runner_judgment_by_design`
+- **B 回す側は採点しない** → 判定を出すノードの `run_by` が回す側でない（機械検査 2）。例外は `verdict_is_copy`（判定に見えるが、ほかの役や機械の判定を記録に写すだけのノード）と `runner_judgment_by_design`（手順書が回す側の仕事と定めた分類で、採点ではないノード）。どちらも上の「JSON のフィールド」に説明がある
 - **C 回し直さない** → `per_round_rules`。**`retry`** は回し直しではなく差し戻し
 - **D 前ラウンドを渡さない** → `fresh_context` と `forbidden_inputs`。review の「履歴と台帳は judge にだけ確定後に」は `p2.history` の `same_context_as` と `inputs` の順序
 - **E 記録のフィールド** → `outputs`（機械検査 3 で検証器の必須フィールドと突合）
@@ -58,15 +64,16 @@ JSON のフィールド:
 - **I 暴走ガード** → `round.max_rounds`（グラフ実行版は engine が機械で守る。散文の 4 本は散文だけ。firstread は null）
 - **J 人に諮る条件** → review は `round.stops`（3 つ）と `ledger_kinds_not_stops`、他は `round.exit_states`
 - **K 無人実行** → `round.unattended` と `asks_human`
-- **L 並行の単位** → `deps`。波は機械検査 1 が出す。firstread の「1 周の中だけ」と doctor の「生やした親を同じラウンドの P2b に」は周回側の規律
+- **L 並行の単位** → `deps`。波（同時に走らせてよいノードの組）は機械検査 1 が出す。次の 2 つはグラフの `deps` でなく周回側の規律として扱う: firstread の「1 周の中だけ」と、doctor の「生やした親を同じラウンドの P2b に」
+  - doctor の規律の中身: doctor は P3 で、見つけた問題を子とし、その「なぜ在るか」に当たる共通の原因を親として上に足して木を組む。こうして足した親のノードは検証を受けていない仮説なので、同じラウンドのうちに P2b（敵対検証。別の役が「この親は本当に子の共通の原因か」を反証しにいく段）に通せ、という手順書の指示。手順書は `convergence-loops/skills/doctor-loop/references/p3-tree.md`、グラフでの置き方は `doctor-loop.md`
 - **M 作業ツリーの保護** → review の `p1.worktree_before / after`、doctor の `mod.before / after`、firstread の `s1.git_before / s4.git_after`、research は `per_round_rules`
-- **N 厚み** → `thickness` と `active_in`
+- **N 厚み**（検査をどれだけ厚くするかを軽量・標準・重厚の 3 段から選ぶ規律。research / doctor が持つ） → `thickness` と `active_in`
 - **R 盤面はディスク** → `record` と firstread の `pre_answers`
 - **S 採点のゆらぎ** → `round.converge` の「連続 2」、抜き取り検査のノード、3 票
 - **V subagent の無言の失敗** → research の `harness_note`・review P2 と doctor P1 の `retry`
 - **Z 別の LLM のゲート** → review の `p0.parallel_pr`・firstread の `s4.apply` の `note`
 
-グラフに落ちないもの（散文に残る）: なぜその遮断が要るか・観点の本文・処方の最小性・報告の書き方・実測の記録。
+グラフに落ちないもの（散文に残る）: なぜその遮断が要るか・観点の本文・処方の最小性（指摘の直し方〔処方〕は、削除や既存の機構 1 つで済む小さい案から順に並べ、大きい案を採るなら小さい案が使えない理由を書く、という決まり。`convergence-loops/REVIEW.md`）・報告の書き方・実測の記録。
 
 ## 機械で確かめられること
 
@@ -79,6 +86,6 @@ python3 graphloops/scripts/graphcheck.py graphloops/graphs/review-loop.json scri
 
 ## 決めたこと・決めてもらうこと
 
-以下のうち「決めた」と付いた行は決着済みで、蒸し返すなら新証拠が要る（2026-09-13 の台帳の再審で、保留していた 9 件のうち 8 件がこの形で決着した——人にしか決められないものは 0 件だった）。残りが人の判断を待っている分。
+以下のうち「決めた」と付いた行は決着済みで、蒸し返すなら新証拠が要る（2026-09-13 の台帳の再審で、保留していた 9 件のうち 8 件がこの形で決着した——人にしか決められないものは 0 件だった）。「決めた」と付いていない行が人の判断を待っている分。いま下に載っているのは決着済みの 1 件だけで、人の判断を待っている項目はこの文書には無い。
 
-- **正本の宣言（決めた・2026-09-12）**: 散文版（`/review-loop` 等 4 本）の正本は `commands/<loop>.md` と `scripts/<loop>-record.py`。グラフ実行版（`/review-graph`・`/research-graph`）の正本は `graphloops/graphs/<loop>.json` で、engine と `graphcheck` が読む。両方を生かす間はズレうる——ズレは同じ対象で両方を回し、共通の検証器に通した記録の差で見る（受け入れ試験）。他の文書はこの宣言を参照して写さない。検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版では engine が守る
+- **正本の宣言（決めた・2026-09-12）**: 散文版（`/review-loop` 等 4 本）の正本は `commands/<loop>.md`（今は `skills/<loop>/`）と `scripts/<loop>-record.py`。グラフ実行版（`/review-graph`・`/research-graph`）の正本は `graphloops/graphs/<loop>.json` で、engine と `graphcheck` が読む。両方を生かす間はズレうる——ズレは同じ対象で両方を回し、共通の検証器に通した記録の差で見る（受け入れ試験）。他の文書はこの宣言を参照して写さない。検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版では engine が守る
