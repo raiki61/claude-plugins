@@ -121,7 +121,9 @@ def _launch_line(a, ports, source, shape, the_role, name, command):
     return [f"窓口の役 {the_role} に起動の設定（会社の形の [roles.settings]）が有る"
             + ("（空打ちなので書いていない）" if a.dry_run else f"ので {path} に書いた")
             + "。窓口の会話を手で起こすときは、次の命令で起こす（--move はこの設定で起こす）: "
-            f"{command} --name {launch._quote(name, posix)} --settings {launch._quote(path, posix)}",
+            f"{command} --name {launch._quote(name, posix)} "
+            + "".join(f"--{k} {launch._quote(v, posix)} " for k, v in zip(("model", "effort"), role.desk_flags(got)) if v)
+            + f"--settings {launch._quote(path, posix)}",
             "この会話を --move が起こしたのでなければ、起こした設定を機械は知らないので、この会話が区切り（--rest）を印した番の"
             "終わりに、待ち受けがこの設定で起こし直す（持ち主の手は要らない。会社の形の設定を替えたときも同じ）"]
 

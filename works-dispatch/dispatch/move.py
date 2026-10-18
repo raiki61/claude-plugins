@@ -275,8 +275,7 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
         conf = role.write_desk_settings(ports.git.git_dir(company["root"]), the_role)
     except (gitx.GitError, OSError, TypeError) as e:
         conf, warn = None, f"役 {attrs.get('role')} の設定を書けなかったので、役の設定なしで起こした（{e}）"
-    model, effort = role.launch_spec(the_role)
-    effort = None if effort == role.INHERIT else effort   # 窓口には引き継ぐ呼んだ会話が無い
+    model, effort = role.desk_flags(the_role)
     if not deliver.exit_talk(pane, ports.herdr, ports.pause):
         return 1, f"窓口の窓 {pane} に /exit を打ったが、シェルに戻らない"
     # 前の会話は終わった。起こす値を書き（設定を書けなければ、起こした値を知らないと見る）、待ち受けと区切りの印を外す

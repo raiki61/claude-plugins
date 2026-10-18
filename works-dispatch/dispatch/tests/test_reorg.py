@@ -186,6 +186,12 @@ class Reorg(unittest.TestCase):
         self.assertIn("付け替える物は無い", out)
         self.assertIn(f"claude-a1 --name '窓口' --settings {path}", out)
         self.assertEqual(json.loads(pathlib.Path(path).read_text(encoding="utf-8")), {"enabledPlugins": {"works@m": False}})
+        # 役の model・effort は、--move と同じく旗で付ける（effort の inherit は窓口に引き継ぐ会話が無いので付けない）
+        shape.write_text('[[roles]]\nname = "窓口"\nmodel = "opus"\neffort = "inherit"\n[roles.settings]\neffortLevel = "low"\n'
+                         '[[roles]]\nname = "担当"\n', encoding="utf-8")
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"claude-a1 --name '窓口' --model opus --settings {path}", out)
 
     def test_desk_does_not_take_the_seat_while_the_desk_talk_runs(self):
         # 窓口の会話が動いている間に、ほかの会話（試しの claude -p など）が --desk で席を取ると、納品がそちらに届く（53d5d1・6be241）

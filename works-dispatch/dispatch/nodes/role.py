@@ -276,6 +276,22 @@ def launch_spec(role, duty=None):
     return duty.get("model") or (role or {}).get("model"), duty.get("effort") or (role or {}).get("effort")
 
 
+def desk_flags(role):
+    """本社の窓口の会話を起こすときの (--model の値, --effort の値)。役の欄の値で、effort の inherit は旗を付けない（窓口には
+    引き継ぐ呼んだ会話が無い）。None なら旗を付けない。"""
+    model, effort = launch_spec(role)
+    return model, None if effort == INHERIT else effort
+
+
+def desk_spec(role):
+    """窓口の会話が起きるときに効く (model, effort)。--tree の窓口の行に出す。欄ごとに、旗（desk_flags）が --settings に渡す
+    役の設定（[roles.settings]）の model・effortLevel より先に効き（CLI の文書）、どちらも無ければ None（アカウントの既定）。"""
+    model, effort = desk_flags(role)
+    conf = (role or {}).get("settings") or {}
+    pick = lambda v: v if isinstance(v, str) and v else None
+    return model or pick(conf.get("model")), effort or pick(conf.get("effortLevel"))
+
+
 def launch_key(role, duty=None):
     """部署と窓口の属性 company.launched に書く字（起こしたときの launch_spec と、役の起動の設定 [roles.settings]）。待ち受けが
     会社の形の今の値と比べ、違えば起こし直す（--move --if-changed。毎回空にする部署は次の頼みを渡す前、ほかは区切り〔--rest〕の

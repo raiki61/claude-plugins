@@ -385,14 +385,37 @@ class Build(unittest.TestCase):
         self.assertEqual([s["ask"] for s in company["skills"]],
                          ["--ask c/調べ", "--ask c/担当 --task 点検 --branch <枝>", "--ask c/作業 --task <部署の名前> --branch <枝>",
                           None, None])
-        self.assertEqual(company["desk"], {"name": "段取り", "role": "段取り", "ask": "--ask c/段取り"})
+        self.assertEqual(company["desk"], {"name": "段取り", "role": "段取り", "ask": "--ask c/段取り", "model": None, "effort": None})
         company.update({"root": "/s/c", "info_source": "origin", "description": None, "problems": []})
         text = "\n".join(tree.lines([company | {"departments": []}]))
         self.assertIn("  受ける仕事: 調べ → 担当  宛て方 --ask c/調べ", text)
-        self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  宛て方 --ask c/段取り", text)
+        self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  model 既定  effort 既定  宛て方 --ask c/段取り", text)
+        # ほかの会社が兼ねる窓口（会社の形の desk）は、その会社の形を読まないので model・effort を出さない
+        other = company | {"departments": [], "desk": None, "desk_of": "n/段取り"}
+        tree.contacts(other, shape)
+        self.assertIn("  窓口: n/段取り（受ける仕事に当たらない件・部署をまたぐ件）  宛て方 --ask n/段取り", "\n".join(tree.lines([other])))
         # 本社を名付けていなければ、名付けていないと出す
         unnamed = company | {"departments": [], "desk": None}
         self.assertIn("  窓口: 名付けていない", "\n".join(tree.lines([unnamed])))
+
+    def test_desk_shows_the_model_and_effort_it_starts_with(self):
+        # 窓口の会話が起きるときに効く値: 役の欄（--move が旗で渡す）が [roles.settings] の model・effortLevel より先。
+        # effort の inherit は窓口に引き継ぐ会話が無いので旗を付けず、設定の値が効く。役の前の名前（former_names）でも引く
+        from nodes import role
+        def desk(text):
+            company = {"name": "c", "skills": [], "departments": [{"head_office": True, "attrs": {"name": "段取り", "role": "窓口"}}]}
+            return tree.contacts(company, role.load("t", text))["desk"]
+        head = '[[roles]]\nname = "段取り"\nformer_names = ["窓口"]\n'
+        got = desk(head + '[roles.settings]\nmodel = "opus"\neffortLevel = "low"\n')
+        self.assertEqual((got["model"], got["effort"]), ("opus", "low"))
+        got = desk(head + 'model = "sonnet"\neffort = "inherit"\n[roles.settings]\nmodel = "opus"\neffortLevel = "low"\n')
+        self.assertEqual((got["model"], got["effort"]), ("sonnet", "low"))
+        got = desk(head + 'effort = "high"\n[roles.settings]\neffortLevel = "low"\n')
+        self.assertEqual((got["model"], got["effort"]), (None, "high"))
+        company = {"name": "c", "root": "/s/c", "info_source": "origin", "description": None, "problems": [], "skills": [],
+                   "departments": [], "desk": got}
+        self.assertIn("  窓口: 段取り（受ける仕事に当たらない件・部署をまたぐ件）  model 既定  effort high  宛て方 --ask c/段取り",
+                      "\n".join(tree.lines([company])))
 
     def test_roots_come_from_herdr_then_from_conversations(self):
         common = {"/notes": "/notes", "/wt/n/x": "/notes", "/r2/sub": "/r2"}

@@ -52,7 +52,9 @@
             "properties": {
               "name": {"type": "string"},
               "role": {"type": ["string", "null"]},
-              "ask": {"type": "string"}
+              "ask": {"type": "string"},
+              "model": {"type": ["string", "null"]},
+              "effort": {"type": ["string", "null"]}
             }
           },
           "departments": {

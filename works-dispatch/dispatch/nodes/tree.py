@@ -282,8 +282,13 @@ def contacts(company, shape):
                     f"--ask {plain}/{r['name']} --task {s['name']} --branch <枝>" if r["resident"] else
                     f"--ask {plain}/{r['name']} --task <部署の名前> --branch <枝>")
     head = next((d for d in company["departments"] if d["head_office"] and d["attrs"].get("name")), None)
-    company["desk"] = None if head is None else {"name": head["attrs"]["name"], "role": head["attrs"].get("role"),
-                                                 "ask": f"--ask {plain}/{head['attrs']['name']}"}
+    if head is not None:
+        # 窓口の会話が起きるときに効く model と effort（役の欄の旗が [roles.settings] より先。role.desk_spec）
+        model, effort = role.desk_spec(shape["roles"].get(role.current(shape, head["attrs"].get("role"))))
+        company["desk"] = {"name": head["attrs"]["name"], "role": head["attrs"].get("role"),
+                           "ask": f"--ask {plain}/{head['attrs']['name']}", "model": model, "effort": effort}
+    else:
+        company["desk"] = None
     if company["desk"] is None and company.get("desk_of"):
         # 会社の形の頭の desk（「会社/名前」）: ほかの会社の窓口がこの会社の窓口を兼ねる（claude-plugins の窓口は my_notes の段取り）
         company["desk"] = {"name": company["desk_of"], "role": None, "ask": f"--ask {company['desk_of']}"}
@@ -309,7 +314,10 @@ def lines(companies):
                        + ("  頼まれたときだけ立てる" if s.get("standing") is False else "")
                        + (f"  宛て方 {s['ask']}" if s.get("ask") else ""))
         if c.get("desk"):
-            out.append(f"  窓口: {c['desk']['name']}（受ける仕事に当たらない件・部署をまたぐ件）  宛て方 {c['desk']['ask']}")
+            desk = c["desk"]   # model・effort はこの会社の本社の窓口だけ（ほかの会社が兼ねる窓口は、その会社の行に出る）
+            out.append(f"  窓口: {desk['name']}（受ける仕事に当たらない件・部署をまたぐ件）"
+                       + ("".join(f"  {k} {desk[k] or '既定'}" for k in ("model", "effort")) if "model" in desk else "")
+                       + f"  宛て方 {desk['ask']}")
         elif "desk" in c and c["skills"]:
             out.append("  窓口: 名付けていない（本社で持ち主と話す会話から --desk を打つと名付く）")
         for t in c.get("tools", []):
