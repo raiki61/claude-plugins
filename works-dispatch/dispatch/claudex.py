@@ -168,11 +168,16 @@ def inherit_trust(path_of_file, source, clone, vouchers=()):
     return "inherited"
 
 
+# /catchup の命令のファイルの置き場。どちらでも呼び名は /<プラグイン名>:catchup で変わらない
+CATCHUP_FILES = (("skills", "catchup", "SKILL.md"), ("commands", "catchup.md"))
+
+
 def catchup_commands(config_dir):
     """そのアカウントで /catchup を受けるコマンドの名前（例 /attention:catchup）を、入っているプラグインから組み立てて返す。
 
     プラグインのコマンドは「/<plugin.json の名前>:<コマンドのファイル名>」で呼ぶ。人が画面で /catchup と打つと補完がプラグイン名を足すが、
-    herdr は文字をそのまま送るので、名前を組み立てて送る。プラグイン名を固定の文字で持たず、commands/catchup.md を持つものを探す。
+    herdr は文字をそのまま送るので、名前を組み立てて送る。プラグイン名を固定の文字で持たず、/catchup のコマンドのファイル（スキルの skills/catchup/SKILL.md か、
+    コマンドの commands/catchup.md。attention は 2026-10-18 に前者へ移した）を持つものを探す。
     数えるのはアカウント全体に入れたもの（scope が user）だけ。project の入れ方は、その projectPath の中の会話にしか効かない。
     """
     try:
@@ -186,7 +191,7 @@ def catchup_commands(config_dir):
             if not isinstance(e, dict) or e.get("scope") != "user":
                 continue
             path = e.get("installPath") or ""
-            if not os.path.isfile(os.path.join(path, "commands", "catchup.md")):
+            if not any(os.path.isfile(os.path.join(path, *p)) for p in CATCHUP_FILES):
                 continue
             try:
                 with open(os.path.join(path, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:

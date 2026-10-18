@@ -530,14 +530,18 @@ class Claude(unittest.TestCase):
 
     @staticmethod
     def plugins(entries):
-        """entries: [(キー, scope, plugin.json の名前, catchup を持つか)]。アカウントの設定のフォルダを返す。"""
+        """entries: [(キー, scope, plugin.json の名前, catchup を持つか)]。アカウントの設定のフォルダを返す。
+        持つかは True（命令の commands/catchup.md）か "skill"（スキルの skills/catchup/SKILL.md）。"""
         d = pathlib.Path(tempfile.mkdtemp())
         record = {}
         for key, scope, name, has in entries:
             path = d / "plugins" / "cache" / key / "1.0.0"
             (path / ".claude-plugin").mkdir(parents=True)
             (path / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": name}))
-            if has:
+            if has == "skill":
+                (path / "skills" / "catchup").mkdir(parents=True)
+                (path / "skills" / "catchup" / "SKILL.md").write_text("---\n---\n")
+            elif has:
                 (path / "commands").mkdir()
                 (path / "commands" / "catchup.md").write_text("---\n---\n")
             record.setdefault(key, []).append({"scope": scope, "installPath": str(path)})
@@ -546,6 +550,11 @@ class Claude(unittest.TestCase):
 
     def test_catchup_command_is_named_after_the_plugin_that_ships_it(self):
         d = self.plugins([("attention@m", "user", "attention", True), ("works@m", "user", "works", False)])
+        self.assertEqual(claudex.catchup_commands(d), ["/attention:catchup"])
+
+    def test_catchup_shipped_as_a_skill_is_found(self):
+        # attention は 2026-10-18 に /catchup を commands/ から skills/ へ移した。呼び名は同じ /attention:catchup
+        d = self.plugins([("attention@m", "user", "attention", "skill"), ("works@m", "user", "works", False)])
         self.assertEqual(claudex.catchup_commands(d), ["/attention:catchup"])
 
     def test_catchup_command_follows_a_renamed_plugin(self):

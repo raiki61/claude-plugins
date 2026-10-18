@@ -295,7 +295,7 @@ class Ports:
             found = claudex.catchup_commands(cdir)
             if not task and len(found) != 1:
                 problems.append(f"アカウント {a.name}（{cdir}）で /catchup のコマンドが 1 つに決まらない"
-                                f"（commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
+                                f"（skills/catchup/SKILL.md か commands/catchup.md を持つプラグイン: {', '.join(found) or '無し'}）")
             if a.limits and not (pathlib.Path(cfg.limits_dir) / f"{a.name}.json").is_file():
                 notes.append(f"アカウント {a.name} の使用率の控えが無い（使用率が分からないものとして順の最後に置く）")
         # 信頼はアカウントをまたいで広げる（Ports.trust）ので、知らせるのはどのアカウントも信頼していない元の clone だけ

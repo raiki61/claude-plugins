@@ -4892,17 +4892,17 @@ def load(stem):
 # (script, 並び, 吸われては困るフィールドと期待値, 手順書, 手順書に在るべき呼び)
 cases = [
     ("whose-turn", ["--materials", "taro", "--out"], "login", "taro",
-     "whose-turn.md", "--materials $ARGUMENTS --out"),
+     "whose-turn", "--materials $ARGUMENTS --out"),
     ("catchup", ["--switch", "1569", "指摘", "--out"], "words", ["1569", "指摘"],
-     "catchup.md", "`catchup.py --switch <それ> --out`"),
+     "catchup", "`catchup.py --switch <それ> --out`"),
     ("what-am-i-doing", ["--topic", "今の修正", "--out"], "topic", ["今の修正"],
-     "what-am-i-doing.md", "what-am-i-doing.py --out"),
+     "what-am-i-doing", "what-am-i-doing.py --out"),
 ]
 for stem, argv, field, want, doc, call in cases:
     a = load(stem).parser().parse_args(argv)
     assert a.out is True, f"{stem}: --out が立たない"
     assert getattr(a, field) == want, f"{stem}: {field} を吸われた（{getattr(a, field)!r}）"
-    text = (root / "attention/commands" / doc).read_text(encoding="utf-8")
+    text = (root / "attention/skills" / doc / "SKILL.md").read_text(encoding="utf-8")
     assert "allowed-tools: Bash, Read" in text, f"{doc}: 読み戻しの Read が allowed-tools に無い"
     assert call in text, f"{doc}: 手順書の呼びが {call} になっていない"
 
@@ -5156,11 +5156,16 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
-docs = {n: (root / n).read_text(encoding="utf-8") for n in
-        ["attention/commands/catchup.md", "attention/commands/what-am-i-doing.md", "attention/README.md",
+def read(n):
+    p = root / n
+    if p.is_dir():  # スキルは本文と別ファイル（references/）を合わせて 1 つの命令書と見る（語はどちらに在ってもよい）
+        return "\n".join(f.read_text(encoding="utf-8") for f in [p / "SKILL.md", *sorted((p / "references").glob("*.md"))])
+    return p.read_text(encoding="utf-8")
+docs = {n: read(n) for n in
+        ["attention/skills/catchup", "attention/skills/what-am-i-doing", "attention/README.md",
          "attention/docs/catchup-spec.md"]}
-others = docs.keys() - {"attention/commands/what-am-i-doing.md"}  # /what-am-i-doing は PR の材料を持たない
-frames = {"attention/commands/what-am-i-doing.md", "attention/README.md"}  # 端末に枠と絵を出すのは /what-am-i-doing だけ
+others = docs.keys() - {"attention/skills/what-am-i-doing"}  # /what-am-i-doing は PR の材料を持たない
+frames = {"attention/skills/what-am-i-doing", "attention/README.md"}  # 端末に枠と絵を出すのは /what-am-i-doing だけ
 for word, files in [("飛び先", frames), ("figure-check.py", frames), ("（言語名 X）", frames), ("取り込み先", others),
                     ("上に積む", others), ("依頼先の候補", others), ("私の痕跡以降に変わった file", others),
                     ("--render", others), ("ATTENTION_CATCHUP_OPEN", others)]:

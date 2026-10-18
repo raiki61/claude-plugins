@@ -775,8 +775,8 @@ class Preflight(unittest.TestCase):
         plugin = home / ".claude" / "plugins" / "cache" / "attention" / "1.0.0"
         (plugin / ".claude-plugin").mkdir(parents=True)
         (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "attention"}))
-        (plugin / "commands").mkdir()
-        (plugin / "commands" / "catchup.md").write_text("")
+        (plugin / "skills" / "catchup").mkdir(parents=True)
+        (plugin / "skills" / "catchup" / "SKILL.md").write_text("")
         (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
             json.dumps({"plugins": {"attention@x": [{"scope": "user", "installPath": str(plugin)}]}}))
         cfg = cfg._replace(accounts=(config.Account("default", "claude", None),))

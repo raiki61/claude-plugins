@@ -28,12 +28,12 @@ spec = importlib.util.spec_from_file_location("figure_check", SCRIPT)
 fc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fc)
 
-# コマンドの本文の例をそのまま使う（写しを別に持つと、例を直したときに検査だけ古い図を守り続ける）。
+# コマンドの本文（図の別ファイル）の例をそのまま使う（写しを別に持つと、例を直したときに検査だけ古い図を守り続ける）。
 # 縦線の列は 4, 15, 31, 45（0 始まり）。最終行に改行を付けて file / heredoc の形に揃える
 # /catchup は図を HTML の箱で描くようになったので、端末の絵を描くのは /what-am-i-doing だけ
-_DOC = (ROOT / "attention" / "commands" / "what-am-i-doing.md").read_text(encoding="utf-8")
+_DOC = (ROOT / "attention" / "skills" / "what-am-i-doing" / "references" / "figures.md").read_text(encoding="utf-8")
 _M = re.search(r"^```text\n(.*?)\n```$", _DOC, re.S | re.M)
-assert _M, "what-am-i-doing.md に ```text の絵の例が無い"
+assert _M, "what-am-i-doing の図の別ファイル（references/figures.md）に ```text の絵の例が無い"
 GOOD = _M.group(1) + "\n"
 GOOD_LINES = GOOD.split("\n")[:-1]
 
