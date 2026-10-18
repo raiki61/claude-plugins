@@ -2,7 +2,7 @@
 
 A Claude Code plugin that starts a separate Claude Code session for each task, hands it the work, and has it return a summary to the session that asked when it is done. It can also open the PRs where it is your turn, each in its own workspace, and have a session read them.
 
-It is for people who run several Claude Code sessions in parallel on one repository. The main prerequisites are herdr (runs one terminal workspace per task), Python 3.11 or later and git, and, only for opening PRs, a gh login and the attention plugin; several Claude Code accounts are optional (see Requirements).
+It is for people who run several Claude Code sessions in parallel on one repository. The main prerequisites are herdr (runs one terminal workspace per task), Python 3.11 or later and git, and, only for opening PRs, a gh login and the attention plugin; several Claude Code accounts are optional (see "Pick an account" below).
 
 The skill's and command's instructions and descriptions are written in Japanese.
 

@@ -66,7 +66,7 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
 - It does not skip by command length (before, commands shorter than 400 characters were passed before parsing without even a record, and short posts carrying a body file or
   a variable went out unread 54 times in the most recent 14 days). Not sending short boilerplate replies to the reader is decided by passing them when the extracted text is
   under 200 characters. It does not apply to read-only gh commands, or to gh with `--help`, `-h`, or `--version` (which print help and end)
-- It also stops when coldreader cannot be started (because no check was done). If that does not get fixed, hand it to the owner
+- It also stops when coldreader cannot be started (because no check was done). If that does not get fixed, hand it to the owner (the person who runs this Claude Code session and owns the repository)
 - When the screen cannot be fetched (no gh, no auth, offline), the reader reads with zero context and the writer is told so (it does not stop)
 - coldreader does not read the user's CLAUDE.md or settings (it is started with `--setting-sources ""`). If the reader holds rules meant for writers,
   such as "write so that a first-time reader understands", as its own instructions, it leans toward raising every identifier as a blocker
