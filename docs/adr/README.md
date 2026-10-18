@@ -83,16 +83,16 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0034](0034-conditions-as-python-functions.md) | 条件（cond）は Python の関数にする（手順 3a） | 採用 | 2026-09-25 |
 | [0035](0035-borrow-state-schema.md) | 共有の状態（loop_state）の型は世の中の定まった解から借り、履歴から作る値（hist.）を足す | 採用 | 2026-09-25 |
 | [0036](0036-assemble-at-eyes-entry.md) | p4.assemble を独立の目のブロックの入口へ移す | 採用 | 2026-09-25 |
-| [0037](0037-fix-record-by-unit-number.md) | 修正の記録は単位の番号で指し、行き着く先は出来事だけを書く形にする | 採用 | 2026-09-25 |
+| [0037](0037-fix-record-by-unit-number.md) | 修正の役は直す単位を番号で指し、最後は役が出来事（単位 N を直した・単位 M はやらない）だけを書き、記録は engine が組む | 採用 | 2026-09-25 |
 | [0038](0038-old-boards-left-as-is.md) | 旧い盤面を新しい engine で開いたときの扱いは、今は何もしない | 採用 | 2026-09-25 |
 | [0039](0039-framework-consolidation.md) | graphloops を特徴のある枠組みとしてまとめる（手順 F） | 採用 | 2026-09-25 |
 | [0040](0040-distribution-and-language.md) | 依存が要るときは即席の導入（uv 優先・無ければ pipx）にし、言語は Python のまま | 採用 | 2026-09-25 |
-| [0041](0041-child-process-control-layer.md) | 子を止める口は「数え上げ→送る→数え直し」にし、正常終了でも試行の終わりに片付け、段ごとに背景を残せる | 採用 | 2026-09-26 |
+| [0041](0041-child-process-control-layer.md) | engine が子のプロセスの木を止めるときは、生きた子を数え上げ→止める信号を送る→数え直す。正常に終わった試行も終わりに残りを片付け、`.review-checks.json` の段ごとに背景のプロセスを残す宣言（keep_background）を持てる | 採用 | 2026-09-26 |
 | [0042](0042-ci-skip-allowlist-per-os.md) | CI の見送りの許しは OS ごとの「欠けてよい能力」の一覧にし、既定は空 | 採用 | 2026-09-26 |
 | [0043](0043-no-symlink-in-windows-allowlist.md) | Windows の見送りの許しの一覧に symlink を入れない | 採用 | 2026-09-26 |
 | [0044](0044-keep-ubuntu-shellcheck-stage.md) | ubuntu だけで回す独立の shellcheck の段は残す | 採用 | 2026-09-26 |
 | [0045](0045-research-graph-superset.md) | research-graph は research-loop の上位互換にする（開いた問いは依頼者に渡す） | 採用 | 2026-09-25 |
-| [0046](0046-narrow-security-review-only.md) | 武器のうち外すのは /security-review のレンズを絞ることだけにする | 採用 | 2026-09-25 |
+| [0046](0046-narrow-security-review-only.md) | review-graph の検査の手（レビューの観点や確かめ）のうち減らすのは、/security-review を認証・外部 I/O に触れる差分に絞ることだけにする | 採用 | 2026-09-25 |
 | [0047](0047-wait-without-notifications.md) | 回す側の待ちは完了の知らせに頼らず、手番は人に聞く所か run の終わりまで終えない | 採用 | 2026-09-25 |
 | [0048](0048-intake-destination-and-defaults.md) | 問題を届ける口: 宛先は自前の設定ファイル、報告の 1 行目と手元への自動の記録は既定で入れる | 採用 | 2026-09-26 |
 | [0049](0049-spec-flow-on-tdd.md) | 仕様の流れを TDD の版の上の差し替え（extends の 2 段）にする | 置き換え（0050） | 2026-09-26 |
@@ -108,12 +108,12 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0059](0059-review-depth-modes.md) | 調べる側の厚みをモードで選べるようにし、生産工程はあまり変えない | 採用 | 2026-09-26 |
 | [0060](0060-findings-beyond-diff.md) | 差分の外（全体・運用）に及ぶ指摘も出してよい | 採用 | 2026-09-26 |
 | [0061](0061-cross-run-record.md) | run をまたいだ記録を持つ（1 run 1 ファイル・手元だけ） | 採用 | 2026-09-26 |
-| [0062](0062-test-migration-policy.md) | テストの移し替えの方針（壊した行を通った台本だけ回す段から始める） | 採用 | 2026-09-26 |
+| [0062](0062-test-migration-policy.md) | テストの移し替えの方針（変異テストで壊したコードの行を通る試験の台本だけを回す段から始める） | 採用 | 2026-09-26 |
 | [0063](0063-roles-as-child-processes.md) | 役は engine が claude -p の子プロセスとして起こし、子の終了を直接待つ（手順 1） | 採用 | 2026-09-25（09-27 に補足） |
 | [0064](0064-refer-by-number.md) | 役は一覧を番号で指し、engine が名前に戻す（手順 2） | 採用 | 2026-09-25 |
 | [0065](0065-roles-without-user-settings.md) | engine が起こす役には利用者の CLAUDE.md・設定・フックを読ませない | 採用 | 2026-09-25 |
 | [0066](0066-release-tags-and-changelog.md) | 版ごとに plugin の tag と変更の記録を残す | 置き換え（0073） | 2026-09-27 |
-| [0067](0067-test-migration-layer2-and-removal-conditions.md) | テストの移し替えの中身: 層 2 の筋書きの形・通しに残す 10 本・台本を消す条件 | 採用 | 2026-09-27 |
+| [0067](0067-test-migration-layer2-and-removal-conditions.md) | テストの移し替えの中身: 層 2 の筋書きの形・loop.py を子プロセスで起こす今の形で残す試験 10 本・台本を消す条件 | 採用 | 2026-09-27 |
 | [0068](0068-engine-launches-runner-nodes.md) | 回す側の節と comment-analyzer も engine が claude -p で起こす（手順 H3） | 採用 | 2026-09-27 |
 | [0069](0069-engine-launches-skill-node-and-lanes.md) | 局所レビューの skill の節も engine が起こし、背景の線は回し手が立てる | 採用 | 2026-09-27 |
 | [0070](0070-works-entry-does-not-classify-requests.md) | /works の入口は依頼を分類しない（何をどう直すかはラインが単位ごとに決める） | 採用 | 2026-09-28 |
