@@ -20,7 +20,7 @@ findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>
 - `text` には問題（何が困っているか）と目的（どうなってほしいか）を書き、解き方（どう直すか）は書かない。解き方の考えが在るなら、`text` の中に「案（工場が定石と比べて疑う）: …」と分けて添える。工場は案を目的から外して解き方の欄 `means` に置き、同じ種類の問題を世の中がどう解いているか（定石）と比べ、違えば違いを名指して定石を推す。案は依頼者が前に決めた事として扱わない（決め手にならない）。案と定石の違いは報告の節「世界の解」に並び、案を理由に定石から外れる修正案は修正前の関所で依頼者に聞く。欄は足さない（依頼の型は同じ）。
 - 任意: `mechanism`（なぜ起きるか）・`measured`（何で確かめたか）・`false_positive_if`（どうなら誤りか）
 - これ以外の欄は拒まれる。型の確かめはラインの入口で、AI を起こす前に止まる。
-- object の形の `pr`・`issue`（省ける）は、対象の GitHub の PR・issue の番号（正の整数）の配列。名指した物の本文とコメントは、run の入口（`start`）が利用者の gh のログインを継いで 1 回だけ読み、run の盤面の `github.json` に置く（読めない物は読めないと記録して進む。`--pr` の base・head が読めなければ start で止まる）。今の works の版では、役はまだそれを読まない。`findings` を省くと空の配列。
+- object の形の `pr`・`issue`（省ける）は、対象の GitHub の PR・issue の番号（正の整数）の配列。名指した PR・issue の本文とコメントは、run の入口（`start`）が利用者の gh のログインを継いで 1 回だけ読み、run の盤面の記録 `github.json` に置く。名指した PR・issue のうち読めない物は、読めないと記録して進む。ただし `start` の旗 `--pr` で名指した PR の base（取り込み先の枝）・head（変更の枝）が読めなければ、`start` で止まる。今の works の版では、役はまだ `github.json` を読まない。object の形で欄 `findings`（上の指摘の配列）を省くと、指摘は空の配列になる。
 
 ```json
 {"findings": [{"where": "src/app/parse.py:42", "text": "空の行で IndexError が出る"}], "pr": [12], "issue": [34]}
@@ -34,4 +34,4 @@ findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>
 ```
 
 - object の形の `prior_failures`（省ける）は、前の run で最後まで通らなかった物 `[{where, text}]`（どちらも空でない文字列）。前の run の報告が `next-request.json` に書くので、手で書くことは少ない。判定役と修正案の役の材料に貼られ、目的の役と独立設計の役には渡らない。受け付けが最後まで拒んだ理由の行は「直す穴ではない注意」で、独立の目 R2 が作り直しを要ると言った行（where が `独立の目 R2`）は「直す穴」の別の節に貼られ、次の周の先頭で直す（判定役は 1 行ずつ反証し、生き残った行を [block] か do-now の単位にする。死んだ行と目的の外の行は訳つきで報告に並び、次の run には運ばない）。直してほしい穴は `findings` に書く。
-- run の後の CI（run が終わった後に、run の外で対象の CI が回す重い試験）が赤だった試験は、`python3 -I "<works の置き場>/.shared/core/carry.py" carry-ci --request <next-request.json> --failed <赤の試験の id を 1 行に 1 つ書いたファイルか -> --out <次の依頼のファイル>` で `prior_failures` に足せる（行の where は `run の後の CI`。同じ行は 2 度足さない）。id は CI の記録（例: `gh run view <run の番号> --log-failed`）から写す。
+- run の後の CI（run が終わった後に、run の外で対象の CI が回す重い試験）が赤だった試験は、`python3 -I "<works の置き場>/.shared/core/carry.py" carry-ci --request <next-request.json> --failed <赤の試験の id を 1 行に 1 つ書いたファイル（`-` なら標準入力から読む）> --out <次の依頼のファイル>` で `prior_failures` に足せる（行の where は `run の後の CI`。同じ行は 2 度足さない）。id は CI の記録（例: `gh run view <run の番号> --log-failed`）から写す。
