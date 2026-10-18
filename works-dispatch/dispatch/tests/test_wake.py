@@ -321,8 +321,8 @@ class Hook(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s1", "pid": "7"}, gitx)
         self.assertIsNone(self.plan(sid="s9", cwd=self.src))   # 会話の処理が違う（持ち主のほかの会話）
         self.assertTrue(self.plan(sid="s9", cwd=self.src, same=lambda pid: pid == "7")["adopt"])
-        # 部署は印で見分ける（部署の場所の会話の処理の番号は書かない）
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "pid": "7"}, gitx)
+        # 部署は印で見分ける（部署の場所には会話の処理の番号が無い。--desk は部署の worktree で止まり、写った物は --task が消す）
+        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, gitx)
         self.assertIsNone(self.plan(sid="s9", same=lambda pid: True))
 
     def test_a_fresh_department_is_not_cleared_while_an_ask_it_made_has_no_answer(self):

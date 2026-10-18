@@ -209,6 +209,18 @@ class Reorg(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(gitx.worktree_attrs(self.src)["session"], "s-desk")
 
+    def test_desk_is_not_taken_in_a_branch_place(self):
+        # PR の作業場に座った窓口は、そのブランチへ部署を立てられず、頼みが届かずに終わった（3d3ccc）
+        pr_place = str(pathlib.Path(self.root) / "pr")
+        git("-C", self.src, "worktree", "add", "-q", "-b", "feat/1", pr_place, "origin/main")
+        provision.mark(pr_place, self.src, {"role": "窓口", "name": "窓口", "session": "s-old", "pid": "777"}, gitx)   # 本社から写った
+        self.ports._cwd = pr_place
+        self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
+        rc, out = self.main("--desk")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("窓口は本社（代表の clone", out)
+        self.assertEqual(gitx.worktree_attrs(pr_place)["session"], "s-old")
+
     def test_desk_keeps_what_move_launched_and_forgets_it_for_a_talk_started_by_hand(self):
         # --move が起動した会話（company.launching）は起動した値を残す。手で起動した会話は、起動した値を知らないので消す
         # （区切りのターンの終わりに、待ち受けが会社の形の設定で起動し直す）

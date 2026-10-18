@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from . import DISPATCH
 from .test_company import CompanyHerdr
@@ -947,6 +948,26 @@ class Flow(unittest.TestCase):
         attrs = gitx.worktree_attrs(self.place)
         self.assertNotIn("delivered", attrs)
         self.assertIn("受付", deliver.stop_verdict({"session_id": "s-dept"}, attrs, 0, "/d.py"))
+
+    def test_a_new_department_on_the_askers_own_branch_stops_and_says_to_go_on_here(self):
+        # 部署はブランチの作業場で起動するので、頼んだ会話の居るブランチには立たない。前は台帳に訳の無い failed を残した（3d3ccc）
+        self.shape('[[roles]]\nname = "作業"\n')
+        rc, out = self.main(self.place, "--ask", "作業", "--text", "直して", "--task", "直し", "--branch", "dept/a")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("部署を立てずにこの会話で進める", out)
+        self.assertEqual(deliver.records(self.inbox), [])
+
+    def test_a_new_department_that_does_not_start_leaves_why_in_the_ledger(self):
+        self.shape('[[roles]]\nname = "作業"\n')
+
+        def not_started(cfg, repo, a, ports, **kw):
+            print(f"部署 {a.task}  {a.branch}  -  no_account（使用率が上限に届かないアカウントが無い）")
+            return 0
+        with mock.patch.object(sys.modules["dispatch"], "_task", not_started):
+            rc, out = self.main(self.src, "--ask", "作業", "--text", "直して", "--task", "直し", "--branch", "b/x")
+        self.assertEqual(rc, 1, out)
+        (rec,) = deliver.records(self.inbox)
+        self.assertEqual((rec["status"], rec["detail"]), ("failed", "部署 直し  b/x  -  no_account（使用率が上限に届かないアカウントが無い）"))
 
     def shape(self, text):
         # 会社の形は本社（元の clone）のものを読む（--tree と頼む側と同じ。部署のブランチの中の写しではない）

@@ -80,7 +80,7 @@ def plan(payload, env=os.environ, attrs_of=gitx.worktree_attrs, parent=os.getppi
     common, place = gitx.common_dir(cwd), gitx.git_dir(cwd)
     if not common or not place:
         return None
-    desk = os.path.realpath(place) == os.path.realpath(common)
+    desk = provision.desk_seat(place, common, attrs)
     if desk and not attrs.get("session"):
         return None   # 窓口は --desk が書いた会話の id が要る（代表の clone のほかの会話に知らせを横取りさせない）
     inbox = deliver.inbox_of(common)

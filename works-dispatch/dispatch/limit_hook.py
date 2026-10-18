@@ -19,7 +19,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
     import gitx  # noqa: E402
-    from nodes import deliver, wake  # noqa: E402
+    from nodes import deliver, provision, wake  # noqa: E402
 except (ImportError, SyntaxError):
     sys.exit(0)
 
@@ -40,9 +40,9 @@ def plan(payload, attrs_of=gitx.worktree_attrs):
     here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
     if not here or not common:
         return None
-    head = os.path.realpath(here) == os.path.realpath(common)
+    head = provision.desk_seat(here, common, attrs)
     if head and attrs.get("session") != payload.get("session_id"):
-        return None   # 本社の、窓口でない会話
+        return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
     if not head and attrs.get("residency") != "resident" and not (attrs.get("ask") and attrs.get("delivered") != attrs["ask"]):
         return None   # 都度の部署は、頼みを受けている間だけ移す（頼まれたときだけ立てる受け持ちの部署は、頼みの途中で枠が尽きうる）
     argv = [sys.executable, DISPATCH_PY, "--move", name, "--if-limited"] + (["--config", attrs["config"]] if attrs.get("config") else [])

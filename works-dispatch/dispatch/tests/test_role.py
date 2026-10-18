@@ -400,6 +400,18 @@ class Hook(unittest.TestCase):
             role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-x", "source": "startup"})), self.env)
         self.assertIn("頼みを配る。", out.getvalue())
 
+    def test_a_work_place_with_the_desk_attrs_copied_from_the_head_office_does_not_make_its_talk_the_desk(self):
+        # git worktree add が本社の窓口の属性（--desk だけが書く company.pid を含む）を PR の作業場に写した。そこで起動した PR の会話が
+        # 窓口の本文を受け、自分の居るブランチに部署を立てようとした（3d3ccc）。写った属性の場所も本社と同じ席の決まりで見る
+        write(pathlib.Path(self.src) / ".claude" / "company.toml", '[[roles]]\nname = "窓口"\ninstructions = "頼みを配る。"\n')
+        provision.mark(self.place, self.src, {"role": "窓口", "name": "窓口", "session": "s-desk", "pid": "999999999"}, gitx)
+        out = io.StringIO()
+        with mock.patch.object(claudex, "running_claude", lambda pid: True), contextlib.redirect_stdout(out):
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-pr", "source": "startup"})), self.env)
+            role_hook.main(io.StringIO(json.dumps({"cwd": self.place, "session_id": "s-pr2", "source": "clear"})), self.env)
+        self.assertNotIn("頼みを配る。", out.getvalue())
+        self.assertEqual(gitx.worktree_attrs(self.place)["session"], "s-desk")   # PR の会話の /clear で席を取らない
+
     def test_running_claude_reads_the_command_of_the_process(self):
         import subprocess
         def runner(out, rc=0):

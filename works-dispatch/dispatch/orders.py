@@ -22,6 +22,8 @@ boss-pane・boss-inbox）を書く。頼み元の名前は、頼んだ場所の�
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -169,7 +171,7 @@ def place_name(here, sid, ports):
     if not attrs.get("role") or not attrs.get("name"):
         return None
     place, common = ports.git.git_dir(here), ports.git.common_dir(here)
-    desk = bool(place and common) and os.path.realpath(place) == os.path.realpath(common)
+    desk = provision.desk_seat(place, common, attrs)
     return attrs["name"] if not desk or (sid and attrs.get("session") == sid) or ports.same_process(attrs.get("pid")) else None
 
 
@@ -610,6 +612,13 @@ def _ask(a, ports, cwd, task, sent):
                                  "ファイルが無ければ既定で動くが、在って読めない物は直す）"]))
         return 2
     repo = config.repo_at(cfg, company["root"], ports.origin)
+    if own_branch(cwd, a.branch, repo.source, ports.git):
+        # 部署はブランチの作業場で起動するので、頼んだ会話の居るブランチには立たない。前は立てる道が「会話がもう開いている」で
+        # 何もせず、台帳に訳の無い failed を残し、会話は道を持ち主に問い直した（3d3ccc）
+        print("\n".join(notes + [f"止めた: ブランチ {a.branch} は、この頼みを打った会話の居る作業場 {cwd} が開いている。部署は"
+                                 "ブランチの作業場で起動するので、同じブランチには立てない。この会話がそのブランチの作業場に居るので、"
+                                 "部署を立てずにこの会話で進める（別の仕事なら別の --branch で頼む）"]))
+        return 2
     if a.dry_run:
         print("\n".join(notes + [f"頼む先: {company['name']} に部署 {a.task}（役 {role}、ブランチ {a.branch}）を立て、最初の文で頼む",
                                  f"- 受付箱: {inbox}",
@@ -617,7 +626,12 @@ def _ask(a, ports, cwd, task, sent):
         return 0
     path = deliver.put(inbox, f"{ask_id}-ask.md", body)
     ns = argparse.Namespace(**{**vars(a), "brief": path, "role": role})
-    rc = task(cfg, repo, ns, ports, extra_attrs=boss, tail=deliver.tail(required, RUN), refreshed=True)
+    said = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(said):
+            rc = task(cfg, repo, ns, ports, extra_attrs=boss, tail=deliver.tail(required, RUN), refreshed=True)
+    finally:
+        sys.stdout.write(said.getvalue())   # 立てる道が誤りで抜けても、そこまでに書いた物を捨てない
     try:
         got = next((p for p in ports.places(repo) if p.get("branch") == a.branch), None)
     except herdr.HerdrError as e:
@@ -625,7 +639,8 @@ def _ask(a, ports, cwd, task, sent):
         notes.append(f"立てた後に部署の場所を読めない（{e}）")
     attrs = ports.attrs(got["path"]) if got else {}
     status = "sent" if attrs.get("ask") == ask_id and attrs.get("session") else "failed"
-    deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": None if rc == 0 else f"rc={rc}",
+    deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status,
+                        "detail": None if status == "sent" else (why_not(said.getvalue()) or f"rc={rc}"),
                         "cause": cause,
                         "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
@@ -634,6 +649,22 @@ def _ask(a, ports, cwd, task, sent):
         sent.update(id=ask_id, to={"company": company["name"], "name": a.task, "role": role})
     print("\n".join(notes + [f"頼み {ask_id} → {company['name']}/{a.task}（新しく立てた部署）  {status}", f"- 本文: {path}"]))
     return rc if status == "sent" else (rc or 1)
+
+
+def own_branch(cwd, branch, source, g=gitx):
+    """頼んだ会話の居る場所（cwd）が、同じリポジトリのブランチの作業場（linked worktree）で、そのブランチ（branch）を開いているか。"""
+    common, theirs = g.common_dir(cwd), g.common_dir(source)
+    if not common or not theirs or os.path.realpath(common) != os.path.realpath(theirs):
+        return False
+    return g.is_main_worktree(cwd) is False and g.branch(cwd) == branch
+
+
+def why_not(said):
+    """部署を立てる道（dispatch._task）が画面に書いた物から、立たなかった訳の 1 行（台帳の detail）。止めた行が有ればその最後、
+    無ければ箇条（「- 」で始まる行）でない最後の行。何も書いていなければ None。"""
+    lines = [x.strip() for x in said.splitlines() if x.strip()]
+    return (next((x for x in reversed(lines) if x.startswith("止めた")), None)
+            or next((x for x in reversed(lines) if not x.startswith("- ")), None))
 
 
 def cause_of(a, here, ports):

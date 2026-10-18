@@ -411,6 +411,18 @@ class Task(unittest.TestCase):
         self.assertIn("already_open", out)
         self.assertEqual(ports.herdr.writes, [])
 
+    def test_a_reused_place_loses_the_desk_process_number_copied_from_the_head_office(self):
+        # 前の版で作った PR の作業場には本社の company.pid が写っている。残ると部署が窓口の席と見られ、役の本文を受けない（3d3ccc）
+        src = gitx_source(self.cfg)
+        old = str(pathlib.Path(self.root).parent / "old-pr")
+        git("-C", src, "worktree", "add", "-q", "-b", "task/fix", old, "origin/main")
+        provision.mark(old, src, {"role": "窓口", "name": "窓口", "pid": "777"}, gitx)
+        ports = self.ports()
+        rc, out = self.run_task(ports)
+        self.assertEqual(rc, 0, out)
+        attrs = gitx.worktree_attrs(old)
+        self.assertEqual((attrs.get("pid"), attrs["name"]), (None, "直し"))
+
     def test_branch_open_in_the_source_clone_is_branch_busy(self):
         src = gitx_source(self.cfg)
         git("-C", src, "checkout", "-q", "-b", "task/fix")

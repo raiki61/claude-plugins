@@ -221,6 +221,24 @@ def renew_session(attrs, sid):
     return {"session": sid, **({"job": job} if job else {})}
 
 
+def copied(office, here, keep=()):
+    """新しく作った worktree の属性（here）のうち、git worktree add が本社から写した物（本社の属性 office と同じ値）を消す、mark に渡す
+    値（名前 → None）。keep の名前（これから書く属性）は消さない。git worktree add は、extensions.worktreeConfig のとき、作った元の
+    worktree（本社）の config.worktree を新しい worktree に写す（2026-10-16 に git 2.50 と 2.56.0.windows.2 で見た）。本社に --desk が
+    書いた窓口の属性が PR の作業場に写って残ると、その場所で起動した PR の会話が役を足すフックから窓口の本文を受け、窓口として振る舞った
+    （guided-resolver の PR #1987 の作業場で、自分の居るブランチに部署を立てようとした。my_notes の受付 3d3ccc）。"""
+    return {k: None for k, v in here.items() if k not in keep and office.get(k) == v}
+
+
+def desk_seat(place, common, attrs):
+    """その場所が窓口の席か: 本社（代表の clone。git の場所と共通の場所が同じ）か、--desk だけが書く属性 company.pid（窓口の会話の
+    処理の番号）を持つ場所。席の場所では、--desk が書いた会話（company.session）か、その会話の処理の中の会話だけを窓口と見る。
+    worktree に本社の属性が写って残っていても（copied の前の版で作った作業場）、その場所の会話を窓口と取り違えない。"""
+    if not place or not common:
+        return False
+    return os.path.realpath(place) == os.path.realpath(common) or bool(attrs.get("pid"))
+
+
 def mark(path, source, attrs, g=gitx):
     """部署の属性を、その場所（worktree）の git の設定 company.<名前> に書く。値が None（か空）の属性は、前の回の値が残っていれば消す
     （使い直した場所に、前の回の gh のアカウントや設定の場所が残って効き続けないように）。書けなければ GitError。

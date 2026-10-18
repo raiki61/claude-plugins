@@ -48,8 +48,8 @@ def run(payload, env=os.environ, h=herdr, host=claudex.host, same=claudex.in_pro
     common, place = gitx.common_dir(cwd), gitx.git_dir(cwd)
     if not common or not place:
         return None
-    if os.path.realpath(place) == os.path.realpath(common) and not same(attrs.get("pid")):
-        return None   # 窓口の clone の、窓口でない会話
+    if provision.desk_seat(place, common, attrs) and not same(attrs.get("pid")):
+        return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
     path = refresh.installed_file(plugin_root)   # 読み込んだこの版の置き場の、入れた物の控え
     if not path:
         return None

@@ -199,11 +199,16 @@ def desk(a, ports, cwd):
     attrs = ports.attrs(cwd)
     shape, notes = _shape(source, a)
     notes += shape["problems"]
-    linked = ports.git.is_main_worktree(cwd) is False   # 部署の worktree（部署の役を窓口の役の候補にしない）
-    the_role = desk_role(shape, {} if linked else attrs, a.role)
-    if linked and attrs.get("role") and role.current(shape, attrs["role"]) != the_role:
+    linked = ports.git.is_main_worktree(cwd) is False   # 部署か PR の作業場（ブランチの worktree）
+    if linked and attrs.get("role") and role.current(shape, attrs["role"]) != desk_role(shape, {}, a.role):
         print(f"止めた: {cwd} は部署（役 {attrs['role']}）。部署の名前と役は --reorg で付け替える")
         return 2
+    if linked:
+        # 窓口がブランチの作業場に座ると、そのブランチへ部署を立てられず（部署はブランチの作業場で起動する）、頼みが届かずに終わる（3d3ccc）
+        print(f"止めた: 窓口は本社（代表の clone {source}）で開く。{cwd} はブランチの作業場で、その会話はそのブランチの仕事をする"
+              "（頼みを配るなら本社で会話を開いて --desk を打つ）")
+        return 2
+    the_role = desk_role(shape, attrs, a.role)
     name = (a.desk or "").strip() or attrs.get("name") or the_role
     if a.role:
         _, why = role.pick(shape, a.role, True)

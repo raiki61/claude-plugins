@@ -98,20 +98,20 @@ def refresh_session(payload, cwd, attrs, same=lambda attrs: claudex.in_process(a
     here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
     if not here or not common:
         return None
-    if os.path.realpath(here) == os.path.realpath(common) and not same(attrs):
-        return None   # 本社（代表の clone）の、窓口でない会話
+    if provision.desk_seat(here, common, attrs) and not same(attrs):
+        return None   # 窓口の席（本社か、本社の属性が写った作業場）の、窓口でない会話
     provision.mark(cwd, gitx.root_of(common), provision.renew_session(attrs, sid), gitx)
     return sid
 
 
 def seated(payload, cwd, attrs, running=None, same=None):
-    """この会話に、その場所の役の本文を足してよいか。部署の worktree なら足す。本社（代表の clone）では、窓口の席に座る会話だけ:
+    """この会話に、その場所の役の本文を足してよいか。部署の worktree なら足す。窓口の席（本社〔代表の clone〕か、本社の属性が写って
+    残った作業場。provision.desk_seat）では、窓口の席に座る会話だけ:
     属性の会話（company.session）か、--desk を打った会話と同じ処理（company.pid。/clear の後）か、窓口の会話が動いていない
     ときに窓口の名前（company.name か前の名前）を付けて起動した会話（claude --name）。代表の clone で起きた試しや裏の 1 回きりの処理
     （claude -p。名前が無い）と、窓口が動いている間に起きたほかの会話には足さない（それらが窓口として振る舞い、--desk で席を
     取った。53d5d1・6be241）。"""
-    here, common = gitx.git_dir(cwd), gitx.common_dir(cwd)
-    if not here or not common or os.path.realpath(here) != os.path.realpath(common):
+    if not provision.desk_seat(gitx.git_dir(cwd), gitx.common_dir(cwd), attrs):
         return True
     running = running or claudex.running_claude
     same = same or (lambda attrs: claudex.in_process(attrs.get("pid")))

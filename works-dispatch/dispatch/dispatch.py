@@ -936,6 +936,14 @@ def main(argv=None, ports=None):
                 results[r["number"]] = prov["status"]
                 continue
             r["path"] = prov["path"]
+            if prov["created"]:
+                # 作ったばかりの PR の作業場に本社から写った属性を消す（残ると、そこで起動した PR の会話が窓口の役の本文を受ける）
+                try:
+                    gone = provision.copied(ports.attrs(repo.source), ports.attrs(prov["path"]))
+                    if gone:
+                        provision.mark(prov["path"], repo.source, gone, ports.git)
+                except (gitx.GitError, OSError) as e:
+                    notes.append(f"{name}: 本社から写った属性を消せなかった（{e}）。この作業場の会話が本社の役の本文を受ける")
             try:
                 trusted = ports.trust(r["account"], repo.source, prov["path"], cfg.accounts)
             except OSError as e:
@@ -1291,14 +1299,14 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
                          f"信頼の印を付けられない（{trusted}）。Claude Code がフォルダの信頼の確認を出す")
         try:
             provision.hide_claude_dir(repo.source, ports.git)
-            # git worktree add は、extensions.worktreeConfig のとき、作った元の worktree（本社）の config.worktree を新しい
-            # worktree に写す（2026-10-16 に git 2.50 と 2.56.0.windows.2 で見た）。本社に --desk が書いた窓口の属性（会話の id・
-            # 前の名前など）が部署に写って残ると、部署が窓口の会話を自分の会話と取り違える（まっさらな環境での 4 回目の試しの 3）。
-            # 本社と同じ値のまま残っている属性のうち、今回書かない物は消す
+            # 本社の属性が部署に写って残ると、部署が窓口の会話を自分の会話と取り違える（まっさらな環境での 4 回目の試しの 3）。
+            # 本社と同じ値のまま残っている属性のうち、今回書かない物は消す（provision.copied）
             # 立っている部署の場所を開き直したとき（--task の打ち直し・--move）は、属性は部署の物なので消さない（頼み元の受付箱
             # company.boss-inbox は、ふつう本社の物と同じ値なので、消されていた。d7d50c）
             office = {} if existed else ports.attrs(repo.source)
-            copied = {k: None for k, v in ports.attrs(prov["path"]).items() if k not in attrs and office.get(k) == v}
+            # company.pid は --desk だけが本社に書く（--desk は部署の worktree で止まる）ので、部署の場所に在れば写った物。使い直した
+            # 場所（前の版で作った PR の作業場など）でも消す（残ると部署が窓口の席と見られ、役の本文を受けない）
+            copied = {**provision.copied(office, ports.attrs(prov["path"]), attrs), "pid": None}
             provision.mark(prov["path"], repo.source, {**copied, **attrs}, ports.git)
             if not ports.attrs(prov["path"]).get("base"):
                 # この部署がメインブランチを知った位置（ブランチを作ったときの origin のメインブランチ）。--land の書き換えの取り合いのゲートが、ここより後に

@@ -18,6 +18,7 @@ import ghx
 import gitx
 import herdr as real_herdr
 from nodes import clean
+from nodes import provision
 from nodes import launch
 from nodes import prs as prs_node
 from nodes import report
@@ -428,6 +429,17 @@ class Main(unittest.TestCase):
             ("prompt", "P0", "二手目", False),
         ])
         self.assertTrue(by_number(out)["#1"].endswith("sent"))
+
+    def test_a_new_pr_place_drops_the_desk_attrs_git_copied_from_the_head_office(self):
+        # git worktree add は本社の config.worktree を写す。残ると、PR の会話が窓口の役の本文を受けて窓口として振る舞った（3d3ccc）
+        src = gitx_source(self.cfg)
+        provision.mark(src, src, {"role": "窓口", "name": "窓口", "session": "s-desk", "pid": "777"}, gitx)
+        ports = FakePorts([pr(1)])
+        rc, out = run_main(["--config", self.cfg], ports)
+        self.assertEqual(rc, 0, out)
+        place = next(w["path"] for w in ports.herdr.worktrees(src) if w["linked"])
+        self.assertEqual(gitx.worktree_attrs(place), {})
+        self.assertEqual(gitx.worktree_attrs(src)["role"], "窓口")
 
     def test_untrusted_source_still_launches_and_says_the_dialog_will_show(self):
         ports = FakePorts([pr(1)])
