@@ -1699,6 +1699,7 @@ rm -f "$REPO/broken.py"
 echo "マニフェストと参照の整合"
 # 根の README の表は marketplace.json の要約。プラグインを足した周に表を忘れると、数と表がずれたまま残った
 # （実測 2026-10-14: 「配るプラグインは 5 本」のまま works・works-factory・works-dispatch が載っていなかった）
+# 本数の文は日本語の形と英語の形（README を英語にする周、受付 da159a）の両方を認める
 expect_output 0 "README_PLUGINS_OK" "根の README の表と本数が、marketplace.json のプラグインと揃う" "$PY_BIN" - "$ROOT" <<'PY'
 import json, re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
@@ -1708,7 +1709,7 @@ root = pathlib.Path(sys.argv[1])
 names = [p["name"] for p in json.loads((root/".claude-plugin/marketplace.json").read_text(encoding="utf-8"))["plugins"]]
 readme = (root/"README.md").read_text(encoding="utf-8")
 rows = re.findall(r"^\| \*\*([^*]+)\*\* \|", readme, re.M)
-count = re.search(r"配るプラグインは (\d+) 本", readme)
+count = re.search(r"配るプラグインは (\d+) 本", readme) or re.search(r"ships (\d+) plugins", readme)
 assert sorted(rows) == sorted(names), f"README の表 {sorted(rows)} と marketplace.json {sorted(names)} が違う"
 assert count and int(count.group(1)) == len(names), f"README の本数 {count and count.group(1)} と marketplace.json の {len(names)} 本が違う"
 print("README_PLUGINS_OK", len(names))
