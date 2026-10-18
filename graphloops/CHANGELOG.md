@@ -46,18 +46,18 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [0.34.0] - 2026-10-19
 
 ### Changed
-- review-loop の判定者（judge）に渡すプロンプト `prompts/review-loop/p2.history.md` で、原因の意味で使っていた「根」を「根本原因」に、「枝」を「ユニット」に書き換えた。1 行目には、初見読みの検査（このリポジトリの別のプラグイン gates の coldread。文脈を持たない読み手に文書を読ませて詰まりを探す）を飛ばす印を足した。このファイルは判定者に渡すひな形で、読むのはエージェントと保守する人だけのため。判定者への指示の中身は変えていない。
+- review-loop の判定者（judge）に渡すプロンプト `prompts/review-loop/p2.history.md` で、原因の意味で使っていた「根」を「根本原因」に、「枝」を「ユニット」に書き換えた。1 行目には、初見読みの検査（gates の coldread）を飛ばす印を足した。このファイルは判定者に渡すひな形で、読むのはエージェントと保守する人だけのため。判定者への指示の中身は変えていない。
 
 ## [0.33.1] - 2026-10-19
 
 ### Fixed
-- `/review-graph` のスキルの本文（`skills/review-graph/SKILL.md` の、先頭の設定の行〔frontmatter〕を除いた部分）を 5,000 字以下に縮めた。このリポジトリでは、スキルの本文は 5,000 字以下と決めていて（`docs/standards/skill-authoring.md` の決まり 1）、自動の試験が 5,000 字を超えた本文を失敗にするため。振る舞いは変えていない。
+- `/review-graph` のスキルの本文（`skills/review-graph/SKILL.md` の、先頭の設定の行を除いた部分）を 5,000 字以下に縮めた。このリポジトリでは、スキルの本文は 5,000 字以下と決めていて（`docs/standards/skill-authoring.md` の決まり 1）、自動の試験が 5,000 字を超えた本文を失敗にするため。振る舞いは変えていない。
 
 ## [0.33.0] - 2026-10-19
 
 ### Changed
 
-- 前の版で置き換えずに残した 6 本（research-graph の SKILL.md と、review-graph の references の flows.md・policy.md・runnerless.md と、review-loop のプロンプトの p2.history.md・report.md）も IT の定着語（IT の業界で広く使われる言い方）に置き換えた。0.31.0 と同じ置き換えで、グラフの「節」はノード、文書の区切りの「節」はセクションにした。振る舞いは変えていない。
+- 前の版で置き換えずに残した 6 本（research-graph の SKILL.md と、review-graph の references の flows.md・policy.md・runnerless.md と、review-loop のプロンプトの p2.history.md・report.md）も IT の定着語に置き換えた。振る舞いは変えていない。
 
 ## [0.32.0] - 2026-10-19
 
