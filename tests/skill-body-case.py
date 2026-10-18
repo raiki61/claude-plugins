@@ -47,7 +47,6 @@ EXEMPT = {
     "attention/commands/what-am-i-doing.md": {"長さ"},
     "attention/commands/whose-turn.md": {"長さ"},
     "works/skills/works/SKILL.md": {"長さ"},
-    "works-dispatch/skills/dispatch/SKILL.md": {"長さ"},
 }
 
 FRONT = re.compile(r"\A---[ \t]*\n(.*?\n)?---[ \t]*(?:\n|\Z)", re.S)

@@ -1,6 +1,6 @@
 # 試しの実行で確かめた外の振る舞い（2026-10-14〜2026-10-16）
 
-dispatch が頼る herdr・Claude Code・git・gh の振る舞いのうち、文書に無く、手元で打って確かめた物の記録。使い始め方は [README](../README.md)、使う人向けの手順の全部は [SKILL.md](../skills/dispatch/SKILL.md)。
+dispatch が頼る herdr・Claude Code・git・gh の振る舞いのうち、文書に無く、手元で打って確かめた物の記録。使い始め方は [README](../README.md)、使う人向けの手順の全部は [SKILL.md](../skills/dispatch/SKILL.md) と、そこから主題ごとに指す別ファイル（`skills/dispatch/references/`）。
 
 確かめた版は、herdr 0.9.3、Claude Code 2.1.299、git 2.50.1（Apple Git-155）、gh 2.102.0。項の頭に別の版を書いた物は、その版で確かめた。版が変わったら、ここを確かめ直す。
 

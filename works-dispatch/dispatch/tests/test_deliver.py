@@ -473,7 +473,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(writes[:2], [("send_keys", self.window, "ctrl+z"), ("run", self.window, "claude-a1 attach d")])
 
     def test_department_whose_pane_was_closed_is_reopened_and_attached(self):
-        # ペインを閉じると部署の作業場も閉じる（SKILL.md の「部署の会話を止める」の止め方）。作業場を開き直し、その新しいペインで
+        # ペインを閉じると部署の作業場も閉じる（skills/dispatch/references/clean.md の「部署の会話を止める」の止め方）。作業場を開き直し、その新しいペインで
         # 短い id の attach を打って戻す（まっさらな環境での 8 回目の試しの 2）
         h = self.ports.herdr
         ws = next(p["workspace_id"] for p in h._panes if p["pane_id"] == self.window)

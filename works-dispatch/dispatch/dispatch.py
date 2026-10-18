@@ -307,7 +307,7 @@ class Ports:
         files = [herdr_toml] + [pathlib.Path(config.effective_config_dir(a, self.account_env)) / "settings.json" for a in cfg.accounts]
         for path in gone_plugin_paths([s for f in files for s in setting_strings(f)]):
             notes.append(f"herdr の設定かフックが、もう無いスクリプトを指している: {path}（プラグインの更新で場所が変わった。"
-                         "SKILL.md の任意の手順で行を出し直す）")
+                         "skills/dispatch/references/setup.md の「任意: herdr の見た目を整える」で行を出し直す）")
         for repo in cfg.repos:
             if gitx.origin_repo(repo.source) != repo.repo:
                 problems.append(f"{repo.repo}: 元の clone {repo.source} が、このリポジトリの clone でない")
@@ -1541,7 +1541,7 @@ def _init(a, ports):
     q = json.dumps
     lines = [
         "# works の dispatch の設定（--init が書いた下書き）。直したら --check で確かめる。",
-        "# 欄の書き方: works-dispatch の skills/dispatch/SKILL.md の「初めて」と「アカウントの書き方」（前提の訳は docs/prerequisites.md）",
+        "# 欄の書き方: works-dispatch の skills/dispatch/references/setup.md の「初めて」と「アカウントの書き方」（前提の訳は docs/prerequisites.md）",
         "",
         "limit_percent = 95                      # 週か 5 時間の使用率がこれに達したアカウントは使わない",
         "# reset_soon_hours = 24                 # 週の枠の切り替わりがこの時間以内のアカウントを先に使う（使わずに切り替わる分を無駄にしない）",
@@ -1588,7 +1588,7 @@ def _init(a, ports):
 # 違うので、例を 1 つだけ <…> の置き字で書く
 COMPANY_DRAFT = """# 会社の形: このリポジトリで部署（作業ごとの会話）を立てるときの、会社の名前・役・gh のアカウント・本流への入れ方。
 # 読むのは works-dispatch（--tree・--task・--ask・--deliver・--land と、役を足すフック）。--init-company が書いた下書き。
-# 書き方: works-dispatch の skills/dispatch/SKILL.md の「役の中身と起こし方」と「本流に入れる」。
+# 書き方: works-dispatch の skills/dispatch/references/roles.md（役）と references/land.md（本流に入れる）。
 # 置き場は 2 つ。リポジトリの中（.claude/company.toml）なら commit すると同じリポジトリを使う人に効く。commit しない物は、
 # dispatch の設定の置き場の companies/ に置く（--init-company --local）。両方に在れば、リポジトリの中の物を読む。
 # <…> は置き字なので、受け持ちの名前と中身に直す（受け持ちを増やすなら、[[skills]] の項目を写して足す）。

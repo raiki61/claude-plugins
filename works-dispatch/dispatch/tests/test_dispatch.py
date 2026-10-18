@@ -882,7 +882,7 @@ class Init(unittest.TestCase):
         self.assertTrue(pathlib.Path(self.cfg).with_name("dispatch-second-prompt.md").is_file())
         self.assertIn("--check", out)
         text = pathlib.Path(self.cfg).read_text(encoding="utf-8")
-        self.assertIn("skills/dispatch/SKILL.md", text.splitlines()[1])   # 欄の書き方は SKILL.md に在る（README でない）
+        self.assertIn("skills/dispatch/references/setup.md", text.splitlines()[1])   # 欄の書き方はスキルの別ファイルに在る（README でない）
         self.assertIn("CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて", text)
 
     def test_repo_that_is_not_the_origin_of_the_source_stops_before_writing(self):

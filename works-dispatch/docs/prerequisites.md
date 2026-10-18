@@ -1,8 +1,8 @@
 # 前提と、なぜ要るか
 
-works-dispatch（作業ごとに Claude Code の会話を別に立てて仕事を頼む、自分の番の PR〔attention プラグインの `/whose-turn` が、使う人の番として並べる PR〕を作業場に開いて読ませるプラグイン）の前提ごとの理由。読むだけでよく、確かめるのは `dispatch.py --check`（`dispatch/dispatch.py`）が全部やる。使い始め方と言葉（窓口・部署・会社）は [README](../README.md)、使う人向けの手順の全部は [SKILL.md](../skills/dispatch/SKILL.md)。
+works-dispatch（作業ごとに Claude Code の会話を別に立てて仕事を頼む、自分の番の PR〔attention プラグインの `/whose-turn` が、使う人の番として並べる PR〕を作業場に開いて読ませるプラグイン）の前提ごとの理由。読むだけでよく、確かめるのは `dispatch.py --check`（`dispatch/dispatch.py`）が全部やる。使い始め方と言葉（窓口・部署・会社）は [README](../README.md)、使う人向けの手順の全部は [SKILL.md](../skills/dispatch/SKILL.md) と、そこから主題ごとに指す別ファイル（`skills/dispatch/references/`）。
 
-設定のファイルの下書き（既定 `~/.config/works-dispatch/dispatch.toml`。欄の書き方は SKILL.md）は `dispatch.py --init --repo OWNER/NAME --source <代表の clone>` が書く。代表の clone は、PR や部署ごとの worktree を作る元にする、ふつうの clone（本体の checkout）。
+設定のファイルの下書き（既定 `~/.config/works-dispatch/dispatch.toml`。欄の書き方は `skills/dispatch/references/setup.md`）は `dispatch.py --init --repo OWNER/NAME --source <代表の clone>` が書く。代表の clone は、PR や部署ごとの worktree を作る元にする、ふつうの clone（本体の checkout）。
 
 **要る段: 2**（共通の点検の部品 [tiers](../../tiers/README.md) が、要る道具を 0〜3 に分けた段。gh・herdr・アカウントの起こし方の命令）。`--check` は最初に `tiers --tier 2 --json` を、設定の各アカウントの起こすコマンドを `--launcher` に渡して呼ぶ（`dispatch/tierx.py`）。足りなければ、足りない物ごとに入れ方と、その下に字下げで tiers の案内（`--json` の `guide`。tiers 0.2.0 から。古い tiers なら入れ方の行だけ）を出し、終わりに同じ案内を人の読む形で見られる `/tiers:check` を 1 行添えて止まり、下の確かめには進まない。tiers は `plugin.json` の `dependencies` で入り、Claude Code がその `bin/` を PATH に入れる。見つからない（依存の入っていない古い入れ方・Claude Code の外から走らせた）ときは、入れる命令（`claude plugin install tiers@<マーケットプレイス>`。このリポジトリから入れたなら `tiers@raiki61`）を注記にして、段の点検は飛ばしたまま下の確かめを続ける。依存は `claude plugin update` では入らないので、tiers を足した works-dispatch の版（0.7.0）へ update しただけのときは、この命令で入れる。下の 1 と 3 と 5 は tiers の点検と重なるが、dispatch の普段の実行（PR を開く）と `--task` の実行（部署を立てる）が使う確かめなので残す。
 

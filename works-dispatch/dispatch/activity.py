@@ -7,7 +7,7 @@ herdr の端末のタイトルは会話の始めに一度だけ付く名前で�
 
 使い方: `python3 <このファイル> settings` が、Claude Code の設定（settings.json）に足す hooks の塊（UserPromptSubmit・PreToolUse・
 Stop・Notification で、Python をフックと同じ決まり〔hooks/run-python.sh〕で選んでこのファイルを呼ぶ）を JSON で出す。herdr の設定の [ui.sidebar.agents.rows_by_agent] の claude の行に
-$act を置く（SKILL.md）。引数なしで起こすと、フックとして標準入力の 1 回ぶんを処理する。
+$act を置く（skills/dispatch/references/setup.md）。引数なしで起こすと、フックとして標準入力の 1 回ぶんを処理する。
 herdr の外で動く会話では何もしない。herdr への送信は待たずに手放し、ツールの呼び出しを待たせない。印を送るペインは、会話の id か
 場所で herdr のペインから引く（pane_of）。
 """
