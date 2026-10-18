@@ -255,7 +255,7 @@ PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", 
 
 
 # 枠に付ける言語名（highlight.js の名前）。AI が ```<言語名> に写す。機械が決めるのは、AI に選ばせると
-# 命令書の例に無い .md を plaintext にして色が消えた（実走で実測）から。表に無い種類は拡張子をそのまま出す——
+# スキルの文書の例に無い .md を plaintext にして色が消えた（実走で実測）から。表に無い種類は拡張子をそのまま出す——
 # highlight.js が知らなければ色が付かないだけで害は無く、別の描画器なら付く。plaintext は拡張子が無い file だけ
 FENCE_BY_EXT = {
     "python": {"py", "pyi"}, "markdown": {"md", "markdown"}, "bash": {"sh", "bash", "zsh", "bats"},
@@ -423,7 +423,7 @@ def _segment(items, marks):
     label = "追加" if kinds == {"+"} else "削除" if kinds == {"-"} else "変更"
     same = sum(1 for m, _ in items if m == " ")
     if same:
-        label += f"（変わっていない {same} 行を挟む）"  # 近い変更を 1 枠にまとめた印。枠の中の行数と照らせる
+        label += f"（変わっていない {same} 行を挟む）"  # 近い変更を 1 枠にまとめた印。枠の中の行数と照合できる
     # 帯の字下げは区間の中で一番浅い行に合わせる（深い行に合わせると、浅い行を囲む帯が中に食い込む）
     indent = min((_indent_of(t) for _, t in items if t.strip()), key=len, default="")
     out = [band(marks, indent, "┏", label, "━")]
@@ -589,8 +589,8 @@ def join_frames(path, info, cap=FRAME_FILE_CAP, frame_cmd="--frame"):
 # textconv は嘘の行を枠に貼る（どれも実測）。他人の checkout（fork）は相手の .gitattributes を持つ
 DIFF_SANE = ("--no-color", "--no-ext-diff", "--no-textconv")
 # pathspec は既定で glob と magic を解釈する。`*` や `[` を含む file 名が別の file に当たり、先頭が `:` の
-# path は magic として読まれる。:(top,literal) で literal 固定・リポジトリの根からの相対にする
-# （cwd が下の階層でも、git が返す path はいつも根からなので）
+# path は magic として読まれる。:(top,literal) で literal 固定・リポジトリのルートからの相対にする
+# （cwd が下の階層でも、git が返す path はいつもルートからなので）
 
 
 def pathspecs(names):
@@ -720,7 +720,7 @@ def origin_matches(top, owner, name):
 
 
 def tracked_names(top, d):
-    """階層 d（"." は根）の、HEAD が追跡している名前。無ければ None。
+    """階層 d（"." はルート）の、HEAD が追跡している名前。無ければ None。
     os.listdir だと .venv や __pycache__ が「既存」に混ざるので ls-tree で数える。"""
     args = ["-c", "core.quotePath=false", "ls-tree", "HEAD"]
     args += [] if d == "." else ["--", d + "/"]
@@ -901,9 +901,9 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git の空の木。�
 
 
 def branch_exists(token, cwd=None):
-    """token が手元の枝か、origin にだけ有る枝か。枝なら「移る」対象（仕様の原則 1）で、commit より先に見る。
-    照合は show-ref の完全一致——rev-parse だと HEAD~1 が refs/remotes/origin/HEAD の親に解けて枝扱いになる（実走で実測。
-    仕様 3 節: HEAD~n は commit で、枝が勝つのは同じ語が枝の名前のときだけ）。HEAD は枝ではない（origin/HEAD は
+    """token が手元のブランチか、origin にだけ有るブランチか。ブランチなら「移る」対象（仕様の原則 1）で、commit より先に見る。
+    照合は show-ref の完全一致——rev-parse だと HEAD~1 が refs/remotes/origin/HEAD の親に解けてブランチ扱いになる（実走で実測。
+    仕様のセクション 3: HEAD~n は commit で、ブランチが勝つのは同じ語がブランチの名前のときだけ）。HEAD はブランチではない（origin/HEAD は
     symbolic ref で show-ref に通る）。"""
     if token == "HEAD":
         return False

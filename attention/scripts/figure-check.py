@@ -29,7 +29,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 東アジア幅の物差し。枠の 60 桁と絵の 60 桁を同じ関数で数える
 
-WIDTH_CAP = 60   # 1 行の幅の上限（命令書の 60 桁の規則と同じ）
+WIDTH_CAP = 60   # 1 行の幅の上限（スキルの文書の 60 桁の規則と同じ）
 LINES_CAP = 14   # 図の行数の上限（変更前・変更後の 2 つで 1 図）
 BAR = "│"
 

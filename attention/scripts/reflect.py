@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""/reflect の機械の側。ある期間の材料を集め（--out）、AI の書いた欄をページに描く（--render）。
+"""/reflect の機械の側。ある期間の材料を集め（--out）、AI の書いたフィールドをページに描く（--render）。
 
 〈目的〉手で打てば、その期間の作業から改善の提案と、持ち主の仕事の仕方についての気づきを出す。
 判断（何を提案するか・何に気づくか）は AI の仕事で、ここは数えて並べるだけ。仕様の正本は
@@ -47,7 +47,7 @@ COMMAND = re.compile(r"<command-name>(.*?)</command-name>(?:.*?<command-args>(.*
 
 ASK_CHARS = 300          # 発言 1 件の上限
 ASKS_KEEP = 6            # 1 会話の発言は前と後ろからこの数ずつ
-FIRST_PROMPT_KEY = 40    # 裏の会話を起こした元を見分ける依頼文の頭
+FIRST_PROMPT_KEY = 40    # 裏の会話を起動した元を見分ける依頼文の頭
 COMMITS_PER_REPO = 60
 EVENT_PAGES = 3          # GitHub の events は 1 ページ 100 件・300 件まで
 GIT_TIMEOUT_SEC = 20     # 外部コマンドを無制限に待たない（catchup.py と同じ秒）
@@ -133,7 +133,7 @@ def config_dirs(env, extra=()):
 
 
 def text_of(entry):
-    """user の行の文字。道具の結果なら None。"""
+    """user の行の文字。ツールの結果なら None。"""
     content = (entry.get("message") or {}).get("content")
     if isinstance(content, str):
         return content
@@ -336,7 +336,7 @@ def repo_label(top):
 
 
 def repo_tops(cwds):
-    """作業フォルダから引いたリポジトリ（worktree は同じリポジトリにまとめる）。{共通の .git: 最初に見た根}。"""
+    """作業フォルダから引いたリポジトリ（worktree は同じリポジトリにまとめる）。{共通の .git: 最初に見たルート}。"""
     repos = {}
     for cwd in cwds:
         if not cwd or not os.path.isdir(cwd):
@@ -352,7 +352,7 @@ def commits(cwds, start, end):
     """会話の作業フォルダから引いたリポジトリごとに、その user.email の期間の commit。
 
     二重に数えないための 3 つ（どれも 2026-10-16 の実測で数が膨らんだ）:
-    - --all でなく枝と追跡の枝だけ。git subrepo などが持つ別の ref（refs/subrepo/…）は、取り込んだ先の
+    - --all でなくローカルブランチとリモート追跡ブランチだけ。git subrepo などが持つ別の ref（refs/subrepo/…）は、取り込んだ先の
       他のリポジトリの commit を同じ author で抱えている
     - --first-parent。取り込み（subrepo pull・main の取り込み）で第 2 親から入った他所の commit を外す
     - 同じ origin の別の clone は 1 つのリポジトリにまとめ、同じ commit は 1 回だけ数える"""
@@ -572,7 +572,7 @@ REF = re.compile(r"(?:#|\b(?:PR|pr|issue|Issue)\s*#?)(\d+)")
 
 
 def leaks(fields, data):
-    """欄の文に、非公開のリポジトリの名前・番号が入っていれば、その誤りを並べる。"""
+    """フィールドの文に、非公開のリポジトリの名前・番号が入っていれば、その誤りを並べる。"""
     priv = data.get("private") or {}
     texts = []
 
@@ -641,14 +641,14 @@ def collect(spec, env=None, extra_dirs=(), with_github=True, today=None):
         "ledger": ledger["proposals"],
         "diary_dir": env.get(DIARY_ENV) or None,
         "unseen": [
-            "サブエージェントの記録（会話の中の作業役）は、親の会話のトークンに足していない",
+            "サブエージェントの記録は、親の会話のトークンに足していない",
             *([ledger_error] if ledger_error else []),
             *([] if with_github else ["GitHub の動きは読んでいない（--no-github）"]),
         ],
     }
 
 
-# ---- 欄と描く ----------------------------------------------------------------------
+# ---- フィールドと描く ----------------------------------------------------------------------
 
 
 def _str(v, at, errs, cap=None, empty=False):
@@ -665,9 +665,9 @@ def _num(v, at, errs):
 
 
 def validate_fields(obj):
-    """欄の JSON の誤りを並べる（空なら通る）。"""
+    """フィールドの JSON の誤りを並べる（空なら通る）。"""
     if not isinstance(obj, dict):
-        return ["欄は {…} の JSON"]
+        return ["フィールドは {…} の JSON"]
     errs = []
     extra = set(obj) - {"headline", "proposals", "insights", "unseen", "diary"}
     if extra:
@@ -767,7 +767,7 @@ def build_html(template, data, fields):
 
 
 def write_diary(diary_dir, data, text):
-    """1 日の期間なら、その日の日記の末尾の節を置き換える。戻り値は人に見せる 1 行。"""
+    """1 日の期間なら、その日の日記の末尾のセクションを置き換える。戻り値は人に見せる 1 行。"""
     p = data["period"]
     if p["start"] != p["end"]:
         return "日記には書いていない（1 日の期間のときだけ書く）"
@@ -786,7 +786,7 @@ def write_diary(diary_dir, data, text):
     else:
         body = body.rstrip("\n") + "\n\n" + block
     catchup_html._write_atomic(path, body)
-    return f"日記の節を書いた: {path}"
+    return f"日記のセクションを書いた: {path}"
 
 
 def render(data_path, fields_path, env=None, root=None, template=None, today=None):
@@ -796,12 +796,12 @@ def render(data_path, fields_path, env=None, root=None, template=None, today=Non
         data = json.loads(pathlib.Path(data_path).read_text(encoding="utf-8"))
         fields = json.loads(pathlib.Path(fields_path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        return 2, [f"材料か欄の JSON が読めない（{e}）"]
+        return 2, [f"材料かフィールドの JSON が読めない（{e}）"]
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         return 2, [f"材料の形が違う（schema {SCHEMA} の reflect.py --out で集め直す）"]
     errs = validate_fields(fields) or leaks(fields, data)
     if errs:
-        return 2, ["欄の JSON を直す:"] + [f"- {e}" for e in errs]
+        return 2, ["フィールドの JSON を直す:"] + [f"- {e}" for e in errs]
     today_s = (today or dt.date.today()).isoformat()
     lpath = ledger_path(env)
     try:
@@ -831,7 +831,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="/reflect の材料を集め、ページを描く。仕様は attention/docs/reflect-spec.md")
     ap.add_argument("period", nargs="?", default="week", help="today・yesterday・week（既定）・month・YYYY-MM-DD・YYYY-MM-DD..YYYY-MM-DD")
     ap.add_argument("--out", action="store_true", help="材料を JSON の file に書き、その path を出す")
-    ap.add_argument("--render", nargs=2, metavar=("材料", "欄"), help="材料と欄の JSON からページを描く")
+    ap.add_argument("--render", nargs=2, metavar=("材料", "フィールド"), help="材料とフィールドの JSON からページを描く")
     ap.add_argument("--decide", nargs=2, metavar=("id", "状態"), help="台帳の提案の状態を変える（open・adopted・dismissed・held）")
     ap.add_argument("--note", default="", help="--decide に添える一言")
     ap.add_argument("--config-dir", action="append", default=[], help="読む設定のフォルダを足す（重ねてよい）")

@@ -3,11 +3,11 @@
 〈なぜ HTML か〉端末の返答は 4,000〜28,000 字（中央値は約 15,000 字）で、その約 9 割は AI が機械の
 枠を写しただけのコードだった（2026-10-15 実測）。AI が自分で書いた部分は約 1,000 字しかない。
 写すだけの部分は機械が描けば割れず、AI の手間も減る。そこで、機械が決まった雛形
-（attention/templates/catchup.html）に材料を流し込み、AI は小さな欄の JSON（headline・where・turn・
+（attention/templates/catchup.html）に材料を流し込み、AI は小さなフィールドの JSON（headline・where・turn・
 next・unseen・explain・figure）だけを書く。端末に出すのはページの path と 1 行の要約だけ。
 
 〈置き場〉~/.cache/attention/catchup/<owner>-<repo>/<番号>.html。同じ件は上書きする。同じ置き場の
-index.html が、ページごとに 1 行（件・件名・誰の番・次の一手・更新・相対リンク）を並べる。index は
+index.html が、ページごとに 1 行（件・件名・誰のターン・次の一手・更新・相対リンク）を並べる。index は
 各ページの頭に埋めた小さな JSON から毎回組み直す（並行して描くセッションが互いの行を消さない）。
 
 〈開き方〉持ち主は VS Code の Remote-SSH で、拡張 Simple HTML Viewer を使って見る。描いた後、
@@ -40,7 +40,7 @@ INDEX_SLOT = "/*__INDEX__*/null"
 TITLE_SLOT = "<title>catchup</title>"
 INDEX_HEAD_BYTES = 16384  # ページの頭のこの量だけを読んで index の行を拾う（ページ全体は数百 KB ある）
 
-OPEN_ENV = "ATTENTION_CATCHUP_OPEN"  # 0 なら描いた後に VS Code で開かない（works-dispatch が起こす会話など）
+OPEN_ENV = "ATTENTION_CATCHUP_OPEN"  # 0 なら描いた後に VS Code で開かない（works-dispatch が起動する会話など）
 # 外部コマンドを無制限に待たない（catchup.py の GIT_TIMEOUT_SEC と同じ秒）。code --status は生きた窓なら数秒、
 # 死んだ socket ならすぐ失敗する
 CODE_TIMEOUT_SEC = 20
@@ -54,7 +54,7 @@ TONES = ("good", "bad")
 NEXT_CAP = 6        # 次の一手の数の上限
 FACT_CAP = 4        # 前回から（where）・止めているもの（turn）の項の数の上限
 FACT_TEXT_CAP = 60  # その 1 項の字数（1 文 1 事実）
-HEADLINE_CAP = 60   # いまの番の一言の字数（番号と件名はページの頭に出るので書かない）
+HEADLINE_CAP = 60   # いまのターンの一言の字数（番号と件名はページの頭に出るので書かない）
 NEXT_TEXT_CAP = 60  # 次にやることの 1 項の字数
 EXPLAIN_CAP = 6     # 説明の段落の上限（前提・背景・変更 1〜2・使う側。初見向けに詳しく書くので 4〜6 つ）
 
@@ -181,12 +181,12 @@ def filter_diff(text, paths):
 
 
 def view(view_id, name, text, url="", note="", since_paths=()):
-    """変更の節の 1 つの見え方（前回から・PR 全体・未コミットなど）。"""
+    """変更のセクションの 1 つの見え方（前回から・PR 全体・未コミットなど）。"""
     return {"id": view_id, "name": name, "text": text, "url": url, "note": note,
             "files": summary(parse_diff(text), since_paths)}
 
 
-# ---- AI の欄 -----------------------------------------------------------------
+# ---- AI のフィールド -----------------------------------------------------------------
 
 FIELD_KEYS = ("headline", "where", "turn", "next", "unseen", "lead", "terms", "explain", "figure", "points", "title")
 FIGURE_KINDS = ("graph", "sequence", "compare", "screen", "table", "steps", "html")
@@ -213,14 +213,14 @@ PHASES = ("before", "after")  # in: その箱・線が変更前だけ・変更�
 
 
 def validate_fields(obj, need_title=False, data=None, read=None):
-    """AI が書いた欄を確かめる。直す所を日本語で 1 件 1 行に並べて返す（空なら通った）。
+    """AI が書いたフィールドを確かめる。直す所を日本語で 1 件 1 行に並べて返す（空なら通った）。
     data（描く材料）を渡すと、変更点（points）と図の箱が指すコードが差分の中に在るかも確かめる。"""
     errs = []
     if not isinstance(obj, dict):
-        return ["欄の JSON は {…}（オブジェクト）にする"]
+        return ["フィールドの JSON は {…}（オブジェクト）にする"]
     for k in obj:
         if k not in FIELD_KEYS:
-            errs.append(f"知らない欄 {k}（使える欄は {'・'.join(FIELD_KEYS)}）")
+            errs.append(f"知らないフィールド {k}（使えるフィールドは {'・'.join(FIELD_KEYS)}）")
 
     def text(k, required=True):
         v = obj.get(k)
@@ -320,7 +320,7 @@ def _label(v, at, cap=LABEL_CAP, required=True):
 
 
 def _keys(obj, at, allowed):
-    return [f"{at} に知らない欄 {k}（使える欄は {'・'.join(allowed)}）" for k in obj if k not in allowed]
+    return [f"{at} に知らないフィールド {k}（使えるフィールドは {'・'.join(allowed)}）" for k in obj if k not in allowed]
 
 
 def _tone(obj, at):
@@ -360,7 +360,7 @@ def _figure_errors(fig, files=None, n_points=0):
         return ["figure は {\"kind\": …, …}（オブジェクト）か null にする"]
     kind = fig.get("kind")
     if kind not in FIGURE_KINDS:
-        return [f"figure.kind は {'・'.join(FIGURE_KINDS)} のどれかにする（形は中身で選ぶ。命令書の「図」）"]
+        return [f"figure.kind は {'・'.join(FIGURE_KINDS)} のどれかにする（形は中身で選ぶ。決まりは skills/catchup/references/figures.md）"]
     errs = _label(fig.get("caption"), "figure.caption", cap=200, required=False)
     if kind == "graph":
         return errs + _graph_errors(fig, files, n_points)
@@ -1065,7 +1065,7 @@ def ipc_sockets(env):
 
 
 def live_sockets(cli, socks, env, run=run_code):
-    """`code --status` が 0 で返る socket だけ。herdr などの中の会話は、起こした時の古い VSCODE_IPC_HOOK_CLI を
+    """`code --status` が 0 で返る socket だけ。herdr などの中の会話は、起動した時の古い VSCODE_IPC_HOOK_CLI を
     継いでいる。持ち主が見ていた窓は 2 つの生きた socket の古い方で答えた（2026-10-15 実測）ので、全部を試す。"""
     return [s for s in socks if run([cli, "--status"], {**env, "VSCODE_IPC_HOOK_CLI": s}) == 0]
 
@@ -1291,7 +1291,7 @@ SAMPLE_DATA = {
                 "text": "4cf1df3 原因の連鎖をたどる"},
                {"when": "10-15 15:44", "min": 363, "who": "hanako", "kind": "スレッド app/retry.py:12（未解決）",
                 "cat": "spoken", "sha": "", "text": "直しました"}],
-    "status": [{"key": "threads", "label": "未解決の会話", "value": "1 件 · 私が返す番 1 件", "tone": "mine"},
+    "status": [{"key": "threads", "label": "未解決の会話", "value": "1 件 · 私が返すターン 1 件", "tone": "mine"},
                {"key": "ci", "label": "CI", "value": "全 pass（緑 3）", "tone": "ok"},
                {"key": "approval", "label": "承認", "value": "まだ承認されていない（REVIEW_REQUIRED）", "tone": "warn"}],
     "links": {"closes": [], "stacked": [], "refs": []},
@@ -1304,7 +1304,7 @@ SAMPLE_DATA = {
                "files": summary(parse_diff(SAMPLE_DIFF))}],
 }
 SAMPLE_FIELDS = {
-    "headline": "私の指摘に作者が直して返してきた。私が確かめて返す番。",
+    "headline": "私の指摘に作者が直して返してきた。私が確かめて返すターン。",
     "where": ["09:41 に、包まれた例外も見てほしいと指摘した", "作者が 15:32 に push し、15:44 に返信した"],
     "turn": ["止めているのは私の返事だけ"],
     "next": ["差分を読み、包まれた切断が 4 になるかを確かめる", "返信して解決にする"],

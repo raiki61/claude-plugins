@@ -492,8 +492,8 @@ def _threads_material():
     files = {"app/main.py": [f"line {i}" for i in range(1, 30)], "app/short.py": ["a", "b", "c"]}
     out = catchup.render_threads(node, ME, lambda p: files.get(p))
     want = {
-        "theirs_turn": "=== 1/4 app/main.py:10  ← 私が最後に発言している（相手の番）" in out,
-        "my_turn": "=== 2/4 app/main.py:10  ← 私が返す番 （言語名 python）" in out,
+        "theirs_turn": "=== 1/4 app/main.py:10  ← 私が最後に発言している（相手のターン）" in out,
+        "my_turn": "=== 2/4 app/main.py:10  ← 私が返すターン （言語名 python）" in out,
         "body": "[block] ここは握り潰し" in out and "引用は落とす" not in out,
         "window": "|    5 line 5" in out and "|   15 line 15" in out and "line 16" not in out,
         "gone": "=== 3/4 app/gone.py  ←" in out and "今の head に無い" in out,
@@ -667,16 +667,16 @@ def _stacked():
     forks = render(pr(baseRefName="feat/x", baseRef=assoc(base_pr(1591, cross=True), total=748)))
     want = {
         "base": "  取り込み先: feat/x（既定 main ではない）" in out,
-        "base_pr": "  その枝の PR: #1590 open・まだ承認されていない（REVIEW_REQUIRED）・作者 hanako" in out,
+        "base_pr": "  そのブランチの PR: #1590 open・まだ承認されていない（REVIEW_REQUIRED）・作者 hanako" in out,
         "fork_hidden": "#1591" not in out,
         "stacked": "## つながっている先" in out and "  上に積む  #1601 上の PR" in out,
         "fourth": "#1603" in four and "#1604" not in four and "上に積む PR は他にもある" in four,
-        "gone": "  取り込み先: feat/x（枝は消えている）" in gone and "その枝の PR" not in gone,
-        "none": "  その枝の PR: 無い" in none,
+        "gone": "  取り込み先: feat/x（ブランチは消えている）" in gone and "そのブランチの PR" not in gone,
+        "none": "  そのブランチの PR: 無い" in none,
         "newest_first": many.index("#1595") < many.index("#1590") < many.index("#1585"),
-        "cap": "#1580" not in many and "  （その枝の PR は他に 6 件。fork の分も含む。gh pr list --head feat/x --state all で見る）" in many,
-        "mine": "  その枝の PR: #1585 merged・レビューがまだ 1 件も無い・作者 私" in many,
-        "forks_only": "  その枝の PR: 新しい 1 件は fork の同名の枝の分（全 748 件。gh pr list --head feat/x --state all で見る）" in forks,
+        "cap": "#1580" not in many and "  （そのブランチの PR は他に 6 件。fork の分も含む。gh pr list --head feat/x --state all で見る）" in many,
+        "mine": "  そのブランチの PR: #1585 merged・レビューがまだ 1 件も無い・作者 私" in many,
+        "forks_only": "  そのブランチの PR: 新しい 1 件は fork の同名のブランチの分（全 748 件。gh pr list --head feat/x --state all で見る）" in forks,
         "no_section_without": "## つながっている先" not in render(node),
     }
     bad = [k for k, v in want.items() if not v]
@@ -687,7 +687,7 @@ def _stacked():
 def _stacked_default():
     """取り込み先が既定ブランチなら、取り込み先の行は出ない。"""
     out = render(pr(baseRefName="main", baseRef=dict(assoc(), name="main")))
-    return "STACKED_OK" if "取り込み先" not in out and "その枝の PR" not in out else "STACKED_NG\n" + out
+    return "STACKED_OK" if "取り込み先" not in out and "そのブランチの PR" not in out else "STACKED_NG\n" + out
 
 
 @case("suggested")

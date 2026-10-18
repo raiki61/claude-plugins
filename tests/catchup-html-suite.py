@@ -73,7 +73,7 @@ class FieldsTest(unittest.TestCase):
         f["headlin"] = "typo"
         errs = ch.validate_fields(f)
         self.assertTrue(any("where が無い" in e for e in errs), errs)
-        self.assertTrue(any("知らない欄 headlin" in e for e in errs), errs)
+        self.assertTrue(any("知らないフィールド headlin" in e for e in errs), errs)
 
     def test_lists_have_bounds(self):
         self.assertTrue(any("next は 1〜6 個" in e for e in ch.validate_fields(fields(next=[]))))
@@ -98,7 +98,7 @@ class FieldsTest(unittest.TestCase):
             {"id": "a", "text": "y" * 41, "was": "z", "in": "after", "points": [1]}],
             "edges": [{"from": "a", "to": "q", "in": "later"}]}
         errs = ch.validate_fields(fields(figure=bad))
-        for want in ("figure.dir は LR", "nodes[0] に知らない欄 x", "nodes[0].group は figure.groups", "nodes[0].tone は good か bad",
+        for want in ("figure.dir は LR", "nodes[0] に知らないフィールド x", "nodes[0].group は figure.groups", "nodes[0].tone は good か bad",
                      "nodes[1].id a が重なっている", "nodes[1].text は 40 字まで", "nodes[1].was（変更前の字）",
                      "nodes[1].points は points.items を書いたときだけ", "edges[0].to は figure.nodes の id", "edges[0].in は before"):
             self.assertTrue(any(want in e for e in errs), (want, errs))
@@ -201,11 +201,11 @@ class FieldsTest(unittest.TestCase):
         ok = [{"term": "ターン", "means": "利用者の 1 回の質問と回答の 1 往復"}]
         self.assertEqual(ch.validate_fields(fields(terms=ok)), [])
         errs = ch.validate_fields(fields(terms=ok + [{"term": "ターン", "means": "x", "see": "y"}]))
-        self.assertTrue(any("重なっている" in e for e in errs) and any("知らない欄 see" in e for e in errs))
+        self.assertTrue(any("重なっている" in e for e in errs) and any("知らないフィールド see" in e for e in errs))
         self.assertTrue(any("terms は 1〜16 個" in e for e in ch.validate_fields(fields(terms=ok * 17))))
         self.assertTrue(any("means は 160 字まで" in e for e in ch.validate_fields(fields(terms=[{"term": "a", "means": "あ" * 161}]))))
         page = ch.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("この節に出てくる語", page)  # 説明の前に一覧で出す
+        self.assertIn("このセクションに出てくる語", page)  # 説明の前に一覧で出す
         self.assertIn("termify(", page)          # 文の中の同じ語に意味を付ける
         # rich() は要素の並びを返す。el() は並びを平らにするが、replaceChildren / append に直に渡すと
         # 並びが文字にされ「[object HTMLSpanElement]」と出る（コマ送りの字幕で起きた）
@@ -230,10 +230,10 @@ class FieldsTest(unittest.TestCase):
             {"title": "t", "after": "a", "code": [{"path": "app/retry.py", "lines": [10, 12]}]},
             {"title": "t", "after": "a", "code": [{"path": "app/retry.py", "find": "無い語"}]}]}
         errs = ch.validate_fields(fields(points=bad), data=data)
-        self.assertTrue(any("items[0] に知らない欄 lane" in e for e in errs), errs)
+        self.assertTrue(any("items[0] に知らないフィールド lane" in e for e in errs), errs)
         self.assertTrue(any("nope.py は差分に無い" in e for e in errs), errs)
         # 行番号では指さない（行を知るには差分の枠まで読むことになり、読む量が大きく増える）
-        self.assertTrue(any("items[1].code[0] に知らない欄 lines（使える欄は path・find）" in e for e in errs), errs)
+        self.assertTrue(any("items[1].code[0] に知らないフィールド lines（使えるフィールドは path・find）" in e for e in errs), errs)
         self.assertTrue(any("items[2].code[0] に当たる変更の塊が無い" in e for e in errs), errs)
         # 材料が無い（会話の話題）なら、指す先の在る無しは見ない
         self.assertEqual(ch.validate_fields(fields(points={"items": [{"title": "t", "after": "a",
@@ -332,7 +332,7 @@ class FieldsTest(unittest.TestCase):
         self.assertEqual(ch.validate_fields(fields(title="今の修正"), need_title=True), [])
 
     def test_not_an_object(self):
-        self.assertEqual(ch.validate_fields([]), ["欄の JSON は {…}（オブジェクト）にする"])
+        self.assertEqual(ch.validate_fields([]), ["フィールドの JSON は {…}（オブジェクト）にする"])
 
 
 class DiffTest(unittest.TestCase):

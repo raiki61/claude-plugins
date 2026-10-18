@@ -4596,7 +4596,7 @@ expect_output 0 "書きかけのレビューが未送信" \
 expect_output 0 "その後に起きたこと — 0 件" \
     "catchup: 未送信レビューを時系列に混ぜない（相手には届いていない）" \
     "$PY_BIN" "$CU_CASE" pending-review
-expect_output 0 "未解決スレッド 1 件で相手が返している（私が返す番）" \
+expect_output 0 "未解決スレッド 1 件で相手が返している（私が返すターン）" \
     "catchup: 自分が入っている未解決スレッドの返答をターンとして拾う" \
     "$PY_BIN" "$CU_CASE" thread-turn
 expect_output 0 "CI: 報告なし" \
@@ -4853,7 +4853,7 @@ expect_output 0 "やり取り 1 往復" \
     "$PY_BIN" "$WAI_CASE" ignores-tool-results
 expect_output 0 "テスト実行・コミット・push" \
     "what-am-i-doing: 区切りになる操作を Bash の中身から拾う" "$PY_BIN" "$WAI_CASE" landmarks
-expect_output 0 "道具 Bash×2, WebSearch×1" \
+expect_output 0 "ツール Bash×2, WebSearch×1" \
     "what-am-i-doing: 何のツールを何回使ったかを添える" "$PY_BIN" "$WAI_CASE" tool-counts
 expect_output 0 "ONLY_FIRST_OK" \
     "what-am-i-doing: 返答は最初のひとまとまりだけ（全文だと記録の写しになる）" \
@@ -4979,7 +4979,7 @@ if os.name == "posix":
     assert mode == 0o600, f"一時ファイルが {oct(mode)}（/tmp では他の利用者が読める）"
 else:
     print("  ok   outfile の一時ファイルは 0600 # SKIP posix-mode: posix でない OS はファイルの mode を持たない")
-assert "節（Read の offset）: 2 節" in out, out
+assert "セクション（Read の offset）: 2 セクション" in out, out
 os.unlink(m.group(1))
 print("OUT_FLAG_OK")
 PY

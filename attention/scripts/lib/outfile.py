@@ -37,7 +37,7 @@ def label(line, width=20):
 
 
 def index(text, stop=None):
-    """節（行頭の `## `）と、その行番号。Read の offset に直接使える形で返す。
+    """セクション（行頭の `## `）と、その行番号。Read の offset に直接使える形で返す。
 
     材料の本文は人が書いたもので、行頭に `## ` を持つことがある（実測 2026-09-16: /whose-turn の
     材料に、`## 評価方法` で始まる issue の本文が入っていた）。材料の始まりに印を持つ script は
@@ -55,10 +55,10 @@ def index(text, stop=None):
 
 
 def run_to_file(run, stem, stop=None):
-    """run() の標準出力を一時ファイルへ落とし、パスと大きさと節の行番号だけを返す。
+    """run() の標準出力を一時ファイルへ落とし、パスと大きさとセクションの行番号だけを返す。
 
-    戻り値は run の戻り値。節の行番号を添えるのは、取得と読み込みを切り離すため——全部
-    取っておいて、context に載せるのは要る節だけにできる（Read は offset と limit を取る）。
+    戻り値は run の戻り値。セクションの行番号を添えるのは、取得と読み込みを切り離すため——全部
+    取っておいて、context に載せるのは要るセクションだけにできる（Read は offset と limit を取る）。
     """
     # mkstemp は 0600 で一意な名前を作る。open() で作ると umask 任せ（既定 0022）で 0644 になり、
     # Linux の gettempdir()（= /tmp。macOS は利用者ごとの private なので影響しない）では同じ機の
@@ -76,5 +76,5 @@ def run_to_file(run, stem, stop=None):
     )
     lines = index(text, stop)
     if lines:
-        print("節（Read の offset）: " + " / ".join(lines))
+        print("セクション（Read の offset）: " + " / ".join(lines))
     return code

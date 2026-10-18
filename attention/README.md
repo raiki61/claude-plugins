@@ -415,7 +415,7 @@ It outputs **pairs of a request and what was done about it**. Either one alone i
 
   [09-02 06:26] 一番重要なのは理解できることだよね。だから教えるとこのトークンは…
       → そこが芯ですね。分かることが目的で、短さは手段——手段が目的を潰していました…
-      コミット・push・テスト実行 / 道具 Bash×4, Write×1
+      コミット・push・テスト実行 / ツール Bash×4, Write×1
 
 ## このセッションの間に入ったコミット — 6 件
   988763b fix(attention): /catchup の「3 行を超えるな」を外す（marketplace 0.27.4）

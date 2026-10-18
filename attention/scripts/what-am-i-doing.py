@@ -6,7 +6,7 @@
 /what-am-i-doing の AI の仕事。
 
 〈なぜ記録から取るか〉会話は長くなると要約されて前半が消える。記録の側には依頼も返答も
-道具の使用も全部残っていて、要約を挟まないので痩せない。**「何を頼まれたか」だけでは
+ツールの使用も全部残っていて、要約を挟まないので痩せない。**「何を頼まれたか」だけでは
 追いつけない**——「それに対して何をしたか」が要る。だから往復で並べる。
 
 〈返答は冒頭だけ〉各ターンの返答は全文ではなく冒頭を取る。全文を並べると記録の写しに
@@ -37,7 +37,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # 依頼者が自分で打った発言だけを拾う印。tool_result も user レコードとして落ちるので、
-# これで絞らないと道具の出力が依頼に化ける（実測: 219 件中 189 件が tool_result）
+# これで絞らないとツールの出力が依頼に化ける（実測: 219 件中 189 件が tool_result）
 TYPED = {"typed", "queued"}
 
 # Bash の中身から「区切りになる操作」を拾う。全部のコマンドを並べても追いつく助けに
@@ -74,7 +74,7 @@ def pick_reference(asks):
 
 def gh(cwd, *args):
     """gh を呼ぶ。認証切れ・ネット無し・PR 無しは失敗であって異常ではないので、
-    空文字を返して呼び出し側で節ごと落とす（材料が減るだけで、判定は壊れない）。"""
+    空文字を返して呼び出し側でセクションごと落とす（材料が減るだけで、判定は壊れない）。"""
     try:
         r = subprocess.run(  # noqa: S603 — 引数はこのファイル内のリテラルと数字だけ
             # encoding を明示する——Windows の既定は cp1252 で、日本語を含む子の出力が
@@ -178,7 +178,7 @@ def text_of(content):
 def read(path):
     """記録を 1 度なめて、題と往復の並びを組み立てる。
 
-    往復は「依頼者が打った発言」から次の発言までを 1 つとして数える。返答も道具の使用も
+    往復は「依頼者が打った発言」から次の発言までを 1 つとして数える。返答もツールの使用も
     その区間に属させる——どの依頼に対して何をしたかが、ここで結びつく。"""
     title, first_ts, turns = None, None, []
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -202,7 +202,7 @@ def read(path):
                 turn = turns[-1]
                 content = o.get("message", {}).get("content", [])
                 said = text_of(content)
-                # 返答は最初のひとまとまりだけ。以降は道具を挟んだ続きで、冒頭に結論が来る
+                # 返答は最初のひとまとまりだけ。以降はツールを挟んだ続きで、冒頭に結論が来る
                 if said.strip() and not turn["reply"]:
                     turn["reply"] = said.strip()
                 if isinstance(content, list):
@@ -280,7 +280,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
         if item["marks"]:
             detail.append("・".join(item["marks"]))
         if item["tools"]:
-            detail.append("道具 " + ", ".join(
+            detail.append("ツール " + ", ".join(
                 f"{k}×{v}" for k, v in sorted(item["tools"].items(),
                                               key=lambda kv: -kv[1])[:4]))
         if detail:
@@ -336,7 +336,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None, note=No
     w("見ていないもの:")
     # 上限や話題で外した分は、件数と「それで何を見落としうるか」まで書く（/catchup と同じ）。
     # 件数だけでは、読む人がこの報告のどこを疑えばよいか分からない
-    w("  - 私の返答は各ターンの冒頭だけ。続きと、道具に渡した中身は記録の側にある")
+    w("  - 私の返答は各ターンの冒頭だけ。続きと、ツールに渡した中身は記録の側にある")
     if elided:
         w(f"  - 間の {elided} 往復（--full で出る）。そこで決めたことがあれば見落とす")
     if topic and total > len(turns):
@@ -397,7 +397,7 @@ def report(a):
     if a.frame:
         lines = frame_one(cwd, a.frame)
         if not lines:
-            sys.exit(f"{a.frame} が無い（path はリポジトリの根からの相対）")
+            sys.exit(f"{a.frame} が無い（path はリポジトリのルートからの相対）")
         print("\n".join(lines))
         return 0
     path, note = transcript_path(os.environ.get("CLAUDE_CODE_SESSION_ID"), cwd)

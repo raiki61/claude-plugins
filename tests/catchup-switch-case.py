@@ -264,7 +264,7 @@ def _branch_name(tmp):
         "made_on": on1 is True,
         "made_tip": tip1 == new,
         "made_upstream": upstream1 == "refs/remotes/origin/only-origin",
-        "ahead": "## origin/main より先の commit 1 件の変更（材料。枝全体の差。未コミットは含まない）" in ahead
+        "ahead": "## origin/main より先の commit 1 件の変更（材料。ブランチ全体の差。未コミットは含まない）" in ahead
         and "a.txt" in ahead and "飛び先 a.txt:" in ahead and "git diff -W" in ahead,
         "big_new_is_head_and_outline": "=== docs/big.md （新規。342 行。先頭と骨組みだけ——全文は git diff -W" in ahead
         and "    飛び先 docs/big.md:1" in ahead and "    | ## セクション 3" in ahead and "    | 本文 100" not in ahead
@@ -375,7 +375,7 @@ def _none(tmp):
         del os.environ["GIT_SSH_COMMAND"]
     else:
         print("  ok   応答の無い origin は FETCH_TIMEOUT 秒で切る # SKIP sh: git が ssh の代役の script を起動する sh が無い")
-    return verdict({"gone": "origin にももう無い（PR は merge 済みで、枝は削除済み）" in out
+    return verdict({"gone": "origin にももう無い（PR は merge 済みで、ブランチは削除済み）" in out
                     and f"git fetch origin refs/pull/{NUM}/head" in out and "（手元は main のまま）" in out,
                     "unreachable": "origin から取れなかった（git fetch が失敗）" in out2
                     and "does not appear to be a git repository" in out2,
