@@ -3675,6 +3675,34 @@ def _branch_docs(root, base):
     return mb, [(r, os.path.join(root, r)) for r in rels if os.path.isfile(os.path.join(root, r))]
 
 
+# 枝が足した文書のうち、枝が消した・変えた文書の分かれ目の版に在った行は、移しただけの行として読み直さない(git の copy の
+# 検出を行の単位でする形)。スキルの書き方の標準(docs/standards/skill-authoring.md)で SKILL.md の節を字を変えずに
+# references/ へ移すと、前から本流に在った文が新しい文書として丸ごと読まれ、元の本文の前の節で説明していた語が 1 本だけでは
+# 取れないという詰まりが、読むたびに別の文書へ移りながら出続けた(2026-10-18、works-dispatch の dispatch の分けで
+# references/ の 12 本に約 70 件。convergence-loops・graphloops の 6 本は .gitattributes の -coldread で逃がしていた)。
+# 行は前後の空白と見出しの # を除いて比べる(移すと節の深さが変わる)。新しく書いた行(題・書き換えた指し先)を含む節は読む
+def _line_key(line):
+    return line.strip().lstrip("#").strip()
+
+
+def _moved_lines(root, mb):
+    """枝が消した・変えた文書の、分かれ目の版の行(_line_key で比べる形)の集まり。"""
+    out = _git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=DM", mb, "HEAD", "--"], root) or b""
+    rels = [r for r in out.decode("utf-8", "replace").split("\0") if r.lower().endswith(DOC_EXTS)]
+    keys = set()
+    for blob in _cat_blobs(root, ["%s:%s" % (mb, r) for r in rels]) if rels else ():
+        keys.update(_line_key(line) for line in (blob or "").replace("\r\n", "\n").split("\n"))
+    keys.discard("")
+    return keys
+
+
+def _moved_base(text, moved):
+    """足した文書の前の版の代わり: 空行と、移した元に在った行だけを残した本文。移した行が 1 つも無ければ None(全体を読む)。"""
+    lines = text.split("\n")
+    kept = [line for line in lines if not _line_key(line) or _line_key(line) in moved]
+    return "\n".join(kept) if any(_line_key(line) for line in kept) else None
+
+
 def _branch_verdict(key, body, focus):
     """覚えた判定か、読んで覚えた判定({"詰まり", "補完", "疑問"})。読めなければ例外。"""
     where = os.path.join(DOC_BRANCH, key + ".json")
@@ -3712,6 +3740,7 @@ def branch_check(argv):
         return 2
     mb, docs = got
     generated = _generated([full for _, full in docs]) if docs else set()
+    moved = _moved_lines(root, mb) if docs else set()
     picked = []
     for rel, full in docs:
         try:
@@ -3722,7 +3751,7 @@ def branch_check(argv):
         if full in generated or len(text) < DOC_MIN_LEN or any(m in text.split("\n", 1)[0] for m in DOC_SKIP_MARKS):
             continue
         old = _git(["show", "%s:%s" % (mb, rel)], root)
-        part = doc_excerpt(full, text, old.decode("utf-8", "replace") if old is not None else None)
+        part = doc_excerpt(full, text, old.decode("utf-8", "replace") if old is not None else _moved_base(text, moved))
         if part == "":
             continue
         body = text if part is None else part

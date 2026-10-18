@@ -10,13 +10,3 @@ works/dev/canary-fixture-units/** -text linguist-generated
 # works の写しの台帳（COPIED_FROM.<名>。拡張子が写しの名なので、試験の選び works/.shared/core/impact.py が読めないコードと
 # 見ないように文書と宣言する）
 works/.shared/core/COPIED_FROM.* linguist-documentation
-# スキルの別ファイル（references/）のうち、元の commands/<名前>.md から段ごとにそのまま移した手順の本文（2026-10-18。スキルの書き方の標準
-# docs/standards/skill-authoring.md の決まり 1・3 で分けた）。初見の読み手の関門（gates の coldread-gate.py）は移動を見ずに新しい文書として
-# 1 本ずつ読むので、本文（SKILL.md）の語の定義から切り離された移した文面に詰まりを出し続ける。移した文面は元の版と
-# git の履歴で比べられ（review-loop は根の tests/run.sh の文言の柵も見る）、初見の読み手には案内を書いた本文（SKILL.md）を読ませる。移した後に references/ を書き換えるときは、この行を見直す
-convergence-loops/skills/review-loop/references/** -coldread
-convergence-loops/skills/firstread-loop/references/** -coldread
-convergence-loops/skills/doctor-loop/references/** -coldread
-convergence-loops/skills/research-loop/references/** -coldread
-graphloops/skills/review-graph/references/** -coldread
-graphloops/skills/research-graph/references/** -coldread
