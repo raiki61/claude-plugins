@@ -18,7 +18,8 @@ class Find(unittest.TestCase):
 
     def test_ordinary_words_that_share_a_letter_are_not_found(self):
         for ok in ("節約する", "受付番号", "一番目", "順番待ち", "根拠", "屋根", "引き起こす", "網羅する", "自分の番の PR",
-                   "思い起こす", "障害を起こした", "定番", "出番", "二番", "網掛け", "空欄", "欄外", "根づく", "溜める", "溜め込む"):
+                   "思い起こす", "障害を起こした", "定番", "出番", "二番", "網掛け", "空欄", "欄外", "根づく", "溜める", "溜め込む",
+                   "門番", "連番", "欠番", "何番", "私の番"):
             self.assertEqual(terms.line_problems(ok), [], ok)
 
 
@@ -32,6 +33,11 @@ class Fix(unittest.TestCase):
                  "載せ直し（rebase）、": "リベースし（rebase）、", "溜めの中": "キャッシュの中"}
         for before, after in cases.items():
             self.assertEqual(terms.fix_line(before), after, before)
+
+    def test_a_word_whose_meaning_splits_is_found_but_not_fixed(self):
+        # 網 は通信ならネットワーク、検出の範囲（網に掛かる）ならゲートかテストで、機械では決められない
+        self.assertEqual(terms.line_problems("回帰の網に掛かる"), [("網", "ネットワーク（検出の範囲の意味ならゲートかテスト）")])
+        self.assertEqual(terms.fix_line("回帰の網に掛かる"), "回帰の網に掛かる")
 
     def test_ascii_words_get_spaces_only_next_to_japanese_letters(self):
         self.assertEqual(terms.fix_line("本流へ早送りする"), "メインブランチへ fast-forward する")

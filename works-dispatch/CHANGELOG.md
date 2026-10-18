@@ -6,6 +6,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- `dispatch/terms.py`: 番号の意味の「連番」「欠番」「何番」と「門番」、attention の画面の名前の「私の番」を、ターンの意味の言い方として見つけず、`--fix` でも直さない（「門ターン」などに書き換えていた）。
+- `dispatch/terms.py`: 「網」を `--fix` で直さず、見つけて出すだけにした。通信の意味ならネットワーク、検出の範囲の意味（網に掛かる）ならゲートかテストで、機械では訳を決められないため。
+
 ## [0.66.0] - 2026-10-19
 
 ### Changed
