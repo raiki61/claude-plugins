@@ -19,7 +19,8 @@
   頼みと納品の本文を 1 件 1 ファイルで置き、log.jsonl に誰が誰に何を頼み何が返ったかを 1 行ずつ足す。
 - Stop フック: 部署（company.role の在る場所）の会話で、受けた頼み（company.ask）の納品（company.delivered）が済んでいなければ、
   止まる前に納品の命令で返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。裏の処理（裏の Bash・作業役）が
-  動いている間は差し戻さない（どう見るかは orders.in_flight）。
+  動いている間は差し戻さない（どう見るかは orders.in_flight）。納品した後の差し戻し（本流に入れていない・終わりの印が無い）は
+  orders.stop_after が持つ。
 """
 
 import hashlib

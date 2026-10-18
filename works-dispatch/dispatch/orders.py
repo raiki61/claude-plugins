@@ -1125,9 +1125,7 @@ def finish_here(a, ports, cwd):
     if wake.queued(deliver.inbox_of(common), place):
         print("止めた: 順番待ちに頼みが在る。待ち受けが渡す次の頼みを済ませてから印す")
         return 2
-    waiting = [r["id"] for r in deliver.open_asks(deliver.records(deliver.inbox_of(common)))
-               if (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
-               and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
+    waiting = asked_open(deliver.inbox_of(common), attrs, cwd)
     if waiting:
         # この部署が頼んで、まだ返事（納品）の来ていない頼み。畳むと、返事が届いても受ける会話が居ない（業務改革が社長室の答えを待つ間など）
         print(f"止めた: この部署が頼んで返事の来ていない頼みが在る（受付 {'・'.join(waiting)}）。返事を受けて済ませてから印す")
@@ -1157,6 +1155,71 @@ def finish_here(a, ports, cwd):
     print("終わりと印した。この番の終わりに、機械がこの会話を止め、部屋（作業場・worktree・会話・手元の枝）を --clean と同じ決まりで"
           "片付ける。片付けられなければ部屋を残し、訳は --clean の一覧に出る。人がこの会話に打つと印が外れる")
     return 0
+
+
+def asked_open(inbox, attrs, cwd):
+    """この部署（名前と場所）が頼んで、まだ返事（納品）の来ていない頼みの受付の並び。頼みの行は頼んだ側の会社の受付箱に残る。"""
+    return [r["id"] for r in deliver.open_asks(deliver.records(inbox))
+            if (r.get("from") or {}).get("name") == attrs.get("name") and (r.get("from") or {}).get("place")
+            and os.path.realpath(r["from"]["place"]) == os.path.realpath(cwd)]
+
+
+def leftover(cwd, attrs, g=gitx):
+    """受けた頼みを納品し終えた部署が、番を終えて残る訳。(種類, 中身) か None。種類は waiting（この部署が頼んだ返事を待つ。中身は
+    受付の並び）・unlanded（枝の先頭が本流〔origin の既定の枝の手元の控え〕に入っていない。中身は本流の枝の名前）・finish（都度の
+    部署で、枝も本流に入っているのに終わりの印〔--done〕が無い）。部署でない・窓口・納品していない頼みが在る・終わりの印が在る・
+    順番待ちに頼みが在る（待ち受けが次を渡す）・本流を読めない・常設の部署で枝が入っている、ときは None。
+    --clean の一覧（入れ損ねた部署と、返事を待つだけの部署を分けて出す）と Stop フック（stop_after）が使う。2026-10-17 に my_notes で、
+    --land が止まって入れ損ねた部署が、残った疑問に「持ち手: 段取り」と書いただけで段取りに頼まず、1 日残った。--clean はこれを、
+    返事を待つだけの部署と同じ一行で出していた。"""
+    ask = attrs.get("ask")
+    if not attrs.get("role") or not ask or attrs.get("delivered") != ask or attrs.get(wake.FINISHED):
+        return None
+    common, place = g.common_dir(cwd), g.git_dir(cwd)
+    if not common or not place or os.path.realpath(place) == os.path.realpath(common):
+        return None
+    inbox = deliver.inbox_of(common)
+    if wake.queued(inbox, place):
+        return None
+    root = g.toplevel(cwd) or cwd
+    waiting = asked_open(inbox, attrs, root)
+    if waiting:
+        return "waiting", waiting
+    try:
+        main = g.default_branch(gitx.root_of(common))
+    except g.GitError:
+        return None
+    if not g.is_merged(root, f"refs/remotes/origin/{main}"):
+        return "unlanded", main
+    return None if attrs.get("residency") == "resident" else ("finish", main)
+
+
+def stop_after(payload, cwd, attrs, count, settings, g=gitx):
+    """納品し終えた部署の番の終わりに差し戻す訳（leftover が unlanded か finish のとき）。差し戻さないなら None。count はこの会話・
+    この頼みで差し戻した回数（deliver.STOP_LIMIT まで）。unlanded は --land を使う会社（会社の形の [land] の取り込み方が
+    ff-after-ci）だけ（PR で入れる会社は、枝が本流に入るのを人の見直しが待つ）。残った疑問に持ち手を書いただけでは、その持ち手が
+    頼みを受けていなければ誰も追わない。"""
+    sid = payload.get("session_id")
+    if attrs.get("session") and sid and attrs["session"] != sid or count >= deliver.STOP_LIMIT:
+        return None
+    got = leftover(cwd, attrs, g)
+    if got is None or got[0] == "waiting":
+        return None
+    kind, main = got
+    name = attrs.get("name") or attrs.get("branch") or "<部署>"
+    limit = f"（この差し戻しは {deliver.STOP_LIMIT} 回まで。{count + 1} 回目）"
+    if kind == "finish":
+        return (f"頼み（受付 {attrs['ask']}）は納品済みで、枝も本流に入っている。都度の部署なので、{RUN} --done で番を終える（会話を"
+                f"止めて部屋を片付けるのは機械がする）。持ち主と話している途中なら、印さずに番を終えてよい{limit}")
+    root = gitx.root_of(g.common_dir(cwd))
+    info = tree.read_info(root, settings)
+    if land.read_rules(info.get("path"), attrs.get("role"), info.get("text"))["mode"] != "ff-after-ci":
+        return None
+    return (f"頼み（受付 {attrs['ask']}）は納品済みだが、枝が本流（origin/{main} の手元の控え）に入っていない。止まる前に "
+            f"{RUN} --land {shlex.quote(name)} で入れる（ほかの会話が入れたなら、git fetch origin してから止まる）。--land が自動の"
+            f"権限の判定に止められたなら、打ち直さず、入れてほしいと {RUN} --ask {shlex.quote(tree.company_name(root, info))} で窓口に"
+            f"頼む（頼んだ返事を待つ間は、この差し戻しは出ない）。残った疑問に持ち手を書くだけでは、持ち手に頼みが届かない。"
+            f"持ち主と話している途中なら、入れずに番を終えてよい{limit}")
 
 
 def forwarded_ask(inbox, ask_id):
@@ -1374,6 +1437,7 @@ def show_waiting(payload, cwd, attrs, tmp_dir, shells, h):
 
 def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp_dir=None, shells=claudex.background_shells, h=herdr):
     """プラグインの Stop フック。部署の会話で受けた頼みを納品していなければ、止まるのを差し戻す（{"decision": "block"}）。
+    納品し終えた後も、枝を本流に入れていないか、都度の部署が終わりの印を打っていなければ差し戻す（stop_after）。
     部署の会話が裏の処理（run_in_background の Bash・裏で立てた作業役など。in_flight）を待っている間は、herdr の表示名に
     「裏の処理待ち」を出し、差し戻さない（裏の処理が終わると Claude Code が会話を起こすので、納品はその後でよい。差し戻すと待つだけの
     番を回数の上限まで繰り返した。裏の作業役は 0.50.5 まで数えておらず、待つ手の無い会話が 1 つの返答で待つ字を出し続けた。
@@ -1396,6 +1460,14 @@ def stop_hook(stdin=sys.stdin, out=sys.stdout, attrs_of=gitx.worktree_attrs, tmp
     except (OSError, ValueError):
         count = 0
     reason = deliver.stop_verdict(payload, attrs, count, RUN)
+    if reason is None and attrs.get("delivered") == attrs["ask"]:
+        # 納品の後: 枝を本流に入れずに、か都度の部署が終わりの印を打たずに、番を終えて残らない（leftover）。数えるのは別の控え
+        path = deliver.stop_count_path(tmp_dir or tempfile.gettempdir(), payload.get("session_id") or "-", f"{attrs['ask']}-after")
+        try:
+            count = int(pathlib.Path(path).read_text(encoding="utf-8").strip() or 0)
+        except (OSError, ValueError):
+            count = 0
+        reason = stop_after(payload, cwd, attrs, count, os.path.dirname(config.path_of(attrs.get("config"), os.environ)))
     if reason is None:
         return 0
     os.makedirs(os.path.dirname(path), exist_ok=True)

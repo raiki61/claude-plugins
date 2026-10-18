@@ -13,6 +13,7 @@ enable_worktree_config・set_worktree_attr）。値は元の clone の `.git/wor
 呼んでよいノードは柵（tests/fences.py の D4 の表 WRITES）が構文木で見る。
 """
 
+import codecs
 import json
 import os
 import re
@@ -440,24 +441,65 @@ def advance_branch(source, branch, sha, runner=_default_runner):
     return "updated" if p.returncode == 0 else "dirty"
 
 
-def add_detached(source, path, sha, runner=_default_runner):
+def add_detached(source, path, sha, runner=_default_runner, lock=None):
     """枝に乗らない一時の worktree を path に sha で作る（取り込みのときに版を上げる commit を作る場所・機械の道具を走らせる場所）。
+    lock を渡せば、作ると同時にその訳で鍵を掛ける（git worktree add --lock --reason。後から lock を打つのと違い、鍵の無い間が無い。
+    2026-10-18 に git 2.50 で、作っている途中〔post-checkout のフックの中〕から訳の鍵が在るのを見た）。
     書く口。git の worktree add は、extensions.worktreeConfig が入っていると元の worktree の config.worktree を新しい worktree に
     写すので、source が部署（代表の clone の本社など）なら部署の属性 company.* も載り、一時の場所が同じ名前の部署に見える
     （2026-10-17 に my_notes で --call の間、段取りへの --ask が「名前が 2 つ以上ある」で止まった）。作ったらすぐ消す。
     extensions.worktreeConfig が入っていなければ config --worktree は共通の設定を指すので、そのときは触らない（写しも起きない）。"""
-    _must(["git", "-C", source, "worktree", "add", "--quiet", "--detach", path, sha], runner)
+    _must(["git", "-C", source, "worktree", "add", "--quiet", "--detach", *(["--lock", "--reason", lock] if lock else []), path, sha],
+          runner)
     if (_git(path, ["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"], runner) or "") != "true":
         return
     p = runner(["git", "-C", path, "config", "--worktree", "--remove-section", "company"])
     if p.returncode != 0 and worktree_attrs(path, runner):   # 節が無いとき（終了の値 128）は消す物が無い
-        runner(["git", "-C", source, "worktree", "remove", "--force", path])   # 部署に見える場所を残さない
+        runner(["git", "-C", source, "worktree", "remove", "--force", "--force", path])   # 部署に見える場所を残さない
         raise GitError(f"git -C {path} config --worktree --remove-section company: {(p.stderr or p.stdout).strip()[:300]}")
 
 
 def remove_detached(source, path, runner=_default_runner):
-    """add_detached で作った一時の worktree を消す（中の変更ごと）。書く口。"""
-    _must(["git", "-C", source, "worktree", "remove", "--force", path], runner)
+    """add_detached で作った一時の worktree を消す（中の変更ごと。鍵が掛かっていても。場所がもう無ければ git の記録だけを消す）。
+    書く口。path は git worktree list の出す形（絶対のパス）で渡す。"""
+    _must(["git", "-C", source, "worktree", "remove", "--force", "--force", path], runner)
+
+
+def _unquote(text):
+    """git が引用符で囲んで出した字（日本語や改行を含むと C の書き方で 8 進に直す。core.quotePath）を元に戻す。囲まれていなければそのまま。"""
+    if len(text) < 2 or not (text.startswith('"') and text.endswith('"')):
+        return text
+    return codecs.escape_decode(text[1:-1].encode("ascii", "backslashreplace"))[0].decode("utf-8", "replace")
+
+
+def listed_worktrees(source, runner=_default_runner):
+    """source のリポジトリの worktree の並び（git worktree list --porcelain。元の clone 自身も入る）。1 件は {path, head, branch, locked}。
+    head は先頭の commit、branch は枝の名前（枝に居なければ None）、locked は鍵の訳（鍵が無ければ None、訳の無い鍵は空の字）。
+    読めなければ空。"""
+    out, cur = [], None
+    for line in (_git(source, ["worktree", "list", "--porcelain"], runner) or "").splitlines():
+        if line.startswith("worktree "):
+            cur = {"path": _unquote(line[len("worktree "):]), "head": None, "branch": None, "locked": None}
+            out.append(cur)
+        elif cur is None:
+            continue
+        elif line.startswith("HEAD "):
+            cur["head"] = line[len("HEAD "):]
+        elif line.startswith("branch refs/heads/"):
+            cur["branch"] = line[len("branch refs/heads/"):]
+        elif line == "locked" or line.startswith("locked "):
+            cur["locked"] = _unquote(line[len("locked "):]) if line.startswith("locked ") else ""
+    return out
+
+
+def on_some_ref(source, sha, prefixes=("refs/heads", "refs/remotes", "refs/company"), runner=_default_runner):
+    """sha が、prefixes の下のどれかの ref から辿れるか（その commit がほかに残っているか）。読めなければ偽（残す側に倒す）。"""
+    return bool(_git(source, ["for-each-ref", "--count=1", "--format=%(refname)", f"--contains={sha}", *prefixes], runner))
+
+
+def keep_commit(source, ref, sha, runner=_default_runner):
+    """ref を sha に向けて書く（どの枝にも無い commit を、場所を消した後も辿れるように残す）。書く口。"""
+    _must(["git", "-C", source, "update-ref", ref, sha], runner)
 
 
 def commit_all(cwd, message, runner=_default_runner):

@@ -61,6 +61,7 @@ WRITES = {
     "add_detached": {"nodes/land.py", "nodes/tools.py"},
     "remove_detached": {"nodes/land.py", "nodes/tools.py"},
     "commit_all": {"nodes/bump.py"},
+    "keep_commit": {"nodes/tools.py"},   # 消す道具の場所の、どの枝にも無い先頭の commit を ref に残す
     # git: 部署の属性（worktree ごとの設定）を書く
     "enable_worktree_config": {"nodes/provision.py"},
     "set_worktree_attr": {"nodes/provision.py"},

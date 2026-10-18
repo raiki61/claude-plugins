@@ -330,6 +330,9 @@ def lines(companies):
                               + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} で動かす）" if stuck else ""))
             if d.get("no_talk_id"):
                 fields.append("! 会話の id（company.session）が無い（窓の会話が落ちたとき、--ask か --nudge が会話の一覧の部署の場所の会話で戻して書き戻す）")
+            if d.get("tool_place"):
+                out.append(f"  {head} （道具の一時の場所）  {d['path']}  道具が走り終えれば消える。残っていれば --clean が並べる")
+                continue
             out.append(f"  {head} {d['branch'] or '（枝無し）'}  " + "  ".join(fields))
         if c.get("asks"):
             out.append(f"  動いている頼み（台帳でまだ閉じていない物。{len(c['asks'])} 件）:")

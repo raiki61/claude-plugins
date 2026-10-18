@@ -86,7 +86,7 @@ import reorg  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
-from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tree, turn, wake  # noqa: E402
+from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
 import starts  # noqa: E402
 
@@ -1393,6 +1393,8 @@ def survey_companies(config_path, ports, only=None):
             notes.append(f"{root}: worktree を並べられない（{e}）")
     settings = os.path.dirname(path)
     companies = tree.build(roots, places_of, panes, ports.attrs, lambda root: tree.read_info(root, settings), sessions_)
+    for d in (d for c in companies for d in c["departments"]):
+        d["tool_place"] = not d["branch"] and tools.is_place(d["path"])   # 機械の道具を走らせる一時の worktree（--tree が「（枝無し）」と分けて出す）
     return accounts_, workspaces_, companies, settings, notes
 
 
@@ -1699,8 +1701,8 @@ DRAFT_LAND_ALLOW = ("この部署が works-dispatch の --land（dispatch.py --l
                     "本流への取り込みは、人のレビューの代わりに、会社の形（.claude/company.toml）の [land] の関門を通してから"
                     "早送りする決まりで、持ち主がこの会社の部署に許している。")
 # 自動の権限の判定に止められたときの手。打ち直しで判定を回り込まず、窓口に入れてもらう
-DRAFT_DENIED = ("--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、止められたことを納品の残った疑問に書いて"
-                "返す（窓口が --land <部署の名前> を打って入れる）。")
+DRAFT_DENIED = ("--land が自動の権限の判定（auto mode）に止められたら、打ち直さず、窓口に --land <部署の名前> を打って入れてほしいと"
+                "--ask <会社の名前> で頼み、その受付を納品の残った疑問の持ち手に書いて返す（残った疑問に書くだけでは窓口に届かない）。")
 # commit に足す物の決まり。git add -A は、試験や検証が作った生成物（__pycache__ など。.gitignore の無いリポジトリ）まで本流に入れる
 DRAFT_COMMIT = "commit に足すのは自分が触ったファイルだけにする（git add -A や git add . をしない）。"
 DRAFT_DUTY = ("受け持ちを常設で預かる。自分の受け持ちは部署の名前で決まる。常設なので、作業場は同じまま、頼みごとに git fetch origin "
@@ -1804,10 +1806,52 @@ def _running_note(d, attrs):
         return f"。終わりの印で畳もうとして残った: {attrs[wake.RETIRE_KEPT]}"
     if attrs.get(wake.FINISHED):
         return "。終わりの印が有る（この番の終わりに畳む）"
-    ask = attrs.get("ask")
-    if ask and attrs.get("delivered") == ask:
-        return f"。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire {d['name'] or d['branch']}"
-    return ""
+    name = d["name"] or d["branch"]
+    got = orders.leftover(d["path"], attrs)
+    if got is None:
+        return ""
+    if got[0] == "waiting":
+        return f"。頼みは納品済みで、この部署が頼んだ返事を待っている（受付 {'・'.join(got[1])}）"
+    if got[0] == "unlanded":
+        return (f"。頼みは納品済みだが、枝が本流（origin/{got[1]}）に入っていない（入れ損ねか、入れる手を待っている。消すと成果を失う）。"
+                f"入れるなら --land {name}")
+    return f"。頼みは納品済みで、終わりの印（--done）が無い。止めて畳むなら --retire {name}"
+
+
+def _tool_places(repo, ports, apply):
+    """機械の道具を走らせる一時の worktree（tools.place）を並べ、apply なら作った処理がもう居ない物を消す（tools.sweep。道具を走らせる
+    たびにも消す）。(消せなかった数, 消せる物が在ったか)。"""
+    listed = [e for e in ports.git.listed_worktrees(repo.source) if tools.is_place(e["path"])]
+    stale = set(tools.leftovers(listed))
+    removable = False
+    for e in listed:
+        if e["path"] not in stale and (e["locked"] or "").startswith(tools.OWNER):
+            print(f"道具の一時の場所 {e['path']}  残す（道具が走っている）")
+            continue
+        if e["path"] not in stale:
+            # 鍵が無い（前の版が作った）か、ほかの訳の鍵: 走っているかを確かめられないので消さない。手で消すときも commit を失わない手順を添える
+            got = tools.judge(e, ports.git, repo.source)
+            print(f"道具の一時の場所 {e['path']}  残す（" + ("鍵が無い" if e["locked"] is None else f"鍵の訳が「{e['locked']}」")
+                  + "。道具が走っているかもしれないので消さない。走っていなければ"
+                  + (f"、{got['why']}ので中を見てから" if got["why"] else "")
+                  + (f"、先に git -C {repo.source} update-ref {tools.KEPT_REF}{got['keep']} {got['keep']} で先頭の commit を残してから"
+                     if got["keep"] else "")
+                  + f" git -C {repo.source} worktree remove -f -f {e['path']} で消す）")
+            continue
+        got = tools.judge(e, ports.git, repo.source)
+        removable = removable or not got["why"]
+        print(f"道具の一時の場所 {e['path']}  " + (
+            f"残す（作った処理はもう居ないが、{got['why']}。中を見て、要らなければ git -C {repo.source} worktree remove -f -f {e['path']}）"
+            if got["why"] else "消せる（作った処理がもう居ない" + (f"。どの枝にも無い先頭の commit を {tools.KEPT_REF}{got['keep']} に残してから消す"
+                                                             if got["keep"] else "") + "）"))
+    if not apply or not removable:
+        return 0, removable
+    done, bad = tools.sweep(repo.source, ports.git)
+    for got in done:
+        print(f"道具の一時の場所 {got['path']} 消した" + (f"（先頭の commit を {tools.KEPT_REF}{got['keep']} に残した）" if got["keep"] else ""))
+    for path, why in bad:
+        print(f"道具の一時の場所 {path} 消せなかった: {why}")
+    return sum(1 for _, why in bad if why != "未コミットの変更が在る"), True
 
 
 def _clean(cfg, repo, apply, ports):
@@ -1827,19 +1871,20 @@ def _clean(cfg, repo, apply, ports):
               + (("消せる" + (f"（会話の一時の置き場の {kept} 件は、共通の .git の company/kept-tmp/ に写してから消す）" if kept else ""))
                  if d["removable"] else f"残す（{DEPT_REASONS[d['reason']]}{_running_note(d, ports.attrs(d['path']))}）"))
     print("\n".join(notes + swept) if notes or swept else "", end="\n" if notes or swept else "")
-    failed = 0
+    failed, stale = _tool_places(repo, ports, apply)
     if apply:
         for d in (d for d in depts if d["removable"]):
             got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
             print(f"部署 {d['name'] or '-'} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
             failed += not got["removed"]
-    found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths]
+    found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths and not tools.is_place(p.get("path"))]
+    removable = stale or any(d["removable"] for d in depts)
     cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
     if not any(os.path.realpath(r.source) == os.path.realpath(repo.source) for r in cfg.repos):
         # 設定の [[repos]] に無い会社: PR の作業場は見ない（PR の状態を GitHub に問うのは、PR を開く回に使うリポジトリだけ）
         if not depts:
             print(f"元の clone {repo.source} に部署は無い（設定の [[repos]] に無いので、PR の作業場は見ない）")
-        elif not apply and any(d["removable"] for d in depts):
+        if not apply and removable:
             print("消すには --clean --apply を付けて打ち直す")
         return 1 if failed else 0
     rows = clean.candidates(found, lambda b: ports.pr_for_branch(repo, b), cwds, ports.is_clean, ports.stashed, ports.head_sha,
@@ -1847,14 +1892,14 @@ def _clean(cfg, repo, apply, ports):
     if not rows:
         if not depts:
             print(f"元の clone {repo.source} の worktree は無い")
-        elif not apply and any(d["removable"] for d in depts):
+        if not apply and removable:
             print("消すには --clean --apply を付けて打ち直す")
         return 1 if failed else 0
     for r in rows:
         mark = "消せる" if r["removable"] else f"残す（{r['reason']}{': ' + ', '.join(r['files']) if r['files'] else ''}）"
         print(f"{_where(r)}  {r['state'] or '-'}  {mark}")
     if not apply:
-        if any(r["removable"] for r in rows + depts):
+        if removable or any(r["removable"] for r in rows):
             print("消すには --clean --apply を付けて打ち直す")
         return 0
     for r in (r for r in rows if r["removable"]):

@@ -4,7 +4,10 @@ git は一時のフォルダの本物、herdr・claude は偽物で回す。"""
 import argparse
 import os
 import pathlib
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 
 from . import test_deliver
@@ -62,6 +65,19 @@ class Fields(unittest.TestCase):
         self.assertEqual(tools.auto_name("配布", tool), "配布：全アカウントに配る")
         self.assertEqual(tools.auto_branch(tool, "20261017-010203-a1b2c3"), "work/spread-plugins-v2-a1b2c3")
 
+    def test_leftover_tool_places_are_those_whose_run_is_gone(self):
+        t = lambda name: f"/tmp/{tools.PREFIX}{name}/tree"   # noqa: E731
+        entries = [{"path": t("live"), "locked": f"{tools.OWNER}10"}, {"path": t("dead"), "locked": f"{tools.OWNER}20"},
+                   {"path": t("old"), "locked": None},   # この版より前の place が作った（鍵が無い。前の版が走っているかもしれない）
+                   {"path": t("oldgone"), "locked": None},
+                   {"path": t("making"), "locked": "initializing"}, {"path": t("gone"), "locked": "initializing"},
+                   {"path": t("odd"), "locked": f"{tools.OWNER}１２"},   # pid でない訳は、ほかの訳の鍵と同じに親のフォルダを見る
+                   {"path": "/w/dept/tree", "locked": None}, {"path": f"/tmp/{tools.PREFIX}x/other", "locked": None}]
+        got = tools.leftovers(entries, alive=lambda pid: pid == 10, exists=lambda d: d.endswith(("making", "odd", "old")))
+        self.assertEqual(got, [t("dead"), t("oldgone"), t("gone")])
+        self.assertFalse(tools._alive(10 ** 30))   # 大きすぎる pid で落ちない
+        self.assertTrue(tools._alive(os.getpid(), posix=False))   # Windows は確かめずに居るとみなす（消さない）
+
     def test_land_after_is_read(self):
         text = '[land]\nmode = "none"\n[[land.after]]\nrole = "配布"\ntool = "spread-plugins"\n[[land.after]]\nrole = ""\n'
         got = land.read_rules("/c.toml", None, text)
@@ -113,6 +129,82 @@ class Call(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("属性無し", out)
         self.assertEqual(gitx.worktree_attrs(self.src)["name"], "段取り")   # 本社の属性はそのまま
+
+    def test_the_tool_place_is_locked_by_the_running_process(self):
+        self.use("git worktree list --porcelain")
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"locked {tools.OWNER}{os.getpid()}", out)
+        self.assertEqual(len(git("-C", self.src, "worktree", "list").splitlines()), 2)
+
+    def leave(self, owner=False):
+        """殺された処理が残した道具の場所を作る（owner は鍵の訳。省けば終わった処理の pid の鍵、None なら鍵を掛けない）。"""
+        if owner is False:
+            gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
+            owner = f"{tools.OWNER}{gone.stdout.strip()}"
+        path = os.path.join(tempfile.mkdtemp(prefix=tools.PREFIX), "tree")
+        self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
+        gitx.add_detached(self.src, path, gitx.rev(self.src, "HEAD"), lock=owner)
+        return path
+
+    def test_places_left_by_killed_runs_are_swept_by_the_next_call_and_by_clean(self):
+        # 2026-10-17 に my_notes で、消えずに残った道具の場所と、場所が無いのに鍵だけ残った行が --tree に「（枝無し）」で並んだ
+        self.use("true")
+        dead = self.leave()
+        old = self.leave(None)   # 前の版の place が作った（鍵が無い）。前の版の道具が走っているかもしれない
+        moved = self.leave("initializing")
+        shutil.rmtree(os.path.dirname(moved))
+        live = self.leave(f"{tools.OWNER}{os.getpid()}")
+        listed = lambda: {os.path.realpath(e["path"]) for e in gitx.listed_worktrees(self.src) if tools.is_place(e["path"])}   # noqa: E731
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn(f"道具の一時の場所 {os.path.realpath(live)}  残す（道具が走っている）", out)
+        self.assertIn(f"道具の一時の場所 {os.path.realpath(old)}  残す（鍵が無い。道具が走っているかもしれないので消さない。走っていなければ "
+                      f"git -C {self.src} worktree remove -f -f {os.path.realpath(old)} で消す）", out)
+        self.assertEqual(out.count("消せる（作った処理がもう居ない）"), 2, out)
+        self.assertNotIn("（枝無し）", out)
+        self.assertEqual(len(listed()), 4)   # 並べるだけでは消さない
+        rc, out = self.main(self.src, "--call", "配布", "spread-plugins")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(listed(), {os.path.realpath(live), os.path.realpath(old)})
+        self.assertFalse(os.path.exists(os.path.dirname(dead)))
+        self.assertEqual(git("-C", self.src, "for-each-ref", tools.KEPT_REF), "")   # 先頭が枝に在れば ref を足さない
+        gitx.remove_detached(self.src, live)
+        gitx.remove_detached(self.src, old)
+        self.leave()
+        rc, out = self.main(self.src, "--tree")
+        self.assertIn("（道具の一時の場所）", out)
+        rc, out = self.main(self.src, "--clean", "--apply")
+        self.assertIn("消した", out)
+        self.assertEqual(listed(), set())
+
+    def test_a_commit_only_in_a_left_place_is_kept_and_a_dirty_place_is_left(self):
+        # 2026-10-17 に my_notes に残った道具の場所には、push できないまま殺された写しの道具の commit が載っていた
+        made = self.leave()
+        git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
+        sha = gitx.rev(made, "HEAD")
+        dirty = self.leave()
+        pathlib.Path(dirty, "half.txt").write_text("書きかけ", encoding="utf-8")
+        rc, out = self.main(self.src, "--clean")
+        self.assertIn(f"どの枝にも無い先頭の commit を {tools.KEPT_REF}{sha} に残してから消す", out)
+        self.assertIn("残す（作った処理はもう居ないが、未コミットの変更が在る。中を見て、要らなければ git -C", out)
+        rc, out = self.main(self.src, "--clean", "--apply")
+        self.assertEqual(rc, 0, out)   # 書きかけの場所を残すのは失敗に数えない
+        self.assertEqual(gitx.rev(self.src, f"{tools.KEPT_REF}{sha}"), sha)
+        self.assertFalse(os.path.exists(made))
+        self.assertTrue(os.path.exists(os.path.join(dirty, "half.txt")))
+        (path, why), = tools.sweep(self.src, gitx)[1]
+        self.assertEqual((os.path.realpath(path), why), (os.path.realpath(dirty), "未コミットの変更が在る"))
+
+    def test_an_unswept_place_gets_steps_that_keep_its_commit(self):
+        # 鍵の無い物と、ほかの訳の鍵の物は走っているかを確かめられないので消さず、手で消す手順に commit を残す手を添える
+        made = self.leave(None)
+        git("-C", made, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "来歴")
+        sha = gitx.rev(made, "HEAD")
+        held = self.leave("持ち主が調べている")
+        rc, out = self.main(self.src, "--clean", "--apply")
+        self.assertIn(f"、先に git -C {self.src} update-ref {tools.KEPT_REF}{sha} {sha} で先頭の commit を残してから git -C", out)
+        self.assertIn(f"道具の一時の場所 {os.path.realpath(held)}  残す（鍵の訳が「持ち主が調べている」。道具が走っているかもしれないので", out)
+        self.assertTrue(os.path.exists(made) and os.path.exists(held))
 
     def test_an_unsettled_call_is_counted_and_handed_to_the_ai_role(self):
         self.use(self.script("import sys; print('p2 で失敗'); sys.exit(4)"))
