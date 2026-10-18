@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-10-19
+
 ### Added
 
 - `dispatch/terms.py`: IT の定着語でない言い方（節・番・枝・本流・関門・命令・持ち手など）を見つけ、活用ごとに定着語へ直す（`--fix`）。会社の形（そのリポジトリの `.claude/company.toml`）の `[[roles]]` の役に `deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"` と書くと、その役の部署の `--deliver` が、要約にその言い方があるとき納品を止める。「」・`` ` `` の中、引用の行、コードブロックは見ない。
@@ -14,7 +16,6 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 - スキル・別ファイル・docs・スクリプトの出力の文を IT の定着語にした（例: ターン・セクション・ブランチ・メインブランチ・ゲート・コマンド・担当者）。待ち受けが止まっている会話を起こすことは「会話を再開させる」と書く。
 - 納品の要約の項目「ブランチ」は、前の名前「枝」でも読む。残った疑問の担当者は「担当者:」と書き、前の書き方「持ち手:」でも読む（台帳にも数える）。
-
 
 ## [0.64.0] - 2026-10-18
 
