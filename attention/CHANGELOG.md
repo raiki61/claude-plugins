@@ -6,6 +6,13 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+### Changed
+
+- `/whose-turn` のスキルが、機械の出力を文の区切りの行（`==== ここから下は判定の材料。貼らない ====`）や「各行の 2 行目が URL」のような行の位置ではなく、`whose-turn.py --json` の鍵で読むようにした（`docs/standards/machine-readable-values.md` の決まり 1）。
+  - `--json` が、文の報告と同じ中身を鍵で出すようになった: `sections`（人ごとの自分の番・相手の番の PR。番号・URL・件名・作者・役割・日数・事実の文、自分の番の人の PR なら本文の 1 文 `intro` と規模 `size`）・`waits`（返していない呼びかけ）・`assigned_issues`・`scope`・`limits`・`blind_spots`（死角の確認の数）・`not_seen`。`--materials` を付けると、呼びかけとスレッドの全文（`waits[].text`・`threads`）も入る。
+  - `--json` を `--materials`・`--all`・`--out` と一緒に使えるようにした（前は止めていた）。
+  - 前からある鍵（`schema`〔1〕・`repo`・`login`・`generated_at`・`prs`・`limited`）は変えていない。文の報告（`--json` を付けないとき）も変わらない。
+
 ## [0.37.0] - 2026-10-19
 
 ### Added

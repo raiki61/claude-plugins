@@ -1060,7 +1060,8 @@ def parser():
         action="store_true",
         help="「自分の番」の PR だけを機械が読む JSON で出す（番号・URL・タイトル・head のブランチ・役割・日数）。"
         "集合と並びは報告の「自分の番」のセクションと同じ。limited に、判定に使う材料（コメント・レビュー・スレッド・チェック・"
-        "履歴）が走査の上限に当たった open な PR の番号（自分の番かの判定が取りこぼしで外れうる物。prs に無い物も含む）。--all・--materials・--out と一緒に使えない",
+        "履歴）が走査の上限に当たった open な PR の番号（自分の番かの判定が取りこぼしで外れうる物。prs に無い物も含む）。"
+        "--materials・--all・--out と一緒に使え、報告と同じ中身（人ごとのセクション・呼びかけ・担当 issue・上限・見ていないもの・材料）を鍵で出す",
     )
     outfile.add_flag(ap)
     return ap
@@ -1069,9 +1070,6 @@ def parser():
 def main(argv=None):
     ap = parser()
     a = ap.parse_args(argv)
-    if a.json and (a.all or a.materials or a.out):
-        ap.error("--json は --all・--materials・--out と一緒に使えない")
-
     if not a.out:
         return report(a)
     return outfile.run_to_file(
@@ -1212,13 +1210,86 @@ def report(a):
             lines.append(f"{indent}    {i['url']}")
         return lines
 
+    # 自分の番か・誰のスレッドかなどの見出しの外の値（日数・役割・URL・数）は、ここで構造に組んでから出す。
+    # --json は全部を構造で、文の報告は同じ値から人向けに組む（docs/standards/machine-readable-values.md の決まり 1）
+    people = sorted({w for w, _ in balls}, key=str) if a.all else [me]
+    waits_all = pr_waits + issue_waits
+    waits = waits_all if a.all else [w for w in waits_all if w[0] == me]
+    teams = sum(
+        1
+        for p in prs
+        for r in p["reviewRequests"]["nodes"]
+        if (r["requestedReviewer"] or {}).get("__typename") == "Team"
+    )
+    unverified = {}
+    for who in people:
+        for p in prs:
+            n = len(unverified_replies(p, who))
+            if n:
+                unverified[p["number"]] = unverified.get(p["number"], 0) + n
+    not_seen = NOT_SEEN.format(
+        teams=f"（該当 {teams} 件）",
+        unverified=(
+            "\n    該当 {} 件（返したことにしている分の在り処）: {}".format(
+                sum(unverified.values()),
+                " ".join(f"#{n}" for n in sorted(unverified)),
+            )
+            if unverified
+            else "（該当 0 件）"
+        ),
+    )
+
     if a.json:
-        rows = [r for r in pr_rows(me) if r[0] in MINE]
-        print(json.dumps({
+        def pr_item(who, since, n, intro):
+            p = by_number[n]
+            author = login(p["author"])
+            item = {
+                "number": n,
+                "url": p["url"],
+                "title": p["title"],
+                "head": p["headRefName"],
+                "author": author,
+                "role": "implementer" if author == who else "reviewer",
+                "days": days(since),
+                # 文の報告の各行の下に並ぶ事実の行（人向けの文。読む側が写す物で、語で分岐しない）
+                "facts": pr_facts(p, who, targets, repo, intro=intro),
+            }
+            if intro and author != who:
+                item["intro"] = intro_line(p.get("body")) or None
+                item["size"] = (
+                    {"files": p["changedFiles"], "additions": p.get("additions", 0), "deletions": p.get("deletions", 0)}
+                    if p.get("changedFiles") is not None else None
+                )
+            return item
+
+        def wait_item(who, info, item):
+            kind = "pr" if "reviewThreads" in item else "issue"
+            refs = open_prs_referencing(item, prs) if kind == "issue" else []
+            out = {
+                "who": who,
+                "kind": kind,
+                "number": item["number"],
+                "url": item["url"],
+                "title": item["title"],
+                "since": info["since"],
+                "days": days(info["since"]),
+                "by": info["by"],
+                "excerpt": info["excerpt"],
+                "reply_to_own": bool(info["reply_to_own"]),
+                "reacted": bool(info["reacted"]),
+                "referenced_by_open_prs": refs,
+            }
+            if a.materials:
+                out["text"] = cut(info["text"], 1500)
+            return out
+
+        asg = [i for i in issues if me in {x["login"] for x in i["assignees"]["nodes"]}]
+        data = {
             "schema": 1,
             "repo": repo,
             "login": me,
             "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            # 「自分の番」の PR（読む側: works-dispatch の dispatch）。集合と並びは sections の me の mine と同じ
             "prs": [
                 {
                     "number": n,
@@ -1228,12 +1299,65 @@ def report(a):
                     "role": "implementer" if login(by_number[n]["author"]) == me else "reviewer",
                     "days": days(since),
                 }
-                for _, since, n in rows
+                for t, since, n in pr_rows(me) if t in MINE
             ],
             # 走査の上限に当たった open な PR の番号（prs に無い物も含む）。自分の番かの判定が取りこぼしで外れうる。
             # 判定に効かないリアクションの上限は入れない
             "limited": sorted(limited),
-        }, ensure_ascii=False, indent=2))
+            "all": bool(a.all),
+            "scope": {"open_prs": len(prs), "open_issues": len(issues), "unassigned_issues": unassigned},
+            # 人ごとの 2 つのセクション。並びは文の報告と同じ（段の順・古い順）。--all でなければ me だけ
+            "sections": [
+                {
+                    "who": who,
+                    **{
+                        key: [pr_item(who, since, n, key == "mine") for t, since, n in pr_rows(who) if keep(t)]
+                        for key, _title, keep in BUCKETS
+                    },
+                }
+                for who in people
+            ],
+            # 返していない呼びかけ（古い順）。--materials なら text に投稿の全文（1500 字まで）
+            "waits": [wait_item(*w) for w in sorted(waits, key=lambda w: w[1]["since"])],
+            # 担当 issue（me の分。文の報告は --all のときは出さない）
+            "assigned_issues": [
+                {
+                    "number": i["number"],
+                    "url": i["url"],
+                    "title": i["title"],
+                    "assigned_days": days(assigned_at(i, me)) if assigned_at(i, me) else None,
+                    "updated_at": i["updatedAt"],
+                    "referenced_by_open_prs": open_prs_referencing(i, prs),
+                }
+                for i in sorted(asg, key=lambda i: assigned_at(i, me) or i["createdAt"])
+            ],
+            "limits": limits,
+            # 見ていないもの。死角の確認（スキルの手順 5）が引く数は blind_spots に、全文は not_seen に
+            "blind_spots": {
+                "team_review_requests": teams,
+                "unverified_replies": [{"number": n, "count": unverified[n]} for n in sorted(unverified)],
+            },
+            "not_seen": not_seen,
+        }
+        if a.materials:
+            # 返すターンがあるスレッドの、相手の最後の発言の全文（1500 字まで）
+            data["threads"] = [
+                {
+                    "who": who,
+                    "number": n,
+                    "url": by_number[n]["url"],
+                    "path": t["path"],
+                    "line": t["line"],
+                    "outdated": bool(t["isOutdated"]),
+                    "author": login(last["author"]),
+                    "at": last["createdAt"],
+                    "text": cut(readable(last["body"]), 1500),
+                }
+                for who in people
+                for n in sorted(n for w, n in balls if w == who)
+                for t, last in turn_threads(by_number[n], who)
+            ]
+        print(json.dumps(data, ensure_ascii=False, indent=2))
         return
 
     print(
@@ -1274,38 +1398,8 @@ def report(a):
     print("\n走査の上限に当たったもの: " + ("なし" if not limits else ""))
     for w in limits:
         print("  " + w)
-    teams = sum(
-        1
-        for p in prs
-        for r in p["reviewRequests"]["nodes"]
-        if (r["requestedReviewer"] or {}).get("__typename") == "Team"
-    )
-    unverified = {}
-    for who in sorted({w for w, _ in balls}, key=str) if a.all else [me]:
-        for p in prs:
-            n = len(unverified_replies(p, who))
-            if n:
-                unverified[p["number"]] = unverified.get(p["number"], 0) + n
-    print(
-        "\n"
-        + NOT_SEEN.format(
-            teams=f"（該当 {teams} 件）",
-            unverified=(
-                "\n    該当 {} 件（返したことにしている分の在り処）: {}".format(
-                    sum(unverified.values()),
-                    " ".join(f"#{n}" for n in sorted(unverified)),
-                )
-                if unverified
-                else "（該当 0 件）"
-            ),
-        )
-    )
+    print("\n" + not_seen)
     if a.materials:
-        waits = (
-            pr_waits + issue_waits
-            if a.all
-            else [w for w in pr_waits + issue_waits if w[0] == me]
-        )
         print(f"\n{MATERIALS_MARK}")
         for who, info, item in sorted(waits, key=lambda w: w[1]["since"]):
             kind = "PR" if "reviewThreads" in item else "issue"
@@ -1313,7 +1407,7 @@ def report(a):
                 f"\n### {kind} #{item['number']} → {who}  {info['by']} {local_time(info['since'], '%Y-%m-%d')}"
             )
             print(cut(info["text"], 1500))
-        for who in sorted({w for w, _ in balls} if a.all else {me}, key=str):
+        for who in people:
             for n in sorted(n for w, n in balls if w == who):
                 for t, last in turn_threads(by_number[n], who):
                     where = t["path"] + (f":{t['line']}" if t["line"] else "")

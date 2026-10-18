@@ -66,12 +66,12 @@ For two of the blind spots, namely whether you are included in a review request 
 
 ```
 python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] [--all] [--materials] [--out]
-python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json
+python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] --json [--all] [--materials] [--out]
 ```
 
-`--json` outputs only the "your turn" PRs as JSON for other tools to read (number, URL, title, head branch, role, day count). The set and the order are the same as the "your turn" section of the report. `limited` lists the numbers of open PRs where the data the judgment uses hit a fetch limit (comments, reviews, threads or checks not fully read, or exactly 100 timeline events, the most the query takes), including PRs that are not in `prs`; whether such a PR is your turn may be wrong. Reaction limits are not counted, because reactions do not affect the judgment.
+`--json` outputs the same content as the report as JSON, with keys instead of text layout: `sections` (per person, the "your turn" and "their turn" PRs with number, URL, title, author, role, day count and fact lines), `waits` (unanswered mentions), `assigned_issues`, `scope`, `limits`, `blind_spots` and `not_seen`; with `--materials`, also the full texts (`waits[].text` and `threads`). The skill reads this JSON. `prs` keeps the earlier shape for other tools (works-dispatch): only your "your turn" PRs (number, URL, title, head branch, role, day count), in the same set and order as the "your turn" section of the report. `limited` lists the numbers of open PRs where the data the judgment uses hit a fetch limit (comments, reviews, threads or checks not fully read, or exactly 100 timeline events, the most the query takes), including PRs that are not in `prs`; whether such a PR is your turn may be wrong. Reaction limits are not counted, because reactions do not affect the judgment.
 
-The definitions of the judgments and what is not looked at are in `--help`. The script's judgment of whose turn each PR is (the sections and rows of the report) is a pure function, and `tests/whose-turn-suite.py` pins its rules one line at a time (119 cases). The AI then only reads the materials to classify the mentions and threads, as the skill describes. All times, in headings and rows, are shown in local time.
+The definitions of the judgments and what is not looked at are in `--help`. The script's judgment of whose turn each PR is (the sections and rows of the report) is a pure function, and `tests/whose-turn-suite.py` pins its rules one line at a time (126 cases). The AI then only reads the materials to classify the mentions and threads, as the skill describes. All times, in headings and rows, are shown in local time.
 
 Only this command runs on sonnet (the `model` in the command definition). The AI's job is to apply the rules to the material and sort it; it does not need a higher model's reasoning, and it is kept light because it is meant to run every day.
 

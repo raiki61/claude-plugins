@@ -11,6 +11,7 @@ import datetime as dt
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import re
 import sys
@@ -1564,15 +1565,77 @@ class Json(unittest.TestCase):
         out = json.loads(report(pr(number=7, author={"login": "bob"}, isDraft=True), who="bob", args=("--json",)))
         self.assertEqual(out["limited"], [])
 
-    def test_json_refuses_all_materials_out(self):
-        for extra in ("--all", "--materials", "--out"):
-            with self.subTest(extra=extra):
-                err = io.StringIO()
-                with self.assertRaises(SystemExit) as e, contextlib.redirect_stderr(err):
-                    flow.main(["bob", "--repo", "o/n", "--json", extra])
-                self.assertEqual(e.exception.code, 2)
-                self.assertIn("一緒に使えない", err.getvalue())
+    def test_json_sections_match_the_text_report(self):
+        # スキルは文の報告ではなく --json の鍵で読む。人ごとのセクションの集合と並びは文の報告と同じ
+        prs = [pr(number=n, author={"login": "bob"}, isDraft=True, createdAt=t)
+               for n, t in ((3, T2), (4, T0), (5, T1))]
+        theirs = pr(number=6, author={"login": "alice"}, reviewThreads=conn(thread(comment(user("bob"), T2))))
+        text = report(*prs, theirs, who="bob")
+        mine_text, _, rest = text.partition("## 相手の番")
+        out = json.loads(report(*prs, theirs, who="bob", args=("--json",)))
+        (me,) = out["sections"]
+        self.assertEqual(me["who"], "bob")
+        self.assertEqual([x["number"] for x in me["mine"]], [int(m) for m in re.findall(r"^  #(\d+)", mine_text, re.M)])
+        self.assertEqual([x["number"] for x in me["theirs"]], [6])
+        self.assertEqual([x["number"] for x in out["prs"]], [x["number"] for x in me["mine"]])
+        self.assertEqual(me["theirs"][0]["url"], "https://example.invalid/pull/6")
+        self.assertEqual((me["theirs"][0]["author"], me["theirs"][0]["role"]), ("alice", "reviewer"))
+        self.assertEqual(out["scope"], {"open_prs": 4, "open_issues": 0, "unassigned_issues": 0})
 
+    def test_json_carries_intro_and_size_only_for_others_pr_in_my_turn(self):
+        p = pr(number=9, author={"login": "alice"}, reviewRequests=requests(user("bob")),
+               body="直す。続き。", changedFiles=3, additions=10, deletions=2)
+        (me,) = json.loads(report(p, who="bob", args=("--json",)))["sections"]
+        self.assertEqual(me["mine"][0]["intro"], "直す。")
+        self.assertEqual(me["mine"][0]["size"], {"files": 3, "additions": 10, "deletions": 2})
+        own = pr(number=10, author={"login": "bob"}, isDraft=True)
+        (me,) = json.loads(report(own, who="bob", args=("--json",)))["sections"]
+        self.assertNotIn("intro", me["mine"][0])
+
+    def test_json_waits_issues_and_blind_spots(self):
+        called = issue(number=3, comments=[(user("alice"), T1, "@bob 見て")])
+        assigned = issue(number=4, assignees=["bob"])
+        out = json.loads(report(issues=[called, assigned], who="bob", args=("--json",)))
+        (w,) = out["waits"]
+        self.assertEqual((w["who"], w["kind"], w["number"], w["by"]), ("bob", "issue", 3, "alice"))
+        self.assertEqual(w["url"], "https://example.invalid/issues/3")
+        self.assertNotIn("text", w)  # 全文は --materials のときだけ
+        self.assertEqual([i["number"] for i in out["assigned_issues"]], [4])
+        self.assertEqual(out["blind_spots"], {"team_review_requests": 0, "unverified_replies": []})
+        self.assertIn("見ていないもの:", out["not_seen"])
+        self.assertEqual(out["limits"], [])
+
+    def test_json_with_materials_carries_full_texts(self):
+        called = issue(number=3, comments=[(user("alice"), T1, "@bob 見て。全文")])
+        p = pr(reviewThreads=conn(thread(comment(user("bob"), T1, "ここ"), comment(user("alice"), T2, "直しました"),
+                                         path="a.py", line=7)))
+        out = json.loads(report(p, issues=[called], who="bob", args=("--json", "--materials")))
+        self.assertIn("全文", out["waits"][0]["text"])
+        (t,) = out["threads"]
+        self.assertEqual((t["who"], t["number"], t["path"], t["line"], t["author"]), ("bob", 1, "a.py", 7, "alice"))
+        self.assertIn("直しました", t["text"])
+        self.assertNotIn(flow.MATERIALS_MARK, json.dumps(out, ensure_ascii=False))
+
+    def test_json_all_lists_everyone(self):
+        p = pr(number=1, author={"login": "alice"}, reviewRequests=requests(user("bob")))
+        out = json.loads(report(p, who="bob", args=("--json", "--all")))
+        self.assertTrue(out["all"])
+        self.assertEqual(sorted(x["who"] for x in out["sections"]), ["alice", "bob"])
+
+    def test_json_goes_to_a_file_with_out(self):
+        buf = io.StringIO()
+        with (
+            mock.patch.object(flow, "fetch_all", lambda _q, _o, _n, field: [pr(number=1)] if field == "pullRequests" else []),
+            mock.patch.object(flow, "gh", lambda *_a: json.dumps({"data": {"nodes": []}})),
+            contextlib.redirect_stdout(buf),
+        ):
+            flow.main(["bob", "--repo", "o/n", "--json", "--out"])
+        path = re.search(r"報告は (\S+) に書いた", buf.getvalue()).group(1)
+        try:
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["schema"], 1)
+        finally:
+            os.unlink(path)
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
