@@ -15,6 +15,9 @@
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
   順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
+  渡さずに待つ部署（子の頼みの返事を待つ・納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
+  順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
+  部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
   毎回空にする部署は、次の頼みを渡す前に、会社の形の model・effort が起こしたとき（属性 company.launched）と違えば、
   dispatch.py --move <部署> --if-changed で起こし直す（/clear は起こしたときの --model・--effort を残すため。restart_due）。
 - UserPromptSubmit（`--resume`。裏で走らせない）: 人の文で番が始まったら、部署の答え待ちの印（--wait）と区切りの印（--rest）と
@@ -216,6 +219,151 @@ def _read_part(got):
     return out
 
 
+TAKES = "takes"   # 受付箱の下の、輪をほどく --take を走らせた出力の置き場
+KNOT = "knot"     # 台帳の種類: 返事待ちの輪を見つけ、輪の頼みを --take で回した（chain に輪の部署の名前、edges に輪の頼み）
+
+
+UNTIE_TRIES = 3   # 1 つの待ち受けが同じ輪の頼みを回す回数の上限（最初の回を含む。--take が 0 以外で終わったときだけ回し直す）
+
+
+def _exit_of(done):
+    """切り離して走らせた --take の終わりの値（wake.detached の done のファイル）。まだ書かれていなければ None。"""
+    try:
+        text = pathlib.Path(done).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return int(text) if text.lstrip("-").isdigit() else (1 if text else None)
+
+
+def _root_of(path):
+    return os.path.realpath(gitx.toplevel(path) or path)
+
+
+def blocked(attrs, inbox, place):
+    """部署が番を終えて（待ち受けが動いている）、順番待ちを渡さずに止まっているか: 受けた頼みを納品していないか、fresh の部署で
+    納品し終えてまだ空にしていない（子の頼みの返事を待って空にしない間。must_clear と同じ見分け）。"""
+    ask = attrs.get("ask")
+    held = bool(wake.pending(attrs) or ask and attrs.get("fresh") == role.FRESH and attrs.get("delivered") == ask
+                and attrs.get("cleared") != ask)
+    return held and wake.watching(inbox, place)
+
+
+def queued_children(children, records):
+    """子の頼みのうち、宛先の部署の順番待ちに積まれたまま（まだ渡っていない）物の並び [(子の受付, 宛先の部署の場所)]。宛先は台帳の
+    その受付の最後の頼みの行の to.path（--take で回し直されたら、回した先）。"""
+    out = []
+    for c in children:
+        dest = next(((r.get("to") or {}).get("path") for r in reversed(records)
+                     if r.get("kind") == "ask" and r.get("id") == c and isinstance(r.get("to"), dict)), None)
+        common, place = (gitx.common_dir(dest), gitx.git_dir(dest)) if dest and os.path.isdir(dest) else (None, None)
+        if not common or not place:
+            continue
+        inbox = deliver.inbox_of(common)
+        item = wake.find(inbox, c)
+        if item and os.path.dirname(item["path"]) == wake.queue_dir(inbox, place):
+            out.append((c, _root_of(dest)))
+    return out
+
+
+def knot(got, attrs, children, records=None):
+    """この部署が渡さずに止まっている間に、返事待ちが輪になっているか。輪なら、ほどく 1 つの輪の頼みの並び [(受付, 頼んだ部署の名前,
+    積まれた部署の名前, 積まれた部署の場所)]（先頭がほどく頼み）、輪でなければ None。
+    たどるのは「止まっている部署（blocked）が出して返事の来ていない頼みが、ほかの部署の順番待ちに積まれたまま」の線だけ。会社を
+    またぐ頼みも、頼みの行の宛先の場所からその会社の受付箱を読んでたどる。children はこの部署の子の頼み（open_children）。
+    ほどく頼みは、この部署からたどれて、この部署へ戻れる部署どうしの線（輪に載る線）のうち受付番号の一番小さい物（一番古く出された
+    物）。輪がいくつ重なっていても、その輪のどの部署から見ても同じ線の集まりなので、どの待ち受けが見つけても同じ頼みを選ぶ。"""
+    here = _root_of(got["cwd"])
+    rows = deliver.records(got["inbox"]) if records is None else records
+    names, todo = {here: attrs.get("name") or here}, [here]
+    out_of = {here: queued_children(children, rows)}
+    while todo:
+        node = todo.pop(0)
+        for _, dest in out_of[node]:
+            if dest in names:
+                continue
+            a = gitx.worktree_attrs(dest)
+            common, place = gitx.common_dir(dest), gitx.git_dir(dest)
+            if not common or not place or not a.get("role"):
+                continue
+            inbox = deliver.inbox_of(common)
+            if not blocked(a, inbox, place):
+                continue
+            names[dest] = a.get("name") or dest
+            out_of[dest] = queued_children(open_children({"cwd": dest, "inbox": inbox}, a), deliver.records(inbox))
+            todo.append(dest)
+    lines = [(c, node, dest) for node, outs in out_of.items() for c, dest in outs if dest in out_of]
+    back, grew = {here}, True   # この部署へ戻れる部署（たどった部署はどれもこの部署から行ける）
+    while grew:
+        grew = False
+        for _, node, dest in lines:
+            if dest in back and node not in back:
+                back.add(node)
+                grew = True
+    ring = [x for x in lines if x[1] in back and x[2] in back]
+    if not ring:
+        return None
+    first = min(ring)
+    came, todo = {first[2]: None}, [first[2]]   # ほどく線の先から元へ戻る道（輪の残り）
+    while todo and first[1] not in came:
+        node = todo.pop(0)
+        for x in ring:
+            if x[1] == node and x[2] not in came:
+                came[x[2]] = x
+                todo.append(x[2])
+    path, cur = [], first[1]
+    while came.get(cur):
+        path.append(came[cur])
+        cur = came[cur][1]
+    return [(c, names[node], names[dest], dest) for c, node, dest in [first] + path[::-1]]
+
+
+def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os.environ):
+    """返事待ちの輪（knot の返り）をほどく: 先頭の頼みを、積まれた部署の会社に、積まれた部署の受け持ちの名前を付けた作業の部署を
+    立てて、dispatch.py --take <受付> --ask <会社>/<既定の役> --task <受け持ち>：<受付の末尾> --branch work/ask-<受付の末尾> で回す
+    （段取りが手で打っていた物。受付番号と頼み元はそのまま）。会社と既定の役は、積まれた部署の会社の会社の形から読み、--take は
+    その会社の代表の clone で打つ（回す頼みの本文の写しをその会社の受付箱に置く）。会話から切り離して走らせ、終わりを待たない
+    （--take は herdr を読んで部署を立てる。取り合いは --take が順番待ちのファイルを消す所で 1 つに決まる）。出力は輪を見つけた部署の
+    受付箱の takes/ に残し、台帳に kind knot の行を足す。走らせたら (回した受付, 終わりの値を書くファイル)、走らせられなければ None。"""
+    ask_id, _, owner, where = edges[0]
+    attrs = gitx.worktree_attrs(got["cwd"])
+    common = gitx.common_dir(where)
+    root = gitx.root_of(common) if common else got["root"]
+    try:
+        info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+        company = tree.company_name(root, info)
+    except Exception:  # 会社の形を読めなくても、場所の名前の会社で回す
+        info, company = None, got["company"] if root == got["root"] else os.path.basename(root)
+    try:
+        crew = role.default(role.load(info["path"], info["text"]), role.DEFAULT)[0]
+    except Exception:  # 会社の形を読めなくても、既定の役で回す
+        crew = role.DEFAULT
+    chain = [edges[0][1]] + [e[2] for e in edges]
+    note = (f"（待ち受けが回した頼み: 部署どうしが互いに出した頼みの返事を待ち、順番待ちが渡らない輪になっていた（{' → '.join(chain)}。"
+            f"矢印は、左の部署が出した頼みが右の部署の順番待ちに積まれたまま）。止まらないよう、この頼みを {owner} の順番待ちから"
+            f"取り出し、受付番号と頼み元はそのままに{crew}の部署で受ける。受け持ちは {owner}。）")
+    tail = ask_id[-6:]
+    argv = ([sys.executable, "-u", DISPATCH_PY, "--take", ask_id, "--ask", f"{company}/{crew}", "--task", f"{owner}：{tail}",
+             "--branch", f"work/ask-{tail}", "--text", note] + (["--config", attrs["config"]] if attrs.get("config") else []))
+    out = os.path.join(got["inbox"], TAKES, f"{''.join(ch for ch in ask_id if ch.isalnum())}-{int(now())}.log")
+    done = out[:-len(".log")] + ".done"
+    detach = os.name != "nt" and spawn is subprocess.Popen if detach is None else detach
+    try:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        if detach:   # 会話の処理が止まっても --take を止めない（restart_first と同じ殻）
+            spawn(wake.detached(argv, out, done), cwd=root, stdin=subprocess.DEVNULL,
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
+        else:
+            with open(out, "w", encoding="utf-8") as f:
+                spawn(argv, cwd=root, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+    except OSError:
+        return None
+    deliver.log(got["inbox"], {"id": ask_id, "kind": KNOT, "at": now(), "place": got["cwd"], "session": got["session"],
+                               "chain": chain, "edges": [e[0] for e in edges], "out": out,
+                               "detail": f"返事待ちの輪（{' → '.join(chain)}）をほどくため、受付 {ask_id} を {owner} の順番待ちから"
+                                         f"{company} の{crew}の部署へ回す"})
+    return ask_id, done
+
+
 def must_clear(payload, attrs):
     """頼みごとに空の会話で受ける部署（fresh）が、次の頼みを受ける前に会話を空にしなければならないか。納品し終えていて
     （company.delivered が company.ask）、まだ空にしていない（company.cleared が違う）とき。ただし会話が空で始まった時を除く。"""
@@ -303,17 +451,48 @@ class _DoneFile:
 
 
 def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, me=lambda: claudex.host()[0],
-            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key):
+            spawn=subprocess.Popen, restart=restart_first, key_of=role_hook.launch_key, unknot=untie):
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起こす口。
-    restart は起こし直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。"""
+    restart は起こし直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
+    unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。"""
     # fresh の部署を空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。順番待ちに
     # 次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--take で回せる）
-    told = set()
+    told, untied = set(), {}
+
+    def loose(attrs, children):
+        # 渡さずに止まっている間に、返事待ちが部署をまたいで輪になっていれば（knot）、輪の頼みを 1 つ作業の部署へ回す（untie）。
+        # 輪の部署はどれも、子の返事を待つ間は順番待ちを渡さないので、誰も動かない（2026-10-18 に claude-plugins の割り振り・点検・
+        # 見直しと、my_notes の調べもの・ノートの手入れで、段取りが --take でほどくまで 2〜6 時間止まった）。同じ頼みを回すのは、
+        # 前に回した --take が 0 以外で終わった（ほかの待ち受けと取り合って負けた・頼み直せずに順番待ちへ戻した）ときだけ、
+        # 最初の回を含めて UNTIE_TRIES 回まで。輪を読めないなど何が起きても、待ち受けは止めない（止めると渡す待ち受けが居なく
+        # なる）。children は子の頼みの並びか、None（ここで数える）
+        try:
+            if not wake.queued(got["inbox"], got["place"]):
+                return
+            children = open_children(got, attrs, read=_read_part(got)) if children is None else children
+            if not children:
+                return
+            edges = knot(got, attrs, children)
+            if not edges:
+                return
+            tries = untied.get(edges[0][0], [])
+            if tries and (len(tries) >= UNTIE_TRIES or tries[-1] and _exit_of(tries[-1]) in (None, 0)):
+                return
+        except Exception:
+            return
+        try:
+            ran = unknot(got, edges)
+        except Exception:
+            ran = None
+        untied[edges[0][0]] = tries + [ran and ran[1]]   # 走らせられなかった回・落ちた回（None）も数え、次の確かめで回し直す
 
     def check():
         attrs = attrs_of(got["cwd"])
         ask = attrs.get("ask")
         if ask and attrs.get("delivered") != ask:
+            if not payload.get("background_tasks"):
+                # 納品の前に子の返事を待って番を終えた部署（常設の担当なども）も、輪の途中に入りうる
+                loose(attrs, None)
             return None   # 未納品の頼みを持っている
         if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
@@ -327,6 +506,7 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 waiting = wake.queued(got["inbox"], got["place"])
                 if not waiting:
                     return None
+                loose(attrs, children)
                 why = f"子の頼みの返事を待っている（受付 {'・'.join(children)}）"
                 if (waiting[0].get("id"), why) not in told:
                     told.add((waiting[0].get("id"), why))

@@ -102,8 +102,7 @@ HERDR_METHODS = {"agent.prompt", "agent.get", "agent.wait", "pane.list", "pane.s
 # 部署（--task・--ask・--sync）にだけ要るメソッド（ペインと作業場に名前と札を付ける・画面を読む・入力欄に残った字に Enter を足し、
 # 止まった attach を Ctrl+Z で戻す）
 TASK_HERDR_METHODS = {"pane.rename", "pane.report_metadata", "pane.read", "pane.send_keys", "workspace.rename"}
-# --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役。持ち主 2026-10-16 に作業役から改名）
-DEFAULT_ROLE = "作業"
+DEFAULT_ROLE = role.DEFAULT   # --role を渡さず、会社の形に default_role も無いときの役
 # 部署の常設か都度か（属性 company.residency の値）。常設の部署は片付けで畳まない（会社の形の設計 4.10 の 1）
 RESIDENT, PER_TASK = "resident", "per-task"
 

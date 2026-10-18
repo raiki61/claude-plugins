@@ -345,6 +345,203 @@ class Hook(unittest.TestCase):
         pathlib.Path(wake.pos_path(self.inbox, place)).write_text(str(os.path.getsize(os.path.join(self.inbox, wake.LOG))))
         self.assertEqual(wake_hook.open_children(got, attrs, read=wake_hook._read_part(got)), [])
 
+    def dept(self, branch, **attrs):
+        """同じ会社にもう 1 つ部署を立てる（場所を返す）。"""
+        path = os.path.join(os.path.dirname(self.place), branch.replace("/", "-"))
+        git("-C", self.src, "worktree", "add", "-q", "-b", branch, path)
+        provision.mark(path, self.src, attrs, gitx)
+        return path
+
+    def asked(self, ask_id, frm, frm_place, dest, at=2):
+        """frm（場所 frm_place）が dest の部署へ頼み、dest の順番待ちに積まれたまま。"""
+        deliver.log(self.inbox, {"kind": "ask", "id": ask_id, "status": "queued", "at": at, "from": {"name": frm, "place": frm_place},
+                                 "to": {"company": "co", "path": dest}})
+        wake.enqueue(self.inbox, gitx.git_dir(dest), {"id": ask_id, "line": f"頼みです（受付 {ask_id}）", "marks": {"ask": ask_id}})
+
+    def listens(self, path, name):
+        wake.claim(self.inbox, gitx.git_dir(path), [f"co/{name}"], f"s-{name}", 7, f"t-{name}", 0)
+
+    @staticmethod
+    def ring(edges):
+        """knot の返りから、場所を除いた (受付, 頼んだ部署, 積まれた部署) の並び。"""
+        return [e[:3] for e in edges]
+
+    def test_two_held_departments_waiting_on_each_other_untie_the_oldest_ask_of_the_ring(self):
+        # 調べは点検への c1 の返事を、点検は調べへの q1 の返事を待ち、どちらも順番待ちを渡さない（2026-10-18 の my_notes）
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        self.asked("20261018-000001-c00001", "調べ", self.place, other)
+        self.asked("20261018-000002-q00002", "点検", other, self.place)
+        tied, done = [], os.path.join(self.inbox, "take.done")
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  unknot=lambda got, edges: tied.append(edges) or (edges[0][0], done))
+        self.assertEqual(check(), wake.HOLD)
+        self.assertEqual(tied, [], "点検の待ち受けが居ない間は、点検は止まっていると見ない")
+        self.listens(other, "点検")
+        self.assertEqual(check(), wake.HOLD)   # 輪をほどいても、子の返事を待つ間は前の会話のまま渡さない
+        self.assertEqual([self.ring(e) for e in tied], [[("20261018-000001-c00001", "調べ", "点検"), ("20261018-000002-q00002", "点検", "調べ")]])
+        self.assertEqual(tied[0][0][3], os.path.realpath(other))   # 回す頼みが積まれた部署の場所
+        check()
+        self.assertEqual(len(tied), 1, "回した --take が終わらない間・0 で終わった後は、同じ頼みを回し直さない")
+        pathlib.Path(done).write_text("0\n")
+        check()
+        self.assertEqual(len(tied), 1)
+        pathlib.Path(done).write_text("2\n")   # ほかの待ち受けと取り合って負けた・頼み直せずに戻した
+        for _ in range(5):
+            check()
+        self.assertEqual(len(tied), wake_hook.UNTIE_TRIES, "0 以外で終わったら、上限まで回し直す")
+
+    def test_a_failure_while_looking_for_a_ring_does_not_stop_the_listener(self):
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        self.asked("c1", "調べ", self.place, other)
+        self.asked("q1", "点検", other, self.place)
+        self.listens(other, "点検")
+
+        calls = []
+
+        def broken(got, edges):
+            calls.append(edges)
+            raise OSError("台帳に書けない")
+        check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  unknot=broken)
+        for _ in range(5):
+            self.assertEqual(check(), wake.HOLD)
+        self.assertEqual(len(calls), wake_hook.UNTIE_TRIES, "落ちた回も数え、上限で止める")
+        provision.mark(self.place, self.src, {"delivered": None}, gitx)   # 納品していない部署の道も、台帳を読めなくて止まらない
+        with mock.patch.object(wake_hook.deliver, "records", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "切れた")):
+            self.assertIsNone(check())
+
+    def test_a_department_that_only_leads_into_the_ring_is_not_where_the_ring_is_untied(self):
+        # 調べ ⇄ 点検 の輪に加え、点検 → 見直し（見直しは調べへ戻らない）。見直しへの頼みが一番古くても、輪の外なので回さない
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        review = self.dept("dept/c", **held, name="見直し", ask="c0", delivered="c0")
+        self.asked("20261018-000003-aaaaaa", "調べ", self.place, other)
+        self.asked("20261018-000002-bbbbbb", "点検", other, self.place)
+        self.asked("20261018-000001-cccccc", "点検", other, review)
+        for path, name in ((other, "点検"), (review, "見直し")):
+            self.listens(path, name)
+        edges = wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["20261018-000003-aaaaaa"])
+        self.assertEqual(self.ring(edges), [("20261018-000002-bbbbbb", "点検", "調べ"), ("20261018-000003-aaaaaa", "調べ", "点検")])
+
+    def test_overlapping_rings_pick_the_same_ask_from_every_department(self):
+        # 割り振り ⇄ 点検 の輪と、点検 → 見直し → 割り振り の輪が重なる。どの部署から見ても、重なった輪の全体の一番古い頼みを回す
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0", "delivered": "a0"}, gitx)
+        check_ = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        review = self.dept("dept/c", **held, name="見直し", ask="c0", delivered="c0")
+        self.asked("20261018-000005-aaaaaa", "割り振り", self.place, check_)
+        self.asked("20261018-000004-bbbbbb", "点検", check_, self.place)
+        self.asked("20261018-000001-cccccc", "点検", check_, review)
+        self.asked("20261018-000003-dddddd", "見直し", review, self.place)
+        for path, name in ((self.place, "割り振り"), (check_, "点検"), (review, "見直し")):
+            self.listens(path, name)
+        here = wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["20261018-000005-aaaaaa"])
+        got = wake_hook.plan({"cwd": review, "session_id": "s-見直し"}, env=self.env, parent=lambda: 7, same=lambda pid: False)
+        there = wake_hook.knot(got, gitx.worktree_attrs(review), ["20261018-000003-dddddd"])
+        self.assertEqual(self.ring(here)[0], ("20261018-000001-cccccc", "点検", "見直し"))
+        self.assertEqual(self.ring(there)[0], ("20261018-000001-cccccc", "点検", "見直し"))
+        self.assertEqual([e[0] for e in here], ["20261018-000001-cccccc", "20261018-000003-dddddd", "20261018-000005-aaaaaa"])
+
+    def test_no_ring_when_a_department_on_the_way_carries_its_conversation_over(self):
+        # 会話を持ち越す部署は、納品し終えれば順番待ちを渡すので、止まっていると見ない
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        other = self.dept("dept/b", role="担当", name="点検", ask="b0", delivered="b0")
+        self.asked("c1", "調べ", self.place, other)
+        self.asked("q1", "点検", other, self.place)
+        self.listens(other, "点検")
+        self.assertIsNone(wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["c1"]))
+
+    def test_a_ring_through_three_departments_with_an_undelivered_one_in_the_middle_is_found_from_each(self):
+        # 割り振りは今の頼みを納品せずに点検への c1 の返事を待ち、点検は見直しへの c2 を、見直しは割り振りへの c3 を待つ（10-18 の
+        # claude-plugins。輪の途中に、納品していない常設の担当が入る）
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)   # 納品していない
+        check_ = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        review = self.dept("dept/c", **held, name="見直し", ask="c0", delivered="c0")
+        self.asked("20261018-000003-c00001", "割り振り", self.place, check_)
+        self.asked("20261018-000001-c00002", "点検", check_, review)
+        self.asked("20261018-000002-c00003", "見直し", review, self.place)
+        for path, name in ((check_, "点検"), (review, "見直し")):
+            self.listens(path, name)
+        tied = []
+        stop = {"hook_event_name": "Stop"}
+        check = wake_hook.checker(self.plan(), stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                                  unknot=lambda got, edges: tied.append(edges))
+        self.assertIsNone(check())   # 納品していない部署は渡さないが、輪は見る
+        # 先頭が回す頼み（どこから見ても、輪の一番古い頼み）。その後に輪を順にたどる
+        self.assertEqual([e[0] for e in tied[0]], ["20261018-000001-c00002", "20261018-000002-c00003", "20261018-000003-c00001"])
+        self.listens(self.place, "割り振り")
+        got = wake_hook.plan({"cwd": review, "session_id": "s-見直し"}, env=self.env, parent=lambda: 7, same=lambda pid: False)
+        seen = []
+        wake_hook.checker(got, stop, h=Window(review), now=lambda: 5, me=lambda: ME, unknot=lambda got, edges: seen.append(edges))()
+        self.assertEqual(seen[0][0][0], "20261018-000001-c00002")
+        tied.clear()
+        wake_hook.checker(self.plan(), {**stop, "background_tasks": [{"id": "x"}]}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
+                          unknot=lambda got, edges: tied.append(edges))()
+        self.assertEqual(tied, [], "裏の処理を待つだけの部署は、輪に入って止まっていると見ない")
+
+    def test_a_ring_across_two_companies_is_followed_through_each_inbox(self):
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0", "delivered": "a0"}, gitx)
+        src2 = os.path.join(os.path.dirname(self.place), "co2")
+        git("init", "-q", "-b", "main", src2)
+        git("-C", src2, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+        other = os.path.join(os.path.dirname(self.place), "notes")
+        git("-C", src2, "worktree", "add", "-q", "-b", "dept/n", other)
+        provision.mark(other, src2, {**held, "name": "調べもの", "ask": "n0", "delivered": "n0"}, gitx)
+        inbox2 = deliver.inbox_of(gitx.common_dir(src2))
+        # 頼みの行は頼んだ側の会社の受付箱に、順番待ちは受ける側の会社の受付箱に在る
+        self.asked("c1", "割り振り", self.place, other)
+        os.unlink(wake.find(self.inbox, "c1")["path"])
+        wake.enqueue(inbox2, gitx.git_dir(other), {"id": "c1", "marks": {"ask": "c1"}})
+        deliver.log(inbox2, {"kind": "ask", "id": "q1", "status": "queued", "at": 2, "from": {"name": "調べもの", "place": other},
+                             "to": {"company": "co", "path": self.place}})
+        wake.enqueue(self.inbox, gitx.git_dir(self.place), {"id": "q1", "marks": {"ask": "q1"}})
+        wake.claim(inbox2, gitx.git_dir(other), ["co2/調べもの"], "s2", 7, "t2", 0)
+        edges = wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["c1"])
+        self.assertEqual(self.ring(edges), [("c1", "割り振り", "調べもの"), ("q1", "調べもの", "割り振り")])
+        runs = []
+        wake_hook.untie(self.plan(), edges, spawn=lambda argv, **kw: runs.append((argv, kw["cwd"])), now=lambda: 9, detach=False)
+        argv, cwd = runs[0]
+        # 作業の部署は、頼みが積まれていた部署の会社（co2）に立てる。--take もその会社の代表の clone で打つ
+        self.assertEqual(argv[argv.index("--ask") + 1], f"{os.path.basename(src2)}/作業")
+        self.assertEqual(os.path.realpath(cwd), os.path.realpath(src2))
+
+    def test_no_ring_once_the_ask_has_been_handed(self):
+        held = {"role": "担当", "fresh": role.FRESH}
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        self.asked("c1", "調べ", self.place, other)
+        self.asked("q1", "点検", other, self.place)
+        self.listens(other, "点検")
+        wake.take(self.inbox, gitx.git_dir(other))   # 点検が c1 を受けた（動いている）
+        self.assertIsNone(wake_hook.knot(self.plan(), gitx.worktree_attrs(self.place), ["c1"]))
+
+    def test_untie_takes_the_ask_to_a_task_named_after_its_owner_and_logs_the_ring(self):
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        runs = []
+
+        def spawn(argv, **kw):
+            runs.append((argv, kw["cwd"]))
+        edges = [("20261018-000001-bbbbbb", "点検", "調べ", self.place), ("20261018-000002-aaaaaa", "調べ", "点検", "/x/点検")]
+        got = self.plan()
+        self.assertEqual(wake_hook.untie(got, edges, spawn=spawn, now=lambda: 9, detach=False)[0], "20261018-000001-bbbbbb")
+        argv, cwd = runs[0]
+        self.assertEqual(argv[argv.index("--take") + 1], "20261018-000001-bbbbbb")
+        self.assertEqual(argv[argv.index("--ask") + 1], "co/作業")   # 会社の形に default_role が無ければ既定の役
+        self.assertEqual(argv[argv.index("--task") + 1], "調べ：bbbbbb")   # 積まれていた部署の受け持ちの名前
+        self.assertEqual(argv[argv.index("--branch") + 1], "work/ask-bbbbbb")
+        self.assertIn("点検 → 調べ → 点検", argv[argv.index("--text") + 1])
+        self.assertEqual(cwd, got["root"])
+        line = deliver.records(self.inbox)[-1]
+        self.assertEqual((line["kind"], line["id"], line["chain"]), (wake_hook.KNOT, "20261018-000001-bbbbbb", ["点検", "調べ", "点検"]))
+
     def test_a_fresh_department_woken_by_a_notice_is_cleared_at_the_end_of_that_turn(self):
         # 頼みを受けていない番（納品の知らせで起きた）の後も、次の頼みを空の会話で受ける（6a9337）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",

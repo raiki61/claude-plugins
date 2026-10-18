@@ -58,6 +58,8 @@ INHERIT = "inherit"
 
 # 頼みごとに空の会話で受ける部署の属性 company.fresh の値（役の fresh = true を写す。無ければ会話を持ち越す）
 FRESH = "true"
+# --role を渡さず、会社の形に default_role も無いときの役（一度きりの作業をする役。持ち主 2026-10-16 に作業役から改名）
+DEFAULT = "作業"
 
 # 部署を起こすときに必ず効かせる設定の鍵。役の設定より強い（裏の会話が自分で worktree を作らず、先に作った作業場で働くため）
 FIXED = {"worktree": {"bgIsolation": "none"}}
