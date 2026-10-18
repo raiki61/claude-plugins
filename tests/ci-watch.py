@@ -19,7 +19,7 @@ works-dispatch の機械窓口のツールとして、main に入れた後の合
 同じ件を何度も頼まない: 知らせた件の鍵（workflow と種類と、赤なら最後の緑の run）を覚え（代表の clone の git の共通の
 ディレクトリの ci-watch.json）、覚えた件は、このツールから回した頼みが閉じていないうちは知らせない。新しい件は、開いた頼みが在っても
 知らせる。頼みが閉じた後は、閉じた後に新しく決着した赤の run が在るときだけ知らせ直す（戻しの commit の run が決着する前に同じ赤を
-頼み直さない）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
+頼み直さない。決着した時刻で見る）。回っていない・止められた・止まった定期の件は、閉じた後は知らせ直さない（担当が見て閉じた物。直って消えた後に
 また起きれば、新しい件として知らせる）。リポジトリに workflow のファイルが無い物（GitHub が足す物・消した物）は見ない。
 
 使い方: python3 tests/ci-watch.py < 入力の JSON（省けば {}。{"dry_run": true} なら、知らせる物を出すだけで覚えない）
@@ -48,7 +48,7 @@ RED = ("failure", "timed_out", "startup_failure")
 GREEN = ("success",)
 RUNS = 100   # workflow ごとに読む run の数。この中に緑が無ければ、最後の緑を別に引く
 SLACK = datetime.timedelta(days=1)
-FIELDS = "databaseId,status,conclusion,event,headSha,createdAt,url"
+FIELDS = "databaseId,status,conclusion,event,headSha,createdAt,updatedAt,url"
 
 
 def run(argv):
@@ -80,8 +80,9 @@ def newest(runs):
 
 
 def findings(runner, now, root=ROOT):
-    """知らせる物の並び。1 件は {key, text, since}。since は赤の件の最新の赤の run の時刻（頼みが閉じた後に知らせ直すかの見分け）で、
-    ほかの件は None。gh を読めなければ RuntimeError。"""
+    """知らせる物の並び。1 件は {key, text, since}。since は赤の件の最新の赤の run が決着した時刻（頼みが閉じた後に知らせ直すかの
+    見分け。始まった時刻で見ると、戻しの commit を push してすぐ納品し、その後に赤で決着した run を見落とす）で、ほかの件は None。
+    gh を読めなければ RuntimeError。"""
     found = []
     for wf in gh_json(["workflow", "list", "--all", "--json", "id,name,path,state"], runner):
         name, path = wf["name"], wf["path"]
@@ -107,7 +108,7 @@ def findings(runner, now, root=ROOT):
                     f" commit（git log {green['headSha'][:8]}..{last['headSha'][:8]}）" if green
                     else "main で 1 度も緑になっていないので、赤にした commit を絞れない")
             # 鍵は最後の緑で決める（赤の続いた run が読む数を超えても、同じ赤の続きを別の件と数えない）
-            found.append({"key": f"{path}:red:{green['databaseId'] if green else 'never-green'}", "since": when(last["createdAt"]),
+            found.append({"key": f"{path}:red:{green['databaseId'] if green else 'never-green'}", "since": when(last.get("updatedAt") or last["createdAt"]),
                           "text": f"{name}（{path}）が main で赤: run {last['databaseId']}（{last['conclusion']}・{last['event']}・"
                                   f"{last['createdAt']}）{last['url']}。{span}"})
         sched = sorted(when(r["createdAt"]) for r in runs_of(wf, runner, "--event", "schedule"))
@@ -134,9 +135,8 @@ def mine(inbox):
     rows = deliver.records(inbox)
     ids = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and marker in (r.get("title") or "")}
     still = any(r["id"] in ids for r in deliver.open_asks(rows))
-    closed = deliver.closed_ids(rows) & ids
-    at = [r["at"] for r in rows if r.get("kind") in ("deliver", "forwarded", "withdrawn") and isinstance(r.get("at"), (int, float))
-          and (r.get("ask") if r.get("kind") == "deliver" and r.get("ask") else r.get("id")) in closed]
+    # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
+    at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]
     return still, (datetime.datetime.fromtimestamp(max(at), datetime.timezone.utc) if at else None)
 
 
@@ -187,7 +187,8 @@ def main(stdin=None, runner=run, now=None):
     tell = [x for x in found if x["key"] not in told
             or (not still_open and (closed_at is None or (x["since"] is not None and x["since"] > closed_at)))]
     if not tell:
-        print("知らせる物は無い" + (f"（{len(found)} 件は知らせ済みで、その頼みが開いている）" if found else ""))
+        print("知らせる物は無い" + (f"（{len(found)} 件は知らせ済みで、" + ("その頼みが開いている）" if still_open else
+                                                                 "その頼みが閉じた後に新しく決着した赤は無い）") if found else ""))
         if not dry:
             save_state(state_path, told & keys)   # 直った件は忘れる（また壊れたら知らせ直す）
         return 0

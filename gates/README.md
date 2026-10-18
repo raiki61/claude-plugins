@@ -121,11 +121,12 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
 - The titles of referenced items (#numbers the text points to) cannot be fixed by the writer, so words in those titles do not stop the post (it stops only when the text uses the word
   as its own words). The title of a new PR (`--title`) can be fixed by the writer, so it is read as before
 - Each line of `denies.log` carries the session, version, and destination (grep to find which session on which version posted where).
-  If the installed version differs from the one running, one line is added to the check result and is also shown on the owner's screen (`systemMessage`).
-  The installed version is the `installPath` in Claude Code's `<config>/plugins/installed_plugins.json`; locations marked `.orphaned_at` do not count.
+  If the installed version differs from the one running, one line is added to the check result and is also shown on the owner's screen (the `systemMessage` field of the hook output); the check itself runs as usual.
+  The installed version is the `installPath` in Claude Code's `<config>/plugins/installed_plugins.json`; an `installPath` folder that contains a `.orphaned_at` file (Claude Code's mark on a version it will remove) does not count.
   The hook's version is fixed when the session starts, and a session kept open for a long time keeps checking with the old version even after an update
   (measured: it stayed on 0.8.0 for 16 hours)
-- `denies.log`, `docs.log`, and the other logs are moved to `<name>.1` when they grow past 2 MB (the previous `.1` is dropped)
+- `denies.log`, `docs.log`, and the other logs are moved to `<name>.1` when they grow past 2 MB (the previous `.1` is dropped).
+  Counting how many times in a row the same post was stopped reads only the last 400 lines of `denies.log`
 
 Settings are environment variables (all optional): `COLDREAD_MODEL` (default sonnet), `COLDREAD_EFFORT` (default
 medium), `COLDREAD_MAX_LEN` (commands longer than this are stopped without parsing; body files are also read up to this many characters; default 100000), `COLDREAD_KEYCHAIN_SERVICE` (the service name used on macOS
@@ -385,11 +386,15 @@ How findings are returned depends on the writing role:
 - The record is `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log` (read, reasons for not reading, reader could not be started; subagent lines
   carry `agent_id` in `aid=`. Lines where the reader was started carry the seconds the read took in the form `35s` and the reader's effort in the form `e=high`.
   If you write `COLDREAD_DOC_EFFORT` in `env` in an account's settings.json, the effort changes only for that account's sessions)
-- The list of documents a role wrote (`docs/<session>.pending`, or `docs/<session>.<agent_id>.pending` for a subagent) is renamed to
-  `<list>.<pid>.reading` before it is read, and removed only after the read ends. If the reader is cut off (the hook timeout, or a background read
-  killed when the conversation closes), the `.reading` file stays; at that role's next end, one older than 960 seconds (the hooks' 900-second timeout
-  plus a margin) is taken back and its documents are read again
-- Lists and `.reading` files older than 1 day (the writer ended without them being read) are reported once at the end of a parent conversation,
+- The list of documents a role (the parent session or a subagent) wrote (`docs/<session>.pending`, or `docs/<session>.<agent_id>.pending` for a subagent) is renamed to
+  `<list>.<pid>-<time>.reading` before it is read, and removed only after the read ends. If the reader is cut off (the hook timeout, or a background read
+  killed when the conversation closes), the `.reading` file stays; the next time that same role ends a turn (Stop or SubagentStop), one older than 960 seconds (the hooks' 900-second timeout
+  plus a margin) is taken back: its paths are added to that read's `.reading` file, the file is removed, and its documents are read again,
+  except those already read with no blocker to return (marked `#done` in the `.reading` file)
+- One end reads at most 8 documents (4 at a time, two rounds of the 420-second reader limit inside the 900-second hook timeout).
+  The rest go back to the list, the role is told how many were left, and they are read at its next end.
+  A parent conversation run with `claude -p` has no next end after the notice, so there all documents are read in one end
+- Lists and `.reading` files last modified more than 1 day ago (the writer ended without them being read) are reported once at the end of a parent conversation's turn (not a subagent),
   both to the conversation and on the owner's screen, with the paths and how to read or remove them
 - Manual entry point to read one file: `python3 hooks/coldread-gate.py read <パス>` (`<パス>` is the path; exit code 1 if there are blockers).
   The request text itself is printed by `python3 hooks/coldread-gate.py prompt`

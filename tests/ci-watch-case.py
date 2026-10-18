@@ -37,9 +37,9 @@ TEST = {"id": 1, "name": "test", "path": ".github/workflows/test.yml", "state": 
 TITLE = f"ツール CI の見張り/{cw.TOOL} が片づけられなかった仕事"
 
 
-def r(i, conclusion, sha, at="2026-10-18T10:00:00Z", event="push", status="completed"):
+def r(i, conclusion, sha, at="2026-10-18T10:00:00Z", event="push", status="completed", updated=None):
     return {"databaseId": i, "status": status, "conclusion": conclusion, "event": event, "headSha": sha * 8, "createdAt": at,
-            "url": f"https://example.invalid/runs/{i}"}
+            "updatedAt": updated or at, "url": f"https://example.invalid/runs/{i}"}
 
 
 class Fake:
@@ -99,6 +99,7 @@ def red_range():
     runs = {1: [r(9, None, "c", status="queued"), r(8, "cancelled", "b"), r(7, "failure", "a"), r(6, "success", "0")]}
     code, out = go(Fake(d, [TEST], runs), '{"dry_run": true}')
     check(code == 1 and "run 7" in out and "https://example.invalid/runs/7" in out, f"赤の run を出さない: {code} {out}")
+    check(out.strip().splitlines()[-1].startswith("main の CI に、知らせる物が"), f"数の行が最後に無い: {out}")
     check("git log 00000000..aaaaaaaa" in out, f"最後の緑から赤までの範囲が無い: {out}")
     check(not os.path.exists(os.path.join(d, cw.STATE)), "dry_run なのに覚えた")
     many = {1: [r(100 + i, "failure", "f") for i in range(cw.RUNS)] + [r(5, "success", "5")]}
@@ -142,7 +143,11 @@ def reopen_after_close():
     fake.runs[1].insert(0, r(8, None, "b", "2026-10-18T10:50:00Z", status="in_progress"))
     code, out = go(fake)
     check(code == 0, f"閉じた後に、戻しの run の決着を待たずに同じ赤を知らせ直した: {code} {out}")
-    fake.runs[1][0] = r(8, "failure", "b", "2026-10-18T11:30:00Z")
+    # 閉じる前に始まり、閉じた後に赤で決着した run(戻しを push してすぐ納品した)。知らせられなかった納品は閉じたに数えない
+    with open(os.path.join(d, *cw.deliver.INBOX, cw.deliver.LOG), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"kind": "deliver", "ask": ask["id"], "status": "failed", "at": closed + 2700}) + "\n")
+        f.write(json.dumps({"kind": "deliver", "ask": ask["id"], "for": "x", "at": closed + 2800}) + "\n")
+    fake.runs[1][0] = r(8, "failure", "b", "2026-10-18T10:50:00Z", updated="2026-10-18T11:30:00Z")
     code, out = go(fake)
     check(code == 1 and "run 8" in out, f"閉じた後に決着した赤を知らせ直さない: {code} {out}")
     fake.runs[1].insert(0, r(9, "success", "c", "2026-10-18T12:00:00Z"))

@@ -2954,9 +2954,12 @@ def run(mode, payload, reader):
     assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
     return r.stdout.decode("utf-8")
 
+snaps = work / "snaps"
+snaps.mkdir()
 def stub(*findings):
-    return ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; "$CR_PY" "$CR_REPLY_PY" %s'
-            % (calls, calls, " ".join(shlex.quote(f) for f in findings)))
+    # 読み手が呼ばれたときの読みかけを写す(読む前に一覧を消さず、覚えた中身を書いてから読ませるかを見る)
+    return ('cat "%s"/s1.pending.*.reading > "$(mktemp "%s/s.XXXXXX")" 2>/dev/null; cat > "$(mktemp "%s/c.XXXXXX")"; "$CR_PY" "$CR_REPLY_PY" %s'
+            % (docs, snaps, calls, " ".join(shlex.quote(f) for f in findings)))
 CLEAN = stub()
 a = work / "a.md"
 a.write_text("# 手順\n\n" + "例の方針どおりに進める。" * 40, encoding="utf-8")
@@ -2964,11 +2967,21 @@ def old(path, days):
     t = time.time() - days * 86400
     os.utime(path, (t, t))
 
-# 読み終えたら待ちの一覧も読みかけも残らない
+os.environ.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"))   # run() の子と同じ置き場
+spec = importlib.util.spec_from_file_location("g", gate)
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+hooks = json.loads((root / "gates/hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
+assert {h["timeout"] for k in ("Stop", "SubagentStop") for e in hooks[k] for h in e["hooks"]} == {g.DOC_STOP_TIMEOUT}, "hooks.json の timeout と DOC_STOP_TIMEOUT が違う"
+assert g.DOC_READ_MAX >= g.DOC_WORKERS and g.DOC_READ_MAX // g.DOC_WORKERS * g.DOC_READ_TIMEOUT < g.DOC_STOP_TIMEOUT
+
+# 読み終えたら待ちの一覧も読みかけも残らない。読み手が呼ばれたときは、読みかけに文書のパスと覚えた中身が在る
 run("docs-record", {"session_id": "s1", "tool_input": {"file_path": str(a)}}, CLEAN)
 assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 1
 assert not list(docs.glob("s1.pending*")), list(docs.iterdir())
 digest = (docs / "seen").read_text(encoding="utf-8").split()[-1]
+snap = next(snaps.iterdir()).read_text(encoding="utf-8")
+assert str(a) in snap.splitlines() and "#seen " + digest in snap.splitlines(), f"読む間の読みかけに、パスか覚えた中身が無い: {snap!r}"
 
 # 前の口が読む前に覚えて切られた読みかけ(古い物)は取り戻して読み直し、まだ読んでいる新しい読みかけには触らない
 fresh = docs / "s1.pending.99998.reading"
@@ -2981,6 +2994,50 @@ assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.i
 assert not list(docs.glob("s1.pending*")), "取り戻した読みかけが残る"
 assert "\treclaim\ts1.pending.99999.reading" in (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
 
+# 切られた読みかけのうち、読み終えた印(#done)の文書は読み直さず、覚えた中身も忘れない。印の無い文書だけ読み直す
+b = work / "b.md"
+b.write_text("# 別の手順\n\n" + "前の手順を受けて進める。" * 40, encoding="utf-8")
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": str(b)}}, CLEAN)
+assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 3
+dig_b = (docs / "seen").read_text(encoding="utf-8").split()[-1]
+cut = docs / "s1.pending.99997.reading"
+cut.write_text("%s\n%s\n#seen %s\n#seen %s\n#done %s\n" % (a, b, digest, dig_b, digest), encoding="utf-8")
+old(cut, 1 / 24)
+assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 4, "読み終えた印の無い文書だけを読み直さない"
+assert b.read_text(encoding="utf-8")[:20] in sorted(calls.iterdir(), key=os.path.getmtime)[-1].read_text(encoding="utf-8"), "印の無い文書を読み直さない"
+assert digest in (docs / "seen").read_text(encoding="utf-8").split(), "読み終えた中身を忘れた"
+
+# 1 回の終わりに読むのは DOC_READ_MAX 本まで。残りは待ちの一覧に戻して知らせ、次の終わりに読む
+many = []
+for i in range(g.DOC_READ_MAX + 2):
+    m = work / ("m%02d.md" % i)
+    m.write_text("# 手順 %d\n\n" % i + ("%d つ目の方針どおりに進める。" % i) * 40, encoding="utf-8")
+    many.append(m)
+sub3 = {"session_id": "s3", "agent_id": "ag3"}
+before = len(list(calls.iterdir()))
+for m in many:
+    run("docs-record", dict(sub3, tool_input={"file_path": str(m)}), CLEAN)
+out = json.loads(run("docs-check", dict(sub3, hook_event_name="SubagentStop"), CLEAN))
+assert len(list(calls.iterdir())) - before == g.DOC_READ_MAX, "上限を超えて読んだ"
+assert "残りの 2 本は次の終わりに読む" in out["hookSpecificOutput"]["additionalContext"], out
+assert len((docs / "s3.ag3.pending").read_text(encoding="utf-8").split()) == 2, "読みきれない文書を待ちの一覧に戻さない"
+assert run("docs-check", dict(sub3, hook_event_name="SubagentStop"), CLEAN) == "" and len(list(calls.iterdir())) - before == g.DOC_READ_MAX + 2
+# 待って読む親の Stop(claude -p)は、知らせで次の終わりが来ないので、上限を掛けずに全部読む
+for m in many:
+    m.write_text(m.read_text(encoding="utf-8") + "\n\n追記。" + "書き足した。" * 60, encoding="utf-8")
+    run("docs-record", {"session_id": "s5", "tool_input": {"file_path": str(m)}}, CLEAN)
+before = len(list(calls.iterdir()))
+assert run("docs-check", {"session_id": "s5", "hook_event_name": "Stop"}, CLEAN) == "" and len(list(calls.iterdir())) - before == len(many), "待って読む親の Stop に上限を掛けた"
+# 返す指摘の無かった中身は、読み終えたら読みかけに印(#done)を付ける(切られても読み直さない)
+kept = []
+g.read_doc = lambda *a, **k: {kind: [] for kind in g.KINDS}
+g._drop_claim = lambda claim: kept.append(pathlib.Path(claim).read_text(encoding="utf-8"))
+c = work / "c.md"
+c.write_text("# 3 つ目の手順\n\n" + "読みかけに印を付けて進める。" * 40, encoding="utf-8")
+g.docs_record({"session_id": "s4", "tool_input": {"file_path": str(c)}})
+g._read_pending("s4", "")
+assert len(kept) == 1 and any(x.startswith("#done ") for x in kept[0].splitlines()), f"読み終えた印を付けない: {kept}"
+
 # 読まれずに残った古い一覧は、親の会話の終わりに 1 度だけ知らせる(サブエージェントの終わりには出さない)
 stale = docs / "gone.agent-z.pending"
 stale.write_text(str(a) + "\n", encoding="utf-8")
@@ -2989,18 +3046,26 @@ assert run("docs-check", {"session_id": "s2", "agent_id": "agent-y", "hook_event
 out = json.loads(run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN))
 ctx = out["hookSpecificOutput"]["additionalContext"]
 assert "1 本が、書いた会話が終わったまま読まれずに残っている" in ctx and "2 日前" in ctx and str(stale) in ctx, ctx
+assert "# で始まる行を除く" in ctx, ctx
 assert "読まれずに残っている" in out.get("systemMessage", ""), f"持ち主の画面に出さない: {out}"
 assert run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN) == "", "同じ残り物を 2 度知らせた"
 stale.write_text(str(a) + "\n" + str(a) + "\n", encoding="utf-8")
 old(stale, 3)
 assert "読まれずに残っている" in run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN), "足された残り物を知らせない"
+# 知らせた古い読みかけが読む前に覚えた中身は忘れる(読まれていない)
+gone = docs / "gone.pending.1-1.reading"
+gone.write_text("%s\n#seen %s\n" % (a, digest), encoding="utf-8")
+old(gone, 2)
+assert digest in (docs / "seen").read_text(encoding="utf-8").split()
+assert "読まれずに残っている" in run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN)
+assert digest not in (docs / "seen").read_text(encoding="utf-8").split(), "知らせた読みかけが覚えた中身を忘れない"
 print("DOCS_CLAIM_OK")
 PY
 
 # 記録は大きさで回し、続けて止まった数は記録の末尾だけを読んで数える(上限の無いログを投稿のたびに全部読まない)
 expect_output 0 "LOG_BOUND_OK" "coldread: 記録が上限を超えたら .1 に替えて書き始め、末尾の行の読みは途中の欠けた行を捨てる" \
     "$PY_BIN" - "$ROOT" "$WORK/log-bound" <<'PY'
-import importlib.util, os, pathlib, sys
+import contextlib, importlib.util, os, pathlib, sys
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 work.mkdir(parents=True)
 os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
@@ -3009,15 +3074,35 @@ g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
 log = str(work / "x.log")
 g.LOG_MAX = 1000
+locked, real = [], g._locked
+@contextlib.contextmanager
+def spy(path):
+    locked.append(path)
+    with real(path):
+        yield
+g._locked = spy
 for i in range(100):
     g.log_line(log, "line %03d %s" % (i, "x" * 20))
 assert os.path.getsize(log) <= 1000 + 60 and os.path.exists(log + ".1"), (os.path.getsize(log), os.path.exists(log + ".1"))
 assert open(log, encoding="utf-8").read().splitlines()[-1].endswith("line 099 " + "x" * 20)
+assert locked and set(locked) == {log}, f"回すかをロックの中で決めない: {locked}"
 with open(log, "w", encoding="utf-8") as f:
     f.write("".join("row %04d\n" % i for i in range(5000)))
 got = g.tail_lines(log, 400, chunk=4000)
-assert len(got) == 400 and got[-1] == "row 4999\n" and all(len(x) == 9 for x in got), got[:2]
-assert g.tail_lines(log, 10, chunk=10 ** 9) == ["row %04d\n" % i for i in range(4990, 5000)]
+assert len(got) == 400 and got[-1] == "row 4999" and all(len(x) == 8 for x in got), got[:2]
+assert g.tail_lines(log, 10, chunk=10 ** 9) == ["row %04d" % i for i in range(4990, 5000)]
+# Windows で書いた記録(行末 \r\n)の \r を残さない(残すと最後の列の値が \r 付きになり、同じ書き手の行を数えない)
+with open(log, "w", encoding="utf-8", newline="\r\n") as f:
+    f.write("".join("row %04d\tsid=s\n" % i for i in range(5000)))
+assert g.tail_lines(log, 3, chunk=4001) == ["row %04d\tsid=s" % i for i in range(4997, 5000)], g.tail_lines(log, 3, chunk=4001)
+with open(log, "w", encoding="utf-8") as f:   # 改ページ(\x0c)などは行の切れ目にしない
+    f.write("a\tb\x0cc\nd\te\n")
+assert g.tail_lines(log, 5) == ["a\tb\x0cc", "d\te"], g.tail_lines(log, 5)
+# 続けて止まった数は、記録の末尾だけを読む
+read = []
+g.tail_lines = lambda path, n, *a: read.append((path, n)) or []
+g.deny_streak("s", "t")
+assert read == [(g.DENY_LOG, 400)], f"deny_streak が末尾だけを読まない: {read}"
 print("LOG_BOUND_OK")
 PY
 # Bash・MCP のツールで書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
@@ -4425,22 +4510,27 @@ listing = cache.parents[2] / "installed_plugins.json"
 def note(gate, *paths):
     listing.write_text(json.dumps({"version": 2, "plugins": {"gates@raiki61": [
         {"installPath": str(p), "version": p.name} for p in paths]}}), encoding="utf-8")
-    code = ("import importlib.util,json,sys;s=importlib.util.spec_from_file_location('g',sys.argv[1]);g=importlib.util.module_from_spec(s);"
-            "s.loader.exec_module(g);print(json.dumps([g.VERSION_NOTE,g.owner_note()],ensure_ascii=False))")
+    # 注記と、止めたときにフックが出す JSON の systemMessage(持ち主の画面に出るフィールド)を見る
+    code = ("import contextlib,importlib.util,io,json,sys\n"
+            "s=importlib.util.spec_from_file_location('g',sys.argv[1]);g=importlib.util.module_from_spec(s);s.loader.exec_module(g)\n"
+            "buf=io.StringIO()\n"
+            "with contextlib.redirect_stdout(buf):\n"
+            "    try:\n        g.deny('x')\n    except SystemExit:\n        pass\n"
+            "print(json.dumps([g.VERSION_NOTE,json.loads(buf.getvalue()).get('systemMessage')],ensure_ascii=False))")
     r = subprocess.run([sys.executable, "-c", code, str(gate)], capture_output=True, text=True, encoding="utf-8")
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
 mine = cache / "0.1.0/hooks/coldread-gate.py"
 got = note(mine, cache / "0.2.0")
-assert "入っている版は 0.2.0" in got[0] and got[1] == {"systemMessage": got[0]}, got
-assert note(mine, cache / "0.1.0") == ["", {}], "自分が入っている版なのに注記を出した"
-assert note(mine, cache / "0.10.0") == ["", {}], "本体の無い場所(入りかけ)を入っている版に数えた"
+assert "入っている版は 0.2.0" in got[0] and got[1] == got[0], got
+assert note(mine, cache / "0.1.0") == ["", None], "自分が入っている版なのに注記を出した"
+assert note(mine, cache / "0.10.0") == ["", None], "本体の無い場所(入りかけ)を入っている版に数えた"
 (cache / "0.2.0/.orphaned_at").write_text("1", encoding="utf-8")
 try:
-    assert note(mine, cache / "0.2.0") == ["", {}], "消す印の付いた場所を入っている版に数えた"
+    assert note(mine, cache / "0.2.0") == ["", None], "消す印の付いた場所を入っている版に数えた"
 finally:
     (cache / "0.2.0/.orphaned_at").unlink()
-assert note(root / "gates/hooks/coldread-gate.py", cache / "0.2.0") == ["", {}], "開発 checkout で注記を出した"
+assert note(root / "gates/hooks/coldread-gate.py", cache / "0.2.0") == ["", None], "開発 checkout で注記を出した"
 print("VERSION_PICK_OK")
 PY
 # 冗長(画面に有るものの説明)は止めない申し送り。詰まりと同じフィールドに混ぜると「直せ」と読まれる
