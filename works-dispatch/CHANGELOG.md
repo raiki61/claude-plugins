@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-10-19
+
 壊れても誰にも知らせが来なかった所を、`--tree`・`--todo`・`--check` の出力に足す注記の行（行の頭に「!」）で知らせるようにした（リポジトリのルートの壊れの見つけ方の標準 `docs/standards/breakage-detection.md`）。
 
 ### Added

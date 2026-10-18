@@ -1,6 +1,6 @@
 {
   "name": "tiers",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "プラグインが要る外のツールを段に分けて点検する共通の部品。段 0: Claude Code だけ、段 1: gh（入っていてログイン済みか）、段 2: herdr（動いているか）とアカウントの起動コマンド、段 3: Archon。足りない物と入れ方（手で入れる物は手順）を人の読む形か --json で返し、何も入れない。ほかのプラグインは dependencies でこれに依存し、使い始めに bin/tiers を呼ぶ（今つないでいるのは works-dispatch だけ）。人は /tiers:check で同じ点検を走らせる。",
   "author": {
     "name": "raiki61"

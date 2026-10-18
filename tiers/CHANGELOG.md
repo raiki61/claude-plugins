@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-19
+
 ### Added
 
 - `--config-dir <フォルダ>`（アカウントの Claude Code の設定のフォルダ。繰り返して複数）を足した。渡したフォルダごとに、段 0 で入れたプラグインの控え（`plugins/installed_plugins.json`）の各項目の置き場（`installPath`）が在り、前の版の印（`.orphaned_at`。Claude Code が 14 日で消す）が付いていないか、段 2 で herdr の Claude Code の連携が今の版で入っているか（そのフォルダを `CLAUDE_CONFIG_DIR` にして打った `herdr integration status` の `claude` の行）を見る。消えた置き場を指す項目は、外すコマンドを添えて足りないと出す（2026-10-18、`~/.claude-p2` に消えた gates 0.7.0・attention 0.10.1 を指す project の範囲の項目が残っていた）。渡したフォルダが無ければ足りないと出す。連携の行の形や状態の字が知らない物なら、通さずに「読めない」と出す。渡さなければ今までと同じ。
