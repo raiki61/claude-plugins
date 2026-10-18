@@ -6,6 +6,8 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-18
+
 ### Changed
 
 - README を英語の 1 版に書き直した（日本語の版は置かない）。スキルとコマンドの名前・説明・本文は日本語のまま。決めは根の docs/readme-language.md。
