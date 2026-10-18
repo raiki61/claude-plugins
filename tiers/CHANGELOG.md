@@ -6,6 +6,10 @@ tiers（`/tiers:check` スキルと `bin/tiers`）の版ごとの、利用者に
 
 ## [Unreleased]
 
+### Changed
+
+- README の `--config-dir` の説明を、段ごと（段 0 はプラグインの控えの置き場、段 2 は herdr の連携）の箇条書きに分け、project の範囲・herdr 0.9.3 の `integration status` の行の形と 4 つの状態を書き足した。
+
 ## [0.8.0] - 2026-10-19
 
 ### Added
