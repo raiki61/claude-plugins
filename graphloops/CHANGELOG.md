@@ -7,7 +7,7 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 ## [Unreleased]
 
 ### Fixed
-- `/review-graph` の手順書の本文を 5,000 字以下に収める（スキルの標準の決まり 1。main の CI の赤）。
+- `/review-graph` のスキルの本文（`skills/review-graph/SKILL.md` の、先頭の設定の行を除いた部分）を 5,000 字以下に縮めた。このリポジトリでは、スキルの本文は 5,000 字以下と決めていて（`docs/standards/skill-authoring.md` の決まり 1）、自動の試験が 5,000 字を超えた本文を失敗にするため。振る舞いは変えていない。
 
 ## [0.33.0] - 2026-10-19
 
