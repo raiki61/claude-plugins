@@ -181,6 +181,10 @@ class FakePorts(dispatch.Ports):
         self.gh = FakeGh(self)
         self.issues = {}
         self.source = None   # 元の clone（FakeGh が origin に枝を作るのに使う）
+        self.spawned = []   # 切り離して走らせた命令（argv・場所・出力のファイル・環境）。試験では走らせない
+
+    def spawn(self, argv, cwd, log, env):
+        self.spawned.append((argv, cwd, log, env))
 
     def preflight(self, cfg, task=False):
         self.preflight_task = task

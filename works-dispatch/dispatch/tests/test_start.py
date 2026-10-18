@@ -1,10 +1,13 @@
 """受け持ちの起こし方（[skills.start]）: 欄の読み（start ノード・tree）と、--start・--due を入口から。
 git は一時のフォルダの本物、herdr・claude は偽物で回す。部署は test_deliver の Flow の常設の部署「調べ」（役 調べ役）。"""
 
+import os
+import pathlib
 import unittest
 
 from . import test_deliver
 import gitx
+import starts
 from nodes import deliver, provision, start, tree
 
 
@@ -117,6 +120,44 @@ class Start(unittest.TestCase):
         rc, out = self.main(self.src, "--due")   # 起こしたばかりなので、まだ来ていない
         self.assertEqual(rc, 0, out)
         self.assertIn("周期の来た受け持ちは無い", out)
+        self.assertEqual(len(self.starts()), 1)
+
+    def test_ask_and_deliver_run_due_in_the_back(self):
+        # 周期を刻むのは頼みと納品: 通った --ask と --deliver の後に、--due を切り離して打つ（段取りの打ち忘れで点検が止まらない）
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて", "--dry-run")
+        self.assertEqual((rc, self.ports.spawned), (0, []), out)   # 試し打ちは打たない
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
+        self.assertEqual(rc, 0, out)
+        ((argv, cwd, log, env),) = self.ports.spawned
+        self.assertEqual((argv[1:], cwd), ([starts.DISPATCH_PY, "--due", "--config", self.cfg], self.src))
+        self.assertEqual(log, os.path.join(self.inbox, "due.log"))
+        # 打った会話の印は渡さない（渡すと、打った部署自身の受け持ちを起こす頼みが「宛先はこの会話自身」で止まる）
+        self.assertEqual(env, {})
+        summary = pathlib.Path(self.root).parent / "summary.md"
+        summary.write_text(test_deliver.GOOD, encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", str(summary))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.ports.spawned), 2)
+        with open(log, encoding="utf-8") as f:
+            heads = [x.split(" ", 2)[2] for x in f.read().splitlines()]
+        self.assertEqual(heads, ["頼みの後", "納品の後"])
+        summary.write_text("## 結論\n直した。\n", encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", str(summary))   # 送らなかった納品（項目が足りない）の後は打たない
+        self.assertEqual((rc, len(self.ports.spawned)), (2, 2), out)
+
+    def test_due_skips_a_company_another_due_is_counting(self):
+        # 裏の --due が 2 つ並ぶと、会社の錠を持つ方だけが数えて起こし、もう一方は待たずにその会社を飛ばす（同じ受け持ちを 2 度
+        # 起こさず、待つ処理も溜めない）
+        provision.mark(self.place, self.src, {"residency": "resident"}, gitx)
+        self.shape(shape_text('report_to = "社長室"\ntext = "見直す"\nevery = "1d"'))
+        with starts._due_lock(self.inbox) as got:
+            self.assertTrue(got)
+            rc, out = self.main(self.src, "--due")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("はほかの --due が数えている", out)
+        self.assertEqual((self.starts(), self.prompts()), ([], []))
+        rc, out = self.main(self.src, "--due")   # 錠が外れれば数える
+        self.assertIn("起こした: ", out)
         self.assertEqual(len(self.starts()), 1)
 
     def test_skill_without_start_cannot_be_started(self):

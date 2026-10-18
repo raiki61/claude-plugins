@@ -211,6 +211,10 @@ def env_command(name, value, command, windows=None):
     return f"{name}={shlex.quote(str(value))} {command}"
 
 
+# 会話から切り離して命令を走らせ、出力を書き足す殻（POSIX。nodes/wake.py の DETACH の、終わりの値を書かず出力を書き足す形）
+APPEND_DETACH = 'log=$1; shift; ( "$@" >>"$log" 2>&1 </dev/null ) &'
+
+
 class Ports:
     """外への口を 1 つに束ねる。試験は同じ名前の口を持つ偽物を渡す。書く口は herdr のモジュールそのもので、launch と turn だけが使う。"""
 
@@ -486,6 +490,16 @@ class Ports:
     def now(self):
         return time.time()
 
+    def spawn(self, argv, cwd, log, env):
+        """argv を打った会話から切り離して走らせ、終わりを待たない。出力はファイル log に書き足す。POSIX では外の sh がすぐ終わり、
+        中の処理は init の子になる（会話の処理が止まっても一緒に止まらない。nodes/wake.py の DETACH と同じ形）。"""
+        if os.name != "nt":
+            subprocess.Popen(["/bin/sh", "-c", APPEND_DETACH, "sh", log, *argv], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).wait()
+            return
+        with open(log, "a", encoding="utf-8") as f:
+            subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT)
+
     def cwd(self):
         """この命令を打った場所（部署の回と --init-company が、--repo の無いときに会社を決める所）。"""
         return os.getcwd()
@@ -633,7 +647,7 @@ def main(argv=None, ports=None):
     ap.add_argument("--start", metavar="受け持ち", help="会社の形の起こし方（[skills.start]）の有る受け持ちを今起こす（名前か「会社/名前」。"
                     "納品は起こし方の report_to に返る）")
     ap.add_argument("--due", action="store_true", help="herdr に開いている会社の、周期（[skills.start] の every）の来た受け持ちを全部起こす"
-                    "（手元の OS の予定から刻む）")
+                    "（--ask と --deliver が通るたびに裏で打つ。手で打ってもよい）")
     ap.add_argument("--deliver", metavar="要約のファイル", help="部署の場所から、要約を頼み元へ返す（項目が足りなければ送らない。- は標準入力）")
     ap.add_argument("--for", dest="for_ask", metavar="受付", help="--deliver と一緒に: --ask … --forward で回して閉じた頼み（回した元か"
                     "回した先の受付）の頼み元へ返す（今受けている頼みは閉じない）")
@@ -692,10 +706,12 @@ def main(argv=None, ports=None):
         return orders.nudge(a, ports, os.getcwd())
     if a.note is not None:
         return orders.note(a, ports, os.getcwd())
-    if a.ask is not None:
-        return orders.ask(a, ports, os.getcwd(), _task)
-    if a.deliver is not None:
-        return orders.deliver_summary(a, ports, os.getcwd())
+    if a.ask is not None or a.deliver is not None:
+        cwd = os.getcwd()
+        rc = orders.ask(a, ports, cwd, _task) if a.ask is not None else orders.deliver_summary(a, ports, cwd)
+        if rc == 0 and not a.dry_run:
+            starts.due_later(a, ports, cwd, "頼み" if a.ask is not None else "納品")
+        return rc
     if a.wait is not None:
         return orders.wait_for_input(a, ports, os.getcwd())
     if a.rest:
