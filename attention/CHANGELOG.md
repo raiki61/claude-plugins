@@ -6,6 +6,8 @@ attention の版ごとの、利用者に効く違いを新しい順に並べる�
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-19
+
 ### Changed
 
 - `/whose-turn` のスキルが、機械の出力を文の区切りの行（`==== ここから下は判定の材料。貼らない ====`）や「各行の 2 行目が URL」のような行の位置ではなく、`whose-turn.py --json` の鍵で読むようにした（`docs/standards/machine-readable-values.md` の決まり 1）。
