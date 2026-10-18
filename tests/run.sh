@@ -3542,7 +3542,7 @@ def git(*a):
     return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True).stdout.decode("utf-8").strip()
 
 # 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは CLEAN を返す。
-# 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。
+# 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。「印QUOTE」が在れば、ほかの印より先に「印QUOTE の文」を「」で引いた詰まりだけを返す。
 # 前の回の詰まりがまだ詰まるかを問う依頼文(RECHECK_HEAD)は名前の末尾を .recheck にして残し、今の版に印STUCK が在れば全部を STILL、無ければ全部を FIXED と返す。
 # 詰まりをメインブランチの版と比べる依頼文(BASE_CHECK_HEAD)は名前の末尾を .base にして残し、前の版にも印STUCK が在れば印STUCK の詰まりを
 # OLD と返す(印FRESH の詰まりが 1 番に在れば 1 は NEW、印STUCK の詰まりは 2 番)
@@ -3552,6 +3552,7 @@ READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "直しを確か�
           'elif grep -q "2 つの版を比べる係" "$f"; then mv "$f" "$f.base"; '
           'if sed -n "/^--- 前の版 ---$/,\\$p" "$f.base" | grep -q 印STUCK; then '
           'if grep -q "^1\\. 詰まり: 印FRESH" "$f.base"; then echo "1 NEW"; echo "2 OLD"; else echo "1 OLD"; fi; else echo "1 NEW"; fi; '
+          'elif grep -q 印QUOTE "$f"; then echo "詰まり: 「印QUOTE の文」が取れない"; '
           'elif grep -q 印STUCK "$f"; then grep -q 印FRESH "$f" && echo "詰まり: 印FRESH の語が分からない"; echo "詰まり: 印STUCK の語が分からない"; '
           'elif grep -q 印GUESS "$f"; then echo "補完: 印GUESS を推測で読んだ"; else echo CLEAN; fi') % calls.as_posix()
 
@@ -3805,6 +3806,19 @@ rgot = prompts(".recheck")[rbefore:]
 assert rc == 1 and not any("印RC" in p for p in prompts()[before:]) and len(rgot) == 1 and "印SB3" in rgot[0], (rc, len(rgot), out)
 git("rm", "-q", str(skill / "references/c.md"))
 git("commit", "-q", "-m", "drop c")
+# 前の回の詰まりが「」で引いた文が前の版に在り、今の版から消えたら、問い直さずに外す(そのセクションは今回新しく読んだ)。問う係が STILL と答える版でも通る
+(repo / "quote.md").write_text(doc(("Q", "印QUOTE の文。\n"), ("P", ""), ("R", ""), ("S", "印STUCK は前から在る。\n")), encoding="utf-8")
+git("add", "quote.md")
+git("commit", "-q", "-m", "quote")
+rc, out = check()
+assert rc == 1 and "quote.md — 詰まり: 「印QUOTE の文」" in out, (rc, out)
+rbefore = len(prompts(".recheck"))
+(repo / "quote.md").write_text(doc(("Q", "書き換えた文。\n"), ("P", ""), ("R", ""), ("S", "印STUCK は前から在る。\n")), encoding="utf-8")
+git("commit", "-q", "-am", "quote fix")
+rc, out = check()
+assert rc == 0 and len(prompts(".recheck")) == rbefore, (rc, out)
+git("rm", "-q", "quote.md")
+git("commit", "-q", "-m", "drop quote")
 before = len(prompts())
 git("switch", "-q", "-c", "other")
 rc, out = check()

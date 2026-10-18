@@ -3928,6 +3928,19 @@ RECHECK_HEAD = """あなたは文書の直しを確かめる係です。前の�
 出力は 1 行 1 件、詰まりの番号と STILL か FIXED だけ(例: 1 STILL)。ほかは何も書かない。
 """
 RECHECK_RE = re.compile(r"^\s*(\d+)\s*[.:：)]?\s*(STILL|FIXED)\b", re.I)
+QUOTE_RE = re.compile(r"「([^「」\n]{4,})」")
+
+
+def _quoted(line, text):
+    """詰まり(line)が「」で引いた所が、その詰まりを出した版(text)に字のとおり全部在るか(読み手が言い換えて引いた物は False)。"""
+    quotes = QUOTE_RE.findall(line)
+    return bool(quotes) and all(q in text for q in quotes)
+
+
+def _rewritten(line, now):
+    """字のとおり引いた詰まり(line)の引いた所が、今の版(now)から全部消えたか。消えたなら、その所のセクションは書き換わって今回
+    新しく読んだので、問い直さない(2026-10-19、引いた文を書き換えた詰まりに、問う係が STILL と答えた)。一部が残る物は問い直す"""
+    return not any(q in now for q in QUOTE_RE.findall(line))
 
 
 def _still_stuck(stuck, text, premise=""):
@@ -3977,25 +3990,25 @@ def _last_sig():
 
 
 def _load_last(path):
-    """前の回の控え {"text": 読んだ版, "premise": 前提, "found": 判定(止めた詰まりだけ)}。
+    """前の回の控え {"text": 読んだ版, "premise": 前提, "found": 判定(止めた詰まりだけ), "quoted": 出した版の字のとおりに引いた詰まり}。
     無い・読めない・形が違う・印(_last_sig)が違えば None。"""
     try:
         with open(path, encoding="utf-8") as f:
             last = json.load(f)
         ok = (last.get("sig") == _last_sig() and isinstance(last.get("text"), str) and isinstance(last.get("premise"), str)
-              and isinstance(last.get("found"), dict)
+              and isinstance(last.get("found"), dict) and isinstance(last.get("quoted"), list)
               and all(isinstance(last["found"].get(k), list) for k in ("詰まり", "補完", "疑問")))
         return last if ok else None
     except (OSError, ValueError, TypeError, AttributeError):
         return None
 
 
-def _save_last(path, text, premise, found):
+def _save_last(path, text, premise, found, quoted):
     try:
         os.makedirs(DOC_BRANCH_LAST, exist_ok=True)
         tmp = "%s.%d.tmp" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"sig": _last_sig(), "text": text, "premise": premise, "found": found}, f, ensure_ascii=False)
+            json.dump({"sig": _last_sig(), "text": text, "premise": premise, "found": found, "quoted": quoted}, f, ensure_ascii=False)
         os.replace(tmp, path)
         for e in sorted(os.scandir(DOC_BRANCH_LAST), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
             os.remove(e.path)
@@ -4004,7 +4017,7 @@ def _save_last(path, text, premise, found):
 
 
 def _branch_verdict(key, body, focus, base, premise="", text=None, last=None):
-    """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号, 問い直しと比べを問えたか)。判定は覚えた物か、読んで覚えた物
+    """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号, 問い直しと比べを問えたか, 字のとおりに引いた詰まり)。判定は覚えた物か、読んで覚えた物
     ({"詰まり", "補完", "疑問"})。読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。
     premise はスキルのフォルダの補足(skill_premise)。last は同じブランチの前の回の控え(_load_last)で、その詰まりのうち今の版(text)でも
     まだ詰まる物を判定の詰まりの後ろに足す。body が None(前の回から字が変わらない)なら読まない。メインブランチの版と比べるのは
@@ -4014,11 +4027,13 @@ def _branch_verdict(key, body, focus, base, premise="", text=None, last=None):
     else:
         found, cached = _branch_cached(key, lambda: read_doc(body, focus, premise=premise))
     old, asked = _carried_from_base(found["詰まり"], body, base) if found["詰まり"] and base is not None else (set(), True)
-    prev = [line for line in (last["found"]["詰まり"] if last else []) if line not in found["詰まり"]]   # 読み直した所で同じ字で出た物は 1 件に
+    quoted = [line for line in found["詰まり"] if _quoted(line, text)]
+    prev = [line for line in (last["found"]["詰まり"] if last else []) if line not in found["詰まり"]   # 読み直した所で同じ字で出た物は 1 件に
+            and not (line in last["quoted"] and _rewritten(line, text))]
     if prev and (body is not None or premise != last["premise"]):
         prev, rechecked = _still_stuck(prev, text, premise)
         asked = asked and rechecked
-    return dict(found, 詰まり=found["詰まり"] + prev), cached, old, asked
+    return dict(found, 詰まり=found["詰まり"] + prev), cached, old, asked, quoted + [line for line in prev if line in last["quoted"]]
 
 
 # 語の置き換えだけの行は読み直さない(--fixer <Python のファイル>)。リポジトリの文を IT の定着語にそろえる置き換え(持ち主 2026-10-18)は
@@ -4106,13 +4121,14 @@ def branch_check(argv):
                    for rel, text, body, focus, key, old, premise, last, lpath in picked]
     for fut, rel, text, focus, lpath, premise in futures:
         try:
-            found, cached, old, asked = fut.result()
+            found, cached, old, asked, quoted = fut.result()
         except Exception as exc:
             log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
             down.append("%s: %s" % (rel, _down_reason(exc)))
             continue
         if lpath and asked:
-            _save_last(lpath, text, premise, dict(found, 詰まり=[line for k, line in enumerate(found["詰まり"]) if k not in old]))
+            kept = [line for k, line in enumerate(found["詰まり"]) if k not in old]
+            _save_last(lpath, text, premise, dict(found, 詰まり=kept), [line for line in quoted if line in kept])
         fresh += not cached
         log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["詰まり"] or found["補完"] else "clean",
                                                   "(覚えた判定)" if cached else "", rel))
