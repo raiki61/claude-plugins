@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-19
+
 ### Changed
 
 - **convergence-loops 0.50.0 以上が要る**（`dependencies` の下限を上げた）。下の 2 つが、convergence-loops の検証器 `review-record.py` と `comment-ratio.sh` に足した `--json` を呼ぶため。古い convergence-loops のままだと、周の記録が検証器を通らずに止まる。

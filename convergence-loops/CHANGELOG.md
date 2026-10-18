@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-10-19
+
 ### Added
 
 - `review-record.py --json` を足した。終了コード（exit）・止める訳のキー（stop: `premise_escalate`・`work_exhausted`・null）・人向けの文（text）を 1 つの JSON で標準出力に出す。graphloops の review-loop はこれで周の分岐を決め、文言を読まない。
