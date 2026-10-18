@@ -40,7 +40,7 @@ SKIPPED = re.compile(r"^(works|works-factory)/|(^|/)CHANGELOG\.md$|(^|/)docs/adr
 
 
 def counts():
-    files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, check=True).stdout
+    files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
     out = {}
     for path in sorted(x for x in files.split("\0") if x.endswith(SUFFIXES) and not SKIPPED.search(x)):
         try:

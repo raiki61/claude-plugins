@@ -238,4 +238,8 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    # 日本語を出すので、Windows の既定のコードページ（cp1252 など）に依らず UTF-8 で書く（読み込む側の出力は変えない）
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     sys.exit(main(sys.argv[1:]))

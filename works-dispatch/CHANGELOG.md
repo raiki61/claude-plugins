@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- `dispatch/terms.py` をコマンドとして打つとき、標準出力と標準エラーを UTF-8 で書く。Windows の既定のコードページでは、日本語の出力が化けるか落ちていた（ルートの試験の SUB_ENCODING_OK が赤だった）。
+
 ## [0.66.1] - 2026-10-19
 
 ### Fixed
