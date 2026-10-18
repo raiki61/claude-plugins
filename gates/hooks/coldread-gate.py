@@ -2025,24 +2025,54 @@ def allow() -> None:
     sys.exit(0)
 
 
+def owner_note():
+    """持ち主の画面に出す注記(フックの出力の systemMessage。モデルの文脈に入る理由・文脈とは別に、人に見える)。
+    無ければ {}。版のずれはモデルに言うだけでは持ち主に届かず、古い版の会話が開いたまま検査し続けた
+    (2026-10-18 の denies.log に v=0.25.0 と v=0.31.0。標準 docs/standards/breakage-detection.md の決まり 1・4)。"""
+    return {"systemMessage": VERSION_NOTE} if VERSION_NOTE else {}
+
+
 def deny(reason: str) -> None:
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": "\n".join(filter(None, (reason, VERSION_NOTE))),
-        }
+        },
+        **owner_note(),
     }, ensure_ascii=False))
     sys.exit(0)
+
+
+# 1 本のログの上限(バイト)。超えたら <名前>.1 に替えて新しく書き始める(前の .1 は消える)。上限が無かった頃は、
+# denies.log と docs.log が足し続けるだけで、deny_streak が投稿のたびに全体を読んでいた(標準 docs/standards/breakage-detection.md の
+# 決まり 5)。2 MB は、2026-10-19 に一番育っていた denies.log(約 1 MB)の 2 倍
+LOG_MAX = 2 << 20
 
 
 def log_line(path: str, text: str) -> None:
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
+        try:
+            if os.path.getsize(path) > LOG_MAX:
+                os.replace(path, path + ".1")
+        except FileNotFoundError:
+            pass
         with open(path, "a", encoding="utf-8") as f:
             f.write("%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
     except OSError as exc:
         _lost("記録を書けない(%s)" % path, exc)
+
+
+def tail_lines(path, n, chunk=256 << 10):
+    """path の最後の n 行。末尾の chunk バイトだけを読む(途中から読んだ最初の欠けた行は捨てる)。"""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        start = max(0, f.tell() - chunk)
+        f.seek(start)
+        data = f.read()
+    lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
+    return (lines[1:] if start else lines)[-n:]
 
 
 def deny_streak(session, target, fp=None, inspected=True):
@@ -2061,8 +2091,7 @@ def deny_streak(session, target, fp=None, inspected=True):
     止まった回が、前の 3 回に足されて「4 回続けて止まった」と出た(2026-10-17)。読み手が動かない回も読んで止めた回に足されていた。
     """
     try:
-        with open(DENY_LOG, encoding="utf-8") as f:
-            lines = f.readlines()[-400:]
+        lines = tail_lines(DENY_LOG, 400)
     except OSError:
         return 0, [], []
     n, lens, kinds = 0, [], []
@@ -2117,34 +2146,42 @@ def plugin_version():
 GATE_VERSION = plugin_version()
 
 
-def version_tuple(name):
-    return tuple(int(x) for x in name.split(".")) if re.fullmatch(r"\d+(?:\.\d+)*", name) else None
-
-
-def newer_installed():
-    """cache の兄弟(…/gates/<版>/)に自分より新しい版が在ればその版名。無ければ None。
+def installed_elsewhere():
+    """入っている gates の版が、この会話のフックの版と違えばその版名。同じか、分からなければ None。
 
     ${CLAUDE_PLUGIN_ROOT} はセッション開始時に固定されるので、更新の後も開いたままのセッションは
-    古い版で検査し続ける(2026-09-07 に実測: 16 時間 0.8.0 のまま)。開発 checkout(兄弟が版名でない)では
-    None。半端に入った版を拾わないよう、フック本体が在るものだけを見る。
+    古い版で検査し続ける(2026-09-07 に実測: 16 時間 0.8.0 のまま)。入っている版は、Claude Code の控え
+    <設定>/plugins/installed_plugins.json の installPath で決める(フォルダの名前の版の大小では決めない。消す印
+    .orphaned_at の付いた場所は入っている物に数えない。標準 docs/standards/breakage-detection.md の決まり 4)。
+    フックの場所が <設定>/plugins/cache/<marketplace>/<プラグイン>/<版> の形でない(開発 checkout)なら None。
+    半端に入った版を拾わないよう、フック本体が在る場所だけを見る。
     """
-    my = version_tuple(GATE_VERSION)
-    if my is None:
+    here = os.path.realpath(PLUGIN_DIR)
+    cache = os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    if os.path.basename(cache) != "cache":
         return None
-    parent = os.path.dirname(PLUGIN_DIR)
     try:
-        names = os.listdir(parent)
-    except OSError:
+        with open(os.path.join(os.path.dirname(cache), "installed_plugins.json"), encoding="utf-8") as f:
+            entries = json.load(f).get("plugins") or {}
+    except (OSError, ValueError, AttributeError):
         return None
     hook = os.path.join("hooks", os.path.basename(__file__))
-    found = [(v, n) for n in names for v in [version_tuple(n)]
-             if v and v > my and os.path.isfile(os.path.join(parent, n, hook))]
-    return max(found)[1] if found else None
+    found = []
+    for rows in entries.values():
+        for row in rows if isinstance(rows, list) else []:
+            path = os.path.realpath(str(row.get("installPath") or "")) if isinstance(row, dict) else ""
+            if os.path.dirname(path) != os.path.dirname(here) or os.path.exists(os.path.join(path, ".orphaned_at")):
+                continue   # ほかのプラグイン・消す印の付いた場所
+            if path == here:
+                return None
+            if os.path.isfile(os.path.join(path, hook)):
+                found.append(str(row.get("version") or os.path.basename(path)))
+    return found[0] if found else None
 
 
-_NEWER = newer_installed()
-VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s が在る。フックの版はセッション開始時に"
-                "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
+_INSTALLED = installed_elsewhere()
+VERSION_NOTE = ("この検査は gates %s で走った(入っている版は %s。フックの版はセッション開始時に"
+                "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _INSTALLED)) if _INSTALLED else ""
 
 
 def reader_argv(claude_bin, schema, model=None, effort=None):
@@ -2571,7 +2608,8 @@ def main() -> None:
                 "permissionDecision": "allow",
                 "permissionDecisionReason": "coldreader の検査を通過(詰まりゼロ)",
                 "additionalContext": extra,
-            }
+            },
+            **owner_note(),
         }, ensure_ascii=False))
         sys.exit(0)
 
@@ -2718,6 +2756,115 @@ def _pending(session, agent=""):
     """
     name = _safe(session or "nosession") + ("." + _safe(agent) if agent else "")
     return os.path.join(DOC_DIR, "%s.pending" % name)
+
+
+# 読みかけ。読む口は、待ちの一覧を読む前に <一覧>.<pid>.reading へ替えて取り、読み終えてから消す。一覧を読む前に消し、読む前に
+# 中身を読んだ物として覚えていた頃は、読みの途中で口が切られる(Stop の timeout・会話を閉じたときに切られる裏の口)と、一覧も
+# 読み直す手がかりも消え、その文書は読まれないままになった(受付 f18e0a。標準 docs/standards/breakage-detection.md の決まり 2)。
+# 読む前に覚えた中身のハッシュは、読みかけに DOC_SEEN_MARK の行で書き足す。切られて残った読みかけは、同じ役の次の終わりに取り戻し、
+# 覚えた中身を忘れてから読み直す
+DOC_READING = ".reading"
+DOC_READING_STALE = 900 + 60   # hooks.json の Stop・SubagentStop の timeout(900s)に余裕を足した長さ。これより古い読みかけは、取った口が切られた物
+DOC_SEEN_MARK = "#seen "       # 読みかけの、覚えた中身のハッシュの行の頭(パスの行は絶対パスなので重ならない)
+# これより古い待ちの一覧・読みかけは、書いた役が終わったまま読まれずに残った物(サブエージェントが切られた・会話を閉じた)。
+# 1 度だけ親の会話の終わりに知らせる(2026-10-18 に、ある会話の待ちの一覧に 38 本が読まれずに残っていた)
+DOC_LEFT_AGE = 24 * 3600
+DOC_LEFT_TOLD = os.path.join(DOC_DIR, "left-told")   # 知らせた残り物の帳面
+
+
+def _take_pending(pending):
+    """待ちの一覧を、この口の読みかけに替えて取る。同じ役の前の口が切られて残した読みかけ(DOC_READING_STALE より古い物)も
+    取り戻して足し、その口が覚えた中身を忘れる(もう一度読む)。(読みかけの場所, パスの並び)。取る物が無ければ (None, [])。"""
+    claim = "%s.%d%s" % (pending, os.getpid(), DOC_READING)
+    lines = []
+    try:
+        os.replace(pending, claim)
+        os.utime(claim)
+        with open(claim, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        _lost("待ちの一覧を取れない(%s)" % pending, exc)
+        return None, []
+    head, tail = os.path.split(pending)
+    left = []
+    try:
+        names = os.listdir(head)
+    except OSError:
+        names = []
+    for name in names:
+        old = os.path.join(head, name)
+        if not (name.startswith(tail + ".") and name.endswith(DOC_READING)) or old == claim:
+            continue
+        try:
+            if time.time() - os.path.getmtime(old) < DOC_READING_STALE:
+                continue   # 取った口がまだ読んでいる
+            with open(old, encoding="utf-8") as f:
+                left.append((old, f.read().splitlines()))
+        except OSError as exc:
+            _lost("残った読みかけを読めない(%s)" % old, exc)
+    if left:
+        lines += [line for _, got in left for line in got if not line.startswith(DOC_SEEN_MARK)]
+        try:
+            tmp = "%s.tmp" % claim
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("".join(line + "\n" for line in lines))
+            os.replace(tmp, claim)
+        except OSError as exc:
+            _lost("残った読みかけを取り戻せない(%s)" % claim, exc)
+            return None, []
+        for old, got in left:
+            _forget([line[len(DOC_SEEN_MARK):] for line in got if line.startswith(DOC_SEEN_MARK)])
+            try:
+                os.remove(old)
+            except OSError:
+                pass   # 取り戻した中身は claim に在る。消せなかった物は次にまた足すが、同じパスは 1 回だけ読む
+            log_line(DOC_LOG, "reclaim\t%s" % os.path.basename(old))
+    paths = [line.strip() for line in lines if line.strip()]
+    if not paths:
+        _drop_claim(claim)
+        return None, []
+    return claim, paths
+
+
+def _drop_claim(claim):
+    try:
+        os.remove(claim)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        _lost("読みかけを消せない(%s。次の終わりにもう一度読む)" % claim, exc)
+
+
+def _left_behind():
+    """書いた役が終わったまま読まれずに残った待ちの一覧・読みかけのうち、まだ知らせていない物の知らせの文。無ければ ""。"""
+    try:
+        entries = list(os.scandir(DOC_DIR))
+    except OSError:
+        return ""
+    now, old = time.time(), []
+    for e in entries:
+        if e.name.endswith(".pending") or e.name.endswith(DOC_READING):
+            try:
+                mtime = e.stat().st_mtime
+            except OSError:
+                continue
+            if now - mtime > DOC_LEFT_AGE:
+                old.append((mtime, e.path))
+    if not old:
+        return ""
+    told = {(r.get("p"), r.get("m")) for r in _ledger(DOC_LEFT_TOLD)}
+    new = sorted((m, p) for m, p in old if (p, m) not in told)
+    if not new:
+        return ""
+    _note(DOC_LEFT_TOLD, [{"p": p, "m": m, "t": now} for m, p in new])
+    shown = [p for _, p in new[:5]]
+    return ("初見読みの待ちの一覧 %d 本が、書いた会話が終わったまま読まれずに残っている(一番古い物は %d 日前。ほかの会話か、"
+            "切られたサブエージェントの物)。一覧の各行が読まれていない文書のパス。読むなら python3 %s read <文書のパス>、要らなければ"
+            "一覧のファイルを消す。持ち主に 1 行で伝え、この会話の作業では読まない: %s%s"
+            % (len(new), (now - new[0][0]) // 86400, os.path.abspath(__file__), "、".join(shown),
+               "(ほか %d 本)" % (len(new) - len(shown)) if len(new) > len(shown) else ""))
 
 
 def _who(payload):
@@ -3763,15 +3910,19 @@ def _timed_read(text, focus, timeout, premise=""):
 
 
 def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
-    """書いた役の待ちの一覧を読んで消し、読ませる文書を読ませる。(指摘のセクション, 件数, 読めなかった文書) を返す。"""
-    pending = _pending(session, agent)
-    try:
-        with open(pending, encoding="utf-8") as f:
-            # 同じ文書が別の綴り(Write の abspath と Bash の実パス)で載っていても 1 回だけ読む
-            paths = list({os.path.realpath(p): p for p in (line.strip() for line in f) if p}.values())
-        os.remove(pending)
-    except OSError:
+    """書いた役の待ちの一覧を取り(読みかけに替える)、読ませる文書を読ませ、読み終えてから読みかけを消す。
+    (指摘のセクション, 件数, 読めなかった文書) を返す。"""
+    claim, paths = _take_pending(_pending(session, agent))
+    if claim is None:
         return [], {"stuck": 0, "guess": 0}, []
+    got = _read_claimed(session, agent, claim, paths, timeout)
+    _drop_claim(claim)
+    return got
+
+
+def _read_claimed(session, agent, claim, paths, timeout):
+    # 同じ文書が別の綴り(Write の abspath と Bash の実パス)で載っていても 1 回だけ読む
+    paths = list({os.path.realpath(p): p for p in paths}.values())
     who = "sid=%s" % session[:8] + ("\taid=%s" % agent[:17] if agent else "")
     last = {}
     for c in _ledger(DOC_CLAIMS):
@@ -3810,6 +3961,11 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
     # (1 回 2〜4 分)の間に同じ文書が commit で記録し直され、次のターンの終わりの読みが同じ中身をもう一度読んだ
     # (2026-10-17 に説明書の部署で実測: 同じ 11 本を 05:29:04 と 05:30:23 に同じ字数で 2 回読んだ)
     _remember([digest for _, _, digest, _ in picked])
+    try:   # 読みの途中で切られたら、次の口が読みかけから覚えた物を忘れて読み直す
+        with open(claim, "a", encoding="utf-8") as f:
+            f.write("".join(DOC_SEEN_MARK + digest + "\n" for _, _, digest, _ in picked))
+    except OSError as exc:
+        _lost("読みかけに覚えた中身を書けない(%s。切られたら、その中身は読み直されない)" % claim, exc)
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
         futures = {pool.submit(_timed_read, text if part is None else part, part is not None, timeout, skill_premise(path)): (path, text, digest, part)
                    for path, text, digest, part in picked}
@@ -3901,7 +4057,8 @@ def docs_check(payload, background=False):
     if agent and background:
         return
     notes, counts, down = _read_pending(session, agent)
-    if not notes and not down:
+    left = "" if agent else _left_behind()
+    if not notes and not down and not left:
         return
     event = payload.get("hook_event_name") or ("SubagentStop" if agent else "Stop")
     turn = "直前のターン" if background else "このターン"
@@ -3940,12 +4097,14 @@ def docs_check(payload, background=False):
             else:
                 # 書き出せないときは全文を返す(指摘を落とすより文脈を食うほうがまし)
                 context = "\n\n".join(filter(None, (reader + "が、%sで書いた文書を読んだ。詰まった箇所を直すこと:" % turn, *notes, tail)))
-        context = "\n\n".join(filter(None, (context, VERSION_NOTE)))
+        context = "\n\n".join(filter(None, (context, left, VERSION_NOTE)))
     if background:
         sys.stderr.write(context + "\n")
         sys.stderr.flush()
         sys.exit(2)
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}, ensure_ascii=False))
+    shown = "\n".join(filter(None, (left, VERSION_NOTE)))   # 持ち主の画面にも出す(モデルの文脈だけでは届かない)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": context},
+                      **({"systemMessage": shown} if shown else {})}, ensure_ascii=False))
 
 
 # ---- メインブランチに入れる前のゲート: ブランチが書いた文書を読む ----

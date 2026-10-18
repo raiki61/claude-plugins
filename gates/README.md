@@ -121,8 +121,11 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
 - The titles of referenced items (#numbers the text points to) cannot be fixed by the writer, so words in those titles do not stop the post (it stops only when the text uses the word
   as its own words). The title of a new PR (`--title`) can be fixed by the writer, so it is read as before
 - Each line of `denies.log` carries the session, version, and destination (grep to find which session on which version posted where).
-  If the cache has a version newer than itself, one line is added to the check result — the hook's version is fixed when the session starts, and
-  a session kept open for a long time keeps checking with the old version even after an update (measured: it stayed on 0.8.0 for 16 hours)
+  If the installed version differs from the one running, one line is added to the check result and is also shown on the owner's screen (`systemMessage`).
+  The installed version is the `installPath` in Claude Code's `<config>/plugins/installed_plugins.json`; locations marked `.orphaned_at` do not count.
+  The hook's version is fixed when the session starts, and a session kept open for a long time keeps checking with the old version even after an update
+  (measured: it stayed on 0.8.0 for 16 hours)
+- `denies.log`, `docs.log`, and the other logs are moved to `<name>.1` when they grow past 2 MB (the previous `.1` is dropped)
 
 Settings are environment variables (all optional): `COLDREAD_MODEL` (default sonnet), `COLDREAD_EFFORT` (default
 medium), `COLDREAD_MAX_LEN` (commands longer than this are stopped without parsing; body files are also read up to this many characters; default 100000), `COLDREAD_KEYCHAIN_SERVICE` (the service name used on macOS
@@ -382,6 +385,12 @@ How findings are returned depends on the writing role:
 - The record is `$CLAUDE_CONFIG_DIR/coldread-gate/docs.log` (read, reasons for not reading, reader could not be started; subagent lines
   carry `agent_id` in `aid=`. Lines where the reader was started carry the seconds the read took in the form `35s` and the reader's effort in the form `e=high`.
   If you write `COLDREAD_DOC_EFFORT` in `env` in an account's settings.json, the effort changes only for that account's sessions)
+- The list of documents a role wrote (`docs/<session>.pending`, or `docs/<session>.<agent_id>.pending` for a subagent) is renamed to
+  `<list>.<pid>.reading` before it is read, and removed only after the read ends. If the reader is cut off (the hook timeout, or a background read
+  killed when the conversation closes), the `.reading` file stays; at that role's next end, one older than 960 seconds (the hooks' 900-second timeout
+  plus a margin) is taken back and its documents are read again
+- Lists and `.reading` files older than 1 day (the writer ended without them being read) are reported once at the end of a parent conversation,
+  both to the conversation and on the owner's screen, with the paths and how to read or remove them
 - Manual entry point to read one file: `python3 hooks/coldread-gate.py read <パス>` (`<パス>` is the path; exit code 1 if there are blockers).
   The request text itself is printed by `python3 hooks/coldread-gate.py prompt`
 

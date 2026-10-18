@@ -2929,6 +2929,97 @@ r = subprocess.run([sys.executable, str(gate), "prompt"], capture_output=True)
 assert r.stdout.decode("utf-8") == g.COLD_PROMPT, "prompt の口が COLD_PROMPT をそのまま出していない"
 print("DOCS_GATE_OK")
 PY
+
+# 待ちの一覧は読み終えてから消す: 読む口は一覧を読みかけ(<一覧>.<pid>.reading)に替えて取り、読む前に覚えた中身をそこに書き足す。
+# 口が切られて残った読みかけは、同じ役の次の終わりに取り戻し、覚えた中身を忘れて読み直す(まだ読んでいる新しい読みかけには触らない)。
+# 書いた役が終わったまま 1 日より古い待ちの一覧は、親の会話の終わりに 1 度だけ、文脈と持ち主の画面(systemMessage)に知らせる
+expect_output 0 "DOCS_CLAIM_OK" "coldread の手元の文書: 待ちの一覧を読み終えてから消し、切られた読みを次の終わりに読み直し、読まれずに残った古い一覧を 1 度だけ知らせる" \
+    "$PY_BIN" - "$ROOT" "$WORK/docs-claim" <<'PY'
+import importlib.util, json, os, pathlib, shlex, subprocess, sys, time
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+gate = root / "gates/hooks/coldread-gate.py"
+work.mkdir(parents=True)
+cfg, calls = work / "cfg", work / "calls"
+calls.mkdir()
+docs = cfg / "coldread-gate/docs"
+
+def run(mode, payload, reader):
+    e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_") and k != "CLAUDE_CODE_ENTRYPOINT"}
+    e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_TMP_DIRS=str(work / "tmp-root"), COLDREAD_READER_CMD=reader)
+    r = subprocess.run([sys.executable, str(gate), mode], input=json.dumps(payload).encode("utf-8"),
+                       capture_output=True, env=e, timeout=60)
+    assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
+    return r.stdout.decode("utf-8")
+
+def stub(*findings):
+    return ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; "$CR_PY" "$CR_REPLY_PY" %s'
+            % (calls, calls, " ".join(shlex.quote(f) for f in findings)))
+CLEAN = stub()
+a = work / "a.md"
+a.write_text("# 手順\n\n" + "例の方針どおりに進める。" * 40, encoding="utf-8")
+def old(path, days):
+    t = time.time() - days * 86400
+    os.utime(path, (t, t))
+
+# 読み終えたら待ちの一覧も読みかけも残らない
+run("docs-record", {"session_id": "s1", "tool_input": {"file_path": str(a)}}, CLEAN)
+assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 1
+assert not list(docs.glob("s1.pending*")), list(docs.iterdir())
+digest = (docs / "seen").read_text(encoding="utf-8").split()[-1]
+
+# 前の口が読む前に覚えて切られた読みかけ(古い物)は取り戻して読み直し、まだ読んでいる新しい読みかけには触らない
+fresh = docs / "s1.pending.99998.reading"
+fresh.write_text(str(a) + "\n" + "#seen " + digest + "\n", encoding="utf-8")
+assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 1 and fresh.exists(), "まだ読んでいる読みかけを取った"
+left = docs / "s1.pending.99999.reading"
+fresh.rename(left)
+old(left, 1 / 24)
+assert run("docs-check", {"session_id": "s1"}, CLEAN) == "" and len(list(calls.iterdir())) == 2, "切られた読みを読み直さない(覚えた中身を忘れていない)"
+assert not list(docs.glob("s1.pending*")), "取り戻した読みかけが残る"
+assert "\treclaim\ts1.pending.99999.reading" in (cfg / "coldread-gate/docs.log").read_text(encoding="utf-8")
+
+# 読まれずに残った古い一覧は、親の会話の終わりに 1 度だけ知らせる(サブエージェントの終わりには出さない)
+stale = docs / "gone.agent-z.pending"
+stale.write_text(str(a) + "\n", encoding="utf-8")
+old(stale, 2)
+assert run("docs-check", {"session_id": "s2", "agent_id": "agent-y", "hook_event_name": "SubagentStop"}, CLEAN) == "", "サブエージェントに残り物を知らせた"
+out = json.loads(run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN))
+ctx = out["hookSpecificOutput"]["additionalContext"]
+assert "1 本が、書いた会話が終わったまま読まれずに残っている" in ctx and "2 日前" in ctx and str(stale) in ctx, ctx
+assert "読まれずに残っている" in out.get("systemMessage", ""), f"持ち主の画面に出さない: {out}"
+assert run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN) == "", "同じ残り物を 2 度知らせた"
+stale.write_text(str(a) + "\n" + str(a) + "\n", encoding="utf-8")
+old(stale, 3)
+assert "読まれずに残っている" in run("docs-check", {"session_id": "s2", "hook_event_name": "Stop"}, CLEAN), "足された残り物を知らせない"
+print("DOCS_CLAIM_OK")
+PY
+
+# 記録は大きさで回し、続けて止まった数は記録の末尾だけを読んで数える(上限の無いログを投稿のたびに全部読まない)
+expect_output 0 "LOG_BOUND_OK" "coldread: 記録が上限を超えたら .1 に替えて書き始め、末尾の行の読みは途中の欠けた行を捨てる" \
+    "$PY_BIN" - "$ROOT" "$WORK/log-bound" <<'PY'
+import importlib.util, os, pathlib, sys
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+work.mkdir(parents=True)
+os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
+spec = importlib.util.spec_from_file_location("g", root / "gates/hooks/coldread-gate.py")
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+log = str(work / "x.log")
+g.LOG_MAX = 1000
+for i in range(100):
+    g.log_line(log, "line %03d %s" % (i, "x" * 20))
+assert os.path.getsize(log) <= 1000 + 60 and os.path.exists(log + ".1"), (os.path.getsize(log), os.path.exists(log + ".1"))
+assert open(log, encoding="utf-8").read().splitlines()[-1].endswith("line 099 " + "x" * 20)
+with open(log, "w", encoding="utf-8") as f:
+    f.write("".join("row %04d\n" % i for i in range(5000)))
+got = g.tail_lines(log, 400, chunk=4000)
+assert len(got) == 400 and got[-1] == "row 4999\n" and all(len(x) == 9 for x in got), got[:2]
+assert g.tail_lines(log, 10, chunk=10 ** 9) == ["row %04d\n" % i for i in range(4990, 5000)]
+print("LOG_BOUND_OK")
+PY
 # Bash・MCP のツールで書いた文書も拾う(持ち主の方針「防ぐより、ひっかける幅を増やす」)。Write・Edit の記録だけでは、
 # cat > x.md <<EOF・tee・sed -i・python で書く・mv/cp で置く文書が 1 本も読まれなかった。Bash の前(PreToolUse)に
 # git の変更一覧の文書の mtime と大きさを控え、後(PostToolUse)で取り直して、増えた・変わった文書を記録に載せる。
@@ -4313,18 +4404,45 @@ expect_output 0 "ASSEMBLE_OK" "画面が予算を超えたら古いコメント�
 out=g.assemble(["title","[本文]"], "b"*3000, blocks, ["tail"])
 ok = len(out)<=g.SCREEN_MAX and "[c19]" in out and "[c0]" not in out and "省略" in out and "tail" in out and "b"*3000 in out
 print("ASSEMBLE_OK" if ok else "BAD len=%d" % len(out))' "$ROOT/gates/hooks/coldread-gate.py"
-# 古い版で走り続けるセッションに、新しい版が cache に在ることを伝える(フックの版はセッション開始時に固定。
-# 2026-09-07 に実測: 0.9.0 導入前に開始したセッションが 16 時間 0.8.0 のまま検査していた)
-CR_VCACHE="$WORK/vcache/gates"
+# 古い版で走り続けるセッションに、入っている版が違うことを伝える(フックの版はセッション開始時に固定。
+# 2026-09-07 に実測: 0.9.0 導入前に開始したセッションが 16 時間 0.8.0 のまま検査していた)。入っている版は Claude Code の
+# installed_plugins.json の installPath で決め、モデルへの理由と持ち主の画面(systemMessage)の両方に出す
+CR_VPLUG="$WORK/vplug/plugins"
+CR_VCACHE="$CR_VPLUG/cache/raiki61/gates"
 mkdir -p "$CR_VCACHE/0.1.0/hooks" "$CR_VCACHE/0.1.0/.claude-plugin" "$CR_VCACHE/0.2.0/hooks" "$CR_VCACHE/0.10.0/hooks"
 # 本体と、その隣の共有の本文(認証の段)を置く。配られるのは hooks/ ごとなので、ここも同じ形にする
 cp "$ROOT/gates/hooks/coldread-gate.py" "$ROOT/gates/hooks/claude_auth.py" "$CR_VCACHE/0.1.0/hooks/"
 echo '{"name":"gates","version":"0.1.0"}' > "$CR_VCACHE/0.1.0/.claude-plugin/plugin.json"
 : > "$CR_VCACHE/0.2.0/hooks/coldread-gate.py"
-expect_output 0 "0.2.0 が在る" "cache に新しい版が在れば検査結果にその旨が載る(本体の無い 0.10.0 は入りかけなので拾わない)" \
+printf '{"version":2,"plugins":{"gates@raiki61":[{"scope":"user","installPath":"%s","version":"0.2.0"}]}}' "$CR_VCACHE/0.2.0" > "$CR_VPLUG/installed_plugins.json"
+expect_output 0 "入っている版は 0.2.0" "入っている版(installed_plugins.json の installPath)が違えば検査結果にその旨が載る" \
     env COLDREAD_GATE="$CR_VCACHE/0.1.0/hooks/coldread-gate.py" "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
-expect_output 0 "NO_NOTE" "開発 checkout(兄弟が版名でない)では版の注記を出さない" \
-    "$PY_BIN" -c "$CR_LOAD"$'\n''print("NO_NOTE" if g.VERSION_NOTE == "" else "BAD: " + g.VERSION_NOTE)' "$ROOT/gates/hooks/coldread-gate.py"
+expect_output 0 "VERSION_PICK_OK" "入っている版は installPath で決め、消す印の付いた場所・本体の無い場所・自分自身・開発 checkout では注記を出さず、注記は持ち主の画面にも出す" \
+    "$PY_BIN" - "$CR_VCACHE" "$ROOT" <<'PY'
+import json, os, pathlib, subprocess, sys
+cache, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+listing = cache.parents[2] / "installed_plugins.json"
+def note(gate, *paths):
+    listing.write_text(json.dumps({"version": 2, "plugins": {"gates@raiki61": [
+        {"installPath": str(p), "version": p.name} for p in paths]}}), encoding="utf-8")
+    code = ("import importlib.util,json,sys;s=importlib.util.spec_from_file_location('g',sys.argv[1]);g=importlib.util.module_from_spec(s);"
+            "s.loader.exec_module(g);print(json.dumps([g.VERSION_NOTE,g.owner_note()],ensure_ascii=False))")
+    r = subprocess.run([sys.executable, "-c", code, str(gate)], capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+mine = cache / "0.1.0/hooks/coldread-gate.py"
+got = note(mine, cache / "0.2.0")
+assert "入っている版は 0.2.0" in got[0] and got[1] == {"systemMessage": got[0]}, got
+assert note(mine, cache / "0.1.0") == ["", {}], "自分が入っている版なのに注記を出した"
+assert note(mine, cache / "0.10.0") == ["", {}], "本体の無い場所(入りかけ)を入っている版に数えた"
+(cache / "0.2.0/.orphaned_at").write_text("1", encoding="utf-8")
+try:
+    assert note(mine, cache / "0.2.0") == ["", {}], "消す印の付いた場所を入っている版に数えた"
+finally:
+    (cache / "0.2.0/.orphaned_at").unlink()
+assert note(root / "gates/hooks/coldread-gate.py", cache / "0.2.0") == ["", {}], "開発 checkout で注記を出した"
+print("VERSION_PICK_OK")
+PY
 # 冗長(画面に有るものの説明)は止めない申し送り。詰まりと同じフィールドに混ぜると「直せ」と読まれる
 expect_output 0 "削ってよい" "冗長は止めずに申し送る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_REDUNDANT" "$CR_REPLY" "$CR_GH"
