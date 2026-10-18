@@ -8,9 +8,9 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Added
 
-- `--tree` の窓口の行（「窓口: <名前>（…）」。窓口は、代表の clone で `--desk` を打って名付けた、持ち主と話して頼みを部署に配る会話）に、その窓口の会話を起動したときに効く model と effort を出す（my_notes の受付 d26b5f）。今までは部署の行と受ける仕事の行にしか出ず、窓口の値は会社の形（会社ごとの設定のファイル `.claude/company.toml`）を開いて読むしかなかった。
+- `--tree` の窓口の行（「窓口: <名前>（…）」。窓口は、代表の clone で `--desk` を打って名付けた、持ち主と話して頼みを部署に配る会話）に、その窓口の会話を起動したときに効く model と effort を出す（my_notes の会社から届いた頼み。受付番号 d26b5f）。今までは部署の行と受ける仕事の行にしか出ず、窓口の値は会社の形（会社ごとの設定のファイル `.claude/company.toml`）を開いて読むしかなかった。
   - 出す値は model と effort で別々に決める。会社の形の窓口の役（`[[roles]]` の 1 項目）の直下の `model`・`effort` が先で、窓口を起こし直す `--move` はこれを起動の旗 `--model`・`--effort` で渡す。無ければ、同じ役の `[roles.settings]`（起動の `--settings` に渡す Claude Code の設定）の `model`・`effortLevel`。Claude Code では旗が設定より先に効く（https://code.claude.com/docs/en/model-config）。どちらも無ければ「既定」と出し、その窓口はアカウントの Claude Code の設定のまま起動する。
-  - 役の `effort` が `inherit`（頼んだ会話と同じ effort で起こす指定）のときは、窓口には頼んだ会話が無いので旗を付けず、`[roles.settings]` の `effortLevel` を出す。
+  - 役の `effort` が `inherit`（頼んだ会話と同じ effort で起こす指定）のときは、窓口には頼んだ会話が無いので旗を付けず、`[roles.settings]` の `effortLevel` を出す（それも無ければ「既定」）。
   - 会社の形の `desk` で、自分の窓口を持たずにほかの会社の窓口を使う会社（claude-plugins は my_notes の段取りを使う）の窓口の行には出さない。値は窓口を持つ会社の窓口の行に出る。
   - `--tree --json` では、会社ごとの `desk` に `model`・`effort` が入る。
   - 利用者がすることは無い。
