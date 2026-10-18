@@ -1302,4 +1302,8 @@ class Flow(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    # 試験の偽物が日本語を print するので、Windows の既定のコードページ（cp1252 など）に依らず UTF-8 で書く
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     unittest.main()
