@@ -40,10 +40,10 @@ surveyor は refuter が確定した相違を反映するだけで、判定を�
 
 1. P0 厚みと断面の固定: [references/p0-scope.md](references/p0-scope.md)（厚みの三段、問いと制約、主張の棚卸しとクラスタ、社内語、出典の独立性、先行議論、断面の生成の手筋）
 2. P1 校正: [references/p1-calibrate.md](references/p1-calibrate.md)（Workflow に渡す script の全文、判定の語彙、出典の格、件数突合、再ラウンドの経済、増し掛け、負荷確証の反証）
-3. P2 統合: [references/p2-integrate.md](references/p2-integrate.md)
-4. P3 収束ゲートと P4 収束判定: [references/p3-p4-converge.md](references/p3-p4-converge.md)（rederiver・cartographer・cold-reader、収束の条件、抜き取り検査、諮る事態、無人実行の読み替え）
+3. P2 統合: [references/p2-integrate.md](references/p2-integrate.md)（出自で束ねる、本文への反映と安定キー、訂正の記録、波及、重心の点検、対抗仮説の主張化）
+4. P3 収束ゲートと P4 収束判定: [references/p3-p4-converge.md](references/p3-p4-converge.md)（段ごとに走らせる体数は p0-scope.md の厚みの三段に従う。rederiver・cartographer・cold-reader、収束の条件、抜き取り検査、諮る事態、無人実行の読み替え）
 5. P5 ドメイン適応: [references/p5-domain.md](references/p5-domain.md)（内部の突合、3 分類）
-6. 最終報告: [references/report.md](references/report.md)（成果物の型、記録の検証、散文だけの義務、型への還流）
+6. 最終報告: [references/report.md](references/report.md)（段ごとの減免は p0-scope.md の厚みの三段の表に従う。成果物の型、記録の検証、散文だけの義務、型への還流）
 7. 型の由来や限界を確かめたいとき: [references/origins.md](references/origins.md)
 
 1 ラウンド＝P1→P2 の 1 周。P3 は新規の相違がゼロだったラウンドの後にだけ回す。

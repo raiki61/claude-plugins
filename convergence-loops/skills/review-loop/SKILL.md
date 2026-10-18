@@ -30,7 +30,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 5. P3 修正: [references/p3-fix.md](references/p3-fix.md)（根本ユニット単位で直す、閉鎖の実証、問いに挙がったユニットを実装しない）
 6. P4 再採点: [references/p4-rescore.md](references/p4-rescore.md)（P1〜P2 のやり直し、`review-record.py` の突合と終了コード、台帳と scalar の記録、次への分岐、R1・R2 の再発火条件）
 7. P-R 俯瞰: [references/p-r-overview.md](references/p-r-overview.md)（R1〜R4 の起こし方と verdict の写し方）
-8. 止めるかを決めるとき: [references/stop.md](references/stop.md)（収束の条件、収束以外で止まる 3 つ、問いの種類ごとの再審）
+8. P4 の判定のたびに: [references/stop.md](references/stop.md)（収束の条件、収束以外で止まる 3 つ——総ラウンドが 5 を超えたら必ず止める暴走ガードを含む——、問いの種類ごとの再審）
 9. 最終報告: [references/report.md](references/report.md)（冒頭に置く人が決めること、初見で決められる問いの形、出す前の確かめ、必ず含める項目）
 
 1 ラウンド＝P1→P4 の 1 周。P4 の判定で P3 に戻るか P-R へ進み、P-R で `redesign-needed` が出たら P1 から次のラウンドに入る。

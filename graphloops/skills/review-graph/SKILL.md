@@ -44,7 +44,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 - 人の修正依頼を判定から入れる・途中の周で依頼を足す: [references/judgment-entry.md](references/judgment-entry.md)
 - `init` で流れを選ぶ（`gates=merge`・TDD・`flow=spec`）・run の成果を重ねる: [references/flows.md](references/flows.md)
 - 人の方針の文書の置き場・届く先・書き換え: [references/policy.md](references/policy.md)
-- 版の上げ下げ・記録の手当て（`patch`）・CI の節を省く・作業ツリーの突合・Web の調べ・回す側の手の心得・大きな差分: [references/rules.md](references/rules.md)
+- 始める前に 1 度（人の居ない手番で消す操作を打たない、などの回す側の手の心得）と、版の上げ下げ・記録の手当て（`patch`）・CI の節を省く・作業ツリーの突合・Web の調べ・大きな差分: [references/rules.md](references/rules.md)
 
 ## どの手番でも
 

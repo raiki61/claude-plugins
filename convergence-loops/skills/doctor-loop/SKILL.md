@@ -31,7 +31,7 @@ allowed-tools: Bash, Agent, Workflow, Read, Grep, Glob, WebSearch, WebFetch
 6. P4 ラウンドと飽和: [references/p4-saturation.md](references/p4-saturation.md)（2 ラウンド目以降の規律、飽和の三条件、抜き取り検査、cartographer、止める条件と暴走ガード）
 7. 重厚の段のとき（P1 と並走）: [references/heavy.md](references/heavy.md)（独立再導出と模範照合）
 8. 無人で走るとき: [references/unattended.md](references/unattended.md)（諮る事態の読み替え）
-9. 最終報告: [references/report.md](references/report.md)（記録の検証、散文だけの義務、自己検査、cold-reader の報告ゲート、型への還流）
+9. 最終報告: [references/report.md](references/report.md)（段ごとの減免は p0-scope.md の厚みの三段の表に従うので読み直す。記録の検証、散文だけの義務、自己検査、cold-reader の報告ゲート、型への還流）
 10. 型の由来や限界を確かめたいとき: [references/origins.md](references/origins.md)
 
 1 ラウンド＝P1→P3 の 1 周。P4 の判定で次のラウンドか最終報告へ進む。
