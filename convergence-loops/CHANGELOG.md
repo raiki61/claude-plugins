@@ -6,6 +6,8 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-19
+
 ### Changed
 
 - 記録の検証器（`scripts/*-record.py`）と記録の例（`templates/`）の文を IT の定着語に置き換えた。例は、欄→フィールド・節→ノード・起こす→起動する。検証器が出す文言も変わる。出力の文字列を読んでいる所があれば、新しい文言に合わせる。判定の振る舞いは変えていない。スキルの手順書は、まだ置き換えていない。
