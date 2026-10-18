@@ -157,10 +157,10 @@ def test_ledger_stray_catches(pairs, collected_ids, breaks):
 
 def test_ledger_dest_deselects_one(pairs):
     """台帳の行き先を、赤の腕と同じ起動方法（cwd はリポジトリのルート）で --deselect に渡すと、ちょうど 1 件外れる"""
-    got = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
-                          "--deselect", pairs[0][1], str(HERE)], capture_output=True, cwd=REPO)
+    got, res = coverage_proof.pytest_nodes.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
+                                                "--deselect", pairs[0][1], str(HERE)], cwd=REPO)
     assert got.returncode == 0, got
-    assert coverage_proof.deselected(["--deselect", pairs[0][1]], got.stdout.decode("utf-8", "replace")) == 1, got
+    assert coverage_proof.deselected(["--deselect", pairs[0][1]], res, got.stdout.decode("utf-8", "replace")) == 1, got
 
 
 @pytest.mark.parametrize("body, why", [
@@ -195,10 +195,18 @@ def test_coverage_proof_boundary(monkeypatch, raised, code):
 
 
 def test_coverage_proof_deselected_nothing_stops():
-    assert coverage_proof.deselected([], "181 passed in 1.8s") == 0
+    res = {"collected": [], "deselected": 0, "failed": [], "errors": []}
+    assert coverage_proof.deselected([], res, "181 passed in 1.8s") == 0
     with pytest.raises(SystemExit) as e:
         coverage_proof.deselected(["--deselect", "tests/py/test_review_record.py::test_validator[hist-carry-age]"],
-                                  "181 passed in 1.8s")
+                                  res, "181 passed in 1.8s")
+    assert e.value.code == 2
+
+
+def test_coverage_proof_unread_result_stops():
+    """pytest の結果の JSON が無い（pytest が終わりまで来なかった）回は、選び外した件数を 0 と読まずに止める"""
+    with pytest.raises(SystemExit) as e:
+        coverage_proof.deselected([], None, "INTERNALERROR")
     assert e.value.code == 2
 
 

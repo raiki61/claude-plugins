@@ -20,13 +20,13 @@ import argparse
 import hashlib
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
 import traceback
 
 import ledger
+import pytest_nodes  # ledger が sys.path に tests/ を足す
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -103,14 +103,15 @@ def run_old(out, env):
 
 
 def run_new(env, extra):
-    return subprocess.run([sys.executable, "-m", "pytest", str(HERE), "-q", "-p", "no:cacheprovider", *extra],
-                          env=env, cwd=REPO, capture_output=True)
+    """新しい側の pytest ——（CompletedProcess, 結果の JSON）。選び外した件数は要約の「N deselected」でなく結果の JSON（tests/pytest_nodes.py）で受ける"""
+    return pytest_nodes.run([sys.executable, "-m", "pytest", str(HERE), "-q", "-p", "no:cacheprovider", *extra], cwd=REPO, env=env)
 
 
-def deselected(pytest_args, summary):
-    """pytest の要約が言う選び外した件数。-- の後の引数を渡したのに 0 なら止める（赤の腕の空振り）"""
-    m = re.search(r"(\d+) deselected", summary)
-    n = int(m.group(1)) if m else 0
+def deselected(pytest_args, res, summary):
+    """選び外した件数。-- の後の引数を渡したのに 0 なら止める（赤の腕の空振り）。結果の JSON が無ければ止める"""
+    if res is None:
+        stop(f"新しい側の pytest の結果（tests/pytest_nodes.py の JSON）を読めない: {summary[-2000:]}")
+    n = res["deselected"]
     if pytest_args and not n:
         stop(f"-- の後の引数 {pytest_args} で新しい側から何も選び外していない（node id は tests/py をルートに書く）: {summary[-2000:]}")
     return n
@@ -167,11 +168,11 @@ def main():
         if got.returncode != 0:
             stop(f"旧い側（台本のセクション）が赤で終わった（終了 {got.returncode}）——包含を言える状態でない", got)
         mark.write_text(digest, encoding="utf-8")
-    got = run_new(env_for(out, "new", a.coverage_from), a.pytest_args)
+    got, res = run_new(env_for(out, "new", a.coverage_from), a.pytest_args)
     (out / "new.log").write_bytes(got.stdout + got.stderr)
     if got.returncode != 0:
         stop(f"新しい側（pytest）が赤で終わった（終了 {got.returncode}）——包含を言える状態でない", got)
-    print(f"新しい側から選び外した検査 {deselected(a.pytest_args, got.stdout.decode('utf-8', 'replace'))} 件")
+    print(f"新しい側から選び外した検査 {deselected(a.pytest_args, res, got.stdout.decode('utf-8', 'replace'))} 件")
     print(f"coverage.py {coverage.__version__}")
     want = {"argv:" + " ".join(r.args) for r in ledger.script_rows()}
     sys.exit(1 if judge(measured(out, "old"), measured(out, "new"), want) else 0)

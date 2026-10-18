@@ -168,7 +168,9 @@ COPY_MARK = "GL_MUTATE_COPY"
 ENGINE_CHILD = "GRAPHLOOPS_ENGINE_CHILD"
 # node id を並べた引数がこの字数を超える腕は、テストのファイル単位に落とす（Windows の cmd の 8191 字・CreateProcess の 32767 字の手前）
 ARGV_MAX = 8000
-PYTEST_RED = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?$")   # -ra の短い要約の行（pytest.ini の addopts）
+# pytest の結果（落ちたテストの node id）は、pytest が人に見せる -ra の要約でなく tests/pytest_nodes.py の JSON で受ける（読み方の訳はそのファイルの頭）。
+# 置き場は写しでなく実行器の側の tests/（腕が写しの tests/ を壊しても、結果の受け取りは変わらない）
+PYTEST_NODES = ROOT / "tests"
 PYTEST_STAGE = False   # 自動の腕に pytest の段を足すか（main が pytest_ready で立てる。台本が import して使う回は立たない）
 
 _LIVE, _LOCK = set(), threading.Lock()   # 生きている子（Popen）。止める信号で木ごと止める先
@@ -1160,24 +1162,46 @@ def pytest_ready():
     return ""
 
 
+def pytest_group(args, repo, env):
+    """pytest（PYTEST の頭に args を足す）を写しの PYDIR で走らせる ——（run_group の rc, 出力, 結果）。結果は tests/pytest_nodes.py が
+    書いた JSON の dict で、書かれなかった（起動の失敗・内部の誤り・時間切れ）ら None。呼び元が rc と合わせて読む"""
+    fd, out = tempfile.mkstemp(prefix="pytest-nodes-", suffix=".json")
+    os.close(fd)
+    try:
+        env = {**env, "PYTEST_NODES_OUT": out, "PYTHONPATH": os.pathsep.join(filter(None, [str(PYTEST_NODES), env.get("PYTHONPATH")]))}
+        rc, body = run_group(PYTEST + ["-p", "pytest_nodes"] + list(args), repo, env=env, sub=PYDIR)
+        try:
+            got = json.loads(pathlib.Path(out).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            got = None   # 空のまま（pytest が終わりまで来なかった）。None で返し、呼び元が「読めなかった」と書く（決まり 4）
+        return rc, body, got
+    finally:
+        with contextlib.suppress(OSError):   # 消せない一時のファイルは結果に関わらない
+            os.unlink(out)
+
+
 def run_pytest(repo, args, failfast=False):
     """pytest を写しで走らせる（run_suite・run_selected と同じ返りの形）。args は PYDIR から見た node id・ファイルか WHOLE。
-    PYDIR（pytest.ini の置き場＝rootdir）を cwd にして起動するので、要約の行（pytest は cwd から見た形で出す）の node id が
-    名指し（named_nodes）と印の cover と同じ形になる。failed は落ちたテストの node id。
-    赤と読むのは rc 1（テストが落ちた。件数などのチェックの赤も含む）と、要約に ERROR の行の在る rc 2・rc 4（収集で落ちた。node id を
+    PYDIR（pytest.ini の置き場＝rootdir）を cwd にして起動するので、結果の node id（pytest は rootdir から見た形で出す）が
+    名指し（named_nodes）と印の cover と同じ形になる。failed は落ちたテストと、集められなかったファイルの node id。
+    赤と読むのは rc 1（テストが落ちた。件数などのチェックの赤も含む）と、集められなかったファイルの在る rc 2・rc 4（収集で落ちた。node id を
     渡した回にそのファイルが読み込みで落ちると、pytest 9.1.1 は found no collectors の使い方の誤り 4 で抜ける——実測）だけ——
-    ほかの終了（ERROR の行の無い使い方の誤り 4・集まらない 5・内部の誤り 3・uv の失敗）は壊した行と無関係なので no-test（撃てない）と言う"""
+    ほかの終了（集められなかったファイルの無い使い方の誤り 4・集まらない 5・内部の誤り 3・uv の失敗）と、結果の JSON を読めない回は、
+    壊した行と無関係か分からないので no-test（撃てない）と言う"""
     nodes = any("::" in x for x in args)
-    argv = PYTEST + ([] if nodes else ["-n", PYTEST_WORKERS]) + ["-p", "no:cacheprovider"] + (["-x"] if failfast else []) + list(args)
     env = {k: v for k, v in os.environ.items() if k != PYTEST_MARK}
-    rc, body = run_group(argv, repo, env=env, sub=PYDIR)
+    rc, body, got = pytest_group(([] if nodes else ["-n", PYTEST_WORKERS]) + ["-p", "no:cacheprovider"] + (["-x"] if failfast else []) + list(args),
+                                 repo, env)
     if rc == "stopped":
         raise Stopped(0)
     if rc == "timeout":
         return {"rc": "timeout", "failed": [f"{TIMEOUT} 秒で打ち切り"], "tail": []}
-    lines = body.splitlines()
-    failed = [m.group(1) for m in map(PYTEST_RED.match, lines) if m]
-    tail = lines[-5:]
+    tail = body.splitlines()[-5:]
+    if got is None:
+        # 結果を読めない回は、rc が 1 でも赤（殺した）と数えない（決まり 4: 読めない入力を確かな値として扱わない）
+        return {"rc": "no-test", "failed": [], "tail": tail,
+                "why": f"pytest の結果（tests/pytest_nodes.py の JSON）を読めない（rc={rc}）"}
+    failed = got["failed"] + got["errors"]
     if rc == 1 or (rc in (2, 4) and failed):
         return {"rc": rc, "failed": failed or ["pytest の柵（fence）が赤"], "tail": tail}
     if rc != 0:
@@ -1366,14 +1390,13 @@ def marker_run(arms):
         if PYTEST_STAGE and any("auto" in a and a["id"] in placed for a in arms):
             # 同じ写しで pytest 一式も走らせ、印の 4 つ目のフィールド（テストの node id）で pytest の覆いを取る。緑の回だけ使う——赤の回
             # （途中で止まった記録）は pytest の覆いを持たず、seen も台本の分だけにして、今の撃ち方に落ちる
-            rc, body = run_group(PYTEST + ["-n", PYTEST_WORKERS, "-p", "no:cacheprovider", WHOLE], repo, env={**env, PYTEST_MARK: UNKNOWN},
-                                 sub=PYDIR)
+            rc, body, got = pytest_group(["-n", PYTEST_WORKERS, "-p", "no:cacheprovider", WHOLE], repo, {**env, PYTEST_MARK: UNKNOWN})
             if rc == "stopped":
                 raise Stopped(0)
             ok = rc == 0
             pseen, pcover = read_hits(hits, pytest=True) if ok else ([], {})
             out.update(script_seen=seen, seen=sorted(set(seen) | set(pseen)), pytest_seen=pseen, pytest_cover=pcover,
-                       pytest={"rc": rc, "failed": [m.group(1) for m in map(PYTEST_RED.match, body.splitlines()) if m][:5],
+                       pytest={"rc": rc, "failed": ((got["failed"] + got["errors"]) if got else ["pytest の結果（tests/pytest_nodes.py の JSON）を読めない"])[:5],
                                "tail": body.splitlines()[-5:], **({} if ok else {"why": f"印の写しの pytest が緑でない（rc={rc}）——pytest の覆いを使わない"})})
         return out
     finally:

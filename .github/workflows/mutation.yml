@@ -231,19 +231,16 @@ jobs:
           targets=$(grep -E "$reach" <<< "$targets" || true)
           if [ -z "$targets" ]; then echo "テスト（graphloops/tests/py）の読む対象に差分が足した .py の行が無い——撃たない" > cosmic-ray-report.txt; exit 0; fi
           mapfile -t mods <<< "$targets"
-          python -m pip install cosmic-ray==8.7.0 pytest==9.1.1 pytest-xdist==3.8.0
-          python - "$base" "${mods[@]}" > cr.toml <<'PY'
-          import json, sys
+          python -m pip install cosmic-ray==8.7.0 pytest==9.1.1 pytest-xdist==3.8.0 tomli-w==1.2.0
+          # 設定の TOML は TOML の書き手（tomli-w）で書き、行を print で組まない（docs/standards/machine-readable-values.md の決まり 5）
+          python - "$base" "${mods[@]}" <<'PY'
+          import sys, tomli_w
           base, mods = sys.argv[1], sys.argv[2:]
-          print("[cosmic-ray]")
-          print("module-path = " + json.dumps(mods))
-          print("timeout = 1728000.0")
-          print("excluded-modules = []")
-          print('test-command = "python -m pytest -x -q -p no:cacheprovider -n 4 graphloops/tests/py"')
-          print("[cosmic-ray.distributor]")
-          print('name = "local"')
-          print("[cosmic-ray.filters.git-filter]")
-          print("branch = " + json.dumps(base))
+          cfg = {"cosmic-ray": {"module-path": mods, "timeout": 1728000.0, "excluded-modules": [],
+                                "test-command": "python -m pytest -x -q -p no:cacheprovider -n 4 graphloops/tests/py",
+                                "distributor": {"name": "local"}, "filters": {"git-filter": {"branch": base}}}}
+          with open("cr.toml", "wb") as f:
+              tomli_w.dump(cfg, f)
           PY
           cosmic-ray init cr.toml cr.sqlite
           cr-filter-git --config cr.toml cr.sqlite

@@ -1,0 +1,326 @@
+{
+ "attention/scripts/catchup.py": {
+  "rule3": 2
+ },
+ "attention/scripts/reflect.py": {
+  "rule4": 4
+ },
+ "attention/scripts/what-am-i-doing.py": {
+  "rule4": 1
+ },
+ "attention/scripts/whose-turn.py": {
+  "rule3": 1
+ },
+ "convergence-loops/scripts/doctor-record.py": {
+  "rule3": 8
+ },
+ "convergence-loops/scripts/firstread-record.py": {
+  "rule3": 5
+ },
+ "convergence-loops/scripts/research-record.py": {
+  "rule3": 5
+ },
+ "convergence-loops/scripts/review-record.py": {
+  "rule4": 1
+ },
+ "gates/hooks/coldread-gate.py": {
+  "rule3": 4
+ },
+ "graphloops/engine/checks_cache.py": {
+  "rule4": 1
+ },
+ "graphloops/engine/commands.py": {
+  "rule3": 1,
+  "rule4": 2
+ },
+ "graphloops/engine/render.py": {
+  "rule4": 2
+ },
+ "graphloops/engine/role_run.py": {
+  "rule4": 4
+ },
+ "graphloops/engine/schema.py": {
+  "rule4": 1
+ },
+ "graphloops/engine/util.py": {
+  "rule4": 1
+ },
+ "graphloops/rules/research-loop.py": {
+  "rule3": 14
+ },
+ "graphloops/rules/review-loop.py": {
+  "rule3": 7
+ },
+ "graphloops/scripts/graphcheck.py": {
+  "rule4": 1
+ },
+ "graphloops/tests/golden_make.py": {
+  "rule3": 2,
+  "rule4": 2
+ },
+ "graphloops/tests/py/glharness.py": {
+  "rule3": 1
+ },
+ "graphloops/tests/py/golden_adapter.py": {
+  "rule4": 1
+ },
+ "graphloops/tests/py/test_blocks.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_checks_cache.py": {
+  "rule3": 14
+ },
+ "graphloops/tests/py/test_children.py": {
+  "rule3": 1
+ },
+ "graphloops/tests/py/test_delegate_fence.py": {
+  "rule3": 10
+ },
+ "graphloops/tests/py/test_diff_paste.py": {
+  "rule3": 8
+ },
+ "graphloops/tests/py/test_effects.py": {
+  "rule3": 6
+ },
+ "graphloops/tests/py/test_engine_guards.py": {
+  "rule3": 31
+ },
+ "graphloops/tests/py/test_engine_parts.py": {
+  "rule3": 13
+ },
+ "graphloops/tests/py/test_engine_run.py": {
+  "rule3": 11
+ },
+ "graphloops/tests/py/test_engine_stop.py": {
+  "rule3": 6
+ },
+ "graphloops/tests/py/test_fence.py": {
+  "rule3": 1
+ },
+ "graphloops/tests/py/test_gl.py": {
+  "rule3": 4
+ },
+ "graphloops/tests/py/test_graph_extends.py": {
+  "rule3": 7
+ },
+ "graphloops/tests/py/test_harness.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_hist.py": {
+  "rule3": 13
+ },
+ "graphloops/tests/py/test_intake.py": {
+  "rule3": 8
+ },
+ "graphloops/tests/py/test_ledger.py": {
+  "rule3": 11
+ },
+ "graphloops/tests/py/test_mutate_arms.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_mutate_mark.py": {
+  "rule3": 11
+ },
+ "graphloops/tests/py/test_mutate_shard.py": {
+  "rule3": 2
+ },
+ "graphloops/tests/py/test_policy_gate.py": {
+  "rule3": 21
+ },
+ "graphloops/tests/py/test_quality_ledger.py": {
+  "rule3": 12
+ },
+ "graphloops/tests/py/test_read_grant.py": {
+  "rule3": 4
+ },
+ "graphloops/tests/py/test_rejections_research.py": {
+  "rule3": 10
+ },
+ "graphloops/tests/py/test_rejections_review.py": {
+  "rule3": 13
+ },
+ "graphloops/tests/py/test_research_rules.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_review_lens.py": {
+  "rule3": 4
+ },
+ "graphloops/tests/py/test_review_rules.py": {
+  "rule3": 39
+ },
+ "graphloops/tests/py/test_review_rules_entry.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_review_tdd.py": {
+  "rule3": 10
+ },
+ "graphloops/tests/py/test_role_run_stop.py": {
+  "rule3": 10
+ },
+ "graphloops/tests/py/test_role_run_unwrap.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_runner.py": {
+  "rule3": 3
+ },
+ "graphloops/tests/py/test_runner_launch.py": {
+  "rule3": 37
+ },
+ "graphloops/tests/py/test_scenarios_research.py": {
+  "rule3": 6
+ },
+ "graphloops/tests/py/test_scenarios_review.py": {
+  "rule3": 22
+ },
+ "graphloops/tests/py/test_scenes.py": {
+  "rule3": 2
+ },
+ "graphloops/tests/py/test_schema.py": {
+  "rule3": 2
+ },
+ "graphloops/tests/py/test_schema_graphcheck.py": {
+  "rule3": 2
+ },
+ "graphloops/tests/py/test_shards.py": {
+  "rule3": 2
+ },
+ "graphloops/tests/py/test_sim_research.py": {
+  "rule3": 2
+ },
+ "graphloops/tests/py/test_state_schema.py": {
+  "rule3": 7
+ },
+ "graphloops/tests/py/test_worktree_guards.py": {
+  "rule3": 16
+ },
+ "graphloops/tests/replay_boards.py": {
+  "rule3": 1
+ },
+ "graphloops/tests/simulate.py": {
+  "rule3": 162,
+  "rule4": 1
+ },
+ "graphloops/tests/simulate_review.py": {
+  "rule3": 335
+ },
+ "tests/catchup-case.py": {
+  "rule3": 142
+ },
+ "tests/catchup-html-suite.py": {
+  "rule3": 40
+ },
+ "tests/catchup-switch-case.py": {
+  "rule3": 61
+ },
+ "tests/changemap-suite.py": {
+  "rule3": 17
+ },
+ "tests/coldread-raise-case.py": {
+  "rule4": 1
+ },
+ "tests/figure-check-case.py": {
+  "rule3": 8
+ },
+ "tests/mutate.py": {
+  "rule3": 3,
+  "rule4": 6
+ },
+ "tests/py/test_review_record.py": {
+  "rule3": 3
+ },
+ "tests/reflect-suite.py": {
+  "rule3": 3
+ },
+ "tests/skill-body-case.py": {
+  "rule3": 3
+ },
+ "tests/skill-descriptions-case.py": {
+  "rule3": 3
+ },
+ "tests/spread-plugins-case.py": {
+  "rule3": 18
+ },
+ "tests/value-rules.py": {
+  "rule3": 1
+ },
+ "tests/what-am-i-doing-case.py": {
+  "rule3": 45
+ },
+ "tests/whose-turn-suite.py": {
+  "rule3": 8
+ },
+ "tiers/lib/tiers_check.py": {
+  "rule4": 1
+ },
+ "tiers/tests/test_tiers_check.py": {
+  "rule3": 1
+ },
+ "works-dispatch/dispatch/activity.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/claudex.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/dispatch.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/landing.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/move.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/nodes/deliver.py": {
+  "rule3": 15,
+  "rule4": 5
+ },
+ "works-dispatch/dispatch/nodes/tools.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/nodes/wake.py": {
+  "rule4": 5
+ },
+ "works-dispatch/dispatch/orders.py": {
+  "rule3": 1,
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/role_hook.py": {
+  "rule4": 3
+ },
+ "works-dispatch/dispatch/shape_hook.py": {
+  "rule4": 1
+ },
+ "works-dispatch/dispatch/terms.py": {
+  "rule3": 1
+ },
+ "works-dispatch/dispatch/tests/test_accounts.py": {
+  "rule3": 1
+ },
+ "works-dispatch/dispatch/tests/test_deliver.py": {
+  "rule3": 2
+ },
+ "works-dispatch/dispatch/tests/test_dispatch.py": {
+  "rule3": 2
+ },
+ "works-dispatch/dispatch/tests/test_limits.py": {
+  "rule3": 2
+ },
+ "works-dispatch/dispatch/tests/test_local_origin.py": {
+  "rule3": 1
+ },
+ "works-dispatch/dispatch/tests/test_move.py": {
+  "rule3": 2
+ },
+ "works-dispatch/dispatch/tests/test_role.py": {
+  "rule3": 1
+ },
+ "works-dispatch/dispatch/tests/test_wake.py": {
+  "rule3": 4
+ },
+ "works-dispatch/dispatch/vendor/whose-turn.py": {
+  "rule3": 1
+ },
+ "works-dispatch/dispatch/wake_hook.py": {
+  "rule4": 2
+ }
+}

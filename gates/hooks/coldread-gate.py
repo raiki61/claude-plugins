@@ -125,6 +125,56 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import claude_auth  # noqa: E402
 
+try:
+    import fcntl
+except ImportError:   # Windows(msvcrt で閉じる。_locked)
+    fcntl = None
+import contextlib
+
+
+def _lost(what, exc):
+    """状態の読み書きが崩れたことを標準エラーに出す。止めないで続ける所でも、「読めなかった・書けなかった」を
+    「何も無かった」と同じに見せない(docs/standards/machine-readable-values.md の決まり 4)。フックの標準エラーは
+    Claude Code の記録(と --debug)に残る。"""
+    try:
+        sys.stderr.write("coldread-gate: %s: %s\n" % (what, exc))
+    except (OSError, ValueError):
+        pass   # 標準エラーも書けなければ、出す先が残っていない
+
+
+@contextlib.contextmanager
+def _locked(path):
+    """path の隣の .lock を排他で取る間だけ中を走らせる(並ぶフックが同じ帳面を読み書きして、片方の行を消さない)。
+    ロックの置き場を作れない・ロックを取れない(Windows の LK_LOCK は約 10 秒待って諦める)ときは、ロック無しで走る(前と同じ)が、
+    _lost で知らせる。"""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        f = open(path + ".lock", "a+b")
+    except OSError as exc:
+        _lost("ロックを取れない(%s)" % path, exc)
+        yield
+        return
+    with f:
+        try:
+            if fcntl:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            else:
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError as exc:
+            _lost("ロックを取れない(%s)" % path, exc)
+            yield
+            return
+        try:
+            yield
+        finally:
+            if fcntl:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            else:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
 CONFIG_DIR = claude_auth.config_dir(os.environ)   # 決め方の正本は共通の claude_auth（リポジトリの scripts/ から写す）
 STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
@@ -955,7 +1005,7 @@ def native_path(p):
             if r.returncode == 0:
                 out = r.stdout.decode("utf-8").strip() or None
         except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
-            pass
+            pass   # cygpath が無い・答えない: 元の綴りのまま返す(下の out が None)。読めないパスは後の open で止まる
         if out is None:
             m = _MSYS_DRIVE_RE.match(p)
             out = m.group(1).upper() + ":\\" + p[3:].replace("/", "\\") if m else None
@@ -1346,6 +1396,8 @@ class Screen:
     def __init__(self, cwd):
         self.cwd = cwd if cwd and os.path.isdir(cwd) else None
         self.deadline = time.time() + GH_BUDGET
+        self.refs_got = 0   # referenced_lines が題を取れた番号の数
+        self.cut = []   # GH_PAGES ページで辿り切れなかった一覧(画面に「取っていない」と書く。黙って切らない)
 
     def gh(self, gh_argv):
         """gh を読み取りで呼び、stdout を返す。失敗は例外。"""
@@ -1356,7 +1408,7 @@ class Screen:
         override = os.environ.get("COLDREAD_GH_CMD")
         if override:
             proc = subprocess.run(["sh", "-c", override, "gh", *gh_argv],
-                                  capture_output=True, encoding="utf-8", timeout=timeout)
+                                  capture_output=True, encoding="utf-8", timeout=timeout, cwd=self.cwd)
         else:
             gh_bin = shutil.which("gh")
             if not gh_bin:
@@ -1378,7 +1430,12 @@ class Screen:
             out.extend(chunk)
             if len(chunk) < 100:
                 break
+        else:
+            self.cut.append(path)
         return out
+
+    def cut_lines(self):
+        return ["[注: コメントが %d 件を超え、それより新しい分は取っていない]" % (GH_PAGES * 100)] if self.cut else []
 
 
 def flag_value(args, short, long):
@@ -1514,16 +1571,20 @@ def comment_blocks(label, ts):
 
 
 def referenced_lines(g, repo, nums, label="[本文とスレッドが参照している番号]"):
-    """参照されている番号の題と状態。1 件ずつ取り、取れない番号は飛ばす。予算切れなら有る分で止める。"""
-    lines = []
+    """参照されている番号の題と状態。1 件ずつ取り、取れない番号は取れなかったと書く。予算切れなら有る分で止める。"""
+    lines, got = [], 0
     for n in nums:
         try:
             it = g.json(["api", "repos/%s/issues/%s" % (repo, n)])
         except (BudgetExhausted, subprocess.TimeoutExpired):
             break
         except Exception:
+            # 画面の材料なので止めずに続けるが、黙って飛ばさない(読み手が「無い番号」と「取れなかった番号」を分けられる)
+            lines.append("#%s(題を取れなかった)" % n)
             continue
+        got += 1
         lines.append("#%s「%s」(%s)" % (n, it.get("title", ""), item_state(it)))
+    g.refs_got = got
     return [label] + lines if lines else []
 
 
@@ -1569,6 +1630,7 @@ def screen_for(dest, cwd, body=""):
         hunk = (c.get("diff_hunk") or "").splitlines()
         if hunk:
             head += ["[指摘が付いた差分の末尾]"] + hunk[-SCREEN_HUNK_LINES:]
+        head += g.cut_lines()
         # 元の指摘は body の位置に置いて落とさず、返信だけを予算で落とす対象にする
         root, replies = thread[:1], thread[1:]
         root_text = ""
@@ -1601,7 +1663,7 @@ def screen_for(dest, cwd, body=""):
         ref = item.get("number")
     head = ["%s #%s「%s」(%s、%s)" % ("PR" if is_pr else "issue", ref, item.get("title", ""),
                                   where or "このリポジトリ", item_state(item))]
-    head += files_lines(files) + ["[本文]"]
+    head += g.cut_lines() + files_lines(files) + ["[本文]"]
     nums = referenced_numbers([body, item.get("body")] + [t.get("body") for t in comments], ref)
     return assemble(head, clip(item.get("body"), SCREEN_ITEM_BODY_MAX),
                     comment_blocks("これまでのコメント", comments[-SCREEN_COMMENTS:]),
@@ -1673,7 +1735,7 @@ def new_item_screen(sub, args, cwd, body):
     nums = referenced_numbers([title, body], None)
     if nums:
         refs = referenced_lines(g, repo, nums, "[本文が参照している番号]") if repo else []
-        if not refs:
+        if not refs or not g.refs_got:
             missed.append("本文が参照している番号の題")
         lines += refs
     return ("\n".join(lines) if len(lines) > 1 or title or repo else None), missed
@@ -1683,22 +1745,22 @@ def new_item_screen(sub, args, cwd, body):
 # 観点と報告の形式は 2 つの依頼文で共通。違うのは読み手の立ち位置(文脈ゼロ/画面を見ている)と、
 # 画面モードにだけ在る「冗長」フィールド——画面に有るものを本文で説明した箇所を、止めずに書き手へ返す。
 # 文脈ゼロの依頼文には冗長を置かない(画面が無いので、冗長かどうかを読み手が決められない)。
-_FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず次の文へ読み進められなかったもの → 1 行 1 件、行頭に「詰まり: 」。
-  詰まりは次の 3 つのどれかだけ。「詰まり: 」の直後に (語) (指す先) (筋) のどれかを書く:
-  (語) 語・略語・識別子の意味が取れない / (指す先) 何・誰・どこを指すかが取れない / (筋) 文と文のつながり・この文が何を言っているかが取れない
-  (1)(2) が言えない・掴めないのは (筋) として書く
+_FORMAT_COMMON = """- (1)〜(4) に該当し、その箇所で意味が取れず次の文へ読み進められなかったもの → 詰まり(kind は stuck)。
+  詰まりは次の 3 つのどれかだけ。cause に word・referent・flow のどれかを入れる:
+  word は語・略語・識別子の意味が取れない / referent は何・誰・どこを指すかが取れない / flow は文と文のつながり・この文が何を言っているかが取れない
+  (1)(2) が言えない・掴めないのは flow として書く
   この検査が見るのは通じやすさだけで、出してよいか・中身が正しいか・判断に足りるかは見ない。意味は取れたが、
   根拠・裏付け・出所・数字の出どころが欲しい、判断の材料が足りない、本当にそうか・ほかの場合はどうか・実例はあるかを
   確かめたい、というものは詰まりではなく疑問。迷ったら疑問にする
-  書いている途中で意味が取れた・推測で埋められたと分かったら、「詰まり: 」の行のまま取り消さず、疑問か補完として書く
-- (5) のうち、理解はできたが答えが本文に無い疑問 → 1 行 1 件、行頭に「疑問: 」
-- (4) のうち、推測で埋めて読み進められた箇所 → 1 行 1 件、行頭に「補完: 」。
-  「何をどう埋めたか」を書く(例:「補完: 障害は今起きていると読んだ」)。
+  書いている途中で意味が取れた・推測で埋められたと分かったら、詰まり(stuck)のまま text で取り消さず、疑問か補完として書く
+- (5) のうち、理解はできたが答えが本文に無い疑問 → 疑問(kind は question)
+- (4) のうち、推測で埋めて読み進められた箇所 → 補完(kind は guess)。
+  text に「何をどう埋めたか」を書く(例:「障害は今起きていると読んだ」)。
   推測で埋めたなら、理解を妨げていなくても書く——書き手はここで初めて自分の誤読を知る
 """
 # 依頼文の終わりの、本文の始まりの印。手元の文書の抜き出しは、この印の手前に補足を差し込む(doc_prompt)
 BODY_MARK = "--- 本文 ---\n"
-_RULES = """規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。該当の無いフィールドは「詰まり: なし」のように書かず、行ごと省く。日本語で。
+_RULES = """規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。該当の無い種類は findings に要素を作らない(「なし」と書いた要素を作らない)。text は日本語で。
 
 """ + BODY_MARK
 # 初見の観点。(3) の「何と合わせて解くか」だけが、文脈ゼロと新しい PR/issue(画面あり)で違う
@@ -1709,9 +1771,8 @@ _COLD_VIEWS = """見る観点:
 (4) 意味を推測で埋めた箇所と、埋めた推測の中身(特に時制・主体・範囲)
 (5) 読み終えて残った疑問は何か
 
-報告の形式(この 4 種類だけ。問題の無かった観点は一切書かない):
-""" + _FORMAT_COMMON + """- 詰まりも疑問も補完も 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
-  (1 件でもあるなら CLEAN とは書かない)
+報告の形式: 指定の JSON の形で返し、findings に 1 件 1 要素で入れる。種類はこの 3 つだけ。問題の無かった観点は一切書かない:
+""" + _FORMAT_COMMON + """- 詰まりも疑問も補完も 1 件も無いときは findings を空の配列にする
 """ + _RULES
 COLD_PROMPT = """あなたはこの文章について何も知らない初見の読者です。会話の経緯もリポジトリも見ていません。
 以下の「本文」だけを読み、理解を実際に妨げた事実だけを報告してください。
@@ -1746,9 +1807,9 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 
 前提:
 - 画面に見えているもの(""" + SCREEN_ITEMS + """)は「何を指しているか分かっている」ものとして読む。それらが本文で説明されていなくても詰まりにしない
-- 画面は語彙の辞書ではない。相手の言い回し・業界の外では通じない横文字・比喩(例: 北極星・ニアバイ・クロージング)を、本文が自分の地の文として使っている箇所は「なぞり: 」として報告する——画面に同じ語が有っても、画面を持たずにこのスレッドを後から読む人には解けない。定着した技術用語・製品名・file 名・相手が付けた印は含めない。相手の語を引用して指す(「reviewer_x さんの言う『ニアバイ』は」「[block] の 2 件目は」)のはなぞりではない
+- 画面は語彙の辞書ではない。相手の言い回し・業界の外では通じない横文字・比喩(例: 北極星・ニアバイ・クロージング)を、本文が自分の地の文として使っている箇所は「なぞり」(kind は echo)として報告する——画面に同じ語が有っても、画面を持たずにこのスレッドを後から読む人には解けない。定着した技術用語・製品名・file 名・相手が付けた印は含めない。相手の語を引用して指す(「reviewer_x さんの言う『ニアバイ』は」「[block] の 2 件目は」)のはなぞりではない
 - 参照されている番号の題は、その番号の側の物で、本文の書き手には直せない。その題の中の語が分からなくても詰まりにしない(本文がその語を自分の言葉として使っているときだけ、本文の側の詰まりにする)
-- 本文が、画面に見えているものを改めて説明している箇所(誰宛か・どの番号の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長: 」として報告する(読み手は既に見ている)
+- 本文が、画面に見えているものを改めて説明している箇所(誰宛か・どの番号の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長」(kind は redundant)として報告する(読み手は既に見ている)
 
 見る観点:
 (1) この返信があなたに求めていること(何を確認し・何を返せばよいか)が言えるか
@@ -1757,11 +1818,10 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 (4) 意味を推測で埋めた箇所と、埋めた推測の中身(特に時制・主体・範囲)
 (5) 読み終えて残った疑問は何か
 
-報告の形式(この 6 種類だけ。問題の無かった観点は一切書かない):
-""" + _FORMAT_COMMON + """- 画面に有るものを本文で説明している箇所 → 1 行 1 件、行頭に「冗長: 」
-- 相手の言い回しを本文が地の文に写している箇所 → 1 行 1 件、行頭に「なぞり: 」(その語と、どの発言の語か)
-- 詰まりも疑問も補完も冗長もなぞりも 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
-  (1 件でもあるなら CLEAN とは書かない)
+報告の形式: 指定の JSON の形で返し、findings に 1 件 1 要素で入れる。種類はこの 5 つだけ。問題の無かった観点は一切書かない:
+""" + _FORMAT_COMMON + """- 画面に有るものを本文で説明している箇所 → 冗長(kind は redundant)
+- 相手の言い回しを本文が地の文に写している箇所 → なぞり(kind は echo。text にその語と、どの発言の語かを書く)
+- 詰まりも疑問も補完も冗長もなぞりも 1 件も無いときは findings を空の配列にする
 """ + _RULES
 
 
@@ -1795,58 +1855,50 @@ FOLLOWUP_NOTE = """これは同じ投稿の書き直しの %d 回目の検査で
 
 """
 # 2 回目は、前の回から残った物と、直しが新しく生んだ物で止める
-FOLLOWUP_OPEN = """この回で「詰まり: 」「なぞり: 」として報告するのは、次の 2 つだけ:
+FOLLOWUP_OPEN = """この回で詰まり(stuck)・なぞり(echo)として報告するのは、次の 2 つだけ:
 - 前の回の詰まり・なぞりのうち、今の本文でまだ解けていないもの(どの指摘かが分かるように、前の指摘の要点を引く)
 - 直しで足した・書き換えた所(差分の + の行)が新しく生んだ詰まり・なぞり
 書き換えていない所で新しく気づいたことは、詰まりにもなぞりにもせず、疑問か補完として報告する(1 回目の読み手が全体を読み、詰まりに挙げなかった所)。
 """
 # CARRY_ONLY_ROUND 回目からは、前の回から残った物だけで止める。直しが新しく生んだ物も止めずに返す
-FOLLOWUP_CARRY = """この回で「詰まり: 」「なぞり: 」として報告するのは、前の回に投稿を止めた指摘(詰まり・なぞり)のうち、今の本文でまだ解けていないものだけ。
-その行は「詰まり: 」「なぞり: 」の直後に「(前の回)」と書き、どの指摘かが分かるように、前の指摘の要点を引く。解けた指摘は書かない。前の回に止めなかった指摘(疑問など)は、ここに挙げない。
+FOLLOWUP_CARRY = """この回で詰まり(stuck)・なぞり(echo)として報告するのは、前の回に投稿を止めた指摘(詰まり・なぞり)のうち、今の本文でまだ解けていないものだけ。
+その要素は carried を true にし、text に、どの指摘かが分かるように前の指摘の要点を引く。解けた指摘は書かない。前の回に止めなかった指摘(疑問など)は、ここに挙げない。
 直しで足した・書き換えた所が新しく生んだもの、書き換えていない所で新しく気づいたことは、詰まりにもなぞりにもせず、疑問か補完として報告する。
 """
-CARRY_MARK = "(前の回)"
 FOLLOWUP_DIFF_MAX = 8000   # 差分の上限(字)。超えた分は切る(本文の全体は下に在る)
 
 
 def carried_only(found, prev, changed):
-    """CARRY_ONLY_ROUND 回目からの仕分け。止めるフィールドの行は、ラベルの直後に前の回から残った印(CARRY_MARK)が有る物だけにし、
-    ほかは疑問に移す。印の後ろが「無い」の意味だけの行は落とす。止める行の数は、本文を直していれば前の回の止めた数より
-    1 つ少ない数までにし(多い分は疑問に移す)、直していなければ前の回の数までにする。
+    """CARRY_ONLY_ROUND 回目からの仕分け。止める種類の指摘は、前の回から残った印(carried)が有る物だけにし、
+    ほかは疑問に移す。止める指摘の数は、本文を直していれば前の回の止めた数より 1 つ少ない数までにし(多い分は疑問に移す)、
+    直していなければ前の回の数までにする。
 
     読み手が依頼文に従わず新しい物を印付きで書いても、止める数は直すたびに減り、0 になれば通る——ゲートが自分で収まる
     (持ち主 2026-10-17「ある程度出たと判断したら進む形にしよう」「人からパスを売ってもらう運用はやめて」)。
     直さずに打ち直した本文では減らさない(打ち直すだけで通る口にしない)。"""
     prev_found = prev.get("found", {})
-    room = sum(len(prev_found.get(label, [])) for label, stops in LABELS.items() if stops)
+    room = sum(len(prev_found.get(kind, [])) for kind in STOP_KINDS)
     if changed:
         room -= 1
-    for label, stops in LABELS.items():
-        if not stops:
-            continue
+    for kind in STOP_KINDS:
         keep, moved = [], []
-        for line in found[label]:
-            rest = LABEL_RE.match(line)
-            rest = line[rest.end():].strip() if rest else line
-            if not rest.startswith(CARRY_MARK):
-                moved.append(line)
-            elif NONE_RE.match(rest[len(CARRY_MARK):].strip()):
-                continue
-            elif room > 0:
-                keep.append(line)
+        for item in found[kind]:
+            if item["carried"] and room > 0:
+                keep.append(item)
                 room -= 1
             else:
-                moved.append(line)
-        found["疑問"] += ["疑問: (止めない) " + line for line in moved]
-        found[label] = keep
+                moved.append(item)
+        found["question"] += [dict(item, text="(止めない) " + finding_line(kind, item), cause=None, carried=False)
+                              for item in moved]
+        found[kind] = keep
     return found
 
 
 def followup_prompt(prompt, prev, body):
     """読み手の依頼文に、前の回の指摘と書き手の直しを足す(本文の始まりの印の手前に差し込む)。"""
     found = prev.get("found", {})
-    stopped = "\n".join(line for label, stops in LABELS.items() if stops for line in found.get(label, []))
-    kept = "\n".join(line for label, stops in LABELS.items() if not stops for line in found.get(label, []))
+    stopped = "\n".join(line for kind in STOP_KINDS for line in finding_lines(found, kind))
+    kept = "\n".join(line for kind in KINDS if kind not in STOP_KINDS for line in finding_lines(found, kind))
     findings = ("投稿を止めた指摘(詰まり・なぞり):\n%s\n止めなかった指摘(前の回の詰まり・なぞりではない):\n%s"
                 % (stopped or "(なし)", kept or "(なし)"))
     diff = "\n".join(line for line in difflib.unified_diff(
@@ -1859,59 +1911,109 @@ def followup_prompt(prompt, prev, body):
     return prompt[:-len(BODY_MARK)] + note + BODY_MARK
 
 
-# 読み役のラベルと、投稿を止めるかどうか。依頼文が指示する綴りと 1 対 1 なので隣に置く——
-# フィールドを増やすときに、指示と仕分けと止める/止めないが同じ画面で目に入る形にしておく。
+# 読み手の答えの種類。比べるのは ASCII のキーで、表示の語はこの表から引く(docs/standards/machine-readable-values.md の決まり 3)。
+# 依頼文が指示する種類と 1 対 1 なので隣に置く——種類を増やすときに、指示と仕分けと止める/止めないが同じ画面で目に入る形にしておく。
 # 「なぞり」(相手の言い回しを地の文に写した箇所)は画面モードにだけ在り、詰まりと同じく投稿を止める——
 # 画面が既知にするのは指す先であって語彙ではない。詰まりの条件文の中に「相手の語で書けば詰まり」と
 # 埋めた形は、実物の読み手(sonnet)に 1 件も拾われなかった(2026-09-07 に実測: 北極星・ニアバイ・
-# クロージングを地の文に写した返信が詰まり 0 件)。独立のフィールドとして問う
-LABELS = {"詰まり": True, "なぞり": True, "疑問": False, "補完": False, "冗長": False}
-LABEL_RE = re.compile("(%s)\\s*[:：]" % "|".join(LABELS))
-# ラベルの後ろが「無い」の意味だけの行は、そのフィールドの 0 件であって 1 件ではない。依頼文で「行ごと省け」と
-# 言っても読み手は書く(2026-09-06 に実測: 画面モードの読み手が「詰まり: なし」と書き、837 字の
-# 返信が詰まり 1 件として止まった)。ここで落とさないと、無いフィールドが投稿を止める
-NONE_RE = re.compile(r"^(?:なし|無し|ない|無い|特になし|特に無し|該当なし|該当無し|ありません|0\s*件|ゼロ|none)"
-                     r"\s*(?:[（(][^）)]*[）)])?\s*[。．.]?\s*$", re.I)
-# 読み手が「詰まり: 」と書き出してから、同じ行の終わりで取り消した行(「…説明されているので意味は取れる。詰まりなし。」
+# クロージングを地の文に写した返信が詰まり 0 件)。独立の種類として問う
+KINDS = {"stuck": "詰まり", "echo": "なぞり", "question": "疑問", "guess": "補完", "redundant": "冗長"}
+STOP_KINDS = ("stuck", "echo")
+COLD_KINDS = ("stuck", "question", "guess")   # 文脈ゼロ・新しい PR/issue の読み手(画面の語を知らないので冗長・なぞりを問わない)
+CAUSES = {"word": "語", "referent": "指す先", "flow": "筋"}   # 詰まりの訳(依頼文の _FORMAT_COMMON)
+# 読み手が詰まり(stuck・なぞり)の text を、書き出してから終わりで取り消した物(「…説明されているので意味は取れる。詰まりなし。」
 # 「…推測可能。詰まりとしては扱わない。」)は、止める指摘ではない。依頼文で疑問か補完にせよと言っても書く
 # (2026-10-19 に実測: ブランチのゲートの読み手〔haiku〕が詰まり 4 件のうち 3 件をこの形で出し、--land が止まった)。
-# 中身は読み手の気づきなので落とさず、疑問に回す。見るのは行の最後の文だけで、その文の全体が取り消しの形のときに限る
+# 中身は読み手の気づきなので落とさず、疑問に回す。見るのは text の最後の文だけで、その文の全体が取り消しの形のときに限る
 # (頭の数文字〔ここは・ただし〕と決まった語尾だけを許す)。「見出し「詰まりなし」の意味が不明」のように語を引いた本物の
-# 詰まりを回さないため
+# 詰まりを回さないため。種類は schema のキーで受けるが、取り消しは読み手が text の地の文に書くので、ここだけは文で見る
 RETRACT_RE = re.compile(r"^[^「」『』\"]{0,6}?(?:詰まり|なぞり)(?:は|では|とは|として(?:は)?|に(?:は)?)?\s*"
                         r"(?:なし|無し|ない|無い|ありません|扱わない|しない|当たらない|あたらない|ならない|入らない|"
                         r"数えない|該当しない|言えない|ではなく(?:疑問|補完)|というより(?:疑問|補完))"
                         r"(?:として扱う|と判断する|と判断|とする|と考える|です)?\s*[。．.]?$|^詰まらない[。．.]?$")
 
 
-def retracted(rest):
-    """止めるラベルの後ろの文が、最後の文の全体で自分を取り消しているか(RETRACT_RE)。"""
-    last = [s for s in re.split(r"(?<=[。．])", rest.strip()) if s.strip()]
+def retracted(text):
+    """止める種類の指摘の text が、最後の文の全体で自分を取り消しているか(RETRACT_RE)。"""
+    last = [s for s in re.split(r"(?<=[。．])", text.strip()) if s.strip()]
     return bool(last) and bool(RETRACT_RE.match(last[-1].strip()))
 
 
-def report_shaped(out):
-    """読み役の出力が報告の形(CLEAN かラベル行)をしているか。していなければ検査できていない(認証切れはこの形で出る)。"""
-    return "CLEAN" in out or any(LABEL_RE.match(line.strip()) for line in out.splitlines())
+class ReaderShape(RuntimeError):
+    """読み手の答えが決めた形をしていない(検査できていない)。起動の失敗(reader-down)と分けて記録する。"""
 
 
-def sort_findings(out):
-    """読み役の出力をラベルごとの行に仕分ける。
+def reader_schema(kinds):
+    """読み手に返させる答えの JSON Schema(claude -p --json-schema)。種類はキーで選ばせる(決まり 3)。"""
+    return {
+        "type": "object",
+        "properties": {"findings": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": list(kinds)},
+                "cause": {"type": "string", "enum": list(CAUSES)},
+                "carried": {"type": "boolean"},
+                "text": {"type": "string", "minLength": 1},
+            },
+            "required": ["kind", "text"],
+            "additionalProperties": False,
+        }}},
+        "required": ["findings"],
+        "additionalProperties": False,
+    }
 
-    ラベルはコロンまで見る。行頭の語だけで拾うと「詰まりは無い」のような地の文が
-    詰まりに数えられ、指摘ゼロの本文が deny になる(補完の追加で自由文の行が増えたため)。
-    """
-    found = {label: [] for label in LABELS}
-    for line in out.splitlines():
-        line = line.strip()
-        m = LABEL_RE.match(line)
-        if not m or NONE_RE.match(line[m.end():].strip()):
+
+def reader_reply(raw):
+    """claude -p --output-format json の出力から structured_output を取り出す。形が違えば ReaderShape。
+
+    **形が違う答えを「指摘ゼロ」と読まない。** 認証落ちは終了コード 0 で返ることがある(2026-09-15 に実測: 素で起動した
+    claude が『Failed to authenticate: OAuth session expired …』の 1 行を標準出力に・終了コード 0 で返した)。
+    JSON の形では is_error と result に出るので、それを見て止める。"""
+    try:
+        reply = json.loads(raw)
+    except ValueError:
+        raise ReaderShape("JSON でない: %r" % raw[:150])
+    if not isinstance(reply, dict):
+        raise ReaderShape("JSON の object でない: %r" % raw[:150])
+    if reply.get("is_error") or reply.get("subtype", "success") != "success":
+        raise ReaderShape("読み手がエラーを返した(%s): %r" % (reply.get("subtype"), str(reply.get("result"))[:150]))
+    out = reply.get("structured_output")
+    if not isinstance(out, dict):
+        raise ReaderShape("structured_output が無い: %r" % raw[:150])
+    return out
+
+
+def sort_findings(reply, kinds=tuple(KINDS)):
+    """読み手の答え(structured_output)を種類ごとの指摘の列にする。各指摘は {text, cause, carried}。
+
+    知らない種類・空の text・形の違う要素は読み飛ばさずに ReaderShape にする(決まり 4)。--json-schema が形を
+    守らせるが、差し替えの読み手(COLDREAD_READER_CMD)と schema の外の版の claude はここで止める。"""
+    items = reply.get("findings")
+    if not isinstance(items, list):
+        raise ReaderShape("findings が配列でない: %r" % str(reply)[:150])
+    found = {kind: [] for kind in KINDS}
+    for item in items:
+        if not (isinstance(item, dict) and item.get("kind") in kinds and isinstance(item.get("text"), str)
+                and item["text"].strip() and item.get("cause") in (None, *CAUSES)
+                and isinstance(item.get("carried", False), bool)):
+            raise ReaderShape("指摘の形が違う: %r" % str(item)[:150])
+        if item["kind"] in STOP_KINDS and retracted(item["text"]):
+            found["question"].append({"text": "(読み手が取り消した%s) %s" % (KINDS[item["kind"]], item["text"].strip()),
+                                      "cause": None, "carried": item.get("carried", False)})
             continue
-        if LABELS[m.group(1)] and retracted(line[m.end():]):
-            found["疑問"].append("疑問: (読み手が取り消した%s) %s" % (m.group(1), line[m.end():].strip()))
-        else:
-            found[m.group(1)].append(line)
+        found[item["kind"]].append({"text": item["text"].strip(), "cause": item.get("cause"),
+                                    "carried": item.get("carried", False)})
     return found
+
+
+def finding_line(kind, item):
+    """指摘 1 件の表示の行(人が読む。機械はこの行を読み直さない)。"""
+    return "%s: %s%s%s" % (KINDS[kind], "(前の回) " if item.get("carried") else "",
+                           "(%s) " % CAUSES[item["cause"]] if item.get("cause") else "", item["text"])
+
+
+def finding_lines(found, kind):
+    return [finding_line(kind, item) for item in found.get(kind, [])]
 
 
 def section(head: str, items: list) -> str:
@@ -1939,8 +2041,8 @@ def log_line(path: str, text: str) -> None:
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write("%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
-    except OSError:
-        pass
+    except OSError as exc:
+        _lost("記録を書けない(%s)" % path, exc)
 
 
 def deny_streak(session, target, fp=None, inspected=True):
@@ -2045,8 +2147,11 @@ VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s
                 "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
 
 
-def reader_argv(claude_bin, model=None, effort=None):
+def reader_argv(claude_bin, schema, model=None, effort=None):
     """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。
+
+    答えは --output-format json と --json-schema <schema> で受け、structured_output を読む(答えの文から見出しや語を
+    拾わない。docs/standards/machine-readable-values.md の決まり 1)。
 
     **本文は argv に載せない**(依頼文+本文は stdin で渡す)。載せていた頃は 2 つ問題が在った:
     Windows のコマンドラインは 32,767 字が上限で、画面つきの依頼文(本文だけで最大 SCREEN_MAX 字)
@@ -2067,22 +2172,28 @@ def reader_argv(claude_bin, model=None, effort=None):
             # CLAUDE.md は載る——2026-09-06 に実測: この引数無しだと利用者の CLAUDE.md の見出しを
             # そのまま引用し、有りだと NONE。書き手向けの「初見でも分かるように書く」等の規則を
             # 読み手が自分の指示として持つと、識別子を全部詰まりに出す側へ寄る
-            "--setting-sources", ""]
+            "--setting-sources", "",
+            "--output-format", "json",
+            "--json-schema", json.dumps(schema, ensure_ascii=False)]
 
 
 def _child_text(raw, strict=True):
     r"""子の出力を UTF-8 で読み、改行を \n に揃える。
 
-    復号を strict に保つのは、errors="replace" だと壊れた読み役出力で「詰まり」の行頭一致が
-    崩れ、deny が無音 allow に化けるから——読めない出力は例外→deny(検査できないものは通さない)。
+    復号を strict に保つのは、errors="replace" だと壊れた読み役出力の文字が別の字に化けたまま
+    通るから——読めない出力は例外→deny(検査できないものは通さない)。
     診断のためだけに読む標準エラーは strict=False で読む(そちらで落とすと、読める本文の
     判定まで一緒に失う)。
     """
     return (raw or b"").decode("utf-8", "strict" if strict else "replace").replace("\r\n", "\n")
 
 
-def run_reader(prompt: str, model=None, effort=None, timeout=READER_TIMEOUT):
-    """読み役を起動して出力文字列を返す。prompt は依頼文+本文。model・effort・timeout は既定(投稿の読み役)を替えるときだけ渡す。失敗は例外。"""
+def run_reader(prompt: str, schema, model=None, effort=None, timeout=READER_TIMEOUT):
+    """読み役を起動して答え(structured_output の dict)を返す。prompt は依頼文+本文、schema は答えの JSON Schema。
+    model・effort・timeout は既定(投稿の読み役)を替えるときだけ渡す。起動の失敗は RuntimeError、答えの形の違いは ReaderShape。
+
+    差し替え(COLDREAD_READER_CMD)にも、claude -p --output-format json と同じ形(type・is_error・structured_output)を
+    標準出力に出させる。試験が実運用と同じ読み方を通るようにするため。"""
     override = os.environ.get("COLDREAD_READER_CMD")
     note = None  # 採った認証の段。差し替えの分岐では認証に触らないので None のまま
     if override:
@@ -2105,15 +2216,21 @@ def run_reader(prompt: str, model=None, effort=None, timeout=READER_TIMEOUT):
         claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
-            reader_argv(claude_bin, model, effort), input=prompt.encode("utf-8"),
+            reader_argv(claude_bin, schema, model, effort), input=prompt.encode("utf-8"),
             capture_output=True, timeout=timeout,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
     out = _child_text(proc.stdout).strip()
-    if proc.returncode != 0 or not out:
+    if not out:
         why = (_child_text(proc.stderr, strict=False) or "empty output")[:200]
         raise RuntimeError(why if note is None else "%s(認証: %s)" % (why, note))
-    return out
+    try:
+        return reader_reply(out)
+    except ReaderShape as exc:
+        why = str(exc) if note is None else "%s(認証: %s)" % (exc, note)
+        if proc.returncode != 0:   # 起動の失敗として数える(reader-down)。JSON の答えが在れば訳は is_error の result の側に在る
+            raise RuntimeError("%s / %s" % (why, _child_text(proc.stderr, strict=False)[:150]))
+        raise ReaderShape(why)
 
 
 SKIP_TOKEN = "COLDREAD_SKIP=1"
@@ -2230,30 +2347,37 @@ def save_round(session, target, fp, body, found, round_no):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"round": round_no, "t": now, "v": GATE_VERSION, "fp": fp, "body": body, "found": found}, f,
                       ensure_ascii=False)
-    except OSError:
-        pass   # 記録できなくても検査は続く(次の回が 1 回目の読み方に戻るだけ)
+    except OSError as exc:
+        _lost("回の記録を書けない", exc)   # 記録できなくても検査は続く(次の回が 1 回目の読み方に戻るだけ)
 
 
 def drop_round(session, target):
     try:
         os.remove(_round_path(session, target))
-    except OSError:
-        pass
+    except FileNotFoundError:
+        pass   # 回の記録の無い(1 回目で通った)投稿
+    except OSError as exc:
+        _lost("回の記録を消せない", exc)
 
 
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
         command = payload.get("tool_input", {}).get("command", "") or ""
-    except Exception:
-        allow()
+        if not isinstance(command, str):
+            raise ValueError("tool_input.command が文字列でない")
+    except Exception as exc:
+        # **読めない入力を通さない**(決まり 4: ゲートは入力を読めなかったら通さない側に倒す)。前は allow していた
+        log_line(DENY_LOG, "payload-unreadable\t%s" % str(exc)[:150])
+        deny("外部投稿ゲート: フックの入力(JSON)を読めないので、コマンドが外へ書き込むかを検査できない: %s\n"
+             "検査できないものは通さない。Claude Code の版を上げたばかりなら、gates の版も上げる。\n%s" % (str(exc)[:150], OWNER_NOTE))
 
     # 手元の文書のゲート: Bash が書いた文書を後で拾うために、走る前の文書の状態を控える(投稿の判定とは独立。
-    # 失敗しても投稿のゲートを落とさない)
+    # 失敗しても投稿のゲートを落とさない。控えが無ければ、後で書き込み先の読みだけで拾う)
     try:
         docs_snapshot(payload)
-    except Exception:
-        pass
+    except Exception as exc:
+        _lost("走る前の文書の控えを取れない", exc)
 
     # log の各行に書き手(session)・版・投稿先を残す。連続 deny は session ごとに数える
     sid = str(payload.get("session_id") or "")[:8]
@@ -2406,8 +2530,15 @@ def main() -> None:
     except Exception:
         prev, prompt = None, reader_prompt(screen, noun)
     round_no = prev["round"] + 1 if prev else 1
+    kinds = tuple(KINDS) if mode == "screen" else COLD_KINDS
     try:
-        out = run_reader(prompt + body)
+        found = sort_findings(run_reader(prompt + body, reader_schema(kinds)), kinds)
+    except ReaderShape as exc:
+        # **形の違う答えを「指摘ゼロ」と読まない**(認証切れはこの形で出る。reader_reply)
+        stop("reader-shape\t%d" % len(body),
+             "外部投稿ゲート: coldreader の答えが決めた形(JSON の findings)をしていない: %s\n" % str(exc)[:150]
+             + "検査できていないので止める(認証切れはこの形で出る——読み役の標準エラーを見よ)。\n"
+             + OWNER_NOTE, len(body), fp)
     except Exception as exc:
         # 読み役を起動できないときも止める。逃げ道は無いので、直らなければ持ち主に渡す
         stop("reader-down\t%d" % len(body),
@@ -2415,27 +2546,13 @@ def main() -> None:
              + "検査できていないので止めた。手で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
              + OWNER_NOTE, len(body), fp)
 
-    # **報告の形をしていない出力を「詰まりゼロ」と読まない。** 認証落ちは例外にならない——
-    # 実測 2026-09-15: 素で起動した claude は『Failed to authenticate: OAuth session expired and
-    # could not be refreshed』の 1 行を**標準出力に・終了コード 0 で**返した。rc も空出力も踏まないので
-    # ここまで素通りし、ラベルが 1 つも無いまま allow に落ちていた(＝検査せずに投稿が出る fail-open)。
-    # 依頼文が許す出力は CLEAN かラベル行の 2 種類だけなので、どちらでもなければ「検査できない」として止める。
-    if not report_shaped(out):
-        stop("reader-shape\t%d" % len(body),
-             "外部投稿ゲート: coldreader の出力が報告の形(CLEAN かラベル行)をしていない: %r\n" % out[:150]
-             + "検査できていないので止める(認証切れはこの形で出る——読み役の標準エラーを見よ)。\n"
-             + OWNER_NOTE, len(body), fp)
-
-    found = sort_findings(out)
     if round_no >= CARRY_ONLY_ROUND:
         found = carried_only(found, prev, body != prev.get("body"))
     blocking, questions, fills, redundant, traced = (
-        found["詰まり"], found["疑問"], found["補完"], found["冗長"], found["なぞり"])
+        finding_lines(found, kind) for kind in ("stuck", "question", "guess", "redundant", "echo"))
 
-    # 詰まりとなぞりの有無だけで決める。以前は「最終行が CLEAN なら」も allow の条件だったが、
-    # それだと詰まりを列挙した後に CLEAN と書かれた出力が通ってしまう。読み役に本文の
-    # 説明以外を書かせるフィールド(補完)を足したぶん、末尾が CLEAN で終わる形は出やすくなっている。
-    if not any(found[label] for label, stops in LABELS.items() if stops):
+    # 止める種類(詰まりとなぞり)の有無だけで決める
+    if not any(found[kind] for kind in STOP_KINDS):
         record("allow\t%d\t%s" % (len(body), mode))
         drop_round(sid, target)
         extra = "\n".join(filter(None, (
@@ -2620,6 +2737,8 @@ def _who(payload):
 DOC_SNAP_DIR = os.path.join(DOC_DIR, "snap")
 DOC_SNAP_KEEP = 24 * 3600   # 控えを残す秒数。投稿のゲートに止められた Bash は後のフックが走らないので、古い控えを消す
 GIT_TIMEOUT = 5             # git 1 回の上限(秒)。PostToolUse のフックの timeout(10s)に収める。超えたら静的な読みだけにする
+# 名前で推すのは、フックの入力に MCP のツールの注記(readOnlyHint など)が載らないから。外れた名前の書くツールは拾い漏れる
+# (書いた文書を読まないだけで、投稿のゲートには関わらない)
 MCP_WRITE_RE = re.compile(r"write|edit|create|update|save|put|append|move|copy|rename|replace|insert", re.I)
 PATH_KEYS = ("file_path", "path", "filePath", "notebook_path", "filename", "destination", "target")
 
@@ -2628,7 +2747,7 @@ def _git(args, cwd):
     """git を読み取りで走らせ、標準出力(bytes)を返す。失敗・時間切れは None。index の lock を取らない(並行の会話と競らない)。"""
     try:
         r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, timeout=GIT_TIMEOUT,
-                           env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+                           env=dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C"))   # 訳されない形で読む(下の OWN_COMMIT_MSGS)
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout if r.returncode == 0 else None
@@ -2667,6 +2786,10 @@ def _snap_file(payload):
 # 指摘が積もった(2026-10-16 に割り振りの部署で実測。15 本のうち 6 本)。git が作業ツリーに書くコマンド(下の GIT_TREE_CMDS)を
 # 走らせたか、HEAD を commit 以外で動かしたコマンドでは、変更一覧の差も git の持ち込みと見て拾わない(字面に中身の在る書き込み先は拾う)。
 # 衝突して止まった文書(変更一覧の印 UU・AA など)は、いつも拾わない。書いた役が直して git add した後に、変わった文書として拾う
+# **見出しを読むのは、機械向けの形が無いから**(docs/standards/machine-readable-values.md の決まり 2 の最後)。どのコマンドが HEAD を
+# 動かしたかを porcelain の形で出す口を git は持たない。見出しの「commit」「commit (amend)」などは git が訳さずに書く ASCII の語で
+# (builtin/commit.c の reflog_msg。_() で囲まない)、_git は LC_ALL=C で読む。知らない見出しは commit 以外の移動と見て、
+# 変更一覧の差を拾わない側(書いていない文書を読まない側)に倒れる
 OWN_COMMIT_MSGS = ("commit", "commit (initial)", "commit (amend)")
 GIT_TREE_CMDS = ("checkout", "restore", "reset", "rebase", "merge", "pull", "cherry-pick", "revert", "am", "apply", "stash")
 GIT_VALUE_OPTS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env")   # 値を次の語に取る git の旗
@@ -2753,32 +2876,54 @@ def _role(session, agent):
 
 
 def _ledger(path):
-    """帳面の行(JSON)を読む。大きくなりすぎたら古い行を捨てる。読めなければ []。"""
-    try:
-        with open(path, encoding="utf-8") as f:
-            rows = [json.loads(line) for line in f if line.strip()]
-    except (OSError, ValueError):
-        return []
-    try:
-        if os.path.getsize(path) > LEDGER_MAX:
-            cut = time.time() - DOC_SNAP_KEEP
-            rows = [r for r in rows if (r.get("t1") or r.get("t") or 0) >= cut]
-            tmp = "%s.%d" % (path, os.getpid())
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-            os.replace(tmp, path)
-    except OSError:
-        pass
+    """帳面の行(JSON)を読む。大きくなりすぎたら古い行を捨てる。帳面が無ければ []。
+
+    読み書きは _locked の中でする(並ぶ役のフックが足した行を、古い行を捨てる書き直しで消さない)。読めない行は
+    _lost で知らせて飛ばす(帳面の行は見分けの材料で、欠けると見分けずに拾う側に倒れる)。"""
+    with _locked(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = [line for line in f if line.strip()]
+        except FileNotFoundError:
+            return []
+        except (OSError, UnicodeDecodeError) as exc:
+            _lost("帳面を読めない(%s)" % path, exc)
+            return []
+        rows, bad = [], 0
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except ValueError as exc:
+                _lost("帳面の行を読めない(%s)" % path, exc)
+                bad += 1
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+            else:
+                _lost("帳面の行が object でない(%s)" % path, line[:80])
+                bad += 1
+        try:
+            if os.path.getsize(path) > LEDGER_MAX:
+                cut = time.time() - DOC_SNAP_KEEP
+                rows = [r for r in rows if (r.get("t1") or r.get("t") or 0) >= cut]
+                tmp = "%s.%d" % (path, os.getpid())
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+                os.replace(tmp, path)
+                if bad:   # 書き直しは読めた行だけを残す。読めなかった行も消えたことを、消えた後に分かるように残す
+                    _lost("帳面の古い行を捨てるときに、読めない行も捨てた(%s)" % path, "%d 行" % bad)
+        except OSError as exc:
+            _lost("帳面の古い行を捨てられない(%s)" % path, exc)
     return rows
 
 
 def _note(path, rows):
     try:
         os.makedirs(DOC_DIR, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
+        with _locked(path), open(path, "a", encoding="utf-8") as f:
             f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-    except OSError:
-        pass   # 書けなければ見分けずに拾う側(前と同じ)に倒れる
+    except OSError as exc:
+        _lost("帳面に書けない(%s)" % path, exc)   # 書けなければ見分けずに拾う側(前と同じ)に倒れる
 
 
 def _named(command):
@@ -2800,11 +2945,11 @@ def _windows(root):
                 with open(e.path, encoding="utf-8") as f:
                     w = json.load(f)
             except (OSError, ValueError):
-                continue
+                continue   # ほかの役が消した・書きかけの控え(並ぶ役の控えは書いた役の終わりに消える)
             if w.get("root") == root and w.get("r") is not None and later.get(w["r"], 0) <= w.get("t0", 0):
                 live.append(dict(w, t1=None))
-    except OSError:
-        pass
+    except FileNotFoundError:
+        pass   # 控えの置き場がまだ無い: 走っている役は無い
     return done + live
 
 
@@ -2819,9 +2964,9 @@ def _drop_snaps(role):
                 if mine:
                     os.remove(e.path)
             except (OSError, ValueError):
-                continue
-    except OSError:
-        pass
+                continue   # ほかの役が先に消した・書きかけの控え(残った物は DOC_SNAP_KEEP の秒で消える)
+    except FileNotFoundError:
+        pass   # 控えの置き場がまだ無い: 消す物も無い
 
 
 def _theirs(snap, role, items, now):
@@ -2863,7 +3008,7 @@ def docs_snapshot(payload):
             if now - e.stat().st_mtime > DOC_SNAP_KEEP:
                 os.remove(e.path)
         except OSError:
-            pass
+            pass   # 消せない古い控えは次の回にまた消す(古い控えは時刻で外れるので、残っても見分けを崩さない)
     command = (payload.get("tool_input") or {}).get("command") or ""
     with open(_snap_file(payload), "w", encoding="utf-8") as f:
         json.dump({"root": root if docs is not None else None, "docs": docs or {},
@@ -2938,8 +3083,10 @@ def _bash_docs(payload):
         with open(_snap_file(payload), encoding="utf-8") as f:
             snap = json.load(f)
         os.remove(_snap_file(payload))
-    except (OSError, ValueError):
-        pass
+    except FileNotFoundError:
+        pass   # 走る前の控えが無い(走る前のフックが来なかった): git の差を取らず、書き込み先の読みだけで拾う
+    except (OSError, ValueError) as exc:
+        _lost("走る前の文書の控えを読めない", exc)
     if snap and snap.get("root"):
         now = _git_docs(snap["root"])
         if now is not None:
@@ -3044,7 +3191,7 @@ def _prune_bases():
             if now - e.stat().st_mtime > DOC_SNAP_KEEP:
                 shutil.rmtree(e.path, ignore_errors=True)
     except OSError:
-        pass
+        pass   # 置き場が無い・消せない古い控えは次の回にまた消す(控えは役ごとの置き場で、残っても今の回の読みを崩さない)
 
 
 def docs_record(payload):
@@ -3063,7 +3210,8 @@ def docs_record(payload):
         os.makedirs(DOC_DIR, exist_ok=True)
         with open(_pending(*_who(payload)), "a", encoding="utf-8") as f:
             f.write("".join(p + "\n" for p in paths))
-    except OSError:
+    except OSError as exc:
+        _lost("待ちの一覧に書けない(この文書はターンの終わりに読まれない)", exc)
         return
     now = time.time()
     _note(DOC_CLAIMS, [{"p": os.path.realpath(p), "r": _role(*_who(payload)), "t": now} for p in paths])
@@ -3094,13 +3242,14 @@ def _remember(digests):
     if not digests:
         return
     try:
-        lines = [*_seen_list(), *digests][-DOC_SEEN_KEEP:]
-        tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
-        os.replace(tmp, DOC_SEEN)
-    except OSError:
-        pass
+        with _locked(DOC_SEEN):   # 並んだ読みどうしで、片方が覚えた分を書き直しで消さない
+            lines = [*_seen_list(), *digests][-DOC_SEEN_KEEP:]
+            tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            os.replace(tmp, DOC_SEEN)
+    except OSError as exc:
+        _lost("読んだ中身の一覧に書けない(同じ中身をまた読む)", exc)
 
 
 def _forget(digests):
@@ -3109,20 +3258,24 @@ def _forget(digests):
         return
     drop = set(digests)
     try:
-        lines = [d for d in _seen_list() if d not in drop]
-        tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + ("\n" if lines else ""))
-        os.replace(tmp, DOC_SEEN)
-    except OSError:
-        pass
+        with _locked(DOC_SEEN):
+            lines = [d for d in _seen_list() if d not in drop]
+            tmp = "%s.%d.tmp" % (DOC_SEEN, os.getpid())   # 並んだ読みどうしで同じ一時のファイルを取り合わない
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + ("\n" if lines else ""))
+            os.replace(tmp, DOC_SEEN)
+    except OSError as exc:
+        _lost("読んだ中身の一覧から外せない(読めなかった中身を次も読まない)", exc)
 
 
 def _seen_list():
     try:
         with open(DOC_SEEN, encoding="utf-8") as f:
             return f.read().split()
-    except OSError:
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError) as exc:
+        _lost("読んだ中身の一覧を読めない(全部を読み直す)", exc)
         return []
 
 
@@ -3243,8 +3396,8 @@ def _skill_dir(full):
             try:
                 if "SKILL.md" in os.listdir(d):
                     return d
-            except OSError:
-                pass
+            except OSError as exc:
+                _lost("スキルのフォルダを読めない(%s。スキルの外の文書として読む)" % d, exc)
         if os.path.dirname(d) == d:
             return None
         d = os.path.dirname(d)
@@ -3279,11 +3432,9 @@ def doc_prompt(body, focus=False, premise=""):
 
 
 def read_doc(text, focus=False, premise="", timeout=DOC_READ_TIMEOUT):
-    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、ラベルごとの行を返す。報告の形でなければ例外。premise はスキルのフォルダの補足(skill_premise)。"""
-    out = run_reader(doc_prompt(text, focus, premise), model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout)
-    if not report_shaped(out):
-        raise RuntimeError("報告の形(CLEAN かラベル行)をしていない: %r" % out[:150])
-    return sort_findings(out)
+    """文書を 1 本、投稿と同じ観点(COLD_PROMPT)で読ませて、種類ごとの指摘を返す。答えの形が違えば例外。premise はスキルのフォルダの補足(skill_premise)。"""
+    return sort_findings(run_reader(doc_prompt(text, focus, premise), reader_schema(COLD_KINDS),
+                                    model=DOC_MODEL, effort=DOC_EFFORT, timeout=timeout), COLD_KINDS)
 
 
 # ---- 書き換えた所の抜き出し ----
@@ -3570,7 +3721,7 @@ def _generated(paths):
                                input=b"".join(os.path.basename(p).encode("utf-8") + b"\0" for p in ps),
                                capture_output=True, timeout=GIT_TIMEOUT, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
         except (OSError, subprocess.SubprocessError):
-            continue
+            continue   # 印を引けない: 生成物と見ずに読む側に倒す(読まずに通す側には倒さない)
         if r.returncode != 0:
             continue
         f = r.stdout.decode("utf-8", "replace").split("\0")
@@ -3583,14 +3734,14 @@ def _generated(paths):
 def doc_feedback(path, found, focus=False, carried=()):
     """1 本の文書の指摘を、直してほしい順のセクションにする(詰まりも補完も前からの詰まりも無ければ空)。focus は書き換えた所だけを
     読ませたとき。carried はブランチのゲートで、メインブランチの版にも在ったので止めなかった詰まり。"""
-    if not (found["詰まり"] or found["補完"] or carried):
+    if not (found["stuck"] or found["guess"] or carried):
         return ""
     return "\n".join(filter(None, (
         "■ %s%s" % (path, "(書き換えたセクションだけを読んだ)" if focus else ""),
-        section("詰まり(直す):", found["詰まり"]),
+        section("詰まり(直す):", finding_lines(found, "stuck")),
         section("メインブランチの版にも在った詰まり(このブランチでは止めない。直すかは判断してよい):", list(carried)),
-        section("coldreader が推測で埋めた箇所(意図と違うなら直す):", found["補完"]),
-        section("残った疑問(反映するかは判断してよい):", found["疑問"]),
+        section("coldreader が推測で埋めた箇所(意図と違うなら直す):", finding_lines(found, "guess")),
+        section("残った疑問(反映するかは判断してよい):", finding_lines(found, "question")),
     )))
 
 
@@ -3620,7 +3771,7 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
             paths = list({os.path.realpath(p): p for p in (line.strip() for line in f) if p}.values())
         os.remove(pending)
     except OSError:
-        return [], {"詰まり": 0, "補完": 0}, []
+        return [], {"stuck": 0, "guess": 0}, []
     who = "sid=%s" % session[:8] + ("\taid=%s" % agent[:17] if agent else "")
     last = {}
     for c in _ledger(DOC_CLAIMS):
@@ -3652,7 +3803,7 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
             log_line(DOC_LOG, "skip\t書く前と同じ中身\t%s\t%s" % (who, path))
             continue
         picked.append((path, text, digest, part))
-    notes, counts, down = [], {"詰まり": 0, "補完": 0}, []
+    notes, counts, down = [], {"stuck": 0, "guess": 0}, []
     if not picked:
         return notes, counts, down
     # 読む前に、読む中身を読んだ物として覚えておき、読めなかった物だけ後で外す。読み終えてから覚えていた頃は、裏の読み
@@ -3671,10 +3822,10 @@ def _read_pending(session, agent, timeout=DOC_READ_TIMEOUT):
             unread.append(digest)
             continue
         # 書いた役を呼び起こすのは詰まりが在るときだけ(上の「書いた役を呼び起こす」)。推測で埋めた箇所だけなら guess で件数を残す
-        note = doc_feedback(path, found, part is not None) if found["詰まり"] else ""
+        note = doc_feedback(path, found, part is not None) if found["stuck"] else ""
         # 長さのフィールドは読み手に渡した字数。抜き出しなら「渡した字数/全体の字数」
         size = "%d" % len(text) if part is None else "%d/%d" % (len(part), len(text))
-        kind = "finding" if note else "guess=%d" % len(found["補完"]) if found["補完"] else "clean"
+        kind = "finding" if note else "guess=%d" % len(found["guess"]) if found["guess"] else "clean"
         # e= は読み手の effort。アカウントごとに effort を替えて、詰まりの在る文書の割合を同じ時期の記録で比べるために残す
         log_line(DOC_LOG, "%s\t%s\t%ds\te=%s\t%s\t%s" % (kind, size, secs, DOC_EFFORT, who, path))
         if note:
@@ -3696,7 +3847,7 @@ def _write_findings(session, body):
         for e in old:
             os.remove(e.path)
     except OSError:
-        pass
+        pass   # 古い指摘のファイルを消せなければ次の回にまた消す(今の指摘は上で書けている)
     return path
 
 
@@ -3778,14 +3929,14 @@ def docs_check(payload, background=False):
                     "推測で埋めた箇所は、文書のほかの所・commit の記録・頼みのファイルで意図が確かめられるものだけを直させ、"
                     "確かめられないものは直さずに残す(推測を別の推測で書き換えない)。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
-                    % (reader, session[:8], len(notes), counts["詰まり"], counts["補完"], where)), tail)))
+                    % (reader, session[:8], len(notes), counts["stuck"], counts["guess"], where)), tail)))
             elif where:
                 context = "\n\n".join(filter(None, ((
                     "%sが、%sで書いた文書 %d 本に指摘を出した(詰まり %d 件・推測で埋めた箇所 %d 件)。全文は %s 。"
                     "新しいサブエージェントにこのファイルを渡して直させ、全文をこの会話に読み込まない。"
                     "推測で埋めた箇所のうち書き手の意図と違うものだけは、この会話で見て、正しい意図をサブエージェントに伝える。"
                     "直さずに残すと判断したものは、そのまま終えてよい——同じ中身は読み直さない。"
-                    % (reader, turn, len(notes), counts["詰まり"], counts["補完"], where)), tail)))
+                    % (reader, turn, len(notes), counts["stuck"], counts["guess"], where)), tail)))
             else:
                 # 書き出せないときは全文を返す(指摘を落とすより文脈を食うほうがまし)
                 context = "\n\n".join(filter(None, (reader + "が、%sで書いた文書を読んだ。詰まった箇所を直すこと:" % turn, *notes, tail)))
@@ -3850,14 +4001,20 @@ def _moved_base(text, moved):
     return "\n".join(kept) if any(_line_key(line) for line in kept) else None
 
 
-def _branch_cached(key, compute):
-    """覚えた結果か、compute() で出して覚えた結果。(結果, 覚えた結果か)。compute の例外はそのまま出す。"""
+def _branch_cached(key, compute, valid):
+    """覚えた結果か、compute() で出して覚えた結果。(結果, 覚えた結果か)。compute の例外はそのまま出す。
+    覚えた結果が valid(結果) で真でない(形の違う覚え・前の版の形)ときは捨てて出し直す(形の違う覚えで止まり続けない)。"""
     where = os.path.join(DOC_BRANCH, key + ".json")
     try:
         with open(where, encoding="utf-8") as f:
-            return json.load(f), True
-    except (OSError, ValueError):
-        pass
+            got = json.load(f)
+        if valid(got):
+            return got, True
+        _lost("ブランチの読みの覚えの形が違う(出し直す)", where)
+    except FileNotFoundError:
+        pass   # 覚えた結果が無い: 出す(下の compute)
+    except (OSError, ValueError) as exc:
+        _lost("ブランチの読みの覚えを読めない(出し直す)", exc)
     found = compute()
     try:
         os.makedirs(DOC_BRANCH, exist_ok=True)
@@ -3865,8 +4022,8 @@ def _branch_cached(key, compute):
             json.dump(found, f, ensure_ascii=False)
         for e in sorted(os.scandir(DOC_BRANCH), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
             os.remove(e.path)
-    except OSError:
-        pass
+    except OSError as exc:
+        _lost("ブランチの読みの結果を覚えられない(次も読み直す)", exc)
     return found, False
 
 
@@ -3880,34 +4037,61 @@ def _branch_cached(key, compute):
 # (どちらも今までどおり止める)。ブランチが足した文書は全部がブランチの文なので問わない
 BASE_CHECK_HEAD = """あなたは文書の 2 つの版を比べる係です。初見の読み手が文書の新しい版を読み、下の「詰まり」を報告しました。
 詰まりごとに、前の版を初見で読んでも、同じ箇所で同じ理由で詰まるかを判定してください。
-- OLD: 前の版にも同じ箇所(言い回しが少し違っても中身が同じ文)が在り、前の版のほかの所にも説明が無く、同じ理由で意味が取れない
-- NEW: 前の版にその箇所が無い・前の版では意味が取れる(説明が在る・言い方が違って分かる)・新しい版で書き換えた語や文が詰まりの原因
-- 迷ったら NEW
-出力は 1 行 1 件、詰まりの番号と OLD か NEW だけ(例: 1 OLD)。ほかは何も書かない。
+- old: 前の版にも同じ箇所(言い回しが少し違っても中身が同じ文)が在り、前の版のほかの所にも説明が無く、同じ理由で意味が取れない
+- new: 前の版にその箇所が無い・前の版では意味が取れる(説明が在る・言い方が違って分かる)・新しい版で書き換えた語や文が詰まりの原因
+- 迷ったら new
+答えは指定の JSON の形で返し、verdicts に詰まり 1 件ごとに番号(n)と old か new(verdict)を入れる。
 """
-BASE_CHECK_RE = re.compile(r"^\s*(\d+)\s*[.:：)]?\s*(OLD|NEW)\b", re.I)
+def _verdict_schema(words):
+    """比べる係・問い直す係の答えの JSON Schema。詰まり 1 件ごとに番号(n)と words のどれか(verdict)。"""
+    return {
+        "type": "object",
+        "properties": {"verdicts": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"n": {"type": "integer", "minimum": 1}, "verdict": {"type": "string", "enum": list(words)}},
+            "required": ["n", "verdict"],
+            "additionalProperties": False,
+        }}},
+        "required": ["verdicts"],
+        "additionalProperties": False,
+    }
 
 
-def _base_marks(out):
-    """比べる係の出力を {番号の文字列: "OLD" か "NEW"} にする。1 行も読めなければ例外。"""
-    marks = {m.group(1): m.group(2).upper() for m in map(BASE_CHECK_RE.match, out.splitlines()) if m}
-    if not marks:
-        raise RuntimeError("番号と OLD・NEW の行が無い: %r" % out[:150])
+BASE_WORDS = ("old", "new")
+BASE_CHECK_SCHEMA = _verdict_schema(BASE_WORDS)
+
+
+def _verdict_marks(reply, words):
+    """比べる係・問い直す係の答え(structured_output)を {番号: words のどれか} にする。形が違えば例外(呼び元が止める側に倒す)。"""
+    items = reply.get("verdicts")
+    if not (isinstance(items, list) and items and all(
+            isinstance(v, dict) and type(v.get("n")) is int and v.get("verdict") in words for v in items)):
+        raise ReaderShape("番号と %s の verdicts が無い: %r" % ("・".join(words), str(reply)[:150]))
+    if len({v["n"] for v in items}) != len(items):   # 同じ番号の答えが 2 つあれば、どちらが答えか決まらない
+        raise ReaderShape("verdicts の番号が重なる: %r" % str(reply)[:150])
+    return {v["n"]: v["verdict"] for v in items}
+
+
+def _asked_marks(prompt, words):
+    """prompt を係に問い、{"番号": 答え} を覚えた物か出して覚えた物で返す(番号は覚えの JSON の鍵なので文字列)。"""
+    key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
+    marks, _ = _branch_cached(key, lambda: {str(n): v for n, v in _verdict_marks(
+        run_reader(prompt, _verdict_schema(words), model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT), words).items()},
+        lambda d: isinstance(d, dict) and all(v in words for v in d.values()))
     return marks
 
 
 def _carried_from_base(stuck, body, base):
     """(詰まり(stuck)のうち、メインブランチの版(base)にも同じ理由で在った物の番号(0 から), 問えたか)。問えなければ空(全部を新しい詰まりにする)と False。"""
-    prompt = (BASE_CHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, line) for k, line in enumerate(stuck, 1))
+    prompt = (BASE_CHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, finding_line("stuck", item))
+                                                               for k, item in enumerate(stuck, 1))
               + "\n--- 新しい版(読み手が読んだ本文) ---\n" + body + "\n--- 前の版 ---\n" + base)
-    key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
     try:
-        marks, _ = _branch_cached(key, lambda: _base_marks(
-            run_reader(prompt, model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT)))
+        marks = _asked_marks(prompt, BASE_WORDS)
     except Exception as exc:
         log_line(DOC_LOG, "base-check-down\t%s" % str(exc)[:150].replace("\n", " "))
         return set(), False
-    return {k for k in range(len(stuck)) if marks.get(str(k + 1)) == "OLD"}, True
+    return {k for k in range(len(stuck)) if marks.get(str(k + 1)) == "old"}, True
 
 
 # 同じブランチで打ち直したときは、前の回に読んだ版から変えたセクションだけを新しく読む(GitHub の「前のレビューからの変更」・
@@ -3922,45 +4106,38 @@ def _carried_from_base(stuck, body, base):
 DOC_BRANCH_LAST = os.path.join(DOC_DIR, "branch-last")
 RECHECK_HEAD = """あなたは文書の直しを確かめる係です。前の回に初見の読み手がこの文書を読んで下の「詰まり」を報告し、書き手はその後に文書を直しました。
 詰まりごとに、今の版を初見で読んでも、同じ箇所で同じ理由でまだ詰まるかを判定してください。
-- STILL: 今の版にも同じ箇所(言い回しが少し違っても中身が同じ文)が在り、今の版のほかの所にも説明が無く、同じ理由で意味が取れない
-- FIXED: その箇所が消えた・書き換えられて意味が取れる・語の説明や指す先が今の版のどこかに足された
-- 迷ったら STILL
-出力は 1 行 1 件、詰まりの番号と STILL か FIXED だけ(例: 1 STILL)。ほかは何も書かない。
+- still: 今の版にも同じ箇所(言い回しが少し違っても中身が同じ文)が在り、今の版のほかの所にも説明が無く、同じ理由で意味が取れない
+- fixed: その箇所が消えた・書き換えられて意味が取れる・語の説明や指す先が今の版のどこかに足された
+- 迷ったら still
+答えは指定の JSON の形で返し、verdicts に詰まり 1 件ごとに番号(n)と still か fixed(verdict)を入れる。
 """
-RECHECK_RE = re.compile(r"^\s*(\d+)\s*[.:：)]?\s*(STILL|FIXED)\b", re.I)
+RECHECK_WORDS = ("still", "fixed")
 QUOTE_RE = re.compile(r"「([^「」\n]{4,})」")
 
 
-def _quoted(line, text):
-    """詰まり(line)が「」で引いた所が、その詰まりを出した版(text)に字のとおり全部在るか(読み手が言い換えて引いた物は False)。"""
-    quotes = QUOTE_RE.findall(line)
+def _quoted(item, text):
+    """詰まり(item)の text が「」で引いた所が、その詰まりを出した版(text)に字のとおり全部在るか(読み手が言い換えて引いた物は False)。"""
+    quotes = QUOTE_RE.findall(item["text"])
     return bool(quotes) and all(q in text for q in quotes)
 
 
-def _rewritten(line, now):
-    """字のとおり引いた詰まり(line)の引いた所が、今の版(now)から全部消えたか。消えたなら、その所のセクションは書き換わって今回
-    新しく読んだので、問い直さない(2026-10-19、引いた文を書き換えた詰まりに、問う係が STILL と答えた)。一部が残る物は問い直す"""
-    return not any(q in now for q in QUOTE_RE.findall(line))
+def _rewritten(item, now):
+    """字のとおり引いた詰まり(item)の引いた所が、今の版(now)から全部消えたか。消えたなら、その所のセクションは書き換わって今回
+    新しく読んだので、問い直さない(2026-10-19、引いた文を書き換えた詰まりに、問う係が「まだ詰まる」と答えた)。一部が残る物は問い直す"""
+    return not any(q in now for q in QUOTE_RE.findall(item["text"]))
 
 
 def _still_stuck(stuck, text, premise=""):
     """前の回の詰まり(stuck)のうち、今の版(text)でもまだ詰まる物と、問えたか。問えなければ全部と False。"""
-    prompt = (RECHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, line) for k, line in enumerate(stuck, 1))
+    prompt = (RECHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, finding_line("stuck", item))
+                                                           for k, item in enumerate(stuck, 1))
               + premise + "\n--- 今の版 ---\n" + text)
-    key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
-
-    def ask():
-        out = run_reader(prompt, model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT)
-        marks = {m.group(1): m.group(2).upper() for m in map(RECHECK_RE.match, out.splitlines()) if m}
-        if not marks:
-            raise RuntimeError("番号と STILL・FIXED の行が無い: %r" % out[:150])
-        return marks
     try:
-        marks, _ = _branch_cached(key, ask)
+        marks = _asked_marks(prompt, RECHECK_WORDS)
     except Exception as exc:
         log_line(DOC_LOG, "recheck-down\t%s" % str(exc)[:150].replace("\n", " "))
         return list(stuck), False
-    return [line for k, line in enumerate(stuck) if marks.get(str(k + 1)) != "FIXED"], True
+    return [item for k, item in enumerate(stuck) if marks.get(str(k + 1)) != "fixed"], True
 
 
 def _branch_where(root, mb):
@@ -3997,9 +4174,14 @@ def _load_last(path):
             last = json.load(f)
         ok = (last.get("sig") == _last_sig() and isinstance(last.get("text"), str) and isinstance(last.get("premise"), str)
               and isinstance(last.get("found"), dict) and isinstance(last.get("quoted"), list)
-              and all(isinstance(last["found"].get(k), list) for k in ("詰まり", "補完", "疑問")))
+              and all(isinstance(last["found"].get(k), list) for k in COLD_KINDS))
+        if not ok:
+            _lost("前の回の控えの形か印が違う(分かれ目から読む)", path)
         return last if ok else None
-    except (OSError, ValueError, TypeError, AttributeError):
+    except FileNotFoundError:
+        return None   # 前の回が無い: 分かれ目から読む
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        _lost("前の回の控えを読めない(分かれ目から読む)", exc)
         return None
 
 
@@ -4012,28 +4194,29 @@ def _save_last(path, text, premise, found, quoted):
         os.replace(tmp, path)
         for e in sorted(os.scandir(DOC_BRANCH_LAST), key=lambda e: e.stat().st_mtime)[:-DOC_BRANCH_KEEP]:
             os.remove(e.path)
-    except OSError:
-        pass
+    except OSError as exc:
+        _lost("前の回の控えを書けない(次の回は分かれ目から読む)", exc)
 
 
 def _branch_verdict(key, body, focus, base, premise="", text=None, last=None):
     """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号, 問い直しと比べを問えたか, 字のとおりに引いた詰まり)。判定は覚えた物か、読んで覚えた物
-    ({"詰まり", "補完", "疑問"})。読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。
+    (sort_findings の形)。読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。
     premise はスキルのフォルダの補足(skill_premise)。last は同じブランチの前の回の控え(_load_last)で、その詰まりのうち今の版(text)でも
     まだ詰まる物を判定の詰まりの後ろに足す。body が None(前の回から字が変わらない)なら読まない。メインブランチの版と比べるのは
     今回読んで出た詰まりだけ(前の回の詰まりは比べて止めた物)"""
     if body is None:
-        found, cached = dict(last["found"], 詰まり=[]), True
+        found, cached = dict(last["found"], stuck=[]), True
     else:
-        found, cached = _branch_cached(key, lambda: read_doc(body, focus, premise=premise))
-    old, asked = _carried_from_base(found["詰まり"], body, base) if found["詰まり"] and base is not None else (set(), True)
-    quoted = [line for line in found["詰まり"] if _quoted(line, text)]
-    prev = [line for line in (last["found"]["詰まり"] if last else []) if line not in found["詰まり"]   # 読み直した所で同じ字で出た物は 1 件に
-            and not (line in last["quoted"] and _rewritten(line, text))]
+        found, cached = _branch_cached(key, lambda: read_doc(body, focus, premise=premise),
+                                       lambda d: isinstance(d, dict) and all(isinstance(d.get(k), list) for k in COLD_KINDS))
+    old, asked = _carried_from_base(found["stuck"], body, base) if found["stuck"] and base is not None else (set(), True)
+    quoted = [item for item in found["stuck"] if _quoted(item, text)]
+    prev = [item for item in (last["found"]["stuck"] if last else []) if item not in found["stuck"]   # 読み直した所で同じ字で出た物は 1 件に
+            and not (item in last["quoted"] and _rewritten(item, text))]
     if prev and (body is not None or premise != last["premise"]):
         prev, rechecked = _still_stuck(prev, text, premise)
         asked = asked and rechecked
-    return dict(found, 詰まり=found["詰まり"] + prev), cached, old, asked, quoted + [line for line in prev if line in last["quoted"]]
+    return dict(found, stuck=found["stuck"] + prev), cached, old, asked, quoted + [item for item in prev if item in last["quoted"]]
 
 
 # 語の置き換えだけの行は読み直さない(--fixer <Python のファイル>)。リポジトリの文を IT の定着語にそろえる置き換え(持ち主 2026-10-18)は
@@ -4093,12 +4276,15 @@ def branch_check(argv):
     where = _branch_where(root, mb)
     generated = _generated([full for _, full in docs]) if docs else set()
     moved = _moved_lines(root, mb) if docs else set()
-    picked = []
+    picked, unread = [], []
     for rel, full in docs:
         try:
             with open(full, encoding="utf-8") as f:
                 text = f.read()
-        except (OSError, UnicodeDecodeError):
+        except FileNotFoundError:
+            continue   # ブランチが書いた後に作業ツリーで消した文書(main へは入らない)
+        except (OSError, UnicodeDecodeError) as exc:
+            unread.append("%s: %s" % (rel, str(exc)[:80]))   # 数えずに飛ばすと、読めない文書が読んだ文書の数から黙って消える
             continue
         if full in generated or len(text) < DOC_MIN_LEN or any(m in text.split("\n", 1)[0] for m in DOC_SKIP_MARKS):
             continue
@@ -4115,7 +4301,7 @@ def branch_check(argv):
         premise = skill_premise(full)
         key = hashlib.sha256(doc_prompt(body, bool(part), premise).encode("utf-8")).hexdigest()[:40] if body is not None else None
         picked.append((rel, text, body, bool(part), key, old, premise, last, lpath))
-    notes, stuck, counts, down, fresh = [], [], {"詰まり": 0, "補完": 0, "前から": 0}, [], 0
+    notes, stuck, counts, down, fresh = [], [], {"stuck": 0, "guess": 0, "carried": 0}, [], 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
         futures = [(pool.submit(_branch_verdict, key, body, focus, old, premise, text, last), rel, text, focus, lpath, premise)
                    for rel, text, body, focus, key, old, premise, last, lpath in picked]
@@ -4127,20 +4313,20 @@ def branch_check(argv):
             down.append("%s: %s" % (rel, _down_reason(exc)))
             continue
         if lpath and asked:
-            kept = [line for k, line in enumerate(found["詰まり"]) if k not in old]
-            _save_last(lpath, text, premise, dict(found, 詰まり=kept), [line for line in quoted if line in kept])
+            kept = [item for k, item in enumerate(found["stuck"]) if k not in old]
+            _save_last(lpath, text, premise, dict(found, stuck=kept), [item for item in quoted if item in kept])
         fresh += not cached
-        log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["詰まり"] or found["補完"] else "clean",
+        log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["stuck"] or found["guess"] else "clean",
                                                   "(覚えた判定)" if cached else "", rel))
-        carried = [line for k, line in enumerate(found["詰まり"]) if k in old]
-        found = dict(found, 詰まり=[line for k, line in enumerate(found["詰まり"]) if k not in old])
+        carried = [finding_line("stuck", item) for k, item in enumerate(found["stuck"]) if k in old]
+        found = dict(found, stuck=[item for k, item in enumerate(found["stuck"]) if k not in old])
         note = doc_feedback(rel, found, focus, carried)
         if note:
             notes.append(note)
-        stuck += ["%s — %s" % (rel, line) for line in found["詰まり"]]
-        counts["詰まり"] += len(found["詰まり"])
-        counts["補完"] += len(found["補完"])
-        counts["前から"] += len(carried)
+        stuck += ["%s — %s" % (rel, line) for line in finding_lines(found, "stuck")]
+        counts["stuck"] += len(found["stuck"])
+        counts["guess"] += len(found["guess"])
+        counts["carried"] += len(carried)
     _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, *_ in picked])   # ターンの終わりの読みと重ねない
     where = _write_findings("branch", "\n\n".join(("coldread が、メインブランチに入れる前にブランチの文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
         if notes else None
@@ -4149,12 +4335,14 @@ def branch_check(argv):
     if down:
         print("読めなかった文書(読み手を起動できない。手で読ませるなら python3 %s read <パス>): %s"
               % (os.path.abspath(__file__), "・".join(down)))
+    if unread:
+        print("開けなかった文書(UTF-8 の文書として開けない。文書でなければ拡張子を変える): %s" % "・".join(unread))
     print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件%s・推測で埋めた箇所 %d 件%s。%s"
-          % (len(picked), fresh, counts["詰まり"],
-             "(ほかにメインブランチの版にも在った詰まり %d 件は止めない)" % counts["前から"] if counts["前から"] else "",
-             counts["補完"], "・読めなかった %d 本" % len(down) if down else "",
+          % (len(picked), fresh, counts["stuck"],
+             "(ほかにメインブランチの版にも在った詰まり %d 件は止めない)" % counts["carried"] if counts["carried"] else "",
+             counts["guess"], "・読めなかった %d 本" % len(down + unread) if down or unread else "",
              ("全文: " + where) if where else "指摘なし"))
-    return 1 if stuck or down else 0
+    return 1 if stuck or down or unread else 0
 
 
 def read_now(path):
@@ -4167,8 +4355,9 @@ def read_now(path):
         print("読めなかった: %s" % _down_reason(exc))
         return 1
     body = doc_feedback(path, found)
-    print(body or "CLEAN(詰まりも補完も無い)" + ("\n" + section("残った疑問:", found["疑問"]) if found["疑問"] else ""))
-    return 1 if found["詰まり"] else 0
+    print(body or "CLEAN(詰まりも補完も無い)" + ("\n" + section("残った疑問:", finding_lines(found, "question"))
+                                                 if found["question"] else ""))
+    return 1 if found["stuck"] else 0
 
 
 def hook_main(mode):
@@ -4177,7 +4366,11 @@ def hook_main(mode):
         return
     try:
         payload = json.load(sys.stdin)
-    except Exception:
+        if not isinstance(payload, dict):
+            raise ValueError("object でない")
+    except Exception as exc:
+        # 書いた後の口なので止める物が無い(書き込みは済んでいる)。黙らずに、読めなかったことを出す(決まり 4)
+        _lost("フックの入力(JSON)を読めない(%s の口。この回の文書は記録・読みをしない)" % mode, exc)
         return
     if mode == "docs-record":
         docs_record(payload)

@@ -67,6 +67,10 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
   a variable went out unread 54 times in the most recent 14 days). Not sending short boilerplate replies to the reader is decided by passing them when the extracted text is
   under 200 characters. It does not apply to read-only gh commands, or to gh with `--help`, `-h`, or `--version` (which print help and end)
 - It also stops when coldreader cannot be started (because no check was done). If that does not get fixed, hand it to the owner (the person who runs this Claude Code session and owns the repository)
+- coldreader is started with `claude -p --output-format json --json-schema`, and the gate reads only the `structured_output` field: a list of findings, each with
+  a kind key (`stuck`, `echo`, `question`, `guess`, `redundant`), an optional cause key (`word`, `referent`, `flow`), `carried`, and the text. The Japanese labels in the
+  stop reason are made from these keys afterwards; the reader's prose is never parsed. An answer that is not in this shape (not JSON, `is_error`, an unknown kind,
+  an empty text) is not read as "no findings": the post is stopped. The gate also stops when it cannot read its own hook input (it used to let the command through)
 - When the screen cannot be fetched (no gh, no auth, offline), the reader reads with zero context and the writer is told so (it does not stop)
 - coldreader does not read the user's CLAUDE.md or settings (it is started with `--setting-sources ""`). If the reader holds rules meant for writers,
   such as "write so that a first-time reader understands", as its own instructions, it leans toward raising every identifier as a blocker
@@ -83,8 +87,8 @@ raised "what are #1231 #1581 #1283" and "what is the 9/2 proposal" as blockers, 
   The previous round is carried over only when 8 or more of the text's 16 fingerprints match; a text rewritten by more than half, and a different
   post to the same destination, are read in full as a 1st round
 - **From the 3rd round, it stops only on blockers and echoes left over from the previous round** (owner 2026-10-17: 「ある程度出たと判断したら進む形にしよう」, "once we judge enough has come out, let it move on").
-  The previous round's findings are passed to the reader split into the ones that stopped the post and the ones that did not. The reader is made to write 「(前の回)」 ("(previous round)") right after
-  「詰まり: 」 ("blocker: ") or 「なぞり: 」 ("echo: "), and lines without this mark right after the label are returned as questions without stopping. Lines that contain only 「なし」 ("none") after the mark are dropped. The number of lines that stop is capped at
+  The previous round's findings are passed to the reader split into the ones that stopped the post and the ones that did not. The reader sets `carried: true` on a blocker
+  (`stuck`) or echo (`echo`) finding left over from the previous round, and findings without it are returned as questions without stopping. The number of findings that stop is capped at
   one less than the number that stopped in the previous round if the text was fixed (the excess moves to questions), and at the previous round's number if it was resubmitted without fixing.
   Even if the reader marks new things, the number that stops goes down with every fix and passes at 0 — the gate settles on its own. Resubmitting without fixing does not reduce it.
   Rounds that cannot carry over the previous round's record (more than half the text rewritten, more than 30 minutes in between, a different version) go back to the 1st round
@@ -291,8 +295,8 @@ How findings are returned depends on the writing role:
   in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch-last/` (the newest 2,000 are kept), reads only the sections rewritten since that version (the same range read as above),
   and does not read again a document whose text has not changed (also when only the premise `SKILL.md` of a separate file changed).
   The blockers that stopped the last run are asked again only when the document's text or its premise changed: each is sent with the whole current version and the premise
-  to the same reader model, which answers whether it still blocks a reader at the same place for the same reason (STILL) or not (FIXED). STILL blockers stop as before, FIXED ones do not,
-  and an unsure answer or a check that cannot run keeps the blocker. A blocker is dropped without asking when every passage the reader copied from the document into the blocker line between 「 and 」 was word for word in the version where the blocker was found and is gone from the current version: the section that held those passages was rewritten and is read anew in this run (on 2026-10-19 the re-ask answered STILL for a blocker whose quoted passage had been rewritten, so asking would have kept a fixed blocker). If neither text nor premise changed, the blockers stop again without asking, because each new question
+  to the same reader model, which answers whether it still blocks a reader at the same place for the same reason (`still`) or not (`fixed`) in a JSON answer. `still` blockers stop as before, `fixed` ones do not,
+  and an unsure answer or a check that cannot run keeps the blocker. A blocker is dropped without asking when every passage the reader copied from the document into the blocker line between 「 and 」 was word for word in the version where the blocker was found and is gone from the current version: the section that held those passages was rewritten and is read anew in this run (on 2026-10-19 the re-ask answered "still blocks" for a blocker whose quoted passage had been rewritten, so asking would have kept a fixed blocker). If neither text nor premise changed, the blockers stop again without asking, because each new question
   could let an unfixed blocker pass on the reader's variation. Only blockers found in this run are compared with the mainline version (a blocker the mainline version also has does not stop the branch; see above).
   A run is not kept when the reader could not be started, or when the re-ask or the mainline comparison could not run; the next run starts again from the version kept before (verdicts already read are remembered, so this costs no new read).
   The kept versions are not used when the reader's request text, the model, or the effort changes (such as after updating gates to a new version).
@@ -395,9 +399,10 @@ The second gatekeeper, restricting a different axis from coldread: "may this be 
 - If `$CLAUDE_CONFIG_DIR/destgate/allowlist` does not exist, it does nothing. Creating it turns it on
 - The format is one pattern per line: `owner/repo`, `owner/*`, `gist` (lines starting with # and empty lines are ignored)
 - The destination is determined in the same order gh itself resolves it: `-R/--repo` → the `gh api`
-  path `repos/{owner}/{repo}` or `orgs/{org}` → if neither, the current git remote.
+  path `repos/{owner}/{repo}` or `orgs/{org}` → if neither, the repository gh picks for the current directory
+  (`gh repo view --json nameWithOwner`; not `origin`, because gh may pick the `gh repo set-default` repository or another remote).
   Posts whose destination cannot be identified are stopped with a request to specify `-R` explicitly
 - **There is no escape hatch**. To let something through, a person adds it to the list — that addition becomes the record
 - **Managing the list is a person's job**. A model that received a deny editing the list itself to get through would be disabling the gatekeeper,
   and the deny message forbids it too (it cannot be enforced by machine, so it is stated as a rule)
-- Reach: it does not touch commands it cannot parse, and leaves them to coldread's rule (deny depending on length)
+- It fails closed: when the list exists, a hook input it cannot read, and a gh command it cannot parse, are stopped (the destination cannot be checked)

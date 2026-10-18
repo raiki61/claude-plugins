@@ -2114,39 +2114,45 @@ assert found >= 26, f"引用を {found} 件しか拾えていない（26 件以�
 print(f"DOC_HEADINGS_OK {found}")
 PYHEAD
 
-# **呼ぶ前に見える面が、手順書の入口のセクションを名指しする。** コマンドを選ぶときに見えるのは frontmatter の description
-# だけで、本文は呼んだ後にしか読まれない（公式: code.claude.com/docs/en/skills）。判定から入る入口が本文のセクションにしか
-# 無かった版では、別のリポジトリの AI が入口に気づかなかった（人の報告 2026-09-25）。見出しを改名しても description が
-# 古い名前のままなら赤。
-expect_output 0 "ENTRY_SURFACE_OK" "review-graph の description が判定から入る入口のセクションを名指しする" \
-    "$PY_BIN" - "$ROOT" <<'PYENTRY'
+# 下の 3 つは手順書と役の定義の頭の YAML を YAML の読み手（PyYAML。tests/frontmatter.py）で読む。手元に無ければ見送り、
+# CI の FAIL_ON_SKIP=1 が SKIP_ALLOW に無い名前（pyyaml）として赤にする（スキルの説明のチェックと同じ）
+if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
+    # **呼ぶ前に見える面が、手順書の入口のセクションを名指しする。** コマンドを選ぶときに見えるのは frontmatter の description
+    # だけで、本文は呼んだ後にしか読まれない（公式: code.claude.com/docs/en/skills）。判定から入る入口が本文のセクションにしか
+    # 無かった版では、別のリポジトリの AI が入口に気づかなかった（人の報告 2026-09-25）。見出しを改名しても description が
+    # 古い名前のままなら赤。
+    expect_output 0 "ENTRY_SURFACE_OK" "review-graph の description が判定から入る入口のセクションを名指しする" \
+        "$PY_BIN" - "$ROOT" <<'PYENTRY'
 import re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "tests"))
+import frontmatter
 sk = pathlib.Path(sys.argv[1]) / "graphloops/skills/review-graph"
-m = re.match(r"---\n(.*?)\n---\n(.*)", (sk / "SKILL.md").read_text(encoding="utf-8"), re.S)
-assert m, "review-graph の SKILL.md: frontmatter が無い"
-desc = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.M)
-assert desc and desc.group(1).strip(), "review-graph の SKILL.md: description が無い"
+fm, body = frontmatter.split((sk / "SKILL.md").read_text(encoding="utf-8"))
+desc = fm.get("description")
+assert isinstance(desc, str) and desc.strip(), "review-graph の SKILL.md: description が無い"
 # 入口のセクションは本文か、本文が指す別ファイル（references/）のどこかに 1 つだけ在る
-text = m.group(2) + "".join(f.read_text(encoding="utf-8") for f in sorted((sk / "references").glob("*.md")))
+text = body + "".join(f.read_text(encoding="utf-8") for f in sorted((sk / "references").glob("*.md")))
 heads = re.findall(r"^## (判定から入る.*?)\s*$", text, re.M)
 assert len(heads) == 1, f"review-graph: 判定から入る入口の見出しが 1 つでない（{heads}）"
-assert f"「{heads[0]}」" in desc.group(1), f"description が入口のセクション「{heads[0]}」を名指ししていない"
+assert f"「{heads[0]}」" in desc, f"description が入口のセクション「{heads[0]}」を名指ししていない"
 print(f"ENTRY_SURFACE_OK {heads[0]}")
 PYENTRY
 
-# **重い工程のコマンドは人の指示のときだけ起動する**（人の決定 2026-09-25。トークンをかなり使うので人が決めたときだけ
-# 回す）。AI が起動前に見るのは description だけなので、決定は description に書く（本文には写さない——写しの正本を
-# 1 つにする）。走査の母数は convergence-loops と graphloops の commands/*.md と skills/*/SKILL.md のファイル集合から導く。
-# 見るのは条件の文が在ることだけで、自分から起動する合図の句（「…に使用する」等）が無いことは語が揺れるので縛らない。
-expect_output 0 "HUMAN_ONLY_OK" "重い工程のコマンドの description が、起動は人の指示のときだけと言う" \
-    "$PY_BIN" - "$ROOT" <<'PYHUMAN'
+    # **重い工程のコマンドは人の指示のときだけ起動する**（人の決定 2026-09-25。トークンをかなり使うので人が決めたときだけ
+    # 回す）。AI が起動前に見るのは description だけなので、決定は description に書く（本文には写さない——写しの正本を
+    # 1 つにする）。走査の母数は convergence-loops と graphloops の commands/*.md と skills/*/SKILL.md のファイル集合から導く。
+    # 見るのは条件の文が在ることだけで、自分から起動する合図の句（「…に使用する」等）が無いことは語が揺れるので縛らない。
+    expect_output 0 "HUMAN_ONLY_OK" "重い工程のコマンドの description が、起動は人の指示のときだけと言う" \
+        "$PY_BIN" - "$ROOT" <<'PYHUMAN'
 import re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "tests"))
+import frontmatter
 cmds = []
 for d in ("convergence-loops", "graphloops"):
     # 手順書は commands/<名前>.md か、別ファイルを持つなら skills/<名前>/SKILL.md（呼び出しの名前は同じ）
@@ -2159,20 +2165,24 @@ def cmd_name(p):
 LIGHT = {"intake"}
 cmds = [p for p in cmds if cmd_name(p) not in LIGHT]
 for p in cmds:
-    m = re.match(r"---\n(.*?)\n---\n", p.read_text(encoding="utf-8"), re.S)
-    desc = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.M) if m else None
-    assert desc, f"{cmd_name(p)}: description が無い"
-    assert f"人が /{cmd_name(p)} と打ったときか「工程に回して」と言ったときだけ" in desc.group(1) and "AI は自分から起動せず" in desc.group(1), \
+    desc = frontmatter.split(p.read_text(encoding="utf-8"))[0].get("description")
+    assert isinstance(desc, str), f"{cmd_name(p)}: description が無い"
+    # 決まった文で見るのは、description が AI の読む文（読み物）で、AI に起動を控えさせる口がこの文しか無いから（docs/standards/
+    # machine-readable-values.md の決まり 3 の外）。機械の口の disable-model-invocation は「工程に回して」の頼みでの起動まで塞ぐ。
+    # 英語で書いた description はこの文を持たないので赤になり、黙って通らない
+    assert f"人が /{cmd_name(p)} と打ったときか「工程に回して」と言ったときだけ" in desc and "AI は自分から起動せず" in desc, \
         f"{cmd_name(p)}: description が『起動は人の指示のときだけ・AI は自分から起動しない』を言っていない"
 print(f"HUMAN_ONLY_OK {len(cmds)}")
 PYHUMAN
 
-expect_exit 0 "役割 agent の定義と手順書の参照が整合する" "$PY_BIN" - "$ROOT" <<'PY'
+    expect_exit 0 "役割 agent の定義と手順書の参照が整合する" "$PY_BIN" - "$ROOT" <<'PY'
 import re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root / "tests"))
+import frontmatter
 # 遮断系はツールゼロで起動する。`tools: []` が「ツールなし」、行ごと省くと全ツールを継承、
 # 列挙した全部が解決できないときだけ起動拒否——という区別は実測で確かめた
 # （2026-08-21・Claude Code 2.1.238・`claude -p` で `tools: []` の agent は Read に失敗、
@@ -2181,19 +2191,23 @@ BLIND = {"cold-reader", "blind-judge"}
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 agents = {}
 for f in sorted((root / "convergence-loops/agents").glob("*.md")):
-    m = re.match(r"---\n(.*?)\n---\n", f.read_text(encoding="utf-8"), re.S)
-    assert m, f"{f.name}: frontmatter が無い"
-    fm = dict(re.findall(r"^([a-zA-Z-]+):[ \t]*(.*)$", m.group(1), re.M))
+    try:
+        fm = frontmatter.split(f.read_text(encoding="utf-8"))[0]
+    except ValueError as exc:
+        raise AssertionError(f"{f.name}: {exc}")
     for key in ("name", "description", "model", "effort", "tools"):
-        assert fm.get(key) is not None, f"{f.name}: frontmatter に {key} が無い"
+        assert key in fm, f"{f.name}: frontmatter に {key} が無い"
     assert fm["name"] == f.stem, f"{f.name}: name '{fm['name']}' が filename と違う"
     assert fm["model"] in ("sonnet", "opus", "haiku"), f"{f.name}: model が不正: {fm['model']}"
     assert fm["effort"] in ("low", "medium", "high", "xhigh", "max"), f"{f.name}: effort が不正: {fm['effort']}"
-    raw = fm["tools"].strip()
-    assert raw, f"{f.name}: tools が空文字——省略と同じで全ツールを継承する。ツールなしは `tools: []` と 1 行で書け（複数行の配列も不可）"
-    # CSV（`Read, Glob`）と YAML 配列（`["Read", "Glob"]`）はどちらも Claude Code が受ける。片方だけ
+    raw = fm["tools"]
+    assert raw is not None and raw != "", f"{f.name}: tools が空——省略と同じで全ツールを継承する。ツールなしは `tools: []` と書け"
+    # CSV（`Read, Glob`）と YAML の一覧（`["Read", "Glob"]`・複数行の `- Read`）はどちらも Claude Code が受ける。片方だけ
     # 解くと、もう片方で書いた書くツールが素通りする。スコープ付き（`Write(docs/*)`）は括弧の前で切る。
-    tools = [t for t in (re.sub(r"\(.*", "", x.strip().strip("\"'")).strip() for x in raw.strip("[]").split(",")) if t]
+    assert isinstance(raw, (str, list)), f"{f.name}: tools が文字列でも一覧でもない: {raw!r}"
+    items = raw.split(",") if isinstance(raw, str) else raw
+    assert all(isinstance(x, str) for x in items), f"{f.name}: tools の一覧に文字列でない物が在る: {raw!r}"
+    tools = [t for t in (re.sub(r"\(.*", "", x).strip() for x in items) if t]
     # 「書き換えるな」を言い渡しでなく定義で担保する——どの役にも書くツールを渡さない
     assert not (WRITE_TOOLS & set(tools)), f"{f.name}: 書くツールを持っている: {sorted(WRITE_TOOLS & set(tools))}"
     agents[fm["name"]] = tools
@@ -2222,18 +2236,19 @@ assert len(set(rule_blocks.values())) == 1, "検索語の規律の字面が役�
 
 # 存在検査は手順書と文書のどこに識別子が出ても効かせる。使用検査（孤児の検出）は手順書だけ——
 # README は全役の一覧表を持つので、含めると孤児が原理的に出なくなる。手順書側の語彙宣言行
-# （「以降 `X` と書いたものは…」）も全役を列挙するので、同じ理由で使用に数えない。
+# （「以降 `X` と書いたものは `subagent_type: convergence-loops:<役割>` を指す」）も全役を列挙するので、同じ理由で使用に数えない。
+# 宣言の行は言い回しでなく、名前の置き場の印 `convergence-loops:<` で見分ける（英語で書いても同じ印が残る。決まり 3）
 # 手順書は commands/*.md と、skills/<名前>/ の本文（SKILL.md）と別ファイル（references/）
 cl = root / "convergence-loops"
 commands = [*cl.glob("commands/*.md"), *cl.glob("skills/*/SKILL.md"), *cl.glob("skills/*/references/*.md")]
 for f in [*commands, root / "convergence-loops/docs/customize.md", root / "convergence-loops/README.md"]:
     for name in re.findall(r"convergence-loops:([a-z][a-z-]*)", f.read_text(encoding="utf-8")):
         assert name in agents, f"{f.name}: 存在しない役割 convergence-loops:{name} を参照している"
-referenced = set()
+referenced, launches = set(), 0
 for f in commands:
     body = f.read_text(encoding="utf-8")
     for line in body.splitlines():
-        if "と書いたものは" in line:
+        if "convergence-loops:<" in line:
             continue
         referenced |= {n for n in re.findall(r"`([a-z][a-z-]*)`", line) if n in agents}
     # 役割に寄せた以上、汎用 agent とモデル名の写し（`model:` の形でも散文でも）を手順書に戻すな（正本は agents/）
@@ -2243,11 +2258,23 @@ for f in commands:
     # 役名の無い起動は既定 subagent に落ち、モデルもツールも継承する（遮断が崩れる）。孤児検査は
     # 「役が一度も使われない」しか見ないので、「X を起動」の X が役名であることを別に見る。
     # 見るのはこの語形だけ——doctor / research は「checker＝`inspector`」の形で役を束ねる。
-    for tok in re.findall(r"([^\s、。」（(]+)\s*を起動", body):
+    # 手順書の本文は日本語で書く決まり（docs/readme-language.md）だが、英語で書いた起動（launch `X` など）も同じ形で見る——
+    # 日本語の語形だけを見ていると、英語で書いた起動は黙って検査の外に出る
+    starts = re.findall(r"([^\s、。」（(]+)\s*を起動", body) + re.findall(r"(?i)\b(?:launch|spawn|start|invoke)\s+(?:an?\s+|the\s+)?([^\s,.;:()]+)", body)
+    for tok in starts:
         assert tok.strip("*") in {f"`{n}`" for n in agents}, f"{f.name}: 役名の付いていない起動がある: 「{tok} を起動」"
+    launches += len(starts)
+# 拾った起動の下限は走らせた実測値。語形の正規表現が壊れて 0 件になると、上の assert は空振りで通る
+assert launches >= 6, f"起動の語形を {launches} 件しか拾えていない（6 件以上を期待。走らせた実測値だけを書け）"
 orphans = set(agents) - referenced
 assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY
+else
+    fm_skip="  ok   手順書と役の定義の頭の YAML のチェック（3 件） # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
+    echo "$fm_skip"
+    note_skips "$fm_skip"
+    ran=$((ran + 3))
+fi
 
 expect_exit 0 "配布物に固有の技術名・このリポジトリの検証のツールの名前が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
 import ast, json, re, subprocess, sys, pathlib
@@ -2355,7 +2382,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=720
+EXPECTED_CHECKS=732
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2375,16 +2402,20 @@ CR_POST="gh issue comment 1 --body-file - <<'EOF'
 $CR_BODY
 $CR_PAD
 EOF"
-CR_STUB_CLEAN='cat >/dev/null; echo CLEAN'
-CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
-CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
+# 読み役の代役は claude -p --output-format json と同じ形の答えを出す(ゲートは structured_output を読む)。
+# 答えは tests/coldread-reply.py で組む。$CR_ANS は、代役の文字列(sh -c で走る)の中で展開される字のまま入れる
+export CR_PY="$PY_BIN" CR_REPLY_PY="$ROOT/tests/coldread-reply.py"
+CR_ANS='"$CR_PY" "$CR_REPLY_PY"'
+CR_STUB_CLEAN="cat >/dev/null; $CR_ANS"
+CR_STUB_BLOCK="cat >/dev/null; $CR_ANS 'stuck=F3 が何か本文で解決できない' 'question=期限はいつか'"
+CR_STUB_QUEST="cat >/dev/null; $CR_ANS 'question=期限はいつか'"
 # 3 回目からは前の回から残った詰まりだけが止める。続けて止まる数を見る検査は、前の回の印の付いた詰まりを返す代役を使う
-CR_STUB_CARRY='cat >/dev/null; printf "詰まり: (前の回) F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
+CR_STUB_CARRY="cat >/dev/null; $CR_ANS 'stuck+carried=F3 が何か本文で解決できない' 'question=期限はいつか'"
 # 直した本文では止める数が前の回より 1 つ減るので、直しながら止まり続ける検査は 2 件返す代役を使う
-CR_STUB_CARRY2='cat >/dev/null; printf "詰まり: (前の回) F3 が何か本文で解決できない\n詰まり: (前の回) F4 が何か本文で解決できない\n"'
+CR_STUB_CARRY2="cat >/dev/null; $CR_ANS 'stuck+carried=F3 が何か本文で解決できない' 'stuck+carried=F4 が何か本文で解決できない'"
 CR_STUB_FAIL='cat >/dev/null; exit 1'
 # 読み役の代役: 届いた依頼文+本文に印(ASCII)が在るかで返す文言を変える(本文が実際に届いたことまで見る)
-cr_stub_sees() { printf 'b=$(cat); case "$b" in *%s*) printf "詰まり: %s が届いた\\n";; *) printf "詰まり: %s が届いていない\\n";; esac' "$1" "$1" "$1"; }
+cr_stub_sees() { printf 'b=$(cat); case "$b" in *%s*) %s "stuck=%s が届いた";; *) %s "stuck=%s が届いていない";; esac' "$1" "$CR_ANS" "$1" "$CR_ANS" "$1"; }
 # ゲートを module として読む前置き(-c の頭に付ける)
 CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
@@ -2590,24 +2621,22 @@ expect_output 0 "--body" "ゲートから漏れた投稿は旗の綴りだけ mi
 
 # 補完(読み手が推測で埋めた箇所)。詰まり 0 件で通る自信のある誤読を書き手に返すためのフィールドで、
 # 投稿は止めない。事故で最悪だった誤読(「いま CI が壊れている」)がこの型
-CR_STUB_FILL='cat >/dev/null; printf "補完: 障害は今起きていると読んだ\nCLEAN\n"'
-CR_STUB_BLOCK_FILL='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n補完: 障害は今起きていると読んだ\n"'
-CR_STUB_PROSE='cat >/dev/null; printf "詰まりは無い。本文は将来の話をしている。\nCLEAN\n"'
+CR_STUB_FILL='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "guess=障害は今起きていると読んだ"'
+CR_STUB_BLOCK_FILL='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck=F3 が何か本文で解決できない" "guess=障害は今起きていると読んだ"'
+# 決めた形(JSON の findings)でない答えは、地の文で「無い」と書いてあっても「指摘ゼロ」と読まない
+CR_STUB_PROSE='cat >/dev/null; printf "詰まりは無い。本文は将来の話をしている。\n"'
 expect_output 0 "推測で埋めた箇所" "補完のみなら通り、埋めた中身が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FILL" "$CR_POST"
 expect_output 0 "補完: 障害は今起きている" "補完は deny の指摘にも載る(直す機会があるのは deny の側)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_FILL" "$CR_POST"
-# 期待は allow にしか出ない語にする。「通じやすさのみ」(SCOPE_NOTE)は deny にも載るので
-# 恒真になる——実際に恒真だったのを変異で検出して直した
-expect_output 0 "検査を通過" "ラベルはコロンまで見る(「詰まりは無い」の地の文で deny にしない)" \
+expect_output 0 "決めた形" "JSON でない地の文の答えは、指摘ゼロと読まずに止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_PROSE" "$CR_POST"
 expect_output 0 "止めてはいないが" "deny の指摘は見出しで分ける(直す詰まりと、直さなくてよい補完)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_FILL" "$CR_POST"
-# 末尾の CLEAN で詰まりが上書きされないこと。読み役に自由文のフィールド(補完)を足したぶん、
-# 「指摘を並べた後に CLEAN と書く」形が出やすくなっている
-CR_STUB_BLOCK_CLEAN='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\nCLEAN\n"'
-expect_output 0 "投稿を止めている詰まり" "詰まりを並べた後に CLEAN と書かれても通さない" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_CLEAN" "$CR_POST"
+# 知らない種類の指摘を読み飛ばさない(読み飛ばすと、形の崩れた答えが指摘ゼロに見える)
+CR_STUB_ODD_KIND='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "blocker=F3 が何か本文で解決できない"'
+expect_output 0 "決めた形" "知らない種類の指摘が在る答えは止める(読み飛ばして通さない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_ODD_KIND" "$CR_POST"
 # misses.log は当たった旗の綴りだけを残す。gh secret set は投稿でない(NON_POSTING)ので
 # 必ず miss の分岐に落ちるため、コマンドの抜粋を残すと秘密そのものが平文で溜まる
 expect_output 0 "ALLOW_EMPTY" "gh secret set は投稿でないので素通し" \
@@ -2686,7 +2715,7 @@ expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "
 # 呼ばれた回数と渡った依頼文をファイルに残させて数える——指摘を返すかだけを見ると、読まずに通す形も緑になる
 expect_output 0 "DOCS_GATE_OK" "coldread の手元の文書: 文書だけを記録し、ターンの終わりに 1 本 1 回だけ投稿と同じ依頼文で読み、親には指摘をファイルに書いて短い知らせだけを返す" \
     "$PY_BIN" - "$ROOT" "$WORK/docs-gate" <<'PY'
-import importlib.util, json, os, pathlib, re, subprocess, sys
+import importlib.util, json, os, pathlib, re, shlex, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -2710,11 +2739,12 @@ def run(mode, payload, reader=None, **env):
     assert r.returncode == 0, (mode, r.returncode, r.stderr.decode("utf-8", "replace"))
     return r.stdout.decode("utf-8")
 
-# 読み手の差し替え: 呼ばれるたびに受けた依頼文を calls/ に 1 本ずつ残し、決まった報告を返す
-def stub(report):
-    return ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; printf "%s\n"' % (calls, calls, report))
-FIND = stub("詰まり: 『例の方針』が何か分からない\\n補完: 方針は決まっていると読んだ")
-CLEAN = stub("CLEAN")
+# 読み手の差し替え: 呼ばれるたびに受けた依頼文を calls/ に 1 本ずつ残し、決まった答え(tests/coldread-reply.py の引数)を返す
+def stub(*findings):
+    return ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; "$CR_PY" "$CR_REPLY_PY" %s'
+            % (calls, calls, " ".join(shlex.quote(f) for f in findings)))
+FIND = stub("stuck=『例の方針』が何か分からない", "guess=方針は決まっていると読んだ")
+CLEAN = stub()
 
 def doc(name, text):
     f = work / name
@@ -2825,7 +2855,7 @@ sub = raw("docs-check", {"session_id": "s7", "agent_id": "agent-q", "hook_event_
 assert "例の方針" in json.loads(sub.stdout)["hookSpecificOutput"]["additionalContext"], "対話の会話でサブエージェントの終わりに待って読まない"
 
 # 推測で埋めた箇所と疑問だけなら、書いた役を呼び起こさない(親の待つ口・裏の口・サブエージェントの終わりのどれも)。docs.log に件数は残す
-GUESS = stub("補完: 方針は決まっていると読んだ\\n疑問: 期限はいつか")
+GUESS = stub("guess=方針は決まっていると読んだ", "question=期限はいつか")
 touch("s6", 6)
 assert raw("docs-check", {"session_id": "s6", "hook_event_name": "Stop"}, GUESS, CLAUDE_CODE_ENTRYPOINT="sdk-cli").stdout == b"", "推測だけで親を呼び起こした"
 touch("s5", 7)
@@ -2839,7 +2869,7 @@ assert len(re.findall(r"^\S+ \S+\tguess=1\t", (cfg / "coldread-gate/docs.log").r
 def loaded(**env):
     e = {k: v for k, v in os.environ.items() if not k.startswith("COLDREAD_")}
     r = subprocess.run([sys.executable, "-c", "import importlib.util as u, sys; s = u.spec_from_file_location('g', sys.argv[1]); m = u.module_from_spec(s); "
-                        "s.loader.exec_module(m); a = m.reader_argv('claude'); print(m.DOC_MODEL, m.DOC_EFFORT, a[a.index('--model') + 1], a[a.index('--effort') + 1])", str(gate)],
+                        "s.loader.exec_module(m); a = m.reader_argv('claude', {}); print(m.DOC_MODEL, m.DOC_EFFORT, a[a.index('--model') + 1], a[a.index('--effort') + 1])", str(gate)],
                        capture_output=True, text=True, env=dict(e, CLAUDE_CONFIG_DIR=str(cfg), **env))
     return r.stdout.split()
 assert loaded() == ["haiku", "high", "sonnet", "medium"], loaded()
@@ -2848,7 +2878,8 @@ assert loaded(COLDREAD_DOC_EFFORT="low")[1] == "low", "COLDREAD_DOC_EFFORT で�
 pick = lambda a, flag: a[a.index(flag) + 1]
 seen_argv, saved = [], (g.subprocess.run, g.claude_auth.auth_env, os.environ.pop("COLDREAD_READER_CMD", None))
 g.claude_auth.auth_env = lambda env, **kw: (dict(env), None)
-g.subprocess.run = lambda argv, **kw: (seen_argv.append(argv), subprocess.CompletedProcess(argv, 0, b"CLEAN", b""))[1]
+g.subprocess.run = lambda argv, **kw: (seen_argv.append(argv), subprocess.CompletedProcess(argv, 0, json.dumps(
+    {"type": "result", "is_error": False, "structured_output": {"findings": []}}).encode("utf-8"), b""))[1]
 try:
     g.read_doc("本文")
 finally:
@@ -3135,7 +3166,7 @@ def run(mode, payload, reader=None):
 
 # 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残し、本文に在る印をそのまま指摘に写す（どの文書を読んだかを指摘から引く）
 FIND = ('n=$(ls "%s" | wc -l | tr -d " "); cat > "%s/$n.txt"; '
-        'printf "詰まり: 『%%s』が何か分からない\\n" "$(grep -o "印[A-Z]" "%s/$n.txt" | head -1)"' % (calls, calls, calls))
+        '"$CR_PY" "$CR_REPLY_PY" "stuck=『$(grep -o "印[A-Z]" "%s/$n.txt" | head -1)』が何か分からない"' % (calls, calls, calls))
 
 def doc(name):
     f = work / name
@@ -3315,7 +3346,7 @@ def git(*a):
 
 # 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残す。返すのは CLEAN(渡った本文だけを見る)。
 # 1 回の終わりに複数の文書を並べて読むので、名前は mktemp で分ける(数えて名付けると、並んだ読み手が同じ名前に書く)
-READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
+READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; "$CR_PY" "$CR_REPLY_PY"' % calls.as_posix()
 def prompts(suffix=""):
     return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)
             if f.name.endswith(".base") == (suffix == ".base")]
@@ -3490,7 +3521,7 @@ def record(sid, path):
 def stop(sid, reader, wait=True):
     return hook("docs-check", {"session_id": sid, "hook_event_name": "Stop"}, reader, wait)
 
-READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
+READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; "$CR_PY" "$CR_REPLY_PY"' % calls.as_posix()
 started = work / "started"
 SLOW = "touch %s; sleep 3; " % started.as_posix() + READER   # 動き出した印を置いてから、読み終えるまで 3 秒かかる読み手
 n_calls = lambda: len(list(calls.iterdir()))
@@ -3541,20 +3572,22 @@ repo.mkdir()
 def git(*a):
     return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True).stdout.decode("utf-8").strip()
 
-# 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは CLEAN を返す。
+# 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは指摘ゼロを返す。
 # 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。「印QUOTE」が在れば、ほかの印より先に「印QUOTE の文」を「」で引いた詰まりだけを返す。
-# 前の回の詰まりがまだ詰まるかを問う依頼文(RECHECK_HEAD)は名前の末尾を .recheck にして残し、今の版に印STUCK が在れば全部を STILL、無ければ全部を FIXED と返す。
+# 前の回の詰まりがまだ詰まるかを問う依頼文(RECHECK_HEAD)は名前の末尾を .recheck にして残し、今の版に印STUCK が在れば全部を still、無ければ全部を fixed と返す。
 # 詰まりをメインブランチの版と比べる依頼文(BASE_CHECK_HEAD)は名前の末尾を .base にして残し、前の版にも印STUCK が在れば印STUCK の詰まりを
-# OLD と返す(印FRESH の詰まりが 1 番に在れば 1 は NEW、印STUCK の詰まりは 2 番)
-READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "直しを確かめる係" "$f"; then mv "$f" "$f.recheck"; '
-          'v=FIXED; sed -n "/^--- 今の版 ---$/,\\$p" "$f.recheck" | grep -q 印STUCK && v=STILL; '
-          'for n in $(grep -o "^[0-9]*\\. 詰まり" "$f.recheck" | cut -d. -f1); do echo "$n $v"; done; '
+# old と返す(印FRESH の詰まりが 1 番に在れば 1 は new、印STUCK の詰まりは 2 番)
+READER = ('R() { "$CR_PY" "$CR_REPLY_PY" "$@"; }; '
+          'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "直しを確かめる係" "$f"; then mv "$f" "$f.recheck"; '
+          'v=fixed; sed -n "/^--- 今の版 ---$/,\\$p" "$f.recheck" | grep -q 印STUCK && v=still; '
+          'R --verdicts $(for n in $(grep -o "^[0-9]*\\. 詰まり" "$f.recheck" | cut -d. -f1); do echo "$n=$v"; done); '
           'elif grep -q "2 つの版を比べる係" "$f"; then mv "$f" "$f.base"; '
           'if sed -n "/^--- 前の版 ---$/,\\$p" "$f.base" | grep -q 印STUCK; then '
-          'if grep -q "^1\\. 詰まり: 印FRESH" "$f.base"; then echo "1 NEW"; echo "2 OLD"; else echo "1 OLD"; fi; else echo "1 NEW"; fi; '
-          'elif grep -q 印QUOTE "$f"; then echo "詰まり: 「印QUOTE の文」が取れない"; '
-          'elif grep -q 印STUCK "$f"; then grep -q 印FRESH "$f" && echo "詰まり: 印FRESH の語が分からない"; echo "詰まり: 印STUCK の語が分からない"; '
-          'elif grep -q 印GUESS "$f"; then echo "補完: 印GUESS を推測で読んだ"; else echo CLEAN; fi') % calls.as_posix()
+          'if grep -q "^1\\. 詰まり: 印FRESH" "$f.base"; then R --verdicts 1=new 2=old; else R --verdicts 1=old; fi; else R --verdicts 1=new; fi; '
+          'elif grep -q 印QUOTE "$f"; then R "stuck=「印QUOTE の文」が取れない"; '
+          'elif grep -q 印STUCK "$f"; then if grep -q 印FRESH "$f"; then R "stuck=印FRESH の語が分からない" "stuck=印STUCK の語が分からない"; '
+          'else R "stuck=印STUCK の語が分からない"; fi; '
+          'elif grep -q 印GUESS "$f"; then R "guess=印GUESS を推測で読んだ"; else R; fi') % calls.as_posix()
 
 def check(reader=READER, *args):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR"))}
@@ -3621,6 +3654,14 @@ rc, out = check("cat >/dev/null; exit 1")
 assert rc == 1 and "読めなかった文書" in out and "new2.md" in out, (rc, out)
 git("rm", "-q", "new2.md")
 git("commit", "-q", "-m", "drop")
+# 4b) UTF-8 で開けない文書は、数えずに飛ばさずに止める(読んだ文書の数から黙って消さない)
+(repo / "bin.md").write_bytes(b"\xff\xfe" + "印Z".encode("utf-16-le") * 200)
+git("add", "bin.md")
+git("commit", "-q", "-m", "binary doc")
+rc, out = check()
+assert rc == 1 and "開けなかった文書" in out and "bin.md" in out, (rc, out)
+git("rm", "-q", "bin.md")
+git("commit", "-q", "-m", "drop binary")
 
 # 5) ブランチが足した文書のうち、ブランチが消した・変えた文書の分かれ目の版に在った行は移しただけとして読まない(スキルの本文のセクションを
 #    references/ へ移す分け)。見出しの深さが変わっても移した行。新しく書いた行を含むセクションだけを読み、全部が移した行なら読まない
@@ -3658,7 +3699,7 @@ git("switch", "-q", "feat")
 git("rebase", "-q", "main")
 (repo / "legacy.md").write_text(doc(("L", "印STUCK は前から在る。\n語を置き換えた。\n")), encoding="utf-8")
 git("commit", "-q", "-am", "terms")
-rc, out = check(READER.replace("1 OLD", "比べられない"))
+rc, out = check(READER.replace("--verdicts 1=old", "--verdicts 1=maybe"))
 assert rc == 1 and "legacy.md — 詰まり: 印STUCK" in out, (rc, out)   # 比べる係の答えが読めなければ新しい詰まり(読めない答えは覚えない)
 before = len(prompts(".base"))
 rc, out = check()
@@ -3757,7 +3798,7 @@ subprocess.run([sys.executable, str(gate), "read", str(skill / "references/a.md"
 assert "--- 前提: SKILL.md ---" in prompts()[before], prompts()[before][:300]
 
 # 10) 同じブランチで打ち直したら、前の回に読んだ版から変えたセクションだけを新しく読む(読むたびに直していない段落から別の詰まりが出て、
-#     直しが収まらなかった)。前の回の詰まりは、字か前提が変わったら今の版の全体を渡してまだ詰まるかを問い、STILL なら止め、FIXED なら通す。
+#     直しが収まらなかった)。前の回の詰まりは、字か前提が変わったら今の版の全体を渡してまだ詰まるかを問い、still なら止め、fixed なら通す。
 #     字も前提も同じなら問わずに止める(問うたびに揺れで通りうる)。問えなければ前の回の詰まりを止めたままにし、次の回に問い直す。
 #     ブランチに居ない HEAD(--land が版を上げた一時の作業場)は、HEAD から辿れて分かれ目から辿れないブランチの前の回を使う。
 #     別のブランチは前の回を持たないので、メインブランチとの分かれ目から読む
@@ -3778,11 +3819,11 @@ assert rc == 1 and "inc.md — 詰まり: 印STUCK" in out and len(prompts(".rec
 before = len(prompts())
 (repo / "inc.md").write_text(doc(("X", "印X2 を足した。\n"), ("Y", "語の意味を書いた。\n"), ("Z", "")), encoding="utf-8")
 git("commit", "-q", "-am", "inc y")
-rc, out = check(READER.replace("v=FIXED; ", "exit 1; "))
+rc, out = check(READER.replace("v=fixed; ", "exit 1; "))
 got = prompts()[before:]
 assert rc == 1 and "inc.md — 詰まり: 印STUCK" in out and len(got) == 1 and "語の意味を書いた" in got[0] and "印X2" not in got[0], (rc, len(got), out)
 rc, out = check()
-assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 問い直して FIXED。字が同じなので読み直さない
+assert rc == 0 and len(prompts()) == before + 1, (rc, len(prompts()) - before, out)   # 問い直して fixed。字が同じなので読み直さない
 rc, out = check()
 assert rc == 0 and "新しく読んだ 0 本" in out and len(prompts()) == before + 1, (rc, out)
 git("switch", "-q", "--detach")
@@ -3806,7 +3847,7 @@ rgot = prompts(".recheck")[rbefore:]
 assert rc == 1 and not any("印RC" in p for p in prompts()[before:]) and len(rgot) == 1 and "印SB3" in rgot[0], (rc, len(rgot), out)
 git("rm", "-q", str(skill / "references/c.md"))
 git("commit", "-q", "-m", "drop c")
-# 前の回の詰まりが「」で引いた文が前の版に在り、今の版から消えたら、問い直さずに外す(そのセクションは今回新しく読んだ)。問う係が STILL と答える版でも通る
+# 前の回の詰まりが「」で引いた文が前の版に在り、今の版から消えたら、問い直さずに外す(そのセクションは今回新しく読んだ)。問う係が still と答える版でも通る
 (repo / "quote.md").write_text(doc(("Q", "印QUOTE の文。\n"), ("P", ""), ("R", ""), ("S", "印STUCK は前から在る。\n")), encoding="utf-8")
 git("add", "quote.md")
 git("commit", "-q", "-m", "quote")
@@ -3840,7 +3881,7 @@ work.mkdir(parents=True)
 cfg, calls = work / "cfg", work / "calls"
 calls.mkdir()
 # 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残す(並んで読むので名前は mktemp で分ける)
-READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
+READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; "$CR_PY" "$CR_REPLY_PY"' % calls.as_posix()
 
 def read_marks(docs, **env):
     """docs を 1 回の記録と終わりに流し、読み手に渡った文書の印を返す。"""
@@ -3937,7 +3978,7 @@ $CR_PAD
 JSON-EOF"
 # 本文でない値を読み役へ送らない・投稿でない gh を止めない
 # 読み役に渡るのが JSON の殻だと、初見の読み手は本文でなくエスケープ済みの構造を読まされる
-CR_STUB_SHELL='if grep -q body; then printf "詰まり: JSON の殻が読み役に渡った\\n"; else echo CLEAN; fi'
+CR_STUB_SHELL='if grep -q body; then "$CR_PY" "$CR_REPLY_PY" "stuck=JSON の殻が読み役に渡った"; else "$CR_PY" "$CR_REPLY_PY"; fi'
 expect_output 0 "検査を通過" "--input - の JSON は殻でなく .body が読み役に届く" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SHELL" "$CR_JSON_POST"
 # 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる。
@@ -3982,7 +4023,7 @@ expect_output 0 "詰まり" "project edit の --readme もゲートに掛かる"
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh project edit 1 --readme '$CR_BODY $CR_PAD'"
 # mutation は body 以外のフィールドにもブロック文字列を書ける。中身を丸ごと本文として抜くと ID・
 # トークン・設定値まで読み役(外部プロセス)へ渡るので、body: のフィールドの値だけを抜く
-CR_STUB_NO_SECRET='if grep -q DB_PASSWORD; then printf "詰まり: body 以外のフィールドの値が読み役に渡った\n"; else echo CLEAN; fi'
+CR_STUB_NO_SECRET='if grep -q DB_PASSWORD; then "$CR_PY" "$CR_REPLY_PY" "stuck=body 以外のフィールドの値が読み役に渡った"; else "$CR_PY" "$CR_REPLY_PY"; fi'
 expect_output 0 "検査を通過" "graphql の mutation は body: のフィールドだけを読ませ、ほかのフィールドの値は読み役へ送らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SECRET" "gh api graphql -f query='mutation { addComment(input:{subjectId: \"\"\"DB_PASSWORD=$CR_PAD\"\"\", body: \"\"\"$CR_BODY\"\"\"}) }'"
 # body のフィールドを持たない mutation(resolveReviewThread など)は投稿ではない。止めていた 57 件の往復の元
@@ -4128,7 +4169,7 @@ expect_output 0 "F3 が届いていない" "前の版の回の記録は引き継
 # また問われて、本文が 473 → 1,351 字に膨らんだ(2026-10-17 の works-factory の PR #677)
 expect_output 0 "CLARITY_ONLY_OK" "依頼文は詰まりを語・指す先・筋の 3 つに絞り、中身の審査の問いを疑問に回す" \
     "$PY_BIN" -c "$CR_LOAD"$'\n''prompts = [g.COLD_PROMPT, g.reader_prompt("画面", "PR"), g.reader_prompt("画面")]
-ok = all(all(w in p for w in ("(語)", "(指す先)", "(筋)", "判断の材料", "疑問")) for p in prompts) and "判断の材料" in g.FOLLOWUP_NOTE
+ok = all(all(w in p for w in ("word", "referent", "flow", "判断の材料", "疑問")) for p in prompts) and "判断の材料" in g.FOLLOWUP_NOTE
 print("CLARITY_ONLY_OK" if ok else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
 
 # ---- coldread: 返信の読み手には画面(投稿先のスレッド)を渡す ----------------------------
@@ -4159,11 +4200,11 @@ CR_REPLY="gh api repos/o/r/pulls/9/comments/77/replies -X POST --jq .html_url --
 {\"body\": \"$CR_BODY $CR_PAD\"}
 EOF"
 # 読み役の代役が stdin(依頼文+本文)を見て、画面が渡ったかどうかで返す文言を変える
-CR_STUB_SEES_SCREEN='if grep -q "fixture 3 の略"; then echo CLEAN; else printf "詰まり: 画面(元の指摘)が読み手に渡っていない\n"; fi'
-CR_STUB_SEES_PRIOR='if grep -q "先の返信です"; then echo CLEAN; else printf "詰まり: これまでの返信が渡っていない\n"; fi'
-CR_STUB_OTHER_THREAD='if grep -q "別スレッドの指摘"; then printf "詰まり: 別スレッドの指摘まで渡された\n"; else echo CLEAN; fi'
-CR_STUB_NO_SCREEN='if grep -q "画面に既に見えているもの"; then printf "詰まり: 新規作成なのに画面が渡された\n"; else echo CLEAN; fi'
-CR_STUB_REDUNDANT='cat >/dev/null; printf "冗長: 冒頭で PR 番号とリポジトリ名を説明している\n"'
+CR_STUB_SEES_SCREEN='if grep -q "fixture 3 の略"; then "$CR_PY" "$CR_REPLY_PY"; else "$CR_PY" "$CR_REPLY_PY" "stuck=画面(元の指摘)が読み手に渡っていない"; fi'
+CR_STUB_SEES_PRIOR='if grep -q "先の返信です"; then "$CR_PY" "$CR_REPLY_PY"; else "$CR_PY" "$CR_REPLY_PY" "stuck=これまでの返信が渡っていない"; fi'
+CR_STUB_OTHER_THREAD='if grep -q "別スレッドの指摘"; then "$CR_PY" "$CR_REPLY_PY" "stuck=別スレッドの指摘まで渡された"; else "$CR_PY" "$CR_REPLY_PY"; fi'
+CR_STUB_NO_SCREEN='if grep -q "画面に既に見えているもの"; then "$CR_PY" "$CR_REPLY_PY" "stuck=新規作成なのに画面が渡された"; else "$CR_PY" "$CR_REPLY_PY"; fi'
+CR_STUB_REDUNDANT='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "redundant=冒頭で PR 番号とリポジトリ名を説明している"'
 expect_output 0 "検査を通過" "review スレッドへの返信では元の指摘と PR の題が読み手に渡る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "$CR_REPLY" "$CR_GH"
 expect_output 0 "検査を通過" "同じスレッドのこれまでの返信も渡る" \
@@ -4171,7 +4212,7 @@ expect_output 0 "検査を通過" "同じスレッドのこれまでの返信も
 expect_output 0 "検査を通過" "PR 番号無しの replies の形も同じスレッドと読む" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh api repos/o/r/pulls/comments/77/replies -f body='$CR_BODY $CR_PAD'" "$CR_GH"
 # 読み役の代役は stdin を一度読んでから 2 条件を見る(grep を 2 回掛けると 2 回目の stdin は空)
-CR_STUB_EDIT='b=$(cat); case "$b" in *"fixture 3 の略"*) case "$b" in *"先の返信です"*) printf "詰まり: 直す当のコメントが画面に残った\n";; *) echo CLEAN;; esac;; *) printf "詰まり: 元の指摘が画面に無い\n";; esac'
+CR_STUB_EDIT='b=$(cat); case "$b" in *"fixture 3 の略"*) case "$b" in *"先の返信です"*) "$CR_PY" "$CR_REPLY_PY" "stuck=直す当のコメントが画面に残った";; *) "$CR_PY" "$CR_REPLY_PY";; esac;; *) "$CR_PY" "$CR_REPLY_PY" "stuck=元の指摘が画面に無い";; esac'
 expect_output 0 "検査を通過" "編集(PATCH)では元の指摘は見え、直す当の返信は画面から除く" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_EDIT" "gh api repos/o/r/pulls/comments/78 -X PATCH -f body='$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "検査を通過" "旗が先でも後ろの番号を位置引数として読む" \
@@ -4185,7 +4226,7 @@ expect_output 0 "検査を通過" "gh api issues/N/comments は issue の題と�
 # 新しい PR・issue の読み手も本文だけを見ているのではない。GitHub が本文の周りに出す題・リポジトリ・ブランチ・
 # 変更ファイル・本文が指す #番号 の題を渡す。渡さないと「Closes #660」まで「何の issue か分からない」で止まった
 # (2026-10-17 に実測。works-factory の新しい PR 3 本の本文が、合わせて 7 回止まった)
-CR_STUB_NEW_PR='b=$(cat); case "$b" in *"初めて開いた"*"新しい PR「F3 を足す」(o/r)"*"main ← feat"*"src/f3.py"*"#5「issue 5 の題」(?)"*"語の意味ではない"*"画面と本文を合わせても"*) echo CLEAN;; *) printf "詰まり: 新しい PR の画面(題・ブランチ・変更ファイル・参照番号の題)が渡っていない\n";; esac'
+CR_STUB_NEW_PR='b=$(cat); case "$b" in *"初めて開いた"*"新しい PR「F3 を足す」(o/r)"*"main ← feat"*"src/f3.py"*"#5「issue 5 の題」(?)"*"語の意味ではない"*"画面と本文を合わせても"*) "$CR_PY" "$CR_REPLY_PY";; *) "$CR_PY" "$CR_REPLY_PY" "stuck=新しい PR の画面(題・ブランチ・変更ファイル・参照番号の題)が渡っていない";; esac'
 expect_output 0 "検査を通過" "新しい PR は題・リポジトリ・ブランチ・変更ファイル・本文が指す番号の題が読み手に渡る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create -R o/r --title 'F3 を足す' -H feat --body 'Closes #5
 $CR_BODY $CR_PAD'" "$CR_GH"
@@ -4196,14 +4237,14 @@ expect_output 0 "検査を通過" "新しい PR の旗は短縮形・つない�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_PR" "gh pr create -R o/r -t 'F3 を足す' -Bmain -H feat --body '-t 偽の題 Closes #5
 $CR_BODY $CR_PAD'" "$CR_GH"
 # 前の cd で gh の走る場所が変わるなら、フックの場所でリポジトリを引かない(別のブランチの中身を画面として渡さない)
-CR_STUB_NEW_ELSEWHERE='b=$(cat); case "$b" in *"新しい PR「F3 を足す」(このリポジトリ)"*) echo CLEAN;; *) printf "詰まり: cd した先でなくフックの場所のリポジトリを画面に出した\n";; esac'
+CR_STUB_NEW_ELSEWHERE='b=$(cat); case "$b" in *"新しい PR「F3 を足す」(このリポジトリ)"*) "$CR_PY" "$CR_REPLY_PY";; *) "$CR_PY" "$CR_REPLY_PY" "stuck=cd した先でなくフックの場所のリポジトリを画面に出した";; esac'
 expect_output 0 "検査を通過" "cd で場所を変えた gh pr create は、フックの場所のリポジトリとブランチを画面に出さない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_ELSEWHERE" "cd sub && gh pr create --title 'F3 を足す' --body '$CR_BODY $CR_PAD'" "$CR_GH"
-CR_STUB_NEW_ISSUE='b=$(cat); case "$b" in *"この issue を初めて開いた"*"新しい issue「t」(o/r)"*"#5「issue 5 の題」"*) case "$b" in *"取り込む先 ← 元のブランチ"*|*"PR"*) printf "詰まり: issue に PR のブランチか呼び名が載った\n";; *) echo CLEAN;; esac;; *) printf "詰まり: 新しい issue の画面が渡っていない\n";; esac'
+CR_STUB_NEW_ISSUE='b=$(cat); case "$b" in *"この issue を初めて開いた"*"新しい issue「t」(o/r)"*"#5「issue 5 の題」"*) case "$b" in *"取り込む先 ← 元のブランチ"*|*"PR"*) "$CR_PY" "$CR_REPLY_PY" "stuck=issue に PR のブランチか呼び名が載った";; *) "$CR_PY" "$CR_REPLY_PY";; esac;; *) "$CR_PY" "$CR_REPLY_PY" "stuck=新しい issue の画面が渡っていない";; esac'
 expect_output 0 "検査を通過" "新しい issue は題・リポジトリ・本文が指す番号の題が読み手に渡る(ブランチは載せない)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_ISSUE" "gh issue create -R o/r --title t --body '#5 の続き $CR_BODY $CR_PAD'" "$CR_GH"
 # gh が使えなくても、コマンドに書いた題は渡し、取れなかった物は書き手に伝える(文脈ゼロに戻さない)
-CR_STUB_NEW_TITLE_ONLY='b=$(cat); case "$b" in *"新しい PR「F3 を足す」(o/r)"*) echo CLEAN;; *) printf "詰まり: コマンドに書いた題が渡っていない\n";; esac'
+CR_STUB_NEW_TITLE_ONLY='b=$(cat); case "$b" in *"新しい PR「F3 を足す」(o/r)"*) "$CR_PY" "$CR_REPLY_PY";; *) "$CR_PY" "$CR_REPLY_PY" "stuck=コマンドに書いた題が渡っていない";; esac'
 expect_output 0 "変更ファイルの一覧・本文が参照している番号の題 を gh で取れなかった" "新しい PR の画面の一部を取れないときは、有る分で読ませ、取れなかった物を伝える" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NEW_TITLE_ONLY" "gh pr create -R o/r --title 'F3 を足す' -H feat --body 'Closes #5
 $CR_BODY $CR_PAD'" "exit 1"
@@ -4218,9 +4259,9 @@ expect_output 0 "取れなかった" "画面を取れないときの deny にも
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_REPLY" "exit 1"
 # 画面は参加者が実際に見ているものまで: 状態・変更ファイル・本文が参照する #番号 の題(2026-09-07 の
 # PR 1429 で、用語集 19 語を生んだ最初の詰まりは「#1231 #1581 #1283 が何か」だった)
-CR_STUB_SEES_STATE='if grep -q "、open)"; then echo CLEAN; else printf "詰まり: PR の状態が画面に無い\n"; fi'
-CR_STUB_SEES_FILES='if grep -q "src/f3.py"; then echo CLEAN; else printf "詰まり: 変更ファイルの一覧が画面に無い\n"; fi'
-CR_STUB_SEES_REF='if grep -q "issue 5 の題"; then echo CLEAN; else printf "詰まり: 本文が参照する #5 の題が画面に無い\n"; fi'
+CR_STUB_SEES_STATE='if grep -q "、open)"; then "$CR_PY" "$CR_REPLY_PY"; else "$CR_PY" "$CR_REPLY_PY" "stuck=PR の状態が画面に無い"; fi'
+CR_STUB_SEES_FILES='if grep -q "src/f3.py"; then "$CR_PY" "$CR_REPLY_PY"; else "$CR_PY" "$CR_REPLY_PY" "stuck=変更ファイルの一覧が画面に無い"; fi'
+CR_STUB_SEES_REF='if grep -q "issue 5 の題"; then "$CR_PY" "$CR_REPLY_PY"; else "$CR_PY" "$CR_REPLY_PY" "stuck=本文が参照する #5 の題が画面に無い"; fi'
 expect_output 0 "検査を通過" "PR の状態(open/merged/draft)が画面に載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_STATE" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "検査を通過" "PR の変更ファイルの一覧が画面に載る" \
@@ -4229,22 +4270,26 @@ expect_output 0 "検査を通過" "本文が参照する #番号 の題を引い
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_REF" "gh pr comment 9 --body '$CR_BODY #5 を閉じる $CR_PAD'" "$CR_GH"
 # 画面が既知にするのは「何を指しているか」で、「どう書くか」ではない。画面を語彙の辞書にすると、
 # スレッドの癖のある書き方に読み手が引っ張られ、本文がその癖を写す向きに働く
-CR_STUB_VOCAB='if grep -q "なぞり: 」"; then echo CLEAN; else printf "詰まり: 画面を語彙の辞書にしない規則(なぞりのフィールド)が依頼文に無い\n"; fi'
+CR_STUB_VOCAB='if grep -q "kind は echo"; then "$CR_PY" "$CR_REPLY_PY"; else "$CR_PY" "$CR_REPLY_PY" "stuck=画面を語彙の辞書にしない規則(なぞりの種類)が依頼文に無い"; fi'
 expect_output 0 "検査を通過" "画面モードの依頼文は、画面を語彙の辞書にしない(相手の語を地の文で使えば「なぞり」)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_VOCAB" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 # なぞりは詰まりと同じく止める。詰まりの条件文に埋めた形は実物の読み手に 1 件も拾われなかった(2026-09-07 に実測)
-CR_STUB_TRACED='cat >/dev/null; printf "なぞり: 「ニアバイして」は reviewer_x の語をそのまま地の文に使っている\n"'
+CR_STUB_TRACED='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "echo=「ニアバイして」は reviewer_x の語をそのまま地の文に使っている"'
 expect_output 0 "自分の言葉に直せば通る" "相手の言い回しを地の文に写した箇所(なぞり)は投稿を止め、直し方は説明を足すことではないと言う" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_AUTHFAIL='cat >/dev/null; printf "Failed to authenticate: OAuth session expired and could not be refreshed\n"'
-expect_output 0 "報告の形" "認証切れの 1 行(終了コード 0・ラベル無し)は allow にせず止める(実測 2026-09-15 の形)" \
+expect_output 0 "決めた形" "認証切れの 1 行(終了コード 0・JSON でない)は allow にせず止める(実測 2026-09-15 の形)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_AUTHFAIL" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
-CR_STUB_CLEAN_ONLY='cat >/dev/null; printf "CLEAN\n"'
-expect_output 0 "検査を通過" "報告が CLEAN の 1 語だけでも通る(チェックは正しい形まで巻き込まない)" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN_ONLY" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
-CR_STUB_TRACED_NONE='cat >/dev/null; printf "なぞり: なし\n"'
-expect_output 0 "検査を通過" "「なぞり: なし」は 0 件として通る" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED_NONE" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_IS_ERROR='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" --error "Failed to authenticate"'
+expect_output 0 "エラーを返した" "is_error の答え(JSON の形の認証切れ)も allow にせず止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_IS_ERROR" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+# structured_output の無い答え(--json-schema の効かない版の claude)と、text の空の指摘も指摘ゼロと読まない
+CR_STUB_NO_STRUCT='cat >/dev/null; printf "%s\n" "{\"type\": \"result\", \"subtype\": \"success\", \"is_error\": false, \"result\": \"指摘なし\"}"'
+expect_output 0 "structured_output が無い" "structured_output の無い答えは止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_STRUCT" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_EMPTY_TEXT='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck= "'
+expect_output 0 "指摘の形が違う" "text の空の詰まりは、読み飛ばさずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_EMPTY_TEXT" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "相手の語で書かない" "返信の deny の直し方に「相手の語は指してよいが、相手の語で書かない」が在る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 # 予算を超えたら古いコメントから落とす。旧版は組んだ後に末尾を切り、本文を長く見せるほど最新の返信が落ちた
@@ -4275,21 +4320,17 @@ expect_output 0 "掃討" "新規作成の deny は従来の「同型を掃討」
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
 expect_output 0 "それらを本文で説明し直さなくてよい" "新しい PR・issue の deny は、画面に出る物を本文で説明し直さなくてよいと添える" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create -R o/r --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
-# 「詰まり: なし」は 0 件であって 1 件ではない。依頼文で省けと言っても読み手は書く(2026-09-06 に実測:
-# 画面モードの読み手が書き、837 字の返信が止まった)。落とさないと無いフィールドが投稿を止める
-CR_STUB_NONE='cat >/dev/null; printf "詰まり: なし\n補完: 無し。\n疑問: 期限はいつか\n"'
-expect_output 0 "検査を通過" "「詰まり: なし」は詰まりに数えない(疑問だけ残って通る)" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_NONE" "$CR_POST"
-CR_STUB_NONE_ONLY='cat >/dev/null; printf "詰まり: なし\n"'
-expect_output 0 "検査を通過" "「詰まり: なし」だけの出力は CLEAN と同じに通る" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_NONE_ONLY" "$CR_POST"
-# 読み手が「詰まり: 」と書き出して同じ行の終わりで取り消した行も止めない(2026-10-19 に実測: ブランチのゲートの
-# 読み手が詰まり 4 件のうち 3 件をこの形で出し、--land が止まった)。疑問に回して残し、本物の詰まりは取り消しの行と並んでも止める
-CR_STUB_RETRACT='cat >/dev/null; printf "詰まり: (語) 「F3」は本文内で説明されているので意味は取れる。詰まりなし。\n詰まり: (指す先) 「既定」は例から推測可能。詰まりとしては扱わない。\n"'
-expect_output 0 "検査を通過" "取り消した詰まりの行だけの出力は通る" \
+# 依頼文は「無い種類は要素を作らない」と頼む。行の形で答えさせていた頃は、省けと言っても読み手が「詰まり: なし」と
+# 書いた(2026-09-06 に実測)ので、依頼文の頼みが答えの形の側に在ることを見る
+expect_output 0 "COLD_NONE_OK" "依頼文は、無い種類の要素を作らないよう頼む" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''print("COLD_NONE_OK" if g._RULES in g.COLD_PROMPT and g._RULES in g.SCREEN_PROMPT and "findings" in g._RULES else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
+# 読み手が詰まりの text を書き出してから終わりで取り消した物も止めない(2026-10-19 に実測: ブランチのゲートの
+# 読み手が詰まり 4 件のうち 3 件をこの形で出し、--land が止まった)。疑問に回して残し、本物の詰まりは取り消しの物と並んでも止める
+CR_STUB_RETRACT="cat >/dev/null; $CR_ANS 'stuck/word=「F3」は本文内で説明されているので意味は取れる。詰まりなし。' 'stuck/referent=「既定」は例から推測可能。詰まりとしては扱わない。'"
+expect_output 0 "検査を通過" "取り消した詰まりだけの答えは通る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_RETRACT" "$CR_POST"
-CR_STUB_RETRACT_REAL='cat >/dev/null; printf "詰まり: (語) 「F3」は本文内で説明されているので意味は取れる。詰まりなし。\n詰まり: (筋) 「詰まりなし」と書いたセクションの後の文が何を言っているかが取れない。\n"'
-expect_output 0 "何を言っているかが取れない" "取り消した行と並んでも、本物の詰まりは止める(途中に「詰まりなし」を含んでも)" \
+CR_STUB_RETRACT_REAL="cat >/dev/null; $CR_ANS 'stuck/word=「F3」は本文内で説明されているので意味は取れる。詰まりなし。' 'stuck/flow=「詰まりなし」と書いたセクションの後の文が何を言っているかが取れない。'"
+expect_output 0 "何を言っているかが取れない" "取り消した物と並んでも、本物の詰まりは止める(途中に「詰まりなし」を含んでも)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_RETRACT_REAL" "$CR_POST"
 # 読み役は利用者の CLAUDE.md を読まない(--setting-sources を空で起動)。2026-09-06 に実測: 無しだと
 # 利用者の CLAUDE.md の見出しをそのまま引用し、有りだと NONE。CI に claude は無いので起動引数で縛る。
@@ -4298,10 +4339,12 @@ expect_output 0 "何を言っているかが取れない" "取り消した行と
 # -c に渡す script は ASCII だけにする(日本語の argv は windows で届かなかった面が未確定のまま)
 expect_output 0 "READER_ARGV_OK" "読み役の起動引数は遮断の旗を持ち、本文は argv に載らない" \
     "$PY_BIN" -c "$CR_LOAD"$'\n''import inspect
-a = g.reader_argv("claude")
+import json
+a = g.reader_argv("claude", g.reader_schema(g.COLD_KINDS))
 flags = all(f in a and a[a.index(f) + 1] == "" for f in ("--setting-sources", "--tools"))
-body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", "model", "effort"]   # 本文を受ける引数を持たない（モデルと effort は手元の文書の読み手が替える）
-print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
+shaped = a[a.index("--output-format") + 1] == "json" and json.loads(a[a.index("--json-schema") + 1]) == g.reader_schema(g.COLD_KINDS)
+body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin", "schema", "model", "effort"]   # 本文を受ける引数を持たない（モデルと effort は手元の文書の読み手が替える）
+print("READER_ARGV_OK" if flags and shaped and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
 env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST" >/dev/null 2>&1
@@ -4361,8 +4404,8 @@ expect_output 0 "F3 が届いていない" "壊れた前の回の記録は無い
 # 3 回目からは、前の回から残った詰まり・なぞりだけで止める。読み手が印((前の回))を付けずに止めるフィールドに書いた物は疑問に移す
 # (ゲートが自分で収まる形。持ち主 2026-10-17「ある程度出たと判断したら進む形にしよう」)
 CR_CARRY_CFG="$WORK/coldread-cfg-carry"; mkdir -p "$CR_CARRY_CFG"
-CR_STUB_NEW_ONLY='cat >/dev/null; printf "詰まり: (語) 直しで足した ZZNEW が分からない\n"'
-CR_STUB_CARRIED='cat >/dev/null; printf "詰まり: (前の回) (語) F3 が何かまだ解けていない\n"'
+CR_STUB_NEW_ONLY='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=直しで足した ZZNEW が分からない"'
+CR_STUB_CARRIED='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word+carried=F3 が何かまだ解けていない"'
 env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "詰まり: (語) 直しで足した ZZNEW" "2 回目は、直しが新しく生んだ詰まりでも止める" \
     env COLDREAD_TEST_SESSION=carry1 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
@@ -4376,11 +4419,11 @@ env COLDREAD_TEST_SESSION=carry3b "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$
 env COLDREAD_TEST_SESSION=carry3b "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "疑問: (止めない) 詰まり: (語) 直しで足した ZZNEW" "印の無い詰まりは、疑問として書き手に返す" \
     env COLDREAD_TEST_SESSION=carry3b "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_NEW_ONLY" "$CR_POST"
-# 印はラベルの直後で見る。新しい指摘が地の文で「前の回」と書いても止める側に残さない。印の後ろが「なし」なら落とす
-CR_STUB_LOOSE='cat >/dev/null; printf "詰まり: (語) 前の回の直しで足した ZZLOOSE が分からない\n詰まり: (前の回) なし\n"'
+# 印は carried のフィールドで見る。新しい指摘が text に「前の回」と書いても止める側に残さない
+CR_STUB_LOOSE='cat >/dev/null; "$CR_PY" "$CR_REPLY_PY" "stuck/word=前の回の直しで足した ZZLOOSE が分からない"'
 env COLDREAD_TEST_SESSION=carry4 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 env COLDREAD_TEST_SESSION=carry4 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-expect_output 0 "検査を通過" "印が地の文に在るだけの詰まりと、印の後ろが「なし」の行では止めない" \
+expect_output 0 "検査を通過" "印が text に在るだけの詰まりでは止めない" \
     env COLDREAD_TEST_SESSION=carry4 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_LOOSE" "$CR_POST"
 # 止める数は、本文を直すたびに前の回の止めた数より減る。前の回が 1 件なら、直した本文の 3 回目は印付きでも止めない
 env COLDREAD_TEST_SESSION=carry5 "$CR_CASE" "$CR_CARRY_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
@@ -4585,6 +4628,25 @@ mkdir -p "$WORK/cr-home"
 expect_output 0 "NO_LEAK" "解析の例外の検査は、本物の設定フォルダに記録を書かない" \
     env -u CLAUDE_CONFIG_DIR HOME="$WORK/cr-home" sh -c '"$1" "$2" >/dev/null; if [ -e "$3/.claude/coldread-gate" ]; then echo LEAKED; else echo NO_LEAK; fi' sh "$PY_BIN" "$ROOT/tests/coldread-raise-case.py" "$WORK/cr-home"
 
+# 8. フックの入力を読めないときは通さない(前は allow していた。決まり 4)。手元の文書の口は止める物が無いので、標準エラーに出す
+expect_output 0 "フックの入力(JSON)を読めない" "投稿のゲートは、読めないフックの入力を通さない" \
+    sh -c 'printf "not json" | env CLAUDE_CONFIG_DIR="$2" "$1" "$3"' sh "$PY_BIN" "$CR_CFG" "$ROOT/gates/hooks/coldread-gate.py"
+expect_output 0 "PAYLOAD_LOST_OK" "手元の文書の口は、読めないフックの入力を黙って捨てず標準エラーに出す" \
+    sh -c 'e=$(printf "[1]" | env CLAUDE_CONFIG_DIR="$2" "$1" "$3" docs-record 2>&1 >/dev/null); case "$e" in *"フックの入力(JSON)を読めない"*) echo PAYLOAD_LOST_OK;; *) echo "BAD $e";; esac' sh "$PY_BIN" "$CR_CFG" "$ROOT/gates/hooks/coldread-gate.py"
+# 9. 画面のページ送りが GH_PAGES で切れたら、切れたと画面に書く(黙って新しいコメントを落とさない)
+expect_output 0 "PAGES_CUT_OK" "ページ送りが上限で切れたら、画面に取っていないと書く" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''s = g.Screen(None)
+s.json = lambda argv: [{"id": 1}] * 100
+got = s.pages("repos/o/r/issues/1/comments")
+print("PAGES_CUT_OK" if len(got) == g.GH_PAGES * 100 and s.cut and s.cut_lines() else "BAD %r" % s.cut)' "$ROOT/gates/hooks/coldread-gate.py"
+# 10. 帳面と読んだ中身の一覧は、並ぶ書き手どうしで行を消さない(ロックの中で読み書きする)
+expect_output 0 "LOCK_OK" "読んだ中身の一覧は、並んで覚えても片方の分を消さない" \
+    env CLAUDE_CONFIG_DIR="$WORK/cr-lock" "$PY_BIN" -c "$CR_LOAD"$'\n''import threading
+ts = [threading.Thread(target=g._remember, args=(["d%03d" % i],)) for i in range(40)]
+[t.start() for t in ts]
+[t.join() for t in ts]
+print("LOCK_OK" if len(g._seen()) == 40 else "BAD %d" % len(g._seen()))' "$ROOT/gates/hooks/coldread-gate.py"
+
 # ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----
 DG_CASE="$ROOT/tests/destgate-case.sh"
 DG_CFG="$WORK/destgate-cfg"; mkdir -p "$DG_CFG/destgate"
@@ -4612,21 +4674,36 @@ expect_output 0 "許可一覧に無い" "destgate: gh api の repos/ パスか�
 expect_output 0 "特定できない" "destgate: 宛先を特定できない投稿は deny(-R の明示を促す)" \
     "$DG_CASE" "$DG_CFG" "$WORK" "gh api graphql -f query='mutation { m }' -f body='宛先検査のテスト本文です'"
 
-# 明示の -R が無い投稿は、gh と同じくカレントの git remote を宛先とみなす
-DG_REPO_OK="$WORK/dg-repo-ok"; git init -q "$DG_REPO_OK"; git -C "$DG_REPO_OK" remote add origin git@github.com:good/things.git
-DG_REPO_NG="$WORK/dg-repo-ng"; git init -q "$DG_REPO_NG"; git -C "$DG_REPO_NG" remote add origin https://github.com/evil/place.git
-expect_output 0 "ALLOW_EMPTY" "destgate: -R 無しは git remote を宛先にする(一覧内)" \
-    "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
-expect_output 0 "許可一覧に無い" "destgate: -R 無しの git remote が一覧外なら deny" \
-    "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue comment 1 --body 'テストの本文です'"
-# `\` 区切りの remote（Windows の checkout の形）。`/` 固定で末尾 2 セグメントを取っていたので、
-# 宛先が読めず「宛先不明」で deny していた——止まる側なので気づきにくい。同じ規則の姉妹は
-# attention の changemap.py の REPO_TAIL で、そちらだけ直して写しが残っていた（2026-09-16）。
-# **どの OS でも赤くなる形で固定する**: git は remote の URL を検査しないので、この綴りは mac でも置ける
-DG_REPO_WIN="$WORK/dg-repo-win"; git init -q "$DG_REPO_WIN"
-git -C "$DG_REPO_WIN" remote add origin 'C:\src\good\things.git'
-expect_output 0 "ALLOW_EMPTY" "destgate: \ 区切りの remote でも宛先を読む（Windows の checkout の形）" \
-    "$DG_CASE" "$DG_CFG" "$DG_REPO_WIN" "gh issue comment 1 --body 'テストの本文です'"
+# 明示の -R が無い投稿は、gh が投稿する先と同じ解き方(gh repo view --json nameWithOwner)で宛先を引く。origin は読まない
+# (gh は gh repo set-default の印や upstream の remote を選びうる)。gh は COLDREAD_GH_CMD の代役で差し替え、代役は
+# 呼ばれた引数と場所が決めた形のときだけ、場所の .gh-repo に書いた repo を返す
+DG_GH='case "$*" in "repo view --json nameWithOwner") [ -f .gh-repo ] && printf "{\"nameWithOwner\": \"%s\"}\n" "$(cat .gh-repo)" && exit 0;; esac; echo "no repo: $*" >&2; exit 1'
+DG_REPO_OK="$WORK/dg-repo-ok"; mkdir -p "$DG_REPO_OK"; echo good/things > "$DG_REPO_OK/.gh-repo"
+DG_REPO_NG="$WORK/dg-repo-ng"; mkdir -p "$DG_REPO_NG"; echo evil/place > "$DG_REPO_NG/.gh-repo"
+DG_REPO_NONE="$WORK/dg-repo-none"; mkdir -p "$DG_REPO_NONE"
+expect_output 0 "ALLOW_EMPTY" "destgate: -R 無しは gh が解いた repo を宛先にする(一覧内)" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "許可一覧に無い" "destgate: -R 無しで gh が解いた repo が一覧外なら deny" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "特定できない" "destgate: -R 無しで gh が repo を解けなければ、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NONE" "gh issue comment 1 --body 'テストの本文です'"
+# origin が一覧内でも、gh が選ぶ repo が一覧外なら止める(前は origin を決め打ちで読み、gh が投稿する先と違う repo を見ていた)
+git init -q "$DG_REPO_NG"; git -C "$DG_REPO_NG" remote add origin git@github.com:good/things.git
+expect_output 0 "許可一覧に無い" "destgate: origin でなく gh が選ぶ repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue comment 1 --body 'テストの本文です'"
+# gh は、コマンドの中で移った先の場所と、環境変数 GH_REPO に従って投稿先を決める。前はフックの cwd だけを見ていて、
+# `cd <別のリポジトリ> && gh …` と `GH_REPO=o/r gh …` は許可一覧の repo と取り違えて通っていた
+expect_output 0 "許可一覧に無い" "destgate: 前の cd <絶対パス> && で移った先の repo を宛先にする" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "cd $DG_REPO_NG && gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "特定できない" "destgate: 移った先を読み切れない（相対パスの cd）なら、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "cd ../dg-repo-ng && gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "特定できない" "destgate: GH_REPO を書いたコマンドの -R 無しの投稿は、宛先不明で止める" \
+    env COLDREAD_GH_CMD="$DG_GH" "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "GH_REPO=evil/place gh issue comment 1 --body 'テストの本文です'"
+# 読めない入力と、解析できない gh のコマンドを通さない(前は前者が例外で素通し、後者は coldread に任せて通していた)
+expect_output 0 "読めない" "destgate: 一覧が在るとき、読めないフックの入力を通さない" \
+    sh -c 'printf "not json" | env CLAUDE_CONFIG_DIR="$2" "$1" "$3"' sh "$PY_BIN" "$DG_CFG" "$ROOT/gates/hooks/dest-gate.py"
+expect_output 0 "解析できず" "destgate: 解析できない gh のコマンドは宛先を確かめられないので通さない" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R evil/place --body 'closing quote missing"
 
 # ---- attention/catchup: 1 件の PR / issue の「前回から何が起きたか」 ----
 # 取得(gh / GraphQL)はテストの外。ここで検査するのは材料 → 出力の規則だけで、取得をモックすると
@@ -5137,141 +5214,125 @@ ran=$((ran + 1))
 
 # **チェックが CI から消えないことを見る。** 手元にツールが無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元にツールが無い環境でも覆いが消えない）。どの OS にも同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が全履歴で取り、works/tests/run.sh を 0..N-1 の組に分けて組の数を段に渡し、FAIL_ON_SKIP=1 で回す。どの job の頭にも if: と continue-on-error: が無い。起動するのは main と release/** への push と手での起動だけで、同じブランチで待つ run は 1 つまで（走っている run は止めない）" \
-    "$PY_BIN" - "$ROOT" <<'PYCI'
-import pathlib, sys
+# YAML の読み手（PyYAML）で読む。手元に無ければ見送り、CI の FAIL_ON_SKIP=1 が SKIP_ALLOW に無い名前（pyyaml）として赤にする（上のスキルの説明と同じ）
+if "$PY_BIN" -c 'import yaml' >/dev/null 2>&1; then
+    expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元にツールが無い環境でも覆いが消えない）。どの OS にも同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が全履歴で取り、works/tests/run.sh を 0..N-1 の組に分けて組の数を段に渡し、FAIL_ON_SKIP=1 で回す。どの job の頭にも if: と continue-on-error: が無い。起動するのは main と release/** への push と手での起動だけで、同じブランチで待つ run は 1 つまで（走っている run は止めない）" \
+        "$PY_BIN" - "$ROOT" <<'PYCI'
+import json, pathlib, re, sys
+import yaml
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 wf = pathlib.Path(sys.argv[1]) / ".github" / "workflows" / "test.yml"
-txt = wf.read_text(encoding="utf-8")
-# **語が在るかでなく、回す段が在るかを見る。** 語だけを見ていたとき、段を消しても**注記に残った同じ語**で
-# チェックが通った（実測 2026-09-21: 腕 f5 が緑のまま素通りした）。実際に走る行（run:）だけを対象にする
-import re
-runs = [l.split("run:", 1)[1] for l in txt.splitlines() if l.strip().startswith("run:")]
+# **YAML の読み手で読む**（docs/standards/machine-readable-values.md の決まり 2）。前は行を字下げと頭の語で切って job と段を組み立てていて、
+# 書き方（流れの形 {…}・引用符・段の鍵の順）を替えるだけで、同じ設定が赤にも緑にもなった。注記は読み手が捨てるので、語が注記に
+# 残っただけで通る形（実測 2026-09-21: 腕 f5 が段を消しても注記の同じ語で緑のまま素通りした）も起きない
+doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+jobs = doc.get("jobs") or {}
+steps = [s for j in jobs.values() for s in j.get("steps") or []]
+runs = [s["run"] for s in steps if isinstance(s.get("run"), str)]
 # ツールそのものを起動する run: だけを数える（入れる段の shellcheck-py は語が続くので当たらない）
 hits = [r for r in runs if re.search(r"(^|[\s|;&])shellcheck(\s|$)", r)]
 assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
 assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
-# job ごと・段ごとに切って、注記の行を除いた中身だけを見る——env: と if: は run: の行でないので、全文の部分一致だと注記の語で通る。
-jobs, cur, in_jobs = {}, None, False
-for l in txt.splitlines():
-    t = l.strip()
-    if not t or t.startswith("#"):
-        continue
-    if l.rstrip() == "jobs:":
-        in_jobs = True
-        continue
-    m = re.fullmatch(r"  ([A-Za-z0-9_-]+):", l.rstrip())
-    if in_jobs and m:
-        cur = jobs.setdefault(m.group(1), {"head": [], "steps": []})
-        continue
-    if cur is None:
-        continue
-    if t.startswith("- name:") or t.startswith("- uses:"):
-        cur["steps"].append([t])
-    elif cur["steps"]:
-        cur["steps"][-1].append(t)
-    else:
-        cur["head"].append(t)
 # **走らせるのは main と release/** への push と手での起動。** push のブランチの絞りが外れると wip の push のたびに全部が走り、main が外れると
-# 取り込みのコマンド（--land）が手元の検証で入れた main で CI が起きず、release/** が外れるとゲートのブランチ（VERSION_BUMP_OK の release/*）で起きない
-on_block, in_on = [], False
-for l in txt.splitlines():
-    if l.rstrip() == "on:":
-        in_on = True
-    elif in_on and l and not l[0].isspace() and not l.startswith("#"):
-        break
-    if in_on and l.strip() and not l.strip().startswith("#"):
-        on_block.append(l.rstrip())
-want_on = ["on:", "  push:", '    branches: [main, "release/**"]', "  workflow_dispatch:"]
-assert on_block == want_on, f"{wf}: 起動する条件が main と release/** への push と手での起動だけの形（{want_on}）でない: {on_block}"
+# 取り込みのコマンド（--land）が手元の検証で入れた main で CI が起きず、release/** が外れるとゲートのブランチ（VERSION_BUMP_OK の release/*）で起きない。
+# 鍵の on は YAML 1.1 の真偽値の綴りなので、PyYAML は True の鍵として読む（GitHub は文字列の on として読む）
+on = doc.get("on", doc.get(True))
+want_on = {"push": {"branches": ["main", "release/**"]}, "workflow_dispatch": None}
+assert on == want_on, f"{wf}: 起動する条件が main と release/** への push と手での起動だけの形（{want_on}）でない: {on}"
 # **同じブランチで待つ run は 1 つまで、走っている run は止めない。** 外れると main の --land が続いた日に待ちの列が積み上がる（2026-10-16 に
 # 10 本並んだ）。cancel-in-progress を true にすると、入れた後の赤を見つける run が次の push で毎回止まる
-conc = [l.rstrip() for l in txt.splitlines()]
-conc = conc[conc.index("concurrency:"):][:3] if "concurrency:" in conc else []
-want_conc = ["concurrency:", "  group: test-${{ github.ref }}", "  cancel-in-progress: false"]
-assert conc == want_conc, f"{wf}: 同じブランチで待つ run を 1 つにする形（{want_conc}）でない: {conc}"
+want_conc = {"group": "test-${{ github.ref }}", "cancel-in-progress": False}
+assert doc.get("concurrency") == want_conc, f"{wf}: 同じブランチで待つ run を 1 つにする形（{want_conc}）でない: {doc.get('concurrency')}"
 assert {"test", "pytest", "shards"} <= set(jobs), f"{wf}: job の test・pytest・shards が揃っていない（{sorted(jobs)}）"
-steps = [s for j in jobs.values() for s in j["steps"]]
 def step(name):
-    got = [s for s in steps if s[0] == f"- name: {name}"]
+    got = [s for s in steps if s.get("name") == name]
     assert len(got) == 1, f"{wf}: 段 {name} がちょうど 1 つでない（{len(got)} 個）"
     return got[0]
+def matrix(job):
+    return (jobs[job].get("strategy") or {}).get("matrix") or {}
 # **見送り自体を無くすツールはどの OS にも同じ版で入れる。** OS の条件（if:）を付けると、条件から外れた OS で tests/run.sh の中の
 # shellcheck が見送りになり、SKIP_ALLOW に無い名前なので赤になる——黙って緑には戻らないが、原因が遠い
-inst = [s for s in steps if any(re.fullmatch(r"run: python -m pip install shellcheck-py==[0-9][0-9.]*", x) for x in s)]
+inst = [s for s in steps if re.fullmatch(r"python -m pip install shellcheck-py==[0-9][0-9.]*", str(s.get("run", "")))]
 assert inst, f"{wf}: shellcheck を版を固定して入れる段（run: python -m pip install shellcheck-py==<版>）が無い"
-assert not any(x.startswith("if:") for s in inst for x in s), f"{wf}: shellcheck を入れる段に OS の条件（if:）が付いている: {inst}"
+assert not any("if" in s for s in inst), f"{wf}: shellcheck を入れる段に OS の条件（if:）が付いている: {inst}"
 # **組（shard）の形**: 番号は 0..N-1 を欠けなく並べ、N を段の GL_SHARD_TOTAL と揃える（欠けた組は shards の検算も赤にするが、原因が遠い）
-sh = re.search(r"^\s+shard: \[([0-9, ]+)\]\s*$", txt, re.M)
-assert sh, f"{wf}: test の matrix に組の一覧（shard: [0, 1, ...]）が無い"
-shards = [int(x) for x in sh.group(1).split(",")]
+shards = matrix("test").get("shard")
+assert isinstance(shards, list), f"{wf}: test の matrix に組の一覧（shard: [0, 1, ...]）が無い"
 assert shards == list(range(len(shards))) and len(shards) >= 2, f"{wf}: 組の一覧 {shards} が 0..N-1 の並びでない"
 rs = step("tests/run.sh")
-want = ["- name: tests/run.sh", "shell: bash", "env:", f'GL_SHARD_TOTAL: "{len(shards)}"', "GL_SHARD_INDEX: ${{ matrix.shard }}",
-        "GL_SHARD_GROUP: ${{ matrix.os }}", "GL_SHARD_MANIFEST: ${{ runner.temp }}/gl-shard",
-        'FAIL_ON_SKIP: "1"', "SKIP_ALLOW: ${{ matrix.skip_allow }}", "run: bash tests/run.sh"]
+want = {"name": "tests/run.sh", "shell": "bash",
+        "env": {"GL_SHARD_TOTAL": str(len(shards)), "GL_SHARD_INDEX": "${{ matrix.shard }}", "GL_SHARD_GROUP": "${{ matrix.os }}",
+                "GL_SHARD_MANIFEST": "${{ runner.temp }}/gl-shard", "FAIL_ON_SKIP": "1", "SKIP_ALLOW": "${{ matrix.skip_allow }}"},
+        "run": "bash tests/run.sh"}
 assert rs == want, (f"{wf}: tests/run.sh の段が、組を渡し、見送りを失敗に数えて OS ごとの許しの一覧を渡す形（{want}）と違う——"
                     f"env の値・run: の頭の代入・shell:・if:・continue-on-error: のどれでも見送りが黙って緑になる: {rs}")
-assert rs in jobs["test"]["steps"], f"{wf}: tests/run.sh の段が test の job に無い"
+assert any(s is rs for s in jobs["test"]["steps"]), f"{wf}: tests/run.sh の段が test の job に無い"
 up = step("upload shard manifest")
-assert up in jobs["test"]["steps"] and up == ["- name: upload shard manifest", "uses: actions/upload-artifact@v4", "with:",
-    "name: gl-shard-${{ matrix.os }}-${{ matrix.shard }}", "path: ${{ runner.temp }}/gl-shard", "if-no-files-found: error"], (
+assert any(s is up for s in jobs["test"]["steps"]) and up == {"name": "upload shard manifest", "uses": "actions/upload-artifact@v4",
+    "with": {"name": "gl-shard-${{ matrix.os }}-${{ matrix.shard }}", "path": "${{ runner.temp }}/gl-shard", "if-no-files-found": "error"}}, (
     f"{wf}: 組の名簿を上げる段が、組ごとの名前・名簿の置き場・無ければ赤（if-no-files-found: error）の形でない: {up}")
-os_line = re.search(r"^\s+os: &os \[([^\]]+)\]\s*$", txt, re.M)
-assert os_line, f"{wf}: test の matrix の os が錨（&os）付きの一覧でない（pytest の job が同じ一覧を *os で引く）"
-oses = [x.strip() for x in os_line.group(1).split(",")]
-assert "os: *os" in jobs["pytest"]["head"] and "include: *skip_allow" in jobs["pytest"]["head"], (
-    f"{wf}: pytest の job が test の os と許しの一覧を錨（*os・*skip_allow）で引いていない——写しは片方だけ直る: {jobs['pytest']['head']}")
-assert "needs: test" in jobs["shards"]["head"], f"{wf}: shards の job が needs: test を持たない（組を待たずに検算する）"
+oses = matrix("test").get("os")
+assert isinstance(oses, list) and oses, f"{wf}: test の matrix の os が一覧でない: {oses}"
+# 許しの一覧（include）は OS ごとに 1 件ずつ skip_allow を持つ。無いと matrix.skip_allow が空になり、上の段の SKIP_ALLOW も
+# 空のまま通る（両方の job から include が消えても、下の「同じ物か」は None is None で真になる）
+inc = matrix("test").get("include")
+assert isinstance(inc, list) and all(isinstance(e, dict) and isinstance(e.get("skip_allow"), str) for e in inc) and \
+    sorted(e.get("os") for e in inc) == sorted(oses), (
+    f"{wf}: test の matrix の include が、OS（{oses}）ごとに 1 件ずつ skip_allow を持つ一覧でない: {inc}")
+# 錨（&os・&skip_allow）を引いた値は、PyYAML では錨の物と同じオブジェクトになる。写しは値が今同じでも片方だけ直るので、同じ物かで見る
+assert matrix("pytest").get("os") is oses and matrix("pytest").get("include") is matrix("test").get("include"), (
+    f"{wf}: pytest の job が test の os と許しの一覧を錨（*os・*skip_allow）で引いていない——写しは片方だけ直る: {matrix('pytest')}")
+needs = jobs["shards"].get("needs")
+assert "test" in ([needs] if isinstance(needs, str) else needs or []), f"{wf}: shards の job が needs: test を持たない（組を待たずに検算する）"
 mg = step("shards")
-merge = f"run: python graphloops/tests/parallel.py merge --groups {','.join(oses)} gl-shards/*"
-assert mg in jobs["shards"]["steps"] and merge in mg, f"{wf}: shards の段が、test の os の全部（{oses}）を --groups に渡して検算していない: {mg}"
-dl = step("download shard manifests")
-assert "pattern: gl-shard-*" in dl and "path: gl-shards" in dl and not any(x.startswith("merge-multiple") for x in dl), (
+merge = f"python graphloops/tests/parallel.py merge --groups {','.join(oses)} gl-shards/*"
+assert any(s is mg for s in jobs["shards"]["steps"]) and mg.get("run") == merge, (
+    f"{wf}: shards の段が、test の os の全部（{oses}）を --groups に渡して検算していない: {mg}")
+dl = step("download shard manifests").get("with") or {}
+assert dl.get("pattern") == "gl-shard-*" and dl.get("path") == "gl-shards" and "merge-multiple" not in dl, (
     f"{wf}: 名簿を組ごとの置き場に落としていない（merge-multiple は組どうしの同名の名簿を上書きする）: {dl}")
 # job の頭の if: と continue-on-error: は全 job で禁じる（skipped の job も、落ちても緑の job も、失敗に数えられない）。段の continue-on-error: も同じ
 for name, j in jobs.items():
-    assert not any(x.startswith(("if:", "continue-on-error:")) for x in j["head"]), f"{wf}: job {name} の頭に if: か continue-on-error: が在る（その job の検査ごと外れる）: {j['head']}"
-assert not any(x.startswith("continue-on-error:") for s in steps for x in s), f"{wf}: continue-on-error: の段が在る（落ちても緑になる）"
+    assert not ({"if", "continue-on-error"} & set(j)), f"{wf}: job {name} の頭に if: か continue-on-error: が在る（その job の検査ごと外れる）: {sorted(j)}"
+assert not any("continue-on-error" in s for s in steps), f"{wf}: continue-on-error: の段が在る（落ちても緑になる）"
 # pytest のチェック（graphloops/tests/py/fence.py）も同じ許しの一覧で宣言つきの見送りを許す——同じ matrix の値を渡し、写しを持たない
 ps = step("pytest")
-assert "env:" in ps and "SKIP_ALLOW: ${{ matrix.skip_allow }}" in ps, (f"{wf}: pytest の段が OS ごとの許しの一覧"
+assert (ps.get("env") or {}).get("SKIP_ALLOW") == "${{ matrix.skip_allow }}", (f"{wf}: pytest の段が OS ごとの許しの一覧"
     f"（SKIP_ALLOW: ${{{{ matrix.skip_allow }}}}）を渡していない——Windows の宣言つきの見送りが失敗に数えられる／固定の値だと他の OS で許しすぎる: {ps}")
 # **works の試験の全段を回す job。** 見るのは要の 3 つだけ（2026-10-09 の掃除: 段の並びを丸ごと写して見ていた頃は、版の上げや
 # 段の足し引きのたびに写しも直すだけで、捕まえた食い違いは無かった）: 全履歴を取る（works の試験は git の全履歴を引く）・
 # 見送りを失敗に数える（FAIL_ON_SKIP=1）・組（shard）の番号を 0..N-1 で欠けなく並べ、N を段の WORKS_SHARD の「/N」と揃える
 # （欠けた組のモジュールはどの runner でも回らない）
 assert "works" in jobs, f"{wf}: works の試験の全段を回す job works が無い（{sorted(jobs)}）"
-wk = jobs["works"]
-wco = [s for s in wk["steps"] if s[0] == "- uses: actions/checkout@v5"]
-assert len(wco) == 1 and "fetch-depth: 0" in wco[0], f"{wf}: works の job が全履歴（fetch-depth: 0）で取っていない: {wco}"
-wrun = [s for s in wk["steps"] if "run: sh works/tests/run.sh" in s]
-assert len(wrun) == 1, f"{wf}: works の job に works/tests/run.sh を回す段がちょうど 1 つ無い: {wk['steps']}"
-assert 'FAIL_ON_SKIP: "1"' in wrun[0], f"{wf}: works の段が見送りを失敗に数えていない（FAIL_ON_SKIP: \"1\"）: {wrun[0]}"
-wsh = [x for x in wk["head"] if x.startswith("shard:")]
-assert len(wsh) == 1 and re.fullmatch(r"shard: \[[0-9, ]+\]", wsh[0]), f"{wf}: works の job の matrix に組の一覧（shard: [0, 1, ...]）が無い: {wk['head']}"
-wshards = [int(x) for x in wsh[0][len("shard: ["):-1].split(",")]
+wsteps = jobs["works"].get("steps") or []
+wco = [s for s in wsteps if s.get("uses") == "actions/checkout@v5"]
+assert len(wco) == 1 and (wco[0].get("with") or {}).get("fetch-depth") == 0, f"{wf}: works の job が全履歴（fetch-depth: 0）で取っていない: {wco}"
+wrun = [s for s in wsteps if s.get("run") == "sh works/tests/run.sh"]
+assert len(wrun) == 1, f"{wf}: works の job に works/tests/run.sh を回す段がちょうど 1 つ無い: {wsteps}"
+wenv = wrun[0].get("env") or {}
+assert wenv.get("FAIL_ON_SKIP") == "1", f"{wf}: works の段が見送りを失敗に数えていない（FAIL_ON_SKIP: \"1\"）: {wrun[0]}"
+wshards = matrix("works").get("shard")
+assert isinstance(wshards, list), f"{wf}: works の job の matrix に組の一覧（shard: [0, 1, ...]）が無い: {matrix('works')}"
 assert wshards == list(range(len(wshards))) and len(wshards) >= 2, f"{wf}: works の組の一覧 {wshards} が 0..N-1 の並びでない"
-assert f"WORKS_SHARD: ${{{{ matrix.shard }}}}/{len(wshards)}" in wrun[0], (
+assert wenv.get("WORKS_SHARD") == f"${{{{ matrix.shard }}}}/{len(wshards)}", (
     f"{wf}: works の段の WORKS_SHARD が組の数 {len(wshards)} と揃っていない: {wrun[0]}")
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
 # ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
 # shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意のツール
-import json
-named, last = set(), None
-for l in txt.splitlines():
-    t = l.strip()
-    if t.startswith("- name:"):
-        last = t.split(":", 1)[1].strip()
-    elif t.startswith("run:") and last:
-        named.add(last)
+named = {s["name"] for s in steps if "name" in s and "run" in s}
 decl = json.loads((pathlib.Path(sys.argv[1]) / ".review-checks.json").read_text(encoding="utf-8"))
 missing = sorted({s["name"] for s in decl["suite"]} - named)
 assert not missing, f".review-checks.json の段 {missing} が {wf} の run を持つ段（{sorted(named)}）に無い"
 print("CI_LINT_OK")
 PYCI
+else
+    ci_skip="  ok   CI の設定のチェック # SKIP pyyaml: YAML の読み手（PyYAML）が手元に無い（CI はどの OS にも入れる）"
+    echo "$ci_skip"
+    note_skips "$ci_skip"
+    ran=$((ran + 1))
+fi
 
 # ---- attention のコマンドの本文と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が /what-am-i-doing のコマンドの本文から読む） ----
 # /catchup は 2026-10-15 から HTML のページを機械が描き、AI はフィールドの JSON だけを書く。端末の枠（飛び先・言語名）と絵の検査を
@@ -7575,6 +7636,65 @@ expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(�
 # GitHub で保護しておらず、--land を通さずに手で push する道もある（docs/releasing.md）ので、main に入った後の CI でも同じ口で見る
 expect_output 0 "TERMS_OK" "リポジトリの文の IT の定着語でない言い方の件数が、ファイルごとに基準（scripts/terms-baseline.json）と同じ" \
     "$PY_BIN" "$ROOT/scripts/terms.py"
+# **機械が読む値の標準の決まり 3（日本語の定数で比べる所）と決まり 4（訳の注記の無い pass・continue だけの except）の数が、ファイルごとに
+# 基準どおりであること。** 数え方は docs/standards/machine-readable-values.md の「守らせ方」で、見る口は tests/value-rules.py の 1 本
+# （基準は tests/value-rules-baseline.json。増えたら赤、減ったら --update で基準を書き直させる。terms.py と同じ形）
+expect_output 0 "VALUE_RULES_OK" "決まり 3・4 の数が、ファイルごとに基準（tests/value-rules-baseline.json）と同じ" \
+    "$PY_BIN" "$ROOT/tests/value-rules.py"
+# 数え方の腕: 数える形（比べる式の左右・右のタプルの中・startswith と endswith・re の関数の 1 つ目・連なりの比べる式で 1 度）と、
+# 数えない形（f-string・re の 2 つ目の引数・is の比べ・注記の付いた except・2 文の except）を、書いた通りに数えるか
+expect_output 0 "VALUE_RULES_ARMS_OK" "決まり 3・4 の数え方が、標準の「守らせ方」の数える形と数えない形の通り" \
+    "$PY_BIN" - "$ROOT" <<'PYVR'
+import importlib.util, pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+spec = importlib.util.spec_from_file_location("value_rules", pathlib.Path(sys.argv[1]) / "tests" / "value-rules.py")
+vr = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vr)
+src = """import re
+x = "a"
+if x == "日本": pass
+if x in ("あ", "b", "イ"): pass
+if "漢" in x: pass
+if x != f"日{x}": pass
+x.startswith(("（", "a"))
+x.endswith("。")
+re.search("詰まり", x); re.sub(r"a", "日", x)
+try: pass
+except OSError: pass
+try: pass
+except OSError: pass  # 訳
+for _ in ():
+    try: pass
+    except OSError:
+        continue  # 訳
+try: pass
+except ValueError:
+    y = 1
+    pass
+"日" == x == "本"
+if x is "日": pass
+import re as _re
+from re import compile as rc_
+_re.search("詰まり", x)
+rc_("日")
+re.match(pattern="日", string=x)
+x == "\U0002000b"
+x == "日" == x
+"""
+got = vr.hits(src)
+# 26〜28 行は re の別名・from import の名前・pattern= の名前つき、29 行は拡張 B の漢字、30 行は連なりの真ん中の定数（1 度だけ）
+want = ([3, 4, 4, 5, 7, 8, 9, 22, 22, 26, 27, 28, 29, 30], [11])
+assert got == want, f"数え方が標準と違う: {got}（期待 {want}）"
+try:
+    vr.hits("def (:\n")
+except SyntaxError:
+    pass   # 構文木にできない物は counts() が「読めない」と赤にする（ここは投げることだけを見る）
+else:
+    raise AssertionError("構文木にできない本文を数えた")
+print("VALUE_RULES_ARMS_OK")
+PYVR
 # 共有の認証の部品のうち、アカウントの OAuth トークンを探す口（account_token）と、トークンの期限の近さ・認証の失敗の形の見分け。Keychain と資格情報のファイルは偽物
 expect_output 0 "OK" "共有の認証の部品: アカウントのトークンを、作った項目・Claude Code の項目・資格情報のファイルの順に探す。期限の近さと認証の失敗の形を見分ける" \
     "$PY_BIN" -B "$ROOT/tests/claude-auth-suite.py"

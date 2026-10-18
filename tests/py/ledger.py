@@ -17,6 +17,8 @@ import review_record_cases
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+sys.path.insert(0, str(REPO / "tests"))
+import pytest_nodes  # noqa: E402  ——pytest の結果を JSON で受ける 1 か所（tests/pytest_nodes.py）
 DOC = HERE / "MIGRATION.md"
 BEGIN, END = "<!-- ledger:begin -->", "<!-- ledger:end -->"
 SECTION = ('echo "review-record.py"', 'echo "research-record.py"')
@@ -77,14 +79,14 @@ def script_rows(root=REPO):
 
 
 def collected(here=HERE):
-    """pytest が集めたテストの node id の集合（rootdir は here の pytest.ini）"""
-    got = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", str(here)],
-                         cwd=here, capture_output=True)
+    """pytest が集めたテストの node id の集合（rootdir は here の pytest.ini）。--collect-only -q の行でなく、pytest の結果の JSON
+    （tests/pytest_nodes.py）の collected で受ける"""
+    got, res = pytest_nodes.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", str(here)], cwd=here)
     out = got.stdout.decode("utf-8", "replace")
-    if got.returncode != 0:
+    if got.returncode != 0 or res is None:
         raise SystemExit(f"テストを集められない（終了 {got.returncode}。件数のチェック EXPECTED_ITEMS の更新漏れもここに出る）: "
                          f"{out[-2000:]}{got.stderr.decode('utf-8', 'replace')[-2000:]}")
-    return {line for line in out.splitlines() if "::" in line}
+    return set(res["collected"])
 
 
 def node(case):

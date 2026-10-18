@@ -16,8 +16,8 @@ import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
+import time
 
 for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -34,6 +34,11 @@ CONFIG_DIR = cr.CONFIG_DIR   # 隣の coldread-gate と同じ置き場（決め�
 STATE_DIR = os.path.join(CONFIG_DIR, "destgate")
 ALLOWLIST = os.path.join(STATE_DIR, "allowlist")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")
+# gh に宛先を引かせる時間の合計。hooks.json の destgate の timeout(30 秒)より短くする: フックが時間切れで終わると
+# Claude Code は止めずに通すので、引き切れないときはこのゲートが自分で止める(宛先不明)
+GH_BUDGET = 20
+_DEADLINE = time.time() + GH_BUDGET
+_REPOS = {}   # cwd → current_repo の答え(1 本のコマンドの中の、-R の無い gh を同じ cwd で何度も引かない)
 
 
 def patterns():
@@ -47,16 +52,17 @@ def patterns():
 
 
 def owner_repo(value):
-    r"""-R の値や URL から owner/repo を取り出す。取れなければ None。
+    r"""-R の値から owner/repo を取り出す。取れなければ None。
 
-    gh は OWNER/REPO・HOST/OWNER/REPO・完全 URL(https/ssh)のどれも受けるので、
+    gh の -R は OWNER/REPO・HOST/OWNER/REPO・完全 URL(https/ssh)のどれも受けるので、
     末尾 2 セグメントを取り .git を落とす。ssh の別名ホスト(github.com-xxx:o/r)も
     : 以降がパスなので同じ規則で拾える。
 
-    **区切りは `/` だけではない。** Windows の checkout では origin が `C:\...\o\r.git` の形で
-    来るので、`/` 固定だと末尾 2 セグメントが取れず、宛先を特定できないまま deny になる(投稿は
-    止まるが、正しく書いた投稿が「宛先不明」で止まる)。同じ規則の姉妹は attention の
-    changemap.py の REPO_TAIL——2026-09-16 にそちらだけ直して、この写しが `/` 固定で残った。
+    読むのは利用者が打った -R の値だけ。-R の無い投稿の宛先は git の remote の URL を読まず gh に解かせる(current_repo)。
+    前はここで origin の URL も読み、attention の changemap.py の REPO_TAIL(git の remote の URL を読む)の印の無い
+    写しだった(2026-09-16 にそちらだけ `\` 区切りを直して、この写しが `/` 固定で残った)。remote を読まなくなったので、
+    受ける形が gh の -R の形だけになり、REPO_TAIL と同じ規則を持つ理由が無くなった。`\` を `/` に替えるのは、
+    Windows で打った URL の綴りを受ける前のままの振る舞い。
     """
     v = value.strip().replace("\\", "/").rstrip("/")
     v = re.sub(r"^[a-z+]+://", "", v)
@@ -71,17 +77,43 @@ def owner_repo(value):
     return f"{o}/{r}"
 
 
-def dest_of(args, sub, cwd):
-    """gh 引数列から投稿の宛先を決める。分からなければ None。"""
-    # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)
-    for i, tok in enumerate(args):
-        if tok in ("-R", "--repo") and i + 1 < len(args):
-            return owner_repo(args[i + 1])
-        for f in ("-R", "--repo"):
-            if tok.startswith(f + "="):
-                return owner_repo(tok[len(f) + 1:])
-        if tok.startswith("-R") and tok not in ("-R",) and not tok.startswith("--"):
-            return owner_repo(tok[2:])
+def current_repo(cwd):
+    """-R の無い投稿の宛先。gh 自身に解かせて owner/repo を返す。解けなければ None(宛先不明で止める)。
+
+    origin を読まない: gh は -R の無いとき、gh repo set-default で決めた repo か、remote の中から選んだ repo へ投稿する
+    (origin とは限らない。https://cli.github.com/manual/gh_repo_set-default)。投稿と同じ解き方の
+    `gh repo view --json nameWithOwner` で引く(機械向けの形。docs/standards/machine-readable-values.md の決まり 2)。
+    cwd ごとに 1 回だけ引き、引く時間の合計は GH_BUDGET で縛る。"""
+    if cwd not in _REPOS:
+        _REPOS[cwd] = _resolve(cwd)
+    return _REPOS[cwd]
+
+
+def _resolve(cwd):
+    try:
+        # gh の呼び方(差し替えの口 COLDREAD_GH_CMD・時間の上限)は coldread の画面の取得と同じ 1 本
+        screen = cr.Screen(cwd)
+        screen.deadline = min(screen.deadline, _DEADLINE)
+        got = screen.json(["repo", "view", "--json", "nameWithOwner"])
+        name = got.get("nameWithOwner") if isinstance(got, dict) else None
+    except Exception as exc:   # 起動できない・gh が失敗した・JSON でない: 宛先不明として止める(呼び元)
+        cr.log_line(DENY_LOG, "gh repo view で宛先を引けない: %s" % str(exc)[:150].replace("\n", " "))
+        return None
+    if not isinstance(name, str) or name.count("/") != 1:
+        cr.log_line(DENY_LOG, "gh repo view の nameWithOwner が owner/repo でない: %r" % (name,))
+        return None
+    return name
+
+
+def dest_of(args, sub, cwd, gh_repo_env=False):
+    """gh 引数列から投稿の宛先を決める。分からなければ None。
+
+    cwd はその gh が走る場所(前の `cd <絶対パス> &&` を読んだもの。決まらなければ None)。gh_repo_env は、コマンドが
+    環境変数 GH_REPO を書いている(gh は -R の無いとき GH_REPO の repo へ投稿する。https://cli.github.com/manual/gh_help_environment)。"""
+    # -R / --repo が最優先(gh 自身の解決順もこれが勝つ)。旗の読み方は coldread と同じ 1 本(cr.repo_flag)
+    value = cr.repo_flag(args)
+    if value is not None:
+        return owner_repo(value)
     if sub and sub[0] == "api":
         if len(sub) < 2:
             return None
@@ -94,40 +126,43 @@ def dest_of(args, sub, cwd):
         return None  # graphql・users/... 等は宛先を特定できない
     if sub and sub[0] == "gist":
         return "gist"
-    # 明示が無ければ gh はカレントの git remote へ投稿する
-    try:
-        url = subprocess.run(
-            ["git", "-C", cwd or ".", "remote", "get-url", "origin"],
-            capture_output=True, encoding="utf-8", timeout=10,
-        ).stdout.strip()
-        return owner_repo(url) if url else None
-    except Exception:
+    # 明示が無ければ gh が GH_REPO か、走る場所のリポジトリから選んだ repo へ投稿する。GH_REPO の値と走る場所が
+    # 読み切れないときは宛先不明にする(フックの cwd で引くと、別のリポジトリへの投稿を許可一覧の repo と取り違える)
+    if gh_repo_env or not cwd:
         return None
+    return current_repo(cwd)
 
 
 def main():
     allow_patterns = patterns()
-    raw = json.load(sys.stdin)
-    if raw.get("tool_name") != "Bash":
+    if not allow_patterns:
+        return   # 一覧が無ければ眠る(入力も読まない)
+    try:
+        raw = json.load(sys.stdin)
+        command = raw.get("tool_input", {}).get("command", "") if raw.get("tool_name") == "Bash" else ""
+        if not isinstance(command, str):
+            raise ValueError("tool_input.command が文字列でない")
+    except Exception as exc:
+        # 読めない入力を通さない(決まり 4: ゲートは入力を読めなかったら通さない側に倒す)。前は例外のまま落ちて素通しだった
+        cr.log_line(DENY_LOG, "deny 入力を読めない: %s" % str(exc)[:150])
+        cr.deny("外部投稿ゲート(destgate): フックの入力(JSON)を読めないので、宛先を検査できない: %s" % str(exc)[:150])
+    if not cr.GH_WORD_RE.search(command):
         return
-    command = raw.get("tool_input", {}).get("command", "")
-    if not allow_patterns or not cr.GH_WORD_RE.search(command):
-        return
-    # 解析の入口は coldread と同じ cr.prepare 1 本。ここで独自に組むと、片方だけ
-    # 正規化が入って宛先検査が黙って外れる(行継続の穴のとき現にそうなっていた)
-    norm, heredoc_bodies = cr.prepare(command)
-    tokens = cr.tokenize(norm)
-    if tokens is None:
-        return  # 解析不能は coldread が長さに応じて止める(射程は README)
-    live = cr.has_live_substitution(norm)
-    for simple in cr.simple_commands(tokens):
-        args = cr.gh_args(simple)
-        if args is None:
-            continue
-        candidates, blocked = cr.classify(args, heredoc_bodies, live)
+    # 解析の入口は coldread と同じ cr.analyze 1 本。ここで独自に組むと、片方だけ
+    # 正規化が入って宛先検査が黙って外れる(行継続の穴のとき現にそうなっていた)。gh が走る場所(前の cd)も同じ読み方で取る
+    analysis = cr.analyze(command, raw.get("cwd") or None)
+    if not analysis.parsed:
+        # 解析できない gh のコマンドは宛先を確かめられないので通さない。前は coldread に任せて通していたが、coldread は
+        # 通じやすさの軸で、逃げ道(COLDREAD_SKIP=1)や切る口で外れる。宛先の軸はこのゲートが自分で止める
+        cr.log_line(DENY_LOG, "deny 解析不能: " + command[:150].replace("\n", " "))
+        cr.deny("外部投稿ゲート(destgate): 宛先の許可制が有効だが、このコマンドを解析できず、宛先を確かめられない。"
+                "引用符の閉じ忘れなどを直し、-R owner/repo で宛先を明示して再実行すること。")
+    # GH_REPO はコマンドのどこで書いても(前置・export)後の gh に効くので、値を追わず、書いてあれば -R の無い宛先を不明にする
+    gh_repo_env = "GH_REPO" in cr.prepare(command)[0]
+    for sub, args, candidates, blocked, cwd in analysis.calls:
         if not candidates and not blocked:
             continue  # 投稿の形をしていない
-        dest = dest_of(args, cr.subcommand(args), raw.get("cwd") or "")
+        dest = dest_of(args, sub, cwd, gh_repo_env)
         if dest is None:
             cr.log_line(DENY_LOG, "deny 宛先不明: " + command[:150].replace("\n", " "))
             cr.deny(

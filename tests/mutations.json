@@ -7661,11 +7661,11 @@
   },
   {
    "id": "NH2",
-   "title": "pytest は置き場を cwd に起動し、要約の行を名指しと同じ形で読む",
+   "title": "pytest は置き場を cwd に起動し、結果の node id を名指しと同じ形で読む",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "rc, body = run_group(argv, repo, env=env, sub=PYDIR)",
-   "new": "rc, body = run_group(argv, repo, env=env)",
+   "old": "rc, body = run_group(PYTEST + [\"-p\", \"pytest_nodes\"] + list(args), repo, env=env, sub=PYDIR)",
+   "new": "rc, body = run_group(PYTEST + [\"-p\", \"pytest_nodes\"] + list(args), repo, env=env)",
    "expect": "test_mutate_arms.py::test_real_pytest_reports_failures_as_the_named_node_ids",
    "tests": {
     "graphloops/tests/py": [
