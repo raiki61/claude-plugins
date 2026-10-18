@@ -6,6 +6,10 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+
+- 4 つのスキルの手順書・REVIEW.md・docs を IT の定着語に置き換えた。前の版で置き換えた記録の検証器の言い方とそろう。例は、節→セクション（診断の木の節はノード）・道具→ツール・欄→フィールド・起こす→起動する。役割 agent の定義（`agents/*.md`）は works の写しと組なので変えていない。振る舞いは変えていない。
+
 ## [0.48.0] - 2026-10-19
 
 ### Changed

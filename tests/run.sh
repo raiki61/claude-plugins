@@ -1503,7 +1503,7 @@ print('ok')" "$WORK/review-loop-all.md"
 expect_output 0 "ok" "実走で出た 3 つの穴（貼れない差分・品質のツール・対照の緑）が手順書に書いてある" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert 'この役に道具を渡して解決するな——貼る側を割れ' in t, '貼り切れない差分の扱いが無い（道具を渡す形に倒れる）'
+assert 'この役にツールを渡して解決するな——貼る側を割れ' in t, '貼り切れない差分の扱いが無い（道具を渡す形に倒れる）'
 assert 'P1 では指摘だけ返す形で呼べ' in t, '品質のツールが P1 で木を動かす形のまま'
 assert '壊していない写しでも 1 本走らせて緑を確認しろ' in t, '対照の緑が無い（仕掛けの空振りを合格と読める）'
 print('ok')" "$WORK/review-loop-all.md"
@@ -1575,7 +1575,7 @@ assert '答え無しに進める仕事' in t, '人に聞く時を機械の帰属
 assert '決定を待て' not in t, '岐路で止めて決定を待つ古い文面が残っている'
 assert 'ユーザーに判断を仰げ' not in t, '停止条件が「立った周に聞く」形のまま'
 assert 'ループが自分で決めたこと' in t, 'ループが決めた問いを人が覆せる形で見せる規定が無い'
-assert '台帳全体を並べて枝同士を見ろ' in t, '問い同士のシナジー（横断の突合）を見る段が無い'
+assert '台帳全体を並べてブランチ同士を見ろ' in t, '問い同士のシナジー（横断の突合）を見る段が無い'
 assert 'ask_human' not in t, '0.27 までの unit.ask_human が手順書に残っている'
 print('ok')" "$WORK/review-loop-all.md"
 # **観点の正本（REVIEW.md）も対象に入れる。** 0.28.0 ではここだけチェックの外で、手順書が split の正本として
