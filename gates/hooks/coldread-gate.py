@@ -3436,13 +3436,15 @@ def _generated(paths):
     return out
 
 
-def doc_feedback(path, found, focus=False):
-    """1 本の文書の指摘を、直してほしい順のセクションにする(詰まりも補完も無ければ空)。focus は書き換えた所だけを読ませたとき。"""
-    if not (found["詰まり"] or found["補完"]):
+def doc_feedback(path, found, focus=False, carried=()):
+    """1 本の文書の指摘を、直してほしい順のセクションにする(詰まりも補完も前からの詰まりも無ければ空)。focus は書き換えた所だけを
+    読ませたとき。carried はブランチのゲートで、メインブランチの版にも在ったので止めなかった詰まり。"""
+    if not (found["詰まり"] or found["補完"] or carried):
         return ""
     return "\n".join(filter(None, (
         "■ %s%s" % (path, "(書き換えたセクションだけを読んだ)" if focus else ""),
         section("詰まり(直す):", found["詰まり"]),
+        section("メインブランチの版にも在った詰まり(このブランチでは止めない。直すかは判断してよい):", list(carried)),
         section("coldreader が推測で埋めた箇所(意図と違うなら直す):", found["補完"]),
         section("残った疑問(反映するかは判断してよい):", found["疑問"]),
     )))
@@ -3656,7 +3658,8 @@ def docs_check(payload, background=False):
 # 走るので、指摘はいつもメインブランチに入った後に届いた(2026-10-17 に 8 件。担当の決まり「初見読みの指摘は入れる前に直す」が
 # 守れなかった)。この口は --land のゲート(会社の形の [land] の check)から、入れる候補の commit を置いた一時の作業ツリーで
 # 呼ばれ、メインブランチ(既定は origin/HEAD の指すブランチ)とブランチの分かれ目からブランチが足した・変えた文書を、手元の文書と同じ読み手と観点で読む。
-# 前から在る文書は分かれ目の版と比べて書き換えたセクションだけを読ませる。詰まりが 1 件でもあれば 1 で終わって止め、推測で埋めた
+# 前から在る文書は分かれ目の版と比べて書き換えたセクションだけを読ませる。詰まりが 1 件でもあれば 1 で終わって止め(分かれ目の版にも
+# 同じ理由で在った詰まりは止めない。下の BASE_CHECK_HEAD)、推測で埋めた
 # 箇所と疑問だけなら通す(手元の文書のゲートと同じ重さ: 直すのは詰まり、推測は意図と違うときだけ)。読めなかった文書が在っても
 # 1 で終わる(読まずに通すと、ゲートが黙って空になる)。指摘の全文は findings/ に書き、--land が部署の窓に返す末尾の行に
 # 詰まりと全文の場所を出す。メインブランチが先に進むたびにリベースして打ち直すので、同じ依頼文の判定は branch/ に覚えて読み直さない
@@ -3703,15 +3706,15 @@ def _moved_base(text, moved):
     return "\n".join(kept) if any(_line_key(line) for line in kept) else None
 
 
-def _branch_verdict(key, body, focus):
-    """覚えた判定か、読んで覚えた判定({"詰まり", "補完", "疑問"})。読めなければ例外。"""
+def _branch_cached(key, compute):
+    """覚えた結果か、compute() で出して覚えた結果。(結果, 覚えた結果か)。compute の例外はそのまま出す。"""
     where = os.path.join(DOC_BRANCH, key + ".json")
     try:
         with open(where, encoding="utf-8") as f:
             return json.load(f), True
     except (OSError, ValueError):
         pass
-    found = read_doc(body, focus)
+    found = compute()
     try:
         os.makedirs(DOC_BRANCH, exist_ok=True)
         with open(where, "w", encoding="utf-8") as f:
@@ -3721,6 +3724,54 @@ def _branch_verdict(key, body, focus):
     except OSError:
         pass
     return found, False
+
+
+# ブランチの文書の詰まりのうち、メインブランチの版にも同じ理由で在った物は止めない(一覧には残す)。語の置き換え(持ち主 2026-10-18
+# 「節とかITになじみのない言葉を使ってる箇所を置き換えておいて」)は文書の全体に散るので、書き換えたセクションだけを読ませても
+# 長く専門語の多い文書はほぼ全体が読まれ、前からの読みにくさが詰まりとして出て、直すたびに別の所で詰まった(2026-10-19、説明書の
+# 頼みで 36 → 17 → 23 件と減らず、main に入れられなかった。指摘の詰まりの引用の多くは分かれ目の版にそのまま在った)。
+# 分かれ目の版も読ませて指摘を突き合わせる形は採らない: 読み手は回ごとに拾う所が替わる(上の DOC_SECTION_MAX)ので、前からの
+# 詰まりでも 2 回の読みの指摘は合わない。出た詰まりを 1 件ずつ、分かれ目の版でも同じ理由で詰まるかを問う。前の版で語を説明して
+# いた文をブランチが消したなら、前の版では詰まらないので止める。迷えば新しい詰まり、問えなければ全部を新しい詰まりにする
+# (どちらも今までどおり止める)。ブランチが足した文書は全部がブランチの文なので問わない
+BASE_CHECK_HEAD = """あなたは文書の 2 つの版を比べる係です。初見の読み手が文書の新しい版を読み、下の「詰まり」を報告しました。
+詰まりごとに、前の版を初見で読んでも、同じ箇所で同じ理由で詰まるかを判定してください。
+- OLD: 前の版にも同じ箇所(言い回しが少し違っても中身が同じ文)が在り、前の版のほかの所にも説明が無く、同じ理由で意味が取れない
+- NEW: 前の版にその箇所が無い・前の版では意味が取れる(説明が在る・言い方が違って分かる)・新しい版で書き換えた語や文が詰まりの原因
+- 迷ったら NEW
+出力は 1 行 1 件、詰まりの番号と OLD か NEW だけ(例: 1 OLD)。ほかは何も書かない。
+"""
+BASE_CHECK_RE = re.compile(r"^\s*(\d+)\s*[.:：)]?\s*(OLD|NEW)\b", re.I)
+
+
+def _base_marks(out):
+    """比べる係の出力を {番号の文字列: "OLD" か "NEW"} にする。1 行も読めなければ例外。"""
+    marks = {m.group(1): m.group(2).upper() for m in map(BASE_CHECK_RE.match, out.splitlines()) if m}
+    if not marks:
+        raise RuntimeError("番号と OLD・NEW の行が無い: %r" % out[:150])
+    return marks
+
+
+def _carried_from_base(stuck, body, base):
+    """詰まり(stuck)のうち、メインブランチの版(base)にも同じ理由で在った物の番号(0 から)。問えなければ空(全部を新しい詰まりにする)。"""
+    prompt = (BASE_CHECK_HEAD + "\n--- 詰まり ---\n" + "".join("%d. %s\n" % (k, line) for k, line in enumerate(stuck, 1))
+              + "\n--- 新しい版(読み手が読んだ本文) ---\n" + body + "\n--- 前の版 ---\n" + base)
+    key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:40]
+    try:
+        marks, _ = _branch_cached(key, lambda: _base_marks(
+            run_reader(prompt, model=DOC_MODEL, effort=DOC_EFFORT, timeout=DOC_READ_TIMEOUT)))
+    except Exception as exc:
+        log_line(DOC_LOG, "base-check-down\t%s" % str(exc)[:150].replace("\n", " "))
+        return set()
+    return {k for k in range(len(stuck)) if marks.get(str(k + 1)) == "OLD"}
+
+
+def _branch_verdict(key, body, focus, base):
+    """(判定, 覚えた判定か, メインブランチの版にも在った詰まりの番号)。判定は覚えた物か、読んで覚えた物({"詰まり", "補完", "疑問"})。
+    読めなければ例外。base はメインブランチの版(ブランチが足した文書は None で、問わない)。"""
+    found, cached = _branch_cached(key, lambda: read_doc(body, focus))
+    old = _carried_from_base(found["詰まり"], body, base) if found["詰まり"] and base is not None else set()
+    return found, cached, old
 
 
 def branch_check(argv):
@@ -3751,19 +3802,20 @@ def branch_check(argv):
         if full in generated or len(text) < DOC_MIN_LEN or any(m in text.split("\n", 1)[0] for m in DOC_SKIP_MARKS):
             continue
         old = _git(["show", "%s:%s" % (mb, rel)], root)
-        part = doc_excerpt(full, text, old.decode("utf-8", "replace") if old is not None else _moved_base(text, moved))
+        old = old.decode("utf-8", "replace") if old is not None else None
+        part = doc_excerpt(full, text, old if old is not None else _moved_base(text, moved))
         if part == "":
             continue
         body = text if part is None else part
         key = hashlib.sha256(doc_prompt(body, part is not None).encode("utf-8")).hexdigest()[:40]
-        picked.append((rel, text, body, part is not None, key))
-    notes, stuck, counts, down, fresh = [], [], {"詰まり": 0, "補完": 0}, [], 0
+        picked.append((rel, text, body, part is not None, key, old))
+    notes, stuck, counts, down, fresh = [], [], {"詰まり": 0, "補完": 0, "前から": 0}, [], 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=DOC_WORKERS) as pool:
-        futures = [(pool.submit(_branch_verdict, key, body, focus), rel, text, focus)
-                   for rel, text, body, focus, key in picked]
+        futures = [(pool.submit(_branch_verdict, key, body, focus, old), rel, text, focus)
+                   for rel, text, body, focus, key, old in picked]
     for fut, rel, text, focus in futures:
         try:
-            found, cached = fut.result()
+            found, cached, old = fut.result()
         except Exception as exc:
             log_line(DOC_LOG, "reader-down\t%s\tbranch\t%s" % (str(exc)[:150].replace("\n", " "), rel))
             down.append("%s: %s" % (rel, _down_reason(exc)))
@@ -3771,14 +3823,16 @@ def branch_check(argv):
         fresh += not cached
         log_line(DOC_LOG, "%s\tbranch%s\t%s" % ("finding" if found["詰まり"] or found["補完"] else "clean",
                                                   "(覚えた判定)" if cached else "", rel))
-        note = doc_feedback(rel, found, focus)
+        carried = [line for k, line in enumerate(found["詰まり"]) if k in old]
+        found = dict(found, 詰まり=[line for k, line in enumerate(found["詰まり"]) if k not in old])
+        note = doc_feedback(rel, found, focus, carried)
         if note:
             notes.append(note)
-        if found["詰まり"]:
-            stuck += ["%s — %s" % (rel, line) for line in found["詰まり"]]
-        for label in counts:
-            counts[label] += len(found[label])
-    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, _, _, _ in picked])   # ターンの終わりの読みと重ねない
+        stuck += ["%s — %s" % (rel, line) for line in found["詰まり"]]
+        counts["詰まり"] += len(found["詰まり"])
+        counts["補完"] += len(found["補完"])
+        counts["前から"] += len(carried)
+    _remember([hashlib.sha256(text.encode("utf-8")).hexdigest() for _, text, _, _, _, _ in picked])   # ターンの終わりの読みと重ねない
     where = _write_findings("branch", "\n\n".join(("coldread が、メインブランチに入れる前にブランチの文書を読んだ指摘(分かれ目 %s)。" % mb[:8], *notes))) \
         if notes else None
     for line in stuck:
@@ -3786,8 +3840,10 @@ def branch_check(argv):
     if down:
         print("読めなかった文書(読み手を起動できない。手で読ませるなら python3 %s read <パス>): %s"
               % (os.path.abspath(__file__), "・".join(down)))
-    print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件・推測で埋めた箇所 %d 件%s。%s"
-          % (len(picked), fresh, counts["詰まり"], counts["補完"], "・読めなかった %d 本" % len(down) if down else "",
+    print("coldread branch-check: ブランチの文書 %d 本を読んだ(新しく読んだ %d 本)。詰まり %d 件%s・推測で埋めた箇所 %d 件%s。%s"
+          % (len(picked), fresh, counts["詰まり"],
+             "(ほかにメインブランチの版にも在った詰まり %d 件は止めない)" % counts["前から"] if counts["前から"] else "",
+             counts["補完"], "・読めなかった %d 本" % len(down) if down else "",
              ("全文: " + where) if where else "指摘なし"))
     return 1 if stuck or down else 0
 

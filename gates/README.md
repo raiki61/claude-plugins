@@ -260,6 +260,13 @@ How findings are returned depends on the writing role:
   Trade-off: if, at the new location, words that were explained in an earlier section of the original body become unclear, the branch gate does not catch it (the entry guidance and word explanations
   in the body SKILL.md are read on the body's side as before). The end-of-turn read still reads added documents in full as before.
   If there is even 1 blocker, it stops with exit code 1; if there are only guesses and questions, it passes with 0.
+  Blockers that were already in the mainline version do not stop the branch: for a document that existed at the split point, each blocker is sent with the new and the split-point versions
+  to the same reader model, which answers whether the split-point version blocks a reader at the same place for the same reason. Those are listed in the full findings under
+  「メインブランチの版にも在った詰まり」 ("blockers also in the mainline version") and counted apart in the last line, but do not change the exit code. If the answer is unsure it counts as new,
+  and if the comparison cannot run, every blocker counts as new (both stop as before). Documents the branch added are not compared.
+  This is because rewording that spreads over a whole document (such as replacing words with established IT terms) makes even the rewritten-sections read cover most of a long document,
+  so blockers that were always there kept stopping the merge and moved to another place after each fix (2026-10-19: 36 → 17 → 23 blockers).
+  Reading the split-point version separately and matching the two lists is not used, because the reader picks different places on each read, so blockers that were already there would rarely match.
   It also stops with 1 if there are documents for which the reader could not be started (passing them unread would make the gate silently empty). At the end of standard output, it prints the blocker lines (with paths from the
   root of the working tree) and the counts and the location of the file with the full text. Verdicts for the same request text are remembered in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch/`, so
   reruns after the mainline moves forward and the branch is rebased do not read again. To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,

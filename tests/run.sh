@@ -3316,8 +3316,9 @@ def git(*a):
 # 読み手の差し替え: 受けた依頼文を calls/ に 1 本ずつ残す。返すのは CLEAN(渡った本文だけを見る)。
 # 1 回の終わりに複数の文書を並べて読むので、名前は mktemp で分ける(数えて名付けると、並んだ読み手が同じ名前に書く)
 READER = 'f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; echo CLEAN' % calls.as_posix()
-def prompts():
-    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)]
+def prompts(suffix=""):
+    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)
+            if f.name.endswith(".base") == (suffix == ".base")]
 def last_prompt():
     got = prompts()
     return got[-1], len(got)
@@ -3540,8 +3541,14 @@ repo.mkdir()
 def git(*a):
     return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True).stdout.decode("utf-8").strip()
 
-# 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは CLEAN を返す
-READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q 印STUCK "$f"; then echo "詰まり: 印STUCK の語が分からない"; '
+# 読み手の差し替え: 依頼文を calls/ に残し、印「印STUCK」が在れば詰まり、「印GUESS」が在れば推測だけ、ほかは CLEAN を返す。
+# 「印FRESH」も在れば、その詰まりを印STUCK の詰まりの前に出す。
+# 詰まりをメインブランチの版と比べる依頼文(BASE_CHECK_HEAD)は名前の末尾を .base にして残し、前の版にも印STUCK が在れば印STUCK の詰まりを
+# OLD と返す(印FRESH の詰まりが 1 番に在れば 1 は NEW、印STUCK の詰まりは 2 番)
+READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "2 つの版を比べる係" "$f"; then mv "$f" "$f.base"; '
+          'if sed -n "/^--- 前の版 ---$/,\\$p" "$f.base" | grep -q 印STUCK; then '
+          'if grep -q "^1\\. 詰まり: 印FRESH" "$f.base"; then echo "1 NEW"; echo "2 OLD"; else echo "1 OLD"; fi; else echo "1 NEW"; fi; '
+          'elif grep -q 印STUCK "$f"; then grep -q 印FRESH "$f" && echo "詰まり: 印FRESH の語が分からない"; echo "詰まり: 印STUCK の語が分からない"; '
           'elif grep -q 印GUESS "$f"; then echo "補完: 印GUESS を推測で読んだ"; else echo CLEAN; fi') % calls.as_posix()
 
 def check(reader=READER):
@@ -3550,8 +3557,9 @@ def check(reader=READER):
     r = subprocess.run([sys.executable, str(gate), "branch-check"], cwd=str(repo), capture_output=True, env=e, timeout=120)
     return r.returncode, r.stdout.decode("utf-8")
 
-def prompts():
-    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)]
+def prompts(suffix=""):
+    return [f.read_text(encoding="utf-8") for f in sorted(calls.iterdir(), key=lambda f: f.stat().st_mtime_ns)
+            if f.name.endswith(".base") == (suffix == ".base")]
 
 def doc(*secs):
     return "# 題\n\nこの文書は印T の設計を書く。\n\n" + "".join("## セクション%s\n\n%s\n\n" % (k, "".join("印%s の %d 行目。\n" % (k, i) for i in range(40)) + extra)
@@ -3633,6 +3641,42 @@ git("commit", "-q", "-m", "rename")
 rc, out = check()
 got = prompts()[before:]
 assert rc == 0 and len(got) == 1 and "印F の 0 行目" in got[0] and "印F の 39 行目" in got[0], (rc, len(got), out)   # renamed.md は読まない
+
+# 7) メインブランチの版にも同じ理由で在った詰まりは止めず、全文の一覧に残す(語の置き換えが前からの読みにくさを拾う)。
+#    比べる依頼文には詰まりと新旧の版を渡す。ブランチが足した詰まりは今までどおり止め、比べる係を起動できなければ止める
+git("switch", "-q", "main")
+(repo / "legacy.md").write_text(doc(("L", "印STUCK は前から在る。\n")), encoding="utf-8")
+git("add", "legacy.md")
+git("commit", "-q", "-m", "legacy")
+git("update-ref", "refs/remotes/origin/main", "HEAD")
+git("switch", "-q", "feat")
+git("rebase", "-q", "main")
+(repo / "legacy.md").write_text(doc(("L", "印STUCK は前から在る。\n語を置き換えた。\n")), encoding="utf-8")
+git("commit", "-q", "-am", "terms")
+rc, out = check(READER.replace("1 OLD", "比べられない"))
+assert rc == 1 and "legacy.md — 詰まり: 印STUCK" in out, (rc, out)   # 比べる係の答えが読めなければ新しい詰まり(読めない答えは覚えない)
+before = len(prompts(".base"))
+rc, out = check()
+got = prompts(".base")[before:]
+assert rc == 0 and "詰まり 0 件(ほかにメインブランチの版にも在った詰まり 1 件は止めない)" in out, (rc, out)
+new_side, old_side = got[0].split("--- 前の版 ---") if len(got) == 1 else ("", "")
+assert "1. 詰まり: 印STUCK の語が分からない" in new_side and "語を置き換えた" in new_side and "語を置き換えた" not in old_side \
+    and "印STUCK は前から在る" in old_side, got   # 新しい版と分かれ目の版を取り違えていない
+full = pathlib.Path(out.strip().splitlines()[-1].split("全文: ")[1]).read_text(encoding="utf-8")
+assert "メインブランチの版にも在った詰まり" in full and "印STUCK の語が分からない" in full, full
+# 詰まりが 2 件で、比べる係が 2 番だけを OLD と答えたら、2 番の詰まりだけを止めず、1 番の詰まりで止める
+(repo / "legacy.md").write_text(doc(("L", "印STUCK は前から在る。\n語を置き換えた。\n印FRESH を足した。\n")), encoding="utf-8")
+git("commit", "-q", "-am", "fresh")
+rc, out = check()
+assert rc == 1 and "legacy.md — 詰まり: 印FRESH" in out and "— 詰まり: 印STUCK" not in out \
+    and "詰まり 1 件(ほかにメインブランチの版にも在った詰まり 1 件は止めない)" in out, (rc, out)
+(repo / "legacy.md").write_text(doc(("L", "語を置き換えた。\n")), encoding="utf-8")
+(repo / "fresh2.md").write_text(doc(("F", "印STUCK を足した。\n")), encoding="utf-8")
+git("add", ".")
+git("commit", "-q", "-m", "new stuck")
+before = len(prompts(".base"))
+rc, out = check()
+assert rc == 1 and "fresh2.md — 詰まり: 印STUCK" in out and len(prompts(".base")) == before, (rc, out)   # 足した文書は比べない
 print("DOCS_BRANCH_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。
