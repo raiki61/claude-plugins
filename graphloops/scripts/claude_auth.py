@@ -37,10 +37,12 @@ Bash から見える環境では `CLAUDE_CODE_OAUTH_TOKEN` も `CLAUDE_CONFIG_DI
 ——**認証を足せたかどうかが見えないと、認証落ちが役の返答の不良と区別できない**。
 段の名前にトークンそのものは出さない。
 """
+import datetime
 import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import unicodedata
@@ -53,6 +55,13 @@ INHERITED = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOK
 FLAGS = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
 OFF = ("", "0", "false", "False", "no")
 TOKEN_PREFIX = "sk-ant-oat01-"
+# `claude setup-token` のトークンの寿命（https://code.claude.com/docs/en/authentication の「Generate a long-lived token」:
+# 「generate a one-year OAuth token」）。期限はサーバの側に在り、トークンの文字列からは読めないので、Keychain の項目を書き換えた日から数える
+TOKEN_LIFETIME_DAYS = 365
+EXPIRY_WARN_DAYS = 30   # 切れる日の何日前から知らせるか
+# 認証の失敗は、子の標準出力に短い 1 行の JSON でない文が出て、終了コード 0 で返る（実測 2026-09-15 は 73 バイト）。
+# 既知の文の約 4 倍を上限にする（文言が少し延びても拾い、JSON でない長い返答は拾わない）
+AUTH_FAILURE_MAX_BYTES = 300
 
 
 def config_dir(env):
@@ -92,6 +101,66 @@ def read_keychain(service, runner=subprocess.run):
         # 壊れた値を渡すと子は認証エラーで起動すらしない。渡さなければ保存済み認証で動く目が残る
         return None, "keychain-malformed"
     return tok, "keychain"
+
+
+def keychain_age_days(service, runner=subprocess.run, now=None):
+    """Keychain の項目を最後に書き換えてから経った日数。項目が無い・読めなければ None——例外は投げない。
+
+    属性（mdat。書き換えた時刻）だけを読み、値（トークン）は読まない（`-w` を付けない）。当てるのは、利用者が
+    `claude setup-token` で作ったトークンを自分で書いた項目（keychain_service の名）だけ。同じトークンを書き直しても
+    数え直しになる。Claude Code 自身が置く項目（claude_code_items）は自分で書き換わるので当てない。
+    時間切れの 10 秒は read_keychain と同じ（security が固まったときに呼ぶ側ごと止めない）。
+    """
+    try:
+        p = runner(["security", "find-generic-password", "-s", service],
+                   capture_output=True, encoding="utf-8", timeout=10)
+    except Exception:
+        return None
+    m = re.search(r'"mdat"<timedate>=\S*\s+"(\d{14})Z', p.stdout or "")
+    if getattr(p, "returncode", 0) != 0 or not m:
+        return None
+    at = datetime.datetime.strptime(m.group(1), "%Y%m%d%H%M%S").replace(tzinfo=datetime.timezone.utc)
+    return ((now or datetime.datetime.now(datetime.timezone.utc)) - at).days
+
+
+def expiry_note(service, runner=subprocess.run, now=None):
+    """Keychain の項目のトークンが、切れる日（書き換えた日から TOKEN_LIFETIME_DAYS 日）の EXPIRY_WARN_DAYS 日前を過ぎていれば
+    人に見せる 1 行、まだなら None。書き換えた日を読めない（項目が無い・mac でない）ときも None。"""
+    age = keychain_age_days(service, runner, now)
+    if age is None or age < TOKEN_LIFETIME_DAYS - EXPIRY_WARN_DAYS:
+        return None
+    left = TOKEN_LIFETIME_DAYS - age
+    if left > 0:
+        when = "%d 日後に切れる見込み" % left
+    elif left == 0:
+        when = "今日切れる見込み"
+    else:
+        when = "切れた見込み（%d 日過ぎ）" % -left
+    return ("Keychain の項目 %s のトークンは %d 日前に書いた物で、%s。`claude setup-token` で作り直し、"
+            "この項目に書き直す" % (service, age, when))
+
+
+def auth_failed(out):
+    """子の標準出力が認証の失敗の形か。次のどちらかなら真。
+    - 空でなく、AUTH_FAILURE_MAX_BYTES 以下の 1 行で、JSON として読めない（実測 2026-09-15 の形）
+    - JSON の結果で `is_error` が真、`result` に authenticate か /login を含む（`--output-format json` の版で失敗がこの形で返る場合）
+
+    JSON を返すはずの起動（`--output-format json` など）の出力にだけ使う。終了コードは見ない——認証の失敗は 0 で返る。
+    使用枠の上限の 1 行（『Claude AI usage limit reached|…』など）も 1 つ目に当たる。どちらも「済んだ」ではないので、
+    呼ぶ側は失敗に数えてよいが、知らせの文では認証と決めつけずに出力の頭を添える。
+    """
+    if isinstance(out, bytes):
+        out = out.decode("utf-8", "replace")
+    text = (out or "").strip()
+    if not text:
+        return False
+    try:
+        got = json.loads(text)
+    except ValueError:
+        return "\n" not in text and len(text.encode("utf-8")) <= AUTH_FAILURE_MAX_BYTES
+    said = got.get("result") if isinstance(got, dict) else None
+    return bool(isinstance(got, dict) and got.get("is_error") is True and isinstance(said, str)
+                and ("authenticate" in said.lower() or "/login" in said))
 
 
 def claude_code_items(user_config, home=None):

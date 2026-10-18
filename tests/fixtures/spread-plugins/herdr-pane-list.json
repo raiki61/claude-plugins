@@ -1,0 +1,55 @@
+{
+ "id": "cli:pane:list",
+ "result": {
+  "panes": [
+   {
+    "agent": "claude",
+    "agent_session": {
+     "agent": "claude",
+     "kind": "id",
+     "source": "herdr:claude",
+     "value": "00000000-0000-0000-0000-000000000000"
+    },
+    "agent_status": "idle",
+    "cwd": "/h/.herdr/worktrees/guided-resolver/docs-eval-runbook-exit-code-4",
+    "focused": false,
+    "foreground_cwd": "/h/.herdr/worktrees/guided-resolver/docs-eval-runbook-exit-code-4",
+    "pane_id": "wB9:p1",
+    "revision": 458,
+    "scroll": {
+     "max_offset_from_bottom": 0,
+     "offset_from_bottom": 0,
+     "viewport_rows": 75
+    },
+    "tab_id": "wB9:t1",
+    "terminal_id": "term_65e226ffbc3a6169",
+    "terminal_title": "x",
+    "terminal_title_stripped": "x",
+    "tokens": {
+     "lim": "",
+     "mdl": "",
+     "prt": "",
+     "ref": ""
+    },
+    "workspace_id": "wB9"
+   },
+   {
+    "agent_status": "unknown",
+    "cwd": "/h/src/guided-resolver-cockpit",
+    "focused": false,
+    "foreground_cwd": "/h/src/guided-resolver-cockpit",
+    "pane_id": "wT:p5",
+    "revision": 11639,
+    "scroll": {
+     "max_offset_from_bottom": 0,
+     "offset_from_bottom": 0,
+     "viewport_rows": 75
+    },
+    "tab_id": "wT:t1",
+    "terminal_id": "term_65d972e68f9972",
+    "workspace_id": "wT"
+   }
+  ],
+  "type": "pane_list"
+ }
+}

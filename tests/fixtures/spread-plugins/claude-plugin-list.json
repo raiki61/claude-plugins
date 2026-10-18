@@ -1,0 +1,33 @@
+[
+ {
+  "id": "attention@raiki61",
+  "version": "0.37.0",
+  "scope": "user",
+  "enabled": true,
+  "installPath": "/h/.claude-p3/plugins/cache/raiki61/attention/0.37.0",
+  "installedAt": "2026-09-17T01:34:17.746Z",
+  "lastUpdated": "2026-10-18T22:16:51.351Z",
+  "projectEnabled": false
+ },
+ {
+  "id": "document-skills@anthropic-agent-skills",
+  "version": "dbd4588f9e10",
+  "scope": "user",
+  "enabled": false,
+  "installPath": "/h/.claude-p3/plugins/cache/anthropic-agent-skills/document-skills/dbd4588f9e10",
+  "installedAt": "2026-09-17T01:34:17.746Z",
+  "lastUpdated": "2026-10-10T21:41:16.215Z",
+  "projectEnabled": false
+ },
+ {
+  "id": "pr-review-toolkit@claude-plugins-official",
+  "version": "ea10b213686c",
+  "scope": "project",
+  "enabled": true,
+  "installPath": "/h/.claude-p3/plugins/cache/claude-plugins-official/pr-review-toolkit/ea10b213686c",
+  "installedAt": "2026-09-17T01:29:45.591Z",
+  "lastUpdated": "2026-10-18T08:27:00.352Z",
+  "projectPath": "/h/src/guided-resolver",
+  "projectEnabled": false
+ }
+]

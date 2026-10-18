@@ -2355,7 +2355,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=718
+EXPECTED_CHECKS=720
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4913,6 +4913,12 @@ expect_output 0 "BROKEN_COPY_OK" \
 expect_output 0 "MEND_CLONE_OK" \
     "spread-plugins: marketplace の clone の作業ツリーから消えたファイルを、プラグインの更新の前に戻す" \
     "$PY_BIN" "$SPREAD_CASE" mend-clone
+expect_output 0 "REAL_SHAPES_OK" \
+    "spread-plugins: claude plugin list --json と herdr pane list の実物から採った見本で、使うフィールドが読めて配れる" \
+    "$PY_BIN" "$SPREAD_CASE" real-shapes
+expect_output 0 "SHAPE_CHANGED_OK" \
+    "spread-plugins: 外のツールの形が変わったら（id が無い・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、配ったと出さずに失敗に数える" \
+    "$PY_BIN" "$SPREAD_CASE" shape-changed
 
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
@@ -7569,8 +7575,8 @@ expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(�
 # GitHub で保護しておらず、--land を通さずに手で push する道もある（docs/releasing.md）ので、main に入った後の CI でも同じ口で見る
 expect_output 0 "TERMS_OK" "リポジトリの文の IT の定着語でない言い方の件数が、ファイルごとに基準（scripts/terms-baseline.json）と同じ" \
     "$PY_BIN" "$ROOT/scripts/terms.py"
-# 共有の認証の部品のうち、アカウントの OAuth トークンを探す口（account_token）。Keychain と資格情報のファイルは偽物
-expect_output 0 "OK" "共有の認証の部品: アカウントのトークンを、作った項目・Claude Code の項目・資格情報のファイルの順に探す" \
+# 共有の認証の部品のうち、アカウントの OAuth トークンを探す口（account_token）と、トークンの期限の近さ・認証の失敗の形の見分け。Keychain と資格情報のファイルは偽物
+expect_output 0 "OK" "共有の認証の部品: アカウントのトークンを、作った項目・Claude Code の項目・資格情報のファイルの順に探す。期限の近さと認証の失敗の形を見分ける" \
     "$PY_BIN" -B "$ROOT/tests/claude-auth-suite.py"
 
 # **検証器の同型部分は、順序まで揃っていること。** 検証器は 1 本ずつ配る前提で共有モジュールを持たないので

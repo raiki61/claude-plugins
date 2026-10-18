@@ -23,6 +23,10 @@ works-dispatch の機械窓口のツールとして、`dispatch.py --call 配布
    飛ばす。飛ばした会話は、works-dispatch のターンの終わりのフック（dispatch/refresh_hook.py）が、その会話のターンの終わりの手の空いた
    時に替える。/clear では替わらない（2026-10-17 に Claude Code 2.1.302 で確かめた）。
 3. その人だけの除外は手元の設定の `skip`（herdr の作業場の名前の並び）に置く。持ち主の値を配布物に書かない。
+4. 外のツールの形が変わったら、何も更新せずに「配った」と出さず、失敗に数える: `claude plugin list --json` の物に id か scope が無い・
+   この marketplace のプラグインが user の scope に 0 件・herdr のペインに claude の会話が 0 個・herdr の知らない状態（KNOWN_STATUS の外）。
+   そのため、配る先のアカウントには、この marketplace のプラグインを 1 つ以上入れておく（0 件のアカウントは毎回失敗に数える。
+   形が変わって id が読めないときと見分けが付かないため）。試験は実物から採った見本（tests/fixtures/spread-plugins/）で回す。
 
 使い方: python3 scripts/spread-plugins.py < 入力の JSON（省けば {}）
 終了の値: 0 = 配った（飛ばした会話は数えない）/ 1 = 失敗が在る（失敗の行を出力の終わりに並べ直す）/ 2 = 入力か設定が読めない
@@ -49,6 +53,9 @@ from nodes import deliver, refresh  # noqa: E402
 DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"   # works-dispatch の設定の既定の場所（WORKS_DISPATCH_CONFIG で替わる）
 LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの配る先の足しと除外
 RELOAD = refresh.RELOAD
+# herdr が会話に付ける状態のうち知っている物。手の空いた物は refresh.IDLE、ターンの途中は refresh.BUSY。unknown は herdr が
+# 状態をまだ決めていない会話（herdr 0.9.3 の実物の pane list に出る）で、ターンの途中と同じに飛ばす
+KNOWN_STATUS = refresh.IDLE + refresh.BUSY + ("unknown",)
 
 
 def run(argv, env=None):
@@ -162,8 +169,17 @@ def installed_ids(name, market, env, runner=run):
         got = None
     if not isinstance(got, list):
         return {}, f"{name}: 入っているプラグインを読めない（{out.strip()[:200]}）"
-    return {p["id"]: (p.get("installPath"), p.get("version")) for p in got if isinstance(p, dict) and str(p.get("id", "")).endswith("@" + market)
-            and p.get("scope", "user") == "user"}, None
+    # 使うフィールドが消えた・名前が変わったときに、何も更新せず「配った」と出さない（Claude Code の版で形が変わりうる）
+    # scope が消えたときに全部を user と見て、project の scope の物まで更新しない
+    shapeless = [p for p in got if not (isinstance(p, dict) and isinstance(p.get("id"), str) and isinstance(p.get("scope"), str))]
+    if shapeless:
+        return {}, f"{name}: claude plugin list --json の {len(shapeless)} 件に id か scope が無い（形が変わったか: {json.dumps(shapeless[0], ensure_ascii=False)[:200]}）"
+    ids = {p["id"]: (p.get("installPath"), p.get("version")) for p in got if p["id"].endswith("@" + market)
+           and p["scope"] == "user"}
+    if not ids:
+        # 配る先のアカウントには、この marketplace のプラグインが入っているはず。0 件は形の変化か、入れ損ねたアカウント
+        return {}, f"{name}: この marketplace（{market}）のプラグインが user の scope に 1 つも無い（claude plugin list --json の id・scope の形が変わったか、入っていない）"
+    return ids, None
 
 
 def update_account(name, config_dir, market, dry, runner=run):
@@ -206,7 +222,7 @@ def update_account(name, config_dir, market, dry, runner=run):
             head = f"{name}: claude plugin update {i} "
             where, version = after.get(i, (None, None))
             if err:
-                note("update", head + "失敗（入った写しを確かめられない）", True)
+                note("update", head + f"失敗（入った写しを確かめられない: {err}）", True)
             elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
                 note("update", head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
             else:
@@ -241,8 +257,13 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
     except (herdr.HerdrError, OSError) as e:   # OSError は herdr が入っていない・起動できないとき
         return [step(None, "talk", f"herdr を読めない（{e}）", True)]
     steps = []
-    for p in panes:
-        if p.get("agent") != "claude" or not p.get("cwd"):
+    talks = [p for p in panes if p.get("agent") == "claude"]
+    if not talks:
+        # 配るのは herdr に開いた会話（main に入れた部署か、--call を打った会話）から打つ前提で、その会話自身が 1 つは居る。
+        # claude の会話のペインが 0 個なのは、herdr の形（agent の名前か値）が変わったとき
+        return [step(None, "talk", f"herdr のペインに claude の会話が 1 つも無い（herdr pane list の agent の形が変わったか。ペイン {len(panes)} 個）", True)]
+    for p in talks:
+        if not p.get("cwd"):
             continue
         where = f"{labels.get(p.get('workspace_id')) or p.get('workspace_id')}（{p['pane_id']}）"
         if labels.get(p.get("workspace_id")) in skip:
@@ -250,6 +271,9 @@ def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
             continue
         if not is_company_place(p["cwd"], runner):
             continue   # 持ち主の作業の会話（部署でも窓口でもない）には打たない
+        if p.get("agent_status") not in KNOWN_STATUS:
+            steps.append(step(None, "talk", f"{where}: herdr の知らない状態 {p.get('agent_status')!r} なので飛ばす（herdr の形が変わったか）", True))
+            continue
         if p.get("agent_status") not in refresh.IDLE:
             steps.append(step(None, "talk", f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）", False))
             continue

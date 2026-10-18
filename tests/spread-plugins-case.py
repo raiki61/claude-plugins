@@ -12,6 +12,10 @@
   失敗に数え、失敗の行を出力の終わりに並べ直す。メインブランチの版を読めなくても失敗に数える。メインブランチは全アカウントに配った後に読み、
   版のずれたアカウントだけ 1 回配り直して照合し直す（配る間にメインブランチが進んだとき）
 - mend-clone: marketplace の clone の作業ツリーから消えたファイルが在れば、プラグインの更新の前に戻す
+- real-shapes: claude plugin list --json と herdr pane list の実物から採った見本（tests/fixtures/spread-plugins/）で、使うフィールドが
+  読めて配れる（Claude Code 2.1.303・herdr 0.9.3 で採った。版が上がって形が変わったら採り直す）
+- shape-changed: 外のツールの形が変わったら（id の名前・この marketplace の物が 0 件・claude の窓が 0 件・知らない状態）、何も
+  更新せずに「配った」と出さず、失敗に数える
 """
 
 import importlib.util
@@ -47,13 +51,17 @@ def plugin_dir(whole=True):
     return str(d)
 
 
-def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky=()):
+FIXTURES = ROOT / "tests" / "fixtures" / "spread-plugins"
+
+
+def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky=(), listed=None, panes=None):
     """(runner, 打ったコマンドの並び)。flaky は最初の 1 回だけ落ちるコマンド。installed は入った写しの場所（省けば plugin.json の在る場所）、gone は clone から消えたファイル。
     version は入った版（関数なら、その設定のフォルダで打った plugin update の数から版を返す）、main はメインブランチ（origin/main）の
-    plugin.json の版（None ならメインブランチを読めない）。"""
+    plugin.json の版（None ならメインブランチを読めない）。listed は claude plugin list --json の並びを返す関数（入った場所と版を受ける）、
+    panes は herdr pane list の窓の並び（どちらも省けば手で書いた見本）。"""
     calls = []
     installed = installed or plugin_dir()
-    panes = [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "agent_status": "idle", "cwd": "/dept"},
+    panes = panes if panes is not None else [{"pane_id": "a:1", "workspace_id": "a", "agent": "claude", "agent_status": "idle", "cwd": "/dept"},
              {"pane_id": "b:1", "workspace_id": "b", "agent": "claude", "agent_status": "idle", "cwd": "/mine"},
              {"pane_id": "c:1", "workspace_id": "c", "agent": "claude", "agent_status": "done", "cwd": "/typed"},
              {"pane_id": "d:1", "workspace_id": "d", "agent": "claude", "agent_status": "idle", "cwd": "/skipped"},
@@ -67,6 +75,8 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky
         if argv[:3] == ["claude", "plugin", "list"]:
             v = version(sum(1 for a, e in calls if a[:3] == ["claude", "plugin", "update"] and e == (env or {}).get(
                 "CLAUDE_CONFIG_DIR"))) if callable(version) else version
+            if listed:
+                return 0, json.dumps(listed(installed, v))
             return 0, json.dumps([{"id": f"a@{MARKET}", "scope": "user", "installPath": installed, "version": v},
                                   {"id": "x@other", "scope": "user"}, {"id": f"p@{MARKET}", "scope": "project"}])
         if argv[:4] == ["claude", "plugin", "marketplace", "list"]:
@@ -91,8 +101,10 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky
             if main is None:
                 return 128, "fatal: invalid object name 'origin/main'"
             if argv[4] == "origin/main:.claude-plugin/marketplace.json":
-                return 0, json.dumps({"plugins": [{"name": "a", "source": "./a"}, {"name": "gone", "source": "./gone"}]})
-            if argv[4] in ("origin/main:a/.claude-plugin/plugin.json", "origin/main:gone/.claude-plugin/plugin.json"):
+                return 0, json.dumps({"plugins": [{"name": "a", "source": "./a"}, {"name": "gone", "source": "./gone"},
+                                                  {"name": "attention", "source": "./attention"}]})
+            if argv[4] in ("origin/main:a/.claude-plugin/plugin.json", "origin/main:gone/.claude-plugin/plugin.json",
+                           "origin/main:attention/.claude-plugin/plugin.json"):
                 return 0, json.dumps({"version": main})
             raise AssertionError(argv)
         if argv[:4] == ["git", "-C", "/m/mine", "ls-files"]:
@@ -247,6 +259,71 @@ def mend_clone():
     print("MEND_CLONE_OK")
 
 
+def real_list(installed, version):
+    """実物から採った claude plugin list --json の見本。この marketplace の 1 件の入った場所と版だけ、試験の物に替える。"""
+    got = json.loads((FIXTURES / "claude-plugin-list.json").read_text(encoding="utf-8"))
+    for p in got:
+        if p["id"].endswith("@" + MARKET):
+            p.update(installPath=installed, version=version)
+    return got
+
+
+def real_panes():
+    """実物から採った herdr pane list の窓の並び（claude の手の空いた会話 1 つと、会話の居ない窓 1 つ）。"""
+    return json.loads((FIXTURES / "herdr-pane-list.json").read_text(encoding="utf-8"))["result"]["panes"]
+
+
+def real_shapes():
+    panes = real_panes()
+    dept = panes[0]["cwd"]
+    runner, calls = world(listed=real_list, panes=panes)
+    def company(argv, env=None):   # 見本の会話の場所を部署と見る
+        if argv[:2] == ["git", "-C"] and argv[2] == dept and "company.role" in argv:
+            return 0, "作業\n"
+        return runner(argv, env)
+    rc, out = run(company, {})
+    assert rc == 0 and out.strip().endswith("配った"), out
+    updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
+    assert updates == [(f"attention@{MARKET}", None), (f"attention@{MARKET}", "/c/p1")], updates   # 別の marketplace・project の scope は触らない
+    assert [a[3] for a, _ in calls if a[:3] == ["herdr", "agent", "prompt"]] == [panes[0]["pane_id"]], calls
+    print("REAL_SHAPES_OK")
+
+
+def shape_changed():
+    def renamed(installed, version):   # id の名前が変わった
+        return [{("plugin_id" if k == "id" else k): v for k, v in p.items()} for p in real_list(installed, version)]
+    def others(installed, version):    # この marketplace の物が 1 つも見えない（scope の値が変わったなど）
+        return [dict(p, scope="global") for p in real_list(installed, version)]
+    def scopeless(installed, version):   # scope が消えた（全部を user と見て project の物まで更新しない）
+        return [{k: v for k, v in p.items() if k != "scope"} for p in real_list(installed, version)]
+    for listed, want in ((renamed, "id か scope が無い"), (others, "1 つも無い"), (scopeless, "id か scope が無い")):
+        runner, calls = world(listed=listed, panes=real_panes())
+        rc, out = run(runner, {})
+        assert rc == 1 and want in out.strip().splitlines()[-1], (want, out)
+        assert not [a for a, _ in calls if a[:3] == ["claude", "plugin", "update"]], calls
+    panes = [{("kind" if k == "agent" else k): v for k, v in p.items()} for p in real_panes()]   # agent の名前が変わった
+    runner, calls = world(listed=real_list, panes=panes)
+    rc, out = run(runner, {})
+    assert rc == 1 and "claude の会話が 1 つも無い" in out.strip().splitlines()[-1], out
+    lists = []
+    def vanished(installed, version):   # 最初の一覧には在り、更新の後の取り直しで消えた
+        lists.append(1)
+        return real_list(installed, version) if len(lists) == 1 else []
+    runner, calls = world(listed=vanished, panes=real_panes())
+    rc, out = run(runner, {})
+    assert rc == 1 and "失敗（入った写しを確かめられない: main: この marketplace" in out, out
+    runner, calls = world(listed=real_list, panes=[dict(real_panes()[0], agent_status="thinking")])   # 知らない状態
+    def company(argv, env=None):
+        if argv[:2] == ["git", "-C"] and "company.role" in argv:
+            return 0, "作業\n"
+        return runner(argv, env)
+    rc, out = run(company, {})
+    assert rc == 1 and "知らない状態 'thinking'" in out.strip().splitlines()[-1], out
+    assert not [a for a, _ in calls if a[:3] == ["herdr", "agent", "prompt"]], calls
+    print("SHAPE_CHANGED_OK")
+
+
 if __name__ == "__main__":
     {"only-company-talks": only_company_talks, "bad-config": bad_config, "failure-is-nonzero": failure_is_nonzero,
-     "local-accounts": local_accounts, "broken-copy": broken_copy, "mend-clone": mend_clone}[sys.argv[1]]()
+     "local-accounts": local_accounts, "broken-copy": broken_copy, "mend-clone": mend_clone,
+     "real-shapes": real_shapes, "shape-changed": shape_changed}[sys.argv[1]]()
