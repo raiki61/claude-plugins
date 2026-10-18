@@ -1,4 +1,4 @@
-# 0075. /review-graph を退役させる（早くて 2026-11-18 に入口のスキルだけを消す。代わりは /works-factory）
+# 0075. /review-graph を退役させる（graphloops の /review-graph を使う人は 2026-11-18 までに /works-factory へ移る。入口のスキルは見直しの部署が早くて 2026-11-18 に消す）
 
 - 状態: 採用
 - 日付: 2026-10-18
