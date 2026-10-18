@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- 前の版で置き換えずに残した 6 本（research-graph の SKILL.md と、review-graph の references の flows.md・policy.md・runnerless.md と、review-loop のプロンプトの p2.history.md・report.md）も IT の定着語に置き換えた。振る舞いは変えていない。
+
 ## [0.32.0] - 2026-10-19
 
 ### Changed

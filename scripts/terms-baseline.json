@@ -5,12 +5,7 @@
  "convergence-loops/agents/inspector.md": 1,
  "convergence-loops/agents/investigator.md": 2,
  "convergence-loops/agents/judge.md": 3,
- "graphloops/prompts/review-loop/p2.history.md": 11,
- "graphloops/prompts/review-loop/report.md": 5,
- "graphloops/skills/research-graph/SKILL.md": 41,
- "graphloops/skills/review-graph/references/flows.md": 9,
- "graphloops/skills/review-graph/references/policy.md": 18,
- "graphloops/skills/review-graph/references/runnerless.md": 28,
+ "graphloops/prompts/review-loop/p2.history.md": 6,
  "tests/mutate.py": 2,
  "tests/run.sh": 3,
  "works-dispatch/dispatch/nodes/deliver.py": 2
