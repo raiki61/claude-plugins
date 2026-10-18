@@ -40,4 +40,4 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.21.4（eb8f11d）。[計画の文書の H3〜H5 の実施](../graphloops-rearchitecture.md)の段、[review-graph の手順書](../../graphloops/commands/review-graph.md)の engine の起こし方。
+- リポジトリの中: 0.21.4（eb8f11d）。[計画の文書の H3〜H5 の実施](../graphloops-rearchitecture.md)の段、[review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)の engine の起こし方。

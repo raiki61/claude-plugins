@@ -292,7 +292,7 @@
 
 **どう確かめるか**: 回す側の節のプロンプトのバイト数を測る。盤面は `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`（版管理の外。run はその clone にしか無い）にあり、その `prompts/r<N>/` の回す側の節（research なら `p2.integrate.md`）を `wc -c` で測る——`ref:` 入りの engine で回した run なら数 KB、本文埋め込みなら数十〜百数十 KB になる。この clone の run `.git/graphloops/research-loop/20260912-120520/` での実測（2026-09-12）: `ref:` を入れる前の雛形と engine が描画した `prompts/r2/p2.integrate.md` が 139,658 バイト（約 140 KB。記録と役の返答の本文、末尾の返答の JSON Schema を含む）。同じ盤面に現行の雛形 `graphloops/prompts/research-loop/p2.integrate.md` を `graphloops/engine/advance.py` の `emit_instance` と同じ手順（`Board(<run-dir>)` を作り、`Renderer(board.ctx(), node["reads"], ref=board.ref).render(雛形)` の末尾に同じ schema を足す）で描画し直すと 6,843 バイト（約 7 KB。schema を除いた本体は 3,926 バイト）。盤面の `prompts/r*/` と `out/r*/` のバイト数を周ごとに足せば 1 周の消費が出る。回す側の節のプロンプトに役の返答の本文が再掲されていれば違反。散文の 4 本は、Read を持つ役の起動プロンプトに差分や文書の本文が貼られていないかを最終報告の転記で見るしかない。
 
-**機械化の所在**: この規律を機械で守るのは graphloops だけ（engine が役の定義の `tools` から `deliver` を決め、`reads` に無いものを貼らず、回す側の節には置き場と要約しか渡さない）。**legacy の 3 本（`commands/review-loop.md`・`research-loop.md`・`doctor-loop.md`）は散文のまま**で、違反を赤くする検査は無い——この 3 本は engine を通らないので機械で縛る場所が無い。散文に同じ規則を書いてあるのは読み手への指示であって担保ではない。担保が要るなら graphloops 側で回す。
+**機械化の所在**: この規律を機械で守るのは graphloops だけ（engine が役の定義の `tools` から `deliver` を決め、`reads` に無いものを貼らず、回す側の節には置き場と要約しか渡さない）。**legacy の 3 本（`skills/review-loop/`・`skills/research-loop/`・`skills/doctor-loop/`）は散文のまま**で、違反を赤くする検査は無い——この 3 本は engine を通らないので機械で縛る場所が無い。散文に同じ規則を書いてあるのは読み手への指示であって担保ではない。担保が要るなら graphloops 側で回す。
 
 ## 境界のズレ——今どこも守っていない・片方しか守っていないもの
 

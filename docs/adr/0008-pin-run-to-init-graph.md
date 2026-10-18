@@ -14,7 +14,7 @@
 
 - graph は init の版に固定する。明示の指定は要らない（盤面が init の graph を持つことで成り立っている）。
 - engine は役の出力の形を見て読み分ける（包みは type=result の object だけ、それ以外は全文を本文として読む）。
-- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/commands/review-graph.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
+- この決まりは run をまたいで効く人の方針でもある。人の方針としての正本は人が書く方針の文書（[review-graph の手順書の「人の方針」](../../graphloops/skills/review-graph/references/policy.md#人の方針)）で、この ADR は決まったときの文脈と理由の記録である。食い違えば方針の文書が勝つ。
 
 ## 比べた案
 
@@ -36,5 +36,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 0.20.1（1449a38）。[review-graph の手順書](../../graphloops/commands/review-graph.md)の「守ること」。
+- リポジトリの中: 0.20.1（1449a38）。[review-graph の手順書](../../graphloops/skills/review-graph/SKILL.md)の「守ること」。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: `HANDOFF-log-20260925.md` の「急ぎの直し（0.20.0 で今壊れている）」、計画版の 2 章「起動と安全」・7 章の 11。

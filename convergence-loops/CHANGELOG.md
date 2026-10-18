@@ -6,6 +6,10 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+### Changed
+
+- 4 本の手順書（`/review-loop`・`/research-loop`・`/doctor-loop`・`/firstread-loop`）を `commands/<名前>.md` から `skills/<名前>/` へ移し、本文（`SKILL.md`）を 5,000 字以下にして、段ごとの手順を `skills/<名前>/references/` の別ファイルに分けた。本文には段の順と、どの段でどのファイルを読むかだけを置く。呼び出しの名前は変わらない。会話が長くなって圧縮されると、Claude Code はスキルの頭の 5,000 トークンだけを付け直すので、今までは後ろの段の手順を失ったまま回っていた。手順の中身は削っていない（別ファイルの命令に出る `${CLAUDE_PLUGIN_ROOT}` は Bash では空になるので、本文が置き場への読み替えを言う）。
+
 ## [0.45.0] - 2026-10-17
 
 ### Changed

@@ -33,5 +33,5 @@
 
 ## 出どころ
 
-- リポジトリの中: [計画文書の 7b](../graphloops-rearchitecture.md#7b-運用の決定2026-09-25人)・[手順書の「合流の線引き」](../../graphloops/commands/review-graph.md#合流の線引きrun-の成果を重ねるとき)。0.20.0（5dfb0bf）で検算の並行化が入った。
+- リポジトリの中: [計画文書の 7b](../graphloops-rearchitecture.md#7b-運用の決定2026-09-25人)・[手順書の「合流の線引き」](../../graphloops/skills/review-graph/references/flows.md#合流の線引きrun-の成果を重ねるとき)。0.20.0（5dfb0bf）で検算の並行化が入った。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: 計画版の 2 章「回し方」、`HANDOFF-log-20260925.md` の「決まりごと」。

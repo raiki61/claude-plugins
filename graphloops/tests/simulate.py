@@ -3755,7 +3755,9 @@ def test_read_through_naming():
     # **回す側に見える面にも前提を書く。** 柵は「engine を回した出力が転写に載る」を前提にするが、
     # この差分自身の目的（回す側に渡る量を減らす）に沿って出力をファイルへ落とすと、その前提が崩れて
     # 確かめが恒常的に成立しなくなる——回す側がそれを知らずに節約すると、柵は黙って効かなくなる
-    cmd = (PLUGIN / "commands" / "research-graph.md").read_text(encoding="utf-8")
+    # 手順書は本文（skills/research-graph/SKILL.md）と別ファイル（references/）に分けてあるので、繋いで見る
+    sk = PLUGIN / "skills" / "research-graph"
+    cmd = "\n".join(f.read_text(encoding="utf-8") for f in [sk / "SKILL.md", *sorted((sk / "references").glob("*.md"))])
     check("engine の出力を会話から外さない" in cmd and "確かめられなかった" in cmd,
           "手順書が『engine の出力を会話から外すと読了の確かめが成立しない』を書く")
     check("engine を回した出力が会話に残らない場から回すと確かめは成立しない" in cmd,
@@ -3763,7 +3765,7 @@ def test_read_through_naming():
     # **名乗りが engine の射程を越えない。** engine は転写の由来（親か下請けか）を判定する材料を
     # 1 つも読まないのに、名乗りは『subagent なら成立しない』と機構の保証として言い切っていた——
     # その 1 文を根拠に、2 周続けて『subagent でも通るか』の検証に周が費やされた（実測 r6・r7）
-    for name, txt in (("commands/research-graph.md", cmd),
+    for name, txt in (("skills/research-graph", cmd),
                       ("prompts/research-loop/p0.claims.md",
                        (PLUGIN / "prompts" / "research-loop" / "p0.claims.md").read_text(encoding="utf-8")),
                       ("prompts/research-loop/p0.terms.md",

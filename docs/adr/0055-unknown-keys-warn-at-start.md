@@ -33,5 +33,5 @@
 
 ## 出どころ
 
-- リポジトリの中: 未宣言の --input を知らせる形は 0.21.0（82deb2e）。[手順書の「変異の検算を合流でまとめる」](../../graphloops/commands/review-graph.md#変異の検算を合流でまとめる選んだときだけ)。
+- リポジトリの中: 未宣言の --input を知らせる形は 0.21.0（82deb2e）。[手順書の「変異の検算を合流でまとめる」](../../graphloops/skills/review-graph/references/flows.md#変異の検算を合流でまとめる選んだときだけ)。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: `MORNING.md` の 00:15・03:30・05:40、`merge-request.md` の gates の残り。

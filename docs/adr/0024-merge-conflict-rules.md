@@ -33,5 +33,5 @@
 
 ## 出どころ
 
-- リポジトリの中（正本）: [計画文書の 7c](../graphloops-rearchitecture.md#7c-合流で困ったときの決まり2026-09-25)・[手順書の「合流の線引き」](../../graphloops/commands/review-graph.md#合流の線引きrun-の成果を重ねるとき)。
+- リポジトリの中（正本）: [計画文書の 7c](../graphloops-rearchitecture.md#7c-合流で困ったときの決まり2026-09-25)・[手順書の「合流の線引き」](../../graphloops/skills/review-graph/references/flows.md#合流の線引きrun-の成果を重ねるとき)。
 - 記録した時点の出どころ（リポジトリの外の作業メモ。消えうる）: 計画版の 2 章「回し方」、`HANDOFF-log-20260926.md` の「回し方の決まり」。

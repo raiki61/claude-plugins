@@ -4888,7 +4888,7 @@
   {
    "id": "TN3",
    "title": "道具名の柵: graphloops の手順書にテストのパスが紛れ込めば赤",
-   "file": "graphloops/commands/review-graph.md",
+   "file": "graphloops/skills/review-graph/references/steps.md",
    "suite": "root",
    "old": "2. **回す**。",
    "new": "2. **回す**（緑は graphloops/tests/run.sh で見る）。",
@@ -6095,9 +6095,9 @@
   {
    "id": "ES1",
    "title": "review-graph の description が入口の節を名指しする",
-   "file": "graphloops/commands/review-graph.md",
+   "file": "graphloops/skills/review-graph/SKILL.md",
    "suite": "root",
-   "old": "（本文の「判定から入る（人の修正依頼）」）。起動するのは",
+   "old": "（同梱の手順の「判定から入る（人の修正依頼）」）。起動するのは",
    "new": "。起動するのは",
    "expect": "review-graph の description が判定から入る入口の節を名指しする"
   },
@@ -6132,7 +6132,7 @@
   {
    "id": "ES4",
    "title": "重い工程のコマンドは description で起動を人の指示に限る（graphloops/commands の側）",
-   "file": "graphloops/commands/research-graph.md",
+   "file": "graphloops/skills/research-graph/SKILL.md",
    "suite": "root",
    "old": "——AI は自分から起動せず、設計文書",
    "new": "——設計文書",
@@ -6141,7 +6141,7 @@
   {
    "id": "ES5",
    "title": "重い工程のコマンドは description で起動を人の指示に限る（commands の側）",
-   "file": "convergence-loops/commands/review-loop.md",
+   "file": "convergence-loops/skills/review-loop/SKILL.md",
    "suite": "root",
    "old": "——AI は自分から起動せず、実装完了時",
    "new": "——実装完了時",

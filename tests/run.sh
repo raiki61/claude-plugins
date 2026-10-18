@@ -1488,13 +1488,16 @@ expect_output 0 "足す側に偏っている" "削除も移動も無い増加を
     "$PY_BIN" "$FR" "$WORK/fr-grew-only.json" "$WORK/fr-1.json"
 expect_exit 2 "引数なしは 1 と区別して落ちる（初読記録）" "$PY_BIN" "$FR"
 
+# review-loop の手順書は、本文（skills/review-loop/SKILL.md）と段ごとの別ファイル（references/）に分けてある。
+# 文言の柵は、全部を繋いだ写しに当てる（どの段のファイルに在っても落ちたら赤）。
+cat "$CL/skills/review-loop/SKILL.md" "$CL"/skills/review-loop/references/*.md > "$WORK/review-loop-all.md"
 expect_output 0 "ok" "閉鎖の実証とゲートの赤の確認が、腕ごと・箇所ごとを要求している" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '不変条件を共有する箇所を先に全部挙げ' in t, '閉鎖の実証が「1 つ」で止まってよい文面に戻っている'
 assert '条件の腕ごとに 1 つずつ' in t, 'ゲートの赤の確認が腕ごとを要求していない'
 assert '退行を 1 つ注入して' not in t, '古い「退行を 1 つ」の文面が残っている'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 実走で出た 3 つの穴（別セッションと私が独立に踏んだ）。道具を渡して隔離を指示に落とす・品質の
 # 道具が木を動かす・仕掛けが壊れて全腕が同じ色に出る、のどれも「空振りが合格に見える」形。
 expect_output 0 "ok" "実走で出た 3 つの穴（貼れない差分・品質の道具・対照の緑）が手順書に書いてある" "$PY_BIN" -c "
@@ -1503,7 +1506,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert 'この役に道具を渡して解決するな——貼る側を割れ' in t, '貼り切れない差分の扱いが無い（道具を渡す形に倒れる）'
 assert 'P1 では指摘だけ返す形で呼べ' in t, '品質の道具が P1 で木を動かす形のまま'
 assert '壊していない写しでも 1 本走らせて緑を確認しろ' in t, '対照の緑が無い（仕掛けの空振りを合格と読める）'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 「見つけた周に直したものをどう書くか」が無いと、実行者は「直したのに阻害が残る」を不具合と読んで
 # ラベルを軽い側へ倒す＝writer が採点する形になる（実測: 別の実行者が、どこにも書かれていない慣習として
 # その倒し方を踏襲していた）。設計どおりだと明記した一文が落ちないよう縛る。
@@ -1512,7 +1515,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '見つけた周の記録は、その周に直していても判定どおり書け' in t, '直した周の記録の書き方が無い'
 assert '直した周が阻害要因ありで終わるのは設計どおり' in t, '阻害が残るのが設計どおりだと書かれていない'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 入口の説明（README）と手順書がずれると、読者はもう無い検証を信じたまま使う。実測: 手順書を
 # 差し替えたのに README だけ旧方式の現在形（「剥がした写しを精読させ、削る」）で残っていた——
 # 柵が手順書にしか掛かっておらず、README は素通りだった。
@@ -1530,7 +1533,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert 'verdict まで \`not_run\` に倒すな' in t, '前段の失敗で verdict ごと倒す形に戻っている'
 assert '収束できなかった' in t, '倒すと収束不能になる実測が落ちている'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 「差分だけを見るな」は依頼者の逐語（「差分にしか触れないのはダメ」）に対する規定で、0.22.0 まで
 # R1 前段に在った。自作の仕掛けを消したときに一文ごと落ちた——**視野を狭めるなと書いた同じ差分で、
 # 視野を狭める削除をしていた**。落ちても何も赤くならなかったので、ここで縛る。
@@ -1540,7 +1543,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '「どこまで見るか」の線ではない' in t, '対象差分を視野の線と読める状態に戻っている'
 assert '差分だけを貼って済ませるな' in t, 'リポジトリを読める役に差分だけを渡す禁止が無い'
 assert '理解に要る限り依存先・近傍・呼び元まで読ませろ' in t, '差分の外まで読ませる指示が無い'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 集める側で範囲を切ると、切った外は判定役の目に一度も入らない。実測: 「import している依存に
 # 限れ」と書いていたため、自分で依存に宣言していた役が集合の外に落ち、3 ラウンド続けて
 # 「再発明は該当なし」が返った。柵を動かすのでなく、柵をやめて範囲の申告に替えたことを縛る。
@@ -1550,7 +1553,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '探す役に「ここは見るな」の線を writer が引くな' in t, '集める側で範囲を切らない規律が無い'
 assert '見た範囲と、見ていない範囲を返させろ' in t, '範囲の申告を求めていない'
 assert '限れ**——差分から機械的に導ける集合で' not in t, '古い「import している依存に限れ」が残っている'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 人はラウンドの間ずっと別の作業をしていて、報告を読む時点で文脈を持っていない。内部の語彙で
 # 書かれた問いは決められないし、急ぎと後回しを混ぜて並べるとどれも決まらない。この規定が
 # 落ちると、聞く側は書けたつもりで出し、聞かれた側は初見で読めないまま放置になる。
@@ -1561,7 +1564,7 @@ assert 'ループを見ていない人が初見で読んで決められる形' i
 assert '急ぐものと後でよいものを分け、件数を先に言え' in t, '急ぎと後回しを分ける要求が無い'
 assert '内部の語彙を使わずに言えないなら、まだ問いになっていない' in t, '内部語彙の禁止が無い'
 assert 'cold-reader' in t and '人に聞くところの本文だけ' in t, '出す前に文脈ゼロの読み手に当てる検査が無い'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # この規定が落ちると、writer が「もう聞くしかない」と決めてループを止める形に戻る
 # （なぜ立った周に聞かないかの実測は、手順書の「停止条件」が正本）。
 expect_output 0 "ok" "人に聞く候補を立った周に聞かず、台帳に載せて次の周の judge に再審させる規定が手順書に在る" "$PY_BIN" -c "
@@ -1574,7 +1577,7 @@ assert 'ユーザーに判断を仰げ' not in t, '停止条件が「立った�
 assert 'ループが自分で決めたこと' in t, 'ループが決めた問いを人が覆せる形で見せる規定が無い'
 assert '台帳全体を並べて枝同士を見ろ' in t, '問い同士のシナジー（横断の突合）を見る段が無い'
 assert 'ask_human' not in t, '0.27 までの unit.ask_human が手順書に残っている'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # **観点の正本（REVIEW.md）も対象に入れる。** 0.28.0 ではここだけ柵の外で、手順書が split の正本として
 # 名指ししている段が 0.27 の機構（人に諮る印・ループは止めず最終報告で聞く）のまま残っていた——
 # 正本どおりに書くと記録が不正になる形が、唯一見られていないファイルに残っていた。
@@ -1598,7 +1601,7 @@ assert 'comment-analyzer' in t, 'R1 の前段が既存の役に寄せられて�
 assert '同じ内容がどこにあるかを名指しさせる' in t, '削除候補に在り処を名指しさせる要求が無い'
 assert '運んでいる事実を一文で言わせる' in t, '残す判断の側に義務が無い（残す側に倒れる）'
 assert 'strip-comments' not in t, '自作の剥がす仕掛けに戻っている'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # 「過去の [block] が記録から消えた」は機械が数えられない（和なら永久に残り、隣接なら 1
 # ラウンドで会計から落ちる。どちらも実測）。数えない代わりに judge に振り分けさせる義務が
 # 手順書から落ちると、未閉鎖の [block] が無言で記録から抜ける（実測 3 件）。
@@ -1607,7 +1610,7 @@ import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '同じルーターを、過去ラウンドの \`[block]\` キーにも課せ' in t, '過去の [block] の振り分けが judge の義務になっていない'
 assert '機械はこの一覧を数えない' in t, '数えない理由が書かれていない（次に「積め」と直される）'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 # ゲートの赤の確認を共有の木でやると、同時に読んでいる役が壊れた瞬間を踏む。順序の約束は
 # 守ったかを確かめられないので、写しの上で壊す形に固定した。戻ると赤くする。
 expect_output 0 "ok" "ゲートの赤の確認が、本物でなく写しの上で壊すことを要求している" "$PY_BIN" -c "
@@ -1616,7 +1619,7 @@ t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert '腕ごとにリポジトリの写しを' in t and 'の下に作り、写しの上で壊して' in t, '写しの上で壊す指示が無い'
 assert 'mktemp -d' in t, '写しの置き場所が指定されていない（リポジトリ内に作ると突合が汚れる）'
 assert '並行起動した grader が全部返ったあとに行え' not in t, '順序の約束だけで塞ぐ古い文面が残っている'
-print('ok')" "$CL/commands/review-loop.md"
+print('ok')" "$WORK/review-loop-all.md"
 
 # Python の docstring 判定を、綴りでなく**判定結果**で突く。以前は剥がす側（自作の
 # strip-comments.py）と条件が同じかを正規表現で見ていたが、剥がす側ごと落としたので、
@@ -1867,7 +1870,8 @@ for p in mk["plugins"]:
 # 解決できない環境ではプラグイン自体がロードされず、導入コマンドに到達しない）。
 # **語の間の空白は緩めて見る**——`claude plugin \`＋改行＋`  install` のように整形を
 # 変えるだけで完全一致は外れ、検査が素通りする。
-body = (root/"convergence-loops/commands/review-loop.md").read_text(encoding="utf-8")
+rl = root/"convergence-loops/skills/review-loop"
+body = "\n".join(f.read_text(encoding="utf-8") for f in [rl/"SKILL.md", *sorted((rl/"references").glob("*.md"))])
 install_cmd = re.compile(r"claude\s+plugin\s+(?:\S+\s+)*install")
 assert not install_cmd.search(body), \
     "review-loop.md に自作の導入コマンドが戻っている（依存は plugin.json の dependencies が正本）"
@@ -2119,20 +2123,22 @@ import re, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
-p = pathlib.Path(sys.argv[1]) / "graphloops/commands/review-graph.md"
-m = re.match(r"---\n(.*?)\n---\n(.*)", p.read_text(encoding="utf-8"), re.S)
-assert m, "review-graph.md: frontmatter が無い"
+sk = pathlib.Path(sys.argv[1]) / "graphloops/skills/review-graph"
+m = re.match(r"---\n(.*?)\n---\n(.*)", (sk / "SKILL.md").read_text(encoding="utf-8"), re.S)
+assert m, "review-graph の SKILL.md: frontmatter が無い"
 desc = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.M)
-assert desc and desc.group(1).strip(), "review-graph.md: description が無い"
-heads = re.findall(r"^## (判定から入る.*?)\s*$", m.group(2), re.M)
-assert len(heads) == 1, f"review-graph.md: 判定から入る入口の見出しが 1 つでない（{heads}）"
+assert desc and desc.group(1).strip(), "review-graph の SKILL.md: description が無い"
+# 入口の節は本文か、本文が指す別ファイル（references/）のどこかに 1 つだけ在る
+text = m.group(2) + "".join(f.read_text(encoding="utf-8") for f in sorted((sk / "references").glob("*.md")))
+heads = re.findall(r"^## (判定から入る.*?)\s*$", text, re.M)
+assert len(heads) == 1, f"review-graph: 判定から入る入口の見出しが 1 つでない（{heads}）"
 assert f"「{heads[0]}」" in desc.group(1), f"description が入口の節「{heads[0]}」を名指ししていない"
 print(f"ENTRY_SURFACE_OK {heads[0]}")
 PYENTRY
 
 # **重い工程のコマンドは人の指示のときだけ起動する**（人の決定 2026-09-25。トークンをかなり使うので人が決めたときだけ
 # 回す）。AI が起動前に見るのは description だけなので、決定は description に書く（本文には写さない——写しの正本を
-# 1 つにする）。走査の母数は convergence-loops（commands/）と graphloops（graphloops/commands/）のファイル集合から導く。
+# 1 つにする）。走査の母数は convergence-loops と graphloops の commands/*.md と skills/*/SKILL.md のファイル集合から導く。
 # 見るのは条件の文が在ることだけで、自分から起動する合図の句（「…に使用する」等）が無いことは語が揺れるので縛らない。
 expect_output 0 "HUMAN_ONLY_OK" "重い工程のコマンドの description が、起動は人の指示のときだけと言う" \
     "$PY_BIN" - "$ROOT" <<'PYHUMAN'
@@ -2141,19 +2147,22 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 cmds = []
-for d in ("convergence-loops/commands", "graphloops/commands"):
-    found = sorted((pathlib.Path(sys.argv[1]) / d).glob("*.md"))
+for d in ("convergence-loops", "graphloops"):
+    # 手順書は commands/<名前>.md か、別ファイルを持つなら skills/<名前>/SKILL.md（呼び出しの名前は同じ）
+    found = sorted((pathlib.Path(sys.argv[1]) / d).glob("commands/*.md")) + sorted((pathlib.Path(sys.argv[1]) / d).glob("skills/*/SKILL.md"))
     assert found, f"{d} に手順書が無い（走査の母数が 0）"
     cmds += found
+def cmd_name(p):
+    return p.parent.name if p.name == "SKILL.md" else p.stem
 # 重い工程でない口（工程を回さず、利用者の環境に 1 行残すだけの /graphloops:intake）は母数から外す——名指しで外し、黙って減らさない
 LIGHT = {"intake"}
-cmds = [p for p in cmds if p.stem not in LIGHT]
+cmds = [p for p in cmds if cmd_name(p) not in LIGHT]
 for p in cmds:
     m = re.match(r"---\n(.*?)\n---\n", p.read_text(encoding="utf-8"), re.S)
     desc = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.M) if m else None
-    assert desc, f"{p.name}: description が無い"
-    assert f"人が /{p.stem} と打ったときか「工程に回して」と言ったときだけ" in desc.group(1) and "AI は自分から起動せず" in desc.group(1), \
-        f"{p.name}: description が『起動は人の指示のときだけ・AI は自分から起動しない』を言っていない"
+    assert desc, f"{cmd_name(p)}: description が無い"
+    assert f"人が /{cmd_name(p)} と打ったときか「工程に回して」と言ったときだけ" in desc.group(1) and "AI は自分から起動せず" in desc.group(1), \
+        f"{cmd_name(p)}: description が『起動は人の指示のときだけ・AI は自分から起動しない』を言っていない"
 print(f"HUMAN_ONLY_OK {len(cmds)}")
 PYHUMAN
 
@@ -2213,7 +2222,9 @@ assert len(set(rule_blocks.values())) == 1, "検索語の規律の字面が役�
 # 存在検査は手順書と文書のどこに識別子が出ても効かせる。使用検査（孤児の検出）は手順書だけ——
 # README は全役の一覧表を持つので、含めると孤児が原理的に出なくなる。手順書側の語彙宣言行
 # （「以降 `X` と書いたものは…」）も全役を列挙するので、同じ理由で使用に数えない。
-commands = list((root / "convergence-loops/commands").glob("*.md"))
+# 手順書は commands/*.md と、skills/<名前>/ の本文（SKILL.md）と別ファイル（references/）
+cl = root / "convergence-loops"
+commands = [*cl.glob("commands/*.md"), *cl.glob("skills/*/SKILL.md"), *cl.glob("skills/*/references/*.md")]
 for f in [*commands, root / "convergence-loops/docs/customize.md", root / "convergence-loops/README.md"]:
     for name in re.findall(r"convergence-loops:([a-z][a-z-]*)", f.read_text(encoding="utf-8")):
         assert name in agents, f"{f.name}: 存在しない役割 convergence-loops:{name} を参照している"
@@ -2246,7 +2257,7 @@ root = pathlib.Path(sys.argv[1])
 # 特定プロジェクト由来の名前が観点側に残ると、そのリポジトリでしか意味を持たない写しになる。
 banned = re.compile(r"FastAPI|next-intl|config_kit|DeepAgents|asyncio_mode|guided-resolver")
 hits = []
-for f in [*(root/"convergence-loops").glob("*.md"), *(root/"convergence-loops/commands").glob("*.md"), *(root/"convergence-loops/agents").glob("*.md"), *(root/"convergence-loops/docs").glob("*.md")]:
+for f in [*(root/"convergence-loops").glob("*.md"), *(root/"convergence-loops/commands").glob("*.md"), *(root/"convergence-loops/skills").rglob("*.md"), *(root/"convergence-loops/agents").glob("*.md"), *(root/"convergence-loops/docs").glob("*.md")]:
     for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
         if banned.search(line):
             hits.append(f"{f.name}:{i}")
@@ -2306,8 +2317,8 @@ for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pyt
     assert tool.search(probe), f"柵が {probe!r} を拾わない——境界か導く元が壊れた"
 for probe in ("pre-commit の hook", "x-mutate.py-y", "a-reuse"):
     assert not tool.search(probe), f"柵が道具名でない {probe!r} を拾う（{tool.search(probe).group(0)}）"
-texts = [root/"convergence-loops/REVIEW.md", *sorted((root/"convergence-loops/commands").glob("*.md")), *sorted((root/"convergence-loops/agents").glob("*.md"))]
-for d in ("graphloops/prompts", "graphloops/graphs", "graphloops/commands"):
+texts = [root/"convergence-loops/REVIEW.md", *sorted((root/"convergence-loops/commands").glob("*.md")), *sorted((root/"convergence-loops/skills").rglob("*.md")), *sorted((root/"convergence-loops/agents").glob("*.md"))]
+for d in ("graphloops/prompts", "graphloops/graphs", "graphloops/commands", "graphloops/skills"):
     texts += [f for f in sorted((root/d).rglob("*")) if f.is_file()]
 # engine が組んで役へ渡す値も同じ面——文字列の定数を見る（注記と docstring は役に渡らないので外す）
 codes = [f for d in ("graphloops/rules", "graphloops/engine", "graphloops/scripts") for f in sorted((root/d).glob("*.py"))]
@@ -6926,7 +6937,7 @@ expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の�
 # 手順書に分かれて宣言されており、engine 側を動かした周に手順書だけが古くなる——そして手順書は回す側が
 # 読む唯一の導線なので、**案内どおりに打つと落ちる**状態が誰にも赤くならないまま残る。doc-symbols.py が
 # 文書の名指しする定数の実在を見ているのと同型で、こちらは「打てる形か」を見る。
-# 走査対象は commands/*.md をファイル集合から導く——名前を並べると、足した手順書だけ誰も見ない。
+# 走査対象は commands/*.md と skills/ の下の .md（本文と別ファイル）をファイル集合から導く——名前を並べると、足した手順書だけ誰も見ない。
 cat > "$WORK/doc-cli.py" <<'DOCCLI'
 import re, subprocess, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
@@ -6947,7 +6958,7 @@ for s in m.group(1).split(","):
     h = subprocess.run([sys.executable, str(loop), s, "--help"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=60)
     real[s] = set(re.findall(r"(--[a-z][a-z-]+)", h.stdout))
-docs = sorted((root / "convergence-loops/commands").glob("*.md")) + sorted((root / "graphloops/commands").glob("*.md"))
+docs = [f for d in ("convergence-loops", "graphloops") for f in sorted((root / d).glob("commands/*.md")) + sorted((root / d / "skills").rglob("*.md"))]
 if not docs:
     print("NG 手順書が 1 本も見つからない（走査の母数が 0）")
     sys.exit(1)
