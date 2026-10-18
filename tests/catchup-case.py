@@ -55,6 +55,7 @@ def pr(**over):
         "comments": conn([]),
         "reviews": conn([]),
         "latestReviews": conn([]),
+        "latestOpinionatedReviews": conn([]),
         "reviewThreads": conn([]),
         "allCommits": conn([]),
         "head": {"nodes": []},
@@ -707,9 +708,10 @@ def _stacked_default():
 
 @case("suggested")
 def _suggested():
-    """依頼先の候補（GitHub の suggestedReviewers）は、自分の PR でレビュー依頼が今は誰にも出ておらず、人に依頼した
+    """依頼先の候補（GitHub の suggestedReviewers）は、持ち主の PR でレビュー依頼が今は誰にも出ておらず、人に依頼した
     ことが無いか、依頼が外れてレビューが付いていないときに出す。根拠（発言あり・commit 者）を添え、空なら「なし」。
-    依頼が出ている・依頼した後にレビューが付いた・作者以外の人だけが担当でレビューがまだ無い、なら出さない。"""
+    依頼が出ている・依頼した後にレビューが付いた、なら出さない。作者以外の人だけが担当でレビューがまだ無い PR では、
+    作者でなく担当の人に出す。"""
     sugg = [{"isAuthor": False, "isCommenter": True, "reviewer": user("enj")},
             {"isAuthor": True, "isCommenter": False, "reviewer": user("pmengelbert")},
             {"isAuthor": True, "isCommenter": True, "reviewer": user("both")},
@@ -725,6 +727,7 @@ def _suggested():
         {"latestReviews": conn([review(T1, "rev")]), "requestEvents": asked},
         {"latestReviews": conn([review(T1, "rev")]), "requestEvents": asked, "reviewDecision": None},
         {"assignees": conn([user("rev")])})]
+    received = render(pr(author=user("other"), assignees=conn([user(ME)]), suggestedReviewers=sugg))
     want = {
         "line": "  依頼先の候補（GitHub の提案。決めるのは私）: enj（この PR に発言あり）、"
                 "pmengelbert（変更 file の commit 者）、both（発言あり・commit 者）、plain" in out,
@@ -732,6 +735,7 @@ def _suggested():
         "empty": "  依頼先の候補（GitHub の提案）: なし" in empty,
         # 依頼あり・下書き・要修正・承認済み・他人の PR・依頼後のレビュー・作者以外だけの担当では、理由の行も候補の行も出ない
         "hidden": all("依頼先の候補" not in h and "依頼先を決めるのは私" not in h for h in hidden),
+        "received": "  依頼先の候補（GitHub の提案。決めるのは私）: enj" in received,
     }
     bad = [k for k, v in want.items() if not v]
     return "SUGGESTED_OK" if not bad else "SUGGESTED_NG " + ",".join(bad) + "\n" + out
@@ -810,6 +814,73 @@ def _formal_state():
     cut_others = render(pr(latestReviews=rev, requestEvents=events(bots, True)))
     cap_line = f"  - レビュー依頼の出来事の古い方（新しい {window} 件で窓が埋まり、それより前が有りうる。"
     note = "前に人へ依頼していれば"
+    cand = "  依頼先の候補（GitHub の提案"
+    fix = "要修正が付いている（指摘対応は私）"
+
+    # 変更要求の全員に人として依頼し直していれば、ターンはレビュアー（#1843）
+    def changes(asked, *by):
+        return mine(reviewDecision="CHANGES_REQUESTED",
+                    latestOpinionatedReviews=conn([review(T1, b, "CHANGES_REQUESTED") for b in by]),
+                    reviewRequests=conn([{"requestedReviewer": user(a)} for a in asked]))
+    rerequested = changes(["rev"], "rev")
+    partly = [changes(["rev"], "rev", "rev2"), changes([], "rev"),
+              mine(reviewDecision="CHANGES_REQUESTED", reviewRequests=conn([{"requestedReviewer": team}]),
+                   latestOpinionatedReviews=conn([review(T1, "rev", "CHANGES_REQUESTED")])),
+              mine(reviewDecision="CHANGES_REQUESTED", reviewRequests=conn([{"requestedReviewer": user("rev")}]),
+                   latestOpinionatedReviews=conn([review(T1, "rev", "CHANGES_REQUESTED")], total=31))]
+    # 持ち主は /whose-turn と同じ turn.owners。持ち主しか外せないターンは渡した担当の人へ
+    red = checks(check_run("lint", "FAILURE"))
+    copilot = user("copilot-swe-agent", bot=True)
+    not_people = [mine(assignees=conn([copilot])),
+                  mine(assignees=conn([{"__typename": "Mannequin", "login": "old-user"}]))]
+    handed_red = mine(assignees=conn([user("rev"), copilot]), head=red)
+    received_red = render(pr(author=user("alice"), assignees=conn([user(ME)]), head=red))
+    third = render(pr(author=user("alice"), assignees=conn([user("rev")])))
+    forked_by = [dict(requestEvents=conn([review_requested(T1, "alice", "carol")])),
+                 dict(latestReviews=conn([review(T1, "carol")]))]
+    third_forked = [render(pr(author=user("alice"), assignees=conn([user("rev")]), **kw)) for kw in forked_by]
+    third_forked_red = render(pr(author=user("alice"), assignees=conn([user("rev")]), head=red, **forked_by[0]))
+    third_deleted_forked = render(pr(author=None, assignees=conn([user("rev")]), **forked_by[1]))
+    # 依頼の記録がある渡した PR は作者が依頼先を決めるターンのまま。CI 赤は担当の人が持つ
+    fork_side_red = mine(requestEvents=asked, assignees=conn([user("rev")]), head=red)
+
+    def received(**over):
+        return render(pr(**{"author": user("alice"), "assignees": conn([user(ME)]), **over}))
+    received_asking = received(reviewRequests=conn([{"requestedReviewer": user("carol")}]))
+    received_unasked = received()
+    cut_received = received(requestEvents=events(bots, True))
+    received_forked = [received(latestReviews=conn([review(T1, ME)])),
+                       received(requestEvents=conn([review_requested(T1, "alice", "carol")]))]
+    received_draft_conflict = received(isDraft=True, mergeable="CONFLICTING")
+    handed_draft_conflict = mine(assignees=conn([user("rev")]), isDraft=True, mergeable="CONFLICTING")
+    received_changes = received(reviewDecision="CHANGES_REQUESTED",
+                                latestOpinionatedReviews=conn([review(T1, "carol", "CHANGES_REQUESTED")]))
+    received_merge = received(reviewDecision="APPROVED")
+    two = conn([user("bob"), user("carol")])
+    two_assignees = [render(pr(author=user("alice"), assignees=two)),
+                     render(pr(author=user("alice"), assignees=two, head=red))]
+    two_with_me = [render(pr(author=user("alice"), assignees=conn([user(ME), user("carol")]))),
+                   render(pr(author=user("alice"), assignees=conn([user("carol"), user(ME)]), head=red))]
+    deleted_author = [render(pr(author=None)), render(pr(author=None, isDraft=True)),
+                      render(pr(author=None, head=red))]
+    deleted_handed = render(pr(author=None, assignees=conn([user(ME)]),
+                               latestReviews=conn([dict(review(T1, "x"), author=None)])))
+    deleted_forked = render(pr(author=None, assignees=conn([user(ME)]), latestReviews=conn([review(T1, "carol")])))
+    co_assignee = render(pr(author=user("alice"), assignees=conn([user("alice"), user(ME)])))
+    issue_waits = [render(issue(author=user("alice"), assignees=conn([user("bob")]))),
+                   render(issue(author=user(ME), assignees=conn([user("bob")])))]
+
+    def legacy(node):
+        # assignedActors の無い GitHub で取り直した形。assignee は login しか持たない
+        return render(dict(node, assigneeKindsUnknown=True))
+    legacy_handed = legacy(pr(author=user(ME), assignees=conn([{"login": "copilot"}])))
+    legacy_red = legacy(pr(author=user(ME), assignees=conn([{"login": "rev"}]), head=red))
+    legacy_issue = legacy(issue(assignees=conn([{"login": ME}])))
+    legacy_third = legacy(pr(author=user("alice"), assignees=conn([{"login": "bob"}])))
+    legacy_third_red = legacy(pr(author=user("alice"), assignees=conn([{"login": "bob"}]), head=red))
+    legacy_unassigned = [legacy(pr(author=user(ME))), legacy(pr(author=user(ME), assignees=conn([{"login": ME}])))]
+    kinds_line = "  - assignee が人か Bot か（この GitHub は assignedActors を返さない。"
+    opinions_line = "  - 人ごとの意見の残り 30 件（31 件中、1 件だけ取った）。変更要求の全員に依頼し直したかを見ずに"
     query = catchup.QUERY
     want = {
         "rereq": all(rereq in h and "● 私の番" in h and reason not in h and norec not in h
@@ -828,7 +899,45 @@ def _formal_state():
             f"requestEvents: timelineItems(last:{window}, itemTypes:[REVIEW_REQUESTED_EVENT]){{\n"
             "          pageInfo{hasPreviousPage} nodes{__typename",
             "requestedReviewer{__typename ... on User{login} ... on Team{name}}}}}",
-            "latestReviews(first:100){nodes{author{__typename login}}}")),
+            "latestReviews(first:100){nodes{author{__typename login}}}", catchup.turn.OPINIONS))
+        and query.count(catchup.turn.ASSIGNEES) == 2,
+        "legacy_query": catchup.LEGACY_QUERY.count(catchup.turn.LEGACY_ASSIGNEES) == 2
+        and catchup.turn.KINDS_FIELD not in catchup.LEGACY_QUERY
+        and catchup.turn.OPINIONS in catchup.LEGACY_QUERY,
+        "rerequested": fix not in rerequested and "○ 待ち — レビュー待ち: rev" in rerequested
+        and all(fix in h for h in partly) and opinions_line in partly[-1]
+        and all("人ごとの意見の残り" not in h for h in partly[:-1] + [rerequested]),
+        "not_people": all(reason in h and cand in h and "○ 待ち" not in h for h in not_people),
+        "handed_red": "○ 待ち — 担当 rev 待ち" in handed_red and "CI 赤は" not in handed_red,
+        "received_red": "CI 赤は担当（私）しか外せない" in received_red and "私が担当（assignee）" not in received_red,
+        "received_asking": "○ 待ち — レビュー待ち: carol" in received_asking
+        and "私が担当（assignee）" not in received_asking,
+        "received_unasked": f"● 私の番 — {reason}" in received_unasked and cand in received_unasked
+        and "私が担当（assignee）" not in received_unasked,
+        "received_forked": all("● 私の番 — 私が担当（assignee）" in h and cand not in h for h in received_forked),
+        "received_draft_conflict": all(r in received_draft_conflict
+                                       for r in ("● 私の番", "下書きのまま（渡すのは私）", "衝突の解消は担当（私）"))
+        and "○ 待ち — 担当 rev 待ち" in handed_draft_conflict
+        and all(r not in handed_draft_conflict for r in ("下書きのまま（渡すのは私）", "衝突の解消は")),
+        "received_changes": f"● 私の番 — {fix}" in received_changes,
+        "received_merge": f"● 私の番 — {merge}" in received_merge,
+        "two_assignees": all("○ 待ち — 担当 bob, carol 待ち" in h for h in two_assignees)
+        and f"● 私の番 — {reason}" in two_with_me[0] and cand in two_with_me[0]
+        and "CI 赤は担当（私）しか外せない" in two_with_me[1],
+        "deleted_author": all("○ 待ち — 作者 （不明） 待ち" in h for h in deleted_author)
+        and f"● 私の番 — {reason}" in deleted_handed and "● 私の番 — 私が担当（assignee）" in deleted_forked,
+        "co_assignee": "● 私の番 — 私が担当（assignee）" in co_assignee,
+        "issue_waits": "○ 待ち — 起票者 alice 待ち" in issue_waits[0]
+        and "○ 待ち — 待っている相手は記録に無い" in issue_waits[1],
+        "third_party": "○ 待ち — 担当 rev 待ち" in third and "○ 待ち — 作者 other 待ち" in render(pr()),
+        "third_forked": all("○ 待ち — 作者 alice 待ち" in h and "担当 rev 待ち" not in h for h in third_forked)
+        and "○ 待ち — 担当 rev 待ち" in third_forked_red and "○ 待ち — 担当 rev 待ち" in third_deleted_forked,
+        "fork_side_red": reason in fork_side_red and cand in fork_side_red and "CI 赤は" not in fork_side_red,
+        "legacy": "○ 待ち — 担当 copilot 待ち" in legacy_handed and cand not in legacy_handed
+        and "CI 赤は作者（私）しか外せない" in legacy_red
+        and "○ 待ち — 担当 bob 待ち" in legacy_third and "○ 待ち — 作者 alice 待ち" in legacy_third_red
+        and all(kinds_line in h for h in (legacy_handed, legacy_red, legacy_third))
+        and all(kinds_line not in h for h in [legacy_issue, handed_red] + legacy_unassigned),
         "query_one_type": query.count("REVIEW_REQUESTED_EVENT") == 1
         and query.count("requestedReviewer{__typename") == 2,
         "kept": all(reason in h and "依頼先の候補" in h and rereq not in h for h in kept),
@@ -844,6 +953,8 @@ def _formal_state():
         "cap_note": cap_line in cut_rereq and f"{note}再依頼のターンで、出している依頼先の候補は要らない" in cut_rereq
         and norec in cut_rereq and "依頼先の候補" in cut_rereq
         and cap_line in cut_assigned and f"{note}、担当に渡したと分けたのは誤り" in cut_assigned
+        and cap_line in cut_received and f"{note}、依頼先を決めるのは作者で、私は担当" in cut_received
+        and cand in cut_received
         and all(cap_line in h and note not in h for h in (cut_asked, cut_others, full_window))
         and rereq in cut_asked,
         "thread_turn": "未解決スレッド 1 件で相手が返している（私が返すターン）" in thread_turn,
@@ -852,7 +963,70 @@ def _formal_state():
     return "FORMAL_OK" if not bad else "FORMAL_NG " + ",".join(bad) + "\n" + "\n".join(
         reviewed + passerby + kept + assigned + mixed_reviewed + mixed_assigned + cut + not_cut
         + [team_req, thread_turn, approved_on_null, bot_left, full_window, cut_rereq, cut_assigned, cut_asked,
-           cut_others])
+           cut_others, rerequested] + partly + not_people
+        + [handed_red, received_red, third] + third_forked + [third_forked_red, third_deleted_forked]
+        + [fork_side_red, received_asking, received_unasked, cut_received] + received_forked
+        + [received_draft_conflict, handed_draft_conflict, received_changes, received_merge]
+        + two_assignees + two_with_me + deleted_author + [deleted_handed, deleted_forked, co_assignee] + issue_waits
+        + [legacy_handed, legacy_red, legacy_issue, legacy_third, legacy_third_red] + legacy_unassigned)
+
+
+@case("fetch-legacy")
+def _fetch_legacy():
+    """assignedActors の無い GitHub（undefinedField）では種別なしで取り直して印を付け、ほかの GraphQL エラーと gh の
+    失敗では止まる。504 は本文に errors があってもやり直す。"""
+    import json
+    import subprocess
+    ghcli = sys.modules["ghcli"]  # catchup の gh は lib/ghcli.py の物
+    calls = []
+
+    def runs(*responses):
+        it = iter(responses)
+
+        def run(argv, **_kw):
+            calls.append(argv)
+            code, body, err = next(it)
+            return subprocess.CompletedProcess(argv, code, body if isinstance(body, str) else json.dumps(body), err)
+        return run
+
+    missing = {"errors": [{"message": "Field 'assignedActors' doesn't exist on type 'PullRequest'", "extensions": {
+        "code": "undefinedField", "typeName": "PullRequest", "fieldName": "assignedActors"}}]}
+    node = {"__typename": "PullRequest", "number": 1}
+    page = {"data": {"repository": {"issueOrPullRequest": node}}}
+
+    def go(*responses):
+        calls.clear()
+        ghcli.subprocess.run = runs(*responses)
+        try:
+            got = catchup.fetch("o", "n", 1)
+        except SystemExit as e:
+            got = f"EXIT {e}"
+        return got, [next(a for a in argv if a.startswith("query=")) for argv in calls]
+
+    saved = (ghcli.shutil.which, ghcli.subprocess.run)
+    ghcli.shutil.which = lambda _name: "gh"
+    try:
+        legacy, legacy_q = go((1, missing, "gh: Field 'assignedActors' doesn't exist on type 'PullRequest'"),
+                              (0, page, ""))
+        plain, plain_q = go((0, page, ""))
+        other, _ = go((1, {"errors": [{"message": "Resource limits exceeded"}]}, "gh: Resource limits exceeded"))
+        retried, retried_q = go((1, {"errors": [{"message": "Something went wrong"}]}, "gh: HTTP 504: Gateway Timeout"),
+                                (0, page, ""))
+        failed, _ = go((1, "", "gh: HTTP 401: Bad credentials"))
+        twice, _ = go((1, "", "gh: HTTP 504: Gateway Timeout"), (1, "", "gh: HTTP 504: Gateway Timeout"))
+    finally:
+        ghcli.shutil.which, ghcli.subprocess.run = saved
+    query, again = "query=" + catchup.QUERY, "query=" + catchup.LEGACY_QUERY
+    want = {
+        "legacy": legacy == dict(node, assigneeKindsUnknown=True) and legacy_q == [query, again],
+        "plain": plain == node and plain_q == [query],
+        "other_stops": str(other).startswith("EXIT GraphQL エラー"),
+        "retry_504": retried == node and retried_q == [query, query],
+        "plain_failure_stops": str(failed).startswith("EXIT gh api graphql が失敗"),
+        "second_504_stops": str(twice).startswith("EXIT gh api graphql が失敗"),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "FETCH_OK" if not bad else "FETCH_NG " + ",".join(bad) + "\n" + repr((legacy, plain, other, retried, failed))
 
 
 _SINCE_COMMITS = conn([

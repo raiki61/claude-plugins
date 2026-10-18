@@ -588,7 +588,7 @@ def pr_node(**over):
         "baseRepository": {"defaultBranchRef": {"name": "main"}}, "baseRefName": "main", "baseRef": None,
         "isCrossRepository": False, "suggestedReviewers": [], "assignees": conn([]),
         "reviewRequests": conn([{"requestedReviewer": user(ME)}]), "closingIssuesReferences": conn([]),
-        "comments": conn([]), "reviews": conn([]), "latestReviews": conn([]), "requestEvents": conn([]),
+        "comments": conn([]), "reviews": conn([]), "latestReviews": conn([]), "latestOpinionatedReviews": conn([]), "requestEvents": conn([]),
         "reviewThreads": conn([{"isResolved": False, "isOutdated": False, "path": "app/retry.py", "line": 12,
                                 "comments": conn([
                                     {"createdAt": "2026-09-01T01:00:00Z", "body": "包まれた例外も見て", "url": "u1",

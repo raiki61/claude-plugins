@@ -16,7 +16,8 @@ assignee の種別が取れない GitHub（assignedActors が無い）では作�
   ci_red（CI 赤）    持ち主。head commit のチェックに SUCCESS / NEUTRAL / SKIPPED / PENDING /
                      EXPECTED / CANCELLED / STALE 以外の結論がある（未知の値は赤に倒す）
   changes_requested（指摘対応）
-                     持ち主。reviewDecision が CHANGES_REQUESTED
+                     持ち主。reviewDecision が CHANGES_REQUESTED で、最新の意見が変更要求の人のうち
+                     レビュー依頼が出ていない人がいる（全員に再依頼が出ていればターンはレビュアー）
   review（レビュー） 依頼先。Bot 以外（人か Team）へのレビュー依頼が未消化（copilot 等の Bot 宛は数えない）
   awaiting_review（レビュー待ち）
                      持ち主。その依頼が残っている間。持ち主に動かせることは無いが、行を立てないと
@@ -55,10 +56,13 @@ assignee の種別が取れない GitHub（assignedActors が無い）では作�
                                         相手にも返すターンが残っているもの
   まだ誰にも渡していない                draft・未依頼・未送信のレビュー。待っている人はいないが、
                                         動かせるのはその人だけ
-  相手が動くまで進まない                その人が最後に発言してターンも無い、依頼したレビューが返って
+  相手が動くまで進まない                その人が最後に発言してターンも無い（レビューを依頼されている人は
+                                        依頼より後の発言だけ数え、本人が解決済みスレッドに書いた
+                                        発言は数えない）、依頼したレビューが返って
                                         きていない、または持ち主しか外せない障害（その人が持ち主で
                                         ない PR の main 未追従・衝突・CI 赤）が残っていて、その人の
-                                        残りが再確認だけ
+                                        残りが再確認だけ、または assignee の種別が取れない GitHub で
+                                        作者が自分を入れずに assignee を付けた未依頼の PR の作者
 上 2 段と 3 段目を分けるのは、渡していない PR は誰も待っていないが動かせるのは本人だけで、
 「相手待ち」と混ぜると本当に動かせる件が沈むため。最下段は形式上の状態だけで信号が立ち続け、
 待ちの日数だけが伸びるので、混ぜると上を占めて実際に人を止めている行が沈む。
@@ -97,6 +101,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
 from ghcli import gh  # noqa: E402 — gh を呼ぶ共通部。/catchup と共用
 from ghtext import DONE_NOT_RED, is_bot, mentions, readable, repo_refs  # noqa: E402 — 発言の読み方。/catchup と共用
+import turn  # noqa: E402 — PR のターンの持ち主と指摘対応の判定。/catchup と共用
+from turn import answerable, assigned_people, login, owner_side, owners  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -141,7 +147,8 @@ NOT_SEEN = """\
 KINDS_NOT_SEEN = """
   - PR の assignee が人か Bot か（この GitHub は assignedActors を返さない。assignee の種別が
     取れないので、作者のターンを assignee へ移さず起票者が持つ形で出した。Bot の assignee も人として
-    数え、担当の行を立て、未依頼の PR を「まだ誰にも渡していない」から外す相手にも数えた）"""
+    数えて担当の行を立て、起票者が入っていない assignee がいる未依頼の PR は、渡した扱いにして起票者の
+    「相手の番」に置いた）"""
 
 ACTOR = "{ login __typename }"
 REVIEWER = "{ __typename ... on User { login } ... on Team { combinedSlug } }"
@@ -159,6 +166,7 @@ query($owner: String!, $name: String!, $cursor: String) {{
         {assignees}
         reviewRequests(first: 20) {{ totalCount nodes {{ requestedReviewer {REVIEWER} }} }}
         reviews(last: 100) {{ totalCount nodes {{ id state createdAt submittedAt body author {ACTOR} }} }}
+        {turn.OPINIONS}
         comments(last: 100) {{ totalCount nodes {{ id createdAt body author {ACTOR} }} }}
         reviewThreads(first: 50) {{ totalCount nodes {{ isResolved isOutdated path line
           comments(first: 30) {{ totalCount nodes {{ id state createdAt body author {ACTOR} }} }} }} }}
@@ -177,13 +185,8 @@ query($owner: String!, $name: String!, $cursor: String) {{
 """
 
 
-# assignees は UserConnection で種別を持たず、Copilot 等の Bot を人と見分けられない。assignedActors は
-# Assignee union（Bot・Mannequin・Organization・User）なので種別が取れる。別名で受けて下流の形を変えない
-PR_QUERY = pr_query(
-    "assignees: assignedActors(first: 10) { totalCount nodes { __typename ... on Actor { login } } }"
-)
-# UserConnection の __typename はいつも User で、Bot も人と名乗る。種別は取らない
-LEGACY_PR_QUERY = pr_query("assignees(first: 10) { totalCount nodes { login } }")
+PR_QUERY = pr_query(turn.ASSIGNEES)
+LEGACY_PR_QUERY = pr_query(turn.LEGACY_ASSIGNEES)
 
 # 呼びかけ候補の投稿だけ、本人のリアクション（👍 で済ませた返答）を後から引く。
 # 本体クエリに入れると GraphQL の資源上限に当たる（実測: issue 40 件/ページで "Resource limits exceeded"）
@@ -256,11 +259,7 @@ def fetch_all(query, owner, name, field, optional=()):
             args += ["-f", "cursor=" + cursor]
         data = json.loads(gh(*args, graphql_errors=bool(optional)))
         errors = data.get("errors")
-        if errors and all(
-            (e.get("extensions") or {}).get("code") == "undefinedField"
-            and e["extensions"].get("fieldName") in optional
-            for e in errors
-        ):
+        if turn.missing_only(errors, optional):
             raise MissingField()
         if errors:
             sys.exit(
@@ -277,7 +276,7 @@ def fetch_prs(owner, name):
     """open な PR の全件。assignedActors の無い GitHub では種別なしで取り直す——止めると、その GitHub では
     /whose-turn が丸ごと走らない。取り直した PR には assigneeKindsUnknown の印を付ける"""
     try:
-        return fetch_all(PR_QUERY, owner, name, "pullRequests", optional={"assignedActors"})
+        return fetch_all(PR_QUERY, owner, name, "pullRequests", optional={turn.KINDS_FIELD})
     except MissingField:
         prs = fetch_all(LEGACY_PR_QUERY, owner, name, "pullRequests")
         for p in prs:
@@ -325,17 +324,6 @@ def drop_pending(pr):
     return pr["pendingReview"]
 
 
-def login(actor):
-    # 退会済みユーザーの author は null で返る
-    return (actor or {}).get("login")
-
-
-def answerable(actor):
-    """返答できる人の login。User だけで、Bot・Mannequin・Organization・退会済み（null）は None。
-    login の有無で見分けると、クエリのフラグメントに Bot { login } を足した途端 Bot が人になる"""
-    return actor["login"] if (actor or {}).get("__typename") == "User" else None
-
-
 def team_slug(node):
     return node["combinedSlug"] if (node or {}).get("__typename") == "Team" else None
 
@@ -348,33 +336,6 @@ def reviewer(node):
 def latest(values):
     values = [v for v in values if v]
     return max(values) if values else None
-
-
-def assigned_people(pr):
-    # 種別が取れない GitHub では人か Bot か分からないので、login の取れた全員
-    read = login if pr.get("assigneeKindsUnknown") else answerable
-    return [p for p in map(read, pr["assignees"]["nodes"]) if p]
-
-
-def owners(pr):
-    """PR のターンの持ち主。返答できる assignee がいて作者がその中にいなければその全員、それ以外は [作者]。
-
-    assignee は GitHub の定義で「その PR で作業している人」。作者が自分を入れずに人を assignee に
-    付けた PR は渡し終えていて、作者の一覧に出し続けると、受けた側の一覧には担当しか出ない
-    （実測 2026-10-02・IL-SW-AI/guided-resolver #1928: draft のまま、本文で assignee に実装と
-    Ready for review を頼んでいた）。作者も assignee に入っていれば作者が持つ。Copilot 等の Bot と
-    退会済みのアカウントには渡せない——一覧を読まないので、移すとその PR は誰の一覧にも出ない。
-    同じ理由で、assignee の種別が取れない PR（assigneeKindsUnknown）も作者が持つ。"""
-    author = login(pr["author"])
-    if pr.get("assigneeKindsUnknown"):
-        return [author]
-    assigned = assigned_people(pr)
-    return assigned if assigned and author not in assigned else [author]
-
-
-def owner_side(pr):
-    """持ち主の側（作者と持ち主）"""
-    return {login(pr["author"]), *owners(pr)}
 
 
 def to_owners(pr, rows):
@@ -448,7 +409,7 @@ def formal_rows(pr):
                 since or pr["commits"]["nodes"][0]["commit"]["committedDate"],
             )
         )
-    elif pr["reviewDecision"] == "CHANGES_REQUESTED":
+    elif turn.owes_change_requests(pr):
         since = last_review(lambda r: r["state"] == "CHANGES_REQUESTED")
         rows.append((author, "changes_requested", since or created))
 
@@ -457,12 +418,7 @@ def formal_rows(pr):
         who = reviewer(rq["requestedReviewer"])
         if who is None:
             continue
-        asked = latest(
-            e["createdAt"]
-            for e in events
-            if e["__typename"] == "ReviewRequestedEvent"
-            and reviewer(e.get("requestedReviewer")) == who
-        )
+        asked = requested_at(pr, who)
         pending.append(asked or created)
         rows.append((who, "review", asked or created))
 
@@ -519,6 +475,36 @@ def formal_rows(pr):
     if pending:
         rows.append((author, "awaiting_review", latest(pending) or created))
     return rows
+
+
+def requested_at(pr, who):
+    """その依頼先に最後にレビューを依頼した日時。履歴に無ければ None"""
+    return latest(
+        e["createdAt"]
+        for e in pr["timelineItems"]["nodes"]
+        if e["__typename"] == "ReviewRequestedEvent"
+        and reviewer(e.get("requestedReviewer")) == who
+    )
+
+
+def review_since(pr, who):
+    """レビューを依頼されている人（formal_rows の review の行と同じ条件）のターンが始まった日時。ほかは None"""
+    if pr["isDraft"] or who not in {reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]}:
+        return None
+    return requested_at(pr, who)
+
+
+def turn_posts(pr, who):
+    """その人のターンを決める発言。依頼された人のターンは依頼した時点で始まるので、依頼より前の発言と、依頼の後に
+    本人が解決済みスレッドに書いた発言は数えない。依頼より前の本人の発言（変更要求の本文など）や、解決済みの
+    スレッドの「確認しました」で相手待ちに下げると、再依頼した PR が依頼した側にもされた側にも相手のターンに
+    なり、誰の自分の番にも出ない（実測 #1843）。依頼の日時が履歴に無ければ全部の発言で見る"""
+    posts = posts_of_pr(pr)
+    since = review_since(pr, who)
+    if since is None:
+        return posts
+    settled = {c["id"] for t in pr["reviewThreads"]["nodes"] if t["isResolved"] for c in t["comments"]["nodes"]}
+    return [p for p in posts if p["at"] >= since and not (p["id"] in settled and login(p["author"]) == who)]
 
 
 def conversation_balls(pr):
@@ -584,10 +570,10 @@ def waiting_on_others(pr, who, kinds):
     asked = [t for t, _, _, waiting in thread_turns(pr) if who in waiting]
     if asked and who not in owners(pr):
         return True
-    # 持ち主の問いは、awaiting_reply を立てない（conversation_balls）のと同じ理由で段を決めない。問いの発言も
-    # 最後の発言者に数えない
-    skip = {c["id"] for t in asked for c in t["comments"]["nodes"]}
-    last = latest_human_post([p for p in posts_of_pr(pr) if p["id"] not in skip])
+    # 持ち主の問いは、awaiting_reply を立てない（conversation_balls）のと同じ理由で段を決めない。本人の発言だけを
+    # 最後の発言者に数えない——スレッドごと外すと、相手がそこに書いた答えまで消える
+    skip = {c["id"] for t in asked for c in t["comments"]["nodes"] if login(c["author"]) == who}
+    last = latest_human_post([p for p in turn_posts(pr, who) if p["id"] not in skip])
     return bool(last) and login(last["author"]) == who
 
 
@@ -621,19 +607,16 @@ def tier(pr, who, kinds, reviewers, waiting, shared=False):
     2 を 3 から分けるのは、渡していない PR は誰も待っていないが動かせるのは本人だけで、
     相手待ちと同じ段に置くと本当のボールが沈むため。"""
     holders = owners(pr)
-    # unrequested でも持ち主でない assignee がいれば、レビュー依頼のボタンを押さずに人へ渡してある。
-    # 渡していない扱いにすると、相手が閉じるか進めるかを決めるターンの PR が自分の一覧に出続ける
-    # （実測 2026-08-23・IL-SW-AI/guided-resolver #1403: assignee を付けて「扱いはお任せします、
-    # 不要だったら閉じてください」と書いた PR が 6 日「まだ誰にも渡していない」に居座っていた）。
-    # 作者以外の人だけが assignee の PR は owners() が行ごと受けた人へ写すので、ここに当たるのは作者が持つ PR
-    # （作者も assignee に入っている PR と、assignee の種別が取れない GitHub の PR）だけ。受けた側の
-    # draft・未依頼は、最後に誰が喋っても段 2——外すと誰の「自分の番」にも出ない。draft は例外に
-    # しない——作者が自分で「まだ出さない」と印を付けた状態だから。種別が取れる GitHub では、Bot・
-    # 退会済みの assignee は渡した相手に数えない（owners() と同じ理由）
-    handed = kinds == ["unrequested"] and any(a not in holders for a in assigned_people(pr))
+    # 作者が自分を入れずに assignee を付けた未依頼の PR は、レビュー依頼のボタンを押さずに人へ渡してある
+    # （turn.author_holds_handed。作者が持ち主のまま残るのは assignee の種別が取れない GitHub だけ）。誰も発言して
+    # いなくても相手が閉じるか進めるかを決めるターンで、作者には相手の番。作者も assignee に入っていれば作者が
+    # 持っていて、まだ誰にも渡していない（段 2）。受けた側の draft・未依頼は、最後に誰が喋っても段 2——外すと
+    # 誰の「自分の番」にも出ない。draft は例外にしない——作者が自分で「まだ出さない」と印を付けた状態だから
+    if kinds == ["unrequested"] and turn.author_holds_handed(pr):
+        return 3
     # 渡していない判定が先。draft・未依頼は誰も待っていないので waiting も立つが、
     # 動かせるのは本人だけで、相手待ちと同じ段に入れると本当のボールが沈む
-    if set(kinds) <= HANDOFF and not handed:
+    if set(kinds) <= HANDOFF:
         return 2
     # 依頼中の持ち主は相手が返すまで手が無い。waiting は「最後に発言したのが本人」で判定するので、
     # 依頼を出しただけでまだ誰も発言していない PR では立たず、既定の 0（自分の番）に落ちる
@@ -957,7 +940,10 @@ def last_speaker_facts(pr, who):
 
     自分が最後という事実だけでは催促の宛先も根拠も出ない。宛先は「返すターンを負っている人」で、
     最後に喋った人ではない——別件で通りすがりに発言した人を宛先にすると、実際に止めている
-    相手が隠れる。誰もターンを負っていないときだけ、直近に発言した相手に落とす。"""
+    相手が隠れる。誰もターンを負っていないときだけ、直近に発言した相手に落とす。
+
+    自分が最後かは、段と同じく自分のターンを決める発言（turn_posts）で見る——再依頼された人の依頼より前の
+    発言を起点にすると、段は自分の番なのに相手の無言を催促する行が出る。"""
     posts = posts_of_pr(pr)
     last = latest_human_post(posts)
     if not last:
@@ -965,7 +951,8 @@ def last_speaker_facts(pr, who):
     facts = [
         f"最後の発言: {login(last['author'])}（{local_time(last['at'])}）"
     ]
-    if not who or login(last["author"]) != who:
+    mine = latest_human_post(turn_posts(pr, who)) if who else None
+    if not mine or login(mine["author"]) != who:
         return facts
     rechecks, owed = answered_threads(pr)
     owing = {o for o, _, _ in rechecks} - {who}
@@ -1189,6 +1176,8 @@ def limits_of_pr(pr):
     conns = [
         (pr["assignees"], "assignee"),
         (pr["reviewRequests"], "レビュー依頼"),
+        # 切れていると指摘対応を集約値どおり残す（turn.owes_change_requests）
+        (pr["latestOpinionatedReviews"], "人ごとの意見"),
     ] + post_conns(pr)
     rollup = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]
     if rollup:

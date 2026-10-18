@@ -144,7 +144,17 @@ def pr(**kw):
     }
     p.update(kw)
     p.setdefault("url", f"https://example.invalid/pull/{p['number']}")
+    p.setdefault("latestOpinionatedReviews", opinions_of(p["reviews"]))
     return p
+
+
+def opinions_of(reviews):
+    """GitHub が reviews から出す人ごとの最新の意見（latestOpinionatedReviews）。材料の reviews と食い違わせない"""
+    latest = {}
+    for r in sorted(reviews["nodes"], key=lambda r: r["submittedAt"] or ""):
+        if r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+            latest[(r["author"] or {}).get("login")] = r
+    return conn(*({"state": r["state"], "author": r["author"]} for r in latest.values()))
 
 
 def requests(*actors):
@@ -227,6 +237,145 @@ class PrBalls(unittest.TestCase):
         self.assertEqual(
             flow.pr_balls(p), [("alice", "changes_requested", T1), ("carol", "review", T3)]
         )
+
+    def test_changes_requested_then_rerequested_from_everyone_is_the_reviewers_turn(self):
+        """変更要求を出した人全員に依頼し直していれば、ターンはレビュアーにある。依頼より前に誰が最後に喋っても同じ（#1843）"""
+        for last in ("alice", "bob"):
+            with self.subTest(last=last):
+                p = pr(
+                    reviewDecision="CHANGES_REQUESTED",
+                    reviews=conn(review(user("bob"), "CHANGES_REQUESTED", T0, "ここを直してください")),
+                    reviewRequests=requests(user("bob")),
+                    timelineItems=conn(requested(user("bob"), T2)),
+                    comments=conn(comment(user(last), T1, "見ました" if last == "bob" else "直しました")),
+                )
+                self.assertFalse(flow.turn.owes_change_requests(p))
+                self.assertEqual(
+                    flow.merge_rows(flow.pr_balls(p)),
+                    {"alice": (["awaiting_review"], T2), "bob": (["review"], T2)},
+                )
+                self.assertEqual(tiers(p), {"alice": 3, "bob": 0})
+
+    def test_a_reply_before_the_rerequest_is_not_counted(self):
+        """変更要求 → 本人がスレッドで「確認しました」（未解決 0） → 作者が再依頼。人ごとの最新の意見は変更要求のまま"""
+        p = pr(
+            reviewDecision="CHANGES_REQUESTED",
+            reviews=conn(
+                review(user("bob"), "CHANGES_REQUESTED", T0, "直してください"),
+                review(user("bob"), "COMMENTED", T1),
+            ),
+            reviewThreads=conn(thread(comment(user("bob"), T1, "確認しました"), resolved=True)),
+            reviewRequests=requests(user("bob")),
+            timelineItems=conn(requested(user("bob"), T2)),
+        )
+        self.assertEqual(p["latestOpinionatedReviews"]["nodes"][0]["state"], "CHANGES_REQUESTED")
+        self.assertEqual(tiers(p), {"alice": 3, "bob": 0})
+
+    def test_a_request_resets_the_reviewers_last_word(self):
+        """変更要求に限らない: 依頼より前の本人の発言は数えず、依頼より後に本人が問うたなら相手待ち。
+        依頼の日時が履歴に無ければ、全部の発言で見る"""
+        before = pr(
+            reviews=conn(review(user("bob"), "COMMENTED", T1, "質問です")),
+            reviewRequests=requests(user("bob")),
+            timelineItems=conn(requested(user("bob"), T2)),
+        )
+        self.assertEqual(tiers(before)["bob"], 0)
+        after = pr(
+            reviews=conn(review(user("bob"), "COMMENTED", T3, "質問です")),
+            reviewRequests=requests(user("bob")),
+            timelineItems=conn(requested(user("bob"), T2)),
+        )
+        self.assertEqual(tiers(after)["bob"], 3)
+        unseen = pr(reviews=before["reviews"], reviewRequests=requests(user("bob")))
+        self.assertEqual(tiers(unseen)["bob"], 3)
+
+    def test_the_1843_order_keeps_the_rerequested_reviewer_on_turn(self):
+        """#1843 の順: 変更要求 → 作者の再依頼 → 本人が解決済みスレッドで「確認しました」（本文の無い COMMENTED つき）。
+        依頼の後の本人の相槌は何も待たないのでターンはレビュアーにあり、その行に作者の無言の催促も出さない"""
+        p = pr(
+            reviewDecision="CHANGES_REQUESTED",
+            comments=conn(comment(user("alice"), T0, "お願いします")),
+            reviews=conn(
+                review(user("bob"), "CHANGES_REQUESTED", "2026-08-01T12:00:00Z", "直してください"),
+                review(user("bob"), "COMMENTED", T2),
+            ),
+            reviewThreads=conn(thread(comment(user("bob"), T2, "確認しました"), resolved=True)),
+            reviewRequests=requests(user("bob")),
+            timelineItems=conn(requested(user("bob"), T1)),
+        )
+        self.assertEqual(p["latestOpinionatedReviews"]["nodes"][0]["state"], "CHANGES_REQUESTED")
+        self.assertEqual(tiers(p), {"alice": 3, "bob": 0})
+        self.assertEqual([f for f in flow.pr_facts(p, "bob") if "発言なし" in f], [])
+
+    def test_a_rerequested_reviewer_is_shown_the_authors_silence_only_after_speaking_again(self):
+        """依頼より前の本人の発言（変更要求の本文）を起点に作者の無言を催促しない。依頼の後に本人が話していれば出す"""
+        def p(*after):
+            return pr(
+                comments=conn(comment(user("alice"), T0, "お願いします"), *after),
+                reviews=conn(review(user("bob"), "CHANGES_REQUESTED", "2026-08-01T12:00:00Z", "直してください")),
+                reviewDecision="CHANGES_REQUESTED",
+                reviewRequests=requests(user("bob")),
+                timelineItems=conn(requested(user("bob"), T1)),
+            )
+
+        self.assertEqual([f for f in flow.pr_facts(p(), "bob") if "発言なし" in f], [])
+        self.assertIn(
+            "alice は 08-01 00:00 以降 発言なし",
+            flow.pr_facts(p(comment(user("bob"), T3, "まだですか")), "bob"),
+        )
+
+    def test_a_question_left_before_the_rerequest_still_waits_for_the_answer(self):
+        """未解決スレッドで本人が出した問いに作者が答えないまま再依頼しても、本人は返答待ちで相手の番。作者が答えるターン
+        （依頼より前の発言を数えないのは最後の発言者の判定だけ）"""
+        p = pr(
+            reviewThreads=conn(thread(comment(user("bob"), T0, "ここはなぜですか"))),
+            reviewRequests=requests(user("bob")),
+            timelineItems=conn(requested(user("bob"), T1)),
+        )
+        self.assertEqual(tiers(p), {"alice": 0, "bob": 3})
+
+    def test_the_authors_answer_in_a_resolved_thread_after_the_rerequest_counts(self):
+        """解決済みスレッドで数えないのは依頼された本人の発言だけ。依頼の後に本人が問い、作者が解決済みスレッドで
+        答えたなら作者が最後で、本人のターン"""
+        p = pr(
+            comments=conn(comment(user("bob"), T2, "質問です")),
+            reviewThreads=conn(thread(comment(user("alice"), T3, "答えです"), resolved=True)),
+            reviewRequests=requests(user("bob")),
+            timelineItems=conn(requested(user("bob"), T1)),
+        )
+        self.assertEqual(tiers(p)["bob"], 0)
+
+    def test_changes_requested_stays_with_the_author_unless_every_requester_is_asked_again(self):
+        def cr(*reviews, asked=(), **kw):
+            return pr(
+                reviewDecision="CHANGES_REQUESTED",
+                reviews=conn(*reviews),
+                reviewRequests=requests(*asked),
+                timelineItems=conn(*(requested(a, T3) for a in asked)),
+                **kw,
+            )
+
+        bob_cr, carol_cr = review(user("bob"), "CHANGES_REQUESTED", T1), review(user("carol"), "CHANGES_REQUESTED", T1)
+        for name, p, owes in (
+            ("片方だけに再依頼", cr(bob_cr, carol_cr, asked=(user("bob"),)), True),
+            ("両方に再依頼", cr(bob_cr, carol_cr, asked=(user("bob"), user("carol"))), False),
+            ("Team 宛は本人への再依頼に数えない", cr(bob_cr, asked=(team(),)), True),
+            ("再依頼の後に同じ人がまた変更要求", cr(bob_cr, review(user("bob"), "CHANGES_REQUESTED", T3)), True),
+            ("承認に変えた人は数えない", cr(bob_cr, carol_cr, review(user("carol"), "APPROVED", T2), asked=(user("bob"),)), False),
+            ("退会済みの変更要求", cr(review(None, "CHANGES_REQUESTED", T1), asked=(user("bob"),)), True),
+            ("意見が切れている", cr(bob_cr, asked=(user("bob"),), latestOpinionatedReviews=conn(
+                {"state": "CHANGES_REQUESTED", "author": user("bob")}, total=31)), True),
+            ("login を持つ Team 宛でも", cr(bob_cr, asked=(dict(team(), login="bob"),)), True),
+            ("集約値が変更要求でない", pr(reviewRequests=requests(user("bob"))), False),
+            ("集約値は変更要求だが意見に変更要求が無い", cr(review(user("bob"), "APPROVED", T1), asked=(user("bob"),)), True),
+        ):
+            with self.subTest(name):
+                self.assertEqual(flow.turn.owes_change_requests(p), owes)
+                self.assertEqual("changes_requested" in [k for _, k, _ in flow.pr_balls(p)], owes)
+
+    def test_the_queries_read_each_reviewers_latest_opinion(self):
+        for q in (flow.PR_QUERY, flow.LEGACY_PR_QUERY):
+            self.assertIn(flow.turn.OPINIONS, q)
 
     def test_review_since_is_that_reviewers_latest_request(self):
         p = pr(
@@ -566,6 +715,24 @@ class PrBalls(unittest.TestCase):
                 self.assertEqual(flow.owners(p), ["alice"])
                 self.assertEqual(flow.pr_balls(p), [("alice", "unrequested", T1)])
                 self.assertEqual(flow.pr_tiers(p), {"alice": (2, T1)})
+
+    def test_handed_over_only_when_the_author_left_themselves_out(self):
+        for assignees, legacy, want in (
+            ((user("alice"),), False, False),
+            ((user("alice"), user("bob")), False, False),
+            ((user("bob"),), False, True),
+            ((bot("Copilot"),), False, False),
+            ((bot("Copilot"),), True, True),
+            ((user("alice"), user("bob")), True, False),
+            ((), False, False),
+        ):
+            with self.subTest(assignees=assignees, legacy=legacy):
+                p = pr(assignees=conn(*assignees))
+                if legacy:
+                    p["assigneeKindsUnknown"] = True
+                self.assertEqual(flow.turn.handed_to_others(p), want)
+                self.assertEqual(flow.turn.author_holds_handed(p), want and legacy)
+                self.assertEqual(flow.owners(p) != ["alice"], want and not legacy)
 
     def test_mixed_assignees_hand_the_pr_to_the_people_only(self):
         p = pr(assignees=conn(user("bob"), bot("Copilot")), commits=rollup(checks("FAILURE")))
@@ -1682,6 +1849,11 @@ class Fetch(unittest.TestCase):
 
 
 class Truncation(unittest.TestCase):
+    def test_pr_limits_cover_each_reviewers_latest_opinion(self):
+        """切れていると指摘対応を集約値どおり残す（turn.owes_change_requests）ので、そのことを見ていないものに出す"""
+        p = pr(latestOpinionatedReviews=conn({"state": "CHANGES_REQUESTED", "author": user("bob")}, total=31))
+        self.assertIn("#1: 人ごとの意見 31 件のうち 1 件しか見ていない", flow.limits_of_pr(p))
+
     def test_reports_when_total_exceeds_fetched(self):
         c = conn(*([None] * 100), total=130)
         self.assertEqual(
@@ -1834,7 +2006,18 @@ class Buckets(unittest.TestCase):
                 self.assertEqual(flow.owners(p), ["alice"])
                 self.assertEqual(flow.merge_rows(flow.pr_balls(p)), {"alice": (["ci_red"], T2), other: (["assigned"], T0)})
                 self.assertIn("作者: alice", flow.pr_facts(p, other))
-                self.assertEqual(flow.tier(p, "alice", ["unrequested"], 0, False), 0)
+                # 渡した未依頼は、誰も発言していなくても作者の相手の番（/catchup の「担当 X 待ち」と同じ読み）
+                unasked = pr(number=1, assignees=conn(*assignees), assigneeKindsUnknown=True)
+                self.assertEqual(tiers(unasked), {"alice": 3, other: 0})
+
+    def test_a_handed_unrequested_pr_on_a_github_without_kinds_stays_mine_while_i_owe_a_thread(self):
+        p = pr(
+            assignees=conn({"login": "bob"}),
+            assigneeKindsUnknown=True,
+            reviewThreads=conn(thread(comment(user("carol"), T1, "これは？"))),
+        )
+        self.assertEqual(flow.merge_rows(flow.pr_balls(p))["alice"][0], ["unrequested", "thread_reply"])
+        self.assertEqual(tiers(p)["alice"], 0)
 
     def test_received_draft_and_never_asked_stay_mine_whoever_spoke_last(self):
         """受けた人が「了解、積みます」と返した直後でも、受けた人の自分の番から落とさない——
@@ -1898,6 +2081,40 @@ class Buckets(unittest.TestCase):
         asked["pendingReview"] = {"by": "carol", "comments": 1, "since": T2}
         self.assertEqual(flow.pr_tiers(asked)["carol"], (3, T0))
 
+    def test_a_reply_in_the_holders_question_thread_counts_like_one_in_the_body(self):
+        """持ち主の問いのスレッドで外すのは持ち主本人の発言だけ。相手がそこに書いた答えは本文の答えと同じく数える"""
+        for replier in ("alice", "dave"):
+            reply = comment(user(replier), T2, "合っています")
+            body = [comment(user("bob"), T0, "マージします")]
+            question = [comment(user("bob"), T1, "この仕様で合っていますか"), comment(user("bob"), T3, "例外も？")]
+            for where, comments, threaded in (
+                ("スレッド", body, [question[0], reply, question[1]]),
+                ("本文", body + [reply], question),
+            ):
+                with self.subTest(replier=replier, where=where):
+                    p = pr(
+                        reviewDecision="APPROVED",
+                        assignees=conn(user("bob")),
+                        reviews=conn(review(user("carol"), "APPROVED", T0)),
+                        comments=conn(*comments),
+                        reviewThreads=conn(thread(*threaded)),
+                    )
+                    self.assertEqual(tiers(p)["bob"], 0)
+
+    def test_a_co_holders_reply_in_the_question_thread_does_not_sink_the_merge(self):
+        p = pr(
+            reviewDecision="APPROVED",
+            assignees=conn(user("bob"), user("carol")),
+            reviews=conn(review(user("dave"), "APPROVED", T0)),
+            comments=conn(comment(user("bob"), T0, "マージします")),
+            reviewThreads=conn(thread(
+                comment(user("bob"), T1, "この仕様で合っていますか"),
+                comment(user("carol"), T2, "合っています"),
+                comment(user("bob"), T3, "例外も？"),
+            )),
+        )
+        self.assertEqual(tiers(p)["bob"], 1)
+
     def test_two_assignees_both_keep_a_received_draft_and_see_who_else_can_move_it(self):
         p = pr(
             number=1,
@@ -1919,13 +2136,21 @@ class Buckets(unittest.TestCase):
         self.assertIn("  bob — 1 件", everyone)
         self.assertIn("  carol — 1 件", everyone)
 
-    def test_never_asked_with_the_author_also_assigned_is_still_handed(self):
-        p = pr(
-            number=1,
-            assignees=conn(user("alice"), user("bob")),
-            comments=conn(comment(user("alice"), T3, "扱いはお任せします")),
-        )
-        self.assertEqual(self.bucket(self.render(p, who="alice")), "相手の番")
+    def test_never_asked_with_the_author_also_assigned_stays_undelivered(self):
+        """作者も assignee に残っていれば作者が持っていて、まだ誰にも渡していない（/catchup も依頼先を決めるのは私）。
+        誰が最後に発言しても、種別が取れない GitHub でも同じ"""
+        for legacy in (False, True):
+            for last in (None, "alice", "bob"):
+                with self.subTest(legacy=legacy, last=last):
+                    p = pr(
+                        number=1,
+                        assignees=conn(user("alice"), user("bob")),
+                        comments=conn(comment(user(last), T3, "扱いはお任せします")) if last else conn(),
+                    )
+                    if legacy:
+                        p["assigneeKindsUnknown"] = True
+                    self.assertEqual(flow.pr_tiers(p)["alice"][0], 2)
+                    self.assertEqual(self.bucket(report(p, who="alice", legacy=legacy)), "自分の番")
 
     def test_received_pr_reads_as_the_implementers_own(self):
         """受けた人の行に `作者:` を出すと、読む側が役割をレビュアーと書く。本文と規模は付ける——
