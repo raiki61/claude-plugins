@@ -952,6 +952,10 @@ class Departments(unittest.TestCase):
         rows = clean.departments(self.ports.herdr.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
                                  gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src)
         self.assertEqual([(r["state"], r["removable"], r["session"]) for r in rows], [("gone", True, None)])
+        # 順番待ちに頼みが残る部署は畳まない（畳むと頼みが誰にも渡らない。2026-10-18 の受付 b1109e・526db7）
+        rows = clean.departments(self.ports.herdr.worktrees(self.src), gitx.worktree_attrs, lambda attrs: None, gitx.is_clean,
+                                 gitx.unpushed, lambda p: True, gitx.head_sha, source=self.src, queued=lambda p: True)
+        self.assertEqual([(r["removable"], r["reason"]) for r in rows], [(False, "queued")])
 
 
 if __name__ == "__main__":

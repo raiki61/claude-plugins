@@ -101,10 +101,10 @@ def retire(a, ports, cwd, rows, reasons):
             ports.pause()
         if r is None:
             return kept("会話を止めた後、片付けの候補に見えない")
-        if not r["removable"]:
-            return kept(f"会話を止めたが、{reasons[r['reason']]}")
         if wake.queued(inbox, ports.git.git_dir(path)):
             return kept("会話を止めたが、止める間に順番待ちに頼みが積まれた（部署の会話を起動し直すまで渡らない。--tree の部署の行に件数が出る）")
+        if not r["removable"]:
+            return kept(f"会話を止めたが、{reasons[r['reason']]}")
     got = clean.retire(r, repo.source, provision.label(repo, r["branch"]), ports.herdr, ports.git, claudex, ports.account_env)
     if not got["removed"]:
         return kept(f"片付けられなかった: {got['detail']}")

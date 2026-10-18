@@ -3,8 +3,11 @@
 
 - Stop と SessionStart（asyncRewake）: 部署と窓口の会話で、頼みと納品の知らせを待ち、来たら会話を再開させる。順番待ちの次の 1 件を
   渡し（属性に頼みを書いてから起動する）、役が fresh の部署は納品して止まった時点で自分の窓に /clear を打って会話を空にする。
-  fresh の部署を空にできない間（裏の処理が残る・入力フィールドに字が在る・窓を確かめられないなど）は、前の会話のまま次を渡さず、
-  間を置いて空にするのを試し直す（会話が前の会話の中身で次の頼みを書き直さない）。
+  fresh の部署を空にできない間（入力フィールドに字が在る・窓を確かめられないなど）は、前の会話のまま次を渡さず、
+  間を置いて空にするのを試し直す（会話が前の会話の中身で次の頼みを書き直さない）。ただし、空にしない訳が、この会話が出した子の頼みの
+  返事を待っている・裏の処理が残っている、のどちらかなら、順番待ちを止めずに前の会話のまま次を渡す（訳は渡す字の頭と台帳の handed の
+  行〔kept〕に添える）。この 2 つの訳は、ほかの部署の順番待ちや会話の中の処理しだいで何時間も替わらないことがある（2026-10-18 に
+  claude-plugins の割り振りが半日渡さなかった）。子の頼みは、この会話（属性 company.session）が出した物を、受けた頼みが替わっても数える。
   会話を持ち越す部署と窓口も、会話が自分で区切りと印した（--rest。属性 company.rest）ターンの終わりに、同じく窓に /clear を打つ。
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
   区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力フィールドの薄字
@@ -18,7 +21,7 @@
   切り離して裏で走らせる（会話を止めて部屋を片付ける。--retire はこの会話を止めるので、この会話の子として待たない）。出力は受付箱の
   retires/ に残す。印は 1 度で外す（片付けられなかった部屋は --retire が訳を書いて残し、--clean の一覧で段取りが見る）。
   順番待ちに頼みが在れば畳まずに渡し、印を外す（済ませてから印し直す）。
-  渡さずに待つ部署（子の頼みの返事を待つ・納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
+  渡さずに待つ部署（納品していない頼みが在る）が、子の頼みの宛先をたどって、宛先も同じく止まり、子の頼みが宛先の
   順番待ちに積まれたままこの部署へ戻る輪を見つけたら、輪の一番古い頼みを、それが積まれた部署の会社で dispatch.py --take で既定の役の
   部署へ回す（knot・untie。受付の設計の 4.3。出力は受付箱の takes/、台帳に knot の行）。
   毎回空にする部署は、次の頼みを渡す前に、会社の形の model・effort が起動したとき（属性 company.launched）と違えば、
@@ -115,6 +118,9 @@ def talk_window(cwd, h=herdr, pids=(), jobs=()):
     return herdr.talk_window(cwd, h, pids, jobs)
 
 
+NOT_CLEARED_BACKGROUND = "裏の処理が残っている"   # clear_now が空にしない訳のうち、checker が前の会話のまま次を渡す物
+
+
 def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=None, me=lambda: claudex.host()[0], why=None):
     """止まった会話を、自分の窓に /clear を打って空にする。空になった（空にした後の会話の始まりの待ち受けが印を書いた）のを見たら
     True（属性に marks を書く。省けば、納品し終えた fresh の部署の company.cleared）。裏の処理が残る・会話がまだ動いている・窓の
@@ -127,7 +133,7 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
             why.append(reason)
         return False
     if payload.get("background_tasks"):
-        return no("裏の処理が残っている")
+        return no(NOT_CLEARED_BACKGROUND)
     try:
         jobs = (attrs.get("job"), got.get("job"), claudex.attach_id(None, payload.get("session_id")))
         pane = talk_window(got["cwd"], h, [me()], jobs)
@@ -242,18 +248,30 @@ def again_text(attrs, run):
 
 def open_children(got, attrs, records=None, read=None):
     """この部署が出して、まだ閉じていない頼みの受付の並び。数えるのは、頼みの行の from が部署（今の名前か前の名前で、場所が部署の
-    作業場の中）で、今の頼み（company.ask）を受けた後に出した物（前の会話が残した古い行で順番待ちを止めない）。閉じたとみるのは、
-    待ち受けが読み終えた所（read。省けば台帳の全部）までに、その受付への納品・取り下げ・回して閉じる、の行が在る物（返事の知らせを
-    会話が受ける前に空にしない）。"""
+    作業場の中）で、今の会話が出した物（前の会話が残した古い行で順番待ちを止めない）。今の会話が出した物とは、会話の id（got の
+    session か、属性 company.session）が同じ物と、今の会話が始まった後に出した物。始まりは、今の頼み（company.ask）を渡した時から、
+    空にしないまま渡した（handed の kept）頼みを前へたどった、最初の頼みを渡した時（子の返事を待つ間も次の頼みを前の会話のまま渡すので、
+    次の頼みの納品で空にすると、子の返事を受ける会話が黙って居なくなる。compact・resume で会話の id が替わっても、時刻で数え落とさない。
+    会話の id の無い古い版の行も時刻で数える）。閉じたとみるのは、待ち受けが読み終えた所（read。省けば台帳の全部）までに、
+    その受付への納品・取り下げ・回して閉じる、の行が在る物（返事の知らせを会話が受ける前に空にしない）。"""
     root = os.path.realpath(gitx.toplevel(got["cwd"]) or got["cwd"])
     names = {attrs.get("name"), *gitx.former_names(attrs)} - {None}
+    talk = got.get("session") or attrs.get("session")
     rows = deliver.records(got["inbox"]) if records is None else records
     seen = rows if read is None else read
     # 渡し直し（again）は受けた時を動かさない（unseen）
-    since = max((r.get("at") or 0 for r in rows if r.get("kind") == "handed" and r.get("id") == attrs.get("ask") and not r.get("again")),
-                default=0)
-    mine = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and (r.get("at") or 0) >= since
-            and (r.get("from") or {}).get("name") in names
+    handed = [r for r in rows if r.get("kind") == "handed" and not r.get("again")
+              and _inside(os.path.realpath(r.get("place") or ""), root)]
+    first = max((i for i, r in enumerate(handed) if r.get("id") == attrs.get("ask")), default=None)
+    while first and handed[first].get("kept"):
+        first -= 1
+    since = 0 if first is None else handed[first].get("at") or 0
+
+    def ours(sender, at):
+        said = sender.get("session")
+        return bool(said and said == talk) or at >= since
+    mine = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id")
+            and (r.get("from") or {}).get("name") in names and ours(r.get("from") or {}, r.get("at") or 0)
             and _inside(os.path.realpath((r.get("from") or {}).get("place") or ""), root)}
     return sorted(mine - deliver.closed_ids(seen))
 
@@ -305,12 +323,9 @@ def _root_of(path):
 
 
 def blocked(attrs, inbox, place):
-    """部署がターンを終えて（待ち受けが動いている）、順番待ちを渡さずに止まっているか: 受けた頼みを納品していないか、fresh の部署で
-    納品し終えてまだ空にしていない（子の頼みの返事を待って空にしない間。must_clear と同じ見分け）。"""
-    ask = attrs.get("ask")
-    held = bool(wake.pending(attrs) or ask and attrs.get("fresh") == role.FRESH and attrs.get("delivered") == ask
-                and attrs.get("cleared") != ask)
-    return held and wake.watching(inbox, place)
+    """部署がターンを終えて（待ち受けが動いている）、順番待ちを渡さずに止まっているか: 受けた頼みを納品していない。納品し終えた
+    fresh の部署は、子の頼みの返事を待って空にしない間も、順番待ちを前の会話のまま渡すので、止まっていると見ない。"""
+    return bool(wake.pending(attrs)) and wake.watching(inbox, place)
 
 
 def queued_children(children, records):
@@ -520,21 +535,21 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
     """wake.watch に渡す check（受付の設計 4.2 の順）。me は clear_now に渡す（この会話の処理の番号）。spawn は --retire を起動する口。
     restart は起動し直す口（restart_first）、key_of は会社の形の今の model・effort を読む口（role_hook.launch_key）。
     unknot は返事待ちの輪をほどく口（untie。(got, 輪の頼みの並び) を受ける）。"""
-    # fresh の部署を空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。順番待ちに
-    # 次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--take で回せる）
+    # fresh の部署をすぐ替わる訳で空にできないときは、前の会話のまま次の頼みを渡さず wake.HOLD を返す（watch が間を置いて見直す）。
+    # 順番待ちに次が在れば、渡さない訳を順番待ちの受付箱の台帳に 1 度だけ残す（段取りが台帳で見て、--nudge で動かせる）
     told, untied = set(), {}
 
-    def loose(attrs, children):
-        # 渡さずに止まっている間に、返事待ちが部署をまたいで輪になっていれば（knot）、輪の頼みを 1 つ作業の部署へ回す（untie）。
-        # 輪の部署はどれも、子の返事を待つ間は順番待ちを渡さないので、誰も動かない（2026-10-18 に claude-plugins の割り振り・点検・
-        # 見直しと、my_notes の調べもの・ノートの手入れで、段取りが --take でほどくまで 2〜6 時間止まった）。同じ頼みを回すのは、
+    def loose(attrs):
+        # 納品していない頼みを持ったまま止まっている間に、返事待ちが部署をまたいで輪になっていれば（knot）、輪の頼みを 1 つ作業の
+        # 部署へ回す（untie）。輪の部署はどれも、今の頼みを納品するまで順番待ちを渡さないので、誰も動かない（2026-10-18 に claude-plugins
+        # の割り振り・点検・見直しと、my_notes の調べもの・ノートの手入れで、段取りが --take でほどくまで 2〜6 時間止まった）。同じ頼みを回すのは、
         # 前に回した --take が 0 以外で終わった（ほかの待ち受けと取り合って負けた・頼み直せずに順番待ちへ戻した）ときだけ、
         # 最初の回を含めて UNTIE_TRIES 回まで。輪を読めないなど何が起きても、待ち受けは止めない（止めると渡す待ち受けが居なく
-        # なる）。children は子の頼みの並びか、None（ここで数える）
+        # なる）
         try:
             if not wake.queued(got["inbox"], got["place"]):
                 return
-            children = open_children(got, attrs, read=_read_part(got)) if children is None else children
+            children = open_children(got, attrs, read=_read_part(got))
             if not children:
                 return
             edges = knot(got, attrs, children)
@@ -563,45 +578,48 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
                 return "wake", again_text(attrs, RUN)
             if not payload.get("background_tasks"):
                 # 納品の前に子の返事を待ってターンを終えた部署（常設の担当なども）も、輪の途中に入りうる
-                loose(attrs, None)
+                loose(attrs)
             return None   # 未納品の頼みを持っている
         if (payload.get("hook_event_name") == "Stop" and attrs.get(wake.FINISHED) and not payload.get("background_tasks")
                 and not wake.queued(got["inbox"], got["place"]) and retire_later(got, attrs, spawn, now)):
             return "end", None   # 都度の部署が終わりと印した（--done）。fresh の /clear より先に見る（空にすると印の会話が居なくなる）
+        kept = []   # 空にしないまま前の会話で次を渡す訳（渡す字の頭と台帳に添える。黙って前の会話のまま渡さない）
         if must_clear(payload, attrs):
             children = open_children(got, attrs, read=_read_part(got))
             if children:
-                # 子の頼み（この部署が出して返事の来ていない頼み）が在る間は空にしない（持ち主の承認 dc0aa2: 受けた頼みも子の頼みも
+                # 子の頼み（この会話が出して返事の来ていない頼み）が在る間は空にしない（持ち主の承認 dc0aa2: 受けた頼みも子の頼みも
                 # 全部閉じたターンの終わりに空にする）。子の納品で起きたターンの終わりに、閉じていれば空にする（起動するときに印を外す。woken）。
-                # 順番待ちの次の頼みは、前の会話のまま渡さずに待つ
+                # 順番待ちの次の頼みは、空にしないまま前の会話で渡す（子の返事はこの会話で受ける）。前は渡さずに待ったので、子の頼みが
+                # 止まった部署の順番待ちに積まれると、待ちが部署から部署へつながって半日止まった（2026-10-18、claude-plugins の割り振り）
+                if not wake.queued(got["inbox"], got["place"]):
+                    return None
+                kept.append(f"この会話が出した子の頼み（受付 {'・'.join(children)}）の返事を、この会話で受けるため")
+            else:
+                why = []
+                if clear_now(got, payload, attrs, h, me=me, why=why):
+                    return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す
                 waiting = wake.queued(got["inbox"], got["place"])
                 if not waiting:
-                    return None
-                loose(attrs, children)
-                why = f"子の頼みの返事を待っている（受付 {'・'.join(children)}）"
-                if (waiting[0].get("id"), why) not in told:
-                    told.add((waiting[0].get("id"), why))
-                    deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
-                                               "session": got["session"], "detail": f"前の会話を空にしないので渡さずに待つ（{why}）"})
-                return wake.HOLD
-            why = []
-            if clear_now(got, payload, attrs, h, me=me, why=why):
-                return "end", None   # 空にした後の会話の始まりの待ち受けが、次を渡す
-            waiting = wake.queued(got["inbox"], got["place"])
-            if waiting and (waiting[0].get("id"), why[0]) not in told:
-                told.add((waiting[0].get("id"), why[0]))
-                deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
-                                           "session": got["session"], "detail": f"前の会話を空にできないので渡さずに待つ（{why[0]}）"})
-            return wake.HOLD
+                    return wake.HOLD
+                if why[0] != NOT_CLEARED_BACKGROUND:
+                    # すぐ替わる訳（会話が動いている・入力フィールドに字が在るなど）は、間を置いて空にするのを試し直す
+                    if (waiting[0].get("id"), why[0]) not in told:
+                        told.add((waiting[0].get("id"), why[0]))
+                        deliver.log(got["inbox"], {"id": waiting[0].get("id"), "kind": "held", "at": now(), "place": got["cwd"],
+                                                   "session": got["session"], "detail": f"前の会話を空にできないので渡さずに待つ（{why[0]}）"})
+                    return wake.HOLD
+                # 裏の処理は終わるまで何時間もかかりうる（2026-10-18 に見直しで、自分の行に当たり続ける pgrep の待ちが終わらなかった）。
+                # この待ち受けが持つ payload の裏の処理は、ターンの終わりの時の物で、待つ間に読み直せない
+                kept.append(why[0])
         unrested = []   # 区切りで空にできなかった訳（次を渡すときに会話と台帳に添える。黙って前の会話のまま渡さない）
-        if payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
+        if not kept and payload.get("hook_event_name") == "Stop" and attrs.get(wake.REST) and attrs[wake.REST] in (got["session"], "1"):
             # 区切りの印はこの会話が打った物だけ見る（前の会話の印が残っていても、持ち主と話している今の会話を起動し直さない）
             key = restart_due(got, payload, attrs, key_of, at_rest=True)
             if key and restart(got, key):
                 return "end", None   # 区切りで、会社の形の起動の設定が替わっていたので起動し直した。起動し直した会話の待ち受けが、次を渡す
             if clear_now(got, payload, attrs, h, marks={wake.REST: None}, me=me, why=unrested):
                 return "end", None   # 会話が自分で区切りと印した（--rest）。空にした後の待ち受けが、次を渡す
-        key = restart_due(got, payload, attrs, key_of)
+        key = None if kept else restart_due(got, payload, attrs, key_of)   # 起動し直すと、子の返事を受ける会話が居なくなる
         if key and restart(got, key):
             return "end", None   # 会社の形の起動の設定が替わったので起動し直した。起動し直した会話の待ち受けが、次を渡す
         with wake.ask_lock(got["inbox"], got["place"]):
@@ -614,8 +632,12 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
             # 次の頼みを受けたら、前の終わりの印は外す（終わりは、受けた頼みを済ませてから --done で印し直す）
             provision.mark(got["cwd"], got["root"], {**(item.get("marks") or {}), wake.FINISHED: None}, gitx)
         deliver.log(got["inbox"], {"id": item.get("id"), "kind": "handed", "at": now(), "place": got["cwd"],
-                                   "session": got["session"], **({"unrested": unrested[0]} if unrested else {})})
+                                   "session": got["session"], **({"unrested": unrested[0]} if unrested else {}),
+                                   **({"kept": kept[0]} if kept else {})})
         text = item.get("line") or wake.wake_text([item])
+        if kept:
+            text = (f"（前の頼みを納品した会話を空にしないまま渡す: {kept[0]}。前の頼みで出した子の頼みの返事や裏の処理の知らせが"
+                    "届いたら、この会話で受ける。どれも閉じたターンの終わりに空にする）\n" + text)
         if unrested:
             # 2026-10-18 に my_notes の段取りが、空にできない訳を知らないまま 1 時間に 12 回、前の会話のまま受けた
             text = (f"（区切り〔--rest〕で会話を空にできなかったので、前の会話のまま渡す: {unrested[0]}。区切りの印は残してあり、"

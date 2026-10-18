@@ -429,7 +429,8 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
           ready=None):
     """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
     owner は待ち受けを起動した会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
-    check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに呼ぶ関数で、("wake", 字)（その字で会話を再開させる）・
+    check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに（同じ回にほかの知らせが在れば、そちらを先に会話へ
+    渡して呼ばない）呼ぶ関数で、("wake", 字)（その字で会話を再開させる）・
     ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。
     ready は会話が字を受けられるかを返す関数（None なら常に受けられる）。受けられない間は、印を張ったまま台帳を読まず check も
     呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起動する）。"""
@@ -472,7 +473,8 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             hits = [r for r in records if mine(r, names)]
             _replace(pos_path(inbox, place), str(pos))   # 出す前に進める（同じ行で 2 度起動しない）
             said = [r for r in hits if r.get("kind") != QUEUED]
-            verdict = check() if check and len(said) < len(hits) else None
+            # 知らせ（said）が在れば先に会話へ渡し、順番待ちはそのターンの終わりに見る（同じ回に見ると、知らせを受ける前に空にしうる）
+            verdict = check() if check and hits and not said else None
             holding = holding or verdict == HOLD
             if verdict and verdict[0] == "end" and not said:
                 return 0

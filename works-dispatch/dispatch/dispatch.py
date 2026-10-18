@@ -87,7 +87,7 @@ import reorg  # noqa: E402
 import limits  # noqa: E402
 import tierx  # noqa: E402
 import vscode  # noqa: E402
-from nodes import accounts, assign, clean, cost, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
+from nodes import accounts, assign, clean, cost, deliver, fresh, launch, provision, prs, report, role, sessions, sync, tools, tree, turn, wake  # noqa: E402
 import orders  # noqa: E402
 import starts  # noqa: E402
 import todo  # noqa: E402
@@ -1847,12 +1847,17 @@ def _department_rows(cfg, repo, ports, found, notes, assume_stopped=()):
         return next(({**s, "config_dir": acc.config_dir, **({"state": "stopped"} if s.get("sessionId") in assume_stopped else {})}
                      for acc, items in listed.values() for s in items if s.get("sessionId") == attrs["session"]), None)
 
+    def queued(path):
+        common, place = ports.git.common_dir(path), ports.git.git_dir(path)
+        return bool(common and place and wake.queued(deliver.inbox_of(common), place))
+
     return clean.departments(found, ports.attrs, session_of, ports.is_clean, ports.unpushed,
-                             lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source)
+                             lambda path: gitx.is_merged(path, target), ports.head_sha, source=repo.source, queued=queued)
 
 
 DEPT_REASONS = {"resident": "常設の部署は畳まない", "running": "会話がまだ動いている", "dirty": "未コミットの変更が有る", "unpushed": "手元にしか無い commit か stash が有る",
-                "not_merged": "ブランチがメインブランチに入っていない", "no_branch": "ブランチに乗っていない"}
+                "not_merged": "ブランチがメインブランチに入っていない", "no_branch": "ブランチに乗っていない",
+                "queued": "順番待ちに頼みが在る（待ち受けが渡す次の頼みを済ませてから畳む。会話が止まっていれば --nudge <部署> で戻す）"}
 
 
 def _running_note(d, attrs):

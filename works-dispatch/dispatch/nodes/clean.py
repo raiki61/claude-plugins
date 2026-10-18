@@ -143,11 +143,13 @@ def release(source, path, h=herdr):
 DONE = ("done", "stopped", "failed")
 
 
-def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_sha, source=None):
+def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_sha, source=None, queued=lambda path: False):
     """部署ごとに、消してよいか。attrs_of(場所) は部署の git の属性。session_of(属性) は会話の 1 件（{id, sessionId, state, …,
-    config_dir}）か、一覧に無ければ None。merged(場所) はブランチの先頭がメインブランチに入っているか。
+    config_dir}）か、一覧に無ければ None。merged(場所) はブランチの先頭がメインブランチに入っているか。queued(場所) は部署の
+    順番待ちに頼みが在るか（在る部署を消すと、積まれた頼みを渡す者が居なくなり、頼み元が返事を待ち続ける。2026-10-18 に点検の
+    部署が順番待ちの 2 件を残して消え、見渡しが半日返事を待った）。
     返す 1 行は {path, branch, name, account, session, config_dir, state, pr_head, removable, reason}（pr_head は消す時に
-    手元のブランチの先頭と比べる commit で、今の先頭）。reason は resident・running・dirty・unpushed・not_merged・no_branch。"""
+    手元のブランチの先頭と比べる commit で、今の先頭）。reason は resident・running・queued・dirty・unpushed・not_merged・no_branch。"""
     rows = []
     for place in sorted((p for p in places if p.get("linked") and not p.get("prunable")), key=lambda p: p.get("path") or ""):
         path, branch = place["path"], place.get("branch")
@@ -166,6 +168,8 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
             row["reason"] = "resident"
         elif s is not None and s.get("state") not in DONE:
             row["reason"] = "running"
+        elif queued(path):
+            row["reason"] = "queued"
         elif not branch:
             row["reason"] = "no_branch"
         elif not is_clean(path):

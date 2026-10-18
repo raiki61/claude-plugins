@@ -102,7 +102,8 @@ class Watch(unittest.TestCase):
             lambda: self.assertEqual(seen, []),
             lambda: up.__setitem__(0, True),
         ], check=check, ready=lambda: up[0])
-        self.assertEqual((rc, err, len(seen)), (2, "納品です（受付 d1）\n頼みです（受付 q1）\n", 2))
+        # 同じ回に知らせと順番待ちが来たら、知らせだけを渡し、順番待ちはそのターンの終わりに見る（知らせを受ける前に空にしない）
+        self.assertEqual((rc, err, len(seen)), (2, "納品です（受付 d1）\n", 1))
 
     def test_check_can_end_the_watch_at_the_start(self):
         rc, err = self.run_watch([lambda: None], check=lambda: ("end", None))
@@ -333,14 +334,40 @@ class Hook(unittest.TestCase):
         w = self.emptied()
         self.assertIsNone(self.checker(window=w)())   # 子の返事待ち: 空にしない
         self.assertEqual(w.writes, [])
-        self.put("a1")
-        self.assertEqual(self.checker(window=w)(), wake.HOLD)   # 次の頼みも前の会話のまま渡さずに待つ
-        held = [r for r in deliver.records(self.inbox) if r.get("kind") == "held"]
-        self.assertIn("子の頼みの返事を待っている（受付 c1）", held[-1]["detail"])
         deliver.log(self.inbox, {"kind": "deliver", "id": "d1", "ask": "c1", "status": "sent"})   # 子の納品が届いた
         with mock.patch.object(wake_hook.deliver, "CONFIRM_LOOKS", 1):
-            self.assertEqual(self.checker(window=w)(), ("end", None))   # 空にした（空にした後の待ち受けが a1 を渡す）
+            self.assertEqual(self.checker(window=w)(), ("end", None))   # 空にした（空にした後の待ち受けが次の頼みを渡す）
         self.assertEqual(w.writes[0], deliver.CLEAR)
+
+    def test_a_fresh_department_waiting_on_a_child_hands_the_next_ask_to_the_same_conversation(self):
+        # 子の返事待ちで順番待ちを止めると、子の先が自分の返事待ちのときに輪になり、何時間も止まった（2026-10-18 の割り振り・見渡し）。
+        # 空にはせず（子の返事をこの会話で受ける）、次の頼みを渡し、空にしない訳を頭に付ける
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
+                                              "fresh": role.FRESH, "session": "s1"}, gitx)
+        deliver.log(self.inbox, {"kind": "handed", "id": "a0", "at": 0, "place": self.place})
+        deliver.log(self.inbox, {"kind": "ask", "id": "c1", "status": "queued", "at": 1,
+                                 "from": {"name": "調べ", "place": self.place, "session": "s1"}, "to": {"company": "co", "name": "点検"}})
+        self.put("a1")
+        w = self.emptied()
+        tried = []
+        kind, text = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=w, now=lambda: 5, me=lambda: ME,
+                                       restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: "other")()
+        self.assertEqual(tried, [], "起動し直すと、子の返事を受ける会話が居なくなる")
+        self.assertEqual(kind, "wake")
+        self.assertTrue(text.startswith("（前の頼みを納品した会話を空にしないまま渡す: この会話が出した子の頼み（受付 c1）"), text)
+        self.assertTrue(text.endswith("頼みです（受付 a1）"))
+        self.assertEqual(w.writes, [], "子の返事を受ける会話を空にしない")
+        handed = [r for r in deliver.records(self.inbox) if r.get("kind") == "handed"]
+        self.assertIn("受付 c1", handed[-1]["kept"])
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "held"], [])
+        # 次の頼みを受けた後も、同じ会話が前の頼みで出した子は数える
+        self.assertEqual(wake_hook.open_children(self.plan(), gitx.worktree_attrs(self.place)), ["c1"])
+        provision.mark(self.place, self.src, {"session": "s2"}, gitx)   # compact・resume で会話の id が替わっても数える
+        self.assertEqual(wake_hook.open_children(self.plan(sid="s2"), gitx.worktree_attrs(self.place)), ["c1"])
+        # 空にしてから渡した頼み（kept の無い handed）より前の物は、前の会話の子なので数えない
+        deliver.log(self.inbox, {"kind": "handed", "id": "a2", "at": 9, "place": self.place, "session": "s3"})
+        provision.mark(self.place, self.src, {"session": "s3", "ask": "a2"}, gitx)
+        self.assertEqual(wake_hook.open_children(self.plan(sid="s3"), gitx.worktree_attrs(self.place)), [])
 
     def test_children_count_only_since_the_ask_and_close_only_in_what_the_waiter_has_read(self):
         attrs = {"name": "調べ", "ask": "a0"}
@@ -382,19 +409,19 @@ class Hook(unittest.TestCase):
         return [e[:3] for e in edges]
 
     def test_two_held_departments_waiting_on_each_other_untie_the_oldest_ask_of_the_ring(self):
-        # 調べは点検への c1 の返事を、点検は調べへの q1 の返事を待ち、どちらも順番待ちを渡さない（2026-10-18 の my_notes）
+        # 調べは点検への c1 の返事を、点検は調べへの q1 の返事を、どちらも今の頼みを納品せずに待ち、順番待ちを渡さない（2026-10-18 の my_notes）
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
-        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0")
         self.asked("20261018-000001-c00001", "調べ", self.place, other)
         self.asked("20261018-000002-q00002", "点検", other, self.place)
         tied, done = [], os.path.join(self.inbox, "take.done")
         check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   unknot=lambda got, edges: tied.append(edges) or (edges[0][0], done))
-        self.assertEqual(check(), wake.HOLD)
+        self.assertIsNone(check())
         self.assertEqual(tied, [], "点検の待ち受けが居ない間は、点検は止まっていると見ない")
         self.listens(other, "点検")
-        self.assertEqual(check(), wake.HOLD)   # 輪をほどいても、子の返事を待つ間は前の会話のまま渡さない
+        self.assertIsNone(check())   # 輪をほどいても、納品していない頼みが在る間は次を渡さない
         self.assertEqual([self.ring(e) for e in tied], [[("20261018-000001-c00001", "調べ", "点検"), ("20261018-000002-q00002", "点検", "調べ")]])
         self.assertEqual(tied[0][0][3], os.path.realpath(other))   # 回す頼みが積まれた部署の場所
         check()
@@ -409,8 +436,8 @@ class Hook(unittest.TestCase):
 
     def test_a_failure_while_looking_for_a_ring_does_not_stop_the_listener(self):
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
-        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0")
         self.asked("c1", "調べ", self.place, other)
         self.asked("q1", "点検", other, self.place)
         self.listens(other, "点検")
@@ -423,18 +450,17 @@ class Hook(unittest.TestCase):
         check = wake_hook.checker(self.plan(), {"hook_event_name": "Stop"}, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   unknot=broken)
         for _ in range(5):
-            self.assertEqual(check(), wake.HOLD)
+            self.assertIsNone(check())
         self.assertEqual(len(calls), wake_hook.UNTIE_TRIES, "落ちた回も数え、上限で止める")
-        provision.mark(self.place, self.src, {"delivered": None}, gitx)   # 納品していない部署の道も、台帳を読めなくて止まらない
         with mock.patch.object(wake_hook.deliver, "records", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "切れた")):
             self.assertIsNone(check())
 
     def test_a_department_that_only_leads_into_the_ring_is_not_where_the_ring_is_untied(self):
         # 調べ ⇄ 点検 の輪に加え、点検 → 見直し（見直しは調べへ戻らない）。見直しへの頼みが一番古くても、輪の外なので回さない
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
-        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
-        review = self.dept("dept/c", **held, name="見直し", ask="c0", delivered="c0")
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0")
+        review = self.dept("dept/c", **held, name="見直し", ask="c0")
         self.asked("20261018-000003-aaaaaa", "調べ", self.place, other)
         self.asked("20261018-000002-bbbbbb", "点検", other, self.place)
         self.asked("20261018-000001-cccccc", "点検", other, review)
@@ -446,9 +472,9 @@ class Hook(unittest.TestCase):
     def test_overlapping_rings_pick_the_same_ask_from_every_department(self):
         # 割り振り ⇄ 点検 の輪と、点検 → 見直し → 割り振り の輪が重なる。どの部署から見ても、重なった輪の全体の一番古い頼みを回す
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0", "delivered": "a0"}, gitx)
-        check_ = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
-        review = self.dept("dept/c", **held, name="見直し", ask="c0", delivered="c0")
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)
+        check_ = self.dept("dept/b", **held, name="点検", ask="b0")
+        review = self.dept("dept/c", **held, name="見直し", ask="c0")
         self.asked("20261018-000005-aaaaaa", "割り振り", self.place, check_)
         self.asked("20261018-000004-bbbbbb", "点検", check_, self.place)
         self.asked("20261018-000001-cccccc", "点検", check_, review)
@@ -465,7 +491,7 @@ class Hook(unittest.TestCase):
     def test_no_ring_when_a_department_on_the_way_carries_its_conversation_over(self):
         # 会話を持ち越す部署は、納品し終えれば順番待ちを渡すので、止まっていると見ない
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
         other = self.dept("dept/b", role="担当", name="点検", ask="b0", delivered="b0")
         self.asked("c1", "調べ", self.place, other)
         self.asked("q1", "点検", other, self.place)
@@ -477,8 +503,8 @@ class Hook(unittest.TestCase):
         # claude-plugins。輪の途中に、納品していない常設の担当が入る）
         held = {"role": "担当", "fresh": role.FRESH}
         provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)   # 納品していない
-        check_ = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
-        review = self.dept("dept/c", **held, name="見直し", ask="c0", delivered="c0")
+        check_ = self.dept("dept/b", **held, name="点検", ask="b0")
+        review = self.dept("dept/c", **held, name="見直し", ask="c0")
         self.asked("20261018-000003-c00001", "割り振り", self.place, check_)
         self.asked("20261018-000001-c00002", "点検", check_, review)
         self.asked("20261018-000002-c00003", "見直し", review, self.place)
@@ -503,13 +529,13 @@ class Hook(unittest.TestCase):
 
     def test_a_ring_across_two_companies_is_followed_through_each_inbox(self):
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0", "delivered": "a0"}, gitx)
+        provision.mark(self.place, self.src, {**held, "name": "割り振り", "ask": "a0"}, gitx)
         src2 = os.path.join(os.path.dirname(self.place), "co2")
         git("init", "-q", "-b", "main", src2)
         git("-C", src2, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
         other = os.path.join(os.path.dirname(self.place), "notes")
         git("-C", src2, "worktree", "add", "-q", "-b", "dept/n", other)
-        provision.mark(other, src2, {**held, "name": "調べもの", "ask": "n0", "delivered": "n0"}, gitx)
+        provision.mark(other, src2, {**held, "name": "調べもの", "ask": "n0"}, gitx)
         inbox2 = deliver.inbox_of(gitx.common_dir(src2))
         # 頼みの行は頼んだ側の会社の受付箱に、順番待ちは受ける側の会社の受付箱に在る
         self.asked("c1", "割り振り", self.place, other)
@@ -530,8 +556,8 @@ class Hook(unittest.TestCase):
 
     def test_no_ring_once_the_ask_has_been_handed(self):
         held = {"role": "担当", "fresh": role.FRESH}
-        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0", "delivered": "a0"}, gitx)
-        other = self.dept("dept/b", **held, name="点検", ask="b0", delivered="b0")
+        provision.mark(self.place, self.src, {**held, "name": "調べ", "ask": "a0"}, gitx)
+        other = self.dept("dept/b", **held, name="点検", ask="b0")
         self.asked("c1", "調べ", self.place, other)
         self.asked("q1", "点検", other, self.place)
         self.listens(other, "点検")
@@ -829,7 +855,6 @@ class Hook(unittest.TestCase):
         place = gitx.git_dir(self.place)
         for payload, window in (({"hook_event_name": "Stop"}, Window(self.place, status="working")),
                                 ({"hook_event_name": "Stop"}, Window(self.place, box="打ちかけ")),
-                                ({"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}, Window(self.place)),
                                 ({"hook_event_name": "Stop"}, Window(self.place, front=[]))):
             check = self.checker(payload, window)
             self.assertEqual(check(), wake.HOLD)
@@ -838,14 +863,24 @@ class Hook(unittest.TestCase):
             self.assertEqual(len(wake.queued(self.inbox, place)), 1)
             self.assertEqual(gitx.worktree_attrs(self.place)["ask"], "a0")
         held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
-        self.assertEqual(len(held), 4)   # 訳ごとに 1 度
+        self.assertEqual(len(held), 3)   # 訳ごとに 1 度
         self.assertIn("会話がまだ動いている", held[0]["detail"])
+        # 裏の処理が残るだけなら止めない（知らせをこの会話で受ける）。前の会話のまま、訳を頭に付けて渡し、起動し直さない
+        tried = []
+        kind, text = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}, h=Window(self.place),
+                                       now=lambda: 5, me=lambda: ME, restart=lambda got_, key: tried.append(key) or True,
+                                       key_of=lambda cwd, a: "other")()
+        self.assertEqual(kind, "wake")
+        self.assertIn(wake_hook.NOT_CLEARED_BACKGROUND, text.splitlines()[0])
+        self.assertEqual(tried, [])
+        provision.mark(self.place, self.src, {"delivered": "a1"}, gitx)
+        self.put("a2")
         # 会話が前の会話を持って始まった（resume・compact）ときも空にしてから。空で始まった時は渡す
         self.assertEqual(self.checker({"hook_event_name": "SessionStart", "source": "resume"}, Window(self.place, status="working"))(),
                          wake.HOLD)
         got = wake_hook.checker(self.plan(), {"hook_event_name": "SessionStart", "source": "startup"}, h=Window(self.place),
                                 now=lambda: 5)
-        self.assertEqual(got(), ("wake", "頼みです（受付 a1）"))
+        self.assertEqual(got(), ("wake", "頼みです（受付 a2）"))
 
     def test_a_held_watcher_tries_again_each_beat_until_it_can_clear(self):
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0",
@@ -1189,6 +1224,14 @@ class WakeFlow(unittest.TestCase):
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts()), (1, []), out)   # すぐ替わる訳なら打たない（待ち受けの /clear とぶつけない）
         self.assertIn("訳がすぐ替わる物なので打たなかった", out)
+        # 子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、1 行を打って今の版で数え直させる（2026-10-18 の割り振り）
+        self.ports.herdr.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+        for detail in ("子の頼みの返事を待っている（受付 c1）", wake_hook.NOT_CLEARED_BACKGROUND):
+            deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": detail})
+            rc, out = self.main(self.src, "--nudge", "調べ")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual([w[2] for w in self.prompts()], [orders.STUCK_LINE])
+            self.ports.herdr.writes.clear()
         deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
         provision.mark(self.place, self.src, {"rest": "s"}, gitx)
         self.ports.herdr.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
