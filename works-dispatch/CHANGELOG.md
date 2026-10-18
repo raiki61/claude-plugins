@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-10-19
+
 ### Changed
 
 - dispatch が `/catchup` を持つプラグインを探すとき、`commands/catchup.md` に加えて `skills/catchup/SKILL.md` も見るようにした（どちらか 1 つでもあれば拾う）。attention プラグイン（`/catchup` を持つ、同じリポジトリのプラグイン）が、この版と同じ時に `/catchup` を命令の置き場（`commands/`）からスキルの置き場（`skills/`）に移したため（呼び名は `/attention:catchup` のまま）。直さないと、移した後の attention を入れたアカウントで、PR を作業場（PR ごとの git worktree と、それを開いた herdr〔端末の画面を区切って会話を並べる道具〕の区画）に開く使い方（`--task` を付けない dispatch と、始める前の確かめだけを走らせる `--check`）が、`/catchup` を持つプラグインを 1 つも見つけられず、「/catchup の命令が 1 つに決まらない（持つプラグイン: 無し）」で止まる。
