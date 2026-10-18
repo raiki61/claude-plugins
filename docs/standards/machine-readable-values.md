@@ -3,15 +3,17 @@
 プログラムどうし、モデルとプログラム、外のツールとプログラムの間で、機械が読んで分岐や数え上げに使う値（以下「機械が読む値」）をどう渡し、どう読むか。
 読むのは、プラグインのコード（Python・シェル・フック）とスキルの出力の形を書く・直す各担当と、この標準を機械で守らせる検査を書く点検。
 
-対象は [README](README.md) の「対象」の 6 つのプラグインと、ルートの `scripts/`・`tests/`。
+対象は [README](README.md) の「対象」の 6 つのプラグイン（attention・convergence-loops・gates・graphloops・tiers・works-dispatch）と、ルートの `scripts/`・`tests/`。
+
+急ぐのは、下の「なぜ要るか」の例のうち今壊れている 1 件（attention）だけで、ほかは壊れる余地。新しく書くコードは今日からこの標準に合わせ、今ある物は [README](README.md) の台帳に載せた頼みで各担当が順に直す。
 
 ## なぜ要るか
 
-2026-10-19 の見渡し（受付 20261018-204600-6563b9）で、6 つのプラグインとルートの scripts・tests から、同じ形の作りを 114 件見つけた。
+2026-10-19 の洗い出し（標準の担当が持ち主の頼み〔受付 20261018-204600-6563b9。受付は works-dispatch の頼みの番号〕を受けて、読み取り専用のサブエージェント 5 本にコードを読ませた物）で、6 つのプラグインとルートの scripts・tests から、同じ形の作りを 114 件見つけた。
 works-dispatch が頼みと納品の題・担当者を日本語の語の正規表現で拾い、想定の外の書き方を黙って崩していた件（受付 20261018-204211-b0df65 が直している）と同じ種類の物が、ほかのプラグインにも広く在る。
 どれも、書き方を少し変える・英語で書く・外のツールの版が上がる・ファイルが途中で切れる、のどれかで、知らせずに結果が変わる。
 
-例（どれも見渡しの時点の main の物）:
+例（どれも洗い出しの時点の main の物）:
 
 - attention の `/what-am-i-doing` は、会話の記録の置き場の名前を、作業場のパスの `/` だけを `-` に替えて作る。Claude Code は英数字以外を全部 `-` に替えるので、`.herdr` を含む作業場では記録が見つからない（今壊れている。手元の `~/.claude-p3/projects/` の名前で確かめた）。
 - graphloops の review-loop は、convergence-loops の review-record.py が人向けに出す日本語の行（「前提不成立が確定（escalate）」）を探して、ループの行き先を決める。文言を直すと、黙ってほかの行き先に進む。
@@ -46,7 +48,7 @@ works-dispatch が頼みと納品の題・担当者を日本語の語の正規�
    - CI と手元の試験の中（`tests/`）は pip の物を使ってよい（CI は PyYAML を入れている）。試験で YAML を読むときは `yaml.safe_load` を使い、行と字下げで読まない。
 6. **プラグインをまたいで同じ処理を写すときは、写しの仕組みに載せる。**
    - 2 つ以上のプラグイン（とルートの `scripts/`）で同じ処理が要るときは、`scripts/shared-copies.py` の印を付けた写しにし、割れたら赤になる検査に載せる。印の無い写しを新しく作らない。
-   - 見渡しでは、印の無い写しが割れて、片方だけ直った物が在った（gates の dest-gate の `owner_repo` と attention の `REPO_TAIL`、ルートの `scripts/spread-plugins.py` の `input_empty` と works-dispatch の入力フィールドの判定）。
+   - 洗い出しでは、印の無い写しが割れて、片方だけ直った物が在った（gates の dest-gate の `owner_repo` と attention の `REPO_TAIL`、ルートの `scripts/spread-plugins.py` の `input_empty` と works-dispatch の入力フィールドの判定）。
 
 ## 守らせ方
 
@@ -61,15 +63,15 @@ works-dispatch が頼みと納品の題・担当者を日本語の語の正規�
 - 決まり 3 の外の物（日本語の文を読むのが仕事の `scripts/terms.py` など）は、検査の側で外さず、基準の数に載せる。
 - 決まり 4 の数: 本体が `pass` か `continue` の 1 文だけの `except` を 1 件と数える。`except` の行の行末か、本体の文の行末に `#` のコメントがあれば数えない（中身は問わない。中身はレビューで見る）。空の値を返す・カーソルを進める・ゲートを通す側に倒す、は構文木で見分けにくいので数えず、レビューで見る。
 
-検査は点検に頼む（下の README の台帳の 3 回目）。決まり 1・2・5・6 と、上で数えない物（英語のキーでも受けるか、など）は、各担当が直すときにこの標準を読んで合わせ、レビューで見る。
+検査は点検に頼む（[README](README.md) の「ずれの台帳」の 3 回目の 3-3）。決まり 1・2・5・6 と、上で数えない物（英語のキーでも受けるか、など）は、各担当が直すときにこの標準を読んで合わせ、レビューで見る。
 
 ## 直さないと決めた物
 
-見渡しで見つけた物のうち、次は直しを頼まない。
+洗い出しで見つけた物のうち、次は直しを頼まない。
 
 - gates の初見読みのゲートの、シェルの構文を自分で読む所（heredoc・`$(...)` など）。自作を選んだ訳が docs/coldread-gate-next.md に在り、ほかの解（bashlex など）は実行時に入れられない（決まり 5）。
-- graphloops の JSON Schema の検査・テンプレート・プロセスの見張りの自作（engine/schema.py・engine/render.py・engine/role_run.py）。実行時に pip の物を入れられず（決まり 5）、知らない keyword は graphcheck が赤にする。
-- Claude Code の会話の記録（`projects/*/<id>.jsonl`）を読む所。記録の形は公開の約束が無いが、ほかに読む口が無い。ただし置き場は、フックの入力の `transcript_path` が取れる所ではそれを使い、取れない所は 1 か所の写しにまとめる（attention と graphloops の 2 か所を、見渡しと見直しへの頼みに入れた）。
+- graphloops の JSON Schema の検査・テンプレート・プロセスの見張りの自作（engine/schema.py・engine/render.py・engine/role_run.py）。実行時に pip の物を入れられないので自作は決まり 5 に合う。決まり 5 が求める「知らない形を受けたら止める」も、スキーマの知らない keyword を graphloops/scripts/graphcheck.py が赤にするので満たしている。
+- Claude Code の会話の記録（`projects/*/<id>.jsonl`）を読む所。記録の形は公開の約束が無いが、ほかに読む口が無い。ただし置き場は、フックの入力の `transcript_path` が取れる所ではそれを使い、取れない所は 1 か所の写しにまとめる（attention と graphloops の 2 か所を、attention の担当〔見渡し〕と graphloops の担当〔見直し〕への頼みに入れた）。
 - ルートの `tests/run.sh` の自作の試験の枠組み。pytest への移し替えが進んでいる（tests/py/MIGRATION.md）ので、別に頼まない。
 - 標準出力を UTF-8 にする 2 行（`reconfigure(encoding="utf-8")`）が約 70 本に写っている物。壊れる余地が無く、まとめると各スクリプトが写しの仕組みに依るようになる。
 - works と works-factory の中の写し（review-record.py の写しが割れている物など）。2 つは誰の受け持ちでもない（[README](README.md) の「対象」）。
