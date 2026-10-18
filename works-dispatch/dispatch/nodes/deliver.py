@@ -751,7 +751,11 @@ def stop_verdict(payload, attrs, count, run):
     if count >= STOP_LIMIT:
         return None
     boss = attrs.get("boss") or "頼み元"
-    return (f"頼み（受付 {ask}）をまだ納品していない。止まる前に、要約をファイルに書いて {deliver_command(run)} で"
+    # 本文の場所も添える。頼みを渡した字が会話に届かなくても、この差し戻しで本文へたどれる（my_notes の受付 4bae53 は、起こし直した
+    # 会話が受付番号だけを見て、本文を読まずに「受けている頼みは無い」と納品した）
+    file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md")
+    body = f"本文は {file}（まだ読んでいなければ、先に読んで進める）。" if attrs.get("boss-inbox") and os.path.isfile(file) else ""
+    return (f"頼み（受付 {ask}）をまだ納品していない。{body}止まる前に、要約をファイルに書いて {deliver_command(run)} で"
             f"{boss} へ返す（足りない項目は命令が教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
             f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。裏の処理（run_in_background の Bash や Agent）の終わりを待つだけなら、"
             "番を終えてよい（動いている間はこの差し戻しは出ず、終われば知らせで会話が起きる）。")

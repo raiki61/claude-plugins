@@ -45,7 +45,7 @@ class Watch(unittest.TestCase):
         self.names = ["co/調べ", "co/前の名前"]
         self.clock = [1000.0]
 
-    def run_watch(self, steps, token="t1", parent=lambda: 7, owner=7, check=None):
+    def run_watch(self, steps, token="t1", parent=lambda: 7, owner=7, check=None, ready=None):
         """steps は待ちの番ごとに呼ぶ関数の並び。尽きたら止める（試験が終わらないのを防ぐ）。(終了の値, stderr)。"""
         err, todo = io.StringIO(), list(steps)
 
@@ -55,7 +55,7 @@ class Watch(unittest.TestCase):
                 raise AssertionError("待ち受けが終わらない")
             todo.pop(0)()
         rc = wake.watch(self.inbox, self.place, self.names, "s1", owner, token, err,
-                        now=lambda: self.clock[0], pause=pause, parent=parent, check=check)
+                        now=lambda: self.clock[0], pause=pause, parent=parent, check=check, ready=ready)
         return rc, err.getvalue()
 
     def test_wakes_only_on_its_own_notice_and_says_one_line(self):
@@ -88,6 +88,21 @@ class Watch(unittest.TestCase):
                                                                                           "頼みの足しです（受付 a0 への）", 1))],
                                  check=lambda: None)
         self.assertEqual((rc, err), (2, "頼みの足しです（受付 a0 への）\n"))
+
+    def test_waits_until_the_talk_can_take_text_without_losing_what_came_meanwhile(self):
+        # 起き切る前の会話に渡した字は落ちる（my_notes の受付 4bae53）。受けられるまで check も台帳も見ず、受けられたら同じ行で起こす
+        up, seen = [False], []
+
+        def check():
+            seen.append(1)
+            return ("wake", "頼みです（受付 q1）") if len(seen) > 1 else None
+        rc, err = self.run_watch([
+            lambda: write_line(self.log, wake.notice("co/調べ", "d1", "deliver", "/d1.md", "納品です（受付 d1）", 1)),
+            lambda: write_line(self.log, wake.notice("co/調べ", "q1", wake.QUEUED, "/q1.md", None, 2)),
+            lambda: self.assertEqual(seen, []),
+            lambda: up.__setitem__(0, True),
+        ], check=check, ready=lambda: up[0])
+        self.assertEqual((rc, err, len(seen)), (2, "納品です（受付 d1）\n頼みです（受付 q1）\n", 2))
 
     def test_check_can_end_the_watch_at_the_start(self):
         rc, err = self.run_watch([lambda: None], check=lambda: ("end", None))
@@ -676,6 +691,59 @@ class Hook(unittest.TestCase):
         check = wake_hook.checker(got, stop, h=Window(self.place), now=lambda: 5, me=lambda: ME,
                                   restart=lambda got_, key: False, key_of=lambda cwd, a: opus)
         self.assertEqual(check(), ("wake", "頼みです（受付 a1）"))   # 起こし直せなければ、前の会話に渡す
+
+    def test_a_just_started_background_talk_is_unready_until_its_transcript_exists(self):
+        path = os.path.join(self.place, "t.jsonl")
+        start = {"hook_event_name": "SessionStart", "source": "startup", "transcript_path": path}
+        self.assertTrue(wake_hook.unready(start, "j1"))
+        self.assertFalse(wake_hook.unready(start, None))   # 人が端末で起こした会話は、最初の文を打つまで知らせを止めない
+        for payload in ({**start, "source": "clear"}, {**start, "hook_event_name": "Stop"}, {**start, "transcript_path": None}):
+            self.assertFalse(wake_hook.unready(payload, "j1"))
+        pathlib.Path(path).write_text('{"type":"custom-title"}\n', encoding="utf-8")
+        self.assertTrue(wake_hook.unready(start, "j1"))   # 記録のファイルはできたが、最初の文の行がまだ無い
+        pathlib.Path(path).write_text('{"type":"custom-title"}\n{"type":"user","message":{}}\n', encoding="utf-8")
+        self.assertFalse(wake_hook.unready(start, "j1"))
+
+    def test_an_ask_whose_text_never_reached_the_talk_is_handed_once_again(self):
+        # my_notes の受付 4bae53: 渡した字は殺された会話の処理と消え、起こし直した会話は move-brief.md の「頼みは無い」だけを読んだ
+        boss_inbox = tempfile.mkdtemp()
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "q1", "delivered": "q0", "session": "s1",
+                                              "boss": "段取り", "boss-inbox": boss_inbox}, gitx)
+        brief = os.path.join(gitx.git_dir(self.place), "move-brief.md")
+        pathlib.Path(brief).write_text("起こし直した。受けている頼みは無い。次の頼みを待つ。\n", encoding="utf-8")
+        talk = os.path.join(self.place, "t.jsonl")
+        pathlib.Path(talk).write_text('{"content": "move-brief.md を読んで進めてください。"}\n', encoding="utf-8")
+        stop = {"hook_event_name": "Stop", "transcript_path": talk}
+        kind, text = self.checker(stop)()
+        self.assertEqual(kind, "wake")
+        self.assertIn("受付 q1、段取り から", text)
+        self.assertIn("本文は 段取り に問い合わせる", text)   # 本文のファイルが無ければ、無いパスを指さない
+        pathlib.Path(boss_inbox, "q1-ask.md").write_text("頼み", encoding="utf-8")
+        self.assertIn(os.path.join(boss_inbox, "q1-ask.md"), wake_hook.again_text(gitx.worktree_attrs(self.place), "/d.py"))
+        self.assertIn("--deliver", text)
+        (again,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "handed"]
+        self.assertEqual((again["id"], again["session"]), ("q1", "s1"))
+        self.assertTrue(again["again"])
+        self.assertIsNone(self.checker(stop)())   # 同じ会話へは 1 度まで
+        self.assertIsNone(self.checker({**stop, "transcript_path": None})())   # 記録の場所が無ければ届いたと見る
+
+    def test_an_ask_the_talk_saw_is_not_handed_again(self):
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "q1", "delivered": "q0", "session": "s1"}, gitx)
+        talk = os.path.join(self.place, "t.jsonl")
+        stop = {"hook_event_name": "Stop", "transcript_path": talk}
+        pathlib.Path(talk).write_text('{"content": "頼みです（受付 q1）"}\n', encoding="utf-8")
+        self.assertIsNone(self.checker(stop)())
+        # --move の最初の文で渡した頼み（move-brief.md に受付が在る）
+        pathlib.Path(talk).write_text('{"content": "move-brief.md を読んで進めてください。"}\n', encoding="utf-8")
+        pathlib.Path(gitx.git_dir(self.place), "move-brief.md").write_text("受け持ちの頼み（受付 q1）を続ける", encoding="utf-8")
+        self.assertIsNone(self.checker(stop)())
+        # 頼みを持つ会話がこの会話でなければ見ない
+        pathlib.Path(talk).write_text("{}\n", encoding="utf-8")
+        got = self.plan()
+        self.assertTrue(wake_hook.unseen(got, stop, gitx.worktree_attrs(self.place)))
+        provision.mark(self.place, self.src, {"session": "s9"}, gitx)
+        self.assertFalse(wake_hook.unseen(got, stop, gitx.worktree_attrs(self.place)))
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "handed"], [])
 
     def test_restart_first_waits_for_the_move_and_hands_the_ask_back_when_the_talk_was_not_stopped(self):
         opus = role.launch_key({"model": "opus"})

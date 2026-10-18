@@ -134,11 +134,11 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     attrs = dept["attrs"]
     old = attrs.get("account")
     acc = {x.name: x for x in cfg.accounts}
-    text = _first_text(attrs, dept, old, chosen, why, head)
     if head:
-        rc, said = _move_desk(company, dept, acc[chosen], text, ports, settings, acc.get(old))
+        rc, said = _move_desk(company, dept, acc[chosen], _first_text(attrs, dept, old, chosen, why, head), ports, settings, acc.get(old))
     else:
-        rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, text, ports, task, settings)
+        rc, said = _move_dept(a, cfg, company, dept, acc.get(old), chosen, lambda at: _first_text(at, dept, old, chosen, why, head),
+                              ports, task, settings)
     inbox = deliver.inbox_of(ports.git.common_dir(company["root"]))
     deliver.log(inbox, {"kind": "moved", "at": ports.now(), "name": attrs.get("name"), "path": dept["path"], "from": old,
                         "to": chosen, "why": why, "status": "done" if rc == 0 else "failed", "detail": said})
@@ -238,8 +238,8 @@ def _first_text(attrs, dept, old, chosen, why, head):
     return head_line
 
 
-def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settings):
-    """部署の裏の会話を止め、--task と同じ道で移る先のアカウントの会話を起こす。(終了の値, 言葉)。"""
+def _move_dept(a, cfg, company, dept, old_acc, chosen, text_of, ports, task, settings):
+    """部署の裏の会話を止め、--task と同じ道で移る先のアカウントの会話を起こす。(終了の値, 言葉)。text_of は属性から最初の文を作る。"""
     attrs = dept["attrs"]
     pane = next((p["pane_id"] for p in dept["panes"]), None)
     talk = deliver.window(dept)
@@ -267,6 +267,12 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
             if not any(s.get("name") == attrs.get("name") and s.get("state") not in ("done", "failed", "stopped") for s in items):
                 break
             ports.pause()
+    # 止めた後の属性で続ける。読んだ後、止めるまでの間に前の会話の待ち受けが順番待ちの頼みを渡していれば（属性の頼みと頼み元を
+    # 書き替えてから会話を起こす）、渡した字は止めた会話と一緒に消えるので、その頼みを最初の文で渡し、頼み元も今の物を残す
+    try:
+        attrs = ports.attrs(dept["path"]) or attrs
+    except (gitx.GitError, OSError):
+        pass
     # 新しい会話の待ち受けが、前の会話の id を見て待たないことの無いよう、会話の id を消してから起こす（--task が新しい id を書く）
     # 前の会話は止まったので、--if-changed の待ち受けの印も外す（新しい会話の待ち受けがすぐ渡す）。毎回空にする部署で頼みを納品し
     # 終えていれば、空にした印も書く（起こし直した会話は空なので、最初の文の番の終わりに /clear を打たない）
@@ -275,7 +281,7 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
     provision.mark(dept["path"], company["root"], {"session": None, "job": None, wake.RESTARTING: None, wake.RESTART_KEPT: None, wake.REST: None,
                                                    **({"cleared": ask} if done else {})}, ports.git)
     brief = os.path.join(ports.git.git_dir(dept["path"]), "move-brief.md")
-    pathlib.Path(brief).write_text(text + "\n", encoding="utf-8")
+    pathlib.Path(brief).write_text(text_of(attrs) + "\n", encoding="utf-8")
     pending = ask and attrs.get("delivered") != ask
     the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
     tail = deliver.tail(deliver.required_items(the_role), orders.RUN) if pending else None

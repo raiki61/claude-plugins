@@ -72,6 +72,27 @@ class Move(unittest.TestCase):
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["status"]), ("a1", "a2", "done"))
 
+    def test_an_ask_handed_to_the_old_talk_just_before_it_stopped_is_handed_again_in_the_first_text(self):
+        # 読んだ後、止めるまでの間に前の会話の待ち受けが順番待ちの頼みを渡した（属性を書き替えた）。渡した字は止めた会話と消えるので、
+        # 最初の文でその頼みを渡し、頼み元も今の物を残す（my_notes の受付 4bae53 と同じ重なりの、--move の側）
+        provision.mark(self.place, self.src, {"residency": "resident", "ask": "q0", "delivered": "q0", "boss": "desk",
+                                              "boss-inbox": self.inbox, "job": "d"}, gitx)
+        stop = self.ports.stop_session
+
+        def handed_then_stopped(cdir, job):
+            provision.mark(self.place, self.src, {"ask": "q1", "boss": "段取り"}, gitx)
+            return stop(cdir, job)
+        self.ports.stop_session = handed_then_stopped
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ")
+        self.assertEqual(rc, 0, out)
+        (got,) = seen
+        self.assertIn("受付 q1", got["brief"])
+        self.assertNotIn("受けている頼みは無い", got["brief"])
+        self.assertEqual(got["extra"]["boss"], "段取り")
+        self.assertIn("--deliver", got["tail"])
+
     def test_a_department_that_does_not_start_again_is_attached_back_only_when_no_new_talk_rose(self):
         provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "session": "s-dept", "account": "a1"}, gitx)
         seen, task = self.fake_task(rc=1)

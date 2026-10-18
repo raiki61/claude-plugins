@@ -262,6 +262,15 @@ class StopVerdict(unittest.TestCase):
         self.assertIsNone(deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id1"}, 0, "/d.py"))
         self.assertIn("受付 id1", deliver.stop_verdict({"session_id": "s1"}, {**self.ATTRS, "waiting": "id0"}, 0, "/d.py"))
 
+    def test_names_the_ask_file_so_a_talk_that_missed_the_ask_can_read_it(self):
+        # 渡した字が会話に届かなくても、差し戻しから本文へたどれる（my_notes の受付 4bae53）
+        inbox = tempfile.mkdtemp()
+        attrs = {**self.ATTRS, "boss-inbox": inbox}
+        self.assertNotIn("本文は", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))   # 本文の無い場所は書かない
+        file = os.path.join(inbox, "id1-ask.md")
+        pathlib.Path(file).write_text("頼み", encoding="utf-8")
+        self.assertIn(f"本文は {file}", deliver.stop_verdict({"session_id": "s1"}, attrs, 0, "/d.py"))
+
     def test_hook_blocks_with_json_then_gives_up_after_the_limit(self):
         tmp = tempfile.mkdtemp()
         payload = json.dumps({"session_id": "s1", "cwd": "/w"})

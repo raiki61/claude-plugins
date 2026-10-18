@@ -9,6 +9,9 @@
   区切りかどうかは会話が役の本文の決まりで判断し、ここでは決めない。納品していない頼みが在る間は空にしない。
   区切りで空にできずに次を渡すときは、空にできなかった訳を渡す字の頭と台帳の handed の行（unrested）に添える。入力欄の薄字
   （Claude Code の次の文の候補）は打ちかけの字と数えない（deliver.typed）。
+  起こしたばかりの裏の会話（claude --bg。SessionStart の startup）は、会話の記録のファイルができる（最初の文を受ける）まで、台帳を
+  読まずに待つ（最初の文の前に Claude Code が会話の処理を殺して起こし直すと、それまでに渡した字は処理と一緒に消える。unready）。
+  納品していない頼みを持つ会話の記録にその受付番号が無ければ（渡した字が届かなかった）、頼みを 1 度だけ渡し直す（unseen）。
   区切りの番の終わりに、会社の形の起動の設定（model・effort・[roles.settings]）が起こしたとき（属性 company.launched）と違えば、
   /clear の代わりに dispatch.py --move <部署か窓口> --if-changed で起こし直す（空にするのと失う物は同じ。持ち主の手で起こし直さない）。
   都度の部署が終わりと印した（--done。属性 company.finished）番の終わりには、印を外して dispatch.py --retire <部署> を会話から
@@ -39,6 +42,7 @@ company.session の会話だけ（部署で属性に id が無ければ誰でも
 import json
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import sys
@@ -152,6 +156,7 @@ def clear_now(got, payload, attrs, h=herdr, pause=lambda: time.sleep(1), marks=N
 
 
 DISPATCH_PY = str(pathlib.Path(__file__).resolve().parent / "dispatch.py")
+RUN = " ".join(shlex.quote(pathlib.Path(x).as_posix()) for x in (sys.executable, DISPATCH_PY))   # orders.RUN と同じ字
 RETIRES = "retires"   # 受付箱の下の、--retire を走らせた出力の置き場
 MOVES = "moves"   # 受付箱の下の、--move を走らせた出力の置き場（limit_hook.py と同じ）
 NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起こした）は、旗なしで起こしたと見る
@@ -178,6 +183,63 @@ def retire_later(got, attrs, spawn=subprocess.Popen, now=time.time):
 EMPTY_STARTS = ("startup", "clear")
 
 
+def unready(payload, job, read=None):
+    """裏の会話（job が在る。claude --bg）がまだ最初の文を受けていないか: 起こしたばかり（SessionStart の startup）で、会話の記録の
+    ファイル（transcript_path）がまだ無いか、人の文の行（"type":"user"）がまだ無い。記録のファイルは最初の文を受けたときにでき、
+    頭に会話の名前などの行を書いてから文の行を書く（文の行の前に待ち明けると、unseen が受付番号を見つけられずに渡し直す）。
+    裏の会話の処理は、最初の文を受ける前に Claude Code（daemon）が殺して同じ id で起こし直すことがあり、それまでに渡した字は処理と
+    一緒に消える。--move で起こし直した部署の待ち受けが起こして 3 秒後に順番待ちの頼みを渡し、9 秒後に daemon がその処理を殺して
+    起こし直し（Claude Code の daemon.log の「bg settled 8e817daa (killed)」「claimed-spare 8e817daa (respawn)」）、起こし直した会話は
+    渡されたのを知らないまま「受けている頼みは無い」と納品した（2026-10-18、my_notes の受付 4bae53。Claude Code 2.1.302）。
+    殺されなければ、最初の文の前に渡した字も届く（2026-10-18 の試し。最初の文の 7 秒前に渡した字が、最初の番の後に届いた）。
+    人が端末で起こした会話は daemon が起こし直さず、最初の文を打つまで知らせを止めないよう待たない。記録の場所を知らせない
+    Claude Code でも待たない。"""
+    if not job or payload.get("hook_event_name") != "SessionStart" or payload.get("source") != "startup":
+        return False
+    path = payload.get("transcript_path")
+    if not path:
+        return False
+    try:
+        seen = read(path) if read else pathlib.Path(path).read_bytes()
+    except OSError:
+        return True
+    return b'"type":"user"' not in seen
+
+
+def unseen(got, payload, attrs, git_dir=gitx.git_dir):
+    """この会話が持つ納品していない頼み（company.ask）の字が、会話に届いていないか: 会話の記録（transcript_path）に受付番号が無く、
+    --move の最初の文（move-brief.md を読ませる）で渡した物でもない。渡した字は会話の処理が殺されると消え（unready の 4bae53）、
+    台帳の handed の行だけが残る。最初の文の後に処理が殺されたときも、起こし直した会話の待ち受けがここで見つける。
+    確かめられないとき（記録の場所が無い・読めない・頼みの会話がこの会話でない）は届いたと見る（同じ頼みを重ねて渡さない）。"""
+    ask, path = attrs.get("ask"), payload.get("transcript_path")
+    if not ask or not path or attrs.get("session") != got["session"]:
+        return False
+    try:
+        with open(path, "rb") as f:
+            seen = f.read()
+    except OSError:
+        return False
+    if ask.encode() in seen:
+        return False
+    if b"move-brief.md" in seen:
+        try:
+            brief = pathlib.Path(git_dir(got["cwd"]) or "", "move-brief.md").read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            return False
+        return ask not in brief
+    return True
+
+
+def again_text(attrs, run):
+    """届かなかった頼みを渡し直す字。頼みの本文は頼み元の受付箱の <受付>-ask.md に在る。"""
+    ask, boss = attrs["ask"], attrs.get("boss") or "頼み元"
+    file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md")
+    where = f"{file} を読んで進めてください" if attrs.get("boss-inbox") and os.path.isfile(file) else f"本文は {boss} に問い合わせる"
+    return (f"（前に渡した頼みの字がこの会話に届いていなかった〔会話の記録に受付番号が無い〕ので、渡し直す）頼みです（受付 {ask}、"
+            f"{boss} から）: {where}。終わったら、要約をファイルに書いて {deliver.deliver_command(run)} で"
+            f"{boss} へ返す（足りない項目は命令が教える）。")
+
+
 def open_children(got, attrs, records=None, read=None):
     """この部署が出して、まだ閉じていない頼みの受付の並び。数えるのは、頼みの行の from が部署（今の名前か前の名前で、場所が部署の
     作業場の中）で、今の頼み（company.ask）を受けた後に出した物（前の会話が残した古い行で順番待ちを止めない）。閉じたとみるのは、
@@ -187,7 +249,9 @@ def open_children(got, attrs, records=None, read=None):
     names = {attrs.get("name"), *gitx.former_names(attrs)} - {None}
     rows = deliver.records(got["inbox"]) if records is None else records
     seen = rows if read is None else read
-    since = max((r.get("at") or 0 for r in rows if r.get("kind") == "handed" and r.get("id") == attrs.get("ask")), default=0)
+    # 渡し直し（again）は受けた時を動かさない（unseen）
+    since = max((r.get("at") or 0 for r in rows if r.get("kind") == "handed" and r.get("id") == attrs.get("ask") and not r.get("again")),
+                default=0)
     mine = {r["id"] for r in rows if r.get("kind") == "ask" and r.get("id") and (r.get("at") or 0) >= since
             and (r.get("from") or {}).get("name") in names
             and _inside(os.path.realpath((r.get("from") or {}).get("place") or ""), root)}
@@ -490,6 +554,12 @@ def checker(got, payload, h=herdr, attrs_of=gitx.worktree_attrs, now=time.time, 
         attrs = attrs_of(got["cwd"])
         ask = attrs.get("ask")
         if ask and attrs.get("delivered") != ask:
+            if unseen(got, payload, attrs) and not any(r.get("kind") == "handed" and r.get("again") and r.get("id") == ask
+                                                        and r.get("session") == got["session"] for r in deliver.records(got["inbox"])):
+                # 同じ会話へ渡し直すのは 1 度まで（記録を読み違えても、番ごとに同じ頼みを重ねない）
+                deliver.log(got["inbox"], {"id": ask, "kind": "handed", "at": now(), "place": got["cwd"], "session": got["session"],
+                                           "again": "会話の記録に受付番号が無い（渡した字が届かなかった）"})
+                return "wake", again_text(attrs, RUN)
             if not payload.get("background_tasks"):
                 # 納品の前に子の返事を待って番を終えた部署（常設の担当なども）も、輪の途中に入りうる
                 loose(attrs, None)
@@ -663,7 +733,7 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), stop)
     return wake.watch(got["inbox"], got["place"], got["names"], got["session"], got["owner"], token, WithRole(err, payload, woke=lambda: woken(got)),
-                      check=checker(got, payload))
+                      check=checker(got, payload), ready=lambda: not unready(payload, got["job"]))
 
 
 if __name__ == "__main__":

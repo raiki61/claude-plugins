@@ -425,11 +425,14 @@ def _read_pos(inbox, place):
         return None
 
 
-def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=time.sleep, parent=os.getppid, check=None):
+def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=time.sleep, parent=os.getppid, check=None,
+          ready=None):
     """待ち受けの本体。終了の値（2 は会話に渡す字を err に出した。0 は替わった・会話が居なくなった・check が終わらせた）。
     owner は待ち受けを起こした会話の処理（Claude Code）の番号で、parent() がそれと違えば（会話の処理が落ちて親が替わった）終わる。
     check は、読み始める時と、自分宛ての順番待ちの知らせ（queued）を見るたびに呼ぶ関数で、("wake", 字)（その字で会話を起こす）・
-    ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。"""
+    ("end", None)（0 で終わる。会話を空にしたなど）・HOLD（渡せる時を待つ。BEAT ごとに呼び直す）・None（待ち続ける）を返す。
+    ready は会話が字を受けられるかを返す関数（None なら常に受けられる）。受けられない間は、印を張ったまま台帳を読まず check も
+    呼ばない（読んだ所を進めないので、受けられるようになってから同じ行で起こす）。"""
     claim(inbox, place, names, session, owner, token, now())
     pause(GRACE)
     log = os.path.join(inbox, LOG)
@@ -437,13 +440,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
     if pos is None:
         pos = _size(log)
         _replace(pos_path(inbox, place), str(pos))
-    got = read_mark(inbox, place)
-    holding = False
-    if check and got and got.get("token") == token:
-        verdict = check()
-        holding = verdict == HOLD
-        if verdict and not holding:
-            return _finish(verdict, err)
+    holding, first = False, check is not None   # first: 読み始めの check をまだ呼んでいない
     beat = now()
     while True:
         got = read_mark(inbox, place)
@@ -452,6 +449,21 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
         if parent() != owner:
             release(inbox, place, token)
             return 0
+        if ready is not None and not ready():
+            if now() - beat >= BEAT:
+                try:
+                    os.utime(mark_path(inbox, place))
+                except OSError:
+                    pass
+                beat = now()
+            pause(POLL)
+            continue
+        if first:
+            first = False
+            verdict = check()
+            holding = verdict == HOLD
+            if verdict and not holding:
+                return _finish(verdict, err)
         size = _size(log)
         if size < pos:
             pos = size   # 台帳を作り直した
