@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Fixed
 
-- 0.59.1 の記録で、`/clear` などを打つ前に見分けを使う 4 か所の言い方を開き、`company.restart-kept` が残っているかを確かめる命令（`git config --worktree --get company.restart-kept`）を足した（初見読みの指摘）。
+- 0.59.1 の項の文を書き直した（動きは変わらない）。薄字の見分けを使う 4 か所を、それぞれ何を打つ所かが分かる言い方にした。`company.restart-kept` が残っているかを確かめる命令（`git config --worktree --get company.restart-kept`）を書き足した。
 
 ## [0.59.2] - 2026-10-18
 
