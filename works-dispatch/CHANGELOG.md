@@ -8,7 +8,7 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ### Added
 
-- `dispatch/terms.py`: IT の定着語でない言い方（節・番・枝・本流・関門・命令・持ち手など）を見つけ、活用ごとに定着語へ直す（`--fix`）。会社の形の役の `deliver_check` に `terms.py --deliver` と書けば、要約にその言い方があると納品を止める。「」・`` ` `` の中、引用の行、コードブロックは見ない。
+- `dispatch/terms.py`: IT の定着語でない言い方（節・番・枝・本流・関門・命令・持ち手など）を見つけ、活用ごとに定着語へ直す（`--fix`）。会社の形（そのリポジトリの `.claude/company.toml`）の `[[roles]]` の役に `deliver_check = "python3 works-dispatch/dispatch/terms.py --deliver"` と書くと、その役の部署の `--deliver` が、要約にその言い方があるとき納品を止める。「」・`` ` `` の中、引用の行、コードブロックは見ない。
 
 ### Changed
 
