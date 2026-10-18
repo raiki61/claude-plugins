@@ -210,6 +210,10 @@ my_notes の社長室は持ち主への中継なので、持ち手にしない�
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings", "AskUserQuestion", "EnterWorktree"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
+# 会話がこの長さ（トークン）に達したら自動で縮める（compact）。1M の窓のモデルは既定では約 967K まで縮めず、長い会話の読み直しが費用の大きな分を占めた
+# （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
+# 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
+autoCompactWindow = 200000
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は本流へ早送りするので
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] の関門を通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
 autoMode = { allow = ["$defaults", """\
@@ -255,6 +259,10 @@ my_notes の社長室は持ち主への中継なので、持ち手にしない�
 permissions = { deny = ["Artifact", "Workflow", "ScheduleWakeup", "SendFeedback", "ReportFindings", "AskUserQuestion", "EnterWorktree"] }
 enabledPlugins = { "superpowers@superpowers-marketplace" = false, "attention@raiki61" = false, "graphloops@raiki61" = false, "works@raiki61" = false, "works-factory@raiki61" = false, "document-skills@anthropic-agent-skills" = false }
 skillOverrides = { dataviz = "off" }
+# 会話がこの長さ（トークン）に達したら自動で縮める（compact）。1M の窓のモデルは既定では約 967K まで縮めず、長い会話の読み直しが費用の大きな分を占めた
+# （最長は作業「割り振り：止まった担当を戻す」の 96.4 万トークン・$80。https://code.claude.com/docs/en/model-config "Models running with a native 1M window compact before the window fills, at about 967K tokens by default."）。
+# 20 万は良い値を測った原典が無く、Anthropic の記事が以前の安全網の位置に挙げる値に合わせた（https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions "would rather have the auto-compact safety net where it used to be, /autocompact 200k puts it back"）。my_notes の会社の形の担当と作業と同じ値（社長室の受付 d543d2 の案 2 で承認。頼み 009c72）
+autoCompactWindow = 200000
 # autoMode.allow は、自動の権限の判定（auto mode）の組み込みの拒否への例外（"$defaults" で組み込みの決まりを残す）。--land は本流へ早送りするので
 # 「Merge Without Review」として止められることがある。人のレビューの代わりに [land] の関門を通す決まりだと書いて止めない（https://code.claude.com/docs/en/auto-mode-config）
 autoMode = { allow = ["$defaults", """\
