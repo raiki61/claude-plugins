@@ -298,6 +298,22 @@ inputSchema = { type = "object", properties = { dry_run = { type = "boolean", de
 command = "python3 scripts/spread-plugins.py"
 fallback_role = "作業"
 
+# CI の見張り: 機械だけの役（machine = true）。ツール「main の CI を見る」（tests/ci-watch.py）だけを持つ。
+# main に入れるたびに下の [[land.after]] の合図で呼ばれ、知らせる物が在れば（ツールが 1 で終わったら）、出力を添えた頼みが点検に回る
+# （CI の赤を直すのは点検。標準 docs/standards/breakage-detection.md の決まり 6）。ツールは頼みの題の「/ci-watch 」で自分が回した頼みを見分けるので、name を変えない。
+# 手で呼ぶなら dispatch.py --call "CI の見張り" ci-watch（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
+[[roles]]
+name = "CI の見張り"
+machine = true
+
+[[roles.tools]]
+name = "ci-watch"
+title = "main の CI を見る"
+description = "GitHub に登録された全部の workflow の main の run を読み、赤（最新の決着した run が失敗。最後の緑から最新の赤までの commit の範囲を添える）・止まった定期（最後の schedule の run が、過去の間隔の一番長い物と 1 日を足した長さより古い）・1 度も回っていない workflow・止められた workflow（状態が active でない）を知らせる。知らせた件は覚え、回した頼みが閉じていないうちは同じ件を知らせ直さない"
+inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、知らせる物を出すだけで覚えない" } }, additionalProperties = false }
+command = "python3 tests/ci-watch.py"
+fallback_role = "点検"
+
 # 部署の成果を main に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
 # ゲートは部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
 # 件数のチェック（tests/run.sh の EXPECTED_CHECKS と pytest の EXPECTED_ITEMS）も、試験を走らせずに数えて確かめる（tests/count-fences.sh。10 秒ほど）
@@ -318,12 +334,18 @@ bump = "marketplace"
 role = "配布"
 tool = "spread-plugins"
 
+# main に入れた後の合図: main の CI を見る（配布の後）。持ち主は定期の起動を置かないので main へ入れる動きに乗せる。
+# main へ誰も入れない間は見張りも止まる（標準 docs/standards/breakage-detection.md の決まり 2 の最後の項）
+[[land.after]]
+role = "CI の見張り"
+tool = "ci-watch"
+
 # 組織の決まり（この会社の作り方。スキルの決まりではない）
 # - 名前は日本語の短い言葉にする（英語や会社らしい呼び名にしない。持ち主 2026-10-16「会社っぽくなくていい」「日本語で」）。
 #   herdr のサイドバーには、作業場の木（親＝リポジトリ、子＝worktree）と、会話の行（作業場の名前・役・ブランチ）が出る。
 #   会社の名前は親の作業場にだけ出るので、部署の名前（--task・--ask に渡す名前。作業場・会話の名前になる）に会社を付けない。
 # - 役は 5 つ: 窓口（頼みを配り、片付けの判断〔--clean・--retire〕と止められた --land の打ち直しを受ける本社の会話。役の項目は要らない。
-#   claude-plugins では my_notes の段取りが兼ねる〔業務改革の案 1-3、社長室の答え bce452〕。頭の desk に書く）・担当（受け持ちに 1 つ。永続か、オンデマンド）・作業（一度きり）・配布（機械だけ）・相談（この会社の形には置かない）。
+#   claude-plugins では my_notes の段取りが兼ねる〔業務改革の案 1-3、社長室の答え bce452〕。頭の desk に書く）・担当（受け持ちに 1 つ。永続か、オンデマンド）・作業（一度きり）・機械だけの役（配布・CI の見張り）・相談（この会社の形には置かない）。
 # - 担当: 受け持ちごとに 1 つ。部署の名前を受け持ちの名前にし、自分の受け持ちはその名前で決まる。
 #   受け持ちの表（どの受け持ちが何のファイルを持つか）は [[skills]] の 1 か所に置く（name が部署の名前、description が中身。works-dispatch の
 #   役を足すフックが、部署の名前と同じ name の description を会話の始まりに足す）。役の本文と、このコメントに写さない。
