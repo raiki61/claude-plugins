@@ -62,13 +62,13 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 [スキルの書き方の標準](skill-authoring.md)を作り、marketplace に載る全プラグインのスキルとコマンド 17 本の本文を測った。決まり 1（本文 5,000 字以下・500 行未満）を超えるのは 11 本。description（決まり 7）は 17 本とも 1,024 字以下（いちばん長い attention の catchup で 415 字）。
 
-- 2-1 スキルの書き方の標準の決まり 1・4・5 を機械で見る検査が無い。状態: 頼む（点検）
-- 2-2 attention の catchup 18,615 字・whose-turn 7,532 字・what-am-i-doing 6,230 字。状態: 頼む（見渡し）
-- 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼む（見直し）
-- 2-4 works-dispatch の dispatch 57,001 字。状態: 頼む（割り振り）
-- 2-5 works の works 22,704 字。状態: 頼む（作業。works は受け持ちが無いので、持ち主の頼みに従って作業に回す）
-- 2-6 根の CLAUDE.md から標準を指していない。状態: 頼む（説明書）
+- 2-1 スキルの書き方の標準の決まり 1・4・5 を機械で見る検査が無い。状態: 頼んだ（点検 20261018-011005-129e80）
+- 2-2 attention の catchup 18,615 字・whose-turn 7,532 字・what-am-i-doing 6,230 字。状態: 頼んだ（見渡し 20261018-011022-65db74）
+- 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼んだ（見直し 20261018-011038-156f7f）
+- 2-4 works-dispatch の dispatch 57,001 字。状態: 頼んだ（割り振り 20261018-011052-5f6b13。並んで動く dispatch の層の分け方の点検 20261018-002923-983a64 にも足しで知らせた）
+- 2-5 works の works 22,704 字。状態: 頼んだ（作業 20261018-011113-3952f3。works は受け持ちが無いので、持ち主の頼みに従って作業に回した）
+- 2-6 根の CLAUDE.md から標準を指していない。状態: 頼んだ（説明書 20261018-011057-6dc6b0）
 
 標準の内の物: attention の my-turn・reflect、gates の coldread（4,962 字）、graphloops の intake、tiers の check、works-factory の works-factory（4,189 字）。
 
-2-1〜2-6 は、この標準が本流に入った後に頼み、受付番号をここに書き足す。
+2-1〜2-6 は、標準が本流に入った後（b1a21382）に頼んだ。納品が届いたら、次の回にここを「入った（commit）」に書き直す。
