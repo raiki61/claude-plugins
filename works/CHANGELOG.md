@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- `.shared/core/claude_auth.py`（ルートの scripts/claude_auth.py の写し）の説明とコメントを IT の定着語に置き換えた（起こす→起動する・柵→チェック・根→ルート）。動きは変えていない。
+
 ## [0.3.0] - 2026-10-18
 
 ### Changed

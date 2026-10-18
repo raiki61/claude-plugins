@@ -6,6 +6,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Changed
+
+- `hooks/claude_auth.py`（ルートの scripts/claude_auth.py の写し）の説明とコメントを IT の定着語に置き換えた（起こす→起動する・柵→チェック・根→ルート）。動きは変えていない。
+
 ## [0.27.0] - 2026-10-18
 
 ### Changed
