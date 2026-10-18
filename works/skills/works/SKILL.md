@@ -7,7 +7,7 @@ description: 人の修正依頼を、直しを出荷する工場 darkfactory（w
 
 works は直しを出荷する工場 darkfactory に、人の修正依頼を今いるリポジトリを対象にして回す。
 
-流れ: 入れる（1 回だけ）→ 依頼の JSON を書く → 起動する → 関所で答える → 報告を読む → 差分を取り込む。
+流れ: works を Claude Code に入れる（1 回だけ）→ 依頼の JSON（置き場は自由。欄は下の request.md）を書く → 起動する → 関所で答える → 報告を読む → 差分を取り込む。
 回すと費用が掛かる（AI を起こすのは `start` と、関所で進めた後だけ）。
 
 ## 先に守ること
@@ -22,7 +22,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 ## 命令
 
-下の `${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形。設定の置き場を変えていればその下）へ置き換える字で、Bash の環境変数には無い。字のまま見えた時や手で打つ時は、その置き場のパスで打つ。別ファイルの命令の頭の `<works の置き場>` も、この置き場（下の `use.sh` の行の `/dev/` の手前）で読み替えて打つ。
+下の `${CLAUDE_PLUGIN_ROOT}` は、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形）へ置き換える字で、Bash の環境変数には無い。字のまま見えた時や手で打つ時は、その置き場のパスで打つ。別ファイルの命令の頭の `<works の置き場>` も、この置き場（下の `use.sh` の行の `/dev/` の手前）で読み替えて打つ。
 
 ```
 claude plugin marketplace add anthropics/claude-plugins-official   # 登録済みなら要らない
@@ -61,7 +61,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>          # 取り消した run
 - 役: run の中で工程を受け持つ AI（判定の役・修正役・独立の目 R1〜R4 など）。
 - 関所: run が止まって答えを待つ所。起動 `launch`・修正の前 `policy-gate`・最後 `final-gate` の 3 つ。
 - 盤面: run の記録の置き場（関所の全文・`report.md`・`next-request.json`）。`show` が置き場を出す。
-- 利用の家（`<家>`）: 殻が pack・Archon の状態・差分・ログを置くフォルダ。`WORKS_USE_HOME`（既定 `~/.local/state/works/use-<対象の clone のパスの sha256 の頭 8 字>`）。`stop.sh`・`report.sh` は同じフォルダを `WORKS_DEV_HOME` で受ける。
+- 利用の家（`<家>`）: 殻が pack・Archon の状態・差分・ログを置くフォルダ。`WORKS_USE_HOME`（既定は `~/.local/state/works/` の下）。`stop.sh`・`report.sh` は同じフォルダを `WORKS_DEV_HOME` で受ける。
 - 差分: run の直し。利用の家の `diffs/run-<id>.diff` に書かれ、`apply` で対象に当てる。直しは commit されない。
 - 止め札: 走っている run の盤面に置く「止めて」の印。次の境の節（止め札を見る節）で止まる。
 - 報告の冒頭 1・2・3: `report.md` の頭の節「1. 人が決めること」「2. 入口・段・決めた人」「3. 止めたか」。
