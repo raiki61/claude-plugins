@@ -231,7 +231,8 @@ class TestCoreCopy(unittest.TestCase):
         self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")
-        self.assertEqual(p["version"], "0.2.69")
+        # 版の値は決め打ちしない（--land が版を上げるたびに赤になる）。今の版が変更の記録に見出しを持つかは tests/run.sh が縛る
+        self.assertRegex(p["version"], r"^\d+\.\d+\.\d+$")
         self.assertTrue(p.get("description"))
 
 

@@ -43,7 +43,8 @@ LAGS = ("dirty", "local_only", FAILED)   # 代表の clone のメインブラン
 
 def run_check(command, cwd):
     """手元の検証のコマンドを cwd で回す。(終わりの値, 出力)。"""
-    p = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=deliver.child_env())
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 

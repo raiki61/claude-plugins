@@ -27,7 +27,7 @@ CALLED = 3   # 片づかず AI に回した --call の終了の値
 def run_tool(command, cwd, value):
     """ツールを cwd で走らせる（シェルの字）。入力の JSON を標準入力に渡す。(終了の値, 標準出力, 標準出力と標準エラー)。"""
     p = subprocess.run(command, shell=True, cwd=cwd, input=json.dumps(value, ensure_ascii=False), capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
+                       text=True, encoding="utf-8", errors="replace", env=deliver.child_env())
     return p.returncode, p.stdout or "", (p.stdout or "") + (p.stderr or "")
 
 

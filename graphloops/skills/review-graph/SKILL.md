@@ -11,7 +11,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 - 置き場（グラフ・engine・rules がそれぞれ何を持つか）は [references/rules.md](references/rules.md) の頭
 
-この手順書は、あなたが engine をどう呼ぶかだけを書く。このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（ここはスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルのコマンドに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、このファイル（`skills/review-graph/SKILL.md`）のフォルダの 2 つ上、graphloops のルート）に読み替えて打て。
+このプラグインの置き場は `${CLAUDE_PLUGIN_ROOT}` である（ここはスキルを読み込んだ時に実際のパスへ置き換わる）。下の `references/` はこのファイルと同じフォルダにある。別ファイルのコマンドに書いた `CLAUDE_PLUGIN_ROOT`（`$` と波括弧で囲んだ形）は置き換わらず Bash の環境変数にも無いので、ここに出たパス（置き換わらずに見えているなら、このファイルのフォルダの 2 つ上、graphloops のルート）に読み替えて打て。
 
 旗の無い `init` は**回し役（ノードを自分でこなす会話）の要らない回し方**になる（下の「[早見](#早見)」）: writer のノード（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill のノードも engine が `claude -p` の子として起動し、背景の線（周と並べて走らせる変異の検算）も回し手（`run` が背景に立てる engine のプロセス）が立てる。あなたは起動・`run` の打ち直し・人のゲートへの答えと、人に渡ったノード（`run` の終了コード 14）の手当てだけをする（終了コード 13 は engine の不具合）。`init --no-engine-runners` の run は今までどおり**会話で回す**（持ち主の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（ノードのこなし方は [references/conversation-run.md](references/conversation-run.md)）。どちらの run でも、**ラベル確定（指摘を阻害とするかの判定）・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
@@ -21,7 +21,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 回し役なしの run（旗の無い `init`）の会話のターンはこれで足りる——ターンの手引きはここ 1 か所で、値の表の正本は engine の `runner.CODES`・`HOW`。細部は下の「場面ごとに読むファイル」の別ファイルに在る。
 
-1. `init` する（`loop.py` は `${CLAUDE_PLUGIN_ROOT}/scripts/loop.py`。要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional のノード（engine が走らせる CI のノードなど）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手はノードが出た瞬間に起動するので、出た後の `skip` では間に合わない。CI のノードを省いた run の止まり方は [references/rules.md](references/rules.md)——省けば回り切るわけではない。
+1. `init` する（`loop.py` は `${CLAUDE_PLUGIN_ROOT}/scripts/loop.py`。要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[references/judgment-entry.md](references/judgment-entry.md)）。run の間ずっと省く optional のノード（engine が走らせる CI のノードなど）は、最初の `run` の前に `loop.py skip --node <id> --reason <理由> --every-round --dir <DIR>` を打つ——回し手はノードが出た瞬間に起動するので、出た後の `skip` では間に合わない。CI のノードを省いた run の止まり方は [references/rules.md](references/rules.md)——省けば回り切るわけではない。
 2. `loop.py run --dir <DIR>` を前景で打ち（540 秒で必ず戻る。完了の知らせに頼らない。端末・CI・台本なら `run --foreground` が止まるまで戻らない）、終了コードで次の手を決める:
    - **20**: 何もせずにもう一度 `run`
    - **13**: engine の不具合（盤面の矛盾——engine が子を起動するコマンド（`claude -p` の引数）も、起動できない理由も持たないノード）。記録器に残る。`handoff` の各行を、その行の `handoff_why` のとおりにこなし（返答は別のファイルに書いて `done --node <id> --output <file>`）、もう一度 `run`。前の版の engine で始めた盤面と `--no-engine-runners` の run では、今までどおり会話がこなすノードで 13 が返る（前の版の決まった戻りで、不具合ではない。[references/runnerless.md](references/runnerless.md)）
