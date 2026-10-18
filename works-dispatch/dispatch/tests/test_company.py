@@ -48,7 +48,7 @@ class OpenAsks(unittest.TestCase):
         self.assertEqual([r["id"] for r in deliver.open_asks(records)], ["a5", "a6"])
         f = pathlib.Path(tempfile.mkdtemp(), "q-ask.md")
         f.write_text("段取りが回した: 割り振りが止まっている\n\n---\n\n前提が違う、と思ったら返して。\n\n## 困りごと\n本文\n", encoding="utf-8")
-        self.assertEqual(deliver.ask_title(str(f)), "困りごと")
+        self.assertEqual(deliver.ask_title(str(f)), "本文")
         self.assertIsNone(deliver.ask_title("/無い"))
 
     def test_the_desk_of_another_company_written_in_the_shape_is_the_desk(self):

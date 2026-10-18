@@ -186,13 +186,33 @@ class Holders(unittest.TestCase):
         self.assertEqual(deliver.open_holders("なし"), [])
         self.assertEqual(deliver.open_holders(None), [])
 
+    def test_task_title_is_not_the_name_of_a_heading(self):
+        """段取りの頼みは「## 困りごと」の見出しから始まる。見出し・誰からの何かだけを言う文・項目名を題にせず、中身の最初の文を題にする。"""
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d, "a.md")
+            for text in ("## 困りごと\n--todo の題が見出しの名前になる。持ち主が聞いた。\n\n## 目的\n分かる\n",
+                         "## 困っていること（今壊れている）\n- --todo の題が見出しの名前になる。\n",
+                         "社長室からの頼みです（穴の直し。急ぎ）。\n\n## 困りごと\n--todo の題が見出しの名前になる\n",
+                         "段取りからの頼みです。困っていること: --todo の題が見出しの名前になる。続き\n",
+                         "知らせです（返事は要りません）。--todo の題が見出しの名前になる。\n"):
+                p.write_text(text, encoding="utf-8")
+                self.assertEqual(deliver.task_title(str(p)), "--todo の題が見出しの名前になる", text)
+            p.write_text("## 困りごと\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "困りごと")
+            p.write_text("## 困りごと\n" + "あ" * 70 + "。\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "あ" * 60 + "…")
+
     def test_task_title_takes_the_first_owner_words(self):
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d, "a.md")
             p.write_text("持ち主の頼みです（社長室から）。\n\n## 持ち主の言葉\n- 「台帳から木を作って」\n- 「次」\n", encoding="utf-8")
             self.assertEqual(deliver.task_title(str(p)), "台帳から木を作って")
             p.write_text("頼み: ブランチを直す\n\n本文\n", encoding="utf-8")
-            self.assertEqual(deliver.task_title(str(p)), "頼み: ブランチを直す")
+            self.assertEqual(deliver.task_title(str(p)), "ブランチを直す")
+            p.write_text("持ち主の頼みです（社長室から）。\n\n持ち主の言葉（そのまま）:「p3 に張り替えて。」\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "p3 に張り替えて。")
+            p.write_text("持ち主の頼みです（社長室から）。\n\n持ち主の言葉（そのまま）:\n「都度が何個かあるけど「動いて」ないね」（補足）\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "都度が何個かあるけど「動いて」ないね")
             self.assertIsNone(deliver.task_title(os.path.join(d, "nope.md")))
 
 
@@ -250,13 +270,13 @@ class Todo(unittest.TestCase):
         rc, out = self.run_todo()
         self.assertEqual(rc, 0, out)
         lines = [re.sub(r"  \d{8}-\d{6}-[0-9a-f]{6}  .*$", "", x) for x in out.splitlines()]
-        self.assertEqual(lines, ["- [済] 木を作る", "  - [済] 頼み: ブランチを直す", "    → 続き: " + C, "- [順番待ち] （題なし）"])
+        self.assertEqual(lines, ["- [済] 木を作る", "  - [済] ブランチを直す", "    → 続き: " + C, "- [順番待ち] （題なし）"])
         rc, out = self.run_todo(json=True)
         got = json.loads(out)
         self.assertEqual(schemacheck.check(got, schemacheck.schema("todo")), [])
         self.assertEqual([n["task"]["id"] for n in got["forest"]], [A, C])
         rc, out = self.run_todo(todo="bbbbbb")
-        self.assertTrue(out.startswith(f"- [済] 頼み: ブランチを直す  {B}"), out)
+        self.assertTrue(out.startswith(f"- [済] ブランチを直す  {B}"), out)
         self.assertEqual(self.run_todo(todo="zzzzzz")[0], 2)
 
     def test_writes_one_html_page(self):

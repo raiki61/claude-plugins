@@ -312,35 +312,77 @@ def open_asks(records, held=()):
 
 # 頼みの本文の頭によく置く決まり文句（題にしない）
 BOILERPLATE = ("前提が違う", "段取りからの添え書き", "---")
+# 誰からの何かだけを言う頭の文（「社長室からの頼みです（穴の直し）」「知らせです（返事は要りません）」「段取りから社長室へ」など。題にしない）
+COVER_RE = re.compile(r"^(?:\S{0,12}?(?:頼み|差し戻し|返し|問い|知らせ)です(?:[（(].*[)）])?|\S{1,8}から\S{1,8}へ)$")
+# 頼みの書き方の項目名を行の頭に置いた形（「困っていること: …」「頼み: …」。項目名は外して題にする）
+LABEL_RE = re.compile(r"^(?:困りごと|困っていること|頼み|目的|制約)(?:[（(][^）)]*[)）])?\s*[:：]\s*")
+# 題の頭の箇条の印（ITEM_RE と同じ印。ただし - * + は後ろに空白があるときだけ。「--todo の…」の - を印に取らない）
+TITLE_ITEM_RE = re.compile(r"^(?:[-*+]\s+|(?:[・•]|\d+[.)．）]|[(（]\d+[)）]|[①-⑳])\s*)")
+# 持ち主の言葉のセクション（「## 持ち主の言葉」）か、見出しにしない書き方の行（「持ち主の言葉（そのまま）:」。同じ行に言葉が続くこともある）
+OWNER_WORDS_HEAD = re.compile(r"^(?:#+\s*持ち主の言葉.*|持ち主の言葉(?:[（(][^）)]*[)）])?\s*[:：]\s*(.*))$")
+
+
+def sentences(line):
+    """行を文に分ける（括弧〔（）「」『』〕の外の「。」で切り、「。」は外す。空の文は捨てる）。"""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(line):
+        if ch in "（「『(":
+            depth += 1
+        elif ch in "）」』)" and depth:
+            depth -= 1
+        elif ch == "。" and not depth:
+            out.append(line[start:i])
+            start = i + 1
+    out.append(line[start:])
+    return [x.strip() for x in out if x.strip()]
+
+
+def _lines(path):
+    try:
+        return [x.strip() for x in pathlib.Path(path).read_text(encoding="utf-8").splitlines()]
+    except (OSError, UnicodeDecodeError, TypeError):
+        return None
 
 
 def ask_title(path, width=60):
-    """頼みの本文のファイルの題（回した側の添え書き〔「…が回した:」と区切りの ---〕の後の、最初の字の在る行の頭）。読めなければ None。"""
-    try:
-        lines = [x.strip() for x in pathlib.Path(path).read_text(encoding="utf-8").splitlines()]
-    except (OSError, UnicodeDecodeError, TypeError):
+    """頼みの本文のファイルの題。回した側の添え書き（「…が回した:」と区切りの ---）の後の、見出し（# の行）・決まり文句の行と、誰からの何か
+    だけを言う文を飛ばした、最初の文（文の頭の項目名「困っていること:」などは外す）。見出しは「困りごと」「頼み」のように中身を言わないので
+    題にしない（見出しの外に字の行が無ければ、最初の見出しの # を外す）。読めなければ None。"""
+    lines = _lines(path)
+    if lines is None:
         return None
     if "---" in lines and any("回した" in x for x in lines[:lines.index("---")]):
         lines = lines[lines.index("---") + 1:]
-    head = next((x.lstrip("# ") for x in lines if x and not x.startswith(BOILERPLATE)), None)
+    lines = [x for x in lines if x and not x.startswith(BOILERPLATE)]
+    said = (LABEL_RE.sub("", x, count=1) for line in lines if not line.startswith("#")
+            for x in sentences(TITLE_ITEM_RE.sub("", line, count=1)) if not COVER_RE.match(x))
+    head = next(said, None) or next((x.lstrip("# ") for x in lines), None)
     return head if head is None or len(head) <= width else head[:width] + "…"
 
 
-OWNER_WORDS_HEAD = re.compile(r"^#+\s*持ち主の言葉")
-
-
 def task_title(path, width=60):
-    """頼みの木（--todo）に出す題。本文に持ち主の言葉のセクション（## 持ち主の言葉）が在れば、その最初の言葉（「」を外す）。無ければ ask_title。
-    窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、題にならないため。読めなければ None。"""
-    try:
-        lines = [x.strip() for x in pathlib.Path(path).read_text(encoding="utf-8").splitlines()]
-    except (OSError, UnicodeDecodeError, TypeError):
+    """頼みの木（--todo）と --html に出す題。本文に持ち主の言葉（「## 持ち主の言葉」のセクションか「持ち主の言葉（そのまま）:」の行）が在れば、
+    その最初の言葉（箇条の印を外し、頭が「なら閉じる」までの中だけ）。無ければ ask_title。窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、
+    題にならないため。読めなければ None。"""
+    lines = _lines(path)
+    if lines is None:
         return None
-    at = next((i for i, x in enumerate(lines) if OWNER_WORDS_HEAD.match(x)), None)
-    head = next((x for x in lines[at + 1:] if x and not x.startswith("#")), None) if at is not None else None
-    if head is None:
+    at = next(((i, m) for i, x in enumerate(lines) if (m := OWNER_WORDS_HEAD.match(x))), None)
+    head = None
+    if at is not None:
+        i, m = at
+        head = (m.group(1) or "").strip() or next((x for x in lines[i + 1:] if x and not x.startswith("#")), None)
+    if not head:
         return ask_title(path, width)
-    head = ITEM_RE.sub("", head, count=1).strip().strip("「」")
+    head = TITLE_ITEM_RE.sub("", head, count=1).strip()
+    if head.startswith("「"):
+        depth = 0
+        for i, ch in enumerate(head):
+            depth += {"「": 1, "」": -1}.get(ch, 0)
+            if not depth:
+                head = head[1:i]
+                break
+        head = head.lstrip("「")   # 閉じの無い「
     return head if len(head) <= width else head[:width] + "…"
 
 
