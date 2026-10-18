@@ -299,8 +299,9 @@ command = "python3 scripts/spread-plugins.py"
 fallback_role = "作業"
 
 # CI の見張り: 機械だけの役（machine = true）。ツール「main の CI を見る」（tests/ci-watch.py）だけを持つ。
-# main に入れるたびに下の [[land.after]] の合図で呼ばれ、知らせる物（main の CI の赤・止まった定期の workflow など。下の description）が在れば（ツールが 1 で終わったら）、出力を添えた頼みが点検に回る
-# （CI の赤を直すのは点検。標準 docs/standards/breakage-detection.md の決まり 6）。ツールは頼みの題の「/ci-watch 」で自分が回した頼みを見分けるので、name を変えない。
+# main に入れるたびに下の [[land.after]] の合図で呼ばれ、知らせる物（main の CI の赤・止まった定期の workflow など。下の description）が在れば（ツールが 1 で終わったら）、出力を添えた頼みが作業に回る
+# （CI の赤を直すのは点検〔標準 docs/standards/breakage-detection.md の決まり 6〕なので、作業はその頼みを点検に回す。fallback_role は [[roles]] の役の名前しか
+# 引かず、受け持ちの「点検」を書くとツールごと外れるため。受け持ちを書けるようにする直しを割り振りに頼んだ〔受付 34ce75〕。入ったら "点検" に戻す）。ツールは頼みの題の「/ci-watch 」で自分が回した頼みを見分けるので、name を変えない。
 # 手で呼ぶなら dispatch.py --call "CI の見張り" ci-watch（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
 [[roles]]
 name = "CI の見張り"
@@ -312,7 +313,7 @@ title = "main の CI を見る"
 description = "GitHub に登録された全部の workflow の main の run を読み、赤（最新の決着した run が失敗。最後の緑から最新の赤までの commit の範囲を添える）・止まった定期（最後の schedule の run が、過去の間隔の一番長い物と 1 日を足した長さより古い）・1 度も回っていない workflow・止められた workflow（状態が active でない）を知らせる。知らせた件は覚え、回した頼みが閉じていないうちは同じ件を知らせ直さない"
 inputSchema = { type = "object", properties = { dry_run = { type = "boolean", description = "true なら、知らせる物を出すだけで覚えない" } }, additionalProperties = false }
 command = "python3 tests/ci-watch.py"
-fallback_role = "点検"
+fallback_role = "作業"
 
 # 部署の成果を main に入れる決まり（works-dispatch の --land）。持ち主の方針（2026-10-16）: CI は待たない。
 # ゲートは部署が手元で回した、触ったプラグインの試験で、ここでは写しの一致を機械で確かめる。版は取り込むときに上げる
