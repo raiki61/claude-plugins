@@ -583,6 +583,17 @@ class Hook(unittest.TestCase):
         line = deliver.records(self.inbox)[-1]
         self.assertEqual((line["kind"], line["id"], line["chain"]), (wake_hook.KNOT, "20261018-000001-bbbbbb", ["点検", "調べ", "点検"]))
 
+    def test_untie_stops_when_the_default_role_is_not_in_the_shape(self):
+        # 前は既定の役（作業）に倒して回し、役の名前を英語で書いた会社では役の無い部署を立てえた
+        provision.mark(self.place, self.src, {"role": "担当", "name": "調べ"}, gitx)
+        edges = [("20261018-000001-bbbbbb", "点検", "調べ", self.place)]
+        runs = []
+        with mock.patch.object(role, "default", return_value=(None, "既定の役 作業 が会社の形に無い")):
+            with self.assertRaises(wake_hook.UntieError) as got:
+                wake_hook.untie(self.plan(), edges, spawn=lambda argv, **kw: runs.append(argv), now=lambda: 9, detach=False)
+        self.assertIn("会社の形に無い", str(got.exception))
+        self.assertEqual(runs, [])
+
     def test_a_fresh_department_woken_by_a_notice_is_cleared_at_the_end_of_that_turn(self):
         # 頼みを受けていないターン（納品の知らせで起きた）の後も、次の頼みを空の会話で受ける（6a9337）
         provision.mark(self.place, self.src, {"role": "担当", "name": "調べ", "ask": "a0", "delivered": "a0", "cleared": "a0",
