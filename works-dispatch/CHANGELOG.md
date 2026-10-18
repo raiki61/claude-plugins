@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-10-19
+
 ### Changed
 
 - `dispatch/vendor/claude_auth.py`（ルートの scripts/claude_auth.py の写し）の説明とコメントを IT の定着語に置き換えた（起こす→起動する・柵→チェック・根→ルート）。動きは変えていない。
