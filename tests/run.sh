@@ -4780,8 +4780,11 @@ expect_output 0 "OK" "reflect: 期間・人と裏の会話の見分け・トー�
 # claude・herdr・git は偽物の runner で回す。/reload-plugins を部署と窓口の会話にだけ打つのはこの組織の決まりで、works-dispatch には置かない
 SPREAD_CASE="$ROOT/tests/spread-plugins-case.py"
 expect_output 0 "ONLY_COMPANY_TALKS_OK" \
-    "spread-plugins: 手の空いた部署と窓口の会話にだけ打ち、ターンの途中・打ちかけの会話と手元の除外は飛ばす。自分の marketplace の物だけ更新" \
+    "spread-plugins: 手の空いた部署と窓口の会話にだけ打ち、ターンの途中・打ちかけの会話と手元の除外は飛ばす（薄字の候補は打ちかけと見ない）。自分の marketplace の物だけ更新" \
     "$PY_BIN" "$SPREAD_CASE" only-company-talks
+expect_output 0 "BAD_CONFIG_OK" \
+    "spread-plugins: 設定の accounts と skip に形の違う物が混ざれば、黙って飛ばさずに止める" \
+    "$PY_BIN" "$SPREAD_CASE" bad-config
 expect_output 0 "FAILURE_IS_NONZERO_OK" \
     "spread-plugins: 1 つでも失敗したら 0 以外で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、なお落ちても入った版がメインブランチとそろえば数えない" \
     "$PY_BIN" "$SPREAD_CASE" failure-is-nonzero

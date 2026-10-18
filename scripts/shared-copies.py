@@ -15,7 +15,7 @@
     python3 scripts/shared-copies.py                     # 確かめる(tests/run.sh がこれを呼ぶ)
     python3 scripts/shared-copies.py --sync <直した写し>  # その 1 本を組の全員へ配る
 
-終了コード: 0 = 揃っている / 1 = 割れている・写し先が無い・走査が空回り / 2 = 使い方が違う
+終了コード: 0 = 揃っている / 1 = 割れている・写し先が無い・走査が空回り・読めない本文が在る / 2 = 使い方が違う
 """
 import hashlib
 import pathlib
@@ -43,17 +43,18 @@ def marked(p):
 
 
 def groups():
-    """印を持つ本文を、ファイル名ごとの組にして返す。"""
-    out = {}
+    """(印を持つ本文のファイル名ごとの組, 読めなかった [(パス, 訳)])。読めない物は写しかどうか決まらないので、組から黙って外さずに
+    呼ぶ側へ返す（3 つの組の 1 つが読めずに 2 つに減っても、残りが揃えば通ってしまう）。"""
+    out, unread = {}, []
     for p in sorted([*ROOT.rglob("*.py"), *ROOT.rglob("*.md")]):
         if ".git" in p.parts or "__pycache__" in p.parts or p.resolve() == SELF:
             continue
         try:
             if marked(p):
                 out.setdefault(p.name, []).append(p)
-        except (OSError, UnicodeDecodeError):
-            continue
-    return out
+        except (OSError, UnicodeDecodeError) as e:
+            unread.append((p, e))
+    return out, unread
 
 
 def rel(p):
@@ -95,7 +96,11 @@ def sync(src, gs):
 
 
 def main(argv):
-    gs = groups()
+    gs, unread = groups()
+    for p, e in unread:
+        print(f"NG {rel(p)}: 読めないので写しかどうかを確かめられない({type(e).__name__}: {e})")
+    if unread:
+        return 1
     if not argv:
         return check(gs)
     if argv[0] == "--sync" and len(argv) == 2:

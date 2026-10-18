@@ -40,10 +40,15 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# herdr への口・会話の手が空いたと見る状態・入力フィールドの打ちかけの見分けは、works-dispatch の物をそのまま使う（写すと割れる。
+# 前は写しで、works-dispatch が Claude Code の薄字の候補を打った字と数えないよう直った後も、こちらは候補の出た会話を飛ばしていた）
+sys.path.insert(0, str(ROOT / "works-dispatch" / "dispatch"))
+import herdr  # noqa: E402
+from nodes import deliver, refresh  # noqa: E402
+
 DISPATCH_CONFIG = "~/.config/works-dispatch/dispatch.toml"   # works-dispatch の設定の既定の場所（WORKS_DISPATCH_CONFIG で替わる）
 LOCAL = "~/.config/claude-plugins/spread.toml"             # その人だけの配る先の足しと除外
-RELOAD = "/reload-plugins"
-IDLE = ("idle", "done")   # herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
+RELOAD = refresh.RELOAD
 
 
 def run(argv, env=None):
@@ -60,14 +65,21 @@ def read_toml(path):
     return tomllib.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
 
 
+def listed(table, key, kind, where):
+    """設定の表の key の並び。並びでないか、kind でない物が混ざれば ValueError（黙って飛ばすと、配る先や除外が知らずに減る）。"""
+    got = table.get(key, [])
+    if not isinstance(got, list) or not all(isinstance(x, kind) for x in got):
+        raise ValueError(f"{where} の {key} が {kind.__name__} の並びでない")
+    return got
+
+
 def accounts(env=os.environ, local=LOCAL):
     """配る先のアカウントの並び [(名前, 設定のフォルダか None)]。works-dispatch の設定の物に手元の設定の物を足し、
     同じ設定のフォルダは先の 1 つだけ残す。works-dispatch の設定が無いか accounts が空なら、既定の 1 つから始める。"""
-    raw = read_toml(env.get("WORKS_DISPATCH_CONFIG") or DISPATCH_CONFIG).get("accounts") or [{"name": "default"}]
+    path = env.get("WORKS_DISPATCH_CONFIG") or DISPATCH_CONFIG
+    raw = listed(read_toml(path), "accounts", dict, path) or [{"name": "default"}]
     out, seen = [], set()
-    for a in raw + read_toml(local).get("accounts", []):
-        if not isinstance(a, dict):
-            continue
+    for a in raw + listed(read_toml(local), "accounts", dict, local):
         d = a.get("config_dir")
         key = os.path.realpath(os.path.expanduser(d)) if d else None
         if key not in seen:
@@ -77,7 +89,13 @@ def accounts(env=os.environ, local=LOCAL):
 
 
 def skips(path=LOCAL):
-    return [x for x in read_toml(path).get("skip", []) if isinstance(x, str)]
+    return listed(read_toml(path), "skip", str, path)
+
+
+def step(account, kind, text, failed):
+    """1 つの手の結果。成否と種類はフィールドで持ち、text は人に見せるだけ（後で text を読んで分岐しない）。
+    kind は marketplace-update・mend・list・update・version・main・talk・reload のどれか。"""
+    return {"account": account, "kind": kind, "text": text, "failed": failed}
 
 
 def claude_env(config_dir, env=os.environ):
@@ -88,7 +106,7 @@ def claude_env(config_dir, env=os.environ):
 
 
 def mend_clone(name, market, env, dry, runner=run):
-    """その設定のフォルダの marketplace の clone で、作業ツリーから消えた tracked のファイルを index から戻す。行の並び。
+    """その設定のフォルダの marketplace の clone で、作業ツリーから消えた tracked のファイルを index から戻す。step の並び。
     clone のやり直しが途中で切れると、作業ツリーが欠けたまま marketplace update は済になり、その後の plugin update は
     欠けた写しを入れるか（plugin.json の無い写しは版でなく commit の名前の版で入る）「destination is empty after copy」で
     失敗する（2026-10-17 に p2 で実測）。marketplace update は欠けを戻さないので、ここで戻す。"""
@@ -106,9 +124,9 @@ def mend_clone(name, market, env, dry, runner=run):
         return []
     what = f"{name}: marketplace の clone の作業ツリーに {len(gone)} 個のファイルが無いので戻す"
     if dry:
-        return [what + "（空打ち）"]
+        return [step(name, "mend", what + "（空打ち）", False)]
     code, out = runner(["git", "-C", loc, "checkout", "--", "."])
-    return [what + (" 済" if code == 0 else f" 失敗（{out.strip()[:200]}）")]
+    return [step(name, "mend", what + (" 済" if code == 0 else f" 失敗（{out.strip()[:200]}）"), code != 0)]
 
 
 def expected_versions(market, root=ROOT, runner=run):
@@ -145,40 +163,37 @@ def installed_ids(name, market, env, runner=run):
 
 
 def update_account(name, config_dir, market, dry, runner=run):
-    """1 つのアカウントの marketplace とプラグインを更新する。(行の並び, 失敗の行の並び, 写しの揃った [(名前, id, 版)])。
+    """1 つのアカウントの marketplace とプラグインを更新する。(step の並び, 写しの揃った [(名前, id, 版)])。
     入った写しに .claude-plugin/plugin.json が無ければ失敗に数える（欠けた写しを済と数えない）。版は check_versions が照合する。"""
     env = claude_env(config_dir)
-    lines, bad = [], []
+    steps = []
 
-    def note(line, failed):
-        lines.append(line)
-        if failed:
-            bad.append(line)
+    def note(kind, line, failed):
+        steps.append(step(name, kind, line, failed))
 
     argv = ["claude", "plugin", "marketplace", "update", market]
     if dry:
-        note(f"{name}: {' '.join(argv)}（空打ち）", False)
+        note("marketplace-update", f"{name}: {' '.join(argv)}（空打ち）", False)
     else:
         code, out = runner(argv, env)
         if code != 0:
             # 同じ設定のフォルダの別の会話が同じ時に marketplace を取り直すと、clone の置き場（<名前>..clone）がぶつかって
             # 落ちる（shallow.lock が在る・index を書けない。2026-10-17 に main で実測し、打ち直すと通った）。1 回だけ打ち直す
             code, out = runner(argv, env)
-        note(f"{name}: {' '.join(argv)} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"), code != 0)
-    for line in mend_clone(name, market, env, dry, runner):
-        note(line, "失敗（" in line)
+        note("marketplace-update", f"{name}: {' '.join(argv)} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"), code != 0)
+    steps += mend_clone(name, market, env, dry, runner)
     ids, err = installed_ids(name, market, env, runner)
     if err:
-        note(err, True)
+        note("list", err, True)
     done, whole = [], []
     for i in sorted(ids):
         argv = ["claude", "plugin", "update", i]
         if dry:
-            note(f"{name}: {' '.join(argv)}（空打ち）", False)
+            note("update", f"{name}: {' '.join(argv)}（空打ち）", False)
             continue
         code, out = runner(argv, env)
         if code != 0:
-            note(f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
+            note("update", f"{name}: {' '.join(argv)} 失敗（{out.strip()[:200]}）", True)
         else:
             done.append(i)
     if done:
@@ -187,33 +202,25 @@ def update_account(name, config_dir, market, dry, runner=run):
             head = f"{name}: claude plugin update {i} "
             where, version = after.get(i, (None, None))
             if err:
-                note(head + "失敗（入った写しを確かめられない）", True)
+                note("update", head + "失敗（入った写しを確かめられない）", True)
             elif not where or not (pathlib.Path(where) / ".claude-plugin" / "plugin.json").is_file():
-                note(head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
+                note("update", head + f"失敗（入った写しに .claude-plugin/plugin.json が無い: {where}）", True)
             else:
                 whole.append((name, i, version))
-    return lines, bad, whole
+    return steps, whole
 
 
 def check_versions(whole, want):
-    """写しの揃ったプラグインの版を main の {id: 版} と照合する。(行の並び, 失敗の行の並び)。「済」と出すのは版が main と同じときだけ
+    """写しの揃ったプラグインの版を main の {id: 版} と照合する。step の並び。「済」と出すのは版が main と同じときだけ
     （古い版を済と数えない）。main に無いプラグイン（marketplace から外した物）は版を照合しない。"""
-    lines, bad = [], []
+    steps = []
     for name, i, version in whole:
         head = f"{name}: claude plugin update {i} "
         if i in want and version != want[i]:
-            lines.append(head + f"失敗（版が main とそろわない: 入った版 {version}・main {want[i]}）")
-            bad.append(lines[-1])
+            steps.append(step(name, "version", head + f"失敗（版が main とそろわない: 入った版 {version}・main {want[i]}）", True))
         else:
-            lines.append(head + f"済（{version}）")
-    return lines, bad
-
-
-def herdr_json(argv, runner=run):
-    code, out = runner(["herdr", *argv])
-    if code != 0:
-        raise RuntimeError(out.strip()[:200])
-    return json.loads(out).get("result", {})
+            steps.append(step(name, "version", head + f"済（{version}）", False))
+    return steps
 
 
 def is_company_place(cwd, runner=run):
@@ -222,56 +229,49 @@ def is_company_place(cwd, runner=run):
     return code == 0 and bool(out.strip())
 
 
-def input_empty(screen):
-    """会話の画面の入力フィールド（下から 2 本の横の罫線の間）が空か。罫線が見えなければ空と見ない。"""
-    lines = (screen or "").splitlines()
-    rules = [i for i, x in enumerate(lines) if x.count("─") >= 10]
-    if len(rules) < 2:
-        return False
-    box = " ".join(" ".join(lines[rules[-2] + 1:rules[-1]]).split())
-    return not box.lstrip("❯").strip()
-
-
-def reload_talks(skip, dry, runner=run):
-    """部署と窓口の会話に /reload-plugins を打つ。(行の並び, 失敗の行の並び)。"""
+def reload_talks(skip, dry, runner=run, herdr_run=herdr._default_runner):
+    """部署と窓口の会話に /reload-plugins を打つ。step の並び。herdr は herdr_run（argv → CompletedProcess）で呼ぶ。"""
     try:
-        labels = {w["workspace_id"]: w.get("label") for w in herdr_json(["workspace", "list"], runner).get("workspaces", [])}
-        panes = herdr_json(["pane", "list"], runner).get("panes", [])
-    except (RuntimeError, ValueError) as e:
-        line = [f"herdr を読めない（{e}）"]
-        return line, line
-    lines, bad = [], []
+        labels = herdr.workspace_labels(herdr_run)
+        panes = herdr.panes(herdr_run)
+    except herdr.HerdrError as e:
+        return [step(None, "talk", f"herdr を読めない（{e}）", True)]
+    steps = []
     for p in panes:
         if p.get("agent") != "claude" or not p.get("cwd"):
             continue
         where = f"{labels.get(p.get('workspace_id')) or p.get('workspace_id')}（{p['pane_id']}）"
         if labels.get(p.get("workspace_id")) in skip:
-            lines.append(f"{where}: 手元の設定で除く")
+            steps.append(step(None, "talk", f"{where}: 手元の設定で除く", False))
             continue
         if not is_company_place(p["cwd"], runner):
             continue   # 持ち主の作業の会話（部署でも窓口でもない）には打たない
-        if p.get("agent_status") not in IDLE:
-            lines.append(f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）")
+        if p.get("agent_status") not in refresh.IDLE:
+            steps.append(step(None, "talk", f"{where}: ターンの途中なので飛ばす（ターンの終わりに替わる）", False))
             continue
-        code, screen = runner(["herdr", "pane", "read", p["pane_id"], "--lines", "40"])   # 画面の字がそのまま出る
-        if code != 0:
-            lines.append(f"{where}: 画面を読めない（{screen.strip()[:200]}）")
-            bad.append(lines[-1])
+        try:
+            box = deliver.typed(herdr.read(p["pane_id"], 40, herdr_run, ansi=True))   # 薄字の候補は打った字と数えない
+        except herdr.HerdrError as e:
+            steps.append(step(None, "talk", f"{where}: 画面を読めない（{e}）", True))
             continue
-        if not input_empty(screen):
-            lines.append(f"{where}: 入力フィールドに字が在るので飛ばす")
+        if box is None:
+            steps.append(step(None, "talk", f"{where}: 入力フィールドが見えないので飛ばす", False))
+            continue
+        if box:
+            steps.append(step(None, "talk", f"{where}: 入力フィールドに字が在るので飛ばす", False))
             continue
         if dry:
-            lines.append(f"{where}: {RELOAD}（空打ち）")
+            steps.append(step(None, "reload", f"{where}: {RELOAD}（空打ち）", False))
             continue
-        code, out = runner(["herdr", "agent", "prompt", p["pane_id"], RELOAD])
-        lines.append(f"{where}: {RELOAD} " + ("済" if code == 0 else f"失敗（{out.strip()[:200]}）"))
-        if code != 0:
-            bad.append(lines[-1])
-    return lines, bad
+        try:
+            herdr.prompt(p["pane_id"], RELOAD, False, herdr_run)
+            steps.append(step(None, "reload", f"{where}: {RELOAD} 済", False))
+        except herdr.HerdrError as e:
+            steps.append(step(None, "reload", f"{where}: {RELOAD} 失敗（{e}）", True))
+    return steps
 
 
-def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
+def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL, herdr_run=herdr._default_runner):
     try:
         value = json.loads(stdin.read() or "{}")
         if not isinstance(value, dict):
@@ -282,11 +282,10 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as e:
         print(f"止めた: 入力か設定を読めない（{e}）")
         return 2
-    lines, bad, whole = [], [], []
+    steps, whole = [], []
     for name, config_dir in accs:
-        got, fails, ok = update_account(name, config_dir, market, dry, runner)
-        lines += got
-        bad += fails
+        got, ok = update_account(name, config_dir, market, dry, runner)
+        steps += got
         whole += ok
     if whole:   # main は配った後に読む（配る間に main へ入った版を、入った版が新しいのにそろわないと数えないため）
         want, err = expected_versions(market, runner=runner)
@@ -297,32 +296,29 @@ def main(stdin=sys.stdin, runner=run, env=os.environ, local=LOCAL):
             whole = [w for w in whole if w[0] not in stale]
             for name, config_dir in accs:
                 if name in stale:
-                    got, fails, ok = update_account(name, config_dir, market, dry, runner)
-                    lines += got
-                    bad += fails
+                    got, ok = update_account(name, config_dir, market, dry, runner)
+                    steps += got
                     whole += ok
             want, err = expected_versions(market, runner=runner)
         if err:
-            lines.append(err)
-            bad.append(err)
-        got, fails = check_versions(whole, want)
-        lines += got
-        bad += fails
+            steps.append(step(None, "main", err, True))
+        steps += check_versions(whole, want)
         if not err:
             # 打ち直しても marketplace の更新が落ちたアカウントでも、入った版が全部 main と同じなら目的は果たしている。同じ設定のフォルダの
             # 別の会話が clone を取り直している間は打ち直しもぶつかって落ち、その会話の取り直しで版はそろう（2026-10-17 に main で実測）
             off = {n for n, i, v in whole if i in want and v != want[i]}
             even = {n for n, i, v in whole if i in want} - off
             for n in sorted(even):
-                head = f"{n}: claude plugin marketplace update "
-                if any(x.startswith(head) for x in bad):
-                    bad = [x for x in bad if not x.startswith(head)]
-                    lines.append(f"{n}: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない")
-    got, fails = reload_talks(skip, dry, runner)
-    lines += got
-    bad += fails
+                fell = [s for s in steps if s["account"] == n and s["kind"] == "marketplace-update" and s["failed"]]
+                for s in fell:
+                    s["failed"] = False
+                if fell:
+                    steps.append(step(n, "marketplace-update",
+                                      f"{n}: marketplace の更新は落ちたが、入った版は main とそろったので失敗に数えない", False))
+    steps += reload_talks(skip, dry, runner, herdr_run)
+    bad = [s["text"] for s in steps if s["failed"]]
     # 失敗の行は終わりに並べ直す（works-dispatch が作業に回す頼みには出力の終わりしか載らない）
-    print("\n".join(lines + ([f"失敗 {len(bad)} 件:"] + [f"- {x}" for x in bad] if bad else ["配った"])))
+    print("\n".join([s["text"] for s in steps] + ([f"失敗 {len(bad)} 件:"] + [f"- {x}" for x in bad] if bad else ["配った"])))
     return 1 if bad else 0
 
 

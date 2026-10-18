@@ -15,7 +15,7 @@
     python3 scripts/terms.py --update   # 今の件数を基準に書く（直してファイルの件数が減ったとき）
     python3 scripts/terms.py --list <パス>...  # そのファイルの当たった行を出す（直すときは works-dispatch/dispatch/terms.py --fix）
 
-終了コード: 0 = 基準どおり / 1 = 基準と違う
+終了コード: 0 = 基準どおり / 1 = 基準と違う・読めないファイルが在る
 """
 import importlib.util
 import json
@@ -40,16 +40,18 @@ SKIPPED = re.compile(r"^(works|works-factory)/|(^|/)CHANGELOG\.md$|(^|/)docs/adr
 
 
 def counts():
+    """(ファイルごとの件数, 読めなかった [(パス, 訳)])。読めない物を 0 件と数えると、増えたかを確かめずに通してしまう。"""
     files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
-    out = {}
+    out, unread = {}, []
     for path in sorted(x for x in files.split("\0") if x.endswith(SUFFIXES) and not SKIPPED.search(x)):
         try:
             n = len(terms.text_problems((ROOT / path).read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            unread.append((path, e))
             continue
         if n:
             out[path] = n
-    return out
+    return out, unread
 
 
 def main(argv):
@@ -58,7 +60,11 @@ def main(argv):
             for n, found, expected in terms.text_problems((ROOT / p).read_text(encoding="utf-8")):
                 print(f"{p}:{n}: 「{found}」→「{expected}」")
         return 0
-    now = counts()
+    now, unread = counts()
+    for p, e in unread:
+        print(f"読めない: {p}（{type(e).__name__}: {e}）。件数を数えられないので止める")
+    if unread:
+        return 1
     if argv[:1] == ["--update"]:
         BASELINE.write_text(json.dumps(now, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print(f"基準を書いた: {len(now)} ファイル・{sum(now.values())} 件")

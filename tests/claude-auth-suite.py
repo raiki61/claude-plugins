@@ -81,6 +81,18 @@ class AccountToken(unittest.TestCase):
         tok, note = claude_auth.account_token(str(d), {}, None, "linux", keychain({}))
         self.assertEqual((tok, note), (TOK, "file(.credentials.json)"))
 
+    def test_malformed_credentials_file_is_named_not_dropped(self):
+        # 形の違う値は渡さないが、捨てたことは探した所の並びに出す（無いのと同じに見せない）
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-other-x"}}))
+        tok, note = claude_auth.account_token(str(d), {}, None, "linux", keychain({}))
+        self.assertIsNone(tok)
+        self.assertIn(".credentials.json:file-malformed", note)
+        (d / ".credentials.json").write_text("not json")
+        self.assertIn(":file-malformed", claude_auth.account_token(str(d), {}, None, "linux", keychain({}))[1])
+        e = pathlib.Path(tempfile.mkdtemp())
+        self.assertIn(":file-miss", claude_auth.account_token(str(e), {}, None, "linux", keychain({}))[1])
+
     def test_nothing_found_names_where_it_looked(self):
         tok, note = claude_auth.account_token("/nowhere/.claude-z", {}, None, "darwin", keychain({}))
         self.assertIsNone(tok)

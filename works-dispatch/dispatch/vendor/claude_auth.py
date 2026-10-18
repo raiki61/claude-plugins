@@ -146,14 +146,19 @@ def account_token(user_config, env, explicit=None, platform=sys.platform, runner
             if tok:
                 return tok, "keychain(%s)" % service
             tried.append("%s:%s" % (service, note))
+    path = os.path.join(cfg, ".credentials.json")
     try:
-        with open(os.path.join(cfg, ".credentials.json"), encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             tok = _login_token(f.read())
-    except OSError:
-        tok = ""
-    if tok.startswith(TOKEN_PREFIX):
-        return tok, "file(.credentials.json)"
-    tried.append(os.path.join(cfg, ".credentials.json"))
+    except FileNotFoundError:
+        tried.append("%s:file-miss" % path)
+    except (OSError, UnicodeDecodeError) as e:
+        tried.append("%s:file-error(%s)" % (path, type(e).__name__))
+    else:
+        if tok.startswith(TOKEN_PREFIX):
+            return tok, "file(.credentials.json)"
+        # 形の違う値は渡さない（read_keychain の keychain-malformed と同じ訳）。捨てたことは探した所の並びに出す
+        tried.append("%s:%s" % (path, "file-malformed" if tok else "file-miss"))
     return None, "見つからない: " + "、".join(tried)
 
 

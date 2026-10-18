@@ -3,7 +3,8 @@
 
 使い方: python3 tests/spread-plugins-case.py <場合>
 - only-company-talks: /reload-plugins は部署と窓口の会話（company.role の在る場所）にだけ打ち、入力フィールドに字の在る会話と手元の
-  設定で除いた作業場は飛ばす。入っている自分の marketplace のプラグインだけ更新する
+  設定で除いた作業場は飛ばす（薄字の候補だけの入力フィールドは空と見て打つ）。入っている自分の marketplace のプラグインだけ更新する
+- bad-config: 設定の accounts と skip に形の違う物が混ざれば、黙って飛ばさずに 2 で止める
 - failure-is-nonzero: 1 つでも失敗したら 1 で終わる（works-dispatch が AI の部署に回す）。marketplace の更新は落ちたら 1 回だけ打ち直し、
   それでも落ちても入った版が全部メインブランチとそろえば失敗に数えない
 - local-accounts: 手元の設定の accounts（部署を起動しないアカウント）にも配り、works-dispatch の設定と同じ設定のフォルダは 1 回だけ
@@ -18,6 +19,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -33,6 +35,7 @@ spec.loader.exec_module(sp)
 RULE = "─" * 20
 EMPTY = f"{RULE}\n❯ \n{RULE}\n"
 TYPED = f"{RULE}\n❯ 打ちかけ\n{RULE}\n"
+SUGGESTED = f"{RULE}\n❯ \x1b[2m消していいよ\x1b[22m\n{RULE}\n"   # Claude Code が薄字で出す次の文の候補（打った字ではない）
 MARKET = sp.marketplace_name()
 
 
@@ -55,8 +58,9 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky
              {"pane_id": "c:1", "workspace_id": "c", "agent": "claude", "agent_status": "done", "cwd": "/typed"},
              {"pane_id": "d:1", "workspace_id": "d", "agent": "claude", "agent_status": "idle", "cwd": "/skipped"},
              {"pane_id": "e:1", "workspace_id": "e", "agent": None, "cwd": "/dept"},
-             {"pane_id": "f:1", "workspace_id": "f", "agent": "claude", "agent_status": "working", "cwd": "/busy"}]
-    labels = {"a": "割り振り", "b": "作業の会話", "c": "点検", "d": "plugins1", "e": "シェル", "f": "説明書"}
+             {"pane_id": "f:1", "workspace_id": "f", "agent": "claude", "agent_status": "working", "cwd": "/busy"},
+             {"pane_id": "g:1", "workspace_id": "g", "agent": "claude", "agent_status": "idle", "cwd": "/suggested"}]
+    labels = {"a": "割り振り", "b": "作業の会話", "c": "点検", "d": "plugins1", "e": "シェル", "f": "説明書", "g": "見渡し"}
 
     def runner(argv, env=None):
         calls.append((argv, (env or {}).get("CLAUDE_CONFIG_DIR")))
@@ -77,9 +81,10 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky
         if argv[:3] == ["herdr", "pane", "list"]:
             return 0, json.dumps({"result": {"panes": panes}})
         if argv[:3] == ["herdr", "pane", "read"]:
-            return 0, TYPED if argv[3] == "c:1" else EMPTY
+            assert "--ansi" in argv, argv   # 薄字を見分けるには制御の字ごと読む
+            return 0, {"c:1": TYPED, "g:1": SUGGESTED}.get(argv[3], EMPTY)
         if argv[:3] == ["herdr", "agent", "prompt"]:
-            return 0, ""
+            return 0, json.dumps({"result": {}})
         if argv[:2] == ["git", "-C"] and argv[2] == str(sp.ROOT) and argv[3] == "fetch":
             return 0, ""
         if argv[:2] == ["git", "-C"] and argv[2] == str(sp.ROOT) and argv[3] == "show":
@@ -95,9 +100,17 @@ def world(fail=(), installed=None, gone="", version="1.0.0", main="1.0.0", flaky
         if argv[:4] == ["git", "-C", "/m/mine", "checkout"]:
             return 0, ""
         if argv[:1] == ["git"]:
-            return (0, "作業\n") if argv[2] in ("/dept", "/typed", "/skipped", "/busy") else (1, "")
+            return (0, "作業\n") if argv[2] in ("/dept", "/typed", "/skipped", "/busy", "/suggested") else (1, "")
         raise AssertionError(argv)
     return runner, calls
+
+
+def herdr_runner(runner):
+    """偽物の runner（(終了の値, 出力)）を、works-dispatch の herdr の口が呼ぶ形（argv → CompletedProcess）にする。"""
+    def call(argv, env=None):
+        code, out = runner(argv, env)
+        return subprocess.CompletedProcess(argv, code, stdout=out, stderr="")
+    return call
 
 
 def run(runner, value, local='skip = ["plugins1"]\n'):
@@ -110,7 +123,7 @@ def run(runner, value, local='skip = ["plugins1"]\n'):
     sys.stdout = out
     try:
         rc = sp.main(io.StringIO(json.dumps(value)), runner, {"WORKS_DISPATCH_CONFIG": str(d / "dispatch.toml")},
-                     str(d / "spread.toml"))
+                     str(d / "spread.toml"), herdr_runner(runner))
     finally:
         sys.stdout = old
     return rc, out.getvalue()
@@ -121,13 +134,21 @@ def only_company_talks():
     rc, out = run(runner, {})
     assert rc == 0, out
     prompts = [a[3] for a, _ in calls if a[:3] == ["herdr", "agent", "prompt"]]
-    assert prompts == ["a:1"], prompts   # 手の空いた部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペイン・ターンの途中は飛ばす）
+    assert prompts == ["a:1", "g:1"], prompts   # 手の空いた部署だけ（作業の会話・打ちかけ・手元の除外・会話の居ないペイン・ターンの途中は飛ばす。薄字の候補は打ちかけでない）
     updates = [(a[3], env) for a, env in calls if a[:3] == ["claude", "plugin", "update"]]
     assert updates == [(f"a@{MARKET}", None), (f"a@{MARKET}", "/c/p1")], updates
     assert "点検（c:1）: 入力フィールドに字が在るので飛ばす" in out and "plugins1（d:1）: 手元の設定で除く" in out, out
     assert "説明書（f:1）: ターンの途中なので飛ばす（ターンの終わりに替わる）" in out, out
     assert not [a for a, _ in calls if a[:4] == ["herdr", "pane", "read", "f:1"]], calls   # ターンの途中の画面は読みもしない
     print("ONLY_COMPANY_TALKS_OK")
+
+
+def bad_config():
+    for local in ('skip = ["plugins1", 3]\n', 'accounts = ["p9"]\n', 'accounts = { name = "p9" }\n'):
+        runner, calls = world()
+        rc, out = run(runner, {}, local)
+        assert rc == 2 and "止めた" in out and not calls, (local, rc, out)
+    print("BAD_CONFIG_OK")
 
 
 def failure_is_nonzero():
@@ -218,5 +239,5 @@ def mend_clone():
 
 
 if __name__ == "__main__":
-    {"only-company-talks": only_company_talks, "failure-is-nonzero": failure_is_nonzero,
+    {"only-company-talks": only_company_talks, "bad-config": bad_config, "failure-is-nonzero": failure_is_nonzero,
      "local-accounts": local_accounts, "broken-copy": broken_copy, "mend-clone": mend_clone}[sys.argv[1]]()
