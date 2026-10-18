@@ -299,7 +299,7 @@ command = "python3 scripts/spread-plugins.py"
 fallback_role = "作業"
 
 # CI の見張り: 機械だけの役（machine = true）。ツール「main の CI を見る」（tests/ci-watch.py）だけを持つ。
-# main に入れるたびに下の [[land.after]] の合図で呼ばれ、知らせる物が在れば（ツールが 1 で終わったら）、出力を添えた頼みが点検に回る
+# main に入れるたびに下の [[land.after]] の合図で呼ばれ、知らせる物（main の CI の赤・止まった定期の workflow など。下の description）が在れば（ツールが 1 で終わったら）、出力を添えた頼みが点検に回る
 # （CI の赤を直すのは点検。標準 docs/standards/breakage-detection.md の決まり 6）。ツールは頼みの題の「/ci-watch 」で自分が回した頼みを見分けるので、name を変えない。
 # 手で呼ぶなら dispatch.py --call "CI の見張り" ci-watch（--input '{"dry_run": true}' で、知らせる物を出すだけで覚えない）
 [[roles]]
@@ -334,7 +334,7 @@ bump = "marketplace"
 role = "配布"
 tool = "spread-plugins"
 
-# main に入れた後の合図: main の CI を見る（配布の後）。持ち主は定期の起動を置かないので main へ入れる動きに乗せる。
+# main に入れた後の合図: main の CI を見る（配布の後）。持ち主は cron などの定期の起動を置かないので、main へ入れる動きに乗せる。
 # main へ誰も入れない間は見張りも止まる（標準 docs/standards/breakage-detection.md の決まり 2 の最後の項）
 [[land.after]]
 role = "CI の見張り"
