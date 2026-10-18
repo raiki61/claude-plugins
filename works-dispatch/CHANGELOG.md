@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-10-18
+
 ### Added
 
 - `--tree` の窓口の行（「窓口: <名前>（…）」。窓口は、代表の clone で `--desk` を打って名付けた、持ち主と話して頼みを部署に配る会話）に、その窓口の会話を起動したときに効く model と effort を出す（my_notes の会社から届いた頼み。受付番号 d26b5f）。今までは部署の行と受ける仕事の行にしか出ず、窓口の値は会社の形（会社ごとの設定のファイル `.claude/company.toml`）を開いて読むしかなかった。
