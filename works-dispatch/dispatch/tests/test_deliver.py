@@ -37,16 +37,17 @@ def company(name, root, *depts):
     return {"name": name, "root": root, "departments": list(depts)}
 
 
-GOOD = """## 結論
+GOOD = """+++
+open = []
++++
+## 結論
 直した。
 試験は緑。
 
 ## 決め手
 「要約なしで終われない」 https://example.com/spec
-
-## 残った疑問
-なし
 """
+ONE_OPEN = '+++\n[[open]]\nquestion = "測り直す"\n+++'   # GOOD の頭書きを替える残った疑問 1 件（担当者無し）
 
 
 class Target(unittest.TestCase):
@@ -126,48 +127,66 @@ class Target(unittest.TestCase):
 
 
 class Holders(unittest.TestCase):
-    """残った疑問の担当者の検査（役の holders・ask_holders。my_notes の tools/deliver_check.py から移した。24e521）。"""
+    """残った疑問の担当者の検査（役の holders・ask_holders。my_notes の tools/deliver_check.py から移した。24e521）。残った疑問は頭書きの
+    open に構造で書く（受付 b0df65）。担当者は受付番号・持ち主の 2 つの値・頼み元の名前だけ（部署の名前は --todo が追えない。受付 b6778d）。"""
 
-    def test_each_open_item_needs_a_holder_and_the_owner_only_with_a_reason(self):
-        ok = "- 測り直す。担当者: 割り振り\n- どれを採るか。担当者: 持ち主（価値で選ぶ）\n  続きの行"
-        self.assertEqual(deliver.holder_problems(ok), [])
-        self.assertEqual(deliver.holder_problems("なし"), [])
-        bad = deliver.holder_problems("- 担当者の無い疑問\n- 決めて。担当者: 持ち主\n- 中継。担当者: 社長室", ["社長室"])
-        self.assertEqual(len(bad), 3)
-        self.assertIn("担当者が無い", bad[0])
-        self.assertIn("持ち主（価値で選ぶ）", bad[1])
-        self.assertEqual(deliver.holder_problems("- 中継。担当者: 社長室"), [])   # 中継の名前を書かない会社では普通の担当者
-        for none in ("- なし", "なし（全部閉じた）", "ありません", "・特になし", "無し。", "- 無い。url-status の語は原典どおり", "無し",
-                     "無し。https://x.example/?a=1", "なしです", "ありませんでした", "なし！", "なし→全部閉じた"):
-            self.assertEqual(deliver.holder_problems(none), [], none)
-        # 無しの語で始まるだけの問いは疑問なしと読まない（3c9a61）
-        for asked in ("無い場合はどうするか", "- なしで進めてよいか", "無し。ただ X は直すか？", "なし。https://x.example/a を見てどうするか？"):
-            self.assertEqual(len(deliver.holder_problems(asked)), 1, asked)
-        lead = "次の 2 件：\n1） 測る。担当者: 割り振り\n② 決める。担当者: 持ち主 (価値で選ぶ)"
-        self.assertEqual(deliver.holder_problems(lead), [])   # 「：」で終わる前置きの行は数えない。空白と半角の括弧も読む
-        asked = "決めてほしいのは A の扱いだけ。\n- 測る。担当者: 割り振り"
-        self.assertEqual(deliver.holder_problems(asked), ["担当者が無い: 決めてほしいのは A の扱いだけ。"])   # 前置きに書いた問いは 1 件
-        self.assertEqual(deliver.holder_problems("直しの候補（受け持ち\nごと）:\n\n- 測る。担当者: 割り振り"), [])   # 折り返しも 1 段落
-        self.assertEqual(deliver.holder_problems("- 測る。担当者: 割り振り\n\n札：\n- 決める。担当者: 段取り\n\n  字下げの続き"), [])
-        # 「：」で終わる段落でも、上の行が文で終わる物と、箇条の後ろの空行の後の段落は、問いとして 1 件に数える
-        for asked, head in (("A の扱いを決めて。\n次の 2 件：\n- 測る。担当者: 割り振り", "A の扱いを決めて。 次の 2 件："),
-                            ("Q。\n\n次の 2 件：\n- 測る。担当者: 割り振り", "Q。"),
-                            ("- 測る。担当者: 割り振り\n\nほかに B をどうするか決めたい。", "ほかに B をどうするか決めたい。"),
-                            ("A をどうするか：", "A をどうするか："),
-                            ("- 測る。担当者: 割り振り\n\nB をどうするか：", "B をどうするか：")):
-            self.assertEqual(deliver.holder_problems(asked), [f"担当者が無い: {head}"], asked)
-        self.assertEqual(len(deliver.holder_problems("(1) 測る。担当者: 割り振り\n(2) 担当者の無い疑問")), 1)   # 番号で 1 件ずつ
-        self.assertEqual(deliver.unsure_problems({"結論": "直した（要確認）", deliver.OPEN: "要確認。担当者: 割り振り"}),
-                         ["「結論」に「要確認」がある。残った疑問に移して担当者を付ける"])
+    def test_each_question_needs_a_holder_that_the_ledger_can_follow(self):
+        ok = [{"question": "測り直す", "holder": "20261018-120448-b6778d"}, {"question": "どれを採るか", "holder": "owner:choose"},
+              {"question": "消してよいか", "holder": "owner:confirm"}, {"question": "次を回す", "holder": "段取り"}]
+        self.assertEqual(deliver.holder_problems(ok, ["社長室"], "段取り"), [])
+        self.assertEqual(deliver.holder_problems([], ["社長室"], "段取り"), [])
+        bad = deliver.holder_problems([{"question": "担当者の無い疑問"}, {"question": "部署へ", "holder": "割り振り"},
+                                       {"question": "中継", "holder": "社長室"}, {"question": "持ち主", "holder": "持ち主"},
+                                       {"question": "番号の混ざった字", "holder": "割り振り（受付 20261018-120448-b6778d）"}],
+                                      ["社長室"], "段取り")
+        self.assertEqual(len(bad), 5, bad)
+        self.assertIn("担当者（holder）が無い: 担当者の無い疑問", bad[0])
+        self.assertIn("受付番号・owner:choose・owner:confirm・段取り のどれでもない", bad[1])
+        # 頼み元が持ち主への中継なら、頼み元の名前も担当者に書けない
+        self.assertEqual(len(deliver.holder_problems([{"question": "q", "holder": "社長室"}], ["社長室"], "社長室")), 1)
 
-    def test_the_former_holder_word_is_still_read(self):
-        # 前の名前「持ち手」で書いた要約（my_notes の部署や、前の版の役の本文に従った部署）も通し、台帳の担当者に数える。
-        # 前の名前は、語の置き換え（terms.py --fix）に書き換えられないように字の番号で書く
+    def test_the_front_matter_is_toml_between_plus_lines_and_unknown_fields_stop(self):
+        data, body, bad = deliver.front('+++\ntitle = "題"\n[[open]]\nquestion = "q"\nholder = "owner:choose"\n+++\n\n## 結論\nx\n')
+        self.assertEqual((data, body, bad), ({"title": "題", "open": [{"question": "q", "holder": "owner:choose"}]}, "## 結論\nx\n", []))
+        self.assertEqual(deliver.front("## 結論\nx"), ({}, "## 結論\nx", []))
+        self.assertIn("閉じの +++", deliver.front("+++\nopen = []\n## 結論")[2][0])
+        self.assertIn("TOML として読めない", deliver.front("+++\nopen = [\n+++\n")[2][0])
+        self.assertEqual(deliver.front_problems({"open": [], "title": "t"}, deliver.ASK_FIELDS), [])
+        bad = deliver.front_problems({"title": "t", "holders": 1, "open": [{"question": "", "who": "x", "holder": 3}]},
+                                     deliver.DELIVER_FIELDS)
+        self.assertEqual(len(bad), 5, bad)   # 納品に title は無い・知らないフィールド holders・件の知らないフィールド who・空の question・文字列でない holder
+        self.assertIn("表の並び", deliver.front_problems({"open": "なし"}, deliver.DELIVER_FIELDS)[0])
+
+    def test_questions_are_rendered_for_the_summary_and_the_ledger(self):
+        qs = [{"question": "どれを採るか", "holder": "owner:choose"}, {"question": "測る", "holder": "20261018-120448-b6778d"}]
+        self.assertEqual(deliver.render_open(qs), "- どれを採るか 担当者: 持ち主（価値で選ぶ）\n- 測る 担当者: 20261018-120448-b6778d")
+        self.assertEqual(deliver.render_open([]), "なし")
+        self.assertEqual(deliver.holders_of(qs), [{"holder": "持ち主（価値で選ぶ）", "ask": None},
+                                                  {"holder": "20261018-120448-b6778d", "ask": "20261018-120448-b6778d"}])
+        # 描いた字は、頭書きの無い古い要約の読み手（--todo の古い行と my_notes の納品のゲート）でも同じ担当者に読める
+        self.assertEqual(deliver.open_holders(deliver.render_open(qs)), deliver.holders_of(qs))
+        self.assertEqual(deliver.open_holders(deliver.render_open([])), [])
+
+    def test_an_ask_title_comes_from_the_front_matter_or_a_one_line_body(self):
+        self.assertEqual(deliver.ask_title_of('+++\ntitle = "題"\n+++\n## 困りごと\n本文'), "題")
+        self.assertEqual(deliver.ask_title_of("直して"), "直して")
+        self.assertIsNone(deliver.ask_title_of("## 困りごと\n本文"))
+        # 回す側の添え書きは頭書きの後ろに置く（頭書きは本文の頭に残る）
+        wrapped = deliver.wrap("段取りが回した", '+++\ntitle = "題"\n+++\n## 困りごと\n本文')
+        self.assertEqual(deliver.ask_title_of(wrapped), "題")
+        self.assertIn("段取りが回した\n\n---\n\n## 困りごと", wrapped)
+        self.assertEqual(deliver.wrap("添え書き", "本文"), "添え書き\n\n---\n\n本文")
+
+    def test_old_summaries_are_still_read_for_the_ledger(self):
+        # 頭書きの無い古い要約（台帳に今ある物）は、--todo が holders の無い古い行のために文から読む。前の名前「持ち手」も読む
+        # （前の名前は、語の置き換え〔terms.py --fix〕に書き換えられないように字の番号で書く）
         old = "\u6301\u3061\u624b"
-        text = f"- 測る。{old}: 割り振り\n- 回した。{old}: 20261018-031120-52e05e"
-        self.assertEqual(deliver.holder_problems(text), [])
+        text = f"- 測る。{old}: 割り振り\n- 回した。担当者: 20261018-031120-52e05e"
         self.assertEqual([x["ask"] for x in deliver.open_holders(text)], [None, "20261018-031120-52e05e"])
-        self.assertEqual(len(deliver.holder_problems(f"- なし。{old}: 割り振り？")), 0)
+        for none in ("なし", "- なし", "ありません", "無し。https://x.example/?a=1"):
+            self.assertEqual(deliver.open_holders(none), [], none)
+        self.assertEqual(deliver.unsure_problems({"結論": "直した（要確認）", deliver.OPEN: "要確認。担当者: 割り振り"}),
+                         ["「結論」に「要確認」がある。頭書きの [[open]] に移して holder（担当者）を付ける"])
 
     def test_the_role_reads_holders_as_off_true_or_relay_names(self):
         import tomllib
@@ -183,11 +202,27 @@ class Summary(unittest.TestCase):
     def test_headings_and_labels_are_read(self):
         got = deliver.parse("結論: 直した\n**決め手**：原文 https://x.example\n## 残った疑問\nなし\n## 補足\n関係ない",
                             deliver.DEFAULT_ITEMS)
-        self.assertEqual(got, {"結論": "直した", "決め手": "原文 https://x.example", "残った疑問": "なし"})
+        # 決まった項目の外の見出し（補足）も落とさない（受付 6a65a9）
+        self.assertEqual(got, {"結論": "直した", "決め手": "原文 https://x.example", "残った疑問": "なし", "補足": "関係ない"})
+
+    def test_deeper_headings_and_code_blocks_stay_in_the_item_and_english_names_are_read(self):
+        text = "## Conclusion\na\n### 小見出し\nb\n```\n## コードの中\n```\n## 参考になりうる点\nc\n## evidence\nhttps://x.example"
+        self.assertEqual(deliver.parse(text, deliver.DEFAULT_ITEMS),
+                         {"結論": "a\n### 小見出し\nb\n```\n## コードの中\n```", "参考になりうる点": "c", "決め手": "https://x.example"})
+        self.assertEqual(deliver.parse("前置き\n## 結論\nx", deliver.DEFAULT_ITEMS), {deliver.PREAMBLE: "前置き", "結論": "x"})
+        # 題の見出しの下の項目も、深い見出しで書いた残った疑問も、空白の無い「##結論」も項目に読む（黙って前の項目に入れない）
+        self.assertEqual(deliver.parse("# 納品の要約\n## 結論\na\n### 残った疑問\nb\n##決め手\nc", deliver.DEFAULT_ITEMS),
+                         {"納品の要約": "", "結論": "a", deliver.OPEN: "b", "決め手": "c"})
+        # 英語の名前は見出しだけ（本文の「Branch: …」の行で項目を切り替えない）
+        self.assertEqual(deliver.parse("## 結論\nBranch: main に入れた", deliver.DEFAULT_ITEMS), {"結論": "Branch: main に入れた"})
+        self.assertEqual(deliver.front("\ufeff+++\nopen = []\n+++\n## 結論\nx")[0], {"open": []})
+        self.assertIsNone(deliver.ask_title_of("## 直して"))
+        self.assertEqual(deliver.ask_title_of("あ" * 70), "あ" * 60 + "…")
 
     def test_check_names_what_is_missing(self):
-        items = deliver.parse(GOOD, deliver.DEFAULT_ITEMS)
+        items = {**deliver.parse(deliver.front(GOOD)[1], deliver.DEFAULT_ITEMS), deliver.OPEN: deliver.render_open([])}
         self.assertEqual(deliver.check(items, ["結論", "決め手", "残った疑問"]), [])
+        self.assertIn("頭書きの open が無い", deliver.check({}, [deliver.OPEN])[0])
         self.assertEqual(deliver.check({**items, "結論": "1\n2\n3\n4"}, ["結論"]), ["結論（3 行を超える）"])
         self.assertEqual(deliver.check({**items, "決め手": "原文だけ"}, ["決め手"]), ["決め手（原典の URL が無い）"])
         self.assertEqual(deliver.check(items, ["ブランチ", "試験"]), ["ブランチ（無いか空）", "試験（無いか空）"])
@@ -670,7 +705,7 @@ class Flow(unittest.TestCase):
         (w,) = self.prompts()
         self.assertEqual((w[1], w[3]), (self.window, False))
         self.assertIn("頼みです（受付 ", w[2])
-        self.assertIn("desk から）: これを調べて 終わったら、要約を 結論・決め手・残った疑問・ブランチ の見出しで", w[2])
+        self.assertIn("desk から）: これを調べて 終わったら、要約を 結論・決め手・残った疑問・ブランチ の項目で", w[2])
         attrs = gitx.worktree_attrs(self.place)
         self.assertEqual({k: attrs.get(k) for k in ("boss", "boss-account", "boss-session", "boss-pane")},
                          {"boss": "desk", "boss-account": "a1", "boss-session": "s-desk", "boss-pane": self.desk})
@@ -808,17 +843,18 @@ class Flow(unittest.TestCase):
                 a = argparse.Namespace(config=self.cfg, ask="出荷役", text=None, brief=None, task="出荷", branch="ship/1",
                                        dry_run=False, role=None, resident=False, base=None, from_name=None, from_account=None)
                 brief = pathlib.Path(self.root).parent / "b.md"
-                brief.write_text("長い頼み\n二行目", encoding="utf-8")
+                brief.write_text('+++\ntitle = "出荷する"\n+++\n長い頼み\n二行目', encoding="utf-8")
                 a.brief = str(brief)
                 rc = orders.ask(a, self.ports, self.src, task)
         self.assertEqual(rc, 0, buf.getvalue())
         self.assertEqual((seen["name"], seen["branch"], seen["role"]), ("出荷", "ship/1", "出荷役"))
         self.assertEqual(os.path.realpath(seen["source"]), os.path.realpath(self.src))
-        self.assertEqual(pathlib.Path(seen["brief"]).read_text(encoding="utf-8"), "長い頼み\n二行目\n")
+        self.assertEqual(pathlib.Path(seen["brief"]).read_text(encoding="utf-8"), '+++\ntitle = "出荷する"\n+++\n長い頼み\n二行目\n')
         self.assertIn("--deliver <要約のファイル>", seen["tail"])
         self.assertTrue(seen["refreshed"])
         self.assertEqual(seen["attrs"]["boss"], "desk")
         self.assertEqual(deliver.records(self.inbox)[0]["status"], "sent")
+        self.assertEqual(deliver.records(self.inbox)[0]["title"], "出荷する")   # 題は台帳の行のフィールドに残す（--todo は文から拾わない）
 
     def test_ask_that_starts_a_department_reads_the_items_from_the_fetched_shape(self):
         seen = {}
@@ -943,7 +979,7 @@ class Flow(unittest.TestCase):
         summary = self.ask_then_summary("結論: 直した\n")
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 2, out)
-        self.assertIn("送らなかった: 要約に足りない項目がある: 決め手（無いか空）、残った疑問（無いか空）", out)
+        self.assertIn("送らなかった: 要約に足りない項目がある: 決め手（無いか空）、残った疑問（頭書きの open が無い。疑問が無ければ open = []）", out)
         self.assertEqual(self.prompts(), [])
         attrs = gitx.worktree_attrs(self.place)
         self.assertNotIn("delivered", attrs)
@@ -1082,7 +1118,7 @@ class Flow(unittest.TestCase):
         self.shape(test_role.SHAPE)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて")
         self.assertEqual(rc, 0, out)
-        self.assertIn("結論・差分・試験 の見出しで", self.prompts()[0][2])
+        self.assertIn("結論・差分・試験 の項目で", self.prompts()[0][2])
         self.ports.herdr.writes.clear()
         summary = pathlib.Path(self.root).parent / "summary.md"
         summary.write_text("結論: 直した\n差分: 1 行\n", encoding="utf-8")
@@ -1125,7 +1161,7 @@ class Flow(unittest.TestCase):
         self.assertTrue(payload["summary"].startswith("## 結論\n直した。"))
         self.assertEqual(payload["version"], orders.own_version())   # 会社の側の台本が版の下限を確かめる（3c9a61）
         self.assertRegex(payload["version"], r"^\d+\.\d+\.\d+$")
-        pathlib.Path(summary).write_text(GOOD.replace("なし", "写しは reference/spec.md"), encoding="utf-8")
+        pathlib.Path(summary).write_text(GOOD.replace("open = []", '[[open]]\nquestion = "写しは reference/spec.md"'), encoding="utf-8")
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 0, out)
         self.assertIn("納品の検査が通った", out)
@@ -1151,19 +1187,53 @@ class Flow(unittest.TestCase):
 
     def test_deliver_with_holders_stops_an_open_item_without_a_holder(self):
         self.shape('[[roles]]\nname = "調べ役"\nholders = true\n')
-        summary = self.ask_then_summary(GOOD.replace("## 残った疑問\nなし", "## 残った疑問\n- 測り直す"))
+        summary = self.ask_then_summary(GOOD.replace("+++\nopen = []\n+++", ONE_OPEN))
         rc, out = self.main(self.place, "--deliver", summary)
         self.assertEqual(rc, 2, out)
-        self.assertIn("担当者が無い: - 測り直す", out)
+        self.assertIn("担当者（holder）が無い: 測り直す", out)
+        self.assertIn("[[open]]", out)   # 書き方の例を返す
         self.assertEqual(self.prompts(), [])
-        pathlib.Path(summary).write_text(GOOD.replace("## 残った疑問\nなし", "## 残った疑問\n- 測り直す。担当者: 割り振り"), encoding="utf-8")
+        with_holder = GOOD.replace("open = []", '[[open]]\nquestion = "測り直す"\nholder = "割り振り"')
+        pathlib.Path(summary).write_text(with_holder, encoding="utf-8")
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 2, out)   # 部署の名前は --todo が追えない（受付 b6778d）
+        self.assertIn("「割り振り」は 受付番号・owner:choose・owner:confirm", out)
+        pathlib.Path(summary).write_text(with_holder.replace("割り振り", "20261018-120448-b6778d"), encoding="utf-8")
         self.assertEqual(self.main(self.place, "--deliver", summary)[0], 0)
+
+    def test_deliver_stops_free_text_open_questions_and_text_before_the_first_heading(self):
+        for text, said in ((GOOD + "\n## 残った疑問\nなし\n", "頭書きの [[open]] に 1 件ずつ書く"),
+                           (GOOD.replace("+++\n## 結論", "+++\n前置き\n## 結論"), "最初の見出しの前に字がある"),
+                           (GOOD.replace("open = []", "open = []\nnote = 1"), "知らないフィールド「note」"),
+                           (GOOD.replace("+++\nopen = []\n+++\n", ""), "残った疑問（頭書きの open が無い")):
+            summary = self.ask_then_summary(text)
+            rc, out = self.main(self.place, "--deliver", summary)
+            self.assertEqual(rc, 2, out)
+            self.assertIn(said, out)
+            self.assertEqual(self.prompts(), [])
+
+    def test_sections_outside_the_required_items_are_delivered(self):
+        # 決まった項目の外の見出しを、知らせずに落として送っていた（受付 6a65a9）
+        summary = self.ask_then_summary(GOOD + "\n## 参考になりうる点\n- 1 つ目\n")
+        rc, out = self.main(self.place, "--deliver", summary)
+        self.assertEqual(rc, 0, out)
+        got = pathlib.Path(out.split("- 要約: ")[1].strip()).read_text(encoding="utf-8")
+        self.assertIn("## 参考になりうる点\n- 1 つ目", got)
+        self.assertIn("## 残った疑問\nなし", got)
 
     def test_an_ask_to_a_role_with_ask_holders_is_checked_when_it_has_open_items(self):
         self.shape('[[roles]]\nname = "調べ役"\nask_holders = true\n')
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "問いです\n## 残った疑問\n- 担当者の無い疑問", "--dry-run")
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", '+++\ntitle = "問い"\n[[open]]\nquestion = "担当者の無い疑問"\n+++\n問いです',
+                            "--dry-run")
         self.assertEqual(rc, 2, out)
         self.assertIn("役の ask_holders の検査", out)
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", '+++\ntitle = "問い"\n+++\n## 残った疑問\n- 文で書いた疑問', "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("頭書きの [[open]] に 1 件ずつ書く", out)
+        # 題の無い 2 行以上の頼みは止まり、書き方が返る（題を本文の行から拾わない。受付 c705d1）
+        rc, out = self.main(self.src, "--ask", "調べ", "--text", "## 困りごと\n本文", "--dry-run")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("title = ", out)
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "残った疑問のセクションの無い頼み", "--dry-run")
         self.assertEqual(rc, 0, out)
 

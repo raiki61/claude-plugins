@@ -95,7 +95,7 @@ def fire(company, companies, skill, by, ports, a, task, settings):
     brief = deliver.put(inbox, f"{ask_id}-start.md", start.body(name, by, text))
     ns = argparse.Namespace(**{**vars(a), "ask": f"{company['name']}/{skill['role']}", "text": None, "brief": brief,
                                "task": name, "branch": start.branch(skill, ask_id), "role": None, "resident": False,
-                               "ask_id": ask_id, "from_boss": boss, "forward": False})
+                               "ask_id": ask_id, "from_boss": boss, "forward": False, "title": f"受け持ち「{name}」の起動（{by}）"})
     rc = orders.ask(ns, ports, company["root"], task)
     deliver.log(inbox, {"kind": "start", "skill": name, "id": ask_id, "by": by, "report_to": st["report_to"],
                         "status": "sent" if rc == 0 else "failed", "at": ports.now()})

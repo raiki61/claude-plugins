@@ -30,6 +30,7 @@ import pathlib
 import re
 import shlex
 import time
+import tomllib
 import uuid
 
 import gitx
@@ -38,6 +39,7 @@ INBOX = ("company", "inbox")      # 共通の .git の下の受付箱
 LOG = "log.jsonl"
 DEFAULT_ITEMS = ("結論", "決め手", "残った疑問", "ブランチ")
 BRANCH_ITEM = "ブランチ"                 # 書かなければ部署のブランチを機械が足す項目
+OPEN = "残った疑問"                      # 頭書きの open から作る項目（本文に見出しで書かない）
 # 項目の前の名前 → 今の名前（IT の定着語に替える前の名前。前の版の役の本文や会社の形の deliver に従って書いた要約も通す）
 ITEM_ALIASES = {"枝": BRANCH_ITEM}
 CONCLUSION_ITEM, CONCLUSION_LINES = "結論", 3
@@ -310,6 +312,126 @@ def open_asks(records, held=()):
     return [r for i, r in asks.items() if i not in closed]
 
 
+# ---- 頭書き（機械が読むフィールド）----
+# 頼みと納品の、機械が読むフィールド（題・残った疑問と担当者）は、本文の頭の TOML の頭書き（Hugo の front matter と同じく、1 行目と閉じの行が
+# +++）に書く。本文の文から日本語の語で拾わない（言い方や言語で崩れ、崩れても知らせなかった。受付 b0df65）。知らないフィールド・形の違う値は、
+# 送る前に止めて訳を返す。
+
+FRONT = "+++"
+OWNER_KEYS = {"owner:choose": "持ち主（価値で選ぶ）", "owner:confirm": "持ち主（確認してからやる）"}   # 担当者の持ち主の値 → 見せる字
+ASK_ID_RE = re.compile(r"\b\d{8}-\d{6}-[0-9a-f]{6}\b")
+ASK_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
+ASK_FIELDS = ("title", "open")     # 頼みの頭書きのフィールド
+DELIVER_FIELDS = ("open",)         # 納品の頭書きのフィールド
+QUESTION_FIELDS = ("question", "holder")
+
+
+def front(text):
+    """本文から (頭書きの dict, 頭書きを除いた本文, 訳の並び)。1 行目が +++ でなければ頭書きは無い（{}）。閉じの +++ が無いか、TOML として
+    読めなければ訳に書く。"""
+    text = (text or "").lstrip("\ufeff")   # Windows のメモ帳などが頭に付ける BOM（str.strip は消さない）
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != FRONT:
+        return {}, text, []
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == FRONT), None)
+    if end is None:
+        return {}, text, [f"頭書きの閉じの {FRONT} の行が無い（1 行目の {FRONT} から、次の {FRONT} の行までが頭書き）"]
+    try:
+        data = tomllib.loads("".join(lines[1:end]))
+    except tomllib.TOMLDecodeError as e:
+        return {}, text, [f"頭書きが TOML として読めない（{e}）"]
+    return data, "".join(lines[end + 1:]).lstrip("\n"), []
+
+
+def front_problems(data, fields):
+    """頭書き（front の dict）の形の違反の並び。fields はその文書で使えるフィールド（ASK_FIELDS か DELIVER_FIELDS）。"""
+    out = [f"頭書きに知らないフィールド「{k}」がある（使えるフィールド: {'・'.join(fields)}）" for k in data if k not in fields]
+    if "title" in data and not (isinstance(data["title"], str) and data["title"].strip() and "\n" not in data["title"].strip()):
+        out.append("頭書きの title は 1 行の空でない文字列にする")
+    if "open" in data:
+        qs = data["open"]
+        if not isinstance(qs, list) or not all(isinstance(q, dict) for q in qs):
+            out.append("頭書きの open は表の並び（[[open]] を 1 件ずつ。疑問が無ければ open = []）にする")
+        else:
+            for n, q in enumerate(qs, 1):
+                out += [f"頭書きの open の {n} 件目に知らないフィールド「{k}」がある（使えるフィールド: question・holder）" for k in q if k not in QUESTION_FIELDS]
+                if not (isinstance(q.get("question"), str) and q["question"].strip()):
+                    out.append(f"頭書きの open の {n} 件目の question が無いか空")
+                if "holder" in q and not isinstance(q["holder"], str):
+                    out.append(f"頭書きの open の {n} 件目の holder は文字列にする")
+    return out
+
+
+def holder_problems(questions, relays=(), requester=None):
+    """残った疑問（頭書きの open の並び）の 1 件ごとの担当者の違反の並び（役の holders・ask_holders の検査。my_notes の
+    tools/deliver_check.py から移した）。担当者に書けるのは、受付番号（--ask で回した頼み。--todo が追う）・owner:choose・owner:confirm
+    （持ち主に向ける物）・requester（頼み元が自分で持つ物）の 4 つで、relays（持ち主への中継の会話）は書けない。部署の名前は、閉じる
+    出来事が台帳に無く --todo が追えないので書けない（--ask で回して受付番号を書く。受付 b6778d）。"""
+    out = []
+    for q in questions or []:
+        head = " ".join(str(q.get("question") or "").split())[:40]
+        holder = (q.get("holder") or "").strip()
+        if not holder:
+            out.append(f"担当者（holder）が無い: {head}")
+        elif not (ASK_ID.fullmatch(holder) or holder in OWNER_KEYS or holder == requester and holder not in relays):
+            allowed = ["受付番号", *OWNER_KEYS] + ([requester] if requester and requester not in relays else [])
+            out.append(f"担当者「{holder}」は {'・'.join(allowed)} のどれでもない: {head}")
+    return out
+
+
+OPEN_IN_BODY = "「残った疑問」を本文の見出しで書いた。頭書きの [[open]] に 1 件ずつ書く（疑問が無ければ open = []）"
+_OPEN_EXAMPLE = ('[[open]]\n'
+                 'question = "…を決める"\n'
+                 'holder = "20261018-120448-b6778d"   # 受付番号（--ask で回した頼み）・owner:choose・owner:confirm・頼み元の名前のどれか\n')
+ASK_FORMAT = ("- 頼みの本文の書き方（1 行目と閉じの行が +++ の TOML の頭書きに機械が読むフィールド、その下に本文）:\n"
+              "+++\ntitle = \"一覧に出す題（1 行）\"\n# 宛先の役が問いを受ける役なら、残った疑問をここに:\n" + _OPEN_EXAMPLE
+              + "+++\n## 困りごと\n…")
+DELIVER_FORMAT = ("- 要約の書き方（1 行目と閉じの行が +++ の TOML の頭書きに残った疑問、その下に見出しで項目。見出しは決まった項目の外も"
+                  "そのまま送る）:\n+++\n" + _OPEN_EXAMPLE + "# 疑問が無ければ [[open]] の代わりに open = []\n+++\n## 結論\n…\n## 決め手\n… https://…")
+
+
+def holder_text(holder):
+    """担当者の値の見せる字（持ち主の値は「持ち主（価値で選ぶ）」などに替える）。"""
+    return OWNER_KEYS.get(holder, holder)
+
+
+def render_open(questions):
+    """残った疑問（頭書きの open）を、要約の本文の「残った疑問」の字にする（受付箱の要約・頼み元の窓・納品の検査に渡す）。無ければ「なし」。"""
+    lines = []
+    for q in questions or []:
+        text = " ".join(str(q.get("question") or "").split())
+        holder = (q.get("holder") or "").strip()
+        lines.append(f"- {text}" + (f" 担当者: {holder_text(holder)}" if holder else ""))
+    return "\n".join(lines) or "なし"
+
+
+def holders_of(questions):
+    """残った疑問（頭書きの open）の担当者の並び [{"holder": 見せる字, "ask": 受付番号か None}]（納品の台帳の行の holders。担当者の
+    受付を、台帳の射影が頼みの続きに結ぶ。docs/ledger.md）。担当者の無い件は数えない。"""
+    return [{"holder": holder_text(h), "ask": h if ASK_ID.fullmatch(h) else None}
+            for h in ((q.get("holder") or "").strip() for q in questions or []) if h]
+
+
+def ask_title_of(text, width=60):
+    """--ask の本文の題（width 文字を超えれば切る）。頭書きの title、無ければ 1 行だけの本文そのもの（見出しの行は題にしない）。どちらも
+    無ければ None（頼みを止める）。"""
+    data, body, _ = front(text)
+    if isinstance(data.get("title"), str) and data["title"].strip():
+        return _cut(data["title"].strip(), width)
+    lines = [x.strip() for x in (body or "").strip().splitlines()]
+    return _cut(lines[0], width) if len(lines) == 1 and lines[0] and not HEADING.match(lines[0]) else None
+
+
+def wrap(note, text):
+    """回す側の添え書き（note）を、頼みの本文の前に置く。頭書きは本文の頭に残す（頭書きの後ろ、本文の前に置く）。"""
+    lines = (text or "").lstrip("\ufeff").splitlines(keepends=True)
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == FRONT), None) if lines and lines[0].strip() == FRONT else None
+    head, body = ("".join(lines[:end + 1]), "".join(lines[end + 1:]).lstrip("\n")) if end is not None else ("", text)
+    return f"{head}{note.strip()}\n\n---\n\n{body}"
+
+
+# ---- 頭書きの無い古い頼みと納品を読む（台帳に今ある物のため。新しく受けた頼みと納品には使わない）----
+
 # 頼みの本文の頭によく置く決まり文句（題にしない）
 BOILERPLATE = ("前提が違う", "段取りからの添え書き", "---")
 # 誰からの何かだけを言う頭の文（「社長室からの頼みです（穴の直し）」「知らせです（返事は要りません）」「段取りから社長室へ」など。題にしない）
@@ -349,25 +471,36 @@ def _lines(path):
 
 
 def ask_title(path, width=60):
-    """頼みの本文のファイルの題。回した側の添え書き（「…が回した:」と区切りの ---）の後の、見出し（# の行）・決まり文句の行と、誰からの何か
-    だけを言う文を飛ばした、最初の文（文の頭の項目名「困っていること:」などは外す）。見出しは「困りごと」「頼み」のように中身を言わないので
-    題にしない（飛ばした後に何も残らなければ、最初の行の頭の # を外す）。読めなければ None。"""
-    lines = _lines(path)
-    if lines is None:
+    """頼みの本文のファイルの題。頭書きが在れば、その title。無ければ、回した側の添え書き（「…が回した:」と区切りの ---）の後の、
+    見出し（# の行）・決まり文句の行と、誰からの何かだけを言う文を飛ばした、最初の文（文の頭の項目名「困っていること:」などは外す）。
+    見出しは「困りごと」「頼み」のように中身を言わないので題にしない（飛ばした後に何も残らなければ、最初の行の頭の # を外す）。
+    読めなければ None。"""
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, TypeError):
         return None
+    data, text, _ = front(text)
+    if isinstance(data.get("title"), str) and data["title"].strip():
+        return _cut(data["title"].strip(), width)
+    lines = [x.strip() for x in text.splitlines()]
     if "---" in lines and any("回した" in x for x in lines[:lines.index("---")]):
         lines = lines[lines.index("---") + 1:]
     lines = [x for x in lines if x and not x.startswith(BOILERPLATE)]
     said = (y for line in lines if not line.startswith("#") for x in sentences(TITLE_ITEM_RE.sub("", line, count=1))
             if not COVER_RE.match(x) for y in [LABEL_RE.sub("", x, count=1)] if y)
     head = next(said, None) or next((x.lstrip("# ") for x in lines), None)
-    return head if head is None or len(head) <= width else head[:width] + "…"
+    return None if head is None else _cut(head, width)
+
+
+def _cut(text, width):
+    return text if len(text) <= width else text[:width] + "…"
 
 
 def task_title(path, width=60):
-    """頼みの木（--todo）と --html に出す題。本文に持ち主の言葉（「## 持ち主の言葉」のセクションか「持ち主の言葉（そのまま）:」の行）が在れば、
-    その最初の言葉（箇条の印を外す。頭が「で、閉じの後ろに文が続かなければ、その「」の中）。無ければ ask_title。窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、
-    題にならないため。読めなければ None。"""
+    """頼みの木（--todo）と --html に出す題（頭書きの title が無い古い頼みのため。新しい頼みは台帳の行の title を使う）。本文に持ち主の
+    言葉（「## 持ち主の言葉」のセクションか「持ち主の言葉（そのまま）:」の行）が在れば、その最初の言葉（箇条の印を外す。頭が「で、閉じの
+    後ろに文が続かなければ、その「」の中）。無ければ ask_title。窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような
+    定型で、題にならないため。読めなければ None。"""
     lines = _lines(path)
     if lines is None:
         return None
@@ -389,13 +522,10 @@ def task_title(path, width=60):
                 break
         else:
             head = head[1:]   # 閉じの無い「
-    return head if len(head) <= width else head[:width] + "…"
+    return _cut(head, width)
 
 
-# ---- 残った疑問の担当者（役の holders。my_notes の tools/deliver_check.py の holder_problems から移した）----
-
-OPEN = "残った疑問"
-# 担当者の札（前の名前「持ち手」も読む。my_notes の tools/deliver_check.py や前の版の役の本文が書く）
+# 古い要約の担当者の札（前の名前「持ち手」も読む）
 HOLDER_WORDS = ("担当者", "持ち手")
 HOLDER_RE = re.compile(rf"(?:{'|'.join(HOLDER_WORDS)})[:：]\s*([^。、\n]+)")
 # 箇条の頭（- * ・ • + と、1. 1) 1． 1） (1) ① の番号）。字下げした子の項目は親に続ける
@@ -403,15 +533,11 @@ ITEM_RE = re.compile(r"^\s{0,1}(?:[-*・•+]|\d+[.)．）]|[(（]\d+[)）]|[①
 NONE_RE = re.compile(r"(?:特に)?(?:無し|なし|無い|ない|ありません)(?:です|でした)?(?:$|[。．.、，,（()）「」『』【】：:；;！!→—/\s])")
 # 問いの印を探す前に消す URL（\S+ だと URL のすぐ後ろの全角の「？」まで消える）
 ASCII_URL = re.compile(r"https?://[\x21-\x7e]+")
-OWNER_WORDS = ("持ち主", "所有者")
-OWNER_OK = ("持ち主（価値で選ぶ）", "持ち主（確認してからやる）")
 
 
 def open_items(text):
-    """残った疑問を 1 件ずつに割る。箇条書きが無ければ全体で 1 件。箇条でない段落（箇条の前の前置きと、箇条の間・後ろの、空行の後の
-    字下げの無い行。空行まで 1 段落）は、最後の行が「：」か「:」で終わり、ほかの行が文の終わり（。？?）で終わらない物（「次の 2 件：」
-    など。折り返した行も 1 段落）で、すぐ次が箇条の物だけを箇条を導く札として件に数えず、ほかは 1 件に数える（前置きや後書きに問いを書いて担当者を省くと
-    通っていた。my_notes の受付 3c9a61）。"""
+    """古い要約の残った疑問を 1 件ずつに割る。箇条書きが無ければ全体で 1 件。箇条でない段落は、箇条を導く札（「次の 2 件：」など）だけを
+    件に数えず、ほかは 1 件に数える。"""
     blocks, gap = [], True   # 箇条の 1 件は字、段落は行の並び
     for line in (text or "").splitlines():
         if not line.strip():
@@ -439,39 +565,14 @@ def _intro(lines):
 
 
 def _none(text):
-    """疑問が無いと書いた物か（「なし」「- なし」「なし（全部閉じた）」「無い。<理由>」「ありません」など）。無しの語の後が句読点・括弧・
-    空白・終わりのときだけで、「無い場合はどうするか」のように語が文の頭に来ただけの物と、問いの印（？。URL の中の ? は除く）の在る物は
-    数えない（3c9a61）。"""
+    """古い要約で、疑問が無いと書いた物か（「なし」「無い。<理由>」など。問いの印の在る物は数えない）。"""
     body = ITEM_RE.sub("", text.strip(), count=1).strip()
     return bool(NONE_RE.match(body)) and not any(w in body for w in HOLDER_WORDS) and not any(q in ASCII_URL.sub("", body) for q in "？?")
 
 
-def holder_problems(text, relays=()):
-    """残った疑問（text）の 1 件ごとの担当者の違反の並び。担当者が無い・持ち主（か relays の名前。持ち主への中継の会話）を担当者にして、
-    価値で選ぶ問いか確認してからやる事と示していない、の 2 つ。「無し」だけなら違反なし。"""
-    text = (text or "").strip()
-    items = open_items(text)
-    if not text or len(items) == 1 and _none(items[0]):
-        return []
-    out = []
-    for item in items:
-        head = item[:40]
-        found = HOLDER_RE.search(item)
-        if not found:
-            out.append(f"担当者が無い: {head}")
-            continue
-        holder = re.sub(r"\s+", "", found.group(1)).replace("(", "（").replace(")", "）")
-        if holder.startswith(OWNER_WORDS + tuple(relays)) and not holder.startswith(OWNER_OK):
-            out.append(f"担当者が持ち主（か持ち主への中継）で、「持ち主（価値で選ぶ）」か「持ち主（確認してからやる）」と示していない: {head}")
-    return out
-
-
-ASK_ID_RE = re.compile(r"\b\d{8}-\d{6}-[0-9a-f]{6}\b")
-
-
 def open_holders(text):
-    """残った疑問（text）の 1 件ごとの担当者の並び [{"holder": 担当者の字, "ask": 担当者の字の中の受付番号か None}]（納品の台帳の行の
-    holders のフィールド。担当者の受付を、台帳の射影が頼みの続きに結ぶ。docs/ledger.md）。担当者の無い件と「無し」は数えない。"""
+    """古い要約の残った疑問（text）の 1 件ごとの担当者の並び（holders_of と同じ形）。holders のフィールドの無い古い納品の行を
+    --todo が読むときだけ使う。担当者の無い件と「無し」は数えない。"""
     text = (text or "").strip()
     out = []
     for item in open_items(text) if text else []:
@@ -484,8 +585,8 @@ def open_holders(text):
 
 
 def unsure_problems(items):
-    """残った疑問の外の項目に「要確認」が在れば、その違反の並び（残った疑問に移して担当者を付ける。my_notes の決まりを移した）。"""
-    return [f"「{name}」に「要確認」がある。残った疑問に移して担当者を付ける" for name, body in items.items()
+    """残った疑問の外の項目に「要確認」が在れば、その違反の並び（頭書きの [[open]] に移して担当者を付ける。my_notes の決まりを移した）。"""
+    return [f"「{name}」に「要確認」がある。頭書きの [[open]] に移して holder（担当者）を付ける" for name, body in items.items()
             if name != OPEN and "要確認" in (body or "")]
 
 
@@ -497,38 +598,54 @@ def required_items(role):
     return [ITEM_ALIASES.get(x, x) for x in (role or {}).get("deliver") or DEFAULT_ITEMS]
 
 
-def _label(names):
-    alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-    return (re.compile(rf"^\s*#{{1,6}}\s*(?:\*\*)?({alt})(?:\*\*)?\s*[:：]?\s*$"),
-            re.compile(rf"^\s*(?:[-*]\s+)?(?:\*\*)?({alt})(?:\*\*)?\s*[:：]\s*(.*)$"))
+# 既定の項目の英語の名前（見出しを英語で書いても同じ項目に当たる。大文字と小文字は見ない）
+ENGLISH = {"conclusion": "結論", "evidence": "決め手", "open questions": OPEN, "branch": BRANCH_ITEM}
+HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")   # CommonMark の ATX の見出し
+TIGHT = re.compile(r"^ {0,3}(#{1,6})(\S.*?)[ \t]*$")   # # の後ろに空白の無い行（CommonMark では見出しでない。決まった項目の名前のときだけ見出しに読む）
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+PREAMBLE = ""   # parse が返す、最初の見出しの前の字の鍵
 
 
-def parse(text, names):
-    """要約の本文から {項目: 本文}。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で始まり、次の項目か見出しまで続く。
-    項目の前の名前（ITEM_ALIASES）で書いた物は今の名前で返す。"""
-    names = set(names) | {old for old, new in ITEM_ALIASES.items() if new in names}
-    heading, label = _label(names)
-    out, cur = {}, None
+def canon(name):
+    """見出しの名前 → 項目の名前（飾りの ** と終わりの「:」を外し、前の名前・英語の名前を今の名前に替える）。"""
+    name = name.strip().strip("*").strip().rstrip(":：").strip().strip("*").strip()
+    return ITEM_ALIASES.get(name) or ENGLISH.get(name.casefold()) or name
+
+
+def parse(text, names=()):
+    """要約の本文（頭書きを除いた物）から {項目: 本文}。項目は見出し（`## 結論`）で始まり、次の同じか浅い見出しまで続く（深い見出しと
+    コードブロックの中は本文）。見出しの名前は決まった項目でなくても落とさない（決まった項目の外の見出しのセクションを、知らせずに落として
+    送っていた。受付 6a65a9）。names（決まった項目）だけは行の頭の札（`結論: …`）でも始められる。前の名前・英語の名前で書いた物は今の
+    名前で返す。最初の項目の前に字が在れば、それを PREAMBLE の鍵で返す（送る側が止める）。"""
+    known = set(names) | {old for old, new in ITEM_ALIASES.items() if new in names}
+    alt = "|".join(re.escape(n) for n in sorted(known, key=len, reverse=True))
+    # 行の頭の札は日本語の名前だけ（英語の名前を札に読むと、本文の「Branch: …」の行で項目が切り替わる）
+    label = re.compile(rf"^\s*(?:[-*]\s+)?(?:\*\*)?({alt})(?:\*\*)?\s*[:：]\s*(.*)$") if known else None
+    items = set(names) | {OPEN}   # 深さに依らず項目を始める見出し（「# 納品の要約」の下の「## 結論」も、「### 残った疑問」も項目にする）
+    out, cur, level, fence = {PREAMBLE: []}, PREAMBLE, 0, None
     for line in text.splitlines():
-        m = heading.match(line)
-        if m:
-            cur = m.group(1)
-            out.setdefault(cur, [])
-            continue
-        m = label.match(line)
-        if m:
-            cur = m.group(1)
-            out.setdefault(cur, []).append(m.group(2))
-            continue
-        if re.match(r"^\s*#{1,6}\s", line):
-            cur = None
-            continue
-        if cur:
-            out[cur].append(line)
-    merged = {}
-    for k, v in out.items():
-        merged.setdefault(ITEM_ALIASES.get(k, k), []).extend(v)
-    return {k: "\n".join(v).strip() for k, v in merged.items()}
+        f = FENCE.match(line)
+        if fence:
+            fence = None if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= len(fence) else fence
+        elif f:
+            fence = f.group(1)
+        else:
+            h = HEADING.match(line)
+            h = h if h and h.group(2) else (t if (t := TIGHT.match(line)) and canon(t.group(2)) in items else None)
+            if h and (cur == PREAMBLE or len(h.group(1)) <= level or canon(h.group(2)) in items):
+                cur, level = canon(h.group(2)), len(h.group(1))
+                out.setdefault(cur, [])
+                continue
+            m = label.match(line) if label else None
+            if m:
+                cur, level = canon(m.group(1)), 6
+                out.setdefault(cur, []).append(m.group(2))
+                continue
+        out[cur].append(line)
+    got = {k: "\n".join(v).strip() for k, v in out.items()}
+    if not got[PREAMBLE]:
+        del got[PREAMBLE]
+    return got
 
 
 def check(items, required):
@@ -537,7 +654,7 @@ def check(items, required):
     for name in required:
         body = items.get(name, "")
         if not body:
-            out.append(f"{name}（無いか空）")
+            out.append(f"{name}（頭書きの open が無い。疑問が無ければ open = []）" if name == OPEN else f"{name}（無いか空）")
         elif name == CONCLUSION_ITEM and len([x for x in body.splitlines() if x.strip()]) > CONCLUSION_LINES:
             out.append(f"{name}（{CONCLUSION_LINES} 行を超える）")
         elif name in URL_ITEMS and not URL.search(body):
@@ -573,7 +690,7 @@ def absent_files(command, place):
 def summary_text(items, required):
     """受付箱に置く要約の本文（項目の順は必須の並び、その後に書かれた順）。"""
     order = list(required) + [k for k in items if k not in required]
-    return "\n\n".join(f"## {k}\n{items[k]}" for k in order if items.get(k))
+    return "\n\n".join(f"## {k}" + (f"\n{items[k]}" if items[k] else "") for k in order if k in items)
 
 
 def flat(text):
@@ -590,6 +707,9 @@ def deliver_command(run):
 def rules_of(required):
     """要る項目に付く決まりの短い文の並び（返し方の文に添えて、部署が送り返されてから知ることを減らす）。"""
     out = []
+    if OPEN in required:
+        out.append(f"{OPEN}は見出しでなく、頭書き（1 行目と閉じの行が +++ の TOML）の [[open]] に question と holder で 1 件ずつ書く"
+                   "（無ければ open = []）")
     if CONCLUSION_ITEM in required:
         out.append(f"{CONCLUSION_ITEM}は {CONCLUSION_LINES} 行以内")
     out += [f"{name}には原典の http(s) の URL が要る（無い URL や、決め手でない URL を足さない）" for name in required if name in URL_ITEMS]
@@ -601,7 +721,7 @@ def rules_of(required):
 def tail(required, run):
     """頼みの後ろに付ける、返し方の 1 文。要る項目と、その項目に付く決まり（URL が要るか など）を書く。"""
     rules = rules_of(required)
-    return (f" 終わったら、要約を {'・'.join(required)} の見出しで書いたファイルにして、{deliver_command(run)} で"
+    return (f" 終わったら、要約を {'・'.join(required)} の項目で書いたファイルにして、{deliver_command(run)} で"
             "頼み元へ返す（項目が足りなければ送られずに返ってくる" + (f"。{'・'.join(rules)}" if rules else "") + "）。")
 
 

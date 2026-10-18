@@ -160,7 +160,7 @@ class Reorg(unittest.TestCase):
         # 前の役の名前で宛てても、今の役の常設の場所（本社の段取り）に当たる
         self.ports._cwd = self.place
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-dept"}   # 頼むのは部署の会話（窓口の会話が自分に頼むのは止まる）
-        rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--brief", str(shape), "--dry-run")
+        rc, out = self.main("--ask", f"{os.path.basename(self.src)}/窓口", "--text", "形を見て", "--dry-run")
         self.assertIn(f"宛先の部署 {os.path.basename(self.src)}/段取り（main）", out)
 
     def test_desk_writes_the_settings_of_its_role_and_shows_the_command_to_start_with_them(self):

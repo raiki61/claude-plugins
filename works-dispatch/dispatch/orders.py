@@ -411,6 +411,15 @@ def _ask(a, ports, cwd, task, sent):
         except OSError as e:
             print(f"止めた: 頼みのファイルを読めない（{e}）")
             return 2
+    data, rest, bad = deliver.front(body)
+    bad += deliver.front_problems(data, deliver.ASK_FIELDS)
+    title = deliver.ask_title_of(body) or getattr(a, "title", None)   # 回し直し（--take）は順番待ちの件の題
+    if not title and not getattr(a, "ask_id", None):   # 回し直し（--take・合図）は元の頼みの行の題を使う
+        bad.append("題が無い。本文が 2 行以上なら、頭書きに title を書く")
+    if bad:
+        print("\n".join(["止めた: 頼みの本文の頭書き（機械が読むフィールド）が足りないか形が違う"] + [f"  {x}" for x in bad]
+                        + [deliver.ASK_FORMAT]))
+        return 2
     common = ports.git.common_dir(cwd)
     if not common:
         print(f"止めた: 頼む会話の場所 {cwd} が git でないので、受付箱を置けない（会社の本社か部署の場所から頼む）")
@@ -433,13 +442,6 @@ def _ask(a, ports, cwd, task, sent):
     required = deliver.required_items(the_role)
     notes += problems
     relays = (the_role or {}).get("ask_holders")
-    if relays is not None:
-        # 問いを受ける役（相談）へ宛てた頼みにも、本文に残った疑問のセクションが在れば同じ担当者の検査を掛ける
-        bad = deliver.holder_problems(deliver.parse(body, {deliver.OPEN}).get(deliver.OPEN), relays)
-        if bad:
-            print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、担当者が足りない（役の ask_holders の検査）"]
-                            + [f"  {x}" for x in bad]))
-            return 2
     ask_id = getattr(a, "ask_id", None) or deliver.new_id(ports.now())
     check = (the_role or {}).get("ask_check")
     if check:
@@ -466,6 +468,20 @@ def _ask(a, ports, cwd, task, sent):
     here = next((s.get("cwd") for items in sessions_.values() for s in items if sid and s.get("sessionId") == sid and s.get("cwd")), cwd)
     account, name = a.from_account or found_account, a.from_name or place_name(here, sid, ports) or found_name
     sender = name or "名の無い会話"
+    if relays is not None:
+        # 問いを受ける役（相談）へ宛てた頼みにも、残った疑問（頭書きの open）が在れば同じ担当者の検査を掛ける。頼む側が自分で持つ物は
+        # 頼む側の名前を担当者に書ける
+        # 回し直し（--take）の本文は、頭書きの入る前に積まれた物も在るので、本文の見出しは見ない
+        bad = deliver.holder_problems(data.get("open"), relays, name) + (
+            [deliver.OPEN_IN_BODY] if not getattr(a, "ask_id", None) and deliver.OPEN in deliver.parse(rest, {deliver.OPEN}) else [])
+        if bad:
+            print("\n".join(notes + [f"止めた: 宛先の役「{role}」への頼みの残った疑問に、担当者が足りない（役の ask_holders の検査）"]
+                            + [f"  {x}" for x in bad] + [deliver.ASK_FORMAT]))
+            return 2
+    elif data.get("open"):   # 受ける役が残った疑問を読まないのに書いた（台帳にも残らず、黙って捨てることになる）
+        print("\n".join(notes + [f"止めた: 宛先の役「{role}」は頼みの残った疑問（頭書きの [[open]]）を受けない（役に ask_holders が無い）。"
+                                 "疑問は本文に書く"]))
+        return 2
     if dept is not None and sid and dept["attrs"].get("session") == sid:   # 宛先の会話が、頼むこの会話
         print("\n".join(notes + [f"止めた: 宛先「{a.ask}」はこの会話自身（{dept['attrs'].get('name') or dept['path']}）"
                                  + (f"。{target['via']}が、この会話だった" if target.get("via") else "")]))
@@ -509,7 +525,7 @@ def _ask(a, ports, cwd, task, sent):
         mid_turn = fresh and held and not pending and busy_check(dept, accounts_, ports)()
         def queue(d):   # 待ち受けの居る部署: 順番待ちに積み、待ち受けが渡す（受付の設計 4.1）
             return queue_ask(a, ports, notes, where, d, dest_inbox, place_dir, to, heard, digest,
-                             {"id": ask_id, "sender": sender, "body": body, "inbox": inbox, "required": required, "boss": boss,
+                             {"id": ask_id, "sender": sender, "body": body, "title": title, "inbox": inbox, "required": required, "boss": boss,
                               "fresh": fresh, "cause": cause, "from": {"name": name, "account": account,
                               "session": boss["boss-session"], "place": cwd}, "company": company["name"], "role": role},
                              accounts_, sessions_, company["root"], sent)
@@ -591,7 +607,7 @@ def _ask(a, ports, cwd, task, sent):
         deliver.log(inbox, {"id": ask_id, "kind": "ask", "at": ports.now(), "status": status, "detail": detail, "cause": cause,
                             "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                             "to": {"company": company["name"], "name": dept["attrs"].get("name"), "role": role,
-                                   "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path})
+                                   "branch": dept["branch"], "path": dept["path"], "pane": pane}, "file": path, "title": title})
         if status == "sent":
             sent.update(id=ask_id, to={"company": company["name"], "name": dept["attrs"].get("name"), "role": role})
         print("\n".join(notes + [f"頼み {ask_id} → {where}  {status}" + (f"（{detail}）" if detail else ""),
@@ -644,7 +660,7 @@ def _ask(a, ports, cwd, task, sent):
                         "cause": cause,
                         "from": {"name": name, "account": account, "session": boss["boss-session"], "place": cwd},
                         "to": {"company": company["name"], "name": a.task, "role": role, "branch": a.branch,
-                               "path": got and got["path"], "pane": None}, "file": path})
+                               "path": got and got["path"], "pane": None}, "file": path, "title": title})
     if status == "sent":
         sent.update(id=ask_id, to={"company": company["name"], "name": a.task, "role": role})
     print("\n".join(notes + [f"頼み {ask_id} → {company['name']}/{a.task}（新しく立てた部署）  {status}", f"- 本文: {path}"]))
@@ -706,7 +722,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     line = deliver.ask_line(ask["id"], ask["sender"], ask["body"], path, ask["required"], RUN)
     marks = {**ask["boss"], "fresh": FRESH if ask["fresh"] else None, "ask-digest": digest}
     wake.enqueue(dest_inbox, place_dir, {"id": ask["id"], "to": to, "file": path, "line": line, "digest": digest, "marks": marks,
-                                         "at": ports.now(), "from": ask["sender"]})
+                                         "at": ports.now(), "from": ask["sender"], "title": ask.get("title")})
     deliver.log(dest_inbox, wake.notice(to, ask["id"], wake.QUEUED, path, None, ports.now()))
     if not heard and live_window(dept, ports) is None:
         notes.append(revive(dept, accounts_, ports, sessions_, source)[1])
@@ -717,7 +733,7 @@ def queue_ask(a, ports, notes, where, dept, dest_inbox, place_dir, to, heard, di
     deliver.log(ask["inbox"], {"id": ask["id"], "kind": "ask", "at": ports.now(), "status": "queued", "detail": detail,
                                "cause": ask.get("cause"), "from": ask["from"], "to": {"company": ask["company"], "name": dept["attrs"].get("name"),
                                                           "role": ask["role"], "branch": dept["branch"], "path": dept["path"],
-                                                          "pane": None, "wake": to}, "file": path})
+                                                          "pane": None, "wake": to}, "file": path, "title": ask.get("title")})
     sent.update(id=ask["id"], to=dest)
     print("\n".join(notes + [f"頼み {ask['id']} → {where}  {detail}", f"- 本文: {path}"]))
     return 0
@@ -912,8 +928,8 @@ def take(a, ports, cwd, task):
             return 2
         common = ports.git.common_dir(cwd)
         brief = deliver.put(deliver.inbox_of(common) if common else _queue_inbox(item), f"{item.get('id')}-ask.md",
-                            f"{a.text.strip()}\n\n---\n\n{body}")
-    ns = argparse.Namespace(**{**vars(a), "brief": brief, "text": None, "ask_id": item.get("id"),
+                            deliver.wrap(a.text, body))
+    ns = argparse.Namespace(**{**vars(a), "brief": brief, "text": None, "ask_id": item.get("id"), "title": item.get("title"),
                                "from_boss": {k: v for k, v in marks.items() if k == "boss" or k.startswith("boss-")}})
     rc = ask(ns, ports, cwd, task)
     if rc != 0:
@@ -1343,7 +1359,19 @@ def deliver_summary(a, ports, cwd):
     settings = os.path.dirname(config.path_of(a.config, os.environ))
     the_role, problems = shape_role(gitx.root_of(common) if common else None, settings, attrs["role"])
     required = deliver.required_items(the_role)
-    items = deliver.parse(text, set(required) | set(deliver.DEFAULT_ITEMS))
+    data, body, bad = deliver.front(text)
+    bad += deliver.front_problems(data, deliver.DELIVER_FIELDS)
+    items = deliver.parse(body, set(required) | set(deliver.DEFAULT_ITEMS))
+    if deliver.PREAMBLE in items:
+        bad.append("最初の見出しの前に字がある（どの項目にも入らないので送れない）。見出しの下に移す")
+    if deliver.OPEN in items:
+        bad.append(deliver.OPEN_IN_BODY)
+    if bad:
+        print("\n".join(["送らなかった: 要約の頭書き（機械が読むフィールド）か見出しの形が違う"] + [f"  {x}" for x in bad] + [deliver.DELIVER_FORMAT]))
+        return 2
+    questions = data.get("open")
+    if questions is not None:
+        items[deliver.OPEN] = deliver.render_open(questions)
     branch = ports.branch(cwd)
     if deliver.BRANCH_ITEM in required and not items.get(deliver.BRANCH_ITEM) and branch:
         items[deliver.BRANCH_ITEM] = branch
@@ -1352,21 +1380,21 @@ def deliver_summary(a, ports, cwd):
     if missing:
         print("\n".join(notes + ["送らなかった: 要約に足りない項目がある: " + "、".join(missing),
                                  f"- 必須の項目（{attrs['role']}）: " + "・".join(required)
-                                 + "。見出し（## 結論）か行の頭の札（結論: …）で書く。結論は 3 行以内、決め手には原典の URL"]))
+                                 + f"。{deliver.OPEN}の外は見出し（## 結論）で書く。結論は 3 行以内、決め手には原典の URL",
+                                 deliver.DELIVER_FORMAT]))
         return 2
     relays = (the_role or {}).get("holders")
     if relays is not None:
-        bad = deliver.holder_problems(items.get(deliver.OPEN), relays) + deliver.unsure_problems(items)
+        bad = deliver.holder_problems(questions, relays, attrs.get("boss")) + deliver.unsure_problems(items)
         if bad:
             print("\n".join(notes + ["送らなかった: 残った疑問の担当者が足りない（役の holders の検査）"] + [f"  {x}" for x in bad]
-                            + ["- 残った疑問は 1 件ごとに「担当者: <部署の名前か受付番号>」を書く。持ち主に向ける物だけ「担当者: 持ち主（価値で"
-                               "選ぶ）」か「担当者: 持ち主（確認してからやる）」。箇条を導くだけの前置きの段落は「：」で終える。疑問が無ければ「なし」とだけ書く"]))
+                            + [deliver.DELIVER_FORMAT]))
             return 2
     check = (the_role or {}).get("deliver_check")
     if check:
         place = ports.git.toplevel(cwd) or cwd
         code, out = deliver.gate(check, place, {"role": attrs["role"], "ask": attrs.get("ask"), "branch": branch, "place": place,
-                                                "items": items, "summary": deliver.summary_text(items, required),
+                                                "items": items, "open": questions or [], "summary": deliver.summary_text(items, required),
                                                 "version": own_version()},
                                  subprocess.run)
         if code != 0:
@@ -1434,7 +1462,7 @@ def deliver_summary(a, ports, cwd):
                                  "branch": branch, "place": cwd},
                         "to": {"name": attrs.get("boss"), "account": attrs.get("boss-account"), "session": sid, "pane": pane,
                                "wake": to if heard or status == POSTED else None},
-                        "file": path, "holders": deliver.open_holders(items.get(deliver.OPEN)),
+                        "file": path, "holders": deliver.holders_of(questions),
                         **({"for": for_ask} if for_ask else {})})
     if ask_id and status in ("sent", POSTED) and not for_ask:   # --for は回して閉じた頼みへ返すので、今の頼みの印は変えない
         try:

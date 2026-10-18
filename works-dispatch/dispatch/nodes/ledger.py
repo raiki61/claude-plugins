@@ -125,7 +125,8 @@ def _short(asks, h):
 
 
 def build(rows, title_of=None, questions_of=None):
-    """行の並び（merge した物）から射影 {"schema", "tasks": {受付: 頼み}, "roots": [受付]} を作る。title_of(本文のファイル) は題を返し、
+    """行の並び（merge した物）から射影 {"schema", "tasks": {受付: 頼み}, "roots": [受付]} を作る。題は頼みの行の title。title_of(本文のファイル) は
+    題を返し、title の無い古い行にだけ使う。
     questions_of(納品の行) は残った疑問の担当者の並び [{"holder", "ask"}]（行の holders のフィールドと同じ形）を返す。holders のフィールドの無い古い行に
     だけ使う（どちらも省けば使わない）。"""
     tasks, received = {}, []
@@ -140,6 +141,7 @@ def build(rows, title_of=None, questions_of=None):
             if to.get("name"):
                 t["to"] = {"company": to.get("company"), "name": to.get("name")}
             t["file"] = t["file"] or r.get("file")
+            t["title"] = t["title"] or r.get("title")
     for r in rows:
         # 回した元の頼みの行が、読んだ台帳に無い（ほかの会社の台帳にだけ在る）: 回した行から頼みの行を組み立てる（回した先をたどれるように）
         if r.get("kind") == "forwarded" and r.get("id") and r["id"] not in tasks:
@@ -218,8 +220,8 @@ def build(rows, title_of=None, questions_of=None):
             t["state"] = "done"
             t["forwarded"] = True
         t["state"] = t["state"] or "working"
-        if title_of and t["file"]:
-            t["title"] = title_of(t["file"])
+        if title_of and t["file"] and not t["title"]:
+            t["title"] = title_of(t["file"])   # 題のフィールドの無い古い頼みの行は、本文のファイルから読む
         t.pop("_row", None)
     memo = {}
     for i in tasks:
@@ -232,7 +234,7 @@ def build(rows, title_of=None, questions_of=None):
 
 
 def _task(i, row, sender, to):
-    return {"id": i, "title": None, "state": None, "created": row.get("at"), "updated": row.get("at"), "parent": None,
+    return {"id": i, "title": row.get("title"), "state": None, "created": row.get("at"), "updated": row.get("at"), "parent": None,
             "parent_by": None, "children": [], "follows": [], "questions": [], "notes": 0, "from": sender,
             "to": {"company": to.get("company"), "name": to.get("name")}, "file": row.get("file"), "why": None, "closed": None,
             "_row": row}

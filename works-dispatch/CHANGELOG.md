@@ -6,6 +6,12 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 頼みと納品の、機械が読むフィールドを文から拾わず、本文の頭の頭書き（1 行目と閉じの行が `+++` の TOML。Hugo の front matter と同じ形。Python の標準の tomllib で読む）から読む（受付 b0df65）。頼みは `title`（`--todo` に出す題。台帳の頼みの行のフィールド `title` に残す）と、宛先の役が `ask_holders` を持つときの `[[open]]`。納品は `[[open]]`（残った疑問。1 件ずつ `question` と `holder`。無ければ `open = []`）。知らないフィールド・形の違う値・本文に書いた「残った疑問」の見出し・題の無い 2 行以上の頼みは、送らずに書き方の例を出して止まる。送る要約の「残った疑問」の項目は頭書きから機械が書き、納品の検査（`deliver_check`）に渡す JSON にも `open` を足した。
+- 役の `holders`・`ask_holders` の検査で、担当者に書けるのは受付番号・`owner:choose`（持ち主が価値で選ぶ）・`owner:confirm`（持ち主が確認してからやる）・頼み元の名前だけにした。部署の名前で書いた担当者は `--todo` が追えなかった（受付 b6778d）。
+- 要約の見出しは、決まった項目の外の物（`## 参考になりうる点` など）も落とさずに送る（受付 6a65a9）。深い見出しとコードブロックの中は項目の本文に入れ、最初の見出しの前の字は止める。英語の見出し（Conclusion・Evidence・Open questions・Branch）も同じ項目に当たる。
+
 ## [0.69.0] - 2026-10-19
 
 ### Changed

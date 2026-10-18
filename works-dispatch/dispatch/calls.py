@@ -102,7 +102,8 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
     ns = argparse.Namespace(**{**vars(a), "ask": f"{company}/{to}", "text": None, "brief": brief, "dry_run": False,
                                "task": tools.auto_name(role_name, tool) if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
-                               "role": None, "resident": False, "ask_id": ask_id, "from_boss": boss})
+                               "role": None, "resident": False, "ask_id": ask_id, "from_boss": boss,
+                               "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
     head = f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）。{to} に回した"
     rc = orders.ask(ns, ports, cwd, task)
     if rc != 0:
@@ -200,7 +201,7 @@ def asks_of(companies):
         else:
             state = "宛先の部署が無い（畳まれたか消えた。閉じる記録が無い）" if gone else "渡った"
         c["asks"].append({"id": r["id"], "at": r.get("at"), "from": (r.get("from") or {}).get("name"), "to": to.get("name"),
-                          "state": state, "title": deliver.ask_title(r.get("file"))})
+                          "state": state, "title": r.get("title") or deliver.ask_title(r.get("file"))})
 
 
 def fire(after, root, ports, a, task, attrs):
