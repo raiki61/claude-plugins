@@ -15,7 +15,7 @@ title = "全アカウントに配る"
 description = "…"
 inputSchema = { type = "object", properties = { dry_run = { type = "boolean" } }, additionalProperties = false }
 command = "python3 scripts/spread-plugins.py"   # origin の既定のブランチの中身（一時の worktree）のルートで走らせる。入力の JSON を標準入力に渡す
-fallback_role = "作業"               # 片づかなかったときに回す役（省けばそのツールを持つ役。machine の役では要る）
+fallback_role = "作業"               # 片づかなかったときに回す役か受け持ちの名前（--ask 会社/<名前> と同じ宛て方。省けばそのツールを持つ役。machine の役では要る）
 ```
 
 ```

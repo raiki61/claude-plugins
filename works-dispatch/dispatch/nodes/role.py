@@ -35,7 +35,7 @@
   前の頼みの記憶を引き継がない（記憶は太るうえ、覚えた中身で書き直すと、ほかの部署が入れた行を消す。まっさらな環境での 2 回目の試し）
 - machine: true なら、AI の部署を持たない役（ツールだけを持つ。--ask で宛てられない。部署を立てない）
 - tools: 機械窓口のツールの並び（[[roles.tools]]。受付の設計 5.2）。フィールドは MCP の Tool に合わせた name・title・description・inputSchema と、
-  ここだけの command（走らせるコマンド）・fallback_role（片づかなかったときに回す役。省けばその役。machine の役では要る）
+  ここだけの command（走らせるコマンド）・fallback_role（片づかなかったときに回す役か受け持ちの名前。省けばその役。machine の役では要る）
 - former_names: その役の前の名前の並び。役の名前を替えたときに書くと、前の名前で宛てた頼み（--ask 会社/前の名前）と、前の名前を
   属性 company.role に持つ部署・本社が、今の役に当たる（Terraform の moved のように、名前の替え方を会社の形に書いて、属性の側を
   手で直させない）。ほかの役の名前・前の名前と重なる物は problems に書いて外す
@@ -237,13 +237,24 @@ def load(path, text=None):
             del out["former"][old]
         else:
             out["former"][old] = now[0]
+    # 回す先は --ask 会社/<名前> と同じ宛て方なので、受け持ちの名前（[[skills]] の name）でも書ける。その受け持ちの役で確かめる。
+    # 引く順は deliver.find_target と同じ（オンデマンドの受け持ちが役より先、同じ名前の受け持ちは先の物）
+    duties = {}
+    for s in raw.get("skills", []) if isinstance(raw.get("skills", []), list) else []:
+        if isinstance(s, dict) and isinstance(s.get("name"), str):
+            duties.setdefault(s["name"], s)
     for r in out["roles"].values():
         keep = []
         for t in r["tools"]:
-            to = out["roles"].get(t["fallback_role"])
+            name, duty = t["fallback_role"], duties.get(t["fallback_role"])
+            if duty is not None and (duty.get("on_demand") is True or name not in out["roles"]):
+                to = out["roles"].get(current(out, duty["role"])) if isinstance(duty.get("role"), str) else None
+                why = f"受け持ち {name} の役" + ("が無い" if to is None else "が機械だけの役（AI の部署を持たない）")
+            else:
+                to = out["roles"].get(name)
+                why = "会社の形の役にも受け持ちにも無い" if to is None else "機械だけの役（AI の部署を持たない）"
             if to is None or to["machine"]:
-                why = "会社の形に無い" if to is None else "機械だけの役（AI の部署を持たない）"
-                out["problems"].append(f"{path}: 役 {r['name']} のツール {t['name']} の回す役 {t['fallback_role']} が{why}ので外す")
+                out["problems"].append(f"{path}: 役 {r['name']} のツール {t['name']} の回す先 {name} が{why}ので外す")
                 continue
             keep.append(t)
         r["tools"] = keep

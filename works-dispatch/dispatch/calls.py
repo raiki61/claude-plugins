@@ -103,9 +103,14 @@ def hand_over(root, company, role_name, tool, value, code, out_tail, ports, a, t
         target = deliver.find_target(companies, root, f"{company}/{to}")
     except (herdr.HerdrError, deliver.DeliverError) as e:
         return 1, [f"ツール {role_name}/{tool['name']} は片づかなかった（終了の値 {code}）が、{to} に回せなかった（{e}）"]
-    auto = target["department"] is None
-    ns = argparse.Namespace(**{**vars(a), "ask": f"{company}/{to}", "text": None, "brief": brief, "dry_run": False,
-                               "task": tools.auto_name(role_name, tool) if auto else None,
+    ask, task_name = f"{company}/{to}", tools.auto_name(role_name, tool)
+    duty = next((s for s in target["company"].get("skills", []) if s.get("name") == to), None)
+    if target["department"] is None and duty and not target.get("on_demand") and duty.get("role"):
+        # 立っていない受け持ちの部署には、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じく、受け持ちの役でその名前の部署を立てる
+        ask, task_name = f"{company}/{duty['role']}", to
+    auto = target["department"] is None and not target.get("on_demand")   # オンデマンドの受け持ちは orders.ask が部署の名前とブランチを決める
+    ns = argparse.Namespace(**{**vars(a), "ask": ask, "text": None, "brief": brief, "dry_run": False,
+                               "task": task_name if auto else None,
                                "branch": tools.auto_branch(tool, ask_id) if auto else None,
                                "role": None, "persistent": False, "ask_id": ask_id, "from_boss": boss,
                                "title": f"ツール {role_name}/{tool['name']} が片づけられなかった仕事"})
@@ -153,12 +158,15 @@ def annotate(companies, settings, g):
     """--tree に受付を足す: 会社ごとにツール（役・名前・title・外れの回数）を tools に、部署ごとに順番待ちの件数と置き場を queue・
     queue_dir に、渡す待ち受けが居なくて止まっているか（wake.stalled）を stalled に、待ち受けは居るが渡さずに待っている訳（wake.held）を
     held に、部署の属性に会話の id（company.session）が無いかを no_talk_id に。外れは受付箱の台帳の kind miss の行で数える。
-    会社ごとの壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ・周期の遅れ・一時の置き場の控え。health.py）を health に。"""
+    会社ごとの壊れの注記（裏の処理の失敗・誰も受けない頼み・台帳の大きさ・周期の遅れ・一時の置き場の控え。health.py）を health に。
+    会社の形の役を読んで外した物（role.load の problems）を problems に足す。"""
     for c in companies:
         common = g.common_dir(c["root"])
         inbox = deliver.inbox_of(common) if common else None
         info = tree.read_info(c["root"], settings)
         shape = role.load(info["path"], info["text"])
+        # 会社の形の役で外した物（回す先の無いツールなど）も注記に出す。外しただけでは --land の合図が黙って呼ばれなくなるため
+        c["problems"] = c.get("problems", []) + [p for p in shape["problems"] if p not in c.get("problems", [])]
         misses, records = {}, deliver.records(inbox) if inbox else []
         for r in records:
             if r.get("kind") == "miss":

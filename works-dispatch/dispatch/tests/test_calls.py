@@ -14,7 +14,7 @@ from . import test_deliver
 from .test_provision import git
 import calls
 import gitx
-from nodes import deliver, land, provision, role, tools
+from nodes import deliver, land, provision, role, tools, tree
 
 
 def shape_text(command, fallback='fallback_role = "調べ役"', machine="machine = true"):
@@ -47,6 +47,18 @@ class Fields(unittest.TestCase):
     def test_fallback_defaults_to_the_owning_role(self):
         got = role.load("/c.toml", shape_text("true", fallback="", machine=""))
         self.assertEqual(got["roles"]["配布"]["tools"][0]["fallback_role"], "配布")
+
+    def test_fallback_may_name_a_duty_and_is_checked_against_its_role(self):
+        # 回す先は --ask 会社/<名前> と同じ宛て方なので、受け持ちの名前でも書ける（CI の見張りの fallback_role = "点検"）
+        duty = '\n[[roles]]\nname = "担当"\n[[skills]]\nname = "点検"\nrole = "{}"\n'
+        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "点検"') + duty.format("担当"))
+        self.assertEqual((got["problems"], got["roles"]["配布"]["tools"][0]["fallback_role"]), ([], "点検"))
+        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "点検"') + duty.format("配布"))
+        self.assertIn("回す先 点検 が受け持ち 点検 の役が機械だけの役（AI の部署を持たない）ので外す", got["problems"][0])
+        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "見張り"') + duty.format("担当"))
+        self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", got["problems"][0])
+        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "点検"') + '\n[[skills]]\nname = "点検"\n')
+        self.assertIn("回す先 点検 が受け持ち 点検 の役が無いので外す", got["problems"][0])
 
     def test_tool_fields_follow_the_mcp_tool(self):
         bad = role.load("/c.toml", '[[roles]]\nname = "r"\n[[roles.tools]]\nname = "a b"\ninputSchema = { type = "string" }\n')
@@ -263,6 +275,48 @@ class Call(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("知らない鍵 x", out)
         self.assertEqual(deliver.records(self.inbox), [])
+
+    def test_a_tool_dropped_for_its_fallback_shows_on_the_tree(self):
+        # 外したツールは --land の合図で黙って呼ばれなくなるので、--tree の会社の注記に出す
+        self.use("true", fallback='fallback_role = "見張り"')
+        companies = [{"root": self.src, "name": "src", "skills": [], "departments": [], "problems": []}]
+        calls.annotate(companies, os.path.dirname(self.cfg), gitx)
+        self.assertEqual(companies[0]["tools"], [])
+        self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", companies[0]["problems"][0])
+
+    def test_handing_over_to_an_on_demand_duty_lets_ask_name_its_department(self):
+        # オンデマンドの受け持ちに回すときは、ツールの名前の部署を立てず、--ask と同じく受け持ちの名前の部署を立てる
+        self.use("true", fallback='fallback_role = "見渡し"')
+        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
+            f.write('\n[[skills]]\nname = "見渡し"\nrole = "調べ役"\non_demand = true\n')
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(name=ns.task, role=ns.role)
+            return 1
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
+        info = tree.read_info(self.src, os.path.dirname(self.cfg))
+        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
+        calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
+        self.assertEqual((seen.get("name"), seen.get("role")), ("見渡し", "調べ役"))
+
+    def test_handing_over_to_a_duty_whose_department_is_down_raises_it_with_the_duty_role(self):
+        # オンデマンドでない受け持ち「調べ物」の部署が立っていなければ（立っているのは別の名前の「調べ」）、--tree の宛て方（--ask 会社/<役> --task <受け持ち>）と同じ形で立てる
+        self.use("true", fallback='fallback_role = "調べ物"')
+        with open(os.path.join(self.src, ".claude", "company.toml"), "a", encoding="utf-8") as f:
+            f.write('\n[[skills]]\nname = "調べ物"\nrole = "調べ役"\n')
+        seen = {}
+
+        def task(cfg, repo, ns, ports, extra_attrs=None, tail=None, refreshed=False):
+            seen.update(name=ns.task, role=ns.role)
+            return 1
+        a = argparse.Namespace(config=self.cfg, dry_run=False, from_name=None, from_account=None, ask=None, text=None,
+                               brief=None, task=None, branch=None, role=None, persistent=False, base=None)
+        info = tree.read_info(self.src, os.path.dirname(self.cfg))
+        tool = role.load(info["path"], info["text"])["roles"]["配布"]["tools"][0]
+        calls.hand_over(self.src, tree.company_name(self.src, info), "配布", tool, {}, 1, "", self.ports, a, task, None, self.src)
+        self.assertEqual((seen.get("name"), seen.get("role")), ("調べ物", "調べ役"))
 
     def test_fire_after_land_hands_over_with_the_landers_boss(self):
         self.use(self.script("raise SystemExit(1)"))
