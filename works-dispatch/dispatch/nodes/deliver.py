@@ -313,11 +313,15 @@ def open_asks(records, held=()):
 # 頼みの本文の頭によく置く決まり文句（題にしない）
 BOILERPLATE = ("前提が違う", "段取りからの添え書き", "---")
 # 誰からの何かだけを言う頭の文（「社長室からの頼みです（穴の直し）」「知らせです（返事は要りません）」「段取りから社長室へ」など。題にしない）
-COVER_RE = re.compile(r"^(?:\S{0,12}?(?:頼み|差し戻し|返し|問い|知らせ)です(?:[（(].*[)）])?|\S{1,8}から\S{1,8}へ)$")
+COVER_RE = re.compile(r"^(?:\S{0,12}?(?:頼み|差し戻し|返し|問い|知らせ)です(?:[（(].*[)）])?|[^\x00-\x7f\s]{1,8}から[^\x00-\x7f\s]{1,8}へ)$")
 # 頼みの書き方の項目名を行の頭に置いた形（「困っていること: …」「頼み: …」。項目名は外して題にする）
 LABEL_RE = re.compile(r"^(?:困りごと|困っていること|頼み|目的|制約)(?:[（(][^）)]*[)）])?\s*[:：]\s*")
-# 題の頭の箇条の印（ITEM_RE と同じ印。ただし - * + は後ろに空白があるときだけ。「--todo の…」の - を印に取らない）
-TITLE_ITEM_RE = re.compile(r"^(?:[-*+]\s+|(?:[・•]|\d+[.)．）]|[(（]\d+[)）]|[①-⑳])\s*)")
+# 題の頭の箇条の印（ITEM_RE と同じ印。ただし - * + は後ろに空白があるときだけ、番号は後ろに数字が続かないときだけ。「--todo の…」の - や
+# 「0.66.2 の…」の 0. を印に取らない）
+TITLE_ITEM_RE = re.compile(r"^(?:[-*+]\s+|(?:[・•]|\d+[.)．）](?!\d)|[(（]\d+[)）]|[①-⑳])\s*)")
+# 持ち主の言葉の「」の閉じのすぐ後ろに来てよい字（無いか、次の言葉の「・括弧の補足・読点・句点。「「困りごと」が題になる」のように
+# ほかの字が続けば「」は言葉の一部なので外さない）
+QUOTE_END = ("", "「", "（", "(", "、", "。", ",")
 # 持ち主の言葉のセクション（「## 持ち主の言葉」）か、見出しにしない書き方の行（「持ち主の言葉（そのまま）:」。同じ行に言葉が続くこともある）
 OWNER_WORDS_HEAD = re.compile(r"^(?:#+\s*持ち主の言葉.*|持ち主の言葉(?:[（(][^）)]*[)）])?\s*[:：]\s*(.*))$")
 
@@ -347,22 +351,22 @@ def _lines(path):
 def ask_title(path, width=60):
     """頼みの本文のファイルの題。回した側の添え書き（「…が回した:」と区切りの ---）の後の、見出し（# の行）・決まり文句の行と、誰からの何か
     だけを言う文を飛ばした、最初の文（文の頭の項目名「困っていること:」などは外す）。見出しは「困りごと」「頼み」のように中身を言わないので
-    題にしない（見出しの外に字の行が無ければ、最初の見出しの # を外す）。読めなければ None。"""
+    題にしない（飛ばした後に何も残らなければ、最初の行の頭の # を外す）。読めなければ None。"""
     lines = _lines(path)
     if lines is None:
         return None
     if "---" in lines and any("回した" in x for x in lines[:lines.index("---")]):
         lines = lines[lines.index("---") + 1:]
     lines = [x for x in lines if x and not x.startswith(BOILERPLATE)]
-    said = (LABEL_RE.sub("", x, count=1) for line in lines if not line.startswith("#")
-            for x in sentences(TITLE_ITEM_RE.sub("", line, count=1)) if not COVER_RE.match(x))
+    said = (y for line in lines if not line.startswith("#") for x in sentences(TITLE_ITEM_RE.sub("", line, count=1))
+            if not COVER_RE.match(x) for y in [LABEL_RE.sub("", x, count=1)] if y)
     head = next(said, None) or next((x.lstrip("# ") for x in lines), None)
     return head if head is None or len(head) <= width else head[:width] + "…"
 
 
 def task_title(path, width=60):
     """頼みの木（--todo）と --html に出す題。本文に持ち主の言葉（「## 持ち主の言葉」のセクションか「持ち主の言葉（そのまま）:」の行）が在れば、
-    その最初の言葉（箇条の印を外し、頭が「なら閉じる」までの中だけ）。無ければ ask_title。窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、
+    その最初の言葉（箇条の印を外す。頭が「で、閉じの後ろに文が続かなければ、その「」の中）。無ければ ask_title。窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、
     題にならないため。読めなければ None。"""
     lines = _lines(path)
     if lines is None:
@@ -380,9 +384,11 @@ def task_title(path, width=60):
         for i, ch in enumerate(head):
             depth += {"「": 1, "」": -1}.get(ch, 0)
             if not depth:
-                head = head[1:i]
+                if head[i + 1:i + 2] in QUOTE_END:
+                    head = head[1:i]
                 break
-        head = head.lstrip("「")   # 閉じの無い「
+        else:
+            head = head[1:]   # 閉じの無い「
     return head if len(head) <= width else head[:width] + "…"
 
 

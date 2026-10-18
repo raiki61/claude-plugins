@@ -194,9 +194,16 @@ class Holders(unittest.TestCase):
                          "## 困っていること（今壊れている）\n- --todo の題が見出しの名前になる。\n",
                          "社長室からの頼みです（穴の直し。急ぎ）。\n\n## 困りごと\n--todo の題が見出しの名前になる\n",
                          "段取りからの頼みです。困っていること: --todo の題が見出しの名前になる。続き\n",
-                         "知らせです（返事は要りません）。--todo の題が見出しの名前になる。\n"):
+                         "知らせです（返事は要りません）。--todo の題が見出しの名前になる。\n",
+                         "社長室からの頼みです。\n困っていること:\n--todo の題が見出しの名前になる。\n"):
                 p.write_text(text, encoding="utf-8")
                 self.assertEqual(deliver.task_title(str(p)), "--todo の題が見出しの名前になる", text)
+            p.write_text("## 困りごと\n0.66.2 の題を直す\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "0.66.2 の題を直す")
+            p.write_text("## 困りごと\n1. 題を直す\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "題を直す")
+            p.write_text("## 困りごと\np1からp3へ\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "p1からp3へ")
             p.write_text("## 困りごと\n", encoding="utf-8")
             self.assertEqual(deliver.task_title(str(p)), "困りごと")
             p.write_text("## 困りごと\n" + "あ" * 70 + "。\n", encoding="utf-8")
@@ -213,6 +220,10 @@ class Holders(unittest.TestCase):
             self.assertEqual(deliver.task_title(str(p)), "p3 に張り替えて。")
             p.write_text("持ち主の頼みです（社長室から）。\n\n持ち主の言葉（そのまま）:\n「都度が何個かあるけど「動いて」ないね」（補足）\n", encoding="utf-8")
             self.assertEqual(deliver.task_title(str(p)), "都度が何個かあるけど「動いて」ないね")
+            p.write_text("## 持ち主の言葉\n「困りごと」が題になる\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "「困りごと」が題になる")
+            p.write_text("## 持ち主の言葉\n「閉じの無い言葉\n", encoding="utf-8")
+            self.assertEqual(deliver.task_title(str(p)), "閉じの無い言葉")
             self.assertIsNone(deliver.task_title(os.path.join(d, "nope.md")))
 
 
