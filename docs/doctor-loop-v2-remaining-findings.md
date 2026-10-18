@@ -1,3 +1,4 @@
+<!-- coldread:skip doctor-loop の検証の実走から残った指摘の内部の記録。持ち主とエージェントが保守する -->
 # doctor-loop v2 検証 5 周目の残存所見（block は全て解消済み・以下は未適用の suggest/nit）
 
 型への還流の材料。適用の要否は依頼者判断。

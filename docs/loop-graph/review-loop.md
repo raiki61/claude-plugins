@@ -1,3 +1,4 @@
+<!-- coldread:skip review-loop のグラフの内部の設計の記録。持ち主とエージェントが保守する -->
 # review-loop の仕様（人が読む側）
 
 ## 何の文書か

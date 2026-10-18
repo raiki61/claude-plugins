@@ -1,3 +1,4 @@
+<!-- coldread:skip review-graph の実走から残った指摘の内部の記録。持ち主とエージェントが保守する -->
 # review-graph（graphloops）の残タスク
 
 graphloops の review-graph（`graphs/review-loop.json` を engine で回すレビューループ）について、まだ片づいていない作業の一覧。続きの作業を拾う人が、どれが残っていてどこまで進んだかを知り、次に手を付ける物を選ぶための控え（各セクションの見出しの括弧に今の状態を書く）。
