@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.59.2] - 2026-10-18
+
 ### Fixed
 
 - 0.59.1 の記録の、前の版で残った `company.restart-kept` を外す命令を `git config --worktree --unset company.restart-kept` に直した（`--worktree` が無いと、属性が worktree ごとの設定に在るので外れない）。
