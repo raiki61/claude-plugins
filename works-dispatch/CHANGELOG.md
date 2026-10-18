@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.67.2] - 2026-10-19
+
 ### Fixed
 
 - PR・issue を開く回（`/works-dispatch:dispatch` が PR・issue ごとに作業場を用意する動き）が新しく作った作業場（ブランチごとの worktree）から、窓口の属性（`company.role` など。窓口は本社〔代表の clone〕で持ち主と話し、部署に仕事を配る会話で、`--desk` が属性を書く）を消す。`git worktree add` は本社の `config.worktree` を写すので、この属性が新しい作業場にも載る。残っていると、そこで起動した PR の会話が、会話の始まりに役の指示文を足すフックから窓口の指示文を受けて窓口として振る舞い、自分の居るブランチに部署（ブランチごとの作業場で動く、役を持った別の会話）を立てようとした（guided-resolver リポジトリの PR #1987 の作業場で起きた）。
