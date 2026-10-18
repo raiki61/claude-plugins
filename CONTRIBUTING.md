@@ -6,6 +6,10 @@
 
 配るプラグインは並列の関係にあり、一覧の正本は `.claude-plugin/marketplace.json`（根の README の表はその要約）。convergence-loops・gates・graphloops の 3 本は規律（読み役は毎回新規・文脈遮断・点数を測らない）を共有するが、別々に有効化する——ループ集を入れたら投稿や書き込みの挙動が黙って変わる、を避けるため。attention はこの規律の外で、読み役を立てず GitHub の記録だけを機械で畳む。
 
+## 標準
+
+プラグインをまたぐ書き方と作りの揃え方（配る形・スキルの書き方など）は [docs/standards/README.md](docs/standards/README.md) の一覧に在る。プラグインを作る・直す前に、変える物に当たる標準を開いて合わせる（一覧の各項目の括弧に何を決めた標準かが書いてある）。
+
 ## 動作確認
 
 まっさらな環境（macOS・Windows・Linux）でプラグインを入れて、説明書だけで使えるかを試した記録は、索引 [docs/trials/README.md](docs/trials/README.md) から辿れる（試しに使う Windows の VM の手引きも同じ所）。

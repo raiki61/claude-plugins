@@ -15,6 +15,11 @@
 - 外への書き込み（公開・PR や issue への書き込み・ほかのリポジトリへの push）と取り消せない操作は持ち主に聞く。このリポジトリの部署の枝の push と、main へ入れることは聞かない。main へは works-dispatch の `--land`（部署の枝を main に入れる命令。会社の形 `.claude/company.toml` の `[land]` の `check` を関門に回し、緑なら早送りで push する）で入れる（持ち主 2026-10-16。docs/specs/2026-10-16-company-shape-design.md の 8・docs/releasing.md）。費用のかかる試し・実走は聞かずに回してよい。
 - タグは作らない（持ち主 2026-09-29「タグはつくりません」）。出荷は main への push で終わり、CI は待たない（持ち主 2026-10-16。CI は main に入った後の赤を見つけ、赤なら最初の手は入れた commit を git revert で戻すこと。docs/adr/0073-land-bumps-and-no-tags.md）。
 
+## プラグインを作る・直す
+
+- プラグインを作る・直す前に、docs/standards/README.md の標準の一覧を見て、変える物に当たる標準を読む（一覧の各項目の括弧に何を決めた標準かが書いてある）。
+- 特に、各プラグインのスキル（`<プラグイン>/skills/*/SKILL.md`）とコマンド（`<プラグイン>/commands/*.md`）を書く・直す前は docs/standards/skill-authoring.md を読む（本文の長さ・別ファイルへの分け方・description）。
+
 ## works（Archon の pack）
 
 - works/ は独立した pack。graphloops・convergence-loops の本体は works のために直さず、要素は写して works の側で育てる（写した元の版は works/.shared/core/COPIED_FROM などの台帳に残す）。
