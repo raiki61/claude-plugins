@@ -6,6 +6,10 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Changed
+
+- 写しの `dispatch/vendor/whose-turn.py` と `dispatch/vendor/lib/ghcli.py` を attention の正本に揃えた。作者以外の人だけが assignee の PR は、作者のターンを assignee（人のアカウントだけ。Bot は数えない）へ移すようになった。`/works-dispatch:dispatch` が開く「自分の番」の PR は、そうした PR では作者でなく受けた人の側に出る。`--json` の `role` は、その人が持ち主（作者か、担当として受けた人）なら `implementer` で、受けた人の PR も「自分が直す PR」として扱われる（渡し終えた作者は `reviewer`）。鍵の形は変わらない。
+
 ## [0.77.0] - 2026-10-19
 
 壊れても誰にも知らせが来なかった所を、`--tree`・`--todo`・`--check` の出力に足す注記の行（行の頭に「!」）で知らせるようにした（リポジトリのルートの壊れの見つけ方の標準 `docs/standards/breakage-detection.md`）。

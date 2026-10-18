@@ -2382,7 +2382,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=732
+EXPECTED_CHECKS=733
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -4843,8 +4843,11 @@ expect_output 0 "STACKED_OK" \
     "catchup: 取り込み先が既定ブランチなら取り込み先の行は出ない" \
     "$PY_BIN" "$CU_CASE" stacked-default
 expect_output 0 "SUGGESTED_OK" \
-    "catchup: 依頼先の候補（GitHub の提案）は自分の PR で依頼が誰にも出ていないときだけ根拠つきで出し、空なら「なし」、依頼があれば出ない" \
+    "catchup: 依頼先の候補（GitHub の提案）は自分の PR で今の依頼が無く、人に依頼したことが無いか依頼が外れてレビューが付いていないときに根拠つきで出し、空なら「なし」、依頼・依頼後のレビュー・レビューの無い作者以外だけの担当なら出ない" \
     "$PY_BIN" "$CU_CASE" suggested
+expect_output 0 "FORMAL_OK" \
+    "catchup: 作者以外の人のレビューが付いて依頼が残っていない自分の PR は再依頼のターン（人宛の依頼の記録が無ければ理由を言い分けて候補も出す。Bot 宛と混ざっても並びに依らず人宛を拾う）、レビューの無い作者以外だけの担当なら担当待ち、依頼が外れただけ・作者自身や Bot のレビュー・Bot 宛や依頼先が null の依頼だけなら今どおり未依頼、Team への依頼は待ちで時系列に名前で出す、reviewDecision が null でも意見から導かず再依頼のターン、依頼の出来事の窓が埋まり hasPreviousPage が偽でないときだけ見ていないものに出し、自分の PR で分け方が変わる読み違いを添える、QUERY が判定の頼る選択（依頼先と作者の __typename・依頼の出来事の itemTypes と pageInfo）を取る（#1901）" \
+    "$PY_BIN" "$CU_CASE" formal-state
 expect_output 0 "SINCE_OK" \
     "catchup: 私の痕跡以降に変わった file——基準がレビューなら厳密、作者側の commit だけ file を取り取り込みは数だけ、status は git の 1 文字で最後の commit のもの" \
     "$PY_BIN" "$CU_CASE" since-review
@@ -5061,7 +5064,7 @@ expect_output 1 "使い方" \
 # ---- attention/whose-turn: open 全件から誰のターンか ----
 # GitHub には触らない。判定は純粋関数で、固定の材料が規則を 1 行ずつ固定する
 WT="$ROOT/attention/scripts/whose-turn.py"
-expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 115 件。時刻はローカル、検査は UTC 固定）" \
+expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 179 件。時刻はローカル、検査は UTC 固定）" \
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
@@ -5379,7 +5382,7 @@ cm = load("changemap", "attention/scripts/lib/changemap.py")
 cu = load("catchup", "attention/scripts/catchup.py")
 for label, value in [("本文", f"{cu.BODY_CAP} 行"), ("冒頭", f"{cu.ISSUE_HEAD_LINES} 行"), ("件数", f"{cu.ISSUE_CAP} 件"),
                      ("スレッド", f"{cu.THREAD_BODY_CAP} 行"), ("1 file", f"{cm.FRAME_FILE_CAP} 行"), ("合計", f"{cm.FRAME_TOTAL_CAP} 行"),
-                     ("指摘の件数", f"{cu.THREAD_CAP} 件"), ("帯", f"{cm.FRAME_WIDTH} 桁"), ("畳む", f"{cm.FRAME_WHOLE} 行"),
+                     ("指摘の件数", f"{cu.THREAD_CAP} 件"), ("依頼の出来事", f"{cu.REQUEST_WINDOW} 件"), ("帯", f"{cm.FRAME_WIDTH} 桁"), ("畳む", f"{cm.FRAME_WHOLE} 行"),
                      ("残す", f"{cm.FOLD_KEEP} 行"), ("散文", f"前後 {cm.PROSE_CONTEXT} 行"), ("指摘の前後", f"前後 {cu.THREAD_CONTEXT} 行"),
                      ("まとめる間", f"{cm.FRAME_GAP} 行")]:
     assert value in table, f"仕様書のセクション 7 に {label} の {value} が無い"

@@ -87,7 +87,9 @@ APPROVAL = {
     "REVIEW_REQUIRED": "まだ承認されていない（REVIEW_REQUIRED）",
     "CHANGES_REQUESTED": "要修正が付いている（CHANGES_REQUESTED）",
     "APPROVED": "承認済み（APPROVED）",
-    None: "レビューがまだ 1 件も無い",
+    # null は「まだ誰もレビューしていない」だけでなく、承認の規則が無い base でも返る（そこでは承認しても null のまま）
+    None: "承認・要修正の判定なし（reviewDecision なし——まだ誰もレビューしていないか、承認の規則が無い base。"
+          "後者では承認しても付かない）",
 }
 
 MERGEABLE = {
@@ -100,6 +102,8 @@ MERGEABLE = {
 SPOKEN, PUSH, EVENT = "spoken", "push", "event"
 
 
+# QUERY の requestEvents の窓。formal_state はこの中しか見ない
+REQUEST_WINDOW = 100
 QUERY = """
 query($owner:String!,$name:String!,$num:Int!){
   repository(owner:$owner,name:$name){
@@ -123,6 +127,7 @@ query($owner:String!,$name:String!,$num:Int!){
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
         reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}
           commit{oid}}}
+        latestReviews(first:100){nodes{author{__typename login}}}
         reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
           comments(first:60){nodes{createdAt body url author{__typename login} originalCommit{oid}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
@@ -132,11 +137,13 @@ query($owner:String!,$name:String!,$num:Int!){
           totalCount nodes{__typename
             ... on CheckRun{name conclusion status detailsUrl}
             ... on StatusContext{context state targetUrl}}}}}}}
-        timelineItems(last:100, itemTypes:[REVIEW_REQUESTED_EVENT, ASSIGNED_EVENT,
+        requestEvents: timelineItems(last:100, itemTypes:[REVIEW_REQUESTED_EVENT]){
+          pageInfo{hasPreviousPage} nodes{__typename
+            ... on ReviewRequestedEvent{createdAt actor{login}
+              requestedReviewer{__typename ... on User{login} ... on Team{name}}}}}
+        timelineItems(last:100, itemTypes:[ASSIGNED_EVENT,
             READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, CROSS_REFERENCED_EVENT]){
           nodes{__typename
-            ... on ReviewRequestedEvent{createdAt actor{login}
-              requestedReviewer{__typename ... on User{login} ... on Team{name}}}
             ... on AssignedEvent{createdAt actor{login} assignee{... on User{login}}}
             ... on ReadyForReviewEvent{createdAt actor{login}}
             ... on ConvertToDraftEvent{createdAt actor{login}}
@@ -418,14 +425,16 @@ def collect_events(node, me, my_email=""):
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
             PUSH, oid=c["oid"], key="push")
 
+    # 依頼の出来事は他の出来事と窓を取り合わないよう別に取る（QUERY の requestEvents）
+    for it in node.get("requestEvents", {}).get("nodes", []):
+        r = it.get("requestedReviewer") or {}
+        to = reviewer_name(r) if is_person(r) else f"{r.get('__typename') or '（不明）'}（依頼に数えない）"
+        add(it["createdAt"], login_of(it.get("actor")), "レビュー依頼", "→ " + to, EVENT,
+            key="review_request", to=r.get("login") if is_person(r) else None)
+
     for it in node.get("timelineItems", {}).get("nodes", []):
         k = it["__typename"]
-        if k == "ReviewRequestedEvent":
-            r = it.get("requestedReviewer") or {}
-            add(it["createdAt"], login_of(it.get("actor")), "レビュー依頼",
-                "→ " + (r.get("login") or r.get("name") or "（不明）"), EVENT,
-                key="review_request", to=r.get("login"))
-        elif k == "AssignedEvent":
+        if k == "AssignedEvent":
             add(it["createdAt"], login_of(it.get("actor")), "担当",
                 "→ " + login_of(it.get("assignee")), EVENT,
                 key="assign", to=(it.get("assignee") or {}).get("login"))
@@ -504,8 +513,7 @@ def role_of(node, me, ev):
     """この件での私の立場。判定は lib/stance.py（/what-am-i-doing と共用）で、ここは GraphQL の
     node から素の値を取り出すだけ。"""
     is_pr = node["__typename"] == "PullRequest"
-    requested = [r["requestedReviewer"].get("login") for r in node["reviewRequests"]["nodes"]
-                 if r["requestedReviewer"]] if is_pr else []
+    requested = [r.get("login") for r in requested_reviewers(node)] if is_pr else []
     reviewed = is_pr and (
         any(login_of(r["author"]) == me for r in node["reviews"]["nodes"])
         or any(login_of(c["author"]) == me
@@ -554,10 +562,17 @@ def my_turn(node, me, ev, red):
                 reasons.append("要修正が付いている（指摘対応は私）")
             elif node["reviewDecision"] == "APPROVED" and not req:
                 reasons.append("承認済みで依頼も残っていない（マージは私）")
-            elif unrequested(node, me):
-                # 誰にも渡していない PR は、渡すまで誰も動けない。ここを「待ち」に落とすと、
-                # 自分が止めている件が相手のターンに見える
-                reasons.append("レビュー依頼が誰にも出ていない（依頼先を決めるのは私）")
+            else:
+                handed, asked = formal_state(node, me)
+                if handed in ("unrequested", "dropped"):
+                    # 誰にも渡していない PR は、渡すまで誰も動けない。ここを「待ち」に落とすと、
+                    # 自分が止めている件が相手のターンに見える
+                    reasons.append("レビュー依頼が誰にも出ていない（依頼先を決めるのは私）")
+                elif handed == "reviewed":
+                    reasons.append("作者以外の人のレビューが付き、依頼は残っていない（再依頼か指摘対応は私）"
+                                   if asked else
+                                   "作者以外の人のレビューが付いた。人宛のレビュー依頼を出した記録は無い"
+                                   "（依頼先を決めるか指摘対応は私）")
     # 自分の PR で assignee にもなっているのは普通の運用で、それだけでは私の番の理由にならない
     # （理由になるのは上の CI・衝突・要修正の側）。issue と人の PR では担当がターンの根拠
     if any(a["login"] == me for a in node["assignees"]["nodes"]) \
@@ -566,29 +581,94 @@ def my_turn(node, me, ev, red):
     return reasons
 
 
+def is_person(reviewer):
+    # Copilot などの Bot 宛の依頼は依頼に数えない（whose-turn.py と同じ）。QUERY は Bot に login を取らない
+    # （GHES の古い版の RequestedReviewer には Bot が無く、fragment を書くとクエリごと落ちる）ので、login の有無で
+    # 見分けると Bot 宛が名前の無い依頼先として残る
+    return (reviewer or {}).get("__typename") in ("User", "Team")
+
+
+def reviewer_name(reviewer):
+    return reviewer.get("login") or reviewer.get("name")
+
+
 def requested_reviewers(node):
-    return [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]]
+    return [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"]
+            if is_person(r["requestedReviewer"])]
 
 
-def unrequested(node, me):
-    """自分の PR で、下書きでなく、誰にも依頼が出ておらず、要修正も承認も付いていない——渡すまで誰も
-    動けない状態。my_turn の理由と、render の依頼先の候補が同じ述語を見る（片方だけ直って条件がずれない）。"""
-    return (node["__typename"] == "PullRequest" and login_of(node["author"]) == me
+def request_window_cut(node):
+    """依頼の出来事の窓（REQUEST_WINDOW 件）が埋まり、それより前が有りうるか。timelineItems の totalCount は
+    itemTypes で絞る前の総数で比べられず、hasPreviousPage が絞った後の意味かは GitHub の文書に無い。どちらの意味でも
+    偽なら前は無いので、件数と両方で見る。"""
+    req = node.get("requestEvents") or {}
+    return len(req.get("nodes", [])) >= REQUEST_WINDOW \
+        and (req.get("pageInfo") or {}).get("hasPreviousPage") is not False
+
+
+def by_others(reviews, author):
+    # 作者がスレッドに返信すると作者名義の COMMENTED レビューができる。数えると誰にも頼んでいない PR が化ける
+    return [r for r in reviews["nodes"] if login_of(r["author"]) != author and not is_bot(r["author"])]
+
+
+def formal_state(node, me):
+    """自分の PR で今の依頼が無いものを、もう渡したかで分け、人宛のレビュー依頼を出したか（asked）と組で返す。
+    対象外（他人の PR・下書き・依頼が残る・要修正・承認済み）は (None, None)。分け方のキー:
+    reviewed（作者以外の人のレビューが付いた）・dropped（人に依頼したが、レビューが付かないまま外れた）・
+    assigned（依頼は無く、作者以外の人だけが担当）・unrequested（誰にも渡していない）。
+    今の依頼の一覧だけで見ないのは、レビューを送った人を GitHub が依頼から外すため（#1901）。レビューは人ごとの
+    最新（latestReviews）から、依頼は依頼の出来事だけの窓（requestEvents）から読み、他の出来事と窓を取り合わない。"""
+    if not (node["__typename"] == "PullRequest" and login_of(node["author"]) == me
             and not node["isDraft"] and not requested_reviewers(node)
-            and node["reviewDecision"] not in ("CHANGES_REQUESTED", "APPROVED"))
+            and node["reviewDecision"] not in ("CHANGES_REQUESTED", "APPROVED")):
+        return None, None
+    # 窓に無くても前が有りうるなら None。分け方は依頼していない側に倒し、見ていないものに読み違いを添える
+    asked = any(is_person(it.get("requestedReviewer")) for it in node["requestEvents"]["nodes"]) \
+        or (None if request_window_cut(node) else False)
+    if by_others(node["latestReviews"], me):
+        return "reviewed", asked
+    if asked:
+        return "dropped", asked
+    assignees = [a["login"] for a in node["assignees"]["nodes"]]
+    if assignees and me not in assignees:
+        return "assigned", asked
+    return "unrequested", asked
+
+
+def shows_candidates(node, me):
+    """依頼先の候補を出すか。依頼先を決める（決め直す）のが私の PR——誰にも渡していない・依頼がレビュー無しで外れた・
+    人宛の依頼の記録が無いままレビューだけ付いた。my_turn の理由と、端末と HTML の候補が同じ述語を見る。"""
+    handed, asked = formal_state(node, me)
+    return handed in ("unrequested", "dropped") or (handed == "reviewed" and not asked)
+
+
+def request_cap_line(node, me):
+    """依頼の出来事の窓が切れた PR の「見ていないもの」の 1 項（切れていなければ None）。自分の PR では、前に人へ
+    依頼していれば分け方が変わるときだけ、その読み違いを添える（unrequested は前に依頼していても dropped と同じ
+    出力なので添えない）。"""
+    if not request_window_cut(node):
+        return None
+    handed, asked = formal_state(node, me)
+    note = ""
+    if asked is None and handed == "reviewed":
+        note = "。前に人へ依頼していれば再依頼のターンで、出している依頼先の候補は要らない"
+    elif asked is None and handed == "assigned":
+        note = "。前に人へ依頼していれば、担当に渡したと分けたのは誤りで、依頼先を決めるのは私（依頼先の候補も出していない）"
+    return (f"レビュー依頼の出来事の古い方（新しい {REQUEST_WINDOW} 件で窓が埋まり、それより前が有りうる。件数は"
+            "読めない。Bot 宛の依頼もこの数に入る）。私宛の依頼がそこにだけあれば見落とす" + note)
 
 
 def waiting_on(node, me):
     is_pr = node["__typename"] == "PullRequest"
     author = login_of(node["author"])
     if is_pr:
-        req = [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"]
-               if r["requestedReviewer"]]
-        names = [r.get("login") or r.get("name") for r in req]
+        names = [reviewer_name(r) for r in requested_reviewers(node)]
         if names:
             return "レビュー待ち: " + ", ".join(names)
         if author != me:
             return f"作者 {author} 待ち"
+        if formal_state(node, me)[0] == "assigned":
+            return "担当 " + ", ".join(a["login"] for a in node["assignees"]["nodes"]) + " 待ち"
     elif author != me:
         return f"起票者 {author} 待ち"
     return "待っている相手は記録に無い"
@@ -1011,10 +1091,10 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     state = []
     st = state.append
     if is_pr:
-        st("  承認: " + APPROVAL.get(node["reviewDecision"], str(node["reviewDecision"]))
+        st("  承認: " + approval(node["reviewDecision"])
            + " ／ 取り込み: " + MERGEABLE.get(node["mergeable"], str(node["mergeable"])))
         state.extend(base_lines(node, me))
-        if unrequested(node, me):
+        if shows_candidates(node, me):
             st(suggested_line(node))
         # チェックが 1 本も無い状態を「全 pass」と言うと、検査が無いことが緑に化ける
         if not (red or running or green):
@@ -1079,6 +1159,8 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     for label, total, got in caps:
         w(f"  - {label}の古い方 {total - got} 件（{total} 件中、新しい {got} 件だけ取った）。"
           "私の痕跡や私宛の依頼がそこにあれば見落とす")
+    if is_pr and request_cap_line(node, me):
+        w("  - " + request_cap_line(node, me))
     w("  - GitHub の外（チャット・口頭・メール）でのやり取り")
     if is_pr:
         # 有るのに末尾に無い材料（焦点で他に絞ったとき）は、出す口を添える
@@ -2345,7 +2427,7 @@ def page_status(node, me, red, running, green):
         base = [ln.strip() for ln in base_lines(node, me)]
         if base:
             add("base", "取り込み先", " ／ ".join(re.sub(r"^取り込み先: ", "", ln) for ln in base), "warn")
-        if unrequested(node, me):
+        if shows_candidates(node, me):
             add("suggested", "依頼先の候補", suggested_line(node).split(": ", 1)[-1], "neutral")
     others = [a["login"] for a in node["assignees"]["nodes"] if a["login"] != me]
     if others:
@@ -2494,6 +2576,9 @@ def page_item(node, owner, name, me, ev, refs, unlinked, anchor, anchor_kind, ca
         page["ci"], ci_more = ci
     page["local"] = local_text or ""
     page["unseen"] = page_unseen(caps, unlinked, since, more_threads, ci_more, is_pr, page["threads"], ask)
+    cut = request_cap_line(node, me) if is_pr else None
+    if cut:
+        page["unseen"].insert(len(caps), cut)  # 端末の報告と同じく、上限で切れた分の後ろに
     if stacked is None:
         page["unseen"].append(f"このブランチを base にする PR（gh pr list --base {node.get('headRefName')} が失敗して読めなかった）")
     return page

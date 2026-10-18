@@ -588,7 +588,7 @@ def pr_node(**over):
         "baseRepository": {"defaultBranchRef": {"name": "main"}}, "baseRefName": "main", "baseRef": None,
         "isCrossRepository": False, "suggestedReviewers": [], "assignees": conn([]),
         "reviewRequests": conn([{"requestedReviewer": user(ME)}]), "closingIssuesReferences": conn([]),
-        "comments": conn([]), "reviews": conn([]),
+        "comments": conn([]), "reviews": conn([]), "latestReviews": conn([]), "requestEvents": conn([]),
         "reviewThreads": conn([{"isResolved": False, "isOutdated": False, "path": "app/retry.py", "line": 12,
                                 "comments": conn([
                                     {"createdAt": "2026-09-01T01:00:00Z", "body": "包まれた例外も見て", "url": "u1",
@@ -630,6 +630,25 @@ class PageItemTest(unittest.TestCase):
         self.assertIn("GitHub の外（チャット・口頭・メール）でのやり取り", page["unseen"])
         self.assertEqual([e["who"] for e in page["events"]], ["hanako"])
         json.dumps(page)  # JSON に書ける（datetime を持ち込まない）
+
+    def test_own_pr_reviewed_after_request_hides_candidates(self):
+        # GitHub はレビューを送った人を依頼の一覧から外す（#1901）。依頼の記録とレビューがあれば候補の札は出さない
+        rev = conn([{"author": user("rev")}])
+        asked = conn([{"__typename": "ReviewRequestedEvent", "createdAt": "2026-09-01T01:00:00Z", "actor": user(ME),
+                       "requestedReviewer": user("rev")}])
+        mine = dict(author=user(ME), reviewRequests=conn([]), reviewThreads=conn([]), head={"nodes": []}, mergeable="MERGEABLE")
+        keys = lambda page: [s["key"] for s in page["status"]]  # noqa: E731
+        reviewed = self.build(pr_node(latestReviews=rev, requestEvents=asked, **mine))
+        self.assertEqual(reviewed["head"]["turn"]["kind"], "mine")
+        self.assertIn("作者以外の人のレビューが付き、依頼は残っていない（再依頼か指摘対応は私）", reviewed["head"]["turn"]["reasons"])
+        self.assertNotIn("suggested", keys(reviewed))
+        self.assertIn("suggested", keys(self.build(pr_node(**mine))))
+        handed = self.build(pr_node(assignees=conn([user("rev")]), **mine))
+        self.assertEqual((handed["head"]["turn"]["detail"], "suggested" in keys(handed)), ("担当 rev 待ち", False))
+        # 依頼の出来事の窓が埋まり前が有りうれば、端末の報告と同じく「見ていないもの」に出す
+        cut = self.build(pr_node(requestEvents=dict(asked, nodes=asked["nodes"] * cu.REQUEST_WINDOW,
+                                                    pageInfo={"hasPreviousPage": True}), **mine))
+        self.assertTrue(any(u.startswith("レビュー依頼の出来事の古い方") for u in cut["unseen"]))
 
     def test_closed_item_is_done_and_wait_names_whom(self):
         self.assertEqual(self.build(pr_node(state="MERGED"))["head"]["turn"]["label"], "済み")

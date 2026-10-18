@@ -54,9 +54,11 @@ def pr(**over):
         "closingIssuesReferences": conn([]),
         "comments": conn([]),
         "reviews": conn([]),
+        "latestReviews": conn([]),
         "reviewThreads": conn([]),
         "allCommits": conn([]),
         "head": {"nodes": []},
+        "requestEvents": conn([]),
         "timelineItems": conn([]),
     }
     node.update(over)
@@ -97,6 +99,15 @@ def review_requested(t, actor, to):
     return {"__typename": "ReviewRequestedEvent", "createdAt": t,
             "actor": {"login": actor},
             "requestedReviewer": {"__typename": "User", "login": to}}
+
+
+# QUERY の requestedReviewer は User{login} と Team{name} しか取らないので、Bot 宛は login を持たない
+BOT_REVIEWER = {"__typename": "Bot"}
+
+
+def review(t, login, state="COMMENTED", bot=False):
+    return {"submittedAt": None if state == "PENDING" else t, "state": state, "body": "見ました",
+            "author": user(login, bot), "commit": {"oid": "abc1234"}}
 
 
 def cross_ref(t, number, title):
@@ -172,7 +183,7 @@ def _ask_before_handover():
     """依頼の本文が「渡された時点」より前でも拾う（基準で切ると丸ごと消えた）。"""
     return render(pr(
         comments=conn([comment(T1, "other", "@me 人にしか判断できない 3 点を見てください")]),
-        timelineItems=conn([review_requested(T2, "other", ME)]),
+        requestEvents=conn([review_requested(T2, "other", ME)]),
         reviewRequests=conn([{"requestedReviewer": user(ME)}]),
     ))
 
@@ -182,7 +193,7 @@ def _ask_prefers_text():
     """本文の依頼を、中身の無いレビュー依頼ボタンより優先する。"""
     return render(pr(
         comments=conn([comment(T1, "other", "@me この一文だけ見てください")]),
-        timelineItems=conn([review_requested(T2, "other", ME)]),
+        requestEvents=conn([review_requested(T2, "other", ME)]),
     ))
 
 
@@ -678,7 +689,8 @@ def _stacked():
         "none": "  そのブランチの PR: 無い" in none,
         "newest_first": many.index("#1595") < many.index("#1590") < many.index("#1585"),
         "cap": "#1580" not in many and "  （そのブランチの PR は他に 6 件。fork の分も含む。gh pr list --head feat/x --state all で見る）" in many,
-        "mine": "  そのブランチの PR: #1585 merged・レビューがまだ 1 件も無い・作者 私" in many,
+        "mine": "  そのブランチの PR: #1585 merged・承認・要修正の判定なし（reviewDecision なし——まだ誰もレビューして"
+                "いないか、承認の規則が無い base。後者では承認しても付かない）・作者 私" in many,
         "forks_only": "  そのブランチの PR: 新しい 1 件は fork の同名のブランチの分（全 748 件。gh pr list --head feat/x --state all で見る）" in forks,
         "no_section_without": "## つながっている先" not in render(node),
     }
@@ -695,28 +707,152 @@ def _stacked_default():
 
 @case("suggested")
 def _suggested():
-    """依頼先の候補（GitHub の suggestedReviewers）は、自分の PR でレビュー依頼が誰にも出ていないときだけ
-    出す。根拠（発言あり・commit 者）を添え、空なら「なし」。依頼が出ていれば出さない。"""
+    """依頼先の候補（GitHub の suggestedReviewers）は、自分の PR でレビュー依頼が今は誰にも出ておらず、人に依頼した
+    ことが無いか、依頼が外れてレビューが付いていないときに出す。根拠（発言あり・commit 者）を添え、空なら「なし」。
+    依頼が出ている・依頼した後にレビューが付いた・作者以外の人だけが担当でレビューがまだ無い、なら出さない。"""
     sugg = [{"isAuthor": False, "isCommenter": True, "reviewer": user("enj")},
             {"isAuthor": True, "isCommenter": False, "reviewer": user("pmengelbert")},
             {"isAuthor": True, "isCommenter": True, "reviewer": user("both")},
             {"isAuthor": False, "isCommenter": False, "reviewer": user("plain")}]
     out = render(pr(author=user(ME), suggestedReviewers=sugg))
     empty = render(pr(author=user(ME)))
+    asked = conn([review_requested(T1, ME, "rev")])
     hidden = [render(pr(**{"author": user(ME), "suggestedReviewers": sugg, **over})) for over in (
         {"reviewRequests": conn([{"requestedReviewer": user("someone")}])},
         {"isDraft": True}, {"reviewDecision": "CHANGES_REQUESTED"}, {"reviewDecision": "APPROVED"},
-        {"author": user("other")})]
+        {"author": user("other")},
+        # GitHub はレビューを送った人を依頼の一覧から外す（#1901）。依頼した記録があれば渡し済み
+        {"latestReviews": conn([review(T1, "rev")]), "requestEvents": asked},
+        {"latestReviews": conn([review(T1, "rev")]), "requestEvents": asked, "reviewDecision": None},
+        {"assignees": conn([user("rev")])})]
     want = {
         "line": "  依頼先の候補（GitHub の提案。決めるのは私）: enj（この PR に発言あり）、"
                 "pmengelbert（変更 file の commit 者）、both（発言あり・commit 者）、plain" in out,
         "reason": "レビュー依頼が誰にも出ていない（依頼先を決めるのは私）" in out,
         "empty": "  依頼先の候補（GitHub の提案）: なし" in empty,
-        # 依頼あり・下書き・要修正・承認済み・他人の PR では、理由の行も候補の行も出ない
+        # 依頼あり・下書き・要修正・承認済み・他人の PR・依頼後のレビュー・作者以外だけの担当では、理由の行も候補の行も出ない
         "hidden": all("依頼先の候補" not in h and "依頼先を決めるのは私" not in h for h in hidden),
     }
     bad = [k for k, v in want.items() if not v]
     return "SUGGESTED_OK" if not bad else "SUGGESTED_NG " + ",".join(bad) + "\n" + out
+
+
+@case("formal-state")
+def _formal_state():
+    """依頼の一覧が空な自分の PR の分け方（reviewed・dropped・assigned・unrequested）と、reviewDecision が null
+    でも意見から導かないこと。再依頼の理由を人宛の依頼の記録の有無で言い分けること、Bot 宛と人宛が混ざった依頼の
+    出来事。判定が頼る QUERY の選択と、依頼の出来事の窓が切れたか（件数と hasPreviousPage の両方）の申告と、その
+    PR の分け方に添える読み違い（#1901）。"""
+    def mine(**over):
+        return render(pr(**{"author": user(ME), **over}))
+
+    def events(nodes, prev):
+        # prev が None なら pageInfo を持たない材料（無ければ件数だけで切れたと見る）
+        return dict(conn(nodes), **({} if prev is None else {"pageInfo": {"hasPreviousPage": prev}}))
+
+    reason = "レビュー依頼が誰にも出ていない（依頼先を決めるのは私）"
+    rereq = "作者以外の人のレビューが付き、依頼は残っていない（再依頼か指摘対応は私）"
+    norec = "作者以外の人のレビューが付いた。人宛のレビュー依頼を出した記録は無い（依頼先を決めるか指摘対応は私）"
+    merge = "承認済みで依頼も残っていない（マージは私）"
+    person_ev = review_requested(T1, ME, "rev")
+    asked = conn([person_ev])
+    rev = conn([review(T1, "rev")])
+    team = {"__typename": "Team", "name": "core"}
+    bot_req = conn([{"requestedReviewer": BOT_REVIEWER}])
+    bot_ev = dict(review_requested(T2, ME, "x"), requestedReviewer=BOT_REVIEWER)
+    bot_event = conn([bot_ev])
+    # 実物の形は 依頼 → レビュー → 依頼が外れる。古いレビューの窓（reviews）が空でも人ごとの最新から読む
+    reviewed = [mine(latestReviews=rev, requestEvents=asked),
+                mine(latestReviews=rev, requestEvents=asked, reviewDecision=None),
+                mine(latestReviews=rev, requestEvents=asked, assignees=conn([user("rev")]))]
+    # 人宛の依頼の出来事が無いので、再依頼のターンでも候補は出る（担当で渡した相手のレビューだけでも同じ）
+    passerby = [mine(latestReviews=rev), mine(latestReviews=rev, reviewDecision=None),
+                mine(latestReviews=rev, requestEvents=bot_event),
+                mine(latestReviews=rev, assignees=conn([user("rev")]))]
+    team_event = mine(requestEvents=conn([dict(review_requested(T1, ME, "x"), requestedReviewer=team)]),
+                      assignees=conn([user("rev")]))
+    bot_event_only = mine(requestEvents=bot_event)
+    # 依頼先が削除済みのアカウントだと requestedReviewer は null で返る
+    null_reviewer = mine(reviewRequests=conn([{"requestedReviewer": None}]),
+                         requestEvents=conn([dict(review_requested(T1, ME, "x"), requestedReviewer=None)]))
+    kept = [mine(requestEvents=asked),
+            mine(requestEvents=asked, assignees=conn([user("rev")])),
+            team_event,
+            mine(latestReviews=conn([review(T1, ME)])),
+            mine(latestReviews=conn([review(T1, "copilot", bot=True)])),
+            mine(reviewRequests=bot_req),
+            bot_event_only,
+            null_reviewer,
+            mine(assignees=conn([user(ME), user("rev")]))]
+    assigned = [mine(assignees=conn([user("rev")])),
+                mine(assignees=conn([user("rev")]), reviewRequests=bot_req),
+                mine(assignees=conn([user("rev")]), requestEvents=bot_event)]
+    team_req = mine(reviewRequests=conn([{"requestedReviewer": team}]))
+    # 担当に渡しても、私が入ったスレッドで相手が返していれば、返すターンは私に残る
+    thread_turn = mine(assignees=conn([user("rev")]), reviewThreads=conn([thread(
+        "a.py", False, comment(T1, ME, "ここはどうしますか"), comment(T2, "rev", "直します"))]))
+    # 承認の規則が無い base では承認しても null のまま。/whose-turn と同じく REVIEW_REQUIRED と同じに扱う
+    approved_on_null = mine(reviewDecision=None, latestReviews=conn([review(T1, "rev", "APPROVED")]),
+                            requestEvents=asked)
+    bot_left = mine(reviewDecision="APPROVED", reviewRequests=bot_req)
+    # 人宛の依頼が Bot 宛の前でも後でも、依頼したと読む
+    orders = ([person_ev, bot_ev], [bot_ev, person_ev])
+    mixed_reviewed = [mine(latestReviews=rev, requestEvents=conn(o)) for o in orders]
+    mixed_assigned = [mine(assignees=conn([user("rev")]), requestEvents=conn(o)) for o in orders]
+    window = catchup.REQUEST_WINDOW
+    bots = [bot_ev] * window
+    full_window = mine(requestEvents=conn([person_ev] * window))
+    cut = [mine(requestEvents=events(bots, True)), mine(requestEvents=events(bots, None))]
+    not_cut = [mine(requestEvents=events(bots, False)), mine(requestEvents=events(bots[1:], True))]
+    cut_rereq = mine(latestReviews=rev, requestEvents=events(bots, True))
+    cut_assigned = mine(assignees=conn([user("rev")]), requestEvents=events(bots, True))
+    cut_asked = mine(latestReviews=rev, requestEvents=events([person_ev] + bots[1:], True))
+    cut_others = render(pr(latestReviews=rev, requestEvents=events(bots, True)))
+    cap_line = f"  - レビュー依頼の出来事の古い方（新しい {window} 件で窓が埋まり、それより前が有りうる。"
+    note = "前に人へ依頼していれば"
+    query = catchup.QUERY
+    want = {
+        "rereq": all(rereq in h and "● 私の番" in h and reason not in h and norec not in h
+                     and "依頼先の候補" not in h for h in reviewed),
+        "passerby": all(norec in h and rereq not in h and reason not in h and "依頼先の候補" in h
+                        for h in passerby),
+        "mixed_events": all(rereq in h and norec not in h and "依頼先の候補" not in h for h in mixed_reviewed)
+        and all(reason in h and "依頼先の候補" in h and "担当 rev 待ち" not in h for h in mixed_assigned),
+        "null_is_rereq": rereq in approved_on_null and merge not in approved_on_null
+        and "要修正が付いている（指摘対応は私）" not in approved_on_null
+        and "  承認: 承認・要修正の判定なし" in approved_on_null,
+        "bot_left_merge": merge in bot_left,
+        # 材料は手組みなので、判定が読むフィールドを QUERY が取っているかは字面で確かめる
+        "query_fields": all(f in query for f in (
+            "reviewRequests(first:20){nodes{requestedReviewer{__typename",
+            f"requestEvents: timelineItems(last:{window}, itemTypes:[REVIEW_REQUESTED_EVENT]){{\n"
+            "          pageInfo{hasPreviousPage} nodes{__typename",
+            "requestedReviewer{__typename ... on User{login} ... on Team{name}}}}}",
+            "latestReviews(first:100){nodes{author{__typename login}}}")),
+        "query_one_type": query.count("REVIEW_REQUESTED_EVENT") == 1
+        and query.count("requestedReviewer{__typename") == 2,
+        "kept": all(reason in h and "依頼先の候補" in h and rereq not in h for h in kept),
+        "assigned": all("○ 待ち — 担当 rev 待ち" in h and "依頼先の候補" not in h for h in assigned),
+        "team_requested": "○ 待ち — レビュー待ち: core" in team_req and reason not in team_req,
+        "team_event_text": "→ core" in team_event and "（依頼に数えない）" not in team_event,
+        "bot_event_text": "→ Bot（依頼に数えない）" in bot_event_only and "（不明）" not in bot_event_only,
+        "null_reviewer": "レビュー待ち" not in null_reviewer,
+        "request_cap": cap_line in full_window and all(cap_line not in h for h in reviewed + kept),
+        # 窓いっぱいでも前が無いと GitHub が言えば出さない。pageInfo が無ければ件数だけで出す
+        "window_cut": all(cap_line in h and note not in h for h in cut)
+        and all(cap_line not in h for h in not_cut),
+        "cap_note": cap_line in cut_rereq and f"{note}再依頼のターンで、出している依頼先の候補は要らない" in cut_rereq
+        and norec in cut_rereq and "依頼先の候補" in cut_rereq
+        and cap_line in cut_assigned and f"{note}、担当に渡したと分けたのは誤り" in cut_assigned
+        and all(cap_line in h and note not in h for h in (cut_asked, cut_others, full_window))
+        and rereq in cut_asked,
+        "thread_turn": "未解決スレッド 1 件で相手が返している（私が返すターン）" in thread_turn,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "FORMAL_OK" if not bad else "FORMAL_NG " + ",".join(bad) + "\n" + "\n".join(
+        reviewed + passerby + kept + assigned + mixed_reviewed + mixed_assigned + cut + not_cut
+        + [team_req, thread_turn, approved_on_null, bot_left, full_window, cut_rereq, cut_assigned, cut_asked,
+           cut_others])
 
 
 _SINCE_COMMITS = conn([
