@@ -9,17 +9,17 @@
   引いた会話を、herdr のペインと結ぶ。結び方は、その会話を持つ部署の窓、ペインの会話の印（agent_session）と場所が合うもの、
   頼んだときのペイン（company.boss-pane）の順。ペインの会話の印は裏の会話の attach の窓では別の会話の id を指すことがある
   （2026-10-16 に herdr 0.9.3 で見た）ので、場所が合わない物は使わない。
-- 要約の項目: 既定は「結論」「決め手」「残った疑問」「枝」。会社の形（.claude/company.toml か設定の置き場の同じ書き方のファイル）の
+- 要約の項目: 既定は「結論」「決め手」「残った疑問」「ブランチ」。会社の形（.claude/company.toml か設定の置き場の同じ書き方のファイル）の
   [[roles]] の deliver で役ごとに替えられる（読むのは role ノード）。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で書く。結論は 3 行以内、
-  決め手は原典の URL を含むこと、ほかは空でないこと。枝は書かなければ部署の枝を機械が足す。
-- 納品の検査: 役の deliver_check（会社の形）の命令を、項目を確かめた後に部署の作業場の根で走らせる（gate）。何を確かめるかは会社の
+  決め手は原典の URL を含むこと、ほかは空でないこと。ブランチは書かなければ部署のブランチを機械が足す。
+- 納品の検査: 役の deliver_check（会社の形）のコマンドを、項目を確かめた後に部署の作業場のルートで走らせる（gate）。何を確かめるかは会社の
   側のスクリプトが持ち、ここは決め打ちしない。0 以外で終われば送らない。
 - 受付箱: 頼み元の会社の共通の .git の中の company/inbox（INBOX）。commit されず、部署の worktree を消しても残り（4.10 の 1。
   部署ごとの .git/worktrees/<部署> は git worktree remove で一緒に消える）、勤め先のリポジトリの .gitignore も触らない。
   頼みと納品の本文を 1 件 1 ファイルで置き、log.jsonl に誰が誰に何を頼み何が返ったかを 1 行ずつ足す。
 - Stop フック: 部署（company.role の在る場所）の会話で、受けた頼み（company.ask）の納品（company.delivered）が済んでいなければ、
-  止まる前に納品の命令で返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。裏の処理（裏の Bash・作業役）が
-  動いている間は差し戻さない（どう見るかは orders.in_flight）。納品した後の差し戻し（本流に入れていない・終わりの印が無い）は
+  止まる前に納品のコマンドで返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで。裏の処理（裏の Bash・サブエージェント）が
+  動いている間は差し戻さない（どう見るかは orders.in_flight）。納品した後の差し戻し（メインブランチに入れていない・終わりの印が無い）は
   orders.stop_after が持つ。
 """
 
@@ -36,8 +36,10 @@ import gitx
 
 INBOX = ("company", "inbox")      # 共通の .git の下の受付箱
 LOG = "log.jsonl"
-DEFAULT_ITEMS = ("結論", "決め手", "残った疑問", "枝")
-BRANCH_ITEM = "枝"                 # 書かなければ部署の枝を機械が足す項目
+DEFAULT_ITEMS = ("結論", "決め手", "残った疑問", "ブランチ")
+BRANCH_ITEM = "ブランチ"                 # 書かなければ部署のブランチを機械が足す項目
+# 項目の前の名前 → 今の名前（IT の定着語に替える前の名前。前の版の役の本文や会社の形の deliver に従って書いた要約も通す）
+ITEM_ALIASES = {"枝": BRANCH_ITEM}
 CONCLUSION_ITEM, CONCLUSION_LINES = "結論", 3
 URL_ITEMS = ("決め手",)            # 原典の URL を含むこと
 URL = re.compile(r"https?://\S+")
@@ -65,7 +67,7 @@ def parse_target(target):
 
 
 def find_target(companies, here_root, target, task=None, current=lambda company, name: name):
-    """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社の根。current は (会社, 役の名前) → 今の役の名前
+    """宛先を決める。companies は tree.build の結果、here_root は頼む側の会社のルート。current は (会社, 役の名前) → 今の役の名前
     （会社の形の former_names で、前の役の名前で宛てても、前の名前を属性に持つ部署でも、今の役に当たる）。
     返すのは {company, department（在れば tree の部署の 1 行）, role（役で宛てたとき）}。
     部署の名前（今の名前、無ければ前の名前）が先に当たる（会社を書けばその会社の中だけ）。会社を書かずに会社の名前（会社の形の在る会社だけ）
@@ -87,7 +89,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
         # 名前を替えた部署（--reorg・--desk）は、前の名前でも引く（今の名前が先）
         named = [(c, d) for c in pool for d in c["departments"] if name in gitx.former_names(d["attrs"])]
     if len(named) > 1:
-        where = "、".join(f"{c['name']}/{d['branch'] or '（枝無し）'} {d['path']}" for c, d in named)
+        where = "、".join(f"{c['name']}/{d['branch'] or '（ブランチ無し）'} {d['path']}" for c, d in named)
         if len({c["root"] for c, _ in named}) > 1:
             hint = "会社を添えて「会社/名前」で宛てる"
         else:   # 同じ会社の中の重なりは、宛て方では分けられない
@@ -145,7 +147,7 @@ def find_target(companies, here_root, target, task=None, current=lambda company,
     duty = next((s for s in company.get("skills", []) if s.get("name") == name and s.get("standing") is False), None)
     if duty and duty.get("role"):
         # 頼まれたときだけ立てる受け持ち（standing = false）で、その名前の部署が今は無い: その名前の都度の部署を立てる（orders.ask が
-        # 部署の名前と枝を決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む
+        # 部署の名前とブランチを決める）。同じ受け持ちで立つ部署は名前で 1 つに決まるので、立っている間の次の頼みはその部署の順番待ちに積む
         return {"company": company, "department": None, "role": current(company, duty["role"]), "on_demand": duty["name"]}
     name = current(company, name)
     resident = [d for d in company["departments"]
@@ -328,7 +330,7 @@ OWNER_WORDS_HEAD = re.compile(r"^#+\s*持ち主の言葉")
 
 
 def task_title(path, width=60):
-    """頼みの木（--todo）に出す題。本文に持ち主の言葉の節（## 持ち主の言葉）が在れば、その最初の言葉（「」を外す）。無ければ ask_title。
+    """頼みの木（--todo）に出す題。本文に持ち主の言葉のセクション（## 持ち主の言葉）が在れば、その最初の言葉（「」を外す）。無ければ ask_title。
     窓口が回す頼みの頭の行は「持ち主の頼みです（社長室から）。」のような定型で、題にならないため。読めなければ None。"""
     try:
         lines = [x.strip() for x in pathlib.Path(path).read_text(encoding="utf-8").splitlines()]
@@ -342,10 +344,12 @@ def task_title(path, width=60):
     return head if len(head) <= width else head[:width] + "…"
 
 
-# ---- 残った疑問の持ち手（役の holders。my_notes の tools/deliver_check.py の holder_problems から移した）----
+# ---- 残った疑問の担当者（役の holders。my_notes の tools/deliver_check.py の holder_problems から移した）----
 
 OPEN = "残った疑問"
-HOLDER_RE = re.compile(r"持ち手[:：]\s*([^。、\n]+)")
+# 担当者の札（前の名前「持ち手」も読む。my_notes の tools/deliver_check.py や前の版の役の本文が書く）
+HOLDER_WORDS = ("担当者", "持ち手")
+HOLDER_RE = re.compile(rf"(?:{'|'.join(HOLDER_WORDS)})[:：]\s*([^。、\n]+)")
 # 箇条の頭（- * ・ • + と、1. 1) 1． 1） (1) ① の番号）。字下げした子の項目は親に続ける
 ITEM_RE = re.compile(r"^\s{0,1}(?:[-*・•+]|\d+[.)．）]|[(（]\d+[)）]|[①-⑳])\s*")
 NONE_RE = re.compile(r"(?:特に)?(?:無し|なし|無い|ない|ありません)(?:です|でした)?(?:$|[。．.、，,（()）「」『』【】：:；;！!→—/\s])")
@@ -358,7 +362,7 @@ OWNER_OK = ("持ち主（価値で選ぶ）", "持ち主（確認してからや
 def open_items(text):
     """残った疑問を 1 件ずつに割る。箇条書きが無ければ全体で 1 件。箇条でない段落（箇条の前の前置きと、箇条の間・後ろの、空行の後の
     字下げの無い行。空行まで 1 段落）は、最後の行が「：」か「:」で終わり、ほかの行が文の終わり（。？?）で終わらない物（「次の 2 件：」
-    など。折り返した行も 1 段落）で、すぐ次が箇条の物だけを箇条を導く札として件に数えず、ほかは 1 件に数える（前置きや後書きに問いを書いて持ち手を省くと
+    など。折り返した行も 1 段落）で、すぐ次が箇条の物だけを箇条を導く札として件に数えず、ほかは 1 件に数える（前置きや後書きに問いを書いて担当者を省くと
     通っていた。my_notes の受付 3c9a61）。"""
     blocks, gap = [], True   # 箇条の 1 件は字、段落は行の並び
     for line in (text or "").splitlines():
@@ -391,11 +395,11 @@ def _none(text):
     空白・終わりのときだけで、「無い場合はどうするか」のように語が文の頭に来ただけの物と、問いの印（？。URL の中の ? は除く）の在る物は
     数えない（3c9a61）。"""
     body = ITEM_RE.sub("", text.strip(), count=1).strip()
-    return bool(NONE_RE.match(body)) and "持ち手" not in body and not any(q in ASCII_URL.sub("", body) for q in "？?")
+    return bool(NONE_RE.match(body)) and not any(w in body for w in HOLDER_WORDS) and not any(q in ASCII_URL.sub("", body) for q in "？?")
 
 
 def holder_problems(text, relays=()):
-    """残った疑問（text）の 1 件ごとの持ち手の違反の並び。持ち手が無い・持ち主（か relays の名前。持ち主への中継の会話）を持ち手にして、
+    """残った疑問（text）の 1 件ごとの担当者の違反の並び。担当者が無い・持ち主（か relays の名前。持ち主への中継の会話）を担当者にして、
     価値で選ぶ問いか確認してからやる事と示していない、の 2 つ。「無し」だけなら違反なし。"""
     text = (text or "").strip()
     items = open_items(text)
@@ -406,11 +410,11 @@ def holder_problems(text, relays=()):
         head = item[:40]
         found = HOLDER_RE.search(item)
         if not found:
-            out.append(f"持ち手が無い: {head}")
+            out.append(f"担当者が無い: {head}")
             continue
         holder = re.sub(r"\s+", "", found.group(1)).replace("(", "（").replace(")", "）")
         if holder.startswith(OWNER_WORDS + tuple(relays)) and not holder.startswith(OWNER_OK):
-            out.append(f"持ち手が持ち主（か持ち主への中継）で、「持ち主（価値で選ぶ）」か「持ち主（確認してからやる）」と示していない: {head}")
+            out.append(f"担当者が持ち主（か持ち主への中継）で、「持ち主（価値で選ぶ）」か「持ち主（確認してからやる）」と示していない: {head}")
     return out
 
 
@@ -418,8 +422,8 @@ ASK_ID_RE = re.compile(r"\b\d{8}-\d{6}-[0-9a-f]{6}\b")
 
 
 def open_holders(text):
-    """残った疑問（text）の 1 件ごとの持ち手の並び [{"holder": 持ち手の字, "ask": 持ち手の字の中の受付番号か None}]（納品の台帳の行の
-    holders の欄。持ち手の受付を、台帳の射影が頼みの続きに結ぶ。docs/ledger.md）。持ち手の無い件と「無し」は数えない。"""
+    """残った疑問（text）の 1 件ごとの担当者の並び [{"holder": 担当者の字, "ask": 担当者の字の中の受付番号か None}]（納品の台帳の行の
+    holders のフィールド。担当者の受付を、台帳の射影が頼みの続きに結ぶ。docs/ledger.md）。担当者の無い件と「無し」は数えない。"""
     text = (text or "").strip()
     out = []
     for item in open_items(text) if text else []:
@@ -432,8 +436,8 @@ def open_holders(text):
 
 
 def unsure_problems(items):
-    """残った疑問の外の項目に「要確認」が在れば、その違反の並び（残った疑問に移して持ち手を付ける。my_notes の決まりを移した）。"""
-    return [f"「{name}」に「要確認」がある。残った疑問に移して持ち手を付ける" for name, body in items.items()
+    """残った疑問の外の項目に「要確認」が在れば、その違反の並び（残った疑問に移して担当者を付ける。my_notes の決まりを移した）。"""
+    return [f"「{name}」に「要確認」がある。残った疑問に移して担当者を付ける" for name, body in items.items()
             if name != OPEN and "要確認" in (body or "")]
 
 
@@ -442,7 +446,7 @@ def unsure_problems(items):
 def required_items(role):
     """その役の必須の項目。role は会社の形の役の項目（role ノードが [[roles]] から読んだ物。無ければ None）で、deliver が有れば
     それを、無ければ既定の項目を使う。"""
-    return list((role or {}).get("deliver") or DEFAULT_ITEMS)
+    return [ITEM_ALIASES.get(x, x) for x in (role or {}).get("deliver") or DEFAULT_ITEMS]
 
 
 def _label(names):
@@ -452,7 +456,9 @@ def _label(names):
 
 
 def parse(text, names):
-    """要約の本文から {項目: 本文}。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で始まり、次の項目か見出しまで続く。"""
+    """要約の本文から {項目: 本文}。項目は見出し（`## 結論`）か行の頭の札（`結論: …`）で始まり、次の項目か見出しまで続く。
+    項目の前の名前（ITEM_ALIASES）で書いた物は今の名前で返す。"""
+    names = set(names) | {old for old, new in ITEM_ALIASES.items() if new in names}
     heading, label = _label(names)
     out, cur = {}, None
     for line in text.splitlines():
@@ -471,7 +477,10 @@ def parse(text, names):
             continue
         if cur:
             out[cur].append(line)
-    return {k: "\n".join(v).strip() for k, v in out.items()}
+    merged = {}
+    for k, v in out.items():
+        merged.setdefault(ITEM_ALIASES.get(k, k), []).extend(v)
+    return {k: "\n".join(v).strip() for k, v in merged.items()}
 
 
 def check(items, required):
@@ -492,7 +501,7 @@ GATE_TAIL = 20   # 納品の検査が通らなかったとき、部署に返す�
 
 
 def gate(command, place, payload, runner):
-    """納品の検査。command（シェルの字）を place（部署の作業場の根）で走らせ、payload（role・ask・branch・place・items・summary・version）を
+    """納品の検査。command（シェルの字）を place（部署の作業場のルート）で走らせ、payload（role・ask・branch・place・items・summary・version）を
     JSON で標準入力に渡す。(終了の値, 標準出力と標準エラーの終わりの GATE_TAIL 行)。0 なら通った、0 以外なら送らない。
     runner は subprocess.run（このノードは subprocess を持たないので、流れの orders.py が渡す）。"""
     p = runner(command, shell=True, cwd=place, input=json.dumps(payload, ensure_ascii=False), capture_output=True,
@@ -502,8 +511,8 @@ def gate(command, place, payload, runner):
 
 
 def absent_files(command, place):
-    """納品の検査の命令の字のうち、place からの相対のファイルの名に見えて（/ を含むか拡張子を持つ）place に無い物の並び。会社の形は
-    origin の本流から読むが、検査は部署の作業場で走るので、台本の入る前の本流から切った枝では台本が無い（2026-10-17 に my_notes の
+    """納品の検査のコマンドの字のうち、place からの相対のファイルの名に見えて（/ を含むか拡張子を持つ）place に無い物の並び。会社の形は
+    origin のメインブランチから読むが、検査は部署の作業場で走るので、台本の入る前のメインブランチから切ったブランチでは台本が無い（2026-10-17 に my_notes の
     調べものの納品が tools/deliver_check.py が無くて止まった）。"""
     try:
         words = shlex.split(command)
@@ -526,7 +535,7 @@ def flat(text):
 # ---- 窓に打ち込む 1 行 ----
 
 def deliver_command(run):
-    """run は dispatch.py を起こす字（引用符付きの Python と dispatch.py のパス。orders.RUN）。"""
+    """run は dispatch.py を起動する字（引用符付きの Python と dispatch.py のパス。orders.RUN）。"""
     return f"{run} --deliver <要約のファイル>"
 
 
@@ -560,18 +569,18 @@ def deliver_line(ask_id, sender, branch, items, required, path):
     """頼み元の窓に打つ 1 行（要約を本文ごと。全文は受付箱）。"""
     order = list(required) + [k for k in items if k not in required]
     body = " ".join(f"【{k}】{flat(items[k])}" for k in order if items.get(k))
-    return f"納品です（受付 {ask_id or '-'}、{sender}・枝 {branch or '-'} から）: {body} （全文: {path}）"
+    return f"納品です（受付 {ask_id or '-'}、{sender}・ブランチ {branch or '-'} から）: {body} （全文: {path}）"
 
 
-# 送った 1 行が入力欄に残っていないかを見る回数（1 回ごとに pause）
+# 送った 1 行が入力フィールドに残っていないかを見る回数（1 回ごとに pause）
 SUBMIT_LOOKS = 3
 
 
 def send(pane, line, h, pause=None):
     """窓の会話に 1 行を送る（herdr agent prompt。終わりは待たない）。書く口。(sent か failed, 訳)。
-    pause を渡すと、送った後に入力欄（行の頭が ❯ の行）にその文が残っていないかを見て、残っていれば Enter を 1 回足す。
-    Windows で、attach で戻した直後の会話に送った文が、入力欄に入ったまま送信されなかった（まっさらな環境での 7 回目の試しの 1）。
-    入力欄が空のときの Enter は何もしないので、見誤っても害は無い。"""
+    pause を渡すと、送った後に入力フィールド（行の頭が ❯ の行）にその文が残っていないかを見て、残っていれば Enter を 1 回足す。
+    Windows で、attach で戻した直後の会話に送った文が、入力フィールドに入ったまま送信されなかった（まっさらな環境での 7 回目の試しの 1）。
+    入力フィールドが空のときの Enter は何もしないので、見誤っても害は無い。"""
     try:
         h.prompt(pane, line, False)
     except h.HerdrError as e:
@@ -589,7 +598,7 @@ def send(pane, line, h, pause=None):
                     h.send_keys(pane, "enter")
                 except h.HerdrError:
                     pass
-                return "sent", "入力欄に残っていたので Enter を足した"
+                return "sent", "入力フィールドに残っていたので Enter を足した"
     return "sent", None
 
 
@@ -599,12 +608,12 @@ SEND_TRIES = 3
 
 
 def _rule(x):
-    """会話の画面の横の罫線の行か（入力欄の上と下に引かれる「────」。上の罫線には部署の名前が入ることがある）。"""
+    """会話の画面の横の罫線の行か（入力フィールドの上と下に引かれる「────」。上の罫線には部署の名前が入ることがある）。"""
     return x.count("─") >= 10
 
 
 def input_box(screen):
-    """会話の画面の入力欄の字（下から 2 本の罫線の間の行をつないだ物）。罫線が 2 本無ければ None（字を受けられる形でない）。"""
+    """会話の画面の入力フィールドの字（下から 2 本の罫線の間の行をつないだ物）。罫線が 2 本無ければ None（字を受けられる形でない）。"""
     lines = (screen or "").splitlines()
     rules = [i for i, x in enumerate(lines) if _rule(x)]
     if len(rules) < 2:
@@ -616,9 +625,9 @@ _ESC = re.compile(r"\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|
 
 
 def _solid(screen):
-    """ANSI の画面の字を、行ごとに (制御の字を除いた字, そのうち薄字〔SGR 2〕でない字) の組にする。薄字は Claude Code が入力欄に
-    出す次の文の候補と、空の入力欄の例の字（打てば消える。https://code.claude.com/docs/en/interactive-mode#prompt-suggestions ）。
-    人が打った字と貼った字（[Pasted text …]）は薄字でない（2026-10-18 に claude を端末で起こして見た）。"""
+    """ANSI の画面の字を、行ごとに (制御の字を除いた字, そのうち薄字〔SGR 2〕でない字) の組にする。薄字は Claude Code が入力フィールドに
+    出す次の文の候補と、空の入力フィールドの例の字（打てば消える。https://code.claude.com/docs/en/interactive-mode#prompt-suggestions ）。
+    人が打った字と貼った字（[Pasted text …]）は薄字でない（2026-10-18 に claude を端末で起動して見た）。"""
     out, faint = [], False
     for line in (screen or "").splitlines():
         plain, solid, at = [], [], 0
@@ -646,9 +655,9 @@ def _solid(screen):
 
 
 def typed(screen):
-    """会話の画面（herdr.read の ansi の字）の入力欄に、人が打った字（薄字の候補と頭の ❯ を除く）。入力欄が空なら ""、
+    """会話の画面（herdr.read の ansi の字）の入力フィールドに、人が打った字（薄字の候補と頭の ❯ を除く）。入力フィールドが空なら ""、
     罫線が 2 本無ければ None（字を受けられる形でない）。打ちかけの字を消さないための見分け（/clear・/exit・1 行を打つ前に見る）。
-    2026-10-18 に my_notes の段取りで、入力欄の候補「消していいよ」を打ちかけと見て、区切りの /clear と起こし直しを 1 時間打たなかった。"""
+    2026-10-18 に my_notes の段取りで、入力フィールドの候補「消していいよ」を打ちかけと見て、区切りの /clear と起動し直しを 1 時間打たなかった。"""
     rows = _solid(screen)
     rules = [i for i, (x, _) in enumerate(rows) if _rule(x)]
     if len(rules) < 2:
@@ -657,12 +666,12 @@ def typed(screen):
 
 
 def ready(screen):
-    """会話の画面が字を受けられる形か（入力欄が出ている）。"""
+    """会話の画面が字を受けられる形か（入力フィールドが出ている）。"""
     return input_box(screen) is not None
 
 
 def above_box(screen):
-    """入力欄より上の画面の字（会話に届いた字が載る所）。"""
+    """入力フィールドより上の画面の字（会話に届いた字が載る所）。"""
     lines = (screen or "").splitlines()
     rules = [i for i, x in enumerate(lines) if _rule(x)]
     return " ".join(" ".join(lines[:rules[-2]] if len(rules) >= 2 else lines).split())
@@ -670,15 +679,15 @@ def above_box(screen):
 
 def send_confirmed(pane, line, h, pause, busy):
     """窓の会話に 1 行を送り、会話が動き出した（busy() が真）のを見てから返す。書く口。(sent か failed, 訳)。
-    Windows で、attach で戻した直後の会話に送った 1 行が、届かないか入力欄に残った（まっさらな環境での 9 回目の試しの 1）。
-    送る前に入力欄が出るのを待ち、送った後は、入力欄に残っていれば Enter を足し、入力欄にも画面にも見えず動き出してもいなければ
-    打ち直す（SEND_TRIES 回まで）。画面に送った字が見えていれば（入力欄でない所に）、届いたと見て打ち直さない（二重に送らない）。
-    送る前から動いている会話は、打った字を番の後の待ちの列に回すので、動き出しでは確かめられない。入力欄に残れば Enter を足し、
-    入力欄の上（待ちの列か、番の途中で取り込まれた会話の中）に載るか、入力欄から出たのを見て届いたとする。見えなくても打ち直さない
-    （打った字は待ちの列に入るか番の途中で取り込まれる。打ち直すと同じ頼みが何度も届いた）。"""
+    Windows で、attach で戻した直後の会話に送った 1 行が、届かないか入力フィールドに残った（まっさらな環境での 9 回目の試しの 1）。
+    送る前に入力フィールドが出るのを待ち、送った後は、入力フィールドに残っていれば Enter を足し、入力フィールドにも画面にも見えず動き出してもいなければ
+    打ち直す（SEND_TRIES 回まで）。画面に送った字が見えていれば（入力フィールドでない所に）、届いたと見て打ち直さない（二重に送らない）。
+    送る前から動いている会話は、打った字をターンの後の待ちの列に回すので、動き出しでは確かめられない。入力フィールドに残れば Enter を足し、
+    入力フィールドの上（待ちの列か、ターンの途中で取り込まれた会話の中）に載るか、入力フィールドから出たのを見て届いたとする。見えなくても打ち直さない
+    （打った字は待ちの列に入るかターンの途中で取り込まれる。打ち直すと同じ頼みが何度も届いた）。"""
     head = " ".join(line.split())[:20]
     was_busy = busy()
-    seen = 0   # 送る前に入力欄より上に見えていた数（前に送った同じ字が画面に残っていても、届いたと見誤らない）
+    seen = 0   # 送る前に入力フィールドより上に見えていた数（前に送った同じ字が画面に残っていても、届いたと見誤らない）
     for _ in range(CONFIRM_LOOKS):
         try:
             screen = h.read(pane, 40)
@@ -709,15 +718,15 @@ def send_confirmed(pane, line, h, pause, busy):
                         h.send_keys(pane, "enter")
                     except h.HerdrError:
                         pass
-                    entered, detail = True, "入力欄に残っていたので Enter を足した"
+                    entered, detail = True, "入力フィールドに残っていたので Enter を足した"
             elif above_box(screen).count(head) > seen:
-                return "sent", detail   # 入力欄から出て、入力欄より上に新しく載った（会話に届いた）
+                return "sent", detail   # 入力フィールドから出て、入力フィールドより上に新しく載った（会話に届いた）
             elif was_busy and entered and ready(screen):
-                return "sent", detail   # 入力欄に入った字が、Enter で入力欄から出た（待ちの列に回った）
+                return "sent", detail   # 入力フィールドに入った字が、Enter で入力フィールドから出た（待ちの列に回った）
         if was_busy:
             return "sent", "動いている会話に 1 回打った（待ちの列に載ったのを画面で見られなかったが、二重に送らないよう打ち直さない）"
         detail = f"届いたかを確かめられず打ち直した（{attempt + 1} 回目）"
-    return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力欄に残っていれば Enter を押す）"
+    return "failed", f"{SEND_TRIES} 回打ったが、会話が動き出さない（部署の窓を見て、入力フィールドに残っていれば Enter を押す）"
 
 
 CLEAR = "/clear"
@@ -725,7 +734,7 @@ CLEAR = "/clear"
 
 def clear_talk(pane, h, pause, cleared):
     """窓の会話に /clear を打ち、会話が空になった（cleared() が真。会話の一覧の id が変わった）のを見てから返す。書く口。
-    (cleared・unconfirmed・failed, 訳)。入力欄に /clear が残っていれば Enter を 1 回足す（残ったまま頼みを打つと、頼みの頭に
+    (cleared・unconfirmed・failed, 訳)。入力フィールドに /clear が残っていれば Enter を 1 回足す（残ったまま頼みを打つと、頼みの頭に
     /clear が付いて届く）。見えなくても打ち直さない（2 度打っても害は無いが、空になったかは一覧でしか分からない）。"""
     try:
         h.prompt(pane, CLEAR, False)
@@ -749,7 +758,7 @@ def clear_talk(pane, h, pause, cleared):
     return "unconfirmed", "/clear を打ったが、会話の id が変わったのを見られなかった（前の会話のまま頼みが届いたかもしれない）"
 
 
-# 前の会話を終える命令と、シェルに戻るのを見る回数（1 回ごとに pause）
+# 前の会話を終えるコマンドと、シェルに戻るのを見る回数（1 回ごとに pause）
 EXIT = "/exit"
 EXIT_LOOKS = 20
 
@@ -786,14 +795,14 @@ def stop_verdict(payload, attrs, count, run):
     if count >= STOP_LIMIT:
         return None
     boss = attrs.get("boss") or "頼み元"
-    # 本文の場所も添える。頼みを渡した字が会話に届かなくても、この差し戻しで本文へたどれる（my_notes の受付 4bae53 は、起こし直した
+    # 本文の場所も添える。頼みを渡した字が会話に届かなくても、この差し戻しで本文へたどれる（my_notes の受付 4bae53 は、起動し直した
     # 会話が受付番号だけを見て、本文を読まずに「受けている頼みは無い」と納品した）
     file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md")
     body = f"本文は {file}（まだ読んでいなければ、先に読んで進める）。" if attrs.get("boss-inbox") and os.path.isfile(file) else ""
     return (f"頼み（受付 {ask}）をまだ納品していない。{body}止まる前に、要約をファイルに書いて {deliver_command(run)} で"
-            f"{boss} へ返す（足りない項目は命令が教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
+            f"{boss} へ返す（足りない項目はコマンドが教える）。返せない訳があれば、それを要約の「残った疑問」に書いて返す"
             f"（この差し戻しは {STOP_LIMIT} 回まで。{count + 1} 回目）。裏の処理（run_in_background の Bash や Agent）の終わりを待つだけなら、"
-            "番を終えてよい（動いている間はこの差し戻しは出ず、終われば知らせで会話が起きる）。")
+            "ターンを終えてよい（動いている間はこの差し戻しは出ず、終われば知らせで会話が起きる）。")
 
 
 def stop_count_path(tmp_dir, session_id, ask):
