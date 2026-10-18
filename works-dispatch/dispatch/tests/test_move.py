@@ -110,6 +110,68 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("accounts に無い", out)
 
+    def test_naming_the_present_account_starts_the_department_again_on_it(self):
+        # 区切りを印さない会話を持ち越す部署（my_notes の社長室）を、持ち主が起こし直してよいと答えたとき（受付 93d98b）
+        provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "account": "a1"}, gitx)
+        rc, out = self.main(self.src, "--move", "調べ", "--account", "a1", "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("アカウント a1 のまま起こし直す", out)
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, [("c1", "d")])
+        (got,) = seen
+        self.assertEqual(got["ns"].only_account, "a1")
+        self.assertIn("同じアカウント a1 のまま", got["brief"])
+        (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
+        self.assertEqual((moved["from"], moved["to"], moved["why"]), ("a1", "a1", move.SAME))
+        rc, out = self.main(self.src, "--move", "調べ", "--account", "a1", "--if-limited")
+        self.assertEqual(rc, 2, out)   # 使用上限で移すのに、今のアカウントでは起こし直さない
+
+    def test_a_department_talking_in_its_window_is_not_stopped_and_is_told_why(self):
+        # 部署の窓で持ち主と話す会話も、窓口と同じく番の途中と打ちかけの字の上からは止めない。会話の外から打った --move なら、
+        # 止めた訳をその会話に台帳の知らせで渡す（入力欄には打たない）
+        provision.mark(self.place, self.src, {"residency": "resident", "job": "d", "account": "a1"}, gitx)
+        h = self.ports.herdr
+        h.screen = "─" * 20 + "\n❯ 打ちかけ\n" + "─" * 20
+        seen, task = self.fake_task()
+        with mock.patch.object(dispatch, "_task", task):
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")   # 待ち受けの跡が無ければ知らせない（届かない）
+            self.assertEqual(rc, move.NOT_NOW, out)
+            self.assertIn("待ち受けの跡が無い", out)
+            self.assertFalse([r for r in deliver.records(self.inbox) if r.get("kind") == wake.NOTE])
+            wake._replace(wake.pos_path(self.inbox, gitx.git_dir(self.place)), "0")
+            rc, out = self.main(self.src, "--move", "調べ", "--account", "a1")
+            self.assertEqual(rc, move.NOT_NOW, out)
+            self.assertIn("入力欄に字（「打ちかけ」）が在るので止めない", out)
+            # 会社の形の起動の設定で起こし直す待ち受けの --if-changed は、出力で訳を見るので知らせない
+            test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nmodel = "opus"\n')
+            provision.mark(self.place, self.src, {wake.REST: "1"}, gitx)
+            rc, out = self.main(self.src, "--move", "調べ", "--if-changed")
+            self.assertEqual(rc, move.NOT_NOW, out)
+            self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == wake.NOTE]), 1)
+            provision.mark(self.place, self.src, {wake.REST: None}, gitx)
+            (told,) = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.NOTE]
+            self.assertTrue(told["to"].endswith("/調べ"), told)
+            self.assertIn("打ちかけ", told["text"])
+            self.assertIn("--rest", told["text"])
+            # その会話の中から打った --move は、出力で訳を見るので知らせない
+            h.screen = ""
+            h.agent = lambda pane: {"agent": "claude", "agent_status": "working"}
+            rc, out = self.main(self.place, "--move", "調べ", "--account", "a1")
+            self.assertEqual(rc, move.NOT_NOW, out)
+            self.assertIn("番の途中", out)
+            self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == wake.NOTE]), 1)
+            self.assertEqual((seen, self.stopped), ([], []))
+            self.assertFalse([w for w in h.writes if w[0] == "send_keys"])
+            # 使用上限で止まった会話は、待っても動かないので移す
+            full = {"five_hour": {"used_percentage": 100}, "seven_day": {"used_percentage": 50}}
+            self.ports.limits_seq = [{"a1": full, "a2": {"five_hour": {"used_percentage": 1}, "seven_day": {"used_percentage": 1}}}]
+            rc, out = self.main(self.src, "--move", "調べ", "--if-limited")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.stopped, [("c1", "d")])
+
     def changed_world(self, launched):
         # 毎回空にする部署。会社の形の model は opus、起こしたときは launched
         test_deliver.Flow.shape(self, '[[roles]]\nname = "調べ役"\nresident = true\nfresh = true\nmodel = "opus"\n')
@@ -253,6 +315,13 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, move.NOT_NOW, out)
         self.assertIn("入力欄に字（「打ちかけ」）が在る", out)
         self.assertFalse([w for w in h.writes if w[1] == self.desk and w[0] in ("prompt", "run")])
+        # 窓口でも、会話の外（部署の作業場）から打った --move なら、訳を窓口の会話に知らせで渡す
+        wake._replace(wake.pos_path(self.inbox, gitx.git_dir(self.src)), "0")
+        rc, out = self.main(self.place, "--move", "窓口", "--account", "a2")
+        self.assertEqual(rc, move.NOT_NOW, out)
+        (told,) = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.NOTE]
+        self.assertTrue(told["to"].endswith("/窓口"), told)
+        self.assertIn("アカウント a2 へ移して", told["text"])
 
     def test_the_desk_is_exited_over_a_faint_prompt_suggestion(self):
         # 入力欄の薄字（SGR 2）は Claude Code の次の文の候補で、打てば消える。2026-10-18 に my_notes の段取りで、候補「消していいよ」を

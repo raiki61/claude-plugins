@@ -615,7 +615,8 @@ def main(argv=None, ports=None):
                     "--ask <宛先>（と --task・--branch）を添えれば、受付番号と頼み元をそのままにほかの部署へ頼み直す（--text は元の本文の前に置く添え書き）")
     ap.add_argument("--move", metavar="部署か窓口", help="立っている部署か本社の窓口の会話を、ほかのアカウントで起こし直す"
                     "（前の会話を止めてから。--account で名指さなければ、使用率の順で空いている物）")
-    ap.add_argument("--account", help="--move と一緒に: 移る先のアカウントの名")
+    ap.add_argument("--account", help="--move と一緒に: 移る先のアカウントの名（今のアカウントを名指せば、同じアカウントのまま"
+                    "会社の形の今の起動の設定で起こし直す）")
     ap.add_argument("--if-limited", action="store_true",
                     help="--move と一緒に: 今のアカウントの使用率が上限に達しているときだけ移す（上限で止まったときのフックが付ける）")
     ap.add_argument("--if-changed", action="store_true",

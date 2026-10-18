@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""--move <部署か窓口>（move）: 立っている部署か本社の窓口の会話を、ほかのアカウントで起こし直す（37f8b1・d7d50c の 3）。
+"""--move <部署か窓口>（move）: 立っている部署か本社の窓口の会話を、ほかのアカウント（--account で名指せば今のアカウント）で
+起こし直す（37f8b1・d7d50c の 3）。
 
 常設の会話は、起こしたアカウントが 5 時間か 1 週間の使用上限に当たると、上限が戻るまで止まる。--move は、移る先のアカウント
 （--account で名指すか、使用率の順で今のアカウントの次に空いている物）で、同じ役・名前・場所の会話を起こし直す。同じ役の会話が
@@ -17,6 +18,13 @@
   窓口の会話が番の途中（herdr の状態が working か blocked）か、窓の入力欄に字が在るときは /exit を打たない（番の途中に打った /exit は
   番の終わりまで待ちの列に回り、起こし直さずに止まった後で効いて、窓口が消えたままになりうる。窓口が自分の番の中で打った --move）。
 
+--account に今のアカウントを名指すと、同じアカウントのまま、会社の形の今の起動の設定で起こし直す（持ち主が起こし直してよいと
+答えた、区切りを印さない会話を持ち越す部署。受付 93d98b）。部署の窓に会話が見えていれば（窓口と同じく）、番の途中か入力欄に字が
+在るときは止めずに NOT_NOW で終わる（使用上限で移す --if-limited を除く）。会話の外から打った --move がそうして止まったら
+（--if-changed を除く）、起こし直さなかった訳をその会話に台帳の知らせで渡す（同じアカウントのままなら、区切りで --rest を打てば番の終わりに
+待ち受けが起こし直すことも添える）。
+知らせは待ち受けが入力欄に打たずに会話へ渡すので、持ち主はその会話の窓で訳を見る（打ちかけの字は消えない）。
+
 --if-limited は、上限に当たって止まったときのフック（limit_hook.py）が付ける。今のアカウントの使用率の控えが上限に達していなければ
 （一時の混み合いの rate_limit）、移さずに終わる。移したことは会社の受付箱の台帳に kind moved で残す。
 
@@ -29,7 +37,7 @@
 区切りの印の無い、会話を持ち越す部署と窓口は起こし直さない（持ち主と話している途中の会話を切らない。区切りの印は、人がその
 会話に打つと外れる）。区切りで起こし直しても、/clear で空にするのと比べて失う物は無い。前の会話を止めたら、待ち受けが付けた印
 （属性 company.restarting）と区切りの印を外す。待ち受けは --if-changed が終わるのを待ち、印が残っていれば（前の会話を止めずに終わった）、
-頼みを前の会話に渡す（wake_hook.restart_first）。窓口の会話が番の途中か入力欄に打ちかけの字が在って /exit を打たなかったときは
+頼みを前の会話に渡す（wake_hook.restart_first）。窓口か部署の会話が番の途中か窓の入力欄に打ちかけの字が在って止めなかったときは
 NOT_NOW（75）で終わり、待ち受けは今の値を残さずに次の区切りで試し直す。入力欄の薄字（Claude Code の次の文の候補）は打ちかけと
 数えない（deliver.typed）。
 """
@@ -52,12 +60,15 @@ from nodes import wake  # noqa: E402
 RESIDENT = "resident"
 LIMITED = "使用上限に当たった"   # 台帳の why（--if-limited で移したとき）
 CHANGED = "会社の形の起動の設定（model・effort・settings）が替わった"   # 台帳の why（--if-changed で起こし直したとき）
+SAME = "持ち主か窓口が同じアカウントのまま起こし直した"   # 台帳の why（--account に今のアカウントを名指したとき）
 NO_FLAGS = role.launch_key(None)   # company.launched の無い部署（この版より前に起こした）は、旗なしで起こしたと見る
 # 起こし直しても残す頼み元の属性（--task が呼んだ会話で書き直す物）
 KEEP = ("boss", "boss-account", "boss-session", "boss-pane", "boss-inbox")
 # 前の裏の会話が止まったのを会話の一覧で見る回数（1 回ごとに ports.pause）
 STOP_LOOKS = 20
 NOT_NOW = wake.NOT_NOW   # 今は起こし直さない（番の途中・打ちかけの字）。待ち受けが次の区切りで試し直す
+# 今は起こし直さないで終わったときに、その会話の中か待ち受けから打った --move の出力に添える案内（外から打てば、訳を知らせで渡す）
+INSIDE = "。その会話の中から打ったなら、区切りで --rest を打てば番の終わりに待ち受けが起こし直す。アカウントを移すなら、番を終えてから会話の外で打つ"
 BUSY = ("working", "blocked")   # herdr が会話が番の途中（動いている・確かめの画面で待つ）と見る状態。/exit を打たない
 
 
@@ -104,21 +115,22 @@ def move(a, ports, cwd, task):
         if chosen is None:
             print("\n".join(notes + [f"止めた: 移れるアカウントが無い（{old or '-'} のほかに、使用率が上限に届かないアカウントが無い）"]))
             return 2
-    if chosen == old:
-        print(f"止めた: {a.move} はもうアカウント {old} で動いている（会社の形の起動の設定を効かせるだけなら、その会話が区切りで "
-              "--rest を打てば、番の終わりに待ち受けが同じアカウントで起こし直す）")
+    if chosen == old and a.if_limited:
+        print(f"止めた: {a.move} はもうアカウント {old} で動いている（--if-limited は使用上限で移すので、今のアカウントを名指さない）")
         return 2
     head = bool(dept.get("head_office"))
     where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
-    why = LIMITED if a.if_limited else "持ち主か窓口が移した"
+    why = LIMITED if a.if_limited else SAME if chosen == old else "持ち主か窓口が移した"
     if a.dry_run:
-        print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {old or '-'} から {chosen} へ起こし直す（{why}）"]))
+        to = f"{chosen} のまま" if chosen == old else f"{old or '-'} から {chosen} へ"
+        print("\n".join(notes + [f"{'窓口' if head else '部署'} {where} をアカウント {to}起こし直す（{why}）"]))
         return 0
-    return _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes)
+    return _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, cwd)
 
 
-def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes):
-    """前の会話を止めて、アカウント chosen で起こし直し、台帳に kind moved で残す。終了の値。"""
+def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, notes, cwd=None):
+    """前の会話を止めて、アカウント chosen で起こし直し、台帳に kind moved で残す。終了の値。cwd は --move を打った場所
+    （その会話の外から打って、今は起こし直さないで終わったら、訳をその会話に知らせる）。"""
     attrs = dept["attrs"]
     old = attrs.get("account")
     acc = {x.name: x for x in cfg.accounts}
@@ -131,9 +143,35 @@ def _relaunch(a, ports, task, cfg, company, dept, chosen, why, head, settings, n
     deliver.log(inbox, {"kind": "moved", "at": ports.now(), "name": attrs.get("name"), "path": dept["path"], "from": old,
                         "to": chosen, "why": why, "status": "done" if rc == 0 else "failed", "detail": said})
     where = f"{company['name']}/{attrs.get('name') or dept['branch']}"
+    told = None
+    if rc == NOT_NOW and not (a.if_changed or a.if_limited) and cwd and not deliver.inside(cwd, dept["path"]):
+        told = _tell(inbox, company["name"], dept, old, chosen, said, ports)
+    elif rc == NOT_NOW:
+        said += INSIDE
     print("\n".join(notes + [f"{'窓口' if head else '部署'} {where}: アカウント {old or '-'} → {chosen}  "
-                             + ("起こし直した" if rc == 0 else "起こし直せなかった") + (f"（{said}）" if said else "")]))
+                             + ("起こし直した" if rc == 0 else "起こし直せなかった") + (f"（{said}）" if said else "")]
+                     + ([told] if told else [])))
     return rc
+
+
+def _tell(inbox, company_name, dept, old, chosen, said, ports):
+    """今は起こし直さないで止めた訳を、起こし直そうとした会話に台帳の知らせで渡す（待ち受けが入力欄に打たずに会話へ渡すので、
+    持ち主はその会話の窓で訳を見る）。待ち受けが居ないか張った跡も無ければ渡さない（--note と同じ見方）。出す行。"""
+    to, heard = orders.listener(inbox, company_name, dept["attrs"].get("name"))
+    if not (to and (heard or wake.has_history(inbox, ports.git.git_dir(dept["path"])))):
+        return f"注記: {to or '名前の無い会話'} には待ち受けの跡が無いので、起こし直さなかった訳を知らせていない"
+    if chosen == old:
+        text = (f"知らせ（返事は要らない）: この会話を --move で同じアカウント {chosen} のまま起こし直そうとしたが、止めた（{said}）。"
+                "持ち主との話が区切れたら、この会話で dispatch.py --rest を打てば、番の終わりに待ち受けが会社の形の今の起動の設定で"
+                "起こし直す（起こし直す値が無ければ、会話を空にするだけ）")
+    else:
+        text = (f"知らせ（返事は要らない）: この会話を --move でアカウント {chosen} へ移して起こし直そうとしたが、止めた（{said}）。"
+                "移すなら、番を終えて入力欄を空にしてから、--move を打った会話にもう一度打ってもらう")
+    try:
+        deliver.log(inbox, wake.notice(to, None, wake.NOTE, None, text, ports.now()))
+    except OSError as e:
+        return f"注記: 止めた訳を {to} の会話に知らせられなかった（{e}）"
+    return f"注記: 止めた訳を {to} の会話に台帳の知らせで渡した（持ち主はその会話の窓で見る）"
 
 
 def _restart(a, ports, task, cfg, sessions_, company, dept, settings, notes):
@@ -187,6 +225,7 @@ def _first_text(attrs, dept, old, chosen, why, head):
     file = os.path.join(attrs.get("boss-inbox") or "", f"{ask}-ask.md") if pending else None
     head_line = (f"前の会話（アカウント {old or '-'}）が使用上限に当たったので、アカウント {chosen} で起こし直した。" if why == LIMITED else
                  f"{CHANGED}ので、アカウント {chosen} で起こし直した。" if why == CHANGED else
+                 f"前の会話を、同じアカウント {chosen} のまま、会社の形の今の起動の設定で起こし直した（--move）。" if why == SAME else
                  f"前の会話（アカウント {old or '-'}）を、アカウント {chosen} へ移して起こし直した（--move）。") + "前の会話の記憶は引き継いでいない。"
     if head:
         head_line += (f" まず、この会話の中から works-dispatch の --desk {attrs.get('name') or ''} を打って、窓口の席をこの会話に移す。"
@@ -203,6 +242,16 @@ def _move_dept(a, cfg, company, dept, old_acc, chosen, text, ports, task, settin
     """部署の裏の会話を止め、--task と同じ道で移る先のアカウントの会話を起こす。(終了の値, 言葉)。"""
     attrs = dept["attrs"]
     pane = next((p["pane_id"] for p in dept["panes"]), None)
+    talk = deliver.window(dept)
+    if talk and not a.if_limited:
+        # 部署の窓で持ち主と話す会話（社長室など）を、番の途中や打ちかけの字の上から止めない（窓口の /exit と同じ守り）。
+        # 使用上限で止まった会話は、待っても動かないので移す
+        try:
+            held = _held(talk, ports, "部署", "止めない")
+        except herdr.HerdrError as e:
+            return 1, f"部署の窓 {talk} を読めない（{e}）"
+        if held:
+            return NOT_NOW, held
     if pane and not launch.to_shell(pane, ports.herdr, ports.pause):
         return 1, f"部署の窓 {pane} をシェルに戻せない（attach の画面を手で閉じてから打ち直す）"
     job = attrs.get("job") or attrs.get("session")
@@ -263,15 +312,11 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
     if pane is None:
         return 1, "窓口の会話の居るペインが分からない（属性の会話 company.session の居るペインが無い）"
     try:
-        status = (ports.herdr.agent(pane) or {}).get("agent_status")
-        box = deliver.typed(ports.herdr.read(pane, 40, ansi=True))
+        held = _held(pane, ports, "窓口", "/exit を打たない")
     except herdr.HerdrError as e:
         return 1, f"窓口の窓 {pane} を読めない（{e}）"
-    if status in BUSY:
-        return NOT_NOW, (f"窓口の会話が番の途中（{status or '-'}）なので /exit を打たない（窓口の会話の中から打ったなら、区切りで --rest を"
-                   "打てば番の終わりに待ち受けが起こし直す。アカウントを移すなら、番を終えてから会話の外で打つ）")
-    if box:
-        return NOT_NOW, f"窓口の窓 {pane} の入力欄に字（「{box[:20]}」）が在るので /exit を打たない（持ち主が打ちかけの字を消さない）"
+    if held:
+        return NOT_NOW, held
     the_role, _ = orders.shape_role(company["root"], settings, attrs.get("role"))
     warn = None
     try:
@@ -294,3 +339,15 @@ def _move_desk(company, dept, acc, text, ports, settings, old_acc=None):
         # 戻した会話は前の設定のまま。同じ値で区切りのたびに起こし直しと戻しを繰り返さない（会社の形が替われば試し直す）
         provision.mark(company["root"], company["root"], {wake.RESTART_KEPT: role.launch_key(the_role)}, ports.git)
     return 1, (got["detail"] or got["status"]) + ("。前の会話を --resume で戻した" if back is None else f"。前の会話も戻せなかった（{back}）")
+
+
+def _held(pane, ports, who, act):
+    """窓の会話が番の途中（herdr の状態が working か blocked）か、入力欄に人の打ちかけの字（薄字の候補は数えない）が在れば、
+    今は止めない訳。ほかは None。窓を読めなければ herdr.HerdrError。"""
+    status = (ports.herdr.agent(pane) or {}).get("agent_status")
+    if status in BUSY:
+        return f"{who}の会話が番の途中（{status}）なので{act}"
+    box = deliver.typed(ports.herdr.read(pane, 40, ansi=True))
+    if box:
+        return f"{who}の窓 {pane} の入力欄に字（「{box[:20]}」）が在るので{act}（持ち主が打ちかけの字を消さない）"
+    return None
