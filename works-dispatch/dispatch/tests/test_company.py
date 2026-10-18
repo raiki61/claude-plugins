@@ -362,6 +362,31 @@ class Build(unittest.TestCase):
         out = {"schema": 1, "companies": [c], "notes": []}
         self.assertEqual(schemacheck.check(out, schemacheck.schema("tree")), [])
 
+    def test_a_worktree_carrying_a_copy_of_the_head_office_attrs_is_not_a_department(self):
+        # git の worktree add は本社の config.worktree を写す。道具の一時の場所は、中身を出し終えて属性を消すまで本社と同じ名前の部署に
+        # 見え、--ask 段取り が「2 つ以上ある」で止まった（2026-10-18。受付 596ed5）。属性を消す前の、写したままの形で確かめる
+        from nodes import deliver
+        src, _ = make_world()
+        gitx.enable_worktree_config(str(src))
+        for k, v in (("name", "段取り"), ("role", "段取り"), ("session", "s-h"), ("reloaded", "1 1")):
+            gitx.set_worktree_attr(str(src), k, v)
+        place = os.path.join(os.path.realpath(tempfile.mkdtemp(prefix="works-dispatch-tool-")), "tree")
+        git("-C", str(src), "worktree", "add", "-q", "--detach", place, "HEAD")
+        gitx.set_worktree_attr(str(src), "reloaded", "2 2")   # 写した後に本社の属性が書き換わっても写しと見る
+        self.assertEqual(gitx.worktree_attrs(place)["name"], "段取り")   # git が写した
+        places = [{"path": os.path.realpath(e["path"]), "branch": e["branch"], "linked": os.path.realpath(e["path"]) != str(src)}
+                  for e in gitx.listed_worktrees(str(src))]
+        [c] = tree.build([str(src)], {str(src): places}, [], gitx.worktree_attrs,
+                         lambda root: {"source": None, "name": None, "skills": [], "problems": []})
+        dept = deliver.find_target([c], str(src), "段取り")["department"]
+        self.assertTrue(dept["head_office"])
+        self.assertEqual(next(d for d in c["departments"] if d["path"] == place)["attrs"], {})
+
+    def test_a_department_with_its_own_session_is_not_a_copy(self):
+        self.assertFalse(tree.copied_from({"name": "段取り", "session": "s-h"}, {"name": "段取り", "session": "s-x"}))
+        self.assertTrue(tree.copied_from({"name": "段取り"}, {"name": "段取り"}))   # 会話の id が無ければ名前で見る
+        self.assertFalse(tree.copied_from({}, {"name": "調べ"}))
+
     def test_lines_show_the_tree(self):
         sessions = {"p2": [{"id": "a1", "sessionId": "s-a", "cwd": "/wt/r/a", "kind": "background", "state": "working"}]}
         text = "\n".join(tree.lines(self.build((), sessions)))

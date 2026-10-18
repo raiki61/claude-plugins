@@ -211,6 +211,18 @@ def session_state(s):
     return STATUS.get(s.get("status"), "idle")
 
 
+def copied_from(office, attrs):
+    """部署の場所の属性 attrs が、本社の属性 office を git の worktree add が写した物か。git は extensions.worktreeConfig が入って
+    いると、作った worktree に元の worktree の config.worktree を写すので、代表の clone から作った worktree（道具の一時の場所・
+    --land の版を上げる一時の場所・herdr が作る部署の場所）は、作ってから属性を消すか書き直すまで、本社と同じ名前の部署に見える。
+    その間は中身を出し終えるまでの全部で、my_notes では 1 秒ほどあった（2026-10-18 に、--ask 段取り が道具の一時の場所と本社の
+    「2 つ以上ある」で止まった。受付 596ed5）。会話の id（company.session）は部署ごとに違うので、両方に在ればそれで見分け、無ければ
+    名前で見分ける。本社の属性は会話が動くたびに書き換わる（company.reloaded など）ので、全部の一致では見ない。"""
+    if office.get("session") and attrs.get("session"):
+        return attrs["session"] == office["session"]
+    return bool(attrs.get("name")) and attrs.get("name") == office.get("name")
+
+
 def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
     """会社の並び。places_of は 元の clone の根 → herdr.worktrees の並び（元の clone 自身は linked=False）。panes は herdr の
     ペインの並び。attrs_of は 部署の場所 → その部署の git の属性。info_of は 根 → read_info の結果。sessions は
@@ -223,6 +235,11 @@ def build(company_roots, places_of, panes, attrs_of, info_of, sessions=None):
         if got is not None:
             owned.setdefault(id(got), []).append(pane)
     attrs = {id(p): attrs_of(p["path"]) for p in flat}
+    for root in company_roots:
+        # 本社の属性の写しを載せた worktree は部署に数えない（copied_from）
+        office = next((attrs[id(p)] for r, p in every if r == root and not p.get("linked")), {})
+        for p in (p for r, p in every if r == root and p.get("linked") and copied_from(office, attrs[id(p)])):
+            attrs[id(p)] = {}
     by_id = {a.get("session"): p for p in flat for a in [attrs[id(p)]] if a.get("session")}
     found = {}
     for account, items in (sessions or {}).items():
