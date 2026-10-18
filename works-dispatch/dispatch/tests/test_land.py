@@ -663,6 +663,84 @@ class OverwriteGate(LandCase):
         self.assertEqual(ports.herdr.prompts, [])
 
 
+class OverwriteGateRenames(LandCase):
+    """書き換えの取り合いのゲートと、ファイルの名前の付け替え: 名前を替えて新しい名前へ運んだ行は消したと数えず、本当に消した行では止める。"""
+
+    RULES = OverwriteGate.RULES
+    BODY = "".join(f"def f{i}():\n    return {i}\n" for i in range(10))   # 名前の付け替えと見なされるだけの、変えない行
+
+    def world(self):
+        w = World(self.tmp, {".claude/company.toml": self.RULES, "calc.py": self.BODY})
+        self.base = w.origin("main")   # この部署がメインブランチを知った位置
+        return w
+
+    def add_div_on_main(self, w):
+        """作業の部署が、古い名前の calc.py へ div をメインブランチに入れる。"""
+        other = os.path.join(self.tmp, "other")
+        git("clone", "-q", w.remote, other)
+        write(os.path.join(other, "calc.py"), self.BODY + "def div():\n    pass\n")
+        self.div = commit(other, "div を足す")
+        git("-C", other, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+    def ports(self, w):
+        return Ports(w, attrs={"name": "a", "session": "s1", "role": "worker", "base": self.base})
+
+    def test_renamed_branch_carries_lines_main_added_to_the_old_name(self):
+        w = self.world()
+        git("-C", w.dept, "mv", "calc.py", "math.py")   # 部署がブランチで名前を替えた
+        commit(w.dept, "calc.py を math.py にする")
+        self.add_div_on_main(w)   # その間に、ほかの部署が古い名前へ行を入れた
+        code, out = self.land(w, self.ports(w), checker=lambda cmd, cwd: (0, ""))
+        self.assertEqual(code, 0, out)
+        self.assertIn("書き換えの取り合いのゲート: 通った", out)
+        landed = git("--git-dir", w.remote, "show", "refs/heads/main:math.py")
+        self.assertIn("def div():", landed, "リベースで新しい名前へ運んだ行を残して入れる")
+
+    def test_renaming_and_really_removing_the_lines_stops(self):
+        w = self.world()
+        self.add_div_on_main(w)
+        git("-C", w.dept, "fetch", "-q", "origin")
+        git("-C", w.dept, "reset", "-q", "--hard", "origin/main")   # 担当がメインブランチの先頭からブランチを切った
+        git("-C", w.dept, "mv", "calc.py", "math.py")
+        before = w.origin("main")
+        w.work("math.py", self.BODY)   # 名前を替え、前に読んだ中身で書き直して div を消した
+        self.assertIn("rename from calc.py", gitx.diff_zero(w.dept, before, "HEAD"), "名前の付け替えとして読む形で試す")
+        ports = self.ports(w)
+        code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
+        [(_, text)] = ports.herdr.prompts
+        self.assertIn("calc.py:21「def div():」", text)   # main での古い名前と行番号で示す
+        self.assertIn(self.div[:7], text)
+        self.assertIn("div を足す", text)
+
+    def test_removing_lines_main_added_while_renaming_stops(self):
+        w = self.world()
+        other = os.path.join(self.tmp, "other")   # 作業の部署が、名前を math.py に替えて div を足し、メインブランチに入れた
+        git("clone", "-q", w.remote, other)
+        git("-C", other, "mv", "calc.py", "math.py")
+        write(os.path.join(other, "math.py"), self.BODY + "def div():\n    pass\n")
+        self.div = commit(other, "math.py にして div を足す")
+        git("-C", other, "push", "-q", "origin", "HEAD:refs/heads/main")
+        git("-C", w.dept, "fetch", "-q", "origin")
+        git("-C", w.dept, "reset", "-q", "--hard", "origin/main")
+        before = w.origin("main")
+        w.work("math.py", self.BODY.replace("def f0():", "def g0():"))   # f0 を書き換え、前に読んだ中身で div を消した
+        ports = self.ports(w)
+        code, out = self.land(w, ports, checker=lambda cmd, cwd: (0, ""))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(w.origin("main"), before, "止めたのにメインブランチを進めた")
+        [(_, text)] = ports.herdr.prompts
+        self.assertIn("math.py:21「def div():」", text)
+        self.assertNotIn("math.py:1「", text, "名前の付け替えで運んだだけの行は、ほかの部署が入れた行と数えない")
+
+    def test_lines_that_look_like_headers_inside_a_hunk_are_contents(self):
+        text = ("diff --git a/q.sql b/q.sql\nindex 1..2 100644\n--- a/q.sql\n+++ b/q.sql\n"
+                "@@ -2,1 +1,0 @@\n--- a/x\n@@ -5,0 +5,1 @@\n+++ b/y\n")
+        self.assertEqual(land._hunks(text, side="old"), {"q.sql": [(2, 1, 1, 0, ["--- a/x"]), (5, 0, 5, 1, ["+++ b/y"])]})
+        self.assertEqual(list(land._hunks(text)), ["q.sql"])
+
+
 class OtherModes(LandCase):
     def test_no_rules_does_nothing(self):
         w = World(self.tmp)

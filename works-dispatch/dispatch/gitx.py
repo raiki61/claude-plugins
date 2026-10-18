@@ -303,8 +303,11 @@ def changed_paths(cwd, since, path, runner=_default_runner):
 
 
 def diff_zero(cwd, a, b, runner=_default_runner):
-    """a から b への差分を、前後の行を付けずに（-U0）、名前の付け替えを追わずに。読めなければ GitError。"""
-    return _must(["git", "-C", cwd, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", a, b], runner)
+    """a から b への差分を、前後の行を付けずに（-U0）、名前の付け替えを追って（-M）。読めなければ GitError。
+    読む側がファイルの名前を「a/」「b/」の後ろから取るので、持ち主の設定（diff.noprefix・core.quotePath）に依らず、
+    名前に a/ と b/ を付け、ASCII でない名前も引用符で囲まずに出させる。"""
+    return _must(["git", "-C", cwd, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "-M",
+                  "--src-prefix=a/", "--dst-prefix=b/", a, b], runner)
 
 
 def blame_line(cwd, rev, path, line, runner=_default_runner):

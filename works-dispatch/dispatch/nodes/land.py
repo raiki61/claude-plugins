@@ -206,30 +206,42 @@ def red_text(branch, where, points):
 TAKEN_SHOWN = 12   # 部署に打ち込む「消す行」の上限の数
 
 
-def _hunks(text):
-    """git diff -U0 の字から、ファイルごとの (古い側の始まり, 数, 新しい側の始まり, 数, その hunk の行の並び)。"""
-    out, path, cur = {}, None, None
+def _hunks(text, side="new"):
+    """git diff -U0 の字を読み、{ファイルの名前: [(古い側の始まり, 数, 新しい側の始まり, 数, その hunk の行の並び)]} を返す。
+    ファイルの名前は side が "new" なら新しい側の名前、"old" なら古い側の名前（名前を付け替えたファイルでは付け替える前の名前）。
+    名前は hunk より前のヘッダーの行からだけ読む（hunk の中の「--- a/」「+++ b/」で始まる行は、消した行・足した行の中身）。
+    「"」・「\\」・タブ・改行を含む名前は git が引用符で囲むので読めず、そのファイルは数えない。"""
+    out, names, cur, body = {}, {"old": None, "new": None}, None, False
     for line in (text or "").splitlines():
-        if line.startswith("+++ "):
-            path = line[6:] if line.startswith("+++ b/") else path   # 消したファイル（+++ /dev/null）は diff --git の行の名前のまま
-        elif line.startswith("--- "):
-            continue
-        elif line.startswith("diff --git "):
-            path = line.split(" b/", 1)[1] if " b/" in line else None
-        elif line.startswith("@@") and path is not None:
+        if line.startswith("diff --git "):
+            a, sep, b = line[len("diff --git "):].partition(" b/")
+            names, cur, body = {"old": a[2:] if sep and a.startswith("a/") else None, "new": b if sep else None}, None, False
+        elif line.startswith("@@"):
+            body, cur = True, None
             m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-            if m:
+            if m and names[side] is not None:
                 cur = (int(m.group(1)), int(m.group(2) or 1), int(m.group(3)), int(m.group(4) or 1), [])
-                out.setdefault(path, []).append(cur)
-        elif cur is not None and line[:1] in "+-":
-            cur[4].append(line)
+                out.setdefault(names[side], []).append(cur)
+        elif body:
+            if cur is not None and line[:1] in "+-":
+                cur[4].append(line)
+        elif line.startswith("--- a/"):   # 新しいファイル（--- /dev/null）は diff --git の行の名前のまま
+            names["old"] = line[6:].rstrip("\t")   # 空白を含む名前の後には、git がタブを付ける
+        elif line.startswith("+++ b/"):   # 消したファイル（+++ /dev/null）は diff --git の行の名前のまま
+            names["new"] = line[6:].rstrip("\t")
+        elif line.startswith("rename from "):
+            names["old"] = line[len("rename from "):]
+        elif line.startswith("rename to "):
+            names["new"] = line[len("rename to "):]
     return out
 
 
 def taken(source, since, main, head, g):
     """since（部署がメインブランチを最後に知った位置）より後にメインブランチへ入った行のうち、部署のブランチ（main から head への差分）が消す行。
     [{path, line（main での行番号）, text, commit, subject}]。部署が前に読んだ中身を覚えたまま書き直すと、ほかの部署がその間に
-    入れた行を消しても git の衝突にならず、ゲートの試験も通る（まっさらな環境での 2 回目の試しの 5）ので、行の出どころで見る。"""
+    入れた行を消しても git の衝突にならず、ゲートの試験も通る（まっさらな環境での 2 回目の試しの 5）ので、行の出どころで見る。
+    名前の付け替えは追う。部署のブランチがファイルの名前を替えたときは、main での古い名前と行番号で突き合わせるので、
+    新しい名前へ運んだ行は消したと数えず、名前を替えたうえで本当に消した行だけが残る。"""
     added = {}
     for path, hunks in _hunks(g.diff_zero(source, since, main)).items():
         nums = added.setdefault(path, {})
@@ -238,7 +250,7 @@ def taken(source, since, main, head, g):
             for i in range(new_count):
                 nums[new_start + i] = texts[i] if i < len(texts) else ""
     out = []
-    for path, hunks in _hunks(g.diff_zero(source, main, head)).items():
+    for path, hunks in _hunks(g.diff_zero(source, main, head), side="old").items():
         if path not in added:
             continue
         for old_start, old_count, _, _, _ in hunks:
