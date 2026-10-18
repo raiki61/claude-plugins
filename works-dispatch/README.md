@@ -20,7 +20,7 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
 
 ## 要る物
 
-- **要る段: 2**（[tiers](../tiers/README.md) の段）。herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具。[herdr.dev](https://herdr.dev)）が動いている。gh（GitHub の CLI）のログインは、PR を開く使い方と、本流への入れ方に PR か CI を使う会社だけに要る（部署の回は GitHub を読まない。`--check` は、設定に `[[repos]]` が無ければ gh の足りない物を注記にとどめる）。
+- **要る段: 2**（[tiers](../tiers/README.md) の段）。herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具。[herdr.dev](https://herdr.dev)）が動いている。gh（GitHub の CLI）のログインは、PR を開く使い方と、本流への入れ方に PR か CI を使う会社だけに要る（部署を立てて頼み納品させる使い方は GitHub を読まない。`--check` は、設定に `[[repos]]` が無ければ gh の足りない物を注記にとどめる）。
 - Python 3.11 以降と git。フックは `python3`・`python`・`py -3` の順に、実際に起きて 3.11 以上の物を選ぶ（macOS 付属の 3.9 は選ばない）。Windows で `python3` や `python` を打つと Microsoft Store が開く（Python を入れていないときに出る代わりの物）なら、Python を入れ、設定 → アプリ → アプリ実行エイリアス で `python.exe` と `python3.exe` の「アプリ インストーラー」を切る。
 - 試すリポジトリの clone を 1 つ。既定の枝（main など）を開いておく。部署の作業場は、この clone から作る。origin は GitHub でなくてよい（手元の bare リポジトリでも立つ）。本流の枝の名前は、clone の手元の `origin/HEAD` から取り、無ければ origin に問う（空の bare を clone した直後など、どちらでも決まらなければ、本流の枝を push してから `git remote set-head origin --auto` を打つ）。
 - PR を開く使い方だけ: attention プラグイン（`/catchup` の命令を持つ）と、dispatch の設定のファイル（`--init` が下書きを書く。手順は [references/setup.md](skills/dispatch/references/setup.md) の「初めて」）。
@@ -66,13 +66,13 @@ dispatch 自身は AI を使わない。Python の標準ライブラリだけの
 
 6. 部署は終わると、要約を「結論・決め手・残った疑問・枝」の見出しで書いて返す。窓口の画面に `納品です（受付 …、試し・枝 try/first から）: 【結論】…` の 1 行が打ち込まれる。全文は clone の `.git/company/inbox/` に残る。
 
-7. 部署を片付ける。`--clean` が消せる部署を並べ、`--clean --apply` で消す。会話がまだ動いている部署は「残す」と訳を添えて並ぶ（消す条件は [references/clean.md](skills/dispatch/references/clean.md) の「片付け: `--clean`」）。都度の部署が納品して本流に入れ終えたら、自分で `--done` を打てば、その番の終わりに会話が止まり、部屋が同じ決まりで片付く（印の無い部屋を止めて畳むなら `--retire <部署>`）。dispatch の設定のファイルは要らない（`--repo` に代表の clone のパスを渡すか、その clone の中から打つ）。
+7. 部署を片付ける。`--clean` が消せる部署を並べ、`--clean --apply` で消す。会話がまだ動いている部署は「残す」と訳を添えて並ぶ（消す条件は [references/clean.md](skills/dispatch/references/clean.md) の `--clean` の項）。都度の部署（一度の頼みのために立てる部署）が納品して本流に入れ終えたら、部署の会話が自分で `--done`（終わりの印を付ける命令）を打てば、その番（会話の 1 回の応答）の終わりに会話が止まり、部署の部屋（作業場・worktree・会話・手元の枝）が同じ決まりで片付く（終わりの印の無い部署の部屋を止めて畳むなら `--retire <部署>`）。dispatch の設定のファイルは要らない（`--repo` に代表の clone のパスを渡すか、その clone の中から打つ）。
 
    ```
    /works-dispatch:dispatch --clean
    ```
 
-ほかの使い方（自分の番の PR を開く、アカウントの書き方、役ごとの設定、herdr の見た目）は [SKILL.md](skills/dispatch/SKILL.md) と、そこから主題ごとに指す別ファイル（`skills/dispatch/references/`）に在る。
+ほかの使い方（自分の番の PR〔直す番の自分の PR と、レビューする番の PR〕を開く、アカウントの書き方、役ごとの設定、herdr の見た目）は [SKILL.md](skills/dispatch/SKILL.md) と、そこから主題ごとに指す別ファイル（`skills/dispatch/references/`）に在る。
 
 ## もっと詳しく
 

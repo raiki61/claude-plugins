@@ -234,8 +234,8 @@ works-dispatch の外（claude-plugins のリポジトリ）に置く。
 2026-10-17、my_notes の段取りの頼み（受付 20261017-032407-07ed54）から、作業の部署が足した。困っていたこと: 一度きりの部署は窓口が頼むたびに立てるので会社の形に現れず、決まった間隔で部署を起こす口も無かった。見直しの部署（my_notes の業務改革）を一度きりの作業で回すと、見られる側の窓口が、起こすかと結果の上げ先を決めてしまう。
 
 - **書く所**: 受け持ち（`[[skills]]`）の下の `[skills.start]`。役の種類は足さない（持ち主の決めた 4 つの役のまま。どの役で起こすかは受け持ちの `role`）。受け持ちの名前が起こした部署の名前になるので、受け持ちの `description` が部署の会話の始まりに足される（role_hook.py）。欄は `skills/dispatch/references/start.md`。
-- **起こす条件と起こす者**: 周期（`every`）なら `--due`、命令なら `--start`。`--start` で起こしてよい会話は `by` で絞れる（Claude Code の外から打つ人はいつでも）。どちらも窓口の判断を通らない。
-- **結果の返す先**: `report_to`。起こした者の会話でなく、ここを頼み元の属性に書く（見る役を見られる側から離し、結果を統治する側に直に上げる。段取りの調べの納品 20261017-010745-886ea1 の IIA の形）。
+- **起こす条件と起こす者**: 周期（`every`）なら `--due`、命令なら `--start`。`--start` を打って受け持ちを起こしてよい会話（打つ側）は、`by` に会話の名前を並べて絞れる（Claude Code の外から打つ人はいつでも起こせる）。どちらも窓口の判断を通らない。
+- **結果の返す先**: `report_to`。起こした者の会話でなく、ここを頼み元の属性に書く（見る役を見られる側から離し、結果を統治する側に直に上げる。段取りの調べの納品 20261017-010745-886ea1 の、IIA〔内部監査人協会〕の形）。
 - **宛て方**: `--ask` と同じ（宛先「会社/受け持ちの役」、部署の名前は受け持ちの名前）。常設の受け持ちは、その部署の順番待ちに積む（4.1。同じ中身なら積まない）。一度きりの受け持ちは部署を立て、枝は `work/<受け持ちの id>-<受付番号の末尾 6 字>`。前の回の部署が立っていれば起こさない（Kubernetes の CronJob の `concurrencyPolicy: Forbid` と同じ。https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/ ）。
 - **周期の数え方**: 前に起こした時（受付箱の台帳の `kind: "start"`・`status: "sent"` の行）から `every` が過ぎていれば起こす。過ぎた回が幾つ有っても 1 回だけ（anacron と同じく、ずっと動いているとは限らない機械のための数え方。https://man7.org/linux/man-pages/man8/anacron.8.html ）。
 - **刻む者**: works-dispatch は刻まない。その人の手元の OS の予定（launchd・cron・systemd の timer・タスク スケジューラ）が `--due` を打つ。どの会社でも同じ下回りに、どの OS のどの予定を使うかを入れないため（8 章と同じ考え）。launchd の `StartInterval` の仕事は眠っている間は飛ばされる（https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html ）が、上の数え方で起きた後の刻みに 1 回起こす。Claude Code の予定の機能は刻みに使わない: `/loop` と CronCreate は会話に結び付き、会話が閉じると止まり、7 日で切れる。クラウドの予定は手元の herdr と作業場に届かない（https://code.claude.com/docs/en/scheduled-tasks ）。
