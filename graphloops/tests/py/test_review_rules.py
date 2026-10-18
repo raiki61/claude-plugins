@@ -794,3 +794,25 @@ def test_held_review_is_read_from_the_field_and_old_rows_from_the_tail():
     assert not RULES.is_held_review({"status": "pass", "reason": "x" + tail, RULES.HELD_FROM: None})
     assert RULES.is_held_review({"status": "pass", "reason": "x" + tail})
     assert not RULES.is_held_review({"status": "pass", "reason": "x"})
+
+
+# ---------------------------------------------------------------- 検証器の --json の形（stop）
+@pytest.mark.parametrize("printed", [
+    '{"exit": 1, "text": "収束を妨げるもの"}',
+    '{"exit": 1, "stop": ["premise_escalate"], "text": ""}',
+], ids=["no-stop", "stop-not-string"])
+def test_validator_json_without_a_string_or_null_stop_is_not_read_as_work_remains(tmp_path, printed):
+    """--json の出力に stop が無い・文字列でも null でもないときは、検査が成立しなかった（exit None）として返し、
+    stop を null（仕事が残る）に読み替えない"""
+    from engine import validator
+    fake = tmp_path / "fake-record.py"
+    fake.write_text(f"import sys\nprint({printed!r})\nsys.exit(1)\n", encoding="utf-8")
+    b = types.SimpleNamespace(state={"validator": str(fake)}, graph={"record": {"validator_output": "json"}}, dir=tmp_path, plugin=None)
+    got = validator.run_validator(b)
+    assert got["exit"] is None and "stop は文字列か null" in got["out"], got
+
+
+def test_stop_branch_stops_on_a_stop_that_is_not_a_string():
+    V = types.SimpleNamespace(STOP_KEYS={"premise_escalate": "", "work_exhausted": ""})
+    with pytest.raises(ValueError, match="知らないキー"):
+        RULES.stop_branch(V, {"exit": 1, "out": "", "stop": ["premise_escalate"]})

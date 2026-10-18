@@ -2507,7 +2507,7 @@ def stop_branch(V, v):
     stop = v["stop"]
     if stop is None:
         return "work_remains"
-    if stop not in V.STOP_KEYS:
+    if not isinstance(stop, str) or stop not in V.STOP_KEYS:
         raise ValueError(f"検証器の stop が知らないキー: {stop!r}（{'/'.join(V.STOP_KEYS)}）")
     return stop
 

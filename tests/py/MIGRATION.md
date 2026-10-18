@@ -13,7 +13,8 @@
 | 0 | 阻害なしを収束と名乗らない | これは収束の宣言ではない | hist | test_review_record.py::test_validator[hist-not-convergence] |
 | 0 | 持ち越しは実際に見たラウンドと古さを見せる | 素材 prior_decisions: round 1 の判定を流用（2 ラウンド前） | hist | test_review_record.py::test_validator[hist-carry-age] |
 | 0 | --json は exit 0 で stop が null | "exit": 0, "stop": null, "text": " | --json hist | test_review_record.py::test_validator[hist-json] |
-| 1 | --json は仕事が残る周で stop が null、人向けの文は text に入れる | "exit": 1, "stop": null, "text": " | --json tmpl-1 | test_review_record.py::test_validator[tmpl-1-json] |
+| 1 | --json は仕事が残る周で stop が null | "exit": 1, "stop": null, "text": " | --json tmpl-1 | test_review_record.py::test_validator[tmpl-1-json] |
+| 1 | --json でも人向けの文を落とさず text に入れる（標準出力は JSON だけ） | 前ラウンドの記録が無い | --json tmpl-1 | test_review_record.py::test_validator[tmpl-1-json-text] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-material | 素材 'hygiene' の返答が無い | drop-material | test_review_record.py::test_validator[drop-material] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-defer-reason | defer に構造的理由が無い | drop-defer-reason | test_review_record.py::test_validator[drop-defer-reason] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-base | 必須のフィールド 'base' が無い | drop-base | test_review_record.py::test_validator[drop-base] |

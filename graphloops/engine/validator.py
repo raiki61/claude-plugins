@@ -239,10 +239,12 @@ def run_validator(b, target=None):
         res = json.loads(r.stdout)
     except ValueError as e:
         return {"exit": None, "out": f"検証器の --json の出力が JSON でない（{e}。convergence-loops の版が古く --json を知らないかもしれない——0.50.0 以上が要る）: {(r.stdout + r.stderr).strip()[-1500:]}", "validator": v}
-    if not isinstance(res, dict) or res.get("exit") != r.returncode or not isinstance(res.get("text"), str):
-        return {"exit": None, "out": f"検証器の --json の出力の形が違う（exit・text が要り、exit は終了コード {r.returncode} と同じ）: "
+    if (not isinstance(res, dict) or res.get("exit") != r.returncode or not isinstance(res.get("text"), str)
+            or "stop" not in res or not (res["stop"] is None or isinstance(res["stop"], str))):
+        return {"exit": None, "out": f"検証器の --json の出力の形が違う（exit・stop・text が要り、exit は終了コード {r.returncode} と同じ、"
+                                     f"stop は文字列か null）: "
                                      f"{r.stdout.strip()[-1500:]}", "validator": v}
-    return {"exit": r.returncode, "out": (res["text"] + r.stderr).strip(), "stop": res.get("stop"), "validator": v}
+    return {"exit": r.returncode, "out": (res["text"] + r.stderr).strip(), "stop": res["stop"], "validator": v}
 
 
 # **engine が積む痕跡のフィールドは、名前を 1 か所で持つ。** （記録のフィールド → state の鍵）。

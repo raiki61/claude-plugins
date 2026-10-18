@@ -40,6 +40,11 @@ def test_frontmatter_strips_a_bom():
     assert frontmatter("\ufeff---\ntools: Read\n---\n本文") == ({"tools": "Read"}, "本文")
 
 
+def test_real_agent_definitions_are_found():
+    """下の全数の検査が 0 件で何も見ずに通らない（置き場を動かしたら、ここで赤になる）"""
+    assert sorted(PLUGIN.parent.glob("*/agents/*.md"))
+
+
 @pytest.mark.parametrize("path", sorted(PLUGIN.parent.glob("*/agents/*.md")), ids=lambda p: f"{p.parent.parent.name}/{p.stem}")
 def test_every_real_agent_definition_reads(path):
     """リポジトリの実物の役の定義は全部読め、frontmatter を持つ（読めない形を足すと、その役の起動の前にここで赤になる）"""
