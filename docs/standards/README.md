@@ -1,7 +1,17 @@
 # プラグインをまたぐ標準
 
 この marketplace（リポジトリの根の `.claude-plugin/marketplace.json`）が配るプラグインの、書き方と作りの揃え方を決めた所。
-読むのは、プラグインを直す各担当（直すときに合わせる）と、標準の担当（次の回に、ずれがどこまで片付いたかをここで知る）。
+読むのは、プラグインを直す各担当（直す前に、下の一覧から当たる標準を開いて合わせる）と、標準の担当（次の回に、下の台帳でずれがどこまで片付いたかを知り、続きを頼む）。
+
+「担当」「点検」などは、このリポジトリの会社の形（`.claude/company.toml`）が決める部署（受け持ちを持つ Claude Code の会話）の名前。頼むと受付番号が付き、頼み先の部署が受けて、済めば納品で返す。受け持ちは次のとおり。
+
+- 見渡し: attention
+- 見直し: convergence-loops・graphloops
+- 割り振り: works-dispatch・tiers
+- 点検: gates と、CI・根の `tests/`
+- 説明書: 根の README・CLAUDE.md・CONTRIBUTING.md など、プラグインをまたぐ文書
+- 作業: 受け持ちの無い一度きりの直し
+- 標準: この docs/standards/
 
 決め方: 標準は Claude Code の公式の文書と、公式の検査の命令 `claude plugin validate`（以下「公式の検査」）を正にして書く。手元の好みでは決めない。
 公式に決まりが無い所だけ、このリポジトリの今の多数の形を標準にする。
@@ -39,7 +49,7 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 - 見渡し（attention）: 20261017-070336-504bb8 → 入った（d6f91472）
 - 見直し（convergence-loops・graphloops）: 20261017-070354-0f5cbe → 入った（febd3617）
 - 割り振り（tiers・works-dispatch）: 20261017-070325-80831b → 入った（ae06fe0c。README の入れ方の行は元から在った）
-- 点検（gates と、決まり 2〜4 を根の tests/ で見る検査。検査はほかの 3 件が本流に入ってから）: 20261017-070322-aabbb8 → 入った（gates は a8f36daf、検査は 6b54d12b・a5b0ce1f）
+- 点検（gates と、[配る形の標準](plugin-manifest.md)の決まり 2〜4 を根の tests/ で見る検査。検査はほかの 3 件が本流に入ってから）: 20261017-070322-aabbb8 → 入った（gates は a8f36daf、検査は 6b54d12b・a5b0ce1f）
 
 1 回目の締め: 公式の検査に残る警告は、対象の外の works・works-factory の author だけ。2 つは誰の受け持ちでもないので頼む先が無く、標準の担当も直さない。誰かが直して標準を満たせば、根の検査が外す一覧から消すよう赤で知らせる。
 
@@ -52,14 +62,13 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 [スキルの書き方の標準](skill-authoring.md)を作り、marketplace に載る全プラグインのスキルとコマンド 17 本の本文を測った。決まり 1（本文 5,000 字以下・500 行未満）を超えるのは 11 本。description（決まり 7）は 17 本とも 1,024 字以下（いちばん長い attention の catchup で 415 字）。
 
-- 2-1 決まり 1・4・5 を機械で見る検査が無い。状態: 頼んだ（点検、受付は下）
-- 2-2 attention の catchup 18,615 字・whose-turn 7,532 字・what-am-i-doing 6,230 字。状態: 頼んだ（見渡し）
-- 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼んだ（見直し）
-- 2-4 works-dispatch の dispatch 57,001 字。状態: 頼んだ（割り振り）
-- 2-5 works の works 22,704 字。状態: 頼んだ（作業。works は受け持ちが無いので、持ち主の頼みに従って作業に回す）
-- 2-6 根の CLAUDE.md から標準を指していない。状態: 頼んだ（説明書）
+- 2-1 スキルの書き方の標準の決まり 1・4・5 を機械で見る検査が無い。状態: 頼む（点検）
+- 2-2 attention の catchup 18,615 字・whose-turn 7,532 字・what-am-i-doing 6,230 字。状態: 頼む（見渡し）
+- 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼む（見直し）
+- 2-4 works-dispatch の dispatch 57,001 字。状態: 頼む（割り振り）
+- 2-5 works の works 22,704 字。状態: 頼む（作業。works は受け持ちが無いので、持ち主の頼みに従って作業に回す）
+- 2-6 根の CLAUDE.md から標準を指していない。状態: 頼む（説明書）
 
 標準の内の物: attention の my-turn・reflect、gates の coldread（4,962 字）、graphloops の intake、tiers の check、works-factory の works-factory（4,189 字）。
 
-頼んだ受付:
-
+2-1〜2-6 は、この標準が本流に入った後に頼み、受付番号をここに書き足す。
