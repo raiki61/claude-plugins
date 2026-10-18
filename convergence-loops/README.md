@@ -103,7 +103,7 @@ If you put a `REVIEW.md` at the root of the target repository, the perspectives 
 /research-graph <what to look into>  the executable version of the same research
 ```
 
-**Which to use**: the 4 above (prose) are the default. The 2 `-graph` commands are versions where a machine runs the same loop, and **the record of the run stays on disk** (it can resume across context compaction; dependencies and waves, limits, and silent omissions are enforced by the machine). Use `-graph` if you need any of these: getting a long run through, running the record through the validator afterwards, or several people following the same run. For an everyday check that ends in one pass, the 4 prose commands are enough.
+**Which to use**: the 4 above (prose) are the default. The 2 `-graph` commands are versions where a machine runs the same loop, and **the record of the run stays on disk** (it can resume across context compaction; the order of steps, so a step runs only after the steps it depends on; limits; and checks that nothing was silently skipped are enforced by the machine). Use `-graph` if you need any of these: getting a long run through, running the record through the validator afterwards, or several people following the same run. For an everyday check that ends in one pass, the 4 prose commands are enough.
 
 
 `/review-loop` is for reviewing code changes, `/research-loop` for calibrating an assessment, and `/firstread-loop` for checking whether a document gets through to its readers. Do not use them the other way around.
