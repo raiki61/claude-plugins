@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-19
+
 ### Fixed
 - 試験 `test_skill_frontmatter` が版の値を決め打ちしていて、`--land` が版を上げるたびに赤になっていたのを直す（版の形だけを見る。今の版が変更の記録に見出しを持つかはルートの試験が縛る）。
 

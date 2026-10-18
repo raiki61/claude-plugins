@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.71.1] - 2026-10-19
+
 ### Fixed
 - Windows で、会話の一時の置き場の写し（`--retire`・`--clean` が `claude rm` の前に取る写し）が、前の回に読み取り専用で写った git の objects を上書きできず WinError 5 で止まっていたのを直す（読み取り専用の印を外してから消し直す。POSIX の振る舞いは変えない）。
 - Windows で、ツールの子・`--land` のゲート・納品と頼みの検査（deliver_check・ask_check）の子の Python が既定の符号（cp1252 など）で日本語を読み書きして落ちていたのを直す（子に `PYTHONIOENCODING=utf-8` を渡す）。
