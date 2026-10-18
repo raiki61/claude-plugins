@@ -27,7 +27,8 @@ class FileX(unittest.TestCase):
         os.chmod(p, 0o600)
         filex.replace(p, "2")
         self.assertEqual(pathlib.Path(p).read_text(), "2")
-        self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
+        if os.name != "nt":   # Windows の chmod は読み取り専用の印しか持たず、0o600 は 0o666 と読める（POSIX の権限が無い）
+            self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
         self.assertEqual(os.listdir(self.d), ["a.json"])
 
     def test_append_line_ends_a_cut_line_before_adding(self):
@@ -39,7 +40,7 @@ class FileX(unittest.TestCase):
         self.assertEqual([b["text"] for b in got.bad], ['{"b":'])
 
     def test_read_stops_at_a_bad_line_when_asked(self):
-        with open(self.path, "w", encoding="utf-8") as f:
+        with open(self.path, "w", encoding="utf-8", newline="\n") as f:   # 書く側（filex）と同じ \n の行末で書く（Windows の文字の書きの既定は \r\n に替える）
             f.write('{"a": 1}\n[1]\n{"c": 3}\n{"d"')
         whole = filex.read_jsonl(self.path)
         self.assertEqual(whole.rows, [{"a": 1}, {"c": 3}])
@@ -56,7 +57,7 @@ class FileX(unittest.TestCase):
             out = subprocess.run(
                 ["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import filex\n"
                  "with filex.lock(sys.argv[2], wait=False) as got: print(got)", os.path.dirname(filex.__file__), p],
-                capture_output=True, text=True)
+                capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(out.stdout.strip(), "False", out.stderr)
 
 
@@ -67,7 +68,7 @@ class WakeReads(unittest.TestCase):
         self.place = tempfile.mkdtemp()
 
     def test_read_new_does_not_move_past_a_bad_line_and_tells_once(self):
-        with open(self.log, "w", encoding="utf-8") as f:
+        with open(self.log, "w", encoding="utf-8", newline="\n") as f:   # 書く側（filex）と同じ \n の行末で書く（Windows の文字の書きの既定は \r\n に替える）
             f.write('{"to": "co/a"}\nnot json\n{"to": "co/b"}\n')
         rows, pos, bad = wake.read_new(self.log, 0)
         self.assertEqual((rows, pos), ([{"to": "co/a"}], len(b'{"to": "co/a"}\n')))

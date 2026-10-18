@@ -89,4 +89,8 @@ def main(argv, env=os.environ):
 
 
 if __name__ == "__main__":
+    # Windows の既定の標準出力は cp1252 などで、日本語を書くと UnicodeEncodeError で落ちる。UTF-8 に直す
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     sys.exit(main(sys.argv[1:]))

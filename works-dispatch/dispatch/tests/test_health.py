@@ -165,14 +165,14 @@ class Entry(unittest.TestCase):
     def test_it_runs_the_found_script_with_the_same_arguments(self):
         self.installed(("user", self.new))
         p = subprocess.run([sys.executable, str(DISPATCH / "limits_entry.py"), "--accounts", str(self.snapshot), "show", "a"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("動いた", p.stdout)
         self.assertIn("show", p.stdout)
 
     def test_nothing_installed_says_so_on_the_tab_bar(self):
         p = subprocess.run([sys.executable, str(DISPATCH / "limits_entry.py"), "--accounts", str(self.snapshot), "show", "a"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8")
         self.assertEqual((p.returncode, p.stdout.strip()), (1, "works-dispatch ?"))
         self.assertIn("見つからない", p.stderr)
 

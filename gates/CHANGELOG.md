@@ -6,6 +6,10 @@ gates の版ごとの、利用者に効く違いを新しい順に並べる。�
 
 ## [Unreleased]
 
+### Fixed
+
+- 初見読みのゲート（coldread-gate.py）の帳面のロックが、Windows で書き手が並ぶと約 10 秒で取るのを諦め、ロック無しで書いて片方の行を消すことがあった（Windows の `msvcrt.locking` は約 10 秒で EDEADLK を返す）。POSIX の `flock` と同じく、取れるまで取り直す。
+
 ## [0.36.2] - 2026-10-19
 
 ### Fixed

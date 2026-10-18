@@ -100,6 +100,7 @@ gh でその「画面」を取り、読み手に既知として渡す。新し�
 import bisect
 import concurrent.futures
 import difflib
+import errno
 import hashlib
 import importlib.util
 import json
@@ -146,8 +147,9 @@ def _lost(what, exc):
 @contextlib.contextmanager
 def _locked(path):
     """path の隣の .lock を排他で取る間だけ中を走らせる(並ぶフックが同じ帳面を読み書きして、片方の行を消さない)。
-    ロックの置き場を作れない・ロックを取れない(Windows の LK_LOCK は約 10 秒待って諦める)ときは、ロック無しで走る(前と同じ)が、
-    _lost で知らせる。"""
+    ロックの置き場を作れない・ロックを取れないときは、ロック無しで走る(前と同じ)が、_lost で知らせる。
+    Windows の LK_LOCK は約 10 秒待つと EDEADLK で諦めるので、POSIX の flock と同じく取れるまで取り直す(並ぶ書き手が多いと
+    10 秒を超えて待つ。諦めてロック無しで書くと片方の行を消す。2026-10-19 の windows-latest で 40 本の書き手のうち 1 本が落ちた)。"""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         f = open(path + ".lock", "a+b")
@@ -162,7 +164,13 @@ def _locked(path):
             else:
                 import msvcrt
                 f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                while True:
+                    try:
+                        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                        break
+                    except OSError as exc:
+                        if exc.errno != errno.EDEADLK:
+                            raise
         except OSError as exc:
             _lost("ロックを取れない(%s)" % path, exc)
             yield

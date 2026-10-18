@@ -6,6 +6,11 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+### Fixed
+
+- タブバーの入口（`limits_entry.py`）が、Windows で日本語を標準出力に書くと既定の cp1252 で落ちうるので、標準出力と標準エラーを UTF-8 に直してから動く。
+- 試験を Windows でも通るようにした: 行を読む試験はファイルを書く側と同じ `\n` の行末で書き、子の出力は UTF-8 で読む。ファイルの権限（0o600）を保つ確かめは、POSIX の権限の無い Windows では見ない。
+
 ## [0.80.1] - 2026-10-19
 
 ### Fixed

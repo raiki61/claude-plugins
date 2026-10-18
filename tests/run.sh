@@ -3067,6 +3067,9 @@ PY
 expect_output 0 "LOG_BOUND_OK" "coldread: 記録が上限を超えたら .1 に替えて書き始め、末尾の行の読みは途中の欠けた行を捨てる" \
     "$PY_BIN" - "$ROOT" "$WORK/log-bound" <<'PY'
 import contextlib, importlib.util, os, pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 work.mkdir(parents=True)
 os.environ["CLAUDE_CONFIG_DIR"] = str(work / "cfg")
@@ -4583,6 +4586,9 @@ expect_output 0 "入っている版は 0.2.0" "入っている版(installed_plug
 expect_output 0 "VERSION_PICK_OK" "入っている版は installPath で決め、消す印の付いた場所・本体の無い場所・自分自身・開発 checkout では注記を出さず、注記は持ち主の画面にも出す" \
     "$PY_BIN" - "$CR_VCACHE" "$ROOT" <<'PY'
 import json, os, pathlib, subprocess, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 cache, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 listing = cache.parents[2] / "installed_plugins.json"
 def note(gate, *paths):
@@ -5829,6 +5835,11 @@ names |= markers
 WORKS_CODE = [q for q in sorted((root / "works").rglob("*")) if q.suffix in (".py", ".sh", ".yaml") and q.is_file()]
 works_env = set().union(*(re.findall(r"\bWORKS_[A-Z0-9_]+", q.read_text(encoding="utf-8", errors="replace")) for q in WORKS_CODE))
 assert len(works_env) >= 20, f"works のコードから WORKS_ の名を {len(works_env)} 個しか拾えていない（走査が壊れている）"
+# graphloops の GL_・GRAPHLOOPS_ で始まる名も環境変数で、`SHARD_ENV = ("GL_SHARD_TOTAL", …)`・`AUTH_NOTE_ENV = "GRAPHLOOPS_AUTH_NOTE"` の形で
+# 字として持ち、名の代入の行は無い。WORKS_ と同じく、graphloops のコード（.py・.sh）のどこかに字で在れば実在と見る
+GL_CODE = [q for q in sorted((root / "graphloops").rglob("*")) if q.suffix in (".py", ".sh") and q.is_file()]
+works_env |= set().union(*(re.findall(r"\b(?:GL|GRAPHLOOPS)_[A-Z0-9_]+", q.read_text(encoding="utf-8", errors="replace")) for q in GL_CODE))
+assert {"GL_SHARD_MANIFEST", "GRAPHLOOPS_AUTH_NOTE"} <= works_env, "graphloops のコードから環境変数の名を拾えていない（走査が壊れている）"
 
 def wrong_pairs(pairs, label):
     """名指しされたファイルにその定数が無い組を返す。**自己検査のために関数にしてある**
@@ -6282,6 +6293,12 @@ out.append(f"nodes={pick(['test_a.py::t1', 'test_a.py::t2'])} all_files={pick(['
 seen = {}
 def fake_group(argv, cwd, env=None, failfast=False, sub=""):
     seen.update(argv=argv, env=env, sub=sub)
+    # 本物の子は tests/pytest_nodes.py が結果を PYTEST_NODES_OUT の JSON に書き、run_pytest はそれを読む（出力の字は読まない）。
+    # 偽の出力の FAILED・ERROR の行を同じ形の JSON に写す（node id に :: の在る物は落ちたテスト、無い物は集められなかったファイル）
+    ids = [ln.split()[1] for ln in seen["ret"][1].splitlines() if ln.split()[:1] in (["FAILED"], ["ERROR"])]
+    if env and env.get("PYTEST_NODES_OUT"):
+        pathlib.Path(env["PYTEST_NODES_OUT"]).write_text(json.dumps(
+            {"collected": [], "deselected": 0, "failed": [i for i in ids if "::" in i], "errors": [i for i in ids if "::" not in i]}), encoding="utf-8")
     return seen["ret"]
 mutate.run_group = fake_group
 os.environ[mutate.PYTEST_MARK] = "?"
