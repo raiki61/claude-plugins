@@ -37,6 +37,10 @@ def find(roles, role_name, tool_name):
     if tool is None:
         names = "、".join(t["name"] for t in the_role.get("tools") or []) or "なし"
         return None, f"役「{role_name}」にツール「{tool_name}」が無い（在るツール: {names}）"
+    unchecked = schema_problems(tool["inputSchema"])
+    if unchecked:   # 書いた制約が黙って効かないまま走らせない
+        return None, (f"役「{role_name}」のツール「{tool_name}」の inputSchema の {', '.join(unchecked)} は入力の検査が確かめないので走らせない。"
+                      f"使えるのは {', '.join(sorted(SCHEMA_KEYS))} と、各鍵の {', '.join(sorted(PROPERTY_KEYS))}")
     return (the_role, tool), None
 
 

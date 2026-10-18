@@ -54,8 +54,6 @@ import re
 import shlex
 import tomllib
 
-from nodes import tools
-
 # 役の effort に書ける値（CLI の文書の --effort の Options）と、頼み元と同じ値で起動する印
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultracode")
 INHERIT = "inherit"
@@ -127,12 +125,6 @@ def _tools(r, where, problems):
         if not (isinstance(t.get("command"), str) and t["command"].strip()):
             bad.append("command（空でない文字列）")
         bad += [k for k in ("title", "description", "fallback_role") if k in t and not (isinstance(t[k], str) and t[k].strip())]
-        if not bad:
-            unchecked = tools.schema_problems(schema)
-            if unchecked:
-                problems.append(f"{at}: inputSchema の {', '.join(unchecked)} は入力の検査が確かめない（書いた制約が黙って効かない）ので外す。"
-                                f"使えるのは {', '.join(sorted(tools.SCHEMA_KEYS))} と、各鍵の {', '.join(sorted(tools.PROPERTY_KEYS))}")
-                continue
         if bad:
             problems.append(f"{at}: {', '.join(bad)} の形が違うので外す")
             continue
@@ -276,8 +268,11 @@ def current(shape, name):
 def default(shape, builtin):
     """--role を省いたときの役の名前と、止める訳。会社の形の default_role を先に、無ければ builtin。会社の形に役が書かれていて、
     その役が無ければ止める訳を返す（前は注記だけで、役の名前を英語で書いた会社では、どの役でもない「作業」の部署が役の本文も
-    起動の設定も無いまま立った）。役を書いていない会社は builtin のまま止めない。"""
+    起動の設定も無いまま立った）。役を書いていない会社は builtin のまま止めない。ただし役が 1 つも読めず problems が有る（TOML が
+    壊れているなど）ときは、書いた役を読めていないので止める。"""
     name = shape.get("default_role") or builtin
+    if not shape["roles"] and shape.get("problems"):
+        return name, f"--role を省いたが、会社の形を読めず既定の役を確かめられない（{shape['problems'][0]}）"
     if shape["roles"] and name not in shape["roles"]:
         return name, (f"--role を省いたので役は既定の {name} だが、会社の形に無い（--role で名指すか、会社の形の頭に "
                       f"default_role = \"<役>\" を書く。在る役: {', '.join(shape['roles'])}）")
@@ -286,7 +281,7 @@ def default(shape, builtin):
 
 def pick(shape, name, explicit):
     """役の名前から役の項目。(項目か None, 止める訳か None)。会社の形に役が書かれていて、名前を明示したのに無ければ止める
-    （書き損じで設定が黙って効かないのを防ぐ）。明示していない既定の役が無いのは止めない。"""
+    （書き損じで設定が黙って効かないのを防ぐ）。明示していない既定の役が無いのはここでは止めない（--role を省いた道は、先に default が止める）。"""
     got = shape["roles"].get(current(shape, name))
     if got is None and explicit and shape["roles"]:
         return None, f"役 {name} が会社の形に無い（在る役: {', '.join(shape['roles'])}）"

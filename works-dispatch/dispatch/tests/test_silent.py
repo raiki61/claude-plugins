@@ -115,6 +115,12 @@ class Schema(unittest.TestCase):
         self.assertEqual(got, ["keyword oneOf", "properties.a の keyword enum",
                                "properties.b の type（array・boolean・integer・null・number・object・string のどれか）"])
 
+    def test_a_tool_with_unchecked_words_is_not_run(self):
+        tool = {"name": "t", "inputSchema": {"type": "object", "properties": {"a": {"type": "string", "enum": ["x"]}}}}
+        found, why = tools.find({"担当": {"tools": [tool]}}, "担当", "t")
+        self.assertIsNone(found)
+        self.assertIn("enum", why)
+
 
 class Bump(unittest.TestCase):
     def test_version_is_replaced_only_where_it_is_meant(self):

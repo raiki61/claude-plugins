@@ -16,7 +16,7 @@ dispatch のスキル（works-dispatch のプラグイン）の別ファイル�
 - 引数なし: 自分の番の PR を全部開き、返事の有った PR を送り直し、自分の番でなくなった PR の会話を閉じ、閉じた PR の作業場を片付ける。自分が作者でレビュアーの付いていない PR も開くが、`/catchup` だけを送り、2 ターン目の文は送らない（`--pr` で指したときも同じ）。
 - `--dry-run`: 何も起動せず、どの PR をどのアカウント・どの作業場で開くか、どれを送り直すか（`refresh`）、どの会話を閉じるか、どれを片付けるかだけを出す。
 - `--pr N`: 指した番号の PR だけを開く。複数なら `--pr` を重ねる。止めている実装や、見に行くだけの PR に使う。レビュアーの有無では外さず、送り直しも片付けもしない。`--pr` で開いた会話は、後の引数なしの回で自分の番でなくても閉じない。
-- `--issue N`: issue から始める。issue に結んだブランチ（GitHub の `Issue.linkedBranches` を `gh api graphql` で読む）の作業場を開き、1 ターン目の `/catchup N`（N は issue の番号。`/catchup` は issue の番号も受ける）まで送って止める（2 ターン目のレビューの文は送らない）。ブランチが見えなければ、issue の Development のフィールドに出る開いた PR（merge するとその issue が閉じる PR）のブランチを使い、それも無ければ既定のブランチから GitHub にブランチを作って issue に結ぶ（`gh issue develop`。GitHub に書く）。閉じた issue ならブランチを作らずに止める（`issue_closed`）。`--pr` とは一緒に使えない。送り直しも片付けもしない。
+- `--issue N`: issue から始める。issue に結んだブランチ（GitHub の issue の Development のフィールドに出るブランチ。GitHub の GraphQL API で issue の `linkedBranches` を `gh api graphql` で読む）の作業場（ブランチごとの git worktree）を開き、1 ターン目の `/catchup N`（N は issue の番号。`/catchup` は issue の番号も受ける）まで送って止める（2 ターン目のレビューの文は送らない）。ブランチが見えなければ、issue の Development のフィールドに出る開いた PR（merge するとその issue が閉じる PR）のブランチを使い、それも無ければ既定のブランチから GitHub にブランチを作って issue に結ぶ（ブランチを作って issue に結ぶ gh のコマンド `gh issue develop` を使う。GitHub に書く）。閉じた issue ならブランチを作らずに止め、出力に止めた訳 `issue_closed` を出す。`--pr` とは一緒に使えない。送り直しも片付けもしない。
 - `--no-second`: `/catchup` だけで止め、2 ターン目の文を送らない。
 
 ## しないこと

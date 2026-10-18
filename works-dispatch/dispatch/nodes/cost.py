@@ -71,9 +71,10 @@ def load(path):
         return _empty()
     except (OSError, ValueError) as e:
         raise CostError(f"PR 1 件あたりの使用率の控え {path} が読めない（{e}）。直すか、消して測り直す") from e
-    if not (isinstance(raw, dict) and all(isinstance(raw.get(w, []), list) for w in WINDOWS)):
+    if not (isinstance(raw, dict) and all(isinstance(raw.get(w, []), list) and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in raw.get(w, [])) for w in WINDOWS)):
         raise CostError(f"PR 1 件あたりの使用率の控え {path} の形が違う（枠ごとの数の並びでない）。直すか、消して測り直す")
-    return {w: [float(x) for x in raw.get(w, []) if isinstance(x, (int, float))] for w in WINDOWS}
+    return {w: [float(x) for x in raw.get(w, [])] for w in WINDOWS}
 
 
 def save(path, new):
@@ -89,7 +90,12 @@ def main(argv=None):
     if len(argv) != 1:
         print(__doc__, file=sys.stderr)
         return 2
-    print(json.dumps({"schema": 1, "estimate": estimate(load(argv[0]))}, ensure_ascii=False))
+    try:
+        got = load(argv[0])
+    except CostError as e:
+        print(e, file=sys.stderr)
+        return 2
+    print(json.dumps({"schema": 1, "estimate": estimate(got)}, ensure_ascii=False))
     return 0
 
 

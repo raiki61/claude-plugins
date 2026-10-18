@@ -36,6 +36,10 @@ class FakeProbe:
         self.called.append(argv)
         return self.runs[(pathlib.PurePosixPath(argv[0]).name, argv[1])]
 
+    def run_apart(self, argv):
+        code, out = self.run(argv)
+        return code, out, ""
+
     def shell_has(self, cmd):
         return cmd in self.shell
 
@@ -78,7 +82,8 @@ class Tiers(unittest.TestCase):
 
     def test_herdr_not_running(self):
         # 動いていない・起動の誤り・人向けの文（JSON でない）・running の無い JSON は、どれも通さない
-        for answer in ((0, '{"status": "not_running", "running": false}'), (1, "error: connect refused\n"),
+        for answer in ((0, '{"status": "not_running", "running": false}'), (1, '{"status": "not_running", "running": false}'),
+                       (1, "error: connect refused\n"),
                        (0, "server:\n  status: running\n"), (0, '{"status": "running"}')):
             probe = FakeProbe(runs={("herdr", "status"): answer})
             r = tiers_check.check(2, probe=probe)

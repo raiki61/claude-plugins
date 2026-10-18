@@ -73,13 +73,19 @@ def _os_key(platform):
     return "linux"
 
 
-def _run(argv):
-    """(終了コード, 標準出力と標準エラーを合わせた文)。起動できなければ (None, 訳)。"""
+def _run_apart(argv):
+    """(終了コード, 標準出力, 標準エラー)。起動できなければ (None, "", 訳)。"""
     try:
         p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace")
     except OSError as e:
-        return None, str(e)
-    return p.returncode, (p.stdout or "") + (p.stderr or "")
+        return None, "", str(e)
+    return p.returncode, p.stdout or "", p.stderr or ""
+
+
+def _run(argv):
+    """(終了コード, 標準出力と標準エラーを合わせた文)。起動できなければ (None, 訳)。"""
+    code, out, err = _run_apart(argv)
+    return code, out + err
 
 
 def _posix_shell(env, platform):
@@ -101,6 +107,10 @@ class Probe:
 
     def run(self, argv):
         return _run(argv)
+
+    def run_apart(self, argv):
+        """機械向けの出力（JSON）を読む口。標準エラーを混ぜない。"""
+        return _run_apart(argv)
 
     def auth_status(self, cmd):
         """cmd auth status --json の (終了コード, 出力の JSON の字)。起動コマンドはシェルの関数のことが多く、ログインの鍵もシェルの
@@ -125,8 +135,8 @@ class Probe:
                 else:
                     path = self.which(cmd)
                     if path:
-                        code, text = _run([path, "auth", "status", "--json"])
-                        return code, text
+                        code, out_text, err_text = _run_apart([path, "auth", "status", "--json"])
+                        return code, out_text if out_text.strip() else err_text
             if code is None:
                 return code, text
             with open(out, encoding="utf-8-sig") as f:   # Windows PowerShell 5 の utf8 は BOM を付ける
@@ -295,9 +305,10 @@ def check_herdr(probe, launchers):
     if path:
         # herdr status server --json（0.9.3 で読んだ形: {"status": "running", "running": true, …, "socket": "<パス>"}。動いていなければ
         # status は not_running、running は false）。人向けの「status: running」の行を読まない
-        code, text = probe.run([path, "status", "server", "--json"])
+        # 止まっているときに 0 以外で終わっても、答えの JSON（running と socket）は読む
+        code, text, err = probe.run_apart([path, "status", "server", "--json"])
         try:
-            got = json.loads(text) if code == 0 else None
+            got = json.loads(text)
         except ValueError:
             got = None
         if isinstance(got, dict) and got.get("running") is True:
@@ -308,7 +319,7 @@ def check_herdr(probe, launchers):
             sock = got.get("socket") if isinstance(got, dict) else None
             where = f"（見た socket: {sock}）" if isinstance(sock, str) and sock else ""
             said = (f"herdr の server が動いていない{where}" if isinstance(got, dict)
-                    else f"herdr status server --json の答えが読めない（終了コード {code}）: {_first_line(text)[:200]}")
+                    else f"herdr status server --json の答えが読めない（終了コード {code}）: {_first_line(text + err)[:200]}")
             out.append(_item(2, "herdr の動き", problem=said,
                              fix=["作業するフォルダで herdr を起動する: herdr"], guide=herdr_start_guide(os_key)))
     for cmd in launchers:

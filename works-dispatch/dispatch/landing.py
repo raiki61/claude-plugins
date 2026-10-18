@@ -525,9 +525,11 @@ def sweep_branches(repo, ports, found, apply):
     for r in rows:
         if r["status"] != "open":
             out.append(f"常設の部署 {r['name'] or r['path']} の入れ終えたブランチ {r['branch']}: {SWEEP_SAID[r['status']]}")
-        if apply and r["path"] not in written and clean.landed_of(ports.attrs(r["path"]), strict=True) != r["keep"]:
-            written.add(r["path"])
+        if apply and r["path"] not in written:
             try:
+                if clean.landed_of(ports.attrs(r["path"]), strict=True) == r["keep"]:
+                    continue
+                written.add(r["path"])
                 provision.mark(r["path"], repo.source,
                                {clean.LANDED_BRANCHES: json.dumps(r["keep"], ensure_ascii=False) if r["keep"] else None}, ports.git)
             except (gitx.GitError, OSError) as e:

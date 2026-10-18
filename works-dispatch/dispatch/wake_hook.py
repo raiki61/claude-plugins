@@ -410,6 +410,8 @@ def untie(got, edges, spawn=subprocess.Popen, now=time.time, detach=None, env=os
     root = gitx.root_of(common) if common else got["root"]
     try:
         info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)))
+        if info.get("problems"):
+            raise ValueError("; ".join(info["problems"]))
         company = tree.company_name(root, info)
         crew, why = role.default(role.load(info["path"], info["text"]), role.DEFAULT)
     except Exception as e:

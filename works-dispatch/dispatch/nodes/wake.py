@@ -464,7 +464,7 @@ def watch(inbox, place, names, session, owner, token, err, now=time.time, pause=
             # 知らせ（said）が在れば先に会話へ渡し、順番待ちはそのターンの終わりに見る（同じ回に見ると、知らせを受ける前に空にしうる）
             verdict = check() if check and hits and not said else None
             holding = holding or verdict == HOLD
-            if verdict and verdict[0] == "end" and not said:
+            if verdict and verdict[0] == "end" and not said and not broken:
                 return 0
             text = "\n".join(x for x in [wake_text(said) if said else "", broken,
                                           verdict[1] if verdict and verdict[0] == "wake" else ""] if x)
