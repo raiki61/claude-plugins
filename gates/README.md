@@ -291,13 +291,15 @@ How findings are returned depends on the writing role:
   in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch-last/` (the newest 2,000 are kept), reads only the sections rewritten since that version (the same range read as above),
   and does not read again a document whose text has not changed (also when only the premise `SKILL.md` of a separate file changed).
   The blockers that stopped the last run are asked again only when the document's text or its premise changed: each is sent with the whole current version and the premise
-  to the same reader model, which answers whether it still blocks a reader at the same place for the same reason (STILL) or not (FIXED). STILL blockers stop as before,
+  to the same reader model, which answers whether it still blocks a reader at the same place for the same reason (STILL) or not (FIXED). STILL blockers stop as before, FIXED ones do not,
   and an unsure answer or a check that cannot run keeps the blocker. If neither text nor premise changed, the blockers stop again without asking, because each new question
-  could let an unfixed blocker pass on the reader's variation. Only blockers found in this run are compared with the mainline version.
+  could let an unfixed blocker pass on the reader's variation. Only blockers found in this run are compared with the mainline version (a blocker the mainline version also has does not stop the branch; see above).
   A run is not kept when the reader could not be started, or when the re-ask or the mainline comparison could not run; the next run starts again from the version kept before (verdicts already read are remembered, so this costs no new read).
-  The kept versions are not used when the reader's request text, the model, or the effort changes (such as after updating gates).
+  The kept versions are not used when the reader's request text, the model, or the effort changes (such as after updating gates to a new version).
   `--land` runs the check in a temporary worktree with no branch checked out (a detached HEAD, with the version bump commit on top of the branch);
-  there the gate uses the last run of the one local branch that HEAD contains and the split point does not. If there is not exactly one such branch, it reads from the split point as before.
+  there the gate looks for a local branch whose latest commit is in HEAD's history and comes after the split point (the commit where the branch left the mainline); the mainline and other branches whose latest commit is at or before the split point do not match.
+  Normally this is exactly one branch, the branch being merged, because the temporary worktree is that branch plus the version bump commit; the gate then uses that branch's last run.
+  If zero or several local branches match, it uses no last run and reads from the split point as before.
   This is because fixing one line made the reader read the unfixed paragraphs of the same extract again, and the reader picks different places on each read,
   so new blockers kept coming from paragraphs that were not touched (2026-10-19: 10 → 2 → about 10 → 7 blockers over 4 `--land` runs while splitting a works skill).
   It is the same shape as reviewing only the changes since the last review (GitHub's "changes since last review", CodeRabbit's incremental review).
@@ -305,7 +307,7 @@ How findings are returned depends on the writing role:
   A branch recreated with the same name as a deleted one continues from the deleted branch's last run. Another branch has no last run and reads from the split point.
   To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,
   the works-dispatch plugin's (a tool that starts sessions in a workspace per branch to carry out work) command for merging a branch into the mainline, `--land`, first runs
-  the command written in `check` under `[land]` in `.claude/company.toml`, and does not merge the branch if that command fails. This entry point is chained there with `&&`.
+  the command written in `check` under `[land]` in `.claude/company.toml`, and does not merge the branch if that command fails. In this repository that `check` command runs `python3 gates/hooks/coldread-gate.py branch-check` after the other checks, joined with `&&`, so a blocker stops the merge.
   Back when documents were read only at the end of a turn, for sessions that finish everything up to merging into the mainline within one turn (sessions started by works-dispatch to carry out work),
   the findings arrived after the merge into the mainline (8 cases on 2026-10-17). That is why it also reads with this check before merging into the mainline
 - **The end of the parent session's turn is not made to wait**: in interactive sessions (including agent view sessions), the Stop hook runs in the background with `asyncRewake`
