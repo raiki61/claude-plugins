@@ -8,10 +8,12 @@
 
 対象: marketplace に載るプラグインのうち、works と works-factory を除く 6 つ（attention・convergence-loops・gates・graphloops・tiers・works-dispatch）。
 works と works-factory は誰の受け持ちでもないので、標準の担当は見るだけで、直しを頼まない。
+ただし[スキルの書き方](skill-authoring.md)は、持ち主の頼み（2026-10-18）で works と works-factory も対象にし、直しは一度きりの直しを受ける作業に頼む。
 
 ## 標準の一覧
 
 - [配る形（plugin.json・marketplace の項目・README の入れ方）](plugin-manifest.md)
+- [スキルの書き方（本文の長さ・別ファイルへの分け方・description）](skill-authoring.md)。対象は上の 6 つに加え works と works-factory も含む（標準の中の「対象」）
 
 ## 進め方（標準の担当がすること）
 
@@ -41,7 +43,23 @@ works と works-factory は誰の受け持ちでもないので、標準の担�
 
 1 回目の締め: 公式の検査に残る警告は、対象の外の works・works-factory の author だけ。2 つは誰の受け持ちでもないので頼む先が無く、標準の担当も直さない。誰かが直して標準を満たせば、根の検査が外す一覧から消すよう赤で知らせる。
 
-見送ったずれ:
+見送ったずれ（1 回目）:
 
 - コマンドの置き場が `commands/`（attention・convergence-loops・graphloops）と `skills/`（gates・tiers・works-dispatch）に割れている。公式の文書は `skills/` を勧めるが、「新しいプラグインには」の条件付きで、`commands/` も読み込む（[Plugin manifest reference の Standard layout](https://code.claude.com/docs/en/plugins-reference#standard-layout)「Prefer `skills/` for new plugins」）。移すと呼び出しの名前と振る舞いを確かめ直すことになるので、標準では新しく作る物を `skills/` にするとだけ決め、今ある物は移さない。
 - 試験の置き場が、根の `tests/`（attention・convergence-loops・gates）とプラグインの中（graphloops・tiers・works-dispatch）に割れている。公式に決まりが無く、どちらも CI（`.github/workflows/test.yml`）から回るので、今は揃えない。
+
+### 2 回目（2026-10-18、受付 20261018-005346-25a518）
+
+[スキルの書き方の標準](skill-authoring.md)を作り、marketplace に載る全プラグインのスキルとコマンド 17 本の本文を測った。決まり 1（本文 5,000 字以下・500 行未満）を超えるのは 11 本。description（決まり 7）は 17 本とも 1,024 字以下（いちばん長い attention の catchup で 415 字）。
+
+- 2-1 決まり 1・4・5 を機械で見る検査が無い。状態: 頼んだ（点検、受付は下）
+- 2-2 attention の catchup 18,615 字・whose-turn 7,532 字・what-am-i-doing 6,230 字。状態: 頼んだ（見渡し）
+- 2-3 convergence-loops の review-loop 41,438 字・firstread-loop 24,339 字（625 行）・doctor-loop 23,192 字・research-loop 21,620 字、graphloops の review-graph 35,018 字・research-graph 13,424 字。状態: 頼んだ（見直し）
+- 2-4 works-dispatch の dispatch 57,001 字。状態: 頼んだ（割り振り）
+- 2-5 works の works 22,704 字。状態: 頼んだ（作業。works は受け持ちが無いので、持ち主の頼みに従って作業に回す）
+- 2-6 根の CLAUDE.md から標準を指していない。状態: 頼んだ（説明書）
+
+標準の内の物: attention の my-turn・reflect、gates の coldread（4,962 字）、graphloops の intake、tiers の check、works-factory の works-factory（4,189 字）。
+
+頼んだ受付:
+
