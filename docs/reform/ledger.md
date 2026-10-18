@@ -170,7 +170,7 @@ my_notes の社長室の受付 20261018-024847-f98690 を段取りが回した�
 ### 効いたか（その場で測った分）
 
 - 安い形の試しを 1 回走らせた: 分けた後の review-loop に、156f7f の after-rl1 と同じ練習用のリポジトリで「最初に読む別ファイルと最初に打つ命令を書いたら止まって」と頼み、`--max-budget-usd 1` を付けた。2 手番・0.21 ドルで、読んだ別ファイル（references/tools.md・references/p0-baseline.md）と、最初の命令・最初に立てるサブエージェントが取れた。after-rl1 は 38.46 ドル。
-- 次の回に確かめる: 25a518 の残りの分割（5f6b13 と 156f7f の続き）の確かめが、場面ごとに前後 2 回・各 1 ドル以内に収まったか（受付箱の納品と、裏の会話の tmp/ の試しの数で数える）。フックの頼み fb63b1 が入ったか。
+- 次の回に確かめる: 25a518 の残りの分割（5f6b13 と 156f7f の続き）の確かめが、場面ごとに前後 2 回・各 1 ドル以内に収まったか（受付箱の納品と、裏の会話の tmp/ の試しの数で数える）。フックの頼み fb63b1 が入ったか（持ち主が取り下げたので確かめない。下の頼み d47868）。
 
 ## 頼み 009c72（2026-10-18、持ち主が承認した使う量の減らし方のうち claude-plugins の分、受付 20261018-030203-009c72）
 
@@ -201,3 +201,26 @@ my_notes の業務改革（受付 20261018-030132-3a0451）を段取りが回し
 - works-dispatch が部署を起こすときに書く設定（nodes/role.py の settings_for）に、担当と作業のどちらも `autoCompactWindow: 200000` が載ることを確かめた。今動いている毎回空にする部署は、起こした時の設定と違うので、次の頼みの前に works-dispatch が起こし直す（会社の形の頭のコメント「毎回空にする部署は…次の頼みの前に一度起こし直される」）。
 - 書いた時点の使用率の控え（5 時間 / 週）: main 17% / 71%・p1 83% / 65%・p2 16% / 98%・p3 82% / 53%。この時点では、どのアカウントも 5 時間か週の使用率が 7 割を超えている。決まりどおり大きい方が一番小さいアカウントを選ぶと main（71%）になる。
 - 次に起こされた業務改革が確かめて、この節に結果を書き足す: 20 万を超えた会話が出ていないか、または縮めた跡があるか（会話の記録の文脈の大きさで数える）。この直しの後の試し走りが 1 つの直しにつき 1 対に収まったか、決め打ちのアカウントで走っていないか（受付箱の納品と、部署の会話の tmp/ の試しの台本で数える）。
+
+## 頼み d47868（2026-10-18、試しの止め方を Anthropic の形に揃える、受付 20261018-041036-d47868）
+
+my_notes の社長室の受付 20261018-040939-dc1271 を段取りが回した頼み（上の頼み b7e671 の続き）。持ち主の言葉: 「予算で止めるのは違う気がする」「1: でも、上限に来た時にどうするの。無駄になるの」「1: Anthoropicかopenaiかgoogleと同じ形がいい」。段取りが、目安と上限の両方を文書に書くのは Anthropic だけなので、Anthropic の形（目安が主・額の上限は人の見ない走りの歯止め）で進めると決めて頼んできた。持ち主が直しを頼んだので、承認の問いは出さずに直した。比べの根拠は my_notes の reference/secondary/ai/agent-overuse-guidance-and-spend-caps-found-only-at-anthropic-turn-caps-at-all-four.md。
+
+### 直し
+
+- 標準の決まり 8（docs/standards/skill-authoring.md）: 主の止め方を頼みの文の目安（何をしたら止まるか・どこまでで足りるか）にした。`--max-budget-usd 1` は歯止めとして残し、ふつうの試し（最初の手で止める頼みは 0.21 ドル）では当たらない額だと書いた。上限で止まった回の扱いを足した: 結果を `--output-format json` で残し、捨てて走らせ直さない。最初の手が見えていれば足りるので続けない。見えていなければ同じ作業場・同じアカウントで `--resume <session_id>` で続ける。続けた回も当たったら続けずに残った疑問に書く。
+- 根の CLAUDE.md の「判断の線」の試しの項と「手元の操作」の試しの `claude -p` の行を同じ形に直した（再開の手順の詳細は決まり 8 に書き、CLAUDE.md からは指す）。標準は標準の担当の受け持ちだが、根の CLAUDE.md と引き合うので b7e671 と同じくこの会話で一緒に直した。
+- 「守らせ方」の、`--max-budget-usd` の無い `claude -p` を断るフックの頼み（fb63b1・10552a）の行は、持ち主が「一旦取り下げだね」と答えたので、取り下げたと書き替えた。見張り（使った量を数えて知らせる仕組み）は足していない。
+- 1 対の決まり（受付 d543d2 の承認、156f7f の暫定）は変えていない。続けた回は同じ 1 回に数える。
+
+### 決め手
+
+- 目安を主にする: https://code.claude.com/docs/en/agent-sdk/agent-loop "fine for well-scoped tasks but can run long on open-ended prompts"、https://code.claude.com/docs/en/costs "Vague requests like “improve this codebase” trigger broad scanning."
+- 額の上限は人の見ない走りの歯止め: https://platform.claude.com/docs/en/managed-agents/budgets "Reach for it whenever a session runs without a human watching"
+- 止まっても続きから再開でき、前の回の分は新しい上限に数えない: https://code.claude.com/docs/en/agent-sdk/agent-loop "session_id so you can track cost and resume even after errors"、https://code.claude.com/docs/en/cli-reference "totals restored from earlier runs don’t count toward it"
+
+### 効いたか（その場で測った分）
+
+- 今の試しの仕掛けを確かめた: 共通の台本は無く、部署の会話ごとの一時の置き場の台本（例: ~/.claude-p3/jobs/da48a366/tmp/trial.sh・~/.claude-p1/jobs/d658b996/tmp/trial.sh）で、`stream-json` の出力に `session_id` は残るが、再開する手は無かった。上限で止まった回は捨てていた。
+- 再開できるかを試した（アカウント p1、haiku、合わせて約 0.014 ドル）: `--max-budget-usd 0.001` で 3 本のファイルを読ませると、1 手番・0.0025 ドルで `error_max_budget_usd`・終わりの値 1 で止まり、`session_id` が残った。同じ場所・同じアカウントで `--resume <session_id> --max-budget-usd 0.05 "続けて"` と打つと、4 手番・0.0038 ドルで最後まで終えた。上限に当たった時に途中だった Read の結果は残らず、続けた回が読み直した。上限の 2.5 倍まで使って止まったので、余裕を残す決まりの根拠にもなる。
+- 次に起こされた業務改革が確かめる: この直しの後の試しの頼みの文に止め所が書かれているか、上限で止まった回を捨てて走らせ直していないか（部署の会話の tmp/ の試しの台本と出力で数える）。
