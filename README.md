@@ -2,52 +2,56 @@
 
 [![test](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml)
 
-Claude Code のプラグインを配るマーケットプレイス（名前は `raiki61`）。レビューや調べものを収束するまで回す道具、GitHub へ投稿する前の検査、並行作業の見渡し、作業ごとに Claude Code の会話を立てて頼む道具などを入れている。
+A marketplace of Claude Code plugins (marketplace name: `raiki61`). It includes tools that repeat a review or a research task until a fresh reviewer stops finding new problems, checks that run before you post to GitHub, an overview of the tasks you run in parallel, and a tool that opens a Claude Code session for each task and has it report back.
 
-## プラグイン
+## Language
 
-配るプラグインは 8 本。使う物だけを、1 本ずつ入れる。
+This README is in English. Everything else in the repository is written in Japanese: each plugin's README, the instructions of the skills and commands, [CONTRIBUTING.md](CONTRIBUTING.md), and the design records under `docs/`. The plugins are written for Japanese-speaking users.
 
-| プラグイン | 何をするか | 説明 |
+## Plugins
+
+This marketplace ships 8 plugins. Install only the ones you need. If you are not sure where to start, try convergence-loops: besides Claude Code it needs only git, Python 3.12 or later, and bash (no tool from the [tool tiers](#tool-tiers) below), and `/review-loop` reviews and fixes your latest code change.
+
+| Plugin | What it does | Docs |
 |---|---|---|
-| **convergence-loops** | レビュー・調査・診断・文書の初見読みを、収束するまで回す | [README](convergence-loops/README.md) |
-| **gates** | GitHub への投稿と書いた文書を、初見の読み手が読めるまで止める | [README](gates/README.md) |
-| **attention** | 並行作業のどれが自分の番か、どこで止まっていたかを出す | [README](attention/README.md) |
-| **graphloops** | convergence-loops のレビューと調査を、機械が回す版 | [README](graphloops/README.md) |
-| **works** | 修正の依頼を、AI の生産ライン darkfactory に回す | [README](works/README.md) |
-| **works-factory** | 修正の依頼を、別のリポジトリの工場 works-factory に回す | [SKILL.md](works-factory/skills/works-factory/SKILL.md) |
-| **works-dispatch** | 作業ごとに Claude Code の会話を立てて頼み、要約を返させる | [README](works-dispatch/README.md) |
-| **tiers** | プラグインが要る外の道具がそろっているかを点検する | [README](tiers/README.md) |
+| **convergence-loops** | Repeats a review, research, diagnosis, or first-read check of a document, each round with a fresh reviewer, until no new problems turn up | [README](convergence-loops/README.md) |
+| **gates** | Hooks that block a GitHub post until a reader with no context (an AI subagent) can follow it, and report on documents you write | [README](gates/README.md) |
+| **attention** | Shows which of your open pull requests and issues is waiting for you, and where you left off | [README](attention/README.md) |
+| **graphloops** | The review and research of convergence-loops, with a program instead of the conversation driving the steps | [README](graphloops/README.md) |
+| **works** | Sends a fix request for your repository to darkfactory, a multi-step AI workflow that runs on Archon | [README](works/README.md) |
+| **works-factory** | Sends a fix request to the factory in [raiki61/works-factory](https://github.com/raiki61/works-factory) | [SKILL.md](works-factory/skills/works-factory/SKILL.md) |
+| **works-dispatch** | Opens a Claude Code session in its own workspace for each task, hands it the request, and has it return a summary | [README](works-dispatch/README.md) |
+| **tiers** | Checks that the external tools a plugin needs are in place | [README](tiers/README.md) |
 
-## 入れ方
+## Install
 
-Claude Code の中で、マーケットプレイスを足してから、使うプラグインを入れる。
+Inside Claude Code, add the marketplace, then install the plugins you need.
 
 ```
 /plugin marketplace add raiki61/claude-plugins
-/plugin install works-dispatch@raiki61
+/plugin install convergence-loops@raiki61
 ```
 
-端末からなら、次の 2 行でも同じ。
+From a terminal, these two lines do the same.
 
 ```bash
 claude plugin marketplace add raiki61/claude-plugins
-claude plugin install works-dispatch@raiki61
+claude plugin install convergence-loops@raiki61
 ```
 
-`@raiki61` はマーケットプレイスの名前。ほかのプラグインに依存するプラグインを入れると、依存先も一緒に入る（例: works-dispatch を入れると tiers も入る）。新しい版にするには `claude plugin marketplace update raiki61` の後に `claude plugin update <プラグイン>@raiki61` を打ち、Claude Code を起こし直す。
+`@raiki61` is the marketplace name. Installing a plugin that depends on other plugins installs those too (for example, installing works-dispatch also installs tiers). To move to a newer version, run `claude plugin marketplace update raiki61`, then `claude plugin update <plugin>@raiki61`, and restart Claude Code.
 
-## 要る道具の段
+## Tool tiers
 
-プラグインによっては、Claude Code のほかに外の道具が要る。要る道具を 4 つの段に分けている。上の段は下の段の道具も要る。
+Some plugins need external tools besides Claude Code. The tools are grouped into 4 tiers. Each tier also needs the tools of the tiers below it.
 
-- 段 0: Claude Code だけ。
-- 段 1: gh（GitHub の CLI）が入っていて、ログイン済み。
-- 段 2: herdr（端末を作業場ごとに分け、中の Claude Code の会話を外から操作する道具）が動いている。アカウントごとに別の命令で Claude Code を起こすなら、その命令も。
-- 段 3: Archon（AI の作業の流れを順に回す道具）。
+- Tier 0: Claude Code only.
+- Tier 1: gh (the GitHub CLI), installed and logged in.
+- Tier 2: [herdr](https://herdr.dev), installed and running. herdr splits the terminal into one workspace per task and lets a program type into the Claude Code session in each one. If you start Claude Code for different accounts with different commands, each of those commands must also be found by your shell.
+- Tier 3: Archon, a tool that runs a workflow of AI steps in order.
 
-要る段は、各プラグインの README の「要る物」に書く（今書いてあるのは works-dispatch の段 2）。道具がそろっているかは、tiers を入れて `/tiers:check` で点検できる。足りない物と入れ方を出すだけで、何も入れない。
+A plugin's README lists what it needs under the heading 「要る物」 ("Requirements"). Of these, works-dispatch needs tier 2 and works needs Archon. To check whether the tools are in place, install tiers and run `/tiers:check` inside Claude Code. It only reports what is missing and how to install it; it installs nothing.
 
-## このリポジトリを直す人へ
+## Contributing
 
-試験の回し方と決まりは [CONTRIBUTING.md](CONTRIBUTING.md)。ライセンスは MIT（[LICENSE](LICENSE)）。
+How to run the tests and the repository's rules are in [CONTRIBUTING.md](CONTRIBUTING.md) (Japanese). License: MIT ([LICENSE](LICENSE)).
