@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-10-19
+
 ### Changed
 
 - 写して持っている `/whose-turn` の機械（`dispatch/vendor/whose-turn.py`）を、写し元の attention（同じリポジトリの別のプラグイン。`/whose-turn` の元）の今の中身に合わせた。`@名前` の拾い方などの読み方を、写しの部品 `dispatch/vendor/lib/ghtext.py` に分けた（attention の `scripts/lib/ghtext.py` の写し）。自分のターンの PR の一覧の中身は変わらない。
