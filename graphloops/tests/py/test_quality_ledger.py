@@ -124,7 +124,7 @@ def test_cost_takes_session_max_and_counts_raw_values(tmp_path):
     row = next(iter(rows_of(tmp_path).values()))
     a = ql.aggregate([row])["0.21.1"]
     assert a["cost_usd"] == pytest.approx(2.0)
-    assert a["accepted"] == {"accepted=False": 1, "accepted=True": 1, "accepted=None": 1, "accepted の欄なし": 1}
+    assert a["accepted"] == {"accepted=False": 1, "accepted=True": 1, "accepted=None": 1, "accepted のフィールドなし": 1}
     assert a["reject_heads"] == {"受け付けが拒んだ: 返答が JSON として読めない": 1}
     assert a["answers"] == {"escalate": 1, "continue": 1}
     assert a["answer_kinds"] == {"scope": 1, "regression": 1, "policy": 1}
@@ -136,7 +136,7 @@ def test_boards_under_any_root_and_multiple_roots(tmp_path, capsys):
     board(tmp_path / "two", "anywhere/my-dir", state={"engine": engine("0.21.1")})
     assert ql.main([str(tmp_path / "one"), str(tmp_path / "two"), "--runs"]) == 0
     wheres = [json.loads(line)["where"] for line in capsys.readouterr().out.splitlines()]
-    assert wheres == ["根1:graphloops/review-loop/20260101-000000", "根2:anywhere/my-dir"]
+    assert wheres == ["ルート1:graphloops/review-loop/20260101-000000", "ルート2:anywhere/my-dir"]
 
 
 def test_unknown_review_keys_and_values_are_uncountable_by_key_and_value(tmp_path):
@@ -154,12 +154,12 @@ def test_unknown_review_keys_and_values_are_uncountable_by_key_and_value(tmp_pat
     assert a["reviews"] == {"R1": {"pass": 1, "redesign-needed": 1}}
     assert a["uncountable_review_rows"] == 4
     assert a["uncountable_reviews"]["R2"] == {"old-word": 1}
-    text = ql.render(agg, 1, "根 1 個")
+    text = ql.render(agg, 1, "ルート 1 個")
     assert "数えられない R の行" in text and "old-word 1" in text
 
 
 def test_real_verdicts_match_rules_hist_last_review_round_by_round(tmp_path):
-    """台本の本物の判定と rules の hist_last_review（同じ述語の別の実装）を、辞書の行だけの周 1 本ずつで照らす"""
+    """台本の本物の判定と rules の hist_last_review（同じ述語の別の実装）を、辞書の行だけの周 1 本ずつで照合する"""
     carried = RULES.CARRIED_REVIEW.format(round=1)
     cases = [{"R1": {"status": "pass", "reason": "x"}, "R2": {"status": "carried_over", "from_round": 1, "reason": "x"}},
              {"R1": {"status": "old-word", "reason": "x"}, "R3": {"status": "not_applicable", "reason": "z"}},

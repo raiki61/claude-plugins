@@ -81,7 +81,7 @@
  },
  "command": {
   "exit": 0,
-  "out": "{\n \"stopped\": {\n  \"by\": \"stop\",\n  \"reason\": \"検査: 人に聞いている最中に止める\",\n  \"round\": 1,\n  \"at\": \"2026-01-01T00:00:00+09:00\",\n  \"node\": \"converge\",\n  \"report\": true,\n  \"unanswered\": {\n   \"node\": \"converge\",\n   \"kinds\": [\n    \"premise_escalate\"\n   ],\n   \"question\": \"_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n   \"items\": [\n    \"_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n   ]\n  }\n },\n \"handed_not_stopped\": [],\n \"how\": \"止めた。次は loop.py next——止めた後の後始末（報告）の節だけが出る\"\n}\n",
+  "out": "{\n \"stopped\": {\n  \"by\": \"stop\",\n  \"reason\": \"検査: 人に聞いている最中に止める\",\n  \"round\": 1,\n  \"at\": \"2026-01-01T00:00:00+09:00\",\n  \"node\": \"converge\",\n  \"report\": true,\n  \"unanswered\": {\n   \"node\": \"converge\",\n   \"kinds\": [\n    \"premise_escalate\"\n   ],\n   \"question\": \"_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n   \"items\": [\n    \"_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n   ]\n  }\n },\n \"handed_not_stopped\": [],\n \"how\": \"止めた。次は loop.py next——止めた後の後始末（報告）のノードだけが出る\"\n}\n",
   "err": ""
  },
  "record": {

@@ -1,29 +1,29 @@
-"""役を起こす関数——節 1 つ分を、子プロセスの起動から受け付けまで 1 回の呼び出しで完結させる。
+"""役を起動する関数——ノード 1 つ分を、子プロセスの起動から受け付けまで 1 回の呼び出しで完結させる。
 
-**盤面（Board）も graph も import しない。** 受け取るのは起こす語（argv）・材料のファイル・返答の置き場・
+**盤面（Board）も graph も import しない。** 受け取るのは起動する語（argv）・材料のファイル・返答の置き場・
 受け付けの検査（呼び出し側が渡す関数）・要約の書き先だけで、どれも値かファイルのパスである。今の engine
-（commands.cmd_launch）も、将来の実行の核（例えば LangGraph の節）も、同じこの関数を呼ぶ——核を載せ替えても
-役の起こし方・待ち方・続きの頼み方・要約の残し方を写し直さないため（docs の作り直しの設計「手順 1」）。
+（commands.cmd_launch）も、将来の実行の核（例えば LangGraph のノード）も、同じこの関数を呼ぶ——核を載せ替えても
+役の起動方法・待ち方・続きの頼み方・要約の残し方を写し直さないため（docs の作り直しの設計「手順 1」）。
 
 流れ:
-  1. argv を子プロセスで起こし、材料を標準入力で渡す（Agent ツールの貼る上限に当たらない。モデルの入力の上限は残る）。
+  1. argv を子プロセスで起動し、材料を標準入力で渡す（Agent ツールの貼る上限に当たらない。モデルの入力の上限は残る）。
   2. **子の終了を直接待つ。** 完了の知らせ（通知・中継の AI の『書いた』）には頼らない——知らせは入れ子や上限落ちで
      消えた（実測 2026-09-24〜25: 局所レビューの入れ子の起動で知らせが届かず 7 時間止まった）。**時間の上限は付けない**
      ——所要時間を実測で決めていない値が上限を兼ねると、長く考える役を途中で打ち切る（2026-09-25 に外した。理由は
-     docs/graphloops-rearchitecture.md の「期限を外した」）。子を起こすたびに、そのプロセスグループの番号を返答の置き場の
+     docs/graphloops-rearchitecture.md の「期限を外した」）。子を起動するたびに、そのプロセスグループの番号を返答の置き場の
      隣（pgid_path）に書き、試行の終わりに木の残りを止めてから消す——別のプロセスが試行を木ごと止める口
-     （前置の層 with-auth.py が子の claude を孫として起こすので、層だけを止めると claude が孤児で走り続ける）。
+     （前置の層 with-auth.py が子の claude を孫として起動するので、層だけを止めると claude が孤児で走り続ける）。
      止め切れなかった木は印に書き直して残す（_end_attempt）。受け付けの前は relaunch・stop が、後は loop.py children が引く。
   3. 標準出力が `--output-format json` の包み（result・session_id・num_turns・duration_ms・total_cost_usd・usage）なら
      解いて返答の本文だけを、包みでなければ標準出力の全文を本文として out_path に書く（unwrap）。要約は log_path
      （engine は盤面の trace.jsonl）に JSON Lines で 1 起動 1 行残す。
   4. accept(本文) で受け付けを検査する。拒まれたら、理由を添えて**同じ会話**に続きを頼む（resume_argv の
-     {session_id} を埋めて起こし、理由の文を標準入力で渡す）。新しい会話で起こし直すと、役は前の返答を
+     {session_id} を埋めて起動し、理由の文を標準入力で渡す）。新しい会話で起動し直すと、役は前の返答を
      覚えておらず、同じ判定を出し直す保証が無い。
 
 返り値は呼び出し側が盤面に写す値だけ（本文は含めない——回す側の会話に役の返答を流し込まないため）。
 
-役でなく**コマンドを走らせるだけの節**（対象リポジトリが宣言したテスト一式など）も同じ起こし方で走らせる（run_steps）。
+役でなく**コマンドを走らせるだけのノード**（対象リポジトリが宣言したテスト一式など）も同じ起動方法で走らせる（run_steps）。
 """
 import collections
 import datetime
@@ -45,7 +45,7 @@ RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
                "理由が中身の整合（記録の整合・項目の過不足など）なら、理由が指す所だけを直せ。"
                "どちらも、最初の指示が求めた形の返答だけを出し直せ（前後に文を付けない）。")
-# run_role が起こす子（役・回す側の節・skill の節・任せ先・線・確かめの子）の環境に足す印。子の Bash と Agent の子に継がれる。対象リポジトリの
+# run_role が起動する子（役・回す側のノード・skill のノード・任せ先・線・確かめの子）の環境に足す印。子の Bash と Agent の子に継がれる。対象リポジトリの
 # 入口（テスト一式・変異の実行器の台本）はこれを見て、engine の子から走らせてはいけない形を拒める——公式の permissions の文書は Bash の
 # deny を境界と呼ばない（sh -c・絶対パスは当たらない）ので、宣言の deny の後ろに入口の拒みを置く。engine が宣言から走らせる一式
 # （run_steps）には足さない
@@ -75,22 +75,22 @@ def _grace_from_env(environ):
 # 読むのは import の時 1 回。テストは monkeypatch.setattr(role_run, "KILL_GRACE", …) で差し替える（使う側は呼ぶ時に大域を読む）
 KILL_GRACE = _grace_from_env(os.environ)
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGKILL) if os.name == "posix" else ()  # 試行の木を止める信号の列（_kill と stop_group）
-SUPERSEDED = "起こし直された古い試行か、人が止めた試行——次の手は要らない（起こし直しなら新しい試行は relaunch が作った物で、その launch を待つ。人が止めたなら次は next）"
-# ファイルを書く道具。**役の定義**にこれが在れば engine は起こさない（回す側が Agent で起こす）——役の定義は別のプラグインが
-# 配る物で、書く範囲の縛りを持たない。engine が書く道具を渡すのは、回す側の節を起こす形（runner_permission の edit）の 1 つだけで、
-# そのときも道具はパスで縛った形（Edit(./**)・Write(./**)）でしか許さず、書ける場所は OS の sandbox が決める。値は graph でなく
-# engine が持つ——graph の書き換えで起こせる物が広がらないように（commands.launch_refusal の注記）
+SUPERSEDED = "起動し直された古い試行か、人が止めた試行——次の手は要らない（起動し直しなら新しい試行は relaunch が作った物で、その launch を待つ。人が止めたなら次は next）"
+# ファイルを書くツール。**役の定義**にこれが在れば engine は起動しない（回す側が Agent で起動する）——役の定義は別のプラグインが
+# 配る物で、書く範囲の縛りを持たない。engine が書くツールを渡すのは、回す側のノードを起動する形（runner_permission の edit）の 1 つだけで、
+# そのときもツールはパスで縛った形（Edit(./**)・Write(./**)）でしか許さず、書ける場所は OS の sandbox が決める。値は graph でなく
+# engine が持つ——graph の書き換えで起動できる物が広がらないように（commands.launch_refusal の注記）
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
-# コマンドを走らせる道具。これを持つ役には、道具ごとでなくコマンドの形ごとに許す（READ_COMMANDS）
+# コマンドを走らせるツール。これを持つ役には、ツールごとでなくコマンドの形ごとに許す（READ_COMMANDS）
 COMMAND_TOOLS = ("Bash",)
 # コマンドを走らせる役に先に許す、読むだけのコマンドの前置。**書く旗を持たないサブコマンドだけ**を入れる——前置の許可は
 # 後ろの引数を縛れない。gh api は入れない（引数を付けると既定が POST になり、-X で任意のメソッドを指せる。gh の公式マニュアル）。
 # git remote get-url は組み込みの読むだけの git に入らず拒まれた（実測 2026-09-25）ので名指しする（gh の -R をそこから導く）。
-# 値は graph でなく engine が持つ——graph の書き換えで許すコマンドが広がらないように。前置にカンマを入れない（柵が --allowedTools を
+# 値は graph でなく engine が持つ——graph の書き換えで許すコマンドが広がらないように。前置にカンマを入れない（チェックが --allowedTools を
 # カンマで割って比べる）
 READ_COMMANDS = ("gh issue list", "gh issue view", "gh pr list", "gh pr view", "gh pr diff", "gh search", "gh repo view",
                  "git remote get-url")
-# sandbox の形の設定のうち、起こす場所に依らない値。書き込みを止める場所（filesystem.denyWrite）は protected_paths が起こす時に足す。
+# sandbox の形の設定のうち、起動する場所に依らない値。書き込みを止める場所（filesystem.denyWrite）は protected_paths が起動する時に足す。
 # - autoAllowBashIfSandboxed: sandbox の中のコマンドは dontAsk の下でも聞かずに通す（計器を前置で列挙しても任意のコードを許すのと
 #   同じなので、守りは OS の境界に置く）
 # - allowUnsandboxedCommands false・failIfUnavailable true: sandbox の外へ出る口を閉じ、sandbox が起きなければ sandbox の外で走らせない
@@ -105,17 +105,17 @@ SANDBOX_BASE = {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandb
                 "excludedCommands": ["gh:*"], "network": {"allowedDomains": [], "strictAllowlist": True}}
 LIVE = set()  # いま生きている子（Popen）。loop.py が止める信号を受けたとき kill_all が木ごと止める
 _LIVE_LOCK = threading.RLock()   # 信号の口（kill_all）が、錠を持つ最中の同じスレッドに割り込んでも止まらないよう再入可能に
-_STOPPING = threading.Event()     # 止める信号を受けた——以後に起こした子はすぐ止める（止め始めた後に子を増やさない）
+_STOPPING = threading.Event()     # 止める信号を受けた——以後に起動した子はすぐ止める（止め始めた後に子を増やさない）
 
 
 # 入れ子の sandbox（子の Bash が sandbox の初期化で落ちる）と測った run の外し方
-SANDBOX_DOWN_HOW = ("起こす側の sandbox から loop.py を外す（Claude Code の設定の sandbox.excludedCommands）か、sandbox の外で loop.py run を打ち、"
-                    "loop.py relaunch --node <節> --reason <理由> --reprobe で測り直せ（任せ先の柵を外すのは持ち主が init --unfenced-delegates で"
+SANDBOX_DOWN_HOW = ("起動する側の sandbox から loop.py を外す（Claude Code の設定の sandbox.excludedCommands）か、sandbox の外で loop.py run を打ち、"
+                    "loop.py relaunch --node <ノード> --reason <理由> --reprobe で測り直せ（任せ先のチェックを外すのは持ち主が init --unfenced-delegates で"
                     "明示したときだけ）")
 
 
 def sandbox_down_why(probe):
-    """確かめの記録（盤面の state.child_tmp_probe）が入れ子の sandbox と測っていれば、理由と外し方の文（ほかは None）——起こす時の拒み
+    """確かめの記録（盤面の state.child_tmp_probe）が入れ子の sandbox と測っていれば、理由と外し方の文（ほかは None）——起動する時の拒み
     （commands.launch_one）・next の知らせ・前の版の盤面の会話に返す理由が同じここを引く"""
     return f"{probe.get('why')}——{SANDBOX_DOWN_HOW}" if (probe or {}).get("sandbox") is False else None
 
@@ -124,7 +124,7 @@ def sandbox_available():
     """この環境で claude の sandbox が起きるか。macOS は sandbox-exec が在るとき。Linux（WSL2 を含む）は bwrap と socat が在り、
     bwrap が実際に名前空間を作れるとき——PATH に在るだけでは足りない（Ubuntu 24.04 以降の既定の AppArmor は bwrap に名前空間を
     作らせず、sandbox を選ぶと failIfUnavailable で役が 1 本も起きなくなる）。ほか（Windows）は偽。偽なら読むだけの形に落ちる。
-    macOS の分岐は道具の有無しか見ない——入れ子の sandbox（Claude Code の sandbox の中の engine が起こす子）では真を返すのに子の Bash が
+    macOS の分岐はツールの有無しか見ない——入れ子の sandbox（Claude Code の sandbox の中の engine が起動する子）では真を返すのに子の Bash が
     落ちる。それを実物で測るのは commands._sandbox_probe で、結果は盤面の state.child_tmp_probe.sandbox に固まる"""
     if sys.platform == "darwin":
         return bool(shutil.which("sandbox-exec"))
@@ -153,11 +153,11 @@ def _git(cwd, *args):
 
 
 def protected_paths(cwd, board_dir=None):
-    """sandbox の中の書き込みを止める場所（filesystem.denyWrite）。**cwd 自身を含む**作業ツリーの根の全部（git worktree list）・
+    """sandbox の中の書き込みを止める場所（filesystem.denyWrite）。**cwd 自身を含む**作業ツリーのルートの全部（git worktree list）・
     共有の .git の実体（git rev-parse --git-common-dir。linked worktree の gitdir と既定の盤面の置き場を含む）・盤面の置き場。
     書けるのは sandbox の既定の TMPDIR だけになる——cwd を書ける場所に残すと、役が計器を動かしてレビュー対象の未コミットの変更を
     壊せ、前後の作業ツリーの突合は事故の検知で中身を戻さない（.gitignore の対象は突合にも映らない）。祖先の作業ツリー
-    （<repo>/.claude/worktrees/<名前> の本体）も根ごと名指しできる。git の作業ツリーでない cwd は cwd と盤面だけ。
+    （<repo>/.claude/worktrees/<名前> の本体）もルートごと名指しできる。git の作業ツリーでない cwd は cwd と盤面だけ。
     git が読めない（git が無い・時間切れ）なら None——守る場所が決まらないので sandbox の形を選ばない。"""
     cwd = os.path.realpath(cwd or os.getcwd())
     paths = {cwd} | ({os.path.realpath(board_dir)} if board_dir else set())
@@ -172,22 +172,22 @@ def protected_paths(cwd, board_dir=None):
     return sorted(paths)
 
 
-# 対象リポジトリの Claude Code の置き場（作業ツリーの根からの相対）。Shared project と Project local で、一覧の鍵は置き場をまたいで
+# 対象リポジトリの Claude Code の置き場（作業ツリーのルートからの相対）。Shared project と Project local で、一覧の鍵は置き場をまたいで
 # 合わさる（公式の settings の文書: Lists merge instead of overriding）
 REPO_SETTINGS = (pathlib.Path(".claude") / "settings.json", pathlib.Path(".claude") / "settings.local.json")
 
 
 def repo_deny(cwd):
-    """対象リポジトリ（cwd を含む作業ツリーの根）が置き場（REPO_SETTINGS）に宣言した permissions.deny を、置き場の順に合わせて重なりを
+    """対象リポジトリ（cwd を含む作業ツリーのルート）が置き場（REPO_SETTINGS）に宣言した permissions.deny を、置き場の順に合わせて重なりを
     除いた一覧 ——(規則の一覧, 読めない理由)。子は利用者の設定を読まない（--setting-sources ""）ので、engine が deny の行だけを子の
     --settings に写す（公式の sandboxing の文書: auto-allow の形でも『Explicit deny rules are always respected』）。allow・ask・ほかの鍵は
     読まない。置き場が無い・git の作業ツリーでない cwd は空。どれかの置き場が読めない・形が違うときは空に倒さず、そのファイルを名指す
-    理由を返す——宣言した deny を黙って落として起こすと、拒むはずの一式が走る（fail-closed。人の答え 2026-09-27 の関所の条件 5）。
-    前置の照合なので、別の綴り（sh で呼ぶ・cd してから呼ぶ）では抜けうる——主な手当ては指示書の段で、これは第二の網。
-    呼ぶのは起こす側（advance）と柵の入口（commands.launch_refusal）で、権限の形の関数（tooled_permission ほか）は一覧を受け取るだけ"""
+    理由を返す——宣言した deny を黙って落として起動すると、拒むはずの一式が走る（fail-closed。人の答え 2026-09-27 のゲートの条件 5）。
+    前置の照合なので、別の綴り（sh で呼ぶ・cd してから呼ぶ）では抜けうる——主な手当ては指示書の段で、これは第二の安全網。
+    呼ぶのは起動する側（advance）とチェックの入口（commands.launch_refusal）で、権限の形の関数（tooled_permission ほか）は一覧を受け取るだけ"""
     ok, top, err = _git(cwd, "rev-parse", "--show-toplevel")
     if not ok or not top:
-        return ([], None) if "not a git repository" in err else (None, f"対象リポジトリの根を引けない（{err.strip()[:200]}）——"
+        return ([], None) if "not a git repository" in err else (None, f"対象リポジトリのルートを引けない（{err.strip()[:200]}）——"
                                                                    f"{REPO_SETTINGS[0]} の permissions.deny を子に写せない")
     out = []
     for rel in REPO_SETTINGS:
@@ -197,11 +197,11 @@ def repo_deny(cwd):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            return None, f"{p} が読めない（{e}）——このファイルを直せ（permissions.deny を子に写せないので、Bash を持つ子を起こさない）"
+            return None, f"{p} が読めない（{e}）——このファイルを直せ（permissions.deny を子に写せないので、Bash を持つ子を起動しない）"
         perms = data.get("permissions", {}) if isinstance(data, dict) else None
         deny = perms.get("deny", []) if isinstance(perms, dict) else None
         if not (isinstance(deny, list) and all(isinstance(x, str) and x for x in deny)):
-            return None, f"{p} の permissions.deny が空でない文字列の一覧でない——このファイルを直せ（Bash を持つ子を起こさない）"
+            return None, f"{p} の permissions.deny が空でない文字列の一覧でない——このファイルを直せ（Bash を持つ子を起動しない）"
         out += [x for x in dict.fromkeys(deny) if x not in out]
     return out, None
 
@@ -211,17 +211,17 @@ def _with_deny(settings, deny):
 
 
 def tooled_permission(tools, cwd=None, board_dir=None, deny=()):
-    """道具つきの役を起こす形——{form, permission_mode, allowed_tools, settings}。**起こす側（launch_spec）と柵（launch_refusal）が
-    同じここを引く**。graph は穴（{permission_mode}・{allowed_tools}・{settings}）を持つだけで、値は役の定義の道具から engine が決める。
+    """ツールつきの役を起動する形——{form, permission_mode, allowed_tools, settings}。**起動する側（launch_spec）とチェック（launch_refusal）が
+    同じここを引く**。graph は穴（{permission_mode}・{allowed_tools}・{settings}）を持つだけで、値は役の定義のツールから engine が決める。
 
-    -p の開始の権限は起こした側の設定を継ぐ（回す側が bypassPermissions なら子も）ので、必ず明示する。形は先に許した物だけが
+    -p の開始の権限は起動した側の設定を継ぐ（回す側が bypassPermissions なら子も）ので、必ず明示する。形は先に許した物だけが
     通る dontAsk の 1 つ（Read・Glob・Grep は許さなくても通り、WebFetch・WebSearch は許さないと拒まれる。実測 2026-09-25・haiku）。
     分類器（auto）に掛けていたときは読むだけの gh issue list まで拒まれた（実測 2026-09-25）。
 
     form は 3 つ:
     - plain: Bash を持たない役。settings は {}。
     - sandbox: Bash を持ち、sandbox_available() が真で、protected_paths が決まった役。Bash を丸ごと許さず READ_COMMANDS の前置だけを
-      Bash(<前置>:*) で許し（sandbox の外で走る gh の関門）、sandbox の中のコマンド（テスト一式・計器の台本）は OS の境界の中で
+      Bash(<前置>:*) で許し（sandbox の外で走る gh のゲート）、sandbox の中のコマンド（テスト一式・計器の台本）は OS の境界の中で
       聞かずに通す（SANDBOX_BASE）。前置の一覧だけで計器を許さなかったのは、pytest を許すと conftest.py から任意のコードが走り、
       git diff --output= も作業ディレクトリの外や .git に書けたから（実測 2026-09-25・haiku・claude 2.1.282）。
     - read_only: Bash を持つが sandbox を使えない環境。READ_COMMANDS の前置だけを許し、settings は {}（今の読むだけの形。計器の実行は
@@ -240,11 +240,11 @@ def tooled_permission(tools, cwd=None, board_dir=None, deny=()):
     （除外に当たらず sandbox の中で通信が無い）・uv run --with（~/.cache/uv に書けない）・macOS の型なし mktemp -d（TMPDIR を見ず
     /var/folders に作る。tests/run.sh は型を渡す）・別のプロセスグループへの信号（simulate.py の stop_group の台本 1 件が EPERM）。
     permission_denials に載った——gh issue create・python3 -c・git diff --output=・git commit。前後で git status は変わらなかった。
-    作業ディレクトリの外の git は dontAsk が拒むので、子は対象の作業ツリーで起こす（commands.launch_one）。
+    作業ディレクトリの外の git は dontAsk が拒むので、子は対象の作業ツリーで起動する（commands.launch_one）。
     Read は裸で許す（作業ディレクトリの外に在る盤面の差分も読める——盤面は linked worktree の .git/worktrees の下に在りうる）。
 
     Bash を持つ形（sandbox・read_only）は、対象リポジトリの宣言した deny（呼び元が repo_deny で引いた一覧）を settings の
-    permissions.deny に持つ。宣言が読めない回は、柵の入口（commands.launch_refusal）が Bash を持つ子を起こさない"""
+    permissions.deny に持つ。宣言が読めない回は、チェックの入口（commands.launch_refusal）が Bash を持つ子を起動しない"""
     allowed = [t for t in tools if t not in COMMAND_TOOLS]
     if len(allowed) == len(tools):
         return {"form": "plain", "permission_mode": "dontAsk", "allowed_tools": allowed, "settings": "{}"}
@@ -261,13 +261,13 @@ def tooled_permission(tools, cwd=None, board_dir=None, deny=()):
 # MultiEdit・NotebookEdit は渡さない（縛った形の実測が無い）
 RUNNER_READ_TOOLS = ("Read", "Glob", "Grep", "Bash")
 RUNNER_EDIT_TOOLS = RUNNER_READ_TOOLS + ("Edit", "Write")
-BOUND_WRITE = "(./**)"   # 書く道具を作業ディレクトリの下に縛る許可の綴り（前提の実験 W6: 縛りの無い Edit・Write は外に書けた）
+BOUND_WRITE = "(./**)"   # 書くツールを作業ディレクトリの下に縛る許可の綴り（前提の実験 W6: 縛りの無い Edit・Write は外に書けた）
 
 
 def edit_deny(protected, top):
-    """作業ツリーを書き換える子の sandbox が書き込みを拒む場所——util.protected_paths から、子が書く作業ツリーの根（綴りと実体）
-    だけを外し、根の下の .git を足した一覧。書けないなら None: 守る場所が引けない・根が引けない・守る場所のどれかが根の祖先
-    （<repo>/.claude/worktrees/<名前> の形。denyWrite は allowWrite より優先されるので、祖先を名指しすると根の中にも書けず、
+    """作業ツリーを書き換える子の sandbox が書き込みを拒む場所——util.protected_paths から、子が書く作業ツリーのルート（綴りと実体）
+    だけを外し、ルートの下の .git を足した一覧。書けないなら None: 守る場所が引けない・ルートが引けない・守る場所のどれかがルートの祖先
+    （<repo>/.claude/worktrees/<名前> の形。denyWrite は allowWrite より優先されるので、祖先を名指しするとルートの中にも書けず、
     外すと祖先の本体に書ける）"""
     if not protected or not top:
         return None
@@ -282,15 +282,15 @@ def edit_deny(protected, top):
 
 
 def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None, deny=()):
-    """回す側の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。起こせないなら None（起こせない理由は
+    """回す側のノードを engine が起動する形——{form, tools, permission_mode, allowed_tools, settings}。起動できないなら None（起動できない理由は
     instance の unlaunched に残る）。
 
-    - 読むだけの節（edits が偽）: 道具つきの役と同じ tooled_permission(RUNNER_READ_TOOLS)——sandbox が使える場は sandbox の形
+    - 読むだけのノード（edits が偽）: ツールつきの役と同じ tooled_permission(RUNNER_READ_TOOLS)——sandbox が使える場は sandbox の形
       （計器は OS の境界の中で聞かずに通り、作業ツリー・.git・盤面への書き込みと外への通信は止まる）、使えない場は read_only。
-      前提を測る節（p0.premises）が測るコマンドを走らせられるように、investigator と同じ形にそろえる（人の答え 2026-09-27）。
-    - 書き換える節（edits が真）: sandbox が使えて edit_deny が決まるときだけ。許すのは Read・Glob・Grep・パスで縛った Edit と
+      前提を測るノード（p0.premises）が測るコマンドを走らせられるように、investigator と同じ形にそろえる（人の答え 2026-09-27）。
+    - 書き換えるノード（edits が真）: sandbox が使えて edit_deny が決まるときだけ。許すのは Read・Glob・Grep・パスで縛った Edit と
       Write・READ_COMMANDS の前置で、sandbox の中のコマンドは聞かずに通す（SANDBOX_BASE。テスト一式を走らせて閉鎖を確かめる）。
-      書けるのは作業ツリーの根の中と sandbox の一時ディレクトリ（子ごとの専用の置き場の扱いは
+      書けるのは作業ツリーのルートの中と sandbox の一時ディレクトリ（子ごとの専用の置き場の扱いは
       commands.py の CHILD_TMP_PARENT の段が正本）だけで、.git・ほかの作業ツリー・盤面・利用者の設定は OS が
       止める——git commit・stash・checkout は index か共通の .git に書くので止まる。通信の許可は空（gh の token を読めても外へ書けない）。
       sandbox が使えない場（Windows・bwrap の無い Linux）は None——Bash 抜きの書く子に黙って落とさない。"""
@@ -306,8 +306,8 @@ def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None,
             "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
 
 
-# skill の節（局所レビュー）を engine が起こす子の道具——Skill はレンズの skill を、Agent はレンズの agent を起こす。書く道具は渡さない
-# （/simplify は既定で作業ツリーを書き換えるので、書けない子で起こす）
+# skill のノード（局所レビュー）を engine が起動する子のツール——Skill はレンズの skill を、Agent はレンズの agent を起動する。書くツールは渡さない
+# （/simplify は既定で作業ツリーを書き換えるので、書けない子で起動する）
 SKILL_TOOLS = RUNNER_READ_TOOLS + ("Skill", "Agent")
 # Agent を持つ子の環境に足す値。-p の子は背景の subagent を、既定では 10 分出力が無いと待ちを打ち切って止め、途中の結果を捨てる
 # （公式の headless の文書の CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS。0 で上限なし）——人の方針『期限・タイムアウトを足さない』で外す
@@ -315,27 +315,27 @@ SKILL_ENV = {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"}
 
 
 def skill_permission(cwd=None, board_dir=None, deny=()):
-    """skill の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。sandbox の形のときだけ返し、立たない場
-    （read_only）は None。値は道具つきの役と同じ tooled_permission(SKILL_TOOLS)——Skill・Agent は先に許し、Bash は sandbox の
-    中だけ、作業ツリー・.git・盤面は denyWrite。Agent で起こす子は親と同じ sandbox の設定を使う（公式の sandboxing の文書）"""
+    """skill のノードを engine が起動する形——{form, tools, permission_mode, allowed_tools, settings}。sandbox の形のときだけ返し、立たない場
+    （read_only）は None。値はツールつきの役と同じ tooled_permission(SKILL_TOOLS)——Skill・Agent は先に許し、Bash は sandbox の
+    中だけ、作業ツリー・.git・盤面は denyWrite。Agent で起動する子は親と同じ sandbox の設定を使う（公式の sandboxing の文書）"""
     perm = tooled_permission(list(SKILL_TOOLS), cwd, board_dir, deny)
     return {**perm, "tools": list(SKILL_TOOLS)} if perm["form"] == "sandbox" else None
 
 
-# 任せ先（graph の delegate を持つ回す側の節）に渡す道具。ファイルを書く道具（WRITE_TOOLS）は渡さない——任せ先が書くのは
-# 作業ディレクトリの外に作る写しで、Edit(./**) のように作業ディレクトリに縛った書く道具はそこへ届かない。書くのは Bash だけで、
+# 任せ先（graph の delegate を持つ回す側のノード）に渡すツール。ファイルを書くツール（WRITE_TOOLS）は渡さない——任せ先が書くのは
+# 作業ディレクトリの外に作る写しで、Edit(./**) のように作業ディレクトリに縛った書くツールはそこへ届かない。書くのは Bash だけで、
 # Bash は OS の sandbox の中でだけ走る（delegate_settings）
 DELEGATE_TOOLS = ("Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch")
 
 
-# 道具ゼロの役に Read で 1 本だけ読ませる写しの名前の末尾。置き場はその instance のプロンプトの隣（read_grant_path）
+# ツールゼロの役に Read で 1 本だけ読ませる写しの名前の末尾。置き場はその instance のプロンプトの隣（read_grant_path）
 READ_GRANT_SUFFIX = ".read"
 # Read の許可規則の中で意味を持つ字（glob・括弧・--allowedTools の区切りのカンマと空白・エスケープ）。含むパスは 1 本に縛れない
 RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r")
 
 
 def read_grant_path(prompt_file):
-    """道具ゼロの役に読ませる写しの置き場——プロンプトの隣の <プロンプトの名前>.read。起こす側（advance.emit）と柵
+    """ツールゼロの役に読ませる写しの置き場——プロンプトの隣の <プロンプトの名前>.read。起動する側（advance.emit）とチェック
     （commands._argv_refusal）が同じここを引く——graph も instance も、読ませる場所を名指せない"""
     p = pathlib.Path(prompt_file)
     return p.with_name(p.stem + READ_GRANT_SUFFIX)
@@ -357,7 +357,7 @@ def read_rule(path):
 
 
 def delegate_permission():
-    """任せ先の権限の形 (permission_mode, allowed_tools)。起こす側（advance.delegate_launch_spec）と柵（commands.launch_refusal）が
+    """任せ先の権限の形 (permission_mode, allowed_tools)。起動する側（advance.delegate_launch_spec）とチェック（commands.launch_refusal）が
     同じここを引く。**Bash は先に許さない**——sandbox の中で走るコマンドは sandbox の自動の許し（autoAllowBashIfSandboxed）で
     通り、sandbox の外に落ちるコマンドは聞く先が無い（--permission-prompts none）ので拒まれる。実測 2026-09-25・haiku: この形で
     sandbox の中の python3・git status・作業ディレクトリへの書き込みは通り、sandbox を切った設定（enabled: false。管理者の設定が
@@ -366,15 +366,15 @@ def delegate_permission():
 
 
 def unfenced_delegate_permission(deny=()):
-    """持ち主が init --unfenced-delegates で柵を外した run の任せ先の形 (permission_mode, allowed_tools, settings)。起こす側
-    （advance.delegate_launch_spec）と柵（commands._delegate_refusal）が同じここを引く。sandbox の設定を持たず、道具（DELEGATE_TOOLS）を
-    全部先に許す——柵の中でできない仕事（docker・sandbox の立たない場）のために外した run で、Bash は sandbox の外で走る（人の決定
+    """持ち主が init --unfenced-delegates でチェックを外した run の任せ先の形 (permission_mode, allowed_tools, settings)。起動する側
+    （advance.delegate_launch_spec）とチェック（commands._delegate_refusal）が同じここを引く。sandbox の設定を持たず、ツール（DELEGATE_TOOLS）を
+    全部先に許す——チェックの中でできない仕事（docker・sandbox の立たない場）のために外した run で、Bash は sandbox の外で走る（人の決定
     2026-09-25）。対象リポジトリの宣言した deny だけは写す。聞く先は無い（--permission-prompts none）"""
     return "dontAsk", list(DELEGATE_TOOLS), json.dumps(_with_deny({}, deny), sort_keys=True, separators=(",", ":"))
 
 
 def delegate_settings(protected, deny=()):
-    """任せ先の sandbox の設定（--settings に渡す JSON の文字列。並びを固定して、柵が起こす瞬間に組み直して突き合わせる）。
+    """任せ先の sandbox の設定（--settings に渡す JSON の文字列。並びを固定して、チェックが起動する瞬間に組み直して突き合わせる）。
     deny は対象リポジトリの宣言した permissions.deny（repo_deny）で、在れば permissions.deny に写す。
 
     - denyWrite: protected（util.protected_paths——本物の作業ツリー・gitdir の実体・共通の .git・他の作業ツリー・盤面・
@@ -382,7 +382,7 @@ def delegate_settings(protected, deny=()):
     - allowWrite ['/']: 名指しした場所の外は今までどおり書ける——依存の置き場（~/.cache 等）・写し。狭めると、今の任せ先が
       できていた依存の導入が落ちる（実測 2026-09-25: 既定の範囲では uv が ~/.cache/uv を開けなかった）
     - allowUnsandboxedCommands: false と failIfUnavailable: true——sandbox の外で走る道と、sandbox が立たない場で黙って素通しになる道を閉じる
-    - network.allowedDomains ['*']・enableWeakerNetworkIsolation・allowLocalBinding: 網（依存の導入・gh の読み）と手元のサーバを
+    - network.allowedDomains ['*']・enableWeakerNetworkIsolation・allowLocalBinding: ネットワーク（依存の導入・gh の読み）と手元のサーバを
       今までどおり使う（実測 2026-09-25・macOS: gh は enableWeakerNetworkIsolation が無いと TLS の検証で落ち、localhost の bind は
       allowLocalBinding で通った）"""
     return json.dumps(_with_deny({"sandbox": {
@@ -416,7 +416,7 @@ class StopSignal(KeyboardInterrupt):
 def install_stop_handlers():
     """止める信号（SIGTERM・SIGHUP・SIGINT）を受けたら、生きている子を木ごと止めてから StopSignal を上げる。loop.py の main が
     全コマンドの前に 1 度だけ呼ぶ——子は別のプロセスグループに切り離してあるので、loop.py に届いた信号は子に届かず、
-    next・done の中の builtin が run_tree で起こしたテスト一式も launch の役の子も、ここで止めないと作業ツリーに書き続ける"""
+    next・done の中の builtin が run_tree で起動したテスト一式も launch の役の子も、ここで止めないと作業ツリーに書き続ける"""
     import signal as _signal
 
     def stop(signum, _frame):
@@ -428,17 +428,17 @@ def install_stop_handlers():
             _signal.signal(getattr(_signal, name), stop)
 
 
-# 包みの欄のうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
+# 包みのフィールドのうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
 SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
                 "subtype", "is_error", "stop_reason")
 
 
 def session_costs(rows, group=lambda row: None):
     """trace の op=role_run の行の費用を group(行) ごとに足した ——{group の値: 米ドル}。total_cost_usd は会話（session_id）の累計で、
-    続きを頼むたびと、同じ会話を続ける節（same_context_as）で前の節の分を含んで増える（公式の cost-tracking の文書）。そこで行の順に、
-    その会話のそれまでの最大との差（負なら 0）を、その行の group に付ける——費用を生んだ節に付き、合計は会話ごとの最大の和と同じ。
+    続きを頼むたびと、同じ会話を続けるノード（same_context_as）で前のノードの分を含んで増える（公式の cost-tracking の文書）。そこで行の順に、
+    その会話のそれまでの最大との差（負なら 0）を、その行の group に付ける——費用を生んだノードに付き、合計は会話ごとの最大の和と同じ。
     前の値を最後の行でなく最大で持つのは、落ちた回の行が 0 を返しうるから（0 の次の行で累計を二重に数えない）。
-    **数えるのは engine が起こした子だけ**（op=role_run の行を書くのは run_role）——会話そのものと、会話が Agent で起こした役は入らない"""
+    **数えるのは engine が起動した子だけ**（op=role_run の行を書くのは run_role）——会話そのものと、会話が Agent で起動した役は入らない"""
     high, out = {}, collections.defaultdict(float)
     for r in rows:
         sid, cost = r.get("session_id"), r.get("total_cost_usd")
@@ -449,8 +449,8 @@ def session_costs(rows, group=lambda row: None):
     return dict(out)
 
 
-COST_WHAT = ("engine が起こした子の total_cost_usd（会話の累計）を、行ごとにその会話のそれまでの最大との差にして足した値（米ドル）——"
-             "続ける節の分はその節に付く。会話そのもの・会話が Agent で起こした役・会話がこなした節の分は入らない。trace の読めない行（skipped）は数えていない")
+COST_WHAT = ("engine が起動した子の total_cost_usd（会話の累計）を、行ごとにその会話のそれまでの最大との差にして足した値（米ドル）——"
+             "続けるノードの分はそのノードに付く。会話そのもの・会話が Agent で起動した役・会話がこなしたノードの分は入らない。trace の読めない行（skipped）は数えていない")
 
 
 def trace_rows(trace_path):
@@ -473,7 +473,7 @@ def trace_rows(trace_path):
 
 
 def trace_costs(trace_path):
-    """盤面の trace.jsonl から、engine が起こした子の費用 ——{usd, by_node, skipped, what}（session_costs を節ごとに）。読めない行は
+    """盤面の trace.jsonl から、engine が起動した子の費用 ——{usd, by_node, skipped, what}（session_costs をノードごとに）。読めない行は
     数えずに skipped に件数を出し、trace が無ければ None。status と run の報告が見せる"""
     got = trace_rows(trace_path)
     if got is None:
@@ -490,7 +490,7 @@ def pgid_path(out_path):
 
 
 def _popen(argv, **kw):
-    """子を新しいプロセスグループで起こし、生きている子の集合（LIVE）に載せる。木ごと止めるため（_kill・stop_group）。
+    """子を新しいプロセスグループで起動し、生きている子の集合（LIVE）に載せる。木ごと止めるため（_kill・stop_group）。
     外すのは _forget（待ち終えた後）"""
     grp = ({"start_new_session": True} if os.name == "posix"
            else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
@@ -499,7 +499,7 @@ def _popen(argv, **kw):
     p.gl_born = born   # 長の番号が止める間に再利用されたかを見分ける目印（_tree_members の born）
     with _LIVE_LOCK:
         LIVE.add(p)
-    if _STOPPING.is_set():   # 止める信号の後に起こした子（並列の launch の続きの往復など）——kill_all はもう走った
+    if _STOPPING.is_set():   # 止める信号の後に起動した子（並列の launch の続きの往復など）——kill_all はもう走った
         _kill(p)
         _forget(p)
         raise StopSignal(0)
@@ -517,14 +517,14 @@ _Proc = collections.namedtuple("_Proc", "pid ppid pgid uid started stat")   # ps
 
 def _ps_all():
     """全プロセスの表 ——({pid: _Proc}, None)。読めなければ (None, 理由)。_started_at と同じ ps（依存を足さない）。
-    開始時刻は ps を起こす**前**の時刻から etime を引く——後の時刻から引くと ps の遅れが開始時刻に乗り、番号の再利用の
+    開始時刻は ps を起動する**前**の時刻から etime を引く——後の時刻から引くと ps の遅れが開始時刻に乗り、番号の再利用の
     見分け（REUSE_SLACK）を誤って真にする"""
     now = time.time()
     try:
         r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,uid=,etime=,stat="], capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
-        return None, f"ps を起こせない（{e}）"
+        return None, f"ps を起動できない（{e}）"
     rows = {}
     for line in r.stdout.splitlines():
         f = line.split()
@@ -543,11 +543,11 @@ def _tree_members(pgid, known=None, born=None):
     プロセスグループは子孫が抜けられる（ジョブ制御つきのシェルは背景の仕事を setpgid で自分のグループへ移し、setsid は
     新しいセッションを作る）ので、グループだけでは木を数えられない。拾う印は 3 つ:
       - pgid が止める番号のもの
-      - セッションの番号が止める番号のもの——子は setsid で起こしてあり、setpgid で抜けた孫もセッションは抜けない。
+      - セッションの番号が止める番号のもの——子は setsid で起動してあり、setpgid で抜けた孫もセッションは抜けない。
         長が死んで親が 1 に付け替わった後も残る（実測 2026-09-26・macOS 26.6.2）
       - 上の 2 つと known（前の回に数えた {pid: 開始時刻}。今の表に同じ開始時刻で居るものだけ——番号の再利用で木の外へ
         送らない）から親子の鎖で辿れる子孫——setsid で抜けた孫。鎖が切れる前に拾うため、信号より先に数える
-    born（長を起こした時刻か、印を書いた時刻）より REUSE_SLACK を超えて後に始まったプロセスが長の番号に居れば、番号は
+    born（長を起動した時刻か、印を書いた時刻）より REUSE_SLACK を超えて後に始まったプロセスが長の番号に居れば、番号は
     再利用されている（グループもセッションも在る限り番号は再利用されない）ので、グループとセッションでは拾わない——
     止める間に木が消えて番号が回収され、無関係なプロセスがその番号で setsid した形に送らない。
     呼んだ自分と自分の祖先は数えない。環境変数の印（Jenkins の ProcessTreeKiller の形）は macOS では他のプロセスの
@@ -609,7 +609,7 @@ def _answers(send, target):
 
 
 def _stop_tree(pgid, leader=None, born=None):
-    """起こした試行の木（プロセスグループ pgid の子とその子孫）を止める。返すのは止め切れなかった理由（None なら止まった・
+    """起動した試行の木（プロセスグループ pgid の子とその子孫）を止める。返すのは止め切れなかった理由（None なら止まった・
     居なかった）。
 
     POSIX は信号ごとに **数え上げてから送り、送った後に同じ数え上げで確かめる**（_tree_members）。送り先はその回に数えた
@@ -624,7 +624,7 @@ def _stop_tree(pgid, leader=None, born=None):
     表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと返す（止まったと言わない）。
     長の Popen（leader）を持つなら待つ間に回収する。born は長の番号の再利用の目印で、長を回収した後（か長を持たない
     stop_group）にだけ効かせる——回収していない子の番号は再利用されない。
-    Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る。根の長が居ないと辿れないので、長が
+    Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る。ルートの長が居ないと辿れないので、長が
     終わった後の呼び——_reap——は何も止めない）。"""
     if os.name != "posix":
         r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -695,7 +695,7 @@ def _stop_tree(pgid, leader=None, born=None):
 
 
 def _kill(p):
-    """起こした子を**木ごと**止める（_stop_tree）。前置の層（with-auth.py）は claude を subprocess.run で起こす殻なので、
+    """起動した子を**木ごと**止める（_stop_tree）。前置の層（with-auth.py）は claude を subprocess.run で起動する殻なので、
     直下の子だけを殺すと孫の claude が out の fd を継いだまま走り続ける（同じ形の事故の先例と解き方はリポジトリの
     tests/mutate.py の run_group）。SIGTERM を先に送るのは、claude -p が SIGTERM で自分の子（Bash の木）を止めて終わるため"""
     why = _stop_tree(p.pid, leader=p)
@@ -738,7 +738,7 @@ POLL = 0.5   # 長の終わりを見に行く間隔（秒）。待ちの上限�
 def _communicate(p, stdin=None, timeout=None, trees=None):
     """p.communicate と同じ返り値・同じ時間切れ（timeout は管の終わりまでの呼び出し全体）。trees（list）を渡されたら、
     **長が終わった後も管が閉じない**（外へ出た子孫が出力の管を継いでいる）回に、その場で木の残りを止めて管を閉じさせる。
-    管が閉じて普通に終わった回は、長の (pid, 起こした時刻) を trees に足す——止めるのは試行の終わり（_reap）で、段ごとに
+    管が閉じて普通に終わった回は、長の (pid, 起動した時刻) を trees に足す——止めるのは試行の終わり（_reap）で、段ごとに
     止めると、次の段が使う背景のプロセス（出力を管に繋がない物）まで止める。
     communicate を短い間隔で繰り返す形は標準ライブラリの約束（時間切れの後に呼び直しても出力を失わない）で、入力は
     最初の呼びにだけ渡す（2 回目以降は ValueError）"""
@@ -763,7 +763,7 @@ def _communicate(p, stdin=None, timeout=None, trees=None):
 
 def _reap(trees):
     """試行の終わりに、正常に終わった長の木の残り（外へ出た背景のプロセス）を止める。返すのは止め切れなかった木の
-    [(pid, born)]（空なら止まった・居なかった）。長はもう回収してあるので、番号の再利用は起こした時刻（born）で見分ける。
+    [(pid, born)]（空なら止まった・居なかった）。長はもう回収してあるので、番号の再利用は起動した時刻（born）で見分ける。
     セッションを読めないプロセスが居るだけの理由（UNSURE）は止め切れなかったとは数えない——正常に終わった試行の印を、
     それだけで残し続けない"""
     return [(pid, born) for pid, born in trees if _reap_one(pid, born=born)]
@@ -780,25 +780,25 @@ def _reap_one(pid, leader=None, born=None):
 
 
 class Superseded(Exception):
-    """起こした直後に、この試行がもう自分の物でなかった（still_mine が偽——起こし直された・人が止めた）。子は木ごと止めてある。"""
+    """起動した直後に、この試行がもう自分の物でなかった（still_mine が偽——起動し直された・人が止めた）。子は木ごと止めてある。"""
 
 
 def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=None, trees=None):
-    """1 回起こして終了を待つ（上限なし）。返すのは (exit, stdout, stderr)。trees は _communicate に渡す（試行の終わりに
+    """1 回起動して終了を待つ（上限なし）。返すのは (exit, stdout, stderr)。trees は _communicate に渡す（試行の終わりに
     木の残りを止める記録。None なら正常に終わった回の残りは止めず、印もここで消す——背景を残すと宣言した段）。
 
     **どの道で抜けても子を残さない**（finally）——待っている間に例外・SystemExit・KeyboardInterrupt で抜けた回も
     木ごと止める。子は別のプロセスグループに切り離してあるので、親のグループに届く信号はもう子に届かない。
 
-    pgid_file を渡されたら、起こした直後に子のグループの番号を書き、止めた回と trees の無い回はここで、正常に終わった回は
+    pgid_file を渡されたら、起動した直後に子のグループの番号を書き、止めた回と trees の無い回はここで、正常に終わった回は
     試行の終わり（_end_attempt）に消す。**書いてから still_mine を
-    聞く**——止める側（起こし直し・人が止める口）は盤面を先に書いてから、この印を読んで止める。どちらの順で交わっても、
+    聞く**——止める側（起動し直し・人が止める口）は盤面を先に書いてから、この印を読んで止める。どちらの順で交わっても、
     試行の子はどちらか一方が止める（印を書いたのが先なら止める側が、盤面が先に進んでいたら still_mine が）。"""
     p = _popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
     ended = False
     try:
         if pgid_file:
-            # 印の更新時刻が『この子を起こした後』の目印になる（stop_group が番号の再利用を開始時刻で見分ける）
+            # 印の更新時刻が『この子を起動した後』の目印になる（stop_group が番号の再利用を開始時刻で見分ける）
             pathlib.Path(pgid_file).write_text(json.dumps({"pgid": p.pid, "owner": os.getpid()}), encoding="utf-8")
         if still_mine is not None and not still_mine():
             raise Superseded
@@ -816,8 +816,8 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
 
 
 def _end_attempt(trees, pgid_file):
-    """試行の終わり: 木の残りを止め（_reap）、止まったら印を消す。止め切れなかった木が在れば、その木（番号と起こした時刻）を
-    印に書き直して残す——起こした直後の印は最後の往復・段の番号しか持たないので、そのままでは前の往復・段の残りを引けない。
+    """試行の終わり: 木の残りを止め（_reap）、止まったら印を消す。止め切れなかった木が在れば、その木（番号と起動した時刻）を
+    印に書き直して残す——起動した直後の印は最後の往復・段の番号しか持たないので、そのままでは前の往復・段の残りを引けない。
     残した印を引くのは loop.py children（受け付けの後。受け付けの前なら relaunch・stop も）"""
     left = _reap(trees)
     if not pgid_file:
@@ -834,7 +834,7 @@ REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切
 
 
 def number_reused(started, born):
-    """番号が再利用されたか: その番号のプロセスが born（起こした時刻・印を書いた時刻）より REUSE_SLACK を超えて後に始まった"""
+    """番号が再利用されたか: その番号のプロセスが born（起動した時刻・印を書いた時刻）より REUSE_SLACK を超えて後に始まった"""
     return started > born + REUSE_SLACK
 
 
@@ -842,10 +842,10 @@ def _started_at(pid):
     """pid のプロセスの開始時刻（エポック秒）。居なければ GONE、確かめられなければ None。
     POSIX は ps の etime（経過。[[dd-]hh:]mm:ss でロケールに依らない）から、Windows は Win32 の GetProcessTimes の作成時刻
     から出す（_win_started_at）。開始時刻で見分けるのは psutil の Process と同じ形（番号＋作成時刻で同一性を持つ）
-    ——コマンド行の語で見ると、同じ engine が起こした兄弟の試行（同じ python・同じ with-auth.py）を見分けられない"""
+    ——コマンド行の語で見ると、同じ engine が起動した兄弟の試行（同じ python・同じ with-auth.py）を見分けられない"""
     if os.name != "posix":
         return _win_started_at(pid)
-    now = time.time()   # ps を起こす前の時刻から引く（_ps_all と同じ——ps の遅れを開始時刻に乗せない）
+    now = time.time()   # ps を起動する前の時刻から引く（_ps_all と同じ——ps の遅れを開始時刻に乗せない）
     try:
         r = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=30)
@@ -868,8 +868,8 @@ _WAIT_OBJECT_0, _WAIT_TIMEOUT = 0, 0x102
 
 def _win_started_at(pid):
     """Windows の _started_at: OpenProcess → 終わったか → GetProcessTimes の作成時刻。外のプロセス（PowerShell の
-    Get-CimInstance）を起こさず、この中で Win32 を呼ぶ——外のプロセスを起こすと、負荷の高い機械で答えが返らない回
-    （確かめられない＝None）が出るうえ、起こした問いのプロセス自身が、空いた番号（問うている pid）を貰いうる。
+    Get-CimInstance）を起動せず、この中で Win32 を呼ぶ——外のプロセスを起動すると、負荷の高い機械で答えが返らない回
+    （確かめられない＝None）が出るうえ、起動した問いのプロセス自身が、空いた番号（問うている pid）を貰いうる。
     終わったがハンドルが残っているプロセスも OpenProcess は開けるので、開けた後に終わったかを確かめて GONE と読む
     （プロセスは終わると signaled になり、終了状態が STILL_ACTIVE から終了コードに変わる）。SYNCHRONIZE を拒まれる相手
     （別の利用者・保護されたプロセス）は PROCESS_QUERY_LIMITED_INFORMATION だけで開き直し、終了状態で読む"""
@@ -933,7 +933,7 @@ def filetime_to_epoch(ft):
 
 def read_mark(pgid_file):
     """印を読む（信号も消去もしない）——(木の一覧 [(pgid, born)], owner, 印の更新時刻, 読めない理由)。印が無ければ ([], None, None, None)。
-    印の形は 2 つ: 子を起こした直後の {"pgid", "owner"}（born は印の更新時刻——子を起こした後に書くので）と、試行の終わりに
+    印の形は 2 つ: 子を起動した直後の {"pgid", "owner"}（born は印の更新時刻——子を起動した後に書くので）と、試行の終わりに
     止め切れなかった木を書き直した {"left": [{"pgid", "born"}…], "owner"}（_end_attempt）。owner は印を書いたプロセス
     （launch）の番号で、古い engine の印には無い（None）"""
     path = pathlib.Path(pgid_file)
@@ -968,7 +968,7 @@ def group_alive(mark):
 
 def mark_launch(result_path):
     """背景の線の launch そのもののプロセスグループの印（pgid_path(result_path)）を書く。書くのは線の launch（commands.cmd_launch）が
-    起こした印を盤面に書く前、消すのは締めと落ちた印の後——印が在って launch も子も居なければ、launch が締めの前に落ちた（lane_failure）。
+    起動した印を盤面に書く前、消すのは締めと落ちた印の後——印が在って launch も子も居なければ、launch が締めの前に落ちた（lane_failure）。
     Windows はグループの生死を確かめない（group_alive）ので書かない"""
     if os.name != "posix":
         return None
@@ -996,7 +996,7 @@ def lane_failure(result_path):
 
 
 def liveness(inst):
-    """待っている instance の経過と試行の回数（util.waiting）に、engine が起こして走っている試行なら子のグループが生きているか（alive）を
+    """待っている instance の経過と試行の回数（util.waiting）に、engine が起動して走っている試行なら子のグループが生きているか（alive）を
     足した値——status と run の報告が同じここを引く"""
     alive = {"alive": group_alive(pgid_path(inst["out_path"]))} if inst.get("launch_state") == "running" else {}
     return {**waiting(inst), **alive}
@@ -1009,7 +1009,7 @@ def _probe(pgid_file):
     why は確かめられない理由（印が読めない・開始時刻が取れない）。relaunch は新しい試行を書く前にこれだけを呼ぶ
     （止められない試行の上に新しい試行を作らない）。
 
-    **番号の再利用は開始時刻で見分ける**: 印は子を起こした後に書くので、born より後に始まったプロセスは別物
+    **番号の再利用は開始時刻で見分ける**: 印は子を起動した後に書くので、born より後に始まったプロセスは別物
     （REUSE_SLACK は読みの誤差）。POSIX で長が居ないなら止める側に倒す——グループが在る限りその番号は再利用されないので、
     残っているのは古い試行の孫である。Windows で長が居ないなら止める物は無い（taskkill /T は親子の鎖で木を辿る）。"""
     trees, _owner, _written, why = read_mark(pgid_file)
@@ -1047,9 +1047,9 @@ def stop_group(pgid_file):
 def unwrap(stdout):
     """標準出力を解く。返すのは (本文, 要約, 読めない理由)。
 
-    **包みかどうかは出力の形で見る**（起こした語の --output-format は見ない）: type が result の object だけが
+    **包みかどうかは出力の形で見る**（起動した語の --output-format は見ない）: type が result の object だけが
     `--output-format json` の包み（公式の headless 文書・SDKResultMessage）。盤面は init の時の graph の語で役を
-    起こすので、古い版の graph で始めた run では --output-format text の素の本文が返る（実測 2026-09-25: 包みしか
+    起動するので、古い版の graph で始めた run では --output-format text の素の本文が返る（実測 2026-09-25: 包みしか
     読まなかった版が、exit 0 で返った所見を 3 回捨てた）。包みでなければ全文を本文にして受け付け
     （commands.parse_output の 3 候補）に任せる。そのときの要約は envelope=false だけで、会話の番号・往復数・
     所要時間・費用・トークンは取れない——会話の番号が無いので、拒まれても同じ会話に続きを頼まない。
@@ -1088,16 +1088,16 @@ def _tail(data):
 
 
 def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
-    """走らせる節（launch の kind=engine_run）の語を 1 本ずつ起こし、終わりを待つ。**役と同じ _spawn** で起こす——別の
+    """走らせるノード（launch の kind=engine_run）の語を 1 本ずつ起動し、終わりを待つ。**役と同じ _spawn** で起動する——別の
     プロセスグループ・期限なし・どの道で抜けても木ごと止める・pgid の印で別のプロセスが止める、を写さずに使う。
 
     shell を通さない（argv をそのまま）。標準入力は空。標準出力と標準エラーは log_dir に丸ごと置き、返り値には末尾だけ載せる。
-    返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
-    もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。
+    返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起動できなかった——error に理由）。
+    もう自分の物でなければ（still_mine が偽——起動し直された・人が止めた）Superseded を上げる。
     正常に終わった段の木の残り（外へ出た背景のプロセス）は、試行（全段）の終わりに 1 回まとめて止める。段の宣言の
     keep_background（engine/declared.py）が真の段は止めない——試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）
 
-    宣言と一致する一式は、同じ指紋の緑が在れば段を起こさずに使い回す（engine/checks_cache.py。当たった行は reused を持ち、
+    宣言と一致する一式は、同じ指紋の緑が在れば段を起動せずに使い回す（engine/checks_cache.py。当たった行は reused を持ち、
     出力は log_dir に写す）。どの行も使い回しの判断を cache に 1 行で持つ"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -1141,9 +1141,9 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
 
 def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_resumes=0,
              log_path=None, meta=None, cwd=None, env=None, still_mine=None):
-    """役を起こし、返答を out_path に書き、受け付けまで済ませる。
+    """役を起動し、返答を out_path に書き、受け付けまで済ませる。
 
-    argv        起こす語の全部（前置の層・claude・旗）。同じ会話を続ける節ならここが既に --resume を含む
+    argv        起動する語の全部（前置の層・claude・旗）。同じ会話を続けるノードならここが既に --resume を含む
     prompt_file 指示書（標準入力で渡す）
     out_path    返答の本文の置き場
     accept      accept(本文) -> None（受け付けた）| str（拒んだ理由——役に返して出し直させる）。
@@ -1153,7 +1153,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
     log_path    実行の要約を JSON Lines で足す先（1 起動 1 行・op は role_run。engine は盤面の trace.jsonl を渡す）
     meta        要約の各行に添える値（instance・周など。呼び出し側の語彙で、この関数は読まない）
     cwd / env   子の作業ディレクトリと環境（None なら呼び出し側のもの）
-    still_mine  still_mine() -> bool。子を起こすたびに聞き、偽なら（起こし直された・人が止めた）その子を止めて返る。None なら聞かない
+    still_mine  still_mine() -> bool。子を起動するたびに聞き、偽なら（起動し直された・人が止めた）その子を止めて返る。None なら聞かない
 
     正常に終わった往復の木の残りは、試行の終わりに 1 回まとめて止める（_end_attempt）
 
@@ -1187,7 +1187,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
                 run["stdout_head"] = out.decode("utf-8", "replace").strip()[:600]
             stop = True
             if rc is None:
-                got["why"] = f"起こせない: {run['stderr']}"
+                got["why"] = f"起動できない: {run['stderr']}"
             elif bad or rc != 0:
                 got["why"] = bad or f"子が exit {rc} で終わった"
             else:

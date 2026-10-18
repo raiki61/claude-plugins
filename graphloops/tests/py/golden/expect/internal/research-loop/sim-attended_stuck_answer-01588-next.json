@@ -8,9 +8,9 @@
    true,
    "手詰まり（stuck）の後の周"
   ],
-  "no_new_discrepancies": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
-  "rederiver_compare_due": "die: cond 'rederiver_compare_due' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
-  "sampling_due": "die: cond 'sampling_due' の欄 'rd.item_counts.p1.checker' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）"
+  "no_new_discrepancies": "die: cond 'no_new_discrepancies' のフィールド 'rd.new_discrepancies' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "rederiver_compare_due": "die: cond 'rederiver_compare_due' のフィールド 'rd.new_discrepancies' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "sampling_due": "die: cond 'sampling_due' のフィールド 'rd.item_counts.p1.checker' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）"
  },
  "loop": {},
  "outputs": {},

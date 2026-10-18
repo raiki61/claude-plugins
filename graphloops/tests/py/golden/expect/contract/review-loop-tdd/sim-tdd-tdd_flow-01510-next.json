@@ -86,7 +86,7 @@
     }
    ],
    "notes": [
-    "converge: converged——検証器が連続 2 ラウンド阻害なし・CI 緑（local_checks clean: _s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx）・最後の関門（最終のコードで撃ち直した変異の見逃しが全部等価）が通った。残った指摘は意図的に受容した設計判断として理由を明示して終える"
+    "converge: converged——検証器が連続 2 ラウンド阻害なし・CI 緑（local_checks clean: _s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx）・最後のゲート（最終のコードで撃ち直した変異の見逃しが全部等価）が通った。残った指摘は意図的に受容した設計判断として理由を明示して終える"
    ]
   },
   "err": ""

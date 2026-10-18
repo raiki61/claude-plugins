@@ -1,4 +1,4 @@
-"""柵（fence.py）が赤になることを、内側に回した pytest で確かめる。赤を一度も見ていない柵は効いていると扱わない。"""
+"""チェック（fence.py）が赤になることを、内側に回した pytest で確かめる。赤を一度も見ていないチェックは効いていると扱わない。"""
 import pytest
 
 PASSING = "def test_a():\n    pass\n"
@@ -7,7 +7,7 @@ PASSING = "def test_a():\n    pass\n"
 @pytest.fixture
 def inner(pytester):
     def run(files, expected, *args, sim=None):
-        # 内側の置き場の conftest も、外側（この置き場の conftest.py）と同じ形で柵を載せる（sim は検査の件数と到達の期待値）
+        # 内側の置き場の conftest も、外側（この置き場の conftest.py）と同じ形でチェックを載せる（sim は検査の件数と到達の期待値）
         pytester.makeconftest("import fence, pathlib\n\n\ndef pytest_configure(config):\n"
                               f"    fence.install(config, pathlib.Path(__file__).parent, {expected})\n"
                               + (f"    fence.expect_sim(config, {sim[0]}, {sim[1]})\n" if sim else ""))
@@ -38,7 +38,7 @@ def test_count_mismatch_fails_the_run(inner, expected, got):
 
 
 def test_emptied_file_still_counts_as_full_run(inner):
-    # テストを全部消したファイルもモジュールとしては集まる——「一部だけ集めた回」と見なして柵を外さない
+    # テストを全部消したファイルもモジュールとしては集まる——「一部だけ集めた回」と見なしてチェックを外さない
     r = inner({"test_ok": PASSING, "test_two": PASSING, "test_empty": "X = 1\n"}, 3)
     assert r.ret == pytest.ExitCode.TESTS_FAILED
     r.stdout.fnmatch_lines(["*集めたテストが 2 件（3 件を期待）*"])
@@ -55,28 +55,28 @@ def test_full_run_with_matching_count_passes(inner):
     pytest.param(("--ignore", "test_two.py"), id="ignore"),
 ])
 def test_run_that_skips_files_drops_only_the_count(inner, args):
-    # ファイルを集めない回は件数の柵を外し、外した旨を出す。飛ばしの見張りは外さない（下の -k の回で見る）
+    # ファイルを集めない回は件数のチェックを外し、外した旨を出す。飛ばしの見張りは外さない（下の -k の回で見る）
     r = inner({"test_ok": PASSING, "test_two": PASSING}, 99, *args)
     assert r.ret == pytest.ExitCode.OK
-    r.stdout.fnmatch_lines(["*件数の柵を外した（置き場のテストのファイル 2 本のうち 1 本だけを集めた）*"])
+    r.stdout.fnmatch_lines(["*件数のチェックを外した（置き場のテストのファイル 2 本のうち 1 本だけを集めた）*"])
 
 
 @pytest.mark.parametrize("expected, args, ret, line", [
-    pytest.param(2, ("--collect-only",), pytest.ExitCode.OK, "*検査の件数の柵と到達の柵を外した（集めるだけの回*", id="collect-only"),
+    pytest.param(2, ("--collect-only",), pytest.ExitCode.OK, "*検査の件数のチェックと到達のチェックを外した（集めるだけの回*", id="collect-only"),
     pytest.param(3, ("--collect-only",), pytest.ExitCode.TESTS_FAILED, "*集めたテストが 2 件（3 件を期待）*", id="collect-only-keeps-count"),
     pytest.param(2, (), pytest.ExitCode.TESTS_FAILED, "*台本の検査が 0 件走った（5 件を期待）*", id="run-keeps-sim"),
 ])
 def test_collect_only_run_drops_only_the_sim_fences(inner, expected, args, ret, line):
-    # 集めるだけの回は検査を 1 件も走らせない——検査の件数と到達の柵だけを外し、件数の柵は当てる。走らせる回は同じ期待値で赤
+    # 集めるだけの回は検査を 1 件も走らせない——検査の件数と到達のチェックだけを外し、件数のチェックは当てる。走らせる回は同じ期待値で赤
     r = inner({"test_ok": PASSING, "test_two": PASSING}, expected, *args, sim=(5, 0))
     assert r.ret == ret
     r.stdout.fnmatch_lines([line])
 
 
 def test_keyword_run_keeps_the_count(inner):
-    # -k は集めた後で選ぶので、集めた数は変わらない——柵を付けたまま突き合わせる
+    # -k は集めた後で選ぶので、集めた数は変わらない——チェックを付けたまま突き合わせる
     r = inner({"test_ok": PASSING, "test_two": PASSING}, 2, "-k", "test_ok")
-    assert r.ret == pytest.ExitCode.OK and "件数の柵を外した" not in r.stdout.str()
+    assert r.ret == pytest.ExitCode.OK and "件数のチェックを外した" not in r.stdout.str()
 
 
 def test_selected_run_still_fails_on_skip(inner):

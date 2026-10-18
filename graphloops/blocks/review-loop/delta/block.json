@@ -1,5 +1,5 @@
 {
- "description": "R7 修正差分の審査と手直し（BLOCKS.md 3 節）。同じ形を 2 回使う（rules の DELTA_PASSES）",
+ "description": "R7 修正差分の審査と手直し（BLOCKS.md セクション 3）。同じ形を 2 回使う（rules の DELTA_PASSES）",
  "nodes": [
   "p3.fix_delta",
   "p3.delta_review",

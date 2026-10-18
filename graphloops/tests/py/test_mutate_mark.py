@@ -1,5 +1,5 @@
-"""変異の実行器（リポジトリの根の tests/mutate.py）の印の写しで、pytest のテストを行の持ち主として名指す口。conftest.py の
-pytest_runtest_protocol がテストの間だけ環境変数にテストの node id を入れ、印（mutate.mark_write）がその値を 4 つ目の欄に書き、
+"""変異の実行器（リポジトリのルートの tests/mutate.py）の印の写しで、pytest のテストを行の持ち主として名指す口。conftest.py の
+pytest_runtest_protocol がテストの間だけ環境変数にテストの node id を入れ、印（mutate.mark_write）がその値を 4 つ目のフィールドに書き、
 mutate.read_hits が pytest の覆いとして読む。環境変数の名前は 2 つのファイルに字面で在るので、ここで揃いを縛る（片方だけ変わると
 pytest の印が全部 ? になり、全部の腕が pytest 一式に倒れて黙って遅くなる）"""
 import importlib.util

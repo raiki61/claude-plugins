@@ -71,7 +71,7 @@
  "config": {},
  "input": {
   "out.txt": {
-   "<text-file>": "{\"requirements\": [{\"key\": \"R1\", \"text\": \"判定から入る run は修正が入るまで P1 を起こさない\"}], \"acceptance\": [{\"key\": \"AC1\", \"requirement\": \"R1\", \"file\": \"src/a.py\", \"name\": \"def f\", \"run\": \"\\\"/opt/homebrew/opt/python@3.14/bin/python3.14\\\" tests/test_spec_entry.py\"}], \"out_of_scope\": []}"
+   "<text-file>": "{\"requirements\": [{\"key\": \"R1\", \"text\": \"判定から入る run は修正が入るまで P1 を起動しない\"}], \"acceptance\": [{\"key\": \"AC1\", \"requirement\": \"R1\", \"file\": \"src/a.py\", \"name\": \"def f\", \"run\": \"\\\"/opt/homebrew/opt/python@3.14/bin/python3.14\\\" tests/test_spec_entry.py\"}], \"out_of_scope\": []}"
   }
  },
  "git": {

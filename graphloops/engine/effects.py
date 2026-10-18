@@ -1,5 +1,5 @@
 """run の状態（盤面の loop）へ書く唯一の口。規則の関数は書き込みを effect（{to: "loop.<鍵>", reducer, value}）で頼み、engine が
-graph の state_schema の鍵ごとの合わせ方（x-reducer）で当てる——LangGraph の State の reducer と同じ形（節は更新だけを返し、鍵ごとの
+graph の state_schema の鍵ごとの合わせ方（x-reducer）で当てる——LangGraph の State の reducer と同じ形（ノードは更新だけを返し、鍵ごとの
 reducer が合わせる）。旧い形の規則の関数（盤面を受け取る物）も同じ口（rules に差し込む write_loop）を通して書く。
 
 人の手当て（loop.py patch）は reducer を飛ばす上書きで、飛ばした鍵と合わせ方を痕跡（state.patches の bypass）に残す（LangGraph の
@@ -9,10 +9,10 @@ import copy
 
 from .util import die
 
-# 合わせ方の語（graph の state_schema の最上位の鍵の x-reducer。graphcheck がこの表を import して語と位置を照らす）
+# 合わせ方の語（graph の state_schema の最上位の鍵の x-reducer。graphcheck がこの表を import して語と位置を照合する）
 #   overwrite    値で置き換える（値が null なら鍵を外す）
 #   append       配列の後ろに足す（値は配列）
-#   merge_by_key 辞書の鍵ごとに合わせる（値は辞書。同じ鍵の値がどちらも辞書なら欄を上書きで足し、ほかは置き換える）
+#   merge_by_key 辞書の鍵ごとに合わせる（値は辞書。同じ鍵の値がどちらも辞書ならフィールドを上書きで足し、ほかは置き換える）
 #   set_once     まだ無いときだけ置く（在れば何もしない——一方向の旗。下げるのは人の手当てだけ）
 REDUCERS = ("overwrite", "append", "merge_by_key", "set_once")
 REDUCER_KEY = "x-reducer"
@@ -40,7 +40,7 @@ def apply_effects(loop, effects, schema, by):
             die(f"{by}: effects[{i}] は {{to: 'loop.<鍵>', reducer, value}} の形で書く（{e!r:.200}）")
         key, r, value = e["to"][len(LOOP_HEAD):], e["reducer"], e["value"]
         if not key or "." in key:
-            die(f"{by}: effects[{i}] の書き先 '{e['to']}' は loop の最上位の鍵 1 つ（下の欄は合わせ方の値で書く）")
+            die(f"{by}: effects[{i}] の書き先 '{e['to']}' は loop の最上位の鍵 1 つ（下のフィールドは合わせ方の値で書く）")
         want = reducer_of(schema, key)
         if want is None:
             if r == "overwrite" and value is None and key not in ((schema or {}).get("properties") or {}):

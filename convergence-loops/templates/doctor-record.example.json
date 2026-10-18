@@ -39,7 +39,7 @@
       "weight": "機械検証可能・小",
       "parent": null,
       "reason": "握り潰しを静かにするだけ——except の撤去が本筋",
-      "evidence": "当該 except 節の実装読解と呼び出し元の突合"
+      "evidence": "当該 except 句の実装読解と呼び出し元の突合"
     },
     {
       "key": "横展開: 検査の先例が 1 サービスで止まる",
@@ -69,7 +69,7 @@
       "claim": "例外の logger 化はやらない",
       "reason": "握り潰しを静かにするだけで根本（except の撤去）に届かない",
       "revisit": "エラー方針を変える決定が出たとき",
-      "evidence": "当該モジュールの except 節"
+      "evidence": "当該モジュールの except 句"
     }
   ],
   "out_of_scope": [

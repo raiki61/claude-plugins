@@ -1,5 +1,5 @@
 {
- "description": "R9 検算（変異） の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "description": "R9 検算（変異） の出口: ほかのブロックのノードが読むノード（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、ノードの名前を鍵に並べる。graph のノードの schema はここを $ref で指す（正本はここだけ）",
  "type": "object",
  "additionalProperties": false,
  "properties": {
@@ -19,7 +19,7 @@
     },
     "rev": {
      "type": "string",
-     "description": "この周のコードの最後の姿（線・最後の関門・規模の数値が同じ版を見る）"
+     "description": "この周のコードの最後の姿（線・最後のゲート・規模の数値が同じ版を見る）"
     },
     "files": {
      "type": "array",
@@ -88,7 +88,7 @@
          "needs_test",
          "defect"
         ],
-        "note": "tests_added＝テストを足してその腕の赤を見た（最後の関門では使えない）／equivalent＝振る舞いの変わらない変異（理由）／needs_test＝テストが要るが足していない／defect＝テストでは閉じない（コードの欠陥の疑い）。needs_test と defect は次の周の判定へ渡る"
+        "note": "tests_added＝テストを足してその腕の赤を見た（最後のゲートでは使えない）／equivalent＝振る舞いの変わらない変異（理由）／needs_test＝テストが要るが足していない／defect＝テストでは閉じない（コードの欠陥の疑い）。needs_test と defect は次の周の判定へ渡る"
        },
        "how": {
         "type": "string",
@@ -118,7 +118,7 @@
        "type": "integer"
       }
      },
-     "note": "読まない欄（取り下げた）。テスト一式の緑は役の申告で受けない——線の足したテストは合流した周の p4.ci、最後の関門の版は同じ周の p4.ci を engine が走らせる。書いてある古い線の結果を型で落とさないために欄だけ残す"
+     "note": "読まないフィールド（取り下げた）。テスト一式の緑は役の申告で受けない——線の足したテストは合流した周の p4.ci、最後のゲートの版は同じ周の p4.ci を engine が走らせる。書いてある古い線の結果を型で落とさないためにフィールドだけ残す"
     }
    }
   },

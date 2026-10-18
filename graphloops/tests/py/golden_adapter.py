@@ -5,9 +5,9 @@
 広げ、締め口（`world`）の中で engine を呼び、2 つの層に分けた素の辞書を返す:
 
 - contract（外の約束）: コマンドの終了コードと出力・記録（record.json）の変化・盤面の周の印（done・na と理由）・
-  節ごとの走らせる判断（Board.applicable）と記録の整合（check_record）。手順 3 の作り替えは、これを変えてはならない
+  ノードごとの走らせる判断（Board.applicable）と記録の整合（check_record）。手順 3 の作り替えは、これを変えてはならない
 - internal（内部の形）: 規則の表の名前ごとの呼ばれ方と返り（calls）・条件の名前ごとの真偽と理由・loop の状態の変化・
-  機械の節の出力。作り替えで作り直してよい（差分は審査に出る）
+  機械のノードの出力。作り替えで作り直してよい（差分は審査に出る）
 
 手順 3 の作り替えが呼び方や盤面の形を変えたら、直すのはここ（`upcast` と `observe` の中）と internal の期待値だけにする。
 期待値と固定具は `graphloops/tests/golden_make.py` が作る（手で書かない）。
@@ -148,7 +148,7 @@ class Place:
         return _subst(obj, self.to_token)
 
 
-TEXT_KEY = "<text-file>"   # JSON でないファイルの本文の入れ物の鍵（{"text": …} を返す節の出力と取り違えない綴り）
+TEXT_KEY = "<text-file>"   # JSON でないファイルの本文の入れ物の鍵（{"text": …} を返すノードの出力と取り違えない綴り）
 
 
 def write_tree(base, files):
@@ -402,7 +402,7 @@ def _read(p):
 
 
 def diff(a, b, path=""):
-    """a から b への変化を {道: 新しい値}（消えた欄は "<消えた>"）で。辞書は欄ごとに下る、それ以外は丸ごと"""
+    """a から b への変化を {道: 新しい値}（消えたフィールドは "<消えた>"）で。辞書はフィールドごとに下る、それ以外は丸ごと"""
     out = {}
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b), key=str):
@@ -420,7 +420,7 @@ def diff(a, b, path=""):
 
 
 def _board_marks(s):
-    """外の約束として見る盤面の欄: 状態・周・止めた印・人に聞いている問いと、今の周の節の印（done・na と理由・skipped・empty・stopped）"""
+    """外の約束として見る盤面のフィールド: 状態・周・止めた印・人に聞いている問いと、今の周のノードの印（done・na と理由・skipped・empty・stopped）"""
     if not s:
         return None
     rd = (s.get("rounds") or [{}])[-1]
@@ -476,7 +476,7 @@ def _cli(place, argv):
 
 
 def _pure(place, loop, w):
-    """読むだけの評価: 条件の全部の名前（internal）と、節ごとの走らせる判断・記録の整合（contract）"""
+    """読むだけの評価: 条件の全部の名前（internal）と、ノードごとの走らせる判断・記録の整合（contract）"""
     board = place.paths["<RUN>"]
     contract, internal = {}, {}
     if not (board / "state.json").is_file():
@@ -508,7 +508,7 @@ def _guard(f):
         return f"拒む: {e}"
     except SystemExit:
         return "die: " + err.getvalue().strip().removeprefix("NG ")
-    except Exception as e:  # noqa: BLE001 — 想定外の落ち方も観察の値にする（縮めの途中で欄が欠けた盤面を見分ける）
+    except Exception as e:  # noqa: BLE001 — 想定外の落ち方も観察の値にする（縮めの途中でフィールドが欠けた盤面を見分ける）
         return f"例外 {type(e).__name__}: {e}"
 
 
@@ -586,7 +586,7 @@ def coverage(loop, internal_expectations):
     結果が 1 通りのとき、真偽・可否を返す表（PREDICATE_TABLES）の口は『片側だけ』で覆っていない側に置き、手続きの口（フック・書き込み・
     走らせる計画）は、止められずに呼ばれたら『呼ばれた』（called）——呼ばれた後に何を書いたかは
     その固定具の期待値（記録の変化）が固定するが、呼ばれ方の幅（例: 素材の findings が 2 件以上）までは数えないので、覆ったとは名乗らない
-    （実測 2026-09-26: material_from_findings の detail の区切りを変えても網は緑だった——固定具の findings が 1 件以下）。
+    （実測 2026-09-26: material_from_findings の detail の区切りを変えても安全網は緑だった——固定具の findings が 1 件以下）。
     止められた（blocked）・die は結果に数えない"""
     seen = {}
     for calls in internal_expectations:
@@ -606,7 +606,7 @@ def coverage(loop, internal_expectations):
             elif real:
                 rows[name] = {"uncovered": f"片側だけ（見えた結果: {'・'.join(real)}）"}
             elif "blocked" in got:
-                rows[name] = {"uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"}
+                rows[name] = {"uncovered": "締め口で止めた（git 以外の子プロセスを起動する・録った git に無い）"}
             elif "die" in got:
                 rows[name] = {"uncovered": "固定具の上では die で止まった"}
             else:
@@ -624,7 +624,7 @@ def forbidden_in(text):
     利用者名は字面で書かず、走らせた機械の物を引く（字面を書くと、この検査のファイルそのものが写し込みになる）"""
     import getpass
     pats = [r"/(?:Users|home)/[^/<\s\"\\]+", r"(?:/private)?/(?:var/folders|tmp)/", r"[A-Za-z]:\\\\Users\\\\",
-            r"sk-an[t]-[A-Za-z0-9]", r"gh[pousr]_[A-Za-z0-9]{20}", r"github_pa[t]_[A-Za-z0-9]"]   # 字面の鍵の頭を書かない（網の走査に当たらないように）
+            r"sk-an[t]-[A-Za-z0-9]", r"gh[pousr]_[A-Za-z0-9]{20}", r"github_pa[t]_[A-Za-z0-9]"]   # 字面の鍵の頭を書かない（秘密の走査に当たらないように）
     home = str(pathlib.Path.home())
     hits = [m.group(0) for p in pats for m in re.finditer(p, text)]
     if home and len(home) > 3 and home in text:

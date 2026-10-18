@@ -229,7 +229,7 @@ def main():
 
 
 # **終了コードの契約を担保するのはここ 1 箇所**（`review-record.py` と同じ構造。理由は
-# ヘッダの終了コードの節）。
+# ヘッダの終了コードのセクション）。
 try:
     main()
 except SystemExit:

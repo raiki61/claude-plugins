@@ -1,6 +1,6 @@
 """rules（rules/<loop>.py）の読み込み。graph が名前で指し、engine が名前で呼ぶ。
 
-rules は engine を import しない。差し込む道具は下の INJECT の鍵が正本——ここに列挙を書き写すと、
+rules は engine を import しない。差し込むツールは下の INJECT の鍵が正本——ここに列挙を書き写すと、
 鍵を足したときに散文だけが古くなる（実測: 4 個と 9 個の食い違う写しが 2 ファイルに在った）。
 """
 import importlib.util
@@ -18,8 +18,8 @@ _VALIDATORS = {}
 
 
 def cond_reads(*paths):
-    """条件と規則の関数が読む欄の宣言（rules が CONDS と、読み口を受ける新しい形の受け付け・機械の節の関数に付ける）。宣言の外を
-    読むと CondView がその場で落とす。宣言を持つ受け付け・機械の節の関数は engine が読み口で呼ぶ（Board.rule）"""
+    """条件と規則の関数が読むフィールドの宣言（rules が CONDS と、読み口を受ける新しい形の受け付け・機械のノードの関数に付ける）。宣言の外を
+    読むと CondView がその場で落とす。宣言を持つ受け付け・機械のノードの関数は engine が読み口で呼ぶ（Board.rule）"""
     def deco(fn):
         fn.reads = tuple(paths)
         return fn
@@ -27,7 +27,7 @@ def cond_reads(*paths):
 
 
 def takes_view(fn):
-    """規則の関数が読み口を受ける新しい形か（cond_reads の印を持つか）——見分けの正本。engine・gl・graphcheck・再生の道具が呼ぶ"""
+    """規則の関数が読み口を受ける新しい形か（cond_reads の印を持つか）——見分けの正本。engine・gl・graphcheck・再生のツールが呼ぶ"""
     return isinstance(getattr(fn, "reads", None), tuple)
 
 
@@ -51,7 +51,7 @@ def validator_module(b):
     return _VALIDATORS[path]
 
 
-# rules に差し込む道具の正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules 2 本から
+# rules に差し込むツールの正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules 2 本から
 # 一度も呼ばれておらず、『rules が記録の任意の場所を path で読み書きしてよい』と読める面だけを開いていた
 # （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
 INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,

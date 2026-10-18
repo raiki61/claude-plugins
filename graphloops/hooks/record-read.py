@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """読んだ事実を、読んだその瞬間に盤面の隣へ 1 行残す（PostToolUse:Read）。
 
-**なぜフックなのか。** 読了の柵はこれまで、会話の記録（転写 JSONL）を engine が後から開いて
+**なぜフックなのか。** 読了のチェックはこれまで、会話の記録（転写 JSONL）を engine が後から開いて
 本文の痕跡を探していた。公式文書は転写を内部形式と明記しており、engine が自前で glob して
 解析する形は版ごとに壊れうる。実際、形が変わった疑いを別扱いする分岐・辞書でない行の守り・
 大きい結果の外出し（tool-results/）の見分けを、壊れるたびに足してきた。
@@ -10,7 +10,7 @@
 フックは subagent の中でも発火して `agent_id` が載る。後から漁る必要も、外出しを見分ける必要も無い。
 
 **文書を信じずに実物で測った**（2026-09-22、macOS）。この設定を `--settings` で渡した子の claude を
-起こし、3 点を確かめた——**文書がそう書いていることは、ハーネスがそうすることの証拠にならない**:
+起動し、3 点を確かめた——**文書がそう書いていることは、ハーネスがそうすることの証拠にならない**:
   1. Read のたびに発火する（記録の tool_use_id が `toolu_01HsNpjr7UvQHHN9b6Y2V1Xa` で、
      こちらが作れる値ではない。path と sha も現物と一致）
   2. offset 付きの読みは `partial: true` で残る（全文の証拠にしない側へ倒れる）
@@ -87,7 +87,7 @@ def main():
     try:
         d = json.load(sys.stdin)
     except (ValueError, OSError):
-        return 0                                  # 読めない入力で道具を止めない（記録は在れば強い証拠）
+        return 0                                  # 読めない入力でツールを止めない（記録は在れば強い証拠）
     if not isinstance(d, dict) or d.get("tool_name") != "Read":
         return 0
     ti = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
@@ -118,8 +118,8 @@ def main():
     lines = raw.count(b"\n") + (1 if raw and not raw.endswith(b"\n") else 0) if raw is not None else None
     partial = ("range" if ti.get("offset") is not None or ti.get("limit") is not None else
                "size" if raw is None or lines > HARNESS_LINES or len(raw) > HARNESS_BYTES else None)
-    # tool_response の文字列の長さを取る欄は置かない——実物のハーネスの tool_response は文字列でなく構造を持つので、
-    # その欄は常に null だった。要る日が来たら、構造のどの欄を読むかを測ってから足す
+    # tool_response の文字列の長さを取るフィールドは置かない——実物のハーネスの tool_response は文字列でなく構造を持つので、
+    # そのフィールドは常に null だった。要る日が来たら、構造のどのフィールドを読むかを測ってから足す
     row = json.dumps({
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "session_id": d.get("session_id"),
@@ -142,7 +142,7 @@ def main():
             with open(b / "reads.jsonl", "a", encoding="utf-8") as f:
                 f.write(row + "\n")
         except OSError:
-            pass                                  # 書けなくても道具は止めない
+            pass                                  # 書けなくてもツールは止めない
     return 0
 
 

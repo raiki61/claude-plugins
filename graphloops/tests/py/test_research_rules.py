@@ -1,5 +1,5 @@
 """research-loop の rules（rules/research-loop.py）の条件の関数を、engine と同じ口（board.run_cond）で直に呼ぶ検査——
-形の崩れた欄で落ちない・理由の文が真偽と揃う・条件ごとの真偽表・読了の標本の閾値（S2b で tests/simulate.py の
+形の崩れたフィールドで落ちない・理由の文が真偽と揃う・条件ごとの真偽表・読了の標本の閾値（S2b で tests/simulate.py の
 test_cond_truth_tables・test_threshold_boundaries から移した。対応は MIGRATION.md）。盤面を回す端から端までの台本は
 tests/simulate.py と test_sim_research.py"""
 import contextlib
@@ -49,7 +49,7 @@ def test_on_stop_keeps_the_unanswered_question_as_a_human_item():
 
 
 # --- 条件ごとの真偽表（simulate.py の test_cond_truth_tables から）。文脈を手で組んで engine と同じ口で呼ぶ。期待の "die" は、
-# 宣言した欄が default 無しで解決できないと落ちること（偽に倒さない）
+# 宣言したフィールドが default 無しで解決できないと落ちること（偽に倒さない）
 def truth(name, ctx):
     try:
         with contextlib.redirect_stderr(io.StringIO()):

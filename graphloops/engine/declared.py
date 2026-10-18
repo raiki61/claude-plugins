@@ -1,6 +1,6 @@
 """対象リポジトリが宣言した走らせる語（ルートの .review-checks.json）。
 
-任意の mutation の段は変異の実行器と腕の一覧の名指しで、engine は走らせない——役（ゲートの検算・変異の検算の線・最後の関門）が
+任意の mutation の段は変異の実行器と腕の一覧の名指しで、engine は走らせない——役（ゲートの検算・変異の検算の線・最後のゲート）が
 読む（rules の mutation_decl が貼る）。
 
 **人の承認は要らない。** engine は宣言の語を、走らせる直前に作業ツリーのルートの宣言を読み直して一致を確かめてから、shell を
@@ -10,12 +10,12 @@
 
 **外したことで守られなくなった物**: 初見のリポジトリ・レビューしている差分・修正役が書き換えた宣言の語を、人が見る前に
 engine が Claude Code の許可の仕組み（permission mode・分類器）の外で走らせる。回す側が打つ `loop.py launch` は分類器から見て
-1 語で、engine が起こす宣言の語は分類器を通らない。**他人のリポジトリ・他人の PR を回すときは、宣言とそれが呼ぶスクリプトを
+1 語で、engine が起動する宣言の語は分類器を通らない。**他人のリポジトリ・他人の PR を回すときは、宣言とそれが呼ぶスクリプトを
 先に読め。**
 **残る物**: shell を通さない argv と宣言の書式の検査（parse）／同梱の語の免除は argv の頭で決める（ENGINE_HELPERS）／盤面
-（loop.py patch）で instance の語を書き換えても、ルートの宣言に無い語は走らない（宣言を読む場所は盤面の欄でなく、run の
-inputs.cwd から引いたリポジトリのルート——inputs.cwd を patch で差し替えるのは run 全体の対象を差し替える操作で、この柵の外）
-／宣言の無いリポジトリは任せ先の節（Claude Code の許可の仕組みを通る）。
+（loop.py patch）で instance の語を書き換えても、ルートの宣言に無い語は走らない（宣言を読む場所は盤面のフィールドでなく、run の
+inputs.cwd から引いたリポジトリのルート——inputs.cwd を patch で差し替えるのは run 全体の対象を差し替える操作で、このチェックの外）
+／宣言の無いリポジトリは任せ先のノード（Claude Code の許可の仕組みを通る）。
 **使い回しの置き場**: engine は宣言の一式の緑を共有の .git の下に置いて使い回す（engine/checks_cache.py が正本）。その置き場は
 宣言の語が走らせるコードからも書けるので、書き換えれば別の中身の run に緑を渡せる（宣言の語は既定の置き場の盤面にも書けた）。
 **もともと守っていなかった物**: 語が呼ぶスクリプトの本文（例えば tests/run.sh）。承認が在った頃も及ぶのは宣言の中身だけで、
@@ -73,7 +73,7 @@ def parse(text):
         seen.add(s["name"])
         if (not isinstance(s["argv"], list) or not s["argv"]
                 or not all(isinstance(a, str) for a in s["argv"]) or not s["argv"][0]):
-            return None, f"suite[{i}].argv は 1 語以上の文字列の配列（shell を通さずにそのまま起こす）"
+            return None, f"suite[{i}].argv は 1 語以上の文字列の配列（shell を通さずにそのまま起動する）"
     return [{"name": s["name"], "argv": list(s["argv"]), **({"keep_background": True} if s.get("keep_background") else {})}
             for s in suite], None
 

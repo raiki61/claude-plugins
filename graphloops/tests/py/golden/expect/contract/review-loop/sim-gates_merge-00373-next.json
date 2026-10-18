@@ -79,7 +79,7 @@
     }
    ],
    "notes": [
-    "converge: stopped——検証器は阻害なし・CI 緑だが、変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）——収束を言うのは、合流した版を gates=merge 無しの run で回し、最後の関門が通った時だけ"
+    "converge: stopped——検証器は阻害なし・CI 緑だが、変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）——収束を言うのは、合流した版を gates=merge 無しの run で回し、最後のゲートが通った時だけ"
    ]
   },
   "err": ""

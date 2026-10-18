@@ -1,7 +1,7 @@
-"""回す側の節を engine が起こす形（回し役なしの run。init の既定）と、道具の一覧を持たない役を狭めて起こす形の柵。
+"""回す側のノードを engine が起動する形（回し役なしの run。init の既定）と、ツールの一覧を持たない役を狭めて起動する形のチェック。
 
-書き換える節の子は、パスで縛った Edit・Write と OS の sandbox の中の Bash だけを持ち、書けるのは作業ツリーの根の中だけ——.git・ほかの
-作業ツリー・盤面・利用者の設定は denyWrite。関数を直に呼ぶ検査で、実物の claude は起こさない（実物で拒まれることの確かめは
+書き換えるノードの子は、パスで縛った Edit・Write と OS の sandbox の中の Bash だけを持ち、書けるのは作業ツリーのルートの中だけ——.git・ほかの
+作業ツリー・盤面・利用者の設定は denyWrite。関数を直に呼ぶ検査で、実物の claude は起動しない（実物で拒まれることの確かめは
 docs/graphloops-rearchitecture.md の手順 H の実測の段落）。
 """
 import argparse
@@ -59,18 +59,18 @@ def test_edit_form_binds_write_tools_and_denies_everything_but_the_tree(repo, tm
     assert perm["form"] == "edit" and perm["permission_mode"] == "dontAsk"
     assert {"Edit", "Write", "Bash"} <= set(perm["tools"]) and not {"MultiEdit", "NotebookEdit"} & set(perm["tools"])
     assert "Edit(./**)" in perm["allowed_tools"] and "Write(./**)" in perm["allowed_tools"]
-    assert not {"Edit", "Write", "Bash"} & set(perm["allowed_tools"])   # 縛りの無い書く道具・丸ごとの Bash は許さない
+    assert not {"Edit", "Write", "Bash"} & set(perm["allowed_tools"])   # 縛りの無い書くツール・丸ごとの Bash は許さない
     sb = json.loads(perm["settings"])["sandbox"]
     assert sb["allowUnsandboxedCommands"] is False and sb["failIfUnavailable"] and sb["network"]["allowedDomains"] == []
     deny = set(sb["filesystem"]["denyWrite"])
     real = os.path.realpath
-    assert real(repo) not in deny and os.path.abspath(repo) not in deny           # 作業ツリーの根の中は書ける
+    assert real(repo) not in deny and os.path.abspath(repo) not in deny           # 作業ツリーのルートの中は書ける
     for p in (repo / ".git", tmp_path / "other", board, util.PLUGIN_ROOT, pathlib.Path.home() / ".gitconfig"):
         assert real(p) in deny, p
 
 
 def test_edit_form_in_a_linked_worktree_denies_its_gitdir_pointer(repo, tmp_path, monkeypatch):
-    """linked worktree の .git は gitdir を指すファイル——書き換えると engine が打つ git の行き先が変わるので、根の中でも名指す"""
+    """linked worktree の .git は gitdir を指すファイル——書き換えると engine が打つ git の行き先が変わるので、ルートの中でも名指す"""
     other = tmp_path / "other"
     monkeypatch.setattr(util, "GIT_CWD", str(other))
     deny = set(json.loads(_edit_perm(other, tmp_path / "b")["settings"])["sandbox"]["filesystem"]["denyWrite"])
@@ -79,7 +79,7 @@ def test_edit_form_in_a_linked_worktree_denies_its_gitdir_pointer(repo, tmp_path
 
 
 def test_edit_form_refuses_a_tree_nested_under_another_tree(repo, tmp_path, monkeypatch):
-    """<repo>/.claude/worktrees/<名前> の形: 祖先を名指しすると根の中にも書けず、外すと祖先に書ける——起こさない"""
+    """<repo>/.claude/worktrees/<名前> の形: 祖先を名指しするとルートの中にも書けず、外すと祖先に書ける——起動しない"""
     nested = repo / ".claude" / "worktrees" / "x"
     git(repo, "worktree", "add", "-q", str(nested), "-b", "nested")
     monkeypatch.setattr(util, "GIT_CWD", str(nested))
@@ -95,7 +95,7 @@ def test_edit_form_needs_the_sandbox_and_the_read_form_falls_back(repo, tmp_path
 
 
 def test_read_form_is_the_investigator_form(repo, tmp_path):
-    """読むだけの節は道具つきの役（investigator）と同じ形——sandbox の中で測るコマンドを走らせられる（人の答え 2026-09-27）"""
+    """読むだけのノードはツールつきの役（investigator）と同じ形——sandbox の中で測るコマンドを走らせられる（人の答え 2026-09-27）"""
     read = role_run.runner_permission(False, str(repo), str(tmp_path / "b"))
     want = role_run.tooled_permission(list(role_run.RUNNER_READ_TOOLS), str(repo), str(tmp_path / "b"))
     assert read["form"] == "sandbox" and {k: read[k] for k in want} == want
@@ -125,7 +125,7 @@ def _swap(flag, fn):
 
 
 @pytest.mark.parametrize("mutate, want", [
-    (_swap("--allowedTools", lambda v: v.replace("Edit(./**)", "Edit")), "--allowedTools"),        # 縛りの無い書く道具
+    (_swap("--allowedTools", lambda v: v.replace("Edit(./**)", "Edit")), "--allowedTools"),        # 縛りの無い書くツール
     (_swap("--allowedTools", lambda v: v + ",Bash"), "--allowedTools"),                            # 丸ごとの Bash
     (_swap("--tools", lambda v: v + ",MultiEdit"), "--tools"),
     (_swap("--permission-mode", lambda v: "acceptEdits"), "--permission-mode"),                    # 許可に無い rm を通す形
@@ -147,7 +147,7 @@ def test_runner_refusal_rebuilds_the_fence_and_refuses_a_widened_tool_list(repo,
     stdin = tmp_path / "p.md"
     stdin.write_text("x")
     good = _runner_launch(repo, tmp_path / "b", stdin)
-    assert "道具" in (commands.launch_refusal({"launch": {**good, "tools": good["tools"] + ["NotebookEdit"]}},
+    assert "ツール" in (commands.launch_refusal({"launch": {**good, "tools": good["tools"] + ["NotebookEdit"]}},
                                             cwd=str(repo), board_dir=tmp_path / "b") or "")
     git(repo, "worktree", "add", "-q", str(tmp_path / "late"), "-b", "late")     # next の後に作業ツリーが足された
     assert "denyWrite" in (commands.launch_refusal({"launch": good}, cwd=str(repo), board_dir=tmp_path / "b") or "")
@@ -167,7 +167,7 @@ def test_git_state_guard_rejects_a_moved_head(repo, tmp_path):
 
 
 def test_git_state_guard_accepts_shared_refs_moved_by_another_run_with_a_trace(repo, tmp_path):
-    """stash と作業ツリーの一覧は全作業ツリーで共有する（git-worktree の REFS 節）——並行の run が動かしても受け付け、trace に残す"""
+    """stash と作業ツリーの一覧は全作業ツリーで共有する（git-worktree の REFS セクション）——並行の run が動かしても受け付け、trace に残す"""
     seen = []
     guard = commands._git_state_guard(lambda text: seen.append(text), tmp_path, "p3.fix")
     (repo / "a.txt").write_text("並行の run の編集\n", encoding="utf-8")
@@ -179,7 +179,7 @@ def test_git_state_guard_accepts_shared_refs_moved_by_another_run_with_a_trace(r
     assert guard("again") is None and len((tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()) == 1
 
 
-# ---------------------------------------------------------------- skill の節（局所レビュー）
+# ---------------------------------------------------------------- skill のノード（局所レビュー）
 def test_skill_form_reads_only_and_needs_the_sandbox(repo, tmp_path, monkeypatch):
     perm = role_run.skill_permission(str(repo), str(tmp_path / "b"))
     assert perm["form"] == "sandbox" and {"Skill", "Agent"} <= set(perm["tools"]) and {"Skill", "Agent"} <= set(perm["allowed_tools"])
@@ -207,7 +207,7 @@ def test_skill_node_launches_with_lens_definitions_or_names_why_it_cannot(repo, 
     lenses = [e["skill"] for e in n["skills"] if ":" in e["skill"]]
     assert lenses and all(f"- {x}: " in role for x in lenses) and "general-purpose" in role
     # 書く子の前置きを継がない（食い違う指示を並べない）——読むだけの子の共通の決まりは skill_preamble が自分で持つ
-    assert "Agent）は起こせない" not in role and "Edit・Write で直せ" not in role
+    assert "Agent）は起動できない" not in role and "Edit・Write で直せ" not in role
     assert "JSON だけ" in role and "人の方針の文書" in role
     written = sorted(p.read_text(encoding="utf-8") for p in (b.dir / "roles").glob("*.lens.txt"))
     assert written == sorted(f"{x} の本文" for x in lenses)                   # 子が Read で読む定義の写し
@@ -220,8 +220,8 @@ def test_skill_node_launches_with_lens_definitions_or_names_why_it_cannot(repo, 
 
 
 def test_nested_sandbox_is_measured_when_launching_on_a_defects_only_board(repo, tmp_path, monkeypatch):
-    """回し役なしの盤面では、確かめが入れ子の sandbox と固めていても emit は語を組む（起こす瞬間に launch_one が測って止める）。前の版の
-    盤面は今までどおり emit で書き換える節と skill の節を会話に返す（unlaunched に理由と外し方）"""
+    """回し役なしの盤面では、確かめが入れ子の sandbox と固めていても emit は語を組む（起動する瞬間に launch_one が測って止める）。前の版の
+    盤面は今までどおり emit で書き換えるノードと skill のノードを会話に返す（unlaunched に理由と外し方）"""
     b, inst, n, _ = _skill_board(tmp_path, repo, None)
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})
     b.state["child_tmp_probe"] = {"sandbox": False, "writable": None, "why": "確かめの子の Bash が sandbox の初期化で落ちた（Sandbox ...）"}
@@ -239,8 +239,8 @@ def test_nested_sandbox_is_measured_when_launching_on_a_defects_only_board(repo,
 
 
 def test_relaunch_reissues_an_unlaunched_node_and_reprobe_clears_the_fixed_probe(real_board, monkeypatch):
-    """engine が起こせない理由を持つ節（unlaunched。前の版の runner_unlaunched も）は旗なしの relaunch で出し直せる——プラグインを入れた・
-    外し方を当てた後に今の盤面で語を組み直す。--reprobe は盤面に固めた確かめも消す。回す側が自分でやる節は今どおり拒む"""
+    """engine が起動できない理由を持つノード（unlaunched。前の版の runner_unlaunched も）は旗なしの relaunch で出し直せる——プラグインを入れた・
+    外し方を当てた後に今の盤面で語を組み直す。--reprobe は盤面に固めた確かめも消す。回す側が自分でやるノードは今どおり拒む"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
     r = loop(repo, "relaunch", "--node", "p0.base", "--reason", "外し方を当てた", "--dir", str(d))
@@ -265,7 +265,7 @@ def test_skill_refusal_rebuilds_the_skill_form(repo, tmp_path, monkeypatch):
     monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})
     spec = {**advance.runner_launch_spec(b, inst, n), "stdin": str(stdin)}
     assert commands.launch_refusal({"launch": spec}, cwd=str(repo), board_dir=b.dir) is None
-    assert "道具" in commands.launch_refusal({"launch": {**spec, "tools": spec["tools"] + ["Edit"]}}, cwd=str(repo), board_dir=b.dir)
+    assert "ツール" in commands.launch_refusal({"launch": {**spec, "tools": spec["tools"] + ["Edit"]}}, cwd=str(repo), board_dir=b.dir)
     assert "縛れない" in commands.launch_refusal({"launch": {**spec, "edits": True}}, cwd=str(repo), board_dir=b.dir)
     widened = _swap("--allowedTools", lambda v: v + ",Edit")(spec["argv"])
     assert "--allowedTools" in commands.launch_refusal({"launch": {**spec, "argv": widened}}, cwd=str(repo), board_dir=b.dir)
@@ -314,7 +314,7 @@ def test_run_role_does_not_resume_a_turn_that_never_reached_acceptance(tmp_path,
 
 
 def test_run_role_marks_every_child_it_starts(tmp_path):
-    """run_role が起こす子（最初の往復も続きも）の環境に engine の子の印を足す——対象リポジトリの入口（e2e の一式・変異の実行器）が読む"""
+    """run_role が起動する子（最初の往復も続きも）の環境に engine の子の印を足す——対象リポジトリの入口（e2e の一式・変異の実行器）が読む"""
     prompt = tmp_path / "p.md"
     prompt.write_text("x", encoding="utf-8")
     argv = _child(tmp_path, "print('{\"type\": \"result\", \"subtype\": \"success\", \"result\": \"{}\", \"session_id\": \"s1\"}')")
@@ -356,7 +356,7 @@ def test_repo_deny_merges_the_local_settings_like_claude_code(repo):
 
 
 def _entrances(repo, tmp_path, monkeypatch):
-    """Bash を持つ子の入口の全部（回す側の読む節・書く節・skill の節・任せ先・Bash を持つ道具つきの役）と、Bash を持たない役——
+    """Bash を持つ子の入口の全部（回す側の読むノード・書くノード・skill のノード・任せ先・Bash を持つツールつきの役）と、Bash を持たない役——
     [(名前, instance, Bash を持つか)]。宣言は読める状態で組む（壊すのは呼び元）"""
     stdin = tmp_path / "p.md"
     stdin.write_text("x")
@@ -377,7 +377,7 @@ def _entrances(repo, tmp_path, monkeypatch):
 @pytest.mark.parametrize("where", ["settings.json", "settings.local.json"])
 @pytest.mark.parametrize("text", ["{壊れた", json.dumps({"permissions": {"deny": "Bash(x)"}}), json.dumps({"permissions": []})])
 def test_unreadable_repo_deny_refuses_every_bash_entrance_naming_the_file(repo, tmp_path, monkeypatch, where, text):
-    """宣言の deny を読めないとき、黙って落として起こさない（fail-closed）——直す 1 か所（ファイル）を名指す。拒むのは柵の入口の 1 か所
+    """宣言の deny を読めないとき、黙って落として起動しない（fail-closed）——直す 1 か所（ファイル）を名指す。拒むのはチェックの入口の 1 か所
     （launch_refusal）で、Bash を持つ子の入口の全部に当たり、Bash を持たない役には当たらない"""
     rows, board = _entrances(repo, tmp_path, monkeypatch)
     (repo / ".claude").mkdir(exist_ok=True)
@@ -390,19 +390,19 @@ def test_unreadable_repo_deny_refuses_every_bash_entrance_naming_the_file(repo, 
 
 
 def test_repo_deny_splits_outside_a_tree_from_an_unreadable_root(repo, tmp_path):
-    """git の作業ツリーでない cwd は宣言が無い（空）。根を引けない別の誤り（.git の中）は空に倒さず理由を返す——黙って deny を落とさない"""
+    """git の作業ツリーでない cwd は宣言が無い（空）。ルートを引けない別の誤り（.git の中）は空に倒さず理由を返す——黙って deny を落とさない"""
     outside = tmp_path / "outside"
     outside.mkdir()
     assert role_run.repo_deny(str(outside)) == ([], None)
     denied, why = role_run.repo_deny(str(repo / ".git"))
-    assert denied is None and "根を引けない" in why
+    assert denied is None and "ルートを引けない" in why
 
 
 EMIT_FORMS = ["runner-read", "runner-edit", "skill", "delegate", "delegate-unfenced", "tooled-bash"]
 
 
 def _emitted(form, repo, tmp_path, monkeypatch):
-    """emit が組む起こす語（advance の起こす側の関数そのもの）と、柵に渡す盤面の state ——(instance, state)"""
+    """emit が組む起動する語（advance の起動する側の関数そのもの）と、チェックに渡す盤面の state ——(instance, state)"""
     b, inst, n, _ = _skill_board(tmp_path, repo, None)
     (tmp_path / "p.md").write_text("x", encoding="utf-8")
     role = {"tools": ["Read", "Bash"], "model": "m", "effort": "e", "body": "b", "file": "f"}
@@ -426,8 +426,8 @@ def _emitted(form, repo, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("form", EMIT_FORMS)
 def test_every_emitted_form_passes_the_fence_with_the_declared_deny_and_only_then(repo, tmp_path, monkeypatch, form):
-    """対象リポジトリが deny を宣言した場で、emit が組んだ語は柵を通る。語の deny を書き換えた・emit の後に宣言が変わった回は拒む。
-    起こす形の全部（柵を外した任せ先も）に 1 本で当てる——形が増えても漏れない"""
+    """対象リポジトリが deny を宣言した場で、emit が組んだ語はチェックを通る。語の deny を書き換えた・emit の後に宣言が変わった回は拒む。
+    起動する形の全部（チェックを外した任せ先も）に 1 本で当てる——形が増えても漏れない"""
     _declare_deny(repo, json.dumps({"permissions": {"deny": ["Bash(bash tests/run.sh:*)"]}}))
     inst, state = _emitted(form, repo, tmp_path, monkeypatch)
     fence = lambda i: commands.launch_refusal(i, cwd=str(repo), board_dir=tmp_path / "b", state=state)   # noqa: E731
@@ -441,8 +441,8 @@ def test_every_emitted_form_passes_the_fence_with_the_declared_deny_and_only_the
 
 
 def test_the_unfenced_delegate_form_passes_only_on_a_board_that_says_so(repo, tmp_path, monkeypatch):
-    """柵を外した任せ先の形は、盤面の state.unfenced_delegates が在るときだけ通る——instance の申告は見ない。柵を外していない盤面に
-    外した形の語を置いても起こさない"""
+    """チェックを外した任せ先の形は、盤面の state.unfenced_delegates が在るときだけ通る——instance の申告は見ない。チェックを外していない盤面に
+    外した形の語を置いても起動しない"""
     inst, state = _emitted("delegate-unfenced", repo, tmp_path, monkeypatch)
     assert commands.launch_refusal(inst, cwd=str(repo), board_dir=tmp_path / "b", state=state) is None
     assert "sandbox" not in json.loads(inst["launch"]["argv"][inst["launch"]["argv"].index("--settings") + 1])
@@ -483,7 +483,7 @@ def test_trace_costs_take_each_conversation_max_and_say_what_they_count(tmp_path
 
 
 def test_session_costs_charge_a_continued_conversation_to_the_node_that_spent_it():
-    """同じ会話を続ける節（same_context_as）の行の累計は前の節の分を含む——前の最大との差をその行の節に付ける。落ちた回の 0 の行の
+    """同じ会話を続けるノード（same_context_as）の行の累計は前のノードの分を含む——前の最大との差をその行のノードに付ける。落ちた回の 0 の行の
     後で累計を二重に数えない"""
     rows = [{"op": "role_run", "node": "r1.minimality", "session_id": "s1", "total_cost_usd": 0.01},
             {"op": "role_run", "node": "r1.minimality_continue", "session_id": "s1", "total_cost_usd": 0},
@@ -494,7 +494,7 @@ def test_session_costs_charge_a_continued_conversation_to_the_node_that_spent_it
 
 
 def test_launch_summary_cost_is_the_attempts_own_share(tmp_path):
-    """launch の要約の cost_usd は、その試行の行の増え分だけ——同じ会話を続ける節の最初の行の累計に入っている前の節の分を足さない"""
+    """launch の要約の cost_usd は、その試行の行の増え分だけ——同じ会話を続けるノードの最初の行の累計に入っている前のノードの分を足さない"""
     rows = [{"op": "role_run", "instance": "r1.minimality", "attempt": 1, "session_id": "s1", "total_cost_usd": 0.01},
             {"op": "role_run", "instance": "r1.next", "attempt": 1, "session_id": "s1", "total_cost_usd": 0.03},
             {"op": "role_run", "instance": "r1.next", "attempt": 1, "session_id": "s1", "total_cost_usd": 0.04}]
@@ -535,12 +535,12 @@ def test_launch_appends_follow_the_child_shape(runner_node, tools, want):
     role = None if tools is None else {"tools": tools}
     got = advance.launch_appends(graph, {}, role, runner_node)
     assert [f for seg in got for f in seg["files"]] == want
-    assert "inputs.request" not in [r for seg in got for r in seg["reads"]]   # 依頼の本文は段で配らない（人の関所の条件 4）
-    assert advance.launch_appends(graph, {}, None, False) == []               # 定義の読めない役（道具が分からない）
+    assert "inputs.request" not in [r for seg in got for r in seg["reads"]]   # 依頼の本文は段で配らない（人のゲートの条件 4）
+    assert advance.launch_appends(graph, {}, None, False) == []               # 定義の読めない役（ツールが分からない）
 
 
 def test_emitted_prompt_carries_the_appended_sections(real_board):
-    """段（launch.append）の本文は、節の指示書の正本（render.node_prompt）の中で役の指示書に入る——回す側の節の prompt_file に
+    """段（launch.append）の本文は、ノードの指示書の正本（render.node_prompt）の中で役の指示書に入る——回す側のノードの prompt_file に
     方針・手元で走らせてよい範囲・盤面のファイルの読み方の見出しが 1 度ずつ在る"""
     repo, d = real_board
     r = loop(repo, "next", "--dir", str(d))
@@ -596,15 +596,15 @@ def test_recover_relaunches_a_tree_editing_child_only_if_untouched_and_once(tmp_
     """書き換える子の launch が受け付けの前に居なくなったら、relaunch --if-untouched を 1 回だけ打つ（触っていないと測れなければ
     engine が拒み、人に渡す）。同じ試行が 2 度落ちたら拾わない"""
     got = []
-    monkeypatch.setattr(runner, "_cli", lambda d, *a: (got.append(a), (rc, "", "作業ツリーが起こした時点と違う"))[1])
+    monkeypatch.setattr(runner, "_cli", lambda d, *a: (got.append(a), (rc, "", "作業ツリーが起動した時点と違う"))[1])
     r = runner._Runner(tmp_path)
     inst = {"id": "p3.fix", "launch": {"kind": "runner", "edits": True}, "out_path": str(tmp_path / "o.json")}
     tmp_path.joinpath("o.json").write_text("{}", encoding="utf-8")   # 置き場に返答が在っても done で拾わない
     why = r.recover(inst)
     assert [a[:4] for a in got] == [("relaunch", "--node", "p3.fix", "--if-untouched")]
-    assert (why is None) if rc == 0 else ("自動では起こし直さない" in why and "起こした時点と違う" in why)
+    assert (why is None) if rc == 0 else ("自動では起動し直さない" in why and "起動した時点と違う" in why)
     again = r.recover(inst)
-    assert again and "起こし直した後も" in again and len(got) == 1
+    assert again and "起動し直した後も" in again and len(got) == 1
 
 
 NEW_FORM = {"engine_runners": {"at": "t", "by": "default", "handoff": util.HANDOFF_DEFECTS}}
@@ -615,26 +615,26 @@ def _st(instances, **state):
 
 
 def test_classify_on_a_defects_only_board_hands_every_unlaunched_or_ended_node_to_a_human():
-    """回し役なしの盤面（この版の init が書く engine_runners.handoff）では、起こして終わった試行も、起こせない理由（unlaunched）を持つ節も
-    人に渡す（14）。会話に返す（13）のは launch も理由も持たない節と受領の形を持たない線——engine の不具合（盤面の矛盾）だけ"""
+    """回し役なしの盤面（この版の init が書く engine_runners.handoff）では、起動して終わった試行も、起動できない理由（unlaunched）を持つノードも
+    人に渡す（14）。会話に返す（13）のは launch も理由も持たないノードと受領の形を持たない線——engine の不具合（盤面の矛盾）だけ"""
     ended = {"status": "pending", "launch_state": "ended"}
     st = _st({
         "p1.local_review": {"id": "p1.local_review", **ended, "launch": {"kind": "runner", "skill": True},
                             "attempt_log": [{"kind": "rejected", "reason": "必須のレンズなのに"}]},
         "p3.fix": {"id": "p3.fix", **ended, "launch": {"kind": "runner", "edits": True},
                    "attempt_log": [{"kind": "failed", "reason": "sandbox の中で走らせられない", "env": True}]},
-        "p0.base": {"id": "p0.base", "status": "pending", "unlaunched": "作業ツリーを書き換える節を子で縛れない"}}, **NEW_FORM)
+        "p0.base": {"id": "p0.base", "status": "pending", "unlaunched": "作業ツリーを書き換えるノードを子で縛れない"}}, **NEW_FORM)
     c = runner.classify(st)
     assert c["kind"] == "needs_human" and c["handoff"] == []
     assert c["needs_human"] == [{"id": "p1.local_review", "why": "必須のレンズなのに"}, {"id": "p3.fix", "why": "sandbox の中で走らせられない"},
-                                {"id": "p0.base", "why": "作業ツリーを書き換える節を子で縛れない"}]
+                                {"id": "p0.base", "why": "作業ツリーを書き換えるノードを子で縛れない"}]
     bare = runner.classify(_st({"p0.base": {"id": "p0.base", "status": "pending"},
                                 "lane": {"id": "lane", "status": "pending", "launch": {"kind": "delegate", "background": True}}}, **NEW_FORM))
     assert bare["kind"] == "handoff" and all("盤面の矛盾" in i["handoff_why"] for i in bare["handoff"])
 
 
 def test_environment_stops_are_not_recorded_as_engine_defects(monkeypatch):
-    """入れ子の sandbox の場で子を起こさなかった行（env）は環境の予定どおりの止まりで、記録器に engine の欠陥として渡さない。柵の拒みは渡す"""
+    """入れ子の sandbox の場で子を起動しなかった行（env）は環境の予定どおりの止まりで、記録器に engine の欠陥として渡さない。チェックの拒みは渡す"""
     got = []
     monkeypatch.setattr(commands.intake, "record", lambda *a, **kw: got.append(kw))
     rows = [{"id": "p3.fix", "ok": False, "why": "子を sandbox の中で走らせられない", "env": True},
@@ -657,25 +657,25 @@ def test_only_a_defects_only_board_records_its_13(tmp_path, monkeypatch):
 
 
 def test_classify_on_an_older_board_names_why_each_node_is_handed_back():
-    """前の版の engine で始めた盤面（engine_runners に handoff の印が無い）と、印の無い盤面は今までどおり 13 で会話に返す（人の関所の答え
+    """前の版の engine で始めた盤面（engine_runners に handoff の印が無い）と、印の無い盤面は今までどおり 13 で会話に返す（人のゲートの答え
     2026-09-27 の 3 周目の条件 2）。前の版の engine の印（runner_unlaunched）も読み、回し役なしの盤面なら前の版だと添える"""
     st = _st({
         "lane": {"id": "lane", "status": "pending", "launch": {"kind": "delegate", "background": True}},
         "p0.base": {"id": "p0.base", "status": "pending"},
         "p1.local_review": {"id": "p1.local_review", "status": "pending", "launch": {"kind": "runner", "skill": True, "on_fail": "handoff"},
-                            "launch_state": "ended", "attempt_log": [{"kind": "handback", "reason": "会話に返す: 起こせないレンズ"}]},
+                            "launch_state": "ended", "attempt_log": [{"kind": "handback", "reason": "会話に返す: 起動できないレンズ"}]},
         "p3.fix": {"id": "p3.fix", "status": "pending", "runner_unlaunched": "sandbox が立たない"},
         "p3.delta_fix": {"id": "p3.delta_fix", "status": "pending", "unlaunched": "入れ子の sandbox"}})
     c = runner.classify(st)
     why = {i["id"]: i["handoff_why"] for i in c["handoff"]}
     assert "背景の任せ先" in why["lane"] and "--no-engine-runners" in why["p0.base"] and why["p3.fix"] == "sandbox が立たない"
-    assert why["p3.delta_fix"] == "入れ子の sandbox" and "起こせないレンズ" in why["p1.local_review"] and c["needs_human"] == []
+    assert why["p3.delta_fix"] == "入れ子の sandbox" and "起動できないレンズ" in why["p1.local_review"] and c["needs_human"] == []
     old = runner.classify({**st, "engine_runners": {"at": "t", "by": "default"}})
     assert all("前の版の engine で始めた盤面" in i["handoff_why"] for i in old["handoff"])
 
 
 def test_classify_on_an_older_board_keeps_the_old_split_of_ended_children():
-    """前の版の盤面の、起こして終わった試行: 受け付けが返した語（handback）・skill の節・入れ子の sandbox で起こさなかった書く節（env）は
+    """前の版の盤面の、起動して終わった試行: 受け付けが返した語（handback）・skill のノード・入れ子の sandbox で起動しなかった書くノード（env）は
     会話へ、ほかは人へ——前の版の launch.on_fail: handoff と emit の会話に返す道と同じ振り分け"""
     ended = {"status": "pending", "launch_state": "ended"}
     st = _st({
@@ -695,8 +695,8 @@ def test_classify_on_an_older_board_keeps_the_old_split_of_ended_children():
 
 
 def _settled(tmp_path, monkeypatch, launch, result, move_round=False, seen=None):
-    """本物の cmd_launch の印付けと締め（settle）を 1 節ぶん通した後の instance。背景の線は受領を done した後に名指しで起こす。move_round は
-    launch の間に盤面が次の周へ進んだ形（周をまたぐ線）。seen（dict）を渡すと、子を起こす間に launch の印が在ったかを書く"""
+    """本物の cmd_launch の印付けと締め（settle）を 1 ノードぶん通した後の instance。背景の線は受領を done した後に名指しで起動する。move_round は
+    launch の間に盤面が次の周へ進んだ形（周をまたぐ線）。seen（dict）を渡すと、子を起動する間に launch の印が在ったかを書く"""
     d = tmp_path / "st"
     d.mkdir()
     bg = bool(launch.get("background"))
@@ -735,7 +735,7 @@ def _settled(tmp_path, monkeypatch, launch, result, move_round=False, seen=None)
 ])
 def test_settle_ends_the_attempt_and_a_defects_only_board_hands_it_to_a_human(tmp_path, monkeypatch, launch, result, env):
     """launch の締めは、受け付けまで届かなかった試行を ended にし、落ち方を failed で残す（環境の予定どおりの止まりは env の印）。
-    回し役なしの盤面では、どの節でも人に渡る——会話に返す語（handback）は書かない"""
+    回し役なしの盤面では、どのノードでも人に渡る——会話に返す語（handback）は書かない"""
     inst = _settled(tmp_path, monkeypatch, launch, result)
     assert inst["launch_state"] == "ended" and inst["attempt_log"][-1]["kind"] == "failed"
     assert bool(inst["attempt_log"][-1].get("env")) == env
@@ -744,7 +744,7 @@ def test_settle_ends_the_attempt_and_a_defects_only_board_hands_it_to_a_human(tm
 
 
 def test_settle_marks_a_lane_that_fell_after_the_round_moved_on(tmp_path, monkeypatch):
-    """背景の線は周をまたいで走る——次の周に進んだ盤面でも、線の試行を起こした周の instance で締め（superseded と読まない）、結果の置き場に
+    """背景の線は周をまたいで走る——次の周に進んだ盤面でも、線の試行を起動した周の instance で締め（superseded と読まない）、結果の置き場に
     落ちた印を書く（周の表で引いていたとき、周が進んだ後に落ちた線は印が書かれなかった）"""
     result_path = tmp_path / "lane.json"
     launch = {"kind": "delegate", "background": True, "result_path": str(result_path)}
@@ -755,7 +755,7 @@ def test_settle_marks_a_lane_that_fell_after_the_round_moved_on(tmp_path, monkey
     assert runner.lanes_failed(st) == [{"id": "n", "round": 1, "why": "線の子が落ちた"}]
 
 
-@pytest.mark.parametrize("exc", [RuntimeError("起こす途中で落ちた"), KeyboardInterrupt()], ids=["exception", "stop-signal"])
+@pytest.mark.parametrize("exc", [RuntimeError("起動する途中で落ちた"), KeyboardInterrupt()], ids=["exception", "stop-signal"])
 def test_a_lane_launch_that_raises_after_the_round_moved_on_leaves_the_failed_mark(tmp_path, monkeypatch, exc):
     """線の launch が例外か止める信号で抜けても、周が進んだ後でも、結果の置き場に落ちた印を書いてから上げ直し、launch の印を消す"""
     result_path = tmp_path / "lane.json"
@@ -787,7 +787,7 @@ def test_a_lane_launch_that_raises_after_the_round_moved_on_leaves_the_failed_ma
 
 
 def test_still_mine_finds_a_lane_attempt_in_an_earlier_round(tmp_path):
-    """線の子の still_mine は、周が進んでも起こした周の試行を自分の物と読む（続きの往復・run_steps の子を自分で止めない）"""
+    """線の子の still_mine は、周が進んでも起動した周の試行を自分の物と読む（続きの往復・run_steps の子を自分で止めない）"""
     inst = {"id": "p3.delta_gates", "out_path": str(tmp_path / "r1.json"), "status": "done", "launch": {"background": True}}
     st = {"rounds": [{"round": 1, "instances": {"p3.delta_gates": inst}}, {"round": 2, "instances": {}}]}
     (tmp_path / "state.json").write_text(json.dumps(st), encoding="utf-8")
@@ -826,14 +826,14 @@ def test_lane_failure_reads_the_written_mark_and_ignores_a_result():
     import tempfile
     with tempfile.TemporaryDirectory() as t:
         p = pathlib.Path(t) / "lane.json"
-        p.write_text(json.dumps({util.LANE_FAILED: "柵が拒んだ"}), encoding="utf-8")
-        assert role_run.lane_failure(p) == "柵が拒んだ"
+        p.write_text(json.dumps({util.LANE_FAILED: "チェックが拒んだ"}), encoding="utf-8")
+        assert role_run.lane_failure(p) == "チェックが拒んだ"
         p.write_text(json.dumps({"arms": []}), encoding="utf-8")
         assert role_run.lane_failure(p) is None
 
 
 def test_launch_marks_a_lane_before_it_records_the_launch_and_clears_it_after(tmp_path, monkeypatch):
-    """線の launch は、起こした印（launched_at）を盤面に書く前に自分の印を置き、締めの後に消す——印が在って launch が居ないことだけが
+    """線の launch は、起動した印（launched_at）を盤面に書く前に自分の印を置き、締めの後に消す——印が在って launch が居ないことだけが
     『締めの前に落ちた』になる"""
     seen = {}
     result_path = tmp_path / "lane.json"
@@ -843,14 +843,14 @@ def test_launch_marks_a_lane_before_it_records_the_launch_and_clears_it_after(tm
 
 
 def test_reply_origin_is_the_childs_whenever_the_text_is_what_the_child_left(tmp_path):
-    """返答の出どころは本文で決める——launch を持つ節で、子の置き場の中身と同じ本文なら engine_child。会話が書いた別の返答と、launch を
-    持たない節の返答は conversation"""
+    """返答の出どころは本文で決める——launch を持つノードで、子の置き場の中身と同じ本文なら engine_child。会話が書いた別の返答と、launch を
+    持たないノードの返答は conversation"""
     out = tmp_path / "o.json"
     out.write_text('{"a": 1}', encoding="utf-8")
     inst = {"out_path": str(out), "launch": {"kind": "runner"}}
     assert commands.reply_origin(inst, '{"a": 1}') == "engine_child"
     assert commands.reply_origin(inst, '{"a": 2}') == "conversation"
-    assert commands.reply_origin({"out_path": str(out)}, '{"a": 1}') == "conversation"   # engine が起こさない節
+    assert commands.reply_origin({"out_path": str(out)}, '{"a": 1}') == "conversation"   # engine が起動しないノード
     assert commands.reply_origin({**inst, "out_path": str(tmp_path / "none.json")}, '{"a": 1}') == "conversation"
 
 
@@ -861,7 +861,7 @@ def test_reply_origin_is_the_childs_whenever_the_text_is_what_the_child_left(tmp
     pytest.param("mine", "conversation", id="conversation-reply-in-another-file"),
 ])
 def test_done_marks_the_child_reply_whichever_way_it_is_passed(real_board, monkeypatch, how, origin):
-    """done の読み口（旗なし・--output・--stdin）に依らず、子が置き場に残した本文なら受け付けの規則は engine_child として照らす——
+    """done の読み口（旗なし・--output・--stdin）に依らず、子が置き場に残した本文なら受け付けの規則は engine_child として照合する——
     拒まれて ended になった子の返答を --output で渡し直して、緩い会話の検査を通す道を作らない"""
     from glharness import inproc
     repo, d = real_board
@@ -885,7 +885,7 @@ def test_done_marks_the_child_reply_whichever_way_it_is_passed(real_board, monke
 
 
 def test_recover_relaunches_after_the_acceptance_rejects_the_left_reply(tmp_path, monkeypatch):
-    """回し手が拾い直す done を受け付けが拒んだら（子の不完全な返答）、起こし直す——会話に返す手番は持たない"""
+    """回し手が拾い直す done を受け付けが拒んだら（子の不完全な返答）、起動し直す——会話に返すターンは持たない"""
     got = []
     monkeypatch.setattr(runner, "_cli", lambda d, *a: (got.append(a[0]), (1 if a[0] == "done" else 0, "", "拒んだ"))[1])
     (tmp_path / "o.json").write_text("{}", encoding="utf-8")
@@ -927,27 +927,27 @@ def test_start_lane_does_not_launch_when_the_receipt_is_refused(tmp_path, monkey
 
 
 def test_start_lane_marks_the_result_when_the_launch_cannot_start(tmp_path, monkeypatch):
-    """受領を done した後に線の launch を起こせなければ、結果の置き場に落ちた印を書き、trace に残す（盤面の線は走っていると読まれない）"""
+    """受領を done した後に線の launch を起動できなければ、結果の置き場に落ちた印を書き、trace に残す（盤面の線は走っていると読まれない）"""
     monkeypatch.setattr(runner, "_cli", lambda d, *a: (0, "", ""))
 
     def boom(*a, **kw):
-        raise OSError("起こせない")
+        raise OSError("起動できない")
     monkeypatch.setattr(runner.subprocess, "Popen", boom)
     result = tmp_path / "lane.json"
     inst = {"id": "p3.delta_gates", "out_path": str(tmp_path / "o.json"), "launch": {"receipt": {"lane": str(result)}, "result_path": str(result)}}
     assert runner._Runner(tmp_path).start_lane(inst) is None
-    assert "起こせない" in json.loads(result.read_text(encoding="utf-8"))[util.LANE_FAILED]
+    assert "起動できない" in json.loads(result.read_text(encoding="utf-8"))[util.LANE_FAILED]
     assert "lane_failed" in (tmp_path / "trace.jsonl").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("result,marked", [
-    pytest.param({"ok": False, "why": "柵が拒んだ"}, True, id="refused"),
-    pytest.param({"ok": False, "why": "起こし直された", "superseded": True}, False, id="superseded"),
+    pytest.param({"ok": False, "why": "チェックが拒んだ"}, True, id="refused"),
+    pytest.param({"ok": False, "why": "起動し直された", "superseded": True}, False, id="superseded"),
     pytest.param({"ok": True, "why": None}, False, id="ok"),
 ])
 def test_background_launch_that_writes_no_result_leaves_the_failed_mark(real_board, monkeypatch, result, marked):
-    """背景の線の launch が結果を書かずに終わったら（柵が拒んだ・子が落ちた）、置き場に落ちた印を書く——rules はそれを『結果が使えない』
-    に振り、run の報告は lanes_failed に並べる。起こし直された・人が止めた試行には書かない"""
+    """背景の線の launch が結果を書かずに終わったら（チェックが拒んだ・子が落ちた）、置き場に落ちた印を書く——rules はそれを『結果が使えない』
+    に振り、run の報告は lanes_failed に並べる。起動し直された・人が止めた試行には書かない"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
     st = json.loads((d / "state.json").read_text(encoding="utf-8"))
@@ -963,11 +963,11 @@ def test_background_launch_that_writes_no_result_leaves_the_failed_mark(real_boa
     commands.cmd_launch(argparse.Namespace(dir=str(d), node="p0.base"))
     assert lane.exists() == marked
     rows = runner.lanes_failed(Board(d).state)
-    assert rows == ([{"id": "p0.base", "round": 1, "why": "柵が拒んだ"}] if marked else [])
+    assert rows == ([{"id": "p0.base", "round": 1, "why": "チェックが拒んだ"}] if marked else [])
     if marked:
         rules = load_rules(GRAPH, load_graph(GRAPH)[0])
         out, errs = rules._lane_result(None, {"result": str(lane), "rev": "r"})
-        assert out is None and errs == ["線の launch が受け付けまで届かなかった: 柵が拒んだ"]
+        assert out is None and errs == ["線の launch が受け付けまで届かなかった: チェックが拒んだ"]
         assert not util.write_lane_failed(str(lane), "二度目")          # 書き終えた物を上書きしない
 
 
@@ -987,8 +987,8 @@ def test_relaunch_if_untouched_stops_the_old_child_before_comparing(repo, tmp_pa
 
 
 @pytest.mark.parametrize("touch, want", [
-    (lambda repo, prev: (repo / "a.txt").write_text("途中まで書いた\n", encoding="utf-8"), "起こした時点と違う"),
-    (lambda repo, prev: (git(repo, "commit", "-q", "--allow-empty", "-m", "x"), None)[1], "起こした時点と違う"),
+    (lambda repo, prev: (repo / "a.txt").write_text("途中まで書いた\n", encoding="utf-8"), "起動した時点と違う"),
+    (lambda repo, prev: (git(repo, "commit", "-q", "--allow-empty", "-m", "x"), None)[1], "起動した時点と違う"),
     (lambda repo, prev: prev.pop("launch_head"), "盤面に無い"),
 ])
 def test_relaunch_if_untouched_refuses_when_it_cannot_say_untouched(repo, tmp_path, monkeypatch, touch, want):
@@ -1027,7 +1027,7 @@ def loop(cwd, *a):
 
 @pytest.mark.parametrize("flags,by", [([], "default"), (["--engine-runners"], "flag"), (["--no-engine-runners"], None)])
 def test_init_default_lets_the_engine_launch_runner_nodes_and_the_opt_out_keeps_the_conversation(tmp_path, flags, by):
-    """旗の無い init は回す側の節も engine が起こす run（既定）。--no-engine-runners の run は今どおり会話がこなす（人の決定 2026-09-27
+    """旗の無い init は回す側のノードも engine が起動する run（既定）。--no-engine-runners の run は今どおり会話がこなす（人の決定 2026-09-27
     『けす』に向けた一段——会話で回す道は旗で残す）。選んだ出どころ（既定か旗か）は盤面に残る"""
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -1054,7 +1054,7 @@ def test_init_default_lets_the_engine_launch_runner_nodes_and_the_opt_out_keeps_
 
 def test_research_init_gets_no_runner_notice_by_default(tmp_path):
     """launch.runner を持たない graph（research-loop）の旗の無い init は、回し手の注意を出さず、盤面にも回し役なしの印を書かない
-    （research-graph の出力を変えない。人の関所 round 2 の条件 7）。旗を明示したときだけ今どおり『効かない』と知らせる"""
+    （research-graph の出力を変えない。人のゲート round 2 の条件 7）。旗を明示したときだけ今どおり『効かない』と知らせる"""
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-q")
@@ -1090,27 +1090,27 @@ def real_board(tmp_path, monkeypatch):
 
 
 def test_emit_names_why_a_role_cannot_be_launched_on_a_defects_only_board(real_board, monkeypatch):
-    """回し役なしの盤面では、engine が語を組めない役の節は起こせない理由（unlaunched）を持つ——会話に Agent で起こさせる手番を持たず、
+    """回し役なしの盤面では、engine が語を組めない役のノードは起動できない理由（unlaunched）を持つ——会話に Agent で起動させるターンを持たず、
     人に渡る（runner.classify の 14）。前の版の盤面は今までどおり理由を持たずに会話に返る"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
     b = Board(d)
     prompt = d / "role.md"
     prompt.write_text("役の指示\n", encoding="utf-8")
-    b.nodes["zz.role"] = {"run_by": "investigator", "prompt_file": str(prompt), "reads": []}   # 道具つきの役（Bash を持つ）
+    b.nodes["zz.role"] = {"run_by": "investigator", "prompt_file": str(prompt), "reads": []}   # ツールつきの役（Bash を持つ）
     b.state["engine_runners"] = {"at": "t", "by": "default", "handoff": util.HANDOFF_DEFECTS}
     assert advance.emit_instance(b, "zz.role", suffix="#ok").get("launch", {}).get("kind") == "tooled"
     monkeypatch.setattr(advance, "tooled_launchable", lambda d_: False)
     inst = advance.emit_instance(b, "zz.role", suffix="#new")
-    assert not inst.get("launch") and "engine が起こす語を組めない" in inst["unlaunched"]
+    assert not inst.get("launch") and "engine が起動する語を組めない" in inst["unlaunched"]
     assert {"id": inst["id"], "why": inst["unlaunched"]} in runner.classify(b.state)["needs_human"]
     b.state["engine_runners"] = {"at": "t", "by": "default"}
     assert "unlaunched" not in advance.emit_instance(b, "zz.role", suffix="#old")
 
 
 def test_emit_launches_an_unfenced_delegate_only_on_a_defects_only_board(real_board):
-    """柵を外した run の任せ先は、回し役なしの盤面では engine が柵を外した形で起こす語を持ち、前の版の盤面では今までどおり launch を持たず
-    会話が Agent で起こす。どちらも外した事実（unfenced）を持つ"""
+    """チェックを外した run の任せ先は、回し役なしの盤面では engine がチェックを外した形で起動する語を持ち、前の版の盤面では今までどおり launch を持たず
+    会話が Agent で起動する。どちらも外した事実（unfenced）を持つ"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
     b = Board(d)
@@ -1128,7 +1128,7 @@ def test_emit_launches_an_unfenced_delegate_only_on_a_defects_only_board(real_bo
 
 
 def test_emit_and_reissue_carry_the_tree_base_of_a_declaring_node(real_board):
-    """declared_files を持つ節は出す時点の木の id を持ち、周の基準は最初の試行で決まる。起こし直しは前の試行の基準と、まだ片付けて
+    """declared_files を持つノードは出す時点の木の id を持ち、周の基準は最初の試行で決まる。起動し直しは前の試行の基準と、まだ片付けて
     いない専用の一時の置き場の記録を写し、前の版の engine が出した（木の id の無い）試行からは新しい id も周の基準も作らない"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
@@ -1139,7 +1139,7 @@ def test_emit_and_reissue_carry_the_tree_base_of_a_declaring_node(real_board):
     first["child_tmp"] = {"dir": "/tmp/gl-w-left", "at": first["emitted_at"]}
     (repo / "a.py").write_text("x = 3\n", encoding="utf-8")
     b.__dict__.pop("_worktree_tree", None)   # 同じ盤面の中の木の写しを捨て、今の木で出し直させる
-    again = commands.reissue(b, first, "起こし直し")
+    again = commands.reissue(b, first, "起動し直し")
     assert again["tree_before_id"] == first["tree_before_id"] == b.rd["tree_base"]["p0.base"]
     assert again["attempt_log"][-1]["prev_emitted_rev"] == first["emitted_rev"] and again["child_tmp"] == first["child_tmp"]
     b.rd["tree_base"].pop("p0.base")
@@ -1149,7 +1149,7 @@ def test_emit_and_reissue_carry_the_tree_base_of_a_declaring_node(real_board):
 
 
 def test_guarded_role_gets_the_tree_id_when_emitted(real_board):
-    """道具つきの役（graph の tree_guard_roles）の節は、出す時点で並び（tree_before）と中身の木の id（tree_before_id）の両方を持つ"""
+    """ツールつきの役（graph の tree_guard_roles）のノードは、出す時点で並び（tree_before）と中身の木の id（tree_before_id）の両方を持つ"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
     b = Board(d)
@@ -1173,8 +1173,8 @@ def test_emit_without_a_tree_id_keeps_the_git_reason(real_board, monkeypatch):
 
 @pytest.mark.parametrize("touched", [False, True])
 def test_launch_records_the_head_and_relaunch_if_untouched_compares_it(real_board, monkeypatch, touched):
-    """launch は書き換える子の起こした時点の HEAD・枝（launch_head）を盤面に残し、本物の loop.py relaunch --if-untouched はそれと
-    木の id を比べて、触っていなければ起こし直し、触っていれば新しい試行を作らずに拒む"""
+    """launch は書き換える子の起動した時点の HEAD・ブランチ（launch_head）を盤面に残し、本物の loop.py relaunch --if-untouched はそれと
+    木の id を比べて、触っていなければ起動し直し、触っていれば新しい試行を作らずに拒む"""
     repo, d = real_board
     assert loop(repo, "next", "--dir", str(d)).returncode == 0
     st = json.loads((d / "state.json").read_text(encoding="utf-8"))
@@ -1193,7 +1193,7 @@ def test_launch_records_the_head_and_relaunch_if_untouched_compares_it(real_boar
     r = loop(repo, "relaunch", "--node", "p0.base", "--reason", "回し手が拾い直す", "--if-untouched", "--dir", str(d))
     after = Board(d).rd["instances"]["p0.base"]
     if touched:
-        assert r.returncode == 1 and "起こした時点と違う" in r.stderr and after.get("attempts", 1) == 1
+        assert r.returncode == 1 and "起動した時点と違う" in r.stderr and after.get("attempts", 1) == 1
     else:
         assert r.returncode == 0, r.stderr
         assert after["attempts"] == 2

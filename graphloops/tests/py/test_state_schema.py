@@ -1,5 +1,5 @@
-"""盤面の loop の形（graph の最上位の state_schema）——graphcheck が loop の読みを最後の欄まで照らすこと、rules の LOOP_KEYS と
-両向きでそろうこと、engine が保存の時に照らして痕跡（state.loop_drift）を残し止めないこと。"""
+"""盤面の loop の形（graph の最上位の state_schema）——graphcheck が loop の読みを最後のフィールドまで照合すること、rules の LOOP_KEYS と
+両向きでそろうこと、engine が保存の時に照合して痕跡（state.loop_drift）を残し止めないこと。"""
 import copy
 import json
 import shutil
@@ -33,9 +33,9 @@ def test_schema_at_follows_the_declared_tree(path, ok):
 
 
 def test_schema_at_says_why_a_path_is_undeclared():
-    assert "下の欄を持たない" in schema_at(TREE, ["opaque", "x"])[1]
+    assert "下のフィールドを持たない" in schema_at(TREE, ["opaque", "x"])[1]
     assert "'c'" in schema_at(TREE, ["a", "c"])[1]
-    # 宣言が schema（object）でない欄（true・配列）の下は辿らず、落ちずに理由を返す
+    # 宣言が schema（object）でないフィールド（true・配列）の下は辿らず、落ちずに理由を返す
     assert schema_at({"properties": {"t": True}}, ["t", "x"]) == (None, "t の宣言が schema でない")
 
 
@@ -119,25 +119,25 @@ def material_name_typo(g, sandbox):
     pytest.param(nested_reads, "'loop.escalated.whyy' を graph の state_schema で辿れない", id="reads-nested"),
     pytest.param(nested_outputs, "'loop.escalated.whyy' を graph の state_schema で辿れない", id="outputs-nested"),
     pytest.param(nested_required_hole, "'loop.escalated.whyyy' を graph の state_schema で辿れない", id="required-hole-nested"),
-    pytest.param(output_hole, "'cur.p3.delta_owed.rowz' の欄 'rowz' が節 p3.delta_owed の schema に無い", id="output-hole-field"),
-    pytest.param(output_hole_not_an_ancestor, "cur.p4.assemble.lines_ratio を読むが、その節は前の節", id="output-hole-ancestor"),
-    pytest.param(output_cond, "'cur.p4.assemble.r2_refier' の欄 'r2_refier' が節 p4.assemble の schema に無い", id="output-cond-field"),
+    pytest.param(output_hole, "'cur.p3.delta_owed.rowz' のフィールド 'rowz' がノード p3.delta_owed の schema に無い", id="output-hole-field"),
+    pytest.param(output_hole_not_an_ancestor, "cur.p4.assemble.lines_ratio を読むが、そのノードは前のノード", id="output-hole-ancestor"),
+    pytest.param(output_cond, "'cur.p4.assemble.r2_refier' のフィールド 'r2_refier' がノード p4.assemble の schema に無い", id="output-cond-field"),
     pytest.param(lambda g, s: g["nodes"]["p4.scalars"]["reads"].append("cur.p3.gates_cut.revv"),
-                 "節 p4.scalars.reads: 読む欄 'cur.p3.gates_cut.revv' の欄 'revv' が節 p3.gates_cut の schema に無い", id="reads-output-field"),
-    pytest.param(driver_without_schema, "節 p3.delta_owed: 機械の節に schema（返りの形）が無い", id="driver-without-schema"),
-    pytest.param(inputs_undeclared, "読む欄 'inputs.gatez' が run の入力", id="inputs-undeclared"),
-    pytest.param(inputs_undeclared, "読む欄 'inputs.gates.x' が run の入力", id="inputs-nested"),
+                 "ノード p4.scalars.reads: 読むフィールド 'cur.p3.gates_cut.revv' のフィールド 'revv' がノード p3.gates_cut の schema に無い", id="reads-output-field"),
+    pytest.param(driver_without_schema, "ノード p3.delta_owed: 機械のノードに schema（返りの形）が無い", id="driver-without-schema"),
+    pytest.param(inputs_undeclared, "読むフィールド 'inputs.gatez' が run の入力", id="inputs-undeclared"),
+    pytest.param(inputs_undeclared, "読むフィールド 'inputs.gates.x' が run の入力", id="inputs-nested"),
     pytest.param(nested_optional_hole, "'loop.escalated.whyy' を graph の state_schema で辿れない", id="optional-hole-nested"),
-    pytest.param(pick_field, "pick の欄 'fromm'", id="hole-pick-field"),
+    pytest.param(pick_field, "pick のフィールド 'fromm'", id="hole-pick-field"),
     pytest.param(nested_cond, "'hist.last_material.main_path_observation.statuz' を graph の hist_schema で辿れない", id="cond-reads-nested"),
-    pytest.param(material_name_typo, "欄 'main_path_observatoin'", id="map-key-typo"),
+    pytest.param(material_name_typo, "フィールド 'main_path_observatoin'", id="map-key-typo"),
     pytest.param(lambda g, s: g["state_schema"]["properties"].pop("escalated"), "LOOP_KEYS の鍵 'escalated' が graph の state_schema.properties に無い",
                  id="loop-keys-only"),
     pytest.param(lambda g, s: g["state_schema"]["properties"].__setitem__("ghost", {"type": "string"}),
                  "state_schema.properties の鍵 'ghost' が rules の LOOP_KEYS に無い", id="state-schema-only"),
     pytest.param(lambda g, s: g["state_schema"]["properties"]["escalated"].__setitem__("oneOf", []), "state_schema: schema に engine が読まない語",
                  id="unknown-keyword"),
-    pytest.param(lambda g, s: g["nodes"]["p3.delta_owed"]["schema"].__setitem__("writeOnly", True), "節 p3.delta_owed: $ の writeOnly は効かない",
+    pytest.param(lambda g, s: g["nodes"]["p3.delta_owed"]["schema"].__setitem__("writeOnly", True), "ノード p3.delta_owed: $ の writeOnly は効かない",
                  id="write-only-outside-state"),
     pytest.param(lambda g, s: g["state_schema"]["properties"]["lanes"]["patternProperties"].__setitem__("^[0-9+$", {}),
                  "state_schema: schema の正規表現", id="broken-regex"),
@@ -155,8 +155,8 @@ def material_name_typo(g, sandbox):
                  id="hist-open-top"),
     pytest.param(lambda g, s: g["state_schema"].__setitem__("additionalProperties", True), "additionalProperties: false", id="open-top"),
     pytest.param(lambda g, s: g.pop("state_schema"), "state_schema（盤面の loop の形）が無い", id="missing-standalone"),
-    # 道具ゼロの役に Read で読ませる 1 本（read_file）: 道具を持つ役の節・loop の鍵でない値・起こす語の無い graph・余白が予算を食う
-    pytest.param(lambda g, s: g["nodes"]["p3.delta_review"].__setitem__("read_file", "hist.snapshot.diff_file"), "道具ゼロの役の節だけ",
+    # ツールゼロの役に Read で読ませる 1 本（read_file）: ツールを持つ役のノード・loop の鍵でない値・起動する語の無い graph・余白が予算を食う
+    pytest.param(lambda g, s: g["nodes"]["p3.delta_review"].__setitem__("read_file", "hist.snapshot.diff_file"), "ツールゼロの役のノードだけ",
                  id="read-file-tooled"),
     pytest.param(lambda g, s: g["nodes"]["p1.hygiene"].__setitem__("read_file", "hist.snapshot.diff_filee"), "read_file 'hist.snapshot.diff_filee' は",
                  id="read-file-typo"),
@@ -181,7 +181,7 @@ def test_graphcheck_passes_the_shipped_loop_shapes():
 
 
 def test_graph_without_state_schema_keeps_the_old_checks_and_warns_on_init(sandbox):
-    """持ち込み・旧い版の graph（state_schema が無い）は init で止めない: loop の読みは鍵の 1 段目だけで照らし、無いことを知らせる"""
+    """持ち込み・旧い版の graph（state_schema が無い）は init で止めない: loop の読みは鍵の 1 段目だけで照合し、無いことを知らせる"""
     g = copy.deepcopy(GRAPH)
     g.pop("state_schema")
     g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.escalated.whyy"]
@@ -238,20 +238,20 @@ def test_research_keeps_the_readable_loop_keys(place):
     g["nodes"]["p0.generation"]["cond"] = "reads_stuck_ids"
     ok, out = check_at(place, "research-loop", g, "research")
     assert not ok and "'loop.stuck_ids' の鍵は graph の state_schema で writeOnly" in out, out[-400:]
-    g = copy.deepcopy(RESEARCH)   # 書き先の名乗り（outputs）は writeOnly の鍵でもよく、節の reads は落ちる
+    g = copy.deepcopy(RESEARCH)   # 書き先の名乗り（outputs）は writeOnly の鍵でもよく、ノードの reads は落ちる
     g["nodes"]["p1.record_check"]["outputs"] = [*(g["nodes"]["p1.record_check"].get("outputs") or []), "loop.stuck_ids"]
     ok, out = check_at(place, "research-loop", g, "research")
     assert "loop.stuck_ids" not in out, out[-400:]
     g["nodes"]["p1.refuter"]["reads"] = [*g["nodes"]["p1.refuter"]["reads"], "loop.stuck_ids"]
     ok, out = check_at(place, "research-loop", g, "research")
-    assert not ok and "節 p1.refuter.reads: 読む欄 'loop.stuck_ids' の鍵は graph の state_schema で writeOnly" in out, out[-400:]
+    assert not ok and "ノード p1.refuter.reads: 読むフィールド 'loop.stuck_ids' の鍵は graph の state_schema で writeOnly" in out, out[-400:]
     g = copy.deepcopy(RESEARCH)   # writeOnly は最上位の鍵にだけ、真偽で
     g["state_schema"]["properties"]["stuck_hint"]["writeOnly"] = "yes"
     ok, out = check_at(place, "research-loop", g, "research")
     assert not ok and "$.stuck_hint の writeOnly は真偽で書く" in out, out[-400:]
 
 
-# ---------------------------------------------------------------- engine の保存の時の照らし
+# ---------------------------------------------------------------- engine の保存の時の照合
 def make_board(tmp_path, graph, loop):
     gp = tmp_path / "g.json"
     gp.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
@@ -292,7 +292,7 @@ def test_save_records_a_check_that_could_not_run(tmp_path, monkeypatch):
     monkeypatch.setattr(board_mod, "validate_schema", broken)
     b.save()
     st = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
-    assert "照らせなかった" in st["loop_drift"][0]["error"] and st["rev"] == 1
+    assert "照合できなかった" in st["loop_drift"][0]["error"] and st["rev"] == 1
 
 
 def test_loop_drift_reaches_the_record_and_the_report():
@@ -305,16 +305,16 @@ def test_shipped_state_schema_expands():
         g, why = load_graph(PLUGIN / "graphs" / f"{name}.json")
         assert not why and g["state_schema"]["type"] == "object" and g["state_schema"]["additionalProperties"] is False
     g, _ = load_graph(PLUGIN / "graphs" / "review-loop-tdd.json")
-    # ブロックの出口の値（振り分け A）は節の出力に在り、盤面の loop の形に載らない（TDD の赤・緑の証拠も 3 つの機械の節の出力）
+    # ブロックの出口の値（振り分け A）はノードの出力に在り、盤面の loop の形に載らない（TDD の赤・緑の証拠も 3 つの機械のノードの出力）
     assert "escalated" in g["state_schema"]["properties"] and not ({"tdd", "fix_delta", "diff_file", "prev_fix_files"} & set(g["state_schema"]["properties"]))
     assert "tdd_gave_up" not in g["state_schema"]["properties"]
     assert {"tdd_gave_up", "prev_units", "last_material"} <= set(g["hist_schema"]["properties"])
-    # hist_schema の $ref（素材の値の形）も読む入口で展開する——展開しないと控えの照らしと graphcheck の読みの照らしが $ref で止まる
+    # hist_schema の $ref（素材の値の形）も読む入口で展開する——展開しないと控えの照合と graphcheck の読みの照合が $ref で止まる
     assert "$ref" not in json.dumps(g["hist_schema"]) and "$ref" not in json.dumps(load_graph(PLUGIN / "graphs" / "review-loop.json")[0]["hist_schema"])
 
 
 def test_ctx_cur_is_this_round_only(tmp_path):
-    """プロンプト・条件・result_to が読む cur.<節> は今の周にその節が出した出力だけ（out.<節> は周を問わない最新、prev.<節> は前の周まで）"""
+    """プロンプト・条件・result_to が読む cur.<ノード> は今の周にそのノードが出した出力だけ（out.<ノード> は周を問わない最新、prev.<ノード> は前の周まで）"""
     b = make_board(tmp_path, {"nodes": {"a": {}, "b": {}}}, {})
     for rnd, nid in ((1, "a"), (2, "b")):
         f = b.dir / "out" / f"r{rnd}" / f"{nid}.json"

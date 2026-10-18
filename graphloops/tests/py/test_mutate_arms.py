@@ -1,7 +1,7 @@
-"""変異の実行器（リポジトリの根の tests/mutate.py）の一覧の腕が、tests に pytest の置き場（PYDIR）の node id を名指す口。
+"""変異の実行器（リポジトリのルートの tests/mutate.py）の一覧の腕が、tests に pytest の置き場（PYDIR）の node id を名指す口。
 台本を消す条件の 2（新しい層だけで殺す）はこの口の赤で読むので、撃ち分け・証拠・control・--check の入口・--map の結び直しを縛る。
-撃つのは CI だけ（人の方針）——small は子を起こさず、台本と pytest の走らせ方を差し替えて見る。medium は一時の置き場で実物の
-pytest を起こし、要約の行と収集の node id の形を見る（差し替えは主張どおりの形を返すので、形の食い違いを見られない）"""
+撃つのは CI だけ（人の方針）——small は子を起動せず、台本と pytest の走らせ方を差し替えて見る。medium は一時の置き場で実物の
+pytest を起動し、要約の行と収集の node id の形を見る（差し替えは主張どおりの形を返すので、形の食い違いを見られない）"""
 import contextlib
 import importlib.util
 import json
@@ -30,7 +30,7 @@ def _arm(tests, expect=None):
 
 @pytest.fixture
 def shoot(tmp_path, monkeypatch):
-    """one を子を起こさずに撃つ: 写し・壊し・pytest・台本を差し替え、呼ばれた順（calls）を返す"""
+    """one を子を起動せずに撃つ: 写し・壊し・pytest・台本を差し替え、呼ばれた順（calls）を返す"""
     calls, state = [], {"py": 0, "pyall": 0, "sel": 0, "full": 0, "ready": ""}
 
     @contextlib.contextmanager
@@ -78,11 +78,11 @@ def test_named_node_red_kills_first_with_the_named_node_as_evidence(shoot):
 
 @pytest.mark.small
 @pytest.mark.parametrize("expect, failed, own", [
-    (NODE, ["test_other.py::t"], False), (NODE, ["pytest の柵（fence）が赤"], False), (NODE, ["test_x.py::test_y[case-a]"], True),
+    (NODE, ["test_other.py::t"], False), (NODE, ["pytest のチェック（fence）が赤"], False), (NODE, ["test_x.py::test_y[case-a]"], True),
     ("test_x.py::test_y", ["test_x.py::test_y[case-b]"], False),
 ], ids=["outside-named", "fence", "named", "broader-expect-does-not-widen"])
 def test_named_node_red_is_evidence_only_when_the_named_node_fell(shoot, expect, failed, own):
-    """名指しの外のテスト・柵の赤で落ちた回は証拠にしない。当たりは名指しだけで決め、名指しより広い expect は当たりを広げない"""
+    """名指しの外のテスト・チェックの赤で落ちた回は証拠にしない。当たりは名指しだけで決め、名指しより広い expect は当たりを広げない"""
     r, calls = shoot(_arm({mutate.PYDIR: [NODE]}, expect=expect), py=1, failed=failed)
     assert calls == ["py"] and r["status"] == "Killed" and r["own"] is own
 
@@ -109,7 +109,7 @@ def test_red_outside_the_named_nodes_falls_through_to_the_scripts(shoot, sel, st
 
 @pytest.mark.small
 def test_named_node_green_falls_through_to_the_scripts(shoot):
-    """pytest が緑なら台本の道も撃つ（台本だけが殺す腕を台本で殺す——網を狭めない）。台本の証拠は今までどおり expect"""
+    """pytest が緑なら台本の道も撃つ（台本だけが殺す腕を台本で殺す——安全網を狭めない）。台本の証拠は今までどおり expect"""
     r, calls = shoot(_arm({SCRIPT: ["test_rejections"], mutate.PYDIR: [NODE]}), sel=1)
     assert calls == ["py", "sel"] and (r["status"], r["attribution"], r["own"]) == ("Killed", "narrowed", True)
     assert r["pytest"]["rc"] == 0
@@ -123,7 +123,7 @@ def test_only_named_nodes_do_not_run_the_whole_suite(shoot):
 
 
 @pytest.mark.small
-@pytest.mark.parametrize("state, why", [({"py": "no-test"}, "rc=4"), ({"ready": "uv が PATH に無い（pytest を起こせない）"}, "uv が PATH に無い")])
+@pytest.mark.parametrize("state, why", [({"py": "no-test"}, "rc=4"), ({"ready": "uv が PATH に無い（pytest を起動できない）"}, "uv が PATH に無い")])
 def test_unrunnable_named_nodes_say_why(shoot, state, why):
     """名指しの pytest を撃てない回は走り切らない（RuntimeError）で、理由は pytest の側を言う（台本の関数名の --map の話にしない）"""
     r, calls = shoot(_arm({mutate.PYDIR: [NODE]}), **state)
@@ -319,7 +319,7 @@ def test_real_pytest_names_a_broken_named_file_as_its_collection_error(real_plac
     ("test_x.py::test_y[case-a]", "Survived", None),
 ], ids=["param", "function", "class-method", "green-param"])
 def test_named_arm_is_proven_on_the_real_pytest(real_place, real_pytest, monkeypatch, named, status, hit):
-    """実物の pytest を 1 回起こし、名指しの腕の赤が名指しの node id を当たりの証拠にすること（形が食い違えば own が偽になる）"""
+    """実物の pytest を 1 回起動し、名指しの腕の赤が名指しの node id を当たりの証拠にすること（形が食い違えば own が偽になる）"""
     @contextlib.contextmanager
     def lease(tag, a=None):
         yield real_place, real_place
@@ -347,7 +347,7 @@ def test_collection_reds_the_names_the_text_lets_through(real_place, named, expe
 
 @pytest.mark.medium
 def test_every_named_node_of_the_arms_is_collected():
-    """tests/mutations.json の名指し（node id の expect も）が、この置き場の実物の収集に在る（--check は子を起こさず字面で見る）"""
+    """tests/mutations.json の名指し（node id の expect も）が、この置き場の実物の収集に在る（--check は子を起動せず字面で見る）"""
     nodes = _collected(conftest.HERE)
     arms = json.loads((conftest.REPO / "tests" / "mutations.json").read_text(encoding="utf-8"))["arms"]
     bad = [f"{a['id']}: {why}" for a in arms if "auto" not in a and (why := mutate.named_problem(conftest.REPO, a, nodes))]

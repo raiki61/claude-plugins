@@ -1,7 +1,7 @@
-"""pytest の柵 2 つ。bash の台本の EXPECTED_CHECKS と同じ意図——黙って走らなかったテストに気づく。
+"""pytest のチェック 2 つ。bash の台本の EXPECTED_CHECKS と同じ意図——黙って走らなかったテストに気づく。
 置き場の conftest.py が pytest_configure で install(config, 置き場, 件数の定数) を呼んで載せる。
 
-bash の台本は、環境に道具や OS の機能が無くて走らない検査を「# SKIP <能力>: <理由>」の印つきの行で出して件数に入れ、root の
+bash の台本は、環境にツールや OS の機能が無くて走らない検査を「# SKIP <能力>: <理由>」の印つきの行で出して件数に入れ、root の
 tests/run.sh が合格と別に一覧にする（TAP 14 の SKIP 指示子。FAIL_ON_SKIP=1 で、SKIP_ALLOW に能力の名前が無い見送りを失敗に数える）。
 ここでの飛ばしは既定で失敗に数える——この置き場のテストは CI のどの OS でも全部走る前提で、黙った飛ばしはテストが消えた印になる。
 OS に無い能力を見るテスト（POSIX の信号でプロセスグループを止める等）だけは、bash の側と同じ宣言で見送れる: 飛ばしの理由を
@@ -11,18 +11,18 @@ matrix の skip_allow で、tests/run.sh の見送りと同じ値を読む。既
 1. **飛ばしは失敗（宣言して許した見送りを除く）。** テスト単位の skip・skipif・xfail（pytest_runtest_logreport）と、モジュール丸ごとの
    skip(allow_module_level=True)・importorskip（pytest_collectreport）の両方を拾う。後者を見ないと、import できない
    モジュールがテストごと消えても緑になる。xfail も「走らせたが結果を見ない」ので飛ばしに数え、許しの対象にしない。
-2. **件数の柵。** 置き場の中で集めたテストの数を、件数の定数と != で突き合わせる。下限（<）にしないのは bash 側と
+2. **件数のチェック。** 置き場の中で集めたテストの数を、件数の定数と != で突き合わせる。下限（<）にしないのは bash 側と
    同じ理由——テストを消した変更が緑で通る。数えるのは pytest_itemcollected（-k・-m・--deselect・--sw・testmon の
-   選び直しより前）なので、集めた後で絞る回は柵を付けたまま突き合わせてよい。
+   選び直しより前）なので、集めた後で絞る回はチェックを付けたまま突き合わせてよい。
    **置き場のテストのファイルを全部集めた回だけ当てる。** 引数のパス・node id・--ignore・--lf・testmon が
    ファイルを集めない回は、集めたモジュールの集合が置き場のファイルの集合（python_files の形で glob）と食い違うので、
-   柵を外して理由を 1 行出す。絞り方を選択肢の表で推し量らない——手で並べた表は、pytest や plugin が集める段の
+   チェックを外して理由を 1 行出す。絞り方を選択肢の表で推し量らない——手で並べた表は、pytest や plugin が集める段の
    選択肢を足した周に黙って外れる。テストが 0 件になったファイルもモジュールとしては集まるので、全件の回のままで赤になる。
 
-3. **検査の件数の柵と到達の柵**（盤面を回す台本を載せる土台の分。expect_sim で期待値を渡した置き場だけ）。台本の
+3. **検査の件数のチェックと到達のチェック**（盤面を回す台本を載せる土台の分。expect_sim で期待値を渡した置き場だけ）。台本の
    check が走った件数（conftest.py が各テストの前後の差で数えて add_sim_checks に渡す）を期待値と != で突き合わせ、
    到達した値（reach）の集合の大きさを期待値と != で突き合わせる——bash の台本の EXPECTED_CHECKS と VOCAB_REACHED・
-   DELIVERY_SEEN と同じ意図。当てるのは件数の柵と同じ全件の回で、しかも -k・-m・--deselect で 1 件も選び外さず、集めるだけ
+   DELIVERY_SEEN と同じ意図。当てるのは件数のチェックと同じ全件の回で、しかも -k・-m・--deselect で 1 件も選び外さず、集めるだけ
    （--collect-only）でもない回だけ（選び外すと走る検査が減るのは正しい。集めるだけの回は 1 件も走らない）。外した回は理由を 1 行出す。
 
 **pytest-xdist（-n）の下でも同じ数え方にする。** controller は自分で集めず、worker が集めて走らせる（xdist の How it works）。
@@ -51,7 +51,7 @@ def install(config, root, expected):
 
 
 def expect_sim(config, checks, reached):
-    """盤面を回す台本の検査の件数と、到達した値の数の期待値を渡す（渡さない置き場ではこの 2 つの柵は付かない）"""
+    """盤面を回す台本の検査の件数と、到達した値の数の期待値を渡す（渡さない置き場ではこの 2 つのチェックは付かない）"""
     config.pluginmanager.get_plugin(NAME).expected_sim = (checks, reached)
 
 
@@ -60,7 +60,7 @@ def add_sim_checks(config, n):
 
 
 def collected_all(config):
-    """この session（-n の回は worker ごと）が置き場のテストのファイルを全部集めたか——件数の柵を当てる回と同じ判定"""
+    """この session（-n の回は worker ごと）が置き場のテストのファイルを全部集めたか——件数のチェックを当てる回と同じ判定"""
     f = config.pluginmanager.get_plugin(NAME)
     return f.modules == f.files(config)
 
@@ -138,15 +138,15 @@ class Fence:
         files = self.files(session.config)
         full = modules == files
         if not full:
-            self.notes.append(f"件数の柵を外した（置き場のテストのファイル {len(files)} 本のうち {len(modules & files)} 本だけを集めた）")
+            self.notes.append(f"件数のチェックを外した（置き場のテストのファイル {len(files)} 本のうち {len(modules & files)} 本だけを集めた）")
         elif collected != self.expected:
             self.problems.append(f"集めたテストが {collected} 件（{self.expected} 件を期待）——テストの消滅か、件数の更新漏れ")
         if self.expected_sim is not None and full:
             want_checks, want_reached = self.expected_sim
             if session.config.option.collectonly:
-                self.notes.append("検査の件数の柵と到達の柵を外した（集めるだけの回——テストを走らせていない）")
+                self.notes.append("検査の件数のチェックと到達のチェックを外した（集めるだけの回——テストを走らせていない）")
             elif deselected:
-                self.notes.append(f"検査の件数の柵と到達の柵を外した（{deselected} 件のテストを選び外した）")
+                self.notes.append(f"検査の件数のチェックと到達のチェックを外した（{deselected} 件のテストを選び外した）")
             else:
                 if sim_checks != want_checks:
                     self.problems.append(f"台本の検査が {sim_checks} 件走った（{want_checks} 件を期待）——検査の空振りか、件数の更新漏れ")
@@ -162,12 +162,12 @@ class Fence:
         lost = [w["lost"] for w in self.workers if "lost" in w]
         got = [w for w in self.workers if "lost" not in w]
         if lost:
-            self.problems.append(f"worker {len(lost)} 本の数えた結果が届かない（{lost[0]}）——件数の柵を当てられない")
+            self.problems.append(f"worker {len(lost)} 本の数えた結果が届かない（{lost[0]}）——件数のチェックを当てられない")
         if not got:
             return 0, set(), 0, set(), 0
         shapes = {(w["collected"], tuple(w["modules"]), w["deselected"]) for w in got}
         if len(shapes) > 1:
-            self.problems.append(f"worker ごとに集めた物が違う（{len(shapes)} 通り）——件数の柵を当てられない")
+            self.problems.append(f"worker ごとに集めた物が違う（{len(shapes)} 通り）——件数のチェックを当てられない")
         first = got[0]
         return (first["collected"], {pathlib.Path(m) for m in first["modules"]}, sum(w["sim_checks"] for w in got),
                 set().union(*(w["reached"] for w in got)), first["deselected"])

@@ -37,10 +37,10 @@ ROLE = {"kind": "agent"}
 
 
 @pytest.mark.parametrize("st, kind", [
-    (state(inst("a", launch=ROLE)), "busy"),                                                    # 起こせる節が在る
+    (state(inst("a", launch=ROLE)), "busy"),                                                    # 起動できるノードが在る
     (state(inst("a", launch=ROLE, launched_at="t", launch_state="running")), "busy"),           # 走っている
-    (state(inst("a")), "handoff"),                                                              # launch の無い節は会話へ
-    (state(inst("a", unfenced={"at": "t"})), "handoff"),                                        # 柵を外した任せ先も会話へ
+    (state(inst("a")), "handoff"),                                                              # launch の無いノードは会話へ
+    (state(inst("a", unfenced={"at": "t"})), "handoff"),                                        # チェックを外した任せ先も会話へ
     (state(inst("a", launch={"kind": "delegate", "background": True})), "handoff"),             # 背景の線は回し手が立てない
     (state(inst("a", launch=ROLE, launched_at="t", launch_state="ended", attempt_log=[{"reason": "拒否が上限"}])), "needs_human"),
     (state(inst("a", launch=ROLE), pending_human={"node": "x"}), "awaiting_human"),
@@ -154,7 +154,7 @@ def test_run_foreground_launches_what_engine_can_and_hands_back_the_rest(review,
     st = json.loads((d / "state.json").read_text(encoding="utf-8"))
     assert r.returncode == 13 and out["stop"] == "handoff" and out["code"] == 13
     assert sorted(h["id"] for h in out["handoff"]) == ["p0.base", "p0.premises"]
-    assert st["rounds"][-1]["instances"]["p0.local_checks"]["status"] == "done"   # engine が走らせる節は回し手が起こした
+    assert st["rounds"][-1]["instances"]["p0.local_checks"]["status"] == "done"   # engine が走らせるノードは回し手が起動した
     assert out["runner"]["pid"] and not runner._runner_alive(d)                    # 抜けたら錠は空く
     assert not (tmp_path / "data").exists()   # 日常の止まり方は踏んだ問題として残さない
     events = [json.loads(x)["event"] for x in (d / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"op": "run"' in x]
@@ -214,7 +214,7 @@ def test_concurrent_writers_lose_nothing(review, tmp_path):
 
 
 def test_done_and_emit_stamp_the_board_revision_they_read(review, tmp_path):
-    """受け付けと出す時に読んだ盤面の版を instance に残す——依存が済んだ後に出た節の区間に、済んだ節は同じ秒でも重ならない
+    """受け付けと出す時に読んだ盤面の版を instance に残す——依存が済んだ後に出たノードの区間に、済んだノードは同じ秒でも重ならない
     （commands._in_interval）"""
     repo, d = review
     assert loop(repo, "run", "--foreground", "--dir", str(d)).returncode == 13
@@ -258,7 +258,7 @@ def test_resume_opens_the_next_round_only_for_a_round_limit_halt(review):
     assert r.returncode == 0, r.stderr
     assert after["round"] == 2 and after["status"] == "running" and "halted" not in after and after["stop_after_round"] == 3
     assert after["resumes"][0]["prev_halted"]["by"] == "stop_after_round" and after["resumes"][0]["reason"] == "検査"
-    assert after["rounds"][0]["instances"] == st["rounds"][0]["instances"]   # 1 周目の試行は起こし直さない
+    assert after["rounds"][0]["instances"] == st["rounds"][0]["instances"]   # 1 周目の試行は起動し直さない
 
 
 def test_resume_refuses_an_empty_reason(tmp_path):
@@ -341,16 +341,16 @@ def test_runner_launches_until_nothing_is_left(fake):
 
 
 def test_runner_hands_the_same_try_to_human_when_launch_marks_nothing(fake):
-    """launch が 1 つも起こさずに終わる（起こした印が付かない）なら、起こし直しの輪を回さずに抜ける"""
+    """launch が 1 つも起動せずに終わる（起動した印が付かない）なら、起動し直しの輪を回さずに抜ける"""
     d, cli = fake
     cli.write_text("import sys\nsys.exit(0) if sys.argv[1] != 'launch' else sys.exit(2)\n", encoding="utf-8")
     put(d, state(inst("a", launch=ROLE)))
     kind, r = runner.run_as_runner(d)
-    assert kind == "stuck" and "起こさずに終わった" in r.detail
+    assert kind == "stuck" and "起動せずに終わった" in r.detail
 
 
 def test_runner_picks_up_a_crashed_launch(fake):
-    """launch が締めの前に落ちた試行: 置き場に返答が在れば役を起こさずに受け付ける"""
+    """launch が締めの前に落ちた試行: 置き場に返答が在れば役を起動せずに受け付ける"""
     d, _ = fake
     out = d / "a.json"
     out.write_text("{}", encoding="utf-8")
@@ -398,7 +398,7 @@ def test_sigterm_waits_for_launched_roles_and_starts_nothing_new(fake):
     os.kill(p.pid, signal.SIGTERM)
     assert p.wait(30) == 128 + signal.SIGTERM
     st = json.loads((d / "state.json").read_text(encoding="utf-8"))["rounds"][-1]["instances"]
-    assert st["a"]["status"] == "done" and "b" not in st          # 起こし済みは終わりまで待ち、次の next も打たない
+    assert st["a"]["status"] == "done" and "b" not in st          # 起動済みは終わりまで待ち、次の next も打たない
     assert not runner._runner_alive(d) and cli_log(d).count("launch") == 1
 
 

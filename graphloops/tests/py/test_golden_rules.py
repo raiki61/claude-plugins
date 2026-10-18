@@ -2,9 +2,9 @@
 
 手順 3 の作り替え（規則の形を変えるが振る舞いは変えない）の安全網。固定具と期待値は graphloops/tests/golden_make.py が作る
 （期待値を手で書かない）。どの本番の変更で赤くなるか:
-- contract（外の約束）: 条件の真偽と理由が変わって節の走らせる判断が変わる・受け付けの可否か拒む理由が変わる・機械の節が別の
-  次の節や問いを出す・記録（record.json）に書く値が変わる・周の印（done・na と理由）が変わる。作り替えの run はこれを変えてはならない
-- internal（内部の形）: 規則の表の名前ごとの返り・loop の状態の鍵・機械の節の出力の形が変わる。作り替えで作り直してよい
+- contract（外の約束）: 条件の真偽と理由が変わってノードの走らせる判断が変わる・受け付けの可否か拒む理由が変わる・機械のノードが別の
+  次のノードや問いを出す・記録（record.json）に書く値が変わる・周の印（done・na と理由）が変わる。作り替えの run はこれを変えてはならない
+- internal（内部の形）: 規則の表の名前ごとの返り・loop の状態の鍵・機械のノードの出力の形が変わる。作り替えで作り直してよい
   （`golden_make.py expect`。差分は審査に出る）
 - 覆いの一覧（golden/expect/coverage.json）: 規則の表とフックの名前が増えた・消えた・覆いが変わったのに一覧が古い
 - 衛生: 固定具・期待値に家のパス・利用者名・秘密が入った、固定具が上限を超えた
@@ -48,7 +48,7 @@ def test_internal(path, observed):
 def test_every_fixture_has_both_layers_and_no_orphans():
     """期待値の欠け（固定具に期待値が無い）と余り（固定具の無い期待値）の両方を赤にする"""
     names = {(p.parent.name, p.name) for p in FIXTURES}
-    assert names, "固定具が 1 つも無い（網が空）"
+    assert names, "固定具が 1 つも無い（安全網が空）"
     for layer in ("contract", "internal"):
         got = {(p.parent.name, p.name) for p in (ga.GOLDEN / "expect" / layer).glob("*/*.json")}
         assert got == names, f"{layer}: 欠け {sorted(names - got)} ／ 余り {sorted(got - names)}"

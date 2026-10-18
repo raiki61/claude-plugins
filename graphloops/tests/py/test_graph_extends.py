@@ -139,7 +139,7 @@ def test_graph_text_covers_the_base(tmp_path):
     pytest.param({"p3.fix": {"schema": {"required": ["changes"]}}}, "schema.required を落とした", id="nested-array-drops-items"),
 ])
 def test_graphcheck_rejects_an_overlay_that_drops_base_items(tmp_path, patch, words):
-    """差し替えの版は元の節から何も落とさない——配列の置き換えと null の削除は重ね方（RFC 7396）の正規の形なので、graphcheck が止める"""
+    """差し替えの版は元のノードから何も落とさない——配列の置き換えと null の削除は重ね方（RFC 7396）の正規の形なので、graphcheck が止める"""
     for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     over = json.loads((tmp_path / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
@@ -152,7 +152,7 @@ def test_graphcheck_rejects_an_overlay_that_drops_base_items(tmp_path, patch, wo
 
 
 def test_shipped_tdd_graph_keeps_every_base_dep_and_read():
-    """同梱の TDD 版は、差し替えた節の deps・reads から元の要素を落とさない（配列は置き換えなので、元に足された要素を黙って落としうる）"""
+    """同梱の TDD 版は、差し替えたノードの deps・reads から元の要素を落とさない（配列は置き換えなので、元に足された要素を黙って落としうる）"""
     base, _ = load_graph(PLUGIN / "graphs" / "review-loop.json")
     tdd, why = load_graph(PLUGIN / "graphs" / "review-loop-tdd.json")
     assert why == ""
@@ -184,7 +184,7 @@ def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
     pytest.param({"inputs": {"review_md": None}}, "inputs.review_md を消した", id="null-removes-an-input"),
 ])
 def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patch, words):
-    """節の外（最上位の配列・$defs・inputs）も同じ重ね方で黙って消えうる——graph の全体を元と突き合わせる"""
+    """ノードの外（最上位の配列・$defs・inputs）も同じ重ね方で黙って消えうる——graph の全体を元と突き合わせる"""
     for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     over = json.loads((tmp_path / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
@@ -200,12 +200,12 @@ def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patc
     pytest.param("p3.fix_delta2", {"cond": "delta_fixd"}, "CONDS の名前でない", id="driver-cond-typo"),
     pytest.param("spec.approve", {"cond": "spec_flw"}, "CONDS の名前でない", id="driver-cond-typo-spec"),
     pytest.param("p3.fix", {"prompt_append": ["../prompts/review-loop/tdd/no-such.md"]}, "prompt_append のファイルが無い", id="prompt-append-missing"),
-    pytest.param("p2.history", {"engine_run": {"builtin": "declared_checks", "why": "検査用"}}, "engine_run は回す側の節",
+    pytest.param("p2.history", {"engine_run": {"builtin": "declared_checks", "why": "検査用"}}, "engine_run は回す側のノード",
                  id="engine-run-on-a-role-node"),
     pytest.param("p4.ci", {"engine_run": {"builtin": "declared_checks"}}, "engine_run は {builtin", id="engine-run-without-why"),
 ])
 def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
-    """足した静的検査は、赤くなる例を 1 つずつ持つ（driver の節の条件名・prompt_append・読む欄の節）"""
+    """足した静的検査は、赤くなる例を 1 つずつ持つ（driver のノードの条件名・prompt_append・読むフィールドのノード）"""
     for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     g = json.loads((tmp_path / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
@@ -217,7 +217,7 @@ def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
 
 
 def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
-    """条件の関数が宣言した読む欄の節が graph に無い——綴り違いの節名は実行の前に落ちる"""
+    """条件の関数が宣言した読むフィールドのノードが graph に無い——綴り違いのノード名は実行の前に落ちる"""
     for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     rules = tmp_path / "rules" / "review-loop.py"
@@ -228,16 +228,16 @@ def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
     write(tmp_path / "graphs" / "review-loop.json", g)
     lines = []
     ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "convergence-loops" / "scripts" / "review-record.py", emit=lines.append)
-    assert not ok and any("読む欄 'out.p9.nowhere' の節が無い" in l for l in lines), lines[-5:]
+    assert not ok and any("読むフィールド 'out.p9.nowhere' のノードが無い" in l for l in lines), lines[-5:]
 
 
 def test_dropped_names_where_an_object_became_a_value():
     assert graphcheck.dropped({"a": {"b": 1}}, {"a": 5}) == ["a を object でない値に差し替えた"]
-    assert graphcheck.dropped({"a": 1}, 5) == ["節 を object でない値に差し替えた"]
+    assert graphcheck.dropped({"a": 1}, 5) == ["ノード を object でない値に差し替えた"]
 
 
 def test_read_path_needs_loop_keys_and_defaults_round_keys():
-    """loop.<鍵> は rules の LOOP_KEYS が無ければ落とす。rd.<鍵> は rules が ROUND_KEYS を持たなくても engine の周の鍵で照らす"""
+    """loop.<鍵> は rules の LOOP_KEYS が無ければ落とす。rd.<鍵> は rules が ROUND_KEYS を持たなくても engine の周の鍵で照合する"""
     errs = []
     graphcheck.check_read_path("loop.x", "w", {"nodes": {}}, types.SimpleNamespace(), errs)
     graphcheck.check_read_path(f"rd.{next(iter(graphcheck.empty_round(0)))}", "w", {"nodes": {}}, types.SimpleNamespace(), errs)
@@ -254,6 +254,6 @@ def test_read_path_needs_loop_keys_and_defaults_round_keys():
     pytest.param({"to": "x"}, None, False, id="no-schema"),
 ])
 def test_record_path_under_writes_to_follows_the_written_schema(write, schema, ok):
-    """record.<writes.to>.<欄> は、書く節の schema（from が在ればその欄の schema）の properties に在る欄だけ通す"""
+    """record.<writes.to>.<フィールド> は、書くノードの schema（from が在ればそのフィールドの schema）の properties に在るフィールドだけ通す"""
     node = {"writes": [write], **({} if schema is None else {"schema": schema})}
     assert graphcheck._record_ok("x.f", {"nodes": {"n": node}}, types.SimpleNamespace()) is ok

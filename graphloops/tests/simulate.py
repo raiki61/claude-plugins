@@ -47,7 +47,7 @@ PY = sys.executable
 
 # **読了の標本の作り方は rules が正本**（台本に数を写すと、engine だけ変えたとき検査が黙って緩む）。
 # 名前にハイフンが入るので import 文では読めない——ファイルから読む
-# engine が差し込む道具（engine/rules.py の INJECT が正本）。部品を直に呼ぶ腕のためにここでも差し込む
+# engine が差し込むツール（engine/rules.py の INJECT が正本）。部品を直に呼ぶ腕のためにここでも差し込む
 # ——**写さず import する**: 名前を手で並べると、engine が鍵を足した周に台本だけが古くなる。
 # 読み込む前に差し込む（条件の宣言 cond_reads は rules の読み込みの時点で要る）
 sys.path.insert(0, str(PLUGIN))
@@ -60,12 +60,12 @@ PROBE_MIN, PROBE_POINTS = RESEARCH_RULES.PROBE_MIN, RESEARCH_RULES.PROBE_POINTS
 
 fails = []
 ran = 0
-DELIVERY_SEEN = set()  # 渡し方の検査が実際に当たった節。腕が空振りしても件数が偶然同じなら件数の柵は見ない（実測）ので、名指しで見る
+DELIVERY_SEEN = set()  # 渡し方の検査が実際に当たったノード。腕が空振りしても件数が偶然同じなら件数のチェックは見ない（実測）ので、名指しで見る
 
 
 def check(cond, desc):
     # 件数と失敗一覧は台本をまたいで共有される。**`ran += 1` は不可分ではない**ので錠を掛ける
-    # ——素で並列にすると数え落とし、件数の柵（run.sh の EXPECTED_CHECKS）が走るたび違う値になる。
+    # ——素で並列にすると数え落とし、件数のチェック（run.sh の EXPECTED_CHECKS）が走るたび違う値になる。
     global ran
     with parallel.LOCK:
         ran += 1
@@ -75,7 +75,7 @@ def check(cond, desc):
 
 
 def skip(desc, capability, reason):
-    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
+    """環境（OS・ツール・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
@@ -88,7 +88,7 @@ def rm(p):
 
 
 
-# 台本が実際に返した判定語彙（(節, 欄) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
+# 台本が実際に返した判定語彙（(ノード, フィールド) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
 # review 側に同じラチェットを置いた当日、research 側には無かった——**知見が片側にしか適用されない**形。
 VOCAB_SEEN = collections.defaultdict(set)
 # 到達した語彙の数。**`!=` で見る**——下限だと筋書きを増やしても数が動かず、増やしたつもりの周に誰も気づかない。
@@ -118,7 +118,7 @@ def record_vocab(node, output):
 def vocab_coverage():
     """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧。"""
     sys.path.insert(0, str(PLUGIN))
-    from engine.schema import load_graph  # noqa: E402 — 出口の節の schema はブロックのファイルに在る。engine と同じく展開した形で数える
+    from engine.schema import load_graph  # noqa: E402 — 出口のノードの schema はブロックのファイルに在る。engine と同じく展開した形で数える
     g = load_graph(PLUGIN / "graphs" / "research-loop.json")[0]
     enums = {}
 
@@ -129,9 +129,9 @@ def vocab_coverage():
             if "enum" in s:
                 enums[(nid, p.removeprefix("$").removeprefix("."))] = set(s["enum"])
 
-    # **無作為に項目を引く扇の節は数えない**——引く物が run ごとに変わるので、そこから返る値は
+    # **無作為に項目を引く扇のノードは数えない**——引く物が run ごとに変わるので、そこから返る値は
     # 台本の性質ではない（実測: 数えていたとき到達が 24 と 25 で揺れた）。除外は rules が宣言する
-    # `RANDOM_FAN` から導く——測る側で節の名前を手で並べると、扇を足した周にまた揺れる
+    # `RANDOM_FAN` から導く——測る側でノードの名前を手で並べると、扇を足した周にまた揺れる
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     rules = load_rules(PLUGIN / "graphs" / "research-loop.json", g)
@@ -144,7 +144,7 @@ def vocab_coverage():
     total = sum(len(v) for v in enums.values())
     reached = sum(len(v & VOCAB_SEEN.get(k, set())) for k, v in enums.items())
     unreached = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs - VOCAB_SEEN.get(k, set())))
-    # 到達した値そのもの（組に分けた回は、まとめの口がこの和集合の大きさを記録と照らす）
+    # 到達した値そのもの（組に分けた回は、まとめの口がこの和集合の大きさを記録と照合する）
     keys = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs & VOCAB_SEEN.get(k, set())))
     return reached, total, unreached, keys
 
@@ -152,7 +152,7 @@ def vocab_coverage():
 
 class Run:
     def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None, rel_dir=False, before_init=None, init_args=()):
-        # graph=<path>: 同梱でなくその写しで回す。**回した後に graph を締める腕**（once の節の凍った出力を
+        # graph=<path>: 同梱でなくその写しで回す。**回した後に graph を締める腕**（once のノードの凍った出力を
         # 今の schema で測り直す）に要る——同梱を書き換えると、他の台本と本物のリポジトリを壊す
         self._td, self.tmp = parallel.workspace(f"gl-{name}-")
         self.repo = self.tmp / "repo"
@@ -171,7 +171,7 @@ class Run:
         subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "doc"], cwd=self.repo, check=True, timeout=120)
         # **読了の確かめは engine が session の転写を読む。** 台本は本物と同じ形の転写を作り、
         # 同じ env（CLAUDE_CONFIG_DIR / CLAUDE_CODE_SESSION_ID）で engine に見つけさせる——
-        # 検査用の抜け道（環境変数で柵を外す口）を作らないため、渡し方は本番と同じにする
+        # 検査用の抜け道（環境変数でチェックを外す口）を作らないため、渡し方は本番と同じにする
         self.session = f"gl-{name}-session"
         self.cfg = self.tmp / "config"
         self.transcript = self.cfg / "projects" / "sim" / f"{self.session}.jsonl"
@@ -197,16 +197,16 @@ class Run:
         if before_init:   # init より前に置く物（人の方針の文書など）
             before_init(self)
         self.init = self.cmd(*args)
-        # **engine を回せば、その出力が道具の結果として転写に載る**——本番と同じ形を代役にも作る。
+        # **engine を回せば、その出力がツールの結果として転写に載る**——本番と同じ形を代役にも作る。
         # 以前は文書の本文だけを転写に置いており、印（run_id）が一度も立たない転写で回していた。
-        # 印を成功側で見る分岐が無かった間はそれで通っていたが、その分岐そのものが柵の穴だった。
+        # 印を成功側で見る分岐が無かった間はそれで通っていたが、その分岐そのものがチェックの穴だった。
         if self.init.returncode == 0:
             self.mark_into_transcript()
 
     def mark_into_transcript(self):
         """engine を回した痕跡（この run の run_id）を転写に足す。
 
-        **実物と同じ形で置く。** 実測（2026-09-20・実走の転写 21.3 MB）では、run_id が道具の結果に
+        **実物と同じ形で置く。** 実測（2026-09-20・実走の転写 21.3 MB）では、run_id がツールの結果に
         載った 4 件のうち engine の JSON がそのまま載ったのは 0 件で、残りは回す側が整形し直した形と
         `done` の平文 1 行だった。代役が JSON の綴りだけを作っていると、実物で最も多い形を一度も踏まない。
         ここは実物で最も確実に残る形——`done` の平文 1 行——を置く。
@@ -218,7 +218,7 @@ class Run:
             f.write(line + "\n")
 
     def read_into_transcript(self, path):
-        """その文書を『会話で読んだ』痕跡を転写に足す（本物の道具の結果と同じ形の 1 行）。"""
+        """その文書を『会話で読んだ』痕跡を転写に足す（本物のツールの結果と同じ形の 1 行）。"""
         body = pathlib.Path(path).read_bytes().decode("utf-8", "replace")
         line = json.dumps({"message": {"content": [{"type": "tool_result", "content": body}]}}, ensure_ascii=False)
         with open(self.transcript, "a", encoding="utf-8") as f:
@@ -266,7 +266,7 @@ def constraints(origin="独立出典"):
 
 
 def base_answers(run, scenario):
-    """節ごとの返答。scenario で分岐する台本。"""
+    """ノードごとの返答。scenario で分岐する台本。"""
     rec = run.record()
 
     def claim_verdict(cid):
@@ -285,7 +285,7 @@ def base_answers(run, scenario):
             elif cid == "E":
                 out.append({"id": cid, "verdict": "検証不能", "evidence": "到達できず", "sources": [], "needs": "原典"})
             else:
-                # 実物の checker が返す任意欄（source_grade）も台本に持つ——代役が実物より薄いと、その欄の扱いが検査の外に落ちる
+                # 実物の checker が返す任意フィールド（source_grade）も台本に持つ——代役が実物より薄いと、そのフィールドの扱いが検査の外に落ちる
                 out.append({"id": cid, "verdict": "確証", "evidence": "一致", "sources": [f"https://x/{cid.lower()}"], "conditions": "条件つき", "source_grade": "公式一次"})
         return {"cluster": item["key"], "findings": out}
 
@@ -302,11 +302,11 @@ def base_answers(run, scenario):
         "p0.question": lambda it, r: {"question": "この見立ては正しいか", "domain": "設計文書の校正", "constraints": constraints(),
                                        "thickness": scenario_thickness(scenario), "thickness_decider": "既定", "thickness_reason": "後戻りが中程度",
                                        "open_questions": ["選択肢の洗い出し"] if scenario == "open" else []},
-        # 読了の確かめは返答の欄でなく session の転写で見る（post_check claims_intake）——返答に印の欄は無い
+        # 読了の確かめは返答のフィールドでなく session の転写で見る（post_check claims_intake）——返答に印のフィールドは無い
         "p0.claims": lambda it, r: {"claims": [{"id": "A", "claim": "A は X", "load_bearing": True}, {"id": "B", "claim": "B は Y", "load_bearing": False},
                                                {"id": "C", "claim": "C は Z", "load_bearing": False}, {"id": "D", "claim": "D は W", "load_bearing": False}],
                                     "judgments": [{"text": "好み"}], "judgments_as_facts": [],
-                                    # **claims_intake が読むのはこちらの欄**（p0.question の同名の欄ではない）。
+                                    # **claims_intake が読むのはこちらのフィールド**（p0.question の同名のフィールドではない）。
                                     # 筋書き 'open' がここを空のままだったので、不成立の理由と結ぶ経路が一度も実行されていなかった
                                     "open_questions": ["選択肢の洗い出し（P1 では解けない）"] if scenario == "open" else [],
                                    },
@@ -350,7 +350,7 @@ def scenario_thickness(s):
 def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
     """next → 台本で done を、止まるか終わるまで（stop_at が真を返す波の手前でも止まる）。返り値は最後の next の出力。"""
     last = None
-    seen_delivery = set()  # 渡し方の検査は節ごとに初回だけ（P3 の遮断系は 1 周目に出ない——round == 1 の条件では一度も当たらなかった）
+    seen_delivery = set()  # 渡し方の検査はノードごとに初回だけ（P3 の遮断系は 1 周目に出ない——round == 1 の条件では一度も当たらなかった）
     for _ in range(max_steps):
         nx = run.next()
         last = nx
@@ -365,16 +365,16 @@ def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
             node = inst["node"]
             if hook is None and node == "p2.integrate":
                 ptxt = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
-                check("record.json" in ptxt and '"claims": [' not in ptxt, "統合の節には記録の本文でなく置き場と要約が渡る")
+                check("record.json" in ptxt and '"claims": [' not in ptxt, "統合のノードには記録の本文でなく置き場と要約が渡る")
             if hook is None and node in ("p1.checker", "p3.cold_reader") and node not in seen_delivery:
                 seen_delivery.add(node)      # 台本ごとの集合（この台本しか触らない）
                 with parallel.LOCK:          # 台本をまたぐ集合は排他の中で触る（check と同じ規律）
                     DELIVERY_SEEN.add(node)
                 # 遮断系は cli で出るので mode も見る（以前は mode == "agent" と round == 1 を条件にしていて cold_reader の腕が空振りしていた）
                 want_mode, want = ("agent", "path") if node == "p1.checker" else ("cli", "paste")
-                # 役の節は engine が起こし、材料は標準入力で流れる。deliver は launch が無いときに Agent で起こす受け皿の渡し方
+                # 役のノードは engine が起動し、材料は標準入力で流れる。deliver は launch が無いときに Agent で起動する受け皿の渡し方
                 check(inst["mode"] == want_mode and inst.get("deliver") == want and (inst.get("launch") or {}).get("stdin") == inst["prompt_file"],
-                      f"{node} は mode={want_mode}・engine が起こして材料は stdin（受け皿の渡し方は {want}。役の道具から決まる）")
+                      f"{node} は mode={want_mode}・engine が起動して材料は stdin（受け皿の渡し方は {want}。役のツールから決まる）")
             out = answers[node](load_item(inst), nx["round"])
             if hook:
                 out = hook(run, inst, out) or out
@@ -391,7 +391,7 @@ def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
 
 # ---------------------------------------------------------------- 検査
 def loop_shape_held(run, what, must, prefix=None):
-    """盤面の loop が graph の state_schema の形に収まる（engine が保存の時に照らした痕跡 loop_drift が 0 件）。0 件が照らさなかった
+    """盤面の loop が graph の state_schema の形に収まる（engine が保存の時に照合した痕跡 loop_drift が 0 件）。0 件が照合しなかった
     結果でないことも見る: 盤面の graph が state_schema を持ち、loop が must の鍵（と prefix で始まる周ごとの鍵）を実際に書いた"""
     from engine.schema import load_graph
     st = run.state()
@@ -404,7 +404,7 @@ def loop_shape_held(run, what, must, prefix=None):
 
 def test_policy_reaches_research_roles():
     """**人の方針の文書**（既定の置き場 <git の共有の置き場>/graphloops/policy.md）は research-loop にも届く——反証役・内部照合役には
-    本文が貼られ、回す側の節（問いの確定）には置き場が渡る"""
+    本文が貼られ、回す側のノード（問いの確定）には置き場が渡る"""
     print("台本: 人の方針が research の役に貼られ、回す側には置き場が渡る")
     mark = "RESEARCH-POLICY-4c1（検査用の人の方針）"
     pol = lambda r: (r.repo / ".git" / "graphloops").mkdir(parents=True, exist_ok=True) or (r.repo / ".git" / "graphloops" / "policy.md").write_text(mark + "\n", encoding="utf-8")
@@ -416,7 +416,7 @@ def test_policy_reaches_research_roles():
         seen.setdefault(inst["node"], pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))
         return None
     def hook2(run_, inst, out):
-        if inst["node"] == "p5.internal":   # 回す側が方針の文書を書き換えた形（周の途中の関所は無いので、仕上げで照らす）
+        if inst["node"] == "p5.internal":   # 回す側が方針の文書を書き換えた形（周の途中のゲートは無いので、仕上げで照合する）
             (run_.repo / ".git" / "graphloops" / "policy.md").write_text(mark + "\nWRITER-EDIT-9d2\n", encoding="utf-8")
         return hook(run_, inst, out)
     drive(run, "std", hook=hook2)
@@ -434,7 +434,7 @@ def test_policy_reaches_research_roles():
     check(mark in seen.get("p1.refuter", "") and mark in seen.get("p5.internal", ""),
           f"人の方針: 反証役と内部照合役のプロンプトに本文が貼られる（{sorted(k for k, v in seen.items() if mark in v)}）")
     check(path in seen.get("p0.question", "") and mark not in seen.get("p0.question", ""),
-          "人の方針: 回す側の節（問いの確定）には本文でなく置き場が渡る")
+          "人の方針: 回す側のノード（問いの確定）には本文でなく置き場が渡る")
     rm(run.tmp)
 
 
@@ -454,7 +454,7 @@ def test_attended_stuck_answer():
     print("台本: 有人・stuck で諮り、escalate で重厚に上げて続行")
     run = Run("ask")
     last = drive(run, "stuck")
-    check(last["status"] == "awaiting_human" and "stuck" in last["ask"]["kinds"], "人に聞く番になる")
+    check(last["status"] == "awaiting_human" and "stuck" in last["ask"]["kinds"], "人に聞くターンになる")
     r = run.cmd("answer", "--text", "escalate")
     check(r.returncode == 0, "answer escalate が通る")
     st = run.status()
@@ -490,22 +490,22 @@ def test_rejections():
     # p0.claims の穴が埋まらず初めて落ちた（実測 2026-09-13）。渡されたパスの実在も同じ場所で見る
     nodoc = [PY, str(LOOP), "init", "--loop", "research-loop", "--request", "x", "--dir", str(run.tmp / "nodoc"), "--validator", str(VALIDATOR)]
     r = subprocess.run(nodoc, cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(r.returncode != 0 and "--document" in r.stderr and "p0.claims" in r.stderr, f"research を --document 無しで init すると入口で落ち、要る節と穴を名指しする（rc={r.returncode}: {r.stderr[-100:]}）")
+    check(r.returncode != 0 and "--document" in r.stderr and "p0.claims" in r.stderr, f"research を --document 無しで init すると入口で落ち、要るノードと穴を名指しする（rc={r.returncode}: {r.stderr[-100:]}）")
     r = subprocess.run(nodoc + ["--document", str(run.tmp / "no-such.md")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode != 0 and "が無い" in r.stderr, "実在しない --document も入口で落ちる")
     nx = run.next()
     q = nx["ready"][0]
-    check(q["node"] == "p0.question" and q["mode"] == "runner", "最初の節は p0.question（回す側）")
+    check(q["node"] == "p0.question" and q["mode"] == "runner", "最初のノードは p0.question（回す側）")
     r = run.done(q["id"], {"question": "x"})
-    check(r.returncode == 1 and "必須の欄" in r.stderr, "型に合わない返答は exit 1")
+    check(r.returncode == 1 and "必須のフィールド" in r.stderr, "型に合わない返答は exit 1")
     r = run.done(q["id"], {**base_answers(run, "std")["p0.question"](None, 1), "thickness": "軽量"})
     check(r.returncode == 1 and "下げようとしている" in r.stderr, "回す側の降格は exit 1")
     r = run.done(q["id"], base_answers(run, "std")["p0.question"](None, 1))
     check(r.returncode == 0, "正しい返答は通る")
     r = run.done(q["id"], base_answers(run, "std")["p0.question"](None, 1))
-    check(r.returncode == 1 and "既に" in r.stderr, "同じ節に 2 回 done は exit 1（回し直しの禁止）")
+    check(r.returncode == 1 and "既に" in r.stderr, "同じノードに 2 回 done は exit 1（回し直しの禁止）")
     r = run.cmd("skip", "--node", "p0.claims", "--reason", "面倒")
-    check(r.returncode == 1 and "optional でない" in r.stderr, "optional でない節は省けない")
+    check(r.returncode == 1 and "optional でない" in r.stderr, "optional でないノードは省けない")
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     check({"p0.claims", "p0.terms", "p0.prior_decisions", "p5.internal", "p3.rederiver"} <= set(by), f"2 波目に P0 の残りと先行起動が並ぶ: {sorted(by)}")
@@ -521,15 +521,15 @@ def test_rejections():
     check(st["git_mismatches"][0]["accepted"] == "自分で作った", "git_mismatches に理由が残る")
     # 穴の宣言: プロンプトに reads に無い穴があると engine が止まる（graph を壊して確かめる）
     prompts = pathlib.Path(by["p0.claims"]["prompt_file"]).read_text(encoding="utf-8")
-    # **回す側の節には本文でなくパスが渡る。** 静的にも同じことを見る（graphcheck.py の main の
-    # 「回す側（{rb}）の節に書けない」の柵——回す側の節に file: / section: の穴を書けない）
+    # **回す側のノードには本文でなくパスが渡る。** 静的にも同じことを見る（graphcheck.py の main の
+    # 「回す側（{rb}）の節に書けない」のチェック——回す側のノードに file: / section: の穴を書けない）
     # パスは engine の契約（init が resolve した綴り）で探す——生の綴りだと Windows の 8.3 短縮名（RUNNER~1）で外れる
     doc = str(run.doc.resolve())
-    check(doc in prompts and "主張 A・B・C・D" not in prompts, "回す側の節には文書のパスが渡り、本文は貼られない")
+    check(doc in prompts and "主張 A・B・C・D" not in prompts, "回す側のノードには文書のパスが渡り、本文は貼られない")
     terms = pathlib.Path(by["p0.terms"]["prompt_file"]).read_text(encoding="utf-8")
-    check(doc in terms and "主張 A・B・C・D" not in terms, "同じ波の 2 節目（p0.terms）も本文を貼らない")
+    check(doc in terms and "主張 A・B・C・D" not in terms, "同じ波の 2 つ目のノード（p0.terms）も本文を貼らない")
     check("open_questions" not in prompts or "[]" in prompts or "この周には無い" in prompts,
-          "前の節の出力の穴が埋まっている（空でなく値か『無い』の語）")
+          "前のノードの出力の穴が埋まっている（空でなく値か『無い』の語）")
     for node in ("p0.claims", "p0.terms", "p5.internal", "p3.rederiver"):
         out = base_answers(run, "std")[node](None, 1)
         if node == "p0.claims":
@@ -548,32 +548,32 @@ def test_rejections():
     nx = run.next()
     ch = {i["item"]["key"]: i for i in nx["ready"] if i["node"] == "p1.checker"}
     check(set(ch) == {"c1", "c2"}, "checker はクラスタごとに並ぶ")
-    # **材料の長い欄は instance に残さない**（engine の slim_item と ITEM_INLINE が正本——import で縛る）。
+    # **材料の長いフィールドは instance に残さない**（engine の slim_item と ITEM_INLINE が正本——import で縛る）。
     # **見るのは実物の next が返した instance**——純関数 slim_item を直に呼ぶ腕だけだと、逃がす配線
     # （emit_instance の呼び）を外しても、閾値を key 以外全部に倒しても、全件緑のままだった。
     # 長さは engine と同じ物差しで測る（util.dump と ITEM_INLINE を import する。台本に写すと engine だけ変えたとき緩む）
     c1full = load_item(ch["c1"])
     # 添字の前に在ることを見る——items/ が痩せる退行では、ここが KeyError で落ちて台本が要約行も出さずに終わる
-    check("claims" in c1full, f"材料の正本（items/ のファイル）に材料の欄が在る（欄: {sorted(c1full)}）")
+    check("claims" in c1full, f"材料の正本（items/ のファイル）に材料のフィールドが在る（フィールド: {sorted(c1full)}）")
     chars = len(dump(c1full.get("claims")))
     check(chars < ITEM_INLINE < len(dump(c1full.get("claims")).encode("utf-8")),
           f"c1 の材料は字数では上限内・バイトでは超過（{chars} 字）——落ちること自体がバイトで測っている証拠になる")
     check(ch["c1"].get("item_omitted") == ["claims"] and "claims" not in ch["c1"]["item"] and ch["c1"]["item"].get("key") == "c1",
-          f"太い材料の長い欄は instance から落ち、短い欄（key）は残る（残った: {sorted(ch['c1']['item'])} / 落とした: {ch['c1'].get('item_omitted')}）")
+          f"太い材料の長いフィールドは instance から落ち、短いフィールド（key）は残る（残った: {sorted(ch['c1']['item'])} / 落とした: {ch['c1'].get('item_omitted')}）")
     check(ch["c2"].get("item_omitted") == [] and ch["c2"]["item"].get("claims"),
-          f"短い材料は落ちず、落ちた欄が無いことも欄で言う（空でも書く: {ch['c2'].get('item_omitted')}）")
+          f"短い材料は落ちず、落ちたフィールドが無いこともフィールドで言う（空でも書く: {ch['c2'].get('item_omitted')}）")
     # **key だけは長さに関わらず残す**（engine の slim_item が key を落とす候補から外している）。
     # 実物の波には 1,000 バイトの key が出ないので、ここだけ部品を直に呼ぶ
     fat_slim, fat_omitted = slim_item({"key": "あ" * 400, "claims": [{"id": "A"}]})
     # 見るのは **slim_item が key を落とさない** ことだけ——合計の上限が効くので、key が単独で上限を超える材料では
-    # 他の欄が全部逃げる（それが正しい: key は下流が添字で読むので落とせない）。この長さの key が実物の next を
+    # 他のフィールドが全部逃げる（それが正しい: key は下流が添字で読むので落とせない）。この長さの key が実物の next を
     # 通るかは別の層の話（プロンプトのファイル名長）で、上限の置き場が決まるまでここでは主張しない
     check("key" in fat_slim and "key" not in fat_omitted, f"上限を超える長さの key でも slim_item は key を落とさない（落とした: {fat_omitted}）")
-    # **合計も同じ上限で縛る**——欄ごとの判定だけだと、上限直下の欄が並ぶ材料は 1 件も落ちずに instance が太る
+    # **合計も同じ上限で縛る**——フィールドごとの判定だけだと、上限直下のフィールドが並ぶ材料は 1 件も落ちずに instance が太る
     many_slim, many_omitted = slim_item({"key": "c1", **{f"f{i}": "あ" * 200 for i in range(4)}})
     check(len(dump(many_slim).encode("utf-8")) <= ITEM_INLINE and many_omitted,
-          f"欄ごとに上限未満でも合計が超えれば大きい順に逃がす（残った: {sorted(many_slim)} / 落とした: {many_omitted}）")
-    # **engine は instance の item を添字で読まない**（正本は items/ のファイル＝load_item）。写しは欄が
+          f"フィールドごとに上限未満でも合計が超えれば大きい順に逃がす（残った: {sorted(many_slim)} / 落とした: {many_omitted}）")
+    # **engine は instance の item を添字で読まない**（正本は items/ のファイル＝load_item）。写しはフィールドが
     # 落ちている可能性が在り、key を落とさない例外に支えた直読みは、写しの作り方を変えた周に静かに壊れる。
     # 実行の腕では赤にできない（今は key が必ず残るので、直読みでも同じ答えになる）ので、形で縛る
     # **綴りを 1 本に絞ると素通りする。** 二重引用だけを見ていたとき、i['item']['key'] と
@@ -581,16 +581,16 @@ def test_rejections():
     # 次に書く人が踏むのはむしろそちら。書き手（slim_item の結果を instance に入れる 1 行）と、
     # 正本を読む load_item の中だけを名指しで許す
     # **閉じ括弧まで綴りに入れない**——.get("item", {})["key"] は既定値を足しただけの同じ直読みで、
-    # 閉じ括弧まで見る柵はこれを素通りした（実測 2026-09-19: この 1 形で全件緑）
+    # 閉じ括弧まで見るチェックはこれを素通りした（実測 2026-09-19: この 1 形で全件緑）
     SPELLINGS = ('["item"]', "['item']", '.get("item"', ".get('item'")
     ALLOW = ('inst["item"], omitted = slim_item(item)', 'return inst.get("item")')
     flags = lambda line: any(sp in line for sp in SPELLINGS) and not any(a in line for a in ALLOW)
-    # **柵が名乗る綴りを、合成した行で直に測る。** 走査の結果が空であることだけを見ていたとき、
+    # **チェックが名乗る綴りを、合成した行で直に測る。** 走査の結果が空であることだけを見ていたとき、
     # 綴りを 1 本に狭めても緑のままだった（実測 2026-09-19: 単引用と .get の形が素通りした）
     caught = [ln for ln in ('    x = i["item"]["key"]', "    x = i['item']['key']",
                             '    x = i.get("item")["key"]', "    x = i.get('item')['key']",
                             '    x = i.get("item", {})["key"]', "    x = i.get('item', {})['key']") if flags(ln)]
-    check(len(caught) == 6, f"柵は 6 綴りとも拾う（拾えた: {len(caught)}/6）")
+    check(len(caught) == 6, f"チェックは 6 綴りとも拾う（拾えた: {len(caught)}/6）")
     # **拾わない形も標本で言う。** 「4 綴りを見ている」と注記で断る零処方は、綴りが増えた周に注記だけが
     # 古くなる（同じ手を 3 周続けて写しが増えた）。射程を毎回実行で踏ませ、広がったらこの腕が落ちる
     MISSES = ('    x = i [ "item" ]',            # 空白を挟んだ添字
@@ -605,10 +605,10 @@ def test_rejections():
     direct = [f"{f.name}:{i + 1}" for f in sorted([*(PLUGIN / "engine").glob("*.py"), *(PLUGIN / "rules").glob("*.py")])
               for i, line in enumerate(f.read_text(encoding="utf-8").splitlines()) if flags(line)]
     check(not direct, f"engine と rules が instance の item を直読みしていない（6 綴りとも。load_item を通す。直読み: {direct}）")
-    # **落とすのは大きい欄から**——小さい欄から落とすと、上限に収めるのに必要以上の欄が instance から消える
+    # **落とすのは大きいフィールドから**——小さいフィールドから落とすと、上限に収めるのに必要以上のフィールドが instance から消える
     order_slim, order_omitted = slim_item({"key": "c1", "small": "あ" * 10, "mid": "あ" * 60, "big": "あ" * 400})
     check(order_omitted == ["big"] and {"key", "small", "mid"} <= set(order_slim),
-          f"大きい欄 1 つを落とせば収まる材料は、その 1 つだけが落ちる（落とした: {order_omitted}）")
+          f"大きいフィールド 1 つを落とせば収まる材料は、その 1 つだけが落ちる（落とした: {order_omitted}）")
     body = pathlib.Path(ch["c1"]["prompt_file"]).read_text(encoding="utf-8").split("返答はこの JSON Schema")[0]
     check("C は Z" not in body and '"verdict":' not in body and "surveyor" not in body, "checker には他の束の主張も判定も見立ても貼られない")
     # **落としてよいのは回す側の文脈だけで、役に渡る中身は減らしてはいけない。**
@@ -627,7 +627,7 @@ def test_rejections():
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "Z", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 1 and "項目に無い" in r.stderr, "扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕）")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "たぶん", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
-    check(r.returncode == 1 and "型に合わない" in r.stderr, "語彙に無い判定語は節の schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1")
+    check(r.returncode == 1 and "型に合わない" in r.stderr, "語彙に無い判定語はノードの schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 0 and "欠けた" in r.stdout and "p1.checker[c1]#2" in r.stdout, "判定が欠けた主張は欠けた分だけ出し直す")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": []})
@@ -640,12 +640,12 @@ def test_rejections():
     r = run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "相違", "evidence": "e", "sources": ["https://x"]}]})
     check(r.returncode == 1 and "correction" in r.stderr, "相違に correction が無いと exit 1（検証器の規則を先取り）")
     r = run.done("p1.checker[c1]#2", {"cluster": "c1", "findings": [{"id": "B", "verdict": "相違", "evidence": "e", "sources": ["https://x"], "correction": "c"}]})
-    check(r.returncode == 0, "欄が揃えば通る")
+    check(r.returncode == 0, "フィールドが揃えば通る")
     # 記録の手当ては痕跡が残る
     (run.tmp / "p.json").write_text('"x"', encoding="utf-8")
     r = run.cmd("patch", "--path", "process.note", "--file", str(run.tmp / "p.json"), "--reason", "試験")
     check(r.returncode == 0 and run.state()["patches"][0]["reason"] == "試験", "patch は痕跡付き")
-    # 記録の側の柵（check_record）は節の schema を通らない経路（patch）でも知らない判定語を拒む——以前は「要求欄なし＝合格」に倒れた
+    # 記録の側のチェック（check_record）はノードの schema を通らない経路（patch）でも知らない判定語を拒む——以前は「要求欄なし＝合格」に倒れた
     rec = run.record()
     rec["claims"][0]["verdict"] = "たぶん"
     (run.tmp / "c.json").write_text(json.dumps(rec["claims"], ensure_ascii=False), encoding="utf-8")
@@ -663,11 +663,11 @@ def test_rejections():
 def test_hook_evidence():
     """**読んだ事実を、読んだ瞬間に盤面の隣へ残す（フックの一次情報）。**
 
-    これまで柵は、会話の記録（転写 JSONL）を engine が後から開いて痕跡を探していた。
+    これまでチェックは、会話の記録（転写 JSONL）を engine が後から開いて痕跡を探していた。
     公式文書が内部形式と明記するものを自前で解析する形で、壊れるたびに守りを足してきた。
 
     **ハーネス側は実物で測った**（2026-09-22、macOS。この検査では測れない——フックは session の
-    開始時に読み込まれるので、子の claude を `--settings` 付きで起こして確かめた）: Read のたびに
+    開始時に読み込まれるので、子の claude を `--settings` 付きで起動して確かめた）: Read のたびに
     発火し（tool_use_id が `toolu_01HsNpjr…`）、offset 付きは partial で残り、**subagent の中でも
     発火して agent_id が載る**。ここで測れるのは engine と記録の契約までで、
     **ハーネスがフックを呼ぶことは検査では覆えない**。
@@ -676,7 +676,7 @@ def test_hook_evidence():
     最初は利用者ごとの置き場へ session 単位で永久に書く形で、graphloops を使っていない session の
     読み取り履歴まで寿命なしで溜めていた。盤面の隣なら run の寿命で消える。
     """
-    print("読了の柵（フック）: 回っている run の盤面の隣にだけ書き、5 通りに分ける（read / none / absent / partial / stale）")
+    print("読了のチェック（フック）: 回っている run の盤面の隣にだけ書き、5 通りに分ける（read / none / absent / partial / stale）")
     _td, tmp = parallel.workspace("gl-hookev-")
     repo = tmp / "repo"; (repo / ".git" / "graphloops" / "research-loop").mkdir(parents=True)
     board = tmp / "board"; board.mkdir()
@@ -704,11 +704,11 @@ def test_hook_evidence():
         return RESEARCH_RULES.hook_evidence(board, str(doc))
 
     # **回っている run が無ければ 1 バイトも書かない。** ここが寿命の設計そのもの
-    check(fire(doc) == 0, "run が無くてもフックは道具を止めない（終了コード 0）")
+    check(fire(doc) == 0, "run が無くてもフックはツールを止めない（終了コード 0）")
     check(not (board / "reads.jsonl").exists(), "**run が無い回は盤面に書かない**")
     strays = sorted(x for x in (list(cfg.rglob("*")) + list((tmp / "home").rglob("*"))) if x.is_file())
     check(not strays, f"**run が無い回はどこにも書かない**（利用者ごとの置き場にも: {strays[:2]}）")
-    check(ask()[0] == "none", "記録が無ければ none（フックが入っていない環境で柵を切らない）")
+    check(ask()[0] == "none", "記録が無ければ none（フックが入っていない環境でチェックを切らない）")
 
     (repo / ".git" / "graphloops" / "research-loop" / "current").write_text(str(board), encoding="utf-8")
     other = tmp / "other.md"; other.write_text("zzz" + chr(10), encoding="utf-8")
@@ -745,7 +745,7 @@ def test_hook_evidence():
     big = tmp / "big.bin"
     with open(big, "wb") as f:
         f.truncate(_u.READ_CAP + 2)   # 疎なファイルで大きさだけを作る（+2: 読めた長さ CAP+1 と stat の大きさを見分ける）
-    check(fire(big) == 0, "上限を超える文書を読んでもフックは道具を止めない")
+    check(fire(big) == 0, "上限を超える文書を読んでもフックはツールを止めない")
     rows = [json.loads(l) for l in (board / "reads.jsonl").read_text(encoding="utf-8").splitlines()]
     last = next(r for r in reversed(rows) if r.get("path") == str(big.resolve()))
     check(last.get("file_sha") is None and last.get("bytes") == _u.READ_CAP + 2,
@@ -754,7 +754,7 @@ def test_hook_evidence():
     edge = tmp / "edge.bin"
     with open(edge, "wb") as f:
         f.truncate(_u.READ_CAP)
-    check(fire(edge) == 0, "上限ちょうどの文書を読んでもフックは道具を止めない")
+    check(fire(edge) == 0, "上限ちょうどの文書を読んでもフックはツールを止めない")
     rows = [json.loads(l) for l in (board / "reads.jsonl").read_text(encoding="utf-8").splitlines()]
     last = next(r for r in reversed(rows) if r.get("path") == str(edge.resolve()))
     check(last.get("file_sha") is not None and last.get("partial") is True,
@@ -785,7 +785,7 @@ def test_hook_evidence():
 
         def feed():
             # 書き手を 1 つ立てる（読み手が開けば数バイト流して閉じる）。開かなければ待ったまま——daemon なので
-            # 台本の終わりを止めない。書き手が居るので、柵を外した写しでは開いて読み、記録に行が増える
+            # 台本の終わりを止めない。書き手が居るので、チェックを外した写しでは開いて読み、記録に行が増える
             def w():
                 with open(fifo, "wb") as f:
                     f.write(b"fifo-bytes")
@@ -793,7 +793,7 @@ def test_hook_evidence():
         n = len((board / "reads.jsonl").read_text(encoding="utf-8").splitlines())
         feed()
         check(fire(fifo) == 0 and len((board / "reads.jsonl").read_text(encoding="utf-8").splitlines()) == n,
-              "FIFO を読んだ回はフックが記録しない（開かずに道具へ返す）")
+              "FIFO を読んだ回はフックが記録しない（開かずにツールへ返す）")
         feed()
         got, why = RESEARCH_RULES.hook_evidence(board, str(fifo))
         check(got == "none" and "通常のファイルでない" in why, f"FIFO は開かずに none（{why[:50]}）")
@@ -831,7 +831,7 @@ def test_hook_evidence():
           f"cache を渡した呼び元は記録を読み直さない（1 度目 {first} / 同じ cache {again} / cache なし {now}）")
     # **記録に本文を写さない。** 文書の中身をこちらのディスクへ置く形にしない
     log = (board / "reads.jsonl").read_text(encoding="utf-8")
-    # sha の 16 進は a〜f を含む（本文の "aaa" と偶然一致しうる）ので、sha の欄を落としてから探す
+    # sha の 16 進は a〜f を含む（本文の "aaa" と偶然一致しうる）ので、sha のフィールドを落としてから探す
     bare = "\n".join(json.dumps({k: v for k, v in json.loads(l).items() if k != "file_sha"}, ensure_ascii=False) for l in log.splitlines())
     check("CHANGED" not in bare and "aaa" not in bare, "記録に文書の本文は入らない（sha と大きさだけ）")
     strays = sorted(x for x in (list(cfg.rglob("*")) + list((tmp / "home").rglob("*"))) if x.is_file())
@@ -840,9 +840,9 @@ def test_hook_evidence():
 
 
 def test_run_count():
-    """数える問い（how）は欄で受け、argv は engine が決まった形で組む。腕は柵ごとに置き、拒否理由を**その柵に固有の語**で見る
-    ——共通の一語で見ていた頃は、柵を 1 つ消しても別の拒否文に当たって緑のままだった（2026-09-23 の gate_efficacy）。"""
-    print("数える問い: 欄から argv を組み、読めなかった問いを 0 件にしない")
+    """数える問い（how）はフィールドで受け、argv は engine が決まった形で組む。腕はチェックごとに置き、拒否理由を**そのチェックに固有の語**で見る
+    ——共通の一語で見ていた頃は、チェックを 1 つ消しても別の拒否文に当たって緑のままだった（2026-09-23 の gate_efficacy）。"""
+    print("数える問い: フィールドから argv を組み、読めなかった問いを 0 件にしない")
     import engine.util as _u  # noqa: E402
     _td, tmp = parallel.workspace("gl-count-")
     (tmp / "a.txt").write_text("x1\nx2\ny\n", encoding="utf-8"); (tmp / "b.txt").write_text("x3\n", encoding="utf-8")
@@ -851,7 +851,7 @@ def test_run_count():
     for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
         subprocess.run(["git", *c], cwd=tmp, capture_output=True)
     (tmp / "untracked.txt").write_text("x9\n", encoding="utf-8"); (tmp / "ignored.txt").write_text("x8\n", encoding="utf-8")
-    # 数える版は役の欄でなく engine の引数（rev）。表では書きやすさのため欄に書き、ここで引数へ移す
+    # 数える版は役のフィールドでなく engine の引数（rev）。表では書きやすさのためフィールドに書き、ここで引数へ移す
     rc = lambda h, **k: (_u.run_count({x: v for x, v in h.items() if x != "rev"}, str(tmp), rev=h.get("rev"), **k)
                          if isinstance(h, dict) else _u.run_count(h, str(tmp), **k))
     H = lambda **k: {"patterns": ["x"], "paths": ["a.txt"], "count": "lines", **k}
@@ -865,11 +865,11 @@ def test_run_count():
                              ("数える: 版を渡せば未追跡の旗は落とす", H(rev="HEAD", untracked=True), 2)):
         got = rc(how)
         check(got == (want, ""), f"{label} → {want}（{got}）")
-    for label, bad, why in (("走らせない: 1 行のコマンド", "git grep -c x -- a.txt", "欄（patterns"), ("走らせない: 知らない欄", H(argv=["rm"]), "知らない欄"),
+    for label, bad, why in (("走らせない: 1 行のコマンド", "git grep -c x -- a.txt", "フィールド（patterns"), ("走らせない: 知らないフィールド", H(argv=["rm"]), "知らないフィールド"),
                             ("走らせない: 空の検索語の配列", H(patterns=[]), "how.patterns: 要素が 1 個未満"), ("走らせない: 改行を含む検索語", H(patterns=["x\ny"]), "how.patterns[0]: 形が合わない"),
                             ("走らせない: CR を含む検索語", H(patterns=["x\ry"]), "how.patterns[0]: 形が合わない"),
                             ("走らせない: NUL を含むパス", H(paths=["a\x00b"]), "how.paths[0]: 形が合わない"),
-                            ("走らせない: パスの欠落", {"patterns": ["x"], "count": "lines"}, "必須の欄 'paths' が無い"),
+                            ("走らせない: パスの欠落", {"patterns": ["x"], "count": "lines"}, "必須のフィールド 'paths' が無い"),
                             ("走らせない: 数え方", H(count="wc"), "how.count: 値 'wc' が語彙"), ("走らせない: 真偽値でない旗", H(fixed="yes"), "how.fixed: 型が boolean でない"),
                             ("走らせない: - で始まる版", H(rev="--output=c.txt"), "数える版は版の名前"), ("走らせない: 空白を含む版", H(rev="HEAD x"), "数える版は版の名前"),
                             ("走らせない: 解決できない版", H(rev="no-such-rev"), "版として解決できない"),
@@ -885,7 +885,7 @@ def test_run_count():
         got = rc(bad)
         check(got[0] is None and why in got[1], f"{label}（{got[1][:70]}）")
     got = _u.run_count(H(rev="HEAD"), str(tmp))
-    check(got[0] is None and "知らない欄" in got[1], f"走らせない: 問いに版を書く（数える版は engine が決める。{got[1][:60]}）")
+    check(got[0] is None and "知らないフィールド" in got[1], f"走らせない: 問いに版を書く（数える版は engine が決める。{got[1][:60]}）")
     argv, _ = _u.count_argv(H(patterns=["a", "b"], paths=["p", "q"], fixed=True, ignore_case=True, word=True, count="files"), "HEAD")
     check(argv == ["git", "grep", "-I", "--no-color", "-l", "-F", "-i", "-w", "-e", "a", "-e", "b", "HEAD", "--", "p", "q"],
           f"argv は決まった形（旗・語ごとの -e・版・-- の後ろにパス。{argv}）")
@@ -913,7 +913,7 @@ def test_run_count():
     check(r[4] is True, f"時間切れの子は殺して late を返す（{r[:1]} / late={r[4]}）")
     r = _u._run_capped(["cat", "--", "a.txt"], str(tmp), 10, 3)
     check(r[3] is True, f"上限を超える出力は読み切らずに over を返す（{r[3]}）")
-    # **engine の標準入力を子に継がせない**——閉じない管を標準入力にした子のプロセスで、ファイルを持たない cat を起こし、
+    # **engine の標準入力を子に継がせない**——閉じない管を標準入力にした子のプロセスで、ファイルを持たない cat を起動し、
     # 時間切れより前に返ることを見る
     code = (f"import sys; sys.path.insert(0, {str(PLUGIN)!r}); import engine.util as u; "
             f"print(u._run_capped(['cat'], {str(tmp)!r}, 3, 100)[4])")
@@ -931,15 +931,15 @@ def test_run_count():
 
 
 def test_hook_evidence_passes_gate_without_transcript():
-    """**フックの記録が在る回は、転写を 1 本も開かずに柵が通る。**
+    """**フックの記録が在る回は、転写を 1 本も開かずにチェックが通る。**
 
-    hook_evidence を単体で測るだけでは、柵に繋がっているかは分からない——繋ぎを落としても
+    hook_evidence を単体で測るだけでは、チェックに繋がっているかは分からない——繋ぎを落としても
     単体の検査は緑のままになる。ここは主経路（loop.py done）を実際に打ち、
     **転写が存在しない環境**で通ることで「転写を見ていない」を示す。
 
     実走 2026-09-22: 転写 0 本・フックの記録 1 行で done が exit 0・0.05 秒。
     """
-    print("読了の柵（フック）: 記録が在れば転写を開かずに通る（転写 0 本の環境で主経路を打つ）")
+    print("読了のチェック（フック）: 記録が在れば転写を開かずに通る（転写 0 本の環境で主経路を打つ）")
     _td, tmp = parallel.workspace("gl-hookgate-")
     doc = tmp / "doc.md"
     doc.write_text("".join(f"{i:02d} 行目: この文書のためだけの一意の一文である。" + chr(10)
@@ -974,7 +974,7 @@ def test_hook_evidence_passes_gate_without_transcript():
 
     r = loop("done", "--node", "p0.claims")
     check(r.returncode == 0 and "確かめられなかった" in r.stdout,
-          "フックの記録が無ければ、転写も無いので**不成立**（柵を切らず痕跡を残す）")
+          "フックの記録が無ければ、転写も無いので**不成立**（チェックを切らず痕跡を残す）")
 
     # **run が在るので、フックは盤面の隣へ書く**（cwd がリポジトリなら current から辿れる）
     subprocess.run([PY, str(PLUGIN / "hooks" / "record-read.py")], timeout=60,
@@ -1003,7 +1003,7 @@ def test_graphcheck():
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
-    # 読む欄の宣言を壊した条件の関数を、写しの rules にだけ足す（graph の cond がその名前を指したときに graphcheck が落とすか）
+    # 読むフィールドの宣言を壊した条件の関数を、写しの rules にだけ足す（graph の cond がその名前を指したときに graphcheck が落とすか）
     bad_conds = {"bad_field": ("out.p1.checker.findingz",), "bad_prev": ("prev.p1.checker.findingz",), "bad_loop": ("loop.stuck_hintz",),
                  "bad_record": ("record.constraintz",), "bad_head": ("rounds",), "bad_rd": ("rd.new_discrepanciez",),
                  "bad_order": ("out.p3.cartographer",), "bad_under": ("round.x",)}
@@ -1028,9 +1028,9 @@ def test_graphcheck():
         r = subprocess.run([PY, str(GRAPHCHECK), str(p), *([validator] if validator else [])], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
 
-    broken(lambda b: b["nodes"]["p2.integrate"]["writes"].append({"op": "set", "to": "gates.rederiver", "from": "root_causes"}), "判定の欄", "回す側が gates に書く graph は落ちる")
-    broken(lambda b: b["nodes"]["p1.checker"]["reads"].append("record"), "record 全体", "fresh_context の節が record 全体を読む graph は落ちる")
-    broken(lambda b: b["nodes"]["p0.claims"]["reads"].append("out.p2.integrate"), "前の節でない", "後の節の出力を読む graph は落ちる")
+    broken(lambda b: b["nodes"]["p2.integrate"]["writes"].append({"op": "set", "to": "gates.rederiver", "from": "root_causes"}), "判定のフィールド", "回す側が gates に書く graph は落ちる")
+    broken(lambda b: b["nodes"]["p1.checker"]["reads"].append("record"), "record 全体", "fresh_context のノードが record 全体を読む graph は落ちる")
+    broken(lambda b: b["nodes"]["p0.claims"]["reads"].append("out.p2.integrate"), "前のノードでない", "後のノードの出力を読む graph は落ちる")
     broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("post_check", "nope"), "POST_CHECKS に無い", "rules に無い名前を指す graph は落ちる")
     # **溜めた NG の出口は 1 つ。** exec を落とすと『実行の形の検査は省略』へ抜けるが、
     # そこまでに溜めた NG（inputs 宣言の欠けなど）は吐かれなければならない。吐かずに戻っていたとき、
@@ -1048,8 +1048,8 @@ def test_graphcheck():
         b.pop("exec", None)
     broken(_drop_input_decl_and_exec, "graph の inputs に cwd の宣言が無い",
            "exec が無くても、そこまでに溜めた NG は吐かれる（早い return で握り潰さない）")
-    # **回す側の節に本文を貼る穴（file: / section:）**。graph の dict だけでは壊せない（穴はプロンプト側に在る）ので、
-    # この関数の冒頭で tmp に写した prompts の隣へ腕ごとに 1 枚だけ別名で置き、その節の prompt_file を向け替える。
+    # **回す側のノードに本文を貼る穴（file: / section:）**。graph の dict だけでは壊せない（穴はプロンプト側に在る）ので、
+    # この関数の冒頭で tmp に写した prompts の隣へ腕ごとに 1 枚だけ別名で置き、そのノードの prompt_file を向け替える。
     # 条件は or の 2 腕なので file: だけ見ると片側しか赤を見ていない
     def paste_into_runner(b, hole, name):
         src = tmp / "prompts" / "research-loop" / "p0.claims.md"
@@ -1057,70 +1057,70 @@ def test_graphcheck():
         dst.write_text(src.read_text(encoding="utf-8") + "\n" + hole + "\n", encoding="utf-8")
         b["nodes"]["p0.claims"]["prompt_file"] = f"../prompts/research-loop/{dst.name}"
         # reads は接頭を剥がした形で照合される（render.allowed が strip_prefix を通す）——穴の綴りをそのまま足すと
-        # 新しい柵に加えて『reads に無い』も同時に出て、腕が何を見ているのか読めなくなる
+        # 新しいチェックに加えて『reads に無い』も同時に出て、腕が何を見ているのか読めなくなる
         b["nodes"]["p0.claims"]["reads"].append(strip_prefix(hole.strip("{} ")).split("#")[0])
 
-    broken(lambda b: paste_into_runner(b, "{{file:inputs.document}}", "file"), "の節に書けない",
-           "回す側の節に本文を貼る穴（file:）を持つ graph は落ちる")
-    broken(lambda b: paste_into_runner(b, "{{section:inputs.document#見立て}}", "section"), "の節に書けない",
-           "同じ柵の section: の腕も落ちる（or の両側）")
+    broken(lambda b: paste_into_runner(b, "{{file:inputs.document}}", "file"), "のノードに書けない",
+           "回す側のノードに本文を貼る穴（file:）を持つ graph は落ちる")
+    broken(lambda b: paste_into_runner(b, "{{section:inputs.document#見立て}}", "section"), "のノードに書けない",
+           "同じチェックの section: の腕も落ちる（or の両側）")
     # errs に溜める側の腕（以前は errs の束縛が後ろにあり UnboundLocalError で診断文が出なかった 8 経路）
     broken(lambda b: b.pop("runners"), "runners", "runners の無い graph は落ちる")
     broken(lambda b: b.__setitem__("agent_prefix", "x"), "agent_prefix", "廃止した agent_prefix を持つ graph は落ちる")
     broken(lambda b: b.__setitem__("plugin", "no-such-plugin"), "役割 agent の定義", "役の定義が見つからない plugin を指す graph は落ちる")
-    broken(lambda b: b.pop("launch"), "launch.isolated.argv", "道具ゼロの役を使うのに起こし方を宣言しない graph は落ちる")
-    # 前置（via）は起こした瞬間にしか落ちない——python が「そんなファイルは無い」で止まり、返答が空のまま done が拒む
+    broken(lambda b: b.pop("launch"), "launch.isolated.argv", "ツールゼロの役を使うのに起動方法を宣言しない graph は落ちる")
+    # 前置（via）は起動した瞬間にしか落ちない——python が「そんなファイルは無い」で止まり、返答が空のまま done が拒む
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", ["{python}", "{plugin_root}/scripts/no-such.py"]),
            "同梱されていない", "via が同梱していない実体を指す graph は落ちる（実行時にしか出ない落ち方を静的に見る）")
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", "scripts/with-auth.py"), "文字列の配列", "via が配列でない graph は落ちる")
-    # skills の要素は object。名前を独立の欄にしておかないと、宣言と返答の
+    # skills の要素は object。名前を独立のフィールドにしておかないと、宣言と返答の
     # 突合に誰も決めていない正規化規則が要る（実測 2026-09-15: 宣言『/simplify（指摘だけ）』に対し返答の綴りが 4 本に分裂した）
     def skills(v):
         return lambda b: b["nodes"]["p1.refuter"].__setitem__("skills", v)
     broken(skills(["pr-review-toolkit:code-reviewer"]), "object", "skills の要素が散文 1 本の graph は落ちる")
     broken(skills([]), "空でない配列", "skills が空配列の graph は落ちる")
     broken(skills([{"skill": "a"}, {"skill": "a"}]), "2 回", "同じ skill を 2 回宣言する graph は落ちる（1 本につき 1 行を数えられない）")
-    broken(skills([{"skill": "a", "effort": "high"}]), "知らない欄", "skills に知らない欄がある graph は落ちる")
+    broken(skills([{"skill": "a", "effort": "high"}]), "知らないフィールド", "skills に知らないフィールドがある graph は落ちる")
     broken(skills([{"skill": "  a"}]), "前後に空白", "skill 名の前後に空白がある graph は落ちる（照合の両側が同じ文字列でなくなる）")
     broken(skills([{"skill": "a", "required": "yes"}]), "真偽値", "required が真偽値でない graph は落ちる")
-    broken(skills([{"args": "high"}]), "skill（名前）が無い", "名前の欄が無い skills の graph は落ちる")
+    broken(skills([{"args": "high"}]), "skill（名前）が無い", "名前のフィールドが無い skills の graph は落ちる")
     # reads は「貼ってよい物の許可表」であって配り口ではない。穴が無ければ役に届かないので、
-    # 宣言だけ在る欄は静的に落とす（実測 2026-09-16: 届いていない reads が 6 件在り、そのうち
-    # prev.r1.minimality に「逐語で写せ」と課す柵を足したせいで 2 周目の P2 が永久に通らなくなるところだった）
+    # 宣言だけ在るフィールドは静的に落とす（実測 2026-09-16: 届いていない reads が 6 件在り、そのうち
+    # prev.r1.minimality に「逐語で写せ」と課すチェックを足したせいで 2 周目の P2 が永久に通らなくなるところだった）
     broken(lambda b: b["nodes"]["p1.refuter"]["reads"].append("round"), "使う穴が prompt_file に無い",
            "宣言だけ在って穴がどのプロンプトにも無い reads を持つ graph は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
-    # engine が実行に使う欄の綴り違い（文書欄 outputs の照合は通っても、実行では黙って素通りしていた）
-    broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無い欄を指す graph は落ちる（記録に着地しない）")
-    # 条件は rules の関数の名前だけ。関数が宣言した読む欄を、graphcheck が実行の前に照らす（以前の JSON の条件の検査は
+    # engine が実行に使うフィールドの綴り違い（文書フィールド outputs の照合は通っても、実行では黙って素通りしていた）
+    broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無いフィールドを指す graph は落ちる（記録に着地しない）")
+    # 条件は rules の関数の名前だけ。関数が宣言した読むフィールドを、graphcheck が実行の前に照合する（以前の JSON の条件の検査は
     # out.・prev. の葉しか見ず、loop.・record. の葉の綴り違いは回すまで分からなかった）
     for name, want, desc in (
-            ("bad_field", "schema に無い", "条件が節の schema に無い欄を読むと宣言した graph は落ちる"),
-            ("bad_prev", "schema に無い", "条件が prev.<節>.<欄> で欄を綴り違えた graph は落ちる"),
+            ("bad_field", "schema に無い", "条件がノードの schema に無いフィールドを読むと宣言した graph は落ちる"),
+            ("bad_prev", "schema に無い", "条件が prev.<ノード>.<フィールド> でフィールドを綴り違えた graph は落ちる"),
             ("bad_loop", "LOOP_KEYS に無い", "条件が rules の LOOP_KEYS に無い loop の鍵を読む graph は落ちる"),
-            ("bad_record", "を書く宣言が無い", "条件が記録に無い欄を読む graph は落ちる"),
-            ("bad_head", "頭が条件の文脈に無い", "条件の読む欄の頭が文脈に無い graph は落ちる"),
+            ("bad_record", "を書く宣言が無い", "条件が記録に無いフィールドを読む graph は落ちる"),
+            ("bad_head", "頭が条件の文脈に無い", "条件の読むフィールドの頭が文脈に無い graph は落ちる"),
             ("bad_rd", "周の鍵", "条件が周の鍵に無い rd.<鍵> を読む graph は落ちる"),
-            ("bad_order", "前（deps の推移閉包）に無い", "条件が自分より後の節の今の出力を読む graph は落ちる"),
-            ("bad_under", "値そのもの", "round の下の欄を読む graph は落ちる"),
-            ("no_reads", "宣言していない", "読む欄を宣言していない条件を指す graph は落ちる")):
+            ("bad_order", "前（deps の推移閉包）に無い", "条件が自分より後のノードの今の出力を読む graph は落ちる"),
+            ("bad_under", "値そのもの", "round の下のフィールドを読む graph は落ちる"),
+            ("no_reads", "宣言していない", "読むフィールドを宣言していない条件を指す graph は落ちる")):
         broken(lambda b, name=name: b["nodes"]["p1.refuter"].__setitem__("cond", name), want, desc)
     broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "round", "op": "eq", "value": 1}), "CONDS の名前でない",
            "条件を JSON の式で書いた graph は落ちる（graph には関数の名前だけ）")
     broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", "no_such"), "CONDS の名前でない", "rules に無い条件の名前を指す graph は落ちる")
     broken(lambda b: b["record"].__setitem__("report_accepts_exit", ["0"]), "report_accepts_exit", "report_accepts_exit に整数でない値を書いた graph は落ちる")
-    # 同じ context を継ぐ節: 役が一致し、遮断系でないこと（review graph で見る）
+    # 同じ context を継ぐノード: 役が一致し、遮断系でないこと（review graph で見る）
     rg = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     rv = str(PLUGIN.parent / "convergence-loops" / "scripts" / "review-record.py")
     for i, (mut, want, desc) in enumerate((
             (lambda b: b["nodes"]["p2.history"].__setitem__("run_by", "inspector"), "役が違う", "same_context_as の役と自分の役が違う graph は落ちる"),
             (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"),
-            # 条件の読む欄は out. だけでなく prev.<節>.<欄> も節の schema と、loop.<鍵> も rules の LOOP_KEYS と突き合わせる
-            (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", "bad_prev_fix"), "schema に無い", "条件が prev.<節>.<欄> で欄を綴り違えた graph は落ちる（再発火条件が恒偽のまま通らない）"),
+            # 条件の読むフィールドは out. だけでなく prev.<ノード>.<フィールド> もノードの schema と、loop.<鍵> も rules の LOOP_KEYS と突き合わせる
+            (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", "bad_prev_fix"), "schema に無い", "条件が prev.<ノード>.<フィールド> でフィールドを綴り違えた graph は落ちる（再発火条件が恒偽のまま通らない）"),
             (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", "bad_loop_key"), "LOOP_KEYS に無い", "条件が loop の鍵を綴り違えた graph は落ちる（以前は検査の外で、default の値に化けた）"),
-            (lambda b: b["nodes"]["p1.gate_efficacy"].__setitem__("applies_cond", "bad_loop_key"), "LOOP_KEYS に無い", "applies_cond の関数の読む欄も同じく照らす"),
-            (lambda b: b["nodes"]["p2.diagnose"]["reads"].append("loop.escalatedd"), "LOOP_KEYS に無い", "節の reads の loop.<鍵> の綴り違いも同じ宣言で落ちる（穴は ABSENT で黙って埋まる）"),
-            (lambda b: b["nodes"]["stop.premise_check"].__setitem__("cond", "bad_record_sub"), "を書く宣言が無い", "記録の writes.to の下の欄の綴り違い（pick に無い）は落ちる"),
+            (lambda b: b["nodes"]["p1.gate_efficacy"].__setitem__("applies_cond", "bad_loop_key"), "LOOP_KEYS に無い", "applies_cond の関数の読むフィールドも同じく照合する"),
+            (lambda b: b["nodes"]["p2.diagnose"]["reads"].append("loop.escalatedd"), "LOOP_KEYS に無い", "ノードの reads の loop.<鍵> の綴り違いも同じ宣言で落ちる（穴は ABSENT で黙って埋まる）"),
+            (lambda b: b["nodes"]["stop.premise_check"].__setitem__("cond", "bad_record_sub"), "を書く宣言が無い", "記録の writes.to の下のフィールドの綴り違い（pick に無い）は落ちる"),
             # graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている
             (lambda b: b["nodes"]["p0.local_checks"]["schema"]["properties"]["material"]["properties"]["status"]["enum"].append("maybe"), "丸ごと含まれない", "素材の status の enum が検証器の語彙からはみ出す graph は落ちる（写しのずれ）"),
             # 遮断系の起動の穴は engine が埋める語だけ——知らない穴は実行時の format で KeyError にしかならなかった
@@ -1132,13 +1132,13 @@ def test_graphcheck():
         r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
-    broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
+    broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（フィールドの名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
     broken(lambda b: b["thickness"].__setitem__("default", "超重厚"), "超重厚", "thickness.default が段に無い graph は落ちる")
     broken(lambda b: b["nodes"]["p0.generation"].__setitem__("active_in", ["deciders"]), "deciders", "thickness のキー名（deciders）を段として使う graph は落ちる")
-    # 検証器の欄との突合は省略で通さない
+    # 検証器のフィールドとの突合は省略で通さない
     broken(lambda b: b["record"].__setitem__("validator_path", "scripts/no-such-record.py"), "見つからない", "検証器のパスが解決できない graph は落ちる（第 2 引数なし）", validator=None)
-    broken(lambda b: None, "必須欄が 1 つも拾えない", "必須欄を持たないファイルを検証器として渡すと落ちる（0 個の突合を合格にしない）", validator=str(PLUGIN / "engine" / "util.py"))
+    broken(lambda b: None, "必須フィールドが 1 つも拾えない", "必須フィールドを持たないファイルを検証器として渡すと落ちる（0 個の突合を合格にしない）", validator=str(PLUGIN / "engine" / "util.py"))
     # rules のフック名の綴り違い（engine は名前一致でしか探さないので、1 字違いは静かに『持たない』に倒れる）
     # rules は graph のディレクトリからの相対で解決されるので、写しの graph（tmp/graphs/）を通す
     bad_rules = (tmp / "rules" / "research-loop.py")
@@ -1151,7 +1151,7 @@ def test_graphcheck():
     check(r.returncode == 1 and "綴り違い" in r.stdout,
           f"rules のフック名の綴り違いは graphcheck が落とす（rc={r.returncode}: {r.stdout.strip()[-90:]}）")
 
-    # 遮断系（道具ゼロの役）は別プロセスで起こすので context を継げない。**実行時の die だけに置かない**
+    # 遮断系（ツールゼロの役）は別プロセスで起動するので context を継げない。**実行時の die だけに置かない**
     iso = json.loads(json.dumps(g))
     tgt = next(k for k, v in iso["nodes"].items() if v.get("run_by") in ("cold-reader", "blind-judge"))
     dep = (iso["nodes"][tgt].get("deps") or ["p0.question"])[0]
@@ -1171,7 +1171,7 @@ def test_graphcheck():
 
 
 def test_bad_builtin():
-    print("否定検査: 機械の節の返りが {ok: 真偽値} でも {decision: …} でもなければ die・節の schema に合わなければ die")
+    print("否定検査: 機械のノードの返りが {ok: 真偽値} でも {decision: …} でもなければ die・ノードの schema に合わなければ die")
     _td_tmp, tmp = parallel.workspace("gl-bb-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
@@ -1183,8 +1183,8 @@ def test_bad_builtin():
                  '\n\ndef undeclared(b, nid):\n    return {"ok": True, "nope": 1}\n\n\nBUILTINS["undeclared"] = undeclared\n', encoding="utf-8")
     run = Run("badbuiltin")
     for builtin, keep_schema, want, desc in (
-            ("shapeless", False, "でも", "schema の無い機械の節（持ち込みの graph）でも、形の違う返りは die（合格に倒さない）"),
-            ("undeclared", True, "schema に合わない", "節の schema に無い欄を返す builtin は die（書いた出力は調べられるよう残す）")):
+            ("shapeless", False, "でも", "schema の無い機械のノード（持ち込みの graph）でも、形の違う返りは die（合格に倒さない）"),
+            ("undeclared", True, "schema に合わない", "ノードの schema に無いフィールドを返す builtin は die（書いた出力は調べられるよう残す）")):
         g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
         g["nodes"]["p1.record_check"]["builtin"] = builtin
         if not keep_schema:
@@ -1226,27 +1226,27 @@ def test_arms():
     q = nx["ready"][0]
     good = base_answers(run, "std")["p0.question"](None, 1)
     r = run.done(q["id"], {**good, "thickness_decider": "誰か"})
-    check(r.returncode == 1 and "型に合わない" in r.stderr and "誰か" in r.stderr, "enum: 語彙に無い決め手は exit 1（段の柵と別の腕）")
+    check(r.returncode == 1 and "型に合わない" in r.stderr and "誰か" in r.stderr, "enum: 語彙に無い決め手は exit 1（段のチェックと別の腕）")
     r = run.done(q["id"], {**good, "thickness": "超重厚"})
     check(r.returncode == 1 and "超重厚" in r.stderr, "語彙に無い段は exit 1")
     r = run.done(q["id"], {**good, "extra": 1})
-    check(r.returncode == 1 and "型に合わない" in r.stderr, "additionalProperties: 知らない欄は exit 1")
+    check(r.returncode == 1 and "型に合わない" in r.stderr, "additionalProperties: 知らないフィールドは exit 1")
     r = run.done(q["id"], {**good, "constraints": "文字列"})
-    check(r.returncode == 1 and "型に合わない" in r.stderr, "type: 配列の欄に文字列は exit 1")
+    check(r.returncode == 1 and "型に合わない" in r.stderr, "type: 配列のフィールドに文字列は exit 1")
     r = run.done(q["id"], {**good, "constraints": []})
     check(r.returncode == 1 and "型に合わない" in r.stderr, "minItems: 制約が空は exit 1")
     r = run.done(q["id"], {**good, "question": ""})
     check(r.returncode == 1 and "型に合わない" in r.stderr, "minLength: 問いが空文字は exit 1")
     r = run.done(q["id"], good)
     check(r.returncode == 0, "正しい返答は通る")
-    # git が効かない場では、作業ツリー保護を持つ役（investigator）の節を出さない（保護を『一致』に倒さない）
+    # git が効かない場では、作業ツリー保護を持つ役（investigator）のノードを出さない（保護を『一致』に倒さない）
     nogit = {**os.environ, "PATH": str(run.tmp / "empty-bin")}
     (run.tmp / "empty-bin").mkdir()
     r = run.cmd("next", env=nogit)
-    check(r.returncode != 0 and "git status が取れない" in r.stderr, "git が無い場からの next は investigator の節で止まる（tree_before=None を通さない）")
+    check(r.returncode != 0 and "git status が取れない" in r.stderr, "git が無い場からの next は investigator のノードで止まる（tree_before=None を通さない）")
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
-    check("p0.prior_decisions" in by, "git が効く場では investigator の節が出る")
+    check("p0.prior_decisions" in by, "git が効く場では investigator のノードが出る")
     f = run.tmp / "pd.json"
     f.write_text(json.dumps(base_answers(run, "std")["p0.prior_decisions"](None, 1), ensure_ascii=False), encoding="utf-8")
     r = run.cmd("done", "--node", by["p0.prior_decisions"]["id"], "--output", str(f), env=nogit)
@@ -1323,13 +1323,13 @@ def test_gate_arms():
 
 
 def test_isolated_launch():
-    """道具ゼロの役は Agent ツールで起こさず、別プロセスの CLI で起こすこと。
+    """ツールゼロの役は Agent ツールで起動せず、別プロセスの CLI で起動すること。
 
-    ハーネスは subagent に CLAUDE.md 階層を注入し、止める設定が公式に無い（実測 2026-09-12: 道具ゼロの
+    ハーネスは subagent に CLAUDE.md 階層を注入し、止める設定が公式に無い（実測 2026-09-12: ツールゼロの
     cold-reader が利用者の CLAUDE.md を逐語で引用した）。setting source ごと外せるのは CLI だけなので、
-    「道具の不在で遮断する」は起こし方まで含めて初めて成立する。
+    「道具の不在で遮断する」は起動方法まで含めて初めて成立する。
     """
-    print("否定検査: 道具ゼロの役は cli で起こす（Agent ツールでは CLAUDE.md を止められない）")
+    print("否定検査: ツールゼロの役は cli で起動する（Agent ツールでは CLAUDE.md を止められない）")
     seen = {}
 
     def watch(run, inst, out):
@@ -1339,8 +1339,8 @@ def test_isolated_launch():
     run = Run("isolated")
     drive(run, "std", hook=watch)
     cli, ag = seen.get("cli", []), seen.get("agent", [])
-    check(bool(cli), f"道具ゼロの役が cli で出る（{sorted({i['node'] for i in cli})}）")
-    check(bool(ag), f"道具を持つ役は cli でなく agent の mode で出る（起こし方は test_research_tooled_launch）（{sorted({i['node'] for i in ag})}）")
+    check(bool(cli), f"ツールゼロの役が cli で出る（{sorted({i['node'] for i in cli})}）")
+    check(bool(ag), f"ツールを持つ役は cli でなく agent の mode で出る（起動方法は test_research_tooled_launch）（{sorted({i['node'] for i in ag})}）")
     L = cli[0].get("launch") if cli else {}
     argv = L.get("argv") or []
 
@@ -1349,40 +1349,40 @@ def test_isolated_launch():
 
     check(L.get("stdin") == cli[0]["prompt_file"] if cli else False, "材料は stdin で渡す（貼る上限に当たらない）")
     check(after("--setting-sources") == "", '起動に --setting-sources "" が入る（CLAUDE.md ごと外す）')
-    check(after("--tools") == "", '起動に --tools "" が入る（道具ゼロを CLI 側でも守る）')
+    check(after("--tools") == "", '起動に --tools "" が入る（ツールゼロを CLI 側でも守る）')
     role = after("--append-system-prompt-file")
     check(bool(role) and pathlib.Path(role).is_file() and pathlib.Path(role).read_text(encoding="utf-8").strip(),
           "役の定義の本文が盤面に書き出され、system prompt として渡る")
     rm(run.tmp)
 
-    # **起こすコマンドが無い場でも next は止まらない。** 計画を出す所で落とすと、遮断系を一度も起こさない場
+    # **起動するコマンドが無い場でも next は止まらない。** 計画を出す所で落とすと、遮断系を一度も起動しない場
     # （この台本・別の機械での再開・記録を読むだけの用）まで全部死ぬ（実測 2026-09-12: ここを die にしたら
     # CI の 3 OS が全部赤になった。手元には claude が在るので緑で、CI でしか出なかった）。
     run = Run("nopath")
-    run.next()  # 最初の波は回す側の節だけ——遮断系が出る波まで 1 手進めてから見る
+    run.next()  # 最初の波は回す側のノードだけ——遮断系が出る波まで 1 手進めてから見る
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
     cdir = os.path.dirname(shutil.which("claude") or "")
     env = {**os.environ, "PATH": os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if p and p != cdir)}
     r = run.cmd("next", env=env)
-    check(r.returncode == 0, f"起こすコマンドが PATH に無くても next は通る（rc={r.returncode}: {r.stderr[:120]}）")
+    check(r.returncode == 0, f"起動するコマンドが PATH に無くても next は通る（rc={r.returncode}: {r.stderr[:120]}）")
     ready = json.loads(r.stdout)["ready"] if r.returncode == 0 else []
     cli2 = [i for i in ready if i.get("mode") == "cli"]
     check(bool(cli2) and all(i["launch"].get("missing") for i in cli2),
-          "起こせない旨が launch.missing に立つ（回す側と記録に見える）")
+          "起動できない旨が launch.missing に立つ（回す側と記録に見える）")
     rm(run.tmp)
 
 
 
 def test_research_tooled_launch():
-    """道具つきの役（investigator・inspector・judge）も engine が起こすこと（graph の launch.tooled）。
+    """ツールつきの役（investigator・inspector・judge）も engine が起動すること（graph の launch.tooled）。
 
-    宣言が無いと launch_spec は黙って None を返し、節は Agent ツールの経路に落ちる——research-loop だけが
-    その形で取り残されていた（2026-09-25）。旗は argv から直に読む: 柵の launch_refusal は claude が PATH に
-    無い場（CI）で必ず『claude が無い』を返すので、ここで当てると CI でだけ赤になる（柵の腕は test_tooled_launch_fence）。
+    宣言が無いと launch_spec は黙って None を返し、ノードは Agent ツールの経路に落ちる——research-loop だけが
+    その形で取り残されていた（2026-09-25）。旗は argv から直に読む: チェックの launch_refusal は claude が PATH に
+    無い場（CI）で必ず『claude が無い』を返すので、ここで当てると CI でだけ赤になる（チェックの腕は test_tooled_launch_fence）。
     """
     from engine.role_run import tooled_permission
     from engine.validator import agent_def
-    print("道具つきの役も engine が起こす: 標準の筋書きで出る役の節は全部 launch を持ち、道具つきの役は tooled の形")
+    print("ツールつきの役も engine が起動する: 標準の筋書きで出る役のノードは全部 launch を持ち、ツールつきの役は tooled の形")
     seen = []
 
     def watch(run, inst, out):
@@ -1393,10 +1393,10 @@ def test_research_tooled_launch():
     drive(run, "std", hook=watch)
     ag = [i for i in seen if i["mode"] == "agent"]
     check(not [i["node"] for i in ag if not i.get("launch")],
-          f"役の節は全部 engine が起こす——Agent ツールの経路に落ちる節が無い（{sorted({i['node'] for i in ag if not i.get('launch')})}）")
+          f"役のノードは全部 engine が起動する——Agent ツールの経路に落ちるノードが無い（{sorted({i['node'] for i in ag if not i.get('launch')})}）")
     roles = sorted({i["agent_type"] for i in ag})
     check(roles == ["convergence-loops:inspector", "convergence-loops:investigator", "convergence-loops:judge"],
-          f"道具つきの 3 役が標準の筋書きに出る（{roles}）")
+          f"ツールつきの 3 役が標準の筋書きに出る（{roles}）")
     for role in roles:
         inst = next(i for i in ag if i["agent_type"] == role)
         L = inst.get("launch") or {}
@@ -1407,15 +1407,15 @@ def test_research_tooled_launch():
 
         tools = agent_def(role)["tools"]
         perm = tooled_permission(tools)
-        # 形（sandbox / read_only）は起こす環境で決まるので、ここでは Bash を持つかどうかで分かれることだけを見る
+        # 形（sandbox / read_only）は起動する環境で決まるので、ここでは Bash を持つかどうかで分かれることだけを見る
         forms = ("sandbox", "read_only") if "Bash" in tools else ("plain",)
         check(L.get("kind") == "tooled" and after("--tools") == ",".join(tools) and after("--allowedTools") == ",".join(perm["allowed_tools"])
               and after("--permission-mode") == perm["permission_mode"] and after("--permission-prompts") == "none"
               and after("--setting-sources") == "" and L.get("form") in forms and (after("--settings") == "{}") == (L.get("form") != "sandbox")
               and "--agents" not in argv and L.get("stdin") == inst["prompt_file"],
-              f"{inst['node']}（{role}）は tooled の形: 定義の道具・engine が決めた権限と設定・聞く先無し・設定を読まない・材料は stdin（{L.get('form')} {argv[2:]}）")
+              f"{inst['node']}（{role}）は tooled の形: 定義のツール・engine が決めた権限と設定・聞く先無し・設定を読まない・材料は stdin（{L.get('form')} {argv[2:]}）")
     rm(run.tmp)
-    # 起こす語は review-loop の graph と同じ（理由の正本は review-loop の why。語がずれたら片方だけが古い）
+    # 起動する語は review-loop の graph と同じ（理由の正本は review-loop の why。語がずれたら片方だけが古い）
     here = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))["launch"]
     there = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))["launch"]
     for kind in ("isolated", "tooled"):
@@ -1426,8 +1426,8 @@ def test_research_tooled_launch():
 def _fake_claude(bindir, body):
     """代役の claude を、**実物と同じ実行形式**で置く。返り値は argv[0] に渡すパス。
 
-    実物（/usr/local/bin/claude 等）は OS が直接起こせる実行体で、shebang 付きのテキストは POSIX でしか
-    起こせない。代役だけを shebang のスクリプトにしていたとき、Windows の CreateProcess は shebang を
+    実物（/usr/local/bin/claude 等）は OS が直接起動できる実行体で、shebang 付きのテキストは POSIX でしか
+    起動できない。代役だけを shebang のスクリプトにしていたとき、Windows の CreateProcess は shebang を
     解釈しないので **代役だけが起動できず**、この腕が OSError（WinError 193）で模擬実行ごと止めた
     （実測 2026-09-13: HEAD c73fd6e の CI で windows-latest が 320 件中 139 件で停止）。腕の目的は
     「engine が組んだ argv をそのまま実行する」ことなので、argv を書き換えず実行形式の側を実物に寄せる。
@@ -1435,7 +1435,7 @@ def _fake_claude(bindir, body):
     impl = bindir / "fake_claude_impl.py"
     impl.write_text(body, encoding="utf-8")
     if os.name == "nt":
-        # CreateProcess は .bat / .cmd を cmd.exe 経由で起こせる（shebang は解さない）
+        # CreateProcess は .bat / .cmd を cmd.exe 経由で起動できる（shebang は解さない）
         fake = bindir / "claude.bat"
         fake.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
         return fake
@@ -1446,13 +1446,13 @@ def _fake_claude(bindir, body):
 
 
 def test_isolated_real_launch():
-    """遮断系を **argv どおりに実際に起こす**。代役が argv の形しか見ていないと、実物の失敗形（非 0 終了・空返答・
+    """遮断系を **argv どおりに実際に起動する**。代役が argv の形しか見ていないと、実物の失敗形（非 0 終了・空返答・
     短い非 JSON）を一度も観測できない——REVIEW.md『動かして赤・失敗を一度も見ていない保護機構を機能していると扱わない』。
 
     偽の claude は**この腕の env にだけ** PATH の先頭で渡す。run 全体の PATH に置くと、test_isolated_launch の
     nopath の腕（shutil.which("claude") の親だけを外す作り）が本物を残したまま緑になる。
     """
-    print("実起動: 遮断系を launch.argv どおりに起こし、返答と失敗形を観測する")
+    print("実起動: 遮断系を launch.argv どおりに起動し、返答と失敗形を観測する")
     run = Run("reallaunch")
     run.next()
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
@@ -1469,28 +1469,28 @@ def test_isolated_real_launch():
     env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""), "FAKE_MODE": "seen"}
     argv = list(inst["launch"]["argv"])
     # **差し替えるのは claude の 1 語だけ。** argv[0] を偽物にしていたとき、前置（launch.isolated.via の
-    # with-auth）を丸ごと飛び越えて起こしていて、層が在ろうと無かろうとこの腕は緑だった（2026-09-15 に
+    # with-auth）を丸ごと飛び越えて起動していて、層が在ろうと無かろうとこの腕は緑だった（2026-09-15 に
     # 前置を足した周で発覚）。engine は next の時点で PATH から解決済みなので、解決後の綴りで名指しする。
     target = shutil.which("claude") or "claude"
-    check(target in argv, f"engine が組んだ argv に起こす対象が 1 語で在る（{target}）")
+    check(target in argv, f"engine が組んだ argv に起動する対象が 1 語で在る（{target}）")
     argv[argv.index(target)] = str(fake)
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
-    check(r.returncode == 0, f"argv どおりに起こせて exit 0（{r.returncode}: {r.stderr[:120]}）")
+    check(r.returncode == 0, f"argv どおりに起動できて exit 0（{r.returncode}: {r.stderr[:120]}）")
     check("with-auth: auth=" in r.stderr, f"前置の層を通って起きている（標準エラーに 1 行。{r.stderr[:80]!r}）")
     check(r.stdout.strip().startswith("{"), "層の語が標準出力に混ざらない（out_path に落とすのは子の返答だけ）")
     got = json.loads(json.loads(r.stdout)["result"])  # --output-format json の包みの本文
     want = len(pathlib.Path(inst["launch"]["stdin"]).read_bytes())
     check(got["seen_bytes"] == want, f"標準入力が欠けずに届く（届いた {got['seen_bytes']} / 渡した {want} バイト）")
     check("--setting-sources" in got["argv"] and got["argv"][got["argv"].index("--setting-sources") + 1] == "",
-          "起こされた側の argv にも遮断のフラグが入っている（形だけでなく実際に渡っている）")
+          "起動された側の argv にも遮断のフラグが入っている（形だけでなく実際に渡っている）")
 
     # 実物の失敗形: 非 0 終了と短い非 JSON（1 周目の認証落ちがこの形だった）
     fake = _fake_claude(bindir, "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('Invalid API key\\n')\nsys.exit(1)\n")
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     check(r.returncode != 0 and "Invalid API key" in r.stdout, f"失敗形（非 0・短い非 JSON）を観測できる（rc={r.returncode}）")
-    check("rc=1" in r.stderr, f"前置の層が非 0 を見て、どの段で起こしたかを添える（{r.stderr[-90:]!r}）")
+    check("rc=1" in r.stderr, f"前置の層が非 0 を見て、どの段で起動したかを添える（{r.stderr[-90:]!r}）")
     out = run.tmp / "bad.json"
     out.write_text(r.stdout, encoding="utf-8")
     d = run.cmd("done", "--node", inst["id"], "--output", str(out))
@@ -1508,7 +1508,7 @@ def _load_claude_auth():
 
 
 def test_with_auth():
-    """遮断系を起こす前に**認証だけ**を足す層（launch.isolated.via）。
+    """遮断系を起動する前に**認証だけ**を足す層（launch.isolated.via）。
 
     子は対話の claude の認証を継がない（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、
     done が非 JSON として拒んだ）。段は 3 つで、**Keychain は mac だけの追加段**——この腕の半分は
@@ -1533,7 +1533,7 @@ def test_with_auth():
         calls.clear()
         env, note = wa.auth_env({k: "x", "CLAUDE_CONFIG_DIR": "/tmp/.claude-p1"}, runner=runner("sk-ant-oat01-kc"), **mac)
         check(note == f"inherited({k})" and not calls, f"親の {k} が在れば Keychain を引かない（{note}、引いた回数 {len(calls)}）")
-    # 2. mac 以外は Keychain を引かない（security が無い環境でここを通ると毎回 1 プロセス無駄に起こす）
+    # 2. mac 以外は Keychain を引かない（security が無い環境でここを通ると毎回 1 プロセス無駄に起動する）
     calls.clear()
     env, note = wa.auth_env({"CLAUDE_CONFIG_DIR": "/tmp/.claude-p1"}, platform="linux", runner=runner("sk-ant-oat01-kc"))
     check(note == "none" and not calls, f"mac 以外は Keychain を引かない（{note}、引いた回数 {len(calls)}）")
@@ -1564,7 +1564,7 @@ def test_with_auth():
     check(env["CLAUDE_CONFIG_DIR"].endswith(".claude") and "default" in note,
           f"CLAUDE_CONFIG_DIR 未設定なら既定を明示して子に渡す（{env['CLAUDE_CONFIG_DIR']}、{note}）")
     # 4. 取れない・壊れている・security が落ちる——**どれも例外にせず、足さずに進む**。
-    #    ここで落とすと、子の保存済み認証で普通に動く場（mac 以外・別経路で認証済み）まで起こせなくなる
+    #    ここで落とすと、子の保存済み認証で普通に動く場（mac 以外・別経路で認証済み）まで起動できなくなる
     for kind, run, want in (("空振り", runner(""), "keychain-miss"),
                             ("壊れた値", runner("junk"), "keychain-malformed"),
                             ("security が落ちる", runner(boom=OSError("no security")), "keychain-error")):
@@ -1574,8 +1574,8 @@ def test_with_auth():
 
     # 5. 実起動——層を通しても標準入力は欠けず、標準出力は子の返答だけ、終了コードはそのまま返る
     td, tmp = parallel.workspace("gl-withauth-")
-    # **代役は `claude` の名前で置く。** 層は名前で起こす相手を縛っている（許可ルールを広げないため）ので、
-    # 別名のスクリプトで検査すると、実物と違う枝（名前で撥ねる側）を通ってしまう
+    # **代役は `claude` の名前で置く。** 層は名前で起動する相手を縛っている（許可ルールを広げないため）ので、
+    # 別名のスクリプトで検査すると、実物と違う分岐（名前で撥ねる側）を通ってしまう
     bindir = tmp / "bin"
     bindir.mkdir()
     fake = _fake_claude(bindir,
@@ -1584,7 +1584,7 @@ def test_with_auth():
                         "sys.stdout.write('%d %s\\n' % (len(raw), os.environ.get('CLAUDE_CONFIG_DIR', '')))\n"
                         "sys.exit(int(sys.argv[1]))\n")
     cfg = str(tmp / ".claude-p9")
-    # 親の認証は落として起こす。**在る機械と無い機械で結果が変わらない腕にする**——CI（mac 以外）でも
+    # 親の認証は落として起動する。**在る機械と無い機械で結果が変わらない腕にする**——CI（mac 以外）でも
     # 手元（mac・Keychain 在り）でも、無い名前の項目を指せば「足さずに進む」側を通る
     env = {k: v for k, v in os.environ.items() if k not in wa.INHERITED}
     env.update({"CLAUDE_CONFIG_DIR": cfg, "GL_KEYCHAIN_SERVICE": "graphloops-test-no-such-service"})
@@ -1596,7 +1596,7 @@ def test_with_auth():
     check(out.split()[1] == cfg, f"CLAUDE_CONFIG_DIR が子の環境に入る（{out.split()[1]}）")
     check(err.startswith("with-auth: auth=") and "sk-ant" not in err, f"採った段を標準エラーの 1 行目に出す（トークンは出さない。{err.strip()[:70]}）")
     # **認証落ちは rc では捕まらない**（実測 2026-09-15: 層無しの claude は『Failed to authenticate…』を
-    # 標準出力に・exit 0 で返した）。足せなかった回だけ、起こす前に言う
+    # 標準出力に・exit 0 で返した）。足せなかった回だけ、起動する前に言う
     check("終了コード 0 のまま" in err, f"認証を足せなかった回は、静かな落ち方の注意が付く（{err.strip()[-60:]}）")
     r2 = subprocess.run(wrap + [str(fake), "0"], input=body, capture_output=True, timeout=600,
                         env={**env, "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-parent"})
@@ -1608,7 +1608,7 @@ def test_with_auth():
     r = subprocess.run(wrap, capture_output=True, env=env, timeout=600)
     check(r.returncode == 2, f"コマンドを渡さなければ exit 2（{r.returncode}）")
     r = subprocess.run(wrap + [str(tmp / "nobin" / "claude")], capture_output=True, env=env, timeout=600)
-    check(r.returncode == 127, f"起こせない（在りもしない）claude は exit 127 で、その旨を言う（{r.returncode}）")
+    check(r.returncode == 127, f"起動できない（在りもしない）claude は exit 127 で、その旨を言う（{r.returncode}）")
     # **許可ルールを広げないための縛り。** 回す側の環境はこの層を名指しして許可することになるので、
     # 何でも exec できる層だと、その 1 本が「何でも起こしてよい」の意味になる
     r = subprocess.run(wrap + [PY, "-c", "print(1)"], capture_output=True, env=env, timeout=600)
@@ -1618,14 +1618,14 @@ def test_with_auth():
 
 
 def test_engine_launch():
-    """遮断系は **engine が起こす**（`loop.py launch`）。回す側の Bash に子の claude を出さない。
+    """遮断系は **engine が起動する**（`loop.py launch`）。回す側の Bash に子の claude を出さない。
 
-    回す側が Bash から起こす形は、出力を out_path に落とす綴りだと auto mode の分類器が止める
+    回す側が Bash から起動する形は、出力を out_path に落とす綴りだと auto mode の分類器が止める
     （実測 2026-09-15）。Agent ツールへ逃げると CLAUDE.md が注入されて遮断が名ばかりになる（実測 2026-09-12）。
-    起こす場所を engine へ移すぶん、**何を起こすかは engine が機械で縛る**——この腕の後半はその柵。
+    起動する場所を engine へ移すぶん、**何を起動するかは engine が機械で縛る**——この腕の後半はそのチェック。
     """
-    from engine.commands import launch_prefix, launch_refusal  # 起こしてよい形は engine が正本
-    print("engine 起動: 遮断系を loop.py launch で起こし、受け付けまで済ませ、起こしてよい形を柵で縛る")
+    from engine.commands import launch_prefix, launch_refusal  # 起動してよい形は engine が正本
+    print("engine 起動: 遮断系を loop.py launch で起動し、受け付けまで済ませ、起動してよい形をチェックで縛る")
     run = Run("englaunch")
     run.next()
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
@@ -1641,7 +1641,7 @@ def test_engine_launch():
     ans = run.tmp / "answer.json"
     ans.write_text(json.dumps(base_answers(run, "std")[inst["node"]](load_item(inst), 1), ensure_ascii=False), encoding="utf-8")
     log = run.tmp / "fake.log"
-    # 役が誤りで終わった回: 受け付けに回さず、層の 1 行（with-auth: auth=…）を運び、起こし直しの記録を残す
+    # 役が誤りで終わった回: 受け付けに回さず、層の 1 行（with-auth: auth=…）を運び、起動し直しの記録を残す
     # ——層の行を運ばないと、認証落ちが「役の返答の不良」に見える
     data = run.tmp / "plugin-data"
     r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "error", "CLAUDE_PLUGIN_DATA": str(data)})
@@ -1657,13 +1657,13 @@ def test_engine_launch():
     check(not bad.get("ok") and "誤りで終わった" in (bad.get("why") or "") and "with-auth: auth=" in (bad.get("stderr") or ""),
           f"誤りの包みは受け付けず、層の標準エラーを結果に運ぶ（{bad.get('why')} / {(bad.get('stderr') or '')[:50]}）")
     check(me.get("status") == "pending" and [x.get("kind") for x in me.get("attempt_log", [])] == ["failed"],
-          f"落ちた起動は盤面の attempt_log に理由つきで残り、節は待ったまま（{me.get('status')} {me.get('attempt_log')}）")
+          f"落ちた起動は盤面の attempt_log に理由つきで残り、ノードは待ったまま（{me.get('status')} {me.get('attempt_log')}）")
     r = run.cmd("launch", "--node", inst["id"], env=env)
-    check("起こし済み" in r.stdout, f"起こした試行は 2 度起こさない——出口は relaunch（{r.stdout[-120:]}）")
+    check("起動済み" in r.stdout, f"起動した試行は 2 度起動しない——出口は relaunch（{r.stdout[-120:]}）")
     old_out = me.get("out_path")
     r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 役が誤りで終わった", env=env)
     check(r.returncode == 0, f"relaunch で新しい試行を作れる（{r.stderr[-80:]}）")
-    # 遅れて終わった古い試行が、新しい試行の節を受け付けさせない（本文は今の試行の置き場からしか読まない）
+    # 遅れて終わった古い試行が、新しい試行のノードを受け付けさせない（本文は今の試行の置き場からしか読まない）
     from engine.commands import _accept_for_launch
     from engine.util import Reject
     pathlib.Path(old_out).write_text(ans.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1672,11 +1672,11 @@ def test_engine_launch():
         stale = "受け付けた"
     except Reject as e:
         stale = str(e)
-    check("起こし直されている" in stale, f"古い試行の返答は、新しい試行の節に受け付けない（{stale[:60]}）")
+    check("起動し直されている" in stale, f"古い試行の返答は、新しい試行のノードに受け付けない（{stale[:60]}）")
     r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_OUT": str(ans), "FAKE_LOG": str(log), "FAKE_SESSION": "sess-cli"})
     got = json.loads(r.stdout)["launched"] if r.returncode == 0 else []
     one = got[0] if got else {}
-    check(r.returncode == 0 and one.get("ok"), f"engine が起こして ok（rc={r.returncode}: {one.get('why') or r.stderr[-160:]}）")
+    check(r.returncode == 0 and one.get("ok"), f"engine が起動して ok（rc={r.returncode}: {one.get('why') or r.stderr[-160:]}）")
     st = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
     me = st["rounds"][-1]["instances"].get(inst["id"], {})
     check(me.get("status") == "done" and me.get("session_id") == "sess-cli" and me.get("launch_state") == "ended",
@@ -1695,11 +1695,11 @@ def test_engine_launch():
     cwd = seen[0].get("cwd") if seen else None
     in_git = cwd is not None and subprocess.run(["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, encoding="utf-8").stdout.strip() == "true"
     check(cwd is not None and not in_git and not pathlib.Path(cwd).resolve().is_relative_to(run.repo.resolve()),
-          f"道具ゼロの役は Git リポジトリの外の一時ディレクトリで起こす（git status の写しを注入させない。cwd {cwd}）")
+          f"ツールゼロの役は Git リポジトリの外の一時ディレクトリで起動する（git status の写しを注入させない。cwd {cwd}）")
     r2 = run.cmd("launch", "--node", inst["id"], env=env)
-    check(r2.returncode == 1 and "起こせる節が無い" in r2.stderr, f"済んだ節は起こし直さない（{r2.returncode}: {r2.stderr[-80:]}）")
+    check(r2.returncode == 1 and "起動できるノードが無い" in r2.stderr, f"済んだノードは起動し直さない（{r2.returncode}: {r2.stderr[-80:]}）")
 
-    # **柵は graph の宣言を読まない。** graph を書き換えられる立場の人が柵ごと書き換えられるので、
+    # **チェックは graph の宣言を読まない。** graph を書き換えられる立場の人がチェックごと書き換えられるので、
     # engine は「自分の前置」と「遮断の旗」だけを見る
     from engine.validator import agent_def
     cold = agent_def("convergence-loops:cold-reader")
@@ -1709,29 +1709,29 @@ def test_engine_launch():
             "launch": {"argv": launch_prefix() + ["claude", "-p", "--model", cold["model"], "--effort", cold["effort"], "--tools", "",
                                                   "--setting-sources", "", "--append-system-prompt-file", str(role_file),
                                                   "--output-format", "json"], "stdin": str(fake)}}
-    check(launch_refusal(good) is None, f"前置と旗が揃っていれば起こす（{launch_refusal(good)}）")
+    check(launch_refusal(good) is None, f"前置と旗が揃っていれば起動する（{launch_refusal(good)}）")
     for mut, want in ((lambda a: a[:1] + a[2:], "前置"),                    # 同梱の層を外す
                       (lambda a: [x for x in a if x != "--tools"], "旗")):  # 遮断の旗を落とす
         why = launch_refusal({**good, "launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(fake)}}) or ""
-        check(want in why, f"{want} が違えば engine は起こさない（{why[:70]}）")
+        check(want in why, f"{want} が違えば engine は起動しない（{why[:70]}）")
     why = launch_refusal({**good, "launch": {**good["launch"], "missing": "claude"}}) or ""
-    check("この環境に" in why, f"claude の無い環境では起こさず、その旨を返す（{why[:50]}）")
-    # **綴りが違っても同じ層なら起こし、外へ出た綴りは撥ねる**（柵が緩んでいないことを対で見る）。
+    check("この環境に" in why, f"claude の無い環境では起動せず、その旨を返す（{why[:50]}）")
+    # **綴りが違っても同じ層なら起動し、外へ出た綴りは撥ねる**（チェックが緩んでいないことを対で見る）。
     # なぜ綴りが混ざるか・なぜ normpath で足りるかは engine.commands._norm が持つ
     for spelling, same in ((os.path.join(str(PLUGIN), "scripts", ".", "with-auth.py"), True),
                            (os.path.join(str(PLUGIN), "scripts", "..", "..", "evil.py"), False)):
         argv = [good["launch"]["argv"][0], spelling, *good["launch"]["argv"][2:]]
         why = launch_refusal({**good, "launch": {"argv": argv, "stdin": str(fake)}})
         check((why is None) == same,
-              f"{'同じ層を指す綴りなら起こす' if same else '外へ出た綴りは撥ねる'}（{why or 'ok'}）")
+              f"{'同じ層を指す綴りなら起動する' if same else '外へ出た綴りは撥ねる'}（{why or 'ok'}）")
     rm(run.tmp)
 
 
 def test_role_run():
-    """役を起こす関数（engine/role_run.run_role）を代役の claude で端から端まで通す。盤面を持たずに呼べること・
-    包みを解いて本文だけを書くこと・拒まれたら同じ会話に続きを頼むこと・起こし直しで子を木ごと止めること。"""
+    """役を起動する関数（engine/role_run.run_role）を代役の claude で端から端まで通す。盤面を持たずに呼べること・
+    包みを解いて本文だけを書くこと・拒まれたら同じ会話に続きを頼むこと・起動し直しで子を木ごと止めること。"""
     from engine import role_run
-    print("役を起こす関数: 包み・受け付け・同じ会話での出し直し・起こし直しで木ごと止める・役のせいでない失敗は続けない")
+    print("役を起動する関数: 包み・受け付け・同じ会話での出し直し・起動し直しで木ごと止める・役のせいでない失敗は続けない")
     _td, tmp = parallel.workspace("gl-rolerun-")
     bindir = tmp / "bin"
     bindir.mkdir()
@@ -1766,7 +1766,7 @@ def test_role_run():
     rows = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
     check([x.get("kind") for x in rows] == ["first", "resume"] and all(x.get("op") == "role_run" and x.get("instance") == "x" for x in rows)
           and rows[1].get("permission_denials") == ["WebFetch"] and all(x.get("envelope") is True for x in rows),
-          f"1 起動 1 行の要約（op=role_run・添えた値・権限で拒まれた道具）を JSON Lines で足す（{[(x.get('kind'), x.get('permission_denials')) for x in rows]}）")
+          f"1 起動 1 行の要約（op=role_run・添えた値・権限で拒まれたツール）を JSON Lines で足す（{[(x.get('kind'), x.get('permission_denials')) for x in rows]}）")
     # 上限まで拒まれ続けたら止める（続けない）
     r = role_run.run_role(argv, prompt, out, accept=lambda _t: "いつも拒む", resume_argv=resume, max_resumes=1, env=env)
     check(not r["ok"] and len(r["runs"]) == 2 and r["accepted"] is False and "いつも拒む" in r["why"],
@@ -1786,7 +1786,7 @@ def test_role_run():
           and one.get("session_id") == "sess-9" and one.get("total_cost_usd") == 0.002 and one.get("num_turns") == 9
           and '"error_max_turns"' in (one.get("stdout_head") or ""),
           f"result の無い誤りの包みは subtype と errors を理由に出し、要約と標準出力の頭を残す（{r['why']} / {one.get('session_id')}）")
-    # 包まずに本文だけが出た回（--output-format text の語で起こした古い graph の run）: 全文を本文として受け付けに回す。
+    # 包まずに本文だけが出た回（--output-format text の語で起動した古い graph の run）: 全文を本文として受け付けに回す。
     # 受け付けは engine の本物（commands.parse_output）。3 形（素の JSON・``` 囲い・後ろに文）の読み分けは
     # graphloops/tests/py/test_role_run_unwrap.py が見るので、ここは子プロセスを通す 1 形だけ
     from engine.commands import parse_output
@@ -1853,7 +1853,7 @@ def test_role_run():
                 time.sleep(0.05)
 
         def sleeper(extra):
-            """眠る子（孫も立てる）を run_role で起こし、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
+            """眠る子（孫も立てる）を run_role で起動し、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
             pidf = tmp / f"grandchild-{'-'.join(sorted(extra))}.pid"
             got = {}
             th = threading.Thread(target=lambda: got.update(role_run.run_role(
@@ -1873,7 +1873,7 @@ def test_role_run():
         try:
             th, got, pid = sleeper({})
             check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
-                  "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
+                  "起動した子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
             t0 = time.monotonic()
             why = role_run.stop_group(str(mark))
             th.join(30)
@@ -1889,7 +1889,7 @@ def test_role_run():
                   f"kill_all は生きている子を孫まで止める（launch が止められても子を残さない。pid {pid}）")
         finally:
             role_run._end_attempt = real_end
-        # 起こした直後に起こし直されていたと分かったら、その子を自分で止めて『起こし直された』で返る（still_mine）
+        # 起動した直後に起動し直されていたと分かったら、その子を自分で止めて『起動し直された』で返る（still_mine）
         seen_mark = {}
 
         def superseded():
@@ -1899,7 +1899,7 @@ def test_role_run():
         th, got, _ = sleeper({"still_mine": superseded})
         th.join(30)
         check(not th.is_alive() and got.get("superseded") and not got.get("ok") and got.get("why") == role_run.SUPERSEDED,
-              f"起こし直された試行は子を止めて返る（{got.get('why')}）")
+              f"起動し直された試行は子を止めて返る（{got.get('why')}）")
         leader = seen_mark.get("pgid")
         check(not mark.exists() and leader is not None and gone(leader),
               f"そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある（pgid {leader}）")
@@ -1929,8 +1929,8 @@ def test_role_run():
         mark.unlink()
 
         def escaped(escape, leader_stays=True):
-            """孫がグループの外へ出る木を起こす ——(長の Popen, 孫の pid)。escape は孫が最初に呼ぶ口（setpgid はジョブ制御つきの
-            シェルが背景の仕事を移す形、setsid は新しいセッションへ抜ける形）。leader_stays が偽なら長は孫を起こしてすぐ終わる。
+            """孫がグループの外へ出る木を起動する ——(長の Popen, 孫の pid)。escape は孫が最初に呼ぶ口（setpgid はジョブ制御つきの
+            シェルが背景の仕事を移す形、setsid は新しいセッションへ抜ける形）。leader_stays が偽なら長は孫を起動してすぐ終わる。
             長も孫も、台本が握る標準入力の管の EOF まで眠る（台本が後始末で閉じる・SIGKILL で消えると終わる）"""
             grand = f"import os, sys\n{escape}\nprint(os.getpid(), flush=True)\nsys.stdin.read()\n"
             leader = subprocess.Popen([sys.executable, "-c", "import subprocess, sys\n"
@@ -1968,7 +1968,7 @@ def test_role_run():
                         st = subprocess.run(["ps", "-o", "stat=", "-p", str(leader.pid)], capture_output=True, text=True,
                                             encoding="utf-8").stdout.strip()
                     except OSError as e:
-                        st = f"ps を起こせない（{e}）"
+                        st = f"ps を起動できない（{e}）"
                         break
                     if st[:1] == "Z":
                         break
@@ -2032,7 +2032,7 @@ def test_role_run():
                   f"run_steps: 段の背景のプロセスは次の段まで生き（段ごとには止めない）、試行の終わりに止める。"
                   f"keep_background を宣言した段は残す（keep={keep}・exit {[x['exit'] for x in runs]}・生存 {survived}）")
             if survived:
-                os.kill(gp, 9)   # 起こした直後に自分で読んだ番号（宣言どおり残った物を片付ける）
+                os.kill(gp, 9)   # 起動した直後に自分で読んだ番号（宣言どおり残った物を片付ける）
         # 全プロセスの表が読めない（ps が失敗する）回: グループへは送って子は止めるが、外へ出た子孫を確かめていないので
         # 止まったと言わない。PATH を替えるので子のプロセスで走らせる（台本の環境を汚さない）
         fake = tmp / "fake-ps"
@@ -2062,12 +2062,12 @@ def test_role_run():
     else:
         # posix の囲いの check と同じ本数を見送りで数える（件数は OS に依らず同じ）——囲いに check を足したらここにも足す
         for desc in (
-                "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口",
+                "起動した子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口",
                 "stop_group は別の口から試行の子を止め、run_role は失敗として返る",
                 "stop_group では孫（前置の層の先の claude に当たる）まで止まる",
                 "子が終わったら印を消す（残った番号が別のグループに当たらない）",
                 "kill_all は生きている子を孫まで止める（launch が止められても子を残さない）",
-                "起こし直された試行は子を止めて返る",
+                "起動し直された試行は子を止めて返る",
                 "そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある",
                 "番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す",
                 "開始時刻を確かめられなければ止めずに理由を返す",
@@ -2098,14 +2098,14 @@ def test_role_run():
 
 def test_relaunch_live_launch():
     """**生きている launch に relaunch する**（回す側の案内どおりの使い方）。relaunch は新しい試行を盤面に書いてから古い試行の子を
-    止めるので、止められた古い launch の締めは版の競りで relaunch を落とさず、『起こし直された古い試行』に言い換わる
+    止めるので、止められた古い launch の締めは版の競りで relaunch を落とさず、『起動し直された古い試行』に言い換わる
     （実測 2026-09-25: 止めてから書いていた版は 4 回とも exit 2）"""
     if os.name != "posix":
-        for desc in ("relaunch: 生きている launch への 1 回目の起こし直しが通る", "古い launch の行は『起こし直された古い試行』に言い換わる",
+        for desc in ("relaunch: 生きている launch への 1 回目の起動し直しが通る", "古い launch の行は『起動し直された古い試行』に言い換わる",
                      "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）"):
             skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（代役の子と孫を眠らせて止める）に頼る")
         return
-    print("生きている launch への relaunch: 1 回目で通り、古い launch は起こし直された試行として締める")
+    print("生きている launch への relaunch: 1 回目で通り、古い launch は起動し直された試行として締める")
     run = Run("relaunch-live")
     run.next()
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
@@ -2123,7 +2123,7 @@ def test_relaunch_live_launch():
     t0 = time.monotonic()
     while not (mark.is_file() and pidf.is_file() and pidf.read_text(encoding="utf-8")) and time.monotonic() - t0 < 60:
         time.sleep(0.05)
-    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 生きている launch を起こし直す", env=env)
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 生きている launch を起動し直す", env=env)
     try:
         out, err = lp.communicate(timeout=60)
     except subprocess.TimeoutExpired:
@@ -2131,11 +2131,11 @@ def test_relaunch_live_launch():
         out, err = lp.communicate()
     me = run.state()["rounds"][-1]["instances"][inst["id"]]
     check(r.returncode == 0 and me.get("attempts") == 2,
-          f"relaunch: 生きている launch への 1 回目の起こし直しが通る（rc={r.returncode} attempts={me.get('attempts')} {r.stderr.strip()[-120:]}）")
+          f"relaunch: 生きている launch への 1 回目の起動し直しが通る（rc={r.returncode} attempts={me.get('attempts')} {r.stderr.strip()[-120:]}）")
     rows = json.loads(out)["launched"] if lp.returncode == 0 and out.strip() else []
     from engine.role_run import SUPERSEDED
     check(rows and rows[0].get("superseded") and rows[0].get("why") == SUPERSEDED,
-          f"古い launch の行は『起こし直された古い試行』に言い換わる（rc={lp.returncode} {rows[:1]} {err.strip()[-120:]}）")
+          f"古い launch の行は『起動し直された古い試行』に言い換わる（rc={lp.returncode} {rows[:1]} {err.strip()[-120:]}）")
     check(me.get("status") == "pending" and not me.get("launched_at") and me["out_path"] != inst["out_path"],
           "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）")
     rm(run.tmp)
@@ -2266,7 +2266,7 @@ d, iid = sys.argv[2], sys.argv[3]
 state = pathlib.Path(d) / "state.json"
 
 def racing_probe(_mark):
-    # 印を確かめている間に、別の relaunch が同じ instance を起こし直した（置き場が変わった）
+    # 印を確かめている間に、別の relaunch が同じ instance を起動し直した（置き場が変わった）
     st = json.loads(state.read_text(encoding="utf-8"))
     st["rounds"][-1]["instances"][iid]["out_path"] += ".a9.json"
     state.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
@@ -2282,8 +2282,8 @@ except Reject as e:
 
 
 def test_relaunch_race():
-    """読んでいる間に別の relaunch が同じ instance を起こし直したら、新しい試行を重ねずに拒む（別のプロセスで差し替えて起こす）"""
-    print("起こし直しの競り: 読んでいる間に置き場が変わったら拒む")
+    """読んでいる間に別の relaunch が同じ instance を起動し直したら、新しい試行を重ねずに拒む（別のプロセスで差し替えて起動する）"""
+    print("起動し直しの競り: 読んでいる間に置き場が変わったら拒む")
     run = Run("relaunch-race")
     run.next()
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
@@ -2293,7 +2293,7 @@ def test_relaunch_race():
                        env=PROBE_ENV, timeout=300)
     me = run.state()["rounds"][-1]["instances"][inst["id"]]
     check("別の relaunch" in r.stdout and me.get("attempts", 1) == 1,
-          f"relaunch: 読んでいる間に別の relaunch が起こし直していたら、新しい試行を作らない（{r.stdout.strip()[-120:]} {r.stderr[-120:]} attempts={me.get('attempts')}）")
+          f"relaunch: 読んでいる間に別の relaunch が起動し直していたら、新しい試行を作らない（{r.stdout.strip()[-120:]} {r.stderr[-120:]} attempts={me.get('attempts')}）")
     rm(run.tmp)
 
 
@@ -2306,12 +2306,12 @@ got = {}
 with R._LIVE_LOCK:
     R.kill_all()
     got["reentrant"] = True
-# 止める信号の後に起こした子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
+# 止める信号の後に起動した子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
 if os.name == "posix":
     R._STOPPING.set()
     try:
         R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
-        got["stopping"] = "起こした"
+        got["stopping"] = "起動した"
     except R.StopSignal:
         got["stopping"] = "StopSignal"
     got["live_after"] = len(R.LIVE)
@@ -2348,16 +2348,16 @@ def test_stop_signal_guards():
     check(got.get("reentrant") is True, f"信号の口（kill_all）は錠を持つ最中の同じスレッドでも止まらない（{err[-160:]}）")
     if os.name == "posix":
         check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
-              f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+              f"止める信号の後に起動した子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
     else:
-        skip("止める信号の後に起こした子はすぐ止めて StopSignal を上げる", "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
+        skip("止める信号の後に起動した子はすぐ止めて StopSignal を上げる", "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
     check(got.get("tree_left") == "検査用の止め切れない理由", f"止め切れなかった木の理由は時間切れの例外に添えて運ぶ（{got.get('tree_left')}）")
 
 
 def test_board_conflict():
     """**版の衝突の消費側**: _board_update は読み直して当て直し、成功した回は失敗の文も重なった trace も残さない。launch の
     印付け（mark）は当て直しで行を重ねない。受け付けが当て直しの回数まで負けたら、launch は done の案内を足せる印を立てる。
-    engine の関数を差し替えて起こすので、別のプロセスで走らせる（台本は同じプロセスで並列に走る——差し替えが他の台本に漏れる）"""
+    engine の関数を差し替えて起動するので、別のプロセスで走らせる（台本は同じプロセスで並列に走る——差し替えが他の台本に漏れる）"""
     print("版の衝突: 読み直して当て直す・成功した回は文も trace も重ねない・mark は行を重ねない・受け付けの負けは印で運ぶ")
     run = Run("conflict")
     run.next()
@@ -2373,7 +2373,7 @@ def test_board_conflict():
     check(lose[0] == 2 and "盤面が読んだ後に進んでいる" in lose[1] and lose[2] == lose[1],
           f"_board_update: 当て直しの回数まで負けたら BoardConflict（exit 2・文は呼び手が出す）を上げる（{lose}）")
     check(got.get("mark_hit") and got.get("launched") == [got.get("iid")],
-          f"cmd_launch の mark: 当て直しても『起こし済み』の行を重ねない（{got.get('launched')}）")
+          f"cmd_launch の mark: 当て直しても『起動済み』の行を重ねない（{got.get('launched')}）")
     check(got.get("accept") == "BoardConflict" and got.get("accept_flag") is True,
           f"受け付けの衝突は当て直しの後に印（conflict）を立てて上げる（{got.get('accept')} {got.get('accept_flag')}）")
     check(got.get("accept_retry") == [None, "受け付けた（検査用）", False, 2],
@@ -2388,13 +2388,13 @@ def test_board_conflict():
 
 
 def test_tooled_launch_fence():
-    """道具つきの役を engine が起こしてよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。
-    柵は許可表なので、倒し方は「値を変える」「要る旗を落とす」「知らない語を足す」の 3 系統を全部撃つ。"""
+    """ツールつきの役を engine が起動してよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。
+    チェックは許可表なので、倒し方は「値を変える」「要る旗を落とす」「知らない語を足す」の 3 系統を全部撃つ。"""
     from engine import role_run
     from engine.commands import launch_prefix, launch_refusal
     from engine.role_run import protected_paths, tooled_permission
     from engine.validator import agent_def
-    print("道具つきの柵: 許可表の旗だけ・設定を読まない・聞く先が無い・権限の形と道具と sandbox の設定は engine が決めた値だけ")
+    print("ツールつきのチェック: 許可表の旗だけ・設定を読まない・聞く先が無い・権限の形とツールと sandbox の設定は engine が決めた値だけ")
     _td, tmp = parallel.workspace("gl-tooledfence-")
     stdin = tmp / "p.md"
     stdin.write_text("x", encoding="utf-8")
@@ -2405,11 +2405,11 @@ def test_tooled_launch_fence():
                                                   "--allow-empty", "-m", "x"], ["-C", str(repo), "worktree", "add", "-q", str(other)]):
         subprocess.run(["git", *args], capture_output=True, check=True)
     real = os.path.realpath
-    tools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]  # agents/judge.md の道具
+    tools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]  # agents/judge.md のツール
     perm = tooled_permission(tools)
     check(perm == {"form": "plain", "permission_mode": "dontAsk", "allowed_tools": tools, "settings": "{}"},
-          f"コマンドを走らせない役は dontAsk で、道具を全部先に許し、設定は空（{perm}）")
-    # 許すコマンドは字面で持つ——期待を tooled_permission から導くと、定数に gh api を足しても起こす側・柵・検査が揃って変わり緑のまま
+          f"コマンドを走らせない役は dontAsk で、ツールを全部先に許し、設定は空（{perm}）")
+    # 許すコマンドは字面で持つ——期待を tooled_permission から導くと、定数に gh api を足しても起動する側・チェック・検査が揃って変わり緑のまま
     read_rules = ["Bash(gh issue list:*)", "Bash(gh issue view:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
                   "Bash(gh search:*)", "Bash(gh repo view:*)", "Bash(git remote get-url:*)"]
     saved = role_run.sandbox_available
@@ -2423,13 +2423,13 @@ def test_tooled_launch_fence():
         box = json.loads(p3["settings"]).get("sandbox") or {}
         want_deny = sorted({real(repo), real(repo / ".git"), real(other), real(board)})
         check(p3["form"] == "sandbox" and p3["permission_mode"] == "dontAsk" and p3["allowed_tools"] == ["Read", "WebFetch"] + read_rules,
-              f"sandbox を使える環境では Bash を持つ役を sandbox の形で起こし、gh は読むだけの前置で縛ったまま（{p3['form']} {p3['allowed_tools']}）")
+              f"sandbox を使える環境では Bash を持つ役を sandbox の形で起動し、gh は読むだけの前置で縛ったまま（{p3['form']} {p3['allowed_tools']}）")
         check(box.get("enabled") is True and box.get("allowUnsandboxedCommands") is False and box.get("failIfUnavailable") is True
               and box.get("autoAllowBashIfSandboxed") is True and box.get("excludedCommands") == ["gh:*"]
               and box.get("network") == {"allowedDomains": [], "strictAllowlist": True},
               f"sandbox の形: 外へ出る口を閉じ、起きなければ起動で落ち、gh だけ外で権限に掛け、中からの通信は無し（{box}）")
         check((box.get("filesystem") or {}).get("denyWrite") == want_deny,
-              f"書き込みを止める場所は、自分を含む作業ツリーの根の全部・共有の .git・盤面の置き場（{(box.get('filesystem') or {}).get('denyWrite')}）")
+              f"書き込みを止める場所は、自分を含む作業ツリーのルートの全部・共有の .git・盤面の置き場（{(box.get('filesystem') or {}).get('denyWrite')}）")
         plain_dir = tmp / "plain"
         plain_dir.mkdir()
         check(protected_paths(plain_dir, board) == sorted({real(plain_dir), real(board)}),
@@ -2454,7 +2454,7 @@ def test_tooled_launch_fence():
             return launch_refusal(inst, repo, board)
 
         good = {"agent_type": "convergence-loops:judge", "launch": {"argv": argv_for("convergence-loops:judge", perm), "stdin": str(stdin)}}
-        check(refuse(good) is None, f"揃った形は起こす（{refuse(good)}）")
+        check(refuse(good) is None, f"揃った形は起動する（{refuse(good)}）")
 
         def swap(flag, val):
             return lambda a: [val if i > 0 and a[i - 1] == flag else x for i, x in enumerate(a)]
@@ -2468,45 +2468,45 @@ def test_tooled_launch_fence():
         other_file = tmp / "other.txt"
         other_file.write_text("別の本文", encoding="utf-8")
         # 入口ごとの腕（tests/mutations.json の TF*）が名指しで落とせるよう、検査の名前は字面で書く
-        for mut, want, desc in ((swap("--setting-sources", "user"), "--setting-sources", "柵: 利用者の設定を読む子は起こさない"),
-                                (swap("--permission-prompts", "ask"), "--permission-prompts", "柵: 聞く先を持つ子は起こさない"),
-                                (drop("--setting-sources"), "argv に無い", "柵: 要る旗を落とした子は起こさない"),
-                                (lambda a: a + ["--dangerously-skip-permissions"], "許可表に無い", "柵: 権限を外す旗を持つ子は起こさない"),
-                                (lambda a: a + ["--allowed-tools", "Bash"], "許可表に無い", "柵: 別名の旗で道具を足した子は起こさない"),
-                                (lambda a: a + ["--allowedTools=Bash"], "許可表に無い", "柵: = 綴りの旗で道具を足した子は起こさない"),
-                                (lambda a: a + ["--add-dir", "/"], "許可表に無い", "柵: 作業ディレクトリを足した子は起こさない"),
-                                (lambda a: a + ["--mcp-config", str(stdin)], "許可表に無い", "柵: MCP の設定を足した子は起こさない"),
-                                (lambda a: a + ["--agents", "{}"], "許可表に無い", "柵: 役の定義を差し込んだ子は起こさない"),
-                                (lambda a: a + ["余分"], "許可表に無い", "柵: 余分な位置引数を持つ子は起こさない"),
-                                (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "柵: 権限の形を広げた子は起こさない"),
-                                (swap("--tools", ",".join(tools + ["Write"])), "--tools", "柵: 役の定義に無い道具を持つ子は起こさない"),
-                                (swap("--allowedTools", ",".join(tools + ["Bash"])), "--allowedTools", "柵: 先に許す道具を広げた子は起こさない"),
-                                (swap("--model", "haiku-other"), "--model", "柵: 役の定義と違うモデルの子は起こさない"),
-                                (swap("--output-format", "stream-json"), "--output-format", "柵: 返答の包みを変えた子は起こさない"),
+        for mut, want, desc in ((swap("--setting-sources", "user"), "--setting-sources", "チェック: 利用者の設定を読む子は起動しない"),
+                                (swap("--permission-prompts", "ask"), "--permission-prompts", "チェック: 聞く先を持つ子は起動しない"),
+                                (drop("--setting-sources"), "argv に無い", "チェック: 要る旗を落とした子は起動しない"),
+                                (lambda a: a + ["--dangerously-skip-permissions"], "許可表に無い", "チェック: 権限を外す旗を持つ子は起動しない"),
+                                (lambda a: a + ["--allowed-tools", "Bash"], "許可表に無い", "チェック: 別名の旗でツールを足した子は起動しない"),
+                                (lambda a: a + ["--allowedTools=Bash"], "許可表に無い", "チェック: = 綴りの旗でツールを足した子は起動しない"),
+                                (lambda a: a + ["--add-dir", "/"], "許可表に無い", "チェック: 作業ディレクトリを足した子は起動しない"),
+                                (lambda a: a + ["--mcp-config", str(stdin)], "許可表に無い", "チェック: MCP の設定を足した子は起動しない"),
+                                (lambda a: a + ["--agents", "{}"], "許可表に無い", "チェック: 役の定義を差し込んだ子は起動しない"),
+                                (lambda a: a + ["余分"], "許可表に無い", "チェック: 余分な位置引数を持つ子は起動しない"),
+                                (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "チェック: 権限の形を広げた子は起動しない"),
+                                (swap("--tools", ",".join(tools + ["Write"])), "--tools", "チェック: 役の定義に無いツールを持つ子は起動しない"),
+                                (swap("--allowedTools", ",".join(tools + ["Bash"])), "--allowedTools", "チェック: 先に許すツールを広げた子は起動しない"),
+                                (swap("--model", "haiku-other"), "--model", "チェック: 役の定義と違うモデルの子は起動しない"),
+                                (swap("--output-format", "stream-json"), "--output-format", "チェック: 返答の包みを変えた子は起動しない"),
                                 (swap("--append-system-prompt-file", str(other_file)), "--append-system-prompt-file",
-                                 "柵: 役の定義でない本文を system prompt に足した子は起こさない"),
-                                (swap("--settings", '{"permissions": {"allow": ["Bash"]}}'), "--settings", "柵: 設定で権限を配る子は起こさない"),
-                                (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない"),
-                                (lambda a: a + ["--tools", ",".join(tools)], "2 度", "柵: 同じ旗を 2 度渡す子は起こさない（同じ値でも）")):
+                                 "チェック: 役の定義でない本文を system prompt に足した子は起動しない"),
+                                (swap("--settings", '{"permissions": {"allow": ["Bash"]}}'), "--settings", "チェック: 設定で権限を配る子は起動しない"),
+                                (lambda a: a + ["--tools", "Bash"], "--tools", "チェック: 旗を重ねて後勝ちを狙う子は起動しない"),
+                                (lambda a: a + ["--tools", ",".join(tools)], "2 度", "チェック: 同じ旗を 2 度渡す子は起動しない（同じ値でも）")):
             why = refuse(with_argv(good, mut(good["launch"]["argv"]))) or ""
             check(want in why, f"{desc}（{why[:70]}）")
-        # 続きの語（--resume）は engine が決めた会話だけ: 続きを頼む語は穴の字面、起こす語は instance の会話の番号
+        # 続きの語（--resume）は engine が決めた会話だけ: 続きを頼む語は穴の字面、起動する語は instance の会話の番号
         check(refuse({**good, "launch": {**good["launch"], "resume_argv": argv_for("convergence-loops:judge", perm, "{session_id}")}}) is None,
-              "続きを頼む語の --resume は穴の字面なら起こす")
+              "続きを頼む語の --resume は穴の字面なら起動する")
         why = refuse(with_argv(good, argv_for("convergence-loops:judge", perm, "someone-else"))) or ""
-        check("--resume" in why, f"柵: engine が決めていない会話を続ける子は起こさない（{why[:70]}）")
+        check("--resume" in why, f"チェック: engine が決めていない会話を続ける子は起動しない（{why[:70]}）")
         check(refuse({**with_argv(good, argv_for("convergence-loops:judge", perm, "sess-1")), "session_id": "sess-1"}) is None,
-              "前の節の会話（instance の session_id）を続ける語は起こす")
+              "前のノードの会話（instance の session_id）を続ける語は起動する")
         bad_resume = {**good, "launch": {**good["launch"], "resume_argv": drop("--permission-prompts")(good["launch"]["argv"])}}
-        check("argv に無い" in (refuse(bad_resume) or ""), "続きを頼む語にも同じ柵が当たる")
+        check("argv に無い" in (refuse(bad_resume) or ""), "続きを頼む語にも同じチェックが当たる")
 
-        # コマンドを走らせる役（investigator）の sandbox の形: 揃った形は起こし、設定の 1 か所でも緩めた形は撥ねる
+        # コマンドを走らせる役（investigator）の sandbox の形: 揃った形は起動し、設定の 1 か所でも緩めた形は撥ねる
         itools = agent_def("convergence-loops:investigator")["tools"]
         iperm = tooled_permission(itools, repo, board)
         igood = {"agent_type": "convergence-loops:investigator",
                  "launch": {"argv": argv_for("convergence-loops:investigator", iperm), "stdin": str(stdin)}}
-        check(iperm["form"] == "sandbox" and refuse(igood) is None, f"Bash を持つ役の sandbox の形は起こす（{iperm['form']} {refuse(igood)}）")
-        for extra, desc in (("Bash(gh api:*)", "柵: 書ける gh api を先に許した子は起こさない"), ("Bash", "柵: Bash を丸ごと先に許した子は起こさない")):
+        check(iperm["form"] == "sandbox" and refuse(igood) is None, f"Bash を持つ役の sandbox の形は起動する（{iperm['form']} {refuse(igood)}）")
+        for extra, desc in (("Bash(gh api:*)", "チェック: 書ける gh api を先に許した子は起動しない"), ("Bash", "チェック: Bash を丸ごと先に許した子は起動しない")):
             why = refuse(with_argv(igood, swap("--allowedTools", ",".join(iperm["allowed_tools"] + [extra]))(igood["launch"]["argv"]))) or ""
             check("--allowedTools" in why, f"{desc}（{why[:70]}）")
 
@@ -2516,57 +2516,57 @@ def test_tooled_launch_fence():
             return json.dumps(s, ensure_ascii=False)
 
         wt_deny = [x for x in want_deny if x != real(other)]
-        for fn, want, desc in ((lambda s: s.update(enabled=False), "sandbox が", "柵: sandbox を切った子は起こさない"),
-                               (lambda s: s.update(allowUnsandboxedCommands=True), "sandbox が", "柵: sandbox の外へ出る口を開けた子は起こさない"),
-                               (lambda s: s.update(failIfUnavailable=False), "sandbox が", "柵: sandbox が起きなくても走る子は起こさない"),
-                               (lambda s: s["network"].update(allowedDomains=["api.github.com"]), "sandbox が", "柵: 通信の宛先を足した子は起こさない"),
-                               (lambda s: s.update(excludedCommands=["gh:*", "python3:*"]), "sandbox が", "柵: sandbox の外で走るコマンドを足した子は起こさない"),
-                               (lambda s: s["filesystem"].update(allowWrite=["/"]), "sandbox が", "柵: 書ける場所を足した子は起こさない"),
-                               (lambda s: s["filesystem"].update(denyWrite=wt_deny), "denyWrite", "柵: 守る作業ツリーを欠いた子は起こさない")):
+        for fn, want, desc in ((lambda s: s.update(enabled=False), "sandbox が", "チェック: sandbox を切った子は起動しない"),
+                               (lambda s: s.update(allowUnsandboxedCommands=True), "sandbox が", "チェック: sandbox の外へ出る口を開けた子は起動しない"),
+                               (lambda s: s.update(failIfUnavailable=False), "sandbox が", "チェック: sandbox が起きなくても走る子は起動しない"),
+                               (lambda s: s["network"].update(allowedDomains=["api.github.com"]), "sandbox が", "チェック: 通信の宛先を足した子は起動しない"),
+                               (lambda s: s.update(excludedCommands=["gh:*", "python3:*"]), "sandbox が", "チェック: sandbox の外で走るコマンドを足した子は起動しない"),
+                               (lambda s: s["filesystem"].update(allowWrite=["/"]), "sandbox が", "チェック: 書ける場所を足した子は起動しない"),
+                               (lambda s: s["filesystem"].update(denyWrite=wt_deny), "denyWrite", "チェック: 守る作業ツリーを欠いた子は起動しない")):
             why = refuse(with_argv(igood, swap("--settings", loosen(fn))(igood["launch"]["argv"]))) or ""
             check(want in why, f"{desc}（{why[:70]}）")
         s = json.loads(iperm["settings"])
         s["hooks"] = {}
         why = refuse(with_argv(igood, swap("--settings", json.dumps(s))(igood["launch"]["argv"]))) or ""
-        check("--settings のキー" in why, f"柵: sandbox の外のキー（hooks）を混ぜた子は起こさない（{why[:70]}）")
+        check("--settings のキー" in why, f"チェック: sandbox の外のキー（hooks）を混ぜた子は起動しない（{why[:70]}）")
         why = refuse(with_argv(igood, drop("--settings")(igood["launch"]["argv"]))) or ""
-        check("argv に無い" in why, f"柵: sandbox の設定を落とした子は起こさない（{why[:70]}）")
+        check("argv に無い" in why, f"チェック: sandbox の設定を落とした子は起動しない（{why[:70]}）")
         more = loosen(lambda s: s["filesystem"].update(denyWrite=s["filesystem"]["denyWrite"] + [str(tmp / "gone")]))
         check(refuse(with_argv(igood, swap("--settings", more)(igood["launch"]["argv"]))) is None,
-              "起こした後に消えた作業ツリーを守る場所に残した子は起こす（守る場所の包含で見る）")
+              "起動した後に消えた作業ツリーを守る場所に残した子は起動する（守る場所の包含で見る）")
         subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(tmp / "wt3")], capture_output=True, check=True)
         why = refuse(igood) or ""
-        check("relaunch" in why, f"柵: 起こした後に増えた作業ツリーを守らない子は起こさず、引き直しを促す（{why[:70]}）")
-        # sandbox を使えない環境: 読むだけの形の語は起こし、sandbox の設定を持つ語は撥ねる（形は起こす時に engine が決め直す）
+        check("relaunch" in why, f"チェック: 起動した後に増えた作業ツリーを守らない子は起動せず、引き直しを促す（{why[:70]}）")
+        # sandbox を使えない環境: 読むだけの形の語は起動し、sandbox の設定を持つ語は撥ねる（形は起動する時に engine が決め直す）
         role_run.sandbox_available = lambda: False
         rperm = tooled_permission(itools, repo, board)
         rgood = {**igood, "launch": {**igood["launch"], "argv": argv_for("convergence-loops:investigator", rperm)}}
-        check(rperm["form"] == "read_only" and refuse(rgood) is None, f"sandbox を使えない環境では読むだけの形で起こす（{refuse(rgood)}）")
-        check("--settings のキー" in (refuse(igood) or ""), "sandbox を使えない環境では sandbox の設定を持つ語を起こさない")
+        check(rperm["form"] == "read_only" and refuse(rgood) is None, f"sandbox を使えない環境では読むだけの形で起動する（{refuse(rgood)}）")
+        check("--settings のキー" in (refuse(igood) or ""), "sandbox を使えない環境では sandbox の設定を持つ語を起動しない")
     finally:
         role_run.sandbox_available = saved
     from engine.advance import tooled_launchable
-    for d, desc in (({"tools": ["Read", "Write"], "model": "opus", "effort": "high"}, "ファイルを書く道具を持つ役は engine が起こさない"),
-                    ({"tools": ["*"], "model": "opus", "effort": "high"}, "道具の一覧を持たない役は engine が起こさない"),
-                    ({"tools": ["Read"], "model": "inherit", "effort": "high"}, "モデルを名指ししない役は engine が起こさない")):
+    for d, desc in (({"tools": ["Read", "Write"], "model": "opus", "effort": "high"}, "ファイルを書くツールを持つ役は engine が起動しない"),
+                    ({"tools": ["*"], "model": "opus", "effort": "high"}, "ツールの一覧を持たない役は engine が起動しない"),
+                    ({"tools": ["Read"], "model": "inherit", "effort": "high"}, "モデルを名指ししない役は engine が起動しない")):
         check(not tooled_launchable(d), desc)
-    check(tooled_launchable({"tools": ["Read"], "model": "sonnet", "effort": "medium"}), "道具を名指しした読むだけの役は engine が起こす")
-    # 役の定義が読めない役は、形が決まらないので起こさない
-    check("定義が読めない" in (launch_refusal({**good, "agent_type": "no-such-plugin:nobody"}) or ""), "定義の読めない役は起こさない")
+    check(tooled_launchable({"tools": ["Read"], "model": "sonnet", "effort": "medium"}), "ツールを名指しした読むだけの役は engine が起動する")
+    # 役の定義が読めない役は、形が決まらないので起動しない
+    check("定義が読めない" in (launch_refusal({**good, "agent_type": "no-such-plugin:nobody"}) or ""), "定義の読めない役は起動しない")
     rm(tmp)
 
 
 def test_relative_dir():
-    """**`--dir` を相対で渡した run が、全周の生出力を読む節まで通る。**
+    """**`--dir` を相対で渡した run が、全周の生出力を読むノードまで通る。**
 
     盤面は出力ファイルの綴りを 1 つに決める（盤面からの相対）。以前は同じ 1 行が 2 つの綴りで書いており
     （`state["outputs"]["file"]` は盤面からの相対、instance の `output_file` は `--dir` をそのまま前に付けた綴り）、
     後者は**記録されていない過去の作業ディレクトリ**に錨を持っていた。帰結: 相対の `--dir` で回すと
-    `ref:raw` / `ref:out.<節>` が `<dir>/<dir>/…` を読みに行って exit 2（実測 2026-09-13: 5 周・33 節のうち
-    `ref:raw` を使う節が最終報告の 1 本だけだったので、run の最後の節まで現れなかった）。
+    `ref:raw` / `ref:out.<節>` が `<dir>/<dir>/…` を読みに行って exit 2（実測 2026-09-13: 5 周・33 ノードのうち
+    `ref:raw` を使うノードが最終報告の 1 本だけだったので、run の最後のノードまで現れなかった）。
     この腕は**その 1 本が通る所まで**回す——綴りが割れると必ず赤くなる。
     """
-    print("相対 --dir: 盤面の綴りが 1 つで、全周の生出力を読む節まで通る")
+    print("相対 --dir: 盤面の綴りが 1 つで、全周の生出力を読むノードまで通る")
     run = Run("reldir")
     # 同じ盤面を相対の --dir で開き直す（init は絶対で作られている）
     rel = os.path.relpath(run.dir, run.repo)
@@ -2639,7 +2639,7 @@ def test_research_vocab_not_copied():
     for name in ("p1.checker", "p1.refuter", "p3.sampling"):
         tpl = (PLUGIN / "prompts" / "research-loop" / f"{name}.md").read_text(encoding="utf-8")
         check("{{validator." in tpl, f"{name}: 語彙を穴で受ける")
-        # 節の他の穴（item.* 等）は reads の外なので、語彙の穴だけを取り出して埋める
+        # ノードの他の穴（item.* 等）は reads の外なので、語彙の穴だけを取り出して埋める
         holes = "\n".join(ln for ln in tpl.splitlines() if "{{validator." in ln)
         got = Renderer({"validator": V.PROMPT_TABLES}, ["validator"]).render(holes)
         missing = [v for v in V.VERDICTS if v not in got]
@@ -2660,7 +2660,7 @@ def test_porcelain_memo():
     周が変わる next で同じ `git status` が 2 回走っていた（1 回 15 ミリ秒）。**memo は盤面が持つ。**
 
     `next` と `done` は別プロセスなので、P1 の前後（`worktree_before` / `worktree_after`）が同じ写しを
-    見ることはない——混ざる心配をしたが、実測で別プロセスだと確かめた。前後の柵そのものの腕は
+    見ることはない——混ざる心配をしたが、実測で別プロセスだと確かめた。前後のチェックそのものの腕は
     simulate_review の `test_worktree_guard_fires` が持つ。
     """
     print("否定検査: 作業ツリーの写しは 1 プロセス 1 回（前後は別プロセスなので混ざらない）")
@@ -2690,12 +2690,12 @@ def test_porcelain_memo():
 
 
 def test_optional_writes_declared():
-    """**任意の欄を写す write は、任意だと宣言してあること。** engine は欄が無い返答を黙って読み飛ばす。
+    """**任意のフィールドを写す write は、任意だと宣言してあること。** engine はフィールドが無い返答を黙って読み飛ばす。
 
     `has_path` が偽なら `continue` なので、役が省いた周は**その write だけ音も無く消える**——
     「意図した省略」と「綴り違い・欄の消失」が同じ無音になる。宣言で分け、実際に飛んだ周は記録に残す。
     """
-    print("否定検査: 任意の欄を写す write は宣言が要る／飛んだら痕跡が残る")
+    print("否定検査: 任意のフィールドを写す write は宣言が要る／飛んだら痕跡が残る")
     _td_tmp, tmp = parallel.workspace("gl-optw-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
@@ -2717,7 +2717,7 @@ def test_optional_writes_declared():
         return r.returncode, [ln for ln in (r.stdout + r.stderr).splitlines() if ln.startswith("NG") and opt in ln]
 
     code, ng = gcheck()
-    check(code != 0 and ng, f"required に無い欄を写すのに宣言が無ければ落とす（{ng[:1]}）")
+    check(code != 0 and ng, f"required に無いフィールドを写すのに宣言が無ければ落とす（{ng[:1]}）")
     n["writes"][-1]["optional"] = True
     gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     code, ng = gcheck()
@@ -2728,7 +2728,7 @@ def test_optional_writes_declared():
     drive(run, "std")
     sk = run.state().get("writes_skipped") or []
     check(any(s["node"] == nid and s["from"] == opt for s in sk),
-          f"役が省いた欄の write が飛んだことが盤面に残る（{sk[:2]}）")
+          f"役が省いたフィールドの write が飛んだことが盤面に残る（{sk[:2]}）")
     check((run.dir / "record.json").is_file() and opt not in json.loads((run.dir / "record.json").read_text(encoding="utf-8")).get("process", {}),
           "飛んだ write の着地先は書かれない（無音で消えるのを痕跡で見えるようにしただけ）")
     rm(run.tmp)
@@ -2796,7 +2796,7 @@ def test_stopped_gates_all_thicknesses():
 
     停止の到達経路は max_rounds・thrash・stuck・独立検証不能の 4 つで、どれも設計上「停止して報告する」筋。
     ところがゲートが `not_applicable` のまま残ると検証器が落ち、`report_accepts_exit` の既定 [0] の外なので
-    engine が die して **report の節が永久に出ない**。
+    engine が die して **report のノードが永久に出ない**。
 
     前の周にこれを直したが、**直したのは 3 本のうち 2 本だけだった**——`cartographer` が漏れ、重厚段で
     停止した run は同じ理由で報告が出ないまま残っていた（実測 2026-09-13: 部品を直に呼び、重厚でだけ
@@ -2816,7 +2816,7 @@ def test_stopped_gates_all_thicknesses():
         rec = {"gates": {k: {"status": "not_applicable"} for k in gates}, "question": "問い", "constraints": [{"text": "c"}],
                "sampling": {"status": "not_applicable"}, "claims": [], "clusters": [], "process": {},
                "decisions": {"decide_now": ["d"], "poc": [], "human_only": []}, "convergence": {"outcome": outcome}}
-        # 盤面の欄は仕上げが読む物を実物の形で持つ（止めた口 halted・済んだ節 done_ever・graph の節）
+        # 盤面のフィールドは仕上げが読む物を実物の形で持つ（止めた口 halted・済んだノード done_ever・graph のノード）
         b = types.SimpleNamespace(record=rec, state={"thickness": th, "status": "stopped", "done_ever": {}}, loop_state={}, round=3,
                                   nodes=json.loads(gp.read_text(encoding="utf-8"))["nodes"], latest_output=lambda nid: None)
         rules.finalize(b)
@@ -2888,10 +2888,10 @@ def test_stopped_before_gates_reports():
 
 
 def test_graphcheck_sets_derived():
-    """**柵が見る鍵の一覧を、engine と rules から組む（手で並べない）。**
+    """**チェックが見る鍵の一覧を、engine と rules から組む（手で並べない）。**
 
     受理集合（検証器の終了コードのうち先へ進んでよいもの）の鍵を graphcheck が 2 語で手書きしていた。
-    engine か rules が鍵を増やしても柵は増えないので、**増えた鍵だけ形を誰も検査しないまま通る**。
+    engine か rules が鍵を増やしてもチェックは増えないので、**増えた鍵だけ形を誰も検査しないまま通る**。
     この腕は「rules が宣言した鍵が実際に見られること」と「宣言しなければ見られないこと」を対で見る
     ——宣言が母数だという性質そのものを踏む。
     """
@@ -2931,7 +2931,7 @@ def test_graphcheck_sets_derived():
 
     # **フック名の綴り違いも、母数を手で並べない。** 以前は `on_` で始まる名前と手書きの 4 語だけを
     # 見ていたので、`finalize` を `finalise` と書いても母数に入らず 1 件も出なかった（実測 2026-09-13:
-    # 直す前の柵に同じ綴り違いを注入したら exit 0 だった）。engine に非 `on_` のフックが増えた周も同じ。
+    # 直す前のチェックに同じ綴り違いを注入したら exit 0 だった）。engine に非 `on_` のフックが増えた周も同じ。
     g3 = json.loads(gp.read_text(encoding="utf-8"))
     g3["record"].pop("report_accepts_exit", None)
     gp.write_text(json.dumps(g3, ensure_ascii=False), encoding="utf-8")
@@ -2951,11 +2951,11 @@ def test_prompt_growth():
     """**周をまたいで育つ穴を測る。** 上限が無い経路でも、育っていることは言う。
 
     実測 2026-09-13: `report.human_items` が `record.process` と `loop` を丸ごと読み、6 周目で 1,120 KB。
-    回す側の節なので上限が無く（`cap=None`）、切られないから `truncated_inputs` にも出ず、記録にも
+    回す側のノードなので上限が無く（`cap=None`）、切られないから `truncated_inputs` にも出ず、記録にも
     報告にも痕跡が 1 つも無かった。**上限の不在は「いくらでも貼ってよい」ではない。**
 
-    見るのは大きさでなく育ち方——差分を丸ごと貼る節（912 KB）は大きくて正しい。大きさで線を引くと
-    正しく大きい節が毎周鳴り、育っている節がその中に紛れる。
+    見るのは大きさでなく育ち方——差分を丸ごと貼るノード（912 KB）は大きくて正しい。大きさで線を引くと
+    正しく大きいノードが毎周鳴り、育っているノードがその中に紛れる。
     """
     print("否定検査: 周をまたいで育つ穴（上限が無い経路でも測る）")
     sys.path.insert(0, str(PLUGIN))
@@ -2969,18 +2969,18 @@ def test_prompt_growth():
     # **線の腕は、倍率の腕が同時に成り立たない値で踏む。** 同じ値で両方が真になる入力だと、線を
     # 外しても倍率が拾って緑のまま（実測: PROMPT_NOTICE を 0 に替えても赤くならなかった）
     small = [{"round": 1, "instances": {"a": {"node": "n", "prompt_bytes": 1_000}}}]
-    check(prompt_growth(fake(small), "n", 50_000) is None, "線より下は倍率が 50 倍でも言わない（小さい節の揺れ）")
+    check(prompt_growth(fake(small), "n", 50_000) is None, "線より下は倍率が 50 倍でも言わない（小さいノードの揺れ）")
     check(prompt_growth(fake(r1), "n", 140_000) is None, "1.5 倍以下は育ちと呼ばない")
     g = prompt_growth(fake(r1), "n", 160_000)
     check(g and g["was"] == 100_000 and g["bytes"] == 160_000, f"線を超えて 1.5 倍を超えたら言う（{g}）")
-    check(prompt_growth(fake(r1), "other", 10 ** 7) is None, "別の節の大きさとは比べない")
+    check(prompt_growth(fake(r1), "other", 10 ** 7) is None, "別のノードの大きさとは比べない")
     # **比べる材料が残っていること。** prompt_bytes が instance に無いと、育ちは原理的に測れない
     run = Run("grow")
     drive(run, "std")
     st = run.state()
     sizes = [i.get("prompt_bytes") for rd in st["rounds"] for i in rd["instances"].values()]
     check(sizes and all(isinstance(x, int) and x > 0 for x in sizes),
-          f"実物の next が節ごとの大きさを残す（{len(sizes)} 節・欠けは {sum(1 for x in sizes if not x)} 件）")
+          f"実物の next がノードごとの大きさを残す（{len(sizes)} ノード・欠けは {sum(1 for x in sizes if not x)} 件）")
     rm(run.tmp)
 
     # **実物の next を通す。** 上は部品を直に呼ぶ腕と材料（prompt_bytes）の有無しか見ておらず、
@@ -2998,32 +2998,32 @@ def test_prompt_growth():
         answers = base_answers(r2, "std")
         for inst in nx["ready"]:
             r2.done(inst["id"], answers[inst["node"]](load_item(inst), nx["round"]))
-        # 2 周目以降の next は線を下げて通す（同じ節の穴が育っていれば growing_prompts に行が立つ）
+        # 2 周目以降の next は線を下げて通す（同じノードの穴が育っていれば growing_prompts に行が立つ）
         if r2.state()["round"] >= 2:
             r2.cmd("next", env=env)
     grew = r2.state().get("growing_prompts") or []
     check(grew, f"実物の next で育ちが盤面に残る（{[g.get('node') for g in grew][:3]}）")
-    check(all({"node", "round", "bytes", "was"} <= set(g) for g in grew), f"行に節・周・前後の大きさが揃う（{grew[:1]}）")
+    check(all({"node", "round", "bytes", "was"} <= set(g) for g in grew), f"行にノード・周・前後の大きさが揃う（{grew[:1]}）")
     rec = r2.record()
     check("growing_prompts" in (rec.get("process") or {}), "記録（process.growing_prompts）にも着地する")
     rm(r2.tmp)
 
 
 def test_relaunch():
-    """**起こし直しは新しい試行を盤面に刻んでから前の試行の子を止め、前の置き場を締め出す。時間の上限は無い。**
+    """**起動し直しは新しい試行を盤面に刻んでから前の試行の子を止め、前の置き場を締め出す。時間の上限は無い。**
 
-    起こし直しが盤面に残らず、emitted_at は最初の起動のままだった（実測 2026-09-25: 週の上限で P1 の 8 節が落ち、別の
-    セッションが起こし直した）。起こし直した試行は置き場を分ける（Temporal の task token が試行ごとに一意なのと同じ）。
+    起動し直しが盤面に残らず、emitted_at は最初の起動のままだった（実測 2026-09-25: 週の上限で P1 の 8 ノードが落ち、別の
+    セッションが起動し直した）。起動し直した試行は置き場を分ける（Temporal の task token が試行ごとに一意なのと同じ）。
     期限（deadline_minutes・wait）は 2026-09-25 に外した——目安の値が役の子を止める上限を兼ねていた。
     """
-    print("起こし直し: next・status は経過と試行の回数を出し、relaunch は前の試行の子を止め、試行を刻んで前の置き場を締め出す")
+    print("起動し直し: next・status は経過と試行の回数を出し、relaunch は前の試行の子を止め、試行を刻んで前の置き場を締め出す")
     run = Run("relaunch")
     nx = run.next()
     own = next(i for i in nx["ready"] if i["node"] == "p0.question")
     check("deadline_at" not in own and "overdue" not in own and own.get("elapsed_min") == 0 and own.get("attempts") == 1,
           f"next: 期限を出さず、経過と試行の回数を出す（{ {k: own.get(k) for k in ('deadline_at', 'elapsed_min', 'attempts')} }）")
     r = run.cmd("relaunch", "--node", own["id"], "--reason", "検査用")
-    check(r.returncode == 1 and "他へ渡して待っている" in r.stderr, f"relaunch: 回す側が自分でやる節は起こし直さない（{r.stderr.strip()[-80:]}）")
+    check(r.returncode == 1 and "他へ渡して待っている" in r.stderr, f"relaunch: 回す側が自分でやるノードは起動し直さない（{r.stderr.strip()[-80:]}）")
     r = run.cmd("wait", "--node", own["id"])
     check(r.returncode != 0 and "invalid choice" in r.stderr, f"wait の口は無い（期限の無い待ちを作らない）（{r.stderr.strip()[-60:]}）")
     def finish(i):
@@ -3031,7 +3031,7 @@ def test_relaunch():
         if r.returncode != 0:
             raise RuntimeError(f"done {i['id']} が {r.returncode}: {r.stderr}")
     inst = None
-    for _ in range(10):   # 役（investigator）の節が出るまで回す側の節を済ませる
+    for _ in range(10):   # 役（investigator）のノードが出るまで回す側のノードを済ませる
         inst = next((i for i in nx["ready"] if i["node"] == "p0.prior_decisions"), None)
         if inst:
             break
@@ -3040,7 +3040,7 @@ def test_relaunch():
         nx = run.next()
     iid = inst["id"]
     check("deadline_at" not in inst and inst.get("attempts") == 1 and inst.get("elapsed_min") == 0,
-          f"next: 役に渡す節にも期限は無く、経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'attempts')} }）")
+          f"next: 役に渡すノードにも期限は無く、経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'attempts')} }）")
     pend = run.status()["this_round"]["pending_instances"]
     check(any(p["id"] == iid and p.get("elapsed_min") == 0 and "overdue" not in p for p in pend), f"status: 待っている instance ごとに経過を出す（{pend[:1]}）")
     st = run.state()
@@ -3055,13 +3055,13 @@ def test_relaunch():
         script = run.tmp / "prev-attempt.py"
         script.write_text("import sys\nsys.stdin.read()\n", encoding="utf-8")   # 台本が握る管の EOF まで眠る
         child = subprocess.Popen([sys.executable, str(script)], start_new_session=True, stdin=subprocess.PIPE)
-        # 本物では子を起こした launch のプロセスが終了を待って回収する。ここでは台本がその役——回収しないと子は
+        # 本物では子を起動した launch のプロセスが終了を待って回収する。ここでは台本がその役——回収しないと子は
         # ゾンビとしてグループに残り、relaunch には止まらない子に見える
         reaper = threading.Thread(target=child.wait)
         reaper.start()
-        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": child.pid}), encoding="utf-8")   # 子を起こした後に書く（role_run と同じ順）
+        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": child.pid}), encoding="utf-8")   # 子を起動した後に書く（role_run と同じ順）
     r = run.cmd("relaunch", "--node", iid, "--reason", "子が落ちた（検査用）")
-    check(r.returncode == 0, f"relaunch: 待っている instance は起こし直せる（{r.stderr.strip()[-80:]}）")
+    check(r.returncode == 0, f"relaunch: 待っている instance は起動し直せる（{r.stderr.strip()[-80:]}）")
     if child is not None:
         reaper.join(15)
         stopped = not reaper.is_alive()   # 台本が止める前に終わっていた＝relaunch が止めた
@@ -3070,10 +3070,10 @@ def test_relaunch():
             reaper.join()
         child.stdin.close()
         check(stopped and child.returncode is not None and child.returncode < 0,
-              f"relaunch: 前の試行の子を木ごと止めてから起こし直す（relaunch が止めた: {stopped}・信号で終わった: {child.returncode}）")
+              f"relaunch: 前の試行の子を木ごと止めてから起動し直す（relaunch が止めた: {stopped}・信号で終わった: {child.returncode}）")
         check(not pathlib.Path(str(old) + ".pgid").exists(), "relaunch: 止めた試行の印を消す")
     else:
-        for desc in ("relaunch: 前の試行の子を木ごと止めてから起こし直す", "relaunch: 止めた試行の印を消す"):
+        for desc in ("relaunch: 前の試行の子を木ごと止めてから起動し直す", "relaunch: 止めた試行の印を消す"):
             skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
@@ -3103,7 +3103,7 @@ def test_relaunch():
         stale_reaper = threading.Thread(target=stale_child.wait)
         stale_reaper.start()
         pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": stale_child.pid}), encoding="utf-8")
-    # 置き場に何も無いまま 2 回目の起こし直し: 退ける物が無くても起こし直せ、試行の記録は積み増す
+    # 置き場に何も無いまま 2 回目の起動し直し: 退ける物が無くても起動し直せ、試行の記録は積み増す
     r = run.cmd("relaunch", "--node", iid, "--reason", "2 回目（検査用）")
     if stale_child is not None:
         stale_reaper.join(15)
@@ -3118,17 +3118,17 @@ def test_relaunch():
              "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
     new3 = run.state()["rounds"][-1]["instances"][iid]
     check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
-          f"relaunch: 前の置き場が空でも起こし直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")
+          f"relaunch: 前の置き場が空でも起動し直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")
     st = run.state()
     st["rounds"][-1]["instances"][iid]["tree_before"] = real_base   # 検査用の基準点を本物に戻す（done の突合に通す）
     (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     r = run.done(iid, base_answers(run, "std")["p0.prior_decisions"](load_item(new3), 1))
     check(r.returncode == 0, f"前提: 役の返答を --output で受け付ける（{r.stderr.strip()[-200:]}）")
     r = run.cmd("relaunch", "--node", iid, "--reason", "x")
-    check(r.returncode == 1 and "待っている instance でない" in r.stderr, "relaunch: 済んだ instance は起こし直さない")
-    r = run.cmd("relaunch", "--node", "無い節（検査用）", "--reason", "x")
+    check(r.returncode == 1 and "待っている instance でない" in r.stderr, "relaunch: 済んだ instance は起動し直さない")
+    r = run.cmd("relaunch", "--node", "無いノード（検査用）", "--reason", "x")
     check(r.returncode == 1 and "待っている instance でない" in r.stderr, "relaunch: 今の周に無い instance は拒む")
-    # 扇の項目の instance も、同じ id・同じ項目で起こし直せる
+    # 扇の項目の instance も、同じ id・同じ項目で起動し直せる
     fan = None
     for _ in range(20):
         nx = run.next()
@@ -3140,25 +3140,25 @@ def test_relaunch():
     r = run.cmd("relaunch", "--node", fan["id"], "--reason", "扇の項目（検査用）")
     got = run.state()["rounds"][-1]["instances"].get(fan["id"]) or {}
     check(r.returncode == 0 and got.get("attempts") == 2 and load_item(got) == load_item(fan),
-          f"relaunch: 扇の項目の instance は同じ id・同じ項目で起こし直す（{r.returncode} {fan['id']}）")
+          f"relaunch: 扇の項目の instance は同じ id・同じ項目で起動し直す（{r.returncode} {fan['id']}）")
     rm(run.tmp)
 
 
 def test_frozen_schema_drift():
     """**`once` で凍った出力を、今の schema で測り直す。**
 
-    `once` の出力は最初に走った周で凍る。あとから schema に必須の欄を足しても、その節はもう走らないので
-    **欄は永久に現れない**。欄を読む cond・述語は「無い＝偽」に倒れ、run の残り全周で偽のままになる
+    `once` の出力は最初に走った周で凍る。あとから schema に必須のフィールドを足しても、そのノードはもう走らないので
+    **フィールドは永久に現れない**。フィールドを読む cond・述語は「無い＝偽」に倒れ、run の残り全周で偽のままになる
     ——しかも痕跡が無いので、「条件に当たらなかった」と区別できない。
 
-    実測 2026-09-13: review-loop の `p0.purpose` に `source_files` を 5 周目に足したが、この節は 1 周目で
-    凍っていた。欄を読む `purpose_sources_changed` は 6 周とも偽で、目的監査の走り直しが一度も起きず、
+    実測 2026-09-13: review-loop の `p0.purpose` に `source_files` を 5 周目に足したが、このノードは 1 周目で
+    凍っていた。フィールドを読む `purpose_sources_changed` は 6 周とも偽で、目的監査の走り直しが一度も起きず、
     **R2（独立設計との突合）が 6 周とも走らなかった**。run が収束できない本当の理由がこれだった。
 
     この腕は control（締める前は鳴らない）と本番（締めたら鳴る）を対で見る——常に鳴る仕掛けは、
     鳴ったことが証拠にならない。
     """
-    print("否定検査: once の節の凍った出力を、今の schema で測り直す")
+    print("否定検査: once のノードの凍った出力を、今の schema で測り直す")
     # graph の綴りは同梱からの相対（`../prompts/…`）で、rules も graph の隣から引く。写しは同じ形に置く
     _td_tmp, tmp = parallel.workspace("gl-frozen-graph-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
@@ -3169,7 +3169,7 @@ def test_frozen_schema_drift():
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     run = Run("frozen", graph=gp)
-    node = "p0.question"  # once の節。1 周目で凍る
+    node = "p0.question"  # once のノード。1 周目で凍る
     # **走り切らせない。** 締めたあとに実物の `next` を通すので、盤面が動く途中で止める
     for _ in range(12):
         nx = run.next()
@@ -3190,7 +3190,7 @@ def test_frozen_schema_drift():
     frozen_outputs_stale(b, notes)
     check(not notes and not b.state.get("stale_frozen"), f"control: graph を締める前は鳴らない（{notes[:1]}）")
 
-    # 凍った出力が持ちえない欄を、その節の schema に足す（5 周目に source_files を足したのと同じ形）。出口の節の schema の正本は
+    # 凍った出力が持ちえないフィールドを、そのノードの schema に足す（5 周目に source_files を足したのと同じ形）。出口のノードの schema の正本は
     # ブロックの出口のファイル（graph はそこを $ref で指す）なので、そこに足す
     ep = tmp / "blocks" / "research-loop" / "prereq" / "exit.schema.json"
     ex = json.loads(ep.read_text(encoding="utf-8"))
@@ -3204,13 +3204,13 @@ def test_frozen_schema_drift():
     frozen_outputs_stale(b2, notes2)
     stale = b2.state.get("stale_frozen") or []
     check(len(stale) == 1 and stale[0]["node"] == node, f"締めたら鳴る（{[s.get('node') for s in stale]}）")
-    check(any("source_files" in e for e in (stale[0].get("errors") or [])), f"足した欄が理由に出る（{stale[0].get('errors')}）")
+    check(any("source_files" in e for e in (stale[0].get("errors") or [])), f"足したフィールドが理由に出る（{stale[0].get('errors')}）")
     check(stale[0].get("frozen_in") == 1, f"どの周で凍ったかが残る（{stale[0].get('frozen_in')}）")
     check(notes2 and node in notes2[0], f"回す側にも知らせる（{notes2[:1]}）")
-    # 節ごとに 1 度だけ——周ごとに繰り返すと notes が同じ行で埋まる
+    # ノードごとに 1 度だけ——周ごとに繰り返すと notes が同じ行で埋まる
     notes3 = []
     frozen_outputs_stale(b2, notes3)
-    check(not notes3 and len(b2.state.get("stale_frozen") or []) == 1, "同じ節は 2 度言わない")
+    check(not notes3 and len(b2.state.get("stale_frozen") or []) == 1, "同じノードは 2 度言わない")
     # **実物の `next` でも鳴ること。** 上の 3 つは部品を直に呼んでいるので、`advance` から呼び出しを
     # 外しても全部緑のままだった（実測: この腕を足す前、3 か所のうち配線だけが覆われていなかった）
     nx = run.next()
@@ -3242,12 +3242,12 @@ def test_isolated_not_truncated():
         return out
 
     drive(run, "std", hook=watch)
-    # 材料を渡された節だけを見る——先頭の目印で絞る。「見立て」のような本文中の語で絞ると、
-    # 文書を受け取らない節（問いの文に同じ語が在る p3.rederiver）まで拾って検査が嘘をつく。
+    # 材料を渡されたノードだけを見る——先頭の目印で絞る。「見立て」のような本文中の語で絞ると、
+    # 文書を受け取らないノード（問いの文に同じ語が在る p3.rederiver）まで拾って検査が嘘をつく。
     withdoc = [(n, p) for n, p in seen if head in p]
-    check(bool(withdoc), f"材料を渡される遮断系の節が在る（{sorted({n for n, _ in withdoc})}）")
+    check(bool(withdoc), f"材料を渡される遮断系のノードが在る（{sorted({n for n, _ in withdoc})}）")
     check(all(tail in p for _, p in withdoc),
-          f"遮断系のプロンプトに材料の末尾が残る＝切られていない（欠けた節: {[n for n, p in withdoc if tail not in p]}）")
+          f"遮断系のプロンプトに材料の末尾が残る＝切られていない（欠けたノード: {[n for n, p in withdoc if tail not in p]}）")
     rm(run.tmp)
 
 
@@ -3267,7 +3267,7 @@ def test_concurrent_save():
     r = run.cmd("thicken", "--to", "重厚", "--reason", "別プロセスが盤面を進める")
     check(r.returncode == 0, f"B（別プロセス）の書き込みは通る（rc={r.returncode}）")
     before = (run.dir / "state.json").read_text(encoding="utf-8")
-    a.state["書かれてはいけない欄"] = True
+    a.state["書かれてはいけないフィールド"] = True
     code = None
     try:
         a.save()
@@ -3277,7 +3277,7 @@ def test_concurrent_save():
     check((run.dir / "state.json").read_text(encoding="utf-8") == before,
           "落ちた save は盤面を 1 バイトも変えていない（後勝ちで上書きしない）")
     b = Board(run.dir)
-    check("書かれてはいけない欄" not in b.state, "A が握っていた古い state は書き戻されていない")
+    check("書かれてはいけないフィールド" not in b.state, "A が握っていた古い state は書き戻されていない")
 
 
 def test_plugin_path_ambiguity():
@@ -3300,7 +3300,7 @@ def test_plugin_path_ambiguity():
     check(r.returncode == 0, f"2 出所でも --validator の明示があれば init は通る（rc={r.returncode}: {r.stderr[-160:]}）")
     nx = call("next")
     ok = nx.returncode == 0 and nx.stdout.strip().startswith("{")
-    if ok:  # 最初の波（回す側の節）を返して、役割 agent が出る波まで進める——役の定義の解決もキャッシュの曖昧さを踏まない
+    if ok:  # 最初の波（回す側のノード）を返して、役割 agent が出る波まで進める——役の定義の解決もキャッシュの曖昧さを踏まない
         o = run.tmp / "o.json"
         o.write_text(json.dumps(base_answers(run, "std")["p0.question"](None, 1), ensure_ascii=False), encoding="utf-8")
         call("done", "--node", "p0.question", "--output", str(o))
@@ -3311,7 +3311,7 @@ def test_plugin_path_ambiguity():
 
 
 def test_unresolved_role():
-    """役の定義（agents/<役>.md）が解決できない節は起こさない。以前は「定義なし」を「道具を持つ役」と同じ False に潰し、
+    """役の定義（agents/<役>.md）が解決できないノードは起動しない。以前は「定義なし」を「道具を持つ役」と同じ False に潰し、
     遮断系が黙って Agent ツール経路（mode=agent）に倒れて CLAUDE.md 注入の経路が戻っていた（実測 2026-09-12）。"""
     print("否定検査: 役の定義が解決できなければ next は die（Agent 経路に黙って倒れない）——別 plugin の役は止めずに痕跡を残す")
 
@@ -3388,7 +3388,7 @@ def test_unresolved_role():
 
     # graph 自身の plugin の役（遮断系はここにしか居ない）: 定義が無ければ die
     seen, insts, _ = drive_graph("norole", lambda g: g["nodes"]["p3.cold_reader"].__setitem__("run_by", "no-such-role"), "p3.cold_reader")
-    check("解決できない" in seen and not insts, f"定義の無い役の節で next が die し、その節は一度も出ない（modes={[i['mode'] for i in insts]}: {seen[-160:]}）")
+    check("解決できない" in seen and not insts, f"定義の無い役のノードで next が die し、そのノードは一度も出ない（modes={[i['mode'] for i in insts]}: {seen[-160:]}）")
     # 別 plugin の役（pr-review-toolkit 等）はこの機械に無いことが普通にある（実測: CI）——止めず、痕跡を残して paste で出す
     seen, insts, st = drive_graph("foreign", lambda g: g["nodes"]["p1.checker"].__setitem__("agent_type", "other-plugin:someone"), "p1.checker")
     check("解決できない" not in seen and insts and all(i["mode"] == "agent" and i.get("deliver") == "paste" and i.get("role_def_missing") for i in insts),
@@ -3401,7 +3401,7 @@ def session_fixture(tmp, env, text=None, said=None, said_inline=False, as_list=F
                     unreadable=False, mark_dir_only=False, scalar_line=False):
     """転写だけを差し替えた env（本番と同じ読み方で engine に見つけさせる）。
 
-    text は道具の結果の本文、said は会話の地の文（役や人が書いた文）、as_list は本文が配列で入る形
+    text はツールの結果の本文、said は会話の地の文（役や人が書いた文）、as_list は本文が配列で入る形
     （実測 2026-09-18: Agent・SendMessage・ToolSearch の結果はこの形、Bash・Read は文字列）。
     **実物の転写が本文を落とす場所は 1 つではない**ので、失敗の形も作れるようにする:
       numbered      実物の Read と同じく各行に行番号＋タブの接頭が付く（照合は部分一致なので通るはず）
@@ -3414,10 +3414,10 @@ def session_fixture(tmp, env, text=None, said=None, said_inline=False, as_list=F
                     転写が回す側のものでないことを意味する
       scalar_line   dict でない JSON の行（前置フィルタの語だけを含む配列）を 1 行混ぜる。実物の転写は
                     ハーネスが行の形を足しうるので、**dict を前提にした読みが素の例外へ抜けない**ことを見る
-      said_inline   地の文を**道具の結果と同じ 1 行**に並べる（実物の転写に在る形。別の行に置くと
+      said_inline   地の文を**ツールの結果と同じ 1 行**に並べる（実物の転写に在る形。別の行に置くと
                     前置フィルタが行ごと飛ばすので、ブロックの型を見ているかを測れない）。実物の地の文
                     （type=text）は本文を "text" に持ち "content" を持たないので、型の判定を外しても
-                    数えられない——**型の柵そのものを測る**ために、content を持つ別の型のブロック
+                    数えられない——**型のチェックそのものを測る**ために、content を持つ別の型のブロック
                     （engine が知らない型。ハーネスが後から足しうる形）を同じ 1 行に並べる
     unreadable は転写のパスは在るが開けない形（<sid>.jsonl をディレクトリにする。chmod は環境差が
     大きいので使わない）——探した直後に読めない回が、3 値の外（素の例外）へ抜けないことを見る。
@@ -3441,7 +3441,7 @@ def session_fixture(tmp, env, text=None, said=None, said_inline=False, as_list=F
                      json.dumps({"message": {"content": [{"type": "tool_result", "content": text}]}}, ensure_ascii=False) + "\n"))
     blocks = []
     if marked:
-        # engine を回すとどのコマンドも run_id を言う——その道具の結果が転写に載る（Run の盤面は tmp/state）。
+        # engine を回すとどのコマンドも run_id を言う——そのツールの結果が転写に載る（Run の盤面は tmp/state）。
         # **engine と同じ直列化（util.dump＝json.dumps）を通す**: 平文で置いていたとき、実物が通る
         # 直列化の段を一度も通らず、Windows の区切りが二重化されて印が一致しない欠陥を捕まえられなかった。
         # 印を run_id にしたのも同じ理由で、パスと違い直列化で綴りが変わらない
@@ -3481,7 +3481,7 @@ def session_fixture(tmp, env, text=None, said=None, said_inline=False, as_list=F
 def read_through_run(name):
     """読了の腕 1 本ぶんの盤面（p0.claims が pending の所まで進めた run と、返答のファイル）。
 
-    **通る腕は節を消費する**（done が受理されると同じ節にはもう出せない）ので、通る腕ごとに run を分ける。
+    **通る腕はノードを消費する**（done が受理されると同じノードにはもう出せない）ので、通る腕ごとに run を分ける。
     """
     run = Run(name)
     run.done(run.next()["ready"][0]["id"], base_answers(run, "std")["p0.question"](None, 1))
@@ -3494,8 +3494,8 @@ def read_through_run(name):
 
 
 def test_read_through():
-    """柵の本体を測る: 標本 3 本が親の転写の道具の結果に在るか（理由は rules の claims_intake が正本）。
-    **部分読みが部分読みとして出ること**と、道具の結果以外（会話の地の文）を数えないことを見る。"""
+    """チェックの本体を測る: 標本 3 本が親の転写のツールの結果に在るか（理由は rules の claims_intake が正本）。
+    **部分読みが部分読みとして出ること**と、ツールの結果以外（会話の地の文）を数えないことを見る。"""
     print("読了: 転写に文書の本文が入っているかを先頭・中間・末尾で見る")
     run, ids, out, terms = read_through_run("readthru")
     body = run.doc.read_text(encoding="utf-8")
@@ -3505,11 +3505,11 @@ def test_read_through():
     check(rid in run.init.stdout and json.loads(run.cmd("status").stdout).get("run_id") == rid,
           f"init と status が run_id を言う（印が立つ口。{rid}）")
     # **next も言う。** 印が立つ口は 4 つ（init／next／status／done）で、**回す側が最も多く打つのは next**——
-    # ここが落ちると、他の 3 つを打たない周では印が 1 つも立たない（柵は黙って不成立へ倒れる）
+    # ここが落ちると、他の 3 つを打たない周では印が 1 つも立たない（チェックは黙って不成立へ倒れる）
     check(json.loads(run.cmd("next").stdout).get("run_id") == rid,
           f"next も run_id を言う（回す側が最も多く打つ口。{rid}）")
     # **印に使えるのは直列化で綴りが変わらない値だけ。** 盤面のパスを印にしていたとき、engine の出力は
-    # json.dumps を通るので Windows の区切りが二重化され、印が恒久的に一致せず柵が黙って通る側へ倒れた
+    # json.dumps を通るので Windows の区切りが二重化され、印が恒久的に一致せずチェックが黙って通る側へ倒れた
     # （区切りが / の環境では実行の腕に出ないので、形で縛る）
     win = "C:\\repo\\.git\\graphloops\\research-loop\\20260919-101112"
     ser = dump({"dir": win, "run_id": "20260919-101112"})
@@ -3518,47 +3518,47 @@ def test_read_through():
     sess = lambda **kw: session_fixture(run.tmp, run.env, **kw)
 
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out), env=sess(text="何も読んでいない"))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr and "先頭" in r.stderr,
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr and "先頭" in r.stderr,
           f"文書が親の転写に入っていない session は exit 1（欠けた位置を言う）: {r.stderr[-80:]}")
     check("見た転写" in r.stderr, f"拒否文が、見に行った転写のパスを言う（切り分けに要る）: {r.stderr[-60:]}")
-    # **拒否文が復帰の手を言う。** 転写への書き込みは後追いなので、読みと done を同じ道具呼びに並べた回は
+    # **拒否文が復帰の手を言う。** 転写への書き込みは後追いなので、読みと done を同じツール呼びに並べた回は
     # 実際に読んでいても拒まれる（実測: 代役は同期で書くのでこの形は台本に出ない）——言わないと同じ手を繰り返す
     check("次の手" in r.stderr, f"拒否文が『読んだ次の手で出し直せ』を言う（同じ手に並べた回の復帰）: {r.stderr[-60:]}")
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out), env=sess(text=probes["中間"]))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr and "先頭" in r.stderr and "末尾" in r.stderr,
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr and "先頭" in r.stderr and "末尾" in r.stderr,
           f"中間しか読んでいない session も exit 1（欠けた 2 点を言う）: {r.stderr[-80:]}")
-    # **探すのは道具の結果だけ**——会話の地の文まで探すと、本文を自分で書いた（写した）だけで通る。
-    # engine がループの操作者の会話を読まない規律でもある。道具の結果は在る（別の出力）ので、
+    # **探すのはツールの結果だけ**——会話の地の文まで探すと、本文を自分で書いた（写した）だけで通る。
+    # engine がループの操作者の会話を読まない規律でもある。ツールの結果は在る（別の出力）ので、
     # 「道具の結果が 1 つも無い」（別の腕）とは違う筋
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out),
-                env=sess(text="別の道具の出力（文書とは無関係）", said=body))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr,
-          f"地の文に本文が在るだけでは通らない（探すのは道具の結果だけ）: {r.stderr[-80:]}")
-    # **同じ 1 行に、道具の結果と・地の文と・engine が知らない型のブロックが並ぶ形。** 数えるブロックを
-    # 型で絞っていないと、道具を通っていない本文（自分で書いた・別の型で運ばれた）まで数えて通る。
-    # 別の行に置いた腕では前置フィルタが行ごと飛ばすので、型の柵はそこでは測れない
+                env=sess(text="別のツールの出力（文書とは無関係）", said=body))
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr,
+          f"地の文に本文が在るだけでは通らない（探すのはツールの結果だけ）: {r.stderr[-80:]}")
+    # **同じ 1 行に、ツールの結果と・地の文と・engine が知らない型のブロックが並ぶ形。** 数えるブロックを
+    # 型で絞っていないと、ツールを通っていない本文（自分で書いた・別の型で運ばれた）まで数えて通る。
+    # 別の行に置いた腕では前置フィルタが行ごと飛ばすので、型のチェックはそこでは測れない
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out),
-                env=sess(text="別の道具の出力（文書とは無関係）", said=body, said_inline=True))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr,
-          f"同じ 1 行でも、道具の結果でないブロックの本文は数えない（型を見る）: {r.stderr[-80:]}")
+                env=sess(text="別のツールの出力（文書とは無関係）", said=body, said_inline=True))
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr,
+          f"同じ 1 行でも、ツールの結果でないブロックの本文は数えない（型を見る）: {r.stderr[-80:]}")
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out), env=sess(text=body))
     check(r.returncode == 0, f"全文が会話に入っていれば通る（control）: {r.stderr[-80:]}")
     check(f"run {rid}" in r.stdout, f"done の 1 行も run_id を言う（done だけを打った session でも印が立つ）: {r.stdout[-60:]}")
     check(not run.state().get("read_through_unchecked"), "確かめられた周には『確かめられなかった』の痕跡が付かない")
-    # **同じ柵が p0.terms にも当たる**（同じ波の 2 節目。片方だけ post_check を外しても気づかない形にしない）
+    # **同じチェックが p0.terms にも当たる**（同じ波の 2 つ目のノード。片方だけ post_check を外しても気づかない形にしない）
     r = run.cmd("done", "--node", ids["p0.terms"], "--output", str(terms), env=sess(text="何も読んでいない"))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr,
-          f"同じ柵が p0.terms にも当たる（読んでいない session は exit 1）: {r.stderr[-80:]}")
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr,
+          f"同じチェックが p0.terms にも当たる（読んでいない session は exit 1）: {r.stderr[-80:]}")
     rm(run.tmp)
 
-    # **本文が配列で入る形も読む**（実物の道具の内訳は session_fixture の説明が正本）
+    # **本文が配列で入る形も読む**（実物のツールの内訳は session_fixture の説明が正本）
     run2, ids2, out2, terms2 = read_through_run("readthru-list")
     r = run2.cmd("done", "--node", ids2["p0.claims"], "--output", str(out2),
                  env=session_fixture(run2.tmp, run2.env, text=run2.doc.read_text(encoding="utf-8"), as_list=True))
-    # **通ったことだけを見ない**——配列の腕を殺すと道具の結果が 0 件に見え、「確かめられない」側で
+    # **通ったことだけを見ない**——配列の腕を殺すとツールの結果が 0 件に見え、「確かめられない」側で
     # やはり通る。見つけたのか見つけられなかったのかは痕跡で分かれる
     check(r.returncode == 0 and not run2.state().get("read_through_unchecked"),
-          f"道具の結果が配列の形でも本文は見つかる（痕跡なしで通る。{r.stderr[-80:]}）")
+          f"ツールの結果が配列の形でも本文は見つかる（痕跡なしで通る。{r.stderr[-80:]}）")
     # **実物の Read は各行に行番号＋タブを付ける**（照合は部分一致なので通るはず。行の一致に変えた周に赤くなる）
     (run2.dir / "read-through.json").write_text("{壊れた", encoding="utf-8")
     r = run2.cmd("done", "--node", ids2["p0.terms"], "--output", str(terms2),
@@ -3570,7 +3570,7 @@ def test_read_through():
     rm(run2.tmp)
 
     # **文書そのものが読めない回は拒む**（init のあとで消された・移された）。不成立へ倒すと、
-    # 文書を消せば柵が黙る形になる——痕跡が付かないことまで見る
+    # 文書を消せばチェックが黙る形になる——痕跡が付かないことまで見る
     run3, ids3, out3, _ = read_through_run("readthru-gone")
     run3.doc.unlink()
     r = run3.cmd("done", "--node", ids3["p0.claims"], "--output", str(out3),
@@ -3583,7 +3583,7 @@ def test_read_through():
 def test_read_through_hidden_sinks():
     """**判定は本文の在処だけで下す。** 本文が親の転写の外に落ちる形（大きい結果の外出し・subagent の
     別の転写）は、engine からは『読んでいない』と区別が付かないので拒む——置き場が在るかで通していた
-    とき、文書と無関係な subagent を 1 つ起こした session では柵が二度と不合格を出さなくなった。
+    とき、文書と無関係な subagent を 1 つ起動した session ではチェックが二度と不合格を出さなくなった。
     拒否文は**読み直し方**を場合ごとに言う（自分で読む／大きい結果は分けて読む）。
     """
     print("読了: 置き場が在るかでは通さない（判定は本文の在処だけ。拒否文が読み直し方を言う）")
@@ -3597,10 +3597,10 @@ def test_read_through_hidden_sinks():
                 env=session_fixture(run.tmp, run.env, text=body, subagent=True))
     check(r.returncode == 1 and "自分で読み直せ" in r.stderr,
           f"subagent に読ませた回も拒み、自分で読み直せと言う（rc={r.returncode}: {r.stderr[-90:]}）")
-    # **置き場が在るだけでは通さない。** 本文はどこにも無い（無関係な subagent を 1 つ起こしただけ）の形
+    # **置き場が在るだけでは通さない。** 本文はどこにも無い（無関係な subagent を 1 つ起動しただけ）の形
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out),
                 env=session_fixture(run.tmp, run.env, text="無関係な出力", subagent=True))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr,
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr,
           f"置き場は在るが本文がどこにも無い session は拒む（rc={r.returncode}: {r.stderr[-90:]}）")
     # 置き場が在っても、親の転写に本文が在れば通る（手がかりは判定に効かない）
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out),
@@ -3675,30 +3675,30 @@ def test_read_through_positions():
 
 
 def test_read_through_scanned_once():
-    """**同じ周に同じ物を 2 度走査しない。** 確かめは同じ波の 2 節に付いており、転写は単調に育つので
-    拒否が続く周ほど全走査が重くなる（実測: 36.9 MB で 3.86 秒 × 2 節）。柵は両方の節に当て続けたまま、
+    """**同じ周に同じ物を 2 度走査しない。** 確かめは同じ波の 2 ノードに付いており、転写は単調に育つので
+    拒否が続く周ほど全走査が重くなる（実測: 36.9 MB で 3.86 秒 × 2 ノード）。チェックは両方のノードに当て続けたまま、
     2 度目は盤面に残した結果を読む。**鍵は「何を確かめたか」**——文書や session が差し替わったら読み直す。"""
     print("読了: 同じ周・同じ文書・同じ転写なら走査は 1 回（差し替わったら読み直す）")
     run, ids, out, terms = read_through_run("scan-once")
     body = run.doc.read_text(encoding="utf-8")
     env = session_fixture(run.tmp, run.env, text=body)
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out), env=env)
-    check(r.returncode == 0, f"1 節目は実際に走査して通る（{r.stderr[-70:]}）")
+    check(r.returncode == 0, f"1 つ目のノードは実際に走査して通る（{r.stderr[-70:]}）")
     memo = json.loads((run.dir / "read-through.json").read_text(encoding="utf-8"))
     check(memo.get("scope") and memo["scope"][0] == 1,
           f"確かめた範囲（周・文書・大きさ・転写）が盤面の外の写しに残る（{memo.get('scope')}）")
-    # **2 節目は走査しない**——転写の綴りはそのまま、中身だけ本文を含まない物に置き換える。
+    # **2 つ目のノードは走査しない**——転写の綴りはそのまま、中身だけ本文を含まない物に置き換える。
     # 走査していれば「親の転写の道具の結果に入っていない」で拒まれる（＝通れば読んでいない証拠）
     tr = next(pathlib.Path(env["CLAUDE_CONFIG_DIR"]).glob("projects/*/*.jsonl"))
     tr.write_text(json.dumps({"message": {"content": [{"type": "tool_result", "content": "本文は入っていない"}]}},
                              ensure_ascii=False) + "\n", encoding="utf-8")
     r = run.cmd("done", "--node", ids["p0.terms"], "--output", str(terms), env=env)
     check(r.returncode == 0 and not (run.state().get("read_through_unchecked") or []),
-          f"同じ周・同じ文書・同じ転写なら 2 節目は盤面の結果を読む（中身が変わっても走査しない。rc={r.returncode}）")
+          f"同じ周・同じ文書・同じ転写なら 2 つ目のノードは盤面の結果を読む（中身が変わっても走査しない。rc={r.returncode}）")
     rm(run.tmp)
 
-    # **写しに当たっても、その節の出力から出る一言は出る。** 早期 return にしていたとき、
-    # 確かめの結果と一緒に節ごとの導線（開いた問いを deep-research へ渡す一文）まで消えた
+    # **写しに当たっても、そのノードの出力から出る一言は出る。** 早期 return にしていたとき、
+    # 確かめの結果と一緒にノードごとの導線（開いた問いを deep-research へ渡す一文）まで消えた
     # ——**p0.terms を先に done した周**は、開いた問いを持つ p0.claims が写しに当たり、導線が 1 度も出なかった
     run4, ids4, out4, terms4 = read_through_run("scan-open")
     body4 = run4.doc.read_text(encoding="utf-8")
@@ -3711,7 +3711,7 @@ def test_read_through_scanned_once():
     check(r.returncode == 0, f"先に p0.terms を出しても通る（{r.stderr[-60:]}）")
     r = run4.cmd("done", "--node", ids4["p0.claims"], "--output", str(out4), env=env4)    # 写しに当たる側
     check(r.returncode == 0 and "開いた問いがある" in r.stdout and "deep-research" in r.stdout,
-          f"写しに当たった節でも、開いた問いの導線は出る（rc={r.returncode}: {r.stdout.strip()[:80]}）")
+          f"写しに当たったノードでも、開いた問いの導線は出る（rc={r.returncode}: {r.stdout.strip()[:80]}）")
     rm(run4.tmp)
 
     # **拒否は写さない。** 一度は「拒む回こそ重いから写す」と入れたが、実走で主経路が壊れた
@@ -3721,7 +3721,7 @@ def test_read_through_scanned_once():
     body3 = run3.doc.read_text(encoding="utf-8")
     env3 = session_fixture(run3.tmp, run3.env, text="何も読んでいない")
     r = run3.cmd("done", "--node", ids3["p0.claims"], "--output", str(out3), env=env3)
-    check(r.returncode == 1, f"1 節目は走査して拒む（{r.stderr[-60:]}）")
+    check(r.returncode == 1, f"1 つ目のノードは走査して拒む（{r.stderr[-60:]}）")
     check(not (run3.dir / "read-through.json").is_file(),
           "拒んだ回は写しを残さない（残すと、読んでからの出し直しが同じ周ずっと塞がる）")
     tr3 = next(pathlib.Path(env3["CLAUDE_CONFIG_DIR"]).glob("projects/*/*.jsonl"))
@@ -3737,12 +3737,12 @@ def test_read_through_scanned_once():
     body2 = run2.doc.read_text(encoding="utf-8")
     r = run2.cmd("done", "--node", ids2["p0.claims"], "--output", str(out2),
                  env=session_fixture(run2.tmp, run2.env, text=body2))
-    check(r.returncode == 0, f"1 節目は通る（{r.stderr[-70:]}）")
+    check(r.returncode == 0, f"1 つ目のノードは通る（{r.stderr[-70:]}）")
     run2.doc.write_text(body2 + "\nこの行はこの周の途中で足された、まだ会話に入っていない一文である。\n",
                         encoding="utf-8")
     r = run2.cmd("done", "--node", ids2["p0.terms"], "--output", str(terms2),
                  env=session_fixture(run2.tmp, run2.env, text=body2))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr,
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr,
           f"文書が差し替わったら読み直して拒む（使い回さない。rc={r.returncode}: {r.stderr[-70:]}）")
     rm(run2.tmp)
 
@@ -3751,10 +3751,10 @@ def test_read_through_naming():
     """**名乗りと実装が同じことを言う。** プロンプト 2 枚は、engine が拒む形（subagent に読ませた・
     大きすぎて外出しされた）を『記録に残すだけ』と書いてはいけない——回す側がそう読んで subagent に
     読ませ、done が exit 1 で落ちてから仕様を読み直すことになる（実測 2026-09-19 に 1 枚がそうなっていた）。"""
-    print("読了: プロンプト 2 枚の名乗りが、拒む形を『記録に残すだけ』と書いていない／手順書が柵の前提を書く")
-    # **回す側に見える面にも前提を書く。** 柵は「engine を回した出力が転写に載る」を前提にするが、
+    print("読了: プロンプト 2 枚の名乗りが、拒む形を『記録に残すだけ』と書いていない／手順書がチェックの前提を書く")
+    # **回す側に見える面にも前提を書く。** チェックは「engine を回した出力が転写に載る」を前提にするが、
     # この差分自身の目的（回す側に渡る量を減らす）に沿って出力をファイルへ落とすと、その前提が崩れて
-    # 確かめが恒常的に成立しなくなる——回す側がそれを知らずに節約すると、柵は黙って効かなくなる
+    # 確かめが恒常的に成立しなくなる——回す側がそれを知らずに節約すると、チェックは黙って効かなくなる
     # 手順書は本文（skills/research-graph/SKILL.md）と別ファイル（references/）に分けてあるので、繋いで見る
     sk = PLUGIN / "skills" / "research-graph"
     cmd = "\n".join(f.read_text(encoding="utf-8") for f in [sk / "SKILL.md", *sorted((sk / "references").glob("*.md"))])
@@ -3789,29 +3789,29 @@ def test_read_through_naming():
               f"{name} は subagent の回を『拒む／自分で読め』と書く（記録に残すだけ、と書かない）: {seg[:1]}")
         check("確かめられなかったこととして記録に残す" not in txt,
               f"{name} に、拒む形を不成立と読める一文が無い")
-        # **読んだ次の手で返せ、を両方が言う。** 言わないと、読みと返答を同じ道具呼びに並べた役が
+        # **読んだ次の手で返せ、を両方が言う。** 言わないと、読みと返答を同じツール呼びに並べた役が
         # 拒まれて読み方を疑い、同じ手を繰り返す（実物の転写は後追いで書かれる）
         check("次の手" in txt, f"{name} が、読んだ次の手で返せと書く")
 
 
 def test_read_through_unevaluable():
     """**確かめられないときは、赤でも緑でもなく「不成立」。** 転写の形が変わった・標本が取れない・
-    転写が 1 つに決まらない——どれも「読んでいない」とは別物で、黙って通すと柵が空振りしていることが
+    転写が 1 つに決まらない——どれも「読んでいない」とは別物で、黙って通すとチェックが空振りしていることが
     誰にも見えない。通しつつ理由を盤面に積み、記録と報告に出す。"""
     print("読了: 確かめられない経路は、通すが理由を盤面に残す（件数は台本に写さない）")
-    # 転写に道具の結果が 1 つも無い（形が変わった疑い）
+    # 転写にツールの結果が 1 つも無い（形が変わった疑い）
     run, ids, out, terms = read_through_run("readthru-noresult")
     body = run.doc.read_text(encoding="utf-8")
     r = run.cmd("done", "--node", ids["p0.claims"], "--output", str(out),
-                env=session_fixture(run.tmp, run.env, said=body, marked=False))   # 道具の結果を 1 つも作らない形
+                env=session_fixture(run.tmp, run.env, said=body, marked=False))   # ツールの結果を 1 つも作らない形
     left = run.state().get("read_through_unchecked") or []
-    check(r.returncode == 0 and left and "道具の結果が 1 つも無い" in left[-1]["why"],
-          f"道具の結果が 1 つも無い転写は不成立として通り、理由が残る（rc={r.returncode} / {[x['why'][:24] for x in left[-1:]]}）")
-    # **理由は done の 1 行にも出る。** 盤面にしか積まなかったとき、柵が空振りした回と確かめられた回が
+    check(r.returncode == 0 and left and "ツールの結果が 1 つも無い" in left[-1]["why"],
+          f"ツールの結果が 1 つも無い転写は不成立として通り、理由が残る（rc={r.returncode} / {[x['why'][:24] for x in left[-1:]]}）")
+    # **理由は done の 1 行にも出る。** 盤面にしか積まなかったとき、チェックが空振りした回と確かめられた回が
     # 周の途中では同じに見えた（記録を開くまで誰も気づけない）——盤面の痕跡とは別の口として測る
-    check("読了は確かめられなかった" in r.stdout and "道具の結果が 1 つも無い" in r.stdout,
+    check("読了は確かめられなかった" in r.stdout and "ツールの結果が 1 つも無い" in r.stdout,
           f"不成立の理由が done の 1 行にも出る（{r.stdout.strip()[:60]}）")
-    # 標本が取れない文書（PROBE_MIN 字以上の行が無い）——同じ run の 2 節目で測る
+    # 標本が取れない文書（PROBE_MIN 字以上の行が無い）——同じ run の 2 つ目のノードで測る
     run.doc.write_text("# 見立て\n\n短い行だけ。\n", encoding="utf-8")
     r = run.cmd("done", "--node", ids["p0.terms"], "--output", str(terms),
                 env=session_fixture(run.tmp, run.env, text=body))
@@ -3838,11 +3838,11 @@ def test_read_through_unevaluable():
     rm(run2.tmp)
 
     # **転写が回す側のものでない形**（回す側そのものが subagent／engine の出力をファイルへ落とした配置）。
-    # engine を回せば盤面のパスが道具の結果として必ず載るので、印が 1 つも無い転写に標本が無くても
-    # 「読んでいない」とは言えない——**不合格にすると、その配置には柵を切る以外の出口が無くなる**
+    # engine を回せば盤面のパスがツールの結果として必ず載るので、印が 1 つも無い転写に標本が無くても
+    # 「読んでいない」とは言えない——**不合格にすると、その配置にはチェックを切る以外の出口が無くなる**
     run3, ids3, out3, terms3 = read_through_run("readthru-nomark")
     r = run3.cmd("done", "--node", ids3["p0.claims"], "--output", str(out3),
-                 env=session_fixture(run3.tmp, run3.env, text="別の道具の出力（この run の物ではない）", marked=False))
+                 env=session_fixture(run3.tmp, run3.env, text="別のツールの出力（この run の物ではない）", marked=False))
     left = run3.state().get("read_through_unchecked") or []
     check(r.returncode == 0 and left and "この run を回した出力" in left[-1]["why"]
           and "engine を回した出力が会話に残る場から回し直せ" in left[-1]["why"],
@@ -3850,23 +3850,23 @@ def test_read_through_unevaluable():
     # **印が在れば今までどおり拒む**（印は出口を開けるだけで、読んでいない回を通す口ではない）
     r = run3.cmd("done", "--node", ids3["p0.terms"], "--output", str(terms3),
                  env=session_fixture(run3.tmp, run3.env, text="何も読んでいない"))
-    check(r.returncode == 1 and "親の転写の道具の結果に入っていない" in r.stderr,
+    check(r.returncode == 1 and "親の転写のツールの結果に入っていない" in r.stderr,
           f"印が在る転写では、読んでいない回は今までどおり拒まれる（rc={r.returncode}: {r.stderr[-70:]}）")
     rm(run3.tmp)
 
     # **印はパスではない。** engine の出力は json.dumps を通るので、パスを印にすると Windows の区切りが
-    # 二重化されて印が恒久的に一致せず、柵が黙って通る側へ倒れる（区切りが / の環境では実行の腕に出ない）。
+    # 二重化されて印が恒久的に一致せず、チェックが黙って通る側へ倒れる（区切りが / の環境では実行の腕に出ない）。
     # 盤面のパスだけが載った転写で印が立たないことを見て、印がパスでないことを実行の側から縛る
     run5, ids5, out5, _ = read_through_run("readthru-dirmark")
     r = run5.cmd("done", "--node", ids5["p0.claims"], "--output", str(out5),
-                 env=session_fixture(run5.tmp, run5.env, text="別の道具の出力", mark_dir_only=True))
+                 env=session_fixture(run5.tmp, run5.env, text="別のツールの出力", mark_dir_only=True))
     left = run5.state().get("read_through_unchecked") or []
     check(r.returncode == 0 and left and "この run を回した出力" in left[-1]["why"],
           f"盤面のパスだけが載った転写では印は立たない（印は run_id。rc={r.returncode} / {left[-1]['why'][:30] if left else None}）")
     rm(run5.tmp)
 
     # **標本は全部そろい、印だけが無い形。** 以前はここが if/elif の連鎖のどの条件にも当たらず、
-    # **印を一度も見ずに合格**していた——3 標本が親の転写の別の道具の結果にたまたま在れば通る経路で、
+    # **印を一度も見ずに合格**していた——3 標本が親の転写の別のツールの結果にたまたま在れば通る経路で、
     # 名乗り（印は転写が回す側のものかを確かめるため）と食い違っていた
     run6, ids6, out6, _ = read_through_run("readthru-nomarkfull")
     r = run6.cmd("done", "--node", ids6["p0.claims"], "--output", str(out6),
@@ -3912,7 +3912,7 @@ def test_open_questions_note():
 
 
 def converge_reasons(run):
-    """節 converge の返りの reason を周の順に（engine が trace の builtin の行に残す物を読む。収集の経路を新設しない）。"""
+    """ノード converge の返りの reason を周の順に（engine が trace の builtin の行に残す物を読む。収集の経路を新設しない）。"""
     rows = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     return [r["result"].get("reason", "") for r in rows if r.get("op") == "builtin" and r.get("node") == "converge"]
 
@@ -3948,7 +3948,7 @@ def test_item_file_relative_migration():
     (tmp / "items" / "r1" / "x.json").write_text(json.dumps({"key": "K", "v": 1}, ensure_ascii=False), encoding="utf-8")
     from engine.advance import load_item  # noqa: E402 — 部品を直に呼ぶ腕
     # **engine が実際に書く綴りを食わせる**（`str(b.dir / "items" / f"r{round}" / …)`）。
-    # 台本が engine の書かない綴り（盤面の根からの相対）を食わせていたとき、救済は台本でだけ効いて
+    # 台本が engine の書かない綴り（盤面のルートからの相対）を食わせていたとき、救済は台本でだけ効いて
     # 実物では必ず外れていた（実測 r9）——**腕の入力は engine の出力から取る**
     inst = {"item_file": str(pathlib.Path("state") / "items" / "r1" / "x.json")}
     got = load_item(inst, tmp)
@@ -3975,15 +3975,15 @@ def test_transcript_non_dict_line():
 
 
 def test_unchecked_blocks_convergence():
-    """**収束する周に、柵が成立していなければ収束を宣言しない。**
+    """**収束する周に、チェックが成立していなければ収束を宣言しない。**
 
     これは収束の条件そのものに入っていなければ意味がない——前の周は同じ判断を asks の側に置いたが、
     asks は収束しない周にしか組み立てられないので、**収束する周には一度も評価されなかった**。
     既存の腕（転写が無い run）は 1 周目の諮りで止まるため、条件が効く位置まで到達していなかった
-    （実測 2026-09-21: 条件から外しても全件緑）。**収束する直前の周だけ柵を空振りさせて測る。**
+    （実測 2026-09-21: 条件から外しても全件緑）。**収束する直前の周だけチェックを空振りさせて測る。**
     """
-    print("台本: 収束の条件が、柵の空振りを見て収束を止める（収束する周まで進めて測る）")
-    # 柵が回るのは 1 周目（p0.claims / p0.terms）だけ。そこで転写を見失わせると、痕跡は盤面に残ったまま
+    print("台本: 収束の条件が、チェックの空振りを見て収束を止める（収束する周まで進めて測る）")
+    # チェックが回るのは 1 周目（p0.claims / p0.terms）だけ。そこで転写を見失わせると、痕跡は盤面に残ったまま
     # 収束の周（3 周目）まで持ち越される——他の収束条件は全部そろうので、条件の位置がそのまま結果に出る
     run = Run("unchk-conv")
     noenv = {k: v for k, v in run.env.items() if k != "CLAUDE_CODE_SESSION_ID"}
@@ -3996,7 +3996,7 @@ def test_unchecked_blocks_convergence():
             kinds = (nx.get("ask") or {}).get("kinds", [])
             if "read_through_unchecked" not in kinds:
                 break                      # 別の理由で止まったら、この腕の対象ではない
-            run.cmd("answer", "--text", "continue", "--note", "柵の空振りを承知で続ける（検査）")
+            run.cmd("answer", "--text", "continue", "--note", "チェックの空振りを承知で続ける（検査）")
             continue
         if not nx["ready"] and nx["status"] in TERMINAL_STATUS:
             break
@@ -4010,9 +4010,9 @@ def test_unchecked_blocks_convergence():
             if r.returncode != 0:
                 raise RuntimeError(f"done {inst['id']} が {r.returncode}: {r.stderr[-200:]}")
     left = run.state().get("read_through_unchecked") or []
-    check(left and all(x["round"] == 1 for x in left), f"1 周目に柵が空振りし、痕跡が残る（{[x['round'] for x in left]}）")
+    check(left and all(x["round"] == 1 for x in left), f"1 周目にチェックが空振りし、痕跡が残る（{[x['round'] for x in left]}）")
     check("converged" not in statuses,
-          f"他の条件が全部そろう周まで進んでも、柵が空振りした run は収束しない（見た status: {statuses[-4:]}）")
+          f"他の条件が全部そろう周まで進んでも、チェックが空振りした run は収束しない（見た status: {statuses[-4:]}）")
     check(run.state()["round"] >= 3, f"収束の条件が効く周（連続 2 周ゼロ）まで実際に進んだ（{run.state()['round']} 周）")
     rm(run.tmp)
 
@@ -4021,7 +4021,7 @@ def test_read_through_unchecked():
     """**検査できない環境では黙って通さない。** 転写の見つからないハーネスから回されたとき、
     読了を確かめられなかった事実を盤面に残す。
     あわせて、**置き場の旗が無くても既定（~/.claude）で成立する**ことを見る——既定が無いと、
-    旗を渡さない配置では柵が毎回空振りし、それが誰にも見えない。"""
+    旗を渡さない配置ではチェックが毎回空振りし、それが誰にも見えない。"""
     print("読了: 転写が見つからない環境では通すが痕跡を残す／旗が無くても既定の置き場で成立する")
     run, ids, out, terms = read_through_run("nochk")
     noenv = {k: v for k, v in run.env.items() if k != "CLAUDE_CODE_SESSION_ID"}
@@ -4052,8 +4052,8 @@ def test_read_through_unchecked():
     run2 = Run("nochk-record")
     run2.env = {k: v for k, v in run2.env.items() if k != "CLAUDE_CODE_SESSION_ID"}
     nx = drive(run2, "std")
-    # **柵が 1 度も成立しなかった周は、機械が勝手に収束と言わない**（収束判定が人に諮る）。
-    # 痕跡が finalize の件数にしか出なかったとき、柵が壊れている run と通った run が周の途中で同じに見えた
+    # **チェックが 1 度も成立しなかった周は、機械が勝手に収束と言わない**（収束判定が人に諮る）。
+    # 痕跡が finalize の件数にしか出なかったとき、チェックが壊れている run と通った run が周の途中で同じに見えた
     check(nx.get("status") == "awaiting_human" and "read_through_unchecked" in (nx.get("ask") or {}).get("kinds", []),
           f"読了を確かめられなかった周は収束を宣言せず人に諮る（{nx.get('status')} / {(nx.get('ask') or {}).get('kinds')}）")
     check("読了の確かめが成立しなかった" in json.dumps((nx.get("ask") or {}).get("items", []), ensure_ascii=False),
@@ -4071,7 +4071,7 @@ def test_read_through_unchecked():
 def test_path_inputs_table():
     """**どの入力がパスかは graph が宣言する**（graph の inputs が正本。engine は kind → 見方の対応だけ）。宣言に無い鍵は、貼る穴（file:）に
     渡っていても実在検査に当たらない——名乗りと実装が同じことを言う状態を、部品を直に呼んで固定する。
-    あわせて、**見立て文書の入力が無い盤面**でも読了の柵が不成立を残すことを見る（今は入口が止めるので
+    あわせて、**見立て文書の入力が無い盤面**でも読了のチェックが不成立を残すことを見る（今は入口が止めるので
     実物の経路では到達しないが、post_check を別の graph へ付け替えた周に静かに素通りするのを防ぐ）。"""
     print("入力の表: 実在検査は表の鍵だけに当たる／文書が無い盤面も不成立を残す")
     from engine.commands import required_inputs_missing  # noqa: E402 — 部品を直に呼ぶ腕
@@ -4087,14 +4087,14 @@ def test_path_inputs_table():
     check(miss == [], f"表に無い鍵は、貼る穴に渡っていても実在検査に当たらない（表が正本。出た欠け: {miss}）")
     miss = required_inputs_missing(g, str(gp), {"document": str(tmp / "no-such.md"), "other": str(doc)})
     check(len(miss) == 1 and "--document" in miss[0], f"表に在る鍵は当たる（{miss}）")
-    # **接頭の剥がし方は render が正本。** ここで接頭を手で知っていたとき、section: の穴しか持たない節は
+    # **接頭の剥がし方は render が正本。** ここで接頭を手で知っていたとき、section: の穴しか持たないノードは
     # 鍵が取れず、存在しない --document が入口を素通りした（実在検査にも欠け検査にも当たらない）
     (tmp / "prompts" / "sec.md").write_text("{{section:inputs.document#見出し}}", encoding="utf-8")
     gs = {"inputs": {"document": {"kind": "file"}}, "nodes": {"n1": {"prompt_file": "prompts/sec.md"}}}
     gsp = tmp / "gs.json"
     gsp.write_text(json.dumps(gs, ensure_ascii=False), encoding="utf-8")
     miss = required_inputs_missing(gs, str(gsp), {"document": str(tmp / "no-such.md")})
-    check(len(miss) == 1 and "--document" in miss[0], f"section: の穴だけの節でも鍵が取れて実在検査に当たる（{miss}）")
+    check(len(miss) == 1 and "--document" in miss[0], f"section: の穴だけのノードでも鍵が取れて実在検査に当たる（{miss}）")
     # **宣言が正本であることを実行で縛る。** graph の inputs から document を落とすと実在検査に当たらない
     # ——engine 側に名前の表が残っていたら、宣言を消しても当たり続けてこの腕が赤くなる
     gn = {"inputs": {}, "nodes": {"n1": {"prompt_file": "prompts/sec.md"}}}
@@ -4121,7 +4121,7 @@ def test_path_inputs_table():
 def test_input_existence():
     """**入力の実在検査は、貼る穴の接頭に依らず当たる。** 本物の graph には file:inputs.document の穴が
     3 つ残っているので、素の research-loop で測ると旧経路（is_file の分岐）が先に赤を出し、名前で見る側の
-    腕が在っても無くても同じ色になる（実測 2026-09-18: 新 2 腕を BASE の 1 行に戻して全件緑）。柵が守ると
+    腕が在っても無くても同じ色になる（実測 2026-09-18: 新 2 腕を BASE の 1 行に戻して全件緑）。チェックが守ると
     名乗る形——回す側がパス渡しに寄り切って貼る穴が 1 つも無い graph——を作ってから測る。"""
     print("入口の検査: 貼る穴を持たない graph でも、存在しない --document と --cwd で init が落ちる")
     _td_tmp, tmp = parallel.workspace("gl-inp-")
@@ -4146,7 +4146,7 @@ def test_input_existence():
     check(r.returncode == 0, f"貼る穴を持たない graph でも、実在する --document なら init は通る（rc={r.returncode}: {r.stderr[-120:]}）")
     r = init("--document", str(run.tmp / "no-such.md"))
     check(r.returncode != 0 and "が無い" in r.stderr and "p0.claims" in r.stderr,
-          f"貼る穴が 1 つも無くても、存在しない --document は入口で落ち、要る節を名指しする（rc={r.returncode}: {r.stderr[-120:]}）")
+          f"貼る穴が 1 つも無くても、存在しない --document は入口で落ち、要るノードを名指しする（rc={r.returncode}: {r.stderr[-120:]}）")
     # 以下 4 つの腕が守る規約の正本は engine/commands.py（診断の綴り・正規化の対象・空文字の扱い）
     r = init("--document", str(run.doc), "--input", f"cwd={run.tmp / 'no-such-dir'}")
     check(r.returncode != 0 and "が無い" in r.stderr,
@@ -4181,7 +4181,7 @@ def test_non_utf8_document():
     print("台本: UTF-8 でない --document でも file: の穴は置換して埋まる（render 側の復号）")
     run = Run("latin")
     doc = run.repo / "latin.md"
-    # **読了の柵が成立する形にしておく**（非 UTF-8 の復号を測る台本なので、柵の不成立で収束が止まると
+    # **読了のチェックが成立する形にしておく**（非 UTF-8 の復号を測る台本なので、チェックの不成立で収束が止まると
     # 測りたい所まで回らない）——標本が 3 区間から取れるだけの行数を持たせる
     doc.write_bytes(("# caf\u00e9 \ufffd の見立て文書（標本に使う長さの見出し）\n\n"
                      "\u00e9 claims この冒頭の行は標本に使う長さにしてある\n"
@@ -4200,7 +4200,7 @@ def test_non_utf8_document():
     call("done", "--node", q["id"], "--output", str(f))
     run.dir = d2  # 台本（base_answers）が読む盤面をこの run に向ける
     run.mark_into_transcript()   # この盤面の run_id も転写に載せる（別の run の印では成立しない）
-    # **本文を貼るのは、自分で読めない役だけ**（回す側にはパスが渡る）ので、復号の腕は遮断系の節で見る。
+    # **本文を貼るのは、自分で読めない役だけ**（回す側にはパスが渡る）ので、復号の腕は遮断系のノードで見る。
     # そこまで台本で回す——p3.cold_reader は新規相違ゼロの周にだけ立つ。**回すのは drive に任せる**:
     # 自前の周回しは next の rc と stderr を捨てるので、守っている退行（非 UTF-8 で next が exit 2）が
     # 再発したとき、赤の文面に原因（UnicodeDecodeError・rc=2）が 1 文字も出なかった
@@ -4212,7 +4212,7 @@ def test_non_utf8_document():
         return None
 
     last = drive(run, "std", hook=grab)
-    check("body" in grabbed, f"文書を貼る節（遮断系）まで回った（最後の status: {last.get('status')}）")
+    check("body" in grabbed, f"文書を貼るノード（遮断系）まで回った（最後の status: {last.get('status')}）")
     check("�" in grabbed.get("body", "") and "caf" in grabbed.get("body", "") and "claims" in grabbed.get("body", ""),
           "文書の本文は置換文字で、先頭から末尾まで欠けずに貼られる——以前は next が UnicodeDecodeError で exit 2")
     rm(run.tmp)
@@ -4221,7 +4221,7 @@ def test_non_utf8_document():
 def test_carried_r1_only_previous_round():
     """`前の周の R1` は `最後に走った R1` ではない。走らなかった周を挟んだら要求しない。
 
-    outputs は節ごとに最新の 1 件しか持たず、R1 は再発火条件付き（cond: r1_refire）なので、
+    outputs はノードごとに最新の 1 件しか持たず、R1 は再発火条件付き（cond: r1_refire）なので、
     走らなかった周を挟むと数周前の出力が返る——処理済みの削除候補が次の周にも同じ顔で要求され、
     judge には直す術が無い（実測 2026-09-16: judge がこの形を名指しした）。
     """
@@ -4258,12 +4258,12 @@ def test_workspace_cleanup():
     （`weakref.finalize`）の再実装で、しかも後から並列化を足したとき**自作の集合だけ排他の外に残った**。
     要件（落ちた回でも消える）を検査した腕は 1 本も無く、標準に寄せた後も無ければ同じことになる。
     """
-    print("作業場の後始末: 持ち手を捨てたとき・プロセスが落ちたときの両方で消える")
+    print("作業場の後始末: ハンドルを捨てたとき・プロセスが落ちたときの両方で消える")
     _td, tmp = parallel.workspace("gl-ws-")
     (tmp / "x.txt").write_text("x", encoding="utf-8")
     check(tmp.exists(), "作業場ができる")
     del _td
-    check(not tmp.exists(), f"持ち手を捨てたらその場で消える（{tmp}）")
+    check(not tmp.exists(), f"ハンドルを捨てたらその場で消える（{tmp}）")
     # **落ち方は子プロセスでしか作れない**——この台本自身を落とすと残りの検査が走らない
     src = "import sys, pathlib; sys.path.insert(0, %r); import parallel\ntd, p = parallel.workspace('gl-ws-die-')\nprint(p)\nraise SystemExit(3)\n" % str(HERE)
     r = subprocess.run([PY, "-c", src], capture_output=True, text=True, encoding="utf-8", timeout=120)
@@ -4289,11 +4289,11 @@ def main():
     # 一時ディレクトリ（git リポジトリを含む）の後始末は `parallel.workspace`（TemporaryDirectory）が持つ。
     # **消すのは自分が作った作業場だけ**——接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
     # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
-    # 互いを殺し、落ちた台本が毎回違った）。持ち手を Run が握るので、台本を抜けた時点で消える
+    # 互いを殺し、落ちた台本が毎回違った）。ハンドルを Run が握るので、台本を抜けた時点で消える
     # （main に届かない落ち方——import 時の例外・engine を壊して全体が落ちる・退行注入の試走——も
     # weakref.finalize がプロセス終了時に覆う。自作の集合 ＋ atexit はこれの再実装だった）。
     # **台本は名前で集めて同時に走らせる。** 手で並べると足した台本の呼び忘れに誰も気づかない
-    # （呼ばれない台本は件数を増やさないので件数の柵をすり抜ける）。同時に走らせてよいのは、
+    # （呼ばれない台本は件数を増やさないので件数のチェックをすり抜ける）。同時に走らせてよいのは、
     # 台本どうしが自分の作業場しか触らないから——時間はほぼ全部が子プロセスの終了待ちだった。
     # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
     tests = parallel.collect(globals())

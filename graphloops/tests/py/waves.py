@@ -17,7 +17,7 @@
 
 前半の手順のうち、台本の関数の中だけに在る物（test_rejections の主張 A を太らせる・stray.txt と --accept-tree-change・拒ませて
 から通す done）は、台本の本文から下の波の手に書き写してある。台本を消す run まで台本も残るので、台本の前半を直したらここも直す
-（ずれを見る柵は無い——README の test_schema_graphcheck.py の写しと同じ扱い）。
+（ずれを見るチェックは無い——README の test_schema_graphcheck.py の写しと同じ扱い）。
 
 大きさ: これを使うテストは medium（glharness.SIZES）。
 """
@@ -36,12 +36,12 @@ import pytest
 TESTS = glharness.TESTS
 review = glharness.script("review")
 research = glharness.script("research")
-# テストの user_properties に積む名前（junitxml に載り、被覆の道具 cover_moved.py が読む）: 使った波・積んだテストの node id
+# テストの user_properties に積む名前（junitxml に載り、被覆のツール cover_moved.py が読む）: 使った波・積んだテストの node id
 WAVE_PROPERTY, NODE_PROPERTY = "gl_wave", "gl_node"
 
 
 def pending(run):
-    """今の周に出ていて済んでいない instance を節の名前で（next の ready と同じ集合。done の相手を引く口）"""
+    """今の周に出ていて済んでいない instance をノードの名前で（next の ready と同じ集合。done の相手を引く口）"""
     rd = run.state()["rounds"][-1]
     return {i["node"]: i for i in rd["instances"].values() if i["status"] == "pending"}
 
@@ -61,13 +61,13 @@ T_NODES = ("p0.prior_decisions", "p1.local_review", "p1.consistency_bypass", "p1
 def _r_p0(run, v):
     run.next()
     # review の test_rejections は返答の表（answers）を P0 の最初の波で 1 度だけ引き、P1・撃ち直し・判定・修正の拒みの土台に
-    # 使い回す——同じ時点で引いた値を控える（後で引き直すと、表が記録を読む節の値が変わる）
+    # 使い回す——同じ時点で引いた値を控える（後で引き直すと、表が記録を読むノードの値が変わる）
     t = review.answers(run, "std", 1)
     v["t"] = {n: t[n](None) for n in T_NODES}
 
 
 def _settle(run, inst, make):
-    """台本の settle（走らせる節は launch——ok でなければ settle が例外。ほかは done）の done の側も、崩れたら止める"""
+    """台本の settle（走らせるノードは launch——ok でなければ settle が例外。ほかは done）の done の側も、崩れたら止める"""
     got = review.settle(run, inst, make)
     if not isinstance(got, dict):
         _ok(got, inst["node"])
@@ -98,7 +98,7 @@ def _r_p1_done(run, v):
 
 
 def _r_p2_pre(run, v):
-    """P1 の後の作業ツリーの突合で止め、writer の変更として受け付け、撃ち直しの節を済ませる（stray.txt は残したまま）"""
+    """P1 の後の作業ツリーの突合で止め、writer の変更として受け付け、撃ち直しのノードを済ませる（stray.txt は残したまま）"""
     (run.repo / "stray.txt").write_text("x", encoding="utf-8")
     nx = run.next()
     if nx["ready"]:
@@ -216,7 +216,7 @@ ROOTS = {
 
 
 def lineage(name):
-    """波とその祖先——被覆の道具（cover_moved.py）が、テストが使った波の作りの行を集めるのに使う"""
+    """波とその祖先——被覆のツール（cover_moved.py）が、テストが使った波の作りの行を集めるのに使う"""
     out = []
     while name is not None:
         out.append(name)
@@ -311,7 +311,7 @@ class Waves:
 def pytest_addoption(parser):
     parser.addoption("--gl-prebuild-waves", action="store_true", default=False,
                      help="波と層 2 の筋書きの前置き（given）を、最初にそれを使うテストの準備（setup）の段で作る（既定は要ったときに作る）。"
-                          "被覆を測る道具（cover_moved.py）が、前置きを作る行を検査の本体（run）と分けて数えるために使う")
+                          "被覆を測るツール（cover_moved.py）が、前置きを作る行を検査の本体（run）と分けて数えるために使う")
 
 
 @pytest.fixture(scope="session")

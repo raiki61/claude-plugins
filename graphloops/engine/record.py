@@ -2,7 +2,7 @@
 
 rules の op のうち読み口を受ける新しい形（cond_reads の印を持つ物）は、書く値を返すだけで記録を直に書かない。書き先は op が writes_to
 （graph の writes の to を {to} に埋める記録の path の型）で名乗り、ここがそこに置く——記録への書き込みの口を増やさず、書き先の正本は
-graph の writes の宣言（graphcheck が照らし、巻き戻しが見る）のまま。旧い形の op（盤面を受け取る物）は今までどおり盤面で呼ぶ。"""
+graph の writes の宣言（graphcheck が照合し、巻き戻しが見る）のまま。旧い形の op（盤面を受け取る物）は今までどおり盤面で呼ぶ。"""
 from .rules import registry, takes_view
 from .util import Reject, die, get_path, has_path, pick, set_path
 
@@ -10,12 +10,12 @@ ENGINE_WRITE_OPS = ("set", "append", "merge_by_id")  # engine が持つ op。gra
 
 
 def stamp_field(w, nid):
-    """stamp_round は『周を書き込む欄の名前』（append でも merge_by_id でも同じ意味）。真偽値は受け付けない。"""
+    """stamp_round は『周を書き込むフィールドの名前』（append でも merge_by_id でも同じ意味）。真偽値は受け付けない。"""
     f = w.get("stamp_round")
     if f is None:
         return None
     if not isinstance(f, str) or not f:
-        die(f"{nid}: writes.stamp_round は欄の名前（文字列）で書く: {f!r}")
+        die(f"{nid}: writes.stamp_round はフィールドの名前（文字列）で書く: {f!r}")
     return f
 
 
@@ -25,7 +25,7 @@ def apply_writes(b, nid, output, item):
         op = w["op"]
         frm = w.get("from", "$")
         if not has_path(output, frm):
-            # 欄が無い＝その write は起きない。**起きなかったことを残す**——graphcheck が optional の宣言を
+            # フィールドが無い＝その write は起きない。**起きなかったことを残す**——graphcheck が optional の宣言を
             # 要求するのは静的な側で、実際に飛んだ周は記録にしか出ない（役が毎周省いていても誰も気づかない形だった）
             b.state.setdefault("writes_skipped", []).append({"node": nid, "round": b.round, "from": frm, "to": w.get("to")})
             continue

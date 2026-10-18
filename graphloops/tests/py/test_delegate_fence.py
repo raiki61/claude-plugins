@@ -1,7 +1,7 @@
-"""任せ先（delegate）の柵: 守る場所を git から引く・本物の写しを作る・権限と sandbox の形・起こす瞬間の突き合わせ。
+"""任せ先（delegate）のチェック: 守る場所を git から引く・本物の写しを作る・権限と sandbox の形・起動する瞬間の突き合わせ。
 
 配布先で Agent ツールの任せ先が本物の作業ツリーで git reset --hard を打った事故（2026-09-25）への直しの、関数を直に呼ぶ検査。
-盤面を端から端まで回す検査（next が launch を付ける・launch が写しの上で起こす・背景の線）は tests/simulate_review.py に在る。
+盤面を端から端まで回す検査（next が launch を付ける・launch が写しの上で起動する・背景の線）は tests/simulate_review.py に在る。
 """
 import json
 import os
@@ -34,12 +34,12 @@ def repo(tmp_path, monkeypatch):
     git(r, "commit", "-q", "-m", "base")
     git(r, "worktree", "add", "-q", str(tmp_path / "other"), "-b", "other")
     monkeypatch.setattr(util, "GIT_CWD", str(r))
-    monkeypatch.chdir(r)   # プロセスの cwd の .claude/settings.json（走らせたリポジトリの deny）に柵のテストが依らない
+    monkeypatch.chdir(r)   # プロセスの cwd の .claude/settings.json（走らせたリポジトリの deny）にチェックのテストが依らない
     return r
 
 
 def test_delegate_fence_ignores_a_deny_in_the_process_cwd(repo, tmp_path, monkeypatch):
-    """走らせた場所（プロセスの cwd）に deny を持つ .claude/settings.json が在っても、任せ先の柵は対象リポジトリ（cwd を名指した
+    """走らせた場所（プロセスの cwd）に deny を持つ .claude/settings.json が在っても、任せ先のチェックは対象リポジトリ（cwd を名指した
     作業ツリー）の宣言だけを読む"""
     elsewhere = tmp_path / "elsewhere"
     (elsewhere / ".claude").mkdir(parents=True)
@@ -142,13 +142,13 @@ def test_delegate_refusal_arms(repo, tmp_path, mutate, want):
 
 
 def test_delegate_refusal_rebuilds_the_fence_at_launch_time(repo, tmp_path):
-    """next の後に作業ツリーが足されたら、argv の名指しが今の守る場所と揃わないので起こさない"""
+    """next の後に作業ツリーが足されたら、argv の名指しが今の守る場所と揃わないので起動しない"""
     stdin = tmp_path / "p.md"
     stdin.write_text("x")
     good = _good_launch(tmp_path / "b", stdin)
     git(repo, "worktree", "add", "-q", str(tmp_path / "late"), "-b", "late")
     assert "--settings" in (commands.launch_refusal({"launch": good, "delegate": {"model": "haiku"}}, board_dir=tmp_path / "b") or "")
-    # 盤面を名指ししない柵（board 無し）も起こさない
+    # 盤面を名指ししないチェック（board 無し）も起動しない
     assert "守る場所" in (commands.launch_refusal({"launch": _good_launch(tmp_path / "b", stdin), "delegate": {"model": "haiku"}}, board_dir=None) or "")
 
 
@@ -176,13 +176,13 @@ def _delegate_board(tmp_path, graph):
 
 
 def test_delegate_launch_spec_needs_the_graph_words(tmp_path):
-    """graph に launch.delegate が無ければ任せ先の起こし方を組まない（None——回す側に柵を組めないと言う）"""
+    """graph に launch.delegate が無ければ任せ先の起動方法を組まない（None——回す側にチェックを組めないと言う）"""
     from engine.advance import delegate_launch_spec
     assert delegate_launch_spec(_delegate_board(tmp_path, {}), {}, {"delegate": {"model": "haiku"}}, {}) is None
 
 
 def test_delegate_launch_spec_resolves_claude_on_path(repo, tmp_path, monkeypatch):
-    """起こす語の claude は PATH で引いた実体に置き換える（前置の層の後ろ）。引けなければ missing に名前を残す"""
+    """起動する語の claude は PATH で引いた実体に置き換える（前置の層の後ろ）。引けなければ missing に名前を残す"""
     from engine import advance
     spec = {"argv": ["claude", "-p", "--model", "{model}"], "via": ["{python}", "{plugin_root}/scripts/with-auth.py"], "preamble": "p"}
     b = _delegate_board(tmp_path, {"launch": {"delegate": spec}})
@@ -201,7 +201,7 @@ def test_delegate_launch_spec_resolves_claude_on_path(repo, tmp_path, monkeypatc
 def _board(tmp_path, launch):
     import types
     g = {"launch": {"delegate": launch}} if launch is not None else {"launch": {}}
-    return types.SimpleNamespace(graph=g, dir=tmp_path / "board", state={})   # 盤面の state（inputs.cwd が無ければ呼んだ場所で起こす）
+    return types.SimpleNamespace(graph=g, dir=tmp_path / "board", state={})   # 盤面の state（inputs.cwd が無ければ呼んだ場所で起動する）
 
 
 def _inst(tmp_path):
@@ -211,7 +211,7 @@ def _inst(tmp_path):
 
 
 def test_delegate_launch_spec_is_none_without_launch_delegate(repo, tmp_path):
-    """graph に launch.delegate が無ければ起こす語を作らない（回す側が Agent で起こす古い graph）"""
+    """graph に launch.delegate が無ければ起動する語を作らない（回す側が Agent で起動する古い graph）"""
     from engine import advance
     assert advance.delegate_launch_spec(_board(tmp_path, None), _inst(tmp_path), {"delegate": {"model": "haiku"}}, {}) is None
 
@@ -238,7 +238,7 @@ def test_delegate_launch_spec_without_preamble_via_or_model(repo, tmp_path):
 
 
 def test_delegate_launch_spec_marks_unprotected_and_missing(repo, tmp_path, monkeypatch):
-    """守る場所を git から引けない・起こすコマンドが無い、を launch に書く（launch_refusal と回す側が読む）"""
+    """守る場所を git から引けない・起動するコマンドが無い、を launch に書く（launch_refusal と回す側が読む）"""
     from engine import advance
     monkeypatch.setattr(advance, "protected_paths", lambda extra=(): None)
     spec = {"argv": ["graphloops-no-such-command-x", "-p"]}
@@ -286,7 +286,7 @@ def test_launch_one_removes_the_work_place_when_the_copy_fails(repo, tmp_path, m
 
 
 def test_kill_sends_sigkill_to_a_group_that_ignores_sigterm(monkeypatch):
-    """SIGTERM を無視する子も、猶予の後に木ごと止める（Windows は taskkill /T /F の枝で同じく止まる）"""
+    """SIGTERM を無視する子も、猶予の後に木ごと止める（Windows は taskkill /T /F の分岐で同じく止まる）"""
     monkeypatch.setattr(role_run, "KILL_GRACE", 0.5)
     kw = ({"start_new_session": True} if os.name == "posix"
           else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
@@ -303,8 +303,8 @@ def test_kill_sends_sigkill_to_a_group_that_ignores_sigterm(monkeypatch):
 
 
 def test_kill_stops_the_grandchild_while_the_leader_lives():
-    """長が生きている間に孫を起こした木を、_kill が孫まで止める。OS で見送らない——Windows は taskkill /T /F の道（/T は
-    『指定したプロセスとそれが起こした子を終わらせる』。孫まで届くかは文書に無いので、ここが実機で確かめる口）、POSIX は
+    """長が生きている間に孫を起動した木を、_kill が孫まで止める。OS で見送らない——Windows は taskkill /T /F の道（/T は
+    『指定したプロセスとそれが起動した子を終わらせる』。孫まで届くかは文書に無いので、ここが実機で確かめる口）、POSIX は
     _stop_tree の数え上げの道を通る。長も孫も、この検査が握る標準入力の管の EOF まで眠る固定具で、後始末で止めるのは
     持っている Popen だけ"""
     code = ("import subprocess,sys\n"
@@ -388,7 +388,7 @@ def test_copy_worktree_keeps_a_gitlink_directory_and_drops_a_deleted_symlink(rep
 
 
 def test_graphcheck_background_delegate_without_reads_is_ng_not_a_crash(tmp_path):
-    """背景の任せ先の節が reads を持たない graph は、例外で死なずに NG の診断文で落ちる"""
+    """背景の任せ先のノードが reads を持たない graph は、例外で死なずに NG の診断文で落ちる"""
     import copy
     import importlib.util
     from conftest import PLUGIN, REPO
@@ -412,7 +412,7 @@ def test_graphcheck_background_delegate_without_reads_is_ng_not_a_crash(tmp_path
 
 
 def test_delegate_launch_spec_resolves_the_command_and_the_resume_words(repo, tmp_path):
-    """起こす語の頭は PATH で引いた実体に置き換え（柵の突き合わせと子の起動が同じ実体を指す）、resume の語も同じく組む"""
+    """起動する語の頭は PATH で引いた実体に置き換え（チェックの突き合わせと子の起動が同じ実体を指す）、resume の語も同じく組む"""
     from engine import advance
     spec = {"argv": ["git", "-p"], "resume": ["git", "--resume", "{session_id}"]}
     got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), {"delegate": {}}, {})
@@ -445,8 +445,8 @@ def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(re
     inst = {"id": "p3.x", "node": "p3.x", "out_path": str(tmp_path / "o"), "deadline_at": commands.now(),
             "launch": {"kind": "delegate", "background": True, "result_path": str(result), "argv": [sys.executable, "-c", code],
                        "stdin": str(prompt)}}
-    (tmp_path / "o").write_text("受領の返答", encoding="utf-8")   # 背景の節の out_path は受領の返答の置き場（done 済み）
-    # 起こした直後に盤面を読んで自分の試行かを確かめる（still_mine）——背景の任せ先は受領を done にしてから起こす
+    (tmp_path / "o").write_text("受領の返答", encoding="utf-8")   # 背景のノードの out_path は受領の返答の置き場（done 済み）
+    # 起動した直後に盤面を読んで自分の試行かを確かめる（still_mine）——背景の任せ先は受領を done にしてから起動する
     (board / "state.json").write_text(json.dumps({"rounds": [{"instances": {"p3.x": {"out_path": inst["out_path"], "status": "done"}}}]}),
                                       encoding="utf-8")
     got = commands.launch_one(str(board), inst, 2)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """doctor-loop の実行記録を検証し、最終報告の発行を妨げているものを列挙する。
 
-**この道具は不合格しか宣言しない。** 「阻害なし」は品質・飽和の宣言ではなく、機械で
+**このツールは不合格しか宣言しない。** 「阻害なし」は品質・飽和の宣言ではなく、機械で
 見つけられる欠落が無いという意味にすぎない。木の妥当性・一撃の筋・散文の質を見るのは
 人と cold-reader。
 
@@ -9,7 +9,7 @@
 抜き取りの結果・変更禁止の確認・再走査の手引き）で、欠落は読んでも見えない。
 **飽和の偽装だけを塞ぎ、停止（軽量の打ち切り・上限・stuck・thrash）の正直な申告は
 通す**——`convergence.outcome` を "stopped" にして理由を書けば、ゲートの未 pass や
-未検証の節は「未飽和の申告」であって阻害ではない。
+未検証のノードは「未飽和の申告」であって阻害ではない。
 
 使い方:
     python3 doctor-record.py <実行記録.json>
@@ -17,12 +17,12 @@
 終了コード:
     0  発行を妨げるものなし（品質・飽和の宣言ではない）
     1  発行を妨げるものあり（飽和を名乗りながら条件が揃っていない）
-    2  記録が不正（欄の欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
+    2  記録が不正（フィールドの欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
 
 契約を担保するのは末尾の例外境界 1 つだけ。**個々の型検査は診断メッセージのために
 在るのであって、契約の保証ではない——列挙を増やして塞いだつもりになるな**
 （review-record.py が同じ穴で 4 経路漏らした記録を残している）。手書き検証の理由も
-兄弟 2 本と同じ: 欄をまたぐ突合（親参照・重さと増し掛け・厚みとゲートの対応）は
+兄弟 2 本と同じ: フィールドをまたぐ突合（親参照・重さと増し掛け・厚みとゲートの対応）は
 単一スキーマに閉じず、`jsonschema` は「必須は git / python3 / bash だけ」と衝突する。
 """
 
@@ -41,9 +41,9 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 # ここが正本で、手順書は列挙を持たない（二重管理を避ける）。
-# 「未検証」は判定の不在（欄の初期値）——停止した実行でだけ記録に残ってよい。
+# 「未検証」は判定の不在（フィールドの初期値）——停止した実行でだけ記録に残ってよい。
 NODE_VERDICTS = ("推奨", "条件付き", "棄却", "検証不能", "事実誤り", "既決着", "判定不一致", "未検証")
-# 判定ごとに追加で要求する欄。成立条件のない条件付き・理由のない棄却・
+# 判定ごとに追加で要求するフィールド。成立条件のない条件付き・理由のない棄却・
 # 確認手段のない検証不能・決着先のない既決着は、いずれも不完全な判定。
 VERDICT_FIELDS = {
     "推奨": (),
@@ -96,7 +96,7 @@ def validate(rec, path):
         fail(f"{path}: 記録の最上位が object でない")
     for key in REQUIRED:
         if key not in rec:
-            fail(f"{path}: 必須の欄 '{key}' が無い")
+            fail(f"{path}: 必須のフィールド '{key}' が無い")
 
     require_str(rec, "area", path)
     if rec["thickness"] not in THICKNESS:
@@ -135,34 +135,34 @@ def validate(rec, path):
             fail(f"{path}: nodes[{i}] が object でない")
         key = require_str(n, "key", f"{path}: nodes[{i}]")
         if key in keys:
-            fail(f"{path}: 節のキー '{key}' が重複（安定キーは突合に使うため一意）")
+            fail(f"{path}: ノードのキー '{key}' が重複（安定キーは突合に使うため一意）")
         keys.add(key)
-        require_int(n, "height", f"{path}: 節 '{key}'", 1)
+        require_int(n, "height", f"{path}: ノード '{key}'", 1)
         if n["height"] > 4:
-            fail(f"{path}: 節 '{key}' の height が 4 を超えている（高さは固定 4 段）")
+            fail(f"{path}: ノード '{key}' の height が 4 を超えている（高さは固定 4 段）")
         verdict = n.get("verdict")
         if verdict not in NODE_VERDICTS:
-            fail(f"{path}: 節 '{key}' の verdict が不正: {verdict!r}")
+            fail(f"{path}: ノード '{key}' の verdict が不正: {verdict!r}")
         for field in VERDICT_FIELDS[verdict]:
-            require_str(n, field, f"{path}: 節 '{key}'（verdict={verdict}）")
+            require_str(n, field, f"{path}: ノード '{key}'（verdict={verdict}）")
         if n.get("confidence") not in CONFIDENCES:
-            fail(f"{path}: 節 '{key}' の confidence が不正（{'/'.join(CONFIDENCES)}）")
-        require_str(n, "evidence", f"{path}: 節 '{key}'")
-        # 重さは scout が付ける欄。prospector 生成の親は null でよい（増し掛けの対象外）。
+            fail(f"{path}: ノード '{key}' の confidence が不正（{'/'.join(CONFIDENCES)}）")
+        require_str(n, "evidence", f"{path}: ノード '{key}'")
+        # 重さは scout が付けるフィールド。prospector 生成の親は null でよい（増し掛けの対象外）。
         w = n.get("weight")
         if w is not None and w not in WEIGHTS:
-            fail(f"{path}: 節 '{key}' の weight が不正: {w!r}")
+            fail(f"{path}: ノード '{key}' の weight が不正: {w!r}")
         if w in ESCALATION_WEIGHTS:
             escalation_targets += 1
         if verdict in ("推奨", "条件付き"):
             adoptable += 1
-            # 採用一覧に載る節は検証計画と固定化案を欠かせない（「検証済み」は名乗れない）。
-            require_str(n, "verification_plan", f"{path}: 節 '{key}'")
-            require_str(n, "fixation", f"{path}: 節 '{key}'")
+            # 採用一覧に載るノードは検証計画と固定化案を欠かせない（「検証済み」は名乗れない）。
+            require_str(n, "verification_plan", f"{path}: ノード '{key}'")
+            require_str(n, "fixation", f"{path}: ノード '{key}'")
     for n in rec["nodes"]:
         parent = n.get("parent")
         if parent is not None and parent not in keys:
-            fail(f"{path}: 節 '{n['key']}' の parent '{parent}' が nodes に無い")
+            fail(f"{path}: ノード '{n['key']}' の parent '{parent}' が nodes に無い")
 
     one = rec["oneshot"]
     if not_applicable(one):
@@ -170,10 +170,10 @@ def validate(rec, path):
     elif isinstance(one, dict):
         okey = require_str(one, "key", f"{path}: oneshot")
         if okey not in keys:
-            fail(f"{path}: oneshot の節 '{okey}' が nodes に無い")
+            fail(f"{path}: oneshot のノード '{okey}' が nodes に無い")
         target = next(n for n in rec["nodes"] if n["key"] == okey)
         if target["verdict"] not in ("推奨", "条件付き"):
-            fail(f"{path}: 一撃に選べるのは推奨・条件付きの節だけ（'{okey}' は {target['verdict']}）")
+            fail(f"{path}: 一撃に選べるのは推奨・条件付きのノードだけ（'{okey}' は {target['verdict']}）")
         require_int(one, "descendants", f"{path}: oneshot")
         require_int(one, "descendants_with_unverifiable", f"{path}: oneshot")
         if one.get("feasibility") not in FEASIBILITY:
@@ -219,7 +219,7 @@ def validate(rec, path):
             fail(f"{path}: sampling.sampled_keys が空")
         unknown = [s for s in sampled if s not in keys]
         if unknown:
-            fail(f"{path}: sampling.sampled_keys に無い節: {unknown}")
+            fail(f"{path}: sampling.sampled_keys に無いノード: {unknown}")
         require_int(smp, "overturned", f"{path}: sampling")
     else:
         fail(f"{path}: 'sampling' は status=done か「該当なし+理由」のどちらかの形")
@@ -264,7 +264,7 @@ def validate(rec, path):
     if conv["outcome"] == "stopped":
         require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")
 
-    # 変更禁止の機械確認は必須欄——確認せずに「変更していない」と書かせない。
+    # 変更禁止の機械確認は必須フィールド——確認せずに「変更していない」と書かせない。
     mc = rec["mod_check"]
     if not isinstance(mc, dict) or mc.get("status") not in ("clean", "restored", "unavailable"):
         fail(f"{path}: 'mod_check' の status は clean / restored / unavailable のいずれか")
@@ -302,7 +302,7 @@ def blockers(rec):
     out = []
     for n in rec["nodes"]:
         if n["verdict"] == "未検証":
-            out.append(f"節 '{n['key']}' が未検証のまま——飽和は全節に判定が付いてから")
+            out.append(f"ノード '{n['key']}' が未検証のまま——飽和は全ノードに判定が付いてから")
 
     smp = rec["sampling"]
     if not_applicable(smp):

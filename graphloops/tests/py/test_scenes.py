@@ -1,4 +1,4 @@
-"""層 2 の回し手（scenes.py）の部品: 列の形・返答の手直し・役の表の当て方・前置きの鍵・列を作る手の柵。盤面は回さない。"""
+"""層 2 の回し手（scenes.py）の部品: 列の形・返答の手直し・役の表の当て方・前置きの鍵・列を作る手のチェック。盤面は回さない。"""
 import json
 import types
 
@@ -93,9 +93,9 @@ def test_hook_applies_the_first_rule_of_the_node_by_round_and_once(monkeypatch):
 
 
 def test_a_step_that_fires_a_script_check_raises(monkeypatch):
-    """列を作る手が台本の check を撃ったら止める（準備の段で撃った check は件数の柵の数えの外で落ちる）"""
+    """列を作る手が台本の check を撃ったら止める（準備の段で撃った check は件数のチェックの数えの外で落ちる）"""
     d = _driver(monkeypatch, [])
-    real, ticks = glharness.tallies, [{"simulate": (0, 0)}, {"simulate": (1, 0)}]   # 前後で 1 件ずれる。後は本物（数える柵が読む）
+    real, ticks = glharness.tallies, [{"simulate": (0, 0)}, {"simulate": (1, 0)}]   # 前後で 1 件ずれる。後は本物（数えるチェックが読む）
     monkeypatch.setattr(glharness, "tallies", lambda: ticks.pop(0) if ticks else real())
     with pytest.raises(RuntimeError, match="台本の check が走った"):
         d.step(_note("x"), inst={"id": "i"})

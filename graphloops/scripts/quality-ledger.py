@@ -2,12 +2,12 @@
 """盤面を横断して、run ごとの質の数を engine の版ごとに束ねる（読むだけ。盤面にも plugin の置き場にも何も書かない）。
 
 使い方:
-    quality-ledger.py [根 ...] [--runs | --json]
+    quality-ledger.py [ルート ...] [--runs | --json]
 
-根（既定は cwd のリポジトリの共有の git ディレクトリ——`git rev-parse --git-common-dir`）の下を辿り、state.json か
+ルート（既定は cwd のリポジトリの共有の git ディレクトリ——`git rev-parse --git-common-dir`）の下を辿り、state.json か
 trace.jsonl を持つディレクトリを 1 本の run の盤面として読む。本体の盤面（<共有>/graphloops/<loop>/<run_id>/）も
 linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/）もこの規則で拾う。`init --dir` で外に作った
-盤面は、その置き場の親を根に渡したときだけ数える（渡さなければ数えない）。worktree を消すと盤面も消えるので数えられない。
+盤面は、その置き場の親をルートに渡したときだけ数える（渡さなければ数えない）。worktree を消すと盤面も消えるので数えられない。
 
 数える物は盤面に書かれた値そのもので、台本は語彙を持たない（engine が語を足しても黙って狭くならない）:
 - 周の判定（rounds/round-<N>.json の reviews）: 盤面の周に在る R の行を 1 行ずつ、重ならない 3 つに分ける。本物（役が
@@ -18,8 +18,8 @@ linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/
   物で、旧い版の盤面の周にも同じ述語を当てる（据え置きの句の文言が版で変わっていても見分けられない）
 - 版: 周の判定は周ごとの版（state.engine_changes）に、trace の行は直前の engine_changed の版に帰属させる。
   run の数と状態は最後の版（state.engine）に数え、版をまたいだ run は「版が混在」に数える
-- 関所の答え: trace の answer の値と kinds をそのまま数える。答えを打った者は盤面に記録が無い
-- 受け付け: trace の role_run の accepted の値（True / False / None / 欄なし）をそのまま数え、False の行は why の頭の句で数える
+- ゲートの答え: trace の answer の値と kinds をそのまま数える。答えを打った者は盤面に記録が無い
+- 受け付け: trace の role_run の accepted の値（True / False / None / フィールドなし）をそのまま数え、False の行は why の頭の句で数える
   （頭の句は、絶対パス・家の置き場・ログイン名を伏せてから切って束ねる——パスだけ違う頭は 1 つに束ねられる）
 - 費用: role_run の total_cost_usd は会話の累計なので、engine の role_run.session_costs（会話ごとの前の最大との差を足す）で数える
 - 時間: 経過（trace の最初と最後の時刻の差。人待ち・止めた間を含む）と、役の実行の合計（role_run の wall_s の和）
@@ -27,7 +27,7 @@ linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/
 
 読めない盤面（state.json が無い・JSON でない・形が違う）は落とさずに「読めない」と数え、run の中の一部のファイル・行が
 読めないときはその部分だけを数えない（読めなかった部分は run の行の unreadable_parts に出す）。
-置き場は根からの相対で出し、盤面の絶対パスの欄（state.graph・engine.root・trace の root・stderr）は写さない。自由文を出す
+置き場はルートからの相対で出し、盤面の絶対パスのフィールド（state.graph・engine.root・trace の root・stderr）は写さない。自由文を出す
 所（拒否の理由の頭・launch が ok でない行の頭・述語が引けない注意）は、絶対パスを <絶対パス>、ログイン名を <利用者> に伏せる。
 """
 import argparse
@@ -55,12 +55,12 @@ from engine import rules as rules_mod  # noqa: E402
 from engine import util as util_mod  # noqa: E402
 from engine import validator as validator_mod  # noqa: E402
 
-NO_ENGINE = "版なし（engine の欄が無い盤面）"
+NO_ENGINE = "版なし（engine のフィールドが無い盤面）"
 UNREAD_VERSION = "版が読めない"
 UNREADABLE = "読めない盤面"
 HEAD_MAX = 60
 NOT_DICT = "（行が辞書でない）"
-NO_STATUS = "（status の欄が無い）"
+NO_STATUS = "（status のフィールドが無い）"
 
 
 # ---------------------------------------------------------------- 周の判定の述語（plugin の検証器と rules から引く）
@@ -115,12 +115,12 @@ def default_root():
     r = subprocess.run(["git", "rev-parse", "--git-common-dir"], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", stdin=subprocess.DEVNULL)
     if r.returncode != 0:
-        sys.exit(f"git rev-parse --git-common-dir が exit {r.returncode}——根を位置引数で渡せ")
+        sys.exit(f"git rev-parse --git-common-dir が exit {r.returncode}——ルートを位置引数で渡せ")
     return pathlib.Path(r.stdout.strip()).resolve()
 
 
 def find_boards(root):
-    """根の下で state.json か trace.jsonl を持つディレクトリ（見つけた盤面の中へは降りない。リンクは辿らない）"""
+    """ルートの下で state.json か trace.jsonl を持つディレクトリ（見つけた盤面の中へは降りない。リンクは辿らない）"""
     out = []
     for d, dirs, files in os.walk(root, followlinks=False):
         if "state.json" in files or "trace.jsonl" in files:
@@ -179,7 +179,7 @@ def _version_of(engine):
 
 def read_run(d, where, verdicts, now=None):
     """盤面 1 本を 1 行にする。state.json が読めなければ読めない行。一部が読めなければその部分だけ数えない。
-    欄の形が想定と違う盤面（旧い形・手で壊した盤面）で落ちた例外はここ 1 か所で受け、読めない行にする"""
+    フィールドの形が想定と違う盤面（旧い形・手で壊した盤面）で落ちた例外はここ 1 か所で受け、読めない行にする"""
     try:
         return _read_run(d, where, verdicts, now)
     except Exception as e:
@@ -270,7 +270,7 @@ def _read_run(d, where, verdicts, now):
                     e["answers"][str(t.get("answer"))] += 1
                     e["answer_kinds"].update(str(k) for k in (t.get("kinds") or []))
                 elif op == "role_run":
-                    e["accepted"][f"accepted={t['accepted']}" if "accepted" in t else "accepted の欄なし"] += 1
+                    e["accepted"][f"accepted={t['accepted']}" if "accepted" in t else "accepted のフィールドなし"] += 1
                     if t.get("accepted") is False:
                         e["reject_heads"][head_of(t.get("why"))] += 1
                     if isinstance(t.get("wall_s"), (int, float)):
@@ -379,16 +379,16 @@ def render(agg, total, roots_note):
                          f"{a['uncountable_review_rows']}（{per}）")
         for why in a["review_filter"]:
             lines.append(f"注意: {why}")
-        lines.append(f"関所の答え（打った者は記録に無い）: {_c(a['answers'])}（kinds: {_c(a['answer_kinds'])}）")
+        lines.append(f"ゲートの答え（打った者は記録に無い）: {_c(a['answers'])}（kinds: {_c(a['answer_kinds'])}）")
         lines.append(f"受け付け: {_c(a['accepted'])}")
         if a["reject_heads"]:
             lines.append(f"拒否の頭（多い順 5）: {_c(a['reject_heads'], 5)}")
-        lines.append(f"起こし直し {a['relaunched']}・launch が ok でない {sum(a['launch_not_ok'].values())}"
+        lines.append(f"起動し直し {a['relaunched']}・launch が ok でない {sum(a['launch_not_ok'].values())}"
                      "（拒否が上限まで続いた試行を含む）")
         el, idle = a["elapsed_min"], a["since_last_trace_min"]
         lines.append(f"時間: 経過の中央値 {el['median']} 分（{el['n']} 本。人待ち・止めた間を含む）・役の実行の合計 "
                      f"{round(a['role_wall_s'] / 3600, 1)} 時間・running の最後の痕跡からの経過の中央値 {idle['median']} 分（{idle['n']} 本）")
-        lines.append(f"費用: {a['cost_usd']} USD（engine が起こした子の会話の累計の増え分の和）")
+        lines.append(f"費用: {a['cost_usd']} USD（engine が起動した子の会話の累計の増え分の和）")
         if a["unreadable_parts"]:
             lines.append(f"一部が読めない run: {a['unreadable_parts']}（--runs の unreadable_parts）")
     return "\n".join(lines)
@@ -399,7 +399,7 @@ def main(argv=None):
         if hasattr(s, "reconfigure"):
             s.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="盤面を横断して run の質の数を engine の版ごとに束ねる（読むだけ）")
-    ap.add_argument("roots", nargs="*", help="辿る根（既定: cwd のリポジトリの共有の git ディレクトリ）")
+    ap.add_argument("roots", nargs="*", help="辿るルート（既定: cwd のリポジトリの共有の git ディレクトリ）")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--runs", action="store_true", help="run ごとの行を JSON Lines で出す")
     g.add_argument("--json", action="store_true", help="版ごとの集計を JSON で出す")
@@ -410,7 +410,7 @@ def main(argv=None):
     for i, root in enumerate(roots, 1):
         for d in find_boards(root):
             rel = d.relative_to(root).as_posix()
-            rows.append(read_run(d, f"根{i}:{rel}" if len(roots) > 1 else rel, verdicts))
+            rows.append(read_run(d, f"ルート{i}:{rel}" if len(roots) > 1 else rel, verdicts))
     if a.runs:
         for r in rows:
             print(json.dumps(r, ensure_ascii=False))
@@ -419,7 +419,7 @@ def main(argv=None):
     if a.json:
         print(json.dumps(agg, ensure_ascii=False, indent=1))
         return 0
-    note = "根は共有の git ディレクトリ" if not a.roots else f"根 {len(roots)} 個"
+    note = "ルートは共有の git ディレクトリ" if not a.roots else f"ルート {len(roots)} 個"
     print(render(agg, len(rows), note))
     return 0
 

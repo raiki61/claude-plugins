@@ -1,11 +1,11 @@
 """プロンプトの穴埋め。渡してはいけないものは「reads に宣言されていない＝貼れない」で守る。
 
-穴の形: `{{record.claims}}` `{{item.key}}` `{{out.p0.question.question}}`（前の節の出力）
+穴の形: `{{record.claims}}` `{{item.key}}` `{{out.p0.question.question}}`（前のノードの出力）
 `{{prev.p3.cold_reader}}`（前の周の出力） `{{file:inputs.document}}`（ファイル本文）
-`{{?out.p3.cold_reader}}`（無ければ ABSENT の語。空では埋めない） `{{record.claims | pick id,claim}}`（欄を絞る）
-`{{section:inputs.review_md#コード衛生観点}}`（markdown の見出し 1 節だけ貼る）
+`{{?out.p3.cold_reader}}`（無ければ ABSENT の語。空では埋めない） `{{record.claims | pick id,claim}}`（フィールドを絞る）
+`{{section:inputs.review_md#コード衛生観点}}`（markdown の見出し 1 つのセクションだけ貼る）
 `{{ref:record}}` `{{ref:out.p5.internal}}` `{{ref:prev.p3.cold_reader}}` `{{ref:raw}}`（本文でなく置き場のパスと 1 行の要約。
-回す側が既に受け取った返答を、回す側の節にもう一度貼らないため——回す側の文脈を通る本文は読む・貼るで 2 回数える）
+回す側が既に受け取った返答を、回す側のノードにもう一度貼らないため——回す側の文脈を通る本文は読む・貼るで 2 回数える）
 """
 import pathlib
 import re
@@ -21,14 +21,14 @@ TOKEN = re.compile(r"\{\{\s*(\??)\s*([^}|]+?)\s*(?:\|\s*pick\s+([\w, ]+))?\s*\}\
 # 文の途中に在る穴が空に潰れると、読む側が真偽を決められない文になり、しかも『この周には無い』と
 # 『engine が渡し損ねた』が同じ値になる（実測 2026-09-13: `{{?loop.escalated}}` の穴で発生）。
 ABSENT = "（この周には無い）"
-# 道具なしの役に貼る本文の上限。**バイトで測る**——字数で測ると日本語主体の本文が同じ字数でおよそ 2 倍の
+# ツールなしの役に貼る本文の上限。**バイトで測る**——字数で測ると日本語主体の本文が同じ字数でおよそ 2 倍の
 # バイトになり、貼る先（Agent の prompt）の上限を主経路で超える（実測 2026-09-12: 塊 40,000 字が 80,008 バイトに
 # なり、85 KB・68 KB は途中で切れ、51 KB は通った）。超えたら切って、切ったことを記録に残す。
 FILE_CAP = 40000
 
 
 def node_prompt(graph_path, n, errors="strict", segs=()):
-    """節の指示書の本文——prompt_file に、prompt_append の各ファイルと、この節に当たる launch.append の段（segs。advance.launch_appends）の
+    """ノードの指示書の本文——prompt_file に、prompt_append の各ファイルと、このノードに当たる launch.append の段（segs。advance.launch_appends）の
     ファイルを順に続けた物（graph の置き場からの相対パス）。prompt_append は差し替えの版（graph の extends）が、元の指示書を写さずに
     段落を足す口。指示書を読む所（役に渡す本文・必須の入力の導出・graphcheck の穴の検査）は全部この 1 本を通す——1 か所だけ足し忘れると、
     足した段落の穴が検査に掛からないか、役に届かない。読めなければ OSError"""
@@ -43,7 +43,7 @@ class ReadsViolation(Exception):
 
 def cap_bytes(text, label, truncated, cap=FILE_CAP):
     """上限を UTF-8 のバイトで測って切る。切ったら truncated に残す（貼る先の上限がバイトだから）。
-    cap=None は切らない——標準入力で流す節には Agent ツールの貼る先の上限が無い。"""
+    cap=None は切らない——標準入力で流すノードには Agent ツールの貼る先の上限が無い。"""
     if cap is None:
         return text
     raw = text.encode("utf-8")
@@ -116,7 +116,7 @@ def _row(it):
 
 
 def _labels(items):
-    """一覧の見出し: 先頭の要素で最初に出てくる短い文字列の欄を、全要素ぶん並べる（記録は識別子を先頭に置く。欄の名前は決め打たない）。"""
+    """一覧の見出し: 先頭の要素で最初に出てくる短い文字列のフィールドを、全要素ぶん並べる（記録は識別子を先頭に置く。フィールドの名前は決め打たない）。"""
     if not items or not isinstance(items[0], dict):
         return ""
     field = next((k for k, x in items[0].items() if isinstance(x, str) and len(x) <= SHORT), None)
@@ -171,8 +171,8 @@ class Renderer:
         self.reads = reads  # None = 制限なし。list = 宣言された穴だけ埋める（遮断の機械版）
         self.ref = ref      # ref:<path> の解決（盤面が持つ。[(見出し, ファイル, 値)] を返す）
         # cap=None = 切らない。上限は「Agent ツールのプロンプトに貼る」経路にだけ在るもので、
-        # 別プロセスの CLI に標準入力で流す節には無い（2026-09-12 にこの環境で観測: 748,883 バイトと
-        # 774,021 バイトが先頭・末尾とも欠けずに届いた。記録は docs/loop-contract.md T 節。上限の保証ではない——
+        # 別プロセスの CLI に標準入力で流すノードには無い（2026-09-12 にこの環境で観測: 748,883 バイトと
+        # 774,021 バイトが先頭・末尾とも欠けずに届いた。記録は docs/loop-contract.md のセクション T。上限の保証ではない——
         # 2026-09-27 に 2,149,613 バイトがモデルの入力の上限で落ちた。減らすのは切る側でなく材料を作る側で、差分は rules の _paste_copy）。
         # 渡し方が変わったのに切り続けると、見せられる物を捨てる。
         self.cap = cap
@@ -187,8 +187,8 @@ class Renderer:
     def resolve(self, path, check=True):
         if check and not self.allowed(path):
             # KeyError と別の型にする。同じ型にすると optional の穴（{{?…}}）の空埋めが遮断の握り潰しを兼ね、
-            # `?` 一文字で柵が外れる（実測: reads に無い path を {{?…}} で書くと例外にならず空で通った）。
-            raise ReadsViolation(f"{path} は reads に宣言されていない（貼ってよいものは節の reads が正本）")
+            # `?` 一文字でチェックが外れる（実測: reads に無い path を {{?…}} で書くと例外にならず空で通った）。
+            raise ReadsViolation(f"{path} は reads に宣言されていない（貼ってよいものはノードの reads が正本）")
         if path.startswith("ref:"):
             if self.ref is None:
                 raise KeyError(f"{path}: ref: を解決する盤面が無い")
@@ -250,7 +250,7 @@ class Renderer:
                 if isinstance(val, list):
                     val = number(val, self.numbered[path])   # pick の後に足す——pick が no を落とさない
             # **上限は穴 1 つぶんの出口 1 か所で掛ける**（pick と dump の後）。腕ごとに掛けていたとき、
-            # 読み込みを伴わない展開（ref: と記録の dump）が対象外になり、file: の穴を持たない節が上限の 4 倍超に育った
+            # 読み込みを伴わない展開（ref: と記録の dump）が対象外になり、file: の穴を持たないノードが上限の 4 倍超に育った
             return cap_bytes(val if isinstance(val, str) else dump(val), path, self.truncated, self.cap)
 
         return TOKEN.sub(sub, template)

@@ -2,62 +2,62 @@
 """graphs/<loop>.json を機械で確かめる（標準ライブラリだけ）。
 
 写しの形（exec の無いグラフにも効く）:
-  1. 節の deps が全部実在し、循環が無い（graphlib）。同時に走らせてよい節の組（波）を出す
-  2. 判定（verdict・units・claims の判定・gates）を出す節を、回す側（writer / surveyor /
+  1. ノードの deps が全部実在し、循環が無い（graphlib）。同時に走らせてよいノードの組（波）を出す
+  2. 判定（verdict・units・claims の判定・gates）を出すノードを、回す側（writer / surveyor /
      prospector / author）が run_by していない——「回す側は採点しない」の機械版。
-     写すだけの節は verdict_is_copy、手順書が回す側の仕事と定める分類は
+     写すだけのノードは verdict_is_copy、手順書が回す側の仕事と定める分類は
      runner_judgment_by_design（理由の文）で印を付ける
-  3. 検証器（scripts/<loop>-record.py）が要求する記録の欄が、どれかの節の outputs に現れる
-  4. fresh_context の節のうち forbidden_inputs を持たないものを数えて見せる（誤りではない）
+  3. 検証器（scripts/<loop>-record.py）が要求する記録のフィールドが、どれかのノードの outputs に現れる
+  4. fresh_context のノードのうち forbidden_inputs を持たないものを数えて見せる（誤りではない）
   5. 段名（active_in・max_rounds_by_thickness・thickness.default）が thickness.tiers（正本）の中にある
 
 実行の形（exec: true のグラフだけ）:
   6. run_by が回す側（graph の runners）・役割 agent（graph の plugin の agents/*.md）・driver のどれか。rules（graph の rules）が読める
-  7. 回す側と役割 agent の節は prompt_file が実在し、schema か text: true を持つ
+  7. 回す側と役割 agent のノードは prompt_file が実在し、schema か text: true を持つ
   8. プロンプトの穴（{{...}}）が全部 reads に宣言されている（遮断の機械版——宣言に無いものは貼れない）。
-     out.<節>・cur.<節> は自分より前（deps の推移閉包）の節だけ、prev.<節> は前の周の出力。fresh_context の節は record 全体を読めない。
-     回す側の節には本文を貼る穴（file: / section:）を書けない——回す側はファイルを読めるので、渡すのはパス
-     （見るのは run_by が runners の節だけ。Read を持つ役割 agent の節は対象外）。record.<欄>・loop.<…>・out./cur./prev.<節>.<欄> の穴は、
-     12 の条件の読みと同じく記録を書く宣言・loop の形の宣言・節の schema に在ること（rules が読めない回は照らさない）。loop と節の
-     出力の穴の pick の欄も state_schema・節の schema で照らす（番号で指す欄 pointers は照らさない）
-  9. 回す側の節の writes が判定の欄（claims の verdict / refuted、gates、sampling、convergence）に触れない。
-     claims に merge する回す側の節は schema が additionalProperties: false で verdict / refuted を持たない
+     out.<ノード>・cur.<ノード> は自分より前（deps の推移閉包）のノードだけ、prev.<ノード> は前の周の出力。fresh_context のノードは record 全体を読めない。
+     回す側のノードには本文を貼る穴（file: / section:）を書けない——回す側はファイルを読めるので、渡すのはパス
+     （見るのは run_by が runners のノードだけ。Read を持つ役割 agent のノードは対象外）。record.<フィールド>・loop.<…>・out./cur./prev.<ノード>.<フィールド> の穴は、
+     12 の条件の読みと同じく記録を書く宣言・loop の形の宣言・ノードの schema に在ること（rules が読めない回は照合しない）。loop とノードの
+     出力の穴の pick のフィールドも state_schema・ノードの schema で照合する（番号で指すフィールド pointers は照合しない）
+  9. 回す側のノードの writes が判定のフィールド（claims の verdict / refuted、gates、sampling、convergence）に触れない。
+     claims に merge する回す側のノードは schema が additionalProperties: false で verdict / refuted を持たない
  10. writes.op・fan_out.builtin・builtin・post_check・cond / applies_cond（skills[].applies_cond も）が engine か rules の知っている名前だけ。
-     cover・save_text_as・thickness_from・raw_for_report の指す欄と節が実在する
- 11. schema（節の schema と graph の state_schema・hist_schema）が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれ、
+     cover・save_text_as・thickness_from・raw_for_report の指すフィールドとノードが実在する
+ 11. schema（ノードの schema と graph の state_schema・hist_schema）が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれ、
      正規表現がコンパイルできる——読まない語は書いても効かない。writeOnly は state_schema の最上位の鍵にだけ、真偽で書く
- 12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
-     関数が宣言した読む欄（cond_reads）と節の reads の out./prev./cur. と reads・outputs の loop.<…>・hist.<…> が実在する（out./prev./cur. は節の
-     schema、loop. は rules の LOOP_KEYS と graph の state_schema の木で最後の欄まで〔読む path は state_schema で writeOnly の鍵を除く〕、
-     hist. は rules の HIST と graph の hist_schema の木で最後の欄まで
-     ——state_schema の無い graph は鍵の 1 段目だけ。条件の関数の本体が読んだ値を添字で辿る所は照らさない。rd. は周の鍵、record. は
-     記録を書く宣言、inputs. は graph の inputs の宣言・init の旗・cwd で下の欄を持たない）、same_context_as の役が一致し遮断系でない、
+ 12. engine が実行に使うフィールドが宣言どおりの物を指す: writes.from がノードの schema.properties に在る、cond / applies_cond の
+     関数が宣言した読むフィールド（cond_reads）とノードの reads の out./prev./cur. と reads・outputs の loop.<…>・hist.<…> が実在する（out./prev./cur. はノードの
+     schema、loop. は rules の LOOP_KEYS と graph の state_schema の木で最後のフィールドまで〔読む path は state_schema で writeOnly の鍵を除く〕、
+     hist. は rules の HIST と graph の hist_schema の木で最後のフィールドまで
+     ——state_schema の無い graph は鍵の 1 段目だけ。条件の関数の本体が読んだ値を添字で辿る所は照合しない。rd. は周の鍵、record. は
+     記録を書く宣言、inputs. は graph の inputs の宣言・init の旗・cwd で下のフィールドを持たない）、same_context_as の役が一致し遮断系でない、
      report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled / launch.delegate の argv・resume・via の
      穴が engine の埋める語（LAUNCH_HOLES）だけで、resume は {session_id} を持ち、model / effort は遮断系の役の定義に在り、
      via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
- 14. 回す側の任せ先（delegate）: delegate は回す側の節にだけ・skills を持つ節には書けない（入れ子の委任）。
-     走らせるだけの節（engine_run）は回す側の節にだけ・名前が rules の ENGINE_RUNS に在り plan と reply を持つ。
-     background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
-     {{node.<欄>}} は engine が埋める欄（skills）だけ
-     背景の節は delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つ節が在れば launch.delegate.argv が在る。
-     delegate.receipt（背景の節の受領の形）は、{result_path} を埋めた値が節の schema に合う object。
-     launch.append の段は当て先の語（APPEND_TO）と在るファイルで書き、段の穴は当たる節の本文と reads に入って節の穴と同じ照らしに
-     通る（advance.node_appends・render.node_prompt の segs）。段と同じファイルを節の prompt_append に書かない（重ねて貼らない）。
- 15. 節の鍵が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和に在る（綴り違いの鍵は黙って効かない）。
-     機械の節（driver）は返りの形（schema）を持つ。どちらも init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
+ 14. 回す側の任せ先（delegate）: delegate は回す側のノードにだけ・skills を持つノードには書けない（入れ子の委任）。
+     走らせるだけのノード（engine_run）は回す側のノードにだけ・名前が rules の ENGINE_RUNS に在り plan と reply を持つ。
+     background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景のノードをほかのノードが待たない（deps・instance_deps）。
+     {{node.<フィールド>}} は engine が埋めるフィールド（skills）だけ
+     背景のノードは delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つノードが在れば launch.delegate.argv が在る。
+     delegate.receipt（背景のノードの受領の形）は、{result_path} を埋めた値がノードの schema に合う object。
+     launch.append の段は当て先の語（APPEND_TO）と在るファイルで書き、段の穴は当たるノードの本文と reads に入ってノードの穴と同じ照合に
+     通る（advance.node_appends・render.node_prompt の segs）。段と同じファイルをノードの prompt_append に書かない（重ねて貼らない）。
+ 15. ノードの鍵が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和に在る（綴り違いの鍵は黙って効かない）。
+     機械のノード（driver）は返りの形（schema）を持つ。どちらも init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
  16. 盤面の loop の形（graph の state_schema。type: object・additionalProperties: false）の鍵と rules の LOOP_KEYS が両向きで一致する。
      rules が LOOP_KEYS を持つのに state_schema が無い graph は NG（init からは 15 と同じく警告）
  17. 履歴から作る値（hist.<名>）: graph の hist_schema（type: object・additionalProperties: false）の鍵と rules の HIST が両向きで
-     一致し、state_schema と同じ鍵を持たない。HIST の関数が読む物の宣言（hist_reads）が実在する物を指す（rounds・rd・graph の節の
-     out.<節>・HIST の hist.<名>・loop./record./inputs. は 12 と同じ照らし）。条件・節の reads・穴の hist.<名>.<欄> は 12 と同じく
-     HIST の名前と hist_schema の木で最後の欄まで照らす
+     一致し、state_schema と同じ鍵を持たない。HIST の関数が読む物の宣言（hist_reads）が実在する物を指す（rounds・rd・graph のノードの
+     out.<ノード>・HIST の hist.<名>・loop./record./inputs. は 12 と同じ照合）。条件・ノードの reads・穴の hist.<名>.<フィールド> は 12 と同じく
+     HIST の名前と hist_schema の木で最後のフィールドまで照合する
 
- 18. ブロック（graph の最上位の blocks。中身は graphloops/blocks/<loop>/<名>/）: 全部の節がちょうど 1 つのブロックに属す。
-     別のブロックの節が読む節（reads・cond_reads・hist_reads・pointers・delegate.result_to。record.<欄> の受け渡しは数えない）は
-     そのブロックの出口（exit.schema.json の properties）に在り、出口の節は別のブロックから読まれ、graph の中に schema を書かず出口の
-     ファイルを $ref で指す。祖先の関係に無い 2 節が同じ記録の欄・盤面の鍵を上書きの op で書くなら、条件の無い組は NG、条件つきの組は
-     印字だけ（rules の中の b.loop_state への書き込みは照らさない）。共有のブロック（shared_blocks）の核の欄を、このループの使い手が
+ 18. ブロック（graph の最上位の blocks。中身は graphloops/blocks/<loop>/<名>/）: 全部のノードがちょうど 1 つのブロックに属す。
+     別のブロックのノードが読むノード（reads・cond_reads・hist_reads・pointers・delegate.result_to。record.<フィールド> の受け渡しは数えない）は
+     そのブロックの出口（exit.schema.json の properties）に在り、出口のノードは別のブロックから読まれ、graph の中に schema を書かず出口の
+     ファイルを $ref で指す。祖先の関係に無い 2 つのノードが同じ記録のフィールド・盤面の鍵を上書きの op で書くなら、条件の無い組は NG、条件つきの組は
+     印字だけ（rules の中の b.loop_state への書き込みは照合しない）。共有のブロック（shared_blocks）の核のフィールドを、このループの使い手が
      同じ型・必須・enum で持つ。ブロックのファイルを引く graph は blocks を省けない
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
@@ -90,7 +90,7 @@ PLUGIN_ROOT = HERE.parent
 
 
 sys.path.insert(0, str(PLUGIN_ROOT))
-# 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
+# 穴の形・path の剥がし方・ノードの最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
 from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of, runner_node  # noqa: E402
 from engine.effects import REDUCER_KEY, REDUCERS, declares_reducers  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
@@ -171,9 +171,9 @@ def validator_vocab(script_path):
 
 
 def record_fields(script_path):
-    """検証器が要求する必須欄。**まず import して定数を読む**（engine と rules は既に同じ import をしている）。
+    """検証器が要求する必須フィールド。**まず import して定数を読む**（engine と rules は既に同じ import をしている）。
 
-    正規表現での抽出は、定数として export されていない欄（validate() の中の for key in (...)）のための後詰め。
+    正規表現での抽出は、定数として export されていないフィールド（validate() の中の for key in (...)）のための後詰め。
     import だけに頼ると 0 件になり、0 件は『省略』でなく NG（呼び出し側がそう倒す）。
     """
     names = set()
@@ -201,7 +201,7 @@ def agent_names(g):
 
 
 def appended(g, n):
-    """節に当たる launch.append の段——engine と同じ advance.node_appends で引く ——(段, 当たりが決まるか)。別 plugin の役は、その plugin が
+    """ノードに当たる launch.append の段——engine と同じ advance.node_appends で引く ——(段, 当たりが決まるか)。別 plugin の役は、その plugin が
     入った機械でだけ定義が読めて当たりが変わるので、段を当てずに『決まらない』と返す"""
     atype = None if runner_node(g, n) else agent_type_in(g, n)
     if atype and ":" in atype and atype.rpartition(":")[0] != g.get("plugin"):
@@ -210,18 +210,18 @@ def appended(g, n):
 
 
 def unlaunched_nodes(g, nodes):
-    """launch.runner を宣言する graph（回し役なしの run を既定に持つ）で、engine が起こす語を宣言から組めない節——会話に返す手番（13）を
-    engine の不具合だけにするための静的な縛り。見るのは宣言の欠けだけで、起こす条件そのもの（sandbox・定義の読み・守る場所）は起こす側の
-    関数（advance）が起こす時に決める（副作用を持つ起こす側を、盤面の無い検査から呼ばない）。別 plugin の役は、その plugin が入った機械で
-    だけ定義が決まるので見ない（起こせなければ emit が理由を unlaunched に書き、人に渡る）"""
+    """launch.runner を宣言する graph（回し役なしの run を既定に持つ）で、engine が起動する語を宣言から組めないノード——会話に返すターン（13）を
+    engine の不具合だけにするための静的な縛り。見るのは宣言の欠けだけで、起動する条件そのもの（sandbox・定義の読み・守る場所）は起動する側の
+    関数（advance）が起動する時に決める（副作用を持つ起動する側を、盤面の無い検査から呼ばない）。別 plugin の役は、その plugin が入った機械で
+    だけ定義が決まるので見ない（起動できなければ emit が理由を unlaunched に書き、人に渡る）"""
     launch, errs = g.get("launch") or {}, []
     narrow = (launch.get("tooled") or {}).get("narrow")
     for nid, v in nodes.items():
         dg = v.get("delegate")
         if (dg or v.get("engine_run")) and not launch.get("delegate"):
-            errs.append(f"{nid}: 任せ先を持つのに launch.delegate が無い——回し役なしの run で起こす語を組めず、会話に返る")
+            errs.append(f"{nid}: 任せ先を持つのに launch.delegate が無い——回し役なしの run で起動する語を組めず、会話に返る")
         if v.get("engine_run") and not dg:
-            errs.append(f"{nid}: engine_run の節に delegate が無い——engine の組んだ返答を使えない回の任せ先が無く、会話に返る")
+            errs.append(f"{nid}: engine_run のノードに delegate が無い——engine の組んだ返答を使えない回の任せ先が無く、会話に返る")
         if isinstance(dg, dict) and dg.get("background") and not isinstance(dg.get("receipt"), dict):
             errs.append(f"{nid}: 背景の任せ先に delegate.receipt が無い——回し手が線を立てられず、会話に返る")
         if v.get("run_by") == "driver" or runner_node(g, v):
@@ -232,28 +232,28 @@ def unlaunched_nodes(g, nodes):
             continue
         form = "isolated" if d["tools"] == [] else "tooled"
         if not launch.get(form):
-            errs.append(f"{nid}: 役 {atype} を起こす launch.{form} が無い——回し役なしの run で起こす語を組めず、会話に返る")
+            errs.append(f"{nid}: 役 {atype} を起動する launch.{form} が無い——回し役なしの run で起動する語を組めず、会話に返る")
         elif form == "tooled" and not tooled_launchable(narrowed_def(d, narrow)):
-            errs.append(f"{nid}: 役 {atype} は engine が起こせない形（道具の一覧を持たない・書く道具を持つ・モデルか effort を名指さない）"
-                        "——回し役なしの run で起こせず、人に止まる")
+            errs.append(f"{nid}: 役 {atype} は engine が起動できない形（ツールの一覧を持たない・書くツールを持つ・モデルか effort を名指さない）"
+                        "——回し役なしの run で起動できず、人に止まる")
     return errs
 
 
 def unused_reads(nid, node, holes):
-    """`reads` に在るのに、その節のプロンプトのどの穴も使っていない欄を落とす。
+    """`reads` に在るのに、そのノードのプロンプトのどの穴も使っていないフィールドを落とす。
 
     **`reads` は貼ってよい物の許可表であって、配り口ではない。** 穴が無ければ値は役に届かない。
-    以前は「穴 ⊆ reads」の片方向しか見ていなかったので、宣言だけ在って誰にも届いていない欄が
+    以前は「穴 ⊆ reads」の片方向しか見ていなかったので、宣言だけ在って誰にも届いていないフィールドが
     静的にも実行時にも赤くならなかった（実測 2026-09-16: prev.r1.minimality・prev.r3.coherence・
     prev.r4.hidden_scope の 6 件。前の周の独立の目の判定は、次の周の判定者にも直す手にも
-    1 度も渡っていなかった。そこへ「前の周の R1 の where を逐語で写せ」と課す柵を足したので、
+    1 度も渡っていなかった。そこへ「前の周の R1 の where を逐語で写せ」と課すチェックを足したので、
     削除候補が 1 件でも出た run は 2 周目の P2 が永久に通らなくなるところだった）。
     """
     errs = []
     for r in node.get("reads") or []:
         if not any(h == r or h.startswith(r + ".") or h.split(":")[-1].startswith(r) for h in holes):
-            errs.append(f"節 {nid}: reads の '{r}' を使う穴が prompt_file に無い——"
-                        "reads は許可表であって配り口ではないので、この欄は役に届かない（穴を書くか reads から落とせ）")
+            errs.append(f"ノード {nid}: reads の '{r}' を使う穴が prompt_file に無い——"
+                        "reads は許可表であって配り口ではないので、このフィールドは役に届かない（穴を書くか reads から落とせ）")
     return errs
 
 
@@ -261,51 +261,51 @@ SKILL_KEYS = {"skill", "args", "note", "required", "applies_cond"}
 
 
 def skills_shape(nid, skills):
-    """`skills` の 1 要素は SKILL_KEYS の欄を持つ dict。**名前を独立の欄にするための型。**
+    """`skills` の 1 要素は SKILL_KEYS のフィールドを持つ dict。**名前を独立のフィールドにするための型。**
 
     以前は「/simplify（指摘だけ）」のような名前＋条件の散文 1 本で、宣言と返答を突き合わせるには
     誰も決めていない正規化規則が要り、その規則自体が新しい未定義物になっていた（実測 2026-09-15:
-    宣言 `/simplify（指摘だけ）` に対し返答の綴りは 4 本に分裂した）。欄を割れば照合の両側が
+    宣言 `/simplify（指摘だけ）` に対し返答の綴りは 4 本に分裂した）。フィールドを割れば照合の両側が
     同じ文字列になる——engine は `{{node.skills}}` で正典をそのまま役へ渡し、post_check は
     同じ配列の `skill` を数える。当てる条件は `applies_cond`（rules の条件の関数の名前）、効力段のような引数は `args` へ分ける。
     """
     if skills is None:
         return []
     if not isinstance(skills, list) or not skills:
-        return [f"節 {nid}: skills は空でない配列"]
+        return [f"ノード {nid}: skills は空でない配列"]
     errs, seen = [], set()
     for i, e in enumerate(skills):
         if not isinstance(e, dict):
-            errs.append(f"節 {nid}: skills[{i}] は {{skill, args, note, required, applies_cond}} の object（散文 1 本は不可——名前を独立の欄にする型）: {e!r}")
+            errs.append(f"ノード {nid}: skills[{i}] は {{skill, args, note, required, applies_cond}} の object（散文 1 本は不可——名前を独立のフィールドにする型）: {e!r}")
             continue
         extra = sorted(set(e) - SKILL_KEYS)
         if extra:
-            errs.append(f"節 {nid}: skills[{i}] に知らない欄: {extra}（使えるのは {sorted(SKILL_KEYS)}）")
+            errs.append(f"ノード {nid}: skills[{i}] に知らないフィールド: {extra}（使えるのは {sorted(SKILL_KEYS)}）")
         name = e.get("skill")
         if not isinstance(name, str) or not name.strip():
-            errs.append(f"節 {nid}: skills[{i}] に skill（名前）が無い")
+            errs.append(f"ノード {nid}: skills[{i}] に skill（名前）が無い")
             continue
         if name != name.strip():
-            errs.append(f"節 {nid}: skills[{i}].skill の前後に空白: {name!r}（照合の両側が同じ文字列でなくなる）")
+            errs.append(f"ノード {nid}: skills[{i}].skill の前後に空白: {name!r}（照合の両側が同じ文字列でなくなる）")
         if name in seen:
-            errs.append(f"節 {nid}: skills に同じ skill が 2 回: {name}（1 本につき findings の行 1 本を数えるので重複は数えられない）")
+            errs.append(f"ノード {nid}: skills に同じ skill が 2 回: {name}（1 本につき findings の行 1 本を数えるので重複は数えられない）")
         seen.add(name)
         for f in ("args", "note"):
             if f in e and not isinstance(e[f], str):
-                errs.append(f"節 {nid}: skills[{i}].{f} は文字列")
-        # **required は省けない。** 「在るときの型」だけ見ていたので、欄を省いた要素が静的にも実行時にも
+                errs.append(f"ノード {nid}: skills[{i}].{f} は文字列")
+        # **required は省けない。** 「在るときの型」だけ見ていたので、フィールドを省いた要素が静的にも実行時にも
         # 通り、既定値は graph・graphcheck・prompt・docs のどこにも宣言されていなかった——真偽値の
         # 2 値のうちどちらでもない 3 つ目の状態が表現できていた（実測 2026-09-16）。
         if "required" not in e:
-            errs.append(f"節 {nid}: skills[{i}]（{name}）に required が無い——既定値はどこにも宣言されていないので省けない")
+            errs.append(f"ノード {nid}: skills[{i}]（{name}）に required が無い——既定値はどこにも宣言されていないので省けない")
         elif not isinstance(e["required"], bool):
-            errs.append(f"節 {nid}: skills[{i}].required は真偽値")
-        # 両向きにする理由: 片向きだと、条件を持たない false の要素がまた散文の読みで当てるかを決める形に戻る。名前と読む欄は節の cond と同じ所で見る
+            errs.append(f"ノード {nid}: skills[{i}].required は真偽値")
+        # 両向きにする理由: 片向きだと、条件を持たない false の要素がまた散文の読みで当てるかを決める形に戻る。名前と読むフィールドはノードの cond と同じ所で見る
         elif e["required"] != ("applies_cond" not in e):
-            errs.append(f"節 {nid}: skills[{i}]（{name}）は required: false と applies_cond を対で持つ"
+            errs.append(f"ノード {nid}: skills[{i}]（{name}）は required: false と applies_cond を対で持つ"
                         "（当てない周を決めるのは条件の関数だけ。required: true に条件は書けない）")
         if "applies_cond" in e and not isinstance(e["applies_cond"], str):
-            errs.append(f"節 {nid}: skills[{i}].applies_cond は文字列（rules の CONDS の名前）")
+            errs.append(f"ノード {nid}: skills[{i}].applies_cond は文字列（rules の CONDS の名前）")
     return errs
 
 
@@ -321,9 +321,9 @@ def ancestors(nodes, nid, seen=None):
 
 
 def _record_ok(rest, g, rules):
-    """記録の欄 rest（record. を剥いだ path）を、記録を書く宣言で照らす。**前方一致で丸ごと通さない**:
-    - init_record の欄（入れ子も）・rules の RECORD_KEYS（writes の外で書く欄）は完全一致か、その親（入れ物）を読むときだけ
-    - 節の writes.to の下を読むなら、下の最初の欄がその write の pick に在るか、from が指す schema の properties に在ること
+    """記録のフィールド rest（record. を剥いだ path）を、記録を書く宣言で照合する。**前方一致で丸ごと通さない**:
+    - init_record のフィールド（入れ子も）・rules の RECORD_KEYS（writes の外で書くフィールド）は完全一致か、その親（入れ物）を読むときだけ
+    - ノードの writes.to の下を読むなら、下の最初のフィールドがその write の pick に在るか、from が指す schema の properties に在ること
     以前の JSON の条件の検査は record. の葉を見ておらず、record.reviews.R2.stauts のような綴り違いは回すまで分からなかった"""
     exact = set()
 
@@ -362,70 +362,70 @@ def _record_ok(rest, g, rules):
 
 
 def hole_read_checked(core, rules):
-    """プロンプトの穴（接頭を剥いだ core）のうち check_read_path で照らすもの（launch.append の段の穴は、当たる節の本文に入って同じ
+    """プロンプトの穴（接頭を剥いだ core）のうち check_read_path で照合するもの（launch.append の段の穴は、当たるノードの本文に入って同じ
     一覧を通る）。loop. は rules が LOOP_KEYS を持つときだけ（持ち込みの graph を止めない）"""
     return (core.startswith(("record.", "hist.")) or core.split(".", 1)[0] in COND_NODE_HEADS
             or core.startswith("loop.") and getattr(rules, "LOOP_KEYS", None) is not None)
 
 
 def check_read_path(path, where, g, rules, errs, before=None, reading=True):
-    """条件（と節の reads）が読む欄 path を、実行の前に照らす。out.<節>.<欄>・prev.<節>.<欄>・cur.<節>.<欄> は節と欄
-    （schema.properties）が実在し、before（条件を持つ節の deps の推移閉包）が在れば out.・cur. はその中の節だけ。loop.<鍵> は
-    鍵が rules の LOOP_KEYS に在り、graph が state_schema を持てば path をその木で最後の欄まで辿れること（持たない graph は鍵の
+    """条件（とノードの reads）が読むフィールド path を、実行の前に照合する。out.<ノード>.<フィールド>・prev.<ノード>.<フィールド>・cur.<ノード>.<フィールド> はノードとフィールド
+    （schema.properties）が実在し、before（条件を持つノードの deps の推移閉包）が在れば out.・cur. はその中のノードだけ。loop.<鍵> は
+    鍵が rules の LOOP_KEYS に在り、graph が state_schema を持てば path をその木で最後のフィールドまで辿れること（持たない graph は鍵の
     1 段目だけ——持ち込みの graph を止めない）。state_schema で writeOnly の鍵（rules だけが読み書きする鍵）は読む path（reading）では
-    落とし、書き先を名乗る節の outputs（reading=False）では通す。照らすのは宣言した path で、条件の関数の本体が
-    読んだ値を添字で辿る所は照らさない。rd.<鍵> は engine の周の鍵か rules の ROUND_KEYS、record.<欄> は記録を書く宣言（_record_ok）、
-    inputs.<名前> は run の入力（graph の inputs の宣言・init の旗・cwd。init で固まり下の欄を持たない）"""
+    落とし、書き先を名乗るノードの outputs（reading=False）では通す。照合するのは宣言した path で、条件の関数の本体が
+    読んだ値を添字で辿る所は照合しない。rd.<鍵> は engine の周の鍵か rules の ROUND_KEYS、record.<フィールド> は記録を書く宣言（_record_ok）、
+    inputs.<名前> は run の入力（graph の inputs の宣言・init の旗・cwd。init で固まり下のフィールドを持たない）"""
     nodes = g["nodes"]
     head, _, rest = path.partition(".")
     if head not in COND_HEADS:
-        errs.append(f"{where}: 読む欄 '{path}' の頭が条件の文脈に無い（使えるのは {'/'.join(COND_HEADS)}）")
+        errs.append(f"{where}: 読むフィールド '{path}' の頭が条件の文脈に無い（使えるのは {'/'.join(COND_HEADS)}）")
     elif head in COND_NODE_HEADS:
         ref = node_of(rest, nodes)
         if ref is None:
-            errs.append(f"{where}: 読む欄 '{path}' の節が無い")
+            errs.append(f"{where}: 読むフィールド '{path}' のノードが無い")
             return
         field = rest[len(ref) + 1:].split(".")[0] if len(rest) > len(ref) else ""
         props = (nodes[ref].get("schema") or {}).get("properties")
         if field and props and field not in props:
-            errs.append(f"{where}: 読む欄 '{path}' の欄 '{field}' が節 {ref} の schema に無い（綴り違いか、書いても効かない）")
+            errs.append(f"{where}: 読むフィールド '{path}' のフィールド '{field}' がノード {ref} の schema に無い（綴り違いか、書いても効かない）")
         if head != "prev" and before is not None and ref not in before:
-            errs.append(f"{where}: {head}.{ref} を読むが、{ref} はこの節の前（deps の推移閉包）に無い——評価の時点で今の周の出力が在る保証が無い")
+            errs.append(f"{where}: {head}.{ref} を読むが、{ref} はこのノードの前（deps の推移閉包）に無い——評価の時点で今の周の出力が在る保証が無い")
     elif head == "loop":
         keys, sch = getattr(rules, "LOOP_KEYS", None), g.get("state_schema")
         top = ((sch.get("properties") or {}).get(rest.split(".")[0]) or {}) if isinstance(sch, dict) else {}
         if keys is None:
             errs.append(f"{where}: loop.{rest} を読むが、rules が LOOP_KEYS（盤面の loop の鍵の宣言）を持たない")
         elif rest.split(".")[0] not in keys:
-            errs.append(f"{where}: 読む欄 '{path}' の鍵が rules の LOOP_KEYS に無い（綴り違いか、誰も書かない鍵）")
+            errs.append(f"{where}: 読むフィールド '{path}' の鍵が rules の LOOP_KEYS に無い（綴り違いか、誰も書かない鍵）")
         elif reading and top.get("writeOnly") is True:
-            errs.append(f"{where}: 読む欄 '{path}' の鍵は graph の state_schema で writeOnly（rules だけが読み書きし、条件・節の reads・穴は読まない）")
+            errs.append(f"{where}: 読むフィールド '{path}' の鍵は graph の state_schema で writeOnly（rules だけが読み書きし、条件・ノードの reads・穴は読まない）")
         elif isinstance(sch, dict):
             _, why = schema_at(sch, rest.split("."))
             if why:
-                errs.append(f"{where}: 読む欄 '{path}' を graph の state_schema で辿れない（{why}）——綴り違いか、宣言の漏れ")
+                errs.append(f"{where}: 読むフィールド '{path}' を graph の state_schema で辿れない（{why}）——綴り違いか、宣言の漏れ")
     elif head == "hist":
         names, sch = getattr(rules, "HIST", None), g.get("hist_schema")
         if names is None:
             errs.append(f"{where}: hist.{rest} を読むが、rules が HIST（履歴から作る値の宣言）を持たない")
         elif rest.split(".")[0] not in names:
-            errs.append(f"{where}: 読む欄 '{path}' の名前が rules の HIST に無い（綴り違いか、誰も作らない値）")
+            errs.append(f"{where}: 読むフィールド '{path}' の名前が rules の HIST に無い（綴り違いか、誰も作らない値）")
         elif isinstance(sch, dict):
             _, why = schema_at(sch, rest.split("."))
             if why:
-                errs.append(f"{where}: 読む欄 '{path}' を graph の hist_schema で辿れない（{why}）——綴り違いか、宣言の漏れ")
+                errs.append(f"{where}: 読むフィールド '{path}' を graph の hist_schema で辿れない（{why}）——綴り違いか、宣言の漏れ")
     elif head == "inputs":
         known = set(g.get("inputs") or {}) | set(CLI_FLAGS) | {"cwd"}
         if not rest or "." in rest or rest not in known:
-            errs.append(f"{where}: 読む欄 '{path}' が run の入力（graph の inputs の宣言・init の旗・cwd）に無いか、下の欄を読んでいる")
+            errs.append(f"{where}: 読むフィールド '{path}' が run の入力（graph の inputs の宣言・init の旗・cwd）に無いか、下のフィールドを読んでいる")
     elif head == "rd":
         if rest.split(".")[0] not in set(empty_round(0)) | set(getattr(rules, "ROUND_KEYS", ()) or ()):
-            errs.append(f"{where}: 読む欄 '{path}' の鍵が周の鍵（engine の empty_round と rules の ROUND_KEYS）に無い")
+            errs.append(f"{where}: 読むフィールド '{path}' の鍵が周の鍵（engine の empty_round と rules の ROUND_KEYS）に無い")
     elif head == "record":
         if not rest or not _record_ok(rest, g, rules):
-            errs.append(f"{where}: 読む欄 '{path}' を書く宣言が無い（init_record・節の writes.to と pick / schema・rules の RECORD_KEYS）")
+            errs.append(f"{where}: 読むフィールド '{path}' を書く宣言が無い（init_record・ノードの writes.to と pick / schema・rules の RECORD_KEYS）")
     elif rest:
-        errs.append(f"{where}: 読む欄 '{path}'——{head} は値そのもの（下に欄を持たない）")
+        errs.append(f"{where}: 読むフィールド '{path}'——{head} は値そのもの（下にフィールドを持たない）")
 
 
 def hist_errors(g, rules):
@@ -439,7 +439,7 @@ def hist_errors(g, rules):
         return []
     if sch is None or names is None:
         return [f"rules の HIST と graph の hist_schema は両方在るか両方無いか（HIST: {'在る' if names is not None else '無い'}・"
-                f"hist_schema: {'在る' if sch is not None else '無い'}）——片方だけでは hist の読みを照らせない"]
+                f"hist_schema: {'在る' if sch is not None else '無い'}）——片方だけでは hist の読みを照合できない"]
     declared = set(sch.get("properties") or {})
     errs += [f"rules の HIST の名前 '{k}' が graph の hist_schema.properties に無い（形の宣言の漏れ）" for k in sorted(set(names) - declared)]
     errs += [f"graph の hist_schema.properties の名前 '{k}' が rules の HIST に無い（誰も作らない値）" for k in sorted(declared - set(names))]
@@ -457,14 +457,14 @@ def hist_errors(g, rules):
                 continue
             if head == "out":
                 if rest not in g["nodes"]:
-                    errs.append(f"{where}: '{r}' の節が graph に無い")
+                    errs.append(f"{where}: '{r}' のノードが graph に無い")
             elif head == "hist":
                 if rest not in names:
                     errs.append(f"{where}: '{r}' が rules の HIST に無い")
             elif head in HIST_LOOKUP_HEADS:
                 check_read_path(r, where, g, rules, errs)
             else:
-                errs.append(f"{where}: '{r}' は読めない（rounds・rd・out.<節>・hist.<名>・{'・'.join(h + '.' for h in HIST_LOOKUP_HEADS)} のどれか）")
+                errs.append(f"{where}: '{r}' は読めない（rounds・rd・out.<ノード>・hist.<名>・{'・'.join(h + '.' for h in HIST_LOOKUP_HEADS)} のどれか）")
     return errs
 
 
@@ -474,7 +474,7 @@ LOOP_MUTATORS = frozenset({"setdefault", "pop", "popitem", "update", "append", "
 def direct_loop_writes(src):
     """rules の本文のうち、盤面の loop（<何か>.loop_state か、それを束ねた名前）を直に書き換える行 ——[(行, 字面)]。
     代入・拡張代入・削除の先と、書き換える方法の呼び出しを見る。loop から取り出した値を別の名前に渡してから書く形（行の辞書を
-    関数の返りで受け取って書く）までは追わない——追えない形は graph の state_schema の保存の時の照らしが受ける"""
+    関数の返りで受け取って書く）までは追わない——追えない形は graph の state_schema の保存の時の照合が受ける"""
     tree, found = ast.parse(src), []
     for fn in ast.walk(tree):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -518,10 +518,10 @@ def rules_files(rules):
 
 
 def check_declared_reads(fn, name, where, g, rules, errs, nid=None):
-    """条件と規則の関数が宣言した読む欄（cond_reads）を 1 本ずつ check_read_path で照らす"""
+    """条件と規則の関数が宣言した読むフィールド（cond_reads）を 1 本ずつ check_read_path で照合する"""
     reads = getattr(fn, "reads", None)
     if not isinstance(reads, tuple) or not all(isinstance(r, str) and r for r in reads):
-        errs.append(f"{where}: '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
+        errs.append(f"{where}: '{name}' が読むフィールドを宣言していない（rules で cond_reads(...) を付けよ）")
         return
     before = ancestors(g["nodes"], nid) if nid else None
     for path in reads:
@@ -532,7 +532,7 @@ def dropped(base, merged, path=""):
     """base に在って merged に無い物（object の鍵・配列の要素）を入れ子まで辿って列挙する。値（文字列・数・真偽）の差し替えは数えない"""
     if isinstance(base, dict):
         if not isinstance(merged, dict):
-            return [f"{path or '節'} を object でない値に差し替えた"]
+            return [f"{path or 'ノード'} を object でない値に差し替えた"]
         return [w for k, v in base.items()
                 for w in ([f"{path + '.' if path else ''}{k} を消した"] if k not in merged else dropped(v, merged[k], f"{path + '.' if path else ''}{k}"))]
     if isinstance(base, list):
@@ -555,8 +555,8 @@ def _ref_target(ref, here):
 
 
 def _node_sources(nid, v, nodes, conds, rules):
-    """節が読む前の節の出力: (読む path, 読む節) の列。reads・条件の cond_reads・pointers の from・delegate.result_to の
-    out./cur./prev.<節> と、hist.<名> が hist_reads で（推移的に）読む out.<節>。record.<欄> を通る受け渡しは数えない"""
+    """ノードが読む前のノードの出力: (読む path, 読むノード) の列。reads・条件の cond_reads・pointers の from・delegate.result_to の
+    out./cur./prev.<ノード> と、hist.<名> が hist_reads で（推移的に）読む out.<ノード>。record.<フィールド> を通る受け渡しは数えない"""
     paths = [r for r in v.get("reads") or [] if isinstance(r, str)]
     named = [v.get(k) for k in ("cond", "applies_cond")] + [e.get("applies_cond") for e in v.get("skills") or [] if isinstance(e, dict)]
     paths += [r for c in named if isinstance(c, str) and c in conds for r in getattr(conds[c], "reads", ()) or ()]
@@ -587,12 +587,12 @@ def _node_sources(nid, v, nodes, conds, rules):
 
 def block_errors(gpath, g, rules, conds, emit):
     """18. ブロックの宣言（graph の最上位の blocks。中身は graphloops/blocks/<loop>/<名>/block.json と exit.schema.json）:
-    ①全部の節がちょうど 1 つのブロックに属す ②別のブロックの節が読む節（_node_sources）はそのブロックの出口（exit の properties）に在り、
-    出口に在る節は別のブロックから読まれている——入口は手で持たず、読む側の reads から導いて示す ③出口の節の schema は graph の中に
-    書かず、ブロックの出口のファイルを $ref で指す（正本を 1 つにする）④祖先の関係に無い 2 節が同じ記録の欄（writes.to）か盤面の鍵
+    ①全部のノードがちょうど 1 つのブロックに属す ②別のブロックのノードが読むノード（_node_sources）はそのブロックの出口（exit の properties）に在り、
+    出口に在るノードは別のブロックから読まれている——入口は手で持たず、読む側の reads から導いて示す ③出口のノードの schema は graph の中に
+    書かず、ブロックの出口のファイルを $ref で指す（正本を 1 つにする）④祖先の関係に無い 2 つのノードが同じ記録のフィールド（writes.to）か盤面の鍵
     （outputs の loop.<鍵>）を上書きの op で書かない——条件の無い組は NG、条件つきの組は印字（-- の行）だけ（条件どうしが排他かは機械で決められない。
-    rules の関数の中の b.loop_state への書き込みは宣言の外なので照らさない）⑤共有のブロック（shared_blocks）の核の欄を、このループの
-    使い手の節が同じ型・同じ必須で持つ。ブロックのファイルを引く graph は blocks を省けない（鍵を消して検査を外せない）"""
+    rules の関数の中の b.loop_state への書き込みは宣言の外なので照合しない）⑤共有のブロック（shared_blocks）の核のフィールドを、このループの
+    使い手のノードが同じ型・同じ必須で持つ。ブロックのファイルを引く graph は blocks を省けない（鍵を消して検査を外せない）"""
     from engine.schema import graph_files, extends_chain
     errs = []
     nodes = g["nodes"]
@@ -618,26 +618,26 @@ def block_errors(gpath, g, rules, conds, emit):
             continue
         ns = d.get("nodes")
         if not (isinstance(ns, list) and ns and all(isinstance(n, str) for n in ns)):
-            errs.append(f"ブロック {b}: nodes は節の名前の空でない一覧")
+            errs.append(f"ブロック {b}: nodes はノードの名前の空でない一覧")
             continue
         for n in ns:
             if n not in nodes:
-                errs.append(f"ブロック {b}: 節 {n} が graph に無い")
+                errs.append(f"ブロック {b}: ノード {n} が graph に無い")
             elif n in owner:
-                errs.append(f"節 {n} が 2 つのブロック（{owner[n]}・{b}）に属している")
+                errs.append(f"ノード {n} が 2 つのブロック（{owner[n]}・{b}）に属している")
             else:
                 owner[n] = b
         ex = d.get("exit")
         if ex is not None and not (isinstance(ex, dict) and isinstance(ex.get("properties"), dict)):
-            errs.append(f"ブロック {b}: exit は出口の節の名前を properties の鍵に並べた schema")
+            errs.append(f"ブロック {b}: exit は出口のノードの名前を properties の鍵に並べた schema")
         for n in (ex or {}).get("properties") or {} if isinstance(ex, dict) else {}:
             if n not in ns:
-                errs.append(f"ブロック {b}: 出口の {n} がこのブロックの節でない")
-    errs += [f"節 {n} がどのブロックにも属さない（graph の最上位の blocks のどれかの nodes に書く）" for n in nodes if n not in owner]
+                errs.append(f"ブロック {b}: 出口の {n} がこのブロックのノードでない")
+    errs += [f"ノード {n} がどのブロックにも属さない（graph の最上位の blocks のどれかの nodes に書く）" for n in nodes if n not in owner]
     if errs:
         return errs
     exit_of = {b: set(((d.get("exit") or {}).get("properties")) or {}) for b, d in blocks.items()}
-    # ② 別のブロックが読む節は出口に在る。入口（読む側から導いた物）を示す
+    # ② 別のブロックが読むノードは出口に在る。入口（読む側から導いた物）を示す
     entry, read_across = {b: set() for b in blocks}, set()
     for k, v in nodes.items():
         for path, src in _node_sources(k, v, nodes, conds, rules):
@@ -646,11 +646,11 @@ def block_errors(gpath, g, rules, conds, emit):
             read_across.add(src)
             entry[owner[k]].add(src)
             if src not in exit_of[owner[src]]:
-                errs.append(f"節 {k}（ブロック {owner[k]}）が {path} で読む {src} が、ブロック {owner[src]} の出口に無い"
-                            f"——出口のファイルの properties に足し、節の schema をそこへの $ref にする")
-    errs += [f"ブロック {b} の出口の {n} を、ほかのブロックのどの節も読まない（reads・cond_reads・hist_reads・pointers・result_to で）——出口から外す"
+                errs.append(f"ノード {k}（ブロック {owner[k]}）が {path} で読む {src} が、ブロック {owner[src]} の出口に無い"
+                            f"——出口のファイルの properties に足し、ノードの schema をそこへの $ref にする")
+    errs += [f"ブロック {b} の出口の {n} を、ほかのブロックのどのノードも読まない（reads・cond_reads・hist_reads・pointers・result_to で）——出口から外す"
              for b, ns in exit_of.items() for n in sorted(ns - read_across)]
-    # ③ 出口の節の schema は出口のファイルへの $ref（graph の中に二重に書かない）。差し替えの版はブロックを差し替えても元のファイルも数える
+    # ③ 出口のノードの schema は出口のファイルへの $ref（graph の中に二重に書かない）。差し替えの版はブロックを差し替えても元のファイルも数える
     exit_files = {b: set() for b in blocks}
     for f, raw in raws:
         for b, d in (raw.get("blocks") or {}).items():
@@ -668,7 +668,7 @@ def block_errors(gpath, g, rules, conds, emit):
             f = next((f for f, r in reversed(raws) if "schema" in (r.get("nodes") or {}).get(n, {})), None)
             t = _ref_target(raw_sch["$ref"], f) if isinstance(raw_sch, dict) and isinstance(raw_sch.get("$ref"), str) else None
             if t is None or t[0] not in exit_files[b] or t[1] != f"/properties/{n}":
-                errs.append(f"出口の節 {n} の schema は graph の中に書かず、ブロック {b} の出口のファイル（{sorted(x.name for x in exit_files[b]) or '無い'}）の "
+                errs.append(f"出口のノード {n} の schema は graph の中に書かず、ブロック {b} の出口のファイル（{sorted(x.name for x in exit_files[b]) or '無い'}）の "
                             f"#/properties/{n} を $ref で指す（今: {raw_sch.get('$ref') if isinstance(raw_sch, dict) and '$ref' in raw_sch else '中身を直に書いている'}）")
     # ④ 並列の上書き
     anc = {k: ancestors(nodes, k) for k in nodes}
@@ -686,7 +686,7 @@ def block_errors(gpath, g, rules, conds, emit):
                 if a == c or a in anc[c] or c in anc[a]:
                     continue
                 conded = [n for n in (a, c) if nodes[n].get("cond") or nodes[n].get("applies_cond")]
-                msg = f"節 {a} と {c} は祖先の関係に無く（並んで走りうる）、どちらも {to} を上書きする"
+                msg = f"ノード {a} と {c} は祖先の関係に無く（並んで走りうる）、どちらも {to} を上書きする"
                 if conded:
                     # NG にも init の警告（WARN）にもしない: 排他の条件の組（p2.rejudge と p2.rejudge_third）で毎回の init に鳴り続ける。印字だけ残す
                     emit(f"--  {msg}——条件（{', '.join(str(nodes[n].get('cond') or nodes[n].get('applies_cond')) for n in conded)}）が排他かは機械で決められない。人が確かめる")
@@ -710,21 +710,21 @@ def block_errors(gpath, g, rules, conds, emit):
                 mine += 1
                 sch = (nodes.get(n) or {}).get("schema")
                 if not isinstance(sch, dict):
-                    errs.append(f"共有のブロック {sb}.{pn}: 使い手の節 {n} が graph に無いか schema を持たない")
+                    errs.append(f"共有のブロック {sb}.{pn}: 使い手のノード {n} が graph に無いか schema を持たない")
                     continue
-                errs += [f"共有のブロック {sb}.{pn}: 使い手の節 {n} の {w}" for w in _core_gaps(core, sch)]
+                errs += [f"共有のブロック {sb}.{pn}: 使い手のノード {n} の {w}" for w in _core_gaps(core, sch)]
         if not mine:
-            errs.append(f"共有のブロック {sb}: このループ（{g.get('loop')}）の使い手が 1 つも無い——宣言だけの共有は照らす相手が無い")
+            errs.append(f"共有のブロック {sb}: このループ（{g.get('loop')}）の使い手が 1 つも無い——宣言だけの共有は照合する相手が無い")
     if not errs:
-        emit(f"ok  ブロック {len(blocks)} 個に節 {len(nodes)} 個が 1 つずつ属し、別のブロックが読む節は全部出口に在る"
-             f"（入口は読む側の reads・cond_reads・hist_reads・pointers・result_to から導いた。record.<欄> の受け渡しは数えない）")
+        emit(f"ok  ブロック {len(blocks)} 個にノード {len(nodes)} 個が 1 つずつ属し、別のブロックが読むノードは全部出口に在る"
+             f"（入口は読む側の reads・cond_reads・hist_reads・pointers・result_to から導いた。record.<フィールド> の受け渡しは数えない）")
         for b in blocks:
-            emit(f"    {b}: 節 {len(blocks[b]['nodes'])}・出口 {sorted(exit_of[b]) or 'なし'}・入口 {sorted(entry[b]) or 'なし'}")
+            emit(f"    {b}: ノード {len(blocks[b]['nodes'])}・出口 {sorted(exit_of[b]) or 'なし'}・入口 {sorted(entry[b]) or 'なし'}")
     return errs
 
 
 def _core_gaps(core, sch, at=""):
-    """核の型 core の欄を sch が同じ type・同じ必須・同じ enum で持つか——足りない所の列"""
+    """核の型 core のフィールドを sch が同じ type・同じ必須・同じ enum で持つか——足りない所の列"""
     gaps = []
     props = sch.get("properties") or {}
     gaps += [f"{at}必須の {k} を必須にしていない" for k in core.get("required") or [] if k not in (sch.get("required") or [])]
@@ -748,8 +748,8 @@ def _core_gaps(core, sch, at=""):
 def check(gpath, script=None, emit=print, node_keys="ng"):
     """graph を静的に検査して ok を返す（graphcheck の本体。engine の init もここを呼ぶ）。
 
-    node_keys="warn" は節の知らない鍵（検査 15）を NG にせず `WARN ` の行で知らせる——init（外から持ち込む graph の入口）用。
-    持ち込みの graph の節に利用者が書いた注記の鍵で init を止めない（上位互換。単体の graphcheck と台本では NG）。
+    node_keys="warn" はノードの知らない鍵（検査 15）を NG にせず `WARN ` の行で知らせる——init（外から持ち込む graph の入口）用。
+    持ち込みの graph のノードに利用者が書いた注記の鍵で init を止めない（上位互換。単体の graphcheck と台本では NG）。
 
     **入口を 2 つにしても実装は 1 つ。** 以前は検査が CLI にしか無く、engine は init で graph を
     受け取っても何も確かめなかった——同梱のグラフだけが守られ、--graph で渡した任意のグラフは
@@ -763,10 +763,10 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     nodes = g["nodes"]
     ok = True
     errs = []  # 実行の形の NG（末尾でまとめて印字）。関数の途中で作り直さない——先に溜めた分が捨てられる
-    # **差し替えの版（extends）は、元の節から何も落とさない**——足すか、値（文字列・数・真偽）を差し替えるだけ。重ね方
-    # （RFC 7396）は配列を置き換え、null で鍵を消し、入れ子の object を上書きできるので、元の graph に後から足した依存・読む欄・
-    # 書き先・schema の必須の欄が、差し替えの版の古い一覧で黙って消える。節と、節の中の入れ子の全部を辿って見る
-    # 見るのは節の下だけでなく graph の全体（最上位の配列・$defs の schema の required・inputs の宣言も、同じ重ね方で消えうる）
+    # **差し替えの版（extends）は、元のノードから何も落とさない**——足すか、値（文字列・数・真偽）を差し替えるだけ。重ね方
+    # （RFC 7396）は配列を置き換え、null で鍵を消し、入れ子の object を上書きできるので、元の graph に後から足した依存・読むフィールド・
+    # 書き先・schema の必須のフィールドが、差し替えの版の古い一覧で黙って消える。ノードと、ノードの中の入れ子の全部を辿って見る
+    # 見るのはノードの下だけでなく graph の全体（最上位の配列・$defs の schema の required・inputs の宣言も、同じ重ね方で消えうる）
     base_path = extends_path(gpath, read_json(gpath))
     if base_path is not None:
         base_g, _ = load_graph(base_path)
@@ -777,7 +777,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     if unknown:
         ok = False
         for k, d in unknown:
-            emit(f"NG 節 {k} の deps に無い節: {d}")
+            emit(f"NG ノード {k} の deps に無いノード: {d}")
     ts = graphlib.TopologicalSorter({k: set(v.get("deps", [])) for k, v in nodes.items()})
     try:
         ts.prepare()
@@ -790,7 +790,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             ready = sorted(ts.get_ready())
             waves.append(ready)
             ts.done(*ready)
-        emit(f"ok  {g['loop']}: 節 {len(nodes)}・波 {len(waves)}（同じ波は同時に走らせてよい）")
+        emit(f"ok  {g['loop']}: ノード {len(nodes)}・波 {len(waves)}（同じ波は同時に走らせてよい）")
         for i, w in enumerate(waves, 1):
             emit(f"    波{i}: {', '.join(w)}")
 
@@ -834,8 +834,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         # 手書きの正規表現を持っていたとき、`[^}]+` が pick 付きの穴（`| pick …`）を丸ごと拾って
         # 偽の NG を出し、しかも check_graph は init から呼ばれるので init が止まった。
         # **射程も広げる**: 見るのは file: / section: の穴だけでなく、裸の `{{inputs.X}}` も含む
-        # ——同じ差分の別の柵が回す側に接頭を禁じたので、回す側だけが読むパス入力は裸でしか書けず、
-        # 接頭だけを見る柵は走査の外に出ていた（実測 r9: init --input spec=/no/such が exit 0）。
+        # ——同じ差分の別のチェックが回す側に接頭を禁じたので、回す側だけが読むパス入力は裸でしか書けず、
+        # 接頭だけを見るチェックは走査の外に出ていた（実測 r9: init --input spec=/no/such が exit 0）。
         for m in TOKEN.finditer(tpl):
             core = strip_prefix(m.group(2).strip()).split("#", 1)[0].strip()
             if core.startswith("inputs."):
@@ -846,19 +846,19 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         # 旗で渡る入力（--request / --lang / --document）はパスとは限らないので kind を持たない。
         # 除外の一覧は engine の CLI_FLAGS が正本（写さず import する）
         if key not in declared and key not in CLI_FLAGS:
-            errs.append(f"節 {nid}: 穴が inputs.{key} を読むのに、graph の inputs に {key} の宣言が無い"
+            errs.append(f"ノード {nid}: 穴が inputs.{key} を読むのに、graph の inputs に {key} の宣言が無い"
                         "——宣言が無い入力は実在検査に当たらないので、存在しないパスが init を素通りする")
     # 判定の語彙は **graph が宣言する**（loop ごとに違う——firstread の questions は読み役の疑問で判定ではない）。
-    # engine にも graphcheck にも写しを置かない: 写すと engine だけ変えたとき柵が緩み、engine に持たせると
+    # engine にも graphcheck にも写しを置かない: 写すと engine だけ変えたときチェックが緩み、engine に持たせると
     # 「engine は loop の語を持たない」に反する。
     VERDICT_PATHS = tuple(g.get("verdict_paths") or ())
     VERDICT_FIELDS = frozenset(g.get("verdict_fields") or ())
     if not VERDICT_PATHS and not VERDICT_FIELDS:
-        errs.append("verdict_paths / verdict_fields（回す側が書いてはいけない記録の場所と欄名）が graph に無い")
+        errs.append("verdict_paths / verdict_fields（回す側が書いてはいけない記録の場所とフィールド名）が graph に無い")
     bad2 = False
     for k, v in nodes.items():
-        # 判定の欄かどうかは**名前の部分一致でなく engine の語彙**（VERDICT_PATHS / VERDICT_FIELDS）から導く。
-        # 正規表現の写しを持たせていたとき、その語に当たらない命名の判定欄は素通りした（柵の対象集合が名乗りより狭い）。
+        # 判定のフィールドかどうかは**名前の部分一致でなく engine の語彙**（VERDICT_PATHS / VERDICT_FIELDS）から導く。
+        # 正規表現の写しを持たせていたとき、その語に当たらない命名の判定フィールドは素通りした（チェックの対象集合が名乗りより狭い）。
         outs = v.get("outputs", [])
         judges = [o for o in outs
                   if any(o == p or o.startswith(p + ".") for p in VERDICT_PATHS)
@@ -866,21 +866,21 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         if v.get("run_by") not in runners or not judges or v.get("verdict_is_copy"):
             continue
         if v.get("runner_judgment_by_design"):
-            emit(f"ok  節 {k}: 回す側が判定するのは設計どおり——{v['runner_judgment_by_design']}")
+            emit(f"ok  ノード {k}: 回す側が判定するのは設計どおり——{v['runner_judgment_by_design']}")
             continue
         ok, bad2 = False, True
-        emit(f"NG 節 {k}: 回す側（{v['run_by']}）が判定を出している: {judges}")
+        emit(f"NG ノード {k}: 回す側（{v['run_by']}）が判定を出している: {judges}")
     if not bad2:
-        emit("ok  判定を出す節に回す側が無い（verdict_is_copy は写すだけ、runner_judgment_by_design は手順書が定めた例外）")
+        emit("ok  判定を出すノードに回す側が無い（verdict_is_copy は写すだけ、runner_judgment_by_design は手順書が定めた例外）")
 
-    # 3. 記録の欄 ⊆ outputs
+    # 3. 記録のフィールド ⊆ outputs
     # 検証器の綴りは呼ぶ側から（CLI は第 2 引数、engine は --validator）
     vp = g.get("record", {}).get("validator_path")
     if not script and vp:
         script = find_plugin_path(vp, g.get("plugin"))  # engine と同じ探し方（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）
         if not script:
             ok = False
-            emit(f"NG record.validator_path '{vp}' が見つからない（plugin {g.get('plugin')!r} の置き場に無い。第 2 引数で渡すか置き場を直す）——欄の突合を省略で通さない")
+            emit(f"NG record.validator_path '{vp}' が見つからない（plugin {g.get('plugin')!r} の置き場に無い。第 2 引数で渡すか置き場を直す）——フィールドの突合を省略で通さない")
     if script:
         # 13. graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている（包含検査がどこにも無く exit 0 だった）
         vocab = validator_vocab(script)
@@ -902,26 +902,26 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 walk_enum(s["items"], where + "[]")
         for k, v in nodes.items():
             if isinstance(v.get("schema"), dict):
-                walk_enum(v["schema"], f"節 {k}: schema")
+                walk_enum(v["schema"], f"ノード {k}: schema")
         need = record_fields(script)
         if not need:
             ok = False
-            emit(f"NG 検証器 {script} から必須欄が 1 つも拾えない（書式が変わったか、検証器でない）——0 個の突合を合格にしない")
+            emit(f"NG 検証器 {script} から必須フィールドが 1 つも拾えない（書式が変わったか、検証器でない）——0 個の突合を合格にしない")
         else:
             have = " ".join(o for v in nodes.values() for o in v.get("outputs", []))
             missing = sorted(n for n in need if not re.search(rf"\b{re.escape(n)}\b", have))
             if missing:
                 ok = False
-                emit(f"NG 検証器の欄で outputs に無いもの: {', '.join(missing)}")
+                emit(f"NG 検証器のフィールドで outputs に無いもの: {', '.join(missing)}")
             else:
-                emit(f"ok  検証器の必須欄 {len(need)} 個すべてがどれかの節の outputs に現れる")
+                emit(f"ok  検証器の必須フィールド {len(need)} 個すべてがどれかのノードの outputs に現れる")
     elif not vp:
-        emit("--  検証器の欄との突合は省略（graph に record.validator_path が無く、第 2 引数も無い）")
+        emit("--  検証器のフィールドとの突合は省略（graph に record.validator_path が無く、第 2 引数も無い）")
 
     # 4. fresh_context と forbidden_inputs
     fresh = [k for k, v in nodes.items() if v.get("fresh_context")]
     bare = [k for k in fresh if not nodes[k].get("forbidden_inputs")]
-    emit(f"ok  fresh_context {len(fresh)} 節、うち固有の遮断（forbidden_inputs）を持たないのは "
+    emit(f"ok  fresh_context {len(fresh)} ノード、うち固有の遮断（forbidden_inputs）を持たないのは "
           f"{len(bare)}（ラウンド規律だけが効く）: {', '.join(bare) or 'なし'}")
 
     # 5. 段名の正本は thickness.tiers（低い順の配列）。キーの集合から導かない——tiers / deciders / rule が段名として通る
@@ -941,7 +941,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             bad = [t for t in v.get("active_in", []) if t not in tiers]
             if bad:
                 ok, bad5 = False, True
-                emit(f"NG 節 {k} の active_in に無い段: {bad}（段は {tiers}）")
+                emit(f"NG ノード {k} の active_in に無い段: {bad}（段は {tiers}）")
         for t in g.get("round", {}).get("max_rounds_by_thickness", {}):
             if t not in tiers:
                 ok, bad5 = False, True
@@ -968,24 +968,24 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         ok = flush("ok  宣言の形（inputs・schema の語）。exec が無いので実行の形の検査 6〜13 は省略") and ok
         return ok
 
-    # 14. 止めた後に走らせる節の宣言（loop.py stop が読む）。stop.node は周を締める機械の節で、その下流に報告の節
-    # （pre=finalize）が在ること——下流に報告が無い宣言だと、止めた run は『全部の節が終わっている』と言いながら報告が出ない
+    # 14. 止めた後に走らせるノードの宣言（loop.py stop が読む）。stop.node は周を締める機械のノードで、その下流に報告のノード
+    # （pre=finalize）が在ること——下流に報告が無い宣言だと、止めた run は『全部のノードが終わっている』と言いながら報告が出ない
     decl = g.get("stop")
     if decl is not None:
         sn = decl.get("node") if isinstance(decl, dict) else None
         if sn not in nodes:
-            errs.append(f"stop.node '{sn}' が節に無い（止めた後に『済んだ』と見なす節を名指す）")
+            errs.append(f"stop.node '{sn}' がノードに無い（止めた後に『済んだ』と見なすノードを名指す）")
         elif nodes[sn].get("run_by") != "driver":
-            errs.append(f"stop.node '{sn}' は機械の節（run_by=driver）でない——役や回す側の節を済んだことにすると、その返答が記録に無いまま進む")
+            errs.append(f"stop.node '{sn}' は機械のノード（run_by=driver）でない——役や回す側のノードを済んだことにすると、その返答が記録に無いまま進む")
         else:
             from engine.commands import stop_descendants
             if not any(nodes[k].get("pre") == "finalize" for k in stop_descendants(nodes, sn)):
-                errs.append(f"stop.node '{sn}' の下流に報告の節（pre=finalize）が無い——止めた run の報告が出ない")
+                errs.append(f"stop.node '{sn}' の下流に報告のノード（pre=finalize）が無い——止めた run の報告が出ない")
 
     # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
     # 無視するので、書いても効かない schema が graph に入る。盤面の loop の形（最上位の state_schema）も engine が保存の時に
-    # 同じ検査器で照らすので、同じ本文を通す
-    owners = [(f"節 {k}", v["schema"]) for k, v in nodes.items() if isinstance(v.get("schema"), dict)]
+    # 同じ検査器で照合するので、同じ本文を通す
+    owners = [(f"ノード {k}", v["schema"]) for k, v in nodes.items() if isinstance(v.get("schema"), dict)]
     owners += [(top, g[top]) for top in ("state_schema", "hist_schema") if isinstance(g.get(top), dict)]
     for who, sch in owners:
         for u in unknown_keywords(sch):
@@ -1014,27 +1014,27 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         agents = set()
     dl = g.get("deliver", {}).get("path_tools")
     if dl is not None and not (isinstance(dl, list) and all(isinstance(t, str) for t in dl)):
-        errs.append("deliver.path_tools は道具の名前の一覧")
-    # 回す側の節の任せ先（delegate）: 回す側の節にだけ・モデルの名前は表のどれか・理由を書く
+        errs.append("deliver.path_tools はツールの名前の一覧")
+    # 回す側のノードの任せ先（delegate）: 回す側のノードにだけ・モデルの名前は表のどれか・理由を書く
     for k, v in nodes.items():
         dg = v.get("delegate")
         if dg is None:
             continue
         if v.get("run_by") not in set(g.get("runners", [])):
-            errs.append(f"節 {k}: delegate は回す側の節（runners）にだけ書ける——役の節の model は役の定義が正本")
+            errs.append(f"ノード {k}: delegate は回す側のノード（runners）にだけ書ける——役のノードの model は役の定義が正本")
         elif not (isinstance(dg, dict) and dg.get("model") in DELEGATE_MODELS and isinstance(dg.get("why"), str) and dg["why"].strip()):
-            errs.append(f"節 {k}: delegate は {{model: {'/'.join(DELEGATE_MODELS)}, why: 任せてよい理由}}")
+            errs.append(f"ノード {k}: delegate は {{model: {'/'.join(DELEGATE_MODELS)}, why: 任せてよい理由}}")
         if isinstance(dg, dict) and "background" in dg:
             if not isinstance(dg["background"], bool):
-                errs.append(f"節 {k}: delegate.background は真偽（任せ先を背景で立てて待たずに受領を返すか）")
+                errs.append(f"ノード {k}: delegate.background は真偽（任せ先を背景で立てて待たずに受領を返すか）")
             elif dg["background"]:
-                # 背景の節の done は受領（線を立てた事実）でしかない——待つ節は、線の結果を待ったと読み違える
+                # 背景のノードの done は受領（線を立てた事実）でしかない——待つノードは、線の結果を待ったと読み違える
                 waiters = sorted(w for w, x in nodes.items() if k in (x.get("deps") or []) + (x.get("instance_deps") or []))
                 if waiters:
-                    errs.append(f"節 {k}: 背景の節（delegate.background）を {waiters} が待っている——背景の節の done は受領で、結果は置き場から読む")
-                # 背景の任せ先の返答は engine が置き場へ置く（子は sandbox の中で盤面に書けない）——置き場は節が読む材料の 1 つ
+                    errs.append(f"ノード {k}: 背景のノード（delegate.background）を {waiters} が待っている——背景のノードの done は受領で、結果は置き場から読む")
+                # 背景の任せ先の返答は engine が置き場へ置く（子は sandbox の中で盤面に書けない）——置き場はノードが読む材料の 1 つ
                 if dg.get("result_to") not in (v.get("reads") or []):
-                    errs.append(f"節 {k}: 背景の任せ先は delegate.result_to に返答の置き場（この節の reads のどれか）を名指しする"
+                    errs.append(f"ノード {k}: 背景の任せ先は delegate.result_to に返答の置き場（このノードの reads のどれか）を名指しする"
                                 "——engine が子の返答をそこへ置く")
         if isinstance(dg, dict) and "receipt" in dg:
             rc = dg["receipt"]
@@ -1043,15 +1043,15 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 from engine.schema import validate_schema
                 bad_receipt = bool(validate_schema(fill_receipt(rc, "/置き場"), v["schema"]))
             if bad_receipt:
-                errs.append(f"節 {k}: delegate.receipt は背景の任せ先の受領の返答（{{result_path}} の穴を埋めた値が節の schema に合う object）"
+                errs.append(f"ノード {k}: delegate.receipt は背景の任せ先の受領の返答（{{result_path}} の穴を埋めた値がノードの schema に合う object）"
                             "——回し手がそのまま done する")
         if v.get("skills"):
-            # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
+            # skill（/simplify・/code-review）は中でさらに役を背景で起動する。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
-            errs.append(f"節 {k}: skills を持つ節に delegate は書けない——skill は回す側（最上位のセッション）が自分で呼ぶ（入れ子の委任は完了の知らせが届かない）")
+            errs.append(f"ノード {k}: skills を持つノードに delegate は書けない——skill は回す側（最上位のセッション）が自分で呼ぶ（入れ子の委任は完了の知らせが届かない）")
     if any(isinstance(v.get("delegate"), dict) for v in nodes.values()) and not (g.get("launch", {}).get("delegate") or {}).get("argv"):
-        errs.append("任せ先（delegate）を持つ節が在るのに launch.delegate.argv が無い——任せ先を sandbox で縛って起こせない"
-                    "（Agent ツールで起こすと本物の作業ツリーと .git に書ける）")
+        errs.append("任せ先（delegate）を持つノードが在るのに launch.delegate.argv が無い——任せ先を sandbox で縛って起動できない"
+                    "（Agent ツールで起動すると本物の作業ツリーと .git に書ける）")
     pr = g.get("deliver", {}).get("paste_roles")
     if pr is not None and not (isinstance(pr, list) and all(isinstance(t, str) and ":" in t for t in pr)):
         errs.append("deliver.paste_roles は役の名前（<plugin>:<役>）の一覧")
@@ -1060,43 +1060,43 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         plug, _, role = t.rpartition(":")
         if plug == g.get("plugin") and agents and role not in agents:
             errs.append(f"deliver.paste_roles の役 {t!r} が {plug} の agents/ に無い（綴り違いは黙って path に倒れる）")
-    # 道具ゼロの役（遮断系）を使うなら、起こし方の宣言が要る。Agent ツールで起こすとハーネスが
+    # ツールゼロの役（遮断系）を使うなら、起動方法の宣言が要る。Agent ツールで起動するとハーネスが
     # CLAUDE.md 階層を注入し、止める設定が公式に無い——遮断が名ばかりになる（実測 2026-09-12）。
     isolated = sorted(r for r in agents if agent_tools(f"{g.get('plugin')}:{r}") == [])
     used = {v.get("run_by") for v in nodes.values()} | {v.get("agent_type", "").rpartition(":")[2] for v in nodes.values()}
     if isolated and (used & set(isolated)) and not (g.get("launch", {}).get("isolated", {}).get("argv")):
-        errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
-                    "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
+        errs.append(f"ツールゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
+                    "——Agent ツールで起動すると CLAUDE.md が注入され、遮断が成立しない")
     launch = g.get("launch") or {}
     runner_spec = launch.get("runner") or {}
     if runner_spec:
-        # 書き換える節の名指しは回す側の節だけ（役の節・機械の節を名指しても engine は起こさない——書いても効かない）
+        # 書き換えるノードの名指しは回す側のノードだけ（役のノード・機械のノードを名指しても engine は起動しない——書いても効かない）
         runners = set(g.get("runners") or [])
         bad = [x for x in runner_spec.get("edits") or [] if (nodes.get(x) or {}).get("run_by") not in runners]
         if bad or not isinstance(runner_spec.get("edits", []), list):
-            errs.append(f"launch.runner.edits の {bad} は回す側（runners）の節でない——作業ツリーを書き換える子として起こす節の名前だけを書け")
+            errs.append(f"launch.runner.edits の {bad} は回す側（runners）のノードでない——作業ツリーを書き換える子として起動するノードの名前だけを書け")
         for k in ("model", "effort"):
             if not runner_spec.get(k):
-                errs.append(f"launch.runner に '{k}' が無い（回す側の節を起こす語の {{{k}}} を埋められない）")
+                errs.append(f"launch.runner に '{k}' が無い（回す側のノードを起動する語の {{{k}}} を埋められない）")
         errs += unlaunched_nodes(g, nodes)
-    # 申告の突合（commands._record_declared）の申告の欄は、回す側の節の schema の文字列の葉を指す（外れると突合が黙って空を読む）。
-    # 位置の綴りは受け付けの読み手（pointers.values_at）と同じ pointers._schema_at で引く。作業ツリーを書き換える節（launch.runner.edits）
-    # は申告を持つ——書く節の一覧と突合の対象を 1 つの正本にそろえる。申告が無いことと旧い綴り（文字列の配列の葉）は記録が欠けるだけなので、
+    # 申告の突合（commands._record_declared）の申告のフィールドは、回す側のノードの schema の文字列の葉を指す（外れると突合が黙って空を読む）。
+    # 位置の綴りは受け付けの読み手（pointers.values_at）と同じ pointers._schema_at で引く。作業ツリーを書き換えるノード（launch.runner.edits）
+    # は申告を持つ——書くノードの一覧と突合の対象を 1 つの正本にそろえる。申告が無いことと旧い綴り（文字列の配列の葉）は記録が欠けるだけなので、
     # 持ち込みの graph の init は止めない（上位互換。init からは WARN）
     node_errs = []   # 単体の graphcheck と台本では NG、init では WARN（下の検査 15 以降も同じ一覧に足す）
     for nid, v in nodes.items():
         at = v.get("declared_files")
         if at is None:
             if nid in (runner_spec.get("edits") or []):
-                node_errs.append(f"{nid}: launch.runner.edits の節に declared_files が無い——範囲外の書き込みが記録に残らない")
+                node_errs.append(f"{nid}: launch.runner.edits のノードに declared_files が無い——範囲外の書き込みが記録に残らない")
             continue
         leaf = pointers._schema_at(v.get("schema") or {}, at) if isinstance(at, str) else None
         if v.get("run_by") not in set(g.get("runners") or []) or not isinstance(leaf, dict):
-            errs.append(f"{nid}: declared_files {at!r} は回す側の節の schema の文字列の葉を指せ（申告の突合が空を読む）")
+            errs.append(f"{nid}: declared_files {at!r} は回す側のノードの schema の文字列の葉を指せ（申告の突合が空を読む）")
         elif leaf.get("type") == "array" and (leaf.get("items") or {}).get("type") == "string":
             node_errs.append(f"{nid}: declared_files {at!r} は旧い綴り（文字列の配列）——末尾に [] を足して文字列の葉を指せ")
         elif leaf.get("type") != "string":
-            errs.append(f"{nid}: declared_files {at!r} は回す側の節の schema の文字列の葉を指せ（申告の突合が空を読む）")
+            errs.append(f"{nid}: declared_files {at!r} は回す側のノードの schema の文字列の葉を指せ（申告の突合が空を読む）")
     narrow = (launch.get("tooled") or {}).get("narrow")
     if narrow is not None:
         tools = narrow.get("tools") if isinstance(narrow, dict) else None
@@ -1111,7 +1111,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             errs.append(f"launch.{kind}.via は解決した argv の前に置く語の一覧（文字列の配列）")
             via = None
         for a in via or []:
-            # via が指す実体が同梱されているか。**実行時にしか出ない落ち方**——launch が起こした瞬間に
+            # via が指す実体が同梱されているか。**実行時にしか出ない落ち方**——launch が起動した瞬間に
             # python が「そんなファイルは無い」で落ち、役の返答が空のまま拒まれるだけになる。
             # plugin_root しか穴が無い語は検査の時点で埋まる（他の穴を含む語は実行時にしか決まらないので触らない）
             if "{plugin_root}" in a and "{" not in a.replace("{plugin_root}", ""):
@@ -1123,7 +1123,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             if words is None and part == "resume":
                 continue
             if not (isinstance(words, list) and words and all(isinstance(a, str) for a in words)):
-                errs.append(f"launch.{kind}.{part} は起こす語の一覧（空でない文字列の配列）")
+                errs.append(f"launch.{kind}.{part} は起動する語の一覧（空でない文字列の配列）")
                 continue
             # 起動の穴は engine の launch_spec が埋める語だけ（LAUNCH_HOLES）。知らない穴は format の KeyError
             holes = {m.group(1) for a in words + list(via or []) for m in re.finditer(r"\{(\w+)\}", a)}
@@ -1149,12 +1149,12 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     if room is not None and not (isinstance(room, int) and not isinstance(room, bool) and room >= 0
                                  and (not isinstance(budget, int) or room < budget)):
         errs.append(f"launch.read_room_bytes は 0 以上で input_budget_bytes より小さい整数（Read の結果と返答の余白。{room!r}）")
-    # read_file（道具ゼロの役に Read で 1 本だけ読ませるファイル）: 道具ゼロの役の節だけ・宣言した値だけ・起こす語が要る
+    # read_file（ツールゼロの役に Read で 1 本だけ読ませるファイル）: ツールゼロの役のノードだけ・宣言した値だけ・起動する語が要る
     loop_keys = set(((g.get("state_schema") or {}).get("properties") or {}))
     hist_props = (g.get("hist_schema") or {}).get("properties") or {}
 
     def _hist_field(ref):
-        """hist.<名>.<欄>: 名が hist_schema に在り、その形（$defs の参照を 1 段たどる）が欄を宣言している"""
+        """hist.<名>.<フィールド>: 名が hist_schema に在り、その形（$defs の参照を 1 段たどる）がフィールドを宣言している"""
         parts = ref.split(".")
         if len(parts) != 3 or parts[0] != "hist" or parts[1] not in hist_props:
             return False
@@ -1168,12 +1168,12 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         if rf is None:
             continue
         if v.get("run_by") not in isolated:
-            errs.append(f"{nid}: read_file は道具ゼロの役の節だけに書ける（道具を持つ役は自分で読む。run_by {v.get('run_by')!r}）")
+            errs.append(f"{nid}: read_file はツールゼロの役のノードだけに書ける（ツールを持つ役は自分で読む。run_by {v.get('run_by')!r}）")
         loop_ok = (isinstance(rf, str) and rf.startswith("loop.") and rf.count(".") == 1
-                   and (rf[5:] in loop_keys or "state_schema" not in g))   # 形の宣言の無い graph は鍵の名前までは照らさない（旧い形）
+                   and (rf[5:] in loop_keys or "state_schema" not in g))   # 形の宣言の無い graph は鍵の名前までは照合しない（旧い形）
         if not (loop_ok or (isinstance(rf, str) and _hist_field(rf))):
-            errs.append(f"{nid}: read_file {rf!r} は盤面の loop の鍵 1 つ（loop.<state_schema の鍵>）か、履歴から作る値の欄 1 つ"
-                        "（hist.<hist_schema の名>.<その形が宣言する欄>）——写すファイルの置き場はそこから引く")
+            errs.append(f"{nid}: read_file {rf!r} は盤面の loop の鍵 1 つ（loop.<state_schema の鍵>）か、履歴から作る値のフィールド 1 つ"
+                        "（hist.<hist_schema の名>.<その形が宣言するフィールド>）——写すファイルの置き場はそこから引く")
         if not (launch.get("isolated_read") or {}).get("argv"):
             errs.append(f"{nid}: read_file を宣言するのに launch.isolated_read.argv が無い")
     rules = load_rules(gpath, g)
@@ -1181,8 +1181,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     if rules_unreadable:
         errs.append(rules)
         rules = None
-    # 起こす子の形ごとに指示書へ足す段（launch.append。engine の advance.launch_appends が当てる）の形: 当て先の語・ファイルの実在。
-    # 段の穴は、当たる節の本文（render.node_prompt の segs）と reads（advance.node_reads）に入れて、節のプロンプトの検査（下の 7.）が見る
+    # 起動する子の形ごとに指示書へ足す段（launch.append。engine の advance.launch_appends が当てる）の形: 当て先の語・ファイルの実在。
+    # 段の穴は、当たるノードの本文（render.node_prompt の segs）と reads（advance.node_reads）に入れて、ノードのプロンプトの検査（下の 7.）が見る
     appends = launch.get("append")
     if appends is not None and not isinstance(appends, list):
         errs.append("launch.append は段（{to, files, reads}）の一覧")
@@ -1192,25 +1192,25 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         where = f"launch.append[{i}]"
         if not (isinstance(seg, dict) and seg.get("to") in APPEND_TO and isinstance(seg.get("files"), list) and seg["files"]
                 and isinstance(seg.get("reads"), list) and all(isinstance(x, str) for x in seg["files"] + seg["reads"])):
-            errs.append(f"{where} は {{to: {'/'.join(APPEND_TO)}, files: [指示書の断片…], reads: [穴が読む欄…]}}")
+            errs.append(f"{where} は {{to: {'/'.join(APPEND_TO)}, files: [指示書の断片…], reads: [穴が読むフィールド…]}}")
             continue
         errs += [f"{where}: {f} が無い" for f in seg["files"] if not (gpath.parent / f).is_file()]
         shaped.append(seg)
-    # 段と同じファイルを節の prompt_append に書くと、段が当たる子には同じ本文が 2 度貼られる（engine は黙って消さない）。当たりが決まらない
-    # 役（別 plugin の役——入っている機械でだけ当たる）の節は、段のどのファイルとも重ねられない
+    # 段と同じファイルをノードの prompt_append に書くと、段が当たる子には同じ本文が 2 度貼られる（engine は黙って消さない）。当たりが決まらない
+    # 役（別 plugin の役——入っている機械でだけ当たる）のノードは、段のどのファイルとも重ねられない
     every = {f for seg in shaped for f in seg["files"]}
     for nid, v in nodes.items():
         segs, known = appended(g, v) if isinstance(v, dict) and v.get("prompt_append") else ([], True)
         dup = sorted(set(v.get("prompt_append") or []) & ({f for s in segs for f in s["files"]} if known else every)) if isinstance(v, dict) else []
         if dup:
-            errs.append(f"節 {nid}: prompt_append の {dup} は launch.append の段が{'この節に当てる' if known else '当てうる（別 plugin の役）'}"
-                        "——節から消せ（段が子の形で当てる）")
-    # 15. 節の鍵は閉じた集合（engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和）
+            errs.append(f"ノード {nid}: prompt_append の {dup} は launch.append の段が{'このノードに当てる' if known else '当てうる（別 plugin の役）'}"
+                        "——ノードから消せ（段が子の形で当てる）")
+    # 15. ノードの鍵は閉じた集合（engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和）
     if rules is not None and any(getattr(rules, n, None) is None for n in ("NODE_KEYS", "NODE_NOTE_KEYS")):
-        node_errs.append("rules が NODE_KEYS / NODE_NOTE_KEYS（このループが節に書く鍵の宣言）を持たない——節の知らない鍵を照らせない")
+        node_errs.append("rules が NODE_KEYS / NODE_NOTE_KEYS（このループがノードに書く鍵の宣言）を持たない——ノードの知らない鍵を照合できない")
     elif not rules_unreadable:
         allowed = ENGINE_NODE_KEYS | DOC_NODE_KEYS | set(getattr(rules, "NODE_KEYS", ())) | set(getattr(rules, "NODE_NOTE_KEYS", ()))
-        node_errs += [f"節 {k} に知らない鍵 {sorted(set(v) - allowed)}（綴り違いか、engine も rules も読まない鍵——書いても効かない）"
+        node_errs += [f"ノード {k} に知らない鍵 {sorted(set(v) - allowed)}（綴り違いか、engine も rules も読まない鍵——書いても効かない）"
                       for k, v in nodes.items() if set(v) - allowed]
     # 16. loop の形（state_schema）と LOOP_KEYS
     keys = getattr(rules, "LOOP_KEYS", None) if rules is not None else None
@@ -1223,8 +1223,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         errs += [f"graph の state_schema.properties の鍵 '{k}' が rules の LOOP_KEYS に無い（名前の宣言の漏れか、誰も書かない鍵）"
                  for k in sorted(declared - set(keys))]
     elif sch is None and keys is not None:
-        node_errs.append("rules が LOOP_KEYS を持つのに graph に state_schema（盤面の loop の形）が無い——loop の読みを最後の欄まで照らせず、"
-                         "保存の時の照らしも掛からない")
+        node_errs.append("rules が LOOP_KEYS を持つのに graph に state_schema（盤面の loop の形）が無い——loop の読みを最後のフィールドまで照合できず、"
+                         "保存の時の照合も掛からない")
     # 合わせ方（x-reducer）を宣言した graph は、run の状態を effect の口（engine/effects.py。旧い形の関数は write_loop）だけで書く:
     # 鍵は全部合わせ方を持ち、rules の本文は loop を直に書かない。宣言の無い graph（research-loop）は今の書き方のまま
     if isinstance(sch, dict) and declares_reducers(sch):
@@ -1234,9 +1234,9 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             errs += [f"rules {f.name}:{ln} が盤面の loop を直に書いている（{seg.splitlines()[0][:80]}）——write_loop（effect の口）で書け"
                      for ln, seg in direct_loop_writes(f.read_text(encoding="utf-8"))]
     errs += hist_errors(g, rules)
-    # 機械の節も返りの形（schema）を宣言する——後の節・条件・rules が出力の欄を名前で読み、engine が返りを照らす。無ければ読む欄の
-    # 綴りを照らせない。持ち込みの graph の init は止めない（15・16 と同じく init からは WARN）
-    node_errs += [f"節 {k}: 機械の節に schema（返りの形）が無い——出力を読む条件・穴の欄を照らせず、engine も返りを照らせない"
+    # 機械のノードも返りの形（schema）を宣言する——後のノード・条件・rules が出力のフィールドを名前で読み、engine が返りを照合する。無ければ読むフィールドの
+    # 綴りを照合できない。持ち込みの graph の init は止めない（15・16 と同じく init からは WARN）
+    node_errs += [f"ノード {k}: 機械のノードに schema（返りの形）が無い——出力を読む条件・穴のフィールドを照合できず、engine も返りを照合できない"
                   for k, v in nodes.items() if v.get("run_by") == "driver" and not isinstance(v.get("schema"), dict)]
     if node_keys == "warn":
         for e in node_errs:
@@ -1250,7 +1250,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         # **母数は「この rules が定義した公開の関数」全部。** 以前は `on_` で始まる名前と、
         # 非 `on_` のフック名を**手で並べた 4 語**だけを見ていた——engine の HOOKS はその 4 語を
         # 持つので今は一致するが、綴り違いはその表に載らないので、`finalize` を `finalise` と書いても
-        # 母数に入らず 1 件も出なかった（実測 2026-09-13: 柵は「フック名の綴り違いを落とす」と
+        # 母数に入らず 1 件も出なかった（実測 2026-09-13: チェックは「フック名の綴り違いを落とす」と
         # 名乗るのに、落とせるのは `on_` で始まるものだけだった）。**engine に非 `on_` のフックが
         # 増えた周も、ここは黙って狭いまま。** 定義元で絞るので、import した名前は母数に入らない。
         public = {n for n in dir(rules)
@@ -1262,7 +1262,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 errs.append(f"rules の公開名 '{n}' は engine のフック '{near[0]}' の綴り違いに見える（engine は名前一致でしか探さないので静かに無視される）")
     reg = lambda name: set(registry(rules, name))  # 名前表の引き方は engine の registry（写しを持たない）
     # 受理集合の形。**鍵の一覧は engine と rules から組む**——手で 2 語並べていたとき、どちらかが鍵を
-    # 増やしてもこの柵は増えず、増えた鍵だけ形（整数の空でない一覧）を誰も検査しないまま通った。
+    # 増やしてもこのチェックは増えず、増えた鍵だけ形（整数の空でない一覧）を誰も検査しないまま通った。
     # **鍵が在れば null でも落とす**——`is not None` で外していたので、NG 文が名指しする null そのものが
     # 素通りし、実行時は `exit not in None` の TypeError になった。
     for key in sorted(set(ENGINE_ACCEPT_KEYS) | reg("ACCEPT_KEYS")):
@@ -1272,8 +1272,8 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         if not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
             errs.append(f"record.{key} は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine / rules が『受理集合に無い』と読めず TypeError で落ちる）")
     write_ops = set(ENGINE_WRITE_OPS) | reg("WRITE_OPS")
-    # 素材の書き先と宣言を揃える。節の materials は『この節がどの素材を出すか』の正本で、判定の後の人待ちの柵
-    # （check_record の awaiting の出どころ）や巻き戻しはこの宣言しか見ない——書き先だけに在る素材は柵をすり抜け、
+    # 素材の書き先と宣言を揃える。ノードの materials は『このノードがどの素材を出すか』の正本で、判定の後の人待ちのチェック
+    # （check_record の awaiting の出どころ）や巻き戻しはこの宣言しか見ない——書き先だけに在る素材はチェックをすり抜け、
     # 宣言だけに在る素材は誰も書かないのに在る前提で読まれる。to を素材名として読むかは rules の op ごとに writes_material で名乗る
     # （op の意味を知るのは rules だけ——ここに op の名前を写さない。名乗りの無い op は落とす）。素材を丸ごと書く to（materials）は宣言と照合できないので落とす
     rops = registry(rules, "WRITE_OPS")
@@ -1286,133 +1286,133 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     for k, v in nodes.items():
         ws = [w for w in v.get("writes") or [] if isinstance(w, dict) and isinstance(w.get("to"), str)]
         if any(w["to"] == "materials" for w in ws):
-            errs.append(f"節 {k}: writes の to が materials そのもの——素材は 1 つずつ（materials.<名前>）書け（宣言と照合できない）")
+            errs.append(f"ノード {k}: writes の to が materials そのもの——素材は 1 つずつ（materials.<名前>）書け（宣言と照合できない）")
         wrote = {w["to"].removeprefix("materials.") for w in ws if w["to"].startswith("materials.") or w.get("op") in mat_ops}
         declared = set(v.get("materials") or [])
         if wrote != declared:
-            errs.append(f"節 {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
+            errs.append(f"ノード {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
     fan_builtins, node_builtins, post_checks = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS")
     conds = dict(registry(rules, "CONDS"))
     post_checks_fns, builtin_fns = dict(registry(rules, "POST_CHECKS")), dict(registry(rules, "BUILTINS"))
     errs += block_errors(gpath, g, rules, conds, emit)
     for nid in g.get("raw_for_report", []):
         if nid not in nodes:
-            errs.append(f"raw_for_report に無い節: {nid}")
+            errs.append(f"raw_for_report に無いノード: {nid}")
     def check_conds(k, v):
-        """節の条件（cond・applies_cond・skills[].applies_cond）の名前と読む欄、節の reads・outputs が名指す loop.<鍵> を照らす
-        （driver の節も同じ）"""
+        """ノードの条件（cond・applies_cond・skills[].applies_cond）の名前と読むフィールド、ノードの reads・outputs が名指す loop.<鍵> を照合する
+        （driver のノードも同じ）"""
         named = [(key, v[key]) for key in ("cond", "applies_cond") if key in v]
         named += [(f"skills[{i}].applies_cond", e["applies_cond"]) for i, e in enumerate(v.get("skills") or [])
                   if isinstance(e, dict) and "applies_cond" in e]
         for key, c in named:
             if not isinstance(c, str) or c not in conds:
-                errs.append(f"節 {k}: {key} '{c}' が rules の CONDS の名前でない（graph には条件の関数の名前だけを書く。CONDS: {sorted(conds)}）")
+                errs.append(f"ノード {k}: {key} '{c}' が rules の CONDS の名前でない（graph には条件の関数の名前だけを書く。CONDS: {sorted(conds)}）")
                 continue
-            check_declared_reads(conds[c], c, f"節 {k}.{key}", g, rules, errs, nid=k)
-        # 新しい形の規則の関数（受け付け・機械の節。読む欄を cond_reads で宣言した物）も同じ照らしを通す——宣言の誤りを実行時の die まで
-        # 待たない。祖先の検査は当てない（同じ関数が回の違う節に付き、どの回の欄も宣言する——DELTA_PASSES の 2 回ぶん）
+            check_declared_reads(conds[c], c, f"ノード {k}.{key}", g, rules, errs, nid=k)
+        # 新しい形の規則の関数（受け付け・機械のノード。読むフィールドを cond_reads で宣言した物）も同じ照合を通す——宣言の誤りを実行時の die まで
+        # 待たない。祖先の検査は当てない（同じ関数が回の違うノードに付き、どの回のフィールドも宣言する——DELTA_PASSES の 2 回ぶん）
         for key, table in (("post_check", post_checks_fns), ("builtin", builtin_fns)):
             fn = table.get(v.get(key)) if isinstance(v.get(key), str) else None
             if fn is not None and takes_view(fn):
-                check_declared_reads(fn, v[key], f"節 {k}.{key}", g, rules, errs)
-        for i, w in enumerate(v.get("writes") or []):   # 記録を書く rules の op も、新しい形なら同じ照らしを通す
+                check_declared_reads(fn, v[key], f"ノード {k}.{key}", g, rules, errs)
+        for i, w in enumerate(v.get("writes") or []):   # 記録を書く rules の op も、新しい形なら同じ照合を通す
             fn = rops.get(w.get("op")) if isinstance(w, dict) and isinstance(w.get("op"), str) else None
             if fn is not None and takes_view(fn):
-                check_declared_reads(fn, w["op"], f"節 {k}.writes[{i}]", g, rules, errs)
-        # 節の reads と outputs が名指す loop.<…> も、条件と同じ宣言（LOOP_KEYS と state_schema の木）で照らす——穴（{{?loop.X}}）の
+                check_declared_reads(fn, w["op"], f"ノード {k}.writes[{i}]", g, rules, errs)
+        # ノードの reads と outputs が名指す loop.<…> も、条件と同じ宣言（LOOP_KEYS と state_schema の木）で照合する——穴（{{?loop.X}}）の
         # 綴り違いは ABSENT で黙って埋まり、outputs の loop.<鍵> は宣言の 2 本目として別にずれうる。outputs は書き先の名乗りなので、
         # writeOnly の鍵でも書いてよい
         if rules is not None and getattr(rules, "LOOP_KEYS", None) is not None:
             for key in ("reads", "outputs"):
                 for r in v.get(key) or []:
                     if isinstance(r, str) and r.startswith(("loop.", "hist.")):
-                        check_read_path(r.split()[0].rstrip("（(:"), f"節 {k}.{key}", g, rules, errs, reading=key == "reads")
-        # 節の reads が名指す前の節の出力の欄（out./cur./prev.）も節の schema で照らす（祖先の検査は穴の検査と reads の検査が持つ）
+                        check_read_path(r.split()[0].rstrip("（(:"), f"ノード {k}.{key}", g, rules, errs, reading=key == "reads")
+        # ノードの reads が名指す前のノードの出力のフィールド（out./cur./prev.）もノードの schema で照合する（祖先の検査は穴の検査と reads の検査が持つ）
         for r in v.get("reads") or []:
             if isinstance(r, str) and r.split(".", 1)[0] in COND_NODE_HEADS:
-                check_read_path(r, f"節 {k}.reads", g, rules, errs)
+                check_read_path(r, f"ノード {k}.reads", g, rules, errs)
 
     for k, v in nodes.items():
         rb = v.get("run_by")
         if rb not in runners and rb not in agents and rb not in ("driver", "skill") and not v.get("agent_type"):
-            errs.append(f"節 {k}: run_by '{rb}' が回す側でも役割 agent（{sorted(agents)}）でも driver / skill でもなく、agent_type の上書きも無い")
+            errs.append(f"ノード {k}: run_by '{rb}' が回す側でも役割 agent（{sorted(agents)}）でも driver / skill でもなく、agent_type の上書きも無い")
         if rb == "skill" and not v.get("skills"):
-            errs.append(f"節 {k}: run_by が skill なのに skills（呼ぶ skill の一覧）が無い")
+            errs.append(f"ノード {k}: run_by が skill なのに skills（呼ぶ skill の一覧）が無い")
         errs += skills_shape(k, v.get("skills"))
         if rb in isolated and v.get("agent_type"):
-            # 遮断系の役は cli で起こす（emit_instance が mode=cli にする）。run_by に置いたうえで agent_type を
-            # 上書きすると起こし方が 2 つ宣言された状態になる——実行時の die を静的にも見る
-            errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' を run_by に置きながら agent_type で上書きしている（起こし方が 2 つ）")
+            # 遮断系の役は cli で起動する（emit_instance が mode=cli にする）。run_by に置いたうえで agent_type を
+            # 上書きすると起動方法が 2 つ宣言された状態になる——実行時の die を静的にも見る
+            errs.append(f"ノード {k}: 遮断系（ツールゼロ）の役 '{rb}' を run_by に置きながら agent_type で上書きしている（起動方法が 2 つ）")
         same = v.get("same_context_as")
         if same and (same not in nodes or same not in ancestors(nodes, k)):
-            errs.append(f"節 {k}: same_context_as '{same}' が前の節でない")
-        # 遮断系（道具ゼロの役）は渡された物しか知らない読み手なので、前の節の文脈を継がせない。**実行時の die だけに置かない**
+            errs.append(f"ノード {k}: same_context_as '{same}' が前のノードでない")
+        # 遮断系（ツールゼロの役）は渡された物しか知らない読み手なので、前のノードの文脈を継がせない。**実行時の die だけに置かない**
         # ——回した周にしか出ないので、静的に無いことが痛みとして現れにくい（engine/advance.py の die と同じ不変条件）
         if same and rb in isolated:
-            errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' に same_context_as——前の節の文脈を持ち込むと遮断が崩れる")
+            errs.append(f"ノード {k}: 遮断系（ツールゼロ）の役 '{rb}' に same_context_as——前のノードの文脈を持ち込むと遮断が崩れる")
         er = v.get("engine_run")
         if er is not None:
-            # 走らせるだけの節: 回す側の節にだけ（任せ先に落ちたときに回す側の節として出る）・名前が rules の ENGINE_RUNS に在り、
+            # 走らせるだけのノード: 回す側のノードにだけ（任せ先に落ちたときに回す側のノードとして出る）・名前が rules の ENGINE_RUNS に在り、
             # 計画（plan）と返答を組む関数（reply）の両方を持つ・理由を書く
             entry = registry(rules, "ENGINE_RUNS").get(er.get("builtin")) if isinstance(er, dict) else None
             if rb not in runners:
-                errs.append(f"節 {k}: engine_run は回す側の節（runners）にだけ書ける——宣言が無いときは回す側の節として出る")
+                errs.append(f"ノード {k}: engine_run は回す側のノード（runners）にだけ書ける——宣言が無いときは回す側のノードとして出る")
             elif not (isinstance(er, dict) and set(er) == {"builtin", "why"} and isinstance(er.get("why"), str) and er["why"].strip()):
-                errs.append(f"節 {k}: engine_run は {{builtin: rules の ENGINE_RUNS の名前, why: engine が走らせてよい理由}}")
+                errs.append(f"ノード {k}: engine_run は {{builtin: rules の ENGINE_RUNS の名前, why: engine が走らせてよい理由}}")
             elif not (isinstance(entry, dict) and callable(entry.get("plan")) and callable(entry.get("reply"))):
-                errs.append(f"節 {k}: engine_run.builtin '{er.get('builtin')}' が rules の ENGINE_RUNS に無いか、plan と reply を持たない")
+                errs.append(f"ノード {k}: engine_run.builtin '{er.get('builtin')}' が rules の ENGINE_RUNS に無いか、plan と reply を持たない")
         if rb == "driver":
             if v.get("builtin") not in node_builtins:
-                errs.append(f"節 {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")
-            # **driver 節にもデータの契約を要求する。** ここで抜けさせていたとき、driver 節は reads を 1 つも持てず
+                errs.append(f"ノード {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")
+            # **driver ノードにもデータの契約を要求する。** ここで抜けさせていたとき、driver ノードは reads を 1 つも持てず
             # deps が「順序」と「要る値」の 2 つの意味を 1 本で担い、どちらの意味で載っているかを機械にも読み手にも
             # 区別させなかった（実測 2026-09-13: p4.assemble は p4.ci / p4.scalars を読まないのに deps に持ち、
             # 読まないから外せるように見えた——実際はその 2 本が記録に着地する順序を保証する唯一の辺だった）。
             # engine は driver の reads を穴埋めに使わないので挙動は変わらない。宣言として要る
             if v.get("reads") is None:
-                errs.append(f"節 {k}: reads が無い（driver も宣言しろ——deps のどれが値でどれが順序かが読めない）")
+                errs.append(f"ノード {k}: reads が無い（driver も宣言しろ——deps のどれが値でどれが順序かが読めない）")
             check_conds(k, v)
             continue
         pf = v.get("prompt_file")
         if not pf or not (gpath.parent / pf).is_file():
-            errs.append(f"節 {k}: prompt_file が無い（{pf}）")
+            errs.append(f"ノード {k}: prompt_file が無い（{pf}）")
             continue
         gone = [p for p in v.get("prompt_append") or [] if not (gpath.parent / p).is_file()]
         if gone:
-            errs.append(f"節 {k}: prompt_append のファイルが無い（{gone}）")
+            errs.append(f"ノード {k}: prompt_append のファイルが無い（{gone}）")
             continue
         if not v.get("schema") and not v.get("text"):
-            errs.append(f"節 {k}: schema も text: true も無い（返答の形が決まらない）")
+            errs.append(f"ノード {k}: schema も text: true も無い（返答の形が決まらない）")
         if v.get("save_text_as") and not v.get("text"):
-            errs.append(f"節 {k}: save_text_as は text: true の節だけ")
+            errs.append(f"ノード {k}: save_text_as は text: true のノードだけ")
         tf = v.get("thickness_from")
         if tf and tf not in v.get("schema", {}).get("properties", {}):
-            errs.append(f"節 {k}: thickness_from '{tf}' が schema に無い")
+            errs.append(f"ノード {k}: thickness_from '{tf}' が schema に無い")
         if v.get("reads") is None:
-            errs.append(f"節 {k}: reads が無い（貼ってよいものを宣言しろ。宣言に無い穴は engine が埋めない）")
-        # 当たる launch.append の段も、節の本文と reads に入れて同じ検査に通す（engine の emit と同じ node_prompt・node_reads）
+            errs.append(f"ノード {k}: reads が無い（貼ってよいものを宣言しろ。宣言に無い穴は engine が埋めない）")
+        # 当たる launch.append の段も、ノードの本文と reads に入れて同じ検査に通す（engine の emit と同じ node_prompt・node_reads）
         segs = appended(g, v)[0]
         reads = node_reads(v, segs) or []
         if v.get("fresh_context") and "record" in reads:
-            errs.append(f"節 {k}: fresh_context なのに record 全体を読む（判定と見立てが丸ごと渡る）")
+            errs.append(f"ノード {k}: fresh_context なのに record 全体を読む（判定と見立てが丸ごと渡る）")
         anc = ancestors(nodes, k)
         try:
             tpl = node_prompt(gpath, v, segs=segs)
         except OSError as e:
-            errs.append(f"節 {k}: 指示書（prompt_file・prompt_append・launch.append の段）が読めない（{e}）")
+            errs.append(f"ノード {k}: 指示書（prompt_file・prompt_append・launch.append の段）が読めない（{e}）")
             continue
-        # **逆向きも見る。** 穴 ⊆ reads だけでは、宣言だけ在って誰にも届いていない欄が赤くならない
+        # **逆向きも見る。** 穴 ⊆ reads だけでは、宣言だけ在って誰にも届いていないフィールドが赤くならない
         errs += unused_reads(k, {**v, "reads": reads}, {m.group(2).strip() for m in TOKEN.finditer(tpl)})
         for m in TOKEN.finditer(tpl):
             path = m.group(2).strip()
             core = strip_prefix(path)
             if path.startswith("ref:") and not (core == "record" or core.startswith("record.") or core == "raw"
                                                 or core.startswith("out.") or core.startswith("prev.")):
-                errs.append(f"節 {k}: {{{{{path}}}}} は ref: にできない（record・out.<節>・prev.<節>・raw だけ）")
-            # **回す側の節に本文を貼らない（パスで渡す）。** runner のプロンプトは回す側が Read するので、
+                errs.append(f"ノード {k}: {{{{{path}}}}} は ref: にできない（record・out.<ノード>・prev.<ノード>・raw だけ）")
+            # **回す側のノードに本文を貼らない（パスで渡す）。** runner のプロンプトは回す側が Read するので、
             # 貼った本文はそのまま回す側の文脈に入る——しかも runner には上限が無い（advance.py の
             # cap=None。切ると「文書はこれだ」と言って途中で切った物を渡すことになるので、切れない形である）。
-            # 同じ波の 2 節が同じ文書を貼れば 2 部入る（実測 2026-09-18: 29,886 バイトの見立て文書で
+            # 同じ波の 2 つのノードが同じ文書を貼れば 2 部入る（実測 2026-09-18: 29,886 バイトの見立て文書で
             # p0.claims 33,478 B ＋ p0.terms 31,771 B ＝ 1 波で 65 KB が回す側の文脈へ）。
             # 回す側はファイルを読めるのだから、渡すのはパスで足りる——どこまで読むかの判断を engine が奪わない。
             # 貼る形に意味が在るのは、自分で読めない相手（標準入力で流す遮断系・本文を貼って渡す agent）だけ。
@@ -1420,19 +1420,19 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             # そのうち ref: だけが本文でなく置き場の要約を渡す。engine が貼る接頭を増やした周に、
             # ここだけ古い一覧のまま緩む（素通りする）のを防ぐ
             if rb in runners and core != path and not path.startswith("ref:"):
-                errs.append(f"節 {k}: {{{{{path}}}}} は回す側（{rb}）の節に書けない——"
+                errs.append(f"ノード {k}: {{{{{path}}}}} は回す側（{rb}）のノードに書けない——"
                             "本文でなくパスを渡し、どこまで読むかは回す側に決めさせろ"
-                            "（**この柵が見るのは回す側の節だけ**。Read を持つ役割 agent の節には当たらない）")
+                            "（**このチェックが見るのは回す側のノードだけ**。Read を持つ役割 agent のノードには当たらない）")
             # 許可の判定は engine の Renderer を呼ぶ（式を写すと engine だけ変えたとき検査が黙って緩む）
             if not Renderer({}, reads).allowed(path):
-                errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} が reads に無い")
-            # record.<欄> と loop.<…> の穴も条件の読みと同じ照らし（記録を書く宣言・loop の形の宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
-            # 実行時に『（この周には無い）』で黙って埋まる。rules が在るのに読めなかった回は照らさない（init_record を
+                errs.append(f"ノード {k}: プロンプトの穴 {{{{{path}}}}} が reads に無い")
+            # record.<フィールド> と loop.<…> の穴も条件の読みと同じ照合（記録を書く宣言・loop の形の宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
+            # 実行時に『（この周には無い）』で黙って埋まる。rules が在るのに読めなかった回は照合しない（init_record を
             # 引けず、全部の穴が偽の NG になって本当の原因——rules が読めない——が埋もれる）
             if hole_read_checked(core, rules) and not rules_unreadable:
-                check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
-            # loop と節の出力の穴の pick の欄も同じ木（state_schema・節の schema）で照らす（util.pick は無い欄を黙って落とす）。
-            # 番号で指す欄（pointers）は照らさない
+                check_read_path(core, f"ノード {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
+            # loop とノードの出力の穴の pick のフィールドも同じ木（state_schema・ノードの schema）で照合する（util.pick は無いフィールドを黙って落とす）。
+            # 番号で指すフィールド（pointers）は照合しない
             if m.group(3):
                 at, owner = None, None
                 if core.startswith("loop.") and isinstance(g.get("state_schema"), dict):
@@ -1444,60 +1444,60 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                     tail = core.split(".", 1)[1][len(ref) + 1:] if ref else ""
                     sch = (nodes.get(ref) or {}).get("schema")
                     if isinstance(sch, dict):
-                        (at, _), owner = (schema_at(sch, tail.split(".")) if tail else (sch, "")), f"節 {ref} の schema"
+                        (at, _), owner = (schema_at(sch, tail.split(".")) if tail else (sch, "")), f"ノード {ref} の schema"
                 at = at.get("items") if isinstance(at, dict) and isinstance(at.get("items"), dict) else at
                 for f in (x.strip() for x in m.group(3).split(",") if x.strip()):
                     if at is not None and schema_at(at, [f])[1]:
-                        errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} の pick の欄 '{f}' が {owner} に無い")
+                        errs.append(f"ノード {k}: プロンプトの穴 {{{{{path}}}}} の pick のフィールド '{f}' が {owner} に無い")
             if core.startswith("out.") or core.startswith("cur."):
                 src = node_of(core[4:], nodes)
                 if src is None or src not in anc:
-                    errs.append(f"節 {k}: {core} を読むが、その節は前の節（deps の推移閉包）でない（前の周の出力なら prev.<節>）")
+                    errs.append(f"ノード {k}: {core} を読むが、そのノードは前のノード（deps の推移閉包）でない（前の周の出力なら prev.<ノード>）")
             if core.startswith("prev.") and node_of(core[5:], nodes) is None:
-                errs.append(f"節 {k}: {core} の節が無い")
+                errs.append(f"ノード {k}: {core} のノードが無い")
             if core.startswith("node.") and core != "node.skills":
-                errs.append(f"節 {k}: {{{{{core}}}}} は engine が埋めない（埋める node の欄は skills だけ）。埋められずに next で止まる")
+                errs.append(f"ノード {k}: {{{{{core}}}}} は engine が埋めない（埋める node のフィールドは skills だけ）。埋められずに next で止まる")
         for r in reads:
             if r.startswith("out.") or r.startswith("cur."):
                 src = node_of(r[4:], nodes)
                 if src is None or src not in anc:
-                    errs.append(f"節 {k}: reads の {r} は前の節でない（前の周の出力なら prev.<節>）")
+                    errs.append(f"ノード {k}: reads の {r} は前のノードでない（前の周の出力なら prev.<ノード>）")
             if r.startswith("prev.") and node_of(r[5:], nodes) is None:
-                errs.append(f"節 {k}: reads の {r} の節が無い")
+                errs.append(f"ノード {k}: reads の {r} のノードが無い")
         for w in v.get("writes", []):
             op = w.get("op")
             if op not in write_ops:
-                errs.append(f"節 {k}: writes.op '{op}' を engine も rules も知らない")
+                errs.append(f"ノード {k}: writes.op '{op}' を engine も rules も知らない")
             if "stamp_round" in w and not (isinstance(w["stamp_round"], str) and w["stamp_round"]):
-                errs.append(f"節 {k}: writes.stamp_round は周を書き込む欄の名前（文字列）——append でも merge_by_id でも同じ意味")
+                errs.append(f"ノード {k}: writes.stamp_round は周を書き込むフィールドの名前（文字列）——append でも merge_by_id でも同じ意味")
             to = w.get("to", "")
             if rb in runners:
                 if any(to == p or to.startswith(p + ".") for p in VERDICT_PATHS) or op == "cold_reader_round":
-                    errs.append(f"節 {k}: 回す側が判定の欄 '{to or op}' に書いている")
+                    errs.append(f"ノード {k}: 回す側が判定のフィールド '{to or op}' に書いている")
                 if to == "claims" and op == "merge_by_id":
                     fields = w.get("fields")
                     if fields and VERDICT_FIELDS & set(fields):
-                        errs.append(f"節 {k}: 回す側が claims の判定欄に書いている: {sorted(VERDICT_FIELDS & set(fields))}")
+                        errs.append(f"ノード {k}: 回す側が claims の判定フィールドに書いている: {sorted(VERDICT_FIELDS & set(fields))}")
                     if not fields:
                         item = v.get("schema", {}).get("properties", {}).get(w.get("from", ""), {}).get("items", {})
                         if item.get("additionalProperties") is not False or VERDICT_FIELDS & set(item.get("properties", {})):
-                            errs.append(f"節 {k}: 回す側が claims に merge する schema が判定欄を通しうる（additionalProperties: false で verdict / refuted を持たない形にしろ）")
+                            errs.append(f"ノード {k}: 回す側が claims に merge する schema が判定フィールドを通しうる（additionalProperties: false で verdict / refuted を持たない形にしろ）")
                 if w.get("const") and VERDICT_FIELDS & set(w["const"]):
-                    errs.append(f"節 {k}: 回す側が const で判定欄を書いている")
+                    errs.append(f"ノード {k}: 回す側が const で判定フィールドを書いている")
         fo = v.get("fan_out")
         if fo:
             if fo.get("builtin") not in fan_builtins:
-                errs.append(f"節 {k}: fan_out.builtin '{fo.get('builtin')}' が rules の FAN_OUT に無い")
+                errs.append(f"ノード {k}: fan_out.builtin '{fo.get('builtin')}' が rules の FAN_OUT に無い")
             cov = fo.get("cover")
             if cov and not (cov.get("items_at", "").startswith("item.") and cov.get("answers_at")):
-                errs.append(f"節 {k}: fan_out.cover は items_at（item. で始まる）と answers_at が要る")
+                errs.append(f"ノード {k}: fan_out.cover は items_at（item. で始まる）と answers_at が要る")
         if "instance_deps" in v and ("cond" in v or any(isinstance(e, dict) and "applies_cond" in e for e in v.get("skills") or [])):
-            errs.append(f"節 {k}: instance_deps と cond（skills[].applies_cond も）は同時に持てない（項目を先に出すとき cond を評価できない）")
+            errs.append(f"ノード {k}: instance_deps と cond（skills[].applies_cond も）は同時に持てない（項目を先に出すとき cond を評価できない）")
         if v.get("post_check") and v["post_check"] not in post_checks:
-            errs.append(f"節 {k}: post_check '{v['post_check']}' が rules の POST_CHECKS に無い")
+            errs.append(f"ノード {k}: post_check '{v['post_check']}' が rules の POST_CHECKS に無い")
         check_conds(k, v)
-        # 12. engine が実行に使う欄（writes.from・条件の読む欄・same_context_as の役）は、宣言どおりの物を指すこと。
-        # 文書欄（outputs）の照合は通っても、実行の欄の綴り違いは黙って素通りしていた（実測 2026-09-12: writes.from を
+        # 12. engine が実行に使うフィールド（writes.from・条件の読むフィールド・same_context_as の役）は、宣言どおりの物を指すこと。
+        # 文書フィールド（outputs）の照合は通っても、実行のフィールドの綴り違いは黙って素通りしていた（実測 2026-09-12: writes.from を
         # 綴り違いにしても exit 0 で、台本は 5 周回って stopped）
         props = set((v.get("schema") or {}).get("properties", {}))
         req = set((v.get("schema") or {}).get("required", []))
@@ -1508,25 +1508,25 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                     continue
                 head = frm.split(".")[0]
                 if head not in props:
-                    errs.append(f"節 {k}: writes.from '{frm}' が schema.properties に無い（返答に無い欄を写そうとしている——記録に着地しない）")
+                    errs.append(f"ノード {k}: writes.from '{frm}' が schema.properties に無い（返答に無いフィールドを写そうとしている——記録に着地しない）")
                 elif head not in req and not w.get("optional"):
-                    # **任意の欄を写すなら、任意だと宣言しろ。** engine は欄が無い返答を黙って読み飛ばす
+                    # **任意のフィールドを写すなら、任意だと宣言しろ。** engine はフィールドが無い返答を黙って読み飛ばす
                     # （`has_path` が偽なら continue）ので、役が省いた周は**その write だけ音も無く消える**。
                     # 「意図した省略」と「綴り違い・欄の消失」がここで同じ無音になる——宣言で分ける。
-                    errs.append(f"節 {k}: writes.from '{frm}' は schema.required に無い（任意の欄）のに optional の宣言が無い"
+                    errs.append(f"ノード {k}: writes.from '{frm}' は schema.required に無い（任意のフィールド）のに optional の宣言が無い"
                                 "——役が省いた周はこの write が無音で消える。意図した省略なら writes に optional: true を書け")
         same = v.get("same_context_as")
         if same and same in nodes:
             me = v.get("agent_type") or v.get("run_by")
             them = nodes[same].get("agent_type") or nodes[same].get("run_by")
             if me != them:
-                errs.append(f"節 {k}: same_context_as '{same}' と役が違う（{them} → {me}）——同じ context を継げない")
+                errs.append(f"ノード {k}: same_context_as '{same}' と役が違う（{them} → {me}）——同じ context を継げない")
             if (me or "").rpartition(":")[2] in isolated:
-                errs.append(f"節 {k}: 遮断系（道具ゼロ）の役に same_context_as は使えない——前の節の文脈を持ち込むと遮断が崩れる（実行時の die を静的にも見る）")
+                errs.append(f"ノード {k}: 遮断系（ツールゼロ）の役に same_context_as は使えない——前のノードの文脈を持ち込むと遮断が崩れる（実行時の die を静的にも見る）")
         # pre は『報告の前に記録を仕上げて検証器を回す』唯一の門。綴り違いは検証器を通さずに報告を出す形になる
         if "pre" in v and v["pre"] not in ENGINE_PRE:
-            errs.append(f"節 {k}: pre '{v['pre']}' を engine が知らない（使えるのは {'/'.join(ENGINE_PRE)}）")
-    ok = flush("ok  実行の形: run_by・prompt_file・schema・reads（穴の宣言と前の節だけ）・回す側は判定欄に書かない・名前は engine か rules にある") and ok
+            errs.append(f"ノード {k}: pre '{v['pre']}' を engine が知らない（使えるのは {'/'.join(ENGINE_PRE)}）")
+    ok = flush("ok  実行の形: run_by・prompt_file・schema・reads（穴の宣言と前のノードだけ）・回す側は判定フィールドに書かない・名前は engine か rules にある") and ok
     return ok
 
 

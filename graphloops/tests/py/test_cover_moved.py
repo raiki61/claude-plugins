@@ -1,4 +1,4 @@
-"""被覆の道具（cover_moved.py）の選ぶ段と子の数え方。道具そのものの撃ちは CI の job（MIGRATION.md の被覆の包含）。"""
+"""被覆のツール（cover_moved.py）の選ぶ段と子の数え方。ツールそのものの撃ちは CI の job（MIGRATION.md の被覆の包含）。"""
 import json
 import subprocess
 import sys
@@ -86,7 +86,7 @@ def test_children_are_sorted_by_the_head_word(argv, kind):
 
 @pytest.mark.medium
 def test_children_are_counted_through_the_audit_hook(tmp_path):
-    """監査の hook は外せないので、数える回は子のプロセスで起こす（この pytest の worker に載せない）"""
+    """監査の hook は外せないので、数える回は子のプロセスで起動する（この pytest の worker に載せない）"""
     code = ("import json, subprocess, sys\nsys.path.insert(0, sys.argv[1])\nimport cover_moved\n"
             "with cover_moved.children() as box:\n"
             "    subprocess.run(['git', '--version'], capture_output=True)\n"

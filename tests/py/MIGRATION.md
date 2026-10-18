@@ -14,15 +14,15 @@
 | 0 | 持ち越しは実際に見たラウンドと古さを見せる | 素材 prior_decisions: round 1 の判定を流用（2 ラウンド前） | hist | test_review_record.py::test_validator[hist-carry-age] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-material | 素材 'hygiene' の返答が無い | drop-material | test_review_record.py::test_validator[drop-material] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-defer-reason | defer に構造的理由が無い | drop-defer-reason | test_review_record.py::test_validator[drop-defer-reason] |
-| 2 | 不正な記録は 1 と区別して落ちる: drop-base | 必須の欄 'base' が無い | drop-base | test_review_record.py::test_validator[drop-base] |
-| 2 | 不正な記録は 1 と区別して落ちる: drop-round | 必須の欄 'round' が無い | drop-round | test_review_record.py::test_validator[drop-round] |
+| 2 | 不正な記録は 1 と区別して落ちる: drop-base | 必須のフィールド 'base' が無い | drop-base | test_review_record.py::test_validator[drop-base] |
+| 2 | 不正な記録は 1 と区別して落ちる: drop-round | 必須のフィールド 'round' が無い | drop-round | test_review_record.py::test_validator[drop-round] |
 | 2 | 不正な記録は 1 と区別して落ちる: bad-base | base が違う | bad-base | test_review_record.py::test_validator[bad-base] |
 | 2 | 不正な記録は 1 と区別して落ちる: bad-round | ファイル名の番号と違う | bad-round | test_review_record.py::test_validator[bad-round] |
 | 2 | 不正な記録は 1 と区別して落ちる: bad-status | status が不正 | bad-status | test_review_record.py::test_validator[bad-status] |
 | 2 | 不正な記録は 1 と区別して落ちる: clean-without-checked | 'checked' が要る | clean-without-checked | test_review_record.py::test_validator[clean-without-checked] |
 | 2 | 不正な記録は 1 と区別して落ちる: bad-label | label が不正 | bad-label | test_review_record.py::test_validator[bad-label] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-key | key が無い | drop-key | test_review_record.py::test_validator[drop-key] |
-| 2 | 不正な記録は 1 と区別して落ちる: drop-reviews | 必須の欄 'reviews' が無い | drop-reviews | test_review_record.py::test_validator[drop-reviews] |
+| 2 | 不正な記録は 1 と区別して落ちる: drop-reviews | 必須のフィールド 'reviews' が無い | drop-reviews | test_review_record.py::test_validator[drop-reviews] |
 | 2 | 不正な記録は 1 と区別して落ちる: drop-review-R3 | R3 の verdict が無い | drop-review-R3 | test_review_record.py::test_validator[drop-review-R3] |
 | 2 | 不正な記録は 1 と区別して落ちる: bad-review-status | R1 の status が不正 | bad-review-status | test_review_record.py::test_validator[bad-review-status] |
 | 2 | 不正な記録は 1 と区別して落ちる: review-only-R2 | R1 は premise-invalid にできない | review-only-R2 | test_review_record.py::test_validator[review-only-R2] |
@@ -76,7 +76,7 @@
 | 2 | 問いの台帳: q-dup-key | の key が重複: x | q-dup-key | test_review_record.py::test_validator[q-dup-key] |
 | 2 | 問いの台帳: q-legacy-ask-human | 人に聞く候補は questions（問いの台帳）に | q-legacy-ask-human | test_review_record.py::test_validator[q-legacy-ask-human] |
 | 2 | 問いの台帳: q-not-list | 'questions' が配列でない | q-not-list | test_review_record.py::test_validator[q-not-list] |
-| 2 | 問いの台帳: q-drop | 必須の欄 'questions' が無い | q-drop | test_review_record.py::test_validator[q-drop] |
+| 2 | 問いの台帳: q-drop | 必須のフィールド 'questions' が無い | q-drop | test_review_record.py::test_validator[q-drop] |
 | 2 | 問いの台帳: q-not-object | questions[2] が object でない | q-not-object | test_review_record.py::test_validator[q-not-object] |
 | 2 | 問いの台帳: q-no-key | に key が無い（周をまたぐ突合に使う | q-no-key | test_review_record.py::test_validator[q-no-key] |
 | 2 | 問いの台帳: q-empty-reason | 'reason' が空（きっかけ・根拠を書け） | q-empty-reason | test_review_record.py::test_validator[q-empty-reason] |

@@ -1,5 +1,5 @@
 {
- "description": "R11 独立の目 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "description": "R11 独立の目 の出口: ほかのブロックのノードが読むノード（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、ノードの名前を鍵に並べる。graph のノードの schema はここを $ref で指す（正本はここだけ）",
  "type": "object",
  "additionalProperties": false,
  "properties": {
@@ -53,7 +53,7 @@
     },
     "after_fix": {
      "$ref": "../material/exit.schema.json#/$defs/snapshot",
-     "description": "修正の後に撮り直した審査対象（独立の目の入口の出口。周の頭の snapshot と別の欄。hist.after_fix が読む）"
+     "description": "修正の後に撮り直した審査対象（独立の目の入口の出口。周の頭の snapshot と別のフィールド。hist.after_fix が読む）"
     },
     "purpose_unusable": {
      "type": [

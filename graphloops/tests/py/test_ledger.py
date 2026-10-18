@@ -1,4 +1,4 @@
-"""台帳（ledger.py）の柵: 台本の check ごとに行き先が在り、名乗りが台本の check にちょうど 1 件で当たり、MIGRATION.md の刷った塊が
+"""台帳（ledger.py）のチェック: 台本の check ごとに行き先が在り、名乗りが台本の check にちょうど 1 件で当たり、MIGRATION.md の刷った塊が
 今の台帳と同じ。基の版で見張っていた台本は、「外した台本」に 1 行を足さない限り見張りから消えない。
 
 名乗りは pytest が集めた item の印から読むので、置き場のテストを全部集めた回で見る（``pytest graphloops/tests/py -k test_ledger``）。"""
@@ -90,7 +90,7 @@ def test_a_misspelled_script_is_a_named_problem_not_an_exception(script):
 
 @pytest.mark.small
 def test_removed_is_read_from_the_document():
-    text = "\n".join(["# t", "## 外した台本", "", "- `simulate.c`: 消した（検査用）", "- `simulate.d`:", "", "## 次の節", "- `simulate.e`: 別の節"])
+    text = "\n".join(["# t", "## 外した台本", "", "- `simulate.c`: 消した（検査用）", "- `simulate.d`:", "", "## 次のセクション", "- `simulate.e`: 別のセクション"])
     assert ledger.removed(text) == {"simulate.c"}
 
 
@@ -132,7 +132,7 @@ def no_base_env(monkeypatch):
 
 @pytest.mark.medium
 @pytest.mark.parametrize("work", [
-    _doc("simulate.test_stop_midway"),                    # 基の塊に在った台本の節を消した
+    _doc("simulate.test_stop_midway"),                    # 基の塊に在った台本のセクションを消した
     _doc(),                                               # 印を全部消して塊を刷り直した
     _doc(begin="<!-- other:begin -->", end="<!-- other:end -->"),   # 同じ変更で塊の印の形を変えた
     "# 塊の無い文書\n",                                   # 塊ごと消した
@@ -187,7 +187,7 @@ def test_the_named_base_wins_over_head(tmp_path, no_base_env, monkeypatch):
     _git(root, "commit", "-qam", "塊を消した")
     monkeypatch.setenv(ledger.BASE_ENV, first)
     assert ledger.watched_before(root, HERE_REL) == ({S}, None)
-    monkeypatch.setenv(ledger.BASE_ENV, "0" * 40)   # 新しい枝の最初の push（直前の版が無い）は HEAD と merge-base に戻る
+    monkeypatch.setenv(ledger.BASE_ENV, "0" * 40)   # 新しいブランチの最初の push（直前の版が無い）は HEAD と merge-base に戻る
     assert ledger.watched_before(root, HERE_REL) == (set(), None)
 
 

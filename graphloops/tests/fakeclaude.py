@@ -1,6 +1,6 @@
-"""代役の claude（既定は `claude -p --output-format json` の包みを返す）。台本が役を起こす経路を端から端まで通すための物。
+"""代役の claude（既定は `claude -p --output-format json` の包みを返す）。台本が役を起動する経路を端から端まで通すための物。
 
-振る舞いは環境変数で選ぶ（起こされた子は起こした側の環境を継ぐ——前置の層 with-auth.py も継がせる）:
+振る舞いは環境変数で選ぶ（起動された子は起動した側の環境を継ぐ——前置の層 with-auth.py も継がせる）:
   FAKE_MODE   answer（既定。FAKE_OUT の中身を返す）／bad_then_answer（--resume の無い初回は散文、--resume なら FAKE_OUT）／
               error（is_error の包み）／error_noresult（result の無い誤りの包み。subtype は error_max_turns で errors を持つ）／
               text（包まずに FAKE_OUT の中身だけを書く——--output-format text の形）／sleep（SIGTERM を 1 秒遅れて処理する孫を立てて、台本が握るロック FAKE_HOLD が離れるまで眠る。孫の pid を FAKE_PID に書く）／
@@ -8,7 +8,7 @@
   FAKE_OUT    返答の本文のファイル
   FAKE_EXIT   書き終えた後の終了コード（既定 0）
   FAKE_KEEP   在れば、engine が渡す GRAPHLOOPS_KEEP の置き場にこの名前のファイルを書く（任せ先が残す物）
-  FAKE_LOG    起こされるたびに argv・標準入力の頭・作業ディレクトリとその中身・TMPDIR を 1 行ずつ足すファイル
+  FAKE_LOG    起動されるたびに argv・標準入力の頭・作業ディレクトリとその中身・TMPDIR を 1 行ずつ足すファイル
 会話の番号は --resume に渡された値、無ければ FAKE_SESSION（既定 sess-1）。
 """
 import os

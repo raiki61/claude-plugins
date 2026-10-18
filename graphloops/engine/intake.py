@@ -5,7 +5,7 @@ loop.py の最上段（非 0 で終わった呼び出し）・launch の ok で�
 （accept_output が save_text_as の本文を保存するとき）。
 
 **どう失敗しても呼び元を止めない。** 残す処理は失敗の口の中で走るので、ここで上がった例外は元の終了コードを
-書き換える。だから engine の道具（read_json・die・Board・util.git）を呼ばない——die と read_json は SystemExit を
+書き換える。だから engine のツール（read_json・die・Board・util.git）を呼ばない——die と read_json は SystemExit を
 上げ（except Exception を素通りする）、util.git は対象のリポジトリで走るのでプラグインのコミットを取り違える。
 """
 import datetime
@@ -24,7 +24,7 @@ LOG = "intake.jsonl"
 CURSOR = "intake.cursor"      # 手渡した（書き出した・送った）所までの行数
 CONFIG = "intake-config.json"
 CLIP = 500                    # 人が書く 1 行と標準エラーの頭を切る長さ
-DETAIL_ENV = "GRAPHLOOPS_INTAKE_STDERR"   # 1 のときだけ標準エラーの頭を残す（既定は構造化した欄だけ）
+DETAIL_ENV = "GRAPHLOOPS_INTAKE_STDERR"   # 1 のときだけ標準エラーの頭を残す（既定は構造化したフィールドだけ）
 
 
 def quiet(fn):
@@ -119,7 +119,7 @@ def read_state(run_dir):
 
 
 def provenance(state=None):
-    """来歴の欄。盤面があれば、その周を回した engine（state.engine）の置き場と版を使う——記録の engine_changes と同じ値。"""
+    """来歴のフィールド。盤面があれば、その周を回した engine（state.engine）の置き場と版を使う——記録の engine_changes と同じ値。"""
     state = state if isinstance(state, dict) else {}
     eng = state.get("engine") if isinstance(state.get("engine"), dict) else {}
     root = pathlib.Path(eng["root"]) if eng.get("root") and pathlib.Path(eng["root"]).is_dir() else PLUGIN_ROOT
@@ -150,8 +150,8 @@ def stamp_line(state):
 
 
 def where_of(argv):
-    """揺れない呼び口: `loop.py <サブコマンド>`（--node があれば節の id。[ ] の項目の鍵と #k の試行の後置は落とす
-    ——鍵にはパスが混ざり、後置は同じ節を試行ごとに別の問題へ割る）。"""
+    """揺れない呼び口: `loop.py <サブコマンド>`（--node があればノードの id。[ ] の項目の鍵と #k の試行の後置は落とす
+    ——鍵にはパスが混ざり、後置は同じノードを試行ごとに別の問題へ割る）。"""
     sub = next((x for x in argv if not x.startswith("-")), "?")
     where = f"loop.py {sub if re.fullmatch(r'[a-z][a-z-]*', sub) else '?'}"   # 打ち間違いの語（パスかもしれない）は残さない
     node = re.sub(r"#\d+$", "", (flag(argv, "--node") or "").split("[", 1)[0])
@@ -170,7 +170,7 @@ def flag(argv, name):
 
 
 def raised_in(tb):
-    """例外を上げた engine の関数（`<module>.<関数>`）。小道具（util.py の die・read_json）の呼び元まで戻る
+    """例外を上げた engine の関数（`<module>.<関数>`）。ユーティリティ（util.py の die・read_json）の呼び元まで戻る
     ——die は exit 2 の道の大半が通るので、die の名前では別々の失敗が 1 つの鍵にまとまる。"""
     found = None
     while tb is not None:
@@ -243,7 +243,7 @@ def _cursor(d):
 
 
 def pending(d, everything=False, with_detail=False):
-    """まだ手渡していない行（everything なら全部）と、全部の行数。既定は標準エラーの欄を落とす。"""
+    """まだ手渡していない行（everything なら全部）と、全部の行数。既定は標準エラーのフィールドを落とす。"""
     rows = _rows(d)
     out = rows if everything else rows[_cursor(d):]
     if not with_detail:
@@ -256,7 +256,7 @@ def handed(d, upto):
 
 
 def summary(rows):
-    """送る本文の text（incoming webhook は text を要る）。1 行 1 件、構造化した欄だけ。"""
+    """送る本文の text（incoming webhook は text を要る）。1 行 1 件、構造化したフィールドだけ。"""
     lines = []
     for r in rows:
         head = f"{r.get('plugin')} {r.get('version')} {r.get('where')}"

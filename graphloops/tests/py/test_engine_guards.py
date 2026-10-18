@@ -19,7 +19,7 @@ from engine.util import BoardConflict, Reject
 
 
 class FakeBoard:
-    """commands が触る盤面の欄だけを持つ差し替え"""
+    """commands が触る盤面のフィールドだけを持つ差し替え"""
     def __init__(self, instances=None, rules=None, state=None, graph=None, nodes=None):
         self.rd = {"instances": instances or {}}
         self.rules = rules
@@ -112,11 +112,11 @@ def test_add_redraw_retires_the_old_answer_and_leaves_a_trace(tmp_path, monkeypa
     fb = _add(tmp_path, monkeypatch, {"msg": "積んだ", "redraw": ["p1.x"]})
     assert not (tmp_path / "o").exists() and (tmp_path / "o.stale-a1").read_text(encoding="utf-8") == "前の試行の返答"
     out = capsys.readouterr().out
-    assert "redrawn" in fb.traced and "p1.x を試行 2 として描き直した" in out and "engine が起こさない節" not in out
+    assert "redrawn" in fb.traced and "p1.x を試行 2 として描き直した" in out and "engine が起動しないノード" not in out
 
 
 def test_add_redraw_of_a_node_engine_does_not_launch_says_so(tmp_path, monkeypatch, capsys):
-    """engine が起こさない節（launch の無い試行）を描き直したら、前の試行を止めて新しい指示書で起こせと言う"""
+    """engine が起動しないノード（launch の無い試行）を描き直したら、前の試行を止めて新しい指示書で起動し直せと言う"""
     rules = types.SimpleNamespace(add=lambda b, items, reason: {"msg": "積んだ", "redraw": ["p1.x"]})
     fb = FakeBoard(instances={"p1.x": {"id": "p1.x", "status": "pending", "out_path": str(tmp_path / "o")}}, rules=rules)
     monkeypatch.setattr(commands, "Board", lambda d: fb)
@@ -125,7 +125,7 @@ def test_add_redraw_of_a_node_engine_does_not_launch_says_so(tmp_path, monkeypat
     f = tmp_path / "add.json"
     f.write_text("{}", encoding="utf-8")
     commands.cmd_add(argparse.Namespace(dir=str(tmp_path), file=str(f), reason="検査"))
-    assert "engine が起こさない節なので" in capsys.readouterr().out
+    assert "engine が起動しないノードなので" in capsys.readouterr().out
 
 
 def _relaunch(tmp_path, monkeypatch, out_paths, stop_why=None):
@@ -149,7 +149,7 @@ def _relaunch(tmp_path, monkeypatch, out_paths, stop_why=None):
 
 
 def test_relaunch_refuses_when_another_relaunch_won(tmp_path, monkeypatch):
-    """読んでから書くまでに別の relaunch が起こし直していたら、新しい試行を作らない"""
+    """読んでから書くまでに別の relaunch が起動し直していたら、新しい試行を作らない"""
     reissued = []
     with pytest.raises(Reject, match="別の relaunch"):
         reissued = _relaunch(tmp_path, monkeypatch, [str(tmp_path / "o"), str(tmp_path / "o.a2")])
@@ -188,7 +188,7 @@ def test_init_removes_run_dir_when_on_init_refuses(tmp_path, monkeypatch, capsys
 
 @pytest.mark.parametrize("state", [pytest.param({}, id="no-inputs"), pytest.param({"inputs": {"cwd": ""}}, id="empty-cwd")])
 def test_launch_without_recorded_cwd_uses_callers_cwd(tmp_path, monkeypatch, state):
-    """盤面に対象の場所（inputs.cwd）が無い・空なら、役は launch を呼んだ場所で起こす（advance.launch_cwd が os.getcwd に倒す）"""
+    """盤面に対象の場所（inputs.cwd）が無い・空なら、役は launch を呼んだ場所で起動する（advance.launch_cwd が os.getcwd に倒す）"""
     monkeypatch.chdir(tmp_path)
     inst = {"id": "p1.x", "node": "p1.x", "out_path": "o", "launch": {"kind": "cli"}}
     monkeypatch.setattr(commands, "_board_update", lambda d, fn, **k: [inst] if fn.__name__ == "mark" else None)
@@ -209,7 +209,7 @@ def test_cond_refuses_unknown_name(capsys):
 
 
 def test_driver_ask_without_options_waits_for_human(tmp_path):
-    """機械の節が選択肢なしで人に聞いたら、落ちずに人の番にする（選択肢の検査は在るものだけに当てる）"""
+    """機械のノードが選択肢なしで人に聞いたら、落ちずに人のターンにする（選択肢の検査は在るものだけに当てる）"""
     b = FakeBoard(rules=types.SimpleNamespace(BUILTINS={"ask": lambda b, nid: {"decision": "ask", "ask": {"question": "どうする"}}}),
                   state={"outputs": {}, "unattended": False})
     b.dir, b.round = tmp_path, 1
@@ -232,12 +232,12 @@ def research_run(tmp_path, monkeypatch):
 
 
 def test_engine_run_on_a_role_node_is_not_planned(tmp_path, monkeypatch):
-    """engine_run は回す側の節の宣言——init の後に graph が書き換わり（盤面の graph は途中で直せる。advance.graph_changed）役の節に
-    engine_run が付いても、役の節は走らせるだけの節にしない（graphcheck が init で弾く形を、実行時の口も持つ）"""
+    """engine_run は回す側のノードの宣言——init の後に graph が書き換わり（盤面の graph は途中で直せる。advance.graph_changed）役のノードに
+    engine_run が付いても、役のノードは走らせるだけのノードにしない（graphcheck が init で弾く形を、実行時の口も持つ）"""
     from engine.advance import emit_instance
     b = Board(research_run(tmp_path, monkeypatch))
     nid = "p0.independence_review"
-    assert not b.is_runner(b.nodes[nid])   # 台本の前提: 役の節
+    assert not b.is_runner(b.nodes[nid])   # 台本の前提: 役のノード
     b.nodes[nid]["engine_run"] = {"builtin": "declared_checks", "why": "書き換えた graph"}
     inst = emit_instance(b, nid)
     assert inst.get("mode") != "engine_run" and (inst.get("launch") or {}).get("kind") != "engine_run"
@@ -283,7 +283,7 @@ def test_cond_view_keeps_one_unevaluable_row_per_trigger_and_round():
 
 
 def test_refuse_expression_conds_names_the_first_three_and_more(tmp_path, capsys):
-    """式で書いた条件の節を 3 つまで名指し、4 つ以上なら『ほか』を添える"""
+    """式で書いた条件のノードを 3 つまで名指し、4 つ以上なら『ほか』を添える"""
     from engine.board import refuse_expression_conds
     nodes = {f"n{i}": {"cond": {"path": "x", "op": "eq", "value": 1}} for i in range(4)}
     with pytest.raises(SystemExit):
@@ -317,15 +317,15 @@ def test_settings_refusal_accepts_a_superset_of_deny():
 
 
 def test_argv_refusal_refuses_roles_that_can_write_before_reading_flags():
-    """ファイルを書く道具・全部の道具を持つ役は、旗を読む前に拒む（旗の形の拒否に化けない）"""
+    """ファイルを書くツール・全部のツールを持つ役は、旗を読む前に拒む（旗の形の拒否に化けない）"""
     argv = commands.launch_prefix() + ["claude", "-p"]
     for tools in (["Read", "Write"], ["*"]):
         why = commands._argv_refusal(argv, {}, {"tools": tools}, None)
-        assert why is not None and "ファイルを書く道具を持つ役" in why, why
+        assert why is not None and "ファイルを書くツールを持つ役" in why, why
 
 
 def test_engine_run_result_is_dropped_when_relaunched_meanwhile(tmp_path, monkeypatch):
-    """走らせている間に起こし直された（今の instance の置き場が変わった）なら、組んだ返答を書かずに『起こし直された古い試行』で返る"""
+    """走らせている間に起動し直された（今の instance の置き場が変わった）なら、組んだ返答を書かずに『起動し直された古い試行』で返る"""
     from engine.advance import helper_argv
     inst = {"id": "p0.x", "node": "p0.x", "out_path": str(tmp_path / "o"),
             "launch": {"kind": "engine_run", "steps": [{"name": "parallel-pr.py", "argv": helper_argv("parallel-pr.py")}]}}
@@ -338,16 +338,16 @@ def test_engine_run_result_is_dropped_when_relaunched_meanwhile(tmp_path, monkey
 
 
 def test_engine_fallback_keeps_the_attempt_log(tmp_path, monkeypatch):
-    """任せ先に回した新しい試行は、前の試行の起こし直しの記録を引き継いで 1 行足す（区間の始まりを決める前の試行の版も）"""
+    """任せ先に回した新しい試行は、前の試行の起動し直しの記録を引き継いで 1 行足す（区間の始まりを決める前の試行の版も）"""
     prev = {"id": "p0.x", "node": "p0.x", "status": "pending", "out_path": "o", "emitted_at": "t0", "emitted_rev": 7, "attempts": 2,
-            "attempt_log": [{"at": "t0", "reason": "前の起こし直し"}]}
+            "attempt_log": [{"at": "t0", "reason": "前の起動し直し"}]}
     fb = FakeBoard(instances={"p0.x": prev})
     monkeypatch.setattr(commands, "_board_update", lambda d, fn: fn(fb))
     made = {}
     monkeypatch.setattr(commands, "emit_instance", lambda b, nid, item, attempt, engine_fallback: made.update(
         id=nid, emitted_at="t1", attempts=attempt, engine_fallback=engine_fallback) or made)
     assert commands._engine_fallback(str(tmp_path), "p0.x", "交差が在る") == "p0.x"
-    assert [x["reason"] for x in made["attempt_log"]] == ["前の起こし直し", "交差が在る"] and made["attempts"] == 3
+    assert [x["reason"] for x in made["attempt_log"]] == ["前の起動し直し", "交差が在る"] and made["attempts"] == 3
     assert made["attempt_log"][-1]["prev_emitted_rev"] == 7
     assert "engine_fallback" in fb.traced
 
@@ -358,7 +358,7 @@ class RunnerBoard(FakeBoard):
 
 
 def test_relaunch_accepts_an_engine_run_node_without_delegate(tmp_path, monkeypatch):
-    """engine が起こした試行（launch を持つ）は、回す側の節（engine_run）で任せ先が無くても起こし直せる"""
+    """engine が起動した試行（launch を持つ）は、回す側のノード（engine_run）で任せ先が無くても起動し直せる"""
     fb = RunnerBoard(instances={"p4.ci": {"id": "p4.ci", "node": "p4.ci", "status": "pending", "out_path": str(tmp_path / "o"),
                                           "launch": {"kind": "engine_run"}}}, nodes={"p4.ci": {}})
     monkeypatch.setattr(commands, "Board", lambda d: fb)
@@ -408,7 +408,7 @@ def test_launch_settle_logs_failed_only_without_rejections(tmp_path, monkeypatch
 
 
 def test_argv_refusal_compares_tools_as_sets(tmp_path):
-    """--tools・--allowedTools は並びを問わない（役の定義の並びと engine の並びが違っても同じ道具）"""
+    """--tools・--allowedTools は並びを問わない（役の定義の並びと engine の並びが違っても同じツール）"""
     body = tmp_path / "role.txt"
     body.write_text("役の本文", encoding="utf-8")
     d = {"tools": ["Read", "Grep"], "model": "m", "effort": "e", "body": "役の本文"}
@@ -420,7 +420,7 @@ def test_argv_refusal_compares_tools_as_sets(tmp_path):
 
 
 def test_pointer_resolve_skips_a_missing_field():
-    """番号で指す欄を返答が持たない（任意の欄を省いた）なら、置き換える物が無いだけ——落ちない"""
+    """番号で指すフィールドを返答が持たない（任意のフィールドを省いた）なら、置き換える物が無いだけ——落ちない"""
     from engine import pointers
     out = {"other": 1}
     assert pointers.resolve(out, [{"at": "units[].key", "from": ["record.units"]}], [{"at": "units[].key", "names": ["u1"]}]) == []
@@ -432,7 +432,7 @@ def test_pointer_resolve_skips_a_missing_field():
 
 def test_pointer_widen_needs_a_list():
     from engine import pointers
-    with pytest.raises(ValueError, match="pointers は schema を持つ節の配列"):
+    with pytest.raises(ValueError, match="pointers は schema を持つノードの配列"):
         pointers.widen({"n": {"pointers": {"at": "x"}, "schema": {"type": "object"}}})
 
 
@@ -447,9 +447,9 @@ def test_pointer_widen_refuses_odd_rows(row):
 
 
 def test_pointer_widen_needs_a_string_field():
-    """番号で指せるのは文字列の欄だけ（数の欄を番号か名前に広げない）"""
+    """番号で指せるのは文字列のフィールドだけ（数のフィールドを番号か名前に広げない）"""
     from engine import pointers
-    with pytest.raises(ValueError, match="文字列の欄に無い"):
+    with pytest.raises(ValueError, match="文字列のフィールドに無い"):
         pointers.widen({"n": {"pointers": [{"at": "x", "from": ["a"]}],
                               "schema": {"type": "object", "properties": {"x": {"type": "integer"}}}}})
 
@@ -460,7 +460,7 @@ def test_pointer_resolve_without_a_snapshot_for_a_later_pointer():
     out = {"a": 1, "b": 1}
     errs = pointers.resolve(out, [{"at": "a", "from": ["x"]}, {"at": "b", "from": ["y"]}], [{"at": "a", "names": ["n1"]}])
     assert out == {"a": "n1", "b": 1} and len(errs) == 1 and "固めていない" in errs[0]
-    keyless = {"a": 1}   # 固めた一覧の行に名前の欄が無かった（None）番号は名前に戻せない
+    keyless = {"a": 1}   # 固めた一覧の行に名前のフィールドが無かった（None）番号は名前に戻せない
     errs = pointers.resolve(keyless, [{"at": "a", "from": ["x"]}], [{"at": "a", "names": [None]}])
     assert keyless == {"a": 1} and len(errs) == 1 and "no に無い" in errs[0]
     flag = {"a": True}   # 真偽は番号ではない（True を 1 番と読まない）
@@ -468,11 +468,11 @@ def test_pointer_resolve_without_a_snapshot_for_a_later_pointer():
 
 
 PTR = [{"at": "plan[].unit_keys[]", "from": ["record.units"]}]
-SNAP = [{"at": "plan[].unit_keys[]", "names": ["graphloops/engine/runner.py _handoff_why: skill の節", "graphloops/engine/role_run.py run_role: 書く子"]}]
+SNAP = [{"at": "plan[].unit_keys[]", "names": ["graphloops/engine/runner.py _handoff_why: skill のノード", "graphloops/engine/role_run.py run_role: 書く子"]}]
 
 
 def test_pointer_hint_names_prefix_candidates_and_the_table():
-    """番号の欄に名前の列に無い文字列（切り詰めて写した key）が残れば、前方一致する no と、no と名前の頭の対応を返す"""
+    """番号のフィールドに名前の列に無い文字列（切り詰めて写した key）が残れば、前方一致する no と、no と名前の頭の対応を返す"""
     from engine import pointers
     got = pointers.hint({"plan": [{"unit_keys": ["graphloops/engine/runner.py _handoff_why", 2]}]}, PTR, SNAP)
     assert "前方一致する no: [1]" in got and "  1 = graphloops/engine/runner.py" in got and "  2 = graphloops/engine/role_run.py" in got
@@ -495,7 +495,7 @@ def test_pointer_hint_is_none_when_nothing_is_miscopied(out, snap):
 
 
 def test_check_reply_adds_the_hint_to_any_rule_rejection(monkeypatch):
-    """番号の欄の写し違えは、どの規則の拒み（ここでは記録の整合）にも同じ手がかりが添わる——拒みの文を規則ごとに直さない"""
+    """番号のフィールドの写し違えは、どの規則の拒み（ここでは記録の整合）にも同じ手がかりが添わる——拒みの文を規則ごとに直さない"""
     def refuse(*_a):
         raise commands.AnswerReject("今の周に直す単位に無い key")
     monkeypatch.setattr(commands, "_check_rest", refuse)
@@ -523,7 +523,7 @@ def test_choice_input_errors_names_values_outside_the_declaration():
 
 
 def test_git_hands_the_launch_failure_reason_to_why(monkeypatch):
-    """git を起こせなかった（OSError・時間切れ）回も、why を渡されていれば理由を足す（戻り値は None のまま）"""
+    """git を起動できなかった（OSError・時間切れ）回も、why を渡されていれば理由を足す（戻り値は None のまま）"""
     def boom(*a, **k):
         raise OSError("git が無い（検査用）")
     monkeypatch.setattr(util.subprocess, "run", boom)
@@ -539,7 +539,7 @@ def test_copy_worktree_needs_a_repository_root(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- 省く口・手当ての口・答えの打ち手・引数の字（回す側が patch で逃げていた所）
 class DriverBoard(FakeBoard):
-    """skip・patch・answer が触る欄を足した差し替え（trace の欄も残す）"""
+    """skip・patch・answer が触るフィールドを足した差し替え（trace のフィールドも残す）"""
     def __init__(self, instances=None, rules=None, state=None):
         super().__init__(instances=instances, rules=rules, state={"done_ever": {}, **(state or {})},
                          nodes={"p4.ci": {"optional": True, "engine_run": {"builtin": "declared_checks"}}})
@@ -560,10 +560,10 @@ def drive(monkeypatch, fb):
 
 
 def test_skip_refuses_a_node_being_launched(monkeypatch):
-    """起こし中の engine が走らせる節は省かない——省いた印の後に子の結果が届くと、同じ周に 2 つの結末が書かれる"""
+    """起動中の engine が走らせるノードは省かない——省いた印の後に子の結果が届くと、同じ周に 2 つの結末が書かれる"""
     fb = DriverBoard({"p4.ci": {"id": "p4.ci", "node": "p4.ci", "status": "pending", "launch_state": "running"}})
     drive(monkeypatch, fb)
-    with pytest.raises(Reject, match="起こし中"):
+    with pytest.raises(Reject, match="起動中"):
         commands.cmd_skip(argparse.Namespace(node="p4.ci", reason="r", dir=None))
     assert fb.rd["skipped"] == {} and fb.state["done_ever"] == {}
 
@@ -573,8 +573,8 @@ def test_skip_hands_the_node_and_reason_to_the_rules(monkeypatch):
     fb = DriverBoard({"p4.ci": {"id": "p4.ci", "node": "p4.ci", "status": "pending", "launch_state": "ended"}},
                      rules=types.SimpleNamespace(on_skip=lambda b, nid, why: seen.append((nid, why))))
     drive(monkeypatch, fb)
-    commands.cmd_skip(argparse.Namespace(node="p4.ci", reason="人の命令", dir=None))
-    assert seen == [("p4.ci", "人の命令")] and fb.rd["skipped"] == {"p4.ci": "人の命令"}
+    commands.cmd_skip(argparse.Namespace(node="p4.ci", reason="人の指示", dir=None))
+    assert seen == [("p4.ci", "人の指示")] and fb.rd["skipped"] == {"p4.ci": "人の指示"}
     assert fb.rd["instances"]["p4.ci"]["status"] == "skipped" and fb.state["done_ever"] == {"p4.ci": 1}
 
 
@@ -621,7 +621,7 @@ def test_loop_refuses_broken_bytes_except_in_path_only_args():
 
 
 # ---------------------------------------------------------------- engine の子の印で拒む入口（人の方針『テスト（今だけ）』『変異テストは手元で撃たない』）
-# 入口の拒みを外す退行の注入で、手元の e2e・変異が本当に走り出さないよう、どの検査も入口の段だけを起こすか、外れても撃つ物が無い呼びにする
+# 入口の拒みを外す退行の注入で、手元の e2e・変異が本当に走り出さないよう、どの検査も入口の段だけを起動するか、外れても撃つ物が無い呼びにする
 def _unmarked():
     return {k: v for k, v in os.environ.items() if k != role_run.ENGINE_CHILD_ENV}
 
@@ -636,7 +636,7 @@ def test_e2e_entrances_refuse_an_engine_child_before_anything_runs(script):
     bash = shutil.which("bash") or "bash"
     marked = subprocess.run([bash, "-c", guard], env={**os.environ, role_run.ENGINE_CHILD_ENV: "1"}, capture_output=True, text=True,
                             encoding="utf-8")
-    assert marked.returncode == 2 and "engine が起こした子からは走らせない" in marked.stderr
+    assert marked.returncode == 2 and "engine が起動した子からは走らせない" in marked.stderr
     assert subprocess.run([bash, "-c", guard], env=_unmarked(), capture_output=True).returncode == 0   # CI（印なし）は走る
 
 

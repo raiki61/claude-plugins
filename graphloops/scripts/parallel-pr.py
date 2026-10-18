@@ -2,7 +2,7 @@
 
 手順の正本は prompts/review-loop/p0.parallel_pr.md の 2〜5 段（1 段の owner/repo の解決は rules が済ませて --repo で渡す）:
 自分の PR を headRefOid で除外し、--limit 100 の打ち切りを見て、残った PR の変更ファイルと --changed の集合の交差を取る。
-6 段（交差した hunk を読んで担当の PR に申し送る）は判断なのでここではしない——交差があれば rules が任せ先の節に回す。
+6 段（交差した hunk を読んで担当の PR に申し送る）は判断なのでここではしない——交差があれば rules が任せ先のノードに回す。
 gh は必ず -R で呼ぶ（cwd の remote から解決させない）。読むだけで、書き込みはしない。
 
 印字は 1 つの JSON: {repo, listed, truncated, conflicts: [{pr, files}]}。gh が失敗したら理由を標準エラーに書いて exit 1。
@@ -37,8 +37,8 @@ def main():
     p.add_argument("--changed", required=True, help="交差を取る変更ファイルの一覧（1 行 1 ファイル）")
     a = p.parse_args()
     global GH
-    # PATH から引いた実体で起こす（Windows では名前だけだと .exe しか探さない——which は PATHEXT を見る）。
-    # 実体を引数で受けない: 引数は data だけにして、宣言と突き合わせずに走る同梱の語が別の実行形式を起こす口を作らない
+    # PATH から引いた実体で起動する（Windows では名前だけだと .exe しか探さない——which は PATHEXT を見る）。
+    # 実体を引数で受けない: 引数は data だけにして、宣言と突き合わせずに走る同梱の語が別の実行形式を起動する口を作らない
     GH = shutil.which("gh") or "gh"
     with open(a.changed, encoding="utf-8") as f:
         mine = {ln.strip() for ln in f if ln.strip()}

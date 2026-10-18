@@ -1,5 +1,5 @@
-"""ブロックの約束の置き場（graphloops/blocks/）——graph は出口の節の schema を $ref で指し、engine（engine/schema.py の
-inline_block_refs）が graph の置き場から引いて展開する。graphcheck の検査 18 が所属・出口・並列の上書き・共有の核を照らす。"""
+"""ブロックの約束の置き場（graphloops/blocks/）——graph は出口のノードの schema を $ref で指し、engine（engine/schema.py の
+inline_block_refs）が graph の置き場から引いて展開する。graphcheck の検査 18 が所属・出口・並列の上書き・共有の核を照合する。"""
 import json
 import shutil
 
@@ -84,7 +84,7 @@ def test_block_ref_with_siblings_is_refused(tmp_path):
 
 
 def test_overlay_can_still_patch_an_exit_schema(plugin):
-    """差し替えの版（extends）は、ブロックへ移した出口の節の schema にも欄を部分的に重ねられる（ブロックの参照は重ねの前に各ファイルで展開する。
+    """差し替えの版（extends）は、ブロックへ移した出口のノードの schema にもフィールドを部分的に重ねられる（ブロックの参照は重ねの前に各ファイルで展開する。
     人の答え 2026-09-27: 後退は通さない）"""
     tdd = plugin / "graphs" / "review-loop-tdd.json"
     over = read(tdd)
@@ -97,7 +97,7 @@ def test_overlay_can_still_patch_an_exit_schema(plugin):
 
 
 def test_shipped_graphs_have_no_schema_body_for_exit_nodes():
-    """出口の節の schema の正本はブロックのファイルだけ。展開した後の姿は、ブロックの出口の型と同じ"""
+    """出口のノードの schema の正本はブロックのファイルだけ。展開した後の姿は、ブロックの出口の型と同じ"""
     for name in ("review-loop", "research-loop", "review-loop-tdd"):
         g, why = load_graph(PLUGIN / "graphs" / f"{name}.json")
         assert why == "", why
@@ -132,20 +132,20 @@ def test_graph_text_without_block_refs_is_unchanged(tmp_path):
     ("review-loop", REVIEW_VALIDATOR), ("research-loop", RESEARCH_VALIDATOR), ("review-loop-tdd", REVIEW_VALIDATOR)])
 def test_shipped_graphs_pass_the_block_checks(name, validator):
     ok, out = run_check(PLUGIN / "graphs" / f"{name}.json", validator)
-    assert ok and "が 1 つずつ属し、別のブロックが読む節は全部出口に在る" in out, out[-400:]
+    assert ok and "が 1 つずつ属し、別のブロックが読むノードは全部出口に在る" in out, out[-400:]
 
 
 def test_conditional_parallel_overwrite_is_printed_not_failed(plugin):
     """条件つきの並列の上書きは機械で排他を決められない——落とさず、印字して人に渡す（init の警告にはしない）。
-    今の graph の再審の 3 往復と第三の目は祖先の関係に並んだので、条件つきの 2 節（R3・R4）に同じ欄の上書きを足して見る"""
+    今の graph の再審の 3 往復と第三の目は祖先の関係に並んだので、条件つきの 2 ノード（R3・R4）に同じフィールドの上書きを足して見る"""
     edit(plugin / "graphs/review-loop.json", lambda g: g["nodes"]["r4.hidden_scope"]["writes"].append(
         {"op": "set", "to": "reviews.R3", "from": "$", "pick": ["status", "reason"]}))
     ok, out = run_check(plugin / "graphs" / "review-loop.json")
-    assert ok and "--  節 r3.coherence と r4.hidden_scope" in out and "WARN 節 r3.coherence" not in out, out[-600:]
+    assert ok and "--  ノード r3.coherence と r4.hidden_scope" in out and "WARN ノード r3.coherence" not in out, out[-600:]
 
 
 def inline_exit(plugin, loop, block, node, drop=True):
-    """出口の節の schema を graph に直に戻し（drop なら出口のファイルからも外す）——出口の宣言を壊す検査の下ごしらえ"""
+    """出口のノードの schema を graph に直に戻し（drop なら出口のファイルからも外す）——出口の宣言を壊す検査の下ごしらえ"""
     ex_p = plugin / "blocks" / loop / block / "exit.schema.json"
     ex = read(ex_p)
     gp = plugin / "graphs" / f"{loop}.json"
@@ -167,32 +167,32 @@ def edit(p, fn):
 
 @pytest.mark.parametrize("breaks,words", [
     pytest.param(lambda d: edit(d / "blocks/review-loop/report/block.json", lambda b: b["nodes"].remove("report")),
-                 "節 report がどのブロックにも属さない", id="node-in-no-block"),
+                 "ノード report がどのブロックにも属さない", id="node-in-no-block"),
     pytest.param(lambda d: edit(d / "blocks/review-loop/judge/block.json", lambda b: b["nodes"].append("p2.fix_plan")),
-                 "節 p2.fix_plan が 2 つのブロック", id="node-in-two-blocks"),
+                 "ノード p2.fix_plan が 2 つのブロック", id="node-in-two-blocks"),
     pytest.param(lambda d: edit(d / "blocks/review-loop/judge/block.json", lambda b: b["nodes"].append("p9.none")),
-                 "節 p9.none が graph に無い", id="block-names-unknown-node"),
+                 "ノード p9.none が graph に無い", id="block-names-unknown-node"),
     pytest.param(lambda d: edit(d / "blocks/review-loop/judge/block.json", lambda b: b.__setitem__("slot", "judge")),
                  "block.json の鍵は", id="unknown-block-key"),
     pytest.param(lambda d: inline_exit(d, "review-loop", "prereq", "p0.purpose"),
                  "p0.purpose が、ブロック prereq の出口に無い", id="read-across-not-in-exit"),
-    # hist.<名> を読む節は、その値が hist_reads で読む節も読む（hist.snapshot → out.p1.worktree_before）
+    # hist.<名> を読むノードは、その値が hist_reads で読むノードも読む（hist.snapshot → out.p1.worktree_before）
     pytest.param(lambda d: inline_exit(d, "review-loop", "material", "p1.worktree_before"),
                  "（hist_reads の out.p1.worktree_before） で読む p1.worktree_before が、ブロック material の出口に無い", id="hist-read-not-in-exit"),
     pytest.param(lambda d: inline_exit(d, "review-loop", "fix", "p3.fix", drop=False),
-                 "出口の節 p3.fix の schema は graph の中に書かず", id="exit-schema-written-twice"),
+                 "出口のノード p3.fix の schema は graph の中に書かず", id="exit-schema-written-twice"),
     pytest.param(lambda d: edit(d / "blocks/review-loop/prereq/exit.schema.json",
                                 lambda e: e["properties"].__setitem__("p0.premises", {"type": "object"})),
-                 "prereq の出口の p0.premises を、ほかのブロックのどの節も読まない", id="exit-read-by-nobody"),
+                 "prereq の出口の p0.premises を、ほかのブロックのどのノードも読まない", id="exit-read-by-nobody"),
     pytest.param(lambda d: edit(d / "graphs/review-loop.json", lambda g: g.pop("blocks")),
                  "最上位に blocks（ブロックの宣言）が無い", id="blocks-removed"),
     pytest.param(lambda d: edit(d / "graphs/review-loop.json", lambda g: g["nodes"]["p0.premises"]["writes"].append(
                      {"op": "set", "to": "process.base", "from": "constraints"})),
-                 "節 p0.base と p0.premises は祖先の関係に無く", id="unconditional-parallel-overwrite"),
+                 "ノード p0.base と p0.premises は祖先の関係に無く", id="unconditional-parallel-overwrite"),
     pytest.param(lambda d: edit(d / "blocks/shared/cold-reader/core.schema.json", lambda c: c["properties"].__setitem__("findings", {"type": "array"})),
-                 "使い手の節 report.cold_check の findings が無い", id="shared-core-field-missing"),
+                 "使い手のノード report.cold_check の findings が無い", id="shared-core-field-missing"),
     pytest.param(lambda d: edit(d / "blocks/shared/two-stage/derive.schema.json", lambda c: c["properties"]["reason"].__setitem__("type", "boolean")),
-                 "使い手の節 r2.design の reason の type", id="shared-core-type-differs"),
+                 "使い手のノード r2.design の reason の type", id="shared-core-type-differs"),
     pytest.param(lambda d: edit(d / "blocks/shared/prior-decisions/block.json", lambda b: b["parts"]["core"]["users"].pop("review-loop")),
                  "このループ（review-loop）の使い手が 1 つも無い", id="shared-without-users"),
 ])
@@ -203,7 +203,7 @@ def test_graphcheck_rejects_broken_blocks(plugin, breaks, words):
 
 
 def test_tdd_overlay_block_must_list_the_base_nodes(plugin):
-    """TDD 版は修正のブロックを fix-tdd に差し替える——既定の修正の節を落とすと、差し替えの版の検査と所属の検査が落とす"""
+    """TDD 版は修正のブロックを fix-tdd に差し替える——既定の修正のノードを落とすと、差し替えの版の検査と所属の検査が落とす"""
     edit(plugin / "blocks/review-loop/fix-tdd/block.json", lambda b: b["nodes"].remove("p3.lane_merge"))
     ok, out = run_check(plugin / "graphs" / "review-loop-tdd.json")
     assert not ok and "p3.lane_merge" in out, out[-600:]

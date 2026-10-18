@@ -3,9 +3,9 @@
 # 役割 agent も LLM も使わない——確かめるのは engine・rules・graph の噛み合わせと、記録が
 # convergence-loops の検証器を通ること。役の判断の質は実走で見る。
 #
-# graphloops の engine が起こした子（環境に GRAPHLOOPS_ENGINE_CHILD が立つ）からは走らせない——理由と消す時は tests/run.sh の頭の段
+# graphloops の engine が起動した子（環境に GRAPHLOOPS_ENGINE_CHILD が立つ）からは走らせない——理由と消す時は tests/run.sh の頭の段
 if [ -n "${GRAPHLOOPS_ENGINE_CHILD:-}" ]; then
-    echo "graphloops/tests/run.sh: engine が起こした子からは走らせない（人の方針: 手元で e2e の一式を回さない。CI で回る）——手元は pytest の一式か、変更に関わる筋書きを GL_TEST_ONLY で数件" >&2
+    echo "graphloops/tests/run.sh: engine が起動した子からは走らせない（人の方針: 手元で e2e の一式を回さない。CI で回る）——手元は pytest の一式か、変更に関わる筋書きを GL_TEST_ONLY で数件" >&2
     exit 2
 fi
 set -uo pipefail
@@ -29,12 +29,12 @@ fail=0
 ran=0
 tests=0   # 走った台本の本数（各模擬実行が自分で数えて出す値を足す）
 # **組（shard）に分けた回**（CI が GL_SHARD_TOTAL・GL_SHARD_INDEX などを渡す。約束の正本は parallel.py の shard_spec）は、
-# 台本を組の分だけ走らせ、下の件数の柵の代わりに件数を名簿に書く。和の検算は CI のまとめの job（parallel.py merge）の 1 か所。
-# 指定が無い回（手元の 1 本）は今までどおり全台本を走らせ、ここの柵で突き合わせる
+# 台本を組の分だけ走らせ、下の件数のチェックの代わりに件数を名簿に書く。和の検算は CI のまとめの job（parallel.py merge）の 1 か所。
+# 指定が無い回（手元の 1 本）は今までどおり全台本を走らせ、ここのチェックで突き合わせる
 shard=$("$PY_BIN" "$ROOT/graphloops/tests/parallel.py" index) || { echo "graphloops: 組の指定が読めない: $shard"; exit 2; }
 shard=${shard%$'\r'}   # Windows の Python の出力の CRLF（残すと組でない回と組 0 の回で比較が外れ、graph の検査を飛ばす）
 # **走査対象はファイル集合から導く。** 名前を手で並べていたとき、5 本目の graph を足してもその 1 本は
-# 誰も検査せず、for が回る回数が変わらないので件数の柵（EXPECTED_CHECKS）も発火しなかった
+# 誰も検査せず、for が回る回数が変わらないので件数のチェック（EXPECTED_CHECKS）も発火しなかった
 # （実測 2026-09-13: 壊した graph を 5 本目に置いて exit 0・全件緑）。
 # graph の形は組 0 だけで見る（どの組でも見ると、和が組の数だけ重なる）
 for gf in "$ROOT"/graphloops/graphs/*.json; do
@@ -44,7 +44,7 @@ for gf in "$ROOT"/graphloops/graphs/*.json; do
     v="$ROOT/convergence-loops/scripts/$g-record.py"
     # 在る graph を全部、検証器つきで回す（本数は上の for が graphs/ から導く——ここに数を書くと、
     # graph を足し引きした周に散文だけが古くなる）。落ちたら理由（NG 行）を出す——検証器なしで回し直して緑にする分岐は
-    # 置かない（以前あった review 専用のフォールバックは、欄の突合が落ちた理由を見ずに飲んでいた）。
+    # 置かない（以前あった review 専用のフォールバックは、フィールドの突合が落ちた理由を見ずに飲んでいた）。
     if "$PY_BIN" "$ROOT/graphloops/scripts/graphcheck.py" "$gf" "$v" >/dev/null 2>&1; then
         echo "  ok   graphcheck $name"
     else
@@ -84,7 +84,7 @@ if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "graphloops: 検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——台本の空振りか、件数の更新漏れ"
     exit 2
 fi
-# 台本（def test_*）の本数。**外部コマンドを増やさない**（bc は Windows の CI に無く、空の値で比較が落ちて柵が黙る——
+# 台本（def test_*）の本数。**外部コマンドを増やさない**（bc は Windows の CI に無く、空の値で比較が落ちてチェックが黙る——
 # それはこの差分自身が塞いだ「空振りが見えない柵」そのものだった）。足し算は上の件数と同じ $((…))
 if [ "$tests" -ne "$EXPECTED_TESTS" ]; then
     echo "graphloops: 台本が $tests 本（$EXPECTED_TESTS 本を期待）——台本の削除か、本数の更新漏れ"

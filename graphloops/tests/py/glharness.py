@@ -3,12 +3,12 @@
 台本の本文（Run・drive・check・代役の claude）は写さず、台本のモジュールをそのまま import して使う。pytest の側が足すのは、
 loop.py をどう呼ぶか（口）だけ:
 
-- cli: 今と同じく子プロセスで loop.py を起こす（台本の subprocess をそのまま使う）
+- cli: 今と同じく子プロセスで loop.py を起動する（台本の subprocess をそのまま使う）
 - inproc: 台本のモジュールの ``subprocess`` の名前を ``SubprocessShim`` に差し替え、argv の頭が ``[sys.executable, loop.py]`` の
   ``subprocess.run`` だけを同じプロセスの ``loop.cli()`` に回す。台本の Run.cmd も、Run を通らない直の呼び出しも同じ 1 か所を
-  通るので、台本を変えずに口だけが替わる。``Popen`` は子プロセスのまま（loop.py を Popen で起こす腕は信号を送るため）で、
-  inproc の回に loop.py を Popen で起こしたら警告を出す——1 本の台本の中で 2 つの口が混ざったことを黙らせない。
-  差し替えるのは台本のモジュールの名前だけなので、engine が自分で起こす子（git・検証器・宣言の走らせる語・launch）は子プロセスの
+  通るので、台本を変えずに口だけが替わる。``Popen`` は子プロセスのまま（loop.py を Popen で起動する腕は信号を送るため）で、
+  inproc の回に loop.py を Popen で起動したら警告を出す——1 本の台本の中で 2 つの口が混ざったことを黙らせない。
+  差し替えるのは台本のモジュールの名前だけなので、engine が自分で起動する子（git・検証器・宣言の走らせる語・launch）は子プロセスの
   まま走る——inproc で回すテストも medium（SIZES）で、small を名乗れるのは子を消す世界の口（testplan の T3）の後
 
 同じプロセスで呼ぶ口は、呼ぶたびに engine の大域の状態（``RESTORED`` の表）を呼ぶ前の値に戻す。子プロセスの口は毎回まっさらな
@@ -152,7 +152,7 @@ def _is_loop(args):
 
 
 class SubprocessShim:
-    """台本のモジュールの ``subprocess`` の代わり。loop.py を起こす ``run`` だけを inproc に回し、ほかは本物へ渡す"""
+    """台本のモジュールの ``subprocess`` の代わり。loop.py を起動する ``run`` だけを inproc に回し、ほかは本物へ渡す"""
 
     def __init__(self):
         self.inproc_calls = 0
@@ -190,7 +190,7 @@ class SubprocessShim:
 
     def Popen(self, args, *a, **kw):
         if _is_loop(args):
-            warnings.warn("inproc の口: loop.py を Popen で起こす呼び出しは子プロセスのまま走る（信号を送る腕のため）", stacklevel=2)
+            warnings.warn("inproc の口: loop.py を Popen で起動する呼び出しは子プロセスのまま走る（信号を送る腕のため）", stacklevel=2)
         return subprocess.Popen(args, *a, **kw)
 
 
@@ -220,13 +220,13 @@ def driven(mod, driver):
 BOARD_FILES = ("state.json", "record.json")
 ISO_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?")
 RUN_ID = re.compile(r"\b\d{8}-\d{6}\b")
-# 置き換えた根の後ろのパスの区切り（Windows の \ と、JSON の文字列に埋めた \\）を / にそろえる——根の綴りだけ置き換えると、
+# 置き換えたルートの後ろのパスの区切り（Windows の \ と、JSON の文字列に埋めた \\）を / にそろえる——ルートの綴りだけ置き換えると、
 # 同じ盤面が OS で <root0>/repo と <root0>\repo に割れる（実測 2026-09-26: windows-latest）
 ROOT_TAIL = re.compile(r"(<root\d+>)((?:(?:\\\\|\\|/)[^\\/\s\"'<>]+)+)")
-# 呼ぶたびに変わる数値の欄（所要）と、文の中の所要（走らせた段の「（0.3 秒）」）。名前で名指しし、欄を黙って広げない
+# 呼ぶたびに変わる数値のフィールド（所要）と、文の中の所要（走らせた段の「（0.3 秒）」）。名前で名指しし、フィールドを黙って広げない
 DURATION_KEYS = re.compile(r"(?:^|_)(?:elapsed|elapsed_min|wall_s|duration_ms|duration_api_ms)$")
 DURATION_TEXT = re.compile(r"（\d+(?:\.\d+)? 秒）")
-# 本文に作業場のパスを含む物の要約（プロンプトの本文は作業場のパスを貼るので、根を置き換えても要約は口ごとに違う）
+# 本文に作業場のパスを含む物の要約（プロンプトの本文は作業場のパスを貼るので、ルートを置き換えても要約は口ごとに違う）
 PATH_HASHED_KEYS = ("prompt_sha",)
 
 
@@ -237,7 +237,7 @@ def board_files(d):
 
 
 def normalize_board(d, roots):
-    """盤面（state.json・record.json・周の記録）を読み、run の番号・時刻・作業場の根のパス・所要を置き換えた dict を返す"""
+    """盤面（state.json・record.json・周の記録）を読み、run の番号・時刻・作業場のルートのパス・所要を置き換えた dict を返す"""
     subs = []
     for i, r in enumerate(roots):
         for form in {str(r), os.path.realpath(str(r))}:
@@ -324,7 +324,7 @@ SIZES = {
 }
 # 層の印（大きさと別の軸）。layer2 は scenes.py が登録する
 LAYER6 = ("layer6: 通し（層 6。盤面を子プロセスの loop.py で端から端まで回す docs/adr/0067 の通しに残す 10 本）。手元の反復は "
-          "-m 'not layer6' で外せる。engine が走らせる宣言が外すのは、最後の関門が一式を走らせる口を持った後（理由と出どころは同じ ADR の節）")
+          "-m 'not layer6' で外せる。engine が走らせる宣言が外すのは、最後のゲートが一式を走らせる口を持った後（理由と出どころは同じ ADR のセクション）")
 
 
 def pytest_addoption(parser):
@@ -343,7 +343,7 @@ SMALL_CALLS = pytest.StashKey[list]()
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item):
-    """台本の check の前後の差を数える。件数は柵へ、失敗は GL_CHECK_LOG へ 1 行ずつ書き、1 件でもあればテストを失敗にする
+    """台本の check の前後の差を数える。件数はチェックへ、失敗は GL_CHECK_LOG へ 1 行ずつ書き、1 件でもあればテストを失敗にする
     （check は失敗を溜めて進む形なので、数えないと pytest は緑と報告する）。small のテストが禁じた物を呼んでいれば、
     例外を握り潰していても失敗にする"""
     before = tallies()
@@ -361,7 +361,7 @@ def pytest_runtest_call(item):
         pytest.fail(f"台本の検査が {len(failed)} 件落ちた: " + " / ".join(failed[:5]), pytrace=False)
     calls = item.stash.get(SMALL_CALLS, None)
     if calls:
-        pytest.fail(f"small のテストが {', '.join(sorted(set(calls)))} を呼んだ（大きさの柵）", pytrace=False)
+        pytest.fail(f"small のテストが {', '.join(sorted(set(calls)))} を呼んだ（大きさのチェック）", pytrace=False)
     return res
 
 

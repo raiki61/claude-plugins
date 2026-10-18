@@ -13,7 +13,7 @@ from engine.schema import load_graph
 GRAPH = PLUGIN / "graphs" / "review-loop-tdd.json"
 RULES = load_rules(GRAPH, load_graph(GRAPH)[0])
 
-# pytest --junitxml の形（rootdir が tests/py のとき classname は "test_x"、リポジトリの根なら "tests.py.test_x"）
+# pytest --junitxml の形（rootdir が tests/py のとき classname は "test_x"、リポジトリのルートなら "tests.py.test_x"）
 JUNIT = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
 <testcase classname="test_a" name="test_new_red"><failure message="assert 1 == 2">AssertionError</failure></testcase>
 <testcase classname="test_a" name="test_old_green"/>
@@ -136,7 +136,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
     assert all(RULES.CONDS[k] is v for k, v in base.CONDS.items())
     assert all(RULES.POST_CHECKS[k] is v for k, v in base.POST_CHECKS.items())
     assert set(RULES.BUILTINS) - set(base.BUILTINS) == {"tdd_start", "tdd_red", "tdd_green"}
-    assert RULES.LOOP_KEYS is base.LOOP_KEYS   # TDD の赤・緑の証拠は 3 つの機械の節の出力で、盤面の loop に鍵を足さない
+    assert RULES.LOOP_KEYS is base.LOOP_KEYS   # TDD の赤・緑の証拠は 3 つの機械のノードの出力で、盤面の loop に鍵を足さない
     assert set(RULES.HIST) - set(base.HIST) == {"tdd_gave_up", "tdd_retry"}
     assert [k for k, v in base.HIST.items() if RULES.HIST[k] is not v] == ["prev_declared_faces"]
 
@@ -195,7 +195,7 @@ def test_tests_reply_answers_against_the_shown_rows(monkeypatch):
 
 
 def test_tdd_conds_truth_table():
-    """TDD の節の条件（rules の関数）: 赤の確認は名指しのテストが在る周だけ、緑の確認はそのうえ赤の確認がこの周に通った周だけ"""
+    """TDD のノードの条件（rules の関数）: 赤の確認は名指しのテストが在る周だけ、緑の確認はそのうえ赤の確認がこの周に通った周だけ"""
     from engine.board import COND_HEADS, run_cond
 
     def ev(name, cur=None, red=None, rnd=2):
@@ -204,7 +204,7 @@ def test_tdd_conds_truth_table():
     named = {"p3.tdd_tests": {"units": [{"route": "tdd", "tests": ["t::a"]}, {"route": "direct", "tests": ["t::b"]}]}}
     direct = {"p3.tdd_tests": {"units": [{"route": "direct", "tests": ["t::b"]}]}}
     assert ev("tdd_named", named) and not ev("tdd_named", direct) and not ev("tdd_named")
-    assert not ev("tdd_named", {"p3.tdd_tests": {"units": [{"route": "tdd"}]}})   # tests の欄の無い行は 0 件と数える
+    assert not ev("tdd_named", {"p3.tdd_tests": {"units": [{"route": "tdd"}]}})   # tests のフィールドの無い行は 0 件と数える
     assert not ev("tdd_red_passed", named)   # この周の赤の確認がまだ出力を書いていない
     assert ev("tdd_red_passed", named, {"ok": True, "named": 1, "red_rev": "r" * 40})
     assert not ev("tdd_red_passed", named, {"ok": True, "gave_up": "red", "problems": ["赤でない"]})
@@ -243,7 +243,7 @@ def test_retry_gives_up_at_the_limit_without_stopping(step, back):
     assert [g["ok"] for g in got] == [False] * (RULES.RETRY_MAX - 1) + [True]
     assert [g["tries"] for g in got] == list(range(1, RULES.RETRY_MAX + 1))   # 試行の回数は出力に累積で載る
     assert got[-1]["gave_up"] == step and len(calls) == RULES.RETRY_MAX - 1
-    assert "tdd_gave_up" not in b.loop_state   # 諦めた事実は節の出力が正本——hist が出力から作る
+    assert "tdd_gave_up" not in b.loop_state   # 諦めた事実はノードの出力が正本——hist が出力から作る
     want = [{"round": 2, "step": step, "problems": [f"{step} の {RULES.RETRY_MAX - 1} 回目"]}]
     h = types.SimpleNamespace(round=3, output=lambda nid, n: got[-1] if (nid, n) == (f"p3.tdd_{step}", 2) else None)
     assert RULES.hist_tdd_gave_up(h) == want
@@ -257,7 +257,7 @@ def test_green_rejects_a_new_test_outside_the_baseline_that_fails():
     assert any("test_param[x]" in p for p in probs)
 
 
-# --- 赤・緑の確認の節（tdd_red・tdd_green）: 版と差分と一式を差し替えて直に呼ぶ（git と実行器を使わない）
+# --- 赤・緑の確認のノード（tdd_red・tdd_green）: 版と差分と一式を差し替えて直に呼ぶ（git と実行器を使わない）
 NAMED_REPLY = {"units": [{"unit_key": "u-block", "route": "tdd", "tests": ["test_a.py::test_new_red"]}], "test_files": ["test_a.py"]}
 
 
@@ -280,7 +280,7 @@ def test_red_check_rewinds_instead_of_crashing(monkeypatch, out, changed, words)
 
 
 def test_green_check_without_reply_or_named_passes_on_a_green_suite(monkeypatch):
-    """返答も赤の確認の名指しも無い盤面で、一式が緑なら通す（読めない欄で落ちない）"""
+    """返答も赤の確認の名指しも無い盤面で、一式が緑なら通す（読めないフィールドで落ちない）"""
     b = check_board(monkeypatch, None, [], cases(test_new_red="passed", **{"test_param[x]": "passed"}), 0)
     assert RULES.tdd_green(b, "p3.tdd_green") == {"ok": True, "tries": 0, "suite_made": []}
 
@@ -315,7 +315,7 @@ def test_tdd_effect_counts_only_clean_lane_results(tmp_path, monkeypatch):
     RULES.tdd_effect(board({"tdd": {"suite": "s"}}))  # 周の行がまだ無い
     results = {1: ({"arms": [{"arm": "a1"}]}, []),                     # 証拠の欠けた腕が 1 本
                2: ({"arms": [{"arm": "a2"}]}, ["schema に合わない"]),  # 誤りのある結果は数えない
-               3: ({"lane": "no arms"}, [])}                           # 腕の欄が無い結果は測れていない（None）
+               3: ({"lane": "no arms"}, [])}                           # 腕のフィールドが無い結果は測れていない（None）
     monkeypatch.setattr(RULES.base, "_lane_result", lambda b, lane: results[lane["round"]])
     (tmp_path / "rounds").mkdir()
     (tmp_path / "rounds" / "round-2.json").write_text(json.dumps({"scalars": {"faces_created_by_prev_fix": 4}}), encoding="utf-8")

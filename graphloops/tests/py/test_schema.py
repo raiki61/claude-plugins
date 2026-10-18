@@ -16,7 +16,7 @@ def test_pattern_properties_accepts_matching_name():
 
 
 def test_pattern_properties_other_name_goes_to_additional():
-    assert any("知らない欄 'y'" in e for e in validate_schema({"y": 1}, PP))
+    assert any("知らないフィールド 'y'" in e for e in validate_schema({"y": 1}, PP))
 
 
 def test_pattern_properties_checks_value_type():

@@ -19,7 +19,7 @@ collect のすること（どの固定具も同じ道を通る）:
 3. 基準の観察: 置き換えた盤面を一時の置き場に広げ、git だけは写した対象リポジトリで本物を走らせて答えを録る（ほかの子は締め口で止める）
 4. 当て直しの確かめ: 録った答えだけで同じ観察になるか。ならない固定具は捨て、理由を出す
 5. 選ぶ: 実在の盤面は全部、台本の写しは覆い（規則の名前ごとの結果）を新しく足す物を貪欲に選ぶ
-6. 縮める: ファイル・欄・リストの要素を 1 つずつ外し、観察が変わらない物は落とす。続けて、残った文字列を 1 つずつ印に
+6. 縮める: ファイル・フィールド・リストの要素を 1 つずつ外し、観察が変わらない物は落とす。続けて、残った文字列を 1 つずつ印に
    置き換え（同じ文字列は全部の所で同じ印に）、観察が同じ置き換えを受けるだけなら印のままにする——長さでなく評価の結果で決める
 7. 1 つ 64 KB を超える固定具、禁じる形（家のパス・利用者名・秘密）が残る固定具は捨てる
 """
@@ -250,7 +250,7 @@ class Shrinker:
         return ga.jsonable(obs) == ga.jsonable(expect if expect is not None else self.ref)
 
     def prune(self, root_key):
-        """fx[root_key]（ファイルの表）の、ファイル・欄・要素を外せるだけ外す（盤面の state.json と record.json は残す）"""
+        """fx[root_key]（ファイルの表）の、ファイル・フィールド・要素を外せるだけ外す（盤面の state.json と record.json は残す）"""
         keep = {"state.json", "record.json"} if root_key == "files" else set()
         names = [k for k in (self.fx.get(root_key) or {}) if k not in keep]
         size = max(1, len(names) // 2)
@@ -276,7 +276,7 @@ class Shrinker:
         return cur
 
     def _prune_at(self, path, depth):
-        """path の下の欄・要素を、半分ずつ・4 分の 1 ずつ…1 つずつの塊で外す（ddmin と同じ刻み方）。外せなかった物の中へ下る"""
+        """path の下のフィールド・要素を、半分ずつ・4 分の 1 ずつ…1 つずつの塊で外す（ddmin と同じ刻み方）。外せなかった物の中へ下る"""
         node = self._get(path)
         if depth > 8 or not isinstance(node, (dict, list)) or not node or self.left <= 0:
             return
@@ -319,7 +319,7 @@ class Shrinker:
         for key in ("files", "repo", "config", "input", "git"):
             tree = self.fx.get(key) or {}
             if key != "git":
-                names |= set(tree) | {ga.TEXT_KEY}   # ファイルの名前と本文の入れ物の鍵は置き換えない（盤面の欄がファイルを名指す）
+                names |= set(tree) | {ga.TEXT_KEY}   # ファイルの名前と本文の入れ物の鍵は置き換えない（盤面のフィールドがファイルを名指す）
                 for v in tree.values():
                     walk(v)
             else:
@@ -367,7 +367,7 @@ class Shrinker:
 
 
 def protected_strings():
-    """規則・graph・検証器・engine が字面で持つ文字列（語彙・節の名前・欄の名前）。これは置き換えの候補にしない"""
+    """規則・graph・検証器・engine が字面で持つ文字列（語彙・ノードの名前・フィールドの名前）。これは置き換えの候補にしない"""
     got = set()
     for p in list((ga.PLUGIN / "rules").glob("*.py")) + list((ga.PLUGIN / "engine").glob("*.py")) + list((ga.ROOT / "convergence-loops" / "scripts").glob("*-record.py")) + [ga.ROOT / "convergence-loops" / "scripts" / "record_common.py"]:
         for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):

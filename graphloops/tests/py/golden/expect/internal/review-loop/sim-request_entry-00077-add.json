@@ -36,7 +36,7 @@
    false,
    "この周の修正の差分は 0 ファイル"
   ],
-  "gate_efficacy_due": "die: cond 'gate_efficacy_due' の欄 'out.p0.base.touches_gates' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "gate_efficacy_due": "die: cond 'gate_efficacy_due' のフィールド 'out.p0.base.touches_gates' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "gates_cut_nonempty": [
    false,
    "この周のコードは周の頭から 0 ファイル変わった"
@@ -45,12 +45,12 @@
    false,
    "変異の検算をこの run で撃つ（init --input gates=merge が無い）"
   ],
-  "gates_touched": "die: cond 'gates_touched' の欄 'out.p0.base.touches_gates' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "gates_touched": "die: cond 'gates_touched' のフィールド 'out.p0.base.touches_gates' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "lane_due": [
    false,
    "この周のコードは周の頭から 0 ファイル変わった"
   ],
-  "main_path_observation_due": "die: cond 'main_path_observation_due' の欄 'out.p0.base.touches_user_path' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "main_path_observation_due": "die: cond 'main_path_observation_due' のフィールド 'out.p0.base.touches_user_path' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "not_request_entry": [
    true,
    "入口の印（process.request_entry）が無い——通常の run"
@@ -75,7 +75,7 @@
    true,
    "初回か、前の周の P3 が何かを直した周——成り立つ（round=1・前の周の P3 が触ったファイルは 0 件）"
   ],
-  "purpose_review_due": "die: cond 'purpose_review_due' の欄 'out.p0.purpose.source' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "purpose_review_due": "die: cond 'purpose_review_due' のフィールド 'out.p0.purpose.source' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "r1_refire": [
    true,
    "R1 の再発火条件に当たる"
@@ -120,10 +120,10 @@
    false,
    "入口の印（process.request_entry）が無い——通常の run"
   ],
-  "seams_touched": "die: cond 'seams_touched' の欄 'out.p0.base.touches_external_seams' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "seams_touched": "die: cond 'seams_touched' のフィールド 'out.p0.base.touches_external_seams' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "security_surface_touched": [
    true,
-   "p0.base に touches_security_surface の欄が無い盤面なので、当てる側に倒した（申告されていない）"
+   "p0.base に touches_security_surface のフィールドが無い盤面なので、当てる側に倒した（申告されていない）"
   ],
   "spec_flow": [
    false,
@@ -133,7 +133,7 @@
    false,
    "仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま"
   ],
-  "test_double_fidelity_due": "die: cond 'test_double_fidelity_due' の欄 'out.p0.base.touches_external_seams' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "test_double_fidelity_due": "die: cond 'test_double_fidelity_due' のフィールド 'out.p0.base.touches_external_seams' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "touches_procedures": [
    false,
    "差分に手順書・スクリプト・CI 定義が無い"
@@ -142,7 +142,7 @@
    false,
    "今の周に直す単位（[block]・do-now）が 0 件"
   ],
-  "user_path_touched": "die: cond 'user_path_touched' の欄 'out.p0.base.touches_user_path' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "user_path_touched": "die: cond 'user_path_touched' のフィールド 'out.p0.base.touches_user_path' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "would_converge": [
    false,
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"

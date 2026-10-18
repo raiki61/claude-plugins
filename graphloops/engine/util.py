@@ -1,4 +1,4 @@
-"""engine の小道具——時刻・hash・JSON の読み書き・git・path の辿り方。ループの中身を知らない。"""
+"""engine のユーティリティ——時刻・hash・JSON の読み書き・git・path の辿り方。ループの中身を知らない。"""
 import datetime
 import functools
 import hashlib
@@ -26,7 +26,7 @@ def claude_auth():
 def claude_config_dir():
     """今の Claude Code の設定のフォルダ（CLAUDE_CONFIG_DIR、無ければ HOME の .claude）。決め方は claude_auth.config_dir の 1 か所。"""
     return claude_auth().config_dir(os.environ)
-# 役の名前・段の名前・道具の名前・プラグイン名は engine に書かない——graph の runners / thickness.tiers / deliver.path_tools / plugin が正本
+# 役の名前・段の名前・ツールの名前・プラグイン名は engine に書かない——graph の runners / thickness.tiers / deliver.path_tools / plugin が正本
 
 
 class Reject(Exception):
@@ -35,13 +35,13 @@ class Reject(Exception):
 
 class AnswerReject(Reject):
     """**返答の中身・形**が受け付けられない（読めない・型に合わない・記録の整合が取れない）。役に理由を返せば直せる
-    ——engine が起こした役なら、同じ会話に続きを頼む（loop.py launch）。それ以外の Reject（節が待っていない・
+    ——engine が起動した役なら、同じ会話に続きを頼む（loop.py launch）。それ以外の Reject（ノードが待っていない・
     作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
 
 
 # 回し役なしの run の盤面の印（state.engine_runners.handoff）。この版の init が書き、会話に返す（13）のは engine の不具合（盤面の矛盾）
-# だけになる——engine が起こせない節は理由（instance の unlaunched）を持って人に渡る（runner.classify）。印の無い盤面（前の版で始めた run・
-# --no-engine-runners の run）は今までどおり会話がこなす節を返す（人の関所の答え 2026-09-27 の 3 周目の条件 2: 旧い盤面は警告して通す）
+# だけになる——engine が起動できないノードは理由（instance の unlaunched）を持って人に渡る（runner.classify）。印の無い盤面（前の版で始めた run・
+# --no-engine-runners の run）は今までどおり会話がこなすノードを返す（人のゲートの答え 2026-09-27 の 3 周目の条件 2: 旧い盤面は警告して通す）
 HANDOFF_DEFECTS = "defects"
 
 
@@ -55,7 +55,7 @@ LANE_FAILED = "lane_failed"
 
 def write_lane_failed(path, why):
     """背景の線の結果の置き場に、落ちた印を書く（置き場が既に在れば書かない——書き終えた結果を上書きしない）。書けたら True。
-    書き手は線の launch そのもの（commands.cmd_launch）か、launch を起こせなかった回し手だけなので、置き場を取り合う相手は居ない。
+    書き手は線の launch そのもの（commands.cmd_launch）か、launch を起動できなかった回し手だけなので、置き場を取り合う相手は居ない。
     launch が印を書く前に居なくなった回は、読む側が導く（role_run.lane_failure）"""
     p = pathlib.Path(path)
     if p.exists():
@@ -72,7 +72,7 @@ def write_lane_failed(path, why):
 def find_attempt(rounds, iid, out_path):
     """周の表（state.rounds）の全部から、id と置き場（out_path）が一致する試行の instance（無ければ None）。置き場は試行ごとに一意
     （relaunch は .a<試行> の新しい置き場を作る。Temporal の task token と同じ）なので、周をまたいで走る背景の線の試行も、今の周の表に
-    依らずに引ける——今の周の表で引いていたとき、周が進んだ後に落ちた線を『起こし直された古い試行』と読み、落ちた印を書かなかった"""
+    依らずに引ける——今の周の表で引いていたとき、周が進んだ後に落ちた線を『起動し直された古い試行』と読み、落ちた印を書かなかった"""
     for rd in reversed(rounds):
         inst = rd["instances"].get(iid)
         if inst is not None and inst.get("out_path") == out_path:
@@ -99,7 +99,7 @@ def now():
 
 
 def waiting(inst):
-    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。engine が起こして走っている試行は、起こしてからの経過
+    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。engine が起動して走っている試行は、起動してからの経過
     （launched_min）も足す（子の出力は終わりに 1 回なので、最後の出力からの経過は測れない——止めずに見せるだけ）。
     **その場で計算し、盤面には書かない**"""
     t = datetime.datetime.fromisoformat(now())
@@ -190,15 +190,15 @@ def dump(obj):
 
 
 # run が終わった状態。**2 語を engine の 2 か所に手で並べていた**——どちらかに値を足すと、
-# もう一方だけが古いまま黙って通る（進行が止まらない／終わった run に次の節を出す）。
+# もう一方だけが古いまま黙って通る（進行が止まらない／終わった run に次のノードを出す）。
 TERMINAL_STATUS = ("converged", "stopped")
 # 人の答えとして engine が**実際に動ける語**。`continue` は次の周、`stop` は終端、`escalate` は最上段へ。
 # 表が無かったとき、`ans == "stop"` 以外は全部 else（新しい周を開く）に落ちていた——rules が options に
 # 綴り違いや engine の知らない語を入れると、**その語が「続ける」として通る**（諮った意味が消える）。
 # 知らない語は落とす側に倒す: 諮りの口は「止める／続ける」の分岐なので、既定を「続ける」にしてはいけない。
 ANSWER_ACTIONS = ("continue", "stop", "escalate")
-# **周の途中の問い（ask の in_round が真）**で engine が動ける語。continue は問うた節を済ませて同じ周のまま先へ、
-# stop は run をその場で止める（halted。後の節は 1 つも出さない）。escalate は周を進める語なので持たない——
+# **周の途中の問い（ask の in_round が真）**で engine が動ける語。continue は問うたノードを済ませて同じ周のまま先へ、
+# stop は run をその場で止める（halted。後のノードは 1 つも出さない）。escalate は周を進める語なので持たない——
 # 周の途中の問いは、周の中の工程（仕様の承認・承認後のテストの変更）で人の答えを待つ口で、周の終わりの判定ではない
 IN_ROUND_ACTIONS = ("continue", "stop")
 
@@ -270,7 +270,7 @@ DIFF_FIXED_ARGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-pref
 
 
 def tree_names_between(frm, to, git_fn=None, why=None):
-    """2 つの版（commit か木の id）の差のファイル名——リポジトリの根からの相対の POSIX 形で並べた一覧。None = 取れない（why は git の
+    """2 つの版（commit か木の id）の差のファイル名——リポジトリのルートからの相対の POSIX 形で並べた一覧。None = 取れない（why は git の
     why と同じ口）。版どうしの差の名前を出す所（engine の作業ツリーの突合・rules の周の差・TDD の段の差）は全部ここを通す"""
     if why is not None and not (frm and to):
         why.append("比べる版の片方が無い")
@@ -356,7 +356,7 @@ def _step(cur, parts, i, upto):
 
 
 def get_path(obj, path):
-    """`a.b.c` で辿る。節名に点が入る（out.p0.question.x）ので、辞書の鍵は最長一致で食う。"""
+    """`a.b.c` で辿る。ノード名に点が入る（out.p0.question.x）ので、辞書の鍵は最長一致で食う。"""
     parts = path.split(".")
     cur = obj
     i = 0
@@ -413,7 +413,7 @@ def _parent(obj, path, create):
     cur = obj
     i = 0
     while i < len(parts) - 1:
-        # 残り全部が 1 つの鍵（点を含む鍵）なら、ここが親。**この枝が無かったのが今回の欠陥**
+        # 残り全部が 1 つの鍵（点を含む鍵）なら、ここが親。**この分岐が無かったのが今回の欠陥**
         # ——`outputs.p1.local_review` は最後の区切りを候補から外す走査に当たらず、`p1` の入れ子を
         # 新設していた。get_path は元の場所を読み続けるので、当たらない手当てが ok を返した。
         rest = ".".join(parts[i:])
@@ -470,7 +470,7 @@ def read_capped(path, cap):
     役が指したパスを開く所はこの 1 本を通す。大きさを stat で見てから読み切る形は、大きさを申告しない物（FIFO）や
     読む間に伸びる物で上限が効かず、書き手の居ない FIFO は開くだけで止まる——判定は実際に読めた長さで下す
     （再現: simulate.py の test_hook_evidence の FIFO と上限ちょうどの腕）。以前は同じ手順を 3 か所に手で写し、
-    1 か所だけ通常のファイルかの柵が抜けていた。
+    1 か所だけ通常のファイルかのチェックが抜けていた。
     """
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
@@ -484,7 +484,7 @@ def read_capped(path, cap):
     return data, ""
 
 
-# 数える問い（how）の形。**役は検索語・パス・数え方を欄で書き、argv は engine が決まった形で組む**（OWASP OS Command
+# 数える問い（how）の形。**役は検索語・パス・数え方をフィールドで書き、argv は engine が決まった形で組む**（OWASP OS Command
 # Injection Defense Cheat Sheet の Defense Option 3——データとコマンドを構造で分け、引数を許可リストで検証し、オペランドの前に
 # `--` を置く）。役の書いた 1 行を字句解析して段ごとの許可表で見張っていた頃は、3 周続けて別の入口から隙間が出た
 # （`-c` を最後の段でしか見ない・版を 1 本目だけ確かめる・パスを別の世界で確かめる）。数える世界（リポジトリの中・.git を外す・
@@ -495,8 +495,8 @@ COUNT_MAX = {"patterns": 20, "paths": 50}
 # 読んでいた頃、読了の台本が READ_CAP を一時的に 1 へ書き換える間に並列の台本の数える問いが『上限超え』で落ちた
 COUNT_CAP = 4_000_000
 _TEXT = {"type": "string", "minLength": 1, "pattern": "^[^\\n\\r\\x00]+$"}
-# **数える問いの欄の正本**（graph の schema は "$ref": "engine#/count_how" でこれを引き、count_argv も同じ schema で型を当てる）。
-# 節ごとに schema を手で写していた頃は、写しの 1 つだけが古い形のまま残り、揃いを見る検出器を足してもその検出器が拾う形の外で崩れた
+# **数える問いのフィールドの正本**（graph の schema は "$ref": "engine#/count_how" でこれを引き、count_argv も同じ schema で型を当てる）。
+# ノードごとに schema を手で写していた頃は、写しの 1 つだけが古い形のまま残り、揃いを見る検出器を足してもその検出器が拾う形の外で崩れた
 # （2026-09-24 の review-graph 2 周目の一撃）
 COUNT_HOW_SCHEMA = {
     "type": "object", "required": ["patterns", "paths", "count"], "additionalProperties": False,
@@ -512,15 +512,15 @@ COUNT_HOW_SCHEMA = {
         "ignore_case": {"type": "boolean"},
         "word": {"type": "boolean", "note": "語の単位で一致（-w）"},
     },
-    "note": "同じ形を全部引く問いを欄で書く。argv は engine が決まった形で組む（git grep -I --no-color -c|-l -F|-E [-i] [-w] [--untracked] "
+    "note": "同じ形を全部引く問いをフィールドで書く。argv は engine が決まった形で組む（git grep -I --no-color -c|-l -F|-E [-i] [-w] [--untracked] "
             "-e <語>… [版] -- <パス>…）。数える版は書かない（版は呼び元が決める）。シェルもパイプも通らない",
 }
-# 機械の節（rules の BUILTINS）の返りのうち engine が読んで動く欄の形——ok の偽の理由・待ちに戻した節・周の遷移・人に聞く問い
-# （advance.run_driver_node と cmd_answer が読む）。形の正本は engine で、graph の機械の節の schema が engine#/<名前> で引く
-# （ループごとの graph に写さない）。節ごとの成功の欄は graph の節の schema が持つ
+# 機械のノード（rules の BUILTINS）の返りのうち engine が読んで動くフィールドの形——ok の偽の理由・待ちに戻したノード・周の遷移・人に聞く問い
+# （advance.run_driver_node と cmd_answer が読む）。形の正本は engine で、graph の機械のノードの schema が engine#/<名前> で引く
+# （ループごとの graph に写さない）。ノードごとの成功のフィールドは graph のノードの schema が持つ
 DRIVER_DEFS = {
     "driver_problems": {"type": "array", "items": {"type": "string"}, "description": "ok が偽の回の理由（engine が notes に出す）"},
-    "driver_rewound": {"type": "array", "items": {"type": "string"}, "description": "rules が待ちに戻した節の名前（engine が戻ったかを確かめる）"},
+    "driver_rewound": {"type": "array", "items": {"type": "string"}, "description": "rules が待ちに戻したノードの名前（engine が戻ったかを確かめる）"},
     # 語の集合は run_driver_node の分岐が正本（知らない語はそこで止める）。enum に写すと検証器の語彙（結末）と同じ語が
     # graph の enum の検査（graphcheck 13）で写しと読まれる
     "driver_decision": {"type": "string", "minLength": 1, "description": "周の遷移（ask・next_round・continue と終わりの状態）"},
@@ -535,16 +535,16 @@ ENGINE_DEFS = {"count_how": COUNT_HOW_SCHEMA, **DRIVER_DEFS}
 
 
 def count_argv(how, rev=None):
-    """how（欄）から git grep の argv を組む ——（argv, ""）か（None, 拒否理由）。欄の型は COUNT_HOW_SCHEMA で当てる
+    """how（フィールド）から git grep の argv を組む ——（argv, ""）か（None, 拒否理由）。フィールドの型は COUNT_HOW_SCHEMA で当てる
     （graph の schema と同じ定義。役の返答は型検査を通った後に来るが、ここでも当てて入口に依らない）。**数える版（rev）は役に
     書かせず、呼び元が決める**——役が問いに版を書くと、作業ツリーを直した後の数え直しも同じ古い版を数え、直しが件数に
     一度も映らなかった（review-loop の実走の申し送り 2026-09-24）。版を渡した回は未追跡の旗を落とす"""
     from .schema import validate_schema
     if not isinstance(how, dict):
-        return None, "how は欄（patterns・paths・count …）で書け——1 行のコマンドは受け取らない"
+        return None, "how はフィールド（patterns・paths・count …）で書け——1 行のコマンドは受け取らない"
     errs = validate_schema(how, COUNT_HOW_SCHEMA, "how")
     if errs:
-        return None, "how の欄が型に合わない: " + "; ".join(errs[:3])
+        return None, "how のフィールドが型に合わない: " + "; ".join(errs[:3])
     if rev is not None and not (isinstance(rev, str) and rev and not rev.startswith("-") and not any(c.isspace() or c == "\0" for c in rev)):
         return None, "数える版は版の名前 1 つ（- で始まらず、空白を含まない）"
     argv = ["git", "grep", "-I", "--no-color", COUNT_BY[how["count"]], "-F" if how.get("fixed") else "-E"]
@@ -628,13 +628,13 @@ def repo_root(git_fn=None):
 
 # 任せ先に書かせない、利用者の手元の置き場（作業ツリーの外から本物の git と engine に入る道）。git の設定は core.hooksPath・
 # core.fsmonitor・alias を持てるので、書き換えられると sandbox の外で回す側と engine が打つ git がそれを走らせる。シェルの起動ファイルも
-# 同じく外で走る。engine 自身（プラグインの置き場）と Claude Code の設定は柵そのもの。sandbox の組み込みの保護は作業ディレクトリの
+# 同じく外で走る。engine 自身（プラグインの置き場）と Claude Code の設定はチェックそのもの。sandbox の組み込みの保護は作業ディレクトリの
 # 中のこれらしか守らない（公式の sandboxing 文書の Protected paths）ので、任せ先の作業ディレクトリを外に置く形では名指しが要る
 HOME_PROTECTED = (".gitconfig", ".config/git", ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".zshenv")
 
 
 def protected_paths(extra=()):
-    """任せ先（delegate）の sandbox が書き込みを拒む場所の一覧（並びは決まった順）。引けなければ None——柵を組めないので起こさない。
+    """任せ先（delegate）の sandbox が書き込みを拒む場所の一覧（並びは決まった順）。引けなければ None——チェックを組めないので起動しない。
     extra は呼び元が足す場所（盤面の置き場。--dir で作業ツリーの外に置いた盤面は git からは引けない）。
 
     **正本は git** で、engine は値を持たない: 作業ツリーのルート（--show-toplevel）・この作業ツリーの gitdir の実体
@@ -679,7 +679,7 @@ def copy_worktree(dst):
     untracked = git("ls-files", "-z", "-o", "--exclude-standard")
     if changed is None or untracked is None:
         raise Reject("作業ツリーの変更を引けない（git diff / ls-files）——任せ先の写しを作れない")
-    import shutil  # 写す節でだけ要る
+    import shutil  # 写すノードでだけ要る
     for rel in {x for x in (changed + untracked).split("\0") if x}:
         src, to = pathlib.Path(top) / rel, dst / rel
         if src.is_symlink() or src.is_file():
@@ -752,7 +752,7 @@ def hook_evidence(board_dir, doc, cache=None, data=None):
     **これは「在れば強い」証拠であって、唯一の証拠ではない。** 射程は Read だけで、cat / sed で
     読んだ回は記録に残らない（bash のコマンド行からパスを取り出すのは綴りの数だけ穴が開く）。
     だから `read` 以外は**判定を下さず**、呼ぶ側が転写の走査へ落とす。ここで拒むと、
-    フックを入れていない環境と別の読み方が、柵を切る以外の出口を持たなくなる。
+    フックを入れていない環境と別の読み方が、チェックを切る以外の出口を持たなくなる。
 
     **受け取るのは盤面そのものでなく置き場のパス**（`board_dir`）——util.py は「ループの中身を知らない」と
     名乗る層なので、盤面の型を知らない形にしてある。読む先は置き場の隣 1 か所（書く側の理由は hooks/record-read.py）。
@@ -767,7 +767,7 @@ def hook_evidence(board_dir, doc, cache=None, data=None):
     log = pathlib.Path(board_dir) / "reads.jsonl"
     if not log.is_file():
         return "none", f"{log} が無い（フックが入っていないか、入れる前に始めた session）"
-    # 上限を持たないと、役が大きなファイルを指した回に丸ごとメモリへ載る（この関数は拒否の材料であって柵ではない
+    # 上限を持たないと、役が大きなファイルを指した回に丸ごとメモリへ載る（この関数は拒否の材料であってチェックではない
     # ので、測れない回は none へ倒す）。値の根拠は READ_CAP の注記。render.py の FILE_CAP（40KB）とは守る物が
     # 違う——あちらはプロンプトに貼る穴の大きさで、揃えると 40KB を超える文書の読了証拠が黙って消える
     if data is None:

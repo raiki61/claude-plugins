@@ -1,11 +1,11 @@
 """review-loop の TDD 版の修正の流れ（graphs/review-loop-tdd.json）だけが使う rules。
 
 今の流れ（graphs/review-loop.json と rules/review-loop.py）には手を入れず、その rules を読み込んで公開名をそのまま出し、
-TDD の節の関数を表（CONDS・BUILTINS・POST_CHECKS・HIST）に足した写しを出す。TDD を選ばない run はこのファイルを 1 度も読まない。
+TDD のノードの関数を表（CONDS・BUILTINS・POST_CHECKS・HIST）に足した写しを出す。TDD を選ばない run はこのファイルを 1 度も読まない。
 
 流れ（SWE-bench の FAIL_TO_PASS / PASS_TO_PASS と同じ形）:
   p3.tdd_start（版を固め、一式を 1 回走らせて元の結末を取る）→ p3.tdd_tests（テストだけを書く）→ p3.tdd_red（赤の確認）
-  → p3.fix（実装。今の流れの節のまま）→ p3.tdd_green（緑の確認）
+  → p3.fix（実装。今の流れのノードのまま）→ p3.tdd_green（緑の確認）
 赤・緑の確認は LLM を挟まない。テスト一式は run の開始時に人が渡した実行ファイル（init --input tdd_suite=<パス>）を
 JUnit XML の書き先 1 つを引数にして走らせ、XML を読む——テスト 1 件ごとの結末（passed・failure・error・skipped）が
 機械で分かるので、「名指ししたテストの失敗として落ちたか（failure）」と「読み込み・準備で落ちたか（error・一式に居ない）」
@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-# engine が差し込んだ道具（Reject・git など）。**import より前に取る**——この時点の globals は engine が差し込んだ物と
+# engine が差し込んだツール（Reject・git など）。**import より前に取る**——この時点の globals は engine が差し込んだ物と
 # モジュールの属性だけで、今の流れの rules にも同じ物を差し込む（engine を import しない約束はこのファイルも同じ）
 _INJECTED = {k: v for k, v in globals().items() if not k.startswith("__")}
 
@@ -49,7 +49,7 @@ def parse_junit(text):
 
 
 def _id_parts(test_id):
-    """『path/test_x.py::Class::test_y』→（[path, test_x, Class], test_y）。JUnit の classname は実行器の根で頭が変わるので、
+    """『path/test_x.py::Class::test_y』→（[path, test_x, Class], test_y）。JUnit の classname は実行器のルートで頭が変わるので、
     後ろ側の一致で引く"""
     parts = test_id.split("::")
     head = list(pathlib.PurePosixPath(parts[0]).with_suffix("").parts) + parts[1:-1]
@@ -69,7 +69,7 @@ def match_case(test_id, cases):
 
 def run_suite(b):
     """人が渡した実行ファイルでテスト一式を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
-    .py はこの Python で走らせる（検証器と同じ。Windows は .py を実行ファイルとして起こせない）"""
+    .py はこの Python で走らせる（検証器と同じ。Windows は .py を実行ファイルとして起動できない）"""
     exe = b.state["inputs"].get(SUITE_INPUT) or ""
     argv = ([sys.executable] if exe.endswith(".py") else []) + [exe]
     with tempfile.TemporaryDirectory(prefix="graphloops-tdd-") as td:
@@ -130,7 +130,7 @@ def red_problems(named, cases, exit_code, baseline=None):
 
 def green_problems(named, cases, exit_code, baseline=None, baseline_exit=0):
     """緑の確認: 名指しのテストが全部通り、名指しの外で通っていなければならない物（_must_pass）も通る。一式が 0 で終わる
-    （JUnit に載らない失敗——件数の柵など——も拾う）。元の一式が 0 で終わっていなかったなら終了コードは問わない"""
+    （JUnit に載らない失敗——件数のチェックなど——も拾う）。元の一式が 0 で終わっていなかったなら終了コードは問わない"""
     probs = [] if exit_code == 0 or baseline_exit != 0 else [
         f"テスト一式が exit {exit_code} で終わった——JUnit の結末が全部通っていても、一式としては緑でない"]
     hit = set()
@@ -145,10 +145,10 @@ def green_problems(named, cases, exit_code, baseline=None, baseline_exit=0):
     return probs
 
 
-# ---------------------------------------------------------------- 周ごとの TDD の盤面（3 つの機械の節の出力）と記録（process.tdd）
+# ---------------------------------------------------------------- 周ごとの TDD の盤面（3 つの機械のノードの出力）と記録（process.tdd）
 def _tdd(b):
-    """この周の TDD の盤面——正本は 3 つの機械の節（p3.tdd_start・p3.tdd_red・p3.tdd_green）の今の周の出力で、ここはそれを重ねて
-    読む（前の周の値は読まない）。試行の回数と一式が作ったファイル（suite_made）は、各節が自分の前の試行の出力から累積で運ぶ——
+    """この周の TDD の盤面——正本は 3 つの機械のノード（p3.tdd_start・p3.tdd_red・p3.tdd_green）の今の周の出力で、ここはそれを重ねて
+    読む（前の周の値は読まない）。試行の回数と一式が作ったファイル（suite_made）は、各ノードが自分の前の試行の出力から累積で運ぶ——
     差し戻しで出力を書き直しても、前の試行が作ったファイルが数えから落ちない"""
     start, red, green = (b.output_of_round(f"p3.tdd_{k}", b.round) or {} for k in ("start", "red", "green"))
     made = set(start.get("suite_made") or []) | set(red.get("suite_made") or []) | set(green.get("suite_made") or [])
@@ -158,7 +158,7 @@ def _tdd(b):
 
 
 def _carry(t, step):
-    """機械の節の出力に載せる累積の欄（この段の試行の回数と、一式が作ったファイル）"""
+    """機械のノードの出力に載せる累積のフィールド（この段の試行の回数と、一式が作ったファイル）"""
     return {"tries": t[f"{step}_tries"], "suite_made": t["suite_made"]}
 
 
@@ -251,7 +251,7 @@ def _retry(b, t, step, back, probs):
 
 def tdd_red(b, nid):
     """赤の確認。テストだけを書く段が触ったのは申告したテストのファイルだけで、名指しのテストが failure で落ち、ほかは緑のまま。
-    通らなければテストだけを書く段を差し戻す（理由はこの節の出力の problems でプロンプトに戻る）"""
+    通らなければテストだけを書く段を差し戻す（理由はこのノードの出力の problems でプロンプトに戻る）"""
     t = _tdd(b)
     out = b.output_of_round("p3.tdd_tests", b.round) or {}
     named = _named(b)
@@ -353,7 +353,7 @@ def hist_prev_declared_faces_tdd(h):
 
 
 def on_new_round(b):
-    """今の流れの周の頭。旧い版の rules が loop に積んだ TDD の値の写しと盤面（tdd）も外す（hist と節の出力から読む）"""
+    """今の流れの周の頭。旧い版の rules が loop に積んだ TDD の値の写しと盤面（tdd）も外す（hist とノードの出力から読む）"""
     base.on_new_round(b)
     for k in (*(HIST.keys() - base.HIST.keys()), "tdd"):
         write_loop(b, k, "overwrite", None)
@@ -390,7 +390,7 @@ def finalize(b):
 
 
 CONDS = {**base.CONDS, "tdd_named": tdd_named, "tdd_red_passed": tdd_red_passed}
-NODE_KEYS, NODE_NOTE_KEYS = base.NODE_KEYS, base.NODE_NOTE_KEYS   # 差し替えの版の節は元の graph の節を含む（検査 15）
+NODE_KEYS, NODE_NOTE_KEYS = base.NODE_KEYS, base.NODE_NOTE_KEYS   # 差し替えの版のノードは元の graph のノードを含む（検査 15）
 HIST = {**base.HIST, "tdd_gave_up": hist_tdd_gave_up, "tdd_retry": hist_tdd_retry, "prev_declared_faces": hist_prev_declared_faces_tdd}
 BUILTINS = {**base.BUILTINS, "tdd_start": tdd_start, "tdd_red": tdd_red, "tdd_green": tdd_green, "record_round": record_round}
 POST_CHECKS = {**base.POST_CHECKS, "tdd_tests_output": tdd_tests_output}

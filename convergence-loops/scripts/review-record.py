@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """レビューループのラウンド記録を検証し、収束を妨げているものを列挙する。
 
-**この道具は不合格しか宣言しない。** 「阻害なし」は収束の宣言ではなく、機械で
+**このツールは不合格しか宣言しない。** 「阻害なし」は収束の宣言ではなく、機械で
 見つけられる阻害要因が無いという意味にすぎない。収束を宣言するのは人。
 
-守備範囲は、明示返答を要求する欄が埋まっているか（素材・R1〜R4 の verdict）と、
+守備範囲は、明示返答を要求するフィールドが埋まっているか（素材・R1〜R4 の verdict）と、
 前ラウンドとの突合（連続 2 ラウンド・持ち越しの連鎖・defer 台帳・残存 [block]）。
-欄が空なら検証エラーで落ちる——約束を守ったかを、守ると書くのでなく確かめられる
+フィールドが空なら検証エラーで落ちる——約束を守ったかを、守ると書くのでなく確かめられる
 形にするのが目的。**確かめられるのは形だけで、中身は機械が保証しない**——`false` / `0` / `[]`
-のような縮退値も、`[nit]` 1 件だけの units も、欄としては埋まっている。中身を見る目は judge と
+のような縮退値も、`[nit]` 1 件だけの units も、フィールドとしては埋まっている。中身を見る目は judge と
 R1 で、ここではない。記録に載らない懸念の有無も今も人が見る。
 
 使い方:
@@ -34,7 +34,7 @@ judge が、その周の材料と独立再導出（台帳を見ずに同じ欠�
 帰属する」と「しない」に分けて、**前の周から持ち越した**保留にだけ帰属を認め、帰属する阻害が
 在って帰属しない阻害が 0 なら「答え無しに進める仕事は無い——ここで止めて聞け」と出すこと
 （前提不成立が escalate で確定したときだけは、件数に依らず先に出す）。**人に聞く時を writer が
-数えない**ための道具。
+数えない**ためのツール。
 
 **ただし機械が塞ぐのは 1 周で通る経路だけである。** 帰属の述語は記録の `origin` / `depends` と
 いう自己申告で、機械には writer と judge の区別が見えない——2 周かければ、1 周目に出どころを
@@ -50,7 +50,7 @@ judge が、その周の材料と独立再導出（台帳を見ずに同じ欠�
 終了コード:
     0  阻害要因なし——今ラウンドにも前ラウンドにも無い（連続 2 ラウンド。収束の宣言ではない）
     1  阻害要因あり
-    2  記録が不正（欄の欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
+    2  記録が不正（フィールドの欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
 
 **1 は「記録は読めたが収束を妨げるものがある」だけに使う。** 読めなかった・引数が
 違ったといった計測不成立を 1 に混ぜると、非収束と区別が付かず、記録を直せば済む
@@ -101,7 +101,7 @@ for _stream in (sys.stdout, sys.stderr):
 # 明示返答を要求する素材。ここが正本で、手順書は列挙を持たない。
 # **P1 の観点だけでなく、P0 の各段のうち他に検査経路を持たないものも含める**——
 # 手順書に「報告しろ」と書くだけでは、writer が省略しても誰も気づかない（④注記）。
-# 欄を要求すれば欠落が exit 2 になる（③仕組み）。P0-3（前提の実測）と P0-4（目的テキスト）は
+# フィールドを要求すれば欠落が exit 2 になる（③仕組み）。P0-3（前提の実測）と P0-4（目的テキスト）は
 # 既に別の検査経路を持つので入れない: 前者は R2 が所与として理想解を導くことで露見し、
 # 後者は grader のレビューと `unverifiable` の分岐がある。
 MATERIALS = (
@@ -122,7 +122,7 @@ MATERIALS = (
     "fix_closure",  # 修正の閉鎖実証（P3）——直したと書くだけでなく閉じたことを確かめたか
 )
 
-# 素材の状態と、その状態で追加に要求する欄。
+# 素材の状態と、その状態で追加に要求するフィールド。
 # **属性は行に持つ。** 以前は「収束を妨げるか」「持ち越しの元になれるか」「どの俯瞰で使えるか」を
 # 表の外の 5 本のリストで持っていた。**リストへの追記を忘れると、その状態は黙って緩む側に倒れる**
 # ——実測: 状態を 1 つ足して「妨げる」リストへの追記だけ忘れた版で、記録に「主経路は外部都合で
@@ -131,7 +131,7 @@ MATERIALS = (
 # 記録がその状態を使うまで待たない）。同じ形の直しは問いの種類の表で 1 度効いている。
 # `observed` = **その値が「今の周に自分で見た」と主張しているか。** 以前は無く、「見ていないのに
 # 黙って通る値」の集合を読む側が手で並べていた（`("not_applicable", "carried_over")` の 2 語）。
-# 表に無い性質を読む側が持つと、値を足した周にその 1 値だけ柵の外に落ちる——**値の性質は表が持つ。**
+# 表に無い性質を読む側が持つと、値を足した周にその 1 値だけチェックの外に落ちる——**値の性質は表が持つ。**
 Rule = collections.namedtuple("Rule", "fields blocks carryable observed")
 # 「やらなかった」を 3 値に割ってあるのが要点——散文だと awaiting_human（手順どおりの停止）と
 # not_run（逸脱）が同じ「未実施」に潰れ、さらに not_applicable にまで化ける。
@@ -155,7 +155,7 @@ STATUS = _rows("素材の状態", Rule, {
 REVIEWS = ("R1", "R2", "R3", "R4")
 # `only_for` は「この判定を使える俯瞰」。R1 / R2 は第 1 ラウンドで必ず走り以降は再発火条件で
 # 回る、R3 / R4 は P-R でのみ走る——「条件に当たらない」の意味が役ごとに違うので値を絞る。
-# `machine_written` = **役が返した判定ではなく、走らなかった節に機械が埋めた値。** 「最後の本物の判定」を
+# `machine_written` = **役が返した判定ではなく、走らなかったノードに機械が埋めた値。** 「最後の本物の判定」を
 # 覚える側はこれを除く——2 語（carried_over / not_applicable）を手で並べていたので、値を足した周に
 # その 1 値だけ「本物の判定」として記録され、前の周の諮る義務を静かに上書きする形だった。
 RRule = collections.namedtuple("RRule", "fields blocks carryable only_for machine_written")
@@ -194,14 +194,14 @@ assert all(REVIEW_STATUS[st].blocks for st in REVIEW_TO_HUMAN), \
 # 再修正を止めるという連鎖の断ち方が使えなくなる。
 LABELS = ("block", "suggest", "nit", "question", "info")
 
-# 種類 → (origin の域, その種類で追加に要求する欄)。**域を表の中に持つ**のが要点——
+# 種類 → (origin の域, その種類で追加に要求するフィールド)。**域を表の中に持つ**のが要点——
 # 以前は域を ORIGIN_UNIT / ORIGIN_MATERIAL / ORIGIN_REVIEW の 3 タプルに分けて if/elif で
 # 振り分けていたが、3 本が全種類を覆っているかを誰も検査しておらず、覆いが崩れたときの
 # 倒れ方が「制限なし」ではなく**全検査を素通り**（origin の型も実在も NO_OPEN_ORIGIN も
 # 一度に外れる）だった。実測: thrash が 3 本のどこにも属さず、origin に何を書いても通り、
 # 帰属と stuck の縛りを同時に外せた。表なら、種類を足して域を書き忘れた時点で下の検査が落ちる。
 # 域: unit=units の key ／ material=素材名 ／ review=R1〜R4 ／ none=出どころを持たない。
-# 「聞く時」の分岐を外の道具（graphloops の rules 等）が読めるように定数で持つ。**文言を直すときはここを直す**
+# 「聞く時」の分岐を外のツール（graphloops の rules 等）が読めるように定数で持つ。**文言を直すときはここを直す**
 # ——本文に生リテラルで書くと、読む側が部分一致で写しを持ち、文言を変えた周に分岐が黙って倒れる。
 STOP_PREMISE = "前提不成立が確定（escalate）"
 STOP_WORK_EXHAUSTED = "答え無しに進める仕事は無い"
@@ -212,8 +212,8 @@ def bullet(s):
 
     読む側（graphloops の rules の stop_branch）は「行頭が空白でない行」だけを判定行として読む。
     その成立条件は「印字に埋まる自由文が行頭を作らないこと」で、**条件を満たす場所はここ 1 か所**
-    ——書く側（記録に文字列を置く 19 の節）を 1 つずつ覆う形では、覆いの外が残る（実測 2026-09-13:
-    書く側の覆いは judge の 2 節だけで、materials[].reason・reviews[].reason・questions[].resolution・
+    ——書く側（記録に文字列を置く 19 のノード）を 1 つずつ覆う形では、覆いの外が残る（実測 2026-09-13:
+    書く側の覆いは judge の 2 ノードだけで、materials[].reason・reviews[].reason・questions[].resolution・
     stop.premise_check の key / reason の 4 入口が外に在り、改行 1 文字で周の分岐を倒せた）。
     ここで潰せば、将来 print を足しても bullet を通す限り同じ穴は開かない。
 
@@ -247,19 +247,19 @@ QUESTION_KINDS = _rows("問いの種類", Kind, {
     "awaiting": ("material", (),
                  "素材が awaiting_human（未観測・打ち切られた一覧・洗えなかった決定記録・走らせられない CI）"),
     # **素材を出どころにしない人の確かめ**。awaiting しか無かった頃、判定者は「Windows の実機で試していない」の
-    # 出どころに近い素材（CI の欄）を借り、CI を再実行する後の工程が毎周その欄を clean で上書きして、周の最後の
-    # 検証で弾かれた（実走の申し送り: 5 周で 8 回の手の書き戻し）。人の承認を機械の検査と別の欄で持つのは
+    # 出どころに近い素材（CI のフィールド）を借り、CI を再実行する後の工程が毎周そのフィールドを clean で上書きして、周の最後の
+    # 検証で弾かれた（実走の申し送り: 5 周で 8 回の手の書き戻し）。人の承認を機械の検査と別のフィールドで持つのは
     # GitHub Actions の environment の required reviewers（status check と別の保護規則）と同じ形
     "field": ("none", (),
               "人が実地で確かめるまで決まらない（実機・外部の環境・権限の要る操作）で、どの素材も awaiting_human でない。"
-              "素材の欄を借りるな——CI の欄を借りると、CI を再実行する工程が毎周上書きする。周を止めず、最終報告の冒頭に載る"),
+              "素材のフィールドを借りるな——CI のフィールドを借りると、CI を再実行する工程が毎周上書きする。周を止めず、最終報告の冒頭に載る"),
 })
 ORIGIN_DOMAINS = ("unit", "material", "review", "none")
 ORIGIN_NOTE = {"unit": "origin は当該ユニットの key", "material": "origin は素材名",
                "review": "origin は R1〜R4", "none": "origin も depends も持てない"}
-# **書ける欄を閉じる。** `depends` を `depend` と書くと、帰属も実在検査も開き禁止も**全部
+# **書けるフィールドを閉じる。** `depends` を `depend` と書くと、帰属も実在検査も開き禁止も**全部
 # 黙って効かなくなる**（実測。exit 1 で素通りした）。`ask_human` だけを名指しで弾いていた
-# ので、読む人には「他の綴り違いも弾かれる」と見えるのも悪い。**知らない欄は落とす**——
+# ので、読む人には「他の綴り違いも弾かれる」と見えるのも悪い。**知らないフィールドは落とす**——
 # 綴り違いが黙って無効になる側でなく、書いた本人に返る側へ倒す。
 # **見てもいないのに黙って通る値**＝自分で見たと主張せず（observed=False）、阻害要因にも出ない（blocks=False）。
 # 機械が「今の周に走った／修正が在る」と知っている所にこれが書かれていたら、役の申告と事実が食い違う。
@@ -273,7 +273,7 @@ QUESTION_FIELDS = ("key", "kind", "status", "reason", "resolution", "options", "
 
 def origin_not_awaiting(q, materials):
     """未決の問いの出どころが素材なのに、その素材が今 awaiting_human でないか（**規則の正本**。graphloops の rules も
-    欄を書いた時点でこの 1 本を呼ぶ——写しを持つと片方だけ変わる）"""
+    フィールドを書いた時点でこの 1 本を呼ぶ——写しを持つと片方だけ変わる）"""
     k = QUESTION_KINDS.get(q.get("kind"))
     if not k or k.domain != "material" or q.get("status") not in ASKING:
         return False
@@ -286,7 +286,7 @@ UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
 # （下の stuck_unlisted が未決の記載を要求し、P3 は「見つけた周の記録は直していても判定どおり
 # 書け」と要求するので、同じ周に必ず衝突する）。その結果 `held` が帰属に乗り、決着済みしか
 # 残らない周に「答え無しに進める仕事は無い——ここで止めて聞け」が偽で出て、最終報告の冒頭
-# （人が決めること）にも決着済みが並んだ。**2 軸目は欄にせず記録から判定する**——書き手の
+# （人が決めること）にも決着済みが並んだ。**2 軸目はフィールドにせず記録から判定する**——書き手の
 # 自己申告にすると、また 1 つ書くだけで縛りが外れる。
 QUESTION_STATUS = {
     "held": (),
@@ -325,7 +325,7 @@ PROMPT_TABLES = _tables("プロンプトの表", lambda: {
         "question_kinds": "／".join(
             f"{k}（{ORIGIN_NOTE[v.domain]}" + ("".join(f"・{f} が要る" for f in v.fields)) + f"）: {v.note}"
             for k, v in QUESTION_KINDS.items()),
-        # **状態ごとに要る欄と、開いたユニットを出どころにできない種類**——判定役がこれを知らずに書き、done の
+        # **状態ごとに要るフィールドと、開いたユニットを出どころにできない種類**——判定役がこれを知らずに書き、done の
         # 差し戻しで初めて知る往復が 10 周で 6 回あった（実走の申し送り）。散文に一部だけ写すと片方だけ古くなる
         "question_status": "／".join(
             f"{k}" + ("".join(f"（{f} が要る）" for f in v)) + f": {QUESTION_STATUS_NOTE[k]}"
@@ -343,8 +343,8 @@ ASKING = ("held", "escalate")
 # `resolved` を入れるな——1 件置くだけで stuck の振り分け要求が永久に黙った（実測）。
 # `decided` を入れないと、判断の付いた問いを `held` と書くほか無くなる（上の 2 軸）。
 TRACKED = ("held", "escalate", "decided")
-# 数で埋める欄。**欄の名前で持つ**——「整数なら空でない」と型だけで免除すると、文を要求する
-# 欄に `0` を書けてしまい、`素材 'x' が未実施: 0` のような診断が出る（実測）。`count: 0` は
+# 数で埋めるフィールド。**フィールドの名前で持つ**——「整数なら空でない」と型だけで免除すると、文を要求する
+# フィールドに `0` を書けてしまい、`素材 'x' が未実施: 0` のような診断が出る（実測）。`count: 0` は
 # 「見たが 0 件」で正当、`from_round: 0` は範囲外で validate_carry が別の診断を出す。
 NUMERIC_FIELDS = ("count", "from_round")
 
@@ -355,7 +355,7 @@ def is_int(v):
 
 def require_fields(obj, fields, what, why, cond):
     """`what` が `cond` なので `fields` が要る、を検査する。**欠落と空を別の診断に分ける**——
-    `not obj.get(...)` だと 0 や "" を欠落と同じ扱いにし、入れてある欄について「要る」と
+    `not obj.get(...)` だと 0 や "" を欠落と同じ扱いにし、入れてあるフィールドについて「要る」と
     嘘の診断を出して、書き手が探す先を間違える（`from_round: 0` で実際に起きた）。
 
     素材・俯瞰・問いの台帳の 3 箇所が同じ骨格を持つので 1 本にしてある。3 つに写していた
@@ -364,7 +364,7 @@ def require_fields(obj, fields, what, why, cond):
     for field in fields:
         if field not in obj:
             fail(f"{what} は {cond} なので '{field}' が要る")
-        # **縮退値を「埋まっている」と扱わない。** 免除の単位は型でなく欄の名前（理由と実測は
+        # **縮退値を「埋まっている」と扱わない。** 免除の単位は型でなくフィールドの名前（理由と実測は
         # NUMERIC_FIELDS の定義）。docstring に「中身は機械が保証しない」と書くのは ④注記で、
         # 書いても構造は変わらない。
         v = obj[field]
@@ -392,8 +392,8 @@ def validate(rec, path, hint=None):
     for key in ("base", "round", "materials", "units", "reviews", "questions"):
         if key not in rec:
             extra = "（問いの台帳。人に聞く候補が無いなら空の配列を書け）" if key == "questions" else ""
-            fail(f"{path}: 必須の欄 '{key}' が無い{extra}"
-                 + (f"。旧世代の記録なら欄を足せ。{hint}" if hint else ""))
+            fail(f"{path}: 必須のフィールド '{key}' が無い{extra}"
+                 + (f"。旧世代の記録ならフィールドを足せ。{hint}" if hint else ""))
     if not is_int(rec["round"]):
         fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
     # 連番検査（`rec["round"] != prev["round"] + 1`）は間隔しか見ないので、基点を
@@ -408,11 +408,11 @@ def validate(rec, path, hint=None):
         fail(f"{path}: 'reviews' が object でない")
     if not isinstance(rec["questions"], list):
         fail(f"{path}: 'questions' が配列でない（人に聞く候補が無いなら空の配列）")
-    # `scalars` は任意の欄だが、**在るなら object**（無いと `"scalars": null` が「想定外の例外」
+    # `scalars` は任意のフィールドだが、**在るなら object**（無いと `"scalars": null` が「想定外の例外」
     # になり、書き手に何を直せばよいかが伝わらない）。
     if "scalars" in rec:
         if not isinstance(rec["scalars"], dict):
-            fail(f"{path}: 'scalars' が object でない（規模指標の名前 → 数値。無いなら欄ごと省け）")
+            fail(f"{path}: 'scalars' が object でない（規模指標の名前 → 数値。無いならフィールドごと省け）")
         # **値が数であることも見る。** 器の型だけ守っていたとき、`"doc_lines": "135"` と書くと
         # scalar_changes の isinstance が黙って弾いて「増えた scalar」が一生出ず、R1 に膨張が
         # 見えなかった（exit 2 にも 1 にもならない）。`bool` は int の派生なので別に落とす
@@ -476,7 +476,7 @@ def validate(rec, path, hint=None):
             )
         unknown = sorted(set(u) - set(UNIT_FIELDS))
         if unknown:
-            fail(f"{path}: units[{i}] に知らない欄が在る: {', '.join(unknown)}"
+            fail(f"{path}: units[{i}] に知らないフィールドが在る: {', '.join(unknown)}"
                  f"（書けるのは {'/'.join(UNIT_FIELDS)}）")
         if u.get("label") not in LABELS:
             fail(f"{path}: units[{i}] の label が不正: {u.get('label')!r}")
@@ -490,7 +490,7 @@ def validate(rec, path, hint=None):
 
 
 def targets(q):
-    """この問いが指す出どころ全部を **(欄名, 域, 値)** で返す。**帰属・実在検査・開き禁止・
+    """この問いが指す出どころ全部を **(フィールド名, 域, 値)** で返す。**帰属・実在検査・開き禁止・
     stuck の振り分けの 4 箇所が必ず同じ集合を見る**ための 1 本。以前は 3 箇所が別々に走査していて、`depends` を足した
     修正が 2 箇所にしか当たらず、残った 1 箇所（帰属）から同じ逃げ道がそのまま通った——
     しかもその修正は「不変条件を共有する箇所を先に全部挙げた」と書いていた（実測で再現）。
@@ -530,7 +530,7 @@ def validate_questions(rec, path, unit_index):
         seen.add(q["key"])
         unknown = sorted(set(q) - set(QUESTION_FIELDS))
         if unknown:
-            fail(f"{where} に知らない欄が在る: {', '.join(unknown)}"
+            fail(f"{where} に知らないフィールドが在る: {', '.join(unknown)}"
                  f"（書けるのは {'/'.join(QUESTION_FIELDS)}。綴り違いは黙って無効になる）")
         kind = q.get("kind")
         if kind not in QUESTION_KINDS:
@@ -555,8 +555,8 @@ def validate_questions(rec, path, unit_index):
         origin = q.get("origin")
         for msg in settled_state_errors(q, rec["units"]):
             fail(f"{where}: {msg}")
-        # **開き禁止は域の枝の外に置く。** `NO_OPEN_ORIGIN` の 2 種類はどちらも域が unit なので
-        # 中に置いても今は等価だが、非 unit 域の種類をこの表に足した瞬間に柵が黙って外れる
+        # **開き禁止は域の分岐の外に置く。** `NO_OPEN_ORIGIN` の 2 種類はどちらも域が unit なので
+        # 中に置いても今は等価だが、非 unit 域の種類をこの表に足した瞬間にチェックが黙って外れる
         # （`depends` は域に依らずユニットの key なので、その種類でも開いたユニットを指せる）。
         # 「表に足して書き忘れたら落ちる」という当のファイルの規律の、例外になっていた。
         if status in ASKING and kind in NO_OPEN_ORIGIN:
@@ -622,13 +622,13 @@ def is_open(u):
     )
 
 
-# **判定役が書く欄（units と questions）だけで決まる規則は、違反の文の一覧を返す述語にして置く。** 検証器は周の最後に
+# **判定役が書くフィールド（units と questions）だけで決まる規則は、違反の文の一覧を返す述語にして置く。** 検証器は周の最後に
 # 1 度だけ当たるので、式が関数の本文に埋まっていると、graphloops の rules が判定の受け付け（役に返させ直せる時点）で
-# 同じ規則を当てられず、判定の節を済ませた後の記録の段で初めて止まった（実測 2026-09-24 の stuck_unlisted）。
+# 同じ規則を当てられず、判定のノードを済ませた後の記録の段で初めて止まった（実測 2026-09-24 の stuck_unlisted）。
 # 判定の時点で当てる述語の一覧の正本は JUDGE_TIME_RULES、当てない規則の理由は FAIL_LAYERS（どちらも下）。
 def settled_state_errors(q, units):
     """決着した問い（decided / resolved）の状態が、出どころのユニットがまだ開いているかと食い違っていないか。
-    2 軸目（出どころの欠陥が開いて残っているか）は欄にせず記録から判定する（QUESTION_STATUS の注記）——書き手の申告に
+    2 軸目（出どころの欠陥が開いて残っているか）はフィールドにせず記録から判定する（QUESTION_STATUS の注記）——書き手の申告に
     任せると、resolved を 1 件置いて stuck の振り分け要求を黙らせる形（実測で再現した穴）がそのまま戻る"""
     k = QUESTION_KINDS.get(q.get("kind"))
     status = q.get("status")
@@ -665,7 +665,7 @@ def dropped_questions(prev_questions, questions):
             for q in prev_questions if q.get("status") in TRACKED and q.get("key") not in now_q]
 
 
-# 判定の時点（graphloops の rules の、判定の節の受け付け）でも当てる述語。rules は validator_module が返すこのモジュールの
+# 判定の時点（graphloops の rules の、判定のノードの受け付け）でも当てる述語。rules は validator_module が返すこのモジュールの
 # 属性として呼ぶ（写さない）。一覧に在る名前を rules が呼んでいることは graphloops の pytest（test_review_rules）が見る
 JUDGE_TIME_RULES = ("settled_state_errors", "reopened_without_evidence", "dropped_questions",
                     "stuck_unlisted", "origin_not_awaiting")
@@ -673,19 +673,19 @@ JUDGE_TIME_RULES = ("settled_state_errors", "reopened_without_evidence", "droppe
 # graphloops の pytest が AST で見る（関数を足して表を書き忘れると赤）。棚卸しの粒度は関数で、文言ごとではない——
 # 文言は直すたびに変わり、表が 2 つ目の正本として腐る
 FAIL_LAYERS = {
-    "require_fields": "欄の有無と型。判定の節の返答は engine が schema（required と型）で先に当てる。素材と R1〜R4 の欄は判定の後に書かれる",
+    "require_fields": "フィールドの有無と型。判定のノードの返答は engine が schema（required と型）で先に当てる。素材と R1〜R4 のフィールドは判定の後に書かれる",
     "validate_carry": "持ち越しの from_round。素材と R1〜R4 は判定の後に書かれ、判定の時点に入力が無い",
     "validate": "記録の最上位・素材・R1〜R4・units の形。units の label・disposition・defer の理由は judge_output が LABELS で当てる。"
                 "units の key の重複も judge_output が当てる。ほかは判定の時点に入力が無い（記録を組むのは engine）",
-    "validate_questions": "問いの台帳の 1 周内の整合。種類・状態・状態ごとの欄・options・depends・開き禁止・出どころの域は judge_output が"
+    "validate_questions": "問いの台帳の 1 周内の整合。種類・状態・状態ごとのフィールド・options・depends・開き禁止・出どころの域は judge_output が"
                           "語彙を import して当てる。決着の状態と出どころの開きは settled_state_errors、素材を出どころにする人待ちは "
                           "origin_not_awaiting（check_record。全部の done）。key の欠けは graph の schema、判定役が書いた行どうしの key の重複は "
                           "judge_output が当てる。判定の後に機械が足す行（premise_question・周の記録の段）との重複は検証器だけ",
     "validate_against": "前の周との突合。base と持ち越しの連鎖は判定の時点に入力が無い。defer の再浮上は reopened_without_evidence、"
-                        "問いの連続は dropped_questions（どちらも履歴を読む判定の節）。台帳が動いた周の R1 は判定の後の R1 の欄",
+                        "問いの連続は dropped_questions（どちらも履歴を読む判定のノード）。台帳が動いた周の R1 は判定の後の R1 のフィールド",
     "question_origins_exist": "未決の問いの出どころの実在。judge_output が targets で units と defer 台帳に当てる",
     "load_dir": "記録のディレクトリの名前と連番。記録を書くのは engine（周の記録の段）で、判定役は書かない",
-    "main": "引数の形と、3 周続く [block] の振り分け（stuck_unlisted。履歴を読む判定の節で当てる）",
+    "main": "引数の形と、3 周続く [block] の振り分け（stuck_unlisted。履歴を読む判定のノードで当てる）",
     "<module>": "想定外の例外を exit 2 に写す境界（規則ではない）",
 }
 
@@ -728,7 +728,7 @@ def validate_against(rec, prev, carried=None):
             fail(f"round {rec['round']}: {what} は前ラウンドが {ps} なので持ち越せない（判定が無い）")
 
     # defer 台帳。**前ラウンドまでに** defer と確定したキーが再び [block] / do-now に
-    # 上がるのは、新しい根拠が付いたときだけ（手順書 P4）。根拠の欄が無い再出現は、judge が
+    # 上がるのは、新しい根拠が付いたときだけ（手順書 P4）。根拠のフィールドが無い再出現は、judge が
     # 台帳を渡されていないか無視したかで、記録を直して（judge を台帳つきで回して）出し直す。
     # carried は「それより前のラウンドまでの台帳」。隣の 1 ラウンドだけを見ると、
     # 1 ラウンド記録から落とすだけで再審の縛りが外れる（受容済みの論点が新証拠なしに戻る）。
@@ -919,7 +919,7 @@ def stuck_unlisted(rounds):
         # 一方 `decided` を外すと、判断の付いた問いを `held` と書くほか無くなる）。**種類（stuck / fork）では絞らない**
         # ——絞っているのは下の `what == "origin" and domain == "unit"`（域）である。`split` / `rule` は
         # 開いた出どころを持てない（NO_OPEN_ORIGIN）ので、連鎖のキー（必ず [block]＝開いている）を
-        # origin に置けるのは結局 stuck と fork だけになり、種類の絞りは恒真だった。恒真な柵を
+        # origin に置けるのは結局 stuck と fork だけになり、種類の絞りは恒真だった。恒真なチェックを
         # 残すと読む人は 2 本で守られていると信じる（REVIEW.md「導線を作る手段の優先順位」）。
         listed = {
             k
@@ -952,7 +952,7 @@ def scalar_changes(rec, prev):
     """前ラウンド比で増えた scalar。**相殺の有無は判定せず、R1 へ渡すだけ。**
 
     これを阻害要因に混ぜないこと——測れるものをゲートにすると、規則が測れるものへ
-    寄る。増分の正当化を求める相手は人（R1）であって、この道具ではない。
+    寄る。増分の正当化を求める相手は人（R1）であって、このツールではない。
     """
     if prev is None:
         return []
@@ -985,7 +985,7 @@ def load_dir(path):
             # `round-1.js\u03bfn`〈ギリシャ文字 o〉はどれも黙って捨てられた）。軸を足す形は
             # 足すたびに残りの軸から通られるので、**受理しなかったものを全部鳴らす**。
             # 除くのは 2 つだけ——ディレクトリは退避先（`archive-<BASE>`）で、下位は読まない
-            # 規約。ドットで始まるものは OS・道具の成果物で記録ではない。
+            # 規約。ドットで始まるものは OS・ツールの成果物で記録ではない。
             if not os.path.isdir(os.path.join(path, name)) and not name.startswith("."):
                 fail(f"{path}: {name} は記録の名前でない（`round-<N>.json`。N は ASCII の数字）"
                      "——綴り違いが黙って捨てられると、1 ラウンド書かずに飛ばしたのと同じに"
@@ -1008,7 +1008,7 @@ def load_dir(path):
         if n not in found:
             fail(f"{path}: round-{n}.json が無い（前ラウンド分を消すな。連番の穴は履歴を壊す）")
         rec = load(found[n])
-        # 前のレビューの記録が残っていると、古い schema の欄不足か base の不一致で
+        # 前のレビューの記録が残っていると、古い schema のフィールド不足か base の不一致で
         # ここから先へ進めない。手順書は記録を消すなと言っているので、退避先を案内する。
         validate(rec, found[n], hint="別のレビューの記録が混ざっていないか——"
                                      "混ざっているなら消さずに別ディレクトリへ退避しろ")
@@ -1160,7 +1160,7 @@ def main():
     # **これを writer に数えさせない**——採点を自己申告にしないのと同じ理由。
     # これは今ラウンドの阻害ではなく帰属の概念を持たないので、blockers の戻り値に混ぜず
     # ここで別に持つ（混ぜると呼び出し側が 3 値目を書かされ、表示は真偽・判定は 3 値という
-    # 2 通りの読み方が同じ欄に同居する）。回せば消えるので「仕事」にも数えない。
+    # 2 通りの読み方が同じフィールドに同居する）。回せば消えるので「仕事」にも数えない。
     accounting = []
     if prev is None:
         accounting.append("前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）")

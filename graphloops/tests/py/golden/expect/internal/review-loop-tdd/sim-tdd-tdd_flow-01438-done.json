@@ -84,7 +84,7 @@
    true,
    "初回か、前の周の P3 が何かを直した周——成り立つ（round=1・前の周の P3 が触ったファイルは 0 件）"
   ],
-  "purpose_review_due": "die: cond 'purpose_review_due' の欄 'out.p0.purpose.source' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "purpose_review_due": "die: cond 'purpose_review_due' のフィールド 'out.p0.purpose.source' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "r1_refire": [
    true,
    "R1 の再発火条件に当たる"

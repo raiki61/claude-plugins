@@ -1,5 +1,5 @@
-"""review-loop の rules（rules/review-loop.py）の関数を直に呼ぶ検査——欄が欠けた・空の入力で落ちずに既定へ倒れるか、
-倒れた理由を残すか。盤面は types.SimpleNamespace の偽物で、engine の道具（git・_repo_root）は monkeypatch で差し替える。
+"""review-loop の rules（rules/review-loop.py）の関数を直に呼ぶ検査——フィールドが欠けた・空の入力で落ちずに既定へ倒れるか、
+倒れた理由を残すか。盤面は types.SimpleNamespace の偽物で、engine のツール（git・_repo_root）は monkeypatch で差し替える。
 盤面を回す端から端までの台本は simulate_review.py"""
 import ast
 import pathlib
@@ -80,7 +80,7 @@ def test_purpose_sources_without_prev_fix_files_is_untouched():
 
 
 def test_prev_fix_touched_reads_the_round_head_exit():
-    """前の周の P3 が触ったファイルは周の頭の節（p1.worktree_before）の出口から読む。欄の無い旧い出力は触った側（再発火する側）に
+    """前の周の P3 が触ったファイルは周の頭のノード（p1.worktree_before）の出口から読む。フィールドの無い旧い出力は触った側（再発火する側）に
     倒し、測れなかった痕跡を残す（人の決定 2026-09-27: 旧い盤面は警告して通す）"""
     head = lambda files: View({"cur.p1.worktree_before": {"ok": True, "changed_since_prev_round": files}})
     assert RULES.prev_fix_touched(head(["a.py"]))[0] is True and RULES.prev_fix_touched(head([]))[0] is False
@@ -105,7 +105,7 @@ def test_converge_asks_when_ci_clean_without_any_checks_note(tmp_path):
 def test_converge_does_not_re_ask_an_answered_ci_question_and_stops_instead_of_spinning(tmp_path, ci):
     """人が一度 continue で答えた CI の問いは、後の周で聞き直さない。残る阻害が CI 未確認だけの周は、収束の見込みの無い次の周を
     開かずに止める（next_round を返すと max_rounds まで空回りする）——止めた理由は盤面の stop_reason に残り、報告が 1 項を立てる。
-    省いた CI の節の理由は問いと止めた理由の両方に添える"""
+    省いた CI のノードの理由は問いと止めた理由の両方に添える"""
     b = board(tmp_path, outputs={"p4.record": {"branch": "converged"}}, rnd=3,
               record={"materials": {"local_checks": ci},
                       "process": {"human_answers": [{"round": 2, "kinds": ["ci_unverified"], "note": "CI で見る", "asked": []}]}})
@@ -171,7 +171,7 @@ def test_checks_reply_keeps_result_under_awaiting_question(tmp_path, launch, run
 
 @pytest.mark.parametrize("launch,runs,words", [
     pytest.param({"blocked": "宣言が読めない"}, [], "宣言が読めない", id="blocked"),
-    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": None, "wall_s": 0, "error": "起こせない"}], "宣言の語を起こせない: t: 起こせない",
+    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": None, "wall_s": 0, "error": "起動できない"}], "宣言の語を起動できない: t: 起動できない",
                  id="cannot-start"),
 ])
 def test_checks_reply_before_judge_waits_for_human(tmp_path, launch, runs, words):
@@ -212,7 +212,7 @@ def test_parallel_pr_plan_without_head_passes_empty(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("run,words", [
-    pytest.param({"exit": None, "error": "起こせない", "tail": "末尾"}, "（確かめられなかった）: 起こせない", id="error-first"),
+    pytest.param({"exit": None, "error": "起動できない", "tail": "末尾"}, "（確かめられなかった）: 起動できない", id="error-first"),
     pytest.param({"exit": 2, "tail": "末尾"}, "（確かめられなかった）: 末尾", id="tail-without-error"),
 ])
 def test_parallel_pr_reply_failed_run_shows_why(tmp_path, run, words):
@@ -276,7 +276,7 @@ def test_owed_shown_without_rows_of_this_round_reads_owed_units(tmp_path):
 @pytest.mark.parametrize("graph, node", [("review-loop.json", "p2.fix_plan"), ("review-loop.json", "p3.fix"),
                                          ("review-loop-tdd.json", "p3.tdd_tests")])
 def test_fix_side_prompts_paste_units_once(graph, node):
-    """修正の側の指示書は単位の一覧を fix_units の行から 1 度だけ貼り、判定の写しは短い欄だけを貼る（長い本文は置き場を指す）"""
+    """修正の側の指示書は単位の一覧を fix_units の行から 1 度だけ貼り、判定の写しは短いフィールドだけを貼る（長い本文は置き場を指す）"""
     from engine.render import node_prompt
     path = PLUGIN / "graphs" / graph
     n = load_graph(path)[0]["nodes"][node]
@@ -368,7 +368,7 @@ def test_question_key_duplicate_rejected_at_judge(tmp_path):
     assert "questions[1] の key が重複: q1" in judge_reject(tmp_path, "p2.diagnose", out)
 
 
-# ---------------------------------------------------------------- 人が関所で直す義務の単位を外す（answer_detail）
+# ---------------------------------------------------------------- 人がゲートで直す義務の単位を外す（answer_detail）
 GATE_UNITS = [{"key": "u1", "label": "block", "reason": "r"}, {"key": "u2", "label": "suggest", "disposition": "do-now", "reason": "r"}]
 
 
@@ -449,7 +449,7 @@ def test_history_rules_leave_machine_rows_to_record(tmp_path):
 
 # ---------------------------------------------------------------- 人の修正依頼（add）の締め
 def test_add_rejects_once_the_judge_node_left_pending_without_an_instance(tmp_path):
-    """判定の節が待ちを抜けていれば（省いた・止めた等）、周に instance が残っていなくても add は拒む——
+    """判定のノードが待ちを抜けていれば（省いた・止めた等）、周に instance が残っていなくても add は拒む——
     instance の起き方だけで締めると、判定役がもう起きない周に依頼を積んでしまう"""
     b = board(tmp_path)
     b.node_state = lambda nid: "skipped" if nid == "p2.diagnose" else "pending"
@@ -459,7 +459,7 @@ def test_add_rejects_once_the_judge_node_left_pending_without_an_instance(tmp_pa
 
 
 def test_add_rejects_once_the_judge_instance_left_pending(tmp_path):
-    """判定の instance が待ちを抜けていれば（起こした印も返答のファイルも無くても）、add は拒む——
+    """判定の instance が待ちを抜けていれば（起動した印も返答のファイルも無くても）、add は拒む——
     役がもう入力を読んだかもしれない"""
     b = board(tmp_path)
     b.node_state = lambda nid: "pending"
@@ -482,7 +482,7 @@ def test_checks_plan_without_repo_falls_back_to_the_role(no_repo, tmp_path):
 
 @pytest.mark.parametrize("kind", ["regression", "policy"])
 def test_delta_review_sends_human_kinds_to_the_gate(tmp_path, kind):
-    """修正差分のレビューが人に聞く語（後退・方針とのぶつかり）を挙げたら、その語はこの節の物でないと返す——
+    """修正差分のレビューが人に聞く語（後退・方針とのぶつかり）を挙げたら、その語はこのノードの物でないと返す——
     ファイルの照合まで流して別の理由で落とさない"""
     face = {"key": "k1", "kind": kind, "where": "a.py", "cite": "x", "why": "理由"}
     got = call(board(tmp_path), RULES.delta_review_output, "p3.delta_review", {"faces": [face]}, None)
@@ -492,7 +492,7 @@ def test_delta_review_sends_human_kinds_to_the_gate(tmp_path, kind):
 @pytest.mark.parametrize("n,src,field,word", [(1, "p3.fix", "plan_faces", "absorbed"), (2, "p3.delta_fix", "handled", "fixed")])
 def test_delta_review_checks_only_the_claimed_rows(tmp_path, n, src, field, word):
     """修正差分のレビューに貼り・番号で指させる一覧（graph の pointers の from）と、受け付けが求める検算の集合が同じ値
-    （切り出しの節の出力の delta.claimed）——『残す』と答えた行の番号は一覧に無く、受け付けも求めない（前の run で 3 回拒まれた食い違い）"""
+    （切り出しのノードの出力の delta.claimed）——『残す』と答えた行の番号は一覧に無く、受け付けも求めない（前の run で 3 回拒まれた食い違い）"""
     nid, cut = RULES.DELTA_PASSES[n].review, RULES.DELTA_PASSES[n].cut
     rows = [{"key": "塞いだ穴", "handled": word, "how": "x"}, {"key": "残す穴", "handled": "declared", "how": "y"}]
     claimed = RULES._closed_rows({field: rows}, n)
@@ -508,7 +508,7 @@ def test_delta_review_checks_only_the_claimed_rows(tmp_path, n, src, field, word
 
 
 def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeypatch):
-    """最後の関所の後に方針の文書が変わった run も、仕上げが変化を記録に書く。変化が無ければ前に書いた欄を消す"""
+    """最後のゲートの後に方針の文書が変わった run も、仕上げが変化を記録に書く。変化が無ければ前に書いたフィールドを消す"""
     b = board(tmp_path, record={"process": {"policy": {"path": "POLICY.md", "sha": "a"}}})
     b.state["status"] = "stopped"
     monkeypatch.setattr(RULES.policy_input, "change", lambda b, git, pol: {"before": "a", "after": "b"})
@@ -527,9 +527,9 @@ def test_gates_merge_says_which_way_the_run_shoots():
 
 
 def test_not_request_entry_says_why_the_p1_roles_wait(monkeypatch):
-    """判定から入る run の周なら、P1 の役を起こさないことを理由に足す。そうでない周は入口の理由をそのまま返す"""
+    """判定から入る run の周なら、P1 の役を起動しないことを理由に足す。そうでない周は入口の理由をそのまま返す"""
     monkeypatch.setattr(RULES, "request_entry", lambda v: (True, "入口の印が在る"))
-    assert RULES.not_request_entry(View({})) == (False, "入口の印が在るのため、P1 の役を起こさない")
+    assert RULES.not_request_entry(View({})) == (False, "入口の印が在るのため、P1 の役を起動しない")
     monkeypatch.setattr(RULES, "request_entry", lambda v: (False, "入口の印が無い"))
     assert RULES.not_request_entry(View({})) == (True, "入口の印が無い")
 
@@ -567,7 +567,7 @@ def test_spec_flow_says_which_way_the_run_goes():
 
 
 def test_history_rules_follow_the_graph_reads():
-    """周をまたぐ規則を当てるかは節の reads で決まる——出荷の graph の履歴を読む判定（p2.history）には 3 本とも当たり、履歴を見せない
+    """周をまたぐ規則を当てるかはノードの reads で決まる——出荷の graph の履歴を読む判定（p2.history）には 3 本とも当たり、履歴を見せない
     判定（p2.diagnose）には当たらない。reads の綴りを変えて規則が黙って外れる形（fail-open）をここで落とす"""
     nodes = load_graph(GRAPH)[0]["nodes"]
     assert RULES.history_rules_for(nodes["p2.history"]) == set(RULES.HISTORY_RULE_READS)
@@ -575,7 +575,7 @@ def test_history_rules_follow_the_graph_reads():
     assert all(path in nodes["p2.history"]["reads"] for path in RULES.HISTORY_RULE_READS.values())
 
 
-# ---------------------------------------------------------------- engine が走らせる CI の節を人の命令で省く（on_skip・skipped_material）
+# ---------------------------------------------------------------- engine が走らせる CI のノードを人の指示で省く（on_skip・skipped_material）
 def skip_board(tmp_path, record=None, skipped=None):
     b = board(tmp_path, record=record, outputs={"p4.record": {"branch": "converged"}})
     b.nodes = load_graph(GRAPH)[0]["nodes"]
@@ -590,16 +590,16 @@ def test_ci_nodes_are_optional_and_the_comment_role_is_guarded():
 
 
 def test_on_skip_writes_every_ci_field_with_the_reason(tmp_path):
-    b = skip_board(tmp_path, skipped={"p0.local_checks": "人の命令"})
-    RULES.on_skip(b, "p0.local_checks", "人の命令")
+    b = skip_board(tmp_path, skipped={"p0.local_checks": "人の指示"})
+    RULES.on_skip(b, "p0.local_checks", "人の指示")
     for got in (b.record["materials"]["local_checks"], b.record["process"]["baseline_checks"]):
-        assert got["status"] == "not_applicable" and "回す側が省いた: 人の命令" in got["reason"] and "p0.local_checks" in got["reason"]
+        assert got["status"] == "not_applicable" and "回す側が省いた: 人の指示" in got["reason"] and "p0.local_checks" in got["reason"]
 
 
 def test_on_skip_of_p4_ci_overwrites_the_value_p0_left(tmp_path):
     b = skip_board(tmp_path, record={"materials": {"local_checks": {"status": "clean", "checked": "修正前"}}},
-                   skipped={"p4.ci": "人の命令"})
-    RULES.on_skip(b, "p4.ci", "人の命令")
+                   skipped={"p4.ci": "人の指示"})
+    RULES.on_skip(b, "p4.ci", "人の指示")
     assert b.record["materials"]["local_checks"]["status"] == "not_applicable"
 
 
@@ -612,11 +612,11 @@ def test_skipped_role_node_stays_not_run(tmp_path):
 
 def test_converge_asks_when_the_ci_node_was_skipped(tmp_path):
     """省いた CI は阻害に数えず（上限まで空回りしない）、収束の手前で理由つきで人に聞く（黙って緑にしない）"""
-    b = skip_board(tmp_path, skipped={"p4.ci": "人の命令"})
-    RULES.on_skip(b, "p4.ci", "人の命令")
+    b = skip_board(tmp_path, skipped={"p4.ci": "人の指示"})
+    RULES.on_skip(b, "p4.ci", "人の指示")
     assert not VAL.STATUS[b.record["materials"]["local_checks"]["status"]].blocks
     got = RULES.converge(b, "p4.converge")
-    assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and "回す側が省いた: 人の命令" in got["ask"]["question"]
+    assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and "回す側が省いた: 人の指示" in got["ask"]["question"]
 
 
 # ---------------------------------------------------------------- 旧い版の義務の出力（rows の無い p3.delta_owed）
@@ -652,7 +652,7 @@ def test_owed_acceptance_without_rows_recounts_instead_of_refusing(tmp_path):
 
 def stop_board(tmp_path, monkeypatch, *, done, changed="", rnd=1, head=True, stopped=None):
     """p0.local_checks が clean を置き、p4.ci（既定）を人が止めた周。周の頭の版と今の木の差の名前を changed（git diff -z の出力）で返す。
-    節の状態は done・stopped から引き、それ以外は待ち"""
+    ノードの状態は done・stopped から引き、それ以外は待ち"""
     stopped = stopped or {"p4.ci": "人が止めた（loop.py stop）: 検査"}
     b = board(tmp_path, record={"materials": {"local_checks": {"status": "clean", "checked": "修正前"}}}, rnd=rnd,
               hist={"head_revs": {str(rnd): "HEAD0"} if head else {}, "last_seen": {"local_checks": rnd - 1} if rnd > 1 else {}})
@@ -666,25 +666,25 @@ def stop_board(tmp_path, monkeypatch, *, done, changed="", rnd=1, head=True, sto
 
 
 def landed(b):
-    """止めた周の記録の組み方（_stopped_round_record）と同じ順で、素材の欄が着地した値"""
+    """止めた周の記録の組み方（_stopped_round_record）と同じ順で、素材のフィールドが着地した値"""
     RULES._drop_stopped_materials(b)
     RULES.fill_materials(b)
     return b.record["materials"]["local_checks"]
 
 
-@pytest.mark.parametrize("head", [True, False])   # 周の頭の版を固める前に止めた周（P1 より前）も、書き換える節はまだ走っていない
+@pytest.mark.parametrize("head", [True, False])   # 周の頭の版を固める前に止めた周（P1 より前）も、書き換えるノードはまだ走っていない
 def test_stop_before_the_fix_keeps_the_round_head_ci(tmp_path, monkeypatch, head):
-    """修正の前に止めた周は、周の頭の CI がその周の CI（作業ツリーが動いていない。人の関所の条件 5）"""
+    """修正の前に止めた周は、周の頭の CI がその周の CI（作業ツリーが動いていない。人のゲートの条件 5）"""
     b = stop_board(tmp_path, monkeypatch, done=["p0.local_checks", "p1.worktree_before"], head=head)
     assert landed(b)["status"] == "clean"
 
 
-@pytest.mark.parametrize("done, changed, rnd", [(["p0.local_checks", "p3.fix"], "", 1),   # 書き換える節が済んだ
-                                                (["p0.local_checks"], "a.py\0", 1),      # 書き換える節は済んでいないが木が動いた
+@pytest.mark.parametrize("done, changed, rnd", [(["p0.local_checks", "p3.fix"], "", 1),   # 書き換えるノードが済んだ
+                                                (["p0.local_checks"], "a.py\0", 1),      # 書き換えるノードは済んでいないが木が動いた
                                                 (["p0.local_checks"], None, 1),          # 木の差が取れない（動いた側に倒す）
                                                 (["p0.local_checks", "p3.fix"], "", 2)])  # 2 周目も前の周の値の持ち越しに落ちない
 def test_stop_after_the_tree_moved_lands_the_stopped_fact(tmp_path, monkeypatch, done, changed, rnd):
-    """CI の節を止めた周で作業ツリーが p0.local_checks の後に動いていれば、修正前の CI を周の CI として残さず、止めた事実と
+    """CI のノードを止めた周で作業ツリーが p0.local_checks の後に動いていれば、修正前の CI を周の CI として残さず、止めた事実と
     『この周の CI は確かめていない』が記録に着地する（省いた周とそろえる）"""
     b = stop_board(tmp_path, monkeypatch, done=done, changed=changed, rnd=rnd)
     got = landed(b)
@@ -693,7 +693,7 @@ def test_stop_after_the_tree_moved_lands_the_stopped_fact(tmp_path, monkeypatch,
 
 def test_stopped_node_that_is_not_the_ci_gets_no_ci_note(tmp_path, monkeypatch):
     b = stop_board(tmp_path, monkeypatch, done=["p0.local_checks"], stopped={"p0.parallel_pr": "人が止めた: 検査"})
-    assert RULES.stopped_material(b, "p0.parallel_pr")["reason"] == "人が止めた: 検査——この周に節 p0.parallel_pr は走っていない"
+    assert RULES.stopped_material(b, "p0.parallel_pr")["reason"] == "人が止めた: 検査——この周にノード p0.parallel_pr は走っていない"
     assert "CI" in RULES.skipped_material(types.SimpleNamespace(nodes=b.nodes, rd={"skipped": {"p4.ci": "x"}}), "p4.ci")["reason"]
     assert "CI" not in RULES.skipped_material(types.SimpleNamespace(nodes=b.nodes, rd={"skipped": {"p0.parallel_pr": "x"}}), "p0.parallel_pr")["reason"]
 
@@ -738,7 +738,7 @@ def test_worktree_snapshot_does_not_read_the_stash_list(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- 書く子の痕跡を判定者へ届ける（on_new_round の fix_claim_mismatch）
 def test_writer_traces_carry_outside_tmp_and_unmeasured_rows_of_the_round():
     """申告の食い違い（kind=declared）に加えて、作業ツリーの外に残った物（outside_tmp。測れなかった回を含む）と、申告の突合・一時の
-    置き場の確かめが測れなかった印を、その周の分だけ届ける。道具つきの役の並びだけの突合の印（.tree_before_id）は書く子の物でないので
+    置き場の確かめが測れなかった印を、その周の分だけ届ける。ツールつきの役の並びだけの突合の印（.tree_before_id）は書く子の物でないので
     載せない"""
     state = {"git_mismatches": [
         {"instance": "p3.fix", "kind": "declared", "undeclared": ["a.py"], "unwritten": [], "overlapping": [], "round": 1, "at": "x"},

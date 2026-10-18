@@ -1,4 +1,4 @@
-"""盤面——どの節が終わったか・何周目か・いま走らせてよいか。ディスク（state.json / record.json）が正本。"""
+"""盤面——どのノードが終わったか・何周目か・いま走らせてよいか。ディスク（state.json / record.json）が正本。"""
 import copy as copy_mod
 import json
 import os
@@ -19,39 +19,39 @@ def empty_round(n):
 
 
 def runner_node(graph, n):
-    """n が回す側の節か。盤面の無い読み（advance.node_appends・graphcheck）も Board.is_runner と同じここを引く。
+    """n が回す側のノードか。盤面の無い読み（advance.node_appends・graphcheck）も Board.is_runner と同じここを引く。
     役の名前は engine に書かない——graph の runners が正本（util.py の宣言）。以前は "skill" をここで足していたので、
-    回す側の集合が engine（runners ∪ {skill}）と graphcheck（runners だけ）でずれ、柵の対象が 1 語ぶん狭かった"""
+    回す側の集合が engine（runners ∪ {skill}）と graphcheck（runners だけ）でずれ、チェックの対象が 1 語ぶん狭かった"""
     return n.get("run_by") in (graph.get("runners") or [])
 
 
-# 節の条件（cond）は rules の名前付きの関数（CONDS）で、graph には名前だけを書く。関数は読む欄を宣言し（cond_reads）、
-# engine は宣言した欄だけが見える入れ物（CondView）を渡して（真偽, 理由の文）を受け取る。以前は graph の JSON の上の
+# ノードの条件（cond）は rules の名前付きの関数（CONDS）で、graph には名前だけを書く。関数は読むフィールドを宣言し（cond_reads）、
+# engine は宣言したフィールドだけが見える入れ物（CondView）を渡して（真偽, 理由の文）を受け取る。以前は graph の JSON の上の
 # 小さな言語（all / any / not / path+op+default / builtin）を engine が解釈し、graphcheck が同じ言語を検査していた
 # ——綴り違い・default の読み落とし・prev. の検査漏れのたびに検査を継ぎ足し、loop.・record. の葉は最後まで検査の外だった。
 # 条件の文脈で読める前置き。Board.cond はこの表で engine の ctx を切り出し、graphcheck が import して宣言の頭がこの中に在るかを見る
-# （写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない最新、prev.<節> は前の周までの最新）。
-# inputs は init で固まり run の途中で書き換えない入力（graphcheck が graph の inputs の宣言で照らす）。hist は履歴から作る
-# 読み取り専用の値（rules の HIST。graphcheck が graph の hist_schema で照らす）。照らす宣言を持たない
+# （写しを作らない）。cur.<ノード> は「今の周にその節が出した出力」（out.<ノード> は周を問わない最新、prev.<ノード> は前の周までの最新）。
+# inputs は init で固まり run の途中で書き換えない入力（graphcheck が graph の inputs の宣言で照合する）。hist は履歴から作る
+# 読み取り専用の値（rules の HIST。graphcheck が graph の hist_schema で照合する）。照合する宣言を持たない
 # 前置き（run・thickness・item）は条件から読ませない
-COND_NODE_HEADS = ("out", "prev", "cur")   # 下に <節>.<欄> を持つ前置き（graphcheck が節の schema で照らす）
+COND_NODE_HEADS = ("out", "prev", "cur")   # 下に <ノード>.<フィールド> を持つ前置き（graphcheck がノードの schema で照合する）
 COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop", "inputs", "hist")
 _MISSING = object()
 
 
 class CondView:
-    """条件の関数に渡す入れ物。**宣言した欄だけが見える。**
+    """条件の関数に渡す入れ物。**宣言したフィールドだけが見える。**
 
     `v(path, default)` で読む。宣言した path そのものか、その下（宣言 `hist.last_material` は
     `hist.last_material.x.status` を読める）だけ通し、宣言の外は die。解決できない path は default を
-    渡していれば default、無ければ die——偽に倒すと綴り違いが『条件が成り立たない』に化け、走らなかった節の
+    渡していれば default、無ければ die——偽に倒すと綴り違いが『条件が成り立たない』に化け、走らなかったノードの
     素材に事実と逆の理由が書かれたまま収束まで通る（実測: cond の path を 1 文字変えても graphcheck は exit 0、
     回すと gate_efficacy が『検証ゲートを新設していない』で not_applicable になった）。
     `validator` は検証器の module（状態ではなくコード）——読むときに初めて引く（検証器の無い run では、読んだ条件だけが
     Reject で落ちる。Reject は loop.py が制御された拒否として出す）。`unevaluable(trigger, why)` は『この条件は測れなかった』の痕跡を
     周ごとに 1 行だけ state に残す口（偽を返すのは同じでも、測れなかった事実を残す）。
 
-    内部の欄は下線 2 本の名前（名前の変換が掛かる）に置く: 条件の関数が `v._ctx` のような自然な綴りで文脈を直に読むと
+    内部のフィールドは下線 2 本の名前（名前の変換が掛かる）に置く: 条件の関数が `v._ctx` のような自然な綴りで文脈を直に読むと
     AttributeError で落ち、宣言の検査をすり抜けない。Python は属性を封じられないので、`getattr(v, "_CondView__ctx")`・
     `vars(v)` のような意図した迂回までは止めない（ruff の SLF001 も属性の綴りしか見ない）"""
 
@@ -59,13 +59,13 @@ class CondView:
         self.__name, self.__reads, self.__ctx = name, tuple(reads), ctx
         self.__validator = validator     # module か、module を返す引き手（Board.cond は引き手を渡す）
         self.__state = state
-        self.__overlay = overlay or {}   # {path: 値}——その path（と下の欄）だけ、盤面の値の代わりにこの値を見せる
+        self.__overlay = overlay or {}   # {path: 値}——その path（と下のフィールド）だけ、盤面の値の代わりにこの値を見せる
         self.__copy = copy               # 真なら読んだ値の写しを返す（規則の関数が中身を書き換えても盤面に届かない。Board.view）
 
     def __call__(self, path, default=_MISSING):
         if not Renderer({}, self.__reads).allowed(path):   # 前置き一致は Renderer が正本（pointers.widen と同じ）
-            die(f"cond '{self.__name}' が宣言していない欄 '{path}' を読んだ（宣言: {list(self.__reads)}）"
-                "——読む欄は cond_reads に書け（graphcheck が宣言を前の節の出力と突き合わせる）")
+            die(f"cond '{self.__name}' が宣言していないフィールド '{path}' を読んだ（宣言: {list(self.__reads)}）"
+                "——読むフィールドは cond_reads に書け（graphcheck が宣言を前のノードの出力と突き合わせる）")
         # 重ね書きした path の下は重ね書きの値だけで解決する（引けなければ default か die——盤面の本物の値へ落とさない）
         over = [(k, val) for k, val in self.__overlay.items() if path == k or path.startswith(k + ".")]
         try:
@@ -77,7 +77,7 @@ class CondView:
             return copy_mod.deepcopy(got) if self.__copy else got
         except KeyError:
             if default is _MISSING:
-                die(f"cond '{self.__name}' の欄 '{path}' が解決できない（綴り違いか、その欄をまだ誰も書いていない。"
+                die(f"cond '{self.__name}' のフィールド '{path}' が解決できない（綴り違いか、そのフィールドをまだ誰も書いていない。"
                     "意図して未書き込みを見るなら default を渡せ）")
             return default
 
@@ -93,10 +93,10 @@ class CondView:
 
 
 def run_cond(name, fn, ctx, validator=None, state=None, overlay=None):
-    """条件の関数 fn を、宣言した欄だけが見える入れ物で呼ぶ唯一の口 ——(真偽, 理由の文)。
+    """条件の関数 fn を、宣言したフィールドだけが見える入れ物で呼ぶ唯一の口 ——(真偽, 理由の文)。
     Board.cond と台本の真偽表が同じ 1 本を通る（宣言の有無・返りの形の検査を台本の側で写さない）"""
     if not takes_view(fn):
-        die(f"cond '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
+        die(f"cond '{name}' が読むフィールドを宣言していない（rules で cond_reads(...) を付けよ）")
     r = fn(CondView(name, fn.reads, ctx, validator, state, overlay))
     if not (isinstance(r, tuple) and len(r) == 2 and isinstance(r[0], bool) and isinstance(r[1], str) and r[1].strip()):
         die(f"cond '{name}' の返りが（真偽, 理由の文）でない: {r!r}")
@@ -112,12 +112,12 @@ def refuse_expression_conds(graph_path, nodes):
         return
     loop = pathlib.Path(graph_path).resolve().parent.parent / "scripts" / "loop.py"
     where = f"graph と同じ置き場の engine（{loop}）で続けるか" if loop.is_file() else "この graph を作った版の engine で続けるか"
-    die(f"この盤面の graph（{graph_path}）は条件を式で書いていた版の形式で（節 {', '.join(old[:3])}{' ほか' if len(old) > 3 else ''}）、"
+    die(f"この盤面の graph（{graph_path}）は条件を式で書いていた版の形式で（ノード {', '.join(old[:3])}{' ほか' if len(old) > 3 else ''}）、"
         f"条件を rules の関数に移したこの engine では開けない。{where}、この engine で init し直せ（盤面は書き換えていない）")
 
 
 def node_of(path, nodes):
-    """<節>.<欄> の <節> を、節名に点があっても最長一致で取る（無ければ None）。"""
+    """<ノード>.<フィールド> の <ノード> を、ノード名に点があっても最長一致で取る（無ければ None）。"""
     best = None
     for nid in nodes:
         if path == nid or path.startswith(nid + "."):
@@ -172,7 +172,7 @@ class Board:
         cur = read_json(self.dir / "state.json").get("rev", 0)
         if cur != self.seen_rev:
             # **名乗る範囲は保護できる範囲まで。** 守っているのは盤面の 2 本（state.json / record.json）で、
-            # cmd_done はここへ来るまでに out/r<N>/<節>.json・save_text_as の本文・trace.jsonl を既に書いている
+            # cmd_done はここへ来るまでに out/r<N>/<ノード>.json・save_text_as の本文・trace.jsonl を既に書いている
             # ——「この呼び出しは何も書いていない」と書いていたとき、読み手には副作用が無いと読めた（実測 2026-09-13）
             raise BoardConflict(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
                                 "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ には"
@@ -193,9 +193,9 @@ class Board:
         self.held_trace = None
 
     def _loop_drift(self):
-        """盤面の loop を graph の state_schema（在れば）で照らし、外れを state.loop_drift に積む——**痕跡だけで止めない**
+        """盤面の loop を graph の state_schema（在れば）で照合し、外れを state.loop_drift に積む——**痕跡だけで止めない**
         （走っている run・今の rules が書かない鍵を持つ旧い盤面を開けて進めるため。人の決定 2026-09-26）。同じ周の同じ外れは
-        1 行だけ（save は 1 回の呼び出しで何度も通る）。照らし自体が落ちても保存は続け、落ちたことを同じ欄に残す。
+        1 行だけ（save は 1 回の呼び出しで何度も通る）。照合自体が落ちても保存は続け、落ちたことを同じフィールドに残す。
         記録と報告へは validator の TRACES が写す"""
         sch = self.graph.get("state_schema")
         if not isinstance(sch, dict):
@@ -203,7 +203,7 @@ class Board:
         try:
             errs = validate_schema(self.state.get("loop") or {}, sch, "loop")
         except Exception as e:  # noqa: BLE001
-            errs = [f"loop を state_schema で照らせなかった（{type(e).__name__}: {e}）"]
+            errs = [f"loop を state_schema で照合できなかった（{type(e).__name__}: {e}）"]
         rows = self.state.setdefault("loop_drift", [])
         for e in errs:
             if not any(r.get("round") == self.state.get("round") and r.get("error") == e for r in rows):
@@ -211,7 +211,7 @@ class Board:
                 self.trace("loop_drift", round=self.state.get("round"), error=e)
 
     def run_validator(self, target=None):
-        """検証器を回す（rules からも呼ぶ。INJECT の道具と同じ公開面に揃える——無名関数を属性に束ねない）。"""
+        """検証器を回す（rules からも呼ぶ。INJECT のツールと同じ公開面に揃える——無名関数を属性に束ねない）。"""
         return run_validator(self, target)
 
     held_trace = None   # list なら trace の行を save まで控える（commands._board_update が当て直しの間だけ立てる）
@@ -254,12 +254,12 @@ class Board:
 
     @property
     def loop_state(self):
-        """rules が自分の都合で持つ状態の置き場。engine は中身を解さず、形を graph の state_schema で照らして外れを痕跡に残すだけ（save）。"""
+        """rules が自分の都合で持つ状態の置き場。engine は中身を解さず、形を graph の state_schema で照合して外れを痕跡に残すだけ（save）。"""
         return self.state.setdefault("loop", {})
 
     def hist(self, name):
         """履歴から作る読み取り専用の値 hist.<name>（rules の HIST の関数。無い周は HIST_ABSENT）。覚えない——周の記録と
-        節の出力は同じ呼び出しの中でも書き足されるので、引くたびに作る"""
+        ノードの出力は同じ呼び出しの中でも書き足されるので、引くたびに作る"""
         fn = registry(self.rules, "HIST").get(name)
         if fn is None:
             raise KeyError(f"hist.{name}: rules の HIST に無い")
@@ -269,21 +269,21 @@ class Board:
         self.state["round"] += 1
         self.state["rounds"].append(empty_round(self.state["round"]))
 
-    # -- 節の状態
+    # -- ノードの状態
     def rewind(self, nids, by):
-        """節を今の周の待ちに戻す（rules が『この節の出力はもう古い』と決めたときの engine の口）——{節: {記録の欄: 外した値}}。
+        """ノードを今の周の待ちに戻す（rules が『このノードの出力はもう古い』と決めたときの engine の口）——{ノード: {記録のフィールド: 外した値}}。
 
-        節の状態の持ち方は engine だけが知るので、戻し方はここ 1 か所に置く。**外すのは今の周にその節が出した物だけ**:
+        ノードの状態の持ち方は engine だけが知るので、戻し方はここ 1 か所に置く。**外すのは今の周にそのノードが出した物だけ**:
         instance と返答の置き場（同じ iid・同じ out_path で出直すので、残すと新しい返答を書かずに打った done が古い返答で
-        通る。消さずに .stale-r<周> へ退ける）・今の周の出力の指し（out.<節>）・set の writes が書いた記録の欄。append・
+        通る。消さずに .stale-r<周> へ退ける）・今の周の出力の指し（out.<ノード>）・set の writes が書いた記録のフィールド。append・
         merge_by_id と rules の独自の op が書いた物は外さない（前の周の分も積んでいるか、意味を engine が知らない）——外さなかった
-        事実を痕跡に残す。条件外（na）の節は印だけを外して条件を測り直させ、前の周の出力には触らない。once の節は done_ever も外す。
-        **機械の節（driver）は戻さない**"""
+        事実を痕跡に残す。条件外（na）のノードは印だけを外して条件を測り直させ、前の周の出力には触らない。once のノードは done_ever も外す。
+        **機械のノード（driver）は戻さない**"""
         rd, removed = self.rd, {}
         for nid in nids:
             n = self.nodes[nid]
             if n.get("run_by") == "driver":
-                die(f"rewind: 機械の節 {nid} は戻せない（rules の欠陥）")
+                die(f"rewind: 機械のノード {nid} は戻せない（rules の欠陥）")
             ran = nid in rd["done"] or nid in rd["skipped"] or nid in rd["empty"]
             for box in ("done", "na", "skipped"):
                 rd[box].pop(nid, None)
@@ -307,7 +307,7 @@ class Board:
                     try:
                         parent = get_path(self.record, head) if head else self.record
                     except KeyError:
-                        continue   # まだ書かれていない欄
+                        continue   # まだ書かれていないフィールド
                     if isinstance(parent, dict) and key in parent:
                         got[w["to"]] = parent.pop(key)
             removed[nid] = got
@@ -316,9 +316,9 @@ class Board:
 
     def node_state(self, nid):
         """done / skipped / stopped / empty / na は依存を満たす。pending は満たさない。
-        stopped は人が止めた（loop.py stop）ので走らせない節——省いた（skipped）と別の印で持つ（報告の『省略した機構』に混ぜない）。
+        stopped は人が止めた（loop.py stop）ので走らせないノード——省いた（skipped）と別の印で持つ（報告の『省略した機構』に混ぜない）。
 
-        **once の節は done_ever に載っていれば done を返す**——done_ever は『もう出さない節』の集合で、
+        **once のノードは done_ever に載っていれば done を返す**——done_ever は『もう出さないノード』の集合で、
         終わり方（done か skipped か）は持たない。周をまたぐと done と skipped の区別は消える（素材の
         帰結は fill_materials が rd の skipped から書くので正しい）。
         """
@@ -329,7 +329,7 @@ class Board:
             return "na"
         if nid in rd["skipped"]:
             return "skipped"
-        if nid in rd.get("stopped", {}):   # 止める口より前に作った周は欄を持たない
+        if nid in rd.get("stopped", {}):   # 止める口より前に作った周はフィールドを持たない
             return "stopped"
         if nid in rd["empty"]:
             return "empty"
@@ -342,14 +342,14 @@ class Board:
         return all(self.node_state(d) != "pending" for d in deps)
 
     def deps_met(self, nid):
-        """節の項目を出してよい依存が揃っているか——節の deps か、扇の節なら instance_deps（項目を先に出す pipeline。
+        """ノードの項目を出してよい依存が揃っているか——ノードの deps か、扇のノードなら instance_deps（項目を先に出す pipeline。
         全部の checker を待たない）。**出す時（advance）と受け付ける時（done）が同じ 1 本を使う**——出した後に graph が変わっても、
-        今の graph で出せない返答は受け付けない。扇の項目が節の deps より先に通るのは、今の graph でも先に出す設計どおり"""
+        今の graph で出せない返答は受け付けない。扇の項目がノードの deps より先に通るのは、今の graph でも先に出す設計どおり"""
         n = self.nodes[nid]
         return self.deps_ok(nid) or ("fan_out" in n and "instance_deps" in n and self.deps_ok(nid, "instance_deps"))
 
     def applicable(self, nid):
-        """依存が揃った節に、この周で走らせるかを聞く。走らせないなら理由を返す。"""
+        """依存が揃ったノードに、この周で走らせるかを聞く。走らせないなら理由を返す。"""
         n = self.nodes[nid]
         tiers = n.get("active_in")
         if tiers and self.state["thickness"] not in tiers:
@@ -361,9 +361,9 @@ class Board:
         return None
 
     def cond(self, name, overlay=None):
-        """rules の条件の関数 name（CONDS の名前）を、宣言した欄だけが見える入れ物で呼ぶ ——(真偽, 理由の文)。
-        engine は中身を知らない（名前で呼び、宣言した欄を渡し、返りの形だけ見る）。overlay（{path: 値}）は rules が
-        『この欄が違っていたら』を測るための重ね書き（例: 入口の印を外した文脈）——盤面は書き換えない"""
+        """rules の条件の関数 name（CONDS の名前）を、宣言したフィールドだけが見える入れ物で呼ぶ ——(真偽, 理由の文)。
+        engine は中身を知らない（名前で呼び、宣言したフィールドを渡し、返りの形だけ見る）。overlay（{path: 値}）は rules が
+        『このフィールドが違っていたら』を測るための重ね書き（例: 入口の印を外した文脈）——盤面は書き換えない"""
         fn = registry(self.rules, "CONDS").get(name)
         if fn is None:
             die(f"cond '{name}' が rules の CONDS に無い（graph の cond には関数の名前だけを書く）")
@@ -372,14 +372,14 @@ class Board:
         return run_cond(name, fn, ctx, lambda: validator_module(self), self.state, overlay)
 
     def view(self, name, reads):
-        """規則の関数（新しい形——読む欄を cond_reads で宣言した受け付け・機械の節）に渡す読み口。条件と同じ入れ物（CondView）で、
-        宣言した欄だけが見え、読んだ値は写し——関数が中身を書き換えても盤面に届かない。書き込みは返りの effects で頼む。
+        """規則の関数（新しい形——読むフィールドを cond_reads で宣言した受け付け・機械のノード）に渡す読み口。条件と同じ入れ物（CondView）で、
+        宣言したフィールドだけが見え、読んだ値は写し——関数が中身を書き換えても盤面に届かない。書き込みは返りの effects で頼む。
         テストの偽の盤面も ctx と state を持たせてこれを束ねて呼ぶ（読み口の組み立ての写しを持たない）——ctx に無い頭は見せない"""
         full = self.ctx()
         return CondView(name, reads, {h: full[h] for h in COND_HEADS if h in full}, lambda: validator_module(self), self.state, copy=True)
 
     def rule(self, name, fn, *args):
-        """規則の関数 fn を呼ぶ唯一の口 ——(新しい形か, 返り)。読む欄の宣言（fn.reads）を持つ関数は読み口で、持たない旧い形の関数は
+        """規則の関数 fn を呼ぶ唯一の口 ——(新しい形か, 返り)。読むフィールドの宣言（fn.reads）を持つ関数は読み口で、持たない旧い形の関数は
         盤面そのもので呼ぶ（包みが新旧を読み分ける。移し終えるまで旧い形も通す）"""
         if takes_view(fn):
             return True, fn(self.view(name, fn.reads), *args)
@@ -387,9 +387,9 @@ class Board:
 
     # -- プロンプトと条件の文脈
     def output_of_round(self, nid, rnd):
-        """節 nid の、周 rnd に出した出力（その周に出していなければ None）。
+        """ノード nid の、周 rnd に出した出力（その周に出していなければ None）。
 
-        outputs() は周を落として各節の最新を返すので、optional の節を省いた周に前の周の値を『この周の値』と読む。
+        outputs() は周を落として各ノードの最新を返すので、optional のノードを省いた周に前の周の値を『この周の値』と読む。
         """
         info = self.state["outputs"].get(nid)
         if not info or info.get("round") != rnd:
@@ -397,13 +397,13 @@ class Board:
         return self.read_out(info["file"], board_relative=True)
 
     def latest_output(self, nid):
-        """節 nid の最新の出力（周を問わない）。once の節のように、前の周の値を読むのが正しい所だけで使う
+        """ノード nid の最新の出力（周を問わない）。once のノードのように、前の周の値を読むのが正しい所だけで使う
         ——今の周の値を読むなら output_of_round"""
         info = self.state["outputs"].get(nid)
         return self.read_out(info["file"], board_relative=True) if info else None
 
     def outputs(self, before_round=None):
-        """節ごとの最新の出力。before_round を渡すと、それより前の周の出力だけ（prev）。
+        """ノードごとの最新の出力。before_round を渡すと、それより前の周の出力だけ（prev）。
 
         ファイル 1 本につき 1 度しか読まない（同じ Board の間）。条件の関数を呼ぶたびに ctx を組み直すので、
         memo が無いと 1 回の next で同じ本文を何度も通る（実測 2026-09-12: 出力 29 件・463 KB の周で
@@ -446,7 +446,7 @@ class Board:
         前に付けた綴り（同じ行の `str(f)`）。ここで `is_absolute` を見て「絶対でなければ盤面からの相対」と
         推し量ると、`--dir` を相対で渡した run では output_file が盤面の下にもう一度繋がる
         （実測 2026-09-13: 最終報告の `ref:raw` が `<dir>/<dir>/out/r1/p1.hygiene.json` を読みに行って exit 2。
-        5 周のうち ref:raw を使う節がこの 1 本だけだったので、最後の節まで出なかった）。
+        5 周のうち ref:raw を使うノードがこの 1 本だけだったので、最後のノードまで出なかった）。
         **綴りの正本は書いた側にしか無いので、引数で受け取る。**
 
         鍵は abspath——綴りが違っても同じファイルなら memo を共有する（実測 2026-09-12: 揃えないと重複 314 回）。
@@ -464,10 +464,10 @@ class Board:
         return node_of(path, self.nodes)
 
     def ref(self, path):
-        """ref:<path> の中身——[(見出し, 置き場のファイル, 値)]。record・out.<節>・prev.<節>・raw だけ。
-        out.<節> は**その節が最後に走った周**の instance 全部（穴埋めの {{out.<節>}} と同じ意味——once の節や
-        今の周に走らなかった節は前の周の出力を返す。周で切ると p2.history が p0.purpose を読めない）。
-        prev.<節> は『その節が最後に走った前の周』の instance 全部。"""
+        """ref:<path> の中身——[(見出し, 置き場のファイル, 値)]。record・out.<ノード>・prev.<ノード>・raw だけ。
+        out.<ノード> は**そのノードが最後に走った周**の instance 全部（穴埋めの {{out.<ノード>}} と同じ意味——once のノードや
+        今の周に走らなかったノードは前の周の出力を返す。周で切ると p2.history が p0.purpose を読めない）。
+        prev.<ノード> は『そのノードが最後に走った前の周』の instance 全部。"""
         if path == "record" or path.startswith("record."):
             return [(path, str(self.dir / "record.json"), get_path({"record": self.record}, path))]
         if path == "raw":
@@ -479,21 +479,21 @@ class Board:
             prev = path.startswith("prev.")
             nid = self.node_of(path[5:] if prev else path[4:])
             if nid is None:
-                raise KeyError(f"{path}: 節が無い")
-            # out も prev も「その節が最後に走った周」だけ——穴埋めの {{out.<節>}} / {{prev.<節>}} と同じ意味に揃える。
-            # 以前は out が今の周だけを見ており、同じ接頭が穴と ref: で別の範囲を指していた（実測: 2 周目に na の節の
-            # 1 周目の出力が穴では貼られ ref: では出なかった）。周で切らないのは、once の節を後の周が読むため。
+                raise KeyError(f"{path}: ノードが無い")
+            # out も prev も「その節が最後に走った周」だけ——穴埋めの {{out.<ノード>}} / {{prev.<ノード>}} と同じ意味に揃える。
+            # 以前は out が今の周だけを見ており、同じ接頭が穴と ref: で別の範囲を指していた（実測: 2 周目に na のノードの
+            # 1 周目の出力が穴では貼られ ref: では出なかった）。周で切らないのは、once のノードを後の周が読むため。
             rounds = [rd for rd in self.state["rounds"] if rd["round"] < self.round] if prev else self.state["rounds"]
             ran = [rd for rd in rounds if any(i["status"] == "done" and i["node"] == nid for i in rd["instances"].values())]
             rounds = ran[-1:]
             return [(f"r{rd['round']}/{iid}", self._out_path(inst["output_file"]), self.read_out(inst["output_file"], board_relative=True))
                     for rd in rounds for iid, inst in rd["instances"].items()
                     if inst["status"] == "done" and inst["node"] == nid and inst.get("output_file")]
-        raise KeyError(f"{path}: ref: にできるのは record・out.<節>・prev.<節>・raw だけ")
+        raise KeyError(f"{path}: ref: にできるのは record・out.<ノード>・prev.<ノード>・raw だけ")
 
     def ctx(self, item=None):
-        """プロンプトの穴・条件・pointers の from・delegate.result_to が引く文脈。cur.<節> は今の周にその節が出した出力だけ
-        （前の周の値を今の周の値と読まない。out.<節> は周を問わない最新）"""
+        """プロンプトの穴・条件・pointers の from・delegate.result_to が引く文脈。cur.<ノード> は今の周にそのノードが出した出力だけ
+        （前の周の値を今の周の値と読まない。out.<ノード> は周を問わない最新）"""
         return {
             "record": self.record, "inputs": self.state["inputs"], "item": item or {}, "out": self.outputs(),
             "prev": self.outputs(before_round=self.round),

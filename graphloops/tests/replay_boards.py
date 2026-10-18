@@ -1,14 +1,14 @@
-"""盤面の再生の突き合わせ——盤面が周ごとに記録した条件の評価（周の rd: 条件外 na の『cond <名前>: 理由』と、走った節）を、
+"""盤面の再生の突き合わせ——盤面が周ごとに記録した条件の評価（周の rd: 条件外 na の『cond <名前>: 理由』と、走ったノード）を、
 今の rules と graph の条件の関数で評価し直して比べる（Temporal の replay test と同じ形: 新しいコードが記録済みの履歴と両立するか）。
 
 正解は旧いコードの出力ではなく、盤面に記録された評価そのもの。周ごとに残っていない値（周の途中の記録・盤面の loop）は作らない:
-  - 節の出力と周の rd は、その節の祖先（deps の推移閉包）が出した物だけを今の周の値として見せる（評価した時点に在った物）
-  - 周の記録は rounds/round-<N>.json の欄を、書き手の節が祖先に在る物だけ（素材・単位・問い・R の判定・規模の数値）
+  - ノードの出力と周の rd は、そのノードの祖先（deps の推移閉包）が出した物だけを今の周の値として見せる（評価した時点に在った物）
+  - 周の記録は rounds/round-<N>.json のフィールドを、書き手のノードが祖先に在る物だけ（素材・単位・問い・R の判定・規模の数値）
   - 記録の process は最後の値。周を刻んだ行（fixes）はその周より前の行だけ
   - 盤面の loop は run の状態のうち、周をまたいで一方向にだけ変わる旗（request_fixed_at・escalated）を、立った周より後にだけ見せる
-旧い版の rules が書いた出力（ブロックの出口の欄を持たない出力）は、この道具では読み替えない——本番の読み替え（rules の hist と
-条件の部品）をそのまま通し、通ったことを印で数える（読み替えの写しを道具に持つと、再生が本番の読み替えを確かめなくなる）。
-道具が足すのは記録の周に合わせて測り直す値 1 つだけ: 周の頭の節の、前の周の P3 が触ったファイル（今の rules と同じ定義——前の周の
+旧い版の rules が書いた出力（ブロックの出口のフィールドを持たない出力）は、このツールでは読み替えない——本番の読み替え（rules の hist と
+条件の部品）をそのまま通し、通ったことを印で数える（読み替えの写しをツールに持つと、再生が本番の読み替えを確かめなくなる）。
+ツールが足すのは記録の周に合わせて測り直す値 1 つだけ: 周の頭のノードの、前の周の P3 が触ったファイル（今の rules と同じ定義——前の周の
 頭の版と、この周の頭の版の木の差——を git で測る。rules は旧い出力でこの値を測り直さず、触った側へ倒す）。
 
 入口は 2 つ: replay(盤面, graph) は 1 つの盤面の周ごとの食い違いを返し（台本が CI で呼ぶ）、sweep は置き場の盤面を全部舐める
@@ -60,7 +60,7 @@ def _git(repo, *args):
 
 
 def upcast(nid, out, head_revs, rnd, repo):
-    """記録の周に合わせて測り直す値（周の頭の節の changed_since_prev_round）だけを足す（足した欄の名前を返す）。今の形の出力はそのまま"""
+    """記録の周に合わせて測り直す値（周の頭のノードの changed_since_prev_round）だけを足す（足したフィールドの名前を返す）。今の形の出力はそのまま"""
     got = []
     if not isinstance(out, dict):
         return out, got
@@ -79,7 +79,7 @@ def upcast(nid, out, head_revs, rnd, repo):
 
 
 class ReplayBoard(board_mod.Board):
-    """盤面を読むだけの Board——ディスクには何も書かない。周 N・節 nid の評価の時点の見え方を組む"""
+    """盤面を読むだけの Board——ディスクには何も書かない。周 N・ノード nid の評価の時点の見え方を組む"""
 
     def __init__(self, d, graph_path, repo=None):   # super を呼ばない（盤面の state.graph でなく渡した graph で読む）
         self.dir = pathlib.Path(d)
@@ -134,7 +134,7 @@ class ReplayBoard(board_mod.Board):
         return out
 
     def at(self, n, nid):
-        """周 n の、節 nid を評価する時点の見え方に盤面を組み直す"""
+        """周 n の、ノード nid を評価する時点の見え方に盤面を組み直す"""
         anc = ancestors(self.nodes, nid)
         rounds = copy.deepcopy([r for r in self.full["rounds"] if r.get("round", 0) <= n])
         cur = rounds[-1]
@@ -195,7 +195,7 @@ def recorded(rd, nid, cond):
 
 
 def replay(board_dir, graph_path, repo=None):
-    """盤面の全部の周で、条件を持つ節の評価を今の rules で作り直して記録と比べる ——（評価した数, 食い違い[], 読み替えた欄）"""
+    """盤面の全部の周で、条件を持つノードの評価を今の rules で作り直して記録と比べる ——（評価した数, 食い違い[], 読み替えたフィールド）"""
     b = ReplayBoard(board_dir, graph_path, repo)
     conds = getattr(b.rules, "CONDS", {})
     n_eval, diffs = 0, []
@@ -229,11 +229,11 @@ def _old_rules(path, graph_path):
 
 
 def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None, by_fn=None):
-    """盤面が受け付けた返答に、新しい形の受け付けの関数（と機械の節・記録を書く op）を当て直す ——（当てた数, 食い違い[], 新旧とも拒む[]）。
-    by_fn（dict）を渡すと関数ごとの当てた数を足す——稀な枝だけで働く関数は盤面に 1 回も当たらないことがあり、全体の『食い違い 0』は
+    """盤面が受け付けた返答に、新しい形の受け付けの関数（と機械のノード・記録を書く op）を当て直す ——（当てた数, 食い違い[], 新旧とも拒む[]）。
+    by_fn（dict）を渡すと関数ごとの当てた数を足す——稀な分岐だけで働く関数は盤面に 1 回も当たらないことがあり、全体の『食い違い 0』は
     その関数について何も確かめていない（旧い形を消す前に関数ごとの数を見る）。食い違いは、旧い関数と
     受け付けたか注記が違う行（旧い rules を渡さない回は、今の関数が拒む行）と当てられない（例外）の行。新旧とも拒む行は、盤面を作った
-    版の graph・rules が今と違う（返答の型や柵がその後に変わった）盤面で起きる——移しの食い違いではないので別に返す"""
+    版の graph・rules が今と違う（返答の型やチェックがその後に変わった）盤面で起きる——移しの食い違いではないので別に返す"""
     b = ReplayBoard(board_dir, graph_path, repo)
     old = _old_rules(old_rules_path, graph_path) if old_rules_path else None
     checks = getattr(b.rules, "POST_CHECKS", {})
@@ -276,8 +276,8 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None, by_fn=
                 diffs.append({**row, "why": f"盤面が受け付けた返答を今の関数が拒む: {str(got.get('reason'))[:200]}"})
             elif not now[0]:
                 both.append({**row, "why": str(got.get("reason"))[:200]})
-    # 新しい形へ移した機械の節は、同じ見え方で今の関数の出力を作り、旧い関数の出力（旧い rules を渡さない回は、周に記録した出力
-    # out/r<周>/<節>.json）と比べる
+    # 新しい形へ移した機械のノードは、同じ見え方で今の関数の出力を作り、旧い関数の出力（旧い rules を渡さない回は、周に記録した出力
+    # out/r<周>/<ノード>.json）と比べる
     builtins = getattr(b.rules, "BUILTINS", {})
     for rd in b.full["rounds"]:
         n = rd.get("round")
@@ -302,7 +302,7 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None, by_fn=
                     diffs.append({**row, "why": "旧い関数の出力と今の関数の出力が違う"})
             elif got != read_json(f):
                 diffs.append({**row, "why": "周に記録した出力と今の関数の出力が違う"})
-    # 新しい形へ移した記録を書く op（WRITE_OPS）は、節の受け付けた返答から同じ見え方で書く値を作り、旧い関数が同じ見え方の記録に
+    # 新しい形へ移した記録を書く op（WRITE_OPS）は、ノードの受け付けた返答から同じ見え方で書く値を作り、旧い関数が同じ見え方の記録に
     # 書いた値（op の writes_to の path）と比べる（旧い rules を渡さない回は、当てられるかだけを見る）
     ops = getattr(b.rules, "WRITE_OPS", {})
     for rd in b.full["rounds"]:

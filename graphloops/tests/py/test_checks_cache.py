@@ -68,7 +68,7 @@ def test_same_tree_reuses_green_with_origin(tmp_path):
     assert second[0]["cache"].startswith("使い回し") and second[0]["exit"] == 0
 
 
-@pytest.mark.skipif(os.name != "posix", reason="SKIP posix-mode: 段の道具をシェバンの台本として PATH に置く形と実行の印（exec_bit）は POSIX の物")
+@pytest.mark.skipif(os.name != "posix", reason="SKIP posix-mode: 段のツールをシェバンの台本として PATH に置く形と実行の印（exec_bit）は POSIX の物")
 @pytest.mark.parametrize("change", ["tracked", "untracked", "exec_bit", "decl", "path", "tool", "env", "kernel"])
 def test_any_input_change_misses(tmp_path, monkeypatch, change):
     tools = tmp_path / "tools"
@@ -135,7 +135,7 @@ def test_red_and_unstartable_suites_are_not_stored(tmp_path):
     mark = tmp_path / "mark"
     repo, steps, _ = setup(tmp_path, [step(mark, "; import sys; sys.exit(1)")])
     first, second = twice(repo, steps, tmp_path)
-    assert ran(mark) == 2 and "赤か起こせない" in first[0]["cache"] and "reused" not in second[0]
+    assert ran(mark) == 2 and "赤か起動できない" in first[0]["cache"] and "reused" not in second[0]
     repo2 = tmp_path / "r2"
     repo2.mkdir()
     git(repo2, "init", "-q")

@@ -1,5 +1,5 @@
-"""道具ゼロの役に Read を 1 本だけ渡す形（graph の launch.isolated_read・節の read_file）——起こす側（advance.grant_read・
-launch_spec）が組んだ argv を柵（commands.launch_refusal）が通し、読める範囲を広げた argv・置き場を撥ねることを見る"""
+"""ツールゼロの役に Read を 1 本だけ渡す形（graph の launch.isolated_read・ノードの read_file）——起動する側（advance.grant_read・
+launch_spec）が組んだ argv をチェック（commands.launch_refusal）が通し、読める範囲を広げた argv・置き場を撥ねることを見る"""
 import os
 import types
 
@@ -16,8 +16,8 @@ ROLE = "convergence-loops:cold-reader"
 
 @pytest.fixture
 def emitted(tmp_path, monkeypatch):
-    """盤面の prompts/r1/ に指示書を置き、節の read_file の値（全文の写し）をその隣へ写して、launch_spec で argv を組む。
-    代役の claude を PATH の先頭に置く——claude の無い場（CI）では launch_spec が missing を立て、柵が形を見る前に撥ねる"""
+    """盤面の prompts/r1/ に指示書を置き、ノードの read_file の値（全文の写し）をその隣へ写して、launch_spec で argv を組む。
+    代役の claude を PATH の先頭に置く——claude の無い場（CI）では launch_spec が missing を立て、チェックが形を見る前に撥ねる"""
     import fakeclaude
     bindir = tmp_path / "fake-bin"
     bindir.mkdir()
@@ -61,7 +61,7 @@ def test_engine_built_argv_passes_the_fence(emitted):
 
 @pytest.mark.parametrize("flag,value,words", [
     ("--allowedTools", "Read(//etc/passwd)", "--allowedTools"),     # 別のファイルを許す
-    ("--tools", "Read,Grep", "--tools"),                              # 読む道具を足す
+    ("--tools", "Read,Grep", "--tools"),                              # 読むツールを足す
     ("--permission-mode", "default", "--permission-mode"),            # 聞く形に戻す
 ])
 def test_fence_refuses_widened_argv(emitted, flag, value, words):
@@ -72,7 +72,7 @@ def test_fence_refuses_widened_argv(emitted, flag, value, words):
 
 
 def test_fence_refuses_read_when_the_copy_is_not_the_engine_named_file(emitted, tmp_path):
-    os.remove(emitted.grant)                                          # 写しが無い——Read を渡す形は起こさない
+    os.remove(emitted.grant)                                          # 写しが無い——Read を渡す形は起動しない
     assert "旗" in (refusal(emitted) or "")
     if link(str(tmp_path / "board" / "diff-r1.patch"), emitted.grant):  # 写しがリンク（読める先を差し替える）
         assert "旗" in (refusal(emitted) or "")
@@ -89,7 +89,7 @@ def test_fence_refuses_prompt_outside_the_board(emitted, tmp_path):
 
 
 def test_plain_isolated_still_passes_without_a_copy(emitted):
-    """read_file を持たない道具ゼロの節は今と同じ形（--tools ""）で起きる"""
+    """read_file を持たないツールゼロのノードは今と同じ形（--tools ""）で起きる"""
     b = types.SimpleNamespace(graph=GRAPH, dir=emitted.board, state={})
     inst = {**emitted.inst, "id": "r2.compare", "prompt_file": str(emitted.pfile.with_name("r2.compare.md"))}
     emitted.pfile.with_name("r2.compare.md").write_text("指示書", encoding="utf-8")

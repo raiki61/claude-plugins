@@ -1,5 +1,5 @@
 """履歴から作る読み取り専用の値（hist.<名>。engine/hist.py と rules の HIST）の検査。盤面は出荷の review-loop の graph を指す本物の
-Board を tmp_path に組む——周の記録（rounds/）と周ごとの節の出力（out/r<N>/・rd の instance）から値が作られ、履歴に何も足さず、
+Board を tmp_path に組む——周の記録（rounds/）と周ごとのノードの出力（out/r<N>/・rd の instance）から値が作られ、履歴に何も足さず、
 控えは正本でない印を持ち、手当ての口（loop.py patch）が hist の値を拒むことを見る。"""
 import json
 import subprocess
@@ -22,7 +22,7 @@ def rd(n, done=(), instances=None, stopped=None):
 
 
 def make(tmp_path, rnd, rounds, *, loop=None, records=None, outs=None, record=None, graph=GRAPH):
-    """rounds は rd の一覧、records は {周: 周の記録}、outs は {(節, 周): 出力}（今の周は state.outputs、前の周は rd の instance）"""
+    """rounds は rd の一覧、records は {周: 周の記録}、outs は {(ノード, 周): 出力}（今の周は state.outputs、前の周は rd の instance）"""
     d = tmp_path / "run"
     (d / "rounds").mkdir(parents=True)
     outputs = {}
@@ -132,7 +132,7 @@ def test_patched_rejudge_reaches_the_next_round(tmp_path):
 
 def test_rejudge_from_the_fix_reply_until_settled(tmp_path):
     """前の周の p3.fix の返答の異議が届く。擦り合わせで採る／退けるに決着していれば届けない。旧い盤面の loop の異議は読まない
-    （保存の時の照らしが state_schema の外の鍵として警告を残す）"""
+    （保存の時の照合が state_schema の外の鍵として警告を残す）"""
     outs = {("p3.fix", 1): {"rejudge_requested": "返答で出した異議"}}
     b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, loop={"rejudge_requested": {"round": 1, "text": "旧い loop の異議"}})
     assert b.hist("prev_rejudge") == {"round": 1, "text": "返答で出した異議"}
@@ -159,7 +159,7 @@ def test_rejudge_trail_carries_the_last_unsettled_objection(tmp_path, trail, wan
 
 
 def test_lane_rows_are_read_from_the_round_head_output(tmp_path):
-    """線から渡した行は、渡した周の頭の節（p1.worktree_before）の出力の lane_rows から読む。線の台帳（loop.lanes）に旧い版の
+    """線から渡した行は、渡した周の頭のノード（p1.worktree_before）の出力の lane_rows から読む。線の台帳（loop.lanes）に旧い版の
     rules が残した行は読まない——台帳は patch で書き換えられる run の状態で、過去の周の値の元にしない"""
     lanes = {"b" * 40: {"round": 1, "delivered": 2, "delivered_rows": [{"key": "台帳の旧い行"}]}}
     outs = {("p1.worktree_before", 2): {"ok": True, "lane_rows": [{"key": "線の行", "from": "p3.delta_gates", "how": "needs_test: x"}]}}
@@ -168,7 +168,7 @@ def test_lane_rows_are_read_from_the_round_head_output(tmp_path):
 
 
 def test_snapshot_and_after_fix_are_separate_exits(tmp_path):
-    """周の頭の審査対象（hist.snapshot）と修正後の審査対象（hist.after_fix）は別の節の出力の別の欄——同じ鍵を上書きしない。
+    """周の頭の審査対象（hist.snapshot）と修正後の審査対象（hist.after_fix）は別のノードの出力の別のフィールド——同じ鍵を上書きしない。
     撮り直した回の p1.worktree_after の snapshot が在ればそちらが効く。入口の周だけ依頼の where が範囲になる"""
     head = {"rev": "h" * 40, "diff_file": "/d/diff-r2.patch", "changed_files": ["a.py"], "changed_files_file": "/d/changed-r2.txt",
             "stat": "1 files", "diff_lines": 3, "entry": True}
@@ -245,7 +245,7 @@ def test_save_writes_a_control_that_is_not_canonical_and_adds_nothing_to_history
     ctl = json.loads((b.dir / "hist.json").read_text(encoding="utf-8"))
     assert ctl["canonical"] is False and "正本でない" in ctl["note"] and ctl["values"]["prev_blocks"] == ["a"] and ctl["errors"] == []
     after = sorted(p.relative_to(b.dir).as_posix() for p in b.dir.rglob("*"))
-    # 周の記録・節の出力・trace に何も足さない（盤面の錠のファイルは保存の錠で、履歴ではない——engine/filelock.py）
+    # 周の記録・ノードの出力・trace に何も足さない（盤面の錠のファイルは保存の錠で、履歴ではない——engine/filelock.py）
     assert set(after) - set(before) - {filelock.BOARD_LOCK_NAME} == {"hist.json"}
     assert "hist" not in json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["loop"]
 
@@ -292,11 +292,11 @@ def test_patch_refuses_hist_values(tmp_path, path):
                         "--reason", "検査", "--dir", str(b.dir)], capture_output=True, text=True, encoding="utf-8")
     msg = r.stdout + r.stderr
     assert r.returncode != 0 and "書いても次に引くとき作り直されて効かない" in msg
-    # 案内は値の元から引く——閉じた周の記録から作る値には直す口が無いと言い、節の出力を読む値にはその節の手当てを名指す
+    # 案内は値の元から引く——閉じた周の記録から作る値には直す口が無いと言い、ノードの出力を読む値にはそのノードの手当てを名指す
     if "closed_keys" in path or "prev_units" in path:
         assert "閉じた周の記録（rounds/round-<N>.json）から作る部分は直す口が無い" in msg and "out." not in msg.split("直すなら値の元を:")[1].split("（控え")[0]
     elif "prev_one_shot" in path:
-        assert "loop.py patch --path out.p2.history.<欄>" in msg and "直す口が無い" not in msg
+        assert "loop.py patch --path out.p2.history.<フィールド>" in msg and "直す口が無い" not in msg
     else:
         assert "閉じた周の記録" in msg
     assert "patches" not in json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
@@ -319,10 +319,10 @@ def test_patch_still_writes_run_state(tmp_path):
 
 @pytest.mark.parametrize("key", ["rejudge_requested", "diff_file", "prev_fix_files"])
 def test_patch_refuses_keys_moved_to_node_outputs(tmp_path, key):
-    """ブロックの出口の値は節の出力に移った——state_schema に無い鍵への手当ては書いても効かないので、ok と言わずに拒み、
-    節の出力を直す口を案内する（旧い patch の綴りが黙って効かなくなる形を作らない）"""
+    """ブロックの出口の値はノードの出力に移った——state_schema に無い鍵への手当ては書いても効かないので、ok と言わずに拒み、
+    ノードの出力を直す口を案内する（旧い patch の綴りが黙って効かなくなる形を作らない）"""
     b = make(tmp_path, 2, [rd(1), rd(2)])
     r = _patch(b, f"state.loop.{key}", {"round": 2, "text": "異議"}, tmp_path)
     msg = r.stdout + r.stderr
-    assert r.returncode != 0 and "state_schema に無い" in msg and "loop.py patch --path out.<節>.<欄>" in msg
+    assert r.returncode != 0 and "state_schema に無い" in msg and "loop.py patch --path out.<ノード>.<フィールド>" in msg
     assert key not in json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["loop"]

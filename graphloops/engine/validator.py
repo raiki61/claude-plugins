@@ -14,7 +14,7 @@ from .util import PLUGIN_ROOT, claude_config_dir, die
 VALIDATOR_TIMEOUT = 600  # 秒
 
 # engine が読む「受理集合」の鍵。**鍵の綴りを engine が持ち、graphcheck は import する**——
-# 以前は柵の側が鍵の名前を手で並べており、engine か rules が鍵を増やした周に、その鍵だけ
+# 以前はチェックの側が鍵の名前を手で並べており、engine か rules が鍵を増やした周に、その鍵だけ
 # 形（整数の空でない一覧）を誰も検査しないまま通った。ループ固有の鍵は rules が ACCEPT_KEYS で宣言する。
 REPORT_ACCEPTS = "report_accepts_exit"
 ENGINE_ACCEPT_KEYS = (REPORT_ACCEPTS,)
@@ -31,7 +31,7 @@ def env_root(plugin):
 
 
 def _sibling(plugin):
-    """同じリポジトリに並ぶ plugin の根（`<リポジトリ>/<plugin>/`。その plugin.json の name で確かめる）。並んでいなければ None。
+    """同じリポジトリに並ぶ plugin のルート（`<リポジトリ>/<plugin>/`。その plugin.json の name で確かめる）。並んでいなければ None。
     キャッシュの中では plugin ごとに `<marketplace>/<plugin>/<版>/` に置かれるので、隣には並ばない（キャッシュから探す）。"""
     root = PLUGIN_ROOT.parent / plugin
     p = root / ".claude-plugin" / "plugin.json"
@@ -94,10 +94,10 @@ def find_validator(loop, plugin, explicit=None):
 
 
 def agent_def(agent_type):
-    """役割 agent の定義（<plugin>:<役> の agents/<役>.md）を読む——道具・モデル・effort と本文（役の指示）。
+    """役割 agent の定義（<plugin>:<役> の agents/<役>.md）を読む——ツール・モデル・effort と本文（役の指示）。
 
-    None = 定義が見つからない（接頭の無い組み込み agent を含む）。tools の行が無い定義は全部を継承する（[] は道具なし）。
-    本文が要るのは、役を別プロセスの CLI で起こすときに system prompt として渡すため（advance.launch_spec。道具ゼロの役も道具つきの役も）。
+    None = 定義が見つからない（接頭の無い組み込み agent を含む）。tools の行が無い定義は全部を継承する（[] はツールなし）。
+    本文が要るのは、役を別プロセスの CLI で起動するときに system prompt として渡すため（advance.launch_spec。ツールゼロの役もツールつきの役も）。
     """
     plugin, _, role = agent_type.rpartition(":")
     if not plugin:
@@ -129,9 +129,9 @@ def agent_tools(agent_type):
 
 
 def deliver_mode(agent_type, path_tools, tools=None, paste_roles=()):
-    """プロンプトの渡し方: 役が path_tools（graph の deliver.path_tools——自分でファイルを読める道具）のどれかを持てば path、
+    """プロンプトの渡し方: 役が path_tools（graph の deliver.path_tools——自分でファイルを読めるツール）のどれかを持てば path、
     持たなければ paste。定義が見つからなければ paste（安全側——貼れば必ず届く）。tools を渡せば定義を読み直さない。
-    paste_roles（graph の deliver.paste_roles）の役は道具に依らず paste——ファイルの中の指示に従えという 1 文を拒む役が在る"""
+    paste_roles（graph の deliver.paste_roles）の役はツールに依らず paste——ファイルの中の指示に従えという 1 文を拒む役が在る"""
     if agent_type in paste_roles:
         return "paste"
     if tools is None:
@@ -156,17 +156,17 @@ def run_validator(b, target=None):
     return {"exit": r.returncode, "out": (r.stdout + r.stderr).strip(), "validator": v}
 
 
-# **engine が積む痕跡の欄は、名前を 1 か所で持つ。** （記録の欄 → state の鍵）。
+# **engine が積む痕跡のフィールドは、名前を 1 か所で持つ。** （記録のフィールド → state の鍵）。
 # 以前は finalize が 1 行ずつ写しており、**読む側（人に見せる口）が 1 つも無かった**——鳴っても
-# 何も起きない欄が 5 つ在った（実測 2026-09-14: 検証器 4 本とも process を 1 度も参照していない）。
+# 何も起きないフィールドが 5 つ在った（実測 2026-09-14: 検証器 4 本とも process を 1 度も参照していない）。
 # 名前をここ 1 つに寄せたので、写す側（finalize）と見せる側（cmd_finalize）が同じ表を引く。
 TRACES = (
-    # once で凍った出力が今の schema に合わない節。**これを読む cond・述語は永久に偽**なので、
+    # once で凍った出力が今の schema に合わないノード。**これを読む cond・述語は永久に偽**なので、
     # 記録にも報告にも出さないと「走らなかった」が「走らせる条件に当たらなかった」に見える
     ("stale_frozen", "stale_frozen"),
     # 周をまたいで育った穴。切られていないので truncated_inputs には出ない
     ("growing_prompts", "growing_prompts"),
-    # 役が欄を省いたので起きなかった write。**起きなかったことは、起きたことと同じだけ記録に要る**
+    # 役がフィールドを省いたので起きなかった write。**起きなかったことは、起きたことと同じだけ記録に要る**
     ("writes_skipped", "writes_skipped"),
     ("truncated_inputs", "truncated"),
     ("git_mismatches", "git_mismatches"),
@@ -184,12 +184,12 @@ TRACES = (
 
 
 def traces(rec):
-    """記録に残った痕跡のうち、非空のものだけ（欄名 → 件数）。**人に見せる口はここ 1 つ。**"""
+    """記録に残った痕跡のうち、非空のものだけ（フィールド名 → 件数）。**人に見せる口はここ 1 つ。**"""
     proc = rec.get("process")
     if not isinstance(proc, dict):
         return {}
-    # rules が積む欄（loop 固有）もここに並べる——engine の TRACES に足すと、その欄を持たない
-    # loop の記録にまで空の欄が生える。写すのは rules の finalize、見せる口はここ 1 つ
+    # rules が積むフィールド（loop 固有）もここに並べる——engine の TRACES に足すと、そのフィールドを持たない
+    # loop の記録にまで空のフィールドが生える。写すのは rules の finalize、見せる口はここ 1 つ
     names = [f for f, _ in TRACES] + ["skipped", "stopped_nodes", "launch_missing", "unevaluable", "context_lost",
                                       "read_through_unchecked"]
     return {f: len(proc[f]) for f in names if isinstance(proc.get(f), list) and proc[f]}
@@ -203,10 +203,10 @@ def finalize(b):
     proc = b.record.setdefault("process", {})
     if isinstance(proc, dict):
         proc["skipped"] = [{"node": k, "reason": v} for r in b.state["rounds"] for k, v in r["skipped"].items()]
-        # 人が止めて走らせなかった節（loop.py stop）。省いた機構（skipped）と混ぜない
+        # 人が止めて走らせなかったノード（loop.py stop）。省いた機構（skipped）と混ぜない
         proc["stopped_nodes"] = [{"node": k, "round": r["round"], "reason": v} for r in b.state["rounds"] for k, v in (r.get("stopped") or {}).items()]
         for field, key in TRACES:
             proc[field] = b.state.get(key, [])
-        # 起こせなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった
+        # 起動できなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった
         proc["launch_missing"] = [{"instance": i["id"], "round": r["round"], "missing": i["launch"]["missing"]}
                                   for r in b.state["rounds"] for i in r["instances"].values() if (i.get("launch") or {}).get("missing")]

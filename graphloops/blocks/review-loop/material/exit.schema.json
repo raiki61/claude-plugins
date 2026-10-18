@@ -1,5 +1,5 @@
 {
- "description": "R3 素材集め の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "description": "R3 素材集め の出口: ほかのブロックのノードが読むノード（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、ノードの名前を鍵に並べる。graph のノードの schema はここを $ref で指す（正本はここだけ）",
  "type": "object",
  "additionalProperties": false,
  "properties": {
@@ -415,7 +415,7 @@
     },
     "paste_file": {
      "type": "string",
-     "description": "本文を貼る役（p1.hygiene・r2.compare）に渡す差分の写し。普通は diff_file と同じパスで、入力の予算を超えた周だけ節を要約に替えた別の写し（rules の _paste_copy）。旧い出力は hist が diff_file で埋める"
+     "description": "本文を貼る役（p1.hygiene・r2.compare）に渡す差分の写し。普通は diff_file と同じパスで、入力の予算を超えた周だけセクションを要約に替えた別の写し（rules の _paste_copy）。旧い出力は hist が diff_file で埋める"
     }
    }
   },

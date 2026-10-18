@@ -1,6 +1,6 @@
 """graphcheck.check を同じプロセスで呼ぶ検査: graphloops/tests/simulate_review.py の test_graphcheck_review_shapes のうち
-schema.py（$ref の展開と語の走査）で落ちる 4 件の写し（mutations.json の ER1・ER2・SR1・WS1 の腕が当てにする検査）と、節の鍵の
-閉じた集合（検査 15）。bash 側は graphcheck.py を別のプロセスで走らせるが、ここは同じプロセスで呼ぶ——変異の道具（mutmut）が
+schema.py（$ref の展開と語の走査）で落ちる 4 件の写し（mutations.json の ER1・ER2・SR1・WS1 の腕が当てにする検査）と、ノードの鍵の
+閉じた集合（検査 15）。bash 側は graphcheck.py を別のプロセスで走らせるが、ここは同じプロセスで呼ぶ——変異のツール（mutmut）が
 差し替えた engine.schema を見るため。"""
 import copy
 import json
@@ -24,7 +24,7 @@ def self_ref(g):
 
 
 def typo_under_pattern_properties(g):
-    # 出口の節 p3.fix の schema はブロックの出口のファイルに在る——壊すために本文を graph に直に戻す
+    # 出口のノード p3.fix の schema はブロックの出口のファイルに在る——壊すために本文を graph に直に戻す
     blk = json.loads((PLUGIN / "blocks" / "review-loop" / "fix" / "exit.schema.json").read_text(encoding="utf-8"))
     g["nodes"]["p3.fix"]["schema"] = blk["properties"]["p3.fix"]
     pp = g["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"]["patternProperties"]
@@ -47,7 +47,7 @@ def write_graph(dirpath, g):
                  id="ref-overridden-by-siblings"),
     pytest.param(self_ref, "自分を引いている", id="self-ref"),
     pytest.param(typo_under_pattern_properties, "'minimun'", id="typo-under-pattern-properties"),
-    pytest.param(typo_node_key, "節 p4.ci に知らない鍵 ['cnod']", id="unknown-node-key"),
+    pytest.param(typo_node_key, "ノード p4.ci に知らない鍵 ['cnod']", id="unknown-node-key"),
 ])
 def test_graphcheck_rejects(sandbox, breaks, want):
     g = copy.deepcopy(GRAPH)
@@ -56,19 +56,19 @@ def test_graphcheck_rejects(sandbox, breaks, want):
     assert not ok and want in out, out[-300:]
 
 
-# ---------------------------------------------------------------- 節の鍵の閉じた集合（検査 15）
+# ---------------------------------------------------------------- ノードの鍵の閉じた集合（検査 15）
 def test_init_only_warns_on_unknown_node_key(sandbox):
     from engine import commands
     g = copy.deepcopy(GRAPH)
     typo_node_key(g)
     lines = []
     assert graphcheck.check(write_graph(sandbox, g), str(VALIDATOR), emit=lines.append, node_keys="warn")
-    assert any(str(l).startswith("WARN 節 p4.ci に知らない鍵") for l in lines)
+    assert any(str(l).startswith("WARN ノード p4.ci に知らない鍵") for l in lines)
     notes = commands.check_graph(str(write_graph(sandbox, g)), str(VALIDATOR))
     assert len(notes) == 1 and "p4.ci に知らない鍵 ['cnod']" in notes[0]
 
 
-# ---------------------------------------------------------------- 書き換える節の申告の欄（declared_files）
+# ---------------------------------------------------------------- 書き換えるノードの申告のフィールド（declared_files）
 def declared(nid, at):
     return lambda g: g["nodes"][nid].__setitem__("declared_files", at)
 
@@ -79,10 +79,10 @@ def drop_declared(g):
 
 @pytest.mark.parametrize("breaks,want", [
     # 受け付けの読み手（pointers.values_at）が空を読む綴り——graphcheck も同じ pointers._schema_at で引く
-    pytest.param(declared("p3.fix", "changes.0.files"), "p3.fix: declared_files 'changes.0.files' は回す側の節", id="numeric-at"),
+    pytest.param(declared("p3.fix", "changes.0.files"), "p3.fix: declared_files 'changes.0.files' は回す側のノード", id="numeric-at"),
     pytest.param(declared("p3.fix", "fix_closure.count"), "p3.fix: declared_files 'fix_closure.count'", id="not-a-string-leaf"),
     pytest.param(declared("p2.diagnose", "units[].key"), "p2.diagnose: declared_files", id="not-a-runner-node"),
-    pytest.param(drop_declared, "p3.delta_fix: launch.runner.edits の節に declared_files が無い", id="edits-node-without-declared"),
+    pytest.param(drop_declared, "p3.delta_fix: launch.runner.edits のノードに declared_files が無い", id="edits-node-without-declared"),
     pytest.param(declared("p3.fix", "changes[].files"), "p3.fix: declared_files 'changes[].files' は旧い綴り", id="old-array-leaf"),
 ])
 def test_graphcheck_rejects_declared_files(sandbox, breaks, want):
@@ -94,7 +94,7 @@ def test_graphcheck_rejects_declared_files(sandbox, breaks, want):
 
 @pytest.mark.parametrize("breaks", [drop_declared, declared("p3.fix", "changes[].files")])
 def test_init_only_warns_on_a_missing_or_old_declared_files(sandbox, breaks):
-    """申告が無いことと旧い綴りは記録が欠けるだけ——持ち込みの graph の init は止めない（人の関所 2 周目の条件 5）"""
+    """申告が無いことと旧い綴りは記録が欠けるだけ——持ち込みの graph の init は止めない（人のゲート 2 周目の条件 5）"""
     g = copy.deepcopy(GRAPH)
     breaks(g)
     lines = []
@@ -104,7 +104,7 @@ def test_init_only_warns_on_a_missing_or_old_declared_files(sandbox, breaks):
 
 @pytest.mark.parametrize("name", ["review-loop", "review-loop-tdd", "research-loop"])
 def test_every_declaring_node_carries_the_declaration_promise(name):
-    """申告の欄（declared_files）を持つ節は、extends を重ねた後の姿で全部、申告の約束の断片を prompt_append に持つ——名前で選んだ節に
+    """申告のフィールド（declared_files）を持つノードは、extends を重ねた後の姿で全部、申告の約束の断片を prompt_append に持つ——名前で選んだノードに
     だけ届き、配列を置き換える継承（review-loop-tdd の p3.fix）で落ちる形を赤にする"""
     from engine.schema import load_graph
     g, why = load_graph(PLUGIN / "graphs" / f"{name}.json")
@@ -115,7 +115,7 @@ def test_every_declaring_node_carries_the_declaration_promise(name):
 
 
 def test_graphcheck_requires_rules_node_keys(tmp_path):
-    """rules が節の鍵の宣言を持たないと照らせない——黙って外さず NG（LOOP_KEYS と同じ fail-closed）"""
+    """rules がノードの鍵の宣言を持たないと照合できない——黙って外さず NG（LOOP_KEYS と同じ fail-closed）"""
     (tmp_path / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp_path / "rules")

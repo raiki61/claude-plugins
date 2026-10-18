@@ -1,4 +1,4 @@
-"""走らせるだけの節（graph の engine_run）の部品——宣言の読み手（engine/declared.py）・走らせてよい語の柵
+"""走らせるだけのノード（graph の engine_run）の部品——宣言の読み手（engine/declared.py）・走らせてよい語のチェック
 （commands.engine_run_refusal）・語を走らせる関数（role_run.run_steps）。関数を直に呼ぶ検査。盤面を回す端から端までの台本は
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
 import importlib.util
@@ -40,7 +40,7 @@ def repo(tmp_path, steps=OK):
     ('{"suite": [{"name": "a", "argv": [1]}]}', "1 語以上"),   # 文字列でない語
     ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": ["x"], "keep_background": "yes"}]}', "true か false"),   # 真偽でない逃げ道の宣言
-    ('{"suite": [{"name": "a", "argv": ["x"], "keep_backgrounds": true}]}', "（任意）だけ"),   # 綴り違いの鍵を黙って無視しない   # 空の頭の語（起こす物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
+    ('{"suite": [{"name": "a", "argv": ["x"], "keep_backgrounds": true}]}', "（任意）だけ"),   # 綴り違いの鍵を黙って無視しない   # 空の頭の語（起動する物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
 ])
 def test_parse_rejects_shapes_it_cannot_run(text, want):
     steps, err = declared.parse(text)
@@ -64,7 +64,7 @@ def test_parse_keeps_the_keep_background_declaration():
 
 
 def test_readme_names_every_optional_step_key():
-    """段の任意の鍵（逃げ道の宣言）は、宣言の節（リポジトリの根の CONTRIBUTING.md。2026-10-16 に根の README から移った）に
+    """段の任意の鍵（逃げ道の宣言）は、宣言のセクション（リポジトリのルートの CONTRIBUTING.md。2026-10-16 にルートの README から移った）に
     綴りのまま載る——載っていなければ宣言できることが伝わらない"""
     doc = (pathlib.Path(PLUGIN).parent / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert all(f'"{k}"' in doc for k in declared.STEP_OPTIONAL_KEYS)
@@ -130,7 +130,7 @@ def test_refusal_rejects_steps_that_differ_from_root_declaration(tmp_path):
 
 
 def test_refusal_reads_the_declaration_at_root_not_a_board_field(tmp_path):
-    """突き合わせる宣言は呼び元が渡すルートの物だけ——盤面に書ける欄（launch.cwd）が指す別の場所の宣言は読まない"""
+    """突き合わせる宣言は呼び元が渡すルートの物だけ——盤面に書けるフィールド（launch.cwd）が指す別の場所の宣言は読まない"""
     root = repo(tmp_path / "repo")
     evil = [{"name": "evil", "argv": ["sh", "-c", "true"]}]
     elsewhere = repo(tmp_path / "elsewhere", steps=evil)

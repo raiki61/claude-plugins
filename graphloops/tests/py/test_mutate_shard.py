@@ -1,6 +1,6 @@
-"""変異の実行器（リポジトリの根の tests/mutate.py）の組（--shard）と和の検算（--merge）。CI の mutation.yml は腕を OS ごとに組に
-分けて撃ち、組の報告をまとめてから関門と --same-as に渡すので、欠け・食い違い・重なりを健全と言わないことと、まとめた報告が
-1 本で撃った報告と同じ欄を持つことを縛る"""
+"""変異の実行器（リポジトリのルートの tests/mutate.py）の組（--shard）と和の検算（--merge）。CI の mutation.yml は腕を OS ごとに組に
+分けて撃ち、組の報告をまとめてからゲートと --same-as に渡すので、欠け・食い違い・重なりを健全と言わないことと、まとめた報告が
+1 本で撃った報告と同じフィールドを持つことを縛る"""
 import copy
 import importlib.util
 import json
@@ -187,7 +187,7 @@ def _evaluated(ids):
 
 @pytest.mark.small
 def test_the_sum_of_the_shards_reads_like_one_run():
-    """組ごとに評価して和の規則でまとめた summary が、全腕を 1 回で評価した summary と同じ（和の規則が欄を取り違えない）"""
+    """組ごとに評価して和の規則でまとめた summary が、全腕を 1 回で評価した summary と同じ（和の規則がフィールドを取り違えない）"""
     ids = [r["id"] for r in ROWS]
     whole = _evaluated(ids)["summary"]
     merged = mutate.merge_reports([(f"s{k}", {**_evaluated(mutate.shard_of(ids, k, 2)), "schemaVersion": "1", "rev": "r", "pruned": [],
@@ -198,7 +198,7 @@ def test_the_sum_of_the_shards_reads_like_one_run():
 
 
 def _main(monkeypatch, *argv):
-    """main を argv で起こして終了コードを返す（撃つ段の前で抜ける道だけ。main が書き換える大域は戻す）"""
+    """main を argv で起動して終了コードを返す（撃つ段の前で抜ける道だけ。main が書き換える大域は戻す）"""
     for name in ("ARMS_FILE", "CONFIRM", "FRESH", "PYTEST_STAGE"):
         monkeypatch.setattr(mutate, name, getattr(mutate, name))
     monkeypatch.setattr(sys, "argv", ["mutate.py", *argv])
@@ -354,7 +354,7 @@ def mutation_workflow_problems(text, test_yml):
         if "continue-on-error" in body:
             probs.append(f"{name} の job に continue-on-error が在る")
     if not re.search(r"^        run: python tests/mutate\.py --merge shards/\*/shard\.json --out mutation-report\.json$", jobs.get("merge", ""), re.M):
-        probs.append("まとめる段の run が --merge だけでない（終了コードを捨てると関門が消える）")
+        probs.append("まとめる段の run が --merge だけでない（終了コードを捨てるとゲートが消える）")
     same = jobs.get("same-as", "")
     steps = same.split("\n      - ")[1:]
     if not re.search(r"^    needs: merge$", same, re.M):

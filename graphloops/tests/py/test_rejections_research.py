@@ -1,6 +1,6 @@
 """research-loop の否定検査（graphloops/tests/simulate.py の test_rejections を、控えた波・1 手・手で書いた期待へ移した物）。
 
-盤面を使う検査は waves.py が控えた波から始めて 1 手を打つ（medium）。材料の上限（slim_item）と直読みの柵の標本・走査は、盤面を
+盤面を使う検査は waves.py が控えた波から始めて 1 手を打つ（medium）。材料の上限（slim_item）と直読みのチェックの標本・走査は、盤面を
 歩かずに engine の部品と engine・rules のソースを直に見る（small）。移した元の check は ``moved_from`` の印が名乗る（台帳は ledger.py）。
 """
 import json
@@ -41,8 +41,8 @@ def _init_without_document(run, *extra):
 
 
 @pytest.mark.medium
-@moved("research を --document 無しで init すると入口で落ち、要る節と穴を名指しする",
-       kept="子プロセスとして起こした loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（__main__ の写像）")
+@moved("research を --document 無しで init すると入口で落ち、要るノードと穴を名指しする",
+       kept="子プロセスとして起動した loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（__main__ の写像）")
 def test_init_without_document_names_the_node_and_hole(wave):
     r = _init_without_document(wave("research/neg/init").run)
     assert r.returncode != 0
@@ -50,7 +50,7 @@ def test_init_without_document_names_the_node_and_hole(wave):
 
 
 @pytest.mark.medium
-@moved("実在しない --document も入口で落ちる", kept="子プロセスとして起こした loop.py init の argv と終了コード")
+@moved("実在しない --document も入口で落ちる", kept="子プロセスとして起動した loop.py init の argv と終了コード")
 def test_init_with_missing_document_fails_at_the_entrance(wave):
     run = wave("research/neg/init").run
     r = _init_without_document(run, "--document", str(run.tmp / "no-such.md"))
@@ -61,7 +61,7 @@ def test_init_with_missing_document_fails_at_the_entrance(wave):
 # ---- P0 の 1 波目（p0.question） -------------------------------------------------------------------------------------
 
 @pytest.mark.medium
-@moved("最初の節は p0.question（回す側）")
+@moved("最初のノードは p0.question（回す側）")
 def test_first_node_is_the_runner_question(wave):
     q = wave("research/neg/init").run.next()["ready"][0]
     assert q["node"] == "p0.question" and q["mode"] == "runner"
@@ -71,7 +71,7 @@ def test_first_node_is_the_runner_question(wave):
 @moved("型に合わない返答は exit 1")
 def test_reply_outside_the_schema_is_rejected(wave):
     w = wave("research/neg/q")
-    rejected(w.run.done(w.pending()["p0.question"]["id"], {"question": "x"}), "必須の欄")
+    rejected(w.run.done(w.pending()["p0.question"]["id"], {"question": "x"}), "必須のフィールド")
 
 
 @pytest.mark.medium
@@ -90,14 +90,14 @@ def test_correct_reply_is_accepted(wave):
 
 
 @pytest.mark.medium
-@moved("同じ節に 2 回 done は exit 1")
+@moved("同じノードに 2 回 done は exit 1")
 def test_second_done_on_the_same_node_is_rejected(wave):
     run = wave("research/neg/q-done").run
     rejected(run.done("p0.question", std(run, "p0.question")), "既に")
 
 
 @pytest.mark.medium
-@moved("optional でない節は省けない")
+@moved("optional でないノードは省けない")
 def test_non_optional_node_cannot_be_skipped(wave):
     rejected(wave("research/neg/q-done").run.cmd("skip", "--node", "p0.claims", "--reason", "面倒"), "optional でない")
 
@@ -157,21 +157,21 @@ def _second_wave_prompt(wave, node):
 
 
 @pytest.mark.medium
-@moved("回す側の節には文書のパスが渡り、本文は貼られない")
+@moved("回す側のノードには文書のパスが渡り、本文は貼られない")
 def test_runner_node_gets_the_document_path_not_its_body(wave):
     body, doc = _second_wave_prompt(wave, "p0.claims")
     assert doc in body and "主張 A・B・C・D" not in body
 
 
 @pytest.mark.medium
-@moved("同じ波の 2 節目（p0.terms）も本文を貼らない")
+@moved("同じ波の 2 つ目のノード（p0.terms）も本文を貼らない")
 def test_second_runner_node_of_the_wave_does_not_paste_the_body(wave):
     body, doc = _second_wave_prompt(wave, "p0.terms")
     assert doc in body and "主張 A・B・C・D" not in body
 
 
 @pytest.mark.medium
-@moved("前の節の出力の穴が埋まっている")
+@moved("前のノードの出力の穴が埋まっている")
 def test_holes_from_earlier_outputs_are_filled(wave):
     body, _ = _second_wave_prompt(wave, "p0.claims")
     assert "open_questions" not in body or "[]" in body or "この周には無い" in body
@@ -206,7 +206,7 @@ def test_checkers_fan_out_per_cluster(wave):
 
 
 @pytest.mark.medium
-@moved("材料の正本（items/ のファイル）に材料の欄が在る")
+@moved("材料の正本（items/ のファイル）に材料のフィールドが在る")
 def test_item_file_keeps_the_material(wave):
     assert "claims" in load_item(_checkers(wave)["c1"])
 
@@ -219,7 +219,7 @@ def test_fat_material_is_under_the_limit_in_chars_and_over_in_bytes(wave):
 
 
 @pytest.mark.medium
-@moved("太い材料の長い欄は instance から落ち、短い欄（key）は残る")
+@moved("太い材料の長いフィールドは instance から落ち、短いフィールド（key）は残る")
 def test_long_field_of_a_fat_item_is_dropped_from_the_instance(wave):
     c1 = _checkers(wave)["c1"]
     assert c1.get("item_omitted") == ["claims"]
@@ -227,7 +227,7 @@ def test_long_field_of_a_fat_item_is_dropped_from_the_instance(wave):
 
 
 @pytest.mark.medium
-@moved("短い材料は落ちず、落ちた欄が無いことも欄で言う")
+@moved("短い材料は落ちず、落ちたフィールドが無いこともフィールドで言う")
 def test_short_item_keeps_everything_and_says_so(wave):
     c2 = _checkers(wave)["c2"]
     assert c2.get("item_omitted") == [] and c2["item"].get("claims")
@@ -273,7 +273,7 @@ def test_checker_returning_an_id_it_was_not_given_is_rejected(wave):
 
 
 @pytest.mark.medium
-@moved("語彙に無い判定語は節の schema")
+@moved("語彙に無い判定語はノードの schema")
 def test_verdict_outside_the_vocabulary_is_rejected(wave):
     run = wave("research/neg/w5").run
     rejected(run.done("p1.checker[c1]", {"cluster": "c1", "findings": [{"id": "A", "verdict": "たぶん", "evidence": "e", "sources": ["https://x"],
@@ -318,7 +318,7 @@ def test_discrepancy_without_correction_is_rejected(wave):
 
 
 @pytest.mark.medium
-@moved("欄が揃えば通る")
+@moved("フィールドが揃えば通る")
 def test_complete_discrepancy_is_accepted(wave):
     r = wave("research/neg/w6").run.done("p1.checker[c1]#2", waves.CHECKER_B_CORRECTED)
     assert r.returncode == 0, r.stderr[-300:]
@@ -360,21 +360,21 @@ def test_slim_item_never_drops_the_key():
 
 
 @pytest.mark.small
-@moved("欄ごとに上限未満でも合計が超えれば大きい順に逃がす")
+@moved("フィールドごとに上限未満でも合計が超えれば大きい順に逃がす")
 def test_slim_item_bounds_the_total():
     slim, omitted = slim_item({"key": "c1", **{f"f{i}": "あ" * 200 for i in range(4)}})
     assert len(dump(slim).encode("utf-8")) <= ITEM_INLINE and omitted
 
 
 @pytest.mark.small
-@moved("大きい欄 1 つを落とせば収まる材料は、その 1 つだけが落ちる")
+@moved("大きいフィールド 1 つを落とせば収まる材料は、その 1 つだけが落ちる")
 def test_slim_item_drops_the_biggest_field_first():
     slim, omitted = slim_item({"key": "c1", "small": "あ" * 10, "mid": "あ" * 60, "big": "あ" * 400})
     assert omitted == ["big"] and {"key", "small", "mid"} <= set(slim)
 
 
-# ---- instance の item を直読みしない柵（標本と engine・rules の走査） --------------------------------------------------------
-# 綴りと許しは台本の test_rejections の柵をこちらへ移した物（閉じ括弧まで綴りに入れない・拾わない形も標本で言う理由は台本の注記）
+# ---- instance の item を直読みしないチェック（標本と engine・rules の走査） --------------------------------------------------------
+# 綴りと許しは台本の test_rejections のチェックをこちらへ移した物（閉じ括弧まで綴りに入れない・拾わない形も標本で言う理由は台本の注記）
 
 SPELLINGS = ('["item"]', "['item']", '.get("item"', ".get('item'")
 ALLOW = ('inst["item"], omitted = slim_item(item)', 'return inst.get("item")')
@@ -391,7 +391,7 @@ def flags(line):
 
 
 @pytest.mark.small
-@moved("柵は 6 綴りとも拾う")
+@moved("チェックは 6 綴りとも拾う")
 def test_fence_catches_all_six_spellings():
     assert [ln for ln in CAUGHT if flags(ln)] == list(CAUGHT)
 

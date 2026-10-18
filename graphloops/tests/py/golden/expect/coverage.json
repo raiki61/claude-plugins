@@ -371,7 +371,7 @@
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "spec_freeze": {
-    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起動する・録った git に無い）"
    },
    "worktree_compare": {
     "covered": [
@@ -772,7 +772,7 @@
     "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "scalars": {
-    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起動する・録った git に無い）"
    },
    "spec_approve": {
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
@@ -787,10 +787,10 @@
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "tdd_red": {
-    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起動する・録った git に無い）"
    },
    "tdd_start": {
-    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起動する・録った git に無い）"
    },
    "worktree_compare": {
     "uncovered": "片側だけ（見えた結果: ok=True）"

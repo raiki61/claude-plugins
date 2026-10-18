@@ -1,5 +1,5 @@
 """台本を組（shard）に分けて CI の別々の job で回す口（graphloops/tests/parallel.py の shard_spec・assign・aggregate・merge）の単体の検査。
-組に分けた実物の回（CI の test job と shards job）は push した枝の CI で見る。"""
+組に分けた実物の回（CI の test job と shards job）は push したブランチの CI で見る。"""
 import json
 
 import parallel

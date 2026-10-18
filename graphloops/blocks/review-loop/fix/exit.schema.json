@@ -1,5 +1,5 @@
 {
- "description": "R6 修正 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "description": "R6 修正 の出口: ほかのブロックのノードが読むノード（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、ノードの名前を鍵に並べる。graph のノードの schema はここを $ref で指す（正本はここだけ）",
  "type": "object",
  "additionalProperties": false,
  "properties": {
@@ -104,7 +104,7 @@
           "type": "string"
          }
         },
-        "note": "覆いの母数。how＝同じ形を全部引ける機械の問い。**判定者が class_query を持つ単位は how を書かなくてよい**——書かなければ engine が判定者の how を補い、取りこぼしていると思うときだけ作り直した how を書く。判定者が class_query を持たない単位だけ how と counts を書く。**修正の前後の件数は engine が数える**——修正前は判定者が読んだのと同じ固定の版で、修正後は同じ世界（未追跡も含め、.gitignore に当たる物は外す）で。向き（counts）は判定者の値を使い、判定者が class_query を持たない単位だけこの欄の counts を使う。件数（total）は書かない——engine が数える。**塞いだ数は closure.sites から機械が数える**。sites が母数に届かないなら remaining に残した理由を書く（how を書かずに remaining だけでもよい）"
+        "note": "覆いの母数。how＝同じ形を全部引ける機械の問い。**判定者が class_query を持つ単位は how を書かなくてよい**——書かなければ engine が判定者の how を補い、取りこぼしていると思うときだけ作り直した how を書く。判定者が class_query を持たない単位だけ how と counts を書く。**修正の前後の件数は engine が数える**——修正前は判定者が読んだのと同じ固定の版で、修正後は同じ世界（未追跡も含め、.gitignore に当たる物は外す）で。向き（counts）は判定者の値を使い、判定者が class_query を持たない単位だけこのフィールドの counts を使う。件数（total）は書かない——engine が数える。**塞いだ数は closure.sites から機械が数える**。sites が母数に届かないなら remaining に残した理由を書く（how を書かずに remaining だけでもよい）"
        },
        "root_or_symptom": {
         "type": "object",
@@ -126,7 +126,7 @@
           "minLength": 1
          }
         },
-        "note": "判定者が名指した根に対して、この修正は根を塞いだのか症状を塞いだのか。symptom なら why に「なぜ今それで止めるか」（根に当てるのが設計作業だから等）"
+        "note": "判定者が名指した根本に対して、この修正は根本を塞いだのか症状を塞いだのか。symptom なら why に「なぜ今それで止めるか」（根本に当てるのが設計作業だから等）"
        },
        "bypass_tried": {
         "type": "string",
@@ -186,7 +186,7 @@
         "note": "この修正の先行例。from_judge_row: true＝判定者の先行例の行（process.precedents の同じ unit_key の行）をそのまま採った（verdict はその行の値）。そうでなければ problem と source（not_found なら searched）が要る。機構を新しく作るなら、世界の解が無い・使えない理由を reason に出典つきで。problem の下限（4 字）は rules の fix_covers_open_units が持つ——from_judge_row が真なら要らない条件付きの必須で、engine の型検査に if/then が無いので schema には書かない"
        }
       },
-      "note": "files は、その修正で実際に触ったファイルのリポジトリ相対パス。持ち越し（carried_over）の再発火は役の自己申告 1 欄でなくこれで決める——前の周の P3 が素材の見る対象を直したのに再発火せず、閉じた欠陥が次の周に新規の [block] として生き返った（実測 2026-09-12: p1.provenance が carried_over のまま r1 の主張を運んだ）"
+      "note": "files は、その修正で実際に触ったファイルのリポジトリ相対パス。持ち越し（carried_over）の再発火は役の自己申告 1 フィールドでなくこれで決める——前の周の P3 が素材の見る対象を直したのに再発火せず、閉じた欠陥が次の周に新規の [block] として生き返った（実測 2026-09-12: p1.provenance が carried_over のまま r1 の主張を運んだ）"
      }
     },
     "not_done": {
@@ -315,7 +315,7 @@
          "file",
          "text"
         ],
-        "note": "file はファイルそのものを指した指し（『docs/foo.md を見よ』）——engine は target が版に在るかだけを見る。text はファイルの中の節名・見出し・引用を指した指し——cite が target の中に在るかを数える"
+        "note": "file はファイルそのものを指した指し（『docs/foo.md を見よ』）——engine は target が版に在るかだけを見る。text はファイルの中のセクション名・見出し・引用を指した指し——cite が target の中に在るかを数える"
        },
        "cite": {
         "type": "string",
@@ -333,11 +333,11 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 300,
-        "note": "その指しを**書き込んだファイル**（target と同じ規律: リポジトリ相対の正規形で、版に入るファイル。外れていれば拒む）。target と同じファイルなら（目次から本文の節へ、など）そう書けばよい——拒まれない。ただし書いた行そのものに cite が当たって通るので、engine はその行に印を付けて次の周の判定役に見せる"
+        "note": "その指しを**書き込んだファイル**（target と同じ規律: リポジトリ相対の正規形で、版に入るファイル。外れていれば拒む）。target と同じファイルなら（目次から本文のセクションへ、など）そう書けばよい——拒まれない。ただし書いた行そのものに cite が当たって通るので、engine はその行に印を付けて次の周の判定役に見せる"
        }
       }
      },
-     "note": "**この周に新しく書いた指しのうち申告したもの**（engine が引くのは申告された行だけ。Markdown のリンクは申告に依らず差分から拾って引く（拾う形の範囲は rules の MD_LINK の注記））（他の文書の節名・見出し・ファイル名・引用）1 件につき 1 行。kind（file か text）・target（指しているファイル）・where（書き込んだファイル）を出し、text なら cite（書いた字列）も出す。engine は file なら target が版に在るかを、text なら**その target の中だけ**に cite が在るかを引き直し、無ければ done を拒む（指し先のファイルが版に無い回は別の文で拒む）。cite は 1 行 1 件。他所から写したものも含めて挙げる。新しい指しを書いていない周は空配列"
+     "note": "**この周に新しく書いた指しのうち申告したもの**（engine が引くのは申告された行だけ。Markdown のリンクは申告に依らず差分から拾って引く（拾う形の範囲は rules の MD_LINK の注記））（他の文書のセクション名・見出し・ファイル名・引用）1 件につき 1 行。kind（file か text）・target（指しているファイル）・where（書き込んだファイル）を出し、text なら cite（書いた字列）も出す。engine は file なら target が版に在るかを、text なら**その target の中だけ**に cite が在るかを引き直し、無ければ done を拒む（指し先のファイルが版に無い回は別の文で拒む）。cite は 1 行 1 件。他所から写したものも含めて挙げる。新しい指しを書いていない周は空配列"
     },
     "plan_faces": {
      "type": "array",

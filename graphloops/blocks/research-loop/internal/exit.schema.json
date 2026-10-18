@@ -1,5 +1,5 @@
 {
- "description": "S4 内部の突合 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "description": "S4 内部の突合 の出口: ほかのブロックのノードが読むノード（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、ノードの名前を鍵に並べる。graph のノードの schema はここを $ref で指す（正本はここだけ）",
  "type": "object",
  "additionalProperties": false,
  "properties": {

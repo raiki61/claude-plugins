@@ -5,7 +5,7 @@
   （pytest_itemcollected。-k などで選び外す前）。``kept`` は同じプロセスの検査では見えない物を通し（台本）に残す理由
 - 台本→移し先の対応の正本はこの印 1 つ。見張る台本は、印が名乗る台本と、**基の git の版**の MIGRATION.md の刷った塊に載っていた
   台本の和から、今の文書の「外した台本」の一覧に在る物を引いた集合。基の版と比べるのは、同じ変更で書き換えられる今の文書と比べると、
-  塊の節を消すか刷り直して貼るだけで見張りから外れるから（buf breaking の against と同じ向き）。基は GL_LEDGER_BASE（CI が PR の基か
+  塊のセクションを消すか刷り直して貼るだけで見張りから外れるから（buf breaking の against と同じ向き）。基は GL_LEDGER_BASE（CI が PR の基か
   push の直前の版を渡す）、無ければ HEAD と main との merge-base の両方。基を引けない checkout と変異の実行器の写しの中では、見張りの
   突合を見送り、見送りの行（SKIP ledger-base）を出す
 - 台本の側の正本は台本の本文: 名指しした関数の中の ``check(条件, 説明)`` を ast で全部並べ、説明の頭（字列の定数か、f 字列の
@@ -160,7 +160,7 @@ def script_checks(script):
     return checks_in(func)
 
 
-# MIGRATION.md の刷った塊の中の台本の見出しと、「外した台本」の節の 1 行（- `<台本>`: <理由>）
+# MIGRATION.md の刷った塊の中の台本の見出しと、「外した台本」のセクションの 1 行（- `<台本>`: <理由>）
 SCRIPT_HEADING = re.compile(r"^#### (\S+)$", re.M)
 REMOVED_ROW = re.compile(r"^- `([^`]+)`: \S", re.M)
 
@@ -177,7 +177,7 @@ def _git(root, *args):
 
 
 def base_revs(root):
-    """前の版として読む基の版: GL_LEDGER_BASE（すべて 0 の sha は無いと読む——新しい枝の最初の push）、無ければ HEAD と main との merge-base。
+    """前の版として読む基の版: GL_LEDGER_BASE（すべて 0 の sha は無いと読む——新しいブランチの最初の push）、無ければ HEAD と main との merge-base。
     merge-base を origin/main からも main からも引けなければ空（HEAD だけを基にすると、作業ツリーを HEAD と比べるだけの自己比較になり、
     commit 済みの外しを赤にも見送りにもせず黙って通す——呼び元が見送りの行を出す）"""
     named = os.environ.get(BASE_ENV, "").strip()
@@ -211,7 +211,7 @@ def _format(src):
 
 
 def watched_at(root, rev, here=None):
-    """基の版 rev の塊に載っていた台本（here はリポジトリの根からこの置き場への道）。rev を引けなければ None。塊の約束を持つ版
+    """基の版 rev の塊に載っていた台本（here はリポジトリのルートからこの置き場への道）。rev を引けなければ None。塊の約束を持つ版
     （ledger.py が BEGIN を持つ）なのに MIGRATION.md の塊の印が読めなければ ValueError（『まだ約束が無い』と『読めない』を分ける。
     見出しは基の版の形で読むので、印の間に見出しが 0 なのは台本を全部外した後の本当に空の塊）"""
     if _git(root, "rev-parse", "--verify", "-q", f"{rev}^{{commit}}").returncode != 0:
@@ -248,7 +248,7 @@ def skip_line(why):
 
 
 def removed(text):
-    """「外した台本」の節に 1 行を持つ台本（追記だけの一覧。見張りから外す唯一の口）"""
+    """「外した台本」のセクションに 1 行を持つ台本（追記だけの一覧。見張りから外す唯一の口）"""
     part = text.split("\n## 外した台本", 1)
     if len(part) < 2:
         return set()

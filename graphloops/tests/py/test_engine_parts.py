@@ -68,12 +68,12 @@ def exact_pad():
 
 def test_item_exactly_inline_limit_is_kept():
     n, omitted = slim_len(exact_pad())
-    assert n == ITEM_INLINE and not omitted, f"{n} バイト・落とした欄 {omitted}（> と >= の取り違えがここで出る）"
+    assert n == ITEM_INLINE and not omitted, f"{n} バイト・落としたフィールド {omitted}（> と >= の取り違えがここで出る）"
 
 
 def test_item_one_byte_over_inline_limit_drops_the_field():
     n, omitted = slim_len(exact_pad() + 1)
-    assert omitted == ["v"], f"{n} バイト・落とした欄 {omitted}"
+    assert omitted == ["v"], f"{n} バイト・落としたフィールド {omitted}"
 
 
 # --- 手当ての口（set_path・del_path）は読める綴りだけを受けて、当たらないなら落ちる（test_set_path から）。
@@ -115,7 +115,7 @@ def test_bracket_spelling_does_not_create_a_key():
 
 
 def test_set_path_creates_one_leaf_under_existing_dict():
-    """葉の新設（作成枝）。腕が無かったとき、作成枝を丸ごと KeyError に差し替える 1 行の退行が一式を緑のまま通った（実測 2026-09-16）"""
+    """葉の新設（作成の分岐）。腕が無かったとき、作成の分岐を丸ごと KeyError に差し替える 1 行の退行が一式を緑のまま通った（実測 2026-09-16）"""
     d = board()
     set_path(d, "materials.local_review", {"status": "clean"})
     assert get_path(d, "materials.local_review") == {"status": "clean"}
@@ -270,7 +270,7 @@ def test_prose_with_braces_shows_whole_text_failed_from_the_start():
     assert "全文そのまま: Expecting value" in str(e.value)
 
 
-# 空は候補を出す前に落とす（候補は無条件に全文を 1 本出すので、後ろで「候補が 0 本」を見る枝は到達しない。実測 2026-09-15）
+# 空は候補を出す前に落とす（候補は無条件に全文を 1 本出すので、後ろで「候補が 0 本」を見る分岐は到達しない。実測 2026-09-15）
 @pytest.mark.parametrize("empty", ["", "   ", "\n\n"], ids=["empty", "spaces", "newlines"])
 def test_empty_reply_says_only_that_it_is_empty(empty):
     with pytest.raises(Reject) as e:

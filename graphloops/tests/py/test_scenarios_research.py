@@ -41,7 +41,7 @@ S = "simulate.test_attended_stuck_answer"
 history("research/ask", init("ask"), until("stuck", mark="asked"), cmd("answer", "--text", "escalate", mark="answer"),
         cmd("status", mark="status"), nxt(mark="next"))
 ATTENDED_STUCK = [
-    row(S, "人に聞く番になる", "research/ask", "asked",
+    row(S, "人に聞くターンになる", "research/ask", "asked",
         lambda s: s.reply["status"] == "awaiting_human" and "stuck" in s.reply["ask"]["kinds"], id="asks-human"),
     row(S, "answer escalate が通る", "research/ask", "answer", lambda s: s.reply.returncode == 0, id="escalate-accepted"),
     row(S, "重厚で 3 周目に入る: ", "research/ask", "status", lambda s: (g := s.reply.json())["thickness"] == "重厚" and g["round"] == 3,
@@ -156,7 +156,7 @@ history("research/finalize-early", init("finalize-early"), until("std", stop=AT_
 
 
 def _unchanged_by_early_finalize(s):
-    """盤面から写し直す痕跡の欄は足されてよい"""
+    """盤面から写し直す痕跡のフィールドは足されてよい"""
     before, after = s.got["before"]["record"], rec(s)
     mirrored = {f for f, _ in TRACES} | {"skipped", "stopped_nodes", "launch_missing", "read_through_unchecked"}
     for k in (set(after["process"]) - set(before["process"])) & mirrored:
@@ -168,7 +168,7 @@ STOP_MIDWAY = [
     row(S, "止める: 止めた時点で convergence に理由が入る", "research/stop-mid", "stop",
         lambda s: s.reply.returncode == 0 and rec(s)["convergence"]["outcome"] == "stopped"
         and "検査: 照合の前で止める" in rec(s)["convergence"]["stopped_reason"], id="reason-in-convergence"),
-    row(S, "止める: 次の next は後始末の節だけを出す", "research/stop-mid", "next", lambda s: [i["node"] for i in s.reply["ready"]] == ["p5.adapt"],
+    row(S, "止める: 次の next は後始末のノードだけを出す", "research/stop-mid", "next", lambda s: [i["node"] for i in s.reply["ready"]] == ["p5.adapt"],
         id="next-is-adapt-only"),
     row(S, "止める: 報告まで届き、記録は検証器を通る", "research/stop-mid", "validate",
         lambda s: s.got["end"]["status"] == "stopped" and s.board.has("report.md") and s.reply.returncode == 0
@@ -176,7 +176,7 @@ STOP_MIDWAY = [
         id="report-and-validator"),
     row(S, "止める: 照合の前に止めたので主張とクラスタは空で", "research/stop-mid", "validate",
         lambda s: set(rec(s)["process"].get("stopped_gaps") or {}) == {"claims", "clusters"}, id="stopped-gaps"),
-    row(S, "止める: 最初の節の前に止めても報告まで届き", "research/stop-first", "end",
+    row(S, "止める: 最初のノードの前に止めても報告まで届き", "research/stop-first", "end",
         lambda s: s.got["stop"].returncode == 0 and s.board.has("report.md")
         and {"question", "constraints", "clusters", "claims"} <= set(rec(s)["process"].get("stopped_gaps") or {}), id="stop-before-first-node"),
     row(S, "途中の finalize: 記録を書き換えず、未決として exit 1", "research/finalize-early", "finalize", _unchanged_by_early_finalize,

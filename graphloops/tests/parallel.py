@@ -24,27 +24,27 @@ import threading
 import traceback
 
 # 件数（ran）と失敗一覧の共有更新を守る。**`ran += 1` は不可分ではない**——素で並列にすると
-# 数え落とし、件数の柵（run.sh の EXPECTED_CHECKS）が走るたび違う値で赤くなる（＝柵が信用できなくなる）。
+# 数え落とし、件数のチェック（run.sh の EXPECTED_CHECKS）が走るたび違う値で赤くなる（＝チェックが信用できなくなる）。
 LOCK = threading.Lock()
 
 _buf = threading.local()
 
 
 SKIP_MARK = " # SKIP"   # 見送りの行の印（TAP 14 の SKIP 指示子）。root の tests/run.sh の note_skips がこの印で拾う
-# engine が起こした子の環境の印（run_all が読む）。名前の正本は engine/role_run.py の ENGINE_CHILD_ENV（揃いは test_engine_guards が縛る）
+# engine が起動した子の環境の印（run_all が読む）。名前の正本は engine/role_run.py の ENGINE_CHILD_ENV（揃いは test_engine_guards が縛る）
 ENGINE_CHILD = "GRAPHLOOPS_ENGINE_CHILD"
 
 
 def skip_line(desc, capability, reason):
     """環境で走れなかった検査の 1 行。**合格の行と別の印を付け、欠けた能力の名前（capability。小文字・数字・- の 1 語）を
-    説明文の頭に置く**——合格と同じ『ok』だけで出していたとき、道具や OS の機能の無い CI が走らないまま緑になり、柵にも
+    説明文の頭に置く**——合格と同じ『ok』だけで出していたとき、ツールや OS の機能の無い CI が走らないまま緑になり、チェックにも
     CI にも止める口が無かった。拾って数え、一覧にし、名前で許すか決めて FAIL_ON_SKIP=1 で失敗に数えるのは root の
     tests/run.sh の 1 か所だけ（層ごとに一覧を作ると同じ見送りを二重に数える。名前の形を見るのもそこだけ）"""
     return f"  ok   {desc}{SKIP_MARK} {capability}: {reason}"
 
 
 def line(text):
-    """1 行を、その台本のまとまりに溜める。直列（溜め先が無い）ときは素通しで出す。"""
+    """1 行を、その台本のまとまりに溜める。直列（溜める先が無い）ときは素通しで出す。"""
     buf = getattr(_buf, "lines", None)
     if buf is None:
         print(text)
@@ -56,26 +56,26 @@ def collect(ns):
     """モジュールに在る `test_*` を**定義順に全部**集める。`parallel.collect(globals())` で呼ぶ。
 
     **手で並べない。** 並べていたとき、台本を足して呼び出しを書き忘れると誰も気づかなかった
-    ——呼ばれない台本は件数を増やさないので、件数の柵（EXPECTED_CHECKS）は期待値と一致したまま緑になる。
+    ——呼ばれない台本は件数を増やさないので、件数のチェック（EXPECTED_CHECKS）は期待値と一致したまま緑になる。
     graph を名前で並べていて 5 本目が誰にも検査されなかったのと同じ穴（2026-09-13 に同種を 2 か所で潰した）。
 
-    件数の柵は捨てない——こちらは「足した台本が走らない」を、柵は「台本や検査が消えた」を見る。
+    件数のチェックは捨てない——こちらは「足した台本が走らない」を、チェックは「台本や検査が消えた」を見る。
     見ている向きが逆なので両方要る。
     """
     tests = [v for k, v in ns.items()
              if k.startswith("test_") and callable(v) and getattr(v, "__module__", None) == ns.get("__name__")]
     # **GL_TEST_ONLY=名前,名前 で台本を絞る**（変異の腕を撃つ実行器 tests/mutate.py が、腕に関係する台本だけを
-    # 走らせるため）。絞った回は件数の柵が合わないので run.sh を通さずに呼ぶ
+    # 走らせるため）。絞った回は件数のチェックが合わないので run.sh を通さずに呼ぶ
     only = os.environ.get("GL_TEST_ONLY")
     if only:
         want = set(only.split(","))
         tests = [v for v in tests if v.__name__ in want]
-        if not tests:   # 当たらない名前を 0 本のまま緑にしない（全台本の検査を外した回は母数 0 の柵が効かない）
+        if not tests:   # 当たらない名前を 0 本のまま緑にしない（全台本の検査を外した回は母数 0 のチェックが効かない）
             print(f"  FAIL GL_TEST_ONLY（{only}）に当たる台本が 1 本も無い")
             raise SystemExit(1)
     spec = shard_spec()
     if spec:
-        if only:   # 2 つの絞りを重ねると、どちらの柵も合わない回が生まれる
+        if only:   # 2 つの絞りを重ねると、どちらのチェックも合わない回が生まれる
             print("  FAIL GL_TEST_ONLY と組の指定（GL_SHARD_TOTAL）は同時に使えない")
             raise SystemExit(1)
         tests = assign(tests, spec["index"], spec["total"])
@@ -83,7 +83,7 @@ def collect(ns):
 
 
 def workspace(prefix):
-    """作業場を 1 つ作り、`(持ち手, パス)` を返す。**後始末は標準ライブラリに任せる。**
+    """作業場を 1 つ作り、`(ハンドル, パス)` を返す。**後始末は標準ライブラリに任せる。**
 
     以前は `mkdtemp` ＋ モジュール変数の集合（MADE）＋ `atexit` で「落ちた回も消す」を自作していた。
     それは `tempfile.TemporaryDirectory` の再実装で（`weakref.finalize` が、正常終了・未捕捉例外・
@@ -93,7 +93,7 @@ def workspace(prefix):
     `ignore_cleanup_errors=True` は Windows 対策でもある: git が object を読み取り専用で置くので、
     素の rmtree は PermissionError で落ちる（実測: CI の windows-latest）。掃除の失敗で検査を落とさない。
 
-    **持ち手（第 1 要素）を捨てると、その場で作業場が消える**——呼ぶ側は検査の間だけ生きる変数に受けろ。
+    **ハンドル（第 1 要素）を捨てると、その場で作業場が消える**——呼ぶ側は検査の間だけ生きる変数に受けろ。
     """
     td = tempfile.TemporaryDirectory(prefix=prefix + _test_tag(), ignore_cleanup_errors=True)
     return td, pathlib.Path(td.name)
@@ -116,11 +116,11 @@ def rm(p):
     shutil.rmtree(p, ignore_errors=True)
 
 
-# 固定具の子の寿命を、起こした台本のプロセスの生存に縛る口（POSIX）。台本が排他ロックを握り、子はその共有ロックを待つだけの
+# 固定具の子の寿命を、起動した台本のプロセスの生存に縛る口（POSIX）。台本が排他ロックを握り、子はその共有ロックを待つだけの
 # 1 行（hold_code）で眠る。台本が終わる・SIGKILL で消える（変異の実行器が failfast・時間切れでグループごと殺す回）とカーネルが
 # ロックを離し、子は取れた所で終わる——台本の後始末（finally・ExitStack）は SIGKILL の下では走らず、グループ・セッションを
 # 抜けた子には実行器の killpg も届かないので、時間で待たせていた頃は抜けた子が寿命いっぱい残った。engine が標準入力を閉じて
-# 起こす子（run_tree・run_steps・run_role の先）は標準入力の EOF で縛れないので、この口を使う（台本が自分で起こす子は
+# 起動する子（run_tree・run_steps・run_role の先）は標準入力の EOF で縛れないので、この口を使う（台本が自分で起動する子は
 # stdin=PIPE の EOF で縛る）。番号で信号を送る後始末は足さない（止めた後に再利用された番号へ届く）
 _HELD = []
 
@@ -138,7 +138,7 @@ def creator_lock(dir):
 
 
 def hold_code(secs, first=""):
-    """固定具の子の本文（python -c <本文> <ロックの置き場>）: 起こした台本がロックを離すまで待つ。secs は今までの寿命の上限を
+    """固定具の子の本文（python -c <本文> <ロックの置き場>）: 起動した台本がロックを離すまで待つ。secs は今までの寿命の上限を
     そのまま残す——止める側の欠陥で子が止まらない回に、子を待つ検査が赤にならず待ち続けないため（上限を足すのではない）。
     first は待つ前に呼ぶ文（グループを抜ける os.setpgid(0, 0) など）。引用符を含まないので sh の引用の中にも置ける"""
     return (f"import fcntl, os, signal, sys; {first}signal.alarm({int(secs)}); "
@@ -146,7 +146,7 @@ def hold_code(secs, first=""):
 
 
 # 走っている台本の名前。変異の実行器（tests/mutate.py の marker_run）が、印を書いた行を『どの台本が通したか』に帰属させる口。
-# 同じプロセスの中はスレッドの名前（TEST_THREAD の接頭辞）で、台本が起こした子のプロセスは作業場の名前の印（TAG）で見分ける
+# 同じプロセスの中はスレッドの名前（TEST_THREAD の接頭辞）で、台本が起動した子のプロセスは作業場の名前の印（TAG）で見分ける
 # ——子の起動の呼び元は、作業場を cwd に渡しさえすれば何も持たなくてよい（env の渡し口を呼び元ごとに足すと、渡さない入口が残る）。
 # 書式の正本はここで、tests/mutate.py の OWNER が同じ書式を読む（揃いは tests/run.sh の mut-owner の検査が縛る）
 TEST_THREAD = "gl-test~"
@@ -189,13 +189,13 @@ def run_all(tests):
 
     例外は握り潰さない。溜めた行を全部出してから最初の 1 本を投げ直す。直列版と違うのは、
     例外が出ても残りの台本が走りきる点——落ちた 1 本で他が全部見えなくなるのを避ける
-    （途中で止まった台本のぶん件数は足りなくなるので、件数の柵がどちらにせよ赤くする）。
+    （途中で止まった台本のぶん件数は足りなくなるので、件数のチェックがどちらにせよ赤くする）。
 
-    engine が起こした子（環境の ENGINE_CHILD）からは、GL_TEST_ONLY で絞らない回を走らせない——台本（simulate.py・simulate_review.py）は
-    run.sh を通さずに直に起こせるので、run.sh の頭の拒みだけでは一式の大半が走る。どの台本もここを通る
+    engine が起動した子（環境の ENGINE_CHILD）からは、GL_TEST_ONLY で絞らない回を走らせない——台本（simulate.py・simulate_review.py）は
+    run.sh を通さずに直に起動できるので、run.sh の頭の拒みだけでは一式の大半が走る。どの台本もここを通る
     """
     if os.environ.get(ENGINE_CHILD) and not os.environ.get("GL_TEST_ONLY"):
-        print(f"  FAIL engine が起こした子（環境の {ENGINE_CHILD}）からは台本の一式を走らせない（人の方針: 手元で e2e の一式を回さない。"
+        print(f"  FAIL engine が起動した子（環境の {ENGINE_CHILD}）からは台本の一式を走らせない（人の方針: 手元で e2e の一式を回さない。"
               "CI で回る）——変更に関わる筋書きを GL_TEST_ONLY=<台本の名前>,… で数件に絞れ", flush=True)
         raise SystemExit(2)
     n = workers(len(tests))
@@ -203,7 +203,7 @@ def run_all(tests):
         for fn in tests:
             try:
                 _as_test(fn)
-            except BaseException:   # 並列の枝と同じ 1 行を残してから投げ直す（1 本に絞った回も例外を FAIL として読める）
+            except BaseException:   # 並列の分岐と同じ 1 行を残してから投げ直す（1 本に絞った回も例外を FAIL として読める）
                 print(f"  FAIL {fn.__name__} が例外で抜けた: {traceback.format_exc().strip().splitlines()[-1]}", flush=True)
                 raise
         return
@@ -230,7 +230,7 @@ def run_all(tests):
 
 # ---- 組（shard）に分けて CI の別々の job で回す ----
 # 約束は Bazel の test sharding に倣う（組の総数と 0 始まりの番号を環境で渡し、組の中の割り当ては決定的）。
-# 件数の柵と全台本の和で見る検査は 1 回の実行の中では当たらないので、組は数えた値と到達した集合を名簿に書くだけで、
+# 件数のチェックと全台本の和で見る検査は 1 回の実行の中では当たらないので、組は数えた値と到達した集合を名簿に書くだけで、
 # 当てるのは全組を待つまとめの口（merge）の 1 か所——組ごとに外すと、どの job でも走らない検査が生まれる。
 SHARD_ENV = ("GL_SHARD_TOTAL", "GL_SHARD_INDEX", "GL_SHARD_GROUP", "GL_SHARD_MANIFEST")
 _deferred = []

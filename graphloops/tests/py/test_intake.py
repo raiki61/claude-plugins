@@ -37,7 +37,7 @@ def test_failure_leaves_structured_row_with_key_without_version(tmp_path):
     assert r.returncode == 2
     [row] = rows(data)
     assert row["kind"] == "auto" and row["where"] == "loop.py next" and row["exit"] == 2
-    assert row["exc"] == "SystemExit" and row["func"] == "board.__init__"   # die の呼び元（util.py の小道具は飛ばす）
+    assert row["exc"] == "SystemExit" and row["func"] == "board.__init__"   # die の呼び元（util.py の小ツールは飛ばす）
     assert {"plugin", "version", "os", "python", "key"} <= set(row) and "stderr" not in row and "what" not in row
     assert intake.key_of({**row, "version": "99.0.0"}) == row["key"]
 
@@ -151,7 +151,7 @@ def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, m
     assert any("読めない" in n for n in commands.init_notices(g, root))
     (tmp_path / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
     assert commands.init_notices(g, root) == []
-    assert commands.init_notices({"nodes": {"p0.base": {}}}, root) == []   # 走らせるだけの節を持たない graph には言わない
+    assert commands.init_notices({"nodes": {"p0.base": {}}}, root) == []   # 走らせるだけのノードを持たない graph には言わない
     monkeypatch.setattr(intake, "newer_installed", lambda: "9.9.9")
     assert any("新しい版 9.9.9" in n for n in commands.init_notices(g, root))
 
@@ -316,7 +316,7 @@ def test_set_url_rejects_non_http(tmp_path):
 
 
 def test_key_reads_a_missing_part_as_empty():
-    """鍵の部品が無い（None）のと空の文字列は同じ鍵——欄の有無の違いで同じ問題を割らない"""
+    """鍵の部品が無い（None）のと空の文字列は同じ鍵——フィールドの有無の違いで同じ問題を割らない"""
     assert intake.key_of({"where": "loop.py next", "exc": None}) == intake.key_of({"where": "loop.py next", "exc": ""})
 
 

@@ -232,11 +232,11 @@ def test_parse_etime_refuses_four_fields():
 
 
 def test_run_role_reports_a_role_it_could_not_start(tmp_path):
-    """子を起こせなかった回は『起こせない』と理由を言う（空の標準出力の包みの誤りに化けない）"""
+    """子を起動できなかった回は『起動できない』と理由を言う（空の標準出力の包みの誤りに化けない）"""
     prompt = tmp_path / "p.md"
     prompt.write_text("指示書", encoding="utf-8")
     r = role_run.run_role(["no-such-command-gl-test"], prompt, tmp_path / "out.json")
-    assert not r["ok"] and r["why"].startswith("起こせない: ") and len(r["runs"]) == 1
+    assert not r["ok"] and r["why"].startswith("起動できない: ") and len(r["runs"]) == 1
 
 
 @pytest.mark.parametrize("dies_after", [pytest.param(15, id="dies-on-term"), pytest.param(None, id="never-dies")])
@@ -297,7 +297,7 @@ class Leader:
 
 @pytest.mark.parametrize("returncode,want", [pytest.param(None, None, id="not-reaped"), pytest.param(0, 55.0, id="reaped")])
 def test_stop_tree_uses_the_reuse_mark_only_after_the_leader_is_reaped(monkeypatch, returncode, want):
-    """回収していない長の番号は再利用されないので、born（起こした時刻）で見分けない。回収した後だけ gl_born を渡す"""
+    """回収していない長の番号は再利用されないので、born（起動した時刻）で見分けない。回収した後だけ gl_born を渡す"""
     seen = []
     posix(monkeypatch, lambda s: {}, [])
     monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: seen.append(born) or ({}, None))
@@ -316,7 +316,7 @@ def test_reap_one_does_not_count_an_unreadable_session_as_left(monkeypatch, caps
 
 
 def ps_answer(monkeypatch, stdout="", rc=0, stderr="", exc=None):
-    """_ps_all が起こす ps の答えを差し替え、渡された引数を返す"""
+    """_ps_all が起動する ps の答えを差し替え、渡された引数を返す"""
     got = {}
 
     def run(argv, **k):
@@ -341,7 +341,7 @@ def test_ps_all_reads_the_six_columns(monkeypatch):
 @pytest.mark.parametrize("kw,want", [
     pytest.param({"rc": 1, "stderr": "ps: denied"}, "exit 1: ps: denied", id="exit-nonzero"),
     pytest.param({"stdout": "読めない\n"}, "exit 0", id="no-rows"),
-    pytest.param({"exc": subprocess.TimeoutExpired(["ps"], 30)}, "ps を起こせない", id="timeout"),
+    pytest.param({"exc": subprocess.TimeoutExpired(["ps"], 30)}, "ps を起動できない", id="timeout"),
 ])
 def test_ps_all_refuses_a_table_it_cannot_trust(monkeypatch, kw, want):
     """ps が失敗した・表が空・時間切れなら表を返さない（空の表を『仲間なし』と読んで止まったと言わない）"""
@@ -379,7 +379,7 @@ def test_tree_members_follows_group_session_and_parents(monkeypatch):
 @pytest.mark.parametrize("leader_started,want", [pytest.param(100.0, [4242, 4300], id="same-leader"),
                                                   pytest.param(900.0, [], id="number-reused")])
 def test_tree_members_ignores_a_reused_leader_number(monkeypatch, leader_started, want):
-    """長の番号に、長を起こした時刻（born）より後に始まったプロセスが居れば、番号は再利用されている——グループとセッションでは
+    """長の番号に、長を起動した時刻（born）より後に始まったプロセスが居れば、番号は再利用されている——グループとセッションでは
     拾わない（止める間に木が消え、無関係なプロセスがその番号で setsid した形に SIGKILL を送らない）"""
     rows = [proc(100, pgid=100), proc(4242, started=leader_started), proc(4300, pgid=4300, ppid=1, started=leader_started)]
     count = members_of(monkeypatch, rows, {4242: 4242, 4300: 4242})
@@ -459,7 +459,7 @@ def test_kill_grace_is_read_from_the_environment_at_import():
 
 
 def test_stop_handler_marks_stopping_then_raises(monkeypatch):
-    """止める信号の口は、止め始めた印を立て（以後に起こす子はすぐ止まる）、生きている子を止めてから StopSignal を上げる"""
+    """止める信号の口は、止め始めた印を立て（以後に起動する子はすぐ止まる）、生きている子を止めてから StopSignal を上げる"""
     import signal
     seen = {}
     monkeypatch.setattr(signal, "signal", lambda sig, fn: seen.setdefault("fn", fn))
@@ -519,9 +519,9 @@ def test_stop_group_stops_every_tree_the_mark_left(tmp_path, monkeypatch):
 
 
 def test_end_attempt_rewrites_the_mark_with_the_trees_it_could_not_stop(tmp_path, monkeypatch):
-    """試行の終わりに止め切れなかった木（最後の往復・段でない物も）を、番号と起こした時刻で印に書き直す。全部止まれば消す"""
+    """試行の終わりに止め切れなかった木（最後の往復・段でない物も）を、番号と起動した時刻で印に書き直す。全部止まれば消す"""
     m = tmp_path / "out.json.pgid"
-    m.write_text(json.dumps({"pgid": 33}), encoding="utf-8")   # 起こした直後の印は最後の子の番号だけ
+    m.write_text(json.dumps({"pgid": 33}), encoding="utf-8")   # 起動した直後の印は最後の子の番号だけ
     monkeypatch.setattr(role_run, "_reap_one", lambda pid, leader=None, born=None: "残った" if pid == 11 else None)
     role_run._end_attempt([(11, 5.0), (33, 6.0)], str(m))
     mk = json.loads(m.read_text(encoding="utf-8"))

@@ -821,7 +821,7 @@
    "suite": "graphloops",
    "old": "(\".md\" if n.get(\"text\") else \".json\")",
    "new": "\".json\"",
-   "expect": "本文を返す節の置き場は .md",
+   "expect": "本文を返すノードの置き場は .md",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_text_reply_out_path"
@@ -1408,7 +1408,7 @@
    "suite": "graphloops",
    "old": "    if inst.get(\"mode\") == \"engine_run\":\n        raise Reject(",
    "new": "    if False:\n        raise Reject(",
-   "expect": "engine が走らせる節の結果を回す側が",
+   "expect": "engine が走らせるノードの結果を回す側が",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_run_checks"
@@ -1619,7 +1619,7 @@
    "suite": "graphloops",
    "old": "    \"type\": \"object\", \"required\": [\"patterns\", \"paths\", \"count\"], \"additionalProperties\": False,",
    "new": "    \"type\": \"object\", \"required\": [\"patterns\", \"paths\", \"count\"], \"additionalProperties\": True,",
-   "expect": "走らせない: 知らない欄",
+   "expect": "走らせない: 知らないフィールド",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_run_count"
@@ -1888,7 +1888,7 @@
    "suite": "graphloops",
    "old": "    errs += _awaiting_origins(V, b.record[\"questions\"], b.record[\"materials\"], \"台帳の questions\")",
    "new": "    pass",
-   "expect": "書いた時点: 人に諮っている欄を後の工程が clean で上書きすると拒む",
+   "expect": "書いた時点: 人に諮っているフィールドを後の工程が clean で上書きすると拒む",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_awaiting_origin_guards"
@@ -1998,7 +1998,7 @@
    "suite": "graphloops",
    "old": "    back = [d for d in b.nodes[nid].get(\"deps\", []) if b.nodes[d].get(\"run_by\") != \"driver\" and (d in b.rd[\"done\"] or d in b.rd[\"na\"])]",
    "new": "    back = []",
-   "expect": "受理した回は、走り終えていた材料の節を同じ next で撃ち直す",
+   "expect": "受理した回は、走り終えていた材料のノードを同じ next で撃ち直す",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_worktree_guard_fires"
@@ -2227,7 +2227,7 @@
     ],
     "remove": "record.questions"
    },
-   "expect": "CI を再実行する節のプロンプトに、この周の問いの台帳が渡る",
+   "expect": "CI を再実行するノードのプロンプトに、この周の問いの台帳が渡る",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_awaiting_origin_guards"
@@ -2286,7 +2286,7 @@
      "op": "set",
      "to": "process.baseline_checks",
      "from": "material",
-     "note": "修正前の CI の結果。素材の local_checks は P4 の再実行（修正後）で書き直す——収束は修正後の CI を見るため。P0 の結果を記録から消さないために別の欄に残す"
+     "note": "修正前の CI の結果。素材の local_checks は P4 の再実行（修正後）で書き直す——収束は修正後の CI を見るため。P0 の結果を記録から消さないために別のフィールドに残す"
     }
    },
    "expect": "修正前の CI の結果（P0）は process.baseline_checks に残る",
@@ -2343,7 +2343,7 @@
    "title": "撃ち直しは条件外のノードも測り直す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "expect": "撃ち直し: 条件外にした節も条件を測り直す",
+   "expect": "撃ち直し: 条件外にしたノードも条件を測り直す",
    "old": " and (d in b.rd[\"done\"] or d in b.rd[\"na\"])]",
    "new": " and d in b.rd[\"done\"]]",
    "tests": {
@@ -2639,7 +2639,7 @@
    "suite": "graphloops",
    "old": "                    if w.get(\"op\") != \"set\" or not w.get(\"to\"):",
    "new": "                    if not w.get(\"to\"):",
-   "expect": "撃ち直し: この周に走った節でも、外すのは set の欄だけ",
+   "expect": "撃ち直し: この周に走ったノードでも、外すのは set のフィールドだけ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_rewind_and_guards"
@@ -2665,9 +2665,9 @@
    "title": "機械のノードは戻さない",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
-   "old": "            if n.get(\"run_by\") == \"driver\":\n                die(f\"rewind: 機械の節",
-   "new": "            if False:\n                die(f\"rewind: 機械の節",
-   "expect": "撃ち直し: 機械の節は戻さない",
+   "old": "            if n.get(\"run_by\") == \"driver\":\n                die(f\"rewind: 機械のノード",
+   "new": "            if False:\n                die(f\"rewind: 機械のノード",
+   "expect": "撃ち直し: 機械のノードは戻さない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_rewind_and_guards"
@@ -2681,7 +2681,7 @@
    "suite": "graphloops",
    "old": "                if any(b.node_state(x) != \"pending\" for x in back) or b.deps_ok(nid):",
    "new": "                if False:",
-   "expect": "機械の節: 戻したと言うのに戻っていない rewound の返りは止める",
+   "expect": "機械のノード: 戻したと言うのに戻っていない rewound の返りは止める",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_rewind_and_guards"
@@ -2695,7 +2695,7 @@
    "suite": "graphloops",
    "old": "        errs.append(f\"{nid} の schema に precedents が無い",
    "new": "        pass  # errs.append(f\"{nid} の schema に precedents が無い",
-   "expect": "判定の口: precedents を宣言しない節の返答は拒む",
+   "expect": "判定の口: precedents を宣言しないノードの返答は拒む",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_judge_output_needs_precedents_schema"
@@ -2861,7 +2861,7 @@
    "suite": "graphloops",
    "old": "    return bool(m) and m.get(\"status\") != \"awaiting_human\"",
    "new": "    return False",
-   "expect": "書いた時点: 人に諮っている欄を後の工程が",
+   "expect": "書いた時点: 人に諮っているフィールドを後の工程が",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_awaiting_origin_guards"
@@ -2914,7 +2914,7 @@
    "suite": "graphloops",
    "old": "    if runner and n.get(\"delegate\"):",
    "new": "    if False:",
-   "expect": "任せ先: graph が delegate を宣言した回す側の節は",
+   "expect": "任せ先: graph が delegate を宣言した回す側のノードは",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_rejections"
@@ -2945,7 +2945,7 @@
    "suite": "graphloops",
    "old": "        if v.get(\"run_by\") not in set(g.get(\"runners\", [])):",
    "new": "        if False:",
-   "expect": "graphcheck: 役の節に任せ先は書けない",
+   "expect": "graphcheck: 役のノードに任せ先は書けない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -3029,7 +3029,7 @@
    "suite": "graphloops",
    "old": "            if not (isinstance(back, list) and all(isinstance(x, str) and x in b.nodes for x in back)):",
    "new": "            if not isinstance(back, (list, str)):",
-   "expect": "機械の節: rewound が節の名前の一覧でない返り",
+   "expect": "機械のノード: rewound がノードの名前の一覧でない返り",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_rewind_and_guards"
@@ -3041,9 +3041,9 @@
    "title": "撃ち直しはまだ書かれていないフィールドを飛ばす",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
-   "old": "                        continue   # まだ書かれていない欄",
+   "old": "                        continue   # まだ書かれていないフィールド",
    "new": "                        raise",
-   "expect": "撃ち直し: まだ書かれていない欄は飛ばす",
+   "expect": "撃ち直し: まだ書かれていないフィールドは飛ばす",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_engine_rewind_and_guards"
@@ -3542,7 +3542,7 @@
    "suite": "graphloops",
    "old": "        over = [(k, val) for k, val in self.__overlay.items() if path == k or path.startswith(k + \".\")]",
    "new": "        over = []",
-   "expect": "入口: 入口の項だけで外れた節は",
+   "expect": "入口: 入口の項だけで外れたノードは",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -3556,7 +3556,7 @@
    "suite": "graphloops",
    "old": "    if not c or not b.cond(ENTRY_BUILTIN)[0] or b.cond(c)[0]:\n        return False",
    "new": "    if not c:\n        return False",
-   "expect": "入口: 入口の項を持たない節は",
+   "expect": "入口: 入口の項を持たないノードは",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -3582,14 +3582,14 @@
    "title": "昇格した周は深さの 3 ノードが入口より勝つ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "expect": "入口: 昇格した周は深さの 3 節",
+   "expect": "入口: 昇格した周は深さの 3 ノード",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
     ]
    },
-   "old": "        if _escalated(v):\n            return True, f\"判定から入る run の周だが、昇格した周なので{noun}を起こす\"",
-   "new": "        if False:\n            return True, f\"判定から入る run の周だが、昇格した周なので{noun}を起こす\""
+   "old": "        if _escalated(v):\n            return True, f\"判定から入る run の周だが、昇格した周なので{noun}を起動する\"",
+   "new": "        if False:\n            return True, f\"判定から入る run の周だが、昇格した周なので{noun}を起動する\""
   },
   {
    "id": "EN10",
@@ -3743,7 +3743,7 @@
      "test_request_entry"
     ]
    },
-   "old": "        return False, f\"{why}のため、外部標準の照合を起こさない\"",
+   "old": "        return False, f\"{why}のため、外部標準の照合を起動しない\"",
    "new": "        pass"
   },
   {
@@ -3757,7 +3757,7 @@
      "test_request_entry"
     ]
    },
-   "old": "        return False, f\"{why}のため、出典の確かめを起こさない\"",
+   "old": "        return False, f\"{why}のため、出典の確かめを起動しない\"",
    "new": "        pass"
   },
   {
@@ -3771,7 +3771,7 @@
      "test_request_entry"
     ]
    },
-   "old": "        return False, f\"{why}のため、主経路の観察を起こさない\"",
+   "old": "        return False, f\"{why}のため、主経路の観察を起動しない\"",
    "new": "        pass"
   },
   {
@@ -3785,7 +3785,7 @@
      "test_request_entry"
     ]
    },
-   "old": "        return False, f\"{why}のため、{noun}を起こさない\"",
+   "old": "        return False, f\"{why}のため、{noun}を起動しない\"",
    "new": "        return _deep(v, touched, when)   # 変異: 入口の周でも残りの条件で決める"
   },
   {
@@ -3988,7 +3988,7 @@
    "suite": "graphloops",
    "old": "        if v.get(\"skills\"):\n            # skill（",
    "new": "        if False:\n            # skill（",
-   "expect": "graphcheck: skill を呼ぶ節を任せ先に渡せない",
+   "expect": "graphcheck: skill を呼ぶノードを任せ先に渡せない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -4002,7 +4002,7 @@
    "suite": "graphloops",
    "old": "        if flag in BARE_FLAGS:\n            continue\n",
    "new": "        if flag in BARE_FLAGS or flag == \"--setting-sources\":\n            continue\n",
-   "expect": "柵: 利用者の設定を読む子は起こさない",
+   "expect": "チェック: 利用者の設定を読む子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4016,7 +4016,7 @@
    "suite": "graphloops",
    "old": "        if flag in BARE_FLAGS:\n            continue\n",
    "new": "        if flag in BARE_FLAGS or flag == \"--permission-prompts\":\n            continue\n",
-   "expect": "柵: 聞く先を持つ子は起こさない",
+   "expect": "チェック: 聞く先を持つ子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4030,7 +4030,7 @@
    "suite": "graphloops",
    "old": "        if w not in table:\n",
    "new": "        if w not in table and w in ():\n",
-   "expect": "柵: 権限を外す旗を持つ子は起こさない",
+   "expect": "チェック: 権限を外す旗を持つ子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4044,7 +4044,7 @@
    "suite": "graphloops",
    "old": "            why = None if val == want[flag] else f\"{flag} が {val!r}——engine が決めた値は {want[flag]!r}\"",
    "new": "            why = None",
-   "expect": "柵: 権限の形を広げた子は起こさない",
+   "expect": "チェック: 権限の形を広げた子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4058,7 +4058,7 @@
    "suite": "graphloops",
    "old": "    for words, resume in ((argv, False), (launch.get(\"resume_argv\"), True)):",
    "new": "    for words, resume in ((argv, False),):",
-   "expect": "続きを頼む語にも同じ柵が当たる",
+   "expect": "続きを頼む語にも同じチェックが当たる",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4072,7 +4072,7 @@
    "suite": "graphloops",
    "old": "    return (\"*\" not in d[\"tools\"] and not any(x in WRITE_TOOLS for x in d[\"tools\"])",
    "new": "    return (\"*\" not in d[\"tools\"]",
-   "expect": "ファイルを書く道具を持つ役は engine が起こさない",
+   "expect": "ファイルを書くツールを持つ役は engine が起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4100,7 +4100,7 @@
    "suite": "graphloops",
    "old": "        if w in got:\n",
    "new": "        if w in got and got[w] != words[i + 1]:\n",
-   "expect": "柵: 同じ旗を 2 度渡す子は起こさない",
+   "expect": "チェック: 同じ旗を 2 度渡す子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4114,7 +4114,7 @@
    "suite": "graphloops",
    "old": "    missing = [f for f in table if f not in got and f not in OPTIONAL_FLAGS]",
    "new": "    missing = []",
-   "expect": "柵: 要る旗を落とした子は起こさない",
+   "expect": "チェック: 要る旗を落とした子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4128,7 +4128,7 @@
    "suite": "graphloops",
    "old": "    if not isinstance(got, dict) or set(got) != set(want):",
    "new": "    if not isinstance(got, dict) or not set(want) <= set(got):",
-   "expect": "柵: sandbox の外のキー（hooks）を混ぜた子は起こさない",
+   "expect": "チェック: sandbox の外のキー（hooks）を混ぜた子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4142,7 +4142,7 @@
    "suite": "graphloops",
    "old": "    if rest != wrest:",
    "new": "    if False:",
-   "expect": "柵: sandbox を切った子は起こさない",
+   "expect": "チェック: sandbox を切った子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4156,7 +4156,7 @@
    "suite": "graphloops",
    "old": "    if lack:",
    "new": "    if False:",
-   "expect": "柵: 守る作業ツリーを欠いた子は起こさない",
+   "expect": "チェック: 守る作業ツリーを欠いた子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4170,7 +4170,7 @@
    "suite": "graphloops",
    "old": "            why = None if val in want[\"--resume\"] else",
    "new": "            why = None if True else",
-   "expect": "柵: engine が決めていない会話を続ける子は起こさない",
+   "expect": "チェック: engine が決めていない会話を続ける子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4184,7 +4184,7 @@
    "suite": "graphloops",
    "old": "            why = None if same else f\"--append-system-prompt-file",
    "new": "            why = None if True else f\"--append-system-prompt-file",
-   "expect": "柵: 役の定義でない本文を system prompt に足した子は起こさない",
+   "expect": "チェック: 役の定義でない本文を system prompt に足した子は起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"
@@ -4268,7 +4268,7 @@
    "suite": "graphloops",
    "old": "        if inst.get(\"out_path\") != out_path:",
    "new": "        if False:",
-   "expect": "古い試行の返答は、新しい試行の節に受け付けない",
+   "expect": "古い試行の返答は、新しい試行のノードに受け付けない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_engine_launch"
@@ -4282,7 +4282,7 @@
    "suite": "graphloops",
    "old": "            if i.get(\"launched_at\"):",
    "new": "            if False:",
-   "expect": "起こした試行は 2 度起こさない",
+   "expect": "起動した試行は 2 度起動しない",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_engine_launch"
@@ -4310,7 +4310,7 @@
    "suite": "graphloops",
    "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"), read_grant=read_grant)",
    "new": "            spec = launch_spec(b, inst, role_def, resume_sid=None, read_grant=read_grant)",
-   "expect": "履歴の突合は、同じ周の判定を起こした会話の番号で",
+   "expect": "履歴の突合は、同じ周の判定を起動した会話の番号で",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_launch_tooled_session"
@@ -4352,7 +4352,7 @@
    "suite": "graphloops",
    "old": "    if final and (added or out.get(\"patch\")):",
    "new": "    if False:",
-   "expect": "最後の関門: テストを足した（tests_added）と言う関門の返答は拒む",
+   "expect": "最後のゲート: テストを足した（tests_added）と言うゲートの返答は拒む",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4408,7 +4408,7 @@
    "suite": "graphloops",
    "old": "    probs = [f\"{r['key']} が {r['handled']}（{r['how'][:80]}）\" for r in out[\"handled\"] if r[\"handled\"] != \"equivalent\"]",
    "new": "    probs = []",
-   "expect": "最後の関門: テストが要る見逃しが残れば通らない",
+   "expect": "最後のゲート: テストが要る見逃しが残れば通らない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4422,7 +4422,7 @@
    "suite": "graphloops",
    "old": "    if tree is None or now_tree is None or tree.strip() != now_tree:",
    "new": "    if tree is None or now_tree is None:",
-   "expect": "最後の関門: 撃った版の後にコードが変われば",
+   "expect": "最後のゲート: 撃った版の後にコードが変われば",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4436,7 +4436,7 @@
    "suite": "graphloops",
    "old": "    will_converge = gate == []",
    "new": "    will_converge = gate is not None",
-   "expect": "最後の関門: 見逃しの残る関門は収束を止め",
+   "expect": "最後のゲート: 見逃しの残るゲートは収束を止め",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_end_to_end"
@@ -4464,7 +4464,7 @@
    "suite": "graphloops",
    "old": "             for r in (out_of(\"p4.final_gates\", rnd) or {}).get(\"handled\") or [] if r[\"handled\"] != \"equivalent\"]",
    "new": "             for r in []]",
-   "expect": "最後の関門: 関門が見つけた、テストの要る見逃しは",
+   "expect": "最後のゲート: ゲートが見つけた、テストの要る見逃しは",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_end_to_end"
@@ -4478,7 +4478,7 @@
    "suite": "graphloops",
    "old": "    return _cut_ok(b.output_of_round(\"p3.gates_cut\", b.round))",
    "new": "    return _cut_ok(b.latest_output(\"p3.gates_cut\"))",
-   "expect": "最後の関門: 今の周の p3.gates_cut の出力が無ければ",
+   "expect": "最後のゲート: 今の周の p3.gates_cut の出力が無ければ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4506,7 +4506,7 @@
    "suite": "graphloops",
    "old": "                if waiters:",
    "new": "                if False:",
-   "expect": "graphcheck: 背景の節（受領しか返さない線）を締めの節が待つ",
+   "expect": "graphcheck: 背景のノード（受領しか返さない線）を締めのノードが待つ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -4616,7 +4616,7 @@
    "suite": "graphloops",
    "old": "                    val = number(val, self.numbered[path])",
    "new": "                    pass",
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4649,7 +4649,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4668,7 +4668,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4682,7 +4682,7 @@
    "suite": "graphloops",
    "old": "    return [f[\"where\"] for x in reqs for f in x[\"findings\"]]",
    "new": "    return []",
-   "expect": "入口: 1 周目の P0 の 2 節",
+   "expect": "入口: 1 周目の P0 の 2 ノード",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -4727,7 +4727,7 @@
    "marker": {
     "where": "after"
    },
-   "expect": "入口: 起こす前の P0 の節は描き直し",
+   "expect": "入口: 起動する前の P0 のノードは描き直し",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -4746,7 +4746,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4765,7 +4765,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4784,7 +4784,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4803,7 +4803,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4822,7 +4822,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4841,7 +4841,7 @@
     ],
     "del": "pointers"
    },
-   "expect": "番号で指した節が揃う",
+   "expect": "番号で指したノードが揃う",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
@@ -4935,7 +4935,7 @@
    "title": "入れ物の内部のフィールドは自然な綴り（v._ctx）で読めない",
    "file": "graphloops/engine/board.py",
    "suite": "graphloops",
-   "expect": "入れ物: 内部の欄 v.",
+   "expect": "入れ物: 内部のフィールド v.",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_cond_truth_tables"
@@ -5104,8 +5104,8 @@
    "title": "周の途中の問いの continue は周を進めない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    if in_round:\n        # 問うた節をここで済ませる",
-   "new": "    if False:\n        # 問うた節をここで済ませる",
+   "old": "    if in_round:\n        # 問うたノードをここで済ませる",
+   "new": "    if False:\n        # 問うたノードをここで済ませる",
    "expect": "仕様の道: 承認の後も同じ周のまま",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5182,7 +5182,7 @@
     ],
     "remove": "spec.freeze"
    },
-   "expect": "仕様の道: 承認の前に P1・P2 の節は出ない",
+   "expect": "仕様の道: 承認の前に P1・P2 のノードは出ない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_spec_flow"
@@ -5224,7 +5224,7 @@
    "suite": "graphloops",
    "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid, \"owner\": os.getpid()}), encoding=\"utf-8\")",
    "new": "            pass",
-   "expect": "起こした子のグループの番号を置き場の隣",
+   "expect": "起動した子のグループの番号を置き場の隣",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5252,7 +5252,7 @@
    "suite": "graphloops",
    "old": "        if still_mine is not None and not still_mine():\n            raise Superseded\n        out, err",
    "new": "        if False:\n            raise Superseded\n        out, err",
-   "expect": "起こし直された試行は子を止めて返る",
+   "expect": "起動し直された試行は子を止めて返る",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5266,7 +5266,7 @@
    "suite": "graphloops",
    "old": "            if core.startswith(\"node.\") and core != \"node.skills\":",
    "new": "            if False:",
-   "expect": "graphcheck: engine が埋めない node の欄の穴",
+   "expect": "graphcheck: engine が埋めない node のフィールドの穴",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -5280,7 +5280,7 @@
    "suite": "graphloops",
    "old": "    whys = [w for w in (stop_group(m) for m in marks) if w]",
    "new": "    whys = []",
-   "expect": "relaunch: 前の試行の子を木ごと止めてから起こし直す",
+   "expect": "relaunch: 前の試行の子を木ごと止めてから起動し直す",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_relaunch"
@@ -5294,7 +5294,7 @@
    "suite": "graphloops",
    "old": "    new, n = _board_update(d, bump)",
    "new": "    [stop_group(m) for m in marks]\n    new, n = _board_update(d, bump)",
-   "expect": "古い launch の行は『起こし直された古い試行』に言い換わる",
+   "expect": "古い launch の行は『起動し直された古い試行』に言い換わる",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_relaunch_live_launch"
@@ -5378,7 +5378,7 @@
    "suite": "graphloops",
    "old": "    if not out.get(\"arms\") and (tree or \"\").strip() != b.loop_state.get(\"final_gate_empty_ok\"):",
    "new": "    if False:",
-   "expect": "最後の関門: 撃てた腕が 0 本なら通さず",
+   "expect": "最後のゲート: 撃てた腕が 0 本なら通さず",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -5437,7 +5437,7 @@
    "suite": "graphloops",
    "old": "    if files and not _gates_merged(b):   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
    "new": "    if files:",
-   "expect": "線と関門の instance は出ず、線の台帳は空",
+   "expect": "線とゲートの instance は出ず、線の台帳は空",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_gates_merge"
@@ -5465,7 +5465,7 @@
    "suite": "graphloops",
    "old": "    for iid in redraw:",
    "new": "    for iid in []:",
-   "expect": "入口: 判定役の instance が出ていても起こす前の add は受け",
+   "expect": "入口: 判定役の instance が出ていても起動する前の add は受け",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -5602,7 +5602,7 @@
    "title": "止める信号の口は全コマンドに立てる",
    "file": "graphloops/scripts/loop.py",
    "suite": "graphloops",
-   "old": "    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす",
+   "old": "    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起動する",
    "new": "    pass",
    "expect": "止める信号: next が止められたら",
    "tests": {
@@ -5803,9 +5803,9 @@
    "title": "止め始めた後に起動した子はすぐ止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if _STOPPING.is_set():   # 止める信号の後に起こした子",
-   "new": "    if False:   # 止める信号の後に起こした子",
-   "expect": "止める信号の後に起こした子はすぐ止めて",
+   "old": "    if _STOPPING.is_set():   # 止める信号の後に起動した子",
+   "new": "    if False:   # 止める信号の後に起動した子",
+   "expect": "止める信号の後に起動した子はすぐ止めて",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_stop_signal_guards"
@@ -5999,7 +5999,7 @@
    "title": "上限の周の 0 本の答えは 1 周延ばす",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            if b.state[\"max_rounds\"] <= b.round:   # 上限の周の答え——同じ木の関門を撃つ次の周を 1 つ開ける\n                _extend_one_round(b, entry)",
+   "old": "            if b.state[\"max_rounds\"] <= b.round:   # 上限の周の答え——同じ木のゲートを撃つ次の周を 1 つ開ける\n                _extend_one_round(b, entry)",
    "new": "            pass",
    "expect": "test_scenarios_review.py::test_final_gate_empty_asks_human[continue-extends-by-one]",
    "tests": {
@@ -6015,7 +6015,7 @@
    "suite": "graphloops",
    "old": "    if d_ is None or d_[\"tools\"] != []:\n        return None",
    "new": "    return None",
-   "expect": "道具ゼロの役は Git リポジトリの外の一時ディレクトリで起こす",
+   "expect": "ツールゼロの役は Git リポジトリの外の一時ディレクトリで起動する",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_engine_launch"
@@ -6334,7 +6334,7 @@
    "suite": "graphloops",
    "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
    "new": "    errs = []",
-   "expect": "節の schema に無い欄を返す builtin は die",
+   "expect": "ノードの schema に無いフィールドを返す builtin は die",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_bad_builtin"
@@ -6348,7 +6348,7 @@
    "suite": "graphloops",
    "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
    "new": "    errs = []",
-   "expect": "手当て: 節の schema に合わない値は書かない",
+   "expect": "手当て: ノードの schema に合わない値は書かない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_patch_node_output"
@@ -6404,7 +6404,7 @@
    "suite": "graphloops",
    "old": "            if nid in (runner_spec.get(\"edits\") or []):",
    "new": "            if False:",
-   "expect": "graphcheck: 作業ツリーを書き換える節の申告の欄が無い",
+   "expect": "graphcheck: 作業ツリーを書き換えるノードの申告のフィールドが無い",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -6418,7 +6418,7 @@
    "suite": "graphloops",
    "old": "        leaf = pointers._schema_at(v.get(\"schema\") or {}, at) if isinstance(at, str) else None",
    "new": "        leaf = schema_at(v.get(\"schema\") or {}, at.replace(\"[]\", \".0\").split(\".\"))[0] if isinstance(at, str) else None",
-   "expect": "graphcheck: 受け付けの読み手が空を読む申告の欄の綴り",
+   "expect": "graphcheck: 受け付けの読み手が空を読む申告のフィールドの綴り",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -6432,7 +6432,7 @@
    "suite": "graphloops",
    "old": "    if \"tree_before\" in after:",
    "new": "    if False:",
-   "expect": "作業ツリーの保護: 突合の基準は今の周の節の出力から引き",
+   "expect": "作業ツリーの保護: 突合の基準は今の周のノードの出力から引き",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_delta_conditions"
@@ -6977,8 +6977,8 @@
    "title": "graphcheck は、段と同じファイルをノードの prompt_append に書くことを拒む",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
-   "old": "        if dup:\n            errs.append(f\"節 {nid}: prompt_append の {dup}",
-   "new": "        if False:\n            errs.append(f\"節 {nid}: prompt_append の {dup}",
+   "old": "        if dup:\n            errs.append(f\"ノード {nid}: prompt_append の {dup}",
+   "new": "        if False:\n            errs.append(f\"ノード {nid}: prompt_append の {dup}",
    "expect": "test_review_lens.py::test_graphcheck_rejects_append_and_receipt_shapes[append-dup-in-node]",
    "tests": {
     "graphloops/tests/py": [

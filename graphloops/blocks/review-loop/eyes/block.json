@@ -1,5 +1,5 @@
 {
- "description": "R11 独立の目（BLOCKS.md 3 節）。修正後の撮り直し（p4.assemble）と R1〜R4・人の関所 r4.human_gate",
+ "description": "R11 独立の目（BLOCKS.md セクション 3）。修正後の撮り直し（p4.assemble）と R1〜R4・人のゲート r4.human_gate",
  "nodes": [
   "p4.assemble",
   "r1.comment_candidates",

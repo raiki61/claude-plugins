@@ -66,7 +66,7 @@
  "command": {
   "exit": 1,
   "out": "",
-  "err": "NG 直していない [block] / do-now がある（writer の裁量で defer に覆せない。待ってよいのは fork の出どころ・depends と、人が関所で外した単位だけ。異議は新しい judge に再判定させる）: src/a.py:f — 上限が効かない経路がある（理由: 面倒）——義務の印（owed）が真の単位は直す義務がある（待ってよいのは人に諮っている fork の出どころ・depends と、人が関所で外した単位だけ）; src/b.py:g — 定数の重複\n"
+  "err": "NG 直していない [block] / do-now がある（writer の裁量で defer に覆せない。待ってよいのは fork の出どころ・depends と、人がゲートで外した単位だけ。異議は新しい judge に再判定させる）: src/a.py:f — 上限が効かない経路がある（理由: 面倒）——義務の印（owed）が真の単位は直す義務がある（待ってよいのは人に諮っている fork の出どころ・depends と、人がゲートで外した単位だけ）; src/b.py:g — 定数の重複\n"
  },
  "record": {},
  "board": {}

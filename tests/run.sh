@@ -827,15 +827,15 @@ while IFS='|' read -r m msg; do
 done <<'CASES'
 drop-material|素材 'hygiene' の返答が無い
 drop-defer-reason|defer に構造的理由が無い
-drop-base|必須の欄 'base' が無い
-drop-round|必須の欄 'round' が無い
+drop-base|必須のフィールド 'base' が無い
+drop-round|必須のフィールド 'round' が無い
 bad-base|base が違う
 bad-round|ファイル名の番号と違う
 bad-status|status が不正
 clean-without-checked|'checked' が要る
 bad-label|label が不正
 drop-key|key が無い
-drop-reviews|必須の欄 'reviews' が無い
+drop-reviews|必須のフィールド 'reviews' が無い
 drop-review-R3|R3 の verdict が無い
 bad-review-status|R1 の status が不正
 review-only-R2|R1 は premise-invalid にできない
@@ -907,7 +907,7 @@ q-premise-origin-mismatch|premise の origin R2 が premise-invalid でない
 q-dup-key|の key が重複: x
 q-legacy-ask-human|人に聞く候補は questions（問いの台帳）に
 q-not-list|'questions' が配列でない
-q-drop|必須の欄 'questions' が無い
+q-drop|必須のフィールド 'questions' が無い
 q-not-object|questions[2] が object でない
 q-no-key|に key が無い（周をまたぐ突合に使う
 q-empty-reason|'reason' が空（きっかけ・根拠を書け）
@@ -1222,7 +1222,7 @@ while IFS='|' read -r m msg; do
     [ -n "$m" ] || continue
     expect_output 2 "$msg" "不正な研究記録は 1 と区別して落ちる: $m" "$PY_BIN" "$RR" "$WORK/$m.json"
 done <<'CASES'
-rr-drop-claims|必須の欄 'claims' が無い
+rr-drop-claims|必須のフィールド 'claims' が無い
 rr-bad-verdict|verdict が不正
 rr-conf-without-conditions|'conditions' が空か文字列でない
 rr-count-mismatch|判定の欠落を「なし」と読むな
@@ -1337,13 +1337,13 @@ while IFS='|' read -r m msg; do
     [ -n "$m" ] || continue
     expect_output 2 "$msg" "不正な診断記録は 1 と区別して落ちる: $m" "$PY_BIN" "$DR" "$WORK/$m.json"
 done <<'CASES'
-dr-drop-nodes|必須の欄 'nodes' が無い
+dr-drop-nodes|必須のフィールド 'nodes' が無い
 dr-bad-verdict|verdict が不正
 dr-conditional-without-condition|'condition' が空か文字列でない
 dr-parent-missing|が nodes に無い
 dr-scout-unreturned-not-unseen|「見つからなかった」と読むな
 dr-height-five|高さは固定 4 段
-dr-oneshot-on-rejected|一撃に選べるのは推奨・条件付きの節だけ
+dr-oneshot-on-rejected|一撃に選べるのは推奨・条件付きのノードだけ
 dr-votes-two|3 票
 dr-escalation-stale|申告の腐り
 dr-modcheck-restored-without-note|'note' が空か文字列でない
@@ -1354,7 +1354,7 @@ while IFS='|' read -r m msg; do
     [ -n "$m" ] || continue
     expect_output 1 "$msg" "飽和の偽装は 2 と区別して報せる: $m" "$PY_BIN" "$DR" "$WORK/$m.json"
 done <<'CASES'
-dr-unverified-node|飽和は全節に判定が付いてから
+dr-unverified-node|飽和は全ノードに判定が付いてから
 dr-sampling-na|抜き取り検査が要る
 dr-cart-fail|pass していないのに飽和を名乗っている
 dr-overturned|飽和ではない
@@ -1451,7 +1451,7 @@ while IFS='|' read -r m msg; do
     [ -n "$m" ] || continue
     expect_output 2 "$msg" "不正な初読記録は 1 と区別して落ちる: $m" "$PY_BIN" "$FR" "$WORK/$m.json"
 done <<'CASES'
-fr-drop-materials|必須の欄 'materials' が無い
+fr-drop-materials|必須のフィールド 'materials' が無い
 fr-drop-skipped|素材 'skipped' の返答が無い
 fr-none-without-asked|status=none なので 'asked' が要る
 fr-item-no-key|key が無い

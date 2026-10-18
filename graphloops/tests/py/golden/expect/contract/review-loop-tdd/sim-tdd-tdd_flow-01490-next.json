@@ -81,8 +81,8 @@
     }
    ],
    "notes": [
-    "p0.base は once で凍った出力（round 1）が今の schema に合わない（$: 必須の欄 'base_sha' が無い; $: 必須の欄 'method' が無い; $: 必須の欄 'commits' が無い）。**この欄を読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen",
-    "p0.purpose は once で凍った出力（round 1）が今の schema に合わない（$: 必須の欄 'purpose_text' が無い; $: 必須の欄 'known_weaknesses' が無い; $: 必須の欄 'source_files' が無い）。**この欄を読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen",
+    "p0.base は once で凍った出力（round 1）が今の schema に合わない（$: 必須のフィールド 'base_sha' が無い; $: 必須のフィールド 'method' が無い; $: 必須のフィールド 'commits' が無い）。**このフィールドを読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen",
+    "p0.purpose は once で凍った出力（round 1）が今の schema に合わない（$: 必須のフィールド 'purpose_text' が無い; $: 必須のフィールド 'known_weaknesses' が無い; $: 必須のフィールド 'source_files' が無い）。**このフィールドを読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen",
     "p3.fix_delta: p3.fix_delta: 差分の起点の版が無い（1 回目は P1 の頭で、2 回目は p3.fix_delta で固める）"
    ]
   },

@@ -405,7 +405,7 @@
    "loop": {
     "mutation_decl": {
      "declared": false,
-     "text": "対象リポジトリの宣言（.review-checks.json）に mutation の段が無い——在りかと呼び方は対象リポジトリの側（README・CONTRIBUTING・CI 定義・対象リポジトリの REVIEW.md など）が名指しする物を探せ（このプロンプトは道具の名前と引数の綴りを持たない）"
+     "text": "対象リポジトリの宣言（.review-checks.json）に mutation の段が無い——在りかと呼び方は対象リポジトリの側（README・CONTRIBUTING・CI 定義・対象リポジトリの REVIEW.md など）が名指しする物を探せ（このプロンプトはツールの名前と引数の綴りを持たない）"
     },
     "changed_files": [
      "src/a.py",

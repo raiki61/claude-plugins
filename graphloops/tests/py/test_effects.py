@@ -1,4 +1,4 @@
-"""規則の関数の新しい形（手順 3 の 3-6）: 読み口（宣言した欄だけ・読んだ値は写し）で呼び、書き込みは effects で頼み、engine が
+"""規則の関数の新しい形（手順 3 の 3-6）: 読み口（宣言したフィールドだけ・読んだ値は写し）で呼び、書き込みは effects で頼み、engine が
 graph の state_schema の合わせ方（x-reducer）で当てる。拒否は例外でなく ok: false。run の状態は effect の口だけで書き、loop.py patch は
 合わせ方を飛ばした上書きとして痕跡に残す。"""
 import copy
@@ -56,7 +56,7 @@ def test_reducers_refuse_what_the_schema_does_not_declare(eff, words, capsys):
 def test_the_shipped_review_loop_declares_a_reducer_for_every_run_state_key():
     assert effects.declares_reducers(SCHEMA) and all(p.get("x-reducer") in effects.REDUCERS for p in SCHEMA["properties"].values())
     research = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8")).get("state_schema")
-    assert not effects.declares_reducers(research)   # 移していない research-loop は今の書き方のまま（保存の時の照らしも今のまま）
+    assert not effects.declares_reducers(research)   # 移していない research-loop は今の書き方のまま（保存の時の照合も今のまま）
 
 
 # ---------------------------------------------------------------- 読み口と包み（Board.rule・commands.post_check）
@@ -78,7 +78,7 @@ def test_view_refuses_undeclared_fields(tmp_path, capsys):
     def peek(v):
         return v("record.questions")
 
-    assert "宣言していない欄" in die_msg(lambda: b.rule("peek", peek), capsys)
+    assert "宣言していないフィールド" in die_msg(lambda: b.rule("peek", peek), capsys)
 
 
 def test_post_check_turns_ok_false_into_answer_reject_and_checks_the_reply(tmp_path, capsys, monkeypatch):
@@ -88,9 +88,9 @@ def test_post_check_turns_ok_false_into_answer_reject_and_checks_the_reply(tmp_p
     assert commands.post_check(b, nid, good, None) == (good, [], [])
     with pytest.raises(AnswerReject, match="measured_output"):
         commands.post_check(b, nid, {"constraints": [{"text": "t", "measured_how": "m", "kind": "実測"}]}, None)
-    # 補った返答は節の schema で照らし直す（合わない補いは rules の欠陥として止める）
+    # 補った返答はノードの schema で照合し直す（合わない補いは rules の欠陥として止める）
     monkeypatch.setitem(b.rules.POST_CHECKS, "measured_needs_output", b.rules.cond_reads()(lambda v, *a: {"ok": True, "reply": {"x": 1}}))
-    assert "補った返答が節" in die_msg(lambda: commands.post_check(b, nid, good, None), capsys)
+    assert "補った返答がノード" in die_msg(lambda: commands.post_check(b, nid, good, None), capsys)
 
 
 def test_effects_from_a_new_form_builtin_are_applied_and_kept_out_of_the_output(tmp_path, monkeypatch):
@@ -105,7 +105,7 @@ def test_effects_from_a_new_form_builtin_are_applied_and_kept_out_of_the_output(
 
 
 def test_moved_post_checks_and_builtins_take_the_view():
-    """移した受け付け・機械の節は読み口を受け、旧い形のまま残す物は名指しで数える（残りは次の run——移し終えたら表から消す）"""
+    """移した受け付け・機械のノードは読み口を受け、旧い形のまま残す物は名指しで数える（残りは次の run——移し終えたら表から消す）"""
     rules = load_rules(REVIEW_GRAPH_PATH, GRAPH)
     legacy = sorted(k for k, fn in rules.POST_CHECKS.items() if not takes_view(fn))
     assert legacy == ["fix_covers_open_units", "judge_output", "local_review_covers_lenses", "r2_design"]

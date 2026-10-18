@@ -104,8 +104,8 @@ def test_over_budget_summarizes_base_generated_first(tmp_path, repo):
 
 
 def test_every_summarized_section_is_readable_from_the_full_copy(tmp_path, repo):
-    # 人の関所の答え（2026-09-27）の条件: 要約しても本文を見られなくなる周は無い——要約の行が示す行範囲が、全文の写しの
-    # その節と 1 バイトも違わない（役が Read の offset/limit で読む範囲）
+    # 人のゲートの答え（2026-09-27）の条件: 要約しても本文を見られなくなる周は無い——要約の行が示す行範囲が、全文の写しの
+    # そのセクションと 1 バイトも違わない（役が Read の offset/limit で読む範囲）
     b, f, got = paste(tmp_path, repo, RULES.PASTE_ROOM + read_room + 1500)
     lines = f.read_bytes().split(b"\n")
     body = got.read_text(encoding="utf-8")
@@ -118,7 +118,7 @@ def test_every_summarized_section_is_readable_from_the_full_copy(tmp_path, repo)
 
 
 def test_stops_only_when_it_fits_or_nothing_is_left(tmp_path, repo):
-    # どの予算でも: 収まったか、要約できる節（.gitattributes の外）を全部替えたか——先頭の注を勘定から外すと、収まる前に止まる
+    # どの予算でも: 収まったか、要約できるセクション（.gitattributes の外）を全部替えたか——先頭の注を勘定から外すと、収まる前に止まる
     sections = len([n for n in repo.names if n != ".gitattributes"])
     for cut in range(0, len(repo.raw), len(repo.raw) // 40):
         b, _, got = paste(tmp_path, repo, len(repo.raw) - cut + RULES.PASTE_ROOM + read_room)
@@ -170,7 +170,7 @@ def test_quoted_header_path_is_found(tmp_path, repo):
 @pytest.mark.parametrize("key,value", [("diff.noprefix", "true"), ("diff.mnemonicPrefix", "true"), ("color.ui", "always"),
                                        ("diff.relative", "true")])
 def test_user_git_config_does_not_change_the_copy(tmp_path, repo, monkeypatch, key, value):
-    # 利用者の設定のまま撮ると、見出しの前置き・色・範囲が変わって節を名前で引けず、生成データが先に替わらない
+    # 利用者の設定のまま撮ると、見出しの前置き・色・範囲が変わってセクションを名前で引けず、生成データが先に替わらない
     sh(repo.root, "config", key, value)
     if key == "diff.relative":   # 相対の範囲に効くのは git の cwd がサブディレクトリのとき（inputs.cwd はそうでありうる）
         monkeypatch.setattr(util, "GIT_CWD", str(repo.root / "new"))
@@ -180,7 +180,7 @@ def test_user_git_config_does_not_change_the_copy(tmp_path, repo, monkeypatch, k
     d = RULES._take_diff(b)
     assert d["ok"] and d["raw"] == repo.raw
     assert [(x["path"], x["tier"]) for x in b.loop_state["diff_paste_log"][0]["summarized"]] == [("gen/big.json", "base_generated")]
-    # 貼る写しは差分の一式（節の出力の snapshot。hist.snapshot・hist.after_fix が読む）に載り、全文の写しとは別のファイル
+    # 貼る写しは差分の一式（ノードの出力の snapshot。hist.snapshot・hist.after_fix が読む）に載り、全文の写しとは別のファイル
     snap = d["snapshot"]
     assert snap["paste_file"] == b.loop_state["diff_paste_log"][0]["file"] != snap["diff_file"]
 
@@ -219,7 +219,7 @@ def test_notices_name_the_summarized_rows(tmp_path):
          "summarized": [{"path": "gen/a.json", "added": 1, "deleted": 0, "bytes": 2, "lines": [1, 3], "tier": "base_generated"},
                         {"path": "lib.py", "added": 1, "deleted": 0, "bytes": 2, "lines": [4, 6], "tier": "other"}]},
         {"round": 2, "diff": "diff-r2.patch", "bytes": 3, "limit": 1, "still_over": True, "summarized": [],
-         "why": "要約できる節を全部替えても予算を超える——起こすのは止めない"}]})
+         "why": "要約できるセクションを全部替えても予算を超える——起動するのは止めない"}]})
     got = [n for n in RULES.notices(b) if "予算" in n]
     assert len(got) == 2 and "gen/a.json" in got[0] and "修正後の写しは r2.compare" in got[0] and "Read で読む" in got[0]
     assert "生成データ（BASE の宣言） 1・差分 1" in got[0] and "全部替えても" in got[1]

@@ -51,7 +51,7 @@ def _same(a, b):
 
 def validate_schema(value, schema, path="$"):
     if "$ref" in schema:
-        # 展開されていない参照を「知らない語」として無視すると、その欄の型検査が丸ごと消えて何でも通る
+        # 展開されていない参照を「知らない語」として無視すると、そのフィールドの型検査が丸ごと消えて何でも通る
         return [f"{path}: schema の $ref {schema['$ref']!r} が展開されていない（graph は load_graph を通して読め）"]
     errs = []
     types = schema.get("type")
@@ -68,7 +68,7 @@ def validate_schema(value, schema, path="$"):
     if isinstance(value, dict):
         for k in schema.get("required", []):
             if k not in value:
-                errs.append(f"{path}: 必須の欄 '{k}' が無い")
+                errs.append(f"{path}: 必須のフィールド '{k}' が無い")
         props = schema.get("properties", {})
         pats = schema.get("patternProperties", {})
         for k, v in value.items():
@@ -80,7 +80,7 @@ def validate_schema(value, schema, path="$"):
             for s in hit:
                 errs += validate_schema(v, s, f"{path}.{k}")
             if k not in props and not hit and schema.get("additionalProperties") is False:
-                errs.append(f"{path}: 知らない欄 '{k}'")
+                errs.append(f"{path}: 知らないフィールド '{k}'")
     if isinstance(value, list):
         if "minItems" in schema and len(value) < schema["minItems"]:
             errs.append(f"{path}: 要素が {schema['minItems']} 個未満")
@@ -108,9 +108,9 @@ def expand_refs(graph):
     """graph の schema の中の `"$ref"` を展開した写しを返す（JSON Schema の $defs / $ref と同じ形）。引けるのは
     `#/$defs/<名前>`（graph の最上位の $defs）と `engine#/<名前>`（engine が持つ定義。engine/util.py の ENGINE_DEFS）だけ。
     ブロックのファイルを指す参照（`../blocks/…json#/…`）はここより前に inline_block_refs が各ファイルで展開している（load_graph）。
-    節の pointers（番号で指す欄。engine/pointers.py）の型の広げもここで行う。
+    ノードの pointers（番号で指すフィールド。engine/pointers.py）の型の広げもここで行う。
     **展開は graph を読む入口（盤面・init・graphcheck）で 1 度だけ行い、型検査は展開後の形だけを見る**。
-    引けない $ref は ValueError（黙って空の schema にすると、その欄の型検査が消える）"""
+    引けない $ref は ValueError（黙って空の schema にすると、そのフィールドの型検査が消える）"""
     from .util import ENGINE_DEFS
     local = graph.get("$defs") or {}
 
@@ -142,7 +142,7 @@ def expand_refs(graph):
     for top in ("state_schema", "hist_schema", "blocks", "shared_blocks"):   # 盤面の loop の形と hist の値の形・ブロックの宣言（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
         if top in graph:
             out[top] = walk(graph[top], frozenset())
-    # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
+    # 番号で指すフィールド（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
     from .pointers import widen
     widen(out["nodes"])
     return out
@@ -150,7 +150,7 @@ def expand_refs(graph):
 
 def strip_notes(x):
     """schema から注記の語 note（engine の方言。JSON Schema の語ではない）を落とした写し。properties / patternProperties の下の鍵は
-    欄の名前なので、note という名前の欄は残す。外の土台の型（Archon の output_format など）へ節の schema を渡す口（gl exit）が使う"""
+    フィールドの名前なので、note という名前のフィールドは残す。外の土台の型（Archon の output_format など）へノードの schema を渡す口（gl exit）が使う"""
     if isinstance(x, list):
         return [strip_notes(v) for v in x]
     if not isinstance(x, dict):
@@ -174,12 +174,12 @@ def merge_patch(target, patch):
 
 def extends_path(path, g):
     """差し替えの版（最上位に "extends": "<元の graph のファイル名>"）なら元の graph のパス、でなければ None。
-    **元は同じ置き場のファイルだけ**——継いだ節の prompt_file・rules の相対パスは、差し替えの版の置き場を基準に読まれる"""
+    **元は同じ置き場のファイルだけ**——継いだノードの prompt_file・rules の相対パスは、差し替えの版の置き場を基準に読まれる"""
     ref = g.get("extends")
     if ref is None:
         return None
     if not isinstance(ref, str) or not ref or pathlib.PurePath(ref).name != ref:
-        raise ValueError(f"extends {ref!r} は同じ置き場の graph のファイル名だけ（継いだ節の相対パスが別の置き場を指さないため）")
+        raise ValueError(f"extends {ref!r} は同じ置き場の graph のファイル名だけ（継いだノードの相対パスが別の置き場を指さないため）")
     base = pathlib.Path(path).parent / ref
     if not base.is_file():
         raise ValueError(f"extends {ref!r} が無い（{base}）")
@@ -233,9 +233,9 @@ def _pointer(doc, frag, ref):
 def inline_block_refs(obj, path, used=None):
     """ファイル path（graph か差し替えの版）の中の、**ブロックのファイルを指す** `$ref` を展開した写しを返す。
     参照は JSON Schema 2020-12 Core の URI-reference と同じく、参照する側のファイルの置き場に対して解決する（`../blocks/<loop>/<名>/
-    exit.schema.json#/properties/<節>`）。引ける先は blocks_root の下の .json だけ。ブロックのファイルの中の `#/…` はそのファイル自身の中を
+    exit.schema.json#/properties/<ノード>`）。引ける先は blocks_root の下の .json だけ。ブロックのファイルの中の `#/…` はそのファイル自身の中を
     引き、`engine#/<名前>` は残す（後で expand_refs が引く）。graph の中の `#/$defs/<名前>` も残す——差し替えの版（extends）は
-    **この展開の後で**元の graph に重ねるので、ブロックへ移した型にも差し替えの版が欄を部分的に重ねられる（人の答え 2026-09-27）。
+    **この展開の後で**元の graph に重ねるので、ブロックへ移した型にも差し替えの版がフィールドを部分的に重ねられる（人の答え 2026-09-27）。
     引いたファイルは used（列）に足す——graph の同一性（graph_text）が同じ一覧を読む。引けない・自分を引く・置き場の外は ValueError"""
     path = pathlib.Path(path).resolve()
     root = blocks_root(path)
@@ -343,10 +343,10 @@ def walk_schema(schema, path="$"):
 
 
 def schema_at(schema, parts):
-    """schema の木を、path を点で割った欄の列 parts で最後の欄まで辿る ——（辿り着いた schema, ""）か（None, 辿れなかった理由）。
-    object の欄は properties、次に patternProperties（validate_schema と同じ end_anchored で当てる）で引き、配列は数字の欄で
-    items に降りる（get_path と同じ綴り）。**下の欄を宣言しない schema より下は辿らない**——宣言の外を読む path を黙って通さない。
-    graphcheck が盤面の loop を読む path（条件・節の reads と outputs・プロンプトの穴）を graph の state_schema で照らす口"""
+    """schema の木を、path を点で割ったフィールドの列 parts で最後のフィールドまで辿る ——（辿り着いた schema, ""）か（None, 辿れなかった理由）。
+    object のフィールドは properties、次に patternProperties（validate_schema と同じ end_anchored で当てる）で引き、配列は数字のフィールドで
+    items に降りる（get_path と同じ綴り）。**下のフィールドを宣言しない schema より下は辿らない**——宣言の外を読む path を黙って通さない。
+    graphcheck が盤面の loop を読む path（条件・ノードの reads と outputs・プロンプトの穴）を graph の state_schema で照合する口"""
     cur = schema
     for i, p in enumerate(parts):
         where = ".".join(parts[:i]) or "最上位"
@@ -361,25 +361,25 @@ def schema_at(schema, parts):
         elif p.isdigit() and isinstance(cur.get("items"), dict):
             cur = cur["items"]
         elif props or pats:
-            return None, f"欄 '{p}' が {where} の宣言（properties・patternProperties）に無い"
+            return None, f"フィールド '{p}' が {where} の宣言（properties・patternProperties）に無い"
         else:
-            return None, f"{where} の宣言が下の欄を持たない（'{p}' から下を照らせない）"
+            return None, f"{where} の宣言が下のフィールドを持たない（'{p}' から下を照合できない）"
     return cur, ""
 
 
 # engine が読む語の全部。これ以外（oneOf / not / format / uniqueItems、綴り違い）は validate_schema が黙って無視するので、
-# graph に書いても効かない。graphcheck がこの集合で節の schema を走査して落とす（注記で守るのをやめ、仕組みで守る）。
-# note / description は説明のための欄で、検査には使わないが書いてよい。writeOnly は JSON Schema 2020-12 の注記語（validation §9.4）で、
-# 型検査には使わない——graph の state_schema の最上位の鍵にだけ書き、graphcheck が「rules だけが読み書きし、条件・節の reads・
+# graph に書いても効かない。graphcheck がこの集合でノードの schema を走査して落とす（注記で守るのをやめ、仕組みで守る）。
+# note / description は説明のためのフィールドで、検査には使わないが書いてよい。writeOnly は JSON Schema 2020-12 の注記語（validation §9.4）で、
+# 型検査には使わない——graph の state_schema の最上位の鍵にだけ書き、graphcheck が「rules だけが読み書きし、条件・ノードの reads・
 # プロンプトの穴は読まない鍵」として読む（それ以外の場所に書けば graphcheck が落とす）。x-reducer（OpenAPI の拡張の x- と同じ綴り）も
-# 型検査には使わない——state_schema の最上位の鍵の合わせ方で、engine/effects.py が読む（置ける場所と語は graphcheck が照らす）
+# 型検査には使わない——state_schema の最上位の鍵の合わせ方で、engine/effects.py が読む（置ける場所と語は graphcheck が照合する）
 KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "patternProperties", "additionalProperties", "items",
                             "minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "note", "description",
                             "writeOnly", "x-reducer"})
 
 
-# 節の鍵のうち engine（と graphcheck の実行の形の検査）が読む物と、人が読むための説明の鍵。ループ固有の鍵は rules が NODE_KEYS
-# （rules か graphcheck が読む）と NODE_NOTE_KEYS（説明）で宣言する——engine はループ固有の語を持たない。この 4 つの和に無い節の鍵は、綴り違いか
+# ノードの鍵のうち engine（と graphcheck の実行の形の検査）が読む物と、人が読むための説明の鍵。ループ固有の鍵は rules が NODE_KEYS
+# （rules か graphcheck が読む）と NODE_NOTE_KEYS（説明）で宣言する——engine はループ固有の語を持たない。この 4 つの和に無いノードの鍵は、綴り違いか
 # 誰も読まなくなった鍵で、書いても黙って効かないので graphcheck が落とす（KNOWN_KEYWORDS と同じ閉じた集合。JSON Schema の
 # additionalProperties: false と同じ形）。ENGINE_NODE_KEYS の各鍵を engine か graphcheck が読んでいることは pytest が見る
 ENGINE_NODE_KEYS = frozenset({

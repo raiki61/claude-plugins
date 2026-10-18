@@ -2,15 +2,15 @@
 
 1 本の列（history）は、台本の関数の中の Run 1 つが打った出来事を元の順に並べたデータで、頭は init。筋書きの行は列の途中の印
 （mark）を指し、前置き（given）はその印の手前の出来事の全部、when は印の付いた出来事になる——行が手前の出来事を選んで落とす
-口を持たない。列が元の関数の出来事を落としていないことは、被覆の道具（cover_moved.py の --no-cov）が元の関数の Run と
+口を持たない。列が元の関数の出来事を落としていないことは、被覆のツール（cover_moved.py の --no-cov）が元の関数の Run と
 loop.py の呼び出しの列・最後の盤面で突き合わせる。
 
 - **回し手**（Driver）: 出来事を 1 つ受けて（返事, 盤面）を返す。口（port）は glharness.driven の inproc か cli。until は台本の
-  drive を名前で引いて回す（台本を消す run で本体を移す——写すと、台本の drive と写しのずれを見る柵が無い）
-- **役の表**（ROLES）: 名前 → 台本の返答の表（answers・base_answers）の名前と、節ごとの手直し（返答の上書き・同じ節への先打ちの出来事）
+  drive を名前で引いて回す（台本を消す run で本体を移す——写すと、台本の drive と写しのずれを見るチェックが無い）
+- **役の表**（ROLES）: 名前 → 台本の返答の表（answers・base_answers）の名前と、ノードごとの手直し（返答の上書き・同じノードへの先打ちの出来事）
 - **控え**（Scenes）: 列の接頭辞ごとに作業場をまるごと控え、行は控えから写し戻して始める。作業場の置き場は列ごとに 1 か所に
   固定する（盤面の中の絶対パスを書き換えない。waves.py と同じ）
-- 列を作る手が台本の check を撃ったら例外で止める（準備の段で走った check は件数の柵の数えの外で落ちる）
+- 列を作る手が台本の check を撃ったら例外で止める（準備の段で走った check は件数のチェックの数えの外で落ちる）
 """
 import copy
 import json
@@ -28,7 +28,7 @@ import waves
 GIVEN_PROPERTY = "gl_given"   # テストが使った前置きの鍵（junitxml に載る。cover_moved.py が読む）
 HISTORIES = {}   # 列の名前 → History
 ROLES = {}       # 役の表の名前 → {"base": 台本の返答の表の名前, "rules": [手直し]}
-ROWS = {}        # 台本の関数 → {(列, 印の位置)}——控えを残す位置と、被覆の道具が突き合わせる列
+ROWS = {}        # 台本の関数 → {(列, 印の位置)}——控えを残す位置と、被覆のツールが突き合わせる列
 PROCS = ("init", "cmd", "done", "validate")   # 返事が子の終わり方（rc・標準出力・標準エラー）の出来事
 WRITE_ROOTS = ("dir", "repo", "tmp")           # 世界の手が書いてよい run の置き場（盤面・型のリポジトリ・作業場）
 
@@ -43,7 +43,7 @@ def init(name, mark=None, graph_drop=(), **run):
 
 
 def until(roles, stop=None, catch=False, mark=None):
-    """役の表 roles で next と答えを回す。stop は {"ready": 節}・{"round": k（以上）}・{"got": 印}。catch は回しの例外を返事にする"""
+    """役の表 roles で next と答えを回す。stop は {"ready": ノード}・{"round": k（以上）}・{"got": 印}。catch は回しの例外を返事にする"""
     return _ev("until", mark, roles=roles, **({"stop": stop} if stop else {}), **({"catch": True} if catch else {}))
 
 
@@ -62,7 +62,7 @@ def file(name, value=None, ref=None):
 
 
 def done(node, value=None, merge=None, agent_id=None, mark=None):
-    """節への返答。node の "@" は手直しの中で答えている instance。merge は台本の答えに重ねる（手直しの中だけ）"""
+    """ノードへの返答。node の "@" は手直しの中で答えている instance。merge は台本の答えに重ねる（手直しの中だけ）"""
     return _ev("done", mark, node=node, reply={"merge": merge} if merge is not None else {"set": value},
                **({"agent_id": agent_id} if agent_id else {}))
 
@@ -78,12 +78,12 @@ def look(mark):
 
 
 def prompt(mark):
-    """手直しの中で答えている節のプロンプトの本文を控える"""
+    """手直しの中で答えているノードのプロンプトの本文を控える"""
     return _ev("prompt", mark)
 
 
 def validate(mark=None):
-    """検証器を子プロセスで起こす（台本と同じ口）"""
+    """検証器を子プロセスで起動する（台本と同じ口）"""
     return _ev("validate", mark)
 
 
@@ -102,7 +102,7 @@ def replaced(value):
 
 
 def rule(node, round=None, once=None, before=(), reply=None):
-    """役の表の手直し 1 つ: 節 node（round の周だけ・once の印がまだ無い間だけ）に、before の出来事を先に打ち、reply で答えを直す"""
+    """役の表の手直し 1 つ: ノード node（round の周だけ・once の印がまだ無い間だけ）に、before の出来事を先に打ち、reply で答えを直す"""
     return {"node": node, **({"round": round} if round is not None else {}), **({"once": once} if once else {}),
             "before": list(before), **({"reply": reply} if reply else {})}
 
@@ -115,7 +115,7 @@ def _register(table, name, value, what):
 
 
 def roles(name, *rules, base=None):
-    """役の表: 台本の返答の表 base（既定は name）と、節ごとの手直し"""
+    """役の表: 台本の返答の表 base（既定は name）と、ノードごとの手直し"""
     return _register(ROLES, name, {"base": base or name, "rules": list(rules)}, "役の表")
 
 
@@ -149,7 +149,7 @@ def refs(ev):
 
 
 def lineage(name, k):
-    """列 name の 1〜k の接頭辞と、そこが値を借りた列の接頭辞の鍵（被覆の道具が前置きの作りを数える文脈の名前）"""
+    """列 name の 1〜k の接頭辞と、そこが値を借りた列の接頭辞の鍵（被覆のツールが前置きの作りを数える文脈の名前）"""
     out = []
     for j in range(1, k + 1):
         for r in refs(HISTORIES[name].events[j - 1]):
@@ -304,7 +304,7 @@ class Driver:
         return stored, self.run and _board(self.run)
 
     def hook(self, rules):
-        """台本の drive に渡す hook: 役の表の手直しを当てる（当たらない節は台本の答えのまま）"""
+        """台本の drive に渡す hook: 役の表の手直しを当てる（当たらないノードは台本の答えのまま）"""
         def hook(run, inst, out):
             for r in rules:
                 if r["node"] != inst["node"] or ("once" in r and r["once"] in self.got):
@@ -384,7 +384,7 @@ def _look(d, ev, inst, out):
 
 def _prompt(d, ev, inst, out):
     if inst is None:
-        raise ValueError("prompt は役の表の手直しの中でだけ打てる（答えている節が要る）")
+        raise ValueError("prompt は役の表の手直しの中でだけ打てる（答えているノードが要る）")
     return pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
 
 
@@ -513,7 +513,7 @@ def pytest_configure(config):
 @pytest.fixture(scope="session")
 def gl_scenes(tmp_path_factory, request):
     s = Scenes(tmp_path_factory.mktemp("scenes"))
-    if request.config.getoption("--gl-prebuild-waves"):   # 被覆の道具の回: given だけを準備（setup）で作り、when は本体で打つ
+    if request.config.getoption("--gl-prebuild-waves"):   # 被覆のツールの回: given だけを準備（setup）で作り、when は本体で打つ
         for name, k in sorted({x for rows in ROWS.values() for x in rows}):
             if k > 1:
                 s.build(name, k - 1)

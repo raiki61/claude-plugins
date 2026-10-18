@@ -4,21 +4,21 @@
 使い方（回す側が呼ぶ順）:
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--stop-after-round N] [--dir <置き場>] [--validator <path>]
-                   [--no-engine-runners]            # 回す側の節を会話がこなす（既定は engine が起こす——回し役の要らない回し方。消す予定）
+                   [--no-engine-runners]            # 回す側のノードを会話がこなす（既定は engine が起動する——回し役の要らない回し方。消す予定）
                    [--unfenced-delegates <理由>]   # 任せ先を sandbox で縛らない（人が明示したときだけ）
-    loop.py run    [--dir] [--foreground]               # 回し手が engine の起こせる節を回し続け、止まる所でだけ戻る（前景で打つ。下の終了コード）
+    loop.py run    [--dir] [--foreground]               # 回し手が engine の起動できるノードを回し続け、止まる所でだけ戻る（前景で打つ。下の終了コード）
     loop.py resume --reason <理由> (--stop-after-round N | --no-stop-after-round)   # init --stop-after-round で止めた run を次の周へ進める
-    loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
-    loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（役が終わるまで戻らない——会話からは打たずに run に任せる。端末・CI なら直に打ってよい。任せ先は sandbox の中）
-    loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
-    loop.py skip   --node <節> --reason <理由> [--every-round]   # optional の節を省く（報告に「省略」と載る。engine が走らせる CI の節も人の命令で省ける——理由は記録に残り、収束の前に人に聞かれる。--every-round は run の間ずっと）
-    loop.py answer --text <答え> [--note <本文>] [--detail <json>] [--by human|driver]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値。--by は打ち手の申告で trace に残る）
-    loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
-    loop.py children [--dir] [--stop --reason <理由> [--include-running]]   # 盤面の印から、この run が起こした子の残りを一覧する（信号なし）・止める
+    loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよいノードをプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
+    loop.py launch [--node <ノード>] [--dir]                # launch を持つノード（役・任せ先・走らせるだけの engine_run）を engine が起動し、返答を置き場へ書いて受け付けまで済ませる（役が終わるまで戻らない——会話からは打たずに run に任せる。端末・CI なら直に打ってよい。任せ先は sandbox の中）
+    loop.py done   --node <ノード[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
+    loop.py skip   --node <ノード> --reason <理由> [--every-round]   # optional のノードを省く（報告に「省略」と載る。engine が走らせる CI のノードも人の指示で省ける——理由は記録に残り、収束の前に人に聞かれる。--every-round は run の間ずっと）
+    loop.py answer --text <答え> [--note <本文>] [--detail <json>] [--by human|driver]  # 人に聞くターンのとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値。--by は打ち手の申告で trace に残る）
+    loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末のノード——報告——だけが走る）
+    loop.py children [--dir] [--stop --reason <理由> [--include-running]]   # 盤面の印から、この run が起動した子の残りを一覧する（信号なし）・止める
                                                      # （既定で止めるのは launch が居なくなった後の止め残しだけ。走っている試行と受け付けの前の instance は --include-running のときだけ）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
-    loop.py patch  --path <[record.]記録の欄 | state.<盤面の欄> | out.<節>.<欄>> (--file <json> | --delete) --reason   # 記録（既定）か盤面か節の最新の出力の手当て——書くか消す（痕跡が残る最終手段）
+    loop.py patch  --path <[record.]記録のフィールド | state.<盤面のフィールド> | out.<ノード>.<フィールド>> (--file <json> | --delete) --reason   # 記録（既定）か盤面かノードの最新の出力の手当て——書くか消す（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
     loop.py intake (--what <1 行> [--dir] | --export <file> [--all] [--with-stderr] | --send | --set-url <URL>) [--data-dir]
                                                      # 踏んだ問題を利用者の環境に残す手の口（非 0 の終わりは engine が自動で残す）
@@ -26,9 +26,9 @@
 置き場（--dir 省略時）: `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外
 （`git status --porcelain` に映らない）で、リポジトリごとに残る。`current` がいちばん新しい run を指す。
 
-終了コード: 0 = 受け付けた / 1 = 受け付けない（返答が型に合わない・節が待ち状態でない等。直して
+終了コード: 0 = 受け付けた / 1 = 受け付けない（返答が型に合わない・ノードが待ち状態でない等。直して
 呼び直す） / 2 = 盤面・グラフ・引数が読めない。run だけは止まった種類も返す（値の表の正本は engine/runner.py の CODES）:
-0 = 終わった / 10 = 人の答え待ち / 11 = 指定の周で止めた / 12 = 進めない / 13 = 会話に返す節がある（回し役なしの run では engine の
+0 = 終わった / 10 = 人の答え待ち / 11 = 指定の周で止めた / 12 = 進めない / 13 = 会話に返すノードがある（回し役なしの run では engine の
 不具合） / 14 = 人が確かめる事がある /
 20 = まだ回っている（見守りの上限。回し手と子は止めない）
 
@@ -50,7 +50,7 @@ from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
 from engine.util import BoardConflict, Reject, die  # noqa: E402
 
 
-# 盤面を読んでから書くまでを丸ごと盤面の錠の下で走らせるコマンド（短い。next は機械の節も走らせるので長くなりうるが、その間は
+# 盤面を読んでから書くまでを丸ごと盤面の錠の下で走らせるコマンド（短い。next は機械のノードも走らせるので長くなりうるが、その間は
 # 他の書き手が待つ——時間では諦めない）。launch は役の終わりまで戻らないので丸ごとは持たず、書く所だけで取る（BOARD_SHARERS）
 BOARD_WRITERS = ("next", "done", "skip", "answer", "thicken", "add", "patch", "finalize", "resume")
 BOARD_SHARERS = ("launch", "relaunch", "stop")
@@ -77,11 +77,11 @@ def main():
     s.add_argument("--validator")
     s.add_argument("--lang")
     s.add_argument("--engine-runners", action=argparse.BooleanOptionalAction, default=None,
-                   help="回す側の節（修正・修正案・手直し・基準点・前提・目的・報告・局所レビューなど、任せ先を持たない節）も engine が claude -p で"
-                        "起こす（既定。loop.py run が止まる所でだけ戻る）。--no-engine-runners で会話がこなす道を選ぶ（人の決定 2026-09-27 で消す予定）")
+                   help="回す側のノード（修正・修正案・手直し・基準点・前提・目的・報告・局所レビューなど、任せ先を持たないノード）も engine が claude -p で"
+                        "起動する（既定。loop.py run が止まる所でだけ戻る）。--no-engine-runners で会話がこなす道を選ぶ（人の決定 2026-09-27 で消す予定）")
     s.add_argument("--unfenced-delegates", metavar="REASON",
-                   help="任せ先（delegate）を sandbox で縛らずに起こす（回し役なしの run は engine が sandbox の外で、--no-engine-runners の run は"
-                        "回す側が Agent ツールで起こす。人が run ごとに明示したときだけ。理由は盤面に残る）")
+                   help="任せ先（delegate）を sandbox で縛らずに起動する（回し役なしの run は engine が sandbox の外で、--no-engine-runners の run は"
+                        "回す側が Agent ツールで起動する。人が run ごとに明示したときだけ。理由は盤面に残る）")
     s.set_defaults(fn=c.cmd_init)
 
     for name, fn in (("next", c.cmd_next), ("status", c.cmd_status), ("record", c.cmd_record), ("finalize", c.cmd_finalize)):
@@ -90,7 +90,7 @@ def main():
         s.set_defaults(fn=fn)
     sub.choices["next"].add_argument("--accept-tree-change", help="P1 の前後の作業ツリー突合が『変わっている』と止めたとき、自分の変更なら理由を添えて通す（痕跡は process.git_mismatches）")
 
-    s = sub.add_parser("run", help="回し手が engine の起こせる節を回し続け、止まる所（人の答え・会話に返す節・周の止め・終わり）でだけ戻る")
+    s = sub.add_parser("run", help="回し手が engine の起動できるノードを回し続け、止まる所（人の答え・会話に返すノード・周の止め・終わり）でだけ戻る")
     s.add_argument("--dir")
     s.add_argument("--foreground", action="store_true", help="切り離さず、このプロセスが回し手として止まるまで回す（端末・CI）")
     s.set_defaults(fn=lambda a: runner.cmd_run(a, a.dir))
@@ -105,15 +105,15 @@ def main():
 
     s = sub.add_parser("launch")
     s.add_argument("--dir")
-    s.add_argument("--node", help="1 節だけ起こす（省くと、いま起こせる launch を持つ節を全部並列に起こす）")
+    s.add_argument("--node", help="1 つのノードだけ起動する（省くと、いま起動できる launch を持つノードを全部並列に起動する）")
     s.set_defaults(fn=c.cmd_launch)
 
-    s = sub.add_parser("relaunch", help="待っている instance を起こし直す（新しい試行を書いてから、engine が起こした前の試行の子を木ごと止める。試行の回数と理由を盤面と trace に残す）")
+    s = sub.add_parser("relaunch", help="待っている instance を起動し直す（新しい試行を書いてから、engine が起動した前の試行の子を木ごと止める。試行の回数と理由を盤面と trace に残す）")
     s.add_argument("--dir")
     s.add_argument("--node", required=True)
     s.add_argument("--reason", required=True)
     s.add_argument("--if-untouched", action="store_true",
-                   help="前の試行の子を先に止め切り、作業ツリーの木と HEAD・枝が起こした時点と同じときだけ起こし直す（違えば新しい試行を作らずに拒む。回し手が居なくなった launch の書き換える子を拾い直す口）")
+                   help="前の試行の子を先に止め切り、作業ツリーの木と HEAD・ブランチが、起動した時点と同じときだけ起動し直す（違えば新しい試行を作らずに拒む。回し手が居なくなった launch の書き換える子を拾い直す口）")
     s.add_argument("--reprobe", action="store_true",
                    help="盤面に固めた sandbox と一時の置き場の確かめを消してから出し直す（次の launch が確かめ直す。入れ子の sandbox の外し方を当てた後に打つ）")
     s.set_defaults(fn=c.cmd_relaunch)
@@ -123,7 +123,7 @@ def main():
     s.add_argument("--node", required=True)
     s.add_argument("--output")
     s.add_argument("--stdin", action="store_true", help="返答を標準入力で渡す（明示したときだけ読む——閉じないパイプで止まらないため）")
-    s.add_argument("--agent-id", help="役の agent の id（同じ agent を続ける節のために残す）")
+    s.add_argument("--agent-id", help="役の agent の id（同じ agent を続けるノードのために残す）")
     s.add_argument("--accept-tree-change")
     s.set_defaults(fn=c.cmd_done)
 
@@ -132,7 +132,7 @@ def main():
     s.add_argument("--node", required=True)
     s.add_argument("--reason", required=True)
     s.add_argument("--every-round", action="store_true",
-                   help="run の間ずっと省く（next が節を出す前に、周ごとに同じ理由で省く。今の周に待っていればその場で省く。init の直後に打てば回し手が起こす前に効く）")
+                   help="run の間ずっと省く（next がノードを出す前に、周ごとに同じ理由で省く。今の周に待っていればその場で省く。init の直後に打てば回し手が起動する前に効く）")
     s.set_defaults(fn=c.cmd_skip)
 
     s = sub.add_parser("answer")
@@ -143,12 +143,12 @@ def main():
     s.add_argument("--by", choices=("human", "driver"), help="打ち手の申告（人か回す側の AI か）。trace の answer の行に残る。無ければ『未申告』")
     s.set_defaults(fn=c.cmd_answer)
 
-    s = sub.add_parser("stop", help="走っている run を人がその時点で止める（人に聞いていない時点でも。理由は必須で記録に残る。起こし中の役の子は木ごと止める）")
+    s = sub.add_parser("stop", help="走っている run を人がその時点で止める（人に聞いていない時点でも。理由は必須で記録に残る。起動中の役の子は木ごと止める）")
     s.add_argument("--dir")
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_stop)
 
-    s = sub.add_parser("children", help="盤面の印（*.pgid）から、この run が起こした子の残りを一覧する（既定・信号なし）・--stop で止める（ps の文字列で探さない）")
+    s = sub.add_parser("children", help="盤面の印（*.pgid）から、この run が起動した子の残りを一覧する（既定・信号なし）・--stop で止める（ps の文字列で探さない）")
     s.add_argument("--dir")
     s.add_argument("--stop", action="store_true", help="印の子を木ごと止める（既定は launch が居なくなった後の止め残しで、instance が受け付けの前でない物だけ）")
     s.add_argument("--reason", help="止める理由（--stop のとき必須。盤面の trace に残る）")
@@ -190,7 +190,7 @@ def main():
 
     a = p.parse_args()
     refuse_broken_args(a)
-    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす
+    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起動する
     if a.cmd in BOARD_WRITERS + BOARD_SHARERS or a.cmd == "run":
         a.dir = c.resolve_dir(a)
     if a.cmd in BOARD_WRITERS + BOARD_SHARERS:
@@ -228,7 +228,7 @@ def refuse_broken_args(a):
 
 
 def cli():
-    """入口の全体（sys.argv を読み、例外を終了コードに直して SystemExit で抜ける）。子プロセスとして起こす口と、
+    """入口の全体（sys.argv を読み、例外を終了コードに直して SystemExit で抜ける）。子プロセスとして起動する口と、
     テストの土台（graphloops/tests/py/glharness.py）が同じプロセスで呼ぶ口の 2 つが、この 1 本を通る。
 
     非 0 で終わる呼び出しは、終わる前に利用者の環境へ 1 行残す（engine/intake.py。残す処理は何が起きても終了コードと

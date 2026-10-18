@@ -2,8 +2,8 @@
 
 - engine を import できるように graphloops/ を sys.path の先頭に足す。mutmut は graphloops/ を graphloops/mutants/ に
   写して走らせるので、この置き場から 2 つ上（写しの側の graphloops/）を足せば、壊した写しの engine を読む
-- 検証器（リポジトリの根の convergence-loops/scripts/review-record.py）は、根を上へ辿って探す（mutants/ の写しからも同じ根に届く）
-- 柵（飛ばしは失敗・件数の突合・台本の検査の件数と到達）は fence.py。件数の定数はここに置く（tests/run.sh の ratchet.py が
+- 検証器（リポジトリのルートの convergence-loops/scripts/review-record.py）は、ルートを上へ辿って探す（mutants/ の写しからも同じルートに届く）
+- チェック（飛ばしは失敗・件数の突合・台本の検査の件数と到達）は fence.py。件数の定数はここに置く（tests/run.sh の ratchet.py が
   検査の置き場の大文字の整数の定数を拾い、突合の行が 1 か所で緩んでいないかを見る）
 - 盤面を端から端まで回す台本（graphloops/tests/simulate.py・simulate_review.py）を pytest から回す土台（fixture・選択肢
   --gl-driver・大きさの印・check の数え方）は glharness.py、途中の盤面を控えて 1 手から始める fixture wave は waves.py、
@@ -25,14 +25,14 @@ PLUGIN = HERE.parents[1]
 sys.path.insert(0, str(PLUGIN))
 REPO = next((p for p in PLUGIN.parents if (p / "convergence-loops" / "scripts" / "review-record.py").is_file()), None)
 if REPO is None:
-    raise RuntimeError(f"{PLUGIN} の上に convergence-loops/scripts/review-record.py が無い——リポジトリの根が見つからない")
+    raise RuntimeError(f"{PLUGIN} の上に convergence-loops/scripts/review-record.py が無い——リポジトリのルートが見つからない")
 
 pytest_plugins = ("pytester", "glharness", "waves", "scenes", "ledger")
 # 止める猶予の環境変数（engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を走らせると値を継ぎ、
 # 既定の 5 秒を前提に子を止める検査が、その下でだけ崩れる（読めない値なら engine の import で全部落ちる）
 os.environ.pop("GL_KILL_GRACE", None)
 
-# graphcheck を同じプロセスで呼ぶ口（変異の道具 mutmut が差し替えた engine を見るため。別プロセスで走らせる検査は bash 側）
+# graphcheck を同じプロセスで呼ぶ口（変異のツール mutmut が差し替えた engine を見るため。別プロセスで走らせる検査は bash 側）
 _spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" / "graphcheck.py")
 graphcheck = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(graphcheck)
@@ -66,7 +66,7 @@ EXPECTED_SIM_CHECKS = 28
 EXPECTED_SIM_REACHED = 2
 
 
-# 変異の実行器（リポジトリの根の tests/mutate.py）の印の写しの pytest の回だけ立つ環境変数。立っていれば、各テストの間その値を
+# 変異の実行器（リポジトリのルートの tests/mutate.py）の印の写しの pytest の回だけ立つ環境変数。立っていれば、各テストの間その値を
 # テストの node id にする——印は行を通したテストをこの値で名指す（子のプロセスにも環境で届く）。名前の正本は tests/mutate.py の
 # PYTEST_MARK（揃いは test_mutate_mark.py が縛る）
 MUTATE_MARK = "GL_MARK_PYTEST"

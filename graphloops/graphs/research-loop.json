@@ -18,7 +18,7 @@
  "state_schema": {
   "type": "object",
   "additionalProperties": false,
-  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）。writeOnly: true の鍵は rules だけが読み書きし、条件・節の reads・プロンプトの穴は読まない",
+  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）。writeOnly: true の鍵は rules だけが読み書きし、条件・ノードの reads・プロンプトの穴は読まない",
   "properties": {
    "stuck_hint": {
     "type": "boolean",
@@ -96,7 +96,7 @@
     "{python}",
     "{plugin_root}/scripts/with-auth.py"
    ],
-   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の frontmatter の omitClaudeMd で省けるが（組織管理の分は残る）、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の定義は convergence-loops が配る物で、道具ゼロの役の遮断をその定義の 1 欄に預けない。engine が起こす道具ゼロの子は、Git リポジトリの外の一時ディレクトリを作業ディレクトリにして起こすので git status の写しは入らず（公式: 『Absent outside a Git repository』）、--setting-sources \"\" で CLAUDE.md も読まない。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
+   "why": "ツールゼロの役（遮断系）を Agent ツールで起動すると、ハーネスが CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の frontmatter の omitClaudeMd で省けるが（組織管理の分は残る）、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の定義は convergence-loops が配る物で、ツールゼロの役の遮断をその定義の 1 フィールドに預けない。engine が起動するツールゼロの子は、Git リポジトリの外の一時ディレクトリを作業ディレクトリにして起動するので git status の写しは入らず（公式: 『Absent outside a Git repository』）、--setting-sources \"\" で CLAUDE.md も読まない。実測 2026-09-12: ツールゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T セクション。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
   },
   "tooled": {
    "argv": [
@@ -153,7 +153,7 @@
     "{python}",
     "{plugin_root}/scripts/with-auth.py"
    ],
-   "why": "道具つきの役（investigator・inspector・judge）も engine が claude -p で起こす（loop.py launch）。argv・resume・via は review-loop.json の launch.tooled と同じ語で、理由の正本もそちらの why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義の道具から決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形・計器を OS の sandbox の中でだけ動かす形と sandbox を使えない環境で落とす先）——理由をここに写すと片方だけが古くなるので写さない。2 つの graph の launch の語が揃っていることは、このリポジトリの検査が突き合わせる。"
+   "why": "ツールつきの役（investigator・inspector・judge）も engine が claude -p で起動する（loop.py launch）。argv・resume・via は review-loop.json の launch.tooled と同じ語で、理由の正本もそちらの why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義のツールから決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形・計器を OS の sandbox の中でだけ動かす形と sandbox を使えない環境で落とす先）——理由をここに写すと片方だけが古くなるので写さない。2 つの graph の launch の語が揃っていることは、このリポジトリの検査が突き合わせる。"
   },
   "resume_on_reject": 2,
   "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる",
@@ -176,14 +176,14 @@
     "reads": []
    }
   ],
-  "append_why": "起こす子の形ごとに指示書の末尾へ足す段。理由の正本は review-loop.json の launch.append_why（写さない）。このループはテストの範囲の宣言を記録に持たないので、コマンドを走らせる子には人の方針の置き場だけを届ける"
+  "append_why": "起動する子の形ごとに指示書の末尾へ足す段。理由の正本は review-loop.json の launch.append_why（写さない）。このループはテストの範囲の宣言を記録に持たないので、コマンドを走らせる子には人の方針の置き場だけを届ける"
  },
  "exec": true,
- "basis": "convergence-loops の commands/research-loop.md と scripts/research-record.py（同じリポジトリ。版は .claude-plugin/plugin.json が正本で、ここに写さない）を、節（工程）＋依存＋周回条件のグラフに写し、各節に実行用の欄（prompt_file・schema・writes・fan_out・cond・reads）を足したもの。役の道具は agents/<役>.md が正本。記録の欄と語彙の正本は research-record.py",
+ "basis": "convergence-loops の commands/research-loop.md と scripts/research-record.py（同じリポジトリ。版は .claude-plugin/plugin.json が正本で、ここに写さない）を、ノード（工程）＋依存＋周回条件のグラフに写し、各ノードに実行用のフィールド（prompt_file・schema・writes・fan_out・cond・reads）を足したもの。役のツールは agents/<役>.md が正本。記録のフィールドと語彙の正本は research-record.py",
  "overview": "見立て文書の『外部に照合できる主張』を棚卸しし（P0）、一次情報で判定させ（P1: checker→相違と荷重確証だけ refuter）、訂正を統合し（P2）、新規の相違がゼロの周にだけ独立の目のゲート（P3: rederiver・cold-reader・重厚なら cartographer）を回し、連続 2 周ゼロ＋ゲート全 pass で収束（P4）、最後に自ドメインへ適応して 3 分類の決定を出す（P5）。回す側（surveyor）は棚卸し・統合・適応の判断作業だけをし、判定は一切しない。判定・件数・連続カウント・上限・止める条件は駆動器が持つ",
  "record": {
   "file": "<置き場>/record.json（駆動器が組み立てる。回す側は直接編集しない——手当ては loop.py patch で痕跡付き）",
-  "validator": "python3 research-record.py record.json——report の節に入る前に駆動器が回し、exit 0 でなければ report を出さない",
+  "validator": "python3 research-record.py record.json——report のノードに入る前に駆動器が回し、exit 0 でなければ report を出さない",
   "validator_path": "scripts/research-record.py",
   "vocab_owner": "research-record.py の VERDICTS / VERDICT_FIELDS / THICKNESS / DECIDERS / ORIGINS / GATE_VERDICTS / OUTCOMES / REQUIRED。この JSON の schema の enum はそれを写している（増やすときは検証器が先）",
   "exit_codes": "0 = 発行を妨げるものなし／1 = 収束を名乗りながらゲート未 pass・覆り・未反証の相違／2 = 記録が不正。outcome=stopped の記録は 1 にならない",
@@ -234,10 +234,10 @@
   "per_round_rules": [
    "2 ラウンド目以降の P1 は『判定の無い主張』と『recheck の付いた主張』だけ（駆動器の fan_out が選ぶ）。抜き取り検査だけが例外",
    "同一ラウンドで checker / refuter / ゲートを回し直さない（done は 1 instance に 1 回。やり直しは次の周）",
-   "判定は checker と refuter の返答から駆動器が記録に写す。回す側の節の writes は verdict / refuted / gates / sampling / convergence に触れない（graphcheck が見る）",
+   "判定は checker と refuter の返答から駆動器が記録に写す。回す側のノードの writes は verdict / refuted / gates / sampling / convergence に触れない（graphcheck が見る）",
    "investigator の前後で駆動器が git status --porcelain と作業ツリーの中身の木の id を突き合わせる。差があれば done を拒む（--accept-tree-change 理由 で痕跡付きで通せる）",
    "問い・制約（P0-1）は once——結果を見てから動かさない。制約の追加・緩和・削除が要るなら新しい run",
-   "各判定者の生の verdict と理由は out/ に残り、report の節に全部渡される（要約で丸めない）"
+   "各判定者の生の verdict と理由は out/ に残り、report のノードに全部渡される（要約で丸めない）"
   ],
   "max_rounds_by_thickness": {
    "軽量": 1
@@ -245,7 +245,7 @@
  },
  "stop": {
   "node": "converge",
-  "why": "loop.py stop で人が run を止めたとき、この節を『済んだ』と見なし、その下流（p5.adapt → report → reflect）だけを走らせる——今の answer stop が converge で止めて報告へ届く筋と同じ道（Argo の exit handler の形）。下流でない待ちの節は止めた印（rd.stopped）になり、rules の on_stop が記録の convergence に止めた理由を書く"
+  "why": "loop.py stop で人が run を止めたとき、このノードを『済んだ』と見なし、その下流（p5.adapt → report → reflect）だけを走らせる——今の answer stop が converge で止めて報告へ届く筋と同じ道（Argo の exit handler の形）。下流でない待ちのノードは止めた印（rd.stopped）になり、rules の on_stop が記録の convergence に止めた理由を書く"
  },
  "blocks": {
   "prereq": {
@@ -1015,7 +1015,7 @@
     "p1.refuter"
    ],
    "source": "P1 ＞ 件数突合",
-   "does": "クラスタ欄と判定数の等式・相違の反証・荷重確証の反証。この周の『新規の相違』をここで確定する",
+   "does": "クラスタフィールドと判定数の等式・相違の反証・荷重確証の反証。この周の『新規の相違』をここで確定する",
    "outputs": [
     "new_discrepancies",
     "claims[].first_discrepant_round"
@@ -1894,7 +1894,7 @@
    "outputs": [
     "final_report"
    ],
-   "note": "駆動器が先に記録を仕上げて検証器を回す。exit 0 でなければこの節は出ない",
+   "note": "駆動器が先に記録を仕上げて検証器を回す。exit 0 でなければこのノードは出ない",
    "save_text_as": "report.md"
   },
   "reflect": {
@@ -1973,7 +1973,7 @@
   "p3.sampling",
   "p0.independence_review"
  ],
- "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS と graph の state_schema の木——writeOnly の鍵は読めない / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読むフィールドを cond_reads で宣言し、graphcheck が宣言を前のノードの出力・loop / 周の鍵（rules の LOOP_KEYS と graph の state_schema の木——writeOnly の鍵は読めない / ROUND_KEYS）・記録のフィールドと突き合わせ、engine は宣言したフィールドだけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかったノードの素材の理由として判定役に渡る",
  "verdict_paths": [
   "gates",
   "sampling",
@@ -1985,5 +1985,5 @@
   "refuted",
   "upheld"
  ],
- "verdict_note": "回す側（runners）が書いてはいけない記録の場所と欄名。graphcheck が節の outputs と writes をこれで照合する（判定の語彙は loop ごとに違うので engine にも検査器にも写さない）"
+ "verdict_note": "回す側（runners）が書いてはいけない記録の場所とフィールド名。graphcheck がノードの outputs と writes をこれで照合する（判定の語彙は loop ごとに違うので engine にも検査器にも写さない）"
 }

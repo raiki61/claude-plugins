@@ -1,5 +1,5 @@
 {
- "description": "R5 修正案と事前審査 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "description": "R5 修正案と事前審査 の出口: ほかのブロックのノードが読むノード（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、ノードの名前を鍵に並べる。graph のノードの schema はここを $ref で指す（正本はここだけ）",
  "type": "object",
  "additionalProperties": false,
  "properties": {
@@ -58,7 +58,7 @@
        },
        "no_add": {
         "type": "string",
-        "note": "kind が entrance の穴には必須: 柵や入口を足さずに閉じる形（消す・まとめる・世界の解の道具に任せる）。無理なら無理な理由"
+        "note": "kind が entrance の穴には必須: チェックや入口を足さずに閉じる形（消す・まとめる・世界の解のツールに任せる）。無理なら無理な理由"
        }
       }
      }

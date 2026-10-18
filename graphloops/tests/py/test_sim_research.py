@@ -1,7 +1,7 @@
 """research-loop の盤面を端から端まで回す筋書き（S2b で graphloops/tests/simulate.py から移した。対応は MIGRATION.md）。
 
 台本の土台（Run・drive・check・代役の返答・補助の検査）は simulate.py のまま使い、loop.py を呼ぶ口（cli・inproc）は gl_script
-（glharness.py）が選ぶ。check の件数は pytest の柵（conftest.py の EXPECTED_SIM_CHECKS）が数える。関数は gl_script の代わりに
+（glharness.py）が選ぶ。check の件数は pytest のチェック（conftest.py の EXPECTED_SIM_CHECKS）が数える。関数は gl_script の代わりに
 「種類 → 台本のモジュール」の関数を受けても回る（golden_make.py の snap が筋書きの途中の盤面を写すときにそう呼ぶ）。"""
 import subprocess
 

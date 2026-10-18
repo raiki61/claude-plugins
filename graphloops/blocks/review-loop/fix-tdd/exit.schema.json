@@ -1,5 +1,5 @@
 {
- "description": "R6 修正（TDD 版）の出口: 既定の修正の出口（p3.fix）を含み、テストを先に書く段と赤・緑の確かめの出力を足す（BLOCKS.md 3.3 R6 の約束）。graph の節の schema はここを $ref で指す",
+ "description": "R6 修正（TDD 版）の出口: 既定の修正の出口（p3.fix）を含み、テストを先に書く段と赤・緑の確かめの出力を足す（BLOCKS.md 3.3 R6 の約束）。graph のノードの schema はここを $ref で指す",
  "type": "object",
  "additionalProperties": false,
  "properties": {
@@ -139,7 +139,7 @@
          },
          "reaches_internals": {
           "type": "boolean",
-          "note": "内部の関数・欄を直に叩くか差し替えないと確かめられない"
+          "note": "内部の関数・フィールドを直に叩くか差し替えないと確かめられない"
          },
          "name_unclear": {
           "type": "boolean",

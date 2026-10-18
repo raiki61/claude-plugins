@@ -198,33 +198,33 @@
     {
      "skill": "pr-review-toolkit:code-reviewer",
      "items": [],
-     "failed": "起こしたが所見なし（差分の追加行すべてを見た）"
+     "failed": "起動したが所見なし（差分の追加行すべてを見た）"
     },
     {
      "skill": "/simplify",
      "items": [],
-     "failed": "起こしたが所見なし（差分の追加行すべてを見た）"
+     "failed": "起動したが所見なし（差分の追加行すべてを見た）"
     },
     {
      "skill": "/security-review",
      "items": [],
-     "failed": "applies_cond の条件が偽の周（applies: false）なので起こさなかった",
+     "failed": "applies_cond の条件が偽の周（applies: false）なので起動しなかった",
      "invoked": false
     },
     {
      "skill": "pr-review-toolkit:silent-failure-hunter",
      "items": [],
-     "failed": "起こしたが所見なし（差分の追加行すべてを見た）"
+     "failed": "起動したが所見なし（差分の追加行すべてを見た）"
     },
     {
      "skill": "pr-review-toolkit:type-design-analyzer",
      "items": [],
-     "failed": "起こしたが所見なし（差分の追加行すべてを見た）"
+     "failed": "起動したが所見なし（差分の追加行すべてを見た）"
     },
     {
      "skill": "pr-review-toolkit:pr-test-analyzer",
      "items": [],
-     "failed": "起こしたが所見なし（差分の追加行すべてを見た）"
+     "failed": "起動したが所見なし（差分の追加行すべてを見た）"
     }
    ],
    "simplify_carried": false

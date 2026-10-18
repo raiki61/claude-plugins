@@ -1,4 +1,4 @@
-"""人の方針の文書の置き場（rules/policy_input.py）と、人の決定権の関所が人に聞く行（rules/review-loop.py の human_gate の部品）。
+"""人の方針の文書の置き場（rules/policy_input.py）と、人の決定権のゲートが人に聞く行（rules/review-loop.py の human_gate の部品）。
 関数を直に呼ぶ検査。盤面を回す端から端までの台本は simulate_review.py の test_policy_reaches_roles・test_human_gate"""
 import pathlib
 import types
@@ -88,7 +88,7 @@ def test_r4_gate_does_not_reask_passed_rows(tmp_path, monkeypatch):
 
 
 def test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate(tmp_path, monkeypatch):
-    """人が continue で一度通した行は、周と関所を問わず聞き直さない（人の関所 round 2 の答え）——出どころの ID（修正案の狭めは単位と
+    """人が continue で一度通した行は、周とゲートを問わず聞き直さない（人のゲート round 2 の答え）——出どころの ID（修正案の狭めは単位と
     what、事前審査の穴は語と key）が同じなら言い回し（why・本文）が変わっても聞かず、本文が同じ行（R4 が写した狭め・ID の無い旧い盤面の行）
     も聞かない。what が変わった狭め・key が変わった穴は新しい行として聞く"""
     plan = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A", "why": "理由"}]}]},
@@ -116,8 +116,8 @@ def test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate(tmp_path, mo
 
 
 def test_r4_copies_of_rows_passed_before_the_fix_are_not_reasked(tmp_path, monkeypatch):
-    """R4 は修正前の関所で人が通した狭め・穴を頭ごと写す（『修正案 N が狭める能力: X——Y』）——頭を剥がし切った本文が前の周までの修正案・
-    事前審査の行と同じなら、写した元の ID を持たせて照らす（人の関所 round 2 の r4.human_gate の答え: ここで再掲されること自体が後退）"""
+    """R4 は修正前のゲートで人が通した狭め・穴を頭ごと写す（『修正案 N が狭める能力: X——Y』）——頭を剥がし切った本文が前の周までの修正案・
+    事前審査の行と同じなら、写した元の ID を持たせて照合する（人のゲート round 2 の r4.human_gate の答え: ここで再掲されること自体が後退）"""
     plan = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A——途中に区切り", "why": "理由"}]}]},
             "p2.plan_review": {"faces": [{"kind": "regression", "key": "k", "why": "後退の本文"}]}}
     b1 = board(tmp_path, outs=plan)
@@ -134,13 +134,13 @@ def test_r4_copies_of_rows_passed_before_the_fix_are_not_reasked(tmp_path, monke
                human_items=b2.record["process"]["human_items"])
     b3.round = 2
     assert asked(b3, "r4.human_gate", monkeypatch) == []   # 後の周も、どの写しも聞き直さない
-    # ID を持たない旧い盤面の行は本文で照らす——R4 の頭と修正案の頭を剥がし切った本文が通した行の本文と同じなら聞かない
+    # ID を持たない旧い盤面の行は本文で照合する——R4 の頭と修正案の頭を剥がし切った本文が通した行の本文と同じなら聞かない
     legacy = [{"round": 1, "node": "p2.human_gate", "answer": "continue", "asked": ["修正案 1 が狭める能力: 能力 A——途中に区切り——理由"]}]
     b4 = board(tmp_path, outs={"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": lost[:1]}}}, human_items=legacy)
     assert asked(b4, "r4.human_gate", monkeypatch) == []
 
 
-WHAT = "入れ子の場で書く節を会話に返す"
+WHAT = "入れ子の場で書くノードを会話に返す"
 
 
 def _named(tmp_path, ref, source="gate_answer", unit="u1", request="", findings=(), what=WHAT):
@@ -166,14 +166,14 @@ def _named(tmp_path, ref, source="gate_answer", unit="u1", request="", findings=
                  id="quote-only-in-an-added-batch"),
     pytest.param("request:返してよい", "request", "u1", "返してよい", (), WHAT, False, id="quote-too-short"),
     pytest.param("gate:face:passed", "gate_answer", "u9", "", (), WHAT, False, id="named-for-another-unit"),
-    pytest.param("gate:face:passed", "gate_answer", "u1", "", (), "入れ子の場で書く節を 13 で返す", False, id="named-what-differs"),
+    pytest.param("gate:face:passed", "gate_answer", "u1", "", (), "入れ子の場で書くノードを 13 で返す", False, id="named-what-differs"),
 ])
 def test_named_narrowing_passes_only_when_the_judge_bound_it_to_the_owner(tmp_path, monkeypatch, ref, source, unit, req, findings, what,
                                                                           passes):
     """名指しと判じるのは判定役（p2.diagnose の named_narrowings）で、修正案は key を指し、名指しの what を字面のまま写す——機械は中身
-    （what と単位）と出どころ（init の依頼の本文の 10 字以上の引用・人が continue で答えた関所の行の ID）が結ばれていることを確かめる。
-    add の一括（機械の線・道具も積む）は持ち主の本文に数えない。通した狭めは聞かずに記録の gate_named_passes に残り、報告の知らせに
-    並ぶ。結べない狭めは今どおり聞く（人の関所 round 2 の条件 4）"""
+    （what と単位）と出どころ（init の依頼の本文の 10 字以上の引用・人が continue で答えたゲートの行の ID）が結ばれていることを確かめる。
+    add の一括（機械の線・ツールも積む）は持ち主の本文に数えない。通した狭めは聞かずに記録の gate_named_passes に残り、報告の知らせに
+    並ぶ。結べない狭めは今どおり聞く（人のゲート round 2 の条件 4）"""
     b = _named(tmp_path, ref, source, unit, req, findings, what)
     got = asked(b, "p2.human_gate", monkeypatch)
     assert (got == []) == passes
@@ -283,14 +283,14 @@ def test_file_sha_without_a_path_is_none():
 
 
 def test_change_row_names_both_copies():
-    """関所の行は、前の版と今の版の写しの置き場を名指す（無い側だけ『（無い）』）"""
+    """ゲートの行は、前の版と今の版の写しの置き場を名指す（無い側だけ『（無い）』）"""
     row = PI.change_row({"path": "p.md", "from": "a" * 64, "to": "b" * 64, "from_copy": "/x/old.md", "to_copy": None,
                          "diff_file": "/x/d.diff"})
     assert "前の版の写し /x/old.md" in row and "今の版の写し （無い）" in row and "差分 /x/d.diff" in row
 
 
 def test_gate_answer_keeps_inputs_and_watches_the_amended_path(tmp_path):
-    """関所で方針の文書の変更を通しても run の入力（inputs.policy_md）は init のまま——通した置き場は記録（process.policy）と
+    """ゲートで方針の文書の変更を通しても run の入力（inputs.policy_md）は init のまま——通した置き場は記録（process.policy）と
     その amendments にだけ残り、以後の見張り（change）はそこから引く。消えた文書を通した後は既定の置き場を見張る"""
     f = tmp_path / "p.md"
     f.write_text("前の版\n", encoding="utf-8")
@@ -312,7 +312,7 @@ def test_gate_answer_keeps_inputs_and_watches_the_amended_path(tmp_path):
 
 
 def test_gone_policy_reaches_roles_as_absent(tmp_path):
-    """消えた方針の文書を関所で通した後、役へ渡す方針の段（policy-paste の穴）は『読めない』でなく『（この周には無い）』で埋まる
+    """消えた方針の文書をゲートで通した後、役へ渡す方針の段（policy-paste の穴）は『読めない』でなく『（この周には無い）』で埋まる
     ——見張る先と渡す先が同じ pol の path を読む"""
     from engine.render import ABSENT, Renderer
     f = tmp_path / "p.md"

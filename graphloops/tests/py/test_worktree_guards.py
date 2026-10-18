@@ -1,4 +1,4 @@
-"""engine が子の書いた物を測る口——道具つきの役の前後の突合（中身の木の id・区間の重なり）・書き換える節の申告の両方向の記録・
+"""engine が子の書いた物を測る口——ツールつきの役の前後の突合（中身の木の id・区間の重なり）・書き換えるノードの申告の両方向の記録・
 書き換える子の専用の一時の置き場の数えと確かめ・外から来た JSON と引数の孤立サロゲートの検め。本物の git の使い捨てのリポジトリの上で直に呼ぶ"""
 import argparse
 import json
@@ -62,7 +62,7 @@ def other(iid, status="pending", done_at=None, run_by="writer", launch=None, don
             **({"done_rev": done_rev} if done_rev is not None else {}), **({"launch": launch} if launch else {})}
 
 
-# ---------------------------------------------------------------- 道具つきの役の前後の突合
+# ---------------------------------------------------------------- ツールつきの役の前後の突合
 def test_rewriting_an_already_modified_file_is_caught_by_the_tree_id(repo):
     """既に ' M' のファイルの中身だけを書き換えても porcelain は同じ——木の id で拒む（区間に書き手が重ならない）"""
     inst = guarded()
@@ -87,7 +87,7 @@ NOT_WRITERS = [pytest.param(other("p1.provenance"), id="read-only-runner-node"),
 @pytest.mark.parametrize("new_file", [False, True])
 @pytest.mark.parametrize("writer", WRITERS)
 def test_change_with_a_writer_in_the_interval_is_recorded_not_refused(repo, writer, new_file):
-    """区間に作業ツリーへ書きうる手が重なるなら、中身の書き換えも並びの変化も帰属を断定せず記録だけ残す（人の関所 2 周目の条件 1）"""
+    """区間に作業ツリーへ書きうる手が重なるなら、中身の書き換えも並びの変化も帰属を断定せず記録だけ残す（人のゲート 2 周目の条件 1）"""
     inst = guarded()
     b = Board({inst["id"]: inst, writer["id"]: writer})
     (repo / ("new.py" if new_file else "a.py")).write_text("一式の副産物\n", encoding="utf-8")
@@ -100,7 +100,7 @@ def test_change_with_a_writer_in_the_interval_is_recorded_not_refused(repo, writ
 @pytest.mark.parametrize("new_file", [False, True])
 @pytest.mark.parametrize("hand", NOT_WRITERS)
 def test_change_with_only_non_writers_in_the_interval_is_refused(repo, hand, new_file):
-    """入口 _tree_guard の負の側: 重なるのが書く権限の無い手だけなら、今までどおり拒む（人の関所 2 周目の条件 1・3 周目の条件 5）"""
+    """入口 _tree_guard の負の側: 重なるのが書く権限の無い手だけなら、今までどおり拒む（人のゲート 2 周目の条件 1・3 周目の条件 5）"""
     inst = guarded()
     b = Board({inst["id"]: inst, hand["id"]: hand})
     (repo / ("new.py" if new_file else "a.py")).write_text("役が書いた\n", encoding="utf-8")
@@ -138,10 +138,10 @@ def test_a_writer_done_inside_the_interval_still_overlaps(repo, done_rev, done_a
 
 @pytest.mark.parametrize("prev_rev, want", [(5, ["p0.local_checks"]), (None, ["p0.local_checks"])])
 def test_the_interval_starts_at_the_first_attempt_the_tree_base_came_from(repo, prev_rev, want):
-    """起こし直した試行の区間は、木の基準を写した系譜の最初の試行から——attempt_log の頭が settle の行（prev_emitted_at を持たない）
+    """起動し直した試行の区間は、木の基準を写した系譜の最初の試行から——attempt_log の頭が settle の行（prev_emitted_at を持たない）
     でも、今の試行の emitted_at に倒さない。前の版の engine の試行（版を持たない）が系譜に在れば時刻で比べる"""
     inst = {**guarded(emitted_at=T3, emitted_rev=20), "attempt_log": [{"at": T2, "kind": "failed", "reason": "子が落ちた"},
-                                                                      {"at": T3, "reason": "起こし直し", "prev_emitted_at": T0,
+                                                                      {"at": T3, "reason": "起動し直し", "prev_emitted_at": T0,
                                                                        "prev_emitted_rev": prev_rev}]}
     w = other("p0.local_checks", status="done", done_at=T1, done_rev=8, launch=DECLARED_STEPS)
     b = Board({inst["id"]: inst, w["id"]: w})
@@ -150,7 +150,7 @@ def test_the_interval_starts_at_the_first_attempt_the_tree_base_came_from(repo, 
 
 @pytest.mark.parametrize("graph", ["review-loop", "review-loop-tdd", "research-loop"])
 def test_bundled_graphs_have_no_writer_among_the_guarded_roles_stage(repo, graph):
-    """同梱の graph の実物で、道具つきの役の区間に同じ段の他の節だけが重なる盤面では書き手が居ない——CI が 3 OS で赤にした形
+    """同梱の graph の実物で、ツールつきの役の区間に同じ段の他のノードだけが重なる盤面では書き手が居ない——CI が 3 OS で赤にした形
     （graph の runners の役名で数えると、P1 では常に書き手が居る扱いになった）の回帰の腕"""
     from engine.schema import load_graph
     g, why = load_graph(commands.PLUGIN_ROOT / "graphs" / f"{graph}.json")
@@ -177,7 +177,7 @@ def test_instance_without_tree_id_is_compared_by_names_with_a_trace(repo):
     assert b.state["unevaluable"][0]["trigger"] == "r1.inv.tree_before_id"
 
 
-# ---------------------------------------------------------------- 書き換える節の申告の両方向の突合（記録だけ）
+# ---------------------------------------------------------------- 書き換えるノードの申告の両方向の突合（記録だけ）
 def fix_board(repo, round_base=None, others=()):
     inst = {"id": "p3.fix", "node": "p3.fix", "status": "pending", "run_by": "writer", "emitted_at": T1, "emitted_rev": 10,
             "tree_before_id": util.worktree_tree()}
@@ -224,7 +224,7 @@ def test_renamed_file_counts_as_written_under_its_old_name(repo):
 
 def test_retried_instance_declares_the_round_total(repo):
     """差し戻しで出し直した instance は、周の基準（最初に出した時点）から申告の累計を突き合わせる——前の試行の分を申告してよく、
-    前の試行と今の試行の間に機械の節が作った物（一式の副産物）は今の試行の区間の外"""
+    前の試行と今の試行の間に機械のノードが作った物（一式の副産物）は今の試行の区間の外"""
     first = util.worktree_tree()
     (repo / "keep.py").write_text("前の試行が直した\n", encoding="utf-8")
     (repo / "suite_made.txt").write_text("緑の確認の副産物\n", encoding="utf-8")
@@ -266,7 +266,7 @@ def test_tree_unavailable_with_a_tree_id_refuses_instead_of_recording(repo, monk
 
 @pytest.mark.parametrize("broken", ["worktree_tree", "tree_names_between"])
 def test_tree_unavailable_with_accept_tree_change_is_traced_not_refused(repo, monkeypatch, broken):
-    """--accept-tree-change を渡した回は、どの突合でも拒まずに痕跡を残して通す（人の関所 3 周目の条件 3）"""
+    """--accept-tree-change を渡した回は、どの突合でも拒まずに痕跡を残して通す（人のゲート 3 周目の条件 3）"""
     b, inst = fix_board(repo)
     (repo / "keep.py").write_text("直した\n", encoding="utf-8")
     git_fails(monkeypatch, broken)
@@ -278,7 +278,7 @@ def test_tree_unavailable_with_accept_tree_change_is_traced_not_refused(repo, mo
 @pytest.mark.parametrize("broken", ["worktree_tree", "tree_names_between"])
 @pytest.mark.parametrize("accept", [None, "自分の変更"])
 def test_tree_guard_keeps_the_git_reason_when_content_names_are_unavailable(repo, monkeypatch, broken, accept):
-    """道具つきの役の突合で中身の差の名前が取れない回は、名前を黙って空にしない——拒む文と記録の行に git の言い分が載る"""
+    """ツールつきの役の突合で中身の差の名前が取れない回は、名前を黙って空にしない——拒む文と記録の行に git の言い分が載る"""
     inst = guarded()
     b = Board({inst["id"]: inst})
     (repo / "a.py").write_text("役が書き換えた\n", encoding="utf-8")
@@ -293,7 +293,7 @@ def test_tree_guard_keeps_the_git_reason_when_content_names_are_unavailable(repo
 
 
 def test_refuse_touched_and_emit_keep_the_git_reason(repo, monkeypatch):
-    """起こし直しの確かめ（relaunch --if-untouched）と、節を出す時の木（Board.worktree_tree）も git の言い分を捨てない"""
+    """起動し直しの確かめ（relaunch --if-untouched）と、ノードを出す時の木（Board.worktree_tree）も git の言い分を捨てない"""
     from engine import board as boardmod
     monkeypatch.setattr(commands, "stop_marks", lambda marks: [])
     git_fails(monkeypatch, "worktree_tree")
@@ -309,7 +309,7 @@ def test_refuse_touched_and_emit_keep_the_git_reason(repo, monkeypatch):
 
 
 def test_declared_spelling_is_rewritten_in_the_reply_to_the_repo_relative_form(repo):
-    """綴りの揺れ（./・\\ 区切り・根の中の絶対パス）は受け付けで返答そのものを書き換える——rules・記録にも同じ名前が届く。根の外は
+    """綴りの揺れ（./・\\ 区切り・ルートの中の絶対パス）は受け付けで返答そのものを書き換える——rules・記録にも同じ名前が届く。ルートの外は
     そのまま（旧い綴りの文字列の配列の葉も同じ関数で書き換わる）"""
     root = util.repo_root()
     reply = {"changes": [{"files": ["./keep.py", "sub\\x.py", str(repo / "made.txt"), "../outside.py", "/elsewhere/y.py"]}]}
@@ -434,8 +434,8 @@ SANDBOXED = json.dumps({"sandbox": {"enabled": True, "filesystem": {"denyWrite":
 def probe_launch(tmp_path, monkeypatch, probe_says, launch=None):
     """確かめの子が probe_says の形で終わる run_role を置き、launch_one を呼ぶ関数と呼び出しの一覧を返す。形は 'made'（両方のファイル）・
     'ran'（作業ディレクトリのファイルだけ——専用の置き場が書けない版）・'silent'（何も作らずに終わった——Bash を呼ばなかった）・
-    'failed'（子が落ちた）・'sandbox'（返答に sandbox の初期化の失敗の文）。書く子は、起こされた時点で盤面に専用の置き場の記録
-    （child_tmp）が在ったかを覚える。launch を渡すと起こす子の形を替える（既定は sandbox の中の書き換える子）"""
+    'failed'（子が落ちた）・'sandbox'（返答に sandbox の初期化の失敗の文）。書く子は、起動された時点で盤面に専用の置き場の記録
+    （child_tmp）が在ったかを覚える。launch を渡すと起動する子の形を替える（既定は sandbox の中の書き換える子）"""
     ProbeBoard.state = {"round": 1}
     monkeypatch.delenv("CLAUDE_CODE_TMPDIR", raising=False)   # engine 自身が claude の子として走る場は親の値を持つ——拾わない
     monkeypatch.setattr(commands, "Board", ProbeBoard)
@@ -475,14 +475,14 @@ def probe_launch(tmp_path, monkeypatch, probe_says, launch=None):
 @pytest.mark.parametrize("probe_says, writable", [("made", True), ("ran", False)])
 def test_launch_one_probes_once_and_falls_back_to_the_shared_tmp(tmp_path, monkeypatch, probe_says, writable):
     """書き換える子の専用の一時の置き場は、決まった結果が出るまで確かめの子（いちばん安いモデル・作業ツリーの外・役の前置きなし）で
-    書けるかを測り、書けなければ共有の置き場で起こして、測れていないことを痕跡に残す（人の関所の条件 2）。Bash が走った印（作業
-    ディレクトリのファイル）が在れば sandbox は立つと決まる。専用の置き場は子を起こす前に盤面に書き、数えた後に消す（先に書く記録）"""
+    書けるかを測り、書けなければ共有の置き場で起動して、測れていないことを痕跡に残す（人のゲートの条件 2）。Bash が走った印（作業
+    ディレクトリのファイル）が在れば sandbox は立つと決まる。専用の置き場は子を起動する前に盤面に書き、数えた後に消す（先に書く記録）"""
     launch, calls = probe_launch(tmp_path, monkeypatch, probe_says)
     for _ in range(2):
         launch()
     probes, writers = [c for c in calls if c["probe"]], [c for c in calls if not c["probe"]]
     assert len(probes) == 1 and len(writers) == 2
-    # 道具は Bash だけ（印を作れるのは Bash だけ）。sandbox の形は起こす子と同じ
+    # ツールは Bash だけ（印を作れるのは Bash だけ）。sandbox の形は起動する子と同じ
     assert probes[0]["argv"] == ["claude", "-p", "--model", commands.PROBE_MODEL, "--tools", "Bash", "--settings", SANDBOXED,
                                  "--output-format", "json"]
     assert probes[0]["cwd"] != str(tmp_path)
@@ -501,8 +501,8 @@ def test_launch_one_probes_once_and_falls_back_to_the_shared_tmp(tmp_path, monke
 @pytest.mark.parametrize("probe_says, said", [("failed", "rate limit"), ("silent", "Bash が走った印も")])
 def test_an_undecided_probe_is_not_fixed_and_is_retried_up_to_the_limit(tmp_path, monkeypatch, probe_says, said):
     """確かめの子が落ちた回・Bash を呼ばずに終わった回は『書けない版』とも『sandbox が立たない』とも固めず、次の launch で確かめ直す。
-    run で PROBE_TRIES 回決まらなければ、決まらないまま固めて共有の置き場で起こす（人の関所 3 周目の条件 4・round 2 の条件 1）。
-    痕跡は『確かめられない』で、『書けない版』と取り違えない。書く子は止めずに起こす"""
+    run で PROBE_TRIES 回決まらなければ、決まらないまま固めて共有の置き場で起動する（人のゲート 3 周目の条件 4・round 2 の条件 1）。
+    痕跡は『確かめられない』で、『書けない版』と取り違えない。書く子は止めずに起動する"""
     launch, calls = probe_launch(tmp_path, monkeypatch, probe_says)
     for _ in range(commands.PROBE_TRIES + 1):
         assert launch()["ok"] is True
@@ -524,18 +524,18 @@ def _sandboxed_launch(tmp_path, **kw):
 ])
 def test_a_probe_that_sees_the_sandbox_init_failure_stops_writers_skills_and_delegates(tmp_path, monkeypatch, launch_kw):
     """確かめの子の返答に sandbox の初期化の失敗の文が在れば、入れ子の sandbox（子の Bash が走らない場）と固め、書き換える子・skill の子・
-    任せ先を起こさずに止める（env の印——環境の予定どおりの止まり）。理由は外し方を名指す。固めた後の launch は確かめ直さない"""
+    任せ先を起動せずに止める（env の印——環境の予定どおりの止まり）。理由は外し方を名指す。固めた後の launch は確かめ直さない"""
     launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(tmp_path, **launch_kw))
     for _ in range(2):
         got = launch()
         assert got["ok"] is False and got["env"] is True and "excludedCommands" in got["why"] and "--reprobe" in got["why"]
-    assert [c["probe"] for c in calls] == ["child_tmp"]                     # 子は起こさない・確かめは 1 回
+    assert [c["probe"] for c in calls] == ["child_tmp"]                     # 子は起動しない・確かめは 1 回
     rec = ProbeBoard.state["child_tmp_probe"]
     assert rec["sandbox"] is False and "初期化で落ちた" in rec["why"]
 
 
 def test_a_read_only_sandboxed_child_is_launched_but_marked_unmeasured(tmp_path, monkeypatch):
-    """読むだけの sandbox の形の子（道具つきの役・読むだけの回す側の節）は、入れ子の sandbox の場でも起こす——その前に確かめを通し、
+    """読むだけの sandbox の形の子（ツールつきの役・読むだけの回す側のノード）は、入れ子の sandbox の場でも起動する——その前に確かめを通し、
     Bash で測れていないことを盤面の unevaluable と instance の note に残す（正常終了として黙って受け付けない）"""
     launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(tmp_path, kind="tooled", form="sandbox"))
     assert launch()["ok"] is True
@@ -546,8 +546,8 @@ def test_a_read_only_sandboxed_child_is_launched_but_marked_unmeasured(tmp_path,
 
 @pytest.mark.parametrize("settings", [None, json.dumps({}), json.dumps({"permissions": {"deny": ["Bash(x:*)"]}})])
 def test_a_child_without_a_sandbox_is_neither_probed_nor_stopped(tmp_path, monkeypatch, settings):
-    """sandbox を持たない語の子（柵を外した任せ先・道具ゼロの役・Bash を持たない役）は、確かめを起こさず、入れ子の sandbox と固めた盤面でも
-    止めない——起こすか・止めるかは語の --settings の sandbox.enabled の 1 本で決め、節の種類を並べない"""
+    """sandbox を持たない語の子（チェックを外した任せ先・ツールゼロの役・Bash を持たない役）は、確かめを起動せず、入れ子の sandbox と固めた盤面でも
+    止めない——起動するか・止めるかは語の --settings の sandbox.enabled の 1 本で決め、ノードの種類を並べない"""
     argv = ["claude", "-p", "--model", "sonnet", *(["--settings", settings] if settings else []), "--output-format", "json"]
     launch, calls = probe_launch(tmp_path, monkeypatch, "made", {"kind": "delegate", "argv": argv})
     # 任せ先の写し（copy_worktree）は pytest を走らせたリポジトリを clone する——この検査の主題（確かめるか・止めるか）の外で、
@@ -580,7 +580,7 @@ def test_probe_that_cannot_make_its_places_is_undecided_not_a_crash(monkeypatch)
 
 def test_relaunch_counts_the_child_tmp_a_crashed_launch_left(repo, tmp_path, monkeypatch):
     """launch が締めずに居なくなった（落ちた）回の専用の置き場は、盤面の先に書いた記録から、relaunch が前の試行の子を止め切った後に
-    数えて消す——起こし直しは記録を引き継ぎ、前の試行の置き場を別の試行の物と取り違えない"""
+    数えて消す——起動し直しは記録を引き継ぎ、前の試行の置き場を別の試行の物と取り違えない"""
     left = tmp_path / "gl-w-left"
     left.mkdir()
     (left / "x.txt").write_text("落ちた子の Bash", encoding="utf-8")
@@ -616,7 +616,7 @@ def test_note_child_tmp_leaves_another_attempts_record(tmp_path, monkeypatch):
 
 
 def test_note_child_tmp_clears_the_record_of_a_place_already_gone(tmp_path, monkeypatch):
-    """置き場が既に無い（別の手が片付けた）回は数えずに、盤面の記録だけ消す——起こし直しのたびに消えた置き場の記録を運び続けない"""
+    """置き場が既に無い（別の手が片付けた）回は数えずに、盤面の記録だけ消す——起動し直しのたびに消えた置き場の記録を運び続けない"""
     gone = tmp_path / "gl-w-gone"
     b = Board({"p3.fix": {"id": "p3.fix", "child_tmp": {"dir": str(gone), "at": T1}}})
     on_board(monkeypatch, b)

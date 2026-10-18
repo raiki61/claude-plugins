@@ -42,14 +42,14 @@ def test_out_path_directories_are_made_by_the_engine(wave):
     assert all(pathlib.Path(i["out_path"]).parent.is_dir() for i in nx["ready"])
 
 
-@moved("宣言の在るリポジトリでは、走らせるだけの節は engine が走らせる節")
+@moved("宣言の在るリポジトリでは、走らせるだけのノードは engine が走らせるノード")
 def test_declared_checks_run_as_an_engine_run_node(wave):
     by = ready_by_node(wave("review/neg/init").run.next())
     assert by["p0.local_checks"]["mode"] == "engine_run"
     assert "delegate" not in by["p0.local_checks"]
 
 
-@moved("任せ先: graph が delegate を宣言した回す側の節は ready に任せ先が載り")
+@moved("任せ先: graph が delegate を宣言した回す側のノードは ready に任せ先が載り")
 def test_undeclared_repo_falls_back_to_a_delegate(wave):
     by = ready_by_node(wave("review/nodecl/init").run.next())
     assert by["p0.local_checks"].get("delegate", {}).get("model") == "sonnet"
@@ -65,7 +65,7 @@ def test_nonexistent_base_is_rejected(wave):
     rejected(r, "コミットでない")
 
 
-@moved("機械の節（作業ツリーの写し）は ready に出ない")
+@moved("機械のノード（作業ツリーの写し）は ready に出ない")
 def test_machine_nodes_are_not_ready(wave):
     by = ready_by_node(wave("review/neg/p0-settled").run.next())
     assert "p0.prior_decisions" in by
@@ -73,7 +73,7 @@ def test_machine_nodes_are_not_ready(wave):
 
 
 @moved("loop.py record は record.json の丸写し",
-       kept="子プロセスで起こした loop.py record の標準出力の文字コードと終了コード（台本が CLI の煙を置く唯一の所）")
+       kept="子プロセスで起動した loop.py record の標準出力の文字コードと終了コード（台本が CLI の煙を置く唯一の所）")
 def test_record_command_copies_record_json(wave):
     run = wave("review/neg/p0b").run
     assert run.record_cli() == run.record()
@@ -94,7 +94,7 @@ def test_inspector_gets_pasted_body_and_investigator_gets_a_path(wave):
     assert by["p1.external_standards"].get("deliver") == "path"
 
 
-@moved("今の周に走った節の素材が carried_over を名乗ると exit 1")
+@moved("今の周に走ったノードの素材が carried_over を名乗ると exit 1")
 def test_material_of_a_node_that_ran_cannot_claim_carried_over(wave):
     w = wave("review/neg/p1")
     r = w.run.done(w.pending()["p1.provenance"]["id"],
@@ -102,7 +102,7 @@ def test_material_of_a_node_that_ran_cannot_claim_carried_over(wave):
     rejected(r, "carried_over")
 
 
-@moved("cold-reader には観点の節と差分本文だけが貼られ、目的は貼られない")
+@moved("cold-reader には観点のセクションと差分本文だけが貼られ、目的は貼られない")
 def test_cold_reader_prompt_has_lens_and_diff_but_no_purpose(wave):
     by = ready_by_node(wave("review/neg/p0b-settled").run.next())
     body = pathlib.Path(by["p1.hygiene"]["prompt_file"]).read_text(encoding="utf-8")
@@ -134,7 +134,7 @@ def test_external_standards_without_rankings_none_is_rejected(wave):
     rejected(r, "rankings_none")
 
 
-@moved("cli で起こした遮断系の done に --agent-id を渡すと exit 1")
+@moved("cli で起動した遮断系の done に --agent-id を渡すと exit 1")
 def test_agent_id_on_a_cli_node_is_rejected(wave):
     w = wave("review/neg/p1")
     r = w.run.done(w.pending()["p1.hygiene"]["id"], w.values["t"]["p1.hygiene"], agent_id="cli-has-no-agent")
@@ -205,7 +205,7 @@ def test_accepted_reason_is_kept_in_git_mismatches(wave):
 
 # ---- P2 の判定役の返答 ----------------------------------------------------------------------------------------------------
 
-@moved("受け付ければ judge に進み、素材は 15 欄で渡る")
+@moved("受け付ければ judge に進み、素材は 15 フィールドで渡る")
 def test_after_acceptance_the_judge_runs_with_materials(wave):
     run = wave("review/neg/p2-pre").run
     jd = ready_by_node(run.next())["p2.diagnose"]
@@ -263,7 +263,7 @@ JUDGE_REJECTS = [
     ("status-outside-vocabulary", "台帳の status が語彙外なら exit 1",
      lambda g: {**g, "questions": [{"key": "q", "kind": "fork", "status": "maybe", "reason": "r", "origin": g["units"][0]["key"], "options": ["a", "b"]}]},
      ["型に合わない"], []),
-    ("unknown-field", "judge の返答に知らない欄があれば exit 1",
+    ("unknown-field", "judge の返答に知らないフィールドがあれば exit 1",
      lambda g: {**g, "verdict": "pass"}, ["型に合わない"], []),
     ("defer-without-reason", "defer に reason の無い judge の返答は exit 1",
      lambda g: {**g, "units": [{**g["units"][0], "label": "suggest", "disposition": "defer"}]}, ["defer"], []),
@@ -281,7 +281,7 @@ JUDGE_REJECTS = [
      lambda g: {**g, "units": [{**g["units"][0], "class_query": {"how": {"patterns": ["x"], "paths": ["nope/"], "count": "lines"},
                                                                   "counts": "defects", "total": 1}}]},
      ["走らせられない", "units[0].class_query"], []),
-    # defer の単位には母数を求めない——正しい返答だと節が済むので、key の重複で赤くして class_query で赤くないことを見る
+    # defer の単位には母数を求めない——正しい返答だとノードが済むので、key の重複で赤くして class_query で赤くないことを見る
     ("defer-needs-no-class-query", "defer の単位には母数を求めない", _defer_twice, ["重複"], ["class_query"]),
 ]
 
@@ -339,7 +339,7 @@ def test_zero_engine_count_is_not_substituted(wave):
     assert "置き換えなかった" in r.stdout
 
 
-@moved("engine が 0 件を数えた単位の key は、判定の出口の欄（p2.diagnose の出力の engine_zero）に残り、盤面の loop には書かない")
+@moved("engine が 0 件を数えた単位の key は、判定の出口のフィールド（p2.diagnose の出力の engine_zero）に残り、盤面の loop には書かない")
 def test_zero_count_unit_keys_are_left_for_the_fix(wave):
     w = wave("review/neg/p2")
     _, _, good = _accept_fresh_judge_reply_from_stdin(w)

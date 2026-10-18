@@ -1,9 +1,9 @@
-"""台本を消す条件の 4（被覆。規範は docs/adr/0067）を測る道具と、層 2 の効き目（所要・子の数）と元の関数の順の突き合わせを撃つ道具。
+"""台本を消す条件の 4（被覆。規範は docs/adr/0067）を測るツールと、層 2 の効き目（所要・子の数）と元の関数の順の突き合わせを撃つツール。
 
 名乗るのは**実行の包含**だけ——台本の関数が通した行を、移した先のテストの和も通したか。移した述語の強さ（行を通した上で
 期待が壊れを見分けるか）は被覆では言えない（Google Testing Blog の被覆の心得）。強さは変異の腕（消す条件の 2・3）が示す。
 
-撃つのは CI の job（.github/workflows/cover-moved.yml。手で起こす）。移した台本の関数を 1 回ずつ回すので重く、pytest の一式には
+撃つのは CI の job（.github/workflows/cover-moved.yml。手で起動する）。移した台本の関数を 1 回ずつ回すので重く、pytest の一式には
 入れない。手元では --no-cov で関数を名指しして数件だけ回す（人の方針）:
 
     COVERAGE_CORE=ctrace python graphloops/tests/py/cover_moved.py [--out <結果の JSON>]                     # 被覆の包含
@@ -77,7 +77,7 @@ _HOOKED = False
 
 
 def kind_of(argv):
-    """起こした子の頭の語で分ける: git・python（この Python か python の名の実行器）・その他"""
+    """起動した子の頭の語で分ける: git・python（この Python か python の名の実行器）・その他"""
     head = argv.split()[0] if isinstance(argv, str) else (os.fsdecode(argv[0]) if argv else "")
     name = pathlib.PureWindowsPath(head).name.lower().removesuffix(".exe")   # / と \ のどちらの区切りでも頭の語を取る
     if name == "git":
@@ -360,9 +360,9 @@ def _loose(v, key=""):
 
 
 def _calls_of(calls, run_dir, roots):
-    """ある Run の呼び出しを、作業場の根を <root> に置き換えて並べる"""
+    """ある Run の呼び出しを、作業場のルートを <root> に置き換えて並べる"""
     subs = sorted(((form, f"<root{i}>") for i, r in enumerate(roots) for form in {str(r), os.path.realpath(str(r))}),
-                  key=lambda x: -len(x[0]))   # 長い綴りから（/private/tmp の根が /tmp の置き換えで崩れない）
+                  key=lambda x: -len(x[0]))   # 長い綴りから（/private/tmp のルートが /tmp の置き換えで崩れない）
 
     def text(s):
         for a, b in subs:

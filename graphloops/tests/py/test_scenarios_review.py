@@ -39,7 +39,7 @@ S = None
 history("review/runaway", init("runaway", unattended=True), until("runaway", mark="end"))
 RUNAWAY = [
     row(S, "5 周で停止", "review/runaway", "end", lambda s: s.reply["status"] == "stopped" and st(s)["round"] == 5, id="stops-at-round-5"),
-    # 旧い check の 2 つの枝（記録の停止理由の暴走ガード・盤面の loop の max_rounds）を落とさない
+    # 旧い check の 2 つの分岐（記録の停止理由の暴走ガード・盤面の loop の max_rounds）を落とさない
     row(S, "停止の理由が上限", "review/runaway", "end",
         lambda s: "暴走ガード" in rec(s)["process"].get("stop_reason", "") or st(s)["loop"].get("stop_reason") == "max_rounds",
         id="stop-reason-is-the-cap"),
@@ -143,10 +143,10 @@ AWAITING_ORIGIN_GUARDS = [
     row(S, "判定の時点: 人待ちでない素材を出どころにした awaiting は拒み", "review/awaitorigin", "end",
         lambda s: (r := s.got.get("judge", NONE)).returncode == 1 and all(x in r.stderr for x in ("awaiting の出どころは", "main_path_observation", "kind=field")),
         id="judge-wrong-origin"),
-    row(S, "書いた時点: 人に諮っている欄を後の工程が clean で上書きすると拒む", "review/awaitorigin", "end",
+    row(S, "書いた時点: 人に諮っているフィールドを後の工程が clean で上書きすると拒む", "review/awaitorigin", "end",
         lambda s: (r := s.got.get("ci", NONE)).returncode == 1 and "local_checks" in r.stderr and "awaiting_human のまま書け" in r.stderr,
         id="ci-overwrite"),
-    row(S, "CI を再実行する節のプロンプトに、この周の問いの台帳が渡る", "review/awaitorigin", "end",
+    row(S, "CI を再実行するノードのプロンプトに、この周の問いの台帳が渡る", "review/awaitorigin", "end",
         lambda s: WAIT_CI["key"] in s.got.get("ci_prompt", ""), id="ci-prompt-has-ledger"),
     row(S, "実地の問いは field で台帳に載り", "review/awaitorigin", "end",
         lambda s: any(q["kind"] == "field" and not q.get("origin") for q in _round1(s)["questions"])
@@ -163,7 +163,7 @@ S = None
 roles("gate-empty", rule("p4.final_gates", reply=merged({"arms": [], "handled": []})), base="std")
 history("review/gate-empty", init("gate-empty"), until("gate-empty", mark="asked"),
         cmd("answer", "--text", "continue", "--note", "文書だけの差分と確かめた（検査用）", mark="answer"), until("gate-empty", mark="end"))
-# 2 本目の run は、1 本目が 0 本の関門で諮った周を上限にする
+# 2 本目の run は、1 本目が 0 本のゲートで諮った周を上限にする
 history("review/gate-empty-max", init("gate-empty-max"),
         cmd("patch", "--path", "state.max_rounds", "--file", file("max.json", ref=("review/gate-empty", "asked", "state", "round")),
             "--reason", "台本: 上限の周で 0 本にする", mark="max"),
@@ -177,17 +177,17 @@ def _extended_by_one(s):
 
 
 FINAL_GATE_EMPTY = [
-    row(S, "撃てた腕が 0 本の関門で収束を言わず人に諮る", "review/gate-empty", "asked",
+    row(S, "撃てた腕が 0 本のゲートで収束を言わず人に諮る", "review/gate-empty", "asked",
         lambda s: s.reply["status"] == "awaiting_human" and kinds(s.reply) == ["final_gate_empty"], id="asks-on-empty-gate"),
     row(S, "諮る前に止めた理由（stop_reason）を立てる", "review/gate-empty", "asked",
         lambda s: st(s)["loop"].get("stop_reason") == "final_gate_empty", id="stop-reason-before-asking"),
     row(S, "continue を返す", "review/gate-empty", "answer", lambda s: s.reply.returncode == 0, id="answer-continue"),
-    row(S, "人が認めた木なら、次の周の 0 本の関門で収束する", "review/gate-empty", "end", lambda s: s.reply["status"] == "converged",
+    row(S, "人が認めた木なら、次の周の 0 本のゲートで収束する", "review/gate-empty", "end", lambda s: s.reply["status"] == "converged",
         id="converges-next-round"),
-    row(S, "上限の周でも 0 本の関門は人に諮る", "review/gate-empty-max", "asked",
+    row(S, "上限の周でも 0 本のゲートは人に諮る", "review/gate-empty-max", "asked",
         lambda s: s.reply["status"] == "awaiting_human" and kinds(s.reply) == ["final_gate_empty"], id="asks-at-max-round"),
     row(S, "上限の周の continue は上限を 1 周だけ延ばし", "review/gate-empty-max", "answer", _extended_by_one, id="continue-extends-by-one"),
-    row(S, "延ばした次の周で、同じ木の 0 本の関門が通って収束する", "review/gate-empty-max", "end", lambda s: s.reply["status"] == "converged",
+    row(S, "延ばした次の周で、同じ木の 0 本のゲートが通って収束する", "review/gate-empty-max", "end", lambda s: s.reply["status"] == "converged",
         id="converges-after-extension"),
 ]
 
@@ -240,7 +240,7 @@ STOP_MIDROUND = [
     row(S, "止める: 宣言の在る graph では halted にせず報告へ進む", "review/stop-mid", "stop",
         lambda s: s.reply.returncode == 0 and s.reply.json()["stopped"]["report"] is True and st(s)["status"] == "stopped" and "halted" not in st(s),
         id="declared-graph-goes-to-report", kept=KEPT),
-    row(S, "止める: 待ちの節は止めた印（省いた印と別）になる", "review/stop-mid", "stop",
+    row(S, "止める: 待ちのノードは止めた印（省いた印と別）になる", "review/stop-mid", "stop",
         lambda s: "p2.fix_plan" in (rd := st(s)["rounds"][-1])["stopped"] and rd["instances"]["p2.fix_plan"]["status"] == "stopped"
         and "p2.fix_plan" not in rd["skipped"], id="pending-node-marked-stopped", kept=KEPT),
     row(S, "止める: 止めた周の記録は、走らなかった R と素材を止めた事実で書く", "review/stop-mid", "stop",
@@ -248,13 +248,13 @@ STOP_MIDROUND = [
     row(S, "止める: 止めた時点で記録に理由が入る", "review/stop-mid", "stop",
         lambda s: bool(s.board.round(1)["units"]) and rec(s)["process"]["halted"]["reason"] == "検査: 修正案の前で止める",
         id="reason-in-record", kept=KEPT),
-    row(S, "止める: 止めた節の返答は受け付けない", "review/stop-mid", "late", lambda s: s.reply.returncode == 1 and "stopped" in s.reply.stderr,
+    row(S, "止める: 止めたノードの返答は受け付けない", "review/stop-mid", "late", lambda s: s.reply.returncode == 1 and "stopped" in s.reply.stderr,
         id="late-reply-rejected", kept=KEPT),
     row(S, "止める: 止まった run は二度止めない", "review/stop-mid", "second",
         lambda s: s.reply.returncode == 1 and "止める物が無い" in s.reply.stderr, id="no-second-stop", kept=KEPT),
-    row(S, "止める: 次の next は報告の節だけを出す", "review/stop-mid", "next",
+    row(S, "止める: 次の next は報告のノードだけを出す", "review/stop-mid", "next",
         lambda s: [i["node"] for i in s.reply["ready"]] == ["report.human_items"], id="next-is-report-only", kept=KEPT),
-    row(S, "止める: 報告まで届き、仕上げた記録に止めた口と止めた節が残る", "review/stop-mid", "end",
+    row(S, "止める: 報告まで届き、仕上げた記録に止めた口と止めたノードが残る", "review/stop-mid", "end",
         lambda s: s.reply["status"] == "stopped" and s.board.has("report.md")
         and (p := rec(s)["process"])["stop_reason"] == "stop" and p["outcome"] == "stopped"
         and any(x["node"] == "p2.fix_plan" for x in p["stopped_nodes"]) and not any(x["node"] == "p2.fix_plan" for x in p["skipped"]),
@@ -265,8 +265,8 @@ STOP_MIDROUND = [
     row(S, "止める: 2 周目の判定より前なら前の周の単位と台帳を報告に残す", "review/stop-r2", "stop", _prev_round_kept,
         id="stop-before-round-2-judge", kept=KEPT),
     row(S, "止める: 人に聞いている最中なら", "review/stop-ask", "stop", _stopped_while_asking, id="stop-while-asking", kept=KEPT),
-    row(S, "止める: 宣言の無い graph は halted（by=stop）で後の節を出さない", "review/stop-nodecl", "next",
-        lambda s: (r := s.got["stop"]).returncode == 0 and "報告の節は出ない" in r.stdout and s.reply["halted"]["by"] == "stop" and not s.reply["ready"],
+    row(S, "止める: 宣言の無い graph は halted（by=stop）で後のノードを出さない", "review/stop-nodecl", "next",
+        lambda s: (r := s.got["stop"]).returncode == 0 and "報告のノードは出ない" in r.stdout and s.reply["halted"]["by"] == "stop" and not s.reply["ready"],
         id="undeclared-graph-halts", kept=KEPT),
     row(S, "止める: halted の run は『もう止まっている』で拒む", "review/stop-nodecl", "again",
         lambda s: s.reply.returncode == 1 and "もう止まっている" in s.reply.stderr, id="halted-run-refuses-stop", kept=KEPT),
@@ -306,7 +306,7 @@ STOP_AFTER_ROUND = [
     row(S, "周の締め（周の記録・converge）は済み、2 周目は開いていない", "review/stop1", "end1",
         lambda s: (x := st(s))["round"] == 1 and len(x["rounds"]) == 1 and "converge" in x["rounds"][0]["done"] and s.board.has("rounds/round-1.json"),
         id="round-closed-not-opened"),
-    row(S, "止めた後の next は節を出さず、止めた口を言う", "review/stop1", "next",
+    row(S, "止めた後の next はノードを出さず、止めた口を言う", "review/stop1", "next",
         lambda s: s.reply["status"] == "stopped" and not s.reply["ready"] and s.reply["halted"]["by"] == "stop_after_round"
         and "stop_after_round" in s.reply["note"], id="next-after-stop"),
     row(S, "status に halted と stop_after_round が出る", "review/stop1", "status",
@@ -338,7 +338,7 @@ def test_stop_after_round(scene, name, at, expect):
     play(scene, name, at, expect)
 
 
-# ---- 人の決定権の関所 -----------------------------------------------------------------------------------------------------
+# ---- 人の決定権のゲート -----------------------------------------------------------------------------------------------------
 
 S = "simulate_review.test_human_gate"
 WRITER_POLICY = "修正役が書いた方針（検査用 WRITER-POLICY）"
@@ -357,7 +357,7 @@ roles("gate",
 history("review/gate", init("gate"), until("gate", mark="asked1"),
         cmd("answer", "--text", "continue", "--note", "呼び元の経路は残せ（検査用 KEEP-NOTE）", mark="answer1"), until("gate", mark="asked2"),
         cmd("answer", "--text", "continue", "--note", "確かめた（検査用）", mark="answer2"),
-        # 人が通すたびに次の関所まで回す（6 回まで）。R4 の lost と方針とのぶつかりを聞かれた回数は、返事の並びから数える
+        # 人が通すたびに次のゲートまで回す（6 回まで）。R4 の lost と方針とのぶつかりを聞かれた回数は、返事の並びから数える
         loop(until("gate"), cmd("answer", "--text", "continue", "--note", "消えてよい（検査用）"), times=6, mark="rest"))
 roles("gate-stop", rule("p2.plan_review", reply=merged({"faces": [{
     "key": "後退: 上限なしで呼べる経路が消える", "unit_keys": [1], "kind": "regression", "where": "src/a.py",
@@ -365,7 +365,7 @@ roles("gate-stop", rule("p2.plan_review", reply=merged({"faces": [{
 history("review/gate-stop", init("gate-stop"), until("gate-stop", mark="asked"), cmd("answer", "--text", "stop", "--note", "削らない向きで出し直す"),
         nxt(mark="next"))
 roles("gate-exclude",
-      rule("p2.fix_plan", reply=merged({"narrows": [{"what": "検査用の狭め", "why": "関所を立てるため（検査用）"}]}, at=("plan", 0))),
+      rule("p2.fix_plan", reply=merged({"narrows": [{"what": "検査用の狭め", "why": "ゲートを立てるため（検査用）"}]}, at=("plan", 0))),
       rule("p3.fix", once="fix", before=[prompt(mark="fix")]),
       base="std")
 history("review/gate-exclude", init("gate-exclude"), until("gate-exclude", mark="asked"),
@@ -432,43 +432,43 @@ def _excluded(s):
 
 
 HUMAN_GATE = [
-    row(S, "関所: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く", "review/gate", "asked1",
+    row(S, "ゲート: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く", "review/gate", "asked1",
         lambda s: s.reply["status"] == "awaiting_human" and s.reply["ask"].get("in_round") and kinds(s.reply) == ["regression"]
         and "NARROW-1" in "".join(s.reply["ask"]["items"]), id="narrows-ask-before-fix", kept=KEPT),
-    row(S, "関所: 人が答えるまで修正の節は出ない", "review/gate", "asked1",
+    row(S, "ゲート: 人が答えるまで修正のノードは出ない", "review/gate", "asked1",
         lambda s: not any(i["node"] == "p3.fix" for i in st(s)["rounds"][0]["instances"].values()), id="no-fix-until-answered", kept=KEPT),
-    row(S, "関所: 方針の文書が無い run では、固定する版は無く", "review/gate", "asked1",
+    row(S, "ゲート: 方針の文書が無い run では、固定する版は無く", "review/gate", "asked1",
         lambda s: rec(s)["process"]["policy"]["path"] is None and "人の方針" in s.got.get("diagnose", ""), id="no-policy-document", kept=KEPT),
-    row(S, "関所: continue を返す", "review/gate", "answer1", lambda s: s.reply.returncode == 0, id="answer-continue", kept=KEPT),
-    row(S, "関所: 答えは人の答えの台帳（process.human_items）に残る", "review/gate", "answer1",
+    row(S, "ゲート: continue を返す", "review/gate", "answer1", lambda s: s.reply.returncode == 0, id="answer-continue", kept=KEPT),
+    row(S, "ゲート: 答えは人の答えの台帳（process.human_items）に残る", "review/gate", "answer1",
         lambda s: len(hi := rec(s)["process"]["human_items"]) == 1 and hi[0]["node"] == "p2.human_gate" and hi[0]["answer"] == "continue"
         and "KEEP-NOTE" in hi[0]["note"], id="answer-in-human-items", kept=KEPT),
-    row(S, "関所: 人の答えの note が同じ周の修正役のプロンプトに届く", "review/gate", "asked2", lambda s: "KEEP-NOTE" in s.got.get("fix", ""),
+    row(S, "ゲート: 人の答えの note が同じ周の修正役のプロンプトに届く", "review/gate", "asked2", lambda s: "KEEP-NOTE" in s.got.get("fix", ""),
         id="note-reaches-fix", kept=KEPT),
     row(S, "修正の入口: 単位の行は記録の単位と同じ順で全部載り", "review/gate", "asked2", _unit_rows_match, id="fix-unit-rows", kept=KEPT),
     row(S, "修正の入口: 判定の長い本文（母数の問いなど）は貼らず", "review/gate", "asked2", _long_bodies_not_pasted,
         id="fix-long-bodies-not-pasted", kept=KEPT),
-    row(S, "関所: 修正差分の審査は後退の語を使えない", "review/gate", "asked2",
+    row(S, "ゲート: 修正差分の審査は後退の語を使えない", "review/gate", "asked2",
         lambda s: (r := s.got.get("delta", NONE)).returncode == 1 and "事前審査だけ" in r.stderr, id="delta-review-no-regression", kept=KEPT),
-    row(S, "関所: 方針の文書が init の後に変わった", "review/gate", "asked2",
+    row(S, "ゲート: 方針の文書が init の後に変わった", "review/gate", "asked2",
         lambda s: s.reply["status"] == "awaiting_human" and kinds(s.reply) == ["policy_changed"], id="policy-changed-asks", kept=KEPT),
-    row(S, "関所: 方針の文書の変化の行は差分のファイルの置き場を載せ", "review/gate", "asked2", _policy_row_points_to_diff,
+    row(S, "ゲート: 方針の文書の変化の行は差分のファイルの置き場を載せ", "review/gate", "asked2", _policy_row_points_to_diff,
         id="policy-row-points-to-diff", kept=KEPT),
-    row(S, "関所: 通した方針の文書の変更は新しい版", "review/gate", "answer2", _policy_refixed, id="policy-refixed", kept=KEPT),
-    row(S, "関所: R4 の lost と方針とのぶつかり", "review/gate", "rest", _asked_once, id="lost-and-conflict-asked-once", kept=KEPT),
-    row(S, "関所: 人が通した後は収束まで進む", "review/gate", "rest", lambda s: s.reply[-1]["status"] == "converged", id="converges", kept=KEPT),
-    row(S, "関所: 事前審査が後退の穴を挙げたら、修正の前に人に聞く", "review/gate-stop", "asked",
+    row(S, "ゲート: 通した方針の文書の変更は新しい版", "review/gate", "answer2", _policy_refixed, id="policy-refixed", kept=KEPT),
+    row(S, "ゲート: R4 の lost と方針とのぶつかり", "review/gate", "rest", _asked_once, id="lost-and-conflict-asked-once", kept=KEPT),
+    row(S, "ゲート: 人が通した後は収束まで進む", "review/gate", "rest", lambda s: s.reply[-1]["status"] == "converged", id="converges", kept=KEPT),
+    row(S, "ゲート: 事前審査が後退の穴を挙げたら、修正の前に人に聞く", "review/gate-stop", "asked",
         lambda s: s.reply["status"] == "awaiting_human" and kinds(s.reply) == ["regression"]
         and "事前審査の穴 [regression]" in "".join(s.reply["ask"]["items"]), id="plan-review-regression-asks"),
-    row(S, "関所: stop で run がその場で止まり、修正を出さない", "review/gate-stop", "next",
+    row(S, "ゲート: stop で run がその場で止まり、修正を出さない", "review/gate-stop", "next",
         lambda s: s.reply["status"] == "stopped" and s.reply.get("halted", {}).get("node") == "p2.human_gate" and not s.reply["ready"],
         id="stop-halts-at-gate"),
-    row(S, "関所: --detail で直す義務の単位を外せる", "review/gate-exclude", "good", _excluded, id="detail-excludes-unit"),
-    row(S, "関所: 外した単位は修正の側に見せる義務の印", "review/gate-exclude", "good",
+    row(S, "ゲート: --detail で直す義務の単位を外せる", "review/gate-exclude", "good", _excluded, id="detail-excludes-unit"),
+    row(S, "ゲート: 外した単位は修正の側に見せる義務の印", "review/gate-exclude", "good",
         lambda s: [r.get("owed") for r in _fix_rows(s) if r.get("key") == rec(s)["units"][0]["key"]] == [False], id="excluded-unit-not-owed"),
-    row(S, "関所: 外した単位と理由が同じ周の修正役のプロンプトに届く", "review/gate-exclude", "to_fix",
+    row(S, "ゲート: 外した単位と理由が同じ周の修正役のプロンプトに届く", "review/gate-exclude", "to_fix",
         lambda s: "EXCLUDE-WHY" in s.got.get("fix", ""), id="exclusion-reaches-fix"),
-    row(S, "関所: 無人では狭めの問いで止まり、修正を出さない", "review/gate-unattended", "end",
+    row(S, "ゲート: 無人では狭めの問いで止まり、修正を出さない", "review/gate-unattended", "end",
         lambda s: s.reply["status"] == "stopped" and (st(s).get("halted") or {}).get("by") == "unattended"
         and not any(i["node"] == "p3.fix" for i in st(s)["rounds"][0]["instances"].values()), id="unattended-stops"),
 ]
@@ -497,7 +497,7 @@ def test_deferjudge(scene, name, at, expect):
 
 
 S = None
-# 赤の確認の節の前に毎回、読み込みで落ちるテストを書く——狙いどおりの赤にならない
+# 赤の確認のノードの前に毎回、読み込みで落ちるテストを書く——狙いどおりの赤にならない
 roles("tdd-giveup", rule("p3.tdd_tests", before=[write("repo", "tests/test_limit.py",
                                                        "import no_such_module_for_red  # noqa\n\n\ndef test_limit_is_fixed():\n    assert False\n")]),
       base="std")
@@ -510,7 +510,7 @@ def _tdd_row(s):
 
 
 def _tdd_tests_calls(s):
-    """赤の確認の前にテストを書く節（p3.tdd_tests）を答えた回数（trace の done の行）"""
+    """赤の確認の前にテストを書くノード（p3.tdd_tests）を答えた回数（trace の done の行）"""
     return sum(1 for x in s.board.lines("trace.jsonl") if (j := json.loads(x)).get("op") == "done" and j.get("instance") == "p3.tdd_tests")
 
 
@@ -525,7 +525,7 @@ TDD_GIVES_UP = [
         lambda s: any("TDD の赤の確認が上限で通らなかった" in r["key"]
                       for r in json.loads(s.board.read(s.board.dir / "out" / "r2" / "p2.history.json")).get("declared_routed") or []),
         id="reason-reaches-next-judge"),
-    row(S, "TDD を諦めた盤面は、諦めた確認の節の出力から hist.tdd_gave_up が作られる（loop には書かない）", "review/tdd-giveup", "end",
+    row(S, "TDD を諦めた盤面は、諦めた確認のノードの出力から hist.tdd_gave_up が作られる（loop には書かない）", "review/tdd-giveup", "end",
         lambda s: bool(json.loads(s.board.read(s.board.dir / "hist.json"))["values"].get("tdd_gave_up"))
         and "tdd_gave_up" not in (st(s).get("loop") or {}), id="hist-not-loop"),
 ]

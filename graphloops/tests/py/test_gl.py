@@ -50,7 +50,7 @@ def test_accept_calls_new_form_checks_in_round_two_without_writing(tmp_path):
                                           "shrink_first": "s" * 20, "narrows": []}]}), encoding="utf-8")
     code, got = gl("accept", "--dir", b.dir, "--node", "p2.fix_plan", "--reply", good)
     assert code == 0 and got["ok"] and got["called"] and got["form"] == "new" and got["effects"] == []
-    assert got["pending"] is False   # 1 周目の instance しか無い——照らせるが、done が今受け付ける instance は無い
+    assert got["pending"] is False   # 1 周目の instance しか無い——照合できるが、done が今受け付ける instance は無い
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"plan": [{**json.loads(good.read_text())["plan"][0], "unit_keys": ["前の周"]}]}), encoding="utf-8")
     code, got = gl("accept", "--dir", b.dir, "--node", "p2.fix_plan", "--reply", bad)
@@ -132,7 +132,7 @@ def done_says(tmp_path, b, iid, text):
 
 
 CASES = {
-    # 本文を返す節の空の返答（schema の無い節）
+    # 本文を返すノードの空の返答（schema の無いノード）
     "empty_text": (lambda t: make(t, 1, [rd(1, done=("report.cold_check",), instances={"report": pending("report")})]),
                    "report", "   \n", "返答が空"),
     # 扇の項目に無い鍵（instance の id で指す）
@@ -159,7 +159,7 @@ def test_accept_refuses_what_done_refuses(tmp_path, case):
 
 
 def test_accept_takes_the_instance_id_for_fan_out_items(tmp_path):
-    """扇の節は同じ節に instance が並ぶ——instance の id で指せばその項目で照らす（節の id だと最後の instance の項目になる）。
+    """扇のノードは同じノードに instance が並ぶ——instance の id で指せばその項目で照合する（ノードの id だと最後の instance の項目になる）。
     --item は外から項目を渡す口のまま残る"""
     b = research_board(tmp_path / "b", {
         "p1.checker[a]": pending("p1.checker", "p1.checker[a]", {"key": "a", "claims": [{"id": "a1"}]}),
@@ -169,7 +169,7 @@ def test_accept_takes_the_instance_id_for_fan_out_items(tmp_path):
     code, got = gl("accept", "--dir", b.dir, "--node", "p1.checker[a]", "--reply", reply)
     assert code == 0 and got["ok"] and got["pending"] is True and "remaining" not in got
     assert done_says(tmp_path, b, "p1.checker[a]", reply.read_text(encoding="utf-8"))[0] is True
-    code, got = gl("accept", "--dir", b.dir, "--node", "p1.checker", "--reply", reply)   # 節の id は最後の instance（b）の項目で照らす
+    code, got = gl("accept", "--dir", b.dir, "--node", "p1.checker", "--reply", reply)   # ノードの id は最後の instance（b）の項目で照合する
     assert code == 0 and got["ok"] is False and "項目に無い id" in got["reason"]
     item = tmp_path / "item.json"
     item.write_text(json.dumps({"key": "a", "claims": [{"id": "a1"}, {"id": "a2"}]}), encoding="utf-8")
@@ -178,7 +178,7 @@ def test_accept_takes_the_instance_id_for_fan_out_items(tmp_path):
 
 
 def test_accept_applies_effects_to_the_copy_before_the_record_check(tmp_path, monkeypatch, capsys):
-    """節ごとの整合が返した effects は、写しの loop に当ててから記録の整合を見る（done と同じ順）。盤面には書かない"""
+    """ノードごとの整合が返した effects は、写しの loop に当ててから記録の整合を見る（done と同じ順）。盤面には書かない"""
     import importlib.util
     spec = importlib.util.spec_from_file_location("gl_mod", PLUGIN / "scripts" / "gl.py")
     glm = importlib.util.module_from_spec(spec)
@@ -200,7 +200,7 @@ def test_accept_applies_effects_to_the_copy_before_the_record_check(tmp_path, mo
 
 
 def test_accept_names_whether_the_check_was_reached(tmp_path):
-    """form は節の宣言で決まり、called は節ごとの整合まで届いたか——型で落ちた返答は呼んでいない"""
+    """form はノードの宣言で決まり、called はノードごとの整合まで届いたか——型で落ちた返答は呼んでいない"""
     b = round2(tmp_path)
     reply = tmp_path / "x.json"
     reply.write_text("{}", encoding="utf-8")
@@ -229,7 +229,7 @@ def test_exit_strips_the_note_keyword_but_keeps_fields_named_note(tmp_path):
     cq = lambda sch: sch["properties"]["units"]["items"]["properties"]["class_query"]   # noqa: E731
     assert code == code2 == 0 and got["schema"] == strip_notes(raw["schema"])
     assert "note" in cq(raw["schema"]) and "note" not in cq(got["schema"])            # 注記の語は落ちる
-    assert "note" in cq(got["schema"])["properties"]                                   # note という名前の欄は残る
+    assert "note" in cq(got["schema"])["properties"]                                   # note という名前のフィールドは残る
 
 
 def test_accept_upgrading_the_tier_writes_nothing_beside_the_board(tmp_path):

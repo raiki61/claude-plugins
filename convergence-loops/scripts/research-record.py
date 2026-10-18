@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """research-loop の実行記録を検証し、最終報告の発行を妨げているものを列挙する。
 
-**この道具は不合格しか宣言しない。** 「阻害なし」は品質・飽和の宣言ではなく、機械で
+**このツールは不合格しか宣言しない。** 「阻害なし」は品質・飽和の宣言ではなく、機械で
 見つけられる欠落が無いという意味にすぎない。統合の妥当性・散文の質を見るのは人と
 cold-reader。
 
-守備範囲は「欠落の検出」だけ——散文の報告で落ちやすいのは誤りではなく欠落（必須欄・
-数値の出所・語彙の定義）であり、欠落は読んでも見えない。欄を要求すれば欠落が
+守備範囲は「欠落の検出」だけ——散文の報告で落ちやすいのは誤りではなく欠落（必須フィールド・
+数値の出所・語彙の定義）であり、欠落は読んでも見えない。フィールドを要求すれば欠落が
 exit 2 になる。中身の質は保証しない（「該当なし」は書ける——だから該当なしには
 理由を要求する）。
 
 収束せずに停止した実行（rederiver の unverifiable・stuck・thrash・暴走ガード）も
 発行できる——`convergence.outcome` を "stopped" にして理由を書けば、ゲートの未 pass や
 覆りは「未収束の申告」であって阻害ではない（一度も走らなかった必須のゲートは status=not_run と
-reason で書く。not_applicable は「この段では走らせない」に取っておく。欄を作る工程より前に止まった run は、
-空の欄を process.stopped_gaps に欄ごとの理由つきで申告する）。**阻害になるのは「収束した」と名乗り
+reason で書く。not_applicable は「この段では走らせない」に取っておく。フィールドを作る工程より前に止まった run は、
+空のフィールドを process.stopped_gaps にフィールドごとの理由つきで申告する）。**阻害になるのは「収束した」と名乗り
 ながらゲートが通っていない記録だけ**（収束の偽装を塞ぐのが目的で、停止の正直な報告を
 塞ぐのは目的でない）。
 
@@ -24,7 +24,7 @@ reason で書く。not_applicable は「この段では走らせない」に取�
 終了コード:
     0  発行を妨げるものなし（品質・飽和の宣言ではない）
     1  発行を妨げるものあり（収束を名乗りながらゲート未 pass・覆り・未反証の相違）
-    2  記録が不正（欄の欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
+    2  記録が不正（フィールドの欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
 
 **1 は「記録は読めたが発行を妨げる状態がある」だけに使う。** 読めなかった・引数が
 違ったといった計測不成立を 1 に混ぜると、記録を直せば済む状態が「まだ収束していない」と
@@ -34,7 +34,7 @@ reason で書く。not_applicable は「この段では走らせない」に取�
 （review-record.py が同じ穴で実際に 4 経路漏らした記録を残している）。
 
 検証を JSON Schema で宣言せず手書きにしてある理由も review-record.py と同じ:
-検証の一部は欄をまたぐ突合（クラスタ別の件数照合・荷重と反証の整合・厚みとゲートの
+検証の一部はフィールドをまたぐ突合（クラスタ別の件数照合・荷重と反証の整合・厚みとゲートの
 対応）で単一スキーマに閉じず、`jsonschema` の導入は「必須は git / python3 / bash だけ」と
 衝突する。
 """
@@ -59,7 +59,7 @@ VERDICTS = ("確証", "相違", "留保", "検証不能")
 # **一次情報に到達できた判定**（検証不能は届かなかった側）。抜き取りの母数はここから取る
 # ——「検証不能を除く」を読む側が手で並べていたので、判定語を足した周にその 1 語だけ母数から落ちた。
 CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "検証不能")
-# 判定ごとに追加で要求する欄。適用条件のない確証・訂正のない相違/留保・
+# 判定ごとに追加で要求するフィールド。適用条件のない確証・訂正のない相違/留保・
 # 「何が確認できれば判定できるか」のない検証不能は、いずれも不完全な判定。
 # **note は飾りではなく、役に貼る本文の正本**（PROMPT_TABLES が組み立てる）。判定語の意味が散文の
 # コメントにしか無かったとき、貼る側（p1.checker.md ほか 5 本）が手で写していた——実測 2026-09-13:
@@ -96,7 +96,7 @@ OUTCOMES = ("converged", "stopped")
 # 検証器の名前表を 13 か所で並べ直していた——review 側で同じ形を閉じた直後に、こちらは手つかずだった）。
 # **engine はこの dict の中身を知らない**——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
 PROMPT_TABLES = _tables("プロンプトの表", lambda: {
-        # **必須欄は全部並べる。** 先頭 1 つだけを貼っていたので、判定語に 2 つ目の必須欄を足しても
+        # **必須フィールドは全部並べる。** 先頭 1 つだけを貼っていたので、判定語に 2 つ目の必須フィールドを足しても
     # 役に渡る本文には現れなかった（review 側は同じ表を全要素で並べており、写しどうしが割れていた）
     "verdicts": "／".join(f"{k}（" + "・".join(f"{f} が要る" for f in v.fields) + f"）: {v.note}"
                          for k, v in VERDICT_FIELDS.items()),
@@ -105,8 +105,8 @@ PROMPT_TABLES = _tables("プロンプトの表", lambda: {
         "origins": "／".join(ORIGINS),
         "thickness": "／".join(THICKNESS),
 })
-# 記録の必須欄。terms（語彙定義）・numbers（数値と出所の組）が空配列でも欄自体は要る——
-# 「定義すべき語・出所を書くべき数値は無かった」の明示と、欄ごと忘れた欠落を区別するため。
+# 記録の必須フィールド。terms（語彙定義）・numbers（数値と出所の組）が空配列でもフィールド自体は要る——
+# 「定義すべき語・出所を書くべき数値は無かった」の明示と、フィールドごと忘れた欠落を区別するため。
 REQUIRED = (
     "question",
     "thickness",
@@ -125,26 +125,26 @@ REQUIRED = (
 )
 
 
-# 止まった記録でだけ、空のまま受ける欄（process.stopped_gaps に欄ごとの理由を書く）。作る工程より前に止まった run の
+# 止まった記録でだけ、空のまま受けるフィールド（process.stopped_gaps にフィールドごとの理由を書く）。作る工程より前に止まった run の
 # 報告を出すため——収束を名乗る記録では今までどおり空を落とす（not_run のゲートを止まった記録でだけ受けるのと同じ形）
 GAP_FIELDS = ("question", "constraints", "clusters", "claims", "decisions")
 
 
 def stopped_gaps(rec, path):
-    """止まった記録が理由つきで空と申告した欄の集合。申告の形が崩れている・止まっていない記録の申告・空でない欄の申告は落とす"""
+    """止まった記録が理由つきで空と申告したフィールドの集合。申告の形が崩れている・止まっていない記録の申告・空でないフィールドの申告は落とす"""
     gaps = (rec.get("process") or {}).get("stopped_gaps") if isinstance(rec.get("process"), dict) else None
     if gaps is None:
         return set()
     if not isinstance(gaps, dict) or not all(k in GAP_FIELDS and isinstance(v, str) and v.strip() for k, v in gaps.items()):
         fail(f"{path}: process.stopped_gaps は {{{'/'.join(GAP_FIELDS)}: 理由}} の形")
     if not isinstance(rec.get("convergence"), dict) or rec["convergence"].get("outcome") != "stopped":
-        fail(f"{path}: 収束を名乗りながら空の欄を申告している（stopped_gaps は outcome=stopped の記録でだけ受ける）")
+        fail(f"{path}: 収束を名乗りながら空のフィールドを申告している（stopped_gaps は outcome=stopped の記録でだけ受ける）")
     dec = rec.get("decisions")
     filled = {"question": bool(rec.get("question")), "decisions": isinstance(dec, dict) and any(dec.get(k) for k in ("decide_now", "poc", "human_only")),
               **{k: bool(rec.get(k)) for k in ("constraints", "clusters", "claims")}}
     rotten = [k for k in gaps if filled[k]]
     if rotten:
-        fail(f"{path}: 空でない欄を空と申告している（申告の腐り）: {rotten}")
+        fail(f"{path}: 空でないフィールドを空と申告している（申告の腐り）: {rotten}")
     return set(gaps)
 
 
@@ -154,8 +154,8 @@ def validate(rec, path):
         fail(f"{path}: 記録の最上位が object でない")
     for key in REQUIRED:
         if key not in rec:
-            fail(f"{path}: 必須の欄 '{key}' が無い")
-    # 結末を先に見る——未決の記録（走っている run を途中で仕上げた）は他の欄も作りかけなので、後ろの検査で落ちると
+            fail(f"{path}: 必須のフィールド '{key}' が無い")
+    # 結末を先に見る——未決の記録（走っている run を途中で仕上げた）は他のフィールドも作りかけなので、後ろの検査で落ちると
     # 『記録が壊れている』に見える。止まった記録でだけ受ける規則（stopped_gaps・not_run）もこの値を読む
     conv = rec["convergence"]
     if not isinstance(conv, dict):
@@ -228,7 +228,7 @@ def validate(rec, path):
             ):
                 fail(f"{path}: 主張 '{cid}' の sources が空——出典なしの判定は認めない")
 
-    # 件数の照合。散文の「突合しろ」を機械の等式に置き換えた欄——ここが赤なら
+    # 件数の照合。散文の「突合しろ」を機械の等式に置き換えたフィールド——ここが赤なら
     # 判定の欠落（無言の省略）が起きている。
     for key, expect in cluster_expect.items():
         if cluster_seen[key] != expect:
@@ -335,7 +335,7 @@ def validate(rec, path):
     if declared and not (isinstance(proc.get("reason"), str) and proc["reason"].strip()):
         fail(f"{path}: 反証を経ていない荷重があるのに process.reason が無い")
     # 荷重と反証の整合。「荷重なのに反証していない」は起こりうる——起きたこと自体は
-    # 正さず、無申告だけを塞ぐ（存在の可視化がこの道具の役割）。
+    # 正さず、無申告だけを塞ぐ（存在の可視化がこのツールの役割）。
     for cl in rec["claims"]:
         if cl["load_bearing"] and not cl["refuted"] and cl["id"] not in declared:
             fail(

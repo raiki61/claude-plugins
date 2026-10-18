@@ -1,4 +1,4 @@
-"""graphloops/engine/children.py（loop.py children）——盤面の印から、この run が起こした子の残りを一覧する・止める口。
+"""graphloops/engine/children.py（loop.py children）——盤面の印から、この run が起動した子の残りを一覧する・止める口。
 止める既定は印を書いたプロセス（launch）がもう居ない止め残しだけで、走っている試行は明示の旗のときだけ。
 本物の子を止める検査は OS で見送らない（POSIX は数え上げの道、Windows は taskkill /T /F の道を通る）。"""
 import json
@@ -107,7 +107,7 @@ def test_stop_stops_a_real_left_tree_and_skips_a_running_one(tmp_path):
     """本物の子: launch が居ない印の子は既定で止まり印も消える。自分（生きている launch）が書いた印の子は旗まで残る。
     居ない launch の印は試行の終わりに書き直した形（left と born）で、更新時刻を 60 秒前に置く——居ない launch の番号は
     すぐ別のプロセスに使い回されうる（Windows）ので、印より後に始まったプロセスを別物と読む見分け（number_reused）が
-    使い回しの時刻に依らず効くように。born は子を起こした後の時刻（それより後に始まった子は居ない）"""
+    使い回しの時刻に依らず効くように。born は子を起動した後の時刻（それより後に始まった子は居ない）"""
     d = board(tmp_path)
     left, running = sleeper(), sleeper()
     born = time.time()

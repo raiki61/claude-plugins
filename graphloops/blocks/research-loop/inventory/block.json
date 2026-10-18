@@ -1,5 +1,5 @@
 {
- "description": "S2 素材の棚卸し（BLOCKS.md 3 節）。主張の棚卸しと断面の生成",
+ "description": "S2 素材の棚卸し（BLOCKS.md セクション 3）。主張の棚卸しと断面の生成",
  "nodes": [
   "p0.claims",
   "p0.clusters",

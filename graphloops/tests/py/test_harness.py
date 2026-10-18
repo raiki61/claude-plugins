@@ -2,8 +2,8 @@
 
 - 2 つの口の突合: 同じ筋書きを子プロセスの口と同じプロセスの口で回し、盤面を正規化して突き合わせる（上位互換の確かめ）
 - 同じプロセスの口の戻し・終了コードと標準エラーの一致
-- 台本の本文をそのまま pytest から回せること（件数と失敗が pytest の結果と柵に届く）
-- 柵が pytest-xdist（-n）の下でも赤になること（内側に回した pytest で見る。赤を見ていない柵は効いていると扱わない）
+- 台本の本文をそのまま pytest から回せること（件数と失敗が pytest の結果とチェックに届く）
+- チェックが pytest-xdist（-n）の下でも赤になること（内側に回した pytest で見る。赤を見ていないチェックは効いていると扱わない）
 """
 import json
 import os
@@ -175,7 +175,7 @@ def test_drivers_same_exit_and_stderr(gl_tmp):
 
 @pytest.mark.medium
 def test_script_body_runs_under_driver(gl_script):
-    """台本の本文（simulate_review.py の test_premise）を変えずに pytest から回す——件数と失敗は柵と pytest の結果に届く"""
+    """台本の本文（simulate_review.py の test_premise）を変えずに pytest から回す——件数と失敗はチェックと pytest の結果に届く"""
     gl_script("review").test_premise()
 
 
@@ -204,7 +204,7 @@ def test_normalize_board_replaces_only_named_parts(tmp_path):
     assert glharness.first_difference(got, other) == "$.state.json.count: '3' と '4'"
 
 
-# ---- 内側に回した pytest で柵の赤を見る ---------------------------------------------------------------------------------
+# ---- 内側に回した pytest でチェックの赤を見る ---------------------------------------------------------------------------------
 
 CONFTEST = ("import fence, pathlib\n"
             "pytest_plugins = ('glharness',)\n\n\n"
@@ -276,7 +276,7 @@ def test_sim_fences_match_and_break(inner, n):
 def test_sim_fences_drop_on_deselect(inner):
     r = inner({"test_x": checks_file(2, "a"), "test_y": checks_file(3, "b")}, 2, "-n", "2", "-k", "test_x", checks=5, reached=2)
     assert r.ret == pytest.ExitCode.OK
-    r.stdout.fnmatch_lines(["*検査の件数の柵と到達の柵を外した（1 件のテストを選び外した）*"])
+    r.stdout.fnmatch_lines(["*検査の件数のチェックと到達のチェックを外した（1 件のテストを選び外した）*"])
 
 
 @pytest.mark.medium
@@ -299,16 +299,16 @@ def test_small_marker_refuses_children_and_sleep(inner):
                         "def test_unmarked():\n    subprocess.run([sys.executable, '-c', 'pass'])\n    time.sleep(0)\n")}
     r = inner(files, 4)
     r.assert_outcomes(passed=1, failed=3)
-    r.stdout.fnmatch_lines(["*small のテストが time.sleep を呼んだ（大きさの柵）*"])
+    r.stdout.fnmatch_lines(["*small のテストが time.sleep を呼んだ（大きさのチェック）*"])
 
 
-RMTREE_ROOTS = ("graphloops", "tests", "scripts")   # リポジトリの根から見た、消す口の柵が走査する置き場
-# 消す口に届いてよい所の表: (根から見たファイル, 最上位の関数) → (その関数の中の参照の数, 許す理由)。数が合わなければ赤——
+RMTREE_ROOTS = ("graphloops", "tests", "scripts")   # リポジトリのルートから見た、消す口のチェックが走査する置き場
+# 消す口に届いてよい所の表: (ルートから見たファイル, 最上位の関数) → (その関数の中の参照の数, 許す理由)。数が合わなければ赤——
 # 関数の中に消す口が増えた・名前が変わって見つからない（並行の run が熱いファイルの関数を改名した）のどちらも黙って緩まない
 RMTREE_ALLOWED = {
     ("graphloops/tests/parallel.py", "rm"): (1, "範囲の守り（gettempdir より深い所だけを消す）を持つ台本の正本"),
     ("graphloops/tests/py/waves.py", "_wipe"): (1, "範囲の守り（控えの置き場より深い所だけを消す）を持つ波の写し戻し"),
-    ("graphloops/tests/py/test_harness.py", "_rmtree_refs"): (5, "名前への参照を探すこの柵の本体"),
+    ("graphloops/tests/py/test_harness.py", "_rmtree_refs"): (5, "名前への参照を探すこのチェックの本体"),
     ("graphloops/engine/commands.py", "launch_one"): (4, "同じ関数が mkdtemp で作った任せ先の作業場と、盤面に記録できなかった書き換える子の専用の"
                                                          "一時の置き場（同じ関数が _child_tmp_dir で作った）"),
     ("graphloops/engine/commands.py", "_note_child_tmp"): (1, "launch_one が _child_tmp_dir（mkdtemp）で作った書き換える子の専用の一時の置き場"),
@@ -317,24 +317,24 @@ RMTREE_ALLOWED = {
     ("graphloops/engine/checks_cache.py", "store"): (2, "同じ関数が置き場の親の下に mkdtemp で作った書きかけと、脇へ退けた壊れた記録"),
     ("graphloops/engine/util.py", "worktree_tree"): (1, "同じ関数が mkdtemp で作った一時の置き場"),
     ("tests/catchup-switch-case.py", "_worktree"): (1, "TemporaryDirectory の下に同じ関数が足した worktree"),
-    # 特徴づけのテストの固定具と期待値を作る台本（0.21.2 の golden。この柵より後に入った）
+    # 特徴づけのテストの固定具と期待値を作る台本（0.21.2 の golden。このチェックより後に入った）
     ("graphloops/tests/golden_make.py", "run"): (1, "同じ関数が mkdtemp で作った観察の置き場"),
     ("graphloops/tests/golden_make.py", "write_expectations"): (1, "同じ関数が mkdtemp で作った作業場"),
     ("graphloops/tests/golden_make.py", "check"): (1, "同じ関数が mkdtemp で作った作業場"),
     ("graphloops/tests/golden_make.py", "collect"): (2, "作り直す直前の golden の固定具と期待値の置き場（ga.GOLDEN の下の決まった名前）"),
-    # 変異の実行器の作業場（scratch_dir の mkdtemp と呼び元の finally）と、起動ごとの根（run_root。ロックを握って作る）
+    # 変異の実行器の作業場（scratch_dir の mkdtemp と呼び元の finally）と、起動ごとのルート（run_root。ロックを握って作る）
     ("tests/mutate.py", "lease"): (1, "copy（scratch_dir の mkdtemp）で作って貸した腕の作業場——照合に通らない・例外・止める信号で捨てる"),
     ("tests/mutate.py", "restored_why"): (2, "使い回す写しの作業場の tmp と、写しの repo の pytest のキャッシュ（台本と pytest が写しに書いた物）"),
     ("tests/mutate.py", "control"): (1, "同じ関数が copy で作った作業場"),
     ("tests/mutate.py", "marker_run"): (1, "同じ関数が copy で作った作業場"),
     ("tests/mutate.py", "copy"): (1, "作る途中の例外・止める信号で、同じ関数が scratch_dir で作った作業場"),
-    ("tests/mutate.py", "_drop"): (1, "この起動が run_root で作った根（ロックのファイルは最後に消す）"),
-    ("tests/mutate.py", "sweep_roots"): (1, "前の起動が残した根のうち、ロックを取れた物とロックの無い物だけ"),
+    ("tests/mutate.py", "_drop"): (1, "この起動が run_root で作ったルート（ロックのファイルは最後に消す）"),
+    ("tests/mutate.py", "sweep_roots"): (1, "前の起動が残したルートのうち、ロックを取れた物とロックの無い物だけ"),
 }
 
 
 def _rmtree_refs(root):
-    """根の下の RMTREE_ROOTS を再帰で読み、rmtree への参照を数える ——({(ファイル, 最上位の関数か None): 数}, 読んだ本数の置き場ごと)。
+    """ルートの下の RMTREE_ROOTS を再帰で読み、rmtree への参照を数える ——({(ファイル, 最上位の関数か None): 数}, 読んだ本数の置き場ごと)。
     呼び出しの形に依らず名前への参照で見る（別名の import・関数を値で渡す形・getattr の文字列も拾う）。シェルの台本（*.sh）は
     ast にかけられないので、埋め込んだ Python ごと字列で拾う（関数は None）"""
     import ast
@@ -368,10 +368,10 @@ def _rmtree_violations(counts, allowed):
 def test_rmtree_is_reached_only_from_named_sites():
     """消す口（rmtree）に届いてよいのは、範囲の守りを持つ名指しの口（台本の正本 parallel.rm と、波の写し戻しの waves._wipe）と、
     同じ関数の中で自分が作った物を消す名指しの所だけ。
-    graphloops・tests・scripts の全部を見る——0.21.0 の事故（既定値から計算した親を消した）の層だけに柵を立てると、
+    graphloops・tests・scripts の全部を見る——0.21.0 の事故（既定値から計算した親を消した）の層だけにチェックを立てると、
     新しい消す口が守りを素通りする"""
     counts, scanned = _rmtree_refs(glharness.PLUGIN.parent)
-    assert all(scanned[top] for top in RMTREE_ROOTS), f"走査した本数が 0 の置き場がある（根の計算がずれた）: {dict(scanned)}"
+    assert all(scanned[top] for top in RMTREE_ROOTS), f"走査した本数が 0 の置き場がある（ルートの計算がずれた）: {dict(scanned)}"
     assert _rmtree_violations(counts, RMTREE_ALLOWED) == []
 
 

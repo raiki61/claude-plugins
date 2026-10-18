@@ -1,18 +1,18 @@
 """research-loop の rules——graphs/research-loop.json に書けない算術だけを持つ。
 
 engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
-  init_record   記録の初期形（欄の正本は convergence-loops の scripts/research-record.py）
+  init_record   記録の初期形（フィールドの正本は convergence-loops の scripts/research-record.py）
   FAN_OUT       扇の項目の選び方（照合が要るクラスタ・反証が要る主張・抜き取りの無作為選定）
   WRITE_OPS     記録の形に固有の書き込み（クラスタの件数を機械が数える等）
-  BUILTINS      機械の節（件数突合・収束判定）
-  POST_CHECKS   節ごとの整合（型では書けない規則）。out を検査・補うだけで record は触らない（記録を書くのは WRITE_OPS）
-  check_record  判定ごとの必須欄と出典（検証器と同じ規則を done の時点で当てる）
+  BUILTINS      機械のノード（件数突合・収束判定）
+  POST_CHECKS   ノードごとの整合（型では書けない規則）。out を検査・補うだけで record は触らない（記録を書くのは WRITE_OPS）
+  check_record  判定ごとの必須フィールドと出典（検証器と同じ規則を done の時点で当てる）
   finalize      報告の前の仕上げ（段ごとの『走らせない』理由・未反証の荷重の申告・未照合の主張の退避・方針の文書の変化）
   on_init       人の方針の文書の置き場を inputs.policy_md に、init の時点の版を process.policy に（rules/policy_input.py を review-loop と共有）
   on_answer / on_unattended / on_thickness / add   人に聞いた後・無人・昇格・外から足す
 
-engine が差し込む道具は engine/rules.py の INJECT が正本（rules は engine を import しない）。
-節名（p1.checker 等）はここには出ない——節の役割は graph が名前で指す。
+engine が差し込むツールは engine/rules.py の INJECT が正本（rules は engine を import しない）。
+ノード名（p1.checker 等）はここには出ない——ノードの役割は graph が名前で指す。
 """
 import importlib.util
 import json
@@ -26,7 +26,7 @@ _pspec.loader.exec_module(policy_input)
 
 GATES = ("rederiver", "cold_reader", "cartographer")
 # 検証器（research-record.py）の定数は validator_module(b) で読む——engine（engine/rules.py の INJECT）が差し込む。
-# 以前ここに在った VERDICTS / VERDICT_FIELDS は検証器と同じ知識の写しで、形が既にずれていた（判定→欄 1 つ vs 判定→欄の組）
+# 以前ここに在った VERDICTS / VERDICT_FIELDS は検証器と同じ知識の写しで、形が既にずれていた（判定→フィールド 1 つ vs 判定→フィールドの組）
 
 
 # ---------------------------------------------------------------- 記録の初期形
@@ -45,8 +45,8 @@ def init_record(thickness, decider):
 
 
 def on_init(b, args):
-    """人の方針の文書を inputs.policy_md に、init の時点の版（sha と写し）を process.policy に。変わったかは finalize が照らして
-    記録と報告に出す——この loop に周の途中で人に聞く関所は足さない（元の research-loop に無い止める点になる）"""
+    """人の方針の文書を inputs.policy_md に、init の時点の版（sha と写し）を process.policy に。変わったかは finalize が照合して
+    記録と報告に出す——この loop に周の途中で人に聞くゲートは足さない（元の research-loop に無い止める点になる）"""
     b.record["process"]["policy"] = policy_input.resolve(b, git, Reject)
 
 
@@ -98,14 +98,14 @@ def sampling_pick(b, nid):
 
 FAN_OUT = {"clusters_needing_check": clusters_needing_check, "claims_needing_refute": claims_needing_refute, "sampling_pick": sampling_pick}
 # **無作為に項目を引く扇。** 引く物が run ごとに変わるので、そこから返る値は台本の性質ではない
-# ——覆いの測定（判定語彙の到達）はこの扇の節を数えない。数えていたとき、同じ台本で到達が
-# 24 と 25 のあいだで揺れた（実測 2026-09-13: 種が run_id＝時刻）。**揺れる柵は無い柵より悪い。**
+# ——覆いの測定（判定語彙の到達）はこの扇のノードを数えない。数えていたとき、同じ台本で到達が
+# 24 と 25 のあいだで揺れた（実測 2026-09-13: 種が run_id＝時刻）。**揺れるチェックは無いチェックより悪い。**
 RANDOM_FAN = ("sampling_pick",)
 
 
-# ---------------------------------------------------------------- 節の条件（graph の cond が名前で指す）
-# 関数は読む欄を cond_reads で宣言し、engine が宣言した欄だけの入れ物 v を渡す。返りは（真偽, 理由の文）。
-# default の無い欄（rd.new_discrepancies 等）は、評価の順で届いたときに解決できなければ落ちる（以前の JSON の条件と同じ）
+# ---------------------------------------------------------------- ノードの条件（graph の cond が名前で指す）
+# 関数は読むフィールドを cond_reads で宣言し、engine が宣言したフィールドだけの入れ物 v を渡す。返りは（真偽, 理由の文）。
+# default の無いフィールド（rd.new_discrepancies 等）は、評価の順で届いたときに解決できなければ落ちる（以前の JSON の条件と同じ）
 @cond_reads("record.constraints")
 def constraints_self_written(v):
     rows = v("record.constraints", [])
@@ -162,9 +162,9 @@ CONDS = {"constraints_self_written": constraints_self_written, "generation_due":
 LOOP_KEYS = frozenset({"stuck_hint", "stuck_ids", "rederiver_redesign_rounds"})
 # 周（b.rd）に持つ鍵のうち、条件が読んでよい物（graphcheck が cond_reads と突き合わせる）
 ROUND_KEYS = frozenset({"new_discrepancies"})
-# このループの節は engine の鍵と説明の鍵だけを書く（graphcheck の検査 15。宣言が無いと照らせないので空で置く）
+# このループのノードは engine の鍵と説明の鍵だけを書く（graphcheck の検査 15。宣言が無いと照合できないので空で置く）
 NODE_KEYS = NODE_NOTE_KEYS = frozenset()
-# 記録の欄のうち rules が writes の外で書く物（on_init が書く方針の文書の置き場）——穴が record.<欄> を読むとき、完全一致で照らす
+# 記録のフィールドのうち rules が writes の外で書く物（on_init が書く方針の文書の置き場）——穴が record.<フィールド> を読むとき、完全一致で照合する
 RECORD_KEYS = ("process.policy.path",)
 
 
@@ -193,7 +193,7 @@ def clusters_from_ids(b, nid, src, w):
 
 
 def add_claims_op(b, nid, src, w):
-    add_claims(b, src, f"節 {nid}（{b.round} 周目）", nid)
+    add_claims(b, src, f"ノード {nid}（{b.round} 周目）", nid)
 
 
 def add_claims(b, claims, origin, where):
@@ -255,7 +255,7 @@ def sampling_overturn(b, nid, src, w):
                             "overturned_ids": overturned, "round": b.round}
 
 def rederiver_first_verdict(b, nid, src, w):
-    """暫定か確定かを記録の欄が持つので、仕上げは周をまたぐ履歴から推さない（突合の前に止まった run は、この形のまま
+    """暫定か確定かを記録のフィールドが持つので、仕上げは周をまたぐ履歴から推さない（突合の前に止まった run は、この形のまま
     not_run として残る）"""
     was = {"verdict": src.get("verdict"), "reason": src.get("reason")}
     *up, key = w["to"].split(".")
@@ -286,9 +286,9 @@ for _op in WRITE_OPS.values():
     _op.writes_material = False
 
 
-# ---------------------------------------------------------------- 機械の節
+# ---------------------------------------------------------------- 機械のノード
 def count_check(b, nid):
-    """クラスタ欄と判定数の等式・相違の反証・荷重確証の反証。この周の『新規の相違』をここで確定する。"""
+    """クラスタのフィールドと判定数の等式・相違の反証・荷重確証の反証。この周の『新規の相違』をここで確定する。"""
     rec = b.record
     problems = []
     for cl in rec["clusters"]:
@@ -379,7 +379,7 @@ def converge(b, nid):
     # 「何も検証していない周」が『新規相違ゼロ・ゲート pass・pending 空』で収束に見える。
     if not rec["claims"]:
         fails = fails + ["照合の対象になる主張が 1 件も無い（母数ゼロを収束と区別する）"]
-    # **柵が空振りした周は収束の条件そのものに入れる。** 前の周はこの判断を下の asks に置いた——
+    # **チェックが空振りした周は収束の条件そのものに入れる。** 前の周はこの判断を下の asks に置いた——
     # asks は収束しない周にしか組み立てられないので、**収束する周には一度も評価されなかった**
     # （名乗りは『収束判定に入れた』なのに、入っていたのは収束しない周だけ）。検算の測り方も
     # 『converge に read_through_unchecked が現れるか』だったので、置いた場所が到達しないことを測れなかった。
@@ -456,7 +456,7 @@ def converge(b, nid):
 BUILTINS = {"count_check": count_check, "converge": converge}
 
 
-# ---------------------------------------------------------------- 節ごとの整合
+# ---------------------------------------------------------------- ノードごとの整合
 def refuter_consistency(b, nid, out, item):
     m, up, v = out["mode"], out["upheld"], out["verdict"]
     if m == "dispute" and up != (v == "相違"):
@@ -480,17 +480,17 @@ def cartographer_count(b, nid, out, item):
 
 # 読了の確かめ。**engine が回す側のセッションの転写を読み、文書の本文が会話に入った痕跡を探す。**
 # 回す側に何かを書かせて確かめる形（末尾の一文の逐語引用）は、末尾に到達したことしか示せなかった。
-# 転写には道具の結果がそのまま残るので、Read でも cat でも sed でも、本文が会話に入れば痕跡が残る
+# 転写にはツールの結果がそのまま残るので、Read でも cat でも sed でも、本文が会話に入れば痕跡が残る
 # ——読み方の綴りを engine が知る必要が無い。実測 2026-09-18: 全文を 1 度読んだ文書は 3 標本とも hit、
 # 部分しか見ていない文書は中間だけ hit、engine が別プロセスで読んだだけの文書は 3 標本とも miss。
 # **射程の正本はここ 1 か所**（プロンプトも手順書も拒否文も、これより強いことを言ってはいけない）。
 # engine が確かめているのは 1 つだけ——**CLAUDE_CODE_SESSION_ID が指す転写 1 本の中に、この run の
 # run_id と 3 標本が同居するか**。それ以上は読まない:
 #   - その転写が「親のもの」か「subagent のもの」かを、engine は判定していない
-#     （判定の材料になる欄を 1 つも読まない。isSidechain も子の session id も参照は 0 件）。
-#   - 照合は部分一致なので、同じ行が別の道具の出力に在れば読まずに立つ（読了の証明ではない）。
+#     （判定の材料になるフィールドを 1 つも読まない。isSidechain も子の session id も参照は 0 件）。
+#   - 照合は部分一致なので、同じ行が別のツールの出力に在れば読まずに立つ（読了の証明ではない）。
 # 「回す側そのものが subagent なら成立しない」は engine の保証ではなく、**ハーネスが subagent の
-# 道具の結果を親の転写へ書かない**という置き場の性質に乗った観測である（その性質は engine の外に在り、
+# ツールの結果を親の転写へ書かない**という置き場の性質に乗った観測である（その性質は engine の外に在り、
 # transcript_path の docstring が『ハーネスの持ち物なので写さない』と書いているもの）。
 # ハーネスが置き場の作り方を変えれば、この観測は engine を 1 行も変えずに成り立たなくなる。
 PROBE_POINTS = ("先頭", "中間", "末尾")
@@ -508,12 +508,12 @@ def transcript_path():
 
     スラグ（置き場の名前）の作り方はハーネスの持ち物なので写さない。session id のファイルを glob で探す。
     設定のフォルダは engine の claude_config_dir（INJECT。決め方の正本は scripts/claude_auth.py の config_dir）。
-    既定を持たなかったとき、旗を渡さない配置では柵が毎回空振りし、それが誰にも見えなかった。
+    既定を持たなかったとき、旗を渡さない配置ではチェックが毎回空振りし、それが誰にも見えなかった。
     """
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     cfg = claude_config_dir()
     if not sid:
-        return None, "CLAUDE_CODE_SESSION_ID が無い（engine を起こした session が分からない）"
+        return None, "CLAUDE_CODE_SESSION_ID が無い（engine を起動した session が分からない）"
     try:
         hit = sorted(pathlib.Path(cfg).glob(f"projects/*/{sid}.jsonl"))
     except OSError as e:
@@ -529,11 +529,11 @@ def transcript_path():
 
 
 def tool_result_texts(line):
-    """転写の 1 行から **道具の結果の本文だけ** を出す。
+    """転写の 1 行から **ツールの結果の本文だけ** を出す。
 
     **会話の地の文（役や人が書いた文）は見ない**——engine がループの操作者の会話を読む形にしない。
     探したいのは「文書の本文が道具を通って会話に入ったか」だけなので、これで足りる。
-    本文が配列で入る道具も在る（実測 2026-09-18）ので両方を出す。
+    本文が配列で入るツールも在る（実測 2026-09-18）ので両方を出す。
     """
     try:
         d = json.loads(line)
@@ -559,26 +559,26 @@ def tool_result_texts(line):
     return out
 
 
-EXTERNAL_MARK = "tool-results/"  # 大きい道具の結果の外出し先（ハーネスが親の転写に残す参照）
+EXTERNAL_MARK = "tool-results/"  # 大きいツールの結果の外出し先（ハーネスが親の転写に残す参照）
 
 
 def probes_found(path, probes, mark):
-    """転写を舐めて（見つかった標本の名前, 見た道具の結果の数, 外出しの参照が在ったか, **この run の印が在ったか**, 読めなかった理由）。
+    """転写を舐めて（見つかった標本の名前, 見たツールの結果の数, 外出しの参照が在ったか, **この run の印が在ったか**, 読めなかった理由）。
 
-    **欄の型を経路で変えない**——理由を件数の位置に同居させていたとき、読む側は 1 番目が None かを
+    **フィールドの型を経路で変えない**——理由を件数の位置に同居させていたとき、読む側は 1 番目が None かを
     先に見ないと型を誤る形だった（呼び出し元は 1 か所なので実害は出ていないが、姉妹の 2 つの関数は
     どちらも『値か理由か』の素直な形である）。
 
     **印（この run の run_id）を一緒に探すのは、転写が回す側のものかを確かめるため。**
-    engine を起こすと必ず run_id が出力に出る（init／next／status の JSON と done の 1 行）ので、回す側が自分で
-    engine を回していれば、その道具の結果として印が転写に載る。載っていない転写は**回す側のもので
+    engine を起動すると必ず run_id が出力に出る（init／next／status の JSON と done の 1 行）ので、回す側が自分で
+    engine を回していれば、そのツールの結果として印が転写に載る。載っていない転写は**回す側のもので
     はない**（回す側そのものが subagent の配置・出力をファイルへ落とした配置）ので、標本が無くても
     「読んでいない」とは言えない——claims_intake がその回を不合格でなく不成立へ倒す。
 
     **通る回は全部そろった時点で読むのをやめる。拒む回は最後まで読む**（実測 2026-09-19: 36.9 MB・
     標本がどこにも無い回で 3.86 秒。前置フィルタを入れて約 2.2 倍速くなる）——拒む回は回す側が
     読み直して出し直す経路なので、同じ全走査が毎回繰り返される。上限は置いていない。
-    見た数を返すのは、道具の結果が 1 つも無い転写——形が変わった疑い——を「読んでいない」と区別するため。
+    見た数を返すのは、ツールの結果が 1 つも無い転写——形が変わった疑い——を「読んでいない」と区別するため。
     外出しの参照を返すのは、**本文が親の転写に残らない形**（大きい結果は別ファイルへ出され、
     参照と先頭の抜粋しか残らない）を「読んでいない」と区別するため。
     """
@@ -595,7 +595,7 @@ def probes_found(path, probes, mark):
         with f:
             for line in f:
                 if '"tool_result"' not in line:
-                    continue  # 道具の結果を含まない行は JSON に起こさない（拒む回は最後まで読むので効く）
+                    continue  # ツールの結果を含まない行は JSON として解析しない（拒む回は最後まで読むので効く）
                 for text in tool_result_texts(line):
                     seen += 1
                     external = external or EXTERNAL_MARK in text
@@ -618,7 +618,7 @@ def sink_hints(path, external):
     ハーネスは本文を親の転写だけに置くとは限らない——subagent に読ませれば別の転写へ行き、
     大きい結果は別ファイルへ外出しされて参照しか残らない。**これは判定の材料にしない**——
     置き場が在るかは『その本文がそこに在る』ことを 1 つも示さないので、在るだけで通していたとき、
-    文書と無関係な subagent を 1 つ起こした session では柵が二度と不合格を出さなくなった
+    文書と無関係な subagent を 1 つ起動した session ではチェックが二度と不合格を出さなくなった
     （実測: この置き場でループを回した session は 4/4 が subagents/ を持つ）。
     engine が読むのは session id が指す転写 1 本だけで、その転写の由来は判定していない——射程の正本は
     PROBE_POINTS の上の注記で、名乗り（プロンプト・手順書・拒否文）はそこから導く。**どこまで読みに行くかは未決**
@@ -630,7 +630,7 @@ def sink_hints(path, external):
         out.append("この session には subagent の転写が在る——subagent に読ませた本文は親の転写に残らないので、"
                    "自分で読み直せ")
     if external:
-        out.append(f"この session には大きい道具の結果を別ファイル（{EXTERNAL_MARK}）へ外出しした跡が在る"
+        out.append(f"この session には大きいツールの結果を別ファイル（{EXTERNAL_MARK}）へ外出しした跡が在る"
                    "——外出しされると親の転写には抜粋しか残らないので、分けて読むか小さく読み直せ")
     return out
 
@@ -686,7 +686,7 @@ def read_through_unchecked(b, nid, why):
     finalize が record.process へ写し、engine の traces() が報告に出す（unevaluable と同じ形）。
     """
     b.state.setdefault("read_through_unchecked", []).append({"node": nid, "round": b.round, "why": why})
-    # **回す側にもその場で見せる。** 痕跡が finalize の件数にしか出なかったとき、柵が空振りした回と
+    # **回す側にもその場で見せる。** 痕跡が finalize の件数にしか出なかったとき、チェックが空振りした回と
     # 確かめられた回が done の出力では同じに見えた（周の途中では誰も気づけない）
     return f"読了は確かめられなかった（記録に残す）: {why}"
 
@@ -702,13 +702,13 @@ def claims_intake(b, nid, out, item):
     不合格（Reject）。不成立に落ちる分岐は read_through_unchecked を呼ぶ全経路で、どれも 1 か所へ
     流すのは黙って通る経路を作らないため（件数をここに写さない——増えた周に名乗りだけ古くなる）。
     """
-    # **同じ周に 2 度走査しない。** 確かめは同じ波の 2 節（p0.claims / p0.terms）に付いており、
-    # 転写は単調に育つので拒否が続く周ほど全走査が重くなる（実測: 36.9 MB で 3.86 秒 × 2 節）。
-    # 柵はどちらの節にも当て続けたまま、**2 度目は盤面に残した結果を読む**——節から外すと、
+    # **同じ周に 2 度走査しない。** 確かめは同じ波の 2 つのノード（p0.claims / p0.terms）に付いており、
+    # 転写は単調に育つので拒否が続く周ほど全走査が重くなる（実測: 36.9 MB で 3.86 秒 × 2 ノード）。
+    # チェックはどちらのノードにも当て続けたまま、**2 度目は盤面に残した結果を読む**——ノードから外すと、
     # 片方の post_check が落ちても誰も気づかない形になる。
     # 周が変われば読み直す（周をまたいで使い回すと、その周に読んだかを見ていないことになる）。
     # **鍵は「何を確かめたか」**（周・文書の綴りと大きさ・転写の綴り）。周だけを鍵にすると、
-    # 文書や session が節のあいだで差し替わった回に、確かめていない物を確かめた扱いにしてしまう。
+    # 文書や session がノードのあいだで差し替わった回に、確かめていない物を確かめた扱いにしてしまう。
     doc = (b.state.get("inputs") or {}).get("document")
     tp, no_transcript = transcript_path()
     try:
@@ -719,7 +719,7 @@ def claims_intake(b, nid, out, item):
     # 拒む回（＝転写を最後まで読む、いちばん重い回）が 1 つも覆えなかった——処方が正当化に使った経路を
     # 1 つも覆っていない形だった（実測 r8: R1 最小性が反証し、writer が現物で確かめた）。
     # **フックの状態も鍵に入れる。** 入れていなかったとき、不成立を写した後に同じ周で
-    # フックの記録が出来ても（＝文書を読んでも）、2 節目は写しの「確かめられなかった」を読み続けた
+    # フックの記録が出来ても（＝文書を読んでも）、2 つ目のノードは写しの「確かめられなかった」を読み続けた
     # ——拒否を写すと再提出が塞がるのと同じ形で、**読んだ次の手が通らない**（実測 r10）。
     hook, hook_why = hook_evidence(b.dir, doc) if doc else ("none", "見立て文書の入力が無い")
     memo = b.dir / "read-through.json"
@@ -729,8 +729,8 @@ def claims_intake(b, nid, out, item):
         cached = json.loads(memo.read_text(encoding="utf-8")) if memo.is_file() else None
     except Exception:                       # noqa: BLE001 — 写しが読めないなら走査し直すだけ
         cached = None
-    # **写しに当たっても、この節の出力から出る一言は出す。** 早期 return にしていたとき、
-    # 確かめの結果と一緒に**節ごとの導線（開いた問いを deep-research へ渡す一文）まで消えた**
+    # **写しに当たっても、このノードの出力から出る一言は出す。** 早期 return にしていたとき、
+    # 確かめの結果と一緒に**ノードごとの導線（開いた問いを deep-research へ渡す一文）まで消えた**
     # ——写しに当たるのは同じ波の後から done した側で、開いた問いを持つのは p0.claims だけなので、
     # p0.terms を先に done した周はその導線が 1 度も出なかった（実測 r9）。
     # 確かめの結果だけを写しから取り、後段の合流は必ず通す。
@@ -760,30 +760,30 @@ def claims_intake(b, nid, out, item):
         else:
             # **印は run_id**（engine のどの出力にも載り、直列化で綴りが変わらない）。盤面のパスを
             # 印にしていたとき、出力は json.dumps を通るので Windows の区切りが二重化され、印が
-            # 恒久的に一致せず柵が黙って通る側へ倒れた（実測 2026-09-19: 判定者が現物で特定）
+            # 恒久的に一致せずチェックが黙って通る側へ倒れた（実測 2026-09-19: 判定者が現物で特定）
             found, seen, external, marked, unreadable = probes_found(tp, probes, str(b.state.get("run_id") or b.dir))
             missing = [] if found is None else [name for name, _ in probes if name not in found]
             if found is None:
                 note = read_through_unchecked(b, nid, f"転写 {tp} を開けない（{unreadable}）")
             elif not seen:
-                note = read_through_unchecked(b, nid, f"転写 {tp} に道具の結果が 1 つも無い（転写の形が変わった疑い）")
+                note = read_through_unchecked(b, nid, f"転写 {tp} にツールの結果が 1 つも無い（転写の形が変わった疑い）")
             elif missing and not marked:
-                # **この転写は回す側のものではない。** engine を回せば盤面のパスが道具の結果として
+                # **この転写は回す側のものではない。** engine を回せば盤面のパスがツールの結果として
                 # 必ず載るので、印が 1 つも無い転写に標本が無くても「読んでいない」とは言えない
                 # （回す側そのものが subagent の配置・engine の出力をファイルへ落とした配置）。
-                # 不合格にすると、その配置には**柵を切る以外の出口が無くなる**——不成立にして痕跡を残す
+                # 不合格にすると、その配置には**チェックを切る以外の出口が無くなる**——不成立にして痕跡を残す
                 note = read_through_unchecked(b, nid, f"転写 {tp} に、この run を回した出力（run {b.state.get('run_id')}）が 1 つも無い"
                                                "——engine が読んでいるのは回す側の転写ではない"
                                                "（回す側そのものが subagent／出力をファイルへ落としている）。"
                                                "engine を回した出力が会話に残る場から回し直せ")
             elif not marked:
                 # **どの条件にも当たらない入力を黙って通さない。** 以前はここが無く、標本が全部そろえば
-                # 印を一度も見ずに合格していた——3 標本が親の転写の**別の道具の結果**にたまたま在れば
+                # 印を一度も見ずに合格していた——3 標本が親の転写の**別のツールの結果**にたまたま在れば
                 # （probes_found の docstring がその可能性を認めている）、印を問わず通る経路だった。
                 # 名乗り（印は転写が回す側のものかを確かめるため）は成功側でも印を見ると言っている。
                 note = read_through_unchecked(b, nid, f"転写 {tp} に標本はそろったが、この run を回した出力"
                                               f"（run {b.state.get('run_id')}）が 1 つも無い"
-                                              "——同じ字列が別の道具の結果に在っただけの可能性を engine は切り分けられない")
+                                              "——同じ字列が別のツールの結果に在っただけの可能性を engine は切り分けられない")
             elif missing:
                 # **判定は本文の在処だけで下す。** 置き場が在るかは証拠にならないので、抜け道の
                 # 手がかり（sink_hints）は拒否文に添えるだけにする——添えるのは、読み直し方が
@@ -794,19 +794,19 @@ def claims_intake(b, nid, out, item):
                 # 拒否の直後に回す側がすることはまさに『文書を読んでもう一度出す』で、**その回は
                 # 読み直さなければならない**。読んだことは鍵（周・文書・転写の綴り）に現れないので、
                 # 写すと再提出の道が同じ周の間ずっと塞がる。
-                # したがって走査が 1 回で済むのは通る回だけで、**拒む回は節ごとに全走査する**。
+                # したがって走査が 1 回で済むのは通る回だけで、**拒む回はノードごとに全走査する**。
                 # これは取りこぼしではなく、再提出を成立させるために必要な費用である。
-                raise Reject(f"{nid}: 見立て文書の {' と '.join(missing)} が、この session の親の転写の道具の結果に入っていない"
+                raise Reject(f"{nid}: 見立て文書の {' と '.join(missing)} が、この session の親の転写のツールの結果に入っていない"
                              f"——engine は本文を貼らないので、{doc} を自分で読んでから出し直せ"
                              f"（大きい文書は Read が途中で切れる。続きを読め）。"
                              # 実行でだけ出る形: 代役は同期で書くので検査では一生出ない（test_double_fidelity）
-                             f"**転写への書き込みは後追い**なので、読みと done を同じ道具呼びに並べた回は"
+                             f"**転写への書き込みは後追い**なので、読みと done を同じツール呼びに並べた回は"
                              f"まだ載っていない——読んだ**次の手**で出し直せ。見た転写: {tp}"
                              # **なぜ転写を読んでいるのかを見せる。** フックの記録が在れば転写は開かないので、
                              # ここに来たのは「記録が無い／この文書の全文読みが無い」のどちらかである
                              f"（フックの一次情報は使えなかった: {hook_why}）"
                              + ("。" + " / ".join(hints) if hints else ""))
-    # 確かめの結果だけを残す（開いた問いの一言は節ごとに違うので、下で足す）
+    # 確かめの結果だけを残す（開いた問いの一言はノードごとに違うので、下で足す）
     if not skip_scan:
         write_json(memo, {"scope": scope, "note": note})
     if out.get("open_questions"):
@@ -835,7 +835,7 @@ def check_record(b, nid=None):
         if v not in V.VERDICTS:  # 知らない判定語は「要求欄なし＝合格」に倒れていた（review 側と同じ形に）
             errs.append(f"主張 '{c['id']}' の verdict が語彙に無い: {v!r}（{'/'.join(V.VERDICTS)}）")
             continue
-        # 検証器の表は判定 → 要る欄の組（tuple）。rules に在った写しは判定 → 欄 1 つの dict で、形が既にずれていた
+        # 検証器の表は判定 → 要るフィールドの組（tuple）。rules に在った写しは判定 → フィールド 1 つの dict で、形が既にずれていた
         for need in (V.VERDICT_FIELDS[v].fields if v in V.VERDICT_FIELDS else ()):
             if not (isinstance(c.get(need), str) and c[need].strip()):
                 errs.append(f"主張 '{c['id']}'（{v}）に '{need}' が無い")
@@ -865,7 +865,7 @@ def finalize(b):
     rec, th, ls = b.record, b.state["thickness"], b.loop_state
     g = rec["gates"]
     _settle_outcome(b)
-    # 読了の柵が成立しなかった周は、成立しなかったことを人に見せる（engine の traces() が拾う欄名）。盤面の写しなので途中でも写す
+    # 読了のチェックが成立しなかった周は、成立しなかったことを人に見せる（engine の traces() が拾うフィールド名）。盤面の写しなので途中でも写す
     rec["process"]["read_through_unchecked"] = b.state.get("read_through_unchecked", [])
     if rec["convergence"].get("outcome") is None:
         # 走っている run の途中の仕上げ（loop.py finalize）は、盤面の写し（上の痕跡と engine が写す痕跡）のほかは記録を書き換えない
@@ -879,7 +879,7 @@ def finalize(b):
     # **段ごとに必須のゲート全部を見る。** 以前は rederiver と cold_reader の 2 本だけを回しており、
     # **同じ不変条件の 3 本目（cartographer）が漏れていた**——重厚段で停止した run は cartographer が
     # not_applicable のまま理由も付かず、検証器 :241 が「重厚段で cartographer を省略している」で落ちる。
-    # 帰結は前と同じで、**report の節が永久に出ない**（実測 2026-09-13: 部品を直に呼んで、重厚だけ
+    # 帰結は前と同じで、**report のノードが永久に出ない**（実測 2026-09-13: 部品を直に呼んで、重厚だけ
     # 理由の付かない not_applicable が残ることを確認）。**1 本直して赤が消えたところで止めていた形。**
     for k in ("rederiver", "cold_reader", "cartographer"):
         if g[k].get("status") != "not_applicable":
@@ -891,7 +891,7 @@ def finalize(b):
         elif stopped:
             # **収束せず停止した run は報告できなければならない。** 以前はここが軽量段しか触らず status も動かさなかったので、
             # 非収束で止まった標準／重厚段は検証器が exit 2 を返し続け（軽量でない段で not_applicable のゲートは fail）、
-            # report_accepts_exit の既定 [0] の外なので engine が die し、**report の節が永久に出なかった**
+            # report_accepts_exit の既定 [0] の外なので engine が die し、**report のノードが永久に出なかった**
             # （到達経路は max_rounds・thrash・stuck・unverifiable の 4 つで、どれも設計上『停止して報告する』筋）。
             # 受理集合を広げる処方は採らない——exit 2 は「記録が不正」であって、広げると本当の不正も通る
             g[k]["status"] = "not_run"
@@ -919,19 +919,19 @@ def finalize(b):
     else:
         proc.pop("reason", None)
     if not any(c.get("load_bearing") for c in rec["claims"]):
-        # 役が返さなかった欄を機械が埋めない——柵が要求するのは理由であって『理由が無い旨』ではない。
-        # 埋めていたとき、検証器の非空検査は既定文で通り、欄が空だったことが記録から消えていた。
+        # 役が返さなかったフィールドを機械が埋めない——チェックが要求するのは理由であって『理由が無い旨』ではない。
+        # 埋めていたとき、検証器の非空検査は既定文で通り、フィールドが空だったことが記録から消えていた。
         why = (b.latest_output("p0.clusters") or {}).get("load_zero_reason")
         if why:
             proc["load_zero_reason"] = why
     else:
         proc.pop("load_zero_reason", None)
     policy_input.record_change(b, git, proc)
-    # 止まった run で、作る工程より前に止まったので空のままの欄。検証器はこの欄に理由の在る欄だけを、止まった記録に限って空で受ける
+    # 止まった run で、作る工程より前に止まったので空のままのフィールド。検証器はこのフィールドに理由の在るフィールドだけを、止まった記録に限って空で受ける
     # （受理集合は広げない——収束を名乗る記録では空を今までどおり落とす）
     gaps = {}
     if stopped:
-        why = f"止まった run（{rec['convergence'].get('stopped_reason')}）で、この欄を作る工程より前に止まった——作った物として数えない"
+        why = f"止まった run（{rec['convergence'].get('stopped_reason')}）で、このフィールドを作る工程より前に止まった——作った物として数えない"
         empty = {"question": not rec.get("question"), "constraints": not rec["constraints"], "clusters": not rec["clusters"],
                  "claims": not rec["claims"], "decisions": not any(rec["decisions"].get(x) for x in ("decide_now", "poc", "human_only"))}
         gaps = {k: why for k, e in empty.items() if e}
@@ -955,7 +955,7 @@ def on_answer(b, ph, ans):
             b.loop_state["stuck_hint"] = True  # 重厚なら次の周で断面の生成（手詰まり時の手筋）が開く
         b.loop_state["stuck_ids"] = []
         if "max_rounds" in kinds:
-            # **上限は 1 周だけ延ばす。** 延ばした事実は記録に残る（human_items の kinds と下の欄）
+            # **上限は 1 周だけ延ばす。** 延ばした事実は記録に残る（human_items の kinds と下のフィールド）
             was = b.state["max_rounds"]
             b.state["max_rounds"] = was + 1
             b.record["process"].setdefault("max_rounds_extended", []).append(
@@ -972,7 +972,7 @@ def on_unattended(b, ph):
 
 def on_stop(b, info):
     """人が loop.py stop で止めた（engine の cmd_stop が呼ぶ）。止めた事実と理由を今すぐ記録の convergence と process に書く。
-    報告は止めた後の後始末の節（p5.adapt → report）が出す——止めた時点で欠けている欄は仕上げが stopped_gaps に理由を書く"""
+    報告は止めた後の後始末のノード（p5.adapt → report）が出す——止めた時点で欠けているフィールドは仕上げが stopped_gaps に理由を書く"""
     stop(b, f"人が止めた（loop.py stop）: {info['reason']}")
     b.record["process"]["halted"] = info
     ua = info.get("unanswered")
@@ -988,8 +988,8 @@ def on_thickness(b, to):
 
 def add(b, items, reason):
     """ループの外（deep-research 等）で得た事実主張を次の周の P1 へ。"""
-    # **型も見る**——欄の有無だけを見ていたとき、load_bearing に文字列 "false" を渡すと bool() で True に
-    # 化けて受理された（節経由は schema が縛るので、緩いのは人が JSON を手書きするこの口だけ）。
+    # **型も見る**——フィールドの有無だけを見ていたとき、load_bearing に文字列 "false" を渡すと bool() で True に
+    # 化けて受理された（ノード経由は schema が縛るので、緩いのは人が JSON を手書きするこの口だけ）。
     if not (isinstance(items, list) and items):
         raise Reject("add の形: [{id, cluster, claim, load_bearing}] の配列（空でない）")
     # 型検査は engine の validate_schema（INJECT）——同じ型語彙をここに写さない。真偽値と整数の区別も engine と同じ

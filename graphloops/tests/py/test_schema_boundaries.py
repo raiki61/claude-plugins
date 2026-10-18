@@ -49,7 +49,7 @@ def test_type_null(value, want):
 
 
 def test_unknown_type_name_rejects():
-    # 知らない型の名前（綴り違い）を合格にすると、その欄の型検査が消える
+    # 知らない型の名前（綴り違い）を合格にすると、そのフィールドの型検査が消える
     assert rejected(1, {"type": "integr"})
 
 

@@ -1,5 +1,5 @@
-"""人が途中で止める口（loop.py stop）の部品——後始末の節の選び方・graph の宣言の柵・止めた試行の締め出し・research の結末の畳み方
-（走っている run の途中の仕上げは記録を書き換えない）と、導出の判定が自分で持つ暫定の形・検証器が止まった記録の空の欄を受ける形。盤面を回す端から端までの台本は simulate_review.py の test_stop_midround、
+"""人が途中で止める口（loop.py stop）の部品——後始末のノードの選び方・graph の宣言のチェック・止めた試行の締め出し・research の結末の畳み方
+（走っている run の途中の仕上げは記録を書き換えない）と、導出の判定が自分で持つ暫定の形・検証器が止まった記録の空のフィールドを受ける形。盤面を回す端から端までの台本は simulate_review.py の test_stop_midround、
 層 2 の筋書きは test_scenarios_research.py の test_stop_midway"""
 import argparse
 import copy
@@ -26,7 +26,7 @@ EXAMPLE = json.loads((REPO / "convergence-loops" / "templates" / "research-recor
 
 
 def test_after_stop_only_the_report_side_runs():
-    """止めた後に走らせるのは宣言の節の下流だけ（両 loop とも報告の節に届く）"""
+    """止めた後に走らせるのは宣言のノードの下流だけ（両 loop とも報告のノードに届く）"""
     assert commands.stop_descendants(REVIEW["nodes"], REVIEW["stop"]["node"]) == {"report.human_items", "report.cold_check", "report"}
     assert commands.stop_descendants(RESEARCH["nodes"], RESEARCH["stop"]["node"]) == {"p5.adapt", "report", "reflect"}
 
@@ -37,7 +37,7 @@ def test_stop_requires_a_reason():
 
 
 def test_still_mine_false_for_stopped_attempt(tmp_path):
-    """人が止めた試行は自分の物でない——止めた後に続きの往復の子を起こさない"""
+    """人が止めた試行は自分の物でない——止めた後に続きの往復の子を起動しない"""
     inst = {"id": "p2.diagnose", "out_path": "o"}
     (tmp_path / "state.json").write_text(json.dumps({"rounds": [{"instances": {"p2.diagnose": {**inst, "status": "stopped"}}}]}), encoding="utf-8")
     assert commands._still_mine(tmp_path, inst)() is False
@@ -46,19 +46,19 @@ def test_still_mine_false_for_stopped_attempt(tmp_path):
 
 
 @pytest.mark.parametrize("decl, why", [
-    ({"node": "no.such"}, "節に無い"),
-    ({"node": "p2.diagnose"}, "機械の節"),
-    ({"node": "p1.worktree_after"}, "報告の節"),
+    ({"node": "no.such"}, "ノードに無い"),
+    ({"node": "p2.diagnose"}, "機械のノード"),
+    ({"node": "p1.worktree_after"}, "報告のノード"),
 ])
 def test_graphcheck_refuses_bad_stop_decl(tmp_path, decl, why):
-    """stop.node は在る機械の節で、下流に報告の節（pre=finalize）を持つ——p1.worktree_after は機械の節だが、下流の報告は
-    p2 以降を経るので届く。届かない宣言の形は、報告の節の pre を外した写しで作る"""
+    """stop.node は在る機械のノードで、下流に報告のノード（pre=finalize）を持つ——p1.worktree_after は機械のノードだが、下流の報告は
+    p2 以降を経るので届く。届かない宣言の形は、報告のノードの pre を外した写しで作る"""
     for sub in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, tmp_path / sub)
     gp = tmp_path / "graphs" / "review-loop.json"
     g = json.loads(gp.read_text(encoding="utf-8"))
     g["stop"] = decl
-    if why == "報告の節":
+    if why == "報告のノード":
         g["nodes"]["report"].pop("pre")
     gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     sys.path.insert(0, str(PLUGIN / "scripts"))
@@ -85,7 +85,7 @@ def test_research_initial_record_is_undecided():
 
 
 def test_research_finalize_while_running_writes_nothing_until_the_board_stops():
-    """走っている run の途中の仕上げは、盤面の写し（読了の柵の痕跡）のほかは記録を書き換えない（照合前の主張を外さない・結末を
+    """走っている run の途中の仕上げは、盤面の写し（読了のチェックの痕跡）のほかは記録を書き換えない（照合前の主張を外さない・結末を
     書かない）。止めた後の仕上げは止めた事実で畳む"""
     b = research_board(claims=[{"id": "C1", "cluster": "k", "claim": "c", "load_bearing": True}],
                        clusters=[{"key": "k", "claims_submitted": 1}])
@@ -116,7 +116,7 @@ def test_research_load_zero_reason_comes_from_the_clusters_output():
 
 def test_research_rederiver_verdict_carries_its_own_state():
     """導出の判定のうち突合が確定させる物（pass）は not_run と暫定の判定で書き、突合の来ない判定（unverifiable・redesign-needed）は
-    確定の判定で書く。止まった run の仕上げはどちらもそのまま残す——暫定か確定かを記録の欄が持つ"""
+    確定の判定で書く。止まった run の仕上げはどちらもそのまま残す——暫定か確定かを記録のフィールドが持つ"""
     w = {"op": "rederiver_first_verdict", "to": "gates.rederiver"}
     b = research_board(outcome="stopped", stopped_reason="人が止めた")
     RULES.rederiver_first_verdict(b, "p3.rederiver", {"verdict": "pass", "reason": "問いは立っている"}, w)
@@ -165,11 +165,11 @@ def test_validator_accepts_declared_gaps_only_on_stopped_records(tmp_path):
     rec = stopped_empty()
     rec["convergence"] = {"rounds_total": 1, "consecutive_zero": 0, "outcome": "converged"}
     r = validate(rec, tmp_path)
-    assert r.returncode == 2 and "収束を名乗りながら空の欄" in r.stdout + r.stderr
+    assert r.returncode == 2 and "収束を名乗りながら空のフィールド" in r.stdout + r.stderr
     rec = stopped_empty()
     rec["process"]["stopped_gaps"]["constraints"] = "腐った申告"
     r = validate(rec, tmp_path)
     assert r.returncode == 2 and "申告の腐り" in r.stdout + r.stderr
     rec = stopped_empty()
-    rec["process"]["stopped_gaps"]["notes"] = "知らない欄"
+    rec["process"]["stopped_gaps"]["notes"] = "知らないフィールド"
     assert validate(rec, tmp_path).returncode == 2

@@ -1,4 +1,4 @@
-"""役に写させない——engine が一覧に振った番号で役に指させ、受け付けで名前に戻す（graph の節の `pointers`）。
+"""役に写させない——engine が一覧に振った番号で役に指させ、受け付けで名前に戻す（graph のノードの `pointers`）。
 
 役に長い文字列（判定の単位の key・事前審査の穴の key）を一字一句写させ、1 字違えば受け付けで拒んで返させ直していた
 （実測: run 20260924-081523 の 5 周目に 3 回の差し戻し）。Anthropic の Citations が文書の添字で指させ、本文を API の側で
@@ -7,7 +7,7 @@
 宣言: `"pointers": [{"at": "plan[].unit_keys[]", "from": ["record.units"], "field": "key"}]`
   - at    —— 返答の中の位置（`.` で区切り、`[]` は配列の要素ごと）。その位置は番号（1 始まりの整数）か名前（文字列）
   - from  —— 役に貼る一覧の ctx パス（reads に在ること）。複数なら連結して通し番号
-  - field —— 名前にする欄（既定 key）。要素が文字列の一覧ならその文字列
+  - field —— 名前にするフィールド（既定 key）。要素が文字列の一覧ならその文字列
 
 流れ:
   1. 読み込み（widen。schema.expand_refs が graph を読む唯一の入口で呼ぶ）: at の位置の型を [integer, string] に広げる。
@@ -22,7 +22,7 @@
 """
 from .util import get_path
 
-NO = "no"   # 貼る一覧の各行に足す番号の欄
+NO = "no"   # 貼る一覧の各行に足す番号のフィールド
 
 
 def _segs(at):
@@ -44,23 +44,23 @@ def widen(nodes):
         if ptrs is None:
             continue
         if not isinstance(ptrs, list) or not n.get("schema"):
-            raise ValueError(f"節 {nid}: pointers は schema を持つ節の配列")
+            raise ValueError(f"ノード {nid}: pointers は schema を持つノードの配列")
         seen = {}
         for i, r in enumerate(ptrs):
             if not isinstance(r, dict) or set(r) - {"at", "from", "field", "note"} or not r.get("at") \
                     or not isinstance(r.get("from"), list) or not r["from"]:
-                raise ValueError(f"節 {nid}: pointers[{i}] は {{at, from: [パス…], field?}}")
+                raise ValueError(f"ノード {nid}: pointers[{i}] は {{at, from: [パス…], field?}}")
             leaf = _schema_at(n["schema"], r["at"])
             if leaf is None or leaf.get("type") not in ("string", ["string"], ["integer", "string"]):
-                raise ValueError(f"節 {nid}: pointers[{i}] の at '{r['at']}' が schema の文字列の欄に無い")
+                raise ValueError(f"ノード {nid}: pointers[{i}] の at '{r['at']}' が schema の文字列のフィールドに無い")
             leaf["type"] = ["integer", "string"]
             leaf["minimum"] = 1
             for f in r["from"]:
                 if not Renderer({}, n.get("reads")).allowed(f):
-                    raise ValueError(f"節 {nid}: pointers[{i}] の from '{f}' が reads に無い（貼れない一覧の番号は役に見えない）")
-                # 同じ一覧を別の連結で指すと、同じ行に 2 つの番号が要る——連結は節の中で 1 通り
+                    raise ValueError(f"ノード {nid}: pointers[{i}] の from '{f}' が reads に無い（貼れない一覧の番号は役に見えない）")
+                # 同じ一覧を別の連結で指すと、同じ行に 2 つの番号が要る——連結はノードの中で 1 通り
                 if seen.setdefault(f, r["from"]) != r["from"]:
-                    raise ValueError(f"節 {nid}: from '{f}' が pointers ごとに別の連結で使われている（番号が 1 つに決まらない）")
+                    raise ValueError(f"ノード {nid}: from '{f}' が pointers ごとに別の連結で使われている（番号が 1 つに決まらない）")
 
 
 def snapshot(ctx, ptrs):
@@ -81,7 +81,7 @@ def snapshot(ctx, ptrs):
 
 def number(rows, offset):
     """貼る一覧の各行の先頭に no を足した写し（ctx の値は書き換えない——record と loop_state に no を残さない）。
-    行が元から no の欄を持っていても engine の番号で上書きする（役が指すのは engine の番号だけ）"""
+    行が元から no のフィールドを持っていても engine の番号で上書きする（役が指すのは engine の番号だけ）"""
     return [{NO: offset + i + 1, **{k: v for k, v in x.items() if k != NO}} if isinstance(x, dict) else {NO: offset + i + 1, "value": x}
             for i, x in enumerate(rows)]
 
@@ -134,7 +134,7 @@ HINT_HEAD = 60        # 対応の行に載せる名前の頭の字数
 
 
 def hint(output, ptrs, snap):
-    """番号で指す欄に、固めた名前の列のどれとも一致しない文字列が残る返答への手がかり（無ければ None）。
+    """番号で指すフィールドに、固めた名前の列のどれとも一致しない文字列が残る返答への手がかり（無ければ None）。
     拒みの理由（rules の突き合わせ）は名前の字面で書かれ、役は続きの往復でも同じ写し違えを繰り返した（実測 2026-09-27:
     wt-t2 の p2.fix_plan・wt-bunda の p2.plan_review が、続きを 2 回頼んでも直らず人に渡った）。直す材料——前方一致する候補の no と、
     no と名前の頭の対応——を同じ拒みに添える。材料は emit で固めた名前の列だけ（snap）"""

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""外の土台（Archon の bash・script の節など）から graphloops の規則の関数を呼ぶ薄い層。**盤面にも作業ツリーにも書かない。**
+"""外の土台（Archon の bash・script のノードなど）から graphloops の規則の関数を呼ぶ薄い層。**盤面にも作業ツリーにも書かない。**
 
 本物の盤面（loop.py init が作る置き場）を読み、読み口を組んで規則の関数を呼び、関数の返り（書き込みの依頼 effects を含む）を JSON 1 行で
 返すだけ。effects を当てて盤面を進める口は engine の既存の 1 本（loop.py の done・answer・next）だけで、ここは 2 本目を作らない。
@@ -7,19 +7,19 @@
 
 使い方:
     gl.py cond    --dir <盤面> --name <条件の名前>                       → {ok, value, why}
-    gl.py accept  --dir <盤面> --node <節か instance の id> --reply <返答.json> [--item <項目.json>]
+    gl.py accept  --dir <盤面> --node <ノードか instance の id> --reply <返答.json> [--item <項目.json>]
                   → {ok, called, form, reason?, note?, reply?, effects, remaining?, pending}——done と同じ検査の鎖（engine の
-                    commands.check_reply。型・空の本文・番号の名前戻し・扇の被覆・段・節ごとの整合・effects・記録への写し・記録の整合）を
+                    commands.check_reply。型・空の本文・番号の名前戻し・扇の被覆・段・ノードごとの整合・effects・記録への写し・記録の整合）を
                     盤面の写しの上で当てる。done の門は拒否に使わない——pending が、engine の門（commands.accept_gate: 止めた run・
-                    待っていない instance・deps の待ち）を通るかを言う（作業ツリーの突合は done の時にしか決まらないので含まない）。扇の節は instance の id で指すか --item を渡す（節の id だと最後に出した instance の項目で照らす）。
-                    form は節の宣言で決まり（new・legacy・none）、called は節ごとの整合まで届いたか。旧い形の受け付けの関数（盤面を
+                    待っていない instance・deps の待ち）を通るかを言う（作業ツリーの突合は done の時にしか決まらないので含まない）。扇のノードは instance の id で指すか --item を渡す（ノードの id だと最後に出した instance の項目で照合する）。
+                    form はノードの宣言で決まり（new・legacy・none）、called はノードごとの整合まで届いたか。旧い形の受け付けの関数（盤面を
                     受け取り、中で盤面の隣に書く物が在る）は呼ばない（called: false・form: legacy）
     gl.py request --dir <盤面> --file <依頼.json> --reason <出どころ>    → {ok, reason?, note?, request_findings?}
                     loop.py add と同じ rules の add を盤面の写しの上で当てる（積んだ後の依頼の一覧を返す。盤面には積まない）
-    gl.py machine --dir <盤面> --node <機械の節>                         → {ok, called, form, out?, effects?, schema_errors?}
-                    新しい形の機械の節だけを呼ぶ（旧い形は作業ツリーや盤面を書くので called: false）
-    gl.py exit    --graph <graph.json> --node <節> [--against <schema.json>] [--strip-notes] → {ok, schema} / {ok, diffs}
-                    節の出口の型（返答の schema。$ref を展開した形）。--strip-notes で注記の語 note を落とす（外の土台の output_format に
+    gl.py machine --dir <盤面> --node <機械のノード>                         → {ok, called, form, out?, effects?, schema_errors?}
+                    新しい形の機械のノードだけを呼ぶ（旧い形は作業ツリーや盤面を書くので called: false）
+    gl.py exit    --graph <graph.json> --node <ノード> [--against <schema.json>] [--strip-notes] → {ok, schema} / {ok, diffs}
+                    ノードの出口の型（返答の schema。$ref を展開した形）。--strip-notes で注記の語 note を落とす（外の土台の output_format に
                     貼る形）。--against を渡すと、外の土台の型の写しと突き合わせて食い違う path を返す
 
 終了コード: 拒否（型に合わない・受け付けない・食い違う）も 0 で JSON を返す。引数・盤面・graph・JSON が読めないときだけ 2。
@@ -69,18 +69,18 @@ def read_json_file(path, what):
 
 def node_of(b, nid):
     if nid not in b.nodes:
-        raise Unreadable(f"節 '{nid}' が盤面の graph に無い")
+        raise Unreadable(f"ノード '{nid}' が盤面の graph に無い")
     return b.nodes[nid]
 
 
 def instance_of(b, name):
-    """--node の宛先 ——（節の id, instance か None）。instance の id（done と同じ宛先）ならその instance。節の id なら今の周の
-    待ちの物、無ければ最後に出した物（どの周でも）——扇の節は同じ節に instance が並ぶので、項目を照らすなら instance の id で指す"""
+    """--node の宛先 ——（ノードの id, instance か None）。instance の id（done と同じ宛先）ならその instance。ノードの id なら今の周の
+    待ちの物、無ければ最後に出した物（どの周でも）——扇のノードは同じノードに instance が並ぶので、項目を照合するなら instance の id で指す"""
     rows = [i for rd in b.state["rounds"] for i in rd["instances"].values()]
     if name not in b.nodes:
         mine = [i for i in rows if i.get("id") == name]
         if not mine:
-            raise Unreadable(f"'{name}' が盤面の graph の節にも instance にも無い")
+            raise Unreadable(f"'{name}' が盤面の graph のノードにも instance にも無い")
         return mine[-1]["node"], mine[-1]
     rows = [i for i in rows if i.get("node") == name]
     pending = [i for i in rows if i.get("status") == "pending"]
@@ -125,7 +125,7 @@ def cmd_accept(a):
     pending = would_take(b, inst)
     if form == "legacy":
         return out({"ok": False, "called": False, "form": form, "effects": [], "pending": pending,
-                    "reason": f"節 {nid} の受け付け '{n['post_check']}' は旧い形（盤面を受け取る）で、gl からは呼ばない——"
+                    "reason": f"ノード {nid} の受け付け '{n['post_check']}' は旧い形（盤面を受け取る）で、gl からは呼ばない——"
                               "新しい形（読み口を受けて JSON と effects を返す）へ移した後に呼べる"})
     item = read_json_file(a.item, "項目") if a.item else (load_item(inst, b.dir) if inst else None)
     seen = {}
@@ -156,10 +156,10 @@ def cmd_machine(a):
     n = node_of(b, a.node)
     fn = registry(b.rules, "BUILTINS").get(n.get("builtin")) if n.get("builtin") else None
     if fn is None:
-        raise Unreadable(f"節 '{a.node}' は機械の節（builtin）でない")
+        raise Unreadable(f"ノード '{a.node}' は機械のノード（builtin）でない")
     if form_of(fn) == "legacy":
         return out({"ok": False, "called": False, "form": "legacy",
-                    "reason": f"機械の節 '{n['builtin']}' は旧い形（盤面を受け取り、作業ツリーや盤面を書く物が在る）で、gl からは呼ばない"})
+                    "reason": f"機械のノード '{n['builtin']}' は旧い形（盤面を受け取り、作業ツリーや盤面を書く物が在る）で、gl からは呼ばない"})
     try:
         _, got = b.rule(n["builtin"], fn, a.node)
     except Reject as e:
@@ -190,10 +190,10 @@ def cmd_exit(a):
         raise Unreadable(why)
     n = g["nodes"].get(a.node)
     if n is None:
-        raise Unreadable(f"節 '{a.node}' が graph に無い")
+        raise Unreadable(f"ノード '{a.node}' が graph に無い")
     sch = n.get("schema")
     if not isinstance(sch, dict):
-        return out({"ok": False, "reason": f"節 {a.node} は出口の型（schema）を持たない"})
+        return out({"ok": False, "reason": f"ノード {a.node} は出口の型（schema）を持たない"})
     if a.strip_notes:
         sch = strip_notes(sch)
     if not a.against:

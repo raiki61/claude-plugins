@@ -2,15 +2,15 @@
 
 置き場は対象リポジトリの git の共有の置き場（`git rev-parse --git-common-dir`）の下。作業ツリーの外なので、方針の文書は
 採点する版にも差分にも作業ツリーの突合にも入らず、同じリポジトリの worktree の全部の run が同じ文書を読む。init の
-`--input policy_md=<パス>` を渡せばそれを使う（名指しした文書が無ければ init で止める）。役の節には節を出す時点の本文が
-貼られ（prompts/policy-paste.md）、回す側の節には置き場が渡る（prompts/policy-path.md）。
+`--input policy_md=<パス>` を渡せばそれを使う（名指しした文書が無ければ init で止める）。役のノードにはノードを出す時点の本文が
+貼られ（prompts/policy-paste.md）、回す側のノードには置き場が渡る（prompts/policy-path.md）。
 
-engine も graph も方針の中身を持たない。比べる元（init と、関所で人が通した時点で固定した版）の写しは盤面の policy/ に
-sha256 の名前で置く——文書は版管理の外に在るので、写しが無いと、関所で何が変わったかを人に見せられず、run が
-どの版に固定していたかも後から引けない。関所や仕上げで変化を見つけたら、前後の写しと差分のファイルを同じ置き場に
-置き、記録と関所の行には置き場だけを載せる（本文を載せると、人の答えの台帳を通って回す側の節に貼られる）。
+engine も graph も方針の中身を持たない。比べる元（init と、ゲートで人が通した時点で固定した版）の写しは盤面の policy/ に
+sha256 の名前で置く——文書は版管理の外に在るので、写しが無いと、ゲートで何が変わったかを人に見せられず、run が
+どの版に固定していたかも後から引けない。ゲートや仕上げで変化を見つけたら、前後の写しと差分のファイルを同じ置き場に
+置き、記録とゲートの行には置き場だけを載せる（本文を載せると、人の答えの台帳を通って回す側のノードに貼られる）。
 
-rules は engine を import しない約束なので、engine が rules に差し込む道具（git・Reject）は呼び元から引数で受ける。
+rules は engine を import しない約束なので、engine が rules に差し込むツール（git・Reject）は呼び元から引数で受ける。
 """
 import difflib
 import hashlib
@@ -61,8 +61,8 @@ def locate(b, git):
 
 
 def watched(b, git, pol):
-    """init の後に見張る文書のパス（無ければ None）: 固定した版（pol の path・sha256。init と、関所で人が変更を通した時に固定し直す——
-    文書の消滅を通したら path も sha256 も None）が在ればその置き場。無ければ、関所を通る前は init の時点の置き場（locate）、
+    """init の後に見張る文書のパス（無ければ None）: 固定した版（pol の path・sha256。init と、ゲートで人が変更を通した時に固定し直す——
+    文書の消滅を通したら path も sha256 も None）が在ればその置き場。無ければ、ゲートを通る前は init の時点の置き場（locate）、
     通った後は既定の置き場に在る物。役へ渡す置き場も同じ pol の path なので、見張る先と渡す先は割れない。
     run の入力 inputs.policy_md は init で固まり書き換えない"""
     if pol.get("sha256"):
@@ -116,7 +116,7 @@ def change(b, git, pol):
 
 def record_change(b, git, proc):
     """仕上げから呼ぶ: 固定した版から変わっていれば proc の policy_change に置き、変わっていなければ消す。
-    proc に policy が無い盤面（init が方針の版を記録する前の盤面）は比べる元が無いので照らさない"""
+    proc に policy が無い盤面（init が方針の版を記録する前の盤面）は比べる元が無いので照合しない"""
     ch = "policy" in proc and change(b, git, proc["policy"])
     if ch:
         proc["policy_change"] = ch
@@ -125,7 +125,7 @@ def record_change(b, git, proc):
 
 
 def change_row(ch):
-    """関所で人に聞く 1 行——置き場だけで、本文を載せない"""
+    """ゲートで人に聞く 1 行——置き場だけで、本文を載せない"""
     where = (f"差分 {ch['diff_file']}" if ch.get("diff_file") else ch.get("diff_missing", "")) + \
             f"・前の版の写し {ch.get('from_copy') or '（無い）'}・今の版の写し {ch.get('to_copy') or '（無い）'}"
     return (f"人の方針の文書 {ch['path'] or '（無い）'} が固定した版から変わった: sha256 "
