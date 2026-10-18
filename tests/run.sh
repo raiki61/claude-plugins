@@ -6994,7 +6994,7 @@ readme = (root / "CONTRIBUTING.md").read_text(encoding="utf-8")
 sec = re.search(r"^### review-loop が読む検証のツール（このリポジトリの宣言）\n(.*?)(?=^#{1,3} |\Z)", readme, re.M | re.S)
 fence = re.search(r"^- \*\*件数のチェック\*\*:(.*)$", sec.group(1), re.M) if sec else None
 if not fence:
-    print("NG CONTRIBUTING.md に「review-loop が読む検証のツール」のセクションか、その「件数の柵」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
+    print("NG CONTRIBUTING.md に「review-loop が読む検証のツール」のセクションか、その「件数のチェック」の行が無い（宣言の見出しを変えたら、このチェックも直せ）")
     sys.exit(1)
 declared = set(re.findall(r"`([A-Z][A-Z0-9_]+)`", fence.group(1)))
 derived = {c for _, c, _ in RATCHETS}
