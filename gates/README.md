@@ -267,6 +267,15 @@ How findings are returned depends on the writing role:
   This is because rewording that spreads over a whole document (such as replacing words with established IT terms) makes even the rewritten-sections read cover most of a long document,
   so blockers that were always there kept stopping the merge and moved to another place after each fix (2026-10-19: 36 → 17 → 23 blockers).
   Reading the split-point version separately and matching the two lists is not used, because the reader picks different places on each read, so blockers that were already there would rarely match.
+  With `--fixer <Python file>` (a file that defines `fix_text(text)` returning the text with words replaced; this repository passes `works-dispatch/dispatch/terms.py`, the list of established IT terms),
+  `fix_text` is applied to the split-point version (for added documents, to the lines moved from the original), and a current line that differs from the old line only where `fix_text` changed a word is not counted as rewritten.
+  This covers lines equal to the `fix_text` result and lines where a different word was chosen by hand at the same place, if that word is only katakana, ASCII letters, digits, hyphens, and spaces (up to 12 characters per place).
+  Kanji and hiragana are not allowed there, because they can add meaning (such as 「ブランチ以外」, "other than the branch"); deleting the word is also counted as rewritten.
+  Lines that also change text outside the replaced words are read as before. If the file cannot be loaded or has no `fix_text`, it stops with exit code 2;
+  if `fix_text` raises, returns something other than a string, or changes the number of lines, no replacement is applied and documents are read as before.
+  This is because replacing words with established IT terms spreads over almost every section, so the rewritten-sections read went over 80% (`DOC_WHOLE_RATIO`) and read whole documents,
+  stopping on old writing (2026-10-19: 394 blockers in 80 of 108 graphloops and convergence-loops documents, none about the replaced words).
+  Whether a replaced word fits its meaning is checked by the side that replaced the words, which sees the old and new words side by side, not by the cold reader.
   It also stops with 1 if there are documents for which the reader could not be started (passing them unread would make the gate silently empty). At the end of standard output, it prints the blocker lines (with paths from the
   root of the working tree) and the counts and the location of the file with the full text. Verdicts for the same request text are remembered in `$CLAUDE_CONFIG_DIR/coldread-gate/docs/branch/`, so
   reruns after the mainline moves forward and the branch is rebased do not read again. To use it, write it as one of the check commands that run before a branch is merged into the mainline. In this repository,

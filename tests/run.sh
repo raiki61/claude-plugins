@@ -3525,7 +3525,7 @@ print("DOCS_RACE_OK")
 PY
 # メインブランチに入れる前のゲート(--land の check から呼ぶ branch-check): ブランチが足した・変えた文書だけを読み、詰まりが在れば 1 で止める。
 # 前は手元の文書の読みがターンの終わりに裏で走るだけで、部署が同じターンで --land まで済ませると、指摘はメインブランチに入った後に届いた
-expect_output 0 "DOCS_BRANCH_OK" "coldread のブランチのゲート: メインブランチとの分かれ目からブランチが書いた文書だけを読み、詰まりで止め、推測だけなら通し、同じ依頼文は読み直さず、読めなければ止める" \
+expect_output 0 "DOCS_BRANCH_OK" "coldread のブランチのゲート: メインブランチとの分かれ目からブランチが書いた文書だけを読み、詰まりで止め、推測だけなら通し、同じ依頼文は読み直さず、読めなければ止め、語の置き換えだけの行は数えない" \
     "$PY_BIN" - "$ROOT" "$WORK/docs-branch" <<'PY'
 import json, os, pathlib, subprocess, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3551,10 +3551,10 @@ READER = ('f=$(mktemp "%s/c.XXXXXX") && cat > "$f"; if grep -q "2 つの版を�
           'elif grep -q 印STUCK "$f"; then grep -q 印FRESH "$f" && echo "詰まり: 印FRESH の語が分からない"; echo "詰まり: 印STUCK の語が分からない"; '
           'elif grep -q 印GUESS "$f"; then echo "補完: 印GUESS を推測で読んだ"; else echo CLEAN; fi') % calls.as_posix()
 
-def check(reader=READER):
+def check(reader=READER, *args):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("COLDREAD_", "CLAUDE_JOB_DIR"))}
     e.update(CLAUDE_CONFIG_DIR=str(cfg), COLDREAD_READER_CMD=reader)
-    r = subprocess.run([sys.executable, str(gate), "branch-check"], cwd=str(repo), capture_output=True, env=e, timeout=120)
+    r = subprocess.run([sys.executable, str(gate), "branch-check", *args], cwd=str(repo), capture_output=True, env=e, timeout=120)
     return r.returncode, r.stdout.decode("utf-8")
 
 def prompts(suffix=""):
@@ -3677,6 +3677,44 @@ git("commit", "-q", "-m", "new stuck")
 before = len(prompts(".base"))
 rc, out = check()
 assert rc == 1 and "fresh2.md — 詰まり: 印STUCK" in out and len(prompts(".base")) == before, (rc, out)   # 足した文書は比べない
+git("rm", "-q", "fresh2.md")
+git("commit", "-q", "-m", "drop fresh2")
+
+# 8) --fixer <Python のファイル>: その fix_text を前の版に当て、置き換えが変えた語の所だけが違う行(置き換えの結果どおりの行と、
+#    語の所に手で別の語を選んだ行)は書き換えに数えない(IT の定着語への置き換えが文書の全体に散り、丸ごと読み直させた)。
+#    語の所の外も変えた行は読む。fix_text を読めなければ 2 で止め、fix_text が例外を出せば置き換えを当てずに今までどおり読む
+(work / "fixer.py").write_text('def fix_text(text):\n    return text.replace("旧語", "新語")\n', encoding="utf-8")
+(work / "broken.py").write_text('def fix_text(text):\n    raise ValueError("壊れた")\n', encoding="utf-8")
+git("switch", "-q", "main")
+(repo / "words.md").write_text(doc(("W", "旧語 を使う 1 行目。\n旧語 を使う 2 行目。\n印STUCK は前から在る。\n")), encoding="utf-8")
+git("add", "words.md")
+git("commit", "-q", "-m", "words")
+git("update-ref", "refs/remotes/origin/main", "HEAD")
+git("switch", "-q", "feat")
+git("rebase", "-q", "main")
+(repo / "words.md").write_text(doc(("W", "新語 を使う 1 行目。\nノード を使う 2 行目。\n印STUCK は前から在る。\n")), encoding="utf-8")
+git("commit", "-q", "-am", "swap words")
+
+def read_words(*args):
+    before = len(prompts())
+    rc, out = check(READER, *args)
+    return rc, out, sum("印W の 0 行目" in p for p in prompts()[before:])
+
+rc, out, n = read_words("--fixer", str(work / "fixer.py"))
+assert rc == 0 and n == 0, (rc, n, out)   # 語の所だけの違いは読まない
+rc, out, n = read_words("--fixer", str(work / "broken.py"))
+assert rc == 0 and n == 1, (rc, n, out)   # fix_text が例外なら置き換えを当てずに読む(印STUCK は前の版にも在ったので止めない)
+rc, out = check(READER, "--fixer", str(work / "missing.py"))
+assert rc == 2 and "fix_text を読めない" in out, (rc, out)
+(repo / "words.md").write_text(doc(("W", "新語 を使って書き足した 1 行目。\nノード を使う 2 行目。\n印STUCK は前から在る。\n")), encoding="utf-8")
+git("commit", "-q", "-am", "reword")
+rc, out, n = read_words("--fixer", str(work / "fixer.py"))
+assert rc == 0 and n == 1, (rc, n, out)   # 語の所の外を変えた行は読む
+for word in ("新語以外", "ABCDEFGHIJKLM"):   # 語の所でも、漢字・仮名を足した語と 13 字以上の語は書き換えに数える
+    (repo / "words.md").write_text(doc(("W", "新語 を使う 1 行目。\n%s を使う 2 行目。\n印STUCK は前から在る。\n" % word)), encoding="utf-8")
+    git("commit", "-q", "-am", "word " + word)
+    rc, out, n = read_words("--fixer", str(work / "fixer.py"))
+    assert rc == 0 and n == 1, (word, rc, n, out)
 print("DOCS_BRANCH_OK")
 PY
 # 一時の置き場に書いた git の外のファイル(書いた役が自分のために置いた写し・窓口が渡した頼みの文書)は読まない。

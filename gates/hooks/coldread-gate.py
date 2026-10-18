@@ -101,6 +101,7 @@ import bisect
 import concurrent.futures
 import difflib
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -3254,14 +3255,68 @@ def _sections(lines, ext):
     return starts, marks
 
 
-def _changed(base_lines, lines):
-    """今の版で書き換えた行の範囲 [(始め, 終わり)]。消しただけの所は、その前後の行。"""
+WORD_SWAP_MAX = 12   # 語の置き換えだけの行と見る、手で選んだ語の 1 か所の字数の上限(「fast-forward」が 12 字)
+# 手で選んだ語に使える字(片仮名・英数字・ハイフン・空白)。漢字と仮名を許すと「ブランチ以外」「ではなく」のように意味を足せる
+WORD_SWAP_CHARS = re.compile(r"[\u30a1-\u30faー\uff66-\uff9fA-Za-z0-9\- ]+")
+
+
+def _script(ch):
+    """字の種類(漢字は 1、片仮名は 2、ほかは 0)。"""
+    return 1 if "\u3400" <= ch <= "\u9fff" else 2 if "\u30a1" <= ch <= "\u30ff" else 0
+
+
+def _word_span(text, a, b):
+    """置き換えが変えた字の範囲 [a, b) を、両端と同じ種類(漢字・片仮名)の字の続く所まで広げた範囲。字の単位の比べは前後の版に
+    共通の字を残す(「旧語」→「新語」は「旧」だけが変わる)ので、語の単位にそろえる。"""
+    if a < b:
+        while a > 0 and _script(text[a]) and _script(text[a - 1]) == _script(text[a]):
+            a -= 1
+        while b < len(text) and _script(text[b - 1]) and _script(text[b]) == _script(text[b - 1]):
+            b += 1
+    return a, b
+
+
+def _same_words(old, fixed, new):
+    """今の行 new が、前の行 old のうち置き換え(old を置き換えた fixed)が変えた語の所だけを、別の語にした行か。置き換えの結果と違う
+    語を手で選んだ行(グラフの「節」を、置き換えの「セクション」でなく「ノード」にした)も、語の所の外を変えず、選んだ語が片仮名・英数字
+    だけ(WORD_SWAP_CHARS)なら同じと見る。語を消しただけの所と、漢字・仮名を足した所は書き換えに数える。"""
+    if fixed == new:
+        return True
+    spans = [_word_span(old, i1, i2) for tag, i1, i2, _j1, _j2
+             in difflib.SequenceMatcher(None, old, fixed, autojunk=False).get_opcodes() if tag != "equal"]
+    if not spans:
+        return False
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        word = new[j1:j2]
+        if tag != "equal" and (len(word) > WORD_SWAP_MAX or not WORD_SWAP_CHARS.fullmatch(word)
+                               or not any(a <= i1 and i2 <= b for a, b in spans)):
+            return False
+    return True
+
+
+def _changed(base_lines, lines, fixed=None):
+    """今の版で書き換えた行の範囲 [(始め, 終わり)]。消しただけの所は、その前後の行。fixed は base_lines を語の置き換え
+    (branch-check の --fixer)に通した行の並び(base_lines と同じ数)で、語の置き換えだけの行(_same_words)は書き換えに数えない。"""
     n, out = len(lines), []
-    sm = difflib.SequenceMatcher(None, base_lines, lines, autojunk=False)
-    for tag, _i1, _i2, j1, j2 in sm.get_opcodes():
+
+    def mark(j1, j2):
+        out.append((j1, j2) if j2 > j1 else (max(0, j1 - 1), min(n, j1 + 1)))
+
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, base_lines, lines, autojunk=False).get_opcodes():
         if tag == "equal":
             continue
-        out.append((j1, j2) if j2 > j1 else (max(0, j1 - 1), min(n, j1 + 1)))
+        if fixed is None or tag != "replace":
+            mark(j1, j2)
+            continue
+        # 書き換えた所の中を、置き換えた前の行ともう一度比べ、行の数がそろう所は 1 行ずつ語の置き換えだけの行かを見る
+        sub = difflib.SequenceMatcher(None, fixed[i1:i2], lines[j1:j2], autojunk=False)
+        for t, a1, a2, b1, b2 in sub.get_opcodes():
+            if t == "replace" and a2 - a1 == b2 - b1:
+                for k in range(a2 - a1):
+                    if not _same_words(base_lines[i1 + a1 + k], fixed[i1 + a1 + k], lines[j1 + b1 + k]):
+                        mark(j1 + b1 + k, j1 + b1 + k + 1)
+            elif t != "equal":
+                mark(j1 + b1, j1 + b2)
     return [(a, b) for a, b in out if b > a]
 
 
@@ -3312,12 +3367,18 @@ def _lead(lines, marks):
     return start, min(j, start + DOC_LEAD_MAX)
 
 
-def doc_excerpt(path, text, base):
-    """前の版 base から書き換えた所を含むセクション(長いセクションはセクションの見出しと書き換えた段落・箇条)と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。"""
+def doc_excerpt(path, text, base, fixer=None):
+    """前の版 base から書き換えた所を含むセクション(長いセクションはセクションの見出しと書き換えた段落・箇条)と冒頭を抜き出した本文。全体を読ませるなら None、書き換えが無ければ ""。
+    fixer は語の置き換え(本文を受けて置き換えた本文を返す。branch-check の --fixer)で、前の行を置き換えた結果と同じ行は書き換えに数えない。"""
     if not base:
         return None
-    lines, base_lines = text.split("\n"), base.replace("\r\n", "\n").split("\n")
-    touched = _changed(base_lines, lines)
+    base = base.replace("\r\n", "\n")
+    lines, base_lines = text.split("\n"), base.split("\n")
+    fixed = fixer(base).split("\n") if fixer else None
+    if fixed is not None and len(fixed) != len(base_lines):
+        log_line(DOC_LOG, "fixer-lines\t%d → %d 行で、置き換えを当てない\t%s" % (len(base_lines), len(fixed), path))
+        fixed = None
+    touched = _changed(base_lines, lines, fixed)
     if not touched:
         return ""
     n = len(lines)
@@ -3774,9 +3835,47 @@ def _branch_verdict(key, body, focus, base):
     return found, cached, old
 
 
+# 語の置き換えだけの行は読み直さない(--fixer <Python のファイル>)。リポジトリの文を IT の定着語にそろえる置き換え(持ち主 2026-10-18)は
+# 文書のほぼ全部のセクションに散るので、書き換えたセクションの抜き出しが 8 割(DOC_WHOLE_RATIO)を超えて文書を丸ごと読ませ、元からある
+# 書き方の詰まりで --land が止まった(2026-10-19、graphloops・convergence-loops の 108 本のうち 80 本に詰まり 394 件。置き換えた語に
+# 当たる詰まりは無かった)。そのファイルの fix_text(本文) を前の版に当て、置き換えが変えた語の所だけが違う今の行は書き換えに数えない
+# (片仮名・英数字の別の語を手で選んだ所も含む。_same_words)。語の所の外も変えた行は今までどおり読む。語の選び方の取り違えは、初見の読み手でなく
+# 置き換えた側が照合する(置き換えた語の意味が合うかは、語の前後だけを読む初見の読み手より、元の語と並べて見る側が分かる)
+def _load_fixer(path):
+    """path の Python のファイルの fix_text を、例外を出さない置き換え(出せば本文をそのまま返す)にして返す。読めなければ例外。"""
+    spec = importlib.util.spec_from_file_location("coldread_fixer", os.path.abspath(path))
+    if spec is None or spec.loader is None:
+        raise ImportError("Python のファイルとして読めない")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    fix_text = getattr(mod, "fix_text", None)
+    if not callable(fix_text):
+        raise ImportError("fix_text(本文) が無い")
+
+    def fixer(text):
+        try:
+            out = fix_text(text)
+        except Exception as exc:
+            log_line(DOC_LOG, "fixer-down\t%s" % str(exc)[:150].replace("\n", " "))
+            return text
+        if not isinstance(out, str):
+            log_line(DOC_LOG, "fixer-down\tfix_text が文字列でない %s を返した" % type(out).__name__)
+            return text
+        return out
+    return fixer
+
+
 def branch_check(argv):
     """--land のゲート: ブランチが書いた文書を読み、詰まりが在れば 1、読めない文書が在れば 1、無ければ 0。"""
     base = argv[argv.index("--base") + 1] if "--base" in argv[:-1] else None
+    fixer = None
+    if "--fixer" in argv:
+        where = argv[argv.index("--fixer") + 1] if "--fixer" in argv[:-1] else ""
+        try:
+            fixer = _load_fixer(where)
+        except Exception as exc:
+            print("coldread branch-check: --fixer の %s から fix_text を読めない(%s)" % (where or "(パスが無い)", str(exc)[:150]))
+            return 2
     top = _git(["rev-parse", "--show-toplevel"], os.getcwd())
     if not top:
         print("coldread branch-check: git の作業ツリーの中で走らせる")
@@ -3803,7 +3902,7 @@ def branch_check(argv):
             continue
         old = _git(["show", "%s:%s" % (mb, rel)], root)
         old = old.decode("utf-8", "replace") if old is not None else None
-        part = doc_excerpt(full, text, old if old is not None else _moved_base(text, moved))
+        part = doc_excerpt(full, text, old if old is not None else _moved_base(text, moved), fixer)
         if part == "":
             continue
         body = text if part is None else part
@@ -3892,6 +3991,6 @@ if __name__ == "__main__":
         sys.stdout.flush()
         sys.stdout.buffer.write(COLD_PROMPT.encode("utf-8"))
     elif MODE:
-        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | branch-check [--base <ref>] | read <パス> | prompt](引数なしは投稿のゲート)")
+        sys.exit("使い方: coldread-gate.py [docs-record | docs-check | docs-check-async | branch-check [--base <ref>] [--fixer <Python のファイル>] | read <パス> | prompt](引数なしは投稿のゲート)")
     else:
         main()

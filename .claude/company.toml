@@ -294,11 +294,13 @@ fallback_role = "作業"
 # 文の IT の定着語でない言い方が、ファイルごとの基準の件数より増えていないかも確かめる（scripts/terms.py。辞書は works-dispatch/dispatch/terms.py）
 # 最後に、ブランチが書いた文書を初見の読み手に読ませ、詰まりが在れば止める（gates の branch-check。推測で埋めた箇所だけなら通す。読み 1 回に 2〜4 分。
 # 同じ中身の判定は覚えるので、リベースの打ち直しでは読み直さない）。安いゲートを先に、遅い初見読みを最後に並べる
+# 初見読みには --fixer で語の一覧の置き換え（works-dispatch/dispatch/terms.py の fix_text）を渡し、IT の定着語に語を置き換えただけの行は
+# 書き換えに数えない（置き換えは文書の全体に散り、文書を丸ごと読み直させて、元からある書き方の詰まりで止めた。2026-10-19、頼み 109fb3）
 # mode の名前 ff-after-ci は「ゲートの後に fast-forward」の意味で、ゲートが CI とは限らない。ここは gate = "check"（手元の検証）なので CI を待たない
 [land]
 mode = "ff-after-ci"
 gate = "check"
-check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 gates/hooks/coldread-gate.py branch-check"
+check = "python3 scripts/shared-copies.py && bash tests/count-fences.sh && python3 scripts/terms.py && python3 gates/hooks/coldread-gate.py branch-check --fixer works-dispatch/dispatch/terms.py"
 bump = "marketplace"
 
 # main に入れた後の合図: 全アカウントに配る（出荷のたびに窓口が手で配っていた物。片づかなければ作業に回り、頼み元は main に入れた部署の頼み元）
